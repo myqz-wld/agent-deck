@@ -52,6 +52,13 @@
       "out/**/*",
       "resources/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": ["**/*"]
+      }
+    ],
     "mac": {
       "target": "dmg",
       "icon": "resources/icon.png",

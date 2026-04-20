@@ -303,8 +303,31 @@ pnpm dev           # electron-vite + HMR
 ```bash
 pnpm typecheck
 pnpm build
-pnpm dist          # 产出 release/Agent Deck-x.y.z.dmg
+pnpm dist          # 产出 release/Agent Deck-x.y.z.dmg + release/mac-arm64/Agent Deck.app
 ```
+
+### 安装到本机（macOS，非签名）
+```bash
+# 1. 出 dmg + .app
+rm -rf release && pnpm dist
+
+# 2. 覆盖到 /Applications（旧版需先 rm，cp -R 不会清残留）
+rm -rf "/Applications/Agent Deck.app"
+cp -R "release/mac-arm64/Agent Deck.app" /Applications/
+
+# 3. 清掉 quarantine，否则未签名 .app 首次开会被 Gatekeeper 拦
+xattr -dr com.apple.quarantine "/Applications/Agent Deck.app"
+
+# 4. 软链 wrapper 到 PATH（一次性）
+ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/local/bin/agent-deck
+
+# 5. 验证：从任意目录拉起一条会话
+agent-deck new --prompt "ping"
+```
+
+打包配置上有两个不能改回去的设定（CHANGELOG_16）：
+- `package.json > build.mac.icon = "resources/icon.png"` —— 没这一行 electron-builder 会找 `resources/icons/` 多分辨率集，找不到就报 `icon directory ... doesn't contain icons` 然后 dmg 出不来
+- `package.json > build.extraResources` 把 `resources/bin → bin` —— 不显式拷的话 `Agent Deck.app/Contents/Resources/bin/agent-deck` 不会出现，wrapper 链就断了
 
 ### 验证 Hook 通道（无需 dev 窗口）
 ```bash
