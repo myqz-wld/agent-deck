@@ -14,6 +14,7 @@ import type {
   PermissionResponse,
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
+import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
 
 type SdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
 
@@ -253,6 +254,7 @@ export class ClaudeSdkBridge {
     };
 
     const { query } = await loadSdk();
+    const runtime = getSdkRuntimeOptions();
     const q = query({
       prompt: userMessageIterable,
       options: {
@@ -271,6 +273,10 @@ export class ClaudeSdkBridge {
         // resume：传入历史 sessionId，SDK 会让 CLI 加载 ~/.claude/projects/<cwd>/<sid>.jsonl
         // 续上之前的对话，第一条 SDKMessage 的 session_id 就是这个 sid。
         resume: opts.resume,
+        // SDK 默认 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
+        // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime（详见 sdk-runtime.ts）。
+        executable: runtime.executable,
+        env: runtime.env,
       },
     });
     internal.query = q;

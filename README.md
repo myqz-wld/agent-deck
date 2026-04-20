@@ -315,19 +315,24 @@ rm -rf release && pnpm dist
 rm -rf "/Applications/Agent Deck.app"
 cp -R "release/mac-arm64/Agent Deck.app" /Applications/
 
-# 3. 清掉 quarantine，否则未签名 .app 首次开会被 Gatekeeper 拦
+# 3. ad-hoc 重签：把签名 Identifier 从 'Electron' 拉回 'com.agentdeck.app'
+#    （不签的话 macOS 通知中心 / Gatekeeper 会按 Electron 注册，与 Info.plist 不一致）
+codesign --force --deep --sign - "/Applications/Agent Deck.app"
+
+# 4. 清掉 quarantine，否则未签名 .app 首次开会被 Gatekeeper 拦
 xattr -dr com.apple.quarantine "/Applications/Agent Deck.app"
 
-# 4. 软链 wrapper 到 PATH（一次性）
+# 5. 软链 wrapper 到 PATH（一次性）
 ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/local/bin/agent-deck
 
-# 5. 验证：从任意目录拉起一条会话
+# 6. 验证：从任意目录拉起一条会话
 agent-deck new --prompt "ping"
 ```
 
-打包配置上有两个不能改回去的设定（CHANGELOG_16）：
+打包配置上有几个不能改回去的设定（CHANGELOG_16 / CHANGELOG_21）：
 - `package.json > build.mac.icon = "resources/icon.png"` —— 没这一行 electron-builder 会找 `resources/icons/` 多分辨率集，找不到就报 `icon directory ... doesn't contain icons` 然后 dmg 出不来
 - `package.json > build.extraResources` 把 `resources/bin → bin` —— 不显式拷的话 `Agent Deck.app/Contents/Resources/bin/agent-deck` 不会出现，wrapper 链就断了
+- `codesign --force --deep --sign -` 必须做，让 .app 的签名 Identifier 与 CFBundleIdentifier 一致；否则系统通知 / 权限设置可能挂在「Electron」名下找不到
 
 ### 验证 Hook 通道（无需 dev 窗口）
 ```bash

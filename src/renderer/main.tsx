@@ -52,6 +52,18 @@ window.addEventListener('error', (ev) => {
     console.warn('[renderer] cross-origin script error (suppressed)');
     return;
   }
+  // 已知 noise：@monaco-editor/react 卸载 DiffEditor 时的内部 race
+  // —— TextModel 在 DiffEditorWidget setModel(null) 完成之前先被 dispose 了，
+  // 抛在 useEffect cleanup 里、ErrorBoundary 接不住，但不影响功能。
+  // 不弹 showFatal 全屏遮挡（用户切会话/关 diff 时会反复触发，体验极差），
+  // console 留痕即可，等上游修或者我们换 monaco 加载方式。
+  if (
+    typeof ev.message === 'string' &&
+    /TextModel got disposed before DiffEditorWidget/.test(ev.message)
+  ) {
+    console.warn('[renderer] monaco unmount race (suppressed):', ev.message);
+    return;
+  }
   console.error('[renderer] window.onerror', ev.error ?? ev.message);
   showFatal(`window.onerror: ${ev.message}\nsrc=${ev.filename}:${ev.lineno}:${ev.colno}`);
 });

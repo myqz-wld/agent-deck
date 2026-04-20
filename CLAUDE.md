@@ -177,10 +177,17 @@ rm -rf release && pnpm dist
 rm -rf "/Applications/Agent Deck.app"
 cp -R "release/mac-arm64/Agent Deck.app" /Applications/
 
-# 3. 清掉 quarantine 属性，否则未签名 .app 首次开会被 Gatekeeper 拦
+# 3. ad-hoc 重签名：给整个 .app 一个 stable 签名 identifier (com.agentdeck.app)。
+#    不签 → codesign Identifier 是 'Electron'（来自 Electron 二进制 linker 签名），
+#    与 Info.plist 的 CFBundleIdentifier 不一致，macOS 通知中心 / Gatekeeper 部分场景
+#    会按 'Electron' 这个 identifier 注册而不是 'com.agentdeck.app'，导致通知 / 权限
+#    设置错位。`-` 表示 ad-hoc 无证书自签。
+codesign --force --deep --sign - "/Applications/Agent Deck.app"
+
+# 4. 清掉 quarantine 属性，否则未签名 .app 首次开会被 Gatekeeper 拦
 xattr -dr com.apple.quarantine "/Applications/Agent Deck.app"
 
-# 4. 软链 wrapper 到 PATH（一次性）
+# 5. 软链 wrapper 到 PATH（一次性）
 ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/local/bin/agent-deck
 ```
 
@@ -191,6 +198,7 @@ ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/loc
 - **`mac.icon: "resources/icon.png"` 必须有**。`directories.buildResources: "resources"` 让 electron-builder 默认查 `resources/icons/` 下多分辨率 png 集；我们只有单文件 `resources/icon.png`，不指定就报 `icon directory ... doesn't contain icons`，dmg 打不出来
 - **`extraResources` 必须把 `resources/bin` 显式 copy 到 `bin`**。`buildResources` 目录本身不会被打进 .app，wrapper 需要靠这个段落才能出现在 `Agent Deck.app/Contents/Resources/bin/agent-deck`
 - 没配 `Developer ID Application` 证书 → electron-builder 跳过签名，正常；但首次开 .app 必须 `xattr -dr com.apple.quarantine` 才能跑
+- **ad-hoc 重签必须做（dist 后第 3 步）**：electron-builder 跳过签名后，`codesign -dvv` 看到的 Identifier 是 `Electron`（Electron 二进制 linker 阶段就 ad-hoc 签了，identifier 是 'Electron'），与 Info.plist 里 `com.agentdeck.app` 不一致。macOS 通知中心 / Gatekeeper / 部分系统服务 会按 codesign Identifier 注册，不重签会导致通知归在「Electron」名下而不是「Agent Deck」。`codesign --force --deep --sign - .app` 用 ad-hoc identity 重签整个 bundle，把 Identifier 拉回 `com.agentdeck.app`
 
 ### 验证
 

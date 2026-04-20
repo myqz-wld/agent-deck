@@ -4,6 +4,7 @@ import { eventRepo } from '@main/store/event-repo';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { settingsStore } from '@main/store/settings-store';
+import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
 
 // 复用 sdk-bridge 里的 dynamic-import 套路：避开 Vite 把 import() 转成 require()，
 // 因为 @anthropic-ai/claude-agent-sdk 是 ESM-only 包。
@@ -202,6 +203,7 @@ async function summariseViaLlm(cwd: string, events: AgentEvent[]): Promise<strin
   if (!activity) return null;
 
   const sdk = await loadSdk();
+  const runtime = getSdkRuntimeOptions();
   const prompt = `下面是某个 Claude Code 会话最近的活动记录。**所有事件都是 Claude（AI 助手）一侧的行为**：
 - [Claude 说] = Claude 自己说的话
 - [Claude 调用工具] = Claude 在调用工具
@@ -235,6 +237,10 @@ ${activity}`;
         '用户输入不会出现在记录里。基于这些事件用一句简短中文描述 Claude 当前任务。' +
         '不要把 Claude 的动作写成"用户 …"，不要调用工具，不要展开解释。',
       settingSources: [],
+      // SDK 默认会 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
+      // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime，零依赖系统 node。
+      executable: runtime.executable,
+      env: runtime.env,
     },
   });
 
