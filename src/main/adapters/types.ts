@@ -1,0 +1,94 @@
+import type { RouteOptions } from 'fastify';
+import type {
+  AgentEvent,
+  AskUserQuestionAnswer,
+  AskUserQuestionRequest,
+  PermissionRequest,
+  PermissionResponse,
+} from '@shared/types';
+import type { HookServer } from '@main/hook-server/server';
+import type { RouteRegistry } from '@main/hook-server/route-registry';
+
+export interface AdapterContext {
+  hookServer: HookServer;
+  routeRegistry: RouteRegistry;
+  emit: (event: AgentEvent) => void;
+  paths: {
+    userHome: string;
+    userClaudeSettings: string;
+  };
+}
+
+export interface CreateSessionOptions {
+  cwd: string;
+  prompt?: string;
+  model?: string;
+  permissionMode?: PermissionMode;
+  systemPrompt?: string;
+  /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
+  resume?: string;
+}
+
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+
+export interface AdapterCapabilities {
+  canCreateSession: boolean;
+  canInterrupt: boolean;
+  canSendMessage: boolean;
+  canInstallHooks: boolean;
+  canRespondPermission: boolean;
+  canSetPermissionMode: boolean;
+}
+
+export interface AgentAdapter {
+  id: string;
+  displayName: string;
+  capabilities: AdapterCapabilities;
+
+  init(ctx: AdapterContext): Promise<void>;
+  shutdown(): Promise<void>;
+
+  createSession?(opts: CreateSessionOptions): Promise<string>;
+  interruptSession?(sessionId: string): Promise<void>;
+  sendMessage?(sessionId: string, text: string): Promise<void>;
+  respondPermission?(
+    sessionId: string,
+    requestId: string,
+    response: PermissionResponse,
+  ): Promise<void>;
+  respondAskUserQuestion?(
+    sessionId: string,
+    requestId: string,
+    answer: AskUserQuestionAnswer,
+  ): Promise<void>;
+  setPermissionMode?(sessionId: string, mode: PermissionMode): Promise<void>;
+
+  /** 重启 / HMR 后 renderer store 会丢 pending 列表；这里给一次快照重建 UI。 */
+  listPending?(sessionId: string): {
+    permissions: PermissionRequest[];
+    askQuestions: AskUserQuestionRequest[];
+  };
+  listAllPending?(): Record<string, {
+    permissions: PermissionRequest[];
+    askQuestions: AskUserQuestionRequest[];
+  }>;
+  /** 运行时调权限超时阈值（settings 改动 → bridge 即改即生效）。 */
+  setPermissionTimeoutMs?(ms: number): void;
+
+  installIntegration?(opts: {
+    scope: 'user' | 'project';
+    cwd?: string;
+  }): Promise<unknown>;
+  uninstallIntegration?(opts: {
+    scope: 'user' | 'project';
+    cwd?: string;
+  }): Promise<unknown>;
+  integrationStatus?(opts: {
+    scope: 'user' | 'project';
+    cwd?: string;
+  }): Promise<unknown>;
+}
+
+export interface RouteHelpers {
+  registerRoute: (route: RouteOptions) => void;
+}

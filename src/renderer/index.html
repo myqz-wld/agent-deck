@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      CSP：'unsafe-eval' 是 Vite dev 客户端 (HMR) 的硬要求，缺了会让脚本完全跑不起来。
+      生产构建里 vite 不再用 eval，可以单独写一份更严的 CSP。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: wss: http://localhost:* http://127.0.0.1:* https://cdn.jsdelivr.net"
+    />
+    <title>Agent Deck</title>
+    <style>
+      /* root 渲染前的兜底显示，方便诊断「窗口空白」是不是 React 没挂载。
+         React 挂载成功后会清空 #root 并替换内容，这段就看不到了。 */
+      #root:empty::before {
+        content: 'Loading renderer…';
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(245, 245, 247, 0.6);
+        font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body class="bg-transparent">
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

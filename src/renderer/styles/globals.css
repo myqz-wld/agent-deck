@@ -1,0 +1,154 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-deck-bg: rgba(20, 20, 24, 0.42);
+  --color-deck-bg-strong: rgba(20, 20, 24, 0.78);
+  --color-deck-border: rgba(255, 255, 255, 0.08);
+  --color-deck-text: rgba(245, 245, 247, 1);
+  --color-deck-muted: rgba(180, 180, 190, 1);
+
+  --color-status-idle: rgb(140, 140, 150);
+  --color-status-working: rgb(80, 200, 120);
+  --color-status-waiting: rgb(255, 80, 80);
+  --color-status-finished: rgb(240, 200, 60);
+  --color-status-dormant: rgb(110, 110, 120);
+  --color-status-closed: rgb(80, 80, 90);
+}
+
+/* 默认（非 pin）：富层次 Acrylic 磨砂质感。
+   分层：① 表面光泽渐变（135° 扫过反光） ② 深色玻璃底（略透）
+   叠加：vibrancy + backdrop-filter(blur+saturate+brightness) + 噪点 + 多向高光 */
+.frosted-frame {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 50%),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.05) 0%,
+      rgba(255, 255, 255, 0.015) 30%,
+      rgba(255, 255, 255, 0) 55%,
+      rgba(255, 255, 255, 0.025) 80%,
+      rgba(255, 255, 255, 0.05) 100%
+    ),
+    rgba(12, 14, 20, 0.78);
+  backdrop-filter: blur(36px) saturate(220%) brightness(0.92) contrast(1.05);
+  -webkit-backdrop-filter: blur(36px) saturate(220%) brightness(0.92) contrast(1.05);
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.5),
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 1px 0 0 rgba(255, 255, 255, 0.1),
+    inset -1px 0 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+  transition: background 180ms ease, backdrop-filter 180ms ease, box-shadow 180ms ease;
+}
+
+/* pin 模式：主进程会同步关掉 macOS vibrancy（去掉浅灰基底），
+   CSS 层用极透明深色 + 弱模糊，达到"看穿到下方应用"的效果。 */
+.frosted-frame[data-pinned='true'] {
+  background: rgba(18, 18, 24, 0.2);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.25),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+}
+
+/* Acrylic 噪点纹理层：极轻量 SVG turbulence，赋予玻璃颗粒感 */
+.frosted-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.7 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity: 0.13;
+  mix-blend-mode: overlay;
+  z-index: 0;
+}
+
+/* 把 frosted-frame 的「内容层」抬到 ::before 噪点之上。
+   排除 .absolute / .fixed —— 它们已显式定位，不应被强行改成 relative，
+   否则会把 dialog 这种全屏覆盖的 overlay 拍回到文档流里、被裁掉看不见。 */
+.frosted-frame > *:not(.absolute):not(.fixed) {
+  position: relative;
+  z-index: 1;
+}
+.frosted-frame > .absolute,
+.frosted-frame > .fixed {
+  z-index: 50;
+}
+
+.frosted-pane {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  backdrop-filter: blur(24px) saturate(180%) brightness(1.05);
+  -webkit-backdrop-filter: blur(24px) saturate(180%) brightness(1.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  color: var(--color-deck-text);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@keyframes pulse-green {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(80, 200, 120, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(80, 200, 120, 0);
+  }
+}
+
+@keyframes pulse-red {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 80, 80, 0.85);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(255, 80, 80, 0);
+  }
+}
+
+.scrollbar-deck::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-deck::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+.scrollbar-deck::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}

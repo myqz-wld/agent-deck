@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Agent Deck CLI wrapper（macOS）
+#
+# 用法：
+#   agent-deck new [--cwd <path>] [--prompt "..."] [--agent claude-code]
+#                  [--model <name>] [--permission-mode default|acceptEdits|plan|bypassPermissions]
+#                  [--system-prompt "..."] [--resume <sessionId>] [--no-focus]
+#
+# 行为：
+#   - 把 --cwd 的相对路径在 shell 端转成绝对路径，避免转发给主实例后被
+#     主实例自己的 process.cwd()（一般是 / 或 .app 安装目录）重新解析。
+#   - 如果是 `new` 但没传 --cwd，自动用当前 PWD 作为 --cwd。
+#   - 应用未运行 → 由 macOS 自动拉起首启实例，CLI 参数走首启分支。
+#   - 应用已运行 → second-instance 事件转发参数到主实例处理。
+#
+# 环境变量：
+#   AGENT_DECK_APP    覆盖默认 .app 路径（默认 /Applications/Agent Deck.app）
+#
+# 安装到 PATH：
+#   ln -sf "$(pwd)/resources/bin/agent-deck" /usr/local/bin/agent-deck
+# 或者：
+#   ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/local/bin/agent-deck
+
+set -e
+
+APP_PATH="${AGENT_DECK_APP:-/Applications/Agent Deck.app}"
+EXEC_PATH="$APP_PATH/Contents/MacOS/Agent Deck"
+
+if [[ ! -x "$EXEC_PATH" ]]; then
+  echo "agent-deck: 找不到 Agent Deck.app（默认查 /Applications，AGENT_DECK_APP 可覆盖）" >&2
+  echo "  当前查找路径：$APP_PATH" >&2
+  exit 1
+fi
+
+# 简化形式：用户可省略 'new' 子命令
+#   agent-deck                 → new --cwd "$PWD"（最简）
+#   agent-deck --prompt "..."  → new --prompt "..."（首参就是 flag 时也自动补 new）
+# 显式带子命令的（agent-deck new ...）保持原样。
+if (( $# == 0 )); then
+  set -- new
+elif [[ "$1" == --* ]]; then
+  set -- new "$@"
+fi
+
+# 把相对路径转成绝对（保留尾随空格安全）
+abs() {
+  local p="$1"
+  case "$p" in
+    /*) printf '%s\n' "$p" ;;
+    *)
+      if [[ -d "$p" ]]; then
+        (cd "$p" && pwd)
+      else
+        # 路径不存在也照传绝对形式，让主进程报清晰的 ENOENT
+        printf '%s/%s\n' "$PWD" "$p"
+      fi
+      ;;
+  esac
+}
+
+NEW_ARGS=()
+HAS_CWD=0
+HAS_NEW=0
+
+i=1
+while (( i <= $# )); do
+  cur="${!i}"
+  case "$cur" in
+    new)
+      HAS_NEW=1
+      NEW_ARGS+=("$cur")
+      ;;
+    --cwd)
+      HAS_CWD=1
+      NEW_ARGS+=("$cur")
+      ((i++))
+      val="${!i}"
+      if [[ -z "$val" ]]; then
+        echo "agent-deck: --cwd 缺少值" >&2
+        exit 2
+      fi
+      NEW_ARGS+=("$(abs "$val")")
+      ;;
+    --cwd=*)
+      HAS_CWD=1
+      NEW_ARGS+=("--cwd" "$(abs "${cur#--cwd=}")")
+      ;;
+    *)
+      NEW_ARGS+=("$cur")
+      ;;
+  esac
+  ((i++))
+done
+
+# new 子命令但用户没传 --cwd → 自动补当前 PWD（按用户终端所在的目录）
+if (( HAS_NEW == 1 && HAS_CWD == 0 )); then
+  NEW_ARGS+=("--cwd" "$PWD")
+fi
+
+exec "$EXEC_PATH" "${NEW_ARGS[@]}"
