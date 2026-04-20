@@ -126,15 +126,22 @@ async function bootstrap(): Promise<void> {
 
   // 9. 创建窗口并把事件总线接到 webContents
   const floating = getFloatingWindow();
-  const win = floating.create();
-  eventBus.on('agent-event', (e) => win.webContents.send(IpcEvent.AgentEvent, e));
-  eventBus.on('session-upserted', (s) => win.webContents.send(IpcEvent.SessionUpserted, s));
-  eventBus.on('session-removed', (id) => win.webContents.send(IpcEvent.SessionRemoved, id));
-  eventBus.on('session-renamed', (p) => win.webContents.send(IpcEvent.SessionRenamed, p));
-  eventBus.on('summary-added', (s) => win.webContents.send(IpcEvent.SummaryAdded, s));
-  eventBus.on('session-focus-request', (sid) =>
-    win.webContents.send(IpcEvent.SessionFocusRequest, sid),
-  );
+  floating.create();
+  // 通过 floating.window 动态拿当前活窗口 + isDestroyed 兜底：
+  // macOS 关闭窗口但进程不退（window-all-closed 不 quit），listener 闭包持有的旧 win
+  // 已 destroyed；scheduler / IPC 仍会触发 eventBus，调用 webContents.send 会抛
+  // "Object has been destroyed"。Activate 重建窗口时也能让事件继续投递到新 win。
+  const safeSend = <T>(channel: string, payload: T): void => {
+    const w = floating.window;
+    if (!w || w.isDestroyed() || w.webContents.isDestroyed()) return;
+    w.webContents.send(channel, payload);
+  };
+  eventBus.on('agent-event', (e) => safeSend(IpcEvent.AgentEvent, e));
+  eventBus.on('session-upserted', (s) => safeSend(IpcEvent.SessionUpserted, s));
+  eventBus.on('session-removed', (id) => safeSend(IpcEvent.SessionRemoved, id));
+  eventBus.on('session-renamed', (p) => safeSend(IpcEvent.SessionRenamed, p));
+  eventBus.on('summary-added', (s) => safeSend(IpcEvent.SummaryAdded, s));
+  eventBus.on('session-focus-request', (sid) => safeSend(IpcEvent.SessionFocusRequest, sid));
 
   ensureFocusableOnActivate();
 
@@ -142,9 +149,11 @@ async function bootstrap(): Promise<void> {
   // 通过 IPC 把新状态推回 renderer，UI 与持久化同步更新。
   const pinShortcut = 'CommandOrControl+Alt+P';
   const registered = globalShortcut.register(pinShortcut, () => {
-    const next = !win.isAlwaysOnTop();
+    const w = floating.window;
+    if (!w || w.isDestroyed()) return;
+    const next = !w.isAlwaysOnTop();
     floating.setAlwaysOnTop(next);
-    win.webContents.send(IpcEvent.PinToggled, next);
+    safeSend(IpcEvent.PinToggled, next);
   });
   if (!registered) {
     console.warn(`[shortcut] failed to register ${pinShortcut} (occupied by another app)`);
