@@ -112,7 +112,7 @@ const api = {
   // App helpers
   playTestSound: (kind: 'waiting' | 'done'): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AppPlayTestSound, kind),
-  showTestNotification: (): Promise<{ ok: boolean; reason?: string }> =>
+  showTestNotification: (): Promise<{ ok: boolean; reason?: string; appName?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AppShowTestNotification),
   confirmDialog: (opts: {
     title?: string;

@@ -261,7 +261,10 @@ export function bootstrapIpc(): void {
         body: '如果你看到了这条横幅，说明系统通知正常工作。',
         silent: true,
       }).show();
-      return { ok: true };
+      // 把 app.getName() 一并返回：dev 模式是 'Electron'，prod 是 'Agent Deck'。
+      // renderer 里拼提示「请到 系统设置 → 通知 → ${appName}」时用这个值，
+      // 不能写死 'Electron' —— 装好的 .app 用户去找 Electron 会找不到。
+      return { ok: true, appName: app.getName() };
     } catch (err) {
       return { ok: false, reason: (err as Error).message };
     }

@@ -385,17 +385,23 @@ function SoundPicker({
 
 /**
  * 测试系统通知按钮。点击后调 main 进程的 Notification API。
- * macOS dev 模式下，应用名是「Electron」（不是 Agent Deck），
- * 第一次会弹权限请求；要在 系统设置 → 通知 → Electron 里允许通知。
+ * macOS 系统设置里的应用名取自 `app.getName()` —— dev 模式是「Electron」、
+ * 生产打包是「Agent Deck」。提示文字读 main 返回的 appName 拼接，避免
+ * 装好的 .app 让用户去找「Electron」找不到。
  */
 function NotificationTestRow(): JSX.Element {
   const [result, setResult] = useState<string | null>(null);
   const test = async (): Promise<void> => {
     setResult(null);
     try {
-      const r = (await window.api.showTestNotification()) as { ok: boolean; reason?: string };
+      const r = (await window.api.showTestNotification()) as {
+        ok: boolean;
+        reason?: string;
+        appName?: string;
+      };
       if (r.ok) {
-        setResult('已发送，没看到横幅请到 系统设置 → 通知 → Electron 检查权限');
+        const name = r.appName || 'Agent Deck';
+        setResult(`已发送，没看到横幅请到 系统设置 → 通知 → ${name} 检查权限`);
       } else {
         setResult(`失败：${r.reason ?? '未知'}`);
       }
