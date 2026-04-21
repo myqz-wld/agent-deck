@@ -15,6 +15,7 @@
  */
 import { app, dialog } from 'electron';
 import { realpath } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { adapterRegistry } from './adapters/registry';
 import { eventBus } from './event-bus';
@@ -106,10 +107,10 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
 
   if (sub.sub === 'new') {
     const f = parseFlags(sub.args);
-    const cwd = asString(f.get('cwd'));
-    if (!cwd) {
-      throw new Error('agent-deck new: 缺少 --cwd <path>');
-    }
+    // cwd 缺省 → 用户主目录（与 renderer NewSessionDialog 行为一致）。
+    // wrapper 脚本 resources/bin/agent-deck 在 shell 端已用 $PWD 兜底，
+    // 这里再兜一层是给「直接调 .app 二进制 / 第三方调用」的场景。
+    const cwd = asString(f.get('cwd')) ?? homedir();
     const agent = asString(f.get('agent')) ?? 'claude-code';
     // 缺省 prompt = '你好'，让裸跑 `agent-deck` 也能立刻发起会话；
     // 不然 SDK CLI 子进程拿不到首条 user message 会卡到 30s fallback。

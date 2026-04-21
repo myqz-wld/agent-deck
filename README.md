@@ -52,7 +52,7 @@
 - SDK 与 Hook 通道对 `session-end` 的差异化处理写在 `SessionManager.ingest()` —— SDK 流终止不视为「会话死了」，给用户留 resume 的口子
 
 ### 应用内新建会话（＋ 按钮）
-- 弹窗表单：Agent / cwd（带「选择…」目录选择器）/ **首条消息（必填）** / 模型 / 权限模式 / System Prompt（可选）
+- 弹窗表单：Agent / cwd（**留空默认用户主目录 `~`**，带「选择…」目录选择器）/ **首条消息（必填）** / 模型 / 权限模式 / System Prompt（可选）
 - 首条消息为什么必填：SDK streaming 协议要求 CLI 子进程必须收到 stdin 首条 user message 才会启动；空 prompt 会卡死直到 30s fallback，所以表单层强制必填
 - 模型选项：按本地 settings.json / Sonnet 4.5 / Opus 4.7 / Haiku 4.5
 - 权限模式：default / acceptEdits / plan / bypassPermissions（用户上次选过的会持久化在 `sessions.permission_mode`，下次切回 detail 自动还原）
@@ -67,11 +67,11 @@
   agent-deck                                     # 等价 agent-deck new --cwd "$PWD" --prompt "你好"
   agent-deck --prompt "帮我看看这个 bug"        # 自动补 new 子命令
   ```
-  没传 `--cwd` 时取当前 PWD；没传 `--prompt` 时默认填 `"你好"`，避免 SDK 卡 30s fallback 才显出会话（你也可以显式 `--prompt ""` 强制为空，会话会卡 30s 才出现）
+  没传 `--cwd` 时 wrapper 用当前 PWD 兜底，裸调 .app 二进制（不走 wrapper）则用用户主目录 `~`；没传 `--prompt` 时默认填 `"你好"`，避免 SDK 卡 30s fallback 才显出会话（你也可以显式 `--prompt ""` 强制为空，会话会卡 30s 才出现）
 - **完整用法**：
   ```bash
   agent-deck new \
-    [--cwd <path>]                        # 缺省取当前 PWD；wrapper 会把相对路径转绝对
+    [--cwd <path>]                        # 缺省 wrapper 取当前 PWD、否则取 ~；wrapper 会把相对路径转绝对
     [--prompt "..."]                      # 首条消息（缺省 "你好"，避免 SDK 卡 30s fallback）
     [--agent claude-code]                 # 默认 claude-code，未来其他 SDK adapter 接入时换
     [--model <name>]                      # 等价表单的模型字段
@@ -82,7 +82,7 @@
   ```
 - 应用未启动 → macOS 自动拉起；已启动 → `requestSingleInstanceLock()` 的 `second-instance` 事件转发参数到主实例处理
 - 默认行为：把窗口 `show()+focus()`，再 emit `event:session-focus-request`，renderer 切到「实时」并选中新会话
-- 解析失败（缺 --cwd / --permission-mode 取值非法）→ stderr + Electron `dialog.showErrorBox` 双通道报错
+- 解析失败（`--permission-mode` 取值非法等）→ stderr + Electron `dialog.showErrorBox` 双通道报错
 - AGENT_DECK_APP 环境变量可覆盖默认 `/Applications/Agent Deck.app` 路径
 - 不打包 Linux/Windows wrapper —— 这两个平台直接调主进程二进制（参数语义一致）
 

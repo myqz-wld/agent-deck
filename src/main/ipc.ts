@@ -1,6 +1,7 @@
 import { app, ipcMain, dialog, nativeImage, Notification, type IpcMainInvokeEvent } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { getFloatingWindow } from './window';
 import { sessionManager } from './session/manager';
@@ -144,6 +145,10 @@ export function bootstrapIpc(): void {
     const adapter = adapterRegistry.get(String(agentId));
     if (!adapter?.createSession) throw new Error('adapter cannot create session');
     const o = opts as Parameters<NonNullable<typeof adapter.createSession>>[0];
+    // cwd 留空 → 兜底用户主目录。renderer 对话框允许「不填」，CLI 也共用这条兜底。
+    if (!o.cwd || !String(o.cwd).trim()) {
+      o.cwd = homedir();
+    }
     const sid = await adapter.createSession(o);
     // SDK 通道：把新建对话框里选的 permissionMode 持久化到 sessions.permission_mode 列，
     // 否则 SessionDetail 底部下拉只会读到 NULL → 'default'，跟实际 SDK 状态对不上。

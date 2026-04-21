@@ -59,10 +59,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
   const submit = async (): Promise<void> => {
     setError(null);
-    if (!cwd.trim()) {
-      setError('请填写工作目录 cwd');
-      return;
-    }
     if (!prompt.trim()) {
       // SDK streaming 协议：CLI 子进程必须收到 stdin 首条 user message 才会启动，
       // 空 prompt 会卡死直到 30s fallback。所以这里强制必填。
@@ -71,6 +67,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     }
     setBusy(true);
     try {
+      // cwd 留空 → 主进程兜底为用户主目录（os.homedir()）
       const id = await window.api.createAdapterSession(agentId, {
         cwd: cwd.trim(),
         prompt: prompt.trim() || undefined,
@@ -121,13 +118,13 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               </select>
             </Field>
 
-            <Field label="工作目录 cwd *">
+            <Field label="工作目录 cwd">
               <div className="flex gap-1">
                 <input
                   type="text"
                   value={cwd}
                   onChange={(e) => setCwd(e.target.value)}
-                  placeholder="/Users/you/projects/xxx"
+                  placeholder="留空使用主目录 (~)"
                   className="flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 />
                 <button
@@ -208,7 +205,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <button
                 type="button"
                 onClick={() => void submit()}
-                disabled={busy || !cwd.trim() || !prompt.trim()}
+                disabled={busy || !prompt.trim()}
                 className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
               >
                 {busy ? '创建中…' : '创建会话'}
