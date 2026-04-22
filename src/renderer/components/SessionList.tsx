@@ -1,5 +1,6 @@
 import { useMemo, type JSX } from 'react';
 import { useSessionStore } from '@renderer/stores/session-store';
+import { selectLiveSessions } from '@renderer/lib/session-selectors';
 import { SessionCard } from './SessionCard';
 
 export function SessionList(): JSX.Element {
@@ -11,9 +12,8 @@ export function SessionList(): JSX.Element {
     // 实时面板只显示未归档的 active/dormant；归档与 lifecycle 正交（详见 CLAUDE.md），
     // 必须显式过滤 archivedAt，否则在当前会话内归档后，session-upserted 推送的
     // record 仍带原 lifecycle，会一直留在实时列表里直到下次重启 setSessions 重灌。
-    const all = [...sessions.values()]
-      .filter((s) => s.archivedAt === null)
-      .sort((a, b) => b.lastEventAt - a.lastEventAt);
+    // 与 App.tsx header stats 共用 selectLiveSessions，确保两处计数完全一致。
+    const all = selectLiveSessions(sessions);
     return {
       active: all.filter((s) => s.lifecycle === 'active'),
       dormant: all.filter((s) => s.lifecycle === 'dormant'),

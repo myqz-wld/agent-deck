@@ -8,6 +8,7 @@ import { NewSessionDialog } from './components/NewSessionDialog';
 import { useSessionStore } from './stores/session-store';
 import { useEventBridge } from './hooks/use-event-bridge';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
+import { selectLiveSessions } from './lib/session-selectors';
 import type { AppSettings, SessionRecord } from '@shared/types';
 
 registerBuiltinDiffRenderers();
@@ -97,7 +98,10 @@ export function App(): JSX.Element {
   const detailSession = view === 'history' ? historySession : (selectedFromMap ?? stickySelected);
 
   const stats = useMemo(() => {
-    const arr = [...sessions.values()];
+    // 与 SessionList 的 grouped 共用同一份过滤口径（archivedAt === null && lifecycle ∈ {active, dormant}），
+    // 否则当前运行时归档 / lifecycle 转 closed 的会话会留在 store Map 里被多算，
+    // 与下方实时列表「活跃 + 休眠」之和对不上。详见 session-selectors.ts。
+    const arr = selectLiveSessions(sessions);
     return {
       total: arr.length,
       waiting: arr.filter((s) => s.activity === 'waiting').length,

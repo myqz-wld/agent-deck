@@ -10,6 +10,8 @@ import type {
   AskUserQuestionAnswer,
   AskUserQuestionItem,
   AskUserQuestionRequest,
+  ExitPlanModeRequest,
+  ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
 } from '@shared/types';
@@ -55,6 +57,15 @@ interface PendingAskQuestionEntry {
   timer: NodeJS.Timeout | null;
 }
 
+interface PendingExitPlanModeEntry {
+  payload: ExitPlanModeRequest;
+  /** 真正驱动 SDK 行为的 resolver：approve → allow，keep-planning → deny+message */
+  resolver: (response: ExitPlanModeResponse) => void;
+  /** 拿到原始 input 用于 allow 时回填 updatedInput（保留 plan 字段不变） */
+  toolInput: Record<string, unknown>;
+  timer: NodeJS.Timeout | null;
+}
+
 interface InternalSession {
   /** 等待 SDK 真实 session_id 之前用的临时 id；拿到后会被替换 */
   realSessionId: string | null;
@@ -66,6 +77,8 @@ interface InternalSession {
   pendingPermissions: Map<string, PendingPermissionEntry>;
   /** 等待用户回答的 AskUserQuestion：requestId → entry */
   pendingAskUserQuestions: Map<string, PendingAskQuestionEntry>;
+  /** 等待用户批准/继续规划的 ExitPlanMode：requestId → entry */
+  pendingExitPlanModes: Map<string, PendingExitPlanModeEntry>;
 }
 
 /**
@@ -123,6 +136,7 @@ export class ClaudeSdkBridge {
       notify: null,
       pendingPermissions: new Map(),
       pendingAskUserQuestions: new Map(),
+      pendingExitPlanModes: new Map(),
     };
 
     if (opts.prompt) {
@@ -196,6 +210,79 @@ export class ClaudeSdkBridge {
                 agentId: AGENT_ID,
                 kind: 'waiting-for-user',
                 payload: { type: 'ask-question-cancelled', requestId },
+                ts: Date.now(),
+                source: 'sdk',
+              });
+              resolve({ behavior: 'deny', message: 'aborted', interrupt: true });
+            }
+          });
+        });
+      }
+
+      // 特殊路径：ExitPlanMode —— plan mode 下 Claude 完成规划，向用户提议「请批准执行」。
+      // 跟 AskUserQuestion 一样走独立通路：UI 用 markdown 渲染 plan + 二选一按钮。
+      // - 批准（approve）→ allow + updatedInput 不变，CLI 内部退出 plan mode 开始执行
+      // - 继续规划（keep-planning）→ deny + message（含可选用户反馈），Claude 留在 plan mode 修
+      if (toolName === 'ExitPlanMode') {
+        const inExit = (input as { plan?: unknown }) ?? {};
+        const plan = typeof inExit.plan === 'string' ? inExit.plan : '';
+        const toolUseId = (ctx as { tool_use_id?: string }).tool_use_id;
+        const exitPayload: ExitPlanModeRequest = {
+          type: 'exit-plan-mode',
+          requestId,
+          toolUseId,
+          plan,
+        };
+        this.opts.emit({
+          sessionId: realId,
+          agentId: AGENT_ID,
+          kind: 'waiting-for-user',
+          payload: exitPayload,
+          ts: Date.now(),
+          source: 'sdk',
+        });
+        return new Promise<PermissionResult>((resolve) => {
+          const entry: PendingExitPlanModeEntry = {
+            payload: exitPayload,
+            toolInput: (input as Record<string, unknown>) ?? {},
+            timer: null,
+            resolver: (response) => {
+              if (entry.timer) clearTimeout(entry.timer);
+              if (response.decision === 'approve') {
+                // allow + 原 input 透传：让 ExitPlanMode 工具调用「成功」，
+                // CLI 收到 tool_result 自动退出 plan mode，后续工具按非 plan 模式继续。
+                resolve({
+                  behavior: 'allow',
+                  updatedInput: entry.toolInput,
+                });
+              } else {
+                const fb = response.feedback?.trim();
+                resolve({
+                  behavior: 'deny',
+                  message:
+                    `用户希望继续完善计划，请基于以下反馈修改后再调用 ExitPlanMode 提交新版本：\n\n` +
+                    `反馈：${fb || '(用户未填写具体反馈，请主动询问需要补充哪方面)'}`,
+                  interrupt: false,
+                });
+              }
+            },
+          };
+          internal.pendingExitPlanModes.set(requestId, entry);
+          if (this.permissionTimeoutMs > 0) {
+            entry.timer = setTimeout(() => {
+              this.timeoutExitPlanMode(realId, requestId);
+            }, this.permissionTimeoutMs);
+          }
+          ctx.signal?.addEventListener('abort', () => {
+            const cur = internal.pendingExitPlanModes.get(requestId);
+            if (cur) {
+              if (cur.timer) clearTimeout(cur.timer);
+              internal.pendingExitPlanModes.delete(requestId);
+              this.opts.emit({
+                sessionId: realId,
+                agentId: AGENT_ID,
+                kind: 'waiting-for-user',
+                payload: { type: 'exit-plan-cancelled', requestId },
                 ts: Date.now(),
                 source: 'sdk',
               });
@@ -324,10 +411,11 @@ export class ClaudeSdkBridge {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`session ${sessionId} not found`);
 
-    // 提示：还有未响应的权限/提问时，SDK query() 正卡在 await canUseTool 的 Promise，
+    // 提示：还有未响应的权限/提问/计划批准时，SDK query() 正卡在 await canUseTool 的 Promise，
     // 用户的新消息会进 pendingUserMessages 队列但 Claude 短时间内不会处理它。
     // 在活动流插一条警告 message，避免用户以为 Claude 死了。
-    const pendCount = s.pendingPermissions.size + s.pendingAskUserQuestions.size;
+    const pendCount =
+      s.pendingPermissions.size + s.pendingAskUserQuestions.size + s.pendingExitPlanModes.size;
     if (pendCount > 0) {
       this.opts.emit({
         sessionId,
@@ -335,7 +423,7 @@ export class ClaudeSdkBridge {
         kind: 'message',
         payload: {
           text:
-            `⚠ 还有 ${pendCount} 个待你处理的请求（权限/提问）。` +
+            `⚠ 还有 ${pendCount} 个待你处理的请求（权限/提问/计划批准）。` +
             `你这条消息会被排队，但 Claude 要等你先处理完上面的请求才会看到它。`,
           error: true,
         },
@@ -398,6 +486,21 @@ export class ClaudeSdkBridge {
     entry.resolver(answer);
   }
 
+  /** 用户对 ExitPlanMode 的决策（批准 / 继续规划），驱动 SDK allow / deny。 */
+  respondExitPlanMode(
+    sessionId: string,
+    requestId: string,
+    response: ExitPlanModeResponse,
+  ): void {
+    const s = this.sessions.get(sessionId);
+    if (!s) return;
+    const entry = s.pendingExitPlanModes.get(requestId);
+    if (!entry) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    s.pendingExitPlanModes.delete(requestId);
+    entry.resolver(response);
+  }
+
   /**
    * 当前会话还在 pending 的请求快照。renderer HMR / 重启 / 切会话时，
    * store 的 pendingPermissionsBySession 是空的，但主进程这边可能还挂着等用户的请求 ——
@@ -406,12 +509,14 @@ export class ClaudeSdkBridge {
   listPending(sessionId: string): {
     permissions: PermissionRequest[];
     askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
   } {
     const s = this.sessions.get(sessionId);
-    if (!s) return { permissions: [], askQuestions: [] };
+    if (!s) return { permissions: [], askQuestions: [], exitPlanModes: [] };
     return {
       permissions: [...s.pendingPermissions.values()].map((e) => e.payload),
       askQuestions: [...s.pendingAskUserQuestions.values()].map((e) => e.payload),
+      exitPlanModes: [...s.pendingExitPlanModes.values()].map((e) => e.payload),
     };
   }
 
@@ -419,13 +524,28 @@ export class ClaudeSdkBridge {
   listAllPending(): Record<string, {
     permissions: PermissionRequest[];
     askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
   }> {
-    const out: Record<string, { permissions: PermissionRequest[]; askQuestions: AskUserQuestionRequest[] }> = {};
+    const out: Record<
+      string,
+      {
+        permissions: PermissionRequest[];
+        askQuestions: AskUserQuestionRequest[];
+        exitPlanModes: ExitPlanModeRequest[];
+      }
+    > = {};
     for (const [sid, s] of this.sessions) {
-      if (s.pendingPermissions.size === 0 && s.pendingAskUserQuestions.size === 0) continue;
+      if (
+        s.pendingPermissions.size === 0 &&
+        s.pendingAskUserQuestions.size === 0 &&
+        s.pendingExitPlanModes.size === 0
+      ) {
+        continue;
+      }
       out[sid] = {
         permissions: [...s.pendingPermissions.values()].map((e) => e.payload),
         askQuestions: [...s.pendingAskUserQuestions.values()].map((e) => e.payload),
+        exitPlanModes: [...s.pendingExitPlanModes.values()].map((e) => e.payload),
       };
     }
     return out;
@@ -493,6 +613,37 @@ export class ClaudeSdkBridge {
     entry.resolver({
       answers: [{ question: '__timeout__', selected: [], other: '用户超时未回答' }],
     });
+  }
+
+  /** 超时触发：ExitPlanMode 按「继续规划 + 默认反馈」处理，让 Claude 留在 plan mode 不打断 turn。 */
+  private timeoutExitPlanMode(sessionId: string, requestId: string): void {
+    const s = this.sessions.get(sessionId);
+    if (!s) return;
+    const entry = s.pendingExitPlanModes.get(requestId);
+    if (!entry) return;
+    s.pendingExitPlanModes.delete(requestId);
+    this.opts.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'waiting-for-user',
+      payload: { type: 'exit-plan-cancelled', requestId },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+    this.opts.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: {
+        text:
+          `⚠ ExitPlanMode 等待 ${Math.round(this.permissionTimeoutMs / 1000)} 秒未响应，` +
+          `已自动按「继续规划」处理，Claude 留在 plan mode 等待下一步指示。`,
+        error: true,
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+    entry.resolver({ decision: 'keep-planning', feedback: '用户超时未响应' });
   }
 
   async interrupt(sessionId: string): Promise<void> {
@@ -647,6 +798,12 @@ export class ClaudeSdkBridge {
         });
       }
       internal.pendingAskUserQuestions.clear();
+      // ExitPlanMode 同样清空：会话结束 = 默认按「继续规划」回，但 SDK 已经死了所以这只是个 best-effort
+      for (const entry of internal.pendingExitPlanModes.values()) {
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.resolver({ decision: 'keep-planning', feedback: '会话已结束' });
+      }
+      internal.pendingExitPlanModes.clear();
       this.opts.emit({
         sessionId: sid,
         agentId: AGENT_ID,

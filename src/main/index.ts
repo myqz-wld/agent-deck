@@ -73,10 +73,19 @@ async function bootstrap(): Promise<void> {
       sessionManager.ingest(event);
       // 状态变化时根据 kind 触发提醒
       if (event.kind === 'waiting-for-user') {
+        // SDK 通道的 `*-cancelled` 事件（permission-cancelled / ask-question-cancelled /
+        // exit-plan-cancelled）也复用 `waiting-for-user` 这个 kind，但语义是「撤掉那条 pending」
+        // 而不是「又一次需要用户输入」。如果一律推系统通知 + 提示音，用户在点完按钮 / 超时 /
+        // session-end 之后会收到一条多余的「Agent 等待你的输入」打扰。
+        const payload = (event.payload ?? {}) as { type?: string; message?: string };
+        const type = payload.type;
+        if (typeof type === 'string' && type.endsWith('-cancelled')) {
+          return;
+        }
         const session = sessionManager.get(event.sessionId);
         notifyUser({
           title: 'Agent 等待你的输入',
-          body: session ? `${session.title}：${(event.payload as { message?: string })?.message ?? ''}` : '',
+          body: session ? `${session.title}：${payload.message ?? ''}` : '',
           level: 'waiting',
         });
       } else if (event.kind === 'finished') {

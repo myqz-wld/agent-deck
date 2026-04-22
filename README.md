@@ -145,19 +145,38 @@
 - **超时自动跳过**：超过 `permissionTimeoutMs` 未答复 → 自动给 SDK 一个「用户超时未回答」的空答案 + 推警告 message，避免 Claude 永远卡在等回答
 - 外部 CLI 会话只展示，不允许操作（hook 通道没有 canUseTool 通路）
 
+### 执行计划批准（ExitPlanMode，plan mode 下）
+- Plan 模式下 Claude 完成规划后会调用 `ExitPlanMode` 工具向用户提议「请批准执行」。canUseTool 走独立分支（不走通用权限请求 UI，跟 AskUserQuestion 同一套架构）
+- 活动流内嵌渲染 `ExitPlanRow`：绿边卡片 + header「📋 Claude 提议了一个执行计划」 + **header 右侧两按钮**：
+  - **「批准计划，开始执行」**（实色绿）→ SDK 返回 `behavior: 'allow' + updatedInput 透传`，CLI 收到 tool_result 自动退出 plan mode、按非 plan 模式继续后续工具调用
+  - **「继续规划」**（次按钮）→ 第一次点击展开「可选反馈」输入框，让用户告诉 Claude「哪里需要调整」（留空也能提交，提交后 SDK 返回 `behavior: 'deny' + 含反馈的 message`，Claude 留在 plan mode 修改计划）
+- plan 内容用 **`MarkdownText` 完整渲染**（react-markdown + remark-gfm，标题 / 列表 / 表格 / 任务列表 / 代码块 / 链接全支持），不是一坨 JSON
+- **超时自动按「继续规划」**：超过 `permissionTimeoutMs` 未响应 → SDK 收到 `keep-planning + 反馈「用户超时未响应」`，Claude 留在 plan mode 不会打断 turn（区别于普通 permission timeout 的 interrupt）
+- 外部 CLI 会话（hook 通道）走 `tool-use-start` 路径：活动流也展开 plan markdown 让你能看到内容，但**只读不能批准**（必须回到对应终端窗口操作）
+- 底部 toast「Claude 自动取消了一次计划批准请求」5s 灰带（SDK abort / interrupt 触发时）
+
 ### SessionDetail 面板（点击卡片打开）
 - 头部：来源徽标（**内** / **外**）+ title + cwd + 返回按钮
-- 顶部 toast：「Claude 自动取消了一条权限请求 / 提问」5s 灰带（如有）—— 已不再有顶部 banner，PermissionRow / AskRow 全部下放到活动流内嵌
-- 三个 Tab：
+- 顶部 toast：「Claude 自动取消了一条权限请求 / 提问 / 计划批准请求」5s 灰带（如有）—— 已不再有顶部 banner，PermissionRow / AskRow / ExitPlanRow 全部下放到活动流内嵌
+- 四个 Tab：
   - **活动**：ActivityFeed 时间线
     - **message** 事件用对话气泡渲染：用户消息（绿色背景，右对齐，标记「你」）；Claude 回复（边框灰背景，左对齐，标记「Claude」）；错误消息（红框）；完整文字、保留换行、不截断
-    - **tool-use-start**：`🔧 工具名 · 入参摘要` 单行；Edit / Write / MultiEdit 自动展开 Monaco DiffViewer 在行内（`overflow-hidden h-72`，一眼看到 Claude 写了什么）
+    - 气泡头部右侧的 **MD/TXT** 切换按钮：把气泡正文从纯文本切到 Markdown 渲染（`react-markdown` + `remark-gfm`，支持表格 / 任务列表 / 删除线 / 代码块 / 链接）；偏好走 `localStorage`，全局生效——切任意一条等于切所有 bubble，刷新 / 重启保持上次选择；error 消息和空消息不显示按钮、强制 plaintext 保留堆栈结构
+    - **tool-use-start**：`🔧 工具名 · 入参摘要` 单行；Edit / Write / MultiEdit 自动展开 Monaco DiffViewer 在行内（`overflow-hidden h-72`，一眼看到 Claude 写了什么）；ExitPlanMode（hook 通道）展开 markdown plan 让你能看到外部 CLI 提议的计划全文（只读）
     - **tool-use-end**：默认折叠成 `▸ 工具名 完成`；点击展开 `toolResult` 完整内容（pre 等宽，最高 64 行可滚）
     - **waiting-for-user (permission-request)** → PermissionRow 内嵌 + 操作按钮（header 右对齐）+ Edit/Write/MultiEdit diff 行内
     - **waiting-for-user (ask-user-question)** → AskRow 内嵌 + 选项 toggle + 「已选 N/M」+ 实色「提交回答」按钮
+    - **waiting-for-user (exit-plan-mode)** → ExitPlanRow 内嵌 + markdown 渲染的 plan + 「批准计划，开始执行」/「继续规划（可选反馈）」二选一按钮
     - 其他事件单行简述：`📝 file_path`、`✅ 一轮完成`、`⏹ 会话结束 · reason`、`⚪ 提问已被 SDK 取消` 等
   - **改动**：按文件分组（按钮带改动次数小角标）+ Monaco DiffEditor + 同文件多次改动的时间线（语言自动识别 ts/js/py/go/rust/json/md/css/html/yaml/sh/java/c/cpp）；文件按最近改动时间倒序排列，默认选中最近的文件 + 该文件最新一次改动
   - **总结**：最新一条 LLM 总结（高亮）+ 历史展开
+  - **权限**：按当前会话 cwd 解析三层 Claude Code settings.json（user / project / local），**只读展示**
+    - 顶部「生效合并」面板：按 SDK `settingSources: ['user','project','local']` 顺序合并 `permissions` 字段（`allow` / `deny` / `ask` / `additionalDirectories` 累加去重，每条规则旁标注来源 chip `[U]/[P]/[L]`；`defaultMode` 取 local→project→user 倒序首个非空，标注来源）
+    - 三层卡片各一张：路径、是否存在、整段 settings.json pretty-print（轻量 JSON 高亮，无 monaco 依赖）
+    - 「打开」按钮：通过 `shell.openPath` 用系统默认应用打开（main 端白名单校验 path 必须是该 cwd 的三个候选路径之一，杜绝任意路径打开）；agent-deck 不写任何配置文件，改规则走外部编辑器
+    - 解析失败：红色错误条 + 仍展示原文，方便排错；JSON 文件不存在：「未配置」灰字 + 仍展示推断路径
+    - 「刷新」按钮手动重新拉；切 tab / 切会话自动拉一次；不上 file watcher（避免噪音）
+    - 当 cwd 等于 home 目录时，project 与 user 路径相同，给出黄色提示
 - 底部输入区：
   - **SDK 会话** → 权限模式下拉 + 输入框（Enter 发送 / Shift+Enter 换行；中文 IME 拼写期间不会被吞）+ 发送 / 中断按钮；sendMessage 抛 `not found` 时显示「会话已断开」红条 + **「恢复会话」**按钮
   - **外部 CLI** → 灰条「请回到对应终端窗口直接操作」
@@ -242,6 +261,8 @@ src/
 │   ├── notify/
 │   │   ├── sound.ts          afplay / paplay / powershell 跨平台播放（防叠播 + 5s 上限 + before-quit 清理）
 │   │   └── visual.ts         系统通知 + Dock 弹跳（不做窗口闪屏）
+│   ├── permissions/
+│   │   └── scanner.ts        会话详情「权限」tab 的数据源：读 user / project / local 三层 settings.json，按 SDK 顺序合并；只读，不写
 │   └── store/
 │       ├── db.ts             better-sqlite3 + 迁移系统（v1–v4 内联 SQL，按 user_version 推进）
 │       ├── session-repo.ts   sessions 表 CRUD（含 listActiveAndDormant / listHistory / setPermissionMode / rename）
@@ -258,11 +279,13 @@ src/
     │   ├── FloatingFrame.tsx     毛玻璃容器（pin/无 pin 两套 background + backdrop-filter）
     │   ├── SessionList.tsx       active / dormant 分段
     │   ├── SessionCard.tsx       状态徽标 + 来源徽标 + 实时活动行 + 总结行 + 右键菜单（归档/重新激活/删除）
-    │   ├── SessionDetail.tsx     头部 / 自动取消 toast / 3 Tab / 底部 composer（权限模式下拉 + 输入框 + 恢复会话 + 中断）；PermissionRequests / AskUserQuestionPanel 仍 export 备 banner 模式回切
+    │   ├── SessionDetail.tsx     头部 / 自动取消 toast / 4 Tab / 底部 composer（权限模式下拉 + 输入框 + 恢复会话 + 中断）；PermissionRequests / AskUserQuestionPanel 仍 export 备 banner 模式回切
+    │   ├── PermissionsView.tsx   会话详情「权限」tab：调 scanCwdSettings 拿三层 settings.json，渲染合并视图 + 三层卡片 + 轻量 JSON 高亮 + 「打开」（shell.openPath）按钮 + 刷新
     │   ├── HistoryPanel.tsx      关键字搜索 / 仅归档筛选 / 归档|取消归档|删除
     │   ├── NewSessionDialog.tsx  ＋ 按钮的弹窗表单（首条消息必填校验）
     │   ├── SettingsDialog.tsx    设置面板（含 DEFAULT_SETTINGS 兜底 + getSettings/hookStatus 异步错误显示）
-    │   ├── ActivityFeed.tsx      MessageBubble / PermissionRow（内嵌按钮 + diff）/ AskRow（toggle + 实色提交按钮）/ ToolStartRow（内嵌 diff）/ ToolEndRow（折叠展开 result）/ SimpleRow
+    │   ├── ActivityFeed.tsx      MessageBubble（含 MD/TXT 切换按钮）/ PermissionRow（内嵌按钮 + diff）/ AskRow（toggle + 实色提交按钮）/ ExitPlanRow（markdown plan + 批准/继续规划+反馈输入）/ ToolStartRow（内嵌 diff，ExitPlanMode hook 通道展开 plan）/ ToolEndRow（折叠展开 result）/ SimpleRow
+    │   ├── MarkdownText.tsx      MessageBubble + ExitPlanRow 共用受限 Markdown 渲染器（react-markdown + remark-gfm，链接强制系统浏览器，pre/table 加 overflow）
     │   ├── SummaryView.tsx
     │   ├── StatusBadge.tsx
     │   └── diff/
@@ -270,9 +293,12 @@ src/
     │       ├── registry.ts
     │       ├── install.ts        启动注册内置 renderer
     │       └── renderers/        TextDiffRenderer (Monaco) / ImageDiffRenderer / PdfDiffRenderer
-    ├── stores/session-store.ts   Zustand：sessions / recentEvents / summaries / latestSummary / pendingPermissions / pendingAskQuestions；setPendingRequests / setPendingRequestsAll（拉取重建）；renameSession（SDK fallback 整体迁移）
+    ├── stores/session-store.ts   Zustand：sessions / recentEvents / summaries / latestSummary / pendingPermissions / pendingAskQuestions / pendingExitPlanModes；setPendingRequests / setPendingRequestsAll（拉取重建，3 路 pending 同步）；renameSession（SDK fallback 整体迁移）
     ├── hooks/use-event-bridge.ts onSessionUpserted / onSessionRemoved / onSessionRenamed / onAgentEvent / onSummaryAdded 桥接
-    ├── lib/ipc.ts                动态 channel 兜底
+    ├── lib/
+    │   ├── ipc.ts                动态 channel 兜底
+    │   ├── render-mode.ts        useGlobalRenderMode hook：localStorage + CustomEvent 广播，让所有 MessageBubble 共享一份「默认渲染模式」
+    │   └── session-selectors.ts  selectLiveSessions：archivedAt === null && lifecycle ∈ {active, dormant}，App.tsx header stats 与 SessionList 共用
     └── styles/globals.css        Tailwind 4 + frosted-frame Acrylic CSS（默认底色加深，pin 模式高透明）
 
 resources/

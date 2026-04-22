@@ -4,14 +4,18 @@ import type {
   AskUserQuestionItem,
   AskUserQuestionRequest,
   DiffPayload,
+  ExitPlanModeRequest,
   PermissionRequest,
 } from '@shared/types';
 import {
   EMPTY_ASK_QUESTIONS,
+  EMPTY_EXIT_PLAN_MODES,
   EMPTY_REQUESTS,
   useSessionStore,
 } from '@renderer/stores/session-store';
+import { useGlobalRenderMode, type RenderMode } from '@renderer/lib/render-mode';
 import { DiffViewer } from './diff/DiffViewer';
+import { MarkdownText } from './MarkdownText';
 
 interface Props {
   sessionId: string;
@@ -30,8 +34,12 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
   const pendingAskQuestions = useSessionStore(
     (s) => s.pendingAskQuestionsBySession.get(sessionId) ?? EMPTY_ASK_QUESTIONS,
   );
+  const pendingExitPlanModes = useSessionStore(
+    (s) => s.pendingExitPlanModesBySession.get(sessionId) ?? EMPTY_EXIT_PLAN_MODES,
+  );
   const resolvePermission = useSessionStore((s) => s.resolvePermission);
   const resolveAsk = useSessionStore((s) => s.resolveAskQuestion);
+  const resolveExitPlan = useSessionStore((s) => s.resolveExitPlanMode);
   const setPending = useSessionStore((s) => s.setPendingRequests);
   const [loaded, setLoaded] = useState(false);
 
@@ -45,7 +53,7 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     // 不拉的话事件流里的 permission-request 会被错渲成「已处理」按钮不显示。
     if (isSdk) {
       void window.api.listAdapterPending(agentId, sessionId).then((res) => {
-        setPending(sessionId, res.permissions, res.askQuestions);
+        setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes);
       });
     }
   }, [sessionId, agentId, isSdk, setRecent, setPending]);
@@ -59,6 +67,24 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
 
   const pendingPermIds = new Set(pendingPermissions.map((r) => r.requestId));
   const pendingAskIds = new Set(pendingAskQuestions.map((r) => r.requestId));
+  const pendingExitIds = new Set(pendingExitPlanModes.map((r) => r.requestId));
+
+  // 扫一遍历史事件，收集「被 SDK 取消」过的 requestId 三组集合。
+  // SDK 取消 ≠ 用户响应：流终止 / interrupt / 超时时主进程会 emit 一条 `*-cancelled` 事件，
+  // 同时把对应 pending 从 store 删掉。光看 stillPending=false 没法区分「用户拒绝/允许」与「被取消」，
+  // UI 之前用同一句「已响应或已被 SDK 取消」糊在一起，看不出来到底谁动的。
+  const cancelledPermIds = new Set<string>();
+  const cancelledAskIds = new Set<string>();
+  const cancelledExitIds = new Set<string>();
+  for (const e of recent) {
+    if (e.kind !== 'waiting-for-user') continue;
+    const p = (e.payload ?? {}) as { type?: string; requestId?: string };
+    const rid = p.requestId;
+    if (!rid) continue;
+    if (p.type === 'permission-cancelled') cancelledPermIds.add(rid);
+    else if (p.type === 'ask-question-cancelled') cancelledAskIds.add(rid);
+    else if (p.type === 'exit-plan-cancelled') cancelledExitIds.add(rid);
+  }
 
   return (
     // select-text 覆盖全局 `#root { user-select: none }`（globals.css 那条是为了拖窗时不选中文字）。
@@ -75,8 +101,13 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
           isSdk={isSdk}
           pendingPermIds={pendingPermIds}
           pendingAskIds={pendingAskIds}
+          pendingExitIds={pendingExitIds}
+          cancelledPermIds={cancelledPermIds}
+          cancelledAskIds={cancelledAskIds}
+          cancelledExitIds={cancelledExitIds}
           resolvePermission={resolvePermission}
           resolveAsk={resolveAsk}
+          resolveExitPlan={resolveExitPlan}
         />
       ))}
     </ol>
@@ -90,12 +121,17 @@ interface RowProps {
   isSdk: boolean;
   pendingPermIds: Set<string>;
   pendingAskIds: Set<string>;
+  pendingExitIds: Set<string>;
+  cancelledPermIds: Set<string>;
+  cancelledAskIds: Set<string>;
+  cancelledExitIds: Set<string>;
   resolvePermission: (sessionId: string, requestId: string) => void;
   resolveAsk: (sessionId: string, requestId: string) => void;
+  resolveExitPlan: (sessionId: string, requestId: string) => void;
 }
 
 /**
- * 单条事件渲染。把"可操作"的事件（权限请求、AskUserQuestion）直接内嵌按钮，
+ * 单条事件渲染。把"可操作"的事件（权限请求、AskUserQuestion、ExitPlanMode）直接内嵌按钮，
  * 把"信息密集"的事件（Edit 类工具调用、tool result）直接展开 diff/结果，
  * 让用户在活动流里就能完成全部交互，不必跳到顶部 banner。
  */
@@ -106,8 +142,13 @@ function ActivityRow({
   isSdk,
   pendingPermIds,
   pendingAskIds,
+  pendingExitIds,
+  cancelledPermIds,
+  cancelledAskIds,
+  cancelledExitIds,
   resolvePermission,
   resolveAsk,
+  resolveExitPlan,
 }: RowProps): JSX.Element {
   if (event.kind === 'message') {
     return <MessageBubble event={event} />;
@@ -117,6 +158,7 @@ function ActivityRow({
     const p = (event.payload ?? {}) as Record<string, unknown>;
     const type = (p.type as string) ?? '';
     if (type === 'permission-request') {
+      const rid = (p.requestId as string) ?? '';
       return (
         <PermissionRow
           event={event}
@@ -124,12 +166,14 @@ function ActivityRow({
           sessionId={sessionId}
           agentId={agentId}
           isSdk={isSdk}
-          stillPending={pendingPermIds.has((p.requestId as string) ?? '')}
+          stillPending={pendingPermIds.has(rid)}
+          wasCancelled={cancelledPermIds.has(rid)}
           onResolved={resolvePermission}
         />
       );
     }
     if (type === 'ask-user-question') {
+      const rid = (p.requestId as string) ?? '';
       return (
         <AskRow
           event={event}
@@ -137,8 +181,24 @@ function ActivityRow({
           sessionId={sessionId}
           agentId={agentId}
           isSdk={isSdk}
-          stillPending={pendingAskIds.has((p.requestId as string) ?? '')}
+          stillPending={pendingAskIds.has(rid)}
+          wasCancelled={cancelledAskIds.has(rid)}
           onResolved={resolveAsk}
+        />
+      );
+    }
+    if (type === 'exit-plan-mode') {
+      const rid = (p.requestId as string) ?? '';
+      return (
+        <ExitPlanRow
+          event={event}
+          payload={p as unknown as ExitPlanModeRequest}
+          sessionId={sessionId}
+          agentId={agentId}
+          isSdk={isSdk}
+          stillPending={pendingExitIds.has(rid)}
+          wasCancelled={cancelledExitIds.has(rid)}
+          onResolved={resolveExitPlan}
         />
       );
     }
@@ -182,6 +242,21 @@ function MessageBubble({ event }: { event: AgentEvent }): JSX.Element {
   const isUser = role === 'user';
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
 
+  // 渲染模式：默认跟随全局（localStorage 持久化），单条切换会同步全局
+  // → 所有 bubble 一起改，避免「单条偏离全局」要按 message id 存 map 的复杂度
+  const [globalMode, setGlobalMode] = useGlobalRenderMode();
+  const [mode, setMode] = useState<RenderMode>(globalMode);
+  useEffect(() => setMode(globalMode), [globalMode]);
+
+  const toggle = (): void => {
+    const next: RenderMode = mode === 'markdown' ? 'plaintext' : 'markdown';
+    setMode(next);
+    setGlobalMode(next); // 写 localStorage + 广播给其它 bubble
+  };
+
+  // error 消息保留 plaintext，避免 markdown 解析掩盖错误堆栈结构
+  const renderAsMarkdown = mode === 'markdown' && !isError && text.length > 0;
+
   return (
     <li className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`flex max-w-[88%] flex-col ${isUser ? 'items-end' : 'items-start'}`}>
@@ -193,9 +268,21 @@ function MessageBubble({ event }: { event: AgentEvent }): JSX.Element {
           <span>{isUser ? '你' : 'Claude'}</span>
           <span className="text-deck-muted/50">·</span>
           <span className="font-mono tabular-nums text-deck-muted/50">{ts}</span>
+          {!isError && text.length > 0 && (
+            <button
+              type="button"
+              onClick={toggle}
+              title={mode === 'markdown' ? '切换为纯文本' : '切换为 Markdown'}
+              className="ml-1 rounded px-1 font-mono text-[9px] tracking-tight text-deck-muted/70 opacity-60 hover:bg-white/10 hover:text-deck-text hover:opacity-100"
+            >
+              {mode === 'markdown' ? 'MD' : 'TXT'}
+            </button>
+          )}
         </div>
         <div
-          className={`whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed ${
+          className={`break-words rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed ${
+            renderAsMarkdown ? '' : 'whitespace-pre-wrap'
+          } ${
             isError
               ? 'border border-status-waiting/40 bg-status-waiting/10 text-status-waiting'
               : isUser
@@ -203,7 +290,15 @@ function MessageBubble({ event }: { event: AgentEvent }): JSX.Element {
                 : 'border border-deck-border bg-white/[0.04] text-deck-text'
           }`}
         >
-          {text || <span className="text-deck-muted">（空消息）</span>}
+          {text ? (
+            renderAsMarkdown ? (
+              <MarkdownText text={text} />
+            ) : (
+              text
+            )
+          ) : (
+            <span className="text-deck-muted">（空消息）</span>
+          )}
         </div>
       </div>
     </li>
@@ -219,6 +314,7 @@ function PermissionRow({
   agentId,
   isSdk,
   stillPending,
+  wasCancelled,
   onResolved,
 }: {
   event: AgentEvent;
@@ -227,6 +323,7 @@ function PermissionRow({
   agentId: string;
   isSdk: boolean;
   stillPending: boolean;
+  wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
@@ -249,18 +346,30 @@ function PermissionRow({
     }
   };
 
+  // 三态：等待中 / 已被 SDK 取消 / 已响应（用户主动 allow|deny）
+  // 「已取消」整张更暗（opacity-50），左侧细色条提示这条是 SDK 放弃的，不是用户操作；
+  // 「已响应」保持原样的 70% 透明 + 中性灰描边（用户已经处理过的痕迹，不强调）
+  const settled = !stillPending;
+  const cardClass = stillPending
+    ? 'border-status-waiting/40 bg-status-waiting/10'
+    : wasCancelled
+      ? 'border-deck-border/40 bg-white/[0.015] opacity-50'
+      : 'border-deck-border/60 bg-white/[0.02] opacity-70';
+  const statusText = stillPending
+    ? '⚠ 等待授权'
+    : wasCancelled
+      ? '🚫 已被 SDK 取消'
+      : '✅ 已响应';
+  const statusColor = stillPending
+    ? 'text-status-waiting'
+    : wasCancelled
+      ? 'text-deck-muted/70'
+      : 'text-status-working/80';
+
   return (
-    <li
-      className={`rounded-md border p-2 text-[11px] ${
-        stillPending
-          ? 'border-status-waiting/40 bg-status-waiting/10'
-          : 'border-deck-border/60 bg-white/[0.02] opacity-70'
-      }`}
-    >
+    <li className={`rounded-md border p-2 text-[11px] ${cardClass}`}>
       <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-        <span className={stillPending ? 'text-status-waiting' : 'text-deck-muted'}>
-          {stillPending ? '⚠ 等待授权' : '⚪ 已处理'}
-        </span>
+        <span className={statusColor}>{statusText}</span>
         <span className="font-mono">{payload.toolName}</span>
         <span className="font-mono tabular-nums text-deck-muted/60">{ts}</span>
         {stillPending && isSdk && (
@@ -306,8 +415,10 @@ function PermissionRow({
       {!isSdk && (
         <div className="mt-1 text-[10px] text-deck-muted">外部 CLI 会话无法在此回应</div>
       )}
-      {!stillPending && isSdk && (
-        <div className="mt-1 text-[10px] text-deck-muted">已响应或已被 SDK 取消</div>
+      {settled && isSdk && wasCancelled && (
+        <div className="mt-1 text-[10px] text-deck-muted/70">
+          Claude 主动放弃了这次请求（流终止 / interrupt / 超时）
+        </div>
       )}
     </li>
   );
@@ -322,6 +433,7 @@ function AskRow({
   agentId,
   isSdk,
   stillPending,
+  wasCancelled,
   onResolved,
 }: {
   event: AgentEvent;
@@ -330,6 +442,7 @@ function AskRow({
   agentId: string;
   isSdk: boolean;
   stillPending: boolean;
+  wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
 }): JSX.Element {
   const [selections, setSelections] = useState<Record<string, { selected: string[]; other?: string }>>(
@@ -388,12 +501,26 @@ function AskRow({
       className={`rounded-md border p-2 text-[11px] ${
         stillPending
           ? 'border-status-working/40 bg-status-working/10'
-          : 'border-deck-border/60 bg-white/[0.02] opacity-70'
+          : wasCancelled
+            ? 'border-deck-border/40 bg-white/[0.015] opacity-50'
+            : 'border-deck-border/60 bg-white/[0.02] opacity-70'
       }`}
     >
       <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-        <span className={stillPending ? 'text-status-working' : 'text-deck-muted'}>
-          {stillPending ? '❓ Claude 在询问你' : '⚪ 已回答'}
+        <span
+          className={
+            stillPending
+              ? 'text-status-working'
+              : wasCancelled
+                ? 'text-deck-muted/70'
+                : 'text-status-working/80'
+          }
+        >
+          {stillPending
+            ? '❓ Claude 在询问你'
+            : wasCancelled
+              ? '🚫 提问已被取消'
+              : '✅ 已回答'}
         </span>
         {stillPending && (
           <span className="text-deck-muted/80">
@@ -471,6 +598,172 @@ function AskRow({
       {!isSdk && (
         <div className="mt-1 text-[10px] text-deck-muted">外部 CLI 会话无法在此回应</div>
       )}
+      {!stillPending && isSdk && wasCancelled && (
+        <div className="mt-1 text-[10px] text-deck-muted/70">
+          Claude 主动取消了这次提问（流终止 / interrupt / 超时）
+        </div>
+      )}
+    </li>
+  );
+}
+
+// ───────────────────────── ExitPlanMode 行（markdown plan + 二选一按钮）
+
+function ExitPlanRow({
+  event,
+  payload,
+  sessionId,
+  agentId,
+  isSdk,
+  stillPending,
+  wasCancelled,
+  onResolved,
+}: {
+  event: AgentEvent;
+  payload: ExitPlanModeRequest;
+  sessionId: string;
+  agentId: string;
+  isSdk: boolean;
+  stillPending: boolean;
+  wasCancelled: boolean;
+  onResolved: (sessionId: string, requestId: string) => void;
+}): JSX.Element {
+  const [busy, setBusy] = useState(false);
+  // 「继续规划」时可选反馈输入框，默认折叠；点了「继续规划」按钮且 feedback 为空时，
+  // 展开输入框让用户可以补充意见再确认；如果用户已写过反馈直接发送，跳过 confirm 步骤。
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
+  const plan = payload.plan ?? '';
+
+  const respond = async (decision: 'approve' | 'keep-planning'): Promise<void> => {
+    if (!isSdk || !stillPending || busy) return;
+    setBusy(true);
+    try {
+      await window.api.respondExitPlanMode(agentId, sessionId, payload.requestId, {
+        decision,
+        feedback: decision === 'keep-planning' ? feedback.trim() || undefined : undefined,
+      });
+      onResolved(sessionId, payload.requestId);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 「继续规划」按钮：第一次点击展开反馈框（如果还没展开），第二次/已有反馈直接提交。
+  // 实战体验：避免每次都强制弹输入框（用户大概率没意见也想直接驳回），
+  // 但提供一个「写明白哪儿不满意」的入口，比一句空 deny 让 Claude 瞎猜要好。
+  const onClickKeepPlanning = (): void => {
+    if (!showFeedback) {
+      setShowFeedback(true);
+      return;
+    }
+    void respond('keep-planning');
+  };
+
+  return (
+    <li
+      className={`rounded-md border p-2 text-[11px] ${
+        stillPending
+          ? 'border-status-working/40 bg-status-working/10'
+          : wasCancelled
+            ? 'border-deck-border/40 bg-white/[0.015] opacity-50'
+            : 'border-deck-border/60 bg-white/[0.02] opacity-70'
+      }`}
+    >
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+        <span
+          className={
+            stillPending
+              ? 'text-status-working'
+              : wasCancelled
+                ? 'text-deck-muted/70'
+                : 'text-status-working/80'
+          }
+        >
+          {stillPending
+            ? '📋 Claude 提议了一个执行计划'
+            : wasCancelled
+              ? '🚫 计划批准已被取消'
+              : '✅ 已处理'}
+        </span>
+        <span className="font-mono tabular-nums text-deck-muted/60">{ts}</span>
+        {stillPending && isSdk && (
+          <div className="ml-auto flex flex-wrap gap-1">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void respond('approve')}
+              title="批准计划，让 Claude 退出 plan mode 开始执行"
+              className="rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              批准计划，开始执行
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClickKeepPlanning}
+              title={
+                showFeedback
+                  ? feedback.trim()
+                    ? '把反馈发给 Claude，让它修改计划'
+                    : '不写反馈也可以，Claude 会主动询问需要补充哪方面'
+                  : '让 Claude 留在 plan mode 继续修改计划（点击后可写反馈）'
+              }
+              className="rounded border border-deck-border bg-white/[0.06] px-2.5 py-0.5 text-[10px] text-deck-text hover:bg-white/[0.12] disabled:opacity-50"
+            >
+              继续规划
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="rounded border border-deck-border/40 bg-black/20 p-2">
+        <MarkdownText text={plan || '(plan 内容为空)'} />
+      </div>
+      {stillPending && isSdk && showFeedback && (
+        <div className="mt-2 flex flex-col gap-1">
+          <label className="text-[10px] text-deck-muted">
+            可选：告诉 Claude 哪里需要调整（留空也能提交）
+          </label>
+          <textarea
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="比如：步骤 3 不要改 main 进程；先做 UI 验证再写 SDK..."
+            rows={2}
+            disabled={busy}
+            className="w-full resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
+          />
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setShowFeedback(false);
+                setFeedback('');
+              }}
+              className="rounded px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/5"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void respond('keep-planning')}
+              className="rounded bg-deck-text/80 px-2.5 py-0.5 text-[10px] font-semibold text-deck-bg-strong hover:brightness-110 disabled:opacity-40"
+            >
+              发送反馈，继续规划
+            </button>
+          </div>
+        </div>
+      )}
+      {!isSdk && (
+        <div className="mt-1.5 text-[10px] text-deck-muted">外部 CLI 会话无法在此批准，请回到对应终端窗口操作</div>
+      )}
+      {!stillPending && isSdk && wasCancelled && (
+        <div className="mt-1.5 text-[10px] text-deck-muted/70">
+          Claude 主动放弃了这次计划批准请求（流终止 / interrupt / 超时）
+        </div>
+      )}
     </li>
   );
 }
@@ -483,6 +776,32 @@ function ToolStartRow({ event }: { event: AgentEvent }): JSX.Element {
   const detail = describeToolInput(tool, p.toolInput);
   const diff = toolInputToDiff(tool, p.toolInput);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
+
+  // ExitPlanMode：hook 通道走这条路（外部 CLI 跑 PreToolUse 时只能拿到 tool-use-start，
+  // 拿不到 canUseTool 通路 → SDK 通道不会走这里）。直接展开 plan markdown 让用户能看到内容。
+  // 不带按钮（hook 通道无法响应，必须回终端批准）。
+  if (tool === 'ExitPlanMode') {
+    const plan =
+      typeof (p.toolInput as { plan?: unknown })?.plan === 'string'
+        ? (p.toolInput as { plan: string }).plan
+        : '';
+    return (
+      <li className="rounded-md border border-status-working/30 bg-status-working/[0.06] p-2 text-[11px]">
+        <div className="mb-1 flex items-center gap-1.5 text-[10px]">
+          <span>📋</span>
+          <span className="font-mono">ExitPlanMode</span>
+          <span className="text-deck-muted/80">外部 CLI 提议执行计划</span>
+          <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
+        </div>
+        <div className="rounded border border-deck-border/40 bg-black/20 p-2">
+          <MarkdownText text={plan || '(plan 内容为空)'} />
+        </div>
+        <div className="mt-1.5 text-[10px] text-deck-muted">
+          外部 CLI 会话无法在此批准，请回到对应终端窗口操作
+        </div>
+      </li>
+    );
+  }
 
   return (
     <li className="rounded-md border border-deck-border/60 bg-white/[0.02] p-2 text-[11px]">
@@ -542,6 +861,7 @@ function describe(e: AgentEvent): string {
       return `会话开始 · ${(p.cwd as string) ?? ''}`;
     case 'tool-use-start': {
       const tool = (p.toolName as string) ?? '工具';
+      if (tool === 'ExitPlanMode') return '📋 Claude 提议了一个执行计划';
       const detail = describeToolInput(tool, p.toolInput);
       return detail ? `🔧 ${tool} · ${detail}` : `🔧 ${tool}`;
     }
@@ -553,8 +873,10 @@ function describe(e: AgentEvent): string {
       const type = (p.type as string) ?? '';
       if (type === 'permission-request') return `⚠ 等待你授权 ${(p.toolName as string) ?? ''}`;
       if (type === 'ask-user-question') return '❓ Claude 在询问你';
+      if (type === 'exit-plan-mode') return '📋 Claude 提议了一个执行计划';
       if (type === 'permission-cancelled') return '⚪ 权限请求已被 SDK 取消';
       if (type === 'ask-question-cancelled') return '⚪ 提问已被 SDK 取消';
+      if (type === 'exit-plan-cancelled') return '⚪ 计划批准请求已被 SDK 取消';
       return `⚠ 等待你的输入${p.message ? ` · ${p.message as string}` : ''}`;
     }
     case 'finished':
@@ -582,6 +904,13 @@ function describeToolInput(toolName: string, input: unknown): string | null {
     case 'Grep':
     case 'Glob':
       return typeof o.pattern === 'string' ? o.pattern : null;
+    case 'ExitPlanMode': {
+      // 单行简述：取 plan 第一行或第一句话，让 SimpleRow fallback 也能看到大概内容
+      const plan = typeof o.plan === 'string' ? o.plan.trim() : '';
+      if (!plan) return null;
+      const firstLine = plan.split('\n').find((l) => l.trim()) ?? '';
+      return firstLine.slice(0, 80) + (firstLine.length > 80 ? '…' : '');
+    }
     default:
       return null;
   }

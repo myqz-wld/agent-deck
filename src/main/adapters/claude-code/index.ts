@@ -2,6 +2,8 @@ import type { AgentAdapter, AdapterContext, PermissionMode } from '../types';
 import type {
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
+  ExitPlanModeRequest,
+  ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
 } from '@shared/types';
@@ -87,6 +89,15 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     this.bridge.respondAskUserQuestion(sessionId, requestId, answer);
   }
 
+  async respondExitPlanMode(
+    sessionId: string,
+    requestId: string,
+    response: ExitPlanModeResponse,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    this.bridge.respondExitPlanMode(sessionId, requestId, response);
+  }
+
   async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
     await this.bridge.setPermissionMode(sessionId, mode);
@@ -95,14 +106,16 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
   listPending(sessionId: string): {
     permissions: PermissionRequest[];
     askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
   } {
-    if (!this.bridge) return { permissions: [], askQuestions: [] };
+    if (!this.bridge) return { permissions: [], askQuestions: [], exitPlanModes: [] };
     return this.bridge.listPending(sessionId);
   }
 
   listAllPending(): Record<string, {
     permissions: PermissionRequest[];
     askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
   }> {
     if (!this.bridge) return {};
     return this.bridge.listAllPending();

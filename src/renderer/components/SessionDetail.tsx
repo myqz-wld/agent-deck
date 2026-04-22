@@ -10,13 +10,15 @@ import type {
 import { ActivityFeed } from './ActivityFeed';
 import { SummaryView } from './SummaryView';
 import { DiffViewer } from './diff/DiffViewer';
+import { PermissionsView } from './PermissionsView';
 import {
   EMPTY_ASK_QUESTIONS,
+  EMPTY_EXIT_PLAN_MODES,
   EMPTY_REQUESTS,
   useSessionStore,
 } from '@renderer/stores/session-store';
 
-type Tab = 'activity' | 'diff' | 'summary';
+type Tab = 'activity' | 'diff' | 'summary' | 'permissions';
 
 const EMPTY_EVENTS_FOR_TOAST: import('@shared/types').AgentEvent[] = [];
 
@@ -33,34 +35,44 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   /** 最近被 SDK 自动取消的权限/提问，用于 toast 提示「不是你做的，是 SDK 取消的」。 */
   const [cancelToasts, setCancelToasts] = useState<{ id: string; text: string; ts: number }[]>([]);
 
-  /** 留作选择器但目前未渲染 banner —— 活动流的 PermissionRow / AskRow 已统一接管。
-   *  拿一下值用 void 标记 used，免得删 selector 还要清 EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS。 */
+  /** 留作选择器但目前未渲染 banner —— 活动流的 PermissionRow / AskRow / ExitPlanRow 已统一接管。
+   *  拿一下值用 void 标记 used，免得删 selector 还要清 EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES。 */
   const pendingPermissions = useSessionStore(
     (s) => s.pendingPermissionsBySession.get(session.id) ?? EMPTY_REQUESTS,
   );
   const pendingAskQuestions = useSessionStore(
     (s) => s.pendingAskQuestionsBySession.get(session.id) ?? EMPTY_ASK_QUESTIONS,
   );
+  const pendingExitPlanModes = useSessionStore(
+    (s) => s.pendingExitPlanModesBySession.get(session.id) ?? EMPTY_EXIT_PLAN_MODES,
+  );
   void pendingPermissions;
   void pendingAskQuestions;
+  void pendingExitPlanModes;
   const recent = useSessionStore(
     (s) => s.recentEventsBySession.get(session.id) ?? EMPTY_EVENTS_FOR_TOAST,
   );
 
-  // 监听最近一条事件：如果是 SDK 主动取消的权限 / 提问，弹一个 5s toast，
+  // 监听最近一条事件：如果是 SDK 主动取消的权限 / 提问 / 计划批准，弹一个 5s toast，
   // 让用户知道 banner 上那条不是被自己点掉的。
   useEffect(() => {
     const e = recent[0];
     if (!e || e.kind !== 'waiting-for-user') return undefined;
     const p = (e.payload ?? {}) as { type?: string; requestId?: string };
-    if (p.type !== 'permission-cancelled' && p.type !== 'ask-question-cancelled') {
+    if (
+      p.type !== 'permission-cancelled' &&
+      p.type !== 'ask-question-cancelled' &&
+      p.type !== 'exit-plan-cancelled'
+    ) {
       return undefined;
     }
     const id = `${e.ts}-${p.requestId ?? ''}`;
     const text =
       p.type === 'permission-cancelled'
         ? 'Claude 自动取消了一条权限请求'
-        : 'Claude 自动取消了一条提问';
+        : p.type === 'ask-question-cancelled'
+          ? 'Claude 自动取消了一条提问'
+          : 'Claude 自动取消了一次计划批准请求';
     setCancelToasts((prev) => {
       if (prev.some((t) => t.id === id)) return prev;
       return [...prev, { id, text, ts: e.ts }];
@@ -191,7 +203,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
       {/* 权限请求 banner 同样删掉，统一由活动流接管。 */}
 
       <nav className="flex shrink-0 gap-1 border-b border-deck-border/60 px-2 py-1">
-        {(['activity', 'diff', 'summary'] as Tab[]).map((t) => (
+        {(['activity', 'diff', 'summary', 'permissions'] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -200,7 +212,13 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
               tab === t ? 'bg-white/10 text-deck-text' : 'text-deck-muted hover:bg-white/5'
             }`}
           >
-            {t === 'activity' ? '活动' : t === 'diff' ? '改动' : '总结'}
+            {t === 'activity'
+              ? '活动'
+              : t === 'diff'
+                ? '改动'
+                : t === 'summary'
+                  ? '总结'
+                  : '权限'}
           </button>
         ))}
       </nav>
@@ -210,6 +228,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} />
         )}
         {tab === 'summary' && <SummaryView sessionId={session.id} />}
+        {tab === 'permissions' && <PermissionsView cwd={session.cwd} />}
         {tab === 'diff' && (
           <div className="flex h-full flex-col gap-2">
             {changes === null ? (
@@ -422,6 +441,18 @@ function ComposerSdk({
   const send = async (): Promise<void> => {
     const t = text.trim();
     if (!t || busy) return;
+    // SDK streaming mode 不支持 slash 命令——CLI 那套 slash command 注册表
+    // 在 SDK 模式下不存在，'/clear' / '/compact' / '/cost' 等都会让 SDK 抛
+    // "Unknown slash command" 或 "only prompt commands are supported in streaming mode"。
+    // 在入口拦截，给本地提示比让用户撞神秘 SDK 报错友好；不清空输入框，
+    // 让用户能改成普通文本继续发。
+    if (t.startsWith('/')) {
+      setSendError(
+        '应用内会话不支持斜杠命令（如 /clear /compact /cost）。' +
+          '如需使用这些命令，请回终端运行 `claude`。',
+      );
+      return;
+    }
     // 乐观清空，跟 resume 一致：让用户立刻感觉「发出去了」
     setText('');
     setBusy(true);

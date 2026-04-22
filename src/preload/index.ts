@@ -4,8 +4,11 @@ import type {
   AgentEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
+  ExitPlanModeRequest,
+  ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
+  PermissionScanResult,
   SessionRecord,
   SummaryRecord,
 } from '@shared/types';
@@ -85,6 +88,19 @@ const api = {
       requestId,
       answer,
     ),
+  respondExitPlanMode: (
+    agentId: string,
+    sessionId: string,
+    requestId: string,
+    response: ExitPlanModeResponse,
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterRespondExitPlanMode,
+      agentId,
+      sessionId,
+      requestId,
+      response,
+    ),
   setAdapterPermissionMode: (
     agentId: string,
     sessionId: string,
@@ -96,12 +112,23 @@ const api = {
   listAdapterPending: (
     agentId: string,
     sessionId: string,
-  ): Promise<{ permissions: PermissionRequest[]; askQuestions: AskUserQuestionRequest[] }> =>
-    ipcRenderer.invoke(IpcInvoke.AdapterListPending, agentId, sessionId),
+  ): Promise<{
+    permissions: PermissionRequest[];
+    askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
+  }> => ipcRenderer.invoke(IpcInvoke.AdapterListPending, agentId, sessionId),
   listAdapterPendingAll: (
     agentId: string,
-  ): Promise<Record<string, { permissions: PermissionRequest[]; askQuestions: AskUserQuestionRequest[] }>> =>
-    ipcRenderer.invoke(IpcInvoke.AdapterListPendingAll, agentId),
+  ): Promise<
+    Record<
+      string,
+      {
+        permissions: PermissionRequest[];
+        askQuestions: AskUserQuestionRequest[];
+        exitPlanModes: ExitPlanModeRequest[];
+      }
+    >
+  > => ipcRenderer.invoke(IpcInvoke.AdapterListPendingAll, agentId),
 
   // Dialog
   chooseDirectory: (defaultPath?: string): Promise<string | null> =>
@@ -122,6 +149,16 @@ const api = {
     cancelLabel?: string;
     destructive?: boolean;
   }): Promise<boolean> => ipcRenderer.invoke(IpcInvoke.DialogConfirm, opts),
+
+  /** 扫描会话 cwd 对应的三层 Claude Code settings.json，返回原文 + 合并视图 */
+  scanCwdSettings: (cwd: string): Promise<PermissionScanResult> =>
+    ipcRenderer.invoke(IpcInvoke.PermissionScanCwd, cwd),
+  /** 用系统默认应用打开 settings 文件；main 端会校验 path 必须是该 cwd 的候选路径之一 */
+  openPermissionFile: (
+    cwd: string,
+    path: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke(IpcInvoke.PermissionOpenFile, cwd, path),
 
   // 事件订阅
   onAgentEvent: (cb: (e: AgentEvent) => void): (() => void) => {

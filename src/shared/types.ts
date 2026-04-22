@@ -124,6 +124,31 @@ export interface AskUserQuestionAnswer {
   answers: { question: string; selected: string[]; other?: string }[];
 }
 
+// ───────────────────────────────────────────────────────── Exit-Plan-Mode
+
+/**
+ * Claude Code 的 ExitPlanMode 工具：在 plan mode 下 Claude 完成规划后，
+ * 调用此工具向用户「提议执行此计划」。SDK 通道里跟 AskUserQuestion 一样
+ * 走独立通路：UI 渲染 markdown plan + 「批准 / 继续规划」二选一按钮。
+ *
+ * 语义：
+ * - 批准 → SDK canUseTool 返回 allow，Claude 工具调用成功 → 退出 plan mode 开始执行
+ * - 继续规划 → SDK canUseTool 返回 deny + 用户反馈 message，Claude 留在 plan mode 修计划
+ */
+export interface ExitPlanModeRequest {
+  type: 'exit-plan-mode';
+  requestId: string;
+  toolUseId?: string;
+  /** plan 内容，通常是 markdown 文本（从 toolInput.plan 取） */
+  plan: string;
+}
+
+export interface ExitPlanModeResponse {
+  decision: 'approve' | 'keep-planning';
+  /** decision='keep-planning' 时可选用户反馈，会拼进给 Claude 的 deny.message */
+  feedback?: string;
+}
+
 // ───────────────────────────────────────────────────────── File Changes / Diff
 
 export interface FileChangeRecord {
@@ -204,4 +229,70 @@ export interface HookInstallStatus {
   scope: 'user' | 'project' | null;
   settingsPath: string | null;
   installedHooks: string[];
+}
+
+// ───────────────────────────────────────────────────────── Permission Settings Scan
+
+/**
+ * Claude Code 的 settings 三层来源（与 SDK `settingSources: ['user','project','local']` 对齐）。
+ * - user: ~/.claude/settings.json
+ * - project: <cwd>/.claude/settings.json
+ * - local: <cwd>/.claude/settings.local.json
+ */
+export type SettingsSource = 'user' | 'project' | 'local';
+
+/** 每层 settings.json 解析出的 permissions 字段（按 SDK schema 抽取，未知字段忽略）。 */
+export interface SettingsPermissionsBlock {
+  allow: string[];
+  deny: string[];
+  ask: string[];
+  additionalDirectories: string[];
+  defaultMode: string | null;
+}
+
+/** 单层 settings 文件的扫描结果。文件不存在也会返回（exists=false + raw=null）。 */
+export interface SettingsLayer {
+  source: SettingsSource;
+  /** 推断出的绝对路径，无论是否存在 */
+  path: string;
+  exists: boolean;
+  /** 原文（pretty-print 后），文件不存在为 null */
+  raw: string | null;
+  /** JSON.parse 结果，解析失败 / 文件不存在为 null */
+  parsed: unknown | null;
+  /** 解析失败时记错误消息 */
+  parseError: string | null;
+  /** 提取出的 permissions 块；不存在 / 解析失败时为 null */
+  permissions: SettingsPermissionsBlock | null;
+}
+
+/** 合并视图：去重后每条规则带来源层标签。 */
+export interface MergedRule {
+  rule: string;
+  sources: SettingsSource[];
+}
+
+export interface MergedDirectory {
+  dir: string;
+  sources: SettingsSource[];
+}
+
+export interface MergedPermissions {
+  allow: MergedRule[];
+  deny: MergedRule[];
+  ask: MergedRule[];
+  additionalDirectories: MergedDirectory[];
+  /** local > project > user 倒序找第一个非 null */
+  defaultMode: { value: string; source: SettingsSource } | null;
+}
+
+export interface PermissionScanResult {
+  /** 入参 cwd 原值（trim 后；为空时 main 进程会替换成 homedir，并在 cwdResolved 标记） */
+  cwd: string;
+  /** 实际用于解析 project / local 的 cwd（兜底为 homedir） */
+  cwdResolved: string;
+  user: SettingsLayer;
+  project: SettingsLayer;
+  local: SettingsLayer;
+  merged: MergedPermissions;
 }

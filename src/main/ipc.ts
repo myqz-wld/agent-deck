@@ -1,4 +1,4 @@
-import { app, ipcMain, dialog, nativeImage, Notification, type IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain, dialog, nativeImage, Notification, shell, type IpcMainInvokeEvent } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -14,6 +14,7 @@ import { adapterRegistry } from './adapters/registry';
 import { eventBus } from './event-bus';
 import { getLifecycleScheduler } from './session/lifecycle-scheduler';
 import { playSoundOnce } from './notify/sound';
+import { scanCwdSettings, getCandidatePaths } from './permissions/scanner';
 import type { AppSettings } from '@shared/types';
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>;
@@ -195,6 +196,18 @@ export function bootstrapIpc(): void {
     );
     return true;
   });
+  on(IpcInvoke.AdapterRespondExitPlanMode, async (_e, agentId, sessionId, requestId, response) => {
+    const adapter = adapterRegistry.get(String(agentId));
+    if (!adapter?.respondExitPlanMode) {
+      throw new Error('adapter cannot respond to ExitPlanMode');
+    }
+    await adapter.respondExitPlanMode(
+      String(sessionId),
+      String(requestId),
+      response as Parameters<NonNullable<typeof adapter.respondExitPlanMode>>[2],
+    );
+    return true;
+  });
   on(IpcInvoke.AdapterSetPermissionMode, async (_e, agentId, sessionId, mode) => {
     const adapter = adapterRegistry.get(String(agentId));
     if (!adapter?.setPermissionMode) throw new Error('adapter cannot set permission mode');
@@ -210,7 +223,7 @@ export function bootstrapIpc(): void {
 
   on(IpcInvoke.AdapterListPending, (_e, agentId, sessionId) => {
     const adapter = adapterRegistry.get(String(agentId));
-    if (!adapter?.listPending) return { permissions: [], askQuestions: [] };
+    if (!adapter?.listPending) return { permissions: [], askQuestions: [], exitPlanModes: [] };
     return adapter.listPending(String(sessionId));
   });
   on(IpcInvoke.AdapterListPendingAll, (_e, agentId) => {
@@ -303,5 +316,24 @@ export function bootstrapIpc(): void {
       ? await dialog.showMessageBox(win, showOpts)
       : await dialog.showMessageBox(showOpts);
     return r.response === 0; // 0 = ok, 1 = cancel
+  });
+
+  // Permissions: 扫描 cwd 对应的三层 settings.json，纯只读
+  on(IpcInvoke.PermissionScanCwd, async (_e, cwd) => {
+    return scanCwdSettings(String(cwd ?? ''));
+  });
+
+  // Permissions: 用系统默认应用打开某个 settings.json。为防越权（renderer 传任意 path 直接 openPath），
+  // 严格校验 path 必须是该 cwd 的三个候选路径之一（user / project / local）。
+  on(IpcInvoke.PermissionOpenFile, async (_e, cwd, path) => {
+    const candidates = getCandidatePaths(String(cwd ?? ''));
+    const allowed = new Set([candidates.user, candidates.project, candidates.local]);
+    const target = String(path ?? '');
+    if (!allowed.has(target)) {
+      return { ok: false, reason: 'path not in candidate list' };
+    }
+    // shell.openPath 文件不存在时返回非空错误字符串；我们把它当作业务失败回传给前端。
+    const errorMsg = await shell.openPath(target);
+    return errorMsg ? { ok: false, reason: errorMsg } : { ok: true };
   });
 }

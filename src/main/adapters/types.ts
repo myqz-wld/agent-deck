@@ -3,6 +3,8 @@ import type {
   AgentEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
+  ExitPlanModeRequest,
+  ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
 } from '@shared/types';
@@ -61,16 +63,23 @@ export interface AgentAdapter {
     requestId: string,
     answer: AskUserQuestionAnswer,
   ): Promise<void>;
+  respondExitPlanMode?(
+    sessionId: string,
+    requestId: string,
+    response: ExitPlanModeResponse,
+  ): Promise<void>;
   setPermissionMode?(sessionId: string, mode: PermissionMode): Promise<void>;
 
   /** 重启 / HMR 后 renderer store 会丢 pending 列表；这里给一次快照重建 UI。 */
   listPending?(sessionId: string): {
     permissions: PermissionRequest[];
     askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
   };
   listAllPending?(): Record<string, {
     permissions: PermissionRequest[];
     askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
   }>;
   /** 运行时调权限超时阈值（settings 改动 → bridge 即改即生效）。 */
   setPermissionTimeoutMs?(ms: number): void;

@@ -29,6 +29,7 @@ export const IpcInvoke = {
   AdapterSendMessage: 'adapter:send-message',
   AdapterRespondPermission: 'adapter:respond-permission',
   AdapterRespondAskUserQuestion: 'adapter:respond-ask-user-question',
+  AdapterRespondExitPlanMode: 'adapter:respond-exit-plan-mode',
   AdapterSetPermissionMode: 'adapter:set-permission-mode',
   AdapterListPending: 'adapter:list-pending',
   AdapterListPendingAll: 'adapter:list-pending-all',
@@ -38,6 +39,10 @@ export const IpcInvoke = {
   AppPlayTestSound: 'app:play-test-sound',
   AppShowTestNotification: 'app:show-test-notification',
   DialogConfirm: 'dialog:confirm',
+  /** 扫描 cwd 对应的三层 Claude Code settings（user / project / local），返回原文 + 合并视图 */
+  PermissionScanCwd: 'permission:scan-cwd',
+  /** 用系统默认应用打开 settings 文件；为防越权，main 端会校验 path 必须是该 cwd 的三个候选路径之一 */
+  PermissionOpenFile: 'permission:open-file',
 } as const;
 
 export const IpcEvent = {

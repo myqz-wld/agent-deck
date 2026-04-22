@@ -102,7 +102,8 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
             {rows.map((s) => (
               <li
                 key={s.id}
-                className="rounded-md border border-deck-border bg-white/[0.02] px-3 py-2 hover:bg-white/[0.05]"
+                onClick={() => onSelect(s.id)}
+                className="cursor-pointer rounded-md border border-deck-border bg-white/[0.02] px-3 py-2 hover:bg-white/[0.05]"
               >
                 <div className="flex items-center gap-2">
                   <StatusBadge
@@ -110,10 +111,7 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                     lifecycle={s.lifecycle}
                     archived={s.archivedAt !== null}
                   />
-                  <div
-                    onClick={() => onSelect(s.id)}
-                    className="flex-1 cursor-pointer truncate text-[12px] font-medium hover:text-white"
-                  >
+                  <div className="flex-1 truncate text-[12px] font-medium hover:text-white">
                     {s.title}
                   </div>
                   <span className="text-[9px] text-deck-muted/60">{s.agentId}</span>
@@ -129,7 +127,10 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                       <button
                         type="button"
                         className="hover:text-deck-text"
-                        onClick={() => void unarchive(s.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void unarchive(s.id);
+                        }}
                       >
                         取消归档
                       </button>
@@ -137,7 +138,10 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                       <button
                         type="button"
                         className="hover:text-deck-text"
-                        onClick={() => void archive(s.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void archive(s.id);
+                        }}
                       >
                         归档
                       </button>
@@ -145,7 +149,10 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                     <button
                       type="button"
                       className="text-status-waiting/80 hover:text-status-waiting"
-                      onClick={() => void remove(s.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void remove(s.id);
+                      }}
                     >
                       删除
                     </button>

@@ -157,6 +157,12 @@ function formatEventsForPrompt(events: AgentEvent[]): string {
           .filter(Boolean)
           .join(' / ');
         lines.push(`[Claude 主动询问用户] ${truncate(qText || '(无文本)', 240)}`);
+      } else if (type === 'exit-plan-mode') {
+        // ExitPlanMode 不在 prompt 里展开整段 plan（plan 通常很长会撑爆 token），
+        // 取首行作为 hint，让 LLM 知道当前 Claude 在等用户批准计划。
+        const plan = typeof p.plan === 'string' ? p.plan : '';
+        const firstLine = plan.split('\n').find((l) => l.trim()) ?? '';
+        lines.push(`[Claude 提议执行计划] ${truncate(firstLine || '(空 plan)', 200)}`);
       } else if (type === 'permission-request') {
         const tool = (p.toolName as string) || '';
         lines.push(`[Claude 请求工具权限] ${tool}`);
