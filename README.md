@@ -308,6 +308,12 @@ pnpm dist          # 产出 release/Agent Deck-x.y.z.dmg + release/mac-arm64/Age
 
 ### 安装到本机（macOS，非签名）
 ```bash
+# 0. 杀掉所有旧实例（必做！macOS 复用同 bundle id 的活进程，
+#    不杀会出现「旧 main + 新资源」chunk hash 错配，monaco 等 dynamic import 会被
+#    渲染成一坨 plain text 源码——CHANGELOG_26 实测踩坑）
+pkill -f "Agent Deck.app/Contents/MacOS/Agent Deck" 2>/dev/null
+pkill -f "Agent Deck Helper" 2>/dev/null
+
 # 1. 出 dmg + .app
 rm -rf release && pnpm dist
 
@@ -329,10 +335,11 @@ ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/loc
 agent-deck new --prompt "ping"
 ```
 
-打包配置上有几个不能改回去的设定（CHANGELOG_16 / CHANGELOG_21）：
+打包配置上有几个不能改回去的设定（CHANGELOG_16 / CHANGELOG_21 / CHANGELOG_26）：
 - `package.json > build.mac.icon = "resources/icon.png"` —— 没这一行 electron-builder 会找 `resources/icons/` 多分辨率集，找不到就报 `icon directory ... doesn't contain icons` 然后 dmg 出不来
 - `package.json > build.extraResources` 把 `resources/bin → bin` —— 不显式拷的话 `Agent Deck.app/Contents/Resources/bin/agent-deck` 不会出现，wrapper 链就断了
 - `codesign --force --deep --sign -` 必须做，让 .app 的签名 Identifier 与 CFBundleIdentifier 一致；否则系统通知 / 权限设置可能挂在「Electron」名下找不到
+- 重装前 `pkill` 必须做（步骤 0），否则旧 main 进程被 macOS 复用，renderer 的 chunk hash 与新 .app 资源对不上，dynamic import 拉错文件会被当 plain text 渲染（窗口里直接出现 monaco-editor 源码片段）
 
 ### 验证 Hook 通道（无需 dev 窗口）
 ```bash

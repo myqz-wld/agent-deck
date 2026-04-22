@@ -170,6 +170,14 @@ pnpm dev
 每次想体验"装好的版本"或者验证 wrapper 能不能从 .app 找到 → 完整跑一遍：
 
 ```bash
+# 0. 杀掉所有旧实例（必做！）
+#    macOS 同 bundle id 的活进程会被复用，不杀就会出现「旧 main 进程 + 新 .app 资源」
+#    错配：renderer 还引用旧 hash 的 chunk 文件名（如 index-OLDHASH.js），
+#    新 .app 里只有新 hash chunk，dynamic import（比如 monaco）拉到错的文件
+#    会被当成 plain text 渲染——典型症状是窗口里直接出现一坨 monaco-editor 源码。
+pkill -f "Agent Deck.app/Contents/MacOS/Agent Deck" 2>/dev/null
+pkill -f "Agent Deck Helper" 2>/dev/null
+
 # 1. 出 dmg + .app（约 1 分钟）
 rm -rf release && pnpm dist
 
@@ -199,6 +207,7 @@ ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/loc
 - **`extraResources` 必须把 `resources/bin` 显式 copy 到 `bin`**。`buildResources` 目录本身不会被打进 .app，wrapper 需要靠这个段落才能出现在 `Agent Deck.app/Contents/Resources/bin/agent-deck`
 - 没配 `Developer ID Application` 证书 → electron-builder 跳过签名，正常；但首次开 .app 必须 `xattr -dr com.apple.quarantine` 才能跑
 - **ad-hoc 重签必须做（dist 后第 3 步）**：electron-builder 跳过签名后，`codesign -dvv` 看到的 Identifier 是 `Electron`（Electron 二进制 linker 阶段就 ad-hoc 签了，identifier 是 'Electron'），与 Info.plist 里 `com.agentdeck.app` 不一致。macOS 通知中心 / Gatekeeper / 部分系统服务 会按 codesign Identifier 注册，不重签会导致通知归在「Electron」名下而不是「Agent Deck」。`codesign --force --deep --sign - .app` 用 ad-hoc identity 重签整个 bundle，把 Identifier 拉回 `com.agentdeck.app`
+- **重装前必须 pkill 旧进程（第 0 步）**：macOS 复用同 bundle id 的活进程，重装只是覆盖磁盘文件，旧 main 进程在内存里继续跑。这时旧 renderer 引用的 `index-OLDHASH.js` 已经被新 .app 的 `index-NEWHASH.js` 顶掉，dynamic import（`TextDiffRenderer.tsx` 里的 `import('@monaco-editor/react')` 是典型）拉的 chunk URL 全部 404。Electron webview 对 404 资源的回落是把请求到的内容（可能是 fallback / 错误页 / 别的 chunk）当 plain text 显示——症状是窗口里直接出现一大段 monaco-editor 源码。**解决：dist 前 pkill；不要靠点 dock 红点退出，因为后台 helper / utility 进程不一定跟着走**
 
 ### 验证
 
