@@ -17,6 +17,7 @@ import {
 } from '@renderer/stores/session-store';
 import { DiffViewer } from './diff/DiffViewer';
 import { MarkdownText } from './MarkdownText';
+import { ImageThumb } from './ImageThumb';
 
 /**
  * 消息气泡渲染模式。CHANGELOG_34 把 MD/TXT 切换从「全局共享」改成「每条独立」之后，
@@ -221,7 +222,7 @@ function ActivityRow({
   }
 
   if (event.kind === 'tool-use-end') {
-    return <ToolEndRow event={event} />;
+    return <ToolEndRow event={event} sessionId={sessionId} />;
   }
 
   return <SimpleRow event={event} />;
@@ -836,16 +837,26 @@ function ToolStartRow({
   );
 }
 
-// ───────────────────────── tool-use-end（result 折叠/展开）
+// ───────────────────────── tool-use-end（result 折叠/展开 + image-read 缩略图卡片）
 
-function ToolEndRow({ event }: { event: AgentEvent }): JSX.Element {
+function ToolEndRow({
+  event,
+  sessionId,
+}: {
+  event: AgentEvent;
+  sessionId: string;
+}): JSX.Element {
   const p = (event.payload ?? {}) as Record<string, unknown>;
   const tool = (p.toolName as string) ?? '工具';
-  const result = p.toolResult;
+  const result = p.toolResult ?? p.toolResponse;
   const [open, setOpen] = useState(false);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const text = formatToolResult(result);
   const hasContent = text && text.trim().length > 0;
+
+  // 尝试解析为 mcp 图片工具结果；image-read 走特殊渲染（缩略图 + 描述）
+  // 其他 image-* kinds 不需要在 ToolEndRow 显示 — 由 file-changed → ImageDiffRenderer 接管
+  const imageRead = parseImageReadResult(result);
 
   return (
     <li className="rounded-md border border-deck-border/40 bg-white/[0.015] p-2 text-[11px]">
@@ -856,9 +867,32 @@ function ToolEndRow({ event }: { event: AgentEvent }): JSX.Element {
         className="flex w-full items-center gap-1.5 text-left disabled:cursor-default"
       >
         <span>{hasContent ? (open ? '▾' : '▸') : '·'}</span>
-        <span>{tool} 完成</span>
+        <span>
+          {imageRead ? '🖼 ImageRead' : tool} 完成
+          {imageRead?.provider && (
+            <span className="ml-1.5 text-[9px] text-deck-muted/70">
+              [{imageRead.provider}
+              {imageRead.model ? ` · ${imageRead.model}` : ''}]
+            </span>
+          )}
+        </span>
         <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
       </button>
+      {imageRead && (
+        <div className="mt-2 flex gap-2">
+          <ImageThumb
+            sessionId={sessionId}
+            source={{ kind: 'path', path: imageRead.file }}
+            size="md"
+          />
+          <div className="flex-1 overflow-hidden">
+            <div className="text-[9px] uppercase tracking-wider text-deck-muted">描述</div>
+            <div className="mt-0.5 max-h-40 overflow-auto scrollbar-deck whitespace-pre-wrap text-[11px] text-deck-text/90">
+              {imageRead.description}
+            </div>
+          </div>
+        </div>
+      )}
       {open && hasContent && (
         <pre className="mt-1 max-h-64 overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
           {text}
@@ -866,6 +900,58 @@ function ToolEndRow({ event }: { event: AgentEvent }): JSX.Element {
       )}
     </li>
   );
+}
+
+/**
+ * 解析 toolResult 是不是 mcp ImageRead 的结构化返回。
+ * agent-deck-image-mcp 把 ImageToolResult JSON.stringify 后塞在 content[0].text 里。
+ * 这里宽松解析（兼容 string content / Block[] content 两种形态），匹配 kind === 'image-read' 才返回。
+ */
+function parseImageReadResult(content: unknown): {
+  file: string;
+  description: string;
+  provider?: string;
+  model?: string;
+} | null {
+  if (content == null) return null;
+  const tryParse = (s: string): unknown => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+  let parsed: unknown = null;
+  if (typeof content === 'string') {
+    parsed = tryParse(content);
+  } else if (Array.isArray(content)) {
+    for (const b of content) {
+      if (b && typeof b === 'object') {
+        const bb = b as { type?: string; text?: string };
+        if (bb.type === 'text' && typeof bb.text === 'string') {
+          parsed = tryParse(bb.text);
+          if (parsed) break;
+        }
+      }
+    }
+  }
+  const v = parsed as
+    | {
+        kind?: string;
+        file?: unknown;
+        description?: unknown;
+        provider?: unknown;
+        model?: unknown;
+      }
+    | null;
+  if (!v || v.kind !== 'image-read') return null;
+  if (typeof v.file !== 'string' || typeof v.description !== 'string') return null;
+  return {
+    file: v.file,
+    description: v.description,
+    ...(typeof v.provider === 'string' ? { provider: v.provider } : {}),
+    ...(typeof v.model === 'string' ? { model: v.model } : {}),
+  };
 }
 
 // ───────────────────────── helpers

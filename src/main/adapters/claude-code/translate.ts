@@ -112,11 +112,11 @@ export function parseImageToolResult(content: unknown): ImageToolResult | null {
 /**
  * 把一条 ImageToolResult 翻译成 0~N 条 file-changed payload。
  *
- * - image-read  → 0 条（不进 file_changes 表，由活动流的缩略图覆盖）
- * - image-write → 1 条：before=null, after=path
- * - image-edit  → 1 条：before/after 各指向 server 快照路径
- * - image-multi-edit → N 条，filePath 都用 result.file（让 SessionDetail 按文件分组聚合到一起）
- *   每条 metadata 带 editIndex / total / prompt
+ * - image-read  → 0 条（不进 file_changes 表，由活动流的「缩略图 + 描述」卡片覆盖）
+ * - image-write → 1 条：before=null, after=path（文生图新文件）；metadata 带 prompt / provider / model
+ * - image-edit  → 1 条：before/after 各指向 server 快照路径；metadata 带 prompt / provider / model
+ * - image-multi-edit → N 条，filePath 都用 result.file（同一张图，让 SessionDetail 按文件分组聚合）
+ *   每条 metadata 带 editIndex / total / prompt / provider / model
  */
 export function imageResultToFileChanges(
   result: ImageToolResult,
@@ -134,6 +134,9 @@ export function imageResultToFileChanges(
           after: { kind: 'path', path: result.file },
           metadata: {
             source: 'ImageWrite',
+            prompt: result.prompt,
+            ...(result.provider ? { provider: result.provider } : {}),
+            ...(result.model ? { model: result.model } : {}),
             ...(result.mime ? { mime: result.mime } : {}),
           },
           toolCallId: toolUseId,
@@ -149,6 +152,8 @@ export function imageResultToFileChanges(
           metadata: {
             source: 'ImageEdit',
             prompt: result.prompt,
+            ...(result.provider ? { provider: result.provider } : {}),
+            ...(result.model ? { model: result.model } : {}),
             ...(result.mime ? { mime: result.mime } : {}),
           },
           toolCallId: toolUseId,
@@ -165,6 +170,8 @@ export function imageResultToFileChanges(
           prompt: e.prompt,
           editIndex: i,
           total: result.edits.length,
+          ...(result.provider ? { provider: result.provider } : {}),
+          ...(result.model ? { model: result.model } : {}),
         },
         toolCallId: toolUseId,
       }));

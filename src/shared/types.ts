@@ -189,7 +189,14 @@ export type ImageSource =
 /**
  * 本地 MCP server 暴露的图片工具的 tool_result 形态约定。
  * MCP server 在 `tool_result.content` 中放一个 `{type:'text', text: JSON.stringify(<下面这个>)}`，
- * agent-deck 解析后翻译成 file-changed 事件 + DiffPayload<ImageSource>。
+ * agent-deck 解析后翻译成 file-changed 事件 + DiffPayload<ImageSource>（image-write/edit/multi-edit），
+ * 或直接在活动流卡片里展示（image-read 不进 file-changed，UI 显示缩略图 + LLM 描述）。
+ *
+ * 工具语义（与 agent-deck-image-mcp 仓库一致）：
+ * - ImageRead       = vision LLM 理解一张图，返回文字描述（不写盘）
+ * - ImageWrite      = 文生图（prompt → 新图）写入 file_path
+ * - ImageEdit       = 图生图（原图 + prompt → 新图）覆盖 file_path
+ * - ImageMultiEdit  = 同一张图串行多次图生图（与文本 MultiEdit 对称）
  *
  * 路径要求：所有 file / beforeFile / afterFile 必须是**绝对路径**。
  * - file 是用户视角的真实文件路径（== input.file_path），工具完成后磁盘上的内容 == afterFile
@@ -199,22 +206,44 @@ export type ImageSource =
  * - 所有 edits 串行作用在「同一张图」（input 的 file_path）上
  * - 第 i 条 edit 的 beforeFile = 上一条的 afterFile（i=0 时 = 原图快照）
  * - agent-deck 把 N 条 edit 拆成 N 条独立的 file-changed 事件（filePath 都用 result.file），
- *   metadata 带 editIndex / total / prompt，让 SessionDetail 时间线天然展示「演进步骤」
+ *   metadata 带 editIndex / total / prompt / provider / model，让 SessionDetail 时间线天然展示「演进步骤」
  */
 export type ImageToolResult =
-  | { kind: 'image-read'; file: string; mime?: string; width?: number; height?: number }
-  | { kind: 'image-write'; file: string; mime?: string }
+  | {
+      kind: 'image-read';
+      file: string;
+      /** vision LLM 对这张图的描述（agent-deck 在活动流缩略图旁展示） */
+      description: string;
+      /** vision provider 名（'gemini' / 'openai' / ...），用于 UI 标注与调试 */
+      provider?: string;
+      model?: string;
+      mime?: string;
+      width?: number;
+      height?: number;
+    }
+  | {
+      kind: 'image-write';
+      file: string;
+      prompt: string;
+      provider?: string;
+      model?: string;
+      mime?: string;
+    }
   | {
       kind: 'image-edit';
       file: string;
       beforeFile: string;
       afterFile: string;
       prompt: string;
+      provider?: string;
+      model?: string;
       mime?: string;
     }
   | {
       kind: 'image-multi-edit';
       file: string;
+      provider?: string;
+      model?: string;
       edits: Array<{
         beforeFile: string;
         afterFile: string;
