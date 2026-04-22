@@ -1,5 +1,6 @@
 import { useState, type JSX } from 'react';
 import type { AgentEvent, SessionRecord } from '@shared/types';
+import { isImageTool } from '@shared/mcp-tools';
 import { StatusBadge } from './StatusBadge';
 import { useSessionStore } from '@renderer/stores/session-store';
 
@@ -211,8 +212,13 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
       return typeof o.pattern === 'string' ? o.pattern : null;
     case 'TodoWrite':
       return null;
-    default:
+    default: {
+      // 兜底：mcp 图片工具（mcp__<server>__Image*）也走 file_path 摘要
+      if (isImageTool(toolName) && typeof o.file_path === 'string') {
+        return shortenPath(o.file_path);
+      }
       return null;
+    }
   }
 }
 

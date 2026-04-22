@@ -10,6 +10,7 @@ export const IpcInvoke = {
   WindowMinimize: 'window:minimize',
   WindowToggleCompact: 'window:toggle-compact',
   SessionList: 'session:list',
+  SessionListHistory: 'session:list-history',
   SessionGet: 'session:get',
   SessionArchive: 'session:archive',
   SessionUnarchive: 'session:unarchive',
@@ -43,6 +44,12 @@ export const IpcInvoke = {
   PermissionScanCwd: 'permission:scan-cwd',
   /** 用系统默认应用打开 settings 文件；为防越权，main 端会校验 path 必须是该 cwd 的三个候选路径之一 */
   PermissionOpenFile: 'permission:open-file',
+  /**
+   * 按需读取一张图片为 dataURL 供 renderer 渲染。
+   * 主进程做白名单（path 必须出现在该 session 的 file_changes / tool-use-start 事件里）+ 扩展名 + 大小校验，
+   * 防止 renderer 越权读任意磁盘文件。失败不抛错，返回 { ok:false, reason }。
+   */
+  ImageLoadBlob: 'image:load-blob',
 } as const;
 
 export const IpcEvent = {

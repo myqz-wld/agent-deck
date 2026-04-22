@@ -109,10 +109,13 @@ export function App(): JSX.Element {
     };
   }, [sessions]);
 
-  // pending 计数：把所有 session 上挂着的权限/提问数加起来 + 找第一个有 pending 的 session id；
+  // pending 计数：把所有 session 上挂着的权限/提问/计划批准数加起来 + 找第一个有 pending 的 session id；
   // 点 chip 直接跳过去，避免 pending 被滚到视口外用户看不见。
+  // 三类 pending（PermissionRequest / AskUserQuestion / ExitPlanMode）都要算 —— ExitPlanMode 也走
+  // canUseTool 拦截、也是「等用户响应才放行 SDK」，UX 上就是同一类「待处理」，不能漏。
   const pendingPermsMap = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsksMap = useSessionStore((s) => s.pendingAskQuestionsBySession);
+  const pendingExitsMap = useSessionStore((s) => s.pendingExitPlanModesBySession);
   const pending = useMemo(() => {
     let total = 0;
     let firstSid: string | null = null;
@@ -128,8 +131,14 @@ export function App(): JSX.Element {
         if (!firstSid) firstSid = sid;
       }
     }
+    for (const [sid, list] of pendingExitsMap) {
+      if (list.length > 0) {
+        total += list.length;
+        if (!firstSid) firstSid = sid;
+      }
+    }
     return { total, firstSid };
-  }, [pendingPermsMap, pendingAsksMap]);
+  }, [pendingPermsMap, pendingAsksMap, pendingExitsMap]);
 
   const jumpToPending = (): void => {
     if (!pending.firstSid) return;

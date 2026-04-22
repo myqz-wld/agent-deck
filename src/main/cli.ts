@@ -20,6 +20,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { adapterRegistry } from './adapters/registry';
 import { eventBus } from './event-bus';
 import { getFloatingWindow } from './window';
+import { sessionManager } from './session/manager';
 import type { PermissionMode } from './adapters/types';
 
 export interface CliNewSession {
@@ -31,7 +32,6 @@ export interface CliNewSession {
   prompt: string;
   model?: string;
   permissionMode?: PermissionMode;
-  systemPrompt?: string;
   resume?: string;
   /** 创建后是否聚焦窗口并选中新会话（默认 true，--no-focus 关闭）。 */
   focus: boolean;
@@ -116,7 +116,6 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
     // 不然 SDK CLI 子进程拿不到首条 user message 会卡到 30s fallback。
     const prompt = asString(f.get('prompt')) ?? '你好';
     const model = asString(f.get('model'));
-    const systemPrompt = asString(f.get('system-prompt'));
     const resume = asString(f.get('resume'));
 
     const pmRaw = asString(f.get('permission-mode'));
@@ -141,7 +140,6 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       prompt,
       model,
       permissionMode,
-      systemPrompt,
       resume,
       focus,
     };
@@ -175,9 +173,11 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
     prompt: inv.prompt,
     model: inv.model,
     permissionMode: inv.permissionMode,
-    systemPrompt: inv.systemPrompt,
     resume: inv.resume,
   });
+  // 与 ipc.ts 的 AdapterCreateSession 路径对齐：把 permissionMode 持久化到 sessions 列，
+  // 否则 SessionDetail 下拉只读到 NULL → 'default'，跟 SDK 真实状态对不上。
+  sessionManager.recordCreatedPermissionMode(sid, inv.permissionMode);
   if (inv.focus) {
     const win = getFloatingWindow().window;
     win?.show();

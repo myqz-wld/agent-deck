@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type RouteOptions } from 'fastify';
+import { timingSafeEqual } from 'node:crypto';
 
 /**
  * 共享内嵌 HTTP server。Adapter 在初始化时通过 RouteRegistry.registerRoute()
@@ -13,11 +14,14 @@ export class HookServer {
   private app: FastifyInstance;
   private port: number;
   private token: string;
+  /** 预先把 expected `Bearer xxx` 转 Buffer，避免每次请求都重新分配。 */
+  private expectedAuthBuf: Buffer;
   private started = false;
 
   constructor(port: number, token: string) {
     this.port = port;
     this.token = token;
+    this.expectedAuthBuf = Buffer.from(`Bearer ${token}`);
     this.app = Fastify({ logger: false });
 
     // onRequest 是 fastify 最早的 hook，在路由处理前触发。
@@ -29,9 +33,19 @@ export class HookServer {
         console.warn('[hook-server] WARN: empty token, request not authenticated');
         return;
       }
-      const auth = request.headers['authorization'];
-      const expected = `Bearer ${this.token}`;
-      if (auth !== expected) {
+      const authHeader = request.headers['authorization'];
+      const auth = typeof authHeader === 'string' ? authHeader : '';
+      // 用 timingSafeEqual 做常量时间比较：普通 `!==` 在比较过程中遇到第一个不同字节
+      // 就立刻返回，本机其他低权限进程理论上可以通过测量 401 时延逐字猜 token
+      // （loopback 抖动远大于字节差，实战意义有限，但修复成本接近零）。
+      // 长度不一致时 timingSafeEqual 会 throw，所以先做长度短路；
+      // 若长度不等则视为不通过，绕过 throw 直接 401。
+      const authBuf = Buffer.from(auth);
+      let ok = false;
+      if (authBuf.length === this.expectedAuthBuf.length) {
+        ok = timingSafeEqual(authBuf, this.expectedAuthBuf);
+      }
+      if (!ok) {
         reply.code(401).send({ ok: false, error: 'unauthorized' });
       }
     });

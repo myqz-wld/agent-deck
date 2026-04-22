@@ -1,7 +1,8 @@
 import { app, ipcMain, dialog, nativeImage, Notification, shell, type IpcMainInvokeEvent } from 'electron';
 import { is } from '@electron-toolkit/utils';
-import { join } from 'node:path';
+import { join, extname } from 'node:path';
 import { homedir } from 'node:os';
+import { promises as fsp } from 'node:fs';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { getFloatingWindow } from './window';
 import { sessionManager } from './session/manager';
@@ -16,7 +17,7 @@ import { getLifecycleScheduler } from './session/lifecycle-scheduler';
 import { summarizer } from './session/summarizer';
 import { playSoundOnce } from './notify/sound';
 import { scanCwdSettings, getCandidatePaths } from './permissions/scanner';
-import type { AppSettings } from '@shared/types';
+import type { AppSettings, ImageSource, LoadImageBlobResult } from '@shared/types';
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>;
 
@@ -71,8 +72,8 @@ export function bootstrapIpc(): void {
     return true;
   });
 
-  // History (overload SessionList by accepting filters)
-  ipcMain.handle('session:list-history', (_e, filters) => {
+  // History
+  on(IpcInvoke.SessionListHistory, (_e, filters) => {
     return sessionRepo.listHistory(
       (filters ?? {}) as Parameters<typeof sessionRepo.listHistory>[0],
     );
@@ -104,10 +105,11 @@ export function bootstrapIpc(): void {
     // 把变更立刻应用到运行时模块；面板里的开关从此可以「即改即生效」。
 
     // 1) 生命周期阈值 → LifecycleScheduler
-    if ('activeWindowMs' in p || 'closeAfterMs' in p) {
+    if ('activeWindowMs' in p || 'closeAfterMs' in p || 'historyRetentionDays' in p) {
       getLifecycleScheduler()?.updateThresholds({
         activeWindowMs: next.activeWindowMs,
         closeAfterMs: next.closeAfterMs,
+        historyRetentionDays: next.historyRetentionDays,
       });
     }
 
@@ -168,15 +170,12 @@ export function bootstrapIpc(): void {
       o.cwd = homedir();
     }
     const sid = await adapter.createSession(o);
-    // SDK 通道：把新建对话框里选的 permissionMode 持久化到 sessions.permission_mode 列，
-    // 否则 SessionDetail 底部下拉只会读到 NULL → 'default'，跟实际 SDK 状态对不上。
-    // 'default' 等价于不设（不污染 CLI 通道的列），其他值（acceptEdits/plan/bypassPermissions）才写入。
-    const pm = (o as { permissionMode?: string }).permissionMode;
-    if (pm && pm !== 'default') {
-      sessionRepo.setPermissionMode(sid, pm as Parameters<typeof sessionRepo.setPermissionMode>[1]);
-      const updated = sessionRepo.get(sid);
-      if (updated) eventBus.emit('session-upserted', updated);
-    }
+    // 持久化 permissionMode：抽到 sessionManager.recordCreatedPermissionMode，
+    // CLI 路径（cli.ts applyCliInvocation）也走同一个 helper，确保两条入口语义一致。
+    sessionManager.recordCreatedPermissionMode(
+      sid,
+      (o as { permissionMode?: string }).permissionMode,
+    );
     return sid;
   });
   on(IpcInvoke.AdapterInterrupt, async (_e, agentId, sessionId) => {
@@ -358,4 +357,137 @@ export function bootstrapIpc(): void {
     const errorMsg = await shell.openPath(target);
     return errorMsg ? { ok: false, reason: errorMsg } : { ok: true };
   });
+
+  // Image: 按需读取一张图片为 dataURL 给 renderer 渲染。
+  // 安全门：双白名单（path 必须出现在该 session 的 file_changes 或 tool-use-start 事件里）+ 扩展名 + size 校验。
+  on(IpcInvoke.ImageLoadBlob, async (_e, sessionId, source): Promise<LoadImageBlobResult> => {
+    return loadImageBlob(String(sessionId ?? ''), source as ImageSource);
+  });
+}
+
+// ─────────────────────────────────────────────────────── Image load helpers
+
+/** 允许 renderer 加载的图片扩展名白名单。SVG 单独算（mime 不同）。 */
+const ALLOWED_IMAGE_EXTS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.bmp',
+  '.heic',
+  '.heif',
+  '.svg',
+]);
+const MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
+  '.svg': 'image/svg+xml',
+};
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * 加载一张图片：双白名单（防 renderer 越权读任意磁盘）+ ext + size 校验。
+ * 任何失败返回 { ok:false, reason }，由 UI 显示「图片不可读」灰底兜底。
+ */
+async function loadImageBlob(
+  sessionId: string,
+  source: ImageSource | null | undefined,
+): Promise<LoadImageBlobResult> {
+  if (!source || typeof source !== 'object') {
+    return { ok: false, reason: 'unsupported_source', detail: 'source missing' };
+  }
+  if (source.kind !== 'path' || typeof source.path !== 'string') {
+    // snapshot 形态二期再做
+    return { ok: false, reason: 'unsupported_source', detail: `kind=${source.kind}` };
+  }
+  const reqPath = source.path;
+  if (!reqPath.startsWith('/')) {
+    return { ok: false, reason: 'denied', detail: 'path must be absolute' };
+  }
+
+  // 双白名单：path 必须在该 session 已知（file_changes 表里、或 tool-use-start 事件里出现过）
+  if (!isPathInSessionWhitelist(sessionId, reqPath)) {
+    return { ok: false, reason: 'denied', detail: 'path not in session whitelist' };
+  }
+
+  // 扩展名校验
+  const ext = extname(reqPath).toLowerCase();
+  if (!ALLOWED_IMAGE_EXTS.has(ext)) {
+    return { ok: false, reason: 'invalid_ext', detail: ext };
+  }
+  const mime = MIME_BY_EXT[ext] ?? 'application/octet-stream';
+
+  // 解符号链接 + 读盘
+  let real: string;
+  try {
+    real = await fsp.realpath(reqPath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return { ok: false, reason: 'enoent' };
+    return { ok: false, reason: 'io_error', detail: (err as Error).message };
+  }
+  let stat;
+  try {
+    stat = await fsp.stat(real);
+  } catch (err) {
+    return { ok: false, reason: 'io_error', detail: (err as Error).message };
+  }
+  if (stat.size > MAX_IMAGE_BYTES) {
+    return { ok: false, reason: 'too_big', detail: `${stat.size} bytes` };
+  }
+  let buf: Buffer;
+  try {
+    buf = await fsp.readFile(real);
+  } catch (err) {
+    return { ok: false, reason: 'io_error', detail: (err as Error).message };
+  }
+  return {
+    ok: true,
+    mime,
+    bytes: stat.size,
+    dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
+  };
+}
+
+/**
+ * 判断 path 是否在该 session 的「曾出现过」白名单里。
+ * 命中条件（任一）：
+ * - file_changes 行的 filePath 等于 path
+ * - file_changes 行的 before/after JSON 解析后是 ImageSource 且 path 等于 path
+ * - 该 session 任意 tool-use-start 事件的 toolInput.file_path 等于 path
+ *   （ImageRead 不进 file_changes，靠 tool-use 事件兜底）
+ */
+function isPathInSessionWhitelist(sessionId: string, target: string): boolean {
+  if (!sessionId) return false;
+  const fcs = fileChangeRepo.listForSession(sessionId);
+  for (const fc of fcs) {
+    if (fc.filePath === target) return true;
+    for (const blob of [fc.beforeBlob, fc.afterBlob]) {
+      if (!blob || typeof blob !== 'string') continue;
+      // 只在 image kind 时尝试解 JSON，避免对文本 diff 的字符串误判
+      if (fc.kind !== 'image') continue;
+      try {
+        const v = JSON.parse(blob) as { kind?: string; path?: string };
+        if (v && v.kind === 'path' && v.path === target) return true;
+      } catch {
+        /* swallow */
+      }
+    }
+  }
+  // 兜底：扫该 session 最近的事件，看 tool-use-start 的 toolInput.file_path
+  const events = eventRepo.listForSession(sessionId, 500);
+  for (const ev of events) {
+    if (ev.kind !== 'tool-use-start') continue;
+    const p = (ev.payload ?? {}) as { toolInput?: { file_path?: unknown } };
+    const fp = p.toolInput?.file_path;
+    if (typeof fp === 'string' && fp === target) return true;
+  }
+  return false;
 }

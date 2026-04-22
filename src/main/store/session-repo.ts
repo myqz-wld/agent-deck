@@ -41,11 +41,15 @@ function rowToRecord(r: Row): SessionRecord {
 
 export const sessionRepo = {
   upsert(rec: SessionRecord): void {
+    // 注意：permission_mode 列也参与 INSERT 与 UPDATE，否则 SessionRecord 接口
+    // 与 SQL 字段集错位 —— 复活 closed 会话用 `{...existing, lifecycle:'active'}`
+    // spread 调 upsert 时，spread 进来的 permissionMode 被静默丢弃，
+    // 未来想通过 upsert 改 permission_mode 会神秘失败（写了不报错但不生效）。
     getDb()
       .prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at)
-         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at)
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode)
+         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            title = excluded.title,
@@ -54,7 +58,8 @@ export const sessionRepo = {
            activity = excluded.activity,
            last_event_at = excluded.last_event_at,
            ended_at = excluded.ended_at,
-           archived_at = excluded.archived_at`,
+           archived_at = excluded.archived_at,
+           permission_mode = excluded.permission_mode`,
       )
       .run({
         id: rec.id,
@@ -68,6 +73,7 @@ export const sessionRepo = {
         last_event_at: rec.lastEventAt,
         ended_at: rec.endedAt,
         archived_at: rec.archivedAt,
+        permission_mode: rec.permissionMode ?? null,
       });
   },
 
@@ -136,10 +142,17 @@ export const sessionRepo = {
       // 全文字符串匹配。1-2 字符的关键词命中量大、性能差且对用户帮助小，
       // 先卡掉这层让常见的"敲一两个字"不会拖死历史面板。
       // ≥ 3 字符再走子查询全扫，性价比可接受。
+      //
+      // 子查询用 EXISTS (... LIMIT 1) 而不是 IN (SELECT ...)：
+      // - IN 会把整个子查询结果集物化成临时集合再做 hash join，
+      //   events 表大几万条时这一步本身就要遍历整张表。
+      // - EXISTS 配合 LIMIT 1 + 关联子查询，匹配到第一条就短路。
+      //   是当前不上 FTS5 前的最低成本优化（仍是 O(n) 全表扫，但常数显著降低）。
       if (opts.keyword.length >= 3) {
         conditions.push(
-          `(title LIKE @kw OR id IN (SELECT session_id FROM events WHERE payload_json LIKE @kw)
-            OR id IN (SELECT session_id FROM summaries WHERE content LIKE @kw))`,
+          `(title LIKE @kw
+            OR EXISTS (SELECT 1 FROM events e WHERE e.session_id = sessions.id AND e.payload_json LIKE @kw LIMIT 1)
+            OR EXISTS (SELECT 1 FROM summaries su WHERE su.session_id = sessions.id AND su.content LIKE @kw LIMIT 1))`,
         );
       } else {
         conditions.push(`title LIKE @kw`);
@@ -245,5 +258,82 @@ export const sessionRepo = {
       )
       .all(threshold) as Row[];
     return rows.map(rowToRecord);
+  },
+
+  /**
+   * lifecycle scheduler 批量推进：单事务里把多个 sessionId 的 lifecycle
+   * 一次推到目标态，避免每条都跑「get → setLifecycle → get → emit」3 次 SQL。
+   * 返回真正发生状态变化的行（再让上层 emit upserted 通知 renderer）。
+   *
+   * SQL 不用动态拼 IN(?, ?, ?) —— 一次性 prepare + transaction 内多次 run，
+   * better-sqlite3 内部会复用 statement，比拼 IN 更稳。
+   */
+  batchSetLifecycle(ids: readonly string[], lifecycle: LifecycleState, ts: number): SessionRecord[] {
+    if (ids.length === 0) return [];
+    const db = getDb();
+    const updateClosed = db.prepare(
+      `UPDATE sessions SET lifecycle = ?, ended_at = ? WHERE id = ? AND lifecycle != ?`,
+    );
+    const updateOther = db.prepare(
+      `UPDATE sessions SET lifecycle = ?, ended_at = NULL WHERE id = ? AND lifecycle != ?`,
+    );
+    const fetch = db.prepare(`SELECT * FROM sessions WHERE id = ?`);
+    const updated: SessionRecord[] = [];
+    const tx = db.transaction(() => {
+      for (const id of ids) {
+        const info =
+          lifecycle === 'closed'
+            ? updateClosed.run(lifecycle, ts, id, lifecycle)
+            : updateOther.run(lifecycle, id, lifecycle);
+        if (info.changes > 0) {
+          const row = fetch.get(id) as Row | undefined;
+          if (row) updated.push(rowToRecord(row));
+        }
+      }
+    });
+    tx();
+    return updated;
+  },
+
+  /**
+   * 历史会话自动清理：找出 lastEventAt < threshold 且不在实时面板的会话 id。
+   * 「不在实时面板」= lifecycle = 'closed' 或 archived_at IS NOT NULL，
+   * 与 listHistory 的范围一致。active / dormant 即便最后事件很久也不删
+   * （用户可能开着窗口在等长任务），由 LifecycleScheduler 先推到 closed 再考虑清理。
+   */
+  findHistoryOlderThan(threshold: number, limit = 500): string[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT id FROM sessions
+         WHERE last_event_at < ?
+           AND (lifecycle = 'closed' OR archived_at IS NOT NULL)
+         ORDER BY last_event_at ASC
+         LIMIT ?`,
+      )
+      .all(threshold, limit) as { id: string }[];
+    return rows.map((r) => r.id);
+  },
+
+  /**
+   * 批量删除会话（events / file_changes / summaries 由外键 ON DELETE CASCADE 自动清理）。
+   * 单事务内逐条 DELETE，事务保证「要么全删要么全不删」，避免中途异常留下半残行。
+   * 返回 IPC 上层用来一次性广播 session-removed 的 id 数组（已存在的才返回）。
+   */
+  batchDelete(ids: readonly string[]): string[] {
+    if (ids.length === 0) return [];
+    const db = getDb();
+    const exists = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`);
+    const del = db.prepare(`DELETE FROM sessions WHERE id = ?`);
+    const removed: string[] = [];
+    const tx = db.transaction(() => {
+      for (const id of ids) {
+        if (exists.get(id)) {
+          del.run(id);
+          removed.push(id);
+        }
+      }
+    });
+    tx();
+    return removed;
   },
 };

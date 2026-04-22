@@ -152,11 +152,24 @@ export const useSessionStore = create<State>((set) => ({
       a.delete(id);
       const x = new Map(state.pendingExitPlanModesBySession);
       x.delete(id);
+      // 必须把所有 by-session 缓存的 key 一并清掉，否则长期使用 / 历史清理后
+      // recentEvents（30 条/会话）与 summaries 会驻留在 renderer 内存里，
+      // 没有 sessions key 反查也永远清不到（renameSession 已枚举全表 7 张 Map，
+      // remove 路径必须对齐，否则成「写有清无」的孤儿）。
+      const re = new Map(state.recentEventsBySession);
+      re.delete(id);
+      const su = new Map(state.summariesBySession);
+      su.delete(id);
+      const ls = new Map(state.latestSummaryBySession);
+      ls.delete(id);
       return {
         sessions: m,
         pendingPermissionsBySession: p,
         pendingAskQuestionsBySession: a,
         pendingExitPlanModesBySession: x,
+        recentEventsBySession: re,
+        summariesBySession: su,
+        latestSummaryBySession: ls,
         selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
       };
     }),

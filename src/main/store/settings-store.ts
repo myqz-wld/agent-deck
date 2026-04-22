@@ -37,15 +37,16 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       }
     }
 
-    // 首次启动自动生成 HookServer Bearer token：32 字节随机 hex（256-bit），
+    // 首次启动自动生成 HookServer Bearer token：32 字节随机 hex = 64 字符（256-bit）。
     // 足以抵御本地暴力枚举；持久化后保持稳定，避免已注入的 hook 命令因 token 变动失效。
-    // null / 空串 / 长度不足都视作"需要重新生成"。
+    // 阈值 64 与生成长度对齐 —— 之前写 32 是 16 字节 hex 时代的残留，
+    // 32-63 字符的弱 token 也能蒙混过关，等于半截 token（128-bit）合规化。
     const tokenRaw = store.get('hookServerToken') as unknown;
     const token = typeof tokenRaw === 'string' ? tokenRaw : '';
-    if (!token || token.length < 32) {
+    if (!token || token.length < 64) {
       const fresh = randomBytes(32).toString('hex');
       store.set('hookServerToken', fresh);
-      console.log('[settings] generated new hookServerToken (random 32-byte hex)');
+      console.log('[settings] generated new hookServerToken (random 32-byte hex = 64 chars)');
     }
   }
   return store;

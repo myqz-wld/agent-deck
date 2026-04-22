@@ -17,20 +17,16 @@ import type {
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
-
-type SdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
-
-// 用 new Function 构造 dynamic import 避开 Vite 静态分析（否则会被转成 require()，
-// 而 @anthropic-ai/claude-agent-sdk 是 ESM-only 包，无法被 require）。
-const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(s: string) => Promise<T>;
-
-let sdkPromise: Promise<SdkModule> | null = null;
-async function loadSdk(): Promise<SdkModule> {
-  if (!sdkPromise) {
-    sdkPromise = dynamicImport<SdkModule>('@anthropic-ai/claude-agent-sdk');
-  }
-  return sdkPromise;
-}
+import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
+import {
+  getAgentDeckPluginPath,
+  getAgentDeckSystemPromptAppend,
+} from '@main/adapters/claude-code/sdk-injection';
+import {
+  imageResultToFileChanges,
+  parseImageToolResult,
+} from '@main/adapters/claude-code/translate';
+import { isImageTool } from '@shared/mcp-tools';
 
 const AGENT_ID = 'claude-code';
 
@@ -95,6 +91,12 @@ interface InternalSession {
   pendingAskUserQuestions: Map<string, PendingAskQuestionEntry>;
   /** 等待用户批准/继续规划的 ExitPlanMode：requestId → entry */
   pendingExitPlanModes: Map<string, PendingExitPlanModeEntry>;
+  /**
+   * tool_use_id → tool_name 映射。SDK 的 tool_result block 只带 tool_use_id 不带 toolName，
+   * 但我们需要在 tool_result 时识别「这条结果是不是 mcp 图片工具的」才能翻译成 file-changed。
+   * assistant.tool_use 处理时 set，user.tool_result 消费后 delete。
+   */
+  toolUseNames: Map<string, string>;
 }
 
 /**
@@ -129,7 +131,6 @@ export class ClaudeSdkBridge {
     prompt?: string;
     model?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
-    systemPrompt?: string;
     /** 传 sessionId 表示恢复历史会话（CLI 会从 ~/.claude/projects/<cwd>/<sid>.jsonl 续上）。 */
     resume?: string;
   }): Promise<SdkSessionHandle> {
@@ -153,6 +154,7 @@ export class ClaudeSdkBridge {
       pendingPermissions: new Map(),
       pendingAskUserQuestions: new Map(),
       pendingExitPlanModes: new Map(),
+      toolUseNames: new Map(),
     };
 
     if (opts.prompt) {
@@ -369,7 +371,20 @@ export class ClaudeSdkBridge {
         // 只在用户明确选了 bypassPermissions 时才开 —— 这样运行时 setPermissionMode 切到
         // 别的模式后，flag 不会留下残余权限放大风险（CLI 子进程已经按这个 flag 启动）。
         allowDangerouslySkipPermissions: opts.permissionMode === 'bypassPermissions',
-        systemPrompt: opts.systemPrompt,
+        // Claude Code 默认 system prompt + agent-deck 自带 CLAUDE.md（追加到末尾）。
+        // append 文本读自 resources/claude-config/CLAUDE.md，跟随应用打包；
+        // 实际位置在 user/project/local 三层 CLAUDE.md 全部加载完之后，
+        // LLM 上下文末尾位置 instruction following 最强。
+        // 已去掉用户自定义 systemPrompt 功能（避免 isolation mode 与 agent-deck 约定冲突）。
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: getAgentDeckSystemPromptAppend(),
+        },
+        // agent-deck 自带 plugin：注入到所有会话（不管 cwd），
+        // skill 自动以 `agent-deck:<skill-name>` 命名空间注册。
+        // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突（plugin 强制命名空间前缀）。
+        plugins: [{ type: 'local', path: getAgentDeckPluginPath() }],
         // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）
         settingSources: ['user', 'project', 'local'],
         canUseTool,
@@ -811,7 +826,7 @@ export class ClaudeSdkBridge {
         }
 
         const sid = realId ?? tempKey;
-        this.translate(sid, m);
+        this.translate(sid, m, internal);
       }
     } catch (err) {
       console.warn(`[sdk-bridge] query loop ended`, err);
@@ -855,6 +870,7 @@ export class ClaudeSdkBridge {
   private translate(
     sessionId: string,
     msg: { type: string; [k: string]: unknown },
+    internal: InternalSession,
   ): void {
     const ts = Date.now();
     const emit = (kind: AgentEvent['kind'], payload: unknown): void => {
@@ -876,6 +892,10 @@ export class ClaudeSdkBridge {
         if (block.type === 'text' && block.text) {
           emit('message', { text: block.text, role: 'assistant' });
         } else if (block.type === 'tool_use') {
+          // 反查需要：tool_result block 只带 tool_use_id 没 toolName，必须靠这条记录
+          if (block.id && block.name) {
+            internal.toolUseNames.set(block.id, block.name);
+          }
           emit('tool-use-start', {
             toolName: block.name,
             toolInput: block.input,
@@ -896,6 +916,8 @@ export class ClaudeSdkBridge {
             toolUseId: block.tool_use_id,
             toolResult: block.content,
           });
+          // mcp 图片工具结果识别：反查 toolName，匹配则把 result.content 解析后翻译成 file-changed
+          this.maybeEmitImageFileChanged(emit, internal, block.tool_use_id, block.content);
         }
       }
     } else if (msg.type === 'result') {
@@ -960,6 +982,33 @@ export class ClaudeSdkBridge {
         toolCallId: toolUseId,
       });
     }
+  }
+
+  /**
+   * MCP 图片工具的 tool_result 处理：反查 toolName 是否是 mcp__*__Image*，
+   * 是则解析 result.content 里的 JSON 翻译成 0~N 条 file-changed（payload.before/after 是 ImageSource）。
+   * 消费后从 toolUseNames 删除避免内存泄漏。
+   */
+  private maybeEmitImageFileChanged(
+    emit: (kind: AgentEvent['kind'], payload: unknown) => void,
+    internal: InternalSession,
+    toolUseId: string | undefined,
+    content: unknown,
+  ): void {
+    if (!toolUseId) return;
+    const toolName = internal.toolUseNames.get(toolUseId);
+    if (!isImageTool(toolName)) return;
+    const parsed = parseImageToolResult(content);
+    if (!parsed) {
+      // 不是合法 ImageToolResult JSON，可能是 server bug 或工具失败；
+      // 仍然清掉映射避免泄漏，UI 上 tool-use-end 已经露出来了
+      internal.toolUseNames.delete(toolUseId);
+      return;
+    }
+    for (const fc of imageResultToFileChanges(parsed, toolUseId)) {
+      emit('file-changed', fc);
+    }
+    internal.toolUseNames.delete(toolUseId);
   }
 }
 

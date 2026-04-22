@@ -173,6 +173,67 @@ export interface DiffPayload<T = unknown> {
   ts: number;
 }
 
+// ───────────────────────────────────────────────────────── Image Tools (MCP)
+
+/**
+ * 图片在事件流 / DiffPayload 里的承载形态。**不存图片二进制本身**，只存「怎么读到它」。
+ * - kind:'path' 直接用绝对路径，主进程读盘后转 dataURL 给 renderer
+ * - kind:'snapshot' 二期预留：让 MCP server 把快照交给 agent-deck 自管目录后用 id 索引
+ * 之所以加这层抽象：MCP server 维护着自己的快照目录（ImageEdit 的 beforeFile 就放在那里），
+ * 这些路径之后可能被 server 清理，DiffPayload 里只存「读取契约」让 renderer 兜底失效场景。
+ */
+export type ImageSource =
+  | { kind: 'path'; path: string }
+  | { kind: 'snapshot'; snapshotId: string };
+
+/**
+ * 本地 MCP server 暴露的图片工具的 tool_result 形态约定。
+ * MCP server 在 `tool_result.content` 中放一个 `{type:'text', text: JSON.stringify(<下面这个>)}`，
+ * agent-deck 解析后翻译成 file-changed 事件 + DiffPayload<ImageSource>。
+ *
+ * 路径要求：所有 file / beforeFile / afterFile 必须是**绝对路径**。
+ * - file 是用户视角的真实文件路径（== input.file_path），工具完成后磁盘上的内容 == afterFile
+ * - beforeFile / afterFile 是 server 自管快照目录里的副本（agent-deck 不复制不清理）
+ *
+ * ImageMultiEdit 语义（与文本 MultiEdit 完全对称）：
+ * - 所有 edits 串行作用在「同一张图」（input 的 file_path）上
+ * - 第 i 条 edit 的 beforeFile = 上一条的 afterFile（i=0 时 = 原图快照）
+ * - agent-deck 把 N 条 edit 拆成 N 条独立的 file-changed 事件（filePath 都用 result.file），
+ *   metadata 带 editIndex / total / prompt，让 SessionDetail 时间线天然展示「演进步骤」
+ */
+export type ImageToolResult =
+  | { kind: 'image-read'; file: string; mime?: string; width?: number; height?: number }
+  | { kind: 'image-write'; file: string; mime?: string }
+  | {
+      kind: 'image-edit';
+      file: string;
+      beforeFile: string;
+      afterFile: string;
+      prompt: string;
+      mime?: string;
+    }
+  | {
+      kind: 'image-multi-edit';
+      file: string;
+      edits: Array<{
+        beforeFile: string;
+        afterFile: string;
+        prompt: string;
+      }>;
+    };
+
+/**
+ * window.api.loadImageBlob 的返回结构。
+ * 失败不抛错，由 UI 显示「图片不可读」灰底（覆盖 server 清理快照后的兼容场景）。
+ */
+export type LoadImageBlobResult =
+  | { ok: true; dataUrl: string; mime: string; bytes: number }
+  | {
+      ok: false;
+      reason: 'enoent' | 'too_big' | 'denied' | 'invalid_ext' | 'io_error' | 'unsupported_source';
+      detail?: string;
+    };
+
 // ───────────────────────────────────────────────────────── Summary
 
 export interface SummaryRecord {
@@ -217,6 +278,14 @@ export interface AppSettings {
   permissionTimeoutMs: number;
   alwaysOnTop: boolean;
   startOnLogin: boolean;
+  /**
+   * 历史会话自动清理保留天数（基于 lastEventAt）。
+   * - 正数：超过该天数的「历史会话」（lifecycle = closed 或 archived_at IS NOT NULL）
+   *   将被 LifecycleScheduler 在每次扫描时批量删除（事件 / 文件改动 / 总结一并 CASCADE）。
+   * - 0：禁用自动清理（永远保留历史）。
+   * 不影响 active / dormant：那些先由生命周期阈值推到 closed 后才进入清理候选。
+   */
+  historyRetentionDays: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -236,6 +305,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   permissionTimeoutMs: 5 * 60 * 1000,
   alwaysOnTop: true,
   startOnLogin: false,
+  historyRetentionDays: 30,
 };
 
 // ───────────────────────────────────────────────────────── Hook Status

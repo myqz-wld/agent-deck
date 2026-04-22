@@ -116,6 +116,7 @@ async function bootstrap(): Promise<void> {
   scheduler = new LifecycleScheduler({
     activeWindowMs: settings.activeWindowMs,
     closeAfterMs: settings.closeAfterMs,
+    historyRetentionDays: settings.historyRetentionDays,
   });
   scheduler.start();
   setLifecycleScheduler(scheduler);

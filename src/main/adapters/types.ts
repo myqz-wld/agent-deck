@@ -25,7 +25,6 @@ export interface CreateSessionOptions {
   prompt?: string;
   model?: string;
   permissionMode?: PermissionMode;
-  systemPrompt?: string;
   /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
   resume?: string;
 }

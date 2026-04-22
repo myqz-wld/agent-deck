@@ -210,6 +210,12 @@ function SettingsBody({
             min={0}
             onChange={(v) => void update({ permissionTimeoutMs: v * 1000 })}
           />
+          <NumberInput
+            label="历史会话保留（天，0 = 永久保留）"
+            value={settings.historyRetentionDays}
+            min={0}
+            onChange={(v) => void update({ historyRetentionDays: v })}
+          />
         </Section>
 
         <Section title="间歇总结">

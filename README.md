@@ -53,11 +53,12 @@
 - SDK 与 Hook 通道对 `session-end` 的差异化处理写在 `SessionManager.ingest()` —— SDK 流终止不视为「会话死了」，给用户留 resume 的口子
 
 ### 应用内新建会话（＋ 按钮）
-- 弹窗表单：Agent / cwd（**留空默认用户主目录 `~`**，带「选择…」目录选择器）/ **首条消息（必填）** / 模型 / 权限模式 / System Prompt（可选）
+- 弹窗表单：Agent / cwd（**留空默认用户主目录 `~`**，带「选择…」目录选择器）/ **首条消息（必填）** / 模型 / 权限模式
 - 首条消息为什么必填：SDK streaming 协议要求 CLI 子进程必须收到 stdin 首条 user message 才会启动；空 prompt 会卡死直到 30s fallback，所以表单层强制必填
 - 模型选项：按本地 settings.json / Sonnet 4.5 / Opus 4.7 / Haiku 4.5
 - 权限模式：default / acceptEdits / plan / bypassPermissions（用户上次选过的会持久化在 `sessions.permission_mode`，下次切回 detail 自动还原）
 - 创建后自动切到「实时」并选中
+- **不再支持自定义 systemPrompt**：固定走 Claude Code 默认 system prompt + agent-deck 自带 CLAUDE.md 追加（详见「Agent Deck 自带 CLAUDE.md + skill 注入」节）；自定义 systemPrompt 会进 SDK isolation mode 与 agent-deck 约定冲突，索性去掉
 
 ### 命令行新建会话（macOS）
 - 等价于在 ＋ 弹窗里点「确定」，但适合从终端直接拉起 / 在脚本里串
@@ -77,7 +78,6 @@
     [--agent claude-code]                 # 默认 claude-code，未来其他 SDK adapter 接入时换
     [--model <name>]                      # 等价表单的模型字段
     [--permission-mode default|acceptEdits|plan|bypassPermissions]
-    [--system-prompt "..."]
     [--resume <sessionId>]                # 续历史 jsonl，对应 detail 底部「恢复会话」
     [--no-focus]                          # 默认会拉前窗口 + 选中新会话；加这个静默新建
   ```
@@ -96,12 +96,21 @@
 ### Claude Code SDK 通道（应用内会话）
 - 用 `@anthropic-ai/claude-agent-sdk` 的 `query()` AsyncGenerator
 - **完全复用本地 `~/.claude` 配置**：`settingSources: ['user', 'project', 'local']`，等价于在该 cwd 跑 `claude`（共享 hooks / MCP / agents / permissions / system prompt）
+- **Agent Deck 自带 CLAUDE.md + skill 注入到所有会话**（不管 cwd）：见下面「Agent Deck 自带 CLAUDE.md + skill 注入」节
 - 鉴权：SDK 自己按 `ANTHROPIC_API_KEY` → `~/.claude/.credentials.json` 找（应用不读不覆盖；跑过 `claude login` 即可）
 - **`~/.claude/settings.json` 的 `env` 字段在 bootstrap 时被 `applyClaudeSettingsEnv()` 按白名单注入到主进程 `process.env`**：用户在 settings.json 里配置的代理（`ANTHROPIC_BASE_URL`）/ Bearer token（`ANTHROPIC_AUTH_TOKEN`）/ 模型映射，SDK spawn 的 CLI 子进程会继承到，避免「shell 里有冲突 env」或「SDK env 隔离」导致的 Invalid API key。**白名单**：`ANTHROPIC_*` / `CLAUDE_*` / 标准代理变量（HTTP_PROXY / HTTPS_PROXY / NO_PROXY / ALL_PROXY 大小写两份），其它键统一拒绝并 warn — 防止 settings.json 里夹带 `NODE_OPTIONS` / `PATH` 等危险键污染 process.env
 - 真实 session_id 由 SDK 第一条消息携带，应用启动后等到再返回
 - SDK 通道 emit 的事件打 `source: 'sdk'`；hook 通道回环到同 sessionId 的事件被 `SessionManager.sdkOwned` 集合自动去重
 - **30s fallback / tempKey 重命名**：CLI 启动后 30s 仍未发任何 SDKMessage（鉴权失败 / 模型不可用 / 代理超限），会用 `tempKey` 顶上并 emit 一条错误 message 让 UI 立刻看到原因；后续真实 `session_id` 到达时调 `SessionManager.renameSdkSession(tempKey, realId)` 把 sessions 行 + events / file_changes / summaries 子表整体迁移，renderer 通过 `event:session-renamed` 同步迁移 selectedId 与所有 by-session 状态，用户保持在 detail 不被踢回主界面
 - **cwd 待领取标记**（`expectSdkSession`）：SDK spawn 之前先注册 cwd → 60s 内首发的同 cwd hook 事件自动归 SDK 所有，避免 hook 通道领先到达时出现「内 / 外」两份重复会话；`realpath` + 尾斜杠归一，并对单 pending 做模糊匹配兜底（macOS `/private/var ↔ /var` 等）
+
+### Agent Deck 自带 CLAUDE.md + skill 注入
+- 应用打包了一份**自带 CLAUDE.md + skill 集合**（`resources/claude-config/`），在 `sdk-bridge.ts` 创建会话时通过 SDK options 注入到**所有应用内会话**，与 cwd 无关。
+- **CLAUDE.md** 走 SDK 的 `systemPrompt: { type: 'preset', preset: 'claude_code', append: <自带 CLAUDE.md 文本> }`：保留 Claude Code 默认 system prompt（工具描述/tone/安全约定），把 agent-deck 的约定追加到末尾。实际位置在 user/project/local 三层 CLAUDE.md 全部加载完之后，LLM 上下文末尾位置 instruction following 最强。**SDK 不支持「中间插入」中间层 CLAUDE.md**，只能追加到末尾。
+- **Skill** 走 SDK 的 `plugins: [{ type: 'local', path: <agent-deck-plugin 绝对路径> }]`：plugin manifest 在 `resources/claude-config/agent-deck-plugin/.claude-plugin/plugin.json`，每个 skill 在 `agent-deck-plugin/skills/<name>/SKILL.md`，自动以 `agent-deck:<skill-name>` 命名空间注册（与用户 `~/.claude/skills/` + 项目 `.claude/skills/` 完全不冲突）。
+- **路径分流**：`sdk-injection.ts` 的 `getAgentDeckPluginPath` 与 `getAgentDeckSystemPromptAppend` 用 `app.isPackaged` 区分 dev / prod；prod 路径走 `process.resourcesPath/claude-config/...`（package.json 的 `build.extraResources` 把 `resources/claude-config` 复制到 `Contents/Resources/claude-config`）。
+- **summarizer 不注入**：间歇总结 oneshot 仍是 isolation mode（`settingSources: []` + 自己的 systemPrompt），多余 skill 会引诱模型乱调，多余 CLAUDE.md 会污染总结质量。
+- **不动用户 ~/.claude**：agent-deck 不写任何用户配置文件；自带配置完全独立，跟随应用打包发布。
 
 ### Hook 通道（外部 CLI 会话）
 - 内嵌 fastify HTTP server (默认 `127.0.0.1:47821`)
@@ -135,7 +144,7 @@
 - **超时自动 abort**：超过 `permissionTimeoutMs`（默认 300s）未响应 → 自动按 deny+interrupt 处理 + 推一条警告 message 到时间线 + emit `permission-cancelled`，UI 自动移除按钮，避免会话死等
 - **Claude 自动取消时弹 toast**：SDK 主动 abort 一条 pending（流终止 / interrupt / 上层超时）时，SessionDetail 顶部弹 5s 的「Claude 自动取消了一条权限请求」灰色 toast，让用户知道按钮消失不是自己点掉的
 - **renderer 重启 / HMR / 切会话**：自动从主进程拉一次真实 pending 列表（IPC `adapter:list-pending` / `adapter:list-pending-all`），重建 store；不然事件流里的 `permission-request` 会被错渲成「已处理」按钮不显示 → SDK 死锁
-- **header pending 计数**：右上角 `⚠ N 待处理` chip，把当前所有 SDK 会话的未响应权限/提问加总；点击跳到首个有 pending 的会话
+- **header pending 计数**：右上角 `⚠ N 待处理` chip，把当前所有 SDK 会话的未响应权限/提问/计划批准（PermissionRequest / AskUserQuestion / ExitPlanMode）加总；点击跳到首个有 pending 的会话
 - **sendMessage 时还有 pending → 推警告**：避免用户以为 Claude 死了（SDK query() 在等 canUseTool resolve，新消息会进队列但短时间内不被消费）
 - **sendMessage 字节 / 队列上限**：单条消息 > 100KB 直接拒绝；待发送队列 > 20 条拒绝排队（SDK 阻塞在 canUseTool 时用户连发不会无限累积内存 + 撞 token 计费）
 
@@ -201,8 +210,17 @@
 
 ### Diff 插件架构
 - `DiffRegistry` 单例 + `DiffRendererPlugin` 接口（`kind` / `priority` / `canHandle` / `Component`）
-- 内置三个 renderer：`text`（Monaco DiffEditor，懒加载）/ `image`（占位）/ `pdf`（占位）
+- 内置三个 renderer：`text`（Monaco DiffEditor，懒加载）/ `image`（按需 dataURL，支持 side / after-only / slide 三种视图）/ `pdf`（占位）
 - 新增 renderer：在 `src/renderer/components/diff/install.ts` 注册即可，按 `kind` 分发
+- `DiffViewer` 接收可选 `sessionId` 用 `SessionContext` 注入，让图片渲染器能调 `window.api.loadImageBlob` 按需读盘
+
+### MCP 图片工具支持
+- 识别命名规范 `mcp__<server>__ImageRead/ImageWrite/ImageEdit/ImageMultiEdit`（后缀匹配，server 名不锁死）
+- 工具 `tool_result.content` 里放一个 `text` block，`text` 是 `JSON.stringify(<ImageToolResult>)`（详见 `src/shared/types.ts`）；agent-deck 解析后翻译成 `file-changed` 事件
+- ImageRead 在活动流的工具卡片里直接展示缩略图；ImageWrite/Edit/MultiEdit 进入「改动」时间线，DiffViewer 用 `ImageDiffRenderer` 左右并排
+- 图片二进制不进 IPC：事件 / DB 只存 `ImageSource`（`{kind:'path', path}`），renderer 通过 `window.api.loadImageBlob(sessionId, source)` 按需向主进程要 dataURL；主进程做白名单（path 必须出现在该 session 的 `file_changes` / `tool-use-start` 事件里）+ ext + size（≤20MB）校验，失败返回 `{ok:false, reason}` 由 UI 显示「图片不可读」灰底兜底
+- ImageMultiEdit 拆成 N 条 `file-changed`（同一 `filePath`，metadata 带 `editIndex/total/prompt`），让按文件分组 + ChangeTimeline 天然展示「演进步骤」
+- MCP server 单独维护（不在本仓库），按上述协议实现即可被 agent-deck 自动接入
 
 ### Adapter 插件架构
 - `AdapterRegistry` 单例 + `AgentAdapter` 接口（`capabilities` / `init` / `shutdown` / `createSession?` / `interruptSession?` / `sendMessage?` / `respondPermission?` / `setPermissionMode?` / `installIntegration?`）
@@ -254,6 +272,7 @@ src/
 │   │   │   ├── hook-installer.ts 写入 / 卸载 ~/.claude/settings.json
 │   │   │   ├── translate.ts      hook payload → AgentEvent
 │   │   │   ├── settings-env.ts   bootstrap 时把 ~/.claude/settings.json 的 env 注入主进程
+│   │   │   ├── sdk-injection.ts  自带 CLAUDE.md + plugin 路径定位（dev/prod 分流），sdk-bridge createSession 时注入到所有 SDK 会话
 │   │   │   └── sdk-bridge.ts     query() AsyncGenerator 封装；canUseTool / 权限响应 / 切模式
 │   │   ├── codex-cli/index.ts    占位
 │   │   ├── aider/index.ts        占位
@@ -288,15 +307,21 @@ src/
     │   ├── HistoryPanel.tsx      关键字搜索 / 仅归档筛选 / 归档|取消归档|删除
     │   ├── NewSessionDialog.tsx  ＋ 按钮的弹窗表单（首条消息必填校验）
     │   ├── SettingsDialog.tsx    设置面板（含 DEFAULT_SETTINGS 兜底 + getSettings/hookStatus 异步错误显示）
-    │   ├── ActivityFeed.tsx      MessageBubble（含 MD/TXT 切换按钮）/ PermissionRow（内嵌按钮 + diff）/ AskRow（toggle + 实色提交按钮）/ ExitPlanRow（markdown plan + 批准/继续规划+反馈输入）/ ToolStartRow（内嵌 diff，ExitPlanMode hook 通道展开 plan）/ ToolEndRow（折叠展开 result）/ SimpleRow
+    │   ├── ActivityFeed.tsx      MessageBubble（含 MD/TXT 切换按钮）/ PermissionRow（内嵌按钮 + diff）/ AskRow（toggle + 实色提交按钮）/ ExitPlanRow（markdown plan + 批准/继续规划+反馈输入）/ ToolStartRow（内嵌 diff，ExitPlanMode hook 通道展开 plan，mcp ImageRead 直接缩略图）/ ToolEndRow（折叠展开 result）/ SimpleRow
     │   ├── MarkdownText.tsx      MessageBubble + ExitPlanRow 共用受限 Markdown 渲染器（react-markdown + remark-gfm，链接强制系统浏览器，pre/table 加 overflow）
+    │   ├── ImageThumb.tsx        通用图片缩略图组件（xs/sm/md/lg），包装 ImageBlobLoader
     │   ├── SummaryView.tsx
     │   ├── StatusBadge.tsx
     │   └── diff/
-    │       ├── DiffViewer.tsx    入口分发
+    │       ├── DiffViewer.tsx    入口分发（接 sessionId 通过 SessionContext 注入给图片渲染器）
+    │       ├── SessionContext.ts sessionId 的 React Context（让 ImageDiffRenderer 能调 loadImageBlob）
     │       ├── registry.ts
     │       ├── install.ts        启动注册内置 renderer
-    │       └── renderers/        TextDiffRenderer (Monaco) / ImageDiffRenderer / PdfDiffRenderer
+    │       └── renderers/
+    │           ├── TextDiffRenderer.tsx     Monaco 懒加载
+    │           ├── ImageDiffRenderer.tsx    side / after-only / slide 三视图，header 显 NEW / prompt / editIndex
+    │           ├── ImageBlobLoader.tsx      模块级 LRU + render-prop，调 window.api.loadImageBlob 拿 dataURL
+    │           └── PdfDiffRenderer.tsx      占位
     ├── stores/session-store.ts   Zustand：sessions / recentEvents / summaries / latestSummary / pendingPermissions / pendingAskQuestions / pendingExitPlanModes；setPendingRequests / setPendingRequestsAll（拉取重建，3 路 pending 同步）；renameSession（SDK fallback 整体迁移）
     ├── hooks/use-event-bridge.ts onSessionUpserted / onSessionRemoved / onSessionRenamed / onAgentEvent / onSummaryAdded 桥接
     ├── lib/
@@ -308,7 +333,12 @@ resources/
 ├── icon.png                 Dock / 窗口图标（1024×1024）
 ├── icons/                   electron-builder 多分辨率
 ├── sounds/                  内置 waiting / done 提示音
-└── bin/agent-deck           macOS CLI wrapper（chmod +x；打包后位于 .app/Contents/Resources/bin/）
+├── bin/agent-deck           macOS CLI wrapper（chmod +x；打包后位于 .app/Contents/Resources/bin/）
+└── claude-config/           **Agent Deck 自带 CLAUDE.md + skill 集合**，extraResources 复制到 .app/Contents/Resources/claude-config/
+    ├── CLAUDE.md            自带应用级约定，sdk-bridge createSession 时通过 systemPrompt.append 注入到所有会话
+    └── agent-deck-plugin/   SDK plugin 根（manifest + skills/）
+        ├── .claude-plugin/plugin.json
+        └── skills/<name>/SKILL.md   自带 skill，SDK 自动以 `agent-deck:<name>` 命名空间注册
 ```
 
 ---

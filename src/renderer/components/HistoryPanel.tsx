@@ -1,6 +1,5 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
-import { ipcInvokeRaw } from '@renderer/lib/ipc';
 import { StatusBadge } from './StatusBadge';
 
 interface Filters {
@@ -42,7 +41,8 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
   const reload = async (): Promise<void> => {
     setLoading(true);
     try {
-      const r = (await ipcInvokeRaw('session:list-history', filters)) as SessionRecord[];
+      // 走 preload 强类型 facade 而不是 ipcInvokeRaw —— 避免 channel 名 typo 静默 fail
+      const r = await window.api.listSessionHistory(filters);
       setRows(r);
     } finally {
       setLoading(false);

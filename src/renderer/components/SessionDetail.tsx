@@ -134,12 +134,12 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     [changes, selectedChangeId],
   );
 
-  const diffPayload: DiffPayload<string | null> | null = selectedChange
+  const diffPayload: DiffPayload | null = selectedChange
     ? {
         kind: selectedChange.kind,
         filePath: selectedChange.filePath,
-        before: selectedChange.beforeBlob,
-        after: selectedChange.afterBlob,
+        before: decodeBlob(selectedChange.kind, selectedChange.beforeBlob),
+        after: decodeBlob(selectedChange.kind, selectedChange.afterBlob),
         metadata: selectedChange.metadata,
         toolCallId: selectedChange.toolCallId ?? undefined,
         ts: selectedChange.ts,
@@ -272,7 +272,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
                 )}
 
                 <div className="min-h-0 flex-1">
-                  {diffPayload ? <DiffViewer payload={diffPayload} /> : null}
+                  {diffPayload ? <DiffViewer payload={diffPayload} sessionId={session.id} /> : null}
                 </div>
               </>
             )}
@@ -606,3 +606,22 @@ function ChangeTimeline({
  *  全部已删除：当前由活动流 ActivityFeed 内的 AskRow 等接管，工具入参 → DiffPayload 翻译
  *  ActivityFeed 自己有一份同名 toolInputToDiff（renderer/components/ActivityFeed.tsx:919）。
  *  如未来需要重新引入"banner 模式"，git history 是最可靠的恢复来源。 */
+
+/**
+ * 把 file_changes 表里存的 before_blob / after_blob（TEXT 列）按 kind 解码成 DiffPayload 真正的 before/after。
+ * - 'image'  → JSON.parse 出 ImageSource 对象
+ * - 其他 kind（'text' / 'pdf' 等）→ 原样字符串返回（与历史行为兼容）
+ *
+ * 解析失败 / blob == null → 返回 null，由对应 renderer 自行处理空态。
+ */
+function decodeBlob(kind: string, blob: string | null): unknown {
+  if (blob == null) return null;
+  if (kind === 'image') {
+    try {
+      return JSON.parse(blob);
+    } catch {
+      return null;
+    }
+  }
+  return blob;
+}

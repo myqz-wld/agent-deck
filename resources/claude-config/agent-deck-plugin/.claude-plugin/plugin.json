@@ -1,0 +1,5 @@
+{
+  "name": "agent-deck",
+  "version": "0.1.0",
+  "description": "Agent Deck 应用注入的全局 skill 集合，跟随应用打包发布"
+}

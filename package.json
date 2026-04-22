@@ -61,6 +61,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/claude-config",
+        "to": "claude-config",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {

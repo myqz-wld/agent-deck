@@ -5,18 +5,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { settingsStore } from '@main/store/settings-store';
 import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
-
-// 复用 sdk-bridge 里的 dynamic-import 套路：避开 Vite 把 import() 转成 require()，
-// 因为 @anthropic-ai/claude-agent-sdk 是 ESM-only 包。
-type SdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
-const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
-  s: string,
-) => Promise<T>;
-let sdkPromise: Promise<SdkModule> | null = null;
-async function loadSdk(): Promise<SdkModule> {
-  if (!sdkPromise) sdkPromise = dynamicImport<SdkModule>('@anthropic-ai/claude-agent-sdk');
-  return sdkPromise;
-}
+import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 
 /**
  * Summarizer 调度：定时扫描所有活跃会话，为达到「时间阈值」或「事件数阈值」
@@ -29,10 +18,22 @@ export class Summarizer {
   private currentIntervalMs = 0;
   private lastSummarizedAt = new Map<string, number>();
   private inFlight = new Set<string>();
+  /** event-bus 上 session-removed 监听的解绑函数，stop() 时调一下避免泄漏。 */
+  private offSessionRemoved: (() => void) | null = null;
 
   start(): void {
     if (this.timer) return;
     this.scheduleTimer();
+    // 会话被删除时同步清掉 lastSummarizedAt 该 sessionId，
+    // 否则这张 Map 单调增长（每条 SDK summary 都 set，永不 delete），
+    // 长期跑下来 + 历史超期清理 / 用户手动删 / SDK fallback rename 都会留孤儿 key。
+    if (!this.offSessionRemoved) {
+      const handler = (sid: string): void => {
+        this.lastSummarizedAt.delete(sid);
+      };
+      eventBus.on('session-removed', handler);
+      this.offSessionRemoved = () => eventBus.off('session-removed', handler);
+    }
   }
 
   stop(): void {
@@ -40,6 +41,10 @@ export class Summarizer {
       clearInterval(this.timer);
       this.timer = null;
       this.currentIntervalMs = 0;
+    }
+    if (this.offSessionRemoved) {
+      this.offSessionRemoved();
+      this.offSessionRemoved = null;
     }
   }
 

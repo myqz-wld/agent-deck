@@ -170,18 +170,25 @@ class SessionManagerClass {
       const p = event.payload as {
         filePath?: string;
         kind?: string;
-        before?: string | null;
-        after?: string | null;
+        before?: unknown;
+        after?: unknown;
         toolCallId?: string;
         metadata?: Record<string, unknown>;
       };
       if (p && typeof p.filePath === 'string') {
+        // text 通道 before/after 是 string，原样存；image 通道是 ImageSource 对象，需 JSON.stringify。
+        // file_changes.before_blob / after_blob 列是 TEXT，序列化后存得下（典型 < 200 chars）。
+        const serialize = (v: unknown): string | null => {
+          if (v == null) return null;
+          if (typeof v === 'string') return v;
+          return JSON.stringify(v);
+        };
         fileChangeRepo.insert({
           sessionId: event.sessionId,
           filePath: p.filePath,
           kind: p.kind ?? 'text',
-          beforeBlob: p.before ?? null,
-          afterBlob: p.after ?? null,
+          beforeBlob: serialize(p.before),
+          afterBlob: serialize(p.after),
           metadata: p.metadata ?? {},
           toolCallId: p.toolCallId ?? null,
           ts: event.ts,
@@ -266,6 +273,23 @@ class SessionManagerClass {
     const r = sessionRepo.get(sessionId);
     if (!r) return;
     sessionRepo.setLifecycle(sessionId, 'active', Date.now());
+    const updated = sessionRepo.get(sessionId);
+    if (updated) eventBus.emit('session-upserted', updated);
+  }
+
+  /**
+   * 创建会话后把用户选过的 permissionMode 持久化到 sessions 列。
+   * IPC 路径（renderer 新建对话框）和 CLI 路径（agent-deck new --permission-mode ...）
+   * 都要调用，否则两条入口语义会飘：UI 显示 default 但 SDK 实际是 plan，
+   * 或者反过来，跟实际状态对不上。'default' 等价于不设（不污染 CLI 通道列），
+   * 其他值（acceptEdits / plan / bypassPermissions）才写入。
+   */
+  recordCreatedPermissionMode(sessionId: string, mode: string | undefined): void {
+    if (!mode || mode === 'default') return;
+    sessionRepo.setPermissionMode(
+      sessionId,
+      mode as Parameters<typeof sessionRepo.setPermissionMode>[1],
+    );
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
   }

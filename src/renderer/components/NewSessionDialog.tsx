@@ -34,7 +34,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [model, setModel] = useState('');
   const [permissionMode, setPermissionMode] =
     useState<'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'>('default');
-  const [systemPrompt, setSystemPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,7 +72,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         prompt: prompt.trim() || undefined,
         model: model || undefined,
         permissionMode,
-        systemPrompt: systemPrompt.trim() || undefined,
       });
       onCreated(id);
       // 重置部分字段，留下 cwd / 设置便于连开多个会话
@@ -175,16 +173,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                   </option>
                 ))}
               </select>
-            </Field>
-
-            <Field label="System Prompt（可选）">
-              <textarea
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-                placeholder="覆盖默认 system prompt"
-                rows={2}
-                className="w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-              />
             </Field>
 
             {error && (

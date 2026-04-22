@@ -5,8 +5,10 @@ import type {
   AskUserQuestionRequest,
   DiffPayload,
   ExitPlanModeRequest,
+  ImageSource,
   PermissionRequest,
 } from '@shared/types';
+import { isImageTool } from '@shared/mcp-tools';
 import {
   EMPTY_ASK_QUESTIONS,
   EMPTY_EXIT_PLAN_MODES,
@@ -215,7 +217,7 @@ function ActivityRow({
   }
 
   if (event.kind === 'tool-use-start') {
-    return <ToolStartRow event={event} />;
+    return <ToolStartRow event={event} sessionId={sessionId} />;
   }
 
   if (event.kind === 'tool-use-end') {
@@ -413,7 +415,7 @@ function PermissionRow({
       </div>
       {diff ? (
         <div className="h-72 overflow-hidden rounded border border-white/5">
-          <DiffViewer payload={diff} />
+          <DiffViewer payload={diff} sessionId={sessionId} />
         </div>
       ) : (
         <pre className="max-h-24 overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
@@ -778,7 +780,13 @@ function ExitPlanRow({
 
 // ───────────────────────── tool-use-start（Edit/Write/MultiEdit 内嵌 diff）
 
-function ToolStartRow({ event }: { event: AgentEvent }): JSX.Element {
+function ToolStartRow({
+  event,
+  sessionId,
+}: {
+  event: AgentEvent;
+  sessionId: string;
+}): JSX.Element {
   const p = (event.payload ?? {}) as Record<string, unknown>;
   const tool = (p.toolName as string) ?? '工具';
   const detail = describeToolInput(tool, p.toolInput);
@@ -821,7 +829,7 @@ function ToolStartRow({ event }: { event: AgentEvent }): JSX.Element {
       </div>
       {diff && (
         <div className="mt-1 h-72 overflow-hidden rounded border border-white/5">
-          <DiffViewer payload={diff} />
+          <DiffViewer payload={diff} sessionId={sessionId} />
         </div>
       )}
     </li>
@@ -919,15 +927,20 @@ function describeToolInput(toolName: string, input: unknown): string | null {
       const firstLine = plan.split('\n').find((l) => l.trim()) ?? '';
       return firstLine.slice(0, 80) + (firstLine.length > 80 ? '…' : '');
     }
-    default:
+    default: {
+      // 兜底：mcp 图片工具（mcp__<server>__Image*）也走 file_path 摘要
+      if (isImageTool(toolName) && typeof o.file_path === 'string') {
+        return o.file_path;
+      }
       return null;
+    }
   }
 }
 
 function toolInputToDiff(
   toolName: string,
   input: unknown,
-): DiffPayload<string | null> | null {
+): DiffPayload<string | null> | DiffPayload<ImageSource | null> | null {
   if (!input || typeof input !== 'object') return null;
   const i = input as {
     file_path?: string;
@@ -953,6 +966,23 @@ function toolInputToDiff(
       metadata: { source: 'MultiEdit', editCount: i.edits.length },
       ts,
     };
+  }
+  // mcp 图片工具：tool-use-start 阶段只有 input.file_path，结构如下：
+  // - ImageRead 直接展示这张图（before=null, after=path）→ 驱动 ImageDiffRenderer 缩略图视图
+  // - 其他图片工具（Write/Edit/MultiEdit）的 before/after 要等 tool_result 才能拿到 server 快照路径，
+  //   tool-use-start 阶段返 null 让 ToolStartRow 不画 diff，等 file-changed 事件来画
+  if (isImageTool(toolName)) {
+    if (toolName.endsWith('__ImageRead')) {
+      return {
+        kind: 'image',
+        filePath: i.file_path,
+        before: null,
+        after: { kind: 'path', path: i.file_path },
+        metadata: { source: 'ImageRead' },
+        ts,
+      } as DiffPayload<ImageSource | null>;
+    }
+    return null;
   }
   return null;
 }
