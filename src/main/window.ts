@@ -18,6 +18,7 @@ function resolveIconPath(): string {
 export class FloatingWindow {
   private win: BrowserWindow | null = null;
   private compact = false;
+  private invalidateTimer: NodeJS.Timeout | null = null;
   private lastNormalSize: { width: number; height: number } = {
     width: DEFAULT_WIDTH,
     height: DEFAULT_HEIGHT,
@@ -106,6 +107,36 @@ export class FloatingWindow {
     if (process.platform === 'darwin') {
       this.win.setVibrancy(value ? null : 'under-window');
     }
+    // pin + macOS：定时强制 webContents.invalidate() 重绘。
+    // 背景：关掉 vibrancy 后，窗口仅靠 CSS backdrop-filter 提供模糊，
+    // 而 Chromium 合成器只在窗口本身有事件（移动 / resize / DOM 变化）时
+    // 才会重新采样「下方像素」。下层 app 切换 / 桌面动画 / 视频播放时窗口自身没事件，
+    // backdrop-filter 持续展示旧快照 → 视觉上是「残影」，需要拖动一下才消失。
+    // 200ms 一次（约 5fps）肉眼无感、GPU 开销可忽略，刚好把残影问题压下去。
+    // 非 macOS / 非 pin 不需要这个机制：vibrancy 由系统层持续刷新。
+    this.stopInvalidateLoop();
+    if (value && process.platform === 'darwin') {
+      this.startInvalidateLoop();
+    }
+  }
+
+  private startInvalidateLoop(): void {
+    if (this.invalidateTimer) return;
+    this.invalidateTimer = setInterval(() => {
+      const w = this.win;
+      if (!w || w.isDestroyed() || w.webContents.isDestroyed()) {
+        this.stopInvalidateLoop();
+        return;
+      }
+      w.webContents.invalidate();
+    }, 200);
+  }
+
+  private stopInvalidateLoop(): void {
+    if (this.invalidateTimer) {
+      clearInterval(this.invalidateTimer);
+      this.invalidateTimer = null;
+    }
   }
 
   toggleCompact(): boolean {
@@ -142,6 +173,7 @@ export class FloatingWindow {
   }
 
   close(): void {
+    this.stopInvalidateLoop();
     this.win?.close();
     this.win = null;
   }

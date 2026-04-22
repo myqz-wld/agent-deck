@@ -52,15 +52,7 @@ window.addEventListener('error', (ev) => {
     console.warn('[renderer] cross-origin script error (suppressed)');
     return;
   }
-  // 已知 noise：@monaco-editor/react 卸载 DiffEditor 时的内部 race
-  // —— TextModel 在 DiffEditorWidget setModel(null) 完成之前先被 dispose 了，
-  // 抛在 useEffect cleanup 里、ErrorBoundary 接不住，但不影响功能。
-  // 不弹 showFatal 全屏遮挡（用户切会话/关 diff 时会反复触发，体验极差），
-  // console 留痕即可，等上游修或者我们换 monaco 加载方式。
-  if (
-    typeof ev.message === 'string' &&
-    /TextModel got disposed before DiffEditorWidget/.test(ev.message)
-  ) {
+  if (typeof ev.message === 'string' && isMonacoUnmountRaceNoise(ev.message)) {
     console.warn('[renderer] monaco unmount race (suppressed):', ev.message);
     return;
   }
@@ -68,9 +60,37 @@ window.addEventListener('error', (ev) => {
   showFatal(`window.onerror: ${ev.message}\nsrc=${ev.filename}:${ev.lineno}:${ev.colno}`);
 });
 window.addEventListener('unhandledrejection', (ev) => {
+  // 跟 window.onerror 同套白名单 —— monaco DiffEditor 卸载 race 抛错有两条路径：
+  // 1. 同步 throw（被 ErrorBoundary / window.onerror 接住，比如 'TextModel got disposed ...'）
+  // 2. async throw 变 promise rejection（比如 diffProviderFactoryService.js:110 在 await
+  //    editorWorkerService.computeDiff 之后判 !c 抛 'no diff result available' —— 切会话 /
+  //    关 diff 时 model 提前 dispose 触发 race）
+  // 两条都不影响功能，是 monaco 内部清理时序问题，console 留痕即可。不过滤会全屏遮挡用户。
+  if (isMonacoUnmountRaceNoise(ev.reason)) {
+    console.warn(
+      '[renderer] monaco unmount race (suppressed):',
+      (ev.reason as { message?: string })?.message ?? ev.reason,
+    );
+    return;
+  }
   console.error('[renderer] unhandledrejection', ev.reason);
   showFatal(`unhandledrejection: ${(ev.reason as { message?: string })?.message ?? ev.reason}`);
 });
+
+/**
+ * monaco DiffEditor 卸载 race 的已知 noise 模式集合：
+ * - 'TextModel got disposed before DiffEditorWidget'：DiffEditor cleanup 顺序倒置（同步抛）
+ * - 'no diff result available'：editorWorkerService 在 model dispose 后返回 null，
+ *   `if (!c) throw new Error(...)` 走 async 路径 → unhandledrejection
+ * 都是 @monaco-editor/react 卸载 / 切换 model 期间的内部 race，不影响功能。
+ */
+function isMonacoUnmountRaceNoise(reason: unknown): boolean {
+  const msg =
+    typeof reason === 'string'
+      ? reason
+      : (reason as { message?: string })?.message ?? String(reason ?? '');
+  return /TextModel got disposed before DiffEditorWidget|no diff result available/.test(msg);
+}
 
 function showFatal(text: string): void {
   const root = document.getElementById('root');

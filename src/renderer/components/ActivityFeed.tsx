@@ -61,7 +61,11 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
   const pendingAskIds = new Set(pendingAskQuestions.map((r) => r.requestId));
 
   return (
-    <ol className="flex flex-col gap-1.5">
+    // select-text 覆盖全局 `#root { user-select: none }`（globals.css 那条是为了拖窗时不选中文字）。
+    // 活动流不参与拖窗（拖窗只在 header 的 .drag-region），整体放开方便用户复制对话内容、
+    // tool 输出、JSON 入参等；button / select 因 chromium user-agent 默认自带 user-select: none，
+    // 不会被影响，textarea / input 本身就可选。
+    <ol className="flex flex-col gap-1.5 select-text">
       {recent.map((e, idx) => (
         <ActivityRow
           key={`${e.ts}-${idx}`}
