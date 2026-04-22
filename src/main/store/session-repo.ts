@@ -131,10 +131,19 @@ export const sessionRepo = {
       params.to_ts = opts.toTs;
     }
     if (opts.keyword) {
-      conditions.push(
-        `(title LIKE @kw OR id IN (SELECT session_id FROM events WHERE payload_json LIKE @kw)
-          OR id IN (SELECT session_id FROM summaries WHERE content LIKE @kw))`,
-      );
+      // 短关键词只搜 title：events.payload_json / summaries.content 是任意大文本
+      // （tool_result 单条可能几百 KB），LIKE %kw% 没法用 B-tree 索引，会做全表扫描 +
+      // 全文字符串匹配。1-2 字符的关键词命中量大、性能差且对用户帮助小，
+      // 先卡掉这层让常见的"敲一两个字"不会拖死历史面板。
+      // ≥ 3 字符再走子查询全扫，性价比可接受。
+      if (opts.keyword.length >= 3) {
+        conditions.push(
+          `(title LIKE @kw OR id IN (SELECT session_id FROM events WHERE payload_json LIKE @kw)
+            OR id IN (SELECT session_id FROM summaries WHERE content LIKE @kw))`,
+        );
+      } else {
+        conditions.push(`title LIKE @kw`);
+      }
       params.kw = `%${opts.keyword}%`;
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';

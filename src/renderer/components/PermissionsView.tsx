@@ -12,6 +12,7 @@ interface Props {
 
 const SOURCE_LABEL: Record<SettingsSource, string> = {
   user: 'User',
+  'user-local': 'User Local',
   project: 'Project',
   local: 'Local',
 };
@@ -19,19 +20,21 @@ const SOURCE_LABEL: Record<SettingsSource, string> = {
 /** 短标记，用在「来源 chip」 */
 const SOURCE_BADGE: Record<SettingsSource, string> = {
   user: 'U',
+  'user-local': 'UL',
   project: 'P',
   local: 'L',
 };
 
 const SOURCE_HINT: Record<SettingsSource, string> = {
   user: '~/.claude/settings.json',
+  'user-local': '~/.claude/settings.local.json',
   project: '<cwd>/.claude/settings.json',
   local: '<cwd>/.claude/settings.local.json',
 };
 
 /**
- * 会话详情 -「权限」tab。按当前会话 cwd 解析 user / project / local 三层 settings.json，
- * 顶部展示按 SDK 优先级合并后的生效规则，下面分别展示三层完整 JSON。
+ * 会话详情 -「权限」tab。按当前会话 cwd 解析 user / user-local / project / local 四层 settings.json，
+ * 顶部展示按 SDK 优先级合并后的生效规则，下面分别展示四层完整 JSON。
  *
  * 只读：不提供编辑/删除入口；用户改配置走系统编辑器（`openPermissionFile`）。
  */
@@ -70,8 +73,9 @@ export function PermissionsView({ cwd }: Props): JSX.Element {
   }
   if (!data) return <div className="text-[11px] text-deck-muted">无数据</div>;
 
-  // 在 home 目录跑会话时 project 路径与 user 重合，提示用户避免误解
+  // 在 home 目录跑会话时 project / local 路径会与 user / user-local 重合，提示用户避免误解
   const projectIsUser = data.project.path === data.user.path;
+  const localIsUserLocal = data.local.path === data.userLocal.path;
 
   return (
     <div className="flex flex-col gap-3">
@@ -93,12 +97,17 @@ export function PermissionsView({ cwd }: Props): JSX.Element {
       <MergedPanel merged={data.merged} />
 
       <LayerPanel layer={data.user} cwd={cwd} />
+      <LayerPanel layer={data.userLocal} cwd={cwd} />
       <LayerPanel
         layer={data.project}
         cwd={cwd}
         notice={projectIsUser ? '会话 cwd 等于 home 目录，与 User 是同一文件' : undefined}
       />
-      <LayerPanel layer={data.local} cwd={cwd} />
+      <LayerPanel
+        layer={data.local}
+        cwd={cwd}
+        notice={localIsUserLocal ? '会话 cwd 等于 home 目录，与 User Local 是同一文件' : undefined}
+      />
     </div>
   );
 }
@@ -116,7 +125,7 @@ function MergedPanel({ merged }: { merged: MergedPermissions }): JSX.Element {
   return (
     <section className="rounded-md border border-deck-border/60 bg-white/[0.03] p-2">
       <header className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wider text-deck-muted">
-        <span>生效合并 · user → project → local</span>
+        <span>生效合并 · user → user-local → project → local</span>
         {merged.defaultMode && (
           <span className="text-deck-text/80">
             defaultMode:{' '}

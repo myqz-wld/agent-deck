@@ -27,6 +27,7 @@
 - macOS `vibrancy: under-window` + CSS `backdrop-filter: blur(36px) saturate(220%) brightness(0.92)` 双层模糊；带 SVG turbulence 噪点纹理 + 内阴影做 Acrylic 质感
 - 默认尺寸 520×680，右上角偏内出现；可拖动 / 缩放 / 折叠为胶囊
 - 默认（无 pin）底色加深到 `rgba(12,14,20,0.78)` —— 浅色桌面背景下文字也清晰；pin 模式（📌）下背景更通透（`rgba(18,18,24,0.2) + blur(18px)`），关掉 vibrancy 让你能透过窗口继续工作
+- pin 模式下背后切 app / 滚动 / 视频时，主进程 100ms 一次 `webContents.invalidate()` 让 NSWindow 重新与桌面合成（10fps 下层桌面感知率，CHANGELOG_24/35 演进）；CSS 端 pin 态隐藏 `::before` 噪点层避免 `mix-blend-mode: overlay` 把文字层缓存进 offscreen group surface（CHANGELOG_35 修文字残影根因）；create 时 `setBackgroundThrottling(false)` 防 macOS 后台节流压制 invalidate
 - 全局快捷键 `Cmd/Ctrl+Alt+P` 切换 pin
 
 ### 会话列表（实时 / 历史）
@@ -96,7 +97,7 @@
 - 用 `@anthropic-ai/claude-agent-sdk` 的 `query()` AsyncGenerator
 - **完全复用本地 `~/.claude` 配置**：`settingSources: ['user', 'project', 'local']`，等价于在该 cwd 跑 `claude`（共享 hooks / MCP / agents / permissions / system prompt）
 - 鉴权：SDK 自己按 `ANTHROPIC_API_KEY` → `~/.claude/.credentials.json` 找（应用不读不覆盖；跑过 `claude login` 即可）
-- **`~/.claude/settings.json` 的 `env` 字段在 bootstrap 时被 `applyClaudeSettingsEnv()` 注入到主进程 `process.env`**：用户在 settings.json 里配置的代理（`ANTHROPIC_BASE_URL`）/ Bearer token（`ANTHROPIC_AUTH_TOKEN`）/ 模型映射，SDK spawn 的 CLI 子进程会继承到，避免「shell 里有冲突 env」或「SDK env 隔离」导致的 Invalid API key
+- **`~/.claude/settings.json` 的 `env` 字段在 bootstrap 时被 `applyClaudeSettingsEnv()` 按白名单注入到主进程 `process.env`**：用户在 settings.json 里配置的代理（`ANTHROPIC_BASE_URL`）/ Bearer token（`ANTHROPIC_AUTH_TOKEN`）/ 模型映射，SDK spawn 的 CLI 子进程会继承到，避免「shell 里有冲突 env」或「SDK env 隔离」导致的 Invalid API key。**白名单**：`ANTHROPIC_*` / `CLAUDE_*` / 标准代理变量（HTTP_PROXY / HTTPS_PROXY / NO_PROXY / ALL_PROXY 大小写两份），其它键统一拒绝并 warn — 防止 settings.json 里夹带 `NODE_OPTIONS` / `PATH` 等危险键污染 process.env
 - 真实 session_id 由 SDK 第一条消息携带，应用启动后等到再返回
 - SDK 通道 emit 的事件打 `source: 'sdk'`；hook 通道回环到同 sessionId 的事件被 `SessionManager.sdkOwned` 集合自动去重
 - **30s fallback / tempKey 重命名**：CLI 启动后 30s 仍未发任何 SDKMessage（鉴权失败 / 模型不可用 / 代理超限），会用 `tempKey` 顶上并 emit 一条错误 message 让 UI 立刻看到原因；后续真实 `session_id` 到达时调 `SessionManager.renameSdkSession(tempKey, realId)` 把 sessions 行 + events / file_changes / summaries 子表整体迁移，renderer 通过 `event:session-renamed` 同步迁移 selectedId 与所有 by-session 状态，用户保持在 detail 不被踢回主界面
@@ -104,7 +105,8 @@
 
 ### Hook 通道（外部 CLI 会话）
 - 内嵌 fastify HTTP server (默认 `127.0.0.1:47821`)
-- HookInstaller：在「设置」点「安装到 ~/.claude/settings.json」会写入 6 条 hook（SessionStart / PreToolUse / PostToolUse / Notification / Stop / SessionEnd），每条命令带 `# agent-deck-hook` 标记，便于一键卸载
+- **Bearer token 鉴权**：所有 `/hook/*` 路由强制校验 `Authorization: Bearer <token>`。token 在首次启动由 `settings-store` 自动生成 32 字节随机 hex（256-bit）并持久化到 `agent-deck-settings.json` 的 `hookServerToken` 字段，install hook 时把 token 嵌入 curl 命令的 Authorization 头。**用户不在 UI 上修改 token**；防止本机其他进程（多用户 / 容器 / 恶意 npm post-install）直接 curl 伪造 AgentEvent 污染 SQLite
+- HookInstaller：在「设置」点「安装到 ~/.claude/settings.json」会写入 6 条 hook（SessionStart / PreToolUse / PostToolUse / Notification / Stop / SessionEnd），每条命令带 `# agent-deck-hook` 标记，便于一键卸载。**写 settings.json 用 temp+rename 原子写**，避免崩溃 / 断电留半个 JSON 把用户的 hooks/permissions/mcpServers/env 配置全弄丢
 - payload 翻译：PostToolUse(Edit/Write/MultiEdit) → `tool-use-end` + `file-changed`（含 before/after，喂给 DiffCollector）
 - Hook 通道事件打 `source: 'hook'`
 
@@ -129,12 +131,13 @@
 - 按钮：**允许本次** / **始终允许**（SDK 给了 suggestions 才显示）/ **拒绝**
 - 已响应的请求行变成「⚪ 已处理」灰带状态，不再可点
 - 外部 CLI 的 `waiting-for-user` 是 hook 的 Notification，没有响应通路，UI 上只展示 + 提示「请回到终端窗口操作」
-- 也可在底部 Composer 上切换权限模式（default / acceptEdits / plan / bypassPermissions）；切到 `bypassPermissions` 需要在新建会话时就选好（CLI 子进程必须以 `--allow-dangerously-skip-permissions` 启动才生效）
+- 也可在底部 Composer 上切换权限模式（default / acceptEdits / plan / bypassPermissions）；切到 `bypassPermissions` **会先弹 confirm 提示**：该模式需要在新建会话时就选好（CLI 子进程必须以 `--allow-dangerously-skip-permissions` 启动才生效），运行时切换可能被 SDK 静默忽略
 - **超时自动 abort**：超过 `permissionTimeoutMs`（默认 300s）未响应 → 自动按 deny+interrupt 处理 + 推一条警告 message 到时间线 + emit `permission-cancelled`，UI 自动移除按钮，避免会话死等
 - **Claude 自动取消时弹 toast**：SDK 主动 abort 一条 pending（流终止 / interrupt / 上层超时）时，SessionDetail 顶部弹 5s 的「Claude 自动取消了一条权限请求」灰色 toast，让用户知道按钮消失不是自己点掉的
 - **renderer 重启 / HMR / 切会话**：自动从主进程拉一次真实 pending 列表（IPC `adapter:list-pending` / `adapter:list-pending-all`），重建 store；不然事件流里的 `permission-request` 会被错渲成「已处理」按钮不显示 → SDK 死锁
 - **header pending 计数**：右上角 `⚠ N 待处理` chip，把当前所有 SDK 会话的未响应权限/提问加总；点击跳到首个有 pending 的会话
 - **sendMessage 时还有 pending → 推警告**：避免用户以为 Claude 死了（SDK query() 在等 canUseTool resolve，新消息会进队列但短时间内不被消费）
+- **sendMessage 字节 / 队列上限**：单条消息 > 100KB 直接拒绝；待发送队列 > 20 条拒绝排队（SDK 阻塞在 canUseTool 时用户连发不会无限累积内存 + 撞 token 计费）
 
 ### Claude 主动询问（AskUserQuestion，仅 SDK 会话）
 - Claude 调用 `AskUserQuestion` 工具时，canUseTool 走独立分支（不走通用权限请求 UI）
@@ -161,7 +164,7 @@
 - 四个 Tab：
   - **活动**：ActivityFeed 时间线
     - **message** 事件用对话气泡渲染：用户消息（绿色背景，右对齐，标记「你」）；Claude 回复（边框灰背景，左对齐，标记「Claude」）；错误消息（红框）；完整文字、保留换行、不截断
-    - 气泡头部右侧的 **MD/TXT** 切换按钮：把气泡正文从纯文本切到 Markdown 渲染（`react-markdown` + `remark-gfm`，支持表格 / 任务列表 / 删除线 / 代码块 / 链接）；偏好走 `localStorage`，全局生效——切任意一条等于切所有 bubble，刷新 / 重启保持上次选择；error 消息和空消息不显示按钮、强制 plaintext 保留堆栈结构
+    - 气泡头部右侧的 **MD/TXT** 切换按钮：把气泡正文从纯文本切到 Markdown 渲染（`react-markdown` + `remark-gfm`，支持表格 / 任务列表 / 删除线 / 代码块 / 链接）；**每条消息独立切换、互不级联**（CHANGELOG_34 推翻 CHANGELOG_27 的「切单条 = 切全局」取舍）；默认 plaintext，切单条只改本条本地 state，**不持久化**（CHANGELOG_35 删 render-mode.ts，localStorage 也不再用）；切过的 bubble 卸载（切会话 / 重启）后回到默认；error 消息和空消息不显示按钮、强制 plaintext 保留堆栈结构
     - **tool-use-start**：`🔧 工具名 · 入参摘要` 单行；Edit / Write / MultiEdit 自动展开 Monaco DiffViewer 在行内（`overflow-hidden h-72`，一眼看到 Claude 写了什么）；ExitPlanMode（hook 通道）展开 markdown plan 让你能看到外部 CLI 提议的计划全文（只读）
     - **tool-use-end**：默认折叠成 `▸ 工具名 完成`；点击展开 `toolResult` 完整内容（pre 等宽，最高 64 行可滚）
     - **waiting-for-user (permission-request)** → PermissionRow 内嵌 + 操作按钮（header 右对齐）+ Edit/Write/MultiEdit diff 行内
@@ -188,6 +191,8 @@
   2. **新事件数为 0** → 跳过（避免反复跑出一模一样的总结）
   3. 时间到 (`summaryIntervalMs`) **或** 新事件数 ≥ `summaryEventCount` 任一满足
   4. **全局并发上限** (`summaryMaxConcurrent`，默认 2)：到顶就退出本轮，下次扫描重新评估
+- **单次 oneshot 超时** (`summaryTimeoutMs`，默认 60s)：底层 cli.js 卡在等 result（代理超时 / 鉴权死锁 / API 限流）时优先 `q.interrupt()` 优雅清子进程，兜底 throw 让外层走最近一条 assistant 文字 / 事件统计降级；防止单个卡死永久占用 inFlight 槽把整个 Summarizer 锁死
+- **设置面板改 `summaryIntervalMs` 即改即生效**：调用 `summarizer.setIntervalMs(ms)` 重启 setInterval，不需要重启应用
 - **降级策略**（依次尝试）：
   1. 通过 SDK `query()` oneshot 跑本地 OAuth + plan 模式，让模型用一句话描述「在做什么」（`settingSources: []` 避免 hook 回环；模型选取链 `ANTHROPIC_DEFAULT_HAIKU_MODEL` → `ANTHROPIC_MODEL` → `'haiku'` alias 兜底，让最便宜最快的模型干这个最轻的活）
   2. 失败 → 取最近一条 assistant 文字（截 100 字）
@@ -219,9 +224,9 @@
 - **Claude Code Hook**：安装 / 卸载（user 作用域，写 `~/.claude/settings.json`）
 - **提醒**：声音 / 聚焦时静音 / 系统通知 / **测试系统通知**（弹一条横幅验证 OS 权限，dev 模式下首次需要在 系统设置 → 通知 → Electron 里允许）/ **自定义提示音**（waiting & finished 各自选 mp3 + 试听 + 重置）
 - **生命周期**：`activeWindowMs`（分钟）/ `closeAfterMs`（小时）/ `permissionTimeoutMs`（秒，0=不超时；默认 300，超时把权限请求当 deny+interrupt 处理，避免会话死等）—— 即改即生效
-- **间歇总结**：时间触发（分钟）/ 事件数触发 / 同时跑总结上限
+- **间歇总结**：时间触发（分钟，**即改即生效**）/ 事件数触发 / 同时跑总结上限 / `summaryTimeoutMs`（单次 LLM 总结超时秒数，0=不超时；默认 60）
 - **窗口**：开机自启（始终置顶由 header 📌 按钮 / 全局快捷键管理，不在面板里重复）
-- **HookServer**：端口（重启生效）
+- **HookServer**：端口（重启 + 重新 install hook 才生效）。鉴权 token 不在 UI 露出，由 settings-store 在首次启动自动生成 32 字节随机 hex 并固定持久化
 
 ### 快捷键
 - `Cmd/Ctrl+Alt+P` —— 切换 pin（窗口置顶 + vibrancy 切换）
@@ -254,10 +259,9 @@ src/
 │   │   ├── aider/index.ts        占位
 │   │   └── generic-pty/index.ts  占位
 │   ├── session/
-│   │   ├── manager.ts            事件汇集 + 状态机 + sdkOwned 去重 + 归档/复活 + cwd 待领取标记 + renameSdkSession (tempKey→realId 整体迁移)
+│   │   ├── manager.ts            事件汇集 + 状态机 + sdkOwned 去重 + 归档/复活 + cwd 待领取标记 + renameSdkSession (tempKey→realId 整体迁移)；ingest 真状态变化才走 upsert+广播，仅 lastEventAt 推进走轻量 setActivity 不广播（避免 IPC 风暴）；归档与 lifecycle 严格正交，事件不会自动 unarchive
 │   │   ├── lifecycle-scheduler.ts active → dormant → closed 推进
-│   │   ├── diff-collector.ts     file-changed 事件落库（轻封装）
-│   │   └── summarizer.ts         LLM 总结调度（节流 + 并发上限 + 降级；prompt 标注「Claude 一侧的行为」防止 LLM 把动作误总结成「用户…」）
+│   │   └── summarizer.ts         LLM 总结调度（节流 + 并发上限 + 单次超时 + 降级；setIntervalMs 即改即生效；prompt 标注「Claude 一侧的行为」防止 LLM 把动作误总结成「用户…」）
 │   ├── notify/
 │   │   ├── sound.ts          afplay / paplay / powershell 跨平台播放（防叠播 + 5s 上限 + before-quit 清理）
 │   │   └── visual.ts         系统通知 + Dock 弹跳（不做窗口闪屏）
@@ -297,7 +301,6 @@ src/
     ├── hooks/use-event-bridge.ts onSessionUpserted / onSessionRemoved / onSessionRenamed / onAgentEvent / onSummaryAdded 桥接
     ├── lib/
     │   ├── ipc.ts                动态 channel 兜底
-    │   ├── render-mode.ts        useGlobalRenderMode hook：localStorage + CustomEvent 广播，让所有 MessageBubble 共享一份「默认渲染模式」
     │   └── session-selectors.ts  selectLiveSessions：archivedAt === null && lifecycle ∈ {active, dormant}，App.tsx header stats 与 SessionList 共用
     └── styles/globals.css        Tailwind 4 + frosted-frame Acrylic CSS（默认底色加深，pin 模式高透明）
 
@@ -394,7 +397,8 @@ SELECT id, source, lifecycle, activity FROM sessions;
 1. SDK 自己按 `ANTHROPIC_API_KEY` → `~/.claude/.credentials.json` 找
 2. 跑过 `claude login` 即可（订阅会员或 Console 账户都行）
 3. 应用内会话还会读取 `~/.claude/settings.json` + 项目级 `.claude/settings.json`，跟终端 `claude` 完全等价
-4. **`~/.claude/settings.json` 的 `env` 字段**会在应用启动时被 `applyClaudeSettingsEnv()` 注入到主进程 `process.env`，让 SDK spawn 出来的 CLI 子进程能拿到代理配置（`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / 模型映射等）。这一步是为了避免「shell env 与 settings.json env 冲突」或「SDK 默认 env 隔离」造成 Invalid API key
+4. **`~/.claude/settings.json` 的 `env` 字段**会在应用启动时被 `applyClaudeSettingsEnv()` **按白名单**注入到主进程 `process.env`，让 SDK spawn 出来的 CLI 子进程能拿到代理配置（`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / 模型映射等）。这一步是为了避免「shell env 与 settings.json env 冲突」或「SDK 默认 env 隔离」造成 Invalid API key。**白名单**：`ANTHROPIC_*` / `CLAUDE_*` / 标准代理变量（HTTP_PROXY / HTTPS_PROXY / NO_PROXY / ALL_PROXY 大小写两份），其它键拒绝并 warn — 防止 settings.json 被夹带 `NODE_OPTIONS` / `PATH` / `ELECTRON_RUN_AS_NODE` 等危险键污染信任链
+5. **HookServer Bearer token**：所有 hook 路由用首启自动生成的 256-bit hex token 鉴权（不需要也不应该手动配置）。hook 命令在 install 时把 token 嵌入 `Authorization` 头；防止本机其它进程伪造事件污染 SQLite
 
 ---
 

@@ -16,10 +16,28 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
+/**
+ * 关键字输入到查询触发的延迟（毫秒）。
+ * 避免用户每敲一个字就触发一次 SQL 查询：events.payload_json 上的 LIKE %kw% 是
+ * 全表扫描 + 全文字符串匹配，几千条事件后每次输入都会卡 200~500ms。
+ * 后端 session-repo 也额外加了"短关键词只搜 title"的过滤兜底。
+ */
+const KEYWORD_DEBOUNCE_MS = 300;
+
 export function HistoryPanel({ onSelect }: Props): JSX.Element {
   const [filters, setFilters] = useState<Filters>({});
+  /** 输入框的实时值（用户每打一个字就更新），与 filters.keyword 解耦避免每次输入都触发 reload */
+  const [keywordInput, setKeywordInput] = useState('');
   const [rows, setRows] = useState<SessionRecord[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // keywordInput → filters.keyword 的 debounce 桥接：用户停止输入 300ms 后才提交查询
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((f) => ({ ...f, keyword: keywordInput || undefined }));
+    }, KEYWORD_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [keywordInput]);
 
   const reload = async (): Promise<void> => {
     setLoading(true);
@@ -72,10 +90,8 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
             type="text"
             placeholder="关键字搜索 cwd / 标题 / 事件 / 总结…"
             className="no-drag flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-            value={filters.keyword ?? ''}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, keyword: e.target.value || undefined }))
-            }
+            value={keywordInput}
+            onChange={(e) => setKeywordInput(e.target.value)}
           />
           <button
             type="button"

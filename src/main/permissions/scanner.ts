@@ -1,6 +1,6 @@
 /**
- * 扫描某个 cwd 对应的 Claude Code 三层 settings.json，提取 permissions 字段，
- * 并按 SDK `settingSources: ['user','project','local']` 顺序合并出生效视图。
+ * 扫描某个 cwd 对应的 Claude Code 四层 settings.json，提取 permissions 字段，
+ * 并按 SDK 实际优先级 `user → user-local → project → local`（高覆盖低）合并出生效视图。
  *
  * 设计要点：
  * - 只读（fs.readFile + JSON.parse），绝不写文件 / 绝不修改用户配置；
@@ -8,6 +8,8 @@
  * - 文件不存在 → 返回 exists=false 的占位结构，UI 仍展示推断路径，让用户知道去哪儿创建。
  * - JSON 解析失败 → 返回 parseError，原文 raw 仍展示，方便用户排错。
  * - 路径白名单：getCandidatePaths 是 open-file handler 的唯一信任源，杜绝任意路径打开。
+ * - user-local（~/.claude/settings.local.json）：Claude Code 官方文档目前未明列这一层，
+ *   但 SDK / CLI 实际会读它（典型用途：个人偏好的 allow/deny），所以一并扫描。
  */
 
 import { promises as fs } from 'node:fs';
@@ -25,15 +27,17 @@ import type {
 
 interface CandidatePaths {
   user: string;
+  userLocal: string;
   project: string;
   local: string;
 }
 
-/** 计算三层 settings 的绝对路径。空 cwd 兜底到 homedir，与 NewSessionDialog / cli.ts 一致。 */
+/** 计算四层 settings 的绝对路径。空 cwd 兜底到 homedir，与 NewSessionDialog / cli.ts 一致。 */
 export function getCandidatePaths(cwd: string): CandidatePaths {
   const resolved = cwd && cwd.trim().length > 0 ? cwd : homedir();
   return {
     user: join(homedir(), '.claude', 'settings.json'),
+    userLocal: join(homedir(), '.claude', 'settings.local.json'),
     project: join(resolved, '.claude', 'settings.json'),
     local: join(resolved, '.claude', 'settings.local.json'),
   };
@@ -110,9 +114,9 @@ function extractPermissions(parsed: unknown): SettingsPermissionsBlock | null {
 }
 
 /**
- * 合并三层 permissions：
+ * 合并四层 permissions：
  * - allow / deny / ask / additionalDirectories：按出现顺序 union，每条规则保留其出现过的 source 列表
- * - defaultMode：local > project > user 倒序找第一个非 null（与 SDK 实际行为一致：靠后的 settingSource 覆盖标量字段）
+ * - defaultMode：local > project > user-local > user 倒序找第一个非 null（与 SDK 实际行为一致：靠后的 settingSource 覆盖标量字段）
  */
 export function mergePermissions(layers: SettingsLayer[]): MergedPermissions {
   const collectRules = (key: 'allow' | 'deny' | 'ask'): MergedRule[] => {
@@ -150,7 +154,7 @@ export function mergePermissions(layers: SettingsLayer[]): MergedPermissions {
   };
 
   let defaultMode: MergedPermissions['defaultMode'] = null;
-  // 倒序：local 先，其次 project，最后 user
+  // 倒序：local 先，依次往前（与 SDK 实际优先级一致：高优先级覆盖低优先级）
   for (let i = layers.length - 1; i >= 0; i--) {
     const l = layers[i];
     if (l.permissions?.defaultMode) {
@@ -169,7 +173,7 @@ export function mergePermissions(layers: SettingsLayer[]): MergedPermissions {
 }
 
 /**
- * 扫描 cwd 的三层 settings 并返回合并视图。这是 IPC handler 的唯一入口。
+ * 扫描 cwd 的四层 settings 并返回合并视图。这是 IPC handler 的唯一入口。
  *
  * @param cwd 会话的 cwd；空字符串会兜底到 homedir（与 CHANGELOG_23 的策略一致）。
  */
@@ -177,21 +181,23 @@ export async function scanCwdSettings(cwd: string): Promise<PermissionScanResult
   const trimmed = (cwd ?? '').trim();
   const cwdResolved = trimmed.length > 0 ? trimmed : homedir();
   const paths = getCandidatePaths(cwdResolved);
-  // 三层并发读，加快响应（每个文件 IO 互相独立）
-  const [user, project, local] = await Promise.all([
+  // 四层并发读，加快响应（每个文件 IO 互相独立）
+  const [user, userLocal, project, local] = await Promise.all([
     readLayer('user', paths.user),
+    readLayer('user-local', paths.userLocal),
     readLayer('project', paths.project),
     readLayer('local', paths.local),
   ]);
-  // 注意：当 cwd 实际就是 homedir 时，project 与 user 路径相同。
+  // 注意：当 cwd 实际就是 homedir 时，project / local 路径会与 user / user-local 完全相同。
   // 此时把 project 标成「与 user 同一文件」会让 UI 误以为是两份内容；
-  // 我们保留两次读取（结果完全相同），UI 层负责检测 path 相同时给个提示。
+  // 我们保留全部 4 次读取（结果完全相同），UI 层负责检测 path 相同时给个提示。
   return {
     cwd: trimmed,
     cwdResolved,
     user,
+    userLocal,
     project,
     local,
-    merged: mergePermissions([user, project, local]),
+    merged: mergePermissions([user, userLocal, project, local]),
   };
 }

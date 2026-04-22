@@ -1,4 +1,3 @@
-import type { RouteOptions } from 'fastify';
 import type {
   AgentEvent,
   AskUserQuestionAnswer,
@@ -96,8 +95,4 @@ export interface AgentAdapter {
     scope: 'user' | 'project';
     cwd?: string;
   }): Promise<unknown>;
-}
-
-export interface RouteHelpers {
-  registerRoute: (route: RouteOptions) => void;
 }

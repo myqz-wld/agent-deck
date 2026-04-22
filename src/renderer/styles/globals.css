@@ -69,6 +69,16 @@
   z-index: 0;
 }
 
+/* pin 态隐藏噪点 ::before（CHANGELOG_35 修文字残影根因）：
+   ::before 的 mix-blend-mode: overlay + 父层 isolation: isolate + backdrop-filter
+   三件套强制 Chromium 把文字层与噪点合成进 offscreen group surface，该 group
+   surface 被 Blink 缓存且 webContents.invalidate() 不能让它失效 →
+   切下层 app 时文字"印"在玻璃上，与下方画面错位 = 用户看到的"文字残影"。
+   pin 态 0.2 alpha 下噪点本来就几乎不可见，干脆 display:none 根治这个 group 缓存。 */
+.frosted-frame[data-pinned='true']::before {
+  display: none;
+}
+
 /* 把 frosted-frame 的「内容层」抬到 ::before 噪点之上。
    排除 .absolute / .fixed —— 它们已显式定位，不应被强行改成 relative，
    否则会把 dialog 这种全屏覆盖的 overlay 拍回到文档流里、被裁掉看不见。 */

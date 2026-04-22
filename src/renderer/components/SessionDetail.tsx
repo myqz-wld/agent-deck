@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type {
-  AskUserQuestionItem,
-  AskUserQuestionRequest,
   DiffPayload,
   FileChangeRecord,
-  PermissionRequest,
   SessionRecord,
 } from '@shared/types';
 import { ActivityFeed } from './ActivityFeed';
@@ -305,110 +302,8 @@ function SourceBadge({ isSdk }: { isSdk: boolean }): JSX.Element {
   );
 }
 
-/** 历史 banner 组件。当前由活动流接管，但 export 出来方便日后切回 banner 模式时直接复用。 */
-export function PermissionRequests({
-  sessionId,
-  agentId,
-  requests,
-  isSdk,
-}: {
-  sessionId: string;
-  agentId: string;
-  requests: PermissionRequest[];
-  isSdk: boolean;
-}): JSX.Element {
-  const resolve = useSessionStore((s) => s.resolvePermission);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  // 外部 CLI 会话：UI 上只能展示，不能响应（SDK 通道才有 canUseTool）
-  const respond = async (
-    req: PermissionRequest,
-    decision: 'allow' | 'deny',
-    alwaysAllow = false,
-  ): Promise<void> => {
-    if (!isSdk) return;
-    setBusyId(req.requestId);
-    try {
-      await window.api.respondPermission(agentId, sessionId, req.requestId, {
-        decision,
-        message: decision === 'deny' ? '用户拒绝' : undefined,
-        updatedInput: decision === 'allow' ? req.toolInput : undefined,
-        updatedPermissions: alwaysAllow ? req.suggestions : undefined,
-      });
-      resolve(sessionId, req.requestId);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  return (
-    <div className="shrink-0 border-b border-status-waiting/30 bg-status-waiting/10 px-3 py-2">
-      <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-status-waiting">
-        ⚠️ 等待你的决定 · {requests.length}
-      </div>
-      <div className="flex flex-col gap-1.5">
-        {requests.map((req) => (
-          <div
-            key={req.requestId}
-            className="rounded-md border border-status-waiting/30 bg-deck-bg-strong/60 p-2"
-          >
-            <div className="text-[11px]">
-              工具：<span className="font-mono">{req.toolName}</span>
-            </div>
-            {(() => {
-              // Edit / Write / MultiEdit 这类有明确 file_path + old/new 的工具，
-              // 直接用 DiffViewer 渲染 diff，比一坨 JSON 直观得多。
-              const diff = toolInputToDiff(req.toolName, req.toolInput);
-              return diff ? (
-                <div className="mt-1 h-72 rounded border border-white/5">
-                  <DiffViewer payload={diff} />
-                </div>
-              ) : (
-                <pre className="mt-1 max-h-24 overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
-                  {JSON.stringify(req.toolInput, null, 2)}
-                </pre>
-              );
-            })()}
-            {isSdk ? (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  disabled={busyId === req.requestId}
-                  onClick={() => void respond(req, 'allow')}
-                  className="rounded bg-status-working/30 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
-                >
-                  允许本次
-                </button>
-                {req.suggestions ? (
-                  <button
-                    type="button"
-                    disabled={busyId === req.requestId}
-                    onClick={() => void respond(req, 'allow', true)}
-                    className="rounded bg-status-working/15 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/25 disabled:opacity-50"
-                  >
-                    始终允许
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={busyId === req.requestId}
-                  onClick={() => void respond(req, 'deny')}
-                  className="rounded bg-status-waiting/30 px-2 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/40 disabled:opacity-50"
-                >
-                  拒绝
-                </button>
-              </div>
-            ) : (
-              <div className="mt-1.5 text-[10px] text-deck-muted">
-                外部 CLI 会话无法在此回应，请回到对应终端窗口操作
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+/** 历史 banner 组件已删除：当前由活动流接管，无引用残留。
+ *  如未来需要重新引入"banner 模式"，git history 是最可靠的恢复来源。 */
 
 function ComposerSdk({
   sessionId,
@@ -508,6 +403,27 @@ function ComposerSdk({
 
   const changeMode = async (next: typeof permissionMode): Promise<void> => {
     if (next === permissionMode || pmBusy) return;
+    // 安全语义：bypassPermissions 必须配套 createSession 时 allowDangerouslySkipPermissions=true
+    // 才能让 CLI 子进程真正进入"流氓模式"。该 flag 在 createSession 拼 SDK options 时按
+    // **初始** permissionMode 决定一次，不可在已运行的 query 上动态切。
+    // 如果用户最初不是 bypassPermissions，运行时切到这个模式，SDK 可能：
+    //   (a) 静默忽略 → 用户以为切了实际没切（更糟，导致一连串"为什么 Claude 还在问我"）
+    //   (b) 真切但只是名义上 → 流氓模式没真生效
+    // 唯一可靠的方法是「重建会话时直接选 bypassPermissions」。这里弹 confirm 让用户知情。
+    if (next === 'bypassPermissions' && permissionMode !== 'bypassPermissions') {
+      const ok = await window.api.confirmDialog({
+        title: '切换到完全免询问模式',
+        message: '该模式在已运行的会话上不一定生效',
+        detail:
+          'bypassPermissions（完全免询问）需要在新建会话时直接选择才能真正生效。\n' +
+          '在已运行的会话上切换可能被 SDK 静默忽略，仍然每次询问。\n\n' +
+          '建议：取消切换，新建一个会话时直接选「完全免询问」。',
+        okLabel: '仍要切换',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     setPmBusy(true);
     setPmError(null);
     try {
@@ -686,259 +602,7 @@ function ChangeTimeline({
  * options 用按钮（单选立即提交；multiSelect 用 checkbox + 提交按钮）。
  * 支持每题最后一个「其他」自由输入。
  */
-/** 历史 banner 组件，与 PermissionRequests 同。当前由活动流接管。 */
-export function AskUserQuestionPanel({
-  sessionId,
-  agentId,
-  requests,
-  isSdk,
-}: {
-  sessionId: string;
-  agentId: string;
-  requests: AskUserQuestionRequest[];
-  isSdk: boolean;
-}): JSX.Element {
-  const resolve = useSessionStore((s) => s.resolveAskQuestion);
-
-  return (
-    <div className="shrink-0 border-b border-status-working/30 bg-status-working/[0.08] px-3 py-2">
-      <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-status-working">
-        ❓ Claude 在询问你 · {requests.length}
-      </div>
-      <div className="flex flex-col gap-2">
-        {requests.map((req) => (
-          <AskQuestionForm
-            key={req.requestId}
-            request={req}
-            isSdk={isSdk}
-            onSubmit={async (answers) => {
-              if (!isSdk) return;
-              await window.api.respondAskUserQuestion(agentId, sessionId, req.requestId, {
-                answers,
-              });
-              resolve(sessionId, req.requestId);
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AskQuestionForm({
-  request,
-  isSdk,
-  onSubmit,
-}: {
-  request: AskUserQuestionRequest;
-  isSdk: boolean;
-  onSubmit: (
-    answers: { question: string; selected: string[]; other?: string }[],
-  ) => Promise<void>;
-}): JSX.Element {
-  // 每题用 Map 存「选中的 label 集合 + 其他文本」
-  const [state, setState] = useState<Record<number, { selected: Set<string>; other: string }>>(
-    () => {
-      const init: Record<number, { selected: Set<string>; other: string }> = {};
-      request.questions.forEach((_, i) => {
-        init[i] = { selected: new Set(), other: '' };
-      });
-      return init;
-    },
-  );
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (): Promise<void> => {
-    setBusy(true);
-    try {
-      const answers = request.questions.map((q, i) => {
-        const s = state[i] ?? { selected: new Set<string>(), other: '' };
-        return {
-          question: q.question,
-          selected: [...s.selected],
-          other: s.other.trim() || undefined,
-        };
-      });
-      await onSubmit(answers);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // 单选 + 立即提交：option 点击后直接 onSubmit
-  const pickSingle = async (qIdx: number, label: string): Promise<void> => {
-    if (!isSdk || busy) return;
-    setBusy(true);
-    try {
-      const answers = request.questions.map((q, i) => {
-        if (i === qIdx) return { question: q.question, selected: [label] };
-        const s = state[i] ?? { selected: new Set<string>(), other: '' };
-        return {
-          question: q.question,
-          selected: [...s.selected],
-          other: s.other.trim() || undefined,
-        };
-      });
-      await onSubmit(answers);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const allMultiSelect = request.questions.every((q) => q.multiSelect);
-  const anyMultiSelect = request.questions.some((q) => q.multiSelect);
-
-  return (
-    <div className="rounded-md border border-status-working/30 bg-deck-bg-strong/60 p-2">
-      {request.questions.map((q, i) => (
-        <QuestionRow
-          key={i}
-          q={q}
-          state={state[i]}
-          isSdk={isSdk}
-          busy={busy}
-          onToggle={(label) =>
-            setState((prev) => {
-              const cur = prev[i] ?? { selected: new Set<string>(), other: '' };
-              const nextSelected = new Set(cur.selected);
-              if (q.multiSelect) {
-                if (nextSelected.has(label)) nextSelected.delete(label);
-                else nextSelected.add(label);
-              } else {
-                nextSelected.clear();
-                nextSelected.add(label);
-              }
-              return { ...prev, [i]: { ...cur, selected: nextSelected } };
-            })
-          }
-          onChangeOther={(v) =>
-            setState((prev) => ({
-              ...prev,
-              [i]: { ...(prev[i] ?? { selected: new Set<string>(), other: '' }), other: v },
-            }))
-          }
-          onPickSingle={(label) => void pickSingle(i, label)}
-        />
-      ))}
-      {(anyMultiSelect || !isSdk) && (
-        <div className="mt-2 flex items-center justify-between gap-2">
-          {!isSdk && (
-            <span className="text-[10px] text-deck-muted">
-              外部 CLI 会话无法在此回应，请回到对应终端窗口操作
-            </span>
-          )}
-          {isSdk && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void submit()}
-              className="ml-auto rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
-            >
-              {allMultiSelect ? '提交' : '提交所有答案'}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function QuestionRow({
-  q,
-  state,
-  isSdk,
-  busy,
-  onToggle,
-  onChangeOther,
-  onPickSingle,
-}: {
-  q: AskUserQuestionItem;
-  state: { selected: Set<string>; other: string } | undefined;
-  isSdk: boolean;
-  busy: boolean;
-  onToggle: (label: string) => void;
-  onChangeOther: (v: string) => void;
-  onPickSingle: (label: string) => void;
-}): JSX.Element {
-  const selected = state?.selected ?? new Set<string>();
-  return (
-    <div className="mb-2 last:mb-0">
-      {q.header && (
-        <div className="text-[10px] uppercase tracking-wider text-deck-muted/80">{q.header}</div>
-      )}
-      <div className="text-[11px] text-deck-text">{q.question}</div>
-      <div className="mt-1.5 flex flex-wrap gap-1">
-        {q.options.map((opt) => {
-          const isSel = selected.has(opt.label);
-          return (
-            <button
-              key={opt.label}
-              type="button"
-              disabled={!isSdk || busy}
-              onClick={() => (q.multiSelect ? onToggle(opt.label) : onPickSingle(opt.label))}
-              title={opt.description}
-              className={`rounded border px-2 py-0.5 text-[10px] transition disabled:opacity-50 ${
-                isSel
-                  ? 'border-status-working/60 bg-status-working/30 text-status-working'
-                  : 'border-deck-border bg-white/[0.04] text-deck-muted hover:bg-white/[0.08]'
-              }`}
-            >
-              {q.multiSelect && <span className="mr-1">{isSel ? '☑' : '☐'}</span>}
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-      <input
-        type="text"
-        value={state?.other ?? ''}
-        onChange={(e) => onChangeOther(e.target.value)}
-        placeholder="其他（可选）"
-        disabled={!isSdk || busy}
-        className="mt-1.5 w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
-      />
-    </div>
-  );
-}
-
-/**
- * 把 Edit / Write / MultiEdit 这类工具的 input 翻译成 DiffPayload，
- * 让权限请求面板能直接渲染成 diff（用户一眼看到改了啥），不需要看 JSON 猜。
- */
-function toolInputToDiff(
-  toolName: string,
-  input: Record<string, unknown>,
-): DiffPayload<string | null> | null {
-  const i = input as {
-    file_path?: string;
-    old_string?: string;
-    new_string?: string;
-    content?: string;
-    edits?: { old_string: string; new_string: string }[];
-  };
-  if (!i.file_path) return null;
-  const ts = Date.now();
-  if (toolName === 'Edit' && typeof i.old_string === 'string' && typeof i.new_string === 'string') {
-    return {
-      kind: 'text',
-      filePath: i.file_path,
-      before: i.old_string,
-      after: i.new_string,
-      ts,
-    };
-  }
-  if (toolName === 'Write' && typeof i.content === 'string') {
-    return { kind: 'text', filePath: i.file_path, before: null, after: i.content, ts };
-  }
-  if (toolName === 'MultiEdit' && Array.isArray(i.edits) && i.edits.length > 0) {
-    return {
-      kind: 'text',
-      filePath: i.file_path,
-      before: i.edits.map((e) => e.old_string).join('\n---\n'),
-      after: i.edits.map((e) => e.new_string).join('\n---\n'),
-      metadata: { source: 'MultiEdit', editCount: i.edits.length },
-      ts,
-    };
-  }
-  return null;
-}
+/** 历史 banner 组件 AskUserQuestionPanel + AskQuestionForm + QuestionRow + toolInputToDiff
+ *  全部已删除：当前由活动流 ActivityFeed 内的 AskRow 等接管，工具入参 → DiffPayload 翻译
+ *  ActivityFeed 自己有一份同名 toolInputToDiff（renderer/components/ActivityFeed.tsx:919）。
+ *  如未来需要重新引入"banner 模式"，git history 是最可靠的恢复来源。 */

@@ -31,7 +31,8 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
 
   async init(ctx: AdapterContext): Promise<void> {
     const port = ctx.hookServer.listeningPort;
-    this.installer = new HookInstaller(port);
+    const token = ctx.hookServer.bearerToken;
+    this.installer = new HookInstaller(port, token);
 
     const routes = buildHookRoutes(ctx.emit);
     for (const r of routes) {

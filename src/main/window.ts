@@ -92,6 +92,12 @@ export class FloatingWindow {
       this.win.loadFile(join(__dirname, '../renderer/index.html'));
     }
 
+    // 关闭 macOS 后台节流：默认 true 时，窗口失焦后 Chromium 会对 webContents 的
+    // paint pipeline / rAF 做降频，pin 模式下窗口失焦是常态（用户在下层 app 操作），
+    // 节流会让 startInvalidateLoop 每 100ms 调的 invalidate 实际频率降到 1-2fps，
+    // 残影压不住。Electron 公开 API，无 hack。
+    this.win.webContents.setBackgroundThrottling(false);
+
     return this.win;
   }
 
@@ -107,12 +113,24 @@ export class FloatingWindow {
     if (process.platform === 'darwin') {
       this.win.setVibrancy(value ? null : 'under-window');
     }
-    // pin + macOS：定时强制 webContents.invalidate() 重绘。
-    // 背景：关掉 vibrancy 后，窗口仅靠 CSS backdrop-filter 提供模糊，
-    // 而 Chromium 合成器只在窗口本身有事件（移动 / resize / DOM 变化）时
-    // 才会重新采样「下方像素」。下层 app 切换 / 桌面动画 / 视频播放时窗口自身没事件，
-    // backdrop-filter 持续展示旧快照 → 视觉上是「残影」，需要拖动一下才消失。
-    // 200ms 一次（约 5fps）肉眼无感、GPU 开销可忽略，刚好把残影问题压下去。
+    // pin + macOS：定时强制 webContents.invalidate() 触发 NSWindow 重新与桌面合成，
+    // 顺带把下层 app 最新像素拿进来。
+    //
+    // 注意：CHANGELOG_24 当时的认知有误——这里**不是** "CSS backdrop-filter 在模糊
+    // 下层 app 像素"。pin 态下 backdrop-filter 模糊的是窗口自身 layer 的内容
+    // （基本是空的），下层 app 的像素是 NSWindow 在 surface 提交后做的 source-over
+    // 合成，根本没经过 blur。invalidate 的真实作用：触发 Chromium 提交一帧 surface
+    // → NSWindow 顺带与桌面背景重新合成 → 顺便取下层 app 最新像素。
+    // 所以**这个频率 = 下层桌面感知 fps**，5fps 的 CHANGELOG_24 设置在动态场景
+    // （滚动 / 视频 / 切 app）下肉眼能瞥到旧帧 —— 用户实测有"残影"。
+    //
+    // CHANGELOG_35 调整：
+    // - 200ms (5fps) → 100ms (10fps)：动态场景几乎察觉不到延迟，GPU 开销仍可忽略
+    // - 配合 webContents.setBackgroundThrottling(false)（create 时一次性调）确保
+    //   invalidate 在窗口失焦时不被压制
+    // - 文字残影的另一个根因（::before mix-blend-mode 的 group surface 缓存）
+    //   在 globals.css 端通过 pin 态 display:none ::before 治根了
+    //
     // 非 macOS / 非 pin 不需要这个机制：vibrancy 由系统层持续刷新。
     this.stopInvalidateLoop();
     if (value && process.platform === 'darwin') {
@@ -129,7 +147,7 @@ export class FloatingWindow {
         return;
       }
       w.webContents.invalidate();
-    }, 200);
+    }, 100);
   }
 
   private stopInvalidateLoop(): void {

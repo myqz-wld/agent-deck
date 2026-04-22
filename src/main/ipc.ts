@@ -13,6 +13,7 @@ import { settingsStore } from './store/settings-store';
 import { adapterRegistry } from './adapters/registry';
 import { eventBus } from './event-bus';
 import { getLifecycleScheduler } from './session/lifecycle-scheduler';
+import { summarizer } from './session/summarizer';
 import { playSoundOnce } from './notify/sound';
 import { scanCwdSettings, getCandidatePaths } from './permissions/scanner';
 import type { AppSettings } from '@shared/types';
@@ -129,6 +130,22 @@ export function bootstrapIpc(): void {
     if ('permissionTimeoutMs' in p) {
       const adapter = adapterRegistry.get('claude-code');
       adapter?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
+    }
+
+    // 5) 总结调度周期 → 立刻重启 setInterval（避免必须重启应用才生效）。
+    // summaryTimeoutMs / summaryEventCount / summaryMaxConcurrent 是每轮 scanAll
+    // 内部读 settings 的，天生即时生效，不需要在这里分发。
+    if ('summaryIntervalMs' in p) {
+      summarizer.setIntervalMs(next.summaryIntervalMs);
+    }
+
+    // 6) HookServer 端口：监听端口在 server 已 listen 后无法热切换；同时已写到
+    // ~/.claude/settings.json 的 hook curl 命令端口也会与新值不一致。两个问题都需要
+    // 重启应用 + 重新点 install hook 才能完整生效。这里只持久化设置，
+    // UI 已用「（重启生效）」标注，避免静默假成功。
+    // hookServerToken 同理：换 token 必须重启 server + 重新 install hook 才能生效。
+    if ('hookServerPort' in p) {
+      console.warn('[settings] hookServerPort changed; restart app + reinstall hooks to take effect');
     }
 
     return next;
@@ -324,10 +341,15 @@ export function bootstrapIpc(): void {
   });
 
   // Permissions: 用系统默认应用打开某个 settings.json。为防越权（renderer 传任意 path 直接 openPath），
-  // 严格校验 path 必须是该 cwd 的三个候选路径之一（user / project / local）。
+  // 严格校验 path 必须是该 cwd 的四个候选路径之一（user / user-local / project / local）。
   on(IpcInvoke.PermissionOpenFile, async (_e, cwd, path) => {
     const candidates = getCandidatePaths(String(cwd ?? ''));
-    const allowed = new Set([candidates.user, candidates.project, candidates.local]);
+    const allowed = new Set([
+      candidates.user,
+      candidates.userLocal,
+      candidates.project,
+      candidates.local,
+    ]);
     const target = String(path ?? '');
     if (!allowed.has(target)) {
       return { ok: false, reason: 'path not in candidate list' };

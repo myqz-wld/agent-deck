@@ -1,4 +1,5 @@
 import Store from 'electron-store';
+import { randomBytes } from 'node:crypto';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/types';
 
 // electron-store v10 继承自 conf v14 的 ESM 类（含 `#private`），
@@ -34,6 +35,17 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
         looseDelete.delete(key);
         console.log(`[settings] removed legacy field "${key}"`);
       }
+    }
+
+    // 首次启动自动生成 HookServer Bearer token：32 字节随机 hex（256-bit），
+    // 足以抵御本地暴力枚举；持久化后保持稳定，避免已注入的 hook 命令因 token 变动失效。
+    // null / 空串 / 长度不足都视作"需要重新生成"。
+    const tokenRaw = store.get('hookServerToken') as unknown;
+    const token = typeof tokenRaw === 'string' ? tokenRaw : '';
+    if (!token || token.length < 32) {
+      const fresh = randomBytes(32).toString('hex');
+      store.set('hookServerToken', fresh);
+      console.log('[settings] generated new hookServerToken (random 32-byte hex)');
     }
   }
   return store;

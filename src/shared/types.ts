@@ -187,6 +187,14 @@ export interface SummaryRecord {
 
 export interface AppSettings {
   hookServerPort: number;
+  /**
+   * HookServer Bearer 鉴权 token：本机任何进程都能 curl 127.0.0.1:port，
+   * 没有 token 校验就能伪造 AgentEvent 污染 SQLite / 注入假会话。
+   * 首次启动由 settings-store 自动生成 32 字节随机 hex 并持久化，
+   * 后续保持稳定（让已安装的 hook 命令不会因 token 变动失效）。
+   * 用户**不应**在 UI 上修改此值；仅在被泄漏需要轮换时手动清掉持久化文件让它重生成。
+   */
+  hookServerToken: string | null;
   enableSound: boolean;
   enableSystemNotification: boolean;
   silentWhenFocused: boolean;
@@ -199,6 +207,12 @@ export interface AppSettings {
   summaryIntervalMs: number; // 总结时间触发
   summaryEventCount: number; // 总结事件数触发
   summaryMaxConcurrent: number; // 同时跑 LLM 总结的会话上限
+  /**
+   * 单个 LLM oneshot 总结的超时阈值（毫秒）。0 = 永不超时。
+   * SDK 一旦因代理超时 / 鉴权死锁 / API 限流卡在等 result，循环就永远不会退出，
+   * inFlight 槽永不释放，maxConcurrent 个卡死后整个 Summarizer 不再产新总结。
+   */
+  summaryTimeoutMs: number;
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。 */
   permissionTimeoutMs: number;
   alwaysOnTop: boolean;
@@ -207,6 +221,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   hookServerPort: 47821,
+  hookServerToken: null,
   enableSound: true,
   enableSystemNotification: true,
   silentWhenFocused: true,
@@ -217,6 +232,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryIntervalMs: 5 * 60 * 1000,
   summaryEventCount: 10,
   summaryMaxConcurrent: 2,
+  summaryTimeoutMs: 60 * 1000,
   permissionTimeoutMs: 5 * 60 * 1000,
   alwaysOnTop: true,
   startOnLogin: false,
@@ -234,12 +250,14 @@ export interface HookInstallStatus {
 // ───────────────────────────────────────────────────────── Permission Settings Scan
 
 /**
- * Claude Code 的 settings 三层来源（与 SDK `settingSources: ['user','project','local']` 对齐）。
- * - user: ~/.claude/settings.json
- * - project: <cwd>/.claude/settings.json
- * - local: <cwd>/.claude/settings.local.json
+ * Claude Code 的 settings 四层来源（与 SDK 实际读取行为对齐）。
+ * 优先级低 → 高（高覆盖低）：
+ * - user:       ~/.claude/settings.json
+ * - user-local: ~/.claude/settings.local.json   ← 官方文档未明示，但 SDK / CLI 实际会读
+ * - project:    <cwd>/.claude/settings.json
+ * - local:      <cwd>/.claude/settings.local.json
  */
-export type SettingsSource = 'user' | 'project' | 'local';
+export type SettingsSource = 'user' | 'user-local' | 'project' | 'local';
 
 /** 每层 settings.json 解析出的 permissions 字段（按 SDK schema 抽取，未知字段忽略）。 */
 export interface SettingsPermissionsBlock {
@@ -282,7 +300,7 @@ export interface MergedPermissions {
   deny: MergedRule[];
   ask: MergedRule[];
   additionalDirectories: MergedDirectory[];
-  /** local > project > user 倒序找第一个非 null */
+  /** 倒序找第一个非 null：local > project > user-local > user */
   defaultMode: { value: string; source: SettingsSource } | null;
 }
 
@@ -292,6 +310,8 @@ export interface PermissionScanResult {
   /** 实际用于解析 project / local 的 cwd（兜底为 homedir） */
   cwdResolved: string;
   user: SettingsLayer;
+  /** ~/.claude/settings.local.json，user 级个人覆盖 */
+  userLocal: SettingsLayer;
   project: SettingsLayer;
   local: SettingsLayer;
   merged: MergedPermissions;

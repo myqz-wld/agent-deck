@@ -13,9 +13,18 @@ import {
   EMPTY_REQUESTS,
   useSessionStore,
 } from '@renderer/stores/session-store';
-import { useGlobalRenderMode, type RenderMode } from '@renderer/lib/render-mode';
 import { DiffViewer } from './diff/DiffViewer';
 import { MarkdownText } from './MarkdownText';
+
+/**
+ * 消息气泡渲染模式。CHANGELOG_34 把 MD/TXT 切换从「全局共享」改成「每条独立」之后，
+ * localStorage 里那个 `agent-deck:message-render-mode` 键再也没人写了
+ * （永远只能读到 'plaintext' 默认值），CHANGELOG_35 顺手把整个 render-mode.ts
+ * 文件删了，类型 inline 到这里。
+ * 默认 plaintext —— 用户主动点 MD/TXT 按钮才切到当前 bubble 的本地 state。
+ */
+type RenderMode = 'plaintext' | 'markdown';
+const DEFAULT_RENDER_MODE: RenderMode = 'plaintext';
 
 interface Props {
   sessionId: string;
@@ -242,16 +251,15 @@ function MessageBubble({ event }: { event: AgentEvent }): JSX.Element {
   const isUser = role === 'user';
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
 
-  // 渲染模式：默认跟随全局（localStorage 持久化），单条切换会同步全局
-  // → 所有 bubble 一起改，避免「单条偏离全局」要按 message id 存 map 的复杂度
-  const [globalMode, setGlobalMode] = useGlobalRenderMode();
-  const [mode, setMode] = useState<RenderMode>(globalMode);
-  useEffect(() => setMode(globalMode), [globalMode]);
+  // 渲染模式：每条消息**独立**持有 mode state，互不级联（CHANGELOG_34 推翻
+  // CHANGELOG_27「切单条 = 切全局」的取舍）。默认 plaintext，切换 toggle 只改本条
+  // 本地 state；不再有 localStorage 持久化（CHANGELOG_35 删 render-mode.ts）。
+  // 副作用：切过的 bubble 卸载（切会话 / 重启）后回到默认；这是有意为之，
+  // 不引入「按 message id 持久化偏好 map」的复杂度。
+  const [mode, setMode] = useState<RenderMode>(DEFAULT_RENDER_MODE);
 
   const toggle = (): void => {
-    const next: RenderMode = mode === 'markdown' ? 'plaintext' : 'markdown';
-    setMode(next);
-    setGlobalMode(next); // 写 localStorage + 广播给其它 bubble
+    setMode((cur) => (cur === 'markdown' ? 'plaintext' : 'markdown'));
   };
 
   // error 消息保留 plaintext，避免 markdown 解析掩盖错误堆栈结构

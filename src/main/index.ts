@@ -55,8 +55,9 @@ async function bootstrap(): Promise<void> {
   // 2. 设置
   const settings = settingsStore.getAll();
 
-  // 3. HookServer + RouteRegistry
-  hookServer = new HookServer(settings.hookServerPort);
+  // 3. HookServer + RouteRegistry。token 在 settings-store ensure() 阶段已确保非空，
+  // server 的 onRequest hook 会校验所有 /hook/* 的 Authorization: Bearer <token>。
+  hookServer = new HookServer(settings.hookServerPort, settings.hookServerToken ?? '');
   routeRegistry = new RouteRegistry(hookServer);
 
   // 4. 注册 adapter（占位 adapter 也注册，但 capabilities 决定它们不在 UI 暴露）

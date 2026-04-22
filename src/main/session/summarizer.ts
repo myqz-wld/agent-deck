@@ -26,20 +26,43 @@ async function loadSdk(): Promise<SdkModule> {
  */
 export class Summarizer {
   private timer: NodeJS.Timeout | null = null;
+  private currentIntervalMs = 0;
   private lastSummarizedAt = new Map<string, number>();
   private inFlight = new Set<string>();
 
   start(): void {
     if (this.timer) return;
-    const interval = settingsStore.get('summaryIntervalMs');
-    this.timer = setInterval(() => void this.scanAll(), Math.max(30_000, Math.floor(interval / 2)));
+    this.scheduleTimer();
   }
 
   stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+      this.currentIntervalMs = 0;
     }
+  }
+
+  /**
+   * 设置面板里把 summaryIntervalMs 改了 → 立刻重启 setInterval 周期。
+   * 之前 start() 只读一次配置写进 setInterval，运行时改设置永远不生效，必须重启应用，
+   * 这与 CLAUDE.md 自家的「即改即生效中转点」约定相违。
+   */
+  setIntervalMs(ms: number): void {
+    if (!this.timer) return; // 还没 start 过，下次 start 会读最新值
+    const next = Math.max(30_000, Math.floor(ms / 2));
+    if (next === this.currentIntervalMs) return; // 周期没变就不重置 timer
+    clearInterval(this.timer);
+    this.timer = setInterval(() => void this.scanAll(), next);
+    this.currentIntervalMs = next;
+    console.log(`[summarizer] interval updated to ${next}ms`);
+  }
+
+  private scheduleTimer(): void {
+    const interval = settingsStore.get('summaryIntervalMs');
+    const period = Math.max(30_000, Math.floor(interval / 2));
+    this.timer = setInterval(() => void this.scanAll(), period);
+    this.currentIntervalMs = period;
   }
 
   async scanAll(): Promise<void> {
@@ -203,6 +226,12 @@ function truncate(s: string, max: number): string {
  * - settingSources: []   不读 ~/.claude/settings.json，避免 hook 回环到自己
  * - permissionMode: 'plan'  禁止真实工具调用，只让模型输出文字
  * - 一旦收到 result 就立刻 break，让 cli.js 子进程尽快退出
+ *
+ * 超时：底层 cli.js 子进程因代理超时 / 鉴权死锁 / API 限流卡在等待 result 时，
+ * for-await 会永远不返回 → inFlight 槽永不释放，maxConcurrent 个卡死后整个
+ * Summarizer 不再产新总结。用 Promise.race 给硬上限：
+ * - 优先调 q.interrupt() 让 SDK 自己优雅退（清掉 cli.js 子进程）
+ * - 兜底 throw '__summarizer_timeout__'，让外层 catch 走兜底路径（最近一条 assistant / 事件统计）
  */
 async function summariseViaLlm(cwd: string, events: AgentEvent[]): Promise<string | null> {
   const activity = formatEventsForPrompt(events);
@@ -250,18 +279,51 @@ ${activity}`;
     },
   });
 
-  let result = '';
-  for await (const msg of q) {
-    const m = msg as {
-      type: string;
-      message?: { content?: { type: string; text?: string }[] };
-    };
-    if (m.type === 'assistant' && m.message?.content) {
-      for (const block of m.message.content) {
-        if (block.type === 'text' && block.text) result += block.text;
+  const timeoutMs = settingsStore.get('summaryTimeoutMs');
+  let timeoutHandle: NodeJS.Timeout | null = null;
+  let timedOut = false;
+  const consumeLoop = (async () => {
+    let result = '';
+    for await (const msg of q) {
+      const m = msg as {
+        type: string;
+        message?: { content?: { type: string; text?: string }[] };
+      };
+      if (m.type === 'assistant' && m.message?.content) {
+        for (const block of m.message.content) {
+          if (block.type === 'text' && block.text) result += block.text;
+        }
       }
+      if (m.type === 'result') break;
     }
-    if (m.type === 'result') break;
+    return result;
+  })();
+  // 超时后 consumeLoop 仍在后台跑（interrupt 是异步），它最终可能 reject。
+  // 提前挂 catch 吃掉，避免 unhandled rejection 警告。
+  consumeLoop.catch(() => undefined);
+
+  let result = '';
+  try {
+    if (timeoutMs > 0) {
+      const timer = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          // 优先优雅中断让 SDK 自己清子进程；interrupt 失败也无所谓，下面走 throw 兜底
+          q.interrupt?.().catch(() => undefined);
+          reject(new Error('__summarizer_timeout__'));
+        }, timeoutMs);
+      });
+      result = await Promise.race([consumeLoop, timer]);
+    } else {
+      result = await consumeLoop;
+    }
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+  if (timedOut) {
+    // 走到这里说明 race 已经被 timer 抢先 reject 了，consumeLoop 在后台继续跑也没关系
+    // （interrupt 让它尽快终止）；外层 catch 会走最近一条 assistant 文字 / 事件统计兜底。
+    throw new Error('__summarizer_timeout__');
   }
   const cleaned = result.replace(/\s+/g, ' ').trim();
   return cleaned ? cleaned.slice(0, 120) : null;

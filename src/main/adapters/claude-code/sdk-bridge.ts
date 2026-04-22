@@ -34,6 +34,22 @@ async function loadSdk(): Promise<SdkModule> {
 
 const AGENT_ID = 'claude-code';
 
+/**
+ * 单条用户消息字节上限（~100KB）。超过这个就拒绝排队，让 UI 抛错给用户看到。
+ * 100KB 已经远超合理对话长度（~25k 中文字符），主要是兜底"用户不小心粘了一坨二进制"
+ * 或者"复制了整个日志文件"的场景。SDK / Anthropic 端再大也会按 token 计费暴涨。
+ */
+const MAX_MESSAGE_BYTES = 100_000;
+
+/**
+ * 单会话 pendingUserMessages 队列上限。SDK 在 await canUseTool 等待用户响应时
+ * 整条 query 阻塞，pendingUserMessages 不被消费；用户连发 10+ 条长 prompt 会无限累积，
+ * 内存常驻一堆 SDKUserMessage 对象 + 同步落库 N 条 message 事件，
+ * 等用户允许后 SDK 一次性 flush 全部 turn → token 计费暴涨。
+ * 20 条已经远超合理"用户连发"场景，超过就拒绝排队，让 UI 提示先处理 pending。
+ */
+const MAX_PENDING_MESSAGES = 20;
+
 export interface SdkSessionHandle {
   sessionId: string;
   abort: () => void;
@@ -410,6 +426,23 @@ export class ClaudeSdkBridge {
   async sendMessage(sessionId: string, text: string): Promise<void> {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`session ${sessionId} not found`);
+
+    // 单条字节上限：Buffer.byteLength 用 utf8 计算真实字节数（中文 3 字节 / 字符）。
+    // 超过就拒绝，让 IPC handler 把错误抛给 renderer，UI 显示红条提示用户精简或拆分。
+    const bytes = Buffer.byteLength(text, 'utf8');
+    if (bytes > MAX_MESSAGE_BYTES) {
+      throw new Error(
+        `单条消息 ${(bytes / 1000).toFixed(1)}KB 超过 ${MAX_MESSAGE_BYTES / 1000}KB 上限。请精简或拆分发送。`,
+      );
+    }
+
+    // 队列上限：超过就拒绝排队，让 UI 给用户明确反馈。
+    if (s.pendingUserMessages.length >= MAX_PENDING_MESSAGES) {
+      throw new Error(
+        `待发送队列已堆积 ${MAX_PENDING_MESSAGES} 条。请先处理 pending 请求（权限/提问/计划批准）` +
+          `或等 Claude 消费当前队列再继续发送。`,
+      );
+    }
 
     // 提示：还有未响应的权限/提问/计划批准时，SDK query() 正卡在 await canUseTool 的 Promise，
     // 用户的新消息会进 pendingUserMessages 队列但 Claude 短时间内不会处理它。

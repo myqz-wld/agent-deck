@@ -98,12 +98,15 @@ class SessionManagerClass {
   ensure(sessionId: string, opts: UpsertOptions): SessionRecord {
     const existing = sessionRepo.get(sessionId);
     if (existing) {
-      // 收到新事件 → 复活：closed 推回 active；归档过的也清除归档标记。
-      if (existing.lifecycle === 'closed' || existing.archivedAt !== null) {
+      // 收到新事件 → 复活：closed 推回 active。
+      // 注意：归档（archivedAt）与 lifecycle 正交，是用户的主动隐藏意图，
+      // 不能因为后续事件流就自动 unarchive，否则用户刚归档的 active 会话
+      // 下一秒收到 hook 事件就被默默放回实时面板，违背 CLAUDE.md「正交」约定。
+      // 取消归档必须由 unarchive() 显式调用。
+      if (existing.lifecycle === 'closed') {
         const revived: SessionRecord = {
           ...existing,
           lifecycle: 'active',
-          archivedAt: null,
           endedAt: null,
         };
         sessionRepo.upsert(revived);
@@ -200,22 +203,25 @@ class SessionManagerClass {
       nextLifecycle = event.source === 'sdk' ? 'dormant' : 'closed';
     }
 
-    if (
-      nextActivity !== record.activity ||
-      nextLifecycle !== record.lifecycle ||
-      record.lastEventAt !== event.ts
-    ) {
+    // 「会话状态真的变了」走重 upsert + 广播 session-upserted（renderer store 同步整个 record）。
+    // 「只是 lastEventAt 推进」走轻量 setActivity 单列 UPDATE，不再广播 —— renderer 通过
+    // agent-event 事件已经知道有新动作；session-upserted 高频会话场景下会被联动放大成
+    // IPC 风暴（每条事件一次 latestSummaries 重读 SQL，10 个活跃会话 = 50 IPC/s 全是浪费）。
+    //
+    // 不在判定里写 archivedAt：归档与 lifecycle 正交，归档的会话来事件不应自动 unarchive。
+    if (nextActivity !== record.activity || nextLifecycle !== record.lifecycle) {
       const updated: SessionRecord = {
         ...record,
         activity: nextActivity,
         lifecycle: nextLifecycle,
         lastEventAt: event.ts,
         endedAt: nextLifecycle === 'closed' ? event.ts : null,
-        archivedAt: null,
       };
       sessionRepo.upsert(updated);
       eventBus.emit('session-upserted', updated);
     } else {
+      // 仅刷新 activity（即便没真变也顺便把 last_event_at 推进）。
+      // 不广播 session-upserted —— renderer 不需要为「只是 lastEventAt 变了」重渲染整张卡。
       sessionRepo.setActivity(event.sessionId, nextActivity, event.ts);
     }
 
