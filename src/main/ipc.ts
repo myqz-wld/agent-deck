@@ -17,6 +17,12 @@ import { getLifecycleScheduler } from './session/lifecycle-scheduler';
 import { summarizer } from './session/summarizer';
 import { playSoundOnce } from './notify/sound';
 import { scanCwdSettings, getCandidatePaths } from './permissions/scanner';
+import {
+  getActiveAgentDeckClaudeMd,
+  getBuiltinAgentDeckClaudeMd,
+  resetUserAgentDeckClaudeMd,
+  saveUserAgentDeckClaudeMd,
+} from './adapters/claude-code/sdk-injection';
 import type { AppSettings, ImageSource, LoadImageBlobResult } from '@shared/types';
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>;
@@ -376,6 +382,20 @@ export function bootstrapIpc(): void {
     // shell.openPath 文件不存在时返回非空错误字符串；我们把它当作业务失败回传给前端。
     const errorMsg = await shell.openPath(target);
     return errorMsg ? { ok: false, reason: errorMsg } : { ok: true };
+  });
+
+  // CLAUDE.md（注入到 SDK system prompt 末尾的应用约定）：读 / 保存用户副本 / 重置回内置。
+  // 写入位置：app.getPath('userData')/agent-deck-claude.md，用户副本覆盖内置；
+  // 应用升级不冲掉自定义；保存 / 重置都会清主进程的注入缓存，下次新建会话生效。
+  // 已运行的 SDK 会话已经把 system prompt 固化进 LLM 上下文，不会热改。
+  on(IpcInvoke.ClaudeMdGet, () => getActiveAgentDeckClaudeMd());
+  on(IpcInvoke.ClaudeMdSave, (_e, content) => {
+    saveUserAgentDeckClaudeMd(String(content ?? ''));
+    return { ok: true };
+  });
+  on(IpcInvoke.ClaudeMdReset, () => {
+    resetUserAgentDeckClaudeMd();
+    return { ok: true, content: getBuiltinAgentDeckClaudeMd() };
   });
 
   // Image: 按需读取一张图片为 dataURL 给 renderer 渲染。

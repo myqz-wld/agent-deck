@@ -52,6 +52,12 @@ export const IpcInvoke = {
    * 防止 renderer 越权读任意磁盘文件。失败不抛错，返回 { ok:false, reason }。
    */
   ImageLoadBlob: 'image:load-blob',
+  /** 读取注入到 SDK system prompt 末尾的 agent-deck CLAUDE.md（用户副本优先 → 回落内置）。 */
+  ClaudeMdGet: 'claude-md:get',
+  /** 保存用户副本 CLAUDE.md 到 userData 目录，并清主进程注入缓存（下次新建会话生效）。 */
+  ClaudeMdSave: 'claude-md:save',
+  /** 删除用户副本 CLAUDE.md（如果存在），回落到内置版本，并清缓存。 */
+  ClaudeMdReset: 'claude-md:reset',
 } as const;
 
 export const IpcEvent = {

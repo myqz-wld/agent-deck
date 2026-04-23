@@ -266,6 +266,7 @@
 - **窗口**：开机自启（始终置顶由 header 📌 按钮 / 全局快捷键管理，不在面板里重复）
 - **HookServer**：端口（重启 + 重新 install hook 才生效）。鉴权 token 不在 UI 露出，由 settings-store 在首次启动自动生成 32 字节随机 hex 并固定持久化
 - **外部工具**：「Codex 二进制路径」(`codexCliPath`)。留空 = 用应用内置 codex（`@openai/codex-sdk` 跟随安装的 vendored 二进制，~150MB / 平台，已打包进 .app）；填路径 = 覆盖为外部 codex（如自装的更新版 `which codex` 给的路径）。即改即生效（清掉 Codex 实例，下次新建会话用新 path）；不影响在跑的会话。agent-deck **不读不写** codex 鉴权（`~/.codex/config.toml` / 环境变量），首次用前先在终端跑 `codex auth` 自己配好
+- **应用约定（CLAUDE.md）**：直接编辑注入到 SDK 会话 system prompt 末尾的应用约定文本。保存写到 `userData/agent-deck-claude.md`（用户副本覆盖内置 `resources/claude-config/CLAUDE.md`，应用升级不冲掉自定义）；保存 / 重置都会清主进程注入缓存，**下次新建会话生效**（已运行的 SDK 会话已经把 system prompt 固化进 LLM 上下文，不会热改）；「恢复默认」一键删用户副本回落内置
 
 ### 快捷键
 - `Cmd/Ctrl+Alt+P` —— 切换 pin（窗口置顶 + vibrancy 切换）

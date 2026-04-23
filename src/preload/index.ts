@@ -187,6 +187,17 @@ const api = {
   loadImageBlob: (sessionId: string, source: ImageSource): Promise<LoadImageBlobResult> =>
     ipcRenderer.invoke(IpcInvoke.ImageLoadBlob, sessionId, source),
 
+  // CLAUDE.md（注入到 SDK system prompt 末尾的 agent-deck 应用约定）
+  /** 读取「当前生效」的 CLAUDE.md（用户副本优先 → 回落内置）。 */
+  getClaudeMd: (): Promise<{ content: string; isCustom: boolean }> =>
+    ipcRenderer.invoke(IpcInvoke.ClaudeMdGet),
+  /** 保存用户副本到 userData/agent-deck-claude.md（清缓存，下次新建会话生效）。 */
+  saveClaudeMd: (content: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(IpcInvoke.ClaudeMdSave, content),
+  /** 删除用户副本回落内置；返回新的内置内容供 UI 同步刷新。 */
+  resetClaudeMd: (): Promise<{ ok: boolean; content: string }> =>
+    ipcRenderer.invoke(IpcInvoke.ClaudeMdReset),
+
   // 事件订阅
   onAgentEvent: (cb: (e: AgentEvent) => void): (() => void) => {
     const handler = (_: unknown, e: AgentEvent): void => cb(e);

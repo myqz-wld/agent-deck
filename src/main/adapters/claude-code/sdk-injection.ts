@@ -20,12 +20,20 @@
  *    skill 自动以 `agent-deck:<skill-name>` 命名空间注册，与用户
  *    `~/.claude/skills/` 不冲突。
  *
- * 5. 缓存：CLAUDE.md 内容只读一次缓存到内存。文件在 .app 内是 read-only，
- *    改了也得重新打包，无需每次会话重读。
+ * 5. 加载顺序（CLAUDE.md）：
+ *    - 用户副本 `<userData>/agent-deck-claude.md`（设置面板里编辑后写入）→ 优先
+ *    - 内置 `resources/claude-config/CLAUDE.md`（应用打包随附）→ 回落
+ *    - 都失败 → 空字符串 + warn（让会话照常起来，不阻塞用户）
+ *    内存缓存一次，保存/重置时主动 invalidate 让下次新建会话读到新文本；
+ *    已运行的 SDK 会话已经把 system prompt 固化进 LLM 上下文，热改无效。
  */
 import { app } from 'electron';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+const USER_CLAUDE_MD_FILENAME = 'agent-deck-claude.md';
+const APPEND_HEADER =
+  '\n\n--- Agent Deck 应用约定（随应用打包，独立于 user/project/local CLAUDE.md）---\n\n';
 
 let cachedClaudeMdAppend: string | null = null;
 
@@ -40,9 +48,23 @@ export function getAgentDeckPluginPath(): string {
   return join(app.getAppPath(), 'resources', 'claude-config', 'agent-deck-plugin');
 }
 
+/** 内置 CLAUDE.md 在 .app / repo 内的绝对路径（dev/prod 自动分流）。 */
+function getBuiltinClaudeMdPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'claude-config', 'CLAUDE.md');
+  }
+  return join(app.getAppPath(), 'resources', 'claude-config', 'CLAUDE.md');
+}
+
+/** 用户副本 CLAUDE.md 的绝对路径（与 settings.json 同 userData 目录，独立文件）。 */
+function getUserClaudeMdPath(): string {
+  return join(app.getPath('userData'), USER_CLAUDE_MD_FILENAME);
+}
+
 /**
  * 读取 agent-deck 自带 CLAUDE.md，返回追加到 SDK preset system prompt 末尾的文本。
  *
+ * 加载优先级：用户副本 → 内置 → 空字符串。
  * 失败兜底：返回空字符串 + console.warn，让会话照常起来（不阻塞用户操作）。
  * SDK 接受 append 为空字符串等价于不追加。
  */
@@ -50,15 +72,79 @@ export function getAgentDeckSystemPromptAppend(): string {
   if (cachedClaudeMdAppend !== null) {
     return cachedClaudeMdAppend;
   }
+  const raw = readActiveClaudeMdRaw();
+  cachedClaudeMdAppend = raw ? `${APPEND_HEADER}${raw}` : '';
+  return cachedClaudeMdAppend;
+}
+
+/** 清除内存缓存：保存 / 重置用户副本后调用，让下一次新建会话读到新文本。 */
+export function invalidateAgentDeckSystemPromptAppend(): void {
+  cachedClaudeMdAppend = null;
+}
+
+/**
+ * 读取「当前生效」的 CLAUDE.md 原文（不含 APPEND_HEADER），给设置面板用。
+ * isCustom = true 表示当前是用户副本，false 表示回落到内置。
+ */
+export function getActiveAgentDeckClaudeMd(): { content: string; isCustom: boolean } {
+  const userPath = getUserClaudeMdPath();
+  if (existsSync(userPath)) {
+    try {
+      return { content: readFileSync(userPath, 'utf8'), isCustom: true };
+    } catch (err) {
+      console.warn('[sdk-injection] 读取用户副本 CLAUDE.md 失败，回落内置:', err);
+    }
+  }
+  return { content: getBuiltinAgentDeckClaudeMd(), isCustom: false };
+}
+
+/** 永远读内置 CLAUDE.md，给「恢复默认」按钮用。读不到返回空串 + warn。 */
+export function getBuiltinAgentDeckClaudeMd(): string {
   try {
-    const path = app.isPackaged
-      ? join(process.resourcesPath, 'claude-config', 'CLAUDE.md')
-      : join(app.getAppPath(), 'resources', 'claude-config', 'CLAUDE.md');
-    const raw = readFileSync(path, 'utf8');
-    cachedClaudeMdAppend = `\n\n--- Agent Deck 应用约定（随应用打包，独立于 user/project/local CLAUDE.md）---\n\n${raw}`;
+    return readFileSync(getBuiltinClaudeMdPath(), 'utf8');
+  } catch (err) {
+    console.warn('[sdk-injection] 读取内置 CLAUDE.md 失败:', err);
+    return '';
+  }
+}
+
+/**
+ * 写用户副本到 userData/agent-deck-claude.md 并清缓存。
+ * 调用方负责把内容传过来；不做 schema 校验（用户全责）。
+ */
+export function saveUserAgentDeckClaudeMd(content: string): void {
+  writeFileSync(getUserClaudeMdPath(), content, 'utf8');
+  invalidateAgentDeckSystemPromptAppend();
+}
+
+/** 删除用户副本（如果存在）+ 清缓存，回落到内置。 */
+export function resetUserAgentDeckClaudeMd(): void {
+  const path = getUserClaudeMdPath();
+  if (existsSync(path)) {
+    try {
+      unlinkSync(path);
+    } catch (err) {
+      console.warn('[sdk-injection] 删除用户副本 CLAUDE.md 失败:', err);
+      throw err;
+    }
+  }
+  invalidateAgentDeckSystemPromptAppend();
+}
+
+/** 内部：按优先级读出当前生效内容（不带 header）。 */
+function readActiveClaudeMdRaw(): string {
+  const userPath = getUserClaudeMdPath();
+  if (existsSync(userPath)) {
+    try {
+      return readFileSync(userPath, 'utf8');
+    } catch (err) {
+      console.warn('[sdk-injection] 读取用户副本 CLAUDE.md 失败，回落内置:', err);
+    }
+  }
+  try {
+    return readFileSync(getBuiltinClaudeMdPath(), 'utf8');
   } catch (err) {
     console.warn('[sdk-injection] 读取 agent-deck CLAUDE.md 失败，跳过注入:', err);
-    cachedClaudeMdAppend = '';
+    return '';
   }
-  return cachedClaudeMdAppend;
 }
