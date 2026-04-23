@@ -29,8 +29,11 @@
 - **例外**：trivial 改动（typo / 样式数值 / 单点 rename / 显然措辞修订）
 
 **操作**：并发两个独立异构 Agent，各自读真实代码 / 资料给结论：
-- **异构原则**：两个 Agent 必须**不同源**（不同 SDK / 不同模型 / 不同 reasoning 路径），最大化降低同源偏见。具体怎么配对由用户工具链决定，本约定不写死
-- **典型配对方式**：当前 Claude Code 会话内的 subagent（Explore / general-purpose）+ Bash 调外部 CLI Agent（不同厂商 / 不同模型）。两个都走"读真实代码 + 给证据 + 不复述"
+- **异构原则**：两个 Agent 必须**不同源**（不同 SDK / 不同模型 / 不同 reasoning 路径），最大化降低同源偏见
+- **当前推荐配对**（稳定可用，不要随便降档）：
+  - **Claude Code 会话内 subagent**（**Opus 4.7 xhigh**，`Explore` / `general-purpose`）
+  - **Bash 调外部 codex CLI**（**gpt-5.4 xhigh**，模板见下附录）
+- 两个都走"读真实代码 + 给证据 + 不复述"
 - **三态裁决**：✅ 确认 / ❌ 反驳 / ⚠️ 部分。每条结论必须带 `文件:行号` + 代码 / 原文片段，不准复述
 - 最终清单标注被反驳 / 升降级条目；plan 场景标注哪些步骤双方一致、哪些有分歧；约定升级场景额外评审措辞 / 边界 / 与已有约定的冲突
 
@@ -68,3 +71,195 @@ cat "$OUT"; rm -f "$OUT" "$PROMPT"
 ```
 
 （Bash 工具调用时给 `timeout: 300000`，重 review 给 600000；轻量核查可降到 90000；reasoning effort 简单核查可降 `"low"`，宁可慢别错）
+
+---
+
+## 项目工程规范（新建项目时应用）
+
+新建任何长期维护的工程时，把以下 4 套机制带进项目根目录，作为"工程地基"。
+
+### 1. README.md = 功能总览（用户视角）
+
+不是开发者视角的实现细节。改完功能后判断要不要更新 README，3 个问题：
+
+1. 新增 / 修改了**用户可见行为**？（UI / CLI / API / 设置项 / 快捷键 / 状态显示）→ 改对应章节
+2. 改动了**文件结构 / 新建模块**？→ 改「项目结构」节
+3. 改动了**启动方式 / 端口 / 依赖 / 验证步骤**？→ 改「开发与运行」节
+
+纯 bug 修复 / 内部重构（不改用户感知）→ 不动 README，写 changelog 或 review。
+
+### 2. changelog/ + reviews/ 双轨
+
+| 类型 | 写到 | 例子 |
+|---|---|---|
+| **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `changelog/` | 新建 XXX、升级 SDK、加 CLI 命令 |
+| **Debug / 性能 / 安全 review**（不引入新功能，修问题或加固） | `reviews/` | code review 修复、TOCTOU、内存泄漏 |
+
+**`changelog/` 规则**：
+- 文件名 `CHANGELOG_X.md`，X 递增整数。新建前 `ls changelog/` 找最大 X
+- 小改动追加到最新一条；大改动新建一条
+- 同步更新 `changelog/INDEX.md`（一行表：`[CHANGELOG_X.md](CHANGELOG_X.md) | ≤80 字概要`）
+- 单文件结构：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）
+- **不要写"踩坑细节 / 推演过程"**——那些去 reviews/
+
+**`reviews/` 规则**（命名跟 changelog 对齐）：
+- 文件名 `REVIEW_X.md`，X 递增整数。新建前 `ls reviews/` 找最大 X
+- 单文件结构：触发场景 + 方法（双对抗 Agent 配对 / 范围 / 工具）+ 三态裁决清单 + 修复条目 + 关联 changelog
+- 同步更新 `reviews/INDEX.md`（表：`[REVIEW_X.md] | 主题 | 严重度分布 | 关联 changelog`）
+- 触发：周期性 debug / code review / 性能 audit / 安全审查 / 大重构前的健康检查
+
+**改功能前**：先 `ls changelog/ reviews/` + 浏览相关条目，了解历史决策、避免推翻已有约定 / 重复踩坑。
+
+### 3. 反复反馈 / 反复踩坑 → 升级约定
+
+候选放 `.claude/conventions-tally.md`，count ≥ 3 升级到项目 `CLAUDE.md`。**两类候选**（同一文件分 section）：
+
+| 类型 | 触发条件 |
+|---|---|
+| **用户反馈** (`# 用户反馈候选`) | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 |
+| **Agent 踩坑** (`# Agent 踩坑候选`) | Coding Agent 在 review / 修 bug 时**自己**发现踩了同类坑（典型：try/finally 漏 cleanup、TOCTOU、N+1 查询、async listener 不被 await） |
+
+**操作流程**：
+
+1. 找语义相近的已有条目 → `count` +1 + 更新 `last_at`；没找到 → 新增（`count: 1`）
+2. **count 达到 3** → 走「决策对抗」（升级约定也是适用范围之一）三态裁决，结论告诉用户后再升级写入项目 `CLAUDE.md`，从 tally 删该条
+3. count < 3 → 静默更新 tally，不打扰用户
+
+**边界**：不计一次性请求 / trivial 反馈；用户反馈必须是工程偏好 / 设计取舍 / 工作流偏好；Agent 踩坑必须是**模式化**问题（一类问题反复出现），不是单点 bug。30 天未更新且 count < 3 → 下次扫描可主动清理。
+
+### 4. 项目根目录骨架
+
+新项目第一次提交就把这套结构建好：
+
+```
+project-root/
+├── CLAUDE.md                      # 项目专属约定（与 ~/.claude/CLAUDE.md 互补，不重复通用部分）
+├── README.md                      # 功能总览（用户视角）
+├── changelog/
+│   └── INDEX.md                   # 一行表概要；CHANGELOG_X.md 第一次有变更时再建
+├── reviews/
+│   └── INDEX.md                   # 一行表概要；REVIEW_X.md 第一次 review 时再建
+└── .claude/
+    └── conventions-tally.md       # 自维护，不要手工删条目；用户反馈 / Agent 踩坑两 section
+```
+
+项目 `CLAUDE.md` 只放**项目专属**约定（设计取舍速查、踩坑预防、验证流程、打包部署等），通用约定（输出语言 / 运行时 / 决策对抗 / 外部 CLI 模板）走 `~/.claude/CLAUDE.md` 不重复。
+
+### 5. 项目 CLAUDE.md / 各 INDEX.md 初始模板
+
+新项目第一次提交时直接复制这几份骨架，按尖括号 `<...>` 处替换 / 删除空白小节即可。
+
+#### `CLAUDE.md`（项目根目录）
+
+````markdown
+# CLAUDE.md
+
+> 给 Claude Code 在本仓库工作时的硬性约定。
+>
+> 通用约定（输出语言 / 运行时 / 决策对抗 / 外部 CLI 模板 / 项目工程规范）见 `~/.claude/CLAUDE.md`，本文件只放**项目专属**约定。
+
+## 仓库基础
+
+- 操作系统 / 包管理器：<例：macOS / pnpm 或 Linux / cargo 或 Windows / pip>
+- 语言版本：<例：Node ≥ 18 / Go 1.22 / Python 3.11>
+- 其他特殊环境约束：<可空，如必须用 docker compose up 起依赖>
+
+## 改动后必做
+
+按 `~/.claude/CLAUDE.md`「项目工程规范」节走（README 三问 / changelog / reviews / 反馈升级），本文件不重复流程，只补**项目特定**触发：
+
+- <例：改 main 进程后必须重启 dev>
+- <例：改 DB schema 必须新增 migration 文件>
+
+## 项目特定约定（设计要点速查）
+
+> 反复出现过的设计决定，改动前注意。初始为空，随开发积累。
+
+<!-- 模式：
+### <主题（如：鉴权 / 数据迁移 / 状态机 / IPC 边界 / CSS 陷阱 ...）>
+- 一句话要点 + 为什么（避免后续推翻）
+-->
+
+## 验证流程
+
+```bash
+<typecheck 命令>
+<build 命令>
+<test 命令>
+```
+
+修改 <main / preload / config / native module ...> 后必须 <重启 dev / 重新加载 / 重新编译>。
+
+## 部署 / 打包（如有）
+
+<可空，按需。打包步骤 / 签名 / 发布渠道 / 已踩的坑清单>
+````
+
+#### `changelog/INDEX.md`
+
+````markdown
+# Changelog 索引
+
+> **范围**：功能变更（新功能 / 行为修改 / API / 依赖升级）。
+> Debug / 性能 / 安全 review 见 [`reviews/`](../reviews/INDEX.md)。
+
+| 文件 | 概要（≤80 字） |
+|------|------|
+| [CHANGELOG_1.md](CHANGELOG_1.md) | <第一条变更概要> |
+````
+
+#### `reviews/INDEX.md`
+
+````markdown
+# Reviews 索引
+
+> 周期性 / 触发性的 debug、code review、性能 audit、安全审查报告。功能变更去 [`changelog/`](../changelog/INDEX.md)。
+
+## 命名
+
+`REVIEW_X.md`（X 递增整数，跟 `CHANGELOG_X.md` 对齐）。新建前 `ls reviews/` 找最大 X。
+
+## 单文件结构
+
+- 触发场景 / 方法（双对抗 Agent 配对 / 范围 / 工具）
+- 三态裁决清单（✅ / ❌ / ⚠️）+ 证据（文件:行号 + 代码片段）
+- 修复条目（按严重度）/ 关联 changelog
+
+## 索引表
+
+| 文件 | 主题 | 严重度分布 | 关联 changelog |
+|------|------|-----------|----------------|
+| <第一次 review 后填> | | | |
+````
+
+#### `.claude/conventions-tally.md`
+
+````markdown
+# 项目约定候选（待观察）
+
+> 此文件由 Claude Code 自动维护。**不要手工删条目**。
+> 流程见 `~/.claude/CLAUDE.md`「项目工程规范 → 反复反馈 / 反复踩坑 → 升级约定」节。
+> count ≥ 3 时走「决策对抗」三态裁决后升级到项目 [CLAUDE.md](../CLAUDE.md) 「项目特定约定」节。
+
+---
+
+# 用户反馈候选
+
+按 `count` 倒序。
+
+| ID | 描述 | count | first_at | last_at | 触发样例 |
+|----|------|-------|----------|---------|----------|
+
+---
+
+# Agent 踩坑候选
+
+按 `count` 倒序。
+
+| ID | 描述 | count | first_at | last_at | 触发样例 |
+|----|------|-------|----------|---------|----------|
+````
+
+#### `changelog/CHANGELOG_1.md` / `reviews/REVIEW_1.md`
+
+第一次真实需要时再建，按 `~/.claude/CLAUDE.md`「项目工程规范」节描述的单文件结构写。空骨架不预先生成。

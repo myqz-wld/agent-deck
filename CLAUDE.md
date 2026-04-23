@@ -30,7 +30,7 @@
 | 类型 | 写到 | 例子 |
 |---|---|---|
 | **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `changelog/` | 新建 PendingTab、升 SDK 0.2.118、加 `agent-deck new` |
-| **Debug / 性能 / 安全 review**（不引入新功能，修问题或加固） | `reviews/` | 本次 8 处 review 修复、TOCTOU、内存泄漏 |
+| **Debug / 性能 / 安全 review**（不引入新功能，修问题或加固） | `reviews/` | REVIEW_1 的 8 处修复、TOCTOU、内存泄漏 |
 
 #### `changelog/` 规则
 
@@ -40,11 +40,11 @@
 - 每次改 `changelog/` 都要同步 `changelog/INDEX.md`（简表：`[CHANGELOG_X.md](CHANGELOG_X.md) | 一句话概要`）
 - 单文件结构：标题 + 概要（2-3 行） + 变更内容（按模块 bullet）。**不要写"踩坑细节 / 推演过程"**——那些去 `reviews/`
 
-#### `reviews/` 规则
+#### `reviews/` 规则（命名跟 changelog 对齐）
 
-- 文件名 `review-NNN.md`，NNN 三位数（001, 002...）
+- 文件名 `REVIEW_X.md`，X 递增整数。新建前 `ls reviews/` 找最大 X
 - 每次 review 一个文件，结构：触发场景 + 方法（双对抗 Agent / 范围 / 工具）+ 三态裁决清单 + 修复条目
-- 同步更新 `reviews/INDEX.md`（简表：`[review-NNN.md] | 主题 | 修复数 | 严重度分布`）
+- 同步更新 `reviews/INDEX.md`（简表：`[REVIEW_X.md] | 主题 | 严重度分布 | 修复数`）
 - 触发：周期性 debug / code review / 性能 audit / 安全审查 / 大重构前的健康检查
 
 ### 3. 改功能前先读 changelog + reviews
@@ -67,7 +67,7 @@
 
 - `AgentEvent.source = 'sdk' | 'hook'`；SDK 接管的 sessionId 加入 `SessionManager.sdkOwned`，hook 同 id 事件被丢弃
 - `lifecycle` (`active`/`dormant`/`closed`) 与 `archived_at` **正交**。归档只打标记，取消归档清标记回到原 lifecycle（不粗暴重置 dormant）。LifecycleScheduler 跳过 `archived_at IS NOT NULL`
-- SessionManager.consumePendingSdkClaim 不准做"全局 fuzzy 匹配"（CHANGELOG_47 review-001 修过）；cwd 别名靠 `normalizeCwd` 内的 `realpathSync`
+- SessionManager.consumePendingSdkClaim 不准做"全局 fuzzy 匹配"（CHANGELOG_47 / REVIEW_1 修过）；cwd 别名靠 `normalizeCwd` 内的 `realpathSync`
 
 ### 总结调度（summarizer）
 
@@ -86,7 +86,7 @@
 
 ### 资源清理 & TOCTOU 防线
 
-- 任何 `try { await ... }` 链涉及"释放标记 / 清 Map / 注销 listener"的，**必须包 try/catch/finally**，失败路径也要清理（CHANGELOG_47 review-001：releasePending 漏掉的教训）
+- 任何 `try { await ... }` 链涉及"释放标记 / 清 Map / 注销 listener"的，**必须包 try/catch/finally**，失败路径也要清理（CHANGELOG_47 / REVIEW_1：releasePending 漏掉的教训）
 - 主进程读用户输入路径前**先 `realpath` 再校验白名单 + ext**（防 symlink TOCTOU 越权）
 - `before-quit` listener 不是 promise-aware：异步清理必须 `event.preventDefault()` → 跑完 → `app.exit()`
 

@@ -1,4 +1,4 @@
-# review-001: main 进程关键模块全审（双对抗）
+# REVIEW_1: main 进程关键模块全审（双对抗）
 
 ## 触发场景
 
@@ -7,7 +7,7 @@
 ## 方法
 
 **双对抗配对**（CLAUDE.md「决策对抗」规范）：
-- Claude（`Explore` general-purpose subagent）
+- Claude（`Explore` general-purpose subagent，Opus 4.7 xhigh）
 - Codex CLI（Bash 直接调，`model_reasoning_effort="xhigh"`，超时 600000 ms）
 
 **范围**：main 进程 16 个关键文件，约 5000 行：

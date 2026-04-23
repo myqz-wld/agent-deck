@@ -47,14 +47,14 @@
 
 | ID | 描述 | count | first_at | last_at | 触发样例 |
 |----|------|-------|----------|---------|----------|
-| P1 | 注册资源 / 标记后没在 try/finally 释放——失败路径漏清，状态卡 N 秒 / 误吞同类事件 | 1 | 2026-04-23 | 2026-04-23 | review-001 #2: sdk-bridge.ts releasePending 只在成功路径调，失败时 60s ttl 内同 cwd hook 被误吞 |
-| P2 | 路径白名单 TOCTOU——校验用原始 path、读取走 realpath，symlink 改指向后越权 | 1 | 2026-04-23 | 2026-04-23 | review-001 #3: ipc.ts loadImageBlob symlink TOCTOU |
-| P3 | 查表 / 校验时用全表扫 + 限 N 条 + JS 侧 .find/.filter，长会话或大数据后旧记录永久查不到 | 1 | 2026-04-23 | 2026-04-23 | review-001 #6: ImageRead 路径靠 listForSession 500 限制兜底 |
-| P4 | Map / Set / cache 写入有分支条件，但 delete 只在某一分支末尾——其他分支线性泄漏 | 1 | 2026-04-23 | 2026-04-23 | review-001 #4: toolUseNames 只有图片工具分支 delete |
-| P5 | Electron `before-quit` / 类似事件 listener 用 `async () => { await ... }`——回调返回的 Promise 不会被 await，清理只能碰运气跑完 | 1 | 2026-04-23 | 2026-04-23 | review-001 #7: index.ts before-quit |
-| P6 | 全局 fuzzy 兜底匹配（"池子里只剩一个就一定是它"）——并发场景下会跨实体误命中 | 1 | 2026-04-23 | 2026-04-23 | review-001 #1: pendingSdkCwds size===1 模糊匹配误吞外部 CLI |
-| P7 | catch 只 console.warn 吞错——上层 / UI 拿不到失败原因，用户看到「神秘 session-end」 | 1 | 2026-04-23 | 2026-04-23 | review-001 #5: SDK query loop catch |
-| P8 | 依赖 npm/dev-only env（`process.env.npm_package_version` 之类）——打包后 undefined，硬编码默认值悄悄上线 | 1 | 2026-04-23 | 2026-04-23 | review-001 #8: AppGetVersion 永远显示 0.1.0 |
+| P1 | 注册资源 / 标记后没在 try/finally 释放——失败路径漏清，状态卡 N 秒 / 误吞同类事件 | 1 | 2026-04-23 | 2026-04-23 | REVIEW_1 #2: sdk-bridge.ts releasePending 只在成功路径调，失败时 60s ttl 内同 cwd hook 被误吞 |
+| P2 | 路径白名单 TOCTOU——校验用原始 path、读取走 realpath，symlink 改指向后越权 | 1 | 2026-04-23 | 2026-04-23 | REVIEW_1 #3: ipc.ts loadImageBlob symlink TOCTOU |
+| P3 | 查表 / 校验时用全表扫 + 限 N 条 + JS 侧 .find/.filter，长会话或大数据后旧记录永久查不到 | 1 | 2026-04-23 | 2026-04-23 | REVIEW_1 #6: ImageRead 路径靠 listForSession 500 限制兜底 |
+| P4 | Map / Set / cache 写入有分支条件，但 delete 只在某一分支末尾——其他分支线性泄漏 | 1 | 2026-04-23 | 2026-04-23 | REVIEW_1 #4: toolUseNames 只有图片工具分支 delete |
+| P5 | Electron `before-quit` / 类似事件 listener 用 `async () => { await ... }`——回调返回的 Promise 不会被 await，清理只能碰运气跑完 | 1 | 2026-04-23 | 2026-04-23 | REVIEW_1 #7: index.ts before-quit |
+| P6 | 全局 fuzzy 兜底匹配（"池子里只剩一个就一定是它"）——并发场景下会跨实体误命中 | 1 | 2026-04-23 | 2026-04-23 | REVIEW_1 #1: pendingSdkCwds size===1 模糊匹配误吞外部 CLI |
+| P7 | catch 只 console.warn 吞错——上层 / UI 拿不到失败原因，用户看到「神秘 session-end」 | 1 | 2026-04-23 | 2026-04-23 | REVIEW_1 #5: SDK query loop catch |
+| P8 | 依赖 npm/dev-only env（`process.env.npm_package_version` 之类）——打包后 undefined，硬编码默认值悄悄上线 | 1 | 2026-04-23 | 2026-04-23 | REVIEW_1 #8: AppGetVersion 永远显示 0.1.0 |
 
 <!-- 历史升级范例（已升到 CLAUDE.md 的可在此处留 1-2 行注解，便于追溯）：
 - P1 + P2 + P5 同主题已半升级到「资源清理 & TOCTOU 防线」小节作为预防（CHANGELOG_47），但表里仍保留 count=1 等下次再撞同主题时计数推进
