@@ -134,8 +134,31 @@ export class FloatingWindow {
     // 非 macOS / 非 pin 不需要这个机制：vibrancy 由系统层持续刷新。
     this.stopInvalidateLoop();
     if (value && process.platform === 'darwin') {
+      this.kickRepaintAfterPin();
       this.startInvalidateLoop();
     }
+  }
+
+  // CHANGELOG_35 之后仍有用户反馈：进入 pin 模式那一瞬间的旧帧（含全量文字）会"印"
+  // 在玻璃上，必须人工拖一下窗口大小才消失。根因：
+  // - vibrancy 切到 null 是异步生效，前几帧 macOS 系统材质还没真关；
+  // - 进入 pin 瞬间的 native surface / Chromium compositor 合成层缓存，单靠
+  //   webContents.invalidate() 冲不掉（即使 100ms loop 已开也没用）；
+  // - 拖动窗口 = 触发完整 ViewSizeChanged → relayout/repaint → 旧 surface 必被替换。
+  // 解法：模拟一次 resize —— 同步 setContentSize(+1px)，下一个 macro task 调回原值，
+  // 触发 Chromium 完整 layout/repaint 路径把旧 surface 冲干净。两次调用跨 macro task
+  // 防止 Chromium size 去重合并，1px 高度变化在 setImmediate 一个 runloop 内完成，
+  // 肉眼难察。
+  private kickRepaintAfterPin(): void {
+    const w = this.win;
+    if (!w || w.isDestroyed()) return;
+    const [width, height] = w.getContentSize();
+    w.setContentSize(width, height + 1);
+    setImmediate(() => {
+      const w2 = this.win;
+      if (!w2 || w2.isDestroyed()) return;
+      w2.setContentSize(width, height);
+    });
   }
 
   private startInvalidateLoop(): void {
