@@ -175,7 +175,13 @@ export function App(): JSX.Element {
             </TabButton>
             <TabButton
               active={view === 'pending'}
-              onClick={() => setView('pending')}
+              onClick={() => {
+                setView('pending');
+                // 与 jumpToPending 同因：不清 selectedSessionId，
+                // App.tsx:99 的 detailSession 仍非空 → main 区域优先渲 SessionDetail
+                // 把 PendingTab 盖掉，详情页里点这个 tab 看起来"无反应"。
+                select(null);
+              }}
               badge={pending > 0 ? pending : undefined}
             >
               待处理

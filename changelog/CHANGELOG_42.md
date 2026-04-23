@@ -61,3 +61,35 @@ agent-deck 自带的 CLAUDE.md（注入到每个 SDK 会话 system prompt 末尾
 - **对抗约定改异构**：原约定要求「两个独立 Agent」但默认都是 Claude，存在同模型偏见风险；Codex（GPT-5/codex-cli）作为另一族模型，与 Claude 形成异构对抗，对「LLM 误判 / 幻觉 / 同源固定模式」抵抗力更强；codex 不可用时退回两个独立 Claude 保留语义
 - **Codex 走 CLI 不走 subagent 包装**：codex-custom plugin 的 subagent 多一层 Task 包装 + 启动慢 + 依赖项目侧 plugin 装好；直接 Bash 调 `codex exec` 更直接，且 codex CLI 已经在 `~/.codex` 自带 OAuth 状态，开箱即用
 - **codex stdout 不可解析 → 必须 `-o`**：实测 codex exec 的 stdout 是「banner + reasoning + final（且 final 重复一次）」三段混合，从 stdout 抓干净结果会很脆；`-o <FILE>` 单独写 final message 到文件，加上 `--sandbox read-only` / `--skip-git-repo-check` / `-C <REPO>` / stdin 传 prompt，构成工程上靠谱的固定姿势，浓缩成「codex CLI 调用模板」bullet 写进两份 CLAUDE.md
+
+## 追加：修「在会话详情页时点击『待处理』tab 无法跳转」
+
+### bug 现象
+
+进入任一会话详情页后，点击 header 的「待处理」tab，badge 高亮切到 active，但 main 区域仍保留 SessionDetail，PendingTab 完全不显示，用户感知"点了没反应"。
+
+### 双对抗 Agent（Claude Explore + Codex `gpt-5.4`）一致根因
+
+`src/renderer/App.tsx:99` `detailSession = view === 'history' ? historySession : (selectedFromMap ?? stickySelected)` —— 当 `view !== 'history'` 时，detailSession 仍从 `selectedSessionId` 派生；`App.tsx:206` 渲染分支 `{detailSession ? <SessionDetail/> : ... view === 'pending' ? <PendingTab/> : ...}` 中 detailSession 优先级永远高于 view 分支。
+
+`App.tsx:178` 的「待处理」TabButton onClick 只调 `setView('pending')`，没清 `selectedSessionId` → 详情页里 selectedId 仍非空 → detailSession 仍非空 → SessionDetail 把 PendingTab 完全盖掉。
+
+最强证据：同文件 `App.tsx:129-135` 的 `jumpToPending()`（左上角 `⚠ N 待处理` chip 触发）已经做对了，作者自己在 132 行注释里写明「不清就被 SessionDetail 盖住看不到 PendingTab」——同一需求两条入口（chip vs tab）实现不一致，tab 路径漏了 `select(null)`。
+
+### 修复（`src/renderer/App.tsx:176-188`）
+
+「待处理」TabButton onClick 由 `() => setView('pending')` 改为内联：
+
+```tsx
+onClick={() => {
+  setView('pending');
+  // 与 jumpToPending 同因：不清 selectedSessionId,
+  // App.tsx:99 的 detailSession 仍非空 → main 区域优先渲 SessionDetail
+  // 把 PendingTab 盖掉，详情页里点这个 tab 看起来"无反应"。
+  select(null);
+}}
+```
+
+不直接复用 `jumpToPending()`，因为它带 `if (pending === 0) return;` 早退，而 tab 即使 pending=0 也应该能切到 PendingTab 显示空状态（与 chip 是「跳到第一个待处理」的提醒入口语义不同）。
+
+`view === 'live'` / `'history'` tab 不需要同样修：`history` 在 detailSession 计算里有专用分支（用 historySession 而非 selectedFromMap）所以本就不受影响；`live` 在详情页里 active 的语义是「我在实时列表的某个会话里」，保留 SessionDetail 是符合预期的。
