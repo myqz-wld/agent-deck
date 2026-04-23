@@ -204,8 +204,19 @@ export class CodexSdkBridge {
   }
 
   /**
-   * 启动新 thread 的第一个 turn，等 thread.started 事件拿到 thread_id，期间 30s 兜底超时。
-   * 拿到 realId 后切 sessions map key + 调 sessionManager 注册。
+   * 启动新 thread 的第一个 turn，等 thread.started 事件拿到 thread_id。
+   *
+   * 三态结算：
+   * 1. ✅ 成功：拿到 thread.started → onFirstId 路径 → resolve(realId)
+   * 2. ❌ 早期失败（codex spawn 后立即 exit / 鉴权失败 / 二进制坏）：
+   *    runTurnLoop 的 catch 在拿到 thread_id 前抛错 → onEarlyError 路径 →
+   *    把 SDK 透出来的真实 stderr 作为错误消息发给 UI，立即结算
+   * 3. ⏰ 30s 兜底：codex 既没吐 thread.started 也没退出（仍在 hang，比如卡在 OAuth
+   *    设备码 / 网络代理超时）→ 发那条固定文案让用户去查鉴权 / 二进制路径，
+   *    并 abort 当前 turn 避免子进程继续挂着
+   *
+   * 三条路径都通过 resolveWithFallback 走同一段 emit 序列（session-start →
+   * user message → error message → finished），保证 UI 看到的是一条完整收尾的会话。
    */
   private async startNewThreadAndAwaitId(
     internal: InternalSession,
@@ -215,10 +226,16 @@ export class CodexSdkBridge {
   ): Promise<string> {
     return new Promise<string>((resolve) => {
       let resolved = false;
-      const fallback = setTimeout(() => {
+
+      /**
+       * 用 tempKey 顶上 realId 的兜底路径。errorText 是要显示给用户的错误消息：
+       * - 30s 超时 → 固定文案（提示查鉴权 / 二进制路径）
+       * - early error → SDK 抛出的真实 stderr，准确指向根因
+       */
+      const resolveWithFallback = (errorText: string): void => {
         if (resolved) return;
         resolved = true;
-        // 30s 兜底：用 tempKey 作为 realId 顶上，让 UI 至少能看到这条会话
+        clearTimeout(fallback);
         internal.threadId = tempKey;
         sessionManager.claimAsSdk(tempKey);
         this.opts.emit({
@@ -241,52 +258,78 @@ export class CodexSdkBridge {
           sessionId: tempKey,
           agentId: AGENT_ID,
           kind: 'message',
-          payload: {
-            text:
-              '⚠ Codex SDK 30 秒内未发出 thread_id。可能原因：codex 二进制启动失败 / 鉴权未配置 / 代理超限。' +
-              '请在终端运行 `codex auth` 验证鉴权，或检查设置面板的「Codex 二进制路径」。',
-            error: true,
-          },
+          payload: { text: errorText, error: true },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+        this.opts.emit({
+          sessionId: tempKey,
+          agentId: AGENT_ID,
+          kind: 'finished',
+          payload: { ok: false, subtype: 'error' },
           ts: Date.now(),
           source: 'sdk',
         });
         resolve(tempKey);
+      };
+
+      const fallback = setTimeout(() => {
+        // 30s 内 codex 既没吐 thread.started 也没退出 → 中断它，避免子进程继续挂着
+        try {
+          internal.currentTurn?.abort();
+        } catch {
+          // ignore
+        }
+        resolveWithFallback(
+          '⚠ Codex SDK 30 秒内未发出 thread_id。可能原因：codex 二进制启动失败 / 鉴权未配置 / 代理超限。' +
+            '请在终端运行 `codex auth` 验证鉴权，或检查设置面板的「Codex 二进制路径」。',
+        );
       }, THREAD_STARTED_FALLBACK_MS);
 
-      void this.runTurnLoop(internal, tempKey, (realId) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallback);
-        if (realId !== tempKey) {
-          // 切 sessions map 的 key
-          this.sessions.delete(tempKey);
-          this.sessions.set(realId, internal);
-          sessionManager.claimAsSdk(realId);
-          // 把已经登记到 sessionManager 的 tempKey 行迁移到 realId
-          // （实际上 tempKey 还没进 sessionManager —— 我们等到 thread.started 才 claim）
-          // 但保险起见调一次 rename，sessionManager 内部会处理「from 不存在」的 noop
-          sessionManager.renameSdkSession(tempKey, realId);
-        } else {
-          sessionManager.claimAsSdk(realId);
-        }
-        this.opts.emit({
-          sessionId: realId,
-          agentId: AGENT_ID,
-          kind: 'session-start',
-          payload: { cwd, source: 'sdk' },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        this.opts.emit({
-          sessionId: realId,
-          agentId: AGENT_ID,
-          kind: 'message',
-          payload: { text: prompt, role: 'user' },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        resolve(realId);
-      });
+      void this.runTurnLoop(
+        internal,
+        tempKey,
+        (realId) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(fallback);
+          if (realId !== tempKey) {
+            // 切 sessions map 的 key
+            this.sessions.delete(tempKey);
+            this.sessions.set(realId, internal);
+            sessionManager.claimAsSdk(realId);
+            // 把已经登记到 sessionManager 的 tempKey 行迁移到 realId
+            // （实际上 tempKey 还没进 sessionManager —— 我们等到 thread.started 才 claim）
+            // 但保险起见调一次 rename，sessionManager 内部会处理「from 不存在」的 noop
+            sessionManager.renameSdkSession(tempKey, realId);
+          } else {
+            sessionManager.claimAsSdk(realId);
+          }
+          this.opts.emit({
+            sessionId: realId,
+            agentId: AGENT_ID,
+            kind: 'session-start',
+            payload: { cwd, source: 'sdk' },
+            ts: Date.now(),
+            source: 'sdk',
+          });
+          this.opts.emit({
+            sessionId: realId,
+            agentId: AGENT_ID,
+            kind: 'message',
+            payload: { text: prompt, role: 'user' },
+            ts: Date.now(),
+            source: 'sdk',
+          });
+          resolve(realId);
+        },
+        (earlyErr) => {
+          // 第一个 turn 在拿到 thread_id 前就抛了（codex 子进程立即 exit / spawn 失败）。
+          // SDK 抛的 message 形如 `Codex Exec exited with code N: <stderr>`，
+          // 直接作为错误消息透给用户——比 30s 后那条固定文案准确得多。
+          resolveWithFallback(`⚠ Codex 启动失败：${earlyErr}`);
+        },
+      );
     });
   }
 
@@ -295,15 +338,20 @@ export class CodexSdkBridge {
    *
    * @param key 最初登记到 sessions map 的 key（tempKey 或 resume 的 realId）
    * @param onFirstId 拿到第一条 thread.started 时回调（仅新建路径需要）
+   * @param onEarlyError 第一个 turn 在拿到 thread.started 之前就抛错时回调（仅新建路径需要）。
+   *   走这条路径时本函数不再 emit 错误消息——由外层 startNewThreadAndAwaitId 统一发，
+   *   保证 UI 看到的是一条完整的 session-start → user msg → error → finished 序列。
    */
   private async runTurnLoop(
     internal: InternalSession,
     key: string,
     onFirstId?: (id: string) => void,
+    onEarlyError?: (msg: string) => void,
   ): Promise<void> {
     if (internal.turnLoopRunning) return;
     internal.turnLoopRunning = true;
     let firstIdCb = onFirstId;
+    let earlyErrCb = onEarlyError;
     try {
       while (internal.pendingMessages.length > 0) {
         const text = internal.pendingMessages.shift()!;
@@ -331,6 +379,8 @@ export class CodexSdkBridge {
               if (firstIdCb) {
                 firstIdCb(ev.thread_id);
                 firstIdCb = undefined;
+                // 已拿到 thread_id：后续错误走常规 catch，不再算 early error
+                earlyErrCb = undefined;
               }
             }
             translateCodexEvent(ev as ThreadEvent, emit);
@@ -340,6 +390,15 @@ export class CodexSdkBridge {
           const msg = err instanceof Error ? err.message : String(err);
           if (aborted) {
             emit('finished', { ok: false, subtype: 'interrupted' });
+          } else if (earlyErrCb) {
+            // 第一个 turn 在拿到 thread.started 前就挂了（codex spawn 后立即 exit）。
+            // 通知 startNewThreadAndAwaitId 用真实 stderr 立即结算外层 promise，
+            // 然后 break 出 while——已死的 thread 不再处理后续 pendingMessages。
+            earlyErrCb(msg);
+            earlyErrCb = undefined;
+            firstIdCb = undefined;
+            internal.currentTurn = null;
+            break;
           } else {
             emit('message', { text: `⚠ Codex turn 异常：${msg}`, error: true });
             emit('finished', { ok: false, subtype: 'error' });
