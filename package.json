@@ -13,7 +13,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.10",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.118",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@monaco-editor/react": "^4.7.0",

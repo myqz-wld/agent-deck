@@ -765,8 +765,8 @@ export class ClaudeSdkBridge {
           kind: 'message',
           payload: {
             text:
-              '⚠ SDK 30 秒内未收到 CLI 任何消息。可能原因：CLI 启动失败 / 鉴权错误 / 代理超限 / 模型不可用。' +
-              '请在终端运行 `node node_modules/@anthropic-ai/claude-agent-sdk/cli.js -p "hi"` 验证。',
+              '⚠ SDK 30 秒内未收到任何消息。可能原因：SDK 启动失败 / 鉴权错误 / 代理超限 / 模型不可用。' +
+              '请检查 `~/.claude/.credentials.json` 是否存在且有效，或在终端运行 `claude -p "hi"` 验证。',
             error: true,
           },
           ts: Date.now(),
