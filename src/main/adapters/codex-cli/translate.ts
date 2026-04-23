@@ -12,7 +12,7 @@
  * - item.started{command_execution} → tool-use-start
  * - item.completed{command_execution} → tool-use-end
  * - item.completed{agent_message}    → message(role:assistant)
- * - item.completed{reasoning}        → message(role:assistant, reasoning:true)
+ * - item.completed{reasoning}        → thinking（GPT-5 reasoning 与 Claude extended thinking 共用 ThinkingBubble，CHANGELOG_43）
  * - item.completed{file_change}      → file-changed × N（codex 不带 before/after，都填 null）
  * - item.started{mcp_tool_call}      → tool-use-start
  * - item.completed{mcp_tool_call}    → tool-use-end
@@ -103,9 +103,9 @@ function translateItemCompleted(item: ThreadItem, emit: EmitFn): void {
     }
 
     case 'reasoning': {
-      // reasoning 摘要：作为 assistant message 发，加 reasoning:true 标记
-      // UI 不识别也能兜底渲染（payload 是 unknown，message bubble 只读 text + role）
-      emit('message', { text: item.text, role: 'assistant', reasoning: true });
+      // GPT-5 reasoning 摘要 → 'thinking' event，与 Claude extended thinking 走同一渲染通道
+      // （ThinkingBubble 弱化样式 + 头部 thinking 标签）。CHANGELOG_43 统一约定。
+      emit('thinking', { text: item.text });
       return;
     }
 

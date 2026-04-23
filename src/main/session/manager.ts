@@ -343,6 +343,7 @@ function nextActivityState(
       return 'idle';
     case 'tool-use-start':
     case 'message':
+    case 'thinking':
     case 'file-changed':
       return 'working';
     case 'tool-use-end':

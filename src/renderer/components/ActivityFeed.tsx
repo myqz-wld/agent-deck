@@ -27,6 +27,24 @@ import { AskRow, ExitPlanRow, PermissionRow, toolInputToDiff } from './pending-r
 type RenderMode = 'plaintext' | 'markdown';
 const DEFAULT_RENDER_MODE: RenderMode = 'plaintext';
 
+/**
+ * 气泡头部显示的对方短名。adapter.displayName 是长名（'Claude Code' / 'Codex CLI'）
+ * 用在 NewSessionDialog 选 adapter 那种地方；message bubble 头部需要更短的人称，
+ * 与 SessionDetail.tsx:339 的 placeholder 文案口径对齐。
+ */
+function getAgentShortName(agentId: string): string {
+  switch (agentId) {
+    case 'codex-cli':
+      return 'Codex';
+    case 'aider':
+      return 'Aider';
+    case 'generic-pty':
+      return 'Shell';
+    default:
+      return 'Claude';
+  }
+}
+
 interface Props {
   sessionId: string;
   agentId: string;
@@ -161,7 +179,11 @@ function ActivityRow({
   resolveExitPlan,
 }: RowProps): JSX.Element {
   if (event.kind === 'message') {
-    return <MessageBubble event={event} />;
+    return <MessageBubble event={event} agentId={agentId} />;
+  }
+
+  if (event.kind === 'thinking') {
+    return <ThinkingBubble event={event} agentId={agentId} />;
   }
 
   if (event.kind === 'waiting-for-user') {
@@ -244,13 +266,14 @@ function SimpleRow({ event }: { event: AgentEvent }): JSX.Element {
 
 // ───────────────────────── 消息气泡
 
-function MessageBubble({ event }: { event: AgentEvent }): JSX.Element {
+function MessageBubble({ event, agentId }: { event: AgentEvent; agentId: string }): JSX.Element {
   const p = (event.payload ?? {}) as { text?: string; role?: 'user' | 'assistant'; error?: boolean };
   const role = p.role === 'user' ? 'user' : 'assistant';
   const text = (p.text ?? '').trim();
   const isError = !!p.error;
   const isUser = role === 'user';
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
+  const otherName = getAgentShortName(agentId);
 
   // 渲染模式：每条消息**独立**持有 mode state，互不级联（CHANGELOG_34 推翻
   // CHANGELOG_27「切单条 = 切全局」的取舍）。默认 plaintext，切换 toggle 只改本条
@@ -274,7 +297,7 @@ function MessageBubble({ event }: { event: AgentEvent }): JSX.Element {
             isUser ? 'text-status-working/80' : 'text-deck-muted/70'
           }`}
         >
-          <span>{isUser ? '你' : 'Claude'}</span>
+          <span>{isUser ? '你' : otherName}</span>
           <span className="text-deck-muted/50">·</span>
           <span className="font-mono tabular-nums text-deck-muted/50">{ts}</span>
           {!isError && text.length > 0 && (
@@ -307,6 +330,65 @@ function MessageBubble({ event }: { event: AgentEvent }): JSX.Element {
             )
           ) : (
             <span className="text-deck-muted">（空消息）</span>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+// ───────────────────────── Thinking 气泡（弱化样式，区分于 final answer）
+
+/**
+ * Claude / Codex 的内部推理（Anthropic extended thinking、SDK 压平的多 text block prelude、
+ * 或 GPT-5 reasoning 摘要）。视觉与 MessageBubble 区分：dashed 边框 + 暗背景 + 斜体淡灰文字 +
+ * 头部「{agent} · thinking」标签（区分是哪一族模型在思考，而不是只标 'thinking'）。
+ * 默认展开（暂不引入折叠，避免 UI 复杂度）；MD/TXT 复用同样的 toggle。
+ */
+function ThinkingBubble({ event, agentId }: { event: AgentEvent; agentId: string }): JSX.Element {
+  const p = (event.payload ?? {}) as { text?: string };
+  const text = (p.text ?? '').trim();
+  const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
+  const otherName = getAgentShortName(agentId);
+  const [mode, setMode] = useState<RenderMode>(DEFAULT_RENDER_MODE);
+  const toggle = (): void => {
+    setMode((cur) => (cur === 'markdown' ? 'plaintext' : 'markdown'));
+  };
+  const renderAsMarkdown = mode === 'markdown' && text.length > 0;
+
+  return (
+    <li className="flex justify-start">
+      <div className="flex max-w-[88%] flex-col items-start">
+        <div className="mb-0.5 flex items-center gap-1 text-[9px] text-deck-muted/60">
+          <span>{otherName}</span>
+          <span className="text-deck-muted/40">·</span>
+          <span className="font-mono uppercase tracking-wider">thinking</span>
+          <span className="text-deck-muted/40">·</span>
+          <span className="font-mono tabular-nums text-deck-muted/40">{ts}</span>
+          {text.length > 0 && (
+            <button
+              type="button"
+              onClick={toggle}
+              title={mode === 'markdown' ? '切换为纯文本' : '切换为 Markdown'}
+              className="ml-1 rounded px-1 font-mono text-[9px] tracking-tight text-deck-muted/60 opacity-60 hover:bg-white/10 hover:text-deck-text hover:opacity-100"
+            >
+              {mode === 'markdown' ? 'MD' : 'TXT'}
+            </button>
+          )}
+        </div>
+        <div
+          className={`break-words rounded-lg border border-dashed border-deck-border/40 bg-white/[0.02] px-2.5 py-1.5 text-[11px] italic leading-relaxed text-deck-muted ${
+            renderAsMarkdown ? '' : 'whitespace-pre-wrap'
+          }`}
+        >
+          {text ? (
+            renderAsMarkdown ? (
+              <MarkdownText text={text} />
+            ) : (
+              text
+            )
+          ) : (
+            <span className="text-deck-muted/60">（空 thinking）</span>
           )}
         </div>
       </div>
