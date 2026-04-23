@@ -88,12 +88,13 @@ export class CodexSdkBridge {
 
     let thread: Thread;
     if (opts.resume) {
-      thread = codex.resumeThread(opts.resume);
+      thread = codex.resumeThread(opts.resume, { skipGitRepoCheck: true });
     } else {
       thread = codex.startThread({
         workingDirectory: cwd,
         sandboxMode: 'workspace-write',
         approvalPolicy: 'never',
+        skipGitRepoCheck: true,
         ...(opts.model ? { model: opts.model } : {}),
       });
     }
