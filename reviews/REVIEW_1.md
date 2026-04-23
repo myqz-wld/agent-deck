@@ -57,7 +57,7 @@ src/main/hook-server/server.ts
 |---|---|---|---|
 | ipc.ts loadImageBlob 路径检查 | fileChange 无 limit 全表扫 | TOCTOU symlink 越权 | 取 Codex 视角（更严重）合并到 #3 |
 
-## 修复（CHANGELOG_47 落地）
+## 修复（CHANGELOG_16 落地）
 
 ### HIGH
 
@@ -78,7 +78,7 @@ src/main/hook-server/server.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_47.md](../changelog/CHANGELOG_47.md)：本次 8 处修复 + 文档机制重构（reviews 引入 / 反馈升级加 agent-pitfall / 三份 CLAUDE.md 简化与对齐）
+- [CHANGELOG_16.md](../changelog/CHANGELOG_16.md)：本次 8 处修复 + 文档机制重构（reviews 引入 / 反馈升级加 agent-pitfall / 三份 CLAUDE.md 简化与对齐）
 
 ## Agent 踩坑沉淀
 

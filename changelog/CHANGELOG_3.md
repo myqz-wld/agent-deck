@@ -1,65 +1,50 @@
-# CHANGELOG_3: AskUserQuestion 工具适配
+# CHANGELOG_3: 对话气泡 / 内部会话演进（user message + Markdown + AskRow 优化）
 
 ## 概要
 
-Claude Code 的 `AskUserQuestion` 工具是 Claude 主动征询用户（不是危险操作需要批准），原先在 SDK 通道里会被通用 canUseTool 路径拦下来，UI 显示成「⚠️ 等待你的决定」+ 一坨 JSON，体验差。本次为它做独立的 UI 通路：
-
-1. SDK 通道 canUseTool 识别 `AskUserQuestion`，发独立事件 payload `type: 'ask-user-question'`
-2. UI 弹独立「❓ Claude 在询问你」面板，把每个 question 渲染成可点击选项 + 「其他」输入框
-3. 用户提交答案 → 主进程把答案拼成可读文本塞进 SDK 的 `deny.message` 反馈给 Claude；Claude 看到 tool_result 含答案就能继续对话
-4. 单选：点击 option 立即提交；多选：checkbox + 提交按钮；多题：每题独立状态，统一提交
-5. 外部 CLI 会话只展示问题，不允许操作（hook 通道没有 canUseTool 通路，技术上做不到）
+合并原 CHANGELOG_4（内部会话能看完整对话）+ CHANGELOG_11（AskRow 提交按钮显眼化 + 毛玻璃底色加深）+ CHANGELOG_27（header 计数对齐 + MD/TXT 全局切换）+ CHANGELOG_34（MD/TXT 改单条独立，推翻 CHANGELOG_27 全局级联）。从「应用内会话看不到 user message + assistant 文字被截 60 字」演进到「对话气泡 + Markdown 渲染 + 单条独立切换」的最终形态。
 
 ## 变更内容
 
-### 共享类型（src/shared/）
-- `types.ts` 新增：
-  - `AskUserOption { label; description? }`
-  - `AskUserQuestionItem { question; header?; multiSelect?; options[] }`
-  - `AskUserQuestionRequest { type: 'ask-user-question'; requestId; toolUseId?; questions[] }`
-  - `AskUserQuestionAnswer { answers: { question; selected[]; other? }[] }`
-- `ipc-channels.ts` 新增 `AdapterRespondAskUserQuestion: 'adapter:respond-ask-user-question'`
+### 内部会话能看完整对话（来自原 CHANGELOG_4）
 
-### Adapter 抽象（src/main/adapters/types.ts）
-- `AgentAdapter.respondAskUserQuestion?(sessionId, requestId, answer)` 可选方法
-- 占位 adapter（codex-cli/aider/generic-pty）capabilities 不变（false 即可，本来 canRespondPermission 也是 false）
+- `sdk-bridge.ts sendMessage` 在推消息给 SDK 后**额外 emit 一条 message event**：`payload: {text, role:'user'}`
+- `translate` 处理 assistant text block 时给 payload 加 `role:'assistant'` 区分主语
+- `ActivityFeed.tsx` 重写：拉取上限 50 → 100；新增 `MessageBubble` 组件
+  - **user**：右对齐，绿色背景（`bg-status-working/15`），标签「你」
+  - **assistant**：左对齐，灰边框背景，标签「Claude」
+  - **error**（payload.error=true）：红框
+  - 容器宽度 max-88%，`whitespace-pre-wrap break-words` 完整保留长消息
+- 其他事件类型仍单行简述但补 detail（路径 / Bash 命令前 80 字）+ emoji（🔧 📝 ⚠ ❓ ✅ ⏹）
 
-### Claude Code 适配器
-- `claude-code/sdk-bridge.ts`：
-  - `InternalSession` 新增 `pendingAskUserQuestions: Map<requestId, callback>`
-  - `canUseTool` 加 `if (toolName === 'AskUserQuestion')` 分支：解析 input.questions → emit `waiting-for-user` 带 `type: 'ask-user-question'` payload → 把 resolver 存进 pendingAskUserQuestions Map → 等用户答完再 resolve `{ behavior: 'deny', message: '用户已通过 UI 选择...\n\n${formatAskAnswers}' }`
-  - 新增 `respondAskUserQuestion(sessionId, requestId, answer)` 方法
-  - `consume()` finally 清空时同时拒掉所有未决 AskUserQuestion 回调（标记会话已结束）
-  - 新增 `formatAskAnswers(questions, answer)` helper：拼成 `Q1: ... \nA: 选项A, 选项B | 其他：xxx` 多行文本
-- `claude-code/index.ts`：转发 `respondAskUserQuestion` 到 bridge
+### AskRow 提交按钮显眼化（原 CHANGELOG_11）
 
-### IPC + preload
-- `main/ipc.ts`：注册 `AdapterRespondAskUserQuestion` handler，调用 adapter.respondAskUserQuestion
-- `preload/index.ts`：暴露 `window.api.respondAskUserQuestion(agentId, sessionId, requestId, answer)`
+- `ActivityFeed.tsx AskRow`：暴露 `answeredCount / canSubmit`；header 右侧加「已选 N/M」+ 醒目「提交回答」按钮（`bg-status-working` 实色 + `text-black font-semibold`），与 `PermissionRow` header 风格一致；底部按钮也升级同款实色 + 旁边一行进度提示
+- 取消「单选立即提交」逻辑：所有题型统一一种交互更可预期
 
-### Renderer
-- `stores/session-store.ts`：
-  - 新增 `pendingAskQuestionsBySession: Map<sessionId, AskUserQuestionRequest[]>`
-  - 新增 `EMPTY_ASK_QUESTIONS` 常量、`isAskUserQuestion()` 类型守卫
-  - `pushEvent` 在 `waiting-for-user + type='ask-user-question'` 时加入 askMap
-  - `removeSession` 同步清掉 askMap
-  - 新增 `resolveAskQuestion(sessionId, requestId)` action（用户提交后从 map 移除）
-- `components/SessionDetail.tsx`：
-  - 头部下方新增 `<AskUserQuestionPanel>`（在权限请求面板之上，更醒目）
-  - 新增三个内部组件：
-    - `AskUserQuestionPanel` —— 容器，遍历 pending requests
-    - `AskQuestionForm` —— 单条 request，维护多题状态；单选立即提交，多选/多题用「提交所有答案」
-    - `QuestionRow` —— 单题渲染（header + question + options 按钮 + 「其他」输入框）
+### 毛玻璃默认底色加深（原 CHANGELOG_11）
 
-### Summarizer 上下文修复（src/main/session/summarizer.ts）
-- `formatEventsForPrompt`：把所有事件前缀统一改成「[Claude 说]」「[Claude 调用工具]」「[Claude 改动文件]」「[Claude 主动询问用户]」「[Claude 请求工具权限]」「[Claude 等待用户输入]」
-- 之前用「[assistant]」「[tool]」会让 LLM 把「Claude 调用 AskUserQuestion 询问用户」误总结成「用户在询问」；明确把主语标成 Claude 后，模型生成的总结主语正确
+- `globals.css .frosted-frame` 默认态：底色 `rgba(22,24,32,0.55)` → `rgba(12,14,20,0.78)`；`backdrop-filter` 的 `brightness(1.12)→0.92`、`saturate(260%)→220%`；顶部 radial / 135° 高光的白色透明度都减半
+- pin 模式（`[data-pinned='true']`）保持不变 —— 那是「看穿到下方应用」的特意设计
 
-### 文档
-- `README.md`「工具权限请求」section 之后插入「Claude 主动询问（AskUserQuestion）」一节
-- 本文件 + `INDEX.md` 同步
+### header 会话计数对齐（原 CHANGELOG_27）
+
+- 新建 `src/renderer/lib/session-selectors.ts`：`selectLiveSessions(sessions)` pure helper —— `archivedAt === null && lifecycle ∈ {active, dormant}`，按 `lastEventAt` 倒序，与 main 端 `sessionRepo.listActiveAndDormant` SQL 口径完全对齐
+- `App.tsx` stats useMemo 改用该 helper 算 total/waiting/working
+- `SessionList.tsx` grouped useMemo 替换原内联过滤复用同一份 helper
+- 修复后：当前会话内归档一条 active → header N 立刻 -1（修复前要等重启才掉）
+
+### 消息气泡 Markdown 渲染（原 CHANGELOG_27 引入 + CHANGELOG_34 改单条独立）
+
+- 装 `react-markdown@^10` + `remark-gfm@^4`（GFM：表格、任务列表、删除线、自动链接）
+- 新建 `MarkdownText` 组件（`src/renderer/components/MarkdownText.tsx`）：受限渲染器；不挂 rehype-raw（默认 escape HTML 安全）；链接强制 `target="_blank" rel="noopener noreferrer"`；p/h1-3/ul/ol/blockquote/code/pre/table 全部套 Tailwind className，控制在 MessageBubble 窄列宽度内；pre/table 加 `overflow-x-auto`
+- `MessageBubble`：头部「Claude · 时间」右侧加 MD/TXT 切换按钮（9px、opacity 60% → hover 100%）；error 消息和空消息不显示按钮，错误消息强制 plaintext；markdown 模式下移除 `whitespace-pre-wrap` 让 markdown 自己控制换行
+- **CHANGELOG_27 → CHANGELOG_34 取舍翻转**：原版 CHANGELOG_27 用 `useGlobalRenderMode` hook 把切换写 localStorage 全局广播 →「切单条 = 切全局，所有 bubble 一起翻面」。用户反馈这反人类，CHANGELOG_34 改回**单条独立**：每条 bubble 自己 useState，不写 localStorage、不广播；切单条只改本条，互不级联
+- `useGlobalRenderMode` hook + `EVENT_NAME` + storage 监听全删；保留 `RenderMode` 类型，内部 `read()` 改为 `readInitialRenderMode()`，命名表达「仅作初始默认」语义
+- 副作用接受：切过的 bubble 卸载（切会话 / 应用重启）后回到默认 plaintext，要再切。这是**有意为之**，避免按 message id 存偏好 map 的复杂度
 
 ## 备注
-- 数据流：Claude tool_use AskUserQuestion → SDK canUseTool callback → emit event → UI 渲染 → 用户点选 → respondAskUserQuestion IPC → resolve callback → SDK 把 `{ behavior: 'deny', message: 用户答案文本 }` 当 tool_result 喂给 Claude → Claude 基于答案继续
-- 用 `deny + message` 而不是 `allow + updatedInput` 是因为 PermissionResult 的 allow 不能直接产出 tool result；deny 的 message 字段会作为 tool_result 的 content 传回模型，正好可以承载答案
-- 提交按钮的显示规则：任意一题是 multiSelect → 显示「提交所有答案」；全部单选则点 option 立即提交，没有提交按钮
+
+- store `recentEventsBySession` 仍只保留 30 条；活动 Tab 打开时从 IPC 拉 100 条覆盖
+- 用户消息只在 SDK 通道 emit；外部 CLI 会话的用户输入由用户自己在终端看，hook 通道没有 user input 事件
+- 不引入「按 message id 存偏好 map」：复杂度不值得；未来如要全局默认 markdown 再独立加 SettingsDialog 入口

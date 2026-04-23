@@ -1,67 +1,55 @@
-# CHANGELOG_12: README 与代码现状再次同步（PermissionRow/AskRow 内嵌、resume 路径、session-end 拆分等）
+# CHANGELOG_12: 权限 tab（三层 → 四层 settings）
 
 ## 概要
 
-完整阅读了一遍代码，把 README.md 上落后的描述统一拉齐到当前实现。重点是几条「写过但还没回流到 README」的设计取舍，以及 CHANGELOG_11 改了 AskRow 但当时显式说「README 不变」、回头检查发现仍有需要补的地方。
+合并原 CHANGELOG_29（会话详情新增「权限」tab，三层 settings 合并展示）+ CHANGELOG_32（补 user-local 层扩到四层）。会话详情新增第 4 个 tab「权限」，按当前会话 cwd 解析 Claude Code settings.json，先按官方文档列的 user/project/local 三层实现，后补 SDK 实际还会读的 `~/.claude/settings.local.json`（user-local），最终四层 `user → user-local → project → local`。**纯只读**，agent-deck 不写任何配置文件。
 
 ## 变更内容
 
-### `README.md`
+### 三层引入（原 CHANGELOG_29）
 
-#### 「半透明毛玻璃悬浮窗」节
-- CSS 描述同步：`saturate(260%)` → `saturate(220%) brightness(0.92)`（CHANGELOG_11 改的，没回 README）
-- 默认底色加深到 `rgba(12,14,20,0.78)` 一并写明
-- pin 模式数值也补上：`rgba(18,18,24,0.2) + blur(18px)`，方便和默认态对照
+#### shared 层
 
-#### 「会话生命周期」节
-- session-end 在 SDK 与 Hook 通道处理不同：SDK → dormant（jsonl 还在，可 resume），Hook → closed（终端 CLI 真退出）。原文写的是一刀切「session-end → closed」，与 `SessionManager.ingest()` 实际行为不符
-- 末尾加一条说明这个差异化的设计意图：「SDK 流终止不视为会话死了，给用户留 resume 的口子」
+- `types.ts` 新增 `SettingsSource` / `SettingsPermissionsBlock` / `SettingsLayer` / `MergedRule` / `MergedDirectory` / `MergedPermissions` / `PermissionScanResult` 类型，对齐 SDK `coreTypes.ts` 的 `PermissionUpdate` schema
+- `ipc-channels.ts` 新增 `PermissionScanCwd` / `PermissionOpenFile`
 
-#### 新增「会话恢复（resume）」节
-- 新增章节，介绍 SessionDetail 底部输入框捕获 `not found` 时弹出的「会话已断开 / 恢复会话」按钮
-- 解释 `createAdapterSession({ ..., resume })` 让 SDK 加载历史 jsonl 续上对话的工作机制
-- 提到乐观清空策略，避免 SDK fallback 30s 等待期间用户以为没生效
+#### main 层
 
-#### 「Claude Code SDK 通道」节
-- 加 30s fallback / tempKey 重命名说明：CLI 30s 内没消息时如何兜底，真实 session_id 到达后如何无损迁移所有子表 + UI 状态
-- 加 cwd 待领取标记（`expectSdkSession`）说明：避免 hook 通道领先到达时出现「内/外」两份重复会话；`realpath` 归一 + 单 pending 模糊匹配兜底
+- 新建 `permissions/scanner.ts`：
+  - `scanCwdSettings(cwd)`：三个文件 `Promise.all` 并发读，pretty-print 原文 + 抽 permissions 块；ENOENT/ENOTDIR 当成「文件不存在」返回占位 `exists=false`
+  - `mergePermissions`：allow/deny/ask/additionalDirectories 按层顺序 union 去重，每条规则记录其出现过的 source 列表；defaultMode 取 local→project→user 倒序首个非空（与 SDK 实际行为一致：靠后的 settingSource 覆盖标量字段）
+  - `getCandidatePaths(cwd)`：对外暴露三个候选路径，给 IPC handler 做白名单
+- `ipc.ts`：注册两个 handler；`PermissionOpenFile` 严格校验 path 在 `getCandidatePaths(cwd)` 三选一里再调 `shell.openPath`，杜绝 renderer 传任意 path 越权打开
 
-#### 「工具权限请求」节（重写）
-- **顶部 banner 已废弃**，改为活动流内嵌 `PermissionRow`：与代码对齐（SessionDetail.tsx 注释「顶部 banner 已废弃：权限请求 / AskUserQuestion 全部由活动流的 PermissionRow / AskRow 内嵌渲染并响应」）
-- 补：Edit / Write / MultiEdit 的 toolInput 翻译成 Monaco DiffViewer 直接画在 PermissionRow 行内（`toolInputToDiff()`），不是 JSON
-- 补：已响应行变「⚪ 已处理」灰带状态
-- 补：bypassPermissions 切换的安全约束（必须新建会话时就选好，运行时切换到该模式无效）—— 沿用 CHANGELOG_9 的描述
-- 补：Claude 自动取消 pending 时弹 5s toast 让用户知道按钮消失不是自己点的（cancelToasts 逻辑）
+#### preload + renderer
 
-#### 「Claude 主动询问（AskUserQuestion）」节（重写）
-- 顶部 banner 同样废弃，改活动流内嵌 `AskRow`：补「已选 N/M」进度 + header 右侧实色「提交回答」按钮 + 底部兜底按钮（CHANGELOG_11）
-- **取消「单选立即提交」逻辑**：改为「点击 = toggle，所有题型统一一种交互」（CHANGELOG_11 实际改的就是这条，但当时只说「README 不变」—— 实际 README 之前的描述「单选 = 点击立即提交；multiSelect = checkbox + 提交按钮」已与代码不符）
-- 补 AskUserQuestion 也有超时跳过（permissionTimeoutMs 共用阈值）
+- preload `scanCwdSettings(cwd)` / `openPermissionFile(cwd, path)`
+- 新建 `PermissionsView.tsx`：顶部 cwd 信息行 + 「刷新」按钮 + `<MergedPanel>`（每条规则末尾跟 chip `[U]/[P]/[L]` `<SourceBadge>`）+ `<LayerPanel> × 3`（路径 + 是否存在 + 折叠按钮 + 「打开」按钮 + `<RawJsonBlock>` 自写轻量 JSON 高亮，无 monaco 依赖）
+- 边界：解析失败红条 + 仍展示原文；不存在文件给「未配置」灰字 + 推断路径 + 仍可点「打开」（多数编辑器会创建空文件）；当 cwd=home 时给黄色提示「project 与 user 是同一文件」
+- `SessionDetail.tsx`：`Tab` 类型加 `'permissions'`，渲染 `<PermissionsView cwd={session.cwd} />`
 
-#### 「SessionDetail 面板」节（重写）
-- 顶部 banner → 顶部 toast（自动取消通知）
-- 活动 Tab 行渲染按 event kind 拆开列举：MessageBubble / PermissionRow / AskRow / ToolStartRow（内嵌 diff）/ ToolEndRow（折叠展开 result）/ SimpleRow —— 之前 README 只笼统写「单行简述」，现在能让人一眼看到哪些事件支持哪种交互
-- 改动 Tab 补：按文件分组按钮带改动次数小角标；文件按最近时间倒序排列
-- 底部输入区 SDK 会话补：权限模式下拉 + 「会话已断开 / 恢复会话」红条提示
+### 扩到四层（原 CHANGELOG_32）
 
-#### 「项目结构」节
-- `manager.ts` 末尾补：cwd 待领取标记 + renameSdkSession
-- `summarizer.ts` 末尾补：prompt 标注「Claude 一侧的行为」防止 LLM 把动作误总结成「用户…」（CHANGELOG_3 提到过）
-- `sound.ts` 补：防叠播 + 5s 上限 + before-quit 清理（CHANGELOG_7）
-- `session-repo.ts` 改：`permissionMode` → `setPermissionMode / rename`（实际方法名）
-- `settings-store.ts` 补：`REMOVED_KEYS` 数组
-- `App.tsx` 补：mount 时拉一次 listAdapterPendingAll 重建 store（CHANGELOG_10 的 A 修复）
-- `FloatingFrame.tsx` 补：pin/无 pin 两套样式
-- `SessionDetail.tsx` 补：自动取消 toast + 恢复会话；并说明 PermissionRequests / AskUserQuestionPanel 仍 export 备 banner 模式回切
-- `SettingsDialog.tsx` 补：getSettings/hookStatus 异步错误显示
-- `ActivityFeed.tsx` 拆开行类型：MessageBubble / PermissionRow（内嵌按钮 + diff）/ AskRow（toggle + 实色提交按钮）/ ToolStartRow（内嵌 diff）/ ToolEndRow（折叠展开 result）/ SimpleRow
-- `session-store.ts` 补：pendingAskQuestions / setPendingRequests / setPendingRequestsAll / renameSession（CHANGELOG_10 + SDK fallback 路径）
-- `use-event-bridge.ts` 补：onSessionRemoved / onSessionRenamed
-- `globals.css` 补：默认底色加深、pin 模式高透明（CHANGELOG_11）
+- 实测反馈：缺了 `~/.claude/settings.local.json`，用户在 user-local 写的 allow/deny 既不在「生效合并」里出现，「打开」按钮也找不到对应卡片
+- 根因：CHANGELOG_29 当时按官方文档列的「user / project / project-local」三层实现，但 SDK / CLI 实际还会读 `~/.claude/settings.local.json`（user 级个人覆盖，文档里没明说），扫描器漏了它
+- `types.ts`：`SettingsSource` 加 `'user-local'`；`PermissionScanResult` 加 `userLocal: SettingsLayer`；`MergedPermissions.defaultMode` 注释顺序改成 `local > project > user-local > user`
+- `permissions/scanner.ts`：`CandidatePaths` / `getCandidatePaths` 加 `userLocal: ~/.claude/settings.local.json`；`scanCwdSettings` 改成四层并发读；`mergePermissions` 入参顺序 `[user, userLocal, project, local]`
+- `ipc.ts`：`PermissionOpenFile` 白名单加 `candidates.userLocal`
+- `PermissionsView.tsx`：`SOURCE_LABEL` / `SOURCE_BADGE` / `SOURCE_HINT` 加 `'user-local'` 条目（label `User Local`、chip `UL`）；user 卡片后插 `<LayerPanel layer={data.userLocal} />`；home 目录场景的「同一文件」提示扩展（补 `local === user-local`）；`MergedPanel` 顶部标题改为「user → user-local → project → local」
+
+### HistoryPanel 点击热区与 SessionList 对齐（原 CHANGELOG_29 追加）
+
+- 实时面板（SessionList → SessionCard）整张卡片都可点开会话详情；历史面板（HistoryPanel）只有标题那一小段 `<div>` 可点，其他 cwd / 时间行 / 卡片空白都不响应
+- `<li>` 加 `onClick={() => onSelect(s.id)}` + `cursor-pointer`，整行做点击区；标题 `<div>` 移除 `onClick`；「归档 / 取消归档 / 删除」三按钮 `onClick` 全部 `e.stopPropagation()` 包裹
+
+### 「已响应」与「已被 SDK 取消」拆开显示（原 CHANGELOG_29 追加）
+
+- PermissionRow / AskRow / ExitPlanRow 三个组件在 `stillPending=false` 时统一显示「⚪ 已处理」+ 底部「已响应或已被 SDK 取消」糊在一起
+- 顶层 `ActivityFeed` 函数遍历一次 `recent` events，按 payload.type 分别收集 `cancelledPermIds` / `cancelledAskIds` / `cancelledExitIds` 三个 Set，透传给三种 Row
+- 每个 Row 新增 `wasCancelled: boolean` prop，三态 UI：等待中 / **已响应**（绿色）/ **已被 SDK 取消**（更暗 `opacity-50` + 灰色 + 底部 hint「Claude 主动放弃了这次请求」）
 
 ## 备注
 
-- 这次纯文档同步，不动代码，不影响运行时行为
-- 用户可见行为本身没变，只是 README 之前没及时跟上 CHANGELOG_3 / 4 / 9 / 10 / 11 的几次小改
-- 取舍：保留旧 README 写过的所有有价值描述（设计意图 / DB 迁移 / 鉴权细节等），只把过期的事实改对，不搞推倒重写
-- 对照清单：CHANGELOG_1（初始 banner 模式）→ CHANGELOG_3（AskUserQuestion 加 banner）→ 之后某次（具体在哪条 changelog 没标记，从代码注释「顶部 banner 已废弃」推断是 CHANGELOG_4 前后）改成活动流内嵌，但 README 一直没回流
+- 不读 managed settings（`/Library/Application Support/ClaudeCode/managed-settings.json` 等系统级）：MDM / 企业策略场景，agent-deck 用户群极少且不同 OS 路径不一样
+- 不上 file watcher（避免噪音 + main↔renderer 持续 IPC），用户改完外部配置自己点「刷新」
+- 仍然不写任何 settings 文件，落盘还是走 SDK 的「Always allow」原生流程

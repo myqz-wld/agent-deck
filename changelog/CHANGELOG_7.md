@@ -1,41 +1,43 @@
-# CHANGELOG_7: 提示音播放健壮化（Windows mp3 + 防叠播 + 5s 上限）
+# CHANGELOG_7: 命令行新建会话 `agent-deck new`
 
 ## 概要
 
-补两条 sound.ts 的隐患：
-
-1. **Windows 之前没法放 mp3** —— 用的 `System.Media.SoundPlayer` 只支持 wav，mp3/aiff/m4a 都失败 → 走系统声音回退。改用 PowerShell + `PresentationCore.MediaPlayer`，支持 mp3/wav/aiff/m4a/wma 等多种格式。
-2. **没有播放保护**：用户选了长音频（比如一首 3 分钟的歌）→ 真的会播 3 分钟；期间多次 waiting → 同时拉起多个 afplay 子进程叠音。
-
-加两层保护：
-- **防叠播**：全局只允许 1 个外部播放器进程；新触发会 SIGTERM 旧的（断尾，不"叠音轨"）
-- **时长上限**：MAX_PLAY_MS = 5000，超过自动 SIGTERM
-- 通过 SIGTERM 自然结束的不视为播放失败，不触发回退
+支持从终端通过 `agent-deck new --cwd ... --prompt "..."` 拉起 / 复用 Agent Deck 实例新建一个 SDK 会话，等价于在 ＋ 弹窗里点确定。复用 Electron 已有的 `requestSingleInstanceLock()`，首启与 second-instance 共用同一段 argv 解析。
 
 ## 变更内容
 
-### src/main/notify/sound.ts
-- 新增模块级单例 `currentPlayback: { proc, timeout } | null`
-- 新增 `killCurrentPlayback()`：clearTimeout + `proc.kill('SIGTERM')`，幂等
-- 新增 `trackPlayback(proc)`：每次启动新 player 都先 kill 旧的、设 5s 超时强 kill、监听 exit 自动清理
-- `isOurKill(err)` 辅助：根据 `err.signal === 'SIGTERM'` 或 `err.killed === true` 判断"是我们主动 kill 的"，这种不算播放失败，不触发 onError 回退
-- 重写 `playFile`：
-  - macOS: `execFile('afplay', [file])` + `trackPlayback`
-  - Linux: paplay → 失败回退 aplay，两段都走 `trackPlayback`
-  - Win: `execFile('powershell', ['-NoProfile', '-Command', script])`，script 用 `Add-Type PresentationCore` + `MediaPlayer.Open(Uri).Play()` + `Start-Sleep MAX_PLAY_MS` + `Stop/Close`；路径用 `file:///` 前缀 + 反斜杠转正斜杠 + 双引号转义 `""`
-  - 未知平台：直接 `onError()`
-- `playSystemBeep` 也用 `trackPlayback`，避免系统声音和真正的提示音叠播
-- 新导出 `stopAllSounds()`：调用 `killCurrentPlayback`，给 `before-quit` 用
+### CLI 解析（src/main/cli.ts，新文件）
 
-### src/main/index.ts
-- import `stopAllSounds`
-- `before-quit` 钩子里调一次 `stopAllSounds()`，保证退出时杀掉残留的 afplay / PowerShell 子进程
+- `parseCliInvocation(argv)`：扫描 `'new'` 子命令位置（不能按 index，因为 dev / 打包 / second-instance 三种入口的 leading 段不一样），后续 token 走 `parseFlags` 转 Map
+- 支持 `--key value` / `--key=value` / `--no-key`（布尔反向）/ 裸 `--key`（视为 true）；不实现 short flag
+- `new` 子命令字段：`--cwd`（缺省回落 `$PWD`/wrapper、最终 `homedir()`） / `--prompt`（缺省 `'你好'`） / `--agent`（默认 `claude-code`） / `--model` / `--permission-mode`（白名单 default/acceptEdits/plan/bypassPermissions） / `--system-prompt` / `--resume` / `--no-focus`
+- `applyCliInvocation`：通过 `adapterRegistry.get(agent).createSession(...)` 走 SDK 通道；focus=true 时 `win.show()+focus()` + macOS `app.focus({steal:true})` + emit `'session-focus-request'`
 
-### 文档
-- `README.md` 「控制权交接判定」一节：补「播放保护」「跨平台播放命令」两行
-- 本文件 + `INDEX.md` 同步
+### 主进程接线（src/main/index.ts）
+
+- `bootstrap()` 末尾 `setImmediate(() => handleCliArgv(process.argv))` 处理首启 argv
+- `app.on('second-instance', (_e, argv) => ...)` 改造：除原 show/focus 已存在窗口外再调一次 `handleCliArgv(argv)`
+- 加 `eventBus.on('session-focus-request', sid => win.webContents.send(IpcEvent.SessionFocusRequest, sid))`
+
+### 事件 + IPC（src/main/event-bus.ts、src/shared/ipc-channels.ts）
+
+- `EventMap` 加 `'session-focus-request': [string]`；`IpcEvent.SessionFocusRequest`
+- `preload`：`onSessionFocusRequest(cb)`
+- `App.tsx` 挂 `window.api.onSessionFocusRequest(sid => { setView('live'); select(sid); })`
+
+### macOS shell wrapper（resources/bin/agent-deck，新文件 + chmod +x）
+
+- 默认查 `/Applications/Agent Deck.app/Contents/MacOS/Agent Deck`，`AGENT_DECK_APP` 环境变量可覆盖
+- 把 `--cwd` 的相对路径在 shell 端转成绝对（含 `--cwd=val` 形式）；如果是 `new` 但没传 `--cwd`，自动补 `--cwd "$PWD"`（必须 shell 端转：second-instance 转发后主实例的 `process.cwd()` 是 .app 安装目录或 `/`，不是用户 PWD）
+- `$# == 0` → `set -- new`（裸调用 `agent-deck` 等价于 `new --cwd "$PWD"`）；首参以 `--` 开头 → `set -- new "$@"`（自动补 `new`）
+- `exec` 二进制把剩余参数原样传，single-instance lock 决定是新启动还是 second-instance 转发
+
+### 默认 prompt = "你好"
+
+- `cli.ts` 把 `CliNewSession.prompt` 从 `?: string` 改成必选 `string`，缺省值 `'你好'`（`asString(...) ?? '你好'`）
+- 之前裸跑 `agent-deck` 时 SDK 拿不到首条 user message 会卡 30s fallback；改后立刻发起对话
+- 显式 `--prompt ''` 仍尊重为空（asString 返 `''`，`??` 不触发），保留 escape hatch
 
 ## 备注
-- Windows PowerShell 启动开销 ~200-500ms，每次提示音都会启一个新进程；考虑到 5s 上限和防叠播，影响可控
-- macOS `afplay` 收到 SIGTERM 立即停止，平滑无杂音；Linux paplay 同理；Windows MediaPlayer 我用 Start-Sleep 等待 5s 后主动 Stop()，被 kill 时 .NET 进程被强终结，没有"软停"动画
-- 不过 5 秒对提示音绝对够（典型提示音 < 2s）；想关掉「截断」就把 MAX_PLAY_MS 改大
+
+- renderer 接收 focus event 时机：主进程在 `createSession` resolve 后才 emit，SDK createSession 一般要等几秒，listener 已注册；只有 `--resume` 等极快路径理论可能丢事件（可接受）

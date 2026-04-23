@@ -244,11 +244,11 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
 
 每条都有过失败案例，详见对应 changelog：
 
-- `package.json > build.mac.icon = "resources/icon.png"` 必须显式指定，否则 electron-builder 找 `resources/icons/` 多分辨率集不到 → dmg 打不出来（CHANGELOG_16）
-- `extraResources` 必须把 `resources/bin → bin` 显式 copy，wrapper 才能进 .app（CHANGELOG_16）
-- 装包后必须 `codesign --force --deep --sign -` ad-hoc 重签，否则签名 Identifier 是 `Electron` 与 `com.agentdeck.app` 不一致，通知 / Gatekeeper 错位（CHANGELOG_21）
-- 重装前必须 `pkill` 旧 main 进程，否则 macOS 复用旧实例 + 新资源 → renderer chunk hash 错配 → monaco 等 dynamic import 显示成源码字符串（CHANGELOG_26）
-- `asarUnpack` 必须包含 `@openai/codex/**` + 所有平台子包（darwin / linux / win32 × arm64 / x64），否则打包后 codex spawn 报 ENOTDIR（CHANGELOG_43）
+- `package.json > build.mac.icon = "resources/icon.png"` 必须显式指定，否则 electron-builder 找 `resources/icons/` 多分辨率集不到 → dmg 打不出来（CHANGELOG_9）
+- `extraResources` 必须把 `resources/bin → bin` 显式 copy，wrapper 才能进 .app（CHANGELOG_9）
+- 装包后必须 `codesign --force --deep --sign -` ad-hoc 重签，否则签名 Identifier 是 `Electron` 与 `com.agentdeck.app` 不一致，通知 / Gatekeeper 错位（CHANGELOG_9）
+- 重装前必须 `pkill` 旧 main 进程，否则 macOS 复用旧实例 + 新资源 → renderer chunk hash 错配 → monaco 等 dynamic import 显示成源码字符串（CHANGELOG_9）
+- `asarUnpack` 必须包含 `@openai/codex/**` + 所有平台子包（darwin / linux / win32 × arm64 / x64），否则打包后 codex spawn 报 ENOTDIR（CHANGELOG_14）
 
 ---
 
