@@ -32,7 +32,7 @@ function on<T extends string>(channel: T, handler: Handler): void {
 }
 
 export function bootstrapIpc(): void {
-  on(IpcInvoke.AppGetVersion, () => process.env.npm_package_version ?? '0.1.0');
+  on(IpcInvoke.AppGetVersion, () => app.getVersion());
 
   // Window
   on(IpcInvoke.WindowSetAlwaysOnTop, (_e, value) => {
@@ -452,19 +452,8 @@ async function loadImageBlob(
     return { ok: false, reason: 'denied', detail: 'path must be absolute' };
   }
 
-  // 双白名单：path 必须在该 session 已知（file_changes 表里、或 tool-use-start 事件里出现过）
-  if (!isPathInSessionWhitelist(sessionId, reqPath)) {
-    return { ok: false, reason: 'denied', detail: 'path not in session whitelist' };
-  }
-
-  // 扩展名校验
-  const ext = extname(reqPath).toLowerCase();
-  if (!ALLOWED_IMAGE_EXTS.has(ext)) {
-    return { ok: false, reason: 'invalid_ext', detail: ext };
-  }
-  const mime = MIME_BY_EXT[ext] ?? 'application/octet-stream';
-
-  // 解符号链接 + 读盘
+  // TOCTOU 防护（CHANGELOG_47）：必须先 realpath 拿到 canonical 路径，再用它校验
+  // 白名单 + 扩展名。否则白名单里的 symlink 可被改指向 /etc/passwd 等任意文件越权读。
   let real: string;
   try {
     real = await fsp.realpath(reqPath);
@@ -473,6 +462,23 @@ async function loadImageBlob(
     if (code === 'ENOENT') return { ok: false, reason: 'enoent' };
     return { ok: false, reason: 'io_error', detail: (err as Error).message };
   }
+
+  // 双白名单：原 reqPath 或 canonical real 至少一个曾在该 session 出现过。
+  // 兼容白名单条目存的就是带 symlink 形式（旧数据）+ 拦住 symlink 跳跃越权。
+  if (
+    !isPathInSessionWhitelist(sessionId, reqPath) &&
+    !isPathInSessionWhitelist(sessionId, real)
+  ) {
+    return { ok: false, reason: 'denied', detail: 'path not in session whitelist' };
+  }
+
+  // 扩展名 + MIME 都基于 canonical real：reqPath 是 .png 但 symlink 指向 .conf 的情况会被拒
+  const ext = extname(real).toLowerCase();
+  if (!ALLOWED_IMAGE_EXTS.has(ext)) {
+    return { ok: false, reason: 'invalid_ext', detail: ext };
+  }
+  const mime = MIME_BY_EXT[ext] ?? 'application/octet-stream';
+
   let stat;
   try {
     stat = await fsp.stat(real);
@@ -521,13 +527,9 @@ function isPathInSessionWhitelist(sessionId: string, target: string): boolean {
       }
     }
   }
-  // 兜底：扫该 session 最近的事件，看 tool-use-start 的 toolInput.file_path
-  const events = eventRepo.listForSession(sessionId, 500);
-  for (const ev of events) {
-    if (ev.kind !== 'tool-use-start') continue;
-    const p = (ev.payload ?? {}) as { toolInput?: { file_path?: unknown } };
-    const fp = p.toolInput?.file_path;
-    if (typeof fp === 'string' && fp === target) return true;
-  }
+  // 兜底：ImageRead 不进 file_changes，靠 tool-use-start 事件兜底。
+  // CHANGELOG_47：之前用 `listForSession(sessionId, 500)` 在 JS 侧线性扫，长会话
+  // 事件 > 500 后旧图永久读不出。改走 SQL json_extract + EXISTS LIMIT 1，无视事件总数。
+  if (eventRepo.hasToolUseStartWithFilePath(sessionId, target)) return true;
   return false;
 }

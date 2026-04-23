@@ -144,6 +144,10 @@ export class ClaudeSdkBridge {
     // 时序保护：CLI 子进程内部 hook 可能先于 SDK 通道首条 SDKMessage 到达，
     // 提前注册 cwd「待领取」标记，让 sessionManager 把首发的同 cwd hook 事件
     // 自动归到 SDK，避免出现「内/外」两份重复会话。
+    //
+    // 注意：releasePending 必须在「成功 + 失败」两条路径都释放，否则失败时
+    // pending cwd 会卡 60s ttl，期间同 cwd 的真实外部 hook 会话被误吞。
+    // 整段 createSession 用 try/catch 包，catch 里清掉 sessions map 并 release。
     const releasePending = sessionManager.expectSdkSession(opts.cwd);
     const internal: InternalSession = {
       realSessionId: null,
@@ -358,59 +362,70 @@ export class ClaudeSdkBridge {
       });
     };
 
-    const { query } = await loadSdk();
-    const runtime = getSdkRuntimeOptions();
-    const claudeBinary = getPathToClaudeCodeExecutable();
-    const q = query({
-      prompt: userMessageIterable,
-      options: {
-        cwd: opts.cwd,
-        model: opts.model,
-        permissionMode: opts.permissionMode ?? 'default',
-        // bypassPermissions 是 SDK 的"敏感档"，必须配套显式打开 allowDangerouslySkipPermissions
-        // 否则 CLI 子进程会拒绝该模式（sdk.mjs 把它们当两个独立 CLI flag 传）。
-        // 只在用户明确选了 bypassPermissions 时才开 —— 这样运行时 setPermissionMode 切到
-        // 别的模式后，flag 不会留下残余权限放大风险（CLI 子进程已经按这个 flag 启动）。
-        allowDangerouslySkipPermissions: opts.permissionMode === 'bypassPermissions',
-        // Claude Code 默认 system prompt + agent-deck 自带 CLAUDE.md（追加到末尾）。
-        // append 文本读自 resources/claude-config/CLAUDE.md，跟随应用打包；
-        // 实际位置在 user/project/local 三层 CLAUDE.md 全部加载完之后，
-        // LLM 上下文末尾位置 instruction following 最强。
-        // 已去掉用户自定义 systemPrompt 功能（避免 isolation mode 与 agent-deck 约定冲突）。
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: getAgentDeckSystemPromptAppend(),
+    // 整段 await 链（loadSdk → query 构造 → waitForRealSessionId）任一步抛错都要
+    // 释放 pending cwd 标记 + 清掉 sessions map 的 tempKey。CHANGELOG_47 修：
+    // 之前 releasePending 只在成功路径调，失败时 60s ttl 内同 cwd 真实外部 hook 会话被误吞。
+    let realId: string;
+    try {
+      const { query } = await loadSdk();
+      const runtime = getSdkRuntimeOptions();
+      const claudeBinary = getPathToClaudeCodeExecutable();
+      const q = query({
+        prompt: userMessageIterable,
+        options: {
+          cwd: opts.cwd,
+          model: opts.model,
+          permissionMode: opts.permissionMode ?? 'default',
+          // bypassPermissions 是 SDK 的"敏感档"，必须配套显式打开 allowDangerouslySkipPermissions
+          // 否则 CLI 子进程会拒绝该模式（sdk.mjs 把它们当两个独立 CLI flag 传）。
+          // 只在用户明确选了 bypassPermissions 时才开 —— 这样运行时 setPermissionMode 切到
+          // 别的模式后，flag 不会留下残余权限放大风险（CLI 子进程已经按这个 flag 启动）。
+          allowDangerouslySkipPermissions: opts.permissionMode === 'bypassPermissions',
+          // Claude Code 默认 system prompt + agent-deck 自带 CLAUDE.md（追加到末尾）。
+          // append 文本读自 resources/claude-config/CLAUDE.md，跟随应用打包；
+          // 实际位置在 user/project/local 三层 CLAUDE.md 全部加载完之后，
+          // LLM 上下文末尾位置 instruction following 最强。
+          // 已去掉用户自定义 systemPrompt 功能（避免 isolation mode 与 agent-deck 约定冲突）。
+          systemPrompt: {
+            type: 'preset',
+            preset: 'claude_code',
+            append: getAgentDeckSystemPromptAppend(),
+          },
+          // agent-deck 自带 plugin：注入到所有会话（不管 cwd），
+          // skill 自动以 `agent-deck:<skill-name>` 命名空间注册。
+          // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突（plugin 强制命名空间前缀）。
+          plugins: [{ type: 'local', path: getAgentDeckPluginPath() }],
+          // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）
+          settingSources: ['user', 'project', 'local'],
+          canUseTool,
+          // resume：传入历史 sessionId，SDK 会让 CLI 加载 ~/.claude/projects/<cwd>/<sid>.jsonl
+          // 续上之前的对话，第一条 SDKMessage 的 session_id 就是这个 sid。
+          resume: opts.resume,
+          // SDK 默认 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
+          // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime（详见 sdk-runtime.ts）。
+          executable: runtime.executable,
+          env: runtime.env,
+          // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
+          // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
+          // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
+          // 绕开 SDK 自带 K7。dev 模式下函数返回真实 node_modules 路径，无副作用。
+          ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
         },
-        // agent-deck 自带 plugin：注入到所有会话（不管 cwd），
-        // skill 自动以 `agent-deck:<skill-name>` 命名空间注册。
-        // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突（plugin 强制命名空间前缀）。
-        plugins: [{ type: 'local', path: getAgentDeckPluginPath() }],
-        // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）
-        settingSources: ['user', 'project', 'local'],
-        canUseTool,
-        // resume：传入历史 sessionId，SDK 会让 CLI 加载 ~/.claude/projects/<cwd>/<sid>.jsonl
-        // 续上之前的对话，第一条 SDKMessage 的 session_id 就是这个 sid。
-        resume: opts.resume,
-        // SDK 默认 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
-        // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime（详见 sdk-runtime.ts）。
-        executable: runtime.executable,
-        env: runtime.env,
-        // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
-        // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
-        // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
-        // 绕开 SDK 自带 K7。dev 模式下函数返回真实 node_modules 路径，无副作用。
-        ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
-      },
-    });
-    internal.query = q;
-    this.sessions.set(tempKey, internal);
+      });
+      internal.query = q;
+      this.sessions.set(tempKey, internal);
 
-    // 等待第一条带 session_id 的 SDKMessage（system init 几乎一定会先到）
-    const realId = await this.waitForRealSessionId(internal, tempKey);
+      // 等待第一条带 session_id 的 SDKMessage（system init 几乎一定会先到）
+      realId = await this.waitForRealSessionId(internal, tempKey);
 
-    // 注册到 SessionManager 的 sdk-owned 集合，后续 hook 回环将被去重
-    sessionManager.claimAsSdk(realId);
+      // 注册到 SessionManager 的 sdk-owned 集合，后续 hook 回环将被去重
+      sessionManager.claimAsSdk(realId);
+    } catch (err) {
+      // 任何中间步骤抛错：回滚 sessions / 释放 pending，再 throw 给上层 IPC 显错
+      this.sessions.delete(tempKey);
+      releasePending();
+      throw err;
+    }
     // 真实 id 已经入手，cwd 待领取标记可以释放（如果 hook 已经先消费过则是 no-op）
     releasePending();
 
@@ -836,6 +851,20 @@ export class ClaudeSdkBridge {
       }
     } catch (err) {
       console.warn(`[sdk-bridge] query loop ended`, err);
+      // CHANGELOG_47：流中途抛错（鉴权过期 / token 限额 / CLI 子进程崩 / 网络）
+      // 之前只 console.warn，UI 时间线只看到 session-end 不知道为什么。补一条 error message。
+      const sid = realId ?? tempKey;
+      this.opts.emit({
+        sessionId: sid,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: {
+          text: `⚠ SDK 流中断：${(err as Error)?.message ?? String(err)}`,
+          error: true,
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
     } finally {
       const sid = realId ?? tempKey;
       // 流终止时拒掉所有未决的权限请求，避免上游 await 永久挂起
@@ -1022,7 +1051,10 @@ export class ClaudeSdkBridge {
   /**
    * MCP 图片工具的 tool_result 处理：反查 toolName 是否是 mcp__*__Image*，
    * 是则解析 result.content 里的 JSON 翻译成 0~N 条 file-changed（payload.before/after 是 ImageSource）。
-   * 消费后从 toolUseNames 删除避免内存泄漏。
+   *
+   * CHANGELOG_47：toolUseNames.delete 提到顶层、对所有 tool_result 都执行。
+   * 之前只在图片工具分支末尾 delete，导致普通工具（Bash/Edit/Read…）每条 turn 漏一条，
+   * 长会话 toolUseNames Map 线性增长直到 session-end 才清空。
    */
   private maybeEmitImageFileChanged(
     emit: (kind: AgentEvent['kind'], payload: unknown) => void,
@@ -1032,18 +1064,14 @@ export class ClaudeSdkBridge {
   ): void {
     if (!toolUseId) return;
     const toolName = internal.toolUseNames.get(toolUseId);
+    // 收到 tool_result 即可消费这条映射，无论是否图片工具
+    internal.toolUseNames.delete(toolUseId);
     if (!isImageTool(toolName)) return;
     const parsed = parseImageToolResult(content);
-    if (!parsed) {
-      // 不是合法 ImageToolResult JSON，可能是 server bug 或工具失败；
-      // 仍然清掉映射避免泄漏，UI 上 tool-use-end 已经露出来了
-      internal.toolUseNames.delete(toolUseId);
-      return;
-    }
+    if (!parsed) return;
     for (const fc of imageResultToFileChanges(parsed, toolUseId)) {
       emit('file-changed', fc);
     }
-    internal.toolUseNames.delete(toolUseId);
   }
 }
 

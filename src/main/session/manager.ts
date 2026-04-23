@@ -80,18 +80,13 @@ class SessionManagerClass {
       this.pendingSdkCwds.delete(key);
       return true;
     }
-    // 兜底：精确未命中但池子里只有一个 pending（必然就是它）→ 模糊匹配。
-    // 覆盖 cwd 表示在某些极端情况仍有差异（如 macOS /private/var ↔ /var）的场景。
-    if (this.pendingSdkCwds.size === 1) {
-      const [onlyKey, onlyExp] = [...this.pendingSdkCwds.entries()][0];
-      if (Date.now() <= onlyExp) {
-        console.log(`[session-mgr] sdk-claim fuzzy-match: hook=${key} ↔ pending=${onlyKey}`);
-        this.pendingSdkCwds.delete(onlyKey);
-        return true;
-      }
-    }
     if (expiresAt) this.pendingSdkCwds.delete(key);
     return false;
+    // 注：`/private/var ↔ /var` 这类 macOS 别名差异已经被 normalizeCwd 内的
+    // realpathSync 解决（两端都返回 canonical 路径）。早期版本曾用「池子 size===1
+    // 就 fuzzy 兜底」，但这条会把同时段在别的 cwd 跑的外部 CLI hook 误 claim
+    // 进 sdkOwned，后续事件被静默吞掉，会话凭空消失。任何新别名场景都应在
+    // normalizeCwd 内具体加规则，不要再回到全局 fuzzy。
   }
 
   /** 注册新会话或更新已有会话 */

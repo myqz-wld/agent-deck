@@ -7,7 +7,7 @@ import { bootstrapIpc } from './ipc';
 import { HookServer } from './hook-server/server';
 import { RouteRegistry } from './hook-server/route-registry';
 import { eventBus } from './event-bus';
-import { initDb } from './store/db';
+import { initDb, closeDb } from './store/db';
 import { settingsStore } from './store/settings-store';
 import { adapterRegistry } from './adapters/registry';
 import { claudeCodeAdapter } from './adapters/claude-code';
@@ -200,16 +200,32 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', async () => {
-  globalShortcut.unregisterAll();
-  scheduler?.stop();
-  setLifecycleScheduler(null);
-  summarizer.stop();
-  stopAllSounds();
-  await adapterRegistry.shutdownAll();
-  try {
-    await hookServer?.stop();
-  } catch {
-    // ignore
-  }
+// CHANGELOG_47：before-quit listener 不是 promise-aware，原来的 async () => { await ... }
+// 里 await 形同摆设，Electron 不会等回调返回的 Promise。改成 preventDefault → 真异步清理 → app.exit()。
+// `cleaningUp` 防止 app.exit() 内部再触发 before-quit 时进入死循环。
+let cleaningUp = false;
+app.on('before-quit', (event) => {
+  if (cleaningUp) return;
+  event.preventDefault();
+  cleaningUp = true;
+  void (async () => {
+    try {
+      globalShortcut.unregisterAll();
+      scheduler?.stop();
+      setLifecycleScheduler(null);
+      summarizer.stop();
+      stopAllSounds();
+      await adapterRegistry.shutdownAll();
+      try {
+        await hookServer?.stop();
+      } catch {
+        // ignore: 已经在退出，hookServer.stop() 失败不可补救
+      }
+      closeDb();
+    } catch (err) {
+      console.warn('[before-quit] cleanup error', err);
+    } finally {
+      app.exit(0);
+    }
+  })();
 });
