@@ -333,6 +333,12 @@ function ComposerSdk({
   const [pmBusy, setPmBusy] = useState(false);
   const [pmError, setPmError] = useState<string | null>(null);
 
+  // 多 agent 适配：
+  // - 标签 / placeholder 文案用对应 agent 名（Claude / Codex / ...）
+  // - 权限模式 select 仅 claude-code 显示（codex SDK 没有运行时切权限模式）
+  const agentDisplayName = agentId === 'codex-cli' ? 'Codex' : 'Claude';
+  const supportsPermissionMode = agentId !== 'codex-cli';
+
   const send = async (): Promise<void> => {
     const t = text.trim();
     if (!t || busy) return;
@@ -439,20 +445,22 @@ function ComposerSdk({
 
   return (
     <div className="shrink-0 border-t border-deck-border px-2.5 py-2">
-      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-deck-muted">
-        <span>权限</span>
-        <select
-          value={permissionMode}
-          onChange={(e) => void changeMode(e.target.value as typeof permissionMode)}
-          disabled={pmBusy}
-          className="no-drag flex-1 min-w-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
-        >
-          <option value="default">默认（每次询问）</option>
-          <option value="acceptEdits">自动接受编辑</option>
-          <option value="plan">Plan 模式（只规划）</option>
-          <option value="bypassPermissions">完全免询问 ⚠️</option>
-        </select>
-      </div>
+      {supportsPermissionMode && (
+        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-deck-muted">
+          <span>权限</span>
+          <select
+            value={permissionMode}
+            onChange={(e) => void changeMode(e.target.value as typeof permissionMode)}
+            disabled={pmBusy}
+            className="no-drag flex-1 min-w-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
+          >
+            <option value="default">默认（每次询问）</option>
+            <option value="acceptEdits">自动接受编辑</option>
+            <option value="plan">Plan 模式（只规划）</option>
+            <option value="bypassPermissions">完全免询问 ⚠️</option>
+          </select>
+        </div>
+      )}
       {pmError && (
         <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
           <span className="flex-1">⚠ 权限模式切换失败：{pmError}</span>
@@ -510,7 +518,7 @@ function ComposerSdk({
               if (text.trim() && !busy) void send();
             }
           }}
-          placeholder="给 Claude 发消息…  (Enter 发送 / Shift+Enter 换行)"
+          placeholder={`给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行)`}
           rows={2}
           className="flex-1 resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
         />

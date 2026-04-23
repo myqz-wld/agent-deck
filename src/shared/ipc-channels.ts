@@ -37,6 +37,8 @@ export const IpcInvoke = {
   AdapterList: 'adapter:list',
   DialogChooseDirectory: 'dialog:choose-directory',
   DialogChooseSoundFile: 'dialog:choose-sound-file',
+  /** 选择可执行文件路径（用于「Codex 二进制路径」设置项）；filter 设为「无后缀 / 任意文件」 */
+  DialogChooseExecutable: 'dialog:choose-executable',
   AppPlayTestSound: 'app:play-test-sound',
   AppShowTestNotification: 'app:show-test-notification',
   DialogConfirm: 'dialog:confirm',

@@ -25,9 +25,11 @@ export function SessionList(): JSX.Element {
       <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center text-deck-muted">
         <div className="text-[12px]">暂无活跃会话</div>
         <div className="text-[10px] leading-relaxed">
-          在「设置」里安装 Claude Code Hook，
+          点 ＋ 新建会话（可选 Claude / Codex），或：
           <br />
-          然后在终端运行 <code className="rounded bg-white/5 px-1">claude</code> 即可看到会话。
+          在「设置」装 Claude Hook 后终端跑 <code className="rounded bg-white/5 px-1">claude</code>
+          <br />
+          也可终端跑 <code className="rounded bg-white/5 px-1">agent-deck new --agent codex-cli</code>
         </div>
       </div>
     );

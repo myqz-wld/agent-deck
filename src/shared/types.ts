@@ -315,6 +315,13 @@ export interface AppSettings {
    * 不影响 active / dormant：那些先由生命周期阈值推到 closed 后才进入清理候选。
    */
   historyRetentionDays: number;
+  /**
+   * Codex CLI 二进制绝对路径（@openai/codex-sdk 的 codexPathOverride）。
+   * - null：用 SDK 自带的 vendored 二进制（@openai/codex 跟随 npm 装上，已打包进 .app）
+   * - 绝对路径：覆盖为外部 codex（例如用户自装的更新版 `which codex` 给的路径）
+   * agent-deck 不读不写 codex 鉴权（`~/.codex/config.toml` / 环境变量），全由用户终端配置。
+   */
+  codexCliPath: string | null;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -335,6 +342,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   alwaysOnTop: true,
   startOnLogin: false,
   historyRetentionDays: 30,
+  codexCliPath: null,
 };
 
 // ───────────────────────────────────────────────────────── Hook Status

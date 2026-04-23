@@ -259,6 +259,15 @@ function SettingsBody({
             onChange={(v) => void update({ hookServerPort: v })}
           />
         </Section>
+
+        <Section title="外部工具">
+          <ExecutablePicker
+            label="Codex 二进制路径"
+            hint="留空 = 用应用内置 codex（推荐）。填路径 = 覆盖为外部 codex（如 `which codex` 给的路径）"
+            path={settings.codexCliPath}
+            onChange={(p) => void update({ codexCliPath: p })}
+          />
+        </Section>
     </>
   );
 }
@@ -385,6 +394,61 @@ function SoundPicker({
       >
         {fileName ?? '默认（系统提示音）'}
       </div>
+    </div>
+  );
+}
+
+/**
+ * 选择可执行文件路径（用于「Codex 二进制路径」设置项）。与 SoundPicker 同形态但简化：
+ * 不带「试听」，按钮只有「选择 / 重置」+ 一行 hint 文字。
+ * path = null 时显示「使用内置（默认）」。
+ */
+function ExecutablePicker({
+  label,
+  hint,
+  path,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  path: string | null;
+  onChange: (path: string | null) => void;
+}): JSX.Element {
+  const choose = async (): Promise<void> => {
+    const r = await window.api.chooseExecutableFile(path ?? undefined);
+    if (r) onChange(r);
+  };
+  return (
+    <div className="flex flex-col gap-1 text-[11px]">
+      <div className="flex items-center justify-between">
+        <span className="flex-1">{label}</span>
+        <div className="flex items-center gap-1 no-drag">
+          <button
+            type="button"
+            onClick={() => void choose()}
+            className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20"
+          >
+            选择…
+          </button>
+          {path && (
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              title="恢复默认（用应用内置 codex）"
+              className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-status-waiting/80 hover:bg-status-waiting/20"
+            >
+              重置
+            </button>
+          )}
+        </div>
+      </div>
+      <div
+        className="truncate text-[10px] text-deck-muted/70"
+        title={path ?? '使用应用内置 codex'}
+      >
+        {path ?? '使用应用内置（默认）'}
+      </div>
+      <div className="text-[10px] text-deck-muted/60 leading-snug">{hint}</div>
     </div>
   );
 }

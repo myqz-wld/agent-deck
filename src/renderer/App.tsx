@@ -5,15 +5,16 @@ import { SessionDetail } from './components/SessionDetail';
 import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsDialog } from './components/SettingsDialog';
 import { NewSessionDialog } from './components/NewSessionDialog';
+import { PendingTab } from './components/PendingTab';
 import { useSessionStore } from './stores/session-store';
 import { useEventBridge } from './hooks/use-event-bridge';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
-import { selectLiveSessions } from './lib/session-selectors';
+import { selectLiveSessions, selectPendingBuckets, sumPendingBuckets } from './lib/session-selectors';
 import type { AppSettings, SessionRecord } from '@shared/types';
 
 registerBuiltinDiffRenderers();
 
-type View = 'live' | 'history';
+type View = 'live' | 'history' | 'pending';
 
 export function App(): JSX.Element {
   useEventBridge();
@@ -109,41 +110,28 @@ export function App(): JSX.Element {
     };
   }, [sessions]);
 
-  // pending 计数：把所有 session 上挂着的权限/提问/计划批准数加起来 + 找第一个有 pending 的 session id；
-  // 点 chip 直接跳过去，避免 pending 被滚到视口外用户看不见。
-  // 三类 pending（PermissionRequest / AskUserQuestion / ExitPlanMode）都要算 —— ExitPlanMode 也走
-  // canUseTool 拦截、也是「等用户响应才放行 SDK」，UX 上就是同一类「待处理」，不能漏。
+  // pending 计数：把所有 session 上挂着的权限/提问/计划批准数加起来。
+  // 复用 selectPendingBuckets 与 PendingTab 同口径（均过滤 archived + lifecycle ∈ {active,dormant}），
+  // 避免 chip 数 ≠ tab 内显示数；CHANGELOG_31 之后归档会话即便仍有 pending 也不该骚扰用户。
+  // 三类 pending（PermissionRequest / AskUserQuestion / ExitPlanMode）一起算 ——
+  // ExitPlanMode 也走 canUseTool 拦截，UX 上就是同一类「待处理」，漏算会让 chip 与 tab 对不上。
   const pendingPermsMap = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsksMap = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExitsMap = useSessionStore((s) => s.pendingExitPlanModesBySession);
-  const pending = useMemo(() => {
-    let total = 0;
-    let firstSid: string | null = null;
-    for (const [sid, list] of pendingPermsMap) {
-      if (list.length > 0) {
-        total += list.length;
-        if (!firstSid) firstSid = sid;
-      }
-    }
-    for (const [sid, list] of pendingAsksMap) {
-      if (list.length > 0) {
-        total += list.length;
-        if (!firstSid) firstSid = sid;
-      }
-    }
-    for (const [sid, list] of pendingExitsMap) {
-      if (list.length > 0) {
-        total += list.length;
-        if (!firstSid) firstSid = sid;
-      }
-    }
-    return { total, firstSid };
-  }, [pendingPermsMap, pendingAsksMap, pendingExitsMap]);
+  const pending = useMemo(
+    () =>
+      sumPendingBuckets(
+        selectPendingBuckets(sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap),
+      ),
+    [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap],
+  );
 
   const jumpToPending = (): void => {
-    if (!pending.firstSid) return;
-    setView('live');
-    select(pending.firstSid);
+    if (pending === 0) return;
+    setView('pending');
+    // 清掉当前 selected：detailSession 在 view!=='history' 时优先级高于 view 分支渲染
+    // （main 区域 detailSession ? <SessionDetail/> : ...），不清就被 SessionDetail 盖住看不到 PendingTab
+    select(null);
   };
 
   const onHistorySelect = async (id: string): Promise<void> => {
@@ -166,14 +154,14 @@ export function App(): JSX.Element {
                 <span className="ml-1.5 text-status-working">· {stats.working} 进行中</span>
               )}
             </span>
-            {pending.total > 0 && (
+            {pending > 0 && (
               <button
                 type="button"
                 onClick={jumpToPending}
-                title="跳到首个有未响应请求的会话"
+                title="打开待处理列表"
                 className="no-drag ml-2 rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/40"
               >
-                ⚠ {pending.total} 待处理
+                ⚠ {pending} 待处理
               </button>
             )}
           </div>
@@ -184,6 +172,13 @@ export function App(): JSX.Element {
             <Divider />
             <TabButton active={view === 'live'} onClick={() => setView('live')}>
               实时
+            </TabButton>
+            <TabButton
+              active={view === 'pending'}
+              onClick={() => setView('pending')}
+              badge={pending > 0 ? pending : undefined}
+            >
+              待处理
             </TabButton>
             <TabButton active={view === 'history'} onClick={() => setView('history')}>
               历史
@@ -221,6 +216,13 @@ export function App(): JSX.Element {
             <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2">
               <SessionList />
             </div>
+          ) : view === 'pending' ? (
+            <PendingTab
+              onOpenSession={(sid) => {
+                setView('live');
+                select(sid);
+              }}
+            />
           ) : (
             <HistoryPanel onSelect={(id) => void onHistorySelect(id)} />
           )}
@@ -243,10 +245,12 @@ function TabButton({
   active,
   onClick,
   children,
+  badge,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  badge?: number;
 }): JSX.Element {
   return (
     <button
@@ -257,6 +261,11 @@ function TabButton({
       }`}
     >
       {children}
+      {badge && badge > 0 ? (
+        <span className="ml-1 rounded bg-status-waiting/30 px-1 py-px text-[9px] font-medium tabular-nums text-status-waiting">
+          {badge}
+        </span>
+      ) : null}
     </button>
   );
 }

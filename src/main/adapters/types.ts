@@ -81,6 +81,8 @@ export interface AgentAdapter {
   }>;
   /** 运行时调权限超时阈值（settings 改动 → bridge 即改即生效）。 */
   setPermissionTimeoutMs?(ms: number): void;
+  /** Codex 专属：设置面板「Codex 二进制路径」变更时即改即生效。 */
+  setCodexCliPath?(path: string | null): void;
 
   installIntegration?(opts: {
     scope: 'user' | 'project';

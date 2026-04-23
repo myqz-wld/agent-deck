@@ -16,7 +16,7 @@
 4. **点击会话**查看活动流与文件改动 **diff**
 
 两条扩展性约束：
-- **Agent 适配器插件化**（首期只实现 Claude Code，预留 codex-cli / aider / generic-pty 占位）
+- **Agent 适配器插件化**（已实装 Claude Code + Codex CLI，预留 aider / generic-pty 占位）
 - **Diff 渲染器插件化**（首期 Monaco 文本 diff，预留 image / pdf 占位）
 
 ---
@@ -30,8 +30,9 @@
 - pin 模式下背后切 app / 滚动 / 视频时，主进程 100ms 一次 `webContents.invalidate()` 让 NSWindow 重新与桌面合成（10fps 下层桌面感知率，CHANGELOG_24/35 演进）；CSS 端 pin 态隐藏 `::before` 噪点层避免 `mix-blend-mode: overlay` 把文字层缓存进 offscreen group surface（CHANGELOG_35 修文字残影根因）；create 时 `setBackgroundThrottling(false)` 防 macOS 后台节流压制 invalidate
 - 全局快捷键 `Cmd/Ctrl+Alt+P` 切换 pin
 
-### 会话列表（实时 / 历史）
+### 会话列表（实时 / 待处理 / 历史）
 - **实时**：分两段显示 active 与 dormant 的会话，按 `last_event_at` 倒序
+- **待处理**：把所有有未响应请求（permission / ask-user-question / exit-plan-mode）的会话按 section 平铺一屏，**直接在此响应**不必跳到具体会话；每个 section 提供「全部允许 / 全部拒绝」批量按钮（仅作用于权限请求 + ExitPlanMode，AskUserQuestion 必须人审具体选项不参与批量）；section 标题整行可点击跳到该会话的 SessionDetail；过滤口径与「实时」一致（归档 + closed 不进列表）
 - **历史**：closed + 已归档会话；支持按 cwd / 关键字搜索、仅看归档筛选
 - 每张卡片显示：
   - 状态徽标（idle 灰 / working 绿脉冲 / waiting 红闪烁 / finished 黄 / dormant 暗灰 / closed/archived 划线灰）
@@ -53,10 +54,11 @@
 - SDK 与 Hook 通道对 `session-end` 的差异化处理写在 `SessionManager.ingest()` —— SDK 流终止不视为「会话死了」，给用户留 resume 的口子
 
 ### 应用内新建会话（＋ 按钮）
-- 弹窗表单：Agent / cwd（**留空默认用户主目录 `~`**，带「选择…」目录选择器）/ **首条消息（必填）** / 模型 / 权限模式
+- 弹窗表单：**Agent**（claude-code / codex-cli）/ cwd（**留空默认用户主目录 `~`**，带「选择…」目录选择器）/ **首条消息（必填）** / 模型 / 权限模式
 - 首条消息为什么必填：SDK streaming 协议要求 CLI 子进程必须收到 stdin 首条 user message 才会启动；空 prompt 会卡死直到 30s fallback，所以表单层强制必填
-- 模型选项：按本地 settings.json / Sonnet 4.5 / Opus 4.7 / Haiku 4.5
-- 权限模式：default / acceptEdits / plan / bypassPermissions（用户上次选过的会持久化在 `sessions.permission_mode`，下次切回 detail 自动还原）
+- **字段按 agent capabilities 自动隐藏**：选 codex-cli 时隐藏「模型」「权限模式」两个字段（codex SDK 不支持运行时切权限模式；模型选项写的是 claude 模型名，对 codex 不适用）。submit 时隐藏字段不传给 IPC。
+- 模型选项（仅 claude-code）：按本地 settings.json / Sonnet 4.5 / Opus 4.7 / Haiku 4.5
+- 权限模式（仅 claude-code）：default / acceptEdits / plan / bypassPermissions（用户上次选过的会持久化在 `sessions.permission_mode`，下次切回 detail 自动还原）
 - 创建后自动切到「实时」并选中
 - **不再支持自定义 systemPrompt**：固定走 Claude Code 默认 system prompt + agent-deck 自带 CLAUDE.md 追加（详见「Agent Deck 自带 CLAUDE.md + skill 注入」节）；自定义 systemPrompt 会进 SDK isolation mode 与 agent-deck 约定冲突，索性去掉
 
@@ -75,7 +77,7 @@
   agent-deck new \
     [--cwd <path>]                        # 缺省 wrapper 取当前 PWD、否则取 ~；wrapper 会把相对路径转绝对
     [--prompt "..."]                      # 首条消息（缺省 "你好"，避免 SDK 卡 30s fallback）
-    [--agent claude-code]                 # 默认 claude-code，未来其他 SDK adapter 接入时换
+    [--agent claude-code]                 # claude-code（默认）/ codex-cli
     [--model <name>]                      # 等价表单的模型字段
     [--permission-mode default|acceptEdits|plan|bypassPermissions]
     [--resume <sessionId>]                # 续历史 jsonl，对应 detail 底部「恢复会话」
@@ -119,6 +121,22 @@
 - payload 翻译：PostToolUse(Edit/Write/MultiEdit) → `tool-use-end` + `file-changed`（含 before/after，喂给 DiffCollector）
 - Hook 通道事件打 `source: 'hook'`
 
+### Codex CLI SDK 通道（应用内会话）
+- 用 `@openai/codex-sdk` 的 `Codex.startThread() / resumeThread()` + `thread.runStreamed(input, { signal })` AsyncGenerator
+- **二进制策略**：`@openai/codex-sdk` 强制 dependency `@openai/codex` → 当前平台 vendored 二进制（如 `@openai/codex-darwin-arm64` ≈150MB）通过 npm optionalDependencies 跟随安装，**随 .app 打包**。设置面板「外部工具 → Codex 二进制路径」可填外部 codex 路径覆盖（`codexPathOverride`）
+- **鉴权完全外部**：agent-deck 不读不写 `~/.codex/config.toml` / 环境变量；首次用前先在终端跑 `codex auth` 自己配好
+- **默认安全策略**写死：`approvalPolicy: 'never'` + `sandboxMode: 'workspace-write'` + `additionalDirectories: []`，**不暴露给 UI**。codex SDK 是单工通道（stdin 写完即关），无法回应批准请求 → `'never'` 是唯一稳妥默认；`'workspace-write'` 让 OS sandbox（macOS seatbelt / Linux landlock）兜底，限制子进程只能写 `workingDirectory + additionalDirectories` 范围内的路径
+- **同 thread 串行 turn**：codex CLI 的 `~/.codex/sessions` 文件不允许同 thread 并发 → `pendingMessages: string[]` 队列 + `turnLoopRunning` flag 串行 flush。用户连发 5 条消息时第 1 条立即 spawn codex，2-5 条排队
+- **interrupt = AbortController.abort()**：每个 turn 一个 controller，按钮触发 abort → SDK 透传 `signal` 到 `child_process.spawn` → SIGTERM。turn reject + emit `finished({ subtype: 'interrupted' })`。**thread.id 不变**，下条 sendMessage 重新 `runStreamed` 续上（codex CLI 冷启动 + resume，从 `~/.codex/sessions/<id>.jsonl` 重放历史）。**注意**：SIGTERM 杀整个进程树，codex 正在跑的 shell 命令（`npm install` 等）会被同时中断
+- **能力边界**（与 Claude Code SDK 通道对比，详见 CHANGELOG_41）：
+  - ✅ createSession / sendMessage / interrupt / resume / 事件流（`agent_message → message`、`command_execution → tool-use`、`file_change → file-changed × N`、`mcp_tool_call/web_search → tool-use`、`reasoning/todo_list → message`）
+  - ❌ canUseTool / 工具批准回调（SDK 无）
+  - ❌ AskUserQuestion（SDK 无反向问询事件）
+  - ❌ ExitPlanMode / plan mode（SDK 无）
+  - ❌ 运行时 setPermissionMode（`approvalPolicy` 仅在 startThread 时设一次）
+  - ❌ installIntegration / hook（codex 无 hook 机制）
+- **file-changed 无 diff**：codex 的 `FileChangeItem` 不暴露 before/after 文本，UI 只能显示「修改了 X 文件」+ changeKind（add/delete/update）
+
 ### 控制权交接判定（颜色 + 声音 + 系统通知）
 | AgentEvent | activity | 颜色 | 声音 |
 |---|---|---|---|
@@ -144,7 +162,7 @@
 - **超时自动 abort**：超过 `permissionTimeoutMs`（默认 300s）未响应 → 自动按 deny+interrupt 处理 + 推一条警告 message 到时间线 + emit `permission-cancelled`，UI 自动移除按钮，避免会话死等
 - **Claude 自动取消时弹 toast**：SDK 主动 abort 一条 pending（流终止 / interrupt / 上层超时）时，SessionDetail 顶部弹 5s 的「Claude 自动取消了一条权限请求」灰色 toast，让用户知道按钮消失不是自己点掉的
 - **renderer 重启 / HMR / 切会话**：自动从主进程拉一次真实 pending 列表（IPC `adapter:list-pending` / `adapter:list-pending-all`），重建 store；不然事件流里的 `permission-request` 会被错渲成「已处理」按钮不显示 → SDK 死锁
-- **header pending 计数**：右上角 `⚠ N 待处理` chip，把当前所有 SDK 会话的未响应权限/提问/计划批准（PermissionRequest / AskUserQuestion / ExitPlanMode）加总；点击跳到首个有 pending 的会话
+- **header pending 计数**：右上角 `⚠ N 待处理` chip，把当前所有 SDK 会话的未响应权限/提问/计划批准（PermissionRequest / AskUserQuestion / ExitPlanMode）加总；点击**打开「待处理」tab**（一屏看全所有 pending 并直接响应，不再像 CHANGELOG_10 时只能跳第一个 pending 会话）；tab 名右侧也带相同 badge 数
 - **sendMessage 时还有 pending → 推警告**：避免用户以为 Claude 死了（SDK query() 在等 canUseTool resolve，新消息会进队列但短时间内不被消费）
 - **sendMessage 字节 / 队列上限**：单条消息 > 100KB 直接拒绝；待发送队列 > 20 条拒绝排队（SDK 阻塞在 canUseTool 时用户连发不会无限累积内存 + 撞 token 计费）
 
@@ -223,10 +241,12 @@
 - MCP server 单独维护（不在本仓库），按上述协议实现即可被 agent-deck 自动接入
 
 ### Adapter 插件架构
-- `AdapterRegistry` 单例 + `AgentAdapter` 接口（`capabilities` / `init` / `shutdown` / `createSession?` / `interruptSession?` / `sendMessage?` / `respondPermission?` / `setPermissionMode?` / `installIntegration?`）
-- 已实现：**Claude Code**（hook + SDK 双通道）
-- 占位骨架：codex-cli / aider / generic-pty（实现指引在源文件注释里）
-- UI 通过 `capabilities` 过滤，能力为 false 的 adapter 不出现在选择列表
+- `AdapterRegistry` 单例 + `AgentAdapter` 接口（`capabilities` / `init` / `shutdown` / `createSession?` / `interruptSession?` / `sendMessage?` / `respondPermission?` / `setPermissionMode?` / `installIntegration?` / `setCodexCliPath?`）
+- 已实现：
+  - **Claude Code**（hook + SDK 双通道，capabilities 全开）
+  - **Codex CLI**（基于 `@openai/codex-sdk`，单 SDK 通道，capabilities = `canCreateSession + canInterrupt + canSendMessage`；不支持 hook / 工具批准 / AskUserQuestion / ExitPlanMode / 运行时切权限模式 —— SDK 物理不支持，详见 CHANGELOG_41）
+- 占位骨架：aider / generic-pty（实现指引在源文件注释里）
+- UI 通过 `capabilities` 过滤：能力为 false 的 adapter 不出现在选择列表；NewSessionDialog 按 `canSetPermissionMode` 隐藏权限模式字段；SessionDetail ComposerSdk 按 `agentId` 切 placeholder 文案与权限 select 显隐
 
 ### 持久化（SQLite）
 - 应用 userData 目录下的 `agent-deck.db`（macOS 在 `Application Support/agent-deck/`，Windows 在 `%APPDATA%/agent-deck/`，Linux 在 `~/.config/agent-deck/`）
@@ -245,6 +265,7 @@
 - **间歇总结**：时间触发（分钟，**即改即生效**）/ 事件数触发 / 同时跑总结上限 / `summaryTimeoutMs`（单次 LLM 总结超时秒数，0=不超时；默认 60）
 - **窗口**：开机自启（始终置顶由 header 📌 按钮 / 全局快捷键管理，不在面板里重复）
 - **HookServer**：端口（重启 + 重新 install hook 才生效）。鉴权 token 不在 UI 露出，由 settings-store 在首次启动自动生成 32 字节随机 hex 并固定持久化
+- **外部工具**：「Codex 二进制路径」(`codexCliPath`)。留空 = 用应用内置 codex（`@openai/codex-sdk` 跟随安装的 vendored 二进制，~150MB / 平台，已打包进 .app）；填路径 = 覆盖为外部 codex（如自装的更新版 `which codex` 给的路径）。即改即生效（清掉 Codex 实例，下次新建会话用新 path）；不影响在跑的会话。agent-deck **不读不写** codex 鉴权（`~/.codex/config.toml` / 环境变量），首次用前先在终端跑 `codex auth` 自己配好
 
 ### 快捷键
 - `Cmd/Ctrl+Alt+P` —— 切换 pin（窗口置顶 + vibrancy 切换）
@@ -274,7 +295,11 @@ src/
 │   │   │   ├── settings-env.ts   bootstrap 时把 ~/.claude/settings.json 的 env 注入主进程
 │   │   │   ├── sdk-injection.ts  自带 CLAUDE.md + plugin 路径定位（dev/prod 分流），sdk-bridge createSession 时注入到所有 SDK 会话
 │   │   │   └── sdk-bridge.ts     query() AsyncGenerator 封装；canUseTool / 权限响应 / 切模式
-│   │   ├── codex-cli/index.ts    占位
+│   │   ├── codex-cli/
+│   │   │   ├── index.ts          CodexCliAdapter 主体（init 创建 SDK bridge；不注册 hook 路由）
+│   │   │   ├── sdk-loader.ts     @openai/codex-sdk 动态 import（绕开 vite 静态分析对 ESM-only 的 require 转译）
+│   │   │   ├── sdk-bridge.ts     CodexSdkBridge：thread.started → realId 同步（30s fallback）+ pendingMessages 串行 turn 队列（codex 同 thread 不能并发）+ AbortController interrupt（SIGTERM 子进程，下次 sendMessage 同 thread 续）
+│   │   │   └── translate.ts      codex 8 种事件 + 8 种 item → AgentEvent 映射（command_execution → tool-use；agent_message/reasoning → message；file_change → file-changed × N，before/after 都是 null；mcp_tool_call/web_search/todo_list/error 映射详见 CHANGELOG_41）
 │   │   ├── aider/index.ts        占位
 │   │   └── generic-pty/index.ts  占位
 │   ├── session/
@@ -296,18 +321,20 @@ src/
 │       └── migrations/v001_init.sql  历史脚本（实际逻辑在 db.ts 内联）
 ├── preload/index.ts          contextBridge 暴露 window.api / window.electronIpc
 └── renderer/                 React 19
-    ├── App.tsx               header（标题/统计/⚠pending 计数 chip/＋/tab/pin/折叠/⚙）+ main + dialogs；mount 时拉一次 listAdapterPendingAll 重建 store
+    ├── App.tsx               header（标题/统计/⚠pending chip/＋/3 个 tab：实时·待处理·历史/pin/折叠/⚙）+ main + dialogs；mount 时拉一次 listAdapterPendingAll 重建 store；pending chip 与「待处理」tab badge 共享 selectPendingBuckets 计数口径
     ├── main.tsx              React 挂载 + ErrorBoundary + 全局 error/unhandledrejection 兜底
     ├── components/
     │   ├── FloatingFrame.tsx     毛玻璃容器（pin/无 pin 两套 background + backdrop-filter）
     │   ├── SessionList.tsx       active / dormant 分段
     │   ├── SessionCard.tsx       状态徽标 + 来源徽标 + 实时活动行 + 总结行 + 右键菜单（归档/重新激活/删除）
     │   ├── SessionDetail.tsx     头部 / 自动取消 toast / 4 Tab / 底部 composer（权限模式下拉 + 输入框 + 恢复会话 + 中断）；PermissionRequests / AskUserQuestionPanel 仍 export 备 banner 模式回切
+    │   ├── PendingTab.tsx        集中「待处理」面板：按会话分组（PendingSection），整行可点跳到 SessionDetail；每 section 「全部允许 / 全部拒绝」批量按钮（仅作用于 PermissionRequest + ExitPlanModeRequest，AskUser 不参与）；pending 内容直接复用 pending-rows 的 PermissionRow / AskRow / ExitPlanRow（含 Monaco diff、选项、markdown 全部保留）
+    │   ├── pending-rows/index.tsx PermissionRow / AskRow / ExitPlanRow / toolInputToDiff —— 三个 Row 与 ActivityFeed 和 PendingTab 共用，pending 三态视觉与按钮逻辑都在这里
     │   ├── PermissionsView.tsx   会话详情「权限」tab：调 scanCwdSettings 拿三层 settings.json，渲染合并视图 + 三层卡片 + 轻量 JSON 高亮 + 「打开」（shell.openPath）按钮 + 刷新
     │   ├── HistoryPanel.tsx      关键字搜索 / 仅归档筛选 / 归档|取消归档|删除
     │   ├── NewSessionDialog.tsx  ＋ 按钮的弹窗表单（首条消息必填校验）
     │   ├── SettingsDialog.tsx    设置面板（含 DEFAULT_SETTINGS 兜底 + getSettings/hookStatus 异步错误显示）
-    │   ├── ActivityFeed.tsx      MessageBubble（含 MD/TXT 切换按钮）/ PermissionRow（内嵌按钮 + diff）/ AskRow（toggle + 实色提交按钮）/ ExitPlanRow（markdown plan + 批准/继续规划+反馈输入）/ ToolStartRow（内嵌 diff，ExitPlanMode hook 通道展开 plan，mcp ImageRead 直接缩略图）/ ToolEndRow（折叠展开 result）/ SimpleRow
+    │   ├── ActivityFeed.tsx      MessageBubble（含 MD/TXT 切换按钮）/ ActivityRow（派遣三类 waiting-for-user 事件到 pending-rows 的 PermissionRow / AskRow / ExitPlanRow，渲染历史三态：等待中 / 已响应 / 已被 SDK 取消）/ ToolStartRow（内嵌 diff 走 pending-rows 的 toolInputToDiff，ExitPlanMode hook 通道展开 plan，mcp ImageRead 直接缩略图）/ ToolEndRow（折叠展开 result）/ SimpleRow
     │   ├── MarkdownText.tsx      MessageBubble + ExitPlanRow 共用受限 Markdown 渲染器（react-markdown + remark-gfm，链接强制系统浏览器，pre/table 加 overflow）
     │   ├── ImageThumb.tsx        通用图片缩略图组件（xs/sm/md/lg），包装 ImageBlobLoader
     │   ├── SummaryView.tsx
@@ -326,7 +353,7 @@ src/
     ├── hooks/use-event-bridge.ts onSessionUpserted / onSessionRemoved / onSessionRenamed / onAgentEvent / onSummaryAdded 桥接
     ├── lib/
     │   ├── ipc.ts                动态 channel 兜底
-    │   └── session-selectors.ts  selectLiveSessions：archivedAt === null && lifecycle ∈ {active, dormant}，App.tsx header stats 与 SessionList 共用
+    │   └── session-selectors.ts  selectLiveSessions（archivedAt === null && lifecycle ∈ {active, dormant}，App.tsx header stats 与 SessionList 共用）+ selectPendingBuckets（按会话聚合 pending，同口径过滤；waiting 优先 + lastEventAt 倒序，PendingTab 唯一数据源）+ sumPendingBuckets（让 chip 与 tab badge 走同一份计数）
     └── styles/globals.css        Tailwind 4 + frosted-frame Acrylic CSS（默认底色加深，pin 模式高透明）
 
 resources/

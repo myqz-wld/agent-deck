@@ -134,6 +134,12 @@ export function bootstrapIpc(): void {
       adapter?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
     }
 
+    // 4.5) Codex 二进制路径 → 同步给 codex-cli adapter（清 Codex 实例，下次新建会话用新 path）
+    if ('codexCliPath' in p) {
+      const adapter = adapterRegistry.get('codex-cli');
+      adapter?.setCodexCliPath?.(next.codexCliPath);
+    }
+
     // 5) 总结调度周期 → 立刻重启 setInterval（避免必须重启应用才生效）。
     // summaryTimeoutMs / summaryEventCount / summaryMaxConcurrent 是每轮 scanAll
     // 内部读 settings 的，天生即时生效，不需要在这里分发。
@@ -272,6 +278,20 @@ export function bootstrapIpc(): void {
         { name: '音频文件', extensions: ['mp3', 'wav', 'aiff', 'aif', 'm4a', 'ogg', 'flac'] },
         { name: '所有文件', extensions: ['*'] },
       ],
+      defaultPath: typeof defaultPath === 'string' ? defaultPath : undefined,
+    };
+    const r = await (win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts));
+    if (r.canceled || r.filePaths.length === 0) return null;
+    return r.filePaths[0];
+  });
+
+  on(IpcInvoke.DialogChooseExecutable, async (_e, defaultPath) => {
+    // 选 codex 二进制路径用：macOS / Linux 的可执行文件通常无后缀，extensions: ['*']
+    // 让 native dialog 不按后缀过滤；用户也可以自由选 .sh / .bin 等
+    const win = getFloatingWindow().window;
+    const opts = {
+      properties: ['openFile'] as ('openFile')[],
+      filters: [{ name: '所有文件', extensions: ['*'] }],
       defaultPath: typeof defaultPath === 'string' ? defaultPath : undefined,
     };
     const r = await (win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts));

@@ -3,7 +3,10 @@ import { useEffect, useState, type JSX } from 'react';
 interface AdapterInfo {
   id: string;
   displayName: string;
-  capabilities: { canCreateSession?: boolean };
+  capabilities: {
+    canCreateSession?: boolean;
+    canSetPermissionMode?: boolean;
+  };
 }
 
 interface Props {
@@ -51,6 +54,13 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
   if (!open) return null;
 
+  // 当前选中 adapter 的 capabilities，用来按需隐藏对该 agent 无意义的字段
+  const selectedAdapter = adapters.find((a) => a.id === agentId);
+  // 模型选项写的是 claude 模型名，对 codex 等其它 agent 不适用 → 仅对 claude-code 显示
+  const showModel = agentId === 'claude-code';
+  // permission 模式是 Claude SDK 的 SDK-only feature；codex 没有运行时切权限模式
+  const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
+
   const browse = async (): Promise<void> => {
     const r = await window.api.chooseDirectory(cwd || undefined);
     if (r) setCwd(r);
@@ -70,8 +80,9 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
       const id = await window.api.createAdapterSession(agentId, {
         cwd: cwd.trim(),
         prompt: prompt.trim() || undefined,
-        model: model || undefined,
-        permissionMode,
+        // 隐藏的字段不传，避免 codex 等无关 agent 收到无意义参数
+        model: showModel && model ? model : undefined,
+        permissionMode: showPermissionMode ? permissionMode : undefined,
       });
       onCreated(id);
       // 重置部分字段，留下 cwd / 设置便于连开多个会话
@@ -145,35 +156,39 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               />
             </Field>
 
-            <Field label="模型">
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-              >
-                {MODEL_OPTIONS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {showModel && (
+              <Field label="模型">
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
+                >
+                  {MODEL_OPTIONS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
-            <Field label="权限模式">
-              <select
-                value={permissionMode}
-                onChange={(e) =>
-                  setPermissionMode(e.target.value as typeof permissionMode)
-                }
-                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-              >
-                {PERMISSION_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {showPermissionMode && (
+              <Field label="权限模式">
+                <select
+                  value={permissionMode}
+                  onChange={(e) =>
+                    setPermissionMode(e.target.value as typeof permissionMode)
+                  }
+                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
+                >
+                  {PERMISSION_OPTIONS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
             {error && (
               <div className="rounded bg-status-waiting/10 px-2 py-1 text-[11px] text-status-waiting">

@@ -152,6 +152,9 @@ const api = {
     ipcRenderer.invoke(IpcInvoke.DialogChooseDirectory, defaultPath),
   chooseSoundFile: (defaultPath?: string): Promise<string | null> =>
     ipcRenderer.invoke(IpcInvoke.DialogChooseSoundFile, defaultPath),
+  /** 选择可执行文件（用于设置面板「Codex 二进制路径」） */
+  chooseExecutableFile: (defaultPath?: string): Promise<string | null> =>
+    ipcRenderer.invoke(IpcInvoke.DialogChooseExecutable, defaultPath),
 
   // App helpers
   playTestSound: (kind: 'waiting' | 'done'): Promise<void> =>
