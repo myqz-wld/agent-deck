@@ -4,7 +4,7 @@
 
 ## 命名
 
-`review-NNN.md`（NNN 三位递增整数）。新建前 `ls reviews/` 找最大 NNN。
+`REVIEW_X.md`（X 递增整数，跟 `CHANGELOG_X.md` 对齐）。新建前 `ls reviews/` 找最大 X。
 
 ## 单文件结构
 
@@ -18,4 +18,4 @@
 
 | 文件 | 主题 | 严重度分布 | 关联 changelog |
 |------|------|-----------|----------------|
-| [review-001.md](review-001.md) | main 进程关键模块全审（双对抗 Claude + Codex xhigh） | 3 HIGH / 4 MED / 1 LOW | CHANGELOG_47 |
+| [REVIEW_1.md](REVIEW_1.md) | main 进程关键模块全审（双对抗 Claude Opus 4.7 xhigh + Codex gpt-5.4 xhigh） | 3 HIGH / 4 MED / 1 LOW | CHANGELOG_47 |
