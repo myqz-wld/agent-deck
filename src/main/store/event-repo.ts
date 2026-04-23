@@ -53,6 +53,54 @@ export const eventRepo = {
     return r.c;
   },
 
+  /**
+   * 找最近一条「Claude 自己说的话」（kind = message AND role = assistant AND error 非真）。
+   * summarizer 第二层兜底用：LLM 失败时拿这条作为「Claude 当前在做什么」的近似。
+   *
+   * 为什么不在调用方过滤 events 数组：
+   * - listForSession 默认 limit=40，tool 密集会话最近 40 条事件可能 0 条 message kind
+   *   （都被 tool-use-start/end 占满），数组 .find 直接 undefined → 走第三层事件统计
+   * - 数组 .find 也没过滤 role/error，会拿到用户输入（"push 一下"）或 ⚠ 警告，
+   *   summary 显示成"用户的话"而不是"Claude 在做什么"
+   *
+   * sinceTs 用于增量语义：只拿"自上次总结后"的最新 assistant message。
+   * sinceTs 后没合格 message 时返回 null（让 summarizer 走第三层事件统计兜底，
+   * 不要回退到更早的旧 assistant message —— 那会重复展示已经总结过的内容）。
+   *
+   * SQL 注：sqlite3 json_extract 把 JSON true→1 / false→0 / 字段不存在→SQL NULL。
+   * 所以 `error IS NULL OR error = 0` 同时覆盖「无 error 字段」「error: false」「明确 null」。
+   */
+  findLatestAssistantMessage(
+    sessionId: string,
+    sinceTs?: number,
+  ): { text: string; ts: number } | null {
+    const sql = sinceTs
+      ? `SELECT payload_json, ts FROM events
+         WHERE session_id = ?
+           AND kind = 'message'
+           AND json_extract(payload_json, '$.role') = 'assistant'
+           AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+           AND ts >= ?
+         ORDER BY ts DESC LIMIT 1`
+      : `SELECT payload_json, ts FROM events
+         WHERE session_id = ?
+           AND kind = 'message'
+           AND json_extract(payload_json, '$.role') = 'assistant'
+           AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+         ORDER BY ts DESC LIMIT 1`;
+    const row = (sinceTs
+      ? getDb().prepare(sql).get(sessionId, sinceTs)
+      : getDb().prepare(sql).get(sessionId)) as { payload_json: string; ts: number } | undefined;
+    if (!row) return null;
+    try {
+      const p = JSON.parse(row.payload_json) as { text?: string };
+      const text = typeof p.text === 'string' ? p.text : '';
+      return text ? { text, ts: row.ts } : null;
+    } catch {
+      return null;
+    }
+  },
+
   deleteForSession(sessionId: string): void {
     getDb().prepare(`DELETE FROM events WHERE session_id = ?`).run(sessionId);
   },
