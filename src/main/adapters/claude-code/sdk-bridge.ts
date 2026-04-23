@@ -879,7 +879,14 @@ export class ClaudeSdkBridge {
 
     if (msg.type === 'assistant') {
       const m = msg.message as {
-        content?: { type: string; text?: string; name?: string; input?: unknown; id?: string }[];
+        content?: {
+          type: string;
+          text?: string;
+          name?: string;
+          input?: unknown;
+          id?: string;
+          thinking?: string;
+        }[];
       };
       // SDK 给 assistant 消息附带 error 字段时（rate_limit / billing_error / auth 等），
       // 把它当成一条错误文案推到时间线，UI 能立刻看到 CLI 报的真实问题。
@@ -888,9 +895,31 @@ export class ClaudeSdkBridge {
         emit('message', { text: `⚠ Claude API 错误：${errCode}`, error: true });
       }
       const blocks = m?.content ?? [];
-      for (const block of blocks) {
-        if (block.type === 'text' && block.text) {
-          emit('message', { text: block.text, role: 'assistant' });
+      for (let i = 0; i < blocks.length; i++) {
+        const block = blocks[i];
+        if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+          // Anthropic API 标准 BetaThinkingBlock { type:'thinking', thinking, signature }
+          // 与 BetaRedactedThinkingBlock { type:'redacted_thinking', data }；
+          // redacted 内容已加密，UI 显示占位符即可。
+          const text =
+            block.type === 'thinking' ? (block.thinking ?? '').trim() : '[redacted thinking]';
+          if (text) emit('thinking', { text });
+        } else if (block.type === 'text' && block.text) {
+          // 同一帧 SDK assistant message 里出现多个连续 text block，是 Claude Code
+          // 把 extended thinking block 压平成 text 推给 SDK 的产物：紧邻另一个 text 的
+          // 当前 block 是 thinking-prelude，最后一段才是 final answer。
+          // 判断条件「下一个紧邻 block 也是 text」覆盖：
+          //   [text, text]            → block[0] thinking, block[1] message
+          //   [text, tool_use]        → block[0] message （tool 调用前的解释，非 thinking）
+          //   [text, tool_use, text]  → 两段 text 都是 message（被 tool_use 隔开）
+          //   [text, text, tool_use]  → block[0] thinking, block[1] message
+          const next = blocks[i + 1];
+          const isThinkingPrelude = !!(next && next.type === 'text' && next.text);
+          if (isThinkingPrelude) {
+            emit('thinking', { text: block.text });
+          } else {
+            emit('message', { text: block.text, role: 'assistant' });
+          }
         } else if (block.type === 'tool_use') {
           // 反查需要：tool_result block 只带 tool_use_id 没 toolName，必须靠这条记录
           if (block.id && block.name) {

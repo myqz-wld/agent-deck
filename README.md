@@ -191,6 +191,7 @@
 - 四个 Tab：
   - **活动**：ActivityFeed 时间线
     - **message** 事件用对话气泡渲染：用户消息（绿色背景，右对齐，标记「你」）；Claude 回复（边框灰背景，左对齐，标记「Claude」）；错误消息（红框）；完整文字、保留换行、不截断
+    - **thinking** 事件单独识别为模型内部推理（extended thinking 或同一帧多 text block 的 prelude）：弱化样式 dashed 边框 + 暗背景 + 斜体淡灰文字 + 头部 `thinking` 标签代替 `Claude`，与 final answer 视觉区分但同时间线展示；MD/TXT 切换同样可用；判定规则见 [CHANGELOG_43](changelog/CHANGELOG_43.md)（真 `block.type === 'thinking'` 走 Anthropic API 标准分支，多个 text block 时「下一个紧邻也是 text」启发式判定前 N-1 段是 thinking-prelude）
     - 气泡头部右侧的 **MD/TXT** 切换按钮：把气泡正文从纯文本切到 Markdown 渲染（`react-markdown` + `remark-gfm`，支持表格 / 任务列表 / 删除线 / 代码块 / 链接）；**每条消息独立切换、互不级联**（CHANGELOG_34 推翻 CHANGELOG_27 的「切单条 = 切全局」取舍）；默认 plaintext，切单条只改本条本地 state，**不持久化**（CHANGELOG_35 删 render-mode.ts，localStorage 也不再用）；切过的 bubble 卸载（切会话 / 重启）后回到默认；error 消息和空消息不显示按钮、强制 plaintext 保留堆栈结构
     - **tool-use-start**：`🔧 工具名 · 入参摘要` 单行；Edit / Write / MultiEdit 自动展开 Monaco DiffViewer 在行内（`overflow-hidden h-72`，一眼看到 Claude 写了什么）；ExitPlanMode（hook 通道）展开 markdown plan 让你能看到外部 CLI 提议的计划全文（只读）
     - **tool-use-end**：默认折叠成 `▸ 工具名 完成`；点击展开 `toolResult` 完整内容（pre 等宽，最高 64 行可滚）
@@ -335,7 +336,7 @@ src/
     │   ├── HistoryPanel.tsx      关键字搜索 / 仅归档筛选 / 归档|取消归档|删除
     │   ├── NewSessionDialog.tsx  ＋ 按钮的弹窗表单（首条消息必填校验）
     │   ├── SettingsDialog.tsx    设置面板（含 DEFAULT_SETTINGS 兜底 + getSettings/hookStatus 异步错误显示）
-    │   ├── ActivityFeed.tsx      MessageBubble（含 MD/TXT 切换按钮）/ ActivityRow（派遣三类 waiting-for-user 事件到 pending-rows 的 PermissionRow / AskRow / ExitPlanRow，渲染历史三态：等待中 / 已响应 / 已被 SDK 取消）/ ToolStartRow（内嵌 diff 走 pending-rows 的 toolInputToDiff，ExitPlanMode hook 通道展开 plan，mcp ImageRead 直接缩略图）/ ToolEndRow（折叠展开 result）/ SimpleRow
+    │   ├── ActivityFeed.tsx      MessageBubble（含 MD/TXT 切换按钮）/ ThinkingBubble（dashed 边框 + 暗背景 + 斜体淡灰，区分模型内部推理 vs final answer）/ ActivityRow（派遣三类 waiting-for-user 事件到 pending-rows 的 PermissionRow / AskRow / ExitPlanRow，渲染历史三态：等待中 / 已响应 / 已被 SDK 取消）/ ToolStartRow（内嵌 diff 走 pending-rows 的 toolInputToDiff，ExitPlanMode hook 通道展开 plan，mcp ImageRead 直接缩略图）/ ToolEndRow（折叠展开 result）/ SimpleRow
     │   ├── MarkdownText.tsx      MessageBubble + ExitPlanRow 共用受限 Markdown 渲染器（react-markdown + remark-gfm，链接强制系统浏览器，pre/table 加 overflow）
     │   ├── ImageThumb.tsx        通用图片缩略图组件（xs/sm/md/lg），包装 ImageBlobLoader
     │   ├── SummaryView.tsx

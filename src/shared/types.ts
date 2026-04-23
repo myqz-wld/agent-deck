@@ -8,6 +8,7 @@
 export type AgentEventKind =
   | 'session-start'
   | 'message'
+  | 'thinking'
   | 'tool-use-start'
   | 'tool-use-end'
   | 'file-changed'
