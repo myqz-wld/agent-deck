@@ -1,40 +1,49 @@
-# CHANGELOG_6: 自定义提示音
+# CHANGELOG_6: 权限交互演进（mode 修复 / 死锁四层兜底 / Slash 拦截 / cancelled 误报）
 
 ## 概要
 
-设置面板「提醒」section 加可视化的提示音选择器。waiting 和 finished 两个事件各自可以选本地 `mp3 / wav / aiff / m4a / ogg / flac` 文件作为提示音；旁边带「试听」按钮立即听效果，「重置」回退到默认（系统提示音）。
-
-`sound.ts` 解析顺序：用户自定义路径 → 应用内置 `resources/sounds/` → 系统提示音。
+合并原 CHANGELOG_9（permissionMode 写库 + bypassPermissions 配套 + PermissionRow 按钮挪 header + Enter 发送）+ CHANGELOG_10（权限请求死锁四层兜底）+ CHANGELOG_30（拦截 slash 命令）+ CHANGELOG_31（cancelled 事件不再切 waiting / 不弹通知）。一条主线把权限交互从「能用」演进到「不死锁、不误报、不糊脸」。
 
 ## 变更内容
 
-### 共享类型（src/shared/）
-- `types.ts` `AppSettings` 新增 `waitingSoundPath: string | null` / `finishedSoundPath: string | null`，默认都是 `null`
-- `ipc-channels.ts` 新增 `DialogChooseSoundFile: 'dialog:choose-sound-file'` 与 `AppPlayTestSound: 'app:play-test-sound'`
+### permissionMode 写库 + bypassPermissions 配套（原 CHANGELOG_9）
 
-### 主进程（src/main/）
-- `notify/sound.ts`：
-  - `resolveSoundFile(kind)` 改成三段优先级（自定义 → 内置 → null），返回值类型从 `string` 改为 `string | null`
-  - 现在依赖 `settingsStore.getAll()`，与 `playSoundOnce` 一起每次播放都现读最新设置（即改即生效）
-- `ipc.ts`：
-  - 新 handler `DialogChooseSoundFile`：`dialog.showOpenDialog` 弹文件选择器，filter 列出常见音频后缀；返回选中的绝对路径或 null
-  - 新 handler `AppPlayTestSound(kind)`：直接调 `playSoundOnce(kind)`，让设置面板能即时试听
-  - 顶部 import 新加 `playSoundOnce`
+- **不写 `sessions.permission_mode` 列**：`AdapterCreateSession` IPC handler 只把 permissionMode 传给 SDK，没调 `sessionRepo.setPermissionMode`，UI 显示永远「默认」。修：createSession 返回 sessionId 后写入该列 + 推 `session-upserted`（'default' 跳过避免污染 CLI 通道）
+- **`bypassPermissions` 缺安全 flag**：SDK 的 `permissionMode:'bypassPermissions'` 必须同时传 `allowDangerouslySkipPermissions: true`（runtimeTypes.d.ts:428；sdk.mjs 把它们当两个独立 CLI flag 传给子进程）。`sdk-bridge.ts` 之前没传导致真不工作。改：`allowDangerouslySkipPermissions: opts.permissionMode === 'bypassPermissions'`，只在启动时明确选了才打开（运行时 `setPermissionMode` 切到 bypassPermissions 会被 CLI 拒，符合 SDK 语义）
 
-### Preload（src/preload/index.ts）
-- 暴露 `chooseSoundFile(defaultPath?)` 与 `playTestSound(kind)`
+### PermissionRow 按钮被 diff 盖住 + Enter 发送（原 CHANGELOG_9）
 
-### Renderer（src/renderer/components/SettingsDialog.tsx）
-- 「提醒」section 在三个 Toggle 后追加两个 `<SoundPicker>`（waiting / finished）
-- 新增 `SoundPicker` 组件：
-  - 显示当前文件名（截掉路径，hover 看完整路径）；未设时显示「默认（系统提示音）」
-  - 三个按钮：`▶ 试听`（不分有无自定义都能试听当前实际播放的音）/ `选择…`（弹文件选择器）/ `重置`（仅在 path 非空时显示）
+- `ActivityFeed.tsx PermissionRow`：「允许 / 始终允许 / 拒绝」三按钮挪到 header 行（`ml-auto` 右对齐），diff 多高都不会盖住；header 时间戳取消 `ml-auto`；diff 容器 `h-72` 加 `overflow-hidden` 防御 Monaco 溢出
+- `SessionDetail.tsx onKeyDown` 反转：`Enter` → `preventDefault + send()`、`Shift+Enter` → 默认换行；IME 双保险 `e.nativeEvent.isComposing + keyCode === 229`；placeholder 同步「Enter 发送 / Shift+Enter 换行」
 
-### 文档
-- `README.md` 「控制权交接判定」一节加上自定义提示音说明；「设置面板（⚙）」一节描述里把「提醒」补全
-- 本文件 + `INDEX.md` 同步
+### 权限请求死锁四层兜底（原 CHANGELOG_10）
+
+死锁链路：用户看到「等待授权」按钮被 diff 盖住点不到 → renderer HMR / 重启后 zustand store 是空的，事件流里那条 `permission-request` 被错渲成「已处理」（`stillPending=false` 因为 store 没那条 pending）→ 主进程 resolver 还挂着 SDK query() 仍 await → 用户发"继续"进 `pendingUserMessages` 队列但 SDK 没消费 → 死锁。
+
+四层修复（任一失效还有兜底）：
+
+- **A. pending 列表 renderer↔主进程同步**：`InternalSession.pendingPermissions` 类型从 `Map<requestId, resolver>` 升级为 `Map<requestId, {payload, resolver, timer}>`；新增 `listPending(sessionId)` / `listAllPending()`；`AdapterListPending` / `AdapterListPendingAll` IPC + preload + store 的 `setPendingRequests` / `setPendingRequestsAll`（覆盖语义不是合并）；App.tsx mount 调一次重建全量；ActivityFeed 切会话时调单 session 接口刷新
+- **B. sendMessage pending 时推警告**：`pendingPermissions.size + pendingAskUserQuestions.size > 0` 时先 emit 一条 `error: true` 的 message event：「⚠ 还有 N 个待处理请求，你这条消息会被排队」；不阻断只警告
+- **C. 权限请求超时自动 abort**：`AppSettings.permissionTimeoutMs` 默认 5 分钟（300_000，0=关闭）；`canUseTool` 创建 entry 时 `setTimeout(this.permissionTimeoutMs)` → 超时 emit `permission-cancelled` + warning message + `resolver({behavior:'deny', message:'timeout', interrupt:true})`；`interrupt:true` 让 SDK 中断 turn → 触发 query 流终止 → consume() finally → emit `session-end` → SessionManager 推 dormant
+- **D. 顶部 header pending 计数 chip**：所有 session 的 pendingPermissions+pendingAskQuestions 加总；点击跳到第一个有 pending 的 session
+
+### ComposerSdk 拦截 `/` 开头 slash 命令（原 CHANGELOG_30）
+
+- agent-deck SDK 通道走 streaming input mode，不带 CLI 的 slash 命令注册表，用户输入 `/clear` `/compact` `/cost` 等会撞 SDK 抛的 `Unknown slash command` / `only prompt commands are supported in streaming mode`
+- `ComposerSdk.send()` 在 `if (!t || busy) return;` 后、`setText('')` 前加 `t.startsWith('/')` 拦截：本地 `setSendError` 红条提示「应用内会话不支持斜杠命令，请回终端运行 `claude`」；不进 busy 状态、不发 IPC、不清空输入框
+- 不本地实现 `/clear` `/compact` `/cost` 等等价语义；不做白名单（避免与 SDK 内部 slash 注册表演进出现漂移）
+
+### cancelled 事件不再切 waiting / 不弹通知（原 CHANGELOG_31）
+
+- 实测：会话已处理完 pending 或 SDK 自己 timeout/abort/session-end 后还会再弹一次「Agent 等待你的输入」+ 提示音，状态徽标卡 `waiting`
+- 根因：取消事件（`permission-cancelled` / `ask-question-cancelled` / `exit-plan-cancelled`）跟真请求复用同一个 kind（`waiting-for-user`），下游通知分发和 activity 状态机一律按"又一次需要用户输入"处理
+- `manager.ts nextActivityState` 多接 `payload` 参数：`waiting-for-user` 时检查 `payload.type` 以 `-cancelled` 结尾的视为「撤掉那条 pending」，activity 保持 `current` 不切到 `waiting`
+- `index.ts` 通知分发的 `waiting-for-user` 分支加 `*-cancelled` 短路：取消事件直接 return 不调 `notifyUser`
+- kind 字段保持 `waiting-for-user` 不变（renderer store 已按 `payload.type` 区分），改 kind 反而要全链路重新对齐
 
 ## 备注
-- 直接存绝对路径，不复制文件到 userData。原文件被移动 / 删除后，下次播放 `existsSync` 失败 → 回退到内置 → 再回退到系统声音，**不会崩**，但用户会发现声音变了
-- 试听按钮调的是 main 进程的 `playSoundOnce`（不是浏览器 Audio API），保证试听时听到的就是真实场景下的播放效果
-- electron-store 旧持久化里没有 `waitingSoundPath` / `finishedSoundPath` 字段无所谓，`getAll()` 会用 DEFAULT_SETTINGS 兜底
+
+- A、B、C、D 互相独立又互补：A 解决「按钮看得到」，C 解决「没看到也能自动收尾」，B 解决「卡住期间用户感知」，D 解决「跨 session 不被错过」
+- lifecycle 仍由 SessionManager 唯一仲裁；sdk-bridge 不直接改 lifecycle，只通过 emit `session-end`
+- 超时阈值默认 300s 而非永久：5 分钟既给人时间起身上厕所，又不至于让一个被遗忘的 pending 卡死整天
+- header chip 在 CHANGELOG_8 后被改为打开「待处理」tab（不再跳第一个会话）

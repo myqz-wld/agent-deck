@@ -1,64 +1,59 @@
-# CHANGELOG_13: 命令行新建应用内会话
+# CHANGELOG_13: 综合优化批次（haiku 模型 + 12 条 + 10 条）
 
 ## 概要
 
-支持从终端通过 `agent-deck new --cwd ... --prompt "..."` 拉起 / 复用 Agent Deck 实例新建一个 SDK 会话，等价于在 ＋ 弹窗里点确定。复用 Electron 已有的 `requestSingleInstanceLock()` 通路，首启与 second-instance 共用同一段 argv 解析。新建后默认聚焦窗口 + 选中新会话。
+合并原 CHANGELOG_15（间歇总结优先用 haiku 模型）+ CHANGELOG_33（综合优化 12 条）+ CHANGELOG_37（优化批次 10 条 + 历史会话超期清理）。三轮综合 cleanup / 优化批次共 23 条，覆盖鉴权、性能、可靠性、卫生、内存、IPC 协议收编。
 
 ## 变更内容
 
-### CLI 解析与执行（src/main/cli.ts，新文件）
-- `parseCliInvocation(argv)` 纯函数：扫描 `'new'` 子命令位置（不能按 index，因为 dev / 打包 / second-instance 三种入口的 leading 段不一样），后续 token 走 `parseFlags` 转 Map
-- 支持 `--key value` / `--key=value` / `--no-key`（布尔反向）/ 裸 `--key`（视为 true）；不实现 short flag
-- `new` 子命令字段：`--cwd`（必填）/ `--prompt` / `--agent`（默认 claude-code）/ `--model` / `--permission-mode`（白名单：default | acceptEdits | plan | bypassPermissions）/ `--system-prompt` / `--resume` / `--no-focus`
-- `applyCliInvocation`：
-  - 通过 `adapterRegistry.get(agent).createSession(...)` 走 SDK 通道（capabilities 不支持 createSession 直接报错）
-  - cwd 用 `realpath` 兜底解析（相对路径会按主进程 cwd 解析，wrapper 已在 shell 端转绝对，这里只是再保险）
-  - focus=true 时：`win.show()+focus()`、macOS 上 `app.focus({steal:true})`、emit 新事件 `'session-focus-request'`
-- `handleCliArgv(argv)` 包了 try/catch 给两个入口共用，错误走 `dialog.showErrorBox` 弹框（dev 早期 dialog 没就绪时静默吞掉）
+### 间歇总结优先用 haiku 模型（原 CHANGELOG_15）
 
-### 主进程入口接线（src/main/index.ts）
-- `bootstrap()` 末尾加 `setImmediate(() => handleCliArgv(process.argv))`：处理首启命令行参数。放 setImmediate 是为了让 bootstrap 函数本身能尽快返回，CLI 错误只走弹框不阻塞启动流程
-- `app.on('second-instance', (_e, argv) => ...)` 改造：除了原来的 show/focus 已存在窗口，再调一次 `handleCliArgv(argv)`
-- 9. 事件接线段加 `eventBus.on('session-focus-request', sid => win.webContents.send(IpcEvent.SessionFocusRequest, sid))`
+- `summariseViaLlm` 之前没传 `model`，按 `~/.claude/settings.json` 的 `ANTHROPIC_MODEL`（往往 sonnet 4.5 / opus 4.7）跑。一段一句话总结调最贵的模型不划算
+- `src/main/session/summarizer.ts`：`sdk.query({options})` 加 `model: process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL || process.env.ANTHROPIC_MODEL || 'haiku'`（三层优先级，用户在 settings.json 升级 haiku 版本时不用改代码）
 
-### 事件总线 + IPC 通道（src/main/event-bus.ts、src/shared/ipc-channels.ts）
-- `EventMap` 加 `'session-focus-request': [string]`
-- `IpcEvent.SessionFocusRequest = 'event:session-focus-request'`
+### 综合优化 12 条（原 CHANGELOG_33）
 
-### preload 暴露（src/preload/index.ts）
-- 加 `onSessionFocusRequest(cb)` 订阅 API，与既有 onPinToggled / onSessionRenamed 同结构
+P0 必修：
 
-### renderer 跳转（src/renderer/App.tsx）
-- 新 useEffect 挂 `window.api.onSessionFocusRequest(sid => { setView('live'); select(sid); })`
-- 时机说明：主进程在 `createSession` resolve 后才 emit，而 SDK createSession 一般要等 SDK CLI 子进程启动 + 第一条 SDKMessage（数秒），所以 renderer 此时一般已 mount，listener 已注册；只有 `--resume` 等极快返回的路径理论可能丢事件（可接受，用户回到列表手动点也行）
+- **HookServer Bearer token 鉴权**：`AppSettings` 加 `hookServerToken: string|null`；`settings-store.ensure()` 首次启动用 `randomBytes(32).toString('hex')` 生成；`HookServer` 构造接 `(port, token)`，`/hook/*` 路由强制校验 `Authorization: Bearer <token>`，不匹配回 401；`hook-installer` `buildCommand()` 在 curl 命令中嵌入 `-H 'Authorization: Bearer ${token}'`；`writeSettings()` 改 **temp+rename 原子写**避免崩溃留半个 JSON 把用户 hooks/permissions/mcpServers 弄丢
+- **Summarizer LLM oneshot 加超时**：`AppSettings` 加 `summaryTimeoutMs`（默认 60s，0=不超时）；`summariseViaLlm` 用 `Promise.race(consumeLoop, timer)`：优先 `q.interrupt()` 优雅清子进程，兜底 throw `__summarizer_timeout__` 让外层 catch 走降级；修底层 cli.js 卡死时整个 Summarizer 不再产新总结的"自杀链路"
 
-### macOS shell wrapper（resources/bin/agent-deck，新文件 + chmod +x）
-- 默认查 `/Applications/Agent Deck.app/Contents/MacOS/Agent Deck`，`AGENT_DECK_APP` 环境变量可覆盖
-- 把 `--cwd` 的相对路径在 shell 端转成绝对（含 `--cwd=val` 形式）；如果是 `new` 但没传 `--cwd`，自动补 `--cwd "$PWD"`
-- 为什么必须在 shell 端转：second-instance 转发到主实例后，主实例的 `process.cwd()` 是 .app 安装目录或 `/`，不是用户 shell 的 PWD，相对路径会解析错
-- `exec` 原始二进制把剩余参数原样传过去，single-instance lock 决定是新启动还是 second-instance 转发
+P1：
 
-### README（README.md）
-- 新增「命令行新建会话（macOS）」节，列出全部 flag、安装软链命令、聚焦行为、报错通道、平台覆盖范围
-- 项目结构补 `src/main/cli.ts` 一行，`resources/` 树新加完整列出含 `bin/agent-deck`
+- **`summaryIntervalMs` 即改即生效**：summarizer 新增 `currentIntervalMs` + `setIntervalMs(ms)` 方法（clearInterval + setInterval 重启）；`SettingsSet` handler 接入分发
+- **ingest 写放大修复**：`manager.ts ingest()` 把 `record.lastEventAt !== event.ts` 从 if 判定中拿掉（这条几乎必然成立导致 else 分支几乎是死代码）；真状态变化（activity / lifecycle）→ 走重 upsert + 广播 session-upserted；仅 lastEventAt 推进 → 走轻量 `setActivity` 单列 UPDATE，**不广播**
+- **ingest/ensure 不再写 `archivedAt: null`**：归档与 lifecycle 严格正交，不能因为后续事件流就自动 unarchive
+- **`use-event-bridge.ts onSessionUpserted` 加 `isNew = !sessions.has(s.id)` 判断**：仅"之前没见过的会话"才拉一次 `latestSummaries`，避免每条事件都触发 IPC + SQL 窗口函数
+- **bypassPermissions 切换 confirm**：`SessionDetail.tsx changeMode` 当 `next === 'bypassPermissions'` 时弹 confirm 警告（运行时切换可能被 SDK 静默忽略）
+- **sdk-bridge 队列上限**：`MAX_MESSAGE_BYTES = 100_000` + `MAX_PENDING_MESSAGES = 20`；超出 throw
 
-## 追加：参数全默认的简单形式
+P2：
 
-wrapper 进一步做减法，让用户敲最短的命令也能新建会话：
+- **`applyClaudeSettingsEnv` 加 env 白名单**：前缀 `ANTHROPIC_*` / `CLAUDE_*` + 完全匹配 `HTTP_PROXY/HTTPS_PROXY/NO_PROXY/ALL_PROXY`；防 settings.json 夹带 `NODE_OPTIONS=--inspect=...` / `NODE_TLS_REJECT_UNAUTHORIZED=0` / `PATH=/tmp/evil:...` / `ELECTRON_RUN_AS_NODE=1` 这些会污染 SDK 子进程信任链的危险键
+- **HistoryPanel 关键词搜索 debounce + 短关键词只搜 title**：`KEYWORD_DEBOUNCE_MS = 300`；后端长度 ≥ 3 才走 events / summaries 全表 LIKE %kw% 子查询
 
-### resources/bin/agent-deck
-- 在 `chmod` 检查之后、cwd 重写之前加一段：
-  - `$# == 0` → `set -- new`（裸调用 `agent-deck` 等价于 `new --cwd "$PWD"`）
-  - 首参以 `--` 开头 → `set -- new "$@"`（`agent-deck --prompt "..."` 自动补 `new` 子命令）
-- 显式带子命令的写法（`agent-deck new ...`）保持原状不变
+P3：
 
-### README.md
-- 「命令行新建会话」节顶部新增「最简用法（参数全默认）」示例，再保留完整 flag 列表
-- 提示：没传 `--prompt` 时 SDK 会卡到 30s fallback 才显出会话，用户可以等会话出现后在 UI 输第一条消息
+- **死代码清理**：删 `PermissionRequests`（~100 行 banner）/ `AskUserQuestionPanel`（~40 行）/ `AskQuestionForm + QuestionRow`（~120 行）/ `toolInputToDiff` 重复定义（~40 行）/ `diff-collector.ts`（无人调用）/ `RouteHelpers` interface
 
-## 追加：默认 prompt = "你好"
+### 优化批次 10 条（原 CHANGELOG_37）
 
-- `cli.ts` 把 `CliNewSession.prompt` 从 `?: string` 改成必选 `string`，缺省值 `'你好'`（`asString(...) ?? '你好'`）
-- 之前裸跑 `agent-deck` 时 SDK 拿不到首条 user message，会卡 30s fallback 才显出会话；改后立刻发起对话
-- 显式 `--prompt ''` 仍尊重为空（asString 返回 `''`，`??` 不触发），保留 escape hatch
-- README 同步：默认值表与 flag 列表里的 `--prompt` 注释都标明 `缺省 "你好"`
+按对抗式 code review 三态裁决一次清扫：
+
+- **renderer / store**：`removeSession` 加清 `recentEventsBySession` / `summariesBySession` / `latestSummaryBySession` 三张 by-session Map（之前永远成孤儿）
+- **CLI 与 IPC 入口对齐**：`SessionManagerClass` 加 `recordCreatedPermissionMode(sid, mode)` helper；`cli.ts applyCliInvocation` 调用 helper（之前漏写 → CLI 路径起的会话 UI 显示 default 但 SDK 实际是 plan）；`ipc.ts AdapterCreateSession` 也改用同一 helper
+- **HookServer 鉴权时序攻击面**：Bearer 比较从 `auth !== expected` 改为 `crypto.timingSafeEqual(authBuf, expectedBuf)`，先做长度短路绕开 `timingSafeEqual` 在长度不等时 throw
+- **session-repo upsert 列表加 `permission_mode`**：之前 spread `{...existing, lifecycle:'active'}` 调 upsert 时 permissionMode 被静默丢弃；历史搜索 `id IN (SELECT ...)` 改为 `EXISTS (SELECT 1 ... LIMIT 1)`
+- **lifecycle scheduler 重写 `scan()`**：active→dormant、dormant→closed 改用 `sessionRepo.batchSetLifecycle` 单事务，避免每会话 3 次 SQL + 1 次广播；不再依赖 `sessionManager.markDormant/markClosed`
+- **历史会话超期自动清理**（新功能）：`AppSettings.historyRetentionDays`（默认 30，0=禁用）；scheduler 第三步调 `findHistoryOlderThan` + `batchDelete` 清理超期历史（CASCADE 自动清子表），每轮最多 500 条
+- **IPC 协议收编**：`SessionListHistory` 不再走裸字符串；preload 加 `listSessionHistory(filters)` 强类型 facade
+- **SDK 动态加载**：新增 `sdk-loader.ts` 单例 `sdkPromise`；`sdk-bridge.ts` 与 `summarizer.ts` 删各自 `dynamicImport` / `loadSdk` 副本
+- **Summarizer 内存清理**：`start()` 在事件总线挂 `session-removed` listener，删会话时同步 `lastSummarizedAt.delete(sid)`
+- **settings-store token 长度阈值** `< 32` → `< 64`（与 `randomBytes(32).toString('hex')` 真实生成长度 64 字符 = 256-bit 对齐）
+- **header pending 计数补 ExitPlanMode**：`App.tsx pending` useMemo 漏了 `pendingExitPlanModesBySession`；加 select + useMemo 多一个循环
+- **设置面板暴露 `historyRetentionDays`**：「生命周期」section 加 NumberInput
+
+## 备注
+
+- 已知取舍：`startInvalidateLoop` 5fps invalidate（CHANGELOG_11 取舍） / `preload electronIpc.invoke` 任意 channel 兜底通道 / HistoryPanel 真正的 FTS5 索引（debounce 已解 80%） / `hookServerPort` 改完真正即时生效（需 restart server + reinstall hook 联动）—— 均未改
+- HookServer 鉴权验证：`curl -X POST http://127.0.0.1:47821/hook/sessionstart -d '{...}'` 返回 401；带正确 Bearer 才走业务路径

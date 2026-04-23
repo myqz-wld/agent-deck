@@ -25,7 +25,7 @@
 
 ### 2. 写 changelog 或 review（**必做，二选一**）
 
-**边界**（CHANGELOG_47 重定义）：
+**边界**（CHANGELOG_16 重定义）：
 
 | 类型 | 写到 | 例子 |
 |---|---|---|
@@ -67,13 +67,13 @@
 
 - `AgentEvent.source = 'sdk' | 'hook'`；SDK 接管的 sessionId 加入 `SessionManager.sdkOwned`，hook 同 id 事件被丢弃
 - `lifecycle` (`active`/`dormant`/`closed`) 与 `archived_at` **正交**。归档只打标记，取消归档清标记回到原 lifecycle（不粗暴重置 dormant）。LifecycleScheduler 跳过 `archived_at IS NOT NULL`
-- SessionManager.consumePendingSdkClaim 不准做"全局 fuzzy 匹配"（CHANGELOG_47 / REVIEW_1 修过）；cwd 别名靠 `normalizeCwd` 内的 `realpathSync`
+- SessionManager.consumePendingSdkClaim 不准做"全局 fuzzy 匹配"（CHANGELOG_16 / REVIEW_1 修过）；cwd 别名靠 `normalizeCwd` 内的 `realpathSync`
 
 ### 总结调度（summarizer）
 
 - 三层降级：LLM oneshot → 最近一条 assistant 文字 → 事件 kind 统计
 - `eventsSince === 0` 时跳过；全局 `summaryMaxConcurrent`（默认 2），超出本轮等下次扫描
-- LLM oneshot 失败要透传 stderr 给上层（CHANGELOG_46 ENOTDIR 教训）
+- LLM oneshot 失败要透传 stderr 给上层（CHANGELOG_15 ENOTDIR 教训）
 
 ### 主进程模块通信 / IPC 边界
 
@@ -86,7 +86,7 @@
 
 ### 资源清理 & TOCTOU 防线
 
-- 任何 `try { await ... }` 链涉及"释放标记 / 清 Map / 注销 listener"的，**必须包 try/catch/finally**，失败路径也要清理（CHANGELOG_47 / REVIEW_1：releasePending 漏掉的教训）
+- 任何 `try { await ... }` 链涉及"释放标记 / 清 Map / 注销 listener"的，**必须包 try/catch/finally**，失败路径也要清理（CHANGELOG_16 / REVIEW_1：releasePending 漏掉的教训）
 - 主进程读用户输入路径前**先 `realpath` 再校验白名单 + ext**（防 symlink TOCTOU 越权）
 - `before-quit` listener 不是 promise-aware：异步清理必须 `event.preventDefault()` → 跑完 → `app.exit()`
 
@@ -187,11 +187,11 @@ ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/loc
 
 ### 打包配置已踩的坑（别再回退）
 
-- **`mac.icon: "resources/icon.png"` 必须有**：`buildResources` 默认查 `resources/icons/` 多分辨率集，单文件需显式指定（CHANGELOG_16）
-- **`extraResources` 必须把 `resources/bin` 显式 copy 到 `bin`**：`buildResources` 不会被打进 .app（CHANGELOG_16）
-- **ad-hoc 重签必须做（第 3 步）**：electron-builder 跳过签名时 codesign Identifier 是 `Electron`，与 Info.plist 的 `com.agentdeck.app` 不一致，macOS 通知中心 / Gatekeeper 按 Identifier 注册会归错位（CHANGELOG_21）
-- **重装前必须 pkill 旧进程（第 0 步）**：macOS 复用同 bundle id 活进程，旧 main + 新 .app 资源错配，dynamic import 拿到的 chunk hash 对不上 → renderer 直接显示一坨 monaco 源码（CHANGELOG_26）
-- **SDK / codex native binary 必须 unpack**：直接 spawn `app.asar/...` 路径会 ENOTDIR，需要 `build.asarUnpack` + 主进程 `pathToClaudeCodeExecutable` / `codexPathOverride` 显式传 unpacked 路径（CHANGELOG_43 / CHANGELOG_46）
+- **`mac.icon: "resources/icon.png"` 必须有**：`buildResources` 默认查 `resources/icons/` 多分辨率集，单文件需显式指定（CHANGELOG_9）
+- **`extraResources` 必须把 `resources/bin` 显式 copy 到 `bin`**：`buildResources` 不会被打进 .app（CHANGELOG_9）
+- **ad-hoc 重签必须做（第 3 步）**：electron-builder 跳过签名时 codesign Identifier 是 `Electron`，与 Info.plist 的 `com.agentdeck.app` 不一致，macOS 通知中心 / Gatekeeper 按 Identifier 注册会归错位（CHANGELOG_9）
+- **重装前必须 pkill 旧进程（第 0 步）**：macOS 复用同 bundle id 活进程，旧 main + 新 .app 资源错配，dynamic import 拿到的 chunk hash 对不上 → renderer 直接显示一坨 monaco 源码（CHANGELOG_9）
+- **SDK / codex native binary 必须 unpack**：直接 spawn `app.asar/...` 路径会 ENOTDIR，需要 `build.asarUnpack` + 主进程 `pathToClaudeCodeExecutable` / `codexPathOverride` 显式传 unpacked 路径（CHANGELOG_14 / CHANGELOG_15）
 
 ### 验证
 
