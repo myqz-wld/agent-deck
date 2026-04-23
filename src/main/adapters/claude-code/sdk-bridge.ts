@@ -16,7 +16,7 @@ import type {
   PermissionResponse,
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
-import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
+import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
   getAgentDeckPluginPath,
@@ -360,6 +360,7 @@ export class ClaudeSdkBridge {
 
     const { query } = await loadSdk();
     const runtime = getSdkRuntimeOptions();
+    const claudeBinary = getPathToClaudeCodeExecutable();
     const q = query({
       prompt: userMessageIterable,
       options: {
@@ -395,6 +396,11 @@ export class ClaudeSdkBridge {
         // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime（详见 sdk-runtime.ts）。
         executable: runtime.executable,
         env: runtime.env,
+        // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
+        // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
+        // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
+        // 绕开 SDK 自带 K7。dev 模式下函数返回真实 node_modules 路径，无副作用。
+        ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
       },
     });
     internal.query = q;

@@ -4,7 +4,7 @@ import { eventRepo } from '@main/store/event-repo';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { settingsStore } from '@main/store/settings-store';
-import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
+import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 
 /**
@@ -141,11 +141,17 @@ export class Summarizer {
       console.warn(`[summarizer] LLM failed for ${sessionId}, fallback to last-message`, err);
     }
 
-    // 2) 退化：取最近一条 assistant 文字（最少能说明 Claude 当下在说什么）
-    const lastMsg = events.find((e) => e.kind === 'message');
+    // 2) 退化：取最近一条「Claude 自己说的话」（assistant + 非 error）。
+    //    走独立 SQL 查询（eventRepo.findLatestAssistantMessage）而不是 events.find，
+    //    原因：
+    //    a. events 限 40 条，tool 密集会话最近 40 条可能 0 条 message → find 必返 undefined
+    //    b. 没过滤 role/error 时会拿到用户输入（"push 一下"）或 ⚠ 警告
+    //    sinceTs 用 lastSummarizedAt：只取自上次总结后的最新 assistant 文字，
+    //    避免回到几小时前的旧 message 当成"现在在做什么"。
+    const sinceTs = this.lastSummarizedAt.get(sessionId) ?? session.startedAt;
+    const lastMsg = eventRepo.findLatestAssistantMessage(sessionId, sinceTs);
     if (lastMsg) {
-      const text = (lastMsg.payload as { text?: string })?.text ?? '';
-      if (text) return text.replace(/\s+/g, ' ').trim().slice(0, 100);
+      return lastMsg.text.replace(/\s+/g, ' ').trim().slice(0, 100);
     }
 
     // 3) 再退化：事件 kind 统计
@@ -156,17 +162,27 @@ export class Summarizer {
 // ────────────────────────────────────────────────────────── helpers
 
 /**
- * 把 events 转成给 LLM 看的「最近活动」文本。所有事件都是 Claude 一侧的动作
- * （用户输入暂未 emit 成 event），因此前缀统一用「Claude …」描述，避免 LLM
- * 把"Claude 调用 AskUserQuestion 询问用户"误总结成"用户询问"。
+ * 把 events 转成给 LLM 看的「最近活动」文本。`events` 入参按 ts DESC（listForSession
+ * 的语义），先按时间升序排回去（按发生顺序读 LLM 才能正确理解前后逻辑），
+ * 然后取**最新** 30 行 —— 注意是末尾 30 不是前 30，否则丢掉的是最新 10 条而不是最旧 10 条
+ * （历史 bug：原来 `for (...) if (lines.length >= 30) break` 在升序遍历里 break 早，
+ * 导致 LLM 看到的总是会话开头那段旧上下文，越往后看到的越旧）。
+ *
+ * `[Claude 说]` 只算 role !== 'user' 且 error !== true 的 message：
+ * - 用户输入虽然 emit 成了 message kind 但 role: 'user'，把它写成"Claude 说"会让
+ *   总结 LLM 把用户的话误归为 Claude 的动作（典型："push 一下" → 总结成"Claude push"）
+ * - error: true 的 ⚠ 警告是基础设施消息（API 错误、待响应队列提示），不是真正
+ *   的"Claude 在做什么"
  */
 function formatEventsForPrompt(events: AgentEvent[]): string {
-  const ordered = [...events].sort((a, b) => a.ts - b.ts);
+  // 升序后取末尾 30：events 已经是 DESC，先排正，再 slice(-30) 拿最新一段
+  const ordered = [...events].sort((a, b) => a.ts - b.ts).slice(-30);
   const lines: string[] = [];
   for (const e of ordered) {
-    if (lines.length >= 30) break;
     const p = (e.payload ?? {}) as Record<string, unknown>;
     if (e.kind === 'message') {
+      // 过滤用户输入和错误警告：只把 Claude 自己说的话作为"Claude 说"
+      if (p.role === 'user' || p.error === true) continue;
       const text = typeof p.text === 'string' ? p.text.replace(/\s+/g, ' ').trim() : '';
       if (text) lines.push(`[Claude 说] ${truncate(text, 240)}`);
     } else if (e.kind === 'tool-use-start') {
@@ -244,6 +260,7 @@ async function summariseViaLlm(cwd: string, events: AgentEvent[]): Promise<strin
 
   const sdk = await loadSdk();
   const runtime = getSdkRuntimeOptions();
+  const claudeBinary = getPathToClaudeCodeExecutable();
   const prompt = `下面是某个 Claude Code 会话最近的活动记录。**所有事件都是 Claude（AI 助手）一侧的行为**：
 - [Claude 说] = Claude 自己说的话
 - [Claude 调用工具] = Claude 在调用工具
@@ -281,6 +298,11 @@ ${activity}`;
       // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime，零依赖系统 node。
       executable: runtime.executable,
       env: runtime.env,
+      // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
+      // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
+      // 不经 Electron fs patch → ENOTDIR → summarizer LLM 100% 失败 → 全降级到事件统计。
+      // 显式传解析后的 unpacked 路径绕开 SDK 自带 K7。详见 sdk-runtime.ts。
+      ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
     },
   });
 
