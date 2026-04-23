@@ -71,6 +71,12 @@
         ]
       }
     ],
+    "asarUnpack": [
+      "node_modules/@openai/codex/**/*",
+      "node_modules/@openai/codex-darwin-*/**/*",
+      "node_modules/@openai/codex-linux-*/**/*",
+      "node_modules/@openai/codex-win32-*/**/*"
+    ],
     "mac": {
       "target": "dmg",
       "icon": "resources/icon.png",
