@@ -23,3 +23,4 @@
 | [CHANGELOG_16.md](CHANGELOG_16.md) | 引入 reviews/ 双轨机制 + CLAUDE.md 简化对齐 + 反馈升级加 Agent 踩坑双对抗三态裁决 + REVIEW_1 八处修复落地 |
 | [CHANGELOG_17.md](CHANGELOG_17.md) | 通用 CLAUDE.md 骨架优化（节序重排 / 合并冗余 / 模板瘦身）+ 新增 CHANGELOG/REVIEW 模板（按本项目实际范式抽取） |
 | [CHANGELOG_18.md](CHANGELOG_18.md) | REVIEW_2 二十处修复 + 用户报 2 BUG 修 + 已审文件过期机制 + REVIEW_X 模板加 frontmatter + CLAUDE.md 注入 toggle + codex 拆批跑约定 |
+| [CHANGELOG_19.md](CHANGELOG_19.md) | ActivityFeed 695 行拆 8 文件 + 顺手补初始化 race + 6 候选对抗评估（仅候选 4 落地，5 个不做附触发条件） |
