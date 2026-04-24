@@ -244,7 +244,7 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
 
 ### 打包必须知道的几件事
 
-每条都有过失败案例，详见对应 changelog：
+每条都有过失败案例，详见对应 changelog / review：
 
 - `package.json > build.mac.icon = "resources/icon.png"` 必须显式指定，否则 electron-builder 找 `resources/icons/` 多分辨率集不到 → dmg 打不出来（CHANGELOG_9）
 - `extraResources` 必须把 `resources/bin → bin` 显式 copy，wrapper 才能进 .app（CHANGELOG_9）
@@ -256,5 +256,10 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
 
 ## 进一步阅读
 
-- [CLAUDE.md](CLAUDE.md) —— 给 Claude Code 在本仓库工作时的硬性约定 + 项目设计要点
-- [changelog/INDEX.md](changelog/INDEX.md) —— 全部 CHANGELOG 索引；改任何模块前都建议浏览相关条目，了解历史决策与已经踩过的坑
+仓库历史按「双轨」组织（CHANGELOG_16 起划分，规则见 [CLAUDE.md](CLAUDE.md)「改动后必做」节）：
+
+- [changelog/INDEX.md](changelog/INDEX.md) —— **功能变更**索引（新功能 / 行为修改 / API / 依赖升级）
+- [reviews/INDEX.md](reviews/INDEX.md) —— **Debug / 性能 / 安全 review** 索引（不引入新功能，修问题或加固；含双对抗 Agent 三态裁决报告）
+- [CLAUDE.md](CLAUDE.md) —— 给 Claude Code 在本仓库工作时的硬性约定 + 项目设计要点 + 「已审文件过期」机制（review 自动排程）
+
+改任何模块前都建议浏览相关 changelog / review 条目，了解历史决策、避免推翻已有约定 / 重复踩坑。设计取舍（「为什么 lifecycle 与 archived 正交」）通常在 changelog；过往 bug 与加固方案（含证据 + 三态裁决）在 reviews。
