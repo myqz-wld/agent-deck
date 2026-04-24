@@ -32,6 +32,90 @@ function on<T extends string>(channel: T, handler: Handler): void {
   ipcMain.handle(channel, handler);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SettingsSet 「即改即生效」分发（CHANGELOG_20 / A）。
+// 9 个 helper 拆分前是 67 行单 handler 8 个 if 分支；拆后 handler 主体 ≤ 30 行，
+// 每个 helper ≤ 15 行，新增设置项时只动一处。**保持调用顺序与判定条件不变**。
+// ─────────────────────────────────────────────────────────────────────────────
+
+function applyLifecycleThresholds(p: Partial<AppSettings>, next: AppSettings): void {
+  if ('activeWindowMs' in p || 'closeAfterMs' in p || 'historyRetentionDays' in p) {
+    getLifecycleScheduler()?.updateThresholds({
+      activeWindowMs: next.activeWindowMs,
+      closeAfterMs: next.closeAfterMs,
+      historyRetentionDays: next.historyRetentionDays,
+    });
+  }
+}
+
+function applyLoginItem(p: Partial<AppSettings>, next: AppSettings): void {
+  // dev 模式跳过：未签名的 Electron 二进制，macOS 13+ 直接拒绝写入登录项，
+  // 错误是原生层 LOG(ERROR) 打到 stderr，try/catch 接不住。
+  if (!('startOnLogin' in p) || is.dev) return;
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    app.setLoginItemSettings({
+      openAtLogin: next.startOnLogin,
+      openAsHidden: false,
+    });
+  }
+}
+
+function applyAlwaysOnTop(p: Partial<AppSettings>, next: AppSettings): void {
+  if ('alwaysOnTop' in p) {
+    getFloatingWindow().setAlwaysOnTop(next.alwaysOnTop);
+  }
+}
+
+function applyPermissionTimeout(p: Partial<AppSettings>, next: AppSettings): void {
+  if ('permissionTimeoutMs' in p) {
+    adapterRegistry.get('claude-code')?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
+  }
+}
+
+function applyCodexCliPath(p: Partial<AppSettings>, next: AppSettings): void {
+  // 清 Codex 实例，下次新建会话用新 path。
+  if ('codexCliPath' in p) {
+    adapterRegistry.get('codex-cli')?.setCodexCliPath?.(next.codexCliPath);
+  }
+}
+
+function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void {
+  // summaryTimeoutMs / summaryEventCount / summaryMaxConcurrent 是每轮 scanAll
+  // 内部读 settings 的，天生即时生效，不需要在这里分发。只 interval 需重启 setInterval。
+  if ('summaryIntervalMs' in p) {
+    summarizer.setIntervalMs(next.summaryIntervalMs);
+  }
+}
+
+function warnHookServerPort(p: Partial<AppSettings>): void {
+  // 监听端口在 server 已 listen 后无法热切换；hook curl 命令端口也会与新值不一致。
+  // 两个问题都需要重启应用 + 重新点 install hook 才能完整生效。UI 已标「（重启生效）」。
+  if ('hookServerPort' in p) {
+    console.warn(
+      '[settings] hookServerPort changed; restart app + reinstall hooks to take effect',
+    );
+  }
+}
+
+function warnHookServerToken(p: Partial<AppSettings>): void {
+  // N8 补：原 SettingsSet handler 漏判 hookServerToken 分支，UI 暂未暴露 token 编辑入口，
+  // 但 plan A 重构时务必同时加上避免 silent fail（CHANGELOG_20）。
+  // 同 hookServerPort：换 token 必须重启 server + 重新 install hook 才能生效。
+  if ('hookServerToken' in p) {
+    console.warn(
+      '[settings] hookServerToken changed; restart app + reinstall hooks to take effect',
+    );
+  }
+}
+
+function invalidateClaudeMdCache(p: Partial<AppSettings>): void {
+  // 注入开关本身在 sdk-injection 入口处独立检查，但 cache 仍可能持有「true 时读到的内容」，
+  // 关掉再开会让用户副本/内置切换瞬间生效。
+  if ('injectAgentDeckClaudeMd' in p) {
+    invalidateAgentDeckSystemPromptAppend();
+  }
+}
+
 export function bootstrapIpc(): void {
   on(IpcInvoke.AppGetVersion, () => app.getVersion());
 
@@ -107,69 +191,32 @@ export function bootstrapIpc(): void {
   on(IpcInvoke.SettingsGet, () => settingsStore.getAll());
   on(IpcInvoke.SettingsSet, (_e, patch) => {
     const p = (patch ?? {}) as Partial<AppSettings>;
+    // N6 事务保护：先快照改前值，持久化后逐项 apply。任一 apply throw 时回滚 DB 到改前状态，
+    // 让 UI 看到错误而不是进入「DB 改了 / 运行时半生效」的不一致状态（CHANGELOG_20）。
+    const before = settingsStore.getAll();
     const next = settingsStore.patch(p);
-
-    // 把变更立刻应用到运行时模块；面板里的开关从此可以「即改即生效」。
-
-    // 1) 生命周期阈值 → LifecycleScheduler
-    if ('activeWindowMs' in p || 'closeAfterMs' in p || 'historyRetentionDays' in p) {
-      getLifecycleScheduler()?.updateThresholds({
-        activeWindowMs: next.activeWindowMs,
-        closeAfterMs: next.closeAfterMs,
-        historyRetentionDays: next.historyRetentionDays,
-      });
-    }
-
-    // 2) 开机自启 → 立即写系统登录项（dev 模式跳过：未签名的 Electron 二进制写不进去）
-    if ('startOnLogin' in p && !is.dev) {
-      if (process.platform === 'darwin' || process.platform === 'win32') {
-        app.setLoginItemSettings({
-          openAtLogin: next.startOnLogin,
-          openAsHidden: false,
-        });
+    try {
+      applyLifecycleThresholds(p, next);
+      applyLoginItem(p, next);
+      applyAlwaysOnTop(p, next);
+      applyPermissionTimeout(p, next);
+      applyCodexCliPath(p, next);
+      applySummaryInterval(p, next);
+      warnHookServerPort(p);
+      warnHookServerToken(p);
+      invalidateClaudeMdCache(p);
+    } catch (err) {
+      // 只回滚 patch 涉及的 key，避免动到本来就不该变的字段。
+      // 双层 unknown 中转：AppSettings 严格联合类型，TS 不允许直接当 Record<string,unknown>。
+      const rollback: Partial<AppSettings> = {};
+      const beforeRecord = before as unknown as Record<string, unknown>;
+      const rollbackRecord = rollback as unknown as Record<string, unknown>;
+      for (const key of Object.keys(p)) {
+        rollbackRecord[key] = beforeRecord[key];
       }
+      settingsStore.patch(rollback);
+      throw err;
     }
-
-    // 3) 始终置顶 → 立即应用到窗口（同时 header 的 pin 按钮也会读 settings 同步）
-    if ('alwaysOnTop' in p) {
-      getFloatingWindow().setAlwaysOnTop(next.alwaysOnTop);
-    }
-
-    // 4) 权限超时 → 同步给 ClaudeCode adapter（影响后续新建 pending 的 timer）
-    if ('permissionTimeoutMs' in p) {
-      const adapter = adapterRegistry.get('claude-code');
-      adapter?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
-    }
-
-    // 4.5) Codex 二进制路径 → 同步给 codex-cli adapter（清 Codex 实例，下次新建会话用新 path）
-    if ('codexCliPath' in p) {
-      const adapter = adapterRegistry.get('codex-cli');
-      adapter?.setCodexCliPath?.(next.codexCliPath);
-    }
-
-    // 5) 总结调度周期 → 立刻重启 setInterval（避免必须重启应用才生效）。
-    // summaryTimeoutMs / summaryEventCount / summaryMaxConcurrent 是每轮 scanAll
-    // 内部读 settings 的，天生即时生效，不需要在这里分发。
-    if ('summaryIntervalMs' in p) {
-      summarizer.setIntervalMs(next.summaryIntervalMs);
-    }
-
-    // 6) HookServer 端口：监听端口在 server 已 listen 后无法热切换；同时已写到
-    // ~/.claude/settings.json 的 hook curl 命令端口也会与新值不一致。两个问题都需要
-    // 重启应用 + 重新点 install hook 才能完整生效。这里只持久化设置，
-    // UI 已用「（重启生效）」标注，避免静默假成功。
-    // hookServerToken 同理：换 token 必须重启 server + 重新 install hook 才能生效。
-    if ('hookServerPort' in p) {
-      console.warn('[settings] hookServerPort changed; restart app + reinstall hooks to take effect');
-    }
-
-    // 7) agent-deck 自带 CLAUDE.md 注入开关 → 清缓存让 getAgentDeckSystemPromptAppend
-    // 下次新建会话立即读到新值（开关本身在 sdk-injection 入口处独立检查，
-    // 但 cache 仍可能持有"true 时读到的内容"，关掉再开会让用户副本/内置切换瞬间生效）。
-    if ('injectAgentDeckClaudeMd' in p) {
-      invalidateAgentDeckSystemPromptAppend();
-    }
-
     return next;
   });
 
@@ -411,6 +458,9 @@ export function bootstrapIpc(): void {
   on(IpcInvoke.ImageLoadBlob, async (_e, sessionId, source): Promise<LoadImageBlobResult> => {
     return loadImageBlob(String(sessionId ?? ''), source as ImageSource);
   });
+
+  // Summarizer 诊断：拉取最近一次失败原因（by sessionId）。CHANGELOG_20 / G。
+  on(IpcInvoke.SummarizerLastErrors, () => summarizer.getLastErrors());
 }
 
 // ─────────────────────────────────────────────────────── Image load helpers

@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@shared/types';
 import { getDb } from './db';
+import { safeStringifyPayload } from './payload-truncate';
 
 interface Row {
   id: number;
@@ -27,7 +28,7 @@ export const eventRepo = {
         `INSERT INTO events (session_id, kind, payload_json, ts)
          VALUES (?, ?, ?, ?)`,
       )
-      .run(event.sessionId, event.kind, JSON.stringify(event.payload ?? null), event.ts);
+      .run(event.sessionId, event.kind, safeStringifyPayload(event.payload), event.ts);
     return Number(info.lastInsertRowid);
   },
 

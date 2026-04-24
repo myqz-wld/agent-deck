@@ -18,6 +18,11 @@ export class Summarizer {
   private currentIntervalMs = 0;
   private lastSummarizedAt = new Map<string, number>();
   private inFlight = new Set<string>();
+  /**
+   * 最近一次失败原因（by sessionId），CHANGELOG_20 / G。UI 设置面板能拉到诊断。
+   * 成功 summarize 后 delete 该 sessionId（避免历史错误一直留着误导）。
+   */
+  private lastErrorBySession = new Map<string, { message: string; ts: number }>();
   /** event-bus 上 session-removed 监听的解绑函数，stop() 时调一下避免泄漏。 */
   private offSessionRemoved: (() => void) | null = null;
 
@@ -30,6 +35,8 @@ export class Summarizer {
     if (!this.offSessionRemoved) {
       const handler = (sid: string): void => {
         this.lastSummarizedAt.delete(sid);
+        // 同时清错误诊断：会话都没了，错误也无意义。
+        this.lastErrorBySession.delete(sid);
       };
       eventBus.on('session-removed', handler);
       this.offSessionRemoved = () => eventBus.off('session-removed', handler);
@@ -105,10 +112,29 @@ export class Summarizer {
           });
           eventBus.emit('summary-added', rec);
           this.lastSummarizedAt.set(s.id, Date.now());
+          // 成功了就清掉历史错误（避免诊断面板里挂着早已修复的旧错误）。
+          this.lastErrorBySession.delete(s.id);
         })
-        .catch((err) => console.warn(`[summarizer] session ${s.id} failed:`, err))
+        .catch((err) => {
+          // CHANGELOG_20 / G：把错误信息暂存，IPC 拉取后展示给用户，
+          // 比 console.warn 进黑洞强（用户看不到主进程 stderr）。
+          this.lastErrorBySession.set(s.id, {
+            message: (err as Error)?.message ?? String(err),
+            ts: Date.now(),
+          });
+          console.warn(`[summarizer] session ${s.id} failed:`, err);
+        })
         .finally(() => this.inFlight.delete(s.id));
     }
+  }
+
+  /** 拉取最近一次失败诊断（by sessionId），UI 设置面板用。空 Map 表示没有任何会话失败过。 */
+  getLastErrors(): Record<string, { message: string; ts: number }> {
+    const out: Record<string, { message: string; ts: number }> = {};
+    for (const [sid, info] of this.lastErrorBySession.entries()) {
+      out[sid] = info;
+    }
+    return out;
   }
 
   /** 手动触发某会话的总结 */

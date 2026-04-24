@@ -265,6 +265,33 @@ export class CodexSdkBridge {
   }
 
   /**
+   * 删会话清理：abort 当前 turn + 清 pendingMessages + 移除 internal session 记录。
+   * 由 SessionManager.delete 调用，确保 codex 子进程不继续跑（CHANGELOG_20 / N2）。
+   */
+  async closeSession(sessionId: string): Promise<void> {
+    const internal = this.sessions.get(sessionId);
+    if (!internal) return;
+
+    if (internal.currentTurn) {
+      try {
+        internal.currentTurn.abort();
+      } catch (err) {
+        console.warn(`[codex-bridge] abort during close failed: ${sessionId}`, err);
+      }
+      internal.currentTurn = null;
+    }
+
+    // 清残余待发消息：close 后不应再 resume 这个 session，pending 不再有意义。
+    internal.pendingMessages.length = 0;
+
+    this.sessions.delete(sessionId);
+    sessionManager.releaseSdkClaim(sessionId);
+    if (internal.threadId && internal.threadId !== sessionId) {
+      sessionManager.releaseSdkClaim(internal.threadId);
+    }
+  }
+
+  /**
    * Codex 没有 SDK 层 pending 概念（无权限请求 / 无主动提问 / 无 plan mode），
    * 但 IPC handler 期望 listPending 返回结构化对象。返回空数组保持接口一致。
    */

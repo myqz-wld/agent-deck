@@ -24,3 +24,5 @@
 | [CHANGELOG_17.md](CHANGELOG_17.md) | 通用 CLAUDE.md 骨架优化（节序重排 / 合并冗余 / 模板瘦身）+ 新增 CHANGELOG/REVIEW 模板（按本项目实际范式抽取） |
 | [CHANGELOG_18.md](CHANGELOG_18.md) | REVIEW_2 二十处修复 + 用户报 2 BUG 修 + 已审文件过期机制 + REVIEW_X 模板加 frontmatter + CLAUDE.md 注入 toggle + codex 拆批跑约定 |
 | [CHANGELOG_19.md](CHANGELOG_19.md) | ActivityFeed 695 行拆 8 文件 + 顺手补初始化 race + 6 候选对抗评估（仅候选 4 落地，5 个不做附触发条件） |
+| [CHANGELOG_20.md](CHANGELOG_20.md) | 双对抗架构评审 Phase 0：N1 payload 截断（256KB + shrink 大字段）+ N2 删会话同步关 SDK live Query（adapter capabilities 加 canCloseSession） |
+| [CHANGELOG_21.md](CHANGELOG_21.md) | 双对抗架构评审 Phase 1-3：SettingsDialog 720→338 行渐进拆分 + 引入 vitest（14 单测）+ ingest 拆 5 段 + SettingsSet 拆 8 函数 + N6 事务保护 + N8 token 分支 + notify event-router + summarizer 错误诊断聚合到设置面板 |

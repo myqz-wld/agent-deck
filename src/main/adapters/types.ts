@@ -38,6 +38,12 @@ export interface AdapterCapabilities {
   canInstallHooks: boolean;
   canRespondPermission: boolean;
   canSetPermissionMode: boolean;
+  /**
+   * 删会话时 SessionManager 是否调 closeSession 彻底关闭 SDK 侧 live query/turn 与 pending Maps。
+   * 与 canInterrupt 区别：interrupt 允许 resume / 复用 session；close 表示永久关闭。
+   * 占位 adapter（aider / generic-pty）置 false；hook-only / SDK 通道有 internal session 的 adapter 置 true。
+   */
+  canCloseSession: boolean;
 }
 
 export interface AgentAdapter {
@@ -50,6 +56,12 @@ export interface AgentAdapter {
 
   createSession?(opts: CreateSessionOptions): Promise<string>;
   interruptSession?(sessionId: string): Promise<void>;
+  /**
+   * 由 SessionManager.delete 调用：abort SDK 侧 live query/turn + 清 pending Maps + 移除 internal session 记录。
+   * 占位 adapter / hook-only adapter 不实现；SDK 通道 adapter（claude-code / codex-cli）实现。
+   * 不抛错（出错只 warn）：删除路径不能因为 close 失败而失败，否则 DB 行删了 bridge 状态留着会更糟。
+   */
+  closeSession?(sessionId: string): Promise<void>;
   sendMessage?(sessionId: string, text: string): Promise<void>;
   respondPermission?(
     sessionId: string,

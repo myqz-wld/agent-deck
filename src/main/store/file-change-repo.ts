@@ -1,5 +1,6 @@
 import type { FileChangeRecord } from '@shared/types';
 import { getDb } from './db';
+import { safeStringifyPayload, safeTruncateBlob } from './payload-truncate';
 
 interface Row {
   id: number;
@@ -51,9 +52,9 @@ export const fileChangeRepo = {
         rec.sessionId,
         rec.filePath,
         rec.kind,
-        rec.beforeBlob,
-        rec.afterBlob,
-        JSON.stringify(rec.metadata ?? {}),
+        safeTruncateBlob(rec.beforeBlob),
+        safeTruncateBlob(rec.afterBlob),
+        safeStringifyPayload(rec.metadata ?? {}),
         rec.toolCallId,
         rec.ts,
       );
