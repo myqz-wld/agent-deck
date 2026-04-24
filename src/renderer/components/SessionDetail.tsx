@@ -4,7 +4,7 @@ import type {
   FileChangeRecord,
   SessionRecord,
 } from '@shared/types';
-import { ActivityFeed } from './ActivityFeed';
+import { ActivityFeed } from './activity-feed';
 import { SummaryView } from './SummaryView';
 import { DiffViewer } from './diff/DiffViewer';
 import { PermissionsView } from './PermissionsView';
