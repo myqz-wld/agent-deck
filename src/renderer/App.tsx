@@ -72,6 +72,21 @@ export function App(): JSX.Element {
     if (view !== 'history') setHistorySession(null);
   }, [view]);
 
+  // CHANGELOG_27 / REVIEW_6：sdk-bridge.consume 检测 CLI fork（resume 路径下 SDK 给的
+  // realId ≠ opts.resume）→ 触发 sessionManager.renameSdkSession(OLD_ID, NEW_ID) →
+  // emit session-renamed → store.renameSession 把 sessions Map / selectedSessionId 切到 NEW_ID。
+  // 但本组件的 historySession 是用户点历史会话进 detail 时设的本地 state（一次 fetch 拷贝），
+  // store 不知道它，所以要单独 listen session-renamed 把 historySession.id 也切过去 ——
+  // 否则 detail 的 SourceBadge / ComposerSdk 仍按 OLD_ID 走，与「OLD_ID 已在 DB 删除」矛盾。
+  useEffect(() => {
+    const off = window.api.onSessionRenamed(({ from, to }) => {
+      setHistorySession((prev) =>
+        prev && prev.id === from ? { ...prev, id: to } : prev,
+      );
+    });
+    return off;
+  }, []);
+
   const togglePin = async (): Promise<void> => {
     const next = !pinned;
     setPinned(next);
