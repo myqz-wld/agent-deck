@@ -55,18 +55,23 @@ export function ImageBlobLoader({ sessionId, source, children }: Props): ReactNo
     let aborted = false;
     void window.api.loadImageBlob(sessionId, source).then((result) => {
       if (aborted) return;
-      cache.set(key, { result, ts: Date.now() });
-      // LRU 驱逐：超过上限时挤掉最旧的一条
-      if (cache.size > MAX_CACHE) {
-        let oldestKey: string | null = null;
-        let oldestTs = Infinity;
-        for (const [k, v] of cache) {
-          if (v.ts < oldestTs) {
-            oldestTs = v.ts;
-            oldestKey = k;
+      // 仅缓存成功结果。失败（enoent / io_error / denied 等）短期可恢复（用户重命名了文件 /
+      // ImageRead 兜底白名单刚补上），永久缓存会让同一张图永远不重试。
+      // REVIEW_2 修：原本所有 result 都进 cache，失败也被记住。
+      if (result.ok) {
+        cache.set(key, { result, ts: Date.now() });
+        // LRU 驱逐：超过上限时挤掉最旧的一条
+        if (cache.size > MAX_CACHE) {
+          let oldestKey: string | null = null;
+          let oldestTs = Infinity;
+          for (const [k, v] of cache) {
+            if (v.ts < oldestTs) {
+              oldestTs = v.ts;
+              oldestKey = k;
+            }
           }
+          if (oldestKey) cache.delete(oldestKey);
         }
-        if (oldestKey) cache.delete(oldestKey);
       }
       setState({ loading: false, result });
     });

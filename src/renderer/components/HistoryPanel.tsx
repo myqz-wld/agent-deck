@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { StatusBadge } from './StatusBadge';
 
@@ -29,6 +29,9 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
   const [keywordInput, setKeywordInput] = useState('');
   const [rows, setRows] = useState<SessionRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  /** reload 序列号：每次发起递增；then 回调先比较序列号，过期请求直接丢弃。
+   * REVIEW_2 修：旧筛选慢请求返回会覆盖新筛选结果（搜索 / 切「仅归档」时列表回跳到过期数据）。 */
+  const reqIdRef = useRef(0);
 
   // keywordInput → filters.keyword 的 debounce 桥接：用户停止输入 300ms 后才提交查询
   useEffect(() => {
@@ -39,13 +42,15 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
   }, [keywordInput]);
 
   const reload = async (): Promise<void> => {
+    const cur = ++reqIdRef.current;
     setLoading(true);
     try {
       // 走 preload 强类型 facade 而不是 ipcInvokeRaw —— 避免 channel 名 typo 静默 fail
       const r = await window.api.listSessionHistory(filters);
+      if (cur !== reqIdRef.current) return; // 过期请求，丢弃结果
       setRows(r);
     } finally {
-      setLoading(false);
+      if (cur === reqIdRef.current) setLoading(false);
     }
   };
 

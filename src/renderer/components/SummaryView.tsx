@@ -16,10 +16,15 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
 
   useEffect(() => {
     setLoaded(false);
+    let aborted = false;
     void window.api.listSummaries(sessionId).then((rows) => {
+      if (aborted) return;
       setLocal(sessionId, rows as SummaryRecord[]);
       setLoaded(true);
     });
+    return () => {
+      aborted = true;
+    };
   }, [sessionId, setLocal]);
 
   if (!loaded && local.length === 0) {

@@ -87,20 +87,51 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     setSelectedChangeId(null);
   }, [session.id]);
 
+  /** 加载并订阅 file_changes：
+   * - tab 切到 'diff' 且未加载 → 首次拉
+   * - 已加载状态下监听 agent-event 'file-changed'，300ms 节流后重拉（合并 MultiEdit 拆出的 N 条事件）
+   * - sequence counter 防过期 IPC 覆盖新结果；disposed flag 防卸载/换会话后 setState
+   * - 重新选中策略：原选中 filePath / changeId 仍在新数据里 → 保留；否则 fallback 到最新一条
+   *
+   * REVIEW_2 修：原本仅在 changes===null 时拉一次，期间产生的新 file-changed 不会刷新；
+   *           且切会话时旧 IPC 返回会污染新会话列表。融合 Claude A 节流 + Codex B sequence。
+   */
+  const hasLoaded = changes !== null;
   useEffect(() => {
-    if (tab === 'diff' && changes === null) {
+    if (tab !== 'diff' && !hasLoaded) return;
+    let disposed = false;
+    let req = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const sync = (): void => {
+      const cur = ++req;
       void window.api.listFileChanges(session.id).then((rows) => {
+        if (disposed || cur !== req) return;
         const arr = rows as FileChangeRecord[];
+        const latest = arr.length > 0 ? [...arr].sort((a, b) => b.ts - a.ts)[0] : null;
         setChanges(arr);
-        if (arr.length > 0) {
-          // 默认选中最近改动的文件 + 该文件最新一次改动
-          const latest = [...arr].sort((a, b) => b.ts - a.ts)[0];
-          setSelectedFilePath(latest.filePath);
-          setSelectedChangeId(latest.id);
-        }
+        setSelectedFilePath((p) =>
+          p && arr.some((c) => c.filePath === p) ? p : latest?.filePath ?? null,
+        );
+        setSelectedChangeId((p) =>
+          p !== null && arr.some((c) => c.id === p) ? p : latest?.id ?? null,
+        );
       });
-    }
-  }, [tab, changes, session.id]);
+    };
+    if (tab === 'diff' && !hasLoaded) sync();
+    const off = window.api.onAgentEvent((e) => {
+      if (e.sessionId !== session.id || e.kind !== 'file-changed') return;
+      if (timer != null) return;
+      timer = setTimeout(() => {
+        timer = null;
+        sync();
+      }, 300);
+    });
+    return () => {
+      disposed = true;
+      if (timer != null) clearTimeout(timer);
+      off();
+    };
+  }, [tab, hasLoaded, session.id]);
 
   // 按文件分组：每组内按时间升序（时间线从上到下：旧 → 新）；
   // 文件按最近一次改动时间倒序排列，让最近活跃的文件排前面。

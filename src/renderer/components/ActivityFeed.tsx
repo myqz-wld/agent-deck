@@ -120,9 +120,9 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     // tool 输出、JSON 入参等；button / select 因 chromium user-agent 默认自带 user-select: none，
     // 不会被影响，textarea / input 本身就可选。
     <ol className="flex flex-col gap-1.5 select-text">
-      {recent.map((e, idx) => (
+      {recent.map((e) => (
         <ActivityRow
-          key={`${e.ts}-${idx}`}
+          key={eventKey(e)}
           event={e}
           sessionId={sessionId}
           agentId={agentId}
@@ -140,6 +140,34 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
       ))}
     </ol>
   );
+}
+
+/**
+ * 稳定事件主键。原本用 `${e.ts}-${idx}` 在 store 头部插入新事件时让所有现存 row 的 idx +1，
+ * 整个列表 remount，每行 useState mode（MD/TXT 切换、展开状态）全部丢失（REVIEW_2 修）。
+ *
+ * 优先级：
+ * - tool-use-* 用 toolUseId（唯一稳定）
+ * - waiting-for-user 用 type+requestId（同一请求 SDK 多次推送同 requestId 也只算一条）
+ * - 其余用 sessionId+kind+ts；同毫秒兜底加 payload 关键字段（若无则只能依赖时间戳，
+ *   极小概率冲突也不会比原来 ts+idx 差）
+ */
+function eventKey(e: AgentEvent): string {
+  const p = (e.payload ?? {}) as Record<string, unknown>;
+  if (e.kind === 'tool-use-start' || e.kind === 'tool-use-end') {
+    const tid = typeof p.toolUseId === 'string' ? p.toolUseId : null;
+    if (tid) return `${e.kind}:${tid}`;
+  }
+  if (e.kind === 'waiting-for-user') {
+    const type = typeof p.type === 'string' ? p.type : '';
+    const rid = typeof p.requestId === 'string' ? p.requestId : '';
+    if (rid) return `wfu:${type}:${rid}`;
+  }
+  if (e.kind === 'file-changed') {
+    const fp = typeof p.filePath === 'string' ? p.filePath : '';
+    return `fc:${e.ts}:${fp}`;
+  }
+  return `${e.sessionId}:${e.kind}:${e.ts}`;
 }
 
 interface RowProps {

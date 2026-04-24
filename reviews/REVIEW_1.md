@@ -1,3 +1,10 @@
+---
+review_id: 1
+reviewed_at: 2026-04-24
+expired: false
+skipped_expired: []
+---
+
 # REVIEW_1: main 进程关键模块全审（双对抗）
 
 ## 触发场景
@@ -12,7 +19,7 @@
 
 **范围**：main 进程 16 个关键文件，约 5000 行：
 
-```
+```text
 src/main/adapters/claude-code/{sdk-bridge.ts, sdk-runtime.ts, translate.ts}
 src/main/adapters/codex-cli/{sdk-bridge.ts, translate.ts}
 src/main/session/{summarizer.ts, manager.ts, lifecycle-scheduler.ts}
@@ -20,6 +27,29 @@ src/main/store/{event-repo.ts, session-repo.ts, settings-store.ts, db.ts}
 src/main/{ipc.ts, window.ts, index.ts}
 src/main/hook-server/server.ts
 ```
+
+**机器可读范围**（File-level Review Expiry 用，按字典序）：
+
+```review-scope
+src/main/adapters/claude-code/sdk-bridge.ts
+src/main/adapters/claude-code/sdk-runtime.ts
+src/main/adapters/claude-code/translate.ts
+src/main/adapters/codex-cli/sdk-bridge.ts
+src/main/adapters/codex-cli/translate.ts
+src/main/hook-server/server.ts
+src/main/index.ts
+src/main/ipc.ts
+src/main/session/lifecycle-scheduler.ts
+src/main/session/manager.ts
+src/main/session/summarizer.ts
+src/main/store/db.ts
+src/main/store/event-repo.ts
+src/main/store/session-repo.ts
+src/main/store/settings-store.ts
+src/main/window.ts
+```
+
+> 覆盖基线 commit 由 `git log --diff-filter=A --format=%H -n 1 -- reviews/REVIEW_1.md` 自动取（fcf0d47）。
 
 **约束**：双方都被告知 changelog 1-46 已修过的问题不要再列，并按严重度（HIGH/MED/LOW）+ 文件:行号 + 代码片段格式输出。
 

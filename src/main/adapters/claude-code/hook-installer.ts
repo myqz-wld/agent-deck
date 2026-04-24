@@ -59,13 +59,22 @@ function settingsPath(scope: 'user' | 'project', cwd?: string): string {
   return join(cwd, '.claude', 'settings.json');
 }
 
+/**
+ * 读 settings.json。文件不存在 → 返回空对象（首次安装路径）。
+ * REVIEW_2 修：原本 parse 失败也回退 {} 然后 install 再 writeSettings 把整个文件覆盖，
+ * 用户的 permissions / mcpServers / env 等所有非 hooks 配置都被抹掉。
+ * 现在 parse 失败直接抛错让上层（IPC handler / UI）感知；状态查询路径在外层 try/catch
+ * 单独兜底为「未安装 + 错误信息」，install/uninstall 让用户看到错误而不是默默丢配置。
+ */
 function readSettings(p: string): ClaudeSettings {
   if (!existsSync(p)) return {};
   try {
     return JSON.parse(readFileSync(p, 'utf8')) as ClaudeSettings;
   } catch (err) {
-    console.warn(`[hook-installer] failed to parse ${p}:`, err);
-    return {};
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `${p} 解析失败（${detail}）。为避免覆盖用户原配置，已中止操作；请人工修复 JSON 后重试。`,
+    );
   }
 }
 
@@ -182,7 +191,20 @@ export class HookInstaller {
         installedHooks: [],
       };
     }
-    const data = readSettings(path);
+    // status 是只读查询：readSettings parse 失败时不抛（否则 UI 卡死无法显示设置面板），
+    // 退化为「未安装 + console.warn」。install/uninstall 路径仍会抛错让用户知情。
+    let data: ClaudeSettings;
+    try {
+      data = readSettings(path);
+    } catch (err) {
+      console.warn('[hook-installer] status readSettings failed:', err);
+      return {
+        installed: false,
+        scope: opts.scope,
+        settingsPath: path,
+        installedHooks: [],
+      };
+    }
     const installed: string[] = [];
     for (const event of HOOK_EVENTS) {
       const groups = data.hooks?.[event] ?? [];

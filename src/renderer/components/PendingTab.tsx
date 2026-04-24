@@ -215,7 +215,13 @@ function PendingSection({
           </div>
         </div>
       </header>
-      <ol className="flex flex-col gap-1.5 select-text px-2 py-2">
+      <ol
+        className={`flex flex-col gap-1.5 select-text px-2 py-2 ${
+          batchBusy ? 'pointer-events-none opacity-50' : ''
+        }`}
+        aria-disabled={batchBusy}
+        title={batchBusy ? '批量响应进行中…' : undefined}
+      >
         {permissions.map((req) => (
           <PermissionRow
             key={`p-${req.requestId}`}

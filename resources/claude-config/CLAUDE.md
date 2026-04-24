@@ -74,6 +74,15 @@ cat "$OUT"; rm -f "$OUT" "$PROMPT"
 
 Bash 工具调用时给 `timeout: 300000`，重 review 给 600000；轻量核查可降到 90000；reasoning effort 简单核查可降 `"low"`，宁可慢别错。
 
+**大任务必须拆小批 + 后台并发跑**（codex CLI 实证教训）：单 prompt 文件清单 ≥ 15 个 / 总长 ≥ 80 行 + reasoning xhigh 时，codex 容易卡在初步扫描阶段（`wc -l` / `ls`）10+ 分钟没动——根因是 xhigh "研究阶段" 在大 context 下会无限延长，不是真死锁，但等不到答案。**正确姿势**：
+
+- 按主题 / 目录拆 ≤10 个文件一批，单批 prompt ≤30 行（文件清单 + 输出格式 + skip 项足够）
+- 每批用 Bash 工具的 `run_in_background: true` 起，多批并发，等 `task-notification` 通知
+- 单批仍给 `timeout: 600000`（拆批是降低 stuck 概率，不是降本批耗时）
+- prompt 顶部明确「只看下面文件，不要再读 REVIEW_X.md / CLAUDE.md」避免 codex 自己拉一堆背景把 context 撑大
+- skip 项写在 prompt 里（如「skip REVIEW_1 已修过的 8 处：...」），不要让 codex 自己去读 reviews/ 推断
+- 真卡了就 `TaskStop` 中止 + 拆更小批重试，不要傻等
+
 ---
 
 ## 新项目工程地基
@@ -115,6 +124,47 @@ project-root/
 - 同步更新对应 `INDEX.md`（一行表概要 ≤80 字）
 - changelog 单文件：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）；**不要写「踩坑细节 / 推演过程」**——那些去 reviews
 - reviews 单文件：触发场景 + 方法（双对抗 Agent 配对 / 范围 / 工具）+ 三态裁决清单（带 `文件:行号` + 代码片段）+ 修复条目 + 关联 changelog
+
+**已审文件过期**（File-level Review Expiry）：
+
+`reviews/` 不是「审过即终身豁免」。Agent 决定下一轮 review 范围时**必须**先扫所有 `reviews/REVIEW_*.md` 的机器可读 `review-scope`，建 `file → 最新 REVIEW_X` 映射；同一路径多次审取最新。某文件自其最近一次 REVIEW 的「覆盖基线」起，**任一**命中即过期：
+
+- **净 churn** `≥ min(200 行, 当前文件 LOC 的 30%)`：`git diff -w --numstat <BASE> -- <file>` 的 add+del
+- **distinct commit 数 ≥ 3**：`git log -w --format=%H <BASE>..HEAD -- <file> | sort -u | wc -l`
+- **距覆盖 ≥ 90 天 且期间该文件至少有 1 次代码变更**
+- **frontmatter `expired: true`**（人工兜底，公共 API 改了 / 安全假设失效凭经验置位）
+
+`<BASE>` = 该 REVIEW.md 文件首次加入 git 的 commit，自动取，不写在 frontmatter 里：
+
+```bash
+BASE=$(git log --diff-filter=A --format=%H -n 1 -- reviews/REVIEW_X.md)
+```
+
+**rename / move / split 出来的新路径不继承旧路径已审状态**，按未审处理（路径边界一变最稳妥就是重审）。
+
+**本轮 review 强制最小范围 = 未审 ∪ 已审过期 ∪ scope_unknown**（解析不出 scope 的旧 review 不能拿来当豁免依据）。Agent 可因上下文再扩范围，但**不能因「之前审过」跳过已过期文件**。
+
+**默认硬合并，不问要不要并入**——这正是机制存在的意义。仅当合并后 > 20 文件 / > 6000 行时问「拆批 / 先审哪批」（不是问跳过）。用户主动选择跳过某过期文件需写入本份 REVIEW frontmatter 的 `skipped_expired` 备注（含原因）便于下次回查。
+
+调阈值（200 / 3 / 90）属约定升级，走双对抗三态裁决；过期检查本身**不走**对抗（纯机械计算）。
+
+**自检命令**（agent 在「下一轮 review」第一步必跑）：
+
+```bash
+# 1) 列出所有 REVIEW 及其 review-scope（一行一个相对路径）+ 覆盖基线 commit
+for f in reviews/REVIEW_*.md; do
+  BASE=$(git log --diff-filter=A --format=%H -n 1 -- "$f")
+  awk '/^```review-scope$/{s=1; next} /^```$/{s=0} s' "$f" \
+    | while read p; do echo -e "${p}\t${f}\t${BASE}"; done
+done
+
+# 2) 单文件过期判定（churn / commit / 时间）
+file=src/main/foo.ts
+git diff -w --numstat "$BASE" -- "$file" \
+  | awk 'NF==3 {add+=$1; del+=$2} END {print "churn="add+del}'
+git log -w --format=%H "$BASE..HEAD" -- "$file" | sort -u | wc -l   # commits
+git log -1 --format=%cs -- reviews/REVIEW_X.md                       # 覆盖日期
+```
 
 **改功能前**：先 `ls changelog/ reviews/` + 浏览相关条目，了解历史决策、避免推翻已有约定 / 重复踩坑。
 
@@ -284,11 +334,20 @@ project-root/
 ### `reviews/REVIEW_<X>.md`
 
 ````markdown
+---
+review_id: <X>
+reviewed_at: <YYYY-MM-DD>
+expired: false               # 人工兜底；置 true 强制下轮重新纳入
+skipped_expired:             # 本轮算出过期但被用户裁掉的（可空），写原因便于下次回查
+  # - file: src/some.ts
+  #   reason: 仅格式化 / 注释批量改
+---
+
 # REVIEW_<X>: <主题>
 
 ## 触发场景
 
-<用户主动 / 周期性 / 大重构前 / 安全审查 ...，一两句说明动机>
+<用户主动 / 周期性 / 大重构前 / 安全审查 ...，一两句说明动机；如本轮含「过期文件复审」请显式说明>
 
 ## 方法
 
@@ -298,9 +357,18 @@ project-root/
 
 **范围**：<N 个文件 / 模块清单 / 约多少行>
 
+```text
+<给人读的范围摘要；可按模块分组 / brace expansion，可读性优先>
 ```
-<具体文件清单>
+
+**机器可读范围**（File-level Review Expiry 用；一行一个仓库相对路径，按字典序、去重；禁止目录 / glob / brace expansion）：
+
+```review-scope
+src/main/foo.ts
+src/main/bar.ts
 ```
+
+> 本文件**首次加入 git** 的 commit 视为该批文件的覆盖基线（自动取，不写 hash）。请与本轮结论 / 关联修复一同落地，不要预先创建空 `REVIEW_<X>.md`。
 
 **约束**：<已知不再列的问题（如「CHANGELOG 1-N 已修过的不要再列」）/ 输出格式 / 严重度分级 (HIGH/MED/LOW)>
 

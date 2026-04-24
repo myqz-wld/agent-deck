@@ -82,15 +82,27 @@ window.addEventListener('unhandledrejection', (ev) => {
  * - 'TextModel got disposed before DiffEditorWidget'：DiffEditor cleanup 顺序倒置（同步抛）
  * - 'no diff result available'：editorWorkerService 在 model dispose 后返回 null，
  *   `if (!c) throw new Error(...)` 走 async 路径 → unhandledrejection
+ * - monaco cancellation：worker 任务取消时 monaco 抛 name='Canceled' && message='Canceled'
+ *   的 Error（见 monaco-editor errors.js: canceled() / CancellationError）。切会话 / 关 diff
+ *   时 worker 任务被取消属于正常行为。判定逻辑直接对齐 monaco 自身 isCancellationError，
+ *   不只看 message 防止误吞「Job was Canceled by user」这类 message 含 Canceled 的真错。
+ *   REVIEW_2 修。
  * 都是 @monaco-editor/react 卸载 / 切换 model 期间的内部 race，不影响功能。
  */
 function isMonacoUnmountRaceNoise(reason: unknown): boolean {
+  const r = reason as { name?: string; message?: string } | null | undefined;
+  if (r?.name === 'Canceled' && r?.message === 'Canceled') return true;
   const msg =
     typeof reason === 'string'
       ? reason
       : (reason as { message?: string })?.message ?? String(reason ?? '');
   return /TextModel got disposed before DiffEditorWidget|no diff result available/.test(msg);
 }
+
+/** 自动消失的 fatal banner 持续时间。
+ * 之前所有未捕获 rejection 都升级到全屏 fatal 永久遮挡，瞬时主进程异常会把整窗打死，
+ * 用户必须点 ✕ 才能恢复。改成 8s 自动 fade，手动 ✕ 仍然立刻关；console 留痕不丢线索。 */
+const FATAL_AUTO_DISMISS_MS = 8000;
 
 function showFatal(text: string): void {
   const root = document.getElementById('root');
@@ -110,6 +122,7 @@ function showFatal(text: string): void {
     overflow: 'auto',
     whiteSpace: 'pre-wrap',
     zIndex: '999',
+    transition: 'opacity 400ms ease',
   });
   el.textContent = text;
 
@@ -127,10 +140,22 @@ function showFatal(text: string): void {
     padding: '0 6px',
     fontSize: '11px',
   });
-  close.onclick = (): void => el.remove();
+  // 自动消失 + 手动关都走同一段 cleanup，避免 timer 残留
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const remove = (): void => {
+    if (timer != null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 400);
+  };
+  close.onclick = remove;
   el.appendChild(close);
 
   root.appendChild(el);
+  // REVIEW_2：瞬时异常不再永久遮挡，给固定时长用户能看到错误也能恢复 UI。
+  timer = setTimeout(remove, FATAL_AUTO_DISMISS_MS);
 }
 
 const container = document.getElementById('root');

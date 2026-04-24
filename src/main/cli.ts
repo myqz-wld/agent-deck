@@ -63,7 +63,20 @@ function findSubcommand(argv: readonly string[]): { sub: string; args: string[] 
  *   --no-key      （布尔反向开关，等价于 key=false）
  *   --key         （后面没值或紧跟下一个 --xxx 时视为 key=true）
  * 不实现 short flag、引号嵌套等高级语义 —— shell 那边会处理引号。
+ *
+ * REVIEW_2：加 valueRequired 集合。`cwd / agent / prompt / model / permission-mode / resume`
+ * 这些值型 flag 缺值时不再静默吞为 true（再被 asString 转 undefined 走默认 fallback），
+ * 直接抛错让用户知道命令拼错了，不要让 `--cwd`（缺值）静默落到 homedir。
  */
+const VALUE_REQUIRED_FLAGS = new Set([
+  'cwd',
+  'agent',
+  'prompt',
+  'model',
+  'permission-mode',
+  'resume',
+]);
+
 function parseFlags(args: readonly string[]): Map<string, string | boolean> {
   const out = new Map<string, string | boolean>();
   let i = 0;
@@ -90,6 +103,9 @@ function parseFlags(args: readonly string[]): Map<string, string | boolean> {
       out.set(key, next);
       i += 2;
     } else {
+      if (VALUE_REQUIRED_FLAGS.has(key)) {
+        throw new Error(`agent-deck new: --${key} 缺少取值（用法：--${key} <value>）`);
+      }
       out.set(key, true);
       i++;
     }
@@ -175,9 +191,15 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
     permissionMode: inv.permissionMode,
     resume: inv.resume,
   });
-  // 与 ipc.ts 的 AdapterCreateSession 路径对齐：把 permissionMode 持久化到 sessions 列，
-  // 否则 SessionDetail 下拉只读到 NULL → 'default'，跟 SDK 真实状态对不上。
-  sessionManager.recordCreatedPermissionMode(sid, inv.permissionMode);
+  // 按 adapter capability 决定是否持久化 permissionMode：
+  // - canSetPermissionMode=true（如 claude-code）→ 写入 sessions.permission_mode 让
+  //   SessionDetail 下拉读到正确值，跟 SDK 真实状态对齐。
+  // - canSetPermissionMode=false（如 codex-cli）→ 不写，避免污染 DB 列让别处误读
+  //   一个其实"未生效"的 mode（CLI 路径之前总是写，而 codex SDK 完全忽略）。
+  // REVIEW_2 修。
+  if (adapter.capabilities.canSetPermissionMode) {
+    sessionManager.recordCreatedPermissionMode(sid, inv.permissionMode);
+  }
   if (inv.focus) {
     const win = getFloatingWindow().window;
     win?.show();
