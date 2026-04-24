@@ -1016,12 +1016,17 @@ export class ClaudeSdkBridge {
       }, 30_000);
 
       void (async () => {
-        const realId = await this.consume(internal, tempKey, (id) => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(fallback);
-          resolve(id);
-        });
+        const realId = await this.consume(
+          internal,
+          tempKey,
+          (id) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(fallback);
+            resolve(id);
+          },
+          resumeId,
+        );
         // consume 结束（流自然终止）；如果还没 resolve，用最后已知 id
         if (!resolved) {
           clearTimeout(fallback);
@@ -1040,6 +1045,7 @@ export class ClaudeSdkBridge {
     internal: InternalSession,
     tempKey: string,
     onFirstId: (id: string) => void,
+    resumeId?: string,
   ): Promise<string | null> {
     let realId: string | null = null;
     try {
@@ -1062,6 +1068,37 @@ export class ClaudeSdkBridge {
             sessionManager.claimAsSdk(realId);
             sessionManager.renameSdkSession(tempKey, realId);
           }
+
+          // CHANGELOG_27 / REVIEW_6：CLI 在 SDK streaming input + resume + 新 prompt 下
+          // 隐式 fork —— 实测铁证：resume=OLD_ID, prompt='ping' → first session_id=NEW_ID
+          // (≠ OLD_ID)，CLI 内置 fork 与 SDK 文档「forkSession 默认 false 不 fork」不一致。
+          // 默认 fork 在更深的 native binary 内，应用层无法关掉。
+          //
+          // CHANGELOG_24 备注早预警过这个边界，B 方案 (CHANGELOG_26) 落地后用户场景实测
+          // 触发：detail 卡在「⚠ SDK 通道已断开」占位 message 后无下文，实时面板冒一条新
+          // SDK 会话 = NEW_ID（manager.ensure 把 NEW_ID 当全新会话落库，OLD_ID detail 不动）。
+          //
+          // 修法：把 OLD_ID 的 DB record + 子表（events / file_changes / summaries）全部
+          // rename 成 NEW_ID，让历史"续上"NEW_ID 名下；renderer 通过 session-renamed 自动
+          // 把 selectedId / sessions Map / by-session state 迁过去（store.renameSession 已实现）。
+          // 副作用：会话 id 字段变了（与 jsonl 文件名一致），但 detail / list 内容完全连续，
+          // 用户在 UI 上看不到 sessionId 字段，体感等同「会话续上」。
+          //
+          // 关键约束：
+          // - rename 必须在 createSession line 465 emit session-start 之后（manager 已 ensure
+          //   了 NEW_ID record），rename(OLD_ID → NEW_ID) 走 sessionRepo.rename 的 toExists
+          //   分支：不复制 OLD_ID record 但子表全迁，再 delete OLD_ID record，干净
+          // - claim 转移：OLD_ID 在 createSession line 176-178 已 claimAsSdk，要 release；
+          //   NEW_ID 在 createSession line 451 已 claimAsSdk，无需重复
+          if (resumeId && resumeId !== realId) {
+            console.warn(
+              `[sdk-bridge] CLI forked: requested resume=${resumeId} but got realId=${realId}; ` +
+                `renaming OLD record → NEW so history continues under the new session id`,
+            );
+            sessionManager.releaseSdkClaim(resumeId);
+            sessionManager.renameSdkSession(resumeId, realId);
+          }
+
           onFirstId(realId);
         }
 
