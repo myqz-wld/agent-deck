@@ -28,8 +28,16 @@
  *    已运行的 SDK 会话已经把 system prompt 固化进 LLM 上下文，热改无效。
  */
 import { app } from 'electron';
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
+import { settingsStore } from '@main/store/settings-store';
 
 const USER_CLAUDE_MD_FILENAME = 'agent-deck-claude.md';
 const APPEND_HEADER =
@@ -67,8 +75,13 @@ function getUserClaudeMdPath(): string {
  * 加载优先级：用户副本 → 内置 → 空字符串。
  * 失败兜底：返回空字符串 + console.warn，让会话照常起来（不阻塞用户操作）。
  * SDK 接受 append 为空字符串等价于不追加。
+ *
+ * 开关：settings.injectAgentDeckClaudeMd === false 时直接返回空串
+ * （settings panel 里有 toggle 让用户彻底禁用注入）。这条优先于缓存读取，
+ * 让用户关掉之后立刻生效（搭配 SettingsSet handler 内的 invalidate 调用）。
  */
 export function getAgentDeckSystemPromptAppend(): string {
+  if (!settingsStore.get('injectAgentDeckClaudeMd')) return '';
   if (cachedClaudeMdAppend !== null) {
     return cachedClaudeMdAppend;
   }
@@ -111,9 +124,17 @@ export function getBuiltinAgentDeckClaudeMd(): string {
 /**
  * 写用户副本到 userData/agent-deck-claude.md 并清缓存。
  * 调用方负责把内容传过来；不做 schema 校验（用户全责）。
+ *
+ * 原子写：write tmp + rename，与 hook-installer.writeSettings 同模式。
+ * REVIEW_2 修：原本直接 writeFileSync 覆盖，进程崩溃 / 磁盘满会留半截文件，
+ *           下次 readFileSync 会拿到截断内容当生效注入。
  */
 export function saveUserAgentDeckClaudeMd(content: string): void {
-  writeFileSync(getUserClaudeMdPath(), content, 'utf8');
+  const path = getUserClaudeMdPath();
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp.${process.pid}`;
+  writeFileSync(tmp, content, 'utf8');
+  renameSync(tmp, path);
   invalidateAgentDeckSystemPromptAppend();
 }
 

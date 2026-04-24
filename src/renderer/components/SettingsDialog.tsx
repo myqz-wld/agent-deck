@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import { DEFAULT_SETTINGS, type AppSettings, type HookInstallStatus } from '@shared/types';
 
 interface Props {
@@ -11,6 +11,9 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
   const [hookStatus, setHookStatus] = useState<HookInstallStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** ClaudeMdEditor 是否有未保存草稿（由子组件回报）。
+   * 用 ref 持有避免 SettingsDialog 跟着重渲染；guardedClose 同步读最新值即可。 */
+  const claudeMdDirtyRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -38,6 +41,23 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
   }, [open]);
 
   if (!open) return null;
+
+  /** 关闭弹窗时拦截 ClaudeMdEditor 未保存草稿，让用户二次确认。
+   * 误关一次原本会丢整段 CLAUDE.md 编辑（dirty state 在子组件里，父级看不到）。 */
+  const guardedClose = async (): Promise<void> => {
+    if (claudeMdDirtyRef.current) {
+      const ok = await window.api.confirmDialog({
+        title: '关闭设置',
+        message: 'CLAUDE.md 有未保存的草稿，确定要丢弃吗？',
+        detail: '关闭后改动将丢失，无法恢复。',
+        okLabel: '丢弃并关闭',
+        cancelLabel: '继续编辑',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    onClose();
+  };
 
   const update = async (patch: Partial<AppSettings>): Promise<void> => {
     setBusy(true);
@@ -75,7 +95,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
           <h2 className="text-[13px] font-medium">设置</h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => void guardedClose()}
             className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
           >
             ✕
@@ -98,6 +118,9 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
             update={update}
             installHook={installHook}
             uninstallHook={uninstallHook}
+            onClaudeMdDirtyChange={(d) => {
+              claudeMdDirtyRef.current = d;
+            }}
           />
         )}
       </div>
@@ -112,6 +135,7 @@ interface BodyProps {
   update: (patch: Partial<AppSettings>) => Promise<void>;
   installHook: () => Promise<void>;
   uninstallHook: () => Promise<void>;
+  onClaudeMdDirtyChange: (dirty: boolean) => void;
 }
 
 function SettingsBody({
@@ -121,6 +145,7 @@ function SettingsBody({
   update,
   installHook,
   uninstallHook,
+  onClaudeMdDirtyChange,
 }: BodyProps): JSX.Element {
   return (
     <>
@@ -270,7 +295,15 @@ function SettingsBody({
         </Section>
 
         <Section title="应用约定（CLAUDE.md）">
-          <ClaudeMdEditor />
+          <Toggle
+            label="启用 agent-deck CLAUDE.md 注入"
+            value={settings.injectAgentDeckClaudeMd}
+            onChange={(v) => void update({ injectAgentDeckClaudeMd: v })}
+          />
+          <div className="text-[10px] leading-snug text-deck-muted/70">
+            关闭后下次新建会话不再注入；已运行的会话已固化进 LLM 上下文，关掉不会回收。
+          </div>
+          <ClaudeMdEditor onDirtyChange={onClaudeMdDirtyChange} />
         </Section>
     </>
   );
@@ -322,17 +355,49 @@ function NumberInput({
   max?: number;
   onChange: (v: number) => void;
 }): JSX.Element {
+  // 用本地 string 草稿允许中间态（清空 / 删字符 / 输负号）；blur 或 Enter 时才提交并 clamp。
+  // REVIEW_2 修：原本每次按键直接 Number(...) onChange，清空 = 0、负数 / 超大值都立即生效，
+  // hookServerPort=0 / activeWindowMs=0 这种"立即生效但语义违法"的值会污染 settings DB。
+  const [draft, setDraft] = useState<string>(String(value));
+  // 父级 value 变化时同步草稿（恢复默认 / 异地修改回流），但用户正在编辑时不抢
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!editing) setDraft(String(value));
+  }, [value, editing]);
+
+  const commit = (): void => {
+    setEditing(false);
+    const n = Number(draft);
+    if (!Number.isFinite(n)) {
+      setDraft(String(value));
+      return;
+    }
+    let clamped = n;
+    if (min !== undefined && clamped < min) clamped = min;
+    if (max !== undefined && clamped > max) clamped = max;
+    if (clamped !== value) onChange(clamped);
+    setDraft(String(clamped));
+  };
+
   return (
     <label className="flex items-center justify-between gap-2 text-[11px]">
       <span className="flex-1">{label}</span>
       <input
         type="number"
-        value={value}
+        value={draft}
         min={min}
         max={max}
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          if (Number.isFinite(n)) onChange(n);
+        onFocus={() => setEditing(true)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.currentTarget.blur();
+          } else if (e.key === 'Escape') {
+            setDraft(String(value));
+            setEditing(false);
+            e.currentTarget.blur();
+          }
         }}
         className="w-20 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-right text-[11px] outline-none focus:border-white/20"
       />
@@ -511,7 +576,11 @@ function NotificationTestRow(): JSX.Element {
  * - 「恢复默认」删用户副本回落内置
  * - 已运行的 SDK 会话不受影响（system prompt 已固化进 LLM 上下文）；只有「下次新建会话」生效
  */
-function ClaudeMdEditor(): JSX.Element {
+function ClaudeMdEditor({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}): JSX.Element {
   const [loaded, setLoaded] = useState<{ content: string; isCustom: boolean } | null>(null);
   const [draft, setDraft] = useState<string>('');
   const [busy, setBusy] = useState(false);
@@ -534,6 +603,13 @@ function ClaudeMdEditor(): JSX.Element {
   }, []);
 
   const dirty = loaded !== null && draft !== loaded.content;
+
+  // 上报 dirty → 父组件 ref，关闭弹窗时拦截。
+  // 卸载时显式上报 false，避免父级 ref 残留 true 让下次打开就误拦截。
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
 
   const save = async (): Promise<void> => {
     setBusy(true);

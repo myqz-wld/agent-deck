@@ -323,6 +323,16 @@ export interface AppSettings {
    * agent-deck 不读不写 codex 鉴权（`~/.codex/config.toml` / 环境变量），全由用户终端配置。
    */
   codexCliPath: string | null;
+  /**
+   * 是否把 agent-deck 自带的 CLAUDE.md（`resources/claude-config/CLAUDE.md` 或用户副本
+   * `userData/agent-deck-claude.md`）注入到 SDK 会话 system prompt 末尾。
+   * - true（默认）：注入，让会话遵循 agent-deck 项目内通用约定
+   * - false：不注入，会话只受 user/project/local CLAUDE.md 控制
+   *
+   * 改这个开关只影响**下次新建**的会话；已运行的 SDK 会话已经把 system prompt
+   * 固化进 LLM 上下文，关掉不会回收。
+   */
+  injectAgentDeckClaudeMd: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -344,6 +354,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   startOnLogin: false,
   historyRetentionDays: 30,
   codexCliPath: null,
+  injectAgentDeckClaudeMd: true,
 };
 
 // ───────────────────────────────────────────────────────── Hook Status

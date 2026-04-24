@@ -20,6 +20,7 @@ import { scanCwdSettings, getCandidatePaths } from './permissions/scanner';
 import {
   getActiveAgentDeckClaudeMd,
   getBuiltinAgentDeckClaudeMd,
+  invalidateAgentDeckSystemPromptAppend,
   resetUserAgentDeckClaudeMd,
   saveUserAgentDeckClaudeMd,
 } from './adapters/claude-code/sdk-injection';
@@ -160,6 +161,13 @@ export function bootstrapIpc(): void {
     // hookServerToken 同理：换 token 必须重启 server + 重新 install hook 才能生效。
     if ('hookServerPort' in p) {
       console.warn('[settings] hookServerPort changed; restart app + reinstall hooks to take effect');
+    }
+
+    // 7) agent-deck 自带 CLAUDE.md 注入开关 → 清缓存让 getAgentDeckSystemPromptAppend
+    // 下次新建会话立即读到新值（开关本身在 sdk-injection 入口处独立检查，
+    // 但 cache 仍可能持有"true 时读到的内容"，关掉再开会让用户副本/内置切换瞬间生效）。
+    if ('injectAgentDeckClaudeMd' in p) {
+      invalidateAgentDeckSystemPromptAppend();
     }
 
     return next;

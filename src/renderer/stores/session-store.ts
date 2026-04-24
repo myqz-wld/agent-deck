@@ -130,9 +130,40 @@ export const useSessionStore = create<State>((set) => ({
   pendingExitPlanModesBySession: new Map(),
 
   setSessions: (records) => {
-    const m = new Map<string, SessionRecord>();
-    for (const r of records) m.set(r.id, r);
-    set({ sessions: m });
+    // 全量替换会话列表（启动 / HMR / history 视图初始拉）。
+    // 同时按新 id 集合 prune 所有 by-session 衍生缓存，否则被 history 清理 / 删除掉的
+    // 会话会留 orphan 在 7 张 Map 里（renameSession / removeSession 已对齐这个范式）。
+    set((state) => {
+      const m = new Map<string, SessionRecord>();
+      for (const r of records) m.set(r.id, r);
+      const validIds = new Set(records.map((r) => r.id));
+      const prune = <V>(src: Map<string, V>): Map<string, V> => {
+        let changed = false;
+        for (const k of src.keys()) {
+          if (!validIds.has(k)) {
+            changed = true;
+            break;
+          }
+        }
+        if (!changed) return src;
+        const next = new Map<string, V>();
+        for (const [k, v] of src) if (validIds.has(k)) next.set(k, v);
+        return next;
+      };
+      return {
+        sessions: m,
+        recentEventsBySession: prune(state.recentEventsBySession),
+        summariesBySession: prune(state.summariesBySession),
+        latestSummaryBySession: prune(state.latestSummaryBySession),
+        pendingPermissionsBySession: prune(state.pendingPermissionsBySession),
+        pendingAskQuestionsBySession: prune(state.pendingAskQuestionsBySession),
+        pendingExitPlanModesBySession: prune(state.pendingExitPlanModesBySession),
+        selectedSessionId:
+          state.selectedSessionId !== null && !validIds.has(state.selectedSessionId)
+            ? null
+            : state.selectedSessionId,
+      };
+    });
   },
 
   upsertSession: (record) =>
@@ -269,7 +300,10 @@ export const useSessionStore = create<State>((set) => ({
       const m = new Map(state.summariesBySession);
       m.set(sessionId, summaries);
       const latestMap = new Map(state.latestSummaryBySession);
+      // 空数组也要清掉 latest，否则 SessionCard 会继续显示已被服务端删除的旧 summary
+      // （REVIEW_2 修：原本只有 length>0 才 set，length===0 路径漏了 delete）
       if (summaries.length > 0) latestMap.set(sessionId, summaries[0]);
+      else latestMap.delete(sessionId);
       return { summariesBySession: m, latestSummaryBySession: latestMap };
     }),
 
