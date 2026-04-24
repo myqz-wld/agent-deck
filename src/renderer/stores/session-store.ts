@@ -57,10 +57,18 @@ interface State {
   renameSession: (fromId: string, toId: string) => void;
 }
 
-const RECENT_LIMIT = 30;
-const EMPTY_REQUESTS: PermissionRequest[] = [];
-const EMPTY_ASK_QUESTIONS: AskUserQuestionRequest[] = [];
-const EMPTY_EXIT_PLAN_MODES: ExitPlanModeRequest[] = [];
+/**
+ * 最近事件保留上限。`pushEvent` 拼新事件后切到这个长度，`setRecentEvents` 也会同步切，
+ * 让初次 listEvents 拉的历史与后续 push 的渲染窗口对齐。
+ *
+ * REVIEW_4 H4：之前 RECENT_LIMIT=30 + activity-feed 调 listEvents(100)，导致用户切到一个
+ * 有 100 条历史的会话刚渲染完，下一条新事件来 70 条历史从 UI 蒸发。提升到 200 与
+ * SessionListEvents 默认 limit (200) 对齐；200 条普通文本事件常驻内存 < 1MB，可接受。
+ */
+export const RECENT_LIMIT = 200;
+export const EMPTY_REQUESTS: PermissionRequest[] = [];
+export const EMPTY_ASK_QUESTIONS: AskUserQuestionRequest[] = [];
+export const EMPTY_EXIT_PLAN_MODES: ExitPlanModeRequest[] = [];
 
 function isPermissionRequest(payload: unknown): payload is PermissionRequest {
   return (
@@ -116,7 +124,7 @@ function isExitPlanCancelled(payload: unknown): payload is { requestId: string }
   );
 }
 
-export { EMPTY_REQUESTS, EMPTY_ASK_QUESTIONS, EMPTY_EXIT_PLAN_MODES };
+// EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES 已在文件上方导出
 
 export const useSessionStore = create<State>((set) => ({
   sessions: new Map(),
@@ -317,7 +325,9 @@ export const useSessionStore = create<State>((set) => ({
   setRecentEvents: (sessionId, events) =>
     set((state) => {
       const m = new Map(state.recentEventsBySession);
-      m.set(sessionId, events);
+      // REVIEW_4 H4：与 pushEvent 同样切到 RECENT_LIMIT —— listEvents 调用方传 200，
+      // 这里再切一刀防止 push 后立刻 slice(0,30) 让 70 条历史秒蒸发。
+      m.set(sessionId, events.slice(0, RECENT_LIMIT));
       return { recentEventsBySession: m };
     }),
 

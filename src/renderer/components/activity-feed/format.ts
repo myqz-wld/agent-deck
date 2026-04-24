@@ -8,8 +8,10 @@ import type { AgentEvent } from '@shared/types';
  * - tool-use-* 用 toolUseId（唯一稳定）
  * - waiting-for-user 用 type+requestId（同一请求 SDK 多次推送同 requestId 也只算一条）
  * - file-changed 用 ts+filePath（MultiEdit 拆出多条同 filePath 也按 ts 区分）
- * - 其余用 sessionId+kind+ts；同毫秒兜底加 payload 关键字段（若无则只能依赖时间戳，
- *   极小概率冲突也不会比原来 ts+idx 差）
+ * - message / thinking 用 sessionId+kind+ts+payload 文本前 32 字符（REVIEW_4 M19）。
+ *   旧版仅 `sessionId:kind:ts` 同毫秒同 kind（SDK 一帧吐多条 message + thinking 不少见）撞 key
+ *   导致 React 复用错 row 的 useState（MD/TXT, ▾/▸）；payload.text 前 32 字符做 nonce 区分。
+ * - 其余用 sessionId+kind+ts；同毫秒兜底极小概率冲突，无 payload 摘要可用，不会比 ts+idx 差
  */
 export function eventKey(e: AgentEvent): string {
   const p = (e.payload ?? {}) as Record<string, unknown>;
@@ -25,6 +27,11 @@ export function eventKey(e: AgentEvent): string {
   if (e.kind === 'file-changed') {
     const fp = typeof p.filePath === 'string' ? p.filePath : '';
     return `fc:${e.ts}:${fp}`;
+  }
+  if (e.kind === 'message' || e.kind === 'thinking') {
+    const text = typeof p.text === 'string' ? p.text : '';
+    const nonce = text.slice(0, 32);
+    return `${e.sessionId}:${e.kind}:${e.ts}:${nonce}`;
   }
   return `${e.sessionId}:${e.kind}:${e.ts}`;
 }

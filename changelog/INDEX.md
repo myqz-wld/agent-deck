@@ -26,3 +26,5 @@
 | [CHANGELOG_19.md](CHANGELOG_19.md) | ActivityFeed 695 行拆 8 文件 + 顺手补初始化 race + 6 候选对抗评估（仅候选 4 落地，5 个不做附触发条件） |
 | [CHANGELOG_20.md](CHANGELOG_20.md) | 双对抗架构评审 Phase 0：N1 payload 截断（256KB + shrink 大字段）+ N2 删会话同步关 SDK live Query（adapter capabilities 加 canCloseSession） |
 | [CHANGELOG_21.md](CHANGELOG_21.md) | 双对抗架构评审 Phase 1-3：SettingsDialog 720→338 行渐进拆分 + 引入 vitest（14 单测）+ ingest 拆 5 段 + SettingsSet 拆 8 函数 + N6 事务保护 + N8 token 分支 + notify event-router + summarizer 错误诊断聚合到设置面板 |
+| [CHANGELOG_22.md](CHANGELOG_22.md) | 双对抗架构评审 Phase 4：N4 migrations 单轨化（vite ?raw inline）+ N5 FTS5 历史搜索（trigram + external content + 触发器同步）+ Opus 实跑 SQL 抓出 alias MATCH 致命 broken + EXISTS→IN+DISTINCT 200×加速 + UPDATE WHEN 防御 + case_sensitive=1 维持原行为 + verify-fts5.sh 12 项集成校验 |
+| [CHANGELOG_23.md](CHANGELOG_23.md) | REVIEW_4 修复落地（4 HIGH + 17 MED + 2 LOW，跨 19 文件）：H1 删除会话竞态（intentionallyClosed + 黑名单双保险）+ H2 SettingsSet 运行时 rollback + H3 字节预算改 utf-8 安全切 + KNOWN_LARGE 递归 + H4 RECENT_LIMIT 与 listEvents 对齐 + IPC 边界校验 helper + 双 finished 屏蔽 + event-router try/catch + ClaudeMd save 返回真实写盘内容 + NumberInput integer + ActivityRow memo + thinking/message 折叠 |

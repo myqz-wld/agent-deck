@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { DEFAULT_SETTINGS, type AppSettings, type HookInstallStatus } from '@shared/types';
 import {
   Section,
@@ -27,31 +27,55 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
   /** ClaudeMdEditor 是否有未保存草稿（由子组件回报）。
    * 用 ref 持有避免 SettingsDialog 跟着重渲染；guardedClose 同步读最新值即可。 */
   const claudeMdDirtyRef = useRef(false);
+  /** REVIEW_4 M9：每次重新打开都递增，旧 effect 的 then 回调用这个比对 abort，
+   *  避免快速切换 open 时旧响应回写新打开的 state。 */
+  const openSeqRef = useRef(0);
+  /** REVIEW_4 M9：update 请求序号；连点多个 toggle 时慢响应回写旧值会被丢弃。 */
+  const updateSeqRef = useRef(0);
+  /** REVIEW_4 LOW：guardedClose 多次点 ✕ 并行 → 用 inFlight 标记吞掉重复点击。 */
+  const closeInFlightRef = useRef(false);
+
+  /** REVIEW_4 M11：parent 用 useCallback 稳定 identity，防 child useEffect cleanup→run
+   *  在 parent rerender 时误触发伪 false，让 dirty 标记在 commit 内瞬间为 false。 */
+  const onClaudeMdDirtyChange = useCallback((d: boolean) => {
+    claudeMdDirtyRef.current = d;
+  }, []);
 
   useEffect(() => {
     if (!open) return;
+    const seq = ++openSeqRef.current;
     setLoadError(null);
     setActionError(null);
     void window.api
       .getSettings()
-      .then((s) =>
+      .then((s) => {
+        if (seq !== openSeqRef.current) return; // 老 open 的迟到响应：丢
         // 用 DEFAULT_SETTINGS 兜底：main 端老 schema 缺字段时（HMR 不能 reload main，
         // 改了 AppSettings 后没重启 dev 就会缺新加的字段），前端表单仍能显示默认值。
-        setSettings({ ...DEFAULT_SETTINGS, ...((s as Partial<AppSettings>) ?? {}) }),
-      )
-      .catch((err: unknown) =>
-        setLoadError(`getSettings 失败：${(err as Error).message ?? String(err)}`),
-      );
+        setSettings({ ...DEFAULT_SETTINGS, ...((s as Partial<AppSettings>) ?? {}) });
+      })
+      .catch((err: unknown) => {
+        if (seq !== openSeqRef.current) return;
+        setLoadError(`getSettings 失败：${(err as Error).message ?? String(err)}`);
+        // REVIEW_4 M8：getSettings 失败时降级用 DEFAULT_SETTINGS 兜底渲染表单，
+        // 让用户至少能看到完整设置面板而非死锁在「读取设置中…」。
+        // 写设置仍可用（main 持久化独立），只是初始值是 default。
+        setSettings((prev) => prev ?? { ...DEFAULT_SETTINGS });
+      });
     void window.api
       .hookStatus('user')
-      .then((s) => setHookStatus(s as HookInstallStatus))
-      .catch((err: unknown) =>
+      .then((s) => {
+        if (seq !== openSeqRef.current) return;
+        setHookStatus(s as HookInstallStatus);
+      })
+      .catch((err: unknown) => {
+        if (seq !== openSeqRef.current) return;
         setLoadError(
           (prev) =>
             (prev ? prev + '\n' : '') +
             `hookStatus 失败：${(err as Error).message ?? String(err)}`,
-        ),
-      );
+        );
+      });
   }, [open]);
 
   if (!open) return null;
@@ -59,7 +83,13 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
   /** 关闭弹窗时拦截 ClaudeMdEditor 未保存草稿，让用户二次确认。
    * 误关一次原本会丢整段 CLAUDE.md 编辑（dirty state 在子组件里，父级看不到）。 */
   const guardedClose = async (): Promise<void> => {
-    if (claudeMdDirtyRef.current) {
+    if (closeInFlightRef.current) return; // 防多次点 ✕ 并行弹多个 confirm
+    if (!claudeMdDirtyRef.current) {
+      onClose();
+      return;
+    }
+    closeInFlightRef.current = true;
+    try {
       const ok = await window.api.confirmDialog({
         title: '关闭设置',
         message: 'CLAUDE.md 有未保存的草稿，确定要丢弃吗？',
@@ -68,21 +98,27 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
         cancelLabel: '继续编辑',
         destructive: true,
       });
-      if (!ok) return;
+      if (ok) onClose();
+    } finally {
+      closeInFlightRef.current = false;
     }
-    onClose();
   };
 
   const update = async (patch: Partial<AppSettings>): Promise<void> => {
+    // REVIEW_4 M9：递增请求序号，慢响应被新 update 抢答时丢弃，避免回写旧值 toggle 闪回
+    const seq = ++updateSeqRef.current;
     setBusy(true);
     setActionError(null);
     try {
-      const next = (await window.api.setSettings(patch)) as AppSettings;
-      setSettings(next);
+      const next = (await window.api.setSettings(patch)) as Partial<AppSettings> | undefined;
+      if (seq !== updateSeqRef.current) return; // 老请求迟到，丢
+      // 同样用 DEFAULT_SETTINGS 兜底（防 main 返回 partial）
+      setSettings({ ...DEFAULT_SETTINGS, ...((next ?? {}) as Partial<AppSettings>) });
     } catch (err) {
+      if (seq !== updateSeqRef.current) return;
       setActionError(`保存设置失败：${(err as Error).message ?? String(err)}`);
     } finally {
-      setBusy(false);
+      if (seq === updateSeqRef.current) setBusy(false);
     }
   };
 
@@ -119,6 +155,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
           <button
             type="button"
             onClick={() => void guardedClose()}
+            aria-label="关闭设置"
             className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
           >
             ✕
@@ -147,9 +184,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
             update={update}
             installHook={installHook}
             uninstallHook={uninstallHook}
-            onClaudeMdDirtyChange={(d) => {
-              claudeMdDirtyRef.current = d;
-            }}
+            onClaudeMdDirtyChange={onClaudeMdDirtyChange}
           />
         )}
       </div>

@@ -123,19 +123,22 @@ export function getBuiltinAgentDeckClaudeMd(): string {
 
 /**
  * 写用户副本到 userData/agent-deck-claude.md 并清缓存。
- * 调用方负责把内容传过来；不做 schema 校验（用户全责）。
+ * 返回**实际写盘后读回**的内容（REVIEW_4 M11）：让 renderer 用真实写盘内容更新本地 loaded
+ * 状态，而非用 draft 直接 set —— 如果 main 端将来做规范化（去 BOM/CRLF→LF/补尾换行），
+ * 用 draft 直接 set 会让下次 dirty 永真，「保存」按钮永亮但 IPC 没东西可写。
  *
  * 原子写：write tmp + rename，与 hook-installer.writeSettings 同模式。
  * REVIEW_2 修：原本直接 writeFileSync 覆盖，进程崩溃 / 磁盘满会留半截文件，
  *           下次 readFileSync 会拿到截断内容当生效注入。
  */
-export function saveUserAgentDeckClaudeMd(content: string): void {
+export function saveUserAgentDeckClaudeMd(content: string): { content: string; isCustom: true } {
   const path = getUserClaudeMdPath();
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp.${process.pid}`;
   writeFileSync(tmp, content, 'utf8');
   renameSync(tmp, path);
   invalidateAgentDeckSystemPromptAppend();
+  return { content: readFileSync(path, 'utf8'), isCustom: true };
 }
 
 /** 删除用户副本（如果存在）+ 清缓存，回落到内置。 */
