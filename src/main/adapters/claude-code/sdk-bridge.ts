@@ -16,6 +16,7 @@ import type {
   PermissionResponse,
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
+import { sessionRepo } from '@main/store/session-repo';
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
@@ -114,6 +115,19 @@ interface InternalSession {
 export class ClaudeSdkBridge {
   /** key 是真实 session_id（拿到之前用临时 id） */
   private sessions = new Map<string, InternalSession>();
+  /**
+   * sendMessage 走「断连自愈」路径时的单飞表（CHANGELOG_26 / B 方案）：
+   *   sessionId → 正在跑的 createSession({resume,prompt}) Promise
+   *
+   * 同 sessionId 并发触发 sendMessage 时，第二条等同一个 Promise，避免 H4 修过的
+   * `claimAsSdk(opts.resume)` 被同 sessionId 多次重入造成 sdkOwned 状态错乱、
+   * 或者并发起多条 SDK query 导致 Anthropic 端按次计费 + 消息在两个 stream 里乱序。
+   *
+   * 「单飞」语义：拿到 inflight 后等它完成，然后**重新走完整 sendMessage 流程**，
+   * 把这条新 text 正常 push 进 sessions Map 上的 pendingUserMessages，避免 createSession
+   * 内只有「触发恢复的那条 prompt」被消费而后续等 inflight 的消息被丢。
+   */
+  private recovering = new Map<string, Promise<void>>();
   /** 权限请求未响应自动 abort 阈值；0 = 关闭。运行时通过 setPermissionTimeoutMs 改。 */
   private permissionTimeoutMs: number;
 
@@ -479,7 +493,15 @@ export class ClaudeSdkBridge {
 
   async sendMessage(sessionId: string, text: string): Promise<void> {
     const s = this.sessions.get(sessionId);
-    if (!s) throw new Error(`session ${sessionId} not found`);
+    if (!s) {
+      // 通道死了（dev 重启 / SDK 流自然终止 / 历史会话 lifecycle 已 dormant 或 closed 等）。
+      // 早期靠 throw 'not found' 让 renderer 自己识别再调 createAdapterSession({resume:...})；
+      // CHANGELOG_26 / B 方案：把恢复语义沉到 adapter owner 层，renderer 不感知 resume 实现细节。
+      // 委托 recoverAndSend：单飞 + 完整复用 createSession（H4/H1 全套护栏不绕）。
+      // 失败仍 throw 给 IPC，与原 'not found' 路径行为一致。
+      await this.recoverAndSend(sessionId, text);
+      return;
+    }
 
     // 单条字节上限：Buffer.byteLength 用 utf8 计算真实字节数（中文 3 字节 / 字符）。
     // 超过就拒绝，让 IPC handler 把错误抛给 renderer，UI 显示红条提示用户精简或拆分。
@@ -531,6 +553,111 @@ export class ClaudeSdkBridge {
       ts: Date.now(),
       source: 'sdk',
     });
+  }
+
+  /**
+   * 断连自愈：sendMessage 检测到 sessions Map 没有这个 sessionId 时走这里。
+   *
+   * 设计要点（B 方案 / CHANGELOG_26，双对抗 Agent 都强调的硬约束）：
+   *
+   * 1. **单飞**：同 sessionId 并发等同一个 inflight Promise，避免：
+   *    - 并发 N 条 sendMessage → 起 N 个 SDK CLI 子进程 + Anthropic 按次计费
+   *    - createSession 内 `claimAsSdk(opts.resume)` 被同 sessionId 多次重入造成 sdkOwned 状态错乱
+   *    - CHANGELOG_24 备注里挂的「用户连点恢复多次起多个 SDK query」边界由本方法收敛
+   *
+   * 2. **完整复用 createSession**：禁止在这里自拼 emit/upsert/rename，必须让
+   *    `expectSdkSession(cwd) → claimAsSdk(opts.resume) → dedupOrClaim B 分支兜底
+   *    → waitForRealSessionId(_, _, opts.resume)` 全套 REVIEW_5 H4/H1 护栏按原样跑，
+   *    任何捷径都会重打开「两条 active record」bug。
+   *
+   * 3. **用户消息只 emit 一次**：createSession 内部已 emit `kind:'message', role:'user'`
+   *    这条触发恢复的 prompt，本方法不再重复 emit；后续 inflight 等待者走完整 sendMessage
+   *    第二段把它们的 text 正常 push + emit。
+   *
+   * 4. **占位 message**：进入恢复立刻 emit「⚠ SDK 通道已断开，正在自动恢复…」非 error
+   *    占位，让 UI 在 30s fallback 期间不至于哑巴 busy；恢复成功后正常 message 流自然续；
+   *    失败由 catch emit 一条「⚠ 自动恢复失败」error message。
+   *
+   * 5. **从 sessionRepo 补回 cwd / permissionMode**：
+   *    - cwd 必填（resume 路径仍要 expectSdkSession(cwd)）
+   *    - permissionMode 用户上次主动选过的值，不能默认 'default' 否则用户辛苦切到的
+   *      plan / acceptEdits 被静默还原
+   *    - 历史 record 完全不存在时直接抛与原行为一致的 'not found'，让 IPC 把错原样透传 renderer
+   */
+  private async recoverAndSend(sessionId: string, text: string): Promise<void> {
+    const inflight = this.recovering.get(sessionId);
+    if (inflight) {
+      // 等同一恢复完成 → 然后正常走完整 sendMessage 流程把这条新 text push 进 sessions。
+      // catch 静默：第一波恢复失败时第二条等待者自己再走 sendMessage，要么进新一轮 recovery，
+      // 要么拿到真错。不要把第一波的错往第二条上抛 —— 调用方只关心自己这条的成败。
+      try {
+        await inflight;
+      } catch {
+        // 第一波恢复已失败，第二条自己再撞一次
+      }
+      return this.sendMessage(sessionId, text);
+    }
+
+    const rec = sessionRepo.get(sessionId);
+    if (!rec) {
+      // 没有历史 record：彻底无法恢复，保留原 throw 信号兼容上层处理
+      throw new Error(`session ${sessionId} not found`);
+    }
+
+    // 字节上限：恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）
+    const bytes = Buffer.byteLength(text, 'utf8');
+    if (bytes > MAX_MESSAGE_BYTES) {
+      throw new Error(
+        `单条消息 ${(bytes / 1000).toFixed(1)}KB 超过 ${MAX_MESSAGE_BYTES / 1000}KB 上限。请精简或拆分发送。`,
+      );
+    }
+
+    // 占位 message：30s fallback 期间用户至少看到「在恢复」而不是哑巴 busy。
+    // 不打 error: true（不是错误，是状态提示）；resume 成功后正常 message 流接续，
+    // 占位 message 留在活动流上一行轻量「断开过」痕迹，对回看 / 调试反而有用。
+    this.opts.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: { text: '⚠ SDK 通道已断开，正在自动恢复…' },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+
+    const p = (async () => {
+      try {
+        await this.createSession({
+          cwd: rec.cwd,
+          prompt: text,
+          resume: sessionId,
+          // permissionMode null = 用户没主动选过，按 createSession 内默认 'default'；
+          // 已选过的（acceptEdits / plan / bypassPermissions）必须复原，否则用户体感
+          // 「我设过的权限模式被悄悄重置」
+          permissionMode: rec.permissionMode ?? undefined,
+        });
+      } finally {
+        this.recovering.delete(sessionId);
+      }
+    })();
+    this.recovering.set(sessionId, p);
+
+    try {
+      await p;
+    } catch (err) {
+      // createSession 失败：占位 message 已经 emit，再补一条 error message 让用户看到原因
+      this.opts.emit({
+        sessionId,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: {
+          text: `⚠ 自动恢复失败：${(err as Error)?.message ?? String(err)}`,
+          error: true,
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+      throw err;
+    }
   }
 
   /**
