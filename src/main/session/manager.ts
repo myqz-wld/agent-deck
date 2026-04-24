@@ -62,6 +62,16 @@ class SessionManagerClass {
    */
   private pendingSdkCwds = new Map<string, number>(); // cwd → 失效时间戳
 
+  /**
+   * 最近被 delete 的 sessionId 黑名单（REVIEW_4 H1 兜底）。
+   * SDK 已用 `intentionallyClosed` 屏蔽 close 后 catch 路径的 emit；这里再加一道：
+   * 删除窗口内（60s）任何来源的尾包都直接丢弃，避免 ensureRecord 把 sessionRepo.get 已 null
+   * 的 sessionId 当成首次见到 → 新建 record 复活成幽灵。
+   * 60s 远大于任何 SDK 收尾延时，但又不长到无意义占内存。
+   */
+  private recentlyDeleted = new Map<string, number>(); // sessionId → deletedAt
+  private static readonly RECENTLY_DELETED_TTL_MS = 60_000;
+
   claimAsSdk(sessionId: string): void {
     this.sdkOwned.add(sessionId);
   }
@@ -150,6 +160,11 @@ class SessionManagerClass {
    * 再 claim，UI 会闪现「内/外两份」。CHANGELOG_16 / REVIEW_1 修过、payload-truncate 测试覆盖。
    */
   ingest(event: AgentEvent): void {
+    // REVIEW_4 H1 兜底：删除窗口内的尾包（无论 sdk/hook）一律静默丢弃，
+    // 避免已删 session 在 ensureRecord 里复活成幽灵 record。
+    // sdk-bridge 的 intentionallyClosed 标记是第一道防线（屏蔽 catch 路径 emit），
+    // 这里是第二道（防御 stream 已经 emit 但还没到 ingest 的 in-flight 事件）。
+    if (this.isRecentlyDeleted(event.sessionId)) return;
     if (this.dedupOrClaim(event).skip) return;
     const record = this.ensureRecord(event);
     this.persistEventRow(event);
@@ -157,6 +172,17 @@ class SessionManagerClass {
     this.advanceState(record, event);
     // 4. 广播原始事件给渲染端
     eventBus.emit('agent-event', event);
+  }
+
+  /** 黑名单 TTL 检查：超时自动从 Map 删，避免 ingest 路径累积无效 entry。 */
+  private isRecentlyDeleted(sessionId: string): boolean {
+    const at = this.recentlyDeleted.get(sessionId);
+    if (at === undefined) return false;
+    if (Date.now() - at > SessionManagerClass.RECENTLY_DELETED_TTL_MS) {
+      this.recentlyDeleted.delete(sessionId);
+      return false;
+    }
+    return true;
   }
 
   /** 第 1 段：去重 / 时序兜底 claim。skip=true 表示这条事件应被丢弃（hook 与 SDK 重复 / hook 首发被 SDK claim）。 */
@@ -326,18 +352,28 @@ class SessionManagerClass {
     if (updated) eventBus.emit('session-upserted', updated);
   }
 
-  delete(sessionId: string): void {
-    // 先通知 adapter 关 SDK 侧 live query / pending Maps，再删 DB 行 + 广播。
-    // - 顺序：close 先（拿 agentId 走 adapter）→ DB 删 → emit；DB 删了 agentId 拿不到。
-    // - 异步：close 不 await（fire-and-forget），避免 IPC 路径阻塞 renderer 等子进程退出；
-    //   出错只 warn —— DB 行不能因为 SDK 那边回收失败而留着，孤儿状态更糟。
+  async delete(sessionId: string): Promise<void> {
+    // REVIEW_4 H1：必须 **await** close 完成再删 DB 行 + 广播。
+    // 旧版 fire-and-forget close → DB 同步 delete 后，SDK 侧 abort 触发的尾包
+    // `finished{subtype:interrupted}` 仍会到达 ingest → ensureRecord 把已删 session
+    // 复活成 lifecycle:active 的幽灵 record + 多通知一条「Agent 完成」。
+    // 现在 close 内部已用 `intentionallyClosed` 标记屏蔽 runTurnLoop catch 的 emit
+    // （sdk-bridge 层），manager 这边 await 是双保险：确保 abort + close 路径都跑完
+    // 才删行 + 广播 'session-removed'，renderer 不会先看到「已删」再看到尾包复活。
+    //
+    // close 抛错只 warn —— DB 行不能因为 SDK 回收失败留着，孤儿状态更糟。
     const session = sessionRepo.get(sessionId);
     if (session?.agentId && sessionCloseFn) {
-      void sessionCloseFn(session.agentId, sessionId).catch((err) =>
-        console.warn(`[session-mgr] close on delete failed: ${sessionId}`, err),
-      );
+      try {
+        await sessionCloseFn(session.agentId, sessionId);
+      } catch (err) {
+        console.warn(`[session-mgr] close on delete failed: ${sessionId}`, err);
+      }
     }
     sessionRepo.delete(sessionId);
+    // REVIEW_4 H1：把 id 加入「最近删除黑名单」60s，ingest 看到该 id 直接丢弃，
+    // 防 SDK 流终止 / 异常 stream 的尾包在 sessionRepo.delete 后到达 ensureRecord。
+    this.recentlyDeleted.set(sessionId, Date.now());
     eventBus.emit('session-removed', sessionId);
   }
 

@@ -110,6 +110,16 @@ interface InternalSession {
   currentTurn: AbortController | null;
   /** turn loop 是否在跑（避免 sendMessage 重复启动） */
   turnLoopRunning: boolean;
+  /**
+   * 已被外部关闭（closeSession / 30s timeout fallback）—— 进 abort 之前置 true。
+   * runTurnLoop catch 看到此标记一律静默退出，**不**再 emit `finished/message`。
+   * REVIEW_4 H1：旧版 closeSession 后 runTurnLoop catch 仍 emit finished:interrupted，
+   * 该 finished `source='sdk'` 不被 dedup 跳过 → ensureRecord 把已删 session 复活成幽灵。
+   * REVIEW_4 M5：30s timeout 路径也经历同一条 abort，旧版会先 emit finished:error
+   * （resolveWithFallback 内）+ 再 emit finished:interrupted（runTurnLoop catch），双 finished。
+   * 用户主动 interrupt（interruptSession）**不**置此标记 —— UI 仍要看到「已中断」反馈。
+   */
+  intentionallyClosed: boolean;
 }
 
 /**
@@ -162,6 +172,14 @@ export class CodexSdkBridge {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
     }
+    // REVIEW_4 M4：首条 prompt 也走 MAX_MESSAGE_BYTES 上限。原版只 sendMessage 校验，
+    // pendingMessages: [opts.prompt] 直接进队列，让 cli.ts / 其他入口可绕过 100KB 上限。
+    const promptBytes = Buffer.byteLength(opts.prompt, 'utf8');
+    if (promptBytes > MAX_MESSAGE_BYTES) {
+      throw new Error(
+        `首条 prompt 超出 ${MAX_MESSAGE_BYTES} 字节上限（实际 ${promptBytes} 字节）`,
+      );
+    }
 
     const codex = await this.ensureCodex();
     const cwd = opts.cwd && opts.cwd.trim() ? opts.cwd : process.cwd();
@@ -186,6 +204,7 @@ export class CodexSdkBridge {
       pendingMessages: [opts.prompt],
       currentTurn: null,
       turnLoopRunning: false,
+      intentionallyClosed: false,
     };
 
     if (opts.resume) {
@@ -267,10 +286,18 @@ export class CodexSdkBridge {
   /**
    * 删会话清理：abort 当前 turn + 清 pendingMessages + 移除 internal session 记录。
    * 由 SessionManager.delete 调用，确保 codex 子进程不继续跑（CHANGELOG_20 / N2）。
+   *
+   * REVIEW_4 H1：必须先设 `intentionallyClosed = true` 再 abort，让 runTurnLoop catch
+   * 看到标记后**静默退出**（不发 finished/message）。否则 abort 触发 catch → emit
+   * `finished{subtype:interrupted}` → manager.dedupOrClaim 不丢这条 sdk 事件 →
+   * ensureRecord 把已删 session 复活成 lifecycle:active 的幽灵 record + 多通知一条「Agent 完成」。
    */
   async closeSession(sessionId: string): Promise<void> {
     const internal = this.sessions.get(sessionId);
     if (!internal) return;
+
+    // 关键：标记必须在 abort 之前置位，否则 runTurnLoop 的 catch 微任务会先看到 aborted 跑常规分支
+    internal.intentionallyClosed = true;
 
     if (internal.currentTurn) {
       try {
@@ -381,7 +408,11 @@ export class CodexSdkBridge {
       };
 
       const fallback = setTimeout(() => {
-        // 30s 内 codex 既没吐 thread.started 也没退出 → 中断它，避免子进程继续挂着
+        // 30s 内 codex 既没吐 thread.started 也没退出 → 中断它，避免子进程继续挂着。
+        // REVIEW_4 M5：必须先设 intentionallyClosed=true 让 runTurnLoop catch 静默退出，
+        // 否则 catch 走 aborted 分支再 emit finished:interrupted，与本路径下面
+        // resolveWithFallback 的 finished:error 凑成双 finished + 双系统通知。
+        internal.intentionallyClosed = true;
         try {
           internal.currentTurn?.abort();
         } catch {
@@ -493,6 +524,13 @@ export class CodexSdkBridge {
             translateCodexEvent(ev as ThreadEvent, emit);
           }
         } catch (err) {
+          // REVIEW_4 H1+M5：被 closeSession / 30s timeout fallback 主动 abort 的，静默退出。
+          // 否则发 finished:interrupted 让 manager 把已删 session 复活成幽灵，
+          // 或与 fallback 自己 emit 的 finished:error 凑成双 finished。
+          if (internal.intentionallyClosed) {
+            internal.currentTurn = null;
+            break;
+          }
           const aborted = controller.signal.aborted;
           const msg = err instanceof Error ? err.message : String(err);
           if (aborted) {

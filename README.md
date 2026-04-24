@@ -211,6 +211,8 @@ resources/
 
 ```bash
 pnpm typecheck       # 必跑
+pnpm test            # vitest（纯函数单测）
+pnpm test:fts5       # sqlite3 CLI 真 SQL 集成校验（FTS5 schema + 触发器 + MATCH 谓词，不依赖 better-sqlite3）
 pnpm build           # 大改动跑
 pnpm dist            # 出 dmg + .app
 ```

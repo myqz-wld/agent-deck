@@ -28,5 +28,6 @@ export function getAgentShortName(agentId: string): string {
   }
 }
 
-/** 容器订阅 recentEventsBySession 的稳定空数组兜底，避免每次 new [] 触发选择器假阳性更新。 */
-export const EMPTY_EVENTS: AgentEvent[] = [];
+/** 容器订阅 recentEventsBySession 的稳定空数组兜底，避免每次 new [] 触发选择器假阳性更新。
+ *  REVIEW_4 L4：`Object.freeze` 防御消费方误 `push` 污染所有会话的兜底引用（双层 cast 透过 readonly）。 */
+export const EMPTY_EVENTS: AgentEvent[] = Object.freeze([]) as unknown as AgentEvent[];

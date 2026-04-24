@@ -55,8 +55,12 @@ export function ClaudeMdEditor({ onDirtyChange }: ClaudeMdEditorProps): JSX.Elem
     setError(null);
     setSavedHint(null);
     try {
-      await window.api.saveClaudeMd(draft);
-      setLoaded({ content: draft, isCustom: true });
+      // REVIEW_4 M11：用 main 写盘后**实际读回**的内容更新 loaded + draft，
+      // 而非用本地 draft 直接 set —— 防 main 端规范化（去 BOM/CRLF→LF/补尾换行）后
+      // 下次比较 dirty 永真，「保存」按钮永亮但 IPC 没东西可写。
+      const written = await window.api.saveClaudeMd(draft);
+      setLoaded({ content: written.content, isCustom: written.isCustom });
+      if (written.content !== draft) setDraft(written.content);
       setSavedHint('已保存。下次新建会话生效（已运行的会话不受影响）。');
     } catch (err) {
       setError(`保存失败：${(err as Error).message ?? String(err)}`);

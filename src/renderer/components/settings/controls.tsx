@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 
 /**
  * 通用控件 + 测试 / picker 组件，给 SettingsDialog 内 Section 复用。
@@ -53,12 +53,17 @@ export function NumberInput({
   value,
   min,
   max,
+  /** REVIEW_4 M13：默认整数。所有当前 NumberInput 调用都是整数语义（端口/分钟/小时/秒/天/计数）。
+   *  Number(draft) 接受小数 1.5 直接进 hookServerPort/summaryEventCount 等是历史 bug。
+   *  显式传 integer={false} 才允许浮点。 */
+  integer = true,
   onChange,
 }: {
   label: string;
   value: number;
   min?: number;
   max?: number;
+  integer?: boolean;
   onChange: (v: number) => void;
 }): JSX.Element {
   // 用本地 string 草稿允许中间态（清空 / 删字符 / 输负号）；blur 或 Enter 时才提交并 clamp。
@@ -67,17 +72,24 @@ export function NumberInput({
   const [draft, setDraft] = useState<string>(String(value));
   // 父级 value 变化时同步草稿（恢复默认 / 异地修改回流），但用户正在编辑时不抢
   const [editing, setEditing] = useState(false);
+  // REVIEW_4 M12：editing 用 ref 持有避免进 effect 依赖。原版依赖 [value, editing]
+  // → commit 内 setEditing(false) 立即触发 effect 用旧 prop value 覆盖刚 setDraft 的 clamped，
+  // 父级 IPC 慢一帧能看到 "输入 1500 → 闪 900 → 变 1500" flicker。
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
   useEffect(() => {
-    if (!editing) setDraft(String(value));
-  }, [value, editing]);
+    if (editingRef.current) return; // 用户编辑中，不抢
+    setDraft(String(value));
+  }, [value]);
 
   const commit = (): void => {
     setEditing(false);
-    const n = Number(draft);
+    let n = Number(draft);
     if (!Number.isFinite(n)) {
       setDraft(String(value));
       return;
     }
+    if (integer) n = Math.trunc(n);
     let clamped = n;
     if (min !== undefined && clamped < min) clamped = min;
     if (max !== undefined && clamped > max) clamped = max;
@@ -93,6 +105,7 @@ export function NumberInput({
         value={draft}
         min={min}
         max={max}
+        step={integer ? 1 : 'any'}
         onFocus={() => setEditing(true)}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}

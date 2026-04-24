@@ -3,6 +3,11 @@ import type { AgentEvent } from '@shared/types';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shared';
 
+/** REVIEW_4 M16：超过此字符数的 message 默认折叠（max-height + 展开按钮），
+ *  防止单条几十 KB 文本（罕见但 SDK 偶尔会推超长 system 提示 / 用户粘贴大段日志）
+ *  把整列表撑成一面墙。阈值 800 ≈ 40-60 行普通文本，足够大多数对话不被打扰。 */
+const COLLAPSE_THRESHOLD_CHARS = 800;
+
 /**
  * 普通消息气泡（user / assistant）。每条独立持有 MD/TXT mode（CHANGELOG_34/35：
  * 切单条不级联到全局，无 localStorage 持久化）。error 消息强制 plaintext 避免
@@ -29,6 +34,9 @@ export function MessageBubble({
   // 副作用：切过的 bubble 卸载（切会话 / 重启）后回到默认；这是有意为之，
   // 不引入「按 message id 持久化偏好 map」的复杂度。
   const [mode, setMode] = useState<RenderMode>(DEFAULT_RENDER_MODE);
+  // REVIEW_4 M16：超长文本默认折叠
+  const isLong = text.length > COLLAPSE_THRESHOLD_CHARS;
+  const [expanded, setExpanded] = useState(false);
 
   const toggle = (): void => {
     setMode((cur) => (cur === 'markdown' ? 'plaintext' : 'markdown'));
@@ -58,10 +66,22 @@ export function MessageBubble({
               {mode === 'markdown' ? 'MD' : 'TXT'}
             </button>
           )}
+          {isLong && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              className="ml-1 rounded px-1 font-mono text-[9px] tracking-tight text-deck-muted/70 opacity-60 hover:bg-white/10 hover:text-deck-text hover:opacity-100"
+            >
+              {expanded ? '收起' : `展开 (${text.length}字)`}
+            </button>
+          )}
         </div>
         <div
           className={`break-words rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed ${
             renderAsMarkdown ? '' : 'whitespace-pre-wrap'
+          } ${
+            isLong && !expanded ? 'max-h-72 overflow-auto scrollbar-deck' : ''
           } ${
             isError
               ? 'border border-status-waiting/40 bg-status-waiting/10 text-status-waiting'

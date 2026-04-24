@@ -6,6 +6,7 @@ import type {
   SessionSource,
 } from '@shared/types';
 import { getDb } from './db';
+import { buildKeywordPredicate } from './search-predicate';
 
 interface Row {
   id: string;
@@ -137,27 +138,13 @@ export const sessionRepo = {
       params.to_ts = opts.toTs;
     }
     if (opts.keyword) {
-      // 短关键词只搜 title：events.payload_json / summaries.content 是任意大文本
-      // （tool_result 单条可能几百 KB），LIKE %kw% 没法用 B-tree 索引，会做全表扫描 +
-      // 全文字符串匹配。1-2 字符的关键词命中量大、性能差且对用户帮助小，
-      // 先卡掉这层让常见的"敲一两个字"不会拖死历史面板。
-      // ≥ 3 字符再走子查询全扫，性价比可接受。
-      //
-      // 子查询用 EXISTS (... LIMIT 1) 而不是 IN (SELECT ...)：
-      // - IN 会把整个子查询结果集物化成临时集合再做 hash join，
-      //   events 表大几万条时这一步本身就要遍历整张表。
-      // - EXISTS 配合 LIMIT 1 + 关联子查询，匹配到第一条就短路。
-      //   是当前不上 FTS5 前的最低成本优化（仍是 O(n) 全表扫，但常数显著降低）。
-      if (opts.keyword.length >= 3) {
-        conditions.push(
-          `(title LIKE @kw
-            OR EXISTS (SELECT 1 FROM events e WHERE e.session_id = sessions.id AND e.payload_json LIKE @kw LIMIT 1)
-            OR EXISTS (SELECT 1 FROM summaries su WHERE su.session_id = sessions.id AND su.content LIKE @kw LIMIT 1))`,
-        );
-      } else {
-        conditions.push(`title LIKE @kw`);
-      }
-      params.kw = `%${opts.keyword}%`;
+      // 关键词谓词由 search-predicate.ts/buildKeywordPredicate 构造，详见该文件注释。
+      // < 3 字符走 title LIKE-only（trigram tokenizer 需要 ≥ 3 gram）；
+      // ≥ 3 字符走 title LIKE OR events_fts MATCH OR summaries_fts MATCH，
+      // FTS5 + trigram 索引 substring 友好，远快于历史的 events.payload_json LIKE 全表扫。
+      const pred = buildKeywordPredicate(opts.keyword);
+      conditions.push(pred.sql);
+      Object.assign(params, pred.params);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const sql = `SELECT * FROM sessions ${where} ORDER BY last_event_at DESC LIMIT @limit OFFSET @offset`;

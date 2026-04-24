@@ -92,7 +92,7 @@ vi.mock('@main/event-bus', () => ({
 }));
 
 // 注意：mock 必须在 import sessionManager 之前（vi.mock 是 hoist 的，但显式分隔更清楚）
-import { sessionManager } from '@main/session/manager';
+import { sessionManager, setSessionCloseFn } from '@main/session/manager';
 
 function makeEvent(over: Partial<AgentEvent> & { source?: 'sdk' | 'hook' }): AgentEvent {
   return {
@@ -278,5 +278,170 @@ describe('SessionManager.ingest 时序', () => {
     expect(mockEvents).toHaveLength(0);
     // 没广播 session-upserted
     expect(mockEmits.filter((e) => e.name === 'session-upserted')).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEW_4 L8 + H1 回归补测：公共 API 主路径 + 「删除后尾包不复活幽灵」
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
+  it('archive() → 标 archivedAt + 广播 upserted；list() 不再返回该 session', () => {
+    // 预置一个 active session
+    const ev = makeEvent({
+      sessionId: 'sess-archive',
+      source: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    });
+    sessionManager.ingest(ev);
+    expect(sessionManager.list().some((s) => s.id === 'sess-archive')).toBe(true);
+
+    sessionManager.archive('sess-archive');
+    const r = mockSessions.get('sess-archive');
+    expect(r?.archivedAt).not.toBeNull();
+    expect(sessionManager.list().some((s) => s.id === 'sess-archive')).toBe(false);
+    // 广播了 session-upserted
+    expect(
+      mockEmits.some(
+        (e) =>
+          e.name === 'session-upserted' &&
+          (e.payload as SessionRecord)?.id === 'sess-archive' &&
+          (e.payload as SessionRecord)?.archivedAt !== null,
+      ),
+    ).toBe(true);
+  });
+
+  it('unarchive() → 清 archivedAt 且不动 lifecycle（CLAUDE.md「正交」约定）', () => {
+    const ev = makeEvent({
+      sessionId: 'sess-unarchive',
+      source: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    });
+    sessionManager.ingest(ev);
+    sessionManager.archive('sess-unarchive');
+    const archived = mockSessions.get('sess-unarchive');
+    const lifecycleBefore = archived?.lifecycle;
+
+    sessionManager.unarchive('sess-unarchive');
+    const r = mockSessions.get('sess-unarchive');
+    expect(r?.archivedAt).toBeNull();
+    expect(r?.lifecycle).toBe(lifecycleBefore); // 不被改动
+  });
+
+  it('reactivate() → closed → active', () => {
+    const ev = makeEvent({
+      sessionId: 'sess-reactivate',
+      source: 'hook',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    });
+    sessionManager.ingest(ev);
+    // 手动设为 closed
+    const r = mockSessions.get('sess-reactivate');
+    if (r) mockSessions.set('sess-reactivate', { ...r, lifecycle: 'closed' });
+
+    sessionManager.reactivate('sess-reactivate');
+    expect(mockSessions.get('sess-reactivate')?.lifecycle).toBe('active');
+  });
+});
+
+describe('SessionManager.delete + H1 删除后尾包不复活幽灵（REVIEW_4 H1）', () => {
+  let closeCalls: string[] = [];
+
+  beforeEach(() => {
+    closeCalls = [];
+    setSessionCloseFn(async (_agentId, sid) => {
+      closeCalls.push(sid);
+    });
+  });
+
+  afterEach(() => {
+    setSessionCloseFn(null);
+  });
+
+  it('delete() await close 完成 + 删 DB 行 + 广播 session-removed', async () => {
+    const ev = makeEvent({
+      sessionId: 'sess-del-1',
+      source: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    });
+    sessionManager.ingest(ev);
+    expect(mockSessions.has('sess-del-1')).toBe(true);
+
+    await sessionManager.delete('sess-del-1');
+
+    expect(closeCalls).toContain('sess-del-1');
+    expect(mockSessions.has('sess-del-1')).toBe(false);
+    expect(mockEmits.some((e) => e.name === 'session-removed' && e.payload === 'sess-del-1')).toBe(
+      true,
+    );
+  });
+
+  it('删除窗口内（60s）尾包 finished:interrupted 被丢弃，不创建幽灵 record', async () => {
+    const ev = makeEvent({
+      sessionId: 'sess-ghost',
+      source: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    });
+    sessionManager.ingest(ev);
+    await sessionManager.delete('sess-ghost');
+    expect(mockSessions.has('sess-ghost')).toBe(false);
+
+    // 在 tail ingest 之前 snapshot：之前 ingest 创建 record + delete 都会 emit，
+    // 黑名单要保证「**这一次** ingest 之后不再出现新增 upserted/agent-event」。
+    const eventsBefore = mockEvents.length;
+    const upsertBefore = mockEmits.filter(
+      (e) =>
+        e.name === 'session-upserted' && (e.payload as SessionRecord)?.id === 'sess-ghost',
+    ).length;
+    const agentEventBefore = mockEmits.filter((e) => e.name === 'agent-event').length;
+
+    // 模拟 SDK 流终止时的尾包：closeSession abort 后 catch 路径如果**没有** intentionallyClosed
+    // 屏蔽，会走到这里——manager 黑名单兜底必须丢弃。
+    const tailFinished = makeEvent({
+      sessionId: 'sess-ghost',
+      source: 'sdk',
+      kind: 'finished',
+      payload: { ok: false, subtype: 'interrupted' },
+    });
+    sessionManager.ingest(tailFinished);
+
+    // 关键断言：DB 行没复活、events 表没新增、广播总数没增加（黑名单在 ingest 入口拦下）
+    expect(mockSessions.has('sess-ghost')).toBe(false);
+    expect(mockEvents.length).toBe(eventsBefore);
+    expect(
+      mockEmits.filter(
+        (e) =>
+          e.name === 'session-upserted' && (e.payload as SessionRecord)?.id === 'sess-ghost',
+      ).length,
+    ).toBe(upsertBefore);
+    expect(mockEmits.filter((e) => e.name === 'agent-event').length).toBe(agentEventBefore);
+  });
+
+  it('删除窗口内任意 source 尾包都丢弃（防 hook 通道也复活）', async () => {
+    const ev = makeEvent({
+      sessionId: 'sess-ghost-hook',
+      source: 'hook',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    });
+    sessionManager.ingest(ev);
+    await sessionManager.delete('sess-ghost-hook');
+
+    const eventsBefore = mockEvents.length;
+    const lateHook = makeEvent({
+      sessionId: 'sess-ghost-hook',
+      source: 'hook',
+      kind: 'message',
+      payload: { text: 'late hook tail' },
+    });
+    sessionManager.ingest(lateHook);
+
+    expect(mockSessions.has('sess-ghost-hook')).toBe(false);
+    expect(mockEvents.length).toBe(eventsBefore);
   });
 });

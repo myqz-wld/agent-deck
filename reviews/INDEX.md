@@ -20,3 +20,5 @@
 |------|------|-----------|----------------|
 | [REVIEW_1.md](REVIEW_1.md) | main 进程关键模块全审（双对抗 Claude Opus 4.7 xhigh + Codex gpt-5.4 xhigh） | 3 HIGH / 4 MED / 1 LOW | CHANGELOG_16 |
 | [REVIEW_2.md](REVIEW_2.md) | renderer + preload + shared + main 周边全审（双对抗 + 用户报项三方裁决） | 4 HIGH / 10 MED / 6 LOW | CHANGELOG_18 |
+| [REVIEW_3.md](REVIEW_3.md) | Phase 4 N5 FTS5 落地后双对抗（Opus 4.7 xhigh 现场跑 sqlite3 CLI 实测 + EXPLAIN QUERY PLAN，外部 codex CLI 16+ 分钟卡 prefetch 中止） | 1 CRITICAL / 2 HIGH / 1 MED / 2 LOW | CHANGELOG_22 |
+| [REVIEW_4.md](REVIEW_4.md) | origin/main..HEAD 双对抗（CHANGELOG_19/20/21 落地 19 文件，Opus 4.7 xhigh subagent ×3 + Codex gpt-5.4 xhigh ×3 并发 6 任务） | 4 HIGH / 17 MED / 9 LOW | CHANGELOG_23 |

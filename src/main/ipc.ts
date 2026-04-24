@@ -24,7 +24,7 @@ import {
   resetUserAgentDeckClaudeMd,
   saveUserAgentDeckClaudeMd,
 } from './adapters/claude-code/sdk-injection';
-import type { AppSettings, ImageSource, LoadImageBlobResult } from '@shared/types';
+import type { AppSettings, ImageSource, LoadImageBlobResult, PermissionMode } from '@shared/types';
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>;
 
@@ -116,6 +116,81 @@ function invalidateClaudeMdCache(p: Partial<AppSettings>): void {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// IPC 入参校验 helper（REVIEW_4 M1-M3）。
+// 原则：在 IPC 边界一次性校验 + 收口，handler 内部直接拿强类型值用。
+// renderer 给到非法输入直接抛 IpcInputError，UI 看到 `setSettings 失败：...`。
+// ─────────────────────────────────────────────────────────────────────────────
+
+class IpcInputError extends Error {
+  constructor(field: string, reason: string) {
+    super(`invalid ipc input: ${field} (${reason})`);
+    this.name = 'IpcInputError';
+  }
+}
+
+function parsePositiveInt(
+  field: string,
+  value: unknown,
+  defaults: { fallback: number; min: number; max: number },
+): number {
+  if (value === undefined || value === null) return defaults.fallback;
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) {
+    throw new IpcInputError(field, `not a positive integer: ${String(value)}`);
+  }
+  if (n < defaults.min || n > defaults.max) {
+    throw new IpcInputError(field, `out of range [${defaults.min}, ${defaults.max}]: ${n}`);
+  }
+  return n;
+}
+
+function parseStringId(field: string, value: unknown, maxLen = 256): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new IpcInputError(field, 'must be non-empty string');
+  }
+  if (value.length > maxLen) {
+    throw new IpcInputError(field, `length > ${maxLen}`);
+  }
+  return value;
+}
+
+function parseHookScope(value: unknown): 'user' | 'project' {
+  if (value === 'user' || value === 'project') return value;
+  throw new IpcInputError('scope', `must be 'user' or 'project', got ${String(value)}`);
+}
+
+const PERMISSION_MODE_VALUES: ReadonlyArray<PermissionMode> = [
+  'default',
+  'acceptEdits',
+  'plan',
+  'bypassPermissions',
+];
+
+function parsePermissionMode(value: unknown): PermissionMode | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    throw new IpcInputError('permissionMode', `not a string: ${String(value)}`);
+  }
+  if (!PERMISSION_MODE_VALUES.includes(value as PermissionMode)) {
+    throw new IpcInputError(
+      'permissionMode',
+      `must be one of ${PERMISSION_MODE_VALUES.join('|')}, got ${value}`,
+    );
+  }
+  return value as PermissionMode;
+}
+
+function parseStringIdArray(field: string, value: unknown, maxItems = 500): string[] {
+  if (!Array.isArray(value)) {
+    throw new IpcInputError(field, 'must be array');
+  }
+  if (value.length > maxItems) {
+    throw new IpcInputError(field, `length > ${maxItems} items`);
+  }
+  return value.map((v, i) => parseStringId(`${field}[${i}]`, v));
+}
+
 export function bootstrapIpc(): void {
   on(IpcInvoke.AppGetVersion, () => app.getVersion());
 
@@ -138,28 +213,35 @@ export function bootstrapIpc(): void {
   on(IpcInvoke.SessionList, () => sessionManager.list());
   on(IpcInvoke.SessionGet, (_e, id) => sessionRepo.get(String(id)));
   on(IpcInvoke.SessionListEvents, (_e, id, limit) => {
-    return eventRepo.listForSession(String(id), Number(limit ?? 200));
+    const sid = parseStringId('sessionId', id);
+    // limit 上限 5000：renderer 默认 100/200，留空间给 history 详情页拉更多
+    const lim = parsePositiveInt('limit', limit, { fallback: 200, min: 1, max: 5000 });
+    return eventRepo.listForSession(sid, lim);
   });
-  on(IpcInvoke.SessionListFileChanges, (_e, id) => fileChangeRepo.listForSession(String(id)));
-  on(IpcInvoke.SessionListSummaries, (_e, id) => summaryRepo.listForSession(String(id)));
+  on(IpcInvoke.SessionListFileChanges, (_e, id) =>
+    fileChangeRepo.listForSession(parseStringId('sessionId', id)),
+  );
+  on(IpcInvoke.SessionListSummaries, (_e, id) =>
+    summaryRepo.listForSession(parseStringId('sessionId', id)),
+  );
   on(IpcInvoke.SessionLatestSummaries, (_e, ids) => {
-    const arr = Array.isArray(ids) ? (ids as unknown[]).map(String) : [];
+    const arr = parseStringIdArray('ids', ids ?? []);
     return summaryRepo.latestForSessions(arr);
   });
   on(IpcInvoke.SessionArchive, (_e, id) => {
-    sessionManager.archive(String(id));
+    sessionManager.archive(parseStringId('sessionId', id));
     return true;
   });
   on(IpcInvoke.SessionUnarchive, (_e, id) => {
-    sessionManager.unarchive(String(id));
+    sessionManager.unarchive(parseStringId('sessionId', id));
     return true;
   });
   on(IpcInvoke.SessionReactivate, (_e, id) => {
-    sessionManager.reactivate(String(id));
+    sessionManager.reactivate(parseStringId('sessionId', id));
     return true;
   });
-  on(IpcInvoke.SessionDelete, (_e, id) => {
-    sessionManager.delete(String(id));
+  on(IpcInvoke.SessionDelete, async (_e, id) => {
+    await sessionManager.delete(parseStringId('sessionId', id));
     return true;
   });
 
@@ -174,25 +256,38 @@ export function bootstrapIpc(): void {
   on(IpcInvoke.HookInstall, async (_e, scope, cwd) => {
     const adapter = adapterRegistry.get('claude-code');
     if (!adapter?.installIntegration) throw new Error('adapter not available');
-    return adapter.installIntegration({ scope: scope as 'user' | 'project', cwd: cwd as string });
+    return adapter.installIntegration({
+      scope: parseHookScope(scope),
+      cwd: parseStringId('cwd', cwd, 4096),
+    });
   });
   on(IpcInvoke.HookUninstall, async (_e, scope, cwd) => {
     const adapter = adapterRegistry.get('claude-code');
     if (!adapter?.uninstallIntegration) throw new Error('adapter not available');
-    return adapter.uninstallIntegration({ scope: scope as 'user' | 'project', cwd: cwd as string });
+    return adapter.uninstallIntegration({
+      scope: parseHookScope(scope),
+      cwd: parseStringId('cwd', cwd, 4096),
+    });
   });
   on(IpcInvoke.HookStatus, async (_e, scope, cwd) => {
     const adapter = adapterRegistry.get('claude-code');
     if (!adapter?.integrationStatus) throw new Error('adapter not available');
-    return adapter.integrationStatus({ scope: scope as 'user' | 'project', cwd: cwd as string });
+    return adapter.integrationStatus({
+      scope: parseHookScope(scope),
+      cwd: parseStringId('cwd', cwd, 4096),
+    });
   });
 
   // Settings
   on(IpcInvoke.SettingsGet, () => settingsStore.getAll());
   on(IpcInvoke.SettingsSet, (_e, patch) => {
+    if (patch !== undefined && (patch === null || typeof patch !== 'object' || Array.isArray(patch))) {
+      throw new IpcInputError('patch', 'must be plain object');
+    }
     const p = (patch ?? {}) as Partial<AppSettings>;
-    // N6 事务保护：先快照改前值，持久化后逐项 apply。任一 apply throw 时回滚 DB 到改前状态，
-    // 让 UI 看到错误而不是进入「DB 改了 / 运行时半生效」的不一致状态（CHANGELOG_20）。
+    // N6 事务保护：先快照改前值，持久化后逐项 apply。任一 apply throw 时回滚 DB **和运行时**
+    // 到改前状态（REVIEW_4 H2：旧版只回 DB，apply* 已动 scheduler/loginItem/window/adapter/cache，
+    // 留在「DB 退了 + 运行时半生效」正是注释要避免的状态）。
     const before = settingsStore.getAll();
     const next = settingsStore.patch(p);
     try {
@@ -206,8 +301,8 @@ export function bootstrapIpc(): void {
       warnHookServerToken(p);
       invalidateClaudeMdCache(p);
     } catch (err) {
-      // 只回滚 patch 涉及的 key，避免动到本来就不该变的字段。
-      // 双层 unknown 中转：AppSettings 严格联合类型，TS 不允许直接当 Record<string,unknown>。
+      // 1) DB 回滚：只回 patch 涉及的 key，避免动到本来就不该变的字段。
+      //    双层 unknown 中转：AppSettings 严格联合类型，TS 不允许直接当 Record<string,unknown>。
       const rollback: Partial<AppSettings> = {};
       const beforeRecord = before as unknown as Record<string, unknown>;
       const rollbackRecord = rollback as unknown as Record<string, unknown>;
@@ -215,6 +310,24 @@ export function bootstrapIpc(): void {
         rollbackRecord[key] = beforeRecord[key];
       }
       settingsStore.patch(rollback);
+      // 2) 运行时回滚：再跑一遍 apply* 链让 scheduler/loginItem/window/adapter 实例/cache
+      //    退到 before 状态。每个 apply 单独 try/catch，避免一个回滚函数抛错把后续都吞掉。
+      //    warn* 函数没运行时副作用不需要再跑。
+      for (const fn of [
+        applyLifecycleThresholds,
+        applyLoginItem,
+        applyAlwaysOnTop,
+        applyPermissionTimeout,
+        applyCodexCliPath,
+        applySummaryInterval,
+        invalidateClaudeMdCache,
+      ]) {
+        try {
+          fn(rollback, before);
+        } catch (rollbackErr) {
+          console.error('[settings] rollback apply* failed:', rollbackErr);
+        }
+      }
       throw err;
     }
     return next;
@@ -229,32 +342,61 @@ export function bootstrapIpc(): void {
     }));
   });
   on(IpcInvoke.AdapterCreateSession, async (_e, agentId, opts) => {
-    const adapter = adapterRegistry.get(String(agentId));
+    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.createSession) throw new Error('adapter cannot create session');
-    const o = opts as Parameters<NonNullable<typeof adapter.createSession>>[0];
-    // cwd 留空 → 兜底用户主目录。renderer 对话框允许「不填」，CLI 也共用这条兜底。
-    if (!o.cwd || !String(o.cwd).trim()) {
-      o.cwd = homedir();
+    if (opts === undefined || opts === null || typeof opts !== 'object' || Array.isArray(opts)) {
+      throw new IpcInputError('opts', 'must be object');
     }
-    const sid = await adapter.createSession(o);
+    const raw = opts as Record<string, unknown>;
+    // cwd：留空 / 非字符串 → 兜底 homedir。renderer 对话框允许「不填」，CLI 也共用这条兜底。
+    const cwdInput = raw.cwd;
+    const cwd =
+      typeof cwdInput === 'string' && cwdInput.trim().length > 0 ? cwdInput.trim() : homedir();
+    if (cwd.length > 4096) {
+      throw new IpcInputError('opts.cwd', 'length > 4096');
+    }
+    // permissionMode 白名单：renderer 可塞任意字符串，必须收口
+    const permissionMode = parsePermissionMode(raw.permissionMode);
+    const prompt = typeof raw.prompt === 'string' ? raw.prompt : undefined;
+    // REVIEW_4 M4：首条 prompt 也走 100KB 上限（与 sdk-bridge MAX_MESSAGE_BYTES 对齐）
+    if (prompt !== undefined && Buffer.byteLength(prompt, 'utf8') > 100_000) {
+      throw new IpcInputError(
+        'opts.prompt',
+        `> 100KB (got ${Buffer.byteLength(prompt, 'utf8')} bytes)`,
+      );
+    }
+    const model = typeof raw.model === 'string' ? raw.model : undefined;
+    const resume = typeof raw.resume === 'string' ? raw.resume : undefined;
+
+    const sid = await adapter.createSession({
+      cwd,
+      prompt,
+      model,
+      ...(permissionMode !== null ? { permissionMode } : {}),
+      ...(resume !== undefined ? { resume } : {}),
+    });
     // 持久化 permissionMode：抽到 sessionManager.recordCreatedPermissionMode，
     // CLI 路径（cli.ts applyCliInvocation）也走同一个 helper，确保两条入口语义一致。
-    sessionManager.recordCreatedPermissionMode(
-      sid,
-      (o as { permissionMode?: string }).permissionMode,
-    );
+    sessionManager.recordCreatedPermissionMode(sid, permissionMode ?? undefined);
     return sid;
   });
   on(IpcInvoke.AdapterInterrupt, async (_e, agentId, sessionId) => {
-    const adapter = adapterRegistry.get(String(agentId));
+    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.interruptSession) throw new Error('adapter cannot interrupt');
-    await adapter.interruptSession(String(sessionId));
+    await adapter.interruptSession(parseStringId('sessionId', sessionId));
     return true;
   });
   on(IpcInvoke.AdapterSendMessage, async (_e, agentId, sessionId, text) => {
-    const adapter = adapterRegistry.get(String(agentId));
+    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.sendMessage) throw new Error('adapter cannot send message');
-    await adapter.sendMessage(String(sessionId), String(text));
+    if (typeof text !== 'string') {
+      throw new IpcInputError('text', 'must be string');
+    }
+    // 单条消息上限 100KB，与 sdk-bridge MAX_MESSAGE_BYTES 对齐（REVIEW_4 M4 同主题，前置在 IPC 层）
+    if (Buffer.byteLength(text, 'utf8') > 100_000) {
+      throw new IpcInputError('text', `> 100KB (got ${Buffer.byteLength(text, 'utf8')} bytes)`);
+    }
+    await adapter.sendMessage(parseStringId('sessionId', sessionId), text);
     return true;
   });
   on(IpcInvoke.AdapterRespondPermission, async (_e, agentId, sessionId, requestId, response) => {
@@ -445,8 +587,14 @@ export function bootstrapIpc(): void {
   // 已运行的 SDK 会话已经把 system prompt 固化进 LLM 上下文，不会热改。
   on(IpcInvoke.ClaudeMdGet, () => getActiveAgentDeckClaudeMd());
   on(IpcInvoke.ClaudeMdSave, (_e, content) => {
-    saveUserAgentDeckClaudeMd(String(content ?? ''));
-    return { ok: true };
+    if (typeof content !== 'string') {
+      throw new IpcInputError('content', 'must be string');
+    }
+    // 上限 2MB —— 远超合理 CLAUDE.md 体量（< 100KB），防 renderer 误传二进制 / 巨量 JSON
+    if (Buffer.byteLength(content, 'utf8') > 2 * 1024 * 1024) {
+      throw new IpcInputError('content', '> 2MB');
+    }
+    return saveUserAgentDeckClaudeMd(content);
   });
   on(IpcInvoke.ClaudeMdReset, () => {
     resetUserAgentDeckClaudeMd();
@@ -537,27 +685,33 @@ async function loadImageBlob(
   }
   const mime = MIME_BY_EXT[ext] ?? 'application/octet-stream';
 
-  let stat;
+  // REVIEW_4 L9：stat 与 readFile 绑定到同一 fd，防 stat 通过后底下文件被替换
+  // （单用户桌面场景风险低，但代价就一行 try/finally 顺手补上）。
+  let fh: import('node:fs/promises').FileHandle;
   try {
-    stat = await fsp.stat(real);
+    fh = await fsp.open(real, 'r');
   } catch (err) {
     return { ok: false, reason: 'io_error', detail: (err as Error).message };
   }
-  if (stat.size > MAX_IMAGE_BYTES) {
-    return { ok: false, reason: 'too_big', detail: `${stat.size} bytes` };
-  }
-  let buf: Buffer;
   try {
-    buf = await fsp.readFile(real);
+    const stat = await fh.stat();
+    if (stat.size > MAX_IMAGE_BYTES) {
+      return { ok: false, reason: 'too_big', detail: `${stat.size} bytes` };
+    }
+    const buf = await fh.readFile();
+    return {
+      ok: true,
+      mime,
+      bytes: stat.size,
+      dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
+    };
   } catch (err) {
     return { ok: false, reason: 'io_error', detail: (err as Error).message };
+  } finally {
+    await fh.close().catch(() => {
+      // ignore: 关 fd 失败只 leak 一个 fd，不影响读取结果
+    });
   }
-  return {
-    ok: true,
-    mime,
-    bytes: stat.size,
-    dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
-  };
 }
 
 /**

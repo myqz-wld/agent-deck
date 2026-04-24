@@ -191,8 +191,10 @@ const api = {
   /** 读取「当前生效」的 CLAUDE.md（用户副本优先 → 回落内置）。 */
   getClaudeMd: (): Promise<{ content: string; isCustom: boolean }> =>
     ipcRenderer.invoke(IpcInvoke.ClaudeMdGet),
-  /** 保存用户副本到 userData/agent-deck-claude.md（清缓存，下次新建会话生效）。 */
-  saveClaudeMd: (content: string): Promise<{ ok: boolean }> =>
+  /** 保存用户副本到 userData/agent-deck-claude.md（清缓存，下次新建会话生效）。
+   *  返回 main 写盘后**实际读回**的内容（REVIEW_4 M11：让 renderer 用真实内容更新 loaded
+   *  避免 main 端规范化后 dirty 永真）。 */
+  saveClaudeMd: (content: string): Promise<{ content: string; isCustom: true }> =>
     ipcRenderer.invoke(IpcInvoke.ClaudeMdSave, content),
   /** 删除用户副本回落内置；返回新的内置内容供 UI 同步刷新。 */
   resetClaudeMd: (): Promise<{ ok: boolean; content: string }> =>
