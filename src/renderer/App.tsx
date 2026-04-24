@@ -96,7 +96,18 @@ export function App(): JSX.Element {
     else if (selectedFromMap) setStickySelected(selectedFromMap);
     // selectedId 有值但 selectedFromMap 为 null → 保持缓存，等 upsert 到达
   }, [selectedId, selectedFromMap]);
-  const detailSession = view === 'history' ? historySession : (selectedFromMap ?? stickySelected);
+  // history 视图入 detail 走 historySession 这条独立的本地 state（一次 fetch 拷贝），
+  // 它不会跟随 sessions Map 自动刷新。如果用户在 history detail 里发消息触发自动 resume，
+  // 后端会把这条历史 record 从 closed 复活到 active 并广播 session-upserted —— store.sessions
+  // 已经有最新 record 但 historySession 仍是 fetch 时的 closed 拷贝，detail 里 SourceBadge /
+  // ComposerSdk 等的判断都还按旧 record 走，用户体感「点恢复后好像没什么变化 / 像在另一处冒了条新会话」。
+  // 优先从 sessions Map 取最新；fallback 到 historySession 是兜底（id 在 store 里还没 upsert 的瞬间）。
+  const detailSession =
+    view === 'history'
+      ? historySession
+        ? sessions.get(historySession.id) ?? historySession
+        : null
+      : (selectedFromMap ?? stickySelected);
 
   const stats = useMemo(() => {
     // 与 SessionList 的 grouped 共用同一份过滤口径（archivedAt === null && lifecycle ∈ {active, dormant}），

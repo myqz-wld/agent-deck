@@ -69,6 +69,18 @@
 - `lifecycle` (`active`/`dormant`/`closed`) 与 `archived_at` **正交**。归档只打标记，取消归档清标记回到原 lifecycle（不粗暴重置 dormant）。LifecycleScheduler 跳过 `archived_at IS NOT NULL`
 - SessionManager.consumePendingSdkClaim 不准做"全局 fuzzy 匹配"（CHANGELOG_16 / REVIEW_1 修过）；cwd 别名靠 `normalizeCwd` 内的 `realpathSync`
 
+### 会话恢复 / 断连 UX（resume 优先）
+
+总纲：resume 必须保持同一会话身份 + detail 连续性。**凡让用户感觉「像新开了个会话 / 跳回列表 / 还要点恢复按钮」的路径都是 bug**。
+
+- **断连自愈下沉到 adapter owner 层**：sdk-bridge.sendMessage 内部检测 `!sessions.has(sessionId)` → 自动调 `recoverAndSend`：从 sessionRepo 拿 cwd / permissionMode → 单飞调 `createSession({resume,prompt,cwd,permissionMode})` 完整复用 H4/H1 护栏。renderer 端 `sendAdapterMessage` 不再判断「断连 vs 真错」，更不应该靠 `msg.includes('not found')` 这类字符串匹配触发恢复（CHANGELOG_26 / B 方案）
+- **单飞**：`recovering: Map<sessionId, Promise<void>>` 保证同 sessionId 并发 sendMessage 只起一次 createSession（避免起多个 SDK CLI 子进程 + Anthropic 按次计费）；后续等待者拿到 inflight 完成后**重新走完整 sendMessage** 把它们的 text 正常 push（不要塞进同一个 createSession 的首条 prompt）
+- **占位 message**：进入恢复立刻 emit 一条 `{kind:'message', text:'⚠ SDK 通道已断开，正在自动恢复…'}` 非 error 占位，让用户在 SDK fallback 期间（最长 30s）看到状态而非哑巴 busy；恢复失败时再补一条 `error: true` 的「⚠ 自动恢复失败：…」message
+- **不要在 recoverAndSend 内自拼 emit/upsert/rename**：必须完整复用 createSession，让 `expectSdkSession(cwd) → claimAsSdk(opts.resume) → dedupOrClaim B 分支兜底 → waitForRealSessionId(_, _, opts.resume)` 全套 REVIEW_5 H4/H1 护栏按原样跑。任何捷径都会重打开「两条 active record」bug
+- **从 sessionRepo 补回 permissionMode**：用户上次主动选过的 `acceptEdits / plan / bypassPermissions` 必须复原，恢复路径不能默认 'default' 把用户辛苦切到的模式悄悄重置
+- **内部 sessionId 切换**走 `sessionManager.renameSdkSession` + 子表整体迁移，不要 delete + new（仅 SDK fallback `tempKey→realId` 路径用；resume 路径下 sessionId 保持不变，sdk-bridge H4 / CHANGELOG_24）
+- **detail 视图权威**：所有 detail 渲染的 record 必须以 `store.sessions` Map 为权威；本地临时 state（如 App.tsx 的 `historySession`）只在 Map 还没 upsert 的瞬间兜底，参考 `sessions.get(historySession.id) ?? historySession` 兜底链（CHANGELOG_25）
+
 ### 总结调度（summarizer）
 
 - 三层降级：LLM oneshot → 最近一条 assistant 文字 → 事件 kind 统计

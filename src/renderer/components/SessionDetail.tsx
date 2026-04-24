@@ -313,7 +313,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
 
       {/* 底部输入区：SDK 会话可发消息；CLI 会话只显示提示 */}
       {isSdk ? (
-        <ComposerSdk sessionId={session.id} agentId={session.agentId} cwd={session.cwd} />
+        <ComposerSdk sessionId={session.id} agentId={session.agentId} />
       ) : (
         <CliFooter />
       )}
@@ -339,19 +339,13 @@ function SourceBadge({ isSdk }: { isSdk: boolean }): JSX.Element {
 function ComposerSdk({
   sessionId,
   agentId,
-  cwd,
 }: {
   sessionId: string;
   agentId: string;
-  cwd: string;
 }): JSX.Element {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  /** "会话已断开" 时显示恢复按钮 —— sendMessage 抛 "not found" 等同于 SDK 通道已死。
-   *  用 resume 选项重新拉起 CLI 子进程，CLI 加载历史 jsonl 续上对话。 */
-  const [resumable, setResumable] = useState(false);
-  const [resuming, setResuming] = useState(false);
   // SDK Query 自身持有运行时 permissionMode 但不暴露 getter，所以从 session 记录的
   // permission_mode 列读「用户上次主动选过的值」。这是持久化的（DB），切别的 detail
   // 再切回来 / 重启 dev / 恢复会话，下拉都能正确还原。CLI 通道这字段是 null → 默认。
@@ -385,48 +379,23 @@ function ComposerSdk({
       );
       return;
     }
-    // 乐观清空，跟 resume 一致：让用户立刻感觉「发出去了」
+    // 乐观清空：让用户立刻感觉「发出去了」
     setText('');
     setBusy(true);
     setSendError(null);
     try {
+      // 通道断连恢复已沉到 sdk-bridge.sendMessage 内部（CHANGELOG_26 / B 方案）：
+      // 主进程检测到 !sessions.has(sessionId) 自动单飞 createSession({resume,prompt,cwd,permissionMode})，
+      // 走完整 H4/H1 护栏 + emit 占位 message。renderer 在这里**不再判断**「断连 vs 真错」。
+      // 唯一例外：sessionRepo 完全没记录 → sdk-bridge 仍抛 'session X not found'，
+      // 此时显示原 message 即可（这种情况理论上不会发生，session 一旦创建就在 DB 里）。
       await window.api.sendAdapterMessage(agentId, sessionId, t);
-      setResumable(false);
     } catch (err) {
-      const msg = (err as Error).message;
       console.error('sendAdapterMessage failed', err);
-      const dead = msg.includes('not found');
       setText(t);
-      setSendError(dead ? '会话已断开（dev 重启 / SDK 流终止）。可以恢复后继续' : msg);
-      setResumable(dead);
+      setSendError((err as Error).message);
     } finally {
       setBusy(false);
-    }
-  };
-
-  const resume = async (): Promise<void> => {
-    const t = text.trim();
-    if (!t) {
-      setSendError('恢复会话需要先在输入框写一条新消息（SDK streaming 协议要求）');
-      return;
-    }
-    // 乐观清空：让用户立刻看到「发出去了」，避免 SDK fallback 30s 等待期间以为没生效。
-    // 失败时把文字退回输入框 + 显示错误。
-    setText('');
-    setResuming(true);
-    setSendError(null);
-    try {
-      await window.api.createAdapterSession(agentId, {
-        cwd,
-        prompt: t,
-        resume: sessionId,
-      });
-      setResumable(false);
-    } catch (err) {
-      setText(t);
-      setSendError(`恢复失败：${(err as Error).message}`);
-    } finally {
-      setResuming(false);
     }
   };
 
@@ -508,23 +477,9 @@ function ComposerSdk({
       {sendError && (
         <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
           <span className="flex-1">⚠ {sendError}</span>
-          {resumable && (
-            <button
-              type="button"
-              disabled={resuming || !text.trim()}
-              onClick={() => void resume()}
-              className="rounded bg-status-working/30 px-1.5 py-0.5 text-status-working hover:bg-status-working/40 disabled:opacity-50"
-              title={text.trim() ? '用 SDK resume 续上历史会话' : '先在输入框写一条新消息'}
-            >
-              {resuming ? '恢复中…' : '恢复会话'}
-            </button>
-          )}
           <button
             type="button"
-            onClick={() => {
-              setSendError(null);
-              setResumable(false);
-            }}
+            onClick={() => setSendError(null)}
             className="text-status-waiting/70 hover:text-status-waiting"
             aria-label="dismiss"
           >
