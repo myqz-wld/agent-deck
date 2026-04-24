@@ -279,6 +279,64 @@ describe('SessionManager.ingest 时序', () => {
     // 没广播 session-upserted
     expect(mockEmits.filter((e) => e.name === 'session-upserted')).toHaveLength(0);
   });
+
+  it('REVIEW_5 H1：hook 抢先复活 OLD_ID（resume 路径）→ cwd 命中 pendingSdkCwds 即便 record 已存在也 skip+claim', () => {
+    // 预置：resume 历史会话已在 DB 里 (closed)，模拟用户从「历史」tab 点开发消息后
+    // 触发 createAdapterSession({resume:'OLD_ID'}) 启动 SDK 的场景
+    mockSessions.set('OLD_ID', {
+      id: 'OLD_ID',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'old',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 0,
+      endedAt: 0,
+      archivedAt: null,
+      permissionMode: null,
+    });
+    // SDK 注册要拉起 /tmp 的会话（sdk-bridge.expectSdkSession 调用）
+    sessionManager.expectSdkSession('/tmp');
+    // CLI 子进程的 SessionStart hook 抢先到达，session_id 就是历史 OLD_ID
+    // 旧实现：dedupOrClaim 第二条 `!sessionRepo.get(id)` 守卫失效 → hook 通过 →
+    //         ensure(OLD_ID, source:'cli') → existing closed → revive → 出现一条 cli active；
+    //         配合 SDK 30s fallback 造的 tempKey active → 用户看到「两条 active」
+    const hook = makeEvent({
+      sessionId: 'OLD_ID',
+      source: 'hook',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    });
+    sessionManager.ingest(hook);
+
+    // 关键断言：H1 新分支拦下 → record 仍是 closed 没被复活
+    expect(mockSessions.get('OLD_ID')?.lifecycle).toBe('closed');
+    expect(mockSessions.get('OLD_ID')?.source).toBe('sdk'); // source 也没被改成 cli
+    // hook 事件没落 events 表
+    expect(mockEvents).toHaveLength(0);
+    // 没广播多余的 session-upserted（claim 只是内部 sdkOwned set，不动 DB）
+    expect(
+      mockEmits.filter(
+        (e) =>
+          e.name === 'session-upserted' && (e.payload as SessionRecord)?.id === 'OLD_ID',
+      ),
+    ).toHaveLength(0);
+
+    // 后续同 id 的 hook 事件继续被 dedup（已 claim）
+    const hookLate = makeEvent({
+      sessionId: 'OLD_ID',
+      source: 'hook',
+      kind: 'message',
+      payload: { text: 'should also be dropped' },
+    });
+    sessionManager.ingest(hookLate);
+    expect(mockEvents).toHaveLength(0);
+
+    // 清理：让其他测试不被这条 sdkOwned 污染
+    sessionManager.releaseSdkClaim('OLD_ID');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

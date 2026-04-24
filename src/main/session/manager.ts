@@ -191,14 +191,34 @@ class SessionManagerClass {
     if (event.source === 'hook' && this.sdkOwned.has(event.sessionId)) {
       return { skip: true };
     }
-    // 时序竞争兜底：SDK 已注册要拉起这个 cwd 的会话，但真实 session_id 还没到，
-    // hook 通道（CLI 子进程内部 hook）先一步上报。这时如果是该 cwd 上首次见到的
+    // 时序竞争兜底 A（新 sessionId）：SDK 已注册要拉起这个 cwd 的会话，但真实 session_id
+    // 还没到，hook 通道（CLI 子进程内部 hook）先一步上报。这时如果是该 cwd 上首次见到的
     // 新 sessionId，认作 SDK 派生：claim 它的 id，丢弃这条 hook 事件，等 SDK 通道事件来。
     if (event.source === 'hook' && !sessionRepo.get(event.sessionId)) {
       const cwd = extractCwd(event);
       if (cwd && this.consumePendingSdkClaim(cwd)) {
         console.log(
-          `[session-mgr] hook→sdk re-claim: sessionId=${event.sessionId} cwd=${cwd}`,
+          `[session-mgr] hook→sdk re-claim (new sid): sessionId=${event.sessionId} cwd=${cwd}`,
+        );
+        this.claimAsSdk(event.sessionId);
+        return { skip: true };
+      }
+    }
+    // REVIEW_5 H1：时序兜底 B（已存在 sessionId，resume 路径专用）：
+    // SDK resume 启动 CLI 子进程后，CLI 内部 SessionStart hook 携带的 session_id 就是
+    // 历史 OLD_ID（DB 里 closed/archived/dormant 一定 existing），上面 A 的 `!sessionRepo.get`
+    // 守卫天然失效；hook 直接通过 → ensure 把 OLD_ID 复活成 active 但 source='cli'，与 SDK
+    // 通道（30s fallback 或后续 first SDKMessage）造的同 cwd active 形成「两条 active」bug。
+    //
+    // 修法：cwd 命中 pendingSdkCwds 时即便 record 已存在也走 claim + skip，让 SDK 通道独享。
+    // sdk-bridge.ts H4 修法已在 createSession 入口预先 claim opts.resume，本分支是双保险，
+    // 应对 expectSdkSession 已注册但 sdk-bridge 还没来得及 claim 的极短窗口（理论上 < 1ms，
+    // 但 microtask 调度无序，留这道防线兜底）。
+    if (event.source === 'hook') {
+      const cwd = extractCwd(event);
+      if (cwd && this.consumePendingSdkClaim(cwd)) {
+        console.log(
+          `[session-mgr] hook→sdk re-claim (existing sid): sessionId=${event.sessionId} cwd=${cwd}`,
         );
         this.claimAsSdk(event.sessionId);
         return { skip: true };

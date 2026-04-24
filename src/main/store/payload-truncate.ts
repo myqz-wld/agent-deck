@@ -20,7 +20,18 @@
  */
 
 const MAX_PAYLOAD_BYTES = 256 * 1024;
-const MAX_FIELD_BYTES = 8 * 1024;
+/**
+ * 单字段截断阈值。
+ *
+ * REVIEW_5：从 8KB 提到 64KB。原 8KB 在长一点的 message / thinking / tool result 上
+ * 会留下 `\n…[truncated XX bytes]` 标记，UI 即便点了「展开」也只看到截断后版本，
+ * 用户主诉「展开后内容也不完全是截断的」就是它。64KB ≈ 2 万中文字符 / 6 万英文字符，
+ * 覆盖绝大多数对话场景；与 256KB 总上限协调（最多 4 个 64KB 大字段）。
+ *
+ * 极长（> 64KB 单字段）仍截，并保留尾部 marker 让 UI 知道「这条被切了」，
+ * 避免单条 GB 级的 Bash 输出 / 文件 dump 撑爆 SQLite。
+ */
+const MAX_FIELD_BYTES = 64 * 1024;
 const KNOWN_LARGE_FIELDS = new Set([
   'toolResult',
   'output',

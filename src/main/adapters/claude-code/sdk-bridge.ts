@@ -149,6 +149,19 @@ export class ClaudeSdkBridge {
     // pending cwd 会卡 60s ttl，期间同 cwd 的真实外部 hook 会话被误吞。
     // 整段 createSession 用 try/catch 包，catch 里清掉 sessions map 并 release。
     const releasePending = sessionManager.expectSdkSession(opts.cwd);
+
+    // REVIEW_5 H4：resume 路径下 cwd 待领取兜底**失效**（dedupOrClaim 第二道仅对
+    // `!sessionRepo.get(id)` 起作用，OLD_ID 在历史 DB 里一定存在），CLI 内部 hook 抢先
+    // 上报 SessionStart 时会直接 ensure→revive 出一条 cli source 的 active record，
+    // 与稍后 SDK 30s fallback 用 tempKey 又造的另一条 active record 在 SessionList
+    // 显示成「两条 active 看起来一样的会话」（用户报项 + 双对抗 ✅）。
+    //
+    // 修法：进入即把 opts.resume 提前 claim 到 sdkOwned，hook 进 ingest 时
+    // 第一道防线 `sdkOwned.has(event.sessionId)` 直接 skip。配合下方 fallback 用
+    // opts.resume 作 sessionId 不再造 tempKey 占位行，根治两条 active record。
+    if (opts.resume) {
+      sessionManager.claimAsSdk(opts.resume);
+    }
     const internal: InternalSession = {
       realSessionId: null,
       cwd: opts.cwd,
@@ -416,7 +429,9 @@ export class ClaudeSdkBridge {
       this.sessions.set(tempKey, internal);
 
       // 等待第一条带 session_id 的 SDKMessage（system init 几乎一定会先到）
-      realId = await this.waitForRealSessionId(internal, tempKey);
+      // REVIEW_5 H4：把 opts.resume 传下去，30s fallback 时用 OLD_ID 作 sessionId
+      // 替代 tempKey emit 占位事件，让 ingest 走 existing 分支不再创建第二条 active record
+      realId = await this.waitForRealSessionId(internal, tempKey, opts.resume);
 
       // 注册到 SessionManager 的 sdk-owned 集合，后续 hook 回环将被去重
       sessionManager.claimAsSdk(realId);
@@ -424,6 +439,9 @@ export class ClaudeSdkBridge {
       // 任何中间步骤抛错：回滚 sessions / 释放 pending，再 throw 给上层 IPC 显错
       this.sessions.delete(tempKey);
       releasePending();
+      // REVIEW_5 H4：构造期就 claim 了 opts.resume，失败路径必须释放，
+      // 否则下次同 sessionId 的真实 hook / 终端 CLI 会话会被静默吞掉
+      if (opts.resume) sessionManager.releaseSdkClaim(opts.resume);
       throw err;
     }
     // 真实 id 已经入手，cwd 待领取标记可以释放（如果 hook 已经先消费过则是 no-op）
@@ -834,18 +852,28 @@ export class ClaudeSdkBridge {
    * 30 秒兜底：极端情况下 SDK 一直没回任何消息（CLI 鉴权失败 / 代理超限 / stream 卡死等），
    * 用 tempKey 顶上，并主动发一条错误消息让 UI 立刻看到「SDK 启动异常」，
    * 而不是悄无声息地坐等。后续真实 id 到达时 consume() 内部会自动修正 sdkOwned 集合。
+   *
+   * REVIEW_5 H4：resumeId 存在时 fallback 用它作 sessionId emit 错误消息，
+   * 让 ingest 走 existing 分支不再造 tempKey 占位 active record（与 hook 抢先复活的
+   * OLD_ID 形成两条 active 同时显示的 bug 已修，详见 createSession 注释）。
    */
-  private waitForRealSessionId(internal: InternalSession, tempKey: string): Promise<string> {
+  private waitForRealSessionId(
+    internal: InternalSession,
+    tempKey: string,
+    resumeId?: string,
+  ): Promise<string> {
     return new Promise<string>((resolve) => {
       let resolved = false;
       const fallback = setTimeout(() => {
         if (resolved) return;
         resolved = true;
-        console.warn(`[sdk-bridge] no SDKMessage in 30s, falling back to temp id ${tempKey}`);
-        internal.realSessionId = tempKey;
+        // REVIEW_5 H4：resume 路径下 fallback 直接落在 OLD_ID 上，避免造孤儿 tempKey
+        const fallbackId = resumeId ?? tempKey;
+        console.warn(`[sdk-bridge] no SDKMessage in 30s, falling back to id ${fallbackId}`);
+        internal.realSessionId = fallbackId;
         // 推一条错误消息，让 UI 在新会话里立刻看到出了什么问题，而不是空白等待。
         this.opts.emit({
-          sessionId: tempKey,
+          sessionId: fallbackId,
           agentId: AGENT_ID,
           kind: 'message',
           payload: {
@@ -857,7 +885,7 @@ export class ClaudeSdkBridge {
           ts: Date.now(),
           source: 'sdk',
         });
-        resolve(tempKey);
+        resolve(fallbackId);
       }, 30_000);
 
       void (async () => {
