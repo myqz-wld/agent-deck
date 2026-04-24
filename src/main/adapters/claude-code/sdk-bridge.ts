@@ -725,6 +725,70 @@ export class ClaudeSdkBridge {
     }
   }
 
+  /**
+   * 删会话清理：abort live query + 兜底清 pending timer + 移除 internal session 记录。
+   * 与 interrupt 区别：interrupt 允许 resume / 继续同 session；close 是永久关闭，
+   * 由 SessionManager.delete 调用，确保 SDK 子进程不继续跑（CHANGELOG_20 / N2）。
+   */
+  async closeSession(sessionId: string): Promise<void> {
+    let key: string | null = null;
+    let internal: InternalSession | null = null;
+    for (const [k, v] of this.sessions.entries()) {
+      if (k === sessionId || v.realSessionId === sessionId) {
+        key = k;
+        internal = v;
+        break;
+      }
+    }
+    if (!internal || !key) return;
+
+    // 1. abort query —— SDK 通过 ctx.signal 通知 canUseTool 链路，
+    //    pending Maps 内每条 entry 自身的 abort handler 会被触发并 resolver 释放，
+    //    consume() finally 也会清掉残余 pending。这里只是触发起点。
+    try {
+      await internal.query?.interrupt?.();
+    } catch (err) {
+      console.warn(`[sdk-bridge] interrupt during close failed: ${sessionId}`, err);
+    }
+
+    // 2. 兜底清 pending timer：abort 信号 propagate 不一定立即触发所有 entry handler，
+    //    timer 残留 30s+ 会让进程持有 callback 引用。clear Map 也避免延迟 resolver 收到时
+    //    Map 已空再 set 出错。
+    for (const entry of internal.pendingPermissions.values()) {
+      if (entry.timer) clearTimeout(entry.timer);
+    }
+    internal.pendingPermissions.clear();
+    for (const entry of internal.pendingAskUserQuestions.values()) {
+      if (entry.timer) clearTimeout(entry.timer);
+    }
+    internal.pendingAskUserQuestions.clear();
+    for (const entry of internal.pendingExitPlanModes.values()) {
+      if (entry.timer) clearTimeout(entry.timer);
+    }
+    internal.pendingExitPlanModes.clear();
+
+    // 3. 从 sessions map 移除：consume() 内 createUserMessageStream 检查 sessions.has(key) 决定是否 return，
+    //    delete 之后 stream 在下一次 notify 后自然终止。
+    this.sessions.delete(key);
+
+    // 4. 释放 sdkOwned：避免后续同 sessionId 的 hook 事件被误吞（删了应该当作"不再接管"）。
+    sessionManager.releaseSdkClaim(sessionId);
+    if (internal.realSessionId && internal.realSessionId !== sessionId) {
+      sessionManager.releaseSdkClaim(internal.realSessionId);
+    }
+
+    // 唤醒 createUserMessageStream 的 await，让它走到 sessions.has(key) === false 后 return。
+    if (internal.notify) {
+      const n = internal.notify;
+      internal.notify = null;
+      try {
+        n();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   /** 运行时切换权限模式。SDK 会从下一次工具调用起按新模式判断。 */
   async setPermissionMode(
     sessionId: string,

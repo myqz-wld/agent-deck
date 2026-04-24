@@ -30,6 +30,7 @@ class CodexCliAdapterImpl implements AgentAdapter {
     canInstallHooks: false,
     canRespondPermission: false,
     canSetPermissionMode: false,
+    canCloseSession: true,
   };
 
   private bridge: CodexSdkBridge | null = null;
@@ -65,6 +66,11 @@ class CodexCliAdapterImpl implements AgentAdapter {
   async interruptSession(sessionId: string): Promise<void> {
     if (!this.bridge) return;
     await this.bridge.interrupt(sessionId);
+  }
+
+  async closeSession(sessionId: string): Promise<void> {
+    if (!this.bridge) return;
+    await this.bridge.closeSession(sessionId);
   }
 
   async sendMessage(sessionId: string, text: string): Promise<void> {

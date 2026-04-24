@@ -22,6 +22,17 @@ function normalizeCwd(cwd: string): string {
 }
 import { fileChangeRepo } from '@main/store/file-change-repo';
 
+/**
+ * SessionManager 不直接 import adapterRegistry（避免反向依赖 + 单职责），
+ * 启动时 index.ts 通过 setSessionCloseFn 注入「按 sessionId 关 SDK 侧 live query」的 hook。
+ * delete() 调用前者，让 SDK bridge 同步 abort + 清 internal session 与 pending Maps（CHANGELOG_20 / N2）。
+ */
+type SessionCloseFn = (agentId: string, sessionId: string) => Promise<void>;
+let sessionCloseFn: SessionCloseFn | null = null;
+export function setSessionCloseFn(fn: SessionCloseFn | null): void {
+  sessionCloseFn = fn;
+}
+
 interface UpsertOptions {
   agentId: string;
   cwd?: string;
@@ -129,13 +140,31 @@ class SessionManagerClass {
     return rec;
   }
 
-  /** 入口：adapter 发来的所有 AgentEvent 都走这里 */
+  /**
+   * 入口：adapter 发来的所有 AgentEvent 都走这里。
+   *
+   * 拆 5 段（CHANGELOG_20 / B）：dedupOrClaim → ensureRecord → persistEventRow →
+   * persistFileChange → advanceState。每段单一职责、可单测。
+   *
+   * **硬约束**：dedupOrClaim 必须留在最前 + 早返；否则 hook 首发竞争场景会先落一份假 CLI 会话
+   * 再 claim，UI 会闪现「内/外两份」。CHANGELOG_16 / REVIEW_1 修过、payload-truncate 测试覆盖。
+   */
   ingest(event: AgentEvent): void {
-    // 去重：SDK 已接管的会话，丢弃 hook 通道事件（避免重复入库）
-    if (event.source === 'hook' && this.sdkOwned.has(event.sessionId)) {
-      return;
-    }
+    if (this.dedupOrClaim(event).skip) return;
+    const record = this.ensureRecord(event);
+    this.persistEventRow(event);
+    this.persistFileChange(event);
+    this.advanceState(record, event);
+    // 4. 广播原始事件给渲染端
+    eventBus.emit('agent-event', event);
+  }
 
+  /** 第 1 段：去重 / 时序兜底 claim。skip=true 表示这条事件应被丢弃（hook 与 SDK 重复 / hook 首发被 SDK claim）。 */
+  private dedupOrClaim(event: AgentEvent): { skip: boolean } {
+    // SDK 已接管的会话，丢弃 hook 通道事件（避免重复入库）
+    if (event.source === 'hook' && this.sdkOwned.has(event.sessionId)) {
+      return { skip: true };
+    }
     // 时序竞争兜底：SDK 已注册要拉起这个 cwd 的会话，但真实 session_id 还没到，
     // hook 通道（CLI 子进程内部 hook）先一步上报。这时如果是该 cwd 上首次见到的
     // 新 sessionId，认作 SDK 派生：claim 它的 id，丢弃这条 hook 事件，等 SDK 通道事件来。
@@ -146,52 +175,69 @@ class SessionManagerClass {
           `[session-mgr] hook→sdk re-claim: sessionId=${event.sessionId} cwd=${cwd}`,
         );
         this.claimAsSdk(event.sessionId);
-        return;
+        return { skip: true };
       }
     }
+    return { skip: false };
+  }
 
-    const record = this.ensure(event.sessionId, {
+  /** 第 2 段：取/建 SessionRecord。复活 closed 也由 ensure 内部处理。 */
+  private ensureRecord(event: AgentEvent): SessionRecord {
+    return this.ensure(event.sessionId, {
       agentId: event.agentId,
       cwd: extractCwd(event),
       // SDK 通道发来的事件 → 应用内会话；hook 通道（含未标 source 的） → 外部 CLI 会话
       source: event.source === 'sdk' ? 'sdk' : 'cli',
     });
+  }
 
-    // 1. 落库 events
+  /** 第 3 段：events 表落库。payload 截断由 event-repo 内部 safeStringifyPayload 处理（CHANGELOG_20 / N1）。 */
+  private persistEventRow(event: AgentEvent): void {
     eventRepo.insert(event);
+  }
 
-    // 2. 若是 file-changed，落库 file_changes
-    if (event.kind === 'file-changed') {
-      const p = event.payload as {
-        filePath?: string;
-        kind?: string;
-        before?: unknown;
-        after?: unknown;
-        toolCallId?: string;
-        metadata?: Record<string, unknown>;
-      };
-      if (p && typeof p.filePath === 'string') {
-        // text 通道 before/after 是 string，原样存；image 通道是 ImageSource 对象，需 JSON.stringify。
-        // file_changes.before_blob / after_blob 列是 TEXT，序列化后存得下（典型 < 200 chars）。
-        const serialize = (v: unknown): string | null => {
-          if (v == null) return null;
-          if (typeof v === 'string') return v;
-          return JSON.stringify(v);
-        };
-        fileChangeRepo.insert({
-          sessionId: event.sessionId,
-          filePath: p.filePath,
-          kind: p.kind ?? 'text',
-          beforeBlob: serialize(p.before),
-          afterBlob: serialize(p.after),
-          metadata: p.metadata ?? {},
-          toolCallId: p.toolCallId ?? null,
-          ts: event.ts,
-        });
-      }
-    }
+  /** 第 4 段：file-changed 事件附带的文件 diff 落 file_changes 表（其它 kind 直接 return）。 */
+  private persistFileChange(event: AgentEvent): void {
+    if (event.kind !== 'file-changed') return;
+    const p = event.payload as {
+      filePath?: string;
+      kind?: string;
+      before?: unknown;
+      after?: unknown;
+      toolCallId?: string;
+      metadata?: Record<string, unknown>;
+    };
+    if (!p || typeof p.filePath !== 'string') return;
+    // text 通道 before/after 是 string，原样存；image 通道是 ImageSource 对象，需 JSON.stringify。
+    // file_changes.before_blob / after_blob 列是 TEXT，序列化后存得下（典型 < 200 chars）。
+    const serialize = (v: unknown): string | null => {
+      if (v == null) return null;
+      if (typeof v === 'string') return v;
+      return JSON.stringify(v);
+    };
+    fileChangeRepo.insert({
+      sessionId: event.sessionId,
+      filePath: p.filePath,
+      kind: p.kind ?? 'text',
+      beforeBlob: serialize(p.before),
+      afterBlob: serialize(p.after),
+      metadata: p.metadata ?? {},
+      toolCallId: p.toolCallId ?? null,
+      ts: event.ts,
+    });
+  }
 
-    // 3. 推进 activity 状态机 + lifecycle 复活
+  /**
+   * 第 5 段：activity 状态机推进 + lifecycle 复活 + emit。
+   *
+   * 「会话状态真的变了」走重 upsert + 广播 session-upserted（renderer store 同步整个 record）。
+   * 「只是 lastEventAt 推进」走轻量 setActivity 单列 UPDATE，不再广播 —— renderer 通过
+   * agent-event 事件已经知道有新动作；session-upserted 高频会话场景下会被联动放大成
+   * IPC 风暴（每条事件一次 latestSummaries 重读 SQL，10 个活跃会话 = 50 IPC/s 全是浪费）。
+   *
+   * 不在判定里写 archivedAt：归档与 lifecycle 正交，归档的会话来事件不应自动 unarchive。
+   */
+  private advanceState(record: SessionRecord, event: AgentEvent): void {
     const nextActivity = nextActivityState(record.activity, event.kind, event.payload);
     let nextLifecycle: LifecycleState = record.lifecycle;
     if (record.lifecycle !== 'active') {
@@ -205,12 +251,6 @@ class SessionManagerClass {
       nextLifecycle = event.source === 'sdk' ? 'dormant' : 'closed';
     }
 
-    // 「会话状态真的变了」走重 upsert + 广播 session-upserted（renderer store 同步整个 record）。
-    // 「只是 lastEventAt 推进」走轻量 setActivity 单列 UPDATE，不再广播 —— renderer 通过
-    // agent-event 事件已经知道有新动作；session-upserted 高频会话场景下会被联动放大成
-    // IPC 风暴（每条事件一次 latestSummaries 重读 SQL，10 个活跃会话 = 50 IPC/s 全是浪费）。
-    //
-    // 不在判定里写 archivedAt：归档与 lifecycle 正交，归档的会话来事件不应自动 unarchive。
     if (nextActivity !== record.activity || nextLifecycle !== record.lifecycle) {
       const updated: SessionRecord = {
         ...record,
@@ -226,9 +266,6 @@ class SessionManagerClass {
       // 不广播 session-upserted —— renderer 不需要为「只是 lastEventAt 变了」重渲染整张卡。
       sessionRepo.setActivity(event.sessionId, nextActivity, event.ts);
     }
-
-    // 4. 广播原始事件给渲染端
-    eventBus.emit('agent-event', event);
   }
 
   /** lifecycle scheduler 用：把 active 推到 dormant */
@@ -290,6 +327,16 @@ class SessionManagerClass {
   }
 
   delete(sessionId: string): void {
+    // 先通知 adapter 关 SDK 侧 live query / pending Maps，再删 DB 行 + 广播。
+    // - 顺序：close 先（拿 agentId 走 adapter）→ DB 删 → emit；DB 删了 agentId 拿不到。
+    // - 异步：close 不 await（fire-and-forget），避免 IPC 路径阻塞 renderer 等子进程退出；
+    //   出错只 warn —— DB 行不能因为 SDK 那边回收失败而留着，孤儿状态更糟。
+    const session = sessionRepo.get(sessionId);
+    if (session?.agentId && sessionCloseFn) {
+      void sessionCloseFn(session.agentId, sessionId).catch((err) =>
+        console.warn(`[session-mgr] close on delete failed: ${sessionId}`, err),
+      );
+    }
     sessionRepo.delete(sessionId);
     eventBus.emit('session-removed', sessionId);
   }

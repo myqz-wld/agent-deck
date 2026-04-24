@@ -58,6 +58,12 @@ export const IpcInvoke = {
   ClaudeMdSave: 'claude-md:save',
   /** 删除用户副本 CLAUDE.md（如果存在），回落到内置版本，并清缓存。 */
   ClaudeMdReset: 'claude-md:reset',
+  /**
+   * 拉取 summarizer 最近一次失败原因（by sessionId）。UI 展示在设置面板「间歇总结」section，
+   * 让用户能诊断「为什么这个会话没总结」（CHANGELOG_20 / G）。失败被吞到 console.warn 不够，
+   * 用户没法用、运维也看不到。
+   */
+  SummarizerLastErrors: 'summarizer:last-errors',
 } as const;
 
 export const IpcEvent = {

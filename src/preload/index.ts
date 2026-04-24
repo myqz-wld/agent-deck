@@ -198,6 +198,13 @@ const api = {
   resetClaudeMd: (): Promise<{ ok: boolean; content: string }> =>
     ipcRenderer.invoke(IpcInvoke.ClaudeMdReset),
 
+  /**
+   * 拉取 summarizer 最近一次失败原因（by sessionId），UI 设置面板诊断用。
+   * 空对象表示没有任何会话失败过（CHANGELOG_20 / G）。
+   */
+  summarizerLastErrors: (): Promise<Record<string, { message: string; ts: number }>> =>
+    ipcRenderer.invoke(IpcInvoke.SummarizerLastErrors),
+
   // 事件订阅
   onAgentEvent: (cb: (e: AgentEvent) => void): (() => void) => {
     const handler = (_: unknown, e: AgentEvent): void => cb(e);

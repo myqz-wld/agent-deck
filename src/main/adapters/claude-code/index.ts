@@ -24,6 +24,7 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     canInstallHooks: true,
     canRespondPermission: true,
     canSetPermissionMode: true,
+    canCloseSession: true,
   };
 
   private installer: HookInstaller | null = null;
@@ -65,6 +66,11 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
   async interruptSession(sessionId: string): Promise<void> {
     if (!this.bridge) return;
     await this.bridge.interrupt(sessionId);
+  }
+
+  async closeSession(sessionId: string): Promise<void> {
+    if (!this.bridge) return;
+    await this.bridge.closeSession(sessionId);
   }
 
   async sendMessage(sessionId: string, text: string): Promise<void> {

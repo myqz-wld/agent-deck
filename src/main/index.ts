@@ -15,10 +15,10 @@ import { applyClaudeSettingsEnv } from './adapters/claude-code/settings-env';
 import { codexCliAdapter } from './adapters/codex-cli';
 import { aiderAdapter } from './adapters/aider';
 import { genericPtyAdapter } from './adapters/generic-pty';
-import { sessionManager } from './session/manager';
+import { sessionManager, setSessionCloseFn } from './session/manager';
 import { LifecycleScheduler, setLifecycleScheduler } from './session/lifecycle-scheduler';
 import { summarizer } from './session/summarizer';
-import { notifyUser } from './notify/visual';
+import { routeEventToNotification } from './notify/event-router';
 import { stopAllSounds } from './notify/sound';
 import { handleCliArgv } from './cli';
 import { IpcEvent } from '@shared/ipc-channels';
@@ -72,36 +72,22 @@ async function bootstrap(): Promise<void> {
     routeRegistry,
     emit: (event: AgentEvent) => {
       sessionManager.ingest(event);
-      // 状态变化时根据 kind 触发提醒
-      if (event.kind === 'waiting-for-user') {
-        // SDK 通道的 `*-cancelled` 事件（permission-cancelled / ask-question-cancelled /
-        // exit-plan-cancelled）也复用 `waiting-for-user` 这个 kind，但语义是「撤掉那条 pending」
-        // 而不是「又一次需要用户输入」。如果一律推系统通知 + 提示音，用户在点完按钮 / 超时 /
-        // session-end 之后会收到一条多余的「Agent 等待你的输入」打扰。
-        const payload = (event.payload ?? {}) as { type?: string; message?: string };
-        const type = payload.type;
-        if (typeof type === 'string' && type.endsWith('-cancelled')) {
-          return;
-        }
-        const session = sessionManager.get(event.sessionId);
-        notifyUser({
-          title: 'Agent 等待你的输入',
-          body: session ? `${session.title}：${payload.message ?? ''}` : '',
-          level: 'waiting',
-        });
-      } else if (event.kind === 'finished') {
-        const session = sessionManager.get(event.sessionId);
-        notifyUser({
-          title: 'Agent 完成',
-          body: session?.title ?? '',
-          level: 'finished',
-        });
-      }
+      // 通知路由抽离到 notify/event-router.ts（CHANGELOG_20 / F）：
+      // bootstrap 回归装配胶水职责，新增 kind→通知规则只动 routeEventToNotification。
+      routeEventToNotification(event);
     },
     paths: {
       userHome: homedir(),
       userClaudeSettings: join(homedir(), '.claude', 'settings.json'),
     },
+  });
+
+  // 5.1 注入「会话删除时关 SDK 侧 live query」hook（CHANGELOG_20 / N2）。
+  // SessionManager 不感知 adapterRegistry（单职责），通过 setter 注入。
+  setSessionCloseFn(async (agentId, sessionId) => {
+    const adapter = adapterRegistry.get(agentId);
+    if (!adapter?.closeSession) return;
+    await adapter.closeSession(sessionId);
   });
 
   // 6. 启动 HookServer

@@ -18,6 +18,7 @@ export const genericPtyAdapter: AgentAdapter = {
     canInstallHooks: false,
     canRespondPermission: false,
     canSetPermissionMode: false,
+    canCloseSession: false,
   },
   async init(_ctx: AdapterContext): Promise<void> {
     // intentionally empty
