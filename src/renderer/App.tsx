@@ -76,16 +76,27 @@ export function App(): JSX.Element {
   // realId ≠ opts.resume）→ 触发 sessionManager.renameSdkSession(OLD_ID, NEW_ID) →
   // emit session-renamed → store.renameSession 把 sessions Map / selectedSessionId 切到 NEW_ID。
   // 但本组件的 historySession 是用户点历史会话进 detail 时设的本地 state（一次 fetch 拷贝），
-  // store 不知道它，所以要单独 listen session-renamed 把 historySession.id 也切过去 ——
-  // 否则 detail 的 SourceBadge / ComposerSdk 仍按 OLD_ID 走，与「OLD_ID 已在 DB 删除」矛盾。
+  // store 不知道它，所以要单独 listen session-renamed：
+  //
+  // CHANGELOG_29：rename 一旦发生说明这条会话已被 SDK 重新激活（active），用户视觉上还卡在
+  // 「历史」tab 不合理 —— 主动切到「实时」+ 清掉 historySession 本地 state，detail 通过
+  // store.selectedSessionId（renameSession 已切到 NEW_ID）自然接力，体感是「我点的会话被
+  // 自动放到实时面板继续聊」，符合 CLAUDE.md「凡让用户感觉像新开会话 / 跳回列表都是 bug」总纲
   useEffect(() => {
     const off = window.api.onSessionRenamed(({ from, to }) => {
-      setHistorySession((prev) =>
-        prev && prev.id === from ? { ...prev, id: to } : prev,
-      );
+      setHistorySession((prev) => {
+        if (prev && prev.id === from) {
+          // 历史 detail 在的会话被 rename → 切到实时 tab + 选中 NEW_ID
+          // selectedSessionId 已由 store.renameSession 自动切到 to，这里只切 view + 清本地 state
+          setView('live');
+          select(to);
+          return null;
+        }
+        return prev;
+      });
     });
     return off;
-  }, []);
+  }, [select]);
 
   const togglePin = async (): Promise<void> => {
     const next = !pinned;
