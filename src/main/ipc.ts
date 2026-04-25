@@ -290,16 +290,22 @@ export function bootstrapIpc(): void {
     // 留在「DB 退了 + 运行时半生效」正是注释要避免的状态）。
     const before = settingsStore.getAll();
     const next = settingsStore.patch(p);
+    // REVIEW_7 L3：apply / rollback 函数列表统一来源。旧版分别在 try / catch 里手写两份对称
+    // 列表，新增 setting 字段时易漏 apply 导致「能改但不生效」。warn* 没运行时副作用，
+    // 不进 rollback，单独跑。
+    const APPLY_FNS = [
+      applyLifecycleThresholds,
+      applyLoginItem,
+      applyAlwaysOnTop,
+      applyPermissionTimeout,
+      applyCodexCliPath,
+      applySummaryInterval,
+      invalidateClaudeMdCache,
+    ] as const;
     try {
-      applyLifecycleThresholds(p, next);
-      applyLoginItem(p, next);
-      applyAlwaysOnTop(p, next);
-      applyPermissionTimeout(p, next);
-      applyCodexCliPath(p, next);
-      applySummaryInterval(p, next);
+      for (const fn of APPLY_FNS) fn(p, next);
       warnHookServerPort(p);
       warnHookServerToken(p);
-      invalidateClaudeMdCache(p);
     } catch (err) {
       // 1) DB 回滚：只回 patch 涉及的 key，避免动到本来就不该变的字段。
       //    双层 unknown 中转：AppSettings 严格联合类型，TS 不允许直接当 Record<string,unknown>。
@@ -312,16 +318,7 @@ export function bootstrapIpc(): void {
       settingsStore.patch(rollback);
       // 2) 运行时回滚：再跑一遍 apply* 链让 scheduler/loginItem/window/adapter 实例/cache
       //    退到 before 状态。每个 apply 单独 try/catch，避免一个回滚函数抛错把后续都吞掉。
-      //    warn* 函数没运行时副作用不需要再跑。
-      for (const fn of [
-        applyLifecycleThresholds,
-        applyLoginItem,
-        applyAlwaysOnTop,
-        applyPermissionTimeout,
-        applyCodexCliPath,
-        applySummaryInterval,
-        invalidateClaudeMdCache,
-      ]) {
+      for (const fn of APPLY_FNS) {
         try {
           fn(rollback, before);
         } catch (rollbackErr) {

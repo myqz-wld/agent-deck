@@ -32,6 +32,14 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
   /** reload 序列号：每次发起递增；then 回调先比较序列号，过期请求直接丢弃。
    * REVIEW_2 修：旧筛选慢请求返回会覆盖新筛选结果（搜索 / 切「仅归档」时列表回跳到过期数据）。 */
   const reqIdRef = useRef(0);
+  /** REVIEW_7 M2：filters 的 ref 镜像。
+   * 下面 listener 用空 deps 数组注册（注释 76-77 说明原因：reload 重建 listener 会让中间事件漏掉），
+   * 但 reload 闭包里读 `filters` 会被锁死成首次 mount 时的快照 → 用户改了 filter 后
+   * rename/upsert 触发的 reload 仍按旧 filters 查询。让 reload 一律走 ref 拿最新 filters。 */
+  const filtersRef = useRef<Filters>(filters);
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
 
   // keywordInput → filters.keyword 的 debounce 桥接：用户停止输入 300ms 后才提交查询
   useEffect(() => {
@@ -46,7 +54,8 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
     setLoading(true);
     try {
       // 走 preload 强类型 facade 而不是 ipcInvokeRaw —— 避免 channel 名 typo 静默 fail
-      const r = await window.api.listSessionHistory(filters);
+      // 用 filtersRef.current 而非 filters：让 listener 路径（空 deps 注册一次）也能拿最新 filters
+      const r = await window.api.listSessionHistory(filtersRef.current);
       if (cur !== reqIdRef.current) return; // 过期请求，丢弃结果
       setRows(r);
     } finally {
@@ -160,16 +169,22 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                     lifecycle={s.lifecycle}
                     archived={s.archivedAt !== null}
                   />
-                  {/* CHANGELOG_30：与 SessionCard / SessionDetail.SourceBadge 风格一致的「内/外」标签 ——
+                  {/* CHANGELOG_29：与 SessionCard / SessionDetail.SourceBadge 风格一致的「内/外」标签 ——
                       历史 tab 同样是用户主要查找入口，列表里就要能预判这条点进去能不能继续聊
-                      （SDK=内 可以；CLI=外 走 CliFooter 只读，不能在 detail 里发消息） */}
+                      （SDK=内 可以；其他 source=外 走 CliFooter 只读，不能在 detail 里发消息）。
+                      REVIEW_7 L2：tooltip 显示真实 source 名（而非固定写「外部终端 CLI」）；
+                      未来加入新 adapter 时，本标签 + SessionDetail 渲染分支需要同步加判断。 */}
                   <span
                     className={`inline-flex h-4 items-center rounded-sm px-1 text-[9px] font-medium leading-none ${
                       s.source === 'sdk'
                         ? 'bg-emerald-500/15 text-emerald-400'
                         : 'bg-white/10 text-deck-muted'
                     }`}
-                    title={s.source === 'sdk' ? '应用内创建（SDK 通道，可在 detail 里继续聊）' : '外部终端 CLI 会话（只读，detail 不可发消息）'}
+                    title={
+                      s.source === 'sdk'
+                        ? '应用内创建（SDK 通道，可在 detail 里继续聊）'
+                        : `外部 ${s.source ?? 'cli'} 通道（只读，detail 不可发消息）`
+                    }
                   >
                     {s.source === 'sdk' ? '内' : '外'}
                   </span>

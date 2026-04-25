@@ -402,10 +402,19 @@ class SessionManagerClass {
    * 然后通知 renderer 同步迁移 selectedId / by-session 状态。
    * 用于 SDK fallback 路径：tempKey 占位 → 真实 session_id 出现后无损切换，
    * 用户保持在 detail，不被踢回主界面。
+   *
+   * REVIEW_7 M3：sdkOwned claim 由本函数原子转移（fromId → toId），调用方不再手工管。
+   * 旧版调用方需在 rename 前后自己 release(fromId) + claim(toId)；fork 路径只 release
+   * 不 claim 时 NEW_ID 未被 sdkOwned 覆盖，window 期间 hook 通道抢先 NEW_ID 事件会走
+   * 「未 claim」分支造另一条 record（虽然概率极低）。内聚后所有调用方拿到同一保证。
    */
   renameSdkSession(fromId: string, toId: string): void {
     if (fromId === toId) return;
     sessionRepo.rename(fromId, toId);
+    if (this.sdkOwned.has(fromId)) {
+      this.sdkOwned.delete(fromId);
+      this.sdkOwned.add(toId);
+    }
     eventBus.emit('session-renamed', { from: fromId, to: toId });
     const updated = sessionRepo.get(toId);
     if (updated) eventBus.emit('session-upserted', updated);

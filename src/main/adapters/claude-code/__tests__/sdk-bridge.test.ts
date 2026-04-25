@@ -319,9 +319,9 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
 
     expect(firstId).toBe(NEW_ID);
 
-    // OLD_ID 的 claim 被 release，然后 OLD_ID record 被 rename 成 NEW_ID
+    // REVIEW_7 M3：renameSdkSession 内聚 sdkOwned claim 转移（OLD_ID → NEW_ID 原子），
+    // 调用方不再手工 releaseSdkClaim(OLD_ID)。只断言 renameSdkSession 被正确调用。
     const { sessionManager } = await import('@main/session/manager');
-    expect(vi.mocked(sessionManager.releaseSdkClaim)).toHaveBeenCalledWith(OLD_ID);
     expect(vi.mocked(sessionManager.renameSdkSession)).toHaveBeenCalledWith(OLD_ID, NEW_ID);
   });
 

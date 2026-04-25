@@ -660,28 +660,35 @@ export class ClaudeSdkBridge {
             `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${rec.cwd}, ` +
               `falling back to new CLI session (CLI history lost but app DB preserved)`,
           );
-          await this.createSession({
+          // REVIEW_7 H1：直接用 createSession 返回值拿 newRealId，不再 entries() 反查 cwd。
+          // 旧版用 `for ... entries() if cwd === rec.cwd break` 取 first 推断「最新创建的」，
+          // 但 Map 迭代是插入顺序——同 cwd 已存在别的 SDK 会话时会先取到那条历史 session_id，
+          // 把 OLD_ID 的 events/file_changes/summaries 子表错迁到不相关会话上。
+          const handle = await this.createSession({
             cwd: rec.cwd,
             prompt: text,
             permissionMode: rec.permissionMode ?? undefined,
           });
-          // createSession 走 tempKey → realId rename 路径，OLD_ID 没参与；手工补一次 rename
-          // 把 OLD_ID 的应用层身份转到 newRealId。从 sessions Map 找 cwd === rec.cwd 的最新
-          // SDK session id 即为 newRealId（createSession resolve 后已注册）。
-          let newRealId: string | null = null;
-          for (const [sid, internal] of this.sessions.entries()) {
-            if (internal.cwd === rec.cwd) {
-              newRealId = sid;
-              break;
-            }
-          }
-          if (newRealId && newRealId !== sessionId) {
+          const newRealId = handle.sessionId;
+          if (newRealId !== sessionId) {
             console.warn(
               `[sdk-bridge] post-fallback rename ${sessionId} → ${newRealId} ` +
                 `(carry app-side events/file_changes/summaries history)`,
             );
-            sessionManager.releaseSdkClaim(sessionId);
-            sessionManager.renameSdkSession(sessionId, newRealId);
+            // REVIEW_7 M1+M3：renameSdkSession 内聚 claim 转移（M3）；包 try/catch 透传错误（M1）。
+            // sessionRepo.rename 内事务保证数据原子（要么全迁要么不动），rename 抛错时 OLD claim
+            // 没动（M3 后 sdkOwned 转移在 rename 后；rename 抛在 sdkOwned 操作前）。
+            // 不 throw —— NEW_ID 通道已建立，rename 只是 best-effort history carry，
+            // throw 会让用户的 sendMessage 失败，影响主路径。
+            try {
+              sessionManager.renameSdkSession(sessionId, newRealId);
+            } catch (renameErr) {
+              console.error(
+                `[sdk-bridge] post-fallback rename failed ${sessionId} → ${newRealId}, ` +
+                  `NEW_ID session still works but app-side history not migrated.`,
+                renameErr,
+              );
+            }
           }
           return;
         }
@@ -1148,8 +1155,7 @@ export class ClaudeSdkBridge {
             // 用 rename 而不是 delete + new：保留 tempKey 行的内容（包括用户已选过的 permission_mode、
             // 已落库的事件 / 文件改动 / 总结），整体迁到 realId。renderer 侧通过 session-renamed
             // 事件同步迁移 selectedId / by-session 状态，不会被踢回主界面。
-            sessionManager.releaseSdkClaim(tempKey);
-            sessionManager.claimAsSdk(realId);
+            // REVIEW_7 M3：renameSdkSession 内聚 sdkOwned claim 转移，调用方不再手工 release+claim。
             sessionManager.renameSdkSession(tempKey, realId);
           }
 
@@ -1168,18 +1174,22 @@ export class ClaudeSdkBridge {
           // 副作用：会话 id 字段变了（与 jsonl 文件名一致），但 detail / list 内容完全连续，
           // 用户在 UI 上看不到 sessionId 字段，体感等同「会话续上」。
           //
-          // 关键约束：
-          // - rename 必须在 createSession line 465 emit session-start 之后（manager 已 ensure
-          //   了 NEW_ID record），rename(OLD_ID → NEW_ID) 走 sessionRepo.rename 的 toExists
-          //   分支：不复制 OLD_ID record 但子表全迁，再 delete OLD_ID record，干净
-          // - claim 转移：OLD_ID 在 createSession line 176-178 已 claimAsSdk，要 release；
-          //   NEW_ID 在 createSession line 451 已 claimAsSdk，无需重复
+          // 关键约束（REVIEW_7 L4 修正注释 → 与实际代码顺序一致）：
+          // - 实际顺序：本 fork rename(OLD_ID → NEW_ID) 在 onFirstId(realId) 之前（即下面这行 1183 块），
+          //   onFirstId 才 resolve waitForRealSessionId，createSession 才走到 line 467 emit session-start。
+          //   也就是 rename 在 NEW_ID 的 session-start emit 之前发生 —— 此时 NEW_ID record 在 DB 中
+          //   尚不存在。sessionRepo.rename (session-repo.ts:183-218) 对 toExists=false 走 INSERT
+          //   复制 OLD_ID 内容（含 permission_mode 等）+ 迁子表 + DELETE OLD_ID 路径，结果与
+          //   toExists=true 分支一致——OLD_ID 内容被完整保留到 NEW_ID 名下，干净无遗漏。
+          // - claim 转移：renameSdkSession 内聚处理（REVIEW_7 M3），调用方不再手工 release/claim。
           if (resumeId && resumeId !== realId) {
             console.warn(
               `[sdk-bridge] CLI forked: requested resume=${resumeId} but got realId=${realId}; ` +
                 `renaming OLD record → NEW so history continues under the new session id`,
             );
-            sessionManager.releaseSdkClaim(resumeId);
+            // REVIEW_7 M3：renameSdkSession 内聚 sdkOwned claim 转移（resumeId → realId 原子），
+            // 消除 fork 路径「fork rename → onFirstId → createSession 行 453 才 claimAsSdk(realId)」
+            // 窗口内 NEW_ID 未 claim、hook 通道抢先 NEW_ID 事件造另一条 record 的微概率风险。
             sessionManager.renameSdkSession(resumeId, realId);
           }
 
