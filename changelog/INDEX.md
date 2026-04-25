@@ -36,3 +36,4 @@
 | [CHANGELOG_29.md](CHANGELOG_29.md) | HistoryPanel 周边微调（事后补）：rename 后自动切 live view + 内/外标签 + 监听 rename/upsert 自动 reload + recoverAndSend archived 自动 unarchive |
 | [CHANGELOG_30.md](CHANGELOG_30.md) | REVIEW_7 落地修复（1 HIGH + 4 MED + 4 LOW + 1 新 vitest case）：sdk-bridge post-fallback 用 createSession 返回值 + renameSdkSession 内聚 claim 转移 + HistoryPanel listener stale closure + renderer renameSession defensive + App.tsx updater 副作用挑出 + 标签 tooltip + ipc apply 列表统一来源 + 注释精确化（46/46） |
 | [CHANGELOG_31.md](CHANGELOG_31.md) | 设置面板加「置顶时透明」开关：AppSettings.transparentWhenPinned（默认 true 维持原行为），关掉则 pin 时仍保留 macOS under-window 实玻璃；即改即生效 |
+| [CHANGELOG_32.md](CHANGELOG_32.md) | 修设置面板 hookStatus 红框（user scope 不需 cwd，main 校验 scope-aware）+ 关透明玻璃后 pin 与非 pin 颜色不一致（CSS 改为 data-transparent，App 算 pinned && transparentWhenPinned） |

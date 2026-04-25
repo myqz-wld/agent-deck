@@ -166,6 +166,14 @@ function parseHookScope(value: unknown): 'user' | 'project' {
   throw new IpcInputError('scope', `must be 'user' or 'project', got ${String(value)}`);
 }
 
+// user scope 装在 ~/.claude/settings.json，与 cwd 无关 → cwd 允许缺省（renderer 设置面板正是这条路径）；
+// project scope 装在 <cwd>/.claude/settings.json → cwd 必填。把 scope-aware 校验集中到一个 helper，
+// 避免三个 hook handler 各自 if-else 漏掉一处。
+function parseHookCwd(scope: 'user' | 'project', cwd: unknown): string | undefined {
+  if (scope === 'user') return undefined;
+  return parseStringId('cwd', cwd, 4096);
+}
+
 const PERMISSION_MODE_VALUES: ReadonlyArray<PermissionMode> = [
   'default',
   'acceptEdits',
@@ -262,25 +270,28 @@ export function bootstrapIpc(): void {
   on(IpcInvoke.HookInstall, async (_e, scope, cwd) => {
     const adapter = adapterRegistry.get('claude-code');
     if (!adapter?.installIntegration) throw new Error('adapter not available');
+    const parsedScope = parseHookScope(scope);
     return adapter.installIntegration({
-      scope: parseHookScope(scope),
-      cwd: parseStringId('cwd', cwd, 4096),
+      scope: parsedScope,
+      cwd: parseHookCwd(parsedScope, cwd),
     });
   });
   on(IpcInvoke.HookUninstall, async (_e, scope, cwd) => {
     const adapter = adapterRegistry.get('claude-code');
     if (!adapter?.uninstallIntegration) throw new Error('adapter not available');
+    const parsedScope = parseHookScope(scope);
     return adapter.uninstallIntegration({
-      scope: parseHookScope(scope),
-      cwd: parseStringId('cwd', cwd, 4096),
+      scope: parsedScope,
+      cwd: parseHookCwd(parsedScope, cwd),
     });
   });
   on(IpcInvoke.HookStatus, async (_e, scope, cwd) => {
     const adapter = adapterRegistry.get('claude-code');
     if (!adapter?.integrationStatus) throw new Error('adapter not available');
+    const parsedScope = parseHookScope(scope);
     return adapter.integrationStatus({
-      scope: parseHookScope(scope),
-      cwd: parseStringId('cwd', cwd, 4096),
+      scope: parsedScope,
+      cwd: parseHookCwd(parsedScope, cwd),
     });
   });
 

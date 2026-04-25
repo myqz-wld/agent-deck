@@ -27,6 +27,10 @@ export function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [pinned, setPinned] = useState(true);
+  // CSS frosted-frame 透明态由「物理 pin × transparentWhenPinned 设置项」共同决定，
+  // 不能只看 pinned。否则用户在设置里关掉「pin 时透明」后，CSS 仍按 alpha 0.2 渲染极透明背景，
+  // 与非 pin 的 alpha 0.78 深色玻璃形成肉眼可见色差。
+  const [transparentWhenPinned, setTransparentWhenPinned] = useState(true);
   const [compact, setCompact] = useState(false);
   const [historySession, setHistorySession] = useState<SessionRecord | null>(null);
   /** REVIEW_7 L1：historySession 的 ref 镜像，让 onSessionRenamed listener 能在 updater
@@ -37,11 +41,12 @@ export function App(): JSX.Element {
     historySessionRef.current = historySession;
   }, [historySession]);
 
-  // 初始化：从设置读取 alwaysOnTop，并同步主进程（让 vibrancy 跟 pin 状态匹配）
+  // 初始化：从设置读取 alwaysOnTop / transparentWhenPinned，并同步主进程（让 vibrancy 跟 pin 状态匹配）
   useEffect(() => {
     void window.api.getSettings().then((s) => {
       const settings = s as AppSettings;
       setPinned(settings.alwaysOnTop);
+      setTransparentWhenPinned(settings.transparentWhenPinned);
       void window.api.setAlwaysOnTop(settings.alwaysOnTop);
     });
   }, []);
@@ -184,7 +189,7 @@ export function App(): JSX.Element {
   };
 
   return (
-    <FloatingFrame pinned={pinned}>
+    <FloatingFrame transparent={pinned && transparentWhenPinned}>
       <div className="flex h-full flex-col">
         <header className="drag-region flex h-9 shrink-0 items-center gap-2 pl-[78px] pr-2.5">
           <div className="min-w-0 flex-1 truncate">
@@ -278,7 +283,19 @@ export function App(): JSX.Element {
           )}
         </main>
       </div>
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => {
+          setSettingsOpen(false);
+          // 用户可能在 dialog 里改了 transparentWhenPinned；main 已经实时切 vibrancy，
+          // 但 renderer CSS 层的 frosted-frame 颜色判定是 (pinned && transparentWhenPinned)，
+          // 这里 re-fetch 一次让 CSS 透明态与设置对齐（无 settings broadcast 通道时的轻量兜底）。
+          void window.api.getSettings().then((s) => {
+            const settings = s as AppSettings;
+            setTransparentWhenPinned(settings.transparentWhenPinned);
+          });
+        }}
+      />
       <NewSessionDialog
         open={newSessionOpen}
         onClose={() => setNewSessionOpen(false)}
