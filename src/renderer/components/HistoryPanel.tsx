@@ -132,6 +132,19 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                     lifecycle={s.lifecycle}
                     archived={s.archivedAt !== null}
                   />
+                  {/* CHANGELOG_30：与 SessionCard / SessionDetail.SourceBadge 风格一致的「内/外」标签 ——
+                      历史 tab 同样是用户主要查找入口，列表里就要能预判这条点进去能不能继续聊
+                      （SDK=内 可以；CLI=外 走 CliFooter 只读，不能在 detail 里发消息） */}
+                  <span
+                    className={`inline-flex h-4 items-center rounded-sm px-1 text-[9px] font-medium leading-none ${
+                      s.source === 'sdk'
+                        ? 'bg-emerald-500/15 text-emerald-400'
+                        : 'bg-white/10 text-deck-muted'
+                    }`}
+                    title={s.source === 'sdk' ? '应用内创建（SDK 通道，可在 detail 里继续聊）' : '外部终端 CLI 会话（只读，detail 不可发消息）'}
+                  >
+                    {s.source === 'sdk' ? '内' : '外'}
+                  </span>
                   <div className="flex-1 truncate text-[12px] font-medium hover:text-white">
                     {s.title}
                   </div>
