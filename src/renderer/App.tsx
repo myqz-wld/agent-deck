@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type JSX } from 'react';
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { FloatingFrame } from './components/FloatingFrame';
 import { SessionList } from './components/SessionList';
 import { SessionDetail } from './components/SessionDetail';
@@ -29,6 +29,13 @@ export function App(): JSX.Element {
   const [pinned, setPinned] = useState(true);
   const [compact, setCompact] = useState(false);
   const [historySession, setHistorySession] = useState<SessionRecord | null>(null);
+  /** REVIEW_7 L1：historySession 的 ref 镜像，让 onSessionRenamed listener 能在 updater
+   * callback 外读最新值。setState updater callback 必须 pure，不能调 setView/select 副作用
+   * （StrictMode dev 双调）；改用 ref 比较后副作用走 listener 顶层。 */
+  const historySessionRef = useRef<SessionRecord | null>(null);
+  useEffect(() => {
+    historySessionRef.current = historySession;
+  }, [historySession]);
 
   // 初始化：从设置读取 alwaysOnTop，并同步主进程（让 vibrancy 跟 pin 状态匹配）
   useEffect(() => {
@@ -82,18 +89,18 @@ export function App(): JSX.Element {
   // 「历史」tab 不合理 —— 主动切到「实时」+ 清掉 historySession 本地 state，detail 通过
   // store.selectedSessionId（renameSession 已切到 NEW_ID）自然接力，体感是「我点的会话被
   // 自动放到实时面板继续聊」，符合 CLAUDE.md「凡让用户感觉像新开会话 / 跳回列表都是 bug」总纲
+  //
+  // REVIEW_7 L1：副作用（setView / select）从 setHistorySession updater 内挪到 listener 顶层，
+  // 用 historySessionRef 比较。updater callback 必须 pure，StrictMode dev 双调原方案会让
+  // setView/select 各执行 2 次（虽然第二次 noop 但反模式）。
   useEffect(() => {
     const off = window.api.onSessionRenamed(({ from, to }) => {
-      setHistorySession((prev) => {
-        if (prev && prev.id === from) {
-          // 历史 detail 在的会话被 rename → 切到实时 tab + 选中 NEW_ID
-          // selectedSessionId 已由 store.renameSession 自动切到 to，这里只切 view + 清本地 state
-          setView('live');
-          select(to);
-          return null;
-        }
-        return prev;
-      });
+      const prev = historySessionRef.current;
+      if (prev && prev.id === from) {
+        setView('live');
+        select(to);
+        setHistorySession(null);
+      }
     });
     return off;
   }, [select]);

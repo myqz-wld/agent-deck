@@ -410,7 +410,12 @@ export const useSessionStore = create<State>((set) => ({
         const next = new Map(src);
         const v = next.get(fromId)!;
         next.delete(fromId);
-        next.set(toId, v);
+        // REVIEW_7 M4：toId 已有 entry（IPC 顺序乱序、其他路径已积累）时不覆盖，
+        // 保留 toId 已有数据避免数据丢失（fork / fallback 场景下 NEW_ID 几乎是新 id 不会触发，
+        // 但加这道防御让 renameSession 对任意 IPC 到达顺序鲁棒，不依赖未文档化的同步保证）。
+        if (!next.has(toId)) {
+          next.set(toId, v);
+        }
         return next;
       };
       // sessions 这张表里 record 自身的 id 也要同步改
@@ -418,7 +423,11 @@ export const useSessionStore = create<State>((set) => ({
       const fromRec = sessions.get(fromId);
       if (fromRec) {
         sessions.delete(fromId);
-        sessions.set(toId, { ...fromRec, id: toId });
+        // REVIEW_7 M4：toId 已有 record（emit 乱序时 upsert 先到 / 其他路径已 upsert）则保留较新 record，
+        // 不用 fromRec 覆盖；toId 不存在才用 fromRec 兜底设 id 为 toId。
+        if (!sessions.has(toId)) {
+          sessions.set(toId, { ...fromRec, id: toId });
+        }
       }
       return {
         sessions,

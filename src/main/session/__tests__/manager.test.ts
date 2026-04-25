@@ -403,6 +403,62 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
     sessionManager.reactivate('sess-reactivate');
     expect(mockSessions.get('sess-reactivate')?.lifecycle).toBe('active');
   });
+
+  it('renameSdkSession() → 原子转移 sdkOwned claim（REVIEW_7 M3：内聚 release+claim）', async () => {
+    const { sessionRepo } = await import('@main/store/session-repo');
+    // 让 mock 的 sessionRepo.rename 实际改 mockSessions，便于断言后 get(toId) 拿到 record
+    vi.mocked(sessionRepo.rename).mockImplementation((from: string, to: string) => {
+      const r = mockSessions.get(from);
+      if (r) {
+        mockSessions.delete(from);
+        mockSessions.set(to, { ...r, id: to });
+      }
+    });
+
+    // OLD_ID 已被 SDK claim + 有 sessions record
+    sessionManager.claimAsSdk('OLD_ID');
+    mockSessions.set('OLD_ID', {
+      id: 'OLD_ID',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 't',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 0,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    sessionManager.renameSdkSession('OLD_ID', 'NEW_ID');
+
+    // 关键断言：sdkOwned claim 已从 OLD_ID 原子转移到 NEW_ID（M3 修复点）
+    const sdkOwned = (sessionManager as unknown as { sdkOwned: Set<string> }).sdkOwned;
+    expect(sdkOwned.has('OLD_ID')).toBe(false);
+    expect(sdkOwned.has('NEW_ID')).toBe(true);
+
+    // sessionRepo.rename 被调用
+    expect(vi.mocked(sessionRepo.rename)).toHaveBeenCalledWith('OLD_ID', 'NEW_ID');
+    // session-renamed + session-upserted 都广播了
+    expect(
+      mockEmits.some(
+        (e) =>
+          e.name === 'session-renamed' &&
+          (e.payload as { from: string; to: string }).from === 'OLD_ID' &&
+          (e.payload as { from: string; to: string }).to === 'NEW_ID',
+      ),
+    ).toBe(true);
+    expect(
+      mockEmits.some(
+        (e) => e.name === 'session-upserted' && (e.payload as SessionRecord)?.id === 'NEW_ID',
+      ),
+    ).toBe(true);
+
+    // 清理：避免污染下一个测试
+    sessionManager.releaseSdkClaim('NEW_ID');
+  });
 });
 
 describe('SessionManager.delete + H1 删除后尾包不复活幽灵（REVIEW_4 H1）', () => {
