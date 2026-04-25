@@ -66,6 +66,12 @@ function applyAlwaysOnTop(p: Partial<AppSettings>, next: AppSettings): void {
   }
 }
 
+function applyTransparentWhenPinned(p: Partial<AppSettings>, next: AppSettings): void {
+  if ('transparentWhenPinned' in p) {
+    getFloatingWindow().setTransparentWhenPinned(next.transparentWhenPinned);
+  }
+}
+
 function applyPermissionTimeout(p: Partial<AppSettings>, next: AppSettings): void {
   if ('permissionTimeoutMs' in p) {
     adapterRegistry.get('claude-code')?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
@@ -297,6 +303,7 @@ export function bootstrapIpc(): void {
       applyLifecycleThresholds,
       applyLoginItem,
       applyAlwaysOnTop,
+      applyTransparentWhenPinned,
       applyPermissionTimeout,
       applyCodexCliPath,
       applySummaryInterval,

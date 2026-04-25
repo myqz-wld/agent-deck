@@ -334,6 +334,15 @@ function SettingsBody({
         {/* 始终置顶由 header 的 📌 按钮 / 全局快捷键 Cmd+Alt+P 控制，
             这里不再放重复 toggle，避免两处状态打架。 */}
         <Toggle
+          label="置顶时透明（看到下层桌面）"
+          value={settings.transparentWhenPinned}
+          onChange={(v) => void update({ transparentWhenPinned: v })}
+        />
+        <div className="text-[10px] leading-snug text-deck-muted/70">
+          关掉后置顶时仍是实玻璃（macOS under-window vibrancy），看不到下层桌面 / 其他 app。
+          切换后立即生效，无需重启。仅 macOS 有视觉差异。
+        </div>
+        <Toggle
           label="开机自启"
           value={settings.startOnLogin}
           onChange={(v) => void update({ startOnLogin: v })}
