@@ -2,7 +2,10 @@ import type { JSX, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
-  pinned?: boolean;
+  /** true 时容器切换为「极透明 + 弱模糊」样式，便于看穿到下方应用。
+   *  由 App.tsx 算 (pinned && transparentWhenPinned) 传入：物理 pin 不等于视觉透明态，
+   *  用户在设置里关掉「pin 时透明」后 pin 状态不应再触发透明 CSS（CHANGELOG_30）。 */
+  transparent?: boolean;
 }
 
 /**
@@ -10,13 +13,12 @@ interface Props {
  * 这里不再叠浮动按钮，避免与 header 区域重叠。
  *
  * 模糊由 macOS vibrancy（主进程已开 under-window）+ CSS backdrop-filter 双重提供。
- * pinned=true 时切换为更通透的样式，便于在窗口下方继续工作。
  */
-export function FloatingFrame({ children, pinned }: Props): JSX.Element {
+export function FloatingFrame({ children, transparent }: Props): JSX.Element {
   return (
     <div
       className="frosted-frame relative h-full w-full overflow-hidden rounded-2xl border border-deck-border"
-      data-pinned={pinned ? 'true' : 'false'}
+      data-transparent={transparent ? 'true' : 'false'}
     >
       {children}
     </div>
