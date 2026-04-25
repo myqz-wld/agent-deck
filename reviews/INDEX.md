@@ -24,3 +24,4 @@
 | [REVIEW_4.md](REVIEW_4.md) | origin/main..HEAD 双对抗（CHANGELOG_19/20/21 落地 19 文件，Opus 4.7 xhigh subagent ×3 + Codex gpt-5.4 xhigh ×3 并发 6 任务） | 4 HIGH / 17 MED / 9 LOW | CHANGELOG_23 |
 | [REVIEW_5.md](REVIEW_5.md) | 用户报项「历史会话继续聊天 → 实时面板出现两条 active 重复会话」根因调研（双对抗：Plan subagent Opus 4.7 xhigh + Codex CLI gpt-5.4 xhigh） | 1 HIGH / 1 MED | CHANGELOG_24 |
 | [REVIEW_6.md](REVIEW_6.md) | 用户报项「点恢复后表现像新开会话」根因调研：CLI streaming + resume 隐式 fork（最小复现脚本铁证）+ 双对抗 Opus 4.7 xhigh subagent + Codex gpt-5.4 xhigh | 1 HIGH / 2 MED / 2 LOW | CHANGELOG_27 |
+| [REVIEW_7.md](REVIEW_7.md) | CHANGELOG_24-29 断连自愈 + fork 兜底 + HistoryPanel 周边周期复审（3 文件 churn/commits 触发过期，4 批 ×2 路 Opus + Codex 并发 background） | 1 HIGH / 4 MED / 4 LOW | CHANGELOG_30（待落地） |
