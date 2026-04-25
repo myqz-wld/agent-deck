@@ -65,6 +65,34 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
     filters.archivedOnly,
   ]);
 
+  // CHANGELOG_31：监听 session-renamed / session-upserted 触发 reload。
+  // 触发场景：
+  //   - rename：CHANGELOG_27/28 fork 兜底走 sessionManager.renameSdkSession 把 OLD_ID record 删除（DB 内）
+  //     + 子表迁到 NEW_ID（lifecycle=active 不在 history 视图），HistoryPanel.rows 缓存的旧 OLD_ID record
+  //     需 reload 才能消失，不然用户看到「会话明明已经在实时聊上了，但历史列表里还有」体感矛盾
+  //   - upsert：hook 抢先复活 closed 会话 / SDK 创建新 SDK 会话等会让某条 history record 变成 active，
+  //     同样需要从历史列表移除
+  // debounce 200ms 避免 event burst 时多次 reload；用 ref 持有定时器，每次新事件来重置
+  // 不在 deps 数组里加 reload —— reload 内部用 reqIdRef 自己防过期请求，重新创建 listener 会让
+  // 中间产生的 event 漏掉，反而更糟
+  const reloadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const trigger = (): void => {
+      if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current);
+      reloadDebounceRef.current = setTimeout(() => {
+        void reload();
+      }, 200);
+    };
+    const offRen = window.api.onSessionRenamed(trigger);
+    const offUps = window.api.onSessionUpserted(trigger);
+    return () => {
+      if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current);
+      offRen();
+      offUps();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const archive = async (id: string): Promise<void> => {
     await window.api.archiveSession(id);
     await reload();
