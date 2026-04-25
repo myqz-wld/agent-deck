@@ -35,3 +35,4 @@
 | [CHANGELOG_28.md](CHANGELOG_28.md) | 第二种 fork 边界兜底（jsonl 不在）：recoverAndSend 预检 ~/.claude/projects/<encoded-cwd>/<sid>.jsonl 是否存在 → 不在则走不带 resume 的 createSession + 事后手工 renameSdkSession(OLD_ID, newRealId)；CLI 历史失但应用层 events DB 保留 + sessionId 切换链路一致；vitest 加 1 case (45/45)；CLAUDE.md fork 边界扩成两类 |
 | [CHANGELOG_29.md](CHANGELOG_29.md) | HistoryPanel 周边微调（事后补）：rename 后自动切 live view + 内/外标签 + 监听 rename/upsert 自动 reload + recoverAndSend archived 自动 unarchive |
 | [CHANGELOG_30.md](CHANGELOG_30.md) | REVIEW_7 落地修复（1 HIGH + 4 MED + 4 LOW + 1 新 vitest case）：sdk-bridge post-fallback 用 createSession 返回值 + renameSdkSession 内聚 claim 转移 + HistoryPanel listener stale closure + renderer renameSession defensive + App.tsx updater 副作用挑出 + 标签 tooltip + ipc apply 列表统一来源 + 注释精确化（46/46） |
+| [CHANGELOG_31.md](CHANGELOG_31.md) | 设置面板加「置顶时透明」开关：AppSettings.transparentWhenPinned（默认 true 维持原行为），关掉则 pin 时仍保留 macOS under-window 实玻璃；即改即生效 |

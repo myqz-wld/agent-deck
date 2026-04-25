@@ -307,6 +307,14 @@ export interface AppSettings {
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。 */
   permissionTimeoutMs: number;
   alwaysOnTop: boolean;
+  /**
+   * pin（始终置顶）时是否同步关闭系统 vibrancy（macOS 「under-window」毛玻璃）让 CSS 主导通透。
+   * - true（默认，与历史行为一致）：pin 时去掉浅灰玻璃基底，肉眼能透到下层桌面 / 其它 app；
+   *   配合 startInvalidateLoop + setBackgroundThrottling(false) 持续刷新下层像素。
+   * - false：pin 时仍保留 'under-window' 实玻璃，看不到下层。
+   * 改动即时生效（不需要重启 / 重建窗口）。
+   */
+  transparentWhenPinned: boolean;
   startOnLogin: boolean;
   /**
    * 历史会话自动清理保留天数（基于 lastEventAt）。
@@ -351,6 +359,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryTimeoutMs: 60 * 1000,
   permissionTimeoutMs: 5 * 60 * 1000,
   alwaysOnTop: true,
+  transparentWhenPinned: true,
   startOnLogin: false,
   historyRetentionDays: 30,
   codexCliPath: null,

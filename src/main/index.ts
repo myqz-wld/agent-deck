@@ -124,6 +124,9 @@ async function bootstrap(): Promise<void> {
   // 9. 创建窗口并把事件总线接到 webContents
   const floating = getFloatingWindow();
   floating.create();
+  // 启动时同步「pin 时是否透明」到 window 内部 state；window 启动时窗口 alwaysOnTop=true，
+  // 此调用会顺带按 settings.transparentWhenPinned 决定 vibrancy 初值（true=null / false=under-window）。
+  floating.setTransparentWhenPinned(settings.transparentWhenPinned);
   // 通过 floating.window 动态拿当前活窗口 + isDestroyed 兜底：
   // macOS 关闭窗口但进程不退（window-all-closed 不 quit），listener 闭包持有的旧 win
   // 已 destroyed；scheduler / IPC 仍会触发 eventBus，调用 webContents.send 会抛

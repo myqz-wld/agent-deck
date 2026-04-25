@@ -156,7 +156,7 @@ agent-deck new \
 - **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3/wav/aiff/m4a/ogg/flac，带试听 + 重置）
 - **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny+interrupt 处理避免会话死等）
 - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时
-- **窗口**：开机自启
+- **窗口**：置顶时透明（看到下层桌面，默认开；关掉则置顶时仍是 macOS under-window 实玻璃）/ 开机自启
 - **Claude Code Hook**：一键安装/卸载到 `~/.claude/settings.json`（user 作用域）
 - **HookServer**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
 - **外部工具**：Codex 二进制路径（留空用应用内置 vendored 版本，约 150MB / 平台）
