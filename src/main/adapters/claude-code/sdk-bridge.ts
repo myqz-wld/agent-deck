@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import type {
   CanUseTool,
   PermissionResult,
@@ -626,6 +628,50 @@ export class ClaudeSdkBridge {
 
     const p = (async () => {
       try {
+        // CHANGELOG_28：预检 jsonl 是否存在 —— CLI 在 resume 时若找不到
+        // ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl 会 hard fail 抛
+        // "No conversation found with session ID: <sid>"，consume 内 catch 吞错只 emit
+        // 一条「⚠ SDK 流中断」error message + finally emit session-end，createSession 本身
+        // 不抛错（waitForRealSessionId 拿不到 first session_id 走 30s fallback 用 tempKey 兜底
+        // → 注册一个无实际 SDK 状态的占位 session）。这种场景对用户表现：detail 卡在
+        // 「⚠ SDK 通道已断开」+ 「⚠ SDK 流中断」+ 「会话结束」三条红字之间，再发还是同样错。
+        //
+        // 触发条件：jsonl 被 CLI 自身清理 / 用户手动删过 / 跨设备同步未带 jsonl 等。预检比
+        // try/catch 后 fallback 更可靠（不依赖 SDK 错误字符串匹配，正是 P12 教训）。
+        // 不存在时直接走不带 resume 的新建路径，事后手工 rename OLD_ID → newRealId 把
+        // 应用层 events / file_changes / summaries 子表迁过去（CLI jsonl 历史失，但应用层 DB
+        // 历史保留 + sessionId 切换链路与 fork detection 路径一致）。
+        if (!this.resumeJsonlExists(rec.cwd, sessionId)) {
+          console.warn(
+            `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${rec.cwd}, ` +
+              `falling back to new CLI session (CLI history lost but app DB preserved)`,
+          );
+          await this.createSession({
+            cwd: rec.cwd,
+            prompt: text,
+            permissionMode: rec.permissionMode ?? undefined,
+          });
+          // createSession 走 tempKey → realId rename 路径，OLD_ID 没参与；手工补一次 rename
+          // 把 OLD_ID 的应用层身份转到 newRealId。从 sessions Map 找 cwd === rec.cwd 的最新
+          // SDK session id 即为 newRealId（createSession resolve 后已注册）。
+          let newRealId: string | null = null;
+          for (const [sid, internal] of this.sessions.entries()) {
+            if (internal.cwd === rec.cwd) {
+              newRealId = sid;
+              break;
+            }
+          }
+          if (newRealId && newRealId !== sessionId) {
+            console.warn(
+              `[sdk-bridge] post-fallback rename ${sessionId} → ${newRealId} ` +
+                `(carry app-side events/file_changes/summaries history)`,
+            );
+            sessionManager.releaseSdkClaim(sessionId);
+            sessionManager.renameSdkSession(sessionId, newRealId);
+          }
+          return;
+        }
+
         await this.createSession({
           cwd: rec.cwd,
           prompt: text,
@@ -657,6 +703,30 @@ export class ClaudeSdkBridge {
         source: 'sdk',
       });
       throw err;
+    }
+  }
+
+  /**
+   * 预检 CLI resume 用的 jsonl 文件是否存在。
+   *
+   * Claude Code CLI 把会话历史落在 `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`，
+   * encoded-cwd 规则：把绝对路径的 `/` 全替换为 `-`，顶部前缀也是 `-`（实测 macOS：
+   * `/Users/apple/Repository/personal/agent-deck` → `-Users-apple-Repository-personal-agent-deck`）。
+   *
+   * 不存在时 CLI `--resume <sid>` 会 hard fail 抛 "No conversation found"，必须走不带
+   * resume 的新建路径（CHANGELOG_28）。这条规则跨 OS 是否一致存疑（Linux 同样规则，
+   * Windows 未验证），如果 CLI 内部规则未来改了，预检会假阴性 → 退化到原 try-and-fail 行为。
+   *
+   * protected 而非 private：测试里子类 override 让单测不依赖真 ~/.claude/projects 目录
+   */
+  protected resumeJsonlExists(cwd: string, sessionId: string): boolean {
+    try {
+      const encodedDir = '-' + cwd.split('/').filter(Boolean).join('-');
+      const jsonlPath = `${homedir()}/.claude/projects/${encodedDir}/${sessionId}.jsonl`;
+      return existsSync(jsonlPath);
+    } catch {
+      // 任意异常（cwd 解析失败 / FS 权限）→ 退化让 createSession 自己 try，最差不过原行为
+      return true;
     }
   }
 

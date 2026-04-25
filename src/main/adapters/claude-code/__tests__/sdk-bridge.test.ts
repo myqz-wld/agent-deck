@@ -62,6 +62,8 @@ class TestBridge extends ClaudeSdkBridge {
   public createBehavior: 'resolve' | 'block' | 'reject' = 'resolve';
   public unblock?: () => void;
   public rejectWith?: Error;
+  /** 默认让 jsonl "存在"，测试 fallback 路径时设 false */
+  public jsonlExistsOverride = true;
 
   override async createSession(opts: {
     cwd: string;
@@ -84,6 +86,12 @@ class TestBridge extends ClaudeSdkBridge {
       throw this.rejectWith ?? new Error('mock create reject');
     }
     return { sessionId: opts.resume ?? 'new-sid', abort: () => undefined };
+  }
+
+  // 预检 jsonl 文件存在性是 main 进程实文件查询，单测环境下没有真 ~/.claude/projects/...
+  // 默认返回 true 让测试走 resume 主路径；fallback case 显式设 false 验证降级路径
+  protected resumeJsonlExists(_cwd: string, _sessionId: string): boolean {
+    return this.jsonlExistsOverride;
   }
 }
 
@@ -230,6 +238,42 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     );
     expect(errorMsgs).toHaveLength(1);
     expect(errorMsgs[0].sessionId).toBe('sess-3');
+  });
+
+  it('jsonl 不存在 → fallback 走不带 resume 的 createSession（CHANGELOG_28）', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false; // 模拟 ~/.claude/projects/<cwd>/<sid>.jsonl 不在
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-no-jsonl',
+      agentId: 'claude-code',
+      cwd: '/tmp/abandoned',
+      title: 'abandoned',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      permissionMode: 'acceptEdits',
+    });
+
+    await bridge.sendMessage('sess-no-jsonl', 'hi');
+
+    // createSession 被调一次，**不带 resume** —— 走新建 CLI session 路径
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0]).toEqual({
+      cwd: '/tmp/abandoned',
+      prompt: 'hi',
+      resume: undefined, // 关键：fallback 路径不带 resume
+      permissionMode: 'acceptEdits', // 但 permissionMode 仍要复原
+    });
+
+    // 占位 message 仍 emit（用户体感「在自动恢复」与正常 resume 路径一致）
+    const placeholders = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('正在自动恢复'),
+    );
+    expect(placeholders).toHaveLength(1);
   });
 });
 

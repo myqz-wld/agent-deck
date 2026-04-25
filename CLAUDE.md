@@ -79,7 +79,10 @@
 - **不要在 recoverAndSend 内自拼 emit/upsert/rename**：必须完整复用 createSession，让 `expectSdkSession(cwd) → claimAsSdk(opts.resume) → dedupOrClaim B 分支兜底 → waitForRealSessionId(_, _, opts.resume)` 全套 REVIEW_5 H4/H1 护栏按原样跑。任何捷径都会重打开「两条 active record」bug
 - **从 sessionRepo 补回 permissionMode**：用户上次主动选过的 `acceptEdits / plan / bypassPermissions` 必须复原，恢复路径不能默认 'default' 把用户辛苦切到的模式悄悄重置
 - **内部 sessionId 切换**走 `sessionManager.renameSdkSession` + 子表整体迁移，不要 delete + new（仅 SDK fallback `tempKey→realId` 路径用；resume 路径下 sessionId 保持不变，sdk-bridge H4 / CHANGELOG_24）
-- **CLI 隐式 fork 兜底**：Claude Code CLI 在 SDK streaming input + resume + 新 prompt 下**隐式 fork**，first session_id ≠ opts.resume，与 sdk.d.ts:1255-1258 文档「forkSession=false 默认续同 ID」不符（实测铁证 REVIEW_6 / CHANGELOG_27）。CLI native binary 内置行为应用层关不掉，sdk-bridge.consume 必须有 fork detection 分支 → `sessionManager.releaseSdkClaim(resumeId) + renameSdkSession(resumeId, realId)` 把 OLD_ID 的 DB record + 子表整体迁到 NEW_ID 名下，让历史"续上"NEW_ID。renderer 端 historySession 是本地 state（store 不知道）→ App.tsx 必须单独 listen `onSessionRenamed` 把 historySession.id 也切到 NEW_ID 否则死循环
+- **CLI 隐式 fork 两种边界兜底**：Claude Code CLI 在 SDK streaming input + resume + 新 prompt 下行为不可控，应用层必须双重兜底：
+  - **第一种（软 fork，jsonl 在）**：CLI 给一个新 session_id（与 sdk.d.ts:1255-1258「forkSession=false 默认续同 ID」文档不符，实测铁证 REVIEW_6）。sdk-bridge.consume 内 first realId 拿到时 if `realId !== opts.resume` → `sessionManager.releaseSdkClaim(OLD_ID) + renameSdkSession(OLD_ID, realId)`，把 OLD_ID 的 DB record + 子表整体迁到 NEW_ID 名下（CHANGELOG_27）
+  - **第二种（hard fail，jsonl 不在）**：CLI `--resume <sid>` 找不到 `~/.claude/projects/<encoded-cwd>/<sid>.jsonl` 直接抛 "No conversation found"，consume 吞错只 emit message 不抛错，createSession 走 30s fallback 注册无 SDK 状态的占位 session。recoverAndSend **预检** jsonl 存在性（不依赖 SDK 错误字符串匹配，正是 P12 教训），不在则走不带 resume 的新建 createSession + 事后手工 `renameSdkSession(OLD_ID, newRealId)` 把应用层 events / file_changes / summaries 子表迁到新 ID（CHANGELOG_28）
+- renderer 端 historySession 是本地 state（store 不知道）→ App.tsx 必须单独 listen `onSessionRenamed` 把 historySession.id 也切到 NEW_ID 否则死循环
 - **detail 视图权威**：所有 detail 渲染的 record 必须以 `store.sessions` Map 为权威；本地临时 state（如 App.tsx 的 `historySession`）只在 Map 还没 upsert 的瞬间兜底，参考 `sessions.get(historySession.id) ?? historySession` 兜底链（CHANGELOG_25）
 
 ### 总结调度（summarizer）
