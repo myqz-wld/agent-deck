@@ -50,6 +50,25 @@ const MAX_MESSAGE_BYTES = 100_000;
  */
 const MAX_PENDING_MESSAGES = 20;
 
+/**
+ * REVIEW_11 Bug 4：read-only 工具白名单。SDK 0.2.x 注册 canUseTool 后所有工具决策都归应用，
+ * 包括只读 / 元数据类工具。应用必须在 canUseTool 顶部主动放行这些工具，否则 default mode
+ * 下用户会被 Read / Grep 等无害操作反复弹询问。MCP 图片读取类工具靠 `__ImageRead` 后缀匹配。
+ *
+ * 加白名单不依赖 permissionMode：plan / acceptEdits / bypass / default 任何模式下，
+ * 这些工具语义上都不该被拦（plan mode 本意只拦 mutation；其他 mode 也只该拦危险操作）。
+ */
+const READ_ONLY_TOOLS = new Set<string>([
+  'Read',
+  'Grep',
+  'Glob',
+  'LS',
+  'WebFetch',
+  'WebSearch',
+  'TodoWrite',
+  'NotebookRead',
+]);
+
 export interface SdkSessionHandle {
   sessionId: string;
   abort: () => void;
@@ -214,6 +233,18 @@ export class ClaudeSdkBridge {
       const realId = internal.realSessionId ?? tempKey;
       const requestId = randomUUID();
 
+      // REVIEW_11 Bug 4：read-only 工具白名单，任何 permissionMode 下都直接放行。
+      // SDK 0.2.x 设计：注册 canUseTool 后，CLI 对所有工具调用都丢给应用决策（包括 Read /
+      // Grep / Glob / LS / WebFetch / WebSearch / TodoWrite / NotebookRead 这些只读 / 元数据类
+      // 工具）。应用之前没做白名单 → default mode 下用户被 Read / Grep 等无害操作反复弹询问，
+      // 体感「default mode 跟 plan mode 没区别都要审核」。
+      // 白名单内的工具语义上不会改变文件系统 / 不会执行外部命令，截胡放行无安全风险，且与
+      // SDK 行为不冲突（SDK 文档明确：注册 canUseTool 即表示决定权完全归应用）。
+      // MCP 图片读取类工具（命名约定 mcp__xxx__ImageRead 或后缀 __ImageRead）同样白名单。
+      if (READ_ONLY_TOOLS.has(toolName) || toolName.endsWith('__ImageRead')) {
+        return { behavior: 'allow', updatedInput: input };
+      }
+
       // 特殊路径：AskUserQuestion 不是「危险工具需要批准」，是 Claude 主动征询用户。
       // 走独立 UI（带选项按钮）→ 用户选完 → 把答案塞进 deny.message 反馈给 Claude
       // （Claude 收到 tool_result 含答案，会基于这个继续对话）。
@@ -308,8 +339,26 @@ export class ClaudeSdkBridge {
             timer: null,
             resolver: (response) => {
               if (entry.timer) clearTimeout(entry.timer);
-              if (response.decision === 'approve') {
-                // 热切档：allow + 原 input 透传 —— 让 ExitPlanMode 工具调用「成功」，
+              if (response.decision === 'approve' && response.targetMode === 'plan') {
+                // REVIEW_11 Bug 3：「批准并保持 Plan 模式」是协议级特例。
+                // SDK / CLI 把「ExitPlanMode 工具被 allow」语义性视为「用户同意退出 plan」，
+                // 一旦 allow，CLI 内部状态机立刻翻出 plan，外层后续 setPermissionMode('plan')
+                // 跑在 CLI 已退档之后属于 CHANGELOG_47 同病灶（post-allow 时序静默吞档）。
+                // 修法：approve+plan 不走 allow，改 deny+message：让 CLI 留在 plan 不退档，
+                // 同时通过 message 告诉 Claude「计划已被认可，但用户希望继续在 plan 模式推进」。
+                // message 文案要明确「不要立刻再次调用 ExitPlanMode」避免 plan→deny→plan 死循环。
+                resolve({
+                  behavior: 'deny',
+                  message:
+                    `用户已认可你的计划，但要求你继续在 plan 模式下推进` +
+                    `（继续细化方案 / 补充信息 / 等待进一步指示，**不要执行任何编辑或写入操作**）。\n\n` +
+                    `如果用户后续要求实施，请等他们主动切换到 default / acceptEdits / bypass 之后再操作，` +
+                    `**不要在本会话内立刻再次调用 ExitPlanMode**（用户还想停留在 plan 模式继续讨论）。`,
+                  interrupt: false,
+                });
+              } else if (response.decision === 'approve') {
+                // 热切档（approve + targetMode ∈ {default, acceptEdits}）：
+                // allow + 原 input 透传 —— 让 ExitPlanMode 工具调用「成功」，
                 // CLI 收到 tool_result 自动退出 plan mode，后续工具按 targetMode 继续
                 // （targetMode 由外层 respondExitPlanMode 在 resolver 后同步调
                 // s.query.setPermissionMode(targetMode) + sessionRepo 写入；
@@ -850,6 +899,14 @@ export class ClaudeSdkBridge {
     entry.resolver(response);
 
     if (response.decision === 'approve') {
+      // REVIEW_11 Bug 3：approve+plan 走 deny+message 让 CLI 留在 plan，绝不能再调
+      // setPermissionMode('plan')（CLI 当前已经在 plan，调了等于 no-op；更危险的是
+      // 走 setPermissionMode 路径会触发 SDK 内部 mode 重置 race，反而把档抖回 default）。
+      // 仅 approve + targetMode ∈ {default, acceptEdits} 才走热切；plan 分支不动 SDK 也不写 DB
+      // （DB 已是 plan，SDK 也仍在 plan）。
+      if (response.targetMode === 'plan') {
+        return;
+      }
       // 热切档：SDK 已退出 plan mode，立刻同步 mode 到 SDK Query + DB + UI
       try {
         await s.query.setPermissionMode(response.targetMode);
@@ -1587,13 +1644,42 @@ export class ClaudeSdkBridge {
       };
       // 错误结果：把 errors 数组或 result 文本作为一条错误消息推给 UI，
       // 否则只看到 finished 事件用户不知道为什么"完成"了。
-      if (r.is_error || (r.subtype && r.subtype !== 'success')) {
+      // REVIEW_11 D'2：expectedClose 同时 gate 这条分支。CLI 收到 deny+interrupt:true 后
+      // 不走 throw / catch，而是合法地推一条 is_error=true 的 result frame（payload 典型为
+      // [ede_diagnostic] result_type=user 状态机不一致诊断），for await 顺利消费 → 进 result
+      // 分支 → 之前无 gate 直 emit 红字，绕过 D' 的 catch 块 expectedClose 防护。
+      // 此为 D' 修法漏的第二条通道，覆盖 approve-bypass 冷切 / closeSession / 应用退出三入口。
+      if ((r.is_error || (r.subtype && r.subtype !== 'success')) && !internal.expectedClose) {
         const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
         emit('message', { text: `⚠ ${detail}`, error: true });
       }
       emit('finished', { ok: r.subtype === 'success' && !r.is_error, subtype: r.subtype });
+    } else if (
+      msg.type === 'system' &&
+      (msg.subtype === 'init' || msg.subtype === 'status') &&
+      typeof msg.permissionMode === 'string'
+    ) {
+      // REVIEW_11 Bug 2：SDK 在 init 与 status 上行 frame 里附带的 permissionMode 是 CLI 内部
+      // 真实运行态的权威来源。CLI 自己翻 mode（典型：approve ExitPlanMode 后退 plan、resume
+      // 时从 jsonl 读出的 mode、外部 settings 改 mode 等）应用层只能靠这两条 frame 知道。
+      // 之前直接忽略 → DB 留旧值、不 emit upsert、store 卡旧值、详情面板显示器卡旧值。
+      // 修法：白名单校验 → 与 DB 比 → 不同则写 DB + emit upsert（renderer 走原有 listener）。
+      const next = msg.permissionMode;
+      if (
+        next === 'default' ||
+        next === 'acceptEdits' ||
+        next === 'plan' ||
+        next === 'bypassPermissions'
+      ) {
+        const cur = sessionRepo.get(sessionId);
+        if (cur && cur.permissionMode !== next) {
+          sessionRepo.setPermissionMode(sessionId, next);
+          const updated = sessionRepo.get(sessionId);
+          if (updated) eventBus.emit('session-upserted', updated);
+        }
+      }
     }
-    // type === 'system' 等忽略
+    // 其他 system subtype 与未知 type 忽略
   }
 
   private maybeEmitFileChanged(
