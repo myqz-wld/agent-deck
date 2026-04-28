@@ -463,11 +463,26 @@ export function bootstrapIpc(): void {
       await adapter.restartWithPermissionMode(sid, m, '继续之前的会话');
       return true;
     }
-    await adapter.setPermissionMode(sid, m);
-    // 热档：SDK 接受后持久化到 sessions 表 + 推送 upsert，让 renderer 跨切换 / 重启能恢复下拉值。
+    // REVIEW_11 Bug 2 次因：DB 写 + emit upsert 必须先于 SDK 调用，且 SDK 失败要回滚。
+    // 旧顺序（先 SDK → 再 DB）的 hazard：adapter.setPermissionMode 抛错时（典型：SDK Query
+    // 已 close 命中 sdk-bridge.ts:1148 throw 'session not found'），跳过 DB 写 + emit upsert，
+    // 导致 catch 在 renderer 的 setPmError 弹错但 store 仍是旧 mode；用户看到红字、再次切档时
+    // 又是旧值起点 → UI / DB / SDK 三方不一致。修法范式与 restartWithPermissionMode 内部一致：
+    // 先写 DB + emit upsert（让 UI 立即响应），SDK 失败 catch 回滚 DB 到 oldMode + emit upsert + 重抛。
+    const oldMode = sessionRepo.get(sid)?.permissionMode ?? null;
     sessionRepo.setPermissionMode(sid, m);
-    const updated = sessionRepo.get(sid);
-    if (updated) eventBus.emit('session-upserted', updated);
+    {
+      const updated = sessionRepo.get(sid);
+      if (updated) eventBus.emit('session-upserted', updated);
+    }
+    try {
+      await adapter.setPermissionMode(sid, m);
+    } catch (err) {
+      sessionRepo.setPermissionMode(sid, oldMode);
+      const reverted = sessionRepo.get(sid);
+      if (reverted) eventBus.emit('session-upserted', reverted);
+      throw err;
+    }
     return true;
   });
 
