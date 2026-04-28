@@ -415,6 +415,13 @@ class SessionManagerClass {
       this.sdkOwned.delete(fromId);
       this.sdkOwned.add(toId);
     }
+    // rename 走 INSERT NEW + DELETE OLD 路径，OLD_ID 在 DB 已不存在。把 OLD_ID 加进
+    // 「最近删除黑名单」60s，跟 SessionManager.delete 同等对待——OLD CLI 子进程在
+    // close 后异步飞的迟到 hook event（典型：approve-bypass 冷切场景下 SIGTERM 后
+    // 还在飞 SessionEnd hook）会被 ingest 入口 isRecentlyDeleted 直接丢弃，
+    // 不会进 ensureRecord 复活成一条 source='cli' 的孤儿会话。覆盖所有 rename 场景：
+    // SDK fallback 的 tempKey→realId、CLI 隐式 fork 的 OLD→NEW、bypass 冷切的 close+restart。
+    this.recentlyDeleted.set(fromId, Date.now());
     eventBus.emit('session-renamed', { from: fromId, to: toId });
     const updated = sessionRepo.get(toId);
     if (updated) eventBus.emit('session-upserted', updated);
