@@ -409,22 +409,19 @@ function ComposerSdk({
 
   const changeMode = async (next: typeof permissionMode): Promise<void> => {
     if (next === permissionMode || pmBusy) return;
-    // 安全语义：bypassPermissions 必须配套 createSession 时 allowDangerouslySkipPermissions=true
-    // 才能让 CLI 子进程真正进入"流氓模式"。该 flag 在 createSession 拼 SDK options 时按
-    // **初始** permissionMode 决定一次，不可在已运行的 query 上动态切。
-    // 如果用户最初不是 bypassPermissions，运行时切到这个模式，SDK 可能：
-    //   (a) 静默忽略 → 用户以为切了实际没切（更糟，导致一连串"为什么 Claude 还在问我"）
-    //   (b) 真切但只是名义上 → 流氓模式没真生效
-    // 唯一可靠的方法是「重建会话时直接选 bypassPermissions」。这里弹 confirm 让用户知情。
+    // bypassPermissions 必须冷切：SDK 的 allowDangerouslySkipPermissions flag 在 CLI
+    // 子进程启动时锁死，运行时调 setPermissionMode('bypassPermissions') 会被 SDK 静默吞。
+    // ipc.ts 的 SetPermissionMode handler 检测到 bypass 时会路由到 restartWithPermissionMode：
+    // 销毁旧 SDK 子进程 + 用 flag=true 重建（5-10s busy）。失败会回滚到原 mode + emit error msg。
     if (next === 'bypassPermissions' && permissionMode !== 'bypassPermissions') {
       const ok = await window.api.confirmDialog({
         title: '切换到完全免询问模式',
-        message: '该模式在已运行的会话上不一定生效',
+        message: '将重启 SDK 子进程切到 bypassPermissions 模式',
         detail:
-          'bypassPermissions（完全免询问）需要在新建会话时直接选择才能真正生效。\n' +
-          '在已运行的会话上切换可能被 SDK 静默忽略，仍然每次询问。\n\n' +
-          '建议：取消切换，新建一个会话时直接选「完全免询问」。',
-        okLabel: '仍要切换',
+          '会销毁当前 SDK 子进程并以「allowDangerouslySkipPermissions=true」flag 重启（约 5-10s busy），\n' +
+          '重启后 Claude **全过程不再询问任何工具调用**，按需要小心使用。\n\n' +
+          '如果失败将自动回滚到原模式。继续？',
+        okLabel: '重启并切到 bypass',
         cancelLabel: '取消',
         destructive: true,
       });

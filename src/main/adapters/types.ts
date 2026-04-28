@@ -39,6 +39,13 @@ export interface AdapterCapabilities {
   canRespondPermission: boolean;
   canSetPermissionMode: boolean;
   /**
+   * 是否支持「冷切」权限模式：销毁旧子进程 + 用新 mode 重建。bypassPermissions 必须冷切，
+   * 因为 SDK 的 `allowDangerouslySkipPermissions` flag 在子进程启动时锁死，运行时
+   * setPermissionMode('bypassPermissions') 会被 SDK 静默吞。
+   * 仅 Claude Code SDK 通道支持；codex-cli / hook-only adapter 置 false。
+   */
+  canRestartWithPermissionMode: boolean;
+  /**
    * 删会话时 SessionManager 是否调 closeSession 彻底关闭 SDK 侧 live query/turn 与 pending Maps。
    * 与 canInterrupt 区别：interrupt 允许 resume / 复用 session；close 表示永久关闭。
    * 占位 adapter（aider / generic-pty）置 false；hook-only / SDK 通道有 internal session 的 adapter 置 true。
@@ -79,6 +86,16 @@ export interface AgentAdapter {
     response: ExitPlanModeResponse,
   ): Promise<void>;
   setPermissionMode?(sessionId: string, mode: PermissionMode): Promise<void>;
+  /**
+   * 冷切：销毁旧 SDK 子进程 + 用新 mode 重建。`handoffPrompt` 必须非空（SDK streaming
+   * 协议约束），调用方负责拼好语义。仅 bypassPermissions 必须走此路径，其他档可热切。
+   * 失败时内部已 emit error message + 回滚 DB 到旧 mode，throw 仅用于上层 log。
+   */
+  restartWithPermissionMode?(
+    sessionId: string,
+    mode: PermissionMode,
+    handoffPrompt: string,
+  ): Promise<string>;
 
   /** 重启 / HMR 后 renderer store 会丢 pending 列表；这里给一次快照重建 UI。 */
   listPending?(sessionId: string): {

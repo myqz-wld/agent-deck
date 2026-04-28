@@ -90,13 +90,25 @@ function PendingSection({
   const batchableCount = permissions.length + exitPlanModes.length;
   const askCount = askQuestions.length;
   const [batchBusy, setBatchBusy] = useState(false);
+  // 批量批准 ExitPlanMode 时切到的目标权限模式（仅 3 个热档；bypass 必须 row 内单条点
+  // 触发冷切，避免 N 个 SDK 子进程并起 + N 条不可逆 bypass 用户来不及确认）。
+  // 默认 acceptEdits：plan 批准后接着自动接受编辑是高频用例。
+  const [batchTargetMode, setBatchTargetMode] = useState<
+    'default' | 'acceptEdits' | 'plan'
+  >('acceptEdits');
   const batchDisabled = batchableCount === 0 || !isSdk || batchBusy;
+
+  const targetModeLabel: Record<typeof batchTargetMode, string> = {
+    default: '默认',
+    acceptEdits: '自动接受',
+    plan: '保持 Plan',
+  };
 
   const batchTooltip = !isSdk
     ? '外部 CLI 会话无法在此响应'
     : batchableCount === 0
       ? '仅剩 AskUserQuestion，请逐条作答'
-      : `批量响应 ${permissions.length} 项权限请求 + ${exitPlanModes.length} 项计划批准${
+      : `批量响应 ${permissions.length} 项权限请求 + ${exitPlanModes.length} 项计划批准（切到「${targetModeLabel[batchTargetMode]}」）${
           askCount > 0
             ? `；${askCount} 项 AskUserQuestion 不会被批量，请逐条选择`
             : ''
@@ -119,6 +131,7 @@ function PendingSection({
       for (const req of exitPlanModes) {
         await window.api.respondExitPlanMode(session.agentId, session.id, req.requestId, {
           decision: 'approve',
+          targetMode: batchTargetMode,
         });
         resolveExitPlan(session.id, req.requestId);
       }
@@ -184,6 +197,21 @@ function PendingSection({
               className="ml-auto flex shrink-0 items-center gap-1"
               onClick={(e) => e.stopPropagation()}
             >
+              {exitPlanModes.length > 0 && (
+                <select
+                  value={batchTargetMode}
+                  disabled={batchDisabled}
+                  onChange={(e) =>
+                    setBatchTargetMode(e.target.value as typeof batchTargetMode)
+                  }
+                  title="「全部允许」批准 plan 时切到此档；bypass 必须在 plan 行内单条触发（避免批量重启 SDK 子进程）"
+                  className="rounded border border-deck-border bg-white/[0.06] px-1 py-0.5 text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+                >
+                  <option value="default">默认</option>
+                  <option value="acceptEdits">自动接受</option>
+                  <option value="plan">保持 Plan</option>
+                </select>
+              )}
               <button
                 type="button"
                 disabled={batchDisabled}

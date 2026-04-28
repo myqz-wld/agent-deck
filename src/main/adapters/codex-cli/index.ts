@@ -30,6 +30,7 @@ class CodexCliAdapterImpl implements AgentAdapter {
     canInstallHooks: false,
     canRespondPermission: false,
     canSetPermissionMode: false,
+    canRestartWithPermissionMode: false,
     canCloseSession: true,
   };
 

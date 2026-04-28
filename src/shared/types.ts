@@ -144,11 +144,18 @@ export interface ExitPlanModeRequest {
   plan: string;
 }
 
-export interface ExitPlanModeResponse {
-  decision: 'approve' | 'keep-planning';
-  /** decision='keep-planning' 时可选用户反馈，会拼进给 Claude 的 deny.message */
-  feedback?: string;
-}
+/**
+ * 批准 ExitPlanMode 时**必须**指定切到的目标权限模式。
+ * - approve + targetMode ∈ {default, acceptEdits, plan}：热切，SDK Query.setPermissionMode 立即生效
+ * - approve-bypass：冷切（独立 decision 避免误用热切路径），sdk-bridge 销毁旧 query +
+ *   用 `allowDangerouslySkipPermissions: true` 重启子进程，复用 recoverAndSend 的 H4/H1 护栏，
+ *   并把 plan 文本作为 handoff prompt 让 Claude 在 bypass 模式重新执行（避开 jsonl flush race）
+ * - keep-planning：deny + 用户反馈，Claude 留在 plan mode 修计划
+ */
+export type ExitPlanModeResponse =
+  | { decision: 'approve'; targetMode: 'default' | 'acceptEdits' | 'plan' }
+  | { decision: 'approve-bypass' }
+  | { decision: 'keep-planning'; feedback?: string };
 
 // ───────────────────────────────────────────────────────── File Changes / Diff
 
