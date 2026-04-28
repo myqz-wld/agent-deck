@@ -5,6 +5,7 @@ import type {
   AskUserQuestionRequest,
   DiffPayload,
   ExitPlanModeRequest,
+  ExitPlanModeResponse,
   ImageSource,
   PermissionRequest,
 } from '@shared/types';
@@ -356,21 +357,49 @@ export function ExitPlanRow({
   // 展开输入框让用户可以补充意见再确认；如果用户已写过反馈直接发送，跳过 confirm 步骤。
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
+  // 批准时切到的目标权限模式（plan 通过 ▾ 下拉选）。
+  // - 热档（default/acceptEdits/plan）：respondExitPlanMode 内部走 query.setPermissionMode 热切
+  // - bypass：必须冷切（重启 SDK 子进程），点击前弹 confirmDialog 二次确认。
+  // 默认 acceptEdits：plan 批准后接着自动接受编辑是高频用例。
+  const [targetMode, setTargetMode] = useState<
+    'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
+  >('acceptEdits');
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const plan = payload.plan ?? '';
 
-  const respond = async (decision: 'approve' | 'keep-planning'): Promise<void> => {
+  const respond = async (response: ExitPlanModeResponse): Promise<void> => {
     if (!isSdk || !stillPending || busy) return;
     setBusy(true);
     try {
-      await window.api.respondExitPlanMode(agentId, sessionId, payload.requestId, {
-        decision,
-        feedback: decision === 'keep-planning' ? feedback.trim() || undefined : undefined,
-      });
+      await window.api.respondExitPlanMode(agentId, sessionId, payload.requestId, response);
       onResolved(sessionId, payload.requestId);
+    } catch (err) {
+      // 冷切失败时 sdk-bridge 内部已 emit error message + 回滚 DB；这里 row 保持 pending 让用户看到失败
+      console.error('respondExitPlanMode failed', err);
     } finally {
       setBusy(false);
     }
+  };
+
+  const onClickApprove = async (): Promise<void> => {
+    if (targetMode === 'bypassPermissions') {
+      // bypass 冷切：会重启 SDK 子进程（5-10s busy）+ 后续完全免询问，强制弹 confirm
+      const ok = await window.api.confirmDialog({
+        title: '批准并切到完全免询问模式',
+        message: '将重启 SDK 子进程切到 bypassPermissions 模式',
+        detail:
+          '会销毁旧 SDK 子进程并以「allowDangerouslySkipPermissions=true」flag 重启（约 5-10s busy），\n' +
+          '重启后 Claude 直接按 plan 执行，**全过程不再询问任何工具调用**。\n\n' +
+          '如果失败将自动回滚到原模式（plan）。继续？',
+        okLabel: '批准并切到 bypass',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (!ok) return;
+      void respond({ decision: 'approve-bypass' });
+      return;
+    }
+    void respond({ decision: 'approve', targetMode });
   };
 
   // 「继续规划」按钮：第一次点击展开反馈框（如果还没展开），第二次/已有反馈直接提交。
@@ -381,7 +410,15 @@ export function ExitPlanRow({
       setShowFeedback(true);
       return;
     }
-    void respond('keep-planning');
+    void respond({ decision: 'keep-planning', feedback: feedback.trim() || undefined });
+  };
+
+  // 按钮文案：根据 targetMode 显示「批准并切到 X」，bypass 加 ⚠️ 标识
+  const targetModeLabel: Record<typeof targetMode, string> = {
+    default: '默认',
+    acceptEdits: '自动接受编辑',
+    plan: '保持 Plan',
+    bypassPermissions: '完全免询问 ⚠️',
   };
 
   return (
@@ -412,15 +449,34 @@ export function ExitPlanRow({
         </span>
         <span className="font-mono tabular-nums text-deck-muted/60">{ts}</span>
         {stillPending && isSdk && (
-          <div className="ml-auto flex flex-wrap gap-1">
+          <div className="ml-auto flex flex-wrap items-center gap-1">
+            {/* targetMode 选档：approve 时切到此档；bypass 走冷切（重启 SDK 子进程） */}
+            <select
+              value={targetMode}
+              disabled={busy}
+              onChange={(e) =>
+                setTargetMode(e.target.value as typeof targetMode)
+              }
+              title="批准后切到的权限模式（plan/acceptEdits/default 热切；bypass 冷切重启 SDK）"
+              className="rounded border border-deck-border bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+            >
+              <option value="default">默认（每次询问）</option>
+              <option value="acceptEdits">自动接受编辑</option>
+              <option value="plan">保持 Plan 模式</option>
+              <option value="bypassPermissions">完全免询问 ⚠️</option>
+            </select>
             <button
               type="button"
               disabled={busy}
-              onClick={() => void respond('approve')}
-              title="批准计划，让 Claude 退出 plan mode 开始执行"
+              onClick={() => void onClickApprove()}
+              title={
+                targetMode === 'bypassPermissions'
+                  ? '批准 plan 并冷切到完全免询问模式（会重启 SDK 子进程，5-10s busy）'
+                  : `批准 plan 并热切到「${targetModeLabel[targetMode]}」模式`
+              }
               className="rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              批准计划，开始执行
+              批准并切到 {targetModeLabel[targetMode]}
             </button>
             <button
               type="button"
@@ -471,7 +527,7 @@ export function ExitPlanRow({
             <button
               type="button"
               disabled={busy}
-              onClick={() => void respond('keep-planning')}
+              onClick={() => void respond({ decision: 'keep-planning', feedback: feedback.trim() || undefined })}
               className="rounded bg-deck-text/80 px-2.5 py-0.5 text-[10px] font-semibold text-deck-bg-strong hover:brightness-110 disabled:opacity-40"
             >
               发送反馈，继续规划

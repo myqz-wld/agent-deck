@@ -19,6 +19,7 @@ import type {
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { eventBus } from '@main/event-bus';
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
@@ -129,7 +130,7 @@ export class ClaudeSdkBridge {
    * 把这条新 text 正常 push 进 sessions Map 上的 pendingUserMessages，避免 createSession
    * 内只有「触发恢复的那条 prompt」被消费而后续等 inflight 的消息被丢。
    */
-  private recovering = new Map<string, Promise<void>>();
+  private recovering = new Map<string, Promise<unknown>>();
   /** 权限请求未响应自动 abort 阈值；0 = 关闭。运行时通过 setPermissionTimeoutMs 改。 */
   private permissionTimeoutMs: number;
 
@@ -300,13 +301,29 @@ export class ClaudeSdkBridge {
             resolver: (response) => {
               if (entry.timer) clearTimeout(entry.timer);
               if (response.decision === 'approve') {
-                // allow + 原 input 透传：让 ExitPlanMode 工具调用「成功」，
-                // CLI 收到 tool_result 自动退出 plan mode，后续工具按非 plan 模式继续。
+                // 热切档：allow + 原 input 透传 —— 让 ExitPlanMode 工具调用「成功」，
+                // CLI 收到 tool_result 自动退出 plan mode，后续工具按 targetMode 继续
+                // （targetMode 由外层 respondExitPlanMode 在 resolver 后同步调
+                // s.query.setPermissionMode(targetMode) + sessionRepo 写入；
+                // SDK Query 在下次工具调用前应用新 mode）。
                 resolve({
                   behavior: 'allow',
                   updatedInput: entry.toolInput,
                 });
+              } else if (response.decision === 'approve-bypass') {
+                // 冷切档：deny + interrupt:true —— 让 OLD CLI 子进程的当前 turn 立即中止，
+                // 避免「allow 后 SDK 立刻吐 tool_use 跟正在重启的子进程抢 jsonl flush」race
+                // （双 Agent 对抗一致结论；race 触发后用户体感「批准了 plan 但 NEW session 又
+                // 重新进 plan mode」，磁盘 IO 抖动导致无法稳定复现）。
+                // OLD turn 中止后由外层 respondExitPlanMode 调 restartWithPermissionMode，
+                // 用 plan 文本作 handoff prompt 让 Claude 在 bypass 模式重新执行。
+                resolve({
+                  behavior: 'deny',
+                  message: '用户已批准 plan 并切换到 bypassPermissions 模式，正在重启子进程重新执行',
+                  interrupt: true,
+                });
               } else {
+                // keep-planning：保留原逻辑
                 const fb = response.feedback?.trim();
                 resolve({
                   behavior: 'deny',
@@ -791,19 +808,65 @@ export class ClaudeSdkBridge {
     entry.resolver(answer);
   }
 
-  /** 用户对 ExitPlanMode 的决策（批准 / 继续规划），驱动 SDK allow / deny。 */
-  respondExitPlanMode(
+  /**
+   * 用户对 ExitPlanMode 的决策（批准 / 继续规划），驱动 SDK allow / deny。
+   *
+   * 4 档目标 mode 分两类处理：
+   * - approve + targetMode ∈ {default, acceptEdits, plan}：热切。resolver 走 allow，settle 后
+   *   同步调 `query.setPermissionMode(targetMode)` + 写 DB + emit upsert，下次工具调用按新 mode。
+   * - approve-bypass：冷切。resolver 走 deny + interrupt:true 中止 OLD turn，外层调
+   *   `restartWithPermissionMode` 把 plan 文本作 handoff prompt 重启 SDK 子进程到 bypass，
+   *   规避「allow 后 SDK 推 tool_use 与重启子进程抢 jsonl flush」race。
+   * - keep-planning：deny + 用户反馈，Claude 留在 plan mode 修计划。
+   */
+  async respondExitPlanMode(
     sessionId: string,
     requestId: string,
     response: ExitPlanModeResponse,
-  ): void {
+  ): Promise<void> {
     const s = this.sessions.get(sessionId);
     if (!s) return;
     const entry = s.pendingExitPlanModes.get(requestId);
     if (!entry) return;
     if (entry.timer) clearTimeout(entry.timer);
     s.pendingExitPlanModes.delete(requestId);
+    // 先驱动 SDK：approve→allow / approve-bypass→deny+interrupt / keep-planning→deny
     entry.resolver(response);
+
+    if (response.decision === 'approve') {
+      // 热切档：SDK 已退出 plan mode，立刻同步 mode 到 SDK Query + DB + UI
+      try {
+        await s.query.setPermissionMode(response.targetMode);
+        sessionRepo.setPermissionMode(sessionId, response.targetMode);
+        const updated = sessionRepo.get(sessionId);
+        if (updated) eventBus.emit('session-upserted', updated);
+      } catch (err) {
+        console.warn(
+          `[sdk-bridge] hot-switch permission mode after approve failed: ${sessionId}`,
+          err,
+        );
+      }
+      return;
+    }
+
+    if (response.decision === 'approve-bypass') {
+      // 冷切档：resolver 已 deny + interrupt OLD turn；现在重启子进程到 bypass，
+      // 把 plan 文本作 handoff 让 Claude 重新执行（无需再调 ExitPlanMode）
+      const handoffPrompt =
+        `用户已批准以下 plan 并切换到完全免询问模式（bypassPermissions），` +
+        `请直接按 plan 执行（无需再次调用 ExitPlanMode 确认）：\n\n` +
+        entry.payload.plan;
+      try {
+        await this.restartWithPermissionMode(sessionId, 'bypassPermissions', handoffPrompt);
+      } catch (err) {
+        // restartWithPermissionMode 内部已 emit error message + 回滚 DB，这里只 log
+        console.error(
+          `[sdk-bridge] cold-switch to bypass after approve failed: ${sessionId}`,
+          err,
+        );
+      }
+    }
+    // keep-planning：什么都不用做，resolver 已 deny + Claude 留在 plan mode
   }
 
   /**
@@ -990,15 +1053,44 @@ export class ClaudeSdkBridge {
     // 2. 兜底清 pending timer：abort 信号 propagate 不一定立即触发所有 entry handler，
     //    timer 残留 30s+ 会让进程持有 callback 引用。clear Map 也避免延迟 resolver 收到时
     //    Map 已空再 set 出错。
+    //
+    // 顺手修：清 Map **之前** emit `*-cancelled` 事件给 renderer，否则 store 端 zombie row
+    // 残留（用户点了 silently no-op）。冷切场景（restartWithPermissionMode）会高频触发
+    // closeSession，没这步就会大量泄漏 zombie row。
+    const realIdForEmit = internal.realSessionId ?? sessionId;
     for (const entry of internal.pendingPermissions.values()) {
+      this.opts.emit({
+        sessionId: realIdForEmit,
+        agentId: AGENT_ID,
+        kind: 'waiting-for-user',
+        payload: { type: 'permission-cancelled', requestId: entry.payload.requestId },
+        ts: Date.now(),
+        source: 'sdk',
+      });
       if (entry.timer) clearTimeout(entry.timer);
     }
     internal.pendingPermissions.clear();
     for (const entry of internal.pendingAskUserQuestions.values()) {
+      this.opts.emit({
+        sessionId: realIdForEmit,
+        agentId: AGENT_ID,
+        kind: 'waiting-for-user',
+        payload: { type: 'ask-question-cancelled', requestId: entry.payload.requestId },
+        ts: Date.now(),
+        source: 'sdk',
+      });
       if (entry.timer) clearTimeout(entry.timer);
     }
     internal.pendingAskUserQuestions.clear();
     for (const entry of internal.pendingExitPlanModes.values()) {
+      this.opts.emit({
+        sessionId: realIdForEmit,
+        agentId: AGENT_ID,
+        kind: 'waiting-for-user',
+        payload: { type: 'exit-plan-cancelled', requestId: entry.payload.requestId },
+        ts: Date.now(),
+        source: 'sdk',
+      });
       if (entry.timer) clearTimeout(entry.timer);
     }
     internal.pendingExitPlanModes.clear();
@@ -1033,6 +1125,127 @@ export class ClaudeSdkBridge {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`session ${sessionId} not found`);
     await s.query.setPermissionMode(mode);
+  }
+
+  /**
+   * 冷切：销毁旧 SDK 子进程，用新 mode 重建（复用 createSession 的 H4/H1 全套护栏）。
+   *
+   * 为什么不能用 setPermissionMode 热切？
+   * - bypassPermissions 真正的开关是 createSession 时的 `allowDangerouslySkipPermissions: true` flag，
+   *   CLI 子进程**初启时**按此 flag 锁死，运行时调 query.setPermissionMode('bypassPermissions')
+   *   会被 SDK 静默吞，用户体感「切了但还在询问」。
+   *
+   * 为什么 handoffPrompt 必须非空？
+   * - createSession 入口校验 prompt.trim() 非空（streaming 协议必须有首条 user message 才能启 CLI）。
+   * - 调用方负责拼好语义（例如「用户已批准 plan…请直接执行」/「继续之前的会话」）。
+   *
+   * 单飞：与 sendMessage 触发的 recoverAndSend 共用 `this.recovering` Map，
+   * 同 sessionId 的并发 cold-restart / connection-loss recovery 排队执行。
+   *
+   * 失败：snapshot oldMode → DB 已先翻新 mode → createSession fail 时回滚 DB +
+   * emit error message 让 UI 下拉回弹。**不**重新 emit 已 settle 的 ExitPlanMode entry
+   * （resolver 已 deny+interrupt 过一次，re-emit 假 row 用户点了 silently no-op）。
+   *
+   * @returns 重启后的真实 sessionId（CLI 隐式 fork 时会变；rename 后 OLD/NEW 都指向同条 DB record）
+   */
+  async restartWithPermissionMode(
+    sessionId: string,
+    mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
+    handoffPrompt: string,
+  ): Promise<string> {
+    if (!handoffPrompt.trim()) {
+      throw new Error('restartWithPermissionMode 要求 handoffPrompt 非空（SDK streaming 协议约束）');
+    }
+
+    // 单飞：等同 sessionId 的 in-flight recovery / restart 完成
+    const inflight = this.recovering.get(sessionId);
+    if (inflight) {
+      try {
+        await inflight;
+      } catch {
+        // 上一个 recovery 失败不影响本次重启尝试
+      }
+    }
+
+    const rec = sessionRepo.get(sessionId);
+    if (!rec) throw new Error(`session ${sessionId} not found in repo`);
+    const oldMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' =
+      rec.permissionMode ?? 'default';
+
+    // 占位 message：分方向文案，让用户在 5-10s busy 期间看到状态
+    const enterBypass = mode === 'bypassPermissions';
+    const placeholderText = enterBypass
+      ? '⚠ 正在切换到完全免询问模式（bypass），重启 SDK 中…'
+      : `⚠ 正在切换权限模式到 ${mode}，重启 SDK 中…`;
+    this.opts.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: { text: placeholderText },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+
+    // close OLD：内部已修为 emit *-cancelled 事件清 renderer zombie row 后再清 Map
+    await this.closeSession(sessionId);
+
+    // 写 DB：必须先于 createSession（cold path 翻序；hot path 不动保持 ipc.ts:451-462 原样）。
+    // 同步 emit upsert 让 SessionDetail 下拉值立即跟到新 mode（5-10s busy 期间用户已经看到「切完了」）。
+    sessionRepo.setPermissionMode(sessionId, mode);
+    const updatedRec = sessionRepo.get(sessionId);
+    if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+
+    const p = (async (): Promise<string> => {
+      try {
+        const handle = await this.createSession({
+          cwd: rec.cwd,
+          prompt: handoffPrompt,
+          resume: sessionId,
+          permissionMode: mode,
+        });
+        const newRealId = handle.sessionId;
+        // CLI 隐式 fork：拿到的 newRealId 可能 ≠ OLD sessionId（CLI 在 streaming + resume 下行为不可控，
+        // 见 CLAUDE.md「会话恢复 / 断连 UX」节）。rename 把 DB 子表 + sdkOwned 整体迁到 NEW 名下。
+        if (newRealId !== sessionId) {
+          try {
+            sessionManager.renameSdkSession(sessionId, newRealId);
+          } catch (renameErr) {
+            console.error(
+              `[sdk-bridge] post-restart rename failed ${sessionId} → ${newRealId}, ` +
+                `NEW session works but app-side history not migrated.`,
+              renameErr,
+            );
+          }
+        }
+        return newRealId;
+      } catch (err) {
+        // 回滚：DB 改回 oldMode + emit upsert 让下拉回弹
+        sessionRepo.setPermissionMode(sessionId, oldMode);
+        const rolled = sessionRepo.get(sessionId);
+        if (rolled) eventBus.emit('session-upserted', rolled);
+        // 占位 message 已 emit 过，再 emit 一条 error 让用户知道失败 + 已回退
+        this.opts.emit({
+          sessionId,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text:
+              `⚠ 切到 ${mode} 失败：${(err as Error)?.message ?? String(err)}。` +
+              `权限模式已回退到 ${oldMode}，请重新发送一条消息让 Claude 续上 plan。`,
+            error: true,
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+        throw err;
+      }
+    })();
+    this.recovering.set(sessionId, p);
+    try {
+      return await p;
+    } finally {
+      this.recovering.delete(sessionId);
+    }
   }
 
   private makeUserMessage(sessionId: string, text: string): SDKUserMessage {

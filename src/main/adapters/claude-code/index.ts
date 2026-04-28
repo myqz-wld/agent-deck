@@ -24,6 +24,7 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     canInstallHooks: true,
     canRespondPermission: true,
     canSetPermissionMode: true,
+    canRestartWithPermissionMode: true,
     canCloseSession: true,
   };
 
@@ -102,12 +103,21 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     response: ExitPlanModeResponse,
   ): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
-    this.bridge.respondExitPlanMode(sessionId, requestId, response);
+    await this.bridge.respondExitPlanMode(sessionId, requestId, response);
   }
 
   async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
     await this.bridge.setPermissionMode(sessionId, mode);
+  }
+
+  async restartWithPermissionMode(
+    sessionId: string,
+    mode: PermissionMode,
+    handoffPrompt: string,
+  ): Promise<string> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    return this.bridge.restartWithPermissionMode(sessionId, mode, handoffPrompt);
   }
 
   listPending(sessionId: string): {

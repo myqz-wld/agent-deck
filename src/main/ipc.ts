@@ -453,8 +453,18 @@ export function bootstrapIpc(): void {
     if (!adapter?.setPermissionMode) throw new Error('adapter cannot set permission mode');
     const sid = String(sessionId);
     const m = mode as Parameters<NonNullable<typeof adapter.setPermissionMode>>[1];
+    // bypassPermissions 必须冷切：SDK 的 allowDangerouslySkipPermissions flag 在子进程
+    // 启动时锁死，运行时热切会被 SDK 静默吞（用户体感「切了但还在询问」）。
+    // 冷切走 restartWithPermissionMode 销毁旧子进程 + 用新 flag 重建（复用 recoverAndSend
+    // 的 H4/H1 全套护栏）。renderer 端两个入口（SessionDetail 下拉、PendingTab 批准 bypass）
+    // 收口到此方法，行为一致。restartWithPermissionMode 内部已写 DB + emit upsert，
+    // 失败时回滚 DB + emit error message，本 handler 不重复处理。
+    if (m === 'bypassPermissions' && adapter.restartWithPermissionMode) {
+      await adapter.restartWithPermissionMode(sid, m, '继续之前的会话');
+      return true;
+    }
     await adapter.setPermissionMode(sid, m);
-    // SDK 接受后持久化到 sessions 表 + 推送 upsert，让 renderer 跨切换 / 重启能恢复下拉值。
+    // 热档：SDK 接受后持久化到 sessions 表 + 推送 upsert，让 renderer 跨切换 / 重启能恢复下拉值。
     sessionRepo.setPermissionMode(sid, m);
     const updated = sessionRepo.get(sid);
     if (updated) eventBus.emit('session-upserted', updated);
