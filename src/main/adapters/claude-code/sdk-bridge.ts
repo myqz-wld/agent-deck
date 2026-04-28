@@ -101,6 +101,14 @@ interface InternalSession {
    * assistant.tool_use 处理时 set，user.tool_result 消费后 delete。
    */
   toolUseNames: Map<string, string>;
+  /**
+   * 应用层主动关闭/重启该 session 的标记。置位时 query loop catch 块抛的 SDK 错误
+   * （典型：approve-bypass deny+interrupt:true 触发 SDK 内部 [ede_diagnostic] 状态机
+   * 不一致诊断错误）属于设计内副产品，UI 不再 emit 红字，仅 console.warn 留痕。
+   * 在 closeSession（含 restartWithPermissionMode 走的冷切路径）/ approve-bypass resolver
+   * 之前置位；不需要清，因为 internal session 紧接着会被 sessions Map 删除。
+   */
+  expectedClose?: boolean;
 }
 
 /**
@@ -830,6 +838,14 @@ export class ClaudeSdkBridge {
     if (!entry) return;
     if (entry.timer) clearTimeout(entry.timer);
     s.pendingExitPlanModes.delete(requestId);
+    // 冷切档先打 expectedClose：resolver 即将返回 deny+interrupt:true 让 SDK 强制中止
+    // OLD turn，会触发 SDK 内部 [ede_diagnostic] 状态机不一致诊断错误（result_type=user
+    // + stop_reason=tool_use 不匹配）。flag 让 consume() catch 块认出这是设计内的副产品，
+    // 不弹「⚠ SDK 流中断」红字 message。后续 restartWithPermissionMode → closeSession
+    // 还会再打一次（双保险，覆盖所有应用主动关闭的入口）。
+    if (response.decision === 'approve-bypass') {
+      s.expectedClose = true;
+    }
     // 先驱动 SDK：approve→allow / approve-bypass→deny+interrupt / keep-planning→deny
     entry.resolver(response);
 
@@ -1044,6 +1060,12 @@ export class ClaudeSdkBridge {
     // 1. abort query —— SDK 通过 ctx.signal 通知 canUseTool 链路，
     //    pending Maps 内每条 entry 自身的 abort handler 会被触发并 resolver 释放，
     //    consume() finally 也会清掉残余 pending。这里只是触发起点。
+    //
+    // 先打 expectedClose：interrupt 会让 SDK query loop 抛错（典型 [ede_diagnostic]
+    // / AbortError 等），catch 块据此降为 console.warn 不 emit「⚠ SDK 流中断」红字
+    // message——应用层主动关闭的副产品不该污染 UI 时间线。覆盖所有 closeSession 入口
+    // （SessionManager.delete / restartWithPermissionMode 冷切 / 应用退出清理等）。
+    internal.expectedClose = true;
     try {
       await internal.query?.interrupt?.();
     } catch (err) {
@@ -1414,20 +1436,29 @@ export class ClaudeSdkBridge {
       }
     } catch (err) {
       console.warn(`[sdk-bridge] query loop ended`, err);
-      // CHANGELOG_47：流中途抛错（鉴权过期 / token 限额 / CLI 子进程崩 / 网络）
-      // 之前只 console.warn，UI 时间线只看到 session-end 不知道为什么。补一条 error message。
-      const sid = realId ?? tempKey;
-      this.opts.emit({
-        sessionId: sid,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: {
-          text: `⚠ SDK 流中断：${(err as Error)?.message ?? String(err)}`,
-          error: true,
-        },
-        ts: Date.now(),
-        source: 'sdk',
-      });
+      // 应用主动 close（含 approve-bypass 冷切 / SessionManager.delete / 应用退出清理）
+      // 时 SDK 抛错（典型 [ede_diagnostic] 状态机不一致 / AbortError）属于设计内副产品，
+      // 不弹「⚠ SDK 流中断」红字 message——避免 UI 时间线像系统出错。flag 在 closeSession
+      // interrupt 之前 + approve-bypass resolver 之前都打过（双保险）。
+      // 仍走 finally 清 pending Maps + emit session-end。
+      if (internal.expectedClose) {
+        // 早返：跳过 emit 红字，但仍走下面的 finally 兜底清理
+      } else {
+        // CHANGELOG_47：流中途抛错（鉴权过期 / token 限额 / CLI 子进程崩 / 网络）
+        // 之前只 console.warn，UI 时间线只看到 session-end 不知道为什么。补一条 error message。
+        const sid = realId ?? tempKey;
+        this.opts.emit({
+          sessionId: sid,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text: `⚠ SDK 流中断：${(err as Error)?.message ?? String(err)}`,
+            error: true,
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+      }
     } finally {
       const sid = realId ?? tempKey;
       // 流终止时拒掉所有未决的权限请求，避免上游 await 永久挂起
