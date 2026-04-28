@@ -507,7 +507,13 @@ export class ClaudeSdkBridge {
           // SDK 默认 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
           // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime（详见 sdk-runtime.ts）。
           executable: runtime.executable,
-          env: runtime.env,
+          // REVIEW_12 Bug 5：注入 AGENT_DECK_ORIGIN=sdk env，CLI 子进程继承后由 hook curl
+          // 命令转发为 X-Agent-Deck-Origin: sdk header；HookServer 据此把 event.hookOrigin
+          // 标为 'sdk'。即便 OLD CLI 被 SIGTERM 后内部 fork 出新 sessionId + cwd=home dir
+          // fallback 飞回迟到 hook event，仍带 hookOrigin='sdk'，ingest 入口能据此 skip
+          // 不创建 source='cli' 孤儿 record。用户独立终端跑 `claude` 没有此 env，header
+          // 走默认 'cli'，不受影响。
+          env: { ...runtime.env, AGENT_DECK_ORIGIN: 'sdk' },
           // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
           // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
           // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
@@ -1182,6 +1188,16 @@ export class ClaudeSdkBridge {
     sessionManager.releaseSdkClaim(sessionId);
     if (internal.realSessionId && internal.realSessionId !== sessionId) {
       sessionManager.releaseSdkClaim(internal.realSessionId);
+    }
+
+    // REVIEW_12 Bug 5 双保险（origin tag 是主修法，本步是兜底）：把 sessionId 与
+    // realSessionId 加进 recentlyDeleted 60s 黑名单——覆盖「OLD CLI 子进程被 SIGTERM 后
+    // 飞回的迟到 hook event 仍带 OLD_ID 或 realSessionId」窗口。与 SessionManager.delete +
+    // renameSdkSession 入口对称。即便 origin tag 在升级前的老 hook 命令路径下未携带
+    // （hookOrigin === undefined → 按 'cli' 兼容），sessionId 黑名单也能挡住一部分孤儿。
+    sessionManager.markRecentlyDeleted(sessionId);
+    if (internal.realSessionId && internal.realSessionId !== sessionId) {
+      sessionManager.markRecentlyDeleted(internal.realSessionId);
     }
 
     // 唤醒 createUserMessageStream 的 await，让它走到 sessions.has(key) === false 后 return。
