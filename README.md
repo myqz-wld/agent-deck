@@ -1,6 +1,6 @@
 # Agent Deck
 
-通用 Coding Agent 驾驶舱。半透明毛玻璃悬浮窗，聚合多个 Claude Code 与 Codex CLI 会话，实时显示活动、文件改动 diff、阶段性总结；任意会话把控制权交回你时，立即颜色 + 声音 + 系统通知。
+通用 Coding Agent 驾驶舱。半透明毛玻璃悬浮窗，聚合多个 Claude Code 与 Codex CLI 会话，实时显示活动、文件改动 diff、阶段性总结；任何会话把控制权交回你时，立即颜色 + 声音 + 系统通知。
 
 适合「同时驾驶多个 coding agent」的人 —— 你有 3 条 Claude Code 会话和 1 条 Codex 在跑，不必再轮流切终端窗口确认谁在等你；窗口悬浮在桌面角落，红闪烁徽标 + 提示音告诉你哪一条停了。
 
@@ -10,13 +10,13 @@
 
 ## 主要能力
 
-- **半透明毛玻璃悬浮窗**：可拖动可缩放可折叠成胶囊；pin 模式下窗口几乎透明且置顶，能透着继续工作
+- **半透明毛玻璃悬浮窗**：可拖动、可缩放、可折叠成胶囊；pin 模式下窗口几乎透明且置顶，能透着继续工作
 - **多会话聚合**：应用内 SDK 创建（**内**）+ 外部终端 CLI hook 上报（**外**）共一份视图，三段 tab：实时 / 待处理 / 历史
 - **活动流 + Diff + 总结**：每条会话点开看消息时间线、按文件分组的 Monaco DiffEditor、阶段性 LLM 一句话总结
 - **控制权交接提醒**：waiting → 红闪烁 + 提示音 + 系统通知 + Dock 弹跳；finished → 黄 + 完成音；可逐项关闭，可换自定义提示音
 - **三类人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Plan mode 执行计划批准 —— 全部在活动流卡片里直接处理
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
-- **自带 CLAUDE.md + skill 注入**：每条应用内会话都自动追加一份应用级约定到 system prompt，可在设置面板直接编辑
+- **自带应用级约定 + skill 注入**：每条应用内 SDK 会话都自动追加一份内置 CLAUDE.md 到 system prompt，可在设置面板直接编辑
 - **多 Adapter**：Claude Code（hook + SDK 双通道）+ Codex CLI（单 SDK 通道）；预留 aider / generic-pty 接口
 
 ---
@@ -62,8 +62,8 @@ closed 后再来同 sessionId 事件 → 自动复活回 active。归档跳过 l
 
 `AgentAdapter` 接口声明 `capabilities`，UI 按能力自动隐藏不支持的字段。
 
-- **Claude Code**：hook + SDK 双通道，能力全开（创建/中断/发消息/工具批准/AskUserQuestion/ExitPlanMode/切权限模式/安装 hook）
-- **Codex CLI**：基于 `@openai/codex-sdk` 单 SDK 通道，支持创建/发消息/中断/恢复；不支持工具批准 / 主动询问 / Plan mode / 运行时切权限模式（codex SDK 物理不支持）
+- **Claude Code**：hook + SDK 双通道，能力全开（创建 / 中断 / 发消息 / 工具批准 / AskUserQuestion / ExitPlanMode / 切权限模式 / 安装 hook）
+- **Codex CLI**：基于 `@openai/codex-sdk` 单 SDK 通道，支持创建 / 发消息 / 中断 / 恢复；不支持工具批准 / 主动询问 / Plan mode / 运行时切权限模式（codex SDK 物理不支持）
 - **aider / generic-pty**：占位
 
 新增 adapter 实现 `AgentAdapter` 接口注册即可。
@@ -121,7 +121,7 @@ HMR 只对 renderer 生效；改了 `src/main/**` 或 `src/preload/**` 必须重
 应用 **不读不写任何 API Key**。
 
 - **Claude Code**：跑过 `claude login`（订阅或 Console 账户都行）。SDK 自己读 `~/.claude/.credentials.json`；`~/.claude/settings.json` 的 `permissions / hooks / env / mcpServers` 全部继承（等价于在该 cwd 跑 `claude`）
-- **Codex CLI**：在终端跑过 `codex auth`，agent-deck 直接复用 `~/.codex` 配置
+- **Codex CLI**：在终端跑过 `codex auth`，应用直接复用 `~/.codex` 配置
 
 `~/.claude/settings.json` 的 `env` 字段在启动时按白名单（`ANTHROPIC_*` / `CLAUDE_*` / 标准代理变量）注入到主进程，让 SDK 子进程拿到代理 / 自定义 base URL。其它键（如 `NODE_OPTIONS` / `PATH`）会被拒绝。
 
@@ -153,11 +153,11 @@ agent-deck new \
 
 ⚙ 按钮打开设置面板，主要可改：
 
-- **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3/wav/aiff/m4a/ogg/flac，带试听 + 重置）
-- **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny+interrupt 处理避免会话死等）
+- **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3 / wav / aiff / m4a / ogg / flac，带试听 + 重置）
+- **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny + interrupt 处理避免会话死等）
 - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时
 - **窗口**：置顶时透明（看到下层桌面，默认开；关掉则置顶时仍是 macOS under-window 实玻璃）/ 开机自启
-- **Claude Code Hook**：一键安装/卸载到 `~/.claude/settings.json`（user 作用域）
+- **Claude Code Hook**：一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）
 - **HookServer**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
 - **外部工具**：Codex 二进制路径（留空用应用内置 vendored 版本，约 150MB / 平台）
 - **应用约定（CLAUDE.md）**：直接编辑注入到所有 SDK 会话 system prompt 末尾的应用级约定文本，「恢复默认」回落内置
@@ -178,7 +178,7 @@ src/
 │   ├── event-bus.ts       主进程内事件总线
 │   ├── hook-server/       共享 fastify 实例 + RouteRegistry（adapter 动态注册路由）
 │   ├── adapters/
-│   │   ├── claude-code/   hook 路由 + hook installer + SDK bridge + CLAUDE.md/skill 注入
+│   │   ├── claude-code/   hook 路由 + hook installer + SDK bridge + CLAUDE.md / skill 注入
 │   │   ├── codex-cli/     @openai/codex-sdk 封装（pendingMessages 串行 turn + AbortController interrupt）
 │   │   ├── aider/         占位
 │   │   └── generic-pty/   占位
@@ -202,7 +202,7 @@ resources/
 ├── icons/                 electron-builder 多分辨率
 ├── sounds/                内置 waiting / done 提示音
 ├── bin/agent-deck         macOS CLI wrapper（chmod +x；打包后位于 .app/Contents/Resources/bin/）
-└── claude-config/         自带 CLAUDE.md + plugin/skills/，extraResources 复制到 .app
+└── claude-config/         应用打包内置的 CLAUDE.md + plugin / skills，extraResources 复制到 .app
 ```
 
 ---
@@ -246,20 +246,20 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
 
 每条都有过失败案例，详见对应 changelog / review：
 
-- `package.json > build.mac.icon = "resources/icon.png"` 必须显式指定，否则 electron-builder 找 `resources/icons/` 多分辨率集不到 → dmg 打不出来（CHANGELOG_9）
-- `extraResources` 必须把 `resources/bin → bin` 显式 copy，wrapper 才能进 .app（CHANGELOG_9）
-- 装包后必须 `codesign --force --deep --sign -` ad-hoc 重签，否则签名 Identifier 是 `Electron` 与 `com.agentdeck.app` 不一致，通知 / Gatekeeper 错位（CHANGELOG_9）
-- 重装前必须 `pkill` 旧 main 进程，否则 macOS 复用旧实例 + 新资源 → renderer chunk hash 错配 → monaco 等 dynamic import 显示成源码字符串（CHANGELOG_9）
-- `asarUnpack` 必须包含 `@openai/codex/**` + 所有平台子包（darwin / linux / win32 × arm64 / x64），否则打包后 codex spawn 报 ENOTDIR（CHANGELOG_14）
+- `package.json > build.mac.icon = "resources/icon.png"` 必须显式指定，否则 electron-builder 找 `resources/icons/` 多分辨率集不到 → dmg 打不出来
+- `extraResources` 必须把 `resources/bin → bin` 显式 copy，wrapper 才能进 .app
+- 装包后必须 `codesign --force --deep --sign -` ad-hoc 重签，否则签名 Identifier 是 `Electron` 与 `com.agentdeck.app` 不一致，通知 / Gatekeeper 错位
+- 重装前必须 `pkill` 旧 main 进程，否则 macOS 复用旧实例 + 新资源 → renderer chunk hash 错配 → monaco 等 dynamic import 显示成源码字符串
+- `asarUnpack` 必须包含 `@openai/codex/**` + 所有平台子包（darwin / linux / win32 × arm64 / x64），否则打包后 codex spawn 报 ENOTDIR
 
 ---
 
 ## 进一步阅读
 
-仓库历史按「双轨」组织（CHANGELOG_16 起划分，规则见 [CLAUDE.md](CLAUDE.md)「改动后必做」节）：
+仓库历史按「双轨」组织：
 
 - [changelog/INDEX.md](changelog/INDEX.md) —— **功能变更**索引（新功能 / 行为修改 / API / 依赖升级）
 - [reviews/INDEX.md](reviews/INDEX.md) —— **Debug / 性能 / 安全 review** 索引（不引入新功能，修问题或加固；含双对抗 Agent 三态裁决报告）
 - [CLAUDE.md](CLAUDE.md) —— 给 Claude Code 在本仓库工作时的硬性约定 + 项目设计要点 + 「已审文件过期」机制（review 自动排程）
 
-改任何模块前都建议浏览相关 changelog / review 条目，了解历史决策、避免推翻已有约定 / 重复踩坑。设计取舍（「为什么 lifecycle 与 archived 正交」）通常在 changelog；过往 bug 与加固方案（含证据 + 三态裁决）在 reviews。
+改任何模块前都建议浏览相关 changelog / review 条目，了解历史决策、避免推翻已有约定 / 重复踩坑。设计取舍（如「为什么 lifecycle 与 archived 正交」）通常在 changelog；过往 bug 与加固方案（含证据 + 三态裁决）在 reviews。
