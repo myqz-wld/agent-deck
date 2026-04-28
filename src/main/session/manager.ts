@@ -224,7 +224,36 @@ class SessionManagerClass {
         return { skip: true };
       }
     }
+    // REVIEW_12 Bug 5：时序兜底 C（origin tag 兜底，覆盖 A/B 的盲区）：
+    // hook event 带 hookOrigin='sdk' 表示该 CLI 子进程是本应用 SDK 派生（env 注入）。
+    // 走到这里说明 sdkOwned / pendingSdkCwds / record 三层都没认出来 —— 典型场景：
+    // - approve-bypass 冷切：OLD CLI 被 SIGTERM 后内部 fork 出新 sessionId Y + cwd 兜底
+    //   到 home dir，飞回的迟到 SessionEnd hook 不命中黑名单（sessionId 是 Y 不是 OLD）也
+    //   不命中 cwd claim（cwd 是 home dir 不是真实 cwd）。
+    // - SDK 子进程提前飞 hook 但应用层 expectSdkSession 还没注册（理论无，留兜底）。
+    // 既然 hookOrigin='sdk' 已经从源头标记此进程归属于 SDK，且未被任何 SDK 通道认领，
+    // 这条 event 一定是 SDK-derived 进程的孤儿副产品，直接 skip 不创建 source='cli' record。
+    // 用户独立终端跑 `claude` 没有 AGENT_DECK_ORIGIN env → header 走默认 'cli' → 不走本分支。
+    if (event.source === 'hook' && event.hookOrigin === 'sdk') {
+      console.log(
+        `[session-mgr] drop sdk-derived orphan hook: sessionId=${event.sessionId} kind=${event.kind}`,
+      );
+      return { skip: true };
+    }
     return { skip: false };
+  }
+
+  /**
+   * REVIEW_12 Bug 5 双保险：把 sessionId 加进 recentlyDeleted 黑名单，覆盖
+   * 「closeSession 主动关闭后，OLD CLI 子进程异步飞回的迟到 hook event 仍带 OLD_ID」窗口。
+   *
+   * 设计上与 SessionManager.delete + renameSdkSession 对称——三个入口任一关掉某 sessionId
+   * 都应保证后续 60s 内同 sessionId 的 hook event 被 ingest 入口 isRecentlyDeleted 直接丢弃。
+   * sdk-bridge.ts:closeSession 调本方法 + 内部已配 hookOrigin='sdk' 兜底（REVIEW_12 主修法），
+   * 双保险确保 origin tag 升级前的老 hook 命令（settings.json 残留）路径也能挡住。
+   */
+  markRecentlyDeleted(sessionId: string): void {
+    this.recentlyDeleted.set(sessionId, Date.now());
   }
 
   /** 第 2 段：取/建 SessionRecord。复活 closed 也由 ensure 内部处理。 */

@@ -46,7 +46,13 @@ function buildCommand(port: number, token: string, event: HookEvent): string {
   // Authorization 头：本机 127.0.0.1 监听虽然外部访问不到，但同机其它进程能直接
   // curl 伪造 AgentEvent 污染 SQLite，靠 server 端 onRequest 校验 Bearer token 拦住。
   // 注意：shell 转义用单引号外层不冲突——token 是 hex（[0-9a-f]）不含单引号 / 反斜杠。
-  return `cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/${event.toLowerCase()} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' --data-binary @- > /dev/null || true # ${HOOK_TAG}`;
+  //
+  // REVIEW_12 Bug 5：X-Agent-Deck-Origin header 转发 AGENT_DECK_ORIGIN env：
+  // - SDK spawn 的 CLI 子进程继承应用注入的 env=sdk → header 'sdk'
+  // - 用户独立终端跑 `claude` 无此 env → ${...:-cli} 兜底为 'cli'
+  // header 用**双引号**外层让 shell 展开 ${AGENT_DECK_ORIGIN:-cli}；其它 header 仍单引号
+  // （token / Content-Type 是写入时已替换的字面量，不需要 shell 展开）。
+  return `cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/${event.toLowerCase()} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' -H "X-Agent-Deck-Origin: \${AGENT_DECK_ORIGIN:-cli}" --data-binary @- > /dev/null || true # ${HOOK_TAG}`;
 }
 
 function settingsPath(scope: 'user' | 'project', cwd?: string): string {
