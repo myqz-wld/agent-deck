@@ -1658,14 +1658,18 @@ export class ClaudeSdkBridge {
         result?: string;
         errors?: string[];
       };
-      // 错误结果：把 errors 数组或 result 文本作为一条错误消息推给 UI，
-      // 否则只看到 finished 事件用户不知道为什么"完成"了。
-      // REVIEW_11 D'2：expectedClose 同时 gate 这条分支。CLI 收到 deny+interrupt:true 后
-      // 不走 throw / catch，而是合法地推一条 is_error=true 的 result frame（payload 典型为
-      // [ede_diagnostic] result_type=user 状态机不一致诊断），for await 顺利消费 → 进 result
-      // 分支 → 之前无 gate 直 emit 红字，绕过 D' 的 catch 块 expectedClose 防护。
-      // 此为 D' 修法漏的第二条通道，覆盖 approve-bypass 冷切 / closeSession / 应用退出三入口。
-      if ((r.is_error || (r.subtype && r.subtype !== 'success')) && !internal.expectedClose) {
+      // REVIEW_13 Bug 6 / P17 双通道防护陷阱再撞：result frame 在 expectedClose=true 时
+      // 必须**整体静默**，不只 gate 红字 message。REVIEW_11 D'2 修法只 gate 了 message emit
+      // 漏了下面 finished emit，结果 approve-bypass 冷切走完后：
+      //   - ok=false（r.is_error=true / r.subtype !== 'success'）
+      //   - subtype !== 'interrupted'（典型 'error_max_turns' / 'error_during_execution'）
+      // 进 routeEventToNotification → notifyUser({title:'Agent 出错',...}) → mac 系统通知
+      // 弹「Agent 出错」横幅。OLD CLI 的 result frame 完全是应用主动 abort 的副产品，
+      // OLD record 后续会被 renameSdkSession 整体迁到 NEW_ID，OLD 的 finished 既不影响
+      // 新 record 状态推进（NEW SDK 自己会发 finished），也不应该污染 dock / 通知 / UI 时间线。
+      // 修法：expectedClose 时整段 return，三个通道（红字 / finished UI / 系统通知）一起 skip。
+      if (internal.expectedClose) return;
+      if (r.is_error || (r.subtype && r.subtype !== 'success')) {
         const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
         emit('message', { text: `⚠ ${detail}`, error: true });
       }
