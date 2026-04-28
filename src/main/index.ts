@@ -24,6 +24,13 @@ import { handleCliArgv } from './cli';
 import { IpcEvent } from '@shared/ipc-channels';
 import type { AgentEvent } from '@shared/types';
 
+// 防止 packaged GUI 模式下 stdout/stderr 管道被对端关闭时，console.log/error 抛出
+// EPIPE 升级为 uncaughtException 把 main 进程整个挂掉（实测：wrapper exec
+// Electron stub 启动后，window.ts showOnce 的 console.log 即触发 EPIPE，main 直接退）。
+// 仅吞 stdout/stderr 写错误，不接管其他 uncaughtException 语义。
+process.stdout.on('error', () => {});
+process.stderr.on('error', () => {});
+
 // 注：之前禁用过硬件加速以规避 transparent 窗口闪烁，但会让 macOS vibrancy
 // 与 CSS backdrop-filter 一起失效（两者都依赖 GPU compositing），毛玻璃质感全无。
 // 默认开启硬件加速；若再次出现闪烁，再针对具体显卡兜底处理。
