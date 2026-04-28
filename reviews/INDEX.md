@@ -27,3 +27,4 @@
 | [REVIEW_7.md](REVIEW_7.md) | CHANGELOG_24-29 断连自愈 + fork 兜底 + HistoryPanel 周边周期复审（3 文件 churn/commits 触发过期，4 批 ×2 路 Opus + Codex 并发 background） | 1 HIGH / 4 MED / 4 LOW | CHANGELOG_30（待落地） |
 | [REVIEW_8.md](REVIEW_8.md) | ExitPlanMode 4 档目标权限 + bypass 冷切方案对抗审视（双异构：Claude general-purpose Opus 4.7 xhigh + Codex gpt-5.5 xhigh，针对 7 个关键设计点逐条 ✅/❌/⚠️） | 2 HIGH / 2 MED / 3 LOW | CHANGELOG_33 |
 | [REVIEW_9.md](REVIEW_9.md) | ExitPlanMode 批准 bypass 双根因对抗（红字 emit ede_diagnostic + cli 孤儿会话）：双异构 Claude general-purpose Opus 4.7 xhigh + Codex gpt-5.5 xhigh；D' (expectedClose 双保险) + 1B (rename 加 recentlyDeleted) 双方一致采纳 | 1 HIGH / 1 MED | CHANGELOG_34 |
+| [REVIEW_10.md](REVIEW_10.md) | 打包安装流程验证暴露 main 进程 stdout EPIPE → uncaughtException 把 .app 整个挂掉（trivial 例外未走双对抗，src/main/index.ts 加 stdout/stderr 'error' listener 6 行修复） | 1 HIGH | 无（review 内直接落地） |
