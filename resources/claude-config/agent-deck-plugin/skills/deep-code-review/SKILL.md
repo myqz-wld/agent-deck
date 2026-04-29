@@ -51,7 +51,13 @@ description: 深度 code review 工具 — 多轮异构 reviewer 对抗 + 三态
 OUT=$(mktemp); PROMPT=$(mktemp)
 cat > "$PROMPT" <<'EOF'
 你是对抗 reviewer。... <prompt 内容> ...
-约束：只读、不要写文件、不要 commit、用中文输出。
+
+约束：
+- 只读、不要写文件、不要 commit、用中文输出
+- **能验证的优先实践验证**：grep 调用点 / 读真实文件 / 跑测试 / 跑命令
+  （codex 是 read-only sandbox，跑 grep/cat/test 都是允许的）
+- 纯文本推理结论必须自标 *未验证*，并自降级为弱断言（⚠️ + 非 HIGH）
+- 弱断言关键词（"可能 / 也许 / 看起来 / 应该 / 大概"）只允许出现在 *未验证* 标记的条目里
 EOF
 zsh -i -l -c "codex exec --sandbox read-only --skip-git-repo-check \
   -c model_reasoning_effort=\"xhigh\" \
@@ -62,13 +68,20 @@ rm -f "$OUT" "$PROMPT"
 
 Bash 工具调用 timeout: **600000**（深度 review）。`run_in_background: true` 让 codex 跑同时 spawn Claude reviewer 真并发。
 
+Claude code-reviewer subagent 的 prompt 模板里也要加同样的「能验证优先实践验证」一段，并显式告诉它可以用 Grep / Read / Bash 工具去验证而不是空猜。
+
 ### 三态裁决（每条 finding）
 
-- ✅ **真问题**：双方独立提出 / 一方提出但现场核实成立 → 必修
+- ✅ **真问题**：双方独立提出 / 一方提出**且现场实践验证成立**（写小 test 复现 / grep 调用点 / 读真实代码确认）→ 必修
 - ❌ **反驳**：被对抗或现场核实证伪 → 不修，理由记下
-- ⚠️ **部分**：双方都看到现场但角度不同 → 综合后决定修或不修
+- ⚠️ **部分** / **未验证**：双方都看到现场但角度不同 / 一方提出但纯文本推理（含弱断言 "可能 / 也许"）尚未实践验证 → 综合后决定修或不修；未验证的必须降级为非 HIGH 严重度
 
-每条结论必须带 `文件:行号` + 代码片段 / 原文证据。空泛 finding 直接降级为 ⚠️ 或 ❌。
+每条结论必须带 `文件:行号` + 代码片段 / 原文证据 / **验证手段**（如 "grep 出 3 个调用点全无 null check" / "写 test 模拟双 disconnect 实测 abort 0 次"）。空泛 finding + 没验证 = 直接降 ⚠️ 或 ❌。
+
+主 agent 在裁决时，对**每条单方独有发现**：
+1. 先尝试用 Grep / Read / Bash 工具自己验证一次
+2. 验证成立 → ✅；验证证伪 → ❌；验不了或不确定 → ⚠️ + 标注 *未验证*
+3. **不接受没经过验证的 ✅ HIGH**
 
 ### 收口判定
 
@@ -220,6 +233,17 @@ Wave 后续议程（如有）:
 
 6. **Round N+1 prompt 必须告诉 reviewer 上轮已修了什么**：否则 reviewer 会重复 list 上一轮的 finding，浪费 token + 假阳性多。
 
+7. **可实践验证 > 空猜（这是 deep review 的灵魂）**：
+   - reviewer 不是文本推理机。任何能用命令 / 测试 / grep / 读真实文件验证的判断，**必须先验证再下结论**
+   - 看到「**可能**有 race」→ 设计时序写小 test 复现，挂得掉就是真的
+   - 看到「这条 path **也许**没覆盖」→ `grep` 测试 + 看 coverage，别拍脑袋
+   - 看到「这个值**有可能** null」→ 看类型 / 上游调用点，不要靠经验主义
+   - 看到「这个 query 性能**应该**差」→ 跑 `EXPLAIN` / 加 console.time / profile
+   - 看到「这个 race 在并发下**会** leak」→ 写 stateful mock 模拟交错时序（可参考 hilo benchmark Wave 10.5 W10-NEW-2 测试写法）
+   - 主 agent 在做三态裁决时，对每条**单方独有发现** + 弱断言（含 "可能 / 也许 / 看起来 / 应该"）默认归类 ⚠️，**强制要求**先去验证再决定 ✅ / ❌
+   - 如果**确实**没法验证（如生产 race 在本地难复现），明说 "未验证、推断" 并降级为 ⚠️ + INFO 严重度，不要伪装成 ✅ HIGH
+   - prompt 里给 reviewer 的指令必须含：「**能验证的优先实践验证**：grep / 跑测试 / 读真实文件 / 跑命令；纯推理结论必须标 *未验证* 并自降级为弱断言。」
+
 ## 常见反模式
 
 | 反模式 | 后果 | 正确做法 |
@@ -231,6 +255,8 @@ Wave 后续议程（如有）:
 | Round 1 就喊「可合」 | 缺少深度证据（深 bug 通常 R2-R3 才浮现） | 至少跑 2-3 轮，每轮 focus 不同维度 |
 | 每轮 prompt 一字不差 | reviewer 反复列同样 finding | Round N+1 prompt 切换 focus + 告知上轮已修 |
 | 拒合时强推 fix | 把不该 scope 的工作硬塞进来 | 拒合 → 拆 scope / escalate / 写 ADR |
+| reviewer 文本推理出「**可能**有 race / null / leak」直接列 ✅ | 假阳性堆积 / 真问题被淹 | 强制实践验证：写时序 test / grep 调用点 / 跑 EXPLAIN；验不了的明说 *未验证* + 降级 ⚠️ |
+| 只 grep 不跑测试 | 静态分析漏掉运行时行为 | 关键判断（race / lifecycle / 性能）必须有可执行 test 复现，挂得掉才算 ✅ |
 
 ## 与「用户全局 CLAUDE.md 决策对抗节」的关系
 
