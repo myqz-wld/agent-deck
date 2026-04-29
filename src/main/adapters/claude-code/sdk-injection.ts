@@ -56,6 +56,19 @@ export function getAgentDeckPluginPath(): string {
   return join(app.getAppPath(), 'resources', 'claude-config', 'agent-deck-plugin');
 }
 
+/**
+ * 返回要传给 SDK `plugins:` 字段的 plugin 列表。
+ *
+ * 开关：settings.injectAgentDeckPlugin === false 时返回空数组（设置面板里有
+ * toggle 让用户彻底禁用 plugin 注入，与 CLAUDE.md 注入开关同模式）。
+ * 改这个开关只影响**下次新建**的 SDK 会话；已运行的会话已经在启动时拿到
+ * plugin 列表，关掉不会撤销。
+ */
+export function getAgentDeckPluginsForSession(): Array<{ type: 'local'; path: string }> {
+  if (!settingsStore.get('injectAgentDeckPlugin')) return [];
+  return [{ type: 'local', path: getAgentDeckPluginPath() }];
+}
+
 /** 内置 CLAUDE.md 在 .app / repo 内的绝对路径（dev/prod 自动分流）。 */
 function getBuiltinClaudeMdPath(): string {
   if (app.isPackaged) {

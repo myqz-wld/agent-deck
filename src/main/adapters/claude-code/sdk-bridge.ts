@@ -23,7 +23,7 @@ import { eventBus } from '@main/event-bus';
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
-  getAgentDeckPluginPath,
+  getAgentDeckPluginsForSession,
   getAgentDeckSystemPromptAppend,
 } from '@main/adapters/claude-code/sdk-injection';
 import {
@@ -494,10 +494,12 @@ export class ClaudeSdkBridge {
             preset: 'claude_code',
             append: getAgentDeckSystemPromptAppend(),
           },
-          // agent-deck 自带 plugin：注入到所有会话（不管 cwd），
-          // skill 自动以 `agent-deck:<skill-name>` 命名空间注册。
-          // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突（plugin 强制命名空间前缀）。
-          plugins: [{ type: 'local', path: getAgentDeckPluginPath() }],
+          // agent-deck 自带 plugin：受 settings.injectAgentDeckPlugin 开关控制
+          // （与 CLAUDE.md 注入开关同模式）。开 → skill 以 `agent-deck:<skill-name>`
+          // 命名空间注册；关 → 返回空数组，会话只能用 user/project/local 范围 skill。
+          // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突
+          // （plugin 强制命名空间前缀）。
+          plugins: getAgentDeckPluginsForSession(),
           // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）
           settingSources: ['user', 'project', 'local'],
           canUseTool,
