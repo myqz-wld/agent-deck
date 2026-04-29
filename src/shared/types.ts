@@ -360,6 +360,16 @@ export interface AppSettings {
    * 固化进 LLM 上下文，关掉不会回收。
    */
   injectAgentDeckClaudeMd: boolean;
+  /**
+   * 是否把 agent-deck 自带的 plugin（`resources/claude-config/agent-deck-plugin/`，
+   * 含 deep-code-review 等 skill）注入到 SDK 会话。
+   * - true（默认）：注入，skill 以 `agent-deck:<skill-name>` 命名空间可见
+   * - false：不注入，会话只能用 user/project/local 范围的 skill
+   *
+   * 与 `injectAgentDeckClaudeMd` 同模式：改这个开关只影响**下次新建**的会话；
+   * 已运行的 SDK 会话已经在启动时拿到 plugin 列表，关掉不会撤销。
+   */
+  injectAgentDeckPlugin: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -383,6 +393,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   historyRetentionDays: 30,
   codexCliPath: null,
   injectAgentDeckClaudeMd: true,
+  injectAgentDeckPlugin: true,
 };
 
 // ───────────────────────────────────────────────────────── Hook Status

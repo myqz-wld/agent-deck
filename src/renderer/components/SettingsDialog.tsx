@@ -379,6 +379,17 @@ function SettingsBody({
         </div>
         <ClaudeMdEditor onDirtyChange={onClaudeMdDirtyChange} />
       </Section>
+
+      <Section title="应用 skill（agent-deck plugin）">
+        <Toggle
+          label="启用 agent-deck plugin 注入（含 deep-code-review 等 skill）"
+          value={settings.injectAgentDeckPlugin}
+          onChange={(v) => void update({ injectAgentDeckPlugin: v })}
+        />
+        <div className="text-[10px] leading-snug text-deck-muted/70">
+          关闭后下次新建会话拿不到 agent-deck 自带 skill；已运行的会话已经在启动时拿到 plugin 列表，关掉不会撤销。
+        </div>
+      </Section>
     </>
   );
 }
