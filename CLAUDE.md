@@ -203,10 +203,12 @@ ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/loc
 - **ad-hoc 重签必须做（第 3 步）**：electron-builder 跳过签名时 codesign Identifier 是 `Electron`，与 Info.plist 的 `com.agentdeck.app` 不一致，macOS 通知中心 / Gatekeeper 按 Identifier 注册会归错位
 - **重装前必须 pkill 旧进程（第 0 步）**：macOS 复用同 bundle id 活进程，旧 main + 新 .app 资源错配，dynamic import 拿到的 chunk hash 对不上 → renderer 直接显示一坨 monaco 源码
 - **SDK / codex native binary 必须 unpack**：直接 spawn `app.asar/...` 路径会 ENOTDIR，需要 `build.asarUnpack` + 主进程 `pathToClaudeCodeExecutable` / `codexPathOverride` 显式传 unpacked 路径
+- **验证 wrapper 前必须 `unset ELECTRON_RUN_AS_NODE`**：Claude Code（以及任何 Electron 宿主）在跑工具调用时把 `ELECTRON_RUN_AS_NODE=1` 透到 child shell。设置后 `MacOS/Agent Deck` 二进制会切到「伪装成 Node」模式：`--version` 返回 `v20.18.3`（Electron 内置 Node 版本，**不是说包错了**），第一个非 self CLI 参数被当 entry script 解析。直接症状：`agent-deck new --cwd ... --prompt ...` 报 `Error: Cannot find module '<cwd>/new'`。**这不是打包 bug，是验证环境污染**——不要因此去改 wrapper / 打包配置。验证步骤前面加 `unset ELECTRON_RUN_AS_NODE` 即可；终端里直接跑通常没事（除非也是 Electron 启动的）
 
 ### 验证
 
 ```bash
+unset ELECTRON_RUN_AS_NODE  # 必做：避免 Electron 二进制被切到 Node 伪装模式（详见上面踩坑清单）
 "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" new --cwd "$PWD" --prompt "ping"
 # 应用拉起 / 已运行实例新建一条会话；wrapper 自动补 cwd 与 new 子命令
 ```
