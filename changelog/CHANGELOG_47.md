@@ -74,3 +74,47 @@ Codex 通道三处 `tool-use-end` emit 全没传 `toolName`，但对应的 `tool
 - 关联待落地的 plan / 决策：
   - REVIEW_16（fs watcher symlink path mismatch）是另一条独立 debug fix，pure debug 不写 CHANGELOG，按 CLAUDE.md 归 reviews/ 即可
   - 本次未实施的 follow-up：未给 toolIcon 加 vitest 单测（plan 阶段对抗 reviewer 标 LOW，可后续单独加）；未合并 SessionCard 与 describe.ts 的两份 `summariseToolInput` / `describeToolInput`（历史债标注）
+
+## 补丁 1：补低频高频工具 detail + ToolEndRow 事后配对
+
+实施完上面后用户反馈 Agent / TeamCreate 行光秃秃没 detail、Skill 完成行没显示具体 skill 名。根因：`describeToolInput` 没这几个 case；`tool-use-end` payload 不带 toolInput 所以 ToolEndRow 看不到 input.skill。补一波：
+
+### `src/renderer/components/activity-feed/describe.ts`
+
+`describeToolInput` 加 case（实证 input shape 来自 `~/.claude/projects/.../*.jsonl`）：
+
+- `Agent`（与 Task 同 case）：复用 Task 的 `subagent_type · prompt(60字)` 摘要 —— Agent 是新版 Claude Code SDK 的 Task 别名，shape 完全一致 `{subagent_type, prompt, description}`
+- `TeamCreate`：`{team_name, description}` → `team_name · description(60字)`
+- `SendMessage`：`{to|recipient, message, type?, summary?}` → `→ recipient · summary|message-snippet|<type>`，message 字段实证可能是 string 也可能是结构化 object（`permission_response` / `shutdown_request` 等），分支兜底
+- `TaskOutput`：Claude Code builtin 读 background bash task 输出，`{task_id, block, timeout}` → `task_id · 阻塞|非阻塞`
+- `TaskStop`：Claude Code builtin 停 background bash task，`{task_id|shell_id}` → 显示 id
+
+### `src/renderer/components/activity-feed/rows/tool-row.tsx`
+
+- ToolStartRow Task 特化分支扩成 `tool === 'Task' || tool === 'Agent'`，分支内 `<span className="font-mono">Task</span>` 改成 `{tool}` —— Agent 调用也走同款 subagent_type chip + 折叠 prompt 按钮，不再走通用的「图标 + 工具名」光秃秃分支
+- ToolEndRow signature 加 `startEvent?: AgentEvent` prop。两个用法：
+  1. `tool` 兜底链：`payload.toolName ?? startEvent.payload.toolName ?? '工具'` —— 老 events（修复 SDK toolName 漏传 bug 之前持久化的）也能补回名字，只要前一条 start 还在 `RECENT_LIMIT` 窗口里
+  2. `detail` 反查：`describeToolInput(tool, startEvent.payload.toolInput)` —— 让「✨ Skill 完成」补回「· agent-deck:deep-code-review」，「💻 Bash 完成」补回 cmd 摘要，「🤖 Agent 完成」补回 subagent_type，等等
+- imageRead 分支独占 `[provider · model]` 后缀，不再叠 detail 防一行三段太挤
+
+### `src/renderer/components/activity-feed/index.tsx`
+
+- 新增 `toolStartByUseId` useMemo：扫一遍 recent events build `Map<toolUseId, startEvent>`，与 cancelled* useMemo 一组共依赖 [recent]，跟着 recent 一起重算
+- `RowProps` / ActivityRow / dispatch 路径透传 `toolStartByUseId`；ActivityRow 渲染 `tool-use-end` 时 `map.get(payload.toolUseId)` 拿 startEvent 传进 ToolEndRow
+- 副作用：跨 RECENT_LIMIT 窗口（默认 30 条）的 end 仍兜不到 detail / 老 toolName，保持「工具 完成」兜底，是边界情况（start/end 通常几秒内紧挨着）
+
+### 不动项
+
+- 不在 `tool-use-end` emit 时多塞 toolInput（避免 events 表写放大；Agent prompt 上百行场景代价高）—— renderer 事后配对零持久化层改动达成同样效果
+- 不补 `Teammate` case（实证 jsonl 没采到样本，shape 不明，先留空白兜底；后续触发到再加）
+- 不动 SessionCard.tsx 的 `summariseToolInput`（仍是历史债，只在 ToolStartRow / SimpleRow 路径补；SessionCard 的 1 行摘要场景对低频工具 detail 不那么紧要）
+
+### 验证
+
+- `pnpm typecheck` ✅
+- 手验追加场景：
+  - Agent 调用：`🤖 Agent → agent-deck:reviewer-claude [展开 prompt]`（与 Task 同款）+ `🤖 Agent 完成 · agent-deck:reviewer-claude · <prompt 60 字>`
+  - TeamCreate：`👥 TeamCreate · dcr-tm-44b · deep-code-review for commit 4d9f40b ...`
+  - SendMessage：`📨 SendMessage · → reviewer-claude · 协议违反纠正 ...`
+  - Skill 完成行：`▸ ✨ Skill 完成 · agent-deck:deep-code-review`（补回 skill 名）
+  - 老会话回滚验证：dev 重启前已经有的「工具 完成」会话，重启后如果对应 tool-use-start 还在窗口里，应该自动补回工具名 + detail；超出窗口的仍维持「工具 完成」是预期
