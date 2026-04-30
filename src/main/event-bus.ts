@@ -6,7 +6,13 @@ import type { EventEmitter } from 'node:events';
  */
 
 import { EventEmitter as NodeEventEmitter } from 'node:events';
-import type { AgentEvent, SessionRecord, SummaryRecord, TeamDataChangedEvent } from '@shared/types';
+import type {
+  AgentEvent,
+  SessionRecord,
+  SummaryRecord,
+  TaskChangedEvent,
+  TeamDataChangedEvent,
+} from '@shared/types';
 
 export interface EventMap {
   'agent-event': [AgentEvent];
@@ -20,6 +26,9 @@ export interface EventMap {
   /** Agent Teams M2：team 的 fs 数据变了（config.json / task list / 整个目录被 unlink）。
    *  team-watcher emit；main bootstrap 桥接到 IPC IpcEvent.TeamDataChanged 推 renderer。 */
   'team-data-changed': [TeamDataChangedEvent];
+  /** Task Manager (CHANGELOG_43)：tasks 表写操作（task_create/update/delete handler 内
+   *  调用 repo 成功后 emit）。main bootstrap 桥接到 IPC IpcEvent.TaskChanged 推 renderer。 */
+  'task-changed': [TaskChangedEvent];
 }
 
 export class TypedEventBus {

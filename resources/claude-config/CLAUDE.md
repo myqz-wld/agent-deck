@@ -1,11 +1,10 @@
 <!--
-此文件由 Agent Deck 应用打包并自动注入到每个 SDK 会话的 system prompt 末尾，
-独立于 user/project/local CLAUDE.md（位置在三者之后）。
-跟随 agent-deck 仓库走（git 管理），不依赖会话 cwd。
+此文件由应用打包并自动注入到每个 SDK 会话的 system prompt 末尾，
+独立于 user/project/local CLAUDE.md（位置在三者之后），跟随仓库走（git 管理），不依赖会话 cwd。
 
 **与 ~/.claude/CLAUDE.md 的关系**：
 - 通用约定（输出 / 运行时 / 工程地基 / tally 升级等）必须与 ~/.claude/CLAUDE.md 保持一致；改一处必须同步另一处
-- 「决策对抗」节是 **agent-deck 应用专属扩展**：本文件用 `agent-deck:reviewer-claude` / `agent-deck:reviewer-codex` 全名（plugin 注入路径），~/.claude/CLAUDE.md 用裸名 + 环境替换说明；两边逻辑等价、命名按各自语境
+- 「决策对抗」节描述本应用 plugin 内的实现：subagent / skill 等具体调用名按 plugin 注入环境的命名空间替换；本文件与 ~/.claude/CLAUDE.md 都用裸名（reviewer-claude / reviewer-codex / deep-code-review）+ 环境注释，两边措辞对齐
 -->
 
 # 通用约定
@@ -50,12 +49,23 @@ Agent Deck 用户可能在 Settings 里开启 OS 级沙盒（macOS Seatbelt / Li
 - 重要技术选型 / 重构方向决策
 - **例外**：trivial 改动（typo / 样式数值 / 单点 rename / 显然措辞修订）
 
+**场景分流**（同样的「异构对抗 + 三态裁决」原则，按深度选实现路径）：
+
+| 场景 | 走哪条 |
+|---|---|
+| **单次决策对抗**（1-2 个问题就够：单点判定 / plan 评审 / 约定升级）| 本节 §主路径 subagent —— 同步并发，零依赖，启动快 |
+| **多轮深度 review**（多轮 review × fix 循环 + 反驳轮 + focus 切片）| `deep-code-review` skill 的 teammate 模式 —— 跨轮 context 持久化、反驳轮被反驳方记得自己 R_N 推理链精准度更高 |
+
+**三级兜底链**：teammate（skill 默认）→ subagent（plugin agents 可用，本节 §主路径）→ 手动并发（plugin agents 不可用，本节 §Fallback）。每级失败时可往下退，但同一场景最优解就一个，不要乱跨级。
+
+> **subagent / skill 名字按 plugin 注入环境替换**：本节用裸名 `reviewer-claude` / `reviewer-codex` / `deep-code-review`。具体环境的全名取决于装在哪：user / project scope（`~/.claude/agents/<name>.md` / `.claude/agents/<name>.md`）→ 用裸名；某 plugin（`<plugin-root>/agents/<name>.md`）→ 实际名是 `<plugin-name>:<name>`。
+
 ### 主路径：spawn 异构 reviewer 双 agent
 
 **操作**：在同一 message 中并发起两个 Task call：
 
-1. `Task(subagent_type: "agent-deck:reviewer-claude", prompt: <scope + focus + skip>)`
-2. `Task(subagent_type: "agent-deck:reviewer-codex",  prompt: <scope + focus + skip>)`
+1. `Task(subagent_type: "reviewer-claude", prompt: <scope + focus + skip>)`
+2. `Task(subagent_type: "reviewer-codex",  prompt: <scope + focus + skip>)`
 
 两个 reviewer 完全独立（subagent 之间互相不知道存在 / 不沟通），各自从代码 / 资料出发得结论 → 各自回到主 agent。
 
@@ -95,9 +105,9 @@ Agent Deck 用户可能在 Settings 里开启 OS 级沙盒（macOS Seatbelt / Li
 
 reviewer-codex agent 内部已实现失败模板化（codex 二进制缺失 / OAuth 过期 / 超时 / `$OUT` 空 等场景各自的输出格式见 agent body）。主 agent 收到失败模板后**严禁**自动降级到同源双 Claude，必须**提示用户决策**：等恢复 / 单方 reviewer-claude 出结论 / 稍后重试 / abort。
 
-### Fallback：手动并发（agent 不可用 / 不在 agent-deck SDK 会话内）
+### Fallback：手动并发（plugin agents 不可用时）
 
-如果当前会话拿不到 `agent-deck:reviewer-claude` / `agent-deck:reviewer-codex`（典型：用户独立终端跑 `claude`、`injectAgentDeckPlugin` 关掉、或非 SDK 通道），按下面手动模板并发——这是原始姿势的备份，agent 路径优先。
+如果当前会话拿不到 reviewer-claude / reviewer-codex（典型：plugin 注入开关关掉、用户独立终端跑 `claude`、或非 SDK 通道），按下面手动模板并发——这是原始姿势的备份，agent 路径优先。
 
 <details>
 <summary>展开手动模板（agent 不可用时用）</summary>

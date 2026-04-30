@@ -204,6 +204,13 @@ ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/loc
 - **重装前必须 pkill 旧进程（第 0 步）**：macOS 复用同 bundle id 活进程，旧 main + 新 .app 资源错配，dynamic import 拿到的 chunk hash 对不上 → renderer 直接显示一坨 monaco 源码
 - **SDK / codex native binary 必须 unpack**：直接 spawn `app.asar/...` 路径会 ENOTDIR，需要 `build.asarUnpack` + 主进程 `pathToClaudeCodeExecutable` / `codexPathOverride` 显式传 unpacked 路径
 - **验证 wrapper 前必须 `unset ELECTRON_RUN_AS_NODE`**：Claude Code（以及任何 Electron 宿主）在跑工具调用时把 `ELECTRON_RUN_AS_NODE=1` 透到 child shell。设置后 `MacOS/Agent Deck` 二进制会切到「伪装成 Node」模式：`--version` 返回 `v20.18.3`（Electron 内置 Node 版本，**不是说包错了**），第一个非 self CLI 参数被当 entry script 解析。直接症状：`agent-deck new --cwd ... --prompt ...` 报 `Error: Cannot find module '<cwd>/new'`。**这不是打包 bug，是验证环境污染**——不要因此去改 wrapper / 打包配置。验证步骤前面加 `unset ELECTRON_RUN_AS_NODE` 即可；终端里直接跑通常没事（除非也是 Electron 启动的）
+- **跑 vitest SQLite 真测前后必须保护 better-sqlite3 binding**（CHANGELOG_42 教训）：`pnpm exec vitest run src/main/store/__tests__/task-repo.test.ts` 在 `nvm use 20.18.3`（系统 Node 20）下能跑通，但 prebuild-install 会**直接覆盖** `build/Release/better_sqlite3.node` 为 Node 20 ABI 版（v115），把 Electron 33 用的 v130 binding 顶掉。结果下次启动 dev / 已装 .app 时报 `NODE_MODULE_VERSION 115 vs 130 ... ERR_DLOPEN_FAILED`，bootstrap 就挂。`pnpm postinstall` 看到 `.forge-meta` 标记「已 rebuild」会跳过，**修不了**——必须先清 npm 全局 prebuild cache + 删 build 目录强制重下：
+  ```bash
+  rm -f ~/.npm/_prebuilds/*better-sqlite3*
+  rm -rf node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build
+  zsh -i -l -c "pnpm postinstall"
+  ```
+  防再踩两条路：(a) 默认走 task-repo.test.ts 顶部的 binding 自检 skip 守门（CI / 其他 Node 版本会自动跳过），不主动跑 SQLite 真测；(b) 真要本地实测时按上面三行清理脚本收尾，**别忘清缓存**——只 `pnpm postinstall` 不够，cache 命中又会拉错 ABI。
 
 ### 验证
 

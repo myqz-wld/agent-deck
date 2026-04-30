@@ -92,6 +92,9 @@ export const IpcEvent = {
   /** Agent Teams M2：team 的 fs 数据变了（config.json / task list / 整个目录被 unlink）。
    *  payload: TeamDataChangedEvent。renderer 决定是否重拉对应 team 的 snapshot。 */
   TeamDataChanged: 'event:team-data-changed',
+  /** Task Manager (CHANGELOG_43)：tasks 表写操作（create/update/delete）after-commit 推送。
+   *  payload: TaskChangedEvent。当前 renderer 没 task UI 消费，未来加 Tasks tab 直接订阅。 */
+  TaskChanged: 'event:task-changed',
 } as const;
 
 export type IpcInvokeChannel = (typeof IpcInvoke)[keyof typeof IpcInvoke];
