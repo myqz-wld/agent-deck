@@ -13,9 +13,10 @@ import { MarkdownText } from './MarkdownText';
  * mount 时调 `subscribeTeam(name)` 注册 fs 监听，任意变化（config / task-list / unlinked）
  * 触发 `getTeam` 重拉。unmount 时调返回的 unsubscribe 闭包。
  *
- * **用户残留 cleanup 提示**：Claude Code 的 in-process backend 当前 cleanup 不闭环
- * （teammate shutdown_approved 后 config.members 不移除 → TeamDelete 永远拒绝），
- * 用户可能需要手动 rm 残留。M2 不加 force-cleanup 按钮（M3 接 TeammateIdle hook 拿到
+ * **用户残留 cleanup 提示**：Claude Code 的 in-process backend cleanup 是**异步延迟**
+ * 的（teammate shutdown_approved 后 config.members 由 CLI 异步移除，实测延迟可达
+ * 几分钟）→ 首次 TeamDelete 调用可能因「members 仍含 active」拒绝；等几分钟重试
+ * 通常能成功，或用户手动 rm 残留。M2 不加 force-cleanup 按钮（M3 接 TeammateIdle hook 拿到
  * ground truth 后再加，避免误删活 team）。提示文案中告知用户路径。
  */
 export function TeamDetail({
@@ -269,10 +270,11 @@ export function TeamDetail({
         <Section title="残留清理（兜底）">
           <ForceCleanupButton name={name} onCleaned={onBack} />
           <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">
-            Claude in-process backend 有已知 cleanup 不闭环 bug：teammate shutdown_approved 后
-            config.members 可能不移除 → Claude 自身的 TeamDelete 永远拒绝。该按钮直接
+            Claude in-process backend cleanup 是**异步延迟**的：teammate shutdown_approved 后
+            config.members 由 CLI 异步移除（实测延迟可达几分钟），首次 TeamDelete 可能因
+            「members 仍含 active」拒绝。**等几分钟重试通常能成功**；该按钮直接
             <code className="rounded bg-white/5 px-1">rm -rf</code> ~/.claude/teams/{name} 与
-            ~/.claude/tasks/{name} 兜底。**仅在 Claude 自身 cleanup 失败时用**——若 team 内有
+            ~/.claude/tasks/{name} 兜底。**仅在等不及或 Claude 自身 cleanup 异常时用**——若 team 内有
             活跃 teammate 在跑，强删会让 Claude 内部状态机异常。
           </div>
         </Section>
