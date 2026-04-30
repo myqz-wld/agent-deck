@@ -307,7 +307,7 @@ describe('task_delete / 写权限锁', () => {
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(
       makeTask({ id: 't1', teamName: 'team-A' }),
     );
-    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
     await tools.task_delete.handler({ task_id: 't1' }, undefined);
 
@@ -321,7 +321,7 @@ describe('task_delete / 写权限锁', () => {
   it('force=true 透传 cascade=true', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A' }));
-    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
     await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
 
@@ -331,7 +331,7 @@ describe('task_delete / 写权限锁', () => {
   it('REVIEW_17 H1：cascade 时给 repo.delete 传 closure team predicate（拦跨 team child）', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A' }));
-    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
     await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
 
@@ -349,7 +349,7 @@ describe('task_delete / 写权限锁', () => {
   it('REVIEW_17 H1：closure=null（全局会话）的 cascade predicate 仅放行 teamName=null', async () => {
     const tools = await buildToolsAsDict(repo, null);
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: null }));
-    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
     await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
 
@@ -358,6 +358,22 @@ describe('task_delete / 写权限锁', () => {
     };
     expect(callArgs.predicate('any-id', null)).toBe(true);
     expect(callArgs.predicate('any-id', 'team-A')).toBe(false);
+  });
+
+  it('REVIEW_17 R2 / M1-R2：cascade 删多个 task → emit N 次 task-changed (root + 下游)', async () => {
+    const tools = await buildToolsAsDict(repo, 'team-A');
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ id: 't1', teamName: 'team-A' }));
+    // mock repo.delete 返回 ['t1', 't2', 't3']：root + 2 个 cascade 下游
+    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1', 't2', 't3']);
+
+    await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
+
+    // 应该 emit 3 次 task-changed，每个 deletedId 一次
+    expect(emitSpy).toHaveBeenCalledTimes(3);
+    const calls = emitSpy.mock.calls;
+    expect(calls[0][1]).toMatchObject({ kind: 'deleted', taskId: 't1' });
+    expect(calls[1][1]).toMatchObject({ kind: 'deleted', taskId: 't2' });
+    expect(calls[2][1]).toMatchObject({ kind: 'deleted', taskId: 't3' });
   });
 
   it('task.teamName !== closure → isError + 不调 repo.delete', async () => {

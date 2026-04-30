@@ -209,4 +209,31 @@ describe('extractTeamNameFromToolInput', () => {
       expect(extractTeamNameFromToolInput(toolName, input)).toBeNull();
     });
   });
+
+  describe('REVIEW_17 R2 / M2-R2：trim + 严格 charset', () => {
+    it('首尾空白被 trim 后通过', () => {
+      expect(extractTeamNameFromToolInput('TeamCreate', { name: '  team-A  ' })).toBe('team-A');
+      expect(extractTeamNameFromToolInput('Teammate', { team_name: '\t\nmy-team\t\n' })).toBe(
+        'my-team',
+      );
+    });
+    it('全空白 trim 后变空 → null', () => {
+      expect(extractTeamNameFromToolInput('TeamCreate', { name: '   ' })).toBeNull();
+    });
+    it('非法字符（含空格 / 中文 / 斜杠 / 冒号）→ null', () => {
+      expect(extractTeamNameFromToolInput('TeamCreate', { name: 'foo bar' })).toBeNull();
+      expect(extractTeamNameFromToolInput('TeamCreate', { name: '中文' })).toBeNull();
+      expect(extractTeamNameFromToolInput('TeamCreate', { name: 'foo/bar' })).toBeNull();
+      expect(extractTeamNameFromToolInput('TeamCreate', { name: 'foo:bar' })).toBeNull();
+    });
+    it('长度 > 64 → null', () => {
+      const tooLong = 'a'.repeat(65);
+      expect(extractTeamNameFromToolInput('TeamCreate', { name: tooLong })).toBeNull();
+    });
+    it('合法字符集（字母 / 数字 / . / _ / -）通过', () => {
+      expect(extractTeamNameFromToolInput('TeamCreate', { name: 'foo.bar_baz-2026' })).toBe(
+        'foo.bar_baz-2026',
+      );
+    });
+  });
 });

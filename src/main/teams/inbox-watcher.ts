@@ -282,6 +282,9 @@ class InboxWatcherManager {
     }
 
     // 第一遍：识别本轮新出现的 permission_request → emit + 记入 activePermissions
+    // REVIEW_17 R2 / MED-R2-1：emit 包 try/catch，listener 抛错（典型 ingest 路径
+    // sessionRepo.upsert SQLite 锁 / 磁盘满）不能让 seenRequestIds 被污染——否则该
+    // request_id 永久 stale，UI 永远看不到，teammate 工具一直挂。失败时回滚 add。
     for (const e of entries) {
       const sub = parseSubMessage(e.text);
       if (!sub || sub.type !== 'permission_request') continue;
@@ -304,7 +307,17 @@ class InboxWatcherManager {
         timestamp: e.timestamp,
       };
       entryRef.activePermissions.set(req.request_id, { fromAgentId, payload });
-      eventBus.emit('team-permission-requested', payload);
+      try {
+        eventBus.emit('team-permission-requested', payload);
+      } catch (err) {
+        console.warn(
+          `[inbox-watcher] emit team-permission-requested failed for ${req.request_id}, rolling back seen+active:`,
+          err,
+        );
+        // 回滚：让下次 file change 有机会重 emit 这条 request
+        entryRef.seenRequestIds.delete(req.request_id);
+        entryRef.activePermissions.delete(req.request_id);
+      }
     }
 
     // 第二遍：识别本轮新出现的 idle_notification（同样靠 seenRequestIds 去重——用
@@ -314,6 +327,8 @@ class InboxWatcherManager {
     // 设计：idle_notification 是 teammate 主动通报「我闲了 / 不再处理 pending tool call」，
     // 此时它之前提的 permission_request 不会再被它响应（即便 lead 写 permission_response
     // 回 inbox，teammate 已 abort 不读了），UI 上标 cancelled 让用户知道这条不需要再批。
+    // REVIEW_17 R2 / MED-R2-1：cancel emit 同样包 try/catch + 失败时回滚 idleKey 与
+    // activePermissions 的局部修改，避免 listener 抛错让单条 idle 被永久标 seen。
     for (const e of entries) {
       const sub = parseSubMessage(e.text);
       if (!sub || sub.type !== 'idle_notification') continue;
@@ -324,19 +339,30 @@ class InboxWatcherManager {
 
       // 找该 teammate 名下所有 active permission，emit cancel
       const cancelled: string[] = [];
-      for (const [reqId, info] of entryRef.activePermissions) {
-        if (info.fromAgentId !== idle.from) continue;
-        cancelled.push(reqId);
-        const cancelPayload: TeamPermissionCancelled = {
-          type: 'team-permission-cancelled',
-          requestId: reqId,
-          teamName,
-          fromAgentId: info.fromAgentId,
-          reason: 'teammate-idle',
-        };
-        eventBus.emit('team-permission-cancelled', cancelPayload);
+      const removedFromActive: Array<[string, { fromAgentId: string; payload: TeamPermissionRequest }]> = [];
+      try {
+        for (const [reqId, info] of entryRef.activePermissions) {
+          if (info.fromAgentId !== idle.from) continue;
+          cancelled.push(reqId);
+          const cancelPayload: TeamPermissionCancelled = {
+            type: 'team-permission-cancelled',
+            requestId: reqId,
+            teamName,
+            fromAgentId: info.fromAgentId,
+            reason: 'teammate-idle',
+          };
+          eventBus.emit('team-permission-cancelled', cancelPayload);
+          removedFromActive.push([reqId, info]);
+        }
+        for (const [reqId] of removedFromActive) entryRef.activePermissions.delete(reqId);
+      } catch (err) {
+        // 回滚：idleKey 删掉让下次 change 重试；未删的 activePermissions 保留
+        console.warn(
+          `[inbox-watcher] emit team-permission-cancelled failed for idle "${idle.from}":`,
+          err,
+        );
+        entryRef.seenRequestIds.delete(idleKey);
       }
-      for (const reqId of cancelled) entryRef.activePermissions.delete(reqId);
       if (cancelled.length > 0) {
         console.log(
           `[inbox-watcher] teammate idle "${idle.from}" → cancelled ${cancelled.length} pending permission(s)`,

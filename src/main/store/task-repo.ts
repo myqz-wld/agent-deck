@@ -128,11 +128,14 @@ export interface TaskRepo {
    *                  predicate(childId, childTeamName)，返回 false 则该 child
    *                  及其下游都不进 toDelete 集合。tool 层用此挡跨 team 删除
    *                  （REVIEW_17 H1）：传 `(_, t) => t === currentTeam`。
+   * @returns REVIEW_17 R2 / M1-R2：原 boolean 改 `string[]` 返回**实际被删除的所有
+   *          task id**（含 root + cascade 下游），调用方按 id 列表逐个 emit task-changed
+   *          让未来的 Tasks tab UI 同步刷新所有被删 row。空数组 = 没删（id 不存在）。
    */
   delete(
     id: string,
     opts?: { cascade?: boolean; predicate?: (id: string, teamName: string | null) => boolean },
-  ): boolean;
+  ): string[];
 }
 
 const UPDATABLE_KEYS: ReadonlyArray<keyof TaskCreateInput> = [
@@ -276,9 +279,9 @@ export function createTaskRepo(db: Database): TaskRepo {
   function del(
     id: string,
     opts: { cascade?: boolean; predicate?: (id: string, teamName: string | null) => boolean } = {},
-  ): boolean {
+  ): string[] {
     const target = get(id);
-    if (!target) return false;
+    if (!target) return [];
 
     // 收集所有要删的 id：cascade=true 时递归把 target.blocks 链路下游全部并入。
     // 用 BFS + 已访问集合防自循环（虽然 spec §5 不做循环检测，但 cascade 内不能因
@@ -337,7 +340,10 @@ export function createTaskRepo(db: Database): TaskRepo {
       }
     });
     tx();
-    return true;
+    // REVIEW_17 R2 / M1-R2：返回所有被删的 id（含 root + cascade 下游），
+    // 让 tools.ts task_delete 按 id 逐个 emit task-changed，未来 Tasks tab 不会
+    // 因为只 emit root 一次而 N-1 个下游 task UI stale。
+    return Array.from(toDelete);
   }
 
   return { create, get, list, update, delete: del };

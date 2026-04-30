@@ -129,9 +129,10 @@ describe.skipIf(!bindingAvailable)('task-repo / 基本 CRUD', () => {
 
   it('delete 单条', () => {
     const t = repo.create({ subject: 'A' });
-    expect(repo.delete(t.id)).toBe(true);
+    // REVIEW_17 R2 / M1-R2：repo.delete 返回 string[]（实际删了的 id 列表）
+    expect(repo.delete(t.id)).toEqual([t.id]);
     expect(repo.get(t.id)).toBeNull();
-    expect(repo.delete(t.id)).toBe(false); // 第二次返回 false
+    expect(repo.delete(t.id)).toEqual([]); // 第二次返回 []
   });
 });
 
@@ -213,7 +214,9 @@ describe.skipIf(!bindingAvailable)('task-repo / cascade delete', () => {
     const c = repo.create({ subject: 'C' });
     const b = repo.create({ subject: 'B', blocks: [c.id] });
     const a = repo.create({ subject: 'A', blocks: [b.id] });
-    expect(repo.delete(a.id, { cascade: true })).toBe(true);
+    // REVIEW_17 R2 / M1-R2：返回所有被删的 id（root + cascade 下游）
+    const deleted = repo.delete(a.id, { cascade: true });
+    expect(new Set(deleted)).toEqual(new Set([a.id, b.id, c.id]));
     expect(repo.get(a.id)).toBeNull();
     expect(repo.get(b.id)).toBeNull();
     expect(repo.get(c.id)).toBeNull();
@@ -227,7 +230,8 @@ describe.skipIf(!bindingAvailable)('task-repo / cascade delete', () => {
       blockedBy: [],
     });
     repo.update(b.id, { blockedBy: [a.id] });
-    expect(repo.delete(a.id)).toBe(true);
+    // REVIEW_17 R2 / M1-R2：cascade=false 时只删 root
+    expect(repo.delete(a.id)).toEqual([a.id]);
     const survivor = repo.get(b.id);
     expect(survivor).not.toBeNull();
     expect(survivor?.blockedBy).toEqual([]); // a 被删，b.blockedBy 清掉对 a 的引用
@@ -243,8 +247,8 @@ describe.skipIf(!bindingAvailable)('task-repo / cascade delete', () => {
     expect(repo.get(b.id)).toBeNull();
   });
 
-  it('删除不存在的 id 返回 false', () => {
-    expect(repo.delete('nope')).toBe(false);
+  it('删除不存在的 id 返回空数组', () => {
+    expect(repo.delete('nope')).toEqual([]);
   });
 
   it('级联删后清理多条 task 的反向引用', () => {
@@ -262,7 +266,8 @@ describe.skipIf(!bindingAvailable)('task-repo / cascade delete', () => {
     const c = repo.create({ subject: 'C', teamName: 'team-Y' });
     const b = repo.create({ subject: 'B', teamName: 'team-Y', blocks: [c.id] });
     const a = repo.create({ subject: 'A', teamName: 'team-X', blocks: [b.id] });
-    expect(repo.delete(a.id, { cascade: true, predicate: (_, t) => t === 'team-X' })).toBe(true);
+    // REVIEW_17 R2 / M1-R2：返回的 deletedIds 仅含真被删的（应该只 [a.id]）
+    expect(repo.delete(a.id, { cascade: true, predicate: (_, t) => t === 'team-X' })).toEqual([a.id]);
     expect(repo.get(a.id)).toBeNull(); // self 总会被删（predicate 不挡 root）
     expect(repo.get(b.id)).not.toBeNull(); // cross-team 跳过
     expect(repo.get(c.id)).not.toBeNull(); // 链路中断，下游也保留
