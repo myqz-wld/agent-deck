@@ -161,6 +161,14 @@ export class ClaudeSdkBridge {
    * 内只有「触发恢复的那条 prompt」被消费而后续等 inflight 的消息被丢。
    */
   private recovering = new Map<string, Promise<unknown>>();
+  /**
+   * REVIEW_17 R3 / M3-R3：recoverAndSend 入口 emit 占位 message 的 dedup 窗口。
+   * 同 sessionId 短时间内被多次 recover 触发（首次 inflight 失败 swallow + 再次
+   * sendMessage 重新进 recoverAndSend）会 emit 多条「⚠ SDK 通道已断开...」噪声。
+   * 5s 窗口够覆盖单飞失败到下次 sendMessage 的典型间隔。
+   */
+  private placeholderEmittedAt = new Map<string, number>();
+  private static readonly PLACEHOLDER_DEDUP_MS = 5_000;
   /** 权限请求未响应自动 abort 阈值；0 = 关闭。运行时通过 setPermissionTimeoutMs 改。 */
   private permissionTimeoutMs: number;
 
@@ -877,14 +885,28 @@ export class ClaudeSdkBridge {
     // 占位 message：30s fallback 期间用户至少看到「在恢复」而不是哑巴 busy。
     // 不打 error: true（不是错误，是状态提示）；resume 成功后正常 message 流接续，
     // 占位 message 留在活动流上一行轻量「断开过」痕迹，对回看 / 调试反而有用。
-    this.opts.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: { text: '⚠ SDK 通道已断开，正在自动恢复…' },
-      ts: Date.now(),
-      source: 'sdk',
-    });
+    //
+    // REVIEW_17 R3 / M3-R3：5s dedup 窗口防同 sessionId 短时间内反复 recover 重 emit
+    // 多条「⚠ SDK 通道已断开」噪声（场景：首次 recover 失败 swallow + 再次 sendMessage
+    // 又进 recoverAndSend，inflight 已删，第二条进来无条件 emit，用户在 detail 看到
+    // 多条同款占位）。
+    const lastPlaceholderAt = this.placeholderEmittedAt.get(sessionId);
+    const nowTs = Date.now();
+    if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > ClaudeSdkBridge.PLACEHOLDER_DEDUP_MS) {
+      this.placeholderEmittedAt.set(sessionId, nowTs);
+      // 顺手清掉过期 entry（避免 Map 无限涨）
+      for (const [k, ts] of this.placeholderEmittedAt) {
+        if (nowTs - ts > ClaudeSdkBridge.PLACEHOLDER_DEDUP_MS) this.placeholderEmittedAt.delete(k);
+      }
+      this.opts.emit({
+        sessionId,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: { text: '⚠ SDK 通道已断开，正在自动恢复…' },
+        ts: nowTs,
+        source: 'sdk',
+      });
+    }
 
     const p = (async () => {
       try {

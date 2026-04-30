@@ -19,9 +19,9 @@
  * 这些字段名 / schema **必须与 CLI 完全一致**，CLI 改了应用就跟着改，不要自创字段。
  */
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { lock } from 'proper-lockfile';
 
 /** Slug 化 team name / member name，与 CLI 内 `eEH(H)` 函数完全一致。 */
@@ -191,6 +191,14 @@ export async function readInboxFile(filepath: string): Promise<InboxEntry[]> {
  * 如果目录或文件不存在会自动创建（mkdir -p + 默认 []）。
  * 写入用 tmp + rename 原子操作，避免崩溃留下半截 JSON。
  *
+ * REVIEW_17 R3 / MED-R3 (原 H1-R3 降级)：mkdir 之后、writeFile 之前对 dir 做 realpath
+ * 前缀校验（与 team-fs.ts 的 ensureWithinRoot 同款语义）。POSIX rename 替换 symlink
+ * 本身不跟随写入目标（codex 实测证伪 claude 原 HIGH 的 rename 攻击路径），但 writeFile
+ * 在 dangling symlink 场景仍跟随写入（line existsSync→writeFile 路径），同时 convention
+ * 上 read/delete 都走 ensureWithinRoot 而 write 不走是不对称问题，与 CLAUDE.md「资源清理
+ * & TOCTOU 防线」节隐含约定相违。修法：在 dir 上做最小 realpath 校验（dir 此时已 mkdir
+ * 成功，realpath 一定能成功），实质只挡 dangling symlink 指向 dir 的攻击。
+ *
  * @param teamName  目标 team 名（会被 slugify）
  * @param recipient 接收方 agent_id（会被 slugify，如 "reviewer-codex"）
  * @param sub       子消息（会 JSON.stringify 后塞进 text 字段）
@@ -211,6 +219,33 @@ export async function appendInboxMessage(
   if (!existsSync(dir)) {
     await mkdir(dir, { recursive: true });
   }
+
+  // REVIEW_17 R3 / MED-R3：mkdir 后 realpath 校验 dir 仍在 inboxes root 下，挡 dangling
+  // symlink 指向 dir 把 inbox 写到 ~/.claude/teams 外的攻击。同款 read/delete 路径走
+  // team-fs.ts 的 ensureWithinRoot；这里不复用是因为 inbox-protocol.ts 不应反向依赖
+  // teams/team-fs.ts（独立通信协议层），重写一份最小校验逻辑。
+  const inboxesRoot = getInboxesRoot();
+  let realDir: string;
+  try {
+    realDir = await realpath(dir);
+  } catch (err) {
+    throw new Error(
+      `[inbox-protocol] realpath dir failed (${dir}): ${(err as Error).message}`,
+    );
+  }
+  let realRoot = inboxesRoot;
+  try {
+    realRoot = await realpath(inboxesRoot);
+  } catch {
+    /* root 不存在罕见（mkdir recursive 已建过子目录），按 raw 比较降级 */
+  }
+  const rootWithSep = realRoot.endsWith(sep) ? realRoot : realRoot + sep;
+  if (realDir !== realRoot && !realDir.startsWith(rootWithSep)) {
+    throw new Error(
+      `[inbox-protocol] path escape detected: ${realDir} not under ${realRoot}`,
+    );
+  }
+
   // 文件不存在则先建空 `[]`，proper-lockfile 才能 lock 住一个真实文件
   // （即便 realpath:false，stale check 仍要求 target 存在）
   if (!existsSync(filepath)) {

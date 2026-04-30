@@ -303,4 +303,29 @@ describe('readInboxFile / appendInboxMessage（带 tmpdir 重定向 HOME）', ()
     expect(arr[0].from).toBe('custom-from');
     expect(arr[0].color).toBe('red');
   });
+
+  it('REVIEW_17 R3 / MED-R3：dangling symlink 指向 inbox dir 外路径 → 拒写（path escape）', async () => {
+    const { mkdir, symlink, rm } = await import('node:fs/promises');
+    const { dirname } = await import('node:path');
+    // tmpHome/.claude/teams/escape-team/inboxes 应该指向某外部路径，应用走 appendInboxMessage
+    // 时 mkdir 后 realpath 校验会发现 dir 不在 ~/.claude/teams 下 → throw
+    const inboxesDir = dirname(getInboxPath('escape-team', 'reviewer-codex'));
+    const outsideRoot = join(tmpHome, 'attacker-controlled');
+    await mkdir(outsideRoot, { recursive: true });
+    await mkdir(dirname(inboxesDir), { recursive: true });
+    // inboxes 整个目录是 symlink → outside
+    await symlink(outsideRoot, inboxesDir);
+
+    await expect(
+      appendInboxMessage(
+        'escape-team',
+        'reviewer-codex',
+        buildPermissionResponse('r-evil', 'allow'),
+      ),
+    ).rejects.toThrow(/path escape/);
+
+    // cleanup
+    await rm(inboxesDir).catch(() => {});
+    await rm(outsideRoot, { recursive: true }).catch(() => {});
+  });
 });
