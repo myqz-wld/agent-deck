@@ -108,6 +108,25 @@ describe('parseSubMessage', () => {
     });
     expect(parseSubMessage(text)).toBeNull();
   });
+  it('REVIEW_17 R2 / L1-R2：permission_request 空 request_id / tool_name 返回 null', () => {
+    expect(
+      parseSubMessage(
+        JSON.stringify({ type: 'permission_request', request_id: '', tool_name: 'Bash', input: {} }),
+      ),
+    ).toBeNull();
+    expect(
+      parseSubMessage(
+        JSON.stringify({ type: 'permission_request', request_id: 'r1', tool_name: '', input: {} }),
+      ),
+    ).toBeNull();
+  });
+  it('REVIEW_17 R2 / L1-R2：permission_response 空 request_id 返回 null', () => {
+    expect(
+      parseSubMessage(
+        JSON.stringify({ type: 'permission_response', request_id: '', subtype: 'success', response: {} }),
+      ),
+    ).toBeNull();
+  });
 });
 
 describe('buildPermissionResponse', () => {

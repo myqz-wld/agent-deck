@@ -126,12 +126,16 @@ export function parseSubMessage(
   const t = (parsed as { type?: unknown }).type;
   if (t === 'permission_request') {
     const p = parsed as Record<string, unknown>;
-    if (typeof p.request_id !== 'string' || typeof p.tool_name !== 'string') return null;
+    // REVIEW_17 R2 / L1-R2：request_id / tool_name 必须非空字符串。typeof '' === 'string'
+    // 否则空串通过校验 → inbox-watcher 用 '' 当 dedup key → 后续所有 request_id='' 的
+    // 条目静默跳过（CLI 实际生成 UUID 不会触发，但损坏 / 手工编辑 inbox 时会）。
+    if (typeof p.request_id !== 'string' || p.request_id.length === 0) return null;
+    if (typeof p.tool_name !== 'string' || p.tool_name.length === 0) return null;
     return p as unknown as PermissionRequestSubMessage;
   }
   if (t === 'permission_response') {
     const p = parsed as Record<string, unknown>;
-    if (typeof p.request_id !== 'string') return null;
+    if (typeof p.request_id !== 'string' || p.request_id.length === 0) return null;
     return p as unknown as PermissionResponseSubMessage;
   }
   if (t === 'mode_set_request') {
