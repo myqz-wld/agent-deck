@@ -157,18 +157,35 @@ class InboxWatcherManager {
   }
 
   /**
-   * 列出当前所有 team 待响应的 permission_request（HMR / renderer 重启后用来重建 store）。
-   * **不**重新读 inbox 文件，只返回当前未 markResponded 的 in-memory 缓存
-   * （UI 端 store 自己也持有同一份；这个 API 是兜底用，typically 不需要）。
+   * REVIEW_17 R1 / H2：返回**已 emit / 已响应**过的去重集合（含 idle:* 去重键）。
+   * 名字诚实写作 listSeenRequestIds —— 不要改名 listPending，那是另一个语义
+   * （走 activePermissions.keys() 见下面 listPendingRequestIds）。
    *
-   * 注意：当前不缓存完整 payload（只缓存 id），所以这个方法返回空。后续要做完整持久化
-   * 重建再加缓存。重启场景下 chokidar `ignoreInitial:false` 会把启动时已存在的请求重新
-   * emit 一遍（因为 seenRequestIds 是新进程的空集），UI 自然重建。
+   * 仅供调试：HMR / renderer 重启后用来观察 inbox-watcher 已识别过的所有 id
+   * （含 `idle:<from>:<timestamp>` 字符串作 idle 去重键，**不是 requestId 列表**）。
+   * 想拿真 pending 列表（renderer 重建 UI 用）必须走 listPendingRequestIds。
    */
   listSeenRequestIds(name: string): string[] {
     const entry = this.entries.get(name);
     if (!entry) return [];
     return Array.from(entry.seenRequestIds);
+  }
+
+  /**
+   * REVIEW_17 R1 / H2：返回**真正 pending**的 permission_request id 列表
+   * （activePermissions Map keys，对应 processInboxFile 第 226 行 set 后、markResponded
+   * 第 156 行 / idle_notification cancel 第 259 行 delete 之间的 in-memory 状态）。
+   *
+   * 与 listSeenRequestIds 区别：
+   * - listSeenRequestIds = 已见过 / 已响应的去重集合（含 idle:* 字符串），仅供调试
+   * - listPendingRequestIds = 当前未响应 / 未被 idle 取消的 request id（renderer 重建 UI 用）
+   *
+   * IPC TeamListPendingPermissions 走这个；preload 暴露时也走这个。
+   */
+  listPendingRequestIds(name: string): string[] {
+    const entry = this.entries.get(name);
+    if (!entry) return [];
+    return Array.from(entry.activePermissions.keys());
   }
 
   async shutdownAll(): Promise<void> {

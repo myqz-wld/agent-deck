@@ -27,6 +27,7 @@ import {
 import type { AppSettings, ImageSource, LoadImageBlobResult, PermissionMode, SessionRecord, TeamSnapshot, TeamSummary } from '@shared/types';
 import { SANDBOX_MODE_VALUES, type SandboxMode } from './adapters/claude-code/sandbox-config';
 import { forceCleanupTeam, getTeamSnapshot, listTeams } from './teams/team-fs';
+import { teamCoordinator } from './teams/team-coordinator';
 import { teamWatcher } from './teams/team-watcher';
 import { inboxWatcher } from './teams/inbox-watcher';
 import { appendInboxMessage, buildPermissionResponse } from './teams/inbox-protocol';
@@ -775,12 +776,10 @@ export function bootstrapIpc(): void {
       throw new IpcInputError('name', 'team name required');
     }
     const fsResult = await forceCleanupTeam(teamName);
-    // 总是 unset team_name（即便 fs 没东西可删）—— 让 TeamHub 彻底移除该 team
-    const affected = sessionRepo.clearTeamName(teamName);
-    for (const sid of affected) {
-      const s = sessionRepo.get(sid);
-      if (s) eventBus.emit('session-upserted', s);
-    }
+    // 总是 unset team_name（即便 fs 没东西可删）—— 让 TeamHub 彻底移除该 team。
+    // REVIEW_17 R1 / M6：走 teamCoordinator.unsetTeamFromAllSessions 收口（30s dedup
+    // 让随后 chokidar unlinkDir 兜底 unset 直接 no-op，避免 N+1 SQL 浪费）。
+    const affected = teamCoordinator.unsetTeamFromAllSessions(teamName);
     return { ...fsResult, unsetSessions: affected.length };
   });
   // ───────── Agent Teams in-process backend permission inbox（CHANGELOG_45） ─────────
@@ -846,15 +845,19 @@ export function bootstrapIpc(): void {
       return { ok: true };
     },
   );
-  // TeamListPendingPermissions：当前 in-memory 缓存只存 requestId（不存 payload），
-  // 重启 / HMR 时 chokidar `ignoreInitial:false` 会自动把 inbox 里现存的 permission_request
-  // 重新 emit 一遍（seenRequestIds 清空），UI 自然重建。本接口仅供调试 / 未来扩展。
+  // TeamListPendingPermissions：返回当前真正 pending 的 permission_request id 列表
+  // （走 inbox-watcher.activePermissions.keys()，对应 processInboxFile set 后、
+  // markResponded / idle_notification cancel delete 之间的 in-memory 状态）。
+  // REVIEW_17 R1 / H2 修复：原来错走 listSeenRequestIds 返回的是「已见过 / 已响应」
+  // 的去重集合（含 `idle:<from>:<timestamp>` 脏键），与 IPC 通道名 `TeamListPendingPermissions`
+  // 承诺的「pending」语义完全反。preload 当前没暴露 facade，是预埋陷阱，未来 wire
+  // 上时直接走对的语义。
   on(IpcInvoke.TeamListPendingPermissions, async (_e, name): Promise<{ requestIds: string[] }> => {
     const teamName = parseTeamName(name);
     if (!teamName) {
       throw new IpcInputError('name', 'team name required');
     }
-    return { requestIds: inboxWatcher.listSeenRequestIds(teamName) };
+    return { requestIds: inboxWatcher.listPendingRequestIds(teamName) };
   });
 }
 

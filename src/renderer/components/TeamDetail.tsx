@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from 'react';
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import type { AgentEvent, TeamSnapshot } from '@shared/types';
 import { MarkdownText } from './MarkdownText';
 
@@ -30,6 +30,13 @@ export function TeamDetail({
   const [snap, setSnap] = useState<TeamSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // REVIEW_17 R1 / M3：useEffect deps 不能含 snap（refresh 改 snap → effect 重跑
+  // → unsubscribe + 重 subscribe + onAgentEvent 重 register，每次 inbox 写入翻一次）。
+  // 用 ref 让 onAgentEvent listener 拿最新 snap（避免 stale closure），deps 仅 [name, refresh]。
+  const snapRef = useRef<TeamSnapshot | null>(null);
+  useEffect(() => {
+    snapRef.current = snap;
+  }, [snap]);
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -51,6 +58,8 @@ export function TeamDetail({
     });
     // M3：监听 agent-event 流，team-* event 来时（task created/completed/teammate idle）刷新
     // —— hook-server 写 events 表后 emit AgentEvent，不会触发 fs watch，必须独立 listener。
+    // listener 内通过 snapRef.current 读最新 snap（不依赖 deps，避免 stale closure
+    // + 反复 sub/unsub）。
     const unsubscribeEvents = window.api.onAgentEvent((ev: AgentEvent) => {
       if (
         ev.kind === 'team-task-created' ||
@@ -59,10 +68,8 @@ export function TeamDetail({
       ) {
         // 不按 teamName 过滤——payload.teamName 可能缺失（schema 演进），
         // 简单按 sessionId 是否属于当前 team 的 sessions 判断；snap 还没拉到时全放行。
-        if (
-          !snap ||
-          snap.sessions.some((s) => s.id === ev.sessionId)
-        ) {
+        const cur = snapRef.current;
+        if (!cur || cur.sessions.some((s) => s.id === ev.sessionId)) {
           void refresh();
         }
       }
@@ -71,7 +78,7 @@ export function TeamDetail({
       unsubscribe();
       unsubscribeEvents();
     };
-  }, [name, refresh, snap]);
+  }, [name, refresh]);
 
   if (loading && !snap) {
     return (
