@@ -28,10 +28,17 @@ vi.mock('@main/store/session-repo', () => {
   >();
   return {
     sessionRepo: {
-      get: vi.fn((id: string) => map.get(id) ?? null),
+      get: vi.fn((id: string) => {
+        const s = map.get(id);
+        // REVIEW_17 R1 / M5：返回 shallow copy 而不是 map 内对象本身，
+        // 模拟真实 SQLite 「每次 SELECT 拿一份新行」语义。否则后续 setTeamName
+        // 会修改同一对象引用，sync() 内部 console.log 拿到的「旧值」实际已被改成新值。
+        return s ? { ...s } : null;
+      }),
       setTeamName: vi.fn((id: string, teamName: string | null) => {
         const s = map.get(id);
-        if (s) s.teamName = teamName;
+        // 同样：写新对象而不是原地改，与 SQLite UPDATE 语义对齐。
+        if (s) map.set(id, { ...s, teamName });
       }),
       // 测试 helper：让单测直接塞 session 进 mock map
       __setMockSession: (id: string, teamName: string | null = null) => {

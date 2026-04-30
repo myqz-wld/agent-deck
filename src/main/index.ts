@@ -162,17 +162,12 @@ async function bootstrap(): Promise<void> {
   // 的 team_name；让 TeamHub 自然从 list 移除（distinctTeamNames 不再返回该 name），
   // 同时 emit session-upserted 让 renderer SessionCard 的 team chip 也消失。
   // sessions 本身不删，历史 tab 仍能找到。
+  //
+  // REVIEW_17 R1 / M6：走 teamCoordinator.unsetTeamFromAllSessions 收口（force-cleanup
+  // IPC handler 走同一函数，30s dedup 让两路触发的第二次 SELECT/UPDATE 直接 no-op）。
   eventBus.on('team-data-changed', (p) => {
     if (p.kind === 'unlinked') {
-      try {
-        const affected = sessionRepo.clearTeamName(p.name);
-        for (const sid of affected) {
-          const s = sessionRepo.get(sid);
-          if (s) eventBus.emit('session-upserted', s);
-        }
-      } catch (err) {
-        console.warn(`[main] clearTeamName failed for "${p.name}":`, err);
-      }
+      teamCoordinator.unsetTeamFromAllSessions(p.name);
     }
     safeSend(IpcEvent.TeamDataChanged, p);
   });

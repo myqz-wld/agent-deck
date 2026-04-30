@@ -125,6 +125,32 @@ describe('buildTaskTools / 工具集合形状', () => {
     const tools = await buildToolsAsDict(makeMockRepo(), 'team-A');
     expect(Object.keys(tools.task_list.inputSchema as object)).toContain('team_name');
   });
+
+  it('REVIEW_17 R1 / M7：lazy provider 在多次调用之间返回不同值（CHANGELOG_46 改 lazy 的核心 gain）', async () => {
+    const repo = makeMockRepo();
+    let currentTeam: string | null = null;
+    // provider 每次调返回最新值（模拟 team-coordinator 反向同步把 team_name 从 null 改成 team-A）
+    const tools = await buildTaskTools(repo, () => currentTeam);
+    const dict: Record<string, (typeof tools)[number]> = {};
+    for (const t of tools) dict[t.name] = t;
+
+    // 第 1 次调 task_create：provider 返回 null（lead 还没建 team）
+    (repo.create as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      makeTask({ id: 't-global', teamName: null }),
+    );
+    await dict.task_create.handler({ subject: 'X' }, undefined);
+    expect(repo.create).toHaveBeenLastCalledWith(expect.objectContaining({ teamName: null }));
+
+    // team-coordinator 反向同步：currentTeam 切到 team-A
+    currentTeam = 'team-A';
+
+    // 第 2 次调 task_create：provider 返回 'team-A'（lazy 关键 gain）
+    (repo.create as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      makeTask({ id: 't-team-a', teamName: 'team-A' }),
+    );
+    await dict.task_create.handler({ subject: 'Y' }, undefined);
+    expect(repo.create).toHaveBeenLastCalledWith(expect.objectContaining({ teamName: 'team-A' }));
+  });
 });
 
 describe('task_create', () => {

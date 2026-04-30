@@ -51,6 +51,15 @@ class TeamCoordinator {
   private realRoot: string | null = null;
 
   /**
+   * REVIEW_17 R1 / M6：team unset dedup 窗口。force-cleanup IPC handler 主动
+   * unset + chokidar unlinkDir 兜底 unset 是同一逻辑两路触发，第二次 SELECT/UPDATE
+   * 必返回空（行已 NULL）但仍浪费一次 SQL 往返。30s 窗口足够覆盖 chokidar
+   * unlinkDir 延迟（< 1s 典型）+ awaitWriteFinish 250ms。
+   */
+  private recentlyUnset = new Map<string, number>();
+  private static readonly UNSET_DEDUP_MS = 30_000;
+
+  /**
    * 单一收口：把 (sessionId, teamName) 反向写到 sessions.team_name DB 列。
    *
    * - 幂等：如果 DB 已有相同值 → no-op
@@ -114,6 +123,40 @@ class TeamCoordinator {
       console.warn('[team-coordinator] root watcher close failed:', err);
     }
     this.rootWatcher = null;
+  }
+
+  /**
+   * REVIEW_17 R1 / M6：unset 一个 team 名下所有 sessions 的 team_name + emit
+   * upserts 让 renderer 同步。force-cleanup IPC handler 与 chokidar unlinkDir
+   * 兜底两个入口都调这里收口，30s 内重复 unset 直接 no-op，避免 N+1 SQL 浪费。
+   *
+   * 返回 unset 的 session id 列表（首次调有，dedup 命中返 []）。调用方按需自己
+   * 决定是否还要补 emit（典型场景两个入口都不需要补 — 第一次已 emit 了）。
+   */
+  unsetTeamFromAllSessions(teamName: string): string[] {
+    if (!teamName) return [];
+    const last = this.recentlyUnset.get(teamName);
+    const now = Date.now();
+    if (last !== undefined && now - last < TeamCoordinator.UNSET_DEDUP_MS) {
+      return [];
+    }
+    this.recentlyUnset.set(teamName, now);
+    // 顺手清掉过期的 dedup 条目（避免 Map 无限涨；team unset 是低频事件）
+    for (const [k, ts] of this.recentlyUnset) {
+      if (now - ts > TeamCoordinator.UNSET_DEDUP_MS) this.recentlyUnset.delete(k);
+    }
+    let affected: string[];
+    try {
+      affected = sessionRepo.clearTeamName(teamName);
+    } catch (err) {
+      console.warn(`[team-coordinator] unsetTeamFromAllSessions clearTeamName failed for "${teamName}":`, err);
+      return [];
+    }
+    for (const sid of affected) {
+      const s = sessionRepo.get(sid);
+      if (s) eventBus.emit('session-upserted', s);
+    }
+    return affected;
   }
 
   /** 读 ~/.claude/teams/<name>/config.json 反查 leadSessionId 调 sync。 */
