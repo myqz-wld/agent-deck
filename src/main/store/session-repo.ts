@@ -223,6 +223,18 @@ export const sessionRepo = {
    * 把 sessions 表里 fromId 改名 toId，并把 events / file_changes / summaries
    * 的 session_id 引用一起迁移。整体在事务内做，避免外键 CASCADE 误删历史。
    * 用于 SDK fallback：tempKey 占位行 → 真实 session_id 出现后无损迁移。
+   *
+   * REVIEW_17 R2 / H1-R2：toExists=true 分支（recoverAndSend jsonl-missing 走
+   * 不带 resume 的 createSession + 事后 rename 时触发——NEW_ID 已被 createSession
+   * 写过一行）原本仅迁子表 + DELETE OLD，team_name / permission_mode 等用户预期
+   * 跟随 OLD 一起搬过来的字段被丢弃。比如：lead 在 team-X 收到「会话恢复」后
+   * 永久 team_name=NULL，TeamHub 卡片消失 + inbox-watcher refreshAutoSubscribe
+   * 取消订阅 → teammate 写入的 permission_request 全部丢失（违反 CLAUDE.md
+   * 「会话恢复 / resume 优先」节会话身份持续性约束）。
+   *
+   * 修法：toExists=true 时把 fromRow 的 team_name / permission_mode 同步覆盖到
+   * 新行（这两列「会话身份持续性」相关）。其他列（cwd / title / activity / lifecycle
+   * 等）由 createSession 已写就绪，不应被 OLD 行旧值覆盖。
    */
   rename(fromId: string, toId: string): void {
     if (fromId === toId) return;
@@ -260,6 +272,19 @@ export const sessionRepo = {
       db.prepare(`UPDATE events SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
       db.prepare(`UPDATE file_changes SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
       db.prepare(`UPDATE summaries SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
+      // REVIEW_17 R2 / H1-R2：toExists=true 时（recoverAndSend jsonl-missing fallback）
+      // 把会话身份相关字段从 OLD 行覆盖到 NEW 行，避免 team_name / permission_mode 被 NEW 行
+      // createSession 时写的默认值（NULL / 'default'）「淹没」掉用户的真实状态。
+      // 仅在 toExists=true 才需要手动覆盖：toExists=false 走上面 INSERT 已经全列复制。
+      if (toExists && fromRow.team_name) {
+        db.prepare(`UPDATE sessions SET team_name = ? WHERE id = ?`).run(fromRow.team_name, toId);
+      }
+      if (toExists && fromRow.permission_mode) {
+        db.prepare(`UPDATE sessions SET permission_mode = ? WHERE id = ?`).run(
+          fromRow.permission_mode,
+          toId,
+        );
+      }
       db.prepare(`DELETE FROM sessions WHERE id = ?`).run(fromId);
     });
     tx();
