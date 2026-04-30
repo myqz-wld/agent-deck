@@ -109,10 +109,23 @@ class TeamCoordinator {
     };
     this.rootWatcher.on('add', handle);
     this.rootWatcher.on('change', handle);
+    // REVIEW_17 后续修复：监听 unlink 让 TeamDelete / 用户 rm fs 删 ~/.claude/teams/<name>/ 后
+    // 自动 unset sessions.team_name DB 列。team-watcher (per-team) 也有 unlinkDir 兜底，但
+    // 它需要用户进入 TeamDetail subscribe 才生效；root watcher 是常驻全局，覆盖
+    // 「用户从未进过 TeamDetail 直接 TeamDelete」场景（之前 TeamHub 列表 stale 残留的根因）。
+    this.rootWatcher.on('unlink', (filepath: string) => {
+      void this.processConfigUnlink(filepath);
+    });
     this.rootWatcher.on('error', (err) => {
       console.warn('[team-coordinator] root watcher error:', err);
     });
     console.log(`[team-coordinator] fs watcher started @ ${root}`);
+
+    // REVIEW_17 后续修复：启动时一次性对账 — 扫 sessions.distinctTeamNames 与 fs
+    // ~/.claude/teams/ 子目录差集，**fs 不存在但 DB 仍标 team_name 的** unset 掉。
+    // 覆盖应用关闭期间用户在外部 TeamDelete / rm 残留 → 重启时自动清，不依赖 chokidar
+    // unlink event（chokidar `ignoreInitial:false` 不会对已 missing 的文件 fire unlink）。
+    void this.reconcileOrphanTeamNames();
   }
 
   async shutdown(): Promise<void> {
@@ -123,6 +136,57 @@ class TeamCoordinator {
       console.warn('[team-coordinator] root watcher close failed:', err);
     }
     this.rootWatcher = null;
+  }
+
+  /**
+   * REVIEW_17 后续修复：监听 ~/.claude/teams/<name>/config.json 被 unlink（典型 TeamDelete /
+   * 用户手动 rm）→ 反查 team name → 调 unsetTeamFromAllSessions 把 sessions.team_name
+   * 设为 NULL。30s dedup 让 chokidar fire 与启动对账两路触发不会重复 SQL。
+   */
+  private async processConfigUnlink(filepath: string): Promise<void> {
+    const root = this.realRoot ?? getTeamsRoot();
+    if (!filepath.startsWith(root)) return;
+    const rest = filepath.slice(root.length).replace(/^\/+/, '');
+    const segs = rest.split('/');
+    if (segs.length !== 2 || segs[1] !== 'config.json') return;
+    const actualName = segs[0];
+    if (!actualName) return;
+    console.log(`[team-coordinator] config.json unlinked → unset sessions.team_name for "${actualName}"`);
+    this.unsetTeamFromAllSessions(actualName);
+  }
+
+  /**
+   * REVIEW_17 后续修复：启动时对账 — 扫 sessions.distinctTeamNames 与 fs 子目录，
+   * fs 不存在的 team 全 unset。覆盖应用 down time 内用户走 TeamDelete / 外部 rm 的场景。
+   * 不抛错（任何 IO 失败吞 console.warn）。
+   */
+  private async reconcileOrphanTeamNames(): Promise<void> {
+    let distinct: string[];
+    try {
+      distinct = sessionRepo.distinctTeamNames();
+    } catch (err) {
+      console.warn('[team-coordinator] reconcile distinctTeamNames failed:', err);
+      return;
+    }
+    if (distinct.length === 0) return;
+    let fsNames: Set<string>;
+    try {
+      const { readdir } = await import('node:fs/promises');
+      const entries = await readdir(this.realRoot ?? getTeamsRoot(), { withFileTypes: true });
+      fsNames = new Set(entries.filter((e) => e.isDirectory()).map((e) => e.name));
+    } catch {
+      // teams root 不存在 → 全部 distinct 都是 orphan，全 unset
+      fsNames = new Set();
+    }
+    const orphans = distinct.filter((name) => !fsNames.has(name));
+    if (orphans.length === 0) return;
+    console.log(
+      `[team-coordinator] reconcile: ${orphans.length} orphan team_name(s) found in DB but not in fs → unset:`,
+      orphans,
+    );
+    for (const name of orphans) {
+      this.unsetTeamFromAllSessions(name);
+    }
   }
 
   /**
