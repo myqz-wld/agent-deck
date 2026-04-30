@@ -34,6 +34,7 @@ import {
 } from '@main/adapters/claude-code/translate';
 import { isImageTool } from '@shared/mcp-tools';
 import { getTasksMcpServerForSession } from '@main/task-manager/server';
+import { formatAskAnswers } from '@main/adapters/claude-code/sdk-bridge-helpers';
 
 const AGENT_ID = 'claude-code';
 
@@ -1968,28 +1969,4 @@ export class ClaudeSdkBridge {
       emit('file-changed', fc);
     }
   }
-}
-
-/**
- * 把用户在 UI 上对 AskUserQuestion 的选择拼成可读文本，
- * 塞进 SDK 反馈给 Claude 的 deny.message 里。
- */
-function formatAskAnswers(
-  questions: AskUserQuestionItem[],
-  answer: AskUserQuestionAnswer,
-): string {
-  const lines: string[] = [];
-  const ansByQ = new Map<string, { selected: string[]; other?: string }>();
-  for (const a of answer.answers ?? []) {
-    ansByQ.set(a.question, { selected: a.selected ?? [], other: a.other });
-  }
-  for (let i = 0; i < questions.length; i += 1) {
-    const q = questions[i];
-    const a = ansByQ.get(q.question) ?? { selected: [], other: undefined };
-    const parts: string[] = [];
-    if (a.selected.length > 0) parts.push(a.selected.join(', '));
-    if (a.other) parts.push(`其他：${a.other}`);
-    lines.push(`Q${i + 1}: ${q.question}\nA: ${parts.length ? parts.join(' | ') : '(未作答)'}`);
-  }
-  return lines.join('\n\n');
 }
