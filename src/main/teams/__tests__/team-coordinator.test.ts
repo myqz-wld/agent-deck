@@ -69,7 +69,11 @@ vi.mock('@main/event-bus', () => ({
   },
 }));
 
-vi.mock('./team-fs', () => ({
+vi.mock('../team-fs', () => ({
+  // REVIEW_17 R1 / LOW-1：之前误写成 './team-fs'（test 文件在 __tests__/，相对当前
+  // 文件解析到 __tests__/team-fs，与被测代码 import 的 'teams/team-fs.ts' 不同绝对路径
+  // → mock 实际是空操作。当前 sync / extractTeamNameFromToolInput 不调 getTeamsRoot
+  // 所以不影响通过；但未来扩 startFsWatcher 测试时会踩坑。
   getTeamsRoot: () => '/tmp/test-claude-teams', // 不会真用到（fs watcher 不在此测）
 }));
 
