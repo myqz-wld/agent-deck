@@ -3,6 +3,7 @@ import type { AgentEvent, SessionRecord } from '@shared/types';
 import { isImageTool } from '@shared/mcp-tools';
 import { StatusBadge } from './StatusBadge';
 import { useSessionStore } from '@renderer/stores/session-store';
+import { toolIcon } from './activity-feed/tool-icons';
 
 interface Props {
   session: SessionRecord;
@@ -177,7 +178,7 @@ function formatEventLine(e: AgentEvent): string | null {
     case 'tool-use-start': {
       const tool = (p.toolName as string) || '工具';
       const detail = summariseToolInput(tool, p.toolInput);
-      return detail ? `🔧 ${tool} · ${detail}` : `🔧 ${tool}`;
+      return detail ? `${toolIcon(tool)} ${tool} · ${detail}` : `${toolIcon(tool)} ${tool}`;
     }
     case 'file-changed': {
       const path = (p.filePath as string) || '';
@@ -220,6 +221,18 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
       return typeof o.pattern === 'string' ? o.pattern : null;
     case 'TodoWrite':
       return null;
+    case 'Skill': {
+      // Skill input shape：{ skill: "<plugin:name>" | "<name>", args?: string }
+      // 与 activity-feed/describe.ts 的 Skill case 同步；这两份重复实现是历史债（见 REVIEW_16）。
+      const skill = typeof o.skill === 'string' ? o.skill : '';
+      const args = typeof o.args === 'string' ? o.args.replace(/\s+/g, ' ').trim() : '';
+      if (!skill) return null;
+      if (args) {
+        const argsShort = args.length > 60 ? args.slice(0, 60) + '…' : args;
+        return `${skill} · ${argsShort}`;
+      }
+      return skill;
+    }
     default: {
       // 兜底：mcp 图片工具（mcp__<server>__Image*）也走 file_path 摘要
       if (isImageTool(toolName) && typeof o.file_path === 'string') {

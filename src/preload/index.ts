@@ -15,6 +15,8 @@ import type {
   SummaryRecord,
   TaskChangedEvent,
   TeamDataChangedEvent,
+  TeamPermissionDecision,
+  TeamPermissionRequest,
   TeamSnapshot,
   TeamSummary,
 } from '@shared/types';
@@ -245,6 +247,59 @@ const api = {
         /* swallow: 已 unmount，再 warn 也没意义 */
       });
     };
+  },
+
+  // ─────────── Agent Teams in-process backend permission inbox (CHANGELOG_45) ───────────
+  /**
+   * 订阅某 team 的 inbox 文件 fs 监听（chokidar 引用计数 +1）。
+   * onPermissionRequest 仅在该 team 名匹配时触发——所有 team 共享 IpcEvent.TeamPermissionRequested
+   * 通道，靠 payload.teamName 过滤。
+   *
+   * 注意：应用层 main bootstrap 已经按 active session 自动订阅一份，UI 这里订阅是补强
+   * + 让 grace 期内切回视图能立刻见到旧 watcher 重用。unmount unsubscribe 不会真 close
+   * 直到自动订阅那份也释放（refcount 共享）。
+   */
+  subscribeTeamInbox: (
+    name: string,
+    onPermissionRequest: (req: TeamPermissionRequest) => void,
+  ): (() => void) => {
+    const reqHandler = (_: unknown, req: TeamPermissionRequest): void => {
+      if (req.teamName === name) onPermissionRequest(req);
+    };
+    ipcRenderer.on(IpcEvent.TeamPermissionRequested, reqHandler);
+    void ipcRenderer.invoke(IpcInvoke.TeamSubscribeInbox, name).catch((err) => {
+      console.warn(`[preload] subscribeTeamInbox(${name}) failed:`, err);
+    });
+    return () => {
+      ipcRenderer.off(IpcEvent.TeamPermissionRequested, reqHandler);
+      void ipcRenderer.invoke(IpcInvoke.TeamUnsubscribeInbox, name).catch(() => {
+        /* swallow */
+      });
+    };
+  },
+  /** 写 permission_response 文本到 teammate inbox 文件，response 决定是 success / error。 */
+  respondTeamPermission: (
+    teamName: string,
+    fromMemberSlug: string,
+    requestId: string,
+    decision: TeamPermissionDecision,
+    updatedInput?: Record<string, unknown>,
+  ): Promise<{ ok: true }> =>
+    ipcRenderer.invoke(
+      IpcInvoke.TeamRespondPermission,
+      teamName,
+      fromMemberSlug,
+      requestId,
+      decision,
+      updatedInput ?? null,
+    ),
+  /** UI 收到 team-permission-resolved 事件后清掉本地 pending 列表。 */
+  onTeamPermissionResolved: (
+    cb: (p: { teamName: string; requestId: string }) => void,
+  ): (() => void) => {
+    const handler = (_: unknown, p: { teamName: string; requestId: string }): void => cb(p);
+    ipcRenderer.on(IpcEvent.TeamPermissionResolved, handler);
+    return () => ipcRenderer.off(IpcEvent.TeamPermissionResolved, handler);
   },
 
   // 事件订阅

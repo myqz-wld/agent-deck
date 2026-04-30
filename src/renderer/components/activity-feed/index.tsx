@@ -4,15 +4,17 @@ import type {
   AskUserQuestionRequest,
   ExitPlanModeRequest,
   PermissionRequest,
+  TeamPermissionRequest,
 } from '@shared/types';
 import {
   EMPTY_ASK_QUESTIONS,
   EMPTY_EXIT_PLAN_MODES,
   EMPTY_REQUESTS,
+  EMPTY_TEAM_PERMISSIONS,
   RECENT_LIMIT,
   useSessionStore,
 } from '@renderer/stores/session-store';
-import { AskRow, ExitPlanRow, PermissionRow } from '@renderer/components/pending-rows';
+import { AskRow, ExitPlanRow, PermissionRow, TeamPermissionRow } from '@renderer/components/pending-rows';
 import { EMPTY_EVENTS } from './shared';
 import { eventKey } from './format';
 import { MessageBubble } from './rows/message-row';
@@ -38,9 +40,13 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
   const pendingExitPlanModes = useSessionStore(
     (s) => s.pendingExitPlanModesBySession.get(sessionId) ?? EMPTY_EXIT_PLAN_MODES,
   );
+  const pendingTeamPermissions = useSessionStore(
+    (s) => s.pendingTeamPermissionsBySession.get(sessionId) ?? EMPTY_TEAM_PERMISSIONS,
+  );
   const resolvePermission = useSessionStore((s) => s.resolvePermission);
   const resolveAsk = useSessionStore((s) => s.resolveAskQuestion);
   const resolveExitPlan = useSessionStore((s) => s.resolveExitPlanMode);
+  const resolveTeamPermission = useSessionStore((s) => s.resolveTeamPermission);
   const setPending = useSessionStore((s) => s.setPendingRequests);
   const [loaded, setLoaded] = useState(false);
   /** REVIEW_4 M18：listEvents IPC 失败时显示可恢复错误态而非死锁在「加载中…」 */
@@ -105,15 +111,22 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     () => new Set(pendingExitPlanModes.map((r) => r.requestId)),
     [pendingExitPlanModes],
   );
+  const pendingTeamPermIds = useMemo(
+    () => new Set(pendingTeamPermissions.map((r) => r.requestId)),
+    [pendingTeamPermissions],
+  );
 
-  // 扫一遍历史事件，收集「被 SDK 取消」过的 requestId 三组集合。
-  // SDK 取消 ≠ 用户响应：流终止 / interrupt / 超时时主进程会 emit 一条 `*-cancelled` 事件，
-  // 同时把对应 pending 从 store 删掉。光看 stillPending=false 没法区分「用户拒绝/允许」与「被取消」，
-  // UI 之前用同一句「已响应或已被 SDK 取消」糊在一起，看不出来到底谁动的。
-  const { cancelledPermIds, cancelledAskIds, cancelledExitIds } = useMemo(() => {
+  // 扫一遍历史事件，收集「被 SDK 取消」过的 requestId 四组集合。
+  // SDK 取消 ≠ 用户响应：流终止 / interrupt / 超时 / teammate idle 时主进程会 emit 一条
+  // `*-cancelled` 事件，同时把对应 pending 从 store 删掉。光看 stillPending=false 没法
+  // 区分「用户拒绝/允许」与「被取消」，UI 之前用同一句「已响应或已被 SDK 取消」糊在一起，
+  // 看不出来到底谁动的。team-permission-cancelled 是 inbox-watcher 检测到 teammate
+  // 写 idle_notification 时触发（teammate idle ≈ pending tool call 不会再被响应）。
+  const { cancelledPermIds, cancelledAskIds, cancelledExitIds, cancelledTeamPermIds } = useMemo(() => {
     const perms = new Set<string>();
     const asks = new Set<string>();
     const exits = new Set<string>();
+    const teamPerms = new Set<string>();
     for (const e of recent) {
       if (e.kind !== 'waiting-for-user') continue;
       const p = (e.payload ?? {}) as { type?: string; requestId?: string };
@@ -122,8 +135,9 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
       if (p.type === 'permission-cancelled') perms.add(rid);
       else if (p.type === 'ask-question-cancelled') asks.add(rid);
       else if (p.type === 'exit-plan-cancelled') exits.add(rid);
+      else if (p.type === 'team-permission-cancelled') teamPerms.add(rid);
     }
-    return { cancelledPermIds: perms, cancelledAskIds: asks, cancelledExitIds: exits };
+    return { cancelledPermIds: perms, cancelledAskIds: asks, cancelledExitIds: exits, cancelledTeamPermIds: teamPerms };
   }, [recent]);
 
   if (!loaded && recent.length === 0) {
@@ -160,12 +174,15 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
           pendingPermIds={pendingPermIds}
           pendingAskIds={pendingAskIds}
           pendingExitIds={pendingExitIds}
+          pendingTeamPermIds={pendingTeamPermIds}
           cancelledPermIds={cancelledPermIds}
           cancelledAskIds={cancelledAskIds}
           cancelledExitIds={cancelledExitIds}
+          cancelledTeamPermIds={cancelledTeamPermIds}
           resolvePermission={resolvePermission}
           resolveAsk={resolveAsk}
           resolveExitPlan={resolveExitPlan}
+          resolveTeamPermission={resolveTeamPermission}
         />
       ))}
     </ol>
@@ -180,12 +197,15 @@ interface RowProps {
   pendingPermIds: Set<string>;
   pendingAskIds: Set<string>;
   pendingExitIds: Set<string>;
+  pendingTeamPermIds: Set<string>;
   cancelledPermIds: Set<string>;
   cancelledAskIds: Set<string>;
   cancelledExitIds: Set<string>;
+  cancelledTeamPermIds: Set<string>;
   resolvePermission: (sessionId: string, requestId: string) => void;
   resolveAsk: (sessionId: string, requestId: string) => void;
   resolveExitPlan: (sessionId: string, requestId: string) => void;
+  resolveTeamPermission: (sessionId: string, requestId: string) => void;
 }
 
 /**
@@ -205,12 +225,15 @@ const ActivityRow = memo(function ActivityRow({
   pendingPermIds,
   pendingAskIds,
   pendingExitIds,
+  pendingTeamPermIds,
   cancelledPermIds,
   cancelledAskIds,
   cancelledExitIds,
+  cancelledTeamPermIds,
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
+  resolveTeamPermission,
 }: RowProps): JSX.Element {
   if (event.kind === 'message') {
     return <MessageBubble event={event} agentId={agentId} />;
@@ -265,6 +288,19 @@ const ActivityRow = memo(function ActivityRow({
           stillPending={pendingExitIds.has(rid)}
           wasCancelled={cancelledExitIds.has(rid)}
           onResolved={resolveExitPlan}
+        />
+      );
+    }
+    if (type === 'team-permission-request') {
+      const rid = (p.requestId as string) ?? '';
+      return (
+        <TeamPermissionRow
+          event={event}
+          payload={p as unknown as TeamPermissionRequest}
+          sessionId={sessionId}
+          stillPending={pendingTeamPermIds.has(rid)}
+          wasCancelled={cancelledTeamPermIds.has(rid)}
+          onResolved={resolveTeamPermission}
         />
       );
     }

@@ -6,6 +6,7 @@ import { MarkdownText } from '@renderer/components/MarkdownText';
 import { toolInputToDiff } from '@renderer/components/pending-rows';
 import { describeToolInput } from '../describe';
 import { formatToolResult, parseImageReadResult } from '../format';
+import { toolIcon } from '../tool-icons';
 
 /**
  * tool-use-start：内嵌 diff（Edit/Write/MultiEdit）/ ExitPlanMode 走特殊 plan 渲染路径
@@ -40,7 +41,7 @@ export function ToolStartRow({
     return (
       <li className="rounded-md border border-status-working/30 bg-status-working/[0.06] p-2 text-[11px]">
         <div className="mb-1 flex items-center gap-1.5 text-[10px]">
-          <span>📋</span>
+          <span>{toolIcon('ExitPlanMode')}</span>
           <span className="font-mono">ExitPlanMode</span>
           <span className="text-deck-muted/80">外部 CLI 提议执行计划</span>
           <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
@@ -68,7 +69,7 @@ export function ToolStartRow({
     return (
       <li className="rounded-md border border-status-working/30 bg-status-working/[0.04] p-2 text-[11px]">
         <div className="flex items-center gap-1.5">
-          <span>🤖</span>
+          <span>{toolIcon('Task')}</span>
           <span className="font-mono">Task</span>
           {subType && (
             <span
@@ -112,7 +113,7 @@ export function ToolStartRow({
   return (
     <li className="rounded-md border border-deck-border/60 bg-white/[0.02] p-2 text-[11px]">
       <div className="flex items-center gap-1.5">
-        <span>🔧</span>
+        <span>{toolIcon(tool)}</span>
         <span className="font-mono">{tool}</span>
         {detail && <span className="truncate text-[10px] text-deck-muted">· {detail}</span>}
         {diff && (
@@ -172,7 +173,7 @@ export function ToolEndRow({
       >
         <span>{hasContent ? (open ? '▾' : '▸') : '·'}</span>
         <span>
-          {imageRead ? '🖼 ImageRead' : tool} 完成
+          {imageRead ? '🖼 ImageRead' : `${toolIcon(tool)} ${tool}`} 完成
           {imageRead?.provider && (
             <span className="ml-1.5 text-[9px] text-deck-muted/70">
               [{imageRead.provider}

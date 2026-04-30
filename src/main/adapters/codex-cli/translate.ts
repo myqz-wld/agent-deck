@@ -113,6 +113,7 @@ function translateItemCompleted(item: ThreadItem, emit: EmitFn): void {
       const i = item as CommandExecutionItem;
       emit('tool-use-end', {
         toolUseId: i.id,
+        toolName: 'Bash',
         toolResult: i.aggregated_output,
         exitCode: i.exit_code,
         status: i.status,
@@ -145,6 +146,7 @@ function translateItemCompleted(item: ThreadItem, emit: EmitFn): void {
       const i = item as McpToolCallItem;
       emit('tool-use-end', {
         toolUseId: i.id,
+        toolName: `mcp__${i.server}__${i.tool}`,
         toolResult: i.result?.content,
         error: i.error?.message,
         status: i.status,
@@ -162,6 +164,7 @@ function translateItemCompleted(item: ThreadItem, emit: EmitFn): void {
       });
       emit('tool-use-end', {
         toolUseId: item.id,
+        toolName: 'WebSearch',
         toolResult: { query: item.query },
         status: 'completed',
       });

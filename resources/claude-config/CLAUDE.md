@@ -1,10 +1,8 @@
 <!--
-此文件由应用打包并自动注入到每个 SDK 会话的 system prompt 末尾，
+此文件由宿主应用打包并自动注入到每个 SDK 会话的 system prompt 末尾，
 独立于 user/project/local CLAUDE.md（位置在三者之后），跟随仓库走（git 管理），不依赖会话 cwd。
 
-**与 ~/.claude/CLAUDE.md 的关系**：
-- 通用约定（输出 / 运行时 / 工程地基 / tally 升级等）必须与 ~/.claude/CLAUDE.md 保持一致；改一处必须同步另一处
-- 「决策对抗」节描述本应用 plugin 内的实现：subagent / skill 等具体调用名按 plugin 注入环境的命名空间替换；本文件与 ~/.claude/CLAUDE.md 都用裸名（reviewer-claude / reviewer-codex / deep-code-review）+ 环境注释，两边措辞对齐
+内容与 ~/.claude/CLAUDE.md 保持一致即可，改一处必须同步另一处。
 -->
 
 # 通用约定
@@ -19,22 +17,6 @@
 - **Go**：项目用对应版本（gvm 管理）
 - **Node / npm / pnpm / bun / npx**：一律走 `zsh -i -l -c "..."`（登录式 zsh 才能拿到 brew / path_helper 注入的 PATH，与真实 Terminal 一致）。禁止只 `-i`，禁止手动拼 PATH 或 source nvm.sh
 - **macOS 没有 `timeout` / `gtimeout`**：禁止在 Bash 命令体里写 `timeout 5m ...` / `gtimeout ...`，会让整条命令（含分号 / 管道串起来的后续命令）一起 `command not found` 跟着崩。**超时只走 Bash 工具调用本身的 `timeout` 参数**（毫秒，上限 600000），任何阻塞命令都适用，不要被 Linux 习惯带偏
-
-## 沙盒模式（OS 级隔离，可能存在）
-
-Agent Deck 用户可能在 Settings 里开启 OS 级沙盒（macOS Seatbelt / Linux bubblewrap），档位有 `workspace-write` / `strict` / `off`。开启后某些命令会被 OS 拦：
-
-- **写 cwd 外路径**（`~/.ssh` / `~/.aws` / `~/.config` / `~/.kube` / `~/.gnupg` / `~/.docker` / `~/.npmrc` / `~/.netrc` / `~/.pypirc`）→ Permission denied / Operation not permitted
-- **任意网络访问**（默认无 allowedDomains）→ 触发应用的「网络访问被沙盒拦截」反馈，附带「如确实需要联网，请用 `dangerouslyDisableSandbox: true` 重试」提示
-- **strict 档下 cwd 也只读**（不能写本仓库文件）+ `dangerouslyDisableSandbox` 也被 OS 直接忽略 → 任何写 / 联网都做不了，必须告知用户切档位或换无网方案
-
-**遇到沙盒拦截的处理**：
-
-1. **看到 `Operation not permitted` / `Permission denied` / 「网络访问被沙盒拦截」** → 不是 bash 出错，是 OS 沙盒生效，**不要重试相同命令**，先判断是否真的需要联网 / 写敏感目录
-2. **必须联网**（如 `git fetch` / `pnpm install` / `curl github`）→ `git / pnpm / npm / yarn / bun / pip / cargo / go` 已默认豁免；其他工具（curl / wget / docker）必须显式 `dangerouslyDisableSandbox: true`，会触发用户审批，所以**先告诉用户「这条命令需要绕沙盒，会弹审批框」再执行**
-3. **strict 档下需要联网 / 写文件** → 直接告诉用户「沙盒为 strict 档，禁用 dangerouslyDisableSandbox，无法完成此操作。建议在 Settings 切到 workspace-write 档或 off」，**不要硬撞 dangerouslyDisableSandbox**（SDK 会忽略，model 看到 0 输出又重试是浪费 token）
-
-**与 permissionMode 正交**：沙盒是 OS 级强制（绕不过，除非档位允许），permissionMode 是应用级审批（用户手动 allow 才放行）。同时存在时**两道都要通过**才能跑命令。
 
 ---
 
@@ -54,7 +36,7 @@ Agent Deck 用户可能在 Settings 里开启 OS 级沙盒（macOS Seatbelt / Li
 | 场景 | 走哪条 |
 |---|---|
 | **单次决策对抗**（1-2 个问题就够：单点判定 / plan 评审 / 约定升级）| 本节 §主路径 subagent —— 同步并发，零依赖，启动快 |
-| **多轮深度 review**（多轮 review × fix 循环 + 反驳轮 + focus 切片）| `deep-code-review` skill 的 teammate 模式 —— 跨轮 context 持久化、反驳轮被反驳方记得自己 R_N 推理链精准度更高 |
+| **多轮深度 review**（多轮 review × fix 循环 + 反驳轮 + focus 切片）| `deep-code-review` skill 的 teammate 模式（如安装了对应 plugin）—— 跨轮 context 持久化、反驳轮被反驳方记得自己 R_N 推理链精准度更高 |
 
 **三级兜底链**：teammate（skill 默认）→ subagent（plugin agents 可用，本节 §主路径）→ 手动并发（plugin agents 不可用，本节 §Fallback）。每级失败时可往下退，但同一场景最优解就一个，不要乱跨级。
 
@@ -167,6 +149,14 @@ Bash 工具调用时给 `timeout: 300000`，重 review 给 600000；轻量核查
 - 真卡了就 `TaskStop` 中止 + 拆更小批重试，不要傻等
 
 </details>
+
+---
+
+## Agent Teams
+
+### Teammate 权限审批由真人在宿主 UI 操作，lead 别插手
+
+chat 里看到 stringified JSON 含 `type='permission_request'`（CLI 把 inbox 协议消息当 user message 推给你）：别 SendMessage 劝 teammate 放弃 / 改方法 / abort，也别 SendMessage 回 `permission_response`（协议只支持 `shutdown / plan_approval`）。等真人在宿主 PendingTab 批，期间做其他不依赖该 teammate 该 tool call 的工作。
 
 ---
 

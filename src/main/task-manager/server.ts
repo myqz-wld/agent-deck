@@ -4,24 +4,21 @@
  * 按需挂到 mcpServers 字段。
  *
  * **per-session 实例化**（CHANGELOG_43 改）：从 CHANGELOG_42 的全局单例
- * `getTaskMcpServer()` 改为 `getTasksMcpServerForSession(teamName)`，每个 SDK
- * 会话用自己的 teamName 闭包构造一份独立 server instance。原因：
+ * `getTaskMcpServer()` 改为 `getTasksMcpServerForSession(teamNameProvider)`，每个 SDK
+ * 会话用自己的 teamName 闭包构造一份独立 server instance。
  *
- * 1. **闭包注入 team_name**：tools.ts 的 task_create / task_update / task_delete
- *    强制用 closure 的 teamName，agent 不必（也不能）瞎传，避免任务漂到别 team。
- *    每个 session 的 team_name 不同，server 不能共享。
- * 2. **避免 cross-session state pollution**：SDK 文档没明示 in-process MCP server
- *    instance 能否跨 session 复用。pending tool calls / RPC state 都是 instance
- *    内部状态，per-session 一份最稳。
+ * **CHANGELOG_46 改 lazy provider**：原来第二参数是 `string | null` 由 createSession
+ * 入口固化。现在 createSession 入口不再知道 team 名（NewSessionDialog 删了 teamName
+ * 输入框，team 由 lead 在会话内自由建，应用通过 team-coordinator 反向同步到 sessionRepo）。
+ * 改成 `() => string | null` lazy 工厂，每次工具调用时调一次拿最新值。
  *
  * 调用方契约（sdk-bridge.ts query() options 之前）：
  * ```ts
  * const tasksServer = settings.enableTaskManager
- *   ? await getTasksMcpServerForSession(opts.teamName ?? null)
+ *   ? await getTasksMcpServerForSession(() => sessionRepo.get(sid)?.teamName ?? null)
  *   : null;
  * query({ options: {
  *   ...(tasksServer ? { mcpServers: { tasks: tasksServer }, allowedTools: ['mcp__tasks__*'] } : {}),
- *   // ...
  * }});
  * ```
  *
@@ -34,10 +31,10 @@ import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { buildTaskTools } from './tools';
 
 export async function getTasksMcpServerForSession(
-  teamName: string | null,
+  teamNameProvider: () => string | null,
 ): Promise<McpSdkServerConfigWithInstance> {
   const { createSdkMcpServer } = await loadSdk();
-  const tools = await buildTaskTools(taskRepo, teamName);
+  const tools = await buildTaskTools(taskRepo, teamNameProvider);
   return createSdkMcpServer({
     name: 'tasks',
     version: '1.0.0',

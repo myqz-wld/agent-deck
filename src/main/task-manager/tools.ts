@@ -81,15 +81,19 @@ function argsToInputWithoutTeam(args: {
 
 export async function buildTaskTools(
   repo: TaskRepo,
-  teamName: string | null,
+  teamNameProvider: () => string | null,
 ): Promise<SdkMcpToolDefinition<any>[]> {
   const { tool } = await loadSdk();
-  const teamLabel = teamName ?? '<global>';
+  // CHANGELOG_46：team_name 由 lazy provider 提供（每次工具调用时调一次拿最新值），
+  // 因为 createSession 入口不再知道 team 名 — team 由 lead 在会话内自由建，
+  // team-coordinator 反向同步到 sessionRepo.team_name。
+  // 工具 description 是构造时固化的字符串，不能动态嵌 team 名，改用通用措辞。
+  const getTeamName = (): string | null => teamNameProvider();
 
   // ───── task_create
   const taskCreate = tool(
     'task_create',
-    `Create a structured task in the agent-deck task store. The task is automatically scoped to the current session's team (${teamLabel}); you cannot create tasks in another team. Returns the created task with auto-generated id.`,
+    `Create a structured task in the agent-deck task store. The task is automatically scoped to the current session's team (use task_get / task_list to inspect actual scope); you cannot create tasks in another team. Returns the created task with auto-generated id.`,
     {
       subject: z.string().min(1).max(200).describe('Short task title (1-200 chars)'),
       description: z
@@ -128,7 +132,7 @@ export async function buildTaskTools(
       try {
         const input = {
           ...argsToInputWithoutTeam(args),
-          teamName,
+          teamName: getTeamName(),
         } as TaskCreateInput;
         const created = repo.create(input);
         eventBus.emit('task-changed', {
@@ -148,7 +152,7 @@ export async function buildTaskTools(
   // ───── task_list
   const taskList = tool(
     'task_list',
-    `List tasks. Defaults to current team (${teamLabel}). Pass team_name explicitly to override: a string queries that team; null queries only global tasks (team_name IS NULL). Returns { total, tasks: [...] }.`,
+    `List tasks. Defaults to current session's team. Pass team_name explicitly to override: a string queries that team; null queries only global tasks (team_name IS NULL). Returns { total, tasks: [...] }.`,
     {
       status_filter: z
         .enum(STATUS_VALUES)
@@ -163,7 +167,7 @@ export async function buildTaskTools(
         .nullable()
         .optional()
         .describe(
-          `Override team scope. Omit = current team (${teamLabel}); null = only global; string = that team`,
+          `Override team scope. Omit = current session's team; null = only global; string = that team`,
         ),
       limit: z.number().int().min(1).max(500).optional().describe('Default 100, max 500'),
       offset: z.number().int().min(0).optional().describe('Default 0'),
@@ -174,7 +178,7 @@ export async function buildTaskTools(
         if (args.status_filter !== undefined) opts.status = args.status_filter;
         if (args.subject_filter !== undefined) opts.subjectKeyword = args.subject_filter;
         // args 优先；没传时用 closure team。这是只读操作允许跨查的核心点。
-        opts.teamName = args.team_name !== undefined ? args.team_name : teamName;
+        opts.teamName = args.team_name !== undefined ? args.team_name : getTeamName();
         if (args.limit !== undefined) opts.limit = args.limit;
         if (args.offset !== undefined) opts.offset = args.offset;
         const tasks = repo.list(opts);
@@ -208,7 +212,7 @@ export async function buildTaskTools(
   // ───── task_update
   const taskUpdate = tool(
     'task_update',
-    `Incrementally update a task. The task must belong to the current team (${teamLabel}); attempting to update another team's task returns an error. Omitted fields are left unchanged. Pass null to clear nullable fields (description, active_form). updated_at is auto-refreshed.`,
+    `Incrementally update a task. The task must belong to the current session's team; attempting to update another team's task returns an error. Omitted fields are left unchanged. Pass null to clear nullable fields (description, active_form). updated_at is auto-refreshed.`,
     {
       task_id: z.string().describe('Task UUID to update'),
       subject: z.string().min(1).max(200).optional(),
@@ -225,10 +229,11 @@ export async function buildTaskTools(
         const { task_id, ...rest } = args;
         const existing = repo.get(task_id);
         if (!existing) return err(`task ${task_id} not found`);
+        const currentTeam = getTeamName();
         // 写权限锁：只能改自己 team 的任务（含全局任务的 agent 改全局任务）
-        if (existing.teamName !== teamName) {
+        if (existing.teamName !== currentTeam) {
           return err(
-            `permission denied: task ${task_id} belongs to team "${existing.teamName ?? '<global>'}", current session is in "${teamLabel}"`,
+            `permission denied: task ${task_id} belongs to team "${existing.teamName ?? '<global>'}", current session is in "${currentTeam ?? '<global>'}"`,
           );
         }
         // 强制覆盖 teamName（防 patch 路径绕过 closure 锁；理论上 args 已经不暴露
@@ -253,7 +258,7 @@ export async function buildTaskTools(
   // ───── task_delete
   const taskDelete = tool(
     'task_delete',
-    `Delete a task by id. The task must belong to the current team (${teamLabel}). With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also team-checked). Without force, surviving tasks have their blocks/blocked_by references to it cleaned up.`,
+    `Delete a task by id. The task must belong to the current session's team. With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also team-checked). Without force, surviving tasks have their blocks/blocked_by references to it cleaned up.`,
     {
       task_id: z.string().describe('Task UUID to delete'),
       force: z
@@ -265,10 +270,11 @@ export async function buildTaskTools(
       try {
         const target = repo.get(args.task_id);
         if (!target) return err(`task ${args.task_id} not found`);
+        const currentTeam = getTeamName();
         // 写权限锁：只能删自己 team 的任务
-        if (target.teamName !== teamName) {
+        if (target.teamName !== currentTeam) {
           return err(
-            `permission denied: task ${args.task_id} belongs to team "${target.teamName ?? '<global>'}", current session is in "${teamLabel}"`,
+            `permission denied: task ${args.task_id} belongs to team "${target.teamName ?? '<global>'}", current session is in "${currentTeam ?? '<global>'}"`,
           );
         }
         const success = repo.delete(args.task_id, { cascade: args.force ?? false });

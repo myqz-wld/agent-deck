@@ -6,6 +6,8 @@ import type {
   PermissionRequest,
   SessionRecord,
   SummaryRecord,
+  TeamPermissionCancelled,
+  TeamPermissionRequest,
 } from '@shared/types';
 
 interface State {
@@ -22,6 +24,10 @@ interface State {
   pendingAskQuestionsBySession: Map<string, AskUserQuestionRequest[]>;
   /** 等待用户批准/继续规划的 ExitPlanMode，独立于权限请求，UI 上单独渲染（markdown plan + 二选一按钮） */
   pendingExitPlanModesBySession: Map<string, ExitPlanModeRequest[]>;
+  /** Inbox watcher (CHANGELOG_45)：teammate 提的 permission_request（CLI 内部协议级），
+   *  payload type='team-permission-request'。UI 上 PendingTab / TeamDetail 渲染 + approve/deny
+   *  写 permission_response 回 teammate inbox。sessionId 用 lead session 占位。 */
+  pendingTeamPermissionsBySession: Map<string, TeamPermissionRequest[]>;
   setSessions: (records: SessionRecord[]) => void;
   upsertSession: (record: SessionRecord) => void;
   removeSession: (id: string) => void;
@@ -35,6 +41,11 @@ interface State {
   resolvePermission: (sessionId: string, requestId: string) => void;
   resolveAskQuestion: (sessionId: string, requestId: string) => void;
   resolveExitPlanMode: (sessionId: string, requestId: string) => void;
+  /** Inbox watcher：用户在 UI 完成响应后从 pending 列表删掉一条 team-permission-request。
+   *  也响应 main 端 onTeamPermissionResolved 推送（多 renderer 同步）。 */
+  resolveTeamPermission: (sessionId: string, requestId: string) => void;
+  /** 同上，按 teamName 清除（main 端 emit 时 sessionId 是 lead 占位但 renderer 不必非要拿到）。 */
+  resolveTeamPermissionByTeam: (teamName: string, requestId: string) => void;
   /** 重建 pending 列表（HMR / 重启后从主进程拉一次，覆盖该 session 的 pending）。 */
   setPendingRequests: (
     sessionId: string,
@@ -69,12 +80,31 @@ export const RECENT_LIMIT = 200;
 export const EMPTY_REQUESTS: PermissionRequest[] = [];
 export const EMPTY_ASK_QUESTIONS: AskUserQuestionRequest[] = [];
 export const EMPTY_EXIT_PLAN_MODES: ExitPlanModeRequest[] = [];
+export const EMPTY_TEAM_PERMISSIONS: TeamPermissionRequest[] = [];
 
 function isPermissionRequest(payload: unknown): payload is PermissionRequest {
   return (
     typeof payload === 'object' &&
     payload !== null &&
     (payload as { type?: string }).type === 'permission-request' &&
+    typeof (payload as { requestId?: unknown }).requestId === 'string'
+  );
+}
+
+function isTeamPermissionRequest(payload: unknown): payload is TeamPermissionRequest {
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    (payload as { type?: string }).type === 'team-permission-request' &&
+    typeof (payload as { requestId?: unknown }).requestId === 'string'
+  );
+}
+
+function isTeamPermissionCancelled(payload: unknown): payload is TeamPermissionCancelled {
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    (payload as { type?: string }).type === 'team-permission-cancelled' &&
     typeof (payload as { requestId?: unknown }).requestId === 'string'
   );
 }
@@ -136,6 +166,7 @@ export const useSessionStore = create<State>((set) => ({
   pendingPermissionsBySession: new Map(),
   pendingAskQuestionsBySession: new Map(),
   pendingExitPlanModesBySession: new Map(),
+  pendingTeamPermissionsBySession: new Map(),
 
   setSessions: (records) => {
     // 全量替换会话列表（启动 / HMR / history 视图初始拉）。
@@ -166,6 +197,7 @@ export const useSessionStore = create<State>((set) => ({
         pendingPermissionsBySession: prune(state.pendingPermissionsBySession),
         pendingAskQuestionsBySession: prune(state.pendingAskQuestionsBySession),
         pendingExitPlanModesBySession: prune(state.pendingExitPlanModesBySession),
+        pendingTeamPermissionsBySession: prune(state.pendingTeamPermissionsBySession),
         selectedSessionId:
           state.selectedSessionId !== null && !validIds.has(state.selectedSessionId)
             ? null
@@ -191,6 +223,8 @@ export const useSessionStore = create<State>((set) => ({
       a.delete(id);
       const x = new Map(state.pendingExitPlanModesBySession);
       x.delete(id);
+      const tp = new Map(state.pendingTeamPermissionsBySession);
+      tp.delete(id);
       // 必须把所有 by-session 缓存的 key 一并清掉，否则长期使用 / 历史清理后
       // recentEvents（30 条/会话）与 summaries 会驻留在 renderer 内存里，
       // 没有 sessions key 反查也永远清不到（renameSession 已枚举全表 7 张 Map，
@@ -206,6 +240,7 @@ export const useSessionStore = create<State>((set) => ({
         pendingPermissionsBySession: p,
         pendingAskQuestionsBySession: a,
         pendingExitPlanModesBySession: x,
+        pendingTeamPermissionsBySession: tp,
         recentEventsBySession: re,
         summariesBySession: su,
         latestSummaryBySession: ls,
@@ -223,6 +258,7 @@ export const useSessionStore = create<State>((set) => ({
       let pendingMap = state.pendingPermissionsBySession;
       let askMap = state.pendingAskQuestionsBySession;
       let exitMap = state.pendingExitPlanModesBySession;
+      let teamPermMap = state.pendingTeamPermissionsBySession;
       if (event.kind === 'waiting-for-user') {
         if (isPermissionRequest(event.payload)) {
           const req = event.payload;
@@ -232,6 +268,13 @@ export const useSessionStore = create<State>((set) => ({
           if (!list.some((r) => r.requestId === req.requestId)) {
             pendingMap = new Map(state.pendingPermissionsBySession);
             pendingMap.set(event.sessionId, [...list, req]);
+          }
+        } else if (isTeamPermissionRequest(event.payload)) {
+          const req = event.payload;
+          const list = state.pendingTeamPermissionsBySession.get(event.sessionId) ?? [];
+          if (!list.some((r) => r.requestId === req.requestId)) {
+            teamPermMap = new Map(state.pendingTeamPermissionsBySession);
+            teamPermMap.set(event.sessionId, [...list, req]);
           }
         } else if (isAskUserQuestion(event.payload)) {
           const req = event.payload;
@@ -278,6 +321,19 @@ export const useSessionStore = create<State>((set) => ({
               cur.filter((r) => r.requestId !== reqId),
             );
           }
+        } else if (isTeamPermissionCancelled(event.payload)) {
+          // Inbox watcher 检测到 teammate 写 idle_notification → 该 teammate 名下所有
+          // pending team-permission 都标 cancel；从 pending 列表删，按钮不再可点。
+          // recentEvents 保留 cancelled event 让 activity-feed 渲染时按 type 标灰。
+          const reqId = event.payload.requestId;
+          const cur = state.pendingTeamPermissionsBySession.get(event.sessionId);
+          if (cur?.some((r) => r.requestId === reqId)) {
+            teamPermMap = new Map(state.pendingTeamPermissionsBySession);
+            teamPermMap.set(
+              event.sessionId,
+              cur.filter((r) => r.requestId !== reqId),
+            );
+          }
         }
       }
       return {
@@ -285,6 +341,7 @@ export const useSessionStore = create<State>((set) => ({
         pendingPermissionsBySession: pendingMap,
         pendingAskQuestionsBySession: askMap,
         pendingExitPlanModesBySession: exitMap,
+        pendingTeamPermissionsBySession: teamPermMap,
       };
     }),
 
@@ -367,6 +424,38 @@ export const useSessionStore = create<State>((set) => ({
       return { pendingExitPlanModesBySession: m };
     }),
 
+  resolveTeamPermission: (sessionId, requestId) =>
+    set((state) => {
+      const list = state.pendingTeamPermissionsBySession.get(sessionId);
+      if (!list) return {};
+      const next = list.filter((r) => r.requestId !== requestId);
+      const m = new Map(state.pendingTeamPermissionsBySession);
+      if (next.length === 0) m.delete(sessionId);
+      else m.set(sessionId, next);
+      return { pendingTeamPermissionsBySession: m };
+    }),
+
+  resolveTeamPermissionByTeam: (teamName, requestId) =>
+    set((state) => {
+      // 扫所有 sessionId 的列表（team-permission-request payload 里有 teamName + requestId）
+      // 删掉匹配 (teamName, requestId) 的条目。理论上 sessionId 是 lead 占位 + 全局唯一
+      // requestId，实际只会在一个 sessionId 下命中。
+      let changed = false;
+      const m = new Map(state.pendingTeamPermissionsBySession);
+      for (const [sid, list] of m) {
+        const next = list.filter(
+          (r) => !(r.teamName === teamName && r.requestId === requestId),
+        );
+        if (next.length !== list.length) {
+          changed = true;
+          if (next.length === 0) m.delete(sid);
+          else m.set(sid, next);
+        }
+      }
+      if (!changed) return {};
+      return { pendingTeamPermissionsBySession: m };
+    }),
+
   setPendingRequests: (sessionId, permissions, askQuestions, exitPlanModes) =>
     set((state) => {
       const p = new Map(state.pendingPermissionsBySession);
@@ -437,6 +526,7 @@ export const useSessionStore = create<State>((set) => ({
         pendingPermissionsBySession: moveMapKey(state.pendingPermissionsBySession),
         pendingAskQuestionsBySession: moveMapKey(state.pendingAskQuestionsBySession),
         pendingExitPlanModesBySession: moveMapKey(state.pendingExitPlanModesBySession),
+        pendingTeamPermissionsBySession: moveMapKey(state.pendingTeamPermissionsBySession),
         selectedSessionId: state.selectedSessionId === fromId ? toId : state.selectedSessionId,
       };
     }),

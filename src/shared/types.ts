@@ -296,6 +296,67 @@ export type ExitPlanModeResponse =
   | { decision: 'approve-bypass' }
   | { decision: 'keep-planning'; feedback?: string };
 
+// ───────────────────────────────────────────────────────── Team Permission Request
+
+/**
+ * Agent Teams in-process backend 的权限审批协议（CLI v2.1.32+ 实测）：
+ *
+ * teammate 调 Bash / Edit 等需审批工具时，CLI **不会**回到 lead 的 SDK canUseTool 回调
+ * （那个是绑在 lead Query 实例上的）。CLI 改为把 `permission_request` JSON 文本塞进
+ * lead 的 inbox 文件 `~/.claude/teams/<team>/inboxes/team-lead.json`，等待 lead 写
+ * `permission_response` 文本回 teammate inbox。
+ *
+ * 应用做的事（inbox-watcher.ts）：
+ * 1. 监听 `~/.claude/teams/<name>/inboxes/*.json`
+ * 2. 解析每条消息的 text 字段为 JSON，识别出 type='permission_request' 的条目
+ * 3. 把 request_id 没见过的 → emit AgentEvent waiting-for-user，payload 为本类型
+ * 4. UI（PendingTab / TeamDetail）展示 + 用户 approve/deny → 写 permission_response
+ *    回 teammate（fromMemberSlug）的 inbox 文件，teammate 收到后继续跑
+ */
+export interface TeamPermissionRequest {
+  type: 'team-permission-request';
+  /** 来自 inbox payload 的 request_id（同 SDK CLI 二进制 ge6() 函数） */
+  requestId: string;
+  /** 哪个 team（路径派生：~/.claude/teams/<teamName>/） */
+  teamName: string;
+  /** 哪个 teammate 提的（agent_id 字段，例如 "reviewer-codex"） */
+  fromAgentId: string;
+  /** 算好的 inbox 文件名 slug（agent_id 经 `/[^a-zA-Z0-9_-]/g→'-'`），用于回写 permission_response */
+  fromMemberSlug: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  /** SDK CLI 给的可读描述（"Run shell command"、"Edit file" 等） */
+  description?: string;
+  /** 「下次自动允许」建议（与 PermissionRequest.suggestions 同语义） */
+  permissionSuggestions?: unknown;
+  /** 调试用：完整 inbox 文件路径，便于报错时人工排查 */
+  inboxFilePath: string;
+  /** 收到 inbox 消息的时间戳（ISO） */
+  timestamp: string;
+}
+
+export type TeamPermissionDecision = 'allow' | 'deny';
+
+/**
+ * Inbox Watcher：teammate 自己 abort 了之前提的 permission_request（典型：lead 用
+ * SendMessage 给 teammate 发 advice → teammate 主动 abort 当前 tool call → 不再等
+ * permission 响应；或 teammate idle / shutdown）。inbox-watcher 检测到 teammate
+ * 写 idle_notification 时把该 teammate 名下所有 active permission emit cancelled。
+ *
+ * 与 PermissionCancelled / AskQuestionCancelled / ExitPlanCancelled 同模式：
+ * 1. UI 端从 pendingTeamPermissions 列表里删该 requestId（按钮不再可点）
+ * 2. 历史 events 流里这条 cancelled event 留作活动条标灰显示「已被取消」
+ */
+export interface TeamPermissionCancelled {
+  type: 'team-permission-cancelled';
+  requestId: string;
+  teamName: string;
+  /** 哪个 teammate 的 abort（与原 TeamPermissionRequest.fromAgentId 对应） */
+  fromAgentId: string;
+  /** 取消原因（idle / shutdown / unknown），仅用于 log + UI 调试提示 */
+  reason: 'teammate-idle' | 'teammate-shutdown' | 'unknown';
+}
+
 // ───────────────────────────────────────────────────────── File Changes / Diff
 
 export interface FileChangeRecord {

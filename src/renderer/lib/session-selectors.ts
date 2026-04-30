@@ -3,6 +3,7 @@ import type {
   ExitPlanModeRequest,
   PermissionRequest,
   SessionRecord,
+  TeamPermissionRequest,
 } from '@shared/types';
 
 /**
@@ -46,6 +47,9 @@ export interface PendingBucket {
   permissions: PermissionRequest[];
   askQuestions: AskUserQuestionRequest[];
   exitPlanModes: ExitPlanModeRequest[];
+  /** Inbox watcher (CHANGELOG_45)：teammate 提的 permission_request。响应通路与 SDK
+   *  permission 完全不同（写 inbox 文件，不走 canUseTool）。 */
+  teamPermissions: TeamPermissionRequest[];
   total: number;
 }
 
@@ -54,11 +58,13 @@ export function selectPendingBuckets(
   pendingPerms: Map<string, PermissionRequest[]>,
   pendingAsks: Map<string, AskUserQuestionRequest[]>,
   pendingExits: Map<string, ExitPlanModeRequest[]>,
+  pendingTeamPerms: Map<string, TeamPermissionRequest[]>,
 ): PendingBucket[] {
   const ids = new Set<string>();
   for (const k of pendingPerms.keys()) ids.add(k);
   for (const k of pendingAsks.keys()) ids.add(k);
   for (const k of pendingExits.keys()) ids.add(k);
+  for (const k of pendingTeamPerms.keys()) ids.add(k);
 
   const out: PendingBucket[] = [];
   for (const sid of ids) {
@@ -69,11 +75,20 @@ export function selectPendingBuckets(
     const permissions = pendingPerms.get(sid) ?? [];
     const askQuestions = pendingAsks.get(sid) ?? [];
     const exitPlanModes = pendingExits.get(sid) ?? [];
-    const total = permissions.length + askQuestions.length + exitPlanModes.length;
+    const teamPermissions = pendingTeamPerms.get(sid) ?? [];
+    const total =
+      permissions.length + askQuestions.length + exitPlanModes.length + teamPermissions.length;
     if (total === 0) continue; // store 用 setPendingRequests 时空列表会 delete key，
     // 这里仍兜底一下：renderer 短暂的中间态可能让 key 残留空数组
 
-    out.push({ session: s, permissions, askQuestions, exitPlanModes, total });
+    out.push({
+      session: s,
+      permissions,
+      askQuestions,
+      exitPlanModes,
+      teamPermissions,
+      total,
+    });
   }
 
   return out.sort((a, b) => {

@@ -7,3 +7,5 @@ dist
 .vite
 *.tsbuildinfo
 .deep-code-review/
+# ↑ 历史目录（已迁移到 ~/.claude/state/deep-code-review/<cwd-slug>/，user 级隔离）。
+# 防御性留 entry：万一 skill regression / 用户手工建临时目录，不会被误 commit。
