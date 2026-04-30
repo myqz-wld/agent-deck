@@ -20,6 +20,7 @@ export const genericPtyAdapter: AgentAdapter = {
     canSetPermissionMode: false,
     canRestartWithPermissionMode: false,
     canCloseSession: false,
+    canJoinTeam: false,
   },
   async init(_ctx: AdapterContext): Promise<void> {
     // intentionally empty

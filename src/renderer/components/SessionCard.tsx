@@ -79,6 +79,14 @@ export function SessionCard({ session, selected, onSelect }: Props): JSX.Element
         >
           {session.source === 'sdk' ? '内' : '外'}
         </span>
+        {session.teamName && (
+          <span
+            className="max-w-[6rem] truncate rounded bg-purple-500/20 px-1 py-0.5 text-[9px] font-medium text-purple-300"
+            title={`Agent Team: ${session.teamName}`}
+          >
+            🛡 {session.teamName}
+          </span>
+        )}
         <span className="text-[9px] text-deck-muted/60">{session.agentId}</span>
       </div>
       {liveLine && (

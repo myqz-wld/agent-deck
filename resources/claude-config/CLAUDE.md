@@ -3,7 +3,9 @@
 独立于 user/project/local CLAUDE.md（位置在三者之后）。
 跟随 agent-deck 仓库走（git 管理），不依赖会话 cwd。
 
-内容必须与 ~/.claude/CLAUDE.md 保持一致；改一处必须同步另一处。
+**与 ~/.claude/CLAUDE.md 的关系**：
+- 通用约定（输出 / 运行时 / 工程地基 / tally 升级等）必须与 ~/.claude/CLAUDE.md 保持一致；改一处必须同步另一处
+- 「决策对抗」节是 **agent-deck 应用专属扩展**：本文件用 `agent-deck:reviewer-claude` / `agent-deck:reviewer-codex` 全名（plugin 注入路径），~/.claude/CLAUDE.md 用裸名 + 环境替换说明；两边逻辑等价、命名按各自语境
 -->
 
 # 通用约定
@@ -19,6 +21,22 @@
 - **Node / npm / pnpm / bun / npx**：一律走 `zsh -i -l -c "..."`（登录式 zsh 才能拿到 brew / path_helper 注入的 PATH，与真实 Terminal 一致）。禁止只 `-i`，禁止手动拼 PATH 或 source nvm.sh
 - **macOS 没有 `timeout` / `gtimeout`**：禁止在 Bash 命令体里写 `timeout 5m ...` / `gtimeout ...`，会让整条命令（含分号 / 管道串起来的后续命令）一起 `command not found` 跟着崩。**超时只走 Bash 工具调用本身的 `timeout` 参数**（毫秒，上限 600000），任何阻塞命令都适用，不要被 Linux 习惯带偏
 
+## 沙盒模式（OS 级隔离，可能存在）
+
+Agent Deck 用户可能在 Settings 里开启 OS 级沙盒（macOS Seatbelt / Linux bubblewrap），档位有 `workspace-write` / `strict` / `off`。开启后某些命令会被 OS 拦：
+
+- **写 cwd 外路径**（`~/.ssh` / `~/.aws` / `~/.config` / `~/.kube` / `~/.gnupg` / `~/.docker` / `~/.npmrc` / `~/.netrc` / `~/.pypirc`）→ Permission denied / Operation not permitted
+- **任意网络访问**（默认无 allowedDomains）→ 触发应用的「网络访问被沙盒拦截」反馈，附带「如确实需要联网，请用 `dangerouslyDisableSandbox: true` 重试」提示
+- **strict 档下 cwd 也只读**（不能写本仓库文件）+ `dangerouslyDisableSandbox` 也被 OS 直接忽略 → 任何写 / 联网都做不了，必须告知用户切档位或换无网方案
+
+**遇到沙盒拦截的处理**：
+
+1. **看到 `Operation not permitted` / `Permission denied` / 「网络访问被沙盒拦截」** → 不是 bash 出错，是 OS 沙盒生效，**不要重试相同命令**，先判断是否真的需要联网 / 写敏感目录
+2. **必须联网**（如 `git fetch` / `pnpm install` / `curl github`）→ `git / pnpm / npm / yarn / bun / pip / cargo / go` 已默认豁免；其他工具（curl / wget / docker）必须显式 `dangerouslyDisableSandbox: true`，会触发用户审批，所以**先告诉用户「这条命令需要绕沙盒，会弹审批框」再执行**
+3. **strict 档下需要联网 / 写文件** → 直接告诉用户「沙盒为 strict 档，禁用 dangerouslyDisableSandbox，无法完成此操作。建议在 Settings 切到 workspace-write 档或 off」，**不要硬撞 dangerouslyDisableSandbox**（SDK 会忽略，model 看到 0 输出又重试是浪费 token）
+
+**与 permissionMode 正交**：沙盒是 OS 级强制（绕不过，除非档位允许），permissionMode 是应用级审批（用户手动 allow 才放行）。同时存在时**两道都要通过**才能跑命令。
+
 ---
 
 ## 决策对抗
@@ -32,6 +50,58 @@
 - 重要技术选型 / 重构方向决策
 - **例外**：trivial 改动（typo / 样式数值 / 单点 rename / 显然措辞修订）
 
+### 主路径：spawn 异构 reviewer 双 agent
+
+**操作**：在同一 message 中并发起两个 Task call：
+
+1. `Task(subagent_type: "agent-deck:reviewer-claude", prompt: <scope + focus + skip>)`
+2. `Task(subagent_type: "agent-deck:reviewer-codex",  prompt: <scope + focus + skip>)`
+
+两个 reviewer 完全独立（subagent 之间互相不知道存在 / 不沟通），各自从代码 / 资料出发得结论 → 各自回到主 agent。
+
+两份结论返回后，**当前主 agent**（不是 reviewer 自己）做三态裁决。
+
+### 反驳轮（针对单方独有 + HIGH 候选）
+
+裁决时遇到「**单方独有 + HIGH**」候选 finding → spawn **对方** reviewer 反驳：
+
+- reviewer-claude 提出的给 reviewer-codex 反驳；reviewer-codex 提出的给 reviewer-claude 反驳（保持异构）
+- 反驳 prompt 必须明禁「借机提其他 finding」，专注单点
+- 同一条 finding 只反驳一次（避免循环）
+- 反驳后主 agent 推到 ✅ / ❌ / 仍 ❓ → 主 agent 自己 grep / 写 test 现场验证 → 还不行降级非 HIGH
+
+不触发反驳轮的情形（直接走裁决，不浪费 token）：
+- 双方一致 → ✅
+- 双方都看到现场但角度不同 → ❓ 综合
+- 单方独有 + MED → 主 agent 自己验证
+- 单方独有 + LOW/INFO → 直接列 ❓
+- 双方都说没问题 → ✅ 可合
+
+### 三态裁决（每条 finding）
+
+- ✅ **真问题**：双方独立提出 / 一方提出**且现场实践验证成立**（grep 出 N 处证据 / 写小 test 复现挂掉 / 跑命令确认）→ 必修
+- ❌ **反驳**：被对抗或现场核实证伪 → 不修，记反驳依据
+- ❓ **部分 / 未验证**：双方角度不同 / 一方提出但纯文本推理（含弱断言 "可能 / 也许 / 看起来 / 应该 / 大概"）尚未实践验证 → 综合后决定；未验证的**强制降级为非 HIGH 严重度**
+
+### 强制约束
+
+- 每条结论必须带 `文件:行号` + 代码 / 原文片段 + **验证手段**（如 "grep 出 3 处全无 null check" / "写 stateful mock 模拟双 disconnect 实测 abort 0 次"）
+- 空泛 finding + 没验证 = 直接降 ❓ 或 ❌
+- **不接受没验证的 ✅ HIGH**
+- 弱断言关键词只允许出现在标注 *未验证* 的条目里
+- 最终清单标注被反驳 / 升降级条目；plan 场景标注双方一致 / 分歧步骤；约定升级场景额外评审措辞 / 边界 / 与已有约定的冲突
+
+### reviewer-codex 失败兜底
+
+reviewer-codex agent 内部已实现失败模板化（codex 二进制缺失 / OAuth 过期 / 超时 / `$OUT` 空 等场景各自的输出格式见 agent body）。主 agent 收到失败模板后**严禁**自动降级到同源双 Claude，必须**提示用户决策**：等恢复 / 单方 reviewer-claude 出结论 / 稍后重试 / abort。
+
+### Fallback：手动并发（agent 不可用 / 不在 agent-deck SDK 会话内）
+
+如果当前会话拿不到 `agent-deck:reviewer-claude` / `agent-deck:reviewer-codex`（典型：用户独立终端跑 `claude`、`injectAgentDeckPlugin` 关掉、或非 SDK 通道），按下面手动模板并发——这是原始姿势的备份，agent 路径优先。
+
+<details>
+<summary>展开手动模板（agent 不可用时用）</summary>
+
 **操作**：并发两个**异构** Agent，各自读真实代码 / 资料给结论：
 
 - **异构原则**：两个 Agent 必须**不同源**（不同 SDK / 不同模型 / 不同 reasoning 路径），最大化降低同源偏见
@@ -39,15 +109,8 @@
   - **Claude Code 会话内 subagent**（**Opus 4.7 xhigh**，`Explore` / `general-purpose`）
   - **Bash 调外部 codex CLI**（**gpt-5.5 xhigh**，模板见下）
 - 两个都走「读真实代码 + 给证据 + **优先实践验证**（grep 调用点 / 写小 test / 跑命令 / 读真实文件）+ 不复述」
-- **三态裁决**（每条 finding）：
-  - ✅ **真问题**：双方独立提出 / 一方提出**且现场实践验证成立**（grep 出 N 处证据 / 写小 test 复现挂掉 / 跑命令确认）→ 必修
-  - ❌ **反驳**：被对抗或现场核实证伪 → 不修，记反驳依据
-  - ❓ **部分 / 未验证**：双方角度不同 / 一方提出但纯文本推理（含弱断言 "可能 / 也许 / 看起来 / 应该 / 大概"）尚未实践验证 → 综合后决定；未验证的**强制降级为非 HIGH 严重度**
-- 每条结论必须带 `文件:行号` + 代码 / 原文片段 + **验证手段**（如 "grep 出 3 处全无 null check" / "写 stateful mock 模拟双 disconnect 实测 abort 0 次"）。空泛 finding + 没验证 = 直接降 ❓ 或 ❌。**不接受没验证的 ✅ HIGH**。弱断言关键词只允许出现在标注 *未验证* 的条目里
-- 最终清单标注被反驳 / 升降级条目；plan 场景标注双方一致 / 分歧步骤；约定升级场景额外评审措辞 / 边界 / 与已有约定的冲突
-- **外部 Agent 不可用时**（CLI 失联 / `Reconnecting...` / 超时 / OAuth 过期 / 二进制缺失）：**不要自动降级**到同源双 Agent，**提示用户**「外部对抗 Agent 不可用（具体原因），是降级到同源双 Agent / 单方出结论 / 稍后重试？」由用户决定
 
-### 外部 CLI 对抗 Agent 通用姿势
+#### 外部 CLI 对抗 Agent 通用姿势
 
 任何外部 CLI 当对抗 Agent 都遵循（codex CLI 细节见下小节，其他 CLI 类比）：
 
@@ -61,7 +124,7 @@
 - **多子问题拆并发或合并精简**，要求 yes/no + 一两行证据，不要大段结构化报告
 - **超时只走 Bash 工具的 `timeout` 参数**（命令体内绝不写 `timeout` / `gtimeout`，见上 macOS 节）。重 review / 探索类给 5-10 分钟（300000-600000 ms），轻量核查 1-2 分钟即可
 
-### codex CLI 模板
+#### codex CLI 模板
 
 默认走 `~/.codex` 配置（模型 / approval / OAuth 都在那）：
 
@@ -92,6 +155,8 @@ Bash 工具调用时给 `timeout: 300000`，重 review 给 600000；轻量核查
 - prompt 顶部明确「只看下面文件，不要再读 REVIEW_X.md / CLAUDE.md」避免 codex 自己拉一堆背景把 context 撑大
 - skip 项写在 prompt 里（如「skip REVIEW_1 已修过的 8 处：...」），不要让 codex 自己去读 reviews/ 推断
 - 真卡了就 `TaskStop` 中止 + 拆更小批重试，不要傻等
+
+</details>
 
 ---
 

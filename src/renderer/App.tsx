@@ -6,6 +6,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsDialog } from './components/SettingsDialog';
 import { NewSessionDialog } from './components/NewSessionDialog';
 import { PendingTab } from './components/PendingTab';
+import { TeamHub } from './components/TeamHub';
 import { useSessionStore } from './stores/session-store';
 import { useEventBridge } from './hooks/use-event-bridge';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
@@ -14,7 +15,7 @@ import type { AppSettings, SessionRecord } from '@shared/types';
 
 registerBuiltinDiffRenderers();
 
-type View = 'live' | 'history' | 'pending';
+type View = 'live' | 'history' | 'pending' | 'teams';
 
 export function App(): JSX.Element {
   useEventBridge();
@@ -238,6 +239,17 @@ export function App(): JSX.Element {
             <TabButton active={view === 'history'} onClick={() => setView('history')}>
               历史
             </TabButton>
+            <TabButton
+              active={view === 'teams'}
+              onClick={() => {
+                setView('teams');
+                // 切到 teams tab 时清掉 selectedSessionId，否则 detailSession 优先级
+                // 高于 view 判断会盖掉 TeamHub。同 PendingTab 同模式。
+                select(null);
+              }}
+            >
+              团队
+            </TabButton>
             <Divider />
             <IconButton
               title={pinned ? '取消置顶' : '置顶'}
@@ -273,6 +285,13 @@ export function App(): JSX.Element {
             </div>
           ) : view === 'pending' ? (
             <PendingTab
+              onOpenSession={(sid) => {
+                setView('live');
+                select(sid);
+              }}
+            />
+          ) : view === 'teams' ? (
+            <TeamHub
               onOpenSession={(sid) => {
                 setView('live');
                 select(sid);

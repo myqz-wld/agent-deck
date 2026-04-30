@@ -27,6 +27,20 @@ export interface CreateSessionOptions {
   permissionMode?: PermissionMode;
   /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
   resume?: string;
+  /**
+   * Agent Teams 团队名（仅 SDK 通道支持）。语义：应用内标签 + env 触发条件——
+   * 当 settingsStore.agentTeamsEnabled === true 且 teamName?.trim() 非空时，
+   * sdk-bridge 在 spawn CLI 子进程时把 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+   * 注入到 query() 的 env，让 Claude 内部启用 agent teams 实验特性。
+   *
+   * teamName 不会作为 SDK options 直接传给 Claude（Claude 自身用自然语言驱动建队 +
+   * 在 ~/.claude/teams/<name>/config.json 自管命名）；用户须在首条 prompt 里告诉 Claude
+   * 用这个名字（NewSessionDialog 给提示模板）。
+   *
+   * resume 路径下传 teamName 视为非法（Agent Teams 不支持 session resumption），
+   * sdk-bridge 直接 throw。
+   */
+  teamName?: string;
 }
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
@@ -51,6 +65,13 @@ export interface AdapterCapabilities {
    * 占位 adapter（aider / generic-pty）置 false；hook-only / SDK 通道有 internal session 的 adapter 置 true。
    */
   canCloseSession: boolean;
+  /**
+   * 是否支持加入 Claude Code agent teams（实验特性，需 CLI ≥ v2.1.32）。
+   * - claude-code: true（SDK env 注入即启用）
+   * - codex-cli / aider / generic-pty: false（不走 Claude Code CLI）
+   * UI 据此与 settings.agentTeamsEnabled 双条件决定 NewSessionDialog 是否暴露 teamName 输入框。
+   */
+  canJoinTeam: boolean;
 }
 
 export interface AgentAdapter {

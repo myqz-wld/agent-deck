@@ -57,6 +57,18 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
     case 'Grep':
     case 'Glob':
       return typeof o.pattern === 'string' ? o.pattern : null;
+    case 'Task': {
+      // Claude Agent SDK 的 Task 工具：spawn 一个 subagent 干活。
+      // toolInput.subagent_type 是 subagent 名（如 'agent-deck:reviewer-claude' / 'general-purpose'），
+      // toolInput.prompt 是给 subagent 的指令文本（可能很长 → 单行摘要截断 60 字够了，
+      // 完整 prompt 由 ToolStartRow 「展开 prompt」按钮显示）。
+      const sub = typeof o.subagent_type === 'string' ? o.subagent_type : '';
+      const prm = typeof o.prompt === 'string' ? o.prompt.replace(/\s+/g, ' ').trim() : '';
+      if (!sub && !prm) return null;
+      const prmShort = prm.length > 60 ? prm.slice(0, 60) + '…' : prm;
+      if (sub && prm) return `${sub} · ${prmShort}`;
+      return sub || prmShort;
+    }
     case 'ExitPlanMode': {
       // 单行简述：取 plan 第一行或第一句话，让 SimpleRow fallback 也能看到大概内容
       const plan = typeof o.plan === 'string' ? o.plan.trim() : '';

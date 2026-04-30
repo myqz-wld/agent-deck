@@ -24,7 +24,10 @@ import {
   resetUserAgentDeckClaudeMd,
   saveUserAgentDeckClaudeMd,
 } from './adapters/claude-code/sdk-injection';
-import type { AppSettings, ImageSource, LoadImageBlobResult, PermissionMode } from '@shared/types';
+import type { AppSettings, ImageSource, LoadImageBlobResult, PermissionMode, SessionRecord, TeamSnapshot, TeamSummary } from '@shared/types';
+import { SANDBOX_MODE_VALUES, type SandboxMode } from './adapters/claude-code/sandbox-config';
+import { forceCleanupTeam, getTeamSnapshot, listTeams } from './teams/team-fs';
+import { teamWatcher } from './teams/team-watcher';
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>;
 
@@ -195,6 +198,54 @@ function parsePermissionMode(value: unknown): PermissionMode | null {
   return value as PermissionMode;
 }
 
+/**
+ * 校验 claudeCodeSandbox 字段（REVIEW_14 阶段 2）。语义同 parsePermissionMode：
+ * - undefined / null → null（调用方决定是否兜底成 'off'）
+ * - 非 string / 非白名单值 → throw IpcInputError（避免静默存入非法值导致 sdk-bridge 时无效）
+ *
+ * SANDBOX_MODE_VALUES 直接复用 sandbox-config.ts 的常量（单点真值），避免 ipc.ts 与
+ * sdk-bridge 两边各维护一份白名单漂移。
+ */
+function parseSandboxMode(value: unknown): SandboxMode | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    throw new IpcInputError('claudeCodeSandbox', `not a string: ${String(value)}`);
+  }
+  if (!SANDBOX_MODE_VALUES.includes(value as SandboxMode)) {
+    throw new IpcInputError(
+      'claudeCodeSandbox',
+      `must be one of ${SANDBOX_MODE_VALUES.join('|')}, got ${value}`,
+    );
+  }
+  return value as SandboxMode;
+}
+
+/**
+ * 校验 Agent Teams 团队名（M1）。规则：
+ * - undefined / null / 空串 / 全空白 → null（不属于任何 team，DB 列保 NULL）
+ * - 必须是 string；长度 ≤ 64；只允许字母数字 . _ -
+ * 同步 Claude Code 自身对 ~/.claude/teams/<name>/ 目录命名的限制（避免路径越权 +
+ * 跨平台兼容），且与 M2 fs 路径前缀校验匹配。
+ */
+function parseTeamName(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    throw new IpcInputError('teamName', `not a string: ${String(value)}`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > 64) {
+    throw new IpcInputError('teamName', `length > 64 (got ${trimmed.length})`);
+  }
+  if (!/^[A-Za-z0-9._-]+$/.test(trimmed)) {
+    throw new IpcInputError(
+      'teamName',
+      `must match /^[A-Za-z0-9._-]+$/, got "${trimmed}"`,
+    );
+  }
+  return trimmed;
+}
+
 function parseStringIdArray(field: string, value: unknown, maxItems = 500): string[] {
   if (!Array.isArray(value)) {
     throw new IpcInputError(field, 'must be array');
@@ -302,6 +353,15 @@ export function bootstrapIpc(): void {
       throw new IpcInputError('patch', 'must be plain object');
     }
     const p = (patch ?? {}) as Partial<AppSettings>;
+    // per-field 白名单校验：claudeCodeSandbox 是 union type，避免 renderer 传非法字符串
+    // 静默存入 store 后 sdk-bridge 时拿到「不属于三档之一」的值导致沙盒装配混乱。
+    // 走 parseSandboxMode（同 parsePermissionMode 模式）：null → 调用方决定是否兜底，
+    // 非白名单 → throw IpcInputError 让 renderer 显错。
+    if ('claudeCodeSandbox' in p) {
+      const validated = parseSandboxMode(p.claudeCodeSandbox);
+      // null（renderer 传 null / undefined 想清空字段）→ 兜底回默认 'off'
+      p.claudeCodeSandbox = validated ?? 'off';
+    }
     // N6 事务保护：先快照改前值，持久化后逐项 apply。任一 apply throw 时回滚 DB **和运行时**
     // 到改前状态（REVIEW_4 H2：旧版只回 DB，apply* 已动 scheduler/loginItem/window/adapter/cache，
     // 留在「DB 退了 + 运行时半生效」正是注释要避免的状态）。
@@ -382,6 +442,7 @@ export function bootstrapIpc(): void {
     }
     const model = typeof raw.model === 'string' ? raw.model : undefined;
     const resume = typeof raw.resume === 'string' ? raw.resume : undefined;
+    const teamName = parseTeamName(raw.teamName);
 
     const sid = await adapter.createSession({
       cwd,
@@ -389,10 +450,14 @@ export function bootstrapIpc(): void {
       model,
       ...(permissionMode !== null ? { permissionMode } : {}),
       ...(resume !== undefined ? { resume } : {}),
+      ...(teamName !== null ? { teamName } : {}),
     });
     // 持久化 permissionMode：抽到 sessionManager.recordCreatedPermissionMode，
     // CLI 路径（cli.ts applyCliInvocation）也走同一个 helper，确保两条入口语义一致。
     sessionManager.recordCreatedPermissionMode(sid, permissionMode ?? undefined);
+    // 持久化 teamName（Agent Teams M1，同 permissionMode 模式）：未来 CLI 路径加
+    // `agent-deck new --team-name` 时也走同一 helper。
+    sessionManager.recordCreatedTeamName(sid, teamName ?? undefined);
     return sid;
   });
   on(IpcInvoke.AdapterInterrupt, async (_e, agentId, sessionId) => {
@@ -649,6 +714,67 @@ export function bootstrapIpc(): void {
 
   // Summarizer 诊断：拉取最近一次失败原因（by sessionId）。CHANGELOG_20 / G。
   on(IpcInvoke.SummarizerLastErrors, () => summarizer.getLastErrors());
+
+  // ─────────── Agent Teams (M2) ───────────
+  // TeamList：合 SQL distinctTeamNames + fs ~/.claude/teams/，返回简表。TeamHub 列表用。
+  on(IpcInvoke.TeamList, async (): Promise<TeamSummary[]> => {
+    const distinct = sessionRepo.distinctTeamNames();
+    const sessionsByName = new Map<string, SessionRecord[]>();
+    for (const name of distinct) {
+      sessionsByName.set(name, sessionRepo.findByTeamName(name));
+    }
+    return listTeams(distinct, sessionsByName);
+  });
+  // TeamGet：拉一个 team 的完整 snapshot（sessions + config.json + task list + 最近 team-* events）。TeamDetail 用。
+  on(IpcInvoke.TeamGet, async (_e, name): Promise<TeamSnapshot | null> => {
+    const teamName = parseTeamName(name);
+    if (!teamName) {
+      throw new IpcInputError('name', 'team name required');
+    }
+    const sessions = sessionRepo.findByTeamName(teamName);
+    const events = eventRepo.findTeamEvents(teamName, 100);
+    return getTeamSnapshot(teamName, sessions, events);
+  });
+  // TeamSubscribe：renderer 进入某 team 的 fs 视图时调（chokidar 引用计数 +1）。
+  on(IpcInvoke.TeamSubscribe, async (_e, name): Promise<{ ok: true }> => {
+    const teamName = parseTeamName(name);
+    if (!teamName) {
+      throw new IpcInputError('name', 'team name required');
+    }
+    teamWatcher.subscribe(teamName);
+    return { ok: true };
+  });
+  // TeamUnsubscribe：renderer 离开某 team 时调（引用计数 -1，60s grace 后真 close）。
+  on(IpcInvoke.TeamUnsubscribe, async (_e, name): Promise<{ ok: true }> => {
+    const teamName = parseTeamName(name);
+    if (!teamName) {
+      throw new IpcInputError('name', 'team name required');
+    }
+    teamWatcher.unsubscribe(teamName);
+    return { ok: true };
+  });
+  // TeamForceCleanup：手动清理 ~/.claude/teams/<name>/ 与 ~/.claude/tasks/<name>/ 残留。
+  // 兜底 Claude in-process cleanup 上游 bug。返回实际删掉的目录列表（让 UI confirm）。
+  //
+  // M3 C 方案盲区修复：除了 rm -rf fs 外，**主动**调 sessionRepo.clearTeamName 把
+  // 该 team 名下所有 sessions 的 team_name 设 NULL + emit upserts 让 renderer 同步。
+  // 不依赖 chokidar unlinkDir 事件——因为「fs 早就被外部清干净，应用 DB 还残留 team_name」
+  // 这种状态下 force-cleanup 调用时根本没东西可删，watcher 不会触发 unlinkDir，
+  // C 方案纯靠 watcher 路径会漏掉。按钮语义本就是「让这个 team 彻底消失」，所以主动 unset。
+  on(IpcInvoke.TeamForceCleanup, async (_e, name): Promise<{ removed: string[]; unsetSessions: number }> => {
+    const teamName = parseTeamName(name);
+    if (!teamName) {
+      throw new IpcInputError('name', 'team name required');
+    }
+    const fsResult = await forceCleanupTeam(teamName);
+    // 总是 unset team_name（即便 fs 没东西可删）—— 让 TeamHub 彻底移除该 team
+    const affected = sessionRepo.clearTeamName(teamName);
+    for (const sid of affected) {
+      const s = sessionRepo.get(sid);
+      if (s) eventBus.emit('session-upserted', s);
+    }
+    return { ...fsResult, unsetSessions: affected.length };
+  });
 }
 
 // ─────────────────────────────────────────────────────── Image load helpers

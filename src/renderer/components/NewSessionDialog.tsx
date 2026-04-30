@@ -1,4 +1,5 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
+import type { AppSettings } from '@shared/types';
 
 interface AdapterInfo {
   id: string;
@@ -6,6 +7,7 @@ interface AdapterInfo {
   capabilities: {
     canCreateSession?: boolean;
     canSetPermissionMode?: boolean;
+    canJoinTeam?: boolean;
   };
 }
 
@@ -29,6 +31,26 @@ const PERMISSION_OPTIONS: { value: 'default' | 'acceptEdits' | 'plan' | 'bypassP
   { value: 'bypassPermissions', label: '完全免询问 ⚠️' },
 ];
 
+/** team 名称同 main 端 parseTeamName 校验：字母数字 . _ - / 长度 ≤ 64。 */
+const TEAM_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * 给定 trim 后的 team 名，生成首条 prompt 的引导模板。
+ * Claude Code agent teams 是用自然语言驱动建队（SDK 没有 teamName options 字段），
+ * 用户必须在首条消息里明确告诉 Claude 用这个名字。模板里含占位符 `<role A>` 等，
+ * 用户在 textarea 里直接改即可——不替用户做太多假设（团队规模、分工都让用户自己写）。
+ */
+function makeTeamPromptTemplate(teamName: string): string {
+  return (
+    `Create an agent team named "${teamName}" with 3 teammates exploring different angles:\n` +
+    `- <teammate-1>: <role / focus 1>\n` +
+    `- <teammate-2>: <role / focus 2>\n` +
+    `- <teammate-3>: <role / focus 3>\n` +
+    `\n` +
+    `Have them coordinate through the shared task list, then synthesize findings back to me.`
+  );
+}
+
 export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Element | null {
   const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
   const [agentId, setAgentId] = useState('claude-code');
@@ -37,6 +59,17 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [model, setModel] = useState('');
   const [permissionMode, setPermissionMode] =
     useState<'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'>('default');
+  const [teamName, setTeamName] = useState('');
+  /** 实验特性总开关。null = settings 还没拉到（loading），双条件判定按 false 处理。 */
+  const [agentTeamsEnabled, setAgentTeamsEnabled] = useState<boolean | null>(null);
+  /**
+   * 上次由「team 名变化」自动回填到 prompt 输入框的模板字符串。
+   * 用 ref 而不是 state：仅用于「下次回填前判断 prompt 是不是仍是上次模板」，不参与渲染。
+   * 设计：仅当 prompt 当前为空 OR 等于上次模板时才回填——用户一旦自己改过 prompt 就尊重，
+   * 之后改 team 名也不再覆盖；team 名清空 / 切到不支持的 adapter 也不回退（用户可能已基于
+   * 模板写了一半内容）。
+   */
+  const lastInjectedTemplateRef = useRef<string>('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +83,33 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         setAgentId(usable[0].id);
       }
     });
+    void window.api.getSettings().then((s) => {
+      const settings = s as Partial<AppSettings> | undefined;
+      setAgentTeamsEnabled(settings?.agentTeamsEnabled ?? false);
+    });
   }, [open]);
+
+  // M1+ C 方案：team 名变化 → 自动回填首条 prompt 输入框成可编辑模板。
+  // Claude Code agent teams 必须用户在首条消息里告诉 Claude 用什么名字 + 角色分工
+  // （SDK 没有 teamName options 字段），UI 只填 team 名启动会话不够 —— 必须给用户
+  // 一个现成模板让他改。设计：仅当 prompt 为空 OR 等于上次自动回填的模板时才覆盖
+  // （用户改过就尊重不再覆盖；team 名清空 / 切到不支持 adapter 不回退原 prompt，
+  // 因为用户可能已基于模板编辑了内容）。
+  useEffect(() => {
+    if (!open) return;
+    const adapter = adapters.find((a) => a.id === agentId);
+    const showsTeam =
+      agentTeamsEnabled === true && (adapter?.capabilities.canJoinTeam ?? false);
+    const trimmedTeam = teamName.trim();
+    if (!showsTeam || trimmedTeam.length === 0) return;
+    // 当前 prompt 必须是「空」或「上次自动回填的内容」才回填；用户改过就不动
+    const lastTemplate = lastInjectedTemplateRef.current;
+    if (prompt !== '' && prompt !== lastTemplate) return;
+    const newTemplate = makeTeamPromptTemplate(trimmedTeam);
+    if (newTemplate === prompt) return; // 没变化（typing 时只是 trim 出同名，避免无意义 setState）
+    setPrompt(newTemplate);
+    lastInjectedTemplateRef.current = newTemplate;
+  }, [open, agentTeamsEnabled, agentId, adapters, teamName, prompt]);
 
   if (!open) return null;
 
@@ -60,6 +119,10 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const showModel = agentId === 'claude-code';
   // permission 模式是 Claude SDK 的 SDK-only feature；codex 没有运行时切权限模式
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
+  // Agent Teams 双条件：实验特性总开关打开 + adapter 自身支持（canJoinTeam）。
+  // codex/aider/generic-pty 都是 false → UI 隐藏。toggle 关 → UI 隐藏（即便 adapter 支持）。
+  const showTeamName =
+    agentTeamsEnabled === true && (selectedAdapter?.capabilities.canJoinTeam ?? false);
 
   const browse = async (): Promise<void> => {
     const r = await window.api.chooseDirectory(cwd || undefined);
@@ -74,6 +137,14 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
       setError('请填写首条消息（SDK 必须有首条消息才能启动 CLI 子进程）');
       return;
     }
+    // team 名前端预校验：错的话主进程也会 throw IpcInputError，但提前给反馈更友好
+    const trimmedTeam = teamName.trim();
+    if (showTeamName && trimmedTeam.length > 0) {
+      if (trimmedTeam.length > 64 || !TEAM_NAME_PATTERN.test(trimmedTeam)) {
+        setError('Team 名只允许字母数字 . _ -，长度 ≤ 64');
+        return;
+      }
+    }
     setBusy(true);
     try {
       // cwd 留空 → 主进程兜底为用户主目录（os.homedir()）
@@ -83,6 +154,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         // 隐藏的字段不传，避免 codex 等无关 agent 收到无意义参数
         model: showModel && model ? model : undefined,
         permissionMode: showPermissionMode ? permissionMode : undefined,
+        // teamName 仅在双条件满足且非空时透传；undefined 让 main 走默认 NULL 路径
+        teamName: showTeamName && trimmedTeam ? trimmedTeam : undefined,
       });
       onCreated(id);
       // 重置部分字段，留下 cwd / 设置便于连开多个会话
@@ -187,6 +260,25 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                     </option>
                   ))}
                 </select>
+              </Field>
+            )}
+
+            {showTeamName && (
+              <Field label="Team 名（实验：Agent Teams）">
+                <input
+                  type="text"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  placeholder="留空 = 不加入 team；填了会注入 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
+                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
+                />
+                <span className="mt-1 block text-[10px] leading-snug text-deck-muted/70">
+                  填了 team 名后，「首条消息」输入框会自动回填可编辑模板（含 3 个 teammate 占位符）。
+                  按需改 roles / focus / 团队规模后提交即可。如果你已经手动改过 prompt，
+                  改 team 名不会覆盖你的内容。
+                  <br />
+                  限制：不支持 /resume；需 Claude Code v2.1.32+。
+                </span>
               </Field>
             )}
 

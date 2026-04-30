@@ -64,6 +64,18 @@ export const IpcInvoke = {
    * 用户没法用、运维也看不到。
    */
   SummarizerLastErrors: 'summarizer:last-errors',
+  // ─────────── Agent Teams (M2) ───────────
+  /** 列出所有 team 简表（合 SQL distinctTeamNames + fs ~/.claude/teams/）。TeamHub 列表用。 */
+  TeamList: 'team:list',
+  /** 拉一个 team 的完整 snapshot（sessions + config.json + 当前 task list 文件内容）。 */
+  TeamGet: 'team:get',
+  /** 订阅某 team 的 fs 变化（chokidar watch 引用计数 +1）。 */
+  TeamSubscribe: 'team:subscribe',
+  /** 取消订阅某 team（引用计数 -1，到 0 + 60s grace 后 close watcher）。 */
+  TeamUnsubscribe: 'team:unsubscribe',
+  /** Agent Teams M3：手动清理一个 team 的 fs 残留（rm -rf 两个目录）。
+   *  典型用途：Claude in-process cleanup 上游 bug 卡住时让用户兜底。 */
+  TeamForceCleanup: 'team:force-cleanup',
 } as const;
 
 export const IpcEvent = {
@@ -77,6 +89,9 @@ export const IpcEvent = {
   PinToggled: 'event:pin-toggled',
   /** CLI 新建会话后让 renderer 切到「实时」并选中该 sessionId（避免用户找不到新会话）。 */
   SessionFocusRequest: 'event:session-focus-request',
+  /** Agent Teams M2：team 的 fs 数据变了（config.json / task list / 整个目录被 unlink）。
+   *  payload: TeamDataChangedEvent。renderer 决定是否重拉对应 team 的 snapshot。 */
+  TeamDataChanged: 'event:team-data-changed',
 } as const;
 
 export type IpcInvokeChannel = (typeof IpcInvoke)[keyof typeof IpcInvoke];

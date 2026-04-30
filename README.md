@@ -12,11 +12,13 @@
 
 - **半透明毛玻璃悬浮窗**：可拖动、可缩放、可折叠成胶囊；pin 模式下窗口几乎透明且置顶，能透着继续工作
 - **多会话聚合**：应用内 SDK 创建（**内**）+ 外部终端 CLI hook 上报（**外**）共一份视图，三段 tab：实时 / 待处理 / 历史
-- **活动流 + Diff + 总结**：每条会话点开看消息时间线、按文件分组的 Monaco DiffEditor、阶段性 LLM 一句话总结
+- **活动流 + Diff + 总结**：每条会话点开看消息时间线、按文件分组的 Monaco DiffEditor、阶段性 LLM 一句话总结；Task 工具调用专门渲染（subagent 名 + 紫色 chip + prompt 全文折叠/展开）
 - **控制权交接提醒**：waiting → 红闪烁 + 提示音 + 系统通知 + Dock 弹跳；finished → 黄 + 完成音；可逐项关闭，可换自定义提示音
 - **三类人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Plan mode 执行计划批准 —— 全部在活动流卡片里直接处理。批准 plan 时可选目标权限模式（默认 / 自动接受编辑 / 保持 Plan / 完全免询问）；切到「完全免询问」会自动重启 SDK 子进程
+- **OS 级沙盒**（实验，默认关）：Claude Code SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐
+- **Agent Teams 实验入口**（默认关）：开启后 NewSessionDialog 暴露 team 名输入框 + 自动回填模板 prompt；team 视图显示成员清单 / 应用内会话 / shared task list / 三个新 hook 事件流（TaskCreated / TaskCompleted / TeammateIdle），需 Claude Code CLI ≥ v2.1.32
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
-- **自带应用级约定 + skill 注入**：每条应用内 SDK 会话都自动追加一份内置 CLAUDE.md 到 system prompt，可在设置面板直接编辑
+- **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md 到 system prompt；可注入 agent-deck plugin 自带的 `deep-code-review` skill + `reviewer-claude` (Opus 4.7) / `reviewer-codex` (Codex CLI wrapper) 双异构对抗 subagent
 - **多 Adapter**：Claude Code（hook + SDK 双通道）+ Codex CLI（单 SDK 通道）；预留 aider / generic-pty 接口
 
 ---
@@ -151,7 +153,7 @@ agent-deck new \
 
 ## 设置
 
-⚙ 按钮打开设置面板，主要可改：
+⚙ 按钮打开设置面板，主要可改（每个 section 可点标题折叠 / 展开，状态 localStorage 持久化；默认仅「Claude Code Hook」展开）：
 
 - **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3 / wav / aiff / m4a / ogg / flac，带试听 + 重置）
 - **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny + interrupt 处理避免会话死等）
@@ -161,8 +163,12 @@ agent-deck new \
 - **HookServer**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
 - **外部工具**：Codex 二进制路径（留空用应用内置 vendored 版本，约 150MB / 平台）
 - **应用约定（CLAUDE.md）**：直接编辑注入到所有 SDK 会话 system prompt 末尾的应用级约定文本，「恢复默认」回落内置
+- **应用 skill 与 agents（agent-deck plugin）**：注入 `deep-code-review` skill + `reviewer-claude` / `reviewer-codex` 双异构对抗 agents 的 toggle
+- **实验功能**：
+  - **Agent Teams**：toggle；开启后 NewSessionDialog 出 team 名输入框 + 自动回填 prompt 模板。仅下次新建会话生效
+  - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免；切档仅下次新建会话生效
 
-大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类。
+大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；Agent Teams 与沙盒档位是 spawn-time 注入，仅下次新建会话生效。
 
 ---
 
@@ -178,20 +184,22 @@ src/
 │   ├── event-bus.ts       主进程内事件总线
 │   ├── hook-server/       共享 fastify 实例 + RouteRegistry（adapter 动态注册路由）
 │   ├── adapters/
-│   │   ├── claude-code/   hook 路由 + hook installer + SDK bridge + CLAUDE.md / skill 注入
+│   │   ├── claude-code/   hook 路由 + hook installer + SDK bridge + CLAUDE.md / skill / agents 注入 + sandbox-config（三档 OS 隔离配置）
 │   │   ├── codex-cli/     @openai/codex-sdk 封装（pendingMessages 串行 turn + AbortController interrupt）
 │   │   ├── aider/         占位
 │   │   └── generic-pty/   占位
 │   ├── session/           SessionManager / LifecycleScheduler / Summarizer
+│   ├── teams/             Agent Teams M2/M3：team-fs（只读 ~/.claude/teams + tasks）+ team-watcher（chokidar 引用计数 + 60s grace）
 │   ├── notify/            sound.ts（跨平台播放 + 防叠播 + 5s 上限）/ visual.ts（系统通知 + Dock）
 │   ├── permissions/       会话详情「权限」tab 的扫描器（user / user-local / project / local 四层）
-│   └── store/             better-sqlite3 + 迁移（user_version v1–v4）+ repos + electron-store settings
+│   └── store/             better-sqlite3 + 迁移（user_version v1–v6，v6 加 sessions.team_name）+ repos + electron-store settings
 ├── preload/index.ts       contextBridge 暴露 window.api / window.electronIpc
 ├── renderer/              React 19
-│   ├── App.tsx            header（标题 / 统计 / pending chip / ＋ / 三个 tab / pin / 折叠 / ⚙）
+│   ├── App.tsx            header（标题 / 统计 / pending chip / ＋ / 三个 tab + Teams tab / pin / 折叠 / ⚙）
 │   ├── components/        FloatingFrame · SessionList · SessionCard · SessionDetail ·
 │   │                      PendingTab · pending-rows · PermissionsView · HistoryPanel ·
-│   │                      NewSessionDialog · SettingsDialog · ActivityFeed · diff/
+│   │                      NewSessionDialog · SettingsDialog (sections 折叠化) · ActivityFeed (Task 渲染) · diff/ ·
+│   │                      TeamHub · TeamDetail (Agent Teams M2/M3 视图)
 │   ├── stores/            Zustand session store
 │   ├── hooks/             事件桥接
 │   └── lib/               IPC 兜底 + selectors（selectLiveSessions / selectPendingBuckets）
@@ -225,7 +233,7 @@ SQLite 在应用 userData 目录下的 `agent-deck.db`：
 - Windows：`%APPDATA%/agent-deck/`
 - Linux：`~/.config/agent-deck/`
 
-迁移按 `user_version` pragma 增量推进，目前 v4。表：`sessions / events / file_changes / summaries / app_meta`。
+迁移按 `user_version` pragma 增量推进，目前 v6（v6 加 `sessions.team_name` + 部分索引，给 Agent Teams M1 用）。表：`sessions / events / file_changes / summaries / app_meta`。
 
 ### 关键端口
 

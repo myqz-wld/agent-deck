@@ -19,6 +19,7 @@ import type {
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { settingsStore } from '@main/store/settings-store';
 import { eventBus } from '@main/event-bus';
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
@@ -26,6 +27,7 @@ import {
   getAgentDeckPluginsForSession,
   getAgentDeckSystemPromptAppend,
 } from '@main/adapters/claude-code/sdk-injection';
+import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
 import {
   imageResultToFileChanges,
   parseImageToolResult,
@@ -177,12 +179,27 @@ export class ClaudeSdkBridge {
     permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
     /** 传 sessionId 表示恢复历史会话（CLI 会从 ~/.claude/projects/<cwd>/<sid>.jsonl 续上）。 */
     resume?: string;
+    /**
+     * Agent Teams 团队名（详见 CreateSessionOptions.teamName 注释）。非空 + agentTeamsEnabled
+     * 时触发 query env 注入 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1。resume 路径下传 teamName
+     * 视为非法（Anthropic 官方明确「Agent Teams 不支持 session resumption」）。
+     */
+    teamName?: string;
   }): Promise<SdkSessionHandle> {
     // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
     // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
     // UI 已强制必填，这里再守一道，避免 IPC 直调时静默卡死。
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：SDK streaming 模式需要首条消息才能启动 CLI');
+    }
+    // Agent Teams 不支持 session resumption（官方明确限制）：resume 后 lead 可能给已死
+    // teammate 发消息。强禁两者同传，避免 CLI 内部状态机不可预期。renderer 端 SessionDetail
+    // 看到 teamName != null 时也会 disable Composer + resume 入口，这是双道防线。
+    if (opts.resume && opts.teamName && opts.teamName.trim().length > 0) {
+      throw new Error(
+        'Agent Teams 不支持 session resumption：请新建一个 team 会话，' +
+          '或先在 Claude Code 中 cleanup 旧 team 后再 resume。',
+      );
     }
     const tempKey = randomUUID();
     // 时序保护：CLI 子进程内部 hook 可能先于 SDK 通道首条 SDKMessage 到达，
@@ -243,6 +260,47 @@ export class ClaudeSdkBridge {
       // MCP 图片读取类工具（命名约定 mcp__xxx__ImageRead 或后缀 __ImageRead）同样白名单。
       if (READ_ONLY_TOOLS.has(toolName) || toolName.endsWith('__ImageRead')) {
         return { behavior: 'allow', updatedInput: input };
+      }
+
+      // REVIEW_14 阶段 2 + REVIEW_15 实证：SandboxNetworkAccess 自动透明 deny。
+      //
+      // 实测机制（dev 验证 [canusetool] log + 用户给 proxy `403 + X-Proxy-Error:
+      // blocked-by-allowlist` 头实证）：
+      // sandbox 启用后 SDK 网络拦截是**双层并行**：
+      //
+      // 1. **应用层 SandboxNetworkAccess 工具回路**：SDK 调内置 `SandboxNetworkAccess`
+      //    工具向 canUseTool 申请「是否放行该 host」（payload `{host: 'example.com'}`）
+      // 2. **OS/proxy 层执行**：SDK 同时启本地 HTTP CONNECT proxy + 注入 `https_proxy`
+      //    env，按 allowedDomains allowlist 实际拦截（curl 拿 `403 Forbidden`）
+      //
+      // 不修法走 SDK 默认行为时，SandboxNetworkAccess 工具会**弹给用户审批每个 host**
+      //（spike 阶段实测见用户截图），加上 model fallback `dangerouslyDisableSandbox: true`
+      // 那次的 Bash 弹框，用户视角是「同一个 curl 弹两次」，UX 噪声大、语义还相反。
+      //
+      // 修法（本分支）：第 1 次直接 deny + 结构化 message → model **100% 按指引**
+      // fallback 走 dangerouslyDisableSandbox 重试（不是概率性 reasoning，是协议级稳定路径）
+      // → 第 2 次 Bash 弹给用户审批（保留这一次是合理的：model 主动绕沙盒确实需要用户拍板）。
+      // 实测 UX：仅 1 次弹框给用户。
+      //
+      // strict 档因 `allowUnsandboxedCommands: false` 直接封死逃逸路径，model fallback
+      // dangerouslyDisableSandbox 也会被 SDK 直接忽略，最终 model 报「无法联网」给用户
+      // —— 此分支同样适用，不弹给用户。
+      if (toolName === 'SandboxNetworkAccess') {
+        const host =
+          typeof (input as { host?: unknown })?.host === 'string'
+            ? (input as { host: string }).host
+            : '<unknown>';
+        // 保留此 log 一行：sandbox 启用时每次 host 拦截打一行，可见性高、噪声可控
+        // （比每次 canUseTool 都打 log 强）。出问题时一目了然「sandbox 真在拦哪些 host」。
+        console.log(`[sandbox-canusetool] SandboxNetworkAccess intercept host=${host} → auto-deny + fallback hint`);
+        return {
+          behavior: 'deny',
+          message:
+            `网络访问被沙盒拦截（host: ${host}）。如确实需要联网，请用 Bash + ` +
+            `dangerouslyDisableSandbox: true 参数重试（会触发用户审批）。` +
+            `如档位为 strict 则逃逸已被禁用，请告知用户切档位或换无网方案。`,
+          interrupt: false,
+        };
       }
 
       // 特殊路径：AskUserQuestion 不是「危险工具需要批准」，是 Claude 主动征询用户。
@@ -473,6 +531,18 @@ export class ClaudeSdkBridge {
       const { query } = await loadSdk();
       const runtime = getSdkRuntimeOptions();
       const claudeBinary = getPathToClaudeCodeExecutable();
+      // REVIEW_14 阶段 2 排查盲点：sandbox 是否生效在 SDK / OS 层不打 log，应用主进程
+      // 看不到「sandbox 装载成功 / 失败」信号；改回顶层 sandbox 字段后此 log 帮助
+      // 实证「buildSandboxOptions 真的传了对应配置进 SDK options」，下次问题排查少绕一圈。
+      const sandboxOpts = buildSandboxOptions(
+        settingsStore.get('claudeCodeSandbox') ?? 'off',
+        opts.cwd,
+      );
+      console.log(
+        `[sandbox] mode=${settingsStore.get('claudeCodeSandbox') ?? 'off'} → ${
+          sandboxOpts.sandbox ? 'enabled (top-level)' : 'disabled (no field)'
+        }`,
+      );
       const q = query({
         prompt: userMessageIterable,
         options: {
@@ -515,12 +585,44 @@ export class ClaudeSdkBridge {
           // fallback 飞回迟到 hook event，仍带 hookOrigin='sdk'，ingest 入口能据此 skip
           // 不创建 source='cli' 孤儿 record。用户独立终端跑 `claude` 没有此 env，header
           // 走默认 'cli'，不受影响。
-          env: { ...runtime.env, AGENT_DECK_ORIGIN: 'sdk' },
+          //
+          // Agent Teams（M1）：当 settings.agentTeamsEnabled=true 且 teamName 非空时，
+          // 注入 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 启用 Claude Code 的 agent teams
+          // 实验特性（lead 可 spawn teammates、共享 task list、3 个新 hook 事件）。
+          // env 是 spawn 时一次性传入，关 toggle 不影响在跑会话；summarizer 走自己的
+          // query() 调用、不读 teamName，env 也不传，天然不被污染。
+          //
+          // 即便用户在 ~/.claude/settings.json 手动写过 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0，
+          // applyClaudeSettingsEnv 写进 process.env 后被 ES 展开覆盖语义保证 '1' 胜出。
+          env: {
+            ...runtime.env,
+            AGENT_DECK_ORIGIN: 'sdk',
+            ...(settingsStore.get('agentTeamsEnabled') && opts.teamName?.trim()
+              ? { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' }
+              : {}),
+          },
           // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
           // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
           // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
           // 绕开 SDK 自带 K7。dev 模式下函数返回真实 node_modules 路径，无副作用。
           ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
+          // OS 级沙盒（REVIEW_14 阶段 2）：根据 settings.claudeCodeSandbox 档位拼装
+          // managedSettings.sandbox 字段（policy 层，user/project/local 不可放宽）。
+          // 'off' 返回空对象，无 sandbox 字段，行为同现状（仅 canUseTool 弹框）。
+          // 'workspace-write' / 'strict' 返回 { managedSettings: { sandbox: {...} } }。
+          //
+          // **summarizer 不被污染**：summarizer 走 `settingSources: []` + 自己 query() 调用，
+          // 不读 sandbox 设置（与 agentTeamsEnabled 隔离同模式）。
+          //
+          // **双弹框 UX 收口**：sandbox 启用后 model 想联网会触发 SDK 内置的
+          // `SandboxNetworkAccess` 工具 → canUseTool 顶部自动 deny + message → model
+          // fallback `dangerouslyDisableSandbox: true` 重试 → canUseTool 弹给用户审批
+          // （仅 1 次弹框）。strict 档因 `allowUnsandboxedCommands: false` 直接封死
+          // 逃逸路径，model 报「无法联网」给用户。
+          //
+          // 用前面预算好的 sandboxOpts（避免重复 settingsStore.get + 让 console.log 与
+          // 实际传给 SDK 的值一定一致，杜绝「log 说 enabled 但实际没传」的矛盾）。
+          ...sandboxOpts,
         },
       });
       internal.query = q;

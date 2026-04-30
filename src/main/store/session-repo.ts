@@ -21,6 +21,7 @@ interface Row {
   ended_at: number | null;
   archived_at: number | null;
   permission_mode: string | null;
+  team_name: string | null;
 }
 
 function rowToRecord(r: Row): SessionRecord {
@@ -37,20 +38,21 @@ function rowToRecord(r: Row): SessionRecord {
     endedAt: r.ended_at,
     archivedAt: r.archived_at,
     permissionMode: (r.permission_mode as PermissionMode) ?? null,
+    teamName: r.team_name ?? null,
   };
 }
 
 export const sessionRepo = {
   upsert(rec: SessionRecord): void {
-    // 注意：permission_mode 列也参与 INSERT 与 UPDATE，否则 SessionRecord 接口
+    // 注意：permission_mode 与 team_name 也参与 INSERT 与 UPDATE，否则 SessionRecord 接口
     // 与 SQL 字段集错位 —— 复活 closed 会话用 `{...existing, lifecycle:'active'}`
-    // spread 调 upsert 时，spread 进来的 permissionMode 被静默丢弃，
-    // 未来想通过 upsert 改 permission_mode 会神秘失败（写了不报错但不生效）。
+    // spread 调 upsert 时，spread 进来的 permissionMode / teamName 被静默丢弃，
+    // 未来想通过 upsert 改这些字段会神秘失败（写了不报错但不生效）。
     getDb()
       .prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode)
-         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode)
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name)
+         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            title = excluded.title,
@@ -60,7 +62,8 @@ export const sessionRepo = {
            last_event_at = excluded.last_event_at,
            ended_at = excluded.ended_at,
            archived_at = excluded.archived_at,
-           permission_mode = excluded.permission_mode`,
+           permission_mode = excluded.permission_mode,
+           team_name = excluded.team_name`,
       )
       .run({
         id: rec.id,
@@ -75,6 +78,7 @@ export const sessionRepo = {
         ended_at: rec.endedAt,
         archived_at: rec.archivedAt,
         permission_mode: rec.permissionMode ?? null,
+        team_name: rec.teamName ?? null,
       });
   },
 
@@ -175,6 +179,46 @@ export const sessionRepo = {
     getDb().prepare(`UPDATE sessions SET permission_mode = ? WHERE id = ?`).run(mode, id);
   },
 
+  /** 写入会话所属团队名（Agent Teams）。null 表示不属于任何 team。 */
+  setTeamName(id: string, teamName: string | null): void {
+    getDb().prepare(`UPDATE sessions SET team_name = ? WHERE id = ?`).run(teamName, id);
+  },
+
+  /**
+   * Agent Teams M3 (C 方案)：批量把指定 team_name 下所有 sessions 的 team_name 设为 NULL，
+   * 返回被影响的 session id 列表（让上层 emit upserts 同步 renderer store）。
+   *
+   * 触发场景：team-watcher 监听到 ~/.claude/teams/<name>/ 整个目录被 unlinkDir
+   * （Claude TeamDelete 自然成功 / 用户点 force-cleanup 按钮 / 外部 rm -rf）→
+   * 应用 DB 自动解绑 sessions.team_name → distinctTeamNames 不再返回该 name →
+   * TeamHub 列表自然移除该 team。sessions 本身不删，仍能在历史 tab 找到。
+   */
+  clearTeamName(teamName: string): string[] {
+    const db = getDb();
+    const rows = db
+      .prepare(`SELECT id FROM sessions WHERE team_name = ?`)
+      .all(teamName) as { id: string }[];
+    if (rows.length === 0) return [];
+    db.prepare(`UPDATE sessions SET team_name = NULL WHERE team_name = ?`).run(teamName);
+    return rows.map((r) => r.id);
+  },
+
+  /** Agent Teams：列出所有非 NULL team_name（去重，按字典序）。M2 Team Hub 用。 */
+  distinctTeamNames(): string[] {
+    const rows = getDb()
+      .prepare(`SELECT DISTINCT team_name FROM sessions WHERE team_name IS NOT NULL ORDER BY team_name`)
+      .all() as { team_name: string }[];
+    return rows.map((r) => r.team_name);
+  },
+
+  /** Agent Teams：找出指定 team 名下的所有会话（含 closed / archived）。M2 TeamDetail 用。 */
+  findByTeamName(teamName: string): SessionRecord[] {
+    const rows = getDb()
+      .prepare(`SELECT * FROM sessions WHERE team_name = ? ORDER BY last_event_at DESC`)
+      .all(teamName) as Row[];
+    return rows.map(rowToRecord);
+  },
+
   /**
    * 把 sessions 表里 fromId 改名 toId，并把 events / file_changes / summaries
    * 的 session_id 引用一起迁移。整体在事务内做，避免外键 CASCADE 误删历史。
@@ -189,10 +233,13 @@ export const sessionRepo = {
       const toExists = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`).get(toId) as { 1: number } | undefined;
       if (!toExists) {
         // 复制 fromRow 内容到新 id（id 是 PK，必须 INSERT 新行）
+        // 13 列 = 13 个 ?；CHANGELOG_35 引入 team_name 时一度多算了一个 ? 占位（14 个），
+        // 触发场景是 SDK fallback rename / CLI 隐式 fork（first realId !== opts.resume）
+        // 走到这条 INSERT 时 better-sqlite3 抛 `14 values for 13 columns`。务必让 ? 数与列数一致。
         db.prepare(
           `INSERT INTO sessions
-           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           toId,
           fromRow.agent_id,
@@ -206,6 +253,7 @@ export const sessionRepo = {
           fromRow.ended_at,
           fromRow.archived_at,
           fromRow.permission_mode,
+          fromRow.team_name,
         );
       }
       // 迁移子表引用（外键 ON DELETE CASCADE 在删 fromId 时不会误删，因为 session_id 已改）

@@ -32,6 +32,127 @@ export function translateSessionStart(p: BaseHookPayload & { source?: string }):
   };
 }
 
+// ───────────────────────────────────────────────────────── Agent Teams hooks (M3)
+
+/**
+ * Claude Code v2.1.32+ Agent Teams 实验特性 hook payload。**字段名按官方文档常见命名 +
+ * 实测推断**——schema 仍在演进，所有字段宽容提取，缺失兜底到 undefined，原始 payload
+ * 全量塞进 raw 让 UI 能 fallback。
+ */
+interface TeamHookPayload {
+  session_id: string;
+  cwd?: string;
+  team_name?: string;
+  teammate_name?: string;
+  agent_name?: string;
+  task?: {
+    id?: string;
+    description?: string;
+    title?: string;
+    content?: string;
+    assignee?: string;
+    depends_on?: string[];
+    dependencies?: string[];
+    status?: string;
+    state?: string;
+  };
+  /** TeammateIdle 专属 */
+  last_task?: string;
+  reason?: string;
+  [key: string]: unknown;
+}
+
+/** 从 task 对象里挑 description / title / content 任一非空。 */
+function pickDescription(task: TeamHookPayload['task']): string | undefined {
+  if (!task) return undefined;
+  if (typeof task.description === 'string' && task.description) return task.description;
+  if (typeof task.title === 'string' && task.title) return task.title;
+  if (typeof task.content === 'string' && task.content) return task.content;
+  return undefined;
+}
+
+/** 从 task 对象里挑 depends_on / dependencies 任一数组。 */
+function pickDependsOn(task: TeamHookPayload['task']): string[] | undefined {
+  if (!task) return undefined;
+  if (Array.isArray(task.depends_on)) return task.depends_on.filter((x) => typeof x === 'string');
+  if (Array.isArray(task.dependencies)) return task.dependencies.filter((x) => typeof x === 'string');
+  return undefined;
+}
+
+export function translateTaskCreated(p: TeamHookPayload): AgentEvent {
+  const task = p.task ?? {};
+  return {
+    sessionId: p.session_id,
+    agentId: AGENT_ID,
+    kind: 'team-task-created',
+    payload: {
+      cwd: p.cwd,
+      teamName: typeof p.team_name === 'string' ? p.team_name : undefined,
+      teammateName:
+        typeof p.teammate_name === 'string'
+          ? p.teammate_name
+          : typeof p.agent_name === 'string'
+            ? p.agent_name
+            : undefined,
+      taskId: typeof task.id === 'string' ? task.id : undefined,
+      description: pickDescription(task),
+      assignee: typeof task.assignee === 'string' ? task.assignee : undefined,
+      dependsOn: pickDependsOn(task),
+      status: typeof task.status === 'string' ? task.status : typeof task.state === 'string' ? task.state : undefined,
+      raw: p as Record<string, unknown>,
+    },
+    ts: Date.now(),
+  };
+}
+
+export function translateTaskCompleted(p: TeamHookPayload): AgentEvent {
+  const task = p.task ?? {};
+  return {
+    sessionId: p.session_id,
+    agentId: AGENT_ID,
+    kind: 'team-task-completed',
+    payload: {
+      cwd: p.cwd,
+      teamName: typeof p.team_name === 'string' ? p.team_name : undefined,
+      teammateName:
+        typeof p.teammate_name === 'string'
+          ? p.teammate_name
+          : typeof p.agent_name === 'string'
+            ? p.agent_name
+            : undefined,
+      taskId: typeof task.id === 'string' ? task.id : undefined,
+      description: pickDescription(task),
+      assignee: typeof task.assignee === 'string' ? task.assignee : undefined,
+      dependsOn: pickDependsOn(task),
+      status: typeof task.status === 'string' ? task.status : typeof task.state === 'string' ? task.state : undefined,
+      raw: p as Record<string, unknown>,
+    },
+    ts: Date.now(),
+  };
+}
+
+export function translateTeammateIdle(p: TeamHookPayload): AgentEvent {
+  return {
+    sessionId: p.session_id,
+    agentId: AGENT_ID,
+    kind: 'team-teammate-idle',
+    payload: {
+      cwd: p.cwd,
+      teamName: typeof p.team_name === 'string' ? p.team_name : undefined,
+      teammateName:
+        typeof p.teammate_name === 'string'
+          ? p.teammate_name
+          : typeof p.agent_name === 'string'
+            ? p.agent_name
+            : undefined,
+      lastTask: typeof p.last_task === 'string' ? p.last_task : undefined,
+      reason: typeof p.reason === 'string' ? p.reason : undefined,
+      raw: p as Record<string, unknown>,
+    },
+    ts: Date.now(),
+  };
+}
+
 export function translatePreToolUse(
   p: BaseHookPayload & { tool_name?: string; tool_input?: unknown },
 ): AgentEvent {

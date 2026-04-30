@@ -6,6 +6,9 @@ import {
   translateSessionEnd,
   translateSessionStart,
   translateStop,
+  translateTaskCompleted,
+  translateTaskCreated,
+  translateTeammateIdle,
 } from './translate';
 import type { AgentEvent } from '@shared/types';
 
@@ -64,5 +67,10 @@ export function buildHookRoutes(emit: (e: AgentEvent) => void): RouteOptions[] {
     makeRoute('/hook/notification', (b) => translateNotification(b as never), taggedEmit),
     makeRoute('/hook/stop', (b) => translateStop(b as never), taggedEmit),
     makeRoute('/hook/sessionend', (b) => translateSessionEnd(b as never), taggedEmit),
+    // M3 Agent Teams hook（Claude Code v2.1.32+ 实验特性）。
+    // 老版本 CLI 没有这些 hook event，路由存在但收不到 hit；schema 演进由 translate 函数宽容兜底。
+    makeRoute('/hook/taskcreated', (b) => translateTaskCreated(b as never), taggedEmit),
+    makeRoute('/hook/taskcompleted', (b) => translateTaskCompleted(b as never), taggedEmit),
+    makeRoute('/hook/teammateidle', (b) => translateTeammateIdle(b as never), taggedEmit),
   ];
 }

@@ -55,6 +55,24 @@ export const eventRepo = {
   },
 
   /**
+   * Agent Teams M3：按 team 名拉所有 team-* event（task created / completed / teammate idle），
+   * 跨 team 内所有 sessions JOIN。TeamDetail 事件流 section 用。
+   * 限定 limit 防长时间运行的 team 一次拉到上千条；按 ts DESC 取最近 N 条。
+   */
+  findTeamEvents(teamName: string, limit = 100): (AgentEvent & { id: number })[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT e.* FROM events e
+         JOIN sessions s ON s.id = e.session_id
+         WHERE s.team_name = ?
+           AND e.kind IN ('team-task-created', 'team-task-completed', 'team-teammate-idle')
+         ORDER BY e.ts DESC LIMIT ?`,
+      )
+      .all(teamName, limit) as Row[];
+    return rows.map(rowToEvent);
+  },
+
+  /**
    * 找最近一条「Claude 自己说的话」（kind = message AND role = assistant AND error 非真）。
    * summarizer 第二层兜底用：LLM 失败时拿这条作为「Claude 当前在做什么」的近似。
    *
