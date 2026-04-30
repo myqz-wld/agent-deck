@@ -285,7 +285,7 @@ describe('task_delete / 写权限锁', () => {
 
     await tools.task_delete.handler({ task_id: 't1' }, undefined);
 
-    expect(repo.delete).toHaveBeenCalledWith('t1', { cascade: false });
+    expect(repo.delete).toHaveBeenCalledWith('t1', expect.objectContaining({ cascade: false }));
     expect(emitSpy).toHaveBeenCalledWith(
       'task-changed',
       expect.objectContaining({ kind: 'deleted', taskId: 't1', teamName: 'team-A' }),
@@ -299,7 +299,39 @@ describe('task_delete / 写权限锁', () => {
 
     await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
 
-    expect(repo.delete).toHaveBeenCalledWith('t1', { cascade: true });
+    expect(repo.delete).toHaveBeenCalledWith('t1', expect.objectContaining({ cascade: true }));
+  });
+
+  it('REVIEW_17 H1：cascade 时给 repo.delete 传 closure team predicate（拦跨 team child）', async () => {
+    const tools = await buildToolsAsDict(repo, 'team-A');
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A' }));
+    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
+
+    // 断言：传给 repo.delete 的 opts.predicate 真的是「闭包 team 才通过」
+    const callArgs = (repo.delete as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      cascade: boolean;
+      predicate: (id: string, t: string | null) => boolean;
+    };
+    expect(typeof callArgs.predicate).toBe('function');
+    expect(callArgs.predicate('any-id', 'team-A')).toBe(true);
+    expect(callArgs.predicate('any-id', 'team-B')).toBe(false);
+    expect(callArgs.predicate('any-id', null)).toBe(false); // 全局任务也不被 team-A session cascade 删
+  });
+
+  it('REVIEW_17 H1：closure=null（全局会话）的 cascade predicate 仅放行 teamName=null', async () => {
+    const tools = await buildToolsAsDict(repo, null);
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: null }));
+    (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
+
+    const callArgs = (repo.delete as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      predicate: (id: string, t: string | null) => boolean;
+    };
+    expect(callArgs.predicate('any-id', null)).toBe(true);
+    expect(callArgs.predicate('any-id', 'team-A')).toBe(false);
   });
 
   it('task.teamName !== closure → isError + 不调 repo.delete', async () => {

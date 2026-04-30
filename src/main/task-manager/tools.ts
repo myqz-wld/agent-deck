@@ -258,7 +258,7 @@ export async function buildTaskTools(
   // ───── task_delete
   const taskDelete = tool(
     'task_delete',
-    `Delete a task by id. The task must belong to the current session's team. With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also team-checked). Without force, surviving tasks have their blocks/blocked_by references to it cleaned up.`,
+    `Delete a task by id. The task must belong to the current session's team. With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also team-checked: cross-team children are skipped, not deleted). Without force, surviving tasks have their blocks/blocked_by references to it cleaned up.`,
     {
       task_id: z.string().describe('Task UUID to delete'),
       force: z
@@ -277,7 +277,15 @@ export async function buildTaskTools(
             `permission denied: task ${args.task_id} belongs to team "${target.teamName ?? '<global>'}", current session is in "${currentTeam ?? '<global>'}"`,
           );
         }
-        const success = repo.delete(args.task_id, { cascade: args.force ?? false });
+        // REVIEW_17 H1 修复：cascade=true 时把 closure team predicate 传进 repo.delete。
+        // BFS 路径上跨 team 的 child 整个跳过（不删 + 不展开它的下游），避免越权。
+        // 不在这里 throw / 报错：用户的请求是「删 self + cascade 同 team 下游」，
+        // 跨 team 的下游本来就不应该跟着删，silent skip 符合「同 team 边界」的最小语义；
+        // 真要跨 team 协调删，工具不该是入口（去用 force_cleanup_team / 改造 spec）。
+        const success = repo.delete(args.task_id, {
+          cascade: args.force ?? false,
+          predicate: (_, t) => t === currentTeam,
+        });
         if (success) {
           eventBus.emit('task-changed', {
             kind: 'deleted',
