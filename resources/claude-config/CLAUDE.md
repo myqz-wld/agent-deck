@@ -158,6 +158,10 @@ Bash 工具调用时给 `timeout: 300000`，重 review 给 600000；轻量核查
 
 chat 里看到 stringified JSON 含 `type='permission_request'`（CLI 把 inbox 协议消息当 user message 推给你）：别 SendMessage 劝 teammate 放弃 / 改方法 / abort，也别 SendMessage 回 `permission_response`（协议只支持 `shutdown / plan_approval`）。等真人在宿主 PendingTab 批，期间做其他不依赖该 teammate 该 tool call 的工作。
 
+### TeamDelete 异步延迟，首次失败别误判为 bug
+
+shutdown 完所有 teammate 后立刻 `TeamDelete` 经常报 `Cannot cleanup with N active member(s)`——CLI 内部异步移除 `config.json` members 实测延迟可达几分钟。等几分钟重试通常成功，期间做其他不依赖该 team 的事。
+
 ---
 
 ## 新项目工程地基
