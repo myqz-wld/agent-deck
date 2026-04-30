@@ -200,8 +200,22 @@ export const teamCoordinator = new TeamCoordinator();
  * **未实证**：CLI 实际 `tool_input` 字段名（`name` vs `team_name` vs `team` vs `teamName`）。
  * 本 helper 同时尝试多个常见字段名 + console.log 命中实情。首次实测后保留对应分支。
  *
- * 不命中 / 不是 team 工具 → 返回 null，hook handler 不调 sync（fs / hook 通道兜底）。
+ * REVIEW_17 R2 / M2-R2：返回值走与 ipc.ts parseTeamName 同款规范化（trim + 严格
+ * charset）—— 否则 lead 调 `TeamCreate(name="  team-A  ")` 时反向同步写到 DB 的是带
+ * 空白的字符串，inbox-watcher.subscribe 走 slugify 后路径 `--team-A--` 与 fs 实际
+ * 目录 `team-A` 错位 → chokidar 永远 fire 不到 → permission_request 全丢。
+ *
+ * 不命中 / 不是 team 工具 / 校验失败 → 返回 null，hook handler 不调 sync（fs / hook 通道兜底）。
  */
+const TEAM_NAME_CHARSET = /^[A-Za-z0-9._-]+$/;
+function normalizeTeamName(raw: string | null): string | null {
+  if (raw === null) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0 || trimmed.length > 64) return null;
+  if (!TEAM_NAME_CHARSET.test(trimmed)) return null;
+  return trimmed;
+}
+
 export function extractTeamNameFromToolInput(
   toolName: string,
   input: unknown,
@@ -215,14 +229,18 @@ export function extractTeamNameFromToolInput(
     }
     return null;
   };
+  let raw: string | null;
   switch (toolName) {
     case 'TeamCreate':
     case 'TeamDelete':
-      return pickStr('name', 'team_name', 'teamName', 'team');
+      raw = pickStr('name', 'team_name', 'teamName', 'team');
+      break;
     case 'Teammate':
     case 'SendMessage':
-      return pickStr('team_name', 'teamName', 'team');
+      raw = pickStr('team_name', 'teamName', 'team');
+      break;
     default:
       return null;
   }
+  return normalizeTeamName(raw);
 }

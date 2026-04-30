@@ -282,20 +282,26 @@ export async function buildTaskTools(
         // 不在这里 throw / 报错：用户的请求是「删 self + cascade 同 team 下游」，
         // 跨 team 的下游本来就不应该跟着删，silent skip 符合「同 team 边界」的最小语义；
         // 真要跨 team 协调删，工具不该是入口（去用 force_cleanup_team / 改造 spec）。
-        const success = repo.delete(args.task_id, {
+        const deletedIds = repo.delete(args.task_id, {
           cascade: args.force ?? false,
           predicate: (_, t) => t === currentTeam,
         });
-        if (success) {
+        // REVIEW_17 R2 / M1-R2：原来只 emit root 一条，cascade 下游 N-1 个
+        // 在 DB 已 DELETE 但事件不发，未来 Tasks tab UI 上 stale。改 repo.delete
+        // 返回 deletedIds 后，tool 层逐个 emit `kind:'deleted'`，让所有被删的
+        // task 都触发 renderer 端 onTaskChanged 同步刷新。
+        for (const id of deletedIds) {
           eventBus.emit('task-changed', {
             kind: 'deleted',
-            taskId: args.task_id,
+            taskId: id,
             task: null,
+            // 跨 team child 已被 predicate 过滤；deletedIds 里所有 id 与 closure team
+            // 同范围（target.teamName === currentTeam，cascade 子集走 predicate）
             teamName: target.teamName,
             ts: Date.now(),
           });
         }
-        return ok({ success, task_id: args.task_id });
+        return ok({ success: deletedIds.length > 0, task_id: args.task_id, deleted_ids: deletedIds });
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
       }
