@@ -140,6 +140,23 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     return { cancelledPermIds: perms, cancelledAskIds: asks, cancelledExitIds: exits, cancelledTeamPermIds: teamPerms };
   }, [recent]);
 
+  // tool-use-end 事件 payload 只带 toolUseId / toolName / toolResult，不带 toolInput。
+  // 渲染 ToolEndRow 时想显示「✨ Skill 完成 · agent-deck:deep-code-review」这种带 input 摘要的
+  // 文本，需要从同 sessionId 前一条 tool-use-start 反查。这里 build 一次 Map<toolUseId, startEvent>，
+  // 通过 prop 透传给 ActivityRow → ToolEndRow，零持久化层改动。
+  // 副作用 1：老 events（修复 toolName 漏传 bug 之前持久化的）payload 缺 toolName 的也能从 start
+  // 事件兜底拿回来 —— 只要前一条 start 还在 recent 窗口（默认 RECENT_LIMIT=30）内。
+  // 副作用 2：跨 RECENT_LIMIT 窗口的 end 仍兜不到，但这是边界情况（start/end 通常几秒内紧挨着）。
+  const toolStartByUseId = useMemo(() => {
+    const m = new Map<string, AgentEvent>();
+    for (const e of recent) {
+      if (e.kind !== 'tool-use-start') continue;
+      const id = (e.payload as { toolUseId?: unknown })?.toolUseId;
+      if (typeof id === 'string' && id) m.set(id, e);
+    }
+    return m;
+  }, [recent]);
+
   if (!loaded && recent.length === 0) {
     return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
   }
@@ -179,6 +196,7 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
           cancelledAskIds={cancelledAskIds}
           cancelledExitIds={cancelledExitIds}
           cancelledTeamPermIds={cancelledTeamPermIds}
+          toolStartByUseId={toolStartByUseId}
           resolvePermission={resolvePermission}
           resolveAsk={resolveAsk}
           resolveExitPlan={resolveExitPlan}
@@ -202,6 +220,7 @@ interface RowProps {
   cancelledAskIds: Set<string>;
   cancelledExitIds: Set<string>;
   cancelledTeamPermIds: Set<string>;
+  toolStartByUseId: Map<string, AgentEvent>;
   resolvePermission: (sessionId: string, requestId: string) => void;
   resolveAsk: (sessionId: string, requestId: string) => void;
   resolveExitPlan: (sessionId: string, requestId: string) => void;
@@ -230,6 +249,7 @@ const ActivityRow = memo(function ActivityRow({
   cancelledAskIds,
   cancelledExitIds,
   cancelledTeamPermIds,
+  toolStartByUseId,
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
@@ -312,7 +332,10 @@ const ActivityRow = memo(function ActivityRow({
   }
 
   if (event.kind === 'tool-use-end') {
-    return <ToolEndRow event={event} sessionId={sessionId} />;
+    const useId = (event.payload as { toolUseId?: unknown })?.toolUseId;
+    const startEvent =
+      typeof useId === 'string' && useId ? toolStartByUseId.get(useId) : undefined;
+    return <ToolEndRow event={event} sessionId={sessionId} startEvent={startEvent} />;
   }
 
   return <SimpleRow event={event} />;

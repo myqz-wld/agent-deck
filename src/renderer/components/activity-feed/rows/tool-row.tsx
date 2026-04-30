@@ -56,10 +56,11 @@ export function ToolStartRow({
     );
   }
 
-  // Task：spawn subagent。当前会话起 reviewer-claude / reviewer-codex / general-purpose 等都走这条。
+  // Task / Agent：spawn subagent。当前会话起 reviewer-claude / reviewer-codex / general-purpose 等都走这条。
+  // 'Agent' 是新版 SDK 的 Task 别名（input shape 完全一致），统一处理。
   // 单行摘要靠 describe.ts 的 Task case；prompt 全文较长（典型 review prompt 含 scope+focus+skip 上百行）
   // → 默认折叠，点「展开 prompt」才显示。subagent 的返回值由后续 ToolEndRow 的 ▸/▾ 展开。
-  if (tool === 'Task') {
+  if (tool === 'Task' || tool === 'Agent') {
     const taskInput = (p.toolInput ?? {}) as { subagent_type?: unknown; prompt?: unknown; description?: unknown };
     const subType = typeof taskInput.subagent_type === 'string' ? taskInput.subagent_type : '';
     const taskPrompt = typeof taskInput.prompt === 'string' ? taskInput.prompt : '';
@@ -69,8 +70,8 @@ export function ToolStartRow({
     return (
       <li className="rounded-md border border-status-working/30 bg-status-working/[0.04] p-2 text-[11px]">
         <div className="flex items-center gap-1.5">
-          <span>{toolIcon('Task')}</span>
-          <span className="font-mono">Task</span>
+          <span>{toolIcon(tool)}</span>
+          <span className="font-mono">{tool}</span>
           {subType && (
             <span
               className="rounded bg-status-working/20 px-1 py-0.5 font-mono text-[9px] text-status-working"
@@ -140,16 +141,25 @@ export function ToolStartRow({
 /**
  * tool-use-end：result 折叠/展开（点击行头 ▸/▾）+ image-read 缩略图卡片走特殊渲染（缩略图 + 描述）。
  * 其他 image-* kinds 不需要在 ToolEndRow 显示 — 由 file-changed → ImageDiffRenderer 接管。
+ *
+ * `startEvent` 是同 toolUseId 的 tool-use-start 事件（由 ActivityFeed 反查传入）。
+ * tool-use-end payload 不带 toolInput，所以 detail（如「✨ Skill 完成 · agent-deck:deep-code-review」）
+ * 必须从 startEvent.toolInput 反查；同时 startEvent.toolName 也作为 toolName 兜底（覆盖修 toolName
+ * 漏传 bug 之前持久化的老 events，只要前一条 start 还在 RECENT_LIMIT 窗口里）。
  */
 export function ToolEndRow({
   event,
   sessionId,
+  startEvent,
 }: {
   event: AgentEvent;
   sessionId: string;
+  startEvent?: AgentEvent;
 }): JSX.Element {
   const p = (event.payload ?? {}) as Record<string, unknown>;
-  const tool = (p.toolName as string) ?? '工具';
+  const startPayload = (startEvent?.payload ?? {}) as Record<string, unknown>;
+  const tool =
+    (p.toolName as string) ?? (startPayload.toolName as string) ?? '工具';
   const result = p.toolResult ?? p.toolResponse;
   const [open, setOpen] = useState(false);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
@@ -161,6 +171,12 @@ export function ToolEndRow({
   const text = useMemo(() => formatToolResult(result), [result]);
   const imageRead = useMemo(() => parseImageReadResult(result), [result]);
   const hasContent = text && text.trim().length > 0;
+  // 借 start 事件的 toolInput 拼 detail —— 让「✨ Skill 完成」补回「· agent-deck:deep-code-review」。
+  // imageRead 自己带 [provider · model] 后缀就不再叠 detail，避免一行三段信息太挤。
+  const detail = useMemo(
+    () => (imageRead ? null : describeToolInput(tool, startPayload.toolInput)),
+    [tool, startPayload.toolInput, imageRead],
+  );
 
   return (
     <li className="rounded-md border border-deck-border/40 bg-white/[0.015] p-2 text-[11px]">
@@ -178,6 +194,11 @@ export function ToolEndRow({
             <span className="ml-1.5 text-[9px] text-deck-muted/70">
               [{imageRead.provider}
               {imageRead.model ? ` · ${imageRead.model}` : ''}]
+            </span>
+          )}
+          {detail && (
+            <span className="ml-1.5 truncate text-[10px] text-deck-muted/85">
+              · {detail}
             </span>
           )}
         </span>

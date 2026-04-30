@@ -72,8 +72,11 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
       }
       return skill;
     }
-    case 'Task': {
+    case 'Task':
+    case 'Agent': {
       // Claude Agent SDK 的 Task 工具：spawn 一个 subagent 干活。
+      // 'Agent' 是新版 SDK 的别名（input shape 完全一致：{subagent_type, prompt, description}），
+      // 实证 jsonl tool_use 名字混着出现，统一处理。
       // toolInput.subagent_type 是 subagent 名（如 'agent-deck:reviewer-claude' / 'general-purpose'），
       // toolInput.prompt 是给 subagent 的指令文本（可能很长 → 单行摘要截断 60 字够了，
       // 完整 prompt 由 ToolStartRow 「展开 prompt」按钮显示）。
@@ -83,6 +86,57 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
       const prmShort = prm.length > 60 ? prm.slice(0, 60) + '…' : prm;
       if (sub && prm) return `${sub} · ${prmShort}`;
       return sub || prmShort;
+    }
+    case 'TeamCreate': {
+      // Agent Teams CLI builtin：{ team_name, description }
+      const name = typeof o.team_name === 'string' ? o.team_name : '';
+      const desc = typeof o.description === 'string' ? o.description.replace(/\s+/g, ' ').trim() : '';
+      if (!name && !desc) return null;
+      const descShort = desc.length > 60 ? desc.slice(0, 60) + '…' : desc;
+      if (name && desc) return `${name} · ${descShort}`;
+      return name || descShort;
+    }
+    case 'SendMessage': {
+      // Agent Teams CLI builtin：{ to | recipient, message, type?, summary? }
+      // message 实证可能是 string 也可能是 object（permission_response / shutdown_request 等结构化消息）。
+      const to =
+        typeof o.recipient === 'string'
+          ? o.recipient
+          : typeof o.to === 'string'
+            ? o.to
+            : '';
+      // summary 是用户/wrapper 给的简短描述，优先用；否则尝试 message string；否则用 type 名字
+      const summary =
+        typeof o.summary === 'string' && o.summary.trim()
+          ? o.summary.replace(/\s+/g, ' ').trim()
+          : typeof o.message === 'string'
+            ? o.message.replace(/\s+/g, ' ').trim()
+            : o.message && typeof o.message === 'object' && typeof (o.message as { type?: unknown }).type === 'string'
+              ? `<${(o.message as { type: string }).type}>`
+              : typeof o.type === 'string'
+                ? `<${o.type}>`
+                : '';
+      if (!to && !summary) return null;
+      const summaryShort = summary.length > 60 ? summary.slice(0, 60) + '…' : summary;
+      if (to && summaryShort) return `→ ${to} · ${summaryShort}`;
+      return to ? `→ ${to}` : summaryShort;
+    }
+    case 'TaskOutput': {
+      // Claude Code builtin：读 background bash task 输出。{ task_id, block, timeout }
+      const tid = typeof o.task_id === 'string' ? o.task_id : '';
+      if (!tid) return null;
+      const block = o.block === true ? '阻塞' : o.block === false ? '非阻塞' : '';
+      return block ? `${tid} · ${block}` : tid;
+    }
+    case 'TaskStop': {
+      // Claude Code builtin：停 background bash task。{ task_id | shell_id }
+      const tid =
+        typeof o.task_id === 'string'
+          ? o.task_id
+          : typeof o.shell_id === 'string'
+            ? o.shell_id
+            : '';
+      return tid || null;
     }
     case 'ExitPlanMode': {
       // 单行简述：取 plan 第一行或第一句话，让 SimpleRow fallback 也能看到大概内容
