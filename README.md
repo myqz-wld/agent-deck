@@ -166,9 +166,10 @@ agent-deck new \
 - **应用 skill 与 agents（agent-deck plugin）**：注入 `deep-code-review` skill + `reviewer-claude` / `reviewer-codex` 双异构对抗 agents 的 toggle
 - **实验功能**：
   - **Agent Teams**：toggle；开启后 NewSessionDialog 出 team 名输入框 + 自动回填 prompt 模板。仅下次新建会话生效
+  - **SDK Task Manager**：toggle；开启后 SDK 会话注入 5 个结构化任务工具（`mcp__tasks__task_create / _list / _get / _update / _delete`）让多 Agent 跨会话协作管理结构化任务。当前会话 team 自动闭包注入到工具，写操作锁在自己 team；只读允许跨 team 协调。仅下次新建会话生效
   - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免；切档仅下次新建会话生效
 
-大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；Agent Teams 与沙盒档位是 spawn-time 注入，仅下次新建会话生效。
+大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；Agent Teams / SDK Task Manager / 沙盒档位是 spawn-time 注入，仅下次新建会话生效。
 
 ---
 

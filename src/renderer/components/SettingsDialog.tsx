@@ -413,6 +413,22 @@ function SettingsBody({
           <br />
           <strong className="text-amber-300/90">⚠ 仅下次新建会话生效</strong>——已在跑的 team 会话不受影响（env 是 spawn 时一次性传入）。
         </div>
+        <div className="mt-3 border-t border-deck-border/50 pt-3">
+          <Toggle
+            label="启用 SDK Task Manager（in-process MCP）"
+            value={settings.enableTaskManager}
+            onChange={(v) => void update({ enableTaskManager: v })}
+          />
+          <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">
+            开启后 SDK 会话注入 5 个结构化任务工具（<code className="rounded bg-white/5 px-1">mcp__tasks__task_create</code> / <code className="rounded bg-white/5 px-1">_list</code> / <code className="rounded bg-white/5 px-1">_get</code> / <code className="rounded bg-white/5 px-1">_update</code> / <code className="rounded bg-white/5 px-1">_delete</code>），让多个 SDK Agent 跨会话协作管理结构化任务。
+            <br />
+            <strong className="text-deck-text/85">与 Agent Teams 联动</strong>：会话所属 team 会自动闭包注入到任务工具，写操作（create/update/delete）锁在自己 team；只读（list/get）允许跨 team 协调。无 team 的会话只能操作全局任务。
+            <br />
+            与 <code className="rounded bg-white/5 px-1">~/.claude/tasks/&lt;team&gt;/&lt;list&gt;.md</code> 自然语言任务并行存在、互不覆盖（前者 Claude 内部协作用、后者结构化可被工具调用）。
+            <br />
+            <strong className="text-amber-300/90">⚠ 仅下次新建会话生效</strong>——已在跑的会话已固化 mcpServers 列表。
+          </div>
+        </div>
         <div className="mt-2 flex items-center justify-between text-[11px]">
           <span>Claude Code 沙盒（OS 级隔离）</span>
           <select

@@ -33,6 +33,7 @@ import {
   parseImageToolResult,
 } from '@main/adapters/claude-code/translate';
 import { isImageTool } from '@shared/mcp-tools';
+import { getTasksMcpServerForSession } from '@main/task-manager/server';
 
 const AGENT_ID = 'claude-code';
 
@@ -543,6 +544,20 @@ export class ClaudeSdkBridge {
           sandboxOpts.sandbox ? 'enabled (top-level)' : 'disabled (no field)'
         }`,
       );
+      // Task Manager（CHANGELOG_43）：开关开 → 构造 per-session in-process MCP server，
+      // teamName 闭包注入到 5 个 task tool（写操作锁在自己 team；只读允许跨）。开关关 →
+      // 不传 mcpServers / allowedTools 字段，与不挂 plugin 同语义零副作用。
+      // mcpServers 需要在 spawn 前 await 拿到 server instance，所以放在 query() 调用之前
+      // （loadSdk 已 cache，复用同 SDK 实例）。
+      const enableTaskManager = settingsStore.get('enableTaskManager') === true;
+      const tasksServer = enableTaskManager
+        ? await getTasksMcpServerForSession(opts.teamName ?? null)
+        : null;
+      if (tasksServer) {
+        console.log(
+          `[task-manager] mcpServers attached for session (team=${opts.teamName ?? '<global>'})`,
+        );
+      }
       const q = query({
         prompt: userMessageIterable,
         options: {
@@ -570,6 +585,16 @@ export class ClaudeSdkBridge {
           // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突
           // （plugin 强制命名空间前缀）。
           plugins: getAgentDeckPluginsForSession(),
+          // Task Manager（CHANGELOG_43）：开关开 → 挂 in-process MCP server `tasks` +
+          // pre-approve `mcpServers__tasks__*`（任务工具属于受控应用工具，不走 canUseTool
+          // 弹框）。teamName 已通过 closure 注入到 5 个 tool handler，agent 不能瞎传。
+          // 开关关 → 不展开这两字段，与不挂 plugin 同语义零副作用。
+          ...(tasksServer
+            ? {
+                mcpServers: { tasks: tasksServer },
+                allowedTools: ['mcp__tasks__*'],
+              }
+            : {}),
           // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）
           settingSources: ['user', 'project', 'local'],
           canUseTool,

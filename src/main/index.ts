@@ -174,6 +174,12 @@ async function bootstrap(): Promise<void> {
     safeSend(IpcEvent.TeamDataChanged, p);
   });
 
+  // Task Manager (CHANGELOG_43)：tools.ts handler 在 task_create / task_update /
+  // task_delete 写完 repo 后 emit；这里桥接到 IPC 推 renderer。当前 renderer 没 task
+  // UI 消费，但基础设施有了，未来加 Tasks tab 直接 onTaskChanged 订阅即可（与
+  // onTeamDataChanged 同模式）。
+  eventBus.on('task-changed', (p) => safeSend(IpcEvent.TaskChanged, p));
+
   ensureFocusableOnActivate();
 
   // 10. 全局快捷键：Cmd/Ctrl+Alt+P 切换 pin（窗口置顶 + vibrancy）。
