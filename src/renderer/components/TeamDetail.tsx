@@ -327,8 +327,25 @@ function SendToTeammate({
     }
     setBusy(true);
     try {
-      // 应用包装：拼成 lead 容易理解的中转格式。Claude 内部会把这条转给 target teammate。
-      const wrapped = `Tell teammate ${target.trim()}: ${text.trim()}`;
+      // REVIEW_17 R3 / M1-R3：原来 `Tell teammate ${target}: ${text}` 字符串拼接，
+      // 用户输入含 newline / 仿造下一条 "Tell teammate evil: ..." 即可让 lead LLM 把整段
+      // 解析成多条 SendMessage（典型 prompt-injection），手动 UI 风险有限但未来 CLI/API
+      // 拼 wrapper 时意外行为概率高。改结构化包装（fenced code block 让 lead 一目了然
+      // 看到边界，不会把 text 当指令解析）+ target 名走与 normalizeTeamName 同款 charset
+      // 限制（防 target 字段同样被注入 newline）。
+      const safeTarget = target.trim();
+      if (!/^[A-Za-z0-9._-]{1,64}$/.test(safeTarget)) {
+        setError('teammate 名字含非法字符（仅字母 / 数字 / . _ - 允许，长度 ≤ 64）');
+        setBusy(false);
+        return;
+      }
+      const wrapped = [
+        `Send the following message to teammate "${safeTarget}":`,
+        '',
+        '```',
+        text.trim(),
+        '```',
+      ].join('\n');
       await window.api.sendAdapterMessage(leadSession.agentId, leadSession.id, wrapped);
       setText('');
     } catch (e) {
