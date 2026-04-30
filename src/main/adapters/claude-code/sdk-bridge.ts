@@ -591,8 +591,9 @@ export class ClaudeSdkBridge {
           // LLM 上下文末尾位置 instruction following 最强。
           // 已去掉用户自定义 systemPrompt 功能（避免 isolation mode 与 agent-deck 约定冲突）。
           //
-          // CHANGELOG_45 后续：teamName 非空时拼一行 per-session 元信息到 append 末尾，
-          // 让 lead 自然知道自己在哪个 team（避免 deep-code-review 等 skill 自创 team 名）。
+          // CHANGELOG_46 起 team 名由 lead 在会话内自由建（NewSessionDialog 删了 teamName
+          // 输入框），spawn 时不需要在 systemPrompt 拼 per-session team 元信息——team-coordinator
+          // 通过 PreToolUse hook / fs watcher / hook 三层反向同步即可。
           systemPrompt: {
             type: 'preset',
             preset: 'claude_code',

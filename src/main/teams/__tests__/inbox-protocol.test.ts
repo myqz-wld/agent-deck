@@ -76,6 +76,22 @@ describe('parseSubMessage', () => {
     const sub = parseSubMessage(text);
     expect(sub?.type).toBe('mode_set_request');
   });
+  it('REVIEW_17 R1 / LOW-2：识别 idle_notification（CHANGELOG_48 加的 schema）', () => {
+    const text = JSON.stringify({
+      type: 'idle_notification',
+      from: 'reviewer-codex',
+      timestamp: '2026-04-30T19:08:29.578Z',
+    });
+    const sub = parseSubMessage(text);
+    expect(sub?.type).toBe('idle_notification');
+    if (sub?.type === 'idle_notification') {
+      expect(sub.from).toBe('reviewer-codex');
+    }
+  });
+  it('idle_notification 缺 from 字段返回 null（schema 防御）', () => {
+    const text = JSON.stringify({ type: 'idle_notification', timestamp: '2026-01-01T00:00:00.000Z' });
+    expect(parseSubMessage(text)).toBeNull();
+  });
   it('未知 type 返回 null', () => {
     const text = JSON.stringify({ type: 'random_thing' });
     expect(parseSubMessage(text)).toBeNull();

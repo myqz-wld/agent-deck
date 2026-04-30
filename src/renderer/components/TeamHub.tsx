@@ -10,7 +10,8 @@ import { TeamDetail } from './TeamDetail';
  * SQL 可能有 teamName 标过但 Claude 还没真建 team 的会话）。
  *
  * 不在这里订阅 fs 变化（list 是聚合视图，fs 单点变化触发 list 全量 re-fetch 没意义）；
- * 用 5s polling 兜底 + 监听 session-* IPC 事件触发 re-fetch（sessionCount 会变）。
+ * 用 5s polling 兜底覆盖 sessionCount / lastEventAt 变化（renderer 这层不监听 session-*
+ * IPC 事件——成本高、数据冷；如需更实时可加 listener，但目前 polling 足够）。
  */
 export function TeamHub({
   onOpenSession,
