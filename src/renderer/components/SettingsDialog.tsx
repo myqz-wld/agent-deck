@@ -213,7 +213,7 @@ function SettingsBody({
 }: BodyProps): JSX.Element {
   return (
     <>
-      <Section title="Claude Code Hook">
+      <Section title="Claude Code Hook" storageKey="hook" defaultOpen={true}>
         {hookStatus ? (
           <div className="text-[11px] leading-relaxed">
             <div className="text-deck-muted">
@@ -249,7 +249,7 @@ function SettingsBody({
         )}
       </Section>
 
-      <Section title="提醒">
+      <Section title="提醒" storageKey="notify" defaultOpen={false}>
         <Toggle
           label="启用声音"
           value={settings.enableSound}
@@ -280,7 +280,7 @@ function SettingsBody({
         />
       </Section>
 
-      <Section title="生命周期">
+      <Section title="生命周期" storageKey="lifecycle" defaultOpen={false}>
         <NumberInput
           label="active → dormant 阈值（分钟）"
           value={Math.round(settings.activeWindowMs / 60000)}
@@ -307,7 +307,7 @@ function SettingsBody({
         />
       </Section>
 
-      <Section title="间歇总结">
+      <Section title="间歇总结" storageKey="summary" defaultOpen={false}>
         <NumberInput
           label="时间触发（分钟）"
           value={Math.round(settings.summaryIntervalMs / 60000)}
@@ -330,7 +330,7 @@ function SettingsBody({
         <SummarizerErrorsDiagnostic />
       </Section>
 
-      <Section title="窗口">
+      <Section title="窗口" storageKey="window" defaultOpen={false}>
         {/* 始终置顶由 header 的 📌 按钮 / 全局快捷键 Cmd+Alt+P 控制，
             这里不再放重复 toggle，避免两处状态打架。 */}
         <Toggle
@@ -349,7 +349,7 @@ function SettingsBody({
         />
       </Section>
 
-      <Section title="HookServer">
+      <Section title="HookServer" storageKey="hookserver" defaultOpen={false}>
         <NumberInput
           label="端口（重启生效）"
           value={settings.hookServerPort}
@@ -359,7 +359,7 @@ function SettingsBody({
         />
       </Section>
 
-      <Section title="外部工具">
+      <Section title="外部工具" storageKey="external" defaultOpen={false}>
         <ExecutablePicker
           label="Codex 二进制路径"
           hint="留空 = 用应用内置 codex（推荐）。填路径 = 覆盖为外部 codex（如 `which codex` 给的路径）"
@@ -368,7 +368,7 @@ function SettingsBody({
         />
       </Section>
 
-      <Section title="应用约定（CLAUDE.md）">
+      <Section title="应用约定（CLAUDE.md）" storageKey="claudemd" defaultOpen={false}>
         <Toggle
           label="启用 agent-deck CLAUDE.md 注入"
           value={settings.injectAgentDeckClaudeMd}
@@ -380,14 +380,78 @@ function SettingsBody({
         <ClaudeMdEditor onDirtyChange={onClaudeMdDirtyChange} />
       </Section>
 
-      <Section title="应用 skill（agent-deck plugin）">
+      <Section title="应用 skill 与 agents（agent-deck plugin）" storageKey="plugin" defaultOpen={false}>
         <Toggle
-          label="启用 agent-deck plugin 注入（含 deep-code-review 等 skill）"
+          label="启用 agent-deck plugin 注入（skill + agents 绑定生效）"
           value={settings.injectAgentDeckPlugin}
           onChange={(v) => void update({ injectAgentDeckPlugin: v })}
         />
         <div className="text-[10px] leading-snug text-deck-muted/70">
-          关闭后下次新建会话拿不到 agent-deck 自带 skill；已运行的会话已经在启动时拿到 plugin 列表，关掉不会撤销。
+          plugin 包含两类内容，**整体注入或整体不注入**：
+          <br />
+          · <strong>skills</strong>（如 <code className="rounded bg-white/5 px-1">agent-deck:deep-code-review</code>）—— 多轮异构 review × fix 收口工作流
+          <br />
+          · <strong>agents</strong>（如 <code className="rounded bg-white/5 px-1">agent-deck:reviewer-claude</code> / <code className="rounded bg-white/5 px-1">agent-deck:reviewer-codex</code>）—— 异构对抗 reviewer subagent，用于 deep-code-review 与「决策对抗」节
+          <br />
+          关闭后下次新建会话拿不到 agent-deck 自带的 skill 与 agents；已运行的会话已经在启动时拿到 plugin 列表，关掉不会撤销。
+        </div>
+      </Section>
+
+      <Section title="实验功能" storageKey="experimental" defaultOpen={false}>
+        <Toggle
+          label="启用 Agent Teams（实验特性）"
+          value={settings.agentTeamsEnabled}
+          onChange={(v) => void update({ agentTeamsEnabled: v })}
+        />
+        <div className="text-[10px] leading-snug text-deck-muted/70">
+          开启后新建会话对话框会出现 Team 名输入框；填了 team 名的 SDK 会话在 spawn 时
+          注入 <code className="rounded bg-white/5 px-1">CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code>。
+          需 Claude Code CLI ≥ v2.1.32 / 推荐 Opus 4.6+。
+          <br />
+          <strong className="text-deck-text/85">已知限制</strong>：不支持 /resume 与 /rewind；
+          一个会话只能管一个 team；lead 终身固定。
+          <br />
+          <strong className="text-amber-300/90">⚠ 仅下次新建会话生效</strong>——已在跑的 team 会话不受影响（env 是 spawn 时一次性传入）。
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[11px]">
+          <span>Claude Code 沙盒（OS 级隔离）</span>
+          <select
+            value={settings.claudeCodeSandbox}
+            onChange={(e) =>
+              void update({
+                claudeCodeSandbox: e.target.value as AppSettings['claudeCodeSandbox'],
+              })
+            }
+            className="no-drag rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
+          >
+            <option value="off">关闭（默认）</option>
+            <option value="workspace-write">Workspace Write</option>
+            <option value="strict">Strict</option>
+          </select>
+        </div>
+        <div className="text-[10px] leading-snug text-deck-muted/70">
+          开启后 Claude SDK 子进程走 OS 级沙盒（macOS Seatbelt）。Codex 子进程已默认
+          <code className="rounded bg-white/5 px-1">workspace-write</code>，本设置补齐 Claude
+          这一侧。
+          <br />
+          · <strong>关闭</strong>：仅应用层 canUseTool 弹框决策（与现状一致）
+          <br />
+          · <strong>Workspace Write</strong>：cwd 可写；
+          <code className="rounded bg-white/5 px-1">~/.ssh</code> /
+          <code className="rounded bg-white/5 px-1">~/.aws</code> /
+          <code className="rounded bg-white/5 px-1">~/.config</code> /
+          <code className="rounded bg-white/5 px-1">~/.kube</code> /
+          <code className="rounded bg-white/5 px-1">~/.gnupg</code> 等敏感目录禁读；
+          网络默认禁，model 可用 <code className="rounded bg-white/5 px-1">dangerouslyDisableSandbox</code>
+          重试（会弹框给你审批）
+          <br />
+          · <strong>Strict</strong>：cwd 也只读 + 完全封死逃逸路径；
+          沙盒不可用（旧 macOS / Linux 无 bubblewrap）直接报错退出
+          <br />
+          常用工具（<code className="rounded bg-white/5 px-1">git / pnpm / npm / yarn / bun / pip / cargo / go</code>）
+          默认豁免不进沙盒。需 Claude Code SDK ≥ v0.2.118。
+          <br />
+          <strong className="text-amber-300/90">⚠ 切档仅下次新建会话生效</strong>——已在跑的会话已按当前档位 spawn，不会被撤销。
         </div>
       </Section>
     </>

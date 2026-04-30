@@ -187,6 +187,18 @@ class SessionManagerClass {
 
   /** 第 1 段：去重 / 时序兜底 claim。skip=true 表示这条事件应被丢弃（hook 与 SDK 重复 / hook 首发被 SDK claim）。 */
   private dedupOrClaim(event: AgentEvent): { skip: boolean } {
+    // M3 Agent Teams hook（team-task-created / team-task-completed / team-teammate-idle）
+    // 只来自 hook 通道（SDK 通道不 emit 这些 kind），即便 sessionId 已 sdkOwned 也**不要 dedup**
+    // ——否则 lead session 是 SDK 接管的，所有 team-* event 都会被这里第二条 hook+sdkOwned 守卫吞掉，
+    // M3 整套数据流失效。早返让 team-* event 直接进 ensureRecord / persistEventRow。
+    if (
+      event.source === 'hook' &&
+      (event.kind === 'team-task-created' ||
+        event.kind === 'team-task-completed' ||
+        event.kind === 'team-teammate-idle')
+    ) {
+      return { skip: false };
+    }
     // SDK 已接管的会话，丢弃 hook 通道事件（避免重复入库）
     if (event.source === 'hook' && this.sdkOwned.has(event.sessionId)) {
       return { skip: true };
@@ -397,6 +409,19 @@ class SessionManagerClass {
       sessionId,
       mode as Parameters<typeof sessionRepo.setPermissionMode>[1],
     );
+    const updated = sessionRepo.get(sessionId);
+    if (updated) eventBus.emit('session-upserted', updated);
+  }
+
+  /**
+   * 创建会话后把用户填过的 teamName 持久化到 sessions 列（Agent Teams M1）。
+   * 与 recordCreatedPermissionMode 同模式：IPC 路径必须调用，未来 CLI 路径加
+   * `agent-deck new --team-name` 时也走同一 helper。空字符串 / 全空白 / undefined
+   * 等价于「不属于 team」（DB 列保持 NULL，不写脏数据）。
+   */
+  recordCreatedTeamName(sessionId: string, teamName: string | undefined): void {
+    if (!teamName || !teamName.trim()) return;
+    sessionRepo.setTeamName(sessionId, teamName.trim());
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
   }

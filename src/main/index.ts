@@ -16,11 +16,13 @@ import { codexCliAdapter } from './adapters/codex-cli';
 import { aiderAdapter } from './adapters/aider';
 import { genericPtyAdapter } from './adapters/generic-pty';
 import { sessionManager, setSessionCloseFn } from './session/manager';
+import { sessionRepo } from './store/session-repo';
 import { LifecycleScheduler, setLifecycleScheduler } from './session/lifecycle-scheduler';
 import { summarizer } from './session/summarizer';
 import { routeEventToNotification } from './notify/event-router';
 import { stopAllSounds } from './notify/sound';
 import { handleCliArgv } from './cli';
+import { teamWatcher } from './teams/team-watcher';
 import { IpcEvent } from '@shared/ipc-channels';
 import type { AgentEvent } from '@shared/types';
 
@@ -149,6 +151,28 @@ async function bootstrap(): Promise<void> {
   eventBus.on('session-renamed', (p) => safeSend(IpcEvent.SessionRenamed, p));
   eventBus.on('summary-added', (s) => safeSend(IpcEvent.SummaryAdded, s));
   eventBus.on('session-focus-request', (sid) => safeSend(IpcEvent.SessionFocusRequest, sid));
+  // Agent Teams M2：team-watcher emit 的 fs 变化桥接到 renderer。
+  // payload: { name: string, kind: 'config'|'task-list'|'unlinked' }
+  //
+  // M3 C 方案：kind === 'unlinked'（整个 team 目录被删 - Claude TeamDelete /
+  // 用户 force-cleanup / 外部 rm -rf）→ 自动 unset 该 team 名下所有 sessions
+  // 的 team_name；让 TeamHub 自然从 list 移除（distinctTeamNames 不再返回该 name），
+  // 同时 emit session-upserted 让 renderer SessionCard 的 team chip 也消失。
+  // sessions 本身不删，历史 tab 仍能找到。
+  eventBus.on('team-data-changed', (p) => {
+    if (p.kind === 'unlinked') {
+      try {
+        const affected = sessionRepo.clearTeamName(p.name);
+        for (const sid of affected) {
+          const s = sessionRepo.get(sid);
+          if (s) eventBus.emit('session-upserted', s);
+        }
+      } catch (err) {
+        console.warn(`[main] clearTeamName failed for "${p.name}":`, err);
+      }
+    }
+    safeSend(IpcEvent.TeamDataChanged, p);
+  });
 
   ensureFocusableOnActivate();
 
@@ -211,6 +235,8 @@ app.on('before-quit', (event) => {
       setLifecycleScheduler(null);
       summarizer.stop();
       stopAllSounds();
+      // Agent Teams M2：close 所有 chokidar watcher，防 fs handle 阻塞进程退出
+      await teamWatcher.shutdownAll();
       await adapterRegistry.shutdownAll();
       try {
         await hookServer?.stop();

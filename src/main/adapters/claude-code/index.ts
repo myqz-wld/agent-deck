@@ -26,6 +26,7 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     canSetPermissionMode: true,
     canRestartWithPermissionMode: true,
     canCloseSession: true,
+    canJoinTeam: true,
   };
 
   private installer: HookInstaller | null = null;
@@ -58,6 +59,7 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     permissionMode?: PermissionMode;
     systemPrompt?: string;
     resume?: string;
+    teamName?: string;
   }): Promise<string> {
     if (!this.bridge) throw new Error('adapter not initialized');
     const handle = await this.bridge.createSession(opts);

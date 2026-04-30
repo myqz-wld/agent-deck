@@ -12,16 +12,59 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 export function Section({
   title,
   children,
+  defaultOpen = true,
+  storageKey,
 }: {
   title: string;
   children: React.ReactNode;
+  /** 控件首次渲染时是否展开。同时持有 storageKey 时，localStorage 优先生效。 */
+  defaultOpen?: boolean;
+  /** localStorage key 后缀。设了之后用户折叠/展开状态会持久化到
+   *  `agent-deck:settings:section:<storageKey>`，下次打开 Settings 还原。
+   *  不传则不持久化（每次都按 defaultOpen 渲染）。 */
+  storageKey?: string;
 }): JSX.Element {
+  const [open, setOpen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && storageKey) {
+      // 持久化键带 `agent-deck:` 命名空间避免与其他 localStorage key 冲撞；
+      // 值用 '1' / '0'，`null` 表示用户没主动改过 → 走 defaultOpen
+      const cached = window.localStorage.getItem(`agent-deck:settings:section:${storageKey}`);
+      if (cached === '1') return true;
+      if (cached === '0') return false;
+    }
+    return defaultOpen;
+  });
+
+  const toggle = (): void => {
+    const next = !open;
+    setOpen(next);
+    if (typeof window !== 'undefined' && storageKey) {
+      window.localStorage.setItem(`agent-deck:settings:section:${storageKey}`, next ? '1' : '0');
+    }
+  };
+
   return (
     <section className="mb-4">
-      <div className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted/70">{title}</div>
-      <div className="flex flex-col gap-1.5 rounded-lg border border-deck-border bg-white/[0.02] p-2">
-        {children}
-      </div>
+      <button
+        type="button"
+        onClick={toggle}
+        className="no-drag mb-1 flex w-full items-center gap-1.5 text-[10px] uppercase tracking-wider text-deck-muted/70 hover:text-deck-text/85 cursor-pointer"
+        aria-expanded={open}
+      >
+        <span
+          className="inline-block w-2 text-center transition-transform"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          aria-hidden
+        >
+          ▶
+        </span>
+        <span>{title}</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-deck-border bg-white/[0.02] p-2">
+          {children}
+        </div>
+      )}
     </section>
   );
 }

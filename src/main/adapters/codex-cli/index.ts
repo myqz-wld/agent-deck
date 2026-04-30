@@ -32,6 +32,8 @@ class CodexCliAdapterImpl implements AgentAdapter {
     canSetPermissionMode: false,
     canRestartWithPermissionMode: false,
     canCloseSession: true,
+    // Codex 不走 Claude Code CLI，没有 agent teams 概念。
+    canJoinTeam: false,
   };
 
   private bridge: CodexSdkBridge | null = null;

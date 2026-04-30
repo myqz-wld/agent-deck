@@ -47,7 +47,8 @@ let cachedClaudeMdAppend: string | null = null;
 
 /**
  * 返回 agent-deck 自带 plugin 根的绝对路径，传给 SDK 的 `plugins[].path`。
- * SDK 会读 `<plugin>/.claude-plugin/plugin.json` + 扫 `<plugin>/skills/`。
+ * SDK 会读 `<plugin>/.claude-plugin/plugin.json` + 自动扫 `<plugin>/skills/` 与
+ * `<plugin>/agents/` 子目录（skills 与 agents 一同注入，绑定生效）。
  */
 export function getAgentDeckPluginPath(): string {
   if (app.isPackaged) {
@@ -60,7 +61,10 @@ export function getAgentDeckPluginPath(): string {
  * 返回要传给 SDK `plugins:` 字段的 plugin 列表。
  *
  * 开关：settings.injectAgentDeckPlugin === false 时返回空数组（设置面板里有
- * toggle 让用户彻底禁用 plugin 注入，与 CLAUDE.md 注入开关同模式）。
+ * toggle 让用户彻底禁用 plugin 注入，与 CLAUDE.md 注入开关同模式）。**plugin 整体
+ * 注入或整体不注入**——skills（含 deep-code-review）与 agents（含 reviewer-claude /
+ * reviewer-codex）共享这一个 toggle，由 SDK 自动按子目录扫描加载。
+ *
  * 改这个开关只影响**下次新建**的 SDK 会话；已运行的会话已经在启动时拿到
  * plugin 列表，关掉不会撤销。
  */

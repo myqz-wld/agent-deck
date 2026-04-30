@@ -13,6 +13,9 @@ import type {
   PermissionScanResult,
   SessionRecord,
   SummaryRecord,
+  TeamDataChangedEvent,
+  TeamSnapshot,
+  TeamSummary,
 } from '@shared/types';
 
 const api = {
@@ -206,6 +209,42 @@ const api = {
    */
   summarizerLastErrors: (): Promise<Record<string, { message: string; ts: number }>> =>
     ipcRenderer.invoke(IpcInvoke.SummarizerLastErrors),
+
+  // ─────────── Agent Teams (M2) ───────────
+  /** 列出所有 team 简表（合并 SQL distinctTeamNames + fs ~/.claude/teams/）。 */
+  listTeams: (): Promise<TeamSummary[]> => ipcRenderer.invoke(IpcInvoke.TeamList),
+  /** 拉一个 team 的完整 snapshot（sessions + config.json + task list + events）；name 不存在仍返回空 snapshot。 */
+  getTeam: (name: string): Promise<TeamSnapshot | null> =>
+    ipcRenderer.invoke(IpcInvoke.TeamGet, name),
+  /** Agent Teams M3：手动清理一个 team 的 fs 残留（rm -rf 两个目录）+ 主动 unset 该 team 名下所有 sessions 的 team_name。返回实际删掉的目录数 + 解绑的 session 数。 */
+  forceCleanupTeam: (name: string): Promise<{ removed: string[]; unsetSessions: number }> =>
+    ipcRenderer.invoke(IpcInvoke.TeamForceCleanup, name),
+  /**
+   * 订阅某 team 的 fs 变化（chokidar 引用计数 +1）。返回 unsubscribe 闭包：
+   * 调用时既触发 `TeamUnsubscribe` IPC（引用计数 -1，60s grace 后真 close），
+   * 也 detach 本地 ipcRenderer listener（避免 leak）。
+   *
+   * onChange 仅在该 team 名匹配时触发——所有 team 共享同一个 IPC channel，靠 payload.name 过滤。
+   */
+  subscribeTeam: (
+    name: string,
+    onChange: (payload: TeamDataChangedEvent) => void,
+  ): (() => void) => {
+    const handler = (_: unknown, payload: TeamDataChangedEvent): void => {
+      if (payload.name === name) onChange(payload);
+    };
+    ipcRenderer.on(IpcEvent.TeamDataChanged, handler);
+    void ipcRenderer.invoke(IpcInvoke.TeamSubscribe, name).catch((err) => {
+      // subscribe 失败不阻塞 renderer，仅 console.warn；listener 已加自然不会触发
+      console.warn(`[preload] subscribeTeam(${name}) failed:`, err);
+    });
+    return () => {
+      ipcRenderer.off(IpcEvent.TeamDataChanged, handler);
+      void ipcRenderer.invoke(IpcInvoke.TeamUnsubscribe, name).catch(() => {
+        /* swallow: 已 unmount，再 warn 也没意义 */
+      });
+    };
+  },
 
   // 事件订阅
   onAgentEvent: (cb: (e: AgentEvent) => void): (() => void) => {

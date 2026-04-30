@@ -19,6 +19,13 @@ const HOOK_EVENTS = [
   'Notification',
   'Stop',
   'SessionEnd',
+  // M3 Agent Teams hook（Claude Code v2.1.32+ 实验特性）：随基础 6 个一起注入，
+  // 老版本 CLI 不识别这些 event 名会**静默忽略**（与 settings.json 不冲突），
+  // 应用层 hook-server 端点存在但收不到 hit；用户 CLI 升级到 v2.1.32+ 后自动开始飞回。
+  // 不加 CLI 版本检测的 gating：实验特性 schema 演进时省得多一道判断。
+  'TaskCreated',
+  'TaskCompleted',
+  'TeammateIdle',
 ] as const;
 
 type HookEvent = (typeof HOOK_EVENTS)[number];

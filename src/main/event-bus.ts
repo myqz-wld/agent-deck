@@ -6,7 +6,7 @@ import type { EventEmitter } from 'node:events';
  */
 
 import { EventEmitter as NodeEventEmitter } from 'node:events';
-import type { AgentEvent, SessionRecord, SummaryRecord } from '@shared/types';
+import type { AgentEvent, SessionRecord, SummaryRecord, TeamDataChangedEvent } from '@shared/types';
 
 export interface EventMap {
   'agent-event': [AgentEvent];
@@ -17,6 +17,9 @@ export interface EventMap {
   'summary-added': [SummaryRecord];
   /** CLI 子命令新建会话后请求 renderer 切到「实时」并选中该 sessionId。 */
   'session-focus-request': [string];
+  /** Agent Teams M2：team 的 fs 数据变了（config.json / task list / 整个目录被 unlink）。
+   *  team-watcher emit；main bootstrap 桥接到 IPC IpcEvent.TeamDataChanged 推 renderer。 */
+  'team-data-changed': [TeamDataChangedEvent];
 }
 
 export class TypedEventBus {
