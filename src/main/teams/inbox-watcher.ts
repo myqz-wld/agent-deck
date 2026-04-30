@@ -17,6 +17,7 @@
  * **进程退出**：调用 `inboxWatcher.shutdownAll()` 立即 close 所有 watcher（不等 grace）。
  */
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import type { TeamPermissionCancelled, TeamPermissionRequest } from '@shared/types';
@@ -103,6 +104,14 @@ class InboxWatcherManager {
     };
     this.entries.set(name, entryRef);
 
+    // REVIEW_17 R2 / H2-R2 修复：subscribe 时一次性 prewarm seenRequestIds —— 扫所有 teammate
+    // inbox 找出已写入 permission_response 的 request_id，把它们加进 seenRequestIds，让随后
+    // chokidar ignoreInitial:false replay lead inbox 时跳过 emit「已响应过的旧 permission_request」。
+    // 不阻塞 subscribe 同步返回（fire-and-forget），prewarm 完成前 chokidar 可能已 fire add，
+    // 那段时间内 process 用空 seenRequestIds 把旧 request 重 emit 一遍 —— 罕见，是降级体验
+    // 不是 bug；prewarm 完成后第二次 file change 会被正确 dedup。
+    void this.prewarmSeenFromTeammateResponses(inboxesDir, entryRef);
+
     const handle = (filepath: string): void => {
       // 只关心 team-lead.json（lead inbox）。其他成员的 inbox 应用不代为审批。
       // 未来要扩展（e.g. lead 替 teammate 审批 sub-teammate 请求）就在这里加判断。
@@ -122,6 +131,60 @@ class InboxWatcherManager {
       console.warn(`[inbox-watcher] error for "${name}":`, err);
     });
     console.log(`[inbox-watcher] subscribe "${name}" (size=${this.entries.size})`);
+  }
+
+  /**
+   * REVIEW_17 R2 / H2-R2：subscribe 入口的「已响应预热」。扫 teammate inboxes 目录所有
+   * `*.json`（每个 teammate 一个文件，含 lead 写给它的 permission_response）—— 把所有
+   * `permission_response.request_id` 加进 entry.seenRequestIds，让 chokidar
+   * `ignoreInitial:false` replay lead inbox 时跳过 emit「已被响应过的 permission_request」。
+   *
+   * 触发场景：用户上次 approve/deny 一条 permission_request → 应用写 permission_response
+   * 到 teammate inbox（appendInboxMessage） → markResponded(requestId) 加进 in-memory
+   * seenRequestIds → 应用退出，seenRequestIds 全丢 → 重启 → chokidar replay lead inbox
+   * 把那条已响应的 permission_request 又 emit 一遍 → 用户在 PendingTab 看到旧 request。
+   *
+   * 不抛错（任何 IO 失败都吞 console.warn）。fire-and-forget：subscribe 不 await 它，
+   * 让 chokidar.watch 立即开始监听；prewarm 完成前若已 fire add，那段窗口内可能仍重 emit
+   * 一份 stale request —— 罕见、降级体验、非 bug。prewarm 完成后第二次 change 即正常 dedup。
+   */
+  private async prewarmSeenFromTeammateResponses(
+    inboxesDir: string,
+    entryRef: Entry,
+  ): Promise<void> {
+    let files: string[];
+    try {
+      files = await readdir(inboxesDir);
+    } catch (err) {
+      console.warn(`[inbox-watcher] prewarm readdir failed @ ${inboxesDir}:`, err);
+      return;
+    }
+    let count = 0;
+    for (const f of files) {
+      if (!f.endsWith('.json')) continue;
+      // team-lead.json 自己是发 permission_request 的源（不是 response 容器），跳过
+      if (f === 'team-lead.json') continue;
+      let entries: InboxEntry[];
+      try {
+        entries = await readInboxFile(join(inboxesDir, f));
+      } catch (err) {
+        console.warn(`[inbox-watcher] prewarm readInboxFile failed @ ${f}:`, err);
+        continue;
+      }
+      for (const e of entries) {
+        const sub = parseSubMessage(e.text);
+        if (!sub || sub.type !== 'permission_response') continue;
+        if (typeof sub.request_id === 'string' && sub.request_id.length > 0) {
+          if (!entryRef.seenRequestIds.has(sub.request_id)) {
+            entryRef.seenRequestIds.add(sub.request_id);
+            count += 1;
+          }
+        }
+      }
+    }
+    if (count > 0) {
+      console.log(`[inbox-watcher] prewarm seen ${count} already-responded request_id(s) @ ${inboxesDir}`);
+    }
   }
 
   /**
