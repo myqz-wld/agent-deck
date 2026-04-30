@@ -76,6 +76,16 @@ export const IpcInvoke = {
   /** Agent Teams M3：手动清理一个 team 的 fs 残留（rm -rf 两个目录）。
    *  典型用途：Claude in-process cleanup 上游 bug 卡住时让用户兜底。 */
   TeamForceCleanup: 'team:force-cleanup',
+  /** Inbox watcher：订阅某 team 的 inbox 文件 fs 监听（chokidar 引用计数 +1）。
+   *  TeamDetail mount 时调；自动订阅由 main 在 session-upserted 时同步，UI 订阅是补强。 */
+  TeamSubscribeInbox: 'team:subscribe-inbox',
+  /** 取消订阅某 team 的 inbox（引用计数 -1，到 0 + grace 后 close）。 */
+  TeamUnsubscribeInbox: 'team:unsubscribe-inbox',
+  /** 响应一条 teammate 的 permission_request：写 permission_response 文本到 teammate inbox。
+   *  args: (teamName, fromMemberSlug, requestId, decision, updatedInput?)。 */
+  TeamRespondPermission: 'team:respond-permission',
+  /** 重建当前所有 team 的 pending team-permission-request 列表（HMR / 重启后）。 */
+  TeamListPendingPermissions: 'team:list-pending-permissions',
 } as const;
 
 export const IpcEvent = {
@@ -95,6 +105,12 @@ export const IpcEvent = {
   /** Task Manager (CHANGELOG_43)：tasks 表写操作（create/update/delete）after-commit 推送。
    *  payload: TaskChangedEvent。当前 renderer 没 task UI 消费，未来加 Tasks tab 直接订阅。 */
   TaskChanged: 'event:task-changed',
+  /** Inbox watcher：teammate 提的 permission_request 被识别后推一条 AgentEvent 给 renderer，
+   *  payload 是 TeamPermissionRequest（外加 sessionId 用 lead session id 占位）。
+   *  也兼复用 IpcEvent.AgentEvent 通路推送，本通道独立给「全 team 视角」UI 订阅用。 */
+  TeamPermissionRequested: 'event:team-permission-requested',
+  /** 用户在 UI 完成响应（或 inbox 被外部清掉）时通知 renderer：把 pending 列表里的这条删掉。 */
+  TeamPermissionResolved: 'event:team-permission-resolved',
 } as const;
 
 export type IpcInvokeChannel = (typeof IpcInvoke)[keyof typeof IpcInvoke];

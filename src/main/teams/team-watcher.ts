@@ -18,6 +18,7 @@
  * **进程退出**：调用 `teamWatcher.shutdownAll()`，立即 close 所有 watcher（不等 grace）。
  * main/index.ts 的 before-quit listener 应该调用一次。
  */
+import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import type { TeamDataChangedEvent } from '@shared/types';
@@ -66,8 +67,14 @@ class TeamWatcherManager {
       }
       return;
     }
-    const teamDir = join(getTeamsRoot(), name);
-    const tasksDir = join(getTasksRoot(), name);
+    // realpath 化 teams/tasks root：~/.claude 在常见 dotfile 场景是 symlink，chokidar 在
+    // macOS fsevents 下回 dispatchByPath 的 p 是 realpath 路径，与 raw symlink path 严格
+    // 比较永远 false → emit 永远不 fire（实测踩过）。
+    // root 不存在时 fallback raw（chokidar 等目录创建；事后 subscribe 重启时修正）。
+    const teamsRootReal = existsSync(getTeamsRoot()) ? realpathSync(getTeamsRoot()) : getTeamsRoot();
+    const tasksRootReal = existsSync(getTasksRoot()) ? realpathSync(getTasksRoot()) : getTasksRoot();
+    const teamDir = join(teamsRootReal, name);
+    const tasksDir = join(tasksRootReal, name);
     // chokidar 对不存在的目录默认会等待其出现 (ignoreInitial: true 跳过启动时已存在的项的 add 事件)。
     // 监听 teamDir + tasksDir 两个目录及其内容的所有变化。
     const watcher = chokidar.watch([teamDir, tasksDir], {

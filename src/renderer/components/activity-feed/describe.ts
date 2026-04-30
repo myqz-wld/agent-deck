@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@shared/types';
 import { isImageTool } from '@shared/mcp-tools';
+import { toolIcon } from './tool-icons';
 
 /** SimpleRow 单行灰文字摘要：按事件 kind / waiting-for-user 子类型分发到一句中文描述。 */
 export function describe(e: AgentEvent): string {
@@ -11,10 +12,12 @@ export function describe(e: AgentEvent): string {
       const tool = (p.toolName as string) ?? '工具';
       if (tool === 'ExitPlanMode') return '📋 Claude 提议了一个执行计划';
       const detail = describeToolInput(tool, p.toolInput);
-      return detail ? `🔧 ${tool} · ${detail}` : `🔧 ${tool}`;
+      return detail ? `${toolIcon(tool)} ${tool} · ${detail}` : `${toolIcon(tool)} ${tool}`;
     }
-    case 'tool-use-end':
-      return `${(p.toolName as string) ?? '工具'} 完成`;
+    case 'tool-use-end': {
+      const tool = (p.toolName as string) ?? '工具';
+      return `${toolIcon(tool)} ${tool} 完成`;
+    }
     case 'file-changed':
       return `📝 ${(p.filePath as string) ?? ''}`;
     case 'waiting-for-user': {
@@ -57,6 +60,18 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
     case 'Grep':
     case 'Glob':
       return typeof o.pattern === 'string' ? o.pattern : null;
+    case 'Skill': {
+      // Skill input shape：{ skill: "<plugin:name>" | "<name>", args?: string }
+      // 实证扫 26 条 jsonl tool_use：skill 全 string、args 14 条 string + 12 条 absent，无 null/object。
+      const skill = typeof o.skill === 'string' ? o.skill : '';
+      const args = typeof o.args === 'string' ? o.args.replace(/\s+/g, ' ').trim() : '';
+      if (!skill) return null;
+      if (args) {
+        const argsShort = args.length > 60 ? args.slice(0, 60) + '…' : args;
+        return `${skill} · ${argsShort}`;
+      }
+      return skill;
+    }
     case 'Task': {
       // Claude Agent SDK 的 Task 工具：spawn 一个 subagent 干活。
       // toolInput.subagent_type 是 subagent 名（如 'agent-deck:reviewer-claude' / 'general-purpose'），

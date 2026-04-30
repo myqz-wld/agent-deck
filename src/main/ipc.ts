@@ -28,6 +28,8 @@ import type { AppSettings, ImageSource, LoadImageBlobResult, PermissionMode, Ses
 import { SANDBOX_MODE_VALUES, type SandboxMode } from './adapters/claude-code/sandbox-config';
 import { forceCleanupTeam, getTeamSnapshot, listTeams } from './teams/team-fs';
 import { teamWatcher } from './teams/team-watcher';
+import { inboxWatcher } from './teams/inbox-watcher';
+import { appendInboxMessage, buildPermissionResponse } from './teams/inbox-protocol';
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>;
 
@@ -442,6 +444,9 @@ export function bootstrapIpc(): void {
     }
     const model = typeof raw.model === 'string' ? raw.model : undefined;
     const resume = typeof raw.resume === 'string' ? raw.resume : undefined;
+    // CHANGELOG_46：NewSessionDialog 已删 teamName 输入框；team 名由 lead 在会话内自由决定，
+    // 应用通过 PreToolUse hook / fs watcher / hook 三层反向同步到 sessions.team_name DB 列。
+    // 但 IPC 入口仍接 raw.teamName 兼容 CLI `agent-deck new --team-name` 命令（如有）。
     const teamName = parseTeamName(raw.teamName);
 
     const sid = await adapter.createSession({
@@ -455,9 +460,12 @@ export function bootstrapIpc(): void {
     // 持久化 permissionMode：抽到 sessionManager.recordCreatedPermissionMode，
     // CLI 路径（cli.ts applyCliInvocation）也走同一个 helper，确保两条入口语义一致。
     sessionManager.recordCreatedPermissionMode(sid, permissionMode ?? undefined);
-    // 持久化 teamName（Agent Teams M1，同 permissionMode 模式）：未来 CLI 路径加
-    // `agent-deck new --team-name` 时也走同一 helper。
-    sessionManager.recordCreatedTeamName(sid, teamName ?? undefined);
+    // CHANGELOG_46：删 recordCreatedTeamName 调用 — 不再 IPC 入口预写 sessions.team_name；
+    // 让 team-coordinator 三层反向同步去写。仅当 CLI 入口（agent-deck new --team-name）
+    // 显式传 teamName 时才预写（兼容老入口；用户也确实想预指定 team）。
+    if (teamName) {
+      sessionManager.recordCreatedTeamName(sid, teamName);
+    }
     return sid;
   });
   on(IpcInvoke.AdapterInterrupt, async (_e, agentId, sessionId) => {
@@ -774,6 +782,79 @@ export function bootstrapIpc(): void {
       if (s) eventBus.emit('session-upserted', s);
     }
     return { ...fsResult, unsetSessions: affected.length };
+  });
+  // ───────── Agent Teams in-process backend permission inbox（CHANGELOG_45） ─────────
+  // TeamSubscribeInbox：renderer 进入某 team 视图时调（chokidar 引用计数 +1）。
+  // 应用层在 main bootstrap 也按 active session 自动订阅，UI 订阅是补强 + 让 grace 期内
+  // 切回的视图能立刻见到旧 watcher 重用。
+  on(IpcInvoke.TeamSubscribeInbox, async (_e, name): Promise<{ ok: true }> => {
+    const teamName = parseTeamName(name);
+    if (!teamName) {
+      throw new IpcInputError('name', 'team name required');
+    }
+    inboxWatcher.subscribe(teamName);
+    return { ok: true };
+  });
+  on(IpcInvoke.TeamUnsubscribeInbox, async (_e, name): Promise<{ ok: true }> => {
+    const teamName = parseTeamName(name);
+    if (!teamName) {
+      throw new IpcInputError('name', 'team name required');
+    }
+    inboxWatcher.unsubscribe(teamName);
+    return { ok: true };
+  });
+  // TeamRespondPermission：写 permission_response 文本到 teammate inbox 文件（与 CLI 同
+  // proper-lockfile 协议）。同时在 inbox-watcher 标记该 requestId 已响应，避免下次文件
+  // change 又把这条重新弹给用户。
+  on(
+    IpcInvoke.TeamRespondPermission,
+    async (
+      _e,
+      teamNameRaw,
+      fromMemberSlugRaw,
+      requestIdRaw,
+      decisionRaw,
+      updatedInputRaw,
+    ): Promise<{ ok: true }> => {
+      const teamName = parseTeamName(teamNameRaw);
+      if (!teamName) {
+        throw new IpcInputError('teamName', 'team name required');
+      }
+      // member slug 用同款字符集校验（已经被 slugify 过，应当满足 [A-Za-z0-9_-]）
+      const fromMemberSlug = typeof fromMemberSlugRaw === 'string' ? fromMemberSlugRaw : '';
+      if (!fromMemberSlug || !/^[A-Za-z0-9._-]{1,128}$/.test(fromMemberSlug)) {
+        throw new IpcInputError('fromMemberSlug', 'invalid member slug');
+      }
+      const requestId = typeof requestIdRaw === 'string' ? requestIdRaw : '';
+      if (!requestId || requestId.length > 256) {
+        throw new IpcInputError('requestId', 'invalid request id');
+      }
+      const decision = decisionRaw === 'allow' || decisionRaw === 'deny' ? decisionRaw : null;
+      if (!decision) {
+        throw new IpcInputError('decision', 'decision must be "allow" or "deny"');
+      }
+      const updatedInput =
+        updatedInputRaw && typeof updatedInputRaw === 'object' && !Array.isArray(updatedInputRaw)
+          ? (updatedInputRaw as Record<string, unknown>)
+          : undefined;
+      const sub = buildPermissionResponse(requestId, decision, { updatedInput });
+      await appendInboxMessage(teamName, fromMemberSlug, sub, { fromAgentId: 'team-lead' });
+      // 标记已响应：避免 inbox 文件下次 change（如 lead 端读消息修改 read 标记）又重新 emit
+      inboxWatcher.markResponded(teamName, requestId);
+      // 通知所有 renderer 把 pending 列表里这条删掉
+      eventBus.emit('team-permission-resolved', { teamName, requestId });
+      return { ok: true };
+    },
+  );
+  // TeamListPendingPermissions：当前 in-memory 缓存只存 requestId（不存 payload），
+  // 重启 / HMR 时 chokidar `ignoreInitial:false` 会自动把 inbox 里现存的 permission_request
+  // 重新 emit 一遍（seenRequestIds 清空），UI 自然重建。本接口仅供调试 / 未来扩展。
+  on(IpcInvoke.TeamListPendingPermissions, async (_e, name): Promise<{ requestIds: string[] }> => {
+    const teamName = parseTeamName(name);
+    if (!teamName) {
+      throw new IpcInputError('name', 'team name required');
+    }
+    return { requestIds: inboxWatcher.listSeenRequestIds(teamName) };
   });
 }
 

@@ -1,4 +1,4 @@
-import type { AgentEvent, ImageSource, ImageToolResult } from '@shared/types';
+import type { AgentEvent, ImageSource, ImageToolResult, TeamPermissionCancelled, TeamPermissionRequest } from '@shared/types';
 import { isImageTool } from '@shared/mcp-tools';
 
 const AGENT_ID = 'claude-code';
@@ -150,6 +150,50 @@ export function translateTeammateIdle(p: TeamHookPayload): AgentEvent {
       raw: p as Record<string, unknown>,
     },
     ts: Date.now(),
+  };
+}
+
+/**
+ * Inbox Watcher (CHANGELOG_45)：把 teammate 提的 permission_request 包成应用统一的
+ * AgentEvent，复用 PendingTab 的 by-session pending 渲染机制。
+ *
+ * sessionId 由调用方传入：典型是 lead session id，让 UI 看起来「这条审批属于 lead 会话的
+ * 待办」（事实上是 lead 帮 teammate 转发审批，语义上挂在 lead 会话最直观）。
+ *
+ * payload 直接是 TeamPermissionRequest（type='team-permission-request'），UI 端
+ * pending-rows 模块按 type 分发到 TeamPermissionRow。
+ */
+export function translateTeamPermissionRequest(
+  req: TeamPermissionRequest,
+  leadSessionId: string,
+): AgentEvent {
+  return {
+    sessionId: leadSessionId,
+    agentId: AGENT_ID,
+    kind: 'waiting-for-user',
+    payload: req,
+    ts: Date.parse(req.timestamp) || Date.now(),
+    source: 'sdk', // 来自 lead SDK 会话的内部 teammate；不是 cli hook
+  };
+}
+
+/**
+ * Inbox Watcher：teammate 自己 abort permission（idle_notification 触发，详见
+ * TeamPermissionCancelled 注释）→ AgentEvent waiting-for-user kind + payload type
+ * 'team-permission-cancelled'，与 PermissionCancelled / AskQuestionCancelled /
+ * ExitPlanCancelled 同模式让 store 从 pending 列表移除 + activity-feed 标灰显示。
+ */
+export function translateTeamPermissionCancelled(
+  cancel: TeamPermissionCancelled,
+  leadSessionId: string,
+): AgentEvent {
+  return {
+    sessionId: leadSessionId,
+    agentId: AGENT_ID,
+    kind: 'waiting-for-user',
+    payload: cancel,
+    ts: Date.now(),
+    source: 'sdk',
   };
 }
 

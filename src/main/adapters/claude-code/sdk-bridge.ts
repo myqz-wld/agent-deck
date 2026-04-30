@@ -193,13 +193,24 @@ export class ClaudeSdkBridge {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：SDK streaming 模式需要首条消息才能启动 CLI');
     }
-    // Agent Teams 不支持 session resumption（官方明确限制）：resume 后 lead 可能给已死
-    // teammate 发消息。强禁两者同传，避免 CLI 内部状态机不可预期。renderer 端 SessionDetail
-    // 看到 teamName != null 时也会 disable Composer + resume 入口，这是双道防线。
+    // CHANGELOG_46：放开 resume + teamName 的应用层 block。
+    //
+    // 历史背景：之前 NewSessionDialog 让用户预填 teamName，应用 IPC 入口预写 sessions.team_name
+    // 后 lead 启动；resume 时调用方仍传 teamName → 应用 throw 阻断（防 SDK 上游 resume +
+    // teammate 状态机崩）。
+    //
+    // 现在 NewSessionDialog 已删 teamName 输入框，team 由 lead 自由建后通过 team-coordinator
+    // 反向同步 sessions.team_name；resume 路径调用方（recoverAndSend）也不传 teamName。所以
+    // 这条 throw 实际不会被新代码路径触发。
+    //
+    // 仅 CLI 入口 `agent-deck new --team-name X` resume 时仍会传 teamName —— 留 console.warn
+    // 提醒上游 SDK 的 resume limitation（lead 可能给已死 teammate 发消息），但不再 block；
+    // 让用户自己决定是否承担风险。SDK 真崩用户能从错误信息看到，应用层不替用户拍板。
     if (opts.resume && opts.teamName && opts.teamName.trim().length > 0) {
-      throw new Error(
-        'Agent Teams 不支持 session resumption：请新建一个 team 会话，' +
-          '或先在 Claude Code 中 cleanup 旧 team 后再 resume。',
+      console.warn(
+        `[sdk-bridge] resume + teamName='${opts.teamName.trim()}'：Anthropic Agent Teams ` +
+          '实验特性官方不支持 /resume，lead 可能给已死 teammate 发消息导致 CLI 状态机异常。' +
+          '应用不再 block，上游真崩时请新建 team 会话。',
       );
     }
     const tempKey = randomUUID();
@@ -545,18 +556,23 @@ export class ClaudeSdkBridge {
         }`,
       );
       // Task Manager（CHANGELOG_43）：开关开 → 构造 per-session in-process MCP server，
-      // teamName 闭包注入到 5 个 task tool（写操作锁在自己 team；只读允许跨）。开关关 →
-      // 不传 mcpServers / allowedTools 字段，与不挂 plugin 同语义零副作用。
+      // teamName 通过 lazy 工厂闭包注入到 5 个 task tool（CHANGELOG_46 改 lazy：createSession
+      // 入口不再知道 team 名，由 team-coordinator 反向同步后从 sessionRepo 拿；每次工具调用
+      // 时调一次工厂反映最新值）。开关关 → 不传 mcpServers / allowedTools。
       // mcpServers 需要在 spawn 前 await 拿到 server instance，所以放在 query() 调用之前
       // （loadSdk 已 cache，复用同 SDK 实例）。
       const enableTaskManager = settingsStore.get('enableTaskManager') === true;
+      // realId 此时还没拿到（在 waitForRealSessionId 之后才有）；用 tempKey 兜底，等 realId
+      // 出现后 sessionRepo.get(realId) 自然能拿到 team_name。tempKey 阶段 sessionRepo.get 返
+      // null 是预期行为（team_name 走 null 分支，task tools 内部不强制要求 team）。
       const tasksServer = enableTaskManager
-        ? await getTasksMcpServerForSession(opts.teamName ?? null)
+        ? await getTasksMcpServerForSession(() => {
+            const sid = internal.realSessionId ?? tempKey;
+            return sessionRepo.get(sid)?.teamName ?? null;
+          })
         : null;
       if (tasksServer) {
-        console.log(
-          `[task-manager] mcpServers attached for session (team=${opts.teamName ?? '<global>'})`,
-        );
+        console.log('[task-manager] mcpServers attached for session (team_name lazy-resolved)');
       }
       const q = query({
         prompt: userMessageIterable,
@@ -574,6 +590,9 @@ export class ClaudeSdkBridge {
           // 实际位置在 user/project/local 三层 CLAUDE.md 全部加载完之后，
           // LLM 上下文末尾位置 instruction following 最强。
           // 已去掉用户自定义 systemPrompt 功能（避免 isolation mode 与 agent-deck 约定冲突）。
+          //
+          // CHANGELOG_45 后续：teamName 非空时拼一行 per-session 元信息到 append 末尾，
+          // 让 lead 自然知道自己在哪个 team（避免 deep-code-review 等 skill 自创 team 名）。
           systemPrompt: {
             type: 'preset',
             preset: 'claude_code',
@@ -619,13 +638,30 @@ export class ClaudeSdkBridge {
           //
           // 即便用户在 ~/.claude/settings.json 手动写过 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0，
           // applyClaudeSettingsEnv 写进 process.env 后被 ES 展开覆盖语义保证 '1' 胜出。
+          // CHANGELOG_46：env 注入只看 settings.agentTeamsEnabled，不再要求 opts.teamName 非空。
+          // team 名由 lead 在会话内自由建（NewSessionDialog 已删 teamName 输入框），应用通过
+          // team-coordinator 反向同步到 sessions.team_name。
+          // env 是 spawn 时一次性传入，关 toggle 不影响在跑会话；summarizer 走自己的 query() 调用、
+          // 不读 agentTeamsEnabled，env 也不传，天然不被污染。
+          //
+          // 即便用户在 ~/.claude/settings.json 手动写过 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0，
+          // applyClaudeSettingsEnv 写进 process.env 后被 ES 展开覆盖语义保证 '1' 胜出。
           env: {
             ...runtime.env,
             AGENT_DECK_ORIGIN: 'sdk',
-            ...(settingsStore.get('agentTeamsEnabled') && opts.teamName?.trim()
+            ...(settingsStore.get('agentTeamsEnabled')
               ? { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' }
               : {}),
           },
+          // CHANGELOG_45 后续修复 v2（撤回 v1）：
+          // v1 试过用 SDK extraArgs 把 teamName 通过 CLI `--team-name <name>` flag 传给 lead
+          // CLI，**实测 CLI top-level help 没有 --team-name arg**（strings 里那个字符串属于
+          // CLI 内部模块文档，不是启动 flag）→ CLI 启动直接 exit code 1，会话起不来。
+          //
+          // 撤回该改动。team 名传递改走 systemPrompt.append 注入（见下面 systemPrompt 字段），
+          // 让 lead 在 system prompt 里"看到"自己属于哪个 team，spawn teammate 时自然用这个名字。
+          // 不传 CLI flag 就不会触发 CLI 启动失败；唯一缺点是 lead 必须读到那一行才生效，
+          // 但 SKILL.md 已明确要求 team_name 从会话上下文取，对齐良好。
           // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
           // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
           // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
@@ -1772,8 +1808,15 @@ export class ClaudeSdkBridge {
       const blocks = m?.content ?? [];
       for (const block of blocks) {
         if (block.type === 'tool_result') {
+          // 反查 assistant tool_use 时记下的 name；renderer ToolEndRow 必须靠这个才能显示
+          // 「<tool> 完成」而不是兜底的「工具 完成」。maybeEmitImageFileChanged 内部还会
+          // 用同一个 map 然后 delete（line 1931-1933），所以这里只 get、不 delete。
+          const toolName = block.tool_use_id
+            ? internal.toolUseNames.get(block.tool_use_id)
+            : undefined;
           emit('tool-use-end', {
             toolUseId: block.tool_use_id,
+            toolName,
             toolResult: block.content,
           });
           // mcp 图片工具结果识别：反查 toolName，匹配则把 result.content 解析后翻译成 file-changed

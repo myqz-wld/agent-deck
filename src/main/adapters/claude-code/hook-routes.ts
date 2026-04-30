@@ -11,10 +11,36 @@ import {
   translateTeammateIdle,
 } from './translate';
 import type { AgentEvent } from '@shared/types';
+import { extractTeamNameFromToolInput, teamCoordinator } from '@main/teams/team-coordinator';
 
 interface BaseBody {
   session_id: string;
   cwd?: string;
+}
+
+/**
+ * 抽 PreToolUse / TeamHook payload 中的 team_name 反向同步到 sessions.team_name DB 列。
+ * CHANGELOG_46：取代之前 NewSessionDialog 预填 + IPC 入口预写的方案。
+ *
+ * 收口走 [team-coordinator.ts](../../teams/team-coordinator.ts) 的 `sync()` 函数（幂等）。
+ *
+ * 三种来源：
+ * - PreToolUse(`TeamCreate / TeamDelete / Teammate / SendMessage`) → tool_input 取 team 名
+ * - TeammateIdle / TaskCreated / TaskCompleted → payload.team_name
+ * - fs add `~/.claude/teams/<X>/config.json` → 由 team-coordinator 自身 chokidar watcher 触发
+ */
+function maybeSyncFromPreToolUse(body: BaseBody): void {
+  const p = body as BaseBody & { tool_name?: unknown; tool_input?: unknown };
+  if (typeof p.tool_name !== 'string') return;
+  const teamName = extractTeamNameFromToolInput(p.tool_name, p.tool_input);
+  if (!teamName) return;
+  teamCoordinator.sync(body.session_id, teamName, 'pretool');
+}
+
+function maybeSyncFromTeamHook(body: BaseBody): void {
+  const p = body as BaseBody & { team_name?: unknown };
+  if (typeof p.team_name !== 'string' || p.team_name.length === 0) return;
+  teamCoordinator.sync(body.session_id, p.team_name, 'hook');
 }
 
 function makeRoute(
@@ -62,15 +88,45 @@ export function buildHookRoutes(emit: (e: AgentEvent) => void): RouteOptions[] {
   };
   return [
     makeRoute('/hook/sessionstart', (b) => translateSessionStart(b as never), taggedEmit),
-    makeRoute('/hook/pretooluse', (b) => translatePreToolUse(b as never), taggedEmit),
+    makeRoute(
+      '/hook/pretooluse',
+      (b) => {
+        // CHANGELOG_46：PreToolUse 拦截 team 工具反向同步 team_name 到 DB（最早通道）
+        maybeSyncFromPreToolUse(b);
+        return translatePreToolUse(b as never);
+      },
+      taggedEmit,
+    ),
     makeRoute('/hook/posttooluse', (b) => translatePostToolUse(b as never), taggedEmit),
     makeRoute('/hook/notification', (b) => translateNotification(b as never), taggedEmit),
     makeRoute('/hook/stop', (b) => translateStop(b as never), taggedEmit),
     makeRoute('/hook/sessionend', (b) => translateSessionEnd(b as never), taggedEmit),
     // M3 Agent Teams hook（Claude Code v2.1.32+ 实验特性）。
     // 老版本 CLI 没有这些 hook event，路由存在但收不到 hit；schema 演进由 translate 函数宽容兜底。
-    makeRoute('/hook/taskcreated', (b) => translateTaskCreated(b as never), taggedEmit),
-    makeRoute('/hook/taskcompleted', (b) => translateTaskCompleted(b as never), taggedEmit),
-    makeRoute('/hook/teammateidle', (b) => translateTeammateIdle(b as never), taggedEmit),
+    // CHANGELOG_46：三个 team hook 都加 maybeSyncFromTeamHook 反向同步（PreToolUse 兜底）
+    makeRoute(
+      '/hook/taskcreated',
+      (b) => {
+        maybeSyncFromTeamHook(b);
+        return translateTaskCreated(b as never);
+      },
+      taggedEmit,
+    ),
+    makeRoute(
+      '/hook/taskcompleted',
+      (b) => {
+        maybeSyncFromTeamHook(b);
+        return translateTaskCompleted(b as never);
+      },
+      taggedEmit,
+    ),
+    makeRoute(
+      '/hook/teammateidle',
+      (b) => {
+        maybeSyncFromTeamHook(b);
+        return translateTeammateIdle(b as never);
+      },
+      taggedEmit,
+    ),
   ];
 }

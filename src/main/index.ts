@@ -23,6 +23,9 @@ import { routeEventToNotification } from './notify/event-router';
 import { stopAllSounds } from './notify/sound';
 import { handleCliArgv } from './cli';
 import { teamWatcher } from './teams/team-watcher';
+import { inboxWatcher } from './teams/inbox-watcher';
+import { teamCoordinator } from './teams/team-coordinator';
+import { translateTeamPermissionCancelled, translateTeamPermissionRequest } from './adapters/claude-code/translate';
 import { IpcEvent } from '@shared/ipc-channels';
 import type { AgentEvent } from '@shared/types';
 
@@ -180,6 +183,94 @@ async function bootstrap(): Promise<void> {
   // onTeamDataChanged 同模式）。
   eventBus.on('task-changed', (p) => safeSend(IpcEvent.TaskChanged, p));
 
+  // Team Coordinator (CHANGELOG_46)：fs root watcher 监听 ~/.claude/teams/*/config.json
+  // add/change，反向同步 team_name 到 sessions DB 列（fs 通道，PreToolUse hook 拦截路径
+  // 在 hook-routes.ts 内部直接调，不在 index.ts 桥接）。
+  // hook 通道（TaskCreated/TaskCompleted/TeammateIdle）也走同款 sync 调用，由 hook-routes
+  // 内部触发，本处只起 fs watcher。
+  teamCoordinator.startFsWatcher();
+
+  // Inbox Watcher (CHANGELOG_45)：teammate 在 inbox 写 permission_request 被识别后
+  // emit。两条桥接：
+  // 1. 独立通道 IpcEvent.TeamPermissionRequested 给 TeamDetail / 全 team 视角订阅
+  // 2. 转 AgentEvent waiting-for-user kind 走 IpcEvent.AgentEvent 通路，复用 PendingTab
+  //    现有的 by-session pending 渲染机制（sessionId 用 team 的 lead session id 占位）
+  eventBus.on('team-permission-requested', (req) => {
+    safeSend(IpcEvent.TeamPermissionRequested, req);
+    const sessions = sessionRepo.findByTeamName(req.teamName);
+    // lead session 优先（source='sdk' 且 active），找不到任意 active session 兜底；
+    // 都没有就直接丢（理论上 inbox 文件存在但没 active session 不会发生）
+    const leadSession =
+      sessions.find((s) => s.source === 'sdk' && s.lifecycle === 'active') ??
+      sessions.find((s) => s.lifecycle === 'active') ??
+      sessions[0];
+    if (!leadSession) {
+      console.warn(
+        `[main] team-permission-requested for "${req.teamName}" but no session bound; UI 看不到。`,
+      );
+      return;
+    }
+    const ev = translateTeamPermissionRequest(req, leadSession.id);
+    sessionManager.ingest(ev);
+  });
+  // 用户 UI 响应完后清掉 renderer pending 列表
+  eventBus.on('team-permission-resolved', (p) => safeSend(IpcEvent.TeamPermissionResolved, p));
+  // teammate 自己 abort permission（inbox-watcher 检测到 idle_notification 触发）
+  // → 复用 team-permission-resolved IPC 通道清 pending（payload schema 兼容：都有
+  //    teamName + requestId），同时走 AgentEvent 通路让 activity-feed 留 cancelled marker
+  eventBus.on('team-permission-cancelled', (cancel) => {
+    // 1. 通知所有 renderer 把 pendingTeamPermissions 列表里这条删掉（按钮变灰不可点）
+    safeSend(IpcEvent.TeamPermissionResolved, {
+      teamName: cancel.teamName,
+      requestId: cancel.requestId,
+    });
+    // 2. 走 AgentEvent 通路让 lead session 的 activity-feed 留一条 cancelled event 标灰
+    const sessions = sessionRepo.findByTeamName(cancel.teamName);
+    const leadSession =
+      sessions.find((s) => s.source === 'sdk' && s.lifecycle === 'active') ??
+      sessions.find((s) => s.lifecycle === 'active') ??
+      sessions[0];
+    if (!leadSession) return;
+    sessionManager.ingest(translateTeamPermissionCancelled(cancel, leadSession.id));
+  });
+
+  // Inbox Watcher 自动订阅：team_name 非空 + lifecycle=active 的 sessions 对应 team
+  // 自动订阅 inbox watcher。两个入口：
+  // 1. bootstrap 末尾扫一次现存 sessions
+  // 2. session-upserted 事件回调里同步订阅 / 取消订阅
+  // 用一个 Set 记录「应用内已订阅过的 team」，避免重复 subscribe（refcount 会涨但 inbox-watcher
+  // 自带去重 grace；不过我们这里不希望 ref 涨—— bootstrap 期间一次性 subscribe，到关闭时
+  // unsubscribe）。
+  const autoSubscribedTeams = new Set<string>();
+  const refreshAutoSubscribe = (): void => {
+    const wantTeams = new Set<string>();
+    // 只订阅活跃 sessions（active 或 dormant）所属的 team；closed 不订阅，避免长期沉睡的
+    // team inbox 一直挂 watcher。
+    for (const s of sessionRepo.listActiveAndDormant()) {
+      if (s.teamName && s.teamName.trim()) wantTeams.add(s.teamName);
+    }
+    // 新增：want - already
+    for (const t of wantTeams) {
+      if (!autoSubscribedTeams.has(t)) {
+        inboxWatcher.subscribe(t);
+        autoSubscribedTeams.add(t);
+      }
+    }
+    // 移除：already - want
+    for (const t of autoSubscribedTeams) {
+      if (!wantTeams.has(t)) {
+        inboxWatcher.unsubscribe(t);
+        autoSubscribedTeams.delete(t);
+      }
+    }
+  };
+  // bootstrap 时同步一次（应用启动时就有的 active session）
+  refreshAutoSubscribe();
+  // session 变化（新建 / lifecycle 变 / team_name 变）时重算订阅集
+  eventBus.on('session-upserted', () => refreshAutoSubscribe());
+  eventBus.on('session-removed', () => refreshAutoSubscribe());
+  eventBus.on('session-renamed', () => refreshAutoSubscribe());
+
   ensureFocusableOnActivate();
 
   // 10. 全局快捷键：Cmd/Ctrl+Alt+P 切换 pin（窗口置顶 + vibrancy）。
@@ -243,6 +334,10 @@ app.on('before-quit', (event) => {
       stopAllSounds();
       // Agent Teams M2：close 所有 chokidar watcher，防 fs handle 阻塞进程退出
       await teamWatcher.shutdownAll();
+      // CHANGELOG_45：inbox watcher 同款 shutdown
+      await inboxWatcher.shutdownAll();
+      // CHANGELOG_46：team-coordinator fs root watcher shutdown
+      await teamCoordinator.shutdown();
       await adapterRegistry.shutdownAll();
       try {
         await hookServer?.stop();

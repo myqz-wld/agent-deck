@@ -3,7 +3,7 @@ import type { AgentEvent } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { selectPendingBuckets, type PendingBucket } from '@renderer/lib/session-selectors';
 import { StatusBadge } from './StatusBadge';
-import { AskRow, ExitPlanRow, PermissionRow } from './pending-rows';
+import { AskRow, ExitPlanRow, PermissionRow, TeamPermissionRow } from './pending-rows';
 
 /**
  * 集中「待处理」面板。把所有有未响应请求的会话按 section 平铺，用户在此一屏完成
@@ -32,13 +32,16 @@ export function PendingTab({ onOpenSession }: Props): JSX.Element {
   const pendingPerms = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsks = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExits = useSessionStore((s) => s.pendingExitPlanModesBySession);
+  const pendingTeamPerms = useSessionStore((s) => s.pendingTeamPermissionsBySession);
   const resolvePermission = useSessionStore((s) => s.resolvePermission);
   const resolveAsk = useSessionStore((s) => s.resolveAskQuestion);
   const resolveExitPlan = useSessionStore((s) => s.resolveExitPlanMode);
+  const resolveTeamPerm = useSessionStore((s) => s.resolveTeamPermission);
 
   const buckets = useMemo(
-    () => selectPendingBuckets(sessions, pendingPerms, pendingAsks, pendingExits),
-    [sessions, pendingPerms, pendingAsks, pendingExits],
+    () =>
+      selectPendingBuckets(sessions, pendingPerms, pendingAsks, pendingExits, pendingTeamPerms),
+    [sessions, pendingPerms, pendingAsks, pendingExits, pendingTeamPerms],
   );
 
   if (buckets.length === 0) {
@@ -63,6 +66,7 @@ export function PendingTab({ onOpenSession }: Props): JSX.Element {
             resolvePermission={resolvePermission}
             resolveAsk={resolveAsk}
             resolveExitPlan={resolveExitPlan}
+            resolveTeamPerm={resolveTeamPerm}
           />
         ))}
       </ol>
@@ -76,14 +80,16 @@ function PendingSection({
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
+  resolveTeamPerm,
 }: {
   bucket: PendingBucket;
   onOpenSession: (sid: string) => void;
   resolvePermission: (sid: string, rid: string) => void;
   resolveAsk: (sid: string, rid: string) => void;
   resolveExitPlan: (sid: string, rid: string) => void;
+  resolveTeamPerm: (sid: string, rid: string) => void;
 }): JSX.Element {
-  const { session, permissions, askQuestions, exitPlanModes, total } = bucket;
+  const { session, permissions, askQuestions, exitPlanModes, teamPermissions, total } = bucket;
   const isSdk = session.source === 'sdk';
   const ts = session.lastEventAt;
 
@@ -287,6 +293,17 @@ function PendingSection({
             stillPending={true}
             wasCancelled={false}
             onResolved={resolveExitPlan}
+          />
+        ))}
+        {teamPermissions.map((req) => (
+          <TeamPermissionRow
+            key={`tp-${req.requestId}`}
+            event={makeFakeEvent(session.id, session.agentId, ts, req)}
+            payload={req}
+            sessionId={session.id}
+            stillPending={true}
+            onResolved={resolveTeamPerm}
+            onJump={() => onOpenSession(session.id)}
           />
         ))}
       </ol>

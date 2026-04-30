@@ -87,9 +87,12 @@ function makeTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
 
 /**
  * 把 tools 数组转成按 name 索引的 dict，测试里写 tools.task_create.handler(...) 更顺。
+ *
+ * CHANGELOG_46：buildTaskTools 第二参数从 `string | null` 改 `() => string | null` lazy
+ * provider。测试包一层把 fixed teamName 包成工厂，行为不变。
  */
 async function buildToolsAsDict(repo: TaskRepo, teamName: string | null) {
-  const arr = await buildTaskTools(repo, teamName);
+  const arr = await buildTaskTools(repo, () => teamName);
   const dict: Record<string, (typeof arr)[number]> = {};
   for (const t of arr) dict[t.name] = t;
   return dict;
@@ -100,7 +103,7 @@ describe('buildTaskTools / 工具集合形状', () => {
   beforeEach(() => emitSpy.mockReset());
 
   it('返回恰好 5 个工具，名字与 spec 一致', async () => {
-    const tools = await buildTaskTools(makeMockRepo(), 'team-A');
+    const tools = await buildTaskTools(makeMockRepo(), () => 'team-A');
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       'task_create',
