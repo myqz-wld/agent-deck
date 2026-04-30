@@ -106,7 +106,7 @@ describe.skipIf(!bindingAvailable)('task-repo / 基本 CRUD', () => {
     expect(repo.update('nope', { status: 'active' })).toBeNull();
   });
 
-  it('update 显式 null 可清空 description / activeForm / teamName', () => {
+  it('update 显式 null 可清空 description / activeForm（teamName 不可改，REVIEW_17 H1）', () => {
     const t = repo.create({
       subject: 'A',
       description: 'd',
@@ -116,7 +116,9 @@ describe.skipIf(!bindingAvailable)('task-repo / 基本 CRUD', () => {
     const u = repo.update(t.id, { description: null, activeForm: null, teamName: null });
     expect(u?.description).toBeNull();
     expect(u?.activeForm).toBeNull();
-    expect(u?.teamName).toBeNull();
+    // REVIEW_17 H1：teamName 不再支持通过 update 改（含清空）。tool 层闭包锁本来
+    // 就禁止跨 team，repo 层主动忽略防 ts 直调绕过。
+    expect(u?.teamName).toBe('team-1');
   });
 
   it('update subject 不能改成空', () => {
@@ -252,6 +254,40 @@ describe.skipIf(!bindingAvailable)('task-repo / cascade delete', () => {
     repo.delete(target.id);
     expect(repo.get(ref1.id)?.blocks).toEqual([]);
     expect(repo.get(ref2.id)?.blockedBy).toEqual([]);
+  });
+
+  it('REVIEW_17 H1：cascade 带 predicate 时跨 team child 被跳过（不删 + 不展开下游）', () => {
+    // chain: A(team-X) → B(team-Y) → C(team-Y)。删 A 时 predicate 只让 team-X 通过，
+    // B 应被跳过（保留），C 也不应被删（链路在 B 处中断）。
+    const c = repo.create({ subject: 'C', teamName: 'team-Y' });
+    const b = repo.create({ subject: 'B', teamName: 'team-Y', blocks: [c.id] });
+    const a = repo.create({ subject: 'A', teamName: 'team-X', blocks: [b.id] });
+    expect(repo.delete(a.id, { cascade: true, predicate: (_, t) => t === 'team-X' })).toBe(true);
+    expect(repo.get(a.id)).toBeNull(); // self 总会被删（predicate 不挡 root）
+    expect(repo.get(b.id)).not.toBeNull(); // cross-team 跳过
+    expect(repo.get(c.id)).not.toBeNull(); // 链路中断，下游也保留
+  });
+
+  it('REVIEW_17 H1：cascade predicate 通过的 child 才进 toDelete + 继续展开', () => {
+    // chain: A(team-X) → B(team-X) → C(team-Y) → D(team-X)。删 A，predicate 只让 team-X 通过。
+    // 期望：A 删 + B 删，C 跳过（不删），D 因链路在 C 处断也保留。
+    const d = repo.create({ subject: 'D', teamName: 'team-X' });
+    const c = repo.create({ subject: 'C', teamName: 'team-Y', blocks: [d.id] });
+    const b = repo.create({ subject: 'B', teamName: 'team-X', blocks: [c.id] });
+    const a = repo.create({ subject: 'A', teamName: 'team-X', blocks: [b.id] });
+    repo.delete(a.id, { cascade: true, predicate: (_, t) => t === 'team-X' });
+    expect(repo.get(a.id)).toBeNull();
+    expect(repo.get(b.id)).toBeNull();
+    expect(repo.get(c.id)).not.toBeNull();
+    expect(repo.get(d.id)).not.toBeNull();
+  });
+
+  it('REVIEW_17 H1 / L9：repo.update 主动忽略 patch.teamName（双保险防 ts 直调绕过 closure）', () => {
+    const t = repo.create({ subject: 'A', teamName: 'team-X' });
+    // 把 patch.teamName 写成 cross-team value，repo 应静默忽略，DB 列保持原值
+    const updated = repo.update(t.id, { teamName: 'team-Y' as never, status: 'completed' });
+    expect(updated?.teamName).toBe('team-X'); // 不被改
+    expect(updated?.status).toBe('completed'); // 其他字段照改
   });
 });
 

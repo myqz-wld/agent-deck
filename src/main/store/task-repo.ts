@@ -113,10 +113,26 @@ export interface TaskRepo {
   list(opts?: TaskListOptions): TaskRecord[];
   /**
    * 增量更新。patch 中**显式传 undefined** 的字段会被忽略（视为「不动」），
-   * 显式传 null 会被写入（用于把 description / activeForm / teamName 重置）。
+   * 显式传 null 会被写入（用于把 description / activeForm 重置）。
+   *
+   * **teamName 不能通过 update 改**（REVIEW_17 H1 顺带修复 L9）：tool 层闭包锁
+   * 设计上禁止跨 team 改 task，但如果 repo.update 接受 teamName key，未来直调 repo
+   * 的 ts 脚本能绕过 closure。这里在 repo 层主动忽略 patch 里的 teamName key
+   * （不抛错，避免破坏「Partial 接口宽容」）。
    */
   update(id: string, patch: Partial<TaskCreateInput>): TaskRecord | null;
-  delete(id: string, opts?: { cascade?: boolean }): boolean;
+  /**
+   * 删除一条 task，cascade=true 时按 blocks 链路 BFS 级联下游。
+   *
+   * @param predicate 可选 cascade 路径过滤器：cascade BFS 入队前调
+   *                  predicate(childId, childTeamName)，返回 false 则该 child
+   *                  及其下游都不进 toDelete 集合。tool 层用此挡跨 team 删除
+   *                  （REVIEW_17 H1）：传 `(_, t) => t === currentTeam`。
+   */
+  delete(
+    id: string,
+    opts?: { cascade?: boolean; predicate?: (id: string, teamName: string | null) => boolean },
+  ): boolean;
 }
 
 const UPDATABLE_KEYS: ReadonlyArray<keyof TaskCreateInput> = [
@@ -128,7 +144,9 @@ const UPDATABLE_KEYS: ReadonlyArray<keyof TaskCreateInput> = [
   'blocks',
   'blockedBy',
   'labels',
-  'teamName',
+  // teamName 故意不在 UPDATABLE_KEYS（REVIEW_17 H1 / L9）：tool 层闭包锁禁止跨
+  // team 改 task，repo 层主动忽略 patch.teamName，防止未来直调 repo 的 ts 脚本
+  // 绕过 closure。如要 reset task 的 teamName 必须 delete + 重新 create。
 ];
 
 const COL_MAP: Record<keyof TaskCreateInput, string> = {
@@ -255,22 +273,36 @@ export function createTaskRepo(db: Database): TaskRepo {
     return get(id);
   }
 
-  function del(id: string, opts: { cascade?: boolean } = {}): boolean {
+  function del(
+    id: string,
+    opts: { cascade?: boolean; predicate?: (id: string, teamName: string | null) => boolean } = {},
+  ): boolean {
     const target = get(id);
     if (!target) return false;
 
     // 收集所有要删的 id：cascade=true 时递归把 target.blocks 链路下游全部并入。
     // 用 BFS + 已访问集合防自循环（虽然 spec §5 不做循环检测，但 cascade 内不能因
     // 数据里碰巧有环就死循环）。
+    //
+    // REVIEW_17 H1 修复：cascade BFS 入队前调 predicate(childId, childTeamName)，
+    // 不通过的 child 整个不进 toDelete（含其自身 + 自己的 blocks 下游）。tool 层
+    // 用此挡跨 team 删除：predicate = `(_, t) => t === currentTeam`。target 自身
+    // 的 team 校验由 tool 层在调 repo.delete 之前做（不通过这里 short-circuit），
+    // 保留 repo 层「单条 delete 不感知 team」的最小语义。
     const toDelete = new Set<string>([id]);
     if (opts.cascade) {
       const queue = [...target.blocks];
       while (queue.length) {
         const next = queue.shift()!;
         if (toDelete.has(next)) continue;
-        toDelete.add(next);
         const child = get(next);
-        if (child) queue.push(...child.blocks);
+        if (!child) continue;
+        if (opts.predicate && !opts.predicate(child.id, child.teamName)) {
+          // 跨 team child 整个跳过（不进 toDelete + 不展开它自己的 blocks）
+          continue;
+        }
+        toDelete.add(next);
+        queue.push(...child.blocks);
       }
     }
 
