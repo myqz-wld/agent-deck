@@ -6,9 +6,18 @@ import type {
   PermissionRequest,
   SessionRecord,
   SummaryRecord,
-  TeamPermissionCancelled,
   TeamPermissionRequest,
 } from '@shared/types';
+import {
+  isAskQuestionCancelled,
+  isAskUserQuestion,
+  isExitPlanCancelled,
+  isExitPlanMode,
+  isPermissionCancelled,
+  isPermissionRequest,
+  isTeamPermissionCancelled,
+  isTeamPermissionRequest,
+} from './event-type-guards';
 
 interface State {
   sessions: Map<string, SessionRecord>;
@@ -82,77 +91,7 @@ export const EMPTY_ASK_QUESTIONS: AskUserQuestionRequest[] = [];
 export const EMPTY_EXIT_PLAN_MODES: ExitPlanModeRequest[] = [];
 export const EMPTY_TEAM_PERMISSIONS: TeamPermissionRequest[] = [];
 
-function isPermissionRequest(payload: unknown): payload is PermissionRequest {
-  return (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { type?: string }).type === 'permission-request' &&
-    typeof (payload as { requestId?: unknown }).requestId === 'string'
-  );
-}
-
-function isTeamPermissionRequest(payload: unknown): payload is TeamPermissionRequest {
-  return (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { type?: string }).type === 'team-permission-request' &&
-    typeof (payload as { requestId?: unknown }).requestId === 'string'
-  );
-}
-
-function isTeamPermissionCancelled(payload: unknown): payload is TeamPermissionCancelled {
-  return (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { type?: string }).type === 'team-permission-cancelled' &&
-    typeof (payload as { requestId?: unknown }).requestId === 'string'
-  );
-}
-
-function isAskUserQuestion(payload: unknown): payload is AskUserQuestionRequest {
-  return (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { type?: string }).type === 'ask-user-question' &&
-    typeof (payload as { requestId?: unknown }).requestId === 'string'
-  );
-}
-
-function isExitPlanMode(payload: unknown): payload is ExitPlanModeRequest {
-  return (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { type?: string }).type === 'exit-plan-mode' &&
-    typeof (payload as { requestId?: unknown }).requestId === 'string'
-  );
-}
-
-function isPermissionCancelled(payload: unknown): payload is { requestId: string } {
-  return (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { type?: string }).type === 'permission-cancelled' &&
-    typeof (payload as { requestId?: unknown }).requestId === 'string'
-  );
-}
-
-function isAskQuestionCancelled(payload: unknown): payload is { requestId: string } {
-  return (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { type?: string }).type === 'ask-question-cancelled' &&
-    typeof (payload as { requestId?: unknown }).requestId === 'string'
-  );
-}
-
-function isExitPlanCancelled(payload: unknown): payload is { requestId: string } {
-  return (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { type?: string }).type === 'exit-plan-cancelled' &&
-    typeof (payload as { requestId?: unknown }).requestId === 'string'
-  );
-}
+// 9 个 isXxx type guards 已迁出到 ./event-type-guards.ts（CHANGELOG_52 Step 2，纯 type guard 无副作用）
 
 // EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES 已在文件上方导出
 
