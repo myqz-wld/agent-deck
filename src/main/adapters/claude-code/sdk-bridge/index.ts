@@ -20,35 +20,31 @@ import {
 } from '@main/adapters/claude-code/sdk-injection';
 import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
 import { getTasksMcpServerForSession } from '@main/task-manager/server';
-// CHANGELOG_52 Step 3a/3b/3c/3d/3e：抽出 constants / types / sdk-message-translate /
-// permission-responder / can-use-tool / recoverer / stream-processor 七个模块。
-// class state 不动，方法体迁出后留薄 wrapper。
+// CHANGELOG_52 Step 3a-3g：拆 class 完成。本目录（sdk-bridge/）含 7 个 sub-module + index.ts (facade)。
+//
+// **TS module resolution 假设**（F5 finding）：moduleResolution: node 模式下
+// `import './sdk-bridge'` 优先匹配 `sdk-bridge.ts` 文件（不存在时才走 `sdk-bridge/index.ts`）。
+// Step 3g 删了原 `sdk-bridge.ts` 文件，import 自动切到本 index.ts；外部 import 站点
+// （如 `@main/adapters/claude-code/sdk-bridge`）零变更继续工作。
+//
+// **如果未来切到 node16/bundler module resolution** 此优先级会变（强 ESM 要 explicit
+// `/index` 后缀），届时所有 import 站点要加 `/index`。当前 tsconfig.node.json 用 node。
 import {
   AGENT_ID,
   MAX_MESSAGE_BYTES,
   MAX_PENDING_MESSAGES,
-} from '@main/adapters/claude-code/sdk-bridge/constants';
+} from './constants';
 import type {
   InternalSession,
   SdkBridgeOptions,
   SdkSessionHandle,
-} from '@main/adapters/claude-code/sdk-bridge/types';
-import {
-  PermissionResponder,
-  type ResponderCtx,
-} from '@main/adapters/claude-code/sdk-bridge/permission-responder';
-import { makeCanUseTool } from '@main/adapters/claude-code/sdk-bridge/can-use-tool';
-import {
-  SessionRecoverer,
-  defaultResumeJsonlExists,
-  type RecovererCtx,
-} from '@main/adapters/claude-code/sdk-bridge/recoverer';
-import {
-  StreamProcessor,
-  type StreamProcessorCtx,
-} from '@main/adapters/claude-code/sdk-bridge/stream-processor';
+} from './types';
+import { PermissionResponder, type ResponderCtx } from './permission-responder';
+import { makeCanUseTool } from './can-use-tool';
+import { SessionRecoverer, defaultResumeJsonlExists, type RecovererCtx } from './recoverer';
+import { StreamProcessor, type StreamProcessorCtx } from './stream-processor';
 
-export type { SdkSessionHandle, SdkBridgeOptions } from '@main/adapters/claude-code/sdk-bridge/types';
+export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
 /**
  * SDK 通道实现：每个 session 启动一个 query() AsyncGenerator，
