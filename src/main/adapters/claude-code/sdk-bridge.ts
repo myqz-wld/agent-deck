@@ -8,7 +8,6 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  AgentEvent,
   AskUserQuestionAnswer,
   AskUserQuestionItem,
   AskUserQuestionRequest,
@@ -28,111 +27,29 @@ import {
   getAgentDeckSystemPromptAppend,
 } from '@main/adapters/claude-code/sdk-injection';
 import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
-import {
-  imageResultToFileChanges,
-  parseImageToolResult,
-} from '@main/adapters/claude-code/translate';
-import { isImageTool } from '@shared/mcp-tools';
 import { getTasksMcpServerForSession } from '@main/task-manager/server';
 import { formatAskAnswers } from '@main/adapters/claude-code/sdk-bridge-helpers';
+// CHANGELOG_52 Step 3a：抽出 constants / types / sdk-message-translate 三个最纯净模块。
+// class state 不动，原 ClaudeSdkBridge.translate / maybeEmitFileChanged /
+// maybeEmitImageFileChanged 三个 private 方法改为薄 wrapper 调 module function。
+import {
+  AGENT_ID,
+  MAX_MESSAGE_BYTES,
+  MAX_PENDING_MESSAGES,
+  PLACEHOLDER_DEDUP_MS,
+  READ_ONLY_TOOLS,
+} from '@main/adapters/claude-code/sdk-bridge/constants';
+import type {
+  InternalSession,
+  PendingAskQuestionEntry,
+  PendingExitPlanModeEntry,
+  PendingPermissionEntry,
+  SdkBridgeOptions,
+  SdkSessionHandle,
+} from '@main/adapters/claude-code/sdk-bridge/types';
+import { translateSdkMessage } from '@main/adapters/claude-code/sdk-bridge/sdk-message-translate';
 
-const AGENT_ID = 'claude-code';
-
-/**
- * 单条用户消息字节上限（~100KB）。超过这个就拒绝排队，让 UI 抛错给用户看到。
- * 100KB 已经远超合理对话长度（~25k 中文字符），主要是兜底"用户不小心粘了一坨二进制"
- * 或者"复制了整个日志文件"的场景。SDK / Anthropic 端再大也会按 token 计费暴涨。
- */
-const MAX_MESSAGE_BYTES = 100_000;
-
-/**
- * 单会话 pendingUserMessages 队列上限。SDK 在 await canUseTool 等待用户响应时
- * 整条 query 阻塞，pendingUserMessages 不被消费；用户连发 10+ 条长 prompt 会无限累积，
- * 内存常驻一堆 SDKUserMessage 对象 + 同步落库 N 条 message 事件，
- * 等用户允许后 SDK 一次性 flush 全部 turn → token 计费暴涨。
- * 20 条已经远超合理"用户连发"场景，超过就拒绝排队，让 UI 提示先处理 pending。
- */
-const MAX_PENDING_MESSAGES = 20;
-
-/**
- * REVIEW_11 Bug 4：read-only 工具白名单。SDK 0.2.x 注册 canUseTool 后所有工具决策都归应用，
- * 包括只读 / 元数据类工具。应用必须在 canUseTool 顶部主动放行这些工具，否则 default mode
- * 下用户会被 Read / Grep 等无害操作反复弹询问。MCP 图片读取类工具靠 `__ImageRead` 后缀匹配。
- *
- * 加白名单不依赖 permissionMode：plan / acceptEdits / bypass / default 任何模式下，
- * 这些工具语义上都不该被拦（plan mode 本意只拦 mutation；其他 mode 也只该拦危险操作）。
- */
-const READ_ONLY_TOOLS = new Set<string>([
-  'Read',
-  'Grep',
-  'Glob',
-  'LS',
-  'WebFetch',
-  'WebSearch',
-  'TodoWrite',
-  'NotebookRead',
-]);
-
-export interface SdkSessionHandle {
-  sessionId: string;
-  abort: () => void;
-}
-
-export interface SdkBridgeOptions {
-  emit: (e: AgentEvent) => void;
-  /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。运行时可通过 setPermissionTimeoutMs 改。 */
-  permissionTimeoutMs?: number;
-}
-
-interface PendingPermissionEntry {
-  payload: PermissionRequest;
-  resolver: (r: PermissionResult) => void;
-  timer: NodeJS.Timeout | null;
-}
-
-interface PendingAskQuestionEntry {
-  payload: AskUserQuestionRequest;
-  resolver: (a: AskUserQuestionAnswer) => void;
-  timer: NodeJS.Timeout | null;
-}
-
-interface PendingExitPlanModeEntry {
-  payload: ExitPlanModeRequest;
-  /** 真正驱动 SDK 行为的 resolver：approve → allow，keep-planning → deny+message */
-  resolver: (response: ExitPlanModeResponse) => void;
-  /** 拿到原始 input 用于 allow 时回填 updatedInput（保留 plan 字段不变） */
-  toolInput: Record<string, unknown>;
-  timer: NodeJS.Timeout | null;
-}
-
-interface InternalSession {
-  /** 等待 SDK 真实 session_id 之前用的临时 id；拿到后会被替换 */
-  realSessionId: string | null;
-  cwd: string;
-  query: Query;
-  pendingUserMessages: SDKUserMessage[];
-  notify: (() => void) | null;
-  /** 等待用户回应的权限请求：requestId → entry（payload + resolver + 超时定时器） */
-  pendingPermissions: Map<string, PendingPermissionEntry>;
-  /** 等待用户回答的 AskUserQuestion：requestId → entry */
-  pendingAskUserQuestions: Map<string, PendingAskQuestionEntry>;
-  /** 等待用户批准/继续规划的 ExitPlanMode：requestId → entry */
-  pendingExitPlanModes: Map<string, PendingExitPlanModeEntry>;
-  /**
-   * tool_use_id → tool_name 映射。SDK 的 tool_result block 只带 tool_use_id 不带 toolName，
-   * 但我们需要在 tool_result 时识别「这条结果是不是 mcp 图片工具的」才能翻译成 file-changed。
-   * assistant.tool_use 处理时 set，user.tool_result 消费后 delete。
-   */
-  toolUseNames: Map<string, string>;
-  /**
-   * 应用层主动关闭/重启该 session 的标记。置位时 query loop catch 块抛的 SDK 错误
-   * （典型：approve-bypass deny+interrupt:true 触发 SDK 内部 [ede_diagnostic] 状态机
-   * 不一致诊断错误）属于设计内副产品，UI 不再 emit 红字，仅 console.warn 留痕。
-   * 在 closeSession（含 restartWithPermissionMode 走的冷切路径）/ approve-bypass resolver
-   * 之前置位；不需要清，因为 internal session 紧接着会被 sessions Map 删除。
-   */
-  expectedClose?: boolean;
-}
+export type { SdkSessionHandle, SdkBridgeOptions } from '@main/adapters/claude-code/sdk-bridge/types';
 
 /**
  * SDK 通道实现：每个 session 启动一个 query() AsyncGenerator，
@@ -169,7 +86,8 @@ export class ClaudeSdkBridge {
    * 5s 窗口够覆盖单飞失败到下次 sendMessage 的典型间隔。
    */
   private placeholderEmittedAt = new Map<string, number>();
-  private static readonly PLACEHOLDER_DEDUP_MS = 5_000;
+  // CHANGELOG_52 Step 3a：PLACEHOLDER_DEDUP_MS 从 class static 提到 module 级 const（constants.ts），
+  // 让 3d 抽 recoverer 时能直接 import；引用从 PLACEHOLDER_DEDUP_MS 改成 module-level。
   /** 权限请求未响应自动 abort 阈值；0 = 关闭。运行时通过 setPermissionTimeoutMs 改。 */
   private permissionTimeoutMs: number;
 
@@ -893,11 +811,11 @@ export class ClaudeSdkBridge {
     // 多条同款占位）。
     const lastPlaceholderAt = this.placeholderEmittedAt.get(sessionId);
     const nowTs = Date.now();
-    if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > ClaudeSdkBridge.PLACEHOLDER_DEDUP_MS) {
+    if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > PLACEHOLDER_DEDUP_MS) {
       this.placeholderEmittedAt.set(sessionId, nowTs);
       // 顺手清掉过期 entry（避免 Map 无限涨）
       for (const [k, ts] of this.placeholderEmittedAt) {
-        if (nowTs - ts > ClaudeSdkBridge.PLACEHOLDER_DEDUP_MS) this.placeholderEmittedAt.delete(k);
+        if (nowTs - ts > PLACEHOLDER_DEDUP_MS) this.placeholderEmittedAt.delete(k);
       }
       this.opts.emit({
         sessionId,
@@ -1694,7 +1612,7 @@ export class ClaudeSdkBridge {
         }
 
         const sid = realId ?? tempKey;
-        this.translate(sid, m, internal);
+        translateSdkMessage(this.opts.emit, sid, m, internal);
       }
     } catch (err) {
       console.warn(`[sdk-bridge] query loop ended`, err);
@@ -1756,217 +1674,5 @@ export class ClaudeSdkBridge {
       sessionManager.releaseSdkClaim(sid);
     }
     return realId;
-  }
-
-  private translate(
-    sessionId: string,
-    msg: { type: string; [k: string]: unknown },
-    internal: InternalSession,
-  ): void {
-    const ts = Date.now();
-    const emit = (kind: AgentEvent['kind'], payload: unknown): void => {
-      this.opts.emit({ sessionId, agentId: AGENT_ID, kind, payload, ts, source: 'sdk' });
-    };
-
-    if (msg.type === 'assistant') {
-      const m = msg.message as {
-        content?: {
-          type: string;
-          text?: string;
-          name?: string;
-          input?: unknown;
-          id?: string;
-          thinking?: string;
-        }[];
-      };
-      // SDK 给 assistant 消息附带 error 字段时（rate_limit / billing_error / auth 等），
-      // 把它当成一条错误文案推到时间线，UI 能立刻看到 CLI 报的真实问题。
-      const errCode = (msg as { error?: string }).error;
-      if (errCode) {
-        emit('message', { text: `⚠ Claude API 错误：${errCode}`, error: true });
-      }
-      const blocks = m?.content ?? [];
-      for (let i = 0; i < blocks.length; i++) {
-        const block = blocks[i];
-        if (block.type === 'thinking' || block.type === 'redacted_thinking') {
-          // Anthropic API 标准 BetaThinkingBlock { type:'thinking', thinking, signature }
-          // 与 BetaRedactedThinkingBlock { type:'redacted_thinking', data }；
-          // redacted 内容已加密，UI 显示占位符即可。
-          const text =
-            block.type === 'thinking' ? (block.thinking ?? '').trim() : '[redacted thinking]';
-          if (text) emit('thinking', { text });
-        } else if (block.type === 'text' && block.text) {
-          // 同一帧 SDK assistant message 里出现多个连续 text block，是 Claude Code
-          // 把 extended thinking block 压平成 text 推给 SDK 的产物：紧邻另一个 text 的
-          // 当前 block 是 thinking-prelude，最后一段才是 final answer。
-          // 判断条件「下一个紧邻 block 也是 text」覆盖：
-          //   [text, text]            → block[0] thinking, block[1] message
-          //   [text, tool_use]        → block[0] message （tool 调用前的解释，非 thinking）
-          //   [text, tool_use, text]  → 两段 text 都是 message（被 tool_use 隔开）
-          //   [text, text, tool_use]  → block[0] thinking, block[1] message
-          const next = blocks[i + 1];
-          const isThinkingPrelude = !!(next && next.type === 'text' && next.text);
-          if (isThinkingPrelude) {
-            emit('thinking', { text: block.text });
-          } else {
-            emit('message', { text: block.text, role: 'assistant' });
-          }
-        } else if (block.type === 'tool_use') {
-          // 反查需要：tool_result block 只带 tool_use_id 没 toolName，必须靠这条记录
-          if (block.id && block.name) {
-            internal.toolUseNames.set(block.id, block.name);
-          }
-          emit('tool-use-start', {
-            toolName: block.name,
-            toolInput: block.input,
-            toolUseId: block.id,
-          });
-          // 同时把 Edit/Write/MultiEdit 翻译成 file-changed（用 input 重建 before/after）
-          this.maybeEmitFileChanged(emit, block.name, block.input, block.id);
-        }
-      }
-    } else if (msg.type === 'user') {
-      const m = msg.message as {
-        content?: { type: string; tool_use_id?: string; content?: unknown }[];
-      };
-      const blocks = m?.content ?? [];
-      for (const block of blocks) {
-        if (block.type === 'tool_result') {
-          // 反查 assistant tool_use 时记下的 name；renderer ToolEndRow 必须靠这个才能显示
-          // 「<tool> 完成」而不是兜底的「工具 完成」。maybeEmitImageFileChanged 内部还会
-          // 用同一个 map 然后 delete（line 1931-1933），所以这里只 get、不 delete。
-          const toolName = block.tool_use_id
-            ? internal.toolUseNames.get(block.tool_use_id)
-            : undefined;
-          emit('tool-use-end', {
-            toolUseId: block.tool_use_id,
-            toolName,
-            toolResult: block.content,
-          });
-          // mcp 图片工具结果识别：反查 toolName，匹配则把 result.content 解析后翻译成 file-changed
-          this.maybeEmitImageFileChanged(emit, internal, block.tool_use_id, block.content);
-        }
-      }
-    } else if (msg.type === 'result') {
-      const r = msg as {
-        subtype?: string;
-        is_error?: boolean;
-        result?: string;
-        errors?: string[];
-      };
-      // REVIEW_13 Bug 6 / P17 双通道防护陷阱再撞：result frame 在 expectedClose=true 时
-      // 必须**整体静默**，不只 gate 红字 message。REVIEW_11 D'2 修法只 gate 了 message emit
-      // 漏了下面 finished emit，结果 approve-bypass 冷切走完后：
-      //   - ok=false（r.is_error=true / r.subtype !== 'success'）
-      //   - subtype !== 'interrupted'（典型 'error_max_turns' / 'error_during_execution'）
-      // 进 routeEventToNotification → notifyUser({title:'Agent 出错',...}) → mac 系统通知
-      // 弹「Agent 出错」横幅。OLD CLI 的 result frame 完全是应用主动 abort 的副产品，
-      // OLD record 后续会被 renameSdkSession 整体迁到 NEW_ID，OLD 的 finished 既不影响
-      // 新 record 状态推进（NEW SDK 自己会发 finished），也不应该污染 dock / 通知 / UI 时间线。
-      // 修法：expectedClose 时整段 return，三个通道（红字 / finished UI / 系统通知）一起 skip。
-      if (internal.expectedClose) return;
-      if (r.is_error || (r.subtype && r.subtype !== 'success')) {
-        const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
-        emit('message', { text: `⚠ ${detail}`, error: true });
-      }
-      emit('finished', { ok: r.subtype === 'success' && !r.is_error, subtype: r.subtype });
-    } else if (
-      msg.type === 'system' &&
-      (msg.subtype === 'init' || msg.subtype === 'status') &&
-      typeof msg.permissionMode === 'string'
-    ) {
-      // REVIEW_11 Bug 2：SDK 在 init 与 status 上行 frame 里附带的 permissionMode 是 CLI 内部
-      // 真实运行态的权威来源。CLI 自己翻 mode（典型：approve ExitPlanMode 后退 plan、resume
-      // 时从 jsonl 读出的 mode、外部 settings 改 mode 等）应用层只能靠这两条 frame 知道。
-      // 之前直接忽略 → DB 留旧值、不 emit upsert、store 卡旧值、详情面板显示器卡旧值。
-      // 修法：白名单校验 → 与 DB 比 → 不同则写 DB + emit upsert（renderer 走原有 listener）。
-      const next = msg.permissionMode;
-      if (
-        next === 'default' ||
-        next === 'acceptEdits' ||
-        next === 'plan' ||
-        next === 'bypassPermissions'
-      ) {
-        const cur = sessionRepo.get(sessionId);
-        if (cur && cur.permissionMode !== next) {
-          sessionRepo.setPermissionMode(sessionId, next);
-          const updated = sessionRepo.get(sessionId);
-          if (updated) eventBus.emit('session-upserted', updated);
-        }
-      }
-    }
-    // 其他 system subtype 与未知 type 忽略
-  }
-
-  private maybeEmitFileChanged(
-    emit: (kind: AgentEvent['kind'], payload: unknown) => void,
-    toolName: string | undefined,
-    input: unknown,
-    toolUseId: string | undefined,
-  ): void {
-    if (!toolName) return;
-    const i = (input ?? {}) as {
-      file_path?: string;
-      old_string?: string;
-      new_string?: string;
-      content?: string;
-      edits?: { old_string: string; new_string: string }[];
-    };
-    if (toolName === 'Edit' && i.file_path) {
-      emit('file-changed', {
-        filePath: i.file_path,
-        kind: 'text',
-        before: i.old_string ?? null,
-        after: i.new_string ?? null,
-        metadata: { source: 'Edit' },
-        toolCallId: toolUseId,
-      });
-    } else if (toolName === 'Write' && i.file_path) {
-      emit('file-changed', {
-        filePath: i.file_path,
-        kind: 'text',
-        before: null,
-        after: i.content ?? null,
-        metadata: { source: 'Write' },
-        toolCallId: toolUseId,
-      });
-    } else if (toolName === 'MultiEdit' && i.file_path && Array.isArray(i.edits)) {
-      const before = i.edits.map((e) => e.old_string).join('\n---\n');
-      const after = i.edits.map((e) => e.new_string).join('\n---\n');
-      emit('file-changed', {
-        filePath: i.file_path,
-        kind: 'text',
-        before,
-        after,
-        metadata: { source: 'MultiEdit', editCount: i.edits.length },
-        toolCallId: toolUseId,
-      });
-    }
-  }
-
-  /**
-   * MCP 图片工具的 tool_result 处理：反查 toolName 是否是 mcp__*__Image*，
-   * 是则解析 result.content 里的 JSON 翻译成 0~N 条 file-changed（payload.before/after 是 ImageSource）。
-   *
-   * CHANGELOG_47：toolUseNames.delete 提到顶层、对所有 tool_result 都执行。
-   * 之前只在图片工具分支末尾 delete，导致普通工具（Bash/Edit/Read…）每条 turn 漏一条，
-   * 长会话 toolUseNames Map 线性增长直到 session-end 才清空。
-   */
-  private maybeEmitImageFileChanged(
-    emit: (kind: AgentEvent['kind'], payload: unknown) => void,
-    internal: InternalSession,
-    toolUseId: string | undefined,
-    content: unknown,
-  ): void {
-    if (!toolUseId) return;
-    const toolName = internal.toolUseNames.get(toolUseId);
-    // 收到 tool_result 即可消费这条映射，无论是否图片工具
-    internal.toolUseNames.delete(toolUseId);
-    if (!isImageTool(toolName)) return;
-    const parsed = parseImageToolResult(content);
-    if (!parsed) return;
-    for (const fc of imageResultToFileChanges(parsed, toolUseId)) {
-      emit('file-changed', fc);
-    }
   }
 }
