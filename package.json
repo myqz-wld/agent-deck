@@ -77,6 +77,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/sounds",
+        "to": "sounds",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "asarUnpack": [

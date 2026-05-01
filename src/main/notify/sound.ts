@@ -9,8 +9,11 @@ type SoundKind = 'waiting' | 'done';
 /**
  * 跨平台播放短音效。优先级：
  *   1. 用户在设置面板里选的自定义文件（settings.waitingSoundPath / finishedSoundPath）
- *   2. resources/sounds/waiting.mp3 / done.mp3（应用内置，目前为空目录）
+ *   2. resources/sounds/waiting.m4a / done.m4a（应用内置默认音）
  *   3. 系统提示音（macOS Glass / Tink；Linux/Win 用 \\x07）
+ *
+ * 内置音用 m4a 格式：macOS afplay / Win MediaPlayer 都原生支持；
+ * Linux paplay/aplay 看 magic bytes 不依赖扩展名。
  *
  * 播放策略：
  *   - 防叠播：全局只允许一个外部播放器进程；新触发会 SIGTERM 旧的（断尾，不会"叠音轨"）
@@ -80,9 +83,17 @@ function resolveSoundFile(kind: SoundKind): string | null {
     kind === 'waiting' ? settings.waitingSoundPath : settings.finishedSoundPath;
   if (customPath && existsSync(customPath)) return customPath;
 
-  // 2. 内置默认
-  const filename = kind === 'waiting' ? 'waiting.mp3' : 'done.mp3';
-  const bundled = join(app.getAppPath(), 'resources', 'sounds', filename);
+  // 2. 内置默认（resources/sounds/waiting.m4a 或 done.m4a，跟随应用打包）
+  //
+  // 路径解析：
+  // - dev: app.getAppPath() = 仓库根目录 → 直接拼 resources/sounds/<file>
+  // - 打包: app.getAppPath() = .../app.asar；afplay 等子进程拿 asar 内路径会 ENOTDIR
+  //   （codex binary 同款问题）。必须走 extraResources copy 出来的 unpacked 副本：
+  //   process.resourcesPath/sounds/<file>（package.json extraResources sounds → sounds 已配）
+  const filename = kind === 'waiting' ? 'waiting.m4a' : 'done.m4a';
+  const bundled = app.isPackaged
+    ? join(process.resourcesPath, 'sounds', filename)
+    : join(app.getAppPath(), 'resources', 'sounds', filename);
   if (existsSync(bundled)) return bundled;
 
   return null;
