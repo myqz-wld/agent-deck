@@ -91,7 +91,7 @@ export const EMPTY_ASK_QUESTIONS: AskUserQuestionRequest[] = [];
 export const EMPTY_EXIT_PLAN_MODES: ExitPlanModeRequest[] = [];
 export const EMPTY_TEAM_PERMISSIONS: TeamPermissionRequest[] = [];
 
-// 9 个 isXxx type guards 已迁出到 ./event-type-guards.ts（CHANGELOG_52 Step 2，纯 type guard 无副作用）
+// 8 个 isXxx type guards 已迁出到 ./event-type-guards.ts（CHANGELOG_52 Step 2，纯 type guard 无副作用）
 
 // EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES 已在文件上方导出
 
