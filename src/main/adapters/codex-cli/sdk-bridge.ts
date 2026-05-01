@@ -1,15 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { Codex, Thread, ThreadEvent } from '@openai/codex-sdk';
-import type { AgentEventKind } from '@shared/types';
+import type { Codex, Thread } from '@openai/codex-sdk';
 import { sessionManager } from '@main/session/manager';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
-import { translateCodexEvent } from '@main/adapters/codex-cli/translate';
-// CHANGELOG_52 Step 4a：抽出 constants / types / codex-binary 三个模块。class state 不动。
+// CHANGELOG_52 Step 4a/4b：抽出 constants / types / codex-binary / thread-loop 四个模块。class state 不动。
 import {
   AGENT_ID,
   MAX_MESSAGE_BYTES,
   MAX_PENDING_MESSAGES,
-  THREAD_STARTED_FALLBACK_MS,
 } from '@main/adapters/codex-cli/sdk-bridge/constants';
 import type {
   CodexBridgeOptions,
@@ -17,6 +14,10 @@ import type {
   InternalSession,
 } from '@main/adapters/codex-cli/sdk-bridge/types';
 import { resolveBundledCodexBinary } from '@main/adapters/codex-cli/sdk-bridge/codex-binary';
+import {
+  ThreadLoop,
+  type ThreadLoopCtx,
+} from '@main/adapters/codex-cli/sdk-bridge/thread-loop';
 
 export type {
   CodexSessionHandle,
@@ -38,8 +39,20 @@ export class CodexSdkBridge {
   private codex: Codex | null = null;
   /** 用户在设置面板填的 codex 二进制路径覆盖；null = 用 SDK vendored 二进制 */
   private codexCliPath: string | null = null;
+  /**
+   * CHANGELOG_52 Step 4b：ThreadLoop sub-class 持 startNewThreadAndAwaitId + runTurnLoop。
+   * sessions Map / emit 通过 ThreadLoopCtx 注入；class 上 createSession / sendMessage 内的
+   * 调用走 this.threadLoop.xxx 委托。
+   */
+  private threadLoop: ThreadLoop;
 
-  constructor(private opts: CodexBridgeOptions) {}
+  constructor(private opts: CodexBridgeOptions) {
+    const ctx: ThreadLoopCtx = {
+      sessions: this.sessions,
+      emit: opts.emit,
+    };
+    this.threadLoop = new ThreadLoop(ctx);
+  }
 
   /** 设置面板「Codex 二进制路径」变更：清掉 Codex 实例，下次 createSession 重建。 */
   setCodexCliPath(path: string | null): void {
@@ -129,14 +142,14 @@ export class CodexSdkBridge {
         source: 'sdk',
       });
       // 启动 turn loop（不阻塞当前 createSession）
-      void this.runTurnLoop(internal, opts.resume);
+      void this.threadLoop.runTurnLoop(internal, opts.resume);
       return { sessionId: opts.resume };
     }
 
     // 新建路径：先用 tempKey 占位，等 thread.started 事件拿到 realId 后 rename
     const tempKey = randomUUID();
     this.sessions.set(tempKey, internal);
-    const realId = await this.startNewThreadAndAwaitId(internal, tempKey, opts.prompt, cwd);
+    const realId = await this.threadLoop.startNewThreadAndAwaitId(internal, tempKey, opts.prompt, cwd);
 
     return { sessionId: realId };
   }
@@ -170,7 +183,7 @@ export class CodexSdkBridge {
 
     // 触发 turn loop（如果当前没在跑就启）
     if (!s.turnLoopRunning) {
-      void this.runTurnLoop(s, sessionId);
+      void this.threadLoop.runTurnLoop(s, sessionId);
     }
   }
 
@@ -236,225 +249,5 @@ export class CodexSdkBridge {
     { permissions: never[]; askQuestions: never[]; exitPlanModes: never[] }
   > {
     return {};
-  }
-
-  /**
-   * 启动新 thread 的第一个 turn，等 thread.started 事件拿到 thread_id。
-   *
-   * 三态结算：
-   * 1. ✅ 成功：拿到 thread.started → onFirstId 路径 → resolve(realId)
-   * 2. ❌ 早期失败（codex spawn 后立即 exit / 鉴权失败 / 二进制坏）：
-   *    runTurnLoop 的 catch 在拿到 thread_id 前抛错 → onEarlyError 路径 →
-   *    把 SDK 透出来的真实 stderr 作为错误消息发给 UI，立即结算
-   * 3. ⏰ 30s 兜底：codex 既没吐 thread.started 也没退出（仍在 hang，比如卡在 OAuth
-   *    设备码 / 网络代理超时）→ 发那条固定文案让用户去查鉴权 / 二进制路径，
-   *    并 abort 当前 turn 避免子进程继续挂着
-   *
-   * 三条路径都通过 resolveWithFallback 走同一段 emit 序列（session-start →
-   * user message → error message → finished），保证 UI 看到的是一条完整收尾的会话。
-   */
-  private async startNewThreadAndAwaitId(
-    internal: InternalSession,
-    tempKey: string,
-    prompt: string,
-    cwd: string,
-  ): Promise<string> {
-    return new Promise<string>((resolve) => {
-      let resolved = false;
-
-      /**
-       * 用 tempKey 顶上 realId 的兜底路径。errorText 是要显示给用户的错误消息：
-       * - 30s 超时 → 固定文案（提示查鉴权 / 二进制路径）
-       * - early error → SDK 抛出的真实 stderr，准确指向根因
-       */
-      const resolveWithFallback = (errorText: string): void => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallback);
-        internal.threadId = tempKey;
-        sessionManager.claimAsSdk(tempKey);
-        this.opts.emit({
-          sessionId: tempKey,
-          agentId: AGENT_ID,
-          kind: 'session-start',
-          payload: { cwd, source: 'sdk' },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        this.opts.emit({
-          sessionId: tempKey,
-          agentId: AGENT_ID,
-          kind: 'message',
-          payload: { text: prompt, role: 'user' },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        this.opts.emit({
-          sessionId: tempKey,
-          agentId: AGENT_ID,
-          kind: 'message',
-          payload: { text: errorText, error: true },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        this.opts.emit({
-          sessionId: tempKey,
-          agentId: AGENT_ID,
-          kind: 'finished',
-          payload: { ok: false, subtype: 'error' },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        resolve(tempKey);
-      };
-
-      const fallback = setTimeout(() => {
-        // 30s 内 codex 既没吐 thread.started 也没退出 → 中断它，避免子进程继续挂着。
-        // REVIEW_4 M5：必须先设 intentionallyClosed=true 让 runTurnLoop catch 静默退出，
-        // 否则 catch 走 aborted 分支再 emit finished:interrupted，与本路径下面
-        // resolveWithFallback 的 finished:error 凑成双 finished + 双系统通知。
-        internal.intentionallyClosed = true;
-        try {
-          internal.currentTurn?.abort();
-        } catch {
-          // ignore
-        }
-        resolveWithFallback(
-          '⚠ Codex SDK 30 秒内未发出 thread_id。可能原因：codex 二进制启动失败 / 鉴权未配置 / 代理超限。' +
-            '请在终端运行 `codex auth` 验证鉴权，或检查设置面板的「Codex 二进制路径」。',
-        );
-      }, THREAD_STARTED_FALLBACK_MS);
-
-      void this.runTurnLoop(
-        internal,
-        tempKey,
-        (realId) => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(fallback);
-          if (realId !== tempKey) {
-            // 切 sessions map 的 key
-            this.sessions.delete(tempKey);
-            this.sessions.set(realId, internal);
-            sessionManager.claimAsSdk(realId);
-            // 把已经登记到 sessionManager 的 tempKey 行迁移到 realId
-            // （实际上 tempKey 还没进 sessionManager —— 我们等到 thread.started 才 claim）
-            // 但保险起见调一次 rename，sessionManager 内部会处理「from 不存在」的 noop
-            sessionManager.renameSdkSession(tempKey, realId);
-          } else {
-            sessionManager.claimAsSdk(realId);
-          }
-          this.opts.emit({
-            sessionId: realId,
-            agentId: AGENT_ID,
-            kind: 'session-start',
-            payload: { cwd, source: 'sdk' },
-            ts: Date.now(),
-            source: 'sdk',
-          });
-          this.opts.emit({
-            sessionId: realId,
-            agentId: AGENT_ID,
-            kind: 'message',
-            payload: { text: prompt, role: 'user' },
-            ts: Date.now(),
-            source: 'sdk',
-          });
-          resolve(realId);
-        },
-        (earlyErr) => {
-          // 第一个 turn 在拿到 thread_id 前就抛了（codex 子进程立即 exit / spawn 失败）。
-          // SDK 抛的 message 形如 `Codex Exec exited with code N: <stderr>`，
-          // 直接作为错误消息透给用户——比 30s 后那条固定文案准确得多。
-          resolveWithFallback(`⚠ Codex 启动失败：${earlyErr}`);
-        },
-      );
-    });
-  }
-
-  /**
-   * 串行消费 pendingMessages 的 turn loop。同时刻只跑一个 turn（codex thread 限制）。
-   *
-   * @param key 最初登记到 sessions map 的 key（tempKey 或 resume 的 realId）
-   * @param onFirstId 拿到第一条 thread.started 时回调（仅新建路径需要）
-   * @param onEarlyError 第一个 turn 在拿到 thread.started 之前就抛错时回调（仅新建路径需要）。
-   *   走这条路径时本函数不再 emit 错误消息——由外层 startNewThreadAndAwaitId 统一发，
-   *   保证 UI 看到的是一条完整的 session-start → user msg → error → finished 序列。
-   */
-  private async runTurnLoop(
-    internal: InternalSession,
-    key: string,
-    onFirstId?: (id: string) => void,
-    onEarlyError?: (msg: string) => void,
-  ): Promise<void> {
-    if (internal.turnLoopRunning) return;
-    internal.turnLoopRunning = true;
-    let firstIdCb = onFirstId;
-    let earlyErrCb = onEarlyError;
-    try {
-      while (internal.pendingMessages.length > 0) {
-        const text = internal.pendingMessages.shift()!;
-        const controller = new AbortController();
-        internal.currentTurn = controller;
-        // emit 闭包：sid 取最新的 realId（thread_id 在第一条 thread.started 后才有）
-        const emit = (kind: AgentEventKind, payload: unknown): void => {
-          this.opts.emit({
-            sessionId: internal.threadId ?? key,
-            agentId: AGENT_ID,
-            kind,
-            payload,
-            ts: Date.now(),
-            source: 'sdk',
-          });
-        };
-        try {
-          const { events } = await internal.thread.runStreamed(text, {
-            signal: controller.signal,
-          });
-          for await (const ev of events) {
-            // 拦截 thread.started：拿到真实 thread_id，通知 createSession promise resolve
-            if (ev.type === 'thread.started' && !internal.threadId) {
-              internal.threadId = ev.thread_id;
-              if (firstIdCb) {
-                firstIdCb(ev.thread_id);
-                firstIdCb = undefined;
-                // 已拿到 thread_id：后续错误走常规 catch，不再算 early error
-                earlyErrCb = undefined;
-              }
-            }
-            translateCodexEvent(ev as ThreadEvent, emit);
-          }
-        } catch (err) {
-          // REVIEW_4 H1+M5：被 closeSession / 30s timeout fallback 主动 abort 的，静默退出。
-          // 否则发 finished:interrupted 让 manager 把已删 session 复活成幽灵，
-          // 或与 fallback 自己 emit 的 finished:error 凑成双 finished。
-          if (internal.intentionallyClosed) {
-            internal.currentTurn = null;
-            break;
-          }
-          const aborted = controller.signal.aborted;
-          const msg = err instanceof Error ? err.message : String(err);
-          if (aborted) {
-            emit('finished', { ok: false, subtype: 'interrupted' });
-          } else if (earlyErrCb) {
-            // 第一个 turn 在拿到 thread.started 前就挂了（codex spawn 后立即 exit）。
-            // 通知 startNewThreadAndAwaitId 用真实 stderr 立即结算外层 promise，
-            // 然后 break 出 while——已死的 thread 不再处理后续 pendingMessages。
-            earlyErrCb(msg);
-            earlyErrCb = undefined;
-            firstIdCb = undefined;
-            internal.currentTurn = null;
-            break;
-          } else {
-            emit('message', { text: `⚠ Codex turn 异常：${msg}`, error: true });
-            emit('finished', { ok: false, subtype: 'error' });
-          }
-        } finally {
-          internal.currentTurn = null;
-        }
-      }
-    } finally {
-      internal.turnLoopRunning = false;
-    }
   }
 }
