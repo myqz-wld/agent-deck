@@ -1,126 +1,27 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { app } from 'electron';
 import type { Codex, Thread, ThreadEvent } from '@openai/codex-sdk';
-import type { AgentEvent, AgentEventKind } from '@shared/types';
+import type { AgentEventKind } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
 import { translateCodexEvent } from '@main/adapters/codex-cli/translate';
+// CHANGELOG_52 Step 4a：抽出 constants / types / codex-binary 三个模块。class state 不动。
+import {
+  AGENT_ID,
+  MAX_MESSAGE_BYTES,
+  MAX_PENDING_MESSAGES,
+  THREAD_STARTED_FALLBACK_MS,
+} from '@main/adapters/codex-cli/sdk-bridge/constants';
+import type {
+  CodexBridgeOptions,
+  CodexSessionHandle,
+  InternalSession,
+} from '@main/adapters/codex-cli/sdk-bridge/types';
+import { resolveBundledCodexBinary } from '@main/adapters/codex-cli/sdk-bridge/codex-binary';
 
-const AGENT_ID = 'codex-cli';
-
-/** 单条用户消息字节上限（与 claude-code 对齐：100KB）。 */
-const MAX_MESSAGE_BYTES = 100_000;
-/** 单会话 pendingMessages 队列上限（与 claude-code 对齐：20 条）。 */
-const MAX_PENDING_MESSAGES = 20;
-
-/** 30 秒未拿到 thread.started 事件就 fallback：避免 createSession 永远 hang。 */
-const THREAD_STARTED_FALLBACK_MS = 30_000;
-
-/**
- * 打包后 (.app) 内置 codex vendored 二进制的平台映射，照搬 @openai/codex-sdk
- * `PLATFORM_PACKAGE_BY_TARGET`（dist/index.js 145-150）。
- */
-interface BundledBinarySpec {
-  /** @openai/ 下的子包目录名，与 PLATFORM_PACKAGE_BY_TARGET 的 value 去掉 '@openai/' 前缀对齐 */
-  pkgDir: string;
-  /** vendor 子目录的 target triple */
-  triple: string;
-  /** 二进制文件名（windows = codex.exe，其余 = codex） */
-  binName: string;
-}
-
-const PLATFORM_BINARY_MAP: Record<string, BundledBinarySpec | undefined> = {
-  'darwin-arm64': { pkgDir: 'codex-darwin-arm64', triple: 'aarch64-apple-darwin', binName: 'codex' },
-  'darwin-x64': { pkgDir: 'codex-darwin-x64', triple: 'x86_64-apple-darwin', binName: 'codex' },
-  'linux-arm64': {
-    pkgDir: 'codex-linux-arm64',
-    triple: 'aarch64-unknown-linux-musl',
-    binName: 'codex',
-  },
-  'linux-x64': {
-    pkgDir: 'codex-linux-x64',
-    triple: 'x86_64-unknown-linux-musl',
-    binName: 'codex',
-  },
-  'win32-arm64': {
-    pkgDir: 'codex-win32-arm64',
-    triple: 'aarch64-pc-windows-msvc',
-    binName: 'codex.exe',
-  },
-  'win32-x64': {
-    pkgDir: 'codex-win32-x64',
-    triple: 'x86_64-pc-windows-msvc',
-    binName: 'codex.exe',
-  },
-};
-
-/**
- * 打包后绕开 SDK 内部的 `moduleRequire.resolve` 自己拼 vendored 二进制路径。
- *
- * 不绕的话：SDK `findCodexPath` 走 `moduleRequire.resolve('@openai/codex/package.json')` →
- * `createRequire(...).resolve('@openai/codex-darwin-arm64/package.json')` → join 'vendor/.../codex/codex'
- * 链解析（dist/index.js:421-433）。Electron 的 require 把 `@openai/codex/package.json` 解析回的
- * 字符串是 `.../app.asar/node_modules/@openai/codex/package.json`，最终 `binaryPath` 也是
- * `.../app.asar/.../codex`。SDK 拿这个 path 直接 `child_process.spawn`（dist/index.js:238）；spawn
- * 不走 asar 虚拟 fs，OS 系统 fork/exec 把 `app.asar`（一个普通文件）当目录访问 → ENOTDIR。
- *
- * 修复策略：app.isPackaged 时，主进程自己按 `app.asar.unpacked` 拼真实路径，传给 SDK 的
- * `codexPathOverride` 短路 SDK 自己的 resolve。dev 模式 `process.resourcesPath` 指向 Electron
- * 自身 Resources（无对应 unpacked 结构），返回 null 让 SDK 走默认 resolve（dev 没 asar 没问题）。
- *
- * 与 package.json 的 `build.asarUnpack`（@openai/codex* 系列）配合：unpack 把物理文件复制到
- * `app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/...`，本函数定位到那里。
- */
-function resolveBundledCodexBinary(): string | null {
-  if (!app.isPackaged) return null;
-  const spec = PLATFORM_BINARY_MAP[`${process.platform}-${process.arch}`];
-  if (!spec) return null;
-  const binPath = join(
-    process.resourcesPath,
-    'app.asar.unpacked',
-    'node_modules',
-    '@openai',
-    spec.pkgDir,
-    'vendor',
-    spec.triple,
-    'codex',
-    spec.binName,
-  );
-  return existsSync(binPath) ? binPath : null;
-}
-
-export interface CodexSessionHandle {
-  sessionId: string;
-}
-
-export interface CodexBridgeOptions {
-  emit: (e: AgentEvent) => void;
-}
-
-interface InternalSession {
-  /** 真实 thread_id，第一次 thread.started 事件后写入。resume 路径在创建时就有。 */
-  threadId: string | null;
-  cwd: string;
-  thread: Thread;
-  /** 待发送 user message 串行队列（同 thread 不能并发 turn） */
-  pendingMessages: string[];
-  /** 当前正在跑的 turn 的 AbortController；中断时调用 abort() */
-  currentTurn: AbortController | null;
-  /** turn loop 是否在跑（避免 sendMessage 重复启动） */
-  turnLoopRunning: boolean;
-  /**
-   * 已被外部关闭（closeSession / 30s timeout fallback）—— 进 abort 之前置 true。
-   * runTurnLoop catch 看到此标记一律静默退出，**不**再 emit `finished/message`。
-   * REVIEW_4 H1：旧版 closeSession 后 runTurnLoop catch 仍 emit finished:interrupted，
-   * 该 finished `source='sdk'` 不被 dedup 跳过 → ensureRecord 把已删 session 复活成幽灵。
-   * REVIEW_4 M5：30s timeout 路径也经历同一条 abort，旧版会先 emit finished:error
-   * （resolveWithFallback 内）+ 再 emit finished:interrupted（runTurnLoop catch），双 finished。
-   * 用户主动 interrupt（interruptSession）**不**置此标记 —— UI 仍要看到「已中断」反馈。
-   */
-  intentionallyClosed: boolean;
-}
+export type {
+  CodexSessionHandle,
+  CodexBridgeOptions,
+} from '@main/adapters/codex-cli/sdk-bridge/types';
 
 /**
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
