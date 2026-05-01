@@ -46,7 +46,7 @@ export function ComposerSdk({
     // SDK streaming mode 不支持 slash 命令——CLI 那套 slash command 注册表
     // 在 SDK 模式下不存在，'/clear' / '/compact' / '/cost' 等都会让 SDK 抛
     // "Unknown slash command" 或 "only prompt commands are supported in streaming mode"。
-    // 在入口拦截，给本地提示比让用户撞神秘 SDK 报错友好；不清空输入框,
+    // 在入口拦截，给本地提示比让用户撞神秘 SDK 报错友好；不清空输入框，
     // 让用户能改成普通文本继续发。
     if (t.startsWith('/')) {
       setSendError(

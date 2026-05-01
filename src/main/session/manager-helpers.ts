@@ -9,8 +9,10 @@ import type { ActivityState, AgentEvent } from '@shared/types';
  * 字符串 / 状态机 / 路径化等无副作用工具稀释（class 主体已被多次 review
  * 加固 race / lifecycle / claim 路径，不动 class 主体即风险最小）。
  *
- * 4 个 helper 全部无 state、无 IO 副作用：
- * - normalizeCwd：消化 `.`/`..`、尾斜杠、符号链接（macOS `/private/var ↔ /var` 别名）
+ * 4 个 helper 均无 mutable state、无写入副作用；其中 `normalizeCwd` 会**读 FS**
+ * 做 realpath 标准化（消化 macOS `/private/var ↔ /var` 等符号链接别名），
+ * 失败 fallback 到 `resolvePath` + 去尾 `/`：
+ * - normalizeCwd：读 FS realpath（消化符号链接 / `.`/`..` / 尾斜杠）
  * - nextActivityState：activity 状态机推进（waiting-for-user 子类型分流）
  * - extractCwd / deriveTitle：从 event payload / cwd 路径段抽 string
  */

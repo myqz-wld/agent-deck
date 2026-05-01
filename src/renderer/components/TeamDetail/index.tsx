@@ -21,8 +21,9 @@ import { Header, Section, Stat } from './chrome';
  * **用户残留 cleanup 提示**：Claude Code 的 in-process backend cleanup 是**异步延迟**
  * 的（teammate shutdown_approved 后 config.members 由 CLI 异步移除，实测延迟可达
  * 几分钟）→ 首次 TeamDelete 调用可能因「members 仍含 active」拒绝；等几分钟重试
- * 通常能成功，或用户手动 rm 残留。M2 不加 force-cleanup 按钮（M3 接 TeammateIdle hook 拿到
- * ground truth 后再加，避免误删活 team）。提示文案中告知用户路径。
+ * 通常能成功，或用户手动 rm 残留。M3 已加 `<ForceCleanupButton>` 兜底入口（见 §残留清理
+ * Section + ForceCleanupButton.tsx），按钮调 forceCleanupTeam IPC + 主动 unset
+ * sessions.team_name（teamCoordinator.unsetTeamFromAllSessions 30s dedup）。
  */
 export function TeamDetail({
   name,
