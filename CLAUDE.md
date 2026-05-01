@@ -49,6 +49,20 @@
 
 修改任何模块前，**先 `ls changelog/ reviews/` + 浏览相关条目**，了解历史决策、避免推翻已有约定 / 重复踩坑。设计取舍（如「为什么 lifecycle 与 archived 正交」）通常在 changelog；过往 bug 与加固方案在 reviews。
 
+### 4. 单文件 ≤ 500 行 — 超了必须试拆
+
+**触发**：任何 `*.ts` / `*.tsx` 代码文件 LOC > 500 行（不含测试 fixture / 自动生成的迁移 SQL）。
+
+**做法**：每次改完功能 / commit 前，对触发文件做一次拆分尝试，按"风险升序"逐档选：
+
+1. **抽 module-level 纯函数 / 类型 / 常量** —— 风险最低，先做（CHANGELOG_50/51/52 Step 3a 模式）
+2. **目录化 + 同目录 sub-component / sub-class** —— `foo.tsx → foo/index.tsx + foo/bar.tsx`，TS module resolution 自动透传 import（CHANGELOG_51 SessionDetail/TeamDetail 模式）
+3. **拆 class（合作 class + facade 委托 + ctx 共享 ref）** —— 最重风险，class state ownership 重组要走 plan + 异构对抗 review（CHANGELOG_52 Step 3 模式）
+
+**真不能拆**（race / state ownership 极复杂、强行拆收益<风险）→ 写到对应 CHANGELOG 的「不动文件保护清单」+ 注明理由（class 性质 / 单飞 / cross-cutting state 等），下次拆分轮跳过。**不能默认沉默忽略**。
+
+参考 `changelog/CHANGELOG_50.md` (S1+S2+S3) / `CHANGELOG_51.md` (P1+P2+P3+P4) / `CHANGELOG_52.md` (Step 1-4 拆 class) 三轮拆分实例。
+
 ---
 
 ## 项目特定约定（设计要点速查）
