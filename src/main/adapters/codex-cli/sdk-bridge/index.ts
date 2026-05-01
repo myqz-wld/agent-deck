@@ -2,27 +2,22 @@ import { randomUUID } from 'node:crypto';
 import type { Codex, Thread } from '@openai/codex-sdk';
 import { sessionManager } from '@main/session/manager';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
-// CHANGELOG_52 Step 4a/4b：抽出 constants / types / codex-binary / thread-loop 四个模块。class state 不动。
-import {
-  AGENT_ID,
-  MAX_MESSAGE_BYTES,
-  MAX_PENDING_MESSAGES,
-} from '@main/adapters/codex-cli/sdk-bridge/constants';
+// CHANGELOG_52 Step 4a-4c：拆 class 完成。本目录（sdk-bridge/）含 4 sub-module + index.ts (facade)。
+//
+// **TS module resolution 假设**（与 claude sdk-bridge 同款）：moduleResolution: node
+// 模式下 `import './sdk-bridge'` 优先匹配 `sdk-bridge.ts` 文件（不存在时才走 `sdk-bridge/index.ts`）。
+// Step 4c 删了原 `sdk-bridge.ts` 文件，import 自动切到本 index.ts；外部 import 站点
+// （`@main/adapters/codex-cli/sdk-bridge`）零变更继续工作。
+import { AGENT_ID, MAX_MESSAGE_BYTES, MAX_PENDING_MESSAGES } from './constants';
 import type {
   CodexBridgeOptions,
   CodexSessionHandle,
   InternalSession,
-} from '@main/adapters/codex-cli/sdk-bridge/types';
-import { resolveBundledCodexBinary } from '@main/adapters/codex-cli/sdk-bridge/codex-binary';
-import {
-  ThreadLoop,
-  type ThreadLoopCtx,
-} from '@main/adapters/codex-cli/sdk-bridge/thread-loop';
+} from './types';
+import { resolveBundledCodexBinary } from './codex-binary';
+import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 
-export type {
-  CodexSessionHandle,
-  CodexBridgeOptions,
-} from '@main/adapters/codex-cli/sdk-bridge/types';
+export type { CodexSessionHandle, CodexBridgeOptions } from './types';
 
 /**
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
