@@ -1,15 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import type {
-  CanUseTool,
-  PermissionResult,
-  Query,
-  SDKUserMessage,
-} from '@anthropic-ai/claude-agent-sdk';
+import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AskUserQuestionAnswer,
-  AskUserQuestionItem,
   AskUserQuestionRequest,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
@@ -28,22 +22,16 @@ import {
 } from '@main/adapters/claude-code/sdk-injection';
 import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
 import { getTasksMcpServerForSession } from '@main/task-manager/server';
-import { formatAskAnswers } from '@main/adapters/claude-code/sdk-bridge-helpers';
-// CHANGELOG_52 Step 3a：抽出 constants / types / sdk-message-translate 三个最纯净模块。
-// class state 不动，原 ClaudeSdkBridge.translate / maybeEmitFileChanged /
-// maybeEmitImageFileChanged 三个 private 方法改为薄 wrapper 调 module function。
+// CHANGELOG_52 Step 3a/3b/3c：抽出 constants / types / sdk-message-translate /
+// permission-responder / can-use-tool 五个模块。class state 不动，方法体迁出后留薄 wrapper。
 import {
   AGENT_ID,
   MAX_MESSAGE_BYTES,
   MAX_PENDING_MESSAGES,
   PLACEHOLDER_DEDUP_MS,
-  READ_ONLY_TOOLS,
 } from '@main/adapters/claude-code/sdk-bridge/constants';
 import type {
   InternalSession,
-  PendingAskQuestionEntry,
-  PendingExitPlanModeEntry,
-  PendingPermissionEntry,
   SdkBridgeOptions,
   SdkSessionHandle,
 } from '@main/adapters/claude-code/sdk-bridge/types';
@@ -52,6 +40,7 @@ import {
   PermissionResponder,
   type ResponderCtx,
 } from '@main/adapters/claude-code/sdk-bridge/permission-responder';
+import { makeCanUseTool } from '@main/adapters/claude-code/sdk-bridge/can-use-tool';
 
 export type { SdkSessionHandle, SdkBridgeOptions } from '@main/adapters/claude-code/sdk-bridge/types';
 
@@ -206,282 +195,19 @@ export class ClaudeSdkBridge {
     // 由 main bootstrap 阶段的 applyClaudeSettingsEnv() 注入到 process.env，
     // SDK spawn 的 CLI 子进程会继承，与终端 `claude` 用同一套配置。
 
-    const canUseTool: CanUseTool = async (toolName, input, ctx) => {
-      const realId = internal.realSessionId ?? tempKey;
-      const requestId = randomUUID();
-
-      // REVIEW_11 Bug 4：read-only 工具白名单，任何 permissionMode 下都直接放行。
-      // SDK 0.2.x 设计：注册 canUseTool 后，CLI 对所有工具调用都丢给应用决策（包括 Read /
-      // Grep / Glob / LS / WebFetch / WebSearch / TodoWrite / NotebookRead 这些只读 / 元数据类
-      // 工具）。应用之前没做白名单 → default mode 下用户被 Read / Grep 等无害操作反复弹询问，
-      // 体感「default mode 跟 plan mode 没区别都要审核」。
-      // 白名单内的工具语义上不会改变文件系统 / 不会执行外部命令，截胡放行无安全风险，且与
-      // SDK 行为不冲突（SDK 文档明确：注册 canUseTool 即表示决定权完全归应用）。
-      // MCP 图片读取类工具（命名约定 mcp__xxx__ImageRead 或后缀 __ImageRead）同样白名单。
-      if (READ_ONLY_TOOLS.has(toolName) || toolName.endsWith('__ImageRead')) {
-        return { behavior: 'allow', updatedInput: input };
-      }
-
-      // REVIEW_14 阶段 2 + REVIEW_15 实证：SandboxNetworkAccess 自动透明 deny。
-      //
-      // 实测机制（dev 验证 [canusetool] log + 用户给 proxy `403 + X-Proxy-Error:
-      // blocked-by-allowlist` 头实证）：
-      // sandbox 启用后 SDK 网络拦截是**双层并行**：
-      //
-      // 1. **应用层 SandboxNetworkAccess 工具回路**：SDK 调内置 `SandboxNetworkAccess`
-      //    工具向 canUseTool 申请「是否放行该 host」（payload `{host: 'example.com'}`）
-      // 2. **OS/proxy 层执行**：SDK 同时启本地 HTTP CONNECT proxy + 注入 `https_proxy`
-      //    env，按 allowedDomains allowlist 实际拦截（curl 拿 `403 Forbidden`）
-      //
-      // 不修法走 SDK 默认行为时，SandboxNetworkAccess 工具会**弹给用户审批每个 host**
-      //（spike 阶段实测见用户截图），加上 model fallback `dangerouslyDisableSandbox: true`
-      // 那次的 Bash 弹框，用户视角是「同一个 curl 弹两次」，UX 噪声大、语义还相反。
-      //
-      // 修法（本分支）：第 1 次直接 deny + 结构化 message → model **100% 按指引**
-      // fallback 走 dangerouslyDisableSandbox 重试（不是概率性 reasoning，是协议级稳定路径）
-      // → 第 2 次 Bash 弹给用户审批（保留这一次是合理的：model 主动绕沙盒确实需要用户拍板）。
-      // 实测 UX：仅 1 次弹框给用户。
-      //
-      // strict 档因 `allowUnsandboxedCommands: false` 直接封死逃逸路径，model fallback
-      // dangerouslyDisableSandbox 也会被 SDK 直接忽略，最终 model 报「无法联网」给用户
-      // —— 此分支同样适用，不弹给用户。
-      if (toolName === 'SandboxNetworkAccess') {
-        const host =
-          typeof (input as { host?: unknown })?.host === 'string'
-            ? (input as { host: string }).host
-            : '<unknown>';
-        // 保留此 log 一行：sandbox 启用时每次 host 拦截打一行，可见性高、噪声可控
-        // （比每次 canUseTool 都打 log 强）。出问题时一目了然「sandbox 真在拦哪些 host」。
-        console.log(`[sandbox-canusetool] SandboxNetworkAccess intercept host=${host} → auto-deny + fallback hint`);
-        return {
-          behavior: 'deny',
-          message:
-            `网络访问被沙盒拦截（host: ${host}）。如确实需要联网，请用 Bash + ` +
-            `dangerouslyDisableSandbox: true 参数重试（会触发用户审批）。` +
-            `如档位为 strict 则逃逸已被禁用，请告知用户切档位或换无网方案。`,
-          interrupt: false,
-        };
-      }
-
-      // 特殊路径：AskUserQuestion 不是「危险工具需要批准」，是 Claude 主动征询用户。
-      // 走独立 UI（带选项按钮）→ 用户选完 → 把答案塞进 deny.message 反馈给 Claude
-      // （Claude 收到 tool_result 含答案，会基于这个继续对话）。
-      if (toolName === 'AskUserQuestion') {
-        const inAsked = (input as { questions?: AskUserQuestionItem[] }) ?? {};
-        const questions = Array.isArray(inAsked.questions) ? inAsked.questions : [];
-        const toolUseId = (ctx as { tool_use_id?: string }).tool_use_id;
-        const askPayload: AskUserQuestionRequest = {
-          type: 'ask-user-question',
-          requestId,
-          toolUseId,
-          questions,
-        };
-        this.opts.emit({
-          sessionId: realId,
-          agentId: AGENT_ID,
-          kind: 'waiting-for-user',
-          payload: askPayload,
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        return new Promise<PermissionResult>((resolve) => {
-          const entry: PendingAskQuestionEntry = {
-            payload: askPayload,
-            timer: null,
-            resolver: (answer) => {
-              if (entry.timer) clearTimeout(entry.timer);
-              const text = formatAskAnswers(questions, answer);
-              resolve({
-                behavior: 'deny',
-                message:
-                  `用户已通过 UI 选择，请把以下回答视为他们对这次 AskUserQuestion 的回复，` +
-                  `继续按用户意图执行：\n\n${text}`,
-                interrupt: false,
-              });
-            },
-          };
-          internal.pendingAskUserQuestions.set(requestId, entry);
-          // 超时自动拒：避免 SDK 永远卡在等用户回答（窗口关掉 / store 丢状态等）。
-          if (this.permissionTimeoutMs > 0) {
-            entry.timer = setTimeout(() => {
-              this.responder.timeoutAskUserQuestion(realId, requestId);
-            }, this.permissionTimeoutMs);
-          }
-          ctx.signal?.addEventListener('abort', () => {
-            const cur = internal.pendingAskUserQuestions.get(requestId);
-            if (cur) {
-              if (cur.timer) clearTimeout(cur.timer);
-              internal.pendingAskUserQuestions.delete(requestId);
-              // 通知 UI：这条提问已被 SDK 取消（通常是 query 流终止 / 上层 interrupt）。
-              // 不发也行，但 UI 会一直显示选项却点了没用。
-              this.opts.emit({
-                sessionId: realId,
-                agentId: AGENT_ID,
-                kind: 'waiting-for-user',
-                payload: { type: 'ask-question-cancelled', requestId },
-                ts: Date.now(),
-                source: 'sdk',
-              });
-              resolve({ behavior: 'deny', message: 'aborted', interrupt: true });
-            }
-          });
-        });
-      }
-
-      // 特殊路径：ExitPlanMode —— plan mode 下 Claude 完成规划，向用户提议「请批准执行」。
-      // 跟 AskUserQuestion 一样走独立通路：UI 用 markdown 渲染 plan + 二选一按钮。
-      // - 批准（approve）→ allow + updatedInput 不变，CLI 内部退出 plan mode 开始执行
-      // - 继续规划（keep-planning）→ deny + message（含可选用户反馈），Claude 留在 plan mode 修
-      if (toolName === 'ExitPlanMode') {
-        const inExit = (input as { plan?: unknown }) ?? {};
-        const plan = typeof inExit.plan === 'string' ? inExit.plan : '';
-        const toolUseId = (ctx as { tool_use_id?: string }).tool_use_id;
-        const exitPayload: ExitPlanModeRequest = {
-          type: 'exit-plan-mode',
-          requestId,
-          toolUseId,
-          plan,
-        };
-        this.opts.emit({
-          sessionId: realId,
-          agentId: AGENT_ID,
-          kind: 'waiting-for-user',
-          payload: exitPayload,
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        return new Promise<PermissionResult>((resolve) => {
-          const entry: PendingExitPlanModeEntry = {
-            payload: exitPayload,
-            toolInput: (input as Record<string, unknown>) ?? {},
-            timer: null,
-            resolver: (response) => {
-              if (entry.timer) clearTimeout(entry.timer);
-              if (response.decision === 'approve' && response.targetMode === 'plan') {
-                // REVIEW_11 Bug 3：「批准并保持 Plan 模式」是协议级特例。
-                // SDK / CLI 把「ExitPlanMode 工具被 allow」语义性视为「用户同意退出 plan」，
-                // 一旦 allow，CLI 内部状态机立刻翻出 plan，外层后续 setPermissionMode('plan')
-                // 跑在 CLI 已退档之后属于 CHANGELOG_47 同病灶（post-allow 时序静默吞档）。
-                // 修法：approve+plan 不走 allow，改 deny+message：让 CLI 留在 plan 不退档，
-                // 同时通过 message 告诉 Claude「计划已被认可，但用户希望继续在 plan 模式推进」。
-                // message 文案要明确「不要立刻再次调用 ExitPlanMode」避免 plan→deny→plan 死循环。
-                resolve({
-                  behavior: 'deny',
-                  message:
-                    `用户已认可你的计划，但要求你继续在 plan 模式下推进` +
-                    `（继续细化方案 / 补充信息 / 等待进一步指示，**不要执行任何编辑或写入操作**）。\n\n` +
-                    `如果用户后续要求实施，请等他们主动切换到 default / acceptEdits / bypass 之后再操作，` +
-                    `**不要在本会话内立刻再次调用 ExitPlanMode**（用户还想停留在 plan 模式继续讨论）。`,
-                  interrupt: false,
-                });
-              } else if (response.decision === 'approve') {
-                // 热切档（approve + targetMode ∈ {default, acceptEdits}）：
-                // allow + 原 input 透传 —— 让 ExitPlanMode 工具调用「成功」，
-                // CLI 收到 tool_result 自动退出 plan mode，后续工具按 targetMode 继续
-                // （targetMode 由外层 respondExitPlanMode 在 resolver 后同步调
-                // s.query.setPermissionMode(targetMode) + sessionRepo 写入；
-                // SDK Query 在下次工具调用前应用新 mode）。
-                resolve({
-                  behavior: 'allow',
-                  updatedInput: entry.toolInput,
-                });
-              } else if (response.decision === 'approve-bypass') {
-                // 冷切档：deny + interrupt:true —— 让 OLD CLI 子进程的当前 turn 立即中止，
-                // 避免「allow 后 SDK 立刻吐 tool_use 跟正在重启的子进程抢 jsonl flush」race
-                // （双 Agent 对抗一致结论；race 触发后用户体感「批准了 plan 但 NEW session 又
-                // 重新进 plan mode」，磁盘 IO 抖动导致无法稳定复现）。
-                // OLD turn 中止后由外层 respondExitPlanMode 调 restartWithPermissionMode，
-                // 用 plan 文本作 handoff prompt 让 Claude 在 bypass 模式重新执行。
-                resolve({
-                  behavior: 'deny',
-                  message: '用户已批准 plan 并切换到 bypassPermissions 模式，正在重启子进程重新执行',
-                  interrupt: true,
-                });
-              } else {
-                // keep-planning：保留原逻辑
-                const fb = response.feedback?.trim();
-                resolve({
-                  behavior: 'deny',
-                  message:
-                    `用户希望继续完善计划，请基于以下反馈修改后再调用 ExitPlanMode 提交新版本：\n\n` +
-                    `反馈：${fb || '(用户未填写具体反馈，请主动询问需要补充哪方面)'}`,
-                  interrupt: false,
-                });
-              }
-            },
-          };
-          internal.pendingExitPlanModes.set(requestId, entry);
-          if (this.permissionTimeoutMs > 0) {
-            entry.timer = setTimeout(() => {
-              this.responder.timeoutExitPlanMode(realId, requestId);
-            }, this.permissionTimeoutMs);
-          }
-          ctx.signal?.addEventListener('abort', () => {
-            const cur = internal.pendingExitPlanModes.get(requestId);
-            if (cur) {
-              if (cur.timer) clearTimeout(cur.timer);
-              internal.pendingExitPlanModes.delete(requestId);
-              this.opts.emit({
-                sessionId: realId,
-                agentId: AGENT_ID,
-                kind: 'waiting-for-user',
-                payload: { type: 'exit-plan-cancelled', requestId },
-                ts: Date.now(),
-                source: 'sdk',
-              });
-              resolve({ behavior: 'deny', message: 'aborted', interrupt: true });
-            }
-          });
-        });
-      }
-
-      const permPayload: PermissionRequest = {
-        type: 'permission-request',
-        requestId,
-        toolName,
-        toolInput: input as Record<string, unknown>,
-        suggestions: ctx.suggestions,
-      };
-      this.opts.emit({
-        sessionId: realId,
-        agentId: AGENT_ID,
-        kind: 'waiting-for-user',
-        payload: permPayload,
-        ts: Date.now(),
-        source: 'sdk',
-      });
-      return new Promise<PermissionResult>((resolve) => {
-        const entry: PendingPermissionEntry = {
-          payload: permPayload,
-          resolver: resolve,
-          timer: null,
-        };
-        internal.pendingPermissions.set(requestId, entry);
-        if (this.permissionTimeoutMs > 0) {
-          entry.timer = setTimeout(() => {
-            this.responder.timeoutPermission(realId, requestId);
-          }, this.permissionTimeoutMs);
-        }
-        ctx.signal?.addEventListener('abort', () => {
-          const cur = internal.pendingPermissions.get(requestId);
-          if (cur) {
-            if (cur.timer) clearTimeout(cur.timer);
-            internal.pendingPermissions.delete(requestId);
-            // 通知 UI：SDK 已放弃这次请求（超时 / interrupt / 流终止），
-            // 让活动流和 banner 把这条权限请求清掉，不再让用户点了没反应。
-            this.opts.emit({
-              sessionId: realId,
-              agentId: AGENT_ID,
-              kind: 'waiting-for-user',
-              payload: { type: 'permission-cancelled', requestId },
-              ts: Date.now(),
-              source: 'sdk',
-            });
-            resolve({ behavior: 'deny', message: 'aborted', interrupt: true });
-          }
-        });
-      });
-    };
+    // CHANGELOG_52 Step 3c：canUseTool 巨型 callback (~275 行) 抽到 sdk-bridge/can-use-tool.ts。
+    // class state 通过 deps 注入（internal / sessionId getter / emit / 超时阈值 / responder ref）。
+    // 护栏（READ_ONLY 白名单 / SandboxNetworkAccess auto-deny / approve+plan deny+message
+    // / approve-bypass deny+interrupt / 超时 timer + abort listener）全部完整保留在 module。
+    const canUseTool = makeCanUseTool({
+      internal,
+      // realId lazy getter：canUseTool 第一次被 SDK 调用时一定在 waitForRealSessionId 之后，
+      // 所以 internal.realSessionId 已经被赋值；wait 之前的兜底用 tempKey（与原 inline 行为一致）
+      getSessionId: () => internal.realSessionId ?? tempKey,
+      emit: this.opts.emit,
+      getPermissionTimeoutMs: () => this.permissionTimeoutMs,
+      responder: this.responder,
+    });
 
     // 整段 await 链（loadSdk → query 构造 → waitForRealSessionId）任一步抛错都要
     // 释放 pending cwd 标记 + 清掉 sessions map 的 tempKey。CHANGELOG_47 修：
