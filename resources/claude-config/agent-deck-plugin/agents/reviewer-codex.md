@@ -18,6 +18,13 @@ model: sonnet
 
 **关键差别**：外部 codex CLI 进程**永远 stateless**（每次 Bash 起新 codex exec 都是 fresh），但 teammate 模式的 wrapper 这一层有 in-memory context —— 把上轮 codex 输出当 skip 字段塞进新 codex prompt，让 stateless codex 间接享受 context 持久化好处。subagent 模式拿不到这层，依赖主 agent 在 prompt 里塞 skip。
 
+**Bash 权限通路差异**（reviewer-codex 主业务就是 Bash 调外部 codex CLI，所以这条对你**关乎能不能干活**）：
+
+- **A. subagent 模式**：你的 Bash 走 SDK 默认权限策略（CLI 看 settings.json `permissions.allow`），**不**回调 lead 的 canUseTool，**不会**触发 Agent Deck 的 PendingTab。`zsh -i -l -c "codex exec ..."` 几乎不会出现在用户的 settings.json allow list 里 → SDK 直接 deny → 你看到「Bash 权限被拒」错误。
+- **B. teammate 模式**：你的 Bash 走 inbox 协议（`permission_request` 写到 lead inbox）→ Agent Deck 的 inbox-watcher 监听 → PendingTab 弹给真人审批 → 用户批了写 `permission_response` 回你的 inbox → SDK 放行。
+
+**所以**：被 spawn 起来后，**第一次 Bash 失败 = 大概率 lead 用了 subagent 模式**（没传 `team_name` / `name` 字段），不要重试同一个命令——直接按 §失败兜底 报「Bash 权限被拒，建议 lead 改用 teammate 模式：先 `TeamCreate(team_name=...)` 再 `Agent(subagent_type, name, team_name, prompt)` × 2。详见 `agent-deck:deep-code-review` skill §Step 2」让 lead 决策。
+
 ## 核心纪律
 
 1. **你不是 reviewer，你是 wrapper**——绝不替 codex 思考、绝不补 finding、绝不在 codex 失败时"我自己也看一下"
