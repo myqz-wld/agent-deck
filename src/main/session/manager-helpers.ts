@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
+import { basename, resolve as resolvePath, sep } from 'node:path';
 import type { ActivityState, AgentEvent } from '@shared/types';
 
 /**
@@ -23,7 +23,8 @@ export function normalizeCwd(cwd: string): string {
   try {
     return realpathSync(resolvePath(cwd));
   } catch {
-    return resolvePath(cwd).replace(/\/+$/, '');
+    // 兜底用 path.sep 去尾分隔符（Win 反斜杠 + POSIX 正斜杠）
+    return resolvePath(cwd).replace(new RegExp(`[${sep === '\\' ? '\\\\/' : '/'}]+$`), '');
   }
 }
 
@@ -78,6 +79,6 @@ export function extractCwd(event: AgentEvent): string | undefined {
 
 export function deriveTitle(cwd: string): string {
   if (!cwd) return '未命名会话';
-  const segs = cwd.replace(/\/$/, '').split('/');
-  return segs[segs.length - 1] || cwd;
+  // path.basename 跨平台处理尾分隔符 + 平台分隔符（Win `\` / POSIX `/`）
+  return basename(cwd) || cwd;
 }

@@ -24,9 +24,11 @@
  */
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { SessionRecord } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { encodeClaudeProjectDir } from '@main/platform';
 import { AGENT_ID, MAX_MESSAGE_BYTES, PLACEHOLDER_DEDUP_MS } from './constants';
 import type { SdkBridgeOptions, SdkSessionHandle } from './types';
 
@@ -243,20 +245,21 @@ export class SessionRecoverer {
  * 预检 CLI resume 用的 jsonl 文件是否存在。
  *
  * Claude Code CLI 把会话历史落在 `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`，
- * encoded-cwd 规则：把绝对路径的 `/` 全替换为 `-`，顶部前缀也是 `-`（实测 macOS：
- * `/Users/apple/Repository/personal/agent-deck` → `-Users-apple-Repository-personal-agent-deck`）。
+ * encoded-cwd 规则见 `@main/platform` 的 `encodeClaudeProjectDir`（macOS/Linux 用 `/`
+ * split + `-` join；Win 推测同模式但用 `\` split）。
  *
  * 不存在时 CLI `--resume <sid>` 会 hard fail 抛 "No conversation found"，必须走不带
- * resume 的新建路径（CHANGELOG_28）。这条规则跨 OS 是否一致存疑（Linux 同样规则，
- * Windows 未验证），如果 CLI 内部规则未来改了，预检会假阴性 → 退化到原 try-and-fail 行为。
+ * resume 的新建路径（CHANGELOG_28）。如果 CLI 内部规则未来改了 / Win 实际规则与推测
+ * 不符，预检会假阴性 → 退化到原 try-and-fail 行为（catch 兜底返 true，让上层 SDK
+ * 自己 try）。
  *
  * 这是 facade.resumeJsonlExists 的默认实现；test 通过 extend facade override 该方法
  * 让单测不依赖真 ~/.claude/projects 目录。
  */
 export function defaultResumeJsonlExists(cwd: string, sessionId: string): boolean {
   try {
-    const encodedDir = '-' + cwd.split('/').filter(Boolean).join('-');
-    const jsonlPath = `${homedir()}/.claude/projects/${encodedDir}/${sessionId}.jsonl`;
+    const encodedDir = encodeClaudeProjectDir(cwd);
+    const jsonlPath = join(homedir(), '.claude', 'projects', encodedDir, `${sessionId}.jsonl`);
     return existsSync(jsonlPath);
   } catch {
     // 任意异常（cwd 解析失败 / FS 权限）→ 退化让 createSession 自己 try，最差不过原行为
