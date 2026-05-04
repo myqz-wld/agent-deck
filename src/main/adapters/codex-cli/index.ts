@@ -14,8 +14,10 @@ const ADAPTER_ID = 'codex-cli';
  * - ❌ 运行时 setPermissionMode（approvalPolicy 仅在 startThread 时设一次）
  * - ❌ installIntegration / hook（codex 没有 hook 机制）
  *
- * 默认安全策略写死：approvalPolicy='never' + sandboxMode='workspace-write'，
- * 靠 OS sandbox 兜底，不暴露给 UI。
+ * 默认安全策略：approvalPolicy 写死 'never'（codex SDK 不支持 canUseTool 等价回调，
+ * 无法运行时审批）；sandboxMode 默认 'workspace-write' 但**可被 settings.codexSandbox 覆盖**
+ * （CHANGELOG_54 B-4：补齐 REVIEW_14「双 backend 沙盒对称」目标，让用户能在 read-only /
+ * workspace-write / danger-full-access 三档间切）。靠 OS sandbox 兜底。
  *
  * 二进制：随 @openai/codex-sdk 装上 @openai/codex（含 vendored 平台二进制 ~150MB），
  * 跟随 .app 走。用户可在设置面板填 codexCliPath 覆盖为外部 codex（如自装的更新版本）。
@@ -40,8 +42,9 @@ class CodexCliAdapterImpl implements AgentAdapter {
 
   async init(ctx: AdapterContext): Promise<void> {
     this.bridge = new CodexSdkBridge({ emit: ctx.emit });
-    // 启动时读一次 codexCliPath，给 bridge
+    // 启动时读一次 codexCliPath / codexSandbox，给 bridge
     this.bridge.setCodexCliPath(settingsStore.get('codexCliPath'));
+    this.bridge.setCodexSandboxMode(settingsStore.get('codexSandbox'));
     // 不注册 hook routes：codex 没有 hook 通道
   }
 
@@ -101,6 +104,11 @@ class CodexCliAdapterImpl implements AgentAdapter {
   /** Codex 专属：设置面板「Codex 二进制路径」变更时即改即生效。 */
   setCodexCliPath(path: string | null): void {
     this.bridge?.setCodexCliPath(path);
+  }
+
+  /** Codex 专属：设置面板「Codex 沙盒档位」变更；下次新建会话生效。 */
+  setCodexSandboxMode(mode: 'workspace-write' | 'read-only' | 'danger-full-access'): void {
+    this.bridge?.setCodexSandboxMode(mode);
   }
 
   // 不实现：respondPermission / respondAskUserQuestion / respondExitPlanMode /

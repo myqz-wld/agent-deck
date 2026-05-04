@@ -24,7 +24,7 @@ import {
   saveUserAgentDeckClaudeMd,
 } from '@main/adapters/claude-code/sdk-injection';
 import type { AppSettings } from '@shared/types';
-import { on, IpcInputError, parseSandboxMode } from './_helpers';
+import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode } from './_helpers';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SettingsSet 「即改即生效」分发（CHANGELOG_20 / A）。
@@ -76,6 +76,14 @@ function applyCodexCliPath(p: Partial<AppSettings>, next: AppSettings): void {
   // 清 Codex 实例，下次新建会话用新 path。
   if ('codexCliPath' in p) {
     adapterRegistry.get('codex-cli')?.setCodexCliPath?.(next.codexCliPath);
+  }
+}
+
+function applyCodexSandboxMode(p: Partial<AppSettings>, next: AppSettings): void {
+  // sandboxMode 只在 startThread 时一次性传入；setter 仅更新 bridge 字段，
+  // 「切档仅下次新建会话生效」与 claudeCodeSandbox 同模式。
+  if ('codexSandbox' in p) {
+    adapterRegistry.get('codex-cli')?.setCodexSandboxMode?.(next.codexSandbox);
   }
 }
 
@@ -132,6 +140,11 @@ export function registerSettingsIpc(): void {
       // null（renderer 传 null / undefined 想清空字段）→ 兜底回默认 'off'
       p.claudeCodeSandbox = validated ?? 'off';
     }
+    // codexSandbox 同模式：null 兜底回默认 'workspace-write'（与 codex 历史硬编码值一致）
+    if ('codexSandbox' in p) {
+      const validated = parseCodexSandboxMode(p.codexSandbox);
+      p.codexSandbox = validated ?? 'workspace-write';
+    }
     // N6 事务保护：先快照改前值，持久化后逐项 apply。任一 apply throw 时回滚 DB **和运行时**
     // 到改前状态（REVIEW_4 H2：旧版只回 DB，apply* 已动 scheduler/loginItem/window/adapter/cache，
     // 留在「DB 退了 + 运行时半生效」正是注释要避免的状态）。
@@ -147,6 +160,7 @@ export function registerSettingsIpc(): void {
       applyTransparentWhenPinned,
       applyPermissionTimeout,
       applyCodexCliPath,
+      applyCodexSandboxMode,
       applySummaryInterval,
       invalidateClaudeMdCache,
     ] as const;

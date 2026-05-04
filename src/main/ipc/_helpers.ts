@@ -103,6 +103,37 @@ export function parseSandboxMode(value: unknown): SandboxMode | null {
 }
 
 /**
+ * codex SDK 原生 `SandboxMode` union 的字面量（CHANGELOG_54 B-4）。本地复刻一份避免
+ * 主进程 IPC 层 import @openai/codex-sdk type（settings 校验是 hot-path 应保持轻）。
+ * 与 settings.ts 的 codexSandbox union 必须保持一致；改动方向：codex SDK bump 后核对。
+ */
+export const CODEX_SANDBOX_MODE_VALUES = [
+  'workspace-write',
+  'read-only',
+  'danger-full-access',
+] as const;
+export type CodexSandboxMode = (typeof CODEX_SANDBOX_MODE_VALUES)[number];
+
+/**
+ * 校验 codexSandbox 字段。语义同 parseSandboxMode：
+ * - undefined / null → null（调用方决定是否兜底成 'workspace-write'）
+ * - 非 string / 非白名单值 → throw IpcInputError
+ */
+export function parseCodexSandboxMode(value: unknown): CodexSandboxMode | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    throw new IpcInputError('codexSandbox', `not a string: ${String(value)}`);
+  }
+  if (!CODEX_SANDBOX_MODE_VALUES.includes(value as CodexSandboxMode)) {
+    throw new IpcInputError(
+      'codexSandbox',
+      `must be one of ${CODEX_SANDBOX_MODE_VALUES.join('|')}, got ${value}`,
+    );
+  }
+  return value as CodexSandboxMode;
+}
+
+/**
  * 校验 Agent Teams 团队名（M1）。规则：
  * - undefined / null / 空串 / 全空白 → null（不属于任何 team，DB 列保 NULL）
  * - 必须是 string；长度 ≤ 64；只允许字母数字 . _ -
