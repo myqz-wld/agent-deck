@@ -1,6 +1,7 @@
 import { app, Notification } from 'electron';
 import { settingsStore } from '@main/store/settings-store';
 import { getFloatingWindow } from '@main/window';
+import { IS_DARWIN } from '@main/platform';
 import { playSoundOnce } from './sound';
 
 interface NotifyOpts {
@@ -35,7 +36,10 @@ export function notifyUser(opts: NotifyOpts): void {
     }
   }
 
-  if (process.platform === 'darwin' && opts.level === 'waiting') {
+  // Dock bounce 是 macOS 专属（NSDockTile API）；Win/Linux 没有 dock 概念，
+  // 任务栏闪烁靠 Electron `BrowserWindow.flashFrame()` 走另一条 API（行为差异较大），
+  // 这里 by design 只 macOS 触发；Win 上 system notification + 声音已经够提示。
+  if (IS_DARWIN && opts.level === 'waiting') {
     app.dock?.bounce('informational');
   }
 }
