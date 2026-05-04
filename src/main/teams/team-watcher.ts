@@ -19,7 +19,7 @@
  * main/index.ts 的 before-quit listener 应该调用一次。
  */
 import { existsSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import type { TeamDataChangedEvent } from '@shared/types';
 import { eventBus } from '@main/event-bus';
@@ -86,9 +86,10 @@ class TeamWatcherManager {
       eventBus.emit('team-data-changed', { name, kind });
     };
     const dispatchByPath = (p: string): void => {
-      // chokidar emit 的路径已被 normalize（绝对路径，无尾斜杠），可直接 startsWith 比对
-      if (p === teamDir || p.startsWith(teamDir + '/')) emit('config');
-      else if (p === tasksDir || p.startsWith(tasksDir + '/')) emit('task-list');
+      // chokidar emit 的路径已被 normalize（绝对路径，无尾斜杠），可直接 startsWith 比对。
+      // Win 用反斜杠 `\`，POSIX 用正斜杠 `/`，统一走 `path.sep`。
+      if (p === teamDir || p.startsWith(teamDir + sep)) emit('config');
+      else if (p === tasksDir || p.startsWith(tasksDir + sep)) emit('task-list');
     };
     watcher.on('add', dispatchByPath);
     watcher.on('change', dispatchByPath);

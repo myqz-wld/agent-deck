@@ -30,11 +30,14 @@
  */
 import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { getTeamsRoot } from './team-fs';
+
+/** 去除路径前缀残留的分隔符。Win 反斜杠 + POSIX 正斜杠都吃。 */
+const SEP_PREFIX_RE = sep === '\\' ? /^[\\/]+/ : /^[/]+/;
 
 const AWAIT_WRITE_FINISH = { stabilityThreshold: 250, pollInterval: 100 } as const;
 
@@ -146,8 +149,8 @@ class TeamCoordinator {
   private async processConfigUnlink(filepath: string): Promise<void> {
     const root = this.realRoot ?? getTeamsRoot();
     if (!filepath.startsWith(root)) return;
-    const rest = filepath.slice(root.length).replace(/^\/+/, '');
-    const segs = rest.split('/');
+    const rest = filepath.slice(root.length).replace(SEP_PREFIX_RE, '');
+    const segs = rest.split(sep);
     if (segs.length !== 2 || segs[1] !== 'config.json') return;
     const actualName = segs[0];
     if (!actualName) return;
@@ -231,8 +234,8 @@ class TeamCoordinator {
     // chokidar 也是 realpath 化的，前缀比对自然成立。
     const root = this.realRoot ?? getTeamsRoot();
     if (!filepath.startsWith(root)) return;
-    const rest = filepath.slice(root.length).replace(/^\/+/, '');
-    const segs = rest.split('/');
+    const rest = filepath.slice(root.length).replace(SEP_PREFIX_RE, '');
+    const segs = rest.split(sep);
     if (segs.length !== 2 || segs[1] !== 'config.json') return; // 只关心 *<name>/config.json，深层不管
     const actualName = segs[0];
     if (!actualName) return;

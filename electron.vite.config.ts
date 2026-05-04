@@ -7,8 +7,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {
-        '@shared': resolve('src/shared'),
-        '@main': resolve('src/main'),
+        '@shared': resolve(__dirname, 'src/shared'),
+        '@main': resolve(__dirname, 'src/main'),
       },
     },
   },
@@ -16,7 +16,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {
-        '@shared': resolve('src/shared'),
+        '@shared': resolve(__dirname, 'src/shared'),
       },
     },
   },
@@ -24,14 +24,14 @@ export default defineConfig({
     root: 'src/renderer',
     resolve: {
       alias: {
-        '@shared': resolve('src/shared'),
-        '@renderer': resolve('src/renderer'),
+        '@shared': resolve(__dirname, 'src/shared'),
+        '@renderer': resolve(__dirname, 'src/renderer'),
       },
     },
     plugins: [react()],
     build: {
       rollupOptions: {
-        input: resolve('src/renderer/index.html'),
+        input: resolve(__dirname, 'src/renderer/index.html'),
       },
     },
     server: {
