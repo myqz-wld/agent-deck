@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 import { settingsStore } from '@main/store/settings-store';
+import { IS_DARWIN, IS_LINUX, IS_WIN } from '@main/platform';
 
 type SoundKind = 'waiting' | 'done';
 
@@ -70,7 +71,15 @@ interface ExecError extends Error {
   code?: number | string;
 }
 
-/** 是否「我们主动 kill 的」（截断 / 防叠播）—— 这种不算播放失败 */
+/**
+ * 是否「我们主动 kill 的」（截断 / 防叠播）—— 这种不算播放失败。
+ *
+ * 平台细节：
+ * - macOS / Linux：`proc.kill('SIGTERM')` 后 child_process 把 `err.signal === 'SIGTERM'`
+ * - Win：Win32 `TerminateProcess` 不通过 POSIX signal 模型；`err.signal` 通常为 null，
+ *   但 child_process 会把 `err.killed === true` —— 所以 `||` 兜底必须有
+ *   （signal 单独判断在 Win 上 100% 漏判，会误触 onError 走 system-beep 退化）
+ */
 function isOurKill(err: ExecError | null): boolean {
   if (!err) return false;
   return err.signal === 'SIGTERM' || err.killed === true;
@@ -100,7 +109,7 @@ function resolveSoundFile(kind: SoundKind): string | null {
 }
 
 function playFile(file: string, onError: () => void): void {
-  if (process.platform === 'darwin') {
+  if (IS_DARWIN) {
     const proc = execFile('afplay', [file], (err) => {
       if (err && !isOurKill(err as ExecError)) onError();
     });
@@ -108,7 +117,7 @@ function playFile(file: string, onError: () => void): void {
     return;
   }
 
-  if (process.platform === 'linux') {
+  if (IS_LINUX) {
     const tryAplay = (): void => {
       const p2 = execFile('aplay', [file], (err) => {
         if (err && !isOurKill(err as ExecError)) onError();
@@ -125,10 +134,15 @@ function playFile(file: string, onError: () => void): void {
     return;
   }
 
-  if (process.platform === 'win32') {
+  if (IS_WIN) {
     // PresentationCore 的 MediaPlayer 支持 mp3/wav/aiff/m4a/wma 等格式（不像
     // System.Media.SoundPlayer 只支持 wav）。注意 PowerShell 字符串里 ` 是转义符，
     // " 在双引号字符串里要写成 ""。Windows 路径用 file:/// 前缀更稳。
+    //
+    // 已知限制：PresentationCore 是 .NET Framework WPF 程序集，**Win Server Core /
+    // 部分裁剪版 Win 镜像**可能未装；那种环境下 `Add-Type -AssemblyName PresentationCore`
+    // 抛 FileNotFoundException → execFile err 不是 SIGTERM → 自动 fallback 到 system beep。
+    // 主流消费者 Win 10/11（Pro / Home / Enterprise）默认装齐，不需要额外动作。
     const uri = 'file:///' + file.replace(/\\/g, '/');
     const escaped = uri.replace(/`/g, '``').replace(/"/g, '""');
     const psScript =
@@ -149,14 +163,25 @@ function playFile(file: string, onError: () => void): void {
 }
 
 function playSystemBeep(kind: SoundKind): void {
-  if (process.platform === 'darwin') {
+  if (IS_DARWIN) {
     // waiting 用清脆的 Glass，finished 用柔和的 Tink。Sosumi 是错误音、太突兀。
     const sound = kind === 'waiting' ? 'Glass' : 'Tink';
     const proc = execFile('afplay', [`/System/Library/Sounds/${sound}.aiff`], () => {});
     trackPlayback(proc);
-  } else {
-    process.stdout.write('\x07');
+    return;
   }
+  if (IS_WIN) {
+    // 用 PowerShell `[console]::beep(freq,ms)`：waiting 调高频短促 / finished 中频较长，听感对齐 macOS Glass/Tink。
+    // PresentationCore 兜底失败时也会走到这里（playFile onError）。
+    // GUI 进程没有控制台时 [console]::beep 会通过系统扬声器经 IO ctl 出声，与终端无关。
+    const args = kind === 'waiting' ? '1000,150' : '600,250';
+    const proc = execFile('powershell', ['-NoProfile', '-Command', `[console]::beep(${args})`], () => {});
+    trackPlayback(proc);
+    return;
+  }
+  // Linux GUI 进程 stdout 一般无终端附着，BEL 不一定听得到；保留作最简兜底（用户自行配
+  // PulseAudio / aplay 才有真音效）
+  process.stdout.write('\x07');
 }
 
 export function playSoundOnce(kind: SoundKind): void {
