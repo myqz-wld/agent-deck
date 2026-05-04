@@ -12,10 +12,18 @@
  * 输入框，team 由 lead 在会话内自由建，应用通过 team-coordinator 反向同步到 sessionRepo）。
  * 改成 `() => string | null` lazy 工厂，每次工具调用时调一次拿最新值。
  *
+ * **CHANGELOG_<X> A3 加 sessionIdProvider**：mcp 写操作（create / update→completed）
+ * 后调 sessionManager.ingest 写一条 team-task-* AgentEvent 到 events 表，让
+ * TeamDetail「hook 事件流」section 也能显示 mcp 操作。详见 tools.ts buildTaskTools
+ * 第三参数 JSDoc。
+ *
  * 调用方契约（sdk-bridge.ts query() options 之前）：
  * ```ts
  * const tasksServer = settings.enableTaskManager
- *   ? await getTasksMcpServerForSession(() => sessionRepo.get(sid)?.teamName ?? null)
+ *   ? await getTasksMcpServerForSession(
+ *       () => sessionRepo.get(sid)?.teamName ?? null,
+ *       () => sid, // 新增：lazy session id getter
+ *     )
  *   : null;
  * query({ options: {
  *   ...(tasksServer ? { mcpServers: { tasks: tasksServer }, allowedTools: ['mcp__tasks__*'] } : {}),
@@ -32,9 +40,10 @@ import { buildTaskTools } from './tools';
 
 export async function getTasksMcpServerForSession(
   teamNameProvider: () => string | null,
+  sessionIdProvider?: () => string | null,
 ): Promise<McpSdkServerConfigWithInstance> {
   const { createSdkMcpServer } = await loadSdk();
-  const tools = await buildTaskTools(taskRepo, teamNameProvider);
+  const tools = await buildTaskTools(taskRepo, teamNameProvider, sessionIdProvider);
   return createSdkMcpServer({
     name: 'tasks',
     version: '1.0.0',

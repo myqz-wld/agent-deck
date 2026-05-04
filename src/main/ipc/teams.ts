@@ -12,6 +12,7 @@
 import { IpcInvoke } from '@shared/ipc-channels';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
+import { taskRepo } from '@main/store/task-repo';
 import { eventBus } from '@main/event-bus';
 import { summarizer } from '@main/session/summarizer';
 import { forceCleanupTeam, getTeamSnapshot, listTeams } from '@main/teams/team-fs';
@@ -19,7 +20,7 @@ import { teamCoordinator } from '@main/teams/team-coordinator';
 import { teamWatcher } from '@main/teams/team-watcher';
 import { inboxWatcher } from '@main/teams/inbox-watcher';
 import { appendInboxMessage, buildPermissionResponse } from '@main/teams/inbox-protocol';
-import type { SessionRecord, TeamSnapshot, TeamSummary } from '@shared/types';
+import type { SessionRecord, TaskRecord, TeamSnapshot, TeamSummary } from '@shared/types';
 import { on, IpcInputError, parseTeamName } from './_helpers';
 
 export function registerTeamsIpc(): void {
@@ -160,5 +161,17 @@ export function registerTeamsIpc(): void {
       throw new IpcInputError('name', 'team name required');
     }
     return { requestIds: inboxWatcher.listPendingRequestIds(teamName) };
+  });
+  // TaskListByTeam：拉指定 team 的 SQLite tasks 表（CHANGELOG_43 task store + 本次接入）。
+  // TeamDetail「结构化 tasks (mcp)」section 用，订阅 IpcEvent.TaskChanged 后重拉。
+  // 显式 throw IpcInputError：parseTeamName 把 null/空白都返 null，taskRepo.list({teamName:null})
+  // 触发「仅查全局任务」语义（task-repo.ts:237-238），renderer 拿到全局 task 当成该 team 的会污染严重。
+  // 与 TeamGet handler 同款 throw 模板。limit 200：spec 默认 100 给一点余量；超量未来按需 pagination。
+  on(IpcInvoke.TaskListByTeam, async (_e, name): Promise<{ tasks: TaskRecord[] }> => {
+    const teamName = parseTeamName(name);
+    if (!teamName) {
+      throw new IpcInputError('name', 'team name required');
+    }
+    return { tasks: taskRepo.list({ teamName, limit: 200 }) };
   });
 }

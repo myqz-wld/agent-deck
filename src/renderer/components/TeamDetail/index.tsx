@@ -5,6 +5,7 @@ import { pickLeadSession } from './lead-session';
 import { SendToTeammate } from './SendToTeammate';
 import { ForceCleanupButton } from './ForceCleanupButton';
 import { TeamEventRow } from './TeamEventRow';
+import { McpTasksSection } from './McpTasksSection';
 import { Header, Section, Stat } from './chrome';
 
 /**
@@ -245,8 +246,14 @@ export function TeamDetail({
           </div>
         </Section>
 
+        {/* 结构化 tasks (mcp__tasks__*)：SQLite tasks 表（CHANGELOG_43 task store + 本次接入 UI）。
+            与上方「共享 task list」markdown 互补不同步。订阅 onTaskChanged 实时刷新。 */}
+        <McpTasksSection name={name} />
+
         {/* M3：team-* hook event 时间线（TaskCreated / TaskCompleted / TeammateIdle）。
-            空列表说明本 team 还没收到 hook event（要么 Claude 没用 team 工具，要么 CLI < v2.1.32）。 */}
+            空列表说明本 team 还没收到 hook event（要么 Claude 没用 team 工具，要么 CLI < v2.1.32）。
+            mcp tools.ts 同样 ingest team-task-created/completed AgentEvent（CHANGELOG_<X>），
+            走 events 表后被本 SQL 命中，所以 mcp 操作也会出现在这里。 */}
         <Section title={`hook 事件流 (${snap.events.length})`}>
           {snap.events.length === 0 ? (
             <div className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-2 text-[10px] text-deck-muted/70">

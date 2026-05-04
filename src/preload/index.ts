@@ -14,6 +14,7 @@ import type {
   SessionRecord,
   SummaryRecord,
   TaskChangedEvent,
+  TaskRecord,
   TeamDataChangedEvent,
   TeamPermissionDecision,
   TeamPermissionRequest,
@@ -222,6 +223,10 @@ const api = {
   /** Agent Teams M3：手动清理一个 team 的 fs 残留（rm -rf 两个目录）+ 主动 unset 该 team 名下所有 sessions 的 team_name。返回实际删掉的目录数 + 解绑的 session 数。 */
   forceCleanupTeam: (name: string): Promise<{ removed: string[]; unsetSessions: number }> =>
     ipcRenderer.invoke(IpcInvoke.TeamForceCleanup, name),
+  /** 拉指定 team 的结构化 SQLite tasks（mcp__tasks__* 工具写入），TeamDetail 「结构化 tasks」section 用。
+   *  限 200 条。订阅 onTaskChanged 后重拉。 */
+  listTeamTasks: (name: string): Promise<{ tasks: TaskRecord[] }> =>
+    ipcRenderer.invoke(IpcInvoke.TaskListByTeam, name),
   /**
    * 订阅某 team 的 fs 变化（chokidar 引用计数 +1）。返回 unsubscribe 闭包：
    * 调用时既触发 `TeamUnsubscribe` IPC（引用计数 -1，60s grace 后真 close），

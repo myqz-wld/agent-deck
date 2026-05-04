@@ -86,6 +86,9 @@ export const IpcInvoke = {
   TeamRespondPermission: 'team:respond-permission',
   /** 重建当前所有 team 的 pending team-permission-request 列表（HMR / 重启后）。 */
   TeamListPendingPermissions: 'team:list-pending-permissions',
+  /** Task Manager (CHANGELOG_43)：拉指定 team 的 SQLite tasks 表（限 200 条）。
+   *  TeamDetail「结构化 tasks (mcp)」section 用，订阅 IpcEvent.TaskChanged 后重拉。 */
+  TaskListByTeam: 'task:list-by-team',
 } as const;
 
 export const IpcEvent = {

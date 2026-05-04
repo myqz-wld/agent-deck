@@ -413,6 +413,41 @@ function SettingsBody({
           <br />
           <strong className="text-amber-300/90">⚠ 仅下次新建会话生效</strong>——已在跑的 team 会话不受影响（env 是 spawn 时一次性传入）。
         </div>
+        <div className="mt-2 flex items-center justify-between text-[11px]">
+          <span>Teammate 权限自动放行</span>
+          <select
+            value={settings.autoApproveTeammateMode}
+            onChange={(e) =>
+              void update({
+                autoApproveTeammateMode: e.target
+                  .value as AppSettings['autoApproveTeammateMode'],
+              })
+            }
+            className="no-drag rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
+          >
+            <option value="off">关闭（每次都弹）</option>
+            <option value="read-only">只读工具自动允许（默认）</option>
+            <option value="follow-lead">跟随 lead 权限模式</option>
+          </select>
+        </div>
+        <div className="text-[10px] leading-snug text-deck-muted/70">
+          Teammate 调工具时，按此规则在弹给你审批前先尝试自动允许。teammate 走 inbox
+          协议而非 SDK canUseTool，所以 lead 的 permissionMode / settings.json 白名单
+          对 teammate 失效——本档位补这道口子。
+          <br />
+          · <strong>read-only</strong>（默认）：与 lead 自身白名单一致——
+          <code className="rounded bg-white/5 px-1">Read / Grep / Glob / LS / WebFetch / WebSearch / TodoWrite / NotebookRead / __ImageRead / mcp__tasks__*</code>
+          自动允许；其他（Bash / Edit / Write…）仍弹给你
+          <br />
+          · <strong>follow-lead</strong>：以上 + 跟随 lead 当前 permissionMode（acceptEdits → 加放行
+          <code className="rounded bg-white/5 px-1">Edit / Write / MultiEdit / NotebookEdit</code>；
+          bypassPermissions → 全放行；default / plan → 降回 read-only）
+          <br />
+          · <strong>关闭</strong>：teammate 每次工具调用都弹给你（旧行为）
+          <br />
+          <strong className="text-deck-text/85">运行时即时生效</strong>——切档位下条 teammate
+          请求就走新规则，不像 sandbox 那样要等下次新建会话。
+        </div>
         <div className="mt-3 border-t border-deck-border/50 pt-3">
           <Toggle
             label="启用 SDK Task Manager（in-process MCP）"

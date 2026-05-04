@@ -134,6 +134,31 @@ export function parseCodexSandboxMode(value: unknown): CodexSandboxMode | null {
 }
 
 /**
+ * 校验 autoApproveTeammateMode（CHANGELOG_<X> B2）。三档 union，与 parseSandboxMode 同模式。
+ * - undefined / null → null（调用方决定是否兜底）
+ * - 非 string / 非白名单 → throw IpcInputError
+ *
+ * **不抽到独立 const 列表常量**（如 SANDBOX_MODE_VALUES）：本字段语义集中在 settings.ts，
+ * 只有 ipc 校验这一处需要白名单（inbox-watcher 不校验，只 switch 到 default 走保守路径）。
+ */
+const AUTO_APPROVE_TEAMMATE_MODE_VALUES = ['off', 'read-only', 'follow-lead'] as const;
+export type AutoApproveTeammateMode = (typeof AUTO_APPROVE_TEAMMATE_MODE_VALUES)[number];
+
+export function parseAutoApproveTeammateMode(value: unknown): AutoApproveTeammateMode | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    throw new IpcInputError('autoApproveTeammateMode', `not a string: ${String(value)}`);
+  }
+  if (!AUTO_APPROVE_TEAMMATE_MODE_VALUES.includes(value as AutoApproveTeammateMode)) {
+    throw new IpcInputError(
+      'autoApproveTeammateMode',
+      `must be one of ${AUTO_APPROVE_TEAMMATE_MODE_VALUES.join('|')}, got ${value}`,
+    );
+  }
+  return value as AutoApproveTeammateMode;
+}
+
+/**
  * 校验 Agent Teams 团队名（M1）。规则：
  * - undefined / null / 空串 / 全空白 → null（不属于任何 team，DB 列保 NULL）
  * - 必须是 string；长度 ≤ 64；只允许字母数字 . _ -
