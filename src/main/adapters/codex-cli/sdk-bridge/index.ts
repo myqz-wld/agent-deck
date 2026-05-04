@@ -35,6 +35,13 @@ export class CodexSdkBridge {
   /** 用户在设置面板填的 codex 二进制路径覆盖；null = 用 SDK vendored 二进制 */
   private codexCliPath: string | null = null;
   /**
+   * 当前 codex 沙盒档位（CHANGELOG_54 B-4）。默认与历史硬编码一致 'workspace-write'，
+   * 下次 createSession 调 startThread 时透传。已在跑的 thread 不受影响（sandboxMode 是
+   * startThread 一次性参数，与 claudeCodeSandbox 同模式 spawn-time 锁定）。
+   */
+  private currentSandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access' =
+    'workspace-write';
+  /**
    * CHANGELOG_52 Step 4b：ThreadLoop sub-class 持 startNewThreadAndAwaitId + runTurnLoop。
    * sessions Map / emit 通过 ThreadLoopCtx 注入；class 上 createSession / sendMessage 内的
    * 调用走 this.threadLoop.xxx 委托。
@@ -56,6 +63,15 @@ export class CodexSdkBridge {
     // 旧 thread 下次 runStreamed 时会用旧 path；新建会话才用新 path）。可以接受：用户改 path
     // 通常不需要立即影响在跑的会话。
     this.codex = null;
+  }
+
+  /**
+   * 设置面板「Codex 沙盒档位」变更：仅更新本字段，不清 codex 实例（sandboxMode 不在
+   * codex 实例上，是 startThread 调用时透传）。已在跑的 thread 已按旧档位 spawn 不受影响；
+   * 新建会话使用新值。
+   */
+  setCodexSandboxMode(mode: 'workspace-write' | 'read-only' | 'danger-full-access'): void {
+    this.currentSandboxMode = mode;
   }
 
   private async ensureCodex(): Promise<Codex> {
@@ -99,7 +115,7 @@ export class CodexSdkBridge {
     } else {
       thread = codex.startThread({
         workingDirectory: cwd,
-        sandboxMode: 'workspace-write',
+        sandboxMode: this.currentSandboxMode,
         approvalPolicy: 'never',
         skipGitRepoCheck: true,
         ...(opts.model ? { model: opts.model } : {}),

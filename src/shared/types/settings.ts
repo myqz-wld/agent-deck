@@ -133,6 +133,23 @@ export interface AppSettings {
    * 不读 sandbox 设置（与 agentTeamsEnabled 隔离同模式）。
    */
   claudeCodeSandbox: 'off' | 'workspace-write' | 'strict';
+  /**
+   * Codex CLI 子进程的 OS 级沙盒档位（默认 'workspace-write'，与 CHANGELOG_41 之前的硬编码值
+   * 一致，零行为变更）。直接复用 codex SDK 原生 `SandboxMode` union 的字面量，不做映射。
+   *
+   * 三档语义（由 codex SDK / Codex CLI 自身定义，应用层只是透传）：
+   * - `'workspace-write'`：cwd 可写、其他位置只读、网络默认 deny（默认）
+   * - `'read-only'`：所有位置只读
+   * - `'danger-full-access'`：完全不沙盒（同 codex CLI `--dangerously-bypass-approvals-and-sandbox`）
+   *
+   * 与 claudeCodeSandbox 独立维护：两个 SDK 的 sandboxMode 字符串值不重叠（claude:
+   * off/workspace-write/strict；codex: read-only/workspace-write/danger-full-access），
+   * 强行复用一个 setting 必然要做名字映射，反而引入混乱。
+   *
+   * **关闭开关只影响下次新建会话**——已在跑的 codex thread 已按当前档位 spawn，
+   * sandboxMode 是 startThread 时一次性传入，不会被撤销（与 claudeCodeSandbox 同模式）。
+   */
+  codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access';
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -160,6 +177,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agentTeamsEnabled: false,
   enableTaskManager: false,
   claudeCodeSandbox: 'off',
+  codexSandbox: 'workspace-write',
 };
 
 // ───────────────────────────────────────────────────────── Hook Status

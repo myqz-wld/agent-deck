@@ -469,6 +469,27 @@ function SettingsBody({
           <br />
           <strong className="text-amber-300/90">⚠ 切档仅下次新建会话生效</strong>——已在跑的会话已按当前档位 spawn，不会被撤销。
         </div>
+        <div className="mt-3 flex items-center justify-between text-[11px]">
+          <span>Codex 沙盒（OS 级隔离）</span>
+          <select
+            value={settings.codexSandbox}
+            onChange={(e) =>
+              void update({
+                codexSandbox: e.target.value as AppSettings['codexSandbox'],
+              })
+            }
+            className="no-drag rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
+          >
+            <option value="workspace-write">Workspace Write（默认）</option>
+            <option value="read-only">Read Only</option>
+            <option value="danger-full-access">⚠ Danger Full Access</option>
+          </select>
+        </div>
+        <div className="text-[10px] leading-snug text-deck-muted/70">
+          Codex CLI 子进程的沙盒档位（codex SDK 原生三档，由 codex 自身 OS 隔离实现）。
+          默认 <code className="rounded bg-white/5 px-1">workspace-write</code> 与 Claude 默认对齐；
+          切档仅下次新建会话生效。
+        </div>
       </Section>
     </>
   );
