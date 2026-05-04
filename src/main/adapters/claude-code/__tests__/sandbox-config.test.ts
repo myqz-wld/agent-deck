@@ -29,11 +29,20 @@ describe('SANDBOX_MODE_VALUES', () => {
 });
 
 describe('SANDBOX_EXCLUDED_COMMANDS', () => {
-  it('包含常见开发工具：git / pnpm / npm / yarn / bun / pip / cargo / go', () => {
+  it('包含常见包管理 / 编译器 + CHANGELOG_54 扩的 OS-level 容器/监视/构建工具', () => {
     // 用 Set 比对避免名单顺序锁太死（顺序无语义，调整顺序不该挂测试）
     const set = new Set(SANDBOX_EXCLUDED_COMMANDS);
+    // 原 9 个（CHANGELOG_41）
     for (const cmd of ['git', 'pnpm', 'npm', 'yarn', 'bun', 'pip', 'cargo', 'go']) {
       expect(set.has(cmd)).toBe(true);
+    }
+    // CHANGELOG_54 扩名单（保守版）
+    for (const cmd of ['docker', 'watchman', 'orb', 'lima', 'colima', 'make', 'xcodebuild']) {
+      expect(set.has(cmd)).toBe(true);
+    }
+    // 不应包含 node/npx/brew（设计决策：直接 spawn JS / 写 /usr/local 太宽，等于通用 backdoor）
+    for (const cmd of ['node', 'npx', 'brew']) {
+      expect(set.has(cmd)).toBe(false);
     }
   });
 });
@@ -92,13 +101,16 @@ describe("buildSandboxOptions('workspace-write')", () => {
     ]);
   });
 
-  it('filesystem.denyRead 包含 ~/.ssh / ~/.aws 等敏感目录', () => {
+  it('filesystem.denyRead 包含 ~/.ssh / ~/.aws 等敏感目录 + CHANGELOG_54 扩的 shell history / Keychains', () => {
     const { sandbox } = buildSandboxOptions('workspace-write', cwd);
     const denyRead = sandbox?.filesystem?.denyRead ?? [];
     expect(denyRead).toContain(join(home, '.ssh'));
     expect(denyRead).toContain(join(home, '.aws'));
     expect(denyRead).toContain(join(home, '.gnupg'));
     expect(denyRead).toContain(join(home, '.npmrc'));
+    // CHANGELOG_54 扩
+    expect(denyRead).toContain(join(home, '.zsh_history'));
+    expect(denyRead).toContain(join(home, 'Library', 'Keychains'));
   });
 
   it('不传 network 子对象（让 SDK 走 SandboxNetworkAccess 工具回路而非 HTTP_PROXY 注入）', () => {
@@ -144,11 +156,14 @@ describe("buildSandboxOptions('strict')", () => {
     expect(sandbox?.filesystem?.allowWrite).toBeUndefined();
   });
 
-  it('filesystem.denyRead 同 workspace-write 包含敏感目录', () => {
+  it('filesystem.denyRead 同 workspace-write 包含敏感目录 + CHANGELOG_54 扩名单', () => {
     const { sandbox } = buildSandboxOptions('strict', cwd);
     const denyRead = sandbox?.filesystem?.denyRead ?? [];
     expect(denyRead).toContain(join(home, '.ssh'));
     expect(denyRead).toContain(join(home, '.aws'));
+    // CHANGELOG_54 扩（strict 与 workspace-write 共用同一份 sensitiveDenyReadPaths）
+    expect(denyRead).toContain(join(home, '.bash_history'));
+    expect(denyRead).toContain(join(home, 'Library', 'Cookies'));
   });
 
   it('不传 network 子对象（同 workspace-write 走 SandboxNetworkAccess 工具回路）', () => {
