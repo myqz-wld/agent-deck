@@ -31,7 +31,12 @@
  *
  * 已知未解决项（REVIEW_14 阶段 3 候选）：
  * - 用户自定义 allowedDomains UI（阶段 3 视反馈再加）
- * - excludedCommands 名单初版可能漏 `docker / watchman / orb / lima` 类，按用户实际场景追加
+ * - 默认 'off' → 'workspace-write'（用户决策暂不切，等更长观察期）
+ *
+ * CHANGELOG_54 已落地：
+ * - excludedCommands 扩 docker/watchman/orb/lima/colima/make/xcodebuild（保守版，
+ *   不含 node/npx/brew —— 前两者直接 spawn JS 等于通用 backdoor，brew 写 /usr/local 太宽）
+ * - denyRead 扩 shell history (~/.zsh_history, ~/.bash_history) + macOS Keychains/Cookies
  */
 
 import { homedir } from 'node:os';
@@ -50,7 +55,9 @@ export const SANDBOX_MODE_VALUES: ReadonlyArray<SandboxMode> = [
  * 默认 excludedCommands 名单。这些命令在沙盒启用时**不进沙盒**（直接执行），
  * 避免常规开发 flow（pnpm install 写 node_modules / git fetch 联网 / cargo build 写 target）被误拦。
  *
- * 阶段 3 候选追加：`docker`、`watchman`、`orb`、`lima`、`colima`（按用户反馈）。
+ * CHANGELOG_54 扩名单（保守版）：在原 9 个包管理 / 编译器基础上补 OS-level 容器 / 监视 / 构建工具。
+ * **不加** node / npx（agent 直接 spawn JS 等于通用 backdoor，npm/pnpm 已豁免间接路径仍有效）；
+ * **不加** brew（写 /usr/local 太宽）。
  */
 export const SANDBOX_EXCLUDED_COMMANDS: readonly string[] = [
   'git',
@@ -62,6 +69,14 @@ export const SANDBOX_EXCLUDED_COMMANDS: readonly string[] = [
   'pip3',
   'cargo',
   'go',
+  // CHANGELOG_54 扩名单
+  'docker',
+  'watchman',
+  'orb',
+  'lima',
+  'colima',
+  'make',
+  'xcodebuild',
 ];
 
 /**
@@ -70,6 +85,9 @@ export const SANDBOX_EXCLUDED_COMMANDS: readonly string[] = [
  *
  * 注意：路径在调用时会被展开（拼 homedir）。SDK 内部走 OS 级 path canonicalize，符号链接
  * 不能绕过（macOS Seatbelt path-validate）。
+ *
+ * CHANGELOG_54 扩名单：除原凭据目录外补 shell 历史 + macOS Keychains / Cookies。
+ * macOS-only 路径在 Linux 上不存在 SDK 会忽略（denyRead 对不存在的路径无副作用）。
  */
 function buildSensitiveDenyReadPaths(): string[] {
   const home = homedir();
@@ -83,6 +101,11 @@ function buildSensitiveDenyReadPaths(): string[] {
     join(home, '.pypirc'),
     join(home, '.gnupg'),
     join(home, '.docker'),
+    // CHANGELOG_54 扩名单：shell 历史 + macOS 系统级凭据 / cookies
+    join(home, '.zsh_history'),
+    join(home, '.bash_history'),
+    join(home, 'Library', 'Keychains'),
+    join(home, 'Library', 'Cookies'),
   ];
 }
 
