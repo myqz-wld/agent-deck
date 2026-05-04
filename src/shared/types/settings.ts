@@ -150,6 +150,28 @@ export interface AppSettings {
    * sandboxMode 是 startThread 时一次性传入，不会被撤销（与 claudeCodeSandbox 同模式）。
    */
   codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access';
+  /**
+   * Teammate 权限 auto-approve 档位（CHANGELOG_<X> B2）。Agent Teams in-process backend
+   * 的 teammate 调工具走 inbox 协议（`~/.claude/teams/<X>/inboxes/team-lead.json`），**不会**
+   * 回到 lead 的 SDK canUseTool 回调（CHANGELOG_45），所以 lead 的 permissionMode /
+   * settings.json permissions.allow / READ_ONLY_TOOLS 白名单在 teammate 这边全失效。
+   * inbox-watcher 检测到 permission_request 时按本档位决定是否应用层主动写 inbox response
+   * allow，跳过 UI 弹框。**对 lead 自己的工具调用零影响**（lead 走 SDK canUseTool，
+   * 已经有自己的 READ_ONLY_TOOLS 白名单）。
+   *
+   * 三档语义：
+   * - `'off'`：一律弹 UI（旧行为）
+   * - `'read-only'`：READ_ONLY_TOOLS（Read/Grep/Glob/LS/WebFetch/WebSearch/TodoWrite/NotebookRead）
+   *   + `__ImageRead` 后缀 + `mcp__tasks__*` 前缀自动允许（默认）
+   * - `'follow-lead'`：以上 + 跟随 lead permissionMode；
+   *   lead `acceptEdits` → 加放行 EDIT_TOOLS（Edit / Write / MultiEdit / NotebookEdit）；
+   *   lead `bypassPermissions` → 全放行；
+   *   lead `default` / `plan` / null → 降回 read-only
+   *
+   * **运行时立即生效**（不像 mcpServers / sandbox 那样 spawn-time 固化）——inbox-watcher
+   * 每次 processInboxFile 都从 settingsStore 读 current 值。
+   */
+  autoApproveTeammateMode: 'off' | 'read-only' | 'follow-lead';
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -178,6 +200,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   enableTaskManager: false,
   claudeCodeSandbox: 'off',
   codexSandbox: 'workspace-write',
+  autoApproveTeammateMode: 'read-only',
 };
 
 // ───────────────────────────────────────────────────────── Hook Status

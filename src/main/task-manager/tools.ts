@@ -36,6 +36,8 @@ import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { TaskCreateInput, TaskListOptions, TaskRepo } from '@main/store/task-repo';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { eventBus } from '@main/event-bus';
+import { sessionManager } from '@main/session/manager';
+import { AGENT_ID } from '@main/adapters/claude-code/sdk-bridge/constants';
 
 const STATUS_VALUES = ['pending', 'active', 'completed', 'blocked', 'abandoned'] as const;
 
@@ -82,6 +84,19 @@ function argsToInputWithoutTeam(args: {
 export async function buildTaskTools(
   repo: TaskRepo,
   teamNameProvider: () => string | null,
+  /**
+   * lazy 工厂返回当前 SDK session id（CHANGELOG_<X> A3）。每次工具调用时调一次拿最新值，
+   * 与 teamNameProvider 同款 pattern（CHANGELOG_46）。
+   *
+   * 用途：写操作（create / update→completed）成功后调 sessionManager.ingest 写一条
+   * `team-task-created / team-task-completed` AgentEvent（source='sdk'）到 events 表，
+   * 让 TeamDetail「hook 事件流」section 也能显示 mcp task 操作（与 CLI 内置 TaskCreated
+   * hook 走同 kind 同视图，互补不冲突）。
+   *
+   * sid 为 null 时跳过 ingest（不抛错）—— 与 teamNameProvider 「lead 还没建 team」窗口
+   * 的宽容策略一致。可选参数：测试可省（buildToolsAsDict 默认传 null 工厂）。
+   */
+  sessionIdProvider?: () => string | null,
 ): Promise<SdkMcpToolDefinition<any>[]> {
   const { tool } = await loadSdk();
   // CHANGELOG_46：team_name 由 lazy provider 提供（每次工具调用时调一次拿最新值），
@@ -89,6 +104,8 @@ export async function buildTaskTools(
   // team-coordinator 反向同步到 sessionRepo.team_name。
   // 工具 description 是构造时固化的字符串，不能动态嵌 team 名，改用通用措辞。
   const getTeamName = (): string | null => teamNameProvider();
+  const getSessionId = (): string | null =>
+    sessionIdProvider ? sessionIdProvider() : null;
 
   // ───── task_create
   const taskCreate = tool(
@@ -142,6 +159,25 @@ export async function buildTaskTools(
           teamName: created.teamName,
           ts: Date.now(),
         });
+        // CHANGELOG_<X> A3：同步 ingest 一条 team-task-created AgentEvent 到 events 表，
+        // 让 TeamDetail「hook 事件流」section 显示该动作（与 CLI 内置 TaskCreated hook
+        // 走同 kind 同视图，互补不冲突）。sid=null 跳过（lead 还没建 team / 测试场景）。
+        const sid = getSessionId();
+        if (sid) {
+          sessionManager.ingest({
+            sessionId: sid,
+            agentId: AGENT_ID,
+            source: 'sdk',
+            kind: 'team-task-created',
+            ts: Date.now(),
+            payload: {
+              teamName: created.teamName,
+              taskId: created.id,
+              description: created.subject,
+              assignee: created.activeForm ?? null,
+            },
+          });
+        }
         return ok(created);
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
@@ -248,6 +284,26 @@ export async function buildTaskTools(
           teamName: updated.teamName,
           ts: Date.now(),
         });
+        // CHANGELOG_<X> A3：仅当 status 变成 'completed' 时 ingest team-task-completed
+        // AgentEvent —— 避免每次属性 update（如改 priority / labels）都污染事件流。
+        // 与 CLI 内置 TaskCompleted hook 同 kind 同视图。
+        const becameCompleted =
+          patch.status === 'completed' && existing.status !== 'completed';
+        const sid = getSessionId();
+        if (sid && becameCompleted) {
+          sessionManager.ingest({
+            sessionId: sid,
+            agentId: AGENT_ID,
+            source: 'sdk',
+            kind: 'team-task-completed',
+            ts: Date.now(),
+            payload: {
+              teamName: updated.teamName,
+              taskId: updated.id,
+              description: updated.subject,
+            },
+          });
+        }
         return ok(updated);
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));

@@ -75,6 +75,19 @@
 - 间歇总结的 SDK oneshot 设 `settingSources: []`，避免 hook 回环到自己
 - 应用内会话的 SDK 设 `settingSources: ['user', 'project', 'local']`，等价于在该 cwd 跑 `claude`
 
+### Teammate 权限边界（in-process Agent Teams）
+
+Agent Teams 实验特性的 in-process backend：teammate 调工具走 inbox 协议（`~/.claude/teams/<X>/inboxes/team-lead.json`），**不会**回到 lead 的 SDK `canUseTool` 回调（CHANGELOG_45 第一句铁证）。所以 lead 的 `permissionMode` / `READ_ONLY_TOOLS` 白名单 / `~/.claude/settings.json` `permissions.allow` 在 teammate 这边**全失效**——每个 teammate 工具调用默认都从 inbox 文件转一圈到 PendingTab 弹给用户。
+
+应用层唯一减负口子是 `inbox-watcher.processInboxFile` 检测到 `permission_request` 时主动写 inbox response allow 跳过 UI（CHANGELOG_56 落地，由 `settings.autoApproveTeammateMode` 控制三档）。新增白名单条目去 `src/shared/constants/read-only-tools.ts`（lead canUseTool 与 inbox-watcher 共享同一份 Set，避免双处 hardcode 漂移）。
+
+接 inbox-watcher 内部分支必须遵守的护栏（reviewer 双对抗 4 处 HIGH/MED 修法，CHANGELOG_56 B4）：
+- **同步 `seenRequestIds.add` 在前**：dedup 真正护栏，防 await `lookupLeadPermissionMode` / `appendInboxMessage` 期间另一波 file change 重入
+- **嵌套 try/catch 区分 append-fail vs emit-fail**：append 失败 → 回滚 dedup + emit `team-permission-requested` 走 UI 兜底（避免「auto-approve 静默失败 + lead inbox 不再变化」死锁——chokidar 不会因 teammate inbox 写失败而 fire processInboxFile）；append 成功 → dedup 必须保留，emit `team-permission-resolved` 抛错只 warn，不回滚（否则下次 lead inbox change 重读 entries 重复 append 双 response）
+- **`fromAgentId='team-lead'` 是 inbox 协议常量**：与 IPC TeamRespondPermission handler 同款（ipc/teams.ts:142），CLI 端默认接受此 from（CHANGELOG_45 实测）。如未来 CLI 升级强校验需双端同步改
+
+`lookupLeadPermissionMode(teamName)` 三级回退：fs SSOT (`team-fs.readTeamConfig().raw.leadSessionId`) 优先 → DB SDK 候选启发式 → null（→ shouldAutoApprove 走 `follow-lead-fallback` 降级 read-only）。**不过滤 lifecycle / archivedAt**——按本节首段「鉴权与会话边界」正交规则，归档 / dormant 的 lead 仍是 lead，「lead 离线但 teammate 在跑」是合理边界。
+
 ### 事件去重与生命周期
 
 - `AgentEvent.source = 'sdk' | 'hook'`；SDK 接管的 sessionId 加入 `SessionManager.sdkOwned`，hook 同 id 事件被丢弃

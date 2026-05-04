@@ -278,10 +278,19 @@ export class ClaudeSdkBridge {
       // 出现后 sessionRepo.get(realId) 自然能拿到 team_name。tempKey 阶段 sessionRepo.get 返
       // null 是预期行为（team_name 走 null 分支，task tools 内部不强制要求 team）。
       const tasksServer = enableTaskManager
-        ? await getTasksMcpServerForSession(() => {
-            const sid = internal.realSessionId ?? tempKey;
-            return sessionRepo.get(sid)?.teamName ?? null;
-          })
+        ? await getTasksMcpServerForSession(
+            () => {
+              const sid = internal.realSessionId ?? tempKey;
+              return sessionRepo.get(sid)?.teamName ?? null;
+            },
+            // CHANGELOG_<X> A3：sessionIdProvider 让 mcp tools.ts 写操作后能 ingest
+            // team-task-* AgentEvent 到正确 sessionId 名下。tempKey 阶段 ingest 会
+            // 落到 tempKey 这个不在 DB 的 sessionId（ensureRecord 会建一个临时 cli 记录），
+            // realId 拿到后 sessionManager.renameSdkSession 会把子表迁移过来；但 mcp 工具
+            // 几乎不可能在 tempKey 阶段被 LLM 调用（要等 model output 到第一个 tool_use），
+            // 实操中 sid 永远是 realSessionId。保留 tempKey 兜底逻辑与 teamNameProvider 同款。
+            () => internal.realSessionId ?? tempKey,
+          )
         : null;
       if (tasksServer) {
         console.log('[task-manager] mcpServers attached for session (team_name lazy-resolved)');

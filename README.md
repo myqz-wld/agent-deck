@@ -16,7 +16,8 @@
 - **控制权交接提醒**：waiting → 红闪烁 + 提示音 + 系统通知 + Dock 弹跳；finished → 黄 + 完成音；可逐项关闭，可换自定义提示音
 - **三类人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Plan mode 执行计划批准 —— 全部在活动流卡片里直接处理。批准 plan 时可选目标权限模式（默认 / 自动接受编辑 / 保持 Plan / 完全免询问）；切到「完全免询问」会自动重启 SDK 子进程
 - **OS 级沙盒**（实验，默认关）：Claude Code SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐
-- **Agent Teams 实验入口**（默认关）：开启后 NewSessionDialog 暴露 team 名输入框 + 自动回填模板 prompt；team 视图显示成员清单 / 应用内会话 / shared task list / 三个新 hook 事件流（TaskCreated / TaskCompleted / TeammateIdle），需 Claude Code CLI ≥ v2.1.32
+- **Agent Teams 实验入口**（默认关）：开启后 NewSessionDialog 暴露 team 名输入框 + 自动回填模板 prompt；team 视图显示成员清单 / 应用内会话 / shared task list / 结构化 tasks（mcp__tasks__* 实时） / 三个新 hook 事件流（TaskCreated / TaskCompleted / TeammateIdle，mcp 写操作也会同步出现），需 Claude Code CLI ≥ v2.1.32
+- **Teammate 权限自动放行**（默认 read-only）：teammate 走 inbox 协议不会回到 lead 的 canUseTool，所以 lead 的 permissionMode / settings.json 白名单对 teammate 失效；本应用层 inbox-watcher 按设置项主动放行只读工具（默认）/ 跟随 lead permissionMode（acceptEdits → 加放行 Edit/Write；bypassPermissions → 全放行）/ 关闭（每次都弹）三档，运行时即时切换
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
 - **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md 到 system prompt；可注入 agent-deck plugin 自带的 `deep-code-review` skill + `reviewer-claude` (Opus 4.7) / `reviewer-codex` (Codex CLI wrapper) 双异构对抗 subagent
 - **多 Adapter**：Claude Code（hook + SDK 双通道）+ Codex CLI（单 SDK 通道）；预留 aider / generic-pty 接口

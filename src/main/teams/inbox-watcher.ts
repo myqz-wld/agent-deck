@@ -22,7 +22,10 @@ import { join } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import type { TeamPermissionCancelled, TeamPermissionRequest } from '@shared/types';
 import { eventBus } from '@main/event-bus';
+import { settingsStore } from '@main/store/settings-store';
 import {
+  appendInboxMessage,
+  buildPermissionResponse,
   getInboxesRoot,
   parseSubMessage,
   readInboxFile,
@@ -31,6 +34,7 @@ import {
   type InboxEntry,
   type PermissionRequestSubMessage,
 } from './inbox-protocol';
+import { lookupLeadPermissionMode, shouldAutoApprove } from './auto-approve';
 
 const GRACE_MS = 60_000;
 const AWAIT_WRITE_FINISH = { stabilityThreshold: 250, pollInterval: 100 } as const;
@@ -298,6 +302,8 @@ class InboxWatcherManager {
       if (sub.type === 'permission_request') {
         const req = sub as PermissionRequestSubMessage;
         if (entryRef.seenRequestIds.has(req.request_id)) continue;
+        // 同步 add 在前是 dedup 的真正护栏，防 await lookupLeadPermissionMode /
+        // appendInboxMessage 期间另一波 file change 重入又走一次 try（reviewer-codex MED）
         entryRef.seenRequestIds.add(req.request_id);
 
         const fromAgentId = req.agent_id ?? e.from;
@@ -314,6 +320,77 @@ class InboxWatcherManager {
           inboxFilePath: filepath,
           timestamp: e.timestamp,
         };
+
+        // CHANGELOG_<X> B4：auto-approve 决策。命中 read-only 白名单 / follow-lead 档放行
+        // 条件 → 应用层主动写 inbox response allow + emit resolved，跳过 UI 弹框。
+        // reviewer 双对抗修复：嵌套 try/catch 区分 append 失败（→ 回滚 dedup + emit
+        // requested 走 UI 兜底）与 emit 失败（response 已写 inbox，dedup 必须保留）。
+        const mode = settingsStore.get('autoApproveTeammateMode');
+        const leadMode = await lookupLeadPermissionMode(teamName);
+        const decision = shouldAutoApprove(req.tool_name, mode, leadMode);
+
+        if (decision.approve) {
+          console.log(
+            `[inbox-watcher] auto-approve ${req.tool_name} for ${fromAgentId} ` +
+              `(${decision.reason}, leadMode=${leadMode ?? 'null'})`,
+          );
+          let appendOk = false;
+          try {
+            // fromAgentId='team-lead' 是 inbox 协议常量，与 IPC TeamRespondPermission handler
+            // (ipc/teams.ts:142) 同款。CLI 端默认接受此 from（CHANGELOG_45 实测）。
+            const respSub = buildPermissionResponse(req.request_id, 'allow', {
+              updatedInput: req.input,
+            });
+            await appendInboxMessage(teamName, slugifyMemberName(fromAgentId), respSub, {
+              fromAgentId: 'team-lead',
+            });
+            appendOk = true;
+          } catch (appendErr) {
+            // append 失败 → response 没写到 inbox，回滚 dedup（让下次 lead inbox change
+            // 重读 entries 时这条仍能再 try）+ 走 UI 兜底（避免「auto-approve 静默失败 +
+            // lead inbox 不再变化」死锁——chokidar 不会因 teammate inbox 写失败而 fire
+            // processInboxFile，必须主动 emit requested 让用户在 PendingTab 看见）。
+            console.warn(
+              `[inbox-watcher] auto-approve append failed for ${req.request_id}, falling back to UI:`,
+              appendErr,
+            );
+            entryRef.seenRequestIds.delete(req.request_id);
+            entryRef.activePermissions.set(req.request_id, { fromAgentId, payload });
+            try {
+              eventBus.emit('team-permission-requested', payload);
+            } catch (emitErr) {
+              // 兜底失败也只能 warn，回滚 active（与下面手动路径同款）
+              console.warn(
+                `[inbox-watcher] fallback emit team-permission-requested also failed:`,
+                emitErr,
+              );
+              entryRef.activePermissions.delete(req.request_id);
+            }
+            continue;
+          }
+
+          // append 成功 → inbox 文件已写，dedup 必须保留（绝不能 delete）。
+          // emit team-permission-resolved 抛错只 warn，不回滚——否则下次 lead inbox change
+          // 重读 entries 会让该 entry 再走一遍 try → 重复 append 双 response。
+          // 不写 activePermissions Map（该 Map 用于 idle_notification cancel pending；既然已
+          // resolved 没什么可 cancel；与 markResponded 语义等价）。
+          if (appendOk) {
+            try {
+              eventBus.emit('team-permission-resolved', {
+                teamName,
+                requestId: req.request_id,
+              });
+            } catch (emitErr) {
+              console.warn(
+                `[inbox-watcher] emit team-permission-resolved failed (response already written, dedup kept):`,
+                emitErr,
+              );
+            }
+            continue;
+          }
+        }
+
+        // 未命中 auto-approve → 走原 emit team-permission-requested 路径（手动审批）
         entryRef.activePermissions.set(req.request_id, { fromAgentId, payload });
         try {
           eventBus.emit('team-permission-requested', payload);

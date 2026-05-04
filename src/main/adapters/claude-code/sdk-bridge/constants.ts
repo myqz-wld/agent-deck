@@ -30,17 +30,12 @@ export const MAX_PENDING_MESSAGES = 20;
  *
  * 加白名单不依赖 permissionMode：plan / acceptEdits / bypass / default 任何模式下，
  * 这些工具语义上都不该被拦（plan mode 本意只拦 mutation；其他 mode 也只该拦危险操作）。
+ *
+ * **CHANGELOG_<X> B1：定义抽到 `@shared/constants/read-only-tools.ts`** 让 lead canUseTool
+ * 与 teammate inbox auto-approve 共享同一份白名单（避免双处 hardcode 漂移）。
+ * 新增白名单条目去 shared 文件改，本处 re-export 仅为 sdk-bridge 现有 import 路径不变。
  */
-export const READ_ONLY_TOOLS = new Set<string>([
-  'Read',
-  'Grep',
-  'Glob',
-  'LS',
-  'WebFetch',
-  'WebSearch',
-  'TodoWrite',
-  'NotebookRead',
-]);
+export { READ_ONLY_TOOLS } from '@shared/constants/read-only-tools';
 
 /**
  * REVIEW_17 R3 / M3-R3：recoverAndSend 入口 emit 占位 message 的 dedup 窗口。
