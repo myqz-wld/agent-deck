@@ -17,13 +17,16 @@ interface Props {
  * - dormant: 暗灰               → 长时间无事件
  * - closed:  划线灰             → 历史
  * - archived(任意 lifecycle 上的标记): 同 closed 灰
+ *
+ * 术语约定（CHANGELOG_57 B4，与设置面板对齐）：lifecycle 三态在 UI 层显示
+ * 「活跃 / 休眠 / 关闭」，title / aria-label 必须用中文，不直接裸用 closed/dormant。
  */
 export function StatusBadge({ activity, lifecycle, archived }: Props): JSX.Element {
   if (archived || lifecycle === 'closed') {
     return (
       <span
         className="inline-block h-2 w-2 rounded-full bg-status-closed"
-        title={archived ? '已归档' : 'closed'}
+        title={archived ? '已归档' : '关闭'}
       />
     );
   }
@@ -31,7 +34,7 @@ export function StatusBadge({ activity, lifecycle, archived }: Props): JSX.Eleme
     return (
       <span
         className="inline-block h-2 w-2 rounded-full bg-status-dormant"
-        title="休眠中"
+        title="休眠"
       />
     );
   }

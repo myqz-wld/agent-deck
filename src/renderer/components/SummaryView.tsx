@@ -33,7 +33,8 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
   if (local.length === 0) {
     return (
       <div className="px-2 py-3 text-[11px] text-deck-muted">
-        暂无总结。Summarizer 会按时间或事件数自动触发。
+        {/* 术语约定（CHANGELOG_57 B4，与设置面板对齐）：用「间歇总结」而非「Summarizer」。 */}
+        暂无总结。间歇总结会按时间或事件数自动触发。
       </div>
     );
   }

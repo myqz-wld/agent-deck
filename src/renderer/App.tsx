@@ -5,6 +5,7 @@ import { SessionDetail } from './components/SessionDetail';
 import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsDialog } from './components/SettingsDialog';
 import { NewSessionDialog } from './components/NewSessionDialog';
+import { AssetsLibraryDialog } from './components/AssetsLibraryDialog';
 import { PendingTab } from './components/PendingTab';
 import { TeamHub } from './components/TeamHub';
 import { useSessionStore } from './stores/session-store';
@@ -26,6 +27,9 @@ export function App(): JSX.Element {
 
   const [view, setView] = useState<View>('live');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Header「📚 资产库」按钮控制（CHANGELOG_57 C5）。SettingsDialog 内的「在资产库中查看」/
+   *  「查看内置资产」按钮也走这条 state——点击时 SettingsDialog 自关 + AssetsLibrary 自开。 */
+  const [assetsLibraryOpen, setAssetsLibraryOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [pinned, setPinned] = useState(true);
   // CSS frosted-frame 透明态由「物理 pin × transparentWhenPinned 设置项」共同决定，
@@ -283,6 +287,9 @@ export function App(): JSX.Element {
             >
               {compact ? '▢' : '─'}
             </IconButton>
+            <IconButton title="资产库（内置 + 用户自定义 agents/skills/CLAUDE.md）" onClick={() => setAssetsLibraryOpen(true)}>
+              📚
+            </IconButton>
             <IconButton title="设置" onClick={() => setSettingsOpen(true)}>
               ⚙
             </IconButton>
@@ -333,6 +340,10 @@ export function App(): JSX.Element {
             setTransparentWhenPinned(settings.transparentWhenPinned);
           });
         }}
+        onOpenAssetsLibrary={() => {
+          setSettingsOpen(false);
+          setAssetsLibraryOpen(true);
+        }}
       />
       <NewSessionDialog
         open={newSessionOpen}
@@ -340,6 +351,14 @@ export function App(): JSX.Element {
         onCreated={(id) => {
           setView('live');
           select(id);
+        }}
+      />
+      <AssetsLibraryDialog
+        open={assetsLibraryOpen}
+        onClose={() => setAssetsLibraryOpen(false)}
+        onOpenSettings={() => {
+          setAssetsLibraryOpen(false);
+          setSettingsOpen(true);
         }}
       />
     </FloatingFrame>

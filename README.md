@@ -212,18 +212,20 @@ agent-deck new \
 - **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3 / wav / aiff / m4a / ogg / flac，带试听 + 重置）
 - **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny + interrupt 处理避免会话死等）
 - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时
-- **窗口**：置顶时透明（看到下层桌面，默认开；关掉则置顶时仍是 macOS under-window 实玻璃）/ 开机自启
-- **Claude Code Hook**：一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）
-- **HookServer**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
+- **窗口**：置顶时透明（看到下层桌面，默认开；关掉则置顶时仍是 macOS under-window 实玻璃，Windows 等其他平台无 vibrancy 效果）/ 开机自启
+- **Claude Code Hook（系统钩子）**：一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）
+- **Hook Server（本地端口）**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
 - **外部工具**：Codex 二进制路径（留空用应用内置 vendored 版本，约 150MB / 平台）
-- **应用约定（CLAUDE.md）**：直接编辑注入到所有 SDK 会话 system prompt 末尾的应用级约定文本，「恢复默认」回落内置
-- **应用 skill 与 agents（agent-deck plugin）**：注入 `deep-code-review` skill + `reviewer-claude` / `reviewer-codex` 双异构对抗 agents 的 toggle
+- **应用约定（CLAUDE.md）**：直接编辑注入到所有 SDK 会话 system prompt 末尾的应用级约定文本，「恢复默认」回落内置；详细清单见 Header「📚 资产库」
+- **内置 Skill 与 Agent（agent-deck plugin）**：注入 `deep-code-review` skill + `reviewer-claude` / `reviewer-codex` 双异构对抗 agents 的 toggle；完整清单与触发关键词见 Header「📚 资产库」
 - **实验功能**：
   - **Agent Teams**：toggle；开启后 NewSessionDialog 出 team 名输入框 + 自动回填 prompt 模板。仅下次新建会话生效
-  - **SDK Task Manager**：toggle；开启后 SDK 会话注入 5 个结构化任务工具（`mcp__tasks__task_create / _list / _get / _update / _delete`）让多 Agent 跨会话协作管理结构化任务。当前会话 team 自动闭包注入到工具，写操作锁在自己 team；只读允许跨 team 协调。仅下次新建会话生效
-  - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免；切档仅下次新建会话生效
+  - **SDK Task Manager**：toggle；开启后 SDK 会话注入 `mcp__tasks__*` 系列结构化任务工具让多 Agent 跨会话协作管理结构化任务。当前会话 team 自动闭包注入到工具，写操作锁在自己 team；只读允许跨 team 协调。仅下次新建会话生效。完整工具清单见 Header「📚 资产库」
+  - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免；切档仅下次新建会话生效
 
 大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；Agent Teams / SDK Task Manager / 沙盒档位是 spawn-time 注入，仅下次新建会话生效。
+
+Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills/CLAUDE.md，并支持新建 / 编辑 / 删除用户 agent / skill；保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
 
 ---
 
@@ -247,17 +249,21 @@ src/
 │   ├── teams/             Agent Teams M2/M3：team-fs（只读 ~/.claude/teams + tasks）+ team-watcher（chokidar 引用计数 + 60s grace）
 │   ├── notify/            sound.ts（跨平台播放 + 防叠播 + 5s 上限）/ visual.ts（系统通知 + Dock）
 │   ├── permissions/       会话详情「权限」tab 的扫描器（user / user-local / project / local 四层）
+│   ├── bundled-assets.ts  agent-deck plugin 内置 agents/skills frontmatter 启动缓存（CHANGELOG_57）
+│   ├── user-assets.ts     用户自定义 ~/.claude/{agents,skills}/ 管理（list/save 原子写/delete/reveal，CHANGELOG_57）
 │   └── store/             better-sqlite3 + 迁移（user_version v1–v6，v6 加 sessions.team_name）+ repos + electron-store settings
-├── preload/index.ts       contextBridge 暴露 window.api / window.electronIpc
+├── preload/index.ts       contextBridge 暴露 window.api / window.electronIpc（含 process.platform 静态字段，CHANGELOG_57）
 ├── renderer/              React 19
-│   ├── App.tsx            header（标题 / 统计 / pending chip / ＋ / 三个 tab + Teams tab / pin / 折叠 / ⚙）
+│   ├── App.tsx            header（标题 / 统计 / pending chip / ＋ / 三个 tab + Teams tab / pin / 折叠 / 📚 / ⚙）
 │   ├── components/        FloatingFrame · SessionList · SessionCard · SessionDetail ·
 │   │                      PendingTab · pending-rows · PermissionsView · HistoryPanel ·
-│   │                      NewSessionDialog · SettingsDialog (sections 折叠化) · ActivityFeed (Task 渲染) · diff/ ·
+│   │                      NewSessionDialog · SettingsDialog (拆 9 个 settings/sections/*) ·
+│   │                      AssetsLibraryDialog · assets/AssetEditor (CHANGELOG_57) ·
+│   │                      ActivityFeed (Task 渲染) · diff/ ·
 │   │                      TeamHub · TeamDetail (Agent Teams M2/M3 视图)
 │   ├── stores/            Zustand session store
 │   ├── hooks/             事件桥接
-│   └── lib/               IPC 兜底 + selectors（selectLiveSessions / selectPendingBuckets）
+│   └── lib/               IPC 兜底 + selectors（selectLiveSessions / selectPendingBuckets）+ platform.ts (IS_DARWIN/IS_WIN/IS_LINUX renderer util，CHANGELOG_57)
 └── shared/                types（不允许 import Electron / Node API）+ mcp-tools
 
 resources/
