@@ -200,13 +200,34 @@ scope 不变（如有微调，列出新增 / 移除文件）。
 
 **task list 收口校验**（cleanup 之前）：`task_list({status_filter: "active"})` 应返 0 条；若有遗留逐条 `task_update(status: "abandoned", description: "收口前 abort：<原因>")`。汇总段贴一次 `task_list({})` 全量结果作为机器化复盘起点（REVIEW_X.md 时间线可直接由此导出）。
 
-cleanup teammate：
+**cleanup teammate**：lead **必须**调 `SendMessage` 工具 originate `shutdown_request`（结构化 message），**每个 teammate 各调一次**。同一 message 里两次 SendMessage 并发：
 
-```
-请 cleanup 两个 teammate（reviewer-claude / reviewer-codex），dismiss / shutdown。
+```text
+SendMessage(
+  to: "reviewer-claude",        # ❗ 是 teammate 名，不是 "team-lead"
+  message: {
+    type:   "shutdown_request",
+    reason: "deep review 收口"   # 简短理由，会显示在 teammate 退出消息里
+  }
+)
+SendMessage(
+  to: "reviewer-codex",         # 同上，第二个 teammate
+  message: {
+    type:   "shutdown_request",
+    reason: "deep review 收口"
+  }
+)
 ```
 
-如果 cleanup 卡住（teammate `shutdown_approved` 后 config.members 不移除 → TeamDelete 拒绝），告诉用户在应用 TeamDetail 用「force-cleanup」按钮兜底。
+**❗ lead 严禁自己发 `shutdown_response` —— 自杀**：CLI v2.x 端 `SendMessage.validateInput` 强校验 `shutdown_response` 的 `to === "team-lead"`（CLI 协议设计：response 仅 teammate → lead，approve 触发**响应方**自身的 abortController）。lead 如果误把 `shutdown_response` 发到 `"team-lead"`（自己），SDK 端 `kJY` 拿到当前 caller 的 abortController 就是 lead 自己的 → **lead 自我 abort，sdk-stream-ended 整个 review 现场死亡**。lead 唯一姿势是 originate `shutdown_request`（上面模板），teammate 那边 SDK 自动走 response 自终止，**lead 完全不需要参与 response 环节**。
+
+发完两次 shutdown_request 后等 5-30s（in-process backend 异步 cleanup）：
+- lead inbox 收到两个 `shutdown_approved` 通知（CLI 自动转 `Ei1` 事件）
+- TeamDetail UI 上 teammate 状态走 `[stopping]` → 消失
+
+之后调 `TeamDelete` 工具（CLI 内置，团队整体清理）：
+- 首次调用经常报 `Cannot cleanup with N active member(s)`——CLI in-process backend cleanup 是异步的，`config.members` 移除有延迟（实测可达几分钟）
+- 等几分钟重试通常成功；如真卡死告诉用户在应用 TeamDetail 用「force-cleanup」按钮兜底（`rm -rf ~/.claude/teams/<name>` + `~/.claude/tasks/<name>`）
 
 ## 关键约束
 
@@ -235,6 +256,8 @@ cleanup teammate：
 | 单方独有 LOW 也走反驳轮 | 反驳成本远超价值 | 反驳轮只针对 HIGH 候选 |
 | Round / 反驳轮起前没 task_create | TeamDetail hook 事件流空白 / 复盘没机器化时间线 | 参 §Milestone tracking 表，每个 milestone 进出各调一次 task_* |
 | task description 抄 finding 全文 | task list 变第二份 review 报告 / 写入超 2000 字限制被截 | description 一句话状态摘要；finding 全文走 SendMessage |
+| Step 6 cleanup 时 lead 发 `shutdown_response`（不论 `to` 是 teammate 还是 "team-lead"）| `to: <teammate>` 被 SendMessage validateInput 直接拒（强校验 `to === "team-lead"`）；改投 `to: "team-lead"` 触发 SDK `kJY` 把 lead 自己的 abortController abort → **lead 自杀 sdk-stream-ended** | lead 只 originate `shutdown_request` 给 teammate；teammate 收到后 SDK 自动走 response 自终止，lead 完全不参与 response |
+| Step 6 用「请 cleanup teammates」自然语言代替结构化 SendMessage | teammate 行为不可控（可能反向 originate shutdown_request 求许可，把 lead 推进上一行的自杀路径）| Step 6 必须发结构化 `{type: "shutdown_request", reason: ...}` |
 
 ## Fallback：subagent 模式（环境不满足时）
 
