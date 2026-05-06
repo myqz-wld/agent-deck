@@ -162,6 +162,14 @@ chat 里看到 stringified JSON 含 `type='permission_request'`（CLI 把 inbox 
 
 shutdown 完所有 teammate 后立刻 `TeamDelete` 经常报 `Cannot cleanup with N active member(s)`——CLI 内部异步移除 `config.json` members 实测延迟可达几分钟。等几分钟重试通常成功，期间做其他不依赖该 team 的事。
 
+### Lead 关 teammate 只发 `shutdown_request`，**严禁**发 `shutdown_response` —— 自杀
+
+- **唯一姿势**：lead 调 `SendMessage(to: "<teammate-name>", message: {type: "shutdown_request", reason: "<原因>"})`，每个 teammate 各发一次（同一 message 多个 SendMessage 并发起即可）。teammate 收到后 SDK 自动走 response 自终止，lead **完全不参与 response 环节**，等 inbox 收 `shutdown_approved` 通知 → 再 `TeamDelete`
+- **为什么不能发 `shutdown_response`**：CLI v2.x 端 `SendMessage.validateInput` 强校验 `shutdown_response.to === "team-lead"`（协议设计：response 仅 teammate → lead 方向，approve 触发的是**响应方**自身的 abortController）
+  - lead 发 `shutdown_response` 到 teammate → SendMessage 直接拒
+  - lead 改投 `to: "team-lead"`（自己）「绕开校验」→ SDK 端 handler 拿到当前 caller 的 abortController 就是 lead 自己的 → **lead 自我 abort、整个会话 sdk-stream-ended、cleanup 现场死亡**（实测）
+- **典型踩坑链**：lead 发自然语言「请 cleanup」给 teammate → teammate 反向 originate `shutdown_request` 求许可 → lead 误以为要「approve shutdown」于是发 `shutdown_response` → 自杀。绕过路径：lead 永远只发 `shutdown_request` 主动方向，不接 teammate 的反向 request
+
 ---
 
 ## 新项目工程地基
