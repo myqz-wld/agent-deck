@@ -16,3 +16,4 @@ export * from './types/file';
 export * from './types/summary';
 export * from './types/task';
 export * from './types/settings';
+export * from './types/assets';

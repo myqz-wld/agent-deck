@@ -12,6 +12,7 @@
  * - permissions.ts       PermissionScanCwd / PermissionOpenFile
  * - images.ts            ImageLoadBlob + 双白名单 + TOCTOU 防护
  * - teams.ts             SummarizerLastErrors + Team* + TeamPermission*
+ * - assets.ts            Assets* (bundled + user agents/skills 管理，CHANGELOG_57)
  */
 import { registerWindowAppIpc } from './window-app';
 import { registerSessionsIpc } from './sessions';
@@ -21,6 +22,7 @@ import { registerAdaptersIpc } from './adapters';
 import { registerPermissionsIpc } from './permissions';
 import { registerImagesIpc } from './images';
 import { registerTeamsIpc } from './teams';
+import { registerAssetsIpc } from './assets';
 
 export function bootstrapIpc(): void {
   registerWindowAppIpc();
@@ -31,4 +33,5 @@ export function bootstrapIpc(): void {
   registerPermissionsIpc();
   registerImagesIpc();
   registerTeamsIpc();
+  registerAssetsIpc();
 }

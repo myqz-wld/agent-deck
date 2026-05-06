@@ -89,6 +89,20 @@ export const IpcInvoke = {
   /** Task Manager (CHANGELOG_43)：拉指定 team 的 SQLite tasks 表（限 200 条）。
    *  TeamDetail「结构化 tasks (mcp)」section 用，订阅 IpcEvent.TaskChanged 后重拉。 */
   TaskListByTeam: 'task:list-by-team',
+
+  // ─────────── Assets Library (CHANGELOG_57) ───────────
+  /** 列出 agent-deck plugin 内置 agents+skills（main 启动时一次性扫 frontmatter，缓存读）。 */
+  AssetsListBundled: 'assets:list-bundled',
+  /** 列出用户自定义 ~/.claude/{agents,skills}/ 下全部资产。每次调用现扫现读。 */
+  AssetsListUser: 'assets:list-user',
+  /** 读单个 asset 完整 md 文本（含 frontmatter + body）。args: (kind, name, source)。 */
+  AssetsGetContent: 'assets:get-content',
+  /** 保存用户 asset：main 拼装 frontmatter + 原子写到 ~/.claude/<kind>/。args: UserAssetInput。 */
+  AssetsSaveUser: 'assets:save-user',
+  /** 删除用户 asset。args: (kind, name)。skill 是子目录递归 rm，agent 是单文件 unlink。 */
+  AssetsDeleteUser: 'assets:delete-user',
+  /** 在 Finder / 资源管理器中显示对应文件。args: (kind, name, source)。 */
+  AssetsRevealInFolder: 'assets:reveal',
 } as const;
 
 export const IpcEvent = {

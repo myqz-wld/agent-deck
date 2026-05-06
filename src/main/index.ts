@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ensureFocusableOnActivate, getFloatingWindow } from './window';
 import { bootstrapIpc } from './ipc';
+import { loadBundledAssets } from './bundled-assets';
 import { HookServer } from './hook-server/server';
 import { RouteRegistry } from './hook-server/route-registry';
 import { eventBus } from './event-bus';
@@ -132,6 +133,15 @@ async function bootstrap(): Promise<void> {
 
   // 8. IPC
   bootstrapIpc();
+
+  // 8.5 预热 agent-deck plugin 内置 agents/skills frontmatter 缓存（CHANGELOG_57）。
+  //     在 bootstrapIpc 之后跑：handler 已注册，AssetsListBundled 立刻可走缓存零开销。
+  //     失败仅 console.warn，UI 层 listBundledAssets 拿到空清单不致命。
+  try {
+    loadBundledAssets();
+  } catch (err) {
+    console.warn('[main] loadBundledAssets failed:', err);
+  }
 
   // 9. 创建窗口并把事件总线接到 webContents
   const floating = getFloatingWindow();

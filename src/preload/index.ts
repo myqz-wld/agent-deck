@@ -4,6 +4,10 @@ import type {
   AgentEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
+  AssetContentResult,
+  AssetKind,
+  AssetSource,
+  BundledAssetsSnapshot,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
   ImageSource,
@@ -20,11 +24,21 @@ import type {
   TeamPermissionRequest,
   TeamSnapshot,
   TeamSummary,
+  UserAssetInput,
+  UserAssetsSnapshot,
 } from '@shared/types';
 
 const api = {
   // 应用
   getAppVersion: (): Promise<string> => ipcRenderer.invoke(IpcInvoke.AppGetVersion),
+
+  /**
+   * 当前进程平台（CHANGELOG_57）。preload 进程能直接读 `process.platform` 全局
+   * （与 contextIsolated 无关——process 是 Node 注入），常量值启动后永不变 →
+   * 静态字段暴露，不必走 ipcRenderer.invoke。renderer 用 `src/renderer/lib/platform.ts`
+   * 的 `IS_DARWIN/IS_WIN/IS_LINUX` 包装消费。
+   */
+  platform: process.platform as NodeJS.Platform,
 
   // 窗口
   setAlwaysOnTop: (value: boolean): Promise<void> =>
@@ -206,6 +220,37 @@ const api = {
   /** 删除用户副本回落内置；返回新的内置内容供 UI 同步刷新。 */
   resetClaudeMd: (): Promise<{ ok: boolean; content: string }> =>
     ipcRenderer.invoke(IpcInvoke.ClaudeMdReset),
+
+  // ─────────── Assets Library (CHANGELOG_57) ───────────
+  /** 列内置 plugin agents+skills（main 启动时一次性扫 frontmatter，缓存读）。 */
+  listBundledAssets: (): Promise<BundledAssetsSnapshot> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsListBundled),
+  /** 列用户自定义 ~/.claude/{agents,skills}/ 下全部资产；每次现扫现读。 */
+  listUserAssets: (): Promise<UserAssetsSnapshot> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsListUser),
+  /** 读单个 asset 完整 md 文本（含 frontmatter + body）。「查看完整内容」/ 编辑器 mount 用。 */
+  getAssetContent: (
+    kind: AssetKind,
+    name: string,
+    source: AssetSource,
+  ): Promise<AssetContentResult> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsGetContent, kind, name, source),
+  /** 保存用户 asset；main 端拼装 frontmatter + 原子写。返回写盘后的 AssetMeta。 */
+  saveUserAsset: (input: UserAssetInput): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsSaveUser, input),
+  /** 删除用户 asset。skill 子目录递归 rm，agent 单文件 unlink。 */
+  deleteUserAsset: (
+    kind: AssetKind,
+    name: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsDeleteUser, kind, name),
+  /** 在 Finder / 资源管理器中显示对应文件，跨平台。 */
+  revealAssetInFolder: (
+    kind: AssetKind,
+    name: string,
+    source: AssetSource,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsRevealInFolder, kind, name, source),
 
   /**
    * 拉取 summarizer 最近一次失败原因（by sessionId），UI 设置面板诊断用。
