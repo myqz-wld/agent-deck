@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Codex, Thread } from '@openai/codex-sdk';
+import type { Codex, Input, Thread, UserInput } from '@openai/codex-sdk';
 import { sessionManager } from '@main/session/manager';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
 // CHANGELOG_52 Step 4a-4c：拆 class 完成。本目录（sdk-bridge/）含 4 sub-module + index.ts (facade)。
@@ -16,8 +16,48 @@ import type {
 } from './types';
 import { resolveBundledCodexBinary } from './codex-binary';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
+import type { UploadedAttachmentRef } from '@shared/types';
+import { deleteUploadIfExists } from '@main/store/image-uploads';
 
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
+
+/**
+ * 把 (text, attachments) 包成 codex SDK 接受的 Input 形态。
+ *
+ * - 纯文本：直接返回 string（与原行为字节级一致）
+ * - 带 attachments：返回 UserInput[]，按 [local_image, ..., text] 顺序
+ *   （与 Claude SDK image-block-first 顺序对齐，让 LLM 先看到图再读问题）
+ *
+ * codex SDK `local_image` 只接 path，不接 base64：path 已由 IPC 层 writeUploadedImage
+ * 落盘到 <userData>/image-uploads/<uuid>.<ext>，codex 子进程自己 fs 读。
+ */
+function packCodexInput(text: string, attachments?: UploadedAttachmentRef[]): Input {
+  if (!attachments || attachments.length === 0) return text;
+  const items: UserInput[] = [];
+  for (const ref of attachments) {
+    items.push({ type: 'local_image', path: ref.path });
+  }
+  if (text.length > 0) {
+    items.push({ type: 'text', text });
+  }
+  return items;
+}
+
+/**
+ * 从 codex Input 中提取 attachments path 集合（用于 closeSession 时清理 unused 文件）。
+ *
+ * 仅扫 UserInput[] 形态；string 形态直接返回 []。
+ */
+function extractAttachmentPaths(input: Input): string[] {
+  if (typeof input === 'string') return [];
+  const paths: string[] = [];
+  for (const item of input) {
+    if (item.type === 'local_image' && typeof item.path === 'string') {
+      paths.push(item.path);
+    }
+  }
+  return paths;
+}
 
 /**
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
@@ -90,15 +130,19 @@ export class CodexSdkBridge {
   async createSession(opts: {
     cwd: string;
     prompt?: string;
-    model?: string;
     /** 传 thread_id 表示恢复历史会话；codex 从 ~/.codex/sessions/<id>.jsonl 重放 */
     resume?: string;
+    /** 首条 user message 的图片附件（IPC 层已落盘到 <userData>/image-uploads/） */
+    attachments?: UploadedAttachmentRef[];
+    /** 见 types.ts CreateSessionOptions.codexSandbox（per-session 覆盖）。 */
+    codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   }): Promise<CodexSessionHandle> {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
     }
     // REVIEW_4 M4：首条 prompt 也走 MAX_MESSAGE_BYTES 上限。原版只 sendMessage 校验，
     // pendingMessages: [opts.prompt] 直接进队列，让 cli.ts / 其他入口可绕过 100KB 上限。
+    // attachments 不算 text 字节（IPC 层 30MB 总附件独立校验）
     const promptBytes = Buffer.byteLength(opts.prompt, 'utf8');
     if (promptBytes > MAX_MESSAGE_BYTES) {
       throw new Error(
@@ -108,6 +152,7 @@ export class CodexSdkBridge {
 
     const codex = await this.ensureCodex();
     const cwd = opts.cwd && opts.cwd.trim() ? opts.cwd : process.cwd();
+    const sandboxMode = opts.codexSandbox ?? this.currentSandboxMode;
 
     let thread: Thread;
     if (opts.resume) {
@@ -115,18 +160,18 @@ export class CodexSdkBridge {
     } else {
       thread = codex.startThread({
         workingDirectory: cwd,
-        sandboxMode: this.currentSandboxMode,
+        sandboxMode,
         approvalPolicy: 'never',
         skipGitRepoCheck: true,
-        ...(opts.model ? { model: opts.model } : {}),
       });
     }
 
+    const firstInput = packCodexInput(opts.prompt, opts.attachments);
     const internal: InternalSession = {
       threadId: opts.resume ?? null,
       cwd,
       thread,
-      pendingMessages: [opts.prompt],
+      pendingMessages: [firstInput],
       currentTurn: null,
       turnLoopRunning: false,
       intentionallyClosed: false,
@@ -148,7 +193,13 @@ export class CodexSdkBridge {
         sessionId: opts.resume,
         agentId: AGENT_ID,
         kind: 'message',
-        payload: { text: opts.prompt, role: 'user' },
+        payload: {
+          text: opts.prompt,
+          role: 'user',
+          ...(opts.attachments && opts.attachments.length > 0
+            ? { attachments: opts.attachments }
+            : {}),
+        },
         ts: Date.now(),
         source: 'sdk',
       });
@@ -160,15 +211,27 @@ export class CodexSdkBridge {
     // 新建路径：先用 tempKey 占位，等 thread.started 事件拿到 realId 后 rename
     const tempKey = randomUUID();
     this.sessions.set(tempKey, internal);
-    const realId = await this.threadLoop.startNewThreadAndAwaitId(internal, tempKey, opts.prompt, cwd);
+    const realId = await this.threadLoop.startNewThreadAndAwaitId(
+      internal,
+      tempKey,
+      cwd,
+      opts.prompt,
+      opts.attachments,
+    );
 
     return { sessionId: realId };
   }
 
-  async sendMessage(sessionId: string, text: string): Promise<void> {
+  async sendMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`session ${sessionId} not found`);
 
+    // MED 修法：MAX_MESSAGE_BYTES 仅算 text 节字节（不算 path 字符串、不 JSON.stringify Input）。
+    // attachments 总大小由 IPC 层独立 30MB 校验，sdk-bridge 这层只管 text。
     const bytes = Buffer.byteLength(text, 'utf8');
     if (bytes > MAX_MESSAGE_BYTES) {
       throw new Error(
@@ -182,12 +245,16 @@ export class CodexSdkBridge {
       );
     }
 
-    s.pendingMessages.push(text);
+    s.pendingMessages.push(packCodexInput(text, attachments));
     this.opts.emit({
       sessionId,
       agentId: AGENT_ID,
       kind: 'message',
-      payload: { text, role: 'user' },
+      payload: {
+        text,
+        role: 'user',
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      },
       ts: Date.now(),
       source: 'sdk',
     });
@@ -234,7 +301,18 @@ export class CodexSdkBridge {
     }
 
     // 清残余待发消息：close 后不应再 resume 这个 session，pending 不再有意义。
+    // MED 修法：未消费的 attachments 文件 fire-and-forget unlink，减少孤儿（reaper 14 天兜底）
+    const orphanPaths: string[] = [];
+    for (const input of internal.pendingMessages) {
+      orphanPaths.push(...extractAttachmentPaths(input));
+    }
     internal.pendingMessages.length = 0;
+    if (orphanPaths.length > 0) {
+      // best-effort 异步删，失败 swallow（reaper 兜底）
+      void Promise.all(orphanPaths.map((p) => deleteUploadIfExists(p))).catch(() => {
+        /* swallow */
+      });
+    }
 
     this.sessions.delete(sessionId);
     sessionManager.releaseSdkClaim(sessionId);

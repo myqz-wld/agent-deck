@@ -25,7 +25,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { SessionRecord } from '@shared/types';
+import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { encodeClaudeProjectDir } from '@main/platform';
@@ -44,13 +44,28 @@ export interface RecovererCtx {
 export type CreateSessionThunk = (opts: {
   cwd: string;
   prompt?: string;
-  model?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   resume?: string;
   teamName?: string;
+  attachments?: UploadedAttachmentRef[];
 }) => Promise<SdkSessionHandle>;
 
-export type SendMessageThunk = (sessionId: string, text: string) => Promise<void>;
+/**
+ * HIGH-1 修法：sendThunk 三参签名，attachments 透传到第二条等待者。
+ *
+ * 原 plan 漏点：`return this.sendThunk(sessionId, text)` 把 attachments 静默吞掉，
+ * 第二条带图的 user message 在 inflight 等待者路径下变纯文本。
+ *
+ * 透传约束：
+ * - 第一条 inflight 的 attachments 走 createThunk（携带 prompt + attachments）
+ * - 第二条等待者的 attachments 走 sendThunk（独立 attachments path 集合）
+ * - 两条之间不复用 / 不去重，文件路径完全独立（IPC 层为每条 message 各写一批）
+ */
+export type SendMessageThunk = (
+  sessionId: string,
+  text: string,
+  attachments?: UploadedAttachmentRef[],
+) => Promise<void>;
 
 export type JsonlExistsThunk = (cwd: string, sessionId: string) => boolean;
 
@@ -85,7 +100,11 @@ export class SessionRecoverer {
    *   plan / acceptEdits 被静默还原
    * - 历史 record 完全不存在时直接抛与原行为一致的 'not found'，让 IPC 把错原样透传 renderer
    */
-  async recoverAndSend(sessionId: string, text: string): Promise<void> {
+  async recoverAndSend(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
     const inflight = this.ctx.recovering.get(sessionId);
     if (inflight) {
       // 等同一恢复完成 → 然后正常走完整 sendMessage 流程把这条新 text push 进 sessions。
@@ -96,7 +115,10 @@ export class SessionRecoverer {
       } catch {
         // 第一波恢复已失败，第二条自己再撞一次
       }
-      return this.sendThunk(sessionId, text);
+      // HIGH-1 修法：attachments 透传给第二条等待者 sendThunk。
+      // 原版只 sendThunk(sessionId, text) 静默吞掉 attachments；
+      // 这条等待者带的图属于「自己这条 message」与第一条独立，必须走完整 sendMessage 路径。
+      return this.sendThunk(sessionId, text, attachments);
     }
 
     const rec: SessionRecord | null = sessionRepo.get(sessionId);
@@ -181,6 +203,8 @@ export class SessionRecoverer {
             cwd: rec.cwd,
             prompt: text,
             permissionMode: rec.permissionMode ?? undefined,
+            // HIGH-1 修法：attachments 透传，jsonl 缺失 fallback 路径下恢复也带图
+            attachments,
           });
           const newRealId = handle.sessionId;
           if (newRealId !== sessionId) {
@@ -214,6 +238,8 @@ export class SessionRecoverer {
           // 已选过的（acceptEdits / plan / bypassPermissions）必须复原，否则用户体感
           // 「我设过的权限模式被悄悄重置」
           permissionMode: rec.permissionMode ?? undefined,
+          // HIGH-1 修法：attachments 透传，正常 resume 路径下首条恢复消息带图
+          attachments,
         });
       } finally {
         this.ctx.recovering.delete(sessionId);

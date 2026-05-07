@@ -20,7 +20,72 @@ import {
   parseStringId,
   parsePermissionMode,
   parseTeamName,
+  parseCodexSandboxMode,
 } from './_helpers';
+import {
+  writeUploadedImage,
+  deleteUploadIfExists,
+} from '@main/store/image-uploads';
+import { MAX_TOTAL_ATTACHMENTS_BYTES } from './_image-constants';
+import type { UploadedAttachmentInput, UploadedAttachmentRef } from '@shared/types';
+
+/**
+ * 校验 + 写盘 attachments。失败抛错，由调用方决定回滚兄弟附件。
+ *
+ * 校验链：
+ * - 必须是数组
+ * - 每个元素必须是 UploadedAttachmentInput shape
+ * - bytes 总和 ≤ MAX_TOTAL_ATTACHMENTS_BYTES（30MB）
+ * - 单图校验在 writeUploadedImage 内（mime 反查 ext / base64 实测对账 / 单图 ≤ 20MB）
+ *
+ * 失败回滚：调用方 catch 后 deleteUploadIfExists 已落盘的 refs。
+ */
+async function persistAttachments(
+  raw: unknown,
+  fieldName: string,
+): Promise<UploadedAttachmentRef[]> {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new IpcInputError(fieldName, 'must be array');
+  }
+  if (raw.length === 0) return [];
+  if (raw.length > 20) {
+    // 上限 20 张/条：避免 renderer 误投或恶意构造
+    throw new IpcInputError(fieldName, `> 20 attachments (got ${raw.length})`);
+  }
+  let totalBytes = 0;
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') {
+      throw new IpcInputError(fieldName, 'each item must be object');
+    }
+    const it = item as Partial<UploadedAttachmentInput>;
+    if (it.kind !== 'image' || typeof it.base64 !== 'string' || typeof it.mime !== 'string') {
+      throw new IpcInputError(fieldName, 'each item must be UploadedAttachmentInput');
+    }
+    if (typeof it.bytes !== 'number' || !Number.isFinite(it.bytes) || it.bytes < 0) {
+      throw new IpcInputError(fieldName, 'each item.bytes must be non-negative number');
+    }
+    totalBytes += it.bytes;
+  }
+  if (totalBytes > MAX_TOTAL_ATTACHMENTS_BYTES) {
+    throw new IpcInputError(
+      fieldName,
+      `total ${(totalBytes / 1024 / 1024).toFixed(1)}MB > ${MAX_TOTAL_ATTACHMENTS_BYTES / 1024 / 1024}MB limit`,
+    );
+  }
+  const written: UploadedAttachmentRef[] = [];
+  try {
+    for (const item of raw as UploadedAttachmentInput[]) {
+      const ref = await writeUploadedImage(item);
+      written.push(ref);
+    }
+    return written;
+  } catch (err) {
+    // 任一图写盘失败 → 回滚已写的兄弟（best-effort）
+    await Promise.all(written.map((r) => deleteUploadIfExists(r.path)));
+    throw err;
+  }
+}
 
 export function registerAdaptersIpc(): void {
   // Adapter actions (createSession 在 M9 实现 SDK 通道后才会真正可用)
@@ -55,21 +120,35 @@ export function registerAdaptersIpc(): void {
         `> 100KB (got ${Buffer.byteLength(prompt, 'utf8')} bytes)`,
       );
     }
-    const model = typeof raw.model === 'string' ? raw.model : undefined;
     const resume = typeof raw.resume === 'string' ? raw.resume : undefined;
     // CHANGELOG_46：NewSessionDialog 已删 teamName 输入框；team 名由 lead 在会话内自由决定，
     // 应用通过 PreToolUse hook / fs watcher / hook 三层反向同步到 sessions.team_name DB 列。
     // 但 IPC 入口仍接 raw.teamName 兼容 CLI `agent-deck new --team-name` 命令（如有）。
     const teamName = parseTeamName(raw.teamName);
+    // codexSandbox per-session 覆盖（CHANGELOG_<X>）：仅 codex-cli adapter 接收并起效，
+    // 其它 adapter 静默忽略（types.ts CreateSessionOptions 通用接口加字段是约定，
+    // 与 teamName / model 同模式 — 通用接口兜，adapter 自行实现）。
+    // 白名单走 parseCodexSandboxMode；null = 不传 → adapter 用 settings.codexSandbox 全局值。
+    const codexSandbox = parseCodexSandboxMode(raw.codexSandbox);
 
-    const sid = await adapter.createSession({
-      cwd,
-      prompt,
-      model,
-      ...(permissionMode !== null ? { permissionMode } : {}),
-      ...(resume !== undefined ? { resume } : {}),
-      ...(teamName !== null ? { teamName } : {}),
-    });
+    // attachments 写盘：失败 throw 已回滚兄弟附件。createSession throw 时本 handler 同款回滚。
+    const attachments = await persistAttachments(raw.attachments, 'opts.attachments');
+    let sid: string;
+    try {
+      sid = await adapter.createSession({
+        cwd,
+        prompt,
+        ...(permissionMode !== null ? { permissionMode } : {}),
+        ...(resume !== undefined ? { resume } : {}),
+        ...(teamName !== null ? { teamName } : {}),
+        ...(codexSandbox !== null ? { codexSandbox } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      });
+    } catch (err) {
+      // createSession 失败：path 还没塞进 SDK 队列，安全清干净
+      await Promise.all(attachments.map((r) => deleteUploadIfExists(r.path)));
+      throw err;
+    }
     // 持久化 permissionMode：抽到 sessionManager.recordCreatedPermissionMode，
     // CLI 路径（cli.ts applyCliInvocation）也走同一个 helper，确保两条入口语义一致。
     sessionManager.recordCreatedPermissionMode(sid, permissionMode ?? undefined);
@@ -87,17 +166,40 @@ export function registerAdaptersIpc(): void {
     await adapter.interruptSession(parseStringId('sessionId', sessionId));
     return true;
   });
-  on(IpcInvoke.AdapterSendMessage, async (_e, agentId, sessionId, text) => {
+  on(IpcInvoke.AdapterSendMessage, async (_e, agentId, sessionId, payload) => {
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.sendMessage) throw new Error('adapter cannot send message');
-    if (typeof text !== 'string') {
-      throw new IpcInputError('text', 'must be string');
+    // 兼容老 IPC 调用方传 `text: string`（向后兼容，避免漏改 break）+
+    // 新 envelope 形式 `{text, attachments?}`（带图）。
+    let text: string;
+    let rawAttachments: unknown = undefined;
+    if (typeof payload === 'string') {
+      text = payload;
+    } else if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const env = payload as { text?: unknown; attachments?: unknown };
+      if (typeof env.text !== 'string') {
+        throw new IpcInputError('payload.text', 'must be string');
+      }
+      text = env.text;
+      rawAttachments = env.attachments;
+    } else {
+      throw new IpcInputError('payload', 'must be string or {text, attachments?}');
     }
     // 单条消息上限 100KB，与 sdk-bridge MAX_MESSAGE_BYTES 对齐（REVIEW_4 M4 同主题，前置在 IPC 层）
     if (Buffer.byteLength(text, 'utf8') > 100_000) {
       throw new IpcInputError('text', `> 100KB (got ${Buffer.byteLength(text, 'utf8')} bytes)`);
     }
-    await adapter.sendMessage(parseStringId('sessionId', sessionId), text);
+    // attachments 写盘：失败 throw 已回滚兄弟附件。sendMessage throw 时本 handler 同款回滚。
+    const attachments = await persistAttachments(rawAttachments, 'attachments');
+    try {
+      await adapter.sendMessage(parseStringId('sessionId', sessionId), text, attachments);
+    } catch (err) {
+      // sendMessage throw：path 还没塞进 SDK 队列（adapter 内部入队前 throw），安全清干净
+      // ⚠ 关键护栏：成功路径**不**清，因为 adapter 已把 path 塞进 pendingMessages 队列，
+      //   清了 codex 子进程消费时 ENOENT。
+      await Promise.all(attachments.map((r) => deleteUploadIfExists(r.path)));
+      throw err;
+    }
     return true;
   });
   on(IpcInvoke.AdapterRespondPermission, async (_e, agentId, sessionId, requestId, response) => {

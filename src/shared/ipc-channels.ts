@@ -52,6 +52,12 @@ export const IpcInvoke = {
    * 防止 renderer 越权读任意磁盘文件。失败不抛错，返回 { ok:false, reason }。
    */
   ImageLoadBlob: 'image:load-blob',
+  /**
+   * 加载用户在输入框上传的图片（与 ImageLoadBlob 走完全独立白名单）。
+   * 路径必须在 <userData>/image-uploads/ 下；realpath + sep 严格前缀 + ext + size + 单 fd open/stat/readFile。
+   * 失败不抛错，返回 { ok:false, reason }，UI 用灰底兜底（图片可能已被 reaper 清 / 用户磁盘删了）。
+   */
+  UploadedImageLoad: 'image:load-uploaded',
   /** 读取注入到 SDK system prompt 末尾的 agent-deck CLAUDE.md（用户副本优先 → 回落内置）。 */
   ClaudeMdGet: 'claude-md:get',
   /** 保存用户副本 CLAUDE.md 到 userData 目录，并清主进程注入缓存（下次新建会话生效）。 */

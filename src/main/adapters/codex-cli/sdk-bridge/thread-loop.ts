@@ -12,7 +12,7 @@
  * - earlyErrCb 路径与 closeSession / fallback 路径互斥，不出双 finished
  */
 import type { ThreadEvent } from '@openai/codex-sdk';
-import type { AgentEventKind } from '@shared/types';
+import type { AgentEventKind, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { translateCodexEvent } from '@main/adapters/codex-cli/translate';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
@@ -34,12 +34,17 @@ export class ThreadLoop {
    * 1. 正常拿到 thread_id → realId（可能 ≠ tempKey）→ rename + emit session-start + user msg
    * 2. 30s fallback → tempKey 顶上，emit error + finished
    * 3. earlyErr（spawn 立即失败）→ 同 fallback，但 errorText 用 SDK 抛的真实 stderr
+   *
+   * 首条消息已由 caller push 进 `internal.pendingMessages`（避免重复传参）；
+   * `promptText` + `attachments` 是给 emit message event 的 payload，
+   * 让 UI 显示纯文本 + 附图缩略图（emit payload 不直接含 codex Input 形态）。
    */
   async startNewThreadAndAwaitId(
     internal: InternalSession,
     tempKey: string,
-    prompt: string,
     cwd: string,
+    promptText: string,
+    attachments?: UploadedAttachmentRef[],
   ): Promise<string> {
     return new Promise<string>((resolve) => {
       let resolved = false;
@@ -67,7 +72,11 @@ export class ThreadLoop {
           sessionId: tempKey,
           agentId: AGENT_ID,
           kind: 'message',
-          payload: { text: prompt, role: 'user' },
+          payload: {
+            text: promptText,
+            role: 'user',
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
+          },
           ts: Date.now(),
           source: 'sdk',
         });
@@ -138,7 +147,11 @@ export class ThreadLoop {
             sessionId: realId,
             agentId: AGENT_ID,
             kind: 'message',
-            payload: { text: prompt, role: 'user' },
+            payload: {
+              text: promptText,
+              role: 'user',
+              ...(attachments && attachments.length > 0 ? { attachments } : {}),
+            },
             ts: Date.now(),
             source: 'sdk',
           });
@@ -175,7 +188,7 @@ export class ThreadLoop {
     let earlyErrCb = onEarlyError;
     try {
       while (internal.pendingMessages.length > 0) {
-        const text = internal.pendingMessages.shift()!;
+        const input = internal.pendingMessages.shift()!;
         const controller = new AbortController();
         internal.currentTurn = controller;
         // emit 闭包：sid 取最新的 realId（thread_id 在第一条 thread.started 后才有）
@@ -190,7 +203,8 @@ export class ThreadLoop {
           });
         };
         try {
-          const { events } = await internal.thread.runStreamed(text, {
+          // codex SDK runStreamed 接 Input (= string | UserInput[])，类型自动适配
+          const { events } = await internal.thread.runStreamed(input, {
             signal: controller.signal,
           });
           for await (const ev of events) {

@@ -1,5 +1,6 @@
-import { useState, type JSX } from 'react';
+import { useRef, useState, type JSX } from 'react';
 import { useSessionStore } from '@renderer/stores/session-store';
+import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 
 /**
  * SDK 会话的输入区 + 权限模式下拉。
@@ -11,6 +12,9 @@ import { useSessionStore } from '@renderer/stores/session-store';
  * - sendError / pmError 失败时把文本回填到输入框（乐观清空），用户能改文字继续发
  * - 通道断连恢复已沉到 sdk-bridge.sendMessage 内部（CHANGELOG_26 / B 方案），
  *   renderer 不再判断「断连 vs 真错」——直接显示 sdk-bridge 抛出的 message
+ * - 图片附件：粘贴 / 拖放 / 上传按钮三件套；缩略图 strip 在 textarea 上方。
+ *   失败回填只回填文字（base64 已 clear），用户需重新粘 / 拖 — 这是 trade-off：
+ *   保留 base64 ref 让「乐观清空」语义混乱，多数失败是真错而非 race
  */
 export function ComposerSdk({
   sessionId,
@@ -22,6 +26,8 @@ export function ComposerSdk({
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imgs = useImageAttachments();
   // SDK Query 自身持有运行时 permissionMode 但不暴露 getter，所以从 session 记录的
   // permission_mode 列读「用户上次主动选过的值」。这是持久化的（DB），切别的 detail
   // 再切回来 / 重启 dev / 恢复会话，下拉都能正确还原。CLI 通道这字段是 null → 默认。
@@ -42,7 +48,10 @@ export function ComposerSdk({
 
   const send = async (): Promise<void> => {
     const t = text.trim();
-    if (!t || busy) return;
+    const hasAttachments = imgs.attachments.length > 0;
+    // 允许「只发图不带文字」：text 空 + 至少一张图 → 走发送
+    if (!t && !hasAttachments) return;
+    if (busy) return;
     // SDK streaming mode 不支持 slash 命令——CLI 那套 slash command 注册表
     // 在 SDK 模式下不存在，'/clear' / '/compact' / '/cost' 等都会让 SDK 抛
     // "Unknown slash command" 或 "only prompt commands are supported in streaming mode"。
@@ -59,13 +68,27 @@ export function ComposerSdk({
     setText('');
     setBusy(true);
     setSendError(null);
+    // 拍快照：清 hook 前先取出 IPC inputs（基于当前 attachments 的 fullBase64）
+    let attachmentInputs: ReturnType<typeof imgs.toIpcInputs>;
+    try {
+      attachmentInputs = imgs.toIpcInputs();
+    } catch (err) {
+      setBusy(false);
+      setText(t);
+      setSendError(`附件读取失败：${(err as Error).message}`);
+      return;
+    }
+    imgs.clear();
     try {
       // 通道断连恢复已沉到 sdk-bridge.sendMessage 内部（CHANGELOG_26 / B 方案）：
-      // 主进程检测到 !sessions.has(sessionId) 自动单飞 createSession({resume,prompt,cwd,permissionMode})，
+      // 主进程检测到 !sessions.has(sessionId) 自动单飞 createSession({resume,prompt,cwd,permissionMode}),
       // 走完整 H4/H1 护栏 + emit 占位 message。renderer 在这里**不再判断**「断连 vs 真错」。
       // 唯一例外：sessionRepo 完全没记录 → sdk-bridge 仍抛 'session X not found'，
       // 此时显示原 message 即可（这种情况理论上不会发生，session 一旦创建就在 DB 里）。
-      await window.api.sendAdapterMessage(agentId, sessionId, t);
+      await window.api.sendAdapterMessage(agentId, sessionId, {
+        text: t,
+        ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
+      });
     } catch (err) {
       console.error('sendAdapterMessage failed', err);
       setText(t);
@@ -116,6 +139,8 @@ export function ComposerSdk({
     }
   };
 
+  const canSend = (text.trim().length > 0 || imgs.attachments.length > 0) && !busy;
+
   return (
     <div className="shrink-0 border-t border-deck-border px-2.5 py-2">
       {supportsPermissionMode && (
@@ -160,10 +185,49 @@ export function ComposerSdk({
           </button>
         </div>
       )}
+      {imgs.error && (
+        <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
+          <span className="flex-1">⚠ {imgs.error}</span>
+          <button
+            type="button"
+            onClick={imgs.dismissError}
+            className="text-status-waiting/70 hover:text-status-waiting"
+            aria-label="dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {imgs.attachments.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1.5">
+          {imgs.attachments.map((a) => (
+            <div key={a.id} className="relative">
+              <img
+                src={a.thumbnailDataUrl}
+                alt={a.name ?? 'attachment'}
+                title={`${a.name ?? ''}\n${(a.bytes / 1024).toFixed(1)}KB · ${a.mime}`}
+                className="h-12 w-12 rounded border border-deck-border object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => imgs.remove(a.id)}
+                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-deck-bg text-[10px] text-deck-muted shadow hover:text-status-waiting"
+                aria-label="remove attachment"
+                title="移除"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-end gap-1.5">
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onPaste={imgs.onPaste}
+          onDrop={imgs.onDrop}
+          onDragOver={imgs.onDragOver}
           onKeyDown={(e) => {
             // Enter 发送；Shift+Enter 换行（IME 拼写期间不拦，避免吞掉中文上屏的 Enter）
             if (
@@ -174,18 +238,38 @@ export function ComposerSdk({
               e.nativeEvent.keyCode !== 229
             ) {
               e.preventDefault();
-              if (text.trim() && !busy) void send();
+              if (canSend) void send();
             }
           }}
-          placeholder={`给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行)`}
+          placeholder={`给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行 / 粘贴/拖放图片)`}
           rows={2}
           className="flex-1 resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
         />
         <div className="flex flex-col gap-1">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void imgs.add(e.target.files);
+              // 重置 input.value 让用户可重选同名文件
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded bg-white/5 px-2.5 py-1 text-[10px] text-deck-muted hover:bg-white/10"
+            title="上传图片（也可粘贴 / 拖放）"
+          >
+            🖼
+          </button>
           <button
             type="button"
             onClick={() => void send()}
-            disabled={!text.trim() || busy}
+            disabled={!canSend}
             className="rounded bg-status-working/30 px-2.5 py-1 text-[10px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
           >
             {busy ? '发送中…' : '发送'}

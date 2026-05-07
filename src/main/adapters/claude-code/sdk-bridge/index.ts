@@ -7,6 +7,7 @@ import type {
   ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
+  UploadedAttachmentRef,
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
@@ -131,7 +132,8 @@ export class ClaudeSdkBridge {
       // createSession thunk：arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定
       (createOpts) => this.createSession(createOpts),
       // sendMessage thunk：inflight 等完后第二条 text 走完整 sendMessage 流程
-      (sid, text) => this.sendMessage(sid, text),
+      // HIGH-1 修法：attachments 透传第三参数，避免第二条等待者的 attachments 静默丢
+      (sid, text, attachments) => this.sendMessage(sid, text, attachments),
       // jsonl 探测 thunk：转发到 protected 方法（test 通过子类化 override resumeJsonlExists）
       (cwd, sid) => this.resumeJsonlExists(cwd, sid),
     );
@@ -151,7 +153,6 @@ export class ClaudeSdkBridge {
   async createSession(opts: {
     cwd: string;
     prompt?: string;
-    model?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
     /** 传 sessionId 表示恢复历史会话（CLI 会从 ~/.claude/projects/<cwd>/<sid>.jsonl 续上）。 */
     resume?: string;
@@ -161,6 +162,8 @@ export class ClaudeSdkBridge {
      * 视为非法（Anthropic 官方明确「Agent Teams 不支持 session resumption」）。
      */
     teamName?: string;
+    /** 首条 user message 的图片附件（path 由 IPC 层 writeUploadedImage 落盘后传入）。 */
+    attachments?: UploadedAttachmentRef[];
   }): Promise<SdkSessionHandle> {
     // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
     // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
@@ -224,7 +227,9 @@ export class ClaudeSdkBridge {
 
     if (opts.prompt) {
       // 用 tempKey 占位 session_id，实际 SDK 会忽略这个字段（用自己的）
-      internal.pendingUserMessages.push(this.streamProcessor.makeUserMessage(tempKey, opts.prompt));
+      internal.pendingUserMessages.push(
+        this.streamProcessor.makeUserMessage(tempKey, opts.prompt, opts.attachments),
+      );
     }
 
     const userMessageIterable = this.streamProcessor.createUserMessageStream(internal, tempKey);
@@ -299,7 +304,6 @@ export class ClaudeSdkBridge {
         prompt: userMessageIterable,
         options: {
           cwd: opts.cwd,
-          model: opts.model,
           permissionMode: opts.permissionMode ?? 'default',
           // bypassPermissions 是 SDK 的"敏感档"，必须配套显式打开 allowDangerouslySkipPermissions
           // 否则 CLI 子进程会拒绝该模式（sdk.mjs 把它们当两个独立 CLI flag 传）。
@@ -460,7 +464,11 @@ export class ClaudeSdkBridge {
     };
   }
 
-  async sendMessage(sessionId: string, text: string): Promise<void> {
+  async sendMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
     const s = this.sessions.get(sessionId);
     if (!s) {
       // 通道死了（dev 重启 / SDK 流自然终止 / 历史会话 lifecycle 已 dormant 或 closed 等）。
@@ -468,13 +476,15 @@ export class ClaudeSdkBridge {
       // CHANGELOG_26 / B 方案：把恢复语义沉到 adapter owner 层，renderer 不感知 resume 实现细节。
       // 委托 recoverer.recoverAndSend：单飞 + 完整复用 createSession（H4/H1 全套护栏不绕）。
       // CHANGELOG_52 Step 3d：实现迁到 SessionRecoverer，class 上 sendMessage 路径不变。
-      await this.recoverer.recoverAndSend(sessionId, text);
+      // attachments 透传：HIGH-1 修法，避免 inflight 第二条等待者丢图
+      await this.recoverer.recoverAndSend(sessionId, text, attachments);
       // 失败仍 throw 给 IPC，与原 'not found' 路径行为一致。
       return;
     }
 
     // 单条字节上限：Buffer.byteLength 用 utf8 计算真实字节数（中文 3 字节 / 字符）。
     // 超过就拒绝，让 IPC handler 把错误抛给 renderer，UI 显示红条提示用户精简或拆分。
+    // attachments 走 lazy thunk 内 fs.readFile，不算在 text bytes 内（IPC 层独立 30MB 校验）
     const bytes = Buffer.byteLength(text, 'utf8');
     if (bytes > MAX_MESSAGE_BYTES) {
       throw new Error(
@@ -511,15 +521,22 @@ export class ClaudeSdkBridge {
       });
     }
 
-    s.pendingUserMessages.push(this.streamProcessor.makeUserMessage(sessionId, text));
+    s.pendingUserMessages.push(
+      this.streamProcessor.makeUserMessage(sessionId, text, attachments),
+    );
     s.notify?.();
     // 把用户输入也作为一条 message event emit 出去，详情面板能看到完整对话；
-    // role: 'user' 让 UI 区分用户/Claude
+    // role: 'user' 让 UI 区分用户/Claude；attachments path 进 events.payload，
+    // 历史 detail view 用 UploadedImageThumb 走新 IPC loadUploadedImage 渲染
     this.opts.emit({
       sessionId,
       agentId: AGENT_ID,
       kind: 'message',
-      payload: { text, role: 'user' },
+      payload: {
+        text,
+        role: 'user',
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      },
       ts: Date.now(),
       source: 'sdk',
     });

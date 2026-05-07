@@ -28,6 +28,7 @@ import { inboxWatcher } from './teams/inbox-watcher';
 import { teamCoordinator } from './teams/team-coordinator';
 import { translateTeamPermissionCancelled, translateTeamPermissionRequest } from './adapters/claude-code/translate';
 import { IpcEvent } from '@shared/ipc-channels';
+import { reapStaleUploads } from './store/image-uploads';
 import type { AgentEvent } from '@shared/types';
 
 // 防止 packaged GUI 模式下 stdout/stderr 管道被对端关闭时，console.log/error 抛出
@@ -142,6 +143,13 @@ async function bootstrap(): Promise<void> {
   } catch (err) {
     console.warn('[main] loadBundledAssets failed:', err);
   }
+
+  // 8.6 image-uploads reaper：清掉 14 天前的孤儿附件文件。
+  //     fire-and-forget：不阻塞启动；失败 console.warn 内部已处理，不抛。
+  //     14 天阈值理由：events 行 historyRetentionDays 默认 30 天，reaper 阈值 ≤ retention
+  //     保证「events 行还在但 attachment 已被清」可能发生（UploadedImageThumb 灰底兜底），
+  //     反过来不会出现孤儿堆积。
+  void reapStaleUploads();
 
   // 9. 创建窗口并把事件总线接到 webContents
   const floating = getFloatingWindow();

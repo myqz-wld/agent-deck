@@ -46,12 +46,26 @@ export interface PendingExitPlanModeEntry {
   timer: NodeJS.Timeout | null;
 }
 
+/**
+ * 队列元素：用 thunk 形式承载「构造 SDKUserMessage 的延迟操作」。
+ *
+ * 设计理由（HIGH-2 修法）：
+ * - 纯文本消息：thunk 同步 resolve（`() => Promise.resolve(makeUserMessage(...))`），无开销
+ * - 带 attachments 消息：thunk 内 `await fs.readFile(path)` + base64 + 构造 image content blocks
+ *   保证：① 队列内存只存 path 不常驻 30MB×N base64
+ *         ② SDK consume 完即 GC base64
+ *         ③ FIFO 顺序保留（thunk 入队是同步的）
+ * - consumer (createUserMessageStream) yield 前 `await thunk()`，期间 SDK Query 短暂阻塞
+ *   等磁盘读（10MB ~10ms 级别）—— 可接受
+ */
+export type PendingUserMessage = () => Promise<SDKUserMessage>;
+
 export interface InternalSession {
   /** 等待 SDK 真实 session_id 之前用的临时 id；拿到后会被替换 */
   realSessionId: string | null;
   cwd: string;
   query: Query;
-  pendingUserMessages: SDKUserMessage[];
+  pendingUserMessages: PendingUserMessage[];
   notify: (() => void) | null;
   /** 等待用户回应的权限请求：requestId → entry（payload + resolver + 超时定时器） */
   pendingPermissions: Map<string, PendingPermissionEntry>;

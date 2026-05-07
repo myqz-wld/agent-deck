@@ -6,6 +6,7 @@ import type {
   ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
+  UploadedAttachmentRef,
 } from '@shared/types';
 import type { HookServer } from '@main/hook-server/server';
 import type { RouteRegistry } from '@main/hook-server/route-registry';
@@ -23,7 +24,6 @@ export interface AdapterContext {
 export interface CreateSessionOptions {
   cwd: string;
   prompt?: string;
-  model?: string;
   permissionMode?: PermissionMode;
   /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
   resume?: string;
@@ -41,6 +41,18 @@ export interface CreateSessionOptions {
    * sdk-bridge 直接 throw。
    */
   teamName?: string;
+  /**
+   * 首条 user message 的图片附件。IPC 层 writeUploadedImage 已落盘到
+   * <userData>/image-uploads/<uuid>.<ext>，这里传的是落盘后的 ref。
+   * adapter 内部把 attachments 拼进首条 user message 的 content blocks。
+   */
+  attachments?: UploadedAttachmentRef[];
+  /**
+   * Codex per-session sandbox 档位覆盖（仅 codex-cli adapter 接收并起效；其它 adapter 忽略）。
+   * 三档直接复用 codex SDK 原生 SandboxMode 字面量。undefined = 用 settings.codexSandbox 全局值。
+   * 与 settings 全局值的关系：spawn-time 一次性透传给 codex.startThread；已在跑的 thread 不受影响。
+   */
+  codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
 }
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
@@ -90,7 +102,11 @@ export interface AgentAdapter {
    * 不抛错（出错只 warn）：删除路径不能因为 close 失败而失败，否则 DB 行删了 bridge 状态留着会更糟。
    */
   closeSession?(sessionId: string): Promise<void>;
-  sendMessage?(sessionId: string, text: string): Promise<void>;
+  sendMessage?(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void>;
   respondPermission?(
     sessionId: string,
     requestId: string,
