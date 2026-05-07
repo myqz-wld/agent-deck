@@ -216,7 +216,7 @@ agent-deck new \
 - **Claude Code Hook（系统钩子）**：一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）
 - **Hook Server（本地端口）**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
 - **外部工具**：Codex 二进制路径（留空用应用内置 vendored 版本，约 150MB / 平台）
-- **应用约定（CLAUDE.md）**：直接编辑注入到所有 SDK 会话 system prompt 末尾的应用级约定文本，「恢复默认」回落内置；详细清单见 Header「📚 资产库」
+- **应用约定（CLAUDE.md）**：toggle 开关「是否注入到 SDK 会话 system prompt 末尾」；完整内容查看 / 编辑 / 「恢复默认」请到 Header「📚 资产库」→「应用约定」tab
 - **内置 Skill 与 Agent（agent-deck plugin）**：注入 `deep-code-review` skill + `reviewer-claude` / `reviewer-codex` 双异构对抗 agents 的 toggle；完整清单与触发关键词见 Header「📚 资产库」
 - **实验功能**：
   - **Agent Teams**：toggle；开启后 NewSessionDialog 出 team 名输入框 + 自动回填 prompt 模板。仅下次新建会话生效
@@ -225,7 +225,7 @@ agent-deck new \
 
 大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；Agent Teams / SDK Task Manager / 沙盒档位是 spawn-time 注入，仅下次新建会话生效。
 
-Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills/CLAUDE.md，并支持新建 / 编辑 / 删除用户 agent / skill；保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
+Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills，「应用约定」tab 直接编辑应用级 CLAUDE.md（保存 / 撤销 / 恢复默认）；agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
 
 ---
 

@@ -15,6 +15,9 @@ interface Props {
  * reviewer-codex 是干啥（用户在设置面板里看不懂这些技术名字），改为一句话 + header
  * 「📚 资产库」按钮跳转到 AssetsLibraryDialog 看完整列表 + 触发关键词 + frontmatter
  * 元数据。
+ *
+ * CHANGELOG_58：按钮文案与上面 ClaudeMdSection 对齐，统一成「在资产库中查看 ↗」，
+ * 避免「查看内置资产 / 在资产库中查看」两种说法在同一面板并存让用户疑惑。
  */
 export function PluginAssetsSection({ settings, update, onOpenAssetsLibrary }: Props): JSX.Element {
   return (
@@ -37,9 +40,9 @@ export function PluginAssetsSection({ settings, update, onOpenAssetsLibrary }: P
           type="button"
           onClick={onOpenAssetsLibrary}
           className="no-drag rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
-          title="查看内置 skill / agent 完整清单与触发关键词"
+          title="在资产库中查看（含内置 + 用户自定义 agents/skills/CLAUDE.md）"
         >
-          查看内置资产 ↗
+          在资产库中查看 ↗
         </button>
       </div>
     </Section>

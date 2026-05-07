@@ -27,8 +27,9 @@ export function App(): JSX.Element {
 
   const [view, setView] = useState<View>('live');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  /** Header「📚 资产库」按钮控制（CHANGELOG_57 C5）。SettingsDialog 内的「在资产库中查看」/
-   *  「查看内置资产」按钮也走这条 state——点击时 SettingsDialog 自关 + AssetsLibrary 自开。 */
+  /** Header「📚 资产库」按钮控制（CHANGELOG_57 C5）。SettingsDialog 内的「在资产库中查看」按钮
+   *  也走这条 state——点击时 SettingsDialog 自关 + AssetsLibrary 自开（CHANGELOG_58 起两个
+   *  section 文案统一为「在资产库中查看 ↗」）。 */
   const [assetsLibraryOpen, setAssetsLibraryOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [pinned, setPinned] = useState(true);
@@ -356,10 +357,6 @@ export function App(): JSX.Element {
       <AssetsLibraryDialog
         open={assetsLibraryOpen}
         onClose={() => setAssetsLibraryOpen(false)}
-        onOpenSettings={() => {
-          setAssetsLibraryOpen(false);
-          setSettingsOpen(true);
-        }}
       />
     </FloatingFrame>
   );
