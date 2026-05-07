@@ -1,29 +1,25 @@
 import { type JSX } from 'react';
 import type { AppSettings } from '@shared/types';
 import { Section, Toggle } from '../controls';
-import { ClaudeMdEditor } from '../ClaudeMdEditor';
 
 interface Props {
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => Promise<void>;
-  onClaudeMdDirtyChange: (dirty: boolean) => void;
   onOpenAssetsLibrary: () => void;
 }
 
 /**
  * 「应用约定（CLAUDE.md）」section。
  *
- * 描述区瘦身（CHANGELOG_57 B5）：从「关闭后下次新建会话不再注入；已运行的会话已固化进 LLM
- * 上下文，关掉不会回收。」减到一句话同义；编辑器 + 「在资产库中查看」按钮分两个落点。
+ * CHANGELOG_58：编辑器整体迁到 AssetsLibraryDialog「应用约定」tab，本 section 只剩注入
+ * toggle + 跳资产库的链接，与下面 PluginAssetsSection 的「在资产库中查看」按钮文案对齐。
  *
- * dirty 契约：onClaudeMdDirtyChange 透传到 ClaudeMdEditor，父级 SettingsDialog 用 ref
- * 拦截关闭。**不要在中间加 useState 或 useCallback 一层**——会破坏 ref 同步性
- * （REVIEW_4 M11 教训）。父级用 useCallback 稳定 identity，子级直接消费。
+ * 之所以保留 toggle 而不是连这个一起搬走：toggle 是「设置」语义（控制下次会话是否注入），
+ * 编辑器是「内容」语义（编辑要注入的 markdown），分别属于「设置」和「资产」两个心智模型。
  */
 export function ClaudeMdSection({
   settings,
   update,
-  onClaudeMdDirtyChange,
   onOpenAssetsLibrary,
 }: Props): JSX.Element {
   return (
@@ -35,6 +31,7 @@ export function ClaudeMdSection({
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
         关闭后下次新建会话不再注入；已运行的会话已固化进 LLM 上下文，关掉不会回收。
+        编辑「应用约定」内容请到资产库。
       </div>
       <div className="flex justify-end">
         <button
@@ -46,7 +43,6 @@ export function ClaudeMdSection({
           在资产库中查看 ↗
         </button>
       </div>
-      <ClaudeMdEditor onDirtyChange={onClaudeMdDirtyChange} />
     </Section>
   );
 }
