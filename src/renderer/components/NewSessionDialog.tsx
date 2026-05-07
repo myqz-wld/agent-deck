@@ -1,5 +1,6 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import type { AppSettings } from '@shared/types';
+import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 
 interface AdapterInfo {
   id: string;
@@ -17,13 +18,6 @@ interface Props {
   onCreated: (sessionId: string) => void;
 }
 
-const MODEL_OPTIONS = [
-  { value: '', label: '按本地 settings.json' },
-  { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
-  { value: 'claude-opus-4-7', label: 'Opus 4.7' },
-  { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-];
-
 const PERMISSION_OPTIONS: { value: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'; label: string }[] = [
   { value: 'default', label: '默认（每次工具调用询问）' },
   { value: 'acceptEdits', label: '自动接受文件编辑' },
@@ -31,14 +25,25 @@ const PERMISSION_OPTIONS: { value: 'default' | 'acceptEdits' | 'plan' | 'bypassP
   { value: 'bypassPermissions', label: '完全免询问 ⚠️' },
 ];
 
+// Codex 三档 sandbox 直接映射（CHANGELOG_<X>）。codex SDK 的 ApprovalMode 在我们应用里
+// 起不了作用（无 canUseTool 等价回调），sandboxMode 才是真正能起作用的隔离旋钮。
+// 「跟随设置」= 不传该字段，sdk-bridge 用 settings.codexSandbox 全局值。
+type CodexSandboxChoice = '' | 'workspace-write' | 'read-only' | 'danger-full-access';
+const CODEX_SANDBOX_OPTIONS: { value: CodexSandboxChoice; label: string }[] = [
+  { value: '', label: '跟随设置（默认）' },
+  { value: 'workspace-write', label: 'workspace-write（cwd 可写、网络 deny）' },
+  { value: 'read-only', label: 'read-only（全只读）' },
+  { value: 'danger-full-access', label: 'danger-full-access（完全免审 ⚠️）' },
+];
+
 export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Element | null {
   const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
   const [agentId, setAgentId] = useState('claude-code');
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [model, setModel] = useState('');
   const [permissionMode, setPermissionMode] =
     useState<'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'>('default');
+  const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   /**
    * Agent Teams 实验特性总开关。**仅控制是否注入 env CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1**。
    * CHANGELOG_46 起 NewSessionDialog 不再让用户预填 team 名 —— team 名完全由 lead 在会话内
@@ -48,6 +53,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [agentTeamsEnabled, setAgentTeamsEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imgs = useImageAttachments();
 
   useEffect(() => {
     if (!open) return;
@@ -69,10 +76,11 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
   // 当前选中 adapter 的 capabilities，用来按需隐藏对该 agent 无意义的字段
   const selectedAdapter = adapters.find((a) => a.id === agentId);
-  // 模型选项写的是 claude 模型名，对 codex 等其它 agent 不适用 → 仅对 claude-code 显示
-  const showModel = agentId === 'claude-code';
   // permission 模式是 Claude SDK 的 SDK-only feature；codex 没有运行时切权限模式
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
+  // Codex 三档 sandbox：仅在 codex-cli adapter 时显示。两个权限相关字段天然互斥
+  // （codex canSetPermissionMode=false → showPermissionMode 为 false，codex 自己用 sandbox）
+  const showCodexSandbox = agentId === 'codex-cli';
   // Agent Teams 启用提示（仅展示用，不可编辑 team 名）：双条件满足才显示
   const showTeamHint =
     agentTeamsEnabled === true && (selectedAdapter?.capabilities.canJoinTeam ?? false);
@@ -87,26 +95,41 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     if (!prompt.trim()) {
       // SDK streaming 协议：CLI 子进程必须收到 stdin 首条 user message 才会启动，
       // 空 prompt 会卡死直到 30s fallback。所以这里强制必填。
+      // 注意：即使带 attachments 也必须有文字，因为 codex SDK / claude SDK 的首条 prompt
+      // 都需要文本驱动 turn（图片只是辅助 context）
       setError('请填写首条消息（SDK 必须有首条消息才能启动 CLI 子进程）');
       return;
     }
     setBusy(true);
+    let attachmentInputs: ReturnType<typeof imgs.toIpcInputs>;
+    try {
+      attachmentInputs = imgs.toIpcInputs();
+    } catch (err) {
+      setBusy(false);
+      setError(`附件读取失败：${(err as Error).message}`);
+      return;
+    }
     try {
       // CHANGELOG_46：不再传 teamName；team 由 lead 在会话内自由建，
       // 应用反向同步（PreToolUse hook + fs watcher + hook 三层）。
       const id = await window.api.createAdapterSession(agentId, {
         cwd: cwd.trim(),
         prompt: prompt.trim() || undefined,
-        // 隐藏的字段不传，避免 codex 等无关 agent 收到无意义参数
-        model: showModel && model ? model : undefined,
+        // 隐藏的字段不传，避免 codex 等无关 agent 收到无意义参数。
+        // model 入参已彻底删（CHANGELOG_59）：Claude / Codex CLI 子进程自己读各自配置文件的 model
         permissionMode: showPermissionMode ? permissionMode : undefined,
+        codexSandbox: showCodexSandbox && codexSandbox ? codexSandbox : undefined,
+        ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
       });
       onCreated(id);
       // 重置部分字段，留下 cwd / 设置便于连开多个会话
       setPrompt('');
+      imgs.clear();
       onClose();
     } catch (e) {
       setError((e as Error).message);
+      // attachments 失败时不清，让用户能 retry（unlike ComposerSdk，这里失败更可能是
+      // 临时网络错而非永久错；用户重点击「创建会话」即可重发同图）
     } finally {
       setBusy(false);
     }
@@ -167,27 +190,69 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="必填 —— SDK 需要首条消息才能启动 CLI 子进程"
+                onPaste={imgs.onPaste}
+                onDrop={imgs.onDrop}
+                onDragOver={imgs.onDragOver}
+                placeholder="必填 —— SDK 需要首条消息才能启动 CLI 子进程（可粘贴 / 拖放图片）"
                 rows={3}
                 className="w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
               />
             </Field>
 
-            {showModel && (
-              <Field label="模型">
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
+            {imgs.error && (
+              <div className="rounded bg-status-waiting/10 px-2 py-1 text-[11px] text-status-waiting">
+                ⚠ {imgs.error}{' '}
+                <button
+                  type="button"
+                  onClick={imgs.dismissError}
+                  className="ml-1 underline hover:no-underline"
                 >
-                  {MODEL_OPTIONS.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+                  关闭
+                </button>
+              </div>
             )}
+
+            {/* 缩略图 strip + 上传按钮：单独一行，避免挤压首条消息区 */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  void imgs.add(e.target.files);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded border border-dashed border-deck-border px-2 py-1 text-[10px] text-deck-muted hover:bg-white/5"
+                title="上传图片（也可粘贴 / 拖放到首条消息）"
+              >
+                🖼 添加图片
+              </button>
+              {imgs.attachments.map((a) => (
+                <div key={a.id} className="relative">
+                  <img
+                    src={a.thumbnailDataUrl}
+                    alt={a.name ?? 'attachment'}
+                    title={`${a.name ?? ''}\n${(a.bytes / 1024).toFixed(1)}KB · ${a.mime}`}
+                    className="h-10 w-10 rounded border border-deck-border object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => imgs.remove(a.id)}
+                    className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-deck-bg text-[10px] text-deck-muted shadow hover:text-status-waiting"
+                    aria-label="remove attachment"
+                    title="移除"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
 
             {showPermissionMode && (
               <Field label="权限模式">
@@ -199,6 +264,22 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                   className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 >
                   {PERMISSION_OPTIONS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            {showCodexSandbox && (
+              <Field label="权限模式 (sandbox)">
+                <select
+                  value={codexSandbox}
+                  onChange={(e) => setCodexSandbox(e.target.value as CodexSandboxChoice)}
+                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
+                >
+                  {CODEX_SANDBOX_OPTIONS.map((p) => (
                     <option key={p.value} value={p.value}>
                       {p.label}
                     </option>

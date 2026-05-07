@@ -69,7 +69,6 @@ class TestBridge extends ClaudeSdkBridge {
   override async createSession(opts: {
     cwd: string;
     prompt?: string;
-    model?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
     resume?: string;
   }): Promise<{ sessionId: string; abort: () => void }> {

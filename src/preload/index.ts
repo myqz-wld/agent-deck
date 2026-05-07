@@ -23,6 +23,7 @@ import type {
   TeamPermissionDecision,
   TeamPermissionRequest,
   TeamSnapshot,
+  UploadedAttachmentInput,
   TeamSummary,
   UserAssetInput,
   UserAssetsSnapshot,
@@ -104,8 +105,12 @@ const api = {
     ipcRenderer.invoke(IpcInvoke.AdapterCreateSession, agentId, opts),
   interruptAdapterSession: (agentId: string, sessionId: string): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterInterrupt, agentId, sessionId),
-  sendAdapterMessage: (agentId: string, sessionId: string, text: string): Promise<void> =>
-    ipcRenderer.invoke(IpcInvoke.AdapterSendMessage, agentId, sessionId, text),
+  sendAdapterMessage: (
+    agentId: string,
+    sessionId: string,
+    payload: string | { text: string; attachments?: UploadedAttachmentInput[] },
+  ): Promise<void> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterSendMessage, agentId, sessionId, payload),
   respondPermission: (
     agentId: string,
     sessionId: string,
@@ -207,6 +212,14 @@ const api = {
    */
   loadImageBlob: (sessionId: string, source: ImageSource): Promise<LoadImageBlobResult> =>
     ipcRenderer.invoke(IpcInvoke.ImageLoadBlob, sessionId, source),
+
+  /**
+   * 加载用户在输入框上传的图片（与 loadImageBlob 走完全独立白名单）。
+   * 路径必须在 <userData>/image-uploads/ 下；失败返回 { ok:false, reason } 由 UI 灰底兜底
+   * （图片可能已被 reaper 清 / 用户磁盘删了）。
+   */
+  loadUploadedImage: (path: string): Promise<LoadImageBlobResult> =>
+    ipcRenderer.invoke(IpcInvoke.UploadedImageLoad, path),
 
   // CLAUDE.md（注入到 SDK system prompt 末尾的 agent-deck 应用约定）
   /** 读取「当前生效」的 CLAUDE.md（用户副本优先 → 回落内置）。 */

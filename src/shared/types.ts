@@ -17,3 +17,4 @@ export * from './types/summary';
 export * from './types/task';
 export * from './types/settings';
 export * from './types/assets';
+export * from './types/attachment';

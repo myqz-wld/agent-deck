@@ -3,7 +3,7 @@
  *
  * 抽自 codex-cli/sdk-bridge.ts 顶部 interface 段。
  */
-import type { Thread } from '@openai/codex-sdk';
+import type { Input, Thread } from '@openai/codex-sdk';
 import type { AgentEvent } from '@shared/types';
 
 export interface CodexSessionHandle {
@@ -19,8 +19,16 @@ export interface InternalSession {
   threadId: string | null;
   cwd: string;
   thread: Thread;
-  /** 待发送 user message 串行队列（同 thread 不能并发 turn） */
-  pendingMessages: string[];
+  /**
+   * 待发送 user message 串行队列（同 thread 不能并发 turn）。
+   *
+   * 元素类型 `Input`（codex SDK 原生类型 = `string | UserInput[]`）：
+   * - 纯文本消息：直接 push 字符串
+   * - 带 attachments：push `[{type:'local_image', path}, ..., {type:'text', text}]`
+   *   codex SDK 自己 fs 读 path（不像 Claude SDK 要主进程 readFile + base64 喂进队列），
+   *   所以 codex 这边天然没有「base64 常驻队列内存」问题
+   */
+  pendingMessages: Input[];
   /** 当前正在跑的 turn 的 AbortController；中断时调用 abort() */
   currentTurn: AbortController | null;
   /** turn loop 是否在跑（避免 sendMessage 重复启动） */

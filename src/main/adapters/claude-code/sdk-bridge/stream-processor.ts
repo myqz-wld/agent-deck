@@ -18,10 +18,12 @@
  * - 流终止时清 3 个 pending Maps（permission / ask-question / exit-plan）+ resolver 安全回退
  */
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { promises as fsp } from 'node:fs';
 import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from './constants';
-import type { InternalSession, SdkBridgeOptions } from './types';
+import type { InternalSession, PendingUserMessage, SdkBridgeOptions } from './types';
 import { translateSdkMessage } from './sdk-message-translate';
+import type { UploadedAttachmentRef } from '@shared/types';
 
 export interface StreamProcessorCtx {
   /** 共享 sessions Map ref（facade 持有，sub-class 仅读写不重新赋值） */
@@ -33,12 +35,65 @@ export interface StreamProcessorCtx {
 export class StreamProcessor {
   constructor(private readonly ctx: StreamProcessorCtx) {}
 
-  makeUserMessage(sessionId: string, text: string): SDKUserMessage {
-    return {
-      type: 'user',
-      message: { role: 'user', content: text },
-      parent_tool_use_id: null,
-      session_id: sessionId,
+  /**
+   * 把 (text, attachments?) 包成一个 thunk 入队。
+   *
+   * - 纯文本：thunk 同步 resolve，零 IO
+   * - 带 attachments：thunk 内 await fs.readFile(path) + base64 + 构造 ContentBlockParam[]
+   *
+   * 注意：返回的是「构造 SDKUserMessage 的延迟操作」，不是 SDKUserMessage 本身。
+   * consumer (createUserMessageStream) yield 前 await thunk()。
+   */
+  makeUserMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): PendingUserMessage {
+    if (!attachments || attachments.length === 0) {
+      // 纯文本快路径：thunk 同步 resolve，无 fs IO，无 base64
+      const msg: SDKUserMessage = {
+        type: 'user',
+        message: { role: 'user', content: text },
+        parent_tool_use_id: null,
+        session_id: sessionId,
+      };
+      return () => Promise.resolve(msg);
+    }
+    // 带图片：thunk 在 yield 前 await readFile + base64
+    return async () => {
+      // Anthropic SDK Base64ImageSource.media_type 严格限制 4 种字面量；
+      // IPC 层 ALLOWED_UPLOAD_MIMES 已收口同款集合，这里 cast 安全。
+      type ClaudeImageMime = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+      const blocks: Array<
+        | { type: 'text'; text: string }
+        | {
+            type: 'image';
+            source: { type: 'base64'; media_type: ClaudeImageMime; data: string };
+          }
+      > = [];
+      for (const ref of attachments) {
+        // 读盘失败让错误冒出去：consumer 端会让 SDK Query 抛错 → consume catch → emit 红字
+        // path 已经在 IPC 层校验过 ext / size / 写盘成功，正常情况下读不到这里失败
+        const buf = await fsp.readFile(ref.path);
+        blocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: ref.mime as ClaudeImageMime,
+            data: buf.toString('base64'),
+          },
+        });
+      }
+      // 文字放最后：与 codex SDK 顺序对齐（local_image 在前 / text 在后），让 LLM 先看到图再读问题
+      if (text.length > 0) {
+        blocks.push({ type: 'text', text });
+      }
+      return {
+        type: 'user',
+        message: { role: 'user', content: blocks },
+        parent_tool_use_id: null,
+        session_id: sessionId,
+      };
     };
   }
 
@@ -48,8 +103,10 @@ export class StreamProcessor {
   ): AsyncIterable<SDKUserMessage> {
     while (true) {
       while (internal.pendingUserMessages.length > 0) {
-        const msg = internal.pendingUserMessages.shift()!;
-        yield msg;
+        const thunk = internal.pendingUserMessages.shift()!;
+        // HIGH-2 修法：lazy materialize —— readFile + base64 在 yield 前才发生。
+        // 队列只存 thunk（轻量），SDK consume 完后整条 SDKUserMessage GC，base64 不常驻
+        yield await thunk();
       }
       await new Promise<void>((resolve) => {
         internal.notify = resolve;

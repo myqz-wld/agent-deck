@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react';
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { MarkdownText } from '@renderer/components/MarkdownText';
+import { UploadedImageThumb } from '@renderer/components/UploadedImageThumb';
 import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shared';
 
 /** REVIEW_4 M16：超过此字符数的 message 默认折叠（max-height + 展开按钮），
@@ -12,6 +13,10 @@ const COLLAPSE_THRESHOLD_CHARS = 800;
  * 普通消息气泡（user / assistant）。每条独立持有 MD/TXT mode（CHANGELOG_34/35：
  * 切单条不级联到全局，无 localStorage 持久化）。error 消息强制 plaintext 避免
  * markdown 解析掩盖错误堆栈结构。
+ *
+ * 附图渲染（CHANGELOG_<X>）：role='user' 且 payload.attachments?.length > 0 时，
+ * 文字气泡下方栅格显示缩略图。**无 schema migration**：老 events 行
+ * `payload.attachments === undefined`，optional chaining 自然等价于「无图」。
  */
 export function MessageBubble({
   event,
@@ -20,11 +25,17 @@ export function MessageBubble({
   event: AgentEvent;
   agentId: string;
 }): JSX.Element {
-  const p = (event.payload ?? {}) as { text?: string; role?: 'user' | 'assistant'; error?: boolean };
+  const p = (event.payload ?? {}) as {
+    text?: string;
+    role?: 'user' | 'assistant';
+    error?: boolean;
+    attachments?: UploadedAttachmentRef[];
+  };
   const role = p.role === 'user' ? 'user' : 'assistant';
   const text = (p.text ?? '').trim();
   const isError = !!p.error;
   const isUser = role === 'user';
+  const attachments = isUser && Array.isArray(p.attachments) ? p.attachments : null;
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const otherName = getAgentShortName(agentId);
 
@@ -44,6 +55,8 @@ export function MessageBubble({
 
   // error 消息保留 plaintext，避免 markdown 解析掩盖错误堆栈结构
   const renderAsMarkdown = mode === 'markdown' && !isError && text.length > 0;
+  // 「空消息」判定：纯文本时空; 但带附图就不算空
+  const hasContent = text.length > 0 || (attachments && attachments.length > 0);
 
   return (
     <li className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -96,8 +109,20 @@ export function MessageBubble({
             ) : (
               text
             )
-          ) : (
+          ) : !hasContent ? (
             <span className="text-deck-muted">（空消息）</span>
+          ) : null}
+          {attachments && attachments.length > 0 && (
+            <div className={`flex flex-wrap gap-1.5 ${text.length > 0 ? 'mt-1.5' : ''}`}>
+              {attachments.map((a, i) => (
+                <UploadedImageThumb
+                  key={`${a.path}-${i}`}
+                  path={a.path}
+                  size={64}
+                  alt={`attachment ${i + 1}`}
+                />
+              ))}
+            </div>
           )}
         </div>
       </div>

@@ -30,7 +30,6 @@ export interface CliNewSession {
   /** 缺省时填 `'你好'`，避免 SDK 卡 30s fallback 才显出会话。
    *  显式传 `--prompt ''` 视为用户主动要空（asString 返回 ''，?? 不触发）。 */
   prompt: string;
-  model?: string;
   permissionMode?: PermissionMode;
   resume?: string;
   /** 创建后是否聚焦窗口并选中新会话（默认 true，--no-focus 关闭）。 */
@@ -64,7 +63,7 @@ function findSubcommand(argv: readonly string[]): { sub: string; args: string[] 
  *   --key         （后面没值或紧跟下一个 --xxx 时视为 key=true）
  * 不实现 short flag、引号嵌套等高级语义 —— shell 那边会处理引号。
  *
- * REVIEW_2：加 valueRequired 集合。`cwd / agent / prompt / model / permission-mode / resume`
+ * REVIEW_2：加 valueRequired 集合。`cwd / agent / prompt / permission-mode / resume`
  * 这些值型 flag 缺值时不再静默吞为 true（再被 asString 转 undefined 走默认 fallback），
  * 直接抛错让用户知道命令拼错了，不要让 `--cwd`（缺值）静默落到 homedir。
  */
@@ -72,7 +71,6 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'cwd',
   'agent',
   'prompt',
-  'model',
   'permission-mode',
   'resume',
 ]);
@@ -131,7 +129,6 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
     // 缺省 prompt = '你好'，让裸跑 `agent-deck` 也能立刻发起会话；
     // 不然 SDK CLI 子进程拿不到首条 user message 会卡到 30s fallback。
     const prompt = asString(f.get('prompt')) ?? '你好';
-    const model = asString(f.get('model'));
     const resume = asString(f.get('resume'));
 
     const pmRaw = asString(f.get('permission-mode'));
@@ -154,7 +151,6 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       agent,
       cwd,
       prompt,
-      model,
       permissionMode,
       resume,
       focus,
@@ -187,7 +183,6 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
   const sid = await adapter.createSession({
     cwd,
     prompt: inv.prompt,
-    model: inv.model,
     permissionMode: inv.permissionMode,
     resume: inv.resume,
   });

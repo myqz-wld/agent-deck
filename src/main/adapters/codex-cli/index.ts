@@ -1,4 +1,5 @@
 import type { AgentAdapter, AdapterContext, PermissionMode } from '../types';
+import type { UploadedAttachmentRef } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { CodexSdkBridge } from './sdk-bridge';
 
@@ -55,16 +56,23 @@ class CodexCliAdapterImpl implements AgentAdapter {
   async createSession(opts: {
     cwd: string;
     prompt?: string;
-    model?: string;
     permissionMode?: PermissionMode; // 收下但忽略：codex 不支持运行时 permission mode
     resume?: string;
+    /**
+     * Per-session sandbox 覆盖（CHANGELOG_<X>）。NewSessionDialog 的「权限模式 (sandbox)」
+     * 下拉传递；undefined = 用 settings.codexSandbox 全局值（bridge.currentSandboxMode）。
+     */
+    codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+    /** 首条 user message 的图片附件（IPC 层已落盘到 <userData>/image-uploads/） */
+    attachments?: UploadedAttachmentRef[];
   }): Promise<string> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       prompt: opts.prompt,
-      model: opts.model,
       resume: opts.resume,
+      codexSandbox: opts.codexSandbox,
+      attachments: opts.attachments,
     });
     return handle.sessionId;
   }
@@ -79,9 +87,13 @@ class CodexCliAdapterImpl implements AgentAdapter {
     await this.bridge.closeSession(sessionId);
   }
 
-  async sendMessage(sessionId: string, text: string): Promise<void> {
+  async sendMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
-    await this.bridge.sendMessage(sessionId, text);
+    await this.bridge.sendMessage(sessionId, text, attachments);
   }
 
   listPending(sessionId: string): {

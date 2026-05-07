@@ -14,31 +14,8 @@ import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
 import type { ImageSource, LoadImageBlobResult } from '@shared/types';
 import { on } from './_helpers';
-
-/** 允许 renderer 加载的图片扩展名白名单。SVG 单独算（mime 不同）。 */
-const ALLOWED_IMAGE_EXTS = new Set([
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.webp',
-  '.bmp',
-  '.heic',
-  '.heif',
-  '.svg',
-]);
-const MIME_BY_EXT: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.bmp': 'image/bmp',
-  '.heic': 'image/heic',
-  '.heif': 'image/heif',
-  '.svg': 'image/svg+xml',
-};
-const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+import { ALLOWED_IMAGE_EXTS, MIME_BY_EXT, MAX_IMAGE_BYTES } from './_image-constants';
+import { loadUploadedImage } from '@main/store/image-uploads';
 
 /**
  * 加载一张图片：双白名单（防 renderer 越权读任意磁盘）+ ext + size 校验。
@@ -153,5 +130,11 @@ export function registerImagesIpc(): void {
   // 安全门：双白名单（path 必须出现在该 session 的 file_changes 或 tool-use-start 事件里）+ 扩展名 + size 校验。
   on(IpcInvoke.ImageLoadBlob, async (_e, sessionId, source): Promise<LoadImageBlobResult> => {
     return loadImageBlob(String(sessionId ?? ''), source as ImageSource);
+  });
+
+  // UploadedImage: 加载用户在输入框上传的图片（与 ImageLoadBlob 走完全独立白名单）。
+  // 路径必须在 <userData>/image-uploads/ 下；realpath + sep 严格前缀 + ext + size + 单 fd open/stat/readFile。
+  on(IpcInvoke.UploadedImageLoad, async (_e, path): Promise<LoadImageBlobResult> => {
+    return loadUploadedImage(String(path ?? ''));
   });
 }

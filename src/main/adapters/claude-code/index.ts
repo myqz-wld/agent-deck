@@ -6,6 +6,7 @@ import type {
   ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
+  UploadedAttachmentRef,
 } from '@shared/types';
 import { buildHookRoutes } from './hook-routes';
 import { HookInstaller } from './hook-installer';
@@ -55,11 +56,11 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
   async createSession(opts: {
     cwd: string;
     prompt?: string;
-    model?: string;
     permissionMode?: PermissionMode;
     systemPrompt?: string;
     resume?: string;
     teamName?: string;
+    attachments?: UploadedAttachmentRef[];
   }): Promise<string> {
     if (!this.bridge) throw new Error('adapter not initialized');
     const handle = await this.bridge.createSession(opts);
@@ -76,9 +77,13 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     await this.bridge.closeSession(sessionId);
   }
 
-  async sendMessage(sessionId: string, text: string): Promise<void> {
+  async sendMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
-    await this.bridge.sendMessage(sessionId, text);
+    await this.bridge.sendMessage(sessionId, text, attachments);
   }
 
   async respondPermission(
