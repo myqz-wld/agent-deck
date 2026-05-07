@@ -83,3 +83,13 @@ ComposerSdk（会话主输入框）+ NewSessionDialog（新建会话首条 promp
   - cleanup 仅 bootstrap reaper（14 天 mtime）+ codex closeSession 残留 unlink。session delete 不主动清（events CASCADE 删 payload，path 没人引用 → reaper 兜底）
   - 单消息 100KB text 上限不动（attachments 走 30MB 独立 cap），保持 grep 站点稳定
 - **mime 收紧到 4 种**（png/jpeg/gif/webp）：Claude API Base64ImageSource 限制；codex 同款实际接受（非官方 doc，但 vision 模型支持的常见格式）。未来扩支持需双 SDK 实测验证
+
+## 追加：ComposerSdk 工具栏样式重组
+
+原「textarea 右侧三按钮纵向堆叠（🖼 / 发送 / 中断）+ 单独 attachments strip」三个按钮宽度参差、emoji 与中文按钮基线对不齐、视觉权重无层级。
+
+- `SessionDetail/ComposerSdk.tsx`：textarea 改 `block w-full` 占满整行；下方新增工具栏单行 = 左 `[图片图标按钮][缩略图...]` + 右 `[中断][发送]`。删除原独立 attachments strip 行
+- 图片按钮：emoji `🖼` → inline `ImageIcon` SVG 组件（同文件末尾），h-7 w-7 ghost 样式，`stroke="currentColor"` 跟随 `text-deck-muted` 主题
+- 缩略图大小 48px → 36px (h-9 w-9) 与工具栏行高协调
+- 按钮视觉层级：发送 = primary（`bg-status-working/30` + `font-medium`）/ 中断 = ghost (text-deck-muted hover:bg-white/10)
+- 不动 NewSessionDialog（截图反馈仅针对会话内输入框，且 dialog 用「🖼 添加图片」带文字 label 渲染问题不显著）；handlers (onPaste/onDrop/onDragOver/Enter+IME 防呆) 全保留

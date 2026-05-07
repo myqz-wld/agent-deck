@@ -198,92 +198,114 @@ export function ComposerSdk({
           </button>
         </div>
       )}
-      {imgs.attachments.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap gap-1.5">
-          {imgs.attachments.map((a) => (
-            <div key={a.id} className="relative">
-              <img
-                src={a.thumbnailDataUrl}
-                alt={a.name ?? 'attachment'}
-                title={`${a.name ?? ''}\n${(a.bytes / 1024).toFixed(1)}KB · ${a.mime}`}
-                className="h-12 w-12 rounded border border-deck-border object-cover"
-              />
-              <button
-                type="button"
-                onClick={() => imgs.remove(a.id)}
-                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-deck-bg text-[10px] text-deck-muted shadow hover:text-status-waiting"
-                aria-label="remove attachment"
-                title="移除"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex items-end gap-1.5">
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onPaste={imgs.onPaste}
-          onDrop={imgs.onDrop}
-          onDragOver={imgs.onDragOver}
-          onKeyDown={(e) => {
-            // Enter 发送；Shift+Enter 换行（IME 拼写期间不拦，避免吞掉中文上屏的 Enter）
-            if (
-              e.key === 'Enter' &&
-              !e.shiftKey &&
-              !e.nativeEvent.isComposing &&
-              // 兼容旧浏览器：keyCode === 229 表示 IME 仍在拼写
-              e.nativeEvent.keyCode !== 229
-            ) {
-              e.preventDefault();
-              if (canSend) void send();
-            }
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onPaste={imgs.onPaste}
+        onDrop={imgs.onDrop}
+        onDragOver={imgs.onDragOver}
+        onKeyDown={(e) => {
+          // Enter 发送；Shift+Enter 换行（IME 拼写期间不拦，避免吞掉中文上屏的 Enter）
+          if (
+            e.key === 'Enter' &&
+            !e.shiftKey &&
+            !e.nativeEvent.isComposing &&
+            // 兼容旧浏览器：keyCode === 229 表示 IME 仍在拼写
+            e.nativeEvent.keyCode !== 229
+          ) {
+            e.preventDefault();
+            if (canSend) void send();
+          }
+        }}
+        placeholder={`给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行 / 粘贴/拖放图片)`}
+        rows={2}
+        className="block w-full resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
+      />
+      {/* 下方工具栏：左 = 上传图片 + 缩略图，右 = 中断 / 发送。
+          替代了原「右侧三按钮纵向堆叠」+「单独 attachments strip」，让附件操作分组、
+          发送/中断作为主操作右对齐。emoji 图标换成 inline SVG 避免基线对不齐。 */}
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            void imgs.add(e.target.files);
+            // 重置 input.value 让用户可重选同名文件
+            if (fileInputRef.current) fileInputRef.current.value = '';
           }}
-          placeholder={`给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行 / 粘贴/拖放图片)`}
-          rows={2}
-          className="flex-1 resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
         />
-        <div className="flex flex-col gap-1">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              void imgs.add(e.target.files);
-              // 重置 input.value 让用户可重选同名文件
-              if (fileInputRef.current) fileInputRef.current.value = '';
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="rounded bg-white/5 px-2.5 py-1 text-[10px] text-deck-muted hover:bg-white/10"
-            title="上传图片（也可粘贴 / 拖放）"
-          >
-            🖼
-          </button>
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={!canSend}
-            className="rounded bg-status-working/30 px-2.5 py-1 text-[10px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
-          >
-            {busy ? '发送中…' : '发送'}
-          </button>
-          <button
-            type="button"
-            onClick={() => void interrupt()}
-            className="rounded bg-white/5 px-2.5 py-1 text-[10px] text-deck-muted hover:bg-white/10"
-            title="中断当前任务"
-          >
-            中断
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
+          title="上传图片（也可粘贴 / 拖放）"
+          aria-label="上传图片"
+        >
+          <ImageIcon className="h-4 w-4" />
+        </button>
+        {imgs.attachments.length > 0 && (
+          <div className="flex min-w-0 flex-wrap gap-1.5">
+            {imgs.attachments.map((a) => (
+              <div key={a.id} className="relative shrink-0">
+                <img
+                  src={a.thumbnailDataUrl}
+                  alt={a.name ?? 'attachment'}
+                  title={`${a.name ?? ''}\n${(a.bytes / 1024).toFixed(1)}KB · ${a.mime}`}
+                  className="h-9 w-9 rounded border border-deck-border object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => imgs.remove(a.id)}
+                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-deck-bg text-[10px] text-deck-muted shadow hover:text-status-waiting"
+                  aria-label="remove attachment"
+                  title="移除"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => void interrupt()}
+          className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10"
+          title="中断当前任务"
+        >
+          中断
+        </button>
+        <button
+          type="button"
+          onClick={() => void send()}
+          disabled={!canSend}
+          className="h-7 shrink-0 rounded bg-status-working/30 px-3 text-[10px] font-medium text-status-working hover:bg-status-working/40 disabled:opacity-40"
+        >
+          {busy ? '发送中…' : '发送'}
+        </button>
       </div>
     </div>
+  );
+}
+
+function ImageIcon({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="M21 15l-5-5L5 21" />
+    </svg>
   );
 }
