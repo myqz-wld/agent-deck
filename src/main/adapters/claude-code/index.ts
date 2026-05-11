@@ -29,6 +29,8 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     canRestartWithCodexSandbox: false,
     canCloseSession: true,
     canJoinTeam: true,
+    // R3.E4：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage = sendMessage）
+    canCollaborate: true,
   };
 
   private installer: HookInstaller | null = null;
@@ -85,6 +87,20 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
   ): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
     await this.bridge.sendMessage(sessionId, text, attachments);
+  }
+
+  /**
+   * R3.E4：receiveTeammateMessage = 调本 adapter 的 sendMessage（与 IPC 路径同款）。
+   * watcher 已在 body 里拼好 `[from <displayName> @ <adapterId>]` 前缀，直接透传。
+   * fromMemberId 仅用于 logging（未来 emit 时贴标签）。
+   */
+  async receiveTeammateMessage(
+    sessionId: string,
+    _fromMemberId: string,
+    body: string,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.sendMessage(sessionId, body);
   }
 
   async respondPermission(

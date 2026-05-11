@@ -22,6 +22,8 @@ export const genericPtyAdapter: AgentAdapter = {
     canRestartWithCodexSandbox: false,
     canCloseSession: false,
     canJoinTeam: false,
+    // R3.E4 占位 false：F 阶段实装 receiveTeammateMessage（PTY stdin 写）后改 true
+    canCollaborate: false,
   },
   async init(_ctx: AdapterContext): Promise<void> {
     // intentionally empty
