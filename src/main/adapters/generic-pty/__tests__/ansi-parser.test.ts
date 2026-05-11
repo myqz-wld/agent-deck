@@ -294,4 +294,23 @@ describe('IdleDetector', () => {
     det.onData(buf);
     expect(() => vi.advanceTimersByTime(600)).not.toThrow();
   });
+
+  it('rejects oversized promptSuffixRegex to prevent ReDoS (REVIEW_24 codex MED 3)', () => {
+    let fired = 0;
+    const buf = new PtyOutputBuffer();
+    // 超长 regex 在 main process timer 中同步 test() 可能灾难回溯阻塞主进程；
+    // 长度上限拒绝 + fallback 到纯 idleQuietMs 触发。
+    const det = new IdleDetector({
+      idleQuietMs: 500,
+      promptSuffixRegex: 'a'.repeat(201), // 超 MAX_PROMPT_SUFFIX_REGEX_LENGTH = 200
+      onIdle: () => {
+        fired++;
+      },
+    });
+    buf.push('match-tail-aaa');
+    det.onData(buf);
+    vi.advanceTimersByTime(600);
+    // 配合 fallback：纯 idleQuietMs 触发 → fired 1 次（不是因为 regex match，是 fallback）
+    expect(fired).toBe(1);
+  });
 });

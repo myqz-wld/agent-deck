@@ -41,8 +41,9 @@ async function main() {
     `${process.platform}-${process.arch}`,
     'spawn-helper',
   );
+  // REVIEW_24 codex LOW 5：删 access + chmod 两步式 TOCTOU pattern，直接 chmod 捕 ENOENT
+  // silent。其他错误 warn 但不抛（best-effort）。
   try {
-    await fsp.access(helperPath);
     await fsp.chmod(helperPath, 0o755);
     console.log(`[fix-pty-permissions] chmod +x ${helperPath}`);
   } catch (err) {

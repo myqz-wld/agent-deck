@@ -134,6 +134,14 @@ export interface IdleDetectorOptions {
  *
  * 不在内部维护 buffer：让 caller 持有 PtyOutputBuffer（也可以同 instance 共享给其他用途）。
  */
+/**
+ * promptSuffixRegex 最大允许长度。超出直接 fallback 不编译，防 ReDoS / 灾难回溯
+ * （REVIEW_24 codex MED 3：用户配置的 regex 在 main process timer callback 中同步
+ * test()，恶意或意外的灾难回溯可阻塞主进程）。200 char 够覆盖正常 prompt suffix
+ * pattern（aider `\\>\\s*$` / 通用 `\\$\\s*$`），异常长 regex 直接拒绝。
+ */
+const MAX_PROMPT_SUFFIX_REGEX_LENGTH = 200;
+
 export class IdleDetector {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private regex: RegExp | null = null;
@@ -144,16 +152,26 @@ export class IdleDetector {
     this.setTimerFn = opts.setTimerFn ?? setTimeout;
     this.clearTimerFn = opts.clearTimerFn ?? clearTimeout;
     if (opts.promptSuffixRegex && opts.promptSuffixRegex.length > 0) {
-      try {
-        // 不加 'g' flag：只 match 一次（末尾），与「prompt suffix」语义一致
-        this.regex = new RegExp(opts.promptSuffixRegex);
-      } catch (err) {
-        // invalid regex → 退回纯 idleQuietMs（warn but don't crash）
+      // REVIEW_24 codex MED 3：长度上限拒绝，防 ReDoS 在 main process timer 中阻塞
+      if (opts.promptSuffixRegex.length > MAX_PROMPT_SUFFIX_REGEX_LENGTH) {
         console.warn(
-          `[idle-detector] invalid promptSuffixRegex ${JSON.stringify(opts.promptSuffixRegex)}`,
-          err,
+          `[idle-detector] promptSuffixRegex too long ` +
+            `(${opts.promptSuffixRegex.length} > ${MAX_PROMPT_SUFFIX_REGEX_LENGTH})，` +
+            `已退回纯 idleQuietMs 触发`,
         );
         this.regex = null;
+      } else {
+        try {
+          // 不加 'g' flag：只 match 一次（末尾），与「prompt suffix」语义一致
+          this.regex = new RegExp(opts.promptSuffixRegex);
+        } catch (err) {
+          // invalid regex → 退回纯 idleQuietMs（warn but don't crash）
+          console.warn(
+            `[idle-detector] invalid promptSuffixRegex ${JSON.stringify(opts.promptSuffixRegex)}`,
+            err,
+          );
+          this.regex = null;
+        }
       }
     }
   }
