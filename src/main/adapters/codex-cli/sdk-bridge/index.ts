@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Codex, Input, Thread, UserInput } from '@openai/codex-sdk';
 import { sessionManager } from '@main/session/manager';
+import { sessionRepo } from '@main/store/session-repo';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
 // CHANGELOG_52 Step 4a-4c：拆 class 完成。本目录（sdk-bridge/）含 4 sub-module + index.ts (facade)。
 //
@@ -152,11 +153,28 @@ export class CodexSdkBridge {
 
     const codex = await this.ensureCodex();
     const cwd = opts.cwd && opts.cwd.trim() ? opts.cwd : process.cwd();
-    const sandboxMode = opts.codexSandbox ?? this.currentSandboxMode;
+    // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
+    // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
+    // 2. resume 路径下 sessionRepo.get(resume).codexSandbox（用户上次该会话选过的，重启应用后回放）
+    // 3. bridge.currentSandboxMode（settings.codexSandbox 全局值兜底）
+    // 不写 4. settings 直接读 — bridge.currentSandboxMode 已经是 settings 的最新镜像（setCodexSandboxMode 触发更新）
+    const persistedSandbox = opts.resume
+      ? (sessionRepo.get(opts.resume)?.codexSandbox ?? null)
+      : null;
+    const sandboxMode = opts.codexSandbox ?? persistedSandbox ?? this.currentSandboxMode;
 
     let thread: Thread;
     if (opts.resume) {
-      thread = codex.resumeThread(opts.resume, { skipGitRepoCheck: true });
+      // CHANGELOG_<X> A2a：resume 路径必须透传 sandboxMode / workingDirectory / approvalPolicy，
+      // 否则 codex SDK 默认行为 = 不传 --sandbox flag，让 codex CLI 用 ~/.codex/config.toml 全局
+      // 默认 / read-only 兜底，丢失用户上次该会话选过的档位（spike-A2 实测验证 SDK
+      // resumeThread(id, options) 透传到每次 turn 的 CLI args）。
+      thread = codex.resumeThread(opts.resume, {
+        workingDirectory: cwd,
+        sandboxMode,
+        approvalPolicy: 'never',
+        skipGitRepoCheck: true,
+      });
     } else {
       thread = codex.startThread({
         workingDirectory: cwd,
@@ -189,6 +207,15 @@ export class CodexSdkBridge {
         ts: Date.now(),
         source: 'sdk',
       });
+      // CHANGELOG_<X> A2a：emit session-start 是同步派发到 sessionManager.ingest →
+      // sessionRepo.upsert 创建 record（如果不存在）；之后调 setCodexSandbox UPDATE 字段。
+      // 后续 advanceState 内 spread record 时会带上最新 codex_sandbox 不会被静默重置。
+      // try/catch 兜底：DB 异常不应阻塞会话启动（最坏情况只是字段没存，下次会话退化默认）。
+      try {
+        sessionRepo.setCodexSandbox(opts.resume, sandboxMode);
+      } catch (err) {
+        console.warn(`[codex-bridge] setCodexSandbox(${opts.resume}, ${sandboxMode}) 失败`, err);
+      }
       this.opts.emit({
         sessionId: opts.resume,
         agentId: AGENT_ID,
@@ -218,6 +245,15 @@ export class CodexSdkBridge {
       opts.prompt,
       opts.attachments,
     );
+
+    // CHANGELOG_<X> A2a：新建路径拿到 realId 后持久化 sandboxMode。
+    // startNewThreadAndAwaitId 内部已 emit session-start（同步派发 → ingest 创建 record），
+    // 此处 setCodexSandbox 紧跟 await 之后跑，UPDATE 必然命中。
+    try {
+      sessionRepo.setCodexSandbox(realId, sandboxMode);
+    } catch (err) {
+      console.warn(`[codex-bridge] setCodexSandbox(${realId}, ${sandboxMode}) 失败`, err);
+    }
 
     return { sessionId: realId };
   }

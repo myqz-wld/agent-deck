@@ -18,6 +18,7 @@ import v004 from './v004_sessions_permission_mode.sql?raw';
 import v005 from './v005_fts.sql?raw';
 import v006 from './v006_sessions_team_name.sql?raw';
 import v007 from './v007_tasks.sql?raw';
+import v008 from './v008_sessions_codex_sandbox.sql?raw';
 
 export interface Migration {
   version: number;
@@ -33,4 +34,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 5, name: 'fts5', sql: v005 },
   { version: 6, name: 'sessions_team_name', sql: v006 },
   { version: 7, name: 'tasks', sql: v007 },
+  { version: 8, name: 'sessions_codex_sandbox', sql: v008 },
 ];

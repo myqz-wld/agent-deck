@@ -42,4 +42,12 @@ export interface SessionRecord {
    * ~/.claude/tasks/<name>/，不在 DB 复刻。CLI 通道字段无意义。
    */
   teamName?: string | null;
+  /**
+   * Codex sandbox 档位（CHANGELOG_<X> A2a：仅 codex-cli adapter 写）。
+   * 持久化用户在 NewSessionDialog 选过的 codex sandbox（workspace-write / read-only /
+   * danger-full-access），让重启应用后 resume 仍按原 sandbox。null/undefined 视为
+   * settings.codexSandbox 全局值（与 createSession 路径 fallback 同模式）。
+   * claude / aider / generic-pty 会话该字段始终 null。
+   */
+  codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
 }
