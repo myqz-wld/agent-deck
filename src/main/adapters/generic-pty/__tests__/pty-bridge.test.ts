@@ -353,18 +353,20 @@ describe('GenericPtyBridge.closeSession + onExit lifecycle', () => {
 // ─── onData → emit assistant message ─────────────────────────────────────────
 
 describe('GenericPtyBridge.onData → emit message', () => {
-  it('forwards stdout chunks as assistant messages (raw, F2: 含 ANSI; F3 strip)', async () => {
+  it('forwards stdout chunks as assistant messages with ANSI escape stripped (F3)', async () => {
     await bridge.createSession({ cwd: '/tmp', genericPtyConfig: validConfig });
     events.length = 0;
     ptyInstances[0].emitData('chunk-1');
     ptyInstances[0].emitData('\x1b[31mred\x1b[0m');
+    ptyInstances[0].emitData('\x1b]0;title\x07ok'); // OSC 序列
     const assistantMsgs = events.filter(
       (e) => e.kind === 'message' && (e.payload as { role: string }).role === 'assistant',
     );
-    expect(assistantMsgs.length).toBe(2);
+    expect(assistantMsgs.length).toBe(3);
     expect((assistantMsgs[0].payload as { text: string }).text).toBe('chunk-1');
-    // F2 raw stdout 直出 ANSI（F3 strip）
-    expect((assistantMsgs[1].payload as { text: string }).text).toBe('\x1b[31mred\x1b[0m');
+    // F3：strip ANSI 后纯文本
+    expect((assistantMsgs[1].payload as { text: string }).text).toBe('red');
+    expect((assistantMsgs[2].payload as { text: string }).text).toBe('ok');
   });
 });
 
@@ -388,5 +390,99 @@ describe('GenericPtyBridge.shutdownAll', () => {
     expect(ptyInstances[1].killed).toContain('SIGKILL');
     void s1;
     void s2;
+  });
+});
+
+// ─── F3：idle detection → emit waiting-for-user ──────────────────────────────
+
+describe('GenericPtyBridge idle detection (F3)', () => {
+  it('emits waiting-for-user after idleQuietMs without new chunks', async () => {
+    vi.useFakeTimers();
+    await bridge.createSession({
+      cwd: '/tmp',
+      // idle 1s + 不配 promptSuffixRegex → 纯静默触发
+      genericPtyConfig: { ...validConfig, idleQuietMs: 1000, promptSuffixRegex: '' },
+    });
+    ptyInstances[0].emitData('hello');
+    events.length = 0; // 清掉 emit message 事件，只留接下来 idle
+    vi.advanceTimersByTime(1001);
+    const idleEvent = events.find((e) => e.kind === 'waiting-for-user');
+    expect(idleEvent).toBeDefined();
+    expect((idleEvent?.payload as { source: string }).source).toBe('pty-idle');
+  });
+
+  it('does not emit waiting-for-user when promptSuffixRegex set but tail does not match', async () => {
+    vi.useFakeTimers();
+    await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: {
+        ...validConfig,
+        idleQuietMs: 1000,
+        promptSuffixRegex: '\\>\\s*$',
+      },
+    });
+    ptyInstances[0].emitData('thinking...'); // tail 末尾不是 `> `
+    events.length = 0;
+    vi.advanceTimersByTime(1001);
+    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeUndefined();
+  });
+
+  it('emits waiting-for-user when promptSuffixRegex matches tail', async () => {
+    vi.useFakeTimers();
+    await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: {
+        ...validConfig,
+        idleQuietMs: 1000,
+        promptSuffixRegex: '\\>\\s*$',
+      },
+    });
+    ptyInstances[0].emitData('done\n> '); // tail 末尾 `> ` 命中
+    events.length = 0;
+    vi.advanceTimersByTime(1001);
+    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeDefined();
+  });
+
+  it('resets timer on each new onData (debounce)', async () => {
+    vi.useFakeTimers();
+    await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: { ...validConfig, idleQuietMs: 1000, promptSuffixRegex: '' },
+    });
+    ptyInstances[0].emitData('first');
+    vi.advanceTimersByTime(800); // 还没到 idle
+    ptyInstances[0].emitData('second'); // reset
+    events.length = 0;
+    vi.advanceTimersByTime(800); // 总 1600 ms 但 second 后只 800 ms
+    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeUndefined();
+    vi.advanceTimersByTime(300); // second 后总 1100 ms → 触发
+    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeDefined();
+  });
+
+  it('dedups consecutive idle (only one waiting-for-user per quiet period)', async () => {
+    vi.useFakeTimers();
+    await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: { ...validConfig, idleQuietMs: 500, promptSuffixRegex: '' },
+    });
+    ptyInstances[0].emitData('x');
+    vi.advanceTimersByTime(501); // first idle
+    vi.advanceTimersByTime(501); // 应该不再 emit（detector 已 fire 一次，timer null）
+    const idleEvents = events.filter((e) => e.kind === 'waiting-for-user');
+    expect(idleEvents.length).toBe(1);
+  });
+
+  it('cancels idle timer on closeSession (no leaked emit)', async () => {
+    vi.useFakeTimers();
+    const { sessionId } = await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: { ...validConfig, idleQuietMs: 500, promptSuffixRegex: '' },
+    });
+    ptyInstances[0].emitData('x');
+    await bridge.closeSession(sessionId);
+    events.length = 0;
+    vi.advanceTimersByTime(2000);
+    // close 后 dispose detector → 不 emit waiting-for-user
+    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeUndefined();
   });
 });
