@@ -172,6 +172,69 @@ shutdown 完所有 teammate 后立刻 `TeamDelete` 经常报 `Cannot cleanup wit
 
 ---
 
+## 复杂 plan：worktree 隔离 + 跨会话 hand off
+
+单会话上下文容量有限（200K-1M token，溢出触发 compaction 把旧信息压缩丢失）。**预计跨多会话**的 plan 必须在动手**前**就设计成两层隔离：
+
+- **空间**：git worktree 锁**代码改动**在 `.claude/worktrees/<plan-id>/`，主分支代码区零污染（plan 元文件本身落 main repo 的 `.claude/plans/`，与代码区互不干扰；按需 `.gitignore`）
+- **时间**：plan 文件保留跨会话进度 / 决策 / 下一步，新会话 cold start 直接接力，不靠聊天历史重建 mental model
+
+不要等 context 70%+ 才临时抢救——那时 hand off 必然丢上下文，下一会话拿到的 plan 只是后半段。
+
+### 触发（任一核心信号即走）
+
+- **预计跨 ≥ 2 个会话才能收口**（综合判断：≥ 5 个非 trivial step / 跨多模块 / ≥ 数百行代码 / 当前会话已吃 ≥ 40-50% 上下文，看 `/context`）
+- **破坏性 / 实验性改动，希望失败时整片回退**
+
+「非 trivial」沿用「决策对抗」节的 trivial 例外（typo / 样式数值 / 单点 rename / 显然措辞修订）的反义。
+
+### Step 1. EnterWorktree（空间隔离）
+
+`EnterWorktree(name: "<plan-id>")` 进新 worktree（自动 `.claude/worktrees/<plan-id>/` + 新 branch）。所有代码改动 / 测试 / 验证全在 worktree 里跑。
+
+> `EnterWorktree` 工具默认禁用（仅当用户或 CLAUDE.md 显式要求才用），**本节即显式授权** —— 触发条件命中时直接进 worktree，不用问用户。
+
+`<plan-id>` 命名建议 `<topic>-<YYYYMMDD>`（如 `mcp-server-rollout-20260511`），与 §Step 2 plan 文件 stem 严格一致。**字符集限 `[A-Za-z0-9._-]`、单 segment ≤ 64 字符**（EnterWorktree 工具校验，超出会被拒）。
+
+### Step 2. Plan 文件 hand off（时间隔离）
+
+新建 plan 文件，**用 main repo 的绝对路径写入**（不要写到 worktree working tree——worktree 是独立 branch，跨会话 main repo 看不到该 branch 的文件）：
+
+`<main-repo-abs-path>/.claude/plans/<plan-id>.md`
+
+内容：
+
+- frontmatter: `plan_id` / `created_at` / `worktree_path`（绝对路径）/ `status: in_progress|completed|abandoned`
+- **总目标 & 不变量**：要解决什么 / 已定决策 / 不能违反的约束
+- **设计决策（不再争论）**：每条带简短理由
+- **步骤 checklist**：`- [x] Step N — done by <session> on <date>，commit <hash|uncommitted>` / 未完成步骤标状态 + 已知风险
+- **当前进度**：卡在哪 / 已验什么 / 未验什么
+- **下一会话第一步**：具体到「先 read X / 跑 Y / 改 Z」级别，**不要泛指**
+- **已知踩坑**（可选）
+
+### Step 3. 接力姿势
+
+- **会话结束前必须**更新 plan：打勾完成步骤 + 写「当前进度」+ 写「下一会话第一步」。未更新就停 = 下次会话啃哑谜
+- **退出 worktree** 一律用 `ExitWorktree(action: "keep")`——见 §Step 4 cleanup 解释
+- **新会话开场**：先 `Read` plan 文件全文（main repo 路径） → `EnterWorktree(path: <plan frontmatter 的 worktree_path>)` 进同一 worktree → 按「下一会话第一步」直接动手；**不重新讨论已记录的设计决策**
+- **决策变更**必须开场明示用户征得确认，不默默改方向
+
+### Step 4. plan 完成 / 中止 cleanup
+
+> ⚠️ `ExitWorktree(action: "remove")` **只对当前会话自己创建的 worktree 有效**；用 `path` 参数进入的现有 worktree 上 CLI validateInput 直接拒（errorCode 4，强制 `keep`）。跨会话场景下接力 session 全部走 `path` 进入，所以**统一**走 `keep` + Bash 手动 `git worktree remove`，避免分两条路径。
+
+- **完成**：worktree branch 合回主分支 → frontmatter 置 `status: completed` → 把 plan 在 `changelog/CHANGELOG_X.md` 引用归档（不抄全，引用 plan 路径 + 关键 commits）→ `ExitWorktree(action: "keep")` → Bash `git worktree remove <worktree_path>` + `git branch -D worktree-<plan-id>`
+- **中止**：frontmatter 置 `status: abandoned` + 中止理由 → `ExitWorktree(action: "keep")` → Bash `git worktree remove --force <worktree_path>` + `git branch -D worktree-<plan-id>`
+
+### 与其他机制的关系
+
+- **载体分工**：本节 plan 文件 = 跨会话设计文档（滚动）；`changelog/` = 实施完成存档（plan 完成后引用归档，不抄全）；`mcp__tasks__*` = 单会话进度可见性通道（绑 SDK Task Manager），互补
+- **决策流程分工**：本节进 plan + worktree 双隔离是「机械触发」**不**走对抗；plan 内的设计决策（架构 / 选型）该走还得走，结论记入 plan「设计决策」节。`ExitPlanMode` 是「单次实施前与用户对齐」的工具，输出**设计内容**进 plan 文件「设计决策」节（不替代 plan 文件本身）
+
+> 区分 "plan" 一词两种用法：(a) 决策对抗 / `ExitPlanMode` 节里的 "plan" 指**决策内容**（需评审）；(b) 本节 "plan 文件" 指 **hand off 载体**（机械产出，不评审），载体内若含设计决策走 (a)
+
+---
+
 ## 新项目工程地基
 
 新建任何长期维护工程时，第一次提交就把这套结构建好，作为「工程地基」。
