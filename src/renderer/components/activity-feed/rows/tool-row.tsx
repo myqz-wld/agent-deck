@@ -164,6 +164,15 @@ export function ToolEndRow({
   const [open, setOpen] = useState(false);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
 
+  // CHANGELOG_<X> A1：跨 adapter 统一 status 显示。
+  // - codex translate.ts:119 emit status: i.status (completed / failed)
+  // - claude sdk-message-translate.ts:118 emit status: block.is_error ? failed : completed
+  // 兜底：缺 status 字段视作成功（老事件 / 老 hook）；exitCode != 0 也视为 failed（codex Bash）
+  const isFailed =
+    p.status === 'failed' ||
+    p.error != null ||
+    (typeof p.exitCode === 'number' && p.exitCode !== 0);
+
   // REVIEW_4 M15：formatToolResult / parseImageReadResult 都含 JSON.stringify / JSON.parse，
   // 大结果场景下每次父级 rerender 都重做开销巨大；锁定到 [result] 引用。
   // imageRead 即便 closed 也要算（顶部需要显示「🖼 ImageRead」标题）；text 仅在 open 时才需要，
@@ -178,8 +187,13 @@ export function ToolEndRow({
     [tool, startPayload.toolInput, imageRead],
   );
 
+  // 失败：红色边框 + 浅红背景，与 status-error 色对齐（与 SessionDetail 错误消息同色）
+  const containerClass = isFailed
+    ? 'rounded-md border border-status-error/40 bg-status-error/[0.05] p-2 text-[11px]'
+    : 'rounded-md border border-deck-border/40 bg-white/[0.015] p-2 text-[11px]';
+
   return (
-    <li className="rounded-md border border-deck-border/40 bg-white/[0.015] p-2 text-[11px]">
+    <li className={containerClass}>
       <button
         type="button"
         onClick={() => hasContent && setOpen((v) => !v)}
@@ -189,7 +203,12 @@ export function ToolEndRow({
       >
         <span>{hasContent ? (open ? '▾' : '▸') : '·'}</span>
         <span>
-          {imageRead ? '🖼 ImageRead' : `${toolIcon(tool)} ${tool}`} 完成
+          {imageRead ? '🖼 ImageRead' : `${toolIcon(tool)} ${tool}`}{' '}
+          {isFailed ? (
+            <span className="text-status-error/90">失败</span>
+          ) : (
+            '完成'
+          )}
           {imageRead?.provider && (
             <span className="ml-1.5 text-[9px] text-deck-muted/70">
               [{imageRead.provider}
@@ -199,6 +218,11 @@ export function ToolEndRow({
           {detail && (
             <span className="ml-1.5 truncate text-[10px] text-deck-muted/85">
               · {detail}
+            </span>
+          )}
+          {isFailed && typeof p.exitCode === 'number' && (
+            <span className="ml-1.5 rounded bg-status-error/20 px-1 py-0.5 font-mono text-[9px] text-status-error/90">
+              exit {String(p.exitCode)}
             </span>
           )}
         </span>
