@@ -240,6 +240,75 @@ export interface AppSettings {
    * 每次 processInboxFile 都从 settingsStore 读 current 值。
    */
   autoApproveTeammateMode: 'off' | 'read-only' | 'follow-lead';
+
+  // ─────────────────────────────────────── Agent Deck MCP server (R2 / B'0 ADR §7)
+
+  /**
+   * Agent Deck MCP server 总开关（默认 false / R2 / B'0 ADR §7）。
+   *
+   * 开 → 三 transport 同时启用：
+   * - in-process（claude SDK 会话自动挂，B'3）
+   * - HTTP（fastify HookServer `/mcp` 路由，B'4 + codex 自动注入）
+   * - stdio（`agent-deck mcp` 子命令，B'1，外部 MCP client 用）
+   *
+   * 关 → in-process 不挂 + HTTP 路由 401 + stdio 子命令报「未启用」 +
+   * Codex config.toml 自动剥离 `mcp_servers.agent_deck` 段。
+   *
+   * 与 enableTaskManager 同模式：spawn-time 注入，关掉只影响**下次新建会话**。
+   * HTTP 路由 hot-toggle 立即生效。
+   */
+  enableAgentDeckMcp: boolean;
+  /**
+   * MCP HTTP / stdio transport Bearer token（默认 null → 首次启用时 settings-store
+   * 自动生成 32 字节 hex 持久化）。与 hookServerToken **独立**：
+   * - hook token 嵌进每个 CLI 子进程 spawn 的 hook 命令，泄漏面广
+   * - mcp token 仅嵌进 codex `~/.codex/config.toml` mcp_servers 段（B'4）+ Settings
+   *   UI 显示给用户复制（外部 MCP client 用），泄漏面窄
+   *
+   * in-process transport 不走 token（同进程闭包，B'3）。用户**不应**在 UI 上修改此值；
+   * 仅在被泄漏需要轮换时手动清掉持久化文件让它重生成。
+   */
+  mcpServerToken: string | null;
+  /**
+   * HTTP `/mcp` 路由开关（默认 true，配 codex 自动注入用）。
+   * `enableAgentDeckMcp` ON 但本字段 OFF → 仅 in-process 给 claude（codex 没法连）。
+   * Hot-toggle 立即生效。
+   */
+  mcpHttpEnabled: boolean;
+  /**
+   * stdio 子命令开关（默认 false / 仅外部用户主动开）。
+   * 影响 `agent-deck mcp` 子命令是否真启 stdio transport，OFF 时报「未启用」错退出。
+   * 默认 false 是因为 stdio external caller 默认 deny spawn_session（详 B'0 §4.3）。
+   */
+  mcpStdioEnabled: boolean;
+  /**
+   * MCP `spawn_session` 防递归：spawn 链最大深度（默认 3，范围 [1, 10]）。
+   * 触顶 → handler 返回 isError「spawn depth N >= max M」。
+   * lead → teammate → sub-teammate → leaf 三层够大多数场景；hierarchical 4 层
+   * 用例可调到 4。详 B'0 §6.1 / §11.6。
+   */
+  mcpMaxSpawnDepth: number;
+  /**
+   * MCP `spawn_session` 防递归：应用级全局 spawn-rate 上限（默认 10/min，范围 [1, 60]）。
+   * 滑动窗口跨所有 caller 累计。触顶 → handler 返回 isError + retry_after_ms。
+   * 默认 10 是 reviewer 双对抗 MED 修法（原 5 偏紧，并行 deep-review 留 buffer）。
+   * 详 B'0 §6.3。
+   */
+  mcpSpawnRatePerMinute: number;
+  /**
+   * MCP `spawn_session` 防递归：单 caller 的 active children 上限（默认 5，范围 [1, 20]）。
+   * 触顶 → handler 返回 isError「fan-out N reached for parent X」。
+   * 详 B'0 §6.4。
+   */
+  mcpMaxFanOutPerParent: number;
+  /**
+   * MCP `wait_reply` 的 idle 静默判定阈值（默认 5000ms，范围 [1000, 60000]）。
+   * `until: 'idle'` 模式下，session 在该阈值内无新事件即返回。
+   * **不**暴露给 tool args（避免 prompt 注入打死循环）；用户可在 Settings UI 调全局值。
+   * 高 reasoning effort（codex xhigh / claude opus）场景推荐用 `until: 'turn_complete'`
+   * 而非 idle，避免误判。详 B'0 §3.3.1 / §11.4。
+   */
+  mcpWaitReplyIdleQuietMs: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -272,6 +341,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codexSandbox: 'workspace-write',
   codexMcpServers: [],
   autoApproveTeammateMode: 'read-only',
+  // R2 / B'0 ADR §7：Agent Deck MCP server 默认 OFF（与 enableTaskManager 同模式）
+  enableAgentDeckMcp: false,
+  mcpServerToken: null,
+  mcpHttpEnabled: true,
+  mcpStdioEnabled: false,
+  mcpMaxSpawnDepth: 3,
+  mcpSpawnRatePerMinute: 10,
+  mcpMaxFanOutPerParent: 5,
+  mcpWaitReplyIdleQuietMs: 5000,
 };
 
 // ───────────────────────────────────────────────────────── Hook Status

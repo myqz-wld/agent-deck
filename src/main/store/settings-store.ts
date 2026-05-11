@@ -48,6 +48,17 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       store.set('hookServerToken', fresh);
       console.log('[settings] generated new hookServerToken (random 32-byte hex = 64 chars)');
     }
+    // R2 / B'0 ADR §5.2：MCP HTTP / stdio transport Bearer token 同模式生成。
+    // 与 hookServerToken 独立 —— hook token 嵌进每个 CLI 子进程 spawn 命令泄漏面广，
+    // mcp token 仅嵌进 codex `~/.codex/config.toml` mcp_servers 段 + Settings UI 显示
+    // 给用户复制（外部 MCP client 用），泄漏面窄。一旦 hook token 泄漏，MCP 通道仍安全。
+    const mcpTokenRaw = store.get('mcpServerToken') as unknown;
+    const mcpToken = typeof mcpTokenRaw === 'string' ? mcpTokenRaw : '';
+    if (!mcpToken || mcpToken.length < 64) {
+      const fresh = randomBytes(32).toString('hex');
+      store.set('mcpServerToken', fresh);
+      console.log('[settings] generated new mcpServerToken (random 32-byte hex = 64 chars)');
+    }
   }
   return store;
 }

@@ -69,9 +69,14 @@ async function bootstrap(): Promise<void> {
   // 2. 设置
   const settings = settingsStore.getAll();
 
-  // 3. HookServer + RouteRegistry。token 在 settings-store ensure() 阶段已确保非空，
-  // server 的 onRequest hook 会校验所有 /hook/* 的 Authorization: Bearer <token>。
-  hookServer = new HookServer(settings.hookServerPort, settings.hookServerToken ?? '');
+  // 3. HookServer + RouteRegistry。两个 token 都在 settings-store ensure() 阶段已确保非空：
+  // - hookServerToken：所有 /hook/* 路由前置校验
+  // - mcpServerToken：所有 /mcp 路由前置校验（B'0 ADR §5 / R2 / B'4 codex 自动注入用）
+  hookServer = new HookServer(
+    settings.hookServerPort,
+    settings.hookServerToken ?? '',
+    settings.mcpServerToken ?? '',
+  );
   routeRegistry = new RouteRegistry(hookServer);
 
   // 4. 注册 adapter（占位 adapter 也注册，但 capabilities 决定它们不在 UI 暴露）
