@@ -12,6 +12,7 @@ import { CodexInjectionSection } from './settings/sections/CodexInjectionSection
 import { ClaudeMdSection } from './settings/sections/ClaudeMdSection';
 import { PluginAssetsSection } from './settings/sections/PluginAssetsSection';
 import { ExperimentalSection } from './settings/sections/ExperimentalSection';
+import { AgentDeckMcpSection } from './settings/sections/AgentDeckMcpSection';
 
 interface Props {
   open: boolean;
@@ -182,6 +183,7 @@ export function SettingsDialog({ open, onClose, onOpenAssetsLibrary }: Props): J
               onOpenAssetsLibrary={onOpenAssetsLibrary}
             />
             <ExperimentalSection settings={settings} update={update} />
+            <AgentDeckMcpSection settings={settings} update={update} />
           </>
         )}
       </div>
