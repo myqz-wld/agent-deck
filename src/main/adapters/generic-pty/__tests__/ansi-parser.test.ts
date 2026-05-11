@@ -99,6 +99,32 @@ describe('PtyOutputBuffer', () => {
     expect(buf.toString().endsWith('> ')).toBe(true);
     expect(/\>\s*$/.test(buf.toString())).toBe(true);
   });
+
+  it('preserves tail when SINGLE chunk exceeds capacity (REVIEW_24 HIGH-1 regression)', () => {
+    // reviewer-claude 实测复现：单 chunk ≥ capacity 时旧实现整个 buffer 归零 →
+    // promptSuffixRegex 末尾匹配彻底失效（aider --no-stream 一次性 emit 5-15KB chunk + 末尾 `> `）。
+    const buf = new PtyOutputBuffer(10);
+    buf.push('a'.repeat(20) + 'TAIL> '); // 整 chunk = 26 > 10
+    expect(buf.size()).toBe(10);
+    expect(buf.toString().endsWith('TAIL> ')).toBe(true);
+    expect(/\>\s*$/.test(buf.toString())).toBe(true);
+  });
+
+  it('handles single chunk equal to capacity (boundary)', () => {
+    const buf = new PtyOutputBuffer(10);
+    buf.push('1234567890'); // exactly capacity
+    expect(buf.toString()).toBe('1234567890');
+    expect(buf.size()).toBe(10);
+  });
+
+  it('REVIEW_24 HIGH-1 — buf still matches promptSuffixRegex even when long aider answer arrives in one chunk', () => {
+    const buf = new PtyOutputBuffer(8192);
+    // 模拟 aider 在 --no-stream 模式下一次性 emit 9KB 答复 + 末尾 prompt
+    const longAnswer = 'lorem ipsum '.repeat(800); // ~9600 char
+    buf.push(longAnswer + '\n> ');
+    expect(buf.size()).toBe(8192);
+    expect(buf.toString().endsWith('> ')).toBe(true);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
