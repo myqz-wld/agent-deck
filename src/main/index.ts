@@ -122,10 +122,10 @@ async function bootstrap(): Promise<void> {
   setLifecycleScheduler(scheduler);
   summarizer.start();
 
-  // 7.0 CHANGELOG_<X> D1：app ready 后同步 Agent Deck 段到 ~/.codex/AGENTS.md。
-  // 仅在 settings.injectAgentDeckCodexAgentsMd === true 时写入；否则移除段（保留
-  // 用户其他内容）。失败 warn 不阻断启动（与 sdk-injection 同模式：注入失败让
-  // 会话照常起来）。
+  // 7.0 CHANGELOG_<X> D1+D2：app ready 后同步 Agent Deck 段到 ~/.codex/AGENTS.md
+  // + 同步内置 skills 到 ~/.codex/skills/agent-deck/。
+  // 仅在对应 settings toggle === true 时写入；否则移除（保留用户其他内容）。
+  // 失败 warn 不阻断启动（与 sdk-injection 同模式：注入失败让会话照常起来）。
   void import('./codex-config/agents-md-installer')
     .then(({ syncAgentDeckSection }) => {
       try {
@@ -135,6 +135,15 @@ async function bootstrap(): Promise<void> {
       }
     })
     .catch((err) => console.warn('[bootstrap] 加载 agents-md-installer 失败', err));
+  void import('./codex-config/skills-installer')
+    .then(({ syncSkills }) => {
+      try {
+        syncSkills();
+      } catch (err) {
+        console.warn('[bootstrap] syncSkills 失败', err);
+      }
+    })
+    .catch((err) => console.warn('[bootstrap] 加载 skills-installer 失败', err));
 
   // 7.1 开机自启：每次启动同步设置（用户在 UI 关掉时也要能取消注册）。
   // dev 模式下跑的是未签名的 Electron 二进制，macOS 13+ 直接拒绝写入登录项，
