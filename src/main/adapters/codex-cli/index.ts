@@ -40,6 +40,8 @@ class CodexCliAdapterImpl implements AgentAdapter {
     canCloseSession: true,
     // Codex 不走 Claude Code CLI，没有 agent teams 概念。
     canJoinTeam: false,
+    // R3.E4：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage = sendMessage）
+    canCollaborate: true,
   };
 
   private bridge: CodexSdkBridge | null = null;
@@ -99,6 +101,23 @@ class CodexCliAdapterImpl implements AgentAdapter {
   ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     await this.bridge.sendMessage(sessionId, text, attachments);
+  }
+
+  /**
+   * R3.E4：receiveTeammateMessage = 调本 adapter 的 sendMessage。
+   * watcher 已在 body 里拼好 `[from <displayName> @ <adapterId>]` 前缀，直接透传。
+   * fromMemberId 仅用于 logging。
+   *
+   * 注意 §7.5 backpressure 配套：codex SDK 的 MAX_PENDING_MESSAGES=20 队列有上限，
+   * watcher 的 mcpMessageMaxTargetInflight 设默认 10 防灌爆（settings 可调）。
+   */
+  async receiveTeammateMessage(
+    sessionId: string,
+    _fromMemberId: string,
+    body: string,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    await this.bridge.sendMessage(sessionId, body);
   }
 
   listPending(sessionId: string): {
