@@ -72,6 +72,15 @@ export interface AdapterCapabilities {
    */
   canRestartWithPermissionMode: boolean;
   /**
+   * 是否支持「冷切」codex sandbox 档位（CHANGELOG_<X> A2b）：销毁旧 codex thread + 用新
+   * sandboxMode resume 重建。codex SDK 的 sandboxMode 是 startThread/resumeThread 一次性
+   * 参数，运行时无法热切，必须冷切。仅 codex-cli adapter 置 true；其他 adapter 置 false。
+   *
+   * 与 canRestartWithPermissionMode 正交：codex 没有 PermissionMode 概念，
+   * 这是 codex 专属的 capability。
+   */
+  canRestartWithCodexSandbox: boolean;
+  /**
    * 删会话时 SessionManager 是否调 closeSession 彻底关闭 SDK 侧 live query/turn 与 pending Maps。
    * 与 canInterrupt 区别：interrupt 允许 resume / 复用 session；close 表示永久关闭。
    * 占位 adapter（aider / generic-pty）置 false；hook-only / SDK 通道有 internal session 的 adapter 置 true。
@@ -131,6 +140,25 @@ export interface AgentAdapter {
   restartWithPermissionMode?(
     sessionId: string,
     mode: PermissionMode,
+    handoffPrompt: string,
+  ): Promise<string>;
+
+  /**
+   * Codex 专属冷切（CHANGELOG_<X> A2b）：销毁旧 codex thread 子进程 + 用新 sandbox
+   * 档位 resume 重建。`handoffPrompt` 必须非空（codex SDK runStreamed 协议约束，
+   * resume 路径必须有 prompt 触发首条 turn）。
+   *
+   * 与 claude restartWithPermissionMode 同模式：
+   * - 失败时内部 emit error message + 回滚 sessionRepo.codexSandbox 到旧档
+   * - 返回 sessionId 用于追踪（codex resume 不会隐式 fork，理论上等于入参 sid，
+   *   但接口签名与 claude 对齐保留 string 返回）
+   *
+   * capabilities.canRestartWithCodexSandbox: true 时调用方才能调此方法；其他 adapter
+   * 字段无意义不实现。
+   */
+  restartWithCodexSandbox?(
+    sessionId: string,
+    sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
     handoffPrompt: string,
   ): Promise<string>;
 

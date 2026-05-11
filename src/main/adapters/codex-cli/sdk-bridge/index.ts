@@ -312,6 +312,84 @@ export class CodexSdkBridge {
   }
 
   /**
+   * 冷切 codex sandbox 档位（CHANGELOG_<X> A2b）：销毁旧 thread + 用新 sandbox resume 重建。
+   *
+   * 与 claude restartWithPermissionMode 同模式：
+   * - emit 占位 message → close OLD → 写 DB → createSession({resume, codexSandbox, prompt})
+   * - 失败回滚 sessionRepo.codexSandbox + emit error message
+   *
+   * codex SDK sandboxMode 是 startThread/resumeThread spawn-time 锁定，无法运行时热切；
+   * 必须冷切（销毁旧 thread + 重建）。spike-A2 实测确认 resumeThread 透传新 sandbox 真生效。
+   *
+   * @returns 重启后的 sessionId（codex resume 不会隐式 fork，理论上等于入参 sid，
+   *   但接口签名与 claude 对齐保留 string 返回）
+   */
+  async restartWithCodexSandbox(
+    sessionId: string,
+    sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
+    handoffPrompt: string,
+  ): Promise<string> {
+    if (!handoffPrompt.trim()) {
+      throw new Error(
+        'restartWithCodexSandbox 要求 handoffPrompt 非空（codex SDK runStreamed 协议约束，' +
+          'resume 路径必须有 prompt 触发首条 turn）',
+      );
+    }
+
+    const rec = sessionRepo.get(sessionId);
+    if (!rec) throw new Error(`session ${sessionId} not found in repo`);
+    const oldSandbox: 'workspace-write' | 'read-only' | 'danger-full-access' | null =
+      rec.codexSandbox ?? null;
+
+    // 占位 message：让用户在 close + 重建 期间看到状态（与 claude 冷切同模式）
+    this.opts.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: {
+        text: `⚠ 正在切换 Codex sandbox 到 ${sandbox}，重启 thread 中…`,
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+
+    // close OLD：内部 intentionallyClosed=true → abort current turn → runTurnLoop 静默退出
+    await this.closeSession(sessionId);
+
+    // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox
+    sessionRepo.setCodexSandbox(sessionId, sandbox);
+
+    try {
+      const handle = await this.createSession({
+        cwd: rec.cwd,
+        prompt: handoffPrompt,
+        resume: sessionId,
+        codexSandbox: sandbox,
+      });
+      // codex resume 不会隐式 fork（与 claude SDK 不同），newRealId 必然 = 入参 sessionId。
+      // 不做 rename 防御（如果未来 codex 改了行为引入 fork，本处需要补 sessionManager.renameSdkSession）。
+      return handle.sessionId;
+    } catch (err) {
+      // 回滚：DB 改回 oldSandbox + emit error message
+      sessionRepo.setCodexSandbox(sessionId, oldSandbox);
+      this.opts.emit({
+        sessionId,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: {
+          text:
+            `⚠ 切到 sandbox ${sandbox} 失败：${(err as Error)?.message ?? String(err)}。` +
+            `档位已回退到 ${oldSandbox ?? '(默认)'}，请重新发送一条消息让 Codex 续上。`,
+          error: true,
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+      throw err;
+    }
+  }
+
+  /**
    * 删会话清理：abort 当前 turn + 清 pendingMessages + 移除 internal session 记录。
    * 由 SessionManager.delete 调用，确保 codex 子进程不继续跑（CHANGELOG_20 / N2）。
    *

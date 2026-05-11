@@ -34,6 +34,9 @@ class CodexCliAdapterImpl implements AgentAdapter {
     canRespondPermission: false,
     canSetPermissionMode: false,
     canRestartWithPermissionMode: false,
+    // CHANGELOG_<X> A2b：codex 专属冷切，restartWithCodexSandbox 走 close + resumeThread
+    // 重建 thread 透传新 sandbox（spike-A2 实测 SDK + CLI 透传新 sandbox 真生效）。
+    canRestartWithCodexSandbox: true,
     canCloseSession: true,
     // Codex 不走 Claude Code CLI，没有 agent teams 概念。
     canJoinTeam: false,
@@ -121,6 +124,20 @@ class CodexCliAdapterImpl implements AgentAdapter {
   /** Codex 专属：设置面板「Codex 沙盒档位」变更；下次新建会话生效。 */
   setCodexSandboxMode(mode: 'workspace-write' | 'read-only' | 'danger-full-access'): void {
     this.bridge?.setCodexSandboxMode(mode);
+  }
+
+  /**
+   * Codex 专属冷切（CHANGELOG_<X> A2b）：销毁旧 thread + 用新 sandbox 档位 resume 重建。
+   * SDK sandboxMode 是 startThread/resumeThread spawn-time 锁定，必须冷切。
+   * 失败时 bridge 内部已 emit error message + 回滚 sessionRepo.codexSandbox。
+   */
+  async restartWithCodexSandbox(
+    sessionId: string,
+    sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
+    handoffPrompt: string,
+  ): Promise<string> {
+    if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    return this.bridge.restartWithCodexSandbox(sessionId, sandbox, handoffPrompt);
   }
 
   // 不实现：respondPermission / respondAskUserQuestion / respondExitPlanMode /

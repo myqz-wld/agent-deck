@@ -284,4 +284,33 @@ export function registerAdaptersIpc(): void {
     if (!adapter?.listAllPending) return {};
     return adapter.listAllPending();
   });
+
+  /**
+   * CHANGELOG_<X> A2b：codex 专属冷切 sandbox 档位。
+   *
+   * 与 AdapterSetPermissionMode 不同：codex 没有 PermissionMode 概念，sandbox 档位
+   * 是 startThread/resumeThread spawn-time 锁定，无法热切。adapter 内部走
+   * close → resumeThread(new sandbox) → handoffPrompt 触发首条 turn。失败回滚 DB。
+   *
+   * 校验：adapter 必须存在 + capabilities.canRestartWithCodexSandbox === true +
+   * 实现了 restartWithCodexSandbox 方法（典型 = codex-cli adapter）。
+   */
+  on(
+    IpcInvoke.AdapterRestartWithCodexSandbox,
+    async (_e, agentId, sessionId, sandbox, handoffPrompt) => {
+      const adapter = adapterRegistry.get(String(agentId));
+      if (!adapter?.capabilities.canRestartWithCodexSandbox || !adapter.restartWithCodexSandbox) {
+        throw new Error('adapter does not support codex sandbox restart');
+      }
+      const sid = String(sessionId);
+      const sb = String(sandbox) as 'workspace-write' | 'read-only' | 'danger-full-access';
+      if (sb !== 'workspace-write' && sb !== 'read-only' && sb !== 'danger-full-access') {
+        throw new Error(`invalid codex sandbox: ${sb}`);
+      }
+      const prompt = String(handoffPrompt ?? '');
+      // adapter.restartWithCodexSandbox 内部已 emit error / 回滚 DB；本 handler 直接透传
+      // 返回值（重启后的 sessionId，与 claude restartWithPermissionMode 接口签名对齐）。
+      return adapter.restartWithCodexSandbox(sid, sb, prompt);
+    },
+  );
 }
