@@ -91,6 +91,23 @@ export interface AppSettings {
    */
   injectAgentDeckClaudeMd: boolean;
   /**
+   * 是否把 agent-deck 自带的应用约定同步到 codex `~/.codex/AGENTS.md` 的 marker 段
+   * （CHANGELOG_<X> D1）。Agent Deck 复用同一份 CLAUDE.md 内容（用户副本 →
+   * 内置回落）写到 codex 一侧的 AGENTS.md，让 codex 会话也享受应用约定。
+   *
+   * - true（默认）：app ready / settings 变 / CLAUDE.md 编辑器保存后同步写入
+   *   ~/.codex/AGENTS.md 的 `<!-- === Agent Deck START ===  ... === END === -->` 段
+   * - false：移除 Agent Deck 段（保留用户其他内容）
+   *
+   * **D5 决策**：单向 overwrite Agent Deck 段，用户段（marker 之外）严格保留；
+   * 用户在 Agent Deck 段内手改不反向同步，下次同步会被覆盖。
+   *
+   * 与 injectAgentDeckClaudeMd 平行（前者影响 claude 会话 system prompt 注入，后者
+   * 影响 codex 会话的 AGENTS.md 自动加载）。改这个开关只影响**下次新建**的 codex
+   * 会话；已 spawn 的 codex thread 已加载当时的 AGENTS.md。
+   */
+  injectAgentDeckCodexAgentsMd: boolean;
+  /**
    * 是否把 agent-deck 自带的 plugin（`resources/claude-config/agent-deck-plugin/`）
    * 注入到 SDK 会话。**plugin 整体注入或整体不注入**——一个 toggle 同时控制两类内容：
    *
@@ -232,6 +249,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   historyRetentionDays: 30,
   codexCliPath: null,
   injectAgentDeckClaudeMd: true,
+  injectAgentDeckCodexAgentsMd: true,
   injectAgentDeckPlugin: true,
   agentTeamsEnabled: false,
   enableTaskManager: false,
