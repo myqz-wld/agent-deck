@@ -38,6 +38,7 @@ import type { IPty } from 'node-pty';
 import { spawn as ptySpawn } from 'node-pty';
 import type { AgentEvent, GenericPtyConfig, UploadedAttachmentRef } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
+import { IdleDetector, PtyOutputBuffer, stripAnsi } from './ansi-parser';
 
 const ADAPTER_ID_GENERIC_PTY = 'generic-pty';
 const ADAPTER_ID_AIDER = 'aider';
@@ -59,6 +60,15 @@ interface PtySessionState {
   killTimer: NodeJS.Timeout | null;
   /** 标记本 session 已被显式 close（区分 user-initiated close 与子进程自然 exit） */
   intentionallyClosed: boolean;
+  /** F3：环形 buffer，保留最近 stripped stdout，给 promptSuffixRegex 二次校验用 */
+  outputBuffer: PtyOutputBuffer;
+  /** F3：idle 检测器；onData 时 reset、close 时 dispose */
+  idleDetector: IdleDetector;
+  /**
+   * F3：去重 waiting-for-user emit。idle timer 触发后置 true，下次 onData 复位
+   * （避免连续 idle / promptSuffix 反复 match 同一段静默生成多条 waiting-for-user 事件）。
+   */
+  idleEmitted: boolean;
 }
 
 export interface GenericPtyBridgeOptions {
@@ -157,12 +167,33 @@ export class GenericPtyBridge {
     }
 
     const sessionId = randomUUID();
+    const outputBuffer = new PtyOutputBuffer();
+    const idleDetector = new IdleDetector({
+      idleQuietMs: config.idleQuietMs,
+      promptSuffixRegex: config.promptSuffixRegex,
+      onIdle: () => {
+        const s = this.sessions.get(sessionId);
+        if (!s || s.idleEmitted || s.intentionallyClosed) return;
+        s.idleEmitted = true;
+        this.opts.emit({
+          sessionId,
+          agentId: this.opts.adapterId,
+          kind: 'waiting-for-user',
+          payload: { source: 'pty-idle' },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+      },
+    });
     const state: PtySessionState = {
       pty,
       config,
       cwd,
       killTimer: null,
       intentionallyClosed: false,
+      outputBuffer,
+      idleDetector,
+      idleEmitted: false,
     };
     this.sessions.set(sessionId, state);
 
@@ -189,13 +220,17 @@ export class GenericPtyBridge {
 
     // 注册 stdout listener
     pty.onData((data: string) => {
+      // F3：strip ANSI escape，避免 UI 渲染控制字符。push 进 buffer 给 idle 二次校验用。
+      const stripped = stripAnsi(data);
+      state.outputBuffer.push(stripped);
+      // 收到新 chunk → 复位 idle emit dedup（让下次 idle 能再 emit）+ reset detector
+      state.idleEmitted = false;
+      state.idleDetector.onData(state.outputBuffer);
       this.opts.emit({
         sessionId,
         agentId: this.opts.adapterId,
         kind: 'message',
-        // F2 直出 raw stdout（含 ANSI escape）；F3 strip-ansi 后再 emit。
-        // role='assistant' 让 UI 走对话气泡（PTY 子进程是 agent 角色）。
-        payload: { text: data, role: 'assistant' },
+        payload: { text: stripped, role: 'assistant' },
         ts: Date.now(),
         source: 'sdk',
       });
@@ -216,7 +251,8 @@ export class GenericPtyBridge {
         ts: Date.now(),
         source: 'sdk',
       });
-      // 清理 killTimer + 从 Map 移除
+      // 清理 idle detector + killTimer + 从 Map 移除
+      state.idleDetector.dispose();
       if (state.killTimer) {
         clearTimeout(state.killTimer);
         state.killTimer = null;
@@ -291,6 +327,8 @@ export class GenericPtyBridge {
     if (!state) return;
     if (state.intentionallyClosed) return; // 已 close 中，等 onExit 自然清
     state.intentionallyClosed = true;
+    // F3：close 时立刻 dispose idle detector（避免 SIGTERM 后子进程未退期间还有迟到 chunk 触发 timer）
+    state.idleDetector.dispose();
     try {
       state.pty.kill('SIGTERM');
     } catch (err) {
@@ -313,6 +351,7 @@ export class GenericPtyBridge {
   async shutdownAll(): Promise<void> {
     for (const [sid, state] of this.sessions) {
       state.intentionallyClosed = true;
+      state.idleDetector.dispose();
       if (state.killTimer) clearTimeout(state.killTimer);
       try {
         state.pty.kill('SIGKILL');
