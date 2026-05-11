@@ -93,6 +93,42 @@ export const EMPTY_TEAM_PERMISSIONS: TeamPermissionRequest[] = [];
 
 // 8 个 isXxx type guards 已迁出到 ./event-type-guards.ts（CHANGELOG_52 Step 2，纯 type guard 无副作用）
 
+/**
+ * 把新事件插入 recentEvents 数组。**仅 tool-use-start 同 toolUseId 走 in-place 替换**，
+ * 其它 kind 都按 unshift 倒序追加（与原行为字节级一致）。
+ *
+ * 替换语义（CHANGELOG_<X> A1）：codex item.updated 增量重发同 toolUseId 的 tool-use-start，
+ * 让 UI 实时显示 aggregated_output 增长。如果不替换：
+ *   1. 30 秒长 command 推几十条 tool-use-start 撑爆 RECENT_LIMIT 把上下文挤掉
+ *   2. React eventKey 虽然 dedup（相同 key 视作同 row），但 store 内存仍多份冗余
+ * 替换后：tool-use-start 在数组里就一份，位置不变（保时间线），payload 更新到最新。
+ *
+ * 替换边界：仅 `kind === 'tool-use-start'` + payload.toolUseId 是非空 string 时生效。
+ *   - claude SDK 的 tool-use-start 有 toolUseId（hook 通道也透传）→ 同样受益
+ *   - tool-use-end 不替换：终态事件，每对 start/end 独立行
+ *   - 其它 kind（message / thinking / file-changed 等）多次 push 是不同事件，按时间排
+ *
+ * 不动 hookOrigin / source 字段；ts 也用新事件的 ts（替换为最新一次更新时间）。
+ */
+function upsertEvent(arr: AgentEvent[], event: AgentEvent): AgentEvent[] {
+  if (event.kind === 'tool-use-start') {
+    const tid = (event.payload as { toolUseId?: unknown })?.toolUseId;
+    if (typeof tid === 'string' && tid) {
+      const idx = arr.findIndex(
+        (e) =>
+          e.kind === 'tool-use-start' &&
+          (e.payload as { toolUseId?: unknown })?.toolUseId === tid,
+      );
+      if (idx >= 0) {
+        const next = arr.slice();
+        next[idx] = event;
+        return next;
+      }
+    }
+  }
+  return [event, ...arr].slice(0, RECENT_LIMIT);
+}
+
 // EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES 已在文件上方导出
 
 export const useSessionStore = create<State>((set) => ({
@@ -191,7 +227,12 @@ export const useSessionStore = create<State>((set) => ({
     set((state) => {
       const m = new Map(state.recentEventsBySession);
       const arr = m.get(event.sessionId) ?? [];
-      const next = [event, ...arr].slice(0, RECENT_LIMIT);
+      // CHANGELOG_<X> A1：tool-use-start 同 toolUseId in-place 替换（保位置 / 不挤占 RECENT_LIMIT）。
+      // 用于 codex item.updated 增量重发同 toolUseId 的 tool-use-start，让 UI 实时显示 aggregated_output
+      // 增长（典型场景：跑 30 秒的 npm test，UI 持续更新而非一直空白等终态）。
+      // 仅 tool-use-start 走这条路径——其它 kind 多次 push 各自不同 ts 算独立事件，按时间倒序
+      // unshift 即可。tool-use-end 也不替换（end 是终态 + 与 start 的 toolUseId 同但 eventKey 已含 kind 前缀）。
+      const next = upsertEvent(arr, event);
       m.set(event.sessionId, next);
 
       let pendingMap = state.pendingPermissionsBySession;
