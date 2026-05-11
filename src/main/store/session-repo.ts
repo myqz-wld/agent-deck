@@ -23,6 +23,8 @@ interface Row {
   permission_mode: string | null;
   team_name: string | null;
   codex_sandbox: string | null;
+  spawned_by: string | null;
+  spawn_depth: number;
 }
 
 function rowToRecord(r: Row): SessionRecord {
@@ -45,6 +47,8 @@ function rowToRecord(r: Row): SessionRecord {
       | 'read-only'
       | 'danger-full-access'
       | null) ?? null,
+    spawnedBy: r.spawned_by ?? null,
+    spawnDepth: r.spawn_depth ?? 0,
   };
 }
 
@@ -59,8 +63,8 @@ export const sessionRepo = {
     getDb()
       .prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox)
-         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name, @codex_sandbox)
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, spawned_by, spawn_depth)
+         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name, @codex_sandbox, @spawned_by, @spawn_depth)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            title = excluded.title,
@@ -72,7 +76,9 @@ export const sessionRepo = {
            archived_at = excluded.archived_at,
            permission_mode = excluded.permission_mode,
            team_name = excluded.team_name,
-           codex_sandbox = excluded.codex_sandbox`,
+           codex_sandbox = excluded.codex_sandbox,
+           spawned_by = excluded.spawned_by,
+           spawn_depth = excluded.spawn_depth`,
       )
       .run({
         id: rec.id,
@@ -89,6 +95,8 @@ export const sessionRepo = {
         permission_mode: rec.permissionMode ?? null,
         team_name: rec.teamName ?? null,
         codex_sandbox: rec.codexSandbox ?? null,
+        spawned_by: rec.spawnedBy ?? null,
+        spawn_depth: rec.spawnDepth ?? 0,
       });
   },
 
@@ -267,13 +275,16 @@ export const sessionRepo = {
       const toExists = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`).get(toId) as { 1: number } | undefined;
       if (!toExists) {
         // 复制 fromRow 内容到新 id（id 是 PK，必须 INSERT 新行）
-        // 13 列 = 13 个 ?；CHANGELOG_35 引入 team_name 时一度多算了一个 ? 占位（14 个），
-        // 触发场景是 SDK fallback rename / CLI 隐式 fork（first realId !== opts.resume）
-        // 走到这条 INSERT 时 better-sqlite3 抛 `14 values for 13 columns`。务必让 ? 数与列数一致。
+        // CHANGELOG_<X> R2 / B'0 ADR §6.5.2 #2-#3：列清单扩到 16 列（顺手补 v008
+        // codex_sandbox 漏列 latent bug，再加 R2 v009 spawned_by/spawn_depth）。
+        // 历史教训（CHANGELOG_35）：v006 加 team_name 时多算了一个 ? 占位（14 个），
+        // 触发 SDK fallback rename / CLI 隐式 fork (first realId !== opts.resume)
+        // 走到这条 INSERT 时 better-sqlite3 抛 `14 values for 13 columns`。
+        // 务必让 ? 数与列数一致 —— 当前 16 列 = 16 个 ?。
         db.prepare(
           `INSERT INTO sessions
-           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, spawned_by, spawn_depth)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           toId,
           fromRow.agent_id,
@@ -288,6 +299,9 @@ export const sessionRepo = {
           fromRow.archived_at,
           fromRow.permission_mode,
           fromRow.team_name,
+          fromRow.codex_sandbox,
+          fromRow.spawned_by,
+          fromRow.spawn_depth,
         );
       }
       // 迁移子表引用（外键 ON DELETE CASCADE 在删 fromId 时不会误删，因为 session_id 已改）
@@ -298,12 +312,33 @@ export const sessionRepo = {
       // 把会话身份相关字段从 OLD 行覆盖到 NEW 行，避免 team_name / permission_mode 被 NEW 行
       // createSession 时写的默认值（NULL / 'default'）「淹没」掉用户的真实状态。
       // 仅在 toExists=true 才需要手动覆盖：toExists=false 走上面 INSERT 已经全列复制。
+      // CHANGELOG_<X> R2 / B'0 ADR §6.5.2 #3：spawn 链路 + codex_sandbox 同款覆盖
+      // 处理（spawn_depth/spawned_by 是 spawn-time 不变的 session 身份字段；
+      // codex_sandbox 是用户主动选过的状态）。
       if (toExists && fromRow.team_name) {
         db.prepare(`UPDATE sessions SET team_name = ? WHERE id = ?`).run(fromRow.team_name, toId);
       }
       if (toExists && fromRow.permission_mode) {
         db.prepare(`UPDATE sessions SET permission_mode = ? WHERE id = ?`).run(
           fromRow.permission_mode,
+          toId,
+        );
+      }
+      if (toExists && fromRow.codex_sandbox) {
+        db.prepare(`UPDATE sessions SET codex_sandbox = ? WHERE id = ?`).run(
+          fromRow.codex_sandbox,
+          toId,
+        );
+      }
+      if (toExists && fromRow.spawned_by) {
+        db.prepare(`UPDATE sessions SET spawned_by = ? WHERE id = ?`).run(
+          fromRow.spawned_by,
+          toId,
+        );
+      }
+      if (toExists && fromRow.spawn_depth > 0) {
+        db.prepare(`UPDATE sessions SET spawn_depth = ? WHERE id = ?`).run(
+          fromRow.spawn_depth,
           toId,
         );
       }
@@ -417,5 +452,84 @@ export const sessionRepo = {
     });
     tx();
     return removed;
+  },
+
+  // ──────────── Agent Deck MCP server (R2 / B'0 ADR §6.5) ────────────
+
+  /**
+   * 单查 sessions.spawn_depth。session 不存在返回 0（兜底，与 spawn_session
+   * handler 计算「parent_depth + 1」保持一致：未知 caller → 默认顶层）。
+   * 用于 §6.1 depth 上限校验。
+   */
+  getSpawnDepth(id: string): number {
+    const row = getDb()
+      .prepare(`SELECT spawn_depth FROM sessions WHERE id = ?`)
+      .get(id) as { spawn_depth: number } | undefined;
+    return row?.spawn_depth ?? 0;
+  },
+
+  /**
+   * UPDATE sessions SET spawned_by, spawn_depth WHERE id = ?。
+   * MCP `spawn_session` handler 在 reserve 占位行 + createSession 后调，
+   * 写入 spawn 链路关系。session 必须先存在（通常先 INSERT 占位行 / 由 createSession
+   * adapter 写入），否则该调用静默失败（changes=0）。
+   */
+  setSpawnLink(id: string, spawnedBy: string | null, depth: number): void {
+    getDb()
+      .prepare(`UPDATE sessions SET spawned_by = ?, spawn_depth = ? WHERE id = ?`)
+      .run(spawnedBy, depth, id);
+  },
+
+  /**
+   * 沿 spawn_chain 整链回溯：返回 id 所有祖先（不含 id 自身）的 SessionRecord 数组，
+   * 按祖先深度从近到远排列（直接父在 [0]，祖父在 [1] ...）。
+   * 链长 ≤ MAX_DEPTH（默认 3），反查 cost O(depth) 可忽略。
+   *
+   * 用于 §6.2 cwd realpath 整链 cycle 检测：spawn_session handler 把即将 spawn 的
+   * cwd + adapter 与每个祖先的 cwd + adapter 比较；任一同 cwd + 同 adapter ⇒ deny。
+   *
+   * 防御循环：若链上出现自指向（不应发生，但 ON DELETE SET NULL + 历史脏数据可能），
+   * 用 visited Set 提前 break，避免死循环。
+   */
+  listAncestors(id: string): SessionRecord[] {
+    const ancestors: SessionRecord[] = [];
+    const visited = new Set<string>([id]);
+    const db = getDb();
+    const stmt = db.prepare(`SELECT * FROM sessions WHERE id = ?`);
+    let cursor: string | null = id;
+    while (cursor !== null) {
+      const row = stmt.get(cursor) as Row | undefined;
+      if (!row) break;
+      const parentId = row.spawned_by;
+      if (parentId === null || parentId === undefined) break;
+      if (visited.has(parentId)) break; // 自指向防御
+      visited.add(parentId);
+      const parentRow = stmt.get(parentId) as Row | undefined;
+      if (!parentRow) break;
+      ancestors.push(rowToRecord(parentRow));
+      cursor = parentRow.spawned_by;
+    }
+    return ancestors;
+  },
+
+  /**
+   * 列出 spawnedBy = parentId 的所有 active children（用于 §6.4 per-parent fan-out）。
+   * 默认仅返回 lifecycle = 'active'；可通过 lifecycle 参数 override（'all' = 不限）。
+   */
+  listChildren(parentId: string, lifecycle: LifecycleState | 'all' = 'active'): SessionRecord[] {
+    const db = getDb();
+    const rows =
+      lifecycle === 'all'
+        ? (db
+            .prepare(
+              `SELECT * FROM sessions WHERE spawned_by = ? AND archived_at IS NULL ORDER BY started_at DESC`,
+            )
+            .all(parentId) as Row[])
+        : (db
+            .prepare(
+              `SELECT * FROM sessions WHERE spawned_by = ? AND lifecycle = ? AND archived_at IS NULL ORDER BY started_at DESC`,
+            )
+            .all(parentId, lifecycle) as Row[]);
+    return rows.map(rowToRecord);
   },
 };

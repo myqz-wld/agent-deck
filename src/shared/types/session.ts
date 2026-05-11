@@ -50,4 +50,22 @@ export interface SessionRecord {
    * claude / aider / generic-pty 会话该字段始终 null。
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
+  /**
+   * Agent Deck MCP server (R2 / B'0 ADR §6.5)：spawn 链上的父 session id。
+   * - null/undefined：顶层 session（用户 IPC / CLI 直接起 / R2 之前老数据）
+   * - 字符串：MCP `spawn_session` tool 调用方的 session id
+   *
+   * 与 spawnDepth 配合用于防递归 4 条规则（depth 上限 / per-parent fan-out /
+   * cwd realpath 整链回溯）。MCP spawn_session handler 在 createSession 前 reserve
+   * 占位时调 sessionRepo.setSpawnLink 写入。
+   */
+  spawnedBy?: string | null;
+  /**
+   * Agent Deck MCP server (R2 / B'0 ADR §6.5)：spawn 链层数。
+   * - 0（默认）：顶层 session
+   * - parent.spawnDepth + 1：MCP 起的子 session
+   *
+   * 用于 §6.1 depth 上限校验（mcpMaxSpawnDepth 默认 3）。NOT NULL，DEFAULT 0。
+   */
+  spawnDepth?: number;
 }

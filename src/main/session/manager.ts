@@ -366,6 +366,36 @@ class SessionManagerClass {
     if (updated) eventBus.emit('session-upserted', updated);
   }
 
+  /**
+   * 主动 close（R2 / B'0 ADR §6.5.2 #7）：与 `delete` 不同，不删 DB 行，仅：
+   * - 调 adapter.closeSession（abort SDK live query/turn + 清 pending Maps）
+   * - sessionRepo.setLifecycle(id, 'closed')
+   * - emit `session-upserted`（让 renderer 显示 closed 标记，不消失）
+   *
+   * 用途：MCP `shutdown_session` tool。**不调 sessionRepo.delete** 避免 ON DELETE
+   * CASCADE 把 events / file_changes / summaries 全部级联删掉（reviewer 双对抗
+   * HIGH-4 修法：deep-code-review 场景 lead 需要 reviewer shutdown 后引用其输出
+   * 做三态裁决，hard-delete 致命）。
+   *
+   * 与 LifecycleScheduler.markClosed 的区别：markClosed 仅 setLifecycle，**不**调
+   * adapter.closeSession（scheduler 是「时间到自然衰减」，session 仍在跑就让它跑完
+   * 自己结束）；close(id) 是「立即终止」语义，必须把 SDK 子进程也关掉。
+   */
+  async close(sessionId: string): Promise<void> {
+    const session = sessionRepo.get(sessionId);
+    if (!session) return; // 已删 / 从未存在 → noop
+    if (session.agentId && sessionCloseFn) {
+      try {
+        await sessionCloseFn(session.agentId, sessionId);
+      } catch (err) {
+        console.warn(`[session-mgr] adapter close failed during close(): ${sessionId}`, err);
+      }
+    }
+    sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
+    const updated = sessionRepo.get(sessionId);
+    if (updated) eventBus.emit('session-upserted', updated);
+  }
+
   archive(sessionId: string): void {
     // 只设归档标记，不动 lifecycle —— 这样取消归档可以恢复原本的生命周期。
     sessionRepo.setArchived(sessionId, Date.now());
