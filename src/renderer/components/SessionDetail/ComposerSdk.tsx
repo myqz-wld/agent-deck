@@ -40,11 +40,24 @@ export function ComposerSdk({
   const [pmBusy, setPmBusy] = useState(false);
   const [pmError, setPmError] = useState<string | null>(null);
 
+  // CHANGELOG_<X> A2c：codex 会话独立的 sandbox 切档（与 permissionMode 正交）。
+  // codex SDK 的 sandboxMode 是 startThread/resumeThread spawn-time 锁定，
+  // 切档必须冷切（销毁旧 thread + 用新 sandbox resume 重建），与 claude
+  // bypassPermissions 路径同模式。
+  const codexSandbox = (session?.codexSandbox ?? 'workspace-write') as
+    | 'workspace-write'
+    | 'read-only'
+    | 'danger-full-access';
+  const [csBusy, setCsBusy] = useState(false);
+  const [csError, setCsError] = useState<string | null>(null);
+
   // 多 agent 适配：
   // - 标签 / placeholder 文案用对应 agent 名（Claude / Codex / ...）
   // - 权限模式 select 仅 claude-code 显示（codex SDK 没有运行时切权限模式）
+  // - sandbox select 仅 codex-cli 显示（claude 没有 sandbox 概念）
   const agentDisplayName = agentId === 'codex-cli' ? 'Codex' : 'Claude';
   const supportsPermissionMode = agentId !== 'codex-cli';
+  const supportsCodexSandbox = agentId === 'codex-cli';
 
   const send = async (): Promise<void> => {
     const t = text.trim();
@@ -139,6 +152,44 @@ export function ComposerSdk({
     }
   };
 
+  /**
+   * CHANGELOG_<X> A2c：codex sandbox 冷切。与 claude bypassPermissions 路径同模式
+   * （销毁旧 thread → resume + 新 sandbox + handoffPrompt）。
+   *
+   * 切到 'danger-full-access' 必须 confirm（让 codex 完全免审批触达系统资源）；
+   * 'read-only' 是降级到只读，无破坏性，免 confirm。
+   */
+  const changeSandbox = async (next: typeof codexSandbox): Promise<void> => {
+    if (next === codexSandbox || csBusy) return;
+    if (next === 'danger-full-access' && codexSandbox !== 'danger-full-access') {
+      const ok = await window.api.confirmDialog({
+        title: '切换到完全免沙箱模式',
+        message: '将重启 Codex thread 切到 danger-full-access',
+        detail:
+          '会销毁当前 Codex thread 并以 sandbox=danger-full-access resume 重建（约 5-10s busy）。\n' +
+          '重启后 Codex **可读写任意文件、跑任意命令**，按需要小心使用。\n\n' +
+          '如果失败将自动回退到原档位。继续？',
+        okLabel: '重启并切到 danger-full-access',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setCsBusy(true);
+    setCsError(null);
+    try {
+      // IPC 主进程 restartWithCodexSandbox：closeSession → setCodexSandbox →
+      // createSession({resume, codexSandbox, prompt}) → 失败回滚 DB + emit error。
+      // session-upserted event 推回 renderer store 让下拉值跟着 sessions Map 变。
+      // handoffPrompt 不能空，给一段无伤大雅的占位。
+      await window.api.restartWithCodexSandbox(agentId, sessionId, next, '继续之前的会话');
+    } catch (err) {
+      setCsError((err as Error).message);
+    } finally {
+      setCsBusy(false);
+    }
+  };
+
   const canSend = (text.trim().length > 0 || imgs.attachments.length > 0) && !busy;
 
   return (
@@ -159,12 +210,40 @@ export function ComposerSdk({
           </select>
         </div>
       )}
+      {supportsCodexSandbox && (
+        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-deck-muted">
+          <span>沙盒</span>
+          <select
+            value={codexSandbox}
+            onChange={(e) => void changeSandbox(e.target.value as typeof codexSandbox)}
+            disabled={csBusy}
+            className="no-drag flex-1 min-w-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
+          >
+            <option value="workspace-write">workspace-write（默认）</option>
+            <option value="read-only">read-only（只读）</option>
+            <option value="danger-full-access">danger-full-access ⚠️</option>
+          </select>
+        </div>
+      )}
       {pmError && (
         <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
           <span className="flex-1">⚠ 权限模式切换失败：{pmError}</span>
           <button
             type="button"
             onClick={() => setPmError(null)}
+            className="text-status-waiting/70 hover:text-status-waiting"
+            aria-label="dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {csError && (
+        <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
+          <span className="flex-1">⚠ Codex sandbox 切换失败：{csError}</span>
+          <button
+            type="button"
+            onClick={() => setCsError(null)}
             className="text-status-waiting/70 hover:text-status-waiting"
             aria-label="dismiss"
           >
