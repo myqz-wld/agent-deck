@@ -116,6 +116,24 @@ vi.mock('@main/adapters/claude-code/sdk-loader', () => ({
   }),
 }));
 
+// settingsStore 走 electron-store / Electron app —— 测试环境拉不起来；
+// 这里仅给 mcpWaitReplyIdleQuietMs 默认值就够（其他 setting 测试不读）。
+vi.mock('@main/store/settings-store', () => ({
+  settingsStore: {
+    get: (key: string) => {
+      if (key === 'mcpWaitReplyIdleQuietMs') return 50; // 短一点让 idle 测试快返
+      return undefined;
+    },
+  },
+}));
+
+// eventRepo backfill 单元用空数组（B'2.b backfill 行为在专门测试里覆盖）
+vi.mock('@main/store/event-repo', () => ({
+  eventRepo: {
+    listForSessionRange: () => [],
+  },
+}));
+
 // ─── 动态 import 必须放在 mock 之后 ──────────────────────────────────────
 
 let buildAgentDeckTools: typeof import('../tools').buildAgentDeckTools;
@@ -478,18 +496,35 @@ describe('agent-deck-mcp tools — list_sessions', () => {
   });
 });
 
-describe('agent-deck-mcp tools — wait_reply (placeholder until B\'2.b)', () => {
-  it('returns not-implemented for now', async () => {
+describe('agent-deck-mcp tools — wait_reply', () => {
+  it('rejects unknown target session', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     const r = await tools.get('wait_reply').handler({
-      session_id: 'lead',
+      session_id: 'ghost',
       until: 'idle',
       timeout_ms: 5000,
       caller_session_id: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/not implemented/);
+    expect(parsed.data.error).toMatch(/not found/);
+  });
+
+  it('returns timed_out=true on timeout (no events)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate');
+    const r = await tools.get('wait_reply').handler({
+      session_id: 'teammate',
+      until: 'first_message',
+      timeout_ms: 1000, // 1s 必超时
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.timedOut).toBe(true);
+    expect(parsed.data.aborted).toBe(false);
+    expect(parsed.data.events).toEqual([]);
   });
 });

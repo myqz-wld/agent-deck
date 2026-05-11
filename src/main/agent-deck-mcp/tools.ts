@@ -25,13 +25,19 @@ import type { SessionRecord } from '@shared/types';
 import { adapterRegistry } from '@main/adapters/registry';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { sessionRepo } from '@main/store/session-repo';
+import { eventRepo } from '@main/store/event-repo';
 import { sessionManager } from '@main/session/manager';
+import { settingsStore } from '@main/store/settings-store';
 import {
   AGENT_DECK_TOOL_NAMES,
   EXTERNAL_CALLER_ALLOWED,
   EXTERNAL_CALLER_SENTINEL,
   type CallerContext,
 } from './types';
+import {
+  waitReplyCoordinator,
+  type EventProjection,
+} from './wait-reply-coordinator';
 
 /**
  * Tool handler 共用：把 zod 解析后的 caller_session_id（args 字段）规范为
@@ -352,21 +358,102 @@ export async function buildAgentDeckTools(
     },
   );
 
-  // ──────────────────── wait_reply（B'2.b 实现完整逻辑）
+  // ──────────────────── wait_reply
   const waitReply = tool(
     AGENT_DECK_TOOL_NAMES.waitReply,
     'Wait for the next reply from a session. until: first_message (first assistant text), turn_complete (finished/waiting-for-user event), idle (N seconds quiet, default 5s — tuned by Settings, recommend turn_complete for high-reasoning models). Returns partial events on timeout.',
     WAIT_REPLY_SCHEMA,
     async (args) => {
+      const handlerEntryTs = Date.now();
       const caller = deriveCaller(args);
       const denial = denyExternalIfNotAllowed('wait_reply', caller);
       if (denial) return denial;
       const callerCheck = validateExternalCaller(caller);
       if (callerCheck) return callerCheck;
-      return err(
-        'wait_reply: not implemented (B\'2.b)',
-        'WaitReplyCoordinator + backfill is the next task in R2. Until then, poll list_sessions / use the application UI to observe replies.',
+
+      const target = sessionRepo.get(args.session_id);
+      if (!target) {
+        return err(`session ${args.session_id} not found`);
+      }
+      // closed session 仍允许 wait（caller 可能想拉历史，超时即返）—— 不 deny
+
+      const idleQuietMs = settingsStore.get('mcpWaitReplyIdleQuietMs') ?? 5000;
+      const sinceTs = args.since_ts ?? handlerEntryTs;
+
+      // 加入 coordinator（同 sessionId+until+idleQuietMs 共享 promise）
+      const coordPromise = waitReplyCoordinator.waitFor(
+        args.session_id,
+        args.until,
+        idleQuietMs,
       );
+
+      // Race coordinator vs timeout（不 abort coordinator —— 让其他 caller 继续等）
+      let timedOutTimer: NodeJS.Timeout | null = null;
+      const timeoutPromise = new Promise<{ kind: 'timeout' }>((res) => {
+        timedOutTimer = setTimeout(() => res({ kind: 'timeout' }), args.timeout_ms);
+      });
+      type RaceResult =
+        | { kind: 'resolved'; value: Awaited<typeof coordPromise> }
+        | { kind: 'timeout' };
+      const wrappedCoord = coordPromise.then((value) => ({ kind: 'resolved' as const, value }));
+      const raceResult: RaceResult = await Promise.race([wrappedCoord, timeoutPromise]);
+      if (timedOutTimer) clearTimeout(timedOutTimer);
+
+      let baselineTs: number;
+      let liveEvents: EventProjection[];
+      let timedOut = false;
+      let reason: string;
+      if (raceResult.kind === 'timeout') {
+        // 超时：此时 coordinator 仍未 resolve；用 handlerEntryTs 当 baseline，live 为空。
+        // backfill 由 handler 拉 [sinceTs, handlerEntryTs) 段补回 partial 事件给 caller。
+        baselineTs = handlerEntryTs;
+        liveEvents = [];
+        timedOut = true;
+        reason = 'timeout';
+      } else {
+        baselineTs = raceResult.value.baselineTs;
+        liveEvents = raceResult.value.events;
+        reason = raceResult.value.reason;
+      }
+
+      // Backfill：若 sinceTs < baselineTs 拉历史段，让多 caller 各自 since 切片
+      // （reviewer 双对抗 HIGH-2 修法）
+      let backfill: EventProjection[] = [];
+      if (sinceTs < baselineTs) {
+        try {
+          const rows = eventRepo.listForSessionRange(args.session_id, sinceTs, baselineTs);
+          backfill = rows.map((e) => {
+            const proj: EventProjection = { kind: e.kind, ts: e.ts };
+            // 简化投影：与 coordinator.projectEvent 同款（避免 cross-import 循环依赖）
+            if (e.kind === 'message') {
+              const p = e.payload as { text?: unknown } | null | undefined;
+              if (p && typeof p.text === 'string') proj.text = p.text;
+            }
+            return proj;
+          });
+        } catch (e) {
+          // backfill 失败不影响 live —— 只 warn
+          console.warn(
+            '[mcp wait_reply] backfill query failed, returning live events only:',
+            e,
+          );
+        }
+      }
+
+      // 二次 filter：caller since_ts > baseline_ts 时也要剥离不感兴趣的 live 事件
+      const filteredLive = liveEvents.filter((e) => e.ts > sinceTs);
+
+      // 合并 backfill + filteredLive 按 ts ASC（backfill 已 ASC；filteredLive 也 ASC）
+      const events = [...backfill, ...filteredLive];
+
+      return ok({
+        sessionId: args.session_id,
+        until: args.until,
+        timedOut,
+        aborted: false, // 中断通过 SDK abortSignal 机制；当前 handler 不监听 abort 信号
+        reason,
+        events,
+      });
     },
     { annotations: { readOnlyHint: true } },
   );

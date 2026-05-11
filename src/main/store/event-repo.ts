@@ -146,4 +146,26 @@ export const eventRepo = {
       .get(sessionId, filePath);
     return r !== undefined;
   },
+
+  /**
+   * Agent Deck MCP wait_reply backfill（R2 / B'0 ADR §3.3.4）：拉指定时间窗内的事件
+   * 给 caller 各自 since_ts filter 用。窗口通常很短（caller since_ts → coordinator
+   * baseline_ts，绝大多数 < 5s），所以不分页直接 ASC 全拉。
+   * 边界：fromTs 闭、toTs 开，与 [since_ts, baseline_ts) 语义一致。
+   */
+  listForSessionRange(
+    sessionId: string,
+    fromTs: number,
+    toTs: number,
+    limit = 500,
+  ): (AgentEvent & { id: number })[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM events
+         WHERE session_id = ? AND ts >= ? AND ts < ?
+         ORDER BY ts ASC LIMIT ?`,
+      )
+      .all(sessionId, fromTs, toTs, limit) as Row[];
+    return rows.map(rowToEvent);
+  },
 };
