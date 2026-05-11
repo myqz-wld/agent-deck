@@ -60,9 +60,19 @@ export class PtyOutputBuffer {
 
   push(chunk: string): void {
     if (chunk.length === 0) return;
+    // REVIEW_24 HIGH-1（reviewer-claude 实测复现）：单 chunk 长度 ≥ capacity 时
+    // 必须截尾保留 capacity 字符直接替换 chunks，**不**走下面的 while shift 路径 ——
+    // 否则 while 把刚 push 的超大 chunk 自己 shift 走，buffer 归零，promptSuffixRegex
+    // 末尾匹配彻底失效（aider 实测：--no-stream 模式下一次性 emit 5-15KB chunk + 末尾 `> `
+    // → idle 不 emit waiting-for-user）。
+    if (chunk.length >= this.capacity) {
+      this.chunks = [chunk.slice(chunk.length - this.capacity)];
+      this.totalLen = this.capacity;
+      return;
+    }
     this.chunks.push(chunk);
     this.totalLen += chunk.length;
-    // 超 capacity → 从头丢 chunk，直到满足
+    // 总长超 capacity → 从头丢 chunk，直到满足
     while (this.totalLen > this.capacity && this.chunks.length > 0) {
       const head = this.chunks.shift()!;
       this.totalLen -= head.length;
