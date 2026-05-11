@@ -36,7 +36,7 @@ vi.mock('@main/store/session-repo', () => ({
       if (r) sessionStore.set(id, { ...r, spawnedBy: parentId, spawnDepth: depth });
     },
     listAncestors: (id: string) => {
-      const out = [];
+      const out: SessionRecord[] = [];
       let cursor = sessionStore.get(id);
       const visited = new Set<string>([id]);
       while (cursor && cursor.spawnedBy && !visited.has(cursor.spawnedBy)) {
