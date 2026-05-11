@@ -2,6 +2,8 @@
  * 跨进程共享：Session 与 lifecycle / activity / permission mode 类型。
  */
 
+import type { GenericPtyConfig } from './generic-pty';
+
 export type ActivityState = 'idle' | 'working' | 'waiting' | 'finished';
 /**
  * 自动生命周期：active → dormant → closed（按 last_event_at 时间衰减，由 LifecycleScheduler 推进）。
@@ -68,4 +70,10 @@ export interface SessionRecord {
    * 用于 §6.1 depth 上限校验（mcpMaxSpawnDepth 默认 3）。NOT NULL，DEFAULT 0。
    */
   spawnDepth?: number;
+  /**
+   * R4·F2：generic-pty / aider session 的 spawn config（持久化到 sessions.generic_pty_config 列）。
+   * - generic-pty / aider adapter：createSession 时落库，resume 时读回 spawn 同 config
+   * - claude-code / codex-cli adapter：始终 null（字段无意义，与 codexSandbox 同模式）
+   */
+  genericPtyConfig?: GenericPtyConfig | null;
 }

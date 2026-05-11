@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:fts5": "scripts/verify-fts5.sh",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps && node scripts/fix-pty-permissions.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.118",
@@ -29,6 +29,7 @@
     "chokidar": "^3.6.0",
     "electron-store": "8.2.0",
     "fastify": "^5.0.0",
+    "node-pty": "^1.1.0",
     "proper-lockfile": "^4.1.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -98,7 +99,9 @@
       "node_modules/@openai/codex-win32-*/**/*",
       "node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**/*",
       "node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**/*",
-      "node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**/*"
+      "node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**/*",
+      "node_modules/node-pty/**/*",
+      "node_modules/.pnpm/node-pty@*/node_modules/node-pty/**/*"
     ],
     "mac": {
       "target": "dmg",

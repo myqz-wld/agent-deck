@@ -27,7 +27,12 @@ import {
   deleteUploadIfExists,
 } from '@main/store/image-uploads';
 import { MAX_TOTAL_ATTACHMENTS_BYTES } from './_image-constants';
-import type { UploadedAttachmentInput, UploadedAttachmentRef } from '@shared/types';
+import type {
+  GenericPtyConfig,
+  UploadedAttachmentInput,
+  UploadedAttachmentRef,
+} from '@shared/types';
+import { parseGenericPtyConfig } from '@shared/types';
 
 /**
  * 校验 + 写盘 attachments。失败抛错，由调用方决定回滚兄弟附件。
@@ -130,6 +135,21 @@ export function registerAdaptersIpc(): void {
     // 与 teamName / model 同模式 — 通用接口兜，adapter 自行实现）。
     // 白名单走 parseCodexSandboxMode；null = 不传 → adapter 用 settings.codexSandbox 全局值。
     const codexSandbox = parseCodexSandboxMode(raw.codexSandbox);
+    // R4·F2：generic-pty / aider 专属 spawn config 透传（其它 adapter 静默忽略）。
+    // zod parse 防 IPC bypass 灌入 number / undefined（schema min(1) 强制 command 非空）。
+    // raw.genericPtyConfig === undefined → 不传字段，adapter fallback 走 preset；
+    // 任意非 undefined 值都走 zod parse，invalid 直接 throw（renderer 层应已 zod parse 一次）。
+    let genericPtyConfig: GenericPtyConfig | null = null;
+    if (raw.genericPtyConfig !== undefined) {
+      try {
+        genericPtyConfig = parseGenericPtyConfig(raw.genericPtyConfig);
+      } catch (err) {
+        throw new IpcInputError(
+          'opts.genericPtyConfig',
+          `zod parse failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     // attachments 写盘：失败 throw 已回滚兄弟附件。createSession throw 时本 handler 同款回滚。
     const attachments = await persistAttachments(raw.attachments, 'opts.attachments');
@@ -143,6 +163,7 @@ export function registerAdaptersIpc(): void {
         ...(teamName !== null ? { teamName } : {}),
         ...(codexSandbox !== null ? { codexSandbox } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(genericPtyConfig !== null ? { genericPtyConfig } : {}),
       });
     } catch (err) {
       // createSession 失败：path 还没塞进 SDK 队列，安全清干净
