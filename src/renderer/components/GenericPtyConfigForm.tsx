@@ -58,12 +58,16 @@ function stringifyEnv(env: Record<string, string>): string {
     .join('\n');
 }
 
-/** "--no-stream --no-pretty" → ['--no-stream', '--no-pretty']；引号包裹保留为整体 */
+/** "--no-stream --no-pretty" → ['--no-stream', '--no-pretty']。
+ *
+ * REVIEW_24 codex LOW 9：仅按空白拆，**不支持引号包裹**（`--msg "hello world"` 会被
+ * 拆成 `["--msg","\"hello","world\""]`）。如未来用户需要复杂 args（含空格 / 转义），
+ * 改用 sh-like quote-aware parser；当下 90% PTY case 简单 args 已足够（aider /
+ * continue 等都没有引号需求）。UI placeholder 已注明此限制让用户预期对齐。
+ */
 function parseArgsText(text: string): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
-  // 简化：按空白拆，不支持引号转义。Power user 自定义复杂 args 走 JSON-style 输入更直观，
-  // 但 90% 场景空白拆已够（aider --no-stream --no-pretty 等）。
   return trimmed.split(/\s+/);
 }
 
@@ -159,7 +163,7 @@ export function GenericPtyConfigForm({ adapterId, onChange }: Props): JSX.Elemen
         />
       </Field>
 
-      <Field label="命令参数（空格分隔）">
+      <Field label="命令参数（空格分隔，不支持引号）">
         <input
           type="text"
           value={argsText}

@@ -6,6 +6,7 @@ import type {
   SessionRecord,
   SessionSource,
 } from '@shared/types';
+import { genericPtyConfigSchema } from '@shared/types';
 import { getDb } from './db';
 import { buildKeywordPredicate } from './search-predicate';
 
@@ -59,16 +60,24 @@ function rowToRecord(r: Row): SessionRecord {
  * sessions.generic_pty_config 列存的是 JSON.stringify(GenericPtyConfig)。
  * 解析失败 / NULL → null（不抛错，老脏数据 / NULL 都安全 fallback）。
  *
- * 注意：这里**不**做 zod schema 二次校验。schema 校验是写入端责任（IPC handler /
- * adapter.createSession 入口）；读取端只需 JSON.parse，避免老 schema 字段升级时读旧行报错。
+ * REVIEW_24 codex MED 6：原仅 JSON.parse + cast，合法 JSON 如 `"x"` / `42` / `[]` /
+ * `{}` 不会 fallback null 而被当 GenericPtyConfig 返回 → 下游 adapter 拿 invalid config
+ * 起 PTY 时 spawn 失败或更糟 silent 误用。修法：JSON.parse 后再走 zod schema parse 二次
+ * 校验，partial / 类型不对都 fallback null。
+ *
+ * 设计取舍：写入端（IPC handler / adapter.createSession）已 zod parse 防脏；读取端二次
+ * 校验是 defense-in-depth — 防止用户手改 DB / migration 故障 / 历史脏数据等情形。
  */
 function parseGenericPtyConfigJson(raw: string | null): GenericPtyConfig | null {
   if (!raw) return null;
+  let parsed: unknown;
   try {
-    return JSON.parse(raw) as GenericPtyConfig;
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
+  const result = genericPtyConfigSchema.safeParse(parsed);
+  return result.success ? result.data : null;
 }
 
 export const sessionRepo = {

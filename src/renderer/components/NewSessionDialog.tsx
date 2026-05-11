@@ -278,7 +278,13 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
             {showGenericPtyConfig && (
               <Field label="PTY 配置">
+                {/*
+                  REVIEW_24 MED-Claude6 + Codex MED 7：用 key={agentId} 强制 remount，
+                  让用户切 Agent (aider ↔ generic-pty) 时 form 内部 useState 全 reset
+                  到对应 preset 默认值（之前 props.adapterId 变 form 内 state 不刷新）。
+                */}
                 <GenericPtyConfigForm
+                  key={agentId}
                   adapterId={agentId as 'aider' | 'generic-pty'}
                   onChange={setGenericPtyConfig}
                 />
