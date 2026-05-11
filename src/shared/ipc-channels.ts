@@ -32,6 +32,8 @@ export const IpcInvoke = {
   AdapterRespondAskUserQuestion: 'adapter:respond-ask-user-question',
   AdapterRespondExitPlanMode: 'adapter:respond-exit-plan-mode',
   AdapterSetPermissionMode: 'adapter:set-permission-mode',
+  /** Codex 专属冷切（CHANGELOG_<X> A2b）：销毁旧 thread + 用新 sandbox 档位 resume 重建。 */
+  AdapterRestartWithCodexSandbox: 'adapter:restart-with-codex-sandbox',
   AdapterListPending: 'adapter:list-pending',
   AdapterListPendingAll: 'adapter:list-pending-all',
   AdapterList: 'adapter:list',

@@ -151,6 +151,26 @@ const api = {
   ): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSetPermissionMode, agentId, sessionId, mode),
 
+  /**
+   * Codex 专属冷切（CHANGELOG_<X> A2b）：销毁旧 codex thread + 用新 sandbox 档位
+   * resume 重建。adapter 必须 capabilities.canRestartWithCodexSandbox === true，
+   * handoffPrompt 必须非空（codex SDK runStreamed 协议约束）。
+   * 失败时主进程已 emit error message + 回滚 sessionRepo.codexSandbox，本接口仅 throw 让 UI catch。
+   */
+  restartWithCodexSandbox: (
+    agentId: string,
+    sessionId: string,
+    sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
+    handoffPrompt: string,
+  ): Promise<string> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterRestartWithCodexSandbox,
+      agentId,
+      sessionId,
+      sandbox,
+      handoffPrompt,
+    ),
+
   /** 拉取主进程 SDK 当前还在等的 pending 请求；renderer HMR / 重启后用来重建 store。 */
   listAdapterPending: (
     agentId: string,

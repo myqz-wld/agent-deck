@@ -19,6 +19,7 @@ export const genericPtyAdapter: AgentAdapter = {
     canRespondPermission: false,
     canSetPermissionMode: false,
     canRestartWithPermissionMode: false,
+    canRestartWithCodexSandbox: false,
     canCloseSession: false,
     canJoinTeam: false,
   },

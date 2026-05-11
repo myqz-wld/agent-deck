@@ -26,6 +26,7 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     canRespondPermission: true,
     canSetPermissionMode: true,
     canRestartWithPermissionMode: true,
+    canRestartWithCodexSandbox: false,
     canCloseSession: true,
     canJoinTeam: true,
   };
