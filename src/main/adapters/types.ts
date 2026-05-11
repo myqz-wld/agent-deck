@@ -5,6 +5,7 @@ import type {
   AskUserQuestionRequest,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
+  GenericPtyConfig,
   PermissionRequest,
   PermissionResponse,
   UploadedAttachmentRef,
@@ -47,6 +48,17 @@ export interface CreateSessionOptions {
    * 与 settings 全局值的关系：spawn-time 一次性透传给 codex.startThread；已在跑的 thread 不受影响。
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  /**
+   * R4·F2：generic-pty / aider session 的 spawn config 透传（仅这两 adapter 接收并起效；
+   * 其它 adapter 忽略）。zod 校验由 IPC 入口统一前置（adapters.ts createAdapterSession handler）。
+   *
+   * - undefined：generic-pty / aider adapter 自行 fallback 到内置 preset config
+   *   （aider 的 fallback = 'aider' preset；generic-pty 的 fallback = createSession throw "missing config"）
+   * - GenericPtyConfig：用户在 NewSessionDialog 自定义 / 选 preset 后微调
+   *
+   * adapter 内部把入参 config 写入 sessions.generic_pty_config 持久化，resume 时读回。
+   */
+  genericPtyConfig?: GenericPtyConfig;
 }
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
