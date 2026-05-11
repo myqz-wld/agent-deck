@@ -21,6 +21,10 @@ import {
 } from '@main/adapters/claude-code/sdk-injection';
 import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
 import { getTasksMcpServerForSession } from '@main/task-manager/server';
+import {
+  getAgentDeckMcpServerForSession,
+  AGENT_DECK_MCP_TOOL_PATTERN,
+} from '@main/agent-deck-mcp/server';
 // CHANGELOG_52 Step 3a-3g：拆 class 完成。本目录（sdk-bridge/）含 7 个 sub-module + index.ts (facade)。
 //
 // **TS module resolution 假设**（F5 finding）：moduleResolution: node 模式下
@@ -300,6 +304,20 @@ export class ClaudeSdkBridge {
       if (tasksServer) {
         console.log('[task-manager] mcpServers attached for session (team_name lazy-resolved)');
       }
+      // CHANGELOG_<X> R2 / B'3：Agent Deck MCP server in-process 注入。开关 ON 时给
+      // claude 会话挂 in-process MCP，让 claude 能跨 adapter 编排其他 session
+      // （spawn / send / wait_reply / list / shutdown）。
+      // callerSessionIdProvider 走 lazy 工厂，每次 tool 调用时拿当前 SDK session id —
+      // tools.ts 内部强制覆盖 args.caller_session_id 防 prompt 注入伪造身份。
+      // tempKey 阶段沿用 task-manager 同款宽容策略：caller 反查不到 sessionRepo 时不阻塞，
+      // tools.ts validateExternalCaller 仅在 transport='in-process' 时跳过反查。
+      const enableAgentDeckMcp = settingsStore.get('enableAgentDeckMcp') === true;
+      const agentDeckMcpServer = enableAgentDeckMcp
+        ? await getAgentDeckMcpServerForSession(() => internal.realSessionId ?? tempKey)
+        : null;
+      if (agentDeckMcpServer) {
+        console.log('[agent-deck-mcp] in-process MCP attached for session');
+      }
       const q = query({
         prompt: userMessageIterable,
         options: {
@@ -330,14 +348,20 @@ export class ClaudeSdkBridge {
           // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突
           // （plugin 强制命名空间前缀）。
           plugins: getAgentDeckPluginsForSession(),
-          // Task Manager（CHANGELOG_43）：开关开 → 挂 in-process MCP server `tasks` +
-          // pre-approve `mcpServers__tasks__*`（任务工具属于受控应用工具，不走 canUseTool
-          // 弹框）。teamName 已通过 closure 注入到 5 个 tool handler，agent 不能瞎传。
-          // 开关关 → 不展开这两字段，与不挂 plugin 同语义零副作用。
-          ...(tasksServer
+          // Task Manager（CHANGELOG_43）+ Agent Deck MCP（B'3）：开关开 → 挂对应
+          // in-process MCP server + pre-approve `mcp__<name>__*` 通配（应用工具属于
+          // 受控工具，不走 canUseTool 弹框）。两者独立 toggle，可同开 / 同关 / 单挂。
+          // 开关关 → 不展开两字段，与不挂 plugin 同语义零副作用。
+          ...(tasksServer || agentDeckMcpServer
             ? {
-                mcpServers: { tasks: tasksServer },
-                allowedTools: ['mcp__tasks__*'],
+                mcpServers: {
+                  ...(tasksServer ? { tasks: tasksServer } : {}),
+                  ...(agentDeckMcpServer ? { 'agent-deck': agentDeckMcpServer } : {}),
+                },
+                allowedTools: [
+                  ...(tasksServer ? ['mcp__tasks__*'] : []),
+                  ...(agentDeckMcpServer ? [AGENT_DECK_MCP_TOOL_PATTERN] : []),
+                ],
               }
             : {}),
           // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）
