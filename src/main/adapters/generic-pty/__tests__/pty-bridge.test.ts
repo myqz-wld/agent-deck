@@ -219,15 +219,15 @@ describe('GenericPtyBridge.createSession', () => {
     ).rejects.toThrow(/command must be non-empty/);
   });
 
-  it('throws when prompt > 100KB', async () => {
-    const bigPrompt = 'a'.repeat(100_001);
+  it('throws when prompt > MAX_PROMPT_LENGTH (REVIEW_24 HIGH-2: char count not byte)', async () => {
+    const bigPrompt = 'a'.repeat(102_401);
     await expect(
       bridge.createSession({
         cwd: '/tmp',
         prompt: bigPrompt,
         genericPtyConfig: validConfig,
       }),
-    ).rejects.toThrow(/prompt > 100000 bytes/);
+    ).rejects.toThrow(/prompt > 102400 chars/);
   });
 
   it('falls back cwd from config.cwd → input.cwd → homedir', async () => {
@@ -284,15 +284,26 @@ describe('GenericPtyBridge.sendMessage', () => {
     );
   });
 
-  it('throws when message > 100KB', async () => {
+  it('throws when message > MAX_PROMPT_LENGTH (REVIEW_24 HIGH-2: char count not byte)', async () => {
     const { sessionId } = await bridge.createSession({
       cwd: '/tmp',
       genericPtyConfig: validConfig,
     });
-    const big = 'a'.repeat(100_001);
+    const big = 'a'.repeat(102_401);
     await expect(bridge.sendMessage(sessionId, big)).rejects.toThrow(
-      /message > 100000 bytes/,
+      /message > 102400 chars/,
     );
+  });
+
+  it('throws "session is closing" when sendMessage called after closeSession (REVIEW_24 MED-Claude4)', async () => {
+    const { sessionId } = await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: validConfig,
+    });
+    await bridge.closeSession(sessionId);
+    // close 后 state 还在 Map（要等 onExit 异步清），但 intentionallyClosed=true
+    // → sendMessage 应立即 throw 让 watcher 走 retry，避免 PTY 已 SIGTERM 写 stdin EIO
+    await expect(bridge.sendMessage(sessionId, 'late')).rejects.toThrow(/is closing/);
   });
 });
 
@@ -331,6 +342,17 @@ describe('GenericPtyBridge.closeSession + onExit lifecycle', () => {
     // 跑 10s grace
     vi.advanceTimersByTime(10_001);
     expect(ptyInstances[0].killed).toEqual(['SIGTERM', 'SIGKILL']);
+  });
+
+  it('SIGTERM precedes fileWatcher.close (REVIEW_24 codex MED 1: kernel grace 不被 watcher 阻塞)', async () => {
+    const { sessionId } = await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: validConfig,
+    });
+    // closeSession 应同步 issue SIGTERM；watcher close 是 fire-and-forget
+    await bridge.closeSession(sessionId);
+    // SIGTERM 立即可见（不等 watcher close 异步完成）
+    expect(ptyInstances[0].killed).toEqual(['SIGTERM']);
   });
 
   it('double close is safe (second call no-op)', async () => {

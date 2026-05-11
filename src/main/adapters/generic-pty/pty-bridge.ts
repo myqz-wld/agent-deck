@@ -47,8 +47,21 @@ const ADAPTER_ID_AIDER = 'aider';
 /** SIGTERM 后等多久再 SIGKILL（仿 SDK fallback 等待）。 */
 const KILL_GRACE_MS = 10_000;
 
-/** 用户首条 user message 渲染长度上限（与 codex-cli sdk-bridge 同 100KB）。 */
-const MAX_FIRST_PROMPT_BYTES = 100_000;
+/**
+ * 单条消息 / 首条 prompt 长度上限。
+ *
+ * REVIEW_24 HIGH-2：与 `agent-deck-message-repo.ts:44` 的 MAX_BODY_LENGTH (102_400 char)
+ * 对齐 — universal-message-watcher 入队校验是 `body.length > MAX_BODY_LENGTH`，
+ * 投递时 wireBody = `[from xxx]\n` + body 长度还会增加。如果 bridge 端用 byteLength
+ * 100_000 校验（旧 R4 落地），CJK / 接近 ASCII 上限的 cross-adapter message 会在
+ * watcher 入队 OK 但 bridge 端 throw → markFailed 重试 3 次都同样失败。改 `.length`
+ * 与 messageRepo 对齐（PTY 写 stdin 是 char-based 不挑 byte）。
+ *
+ * 注意：claude-code / codex-cli adapter 的 sendMessage cap 仍是 byteLength 100_000
+ * （constants.ts），是 R3 系统性遗留，本轮 R4 不改 R3 老 adapter。Follow-up 应统一所有
+ * adapter cap 与 messageRepo 一致，详 reviews/REVIEW_24.md HIGH-2 节。
+ */
+const MAX_PROMPT_LENGTH = 102_400;
 
 interface PtySessionState {
   /** node-pty IPty 实例 */
@@ -107,8 +120,16 @@ export interface CreatePtySessionInput {
 
 export class GenericPtyBridge {
   private sessions = new Map<string, PtySessionState>();
-  /** spawn-helper 权限兜底单飞标记（多次 createSession 不重复 chmod）。 */
-  private spawnHelperReady = false;
+  /**
+   * spawn-helper 权限兜底单飞（REVIEW_24 MED-Claude5：promise 单飞替代 boolean）。
+   *
+   * 之前 boolean 实现：`if (ready) return; ready = true; await chmod(...)` —— 但 await
+   * 之前已置位 → race window：A 进 chmod 期间 B 看到 ready=true 直接 return → B 的 ptySpawn
+   * 可能在 A chmod 完成前跑（spawn-helper 可能仍无 +x）。改用 promise 单飞：第一个 caller
+   * 创建 promise，后续 caller 都 await 同一个 promise，确保 chmod 完成后才返回。
+   * promise 失败也保留（resolved status 即可），避免每次 spawn 都重 chmod。
+   */
+  private spawnHelperReady: Promise<void> | null = null;
 
   constructor(private readonly opts: GenericPtyBridgeOptions) {}
 
@@ -139,10 +160,10 @@ export class GenericPtyBridge {
       throw new Error(`[generic-pty:${this.opts.adapterId}] config.command must be non-empty`);
     }
 
-    // 入参 prompt 大小校验（与 IPC 层 100KB 一致；这里 defense-in-depth 防 IPC bypass）
-    if (input.prompt && Buffer.byteLength(input.prompt, 'utf8') > MAX_FIRST_PROMPT_BYTES) {
+    // 入参 prompt 长度校验（与 messageRepo cap 对齐 102_400 char；REVIEW_24 HIGH-2 修）
+    if (input.prompt && input.prompt.length > MAX_PROMPT_LENGTH) {
       throw new Error(
-        `[generic-pty:${this.opts.adapterId}] prompt > ${MAX_FIRST_PROMPT_BYTES} bytes`,
+        `[generic-pty:${this.opts.adapterId}] prompt > ${MAX_PROMPT_LENGTH} chars`,
       );
     }
 
@@ -297,6 +318,13 @@ export class GenericPtyBridge {
    * 写 stdin。attachments 静默忽略（PTY 没概念）。
    * - 与 receiveTeammateMessage 同实现（F-bonus 加 capabilities 后让 watcher 调）
    * - 不抛错也不返回成功 / 失败信号；UI / watcher 视 emit message 为「已送达」线索
+   *
+   * REVIEW_24 MED-Claude4：closeSession 后窗口期内仍有 sendMessage / receiveTeammateMessage
+   * 进来 — 之前 state 还在 Map（要等 onExit 异步清），会 emit 一条 user message 然后
+   * pty.write 撞到 SIGTERM 后的 PTY 触发 broken pipe → throw → watcher retry 3 次都同款失败 →
+   * markFailed reason=EIO（不准）。修法：sendMessage 顶部检查 intentionallyClosed，立刻
+   * throw 让 watcher 走 retry → state 清后下次 retry 拿 'session not found' markFailed
+   * reason 准确，且节省 3 次 retry quota。
    */
   async sendMessage(
     sessionId: string,
@@ -307,9 +335,14 @@ export class GenericPtyBridge {
     if (!state) {
       throw new Error(`[generic-pty:${this.opts.adapterId}] session ${sessionId} not found`);
     }
-    if (Buffer.byteLength(text, 'utf8') > MAX_FIRST_PROMPT_BYTES) {
+    if (state.intentionallyClosed) {
       throw new Error(
-        `[generic-pty:${this.opts.adapterId}] message > ${MAX_FIRST_PROMPT_BYTES} bytes`,
+        `[generic-pty:${this.opts.adapterId}] session ${sessionId} is closing`,
+      );
+    }
+    if (text.length > MAX_PROMPT_LENGTH) {
+      throw new Error(
+        `[generic-pty:${this.opts.adapterId}] message > ${MAX_PROMPT_LENGTH} chars`,
       );
     }
     // emit user message 让 UI 立即看到
@@ -338,8 +371,15 @@ export class GenericPtyBridge {
    * 关闭 session：SIGTERM → 10s grace → SIGKILL 兜底 → onExit 清理 state。
    * 多次调用安全（已 closed 直接 noop）。
    *
-   * F4：本方法 await fileWatcher.close() 确保 fs handle 在返回前已释放（与 R3 老
-   * team-watcher 同教训：close 不 await 会让 fs handle 阻塞 process exit）。
+   * REVIEW_24 codex MED 1：先 SIGTERM 让 kernel 立即开始 grace；fileWatcher.close
+   * 改 fire-and-forget（不阻塞 close 主流程）。**之前** await watcher 在 SIGTERM 之前 →
+   * watcher close 慢 / throw 时 SIGTERM 路径不可达，违背关闭契约。
+   *
+   * REVIEW_24 codex MED 2：设 killTimer 前 check sessions Map 还在（onExit 在
+   * SIGTERM ↔ killTimer 设置之间同步触发可能已 delete）。否则 killTimer 引用已脱离
+   * Map 的 state，会额外持 event loop 直到 10s grace 到（虽然不影响正确性，是 leak）。
+   *
+   * shutdownAll 仍保持 await all watcher.close（process exit 时必须释放 fs handle）。
    */
   async closeSession(sessionId: string): Promise<void> {
     const state = this.sessions.get(sessionId);
@@ -348,27 +388,33 @@ export class GenericPtyBridge {
     state.intentionallyClosed = true;
     // F3：close 时立刻 dispose idle detector（避免 SIGTERM 后子进程未退期间还有迟到 chunk 触发 timer）
     state.idleDetector.dispose();
-    // F4：await close 释放 fs handle（与 R3 team-watcher 同教训）
-    try {
-      await state.fileWatcher.close();
-    } catch (err) {
-      console.warn(`[generic-pty:${this.opts.adapterId}] fileWatcher.close ${sessionId} 失败`, err);
-    }
+    // codex MED 1：先 SIGTERM 让 kernel 立刻开始 grace（不被 watcher close 阻塞）
     try {
       state.pty.kill('SIGTERM');
     } catch (err) {
       console.warn(`[generic-pty:${this.opts.adapterId}] SIGTERM ${sessionId} 失败`, err);
     }
-    // 10s 后兜底 SIGKILL（与 R3 进程 cleanup 节奏对齐）
-    state.killTimer = setTimeout(() => {
-      const s = this.sessions.get(sessionId);
-      if (!s) return; // 已被 onExit 清掉
-      try {
-        s.pty.kill('SIGKILL');
-      } catch (err) {
-        console.warn(`[generic-pty:${this.opts.adapterId}] SIGKILL ${sessionId} 失败`, err);
-      }
-    }, KILL_GRACE_MS);
+    // codex MED 2：onExit 可能已在 SIGTERM 同步路径里 fire 并 delete sessions[sid]
+    // → 此处 sessions.has() check 防止 killTimer 引用已脱离 Map 的 state 多挂 10s
+    if (this.sessions.has(sessionId)) {
+      state.killTimer = setTimeout(() => {
+        const s = this.sessions.get(sessionId);
+        if (!s) return; // 已被 onExit 清掉
+        try {
+          s.pty.kill('SIGKILL');
+        } catch (err) {
+          console.warn(`[generic-pty:${this.opts.adapterId}] SIGKILL ${sessionId} 失败`, err);
+        }
+      }, KILL_GRACE_MS);
+    }
+    // F4 + codex MED 1：fileWatcher.close fire-and-forget（不阻塞 closeSession 返回；
+    // fs handle 释放是异步关，对业务无影响。shutdownAll 路径仍 await 所有 close 兜底）。
+    void state.fileWatcher.close().catch((err) => {
+      console.warn(
+        `[generic-pty:${this.opts.adapterId}] fileWatcher.close ${sessionId} 失败`,
+        err,
+      );
+    });
     // 注：不在此 await onExit；caller 不需要等子进程实际退出（emit session-end 异步触发）
   }
 
@@ -405,14 +451,20 @@ export class GenericPtyBridge {
    *
    * node-pty 1.1.0 在 darwin/linux 走 `prebuilds/<platform>-<arch>/spawn-helper` 这个
    * 独立二进制做 posix_spawnp。pnpm install 拷贝时 hard-link 可能丢 +x 位（实测 -rw-r--r--）
-   * → posix_spawnp failed。这里 lazy chmod 0o755 兜底，多次 createSession 只跑一次。
+   * → posix_spawnp failed。这里 promise 单飞 chmod 0o755 兜底，多次 createSession 共享同一
+   * promise 等待（REVIEW_24 MED-Claude5 修：boolean → promise 单飞消除 race window）。
    *
    * 失败不抛（设为 best-effort）：如果 helper 真不存在 / 权限重置失败，spawn 路径会报
    * posix_spawnp failed，由 createSession throw 包装传上层。
    */
   private async ensureSpawnHelperExecutable(): Promise<void> {
-    if (this.spawnHelperReady) return;
-    this.spawnHelperReady = true; // 单飞 + 失败也置位（避免每次 spawn 都 chmod）
+    if (!this.spawnHelperReady) {
+      this.spawnHelperReady = this.chmodSpawnHelper();
+    }
+    await this.spawnHelperReady;
+  }
+
+  private async chmodSpawnHelper(): Promise<void> {
     try {
       // node-pty native binding 路径：与 lib/utils.js 内 native.dir + '/spawn-helper' 同款。
       // require.resolve('node-pty') 拿 lib/index.js 路径；上回到包根；拼 prebuilds/<platform>-<arch>。
@@ -424,10 +476,10 @@ export class GenericPtyBridge {
         `${process.platform}-${process.arch}`,
         'spawn-helper',
       );
-      // app.asar.unpacked 路径替换（打包后 asar 内 binary 不能跑，必须 unpack）
-      const unpackedPath = helperPath
-        .replace('app.asar', 'app.asar.unpacked')
-        .replace('node_modules.asar', 'node_modules.asar.unpacked');
+      // REVIEW_24 MED-Claude3：用 regex 锚定路径段（与 sdk-runtime.ts:87 同款）替代裸
+      // String.replace。裸 replace 的 case 2/3 误匹配：`app.asar.unpacked` → `app.asar.unpacked.unpacked`、
+      // 用户路径含 `app.asar` 子串如 `/Users/foo/my-app.asar.fork/...` → `/Users/foo/my-app.asar.unpacked.fork/...`。
+      const unpackedPath = helperPath.replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2');
       await fsp.chmod(unpackedPath, 0o755).catch(() => {
         // 路径不存在（其他平台 / 未打包）→ silent
       });
