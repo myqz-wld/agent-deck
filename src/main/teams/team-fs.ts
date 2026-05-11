@@ -19,7 +19,7 @@
  * 自己决定显示「成员未知」还是别的兜底。
  */
 import { existsSync, statSync } from 'node:fs';
-import { readFile, readdir, realpath, rm } from 'node:fs/promises';
+import { cp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import type {
@@ -331,4 +331,98 @@ export async function forceCleanupTeam(name: string): Promise<{ removed: string[
     }
   }
   return { removed };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// R3.E12 — Legacy team config 一次性导出
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 把 ~/.claude/teams/ + ~/.claude/tasks/ 整个目录递归复制到用户选定的 targetDir 下，
+ * 子目录命名 `legacy-teams-export-<ISO timestamp>/`。
+ *
+ * 设计目的（R3.E0 ADR §6.2 / §11.4）：PR-B 硬切前给用户一个备份入口。PR-A 阶段先发版
+ * + Settings 弹一次性 dialog 引导用户来这里点 export，然后 PR-B 才真删老 backend。
+ *
+ * 实现选择：用 Node 22+ 内置的 `fs.cp`（recursive），不引入 archiver / jszip 依赖，
+ * 也不 spawn `tar` / `zip` CLI。结果是**目录复制**而非 zip 包；用户自己想 zip 可在
+ * Finder / 终端打包。
+ *
+ * 安全：targetDir 来自用户 `dialog.showOpenDialog` 选择，不需路径校验（用户授权）；
+ * 但用 realpath 防 symlink TOCTOU + 防御性把 source 也 realpath。
+ *
+ * 返回 { destDir, copied: { teams: bool, tasks: bool } }。两源都不存在时 destDir 为 null
+ * （renderer 提示「无 legacy data 可导出」）。
+ *
+ * @param targetParentDir 用户选择的父目录（绝对路径）
+ */
+export async function exportLegacyTeams(
+  targetParentDir: string,
+): Promise<{
+  destDir: string | null;
+  copied: { teams: boolean; tasks: boolean };
+}> {
+  if (typeof targetParentDir !== 'string' || !targetParentDir.startsWith('/')) {
+    throw new Error('targetParentDir must be an absolute path');
+  }
+
+  const teamsExist = existsSync(teamsRoot);
+  const tasksExist = existsSync(tasksRoot);
+  if (!teamsExist && !tasksExist) {
+    return { destDir: null, copied: { teams: false, tasks: false } };
+  }
+
+  // 用 ISO 时间戳避免命名冲突（用户多次导出不会覆盖）
+  // 注：冒号在 macOS 下作为 path 分隔符（HFS+ 历史）会被 Finder 替换为斜杠，
+  // 用 - 替换避免显示问题
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const destDir = join(targetParentDir, `legacy-teams-export-${stamp}`);
+
+  const copied = { teams: false, tasks: false };
+
+  // fs.cp 自带 recursive + dereference 选项；这里 dereference: false（保留 symlink 原样
+  // 复制），preserveTimestamps: true 让用户能从 mtime 看历史活动
+  if (teamsExist) {
+    try {
+      await cp(teamsRoot, join(destDir, 'teams'), {
+        recursive: true,
+        dereference: false,
+        preserveTimestamps: true,
+        force: false,
+        errorOnExist: false,
+      });
+      copied.teams = true;
+    } catch (err) {
+      console.warn(`[team-fs] exportLegacyTeams copy teams failed:`, err);
+      // 不 throw：让 tasks 也尝试一次，让用户起码能保住一份
+    }
+  }
+  if (tasksExist) {
+    try {
+      await cp(tasksRoot, join(destDir, 'tasks'), {
+        recursive: true,
+        dereference: false,
+        preserveTimestamps: true,
+        force: false,
+        errorOnExist: false,
+      });
+      copied.tasks = true;
+    } catch (err) {
+      console.warn(`[team-fs] exportLegacyTeams copy tasks failed:`, err);
+    }
+  }
+
+  if (!copied.teams && !copied.tasks) {
+    // 两边都失败 → throw，让 renderer 显示错误
+    throw new Error('export failed: both teams and tasks copy failed');
+  }
+  return { destDir, copied };
+}
+
+/**
+ * 给 renderer / dialog 用：探测当前是否有 legacy team data 可导出
+ * （决定是否弹一次性 dialog 引导用户）。
+ */
+export function hasLegacyTeamData(): { teams: boolean; tasks: boolean } {
+  return { teams: existsSync(teamsRoot), tasks: existsSync(tasksRoot) };
 }

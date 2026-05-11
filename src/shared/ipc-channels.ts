@@ -98,6 +98,15 @@ export const IpcInvoke = {
    *  TeamDetail「结构化 tasks (mcp)」section 用，订阅 IpcEvent.TaskChanged 后重拉。 */
   TaskListByTeam: 'task:list-by-team',
 
+  // ─────────── R3.E12 — Legacy team data 一次性导出 ───────────
+  /** 探测本地是否有 ~/.claude/teams/ 或 ~/.claude/tasks/ 目录（决定首启 dialog 弹不弹）。
+   *  返回 { teams: boolean; tasks: boolean }。详 R3.E0 ADR §6.2 / §11.4。 */
+  LegacyTeamsHasData: 'legacy-teams:has-data',
+  /** 把 ~/.claude/teams/ + ~/.claude/tasks/ 整个目录递归复制到用户选定的父目录下。
+   *  args: (targetParentDir: string)；返回 { destDir: string|null; copied: { teams, tasks } }。
+   *  failed 抛错（renderer 显示错误）。详 src/main/teams/team-fs.ts:exportLegacyTeams。 */
+  LegacyTeamsExport: 'legacy-teams:export',
+
   // ─────────── Assets Library (CHANGELOG_57) ───────────
   /** 列出 agent-deck plugin 内置 agents+skills（main 启动时一次性扫 frontmatter，缓存读）。 */
   AssetsListBundled: 'assets:list-bundled',
