@@ -6,6 +6,7 @@ import { eventBus } from '@main/event-bus';
 import { settingsStore } from '@main/store/settings-store';
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
+import { summariseCodexSessionViaOneshot } from '@main/adapters/codex-cli/summarizer-runner';
 
 /**
  * Summarizer 调度：定时扫描所有活跃会话，为达到「时间阈值」或「事件数阈值」
@@ -158,16 +159,25 @@ export class Summarizer {
     const events = eventRepo.listForSession(sessionId, 40);
     if (events.length === 0) return null;
 
-    // 1) 优先：让本地 SDK（复用 ~/.claude OAuth）跑一次 oneshot，让 Claude
-    //    自己看历史并写一句话「在做什么」
+    // 1) 优先：跑一次 LLM oneshot，按 session.agentId dispatch（CHANGELOG_<X> A3）：
+    //    - 'claude-code' → claude SDK oneshot（haiku，~/.claude OAuth）
+    //    - 'codex-cli'   → codex SDK oneshot（read-only sandbox + 'low' reasoning effort）
+    //    - 其他 adapter（aider / generic-pty）→ 没有 SDK oneshot 通道，跳过 LLM 直接走 fallback
+    //    spike-A3 实测 5 codex 并发 oneshot 复用 app-server 单例，资源温和（10s / ~44MB），
+    //    与 claude 共用全局 summaryMaxConcurrent 不需分桶。
     try {
-      const llm = await summariseViaLlm(session.cwd, events);
+      let llm: string | null = null;
+      if (session.agentId === 'claude-code') {
+        llm = await summariseViaLlm(session.cwd, events);
+      } else if (session.agentId === 'codex-cli') {
+        llm = await summariseCodexSessionViaOneshot(session.cwd, events, formatEventsForPrompt);
+      }
       if (llm) return llm;
     } catch (err) {
-      console.warn(`[summarizer] LLM failed for ${sessionId}, fallback to last-message`, err);
+      console.warn(`[summarizer] LLM failed for ${sessionId} (${session.agentId}), fallback to last-message`, err);
     }
 
-    // 2) 退化：取最近一条「Claude 自己说的话」（assistant + 非 error）。
+    // 2) 退化：取最近一条「assistant 自己说的话」（任何 adapter 都走这条）。
     //    走独立 SQL 查询（eventRepo.findLatestAssistantMessage）而不是 events.find，
     //    原因：
     //    a. events 限 40 条，tool 密集会话最近 40 条可能 0 条 message → find 必返 undefined
