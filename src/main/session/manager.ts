@@ -450,6 +450,39 @@ class SessionManagerClass {
   }
 
   async delete(sessionId: string): Promise<void> {
+    // R3.E0 ADR §2.5：pre-check + 自动 leaveTeam（agent_deck_team_members.session_id ON DELETE
+    // RESTRICT FK 拦下 sessions DELETE，必须先 leaveTeam）。lazy import 避免循环依赖
+    // （session/manager 是底层模块，store/agent-deck-team-repo 间接 import 它）。
+    try {
+      const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
+      const { eventBus } = await import('@main/event-bus');
+      const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
+      for (const m of memberships) {
+        try {
+          agentDeckTeamRepo.leaveTeam(m.teamId, sessionId);
+          eventBus.emit('agent-deck-team-member-changed', {
+            teamId: m.teamId,
+            sessionId,
+            kind: 'left',
+          });
+          // 0-lead 自动 archive：若 lead 离开后该 team 无 active lead，自动 archive
+          const remaining = agentDeckTeamRepo.countActiveLeads(m.teamId);
+          if (remaining === 0) {
+            const team = agentDeckTeamRepo.archive(m.teamId, { reason: 'last-lead-deleted' });
+            if (team) eventBus.emit('agent-deck-team-updated', team);
+          }
+        } catch (err) {
+          console.warn(
+            `[session-mgr] leaveTeam(${m.teamId}, ${sessionId}) failed during delete:`,
+            err,
+          );
+        }
+      }
+    } catch (err) {
+      // import 失败不阻塞 delete，但 FK 会挂；warn 让排查更直接
+      console.warn(`[session-mgr] team pre-check skipped (import failed): ${sessionId}`, err);
+    }
+
     // REVIEW_4 H1：必须 **await** close 完成再删 DB 行 + 广播。
     // 旧版 fire-and-forget close → DB 同步 delete 后，SDK 侧 abort 触发的尾包
     // `finished{subtype:interrupted}` 仍会到达 ingest → ensureRecord 把已删 session

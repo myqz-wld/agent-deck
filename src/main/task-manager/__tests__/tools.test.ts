@@ -82,6 +82,7 @@ function makeTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
   return {
     id: overrides.id ?? 'task-1',
     teamName: overrides.teamName ?? null,
+    teamId: overrides.teamId ?? null,
     subject: overrides.subject ?? 'A',
     description: overrides.description ?? null,
     status: overrides.status ?? 'pending',
@@ -142,14 +143,14 @@ describe('buildTaskTools / 工具集合形状', () => {
 
   it('task_create / task_update / task_delete schema 不暴露 team_name 字段', async () => {
     const tools = await buildToolsAsDict(makeMockRepo(), 'team-A');
-    expect(Object.keys(tools.task_create.inputSchema as object)).not.toContain('team_name');
-    expect(Object.keys(tools.task_update.inputSchema as object)).not.toContain('team_name');
-    expect(Object.keys(tools.task_delete.inputSchema as object)).not.toContain('team_name');
+    expect(Object.keys(tools.task_create.inputSchema as object)).not.toContain('team_id');
+    expect(Object.keys(tools.task_update.inputSchema as object)).not.toContain('team_id');
+    expect(Object.keys(tools.task_delete.inputSchema as object)).not.toContain('team_id');
   });
 
   it('task_list schema 暴露 team_name（允许跨 team 只读）', async () => {
     const tools = await buildToolsAsDict(makeMockRepo(), 'team-A');
-    expect(Object.keys(tools.task_list.inputSchema as object)).toContain('team_name');
+    expect(Object.keys(tools.task_list.inputSchema as object)).toContain('team_id');
   });
 
   it('REVIEW_17 R1 / M7：lazy provider 在多次调用之间返回不同值（CHANGELOG_46 改 lazy 的核心 gain）', async () => {
@@ -162,20 +163,20 @@ describe('buildTaskTools / 工具集合形状', () => {
 
     // 第 1 次调 task_create：provider 返回 null（lead 还没建 team）
     (repo.create as ReturnType<typeof vi.fn>).mockReturnValueOnce(
-      makeTask({ id: 't-global', teamName: null }),
+      makeTask({ id: 't-global', teamName: null, teamId: null }),
     );
     await dict.task_create.handler({ subject: 'X' }, undefined);
-    expect(repo.create).toHaveBeenLastCalledWith(expect.objectContaining({ teamName: null }));
+    expect(repo.create).toHaveBeenLastCalledWith(expect.objectContaining({ teamId: null }));
 
     // team-coordinator 反向同步：currentTeam 切到 team-A
     currentTeam = 'team-A';
 
     // 第 2 次调 task_create：provider 返回 'team-A'（lazy 关键 gain）
     (repo.create as ReturnType<typeof vi.fn>).mockReturnValueOnce(
-      makeTask({ id: 't-team-a', teamName: 'team-A' }),
+      makeTask({ id: 't-team-a', teamName: 'team-A', teamId: 'team-A' }),
     );
     await dict.task_create.handler({ subject: 'Y' }, undefined);
-    expect(repo.create).toHaveBeenLastCalledWith(expect.objectContaining({ teamName: 'team-A' }));
+    expect(repo.create).toHaveBeenLastCalledWith(expect.objectContaining({ teamId: 'team-A' }));
   });
 });
 
@@ -188,13 +189,13 @@ describe('task_create', () => {
 
   it('强制 closure 注入 teamName，调 repo.create 时 input.teamName 被覆盖', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    const created = makeTask({ id: 't1', subject: 'X', teamName: 'team-A' });
+    const created = makeTask({ id: 't1', subject: 'X', teamName: 'team-A', teamId: 'team-A' });
     (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(created);
 
     const result = await tools.task_create.handler({ subject: 'X' }, undefined);
 
     expect(repo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ subject: 'X', teamName: 'team-A' }),
+      expect.objectContaining({ subject: 'X', teamId: 'team-A' }),
     );
     expect((result as { isError?: boolean }).isError).toBeFalsy();
   });
@@ -202,17 +203,17 @@ describe('task_create', () => {
   it('teamName=null 时走全局任务路径（input.teamName === null）', async () => {
     const tools = await buildToolsAsDict(repo, null);
     (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(
-      makeTask({ id: 't1', teamName: null }),
+      makeTask({ id: 't1', teamName: null, teamId: null }),
     );
 
     await tools.task_create.handler({ subject: 'global task' }, undefined);
 
-    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ teamName: null }));
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ teamId: null }));
   });
 
   it('成功后 emit task-changed { kind: created, teamName 同 task.teamName }', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    const created = makeTask({ id: 't1', teamName: 'team-A' });
+    const created = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A' });
     (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(created);
 
     await tools.task_create.handler({ subject: 'X' }, undefined);
@@ -251,8 +252,8 @@ describe('task_update / 写权限锁', () => {
 
   it('task.teamName === closure → 允许更新 + emit', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    const before = makeTask({ id: 't1', teamName: 'team-A', status: 'pending' });
-    const after = makeTask({ id: 't1', teamName: 'team-A', status: 'completed' });
+    const before = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'pending' });
+    const after = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'completed' });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(before);
     (repo.update as ReturnType<typeof vi.fn>).mockReturnValue(after);
 
@@ -272,7 +273,7 @@ describe('task_update / 写权限锁', () => {
   it('task.teamName !== closure → isError + 不调 repo.update + 不 emit', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(
-      makeTask({ id: 't1', teamName: 'team-B' }),
+      makeTask({ id: 't1', teamName: 'team-B', teamId: 'team-B' }),
     );
 
     const result = await tools.task_update.handler(
@@ -288,7 +289,7 @@ describe('task_update / 写权限锁', () => {
   it('task.teamName=null vs closure="team-A" → isError（全局任务也不能被 team agent 改）', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(
-      makeTask({ id: 't1', teamName: null }),
+      makeTask({ id: 't1', teamName: null, teamId: null }),
     );
 
     const result = await tools.task_update.handler({ task_id: 't1', status: 'active' }, undefined);
@@ -300,14 +301,14 @@ describe('task_update / 写权限锁', () => {
   it('closure=null 时只能改全局任务（task.teamName=null 通过、="team-A" 拒绝）', async () => {
     const tools = await buildToolsAsDict(repo, null);
     // case 1: 改全局任务 OK
-    (repo.get as ReturnType<typeof vi.fn>).mockReturnValueOnce(makeTask({ teamName: null }));
-    (repo.update as ReturnType<typeof vi.fn>).mockReturnValueOnce(makeTask({ teamName: null }));
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValueOnce(makeTask({ teamName: null, teamId: null }));
+    (repo.update as ReturnType<typeof vi.fn>).mockReturnValueOnce(makeTask({ teamName: null, teamId: null }));
     let result = await tools.task_update.handler({ task_id: 't1', status: 'active' }, undefined);
     expect((result as { isError?: boolean }).isError).toBeFalsy();
 
     // case 2: 改 team-A 任务被拒
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValueOnce(
-      makeTask({ teamName: 'team-A' }),
+      makeTask({ teamName: 'team-A', teamId: 'team-A' }),
     );
     result = await tools.task_update.handler({ task_id: 't1', status: 'active' }, undefined);
     expect((result as { isError?: boolean }).isError).toBe(true);
@@ -331,7 +332,7 @@ describe('task_delete / 写权限锁', () => {
   it('task.teamName === closure → 允许删 + emit', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(
-      makeTask({ id: 't1', teamName: 'team-A' }),
+      makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A' }),
     );
     (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
@@ -346,7 +347,7 @@ describe('task_delete / 写权限锁', () => {
 
   it('force=true 透传 cascade=true', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A' }));
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A', teamId: 'team-A' }));
     (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
     await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
@@ -356,7 +357,7 @@ describe('task_delete / 写权限锁', () => {
 
   it('REVIEW_17 H1：cascade 时给 repo.delete 传 closure team predicate（拦跨 team child）', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A' }));
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A', teamId: 'team-A' }));
     (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
     await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
@@ -364,31 +365,32 @@ describe('task_delete / 写权限锁', () => {
     // 断言：传给 repo.delete 的 opts.predicate 真的是「闭包 team 才通过」
     const callArgs = (repo.delete as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
       cascade: boolean;
-      predicate: (id: string, t: string | null) => boolean;
+      predicate: (id: string, name: string | null, id_: string | null) => boolean;
     };
     expect(typeof callArgs.predicate).toBe('function');
-    expect(callArgs.predicate('any-id', 'team-A')).toBe(true);
-    expect(callArgs.predicate('any-id', 'team-B')).toBe(false);
-    expect(callArgs.predicate('any-id', null)).toBe(false); // 全局任务也不被 team-A session cascade 删
+    // R3.E8：predicate 第 3 参数 teamId，闭包 = 'team-A'（teamId）
+    expect(callArgs.predicate('any-id', null, 'team-A')).toBe(true);
+    expect(callArgs.predicate('any-id', null, 'team-B')).toBe(false);
+    expect(callArgs.predicate('any-id', null, null)).toBe(false);
   });
 
-  it('REVIEW_17 H1：closure=null（全局会话）的 cascade predicate 仅放行 teamName=null', async () => {
+  it('REVIEW_17 H1：closure=null（全局会话）的 cascade predicate 仅放行 teamId=null', async () => {
     const tools = await buildToolsAsDict(repo, null);
-    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: null }));
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: null, teamId: null }));
     (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
     await tools.task_delete.handler({ task_id: 't1', force: true }, undefined);
 
     const callArgs = (repo.delete as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
-      predicate: (id: string, t: string | null) => boolean;
+      predicate: (id: string, name: string | null, id_: string | null) => boolean;
     };
-    expect(callArgs.predicate('any-id', null)).toBe(true);
-    expect(callArgs.predicate('any-id', 'team-A')).toBe(false);
+    expect(callArgs.predicate('any-id', null, null)).toBe(true);
+    expect(callArgs.predicate('any-id', null, 'team-A')).toBe(false);
   });
 
   it('REVIEW_17 R2 / M1-R2：cascade 删多个 task → emit N 次 task-changed (root + 下游)', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ id: 't1', teamName: 'team-A' }));
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A' }));
     // mock repo.delete 返回 ['t1', 't2', 't3']：root + 2 个 cascade 下游
     (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1', 't2', 't3']);
 
@@ -404,7 +406,7 @@ describe('task_delete / 写权限锁', () => {
 
   it('task.teamName !== closure → isError + 不调 repo.delete', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-B' }));
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-B', teamId: 'team-B' }));
 
     const result = await tools.task_delete.handler({ task_id: 't1' }, undefined);
 
@@ -415,7 +417,7 @@ describe('task_delete / 写权限锁', () => {
 
   it('repo.delete 返回 false（id 不存在或已删）时不 emit', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A' }));
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A', teamId: 'team-A' }));
     (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
     await tools.task_delete.handler({ task_id: 't1' }, undefined);
@@ -435,25 +437,25 @@ describe('task_list / 跨 team 读', () => {
   it('args 不传 team_name → opts.teamName = closure', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
     await tools.task_list.handler({}, undefined);
-    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamName: 'team-A' }));
+    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamId: 'team-A' }));
   });
 
   it('args 显式传 string → opts.teamName = 该 string（跨 team 协调）', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    await tools.task_list.handler({ team_name: 'team-B' }, undefined);
-    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamName: 'team-B' }));
+    await tools.task_list.handler({ team_id: 'team-B' }, undefined);
+    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamId: 'team-B' }));
   });
 
   it('args 显式传 null → opts.teamName = null（仅全局任务）', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    await tools.task_list.handler({ team_name: null }, undefined);
-    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamName: null }));
+    await tools.task_list.handler({ team_id: null }, undefined);
+    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamId: null }));
   });
 
   it('closure=null（全局会话）默认查 opts.teamName = null', async () => {
     const tools = await buildToolsAsDict(repo, null);
     await tools.task_list.handler({}, undefined);
-    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamName: null }));
+    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamId: null }));
   });
 
   it('list 不 emit（只读操作）', async () => {
@@ -477,7 +479,7 @@ describe('task_get / 跨 team 读', () => {
 
   it('返回 task 不限 team（只读，跨 team visibility）', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    const task = makeTask({ id: 't-other', teamName: 'team-B' });
+    const task = makeTask({ id: 't-other', teamName: 'team-B', teamId: 'team-B' });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(task);
 
     const result = await tools.task_get.handler({ task_id: 't-other' }, undefined);
@@ -517,7 +519,7 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
 
   it('task_create + sid → ingest team-task-created 一次', async () => {
     const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const created = makeTask({ id: 't1', teamName: 'team-A', subject: 'X', activeForm: 'agent-A' });
+    const created = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', subject: 'X', activeForm: 'agent-A' });
     (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(created);
 
     await tools.task_create.handler({ subject: 'X' }, undefined);
@@ -541,7 +543,7 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
 
   it('task_create + sid=null → 不 ingest（不抛错）', async () => {
     const tools = await buildToolsWithSession(repo, 'team-A', null);
-    (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A' }));
+    (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A', teamId: 'team-A' }));
 
     await tools.task_create.handler({ subject: 'X' }, undefined);
 
@@ -551,7 +553,7 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
 
   it('task_create 不传 sessionIdProvider → 不 ingest（向后兼容）', async () => {
     const tools = await buildToolsAsDict(repo, 'team-A');
-    (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A' }));
+    (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A', teamId: 'team-A' }));
 
     await tools.task_create.handler({ subject: 'X' }, undefined);
 
@@ -560,8 +562,8 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
 
   it('task_update status pending → completed → ingest team-task-completed 一次', async () => {
     const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const before = makeTask({ id: 't1', teamName: 'team-A', status: 'pending', subject: 'work' });
-    const after = makeTask({ id: 't1', teamName: 'team-A', status: 'completed', subject: 'work' });
+    const before = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'pending', subject: 'work' });
+    const after = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'completed', subject: 'work' });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(before);
     (repo.update as ReturnType<typeof vi.fn>).mockReturnValue(after);
 
@@ -585,8 +587,8 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
 
   it('task_update status 已 completed → completed（不变）→ 不 ingest', async () => {
     const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const before = makeTask({ id: 't1', teamName: 'team-A', status: 'completed' });
-    const after = makeTask({ id: 't1', teamName: 'team-A', status: 'completed' });
+    const before = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'completed' });
+    const after = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'completed' });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(before);
     (repo.update as ReturnType<typeof vi.fn>).mockReturnValue(after);
 
@@ -597,8 +599,8 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
 
   it('task_update 改 priority（status 不变）→ 不 ingest', async () => {
     const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const before = makeTask({ id: 't1', teamName: 'team-A', status: 'pending', priority: 5 });
-    const after = makeTask({ id: 't1', teamName: 'team-A', status: 'pending', priority: 8 });
+    const before = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'pending', priority: 5 });
+    const after = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'pending', priority: 8 });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(before);
     (repo.update as ReturnType<typeof vi.fn>).mockReturnValue(after);
 
@@ -610,8 +612,8 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
 
   it('task_update status 变 active（不是 completed）→ 不 ingest', async () => {
     const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const before = makeTask({ id: 't1', teamName: 'team-A', status: 'pending' });
-    const after = makeTask({ id: 't1', teamName: 'team-A', status: 'active' });
+    const before = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'pending' });
+    const after = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'active' });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(before);
     (repo.update as ReturnType<typeof vi.fn>).mockReturnValue(after);
 
@@ -622,7 +624,7 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
 
   it('task_delete → 不 ingest（kind 集无 deleted 语义）', async () => {
     const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A' }));
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A', teamId: 'team-A' }));
     (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
     await tools.task_delete.handler({ task_id: 't1' }, undefined);
@@ -634,7 +636,7 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
   it('task_update 写权限拒（跨 team）→ 不 ingest（早返）', async () => {
     const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(
-      makeTask({ id: 't1', teamName: 'team-B' }),
+      makeTask({ id: 't1', teamName: 'team-B', teamId: 'team-B' }),
     );
 
     await tools.task_update.handler({ task_id: 't1', status: 'completed' }, undefined);

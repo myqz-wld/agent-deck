@@ -11,6 +11,7 @@ import type {
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { settingsStore } from '@main/store/settings-store';
 import { eventBus } from '@main/event-bus';
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
@@ -161,9 +162,8 @@ export class ClaudeSdkBridge {
     /** 传 sessionId 表示恢复历史会话（CLI 会从 ~/.claude/projects/<cwd>/<sid>.jsonl 续上）。 */
     resume?: string;
     /**
-     * Agent Teams 团队名（详见 CreateSessionOptions.teamName 注释）。非空 + agentTeamsEnabled
-     * 时触发 query env 注入 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1。resume 路径下传 teamName
-     * 视为非法（Anthropic 官方明确「Agent Teams 不支持 session resumption」）。
+     * R3 universal team backend：team_name 仅作 sessionManager.recordCreatedTeamName
+     * 入口标签使用，不再触发 Claude CLI 实验特性 env 注入（CHANGELOG_45/46 老路径已 R3.E6 删除）。
      */
     teamName?: string;
     /** 首条 user message 的图片附件（path 由 IPC 层 writeUploadedImage 落盘后传入）。 */
@@ -175,26 +175,8 @@ export class ClaudeSdkBridge {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：SDK streaming 模式需要首条消息才能启动 CLI');
     }
-    // CHANGELOG_46：放开 resume + teamName 的应用层 block。
-    //
-    // 历史背景：之前 NewSessionDialog 让用户预填 teamName，应用 IPC 入口预写 sessions.team_name
-    // 后 lead 启动；resume 时调用方仍传 teamName → 应用 throw 阻断（防 SDK 上游 resume +
-    // teammate 状态机崩）。
-    //
-    // 现在 NewSessionDialog 已删 teamName 输入框，team 由 lead 自由建后通过 team-coordinator
-    // 反向同步 sessions.team_name；resume 路径调用方（recoverAndSend）也不传 teamName。所以
-    // 这条 throw 实际不会被新代码路径触发。
-    //
-    // 仅 CLI 入口 `agent-deck new --team-name X` resume 时仍会传 teamName —— 留 console.warn
-    // 提醒上游 SDK 的 resume limitation（lead 可能给已死 teammate 发消息），但不再 block；
-    // 让用户自己决定是否承担风险。SDK 真崩用户能从错误信息看到，应用层不替用户拍板。
-    if (opts.resume && opts.teamName && opts.teamName.trim().length > 0) {
-      console.warn(
-        `[sdk-bridge] resume + teamName='${opts.teamName.trim()}'：Anthropic Agent Teams ` +
-          '实验特性官方不支持 /resume，lead 可能给已死 teammate 发消息导致 CLI 状态机异常。' +
-          '应用不再 block，上游真崩时请新建 team 会话。',
-      );
-    }
+    // R3.E6：删除老 Claude Code experimental teams flag 相关 resume + teamName warn —— teamName
+    // 现在仅作 universal team 抽象的入口标签，与 Claude CLI 实验特性无关，无 resume race。
     const tempKey = randomUUID();
     // 时序保护：CLI 子进程内部 hook 可能先于 SDK 通道首条 SDKMessage 到达，
     // 提前注册 cwd「待领取」标记，让 sessionManager 把首发的同 cwd hook 事件
@@ -283,26 +265,28 @@ export class ClaudeSdkBridge {
       // mcpServers 需要在 spawn 前 await 拿到 server instance，所以放在 query() 调用之前
       // （loadSdk 已 cache，复用同 SDK 实例）。
       const enableTaskManager = settingsStore.get('enableTaskManager') === true;
-      // realId 此时还没拿到（在 waitForRealSessionId 之后才有）；用 tempKey 兜底，等 realId
-      // 出现后 sessionRepo.get(realId) 自然能拿到 team_name。tempKey 阶段 sessionRepo.get 返
-      // null 是预期行为（team_name 走 null 分支，task tools 内部不强制要求 team）。
+      // R3.E8 / ADR §5.4：teamNameProvider → teamIdProvider。task-manager 写 tasks.team_id
+      // 列（v011），不再依赖 sessions.team_name（v006 deprecated）。lazy lookup：
+      // 反查 caller 当前所属 team；多 team 时取最近 join 的（lead role 优先）。
       const tasksServer = enableTaskManager
         ? await getTasksMcpServerForSession(
             () => {
               const sid = internal.realSessionId ?? tempKey;
-              return sessionRepo.get(sid)?.teamName ?? null;
+              const memberships = agentDeckTeamRepo
+                .findActiveMembershipsBySession(sid)
+                .sort((a, b) => b.joinedAt - a.joinedAt);
+              const lead = memberships.find((m) => m.role === 'lead');
+              return (lead ?? memberships[0])?.teamId ?? null;
             },
             // CHANGELOG_<X> A3：sessionIdProvider 让 mcp tools.ts 写操作后能 ingest
             // team-task-* AgentEvent 到正确 sessionId 名下。tempKey 阶段 ingest 会
             // 落到 tempKey 这个不在 DB 的 sessionId（ensureRecord 会建一个临时 cli 记录），
-            // realId 拿到后 sessionManager.renameSdkSession 会把子表迁移过来；但 mcp 工具
-            // 几乎不可能在 tempKey 阶段被 LLM 调用（要等 model output 到第一个 tool_use），
-            // 实操中 sid 永远是 realSessionId。保留 tempKey 兜底逻辑与 teamNameProvider 同款。
+            // realId 拿到后 sessionManager.renameSdkSession 会把子表迁移过来。
             () => internal.realSessionId ?? tempKey,
           )
         : null;
       if (tasksServer) {
-        console.log('[task-manager] mcpServers attached for session (team_name lazy-resolved)');
+        console.log('[task-manager] mcpServers attached for session (team_id lazy-resolved)');
       }
       // CHANGELOG_<X> R2 / B'3：Agent Deck MCP server in-process 注入。开关 ON 时给
       // claude 会话挂 in-process MCP，让 claude 能跨 adapter 编排其他 session
@@ -385,33 +369,12 @@ export class ClaudeSdkBridge {
           // 实验特性（lead 可 spawn teammates、共享 task list、3 个新 hook 事件）。
           // env 是 spawn 时一次性传入，关 toggle 不影响在跑会话；summarizer 走自己的
           // query() 调用、不读 teamName，env 也不传，天然不被污染。
-          //
-          // 即便用户在 ~/.claude/settings.json 手动写过 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0，
-          // applyClaudeSettingsEnv 写进 process.env 后被 ES 展开覆盖语义保证 '1' 胜出。
-          // CHANGELOG_46：env 注入只看 settings.agentTeamsEnabled，不再要求 opts.teamName 非空。
-          // team 名由 lead 在会话内自由建（NewSessionDialog 已删 teamName 输入框），应用通过
-          // team-coordinator 反向同步到 sessions.team_name。
-          // env 是 spawn 时一次性传入，关 toggle 不影响在跑会话；summarizer 走自己的 query() 调用、
-          // 不读 agentTeamsEnabled，env 也不传，天然不被污染。
-          //
-          // 即便用户在 ~/.claude/settings.json 手动写过 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0，
-          // applyClaudeSettingsEnv 写进 process.env 后被 ES 展开覆盖语义保证 '1' 胜出。
+          // R3.E6：删除 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env 注入。
+          // universal team backend (DB watcher) 不依赖 CLI 实验特性。
           env: {
             ...runtime.env,
             AGENT_DECK_ORIGIN: 'sdk',
-            ...(settingsStore.get('agentTeamsEnabled')
-              ? { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' }
-              : {}),
           },
-          // CHANGELOG_45 后续修复 v2（撤回 v1）：
-          // v1 试过用 SDK extraArgs 把 teamName 通过 CLI `--team-name <name>` flag 传给 lead
-          // CLI，**实测 CLI top-level help 没有 --team-name arg**（strings 里那个字符串属于
-          // CLI 内部模块文档，不是启动 flag）→ CLI 启动直接 exit code 1，会话起不来。
-          //
-          // 撤回该改动。team 名传递改走 systemPrompt.append 注入（见下面 systemPrompt 字段），
-          // 让 lead 在 system prompt 里"看到"自己属于哪个 team，spawn teammate 时自然用这个名字。
-          // 不传 CLI flag 就不会触发 CLI 启动失败；唯一缺点是 lead 必须读到那一行才生效，
-          // 但 SKILL.md 已明确要求 team_name 从会话上下文取，对齐良好。
           // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
           // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
           // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径

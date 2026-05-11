@@ -57,6 +57,41 @@ export function App(): JSX.Element {
     });
   }, []);
 
+  // R3.E12 — 一次性 dialog 引导用户备份 legacy team data（PR-A 版本）。
+  // 行为：启动后若 r3LegacyExportNoticeAcked === false 且本地有 ~/.claude/teams|tasks 目录 →
+  // 弹一个 confirm 提示「即将硬切，请去 Settings 备份」+ 按钮自动打开 SettingsDialog。
+  // 用户必须在 Settings 内点「我已知晓」按钮才真正 ack；本 dialog 不主动 ack（避免点 OK 后忘了去备份）。
+  // 详 R3.E0 ADR §11.4。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const settings = (await window.api.getSettings()) as AppSettings;
+      if (settings.r3LegacyExportNoticeAcked) return;
+      const hasData = await window.api.legacyTeamsHasData();
+      if (cancelled) return;
+      if (!hasData.teams && !hasData.tasks) {
+        // 没有 legacy data 也直接 ack（用户根本没用过老 backend）
+        void window.api.setSettings({ r3LegacyExportNoticeAcked: true });
+        return;
+      }
+      // 弹 confirm（不能 dismiss）
+      const goSettings = window.confirm(
+        'Agent Deck R3 即将彻底硬切：\n\n' +
+          '• Claude CLI 内自起的 team 不再被 agent-deck UI 看到\n' +
+          '• ~/.claude/teams/ 和 ~/.claude/tasks/ 不再被读取\n' +
+          '• 老 deep-code-review SKILL 重写为走 mcp__agent_deck__* 5 个 tool\n\n' +
+          '检测到本地有这些目录，强烈建议先去 Settings 一键导出备份。\n\n' +
+          '点【确定】= 立即打开 Settings 去备份；【取消】= 下次启动还会弹（不点「我已知晓」就会一直提示）。',
+      );
+      if (goSettings) {
+        setSettingsOpen(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // 启动时同步主进程当前还在等的 pending 请求 —— renderer HMR / 重启后 store 是空的，
   // 但主进程的 SDK 仍在 await 用户响应；不拉一次的话 PermissionRow 会被错渲成「已处理」，
   // 按钮不显示，用户授权不了 → SDK 死锁。
@@ -116,17 +151,7 @@ export function App(): JSX.Element {
     return off;
   }, [select]);
 
-  // CHANGELOG_45：team-permission-resolved 是 main 端写完 inbox response 后 emit 的
-  // 跨 renderer 同步事件 —— 让所有 renderer 把对应 pending 列表里的这条 team-permission-request
-  // 都删掉。本地 UI 已经在 row 内 onResolved 调 store.resolveTeamPermission 了，但当多窗口
-  // 或外部改 inbox 让 main 主动清时，这个 listener 是补强。
-  const resolveTeamPermissionByTeam = useSessionStore((s) => s.resolveTeamPermissionByTeam);
-  useEffect(() => {
-    const off = window.api.onTeamPermissionResolved(({ teamName, requestId }) => {
-      resolveTeamPermissionByTeam(teamName, requestId);
-    });
-    return off;
-  }, [resolveTeamPermissionByTeam]);
+  // R3.E7：删 onTeamPermissionResolved 监听（老 inbox 协议下线）
 
   const togglePin = async (): Promise<void> => {
     const next = !pinned;
@@ -185,19 +210,12 @@ export function App(): JSX.Element {
   const pendingPermsMap = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsksMap = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExitsMap = useSessionStore((s) => s.pendingExitPlanModesBySession);
-  const pendingTeamPermsMap = useSessionStore((s) => s.pendingTeamPermissionsBySession);
   const pending = useMemo(
     () =>
       sumPendingBuckets(
-        selectPendingBuckets(
-          sessions,
-          pendingPermsMap,
-          pendingAsksMap,
-          pendingExitsMap,
-          pendingTeamPermsMap,
-        ),
+        selectPendingBuckets(sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap),
       ),
-    [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap, pendingTeamPermsMap],
+    [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap],
   );
 
   const jumpToPending = (): void => {

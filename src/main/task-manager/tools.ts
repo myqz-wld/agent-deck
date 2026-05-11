@@ -1,5 +1,5 @@
 /**
- * Task Manager 的 5 个 in-process MCP tools（CHANGELOG_42 地基 + CHANGELOG_43 升级）。
+ * Task Manager 的 5 个 in-process MCP tools（CHANGELOG_42 地基 + CHANGELOG_43 + R3.E8 teamId 迁移）。
  *
  * 通过 `loadSdk()` 异步加载 SDK 才能拿到 `tool` / `createSdkMcpServer`：SDK 是
  * ESM-only，agent-deck 全栈用 [sdk-loader.ts](../adapters/claude-code/sdk-loader.ts)
@@ -14,18 +14,21 @@
  * 错误策略：所有 handler 内 try/catch 兜底；store 抛错（如 subject 空）→ 返回
  * isError: true，不让 throw 冒到 SDK 中断 agent loop。
  *
- * ─────────────────────────── CHANGELOG_43 升级 ───────────────────────────
+ * ─────────────────────────── R3.E8 升级 ───────────────────────────
  *
- * **Closure team_name 注入**：`buildTaskTools(repo, teamName)` 的 `teamName` 闭包
- * 进每个 handler。语义按工具角色拆开：
+ * **Closure team_id 注入**（替代 CHANGELOG_43 的 teamName 闭包）：每个 handler 通过
+ * `teamIdProvider`（lazy lookup `agent_deck_team_members` 反查 caller 当前所属 team；
+ * 多 team 时取最近 join + lead role 优先）拿当前 SDK session 的 team_id。
  *
- * | 工具 | team_name 来源 | 理由 |
+ * | 工具 | team_id 来源 | 理由 |
  * |---|---|---|
- * | `task_create` | 强制 closure（args 不暴露 team_name） | 写锁在自己 team |
- * | `task_update` | 强制 closure（args 不暴露；先校验 target.teamName === closure 才允许改） | 写锁；防跨 team 改 |
- * | `task_delete` | 强制 closure（先校验 target.teamName === closure 才允许删） | 写锁；防跨 team 删 |
+ * | `task_create` | 强制 closure（args 不暴露 team_id） | 写锁在自己 team |
+ * | `task_update` | 强制 closure（先校验 target.teamId === closure 才允许改） | 写锁；防跨 team 改 |
+ * | `task_delete` | 强制 closure（先校验 target.teamId === closure 才允许删） | 写锁；防跨 team 删 |
  * | `task_list`   | args 优先 / 不传时 = closure team；显式传 null = 全局任务 | 只读，允许 lead 跨 team 协调 |
- * | `task_get`    | 不限 team（按 task_id 直接查，返回带 teamName） | 只读，跨 team visibility 是协调必需 |
+ * | `task_get`    | 不限 team（按 task_id 直接查，返回带 teamId） | 只读，跨 team visibility 是协调必需 |
+ *
+ * 老 tasks.team_name 列继续保留只读历史；新代码不写 team_name。
  *
  * **后置事件 emit**：写操作（create / update / delete）成功后通过 main 进程
  * `eventBus.emit('task-changed', ...)`，main bootstrap 桥接到 `IpcEvent.TaskChanged`
@@ -56,7 +59,7 @@ function err(message: string) {
 
 /**
  * 把 zod 解析后的 args（snake_case + nullable | undefined）转成 TaskCreateInput
- * 子集（camelCase，不含 teamName —— 那是 closure 强制的）。仅放入「显式传了的字段」
+ * 子集（camelCase，不含 teamId / teamName —— 那是 closure 强制的）。仅放入「显式传了的字段」
  * （!== undefined），让 repo 的 update 路径区分「不动」与「设为 null」。
  */
 function argsToInputWithoutTeam(args: {
@@ -68,8 +71,8 @@ function argsToInputWithoutTeam(args: {
   blocks?: string[];
   blocked_by?: string[];
   labels?: string[];
-}): Omit<Partial<TaskCreateInput>, 'teamName'> {
-  const out: Omit<Partial<TaskCreateInput>, 'teamName'> = {};
+}): Omit<Partial<TaskCreateInput>, 'teamName' | 'teamId'> {
+  const out: Omit<Partial<TaskCreateInput>, 'teamName' | 'teamId'> = {};
   if (args.subject !== undefined) out.subject = args.subject;
   if (args.description !== undefined) out.description = args.description;
   if (args.status !== undefined) out.status = args.status;
@@ -83,27 +86,21 @@ function argsToInputWithoutTeam(args: {
 
 export async function buildTaskTools(
   repo: TaskRepo,
-  teamNameProvider: () => string | null,
+  teamIdProvider: () => string | null,
   /**
-   * lazy 工厂返回当前 SDK session id（CHANGELOG_<X> A3）。每次工具调用时调一次拿最新值，
-   * 与 teamNameProvider 同款 pattern（CHANGELOG_46）。
+   * lazy 工厂返回当前 SDK session id（CHANGELOG_<X> A3）。每次工具调用时调一次拿最新值。
    *
    * 用途：写操作（create / update→completed）成功后调 sessionManager.ingest 写一条
    * `team-task-created / team-task-completed` AgentEvent（source='sdk'）到 events 表，
-   * 让 TeamDetail「hook 事件流」section 也能显示 mcp task 操作（与 CLI 内置 TaskCreated
-   * hook 走同 kind 同视图，互补不冲突）。
+   * 让 TeamDetail「hook 事件流」section 也能显示 mcp task 操作。
    *
-   * sid 为 null 时跳过 ingest（不抛错）—— 与 teamNameProvider 「lead 还没建 team」窗口
-   * 的宽容策略一致。可选参数：测试可省（buildToolsAsDict 默认传 null 工厂）。
+   * sid 为 null 时跳过 ingest（不抛错）。
    */
   sessionIdProvider?: () => string | null,
 ): Promise<SdkMcpToolDefinition<any>[]> {
   const { tool } = await loadSdk();
-  // CHANGELOG_46：team_name 由 lazy provider 提供（每次工具调用时调一次拿最新值），
-  // 因为 createSession 入口不再知道 team 名 — team 由 lead 在会话内自由建，
-  // team-coordinator 反向同步到 sessionRepo.team_name。
-  // 工具 description 是构造时固化的字符串，不能动态嵌 team 名，改用通用措辞。
-  const getTeamName = (): string | null => teamNameProvider();
+  // R3.E8：team_id lazy provider，每次工具调用时调一次拿最新值。
+  const getTeamId = (): string | null => teamIdProvider();
   const getSessionId = (): string | null =>
     sessionIdProvider ? sessionIdProvider() : null;
 
@@ -149,19 +146,19 @@ export async function buildTaskTools(
       try {
         const input = {
           ...argsToInputWithoutTeam(args),
-          teamName: getTeamName(),
+          teamId: getTeamId(),
         } as TaskCreateInput;
         const created = repo.create(input);
         eventBus.emit('task-changed', {
           kind: 'created',
           taskId: created.id,
           task: created,
+          teamId: created.teamId,
           teamName: created.teamName,
           ts: Date.now(),
         });
         // CHANGELOG_<X> A3：同步 ingest 一条 team-task-created AgentEvent 到 events 表，
-        // 让 TeamDetail「hook 事件流」section 显示该动作（与 CLI 内置 TaskCreated hook
-        // 走同 kind 同视图，互补不冲突）。sid=null 跳过（lead 还没建 team / 测试场景）。
+        // 让 TeamDetail「hook 事件流」section 显示该动作。sid=null 跳过。
         const sid = getSessionId();
         if (sid) {
           sessionManager.ingest({
@@ -188,7 +185,7 @@ export async function buildTaskTools(
   // ───── task_list
   const taskList = tool(
     'task_list',
-    `List tasks. Defaults to current session's team. Pass team_name explicitly to override: a string queries that team; null queries only global tasks (team_name IS NULL). Returns { total, tasks: [...] }.`,
+    `List tasks. Defaults to current session's team. Pass team_id explicitly to override: a string queries that team_id; null queries only global tasks (team_id IS NULL). Returns { total, tasks: [...] }.`,
     {
       status_filter: z
         .enum(STATUS_VALUES)
@@ -198,12 +195,12 @@ export async function buildTaskTools(
         .string()
         .optional()
         .describe('Case-insensitive substring match on subject'),
-      team_name: z
+      team_id: z
         .string()
         .nullable()
         .optional()
         .describe(
-          `Override team scope. Omit = current session's team; null = only global; string = that team`,
+          `Override team scope. Omit = current session's team_id; null = only global; string = that team_id`,
         ),
       limit: z.number().int().min(1).max(500).optional().describe('Default 100, max 500'),
       offset: z.number().int().min(0).optional().describe('Default 0'),
@@ -213,8 +210,8 @@ export async function buildTaskTools(
         const opts: TaskListOptions = {};
         if (args.status_filter !== undefined) opts.status = args.status_filter;
         if (args.subject_filter !== undefined) opts.subjectKeyword = args.subject_filter;
-        // args 优先；没传时用 closure team。这是只读操作允许跨查的核心点。
-        opts.teamName = args.team_name !== undefined ? args.team_name : getTeamName();
+        // R3.E8：args.team_id 优先；没传时用 closure team_id。这是只读操作允许跨查的核心点。
+        opts.teamId = args.team_id !== undefined ? args.team_id : getTeamId();
         if (args.limit !== undefined) opts.limit = args.limit;
         if (args.offset !== undefined) opts.offset = args.offset;
         const tasks = repo.list(opts);
@@ -265,15 +262,14 @@ export async function buildTaskTools(
         const { task_id, ...rest } = args;
         const existing = repo.get(task_id);
         if (!existing) return err(`task ${task_id} not found`);
-        const currentTeam = getTeamName();
-        // 写权限锁：只能改自己 team 的任务（含全局任务的 agent 改全局任务）
-        if (existing.teamName !== currentTeam) {
+        const currentTeam = getTeamId();
+        // R3.E8 写权限锁：只能改自己 team_id 的任务
+        if (existing.teamId !== currentTeam) {
           return err(
-            `permission denied: task ${task_id} belongs to team "${existing.teamName ?? '<global>'}", current session is in "${currentTeam ?? '<global>'}"`,
+            `permission denied: task ${task_id} belongs to team_id "${existing.teamId ?? '<global>'}", current session is in team_id "${currentTeam ?? '<global>'}"`,
           );
         }
-        // 强制覆盖 teamName（防 patch 路径绕过 closure 锁；理论上 args 已经不暴露
-        // team_name，但 argsToInputWithoutTeam 也明确不放入，这里 patch 不会有 teamName 键）
+        // argsToInputWithoutTeam 已不放 teamId / teamName，patch 不会有 teamId 键
         const patch = argsToInputWithoutTeam(rest);
         const updated = repo.update(task_id, patch);
         if (!updated) return err(`task ${task_id} not found`);
@@ -281,12 +277,12 @@ export async function buildTaskTools(
           kind: 'updated',
           taskId: updated.id,
           task: updated,
+          teamId: updated.teamId,
           teamName: updated.teamName,
           ts: Date.now(),
         });
         // CHANGELOG_<X> A3：仅当 status 变成 'completed' 时 ingest team-task-completed
-        // AgentEvent —— 避免每次属性 update（如改 priority / labels）都污染事件流。
-        // 与 CLI 内置 TaskCompleted hook 同 kind 同视图。
+        // AgentEvent —— 避免每次属性 update 都污染事件流。
         const becameCompleted =
           patch.status === 'completed' && existing.status !== 'completed';
         const sid = getSessionId();
@@ -326,33 +322,25 @@ export async function buildTaskTools(
       try {
         const target = repo.get(args.task_id);
         if (!target) return err(`task ${args.task_id} not found`);
-        const currentTeam = getTeamName();
-        // 写权限锁：只能删自己 team 的任务
-        if (target.teamName !== currentTeam) {
+        const currentTeam = getTeamId();
+        // R3.E8 写权限锁：只能删自己 team_id 的任务
+        if (target.teamId !== currentTeam) {
           return err(
-            `permission denied: task ${args.task_id} belongs to team "${target.teamName ?? '<global>'}", current session is in "${currentTeam ?? '<global>'}"`,
+            `permission denied: task ${args.task_id} belongs to team_id "${target.teamId ?? '<global>'}", current session is in team_id "${currentTeam ?? '<global>'}"`,
           );
         }
-        // REVIEW_17 H1 修复：cascade=true 时把 closure team predicate 传进 repo.delete。
+        // R3.E8：cascade=true 时把 closure team_id predicate 传进 repo.delete。
         // BFS 路径上跨 team 的 child 整个跳过（不删 + 不展开它的下游），避免越权。
-        // 不在这里 throw / 报错：用户的请求是「删 self + cascade 同 team 下游」，
-        // 跨 team 的下游本来就不应该跟着删，silent skip 符合「同 team 边界」的最小语义；
-        // 真要跨 team 协调删，工具不该是入口（去用 force_cleanup_team / 改造 spec）。
         const deletedIds = repo.delete(args.task_id, {
           cascade: args.force ?? false,
-          predicate: (_, t) => t === currentTeam,
+          predicate: (_, _teamName, teamId) => teamId === currentTeam,
         });
-        // REVIEW_17 R2 / M1-R2：原来只 emit root 一条，cascade 下游 N-1 个
-        // 在 DB 已 DELETE 但事件不发，未来 Tasks tab UI 上 stale。改 repo.delete
-        // 返回 deletedIds 后，tool 层逐个 emit `kind:'deleted'`，让所有被删的
-        // task 都触发 renderer 端 onTaskChanged 同步刷新。
         for (const id of deletedIds) {
           eventBus.emit('task-changed', {
             kind: 'deleted',
             taskId: id,
             task: null,
-            // 跨 team child 已被 predicate 过滤；deletedIds 里所有 id 与 closure team
-            // 同范围（target.teamName === currentTeam，cascade 子集走 predicate）
+            teamId: target.teamId,
             teamName: target.teamName,
             ts: Date.now(),
           });

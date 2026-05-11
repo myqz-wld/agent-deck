@@ -152,23 +152,40 @@ Bash 工具调用时给 `timeout: 300000`，重 review 给 600000；轻量核查
 
 ---
 
-## Agent Teams
+## Agent Deck Universal Team Backend（R3 起，硬切替代老 Claude Code Agent Teams）
 
-### Teammate 权限审批由真人在宿主 UI 操作，lead 别插手
+老 Claude Code Agent Teams in-process backend（含 inbox 协议 / `TeamCreate` / `Agent(team_name)` / `SendMessage` / `TeamDelete` 4 个 builtin tools）已 R3 完全下线。当前所有 cross-adapter 协作通过 Agent Deck MCP 5 tool（`mcp__agent_deck__spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `shutdown_session`）。
 
-chat 里看到 stringified JSON 含 `type='permission_request'`（CLI 把 inbox 协议消息当 user message 推给你）：别 SendMessage 劝 teammate 放弃 / 改方法 / abort，也别 SendMessage 回 `permission_response`（协议只支持 `shutdown / plan_approval`）。等真人在宿主 PendingTab 批，期间做其他不依赖该 teammate 该 tool call 的工作。
+### 老 builtin → 新 MCP 语义映射
 
-### TeamDelete 异步延迟，首次失败别误判为 bug
+| 老 Claude builtin | 新 MCP tool | 备注 |
+|---|---|---|
+| `TeamCreate({team_name, ...})` | `spawn_session({adapter, cwd, prompt, team_name})` 首次 spawn 自动建 team | 不再有「先建 team 再加 member」MCP 路径；UI / CLI 可建空 team |
+| `Agent(team_name=..., subagent_type=...)` 起 teammate | `spawn_session({adapter:..., cwd:..., prompt:..., team_name:..., parent_session_id: caller})` | 多 adapter 自由选；prompt 必须自带（不再有 subagent_type 隐式 prompt） |
+| `SendMessage({to:'teammate-name', message:...})` | `send_message({session_id: <teammate-sid>, team_id?: ..., text:...})` + `wait_reply({session_id, until:'turn_complete', since_ts: spawn_response.sentAt - 5000})` | 必须显式拿 session_id（不能用 name 路由）；多 team 共享时必填 team_id |
+| `TeamDelete()` | `shutdown_session` 各 member + IPC `agent-deck-team:archive` | 不再 cascade 删 fs；纯 DB 操作 |
 
-shutdown 完所有 teammate 后立刻 `TeamDelete` 经常报 `Cannot cleanup with N active member(s)`——CLI 内部异步移除 `config.json` members 实测延迟可达几分钟。等几分钟重试通常成功，期间做其他不依赖该 team 的事。
+### 你不必接管 inbox `permission_request` 协议
 
-### Lead 关 teammate 只发 `shutdown_request`，**严禁**发 `shutdown_response` —— 自杀
+R3 硬切后老 inbox 协议下线。teammate 调工具时走自己 SDK 会话的 canUseTool（不再走 lead inbox 转 PendingTab），lead **不再插手 teammate 权限审批**。如果你看到 chat 里出现 stringified JSON `type='permission_request'`：那是老 CLI 用户在用未升级的 v2.x 实验特性 —— 不要 `SendMessage` 任何东西，告诉用户升级 / 改用 `mcp__agent_deck__spawn_session` 路径即可。
 
-- **唯一姿势**：lead 调 `SendMessage(to: "<teammate-name>", message: {type: "shutdown_request", reason: "<原因>"})`，每个 teammate 各发一次（同一 message 多个 SendMessage 并发起即可）。teammate 收到后 SDK 自动走 response 自终止，lead **完全不参与 response 环节**，等 inbox 收 `shutdown_approved` 通知 → 再 `TeamDelete`
-- **为什么不能发 `shutdown_response`**：CLI v2.x 端 `SendMessage.validateInput` 强校验 `shutdown_response.to === "team-lead"`（协议设计：response 仅 teammate → lead 方向，approve 触发的是**响应方**自身的 abortController）
-  - lead 发 `shutdown_response` 到 teammate → SendMessage 直接拒
-  - lead 改投 `to: "team-lead"`（自己）「绕开校验」→ SDK 端 handler 拿到当前 caller 的 abortController 就是 lead 自己的 → **lead 自我 abort、整个会话 sdk-stream-ended、cleanup 现场死亡**（实测）
-- **典型踩坑链**：lead 发自然语言「请 cleanup」给 teammate → teammate 反向 originate `shutdown_request` 求许可 → lead 误以为要「approve shutdown」于是发 `shutdown_response` → 自杀。绕过路径：lead 永远只发 `shutdown_request` 主动方向，不接 teammate 的反向 request
+### 用 wait_reply 时**必须**带 since_ts buffer 防 race
+
+```ts
+const sendResp = await mcp__agent_deck__send_message({...});
+const reply = await mcp__agent_deck__wait_reply({
+  session_id,
+  until: 'turn_complete',
+  timeout_ms: 600_000,
+  since_ts: sendResp.sentAt - 5000,  // 关键！buffer 5 秒防 race
+});
+```
+
+不带 since_ts buffer 会卡 600s timeout：因为 reviewer adapter event 的 ts 可能比 wait_reply handler 注册更早到达（baselineTs 过滤掉了）。-5000 让 backfill 兜底拉历史段。
+
+### shutdown_session 不删数据，仅 lifecycle=closed
+
+`shutdown_session` 只把 session 标 lifecycle='closed' + abort SDK live query；**不**删 events / file_changes / summaries / messages 子表。lead 在裁决报告里仍可引用 reviewer 的输出（典型场景：deep-code-review SKILL 的三态裁决依赖 reviewer 的 finding 文本）。
 
 ---
 
