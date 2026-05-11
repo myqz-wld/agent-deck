@@ -111,6 +111,26 @@ function applyCodexMcpServers(p: Partial<AppSettings>, next: AppSettings): void 
     .catch((err) => console.warn('[settings] 加载 toml-writer 失败', err));
 }
 
+/**
+ * CHANGELOG_<X> D1：injectAgentDeckCodexAgentsMd 改了 → 同步 Agent Deck 段到
+ * ~/.codex/AGENTS.md（marker 包裹）。开 → 写入；关 → 移除段（保留用户内容）。
+ *
+ * 与 applyCodexMcpServers 同模式：spawn-time options（codex 不支持热重载 AGENTS.md），
+ * 改后**下次新建 codex 会话**生效。
+ */
+function applyCodexAgentsMd(p: Partial<AppSettings>, _next: AppSettings): void {
+  if (!('injectAgentDeckCodexAgentsMd' in p)) return;
+  void import('@main/codex-config/agents-md-installer')
+    .then(({ syncAgentDeckSection }) => {
+      try {
+        syncAgentDeckSection();
+      } catch (err) {
+        console.warn('[settings] syncAgentDeckSection 失败', err);
+      }
+    })
+    .catch((err) => console.warn('[settings] 加载 agents-md-installer 失败', err));
+}
+
 function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void {
   // summaryTimeoutMs / summaryEventCount / summaryMaxConcurrent 是每轮 scanAll
   // 内部读 settings 的，天生即时生效，不需要在这里分发。只 interval 需重启 setInterval。
@@ -193,6 +213,7 @@ export function registerSettingsIpc(): void {
       applyCodexCliPath,
       applyCodexSandboxMode,
       applyCodexMcpServers,
+      applyCodexAgentsMd,
       applySummaryInterval,
       invalidateClaudeMdCache,
     ] as const;
