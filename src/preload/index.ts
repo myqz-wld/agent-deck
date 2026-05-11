@@ -306,6 +306,23 @@ const api = {
   listTeamTasks: (name: string): Promise<{ tasks: TaskRecord[] }> =>
     ipcRenderer.invoke(IpcInvoke.TaskListByTeam, name),
   /**
+   * R3.E12 — 探测本地是否有 ~/.claude/teams/ 或 ~/.claude/tasks/ 目录。
+   * 用于 Settings 启动时一次性 dialog 弹不弹的判断。详 R3.E0 ADR §11.4。
+   */
+  legacyTeamsHasData: (): Promise<{ teams: boolean; tasks: boolean }> =>
+    ipcRenderer.invoke(IpcInvoke.LegacyTeamsHasData),
+  /**
+   * R3.E12 — 把 ~/.claude/teams/ + ~/.claude/tasks/ 整个目录递归复制到 targetParentDir 下，
+   * 子目录命名 `legacy-teams-export-<timestamp>/{teams,tasks}`。
+   *
+   * 不引入 zip 依赖，复制的是目录而非 zip 包；用户可在 Finder / 终端再打包。
+   * 抛错表示两源都失败；正常返回含 destDir + copied 状态。
+   */
+  legacyTeamsExport: (
+    targetParentDir: string,
+  ): Promise<{ destDir: string | null; copied: { teams: boolean; tasks: boolean } }> =>
+    ipcRenderer.invoke(IpcInvoke.LegacyTeamsExport, targetParentDir),
+  /**
    * 订阅某 team 的 fs 变化（chokidar 引用计数 +1）。返回 unsubscribe 闭包：
    * 调用时既触发 `TeamUnsubscribe` IPC（引用计数 -1，60s grace 后真 close），
    * 也 detach 本地 ipcRenderer listener（避免 leak）。
