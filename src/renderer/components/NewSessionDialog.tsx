@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import type { AppSettings } from '@shared/types';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 
 interface AdapterInfo {
@@ -8,7 +7,7 @@ interface AdapterInfo {
   capabilities: {
     canCreateSession?: boolean;
     canSetPermissionMode?: boolean;
-    canJoinTeam?: boolean;
+    canCollaborate?: boolean;
   };
 }
 
@@ -25,9 +24,6 @@ const PERMISSION_OPTIONS: { value: 'default' | 'acceptEdits' | 'plan' | 'bypassP
   { value: 'bypassPermissions', label: '完全免询问 ⚠️' },
 ];
 
-// Codex 三档 sandbox 直接映射（CHANGELOG_<X>）。codex SDK 的 ApprovalMode 在我们应用里
-// 起不了作用（无 canUseTool 等价回调），sandboxMode 才是真正能起作用的隔离旋钮。
-// 「跟随设置」= 不传该字段，sdk-bridge 用 settings.codexSandbox 全局值。
 type CodexSandboxChoice = '' | 'workspace-write' | 'read-only' | 'danger-full-access';
 const CODEX_SANDBOX_OPTIONS: { value: CodexSandboxChoice; label: string }[] = [
   { value: '', label: '跟随设置（默认）' },
@@ -44,13 +40,9 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [permissionMode, setPermissionMode] =
     useState<'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'>('default');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
-  /**
-   * Agent Teams 实验特性总开关。**仅控制是否注入 env CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1**。
-   * CHANGELOG_46 起 NewSessionDialog 不再让用户预填 team 名 —— team 名完全由 lead 在会话内
-   * 自由决定，应用通过 PreToolUse hook + fs watcher + hook 三层反向同步到 sessions.team_name。
-   * null = settings 还没拉到（loading）。
-   */
-  const [agentTeamsEnabled, setAgentTeamsEnabled] = useState<boolean | null>(null);
+  // R3.E7：删 agentTeamsEnabled / canJoinTeam 路径（老 inbox 协议下线）。
+  // 新 universal team backend 不需要在新建会话对话框里预选 team —— 用户在 TeamHub
+  // 单独建 team / 加 member。
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -66,10 +58,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         setAgentId(usable[0].id);
       }
     });
-    void window.api.getSettings().then((s) => {
-      const settings = s as Partial<AppSettings> | undefined;
-      setAgentTeamsEnabled(settings?.agentTeamsEnabled ?? false);
-    });
   }, [open]);
 
   if (!open) return null;
@@ -78,12 +66,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const selectedAdapter = adapters.find((a) => a.id === agentId);
   // permission 模式是 Claude SDK 的 SDK-only feature；codex 没有运行时切权限模式
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
-  // Codex 三档 sandbox：仅在 codex-cli adapter 时显示。两个权限相关字段天然互斥
-  // （codex canSetPermissionMode=false → showPermissionMode 为 false，codex 自己用 sandbox）
+  // Codex 三档 sandbox：仅在 codex-cli adapter 时显示
   const showCodexSandbox = agentId === 'codex-cli';
-  // Agent Teams 启用提示（仅展示用，不可编辑 team 名）：双条件满足才显示
-  const showTeamHint =
-    agentTeamsEnabled === true && (selectedAdapter?.capabilities.canJoinTeam ?? false);
 
   const browse = async (): Promise<void> => {
     const r = await window.api.chooseDirectory(cwd || undefined);
@@ -93,10 +77,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const submit = async (): Promise<void> => {
     setError(null);
     if (!prompt.trim()) {
-      // SDK streaming 协议：CLI 子进程必须收到 stdin 首条 user message 才会启动，
-      // 空 prompt 会卡死直到 30s fallback。所以这里强制必填。
-      // 注意：即使带 attachments 也必须有文字，因为 codex SDK / claude SDK 的首条 prompt
-      // 都需要文本驱动 turn（图片只是辅助 context）
       setError('请填写首条消息（SDK 必须有首条消息才能启动 CLI 子进程）');
       return;
     }
@@ -110,13 +90,9 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
       return;
     }
     try {
-      // CHANGELOG_46：不再传 teamName；team 由 lead 在会话内自由建，
-      // 应用反向同步（PreToolUse hook + fs watcher + hook 三层）。
       const id = await window.api.createAdapterSession(agentId, {
         cwd: cwd.trim(),
         prompt: prompt.trim() || undefined,
-        // 隐藏的字段不传，避免 codex 等无关 agent 收到无意义参数。
-        // model 入参已彻底删（CHANGELOG_59）：Claude / Codex CLI 子进程自己读各自配置文件的 model
         permissionMode: showPermissionMode ? permissionMode : undefined,
         codexSandbox: showCodexSandbox && codexSandbox ? codexSandbox : undefined,
         ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
@@ -286,19 +262,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                   ))}
                 </select>
               </Field>
-            )}
-
-            {showTeamHint && (
-              <div className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1.5 text-[10px] leading-snug text-deck-muted/80">
-                <span className="text-deck-text">Agent Teams 实验特性已启用</span>。
-                team 名由 lead 在会话内自由决定（在首条消息里告诉 lead「请创建 team
-                <code className="mx-1 rounded bg-white/5 px-1">my-team</code>...」），
-                应用通过 hook + fs watcher 反向同步到 TeamHub / SessionCard 自动展示。
-                <br />
-                <span className="text-deck-muted/60">
-                  限制：不支持 /resume；需 Claude Code v2.1.32+。
-                </span>
-              </div>
             )}
 
             {error && (

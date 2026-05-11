@@ -4,17 +4,15 @@ import type {
   AskUserQuestionRequest,
   ExitPlanModeRequest,
   PermissionRequest,
-  TeamPermissionRequest,
 } from '@shared/types';
 import {
   EMPTY_ASK_QUESTIONS,
   EMPTY_EXIT_PLAN_MODES,
   EMPTY_REQUESTS,
-  EMPTY_TEAM_PERMISSIONS,
   RECENT_LIMIT,
   useSessionStore,
 } from '@renderer/stores/session-store';
-import { AskRow, ExitPlanRow, PermissionRow, TeamPermissionRow } from '@renderer/components/pending-rows';
+import { AskRow, ExitPlanRow, PermissionRow } from '@renderer/components/pending-rows';
 import { EMPTY_EVENTS } from './shared';
 import { eventKey } from './format';
 import { MessageBubble } from './rows/message-row';
@@ -40,28 +38,18 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
   const pendingExitPlanModes = useSessionStore(
     (s) => s.pendingExitPlanModesBySession.get(sessionId) ?? EMPTY_EXIT_PLAN_MODES,
   );
-  const pendingTeamPermissions = useSessionStore(
-    (s) => s.pendingTeamPermissionsBySession.get(sessionId) ?? EMPTY_TEAM_PERMISSIONS,
-  );
   const resolvePermission = useSessionStore((s) => s.resolvePermission);
   const resolveAsk = useSessionStore((s) => s.resolveAskQuestion);
   const resolveExitPlan = useSessionStore((s) => s.resolveExitPlanMode);
-  const resolveTeamPermission = useSessionStore((s) => s.resolveTeamPermission);
   const setPending = useSessionStore((s) => s.setPendingRequests);
   const [loaded, setLoaded] = useState(false);
   /** REVIEW_4 M18：listEvents IPC 失败时显示可恢复错误态而非死锁在「加载中…」 */
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    // aborted flag：切会话快时（< loadEvents/listAdapterPending 返回耗时），
-    // 旧会话的 then 回调如果已经被新会话的 useEffect 重跑替换，
-    // 仍然会执行 setRecent / setPending，把旧会话事件灌进新会话 recentEventsBySession。
-    // setSessions 的 prune 间接缓冲了这种 orphan，但 race 窗口里 UI 仍会闪一次错数据。
     let aborted = false;
     setLoaded(false);
     setLoadError(null);
-    // REVIEW_4 H4：与 store 的 RECENT_LIMIT 对齐。旧版硬编码 100 而 RECENT_LIMIT=30 时
-    // 一推新事件 70 条历史秒蒸发；现在常量同源避免再走样。
     void window.api
       .listEvents(sessionId, RECENT_LIMIT)
       .then((events) => {
@@ -71,13 +59,9 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
       })
       .catch((err: unknown) => {
         if (aborted) return;
-        // REVIEW_4 M18：IPC reject 不再让 setLoaded(true) 永不执行（feed 卡死在加载态）。
-        // 进可恢复错误态：UI 显示错误（store 仍按上一次值渲染，避免 0 历史白屏）。
         setLoadError(`加载历史事件失败：${(err as Error).message ?? String(err)}`);
         setLoaded(true);
       });
-    // 同步该会话当前真实的 pending 请求 —— renderer HMR / 切会话后 store 可能跟主进程脱节，
-    // 不拉的话事件流里的 permission-request 会被错渲成「已处理」按钮不显示。
     if (isSdk) {
       void window.api
         .listAdapterPending(agentId, sessionId)
@@ -86,8 +70,6 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
           setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes);
         })
         .catch((err: unknown) => {
-          if (aborted) return;
-          // permission 拉不到只影响 banner / 按钮可见性，不阻塞 feed 渲染，静默 console。
           console.warn('[activity-feed] listAdapterPending failed:', err);
         });
     }
@@ -96,9 +78,6 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     };
   }, [sessionId, agentId, isSdk, setRecent, setPending]);
 
-  // REVIEW_4 M14：pendingPermIds / cancelled* Set 用 useMemo 锁定，
-  // 旧版每次 render 新建 Set 让所有 row 的 props 引用变化，React.memo 失效；
-  // 同时把 cancelled scan 也合并 useMemo 依赖到 [recent]，避免每次 parent rerender 都 O(n) 扫。
   const pendingPermIds = useMemo(
     () => new Set(pendingPermissions.map((r) => r.requestId)),
     [pendingPermissions],
@@ -111,22 +90,12 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     () => new Set(pendingExitPlanModes.map((r) => r.requestId)),
     [pendingExitPlanModes],
   );
-  const pendingTeamPermIds = useMemo(
-    () => new Set(pendingTeamPermissions.map((r) => r.requestId)),
-    [pendingTeamPermissions],
-  );
 
-  // 扫一遍历史事件，收集「被 SDK 取消」过的 requestId 四组集合。
-  // SDK 取消 ≠ 用户响应：流终止 / interrupt / 超时 / teammate idle 时主进程会 emit 一条
-  // `*-cancelled` 事件，同时把对应 pending 从 store 删掉。光看 stillPending=false 没法
-  // 区分「用户拒绝/允许」与「被取消」，UI 之前用同一句「已响应或已被 SDK 取消」糊在一起，
-  // 看不出来到底谁动的。team-permission-cancelled 是 inbox-watcher 检测到 teammate
-  // 写 idle_notification 时触发（teammate idle ≈ pending tool call 不会再被响应）。
-  const { cancelledPermIds, cancelledAskIds, cancelledExitIds, cancelledTeamPermIds } = useMemo(() => {
+  // R3.E7：删 cancelledTeamPermIds（老 inbox 协议下线）
+  const { cancelledPermIds, cancelledAskIds, cancelledExitIds } = useMemo(() => {
     const perms = new Set<string>();
     const asks = new Set<string>();
     const exits = new Set<string>();
-    const teamPerms = new Set<string>();
     for (const e of recent) {
       if (e.kind !== 'waiting-for-user') continue;
       const p = (e.payload ?? {}) as { type?: string; requestId?: string };
@@ -135,18 +104,10 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
       if (p.type === 'permission-cancelled') perms.add(rid);
       else if (p.type === 'ask-question-cancelled') asks.add(rid);
       else if (p.type === 'exit-plan-cancelled') exits.add(rid);
-      else if (p.type === 'team-permission-cancelled') teamPerms.add(rid);
     }
-    return { cancelledPermIds: perms, cancelledAskIds: asks, cancelledExitIds: exits, cancelledTeamPermIds: teamPerms };
+    return { cancelledPermIds: perms, cancelledAskIds: asks, cancelledExitIds: exits };
   }, [recent]);
 
-  // tool-use-end 事件 payload 只带 toolUseId / toolName / toolResult，不带 toolInput。
-  // 渲染 ToolEndRow 时想显示「✨ Skill 完成 · agent-deck:deep-code-review」这种带 input 摘要的
-  // 文本，需要从同 sessionId 前一条 tool-use-start 反查。这里 build 一次 Map<toolUseId, startEvent>，
-  // 通过 prop 透传给 ActivityRow → ToolEndRow，零持久化层改动。
-  // 副作用 1：老 events（修复 toolName 漏传 bug 之前持久化的）payload 缺 toolName 的也能从 start
-  // 事件兜底拿回来 —— 只要前一条 start 还在 recent 窗口（默认 RECENT_LIMIT=30）内。
-  // 副作用 2：跨 RECENT_LIMIT 窗口的 end 仍兜不到，但这是边界情况（start/end 通常几秒内紧挨着）。
   const toolStartByUseId = useMemo(() => {
     const m = new Map<string, AgentEvent>();
     for (const e of recent) {
@@ -170,11 +131,6 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
   }
 
   return (
-    // select-text 覆盖全局 `#root { user-select: none }`（globals.css 那条是为了拖窗时不选中文字）。
-    // 活动流不参与拖窗（拖窗只在 header 的 .drag-region），整体放开方便用户复制对话内容、
-    // tool 输出、JSON 入参等；button / select 因 chromium user-agent 默认自带 user-select: none，
-    // 不会被影响，textarea / input 本身就可选。
-    // REVIEW_4 L1：role="log" + aria-live="polite" 让屏阅器跟进新事件。
     <ol
       className="flex flex-col gap-1.5 select-text"
       role="log"
@@ -191,16 +147,13 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
           pendingPermIds={pendingPermIds}
           pendingAskIds={pendingAskIds}
           pendingExitIds={pendingExitIds}
-          pendingTeamPermIds={pendingTeamPermIds}
           cancelledPermIds={cancelledPermIds}
           cancelledAskIds={cancelledAskIds}
           cancelledExitIds={cancelledExitIds}
-          cancelledTeamPermIds={cancelledTeamPermIds}
           toolStartByUseId={toolStartByUseId}
           resolvePermission={resolvePermission}
           resolveAsk={resolveAsk}
           resolveExitPlan={resolveExitPlan}
-          resolveTeamPermission={resolveTeamPermission}
         />
       ))}
     </ol>
@@ -215,27 +168,15 @@ interface RowProps {
   pendingPermIds: Set<string>;
   pendingAskIds: Set<string>;
   pendingExitIds: Set<string>;
-  pendingTeamPermIds: Set<string>;
   cancelledPermIds: Set<string>;
   cancelledAskIds: Set<string>;
   cancelledExitIds: Set<string>;
-  cancelledTeamPermIds: Set<string>;
   toolStartByUseId: Map<string, AgentEvent>;
   resolvePermission: (sessionId: string, requestId: string) => void;
   resolveAsk: (sessionId: string, requestId: string) => void;
   resolveExitPlan: (sessionId: string, requestId: string) => void;
-  resolveTeamPermission: (sessionId: string, requestId: string) => void;
 }
 
-/**
- * 单条事件 dispatcher。把"可操作"的事件（权限请求、AskUserQuestion、ExitPlanMode）直接内嵌按钮，
- * 把"信息密集"的事件（Edit 类工具调用、tool result）直接展开 diff/结果，
- * 让用户在活动流里就能完成全部交互，不必跳到顶部 banner。
- *
- * REVIEW_4 M14：包 React.memo —— props 引用稳定（pendingPermIds 等用 useMemo + 父级 callback 不变）
- * 时跳过 re-render。如果 event 引用不变但 set 内容变（如某条 permission 从 pending 变 cancelled），
- * Set 引用变化会触发该 row re-render，符合预期。
- */
 const ActivityRow = memo(function ActivityRow({
   event,
   sessionId,
@@ -244,16 +185,13 @@ const ActivityRow = memo(function ActivityRow({
   pendingPermIds,
   pendingAskIds,
   pendingExitIds,
-  pendingTeamPermIds,
   cancelledPermIds,
   cancelledAskIds,
   cancelledExitIds,
-  cancelledTeamPermIds,
   toolStartByUseId,
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
-  resolveTeamPermission,
 }: RowProps): JSX.Element {
   if (event.kind === 'message') {
     return <MessageBubble event={event} agentId={agentId} />;
@@ -308,19 +246,6 @@ const ActivityRow = memo(function ActivityRow({
           stillPending={pendingExitIds.has(rid)}
           wasCancelled={cancelledExitIds.has(rid)}
           onResolved={resolveExitPlan}
-        />
-      );
-    }
-    if (type === 'team-permission-request') {
-      const rid = (p.requestId as string) ?? '';
-      return (
-        <TeamPermissionRow
-          event={event}
-          payload={p as unknown as TeamPermissionRequest}
-          sessionId={sessionId}
-          stillPending={pendingTeamPermIds.has(rid)}
-          wasCancelled={cancelledTeamPermIds.has(rid)}
-          onResolved={resolveTeamPermission}
         />
       );
     }

@@ -27,6 +27,8 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { sessionManager } from '@main/session/manager';
 import { settingsStore } from '@main/store/settings-store';
+import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
+import { enqueueAgentDeckMessage } from '@main/teams/universal-message-watcher';
 import {
   AGENT_DECK_TOOL_NAMES,
   EXTERNAL_CALLER_ALLOWED,
@@ -166,6 +168,15 @@ const SEND_MESSAGE_SCHEMA = {
   session_id: z.string().min(1).max(128),
   text: z.string().min(1).max(100_000),
   caller_session_id: z.string().min(1).max(128),
+  // R3.E0 ADR §5.2 amend：multi-team 共享时必填，单 team 共享时可省（自动 resolve）
+  team_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'Team scope for this message. Required when caller and target share more than one active team; optional when sharing exactly one (auto-resolved). Reject when sharing zero teams.',
+    ),
 };
 
 const WAIT_REPLY_SCHEMA = {
@@ -270,7 +281,7 @@ export async function buildAgentDeckTools(
         fanOutSlot.release();
       }
 
-      // 持久化 spawn link / team_name / permission_mode（与 IPC adapters.ts handler 同款）
+      // 持久化 spawn link / team 关联 / permission_mode（与 IPC adapters.ts handler 同款）
       // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）
       const callerExists = sessionRepo.get(caller.callerSessionId) !== null;
       if (callerExists) {
@@ -279,8 +290,41 @@ export async function buildAgentDeckTools(
       if (adapter.capabilities.canSetPermissionMode && args.permission_mode) {
         sessionManager.recordCreatedPermissionMode(sid, args.permission_mode);
       }
+
+      // R3.E0 ADR §5.1 amend：team_name 触发 universal team backend ensure-team-by-name
+      // + 把 caller 加为 lead + 把新 session 加为 teammate（不再写 sessions.team_name 列）
+      let teamId: string | null = null;
       if (args.team_name) {
-        sessionManager.recordCreatedTeamName(sid, args.team_name);
+        try {
+          const team = agentDeckTeamRepo.ensureByName(args.team_name, { source: 'mcp' });
+          teamId = team.id;
+          // caller 自动以 lead role 加入（如已 active 则保留）。caller 不在 sessions 表
+          // （external __external__ 等）时跳过。
+          if (callerExists) {
+            try {
+              agentDeckTeamRepo.addMember({
+                teamId: team.id,
+                sessionId: caller.callerSessionId,
+                role: 'lead',
+                displayName: null,
+              });
+            } catch (e) {
+              // 已 active 时 invariant 抛错；视为「已是 lead」幂等成功
+              if (!(e instanceof TeamInvariantError)) throw e;
+            }
+          }
+          agentDeckTeamRepo.addMember({
+            teamId: team.id,
+            sessionId: sid,
+            role: 'teammate',
+            displayName: null,
+          });
+          // 兼容老 sessions.team_name 列（不破坏 distinctTeamNames / findByTeamName 老 read 路径）
+          // 但 R3 内 UI / 写路径都不再消费此列；下版本 v012 删
+          sessionManager.recordCreatedTeamName(sid, args.team_name);
+        } catch (e) {
+          console.warn(`[mcp spawn_session] team ensure / addMember failed for "${args.team_name}":`, e);
+        }
       }
 
       const created = sessionRepo.get(sid);
@@ -288,8 +332,10 @@ export async function buildAgentDeckTools(
         sessionId: sid,
         adapter: args.adapter,
         cwd: args.cwd,
-        teamName: created?.teamName ?? args.team_name ?? null,
+        teamId,
+        teamName: args.team_name ?? null,
         spawnDepth: created?.spawnDepth ?? (callerExists ? parentDepth + 1 : 0),
+        sentAt: Date.now(),
       });
     },
   );
@@ -297,7 +343,7 @@ export async function buildAgentDeckTools(
   // ──────────────────── send_message
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
-    'Send a user message to an existing session. Returns immediately after queueing — use wait_reply to observe the response.',
+    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing — use wait_reply to observe the response. Multi-team callers must specify team_id.',
     SEND_MESSAGE_SCHEMA,
     async (args) => {
       const caller = deriveCaller(args);
@@ -306,29 +352,71 @@ export async function buildAgentDeckTools(
       const callerCheck = validateExternalCaller(caller);
       if (callerCheck) return callerCheck;
 
-      const session = sessionRepo.get(args.session_id);
-      if (!session) {
+      const target = sessionRepo.get(args.session_id);
+      if (!target) {
         return err(`session ${args.session_id} not found`);
       }
-      if (session.lifecycle === 'closed') {
+      if (target.lifecycle === 'closed') {
         return err(
           `session ${args.session_id} is closed`,
           'Closed sessions cannot receive new messages. Spawn a new session if you need to continue.',
         );
       }
-      const adapter = adapterRegistry.get(session.agentId);
-      if (!adapter?.sendMessage) {
+      if (caller.callerSessionId === args.session_id) {
         return err(
-          `adapter "${session.agentId}" does not support sendMessage`,
-          'Hook-only / placeholder adapters cannot receive messages from MCP.',
+          'cannot send_message to self',
+          'A session cannot post a message to its own user turn via MCP.',
         );
       }
-      try {
-        await adapter.sendMessage(args.session_id, args.text);
-      } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+
+      // R3.E0 ADR §5.2 amend：team_id resolve via shared active teams
+      const sharedTeams = agentDeckTeamRepo.findSharedActiveTeams(
+        caller.callerSessionId,
+        args.session_id,
+      );
+      if (sharedTeams.length === 0) {
+        return err(
+          'no-shared-team',
+          `caller (${caller.callerSessionId.slice(0, 8)}) and target (${args.session_id.slice(0, 8)}) are not in any common active team. Spawn the target via spawn_session({team_name: '...'}) or join an existing team via the application UI before sending messages.`,
+        );
       }
-      return ok({ sessionId: args.session_id, queued: true });
+      let teamId: string;
+      if (args.team_id) {
+        if (!sharedTeams.includes(args.team_id)) {
+          return err(
+            `team-not-shared: team_id ${args.team_id} is not in the shared active set [${sharedTeams.join(', ')}]`,
+          );
+        }
+        teamId = args.team_id;
+      } else if (sharedTeams.length === 1) {
+        teamId = sharedTeams[0];
+      } else {
+        return err(
+          'ambiguous-team',
+          `caller and target share ${sharedTeams.length} active teams [${sharedTeams.join(', ')}]; pass team_id to disambiguate.`,
+        );
+      }
+
+      // 入队（messageRateLimiter + repo.insert 100KB cap + self-message 防御都在内部）
+      const result = enqueueAgentDeckMessage({
+        teamId,
+        fromSessionId: caller.callerSessionId,
+        toSessionId: args.session_id,
+        body: args.text,
+      });
+      if (!result.ok) {
+        return err(
+          `${result.error} (retryAfterMs=${result.retryAfterMs})`,
+          'Per-team rate limit exceeded. Retry after the indicated delay or raise mcpMessageRatePerTeamPerMin in Settings.',
+        );
+      }
+      return ok({
+        sessionId: args.session_id,
+        teamId,
+        messageId: result.message.id,
+        sentAt: result.message.sentAt,
+        queued: true,
+      });
     },
   );
 

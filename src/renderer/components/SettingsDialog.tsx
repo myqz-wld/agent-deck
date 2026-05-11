@@ -13,6 +13,7 @@ import { ClaudeMdSection } from './settings/sections/ClaudeMdSection';
 import { PluginAssetsSection } from './settings/sections/PluginAssetsSection';
 import { ExperimentalSection } from './settings/sections/ExperimentalSection';
 import { AgentDeckMcpSection } from './settings/sections/AgentDeckMcpSection';
+import { LegacyTeamExportSection } from './settings/sections/LegacyTeamExportSection';
 
 interface Props {
   open: boolean;
@@ -184,6 +185,7 @@ export function SettingsDialog({ open, onClose, onOpenAssetsLibrary }: Props): J
             />
             <ExperimentalSection settings={settings} update={update} />
             <AgentDeckMcpSection settings={settings} update={update} />
+            <LegacyTeamExportSection settings={settings} update={update} />
           </>
         )}
       </div>

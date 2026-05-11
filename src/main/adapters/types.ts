@@ -1,5 +1,6 @@
 import type {
   AgentEvent,
+  AgentDeckTeammateEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
   ExitPlanModeRequest,
@@ -28,17 +29,10 @@ export interface CreateSessionOptions {
   /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
   resume?: string;
   /**
-   * Agent Teams 团队名（仅 SDK 通道支持）。语义：应用内标签 + env 触发条件——
-   * 当 settingsStore.agentTeamsEnabled === true 且 teamName?.trim() 非空时，
-   * sdk-bridge 在 spawn CLI 子进程时把 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-   * 注入到 query() 的 env，让 Claude 内部启用 agent teams 实验特性。
-   *
-   * teamName 不会作为 SDK options 直接传给 Claude（Claude 自身用自然语言驱动建队 +
-   * 在 ~/.claude/teams/<name>/config.json 自管命名）；用户须在首条 prompt 里告诉 Claude
-   * 用这个名字（NewSessionDialog 给提示模板）。
-   *
-   * resume 路径下传 teamName 视为非法（Agent Teams 不支持 session resumption），
-   * sdk-bridge 直接 throw。
+   * R3 universal team backend：spawn_session 入口可附 team_name，由 MCP / IPC handler
+   * 在调用前 ensure-team-by-name + addMember；adapter 自己**不**处理 team。
+   * 字段保留用于把「lead 在 spawn 时同时建 team + 加 teammate」语义透传到 sessionManager.recordCreatedTeamName。
+   * 老 Claude Code experimental teams flag (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) 已 R3.E6 删除。
    */
   teamName?: string;
   /**
@@ -87,12 +81,14 @@ export interface AdapterCapabilities {
    */
   canCloseSession: boolean;
   /**
-   * 是否支持加入 Claude Code agent teams（实验特性，需 CLI ≥ v2.1.32）。
-   * - claude-code: true（SDK env 注入即启用）
-   * - codex-cli / aider / generic-pty: false（不走 Claude Code CLI）
-   * UI 据此与 settings.agentTeamsEnabled 双条件决定 NewSessionDialog 是否暴露 teamName 输入框。
+   * 是否支持作为 team member 接收 cross-adapter 消息（R3.E0 ADR §3.1 / E4 新增）。
+   * - claude-code / codex-cli: true（都有 sendMessage 把外来文字塞进 user turn）
+   * - aider / generic-pty: false（占位，F 阶段实装后改 true）
+   *
+   * UI 据此与 archived/closed 双条件决定 NewTeamMember dialog 是否暴露该 adapter。
+   * 取代老 capability `canJoinTeam`（R3.E6 已删，仅 Claude experimental teams flag 触发器）。
    */
-  canJoinTeam: boolean;
+  canCollaborate: boolean;
 }
 
 export interface AgentAdapter {
@@ -192,4 +188,40 @@ export interface AgentAdapter {
     scope: 'user' | 'project';
     cwd?: string;
   }): Promise<unknown>;
+
+  /**
+   * R3.E0 ADR §3.1 / E4 新增：把另一个 team member（来自任意 adapter）发来的消息塞进
+   * 本 session 的 user turn。
+   *
+   * 实现约束：
+   * - 必须**至少一次** delivery（重试 ≥ 1 次后才认为 failed）。watcher 先 update
+   *   status='delivering' 再调；adapter 抛错 → watcher catch + 退避（详 ADR §4.5）。
+   * - **不要**自己拼 fromMember 元信息前缀。watcher 已在 body 里拼好（统一格式见 ADR §4.4
+   *   `[from <displayName> @ <adapterId>]\n<原始 body>`）。adapter 直接 sendMessage(sessionId, body)。
+   *   fromMemberId 仅用于 logging / 路由调试。
+   * - 必须是异步：返回 Promise；resolve 表示「已成功提交给 adapter 的 message queue」（不是
+   *   「session 已生成 reply」）。watcher 不等 reply。
+   *
+   * capability 检查：调用方必须先看 capabilities.canCollaborate；为 true 的 adapter 应实现此方法。
+   * E5 watcher 在调前会 double-check：未实现 → status='failed' reason='adapter-no-collaborate'。
+   */
+  receiveTeammateMessage?(
+    sessionId: string,
+    fromMemberId: string,
+    body: string,
+  ): Promise<void>;
+
+  /**
+   * R3.E0 ADR §3.1 / §4.9 dispatcher：通知本 session 同 team 有 teammate 元事件
+   * （teammate 加入 / 离开 / team 归档）。
+   *
+   * 设计为 **optional + best-effort**：adapter 可不实现（默认丢弃事件）。
+   * 实现的 adapter 把事件以 system message / banner 形式插入 session
+   * （如「[team] codex-helper joined」）。
+   * dispatcher 不等返回，也不重试 —— 这只是观察性事件，不是关键路径。
+   */
+  notifyTeammateEvent?(
+    sessionId: string,
+    event: AgentDeckTeammateEvent,
+  ): Promise<void>;
 }

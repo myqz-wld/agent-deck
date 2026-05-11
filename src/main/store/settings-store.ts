@@ -16,7 +16,13 @@ interface StoreApi<T> {
  * 已被移除的字段名。每次启动时从持久化文件里清理一次，
  * 避免历史 install 留下的孤儿字段（如 anthropicApiKey）越积越多。
  */
-const REMOVED_KEYS: readonly string[] = ['anthropicApiKey'];
+const REMOVED_KEYS: readonly string[] = [
+  'anthropicApiKey',
+  // R3.E6 (PR-B) 硬切删除：agent teams 老 backend 下线
+  // —— inbox 协议 / Claude Code experimental teams flag / autoApprove 三档 全废
+  'agentTeamsEnabled',
+  'autoApproveTeammateMode',
+];
 
 let store: (Store<AppSettings> & StoreApi<AppSettings>) | null = null;
 

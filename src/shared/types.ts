@@ -11,6 +11,7 @@
 export * from './types/agent';
 export * from './types/session';
 export * from './types/team';
+export * from './types/agent-deck-team';
 export * from './types/permission';
 export * from './types/file';
 export * from './types/summary';

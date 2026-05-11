@@ -139,6 +139,7 @@ vi.mock('@main/store/settings-store', () => ({
   settingsStore: {
     get: (key: string) => {
       if (key === 'mcpWaitReplyIdleQuietMs') return 50; // 短一点让 idle 测试快返
+      if (key === 'mcpMessageRatePerTeamPerMin') return 9999; // 测试不限流
       return undefined;
     },
     getAll: () => ({
@@ -158,6 +159,54 @@ vi.mock('@main/store/event-repo', () => ({
   },
 }));
 
+// R3.E8 mock：agent-deck-team-repo + universal-message-watcher（spawn_session ensure-team /
+// send_message route via DB envelope）。测试不实际操作 SQLite，只验证 handler 决策。
+const enqueuedMessages: Array<{ teamId: string; fromSessionId: string; toSessionId: string; body: string }> = [];
+const sharedTeamsBySession = new Map<string, string[]>();
+function setSharedTeams(a: string, b: string, teamIds: string[]): void {
+  const key = [a, b].sort().join(':');
+  sharedTeamsBySession.set(key, teamIds);
+}
+vi.mock('@main/store/agent-deck-team-repo', () => ({
+  agentDeckTeamRepo: {
+    ensureByName: (name: string) => ({
+      id: `team-${name}`,
+      name,
+      createdAt: Date.now(),
+      archivedAt: null,
+      metadata: {},
+    }),
+    addMember: () => ({}),
+    findSharedActiveTeams: (a: string, b: string): string[] => {
+      const key = [a, b].sort().join(':');
+      return sharedTeamsBySession.get(key) ?? [];
+    },
+  },
+  TeamInvariantError: class TeamInvariantError extends Error {},
+}));
+vi.mock('@main/teams/universal-message-watcher', () => ({
+  enqueueAgentDeckMessage: (input: { teamId: string; fromSessionId: string; toSessionId: string; body: string }) => {
+    enqueuedMessages.push(input);
+    return {
+      ok: true as const,
+      message: {
+        id: `msg-${enqueuedMessages.length}`,
+        teamId: input.teamId,
+        fromSessionId: input.fromSessionId,
+        toSessionId: input.toSessionId,
+        body: input.body,
+        status: 'pending' as const,
+        statusReason: null,
+        sentAt: Date.now(),
+        deliveredAt: null,
+        attemptCount: 0,
+        lastAttemptAt: null,
+        deliveringSince: null,
+      },
+    };
+  },
+}));
+
 // ─── 动态 import 必须放在 mock 之后 ──────────────────────────────────────
 
 let buildAgentDeckTools: typeof import('../tools').buildAgentDeckTools;
@@ -169,6 +218,8 @@ beforeEach(async () => {
   recordTeamCalls.length = 0;
   recordPermCalls.length = 0;
   sendMessageCalls.length = 0;
+  enqueuedMessages.length = 0;
+  sharedTeamsBySession.clear();
   nextSpawnedSid = 'spawned-1';
   // 重新 import 让 mock 生效
   if (!buildAgentDeckTools) {
@@ -379,10 +430,11 @@ describe('agent-deck-mcp tools — spawn_session', () => {
 });
 
 describe('agent-deck-mcp tools — send_message', () => {
-  it('forwards to adapter.sendMessage and returns queued', async () => {
+  it('forwards via universal-message-watcher and returns queued', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     seedSession('teammate', { agentId: 'claude-code' });
+    setSharedTeams('lead', 'teammate', ['team-X']);
     const r = await tools.get('send_message').handler({
       session_id: 'teammate',
       text: 'work please',
@@ -391,7 +443,10 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(parsed.data.queued).toBe(true);
-    expect(sendMessageCalls).toEqual([{ sid: 'teammate', text: 'work please' }]);
+    expect(parsed.data.teamId).toBe('team-X');
+    expect(enqueuedMessages).toEqual([
+      { teamId: 'team-X', fromSessionId: 'lead', toSessionId: 'teammate', body: 'work please' },
+    ]);
   });
 
   it('rejects target session not found', async () => {
@@ -419,6 +474,36 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/is closed/);
+  });
+
+  it('rejects when caller and target share zero teams', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    // 不调 setSharedTeams → 默认 zero
+    const r = await tools.get('send_message').handler({
+      session_id: 'teammate',
+      text: 'hi',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/no-shared-team/);
+  });
+
+  it('rejects ambiguous-team when sharing >=2 teams without team_id', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    setSharedTeams('lead', 'teammate', ['team-X', 'team-Y']);
+    const r = await tools.get('send_message').handler({
+      session_id: 'teammate',
+      text: 'hi',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/ambiguous-team/);
   });
 });
 
