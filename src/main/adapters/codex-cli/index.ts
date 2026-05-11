@@ -45,7 +45,9 @@ class CodexCliAdapterImpl implements AgentAdapter {
   private bridge: CodexSdkBridge | null = null;
 
   async init(ctx: AdapterContext): Promise<void> {
-    this.bridge = new CodexSdkBridge({ emit: ctx.emit });
+    // CHANGELOG_<X> R2 / B'4：把 ctx.hookServer 传给 bridge，让 ensureCodex 在 spawn
+    // codex CLI 时通过 SDK config 字段注入 mcp_servers.agent-deck（连接到本应用 /mcp）。
+    this.bridge = new CodexSdkBridge({ emit: ctx.emit, hookServer: ctx.hookServer });
     // 启动时读一次 codexCliPath / codexSandbox，给 bridge
     this.bridge.setCodexCliPath(settingsStore.get('codexCliPath'));
     this.bridge.setCodexSandboxMode(settingsStore.get('codexSandbox'));

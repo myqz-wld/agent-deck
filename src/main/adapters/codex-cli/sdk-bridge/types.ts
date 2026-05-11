@@ -5,6 +5,7 @@
  */
 import type { Input, Thread } from '@openai/codex-sdk';
 import type { AgentEvent } from '@shared/types';
+import type { HookServer } from '@main/hook-server/server';
 
 export interface CodexSessionHandle {
   sessionId: string;
@@ -12,6 +13,15 @@ export interface CodexSessionHandle {
 
 export interface CodexBridgeOptions {
   emit: (e: AgentEvent) => void;
+  /**
+   * HookServer 实例引用（CHANGELOG_<X> R2 / B'4 + R1.A5 + R1.D7）。
+   * lazy ref：bridge 构造时存指针，ensureCodex 调用时实时读 isRunning / mcpBearerToken /
+   * listeningPort 计算 codex SDK config 字段（mcp_servers.agent-deck 自动注入）。
+   *
+   * Optional：null/undefined 时 codex 不挂 agent-deck MCP server（与 enableAgentDeckMcp
+   * OFF 同语义）。便于单测注入 mock 或不挂场景。
+   */
+  hookServer?: HookServer;
 }
 
 export interface InternalSession {
