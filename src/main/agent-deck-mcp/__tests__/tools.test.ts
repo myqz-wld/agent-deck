@@ -35,6 +35,23 @@ vi.mock('@main/store/session-repo', () => ({
       const r = sessionStore.get(id);
       if (r) sessionStore.set(id, { ...r, spawnedBy: parentId, spawnDepth: depth });
     },
+    listAncestors: (id: string) => {
+      const out = [];
+      let cursor = sessionStore.get(id);
+      const visited = new Set<string>([id]);
+      while (cursor && cursor.spawnedBy && !visited.has(cursor.spawnedBy)) {
+        visited.add(cursor.spawnedBy);
+        const parent = sessionStore.get(cursor.spawnedBy);
+        if (!parent) break;
+        out.push(parent);
+        cursor = parent;
+      }
+      return out;
+    },
+    listChildren: (parentId: string) =>
+      [...sessionStore.values()].filter(
+        (s) => s.spawnedBy === parentId && s.lifecycle === 'active',
+      ),
   },
 }));
 
@@ -124,6 +141,13 @@ vi.mock('@main/store/settings-store', () => ({
       if (key === 'mcpWaitReplyIdleQuietMs') return 50; // 短一点让 idle 测试快返
       return undefined;
     },
+    getAll: () => ({
+      // spawn-guards 读这些字段；测试默认给宽松值不阻塞 spawn 测试
+      mcpMaxSpawnDepth: 3,
+      mcpMaxFanOutPerParent: 5,
+      mcpSpawnRatePerMinute: 100, // 测试调高，避免 21 测试连环 spawn 触发限流
+      mcpWaitReplyIdleQuietMs: 50,
+    }),
   },
 }));
 
