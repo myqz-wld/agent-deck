@@ -215,26 +215,48 @@ const reply = await mcp__agent_deck__wait_reply({
 
 ### Step 2. Plan 文件 hand off（时间隔离）
 
-新建 plan 文件，**用 main repo 的绝对路径写入**（不要写到 worktree working tree——worktree 是独立 branch，跨会话 main repo 看不到该 branch 的文件）：
+新建 plan 文件，**用绝对路径写入**（不要写到 worktree working tree——worktree 是独立 branch，跨会话主 repo 看不到该 branch 的文件）。两个合法位置二选一：
 
-`<main-repo-abs-path>/.claude/plans/<plan-id>.md`
+- `<main-repo-abs-path>/.claude/plans/<plan-id>.md` —— project-specific plan 首选（self-contained / 跟项目一起归档）
+- `~/.claude/plans/<plan-id>.md` —— 跨项目 plan 或用 CLI `/plan` slash command 自动生成的 plan（CLI 默认落这里）
+
+不论哪种位置，下面 §Step 3 cold start prompt **必须写明绝对路径**，让新会话能直接 `Read`。
 
 内容：
 
-- frontmatter: `plan_id` / `created_at` / `worktree_path`（绝对路径）/ `status: in_progress|completed|abandoned`
+- frontmatter: `plan_id` / `created_at` / `worktree_path`（绝对路径）/ `status: in_progress|completed|abandoned` / `base_commit`（worktree HEAD 起始 commit，方便后续校验 worktree 没飘）
 - **总目标 & 不变量**：要解决什么 / 已定决策 / 不能违反的约束
 - **设计决策（不再争论）**：每条带简短理由
 - **步骤 checklist**：`- [x] Step N — done by <session> on <date>，commit <hash|uncommitted>` / 未完成步骤标状态 + 已知风险
 - **当前进度**：卡在哪 / 已验什么 / 未验什么
-- **下一会话第一步**：具体到「先 read X / 跑 Y / 改 Z」级别，**不要泛指**
-- **已知踩坑**（可选）
+- **下一会话第一步**：cold start 的**完整指令载体**（cold start prompt 之外**唯一**新会话需要看的指令源）。具体到「先 `Read` X / 跑 `pnpm Y` / 改 `Z:line`」级别，**不要泛指**。这一节写不清 = 下次会话啃哑谜
+- **已知踩坑**（可选）：本 plan 实施时碰过 / 上轮会话发现的雷，避免下次重踩
 
 ### Step 3. 接力姿势
 
-- **会话结束前必须**更新 plan：打勾完成步骤 + 写「当前进度」+ 写「下一会话第一步」。未更新就停 = 下次会话啃哑谜
-- **退出 worktree** 一律用 `ExitWorktree(action: "keep")`——见 §Step 4 cleanup 解释
-- **新会话开场**：先 `Read` plan 文件全文（main repo 路径） → `EnterWorktree(path: <plan frontmatter 的 worktree_path>)` 进同一 worktree → 按「下一会话第一步」直接动手；**不重新讨论已记录的设计决策**
-- **决策变更**必须开场明示用户征得确认，不默默改方向
+#### 会话结束前必做（hand off 责任）
+
+1. 更新 plan：打勾完成步骤 + 写「当前进度」+ 写「下一会话第一步」（详 §Step 2）
+2. **退出 worktree** 一律用 `ExitWorktree(action: "keep")`（见 §Step 4 cleanup 解释）
+3. 把下面这条 **cold start prompt** 给用户，用户复制贴新会话即可接力
+
+#### Cold start prompt（一句话接力）
+
+```
+按 <plan-abs-path> 接力
+```
+
+例：`按 /Users/apple/Repository/personal/agent-deck/.claude/plans/r4-generic-pty-20260511.md 接力`
+
+新会话 agent 看到这一句**必做**（不要再问用户任何问题）：
+
+1. `Read <plan-abs-path>` 全文（绝对路径——worktree 还没进就读不到 worktree 内相对路径）
+2. 从 frontmatter 拿 `worktree_path` → `EnterWorktree(path: <worktree_path>)` 进同一 worktree（用 `path`，不是 `name`，因为 worktree 已建好）
+3. （可选自检）`git log --oneline -3` 确认 HEAD = frontmatter `base_commit` 或之后；node_modules symlink 兜底等 plan §下一会话第一步 列的具体步骤
+4. 按 plan **§下一会话第一步** 节直接动手；**不重新讨论已记录的 §设计决策**
+5. 进度 / 决策变更必须先告诉用户征得确认，不默默改方向
+
+> **plan 文件 §下一会话第一步 节就是 cold start 的完整指令载体** —— 用户在新会话只需贴 cold start prompt 一句话，**不必复述任何细节**。如 plan 没写清这一节，是上轮会话 hand off 没收尾，新会话先补 plan 再动工，并告诉用户「上轮 hand off 不完整，已补 plan」。
 
 ### Step 4. plan 完成 / 中止 cleanup
 
