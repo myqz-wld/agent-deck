@@ -1,12 +1,13 @@
 /**
- * Generic-PTY 适配器（R4·F2 实装）。
+ * Generic-PTY 适配器（R4·F2 实装 + F-bonus canCollaborate）。
  *
  * 用 node-pty 包装任意 stdin/stdout-only CLI（用户自定义命令 / args / env / cwd）。
- * 通过 ANSI 解析与 idle 检测推断状态（F3 加），文件改动通过 chokidar（F4 加）。
+ * 通过 ANSI 解析与 idle 检测推断状态（F3），文件改动通过 chokidar（F4）。
  *
  * Capabilities：
  * - canCreateSession / canSendMessage / canInterrupt / canCloseSession：true（PTY 支持）
- * - canCollaborate：false（F-bonus 加 receiveTeammateMessage 后改 true）
+ * - canCollaborate：true（F-bonus：实装 receiveTeammateMessage = sendMessage，
+ *   让 universal team backend 能把跨 adapter 消息塞进 PTY stdin）
  * - canRespondPermission / canSetPermissionMode / canInstallHooks / canRestartWith*：false（无概念）
  *
  * 与 aider adapter 的关系（plan §F-bonus 选项 B 落地）：共享 GenericPtyBridge class，
@@ -31,8 +32,9 @@ class GenericPtyAdapterImpl implements AgentAdapter {
     canRestartWithPermissionMode: false,
     canRestartWithCodexSandbox: false,
     canCloseSession: true,
-    // F-bonus 加 receiveTeammateMessage 后改 true
-    canCollaborate: false,
+    // R4·F-bonus：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage =
+    // sendMessage 透传给 stdin write，与 claude-code / codex-cli 同模式）
+    canCollaborate: true,
   };
 
   private bridge: GenericPtyBridge | null = null;
@@ -80,6 +82,20 @@ class GenericPtyAdapterImpl implements AgentAdapter {
   ): Promise<void> {
     if (!this.bridge) throw new Error('generic-pty adapter not initialized');
     await this.bridge.sendMessage(sessionId, text, attachments);
+  }
+
+  /**
+   * R4·F-bonus：receiveTeammateMessage = 调本 adapter 的 sendMessage（与 claude-code /
+   * codex-cli 同模式）。watcher 已在 body 里拼好 `[from <displayName> @ <adapterId>]` 前缀，
+   * 直接透传给 stdin write 即可。fromMemberId 仅用于 logging。
+   */
+  async receiveTeammateMessage(
+    sessionId: string,
+    _fromMemberId: string,
+    body: string,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('generic-pty adapter not initialized');
+    await this.bridge.sendMessage(sessionId, body);
   }
 }
 
