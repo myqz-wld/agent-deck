@@ -3,6 +3,11 @@ import type { Codex, Input, Thread, UserInput } from '@openai/codex-sdk';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
+import { settingsStore } from '@main/store/settings-store';
+import {
+  buildAgentDeckMcpConfigForCodex,
+  mergeCodexConfig,
+} from '@main/codex-config/agent-deck-mcp-injector';
 // CHANGELOG_52 Step 4a-4c：拆 class 完成。本目录（sdk-bridge/）含 4 sub-module + index.ts (facade)。
 //
 // **TS module resolution 假设**（与 claude sdk-bridge 同款）：moduleResolution: node
@@ -122,9 +127,22 @@ export class CodexSdkBridge {
     // > SDK 自己 resolve（dev 模式正常，打包后会拼出 app.asar 内路径导致 spawn ENOTDIR，见
     // resolveBundledCodexBinary 注释）
     const overridePath = this.codexCliPath || resolveBundledCodexBinary();
-    this.codex = new sdk.Codex(
-      overridePath ? { codexPathOverride: overridePath } : {},
-    );
+    // CHANGELOG_<X> R2 / B'4 + R1.A5 + R1.D7：自动注入 agent-deck MCP server 配置
+    // 给 codex SDK，让 codex CLI 子进程 spawn 时通过 --config mcp_servers.agent-deck.url=...
+    // 连接到本应用 HookServer /mcp 路由（HTTP transport）。bearer token 走 env var
+    // 间接引用（AGENT_DECK_MCP_TOKEN 由 main bootstrap 设进 process.env，子进程继承）。
+    // 不满足注入条件（设置 OFF / hookServer 未启 / token 未生成）→ 返回 null，
+    // codex 不挂 agent-deck server（其他用户手配 mcp_servers 段不受影响，走 ~/.codex/config.toml 持久化）
+    const settings = settingsStore.getAll();
+    const agentDeckMcpConfig = buildAgentDeckMcpConfigForCodex(settings, this.opts.hookServer ?? null);
+    const codexConfig = mergeCodexConfig(null, agentDeckMcpConfig);
+    if (agentDeckMcpConfig) {
+      console.log('[codex-bridge] agent-deck MCP server config injected (HTTP transport)');
+    }
+    this.codex = new sdk.Codex({
+      ...(overridePath ? { codexPathOverride: overridePath } : {}),
+      ...(codexConfig ? { config: codexConfig } : {}),
+    });
     return this.codex;
   }
 
