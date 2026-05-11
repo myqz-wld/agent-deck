@@ -35,7 +35,7 @@
  */
 
 import { eventBus } from '@main/event-bus';
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, SessionRecord } from '@shared/types';
 
 export type WaitReplyUntil = 'first_message' | 'turn_complete' | 'idle';
 
@@ -67,6 +67,9 @@ interface PromiseRecord {
   collected: EventProjection[];
   unsubscribeAgent: () => void;
   unsubscribeRemove: () => void;
+  /** R3.E5 / ADR §4.8 修法：监听 session-upserted.lifecycle='closed'，
+   *  让 sessionManager.close / markClosed / setLifecycle(closed) 都能解锁 wait_reply。 */
+  unsubscribeUpsert: () => void;
   /** idle 模式：每收一个 event reset 一次定时器 */
   idleTimer: NodeJS.Timeout | null;
   idleQuietMs: number;
@@ -147,6 +150,7 @@ export class WaitReplyCoordinator {
       this.active.delete(key);
       rec.unsubscribeAgent();
       rec.unsubscribeRemove();
+      rec.unsubscribeUpsert();
       if (rec.idleTimer) {
         clearTimeout(rec.idleTimer);
         rec.idleTimer = null;
@@ -187,8 +191,18 @@ export class WaitReplyCoordinator {
       finish('session-closed');
     };
 
+    // R3.E5 / ADR §4.8 修法：sessionManager.close / markClosed / setLifecycle(closed)
+    // 都仅 emit `session-upserted`，**不**触发 `session-removed`。caller 用 until='turn_complete'
+    // 时 close 流程不必然 emit `finished` / `waiting-for-user` / `message`，会卡到 timeout。
+    // 这里同步监听 session-upserted lifecycle 切到 closed 立即解锁 wait_reply。
+    const onSessionUpserted = (rec: SessionRecord) => {
+      if (rec.id !== sessionId) return;
+      if (rec.lifecycle === 'closed') finish('session-closed');
+    };
+
     const unsubscribeAgent = eventBus.on('agent-event', onAgentEvent);
     const unsubscribeRemove = eventBus.on('session-removed', onSessionRemoved);
+    const unsubscribeUpsert = eventBus.on('session-upserted', onSessionUpserted);
 
     const record: PromiseRecord = {
       promise,
@@ -197,6 +211,7 @@ export class WaitReplyCoordinator {
       collected,
       unsubscribeAgent,
       unsubscribeRemove,
+      unsubscribeUpsert,
       idleTimer: until === 'idle' ? setTimeout(() => finish('idle'), idleQuietMs) : null,
       idleQuietMs,
       until,
@@ -224,6 +239,7 @@ export class WaitReplyCoordinator {
     for (const [, rec] of this.active.entries()) {
       rec.unsubscribeAgent();
       rec.unsubscribeRemove();
+      rec.unsubscribeUpsert();
       if (rec.idleTimer) clearTimeout(rec.idleTimer);
       rec.resolve({
         baselineTs: rec.baselineTs,

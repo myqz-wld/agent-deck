@@ -16,8 +16,7 @@
 - **控制权交接提醒**：waiting → 红闪烁 + 提示音 + 系统通知 + Dock 弹跳；finished → 黄 + 完成音；可逐项关闭，可换自定义提示音
 - **三类人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Plan mode 执行计划批准 —— 全部在活动流卡片里直接处理。批准 plan 时可选目标权限模式（默认 / 自动接受编辑 / 保持 Plan / 完全免询问）；切到「完全免询问」会自动重启 SDK 子进程
 - **OS 级沙盒**（实验，默认关）：Claude Code SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐
-- **Agent Teams 实验入口**（默认关）：开启后 NewSessionDialog 暴露 team 名输入框 + 自动回填模板 prompt；team 视图显示成员清单 / 应用内会话 / shared task list / 结构化 tasks（mcp__tasks__* 实时） / 三个新 hook 事件流（TaskCreated / TaskCompleted / TeammateIdle，mcp 写操作也会同步出现），需 Claude Code CLI ≥ v2.1.32
-- **Teammate 权限自动放行**（默认 read-only）：teammate 走 inbox 协议不会回到 lead 的 canUseTool，所以 lead 的 permissionMode / settings.json 白名单对 teammate 失效；本应用层 inbox-watcher 按设置项主动放行只读工具（默认）/ 跟随 lead permissionMode（acceptEdits → 加放行 Edit/Write；bypassPermissions → 全放行）/ 关闭（每次都弹）三档，运行时即时切换
+- **Universal Team Backend**（R3 起，硬切替代老 Claude Code Agent Teams 入口）：cross-adapter（claude / codex / aider / generic-pty）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent_deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；`mcp__agent_deck__send_message` 走 DB queue 投递；`mcp__agent_deck__wait_reply` 等 reply。**老 inbox 协议（CHANGELOG_45/46/56）已 R3 完全下线**——CLI 内自起的 team 在 agent-deck UI 永久失明；`~/.claude/teams/<X>/` 老数据只读历史保留，Settings 提供一次性 export 入口
 - **输入框图片附件**：会话主输入框 + 新建会话 dialog 都支持「粘贴 / 拖放 / 上传按钮」三件套发图（PNG / JPEG / GIF / WebP，单图 ≤ 20MB / 单条总附件 ≤ 30MB）。Claude SDK 走 base64 image content block，Codex SDK 接 `local_image` 文件路径，主进程统一把 base64 落盘到 `<userData>/image-uploads/<uuid>.<ext>` 喂下游；历史 detail view 里能看到自己发了什么图，14 天孤儿文件 reaper 自动清理
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
 - **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md 到 system prompt；可注入 agent-deck plugin 自带的 `deep-code-review` skill + `reviewer-claude` (Opus 4.7) / `reviewer-codex` (Codex CLI wrapper) 双异构对抗 subagent
@@ -219,8 +218,7 @@ agent-deck new \
 - **应用约定（CLAUDE.md）**：toggle 开关「是否注入到 SDK 会话 system prompt 末尾」；完整内容查看 / 编辑 / 「恢复默认」请到 Header「📚 资产库」→「应用约定」tab
 - **内置 Skill 与 Agent（agent-deck plugin）**：注入 `deep-code-review` skill + `reviewer-claude` / `reviewer-codex` 双异构对抗 agents 的 toggle；完整清单与触发关键词见 Header「📚 资产库」
 - **实验功能**：
-  - **Agent Teams**：toggle；开启后 NewSessionDialog 出 team 名输入框 + 自动回填 prompt 模板。仅下次新建会话生效
-  - **SDK Task Manager**：toggle；开启后 SDK 会话注入 `mcp__tasks__*` 系列结构化任务工具让多 Agent 跨会话协作管理结构化任务。当前会话 team 自动闭包注入到工具，写操作锁在自己 team；只读允许跨 team 协调。仅下次新建会话生效。完整工具清单见 Header「📚 资产库」
+  - **SDK Task Manager**：toggle；开启后 SDK 会话注入 `mcp__tasks__*` 系列结构化任务工具让多 Agent 跨会话协作管理结构化任务。当前会话 team_id（universal team backend，R3 起）自动闭包注入到工具，写操作锁在自己 team；只读允许跨 team 协调。仅下次新建会话生效。完整工具清单见 Header「📚 资产库」
   - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免；切档仅下次新建会话生效
 - **Agent Deck MCP server（R2，默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 5 个 tool（`spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `shutdown_session`）跨 adapter 编排其他 coding agent session。三 transport 并存：
   - **in-process**：claude SDK 会话自动挂（与 Task Manager 同模式）
@@ -229,7 +227,7 @@ agent-deck new \
 
   防递归 4 条规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 10） / 单 caller 最大子会话（默认 5） / cwd realpath 整链回溯 cycle 检测。`wait_reply` 三档 until：`first_message` / `turn_complete` / `idle`（高 reasoning effort 推荐 turn_complete）。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值。详见 [`docs/agent-deck-mcp-protocol.md`](docs/agent-deck-mcp-protocol.md) 协议 ADR
 
-大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；Agent Teams / SDK Task Manager / 沙盒档位 / Agent Deck MCP transport 开关是 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / idleQuiet）热生效。
+大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；SDK Task Manager / 沙盒档位 / Agent Deck MCP transport 开关是 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / idleQuiet）热生效。
 
 Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills，「应用约定」tab 直接编辑应用级 CLAUDE.md（保存 / 撤销 / 恢复默认）；agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
 
@@ -252,12 +250,12 @@ src/
 │   │   ├── aider/         占位
 │   │   └── generic-pty/   占位
 │   ├── session/           SessionManager / LifecycleScheduler / Summarizer
-│   ├── teams/             Agent Teams M2/M3：team-fs（只读 ~/.claude/teams + tasks）+ team-watcher（chokidar 引用计数 + 60s grace）
+│   ├── teams/             R3 Universal Team Backend：universal-message-watcher（cross-adapter team message 投递）+ team-fs 仅保留 exportLegacyTeams（老 ~/.claude/teams 数据一次性导出）
 │   ├── notify/            sound.ts（跨平台播放 + 防叠播 + 5s 上限）/ visual.ts（系统通知 + Dock）
 │   ├── permissions/       会话详情「权限」tab 的扫描器（user / user-local / project / local 四层）
 │   ├── bundled-assets.ts  agent-deck plugin 内置 agents/skills frontmatter 启动缓存（CHANGELOG_57）
 │   ├── user-assets.ts     用户自定义 ~/.claude/{agents,skills}/ 管理（list/save 原子写/delete/reveal，CHANGELOG_57）
-│   └── store/             better-sqlite3 + 迁移（user_version v1–v6，v6 加 sessions.team_name）+ repos + electron-store settings
+│   └── store/             better-sqlite3 + 迁移（user_version v1–v11，v6 加 sessions.team_name 已 deprecated；v10 R3 universal team backend 三表 + v11 tasks.team_id）+ repos + electron-store settings
 ├── preload/index.ts       contextBridge 暴露 window.api / window.electronIpc（含 process.platform 静态字段，CHANGELOG_57）
 ├── renderer/              React 19
 │   ├── App.tsx            header（标题 / 统计 / pending chip / ＋ / 三个 tab + Teams tab / pin / 折叠 / 📚 / ⚙）
@@ -266,7 +264,7 @@ src/
 │   │                      NewSessionDialog · SettingsDialog (拆 9 个 settings/sections/*) ·
 │   │                      AssetsLibraryDialog · assets/AssetEditor (CHANGELOG_57) ·
 │   │                      ActivityFeed (Task 渲染) · diff/ ·
-│   │                      TeamHub · TeamDetail (Agent Teams M2/M3 视图)
+│   │                      TeamHub · TeamDetail (R3 Universal Team Backend 视图，走 agent-deck-team:* IPC + universal-message-watcher 投递)
 │   ├── stores/            Zustand session store
 │   ├── hooks/             事件桥接
 │   └── lib/               IPC 兜底 + selectors（selectLiveSessions / selectPendingBuckets）+ platform.ts (IS_DARWIN/IS_WIN/IS_LINUX renderer util，CHANGELOG_57)
@@ -307,7 +305,7 @@ SQLite 在应用 userData 目录下的 `agent-deck.db`：
 - Windows：`%APPDATA%/agent-deck/`
 - Linux：`~/.config/agent-deck/`
 
-迁移按 `user_version` pragma 增量推进，目前 v6（v6 加 `sessions.team_name` + 部分索引，给 Agent Teams M1 用）。表：`sessions / events / file_changes / summaries / app_meta`。
+迁移按 `user_version` pragma 增量推进，目前 v11（v6 deprecated 但保留 / v10 R3 Universal Team Backend 三表 / v11 tasks.team_id）。表：`sessions / events / file_changes / summaries / app_meta / agent_deck_teams / agent_deck_team_members / agent_deck_messages / tasks`。
 
 ### 关键端口
 

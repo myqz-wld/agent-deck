@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcInvoke, IpcEvent } from '@shared/ipc-channels';
 import type {
+  AgentDeckMessage,
+  AgentDeckTeam,
+  AgentDeckTeamMember,
+  AgentDeckTeamMemberRole,
   AgentEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
@@ -19,12 +23,7 @@ import type {
   SummaryRecord,
   TaskChangedEvent,
   TaskRecord,
-  TeamDataChangedEvent,
-  TeamPermissionDecision,
-  TeamPermissionRequest,
-  TeamSnapshot,
   UploadedAttachmentInput,
-  TeamSummary,
   UserAssetInput,
   UserAssetsSnapshot,
 } from '@shared/types';
@@ -292,114 +291,101 @@ const api = {
   summarizerLastErrors: (): Promise<Record<string, { message: string; ts: number }>> =>
     ipcRenderer.invoke(IpcInvoke.SummarizerLastErrors),
 
-  // ─────────── Agent Teams (M2) ───────────
-  /** 列出所有 team 简表（合并 SQL distinctTeamNames + fs ~/.claude/teams/）。 */
-  listTeams: (): Promise<TeamSummary[]> => ipcRenderer.invoke(IpcInvoke.TeamList),
-  /** 拉一个 team 的完整 snapshot（sessions + config.json + task list + events）；name 不存在仍返回空 snapshot。 */
-  getTeam: (name: string): Promise<TeamSnapshot | null> =>
-    ipcRenderer.invoke(IpcInvoke.TeamGet, name),
-  /** Agent Teams M3：手动清理一个 team 的 fs 残留（rm -rf 两个目录）+ 主动 unset 该 team 名下所有 sessions 的 team_name。返回实际删掉的目录数 + 解绑的 session 数。 */
-  forceCleanupTeam: (name: string): Promise<{ removed: string[]; unsetSessions: number }> =>
-    ipcRenderer.invoke(IpcInvoke.TeamForceCleanup, name),
-  /** 拉指定 team 的结构化 SQLite tasks（mcp__tasks__* 工具写入），TeamDetail 「结构化 tasks」section 用。
-   *  限 200 条。订阅 onTaskChanged 后重拉。 */
-  listTeamTasks: (name: string): Promise<{ tasks: TaskRecord[] }> =>
-    ipcRenderer.invoke(IpcInvoke.TaskListByTeam, name),
-  /**
-   * R3.E12 — 探测本地是否有 ~/.claude/teams/ 或 ~/.claude/tasks/ 目录。
-   * 用于 Settings 启动时一次性 dialog 弹不弹的判断。详 R3.E0 ADR §11.4。
-   */
+  // ─────────── R3.E8 Universal Team Backend (替代老 Agent Teams M2/M3 facade) ───────────
+  /** 列出 active team。pass { includeArchived: true } 看含 archived 的全集。 */
+  listAgentDeckTeams: (opts?: { includeArchived?: boolean }): Promise<AgentDeckTeam[]> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckTeamList, opts ?? {}),
+  /** 拉一个 team 的完整 snapshot（含 members + 最近 100 条 messages）。 */
+  getAgentDeckTeam: (
+    teamId: string,
+  ): Promise<
+    | (AgentDeckTeam & { members: AgentDeckTeamMember[]; recentMessages: AgentDeckMessage[] })
+    | null
+  > => ipcRenderer.invoke(IpcInvoke.AgentDeckTeamGet, teamId),
+  /** 显式建 team。 */
+  createAgentDeckTeam: (input: {
+    name: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<AgentDeckTeam> => ipcRenderer.invoke(IpcInvoke.AgentDeckTeamCreate, input),
+  /** 归档 team（标 archived_at；不删数据）。 */
+  archiveAgentDeckTeam: (teamId: string): Promise<AgentDeckTeam | null> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckTeamArchive, teamId),
+  /** 取消归档（如有 active 同名 team 抛错）。 */
+  unarchiveAgentDeckTeam: (teamId: string): Promise<AgentDeckTeam | null> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckTeamUnarchive, teamId),
+  /** 加 member。 */
+  addAgentDeckTeamMember: (input: {
+    teamId: string;
+    sessionId: string;
+    role: AgentDeckTeamMemberRole;
+    displayName?: string;
+  }): Promise<AgentDeckTeamMember> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckTeamAddMember, input),
+  /** member 离开 team（写 left_at；不删 row）。 */
+  removeAgentDeckTeamMember: (input: {
+    teamId: string;
+    sessionId: string;
+  }): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckTeamRemoveMember, input),
+  /** 显式发 cross-adapter team message。 */
+  sendAgentDeckTeamMessage: (input: {
+    teamId: string;
+    fromSessionId: string;
+    toSessionId: string;
+    body: string;
+  }): Promise<AgentDeckMessage> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckTeamSendMessage, input),
+  /** 拉 team 的近期消息流。 */
+  listAgentDeckMessagesByTeam: (input: {
+    teamId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<AgentDeckMessage[]> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckMessageListByTeam, input),
+  /** Cancel 一条 pending / delivering message。 */
+  cancelAgentDeckMessage: (input: {
+    messageId: string;
+    reason?: string;
+  }): Promise<AgentDeckMessage | null> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckMessageCancel, input),
+  /** 拉指定 team 的 SQLite tasks（v011 + R3.E8 task-manager 迁移）。 */
+  listTeamTasks: (teamId: string): Promise<{ tasks: TaskRecord[] }> =>
+    ipcRenderer.invoke(IpcInvoke.TaskListByTeam, teamId),
+
+  /** R3.E12 — 探测本地是否有老 ~/.claude/teams/ 或 ~/.claude/tasks/ 目录。 */
   legacyTeamsHasData: (): Promise<{ teams: boolean; tasks: boolean }> =>
     ipcRenderer.invoke(IpcInvoke.LegacyTeamsHasData),
-  /**
-   * R3.E12 — 把 ~/.claude/teams/ + ~/.claude/tasks/ 整个目录递归复制到 targetParentDir 下，
-   * 子目录命名 `legacy-teams-export-<timestamp>/{teams,tasks}`。
-   *
-   * 不引入 zip 依赖，复制的是目录而非 zip 包；用户可在 Finder / 终端再打包。
-   * 抛错表示两源都失败；正常返回含 destDir + copied 状态。
-   */
+  /** R3.E12 — 把 ~/.claude/teams/ + ~/.claude/tasks/ 整个目录递归复制到 targetParentDir 下。 */
   legacyTeamsExport: (
     targetParentDir: string,
   ): Promise<{ destDir: string | null; copied: { teams: boolean; tasks: boolean } }> =>
     ipcRenderer.invoke(IpcInvoke.LegacyTeamsExport, targetParentDir),
-  /**
-   * 订阅某 team 的 fs 变化（chokidar 引用计数 +1）。返回 unsubscribe 闭包：
-   * 调用时既触发 `TeamUnsubscribe` IPC（引用计数 -1，60s grace 后真 close），
-   * 也 detach 本地 ipcRenderer listener（避免 leak）。
-   *
-   * onChange 仅在该 team 名匹配时触发——所有 team 共享同一个 IPC channel，靠 payload.name 过滤。
-   */
-  subscribeTeam: (
-    name: string,
-    onChange: (payload: TeamDataChangedEvent) => void,
-  ): (() => void) => {
-    const handler = (_: unknown, payload: TeamDataChangedEvent): void => {
-      if (payload.name === name) onChange(payload);
-    };
-    ipcRenderer.on(IpcEvent.TeamDataChanged, handler);
-    void ipcRenderer.invoke(IpcInvoke.TeamSubscribe, name).catch((err) => {
-      // subscribe 失败不阻塞 renderer，仅 console.warn；listener 已加自然不会触发
-      console.warn(`[preload] subscribeTeam(${name}) failed:`, err);
-    });
-    return () => {
-      ipcRenderer.off(IpcEvent.TeamDataChanged, handler);
-      void ipcRenderer.invoke(IpcInvoke.TeamUnsubscribe, name).catch(() => {
-        /* swallow: 已 unmount，再 warn 也没意义 */
-      });
-    };
-  },
 
-  // ─────────── Agent Teams in-process backend permission inbox (CHANGELOG_45) ───────────
-  /**
-   * 订阅某 team 的 inbox 文件 fs 监听（chokidar 引用计数 +1）。
-   * onPermissionRequest 仅在该 team 名匹配时触发——所有 team 共享 IpcEvent.TeamPermissionRequested
-   * 通道，靠 payload.teamName 过滤。
-   *
-   * 注意：应用层 main bootstrap 已经按 active session 自动订阅一份，UI 这里订阅是补强
-   * + 让 grace 期内切回视图能立刻见到旧 watcher 重用。unmount unsubscribe 不会真 close
-   * 直到自动订阅那份也释放（refcount 共享）。
-   */
-  subscribeTeamInbox: (
-    name: string,
-    onPermissionRequest: (req: TeamPermissionRequest) => void,
+  /** 订阅 team 增删改 / member 改的 push（main bootstrap 16ms debounce + per-team 累加）。 */
+  onAgentDeckTeamChanged: (
+    cb: (
+      items: { kind: string; teamId: string; payload: unknown }[],
+    ) => void,
   ): (() => void) => {
-    const reqHandler = (_: unknown, req: TeamPermissionRequest): void => {
-      if (req.teamName === name) onPermissionRequest(req);
-    };
-    ipcRenderer.on(IpcEvent.TeamPermissionRequested, reqHandler);
-    void ipcRenderer.invoke(IpcInvoke.TeamSubscribeInbox, name).catch((err) => {
-      console.warn(`[preload] subscribeTeamInbox(${name}) failed:`, err);
-    });
-    return () => {
-      ipcRenderer.off(IpcEvent.TeamPermissionRequested, reqHandler);
-      void ipcRenderer.invoke(IpcInvoke.TeamUnsubscribeInbox, name).catch(() => {
-        /* swallow */
-      });
-    };
+    const handler = (
+      _: unknown,
+      items: { kind: string; teamId: string; payload: unknown }[],
+    ): void => cb(items);
+    ipcRenderer.on(IpcEvent.AgentDeckTeamChanged, handler);
+    return () => ipcRenderer.off(IpcEvent.AgentDeckTeamChanged, handler);
   },
-  /** 写 permission_response 文本到 teammate inbox 文件，response 决定是 success / error。 */
-  respondTeamPermission: (
-    teamName: string,
-    fromMemberSlug: string,
-    requestId: string,
-    decision: TeamPermissionDecision,
-    updatedInput?: Record<string, unknown>,
-  ): Promise<{ ok: true }> =>
-    ipcRenderer.invoke(
-      IpcInvoke.TeamRespondPermission,
-      teamName,
-      fromMemberSlug,
-      requestId,
-      decision,
-      updatedInput ?? null,
-    ),
-  /** UI 收到 team-permission-resolved 事件后清掉本地 pending 列表。 */
-  onTeamPermissionResolved: (
-    cb: (p: { teamName: string; requestId: string }) => void,
+  /** 订阅 message 入队 / 状态变迁 push（main bootstrap 16ms debounce + per-message 累加）。 */
+  onAgentDeckMessageChanged: (
+    cb: (
+      items: { kind: string; teamId: string; messageId: string; payload: unknown }[],
+    ) => void,
   ): (() => void) => {
-    const handler = (_: unknown, p: { teamName: string; requestId: string }): void => cb(p);
-    ipcRenderer.on(IpcEvent.TeamPermissionResolved, handler);
-    return () => ipcRenderer.off(IpcEvent.TeamPermissionResolved, handler);
+    const handler = (
+      _: unknown,
+      items: { kind: string; teamId: string; messageId: string; payload: unknown }[],
+    ): void => cb(items);
+    ipcRenderer.on(IpcEvent.AgentDeckMessageChanged, handler);
+    return () => ipcRenderer.off(IpcEvent.AgentDeckMessageChanged, handler);
   },
 
   // 事件订阅

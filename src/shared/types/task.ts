@@ -23,7 +23,10 @@ export type TaskStatus = 'pending' | 'active' | 'completed' | 'blocked' | 'aband
  */
 export interface TaskRecord {
   id: string;
+  /** @deprecated R3.E8：保留只读历史；新代码用 teamId（v011 起 universal team backend）。 */
   teamName: string | null;
+  /** R3.E8 / v011：universal team backend id；新代码主路径。 */
+  teamId: string | null;
   subject: string;
   description: string | null;
   status: TaskStatus;
@@ -41,15 +44,16 @@ export interface TaskRecord {
  * task_delete handler 在 repo 写完后通过 main 进程 eventBus emit；main/index.ts
  * 桥接到 IpcEvent.TaskChanged 推 renderer。
  *
- * 当前 renderer 没有 task UI 消费这个事件（Layer A+B only），但基础设施有了，未来
- * 加 Tasks tab 直接 onTaskChanged 订阅即可（与 onTeamDataChanged 同模式）。
+ * 当前 renderer 没有 task UI 消费这个事件，未来加 Tasks tab 直接 onTaskChanged 订阅。
  */
 export interface TaskChangedEvent {
   kind: 'created' | 'updated' | 'deleted';
   taskId: string;
   /** deleted 时是 null；created/updated 时是新状态 */
   task: TaskRecord | null;
-  /** 方便 renderer 按 team 过滤；deleted 时取自被删 task 原 teamName */
+  /** R3.E8：方便 renderer 按 team 过滤；deleted 时取自被删 task 原 teamId */
+  teamId: string | null;
+  /** @deprecated R3.E8：兼容旧 renderer；新代码用 teamId */
   teamName: string | null;
   ts: number;
 }
