@@ -22,6 +22,7 @@ interface Row {
   archived_at: number | null;
   permission_mode: string | null;
   team_name: string | null;
+  codex_sandbox: string | null;
 }
 
 function rowToRecord(r: Row): SessionRecord {
@@ -39,6 +40,11 @@ function rowToRecord(r: Row): SessionRecord {
     archivedAt: r.archived_at,
     permissionMode: (r.permission_mode as PermissionMode) ?? null,
     teamName: r.team_name ?? null,
+    codexSandbox: (r.codex_sandbox as
+      | 'workspace-write'
+      | 'read-only'
+      | 'danger-full-access'
+      | null) ?? null,
   };
 }
 
@@ -48,11 +54,13 @@ export const sessionRepo = {
     // 与 SQL 字段集错位 —— 复活 closed 会话用 `{...existing, lifecycle:'active'}`
     // spread 调 upsert 时，spread 进来的 permissionMode / teamName 被静默丢弃，
     // 未来想通过 upsert 改这些字段会神秘失败（写了不报错但不生效）。
+    // CHANGELOG_<X> A2a：codex_sandbox 同样必须参与 INSERT / UPDATE，避免 spread 调用
+    // 时静默丢弃用户在 NewSessionDialog 选过的 sandbox 档位。
     getDb()
       .prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name)
-         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name)
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox)
+         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name, @codex_sandbox)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            title = excluded.title,
@@ -63,7 +71,8 @@ export const sessionRepo = {
            ended_at = excluded.ended_at,
            archived_at = excluded.archived_at,
            permission_mode = excluded.permission_mode,
-           team_name = excluded.team_name`,
+           team_name = excluded.team_name,
+           codex_sandbox = excluded.codex_sandbox`,
       )
       .run({
         id: rec.id,
@@ -79,6 +88,7 @@ export const sessionRepo = {
         archived_at: rec.archivedAt,
         permission_mode: rec.permissionMode ?? null,
         team_name: rec.teamName ?? null,
+        codex_sandbox: rec.codexSandbox ?? null,
       });
   },
 
@@ -182,6 +192,18 @@ export const sessionRepo = {
   /** 写入会话所属团队名（Agent Teams）。null 表示不属于任何 team。 */
   setTeamName(id: string, teamName: string | null): void {
     getDb().prepare(`UPDATE sessions SET team_name = ? WHERE id = ?`).run(teamName, id);
+  },
+
+  /**
+   * 写入 codex sandbox 档位（CHANGELOG_<X> A2a：仅 codex-cli adapter 调用）。
+   * null 表示恢复用 settings.codexSandbox 全局值（与 createSession 路径 fallback 同模式）。
+   * claude / aider / generic-pty adapter 不应调此方法（字段对它们无意义）。
+   */
+  setCodexSandbox(
+    id: string,
+    sandbox: 'workspace-write' | 'read-only' | 'danger-full-access' | null,
+  ): void {
+    getDb().prepare(`UPDATE sessions SET codex_sandbox = ? WHERE id = ?`).run(sandbox, id);
   },
 
   /**

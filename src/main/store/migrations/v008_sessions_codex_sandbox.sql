@@ -1,0 +1,11 @@
+-- CHANGELOG_<X> A2a：codex 会话的 sandbox 档位持久化到 sessions.codex_sandbox。
+--
+-- 用途：重启应用后 resume codex 会话时，从 DB 读回原 sandbox 档位透给 codex.resumeThread，
+-- 避免用户辛苦切到的档位被默认值 'workspace-write' 静默重置（与 claude permission_mode
+-- 持久化同模式，CHANGELOG_44）。
+--
+-- 字段值：'workspace-write' | 'read-only' | 'danger-full-access'，与 codex SDK 原生
+-- SandboxMode 字面量一致。
+--
+-- 兼容性：claude / aider / generic-pty 会话该字段始终为 NULL（不读不写）。
+ALTER TABLE sessions ADD COLUMN codex_sandbox TEXT;
