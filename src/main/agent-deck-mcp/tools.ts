@@ -1,23 +1,31 @@
 /**
  * Agent Deck MCP server 的 5 个 in-process tool 注册（B'0 ADR §3）。
  *
- * 本文件**仅**定义 zod schema 与 handler 实现核心（spawn / send / list / shutdown
- * 在 B'2.a 实现完整逻辑；wait_reply 在 B'2.b 单独实现）。三 transport（in-process /
- * HTTP / stdio）共享同一份 buildAgentDeckTools 输出；transport 层负责 caller-id
- * 注入策略（ADR §4 / types.ts CallerContext）。
+ * 三 transport（in-process / HTTP / stdio）共享同一份 buildAgentDeckTools 输出；
+ * transport 层负责 caller-id 注入策略：
+ * - in-process（B'3）：closure 强制覆盖 args.caller_session_id（防 prompt 注入伪造）
+ * - HTTP/stdio：args.caller_session_id 必填，handler 内反查 sessionManager
  *
- * Closure 注入参数：
- * - sessionManager / adapterRegistry / sessionRepo（Skip：B'2.a 实现）
- * - rateLimiter（B'5 实现）
- * - waitReplyCoordinator（B'2.b 实现）
+ * Handler 实现状态：
+ * - spawn / send / list / shutdown：B'2.a 完整逻辑（本 commit）
+ * - wait_reply：仍 placeholder，B'2.b 接 WaitReplyCoordinator 后实现
  *
- * 字段命名约定：tool args **snake_case**（与 task-manager 既有约定 + Python SDK
- * 惯例一致；与 spec 对齐方便 LLM 看到熟悉的 schema）；内部 TS 接口 camelCase。
+ * 防递归（B'0 ADR §6）：当前 B'2.a 仅做最基础的 self-spawn 1 层 cycle 检测；
+ * 完整 4 条规则（depth / fan-out / spawn-rate / 整链回溯）放 B'5 接入 RateLimiter
+ * + Race Protection mutex 时一并落地。
+ *
+ * 字段命名约定：tool args **snake_case**（与 task-manager 既有约定一致），
+ * 内部 TS 接口 camelCase。
  */
 
+import { realpathSync } from 'node:fs';
 import { z } from 'zod';
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
+import type { SessionRecord } from '@shared/types';
+import { adapterRegistry } from '@main/adapters/registry';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
+import { sessionRepo } from '@main/store/session-repo';
+import { sessionManager } from '@main/session/manager';
 import {
   AGENT_DECK_TOOL_NAMES,
   EXTERNAL_CALLER_ALLOWED,
@@ -89,8 +97,74 @@ function err(message: string, hint?: string) {
 }
 
 /**
- * 5 个 tool 的 zod schema 集中地。三 transport 共享同一份 schema；handler 实现
- * 在 B'2.a / B'2.b 阶段补全。当前 B'1 仅返回「未实现」占位以让骨架可挂载。
+ * caller 反查（HTTP/stdio transport 用；in-process 已通过 closure 强制覆盖跳过）：
+ * - external caller（__external__）已被 denyExternalIfNotAllowed 拦下，不到这里
+ * - in-process closure 覆盖后的 caller 也直接信任
+ * - HTTP/stdio：args.caller_session_id 必须能反查到 sessionRepo 且未 closed
+ *
+ * 返回 null 表示通过；返回错误对象表示 deny。
+ */
+function validateExternalCaller(
+  caller: CallerContext,
+):
+  | { content: { type: 'text'; text: string }[]; isError: true }
+  | null {
+  if (caller.transport === 'in-process') return null;
+  if (caller.callerSessionId === EXTERNAL_CALLER_SENTINEL) return null;
+  const session = sessionRepo.get(caller.callerSessionId);
+  if (!session) {
+    return err(
+      `unknown caller_session_id: ${caller.callerSessionId}`,
+      'caller_session_id must reference a session managed by Agent Deck. Use list_sessions to find valid session ids, or use the literal "__external__" for read-only access from non-Agent-Deck MCP clients.',
+    );
+  }
+  if (session.lifecycle === 'closed') {
+    return err(
+      `caller_session_id ${caller.callerSessionId} is closed`,
+      'Closed sessions cannot initiate new MCP tool calls. Open a new session via the application.',
+    );
+  }
+  return null;
+}
+
+/**
+ * 简化版 self-spawn 1 层 cycle 检测（B'2.a 占位 / B'5 替换为整链回溯）。
+ * 即将 spawn 的 cwd realpath + adapter 与 caller 的 cwd realpath + adapter 比较，
+ * 任一不同 → 通过。
+ */
+function checkSelfSpawnCycle(
+  caller: CallerContext,
+  newCwd: string,
+  newAdapter: string,
+):
+  | { content: { type: 'text'; text: string }[]; isError: true }
+  | null {
+  const callerSession = sessionRepo.get(caller.callerSessionId);
+  if (!callerSession) return null; // caller 不在 DB 不做 cycle 检测（in-process 闭包伪 id 兼容）
+  if (callerSession.agentId !== newAdapter) return null;
+  let callerRealpath: string;
+  let newRealpath: string;
+  try {
+    callerRealpath = realpathSync(callerSession.cwd);
+  } catch {
+    callerRealpath = callerSession.cwd;
+  }
+  try {
+    newRealpath = realpathSync(newCwd);
+  } catch {
+    newRealpath = newCwd;
+  }
+  if (callerRealpath === newRealpath) {
+    return err(
+      `same-cwd same-adapter spawn cycle detected: caller @ ${callerRealpath}, new @ ${newRealpath}`,
+      'Spawning a session in the same cwd with the same adapter as your own would create a tight loop. Use a different cwd or a different adapter, or call this from a different parent session.',
+    );
+  }
+  return null;
+}
+
+/**
+ * 5 个 tool 的 zod schema 集中地。三 transport 共享同一份 schema。
  */
 const SPAWN_SESSION_SCHEMA = {
   adapter: z.enum(['claude-code', 'codex-cli', 'aider', 'generic-pty']),
@@ -153,13 +227,6 @@ export interface BuildAgentDeckToolsDeps {
   transport: CallerContext['transport'];
 }
 
-/**
- * 构造 5 个 tool 注册（B'1 占位 / B'2 替换为完整实现）。
- *
- * B'1 的 5 个 handler 都返回「not implemented」isError，但 zod schema 完整 —— 这样
- * MCP client（claude / codex / inspector）已可以 list_tools 看到正确 shape，
- * 防递归 4 条规则（B'5）+ wait_reply coordinator（B'2.b）后续接入时只换 handler 不换 schema。
- */
 export async function buildAgentDeckTools(
   deps: BuildAgentDeckToolsDeps,
 ): Promise<SdkMcpToolDefinition<any>[]> {
@@ -175,6 +242,7 @@ export async function buildAgentDeckTools(
     return makeCallerContext(callerSid, args.parent_session_id, transport);
   }
 
+  // ──────────────────── spawn_session
   const spawnSession = tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
     'Spawn a new agent session via the given adapter (claude-code / codex-cli / aider / generic-pty). Returns the new sessionId. Subject to depth / cwd-cycle / per-app rate-limit / per-parent fan-out (see Agent Deck Settings → MCP Server). caller_session_id is required (in-process transport overrides with the real session id).',
@@ -183,14 +251,70 @@ export async function buildAgentDeckTools(
       const caller = deriveCaller(args);
       const denial = denyExternalIfNotAllowed('spawn_session', caller);
       if (denial) return denial;
-      // B'2.a 实现：rate-limit / depth / cwd cycle / fan-out / setSpawnLink reserve / createSession
-      return err(
-        'spawn_session: not implemented (B\'2.a)',
-        'Tool registration scaffolded by B\'1; full handler arrives in B\'2.a.',
-      );
+      const callerCheck = validateExternalCaller(caller);
+      if (callerCheck) return callerCheck;
+
+      const adapter = adapterRegistry.get(args.adapter);
+      if (!adapter || !adapter.createSession) {
+        return err(
+          `adapter "${args.adapter}" cannot create sessions`,
+          'Adapter not registered or createSession not implemented. Check list_sessions to see available adapters.',
+        );
+      }
+      if (!adapter.capabilities.canCreateSession) {
+        return err(
+          `adapter "${args.adapter}" does not support session creation`,
+          'Some adapters (e.g. aider / generic-pty placeholders) are read-only.',
+        );
+      }
+
+      // 简化版 cwd cycle 检测（B'2.a 占位 / B'5 替换为整链回溯 + race protection）
+      const cycleErr = checkSelfSpawnCycle(caller, args.cwd, args.adapter);
+      if (cycleErr) return cycleErr;
+
+      // 实际 spawn
+      let sid: string;
+      try {
+        sid = await adapter.createSession({
+          cwd: args.cwd,
+          prompt: args.prompt,
+          ...(args.permission_mode !== undefined ? { permissionMode: args.permission_mode } : {}),
+          ...(args.codex_sandbox !== undefined ? { codexSandbox: args.codex_sandbox } : {}),
+          ...(args.team_name !== undefined ? { teamName: args.team_name } : {}),
+        });
+      } catch (e) {
+        return err(
+          e instanceof Error ? e.message : String(e),
+          'createSession failed; no session created. Check adapter logs for details.',
+        );
+      }
+
+      // 持久化 spawn link / team_name / permission_mode（与 IPC adapters.ts handler 同款）
+      const callerDepth = sessionRepo.getSpawnDepth(caller.callerSessionId);
+      // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）
+      const callerExists = sessionRepo.get(caller.callerSessionId) !== null;
+      if (callerExists) {
+        sessionRepo.setSpawnLink(sid, caller.callerSessionId, callerDepth + 1);
+      }
+      if (adapter.capabilities.canSetPermissionMode && args.permission_mode) {
+        sessionManager.recordCreatedPermissionMode(sid, args.permission_mode);
+      }
+      if (args.team_name) {
+        sessionManager.recordCreatedTeamName(sid, args.team_name);
+      }
+
+      const created = sessionRepo.get(sid);
+      return ok({
+        sessionId: sid,
+        adapter: args.adapter,
+        cwd: args.cwd,
+        teamName: created?.teamName ?? args.team_name ?? null,
+        spawnDepth: created?.spawnDepth ?? (callerExists ? callerDepth + 1 : 0),
+      });
     },
   );
 
+  // ──────────────────── send_message
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
     'Send a user message to an existing session. Returns immediately after queueing — use wait_reply to observe the response.',
@@ -199,13 +323,36 @@ export async function buildAgentDeckTools(
       const caller = deriveCaller(args);
       const denial = denyExternalIfNotAllowed('send_message', caller);
       if (denial) return denial;
-      return err(
-        'send_message: not implemented (B\'2.a)',
-        'Tool registration scaffolded by B\'1; full handler arrives in B\'2.a.',
-      );
+      const callerCheck = validateExternalCaller(caller);
+      if (callerCheck) return callerCheck;
+
+      const session = sessionRepo.get(args.session_id);
+      if (!session) {
+        return err(`session ${args.session_id} not found`);
+      }
+      if (session.lifecycle === 'closed') {
+        return err(
+          `session ${args.session_id} is closed`,
+          'Closed sessions cannot receive new messages. Spawn a new session if you need to continue.',
+        );
+      }
+      const adapter = adapterRegistry.get(session.agentId);
+      if (!adapter?.sendMessage) {
+        return err(
+          `adapter "${session.agentId}" does not support sendMessage`,
+          'Hook-only / placeholder adapters cannot receive messages from MCP.',
+        );
+      }
+      try {
+        await adapter.sendMessage(args.session_id, args.text);
+      } catch (e) {
+        return err(e instanceof Error ? e.message : String(e));
+      }
+      return ok({ sessionId: args.session_id, queued: true });
     },
   );
 
+  // ──────────────────── wait_reply（B'2.b 实现完整逻辑）
   const waitReply = tool(
     AGENT_DECK_TOOL_NAMES.waitReply,
     'Wait for the next reply from a session. until: first_message (first assistant text), turn_complete (finished/waiting-for-user event), idle (N seconds quiet, default 5s — tuned by Settings, recommend turn_complete for high-reasoning models). Returns partial events on timeout.',
@@ -214,14 +361,17 @@ export async function buildAgentDeckTools(
       const caller = deriveCaller(args);
       const denial = denyExternalIfNotAllowed('wait_reply', caller);
       if (denial) return denial;
+      const callerCheck = validateExternalCaller(caller);
+      if (callerCheck) return callerCheck;
       return err(
         'wait_reply: not implemented (B\'2.b)',
-        'Tool registration scaffolded by B\'1; full handler arrives in B\'2.b (coordinator + backfill).',
+        'WaitReplyCoordinator + backfill is the next task in R2. Until then, poll list_sessions / use the application UI to observe replies.',
       );
     },
     { annotations: { readOnlyHint: true } },
   );
 
+  // ──────────────────── list_sessions
   const listSessions = tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
     "List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages (use wait_reply for those).",
@@ -230,14 +380,52 @@ export async function buildAgentDeckTools(
       const caller = deriveCaller(args);
       const denial = denyExternalIfNotAllowed('list_sessions', caller);
       if (denial) return denial;
-      return err(
-        'list_sessions: not implemented (B\'2.a)',
-        'Tool registration scaffolded by B\'1; full handler arrives in B\'2.a.',
-      );
+      const callerCheck = validateExternalCaller(caller);
+      if (callerCheck) return callerCheck;
+
+      // 现有 sessionRepo API：
+      // - status='active' 默认 → listActiveAndDormant().filter(lifecycle==='active')
+      // - status='dormant' → listActiveAndDormant().filter(lifecycle==='dormant')
+      // - status='closed' → listHistory({ archivedOnly:false }) 含 closed + archived
+      // - status='all' → 合并去重
+      // 注：此处用现有 API 拼装，避免新增 sessionRepo 通用 list({status,adapter,limit})
+      // 接口（ADR §6.5.2 #6 实施清单建议加，但需要重构现有 47 个调用点 — 留 R2 收口或 R3）
+      let sessions: SessionRecord[] = [];
+      if (args.status_filter === 'active' || args.status_filter === 'dormant') {
+        sessions = sessionRepo
+          .listActiveAndDormant(args.limit * 2)
+          .filter((s) => s.lifecycle === args.status_filter);
+      } else if (args.status_filter === 'closed') {
+        sessions = sessionRepo.listHistory({ limit: args.limit });
+      } else {
+        // 'all'
+        const live = sessionRepo.listActiveAndDormant(args.limit);
+        const closed = sessionRepo.listHistory({ limit: args.limit });
+        sessions = [...live, ...closed];
+      }
+      if (args.adapter_filter) {
+        sessions = sessions.filter((s) => s.agentId === args.adapter_filter);
+      }
+      const truncated = sessions.slice(0, args.limit);
+      return ok({
+        total: truncated.length,
+        sessions: truncated.map((s) => ({
+          sessionId: s.id,
+          adapter: s.agentId,
+          cwd: s.cwd,
+          lifecycle: s.lifecycle,
+          title: s.title,
+          lastEventAt: s.lastEventAt,
+          teamName: s.teamName ?? null,
+          spawnedBy: s.spawnedBy ?? null,
+          spawnDepth: s.spawnDepth ?? 0,
+        })),
+      });
     },
     { annotations: { readOnlyHint: true } },
   );
 
+  // ──────────────────── shutdown_session
   const shutdownSession = tool(
     AGENT_DECK_TOOL_NAMES.shutdownSession,
     "Mark a session as closed (lifecycle=closed) + abort its SDK live query. Does NOT delete events / file_changes / summaries — they remain queryable. caller cannot shutdown self.",
@@ -246,21 +434,36 @@ export async function buildAgentDeckTools(
       const caller = deriveCaller(args);
       const denial = denyExternalIfNotAllowed('shutdown_session', caller);
       if (denial) return denial;
+      const callerCheck = validateExternalCaller(caller);
+      if (callerCheck) return callerCheck;
       if (args.session_id === caller.callerSessionId) {
         return err(
           'cannot shutdown self',
           'Use the application UI / IPC to terminate your own session.',
         );
       }
-      return err(
-        'shutdown_session: not implemented (B\'2.a)',
-        'Tool registration scaffolded by B\'1; full handler arrives in B\'2.a.',
-      );
+      const session = sessionRepo.get(args.session_id);
+      if (!session) {
+        return err(`session ${args.session_id} not found`);
+      }
+      if (session.lifecycle === 'closed') {
+        // 已 closed，幂等返回 success（与 IPC delete 同模式：noop）
+        return ok({ sessionId: args.session_id, lifecycle: 'closed', alreadyClosed: true });
+      }
+      try {
+        await sessionManager.close(args.session_id);
+      } catch (e) {
+        return err(
+          e instanceof Error ? e.message : String(e),
+          'sessionManager.close failed; check main process logs for adapter close errors.',
+        );
+      }
+      return ok({ sessionId: args.session_id, lifecycle: 'closed', alreadyClosed: false });
     },
   );
 
   return [spawnSession, sendMessage, waitReply, listSessions, shutdownSession];
 }
 
-// re-export internal helpers for B'2.a / B'2.b unit tests
+// re-export internal helpers for B'2.b unit tests
 export { ok as _internalOk, err as _internalErr };
