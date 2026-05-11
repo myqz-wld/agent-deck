@@ -131,6 +131,24 @@ function applyCodexAgentsMd(p: Partial<AppSettings>, _next: AppSettings): void {
     .catch((err) => console.warn('[settings] 加载 agents-md-installer 失败', err));
 }
 
+/**
+ * CHANGELOG_<X> D2：injectAgentDeckCodexSkills 改了 → 同步内置 skills 到
+ * ~/.codex/skills/agent-deck/。开 → 镜像；关 → 移除整个 agent-deck/ 目录
+ * （保留用户其他 skills）。
+ */
+function applyCodexSkills(p: Partial<AppSettings>, _next: AppSettings): void {
+  if (!('injectAgentDeckCodexSkills' in p)) return;
+  void import('@main/codex-config/skills-installer')
+    .then(({ syncSkills }) => {
+      try {
+        syncSkills();
+      } catch (err) {
+        console.warn('[settings] syncSkills 失败', err);
+      }
+    })
+    .catch((err) => console.warn('[settings] 加载 skills-installer 失败', err));
+}
+
 function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void {
   // summaryTimeoutMs / summaryEventCount / summaryMaxConcurrent 是每轮 scanAll
   // 内部读 settings 的，天生即时生效，不需要在这里分发。只 interval 需重启 setInterval。
@@ -214,6 +232,7 @@ export function registerSettingsIpc(): void {
       applyCodexSandboxMode,
       applyCodexMcpServers,
       applyCodexAgentsMd,
+      applyCodexSkills,
       applySummaryInterval,
       invalidateClaudeMdCache,
     ] as const;

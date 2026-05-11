@@ -108,6 +108,20 @@ export interface AppSettings {
    */
   injectAgentDeckCodexAgentsMd: boolean;
   /**
+   * 是否把 agent-deck 自带 plugin 的 skills 同步到 codex `~/.codex/skills/agent-deck/`
+   * （CHANGELOG_<X> D2）。
+   *
+   * - true（默认）：app ready / settings 变 / 写一遍内置 skills 到 codex skills 目录
+   * - false：移除 ~/.codex/skills/agent-deck/ 整个目录（保留用户在 ~/.codex/skills/
+   *   其他自管目录）
+   *
+   * 与 injectAgentDeckPlugin（claude）平行：前者控制 claude 会话挂 plugin（含 skills +
+   * agents），后者控制 codex 一侧的 skills 镜像（codex 没有 plugin 概念，仅 skills）。
+   * 改这个开关只影响**下次新建**的 codex 会话；已 spawn 的 codex thread 已加载当时的
+   * skills（codex 启动时扫 ~/.codex/skills/）。
+   */
+  injectAgentDeckCodexSkills: boolean;
+  /**
    * 是否把 agent-deck 自带的 plugin（`resources/claude-config/agent-deck-plugin/`）
    * 注入到 SDK 会话。**plugin 整体注入或整体不注入**——一个 toggle 同时控制两类内容：
    *
@@ -250,6 +264,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codexCliPath: null,
   injectAgentDeckClaudeMd: true,
   injectAgentDeckCodexAgentsMd: true,
+  injectAgentDeckCodexSkills: true,
   injectAgentDeckPlugin: true,
   agentTeamsEnabled: false,
   enableTaskManager: false,
