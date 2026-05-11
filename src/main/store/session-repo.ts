@@ -1,10 +1,12 @@
 import type {
   ActivityState,
+  GenericPtyConfig,
   LifecycleState,
   PermissionMode,
   SessionRecord,
   SessionSource,
 } from '@shared/types';
+import { genericPtyConfigSchema } from '@shared/types';
 import { getDb } from './db';
 import { buildKeywordPredicate } from './search-predicate';
 
@@ -25,6 +27,7 @@ interface Row {
   codex_sandbox: string | null;
   spawned_by: string | null;
   spawn_depth: number;
+  generic_pty_config: string | null;
 }
 
 function rowToRecord(r: Row): SessionRecord {
@@ -49,7 +52,32 @@ function rowToRecord(r: Row): SessionRecord {
       | null) ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
+    genericPtyConfig: parseGenericPtyConfigJson(r.generic_pty_config),
   };
+}
+
+/**
+ * sessions.generic_pty_config 列存的是 JSON.stringify(GenericPtyConfig)。
+ * 解析失败 / NULL → null（不抛错，老脏数据 / NULL 都安全 fallback）。
+ *
+ * REVIEW_24 codex MED 6：原仅 JSON.parse + cast，合法 JSON 如 `"x"` / `42` / `[]` /
+ * `{}` 不会 fallback null 而被当 GenericPtyConfig 返回 → 下游 adapter 拿 invalid config
+ * 起 PTY 时 spawn 失败或更糟 silent 误用。修法：JSON.parse 后再走 zod schema parse 二次
+ * 校验，partial / 类型不对都 fallback null。
+ *
+ * 设计取舍：写入端（IPC handler / adapter.createSession）已 zod parse 防脏；读取端二次
+ * 校验是 defense-in-depth — 防止用户手改 DB / migration 故障 / 历史脏数据等情形。
+ */
+function parseGenericPtyConfigJson(raw: string | null): GenericPtyConfig | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const result = genericPtyConfigSchema.safeParse(parsed);
+  return result.success ? result.data : null;
 }
 
 export const sessionRepo = {
@@ -60,11 +88,13 @@ export const sessionRepo = {
     // 未来想通过 upsert 改这些字段会神秘失败（写了不报错但不生效）。
     // CHANGELOG_<X> A2a：codex_sandbox 同样必须参与 INSERT / UPDATE，避免 spread 调用
     // 时静默丢弃用户在 NewSessionDialog 选过的 sandbox 档位。
+    // R4·F2：generic_pty_config 同款 — generic-pty / aider session 的 spawn config 必须
+    // 在 upsert 时透传，否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn。
     getDb()
       .prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, spawned_by, spawn_depth)
-         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name, @codex_sandbox, @spawned_by, @spawn_depth)
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, spawned_by, spawn_depth, generic_pty_config)
+         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name, @codex_sandbox, @spawned_by, @spawn_depth, @generic_pty_config)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            title = excluded.title,
@@ -78,7 +108,8 @@ export const sessionRepo = {
            team_name = excluded.team_name,
            codex_sandbox = excluded.codex_sandbox,
            spawned_by = excluded.spawned_by,
-           spawn_depth = excluded.spawn_depth`,
+           spawn_depth = excluded.spawn_depth,
+           generic_pty_config = excluded.generic_pty_config`,
       )
       .run({
         id: rec.id,
@@ -97,6 +128,7 @@ export const sessionRepo = {
         codex_sandbox: rec.codexSandbox ?? null,
         spawned_by: rec.spawnedBy ?? null,
         spawn_depth: rec.spawnDepth ?? 0,
+        generic_pty_config: rec.genericPtyConfig ? JSON.stringify(rec.genericPtyConfig) : null,
       });
   },
 
@@ -215,6 +247,17 @@ export const sessionRepo = {
   },
 
   /**
+   * R4·F2：写入 generic-pty / aider session 的 spawn config。
+   * 仅 generic-pty / aider adapter 的 createSession / config 微调路径调；
+   * claude-code / codex-cli adapter 不应调（字段对它们无意义）。
+   * config=null → 清空（极少用，正常 session 删除走 sessionRepo.delete 整行）。
+   */
+  setGenericPtyConfig(id: string, config: GenericPtyConfig | null): void {
+    const json = config ? JSON.stringify(config) : null;
+    getDb().prepare(`UPDATE sessions SET generic_pty_config = ? WHERE id = ?`).run(json, id);
+  },
+
+  /**
    * Agent Teams M3 (C 方案)：批量把指定 team_name 下所有 sessions 的 team_name 设为 NULL，
    * 返回被影响的 session id 列表（让上层 emit upserts 同步 renderer store）。
    *
@@ -277,14 +320,15 @@ export const sessionRepo = {
         // 复制 fromRow 内容到新 id（id 是 PK，必须 INSERT 新行）
         // CHANGELOG_<X> R2 / B'0 ADR §6.5.2 #2-#3：列清单扩到 16 列（顺手补 v008
         // codex_sandbox 漏列 latent bug，再加 R2 v009 spawned_by/spawn_depth）。
+        // R4·F2：列再扩 1 → 17 列（generic_pty_config）。
         // 历史教训（CHANGELOG_35）：v006 加 team_name 时多算了一个 ? 占位（14 个），
         // 触发 SDK fallback rename / CLI 隐式 fork (first realId !== opts.resume)
         // 走到这条 INSERT 时 better-sqlite3 抛 `14 values for 13 columns`。
-        // 务必让 ? 数与列数一致 —— 当前 16 列 = 16 个 ?。
+        // 务必让 ? 数与列数一致 —— 当前 17 列 = 17 个 ?。
         db.prepare(
           `INSERT INTO sessions
-           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, spawned_by, spawn_depth)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, spawned_by, spawn_depth, generic_pty_config)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           toId,
           fromRow.agent_id,
@@ -302,6 +346,7 @@ export const sessionRepo = {
           fromRow.codex_sandbox,
           fromRow.spawned_by,
           fromRow.spawn_depth,
+          fromRow.generic_pty_config,
         );
       }
       // 迁移子表引用（外键 ON DELETE CASCADE 在删 fromId 时不会误删，因为 session_id 已改）
@@ -339,6 +384,15 @@ export const sessionRepo = {
       if (toExists && fromRow.spawn_depth > 0) {
         db.prepare(`UPDATE sessions SET spawn_depth = ? WHERE id = ?`).run(
           fromRow.spawn_depth,
+          toId,
+        );
+      }
+      if (toExists && fromRow.generic_pty_config) {
+        // R4·F2：generic-pty / aider session 的 spawn config 是会话身份相关字段，
+        // recoverAndSend / SDK fallback rename 时必须从 fromRow 覆盖到 NEW 行，
+        // 否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn（与 codex_sandbox 同模式）。
+        db.prepare(`UPDATE sessions SET generic_pty_config = ? WHERE id = ?`).run(
+          fromRow.generic_pty_config,
           toId,
         );
       }
