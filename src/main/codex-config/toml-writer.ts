@@ -34,24 +34,19 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import type { CodexMcpServerConfigShared } from '@shared/types';
 
 const MARKER_START = '# === Agent Deck MCP Servers START - DO NOT EDIT THIS BLOCK ===';
 const MARKER_END = '# === Agent Deck MCP Servers END ===';
 const MARKER_BANNER = `# (Agent Deck 自动写入；用户在设置面板编辑 + 应用启动时同步)
 # (手动改不会生效，下次同步会被覆盖)`;
 
-/** 单条 codex MCP server 配置。codex CLI 接受 stdio 或 http transport（mutual exclusive）。 */
-export interface CodexMcpServerConfig {
-  /** server 名称，用作 [mcp_servers.<name>] 段名。codex 内部用此名识别 tool 出处。 */
-  name: string;
-  /** stdio transport：command + args + env */
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  /** http transport：url + bearer_token_env_var */
-  url?: string;
-  bearerTokenEnvVar?: string;
-}
+/**
+ * 单条 codex MCP server 配置（CHANGELOG_<X> A4b 起改为 shared 类型 alias，
+ * 避免 main / shared / renderer 跨层 type drift）。codex CLI 接受 stdio 或
+ * http transport（mutual exclusive）。
+ */
+export type CodexMcpServerConfig = CodexMcpServerConfigShared;
 
 /** ~/.codex/config.toml 绝对路径（不依赖 Electron app.getPath，便于单测）。 */
 export function getCodexConfigPath(): string {

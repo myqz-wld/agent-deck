@@ -2,6 +2,29 @@
  * 跨进程共享：AppSettings + Hook 安装状态 + 权限设置扫描结果类型。
  */
 
+/**
+ * Codex MCP server 配置（CHANGELOG_<X> A4b 起跨进程共享）。
+ *
+ * 字段集对应 codex CLI `~/.codex/config.toml` 的 `[mcp_servers.X]` 段。
+ * 与 src/main/codex-config/toml-writer.ts 的 CodexMcpServerConfig 同形态——
+ * 后者是 main-only 镜像（toml-writer 是 main 模块），shared 这里是给
+ * AppSettings + IPC + renderer 复用的同结构。
+ *
+ * 不在 main 单独定义 / shared 单独定义两个差异类型 —— 字段集就是 codex CLI
+ * 的 wire format，跨进程一致。
+ */
+export interface CodexMcpServerConfigShared {
+  /** server 名称，用作 [mcp_servers.<name>] 段名。codex 内部用此名识别 tool 出处。 */
+  name: string;
+  /** stdio transport：command + args + env */
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  /** http transport：url + bearer_token_env_var */
+  url?: string;
+  bearerTokenEnvVar?: string;
+}
+
 export interface AppSettings {
   hookServerPort: number;
   /**
@@ -151,6 +174,20 @@ export interface AppSettings {
    */
   codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
+   * Codex MCP servers 配置（CHANGELOG_<X> A4b）。Agent Deck 自管的 mcp_servers 段
+   * 写入 `~/.codex/config.toml` 用 marker 包裹，**不破坏**用户手写的其他段。
+   * 详见 `src/main/codex-config/toml-writer.ts`。
+   *
+   * 字段值：CodexMcpServerConfigShared 数组。空数组 = 不写 server（marker 仍写入但内容为空）。
+   *
+   * 改这个设置 → ipc/settings.ts apply* 调 writeMcpServersToCodexConfig 同步写盘 →
+   * 下次新建 codex 会话生效。已在跑的 thread 已按 spawn-time 加载的 mcp_servers 配置
+   * 跑，关掉不会撤销。
+   *
+   * 与 settings.codexCliPath 同模式：spawn-time options，不影响在跑会话。
+   */
+  codexMcpServers: CodexMcpServerConfigShared[];
+  /**
    * Teammate 权限 auto-approve 档位（CHANGELOG_<X> B2）。Agent Teams in-process backend
    * 的 teammate 调工具走 inbox 协议（`~/.claude/teams/<X>/inboxes/team-lead.json`），**不会**
    * 回到 lead 的 SDK canUseTool 回调（CHANGELOG_45），所以 lead 的 permissionMode /
@@ -200,6 +237,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   enableTaskManager: false,
   claudeCodeSandbox: 'off',
   codexSandbox: 'workspace-write',
+  codexMcpServers: [],
   autoApproveTeammateMode: 'read-only',
 };
 

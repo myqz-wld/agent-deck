@@ -7,6 +7,7 @@ import { SummarySection } from './settings/sections/SummarySection';
 import { WindowSection } from './settings/sections/WindowSection';
 import { HookServerSection } from './settings/sections/HookServerSection';
 import { ExternalToolsSection } from './settings/sections/ExternalToolsSection';
+import { CodexMcpServersSection } from './settings/sections/CodexMcpServersSection';
 import { ClaudeMdSection } from './settings/sections/ClaudeMdSection';
 import { PluginAssetsSection } from './settings/sections/PluginAssetsSection';
 import { ExperimentalSection } from './settings/sections/ExperimentalSection';
@@ -167,6 +168,7 @@ export function SettingsDialog({ open, onClose, onOpenAssetsLibrary }: Props): J
             <WindowSection settings={settings} update={update} />
             <HookServerSection settings={settings} update={update} />
             <ExternalToolsSection settings={settings} update={update} />
+            <CodexMcpServersSection settings={settings} update={update} />
             <ClaudeMdSection
               settings={settings}
               update={update}

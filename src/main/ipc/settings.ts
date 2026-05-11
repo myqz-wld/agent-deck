@@ -87,6 +87,30 @@ function applyCodexSandboxMode(p: Partial<AppSettings>, next: AppSettings): void
   }
 }
 
+/**
+ * CHANGELOG_<X> A4b：codexMcpServers 改了 → 把 Agent Deck 自管的 mcp_servers 段
+ * 同步写到 ~/.codex/config.toml（marker 包裹 / atomic write，不破坏用户其他段）。
+ *
+ * 即改即生效**对下次新建 codex 会话**：codex 子进程 startThread 时按当时
+ * config.toml 加载 mcp_servers 配置，已在跑的 thread 不撤销（与 setCodexSandboxMode
+ * 同模式：spawn-time options 不可热切）。
+ *
+ * 写盘失败只 warn，不阻断 settings 保存（settings DB 一定要先写，让 UI 状态稳定；
+ * 写 codex config 失败用户可以手动重试 / 看 console 日志）。
+ */
+function applyCodexMcpServers(p: Partial<AppSettings>, next: AppSettings): void {
+  if (!('codexMcpServers' in p)) return;
+  void import('@main/codex-config/toml-writer')
+    .then(({ writeMcpServersToCodexConfig }) => {
+      try {
+        writeMcpServersToCodexConfig(next.codexMcpServers);
+      } catch (err) {
+        console.warn('[settings] writeMcpServersToCodexConfig 失败', err);
+      }
+    })
+    .catch((err) => console.warn('[settings] 加载 toml-writer 失败', err));
+}
+
 function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void {
   // summaryTimeoutMs / summaryEventCount / summaryMaxConcurrent 是每轮 scanAll
   // 内部读 settings 的，天生即时生效，不需要在这里分发。只 interval 需重启 setInterval。
@@ -168,6 +192,7 @@ export function registerSettingsIpc(): void {
       applyPermissionTimeout,
       applyCodexCliPath,
       applyCodexSandboxMode,
+      applyCodexMcpServers,
       applySummaryInterval,
       invalidateClaudeMdCache,
     ] as const;
