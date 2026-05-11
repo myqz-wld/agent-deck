@@ -34,6 +34,11 @@ export interface CliNewSession {
   resume?: string;
   /** 创建后是否聚焦窗口并选中新会话（默认 true，--no-focus 关闭）。 */
   focus: boolean;
+  /**
+   * Codex per-session sandbox 档位（CHANGELOG_<X> A9：仅 codex-cli adapter 起效）。
+   * `--codex-sandbox workspace-write|read-only|danger-full-access`。undefined 走 settings.codexSandbox 全局值。
+   */
+  codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
 }
 
 export type CliInvocation = CliNewSession | { kind: 'noop' };
@@ -45,6 +50,21 @@ const PERM_MODES: ReadonlyArray<PermissionMode> = [
   'plan',
   'bypassPermissions',
 ];
+const CODEX_SANDBOXES: ReadonlyArray<'workspace-write' | 'read-only' | 'danger-full-access'> = [
+  'workspace-write',
+  'read-only',
+  'danger-full-access',
+];
+
+/**
+ * adapter 短名 alias 映射（CHANGELOG_<X> A9）：让用户敲 `--adapter codex` 而不是
+ * 完整的 `--agent codex-cli`。`--adapter` 与 `--agent` 等价（前者更通用，符合应用
+ * 内部的 adapter 概念命名）。
+ */
+const AGENT_ALIASES: Record<string, string> = {
+  codex: 'codex-cli',
+  claude: 'claude-code',
+};
 
 function findSubcommand(argv: readonly string[]): { sub: string; args: string[] } | null {
   for (let i = 1; i < argv.length; i++) {
@@ -70,9 +90,11 @@ function findSubcommand(argv: readonly string[]): { sub: string; args: string[] 
 const VALUE_REQUIRED_FLAGS = new Set([
   'cwd',
   'agent',
+  'adapter', // CHANGELOG_<X> A9：--adapter 是 --agent 的 alias
   'prompt',
   'permission-mode',
   'resume',
+  'codex-sandbox', // CHANGELOG_<X> A9
 ]);
 
 function parseFlags(args: readonly string[]): Map<string, string | boolean> {
@@ -125,7 +147,10 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
     // wrapper 脚本 resources/bin/agent-deck 在 shell 端已用 $PWD 兜底，
     // 这里再兜一层是给「直接调 .app 二进制 / 第三方调用」的场景。
     const cwd = asString(f.get('cwd')) ?? homedir();
-    const agent = asString(f.get('agent')) ?? 'claude-code';
+    // CHANGELOG_<X> A9：--adapter 与 --agent 等价；优先取 --adapter（更新的命名）。
+    // 短名 alias 自动展开（'codex' → 'codex-cli'）。
+    const adapterRaw = asString(f.get('adapter')) ?? asString(f.get('agent')) ?? 'claude-code';
+    const agent = AGENT_ALIASES[adapterRaw] ?? adapterRaw;
     // 缺省 prompt = '你好'，让裸跑 `agent-deck` 也能立刻发起会话；
     // 不然 SDK CLI 子进程拿不到首条 user message 会卡到 30s fallback。
     const prompt = asString(f.get('prompt')) ?? '你好';
@@ -142,6 +167,18 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       permissionMode = pmRaw as PermissionMode;
     }
 
+    // CHANGELOG_<X> A9：--codex-sandbox 仅 codex-cli adapter 起效；其他 adapter 收下忽略。
+    const csRaw = asString(f.get('codex-sandbox'));
+    let codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access' | undefined;
+    if (csRaw !== undefined) {
+      if (!CODEX_SANDBOXES.includes(csRaw as (typeof CODEX_SANDBOXES)[number])) {
+        throw new Error(
+          `agent-deck new: --codex-sandbox 取值无效（应为 ${CODEX_SANDBOXES.join(' | ')}）`,
+        );
+      }
+      codexSandbox = csRaw as (typeof CODEX_SANDBOXES)[number];
+    }
+
     // 默认聚焦；--no-focus 显式关掉
     const focusFlag = f.get('focus');
     const focus = focusFlag !== false;
@@ -154,6 +191,7 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       permissionMode,
       resume,
       focus,
+      ...(codexSandbox !== undefined ? { codexSandbox } : {}),
     };
   }
 
@@ -185,6 +223,8 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
     prompt: inv.prompt,
     permissionMode: inv.permissionMode,
     resume: inv.resume,
+    // CHANGELOG_<X> A9：codex-cli adapter 接 per-session sandbox；其他 adapter 收下忽略。
+    ...(inv.codexSandbox !== undefined ? { codexSandbox: inv.codexSandbox } : {}),
   });
   // 按 adapter capability 决定是否持久化 permissionMode：
   // - canSetPermissionMode=true（如 claude-code）→ 写入 sessions.permission_mode 让
