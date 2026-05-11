@@ -57,9 +57,9 @@ const KILL_GRACE_MS = 10_000;
  * watcher 入队 OK 但 bridge 端 throw → markFailed 重试 3 次都同样失败。改 `.length`
  * 与 messageRepo 对齐（PTY 写 stdin 是 char-based 不挑 byte）。
  *
- * 注意：claude-code / codex-cli adapter 的 sendMessage cap 仍是 byteLength 100_000
- * （constants.ts），是 R3 系统性遗留，本轮 R4 不改 R3 老 adapter。Follow-up 应统一所有
- * adapter cap 与 messageRepo 一致，详 reviews/REVIEW_24.md HIGH-2 节。
+ * REVIEW_24 follow-up（CHANGELOG_67 后续）：claude-code / codex-cli adapter 的
+ * MAX_MESSAGE_BYTES 也已同步改成 MAX_MESSAGE_LENGTH = 102_400 全局对齐
+ * （详 `claude-code/sdk-bridge/constants.ts` 与 `codex-cli/sdk-bridge/constants.ts`）。
  */
 const MAX_PROMPT_LENGTH = 102_400;
 

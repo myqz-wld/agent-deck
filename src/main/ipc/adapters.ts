@@ -118,11 +118,12 @@ export function registerAdaptersIpc(): void {
     // permissionMode 白名单：renderer 可塞任意字符串，必须收口
     const permissionMode = parsePermissionMode(raw.permissionMode);
     const prompt = typeof raw.prompt === 'string' ? raw.prompt : undefined;
-    // REVIEW_4 M4：首条 prompt 也走 100KB 上限（与 sdk-bridge MAX_MESSAGE_BYTES 对齐）
-    if (prompt !== undefined && Buffer.byteLength(prompt, 'utf8') > 100_000) {
+    // REVIEW_4 M4 + REVIEW_24 HIGH-2 follow-up：首条 prompt 走 102_400 字符上限（与
+    // sdk-bridge MAX_MESSAGE_LENGTH + agent-deck-message-repo MAX_BODY_LENGTH 全局对齐）
+    if (prompt !== undefined && prompt.length > 102_400) {
       throw new IpcInputError(
         'opts.prompt',
-        `> 100KB (got ${Buffer.byteLength(prompt, 'utf8')} bytes)`,
+        `> 102400 chars (got ${prompt.length.toLocaleString()} chars)`,
       );
     }
     const resume = typeof raw.resume === 'string' ? raw.resume : undefined;
@@ -206,9 +207,10 @@ export function registerAdaptersIpc(): void {
     } else {
       throw new IpcInputError('payload', 'must be string or {text, attachments?}');
     }
-    // 单条消息上限 100KB，与 sdk-bridge MAX_MESSAGE_BYTES 对齐（REVIEW_4 M4 同主题，前置在 IPC 层）
-    if (Buffer.byteLength(text, 'utf8') > 100_000) {
-      throw new IpcInputError('text', `> 100KB (got ${Buffer.byteLength(text, 'utf8')} bytes)`);
+    // REVIEW_4 M4 + REVIEW_24 HIGH-2 follow-up：单条消息上限 102_400 字符（与 sdk-bridge
+    // MAX_MESSAGE_LENGTH + agent-deck-message-repo MAX_BODY_LENGTH 全局对齐）
+    if (text.length > 102_400) {
+      throw new IpcInputError('text', `> 102400 chars (got ${text.length.toLocaleString()} chars)`);
     }
     // attachments 写盘：失败 throw 已回滚兄弟附件。sendMessage throw 时本 handler 同款回滚。
     const attachments = await persistAttachments(rawAttachments, 'attachments');

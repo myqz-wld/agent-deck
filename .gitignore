@@ -9,3 +9,7 @@ dist
 .deep-code-review/
 # ↑ 历史目录（已迁移到 ~/.claude/state/deep-code-review/<cwd-slug>/，user 级隔离）。
 # 防御性留 entry：万一 skill regression / 用户手工建临时目录，不会被误 commit。
+.claude/worktrees/
+.claude/scheduled_tasks*
+# ↑ Claude Code 工具运行时产物：worktree 临时目录 / cron 任务持久化与锁文件。
+# 不应入 git（per-user / per-session state）。
