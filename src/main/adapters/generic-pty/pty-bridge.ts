@@ -39,6 +39,7 @@ import { spawn as ptySpawn } from 'node-pty';
 import type { AgentEvent, GenericPtyConfig, UploadedAttachmentRef } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { IdleDetector, PtyOutputBuffer, stripAnsi } from './ansi-parser';
+import { PtyFileWatcher } from './file-watcher';
 
 const ADAPTER_ID_GENERIC_PTY = 'generic-pty';
 const ADAPTER_ID_AIDER = 'aider';
@@ -69,6 +70,8 @@ interface PtySessionState {
    * （避免连续 idle / promptSuffix 反复 match 同一段静默生成多条 waiting-for-user 事件）。
    */
   idleEmitted: boolean;
+  /** F4：cwd 文件改动 watcher；close 时必 await 关闭释放 fs handle */
+  fileWatcher: PtyFileWatcher;
 }
 
 export interface GenericPtyBridgeOptions {
@@ -185,6 +188,14 @@ export class GenericPtyBridge {
         });
       },
     });
+    // F4：cwd file watcher（fire-and-forget start；close 时必 await）
+    const fileWatcher = new PtyFileWatcher({
+      cwd,
+      sessionId,
+      adapterId: this.opts.adapterId,
+      emit: this.opts.emit,
+    });
+    void fileWatcher.start(); // 不阻塞 createSession（chokidar fsevents init 是异步）
     const state: PtySessionState = {
       pty,
       config,
@@ -194,6 +205,7 @@ export class GenericPtyBridge {
       outputBuffer,
       idleDetector,
       idleEmitted: false,
+      fileWatcher,
     };
     this.sessions.set(sessionId, state);
 
@@ -251,8 +263,12 @@ export class GenericPtyBridge {
         ts: Date.now(),
         source: 'sdk',
       });
-      // 清理 idle detector + killTimer + 从 Map 移除
+      // 清理 idle detector + killTimer + 从 Map 移除；F4 fileWatcher.close 异步触发但
+      // 不 await（onExit 是 sync callback，不能 await；R3 老 team-watcher 在 SDK shutdown
+      // 链路里 await 因为是 promise chain，这里 PTY exit 是 native callback 不是 promise，
+      // void close() fire-and-forget；shutdownAll / closeSession 路径仍 await）。
       state.idleDetector.dispose();
+      void state.fileWatcher.close();
       if (state.killTimer) {
         clearTimeout(state.killTimer);
         state.killTimer = null;
@@ -321,6 +337,9 @@ export class GenericPtyBridge {
   /**
    * 关闭 session：SIGTERM → 10s grace → SIGKILL 兜底 → onExit 清理 state。
    * 多次调用安全（已 closed 直接 noop）。
+   *
+   * F4：本方法 await fileWatcher.close() 确保 fs handle 在返回前已释放（与 R3 老
+   * team-watcher 同教训：close 不 await 会让 fs handle 阻塞 process exit）。
    */
   async closeSession(sessionId: string): Promise<void> {
     const state = this.sessions.get(sessionId);
@@ -329,6 +348,12 @@ export class GenericPtyBridge {
     state.intentionallyClosed = true;
     // F3：close 时立刻 dispose idle detector（避免 SIGTERM 后子进程未退期间还有迟到 chunk 触发 timer）
     state.idleDetector.dispose();
+    // F4：await close 释放 fs handle（与 R3 team-watcher 同教训）
+    try {
+      await state.fileWatcher.close();
+    } catch (err) {
+      console.warn(`[generic-pty:${this.opts.adapterId}] fileWatcher.close ${sessionId} 失败`, err);
+    }
     try {
       state.pty.kill('SIGTERM');
     } catch (err) {
@@ -347,8 +372,12 @@ export class GenericPtyBridge {
     // 注：不在此 await onExit；caller 不需要等子进程实际退出（emit session-end 异步触发）
   }
 
-  /** 进程级 cleanup：app shutdown 时调，SIGKILL 所有未关 session（best-effort）。 */
+  /**
+   * 进程级 cleanup：app shutdown 时调，SIGKILL 所有未关 session（best-effort）。
+   * F4：并发 await 所有 fileWatcher.close（释放 fs handle 是退出关键）。
+   */
   async shutdownAll(): Promise<void> {
+    const closeTasks: Promise<void>[] = [];
     for (const [sid, state] of this.sessions) {
       state.intentionallyClosed = true;
       state.idleDetector.dispose();
@@ -358,7 +387,16 @@ export class GenericPtyBridge {
       } catch (err) {
         console.warn(`[generic-pty:${this.opts.adapterId}] shutdown SIGKILL ${sid} 失败`, err);
       }
+      closeTasks.push(
+        state.fileWatcher.close().catch((err) => {
+          console.warn(
+            `[generic-pty:${this.opts.adapterId}] shutdown fileWatcher.close ${sid} 失败`,
+            err,
+          );
+        }),
+      );
     }
+    await Promise.all(closeTasks);
     this.sessions.clear();
   }
 

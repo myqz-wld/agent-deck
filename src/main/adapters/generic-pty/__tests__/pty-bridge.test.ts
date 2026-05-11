@@ -85,6 +85,24 @@ vi.mock('@main/store/session-repo', () => ({
   },
 }));
 
+// F4：mock file-watcher（不引真 chokidar）。每个 PtyFileWatcher 实例 start/close 都 noop。
+const fileWatcherCloseCalls: string[] = [];
+vi.mock('../file-watcher', () => ({
+  PtyFileWatcher: class {
+    sessionId: string;
+    constructor(opts: { sessionId: string }) {
+      this.sessionId = opts.sessionId;
+    }
+    async start() {}
+    async close() {
+      fileWatcherCloseCalls.push(this.sessionId);
+    }
+    __debugIsClosed() {
+      return false;
+    }
+  },
+}));
+
 import { GenericPtyBridge } from '../pty-bridge';
 import type { AgentEvent, GenericPtyConfig } from '@shared/types';
 
@@ -126,6 +144,7 @@ beforeEach(() => {
   events = [];
   ptyInstances.length = 0;
   repoCalls.length = 0;
+  fileWatcherCloseCalls.length = 0;
   nextSpawnError = null;
   bridge = newBridge();
 });
@@ -484,5 +503,47 @@ describe('GenericPtyBridge idle detection (F3)', () => {
     vi.advanceTimersByTime(2000);
     // close 后 dispose detector → 不 emit waiting-for-user
     expect(events.find((e) => e.kind === 'waiting-for-user')).toBeUndefined();
+  });
+});
+
+// ─── F4：file-watcher integration ────────────────────────────────────────────
+
+describe('GenericPtyBridge file-watcher integration (F4)', () => {
+  it('closeSession awaits fileWatcher.close (release fs handle)', async () => {
+    const { sessionId } = await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: validConfig,
+    });
+    expect(fileWatcherCloseCalls).toEqual([]);
+    await bridge.closeSession(sessionId);
+    // close 调到了 PtyFileWatcher.close 至少一次
+    expect(fileWatcherCloseCalls).toContain(sessionId);
+  });
+
+  it('shutdownAll awaits all fileWatcher.close in parallel', async () => {
+    const { sessionId: s1 } = await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: validConfig,
+    });
+    const { sessionId: s2 } = await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: validConfig,
+    });
+    await bridge.shutdownAll();
+    expect(fileWatcherCloseCalls).toContain(s1);
+    expect(fileWatcherCloseCalls).toContain(s2);
+  });
+
+  it('onExit fires fileWatcher.close (fire-and-forget, sessions cleared)', async () => {
+    const { sessionId } = await bridge.createSession({
+      cwd: '/tmp',
+      genericPtyConfig: validConfig,
+    });
+    ptyInstances[0].emitExit(0);
+    // sessions Map 清空（onExit 同步触发）
+    expect(bridge.__debugSessionCount()).toBe(0);
+    // fileWatcher.close 是异步 fire-and-forget；用 setImmediate 让微任务跑完
+    await new Promise((r) => setImmediate(r));
+    expect(fileWatcherCloseCalls).toContain(sessionId);
   });
 });
