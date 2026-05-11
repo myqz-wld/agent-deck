@@ -20,7 +20,7 @@
 - **输入框图片附件**：会话主输入框 + 新建会话 dialog 都支持「粘贴 / 拖放 / 上传按钮」三件套发图（PNG / JPEG / GIF / WebP，单图 ≤ 20MB / 单条总附件 ≤ 30MB）。Claude SDK 走 base64 image content block，Codex SDK 接 `local_image` 文件路径，主进程统一把 base64 落盘到 `<userData>/image-uploads/<uuid>.<ext>` 喂下游；历史 detail view 里能看到自己发了什么图，14 天孤儿文件 reaper 自动清理
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
 - **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md 到 system prompt；可注入 agent-deck plugin 自带的 `deep-code-review` skill + `reviewer-claude` (Opus 4.7) / `reviewer-codex` (Codex CLI wrapper) 双异构对抗 subagent
-- **多 Adapter**：Claude Code（hook + SDK 双通道）+ Codex CLI（单 SDK 通道）；预留 aider / generic-pty 接口
+- **多 Adapter**：Claude Code（hook + SDK 双通道）+ Codex CLI（单 SDK 通道）+ Aider / Generic PTY（R4 起，node-pty 包装任意 stdin/stdout-only CLI，可加 universal team backend 当 cross-adapter teammate）
 
 ---
 
@@ -67,7 +67,7 @@ closed 后再来同 sessionId 事件 → 自动复活回 active。归档跳过 l
 
 - **Claude Code**：hook + SDK 双通道，能力全开（创建 / 中断 / 发消息 / 工具批准 / AskUserQuestion / ExitPlanMode / 切权限模式 / 安装 hook）
 - **Codex CLI**：基于 `@openai/codex-sdk` 单 SDK 通道，支持创建 / 发消息 / 中断 / 恢复；不支持工具批准 / 主动询问 / Plan mode / 运行时切权限模式（codex SDK 物理不支持）
-- **aider / generic-pty**：占位
+- **Aider / Generic PTY**：基于 `node-pty` 包装任意 stdin/stdout-only CLI（aider / continue / 自管 wrapper / curl-able LLM CLI 都行）。支持创建 / 发消息（写 stdin）/ 中断（Ctrl+C）/ 关闭（SIGTERM → 10s grace → SIGKILL）；ANSI escape 自动 strip 后再 emit message，stdout 静默 N ms 后（可选 prompt suffix regex 二次校验）emit `waiting-for-user`；cwd 文件改动通过 chokidar 监听 emit `file-changed`（不读 content，diff 用 git diff 兜底）。**Aider** 是 Generic PTY 的内置 preset：用户在新建会话选「Aider」时自动填好 `aider --no-stream --no-pretty` 等参数，`> ` prompt suffix 实测覆盖。两 adapter `canCollaborate=true`，可加 universal team backend 当 cross-adapter teammate；不挂 mcp_servers，所以 PTY teammate 看不到 `mcp__tasks__*` 工具（task 协作需走 prompt 注入 + message channel）
 
 新增 adapter 实现 `AgentAdapter` 接口注册即可。
 
