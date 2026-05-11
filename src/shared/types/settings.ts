@@ -138,19 +138,9 @@ export interface AppSettings {
    * 关掉不会撤销。
    */
   injectAgentDeckPlugin: boolean;
-  /**
-   * Agent Teams 实验特性总开关（默认 OFF）。开启后 NewSessionDialog 暴露 teamName 输入框；
-   * 用户填了 teamName 的 SDK 会话在 spawn 时注入 env `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`，
-   * 让 Claude 内部启用 agent teams（lead spawn teammates、共享 task list、3 个新 hook 事件）。
-   *
-   * 兼容性：需 Claude Code CLI ≥ v2.1.32（应用启动时 `claude --version` 自检；< 2.1.32
-   * 自动跳过 hook 注入并在 SettingsDialog 显示版本不足提示）。Opus 4.6+ 推荐。
-   *
-   * 已知限制（Anthropic 官方）：no `/resume` 与 `/rewind`；no nested teams；one team per
-   * session；lead 终身固定。**关闭开关只影响下次新建会话**——CLI 子进程已按 team 模式启动，
-   * env 是 spawn 时一次性传入，不会被撤销。
-   */
-  agentTeamsEnabled: boolean;
+  // R3.E6 (PR-B) 删除：原 `agentTeamsEnabled` / `autoApproveTeammateMode` 字段下线，
+  // 由新 universal team backend 取代（详 docs/agent-deck-team-protocol.md）。
+  // settings-store REMOVED_KEYS 自动清理历史持久化值。
   /**
    * SDK Task Manager 总开关（默认 OFF / CHANGELOG_43）。开启后 SDK 会话 `query()`
    * 注入 5 个 in-process MCP tools（mcp__tasks__task_create / list / get / update /
@@ -219,27 +209,11 @@ export interface AppSettings {
    */
   codexMcpServers: CodexMcpServerConfigShared[];
   /**
-   * Teammate 权限 auto-approve 档位（CHANGELOG_<X> B2）。Agent Teams in-process backend
-   * 的 teammate 调工具走 inbox 协议（`~/.claude/teams/<X>/inboxes/team-lead.json`），**不会**
-   * 回到 lead 的 SDK canUseTool 回调（CHANGELOG_45），所以 lead 的 permissionMode /
-   * settings.json permissions.allow / READ_ONLY_TOOLS 白名单在 teammate 这边全失效。
-   * inbox-watcher 检测到 permission_request 时按本档位决定是否应用层主动写 inbox response
-   * allow，跳过 UI 弹框。**对 lead 自己的工具调用零影响**（lead 走 SDK canUseTool，
-   * 已经有自己的 READ_ONLY_TOOLS 白名单）。
-   *
-   * 三档语义：
-   * - `'off'`：一律弹 UI（旧行为）
-   * - `'read-only'`：READ_ONLY_TOOLS（Read/Grep/Glob/LS/WebFetch/WebSearch/TodoWrite/NotebookRead）
-   *   + `__ImageRead` 后缀 + `mcp__tasks__*` 前缀自动允许（默认）
-   * - `'follow-lead'`：以上 + 跟随 lead permissionMode；
-   *   lead `acceptEdits` → 加放行 EDIT_TOOLS（Edit / Write / MultiEdit / NotebookEdit）；
-   *   lead `bypassPermissions` → 全放行；
-   *   lead `default` / `plan` / null → 降回 read-only
-   *
-   * **运行时立即生效**（不像 mcpServers / sandbox 那样 spawn-time 固化）——inbox-watcher
-   * 每次 processInboxFile 都从 settingsStore 读 current 值。
+   * Teammate 权限 auto-approve 档位（**R3.E6 删除占位字段，下方 R3 新字段取代**）。
+   * 老 inbox 协议下线后，新 universal team backend 不需要档位选择 —— teammate 调工具走自己
+   * adapter 的 canUseTool / hook（即「自己 session 的权限边界」），不再走 lead inbox。
    */
-  autoApproveTeammateMode: 'off' | 'read-only' | 'follow-lead';
+  // (字段删除；settings-store REMOVED_KEYS 自动清历史)
 
   // ─────────────────────────────────────── Agent Deck MCP server (R2 / B'0 ADR §7)
 
@@ -310,6 +284,30 @@ export interface AppSettings {
    */
   mcpWaitReplyIdleQuietMs: number;
 
+  // ─────────────────────────────────────── R3 universal team backend (E0 ADR §7.5)
+
+  /**
+   * universal-message-watcher per-team rate limit（默认 60 messages/min，范围 [10, 600]）。
+   *
+   * messageRepo.insert 入口校验：覆盖 IPC + MCP 两路；超限抛 `team-rate-limit-exceeded` +
+   * retryAfterMs，caller decide 重试。详 docs/agent-deck-team-protocol.md §7.5。
+   *
+   * 调高建议：deep-code-review 反驳轮 + cross-adapter 协作场景下 60/min 偶有不足；可调到
+   * 120-180。调到 ≥ 300 前请确认 codex MAX_PENDING_MESSAGES=20 队列不会被堵死
+   * （per-target backpressure 兜底，但会触发 caller-side 重试风暴）。
+   */
+  mcpMessageRatePerTeamPerMin: number;
+
+  /**
+   * universal-message-watcher per-target backpressure 阈值（默认 10，范围 [1, 50]）。
+   *
+   * watcher 每轮 claim 前查 `to_session_id` 当前 in-flight count（status IN ('pending','delivering')），
+   * 超过阈值则跳过本 row 本轮；下次 poll 重试。caller-side 不阻塞 enqueue（避免 lead 卡死）。
+   *
+   * 设计动机：避免 burst 投递把 codex MAX_PENDING_MESSAGES=20 队列灌爆。
+   */
+  mcpMessageMaxTargetInflight: number;
+
   // ─────────────────────────────────────── R3 PR-A 一次性 dialog ack（E12）
 
   /**
@@ -352,12 +350,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   injectAgentDeckCodexAgentsMd: true,
   injectAgentDeckCodexSkills: true,
   injectAgentDeckPlugin: true,
-  agentTeamsEnabled: false,
+  // R3.E6 (PR-B) 删 agentTeamsEnabled / autoApproveTeammateMode；REMOVED_KEYS 自动清历史
   enableTaskManager: false,
   claudeCodeSandbox: 'off',
   codexSandbox: 'workspace-write',
   codexMcpServers: [],
-  autoApproveTeammateMode: 'read-only',
+  // R3.E6 删 autoApproveTeammateMode；REMOVED_KEYS 自动清历史
   // R2 / B'0 ADR §7：Agent Deck MCP server 默认 OFF（与 enableTaskManager 同模式）
   enableAgentDeckMcp: false,
   mcpServerToken: null,
@@ -367,6 +365,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcpSpawnRatePerMinute: 10,
   mcpMaxFanOutPerParent: 5,
   mcpWaitReplyIdleQuietMs: 5000,
+  // R3.E0 ADR §7.5：universal-message-watcher 限流默认值
+  mcpMessageRatePerTeamPerMin: 60,
+  mcpMessageMaxTargetInflight: 10,
   // R3.E12：一次性 dialog 默认未 ack，首次启动有 legacy data 时弹
   r3LegacyExportNoticeAcked: false,
 };

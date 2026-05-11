@@ -151,17 +151,7 @@ export function App(): JSX.Element {
     return off;
   }, [select]);
 
-  // CHANGELOG_45：team-permission-resolved 是 main 端写完 inbox response 后 emit 的
-  // 跨 renderer 同步事件 —— 让所有 renderer 把对应 pending 列表里的这条 team-permission-request
-  // 都删掉。本地 UI 已经在 row 内 onResolved 调 store.resolveTeamPermission 了，但当多窗口
-  // 或外部改 inbox 让 main 主动清时，这个 listener 是补强。
-  const resolveTeamPermissionByTeam = useSessionStore((s) => s.resolveTeamPermissionByTeam);
-  useEffect(() => {
-    const off = window.api.onTeamPermissionResolved(({ teamName, requestId }) => {
-      resolveTeamPermissionByTeam(teamName, requestId);
-    });
-    return off;
-  }, [resolveTeamPermissionByTeam]);
+  // R3.E7：删 onTeamPermissionResolved 监听（老 inbox 协议下线）
 
   const togglePin = async (): Promise<void> => {
     const next = !pinned;
@@ -220,19 +210,12 @@ export function App(): JSX.Element {
   const pendingPermsMap = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsksMap = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExitsMap = useSessionStore((s) => s.pendingExitPlanModesBySession);
-  const pendingTeamPermsMap = useSessionStore((s) => s.pendingTeamPermissionsBySession);
   const pending = useMemo(
     () =>
       sumPendingBuckets(
-        selectPendingBuckets(
-          sessions,
-          pendingPermsMap,
-          pendingAsksMap,
-          pendingExitsMap,
-          pendingTeamPermsMap,
-        ),
+        selectPendingBuckets(sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap),
       ),
-    [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap, pendingTeamPermsMap],
+    [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap],
   );
 
   const jumpToPending = (): void => {

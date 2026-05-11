@@ -30,6 +30,7 @@ import { getDb } from './db';
 interface Row {
   id: string;
   team_name: string | null;
+  team_id: string | null;
   subject: string;
   description: string | null;
   status: string;
@@ -64,6 +65,7 @@ function rowToRecord(r: Row): TaskRecord {
   return {
     id: r.id,
     teamName: r.team_name,
+    teamId: r.team_id,
     subject: r.subject,
     description: r.description,
     status: r.status as TaskStatus,
@@ -86,7 +88,10 @@ export interface TaskCreateInput {
   blocks?: string[];
   blockedBy?: string[];
   labels?: string[];
+  /** @deprecated R3.E8：保留只为老调用方兼容；新代码用 teamId（v011）。 */
   teamName?: string | null;
+  /** R3.E8 / v011：universal team backend id；新代码强制走此字段。 */
+  teamId?: string | null;
 }
 
 export interface TaskListOptions {
@@ -95,12 +100,15 @@ export interface TaskListOptions {
   /** subject 模糊匹配（大小写不敏感 contains）。不传 = 不过滤 */
   subjectKeyword?: string;
   /**
-   * 三态：
+   * @deprecated R3.E8：保留只为兼容；新代码用 teamId。
+   * 三态语义：
    * - 不传 / undefined = 全部任务（含全局 + 所有 team）
-   * - 传 string = 仅该 team
-   * - 传 null = 仅全局任务（team_name IS NULL）
+   * - 传 string = 仅该 team_name
+   * - 传 null = 仅 team_name IS NULL
    */
   teamName?: string | null;
+  /** R3.E8 / v011：universal team backend id 三态过滤。 */
+  teamId?: string | null;
   /** 默认 100 */
   limit?: number;
   /** 默认 0 */
@@ -125,16 +133,14 @@ export interface TaskRepo {
    * 删除一条 task，cascade=true 时按 blocks 链路 BFS 级联下游。
    *
    * @param predicate 可选 cascade 路径过滤器：cascade BFS 入队前调
-   *                  predicate(childId, childTeamName)，返回 false 则该 child
-   *                  及其下游都不进 toDelete 集合。tool 层用此挡跨 team 删除
-   *                  （REVIEW_17 H1）：传 `(_, t) => t === currentTeam`。
-   * @returns REVIEW_17 R2 / M1-R2：原 boolean 改 `string[]` 返回**实际被删除的所有
-   *          task id**（含 root + cascade 下游），调用方按 id 列表逐个 emit task-changed
-   *          让未来的 Tasks tab UI 同步刷新所有被删 row。空数组 = 没删（id 不存在）。
+   *                  predicate(childId, childTeamName, childTeamId)，返回 false 则该 child
+   *                  及其下游都不进 toDelete 集合。tool 层用此挡跨 team 删除（R3.E8）：
+   *                  传 `(_, _name, id) => id === currentTeamId`。
+   * @returns 实际被删除的所有 task id 列表（含 root + cascade 下游）。
    */
   delete(
     id: string,
-    opts?: { cascade?: boolean; predicate?: (id: string, teamName: string | null) => boolean },
+    opts?: { cascade?: boolean; predicate?: (id: string, teamName: string | null, teamId: string | null) => boolean },
   ): string[];
 }
 
@@ -147,9 +153,8 @@ const UPDATABLE_KEYS: ReadonlyArray<keyof TaskCreateInput> = [
   'blocks',
   'blockedBy',
   'labels',
-  // teamName 故意不在 UPDATABLE_KEYS（REVIEW_17 H1 / L9）：tool 层闭包锁禁止跨
-  // team 改 task，repo 层主动忽略 patch.teamName，防止未来直调 repo 的 ts 脚本
-  // 绕过 closure。如要 reset task 的 teamName 必须 delete + 重新 create。
+  // teamName / teamId 故意不在 UPDATABLE_KEYS：tool 层闭包锁禁止跨 team 改 task，
+  // repo 层主动忽略 patch.teamName / patch.teamId，防止未来直调 repo 的 ts 脚本绕过 closure。
 ];
 
 const COL_MAP: Record<keyof TaskCreateInput, string> = {
@@ -162,6 +167,7 @@ const COL_MAP: Record<keyof TaskCreateInput, string> = {
   blockedBy: 'blocked_by',
   labels: 'labels',
   teamName: 'team_name',
+  teamId: 'team_id',
 };
 
 /**
@@ -190,6 +196,7 @@ export function createTaskRepo(db: Database): TaskRepo {
     const rec: TaskRecord = {
       id: crypto.randomUUID(),
       teamName: input.teamName ?? null,
+      teamId: input.teamId ?? null,
       subject,
       description: input.description ?? null,
       status: input.status ?? 'pending',
@@ -203,12 +210,13 @@ export function createTaskRepo(db: Database): TaskRepo {
     };
     db.prepare(
       `INSERT INTO tasks
-       (id, team_name, subject, description, status, active_form, priority,
+       (id, team_name, team_id, subject, description, status, active_form, priority,
         blocks, blocked_by, labels, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       rec.id,
       rec.teamName,
+      rec.teamId,
       rec.subject,
       rec.description,
       rec.status,
@@ -234,7 +242,13 @@ export function createTaskRepo(db: Database): TaskRepo {
       wheres.push('LOWER(subject) LIKE ?');
       params.push(`%${opts.subjectKeyword.toLowerCase()}%`);
     }
-    if (opts.teamName === null) {
+    // R3.E8：teamId 优先（v011 新代码主路径）；teamName 兼容老调用
+    if (opts.teamId === null) {
+      wheres.push('team_id IS NULL');
+    } else if (typeof opts.teamId === 'string') {
+      wheres.push('team_id = ?');
+      params.push(opts.teamId);
+    } else if (opts.teamName === null) {
       wheres.push('team_name IS NULL');
     } else if (typeof opts.teamName === 'string') {
       wheres.push('team_name = ?');
@@ -278,20 +292,11 @@ export function createTaskRepo(db: Database): TaskRepo {
 
   function del(
     id: string,
-    opts: { cascade?: boolean; predicate?: (id: string, teamName: string | null) => boolean } = {},
+    opts: { cascade?: boolean; predicate?: (id: string, teamName: string | null, teamId: string | null) => boolean } = {},
   ): string[] {
     const target = get(id);
     if (!target) return [];
 
-    // 收集所有要删的 id：cascade=true 时递归把 target.blocks 链路下游全部并入。
-    // 用 BFS + 已访问集合防自循环（虽然 spec §5 不做循环检测，但 cascade 内不能因
-    // 数据里碰巧有环就死循环）。
-    //
-    // REVIEW_17 H1 修复：cascade BFS 入队前调 predicate(childId, childTeamName)，
-    // 不通过的 child 整个不进 toDelete（含其自身 + 自己的 blocks 下游）。tool 层
-    // 用此挡跨 team 删除：predicate = `(_, t) => t === currentTeam`。target 自身
-    // 的 team 校验由 tool 层在调 repo.delete 之前做（不通过这里 short-circuit），
-    // 保留 repo 层「单条 delete 不感知 team」的最小语义。
     const toDelete = new Set<string>([id]);
     if (opts.cascade) {
       const queue = [...target.blocks];
@@ -300,8 +305,7 @@ export function createTaskRepo(db: Database): TaskRepo {
         if (toDelete.has(next)) continue;
         const child = get(next);
         if (!child) continue;
-        if (opts.predicate && !opts.predicate(child.id, child.teamName)) {
-          // 跨 team child 整个跳过（不进 toDelete + 不展开它自己的 blocks）
+        if (opts.predicate && !opts.predicate(child.id, child.teamName, child.teamId)) {
           continue;
         }
         toDelete.add(next);

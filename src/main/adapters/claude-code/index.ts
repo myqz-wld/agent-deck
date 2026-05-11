@@ -28,7 +28,6 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     canRestartWithPermissionMode: true,
     canRestartWithCodexSandbox: false,
     canCloseSession: true,
-    canJoinTeam: true,
     // R3.E4：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage = sendMessage）
     canCollaborate: true,
   };

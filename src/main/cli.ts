@@ -6,12 +6,12 @@
  *   1. 打包应用首次启动：bootstrap 末尾把 `process.argv` 喂给 handleCliArgv。
  *   2. 打包应用 second-instance：requestSingleInstanceLock 触发的 'second-instance'
  *      事件携带新进程的 argv，转发给主实例处理。
- *   3. dev 模式：暂不支持（电用 ＋ 按钮即可），但 parseCliInvocation 是纯函数，
- *      typecheck 即可验证。
+ *   3. dev 模式：暂不支持。
  *
- * argv 在不同入口里 leading 段长度不同（exe / electron+projectDir / 还有
- * --inspect 等 electron 自带 flag），不能按 index 取。统一找 'new' 子命令名
- * 之后的 token 作为参数。
+ * argv 在不同入口里 leading 段长度不同，统一找 'new' 子命令名之后的 token 作为参数。
+ *
+ * R3.E10：新增 `--team <name>` + `--member <slug:adapter>` repeatable，
+ * 用于跨 adapter team 一键创建 lead + N teammate（详 docs/agent-deck-team-protocol.md §10.2 / §10.3）。
  */
 import { app, dialog } from 'electron';
 import { realpath } from 'node:fs/promises';
@@ -21,24 +21,29 @@ import { adapterRegistry } from './adapters/registry';
 import { eventBus } from './event-bus';
 import { getFloatingWindow } from './window';
 import { sessionManager } from './session/manager';
+import { agentDeckTeamRepo, TeamInvariantError } from './store/agent-deck-team-repo';
 import type { PermissionMode } from './adapters/types';
+
+export interface CliMemberSpec {
+  /** 如 'reviewer-claude'；用作 member.displayName */
+  slug: string;
+  /** adapter id（'claude-code' / 'codex-cli' / etc.） */
+  adapter: string;
+}
 
 export interface CliNewSession {
   kind: 'new-session';
   agent: string;
   cwd: string;
-  /** 缺省时填 `'你好'`，避免 SDK 卡 30s fallback 才显出会话。
-   *  显式传 `--prompt ''` 视为用户主动要空（asString 返回 ''，?? 不触发）。 */
   prompt: string;
   permissionMode?: PermissionMode;
   resume?: string;
-  /** 创建后是否聚焦窗口并选中新会话（默认 true，--no-focus 关闭）。 */
   focus: boolean;
-  /**
-   * Codex per-session sandbox 档位（CHANGELOG_<X> A9：仅 codex-cli adapter 起效）。
-   * `--codex-sandbox workspace-write|read-only|danger-full-access`。undefined 走 settings.codexSandbox 全局值。
-   */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  /** R3.E10：填了表示创建 / 加入指定 team（lead 角色） */
+  team?: string;
+  /** R3.E10：lead spawn 后再 spawn 这些 teammate sessions，全部加入 team（teammate 角色） */
+  members: CliMemberSpec[];
 }
 
 export type CliInvocation = CliNewSession | { kind: 'noop' };
@@ -90,15 +95,29 @@ function findSubcommand(argv: readonly string[]): { sub: string; args: string[] 
 const VALUE_REQUIRED_FLAGS = new Set([
   'cwd',
   'agent',
-  'adapter', // CHANGELOG_<X> A9：--adapter 是 --agent 的 alias
+  'adapter',
   'prompt',
   'permission-mode',
   'resume',
-  'codex-sandbox', // CHANGELOG_<X> A9
+  'codex-sandbox',
+  'team',     // R3.E10
+  'member',   // R3.E10
 ]);
 
-function parseFlags(args: readonly string[]): Map<string, string | boolean> {
-  const out = new Map<string, string | boolean>();
+/** 可重复 flag —— 同 key 多次出现时累积成数组而非覆盖 */
+const REPEATABLE_FLAGS = new Set(['member']);
+
+function parseFlags(args: readonly string[]): Map<string, string | boolean | string[]> {
+  const out = new Map<string, string | boolean | string[]>();
+  const accumulate = (key: string, value: string): void => {
+    if (REPEATABLE_FLAGS.has(key)) {
+      const cur = out.get(key);
+      if (Array.isArray(cur)) cur.push(value);
+      else out.set(key, [value]);
+    } else {
+      out.set(key, value);
+    }
+  };
   let i = 0;
   while (i < args.length) {
     const tok = args[i];
@@ -108,7 +127,7 @@ function parseFlags(args: readonly string[]): Map<string, string | boolean> {
     }
     const eq = tok.indexOf('=');
     if (eq > 0) {
-      out.set(tok.slice(2, eq), tok.slice(eq + 1));
+      accumulate(tok.slice(2, eq), tok.slice(eq + 1));
       i++;
       continue;
     }
@@ -120,7 +139,7 @@ function parseFlags(args: readonly string[]): Map<string, string | boolean> {
     }
     const next = args[i + 1];
     if (next !== undefined && !next.startsWith('--')) {
-      out.set(key, next);
+      accumulate(key, next);
       i += 2;
     } else {
       if (VALUE_REQUIRED_FLAGS.has(key)) {
@@ -133,8 +152,14 @@ function parseFlags(args: readonly string[]): Map<string, string | boolean> {
   return out;
 }
 
-function asString(v: string | boolean | undefined): string | undefined {
+function asString(v: string | boolean | string[] | undefined): string | undefined {
   return typeof v === 'string' ? v : undefined;
+}
+
+function asStringArray(v: string | boolean | string[] | undefined): string[] {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') return [v];
+  return [];
 }
 
 export function parseCliInvocation(argv: readonly string[]): CliInvocation {
@@ -183,6 +208,26 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
     const focusFlag = f.get('focus');
     const focus = focusFlag !== false;
 
+    // R3.E10：--team / --member 解析
+    const team = asString(f.get('team'));
+    const memberRaw = asStringArray(f.get('member'));
+    const members: CliMemberSpec[] = [];
+    for (const spec of memberRaw) {
+      const colonIdx = spec.lastIndexOf(':');
+      if (colonIdx <= 0 || colonIdx === spec.length - 1) {
+        throw new Error(
+          `agent-deck new: --member 格式应为 <slug>:<adapter>（如 reviewer-claude:claude-code），得到 "${spec}"`,
+        );
+      }
+      const slug = spec.slice(0, colonIdx);
+      const memberAdapterRaw = spec.slice(colonIdx + 1);
+      const memberAdapter = AGENT_ALIASES[memberAdapterRaw] ?? memberAdapterRaw;
+      members.push({ slug, adapter: memberAdapter });
+    }
+    if (members.length > 0 && !team) {
+      throw new Error('agent-deck new: --member 必须配合 --team <name> 一起使用');
+    }
+
     return {
       kind: 'new-session',
       agent,
@@ -192,6 +237,8 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       resume,
       focus,
       ...(codexSandbox !== undefined ? { codexSandbox } : {}),
+      ...(team ? { team } : {}),
+      members,
     };
   }
 
@@ -223,18 +270,64 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
     prompt: inv.prompt,
     permissionMode: inv.permissionMode,
     resume: inv.resume,
-    // CHANGELOG_<X> A9：codex-cli adapter 接 per-session sandbox；其他 adapter 收下忽略。
     ...(inv.codexSandbox !== undefined ? { codexSandbox: inv.codexSandbox } : {}),
   });
-  // 按 adapter capability 决定是否持久化 permissionMode：
-  // - canSetPermissionMode=true（如 claude-code）→ 写入 sessions.permission_mode 让
-  //   SessionDetail 下拉读到正确值，跟 SDK 真实状态对齐。
-  // - canSetPermissionMode=false（如 codex-cli）→ 不写，避免污染 DB 列让别处误读
-  //   一个其实"未生效"的 mode（CLI 路径之前总是写，而 codex SDK 完全忽略）。
-  // REVIEW_2 修。
   if (adapter.capabilities.canSetPermissionMode) {
     sessionManager.recordCreatedPermissionMode(sid, inv.permissionMode);
   }
+
+  // R3.E10 universal team backend：--team 把 lead 加入指定 team；--member 再 spawn N teammate
+  if (inv.team) {
+    try {
+      const team = agentDeckTeamRepo.ensureByName(inv.team, { source: 'cli' });
+      // lead 自动加入（已 active 时 invariant，幂等吞掉）
+      try {
+        agentDeckTeamRepo.addMember({
+          teamId: team.id,
+          sessionId: sid,
+          role: 'lead',
+          displayName: null,
+        });
+      } catch (e) {
+        if (!(e instanceof TeamInvariantError)) throw e;
+      }
+      // teammate spawn —— 并发以加快总耗时
+      await Promise.all(
+        inv.members.map(async (m) => {
+          const memberAdapter = adapterRegistry.get(m.adapter);
+          if (!memberAdapter?.createSession) {
+            console.warn(
+              `[cli] team member adapter "${m.adapter}" cannot create session; skip ${m.slug}`,
+            );
+            return;
+          }
+          try {
+            const memberSid = await memberAdapter.createSession({
+              cwd,
+              prompt: `你被 lead 加入了 team "${inv.team}"，等待 lead 通过 mcp__agent_deck__send_message 给你发消息。`,
+              ...(inv.codexSandbox !== undefined && m.adapter === 'codex-cli'
+                ? { codexSandbox: inv.codexSandbox }
+                : {}),
+            });
+            agentDeckTeamRepo.addMember({
+              teamId: team.id,
+              sessionId: memberSid,
+              role: 'teammate',
+              displayName: m.slug,
+            });
+          } catch (e) {
+            console.warn(
+              `[cli] failed to spawn team member ${m.slug}:${m.adapter}:`,
+              e instanceof Error ? e.message : String(e),
+            );
+          }
+        }),
+      );
+    } catch (e) {
+      console.warn(`[cli] team setup failed for "${inv.team}":`, e);
+    }
+  }
+
   if (inv.focus) {
     const win = getFloatingWindow().window;
     win?.show();
@@ -242,8 +335,6 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
     if (process.platform === 'darwin') {
       app.focus({ steal: true });
     }
-    // 通知 renderer：切到「实时」并选中这条会话。session-upserted / agent-event
-    // 走的是各自通道，单独再发一个 focus-request 让 UI 跳过去，避免用户找不到。
     eventBus.emit('session-focus-request', sid);
   }
 }

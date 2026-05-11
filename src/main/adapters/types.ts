@@ -29,17 +29,10 @@ export interface CreateSessionOptions {
   /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
   resume?: string;
   /**
-   * Agent Teams 团队名（仅 SDK 通道支持）。语义：应用内标签 + env 触发条件——
-   * 当 settingsStore.agentTeamsEnabled === true 且 teamName?.trim() 非空时，
-   * sdk-bridge 在 spawn CLI 子进程时把 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-   * 注入到 query() 的 env，让 Claude 内部启用 agent teams 实验特性。
-   *
-   * teamName 不会作为 SDK options 直接传给 Claude（Claude 自身用自然语言驱动建队 +
-   * 在 ~/.claude/teams/<name>/config.json 自管命名）；用户须在首条 prompt 里告诉 Claude
-   * 用这个名字（NewSessionDialog 给提示模板）。
-   *
-   * resume 路径下传 teamName 视为非法（Agent Teams 不支持 session resumption），
-   * sdk-bridge 直接 throw。
+   * R3 universal team backend：spawn_session 入口可附 team_name，由 MCP / IPC handler
+   * 在调用前 ensure-team-by-name + addMember；adapter 自己**不**处理 team。
+   * 字段保留用于把「lead 在 spawn 时同时建 team + 加 teammate」语义透传到 sessionManager.recordCreatedTeamName。
+   * 老 Claude Code experimental teams flag (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) 已 R3.E6 删除。
    */
   teamName?: string;
   /**
@@ -88,23 +81,12 @@ export interface AdapterCapabilities {
    */
   canCloseSession: boolean;
   /**
-   * 是否支持加入 Claude Code agent teams（实验特性，需 CLI ≥ v2.1.32）。
-   * - claude-code: true（SDK env 注入即启用）
-   * - codex-cli / aider / generic-pty: false（不走 Claude Code CLI）
-   * UI 据此与 settings.agentTeamsEnabled 双条件决定 NewSessionDialog 是否暴露 teamName 输入框。
-   *
-   * @deprecated R3.E6 (PR-B) 删除。新代码用 canCollaborate（adapter-agnostic universal team）。
-   * PR-A 阶段（E4）保留与 canCollaborate 共存，避免 NewSessionDialog 旧消费点 break（reviewer finding #5 修订）。
-   */
-  canJoinTeam: boolean;
-  /**
    * 是否支持作为 team member 接收 cross-adapter 消息（R3.E0 ADR §3.1 / E4 新增）。
    * - claude-code / codex-cli: true（都有 sendMessage 把外来文字塞进 user turn）
    * - aider / generic-pty: false（占位，F 阶段实装后改 true）
    *
    * UI 据此与 archived/closed 双条件决定 NewTeamMember dialog 是否暴露该 adapter。
-   * 取代老 capability `canJoinTeam`（仅指 Claude Code experimental teams flag），
-   * 老字段 E6 (PR-B) 同时删除。
+   * 取代老 capability `canJoinTeam`（R3.E6 已删，仅 Claude experimental teams flag 触发器）。
    */
   canCollaborate: boolean;
 }
