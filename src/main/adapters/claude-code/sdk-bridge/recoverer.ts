@@ -29,7 +29,7 @@ import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { encodeClaudeProjectDir } from '@main/platform';
-import { AGENT_ID, MAX_MESSAGE_BYTES, PLACEHOLDER_DEDUP_MS } from './constants';
+import { AGENT_ID, MAX_MESSAGE_LENGTH, PLACEHOLDER_DEDUP_MS } from './constants';
 import type { SdkBridgeOptions, SdkSessionHandle } from './types';
 
 export interface RecovererCtx {
@@ -141,11 +141,12 @@ export class SessionRecoverer {
       sessionManager.unarchive(sessionId);
     }
 
-    // 字节上限：恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）
-    const bytes = Buffer.byteLength(text, 'utf8');
-    if (bytes > MAX_MESSAGE_BYTES) {
+    // REVIEW_24 HIGH-2 follow-up：字符长度上限（与 messageRepo cap 全局对齐）。
+    // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
+    const len = text.length;
+    if (len > MAX_MESSAGE_LENGTH) {
       throw new Error(
-        `单条消息 ${(bytes / 1000).toFixed(1)}KB 超过 ${MAX_MESSAGE_BYTES / 1000}KB 上限。请精简或拆分发送。`,
+        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
       );
     }
 

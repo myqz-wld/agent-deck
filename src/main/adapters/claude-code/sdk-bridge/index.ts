@@ -37,7 +37,7 @@ import {
 // `/index` 后缀），届时所有 import 站点要加 `/index`。当前 tsconfig.node.json 用 node。
 import {
   AGENT_ID,
-  MAX_MESSAGE_BYTES,
+  MAX_MESSAGE_LENGTH,
   MAX_PENDING_MESSAGES,
 } from './constants';
 import type {
@@ -469,13 +469,13 @@ export class ClaudeSdkBridge {
       return;
     }
 
-    // 单条字节上限：Buffer.byteLength 用 utf8 计算真实字节数（中文 3 字节 / 字符）。
+    // REVIEW_24 HIGH-2 follow-up：单条字符长度上限（与 messageRepo cap 全局对齐）。
     // 超过就拒绝，让 IPC handler 把错误抛给 renderer，UI 显示红条提示用户精简或拆分。
-    // attachments 走 lazy thunk 内 fs.readFile，不算在 text bytes 内（IPC 层独立 30MB 校验）
-    const bytes = Buffer.byteLength(text, 'utf8');
-    if (bytes > MAX_MESSAGE_BYTES) {
+    // attachments 走 lazy thunk 内 fs.readFile，不算在 text length 内（IPC 层独立 30MB 校验）。
+    const len = text.length;
+    if (len > MAX_MESSAGE_LENGTH) {
       throw new Error(
-        `单条消息 ${(bytes / 1000).toFixed(1)}KB 超过 ${MAX_MESSAGE_BYTES / 1000}KB 上限。请精简或拆分发送。`,
+        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
       );
     }
 

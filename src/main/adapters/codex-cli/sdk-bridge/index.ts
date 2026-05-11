@@ -14,7 +14,7 @@ import {
 // 模式下 `import './sdk-bridge'` 优先匹配 `sdk-bridge.ts` 文件（不存在时才走 `sdk-bridge/index.ts`）。
 // Step 4c 删了原 `sdk-bridge.ts` 文件，import 自动切到本 index.ts；外部 import 站点
 // （`@main/adapters/codex-cli/sdk-bridge`）零变更继续工作。
-import { AGENT_ID, MAX_MESSAGE_BYTES, MAX_PENDING_MESSAGES } from './constants';
+import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES } from './constants';
 import type {
   CodexBridgeOptions,
   CodexSessionHandle,
@@ -159,13 +159,14 @@ export class CodexSdkBridge {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
     }
-    // REVIEW_4 M4：首条 prompt 也走 MAX_MESSAGE_BYTES 上限。原版只 sendMessage 校验，
-    // pendingMessages: [opts.prompt] 直接进队列，让 cli.ts / 其他入口可绕过 100KB 上限。
-    // attachments 不算 text 字节（IPC 层 30MB 总附件独立校验）
-    const promptBytes = Buffer.byteLength(opts.prompt, 'utf8');
-    if (promptBytes > MAX_MESSAGE_BYTES) {
+    // REVIEW_4 M4：首条 prompt 也走 MAX_MESSAGE_LENGTH 上限。原版只 sendMessage 校验，
+    // pendingMessages: [opts.prompt] 直接进队列，让 cli.ts / 其他入口可绕过 cap。
+    // attachments 不算 text length（IPC 层 30MB 总附件独立校验）
+    // REVIEW_24 HIGH-2 follow-up：byteLength → length 与 messageRepo cap 全局对齐
+    const promptLen = opts.prompt.length;
+    if (promptLen > MAX_MESSAGE_LENGTH) {
       throw new Error(
-        `首条 prompt 超出 ${MAX_MESSAGE_BYTES} 字节上限（实际 ${promptBytes} 字节）`,
+        `首条 prompt 超出 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限（实际 ${promptLen.toLocaleString()} 字符）`,
       );
     }
 
@@ -284,12 +285,12 @@ export class CodexSdkBridge {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`session ${sessionId} not found`);
 
-    // MED 修法：MAX_MESSAGE_BYTES 仅算 text 节字节（不算 path 字符串、不 JSON.stringify Input）。
-    // attachments 总大小由 IPC 层独立 30MB 校验，sdk-bridge 这层只管 text。
-    const bytes = Buffer.byteLength(text, 'utf8');
-    if (bytes > MAX_MESSAGE_BYTES) {
+    // REVIEW_24 HIGH-2 follow-up：MAX_MESSAGE_LENGTH 算 text 字符（与 messageRepo cap
+    // 全局对齐）。attachments 总大小由 IPC 层独立 30MB 校验，sdk-bridge 这层只管 text。
+    const len = text.length;
+    if (len > MAX_MESSAGE_LENGTH) {
       throw new Error(
-        `单条消息 ${(bytes / 1000).toFixed(1)}KB 超过 ${MAX_MESSAGE_BYTES / 1000}KB 上限。请精简或拆分发送。`,
+        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
       );
     }
 
