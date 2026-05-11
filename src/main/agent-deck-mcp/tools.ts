@@ -18,7 +18,6 @@
  * 内部 TS 接口 camelCase。
  */
 
-import { realpathSync } from 'node:fs';
 import { z } from 'zod';
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { SessionRecord } from '@shared/types';
@@ -38,6 +37,7 @@ import {
   waitReplyCoordinator,
   type EventProjection,
 } from './wait-reply-coordinator';
+import { applySpawnGuards } from './spawn-guards';
 
 /**
  * Tool handler 共用：把 zod 解析后的 caller_session_id（args 字段）规范为
@@ -134,40 +134,8 @@ function validateExternalCaller(
 }
 
 /**
- * 简化版 self-spawn 1 层 cycle 检测（B'2.a 占位 / B'5 替换为整链回溯）。
- * 即将 spawn 的 cwd realpath + adapter 与 caller 的 cwd realpath + adapter 比较，
- * 任一不同 → 通过。
+ * 简化版 self-spawn cycle 检测已抽到 spawn-guards.ts 完整版（B'5），本处不再维护。
  */
-function checkSelfSpawnCycle(
-  caller: CallerContext,
-  newCwd: string,
-  newAdapter: string,
-):
-  | { content: { type: 'text'; text: string }[]; isError: true }
-  | null {
-  const callerSession = sessionRepo.get(caller.callerSessionId);
-  if (!callerSession) return null; // caller 不在 DB 不做 cycle 检测（in-process 闭包伪 id 兼容）
-  if (callerSession.agentId !== newAdapter) return null;
-  let callerRealpath: string;
-  let newRealpath: string;
-  try {
-    callerRealpath = realpathSync(callerSession.cwd);
-  } catch {
-    callerRealpath = callerSession.cwd;
-  }
-  try {
-    newRealpath = realpathSync(newCwd);
-  } catch {
-    newRealpath = newCwd;
-  }
-  if (callerRealpath === newRealpath) {
-    return err(
-      `same-cwd same-adapter spawn cycle detected: caller @ ${callerRealpath}, new @ ${newRealpath}`,
-      'Spawning a session in the same cwd with the same adapter as your own would create a tight loop. Use a different cwd or a different adapter, or call this from a different parent session.',
-    );
-  }
-  return null;
-}
 
 /**
  * 5 个 tool 的 zod schema 集中地。三 transport 共享同一份 schema。
@@ -274,9 +242,12 @@ export async function buildAgentDeckTools(
         );
       }
 
-      // 简化版 cwd cycle 检测（B'2.a 占位 / B'5 替换为整链回溯 + race protection）
-      const cycleErr = checkSelfSpawnCycle(caller, args.cwd, args.adapter);
-      if (cycleErr) return cycleErr;
+      // 完整防递归 4 条规则（B'5 / ADR §6）：depth 上限 / spawn-rate / fan-out / 整链
+      // cwd cycle。任一 deny 立即返回；通过 → 拿到 fanOutSlot，必须在 createSession
+      // 完成后（无论成功失败）调 release()。
+      const guard = applySpawnGuards(caller, args.cwd, args.adapter);
+      if ('isError' in guard) return guard;
+      const { parentDepth, fanOutSlot } = guard;
 
       // 实际 spawn
       let sid: string;
@@ -289,18 +260,21 @@ export async function buildAgentDeckTools(
           ...(args.team_name !== undefined ? { teamName: args.team_name } : {}),
         });
       } catch (e) {
+        fanOutSlot.release();
         return err(
           e instanceof Error ? e.message : String(e),
           'createSession failed; no session created. Check adapter logs for details.',
         );
+      } finally {
+        // 仅在 catch 路径已 release；finally 兜底 idempotent 二次 release（内部 dedupe）
+        fanOutSlot.release();
       }
 
       // 持久化 spawn link / team_name / permission_mode（与 IPC adapters.ts handler 同款）
-      const callerDepth = sessionRepo.getSpawnDepth(caller.callerSessionId);
       // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）
       const callerExists = sessionRepo.get(caller.callerSessionId) !== null;
       if (callerExists) {
-        sessionRepo.setSpawnLink(sid, caller.callerSessionId, callerDepth + 1);
+        sessionRepo.setSpawnLink(sid, caller.callerSessionId, parentDepth + 1);
       }
       if (adapter.capabilities.canSetPermissionMode && args.permission_mode) {
         sessionManager.recordCreatedPermissionMode(sid, args.permission_mode);
@@ -315,7 +289,7 @@ export async function buildAgentDeckTools(
         adapter: args.adapter,
         cwd: args.cwd,
         teamName: created?.teamName ?? args.team_name ?? null,
-        spawnDepth: created?.spawnDepth ?? (callerExists ? callerDepth + 1 : 0),
+        spawnDepth: created?.spawnDepth ?? (callerExists ? parentDepth + 1 : 0),
       });
     },
   );
