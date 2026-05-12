@@ -75,10 +75,6 @@ export const IpcInvoke = {
   /** 拉指定 team 的 SQLite tasks（替代老 TaskListByTeam）。args: teamId。 */
   TaskListByTeam: 'task:list-by-team',
 
-  // ─────────── R3.E12 — Legacy team data 一次性导出 ───────────
-  LegacyTeamsHasData: 'legacy-teams:has-data',
-  LegacyTeamsExport: 'legacy-teams:export',
-
   // ─────────── Assets Library (CHANGELOG_57) ───────────
   AssetsListBundled: 'assets:list-bundled',
   AssetsListUser: 'assets:list-user',

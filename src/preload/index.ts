@@ -352,15 +352,6 @@ const api = {
   listTeamTasks: (teamId: string): Promise<{ tasks: TaskRecord[] }> =>
     ipcRenderer.invoke(IpcInvoke.TaskListByTeam, teamId),
 
-  /** R3.E12 — 探测本地是否有老 ~/.claude/teams/ 或 ~/.claude/tasks/ 目录。 */
-  legacyTeamsHasData: (): Promise<{ teams: boolean; tasks: boolean }> =>
-    ipcRenderer.invoke(IpcInvoke.LegacyTeamsHasData),
-  /** R3.E12 — 把 ~/.claude/teams/ + ~/.claude/tasks/ 整个目录递归复制到 targetParentDir 下。 */
-  legacyTeamsExport: (
-    targetParentDir: string,
-  ): Promise<{ destDir: string | null; copied: { teams: boolean; tasks: boolean } }> =>
-    ipcRenderer.invoke(IpcInvoke.LegacyTeamsExport, targetParentDir),
-
   /** 订阅 team 增删改 / member 改的 push（main bootstrap 16ms debounce + per-team 累加）。 */
   onAgentDeckTeamChanged: (
     cb: (
