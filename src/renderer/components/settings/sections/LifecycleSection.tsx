@@ -9,7 +9,7 @@ interface Props {
 
 export function LifecycleSection({ settings, update }: Props): JSX.Element {
   return (
-    <Section title="生命周期" storageKey="lifecycle" defaultOpen={false}>
+    <Section title="生命周期" storageKey="lifecycle" defaultOpen={true}>
       <NumberInput
         label="活跃 → 休眠 阈值（分钟）"
         value={Math.round(settings.activeWindowMs / 60000)}

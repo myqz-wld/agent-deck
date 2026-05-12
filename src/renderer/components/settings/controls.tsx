@@ -279,6 +279,30 @@ export function ExecutablePicker({
 }
 
 /**
+ * 「分组分隔标题」轻量包装：把若干个 Section 在视觉上聚为一组（CHANGELOG_69）。
+ *
+ * 不带折叠交互——只有一行 label + 上分隔线，让 340px 窄面板里的 10+ section 能按
+ * 主题被一眼扫到。第一个 group 用 first:* 选择器去掉上分隔线 / 上 padding，
+ * 避免在面板顶部多一道空线。
+ */
+export function SectionGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}): JSX.Element {
+  return (
+    <div className="mb-2 first:mt-0 mt-3 first:pt-0 first:border-t-0 border-t border-deck-border/40 pt-2">
+      <div className="mb-2 text-[9px] font-semibold uppercase tracking-widest text-deck-muted/60">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
  * 测试系统通知按钮。点击后调 main 进程的 Notification API。
  * macOS 系统设置里的应用名取自 `app.getName()` —— dev 模式是「Electron」、
  * 生产打包是「Agent Deck」。提示文字读 main 返回的 appName 拼接，避免

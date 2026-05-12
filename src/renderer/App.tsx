@@ -324,10 +324,6 @@ export function App(): JSX.Element {
             setTransparentWhenPinned(settings.transparentWhenPinned);
           });
         }}
-        onOpenAssetsLibrary={() => {
-          setSettingsOpen(false);
-          setAssetsLibraryOpen(true);
-        }}
       />
       <NewSessionDialog
         open={newSessionOpen}

@@ -69,8 +69,6 @@ export function TeamHub({
         <div className="text-[10px] leading-relaxed text-deck-muted/70">
           通过 <code className="rounded bg-white/5 px-1">mcp__agent_deck__spawn_session</code> 在
           会话内调用以创建 team。
-          <br />
-          老 Claude Code Agent Teams 数据已不再被读取，详见 README。
         </div>
       </div>
     );

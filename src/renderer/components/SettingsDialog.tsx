@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { DEFAULT_SETTINGS, type AppSettings, type HookInstallStatus } from '@shared/types';
+import { SectionGroup } from './settings/controls';
 import { HookSection } from './settings/sections/HookSection';
 import { NotifySection } from './settings/sections/NotifySection';
 import { LifecycleSection } from './settings/sections/LifecycleSection';
@@ -8,30 +9,28 @@ import { WindowSection } from './settings/sections/WindowSection';
 import { HookServerSection } from './settings/sections/HookServerSection';
 import { ExternalToolsSection } from './settings/sections/ExternalToolsSection';
 import { CodexMcpServersSection } from './settings/sections/CodexMcpServersSection';
-import { CodexInjectionSection } from './settings/sections/CodexInjectionSection';
-import { ClaudeMdSection } from './settings/sections/ClaudeMdSection';
-import { PluginAssetsSection } from './settings/sections/PluginAssetsSection';
 import { ExperimentalSection } from './settings/sections/ExperimentalSection';
 import { AgentDeckMcpSection } from './settings/sections/AgentDeckMcpSection';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** 「在资产库中查看」按钮点击 → 关本 dialog 打开 AssetsLibraryDialog（CHANGELOG_57 / 58）。 */
-  onOpenAssetsLibrary: () => void;
 }
 
 /**
- * 设置弹窗外壳：负责 settings/hookStatus 加载、update IPC 调用、9 个 section 编排。
+ * 设置弹窗外壳：负责 settings/hookStatus 加载、update IPC 调用、section 编排。
  *
- * 9 个 section 拆到 settings/sections/ 子目录（CHANGELOG_57 D）；本文件只剩状态管理 +
- * 编排，避免 720→500→200 三轮拆分循环（CHANGELOG_50/51/52 拆分实例同模式）。
+ * CHANGELOG_69：信息架构重组 ——
+ * - 删 3 个「资产注入」section（ClaudeMd / PluginAssets / CodexInjection），5 个 toggle 整体迁
+ *   到 AssetsLibraryDialog 三 tab 顶部，实现「资产编辑 + 注入开关」单一真源
+ * - 剩 10 个 section 按 4 主题分组（会话 / 提醒与外观 / 集成与运行环境 / 跨工具协作）加视觉分隔标题
+ * - 默认展开项从 HookSection 改到 LifecycleSection（首装引导早已结束）
+ * - 不再持有 onOpenAssetsLibrary prop（设置面板与资产库完全解耦，唯一访问点是 Header「📚 资产库」按钮）
  *
- * CHANGELOG_58：CLAUDE.md 编辑器迁到 AssetsLibraryDialog「应用约定」tab，本面板不再嵌
- * 编辑器；ClaudeMdSection 只剩注入 toggle + 跳资产库的链接。dirty 拦截契约整套迁过去，
- * 本文件不再持有 claudeMdDirtyRef / guardedClose / guardedOpenAssetsLibrary 等模板。
+ * 历史：CHANGELOG_57 D 把 9 个 section 拆到 settings/sections/ 子目录；CHANGELOG_58 把 CLAUDE.md
+ * 编辑器迁到 AssetsLibraryDialog；本轮 CHANGELOG_69 完成「设置 / 资产」彻底解耦。
  */
-export function SettingsDialog({ open, onClose, onOpenAssetsLibrary }: Props): JSX.Element | null {
+export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [hookStatus, setHookStatus] = useState<HookInstallStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -158,32 +157,32 @@ export function SettingsDialog({ open, onClose, onOpenAssetsLibrary }: Props): J
           <div className="py-6 text-center text-[11px] text-deck-muted">读取设置中…</div>
         ) : (
           <>
-            <HookSection
-              hookStatus={hookStatus}
-              busy={busy}
-              installHook={installHook}
-              uninstallHook={uninstallHook}
-            />
-            <NotifySection settings={settings} update={update} />
-            <LifecycleSection settings={settings} update={update} />
-            <SummarySection settings={settings} update={update} />
-            <WindowSection settings={settings} update={update} />
-            <HookServerSection settings={settings} update={update} />
-            <ExternalToolsSection settings={settings} update={update} />
-            <CodexMcpServersSection settings={settings} update={update} />
-            <CodexInjectionSection settings={settings} update={update} />
-            <ClaudeMdSection
-              settings={settings}
-              update={update}
-              onOpenAssetsLibrary={onOpenAssetsLibrary}
-            />
-            <PluginAssetsSection
-              settings={settings}
-              update={update}
-              onOpenAssetsLibrary={onOpenAssetsLibrary}
-            />
-            <ExperimentalSection settings={settings} update={update} />
-            <AgentDeckMcpSection settings={settings} update={update} />
+            <SectionGroup title="会话">
+              <LifecycleSection settings={settings} update={update} />
+              <SummarySection settings={settings} update={update} />
+            </SectionGroup>
+
+            <SectionGroup title="提醒与外观">
+              <NotifySection settings={settings} update={update} />
+              <WindowSection settings={settings} update={update} />
+            </SectionGroup>
+
+            <SectionGroup title="集成与运行环境">
+              <HookSection
+                hookStatus={hookStatus}
+                busy={busy}
+                installHook={installHook}
+                uninstallHook={uninstallHook}
+              />
+              <HookServerSection settings={settings} update={update} />
+              <ExternalToolsSection settings={settings} update={update} />
+              <ExperimentalSection settings={settings} update={update} />
+            </SectionGroup>
+
+            <SectionGroup title="跨工具协作（MCP）">
+              <AgentDeckMcpSection settings={settings} update={update} />
+              <CodexMcpServersSection settings={settings} update={update} />
+            </SectionGroup>
           </>
         )}
       </div>

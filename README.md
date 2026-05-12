@@ -206,30 +206,36 @@ agent-deck new \
 
 ## 设置
 
-⚙ 按钮打开设置面板，主要可改（每个 section 可点标题折叠 / 展开，状态 localStorage 持久化；默认仅「Claude Code Hook」展开）：
+⚙ 按钮打开设置面板。CHANGELOG_69 起按主题分 4 组（**会话** / **提醒与外观** / **集成与运行环境** / **跨工具协作（MCP）**），每组若干 section 可点标题折叠 / 展开（状态 localStorage 持久化；默认仅「生命周期」展开）：
 
-- **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3 / wav / aiff / m4a / ogg / flac，带试听 + 重置）
-- **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny + interrupt 处理避免会话死等）
-- **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时
-- **窗口**：置顶时透明（看到下层桌面，默认开；关掉则置顶时仍是 macOS under-window 实玻璃，Windows 等其他平台无 vibrancy 效果）/ 开机自启
-- **Claude Code Hook（系统钩子）**：一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）
-- **Hook Server（本地端口）**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
-- **外部工具**：Codex 二进制路径（留空用应用内置 vendored 版本，约 150MB / 平台）
-- **应用约定（CLAUDE.md）**：toggle 开关「是否注入到 SDK 会话 system prompt 末尾」；完整内容查看 / 编辑 / 「恢复默认」请到 Header「📚 资产库」→「应用约定」tab
-- **内置 Skill 与 Agent（agent-deck plugin）**：注入 `deep-code-review` skill + `reviewer-claude` / `reviewer-codex` 双异构对抗 agents 的 toggle；完整清单与触发关键词见 Header「📚 资产库」
-- **实验功能**：
-  - **SDK Task Manager**：toggle；开启后 SDK 会话注入 `mcp__tasks__*` 系列结构化任务工具让多 Agent 跨会话协作管理结构化任务。当前会话 team_id（universal team backend，R3 起）自动闭包注入到工具，写操作锁在自己 team；只读允许跨 team 协调。仅下次新建会话生效。完整工具清单见 Header「📚 资产库」
-  - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免；切档仅下次新建会话生效
-- **Agent Deck MCP server（R2，默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 5 个 tool（`spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `shutdown_session`）跨 adapter 编排其他 coding agent session。三 transport 并存：
-  - **in-process**：claude SDK 会话自动挂（与 Task Manager 同模式）
-  - **HTTP** `/mcp`：codex 启动时通过 SDK config 自动注入 `mcp_servers.agent-deck` 段连接（独立 Bearer token，env var `AGENT_DECK_MCP_TOKEN` 引用）；外部 MCP client 也可连
-  - **stdio**：外部 MCP client（Cursor / Continue / Claude Desktop）通过 `agent-deck mcp` 子命令连，仅允许只读 tool（spawn / send / shutdown 默认 deny 防 fork bomb）
+- **会话**
+  - **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny + interrupt 处理避免会话死等）/ 历史会话保留天数
+  - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时
+- **提醒与外观**
+  - **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3 / wav / aiff / m4a / ogg / flac，带试听 + 重置）
+  - **窗口**：置顶时透明（看到下层桌面，默认开；关掉则置顶时仍是 macOS under-window 实玻璃，Windows 等其他平台无 vibrancy 效果）/ 开机自启
+- **集成与运行环境**
+  - **Claude Code Hook（系统钩子）**：一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）
+  - **Hook Server（本地端口）**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
+  - **外部工具**：Codex 二进制路径（留空用应用内置 vendored 版本，约 150MB / 平台）
+  - **实验功能**：
+    - **SDK Task Manager**：toggle；开启后 SDK 会话注入 `mcp__tasks__*` 系列结构化任务工具让多 Agent 跨会话协作管理结构化任务。当前会话 team_id（universal team backend，R3 起）自动闭包注入到工具，写操作锁在自己 team；只读允许跨 team 协调。仅下次新建会话生效。完整工具清单见 Header「📚 资产库」
+    - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免；切档仅下次新建会话生效
+    - **Codex 沙盒**：三档下拉（Workspace Write / Read Only / Danger Full Access），与 Claude 默认对齐
+- **跨工具协作（MCP）**
+  - **Agent Deck MCP server（R2，默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 5 个 tool（`spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `shutdown_session`）跨 adapter 编排其他 coding agent session。三 transport 并存：
+    - **in-process**：claude SDK 会话自动挂（与 Task Manager 同模式）
+    - **HTTP** `/mcp`：codex 启动时通过 SDK config 自动注入 `mcp_servers.agent-deck` 段连接（独立 Bearer token，env var `AGENT_DECK_MCP_TOKEN` 引用）；外部 MCP client 也可连
+    - **stdio**：外部 MCP client（Cursor / Continue / Claude Desktop）通过 `agent-deck mcp` 子命令连，仅允许只读 tool（spawn / send / shutdown 默认 deny 防 fork bomb）
 
-  防递归 4 条规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 10） / 单 caller 最大子会话（默认 5） / cwd realpath 整链回溯 cycle 检测。`wait_reply` 三档 until：`first_message` / `turn_complete` / `idle`（高 reasoning effort 推荐 turn_complete）。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值。详见 [`docs/agent-deck-mcp-protocol.md`](docs/agent-deck-mcp-protocol.md) 协议 ADR
+    防递归 4 条规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 10） / 单 caller 最大子会话（默认 5） / cwd realpath 整链回溯 cycle 检测。`wait_reply` 三档 until：`first_message` / `turn_complete` / `idle`（高 reasoning effort 推荐 turn_complete）。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值。详见 [`docs/agent-deck-mcp-protocol.md`](docs/agent-deck-mcp-protocol.md) 协议 ADR
+  - **Codex MCP Servers**：JSON 编辑 codex CLI 接的外部 MCP server，写到 `~/.codex/config.toml` 的 marker 段（不破坏用户手写其他段）
 
-大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；SDK Task Manager / 沙盒档位 / Agent Deck MCP transport 开关是 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / idleQuiet）热生效。
+> CHANGELOG_69 把 5 个「资产注入」开关（CLAUDE.md / agent-deck plugin / Codex AGENTS.md / Codex skills 同步）从设置面板整体迁到「📚 资产库」三 tab 顶部，与资产编辑界面单一真源。设置面板内不再有任何资产相关 section。
 
-Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills，「应用约定」tab 直接编辑应用级 CLAUDE.md（保存 / 撤销 / 恢复默认）；agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
+大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；SDK Task Manager / 沙盒档位 / Agent Deck MCP transport 开关 / 资产注入开关均为 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / idleQuiet）热生效。
+
+Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md。CHANGELOG_69 起每个 tab 顶部带「注入开关」横条（Skills tab：Claude plugin + Codex skills 同步；Agents tab：与 Skills 共用 plugin 开关；应用约定 tab：Claude system prompt + Codex AGENTS.md 同步）。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
 
 ---
 
