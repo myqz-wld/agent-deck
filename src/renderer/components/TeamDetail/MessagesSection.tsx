@@ -3,6 +3,7 @@ import type { AgentDeckMessage } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { Section, EmptyState } from './Header';
 import { statusBadge, relativeTime } from './helpers';
+import { MarkdownText } from '@renderer/components/MarkdownText';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：team 内 cross-adapter messages 流 section（最近
@@ -10,9 +11,14 @@ import { statusBadge, relativeTime } from './helpers';
  *
  * 数据来自 IPC `agent-deck-team:get-full` 的 `recentMessages`。展示：
  * - sender → receiver
- * - body（截 240 字符）
+ * - body 走 MarkdownText（含 GFM 表格 / 代码块 syntax highlighting / inline code 底色 /
+ *   blockquote / list 等），与 ActivityFeed message-row / ExitPlanRow / tool-row 同款风格
  * - status badge + reason
  * - reply chain：reply_to_message_id 非空时显示「↩ 回复 #abc12345...」
+ *
+ * 去掉了之前 240 字符截断（reviewer reply 常在 500-2000 字符，截断会破坏 markdown 结构、
+ * 用户也看不到完整内容）；message 列表整体在父 div overflow-y-auto 内滚动，长 message 不
+ * 会撑破 layout。
  */
 interface Props {
   messages: AgentDeckMessage[];
@@ -60,8 +66,8 @@ export function MessagesSection({ messages }: Props): JSX.Element {
                   <span>{statusBadge(msg.status)}</span>
                 </span>
               </div>
-              <div className="mt-1 whitespace-pre-wrap break-words text-deck-text">
-                {msg.body.length > 240 ? `${msg.body.slice(0, 240)}…` : msg.body}
+              <div className="mt-1 break-words text-deck-text">
+                <MarkdownText text={msg.body} />
               </div>
               {msg.statusReason && (
                 <div className="mt-1 text-[10px] text-status-waiting/70">
