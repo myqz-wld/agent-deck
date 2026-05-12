@@ -96,7 +96,19 @@ export class HookServer {
     }
   }
 
+  /**
+   * 路由注册必须在 `start()` 之前完成。fastify 5.x lib/route.js:208 已有等价检查
+   * （listen 后再 addRoute 抛 FST_ERR_INSTANCE_ALREADY_LISTENING，错误位置在
+   * fastify 内层）。这里加应用层 invariant 把契约固定在 HookServer 边界，
+   * 错误文案直接指向修法（详见 REVIEW_27 / CHANGELOG_70：bootstrap 5.5 PRE_LISTEN
+   * vs 6 POST_LISTEN 分水岭，所有 routeRegistry 调用必须在 5.5 阶段完成）。
+   */
   registerRoute(options: RouteOptions): void {
+    if (this.started) {
+      throw new Error(
+        'HookServer.registerRoute called after listen — routes must be registered during bootstrap before hookServer.start()',
+      );
+    }
     this.app.route(options);
   }
 

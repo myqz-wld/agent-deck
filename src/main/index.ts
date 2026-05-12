@@ -128,15 +128,16 @@ async function bootstrap(): Promise<void> {
     await adapter.closeSession(sessionId);
   });
 
-  // 6. 启动 HookServer
-  try {
-    await hookServer.start();
-    console.log(`[hook-server] listening on 127.0.0.1:${hookServer.listeningPort}`);
-  } catch (err) {
-    console.error('[hook-server] failed to start', err);
-  }
-
-  // 6.5. R2 / B'4 + R1.A5 + R1.D7：Agent Deck MCP server 自动启停
+  // 5.5. R2 / B'4 + R1.A5 + R1.D7：Agent Deck MCP server 自动启停（PRE_LISTEN 阶段）
+  // **必须在 hookServer.start() 之前注册 routes**，否则 fastify 5.x 在 listen 后调
+  // app.route() 会抛 FST_ERR_INSTANCE_ALREADY_LISTENING（lib/route.js:208
+  // throwIfAlreadyStarted）→ MCP HTTP /mcp 完全不挂 → codex / 外部 MCP client 连不上。
+  // 详见 REVIEW_27 / CHANGELOG_70（cdb01ae 引入时位置错了，本次前移收口）。
+  // - 把 mcpServerToken 设进 process.env，让后续 spawn 的 codex 子进程继承后能 readEnv
+  //   AGENT_DECK_MCP_TOKEN（agent-deck-mcp-injector 写入 codex SDK config 的
+  //   bearer_token_env_var = 'AGENT_DECK_MCP_TOKEN'）
+  // - 双开关同 ON 时挂 HTTP /mcp 路由（StreamableHTTPServerTransport），让 codex /
+  //   外部 MCP client 能连
   setAgentDeckMcpTokenEnv(settings.mcpServerToken ?? null);
   if (settings.enableAgentDeckMcp && settings.mcpHttpEnabled) {
     try {
@@ -149,6 +150,15 @@ async function bootstrap(): Promise<void> {
     } catch (err) {
       console.error('[agent-deck-mcp] failed to mount HTTP transport', err);
     }
+  }
+
+  // 6. 启动 HookServer（POST_LISTEN 分水岭：此行之后任何 routeRegistry /
+  // registerRoute 调用都会被 HookServer.registerRoute 的 invariant 拒）
+  try {
+    await hookServer.start();
+    console.log(`[hook-server] listening on 127.0.0.1:${hookServer.listeningPort}`);
+  } catch (err) {
+    console.error('[hook-server] failed to start', err);
   }
 
   // 7. 启动生命周期调度器与总结器
