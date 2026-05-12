@@ -51,13 +51,25 @@ export function ComposerSdk({
   const [csBusy, setCsBusy] = useState(false);
   const [csError, setCsError] = useState<string | null>(null);
 
+  // CHANGELOG_74：claude OS 沙盒切档（与 codex 字面镜像）。SDK 的 sandbox options 是
+  // query() spawn-time 锁定，切档必须冷切重启 SDK 子进程。session.claudeCodeSandbox
+  // null/undefined → 'off' 兜底（与全局默认对齐）。
+  const claudeCodeSandbox = (session?.claudeCodeSandbox ?? 'off') as
+    | 'off'
+    | 'workspace-write'
+    | 'strict';
+  const [csClaudeBusy, setCsClaudeBusy] = useState(false);
+  const [csClaudeError, setCsClaudeError] = useState<string | null>(null);
+
   // 多 agent 适配：
   // - 标签 / placeholder 文案用对应 agent 名（Claude / Codex / ...）
   // - 权限模式 select 仅 claude-code 显示（codex SDK 没有运行时切权限模式）
-  // - sandbox select 仅 codex-cli 显示（claude 没有 sandbox 概念）
+  // - codex sandbox select 仅 codex-cli 显示（claude 没有 codex 那套档位）
+  // - claude OS sandbox select 仅 claude-code 显示（CHANGELOG_74，与 codex 字面镜像）
   const agentDisplayName = agentId === 'codex-cli' ? 'Codex' : 'Claude';
   const supportsPermissionMode = agentId !== 'codex-cli';
   const supportsCodexSandbox = agentId === 'codex-cli';
+  const supportsClaudeCodeSandbox = agentId === 'claude-code';
 
   const send = async (): Promise<void> => {
     const t = text.trim();
@@ -190,6 +202,43 @@ export function ComposerSdk({
     }
   };
 
+  /**
+   * CHANGELOG_74：Claude OS 沙盒冷切（与 changeSandbox 字面镜像）。
+   * SDK 的 sandbox options 是 query() spawn-time 锁定，必须冷切重启 SDK 子进程。
+   *
+   * confirm 策略反向：切到 `'off'` 才弹 confirm（关闭 OS 沙盒 = 放宽 = 让 SDK 完全
+   * 不受 OS 隔离约束，与 codex `danger-full-access` 同性质）；切到 `'workspace-write'` /
+   * `'strict'` 是同档/更严格，无破坏性，免 confirm。
+   */
+  const changeClaudeCodeSandbox = async (next: typeof claudeCodeSandbox): Promise<void> => {
+    if (next === claudeCodeSandbox || csClaudeBusy) return;
+    if (next === 'off' && claudeCodeSandbox !== 'off') {
+      const ok = await window.api.confirmDialog({
+        title: '关闭 OS 沙盒',
+        message: '将重启 Claude SDK 切到 sandbox=off',
+        detail:
+          '会销毁当前 SDK 子进程并以 sandbox=off resume 重建（约 5-10s busy）。\n' +
+          '重启后 Claude SDK **完全不受 OS 沙盒约束**（仅应用层 canUseTool 弹框决策），按需要小心使用。\n\n' +
+          '如果失败将自动回退到原档位。继续？',
+        okLabel: '重启并关闭沙盒',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setCsClaudeBusy(true);
+    setCsClaudeError(null);
+    try {
+      // IPC 主进程 restartWithClaudeCodeSandbox：closeSession → setClaudeCodeSandbox →
+      // createSession({resume, claudeCodeSandbox, prompt}) → 失败回滚 DB + emit error。
+      await window.api.restartWithClaudeCodeSandbox(agentId, sessionId, next, '继续之前的会话');
+    } catch (err) {
+      setCsClaudeError((err as Error).message);
+    } finally {
+      setCsClaudeBusy(false);
+    }
+  };
+
   const canSend = (text.trim().length > 0 || imgs.attachments.length > 0) && !busy;
 
   return (
@@ -225,6 +274,23 @@ export function ComposerSdk({
           </select>
         </div>
       )}
+      {supportsClaudeCodeSandbox && (
+        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-deck-muted">
+          <span>沙盒</span>
+          <select
+            value={claudeCodeSandbox}
+            onChange={(e) =>
+              void changeClaudeCodeSandbox(e.target.value as typeof claudeCodeSandbox)
+            }
+            disabled={csClaudeBusy}
+            className="no-drag flex-1 min-w-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
+          >
+            <option value="off">off（不启 OS 沙盒）⚠️</option>
+            <option value="workspace-write">workspace-write</option>
+            <option value="strict">strict（cwd 也只读）</option>
+          </select>
+        </div>
+      )}
       {pmError && (
         <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
           <span className="flex-1">⚠ 权限模式切换失败：{pmError}</span>
@@ -244,6 +310,19 @@ export function ComposerSdk({
           <button
             type="button"
             onClick={() => setCsError(null)}
+            className="text-status-waiting/70 hover:text-status-waiting"
+            aria-label="dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {csClaudeError && (
+        <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
+          <span className="flex-1">⚠ Claude OS 沙盒切换失败：{csClaudeError}</span>
+          <button
+            type="button"
+            onClick={() => setCsClaudeError(null)}
             className="text-status-waiting/70 hover:text-status-waiting"
             aria-label="dismiss"
           >
