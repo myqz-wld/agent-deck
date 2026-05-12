@@ -11,7 +11,10 @@
 --   Step 2: drop column。
 --
 -- SQLite DROP COLUMN 需 ≥ 3.35 (2021)；better-sqlite3 11.x 默认 ≥ 3.42 OK。
--- sessions.team_name 列没有 index（v006 只 ADD COLUMN），DROP 安全。
+-- v006 同时建过 partial index `idx_sessions_team_name ON sessions(team_name) WHERE
+-- team_name IS NOT NULL`；SQLite ALTER TABLE DROP COLUMN 拒绝 column 被任何 index
+-- 引用（含 partial index 的 WHERE 表达式），所以 Step 2 之前必须先 drop index，
+-- 否则整 migration 事务回滚 → 应用 bootstrap fatal（v014 首跑必挂）。
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Step 1.a: 把 sessions.team_name 非空但 agent_deck_teams 没对应 active team 的 → ensureByName
@@ -53,8 +56,11 @@ WHERE s.team_name IS NOT NULL
   );
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Step 2: drop column。删 column 后 SQL 内任何 team_name 引用都会报 "no such column"，
--- 必须在 application code (sessionRepo.toSessionRecord / INSERT / UPDATE / rename) 同步
--- 清理引用（plan team-cohesion-fix-20260513 Phase A 同 commit 一并处理）。
+-- Step 2: drop column。先 drop v006 创建的 partial index（SQLite 不允许 column
+-- 被 index 引用时 DROP COLUMN）。删 column 后 SQL 内任何 team_name 引用都会
+-- 报 "no such column"，必须在 application code (sessionRepo.toSessionRecord /
+-- INSERT / UPDATE / rename) 同步清理引用（plan team-cohesion-fix-20260513
+-- Phase A 同 commit 一并处理）。
 -- ────────────────────────────────────────────────────────────────────────────
+DROP INDEX IF EXISTS idx_sessions_team_name;
 ALTER TABLE sessions DROP COLUMN team_name;
