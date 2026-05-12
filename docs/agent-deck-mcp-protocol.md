@@ -22,12 +22,13 @@
 [Codex session #teammate spawned]
 ```
 
-5 个 tool 满足跨 runtime 协作的最小完备集（详 §3）：
+6 个 tool 满足跨 runtime 协作的最小完备集（详 §3）：
 1. `spawn_session` —— 起新 session（任意 adapter）
 2. `send_message` —— 给已存在 session 推 user message
 3. `wait_reply` —— 阻塞等 session 出新消息 / 进入 idle / 完成回合（详 §4）
-4. `list_sessions` —— 查当前可见 sessions 集合
-5. `shutdown_session` —— 关闭 session（abort SDK live query + 清 Map + DB lifecycle 推到 closed）
+4. `list_sessions` —— 查当前可见 sessions 集合（支持 status_filter / adapter_filter / spawned_by_filter）
+5. `get_session` —— 按 id 查单个 session 元数据（投影同 list_sessions，REVIEW_28 新增）
+6. `shutdown_session` —— 关闭 session（abort SDK live query + 清 Map + DB lifecycle 推到 closed）
 
 ### 1.2 非目标
 
@@ -220,6 +221,7 @@ inputSchema: z.object({
   caller_session_id: z.string().min(1).max(128),
   status_filter: z.enum(['active', 'dormant', 'closed', 'all']).default('active'),
   adapter_filter: z.enum(['claude-code', 'codex-cli', 'aider', 'generic-pty']).optional(),
+  spawned_by_filter: z.string().min(1).max(128).optional(),  // REVIEW_28 E 段
   limit: z.number().int().min(1).max(200).default(50),
 }),
 returns: { total: number, sessions: Array<{ sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth }> }
@@ -228,15 +230,36 @@ returns: { total: number, sessions: Array<{ sessionId, adapter, cwd, lifecycle, 
 **字段说明**：
 - `adapter` 字段值 = `SessionRecord.agentId`（adapter id 与 agent id 字符串值同源，如 `'claude-code'` / `'codex-cli'` / `'aider'` / `'generic-pty'`）
 - `spawnedBy` / `spawnDepth` 来自新增的 sessions.spawned_by / spawn_depth 列（详 §6.5）
+- `spawned_by_filter`（REVIEW_28 E 段）：仅返回 `spawnedBy === <filter>` 的 session；典型场景是 lead 用 `spawned_by_filter:<self_session_id>` 反查自己 spawn 的所有 child（如 deep-code-review SKILL 在 lead context 重置后捡起 stranded reviewer teammate）。**信任边界**：不做 ownership 校验，与现状 list_sessions 单用户 app-wide 信任域一致；任何 caller 可查任意 spawnedBy id。
 
 **handler 行为**：
 1. 校验 caller
-2. 调 `sessionManager.list({ status, adapter, limit })`（先决：list filter API 需在 B'2.a 前补，详 §6.5 实施清单）
-3. 投影出 metadata（不含 events / messages）
+2. 调 `sessionManager.list({ status, adapter, limit })`
+3. 在 `slice(limit)` 前应用 `spawned_by_filter`（避免大 lead 反查少量 children 时被 limit cutoff 误报空列表）
+4. 投影出 metadata（不含 events / messages，复用 §3.5 `projectSession`）
 
 **只读，不走防递归限流；但仍要求 caller_session_id 用于审计 / 后续拓扑可视化。**
 
-### 3.5 `shutdown_session`
+### 3.5 `get_session`（REVIEW_28 F 段）
+
+```ts
+inputSchema: z.object({
+  caller_session_id: z.string().min(1).max(128),
+  session_id: z.string().min(1).max(128),
+}),
+returns: { sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth }  // 同 list_sessions 单 session 投影
+```
+
+**handler 行为**：
+1. 校验 caller
+2. `sessionRepo.get(session_id)` 不存在 → `isError` + hint「Use list_sessions to discover ids」
+3. 投影出 metadata（**复用同一份 `projectSession`** 与 list_sessions，避免 raw SessionRecord 暴露 / future visibility predicate 加在一处即两 tool 同步生效）
+
+**典型场景**：lead 已持有从 spawn_session 返回的 sessionId，调 `get_session` 直接拿 receiver 的 lifecycle / lastEventAt 判断「投递 failed 是 receiver closed 还是还没回复」（vs `list_sessions` 大海捞针）。
+
+**信任边界**：与 `list_sessions` 一致 —— 单用户 app-wide read，无 ownership 校验。如果未来引入 multi-user / per-team 隔离，必须在 `projectSession` 加 visibility predicate 让两 tool 同步生效。
+
+### 3.6 `shutdown_session`
 
 ```ts
 inputSchema: z.object({
@@ -364,7 +387,7 @@ this.app.addHook('onRequest', async (request, reply) => {
 
 ---
 
-## 6. 防递归 4 条规则（B'5）
+## 6. 防递归 3 条规则（B'5 + REVIEW_28 移除 §6.2）
 
 ### 6.1 depth 上限
 
@@ -377,23 +400,28 @@ this.app.addHook('onRequest', async (request, reply) => {
   ```
 - `MAX_DEPTH` 默认 3（lead → teammate → sub-teammate → leaf 三层够用），可在 settings 配（`mcpMaxSpawnDepth`，1-10）
 
-### 6.2 同 cwd realpath 比较（防 lead spawn 自己 + 整链祖先 cycle）
+### 6.2 ~~同 cwd realpath 比较~~（**2026-05 移除**，REVIEW_28）
 
-- 即将 spawn 的 cwd 经 `realpath` 后，**沿 spawn_chain 整链回溯**与每个祖先的 cwd realpath + adapter 比较（链长 ≤ MAX_DEPTH，反查成本 O(depth) 可忽略）
-- 任一祖先同 cwd + 同 adapter ⇒ deny（防止 LLM 在 cwd 里 spawn 一个跑同 prompt 的 sub-session 进入死循环；亦防 grandchild 与 grandparent 同 cwd cycle）
-- **不**禁跨 cwd spawn 自己（合理用例：lead 在 /repo 起 teammate 在 /repo/subdir 跑 isolated 任务）
-- realpath 失败（cwd 不存在）⇒ 走 `path.resolve` 兜底，比较结果以兜底路径为准（不卡住合法 cwd 提前创建场景）
+> **状态**：~~已移除~~（2026-05，详 reviews/REVIEW_28.md）。本节保留编号避免影响 §6.3-§6.6 引用与 §10 V11 / V20 历史用例编号；新会话不再触发 cwd cycle 检测。
+>
+> **原意图**：防 lead 在同 cwd 用同 adapter spawn 自己 / 整链祖先 cycle。
+>
+> **移除原因**：原规则把 `deep-code-review` SKILL（lead 在 repo 起两个 reviewer teammate 同 cwd 同 adapter）等真实合法用例一并 deny，与 SKILL 设计直接冲突；同时 §6.1 depth + §6.4 fan-out + §6.3 spawn-rate 三条已构成有界资源覆盖。
+>
+> **覆盖范围说明**（**不是「完全等价覆盖」**）：移除后残留「语义自递归」（lead 同 cwd 同 adapter 反复 spawn 同款任务）由 §6.1 depth=3 截断接受 —— 最多 3 层 spawn 即停。三条剩余 guard 覆盖**数量上界**（fan-out 5 / depth 3 / 极端 5+25+125=155 descendants），**不**单独覆盖语义重复执行；如未来需要侦测异常重复 spawn 模式，可加非阻断 telemetry warning，但不应作为 deny 规则恢复（避免再次拦合法 SKILL 用例）。
 
 ### 6.3 per-app spawn-rate（应用级全局限流）
 
 - 滑动窗口：`mcpSpawnRatePerMinute` 默认 **10**（spawn / minute；reviewer 双对抗 MED 修法：原 5 偏紧，留并行 deep-review buffer）
 - 跨所有 caller 累计；触顶 ⇒ deny + 返回 `retry_after_ms`
 - 用 `RateLimiter` class（自管 timestamp Array + 过期裁剪）
+- **顺序约束**（REVIEW_28 reviewer-codex MED-1 修法）：rate token **必须**在 §6.1 depth + §6.4 fan-out 都通过后才扣 (`tryConsume()` 放最后)。否则一个已达 fan-out=5 的 lead spam spawn_session 时会先消耗 app-wide token，把 quota 拒掉给别的合法 lead → 饥饿。当前实现见 `spawn-guards.ts applySpawnGuards`。
 
 ### 6.4 per-parent fan-out
 
 - 同一 caller_session_id 的当前 active children 数：`sessionManager.list({ spawnedBy: callerSessionId, lifecycle: 'active' }).length`
 - 上限 `mcpMaxFanOutPerParent` 默认 5；触顶 ⇒ deny
+- **极端规模**（depth=3 / fan-out=5 全开）：lead 自身 + descendants = 1 + (5 + 25 + 125) = **156 live session**。spawn-rate=10/min 限制创建速度（156 个最快也要 ~16 分钟铺满），spawn 完成后 spawn-rate 不再卡，存量靠 fan-out + depth 兜底
 
 ### 6.5 spawn chain 持久化（DB schema + repo API 实施清单）
 
@@ -536,7 +564,7 @@ DEFAULT_SETTINGS 同步加默认值。
 ```
 src/main/agent-deck-mcp/
 ├── server.ts                     # B'1 顶层入口（per-session in-process / 全局 HTTP / stdio 三 factory）
-├── tools.ts                      # B'2.a 5 tool 注册 + handler
+├── tools.ts                      # B'2.a 6 tool 注册 + handler（REVIEW_28 加 get_session）
 ├── wait-reply-coordinator.ts     # B'2.b promise dedup + idle 检测 + backfill 合并
 ├── caller-context.ts             # §4 三 transport caller 提取
 ├── rate-limiter.ts               # B'5 滑动窗口 + per-parent
@@ -577,21 +605,24 @@ R2 完成后必须全过：
 | V4 | 紧接调 `mcp__agent_deck__wait_reply(session_id='<codex sid>', until='first_message', timeout_ms=60000)` → 60s 内拿到 codex 第一条文字 | ✅ |
 | V5 | `curl 127.0.0.1:47821/mcp -X POST -d '...'` 不带 token → 401 | ✅ |
 | V6 | 带正确 token → MCP `initialize` 返回 server info | ✅ |
-| V7 | codex 会话 list_mcp_tools 见 `mcp__agent_deck__*` 5 个 | ✅ (R1.A5) |
+| V7 | codex 会话 list_mcp_tools 见 `mcp__agent_deck__*` 6 个 | ✅ (R1.A5 + REVIEW_28 加 get_session) |
 | V8 | 故意构造 `caller_session_id` 不存在 → handler 拒 + 返回 isError | ✅ |
 | V9 | 故意 LLM 在 in-process 内伪造 `caller_session_id` 字段 → 仍按 closure 真实 id 处理（log 出现 override warn）| ✅ |
 | V10 | depth=4 spawn → deny 「spawn depth 3 >= max 3」 | ✅ |
-| V11 | 同 cwd + 同 adapter spawn 自己 → deny 「same cwd + adapter spawn loop detected」 | ✅ |
-| V12 | 1 分钟内连 spawn 6 次 → 第 6 次 deny + retry_after_ms ≈ 60000 | ✅ |
-| V13 | 同一 caller spawn 6 个 child → 第 6 次 deny 「fan-out 5 reached for parent X」 | ✅ |
+| V11 | ~~同 cwd + 同 adapter spawn 自己 → deny~~ | ❌ obsolete (REVIEW_28：§6.2 移除，same-cwd same-adapter 现在是合法路径) |
+| V12 | 1 分钟内连 spawn 6 次 → 第 6 次 deny + retry_after_ms ≈ 60000 | ✅（注意 REVIEW_28：rate token 在 fan-out 通过后才扣，此用例需用不会撞 fan-out 的 caller 触发）|
+| V13 | 同一 caller spawn 6 个 child → 第 6 次 deny 「fan-out 5 reached for parent X」 | ✅（REVIEW_28：fan-out deny 不消耗 spawn-rate token） |
 | V14 | wait_reply 同 session 并发 2 caller → 共享 promise（log 见 `[wait-reply] reuse promise key=...`）+ 两个 caller 同时收到 reply | ✅ |
 | V15 | wait_reply 超时返回 partial events + `timed_out: true`，session 不被 abort | ✅ |
 | V16 | shutdown_session(self) → deny 「cannot shutdown self」 | ✅ |
 | V17 | shutdown_session(other) → 该 session lifecycle=closed + sessions.events / file_changes / summaries 仍存在 + UI 看到 closed 标记（不消失）| ✅ |
 | V18 | `enableAgentDeckMcp=true` + `mcpStdioEnabled=false` 跑 `agent-deck mcp` → 报「未启用」错误退出 | ✅ |
 | V19 | wait_reply caller A (since_ts=t1) + caller B (since_ts=t2 > t1) 并发同 session → 各自 events 数组按 since_ts 切片，A 拿到的 ts 集合包含 B 的 ts 集合 | ✅ |
-| V20 | 4 层 spawn cycle（lead@/repo → child@/sub → grandchild@/repo, 同 adapter）→ deny「ancestor cwd cycle detected at depth 0」（§6.2 整链回溯）| ✅ |
+| V20 | ~~4 层 spawn cycle（lead@/repo → child@/sub → grandchild@/repo, 同 adapter）→ deny~~ | ❌ obsolete (REVIEW_28：§6.2 整链回溯移除；同款 4 层 cycle 现在仅由 §6.1 depth 截断（depth=4 >= max=3 时 deny）) |
 | V21 | `pnpm typecheck` + `pnpm vitest run`（新增 wait-reply / rate-limiter / tools 单测全过）| ✅ |
+| V22 | `list_sessions(spawned_by_filter:'<lead-sid>')` → 返回该 lead 的所有 children 投影 | ✅ (REVIEW_28 E 段) |
+| V23 | `get_session(session_id:'<sid>')` → 返回单 session 投影（含 lifecycle / lastEventAt 等）；不存在 sid 返回 isError | ✅ (REVIEW_28 F 段) |
+| V24 | fan-out=5 撞顶后 spam 5 次 spawn → 全 deny + spawn-rate quota 未消耗（别的 lead 仍能正常用 quota） | ✅ (REVIEW_28 reviewer-codex MED-1 修法验证) |
 
 ---
 
@@ -652,10 +683,10 @@ R2 完成后必须全过：
 
 ## 12. 与 R3 (E 阶段) 的边界
 
-R2 的 5 tool 是 R3 team 抽象的**底层原语**，但 R2 不直接实现 team：
+R2 的 6 tool 是 R3 team 抽象的**底层原语**，但 R2 不直接实现 team：
 - R2 的 `spawn_session({ team_name: 'X' })` 只是把 team_name 透传到 sessionRepo（与 task-manager 现有 `sessions.team_name` 列同款），不建 team 元信息表
 - R3 加 `agent_deck_teams` 表 + `create_team` / `delete_team` / `list_teams` MCP tools（届时本 ADR 增订 §13）
-- R3 的 `deep-code-review` skill 重写依赖本 R2 的 5 tool + R3 后续加的 team tool（按 plan v3 风险节，R3.E11 必须与 E5/E6 同 PR 落地）
+- R3 的 `deep-code-review` skill 重写依赖本 R2 的 6 tool + R3 后续加的 team tool（按 plan v3 风险节，R3.E11 必须与 E5/E6 同 PR 落地）
 
 R2 上线后短窗口（R3 完成前）用户可手动用 spawn_session + send_message 模拟 team 协作，**不依赖任何 team backend**，所以 R3 的硬切代价不影响 R2 的可用性。
 
@@ -674,3 +705,16 @@ R2 上线后短窗口（R3 完成前）用户可手动用 spawn_session + send_m
   - 默认值调整：`mcpSpawnRatePerMinute` 5 → 10（reviewer 双对抗 MED，并行 deep-review 留 buffer）
   - §11 新增争议条目：6 (MAX_DEPTH=3 vs 4) / 7 (stdio 已知 sessionId 冒充) / Future `mcpStdioAllowExternalSpawn`
   - §10 验证清单加 V17（shutdown 后数据保留）/ V18（stdio disabled 报错）/ V19（并发 since_ts 切片）/ V20（cwd 整链 cycle 检测）
+
+- 2026-05-12：REVIEW_28 reviewer-claude × reviewer-codex 双对抗后修订
+  - **§6.2 移除**：原 §6.2 cwd realpath 整链回溯拒掉 `deep-code-review` SKILL 的合法用例（lead 在 repo 起两 reviewer teammate 同 cwd 同 adapter）；§6.1 depth + §6.4 fan-out + §6.3 spawn-rate 三条已构成有界资源覆盖。残留语义自递归由 depth 截断接受，**不**写为「完全等价覆盖」（reviewer-codex LOW-1 修法）。§6.2 编号保留避免影响其他章节引用
+  - **§6.3 顺序约束**：rate token 在 §6.1 depth + §6.4 fan-out 都通过后才扣（reviewer-codex MED-1 修法）—— 防止已达 fan-out 上限的 lead spam spawn_session 把 app-wide rate quota 拒掉给别的合法 lead → 饥饿
+  - **§6.4 极端规模**：写明 1 + (5 + 25 + 125) = 156 live session（reviewer-codex MED-2，原文「125」漏算几何级数加和）
+  - **§3.4 `list_sessions`**：加 `spawned_by_filter` optional 字段 + 信任边界一句（reviewer-claude MED-1 / LOW-2 + reviewer-codex INFO-1 联动）
+  - **§3.5 `get_session`**：新 tool（reviewer-claude MED-2 + reviewer-codex LOW-2 联动）；复用 `projectSession` 与 list_sessions 同款投影 + 单用户 app-wide 信任边界
+  - **§3.6 `shutdown_session`**：原 §3.5 顺次后移
+  - **6 tool / 6 个 tool**：§1.1 / §3 / §9 / §12 全文档 5→6 同步（reviewer-claude MED-2，避免 EXTERNAL_CALLER_ALLOWED Record 缺 key TS 报错）
+  - **§10 V11 / V20 标 obsolete**（reviewer-claude HIGH-3）；新增 V22 / V23 / V24 验证 spawned_by_filter / get_session / fan-out deny 不消耗 rate token
+  - **代码同步**：spawn-guards.ts 删 `checkCwdCycleAlongChain` + `safeRealpath`；tools.ts:233 spawn_session description 删 `cwd-cycle` 字段；session-repo.ts `listAncestors` 标 deprecated；AgentDeckMcpSection.tsx UI 文案删「整链 cwd cycle 检测」
+  - **测试同步**：spawn-guards.test.ts 删 §6.2 用例 + 加 fan-out deny 不消耗 rate token 用例；tools.test.ts 删 cycle 用例 + 加 spawned_by_filter ×2 + get_session ×2
+- 

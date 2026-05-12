@@ -17,8 +17,8 @@
  * ```
  *
  * 安全约束（ADR §4.3 / §11.7）：stdio 没有 caller-id 反查链路，client 只能传特殊
- * 值 `__external__` 作为 caller_session_id，仅允许 list_sessions / wait_reply 等
- * 只读 / 观察类 tool；spawn / send / shutdown 默认 deny（防 fork bomb）。
+ * 值 `__external__` 作为 caller_session_id，仅允许 list_sessions / get_session /
+ * wait_reply 等只读 / 观察类 tool；spawn / send / shutdown 默认 deny（防 fork bomb）。
  *
  * 启用条件：`settings.enableAgentDeckMcp === true && settings.mcpStdioEnabled === true`。
  * 任一关 → 子进程启动时打印「未启用」错误后退出。
@@ -59,7 +59,7 @@ interface McpServerModule {
  * - 通过 IPC（Unix socket / shared HTTP 反向调用）转发到主进程
  * - 或主进程也开 HTTP transport 时，stdio 进程内用 HTTP transport 透传（双跳）
  *
- * 当前 B'1 阶段：仅暴露 5 tool 占位 schema 让外部 client 能 list_tools 见到形状；
+ * 当前 B'1 阶段：仅暴露 6 tool 占位 schema 让外部 client 能 list_tools 见到形状；
  * 真正逻辑（IPC / HTTP 反向调用）放 B'2.a 与 B'5 同改。
  */
 export async function runAgentDeckMcpStdio(): Promise<void> {

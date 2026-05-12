@@ -33,7 +33,7 @@ export interface CallerContext {
 }
 
 /**
- * Agent Deck MCP tool 5 个名字常量集中地。
+ * Agent Deck MCP tool 6 个名字常量集中地。
  * 文档（README + skill）+ 防御性 deny 决策（B'5 / B'2.a）共用。
  */
 export const AGENT_DECK_TOOL_NAMES = {
@@ -41,6 +41,7 @@ export const AGENT_DECK_TOOL_NAMES = {
   sendMessage: 'send_message',
   waitReply: 'wait_reply',
   listSessions: 'list_sessions',
+  getSession: 'get_session',
   shutdownSession: 'shutdown_session',
 } as const;
 
@@ -49,13 +50,14 @@ export type AgentDeckToolName =
 
 /**
  * 注册到 in-process MCP / HTTP / stdio 的 tool 是否允许「外部 caller」调用。
- * spawn_session / shutdown_session 默认 deny external（防 fork bomb）；
- * list_sessions / wait_reply 是只读 / 观察类，允许 external。
+ * spawn_session / send_message / shutdown_session 默认 deny external（防 fork bomb / 越权 IPC）；
+ * list_sessions / get_session / wait_reply 是只读 / 观察类，允许 external。
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,
   send_message: false,
   wait_reply: true,
   list_sessions: true,
+  get_session: true,
   shutdown_session: false,
 };

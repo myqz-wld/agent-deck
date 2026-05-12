@@ -10,14 +10,14 @@ interface Props {
 /**
  * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6）。
  *
- * 功能：让 claude / codex / 第三方 MCP client 通过 5 个 tool（spawn_session /
- * send_message / wait_reply / list_sessions / shutdown_session）跨 adapter 编排
- * 其他 coding agent session。
+ * 功能：让 claude / codex / 第三方 MCP client 通过 6 个 tool（spawn_session /
+ * send_message / wait_reply / list_sessions / get_session / shutdown_session）跨
+ * adapter 编排其他 coding agent session。
  *
  * UI 布局（自顶向下）：
  * 1. 总开关 enableAgentDeckMcp + 描述
  * 2. transport 子开关：mcpHttpEnabled（codex / 外部 client 用）/ mcpStdioEnabled（外部 stdio 用）
- * 3. 防递归 4 条规则的可调阈值（depth / spawn-rate / fan-out）+ wait_reply idleQuiet
+ * 3. 防递归 3 条规则的可调阈值（depth / spawn-rate / fan-out）+ wait_reply idleQuiet
  * 4. mcpServerToken 显示（只读 + 复制按钮，自动生成不允许改）
  *
  * 与 ExperimentalSection 区分：那边是「实验功能」（agentTeamsEnabled / TaskManager / sandbox），
@@ -36,11 +36,12 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         onChange={(v) => void update({ enableAgentDeckMcp: v })}
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        让 claude / codex / 任何支持 MCP 的 coding agent 通过 5 个 tool 跨 adapter
+        让 claude / codex / 任何支持 MCP 的 coding agent 通过 6 个 tool 跨 adapter
         编排其他会话：<code className="rounded bg-white/5 px-1">spawn_session</code> /
         <code className="rounded bg-white/5 px-1">send_message</code> /
         <code className="rounded bg-white/5 px-1">wait_reply</code> /
         <code className="rounded bg-white/5 px-1">list_sessions</code> /
+        <code className="rounded bg-white/5 px-1">get_session</code> /
         <code className="rounded bg-white/5 px-1">shutdown_session</code>。
         <br />
         <strong className="text-deck-text/85">三 transport 并存</strong>：
@@ -118,8 +119,8 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
           />
         </div>
         <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">
-          <strong>depth</strong>：lead → teammate → sub-teammate → leaf 三层够大多数场景，调高需配合
-          整链 cwd cycle 检测。
+          <strong>depth</strong>：lead → teammate → sub-teammate → leaf 三层够大多数场景；
+          调高需注意 fan-out × spawn-rate 乘积仍由后两条规则兜底（极端 5³=125 descendants 一分钟内会撞 spawn-rate 限流）。
           <br />
           <strong>spawn-rate</strong>：滑动窗口跨所有 caller 累计；deep-review 并行多对 reviewer 时建议 ≥ 10/min。
           <br />

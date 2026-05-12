@@ -140,7 +140,26 @@ function validateExternalCaller(
  */
 
 /**
- * 5 个 tool 的 zod schema 集中地。三 transport 共享同一份 schema。
+ * SessionRecord → metadata 投影。**list_sessions / get_session 共用同一份 projector**
+ * （REVIEW_28 reviewer-codex LOW-2 修法）：避免 get_session 暴露 raw SessionRecord 引入额外
+ * metadata；future visibility predicate 加在这一层即可两 tool 同步生效。
+ */
+function projectSession(s: SessionRecord) {
+  return {
+    sessionId: s.id,
+    adapter: s.agentId,
+    cwd: s.cwd,
+    lifecycle: s.lifecycle,
+    title: s.title,
+    lastEventAt: s.lastEventAt,
+    teamName: s.teamName ?? null,
+    spawnedBy: s.spawnedBy ?? null,
+    spawnDepth: s.spawnDepth ?? 0,
+  };
+}
+
+/**
+ * 6 个 tool 的 zod schema 集中地。三 transport 共享同一份 schema。
  */
 const SPAWN_SESSION_SCHEMA = {
   adapter: z.enum(['claude-code', 'codex-cli', 'aider', 'generic-pty']),
@@ -193,7 +212,20 @@ const LIST_SESSIONS_SCHEMA = {
   adapter_filter: z
     .enum(['claude-code', 'codex-cli', 'aider', 'generic-pty'])
     .optional(),
+  spawned_by_filter: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'Filter to sessions whose spawnedBy === this id. Useful for lead → list children pattern (e.g. deep-code-review SKILL recovers stranded reviewer teammates after lead context reset). No ownership enforcement: any caller can query any spawnedBy id, consistent with list_sessions current single-user app-wide trust model.',
+    ),
   limit: z.number().int().min(1).max(200).default(50),
+};
+
+const GET_SESSION_SCHEMA = {
+  caller_session_id: z.string().min(1).max(128),
+  session_id: z.string().min(1).max(128),
 };
 
 const SHUTDOWN_SESSION_SCHEMA = {
@@ -230,7 +262,7 @@ export async function buildAgentDeckTools(
   // ──────────────────── spawn_session
   const spawnSession = tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
-    'Spawn a new agent session via the given adapter (claude-code / codex-cli / aider / generic-pty). Returns the new sessionId. Subject to depth / cwd-cycle / per-app rate-limit / per-parent fan-out (see Agent Deck Settings → MCP Server). caller_session_id is required (in-process transport overrides with the real session id).',
+    'Spawn a new agent session via the given adapter (claude-code / codex-cli / aider / generic-pty). Returns the new sessionId. Subject to depth / per-parent fan-out / per-app rate-limit (see Agent Deck Settings → MCP Server). caller_session_id is required (in-process transport overrides with the real session id).',
     SPAWN_SESSION_SCHEMA,
     async (args) => {
       const caller = deriveCaller(args);
@@ -253,9 +285,10 @@ export async function buildAgentDeckTools(
         );
       }
 
-      // 完整防递归 4 条规则（B'5 / ADR §6）：depth 上限 / spawn-rate / fan-out / 整链
-      // cwd cycle。任一 deny 立即返回；通过 → 拿到 fanOutSlot，必须在 createSession
-      // 完成后（无论成功失败）调 release()。
+      // 完整防递归 3 条规则（ADR §6 / REVIEW_28 移除 §6.2 cwd cycle 后）：depth 上限 /
+      // fan-out / spawn-rate（顺序：不消耗资源的检查前置，详 spawn-guards.ts 头注释）。
+      // 任一 deny 立即返回；通过 → 拿到 fanOutSlot，必须在 createSession 完成后（无论成功
+      // 失败）调 release()。
       const guard = applySpawnGuards(caller, args.cwd, args.adapter);
       if ('isError' in guard) return guard;
       const { parentDepth, fanOutSlot } = guard;
@@ -555,21 +588,39 @@ export async function buildAgentDeckTools(
       if (args.adapter_filter) {
         sessions = sessions.filter((s) => s.agentId === args.adapter_filter);
       }
+      // spawned_by_filter 在 slice(limit) 前执行（REVIEW_28 reviewer-codex INFO-1 修法），
+      // 避免大 lead 反查少量 children 时被 limit cutoff 误报空列表。
+      if (args.spawned_by_filter) {
+        sessions = sessions.filter((s) => s.spawnedBy === args.spawned_by_filter);
+      }
       const truncated = sessions.slice(0, args.limit);
       return ok({
         total: truncated.length,
-        sessions: truncated.map((s) => ({
-          sessionId: s.id,
-          adapter: s.agentId,
-          cwd: s.cwd,
-          lifecycle: s.lifecycle,
-          title: s.title,
-          lastEventAt: s.lastEventAt,
-          teamName: s.teamName ?? null,
-          spawnedBy: s.spawnedBy ?? null,
-          spawnDepth: s.spawnDepth ?? 0,
-        })),
+        sessions: truncated.map(projectSession),
       });
+    },
+    { annotations: { readOnlyHint: true } },
+  );
+
+  // ──────────────────── get_session
+  const getSession = tool(
+    AGENT_DECK_TOOL_NAMES.getSession,
+    "Get a single session metadata by id. Returns same projection as list_sessions (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages (use wait_reply for those). Returns isError when session does not exist.",
+    GET_SESSION_SCHEMA,
+    async (args) => {
+      const caller = deriveCaller(args);
+      const denial = denyExternalIfNotAllowed('get_session', caller);
+      if (denial) return denial;
+      const callerCheck = validateExternalCaller(caller);
+      if (callerCheck) return callerCheck;
+      const session = sessionRepo.get(args.session_id);
+      if (!session) {
+        return err(
+          `session ${args.session_id} not found`,
+          'session_id must reference an existing session. Use list_sessions to discover ids; pass status_filter:"all" to include closed sessions.',
+        );
+      }
+      return ok(projectSession(session));
     },
     { annotations: { readOnlyHint: true } },
   );
@@ -611,7 +662,7 @@ export async function buildAgentDeckTools(
     },
   );
 
-  return [spawnSession, sendMessage, waitReply, listSessions, shutdownSession];
+  return [spawnSession, sendMessage, waitReply, listSessions, getSession, shutdownSession];
 }
 
 // re-export internal helpers for B'2.b unit tests

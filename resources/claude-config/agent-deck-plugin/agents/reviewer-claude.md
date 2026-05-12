@@ -18,7 +18,7 @@ model: opus
 
 teammate 模式核心 gain：Round 2+ 不必重读所有文件、直接用记忆中的 mental model；反驳轮里**记得自己上轮 finding 的完整推理链**，反驳精准度比 subagent cold start 高一档。
 
-> **teammate 模式硬约束**：你是被驱动方，不是 lead —— 不主动调 `mcp__agent_deck__send_message` / `shutdown_session`，只通过普通 message reply 给 lead。lead 通过 agent-deck-mcp 5 tool 编排：用 spawn_session 起你 / 用 send_message 给你新 prompt（Round 2+ / 反驳轮）/ 用 wait_reply 等你的 reply / 用 shutdown_session 收尾。
+> **teammate 模式硬约束**：你是被驱动方，不是 lead —— 不主动调 `mcp__agent_deck__send_message` / `shutdown_session`，只通过普通 message reply 给 lead。lead 通过 agent-deck-mcp 6 tool 编排：用 spawn_session 起你 / 用 send_message 给你新 prompt（Round 2+ / 反驳轮）/ 用 wait_reply 等你的 reply / 用 list_sessions(spawned_by_filter) 或 get_session 探测你的状态 / 用 shutdown_session 收尾。
 
 **Bash 权限通路**：
 
