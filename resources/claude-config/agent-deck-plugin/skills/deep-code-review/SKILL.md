@@ -82,18 +82,18 @@ cat ~/.claude/settings.json | jq '.permissions.allow[]?' 2>/dev/null | grep -E '
 ```
 
 **缺则两选一**（spawn 前决策）：
-- **选项 A（推荐，长期）**：让用户在 `~/.claude/settings.json` 的 `permissions.allow` 加 `Bash(zsh:*)` 或具体 `Bash(zsh -i -l -c codex exec*)`；改完无需重启，下次 spawn 即生效
-- **选项 B（B 阶段实现后可用）**：`spawn_session` 调用传 `inherit_caller_permissions: true`（B 阶段加的可选字段），把 lead 自身 `permissions.allow` 合并到 teammate；**B 阶段未 ship 前**此选项不可用，只能走 A
+- **选项 A（推荐，长期）**：让用户在 `~/.claude/settings.json` 的 `permissions.allow` 加 `Bash(zsh:*)` 或具体 `Bash(zsh -i -l -c codex exec*)`；改完无需重启，下次 spawn 即生效。**注意**：`reviewer-codex` teammate 已天然走 user scope `~/.claude/settings.json`（`settingSources: user/project/local`，详 sdk-bridge.ts:60），所以这条加完对所有 SDK 会话都生效（lead + 所有 teammate）。
+- **选项 B（D2 follow-up，未实施）**：`spawn_session` 加 `inherit_caller_permissions: true` 把 lead 自身 permissions.allow 临时合并到 teammate（无需用户全局加白名单）。CHANGELOG_76 调研发现：SDK API 仅有粗粒度 `allowedTools: string[]`（如 `["Bash"]`），不能直接透传 `Bash(zsh:*)` 细粒度模式；要做有意义的 D2 需要 per-session settings overlay 跨 ClaudeCodeAdapter / SDK 内部 / settings 三层。当前**不可用**。
 - **选项 C（兜底）**：走 §失败兜底「reviewer-codex teammate Bash 权限审批被拒 / cold-start 卡」分支 — lead 自己 Bash `run_in_background` 起外部 codex CLI（仍异构，合规）
 
 **额外注意**：reviewer-codex.md §核心纪律 第 11 条已强制 mktemp 走 `$TMPDIR`（防 macOS Claude Code sandbox 拦默认 `/var/folders/...`），无需 lead 显式自检 mktemp 路径；如 lead 跑的是改造前旧版 reviewer-codex.md 也走 §失败兜底。
 
 ### Step 1. 起对（首轮，并发 spawn）
 
-**Prompt 注入两种形态**（看 `spawn_session` schema 是否有 `agent_name` 字段决定）：
+**Prompt 注入两种形态**（D1 已实施，CHANGELOG_76）：
 
-- **当前（B 阶段实现前）**：必须把 reviewer-* agent body 全文嵌进 `prompt` 字段。lead 自己 `Bash: cat <plugin-root>/agents/reviewer-{claude,codex}.md` 拿 body（plugin-root 一般是 `~/.claude/plugins/agent-deck/` 或仓库内 `<repo>/resources/claude-config/agent-deck-plugin/`，按实际安装路径取），把内容拼到 `prompt` 头部，再追加 `output_mode: full_review` + scope/focus/skip。`spawn_session` 不会自动加载 plugin agent body — schema 还没 `agent_name` 字段。
-- **未来（B 阶段实现后）**：`spawn_session` 加可选字段 `agent_name: 'reviewer-claude' | 'reviewer-codex'`（plugin agents registry resolver 自动按名找 body file），in-process transport 把 body 作为 system prompt prefix 注入；caller 的 `prompt` 字段只塞 task body（output_mode + scope + focus + skip）。**B 阶段未 ship 前不可用此姿势**，必须用嵌 body 形态；`spawn_session` 拒绝未知字段时强信号是 schema 还没升。
+- **当前推荐（D1 已实施）**：`spawn_session` 传可选字段 `agent_name: 'reviewer-claude' | 'reviewer-codex'`，in-process / HTTP / stdio handler 都会按 plugin agents registry 找 body file（`bundled-assets.getBundledAssetContent('agent', name)`），把 body 自动拼到 caller `prompt` 头部（body + `\n\n---\n\n` + caller prompt）。lead 不再需要自己 cat agent body 拼字符串。`agent_name` 找不到时 spawn_session 直接返回 err（不静默 fallback 到裸 prompt 防止落空）。仅 claude-code adapter 有意义；其他 adapter 也允许传但行为相同。
+- **兼容路径（不传 agent_name）**：caller 自己 `Bash: cat <plugin-root>/agents/reviewer-{claude,codex}.md` 拿 body 拼到 `prompt` 头部（plugin-root 一般是 `~/.claude/plugins/agent-deck/` 或仓库内 `<repo>/resources/claude-config/agent-deck-plugin/`）。仅当用户 plugin 安装方式特殊（如本地未通过 bundled-assets 注册）时才走此路径。
 
 ```ts
 const teamName = `review-${Date.now()}`;
