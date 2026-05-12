@@ -33,6 +33,7 @@ export const IpcInvoke = {
   AdapterRespondExitPlanMode: 'adapter:respond-exit-plan-mode',
   AdapterSetPermissionMode: 'adapter:set-permission-mode',
   AdapterRestartWithCodexSandbox: 'adapter:restart-with-codex-sandbox',
+  AdapterRestartWithClaudeCodeSandbox: 'adapter:restart-with-claude-code-sandbox',
   AdapterListPending: 'adapter:list-pending',
   AdapterListPendingAll: 'adapter:list-pending-all',
   AdapterList: 'adapter:list',
