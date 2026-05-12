@@ -23,6 +23,13 @@ import { routeEventToNotification } from './notify/event-router';
 import { stopAllSounds } from './notify/sound';
 import { handleCliArgv } from './cli';
 import { setAgentDeckMcpTokenEnv } from './codex-config/agent-deck-mcp-injector';
+// NOTE(REVIEW_<X>)：以下两个 codex-config 模块**必须**走 static import，不要改回 dynamic import。
+// 同一模块在多处 dynamic import（index.ts × 2 + ipc/settings.ts × 3）会让 vite SSR/rollup 把模块代码 inline
+// 进主 index.js，独立 chunk 文件只剩 require 空壳没有 export → 运行时 dynamic import 拿到空对象 →
+// 「X is not a function」（dev 模式 ESM 直 import 测不出，只在打包后炸）。两个模块顶部都纯 import + export
+// function，无副作用，static import 等价。
+import { syncAgentDeckSection } from './codex-config/agents-md-installer';
+import { syncSkills } from './codex-config/skills-installer';
 import { universalMessageWatcher } from './teams/universal-message-watcher';
 import { IpcEvent } from '@shared/ipc-channels';
 import { reapStaleUploads } from './store/image-uploads';
@@ -155,24 +162,18 @@ async function bootstrap(): Promise<void> {
   summarizer.start();
 
   // 7.0 D1+D2：app ready 后同步 Agent Deck 段到 ~/.codex/AGENTS.md + skills
-  void import('./codex-config/agents-md-installer')
-    .then(({ syncAgentDeckSection }) => {
-      try {
-        syncAgentDeckSection();
-      } catch (err) {
-        console.warn('[bootstrap] syncAgentDeckSection 失败', err);
-      }
-    })
-    .catch((err) => console.warn('[bootstrap] 加载 agents-md-installer 失败', err));
-  void import('./codex-config/skills-installer')
-    .then(({ syncSkills }) => {
-      try {
-        syncSkills();
-      } catch (err) {
-        console.warn('[bootstrap] syncSkills 失败', err);
-      }
-    })
-    .catch((err) => console.warn('[bootstrap] 加载 skills-installer 失败', err));
+  // syncAgentDeckSection / syncSkills 走 static import（顶部 import 段已说明原因），
+  // 这里同步直接调；失败只 warn 不抛（不阻断 main 启动），与 settings.ts 同步路径同模式。
+  try {
+    syncAgentDeckSection();
+  } catch (err) {
+    console.warn('[bootstrap] syncAgentDeckSection 失败', err);
+  }
+  try {
+    syncSkills();
+  } catch (err) {
+    console.warn('[bootstrap] syncSkills 失败', err);
+  }
 
   // 7.05 R3.E5：universal-message-watcher 启动（cross-adapter team message 投递）
   universalMessageWatcher.start();
