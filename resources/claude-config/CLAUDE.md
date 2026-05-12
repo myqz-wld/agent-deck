@@ -154,7 +154,7 @@ Bash 工具调用时给 `timeout: 300000`，重 review 给 600000；轻量核查
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 5 tool（`mcp__agent_deck__spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `shutdown_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，lead **不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 6 tool（`mcp__agent_deck__spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `get_session` / `shutdown_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，lead **不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
 ### 用 wait_reply 时**必须**带 since_ts buffer 防 race
 

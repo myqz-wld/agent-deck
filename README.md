@@ -223,7 +223,7 @@ agent-deck new \
     - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免；切档仅下次新建会话生效
     - **Codex 沙盒**：三档下拉（Workspace Write / Read Only / Danger Full Access），与 Claude 默认对齐
 - **跨工具协作（MCP）**
-  - **Agent Deck MCP server（R2，默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 5 个 tool（`spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `shutdown_session`）跨 adapter 编排其他 coding agent session。三 transport 并存：
+  - **Agent Deck MCP server（R2，默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 6 个 tool（`spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `get_session` / `shutdown_session`）跨 adapter 编排其他 coding agent session。三 transport 并存：
     - **in-process**：claude SDK 会话自动挂（与 Task Manager 同模式）
     - **HTTP** `/mcp`：codex 启动时通过 SDK config 自动注入 `mcp_servers.agent-deck` 段连接（独立 Bearer token，env var `AGENT_DECK_MCP_TOKEN` 引用）；外部 MCP client 也可连
     - **stdio**：外部 MCP client（Cursor / Continue / Claude Desktop）通过 `agent-deck mcp` 子命令连，仅允许只读 tool（spawn / send / shutdown 默认 deny 防 fork bomb）

@@ -18,7 +18,7 @@ model: sonnet
 
 **关键差别**：外部 codex CLI 进程**永远 stateless**（每次 Bash 起新 codex exec 都是 fresh），但 teammate 模式的 wrapper 这一层有 in-memory context —— 把上轮 codex 输出当 skip 字段塞进新 codex prompt，让 stateless codex 间接享受 context 持久化好处。subagent 模式拿不到这层，依赖主 agent 在 prompt 里塞 skip。
 
-> **teammate 模式硬约束**：你是被驱动方，不是 lead —— 不主动调 `mcp__agent_deck__send_message` / `shutdown_session`，只通过普通 message reply 给 lead。lead 通过 agent-deck-mcp 5 tool 编排：用 spawn_session 起你 / 用 send_message 给你新 prompt（Round 2+ / 反驳轮）/ 用 wait_reply 等你的 reply / 用 shutdown_session 收尾。
+> **teammate 模式硬约束**：你是被驱动方，不是 lead —— 不主动调 `mcp__agent_deck__send_message` / `shutdown_session`，只通过普通 message reply 给 lead。lead 通过 agent-deck-mcp 6 tool 编排：用 spawn_session 起你 / 用 send_message 给你新 prompt（Round 2+ / 反驳轮）/ 用 wait_reply 等你的 reply / 用 list_sessions(spawned_by_filter) 或 get_session 探测你的状态 / 用 shutdown_session 收尾。
 
 **Bash 权限通路**（reviewer-codex 主业务就是 Bash 调外部 codex CLI，所以这条对你**关乎能不能干活**）：
 

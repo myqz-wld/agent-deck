@@ -172,52 +172,26 @@ describe('applySpawnGuards — fan-out', () => {
     expect(inFlightChildren.get('lead')).toBe(0);
   });
 
-  it('cycle deny 路径自动 release in-flight', () => {
-    settingsState.mcpMaxFanOutPerParent = 2;
-    seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
-    // 第一次同 cwd 同 adapter cycle → deny + 内部已 release
-    const r = applySpawnGuards(caller('lead'), '/repo', 'claude-code');
-    expect('isError' in r).toBe(true);
-    expect(inFlightChildren.get('lead')).toBe(0); // 没残留
-  });
-});
-
-describe('applySpawnGuards — cwd cycle 整链回溯', () => {
-  it('caller 自身同 cwd 同 adapter → deny', () => {
-    seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
-    const r = applySpawnGuards(caller('lead'), '/repo', 'claude-code');
-    expect('isError' in r).toBe(true);
-    if ('isError' in r) {
-      const data = JSON.parse(r.content[0].text);
-      expect(data.error).toMatch(/spawn cycle detected/);
+  // REVIEW_28 reviewer-codex MED-1 修法验证：fan-out deny 不消耗 spawn-rate token，
+  // 防止已达 fan-out 上限的 lead spam spawn_session 把 app-wide token 拒掉给别的 lead。
+  it('fan-out deny 不消耗 spawn-rate token（防饥饿）', () => {
+    settingsState.mcpMaxFanOutPerParent = 1;
+    settingsState.mcpSpawnRatePerMinute = 3;
+    seedSession('greedy');
+    seedSession('greedy-c1', { spawnedBy: 'greedy', lifecycle: 'active' });
+    // greedy 已达 fan-out=1，连 spam 5 次 spawn 全被 fan-out deny
+    for (let i = 0; i < 5; i++) {
+      const r = applySpawnGuards(caller('greedy'), `/p${i}`, 'codex-cli');
+      expect('isError' in r).toBe(true);
     }
-  });
-
-  it('祖父同 cwd 同 adapter → deny（整链）', () => {
-    seedSession('grandpa', { cwd: '/repo', agentId: 'claude-code', spawnDepth: 0 });
-    seedSession('parent', { cwd: '/sub', agentId: 'codex-cli', spawnedBy: 'grandpa', spawnDepth: 1 });
-    seedSession('caller', { cwd: '/other', agentId: 'codex-cli', spawnedBy: 'parent', spawnDepth: 2 });
-    settingsState.mcpMaxSpawnDepth = 10; // 不让 depth 先 deny
-    // 即将 spawn 在 /repo + claude-code，祖父正好这俩 → 应被 cycle 检测拦下
-    const r = applySpawnGuards(caller('caller'), '/repo', 'claude-code');
-    expect('isError' in r).toBe(true);
-    if ('isError' in r) {
-      const data = JSON.parse(r.content[0].text);
-      expect(data.error).toMatch(/ancestor cwd cycle detected/);
+    // spawn-rate token 应该一个都没消耗
+    expect(spawnRateLimiter.currentCount).toBe(0);
+    // 别的 lead 还能正常用 3 次 quota
+    seedSession('honest');
+    for (let i = 0; i < 3; i++) {
+      const r = applySpawnGuards(caller('honest'), `/h${i}`, 'codex-cli');
+      expect('ok' in r).toBe(true);
+      if ('ok' in r) r.fanOutSlot.release();
     }
-  });
-
-  it('不同 adapter 不算 cycle（异构 reviewer pair 合法）', () => {
-    seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
-    const r = applySpawnGuards(caller('lead'), '/repo', 'codex-cli');
-    expect('ok' in r).toBe(true);
-    if ('ok' in r) r.fanOutSlot.release();
-  });
-
-  it('caller 不在 sessionRepo（in-process 闭包伪 id）→ 不阻塞', () => {
-    // caller 'unknown-id' 不在 sessionStore，cycle 检测放行
-    const r = applySpawnGuards(caller('unknown-id'), '/repo', 'claude-code');
-    expect('ok' in r).toBe(true);
-    if ('ok' in r) r.fanOutSlot.release();
   });
 });

@@ -10,10 +10,10 @@
  * - shutdown_session(self) deny
  * - send_message 目标 session closed 时 deny
  * - list_sessions 投影 metadata 不含 events / messages
- * - spawn_session same-cwd same-adapter cycle 检测
+ * - spawn_session same-cwd same-adapter 是合法路径（REVIEW_28 移除 §6.2 后）
  *
- * 完整防递归 4 条规则（depth / fan-out / spawn-rate / 整链回溯）的单测放 B'5。
- * wait_reply coordinator + backfill 单测放 B'2.b。
+ * 完整防递归 3 条规则（depth / fan-out / spawn-rate）的单测放 spawn-guards.test.ts。
+ * wait_reply coordinator + backfill 单测放 wait-reply-coordinator.test.ts。
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -355,18 +355,25 @@ describe('agent-deck-mcp tools — caller validation (HTTP/stdio)', () => {
 });
 
 describe('agent-deck-mcp tools — spawn_session', () => {
-  it('rejects same-cwd same-adapter (self-spawn cycle)', async () => {
+  // REVIEW_28：原 §6.2 cwd cycle 检测移除后，「same-cwd same-adapter spawn」是合法用例
+  // （deep-code-review SKILL：lead 在 repo 起 reviewer teammate 同 cwd 同 adapter）。
+  // 防递归靠 §6.1 depth + §6.4 fan-out + §6.3 spawn-rate 三条兜底（spawn-guards.test.ts 覆盖）。
+
+  it('allows same cwd same adapter (deep-code-review SKILL 合法路径)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/repo',
-      prompt: 'echo',
+      prompt: 'reviewer teammate prompt',
       caller_session_id: 'lead',
     }, {});
     const parsed = parseResult(r);
-    expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/spawn cycle detected/);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessionId).toBe('spawned-1');
+    expect(setSpawnLinkCalls).toEqual([
+      { id: 'spawned-1', parentId: 'lead', depth: 1 },
+    ]);
   });
 
   it('allows different cwd same adapter', async () => {
@@ -602,6 +609,81 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     const parsed = parseResult(r);
     expect(parsed.data.sessions).toHaveLength(1);
     expect(parsed.data.sessions[0].sessionId).toBe('codex-1');
+  });
+
+  it('respects spawned_by_filter (REVIEW_28 E 段)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('leadA');
+    seedSession('leadB');
+    seedSession('a-c1', { spawnedBy: 'leadA' });
+    seedSession('a-c2', { spawnedBy: 'leadA' });
+    seedSession('b-c1', { spawnedBy: 'leadB' });
+    const r = await tools.get('list_sessions').handler({
+      caller_session_id: 'leadA',
+      status_filter: 'active',
+      spawned_by_filter: 'leadA',
+      limit: 50,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessions).toHaveLength(2);
+    expect(parsed.data.sessions.map((s: any) => s.sessionId).sort()).toEqual(['a-c1', 'a-c2']);
+  });
+
+  it('combines spawned_by_filter + adapter_filter (REVIEW_28 E 段)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('claude-child', { spawnedBy: 'lead', agentId: 'claude-code' });
+    seedSession('codex-child', { spawnedBy: 'lead', agentId: 'codex-cli' });
+    seedSession('orphan-claude', { spawnedBy: null, agentId: 'claude-code' });
+    const r = await tools.get('list_sessions').handler({
+      caller_session_id: 'lead',
+      status_filter: 'active',
+      spawned_by_filter: 'lead',
+      adapter_filter: 'claude-code',
+      limit: 50,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessions).toHaveLength(1);
+    expect(parsed.data.sessions[0].sessionId).toBe('claude-child');
+  });
+});
+
+describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
+  it('returns same projection as list_sessions', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { spawnedBy: 'lead', spawnDepth: 1, teamName: 'team-x' });
+    const r = await tools.get('get_session').handler({
+      caller_session_id: 'lead',
+      session_id: 'teammate',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data).toMatchObject({
+      sessionId: 'teammate',
+      adapter: 'claude-code',
+      cwd: '/repo',
+      lifecycle: 'active',
+      teamName: 'team-x',
+      spawnedBy: 'lead',
+      spawnDepth: 1,
+    });
+    expect(parsed.data).not.toHaveProperty('activity');
+    expect(parsed.data).not.toHaveProperty('source');
+  });
+
+  it('returns isError when session does not exist', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    const r = await tools.get('get_session').handler({
+      caller_session_id: 'lead',
+      session_id: 'ghost',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/session ghost not found/);
   });
 });
 

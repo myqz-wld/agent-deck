@@ -539,8 +539,9 @@ export const sessionRepo = {
    * 按祖先深度从近到远排列（直接父在 [0]，祖父在 [1] ...）。
    * 链长 ≤ MAX_DEPTH（默认 3），反查 cost O(depth) 可忽略。
    *
-   * 用于 §6.2 cwd realpath 整链 cycle 检测：spawn_session handler 把即将 spawn 的
-   * cwd + adapter 与每个祖先的 cwd + adapter 比较；任一同 cwd + 同 adapter ⇒ deny。
+   * **2026-05 deprecated**（REVIEW_28）：原 §6.2 cwd realpath 整链 cycle 检测已移除
+   * （详 spawn-guards.ts 头注释）。当前生产代码无调用点；保留实现避免 R3 / R4 重构
+   * churn，未来若确认无新依赖可一并删除。
    *
    * 防御循环：若链上出现自指向（不应发生，但 ON DELETE SET NULL + 历史脏数据可能），
    * 用 visited Set 提前 break，避免死循环。
