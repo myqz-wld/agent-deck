@@ -13,6 +13,7 @@ import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { taskRepo } from '@main/store/task-repo';
 import { sessionRepo } from '@main/store/session-repo';
+import { eventRepo } from '@main/store/event-repo';
 import { eventBus } from '@main/event-bus';
 import { summarizer } from '@main/session/summarizer';
 import { enqueueAgentDeckMessage } from '@main/teams/universal-message-watcher';
@@ -21,6 +22,7 @@ import type {
   AgentDeckTeam,
   AgentDeckTeamMember,
   AgentDeckTeamMemberRole,
+  AgentEvent,
   TaskRecord,
 } from '@shared/types';
 import { on, IpcInputError } from './_helpers';
@@ -72,6 +74,33 @@ export function registerTeamsIpc(): void {
       if (!team) return null;
       const recentMessages = agentDeckMessageRepo.listByTeam(teamId, { limit: 100 });
       return { ...team, recentMessages };
+    },
+  );
+
+  // plan team-cohesion-fix-20260513 Phase C：Get-full 4 sections snapshot。
+  // lineage / pending 由 renderer 自拼（lineage 走 sessions Map.spawnedBy；pending 走 store
+  // pendingXBySession ∩ member sessionIds），避免 main 端重复 SQL + 与 PendingTab 一致。
+  on(
+    IpcInvoke.AgentDeckTeamGetFull,
+    async (
+      _e,
+      teamIdRaw,
+    ): Promise<
+      | (AgentDeckTeam & {
+          members: AgentDeckTeamMember[];
+          recentEvents: (AgentEvent & { id: number })[];
+          tasks: TaskRecord[];
+          recentMessages: AgentDeckMessage[];
+        })
+      | null
+    > => {
+      const teamId = parseId(teamIdRaw, 'teamId');
+      const team = agentDeckTeamRepo.getWithMembers(teamId);
+      if (!team) return null;
+      const recentEvents = eventRepo.findTeamEvents(teamId, 50);
+      const tasks = taskRepo.list({ teamId, limit: 200 });
+      const recentMessages = agentDeckMessageRepo.listByTeam(teamId, { limit: 100 });
+      return { ...team, recentEvents, tasks, recentMessages };
     },
   );
 

@@ -1,45 +1,69 @@
 import { useEffect, useState, type JSX } from 'react';
-import type { AgentDeckMessage, AgentDeckTeam, AgentDeckTeamMember } from '@shared/types';
-import { useSessionStore } from '@renderer/stores/session-store';
+import type {
+  AgentDeckMessage,
+  AgentDeckTeam,
+  AgentDeckTeamMember,
+  AgentEvent,
+  TaskRecord,
+} from '@shared/types';
+import { Header } from './Header';
+import { MembersSection } from './MembersSection';
+import { LineageSection } from './LineageSection';
+import { EventsSection } from './EventsSection';
+import { TasksSection } from './TasksSection';
+import { MessagesSection } from './MessagesSection';
+import { PendingSection } from './PendingSection';
 
 /**
- * R3.E7 (PR-B) 重写 — Universal Team Backend TeamDetail。
+ * plan team-cohesion-fix-20260513 Phase C：TeamDetail 重写为「团队工作面板」。
  *
- * 走新 `agent-deck-team:get` IPC 拿 team + members + recentMessages snapshot；
- * 不再依赖 fs ~/.claude/teams/<name>/config.json 老协议。
+ * 6 个 section（顺序按用户「打开 team 想知道什么」次序排）：
+ * 1. **Members** - 团队成员（lead + teammate + 已退出）
+ * 2. **Lineage** - spawn 血缘树形（renderer 端从 sessions Map.spawnedBy 自拼）
+ * 3. **Pending** - 团队成员的 pending（与 PendingTab 同源 store）
+ * 4. **Events** - 跨成员事件流（IPC `findTeamEvents` 50 条）
+ * 5. **Tasks** - team 内 tasks（IPC `taskRepo.list({teamId})`）
+ * 6. **Messages** - cross-adapter messages（IPC 100 条 + 渲染前 30 条）
  *
- * 当前是「最小可用」版本：列 members + recentMessages 时间线 + 跳转 session。
- * 完整 send_message UI / role 切换 / archive 入口待后续迭代细化。
+ * 数据走单一 IPC `agent-deck-team:get-full(teamId)` 拉 4 sections snapshot
+ * （members / events / tasks / messages），lineage / pending 由 renderer 自拼
+ * （避免重复 SQL + 与 PendingTab 一致）。
+ *
+ * 增量刷新：subscribe `onAgentDeckTeamChanged` / `onAgentDeckMessageChanged` 触发整 refetch
+ * （16ms debounce 在 main 端已做）；events / tasks / pending 实时性通过 store 自动 reactive
+ * （sessions Map / pendingXBySession 变 → React 重渲染对应 section）。后续可加细粒度增量
+ * patch 但当前 refetch 足够（snapshot 200ms 内拉完，UI 不闪）。
  */
-
 interface Props {
   teamId: string;
   onBack: () => void;
   onOpenSession: (sessionId: string) => void;
 }
 
-interface TeamSnapshot extends AgentDeckTeam {
+interface FullSnapshot extends AgentDeckTeam {
   members: AgentDeckTeamMember[];
+  recentEvents: (AgentEvent & { id: number })[];
+  tasks: TaskRecord[];
   recentMessages: AgentDeckMessage[];
 }
 
 export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Element {
-  const [snap, setSnap] = useState<TeamSnapshot | null>(null);
+  const [snap, setSnap] = useState<FullSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const sessions = useSessionStore((s) => s.sessions);
 
   useEffect(() => {
     let aborted = false;
     const fetch = (): void => {
       void window.api
-        .getAgentDeckTeam(teamId)
+        .getAgentDeckTeamFull(teamId)
         .then((row) => {
           if (aborted) return;
           if (!row) {
             setError('Team 不存在或已删除');
           } else {
             setSnap(row);
+            setError(null);
           }
           setLoading(false);
         })
@@ -50,6 +74,7 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
         });
     };
     fetch();
+    // team / member / message 变化 → 整 refetch（main 端 16ms debounce 已限频）
     const offTeam = window.api.onAgentDeckTeamChanged(() => fetch());
     const offMsg = window.api.onAgentDeckMessageChanged(() => fetch());
     return () => {
@@ -77,118 +102,22 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
 
   return (
     <div className="flex h-full flex-col">
-      <Header onBack={onBack}>{snap.name}</Header>
-      <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2 text-[11px]">
-        <Section title={`成员 (${snap.members.length})`}>
-          {snap.members.length === 0 ? (
-            <div className="text-deck-muted/70">尚无成员</div>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {snap.members.map((m) => {
-                const sess = sessions.get(m.sessionId);
-                const label = m.displayName ?? sess?.title ?? m.sessionId.slice(0, 8);
-                return (
-                  <li
-                    key={m.sessionId}
-                    className="flex items-center justify-between rounded border border-deck-border/40 px-2 py-1 hover:bg-white/[0.04] cursor-pointer"
-                    onClick={() => onOpenSession(m.sessionId)}
-                  >
-                    <span>
-                      <strong className="text-deck-text">{label}</strong>{' '}
-                      <span className="text-deck-muted">[{m.role}]</span>
-                      {m.leftAt !== null && <span className="ml-1 text-deck-muted/60">已退出</span>}
-                    </span>
-                    <span className="text-deck-muted/60">
-                      {sess?.agentId ?? 'unknown'} · {sess?.lifecycle ?? '?'}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Section>
-        <Section title={`最近消息 (${snap.recentMessages.length})`}>
-          {snap.recentMessages.length === 0 ? (
-            <div className="text-deck-muted/70">尚无 cross-adapter 消息</div>
-          ) : (
-            <ol className="flex flex-col gap-1">
-              {snap.recentMessages.slice(0, 30).map((msg) => {
-                const fromSess = sessions.get(msg.fromSessionId);
-                const toSess = sessions.get(msg.toSessionId);
-                return (
-                  <li
-                    key={msg.id}
-                    className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1"
-                  >
-                    <div className="flex items-center justify-between text-[10px] text-deck-muted">
-                      <span>
-                        {fromSess?.title ?? msg.fromSessionId.slice(0, 8)} →{' '}
-                        {toSess?.title ?? msg.toSessionId.slice(0, 8)}
-                      </span>
-                      <span>{statusBadge(msg.status)}</span>
-                    </div>
-                    <div className="mt-1 text-deck-text whitespace-pre-wrap break-words text-[11px]">
-                      {msg.body.length > 240 ? `${msg.body.slice(0, 240)}…` : msg.body}
-                    </div>
-                    {msg.statusReason && (
-                      <div className="mt-1 text-[10px] text-status-waiting/70">
-                        {msg.statusReason}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-        </Section>
+      <Header onBack={onBack}>
+        <span className="text-deck-text">{snap.name}</span>
+        {snap.archivedAt && (
+          <span className="ml-2 rounded bg-deck-muted/20 px-1 py-0.5 text-[9px] uppercase tracking-wider text-deck-muted">
+            archived
+          </span>
+        )}
+      </Header>
+      <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
+        <MembersSection members={snap.members} onOpenSession={onOpenSession} />
+        <LineageSection members={snap.members} onOpenSession={onOpenSession} />
+        <PendingSection members={snap.members} onOpenSession={onOpenSession} />
+        <EventsSection events={snap.recentEvents} />
+        <TasksSection tasks={snap.tasks} />
+        <MessagesSection messages={snap.recentMessages} />
       </div>
     </div>
   );
-}
-
-function Header({ onBack, children }: { onBack: () => void; children: React.ReactNode }): JSX.Element {
-  return (
-    <div className="flex items-center gap-2 border-b border-deck-border px-3 py-2">
-      <button
-        type="button"
-        onClick={onBack}
-        className="no-drag text-[11px] text-deck-muted hover:text-deck-text"
-      >
-        ← 返回
-      </button>
-      <div className="flex-1 text-[12px] text-deck-text truncate">{children}</div>
-    </div>
-  );
-}
-
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}): JSX.Element {
-  return (
-    <section className="mb-3">
-      <h3 className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted">{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-function statusBadge(status: AgentDeckMessage['status']): string {
-  switch (status) {
-    case 'pending':
-      return '⏳ pending';
-    case 'delivering':
-      return '📤 delivering';
-    case 'delivered':
-      return '✅ delivered';
-    case 'failed':
-      return '❌ failed';
-    case 'cancelled':
-      return '⊘ cancelled';
-    default:
-      return status;
-  }
 }
