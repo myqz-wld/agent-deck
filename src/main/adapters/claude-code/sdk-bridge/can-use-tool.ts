@@ -10,6 +10,7 @@
  * - REVIEW_14/15 — SandboxNetworkAccess auto-deny + 结构化 message 引导 model fallback
  * - REVIEW_11 Bug 3 — approve+plan 走 deny+message 不走 allow（避免 plan→deny→plan 死循环 + setPermissionMode race）
  * - CHANGELOG_34 — approve-bypass deny+interrupt:true（不能 allow）
+ * - CHANGELOG_72 Bug 3 — bypassPermissions 模式下默认路径短路 allow（避免 SDK 仍 invoke canUseTool 弹审批）
  * - 超时 timer + ctx.signal abort listener 在 entry.resolver 内 clearTimeout，确保不重复触发
  */
 import { randomUUID } from 'node:crypto';
@@ -20,6 +21,7 @@ import type {
   ExitPlanModeRequest,
   PermissionRequest,
 } from '@shared/types';
+import type { PermissionMode } from '@main/adapters/types';
 import { formatAskAnswers } from '@main/adapters/claude-code/sdk-bridge-helpers';
 import { AGENT_ID, READ_ONLY_TOOLS } from './constants';
 import type {
@@ -39,6 +41,13 @@ export interface MakeCanUseToolDeps {
    * lazy getter 让 canUseTool 第一次被调用时（必然在 waitForRealSessionId 之后）能拿到 realId。
    */
   readonly getSessionId: () => string;
+  /**
+   * 实时取 in-memory permission mode（CHANGELOG_72 Bug 3）。bypass 短路读这里、不查 sessionRepo。
+   *
+   * 与 SDK options.permissionMode + InternalSession.permissionMode 同源（createSession 创建 internal
+   * 时初始化 / setPermissionMode 同步更新 / restart 走 close+create 自然带新值）。
+   */
+  readonly getPermissionMode: () => PermissionMode;
   readonly emit: SdkBridgeOptions['emit'];
   /** 实时取超时阈值（用 getter 让运行时 setPermissionTimeoutMs 改了也能拿到新值） */
   readonly getPermissionTimeoutMs: () => number;
@@ -47,7 +56,8 @@ export interface MakeCanUseToolDeps {
 }
 
 export function makeCanUseTool(deps: MakeCanUseToolDeps): CanUseTool {
-  const { internal, getSessionId, emit, getPermissionTimeoutMs, responder } = deps;
+  const { internal, getSessionId, getPermissionMode, emit, getPermissionTimeoutMs, responder } =
+    deps;
 
   return async (toolName, input, ctx) => {
     const realId = getSessionId();
@@ -280,6 +290,28 @@ export function makeCanUseTool(deps: MakeCanUseToolDeps): CanUseTool {
           }
         });
       });
+    }
+
+    // CHANGELOG_72 Bug 3：bypassPermissions 模式默认路径直接 allow，避免 SDK 仍 invoke canUseTool
+    // 弹审批给用户（实测 b81c509b 17:00:06 sql 铁证：sessions.permission_mode='bypassPermissions'
+    // 但 Write 仍被推到 PendingTab）。SDK 注释只描述「allowDangerouslySkipPermissions 是启用门栓」，
+    // 没承诺 spawn-time 设置后 SDK 不再调 canUseTool —— 应用层主动短路是 SDK 设计意图允许的、
+    // 也是唯一可行的修法（取消注册 canUseTool 会同时砸掉 READ_ONLY 白名单 / SandboxNetworkAccess
+    // auto-deny / AskUserQuestion / ExitPlanMode 四条护栏）。
+    //
+    // 插点：所有特殊工具分支（READ_ONLY 白名单 / SandboxNetworkAccess auto-deny / AskUserQuestion
+    // 走 UI / ExitPlanMode 走 UI）之后、默认路径前 —— bypass 不绕开任何特殊路径：
+    // - SandboxNetworkAccess：auto-deny 是沙盒语义独立护栏，bypass 模式仍要拒（与 settings
+    //   claudeCodeSandbox 用户开关语义解耦）
+    // - AskUserQuestion：Claude 主动询问语义不属"危险工具需审批"，应保留 UI 通路
+    // - ExitPlanMode：plan + bypass 互斥，但运行时进入此分支表示热切场景，保留三态 resolver
+    //
+    // 短路读 `getPermissionMode()` (= internal.permissionMode in-memory cache，与 SDK options
+    // 同源) —— 不查 sessionRepo —— 关键：避免 createSession 期间 sessionRepo.permission_mode
+    // 还没被 recordCreatedPermissionMode 写库（adapters.ts:159 await createSession → :176 才 record）
+    // 的 race，让 bypass 会话首条 prompt 触发的工具调用就能正确短路。
+    if (getPermissionMode() === 'bypassPermissions') {
+      return { behavior: 'allow', updatedInput: input };
     }
 
     // 默认路径：普通工具的权限请求 → 弹给用户决策

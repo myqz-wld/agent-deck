@@ -5,6 +5,7 @@
  * sdk-bridge.ts 仍 import 这些类型；class state 不动。
  */
 import type { PermissionResult, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { PermissionMode } from '@main/adapters/types';
 import type {
   AgentEvent,
   AskUserQuestionAnswer,
@@ -65,6 +66,21 @@ export interface InternalSession {
   realSessionId: string | null;
   cwd: string;
   query: Query;
+  /**
+   * 权限模式 in-memory cache（CHANGELOG_72 Bug 3 修法）。
+   *
+   * **存在意义**：canUseTool 判断 `bypassPermissions` 短路时，sessionRepo 不可靠 —
+   * `await adapter.createSession()` 内部 SDK 已起 + stream 已开始消费 + canUseTool 已可触发，
+   * 但应用层 `recordCreatedPermissionMode()` 在 createSession 返回后才调用（adapters.ts:159 → :176
+   * 的时序铁证）。新建 bypassPermissions 会话首条 prompt 触发的工具调用就会撞上「sessionRepo
+   * permission_mode 仍为 null（=默认）」窗口，让短路判断失效，弹 unwanted permission-request。
+   *
+   * 与 SDK options 同源：createSession 创建 internal 时设 `opts.permissionMode ?? 'default'`，
+   * 与同一份 opts 传给 SDK `query({ options: { permissionMode, allowDangerouslySkipPermissions: ... } })` 一致。
+   * setPermissionMode / restartWithPermissionMode 切档时同步更新（restart 走 closeSession + createSession
+   * 自然带新值，setPermissionMode 显式 `s.permissionMode = mode`）。canUseTool 通过 deps.getPermissionMode 读。
+   */
+  permissionMode: PermissionMode;
   pendingUserMessages: PendingUserMessage[];
   notify: (() => void) | null;
   /** 等待用户回应的权限请求：requestId → entry（payload + resolver + 超时定时器） */

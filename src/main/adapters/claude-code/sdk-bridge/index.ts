@@ -203,6 +203,10 @@ export class ClaudeSdkBridge {
       realSessionId: null,
       cwd: opts.cwd,
       query: undefined as unknown as Query,
+      // CHANGELOG_72 Bug 3：与 query options.permissionMode（line 309）同源初始化。
+      // 必须在 makeCanUseTool 之前赋值（getPermissionMode lazy 取，但 SDK 第一条 prompt
+      // 触发的工具调用会立刻读，sessionRepo 此时还没 recordCreatedPermissionMode）。
+      permissionMode: opts.permissionMode ?? 'default',
       pendingUserMessages: [],
       notify: null,
       pendingPermissions: new Map(),
@@ -233,6 +237,9 @@ export class ClaudeSdkBridge {
       // realId lazy getter：canUseTool 第一次被 SDK 调用时一定在 waitForRealSessionId 之后，
       // 所以 internal.realSessionId 已经被赋值；wait 之前的兜底用 tempKey（与原 inline 行为一致）
       getSessionId: () => internal.realSessionId ?? tempKey,
+      // CHANGELOG_72 Bug 3：bypass 短路读 internal.permissionMode（与 SDK options 同源），
+      // 不查 sessionRepo —— 避免 createSession 期间 sessionRepo 还没记录 permission_mode 的 race。
+      getPermissionMode: () => internal.permissionMode,
       emit: this.opts.emit,
       getPermissionTimeoutMs: () => this.permissionTimeoutMs,
       responder: this.responder,
@@ -713,6 +720,13 @@ export class ClaudeSdkBridge {
   ): Promise<void> {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`session ${sessionId} not found`);
+    // CHANGELOG_72 Bug 3：先同步 in-memory cache 再 await SDK，让下一次 canUseTool
+    // bypass 短路立刻按新 mode 判断（即使 SDK 还在 round-trip 中）。
+    // 注：bypass 模式有 spawn-time flag 锁死的限制（详见 restartWithPermissionMode 注释），
+    // setPermissionMode('bypassPermissions') 在 SDK 层会被静默吞，但应用层 canUseTool 短路
+    // 会按 internal.permissionMode 判断。该路径只在「冷启走 restartWithPermissionMode」之外
+    // 偶发触发，仍按 fail-secure 处理 — 应用层比 SDK 子进程更严的方向是安全的。
+    s.permissionMode = mode;
     await s.query.setPermissionMode(mode);
   }
 
