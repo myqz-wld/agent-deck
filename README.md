@@ -15,7 +15,7 @@
 - **活动流 + Diff + 总结**：每条会话点开看消息时间线、按文件分组的 Monaco DiffEditor、阶段性 LLM 一句话总结；Task 工具调用专门渲染（subagent 名 + 紫色 chip + prompt 全文折叠/展开）
 - **控制权交接提醒**：waiting → 红闪烁 + 提示音 + 系统通知 + Dock 弹跳；finished → 黄 + 完成音；可逐项关闭，可换自定义提示音
 - **三类人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Plan mode 执行计划批准 —— 全部在活动流卡片里直接处理。批准 plan 时可选目标权限模式（默认 / 自动接受编辑 / 保持 Plan / 完全免询问）；切到「完全免询问」会自动重启 SDK 子进程
-- **OS 级沙盒**（实验，默认关）：Claude Code SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐
+- **OS 级沙盒**（CHANGELOG_74 起对称三件套）：Claude Code SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐。**三件套**（与 Codex 完全对称）：① 全局默认（设置面板 / 默认关）；② 新建会话覆盖（NewSessionDialog 4 档下拉「跟随设置 / off / workspace-write / strict」）；③ 会话内运行时切档（SessionDetail 输入区上方下拉，切到 `off` 弹 confirm，切到 `workspace-write` / `strict` 直接生效，5-10s 冷切重启 SDK 子进程）
 - **Universal Team Backend**（R3 起，硬切替代老 Claude Code Agent Teams 入口）：cross-adapter（claude / codex / aider / generic-pty）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent_deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；`mcp__agent_deck__send_message` 走 DB queue 投递；`mcp__agent_deck__wait_reply` 等 reply。**老 inbox 协议（CHANGELOG_45/46/56）已 R3 完全下线**——CLI 内自起的 team 在 agent-deck UI 永久失明；`~/.claude/teams/<X>/` 老数据只读历史保留，Settings 提供一次性 export 入口
 - **输入框图片附件**：会话主输入框 + 新建会话 dialog 都支持「粘贴 / 拖放 / 上传按钮」三件套发图（PNG / JPEG / GIF / WebP，单图 ≤ 20MB / 单条总附件 ≤ 30MB）。Claude SDK 走 base64 image content block，Codex SDK 接 `local_image` 文件路径，主进程统一把 base64 落盘到 `<userData>/image-uploads/<uuid>.<ext>` 喂下游；历史 detail view 里能看到自己发了什么图，14 天孤儿文件 reaper 自动清理
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
@@ -220,7 +220,7 @@ agent-deck new \
   - **外部工具**：Codex 二进制路径（留空用应用内置 vendored 版本，约 150MB / 平台）
   - **实验功能**：
     - **SDK Task Manager**：toggle；开启后 SDK 会话注入 `mcp__tasks__*` 系列结构化任务工具让多 Agent 跨会话协作管理结构化任务。当前会话 team_id（universal team backend，R3 起）自动闭包注入到工具，写操作锁在自己 team；只读允许跨 team 协调。仅下次新建会话生效。完整工具清单见 Header「📚 资产库」
-    - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免；切档仅下次新建会话生效
+    - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免。本档位是「全局默认」；新建会话对话框可 per-session 覆盖；会话内可运行时切档冷切重启（CHANGELOG_74，与 Codex 对称三件套）
     - **Codex 沙盒**：三档下拉（Workspace Write / Read Only / Danger Full Access），与 Claude 默认对齐
 - **跨工具协作（MCP）**
   - **Agent Deck MCP server（R2，默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 6 个 tool（`spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `get_session` / `shutdown_session`）跨 adapter 编排其他 coding agent session。三 transport 并存：
