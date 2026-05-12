@@ -174,21 +174,63 @@ reviewer-codex agent 内部已实现失败模板化（codex 二进制缺失 / OA
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 6 tool（`mcp__agent_deck__spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `get_session` / `shutdown_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，lead **不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 7 tool（`mcp__agent_deck__spawn_session` / `send_message` / `reply_message` / `wait_reply` / `list_sessions` / `get_session` / `shutdown_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，lead **不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
-### 用 wait_reply 时**必须**带 since_ts buffer 防 race
+### wait_reply 按 message_id 等具体某条消息的 reply（B7 wire format）
+
+新 wait_reply 不再轮询事件流 / 不需要 since_ts buffer，直接按 messageId 反查 messages 表的 `reply_to_message_id`（DB query + universal-message-watcher event listener，listener 注册前先查一次防 race）。
 
 ```ts
-const sendResp = await mcp__agent_deck__send_message({...});
+const sendResp = await mcp__agent_deck__send_message({
+  session_id: targetSid,
+  text: '...',
+  caller_session_id: callerSid,
+});
+// sendResp = { sessionId, teamId, messageId, replyToMessageId, sentAt, queued: true }
+
 const reply = await mcp__agent_deck__wait_reply({
-  session_id,
-  until: 'turn_complete',
+  message_id: sendResp.messageId,  // 等这条具体消息的 reply
+  timeout_ms: 600_000,             // 默认 600_000ms（10 min），重 review 给足
+  // 可选：nudge_text + nudge_after_ms 让 mcp 自动催 reply
+  caller_session_id: callerSid,
+});
+// reply = { reply: { messageId, text, sentAt, fromSessionId } | null, nudgesSent, timedOut }
+```
+
+### spawn 路径首轮：用 spawn_session 返回的 spawnPromptMessageId
+
+`spawn_session` 返回值含 `spawnPromptMessageId: string | null`（仅当传 `team_name` 且 caller 在 sessions 表时非空），是首轮 prompt 在 messages 表的 placeholder id：
+
+```ts
+const reviewer = await mcp__agent_deck__spawn_session({
+  adapter: 'claude-code',
+  cwd: REPO_ABS_PATH,
+  prompt: REVIEWER_PROMPT,
+  team_name: 'review-team',
+});
+// reviewer.spawnPromptMessageId 是首轮 prompt 的 messageId
+
+const firstReply = await mcp__agent_deck__wait_reply({
+  message_id: reviewer.spawnPromptMessageId,
   timeout_ms: 600_000,
-  since_ts: sendResp.sentAt - 5000,  // 关键！buffer 5 秒防 race
 });
 ```
 
-不带 since_ts buffer 会卡 600s timeout：因为 reviewer adapter event 的 ts 可能比 wait_reply handler 注册更早到达（baselineTs 过滤掉了）。-5000 让 backfill 兜底拉历史段。
+### Wire format（teammate 端必读）
+
+watcher 投递 message 时把 messageId 注入到 wire body 顶部，让 teammate 能拿到 id 调 reply_message：
+
+| 路径 | wire format |
+|---|---|
+| spawn init prompt | `[msg <uuid>]\n<原始 promptToUse>` |
+| send_message / reply_message 投递 | `[from <displayName> @ <adapterId>][msg <uuid>]\n<原始 body>` |
+
+teammate 行为约束（reviewer-claude.md / reviewer-codex.md「核心纪律」节已强制；其他 mcp-aware agent 同款）：
+1. 收到任何 user message → regex `/\[msg ([0-9a-f-]+)\]/` 抓第一个 `[msg ...]` 提 messageId
+2. 完成本轮工作后 → 调 `mcp__agent_deck__reply_message({reply_to_message_id: <提到的 id>, text: <reply 正文>})` 回 lead（自动算 to_session_id / team_id）
+3. **不要**裸 message reply（无 reply_to_message_id 的 message lead 的 wait_reply 永等不到 → 600s timeout）
+
+DB messages.body 列存原始 body（不含 wire prefix）；wire prefix 是 watcher / spawn 内存里临时加的「投递寻址信息」。两边一致是历史 invariant，不要试图 backfill DB。
 
 ### shutdown_session 不删数据，仅 lifecycle=closed
 

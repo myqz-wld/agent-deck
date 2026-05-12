@@ -245,7 +245,7 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
 // plan team-cohesion-fix-20260513 Phase B：mock agent-deck-message-repo for wait_reply tests
 const mockMessages = new Map<string, AgentDeckMessage>();
 const mockReplies = new Map<string, AgentDeckMessage[]>();
-const insertedMessages: Array<{ teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId: string | null }> = [];
+const insertedMessages: Array<{ id: string; teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId: string | null }> = [];
 const markedDelivered: string[] = [];
 let nextInsertId = 1;
 
@@ -253,8 +253,10 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
   agentDeckMessageRepo: {
     get: (id: string) => mockMessages.get(id) ?? null,
     findRepliesByMessageId: (id: string) => mockReplies.get(id) ?? [],
-    insert: (input: { teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId?: string | null }) => {
-      const id = `inserted-msg-${nextInsertId++}`;
+    insert: (input: { id?: string; teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId?: string | null }) => {
+      // plan team-cohesion-fix-20260513 Phase B7：input.id 非空 → 用之（spawn 路径预生成 id 注入 wire prefix）；
+      // 否则 fallback 自增 mock id（其他路径如 enqueueAgentDeckMessage 仍走原行为）。
+      const id = input.id ?? `inserted-msg-${nextInsertId++}`;
       const msg: AgentDeckMessage = {
         id,
         teamId: input.teamId,
@@ -271,6 +273,7 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         replyToMessageId: input.replyToMessageId ?? null,
       };
       insertedMessages.push({
+        id,
         teamId: input.teamId,
         fromSessionId: input.fromSessionId,
         toSessionId: input.toSessionId,
@@ -549,7 +552,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(notifyTeamCalls).toContain('spawned-1');
   });
 
-  it('Phase B5 方案 A: spawn 返 placeholder spawnPromptMessageId 让 lead wait_reply', async () => {
+  it('Phase B5+B7 方案 A: spawn 返 placeholder spawnPromptMessageId + wire format 注入 [msg <id>]', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
@@ -561,19 +564,68 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
-    // spawn 返 spawnPromptMessageId 非空 + insertedMessages 含一条 placeholder
-    expect(parsed.data.spawnPromptMessageId).toBe('inserted-msg-1');
-    expect(insertedMessages).toEqual([
-      {
-        teamId: 'team-review-team',
-        fromSessionId: 'lead',
-        toSessionId: 'spawned-1',
-        body: 'review src/foo.ts',
-        replyToMessageId: null,
-      },
-    ]);
+    // Phase B5: spawn 返 spawnPromptMessageId 非空（Phase B7：UUID v4 形式，由 spawn 预生成）
+    const spawnId = parsed.data.spawnPromptMessageId;
+    expect(spawnId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    // Phase B7: createSession 收到的 prompt 顶部含 wire prefix `[msg <spawnPromptMessageId>]\n`
+    // 让 teammate 能 regex 提 messageId 调 reply_message。
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].prompt).toBe(`[msg ${spawnId}]\nreview src/foo.ts`);
+    // Phase B5: messages 表 placeholder body 是**原始 promptToUse**（不含 wire prefix）
+    expect(insertedMessages).toHaveLength(1);
+    expect(insertedMessages[0]).toEqual({
+      id: spawnId,
+      teamId: 'team-review-team',
+      fromSessionId: 'lead',
+      toSessionId: 'spawned-1',
+      body: 'review src/foo.ts',
+      replyToMessageId: null,
+    });
     // 立即 mark delivered（不重复投递，SDK 已通过 createSession.prompt 收过）
-    expect(markedDelivered).toEqual(['inserted-msg-1']);
+    expect(markedDelivered).toEqual([spawnId]);
+  });
+
+  it('Phase B7: spawn without team_name skips wire prefix injection (no placeholder)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'standalone task',
+      // 不传 team_name → 不创建 placeholder + 不注入 prefix
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.spawnPromptMessageId).toBeNull();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].prompt).toBe('standalone task');  // 原样，无 prefix
+    expect(insertedMessages).toEqual([]);  // 无 team_name 不入 placeholder
+  });
+
+  it('Phase B7: spawn with agent_name + team_name → wire prefix on top of injected agent body', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'task body: review src/foo.ts',
+      agent_name: 'reviewer-claude',
+      team_name: 'review-team',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    const spawnId = parsed.data.spawnPromptMessageId;
+    expect(spawnId).toMatch(/^[0-9a-f-]{36}$/);
+    // wire prefix 在最顶 + agent body + caller prompt 顺序：
+    expect(createSessionCalls[0].prompt).toBe(
+      `[msg ${spawnId}]\n# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。\n\n---\n\ntask body: review src/foo.ts`,
+    );
+    // DB body 不含 wire prefix（保留 agent body + ---\n\n + caller prompt 形态）
+    expect(insertedMessages[0].body).toBe(
+      `# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。\n\n---\n\ntask body: review src/foo.ts`,
+    );
   });
 
   it('rejects unknown adapter', async () => {

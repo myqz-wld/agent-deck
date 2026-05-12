@@ -234,7 +234,8 @@ export interface AgentAdapter {
    * - 必须**至少一次** delivery（重试 ≥ 1 次后才认为 failed）。watcher 先 update
    *   status='delivering' 再调；adapter 抛错 → watcher catch + 退避（详 ADR §4.5）。
    * - **不要**自己拼 fromMember 元信息前缀。watcher 已在 body 里拼好（统一格式见 ADR §4.4
-   *   `[from <displayName> @ <adapterId>]\n<原始 body>`）。adapter 直接 sendMessage(sessionId, body)。
+   *   `[from <displayName> @ <adapterId>][msg <id>]\n<原始 body>`，Phase B7 加 messageId 让
+   *   teammate 能 reply_message）。adapter 直接 sendMessage(sessionId, body)。
    *   fromMemberId 仅用于 logging / 路由调试。
    * - 必须是异步：返回 Promise；resolve 表示「已成功提交给 adapter 的 message queue」（不是
    *   「session 已生成 reply」）。watcher 不等 reply。
