@@ -245,11 +245,47 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
 // plan team-cohesion-fix-20260513 Phase B：mock agent-deck-message-repo for wait_reply tests
 const mockMessages = new Map<string, AgentDeckMessage>();
 const mockReplies = new Map<string, AgentDeckMessage[]>();
+const insertedMessages: Array<{ teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId: string | null }> = [];
+const markedDelivered: string[] = [];
+let nextInsertId = 1;
 
 vi.mock('@main/store/agent-deck-message-repo', () => ({
   agentDeckMessageRepo: {
     get: (id: string) => mockMessages.get(id) ?? null,
     findRepliesByMessageId: (id: string) => mockReplies.get(id) ?? [],
+    insert: (input: { teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId?: string | null }) => {
+      const id = `inserted-msg-${nextInsertId++}`;
+      const msg: AgentDeckMessage = {
+        id,
+        teamId: input.teamId,
+        fromSessionId: input.fromSessionId,
+        toSessionId: input.toSessionId,
+        body: input.body,
+        status: 'pending',
+        statusReason: null,
+        sentAt: Date.now(),
+        deliveredAt: null,
+        attemptCount: 0,
+        lastAttemptAt: null,
+        deliveringSince: null,
+        replyToMessageId: input.replyToMessageId ?? null,
+      };
+      insertedMessages.push({
+        teamId: input.teamId,
+        fromSessionId: input.fromSessionId,
+        toSessionId: input.toSessionId,
+        body: input.body,
+        replyToMessageId: input.replyToMessageId ?? null,
+      });
+      mockMessages.set(id, msg);
+      return msg;
+    },
+    markDelivered: (id: string, _now: number) => {
+      markedDelivered.push(id);
+      const msg = mockMessages.get(id);
+      if (msg) mockMessages.set(id, { ...msg, status: 'delivered', deliveredAt: _now });
+      return msg ?? null;
+    },
   },
 }));
 
@@ -306,6 +342,9 @@ beforeEach(async () => {
   mockTeamsById.clear();
   mockMessages.clear();
   mockReplies.clear();
+  insertedMessages.length = 0;
+  markedDelivered.length = 0;
+  nextInsertId = 1;
   nextSpawnedSid = 'spawned-1';
   // 重新 import 让 mock 生效
   if (!buildAgentDeckTools) {
@@ -508,6 +547,33 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     // 验证 lead + teammate 都被 notify 触发桥点 enrich。
     expect(notifyTeamCalls).toContain('lead');
     expect(notifyTeamCalls).toContain('spawned-1');
+  });
+
+  it('Phase B5 方案 A: spawn 返 placeholder spawnPromptMessageId 让 lead wait_reply', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'review src/foo.ts',
+      team_name: 'review-team',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    // spawn 返 spawnPromptMessageId 非空 + insertedMessages 含一条 placeholder
+    expect(parsed.data.spawnPromptMessageId).toBe('inserted-msg-1');
+    expect(insertedMessages).toEqual([
+      {
+        teamId: 'team-review-team',
+        fromSessionId: 'lead',
+        toSessionId: 'spawned-1',
+        body: 'review src/foo.ts',
+        replyToMessageId: null,
+      },
+    ]);
+    // 立即 mark delivered（不重复投递，SDK 已通过 createSession.prompt 收过）
+    expect(markedDelivered).toEqual(['inserted-msg-1']);
   });
 
   it('rejects unknown adapter', async () => {
