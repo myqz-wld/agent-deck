@@ -31,6 +31,7 @@ class GenericPtyAdapterImpl implements AgentAdapter {
     canSetPermissionMode: false,
     canRestartWithPermissionMode: false,
     canRestartWithCodexSandbox: false,
+    canRestartWithClaudeCodeSandbox: false,
     canCloseSession: true,
     // R4·F-bonus：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage =
     // sendMessage 透传给 stdin write，与 claude-code / codex-cli 同模式）

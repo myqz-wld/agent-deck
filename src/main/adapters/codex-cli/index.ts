@@ -37,6 +37,8 @@ class CodexCliAdapterImpl implements AgentAdapter {
     // CHANGELOG_<X> A2b：codex 专属冷切，restartWithCodexSandbox 走 close + resumeThread
     // 重建 thread 透传新 sandbox（spike-A2 实测 SDK + CLI 透传新 sandbox 真生效）。
     canRestartWithCodexSandbox: true,
+    // CHANGELOG_74：codex 不支持 claude-code OS 沙盒冷切（claude 专属 capability）。
+    canRestartWithClaudeCodeSandbox: false,
     canCloseSession: true,
     // R3.E4：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage = sendMessage）
     canCollaborate: true,

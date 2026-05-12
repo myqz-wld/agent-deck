@@ -38,6 +38,7 @@ class AiderAdapterImpl implements AgentAdapter {
     canSetPermissionMode: false,
     canRestartWithPermissionMode: false,
     canRestartWithCodexSandbox: false,
+    canRestartWithClaudeCodeSandbox: false,
     canCloseSession: true,
     // R4·F-bonus：universal team backend 接收 cross-adapter 消息（与 generic-pty 同款）
     canCollaborate: true,

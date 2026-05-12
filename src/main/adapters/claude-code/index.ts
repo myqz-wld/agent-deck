@@ -27,6 +27,8 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     canSetPermissionMode: true,
     canRestartWithPermissionMode: true,
     canRestartWithCodexSandbox: false,
+    // CHANGELOG_74：claude OS 沙盒冷切（与 codex restartWithCodexSandbox 字面镜像）
+    canRestartWithClaudeCodeSandbox: true,
     canCloseSession: true,
     // R3.E4：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage = sendMessage）
     canCollaborate: true,
@@ -63,6 +65,12 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     resume?: string;
     teamName?: string;
     attachments?: UploadedAttachmentRef[];
+    /**
+     * CHANGELOG_74：Claude Code OS 沙盒 per-session 覆盖（NewSessionDialog / ComposerSdk
+     * 切档传入）。undefined → bridge 内 fallback 链（resume 路径 sessionRepo →
+     * settings 全局值 → 'off' 兜底）。与 codex codexSandbox 字面镜像。
+     */
+    claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   }): Promise<string> {
     if (!this.bridge) throw new Error('adapter not initialized');
     const handle = await this.bridge.createSession(opts);
@@ -141,6 +149,20 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
   ): Promise<string> {
     if (!this.bridge) throw new Error('adapter not initialized');
     return this.bridge.restartWithPermissionMode(sessionId, mode, handoffPrompt);
+  }
+
+  /**
+   * CHANGELOG_74：Claude OS 沙盒冷切（与 codex restartWithCodexSandbox 字面镜像）。
+   * 销毁旧 SDK 子进程 + 用新档位 createSession resume 重建。
+   * 失败 bridge 内已 emit error message + 回滚 sessionRepo.claudeCodeSandbox。
+   */
+  async restartWithClaudeCodeSandbox(
+    sessionId: string,
+    sandbox: 'off' | 'workspace-write' | 'strict',
+    handoffPrompt: string,
+  ): Promise<string> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    return this.bridge.restartWithClaudeCodeSandbox(sessionId, sandbox, handoffPrompt);
   }
 
   listPending(sessionId: string): {

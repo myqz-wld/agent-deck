@@ -49,6 +49,13 @@ export interface CreateSessionOptions {
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
+   * Claude Code per-session OS 沙盒档位覆盖（CHANGELOG_74：仅 claude-code adapter 接收并起效；
+   * 其它 adapter 忽略）。三档直接复用 settings.claudeCodeSandbox 字面量。
+   * undefined = 用 settings.claudeCodeSandbox 全局值（resume 路径会再从 sessionRepo 兜底读回）。
+   * 与 codexSandbox 完全字面对称。
+   */
+  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  /**
    * R4·F2：generic-pty / aider session 的 spawn config 透传（仅这两 adapter 接收并起效；
    * 其它 adapter 忽略）。zod 校验由 IPC 入口统一前置（adapters.ts createAdapterSession handler）。
    *
@@ -86,6 +93,12 @@ export interface AdapterCapabilities {
    * 这是 codex 专属的 capability。
    */
   canRestartWithCodexSandbox: boolean;
+  /**
+   * 是否支持「冷切」claude OS sandbox 档位（CHANGELOG_74）：销毁旧 SDK 子进程 + 用新档位
+   * createSession resume 重建。SDK 的 sandbox options 是 query() spawn-time 锁定，无法热切。
+   * 与 canRestartWithCodexSandbox 字面镜像。仅 claude-code adapter 置 true；其他 adapter 置 false。
+   */
+  canRestartWithClaudeCodeSandbox: boolean;
   /**
    * 删会话时 SessionManager 是否调 closeSession 彻底关闭 SDK 侧 live query/turn 与 pending Maps。
    * 与 canInterrupt 区别：interrupt 允许 resume / 复用 session；close 表示永久关闭。
@@ -167,6 +180,18 @@ export interface AgentAdapter {
   restartWithCodexSandbox?(
     sessionId: string,
     sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
+    handoffPrompt: string,
+  ): Promise<string>;
+
+  /**
+   * Claude Code OS 沙盒冷切（CHANGELOG_74）：销毁旧 SDK 子进程 + 用新档位 createSession
+   * resume 重建。`handoffPrompt` 必须非空（SDK streaming 协议约束）。
+   * 与 restartWithCodexSandbox 字面镜像。失败回滚 sessionRepo.claudeCodeSandbox。
+   * capabilities.canRestartWithClaudeCodeSandbox: true 时调用方才能调此方法。
+   */
+  restartWithClaudeCodeSandbox?(
+    sessionId: string,
+    sandbox: 'off' | 'workspace-write' | 'strict',
     handoffPrompt: string,
   ): Promise<string>;
 
