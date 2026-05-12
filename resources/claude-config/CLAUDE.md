@@ -236,10 +236,11 @@ const reply = await mcp__agent_deck__wait_reply({
 
 ### Step 2. Plan 文件 hand off（时间隔离）
 
-新建 plan 文件，**用绝对路径写入**（不要写到 worktree working tree——worktree 是独立 branch，跨会话主 repo 看不到该 branch 的文件）。两个合法位置二选一：
+新建 plan 文件，**用绝对路径写入**（不要写到 worktree working tree——worktree 是独立 branch，跨会话主 repo 看不到该 branch 的文件）。三个合法位置（按 plan 阶段与是否要 git 归档选）：
 
-- `<main-repo-abs-path>/.claude/plans/<plan-id>.md` —— project-specific plan 首选（self-contained / 跟项目一起归档）
-- `~/.claude/plans/<plan-id>.md` —— 跨项目 plan 或用 CLI `/plan` slash command 自动生成的 plan（CLI 默认落这里）
+- `<main-repo-abs-path>/plans/<plan-id>.md` —— **项目内 git 归档版（推荐 completed 落此）**。与 `changelog/` `reviews/` 平级跟项目一起入 git，便于跨设备 / 长期回查 / 团队共享。建议同步建 `plans/INDEX.md` 一行表索引（同 `changelog/INDEX.md` 风格，每条带 `status` + 关联 changelog 编号 + 概要）。in_progress 直接落此也可，频繁 commit/push 让其他会话 / 设备能接力
+- `<main-repo-abs-path>/.claude/plans/<plan-id>.md` —— project-specific local 工作目录（**强烈建议** `.gitignore` 加 `.claude/plans/` 防误 commit）。适合 in_progress 短临时草稿；完成后**必须**挪到 `<main-repo>/plans/<plan-id>.md` 入 git（详 §Step 4 完成分支）
+- `~/.claude/plans/<plan-id>.md` —— 跨项目 plan 或用 CLI `/plan` slash command 自动生成的 plan（CLI 默认落这里）；不入任何项目 git
 
 不论哪种位置，下面 §Step 3 cold start prompt **必须写明绝对路径**，让新会话能直接 `Bash: cat`（**禁用 Read tool**，详见 §Step 3 末尾 callout —— Vertex / CLI 端 conversation cache 会在同 cwd 新会话下复用前会话同路径 cached Read result，绕过 fs 真实内容）。
 
@@ -285,7 +286,7 @@ const reply = await mcp__agent_deck__wait_reply({
 
 > ⚠️ `ExitWorktree(action: "remove")` **只对当前会话自己创建的 worktree 有效**；用 `path` 参数进入的现有 worktree 上 CLI validateInput 直接拒（errorCode 4，强制 `keep`）。跨会话场景下接力 session 全部走 `path` 进入，所以**统一**走 `keep` + Bash 手动 `git worktree remove`，避免分两条路径。
 
-- **完成**：worktree branch 合回主分支 → frontmatter 置 `status: completed` → 把 plan 在 `changelog/CHANGELOG_X.md` 引用归档（不抄全，引用 plan 路径 + 关键 commits）→ `ExitWorktree(action: "keep")` → Bash `git worktree remove <worktree_path>` + `git branch -D worktree-<plan-id>`
+- **完成**：worktree branch 合回主分支 → frontmatter 置 `status: completed` → **plan 文件归档到项目内 git**（如 plan 在 `.claude/plans/` 工作中 → `mv` 到 `<main-repo>/plans/<plan-id>.md` + 同步 `<main-repo>/plans/INDEX.md` + `git add` 提交；如一开始就在 `<main-repo>/plans/` 直接 `git add` 提交并把 frontmatter `status` 改进 commit）→ 把 plan 在 `changelog/CHANGELOG_X.md` 引用归档（不抄全，引用 plan 路径 + 关键 commits）→ `ExitWorktree(action: "keep")` → Bash `git worktree remove <worktree_path>` + `git branch -D worktree-<plan-id>`
 - **中止**：frontmatter 置 `status: abandoned` + 中止理由 → `ExitWorktree(action: "keep")` → Bash `git worktree remove --force <worktree_path>` + `git branch -D worktree-<plan-id>`
 
 ### 与其他机制的关系
