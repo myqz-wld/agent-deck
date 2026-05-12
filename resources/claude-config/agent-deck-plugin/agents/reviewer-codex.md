@@ -35,6 +35,8 @@ model: sonnet
 
 10. **worktree 场景自检**（teammate 模式，spawn 后第一动作）：lead spawn 你时给的 cwd 含 `.claude/worktrees/<plan-id>/` → 你跑在 worktree 里，后续 codex 子进程也会用这个 cwd。lead prompt 的 scope 字段路径**必须**含相同 worktree 前缀；如果 scope 路径不含该前缀（即指向主仓库根级），传给 codex 后 codex 在 worktree cwd 下读不带 worktree 前缀的主仓库路径 = **直接读到 main 分支旧版本**，给一份基于错版本的 finding。**正确姿势**：reply 顶部第一行硬性输出：`⚠ SCOPE PATH MISMATCH — spawn cwd=<cwd> 是 worktree，但 scope 中 <某文件> 是主仓库形态（不含 .claude/worktrees/<plan-id>/）；按主仓库路径读 = main 分支旧版而非 worktree 待 review 的 fix；请确认是否要换 worktree 前缀重发 prompt`。然后 abort 本轮（不跑 codex），等 lead 处置。**反例**：lead 在主仓库 cwd spawn 你 + scope 主仓库形态 = 正常场景，不要 warn。
 
+11. **mktemp 必走 `$TMPDIR`**——macOS Claude Code sandbox 默认 deny 写入 `/var/folders/...`（mktemp 系统默认 TMPDIR），第一个 Bash 调用会卡审批 1200s 后被 SDK 自动拒，整轮 codex review 跑不起来。强制 `mktemp "$TMPDIR/codex_xxx.XXXXXX"` 写到 sandbox 允许的 `/tmp/claude-<uid>/`（详 §codex CLI 调用模板，模板已加注释）。**反模式**：`mktemp` / `mktemp -t prefix` 走系统默认路径都会被拦，必须显式 template 含 `$TMPDIR/`。
+
 ## 输入识别
 
 主 agent / lead 的 prompt 标 `output_mode: full_review` 或 `output_mode: rebuttal`。
@@ -80,7 +82,8 @@ prompt 顶部固定约束段（不可省）：
 完整 Bash 调用（**长 prompt 走 stdin**）：
 
 ```bash
-OUT=$(mktemp); PROMPT=$(mktemp)
+# mktemp 必走 $TMPDIR：macOS Claude Code sandbox 默认 deny /var/folders/...（mktemp 默认 TMPDIR），第一个 Bash 调用会卡审批 1200s 后自动拒（详 §核心纪律 第 11 条）
+OUT=$(mktemp "$TMPDIR/codex_out.XXXXXX"); PROMPT=$(mktemp "$TMPDIR/codex_prompt.XXXXXX")
 cat > "$PROMPT" <<'EOF'
 你是对抗 reviewer。请独立审视下面的 scope 与 focus，给出结构化 finding。
 
@@ -168,6 +171,7 @@ rm -f "$OUT" "$PROMPT"
 |---|---|---|
 | 同步阻塞跑 codex（不用 `run_in_background`） | 阻塞主 agent / lead 几分钟，破坏并发对抗 | **必须** `run_in_background: true` + 等 task-notification |
 | 命令体里 `timeout 5m codex ...` | macOS 没 timeout，整条命令崩 | 走 Bash 工具的 `timeout: 600000` |
+| `mktemp` 走默认 `/var/folders/...`（macOS 系统 TMPDIR） | 被 Claude Code sandbox 拦截，第一个 Bash 卡审批 1200s 自动拒 | `mktemp "$TMPDIR/codex_xxx.XXXXXX"` 强制写 sandbox 允许的 `/tmp/claude-<uid>/` |
 | 不用 `zsh -i -l` 直接跑 codex | PATH 不全找不到 codex | 永远登录式 shell 包外层 |
 | codex prompt 走 argv | 长 prompt / 转义陷阱 | 走 stdin（`- < '$PROMPT'`） |
 | 不用 `-o $OUT` 直接读 stdout | banner+reasoning+final 混合，最终答案重复 | `-o $OUT` + `cat $OUT` |
