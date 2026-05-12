@@ -4,7 +4,6 @@
 > 鉴权、防递归 4 条规则、用户语义映射文档。所有后续 R2 任务以本文件为单一信源。
 
 **状态**：ACCEPTED（2026-05-11；reviewer 双对抗 4 HIGH ✅ + MED/LOW 全部合并）
-**关联**：plan v3 R2 节 / `experiments/spikes/SPIKE_REPORT.md`（B'-wire / B'-caller-id）
 
 ---
 
