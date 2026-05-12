@@ -34,6 +34,14 @@ const CODEX_SANDBOX_OPTIONS: { value: CodexSandboxChoice; label: string }[] = [
   { value: 'danger-full-access', label: 'danger-full-access（完全免审 ⚠️）' },
 ];
 
+type ClaudeSandboxChoice = '' | 'off' | 'workspace-write' | 'strict';
+const CLAUDE_SANDBOX_OPTIONS: { value: ClaudeSandboxChoice; label: string }[] = [
+  { value: '', label: '跟随设置（默认）' },
+  { value: 'off', label: 'off（不启 OS 沙盒，仅 canUseTool 弹框）' },
+  { value: 'workspace-write', label: 'workspace-write（cwd 可写、敏感目录禁读）' },
+  { value: 'strict', label: 'strict（cwd 也只读 + 封死逃逸）' },
+];
+
 export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Element | null {
   const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
   const [agentId, setAgentId] = useState('claude-code');
@@ -42,6 +50,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [permissionMode, setPermissionMode] =
     useState<'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'>('default');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
+  // CHANGELOG_74：claude-code OS 沙盒 per-session 覆盖（与 codexSandbox 字面镜像）
+  const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
   // R4·F5：generic-pty / aider session 的 spawn config（preset 或自定义）；null = invalid 配置
   const [genericPtyConfig, setGenericPtyConfig] = useState<GenericPtyConfig | null>(null);
   // R3.E7：删 agentTeamsEnabled / canJoinTeam 路径（老 inbox 协议下线）。
@@ -72,6 +82,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
   // Codex 三档 sandbox：仅在 codex-cli adapter 时显示
   const showCodexSandbox = agentId === 'codex-cli';
+  // CHANGELOG_74：Claude OS 沙盒：仅 claude-code adapter 时显示（与 codex 字面镜像）
+  const showClaudeCodeSandbox = agentId === 'claude-code';
   // R4·F5：generic-pty / aider 时显示 GenericPtyConfigForm；其它 adapter 隐藏
   const showGenericPtyConfig = agentId === 'generic-pty' || agentId === 'aider';
 
@@ -106,6 +118,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         prompt: prompt.trim() || undefined,
         permissionMode: showPermissionMode ? permissionMode : undefined,
         codexSandbox: showCodexSandbox && codexSandbox ? codexSandbox : undefined,
+        claudeCodeSandbox:
+          showClaudeCodeSandbox && claudeCodeSandbox ? claudeCodeSandbox : undefined,
         ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
         ...(showGenericPtyConfig && genericPtyConfig ? { genericPtyConfig } : {}),
       });
@@ -268,6 +282,22 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                   className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 >
                   {CODEX_SANDBOX_OPTIONS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            {showClaudeCodeSandbox && (
+              <Field label="OS 沙盒（macOS Seatbelt / Linux bubblewrap）">
+                <select
+                  value={claudeCodeSandbox}
+                  onChange={(e) => setClaudeCodeSandbox(e.target.value as ClaudeSandboxChoice)}
+                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
+                >
+                  {CLAUDE_SANDBOX_OPTIONS.map((p) => (
                     <option key={p.value} value={p.value}>
                       {p.label}
                     </option>
