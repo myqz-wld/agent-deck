@@ -82,6 +82,9 @@ vi.mock('@main/session/manager', () => ({
 let nextSpawnedSid = 'spawned-1';
 const sendMessageCalls: Array<{ sid: string; text: string }> = [];
 
+// D1 (CHANGELOG_76): spy createSession opts 让 test 能断言 prompt 是否被 body 前缀注入。
+const createSessionCalls: Array<{ adapter: string; cwd: string; prompt?: string; teamName?: string }> = [];
+
 vi.mock('@main/adapters/registry', () => ({
   adapterRegistry: {
     get: (id: string) => {
@@ -92,8 +95,9 @@ vi.mock('@main/adapters/registry', () => ({
           canCreateSession: true,
           canSetPermissionMode: id === 'claude-code',
         },
-        createSession: async (opts: { cwd: string; teamName?: string }) => {
+        createSession: async (opts: { cwd: string; prompt?: string; teamName?: string }) => {
           const sid = nextSpawnedSid;
+          createSessionCalls.push({ adapter: id, cwd: opts.cwd, prompt: opts.prompt, teamName: opts.teamName });
           sessionStore.set(sid, {
             id: sid,
             agentId: id,
@@ -167,6 +171,13 @@ function setSharedTeams(a: string, b: string, teamIds: string[]): void {
   const key = [a, b].sort().join(':');
   sharedTeamsBySession.set(key, teamIds);
 }
+
+// D3 (CHANGELOG_76): stateful mock 让测试动态注入「session → active memberships」与「teamId → team」
+// 用于验证 projectSession 反查 teamName。默认空 → projectSession 回落到 `s.teamName`，
+// 保持现有非 D3 测试维持原行为。
+const mockMembershipsBySession = new Map<string, Array<{ teamId: string }>>();
+const mockTeamsById = new Map<string, { name: string }>();
+
 vi.mock('@main/store/agent-deck-team-repo', () => ({
   agentDeckTeamRepo: {
     ensureByName: (name: string) => ({
@@ -181,6 +192,9 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
       const key = [a, b].sort().join(':');
       return sharedTeamsBySession.get(key) ?? [];
     },
+    // D3 反查接口（默认空 → projectSession 回落到 `s.teamName`，保持现有 test 期望不变）
+    findActiveMembershipsBySession: (sid: string) => mockMembershipsBySession.get(sid) ?? [],
+    get: (teamId: string) => mockTeamsById.get(teamId) ?? null,
   },
   TeamInvariantError: class TeamInvariantError extends Error {},
 }));
@@ -207,6 +221,18 @@ vi.mock('@main/teams/universal-message-watcher', () => ({
   },
 }));
 
+// D1 (CHANGELOG_76 / plan deep-review-flow-fix): spawn_session 加 agent_name 时 handler
+// 调 getBundledAssetContent 拼 body 到 prompt 头部。mock 提供 reviewer-claude 假 body，
+// 其他 name 返回 null（模拟「找不到」）。
+vi.mock('@main/bundled-assets', () => ({
+  getBundledAssetContent: (kind: 'agent' | 'skill', name: string): string | null => {
+    if (kind === 'agent' && name === 'reviewer-claude') {
+      return '# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。';
+    }
+    return null;
+  },
+}));
+
 // ─── 动态 import 必须放在 mock 之后 ──────────────────────────────────────
 
 let buildAgentDeckTools: typeof import('../tools').buildAgentDeckTools;
@@ -218,8 +244,11 @@ beforeEach(async () => {
   recordTeamCalls.length = 0;
   recordPermCalls.length = 0;
   sendMessageCalls.length = 0;
+  createSessionCalls.length = 0;
   enqueuedMessages.length = 0;
   sharedTeamsBySession.clear();
+  mockMembershipsBySession.clear();
+  mockTeamsById.clear();
   nextSpawnedSid = 'spawned-1';
   // 重新 import 让 mock 生效
   if (!buildAgentDeckTools) {
@@ -433,6 +462,60 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/cannot create sessions/);
+  });
+
+  // D1 (CHANGELOG_76 / plan deep-review-flow-fix): agent_name 自动注入 plugin agent body
+  it('agent_name auto-prepends plugin agent body to prompt', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'task body: review src/foo.ts',
+      agent_name: 'reviewer-claude',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].prompt).toMatch(/REVIEWER-CLAUDE BODY \(mocked\)/);
+    expect(createSessionCalls[0].prompt).toMatch(/task body: review src\/foo\.ts/);
+    // 顺序验证：body 在前，分隔符 + task body 在后
+    const idx = createSessionCalls[0].prompt!.indexOf('task body: review');
+    const bodyIdx = createSessionCalls[0].prompt!.indexOf('REVIEWER-CLAUDE BODY');
+    expect(bodyIdx).toBeLessThan(idx);
+  });
+
+  it('agent_name unresolved → returns err (no fallback to bare prompt)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'task body',
+      agent_name: 'nonexistent-agent',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/agent body not found/);
+    // 没静默 spawn
+    expect(createSessionCalls).toHaveLength(0);
+  });
+
+  it('agent_name omitted → prompt unchanged (backward compatible)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'plain prompt without body',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].prompt).toBe('plain prompt without body');
   });
 });
 
@@ -684,6 +767,42 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/session ghost not found/);
+  });
+
+  // D3 (CHANGELOG_76 / plan deep-review-flow-fix): projectSession 反查 universal team backend
+  // 修「lead session teamName: null 不对称」bug。teammate 走老的 sessions.team_name 列已 OK；
+  // lead 没 recordCreatedTeamName，必须从 members 反查。
+  it('lead session teamName from universal team backend (not sessions.team_name)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    // lead session 自身 sessionRecord.teamName = null（spawn_session handler addMember 但
+    // 不调 recordCreatedTeamName），但 universal team backend members 表有它（active membership）
+    seedSession('lead', { cwd: '/repo' });
+    mockMembershipsBySession.set('lead', [{ teamId: 'team-review-team' }]);
+    mockTeamsById.set('team-review-team', { name: 'review-team' });
+
+    const r = await tools.get('get_session').handler({
+      caller_session_id: 'lead',
+      session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    // 反查命中 → 投影 teamName 来自 universal team backend
+    expect(parsed.data.teamName).toBe('review-team');
+  });
+
+  it('falls back to sessions.team_name when no universal team membership (老 read 路径兼容)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    // 不注入 mock memberships，模拟「session 不在 universal team backend members 表」
+    seedSession('legacy-session', { cwd: '/repo', teamName: 'legacy-team' });
+
+    const r = await tools.get('get_session').handler({
+      caller_session_id: 'legacy-session',
+      session_id: 'legacy-session',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    // 反查空 → 回落到 sessions.team_name 列
+    expect(parsed.data.teamName).toBe('legacy-team');
   });
 });
 

@@ -28,6 +28,7 @@ import { eventRepo } from '@main/store/event-repo';
 import { sessionManager } from '@main/session/manager';
 import { settingsStore } from '@main/store/settings-store';
 import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
+import { getBundledAssetContent } from '@main/bundled-assets';
 import { enqueueAgentDeckMessage } from '@main/teams/universal-message-watcher';
 import {
   AGENT_DECK_TOOL_NAMES,
@@ -143,8 +144,24 @@ function validateExternalCaller(
  * SessionRecord → metadata 投影。**list_sessions / get_session 共用同一份 projector**
  * （REVIEW_28 reviewer-codex LOW-2 修法）：避免 get_session 暴露 raw SessionRecord 引入额外
  * metadata；future visibility predicate 加在这一层即可两 tool 同步生效。
+ *
+ * D3 (CHANGELOG_76 / plan deep-review-flow-fix): teamName 从 universal team backend
+ * members 表反查（R3 真源），不再只读老 sessions.team_name 列（注释明示「R3 不再消费此列」）。
+ * 修「lead session spawn_session 后自身 teamName 仍 null」不对称 bug：
+ *  - teammate spawn 时 sessionManager.recordCreatedTeamName 写过 sessions.team_name
+ *  - 但 lead 自己只 addMember 没 recordCreatedTeamName，sessions.team_name 是 null
+ *  - projectSession 从 members 反查后 lead 也能投影到正确 teamName
+ * 单 query 走 indexed (session_id) lookup 是 ms 级；list 默认 limit 50 → N+1 仍 < 10ms 可接受，
+ * 没必要先优化批量。多 team 共享时取第一个 active team（teamName 字段语义是「展示用」非路由
+ * 标识；路由用 spawn 时显式 args.team_name / send_message 显式 team_id）。
  */
 function projectSession(s: SessionRecord) {
+  let teamNameFromBackend: string | null = null;
+  const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(s.id);
+  if (memberships.length > 0) {
+    const team = agentDeckTeamRepo.get(memberships[0].teamId);
+    teamNameFromBackend = team?.name ?? null;
+  }
   return {
     sessionId: s.id,
     adapter: s.agentId,
@@ -152,7 +169,7 @@ function projectSession(s: SessionRecord) {
     lifecycle: s.lifecycle,
     title: s.title,
     lastEventAt: s.lastEventAt,
-    teamName: s.teamName ?? null,
+    teamName: teamNameFromBackend ?? s.teamName ?? null,
     spawnedBy: s.spawnedBy ?? null,
     spawnDepth: s.spawnDepth ?? 0,
   };
@@ -173,6 +190,23 @@ const SPAWN_SESSION_SCHEMA = {
     ),
   prompt: z.string().min(1).max(100_000),
   team_name: z.string().min(1).max(128).optional(),
+  /**
+   * 可选 plugin agent body 自动注入（CHANGELOG_76 / plan deep-review-flow-fix D1）：
+   * 非空时 in-process / HTTP / stdio handler 都会按 plugin agents registry 找 body file
+   * (`<resources>/claude-config/agent-deck-plugin/agents/<name>.md` 经 bundled-assets 缓存)，
+   * 把 body 内容作为 caller `prompt` 的前缀注入。免去 lead 自己 cat body 拼字符串。
+   * 找不到 / 不是合法 plugin agent name → spawn_session 直接返回 err（避免静默落空 fallback）。
+   * 仅 claude-code adapter 有意义；其他 adapter 也允许传但行为相同（adapter 自己决定怎么用）。
+   */
+  agent_name: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[a-zA-Z0-9._-]+$/, 'agent_name only allows [a-zA-Z0-9._-]')
+    .optional()
+    .describe(
+      'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the agent body is auto-prepended to `prompt` from bundled-assets registry, so callers do not need to cat & embed the body themselves. Errors when name does not resolve to a known plugin agent.',
+    ),
   permission_mode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional(),
@@ -293,12 +327,34 @@ export async function buildAgentDeckTools(
       if ('isError' in guard) return guard;
       const { parentDepth, fanOutSlot } = guard;
 
+      // D1 (CHANGELOG_76): agent_name 非空 → 按 plugin agents registry resolve body file，
+      // 把 body 作为 prompt 前缀注入。getBundledAssetContent('agent', name) 已 startup 时
+      // loadBundledAssets 预热缓存（main/index.ts:202 step 8.5），现读 fs 一次性拿到。
+      // 找不到（拼写错 / 没安装该 plugin）→ 直接 err 防止静默落空 fallback。
+      let promptToUse = args.prompt;
+      if (args.agent_name) {
+        const body = getBundledAssetContent('agent', args.agent_name);
+        if (body === null) {
+          fanOutSlot.release();
+          return err(
+            `agent body not found for agent_name="${args.agent_name}"`,
+            'Plugin agent registry does not include this name. Check Header → 📚 资产库 → Agents tab for available bundled agent names (e.g. "reviewer-claude" / "reviewer-codex"). Spawn aborted to avoid silently falling back to caller prompt without the agent body.',
+          );
+        }
+        // 拼接：body 在前 + 1 行空行分隔 + caller prompt 在后（task body 部分）。
+        // 与 SDK system prompt 注入路径不同 —— in-process / HTTP / stdio 都没法直接改 SDK
+        // system prompt prefix（adapter API 没暴露 additionalSystemPrompt），所以在
+        // user-message 头部注入是最简兼容方案。reviewer-* agent body 顶部已有 frontmatter，
+        // body 本身就是给 reviewer 看的「角色提示」，作为 user message 头部仍能起到 priming 作用。
+        promptToUse = `${body}\n\n---\n\n${args.prompt}`;
+      }
+
       // 实际 spawn
       let sid: string;
       try {
         sid = await adapter.createSession({
           cwd: args.cwd,
-          prompt: args.prompt,
+          prompt: promptToUse,
           ...(args.permission_mode !== undefined ? { permissionMode: args.permission_mode } : {}),
           ...(args.codex_sandbox !== undefined ? { codexSandbox: args.codex_sandbox } : {}),
           ...(args.team_name !== undefined ? { teamName: args.team_name } : {}),
