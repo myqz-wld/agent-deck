@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { SessionRecord } from '@shared/types';
+import type { SessionRecord, AgentDeckMessage } from '@shared/types';
 
 // ─── Mock: sessionRepo / sessionManager / adapterRegistry ──────────────
 
@@ -56,8 +56,8 @@ vi.mock('@main/store/session-repo', () => ({
 }));
 
 const closeCalls: string[] = [];
-const recordTeamCalls: Array<{ sid: string; team: string | undefined }> = [];
 const recordPermCalls: Array<{ sid: string; mode: string | undefined }> = [];
+const notifyTeamCalls: string[] = [];
 
 vi.mock('@main/session/manager', () => ({
   sessionManager: {
@@ -66,16 +66,44 @@ vi.mock('@main/session/manager', () => ({
       const r = sessionStore.get(id);
       if (r) sessionStore.set(id, { ...r, lifecycle: 'closed' });
     },
-    recordCreatedTeamName: (sid: string, team: string | undefined) => {
-      recordTeamCalls.push({ sid, team });
-      if (team) {
-        const r = sessionStore.get(sid);
-        if (r) sessionStore.set(sid, { ...r, teamName: team });
-      }
-    },
     recordCreatedPermissionMode: (sid: string, mode: string | undefined) => {
       recordPermCalls.push({ sid, mode });
     },
+    // plan team-cohesion-fix-20260513 Phase A：universal team backend 写入 hook
+    notifyTeamMembershipChanged: (sid: string) => {
+      notifyTeamCalls.push(sid);
+    },
+    // get / list / enrichWithTeams 内部走 sessionStore + mockMembershipsBySession
+    get: (id: string) => {
+      const rec = sessionStore.get(id);
+      if (!rec) return null;
+      const teams = (mockMembershipsBySession.get(id) ?? []).map((m) => ({
+        teamId: m.teamId,
+        teamName: mockTeamsById.get(m.teamId)?.name ?? '<unknown>',
+        role: 'teammate' as const,
+        joinedAt: Date.now(),
+      }));
+      return { ...rec, teams };
+    },
+    enrichWithTeams: (rec: SessionRecord) => {
+      const teams = (mockMembershipsBySession.get(rec.id) ?? []).map((m) => ({
+        teamId: m.teamId,
+        teamName: mockTeamsById.get(m.teamId)?.name ?? '<unknown>',
+        role: 'teammate' as const,
+        joinedAt: Date.now(),
+      }));
+      return { ...rec, teams };
+    },
+    enrichWithTeamsBatch: (recs: SessionRecord[]) =>
+      recs.map((rec) => {
+        const teams = (mockMembershipsBySession.get(rec.id) ?? []).map((m) => ({
+          teamId: m.teamId,
+          teamName: mockTeamsById.get(m.teamId)?.name ?? '<unknown>',
+          role: 'teammate' as const,
+          joinedAt: Date.now(),
+        }));
+        return { ...rec, teams };
+      }),
   },
 }));
 
@@ -110,7 +138,6 @@ vi.mock('@main/adapters/registry', () => ({
             lastEventAt: Date.now(),
             endedAt: null,
             archivedAt: null,
-            teamName: opts.teamName ?? null,
             spawnedBy: null,
             spawnDepth: 0,
           });
@@ -192,12 +219,40 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
       const key = [a, b].sort().join(':');
       return sharedTeamsBySession.get(key) ?? [];
     },
-    // D3 反查接口（默认空 → projectSession 回落到 `s.teamName`，保持现有 test 期望不变）
+    // plan team-cohesion-fix-20260513 Phase A Step A2/A7：批量反查 (sessionManager.enrichWithTeamsBatch 用)
+    findActiveMembershipsBySessionIds: (sids: string[]) => {
+      const map = new Map<string, Array<{ teamId: string; teamName: string; role: 'teammate'; joinedAt: number }>>();
+      for (const sid of sids) {
+        const memberships = mockMembershipsBySession.get(sid);
+        if (!memberships) continue;
+        map.set(
+          sid,
+          memberships.map((m) => ({
+            teamId: m.teamId,
+            teamName: mockTeamsById.get(m.teamId)?.name ?? '<unknown>',
+            role: 'teammate' as const,
+            joinedAt: Date.now(),
+          })),
+        );
+      }
+      return map;
+    },
     findActiveMembershipsBySession: (sid: string) => mockMembershipsBySession.get(sid) ?? [],
     get: (teamId: string) => mockTeamsById.get(teamId) ?? null,
   },
   TeamInvariantError: class TeamInvariantError extends Error {},
 }));
+// plan team-cohesion-fix-20260513 Phase B：mock agent-deck-message-repo for wait_reply tests
+const mockMessages = new Map<string, AgentDeckMessage>();
+const mockReplies = new Map<string, AgentDeckMessage[]>();
+
+vi.mock('@main/store/agent-deck-message-repo', () => ({
+  agentDeckMessageRepo: {
+    get: (id: string) => mockMessages.get(id) ?? null,
+    findRepliesByMessageId: (id: string) => mockReplies.get(id) ?? [],
+  },
+}));
+
 vi.mock('@main/teams/universal-message-watcher', () => ({
   enqueueAgentDeckMessage: (input: { teamId: string; fromSessionId: string; toSessionId: string; body: string }) => {
     enqueuedMessages.push(input);
@@ -241,7 +296,7 @@ beforeEach(async () => {
   sessionStore.clear();
   setSpawnLinkCalls.length = 0;
   closeCalls.length = 0;
-  recordTeamCalls.length = 0;
+  notifyTeamCalls.length = 0;
   recordPermCalls.length = 0;
   sendMessageCalls.length = 0;
   createSessionCalls.length = 0;
@@ -249,6 +304,8 @@ beforeEach(async () => {
   sharedTeamsBySession.clear();
   mockMembershipsBySession.clear();
   mockTeamsById.clear();
+  mockMessages.clear();
+  mockReplies.clear();
   nextSpawnedSid = 'spawned-1';
   // 重新 import 让 mock 生效
   if (!buildAgentDeckTools) {
@@ -285,7 +342,6 @@ function seedSession(sid: string, opts: Partial<SessionRecord> = {}) {
     lastEventAt: Date.now(),
     endedAt: null,
     archivedAt: null,
-    teamName: null,
     spawnedBy: null,
     spawnDepth: 0,
     ...opts,
@@ -435,7 +491,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(parsed.isError).toBeFalsy();
   });
 
-  it('records team_name when provided', async () => {
+  it('records team membership when team_name provided', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
@@ -447,7 +503,11 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
-    expect(recordTeamCalls).toContainEqual({ sid: 'spawned-1', team: 'review-team' });
+    // plan team-cohesion-fix-20260513 Phase A Step A8：sessionManager.recordCreatedTeamName 已删，
+    // spawn_session 改走 universal team backend addMember + notifyTeamMembershipChanged。
+    // 验证 lead + teammate 都被 notify 触发桥点 enrich。
+    expect(notifyTeamCalls).toContain('lead');
+    expect(notifyTeamCalls).toContain('spawned-1');
   });
 
   it('rejects unknown adapter', async () => {
@@ -535,7 +595,7 @@ describe('agent-deck-mcp tools — send_message', () => {
     expect(parsed.data.queued).toBe(true);
     expect(parsed.data.teamId).toBe('team-X');
     expect(enqueuedMessages).toEqual([
-      { teamId: 'team-X', fromSessionId: 'lead', toSessionId: 'teammate', body: 'work please' },
+      { teamId: 'team-X', fromSessionId: 'lead', toSessionId: 'teammate', body: 'work please', replyToMessageId: null },
     ]);
   });
 
@@ -654,8 +714,12 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
 describe('agent-deck-mcp tools — list_sessions', () => {
   it('projects metadata only (no events / messages)', async () => {
     const tools = await getTools({ transport: 'http' });
-    seedSession('lead', { teamName: 'team-x', spawnDepth: 0 });
-    seedSession('teammate', { teamName: 'team-x', spawnedBy: 'lead', spawnDepth: 1 });
+    seedSession('lead', { spawnDepth: 0 });
+    seedSession('teammate', { spawnedBy: 'lead', spawnDepth: 1 });
+    // plan team-cohesion-fix-20260513 Phase A：teamName 走 universal team backend 投影 → mock 注入 membership
+    mockMembershipsBySession.set('lead', [{ teamId: 'team-x' }]);
+    mockMembershipsBySession.set('teammate', [{ teamId: 'team-x' }]);
+    mockTeamsById.set('team-x', { name: 'team-x' });
     const r = await tools.get('list_sessions').handler({
       caller_session_id: 'lead',
       status_filter: 'active',
@@ -737,7 +801,10 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
   it('returns same projection as list_sessions', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
-    seedSession('teammate', { spawnedBy: 'lead', spawnDepth: 1, teamName: 'team-x' });
+    seedSession('teammate', { spawnedBy: 'lead', spawnDepth: 1 });
+    // plan team-cohesion-fix-20260513 Phase A：teamName 走 universal team backend 投影
+    mockMembershipsBySession.set('teammate', [{ teamId: 'team-x' }]);
+    mockTeamsById.set('team-x', { name: 'team-x' });
     const r = await tools.get('get_session').handler({
       caller_session_id: 'lead',
       session_id: 'teammate',
@@ -790,10 +857,12 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     expect(parsed.data.teamName).toBe('review-team');
   });
 
-  it('falls back to sessions.team_name when no universal team membership (老 read 路径兼容)', async () => {
+  it('falls back to empty teamName when no universal team membership (v014 后无 sessions.team_name 兜底)', async () => {
     const tools = await getTools({ transport: 'http' });
     // 不注入 mock memberships，模拟「session 不在 universal team backend members 表」
-    seedSession('legacy-session', { cwd: '/repo', teamName: 'legacy-team' });
+    // plan team-cohesion-fix-20260513 Phase A Step A9：v014 drop sessions.team_name 后老 fallback 已删，
+    // teamName: null
+    seedSession('legacy-session', { cwd: '/repo' });
 
     const r = await tools.get('get_session').handler({
       caller_session_id: 'legacy-session',
@@ -801,19 +870,19 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
-    // 反查空 → 回落到 sessions.team_name 列
-    expect(parsed.data.teamName).toBe('legacy-team');
+    // 反查空 → projectSession 投影 teamName: null（无老 sessions.team_name 兜底）
+    expect(parsed.data.teamName).toBeNull();
   });
 });
 
-describe('agent-deck-mcp tools — wait_reply', () => {
-  it('rejects unknown target session', async () => {
+describe('agent-deck-mcp tools — wait_reply (plan team-cohesion-fix-20260513 Phase B 新语义)', () => {
+  it('rejects unknown message_id', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
+    // 不注入 mockMessages → get(unknown-msg) 返 null
     const r = await tools.get('wait_reply').handler({
-      session_id: 'ghost',
-      until: 'idle',
-      timeout_ms: 5000,
+      message_id: 'ghost-msg',
+      timeout_ms: 1000,
       caller_session_id: 'lead',
     }, {});
     const parsed = parseResult(r);
@@ -821,20 +890,65 @@ describe('agent-deck-mcp tools — wait_reply', () => {
     expect(parsed.data.error).toMatch(/not found/);
   });
 
-  it('returns timed_out=true on timeout (no events)', async () => {
+  it('returns reply immediately when reply already exists (race-safe)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     seedSession('teammate');
+    // 模拟原 msg + 已存在的 reply
+    const original: AgentDeckMessage = {
+      id: 'msg-1', teamId: 'team-x', fromSessionId: 'lead', toSessionId: 'teammate',
+      body: 'q', status: 'delivered', statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    };
+    const reply: AgentDeckMessage = {
+      id: 'msg-2', teamId: 'team-x', fromSessionId: 'teammate', toSessionId: 'lead',
+      body: 'a', status: 'delivered', statusReason: null,
+      sentAt: 2000, deliveredAt: 2100, attemptCount: 1, lastAttemptAt: 2000, deliveringSince: null,
+      replyToMessageId: 'msg-1',
+    };
+    mockMessages.set('msg-1', original);
+    mockReplies.set('msg-1', [reply]);
+
     const r = await tools.get('wait_reply').handler({
-      session_id: 'teammate',
-      until: 'first_message',
-      timeout_ms: 1000, // 1s 必超时
+      message_id: 'msg-1',
+      timeout_ms: 5000,
       caller_session_id: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.reply).toMatchObject({
+      messageId: 'msg-2',
+      text: 'a',
+      sentAt: 2000,
+      fromSessionId: 'teammate',
+    });
+    expect(parsed.data.timedOut).toBe(false);
+    expect(parsed.data.nudgesSent).toBe(0);
+  });
+
+  it('returns timed_out=true with reply=null when no reply within timeout', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate');
+    // 注入原 msg 但不注入 reply
+    const original: AgentDeckMessage = {
+      id: 'msg-3', teamId: 'team-x', fromSessionId: 'lead', toSessionId: 'teammate',
+      body: 'q', status: 'delivered', statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    };
+    mockMessages.set('msg-3', original);
+
+    const r = await tools.get('wait_reply').handler({
+      message_id: 'msg-3',
+      timeout_ms: 1000,  // 1s 必超时
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.reply).toBeNull();
     expect(parsed.data.timedOut).toBe(true);
-    expect(parsed.data.aborted).toBe(false);
-    expect(parsed.data.events).toEqual([]);
+    expect(parsed.data.nudgesSent).toBe(0);
   });
 });

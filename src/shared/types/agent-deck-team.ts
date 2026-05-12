@@ -55,6 +55,27 @@ export interface AgentDeckTeam {
 }
 
 /**
+ * Active membership + team name 拼盘（团队凝聚力修复 plan team-cohesion-fix-20260513 Phase A）。
+ *
+ * 用途：
+ * - SessionRecord.teams 数组元素（v012 废 sessions.team_name 后投影至此）
+ * - PendingTab / SessionList / SessionCard 显示团队 + 角色 chip 的数据源
+ * - 批量 helper `findActiveMembershipsBySessionIds` 的返回 element
+ *
+ * 与 `AgentDeckTeamMember` 区别：
+ * - 这里 JOIN 了 agent_deck_teams 拿到 teamName，避免 caller 再 N 次 query teams 表
+ * - 只表达 active state（leftAt IS NULL）—— 不需要 leftAt 字段
+ * - 不带 displayName（caller 渲染时优先用 sessions.title）
+ */
+export interface SessionTeamMembership {
+  teamId: string;
+  /** JOIN agent_deck_teams.name 拿到，归档前后都能拿（agent_deck_teams 一直存在） */
+  teamName: string;
+  role: AgentDeckTeamMemberRole;
+  joinedAt: number;
+}
+
+/**
  * universal-message-watcher 的状态机（§4.3）。
  *
  * 终态（delivered / failed / cancelled）不可再变。
@@ -107,6 +128,14 @@ export interface AgentDeckMessage {
    * 让 last_attempt_at 主导 backoff 节奏。
    */
   deliveringSince: number | null;
+  /**
+   * plan team-cohesion-fix-20260513 Phase B Step B1：对话链关联（v015 加列）。
+   * - NULL：普通消息（不是某条的 reply）
+   * - 非 NULL：指向另一条 messages.id；wait_reply(message_id) 通过 `WHERE reply_to_message_id = ?` 查 reply
+   * - reply_message tool（语法糖）入口必填；send_message tool 入口可选（普通发 / 续问）
+   * - 原 msg 被 hardDelete 时 ON DELETE SET NULL（reply 仍可读，关联断开）
+   */
+  replyToMessageId: string | null;
 }
 
 /**

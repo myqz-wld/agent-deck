@@ -63,6 +63,19 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
   const liveLine = describeLiveActivity(session, recent);
   const summaryLine = latestSummary?.content?.split('\n')[0]?.trim() || session.cwd || '无 cwd';
 
+  // plan team-cohesion-fix-20260513 Phase A：teams[] 是 universal team backend 投影
+  // （sessionManager.enrichWithTeams 在 IPC 桥点统一注入）。v014 drop sessions.team_name
+  // 后老 teamName 字段已删，纯走 teams[0]。
+  const primaryTeam = session.teams?.[0];
+  const displayTeamName = primaryTeam?.teamName ?? null;
+  const teamCount = session.teams?.length ?? 0;
+  const teamHoverTitle =
+    teamCount > 1
+      ? `Agent Teams (${teamCount}):\n${session.teams!.map((t) => `· ${t.teamName} [${t.role}]`).join('\n')}`
+      : displayTeamName
+        ? `Agent Team: ${displayTeamName}`
+        : '';
+
   return (
     <div
       onClick={onSelect}
@@ -92,12 +105,13 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
         >
           {session.source === 'sdk' ? '内' : '外'}
         </span>
-        {session.teamName && (
+        {displayTeamName && (
           <span
             className="max-w-[6rem] truncate rounded bg-purple-500/20 px-1 py-0.5 text-[9px] font-medium text-purple-300"
-            title={`Agent Team: ${session.teamName}`}
+            title={teamHoverTitle}
           >
-            🛡 {session.teamName}
+            🛡 {displayTeamName}
+            {teamCount > 1 && <span className="ml-0.5 text-purple-300/70">+{teamCount - 1}</span>}
           </span>
         )}
         {teamRole === 'lead' && (

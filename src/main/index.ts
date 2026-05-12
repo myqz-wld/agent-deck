@@ -219,7 +219,10 @@ async function bootstrap(): Promise<void> {
     w.webContents.send(channel, payload);
   };
   eventBus.on('agent-event', (e) => safeSend(IpcEvent.AgentEvent, e));
-  eventBus.on('session-upserted', (s) => safeSend(IpcEvent.SessionUpserted, s));
+  // plan team-cohesion-fix-20260513 Phase A：桥到 renderer 前 enrichWithTeams 把 universal team
+  // backend membership 拼到 SessionRecord.teams[]，让 SessionCard / PendingTab / TeamDetail
+  // 拿到 lead/teammate 角色 + teamName 不再依赖老 sessions.team_name 列。
+  eventBus.on('session-upserted', (s) => safeSend(IpcEvent.SessionUpserted, sessionManager.enrichWithTeams(s)));
   eventBus.on('session-removed', (id) => safeSend(IpcEvent.SessionRemoved, id));
   eventBus.on('session-renamed', (p) => safeSend(IpcEvent.SessionRenamed, p));
   eventBus.on('summary-added', (s) => safeSend(IpcEvent.SummaryAdded, s));

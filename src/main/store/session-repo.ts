@@ -23,7 +23,7 @@ interface Row {
   ended_at: number | null;
   archived_at: number | null;
   permission_mode: string | null;
-  team_name: string | null;
+  // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，Row 接口不再含
   codex_sandbox: string | null;
   claude_code_sandbox: string | null;
   spawned_by: string | null;
@@ -45,7 +45,9 @@ function rowToRecord(r: Row): SessionRecord {
     endedAt: r.ended_at,
     archivedAt: r.archived_at,
     permissionMode: (r.permission_mode as PermissionMode) ?? null,
-    teamName: r.team_name ?? null,
+    // plan team-cohesion-fix-20260513 Phase A Step A9：teamName 字段不在 repo 层投影。
+    // sessionManager.enrichWithTeams / enrichWithTeamsBatch 在更高层注入 teams[] 数组 + teamName fallback。
+    // 老 sessions.team_name 列已 v014 drop。
     codexSandbox: (r.codex_sandbox as
       | 'workspace-write'
       | 'read-only'
@@ -88,20 +90,22 @@ function parseGenericPtyConfigJson(raw: string | null): GenericPtyConfig | null 
 
 export const sessionRepo = {
   upsert(rec: SessionRecord): void {
-    // 注意：permission_mode 与 team_name 也参与 INSERT 与 UPDATE，否则 SessionRecord 接口
+    // 注意：permission_mode 也参与 INSERT 与 UPDATE，否则 SessionRecord 接口
     // 与 SQL 字段集错位 —— 复活 closed 会话用 `{...existing, lifecycle:'active'}`
-    // spread 调 upsert 时，spread 进来的 permissionMode / teamName 被静默丢弃，
+    // spread 调 upsert 时，spread 进来的 permissionMode 被静默丢弃，
     // 未来想通过 upsert 改这些字段会神秘失败（写了不报错但不生效）。
     // CHANGELOG_<X> A2a：codex_sandbox 同样必须参与 INSERT / UPDATE，避免 spread 调用
     // 时静默丢弃用户在 NewSessionDialog 选过的 sandbox 档位。
     // CHANGELOG_74：claude_code_sandbox 同款（claude OS 沙盒 per-session 覆盖与 codex 对称）。
     // R4·F2：generic_pty_config 同款 — generic-pty / aider session 的 spawn config 必须
     // 在 upsert 时透传，否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn。
+    // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
+    // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
     getDb()
       .prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, claude_code_sandbox, spawned_by, spawn_depth, generic_pty_config)
-         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name, @codex_sandbox, @claude_code_sandbox, @spawned_by, @spawn_depth, @generic_pty_config)
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, spawned_by, spawn_depth, generic_pty_config)
+         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @spawned_by, @spawn_depth, @generic_pty_config)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            title = excluded.title,
@@ -112,7 +116,6 @@ export const sessionRepo = {
            ended_at = excluded.ended_at,
            archived_at = excluded.archived_at,
            permission_mode = excluded.permission_mode,
-           team_name = excluded.team_name,
            codex_sandbox = excluded.codex_sandbox,
            claude_code_sandbox = excluded.claude_code_sandbox,
            spawned_by = excluded.spawned_by,
@@ -132,7 +135,6 @@ export const sessionRepo = {
         ended_at: rec.endedAt,
         archived_at: rec.archivedAt,
         permission_mode: rec.permissionMode ?? null,
-        team_name: rec.teamName ?? null,
         codex_sandbox: rec.codexSandbox ?? null,
         claude_code_sandbox: rec.claudeCodeSandbox ?? null,
         spawned_by: rec.spawnedBy ?? null,
@@ -238,11 +240,6 @@ export const sessionRepo = {
     getDb().prepare(`UPDATE sessions SET permission_mode = ? WHERE id = ?`).run(mode, id);
   },
 
-  /** 写入会话所属团队名（Agent Teams）。null 表示不属于任何 team。 */
-  setTeamName(id: string, teamName: string | null): void {
-    getDb().prepare(`UPDATE sessions SET team_name = ? WHERE id = ?`).run(teamName, id);
-  },
-
   /**
    * 写入 codex sandbox 档位（CHANGELOG_<X> A2a：仅 codex-cli adapter 调用）。
    * null 表示恢复用 settings.codexSandbox 全局值（与 createSession 路径 fallback 同模式）。
@@ -280,56 +277,25 @@ export const sessionRepo = {
   },
 
   /**
-   * Agent Teams M3 (C 方案)：批量把指定 team_name 下所有 sessions 的 team_name 设为 NULL，
-   * 返回被影响的 session id 列表（让上层 emit upserts 同步 renderer store）。
-   *
-   * 触发场景：team-watcher 监听到 ~/.claude/teams/<name>/ 整个目录被 unlinkDir
-   * （Claude TeamDelete 自然成功 / 用户点 force-cleanup 按钮 / 外部 rm -rf）→
-   * 应用 DB 自动解绑 sessions.team_name → distinctTeamNames 不再返回该 name →
-   * TeamHub 列表自然移除该 team。sessions 本身不删，仍能在历史 tab 找到。
-   */
-  clearTeamName(teamName: string): string[] {
-    const db = getDb();
-    const rows = db
-      .prepare(`SELECT id FROM sessions WHERE team_name = ?`)
-      .all(teamName) as { id: string }[];
-    if (rows.length === 0) return [];
-    db.prepare(`UPDATE sessions SET team_name = NULL WHERE team_name = ?`).run(teamName);
-    return rows.map((r) => r.id);
-  },
-
-  /** Agent Teams：列出所有非 NULL team_name（去重，按字典序）。M2 Team Hub 用。 */
-  distinctTeamNames(): string[] {
-    const rows = getDb()
-      .prepare(`SELECT DISTINCT team_name FROM sessions WHERE team_name IS NOT NULL ORDER BY team_name`)
-      .all() as { team_name: string }[];
-    return rows.map((r) => r.team_name);
-  },
-
-  /** Agent Teams：找出指定 team 名下的所有会话（含 closed / archived）。M2 TeamDetail 用。 */
-  findByTeamName(teamName: string): SessionRecord[] {
-    const rows = getDb()
-      .prepare(`SELECT * FROM sessions WHERE team_name = ? ORDER BY last_event_at DESC`)
-      .all(teamName) as Row[];
-    return rows.map(rowToRecord);
-  },
-
-  /**
    * 把 sessions 表里 fromId 改名 toId，并把 events / file_changes / summaries
    * 的 session_id 引用一起迁移。整体在事务内做，避免外键 CASCADE 误删历史。
    * 用于 SDK fallback：tempKey 占位行 → 真实 session_id 出现后无损迁移。
    *
    * REVIEW_17 R2 / H1-R2：toExists=true 分支（recoverAndSend jsonl-missing 走
    * 不带 resume 的 createSession + 事后 rename 时触发——NEW_ID 已被 createSession
-   * 写过一行）原本仅迁子表 + DELETE OLD，team_name / permission_mode 等用户预期
-   * 跟随 OLD 一起搬过来的字段被丢弃。比如：lead 在 team-X 收到「会话恢复」后
-   * 永久 team_name=NULL，TeamHub 卡片消失 + inbox-watcher refreshAutoSubscribe
-   * 取消订阅 → teammate 写入的 permission_request 全部丢失（违反 CLAUDE.md
-   * 「会话恢复 / resume 优先」节会话身份持续性约束）。
+   * 写过一行）原本仅迁子表 + DELETE OLD，permission_mode 等用户预期
+   * 跟随 OLD 一起搬过来的字段被丢弃。比如：用户在 OLD 里选了 acceptEdits 模式，
+   * recoverAndSend 路径 createSession 默认 'default' → 修复后用户 permissionMode 丢档。
    *
-   * 修法：toExists=true 时把 fromRow 的 team_name / permission_mode 同步覆盖到
-   * 新行（这两列「会话身份持续性」相关）。其他列（cwd / title / activity / lifecycle
+   * 修法：toExists=true 时把 fromRow 的 permission_mode / spawn_link 同步覆盖到
+   * 新行（这两类是「会话身份持续性」相关）。其他列（cwd / title / activity / lifecycle
    * 等）由 createSession 已写就绪，不应被 OLD 行旧值覆盖。
+   *
+   * plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
+   * rename 路径不再需要复制 team_name 字段。team 关系由 universal team backend
+   * (agent_deck_team_members) 维护，session_id 改名时需调 sessionManager.delete
+   * 路径的 leaveTeam 兜底（已实现），或 rename 后由 caller 自行 leaveTeam(OLD) +
+   * addMember(NEW)。
    */
   rename(fromId: string, toId: string): void {
     if (fromId === toId) return;
@@ -343,16 +309,13 @@ export const sessionRepo = {
         // CHANGELOG_<X> R2 / B'0 ADR §6.5.2 #2-#3：列清单扩到 16 列（顺手补 v008
         // codex_sandbox 漏列 latent bug，再加 R2 v009 spawned_by/spawn_depth）。
         // R4·F2：列再扩 1 → 17 列（generic_pty_config）。
-        // CHANGELOG_74：列再扩 1 → 18 列（claude_code_sandbox，与 codex_sandbox 同款 spawn-time
-        // 用户主动选过的状态，rename 路径必须搬过来防止丢档）。
-        // 历史教训（CHANGELOG_35）：v006 加 team_name 时多算了一个 ? 占位（14 个），
-        // 触发 SDK fallback rename / CLI 隐式 fork (first realId !== opts.resume)
-        // 走到这条 INSERT 时 better-sqlite3 抛 `14 values for 13 columns`。
-        // 务必让 ? 数与列数一致 —— 当前 18 列 = 18 个 ?。
+        // CHANGELOG_74：列再扩 1 → 18 列（claude_code_sandbox）。
+        // plan team-cohesion-fix-20260513 Phase A Step A9：v014 drop sessions.team_name 后
+        // 列回缩 1 → 17 列。
         db.prepare(
           `INSERT INTO sessions
-           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, claude_code_sandbox, spawned_by, spawn_depth, generic_pty_config)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, spawned_by, spawn_depth, generic_pty_config)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           toId,
           fromRow.agent_id,
@@ -366,7 +329,6 @@ export const sessionRepo = {
           fromRow.ended_at,
           fromRow.archived_at,
           fromRow.permission_mode,
-          fromRow.team_name,
           fromRow.codex_sandbox,
           fromRow.claude_code_sandbox,
           fromRow.spawned_by,
@@ -379,15 +341,9 @@ export const sessionRepo = {
       db.prepare(`UPDATE file_changes SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
       db.prepare(`UPDATE summaries SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
       // REVIEW_17 R2 / H1-R2：toExists=true 时（recoverAndSend jsonl-missing fallback）
-      // 把会话身份相关字段从 OLD 行覆盖到 NEW 行，避免 team_name / permission_mode 被 NEW 行
-      // createSession 时写的默认值（NULL / 'default'）「淹没」掉用户的真实状态。
+      // 把会话身份相关字段从 OLD 行覆盖到 NEW 行，避免 permission_mode 被 NEW 行
+      // createSession 时写的默认值（'default'）「淹没」掉用户的真实状态。
       // 仅在 toExists=true 才需要手动覆盖：toExists=false 走上面 INSERT 已经全列复制。
-      // CHANGELOG_<X> R2 / B'0 ADR §6.5.2 #3：spawn 链路 + codex_sandbox 同款覆盖
-      // 处理（spawn_depth/spawned_by 是 spawn-time 不变的 session 身份字段；
-      // codex_sandbox 是用户主动选过的状态）。
-      if (toExists && fromRow.team_name) {
-        db.prepare(`UPDATE sessions SET team_name = ? WHERE id = ?`).run(fromRow.team_name, toId);
-      }
       if (toExists && fromRow.permission_mode) {
         db.prepare(`UPDATE sessions SET permission_mode = ? WHERE id = ?`).run(
           fromRow.permission_mode,

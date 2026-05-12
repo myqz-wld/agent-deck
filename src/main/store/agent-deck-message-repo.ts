@@ -77,6 +77,7 @@ interface MessageRow {
   attempt_count: number;
   last_attempt_at: number | null;
   delivering_since: number | null;
+  reply_to_message_id: string | null;
 }
 
 function rowToRecord(r: MessageRow): AgentDeckMessage {
@@ -104,6 +105,7 @@ function rowToRecord(r: MessageRow): AgentDeckMessage {
     attemptCount: r.attempt_count,
     lastAttemptAt: r.last_attempt_at,
     deliveringSince: r.delivering_since,
+    replyToMessageId: r.reply_to_message_id,
   };
 }
 
@@ -117,6 +119,12 @@ export interface InsertMessageInput {
   toSessionId: string;
   /** 1-100KB；caller-side 校验 + SQL CHECK 兜底 */
   body: string;
+  /**
+   * plan team-cohesion-fix-20260513 Phase B Step B1：对话链关联（可选）。
+   * 非 NULL 时建立"这是对某条 msg 的 reply"语义；wait_reply 走此字段反查。
+   * caller-side 不强制校验 reply_to_message_id 真实存在（FK ON DELETE SET NULL 兜底）。
+   */
+  replyToMessageId?: string | null;
 }
 
 export interface ListMessagesByTeamOptions {
@@ -153,6 +161,13 @@ export interface AgentDeckMessageRepo {
   insert(input: InsertMessageInput): AgentDeckMessage;
   get(messageId: string): AgentDeckMessage | null;
   listByTeam(teamId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[];
+  /**
+   * plan team-cohesion-fix-20260513 Phase B Step B1：反查某条 msg 的所有 reply。
+   *
+   * SQL 走 idx_messages_reply_to 部分索引（v015）。按 sent_at ASC 排序保证 FIFO；
+   * wait_reply tool 用此查最早一条 reply（first reply）作为 trigger 条件。
+   */
+  findRepliesByMessageId(messageId: string): AgentDeckMessage[];
 
   // ─── watcher 关键 helpers（§4.1 / §4.3） ───
   /**
@@ -213,12 +228,13 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
 
     const id = crypto.randomUUID();
     const now = Date.now();
+    // plan team-cohesion-fix-20260513 Phase B Step B1：reply_to_message_id 列入 INSERT
     db.prepare(
       `INSERT INTO agent_deck_messages
        (id, team_id, from_session_id, to_session_id, body, status, status_reason,
-        sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since)
-       VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, 0, NULL, NULL)`,
-    ).run(id, teamId, fromSessionId, toSessionId, body, now);
+        sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since, reply_to_message_id)
+       VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, 0, NULL, NULL, ?)`,
+    ).run(id, teamId, fromSessionId, toSessionId, body, now, input.replyToMessageId ?? null);
 
     const created = get(id);
     if (!created) throw new Error(`message ${id} 创建后查询失败`);
@@ -252,6 +268,17 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
          ORDER BY sent_at DESC LIMIT ? OFFSET ?`,
       )
       .all(teamId, limit, offset) as MessageRow[];
+    return rows.map(rowToRecord);
+  }
+
+  function findRepliesByMessageId(messageId: string): AgentDeckMessage[] {
+    const rows = db
+      .prepare(
+        `SELECT * FROM agent_deck_messages
+         WHERE reply_to_message_id = ?
+         ORDER BY sent_at ASC`,
+      )
+      .all(messageId) as MessageRow[];
     return rows.map(rowToRecord);
   }
 
@@ -397,6 +424,7 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
     cancel,
     countPendingForTarget,
     resetDeliveringOnStartup,
+    findRepliesByMessageId,
   };
 }
 
@@ -419,4 +447,5 @@ export const agentDeckMessageRepo: AgentDeckMessageRepo = {
   cancel: (messageId, reason) => defaultRepo().cancel(messageId, reason),
   countPendingForTarget: (toSessionId) => defaultRepo().countPendingForTarget(toSessionId),
   resetDeliveringOnStartup: () => defaultRepo().resetDeliveringOnStartup(),
+  findRepliesByMessageId: (messageId) => defaultRepo().findRepliesByMessageId(messageId),
 };

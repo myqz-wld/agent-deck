@@ -64,7 +64,6 @@ function seedSession(sid: string, opts: Partial<SessionRecord> = {}) {
     lastEventAt: Date.now(),
     endedAt: null,
     archivedAt: null,
-    teamName: null,
     spawnedBy: null,
     spawnDepth: 0,
     ...opts,

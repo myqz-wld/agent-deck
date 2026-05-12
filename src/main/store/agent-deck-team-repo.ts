@@ -25,6 +25,7 @@ import type {
   AgentDeckTeam,
   AgentDeckTeamMember,
   AgentDeckTeamMemberRole,
+  SessionTeamMembership,
 } from '@shared/types';
 import { getDb } from './db';
 
@@ -190,6 +191,19 @@ export interface AgentDeckTeamRepo {
   listAllMembers(teamId: string): AgentDeckTeamMember[];
   /** 反查：某 session 当前 active 在哪些 team */
   findActiveMembershipsBySession(sessionId: string): AgentDeckTeamMember[];
+  /**
+   * 批量反查：一次拿多个 session 的 active membership + team name（plan team-cohesion-fix-20260513 Phase A）。
+   *
+   * 返回 Map<sessionId, SessionTeamMembership[]> —— sessionId 不在结果里 → key 不存在
+   * （caller 用 `.get(sid) ?? []`）。空数组入参直接返空 Map（避免 `IN ()` SQL 错）。
+   *
+   * SQL 走 `idx_team_members_active_session` 部分索引（session_id, team_id WHERE left_at IS NULL）+
+   * INNER JOIN agent_deck_teams 一次拿 team_name，避免 caller 再 N 次 query teams 表。
+   *
+   * 大批量分块（CHUNK_SIZE = 500）防超 sqlite IN list 默认上限（999）。典型 list 路径
+   * ≤ 200 sessions 单 query 足够；大于阈值的 hot path（如启动时全量 enrich）走分块自动 merge。
+   */
+  findActiveMembershipsBySessionIds(sessionIds: string[]): Map<string, SessionTeamMembership[]>;
   /** 反查：caller 与 target 共享的 active team id 集合（§5.2 send_message handler 用） */
   findSharedActiveTeams(sessionAId: string, sessionBId: string): string[];
   /** 当前 active lead 数（archive 0-lead 兜底用） */
@@ -439,6 +453,52 @@ export function createAgentDeckTeamRepo(db: Database): AgentDeckTeamRepo {
     return rows.map(memberRowToRecord);
   }
 
+  /**
+   * 批量反查：JOIN agent_deck_teams 一次拿 team_name + 走 idx_team_members_active_session 部分索引。
+   * 大批量 chunk 500（≤ sqlite IN list 默认上限 999），merge 各 chunk 结果到同 Map。
+   *
+   * 返回 Map：sid 不在结果里 → key 不存在（caller 用 `.get(sid) ?? []`）。
+   * 多 team 共享同 sid 时按 joined_at DESC 排（最近加入的在前），与单 sid 版语义一致。
+   */
+  function findActiveMembershipsBySessionIds(
+    sessionIds: string[],
+  ): Map<string, SessionTeamMembership[]> {
+    const result = new Map<string, SessionTeamMembership[]>();
+    if (sessionIds.length === 0) return result;
+    const CHUNK_SIZE = 500;
+    interface JoinedRow {
+      session_id: string;
+      team_id: string;
+      role: string;
+      joined_at: number;
+      team_name: string;
+    }
+    for (let i = 0; i < sessionIds.length; i += CHUNK_SIZE) {
+      const chunk = sessionIds.slice(i, i + CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows = db
+        .prepare(
+          `SELECT m.session_id, m.team_id, m.role, m.joined_at, t.name AS team_name
+           FROM agent_deck_team_members m
+           INNER JOIN agent_deck_teams t ON m.team_id = t.id
+           WHERE m.session_id IN (${placeholders}) AND m.left_at IS NULL
+           ORDER BY m.session_id, m.joined_at DESC`,
+        )
+        .all(...chunk) as JoinedRow[];
+      for (const r of rows) {
+        const arr = result.get(r.session_id) ?? [];
+        arr.push({
+          teamId: r.team_id,
+          teamName: r.team_name,
+          role: (r.role === 'lead' ? 'lead' : 'teammate') as AgentDeckTeamMemberRole,
+          joinedAt: r.joined_at,
+        });
+        result.set(r.session_id, arr);
+      }
+    }
+    return result;
+  }
+
   function findSharedActiveTeams(sessionAId: string, sessionBId: string): string[] {
     if (sessionAId === sessionBId) return [];
     const rows = db
@@ -527,6 +587,7 @@ export function createAgentDeckTeamRepo(db: Database): AgentDeckTeamRepo {
     listActiveMembers,
     listAllMembers,
     findActiveMembershipsBySession,
+    findActiveMembershipsBySessionIds,
     findSharedActiveTeams,
     countActiveLeads,
     setRole,
@@ -555,6 +616,8 @@ export const agentDeckTeamRepo: AgentDeckTeamRepo = {
   listActiveMembers: (teamId) => defaultRepo().listActiveMembers(teamId),
   listAllMembers: (teamId) => defaultRepo().listAllMembers(teamId),
   findActiveMembershipsBySession: (sessionId) => defaultRepo().findActiveMembershipsBySession(sessionId),
+  findActiveMembershipsBySessionIds: (sessionIds) =>
+    defaultRepo().findActiveMembershipsBySessionIds(sessionIds),
   findSharedActiveTeams: (a, b) => defaultRepo().findSharedActiveTeams(a, b),
   countActiveLeads: (teamId) => defaultRepo().countActiveLeads(teamId),
   setRole: (teamId, sessionId, role) => defaultRepo().setRole(teamId, sessionId, role),

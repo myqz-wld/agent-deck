@@ -12,7 +12,9 @@ import { on, parseStringId, parsePositiveInt, parseStringIdArray } from './_help
 export function registerSessionsIpc(): void {
   // Session
   on(IpcInvoke.SessionList, () => sessionManager.list());
-  on(IpcInvoke.SessionGet, (_e, id) => sessionRepo.get(String(id)));
+  // plan team-cohesion-fix-20260513 Phase A：走 sessionManager.get 而非 sessionRepo.get，
+  // 让 SessionRecord.teams[] enrich 透明生效。
+  on(IpcInvoke.SessionGet, (_e, id) => sessionManager.get(String(id)));
   on(IpcInvoke.SessionListEvents, (_e, id, limit) => {
     const sid = parseStringId('sessionId', id);
     // limit 上限 5000：renderer 默认 100/200，留空间给 history 详情页拉更多
@@ -48,8 +50,12 @@ export function registerSessionsIpc(): void {
 
   // History
   on(IpcInvoke.SessionListHistory, (_e, filters) => {
-    return sessionRepo.listHistory(
-      (filters ?? {}) as Parameters<typeof sessionRepo.listHistory>[0],
+    // plan team-cohesion-fix-20260513 Phase A：history 列表也 batch enrich teams[]，让历史 session
+    // detail 也能正确显示 team chip。
+    return sessionManager.enrichWithTeamsBatch(
+      sessionRepo.listHistory(
+        (filters ?? {}) as Parameters<typeof sessionRepo.listHistory>[0],
+      ),
     );
   });
 }
