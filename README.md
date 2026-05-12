@@ -239,6 +239,19 @@ Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「
 
 ---
 
+## 键盘快捷键
+
+应用全局快捷键（OS 级 `globalShortcut` 注册，即使 Agent Deck 没 focused 也能触发）。Linux/Windows 用 `Ctrl` 替代 `Cmd`。
+
+| 快捷键 | 行为 |
+|---|---|
+| `Cmd+Alt+P` | toggle 主窗口置顶（同步「设置 → 窗口 → 置顶」开关） |
+| `Cmd+Alt+T` | toggle 主窗口「置顶时透明」（同步「设置 → 窗口 → 置顶时透明」开关；pin 状态下立即切 CSS frosted-frame + macOS vibrancy，非 pin 时只更新设置值，下次 pin 按新值生效） |
+
+> macOS 浏览器 `Cmd+Shift+T`（重开关闭标签页）会被 OS 级 `globalShortcut` 抢占，所以选 `Cmd+Alt+T`（与 `Cmd+Alt+P` 命名一致，且 Alt 修饰键不冲突浏览器常用快捷键）。
+
+---
+
 ## 项目结构
 
 ```
