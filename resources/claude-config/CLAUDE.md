@@ -2,7 +2,7 @@
 此文件由宿主应用打包并自动注入到每个 SDK 会话的 system prompt 末尾，
 独立于 user/project/local CLAUDE.md（位置在三者之后），跟随仓库走（git 管理），不依赖会话 cwd。
 
-内容与 ~/.claude/CLAUDE.md 保持一致即可，改一处必须同步另一处。
+除本打包文件专属的「Agent Deck Universal Team Backend」节（user-level 全局环境用不到，因为 user 没装 agent-deck 应用）外，其余通用约定需与 ~/.claude/CLAUDE.md 保持一致；改一处必须同步另一处。若刻意替换 / 删除 user-level 段落，在这里追加一行差异原因。
 -->
 
 # 通用约定
@@ -218,6 +218,20 @@ const reply = await mcp__agent_deck__wait_reply({
 
 `<plan-id>` 命名建议 `<topic>-<YYYYMMDD>`（如 `mcp-server-rollout-20260511`），与 §Step 2 plan 文件 stem 严格一致。**字符集限 `[A-Za-z0-9._-]`、单 segment ≤ 64 字符**（EnterWorktree 工具校验，超出会被拒）。
 
+> ⚠️ **进 worktree 后凡是「指向代码资产」的路径都必须落在 worktree 内**（前缀含 `.claude/worktrees/<plan-id>/`），**绝不复用不带 worktree 前缀的主仓库根级绝对路径**（如 `<main-repo>/src/foo.ts` 应为 `<main-repo>/.claude/worktrees/<plan-id>/src/foo.ts`）—— `cwd` 切了不代表绝对路径自动重映射，不带 worktree 前缀的主仓库绝对路径 + worktree cwd = 操作的是主仓库文件、worktree 内文件岿然不动；Edit / Read 都返回「成功」（同会话 Read cache 加剧错觉），事实上 worktree 没动 + 主仓库被悄悄污染，调试坠入地狱。
+>
+> **必须落 worktree 的工具与命令清单**：Edit / Read / Write / Grep / Glob 的 path 参数；Bash 命令体内绝对路径（`cat /main-repo/foo.ts > /tmp/x` / `node /main-repo/script.js` / `pnpm exec ...`）；`git -C <path>`；任何外部 CLI 的 `-C` / `--cwd` / `--workdir`。Glob/Grep 显式传不带 worktree 前缀的主仓库路径**不写不污染但搜出 main 分支旧版**，会让你误判「改没生效」从而二次 Edit 误打主仓库 → 链式污染。
+>
+> **不要换前缀的例外**（路径形态是「非代码资产」）：plan 文件本身路径（`<main-repo>/.claude/plans/<plan-id>.md` 或 `~/.claude/plans/<plan-id>.md`）、`~/.claude/...` 配置 / 工具路径、worktree 之外其他独立项目路径——这些**保持原绝对路径**，只有「指向 worktree 内代码 / 测试 / 配置文件」的路径才换前缀。
+>
+> **典型踩坑链**：从 plan「§下一会话第一步」复制了不带 worktree 前缀的主仓库绝对路径 → Edit `/Users/.../main-repo/foo.ts` 显示「成功」、Read 显示已改 → 在 worktree 内 `grep` / `git status` 看不到改动 → 拿改错位置的「成功」继续推下一步、错上加错。
+>
+> **防再踩**：
+> - 进 worktree 第一件事 `Bash: pwd` 确认 cwd（应含 `.claude/worktrees/<plan-id>/`）
+> - 所有指向**代码资产**的路径写 `<worktree-abs-path>/<rel>` 形态；快速取法：`echo "$(pwd)/<rel-path>"`
+> - 大批量编辑后**双向 git 验证**：worktree 内 `git status` 应 dirty；主仓库 `git -C <main-repo-abs-path> status` 应 clean；反过来 = 改错地方 → **只对被污染的具体文件**走 `git -C <main-repo-abs-path> checkout -- <污染文件路径>`（只丢这几个文件，**严禁 `git reset --hard`**，会误伤主仓库其他真该保留的 dirty 改动）→ 然后 worktree 内重做这批改动 + 二次双向 git 验证
+> - 写 plan「§下一会话第一步」时**直接写 worktree 内绝对路径**（仅指代码资产；plan 自身路径不变），下次 cold start 不会重撞
+
 ### Step 2. Plan 文件 hand off（时间隔离）
 
 新建 plan 文件，**用绝对路径写入**（不要写到 worktree working tree——worktree 是独立 branch，跨会话主 repo 看不到该 branch 的文件）。两个合法位置二选一：
@@ -234,7 +248,7 @@ const reply = await mcp__agent_deck__wait_reply({
 - **设计决策（不再争论）**：每条带简短理由
 - **步骤 checklist**：`- [x] Step N — done by <session> on <date>，commit <hash|uncommitted>` / 未完成步骤标状态 + 已知风险
 - **当前进度**：卡在哪 / 已验什么 / 未验什么
-- **下一会话第一步**：cold start 的**完整指令载体**（cold start prompt 之外**唯一**新会话需要看的指令源）。具体到「先 `Read` X / 跑 `pnpm Y` / 改 `Z:line`」级别，**不要泛指**。这一节写不清 = 下次会话啃哑谜
+- **下一会话第一步**：cold start 的**完整指令载体**（cold start prompt 之外**唯一**新会话需要看的指令源）。具体到「先 `Read` X / 跑 `pnpm Y` / 改 `Z:line`」级别，**不要泛指**。这一节写不清 = 下次会话啃哑谜。**所有指向代码资产的路径用 worktree 内绝对路径**（前缀含 `.claude/worktrees/<plan-id>/`）—— **例外**：plan 文件本身、`~/.claude/...`、其他独立项目路径**不换前缀**，详 §Step 1 末「不要换前缀的例外」段。**注意**：这里的「Read X」中 X 指**代码 / 测试 / 配置文件**，不是 plan 文件本身（plan 文件已在 §Step 3 步骤 1 用 `Bash: cat` 读过）
 - **已知踩坑**（可选）：本 plan 实施时碰过 / 上轮会话发现的雷，避免下次重踩
 
 ### Step 3. 接力姿势
@@ -258,7 +272,7 @@ const reply = await mcp__agent_deck__wait_reply({
 1. `Bash: cat <plan-abs-path>` 全文（**严禁用 Read tool**，详见下方 callout — 上一会话 Write 的最新 plan 会被 conversation cache 截胡，Read 拿到旧版）。绝对路径——worktree 还没进就读不到 worktree 内相对路径
 2. 从 frontmatter 拿 `worktree_path` → `EnterWorktree(path: <worktree_path>)` 进同一 worktree（用 `path`，不是 `name`，因为 worktree 已建好）
 3. （可选自检）`git log --oneline -3` 确认 HEAD = frontmatter `base_commit` 或之后；node_modules symlink 兜底等 plan §下一会话第一步 列的具体步骤
-4. 按 plan **§下一会话第一步** 节直接动手；**不重新讨论已记录的 §设计决策**
+4. 按 plan **§下一会话第一步** 节直接动手；**不重新讨论已记录的 §设计决策**；**所有指向代码资产的 Edit/Read/Write/Grep/Glob/Bash 路径用 worktree 内绝对路径**（plan 内容里若写成主仓库形态，按 §Step 1 末路径陷阱换前缀；**例外**：plan 文件自身路径、`~/.claude/...`、其他独立项目路径**不换**，详 §Step 1 末「不要换前缀的例外」段）
 5. 进度 / 决策变更必须先告诉用户征得确认，不默默改方向
 
 > **plan 文件 §下一会话第一步 节就是 cold start 的完整指令载体** —— 用户在新会话只需贴 cold start prompt 一句话，**不必复述任何细节**。如 plan 没写清这一节，是上轮会话 hand off 没收尾，新会话先补 plan 再动工，并告诉用户「上轮 hand off 不完整，已补 plan」。
