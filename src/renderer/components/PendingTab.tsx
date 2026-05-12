@@ -104,6 +104,22 @@ function PendingSection({
     plan: '保持 Plan',
   };
 
+  // plan team-cohesion-fix-20260513 Phase D：team chip + role badge（与 SessionCard 同款风格）。
+  // session.teams 由 sessionManager.enrichWithTeams 在 IPC 桥点统一注入（Phase A），
+  // teammate / lead role 直接来自 universal team backend membership 表 — 不依赖 SessionList 的
+  // spawnedBy visibility 判定（PendingTab 平铺无 tree context）。multi-team 共享时 chip 显
+  // teams[0]，hover title 列完整 team 列表。
+  const primaryTeam = session.teams?.[0];
+  const displayTeamName = primaryTeam?.teamName ?? null;
+  const teamCount = session.teams?.length ?? 0;
+  const teamRole = primaryTeam?.role ?? null;
+  const teamHoverTitle =
+    teamCount > 1
+      ? `Agent Teams (${teamCount}):\n${session.teams!.map((t) => `· ${t.teamName} [${t.role}]`).join('\n')}`
+      : displayTeamName
+        ? `Agent Team: ${displayTeamName} [${teamRole}]`
+        : '';
+
   const batchTooltip = !isSdk
     ? '外部 CLI 会话无法在此响应'
     : batchableCount === 0
@@ -190,6 +206,31 @@ function PendingSection({
             >
               {isSdk ? '内' : '外'}
             </span>
+            {displayTeamName && (
+              <span
+                className="max-w-[6rem] shrink-0 truncate rounded bg-purple-500/20 px-1 py-0.5 text-[9px] font-medium text-purple-300"
+                title={teamHoverTitle}
+              >
+                🛡 {displayTeamName}
+                {teamCount > 1 && <span className="ml-0.5 text-purple-300/70">+{teamCount - 1}</span>}
+              </span>
+            )}
+            {teamRole === 'lead' && (
+              <span
+                className="shrink-0 rounded bg-blue-400/15 px-1 py-0.5 text-[9px] font-medium text-blue-200"
+                title={`本会话在 team「${displayTeamName}」是 lead`}
+              >
+                👑 lead
+              </span>
+            )}
+            {teamRole === 'teammate' && (
+              <span
+                className="shrink-0 rounded bg-blue-400/10 px-1 py-0.5 text-[9px] font-medium text-blue-200/85"
+                title={`本会话在 team「${displayTeamName}」是 teammate`}
+              >
+                ↳ teammate
+              </span>
+            )}
             <span className="shrink-0 rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] font-medium text-status-waiting">
               {total}
             </span>
