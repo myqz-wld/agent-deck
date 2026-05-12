@@ -348,6 +348,14 @@ const api = {
   /** 取消归档（如有 active 同名 team 抛错）。 */
   unarchiveAgentDeckTeam: (teamId: string): Promise<AgentDeckTeam | null> =>
     ipcRenderer.invoke(IpcInvoke.AgentDeckTeamUnarchive, teamId),
+  /**
+   * plan team-cohesion-fix-20260513 Phase F D7：批量 close 该 team 内仅 teammate role
+   * 的 active 成员（lead 不动）。返回 { closed, failed[] }。close 内部自动 leaveTeam。
+   */
+  shutdownAllTeammates: (
+    teamId: string,
+  ): Promise<{ closed: string[]; failed: { sessionId: string; reason: string }[] }> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckTeamShutdownAllTeammates, teamId),
   /** 加 member。 */
   addAgentDeckTeamMember: (input: {
     teamId: string;

@@ -74,6 +74,11 @@ export const IpcInvoke = {
   AgentDeckTeamAddMember: 'agent-deck-team:add-member',
   /** member 离开 team（写 left_at；不删 row）。args: { teamId, sessionId }。 */
   AgentDeckTeamRemoveMember: 'agent-deck-team:remove-member',
+  /**
+   * plan team-cohesion-fix-20260513 Phase F D7：批量 close team 内**仅 teammate role**
+   * 的 active 成员（lead 不动）。返回 { closed: string[], failed: { sessionId, reason }[] }。
+   */
+  AgentDeckTeamShutdownAllTeammates: 'agent-deck-team:shutdown-all-teammates',
   /** 显式发 cross-adapter team message。args: { teamId, fromSessionId, toSessionId, body }。 */
   AgentDeckTeamSendMessage: 'agent-deck-team:send-message',
   /** 拉一个 team 的近期消息流（默认 100 条 ORDER BY sent_at DESC）。 */

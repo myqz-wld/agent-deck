@@ -13,6 +13,7 @@ import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { taskRepo } from '@main/store/task-repo';
 import { sessionRepo } from '@main/store/session-repo';
+import { sessionManager } from '@main/session/manager';
 import { eventRepo } from '@main/store/event-repo';
 import { eventBus } from '@main/event-bus';
 import { summarizer } from '@main/session/summarizer';
@@ -300,6 +301,36 @@ export function registerTeamsIpc(): void {
     async (_e, teamIdRaw): Promise<{ tasks: TaskRecord[] }> => {
       const teamId = parseId(teamIdRaw, 'teamId');
       return { tasks: taskRepo.list({ teamId, limit: 200 }) };
+    },
+  );
+
+  // plan team-cohesion-fix-20260513 Phase F D7：批量 close team 内仅 teammate role 的 active
+  // 成员（lead 不动，避免误关用户主操作 session）。
+  // - 使用 sessionManager.close（async）串行 close（避免并发 race + 0-lead archive 时序）
+  // - 失败收集到 failed[]，不一刀切失败
+  // - close 内部已自动 leaveTeam（D6 helper），不需要这里再 leaveTeam
+  on(
+    IpcInvoke.AgentDeckTeamShutdownAllTeammates,
+    async (_e, teamIdRaw): Promise<{ closed: string[]; failed: { sessionId: string; reason: string }[] }> => {
+      const teamId = parseId(teamIdRaw, 'teamId');
+      const members = agentDeckTeamRepo.listActiveMembers(teamId);
+      const teammates = members.filter((m) => m.role === 'teammate');
+      const closed: string[] = [];
+      const failed: { sessionId: string; reason: string }[] = [];
+      for (const m of teammates) {
+        try {
+          await sessionManager.close(m.sessionId);
+          closed.push(m.sessionId);
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          failed.push({ sessionId: m.sessionId, reason });
+          console.warn(
+            `[ipc:team-shutdown-all-teammates] close(${m.sessionId}) failed in team ${teamId}:`,
+            err,
+          );
+        }
+      }
+      return { closed, failed };
     },
   );
 }

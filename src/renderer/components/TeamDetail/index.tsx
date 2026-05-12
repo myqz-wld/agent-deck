@@ -51,6 +51,7 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
   const [snap, setSnap] = useState<FullSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState<'shutdown' | 'archive' | null>(null);
 
   useEffect(() => {
     let aborted = false;
@@ -84,6 +85,57 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
     };
   }, [teamId]);
 
+  // plan team-cohesion-fix-20260513 Phase F D7：批量 close 所有 teammate（lead 不动）。
+  // 用户在 team 工作完成时一键清场，避免 N 个 teammate 散落在 SessionList 显示半天。
+  const onShutdownAllTeammates = async (): Promise<void> => {
+    if (!snap || actionBusy) return;
+    const teammates = snap.members.filter((m) => m.role === 'teammate' && m.leftAt === null);
+    if (teammates.length === 0) return;
+    const ok = await window.api.confirmDialog({
+      title: `关闭团队「${snap.name}」的所有 teammate`,
+      message: `确定要关闭 ${teammates.length} 个 teammate session？`,
+      detail: 'lead 不会被关闭。teammate 关闭后会自动从 team 离开（leftAt = now），但其历史 events / messages / file_changes 全部保留。这一步**不可恢复**（reactivate 不会自动 rejoin team）。',
+      okLabel: '全部关闭',
+      cancelLabel: '取消',
+      destructive: true,
+    });
+    if (!ok) return;
+    setActionBusy('shutdown');
+    try {
+      const result = await window.api.shutdownAllTeammates(teamId);
+      if (result.failed.length > 0) {
+        console.warn(`[TeamDetail] shutdown failed for ${result.failed.length} teammate:`, result.failed);
+        // 失败不弹错（confirmDialog 是 modal）；非阻塞 + console，下次 refetch 看到最新 snapshot
+      }
+    } catch (err) {
+      console.warn('[TeamDetail] shutdownAllTeammates threw:', err);
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const onArchiveTeam = async (): Promise<void> => {
+    if (!snap || actionBusy) return;
+    if (snap.archivedAt !== null) return;
+    const ok = await window.api.confirmDialog({
+      title: `归档团队「${snap.name}」`,
+      message: `确定要归档 team「${snap.name}」？`,
+      detail: '归档只标 archived_at；不删 team / 不关 member session / 不删 messages。可在 TeamHub 看 archived 时取消归档恢复。',
+      okLabel: '归档',
+      cancelLabel: '取消',
+      destructive: false,
+    });
+    if (!ok) return;
+    setActionBusy('archive');
+    try {
+      await window.api.archiveAgentDeckTeam(teamId);
+    } catch (err) {
+      console.warn('[TeamDetail] archiveAgentDeckTeam threw:', err);
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex h-full flex-col">
@@ -100,9 +152,41 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
     );
   }
 
+  const activeTeammateCount = snap.members.filter(
+    (m) => m.role === 'teammate' && m.leftAt === null,
+  ).length;
+
   return (
     <div className="flex h-full flex-col">
-      <Header onBack={onBack}>
+      <Header
+        onBack={onBack}
+        actions={
+          <div className="flex items-center gap-1.5">
+            {!snap.archivedAt && activeTeammateCount > 0 && (
+              <button
+                type="button"
+                disabled={actionBusy !== null}
+                onClick={() => void onShutdownAllTeammates()}
+                title={`关闭本 team 内全部 ${activeTeammateCount} 个 teammate session（lead 不动）`}
+                className="rounded bg-status-waiting/25 px-2 py-0.5 text-[10px] text-status-waiting transition hover:bg-status-waiting/35 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {actionBusy === 'shutdown' ? '关闭中…' : `关闭 ${activeTeammateCount} 个 teammate`}
+              </button>
+            )}
+            {!snap.archivedAt && (
+              <button
+                type="button"
+                disabled={actionBusy !== null}
+                onClick={() => void onArchiveTeam()}
+                title="归档 team（不关 member、不删数据，仅标 archived_at）"
+                className="rounded bg-deck-muted/20 px-2 py-0.5 text-[10px] text-deck-muted transition hover:bg-deck-muted/30 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {actionBusy === 'archive' ? '归档中…' : '归档'}
+              </button>
+            )}
+          </div>
+        }
+      >
         <span className="text-deck-text">{snap.name}</span>
         {snap.archivedAt && (
           <span className="ml-2 rounded bg-deck-muted/20 px-1 py-0.5 text-[9px] uppercase tracking-wider text-deck-muted">
