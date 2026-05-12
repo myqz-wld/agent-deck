@@ -258,8 +258,15 @@ const ActivityRow = memo(function ActivityRow({
     // 这里再渲染 ToolStartRow 是冗余，且配合 tool-use-end 会让用户看到「AskUserQuestion 失败」
     // 的红框（实际上是 SDK 把 deny 翻成 is_error → translate 翻成 status='failed'）。
     // hook 通道（外部 CLI）拿不到 canUseTool 通路，没有 AskRow / ExitPlanRow，必须保留 ToolStartRow
-    // 来显示 plan / 提问内容，因此只对 source='sdk' 隐藏。
-    if (event.source === 'sdk') {
+    // 来显示 plan / 提问内容，因此只对应用内 SDK 会话隐藏。
+    //
+    // 注意：用 session-level `isSdk` 而非 event-level `event.source`，原因 ——
+    // events 表 schema 没有 source 列（见 event-repo.ts:5-12 / insert 行），listEvents 重新拉
+    // 历史事件时 event.source === undefined，REVIEW_26 修法对刷新 / 切会话后的旧事件失效。
+    // session.source 持久化在 sessions 表里、`isSdk = session.source === 'sdk'` 在父组件按会话计算。
+    // 两者等价：manager.ts:196 已保证 sdkOwned session 不会保留 hook 事件，所以 sdk 会话内
+    // 所有事件都源自 SDK 通道，cli 会话内所有事件都源自 hook 通道。
+    if (isSdk) {
       const tn = (event.payload as { toolName?: unknown })?.toolName;
       if (tn === 'AskUserQuestion' || tn === 'ExitPlanMode') return null;
     }
@@ -270,7 +277,7 @@ const ActivityRow = memo(function ActivityRow({
     const useId = (event.payload as { toolUseId?: unknown })?.toolUseId;
     const startEvent =
       typeof useId === 'string' && useId ? toolStartByUseId.get(useId) : undefined;
-    if (event.source === 'sdk') {
+    if (isSdk) {
       // toolName 优先取 end 事件的；老事件可能没带 → 反查同 useId 的 start 事件兜底
       const endTn = (event.payload as { toolName?: unknown })?.toolName;
       const startTn = (startEvent?.payload as { toolName?: unknown })?.toolName;
