@@ -23,7 +23,6 @@ import { registerPermissionsIpc } from './permissions';
 import { registerImagesIpc } from './images';
 import { registerTeamsIpc } from './teams';
 import { registerAssetsIpc } from './assets';
-import { registerLegacyTeamsIpc } from './legacy-teams';
 
 export function bootstrapIpc(): void {
   registerWindowAppIpc();
@@ -35,5 +34,4 @@ export function bootstrapIpc(): void {
   registerImagesIpc();
   registerTeamsIpc();
   registerAssetsIpc();
-  registerLegacyTeamsIpc();
 }

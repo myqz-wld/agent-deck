@@ -307,23 +307,6 @@ export interface AppSettings {
    * 设计动机：避免 burst 投递把 codex MAX_PENDING_MESSAGES=20 队列灌爆。
    */
   mcpMessageMaxTargetInflight: number;
-
-  // ─────────────────────────────────────── R3 PR-A 一次性 dialog ack（E12）
-
-  /**
-   * R3 PR-A 阶段一次性 dialog 的 ack 标记（默认 false）。
-   *
-   * 用途：PR-A 上线后用户首次启动应用时，如本地有 `~/.claude/teams/` 或
-   * `~/.claude/tasks/` 目录（hasLegacyTeamData() = true），renderer 弹一个**不可关闭**
-   * 的 dialog 提示「即将硬切，请到 Settings 备份老 team 数据」。用户点 ack 后写
-   * 此字段为 true，下次启动不再弹。
-   *
-   * PR-B 硬切上线后该字段保留（不进 REMOVED_KEYS）：用户第二次升级（PR-A → PR-B）后
-   * 仍可能没看见过该 dialog，PR-B 启动 dialog 用别的字段（待新增）独立 ack。
-   *
-   * 详 R3.E0 ADR §11.4。
-   */
-  r3LegacyExportNoticeAcked: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -368,8 +351,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // R3.E0 ADR §7.5：universal-message-watcher 限流默认值
   mcpMessageRatePerTeamPerMin: 60,
   mcpMessageMaxTargetInflight: 10,
-  // R3.E12：一次性 dialog 默认未 ack，首次启动有 legacy data 时弹
-  r3LegacyExportNoticeAcked: false,
 };
 
 // ───────────────────────────────────────────────────────── Hook Status
