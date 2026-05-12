@@ -152,22 +152,9 @@ Bash 工具调用时给 `timeout: 300000`，重 review 给 600000；轻量核查
 
 ---
 
-## Agent Deck Universal Team Backend（R3 起，硬切替代老 Claude Code Agent Teams）
+## Agent Deck Universal Team Backend
 
-老 Claude Code Agent Teams in-process backend（含 inbox 协议 / `TeamCreate` / `Agent(team_name)` / `SendMessage` / `TeamDelete` 4 个 builtin tools）已 R3 完全下线。当前所有 cross-adapter 协作通过 Agent Deck MCP 5 tool（`mcp__agent_deck__spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `shutdown_session`）。
-
-### 老 builtin → 新 MCP 语义映射
-
-| 老 Claude builtin | 新 MCP tool | 备注 |
-|---|---|---|
-| `TeamCreate({team_name, ...})` | `spawn_session({adapter, cwd, prompt, team_name})` 首次 spawn 自动建 team | 不再有「先建 team 再加 member」MCP 路径；UI / CLI 可建空 team |
-| `Agent(team_name=..., subagent_type=...)` 起 teammate | `spawn_session({adapter:..., cwd:..., prompt:..., team_name:..., parent_session_id: caller})` | 多 adapter 自由选；prompt 必须自带（不再有 subagent_type 隐式 prompt） |
-| `SendMessage({to:'teammate-name', message:...})` | `send_message({session_id: <teammate-sid>, team_id?: ..., text:...})` + `wait_reply({session_id, until:'turn_complete', since_ts: spawn_response.sentAt - 5000})` | 必须显式拿 session_id（不能用 name 路由）；多 team 共享时必填 team_id |
-| `TeamDelete()` | `shutdown_session` 各 member + IPC `agent-deck-team:archive` | 不再 cascade 删 fs；纯 DB 操作 |
-
-### 你不必接管 inbox `permission_request` 协议
-
-R3 硬切后老 inbox 协议下线。teammate 调工具时走自己 SDK 会话的 canUseTool（不再走 lead inbox 转 PendingTab），lead **不再插手 teammate 权限审批**。如果你看到 chat 里出现 stringified JSON `type='permission_request'`：那是老 CLI 用户在用未升级的 v2.x 实验特性 —— 不要 `SendMessage` 任何东西，告诉用户升级 / 改用 `mcp__agent_deck__spawn_session` 路径即可。
+跨 adapter 协作通过 Agent Deck MCP 5 tool（`mcp__agent_deck__spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `shutdown_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，lead **不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
 ### 用 wait_reply 时**必须**带 since_ts buffer 防 race
 
