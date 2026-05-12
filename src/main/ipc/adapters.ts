@@ -21,6 +21,7 @@ import {
   parsePermissionMode,
   parseTeamName,
   parseCodexSandboxMode,
+  parseSandboxMode,
 } from './_helpers';
 import {
   writeUploadedImage,
@@ -136,6 +137,10 @@ export function registerAdaptersIpc(): void {
     // 与 teamName / model 同模式 — 通用接口兜，adapter 自行实现）。
     // 白名单走 parseCodexSandboxMode；null = 不传 → adapter 用 settings.codexSandbox 全局值。
     const codexSandbox = parseCodexSandboxMode(raw.codexSandbox);
+    // claudeCodeSandbox per-session 覆盖（CHANGELOG_74）：仅 claude-code adapter 接收并起效，
+    // 其它 adapter 静默忽略。白名单走 parseSandboxMode（_helpers.ts 已有，复用零新增）；
+    // null = 不传 → claude-code adapter 用 settings.claudeCodeSandbox 全局值。
+    const claudeCodeSandbox = parseSandboxMode(raw.claudeCodeSandbox);
     // R4·F2：generic-pty / aider 专属 spawn config 透传（其它 adapter 静默忽略）。
     // zod parse 防 IPC bypass 灌入 number / undefined（schema min(1) 强制 command 非空）。
     // raw.genericPtyConfig === undefined → 不传字段，adapter fallback 走 preset；
@@ -163,6 +168,7 @@ export function registerAdaptersIpc(): void {
         ...(resume !== undefined ? { resume } : {}),
         ...(teamName !== null ? { teamName } : {}),
         ...(codexSandbox !== null ? { codexSandbox } : {}),
+        ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(genericPtyConfig !== null ? { genericPtyConfig } : {}),
       });
@@ -334,6 +340,36 @@ export function registerAdaptersIpc(): void {
       // adapter.restartWithCodexSandbox 内部已 emit error / 回滚 DB；本 handler 直接透传
       // 返回值（重启后的 sessionId，与 claude restartWithPermissionMode 接口签名对齐）。
       return adapter.restartWithCodexSandbox(sid, sb, prompt);
+    },
+  );
+
+  /**
+   * CHANGELOG_74：claude-code OS 沙盒冷切（与 AdapterRestartWithCodexSandbox 字面镜像）。
+   *
+   * SDK 的 sandbox options 是 query() spawn-time 锁定，无法热切。adapter 内部走
+   * close → createSession({resume, claudeCodeSandbox}) → handoffPrompt 触发首条 turn。
+   * 失败回滚 sessionRepo.claudeCodeSandbox。
+   *
+   * 校验：adapter 必须存在 + capabilities.canRestartWithClaudeCodeSandbox === true +
+   * 实现了 restartWithClaudeCodeSandbox 方法（典型 = claude-code adapter）。
+   */
+  on(
+    IpcInvoke.AdapterRestartWithClaudeCodeSandbox,
+    async (_e, agentId, sessionId, sandbox, handoffPrompt) => {
+      const adapter = adapterRegistry.get(String(agentId));
+      if (
+        !adapter?.capabilities.canRestartWithClaudeCodeSandbox ||
+        !adapter.restartWithClaudeCodeSandbox
+      ) {
+        throw new Error('adapter does not support claude-code sandbox restart');
+      }
+      const sid = String(sessionId);
+      const sb = String(sandbox) as 'off' | 'workspace-write' | 'strict';
+      if (sb !== 'off' && sb !== 'workspace-write' && sb !== 'strict') {
+        throw new Error(`invalid claude-code sandbox: ${sb}`);
+      }
+      const prompt = String(handoffPrompt ?? '');
+      return adapter.restartWithClaudeCodeSandbox(sid, sb, prompt);
     },
   );
 }

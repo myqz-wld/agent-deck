@@ -170,6 +170,26 @@ const api = {
       handoffPrompt,
     ),
 
+  /**
+   * Claude Code OS 沙盒冷切（CHANGELOG_74）：与 restartWithCodexSandbox 字面镜像。
+   * SDK 的 sandbox options 是 query() spawn-time 锁定，运行时切档必须冷切（销毁旧 SDK
+   * 子进程 + 用新档位 createSession resume 重建）。adapter 必须
+   * capabilities.canRestartWithClaudeCodeSandbox === true。失败回滚 sessionRepo.claudeCodeSandbox。
+   */
+  restartWithClaudeCodeSandbox: (
+    agentId: string,
+    sessionId: string,
+    sandbox: 'off' | 'workspace-write' | 'strict',
+    handoffPrompt: string,
+  ): Promise<string> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterRestartWithClaudeCodeSandbox,
+      agentId,
+      sessionId,
+      sandbox,
+      handoffPrompt,
+    ),
+
   /** 拉取主进程 SDK 当前还在等的 pending 请求；renderer HMR / 重启后用来重建 store。 */
   listAdapterPending: (
     agentId: string,
