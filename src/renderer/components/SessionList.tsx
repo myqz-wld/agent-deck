@@ -1,7 +1,64 @@
 import { useMemo, type JSX } from 'react';
+import type { SessionRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { selectLiveSessions } from '@renderer/lib/session-selectors';
 import { SessionCard } from './SessionCard';
+
+/**
+ * Phase C (CHANGELOG_77 / plan deep-review-flow-fix): 按 spawnedBy 树形分组。
+ * - lead = root + has visible children
+ * - teammate = spawnedBy 命中 visible owner（缩进显示在 owner 下）
+ * - 孤儿 teammate（owner 不可见 / 已归档 / 已 closed 不在本 group）→ 平铺为 root，无 badge（D8 决策不绑死 owner）
+ *
+ * 单飞同 group 内分组（active / dormant 各自分组），不跨 group 关联（避免「lead active 但 teammate dormant」
+ * 的 cross-group 视觉跳跃 + 简化数据结构）。
+ */
+function renderTreeGroup(
+  sessions: SessionRecord[],
+  selectedId: string | null,
+  onSelect: (sid: string) => void,
+): JSX.Element[] {
+  const visibleIds = new Set(sessions.map((s) => s.id));
+  const childrenByOwner = new Map<string, SessionRecord[]>();
+  const roots: SessionRecord[] = [];
+  for (const s of sessions) {
+    if (s.spawnedBy && visibleIds.has(s.spawnedBy)) {
+      const arr = childrenByOwner.get(s.spawnedBy) ?? [];
+      arr.push(s);
+      childrenByOwner.set(s.spawnedBy, arr);
+    } else {
+      roots.push(s);
+    }
+  }
+  return roots.flatMap((root) => {
+    const children = childrenByOwner.get(root.id) ?? [];
+    const elements: JSX.Element[] = [
+      <SessionCard
+        key={root.id}
+        session={root}
+        selected={selectedId === root.id}
+        onSelect={() => onSelect(root.id)}
+        teamRole={children.length > 0 ? 'lead' : undefined}
+      />,
+    ];
+    if (children.length > 0) {
+      elements.push(
+        <div key={`${root.id}-children`} className="ml-3 flex flex-col gap-1.5 border-l border-blue-400/20 pl-2.5">
+          {children.map((child) => (
+            <SessionCard
+              key={child.id}
+              session={child}
+              selected={selectedId === child.id}
+              onSelect={() => onSelect(child.id)}
+              teamRole="teammate"
+            />
+          ))}
+        </div>,
+      );
+    }
+    return elements;
+  });
+}
 
 export function SessionList(): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions);
@@ -43,14 +100,7 @@ export function SessionList(): JSX.Element {
             活跃 · {grouped.active.length}
           </div>
           <div className="flex flex-col gap-1.5">
-            {grouped.active.map((s) => (
-              <SessionCard
-                key={s.id}
-                session={s}
-                selected={selected === s.id}
-                onSelect={() => select(s.id)}
-              />
-            ))}
+            {renderTreeGroup(grouped.active, selected, select)}
           </div>
         </section>
       )}
@@ -60,14 +110,7 @@ export function SessionList(): JSX.Element {
             休眠 · {grouped.dormant.length}
           </div>
           <div className="flex flex-col gap-1.5">
-            {grouped.dormant.map((s) => (
-              <SessionCard
-                key={s.id}
-                session={s}
-                selected={selected === s.id}
-                onSelect={() => select(s.id)}
-              />
-            ))}
+            {renderTreeGroup(grouped.dormant, selected, select)}
           </div>
         </section>
       )}
