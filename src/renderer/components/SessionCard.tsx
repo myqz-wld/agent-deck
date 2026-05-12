@@ -9,11 +9,21 @@ interface Props {
   session: SessionRecord;
   selected: boolean;
   onSelect: () => void;
+  /**
+   * Phase C (CHANGELOG_77 / plan deep-review-flow-fix): 在 team 中的角色 badge。
+   * - 'lead'：本 session 是某 team 的 lead（spawn 出 ≥1 个仍可见 teammate）
+   * - 'teammate'：本 session 是 owner 在可见列表里的子 session（spawnedBy ↦ visible owner）
+   * - undefined：普通 session（无 spawnedBy，或 owner 已不可见的孤儿 teammate）
+   *
+   * SessionList 在树形分组时计算 owner→children Map 后传入。
+   * lead 走「蓝边」(border 颜色)；teammate 走「浅蓝小 chip」(bg+text)，与现有 🛡 teamName chip 风格一致。
+   */
+  teamRole?: 'lead' | 'teammate';
 }
 
 const EMPTY_EVENTS: AgentEvent[] = [];
 
-export function SessionCard({ session, selected, onSelect }: Props): JSX.Element {
+export function SessionCard({ session, selected, onSelect, teamRole }: Props): JSX.Element {
   const recent = useSessionStore((s) => s.recentEventsBySession.get(session.id) ?? EMPTY_EVENTS);
   const latestSummary = useSessionStore((s) => s.latestSummaryBySession.get(session.id));
   const [menuOpen, setMenuOpen] = useState(false);
@@ -60,7 +70,9 @@ export function SessionCard({ session, selected, onSelect }: Props): JSX.Element
       className={`group relative cursor-pointer rounded-lg border px-3 py-2 transition ${
         selected
           ? 'border-white/30 bg-white/10'
-          : 'border-deck-border bg-white/[0.02] hover:bg-white/[0.06]'
+          : teamRole === 'lead'
+            ? 'border-blue-400/40 bg-white/[0.02] hover:bg-white/[0.06]'
+            : 'border-deck-border bg-white/[0.02] hover:bg-white/[0.06]'
       }`}
     >
       <div className="flex items-center gap-2">
@@ -86,6 +98,22 @@ export function SessionCard({ session, selected, onSelect }: Props): JSX.Element
             title={`Agent Team: ${session.teamName}`}
           >
             🛡 {session.teamName}
+          </span>
+        )}
+        {teamRole === 'lead' && (
+          <span
+            className="rounded bg-blue-400/15 px-1 py-0.5 text-[9px] font-medium text-blue-200"
+            title="本会话是某 team 的 lead（spawn 出 ≥1 个仍可见 teammate）"
+          >
+            👑 lead
+          </span>
+        )}
+        {teamRole === 'teammate' && (
+          <span
+            className="rounded bg-blue-400/10 px-1 py-0.5 text-[9px] font-medium text-blue-200/85"
+            title="本会话是某 team 的 teammate（spawnedBy 指向可见 owner）"
+          >
+            ↳ teammate
           </span>
         )}
         <span className="text-[9px] text-deck-muted/60">{session.agentId}</span>
