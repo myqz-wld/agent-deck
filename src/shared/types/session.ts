@@ -3,6 +3,7 @@
  */
 
 import type { GenericPtyConfig } from './generic-pty';
+import type { SessionTeamMembership } from './agent-deck-team';
 
 export type ActivityState = 'idle' | 'working' | 'waiting' | 'finished';
 /**
@@ -38,12 +39,17 @@ export interface SessionRecord {
   /** SDK 通道：上次手动选过的权限模式；null/undefined 视为 'default'。CLI 通道字段无意义。 */
   permissionMode?: PermissionMode | null;
   /**
-   * Agent Teams：会话所属团队名（仅 SDK 通道写）。null/undefined = 不在任何 team。
-   * 与 settings.agentTeamsEnabled 联合作为「spawn 时注入 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1」
-   * 的触发条件；team 元信息（成员 / shared task list）权威源是 ~/.claude/teams/<name>/ 与
-   * ~/.claude/tasks/<name>/，不在 DB 复刻。CLI 通道字段无意义。
+   * plan team-cohesion-fix-20260513 Phase A：universal team backend 反查的 active membership 投影。
+   *
+   * 由 sessionManager.enrichWithTeams（or batch enrich）填充，不在 sessionRepo.toSessionRecord 内产
+   * （repo 层职责单一：纯 DB row → record；team membership 是跨表 JOIN，归 sessionManager 编排层）。
+   *
+   * 顺序：joined_at DESC（最近加入的在前；多 team 共享时 SessionCard 显示 teams[0]）。
+   * undefined = 未 enriched（防御性 default fallback；renderer 应 `?? []`）；空数组 = 不在任何 active team。
+   *
+   * v014 drop sessions.team_name 后，老 `teamName` 字段已删；显示团队名走 `teams[0]?.teamName`。
    */
-  teamName?: string | null;
+  teams?: SessionTeamMembership[];
   /**
    * Codex sandbox 档位（CHANGELOG_<X> A2a：仅 codex-cli adapter 写）。
    * 持久化用户在 NewSessionDialog 选过的 codex sandbox（workspace-write / read-only /

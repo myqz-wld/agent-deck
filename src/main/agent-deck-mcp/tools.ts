@@ -20,26 +20,24 @@
 
 import { z } from 'zod';
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
-import type { SessionRecord } from '@shared/types';
+import type { SessionRecord, AgentDeckMessage } from '@shared/types';
 import { adapterRegistry } from '@main/adapters/registry';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { sessionRepo } from '@main/store/session-repo';
-import { eventRepo } from '@main/store/event-repo';
+import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { sessionManager } from '@main/session/manager';
-import { settingsStore } from '@main/store/settings-store';
 import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { getBundledAssetContent } from '@main/bundled-assets';
 import { enqueueAgentDeckMessage } from '@main/teams/universal-message-watcher';
+import { eventBus } from '@main/event-bus';
 import {
   AGENT_DECK_TOOL_NAMES,
   EXTERNAL_CALLER_ALLOWED,
   EXTERNAL_CALLER_SENTINEL,
   type CallerContext,
 } from './types';
-import {
-  waitReplyCoordinator,
-  type EventProjection,
-} from './wait-reply-coordinator';
+// plan team-cohesion-fix-20260513 Phase B Step B6：wait_reply 重写为 messages 表 query 模型，
+// 老 wait-reply-coordinator (events 流投影) 整文件作废，B6 删除前先在 import 移除引用。
 import { applySpawnGuards } from './spawn-guards';
 
 /**
@@ -155,13 +153,21 @@ function validateExternalCaller(
  * 没必要先优化批量。多 team 共享时取第一个 active team（teamName 字段语义是「展示用」非路由
  * 标识；路由用 spawn 时显式 args.team_name / send_message 显式 team_id）。
  */
+/**
+ * SessionRecord → metadata 投影。**list_sessions / get_session 共用同一份 projector**
+ * （REVIEW_28 reviewer-codex LOW-2 修法）：避免 get_session 暴露 raw SessionRecord 引入额外
+ * metadata；future visibility predicate 加在这一层即可两 tool 同步生效。
+ *
+ * plan team-cohesion-fix-20260513 Phase A Step A7：直接消费 enriched `s.teams` 字段
+ * （由 sessionManager.enrichWithTeams / enrichWithTeamsBatch 注入），不再 N+1 反查。
+ * 调用方必须传 enriched SessionRecord（list_sessions / get_session handler 已切到
+ * sessionManager facade 路径保证 enriched）。teamName 取 teams[0]?.teamName 与 SessionCard 一致。
+ *
+ * 多 team 共享时取第一个（teamName 字段语义是「展示用」非路由标识；路由用 spawn 时
+ * 显式 args.team_name / send_message 显式 team_id）。新增 teams 完整数组字段方便
+ * caller 自行查多 team 共享场景。
+ */
 function projectSession(s: SessionRecord) {
-  let teamNameFromBackend: string | null = null;
-  const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(s.id);
-  if (memberships.length > 0) {
-    const team = agentDeckTeamRepo.get(memberships[0].teamId);
-    teamNameFromBackend = team?.name ?? null;
-  }
   return {
     sessionId: s.id,
     adapter: s.agentId,
@@ -169,7 +175,8 @@ function projectSession(s: SessionRecord) {
     lifecycle: s.lifecycle,
     title: s.title,
     lastEventAt: s.lastEventAt,
-    teamName: teamNameFromBackend ?? s.teamName ?? null,
+    teamName: s.teams?.[0]?.teamName ?? null,
+    teams: s.teams ?? [],
     spawnedBy: s.spawnedBy ?? null,
     spawnDepth: s.spawnDepth ?? 0,
   };
@@ -230,13 +237,65 @@ const SEND_MESSAGE_SCHEMA = {
     .describe(
       'Team scope for this message. Required when caller and target share more than one active team; optional when sharing exactly one (auto-resolved). Reject when sharing zero teams.',
     ),
+  // plan team-cohesion-fix-20260513 Phase B Step B2：可选对话链关联
+  reply_to_message_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'Optional: link this message as a reply to an existing message in the same team. The reply forms a conversation chain queryable via wait_reply({message_id}). Use this for "I am replying to message X" semantics; for new topics omit it. The dedicated reply_message tool is a more ergonomic alias that auto-resolves to_session_id and team_id from the original message.',
+    ),
 };
 
 const WAIT_REPLY_SCHEMA = {
-  session_id: z.string().min(1).max(128),
-  until: z.enum(['first_message', 'turn_complete', 'idle']).default('idle'),
-  timeout_ms: z.number().int().min(1000).max(600_000).default(60_000),
-  since_ts: z.number().int().min(0).optional(),
+  // plan team-cohesion-fix-20260513 Phase B Step B4：wait_reply 重定义为「等某条 msg 的 reply」
+  // —— 不再是事件流投影，直接 query messages 表 + universal-message-watcher event listener。
+  message_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe(
+      'Wait for a reply to this specific message id (returned by send_message / reply_message). The wait resolves when a message with reply_to_message_id = this id is delivered (DB query + event listener).',
+    ),
+  nudge_text: z
+    .string()
+    .min(1)
+    .max(100_000)
+    .optional()
+    .describe(
+      'Optional: if no reply arrives within nudge_after_ms, automatically send a nudge message (text body) to the recipient as a "are you there" reminder. The nudge is itself a reply to the original message (reply_to_message_id chains). Useful when the other side may have forgotten to call reply_message.',
+    ),
+  nudge_after_ms: z
+    .number()
+    .int()
+    .min(5_000)
+    .max(600_000)
+    .optional()
+    .describe(
+      'How long (ms) to wait before sending the nudge. Defaults to half of timeout_ms (clamped 5_000 ~ 600_000). Ignored when nudge_text is omitted.',
+    ),
+  timeout_ms: z
+    .number()
+    .int()
+    .min(1_000)
+    .max(600_000)
+    .default(600_000)
+    .describe(
+      'Total timeout. Returns { reply: null, timedOut: true } when exceeded.',
+    ),
+  caller_session_id: z.string().min(1).max(128),
+};
+
+const REPLY_MESSAGE_SCHEMA = {
+  reply_to_message_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe(
+      'The id of the original message you are replying to (returned by send_message / wait_reply).',
+    ),
+  text: z.string().min(1).max(100_000).describe('Reply body (1-100KB).'),
   caller_session_id: z.string().min(1).max(128),
 };
 
@@ -397,6 +456,9 @@ export async function buildAgentDeckTools(
                 role: 'lead',
                 displayName: null,
               });
+              // plan team-cohesion-fix-20260513 Phase A：lead addMember 后触发 session-upserted
+              // 让桥点 enrich teams[] → renderer 立即看到 lead 的 🛡 chip（不再等下一个 agent event）。
+              sessionManager.notifyTeamMembershipChanged(caller.callerSessionId);
             } catch (e) {
               // 已 active 时 invariant 抛错；视为「已是 lead」幂等成功
               if (!(e instanceof TeamInvariantError)) throw e;
@@ -408,9 +470,12 @@ export async function buildAgentDeckTools(
             role: 'teammate',
             displayName: null,
           });
-          // 兼容老 sessions.team_name 列（不破坏 distinctTeamNames / findByTeamName 老 read 路径）
-          // 但 R3 内 UI / 写路径都不再消费此列；下版本 v012 删
-          sessionManager.recordCreatedTeamName(sid, args.team_name);
+          // plan team-cohesion-fix-20260513 Phase A Step A7：teammate addMember 后同样触发 session-upserted
+          // 让桥点 enrich teams[]（与 lead 路径对称）。
+          sessionManager.notifyTeamMembershipChanged(sid);
+          // plan team-cohesion-fix-20260513 Phase A Step A8：删 sessionManager.recordCreatedTeamName 调用
+          // —— universal team backend addMember 已是 SSOT，不再写老 sessions.team_name 列；
+          // v012 migration 后此列彻底 drop。
         } catch (e) {
           console.warn(`[mcp spawn_session] team ensure / addMember failed for "${args.team_name}":`, e);
         }
@@ -487,11 +552,13 @@ export async function buildAgentDeckTools(
       }
 
       // 入队（messageRateLimiter + repo.insert 100KB cap + self-message 防御都在内部）
+      // plan team-cohesion-fix-20260513 Phase B Step B2：透传 reply_to_message_id 建对话链
       const result = enqueueAgentDeckMessage({
         teamId,
         fromSessionId: caller.callerSessionId,
         toSessionId: args.session_id,
         body: args.text,
+        replyToMessageId: args.reply_to_message_id ?? null,
       });
       if (!result.ok) {
         return err(
@@ -503,6 +570,73 @@ export async function buildAgentDeckTools(
         sessionId: args.session_id,
         teamId,
         messageId: result.message.id,
+        replyToMessageId: result.message.replyToMessageId,
+        sentAt: result.message.sentAt,
+        queued: true,
+      });
+    },
+  );
+
+  // ──────────────────── reply_message (plan team-cohesion-fix-20260513 Phase B Step B3 语法糖)
+  const replyMessage = tool(
+    AGENT_DECK_TOOL_NAMES.replyMessage,
+    'Reply to an existing message in the same team. Convenience wrapper around send_message: auto-resolves to_session_id (= original message.from_session_id) and team_id (= original message.team_id), and sets reply_to_message_id automatically. Use this when you (lead or teammate) received a message and want to respond — the wait_reply tool on the other side will resolve once your reply is delivered. Returns immediately after queueing.',
+    REPLY_MESSAGE_SCHEMA,
+    async (args) => {
+      const caller = deriveCaller(args);
+      const denial = denyExternalIfNotAllowed('reply_message', caller);
+      if (denial) return denial;
+      const callerCheck = validateExternalCaller(caller);
+      if (callerCheck) return callerCheck;
+
+      // 反查原 msg
+      const original = agentDeckMessageRepo.get(args.reply_to_message_id);
+      if (!original) {
+        return err(
+          `original message ${args.reply_to_message_id} not found`,
+          'reply_to_message_id must point to an existing message. Use list_messages or wait_reply to discover live message ids.',
+        );
+      }
+      // 安全：caller 必须是原 msg 的 to_session_id（你只能回复给你的 msg）
+      if (original.toSessionId !== caller.callerSessionId) {
+        return err(
+          'cannot reply: caller is not the recipient of the original message',
+          `Original message was sent to ${original.toSessionId.slice(0, 8)}, but caller is ${caller.callerSessionId.slice(0, 8)}. You can only reply to messages addressed to you.`,
+        );
+      }
+      // 自动算 to (= 原 msg 的 from) + team
+      const toSessionId = original.fromSessionId;
+      const teamId = original.teamId;
+      // 防御：原 from 仍在 sessions 表 + lifecycle 不是 closed
+      const target = sessionRepo.get(toSessionId);
+      if (!target) {
+        return err(`reply target session ${toSessionId} not found (original sender no longer exists)`);
+      }
+      if (target.lifecycle === 'closed') {
+        return err(
+          `reply target session ${toSessionId} is closed`,
+          'The original sender has been closed; reply cannot be delivered.',
+        );
+      }
+
+      const result = enqueueAgentDeckMessage({
+        teamId,
+        fromSessionId: caller.callerSessionId,
+        toSessionId,
+        body: args.text,
+        replyToMessageId: args.reply_to_message_id,
+      });
+      if (!result.ok) {
+        return err(
+          `${result.error} (retryAfterMs=${result.retryAfterMs})`,
+          'Per-team rate limit exceeded. Retry after the indicated delay or raise mcpMessageRatePerTeamPerMin in Settings.',
+        );
+      }
+      return ok({
+        sessionId: toSessionId,
+        teamId,
+        messageId: result.message.id,
+        replyToMessageId: args.reply_to_message_id,
         sentAt: result.message.sentAt,
         queued: true,
       });
@@ -512,101 +646,116 @@ export async function buildAgentDeckTools(
   // ──────────────────── wait_reply
   const waitReply = tool(
     AGENT_DECK_TOOL_NAMES.waitReply,
-    'Wait for the next reply from a session. until: first_message (first assistant text), turn_complete (finished/waiting-for-user event), idle (N seconds quiet, default 5s — tuned by Settings, recommend turn_complete for high-reasoning models). Returns partial events on timeout.',
+    'Wait for a reply to a specific message id. Resolves when a message with reply_to_message_id = this id is delivered (DB query + universal-message-watcher event listener). Optionally sends a nudge_text after nudge_after_ms if no reply arrives — useful when the recipient may have forgotten to call reply_message. Returns { reply: { messageId, text, sentAt, fromSessionId } | null, nudgesSent, timedOut }.',
     WAIT_REPLY_SCHEMA,
     async (args) => {
-      const handlerEntryTs = Date.now();
       const caller = deriveCaller(args);
       const denial = denyExternalIfNotAllowed('wait_reply', caller);
       if (denial) return denial;
       const callerCheck = validateExternalCaller(caller);
       if (callerCheck) return callerCheck;
 
-      const target = sessionRepo.get(args.session_id);
-      if (!target) {
-        return err(`session ${args.session_id} not found`);
+      // 反查原 msg 校验存在
+      const original = agentDeckMessageRepo.get(args.message_id);
+      if (!original) {
+        return err(
+          `original message ${args.message_id} not found`,
+          'message_id must point to an existing message (returned by send_message / reply_message). Use list_messages to discover live ids.',
+        );
       }
-      // closed session 仍允许 wait（caller 可能想拉历史，超时即返）—— 不 deny
 
-      const idleQuietMs = settingsStore.get('mcpWaitReplyIdleQuietMs') ?? 5000;
-      const sinceTs = args.since_ts ?? handlerEntryTs;
-
-      // 加入 coordinator（同 sessionId+until+idleQuietMs 共享 promise）
-      const coordPromise = waitReplyCoordinator.waitFor(
-        args.session_id,
-        args.until,
-        idleQuietMs,
-      );
-
-      // Race coordinator vs timeout（不 abort coordinator —— 让其他 caller 继续等）
-      let timedOutTimer: NodeJS.Timeout | null = null;
-      const timeoutPromise = new Promise<{ kind: 'timeout' }>((res) => {
-        timedOutTimer = setTimeout(() => res({ kind: 'timeout' }), args.timeout_ms);
+      // 防 race：注册 listener 之前先查一次，reply 可能已到（caller wait_reply 慢于 reply 到达）
+      const replyProj = (msg: AgentDeckMessage) => ({
+        messageId: msg.id,
+        text: msg.body,
+        sentAt: msg.sentAt,
+        fromSessionId: msg.fromSessionId,
       });
-      type RaceResult =
-        | { kind: 'resolved'; value: Awaited<typeof coordPromise> }
-        | { kind: 'timeout' };
-      const wrappedCoord = coordPromise.then((value) => ({ kind: 'resolved' as const, value }));
-      const raceResult: RaceResult = await Promise.race([wrappedCoord, timeoutPromise]);
-      if (timedOutTimer) clearTimeout(timedOutTimer);
-
-      let baselineTs: number;
-      let liveEvents: EventProjection[];
-      let timedOut = false;
-      let reason: string;
-      if (raceResult.kind === 'timeout') {
-        // 超时：此时 coordinator 仍未 resolve；用 handlerEntryTs 当 baseline，live 为空。
-        // backfill 由 handler 拉 [sinceTs, handlerEntryTs) 段补回 partial 事件给 caller。
-        baselineTs = handlerEntryTs;
-        liveEvents = [];
-        timedOut = true;
-        reason = 'timeout';
-      } else {
-        baselineTs = raceResult.value.baselineTs;
-        liveEvents = raceResult.value.events;
-        reason = raceResult.value.reason;
+      const existing = agentDeckMessageRepo.findRepliesByMessageId(args.message_id);
+      if (existing.length > 0) {
+        return ok({
+          reply: replyProj(existing[0]),
+          nudgesSent: 0,
+          timedOut: false,
+        });
       }
 
-      // Backfill：若 sinceTs < baselineTs 拉历史段，让多 caller 各自 since 切片
-      // （reviewer 双对抗 HIGH-2 修法）
-      let backfill: EventProjection[] = [];
-      if (sinceTs < baselineTs) {
-        try {
-          const rows = eventRepo.listForSessionRange(args.session_id, sinceTs, baselineTs);
-          backfill = rows.map((e) => {
-            const proj: EventProjection = { kind: e.kind, ts: e.ts };
-            // 简化投影：与 coordinator.projectEvent 同款（避免 cross-import 循环依赖）
-            if (e.kind === 'message') {
-              const p = e.payload as { text?: unknown } | null | undefined;
-              if (p && typeof p.text === 'string') proj.text = p.text;
+      // 监听 universal-message-watcher 入队事件 + 状态变更事件，filter replyToMessageId
+      let resolved = false;
+      let nudgesSent = 0;
+      let nudgeTimer: NodeJS.Timeout | null = null;
+      let timeoutTimer: NodeJS.Timeout | null = null;
+      let unsubscribeEnq: (() => void) | null = null;
+      let unsubscribeChange: (() => void) | null = null;
+
+      const cleanup = () => {
+        if (nudgeTimer) clearTimeout(nudgeTimer);
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        if (unsubscribeEnq) unsubscribeEnq();
+        if (unsubscribeChange) unsubscribeChange();
+      };
+
+      return new Promise((resolve) => {
+        const checkReply = () => {
+          if (resolved) return;
+          const replies = agentDeckMessageRepo.findRepliesByMessageId(args.message_id);
+          if (replies.length > 0) {
+            resolved = true;
+            cleanup();
+            resolve(ok({
+              reply: replyProj(replies[0]),
+              nudgesSent,
+              timedOut: false,
+            }));
+          }
+        };
+
+        const onEnqueued = (e: { id: string; teamId: string; fromSessionId: string; toSessionId: string }) => {
+          // 任何 message-enqueued 触发都重 query 一次（filter 在 repo 层做更准确）
+          if (e.teamId === original.teamId) checkReply();
+        };
+        const onChanged = (e: { id: string }) => {
+          // status / cancellation 也可能影响 wait（cancelled reply 不算）
+          if (e.id) checkReply();
+        };
+        unsubscribeEnq = eventBus.on('agent-deck-message-enqueued', onEnqueued);
+        unsubscribeChange = eventBus.on('agent-deck-message-status-changed', onChanged);
+
+        // nudge timer：nudge_text 非空时，nudge_after_ms 后 enqueue 一条催促消息
+        if (args.nudge_text) {
+          const nudgeDelay = args.nudge_after_ms ?? Math.max(5_000, Math.min(args.timeout_ms / 2, 600_000));
+          nudgeTimer = setTimeout(() => {
+            if (resolved) return;
+            // 给原 msg 的接收方塞一条 nudge（reply_to_message_id 指向原 msg；fromSessionId 是 caller）
+            try {
+              enqueueAgentDeckMessage({
+                teamId: original.teamId,
+                fromSessionId: caller.callerSessionId,
+                toSessionId: original.toSessionId,
+                body: args.nudge_text!,
+                replyToMessageId: args.message_id,
+              });
+              nudgesSent++;
+            } catch (e) {
+              console.warn('[mcp wait_reply] nudge enqueue failed:', e);
             }
-            return proj;
-          });
-        } catch (e) {
-          // backfill 失败不影响 live —— 只 warn
-          console.warn(
-            '[mcp wait_reply] backfill query failed, returning live events only:',
-            e,
-          );
+          }, nudgeDelay);
         }
-      }
 
-      // 二次 filter：caller since_ts > baseline_ts 时也要剥离不感兴趣的 live 事件
-      const filteredLive = liveEvents.filter((e) => e.ts > sinceTs);
-
-      // 合并 backfill + filteredLive 按 ts ASC（backfill 已 ASC；filteredLive 也 ASC）
-      const events = [...backfill, ...filteredLive];
-
-      return ok({
-        sessionId: args.session_id,
-        until: args.until,
-        timedOut,
-        aborted: false, // 中断通过 SDK abortSignal 机制；当前 handler 不监听 abort 信号
-        reason,
-        events,
+        // total timeout
+        timeoutTimer = setTimeout(() => {
+          if (resolved) return;
+          resolved = true;
+          cleanup();
+          resolve(ok({
+            reply: null,
+            nudgesSent,
+            timedOut: true,
+          }));
+        }, args.timeout_ms);
       });
     },
-    { annotations: { readOnlyHint: true } },
+    { annotations: { readOnlyHint: false } }, // wait_reply 现在可能 enqueue nudge，不再纯 read-only
   );
 
   // ──────────────────── list_sessions
@@ -650,9 +799,13 @@ export async function buildAgentDeckTools(
         sessions = sessions.filter((s) => s.spawnedBy === args.spawned_by_filter);
       }
       const truncated = sessions.slice(0, args.limit);
+      // plan team-cohesion-fix-20260513 Phase A Step A7：projectSession 不再自反查 universal
+      // team backend，依赖 caller 传 enriched SessionRecord。这里在 slice 后 batch enrich
+      // 一次（避免 list 整批 ≤ 100 sessions 各反查一次 N+1）。
+      const enriched = sessionManager.enrichWithTeamsBatch(truncated);
       return ok({
-        total: truncated.length,
-        sessions: truncated.map(projectSession),
+        total: enriched.length,
+        sessions: enriched.map(projectSession),
       });
     },
     { annotations: { readOnlyHint: true } },
@@ -661,7 +814,7 @@ export async function buildAgentDeckTools(
   // ──────────────────── get_session
   const getSession = tool(
     AGENT_DECK_TOOL_NAMES.getSession,
-    "Get a single session metadata by id. Returns same projection as list_sessions (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages (use wait_reply for those). Returns isError when session does not exist.",
+    "Get a single session metadata by id. Returns same projection as list_sessions (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, teams, spawnedBy, spawnDepth) — does NOT include events / messages (use wait_reply for those). Returns isError when session does not exist.",
     GET_SESSION_SCHEMA,
     async (args) => {
       const caller = deriveCaller(args);
@@ -669,7 +822,8 @@ export async function buildAgentDeckTools(
       if (denial) return denial;
       const callerCheck = validateExternalCaller(caller);
       if (callerCheck) return callerCheck;
-      const session = sessionRepo.get(args.session_id);
+      // plan team-cohesion-fix-20260513 Phase A Step A7：走 sessionManager.get（已 enrich）
+      const session = sessionManager.get(args.session_id);
       if (!session) {
         return err(
           `session ${args.session_id} not found`,
@@ -718,7 +872,7 @@ export async function buildAgentDeckTools(
     },
   );
 
-  return [spawnSession, sendMessage, waitReply, listSessions, getSession, shutdownSession];
+  return [spawnSession, sendMessage, replyMessage, waitReply, listSessions, getSession, shutdownSession];
 }
 
 // re-export internal helpers for B'2.b unit tests

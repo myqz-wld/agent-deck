@@ -13,6 +13,7 @@ import { IpcInvoke } from '@shared/ipc-channels';
 import { adapterRegistry } from '@main/adapters/registry';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { eventBus } from '@main/event-bus';
 import {
   on,
@@ -180,11 +181,28 @@ export function registerAdaptersIpc(): void {
     // 持久化 permissionMode：抽到 sessionManager.recordCreatedPermissionMode，
     // CLI 路径（cli.ts applyCliInvocation）也走同一个 helper，确保两条入口语义一致。
     sessionManager.recordCreatedPermissionMode(sid, permissionMode ?? undefined);
-    // CHANGELOG_46：删 recordCreatedTeamName 调用 — 不再 IPC 入口预写 sessions.team_name；
-    // 让 team-coordinator 三层反向同步去写。仅当 CLI 入口（agent-deck new --team-name）
-    // 显式传 teamName 时才预写（兼容老入口；用户也确实想预指定 team）。
+    // plan team-cohesion-fix-20260513 Phase A Step A8：删 sessionManager.recordCreatedTeamName，
+    // 改走 universal team backend ensureByName + addMember(role:'teammate')。IPC 入口
+    // (agent-deck new --team-name X) 不知道 session 是 lead 还是 teammate，按 teammate 安全加入；
+    // 如要明确 lead 角色走 spawn_session MCP tool。
     if (teamName) {
-      sessionManager.recordCreatedTeamName(sid, teamName);
+      try {
+        const team = agentDeckTeamRepo.ensureByName(teamName, { source: 'cli' });
+        try {
+          agentDeckTeamRepo.addMember({
+            teamId: team.id,
+            sessionId: sid,
+            role: 'teammate',
+            displayName: null,
+          });
+          sessionManager.notifyTeamMembershipChanged(sid);
+        } catch (e) {
+          // 已 active 时 invariant 抛错；幂等成功
+          if (!(e instanceof TeamInvariantError)) throw e;
+        }
+      } catch (e) {
+        console.warn(`[ipc adapters createSession] team ensure / addMember failed for "${teamName}":`, e);
+      }
     }
     return sid;
   });

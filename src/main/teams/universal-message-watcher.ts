@@ -110,6 +110,11 @@ export interface EnqueueMessageInput {
   fromSessionId: string;
   toSessionId: string;
   body: string;
+  /**
+   * plan team-cohesion-fix-20260513 Phase B Step B1：可选对话链关联。
+   * 非 NULL 时该 msg 是对 reply_to_message_id 指向的原 msg 的 reply（wait_reply 走此字段反查）。
+   */
+  replyToMessageId?: string | null;
 }
 
 /**

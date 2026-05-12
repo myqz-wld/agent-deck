@@ -33,12 +33,16 @@ export interface CallerContext {
 }
 
 /**
- * Agent Deck MCP tool 6 个名字常量集中地。
+ * Agent Deck MCP tool 7 个名字常量集中地。
  * 文档（README + skill）+ 防御性 deny 决策（B'5 / B'2.a）共用。
+ *
+ * plan team-cohesion-fix-20260513 Phase B Step B3：加 reply_message tool（语法糖）
+ * —— teammate 收到 user message 后调此 tool 回复，无需手动算 to_session_id / team_id。
  */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
   sendMessage: 'send_message',
+  replyMessage: 'reply_message',
   waitReply: 'wait_reply',
   listSessions: 'list_sessions',
   getSession: 'get_session',
@@ -50,12 +54,14 @@ export type AgentDeckToolName =
 
 /**
  * 注册到 in-process MCP / HTTP / stdio 的 tool 是否允许「外部 caller」调用。
- * spawn_session / send_message / shutdown_session 默认 deny external（防 fork bomb / 越权 IPC）；
- * list_sessions / get_session / wait_reply 是只读 / 观察类，允许 external。
+ * spawn_session / send_message / reply_message / shutdown_session 默认 deny external
+ * （防 fork bomb / 越权 IPC）；list_sessions / get_session / wait_reply 是只读 / 观察类，
+ * 允许 external。
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,
   send_message: false,
+  reply_message: false,
   wait_reply: true,
   list_sessions: true,
   get_session: true,
