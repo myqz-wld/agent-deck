@@ -408,12 +408,33 @@ export async function buildAgentDeckTools(
         promptToUse = `${body}\n\n---\n\n${args.prompt}`;
       }
 
+      // plan team-cohesion-fix-20260513 Phase B7：spawn 路径 wire format 注入 messageId。
+      // 流程：先预生成 placeholderId（crypto.randomUUID）→ 拼 `[msg <id>]\n` 到 promptToUse 顶部
+      // → createSession 让 SDK 带含 prefix 的 prompt 启动 teammate → 之后 insert placeholder
+      // 用预先 id（messageRepo.insert 接受 input.id 可选参数，Phase B7 加）。
+      // teammate 收到 prompt 后从顶部 regex `\[msg ([0-9a-f-]+)\]` 提 id 调 reply_message。
+      // 无 team / no-shared-team / external caller 场景下不注入 prefix（teammate reply 也无对话锚点）。
+      // **注意**：DB messages.body 列存**原始 promptToUse**（不含 prefix），与 send_message
+      // 路径同款（buildWireBody 注入 prefix 在 watcher 内存里完成，不写回 DB）；这里 spawn
+      // 路径在 createSession 之前用 promptForSpawn 变量保留 wire 形式，DB 仍存 promptToUse。
+      // callerExists 提前算（不能等到 createSession 之后再判定 willCreatePlaceholder，否则
+      // external caller 仍会拿到含 prefix 的 prompt 但 placeholder 不入 DB → teammate
+      // reply_message 用错 id 调用失败）。
+      const callerExists = sessionRepo.get(caller.callerSessionId) !== null;
+      const willCreatePlaceholder = !!(args.team_name) && callerExists;
+      let placeholderId: string | null = null;
+      let promptForSpawn = promptToUse;  // 给 SDK 的 wire 形式（可能含 [msg <id>] prefix）
+      if (willCreatePlaceholder) {
+        placeholderId = crypto.randomUUID();
+        promptForSpawn = `[msg ${placeholderId}]\n${promptToUse}`;
+      }
+
       // 实际 spawn
       let sid: string;
       try {
         sid = await adapter.createSession({
           cwd: args.cwd,
-          prompt: promptToUse,
+          prompt: promptForSpawn,  // wire 形式（spawn 路径下若有 team_name 则含 [msg <id>] prefix）
           ...(args.permission_mode !== undefined ? { permissionMode: args.permission_mode } : {}),
           ...(args.codex_sandbox !== undefined ? { codexSandbox: args.codex_sandbox } : {}),
           ...(args.team_name !== undefined ? { teamName: args.team_name } : {}),
@@ -430,8 +451,8 @@ export async function buildAgentDeckTools(
       }
 
       // 持久化 spawn link / team 关联 / permission_mode（与 IPC adapters.ts handler 同款）
-      // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）
-      const callerExists = sessionRepo.get(caller.callerSessionId) !== null;
+      // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）。
+      // callerExists 已在 spawn 前算（详 Phase B7 注释）。
       if (callerExists) {
         sessionRepo.setSpawnLink(sid, caller.callerSessionId, parentDepth + 1);
       }
@@ -487,10 +508,13 @@ export async function buildAgentDeckTools(
       // 不重复投递）作为 lead/teammate 对话链的锚点。lead 拿 spawnPromptMessageId 调
       // wait_reply({message_id})，teammate first turn 完成后调 reply_message(spawnPromptMessageId)
       // 回复，链路统一。无 team / no-shared-team 时不入队 placeholder（spawn 没有可关联的对话场景）。
+      // Phase B7：用上面预生成的 placeholderId（与 promptForSpawn 里的 [msg <id>] 一致），
+      // body 仍存原始 promptToUse（不含 wire prefix）。
       let spawnPromptMessageId: string | null = null;
-      if (teamId && callerExists) {
+      if (teamId && callerExists && placeholderId) {
         try {
           const placeholder = agentDeckMessageRepo.insert({
+            id: placeholderId,
             teamId,
             fromSessionId: caller.callerSessionId,
             toSessionId: sid,
@@ -502,6 +526,8 @@ export async function buildAgentDeckTools(
           spawnPromptMessageId = placeholder.id;
         } catch (e) {
           // placeholder enqueue 失败不阻塞 spawn 成功（lead 可走老路径不 wait reply）
+          // 注意：此时 prompt 已经含 [msg <placeholderId>] prefix 发出去给 teammate；
+          // teammate reply_message 会失败（id 不在 DB 里），但 spawn 本身仍成功
           console.warn(`[mcp spawn_session] placeholder message enqueue failed:`, e);
         }
       }

@@ -114,6 +114,12 @@ function rowToRecord(r: MessageRow): AgentDeckMessage {
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface InsertMessageInput {
+  /**
+   * plan team-cohesion-fix-20260513 Phase B7：可选预先生成的 id（默认 crypto.randomUUID()）。
+   * spawn_session 路径用 —— 需要在 createSession 之前知道 placeholder messageId 才能拼到
+   * prompt 顶部 `[msg <id>]` prefix（让 teammate 收到 prompt 后能 regex 提 id 调 reply_message）。
+   */
+  id?: string;
   teamId: string;
   fromSessionId: string;
   toSessionId: string;
@@ -226,7 +232,7 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
       );
     }
 
-    const id = crypto.randomUUID();
+    const id = input.id ?? crypto.randomUUID();
     const now = Date.now();
     // plan team-cohesion-fix-20260513 Phase B Step B1：reply_to_message_id 列入 INSERT
     db.prepare(

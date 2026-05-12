@@ -19,9 +19,12 @@
  * - throw 时 attemptCount ++ + lastAttemptAt = now → 退避后下次再选
  * - attemptCount >= 3 直接 failed
  *
- * **wire format**（§4.4）：watcher 在调 adapter 前把 sender 信息拼进 body：
- *   `[from <displayName> @ <adapterId>]\n<原始 body>`
+ * **wire format**（§4.4，plan team-cohesion-fix-20260513 Phase B7：注入 messageId）：
+ *   `[from <displayName> @ <adapterId>][msg <id>]\n<原始 body>`
  * adapter 端不再二次封装；body 直接 sendMessage 到 receiver。
+ * teammate（reviewer-* / 其他 mcp-aware agent）收到后从顶部 regex `\[msg ([0-9a-f-]+)\]` 提
+ * messageId，调 `reply_message({reply_to_message_id, text})` 回 lead；lead `wait_reply({message_id})`
+ * 即可精确等到这条 reply（DB 按 reply_to_message_id 查 + listener fast path）。
  *
  * **sessionManager.close 兜底**：watcher 检测 receiver session lifecycle='closed' →
  * messageRepo.markFailed reason='session-closed'。wait-reply-coordinator 同步监听
@@ -190,7 +193,10 @@ function buildWireBody(
     message.fromSessionId,
     message.teamId,
   );
-  return `[from ${displayName} @ ${adapterId}]\n${message.body}`;
+  // plan team-cohesion-fix-20260513 Phase B7：在 wire body 顶部注入 [msg <id>]，让 teammate
+  // 能从 prompt 提 messageId 调 reply_message —— 否则 lead wait_reply({message_id}) 永 timeout
+  // （teammate 不知 reply_to_message_id 该填啥，只能裸 message reply，wait_reply 查不到）。
+  return `[from ${displayName} @ ${adapterId}][msg ${message.id}]\n${message.body}`;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

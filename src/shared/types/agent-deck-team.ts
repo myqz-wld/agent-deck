@@ -103,7 +103,8 @@ export interface AgentDeckMessage {
    * 消息正文。**100KB hard cap**（caller-side 在 messageRepo.insert 校验 +
    * SQLite CHECK(length(body) <= 102400) 兜底）。
    *
-   * watcher 投递前会拼上 §4.4 统一 wire 前缀 `[from <displayName> @ <adapterId>]\n`，
+   * watcher 投递前会拼上 §4.4 统一 wire 前缀 `[from <displayName> @ <adapterId>][msg <id>]\n`
+   * （Phase B7 加 `[msg <id>]` 让 teammate 能 regex 提 messageId 调 reply_message），
    * 但 DB body 列存的是**原始 body 字符串**（前缀拼装在 watcher 内存里完成，不写回 DB）。
    * adapter 端调 receiveTeammateMessage 时收到的是「带前缀的完整 body」。
    */
