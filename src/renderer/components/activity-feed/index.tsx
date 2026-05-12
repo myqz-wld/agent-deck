@@ -192,7 +192,7 @@ const ActivityRow = memo(function ActivityRow({
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
-}: RowProps): JSX.Element {
+}: RowProps): JSX.Element | null {
   if (event.kind === 'message') {
     return <MessageBubble event={event} agentId={agentId} />;
   }
@@ -253,6 +253,16 @@ const ActivityRow = memo(function ActivityRow({
   }
 
   if (event.kind === 'tool-use-start') {
+    // SDK 通道下 AskUserQuestion / ExitPlanMode 走协议级 deny + message 注入答案/决策，
+    // 同一次调用已由 AskRow / ExitPlanRow 完整渲染（提问 + 选项 + 用户状态）。
+    // 这里再渲染 ToolStartRow 是冗余，且配合 tool-use-end 会让用户看到「AskUserQuestion 失败」
+    // 的红框（实际上是 SDK 把 deny 翻成 is_error → translate 翻成 status='failed'）。
+    // hook 通道（外部 CLI）拿不到 canUseTool 通路，没有 AskRow / ExitPlanRow，必须保留 ToolStartRow
+    // 来显示 plan / 提问内容，因此只对 source='sdk' 隐藏。
+    if (event.source === 'sdk') {
+      const tn = (event.payload as { toolName?: unknown })?.toolName;
+      if (tn === 'AskUserQuestion' || tn === 'ExitPlanMode') return null;
+    }
     return <ToolStartRow event={event} sessionId={sessionId} />;
   }
 
@@ -260,6 +270,13 @@ const ActivityRow = memo(function ActivityRow({
     const useId = (event.payload as { toolUseId?: unknown })?.toolUseId;
     const startEvent =
       typeof useId === 'string' && useId ? toolStartByUseId.get(useId) : undefined;
+    if (event.source === 'sdk') {
+      // toolName 优先取 end 事件的；老事件可能没带 → 反查同 useId 的 start 事件兜底
+      const endTn = (event.payload as { toolName?: unknown })?.toolName;
+      const startTn = (startEvent?.payload as { toolName?: unknown })?.toolName;
+      const tn = typeof endTn === 'string' ? endTn : typeof startTn === 'string' ? startTn : undefined;
+      if (tn === 'AskUserQuestion' || tn === 'ExitPlanMode') return null;
+    }
     return <ToolEndRow event={event} sessionId={sessionId} startEvent={startEvent} />;
   }
 
