@@ -143,21 +143,21 @@ Agent Teams 实验特性的 in-process backend：teammate 调工具走 inbox 协
 
 ## 反复反馈 / 反复踩坑 → 升级约定（自维护机制）
 
-避免用户重复给同样反馈、避免 agent 重复栽相同坑：候选放 `.claude/conventions-tally.md`，count ≥ 3 升级到本文件。
+避免用户重复给同样反馈、避免 agent 重复栽相同坑：候选放 `conventions/tally.md`（项目根 `conventions/` 目录，与 README / changelog/ / reviews/ 同级，git 管理；不再绑 `.claude/` 工具目录）。count ≥ 3 升级**不再**写到本文件「项目特定约定」节，改为新建 `conventions/<X>-<topic>.md` + 同步 `conventions/INDEX.md`，让本文件保持静态。
 
 ### 两类候选（同一文件，分 section）
 
 | 类型 | 触发条件 | 升级目的地 |
 |---|---|---|
-| **用户反馈** (`# 用户反馈候选`) | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 | 「项目特定约定」最贴合的小节 |
-| **Agent 踩坑** (`# Agent 踩坑候选`) | Coding Agent 在 review / 修 bug / 排查时**自己**发现踩了同类坑，或 review 报告里反复出现同类问题（典型：try/finally 漏 cleanup、TOCTOU、N+1 查询、async listener 不被 await） | 「项目特定约定」对应小节，或独立「资源清理 / 防御性编码」节 |
+| **用户反馈** (`# 用户反馈候选`) | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 | 新建 `conventions/<X>-<topic>.md` + 同步 `conventions/INDEX.md` |
+| **Agent 踩坑** (`# Agent 踩坑候选`) | Coding Agent 在 review / 修 bug / 排查时**自己**发现踩了同类坑，或 review 报告里反复出现同类问题（典型：try/finally 漏 cleanup、TOCTOU、N+1 查询、async listener 不被 await） | 新建 `conventions/<X>-<topic>.md` + 同步 `conventions/INDEX.md` |
 
 ### 操作流程
 
-1. 读 `.claude/conventions-tally.md`，找语义相近的已有条目
+1. 读项目根 `conventions/tally.md`，找语义相近的已有条目
    - 找到 → `count` +1，更新 `last_at` 为今天日期
    - 没找到 → 新增条目（`count: 1`），写在对应 section
-2. **count 到 3** → 这是「约定升级」决策，按通用「双对抗三态裁决」流程评审升级提案：措辞是否准确 / 边界是否清晰 / 与已有约定有无冲突 / 升级到哪一节最合适。结论汇总后告诉用户「这条 [反馈 / 踩坑] 累计 3 次，对抗审视结论 ✅/❌/⚠️ 如下，要升级吗？」用户确认后才写入「项目特定约定」相应小节，从 tally 删除该条目
+2. **count 到 3** → 这是「约定升级」决策，按通用「双对抗三态裁决」流程评审升级提案：措辞是否准确 / 边界是否清晰 / 与已有约定有无冲突 / topic 命名是否合适。结论汇总后告诉用户「这条 [反馈 / 踩坑] 累计 3 次，对抗审视结论 ✅/❌/⚠️ 如下，要升级吗？」用户确认后**新建 `conventions/<X>-<topic>.md`**（X 递增整数）+ 同步 `conventions/INDEX.md` 加行，从 tally 删除该条目（**不再**写项目 CLAUDE.md「项目特定约定」节，让本文件保持静态）
 3. count < 3 → 静默更新 tally，不打扰用户
 
 ### 边界
