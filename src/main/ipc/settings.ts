@@ -23,6 +23,14 @@ import {
   resetUserAgentDeckClaudeMd,
   saveUserAgentDeckClaudeMd,
 } from '@main/adapters/claude-code/sdk-injection';
+// NOTE(REVIEW_<X>)：以下三个 codex-config 模块**必须**走 static import，不要改回 dynamic import。
+// 同一模块在多处 dynamic import（settings.ts × 3 + index.ts × 2）会让 vite SSR/rollup 把模块代码 inline
+// 进主 index.js，独立 chunk 文件只剩 require 空壳没有 export → 运行时 dynamic import 拿到空对象 →
+// 「X is not a function」（dev 模式 ESM 直 import 测不出，只在打包后炸）。三个模块顶部都纯 import + export
+// function，无副作用，static import 与 dynamic import 等价（只是模块解析时机提前到 main 启动时）。
+import { writeMcpServersToCodexConfig } from '@main/codex-config/toml-writer';
+import { syncAgentDeckSection } from '@main/codex-config/agents-md-installer';
+import { syncSkills } from '@main/codex-config/skills-installer';
 import type { AppSettings } from '@shared/types';
 import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode, parseAutoApproveTeammateMode } from './_helpers';
 
@@ -100,15 +108,11 @@ function applyCodexSandboxMode(p: Partial<AppSettings>, next: AppSettings): void
  */
 function applyCodexMcpServers(p: Partial<AppSettings>, next: AppSettings): void {
   if (!('codexMcpServers' in p)) return;
-  void import('@main/codex-config/toml-writer')
-    .then(({ writeMcpServersToCodexConfig }) => {
-      try {
-        writeMcpServersToCodexConfig(next.codexMcpServers);
-      } catch (err) {
-        console.warn('[settings] writeMcpServersToCodexConfig 失败', err);
-      }
-    })
-    .catch((err) => console.warn('[settings] 加载 toml-writer 失败', err));
+  try {
+    writeMcpServersToCodexConfig(next.codexMcpServers);
+  } catch (err) {
+    console.warn('[settings] writeMcpServersToCodexConfig 失败', err);
+  }
 }
 
 /**
@@ -120,15 +124,11 @@ function applyCodexMcpServers(p: Partial<AppSettings>, next: AppSettings): void 
  */
 function applyCodexAgentsMd(p: Partial<AppSettings>, _next: AppSettings): void {
   if (!('injectAgentDeckCodexAgentsMd' in p)) return;
-  void import('@main/codex-config/agents-md-installer')
-    .then(({ syncAgentDeckSection }) => {
-      try {
-        syncAgentDeckSection();
-      } catch (err) {
-        console.warn('[settings] syncAgentDeckSection 失败', err);
-      }
-    })
-    .catch((err) => console.warn('[settings] 加载 agents-md-installer 失败', err));
+  try {
+    syncAgentDeckSection();
+  } catch (err) {
+    console.warn('[settings] syncAgentDeckSection 失败', err);
+  }
 }
 
 /**
@@ -138,15 +138,11 @@ function applyCodexAgentsMd(p: Partial<AppSettings>, _next: AppSettings): void {
  */
 function applyCodexSkills(p: Partial<AppSettings>, _next: AppSettings): void {
   if (!('injectAgentDeckCodexSkills' in p)) return;
-  void import('@main/codex-config/skills-installer')
-    .then(({ syncSkills }) => {
-      try {
-        syncSkills();
-      } catch (err) {
-        console.warn('[settings] syncSkills 失败', err);
-      }
-    })
-    .catch((err) => console.warn('[settings] 加载 skills-installer 失败', err));
+  try {
+    syncSkills();
+  } catch (err) {
+    console.warn('[settings] syncSkills 失败', err);
+  }
 }
 
 function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void {
