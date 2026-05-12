@@ -194,6 +194,7 @@ await Promise.all([
 | 失败场景 | 处理 |
 |---|---|
 | `reviewer-codex` teammate 内部 codex CLI 不可用（二进制缺失 / OAuth 过期 / 超时） | reviewer-codex agent body 已自带失败模板（输出格式见 reviewer-codex.md）。lead 收到后**严禁**降级到同源双 Claude，必须告诉用户决策：等恢复 / 单方 reviewer-claude 出结论 / 稍后重试 / abort |
+| **reviewer-* teammate 报「FRESH SESSION — in-memory state empty」信号**（reply 顶部硬约束行） | teammate SDK 会话被自动重启过（典型：CLI 隐式 fork / jsonl hard-fail 走 fallback createSession 不带 resume / 跨长 idle 后通道断），in-memory mental model（reviewer-claude 已读文件 + 推理链 / reviewer-codex 上轮 finding skip 拼接）全丢。**严禁**继续假装 Round N+1 跑（codex 重复列同样 finding 浪费 token / claude 全部重读浪费 turn 又拿不到上轮推理链）。**正确姿势**：`mcp__agent_deck__shutdown_session` 收掉这个 fresh teammate → `mcp__agent_deck__spawn_session` 重新起一对（reviewer-claude + reviewer-codex 同时起，保持异构） → 按当前 scope（lead 自己累积的 fix 状态）发 **Round 1 init prompt 全量重跑**（不要继续 Round N+1，从头开始；之前的 finding 库 lead 在自己 context 里仍可引用做对比，新一轮拿到的是「fresh 视角的当前状态 review」） |
 | `wait_reply` 超时（默认 60s，重 review 显式 600_000） | timed_out=true 时检查 `events` partial 段。若有部分输出，让 lead 决定：再 send 一条 prompt 催 / abort 该轮 / 增大 timeout 重 wait |
 | `send_message` 返回 `no-shared-team` | spawn 时漏传 `team_name`。重新 spawn 一对（带 `team_name`）再走 |
 | `send_message` 返回 `ambiguous-team` | caller 被加入了多个 team。显式传 `team_id` 字段 |
@@ -203,8 +204,8 @@ await Promise.all([
 
 ## 与决策对抗节的关系（用户视角）
 
-`~/.claude/CLAUDE.md`「决策对抗」节的「主路径 subagent」是**单次决策**用 —— 直接 `Task(subagent_type:"reviewer-claude")` 起 subagent 同步等结论，零依赖、启动快。
+本 SKILL 是**多轮深度 review × fix × 反驳轮**编排，**必走 teammate**（mcp__agent_deck__* 6 tool）—— 跨轮 context 持久化（teammate SDK session 不被 lead shutdown 之前一直活）、反驳轮被反驳方记得自己 R_N 推理链 / 已读文件 mental model。
 
-本 SKILL 是**多轮深度 review** 用 —— 跨轮 context 持久化（teammate session 不被销毁）、反驳轮被反驳方记得自己 R_N 推理链。两条路径都是合法的。深度 review 选 SKILL 路径；单点判定 / plan 评审 / 约定升级走 subagent 即可。
+`~/.claude/CLAUDE.md`「决策对抗」节的**单次决策对抗**（单点判定 / plan 评审 / 约定升级）走「双 Bash 直接起外部 CLI」即可（`zsh -i -l -c "claude -p '<reviewer-claude prompt>'"` 与 `zsh -i -l -c "codex exec ..."` 同 message 并发）—— 简单、零 SDK 状态、不引混用陷阱。
 
-> **三级兜底链**：teammate（本 SKILL 默认）→ subagent（决策对抗节主路径）→ 手动并发（决策对抗节 §Fallback）。每级失败可往下退，但同一场景最优解就一个，不要乱跨级。
+> **不要混用**：单次决策对抗别用 SKILL（teammate 编排开销大无收益）；多轮 review 别走单 Bash 一次性起（fresh per turn 丢 in-memory state，反驳轮没自己上轮推理链 → 反驳质量崩；Round 2+ 没上轮 finding 当 skip → codex 重复列同样 finding 浪费 token）。两个场景两个姿势，不存在「兜底链」。
