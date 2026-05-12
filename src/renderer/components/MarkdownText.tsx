@@ -5,21 +5,22 @@ import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 // 按需 import 常用 language（按 reviewer 输出 / 用户对话最高频的语种），bundle 受控。
 // 加新语言时这里 register 一次即可，<code className="language-X"> 自动匹配。
-import bash from 'refractor/lang/bash';
-import css from 'refractor/lang/css';
-import diff from 'refractor/lang/diff';
-import go from 'refractor/lang/go';
-import javascript from 'refractor/lang/javascript';
-import json from 'refractor/lang/json';
-import jsx from 'refractor/lang/jsx';
-import markdown from 'refractor/lang/markdown';
-import python from 'refractor/lang/python';
-import rust from 'refractor/lang/rust';
-import sql from 'refractor/lang/sql';
-import toml from 'refractor/lang/toml';
-import tsx from 'refractor/lang/tsx';
-import typescript from 'refractor/lang/typescript';
-import yaml from 'refractor/lang/yaml';
+// refractor v5 exports 改成 "./*": "./lang/*.js"，import 必须写 refractor/<lang> 而不是 refractor/lang/<lang>
+import bash from 'refractor/bash';
+import css from 'refractor/css';
+import diff from 'refractor/diff';
+import go from 'refractor/go';
+import javascript from 'refractor/javascript';
+import json from 'refractor/json';
+import jsx from 'refractor/jsx';
+import markdown from 'refractor/markdown';
+import python from 'refractor/python';
+import rust from 'refractor/rust';
+import sql from 'refractor/sql';
+import toml from 'refractor/toml';
+import tsx from 'refractor/tsx';
+import typescript from 'refractor/typescript';
+import yaml from 'refractor/yaml';
 
 [
   bash,

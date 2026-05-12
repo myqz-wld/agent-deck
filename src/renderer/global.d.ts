@@ -1,16 +1,16 @@
 /**
  * Renderer-side ambient module declarations.
  *
- * `refractor/lang/*` 的 .d.ts 文件存在但 TS moduleResolution=node 下走 pnpm strict
- * isolation（refractor 仅作为 react-syntax-highlighter 的传递依赖，不暴露在顶层
- * node_modules，subpath conditional exports `./*` 在 TS node mode 下解析不可靠）。
- * 部分 lang（bash/css/diff/go/javascript/json）能找到、部分（jsx/markdown/python/...
- * 等）找不到 —— 行为不确定。运行时 Vite ESM 解析能正确找到 `.pnpm/node_modules/
- * refractor/lang/*.js`，所以只是 TS 静态检查需要 ambient declare 兜底。
+ * refractor v5 把 `package.json` 的 `exports` 字段改成 `"./*": "./lang/*.js"`，
+ * 正确 import 形态是 `refractor/<lang>`（不再是 v3 的 `refractor/lang/<lang>`）。
+ * 但 TS `moduleResolution: "node"` 不识别 conditional exports，会给所有
+ * subpath import 报 TS2307；运行时 Vite/rollup 各有原生 exports 解析能找到
+ * `.pnpm/refractor@5.0.0/node_modules/refractor/lang/<lang>.js`，所以只是
+ * TS 静态检查需要 ambient declare 兜底。
  *
  * 加新 lang 不需要改这里，自动匹配。
  */
-declare module 'refractor/lang/*' {
+declare module 'refractor/*' {
   const lang: {
     displayName: string;
     aliases: string[] | unknown[];
