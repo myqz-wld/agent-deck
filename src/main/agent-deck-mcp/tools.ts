@@ -481,6 +481,31 @@ export async function buildAgentDeckTools(
         }
       }
 
+      // plan team-cohesion-fix-20260513 Phase B5：spawn 路径与 wait_reply 贯通的方案 A 实现 ——
+      // spawn 仍把 prompt 给 adapter（SDK streaming 协议要求 first user message），同时在
+      // messages 表 enqueue 一条 placeholder message（body=promptToUse, status='delivered'，
+      // 不重复投递）作为 lead/teammate 对话链的锚点。lead 拿 spawnPromptMessageId 调
+      // wait_reply({message_id})，teammate first turn 完成后调 reply_message(spawnPromptMessageId)
+      // 回复，链路统一。无 team / no-shared-team 时不入队 placeholder（spawn 没有可关联的对话场景）。
+      let spawnPromptMessageId: string | null = null;
+      if (teamId && callerExists) {
+        try {
+          const placeholder = agentDeckMessageRepo.insert({
+            teamId,
+            fromSessionId: caller.callerSessionId,
+            toSessionId: sid,
+            body: promptToUse,
+            replyToMessageId: null,
+          });
+          // 立即 mark delivered：SDK 已通过 createSession.prompt 收过这条 prompt，watcher 不需重投
+          agentDeckMessageRepo.markDelivered(placeholder.id, Date.now());
+          spawnPromptMessageId = placeholder.id;
+        } catch (e) {
+          // placeholder enqueue 失败不阻塞 spawn 成功（lead 可走老路径不 wait reply）
+          console.warn(`[mcp spawn_session] placeholder message enqueue failed:`, e);
+        }
+      }
+
       const created = sessionRepo.get(sid);
       return ok({
         sessionId: sid,
@@ -490,6 +515,8 @@ export async function buildAgentDeckTools(
         teamName: args.team_name ?? null,
         spawnDepth: created?.spawnDepth ?? (callerExists ? parentDepth + 1 : 0),
         sentAt: Date.now(),
+        // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 调 wait_reply 等 teammate first reply
+        spawnPromptMessageId,
       });
     },
   );
