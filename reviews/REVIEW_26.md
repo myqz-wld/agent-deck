@@ -67,3 +67,54 @@ src/renderer/components/activity-feed/index.tsx
 ## 关联 changelog
 
 无（review 内直接落地，未引入新功能；只是修同 commit `da7f2243` (CHANGELOG_61 §A1) 引入的 UI 回归）。
+
+---
+
+## Follow-up（同日补丁，2026-05-12）
+
+### 触发
+
+用户截图反馈：上述修法上线后**新会话**生效（实时事件流），但**刷新窗口 / 切回历史会话**后红框「AskUserQuestion 失败」又出现。复盘发现首次修法对历史事件路径无效。
+
+### 根因（单方现场实证）
+
+`src/main/store/event-repo.ts:5-12` 的 `Row` interface + `rowToEvent`：
+
+```ts
+interface Row {
+  id: number;
+  session_id: string;
+  kind: string;
+  payload_json: string;
+  ts: number;
+}
+```
+
+events 表 schema **没有 `source` 列**（INSERT 也只写 `session_id, kind, payload_json, ts`，event-repo.ts:28-31）。`window.api.listEvents` 走 IPC 调到 `eventRepo.listForSession` → `rowToEvent` → `event.source === undefined`。
+
+ActivityFeed 重新加载历史事件 → ActivityRow `if (event.source === 'sdk')` 守卫 false → fallthrough 渲染 `<ToolEndRow />` → SDK 通道历史事件的 `payload.status === 'failed'` 命中 ToolEndRow 红框分支 → 「AskUserQuestion 失败」。
+
+### 修法（同样不动 SDK 翻译层 / 不动 schema）
+
+把 ActivityRow 内两处 `event.source === 'sdk'` 守卫替换为父组件已有的 session-level `isSdk` props（`src/renderer/components/activity-feed/index.tsx`）。
+
+**等价性**：`SessionManager.dedupOrClaim`（`src/main/session/manager.ts:196`）保证 SDK 接管的会话所有 hook 通道事件被丢弃，所以 SDK 会话内所有事件都源自 SDK 通道；CLI 会话内所有事件都源自 hook 通道。把 event-level 不可靠字段（events 表不存）替换为 session-level 持久化字段（sessions 表 `source` 列，manager.ts:270 写入）后两者语义等价、且 `isSdk` 在父组件按 sessionRepo upsert 后的 store record 计算 → 不存在「字段丢失」窗口。
+
+副作用 = 0：
+- hook 通道 ExitPlanMode 在外部 CLI 会话仍渲染 ToolStartRow plan markdown（isSdk=false 分支保留）
+- 真工具（Bash/Edit/Read/...）的失败红框不受影响（toolName 黑名单只含 AskUserQuestion / ExitPlanMode）
+- 不动 events 表 schema → 无 migration 风险
+- 不动 SDK 翻译层 → `is_error=true` 仍是 SDK 上行事实，分层干净（与 REVIEW_26 主修法选型一致）
+
+### 教训沉淀
+
+「event-level `source` 字段不持久化」是隐藏断层 — REVIEW_26 主修当时单方实证现场代码、`event.source === 'sdk'` 在内存事件流里铁证生效，但漏看 events 表 schema 是否承载该字段。今后**任何依赖 AgentEvent 字段做渲染分发的修法**，必须确认该字段是否在 `event-repo.ts` insert / rowToEvent 路径中被持久化。
+
+**未做更激进的 schema 升级**（在 events 表加 source 列 + migration），原因：
+- 渲染层用 isSdk 已经可靠覆盖 100% 场景，schema 升级是过度修法（CLAUDE.md「不要为不可能场景加错误处理」）
+- 若未来出现「同一 session 既有 SDK 又有 hook 事件」需要按 event 维度区分的新需求，再做 schema 升级
+- 风险换收益不划算：migration 触及全用户 DB（数十万 events 级），rollback 复杂
+
+### 验证
+
+- `pnpm typecheck` 通过
