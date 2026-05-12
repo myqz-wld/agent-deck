@@ -1,28 +1,36 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
-import type { AssetKind, AssetMeta, BundledAssetsSnapshot, UserAssetsSnapshot } from '@shared/types';
+import { DEFAULT_SETTINGS, type AppSettings, type AssetKind, type AssetMeta, type BundledAssetsSnapshot, type UserAssetsSnapshot } from '@shared/types';
 import { AssetEditor } from './assets/AssetEditor';
+import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
+import { InjectionToggleBar } from './assets/InjectionToggleBar';
 import { ClaudeMdEditor } from './settings/ClaudeMdEditor';
 
 /**
  * 资产库 Dialog（CHANGELOG_57 C1+C3+C4；CHANGELOG_58 把 CLAUDE.md 编辑器从 SettingsDialog
- * 整体迁过来，作为「应用约定」tab 的常驻内容；设置面板只剩注入 toggle + 跳本 dialog 的链接）。
- * Header「📚 资产库」按钮入口。
+ * 整体迁过来；CHANGELOG_69 把 5 个资产注入 toggle 也从 SettingsDialog 三 section 整体迁来，
+ * 实现「资产编辑 + 注入开关」单一真源）。Header「📚 资产库」按钮入口。
  *
  * 三 Tab：
- * - Skills：内置（agent-deck plugin，只读 + 「查看完整内容」）+ 用户自定义
- *   （~/.claude/skills/，可编辑/删除/新建/Finder reveal）
- * - Agents：同上结构（agents 有 model + tools 字段）
- * - 应用约定：内嵌 ClaudeMdEditor 直接编辑（保存 / 撤销 / 恢复默认 / dirty 拦截，跟设置版同款）
+ * - Skills：顶部「注入开关」横条（claude plugin + codex skills）+ 内置（agent-deck plugin，
+ *   只读 + 「查看完整内容」）+ 用户自定义（~/.claude/skills/，可编辑/删除/新建/Finder reveal）
+ * - Agents：顶部「注入开关」横条（claude plugin，与 Skills tab 同一开关）+ 同上结构
+ * - 应用约定：顶部「注入开关」横条（claude system prompt + codex AGENTS.md）+ ClaudeMdEditor
  *
  * 子 modal（state 切换内嵌渲染，不另开文件）：
  * - ContentViewer：查看任意资产（内置或用户）的完整 md 文本，只读
  * - AssetEditor：用户自定义资产编辑（新建 / 编辑 / 删除）
+ *
+ * settings 状态自管（CHANGELOG_69）：
+ * - mount 时通过 window.api.getSettings() 与资产 list 一起 Promise.allSettled
+ * - update(patch) 内部 dedup seq（防快速点击 toggle 时旧响应回写，仿 SettingsDialog M9 套路）
+ * - 与 SettingsDialog 不共享 state——两 dialog 不会同时打开（都是模态），切换时各自重 fetch
  *
  * dirty 拦截契约（从 SettingsDialog 迁过来，套路相同）：
  * - ClaudeMdEditor 通过 `onDirtyChange` 上报草稿；ref 持有避免父级重渲染
  * - X 关闭 / 切走 claude-md tab 前调 `confirmDiscardClaudeMd` 二次确认
  * - `onClaudeMdDirtyChange` 用 useCallback 稳定 identity，否则 child useEffect cleanup→run
  *   会在 parent rerender 时误触发伪 false（REVIEW_4 M11 教训）
+ * - InjectionToggleBar 是即改即生效（点击即写 settings），无 dirty 概念，不需新增拦截
  */
 
 interface Props {
@@ -31,12 +39,6 @@ interface Props {
 }
 
 type TabKey = 'skills' | 'agents' | 'claude-md';
-
-interface ViewerState {
-  asset: AssetMeta;
-  content: string | null;
-  error: string | null;
-}
 
 interface EditorState {
   kind: AssetKind;
@@ -47,8 +49,12 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
   const [tab, setTab] = useState<TabKey>('skills');
   const [bundled, setBundled] = useState<BundledAssetsSnapshot | null>(null);
   const [user, setUser] = useState<UserAssetsSnapshot | null>(null);
+  /** CHANGELOG_69：settings 自管。三 tab 顶部 InjectionToggleBar 读这个 + 写 update。 */
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  /** CHANGELOG_69：toggle 写错误（与 loadError 分两 slot 避免互相覆盖）。 */
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [viewer, setViewer] = useState<ViewerState | null>(null);
+  const [viewer, setViewer] = useState<ContentViewerState | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
 
   /** Mount fetch / refreshUser 用此 seq 比对，老响应回写到本地 state 时 abort
@@ -57,6 +63,8 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
   const fetchSeqRef = useRef(0);
   /** Viewer fetch 的 seq guard（CHANGELOG_57 R1·F5：闭包捕获 stale asset 导致 A 慢响应覆盖 B 视图） */
   const viewerSeqRef = useRef(0);
+  /** CHANGELOG_69：update 请求序号。仿 SettingsDialog REVIEW_4 M9：连点多个 toggle 时慢响应回写旧值会被丢弃。 */
+  const updateSeqRef = useRef(0);
   /** ClaudeMdEditor 草稿 dirty 标记（由子组件回报）；用 ref 持有避免本 dialog rerender 抖动。 */
   const claudeMdDirtyRef = useRef(false);
   /** 关闭 / 切 tab 二次确认的并发锁，防多次点击弹多个 confirm（REVIEW_4 LOW 同款）。 */
@@ -76,16 +84,26 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       return;
     }
     const seq = ++fetchSeqRef.current;
+    setUpdateError(null);
     void Promise.allSettled([
       window.api.listBundledAssets(),
       window.api.listUserAssets(),
-    ]).then(([b, u]) => {
+      window.api.getSettings(),
+    ]).then(([b, u, s]) => {
       if (seq !== fetchSeqRef.current) return; // 老 open 的迟到响应：丢
       const errs: string[] = [];
       if (b.status === 'fulfilled') setBundled(b.value);
       else errs.push(`内置资产读取失败：${(b.reason as Error).message}`);
       if (u.status === 'fulfilled') setUser(u.value);
       else errs.push(`用户资产读取失败：${(u.reason as Error).message}`);
+      if (s.status === 'fulfilled') {
+        // 用 DEFAULT_SETTINGS 兜底（仿 SettingsDialog M8）：HMR / schema 漂移时缺字段不崩
+        setSettings({ ...DEFAULT_SETTINGS, ...((s.value as Partial<AppSettings>) ?? {}) });
+      } else {
+        errs.push(`settings 读取失败：${(s.reason as Error).message}`);
+        // 降级用 DEFAULT_SETTINGS 兜底渲染 InjectionToggleBar，至少 toggle 可见
+        setSettings((prev) => prev ?? { ...DEFAULT_SETTINGS });
+      }
       setLoadError(errs.length > 0 ? errs.join('\n') : null);
     });
   }, [open]);
@@ -100,6 +118,24 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       if (seq !== fetchSeqRef.current) return;
       setUser(u);
     });
+  };
+
+  /**
+   * CHANGELOG_69：toggle 写。仿 SettingsDialog.update 的 dedup 套路（REVIEW_4 M9）。
+   * busy slot 这边没有——toggle 不展示 disable 态，避免 IPC 期间 UI 闪烁；
+   * dedup 由 updateSeqRef 兜底防慢响应回写。
+   */
+  const updateSettings = async (patch: Partial<AppSettings>): Promise<void> => {
+    const seq = ++updateSeqRef.current;
+    setUpdateError(null);
+    try {
+      const next = (await window.api.setSettings(patch)) as Partial<AppSettings> | undefined;
+      if (seq !== updateSeqRef.current) return;
+      setSettings({ ...DEFAULT_SETTINGS, ...((next ?? {}) as Partial<AppSettings>) });
+    } catch (err) {
+      if (seq !== updateSeqRef.current) return;
+      setUpdateError(`保存设置失败：${(err as Error).message ?? String(err)}`);
+    }
   };
 
   /**
@@ -187,28 +223,45 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
           </div>
         )}
 
+        {updateError && (
+          <div className="mb-3 rounded border border-status-waiting/40 bg-status-waiting/10 p-2 text-[11px] text-status-waiting whitespace-pre-wrap">
+            {updateError}
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto scrollbar-deck pr-1">
           {tab === 'skills' && (
-            <AssetsTab
-              kind="skill"
-              bundled={bundled?.skills ?? []}
-              user={user?.skills ?? []}
-              onView={openViewer}
-              onEdit={(asset) => setEditor({ kind: 'skill', asset })}
-              onNew={() => setEditor({ kind: 'skill', asset: null })}
-            />
+            <>
+              <InjectionToggleBar tab="skills" settings={settings} update={updateSettings} />
+              <AssetsTab
+                kind="skill"
+                bundled={bundled?.skills ?? []}
+                user={user?.skills ?? []}
+                onView={openViewer}
+                onEdit={(asset) => setEditor({ kind: 'skill', asset })}
+                onNew={() => setEditor({ kind: 'skill', asset: null })}
+              />
+            </>
           )}
           {tab === 'agents' && (
-            <AssetsTab
-              kind="agent"
-              bundled={bundled?.agents ?? []}
-              user={user?.agents ?? []}
-              onView={openViewer}
-              onEdit={(asset) => setEditor({ kind: 'agent', asset })}
-              onNew={() => setEditor({ kind: 'agent', asset: null })}
-            />
+            <>
+              <InjectionToggleBar tab="agents" settings={settings} update={updateSettings} />
+              <AssetsTab
+                kind="agent"
+                bundled={bundled?.agents ?? []}
+                user={user?.agents ?? []}
+                onView={openViewer}
+                onEdit={(asset) => setEditor({ kind: 'agent', asset })}
+                onNew={() => setEditor({ kind: 'agent', asset: null })}
+              />
+            </>
           )}
-          {tab === 'claude-md' && <ClaudeMdTab onDirtyChange={onClaudeMdDirtyChange} />}
+          {tab === 'claude-md' && (
+            <>
+              <InjectionToggleBar tab="claude-md" settings={settings} update={updateSettings} />
+              <ClaudeMdTab onDirtyChange={onClaudeMdDirtyChange} />
+            </>
+          )}
         </div>
       </div>
 
@@ -389,64 +442,6 @@ function ClaudeMdTab({
         拼到每个 SDK 会话 system prompt 末尾。改动只对「下次新建会话」生效。
       </div>
       <ClaudeMdEditor onDirtyChange={onDirtyChange} />
-    </div>
-  );
-}
-
-function ContentViewerModal({
-  state,
-  onReveal,
-  onClose,
-}: {
-  state: ViewerState;
-  onReveal: () => void;
-  onClose: () => void;
-}): JSX.Element {
-  return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="no-drag flex h-[80%] w-[420px] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
-        <header className="mb-2 flex items-start justify-between gap-2">
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <code className="text-[11px] font-medium text-deck-text truncate">{state.asset.qualifiedName}</code>
-            <code className="text-[9px] text-deck-muted/60 truncate" title={state.asset.absPath}>
-              {state.asset.absPath}
-            </code>
-          </div>
-          <div className="flex shrink-0 gap-1">
-            <button
-              type="button"
-              onClick={onReveal}
-              title="在 Finder / 资源管理器中显示"
-              className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
-            >
-              显示文件
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="关闭"
-              className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
-            >
-              ✕
-            </button>
-          </div>
-        </header>
-
-        {state.error ? (
-          <div className="rounded border border-status-waiting/40 bg-status-waiting/10 p-2 text-[11px] text-status-waiting">
-            {state.error}
-          </div>
-        ) : state.content === null ? (
-          <div className="text-[11px] text-deck-muted">读取中…</div>
-        ) : (
-          <pre
-            className="flex-1 overflow-y-auto scrollbar-deck whitespace-pre-wrap rounded border border-deck-border bg-white/[0.04] p-2 font-mono text-[10px] leading-relaxed text-deck-text"
-            style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
-          >
-            {state.content}
-          </pre>
-        )}
-      </div>
     </div>
   );
 }

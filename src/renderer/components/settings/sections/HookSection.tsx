@@ -11,7 +11,7 @@ interface Props {
 
 export function HookSection({ hookStatus, busy, installHook, uninstallHook }: Props): JSX.Element {
   return (
-    <Section title="Claude Code Hook（系统钩子）" storageKey="hook" defaultOpen={true}>
+    <Section title="Claude Code Hook（系统钩子）" storageKey="hook" defaultOpen={false}>
       {hookStatus ? (
         <div className="text-[11px] leading-relaxed">
           <div className="text-deck-muted">
