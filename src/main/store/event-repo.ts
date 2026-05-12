@@ -1,6 +1,7 @@
 import type { AgentEvent } from '@shared/types';
 import { getDb } from './db';
 import { safeStringifyPayload } from './payload-truncate';
+import { agentDeckTeamRepo } from './agent-deck-team-repo';
 
 interface Row {
   id: number;
@@ -55,20 +56,28 @@ export const eventRepo = {
   },
 
   /**
-   * Agent Teams M3：按 team 名拉所有 team-* event（task created / completed / teammate idle），
-   * 跨 team 内所有 sessions JOIN。TeamDetail 事件流 section 用。
-   * 限定 limit 防长时间运行的 team 一次拉到上千条；按 ts DESC 取最近 N 条。
+   * plan team-cohesion-fix-20260513 Phase C：按 teamId 拉 team 内所有 active 成员的最近 events，
+   * 跨 adapter 聚合（claude-code / codex-cli / aider / generic-pty）。TeamDetail 事件流 section 用。
+   *
+   * v014 drop sessions.team_name 后，原 `s.team_name = ?` JOIN 已不可用。改走 universal team
+   * backend：先 listActiveMembers(teamId) 拿 sessionIds，再 events.session_id IN (...) 查询。
+   *
+   * 不再过滤 kind（原仅 team-task-created/completed/teammate-idle），返回完整事件流让 UI
+   * 自己做分类 / 折叠（小 kind 太多时 UI 端可考虑虚拟列表）。limit 防长 team 一次拉上千条。
+   * leftAt 非空（已退出）的成员不算在内（与 ActiveMembers 语义一致）。
    */
-  findTeamEvents(teamName: string, limit = 100): (AgentEvent & { id: number })[] {
+  findTeamEvents(teamId: string, limit = 100): (AgentEvent & { id: number })[] {
+    const members = agentDeckTeamRepo.listActiveMembers(teamId);
+    if (members.length === 0) return [];
+    const sessionIds = members.map((m) => m.sessionId);
+    const placeholders = sessionIds.map(() => '?').join(',');
     const rows = getDb()
       .prepare(
-        `SELECT e.* FROM events e
-         JOIN sessions s ON s.id = e.session_id
-         WHERE s.team_name = ?
-           AND e.kind IN ('team-task-created', 'team-task-completed', 'team-teammate-idle')
-         ORDER BY e.ts DESC LIMIT ?`,
+        `SELECT * FROM events
+         WHERE session_id IN (${placeholders})
+         ORDER BY ts DESC LIMIT ?`,
       )
-      .all(teamName, limit) as Row[];
+      .all(...sessionIds, limit) as Row[];
     return rows.map(rowToEvent);
   },
 

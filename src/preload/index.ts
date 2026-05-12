@@ -322,6 +322,21 @@ const api = {
     | (AgentDeckTeam & { members: AgentDeckTeamMember[]; recentMessages: AgentDeckMessage[] })
     | null
   > => ipcRenderer.invoke(IpcInvoke.AgentDeckTeamGet, teamId),
+  /**
+   * plan team-cohesion-fix-20260513 Phase C：拉 team 4 sections snapshot
+   * （events 50 条 + tasks + messages 100 条 + members）。lineage / pending 由 renderer 自拼。
+   */
+  getAgentDeckTeamFull: (
+    teamId: string,
+  ): Promise<
+    | (AgentDeckTeam & {
+        members: AgentDeckTeamMember[];
+        recentEvents: (AgentEvent & { id: number })[];
+        tasks: TaskRecord[];
+        recentMessages: AgentDeckMessage[];
+      })
+    | null
+  > => ipcRenderer.invoke(IpcInvoke.AgentDeckTeamGetFull, teamId),
   /** 显式建 team。 */
   createAgentDeckTeam: (input: {
     name: string;

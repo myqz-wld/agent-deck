@@ -57,6 +57,13 @@ export const IpcInvoke = {
   AgentDeckTeamList: 'agent-deck-team:list',
   /** 拉一个 team 完整 snapshot：含 members + 最近 messages。返回 null = team 不存在。 */
   AgentDeckTeamGet: 'agent-deck-team:get',
+  /**
+   * plan team-cohesion-fix-20260513 Phase C：拉一个 team 的 4 sections snapshot：
+   * { team, members, recentEvents (50 条), tasks, recentMessages (100 条) }。
+   * lineage 与 pending 由 renderer 端从 sessions Map / store pendingXBySession 自拼，
+   * 避免重复 SQL + 与 PendingTab 数据源同步。返回 null = team 不存在。
+   */
+  AgentDeckTeamGetFull: 'agent-deck-team:get-full',
   /** 显式建 team（UI / CLI 入口）。args: { name, metadata? }，返回 AgentDeckTeam。 */
   AgentDeckTeamCreate: 'agent-deck-team:create',
   /** 归档 team（标 archived_at；不删数据）。已 enqueued pending message 仍投递完成。 */
