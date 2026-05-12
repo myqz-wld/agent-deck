@@ -11,5 +11,7 @@ dist
 # 防御性留 entry：万一 skill regression / 用户手工建临时目录，不会被误 commit。
 .claude/worktrees/
 .claude/scheduled_tasks*
-# ↑ Claude Code 工具运行时产物：worktree 临时目录 / cron 任务持久化与锁文件。
+.claude/plans/
+# ↑ Claude Code 工具运行时产物：worktree 临时目录 / cron 任务持久化与锁文件 / plan local 工作目录。
 # 不应入 git（per-user / per-session state）。
+# 注：plan completed 后归档到顶级 `plans/<plan-id>.md` 入 git（详 ~/.claude/CLAUDE.md「§Step 2 Plan 文件 hand off」节）。
