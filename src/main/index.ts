@@ -277,6 +277,21 @@ async function bootstrap(): Promise<void> {
     console.warn(`[shortcut] failed to register ${pinShortcut} (occupied by another app)`);
   }
 
+  // 10.5 全局快捷键：Cmd/Ctrl+Alt+T 切换「pin 时透明」开关
+  // 与 Cmd+Alt+P 命名一致（Cmd+Alt+<X> 都是窗口控制）；避开浏览器 Cmd+Shift+T（重开关闭标签页）。
+  // floating.setTransparentWhenPinned 是 idempotent，settings handler 走 setSettings 时还会再调一次安全。
+  const transparentShortcut = 'CommandOrControl+Alt+T';
+  const transparentRegistered = globalShortcut.register(transparentShortcut, () => {
+    const w = floating.window;
+    if (!w || w.isDestroyed()) return;
+    const next = !(settingsStore.get('transparentWhenPinned') ?? true);
+    floating.setTransparentWhenPinned(next);
+    safeSend(IpcEvent.TransparentToggled, next);
+  });
+  if (!transparentRegistered) {
+    console.warn(`[shortcut] failed to register ${transparentShortcut} (occupied by another app)`);
+  }
+
   // 11. 首启命令行
   setImmediate(() => {
     void handleCliArgv(process.argv);

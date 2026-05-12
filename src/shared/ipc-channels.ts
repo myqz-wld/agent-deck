@@ -92,6 +92,7 @@ export const IpcEvent = {
   SessionRenamed: 'event:session-renamed',
   SummaryAdded: 'event:summary-added',
   PinToggled: 'event:pin-toggled',
+  TransparentToggled: 'event:transparent-toggled',
   SessionFocusRequest: 'event:session-focus-request',
   /** Task Manager (CHANGELOG_43)：tasks 表写操作 after-commit 推送。 */
   TaskChanged: 'event:task-changed',

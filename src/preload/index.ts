@@ -440,6 +440,11 @@ const api = {
     ipcRenderer.on(IpcEvent.PinToggled, handler);
     return () => ipcRenderer.off(IpcEvent.PinToggled, handler);
   },
+  onTransparentToggled: (cb: (transparent: boolean) => void): (() => void) => {
+    const handler = (_: unknown, transparent: boolean): void => cb(transparent);
+    ipcRenderer.on(IpcEvent.TransparentToggled, handler);
+    return () => ipcRenderer.off(IpcEvent.TransparentToggled, handler);
+  },
   onSessionFocusRequest: (cb: (sessionId: string) => void): (() => void) => {
     const handler = (_: unknown, sessionId: string): void => cb(sessionId);
     ipcRenderer.on(IpcEvent.SessionFocusRequest, handler);

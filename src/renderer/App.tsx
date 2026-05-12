@@ -75,6 +75,16 @@ export function App(): JSX.Element {
     return off;
   }, []);
 
+  // 监听全局快捷键 Cmd+Alt+T：主进程已切换 transparentWhenPinned + vibrancy（pin 状态下立即生效），
+  // 这里同步本地 state（驱动 FloatingFrame 透明态）与持久化设置（settings handler 内 setTransparentWhenPinned 同 value 二次调用 idempotent 安全）。
+  useEffect(() => {
+    const off = window.api.onTransparentToggled((next) => {
+      setTransparentWhenPinned(next);
+      void window.api.setSettings({ transparentWhenPinned: next });
+    });
+    return off;
+  }, []);
+
   // CLI 子命令新建会话后跳转：切到「实时」并选中新 sessionId。
   // 主进程在 createSession resolve 后才 emit，所以 renderer 此时一般已 mount；
   // 仅在 createSession 极快返回（如 --resume）时可能丢失，可接受。
