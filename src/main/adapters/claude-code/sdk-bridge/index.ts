@@ -13,7 +13,6 @@ import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { settingsStore } from '@main/store/settings-store';
-import { eventBus } from '@main/event-bus';
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
@@ -49,6 +48,7 @@ import { PermissionResponder, type ResponderCtx } from './permission-responder';
 import { makeCanUseTool } from './can-use-tool';
 import { SessionRecoverer, defaultResumeJsonlExists, type RecovererCtx } from './recoverer';
 import { StreamProcessor, type StreamProcessorCtx } from './stream-processor';
+import { RestartController, type RestartCtx } from './restart-controller';
 
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
@@ -115,8 +115,26 @@ export class ClaudeSdkBridge {
    */
   private streamProcessor: StreamProcessor;
 
+  /**
+   * CHANGELOG_74 Step 3：RestartController sub-module 持 restartWithPermissionMode +
+   * restartWithClaudeCodeSandbox 两个语义同构的冷切方法（emit 占位 → close → 改 DB →
+   * createSession resume → 失败回滚 + emit error）。recovering Map 通过 ctx 共享，
+   * closeSession / createSession 通过 thunk 反调 facade（避免循环引用）。
+   */
+  private restartController: RestartController;
+
   constructor(private opts: SdkBridgeOptions) {
     this.permissionTimeoutMs = Math.max(0, opts.permissionTimeoutMs ?? 0);
+
+    // RestartController 必须先 init：PermissionResponder wrapper 需要拿到 ctx thunk
+    const restartCtx: RestartCtx = {
+      recovering: this.recovering,
+      emit: opts.emit,
+      closeSession: (sid) => this.closeSession(sid),
+      createSession: (createOpts) => this.createSession(createOpts).then((h) => h),
+    };
+    this.restartController = new RestartController(restartCtx);
+
     const responderCtx: ResponderCtx = {
       sessions: this.sessions,
       emit: opts.emit,
@@ -124,8 +142,8 @@ export class ClaudeSdkBridge {
     };
     this.responder = new PermissionResponder(
       responderCtx,
-      // F1 临时 wrapper：3b 中间态 typecheck 用，3f 拆 lifecycle 时改成 ctx thunk
-      (sid, mode, prompt) => this.restartWithPermissionMode(sid, mode, prompt),
+      // CHANGELOG_74 Step 3f：原 F1 临时 wrapper 改为直接走 restartController（与 ctx thunk 同模式）
+      (sid, mode, prompt) => this.restartController.restartWithPermissionMode(sid, mode, prompt),
     );
 
     const recovererCtx: RecovererCtx = {
@@ -168,6 +186,12 @@ export class ClaudeSdkBridge {
     teamName?: string;
     /** 首条 user message 的图片附件（path 由 IPC 层 writeUploadedImage 落盘后传入）。 */
     attachments?: UploadedAttachmentRef[];
+    /**
+     * CHANGELOG_74：Claude Code OS 沙盒 per-session 覆盖（NewSessionDialog / ComposerSdk
+     * 切档传入）。undefined → fallback 链：opts.resume 路径读 sessionRepo.claudeCodeSandbox →
+     * settings.claudeCodeSandbox 全局值 → 'off' 兜底。与 codex codexSandbox 字面镜像。
+     */
+    claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   }): Promise<SdkSessionHandle> {
     // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
     // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
@@ -249,6 +273,19 @@ export class ClaudeSdkBridge {
     // 释放 pending cwd 标记 + 清掉 sessions map 的 tempKey。CHANGELOG_47 修：
     // 之前 releasePending 只在成功路径调，失败时 60s ttl 内同 cwd 真实外部 hook 会话被误吞。
     let realId: string;
+    // CHANGELOG_74：sandbox mode 计算提到 try 块外，让后面 emit session-start 之后的
+    // setClaudeCodeSandbox 持久化能用同一变量（与 codex 模式保持一致）。
+    // fallback 链 — opts.claudeCodeSandbox（NewSessionDialog/ComposerSdk 显式传入）
+    // → resume 路径下 sessionRepo（重启应用 resume 历史会话还原）
+    // → settings 全局默认 → 'off' 兜底。
+    const persistedClaudeSandbox: 'off' | 'workspace-write' | 'strict' | null = opts.resume
+      ? (sessionRepo.get(opts.resume)?.claudeCodeSandbox ?? null)
+      : null;
+    const claudeSandboxMode: 'off' | 'workspace-write' | 'strict' =
+      opts.claudeCodeSandbox ??
+      persistedClaudeSandbox ??
+      settingsStore.get('claudeCodeSandbox') ??
+      'off';
     try {
       const { query } = await loadSdk();
       const runtime = getSdkRuntimeOptions();
@@ -256,12 +293,9 @@ export class ClaudeSdkBridge {
       // REVIEW_14 阶段 2 排查盲点：sandbox 是否生效在 SDK / OS 层不打 log，应用主进程
       // 看不到「sandbox 装载成功 / 失败」信号；改回顶层 sandbox 字段后此 log 帮助
       // 实证「buildSandboxOptions 真的传了对应配置进 SDK options」，下次问题排查少绕一圈。
-      const sandboxOpts = buildSandboxOptions(
-        settingsStore.get('claudeCodeSandbox') ?? 'off',
-        opts.cwd,
-      );
+      const sandboxOpts = buildSandboxOptions(claudeSandboxMode, opts.cwd);
       console.log(
-        `[sandbox] mode=${settingsStore.get('claudeCodeSandbox') ?? 'off'} → ${
+        `[sandbox] mode=${claudeSandboxMode} → ${
           sandboxOpts.sandbox ? 'enabled (top-level)' : 'disabled (no field)'
         }`,
       );
@@ -437,6 +471,18 @@ export class ClaudeSdkBridge {
       ts: Date.now(),
       source: 'sdk',
     });
+
+    // CHANGELOG_74：emit session-start 同步派发到 sessionManager.ingest → sessionRepo.upsert
+    // 创建 record；之后 setClaudeCodeSandbox UPDATE 字段命中。与 codex setCodexSandbox 同模式。
+    // try/catch 兜底：DB 异常不应阻塞会话启动（最坏情况字段没存，下次会话 fallback 到全局默认）。
+    try {
+      sessionRepo.setClaudeCodeSandbox(realId, claudeSandboxMode);
+    } catch (err) {
+      console.warn(
+        `[claude-bridge] setClaudeCodeSandbox(${realId}, ${claudeSandboxMode}) 失败`,
+        err,
+      );
+    }
 
     // createSession 的首条 prompt 没有走 sendMessage（直接塞进 pendingUserMessages 给 SDK），
     // 所以这里补 emit 一条 user message event，让活动流看到「你」发的第一条话
@@ -731,124 +777,28 @@ export class ClaudeSdkBridge {
   }
 
   /**
-   * 冷切：销毁旧 SDK 子进程，用新 mode 重建（复用 createSession 的 H4/H1 全套护栏）。
-   *
-   * 为什么不能用 setPermissionMode 热切？
-   * - bypassPermissions 真正的开关是 createSession 时的 `allowDangerouslySkipPermissions: true` flag，
-   *   CLI 子进程**初启时**按此 flag 锁死，运行时调 query.setPermissionMode('bypassPermissions')
-   *   会被 SDK 静默吞，用户体感「切了但还在询问」。
-   *
-   * 为什么 handoffPrompt 必须非空？
-   * - createSession 入口校验 prompt.trim() 非空（streaming 协议必须有首条 user message 才能启 CLI）。
-   * - 调用方负责拼好语义（例如「用户已批准 plan…请直接执行」/「继续之前的会话」）。
-   *
-   * 单飞：与 sendMessage 触发的 recoverAndSend 共用 `this.recovering` Map，
-   * 同 sessionId 的并发 cold-restart / connection-loss recovery 排队执行。
-   *
-   * 失败：snapshot oldMode → DB 已先翻新 mode → createSession fail 时回滚 DB +
-   * emit error message 让 UI 下拉回弹。**不**重新 emit 已 settle 的 ExitPlanMode entry
-   * （resolver 已 deny+interrupt 过一次，re-emit 假 row 用户点了 silently no-op）。
-   *
-   * @returns 重启后的真实 sessionId（CLI 隐式 fork 时会变；rename 后 OLD/NEW 都指向同条 DB record）
+   * CHANGELOG_74 Step 3：冷切权限模式 thin delegate（实际实现在 RestartController sub-module）。
+   * 与 setPermissionMode 不同：bypassPermissions 必须冷切（CLI 子进程 spawn-time flag 锁死，
+   * 运行时切档被 SDK 静默吞）。详 restart-controller.ts 注释。
    */
   async restartWithPermissionMode(
     sessionId: string,
     mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
     handoffPrompt: string,
   ): Promise<string> {
-    if (!handoffPrompt.trim()) {
-      throw new Error('restartWithPermissionMode 要求 handoffPrompt 非空（SDK streaming 协议约束）');
-    }
+    return this.restartController.restartWithPermissionMode(sessionId, mode, handoffPrompt);
+  }
 
-    // 单飞：等同 sessionId 的 in-flight recovery / restart 完成
-    const inflight = this.recovering.get(sessionId);
-    if (inflight) {
-      try {
-        await inflight;
-      } catch {
-        // 上一个 recovery 失败不影响本次重启尝试
-      }
-    }
-
-    const rec = sessionRepo.get(sessionId);
-    if (!rec) throw new Error(`session ${sessionId} not found in repo`);
-    const oldMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' =
-      rec.permissionMode ?? 'default';
-
-    // 占位 message：分方向文案，让用户在 5-10s busy 期间看到状态
-    const enterBypass = mode === 'bypassPermissions';
-    const placeholderText = enterBypass
-      ? '⚠ 正在切换到完全免询问模式（bypass），重启 SDK 中…'
-      : `⚠ 正在切换权限模式到 ${mode}，重启 SDK 中…`;
-    this.opts.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: { text: placeholderText },
-      ts: Date.now(),
-      source: 'sdk',
-    });
-
-    // close OLD：内部已修为 emit *-cancelled 事件清 renderer zombie row 后再清 Map
-    await this.closeSession(sessionId);
-
-    // 写 DB：必须先于 createSession（cold path 翻序；hot path 不动保持 ipc.ts:451-462 原样）。
-    // 同步 emit upsert 让 SessionDetail 下拉值立即跟到新 mode（5-10s busy 期间用户已经看到「切完了」）。
-    sessionRepo.setPermissionMode(sessionId, mode);
-    const updatedRec = sessionRepo.get(sessionId);
-    if (updatedRec) eventBus.emit('session-upserted', updatedRec);
-
-    const p = (async (): Promise<string> => {
-      try {
-        const handle = await this.createSession({
-          cwd: rec.cwd,
-          prompt: handoffPrompt,
-          resume: sessionId,
-          permissionMode: mode,
-        });
-        const newRealId = handle.sessionId;
-        // CLI 隐式 fork：拿到的 newRealId 可能 ≠ OLD sessionId（CLI 在 streaming + resume 下行为不可控，
-        // 见 CLAUDE.md「会话恢复 / 断连 UX」节）。rename 把 DB 子表 + sdkOwned 整体迁到 NEW 名下。
-        if (newRealId !== sessionId) {
-          try {
-            sessionManager.renameSdkSession(sessionId, newRealId);
-          } catch (renameErr) {
-            console.error(
-              `[sdk-bridge] post-restart rename failed ${sessionId} → ${newRealId}, ` +
-                `NEW session works but app-side history not migrated.`,
-              renameErr,
-            );
-          }
-        }
-        return newRealId;
-      } catch (err) {
-        // 回滚：DB 改回 oldMode + emit upsert 让下拉回弹
-        sessionRepo.setPermissionMode(sessionId, oldMode);
-        const rolled = sessionRepo.get(sessionId);
-        if (rolled) eventBus.emit('session-upserted', rolled);
-        // 占位 message 已 emit 过，再 emit 一条 error 让用户知道失败 + 已回退
-        this.opts.emit({
-          sessionId,
-          agentId: AGENT_ID,
-          kind: 'message',
-          payload: {
-            text:
-              `⚠ 切到 ${mode} 失败：${(err as Error)?.message ?? String(err)}。` +
-              `权限模式已回退到 ${oldMode}，请重新发送一条消息让 Claude 续上 plan。`,
-            error: true,
-          },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        throw err;
-      }
-    })();
-    this.recovering.set(sessionId, p);
-    try {
-      return await p;
-    } finally {
-      this.recovering.delete(sessionId);
-    }
+  /**
+   * CHANGELOG_74：冷切 OS 沙盒档位 thin delegate（与 codex restartWithCodexSandbox 字面镜像）。
+   * SDK 的 sandbox options 是 query() spawn-time 锁定，必须冷切重启。详 restart-controller.ts 注释。
+   */
+  async restartWithClaudeCodeSandbox(
+    sessionId: string,
+    sandbox: 'off' | 'workspace-write' | 'strict',
+    handoffPrompt: string,
+  ): Promise<string> {
+    return this.restartController.restartWithClaudeCodeSandbox(sessionId, sandbox, handoffPrompt);
   }
 
   /**
