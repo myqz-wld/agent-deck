@@ -53,6 +53,15 @@ export interface SessionRecord {
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
   /**
+   * Claude Code OS 沙盒档位（CHANGELOG_74：仅 claude-code adapter 写）。
+   * 持久化用户在 NewSessionDialog / ComposerSdk 选过的 OS 沙盒档位
+   * （off / workspace-write / strict），让重启应用 resume 仍按原档位。
+   * null/undefined 视为 settings.claudeCodeSandbox 全局值（与 createSession 路径
+   * fallback 同模式 — 与 codexSandbox 完全对称）。
+   * codex / aider / generic-pty 会话该字段始终 null。
+   */
+  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict' | null;
+  /**
    * Agent Deck MCP server (R2 / B'0 ADR §6.5)：spawn 链上的父 session id。
    * - null/undefined：顶层 session（用户 IPC / CLI 直接起 / R2 之前老数据）
    * - 字符串：MCP `spawn_session` tool 调用方的 session id

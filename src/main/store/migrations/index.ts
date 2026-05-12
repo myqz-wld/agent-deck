@@ -23,6 +23,7 @@ import v009 from './v009_mcp_spawn_chain.sql?raw';
 import v010 from './v010_agent_deck_teams.sql?raw';
 import v011 from './v011_tasks_team_id.sql?raw';
 import v012 from './v012_sessions_generic_pty_config.sql?raw';
+import v013 from './v013_sessions_claude_code_sandbox.sql?raw';
 
 export interface Migration {
   version: number;
@@ -43,4 +44,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 10, name: 'agent_deck_teams', sql: v010 },
   { version: 11, name: 'tasks_team_id', sql: v011 },
   { version: 12, name: 'sessions_generic_pty_config', sql: v012 },
+  { version: 13, name: 'sessions_claude_code_sandbox', sql: v013 },
 ];

@@ -25,6 +25,7 @@ interface Row {
   permission_mode: string | null;
   team_name: string | null;
   codex_sandbox: string | null;
+  claude_code_sandbox: string | null;
   spawned_by: string | null;
   spawn_depth: number;
   generic_pty_config: string | null;
@@ -49,6 +50,11 @@ function rowToRecord(r: Row): SessionRecord {
       | 'workspace-write'
       | 'read-only'
       | 'danger-full-access'
+      | null) ?? null,
+    claudeCodeSandbox: (r.claude_code_sandbox as
+      | 'off'
+      | 'workspace-write'
+      | 'strict'
       | null) ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
@@ -88,13 +94,14 @@ export const sessionRepo = {
     // 未来想通过 upsert 改这些字段会神秘失败（写了不报错但不生效）。
     // CHANGELOG_<X> A2a：codex_sandbox 同样必须参与 INSERT / UPDATE，避免 spread 调用
     // 时静默丢弃用户在 NewSessionDialog 选过的 sandbox 档位。
+    // CHANGELOG_74：claude_code_sandbox 同款（claude OS 沙盒 per-session 覆盖与 codex 对称）。
     // R4·F2：generic_pty_config 同款 — generic-pty / aider session 的 spawn config 必须
     // 在 upsert 时透传，否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn。
     getDb()
       .prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, spawned_by, spawn_depth, generic_pty_config)
-         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name, @codex_sandbox, @spawned_by, @spawn_depth, @generic_pty_config)
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, claude_code_sandbox, spawned_by, spawn_depth, generic_pty_config)
+         VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @team_name, @codex_sandbox, @claude_code_sandbox, @spawned_by, @spawn_depth, @generic_pty_config)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            title = excluded.title,
@@ -107,6 +114,7 @@ export const sessionRepo = {
            permission_mode = excluded.permission_mode,
            team_name = excluded.team_name,
            codex_sandbox = excluded.codex_sandbox,
+           claude_code_sandbox = excluded.claude_code_sandbox,
            spawned_by = excluded.spawned_by,
            spawn_depth = excluded.spawn_depth,
            generic_pty_config = excluded.generic_pty_config`,
@@ -126,6 +134,7 @@ export const sessionRepo = {
         permission_mode: rec.permissionMode ?? null,
         team_name: rec.teamName ?? null,
         codex_sandbox: rec.codexSandbox ?? null,
+        claude_code_sandbox: rec.claudeCodeSandbox ?? null,
         spawned_by: rec.spawnedBy ?? null,
         spawn_depth: rec.spawnDepth ?? 0,
         generic_pty_config: rec.genericPtyConfig ? JSON.stringify(rec.genericPtyConfig) : null,
@@ -247,6 +256,19 @@ export const sessionRepo = {
   },
 
   /**
+   * 写入 claude OS sandbox 档位（CHANGELOG_74：仅 claude-code adapter 调用）。
+   * null 表示恢复用 settings.claudeCodeSandbox 全局值（与 createSession 路径 fallback 同模式）。
+   * codex / aider / generic-pty adapter 不应调此方法（字段对它们无意义）。
+   * 与 setCodexSandbox 完全对称的字面镜像。
+   */
+  setClaudeCodeSandbox(
+    id: string,
+    sandbox: 'off' | 'workspace-write' | 'strict' | null,
+  ): void {
+    getDb().prepare(`UPDATE sessions SET claude_code_sandbox = ? WHERE id = ?`).run(sandbox, id);
+  },
+
+  /**
    * R4·F2：写入 generic-pty / aider session 的 spawn config。
    * 仅 generic-pty / aider adapter 的 createSession / config 微调路径调；
    * claude-code / codex-cli adapter 不应调（字段对它们无意义）。
@@ -321,14 +343,16 @@ export const sessionRepo = {
         // CHANGELOG_<X> R2 / B'0 ADR §6.5.2 #2-#3：列清单扩到 16 列（顺手补 v008
         // codex_sandbox 漏列 latent bug，再加 R2 v009 spawned_by/spawn_depth）。
         // R4·F2：列再扩 1 → 17 列（generic_pty_config）。
+        // CHANGELOG_74：列再扩 1 → 18 列（claude_code_sandbox，与 codex_sandbox 同款 spawn-time
+        // 用户主动选过的状态，rename 路径必须搬过来防止丢档）。
         // 历史教训（CHANGELOG_35）：v006 加 team_name 时多算了一个 ? 占位（14 个），
         // 触发 SDK fallback rename / CLI 隐式 fork (first realId !== opts.resume)
         // 走到这条 INSERT 时 better-sqlite3 抛 `14 values for 13 columns`。
-        // 务必让 ? 数与列数一致 —— 当前 17 列 = 17 个 ?。
+        // 务必让 ? 数与列数一致 —— 当前 18 列 = 18 个 ?。
         db.prepare(
           `INSERT INTO sessions
-           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, spawned_by, spawn_depth, generic_pty_config)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, team_name, codex_sandbox, claude_code_sandbox, spawned_by, spawn_depth, generic_pty_config)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           toId,
           fromRow.agent_id,
@@ -344,6 +368,7 @@ export const sessionRepo = {
           fromRow.permission_mode,
           fromRow.team_name,
           fromRow.codex_sandbox,
+          fromRow.claude_code_sandbox,
           fromRow.spawned_by,
           fromRow.spawn_depth,
           fromRow.generic_pty_config,
@@ -372,6 +397,15 @@ export const sessionRepo = {
       if (toExists && fromRow.codex_sandbox) {
         db.prepare(`UPDATE sessions SET codex_sandbox = ? WHERE id = ?`).run(
           fromRow.codex_sandbox,
+          toId,
+        );
+      }
+      if (toExists && fromRow.claude_code_sandbox) {
+        // CHANGELOG_74：与 codex_sandbox 同款 — recoverAndSend / SDK fallback rename 时
+        // 必须从 fromRow 覆盖到 NEW 行，否则用户在 NewSessionDialog / ComposerSdk 选过的
+        // OS 沙盒档位被 NEW 行 createSession 时写的全局默认值「淹没」掉。
+        db.prepare(`UPDATE sessions SET claude_code_sandbox = ? WHERE id = ?`).run(
+          fromRow.claude_code_sandbox,
           toId,
         );
       }
