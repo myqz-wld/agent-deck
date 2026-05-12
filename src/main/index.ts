@@ -18,6 +18,10 @@ import { aiderAdapter } from './adapters/aider';
 import { genericPtyAdapter } from './adapters/generic-pty';
 import { sessionManager, setSessionCloseFn } from './session/manager';
 import { LifecycleScheduler, setLifecycleScheduler } from './session/lifecycle-scheduler';
+import {
+  TeamLifecycleScheduler,
+  setTeamLifecycleScheduler,
+} from './teams/team-lifecycle-scheduler';
 import { summarizer } from './session/summarizer';
 import { routeEventToNotification } from './notify/event-router';
 import { stopAllSounds } from './notify/sound';
@@ -43,6 +47,7 @@ process.stderr.on('error', () => {});
 let hookServer: HookServer;
 let routeRegistry: RouteRegistry;
 let scheduler: LifecycleScheduler;
+let teamScheduler: TeamLifecycleScheduler;
 let agentDeckMcpHttpShutdown: (() => Promise<void>) | null = null;
 
 const gotLock = app.requestSingleInstanceLock();
@@ -169,6 +174,12 @@ async function bootstrap(): Promise<void> {
   });
   scheduler.start();
   setLifecycleScheduler(scheduler);
+  // plan team-cohesion-fix-20260513 Phase F D7：team 生命周期 scheduler。5min 周期 +
+  // 30min grace。lead 经过 D6 路径自动 archive 是主路径；本 scheduler 是兜底（程序
+  // ungraceful 退出 / hook 绕过 sessionManager 的场景定期清理幽灵 team）。
+  teamScheduler = new TeamLifecycleScheduler();
+  teamScheduler.start();
+  setTeamLifecycleScheduler(teamScheduler);
   summarizer.start();
 
   // 7.0 D1+D2：app ready 后同步 Agent Deck 段到 ~/.codex/AGENTS.md + skills
@@ -330,6 +341,8 @@ app.on('before-quit', (event) => {
       globalShortcut.unregisterAll();
       scheduler?.stop();
       setLifecycleScheduler(null);
+      teamScheduler?.stop();
+      setTeamLifecycleScheduler(null);
       summarizer.stop();
       stopAllSounds();
       // R3.E5：universal-message-watcher shutdown

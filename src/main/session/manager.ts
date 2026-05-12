@@ -365,6 +365,13 @@ class SessionManagerClass {
     sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
+    // plan team-cohesion-fix-20260513 Phase F D6：被动清理 — closed session 自动 leave
+    // 所有 active team membership（否则 universal team backend 仍把 closed session 算
+    // active member，UI 看到一堆「已 closed 但仍在 team」的幽灵成员）。fire-and-forget
+    // 异步跑，不阻塞 markClosed 的同步语义。
+    void this._leaveAllActiveTeams(sessionId).catch((err) => {
+      console.warn(`[session-mgr] _leaveAllActiveTeams failed during markClosed(${sessionId}):`, err);
+    });
   }
 
   /**
@@ -395,6 +402,10 @@ class SessionManagerClass {
     sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
+    // plan team-cohesion-fix-20260513 Phase F D6：与 markClosed 同款被动清理。await 而非
+    // fire-and-forget（close 已 async，等 leaveTeam 完成再返回让 caller 拿到稳定状态：
+    // 比如 IPC TeamShutdownAllTeammates 串行调多个 close 期望每个 close 完后该 sid 已离 team）。
+    await this._leaveAllActiveTeams(sessionId);
   }
 
   archive(sessionId: string): void {
@@ -449,6 +460,52 @@ class SessionManagerClass {
   notifyTeamMembershipChanged(sessionId: string): void {
     const rec = sessionRepo.get(sessionId);
     if (rec) eventBus.emit('session-upserted', rec);
+  }
+
+  /**
+   * plan team-cohesion-fix-20260513 Phase F D6：close / markClosed / delete 共用的「session
+   * 终止时离开所有 active team」清理 helper。
+   *
+   * 与原 delete 路径的实现等价（保持单一逻辑入口）：
+   * 1. lazy import agentDeckTeamRepo + eventBus（防循环依赖）
+   * 2. listActiveMemberships → 逐个 leaveTeam(team_id, sid) 写 left_at = now
+   * 3. emit `agent-deck-team-member-changed` 让 TeamHub / TeamDetail UI 刷新
+   * 4. 0-lead 自动 archive：lead 离开后该 team 无 active lead → archive team + emit
+   *    `agent-deck-team-updated`
+   *
+   * 注意：reactivate 路径**不**自动 rejoin team（草案 D6 反例考虑：语义不清，
+   * 可能加错 team；reactivate 是少数场景，让用户手工 spawn 新 team 才稳）。
+   * 调用方需自己决定 await / fire-and-forget：close 是 async 已 await；markClosed
+   * 是 sync 包 void 不阻塞主流程。
+   */
+  private async _leaveAllActiveTeams(sessionId: string): Promise<void> {
+    try {
+      const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
+      const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
+      for (const m of memberships) {
+        try {
+          agentDeckTeamRepo.leaveTeam(m.teamId, sessionId);
+          eventBus.emit('agent-deck-team-member-changed', {
+            teamId: m.teamId,
+            sessionId,
+            kind: 'left',
+          });
+          // 0-lead 自动 archive：与 delete 路径同款（lead 离开后该 team 无 active lead → archive）
+          const remaining = agentDeckTeamRepo.countActiveLeads(m.teamId);
+          if (remaining === 0) {
+            const team = agentDeckTeamRepo.archive(m.teamId, { reason: 'last-lead-closed' });
+            if (team) eventBus.emit('agent-deck-team-updated', team);
+          }
+        } catch (err) {
+          console.warn(
+            `[session-mgr] leaveTeam(${m.teamId}, ${sessionId}) failed during session end:`,
+            err,
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(`[session-mgr] _leaveAllActiveTeams skipped (import failed): ${sessionId}`, err);
+    }
   }
 
   async delete(sessionId: string): Promise<void> {
