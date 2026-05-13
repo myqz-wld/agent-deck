@@ -29,7 +29,7 @@
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 7 tool（`mcp__agent_deck__spawn_session` / `send_message` / `reply_message` / `wait_reply` / `list_sessions` / `get_session` / `shutdown_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 9 tool（`mcp__agent_deck__spawn_session` / `send_message` / `reply_message` / `wait_reply` / `check_reply` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
 ### 三个核心约定（lead 角度）
 
@@ -58,3 +58,25 @@ teammate 端协议约束（regex 提 messageId / 用 reply_message 回 / DB mess
 ### 跨会话救火：list_sessions(spawned_by_filter)
 
 lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawned_by_filter:'<old_lead_sid>', status_filter:'active')` 拉自己以前 spawn 的 active reviewer；按 sessionId 调 `send_message` 发新 prompt → 用返回的 `messageId` 调 `wait_reply` 等本轮 reply（旧 spawn 的 `spawnPromptMessageId` 已不在 lead context，用本轮 send 的 messageId 起新对话锚点）；收尾走 `shutdown_session`。
+
+### check_reply 非阻塞 poll
+
+`wait_reply` 阻塞 lead 等期间不能从 user 收新 message；想保留处理其他 user input 能力时改用 `check_reply({message_id})`：立即返回 `{ reply: ... | null, timedOut: false }`（`timedOut` 永远 false，字段保留是为与 wait_reply 同形）。lead 自己控 poll 节奏。
+
+### plan hand-off 自动化：archive_plan
+
+完成 `~/.claude/CLAUDE.md` 的「复杂 plan：worktree 隔离 + 跨会话 hand off」流程的 §Step 4 cleanup 一次调用代替 5 步 Bash：
+
+```ts
+const result = await mcp__agent_deck__archive_plan({
+  plan_id: '<plan-id>',                      // 与 worktree 目录名 / plan 文件 stem 一致
+  worktree_path: '<absolute-worktree-path>', // /Users/.../repo/.claude/worktrees/<plan-id>
+  base_branch: 'main',                       // 默认 'main'
+  // plan_file_path: '<override>'            // 默认按 <main-repo>/.claude/plans/<id>.md → ~/.claude/plans/<id>.md fallback
+});
+// result = { archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_appended, final_status: 'completed' }
+```
+
+tool 自动跑 14 步：rev-parse main repo / 解 worktree branch / 预检 (worktree clean / cwd 不在 worktree 内 / plan status ≠ completed / 非 detached HEAD) / ff merge worktree branch → base_branch / 更新 plan frontmatter (status=completed + final_commit + completed_at) / mv plan 到 `<main-repo>/plans/<plan-id>.md` / 同步 `plans/INDEX.md` (不存在创建 / 已存在 append 防重复) / 删原 plan / git add + commit / git worktree remove + branch -D。
+
+任一预检失败立即返回 error 短路。**lead agent 必须先 ExitWorktree** 让 cwd 出 worktree 再调本 tool（mcp 不能调 ExitWorktree CLI 内部 tool；cwd 在 worktree 内时 tool 直接 reject 提示 ExitWorktree）。
