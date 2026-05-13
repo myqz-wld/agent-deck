@@ -333,12 +333,18 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
   }
 
   function markDelivered(messageId: string, now: number): AgentDeckMessage | null {
+    // REVIEW_32 HIGH-1：接纳 status='pending' OR 'delivering'。
+    // spawn_session 路径在 SDK createSession 已经投过 prompt，紧接着 insert placeholder
+    // (status='pending') + markDelivered 做「捷径 mark 为 delivered，watcher 不再重投」。
+    // 旧 SQL 仅匹配 'delivering' → spawn 路径 100% no-op → universal-message-watcher 250ms
+    // poll 命中 (pending, last_attempt_at IS NULL) → 二次投递（teammate 跑完首条 prompt 后立刻
+    // 又收到一份 wireBody = `[from <name>][msg <id>]\n` + 原 body）。fix：放宽 status 集合。
     const result = db
       .prepare(
         `UPDATE agent_deck_messages
          SET status = 'delivered', delivered_at = ?, status_reason = NULL,
              delivering_since = NULL
-         WHERE id = ? AND status = 'delivering'`,
+         WHERE id = ? AND status IN ('pending', 'delivering')`,
       )
       .run(now, messageId);
     if (result.changes === 0) return null;

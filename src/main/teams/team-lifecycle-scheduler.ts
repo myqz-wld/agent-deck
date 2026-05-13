@@ -106,11 +106,13 @@ export class TeamLifecycleScheduler {
     }
   }
 
-  private _archiveTeam(teamId: string, reason: string): void {
-    const team = agentDeckTeamRepo.archive(teamId, { reason });
+  private _archiveTeam(teamId: string, detail: string): void {
+    // REVIEW_32 MED-7：scheduler 路径统一记 'scheduler'；详细原因 detail 走 console.log（不进 DB），
+    // unarchive 联动靠 archive_reason='last-lead-archived' 区分，scheduler 归档应保持归档（用户手工恢复）。
+    const team = agentDeckTeamRepo.archive(teamId, { reason: 'scheduler' });
     if (team) {
       eventBus.emit('agent-deck-team-updated', team);
-      console.log(`[team-lifecycle-scheduler] archived team ${teamId} (${team.name}) — ${reason}`);
+      console.log(`[team-lifecycle-scheduler] archived team ${teamId} (${team.name}) — ${detail}`);
     }
   }
 }

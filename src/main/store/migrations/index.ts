@@ -26,6 +26,7 @@ import v012 from './v012_sessions_generic_pty_config.sql?raw';
 import v013 from './v013_sessions_claude_code_sandbox.sql?raw';
 import v014 from './v014_drop_sessions_team_name.sql?raw';
 import v015 from './v015_agent_deck_messages_reply_to.sql?raw';
+import v016 from './v016_agent_deck_teams_archive_reason.sql?raw';
 
 export interface Migration {
   version: number;
@@ -49,4 +50,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 13, name: 'sessions_claude_code_sandbox', sql: v013 },
   { version: 14, name: 'drop_sessions_team_name', sql: v014 },
   { version: 15, name: 'agent_deck_messages_reply_to', sql: v015 },
+  { version: 16, name: 'agent_deck_teams_archive_reason', sql: v016 },
 ];

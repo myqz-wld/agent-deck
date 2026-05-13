@@ -408,19 +408,27 @@ class SessionManagerClass {
     await this._leaveAllActiveTeams(sessionId);
   }
 
-  archive(sessionId: string): void {
+  async archive(sessionId: string): Promise<void> {
     // 只设归档标记，不动 lifecycle —— 这样取消归档可以恢复原本的生命周期。
     sessionRepo.setArchived(sessionId, Date.now());
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
+    // bug 修复（plan deep-review-and-split-20260513）：lead session 被归档后，
+    // 联动检查所属 active team 是否已无 active lead → auto-archive team。
+    // membership 不动（lead 没真离开），countActiveLeads 已加 INNER JOIN sessions
+    // archived_at IS NULL 过滤，本 sid 自动从计数中去除。
+    await this._archiveTeamsIfOrphaned(sessionId);
   }
 
-  unarchive(sessionId: string): void {
+  async unarchive(sessionId: string): Promise<void> {
     // 取消归档：清掉 archived_at，lifecycle 保留不变，
     // 会话自动按真实 lifecycle 出现在对应面板（active/dormant→实时，closed→历史）。
     sessionRepo.setArchived(sessionId, null);
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
+    // bug 修复（unarchive 联动）：lead session 复活时，所有该 session 还是 active member
+    // 且已 archived 的 team 一并 unarchive（覆盖 archive 联动的反向）。
+    await this._unarchiveTeamsForRevivedLead(sessionId);
   }
 
   reactivate(sessionId: string): void {
@@ -505,6 +513,82 @@ class SessionManagerClass {
       }
     } catch (err) {
       console.warn(`[session-mgr] _leaveAllActiveTeams skipped (import failed): ${sessionId}`, err);
+    }
+  }
+
+  /**
+   * bug 修复（plan deep-review-and-split-20260513）：lead session 被用户归档后，
+   * 该 session 所属的 active team 若已无 active lead → auto-archive team。
+   * 与 _leaveAllActiveTeams 的区别：membership 不动（lead 没真离开，只是被隐藏），
+   * 所以**不**调 leaveTeam、**不**emit team-member-changed。countActiveLeads 已加
+   * INNER JOIN sessions archived_at IS NULL 过滤，本 sid 自动从计数中去除。
+   * lazy import 防循环依赖（与 _leaveAllActiveTeams 同模式）。
+   */
+  private async _archiveTeamsIfOrphaned(sessionId: string): Promise<void> {
+    try {
+      const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
+      const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
+      for (const m of memberships) {
+        try {
+          if (m.role !== 'lead') continue; // teammate 归档不影响 team 存活
+          const remaining = agentDeckTeamRepo.countActiveLeads(m.teamId);
+          if (remaining === 0) {
+            const team = agentDeckTeamRepo.archive(m.teamId, { reason: 'last-lead-archived' });
+            if (team) eventBus.emit('agent-deck-team-updated', team);
+          }
+        } catch (err) {
+          console.warn(
+            `[session-mgr] _archiveTeamsIfOrphaned(${m.teamId}, ${sessionId}) failed:`,
+            err,
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[session-mgr] _archiveTeamsIfOrphaned skipped (import failed): ${sessionId}`,
+        err,
+      );
+    }
+  }
+
+  /**
+   * bug 修复 unarchive 联动（plan deep-review-and-split-20260513 + REVIEW_32 MED-7）：
+   * lead session 复活时，所有该 session 还是 active member 且**因本会话 archive 联动**
+   * 自动归档（archive_reason='last-lead-archived'）的 team 一并 unarchive。
+   *
+   * REVIEW_32 MED-7：精确语义 — 只复活 'last-lead-archived'，绝不复活：
+   * - 'user-action'（用户主动归档）
+   * - 'last-lead-closed' / 'last-lead-deleted'（lead 真离开 team，membership 也已 leave，
+   *   走不到本 helper 的 m.role==='lead' 分支）
+   * - 'scheduler'（D7 长期无活动归档，应保持）
+   *
+   * teammate 归档/复活不影响 team 存活，所以只在 role='lead' 时触发。
+   */
+  private async _unarchiveTeamsForRevivedLead(sessionId: string): Promise<void> {
+    try {
+      const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
+      const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
+      for (const m of memberships) {
+        try {
+          if (m.role !== 'lead') continue;
+          const team = agentDeckTeamRepo.get(m.teamId);
+          if (!team || team.archivedAt === null) continue;
+          // REVIEW_32 MED-7：只复活 archive_reason='last-lead-archived'，避免覆盖用户主动归档语义
+          if (team.archiveReason !== 'last-lead-archived') continue;
+          const restored = agentDeckTeamRepo.unarchive(m.teamId);
+          if (restored) eventBus.emit('agent-deck-team-updated', restored);
+        } catch (err) {
+          console.warn(
+            `[session-mgr] _unarchiveTeamsForRevivedLead(${m.teamId}, ${sessionId}) failed:`,
+            err,
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[session-mgr] _unarchiveTeamsForRevivedLead skipped (import failed): ${sessionId}`,
+        err,
+      );
     }
   }
 

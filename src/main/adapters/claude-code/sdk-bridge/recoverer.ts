@@ -138,7 +138,7 @@ export class SessionRecoverer {
       console.warn(
         `[sdk-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
       );
-      sessionManager.unarchive(sessionId);
+      await sessionManager.unarchive(sessionId);
     }
 
     // REVIEW_24 HIGH-2 follow-up：字符长度上限（与 messageRepo cap 全局对齐）。

@@ -23,6 +23,25 @@
  */
 export type AgentDeckTeamMemberRole = 'lead' | 'teammate';
 
+/**
+ * REVIEW_32 MED-7: team archive 来源标签（持久化到 agent_deck_teams.archive_reason 列）。
+ *
+ * - 'last-lead-archived' — manager.archive(sessionId) 联动 0-active-lead 自动归档
+ * - 'last-lead-closed'   — manager.markClosed/close 路径 _leaveAllActiveTeams 触发
+ * - 'last-lead-deleted'  — manager.delete 路径 leaveTeam 触发
+ * - 'scheduler'          — team-lifecycle-scheduler D7 主动清理
+ * - 'user-action'        — 用户在 TeamDetail 「归档」按钮显式归档
+ *
+ * unarchive 联动（manager._unarchiveTeamsForRevivedLead）只对 'last-lead-archived' 反向复活，
+ * 其他保持归档（避免覆盖用户主动归档语义）。
+ */
+export type AgentDeckTeamArchiveReason =
+  | 'last-lead-archived'
+  | 'last-lead-closed'
+  | 'last-lead-deleted'
+  | 'scheduler'
+  | 'user-action';
+
 /** team_members 表的运行时投影（DB row 经 repo 转 camelCase 后）。 */
 export interface AgentDeckTeamMember {
   teamId: string;
@@ -44,6 +63,18 @@ export interface AgentDeckTeam {
   createdAt: number;
   /** NULL = active；非 NULL = 用户归档（UI 默认隐藏，已 enqueued pending message 仍投递完成） */
   archivedAt: number | null;
+  /**
+   * REVIEW_32 MED-7：archive 来源，配合 unarchive 联动决策。
+   *   'last-lead-archived' — 自动归档（lead session 被用户归档触发）
+   *   'last-lead-closed'   — 自动归档（lead session close / markClosed 触发）
+   *   'last-lead-deleted'  — 自动归档（lead session delete 触发）
+   *   'scheduler'          — D7 主动归档（长期无活动）
+   *   'user-action'        — 用户在 TeamDetail 主动归档
+   *   null                 — 未归档 OR v016 升级前的旧归档数据
+   * unarchive 联动（manager._unarchiveTeamsForRevivedLead）只对 'last-lead-archived' 反向复活，
+   * 其他保留归档（避免覆盖用户主动归档语义）。
+   */
+  archiveReason: AgentDeckTeamArchiveReason | null;
   /**
    * JSON 自由扩展位（描述 / 标签 / 来源 'cli'/'ui'/'mcp' 等）。
    * **读路径必须 type-guard，禁止裸 cast**（reviewer INFO 收口）。

@@ -1,0 +1,19 @@
+-- REVIEW_32 MED-7：agent_deck_teams 加 archive_reason 列，区分 archive 来源。
+--
+-- 背景：plan deep-review-and-split-20260513 加的 unarchive 联动（manager.ts
+-- _unarchiveTeamsForRevivedLead）把同 lead 所属的所有 archived team 一律复活，
+-- 不区分 team 是被自动归档（last-lead-archived / last-lead-closed / last-lead-deleted）
+-- 还是被用户在 TeamDetail 主动归档。导致用户主动归档的 team 在 lead session unarchive
+-- 时被意外拉回。
+--
+-- 字段值（业务约定，code 校验，DB 不加 CHECK 兼容老数据）：
+--   'last-lead-archived' — manager.archive(sessionId) 联动触发的 0-active-lead 自动归档
+--   'last-lead-closed'   — manager.markClosed/close 路径的 _leaveAllActiveTeams 0-lead 联动
+--   'last-lead-deleted'  — manager.delete 路径的 leaveTeam 0-lead 联动
+--   'scheduler'          — team-lifecycle-scheduler 的 D7 主动清理
+--   'user-action'        — 用户在 TeamDetail 「归档」按钮显式归档（默认值，旧 NULL 也按 user-action 看待）
+--   NULL                 — 旧数据（v016 升级前归档的 team，无来源记录）
+--
+-- unarchive 联动只对 'last-lead-archived' 做反向复活，其他保持归档（用户必须手工恢复），
+-- 避免自动 archive 的反向操作误覆盖用户主动归档语义。
+ALTER TABLE agent_deck_teams ADD COLUMN archive_reason TEXT;

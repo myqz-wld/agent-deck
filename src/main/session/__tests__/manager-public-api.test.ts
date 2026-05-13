@@ -40,7 +40,7 @@ afterEach(() => {
 });
 
 describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
-  it('archive() → 标 archivedAt + 广播 upserted；list() 不再返回该 session', () => {
+  it('archive() → 标 archivedAt + 广播 upserted；list() 不再返回该 session', async () => {
     // 预置一个 active session
     const ev = makeEvent({
       sessionId: 'sess-archive',
@@ -51,7 +51,7 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
     sessionManager.ingest(ev);
     expect(sessionManager.list().some((s) => s.id === 'sess-archive')).toBe(true);
 
-    sessionManager.archive('sess-archive');
+    await sessionManager.archive('sess-archive');
     const r = mockSessions.get('sess-archive');
     expect(r?.archivedAt).not.toBeNull();
     expect(sessionManager.list().some((s) => s.id === 'sess-archive')).toBe(false);
@@ -66,7 +66,7 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
     ).toBe(true);
   });
 
-  it('unarchive() → 清 archivedAt 且不动 lifecycle（CLAUDE.md「正交」约定）', () => {
+  it('unarchive() → 清 archivedAt 且不动 lifecycle（CLAUDE.md「正交」约定）', async () => {
     const ev = makeEvent({
       sessionId: 'sess-unarchive',
       source: 'sdk',
@@ -74,11 +74,11 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
       payload: { cwd: '/tmp' },
     });
     sessionManager.ingest(ev);
-    sessionManager.archive('sess-unarchive');
+    await sessionManager.archive('sess-unarchive');
     const archived = mockSessions.get('sess-unarchive');
     const lifecycleBefore = archived?.lifecycle;
 
-    sessionManager.unarchive('sess-unarchive');
+    await sessionManager.unarchive('sess-unarchive');
     const r = mockSessions.get('sess-unarchive');
     expect(r?.archivedAt).toBeNull();
     expect(r?.lifecycle).toBe(lifecycleBefore); // 不被改动

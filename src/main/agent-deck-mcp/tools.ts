@@ -46,13 +46,17 @@ import { applySpawnGuards } from './spawn-guards';
  * 覆盖 callerSessionId（强制语义防 prompt 注入伪造）。
  */
 export function makeCallerContext(
-  rawCallerSid: string,
+  rawCallerSid: string | null | undefined,
   rawParentSid: string | undefined,
   transport: CallerContext['transport'],
 ): CallerContext {
+  // REVIEW_32 HIGH-9：caller_session_id 改 optional 后，in-process 走 override 注入真实 sid；
+  // external (HTTP/stdio) 没 override → 用占位 '__external__'，下游 denyExternalIfNotAllowed
+  // 兜底拒绝需要真实 session 上下文的 tool。空字符串 / null 都视为缺省。
+  const callerSid = rawCallerSid && rawCallerSid.length > 0 ? rawCallerSid : '__external__';
   return {
-    callerSessionId: rawCallerSid,
-    parentSessionId: rawParentSid ?? rawCallerSid,
+    callerSessionId: callerSid,
+    parentSessionId: rawParentSid ?? callerSid,
     transport,
   };
 }
@@ -229,18 +233,42 @@ const SPAWN_SESSION_SCHEMA = {
     ),
   permission_mode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
-    .optional(),
+    .optional()
+    .describe(
+      'REVIEW_32 HIGH-5: 不传时从 lead session（caller_session_id 对应 row）继承；caller 显式传则覆盖。external caller (caller 不在 sessions 表) 不继承，沿用 adapter 默认。',
+    ),
   codex_sandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
-    .optional(),
-  caller_session_id: z.string().min(1).max(128),
+    .optional()
+    .describe('REVIEW_32 HIGH-5: 不传时从 lead 继承；caller 显式传覆盖。'),
+  claude_code_sandbox: z
+    .enum(['off', 'workspace-write', 'strict'])
+    .optional()
+    .describe(
+      'REVIEW_32 HIGH-5: claude-code adapter 沙盒切档（off / workspace-write / strict）。不传时从 lead 继承（避免 spawn 出的 reviewer-codex 被外层 sandbox 拦 in-process app-server 初始化）。caller 显式传覆盖。',
+    ),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+    ),
   parent_session_id: z.string().min(1).max(128).optional(),
 };
 
 const SEND_MESSAGE_SCHEMA = {
   session_id: z.string().min(1).max(128),
   text: z.string().min(1).max(100_000),
-  caller_session_id: z.string().min(1).max(128),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+    ),
   // R3.E0 ADR §5.2 amend：multi-team 共享时必填，单 team 共享时可省（自动 resolve）
   team_id: z
     .string()
@@ -297,7 +325,14 @@ const WAIT_REPLY_SCHEMA = {
     .describe(
       'Total timeout (1s ~ 30min). Returns { reply: null, timedOut: true } when exceeded. Default 10min covers normal review turns; deep multi-file reviews / heavy reasoning may need 15-30min — pass a larger value explicitly.',
     ),
-  caller_session_id: z.string().min(1).max(128),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+    ),
 };
 
 const REPLY_MESSAGE_SCHEMA = {
@@ -309,11 +344,25 @@ const REPLY_MESSAGE_SCHEMA = {
       'The id of the original message you are replying to (returned by send_message / wait_reply).',
     ),
   text: z.string().min(1).max(100_000).describe('Reply body (1-100KB).'),
-  caller_session_id: z.string().min(1).max(128),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+    ),
 };
 
 const LIST_SESSIONS_SCHEMA = {
-  caller_session_id: z.string().min(1).max(128),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+    ),
   status_filter: z.enum(['active', 'dormant', 'closed', 'all']).default('active'),
   adapter_filter: z
     .enum(['claude-code', 'codex-cli', 'aider', 'generic-pty'])
@@ -330,13 +379,27 @@ const LIST_SESSIONS_SCHEMA = {
 };
 
 const GET_SESSION_SCHEMA = {
-  caller_session_id: z.string().min(1).max(128),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+    ),
   session_id: z.string().min(1).max(128),
 };
 
 const SHUTDOWN_SESSION_SCHEMA = {
   session_id: z.string().min(1).max(128),
-  caller_session_id: z.string().min(1).max(128),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+    ),
   reason: z.string().max(500).optional(),
 };
 
@@ -357,7 +420,7 @@ export async function buildAgentDeckTools(
   const { transport, callerSessionIdOverride } = deps;
 
   function deriveCaller(args: {
-    caller_session_id: string;
+    caller_session_id?: string;
     parent_session_id?: string;
   }): CallerContext {
     const overridden = callerSessionIdOverride?.() ?? null;
@@ -427,6 +490,19 @@ export async function buildAgentDeckTools(
         promptToUse = `${bodyResult.content}\n\n---\n\n${args.prompt}`;
       }
 
+      // REVIEW_32 HIGH-5：spawn 默认继承 lead session 的 permission_mode / codex_sandbox /
+      // claude_code_sandbox。caller 显式传则覆盖；external caller (callerExists==false) 不继承
+      // 沿用 adapter 默认（避免外部 MCP client 误触发 lead 沙盒透传）。
+      // 解决 reviewer-codex 报「外层 Claude Code sandbox 拦了 codex in-process app-server 初始化」
+      // 的根因 —— spawn 出的 reviewer-codex teammate 没继承 lead 的 sandbox 设置，跑在受限沙盒里。
+      const callerExists = sessionRepo.get(caller.callerSessionId) !== null;
+      const leadRecord = callerExists ? sessionRepo.get(caller.callerSessionId) : null;
+      const effectivePermissionMode =
+        args.permission_mode ?? leadRecord?.permissionMode ?? undefined;
+      const effectiveCodexSandbox = args.codex_sandbox ?? leadRecord?.codexSandbox ?? undefined;
+      const effectiveClaudeCodeSandbox =
+        args.claude_code_sandbox ?? leadRecord?.claudeCodeSandbox ?? undefined;
+
       // plan team-cohesion-fix-20260513 Phase B7：spawn 路径 wire format 注入 messageId。
       // 流程：先预生成 placeholderId（crypto.randomUUID）→ 拼 `[msg <id>]\n` 到 promptToUse 顶部
       // → createSession 让 SDK 带含 prefix 的 prompt 启动 teammate → 之后 insert placeholder
@@ -439,7 +515,6 @@ export async function buildAgentDeckTools(
       // callerExists 提前算（不能等到 createSession 之后再判定 willCreatePlaceholder，否则
       // external caller 仍会拿到含 prefix 的 prompt 但 placeholder 不入 DB → teammate
       // reply_message 用错 id 调用失败）。
-      const callerExists = sessionRepo.get(caller.callerSessionId) !== null;
       const willCreatePlaceholder = !!(args.team_name) && callerExists;
       let placeholderId: string | null = null;
       let promptForSpawn = promptToUse;  // 给 SDK 的 wire 形式（可能含 [msg <id>] prefix）
@@ -454,8 +529,10 @@ export async function buildAgentDeckTools(
         sid = await adapter.createSession({
           cwd: args.cwd,
           prompt: promptForSpawn,  // wire 形式（spawn 路径下若有 team_name 则含 [msg <id>] prefix）
-          ...(args.permission_mode !== undefined ? { permissionMode: args.permission_mode } : {}),
-          ...(args.codex_sandbox !== undefined ? { codexSandbox: args.codex_sandbox } : {}),
+          // REVIEW_32 HIGH-5：使用 effective 字段（caller 显式 > lead 继承 > undefined）
+          ...(effectivePermissionMode !== undefined ? { permissionMode: effectivePermissionMode } : {}),
+          ...(effectiveCodexSandbox !== undefined ? { codexSandbox: effectiveCodexSandbox } : {}),
+          ...(effectiveClaudeCodeSandbox !== undefined ? { claudeCodeSandbox: effectiveClaudeCodeSandbox } : {}),
           ...(args.team_name !== undefined ? { teamName: args.team_name } : {}),
         });
       } catch (e) {
@@ -475,8 +552,10 @@ export async function buildAgentDeckTools(
       if (callerExists) {
         sessionRepo.setSpawnLink(sid, caller.callerSessionId, parentDepth + 1);
       }
-      if (adapter.capabilities.canSetPermissionMode && args.permission_mode) {
-        sessionManager.recordCreatedPermissionMode(sid, args.permission_mode);
+      // REVIEW_32 HIGH-5：用 effective 值持久化（继承自 lead 的也要写 sessionRepo，否则 resume
+      // 路径下次拿不到正确 mode）。capability 校验保留 —— 不支持该 capability 的 adapter 跳过。
+      if (adapter.capabilities.canSetPermissionMode && effectivePermissionMode) {
+        sessionManager.recordCreatedPermissionMode(sid, effectivePermissionMode);
       }
 
       // REVIEW_31 Bug 4：teammate display name fallback 链 = args.display_name > args.agent_name > 不动。
@@ -575,6 +654,11 @@ export async function buildAgentDeckTools(
         cwd: args.cwd,
         teamId,
         teamName: args.team_name ?? null,
+        // REVIEW_32 HIGH-4：spawn-time agent_name / display_name 回传给 caller
+        // （deep-code-review SKILL 里 lead 起多组并发 review 时按这两字段区分 reviewer 实例，
+        // 不再需要 list_sessions / get_session 反查）。
+        agentName: args.agent_name ?? null,
+        displayName: teammateDisplayName,
         spawnDepth: created?.spawnDepth ?? (callerExists ? parentDepth + 1 : 0),
         sentAt: Date.now(),
         // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 调 wait_reply 等 teammate first reply
@@ -760,7 +844,14 @@ export async function buildAgentDeckTools(
         sentAt: msg.sentAt,
         fromSessionId: msg.fromSessionId,
       });
-      const existing = agentDeckMessageRepo.findRepliesByMessageId(args.message_id);
+      // REVIEW_32 HIGH-3：reply 方向校验 — 真 reply 必须来自 original.toSessionId（对方）回到 caller。
+      // 修前 nudge enqueue 用 fromSessionId=caller, replyToMessageId=args.message_id，
+      // findRepliesByMessageId 会把 nudge 自身当成 reply，wait_reply 假成功（lead 误以为 teammate 已回）。
+      // 此过滤同时把潜在的「caller 自己 send_message 时手填 reply_to_message_id 指向自己等的 msg」
+      // 这种边缘 misuse 也排除，只接受真正的对话反向消息。
+      const isLegitReply = (msg: AgentDeckMessage): boolean =>
+        msg.fromSessionId === original.toSessionId && msg.toSessionId === original.fromSessionId;
+      const existing = agentDeckMessageRepo.findRepliesByMessageId(args.message_id).filter(isLegitReply);
       if (existing.length > 0) {
         return ok({
           reply: replyProj(existing[0]),
@@ -787,7 +878,8 @@ export async function buildAgentDeckTools(
       return new Promise((resolve) => {
         const checkReply = () => {
           if (resolved) return;
-          const replies = agentDeckMessageRepo.findRepliesByMessageId(args.message_id);
+          // REVIEW_32 HIGH-3：同 existing 检查，过滤出方向正确的 reply（排除 nudge 自循环）
+          const replies = agentDeckMessageRepo.findRepliesByMessageId(args.message_id).filter(isLegitReply);
           if (replies.length > 0) {
             resolved = true;
             cleanup();
