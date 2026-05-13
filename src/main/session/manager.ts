@@ -317,6 +317,29 @@ class SessionManagerClass {
     await unarchiveTeamsForRevivedLead(sessionId);
   }
 
+  /**
+   * plan mcp-bug-and-feature-batch-20260513 N bug fix: 用户主动 sendMessage / resume 触发的
+   * 「显式信号」自动 unarchive 入口。与「事件流被动到达 → archived 不动」（manager.ts:152-156
+   * 正交约定）严格区分。
+   *
+   * - 已 archived（archivedAt 非 null）→ 调 unarchive() 清 archived_at + emit upsert + team
+   *   unarchive 联动
+   * - 未 archived（archivedAt = null）→ noop（不 emit / 不跑 team coordinator 多余工作）
+   * - 不存在的 sid → noop（caller 自己处理 not-found）
+   *
+   * lifecycle 与 unarchive() 同款不动：dormant 仍 dormant、active 仍 active；
+   * closed 也保持（caller 后续 ingest event 会走 ensure() closed→active 复活路径，正交）。
+   *
+   * **唯一调用入口**：IPC AdapterSendMessage handler（src/main/ipc/adapters.ts），是
+   * 用户从 UI / CLI 显式 sendMessage 的桥点。mcp tool send_message 走 universal-message-watcher
+   * 不经此 API（cross-session 程序化通信不算「用户主动续聊归档会话」UX 信号）。
+   */
+  async unarchiveOnUserSend(sessionId: string): Promise<void> {
+    const r = sessionRepo.get(sessionId);
+    if (!r || r.archivedAt === null) return;
+    await this.unarchive(sessionId);
+  }
+
   reactivate(sessionId: string): void {
     const r = sessionRepo.get(sessionId);
     if (!r) return;
