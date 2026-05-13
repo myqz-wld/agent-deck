@@ -75,34 +75,45 @@ export class TeamLifecycleScheduler {
    * 复杂度：O(activeTeams * activeMembers/team)，sessionRepo.get 是 indexed lookup
    * 所以单次扫描成本与 team 数量线性相关。生产环境 team 数 ≤ 100 量级，单次扫描应
    * 在 < 50ms。如未来 team 数爆炸再考虑批量 IN query。
+   *
+   * E 修（plan mcp-bug-and-feature-batch-20260513 Phase 2 Step 2.2）：改 while-loop
+   * pagination。修前 `list({ activeOnly: true, limit: 200 })` 单次只扫前 200 条 active team，
+   * 长期使用后超出 200 的 team 永远不被扫到 → 永远不 archive 即使是 ghost。
+   * 修后分页扫完所有 active team；list signature 已支持 offset（team-crud.ts:138-141）。
    */
   scan(): void {
     const now = Date.now();
-    const activeTeams = agentDeckTeamRepo.list({ activeOnly: true, limit: 200 });
-    for (const team of activeTeams) {
-      const members = agentDeckTeamRepo.listActiveMembers(team.id);
-      if (members.length === 0) {
-        // 没 active member 的 team → 已无人在用 → 直接 archive（不需 grace，因为没
-        // 任何 session 关联，reactivate 也不会自动 rejoin team）
-        this._archiveTeam(team.id, 'no-active-members');
-        continue;
-      }
-      // 检查所有 active member 对应的 session 是否都 closed
-      let allClosed = true;
-      let latestClosedAt = 0;
-      for (const m of members) {
-        const sess = sessionRepo.get(m.sessionId);
-        if (!sess || sess.lifecycle !== 'closed') {
-          allClosed = false;
-          break;
+    const PAGE_SIZE = 200;
+    let offset = 0;
+    while (true) {
+      const batch = agentDeckTeamRepo.list({ activeOnly: true, limit: PAGE_SIZE, offset });
+      for (const team of batch) {
+        const members = agentDeckTeamRepo.listActiveMembers(team.id);
+        if (members.length === 0) {
+          // 没 active member 的 team → 已无人在用 → 直接 archive（不需 grace，因为没
+          // 任何 session 关联，reactivate 也不会自动 rejoin team）
+          this._archiveTeam(team.id, 'no-active-members');
+          continue;
         }
-        // 取最近一次 close 时间作为「team 全员 closed」的时刻
-        if (sess.lastEventAt > latestClosedAt) latestClosedAt = sess.lastEventAt;
+        // 检查所有 active member 对应的 session 是否都 closed
+        let allClosed = true;
+        let latestClosedAt = 0;
+        for (const m of members) {
+          const sess = sessionRepo.get(m.sessionId);
+          if (!sess || sess.lifecycle !== 'closed') {
+            allClosed = false;
+            break;
+          }
+          // 取最近一次 close 时间作为「team 全员 closed」的时刻
+          if (sess.lastEventAt > latestClosedAt) latestClosedAt = sess.lastEventAt;
+        }
+        if (!allClosed) continue;
+        // grace period：从「最近一次 close」开始算
+        if (now - latestClosedAt < this.graceMs) continue;
+        this._archiveTeam(team.id, 'all-members-closed-grace-elapsed');
       }
-      if (!allClosed) continue;
-      // grace period：从「最近一次 close」开始算
-      if (now - latestClosedAt < this.graceMs) continue;
-      this._archiveTeam(team.id, 'all-members-closed-grace-elapsed');
+      if (batch.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
     }
   }
 
