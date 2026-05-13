@@ -58,13 +58,12 @@ class SessionManagerClass {
   /**
    * 由 SDK 通道接管的会话 id，hook 同 id 事件会被丢弃。
    *
-   * ⚠ DO NOT migrate to ECMAScript `#sdkOwned` — manager-public-api.test.ts:134
-   * 反射访问 `(sessionManager as { sdkOwned: Set<string> }).sdkOwned` 依赖此字段
-   * 是 TS-private（compile-time-only）属性。升级到真私有需同款改测试用
-   * `hasSdkClaim` API 断言，作为 H5 follow-up 决策（见 plan adaptive-orbiting-snowglobe.md
-   * §SKILL R1 finding 整合裁决 §H5 follow-up #4）。
+   * ECMAScript `#private` 真私有（runtime 强制不可访问）：cast `(this as any).#sdkOwned`
+   * 与 `(sessionManager as any).sdkOwned` 都拿不到 raw Set，外部探查 / 测试反射统一走
+   * 公开 `hasSdkClaim(sid)` API。任何 mutate 走 `claimAsSdk` / `releaseSdkClaim` / `renameSdkSession`
+   * 三个公开入口（claim 单一入口不变量）。
    */
-  private sdkOwned = new Set<string>();
+  #sdkOwned = new Set<string>();
 
   /**
    * SDK 启动 CLI 子进程后到拿到真实 session_id 之前，hook 通道可能先一步上报。
@@ -92,7 +91,7 @@ class SessionManagerClass {
 
   constructor() {
     this.ingestCtx = Object.freeze<IngestContext>({
-      hasSdkClaim: (sid) => this.sdkOwned.has(sid),
+      hasSdkClaim: (sid) => this.hasSdkClaim(sid),
       claimAsSdk: (sid) => this.claimAsSdk(sid),
       consumePendingSdkClaim: (cwd) => this.consumePendingSdkClaim(cwd),
       ensure: (sid, opts) => this.ensure(sid, opts),
@@ -101,11 +100,19 @@ class SessionManagerClass {
   }
 
   claimAsSdk(sessionId: string): void {
-    this.sdkOwned.add(sessionId);
+    this.#sdkOwned.add(sessionId);
   }
 
   releaseSdkClaim(sessionId: string): void {
-    this.sdkOwned.delete(sessionId);
+    this.#sdkOwned.delete(sessionId);
+  }
+
+  /**
+   * 查 sid 是否被 SDK 通道接管（公开 API；test 反射 `as { sdkOwned }` 不再可用，
+   * `#sdkOwned` 真私有强制走本 method）。与 IngestContext.hasSdkClaim 同源。
+   */
+  hasSdkClaim(sessionId: string): boolean {
+    return this.#sdkOwned.has(sessionId);
   }
 
   /** SDK 即将拉起 cwd 上的会话；ttl 内任何 hook 通道首发的新 session 自动归 SDK 所有。
@@ -396,9 +403,9 @@ class SessionManagerClass {
   renameSdkSession(fromId: string, toId: string): void {
     if (fromId === toId) return;
     sessionRepo.rename(fromId, toId);
-    if (this.sdkOwned.has(fromId)) {
-      this.sdkOwned.delete(fromId);
-      this.sdkOwned.add(toId);
+    if (this.#sdkOwned.has(fromId)) {
+      this.#sdkOwned.delete(fromId);
+      this.#sdkOwned.add(toId);
     }
     // rename 走 INSERT NEW + DELETE OLD 路径，OLD_ID 在 DB 已不存在。把 OLD_ID 加进
     // 「最近删除黑名单」60s，跟 SessionManager.delete 同等对待——OLD CLI 子进程在
