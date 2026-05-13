@@ -37,7 +37,7 @@ import type {
 import { makeInternalSession } from './types';
 import { PermissionResponder } from './permission-responder';
 import { makeCanUseTool } from './can-use-tool';
-import { SessionRecoverer, defaultResumeJsonlExists } from './recoverer';
+import { SessionRecoverer, defaultResumeJsonlExists, defaultCwdExists } from './recoverer';
 import { StreamProcessor } from './stream-processor';
 import { RestartController } from './restart-controller';
 import { runCloseSessionCleanup } from './pending-cancellation';
@@ -111,11 +111,13 @@ export class ClaudeSdkBridge {
 
     // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
     // attachments 透传 sendMessage 第三参（HIGH-1：避免 inflight 第二条等待者丢图）。
+    // CHANGELOG_99：cwdExists thunk 也走 facade extend override 模式(同 resumeJsonlExists)
     this.recoverer = new SessionRecoverer(
       { recovering: this.recovering, emit: opts.emit },
       (createOpts) => this.createSession(createOpts),
       (sid, text, attachments) => this.sendMessage(sid, text, attachments),
       (cwd, sid) => this.resumeJsonlExists(cwd, sid),
+      (cwd) => this.cwdExists(cwd),
     );
 
     this.streamProcessor = new StreamProcessor({ sessions: this.sessions, emit: opts.emit });
@@ -348,6 +350,20 @@ export class ClaudeSdkBridge {
    */
   protected resumeJsonlExists(cwd: string, sessionId: string): boolean {
     return defaultResumeJsonlExists(cwd, sessionId);
+  }
+
+  /**
+   * CHANGELOG_99 cwd 失效根治:cwd 存在性 protected wrapper。
+   *
+   * 让 test 通过子类化 override 不依赖真 fs(同 resumeJsonlExists 模式),实际走 module-level
+   * `defaultCwdExists`(直接 existsSync,异常 fail-safe 退化返回 true 让 SDK 自己 try)。
+   *
+   * recoverer 拿这个判定 sessionRepo.cwd 是否还有效;不存在时走 `findFallbackCwd` 启发式
+   * fallback 路径(典型场景:K2 老 session cwd=worktree 后 worktree 被 archive_plan 删 /
+   * 用户手动 git worktree remove / 跨设备同步丢目录)。
+   */
+  protected cwdExists(cwd: string): boolean {
+    return defaultCwdExists(cwd);
   }
 
   // CHANGELOG_52 Step 3b：6 respond/list 方法 + 3 timeout 方法迁到 PermissionResponder。
