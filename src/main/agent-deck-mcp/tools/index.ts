@@ -1,5 +1,5 @@
 /**
- * Agent Deck MCP server 的 9 个 in-process tool 注册 facade（B'0 ADR §3）。
+ * Agent Deck MCP server 的 10 个 in-process tool 注册 facade（B'0 ADR §3）。
  *
  * 三 transport（in-process / HTTP / stdio）共享同一份 buildAgentDeckTools 输出；
  * transport 层负责 caller-id 注入策略：
@@ -16,6 +16,7 @@
  *   - tools/helpers.ts (~190 行 ok/err/projectSession/validateExternalCaller/...)
  *   - tools/handlers/{spawn,send,reply,wait,check,list,get,shutdown}.ts (各 ~50-260 行)
  *   - tools/handlers/archive-plan{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4a)
+ *   - tools/handlers/start-next-session{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4b)
  */
 
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
@@ -37,6 +38,7 @@ import {
   WAIT_REPLY_SCHEMA,
   CHECK_REPLY_SCHEMA,
   ARCHIVE_PLAN_SCHEMA,
+  START_NEXT_SESSION_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
@@ -47,6 +49,7 @@ import { listSessionsHandler } from './handlers/list';
 import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
 import { archivePlanHandler } from './handlers/archive-plan';
+import { startNextSessionHandler } from './handlers/start-next-session';
 
 // helpers 子集 re-export，保持老 caller 兼容（外部对 makeCallerContext / denyExternalIfNotAllowed
 // 的 import 路径 `from './tools'` 仍能 resolve）。
@@ -155,6 +158,13 @@ export async function buildAgentDeckTools(
     async (args) => archivePlanHandler(args, makeCtx(args)),
   );
 
+  const startNextSession = tool(
+    AGENT_DECK_TOOL_NAMES.startNextSession,
+    'Start the next plan-driven SDK session for cross-session hand-off (K2 hand-off automation): read plan frontmatter to derive worktree_path, validate status=in_progress, then spawn a new session with cwd=worktree_path and an auto-generated cold-start prompt "按 <plan-abs-path> 接力" (optional phase_label appended). The new session auto-joins the plan_id team (caller becomes lead, new session becomes teammate). Defaults: adapter=claude-code, team_name=plan_id, plan file path resolved from caller cwd via git rev-parse → <main-repo>/.claude/plans/<plan_id>.md, fallback ~/.claude/plans/<plan_id>.md. Returns { planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt, sessionId, adapter, cwd, teamId, teamName, spawnDepth, sentAt, spawnPromptMessageId }. deny external caller (SDK session fork bomb risk).',
+    START_NEXT_SESSION_SCHEMA,
+    async (args) => startNextSessionHandler(args, makeCtx(args)),
+  );
+
   return [
     spawnSession,
     sendMessage,
@@ -165,5 +175,6 @@ export async function buildAgentDeckTools(
     getSession,
     shutdownSession,
     archivePlan,
+    startNextSession,
   ];
 }

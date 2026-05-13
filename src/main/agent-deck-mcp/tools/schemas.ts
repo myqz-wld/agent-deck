@@ -291,8 +291,79 @@ export const ARCHIVE_PLAN_SCHEMA = {
     ),
 };
 
-// z.infer 友好的 args 类型 —— handler 直接消费。
-// SDK 的 InferShape<Schema> 等价 z.infer<z.ZodObject<typeof Schema>>。
+// plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：start_next_session tool —
+// K2 hand-off 自动化「跨会话接力」起新 SDK session（plan-aware spawn_session 包装）。
+// 行为：读 plan 文件 frontmatter 拿 worktree_path → 校验 status=in_progress → 调
+// spawn_session 起新 SDK session（cwd=worktree_path 默认 / 初始 prompt = "按 <plan-abs-path>
+// 接力"，含可选 phase_label 后缀）+ 自动加入 plan-id team。deny external caller（起 SDK
+// session 的 fork bomb 风险，与 spawn_session / archive_plan 同档）。
+export const START_NEXT_SESSION_SCHEMA = {
+  plan_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .describe(
+      'Plan id (matches plan file stem and worktree dir name). Used to derive plan file path / team_name default / cold-start prompt. Charset matches EnterWorktree restriction.',
+    ),
+  phase_label: z
+    .string()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe(
+      'Optional phase label (e.g. "H3 - Phase 4c Step 4c.1") appended to the cold-start prompt as `（Phase: <label>）`. Helps the new session immediately know which phase to start. Omit for plain "按 <plan-abs-path> 接力".',
+    ),
+  cwd: z
+    .string()
+    .min(1)
+    .max(4096)
+    .refine(
+      (p) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p),
+      'Must be absolute path',
+    )
+    .optional()
+    .describe(
+      'Override cwd for the new SDK session. When omitted, defaults to plan frontmatter `worktree_path`. Useful when plan worktree was relocated, or for testing in a sibling clone.',
+    ),
+  adapter: z
+    .enum(['claude-code', 'codex-cli', 'aider', 'generic-pty'])
+    .default('claude-code')
+    .describe(
+      'Adapter for the new session. Defaults to "claude-code" (the canonical plan-driven workflow runs Claude Code). Set to "codex-cli" / "aider" only when plan explicitly designates a different agent.',
+    ),
+  team_name: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'Override team_name. Defaults to plan_id (caller becomes lead in this team, new session becomes teammate). Pass a custom name if you want to scope the next session to a different team.',
+    ),
+  permission_mode: z
+    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
+    .optional()
+    .describe(
+      'Permission mode for the new SDK session. When omitted, follows spawn_session defaults (caller_session_id lead inheritance > undefined / adapter default).',
+    ),
+  plan_file_path: z
+    .string()
+    .min(1)
+    .max(4096)
+    .optional()
+    .describe(
+      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md (where main-repo is derived from cwd or plan frontmatter), then ~/.claude/plans/<plan_id>.md.',
+    ),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（start_next_session 不允许 external caller）。',
+    ),
+  parent_session_id: z.string().min(1).max(128).optional(),
+};
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
 export type WaitReplyArgs = z.infer<z.ZodObject<typeof WAIT_REPLY_SCHEMA>>;
@@ -302,3 +373,4 @@ export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
 export type ArchivePlanArgs = z.infer<z.ZodObject<typeof ARCHIVE_PLAN_SCHEMA>>;
+export type StartNextSessionArgs = z.infer<z.ZodObject<typeof START_NEXT_SESSION_SCHEMA>>;
