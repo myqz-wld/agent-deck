@@ -1,16 +1,23 @@
 /**
- * sessions.ts handOffSpawn helper 单测（REVIEW_33 H6）
+ * sessions.ts handOffSpawn helper 单测（REVIEW_33 H6 / H7）
  *
- * 关键验证：buildHandOffCreateSessionOpts 必须把原 session 的 codexSandbox /
- * claudeCodeSandbox 透传到新 session createSession opts，避免用户切沙盒后
- * hand-off 起的新 session 落 settings 全局默认（隐性沙盒 downgrade）。
+ * 关键验证：
+ * - H6: buildHandOffCreateSessionOpts 必须把原 session 的 codexSandbox /
+ *   claudeCodeSandbox 透传到新 session createSession opts，避免用户切沙盒后
+ *   hand-off 起的新 session 落 settings 全局默认（隐性沙盒 downgrade）。
+ * - H7: dedupHandOff 必须按 sourceSid 单飞 — 同 sid 并发只起一次 work；不同 sid
+ *   彼此独立；resolve / reject 后 entry 自动清，下次同 sid 仍可正常起。
  *
  * 纯函数测试，import sessions-hand-off-helper 而非 sessions.ts，避免拉起 Electron
  * import 链（sessions.ts 通过 sessionManager / sessionRepo / eventBus 间接 import
  * Electron / SQLite）。
  */
-import { describe, expect, it } from 'vitest';
-import { buildHandOffCreateSessionOpts } from '../sessions-hand-off-helper';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import {
+  buildHandOffCreateSessionOpts,
+  dedupHandOff,
+  handOffInflight,
+} from '../sessions-hand-off-helper';
 import type { SessionRecord } from '@shared/types';
 
 function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -99,5 +106,146 @@ describe('buildHandOffCreateSessionOpts — REVIEW_33 H6 sandbox 透传', () => 
     const session = makeSession({ permissionMode: 'default' });
     const opts = buildHandOffCreateSessionOpts(session, 'p');
     expect(opts.permissionMode).toBe('default');
+  });
+});
+
+describe('dedupHandOff — REVIEW_33 H7 inflight Map 单飞', () => {
+  beforeEach(() => {
+    handOffInflight.clear();
+  });
+
+  it('同 sid 并发：只起一次 work，两个 caller 拿同 newSid', async () => {
+    let workCallCount = 0;
+    const work = vi.fn(async () => {
+      workCallCount++;
+      // 模拟真实 createSession：异步几个 tick
+      await new Promise((r) => setTimeout(r, 10));
+      return 'new-sid-1';
+    });
+
+    // 并发触发两次（模拟双击 race / 双 IPC 同时入 handler）
+    const [a, b] = await Promise.all([
+      dedupHandOff('source-sid-1', work),
+      dedupHandOff('source-sid-1', work),
+    ]);
+
+    expect(a).toBe('new-sid-1');
+    expect(b).toBe('new-sid-1');
+    expect(workCallCount).toBe(1); // 只起一次！
+    expect(work).toHaveBeenCalledTimes(1);
+  });
+
+  it('同 sid 三连击：仍只起一次 work', async () => {
+    let workCallCount = 0;
+    const work = async () => {
+      workCallCount++;
+      await new Promise((r) => setTimeout(r, 10));
+      return 'new-sid-2';
+    };
+
+    const [a, b, c] = await Promise.all([
+      dedupHandOff('source-sid-2', work),
+      dedupHandOff('source-sid-2', work),
+      dedupHandOff('source-sid-2', work),
+    ]);
+
+    expect(a).toBe('new-sid-2');
+    expect(b).toBe('new-sid-2');
+    expect(c).toBe('new-sid-2');
+    expect(workCallCount).toBe(1);
+  });
+
+  it('不同 sid 并发：彼此独立，各起各的 work', async () => {
+    let workACalls = 0;
+    let workBCalls = 0;
+    const workA = async () => {
+      workACalls++;
+      await new Promise((r) => setTimeout(r, 5));
+      return 'new-A';
+    };
+    const workB = async () => {
+      workBCalls++;
+      await new Promise((r) => setTimeout(r, 5));
+      return 'new-B';
+    };
+
+    const [a, b] = await Promise.all([
+      dedupHandOff('sid-A', workA),
+      dedupHandOff('sid-B', workB),
+    ]);
+
+    expect(a).toBe('new-A');
+    expect(b).toBe('new-B');
+    expect(workACalls).toBe(1);
+    expect(workBCalls).toBe(1);
+  });
+
+  it('resolve 后 entry 自动清：下次同 sid 可以正常起新 hand-off', async () => {
+    const work1 = async () => 'first-call';
+    const work2 = async () => 'second-call';
+
+    const r1 = await dedupHandOff('sid-1', work1);
+    expect(r1).toBe('first-call');
+    expect(handOffInflight.has('sid-1')).toBe(false); // resolve 后清
+
+    // 下一次调用走新 work（不复用上次的 'first-call'）
+    const r2 = await dedupHandOff('sid-1', work2);
+    expect(r2).toBe('second-call');
+  });
+
+  it('reject 后 entry 自动清：下次同 sid 可以正常重试', async () => {
+    const errorWork = async () => {
+      throw new Error('createSession failed');
+    };
+    const successWork = async () => 'success';
+
+    await expect(dedupHandOff('sid-fail', errorWork)).rejects.toThrow('createSession failed');
+    expect(handOffInflight.has('sid-fail')).toBe(false); // reject 后也要清！
+
+    // 重试走新 work，成功
+    const r = await dedupHandOff('sid-fail', successWork);
+    expect(r).toBe('success');
+  });
+
+  it('reject 时并发 caller 都拿到 same error', async () => {
+    let workCallCount = 0;
+    const work = async () => {
+      workCallCount++;
+      await new Promise((r) => setTimeout(r, 10));
+      throw new Error('shared failure');
+    };
+
+    const [a, b] = await Promise.allSettled([
+      dedupHandOff('sid-rej', work),
+      dedupHandOff('sid-rej', work),
+    ]);
+
+    expect(a.status).toBe('rejected');
+    expect(b.status).toBe('rejected');
+    expect((a as PromiseRejectedResult).reason.message).toBe('shared failure');
+    expect((b as PromiseRejectedResult).reason.message).toBe('shared failure');
+    expect(workCallCount).toBe(1); // 仍只起一次
+  });
+
+  it('strict equal 保护：第一个 Promise resolve 时不误删第二个 Promise 的 entry', async () => {
+    // edge case：dedupHandOff 内 finally 用 strict equal 守门防止误删别人的 entry
+    let resolveFirst: ((v: string) => void) | null = null;
+    const firstWork = () => new Promise<string>((res) => { resolveFirst = res; });
+
+    // 第一次调用，注册 entry
+    const p1 = dedupHandOff('shared-sid', firstWork);
+    expect(handOffInflight.has('shared-sid')).toBe(true);
+
+    // 模拟手动 mutate（罕见 race 假设：第二次 set 覆盖了第一个的 entry，虽然实际
+    // dedupHandOff 不会进 work 第二次，但单测验证 finally 守门正确）
+    const replacementPromise = Promise.resolve('replacement');
+    handOffInflight.set('shared-sid', replacementPromise);
+
+    // resolve 第一个 Promise → finally 应当**不删** entry（因为 entry 不再是 p1）
+    resolveFirst!('first-resolved');
+    await p1;
+    expect(handOffInflight.get('shared-sid')).toBe(replacementPromise); // 第二个 entry 仍在
+
+    handOffInflight.delete('shared-sid'); // cleanup
   });
 });
