@@ -29,7 +29,7 @@
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 9 tool（`mcp__agent_deck__spawn_session` / `send_message` / `reply_message` / `wait_reply` / `check_reply` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 10 tool（`mcp__agent_deck__spawn_session` / `send_message` / `reply_message` / `wait_reply` / `check_reply` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `start_next_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
 ### 三个核心约定（lead 角度）
 
@@ -80,3 +80,23 @@ const result = await mcp__agent_deck__archive_plan({
 tool 自动跑 14 步：rev-parse main repo / 解 worktree branch / 预检 (worktree clean / cwd 不在 worktree 内 / plan status ≠ completed / 非 detached HEAD) / ff merge worktree branch → base_branch / 更新 plan frontmatter (status=completed + final_commit + completed_at) / mv plan 到 `<main-repo>/plans/<plan-id>.md` / 同步 `plans/INDEX.md` (不存在创建 / 已存在 append 防重复) / 删原 plan / git add + commit / git worktree remove + branch -D。
 
 任一预检失败立即返回 error 短路。**lead agent 必须先 ExitWorktree** 让 cwd 出 worktree 再调本 tool（mcp 不能调 ExitWorktree CLI 内部 tool；cwd 在 worktree 内时 tool 直接 reject 提示 ExitWorktree）。
+
+### plan hand-off 自动化：start_next_session
+
+完成 `~/.claude/CLAUDE.md` 的「复杂 plan：worktree 隔离 + 跨会话 hand off」流程的 §Step 3 接力姿势 §选项 B（K2 自动起新 SDK session 接力下一 phase，免去用户手动新开会话 + 复制 cold start prompt）：
+
+```ts
+const result = await mcp__agent_deck__start_next_session({
+  plan_id: '<plan-id>',                      // 必填，与 plan 文件 stem / worktree 目录名一致
+  phase_label: 'H3 Phase 4b',                // 可选，附加到 cold start prompt 后缀「（Phase: <label>）」
+  // 其他字段 cwd / adapter / team_name / permission_mode / plan_file_path 默认即可
+});
+// result = {
+//   planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt,
+//   sessionId, adapter, cwd, teamId, teamName, spawnDepth, sentAt, spawnPromptMessageId
+// }
+```
+
+tool 自动跑：解析 plan 文件路径（caller cwd 反查 main-repo → `<main-repo>/.claude/plans/<plan-id>.md` / fallback `~/.claude/plans/<plan-id>.md`） / 读 plan frontmatter 拿 `worktree_path` + `base_branch` / 校验 status === `in_progress` / 构造 cold start prompt = `按 <plan-abs-path> 接力`（含 phase_label 时附 `（Phase: <label>）` 后缀） / 调 `spawn_session` 起新 SDK session（cwd = worktree_path 默认 / 默认 adapter `claude-code`） / 自动加入 plan-id team（caller 当前会话成 lead，新 session 成 teammate）。
+
+任一预检失败（plan 文件不存在 / status ≠ in_progress / frontmatter 缺 worktree_path / spawn 失败）立即返回 error 短路。**新 session system prompt 必须含 user CLAUDE.md「复杂 plan」节**（settingSources 包含 `'user'` 即可，应用内 SDK 会话默认满足）—— 否则新 session 看 cold start prompt 不知道是什么意思。
