@@ -37,6 +37,14 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
    *  替代原 disposedRef.current 单 boolean 方案（reviewer-claude H1 + reviewer-codex MED1 双方独立指出
    *  cleanup 设 ref=true 后新 effect 立刻置回 false → 旧 IPC resolve 仍能通过 guard 污染新 state）。 */
   const requestSeqRef = useRef(0);
+  /** REVIEW_33 H7：同步入口守门 ref（比 React state 快 16-200ms）。
+   *  问题：`setSummarizing(true)` / `setSpawning(true)` 走 React state 路径会被 batch
+   *  16-200ms 后才生效，**这段时间内** button 仍未 disabled，用户双击 / 连续点按钮
+   *  → 入口被多次进入 → 多次 IPC 起多次 sonnet 调用（按次计费）/ 多次 spawn SDK 子进程。
+   *  修法：函数入口先看 ref，true 即静默 drop；ref 同步赋值无 React batch 延迟。
+   *  重置走两个时机：(a) `open` / `sessionId` 变化的 reset effect；(b) finally 块 */
+  const summarizeInFlightRef = useRef(false);
+  const submitInFlightRef = useRef(false);
 
   // open / sessionId 变化（含初次 mount）→ 重置所有 state，**不**自动触发 summarize。
   // ++requestSeqRef 让任何 in-flight IPC 都被识别为过期。
@@ -48,6 +56,9 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
     setSummarizing(false);
     setHasSummarized(false);
     setSpawning(false);
+    // REVIEW_33 H7：dialog reset 时同步清入口 ref，防上次 dialog 留下的 in-flight 标记锁死新 dialog
+    summarizeInFlightRef.current = false;
+    submitInFlightRef.current = false;
     return () => {
       // unmount / 重开 → 自增 seq 让 in-flight IPC 全部失效
       requestSeqRef.current += 1;
@@ -57,6 +68,10 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
   if (!open) return null;
 
   const startSummarize = (): void => {
+    // REVIEW_33 H7：同步入口守门，挡双击 race（React state setSummarizing(true) 16-200ms
+    // batch 内 button 仍 enabled，用户连点按钮会让入口被多次进入起多次 sonnet IPC）。
+    if (summarizeInFlightRef.current) return;
+    summarizeInFlightRef.current = true;
     setError(null);
     setSummarizing(true);
     requestSeqRef.current += 1;
@@ -75,17 +90,23 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
         // hasSummarized 不切 true：失败后 textarea 仍允许手动写兜底；error 触发 textarea 渲染 + 「重试总结」按钮 inline 显示。
       })
       .finally(() => {
+        // 入口 ref 总是清（即使过期 IPC 也清，避免 reset effect 已先把它置 false 时 finally 重置无副作用）
+        summarizeInFlightRef.current = false;
         if (cur !== requestSeqRef.current || capturedSid !== sessionId) return;
         setSummarizing(false);
       });
   };
 
   const submit = async (): Promise<void> => {
+    // REVIEW_33 H7：同步入口守门（同 startSummarize），挡双击导致起两个 SDK 子进程
+    // （比 setSpawning(true) 更快，无 React state batch 延迟）。
+    if (submitInFlightRef.current) return;
     setError(null);
     if (!summary.trim()) {
       setError('请填写接力简报（textarea 不能为空）');
       return;
     }
+    submitInFlightRef.current = true;
     setSpawning(true);
     try {
       await window.api.handOffSpawn(sessionId, summary);
@@ -94,6 +115,7 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
     } catch (err) {
       setError(`起新会话失败：${(err as Error).message ?? String(err)}`);
     } finally {
+      submitInFlightRef.current = false;
       setSpawning(false);
     }
   };

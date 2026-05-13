@@ -10,7 +10,7 @@ import { summaryRepo } from '@main/store/summary-repo';
 import { summariseSessionForHandOff } from '@main/session/summarizer';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
-import { buildHandOffCreateSessionOpts } from './sessions-hand-off-helper';
+import { buildHandOffCreateSessionOpts, dedupHandOff } from './sessions-hand-off-helper';
 import { on, parseStringId, parsePositiveInt, parseStringIdArray, IpcInputError } from './_helpers';
 
 export function registerSessionsIpc(): void {
@@ -111,26 +111,35 @@ export function registerSessionsIpc(): void {
     if (!adapter?.createSession) {
       throw new Error(`adapter cannot create session: ${session.agentId}`);
     }
-    // REVIEW_33 H6：opts 拼装抽到 buildHandOffCreateSessionOpts —— 透传 cwd / permissionMode /
-    // codexSandbox / claudeCodeSandbox 四字段，避免「用户原 session 切到 read-only / strict 后
-    // hand-off 起的新 session 落 settings 全局默认」隐性沙盒 downgrade。详 helper 注释。
-    const newSid = await adapter.createSession(buildHandOffCreateSessionOpts(session, finalPrompt));
-    // permissionMode 持久化到新 session（沿用原 session，让 detail 视图显示一致）
-    if (session.permissionMode && session.permissionMode !== 'default') {
-      sessionManager.recordCreatedPermissionMode(newSid, session.permissionMode);
-    }
-    // 自动归档原 session：失败仅 warn 不阻塞 newSid 返回（用户至少能切到新 session 工作）。
-    try {
-      await sessionManager.archive(sid);
-    } catch (err) {
-      console.warn(`[ipc sessions hand-off] archive source session ${sid} failed:`, err);
-    }
-    // emit session-focus-request → main/index.ts forwarder 转发到 IpcEvent.SessionFocusRequest →
-    // App.tsx onSessionFocusRequest listener 自动 setView('live') + select(newSid)。与 cli.ts
-    // `agent-deck new` / NewSessionDialog onCreated 同款 UX：起新 session 后 detail 自动切到新
-    // session，避免用户疑惑「点了没反应」。
-    eventBus.emit('session-focus-request', newSid);
-    return newSid;
+    // REVIEW_33 H7：dedupHandOff 单飞 —— 同 sourceSid 并发 IPC 复用同一 in-flight Promise，
+    // 避免「双击 / 多 renderer 实例」起两个 SDK 子进程（按次计费 + UI 状态分裂）。
+    // renderer 端 ref guard 是第一道闸（HandOffPreviewDialog summarizeInFlightRef /
+    // submitInFlightRef 同步守门，比 React state setSpawning 快 16-200ms），main 端
+    // dedupHandOff 是兜底闸：第二次 IPC 拿到同一个 newSid 返回 + 同款 session-focus-request。
+    return await dedupHandOff(sid, async () => {
+      // REVIEW_33 H6：opts 拼装抽到 buildHandOffCreateSessionOpts —— 透传 cwd / permissionMode /
+      // codexSandbox / claudeCodeSandbox 四字段，避免「用户原 session 切到 read-only / strict 后
+      // hand-off 起的新 session 落 settings 全局默认」隐性沙盒 downgrade。详 helper 注释。
+      const newSid = await adapter.createSession!(
+        buildHandOffCreateSessionOpts(session, finalPrompt),
+      );
+      // permissionMode 持久化到新 session（沿用原 session，让 detail 视图显示一致）
+      if (session.permissionMode && session.permissionMode !== 'default') {
+        sessionManager.recordCreatedPermissionMode(newSid, session.permissionMode);
+      }
+      // 自动归档原 session：失败仅 warn 不阻塞 newSid 返回（用户至少能切到新 session 工作）。
+      try {
+        await sessionManager.archive(sid);
+      } catch (err) {
+        console.warn(`[ipc sessions hand-off] archive source session ${sid} failed:`, err);
+      }
+      // emit session-focus-request → main/index.ts forwarder 转发到 IpcEvent.SessionFocusRequest →
+      // App.tsx onSessionFocusRequest listener 自动 setView('live') + select(newSid)。与 cli.ts
+      // `agent-deck new` / NewSessionDialog onCreated 同款 UX：起新 session 后 detail 自动切到新
+      // session，避免用户疑惑「点了没反应」。
+      eventBus.emit('session-focus-request', newSid);
+      return newSid;
+    });
   });
 
   // History
