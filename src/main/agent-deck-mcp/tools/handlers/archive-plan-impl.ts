@@ -225,7 +225,27 @@ export async function archivePlanImpl(
     };
   }
 
-  // 7. fast-forward merge
+  // 7. fast-forward merge worktree branch → base_branch
+  // REVIEW_33 H1：旧实现直接 `git merge --ff-only worktreeBranch` 在 mainRepo 当前 HEAD 上 ff，
+  // 与「ff merge into base_branch」契约不符——caller 当前 checkout 在 feature-x 时把 worktree
+  // branch 合进 feature-x 而非 main。修法：merge 前先 verify base_branch 存在 + checkout 到
+  // base_branch（merge 后不切回，假设 caller 默认在 base_branch 工作；如不在 caller 自己处理）。
+  try {
+    await deps.runGit(['rev-parse', '--verify', input.baseBranch], mainRepo);
+  } catch (e) {
+    return {
+      error: `base_branch "${input.baseBranch}" does not exist in main repo: ${(e as Error).message}`,
+      hint: `Pass an existing branch name via base_branch (default "main"). Verify with \`git -C ${mainRepo} branch --list\`.`,
+    };
+  }
+  try {
+    await deps.runGit(['checkout', input.baseBranch], mainRepo);
+  } catch (e) {
+    return {
+      error: `git checkout ${input.baseBranch} failed in main repo: ${(e as Error).message}`,
+      hint: `Caller cwd or main repo state may prevent branch switch (uncommitted changes / pre-commit hooks). Resolve and retry.`,
+    };
+  }
   try {
     await deps.runGit(['merge', '--ff-only', worktreeBranch], mainRepo);
   } catch (e) {
