@@ -143,19 +143,23 @@ describe('archivePlanImpl — happy path', () => {
 
   it('完整 happy path：git/fs 调用顺序 + frontmatter 更新 + INDEX 创建 + 返回结构', async () => {
     const { state, input, expectedMainRepo, expectedArchivedPath } = fixtureHappyPath();
-    // git 调用顺序（按 impl 内 runGit 调用顺序）：
+    // git 调用顺序（按 impl 内 runGit 调用顺序，REVIEW_33 H1 在 step 7 前加 verify + checkout）：
     //   1. rev-parse --git-common-dir → /Users/test/repo/.git
     //   2. rev-parse --abbrev-ref HEAD → "worktree-mcp-bug-fix"
     //   3. status --porcelain → "" (clean)
-    //   4. merge --ff-only worktree-mcp-bug-fix → "" (or any stdout)
-    //   5. rev-parse HEAD → "deadbeef123"
-    //   6. add <files...> → ""
-    //   7. commit -m ... → ""
-    //   8. worktree remove ... → ""
-    //   9. branch -D worktree-mcp-bug-fix → ""
+    //   4. rev-parse --verify <baseBranch> → "<hash>" (verify exists, REVIEW_33 H1)
+    //   5. checkout <baseBranch> → "" (REVIEW_33 H1)
+    //   6. merge --ff-only worktree-mcp-bug-fix → "" (or any stdout)
+    //   7. rev-parse HEAD → "deadbeef123"
+    //   8. add <files...> → ""
+    //   9. commit -m ... → ""
+    //  10. worktree remove ... → ""
+    //  11. branch -D worktree-mcp-bug-fix → ""
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
       'worktree-mcp-bug-fix',
+      '',
+      'mainhash',
       '',
       '',
       'deadbeef123',
@@ -176,15 +180,21 @@ describe('archivePlanImpl — happy path', () => {
     expect(ok.plansIndexAppended).toBe(true);
     expect(ok.finalStatus).toBe('completed');
 
-    // git 调用次数严格 9 次（happy path 完整）
-    expect(state.gitCalls.length).toBe(9);
+    // git 调用次数严格 11 次（happy path 完整，REVIEW_33 H1 加了 verify + checkout）
+    expect(state.gitCalls.length).toBe(11);
     expect(state.gitCalls[0]?.args).toEqual(['rev-parse', '--git-common-dir']);
     expect(state.gitCalls[0]?.cwd).toBe(input.worktreePath);
-    expect(state.gitCalls[3]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix']);
+    // REVIEW_33 H1：verify base_branch 存在 + checkout 到 base_branch
+    expect(state.gitCalls[3]?.args).toEqual(['rev-parse', '--verify', 'main']);
     expect(state.gitCalls[3]?.cwd).toBe(expectedMainRepo);
-    expect(state.gitCalls[6]?.args[0]).toBe('commit');
-    expect(state.gitCalls[7]?.args).toEqual(['worktree', 'remove', input.worktreePath]);
-    expect(state.gitCalls[8]?.args).toEqual(['branch', '-D', 'worktree-mcp-bug-fix']);
+    expect(state.gitCalls[4]?.args).toEqual(['checkout', 'main']);
+    expect(state.gitCalls[4]?.cwd).toBe(expectedMainRepo);
+    // ff-merge 从 [3] 移到 [5]
+    expect(state.gitCalls[5]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix']);
+    expect(state.gitCalls[5]?.cwd).toBe(expectedMainRepo);
+    expect(state.gitCalls[8]?.args[0]).toBe('commit');
+    expect(state.gitCalls[9]?.args).toEqual(['worktree', 'remove', input.worktreePath]);
+    expect(state.gitCalls[10]?.args).toEqual(['branch', '-D', 'worktree-mcp-bug-fix']);
 
     // 写归档 plan：含新 frontmatter + body 保留
     const archivedWrite = state.writes.find((w) => w.path === expectedArchivedPath);
@@ -218,6 +228,8 @@ describe('archivePlanImpl — happy path', () => {
       `${expectedMainRepo}/.git`,
       'wbranch',
       '',
+      'mainhash',
+      '',
       '',
       'finalhash',
       '',
@@ -248,6 +260,8 @@ describe('archivePlanImpl — happy path', () => {
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
       'wb',
+      '',
+      'mainhash',
       '',
       '',
       'h',
@@ -375,6 +389,8 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
       `${mainRepo}/.git`,
       'wb',
       '',
+      'mainhash',
+      '',
       '',
       'h',
       '',
@@ -405,6 +421,8 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
     const deps = makeDeps(state, [
       '/Users/test/repo/.git',
       'wb',
+      '',
+      'mainhash',
       '',
       '',
       'h',
@@ -442,5 +460,68 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
     );
     expect(_isArchivePlanError(result)).toBe(true);
     expect((result as ArchivePlanError).error).toContain('plan_file_path override does not exist');
+  });
+});
+
+describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
+  it('base_branch 真切：调用顺序含 rev-parse --verify <baseBranch> + checkout <baseBranch>', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    // 用 develop 作 base_branch（与 default 'main' 区分），确认 impl 真用 input.baseBranch
+    const customInput = { ...input, baseBranch: 'develop' };
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'worktree-mcp-bug-fix',
+      '',
+      'develophash', // rev-parse --verify develop 真返 hash
+      '', // checkout develop
+      '', // merge --ff-only
+      'h',
+      '',
+      '',
+      '',
+      '',
+    ]);
+
+    const result = await archivePlanImpl(customInput, deps);
+    expect(_isArchivePlanError(result)).toBe(false);
+    expect(state.gitCalls[3]?.args).toEqual(['rev-parse', '--verify', 'develop']);
+    expect(state.gitCalls[4]?.args).toEqual(['checkout', 'develop']);
+    expect(state.gitCalls[4]?.cwd).toBe(expectedMainRepo);
+    expect(state.gitCalls[5]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix']);
+  });
+
+  it('base_branch 不存在 → rev-parse --verify throw → reject 提示 base_branch 缺失', async () => {
+    const { state, input } = fixtureHappyPath();
+    const deps = makeDeps(state, [
+      `/Users/test/repo/.git`,
+      'wb',
+      '',
+      new Error('fatal: Needed a single revision'),
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('base_branch "main" does not exist');
+    // checkout / merge 不应被调用（早返）
+    expect(state.gitCalls.find((c) => c.args[0] === 'checkout')).toBeUndefined();
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+  });
+
+  it('checkout base_branch 失败 → reject + hint 提示 hooks/uncommitted', async () => {
+    const { state, input } = fixtureHappyPath();
+    const deps = makeDeps(state, [
+      `/Users/test/repo/.git`,
+      'wb',
+      '',
+      'mainhash',
+      new Error('error: Your local changes to the following files would be overwritten'),
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('git checkout main failed');
+    expect((result as ArchivePlanError).hint).toContain('uncommitted changes');
+    // merge 不应被调用（已早返）
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
   });
 });
