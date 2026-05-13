@@ -249,6 +249,7 @@ export const SHUTDOWN_SESSION_SCHEMA = {
 
 // plan mcp-bug-and-feature-batch-20260513 Phase 4a Step 4a.1：archive_plan tool —
 // K1 hand-off 自动化 plan 收口（git ff merge / mv plan / commit / worktree remove / branch -D）。
+// CHANGELOG_99：default 归档 caller(与 K2 baton 同款语义);plan 收口 = caller 会话使命终结。
 // deny external caller（写 git + 删 worktree 高风险）。
 export const ARCHIVE_PLAN_SCHEMA = {
   plan_id: z
