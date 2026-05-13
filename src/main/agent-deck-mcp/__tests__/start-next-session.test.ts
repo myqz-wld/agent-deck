@@ -23,6 +23,7 @@ import {
 import { startNextSessionHandler } from '../tools/handlers/start-next-session';
 import type { StartNextSessionArgs, SpawnSessionArgs } from '../tools/schemas';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
+import { sessionRepo } from '@main/store/session-repo';
 
 // ─── Test fixture: in-memory deps ────────────────────────────────────────
 
@@ -602,5 +603,143 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     expect(mockSpawn).not.toHaveBeenCalled();
     // CHANGELOG_97：plan 解析失败 → 既不 spawn 也不归档（baton 还没出手）
     expect(mockArchive).not.toHaveBeenCalled();
+  });
+});
+
+describe('startNextSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and-skill-timer-20260514 Phase A1）', () => {
+  it('caller 不显式传 implDeps.cwd → handler 从 sessionRepo 反查 callerSession.cwd 注入到 impl', async () => {
+    const planId = 'sessionrepo-injection';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    const callerSid = 'caller-with-cwd-in-repo';
+    const callerCwd = '/Users/test/repo'; // sessionRepo 反查给 impl 的 cwd
+    const fakeHomedir = '/Users/test';
+
+    // mock sessionRepo.get：caller-with-cwd-in-repo → cwd = '/Users/test/repo'
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === callerSid) {
+        return {
+          id: callerSid,
+          adapter: 'claude-code',
+          cwd: callerCwd,
+          title: 'test session',
+          lifecycle: 'active',
+          archivedAt: null,
+          permissionMode: null,
+          codexSandbox: null,
+          claudeCodeSandbox: null,
+          genericPtyConfig: null,
+          createdAt: 1234,
+          lastEventAt: 5678,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
+    // 自定义 deps：runGit 走真模拟（callerCwd → main repo /Users/test/repo），但 cwd
+    // **不**注入（让 handler 走 sessionRepo 反查路径）；files / readFile 模拟正常
+    const files = new Map<string, string>();
+    files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+    const gitCallsSeen: Array<{ args: string[]; cwd: string }> = [];
+    const partialDeps: StartNextSessionDeps = {
+      runGit: async (args, cwd) => {
+        gitCallsSeen.push({ args, cwd });
+        if (args[0] === 'rev-parse' && args[1] === '--git-common-dir') {
+          return '/Users/test/repo/.git';
+        }
+        throw new Error(`unexpected git call: ${args.join(' ')}`);
+      },
+      readFile: async (p) => {
+        const c = files.get(p);
+        if (c === undefined) throw new Error(`ENOENT: ${p}`);
+        return c;
+      },
+      exists: async (p) => files.has(p),
+      homedir: () => fakeHomedir,
+      // **故意不传 cwd** — 验证 handler 注入路径
+    };
+
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ sessionId: 's', adapter: 'claude-code', cwd: '/x', teamName: null }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    const args: StartNextSessionArgs = { plan_id: planId, adapter: 'claude-code' };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: callerSid, transport: 'in-process' },
+    };
+
+    const result = await startNextSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      implDeps: partialDeps,
+    });
+
+    expect(result.isError).toBeFalsy();
+    // 验证：handler 从 sessionRepo 拿到 callerCwd 注入 impl，impl 的 runGit 用此 cwd 反查
+    expect(gitCallsSeen).toHaveLength(1);
+    expect(gitCallsSeen[0]!.cwd).toBe(callerCwd); // ← 关键：不是 process.cwd()
+    expect(sessionRepoGetSpy).toHaveBeenCalledWith(callerSid);
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('caller 显式传 implDeps.cwd → 优先级最高，不调 sessionRepo（caller 显式覆盖反查）', async () => {
+    const planId = 'caller-explicit-cwd';
+    const callerSid = 'should-not-be-queried';
+    const explicitCwd = '/Users/test/explicit/cwd';
+    const planFilePath = `${explicitCwd}/.claude/plans/${planId}.md`;
+    const files = new Map<string, string>();
+    files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+
+    // sessionRepo.get 不应被调用 —— caller 显式传 cwd 时优先级最高
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get');
+
+    const explicitDeps: StartNextSessionDeps = {
+      runGit: async (_args, cwd) => {
+        if (cwd === explicitCwd) return `${explicitCwd}/.git`;
+        throw new Error(`unexpected cwd: ${cwd}`);
+      },
+      readFile: async (p) => files.get(p) ?? Promise.reject(new Error(`ENOENT: ${p}`)),
+      exists: async (p) => files.has(p),
+      cwd: () => explicitCwd, // ← caller 显式传
+      homedir: () => '/Users/test',
+    };
+
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ sessionId: 's', adapter: 'claude-code', cwd: '/x', teamName: null }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    const args: StartNextSessionArgs = { plan_id: planId, adapter: 'claude-code' };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: callerSid, transport: 'in-process' },
+    };
+
+    const result = await startNextSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      implDeps: explicitDeps,
+    });
+
+    expect(result.isError).toBeFalsy();
+    // sessionRepo.get **不应被调用** —— caller 显式 cwd 优先于反查
+    expect(sessionRepoGetSpy).not.toHaveBeenCalled();
+    sessionRepoGetSpy.mockRestore();
   });
 });

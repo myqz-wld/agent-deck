@@ -224,6 +224,21 @@ export async function archivePlanImpl(
       hint: `archive_plan refuses re-archive (defensive). If you really need to re-run, manually edit frontmatter status back to in_progress.`,
     };
   }
+  // Phase A4 / R1 deep review MED-3：abandoned plan 不应走 archive_plan（user CLAUDE.md
+  // §Step 4 中止流程明示）。历史只拒 completed → abandoned 会被静默继续 merge/mv/commit
+  // 把废弃 plan 当成完成的归档进项目 git，与文档语义反向。Phase A4 加显式拒绝。
+  if (fm.status === 'abandoned') {
+    return {
+      error: `plan status is "abandoned" — abandoned plans must not be archived as completed`,
+      hint: `archive_plan only handles in_progress → completed transitions. For abandoned plans follow user CLAUDE.md §Step 4 \"中止\" path: keep frontmatter status=abandoned, ExitWorktree(action: keep), then manual \`git worktree remove --force\` + \`git branch -D\`. Don't move plan into <main-repo>/plans/.`,
+    };
+  }
+  if (fm.status !== 'in_progress') {
+    return {
+      error: `plan status must be "in_progress" but got "${fm.status ?? '<missing>'}"`,
+      hint: `Edit ${planFilePath} frontmatter to set \`status: in_progress\` before calling archive_plan, or use a status value matching the documented lifecycle (in_progress / completed / abandoned).`,
+    };
+  }
 
   // 7. fast-forward merge
   try {

@@ -146,7 +146,7 @@ export async function buildAgentDeckTools(
 
   const shutdownSession = tool(
     AGENT_DECK_TOOL_NAMES.shutdownSession,
-    'Mark a session as closed (lifecycle=closed) + abort its SDK live query. Does NOT delete events / file_changes / summaries — they remain queryable. caller cannot shutdown self.',
+    'Mark a session as closed (lifecycle=closed) + abort its SDK live query. Does NOT delete events / file_changes / summaries / messages — they remain queryable (lead can still cite closed teammate replies in deep-review aftermath; list_sessions(spawned_by_filter) still finds closed children). team_member soft-exit via left_at; spawn_link kept whole. caller cannot shutdown self.',
     SHUTDOWN_SESSION_SCHEMA,
     async (args) => shutdownSessionHandler(args, makeCtx(args)),
   );

@@ -29,7 +29,7 @@
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 10 tool（`mcp__agent_deck__spawn_session` / `send_message` / `reply_message` / `wait_reply` / `check_reply` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `start_next_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 10 tool（`mcp__agent-deck__spawn_session` / `send_message` / `reply_message` / `wait_reply` / `check_reply` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `start_next_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
 ### 三个核心约定（lead 角度）
 
@@ -40,7 +40,7 @@
 ### wait_reply 按 messageId（非事件流轮询）
 
 ```ts
-const reply = await mcp__agent_deck__wait_reply({
+const reply = await mcp__agent-deck__wait_reply({
   message_id: <spawnPromptMessageId 或 send 返回的 messageId>,
   timeout_ms: 600_000,             // 默认 600_000ms (10min)，hard cap 1_800_000ms (30min)；重 review 给足
   // 可选：nudge_text + nudge_after_ms 让 mcp 自动催 reply
@@ -68,7 +68,7 @@ lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawned_by
 完成 `~/.claude/CLAUDE.md` 的「复杂 plan：worktree 隔离 + 跨会话 hand off」流程的 §Step 4 cleanup 一次调用代替 5 步 Bash：
 
 ```ts
-const result = await mcp__agent_deck__archive_plan({
+const result = await mcp__agent-deck__archive_plan({
   plan_id: '<plan-id>',                      // 与 worktree 目录名 / plan 文件 stem 一致
   worktree_path: '<absolute-worktree-path>', // /Users/.../repo/.claude/worktrees/<plan-id>
   base_branch: 'main',                       // 默认 'main'
@@ -86,7 +86,7 @@ tool 自动跑 14 步：rev-parse main repo / 解 worktree branch / 预检 (work
 完成 `~/.claude/CLAUDE.md` 的「复杂 plan：worktree 隔离 + 跨会话 hand off」流程的 §Step 3 接力姿势 §选项 B（K2 自动起新 SDK session 接力下一 phase，免去用户手动新开会话 + 复制 cold start prompt）：
 
 ```ts
-const result = await mcp__agent_deck__start_next_session({
+const result = await mcp__agent-deck__start_next_session({
   plan_id: '<plan-id>',                      // 必填，与 plan 文件 stem / worktree 目录名一致
   phase_label: 'H3 Phase 4b',                // 可选，附加到 cold start prompt 后缀「（Phase: <label>）」
   // 其他字段 cwd / adapter / team_name / permission_mode / plan_file_path 默认即可

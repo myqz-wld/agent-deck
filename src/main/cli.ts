@@ -304,7 +304,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
           try {
             const memberSid = await memberAdapter.createSession({
               cwd,
-              prompt: `你被 lead 加入了 team "${inv.team}"，等待 lead 通过 mcp__agent_deck__send_message 给你发消息。`,
+              prompt: `你被 lead 加入了 team "${inv.team}"，等待 lead 通过 mcp__agent-deck__send_message 给你发消息。`,
               ...(inv.codexSandbox !== undefined && m.adapter === 'codex-cli'
                 ? { codexSandbox: inv.codexSandbox }
                 : {}),

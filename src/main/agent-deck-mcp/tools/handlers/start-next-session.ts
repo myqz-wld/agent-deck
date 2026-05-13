@@ -46,6 +46,7 @@ import {
 import type { StartNextSessionArgs, SpawnSessionArgs } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import { sessionManager } from '@main/session/manager';
+import { sessionRepo } from '@main/store/session-repo';
 import {
   startNextSessionImpl,
   _isStartNextSessionError,
@@ -65,6 +66,43 @@ export interface StartNextSessionHandlerDeps {
   implDeps?: StartNextSessionDeps;
 }
 
+/**
+ * 从 caller session id 反查 sessions 表拿 cwd，构造 implDeps 子集（仅 cwd 字段）。
+ *
+ * 解 H5 caller cwd bug 的核心：impl DEFAULT_DEPS.cwd = process.cwd()（Electron main
+ * 进程 cwd，通常 `/`），与真正的 caller SDK session cwd 无关，所以反查 main-repo /
+ * 判定 worktree 都失败。handler 层必须从 sessionRepo 反查 caller session 的真实 cwd
+ * 注入。external sentinel / 反查不到时返回空对象，impl 仍走 DEFAULT_DEPS.cwd 兜底。
+ */
+function resolveCallerCwdDeps(callerSessionId: string): StartNextSessionDeps {
+  if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return {};
+  const row = sessionRepo.get(callerSessionId);
+  if (!row?.cwd) return {};
+  const cwd = row.cwd;
+  return { cwd: () => cwd };
+}
+
+/**
+ * 合并 caller 显式 implDeps 与 sessionRepo 反查的 callerCwd 注入。
+ *
+ * 优先级（从高到低）：
+ * 1. caller 显式传 `handlerDeps.implDeps.cwd`（test 场景或 caller 想强制覆盖）
+ * 2. sessionRepo 反查 callerSession.cwd（生产路径正常情况）
+ * 3. impl 内 DEFAULT_DEPS.cwd（process.cwd，最后兜底）
+ *
+ * 实现策略：caller 显式 cwd 时直接返回 caller 原 implDeps；否则把 callerCwdInjection 放
+ * **后面** spread 覆盖任何 caller implDeps 里 cwd: undefined 的边界 case。
+ */
+function mergeCallerCwd(
+  callerImplDeps: StartNextSessionDeps | undefined,
+  callerSessionId: string,
+): StartNextSessionDeps | undefined {
+  if (callerImplDeps?.cwd) return callerImplDeps;
+  const callerCwdInjection = resolveCallerCwdDeps(callerSessionId);
+  if (!callerCwdInjection.cwd) return callerImplDeps;
+  return { ...callerImplDeps, ...callerCwdInjection };
+}
+
 export async function startNextSessionHandler(
   args: StartNextSessionArgs,
   ctx: HandlerContext,
@@ -77,13 +115,20 @@ export async function startNextSessionHandler(
   if (callerCheck) return callerCheck;
 
   // 1. impl 层：解析 plan 文件 + frontmatter + 构造 cold-start prompt
+  // ⚠️ caller cwd 注入：impl 默认用 process.cwd() 当 caller cwd（电子 main 进程的 cwd，
+  // 通常是 `/`），与真正的 caller SDK session cwd（在 sessions 表里）完全无关。所以
+  // **必须**在 handler 层从 sessionRepo 反查 callerSessionRow.cwd 注入到 implDeps.cwd。
+  // 不传 → impl 默认 process.cwd() → main-repo 反查永远失败 → 报「caller cwd is not a
+  // git repo」（即使 caller 实际在 worktree / git repo 内）。
+  // 优先级：caller 显式 implDeps.cwd > sessionRepo 反查 > impl DEFAULT_DEPS（process.cwd）
+  const mergedImplDeps = mergeCallerCwd(handlerDeps?.implDeps, caller.callerSessionId);
   const resolved = await startNextSessionImpl(
     {
       planId: args.plan_id,
       phaseLabel: args.phase_label,
       planFilePathOverride: args.plan_file_path,
     },
-    handlerDeps?.implDeps,
+    mergedImplDeps,
   );
   if (_isStartNextSessionError(resolved)) {
     return err(resolved.error, resolved.hint);
@@ -126,12 +171,17 @@ export async function startNextSessionHandler(
   // 5. CHANGELOG_97：自动归档 caller session（baton 语义 = 原会话退出，新会话独立接手）。
   // external caller 不在 sessions 表（已被 denyExternalIfNotAllowed 拦下，理论不会到这里；
   // 防御性双保险）。失败仅 console.warn 不阻塞 K2 成功 return（caller 至少能拿到 newSid）。
+  // Phase A5 / R1 deep review *未验证* #1 升级：把 archive 结果放到 ok return.archived
+  // 字段（'ok' / 'failed' / 'skipped'），让 caller 不必看 console.warn 就能感知归档结果。
+  let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
   if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
     const archiveFn =
       handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
     try {
       await archiveFn(caller.callerSessionId);
+      archived = 'ok';
     } catch (e) {
+      archived = 'failed';
       console.warn(
         `[mcp start_next_session] archive caller ${caller.callerSessionId} failed:`,
         e,
@@ -147,6 +197,7 @@ export async function startNextSessionHandler(
     baseBranch: resolved.baseBranch,
     phaseLabel: args.phase_label ?? null,
     initialPrompt: resolved.coldStartPrompt,
+    archived, // Phase A5：'ok' = 归档成功 / 'failed' = warn-only 不阻塞 / 'skipped' = external caller
     // 透传 spawn_session 字段（兼容 spawn 调用方）
     ...spawnData,
   });
