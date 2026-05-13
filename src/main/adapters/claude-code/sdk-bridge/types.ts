@@ -104,3 +104,29 @@ export interface InternalSession {
    */
   expectedClose?: boolean;
 }
+
+/**
+ * Factory：构造空白 InternalSession（CHANGELOG_85 Step 3.2）。
+ *
+ * 抽自 ClaudeSdkBridge.createSession 内 11 字段对象字面量，集中字段初值默认逻辑
+ * （permissionMode 与 query options 同源 `opts.permissionMode ?? 'default'`，详
+ * permissionMode 字段 jsdoc）。query 字段 spawn 之前用 `undefined as Query` 占位，
+ * realSessionId 等首条 SDKMessage 拿到后 by waitForRealSessionId 替换。
+ */
+export function makeInternalSession(opts: {
+  cwd: string;
+  permissionMode?: PermissionMode;
+}): InternalSession {
+  return {
+    realSessionId: null,
+    cwd: opts.cwd,
+    query: undefined as unknown as Query,
+    permissionMode: opts.permissionMode ?? 'default',
+    pendingUserMessages: [],
+    notify: null,
+    pendingPermissions: new Map(),
+    pendingAskUserQuestions: new Map(),
+    pendingExitPlanModes: new Map(),
+    toolUseNames: new Map(),
+  };
+}

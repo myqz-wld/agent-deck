@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
@@ -10,9 +9,6 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
-import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
-import { settingsStore } from '@main/store/settings-store';
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
@@ -20,12 +16,8 @@ import {
   getAgentDeckSystemPromptAppend,
 } from '@main/adapters/claude-code/sdk-injection';
 import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
-import { getTasksMcpServerForSession } from '@main/task-manager/server';
-import {
-  getAgentDeckMcpServerForSession,
-  AGENT_DECK_MCP_TOOL_PATTERN,
-} from '@main/agent-deck-mcp/server';
-// CHANGELOG_52 Step 3a-3g：拆 class 完成。本目录（sdk-bridge/）含 7 个 sub-module + index.ts (facade)。
+// CHANGELOG_52 Step 3a-3g + CHANGELOG_85 Step 3.2：拆 class 完成。本目录（sdk-bridge/）
+// 含 11 个 sub-module + index.ts (facade)。
 //
 // **TS module resolution 假设**（F5 finding）：moduleResolution: node 模式下
 // `import './sdk-bridge'` 优先匹配 `sdk-bridge.ts` 文件（不存在时才走 `sdk-bridge/index.ts`）。
@@ -36,19 +28,24 @@ import {
 // `/index` 后缀），届时所有 import 站点要加 `/index`。当前 tsconfig.node.json 用 node。
 import {
   AGENT_ID,
-  MAX_MESSAGE_LENGTH,
-  MAX_PENDING_MESSAGES,
 } from './constants';
 import type {
   InternalSession,
   SdkBridgeOptions,
   SdkSessionHandle,
 } from './types';
-import { PermissionResponder, type ResponderCtx } from './permission-responder';
+import { makeInternalSession } from './types';
+import { PermissionResponder } from './permission-responder';
 import { makeCanUseTool } from './can-use-tool';
-import { SessionRecoverer, defaultResumeJsonlExists, type RecovererCtx } from './recoverer';
-import { StreamProcessor, type StreamProcessorCtx } from './stream-processor';
-import { RestartController, type RestartCtx } from './restart-controller';
+import { SessionRecoverer, defaultResumeJsonlExists } from './recoverer';
+import { StreamProcessor } from './stream-processor';
+import { RestartController } from './restart-controller';
+import { runCloseSessionCleanup } from './pending-cancellation';
+import { buildMcpServersForSession } from './mcp-server-init';
+import { buildClaudeQueryOptions } from './query-options-builder';
+import { validateSendMessageOrThrow } from './send-validation';
+import { finalizeSessionStart } from './session-finalize';
+import { resolveClaudeSandboxMode } from './sandbox-resolve';
 
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
@@ -67,105 +64,61 @@ export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 export class ClaudeSdkBridge {
   /** key 是真实 session_id（拿到之前用临时 id） */
   private sessions = new Map<string, InternalSession>();
+
   /**
-   * sendMessage 走「断连自愈」路径时的单飞表（CHANGELOG_26 / B 方案）：
-   *   sessionId → 正在跑的 createSession({resume,prompt}) Promise
+   * sendMessage「断连自愈」单飞表（CHANGELOG_26 / B 方案）：sessionId → 正在跑的
+   * createSession({resume,prompt}) Promise。同 sessionId 并发等同一个 Promise。
    *
-   * 同 sessionId 并发触发 sendMessage 时，第二条等同一个 Promise，避免 H4 修过的
-   * `claimAsSdk(opts.resume)` 被同 sessionId 多次重入造成 sdkOwned 状态错乱、
-   * 或者并发起多条 SDK query 导致 Anthropic 端按次计费 + 消息在两个 stream 里乱序。
-   *
-   * 「单飞」语义：拿到 inflight 后等它完成，然后**重新走完整 sendMessage 流程**，
-   * 把这条新 text 正常 push 进 sessions Map 上的 pendingUserMessages，避免 createSession
-   * 内只有「触发恢复的那条 prompt」被消费而后续等 inflight 的消息被丢。
-   */
-  /**
-   * CHANGELOG_52 Step 3d / F2 修法：recovering Map 提到 facade，**SHARED**
-   * with lifecycle.restartWithPermissionMode（双方 mutate 同一份单飞 Map）。
-   * 不是 recoverer 独占！原 plan 写错过这点，Plan agent F2 finding 修正。
+   * **SHARED with restartController**（CHANGELOG_52 Step 3d / F2）：双方 mutate 同一份
+   * Map，不是 recoverer 独占。详 recoverer.ts / restart-controller.ts state 节。
    */
   private recovering = new Map<string, Promise<unknown>>();
-  /**
-   * CHANGELOG_52 Step 3a：PLACEHOLDER_DEDUP_MS 从 class static 提到 module 级 const（constants.ts），
-   * Step 3d：placeholderEmittedAt 已迁到 SessionRecoverer 内部（recoverer 真独占）。
-   */
 
   /** 权限请求未响应自动 abort 阈值；0 = 关闭。运行时通过 setPermissionTimeoutMs 改。 */
   private permissionTimeoutMs: number;
 
-  /**
-   * CHANGELOG_52 Step 3b：PermissionResponder sub-class 持 6 respond/list + 3 timeout 方法。
-   * sessions Map / emit / 超时阈值 通过 ResponderCtx 注入；冷切到 bypass 路径调
-   * lifecycle.restartWithPermissionMode 走临时 wrapper（3f 拆 lifecycle 时改成 ctx thunk）。
-   */
+  /** 详 permission-responder.ts —— 6 respond/list + 3 timeout 方法 sub-class。 */
   private responder: PermissionResponder;
 
-  /**
-   * CHANGELOG_52 Step 3d：SessionRecoverer sub-class 持 recoverAndSend 主体 +
-   * placeholderEmittedAt 独占 Map。recovering Map ref / emit 通过 ctx 注入；
-   * 调 facade.createSession / facade.sendMessage 走 thunk（避免循环依赖）。
-   */
+  /** 详 recoverer.ts —— recoverAndSend 主体 + placeholderEmittedAt 独占 Map。 */
   private recoverer: SessionRecoverer;
 
-  /**
-   * CHANGELOG_52 Step 3e：StreamProcessor sub-class 持 4 个方法
-   * (makeUserMessage / createUserMessageStream / waitForRealSessionId / consume)。
-   * sessions Map / emit 通过 ctx 注入；class 上 createSession 与 sendMessage 内的调用
-   * 走 this.streamProcessor.xxx 委托。
-   */
+  /** 详 stream-processor.ts —— makeUserMessage / createUserMessageStream / waitForRealSessionId / consume。 */
   private streamProcessor: StreamProcessor;
 
-  /**
-   * CHANGELOG_74 Step 3：RestartController sub-module 持 restartWithPermissionMode +
-   * restartWithClaudeCodeSandbox 两个语义同构的冷切方法（emit 占位 → close → 改 DB →
-   * createSession resume → 失败回滚 + emit error）。recovering Map 通过 ctx 共享，
-   * closeSession / createSession 通过 thunk 反调 facade（避免循环引用）。
-   */
+  /** 详 restart-controller.ts —— restartWithPermissionMode + restartWithClaudeCodeSandbox 冷切。 */
   private restartController: RestartController;
 
   constructor(private opts: SdkBridgeOptions) {
     this.permissionTimeoutMs = Math.max(0, opts.permissionTimeoutMs ?? 0);
 
-    // RestartController 必须先 init：PermissionResponder wrapper 需要拿到 ctx thunk
-    const restartCtx: RestartCtx = {
+    // RestartController 必须先 init：PermissionResponder ctx thunk 要 restart ref
+    this.restartController = new RestartController({
       recovering: this.recovering,
       emit: opts.emit,
       closeSession: (sid) => this.closeSession(sid),
       createSession: (createOpts) => this.createSession(createOpts).then((h) => h),
-    };
-    this.restartController = new RestartController(restartCtx);
+    });
 
-    const responderCtx: ResponderCtx = {
-      sessions: this.sessions,
-      emit: opts.emit,
-      getPermissionTimeoutMs: () => this.permissionTimeoutMs,
-    };
     this.responder = new PermissionResponder(
-      responderCtx,
-      // CHANGELOG_74 Step 3f：原 F1 临时 wrapper 改为直接走 restartController（与 ctx thunk 同模式）
+      {
+        sessions: this.sessions,
+        emit: opts.emit,
+        getPermissionTimeoutMs: () => this.permissionTimeoutMs,
+      },
       (sid, mode, prompt) => this.restartController.restartWithPermissionMode(sid, mode, prompt),
     );
 
-    const recovererCtx: RecovererCtx = {
-      recovering: this.recovering,
-      emit: opts.emit,
-    };
+    // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
+    // attachments 透传 sendMessage 第三参（HIGH-1：避免 inflight 第二条等待者丢图）。
     this.recoverer = new SessionRecoverer(
-      recovererCtx,
-      // createSession thunk：arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定
+      { recovering: this.recovering, emit: opts.emit },
       (createOpts) => this.createSession(createOpts),
-      // sendMessage thunk：inflight 等完后第二条 text 走完整 sendMessage 流程
-      // HIGH-1 修法：attachments 透传第三参数，避免第二条等待者的 attachments 静默丢
       (sid, text, attachments) => this.sendMessage(sid, text, attachments),
-      // jsonl 探测 thunk：转发到 protected 方法（test 通过子类化 override resumeJsonlExists）
       (cwd, sid) => this.resumeJsonlExists(cwd, sid),
     );
 
-    const streamProcessorCtx: StreamProcessorCtx = {
-      sessions: this.sessions,
-      emit: opts.emit,
-    };
-    this.streamProcessor = new StreamProcessor(streamProcessorCtx);
+    this.streamProcessor = new StreamProcessor({ sessions: this.sessions, emit: opts.emit });
   }
 
   /** 调整超时阈值。0 = 关闭。只影响新建的 pending；老的保持原 timer。 */
@@ -223,21 +176,13 @@ export class ClaudeSdkBridge {
     if (opts.resume) {
       sessionManager.claimAsSdk(opts.resume);
     }
-    const internal: InternalSession = {
-      realSessionId: null,
+    // CHANGELOG_85 Step 3.2：InternalSession 字段初值集中到 types.ts:makeInternalSession factory
+    // （permissionMode 与 query options 同源 `opts.permissionMode ?? 'default'`，详
+    // makeInternalSession + InternalSession.permissionMode 字段 jsdoc）。
+    const internal = makeInternalSession({
       cwd: opts.cwd,
-      query: undefined as unknown as Query,
-      // CHANGELOG_72 Bug 3：与 query options.permissionMode（line 309）同源初始化。
-      // 必须在 makeCanUseTool 之前赋值（getPermissionMode lazy 取，但 SDK 第一条 prompt
-      // 触发的工具调用会立刻读，sessionRepo 此时还没 recordCreatedPermissionMode）。
-      permissionMode: opts.permissionMode ?? 'default',
-      pendingUserMessages: [],
-      notify: null,
-      pendingPermissions: new Map(),
-      pendingAskUserQuestions: new Map(),
-      pendingExitPlanModes: new Map(),
-      toolUseNames: new Map(),
-    };
+      permissionMode: opts.permissionMode,
+    });
 
     if (opts.prompt) {
       // 用 tempKey 占位 session_id，实际 SDK 会忽略这个字段（用自己的）
@@ -273,19 +218,9 @@ export class ClaudeSdkBridge {
     // 释放 pending cwd 标记 + 清掉 sessions map 的 tempKey。CHANGELOG_47 修：
     // 之前 releasePending 只在成功路径调，失败时 60s ttl 内同 cwd 真实外部 hook 会话被误吞。
     let realId: string;
-    // CHANGELOG_74：sandbox mode 计算提到 try 块外，让后面 emit session-start 之后的
-    // setClaudeCodeSandbox 持久化能用同一变量（与 codex 模式保持一致）。
-    // fallback 链 — opts.claudeCodeSandbox（NewSessionDialog/ComposerSdk 显式传入）
-    // → resume 路径下 sessionRepo（重启应用 resume 历史会话还原）
-    // → settings 全局默认 → 'off' 兜底。
-    const persistedClaudeSandbox: 'off' | 'workspace-write' | 'strict' | null = opts.resume
-      ? (sessionRepo.get(opts.resume)?.claudeCodeSandbox ?? null)
-      : null;
-    const claudeSandboxMode: 'off' | 'workspace-write' | 'strict' =
-      opts.claudeCodeSandbox ??
-      persistedClaudeSandbox ??
-      settingsStore.get('claudeCodeSandbox') ??
-      'off';
+    // CHANGELOG_85 Step 3.2：sandbox mode fallback 链抽到 sandbox-resolve.ts。
+    // 提到 try 块外，让 emit session-start 之后的 setClaudeCodeSandbox 持久化用同一变量。
+    const claudeSandboxMode = resolveClaudeSandboxMode(opts);
     try {
       const { query } = await loadSdk();
       const runtime = getSdkRuntimeOptions();
@@ -299,146 +234,25 @@ export class ClaudeSdkBridge {
           sandboxOpts.sandbox ? 'enabled (top-level)' : 'disabled (no field)'
         }`,
       );
-      // Task Manager（CHANGELOG_43）：开关开 → 构造 per-session in-process MCP server，
-      // teamName 通过 lazy 工厂闭包注入到 5 个 task tool（CHANGELOG_46 改 lazy：createSession
-      // 入口不再知道 team 名，由 team-coordinator 反向同步后从 sessionRepo 拿；每次工具调用
-      // 时调一次工厂反映最新值）。开关关 → 不传 mcpServers / allowedTools。
-      // mcpServers 需要在 spawn 前 await 拿到 server instance，所以放在 query() 调用之前
-      // （loadSdk 已 cache，复用同 SDK 实例）。
-      const enableTaskManager = settingsStore.get('enableTaskManager') === true;
-      // R3.E8 / ADR §5.4：teamNameProvider → teamIdProvider。task-manager 写 tasks.team_id
-      // 列（v011），不再依赖 sessions.team_name（v006 deprecated）。lazy lookup：
-      // 反查 caller 当前所属 team；多 team 时取最近 join 的（lead role 优先）。
-      const tasksServer = enableTaskManager
-        ? await getTasksMcpServerForSession(
-            () => {
-              const sid = internal.realSessionId ?? tempKey;
-              const memberships = agentDeckTeamRepo
-                .findActiveMembershipsBySession(sid)
-                .sort((a, b) => b.joinedAt - a.joinedAt);
-              const lead = memberships.find((m) => m.role === 'lead');
-              return (lead ?? memberships[0])?.teamId ?? null;
-            },
-            // CHANGELOG_<X> A3：sessionIdProvider 让 mcp tools.ts 写操作后能 ingest
-            // team-task-* AgentEvent 到正确 sessionId 名下。tempKey 阶段 ingest 会
-            // 落到 tempKey 这个不在 DB 的 sessionId（ensureRecord 会建一个临时 cli 记录），
-            // realId 拿到后 sessionManager.renameSdkSession 会把子表迁移过来。
-            () => internal.realSessionId ?? tempKey,
-          )
-        : null;
-      if (tasksServer) {
-        console.log('[task-manager] mcpServers attached for session (team_id lazy-resolved)');
-      }
-      // CHANGELOG_<X> R2 / B'3：Agent Deck MCP server in-process 注入。开关 ON 时给
-      // claude 会话挂 in-process MCP，让 claude 能跨 adapter 编排其他 session
-      // （spawn / send / wait_reply / list / shutdown）。
-      // callerSessionIdProvider 走 lazy 工厂，每次 tool 调用时拿当前 SDK session id —
-      // tools.ts 内部强制覆盖 args.caller_session_id 防 prompt 注入伪造身份。
-      // tempKey 阶段沿用 task-manager 同款宽容策略：caller 反查不到 sessionRepo 时不阻塞，
-      // tools.ts validateExternalCaller 仅在 transport='in-process' 时跳过反查。
-      const enableAgentDeckMcp = settingsStore.get('enableAgentDeckMcp') === true;
-      const agentDeckMcpServer = enableAgentDeckMcp
-        ? await getAgentDeckMcpServerForSession(() => internal.realSessionId ?? tempKey)
-        : null;
-      if (agentDeckMcpServer) {
-        console.log('[agent-deck-mcp] in-process MCP attached for session');
-      }
+      // CHANGELOG_85 Step 3.2：mcp server 拼装抽到 mcp-server-init.ts
+      // （settings.enableTaskManager / enableAgentDeckMcp 两 toggle 独立，可同开 / 同关 / 单挂）
+      const mcpServers = await buildMcpServersForSession(internal, tempKey);
       const q = query({
         prompt: userMessageIterable,
-        options: {
+        // CHANGELOG_85 Step 3.2：query() options 整段抽到 query-options-builder.ts
+        // （pure builder，所有外部依赖通过 args 显式注入，零 side effect）
+        options: buildClaudeQueryOptions({
           cwd: opts.cwd,
-          permissionMode: opts.permissionMode ?? 'default',
-          // bypassPermissions 是 SDK 的"敏感档"，必须配套显式打开 allowDangerouslySkipPermissions
-          // 否则 CLI 子进程会拒绝该模式（sdk.mjs 把它们当两个独立 CLI flag 传）。
-          // 只在用户明确选了 bypassPermissions 时才开 —— 这样运行时 setPermissionMode 切到
-          // 别的模式后，flag 不会留下残余权限放大风险（CLI 子进程已经按这个 flag 启动）。
-          allowDangerouslySkipPermissions: opts.permissionMode === 'bypassPermissions',
-          // Claude Code 默认 system prompt + agent-deck 自带 CLAUDE.md（追加到末尾）。
-          // append 文本读自 resources/claude-config/CLAUDE.md，跟随应用打包；
-          // 实际位置在 user/project/local 三层 CLAUDE.md 全部加载完之后，
-          // LLM 上下文末尾位置 instruction following 最强。
-          // 已去掉用户自定义 systemPrompt 功能（避免 isolation mode 与 agent-deck 约定冲突）。
-          //
-          // CHANGELOG_46 起 team 名由 lead 在会话内自由建（NewSessionDialog 删了 teamName
-          // 输入框），spawn 时不需要在 systemPrompt 拼 per-session team 元信息——team-coordinator
-          // 通过 PreToolUse hook / fs watcher / hook 三层反向同步即可。
-          systemPrompt: {
-            type: 'preset',
-            preset: 'claude_code',
-            append: getAgentDeckSystemPromptAppend(),
-          },
-          // agent-deck 自带 plugin：受 settings.injectAgentDeckPlugin 开关控制
-          // （与 CLAUDE.md 注入开关同模式）。开 → skill 以 `agent-deck:<skill-name>`
-          // 命名空间注册；关 → 返回空数组，会话只能用 user/project/local 范围 skill。
-          // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突
-          // （plugin 强制命名空间前缀）。
-          plugins: getAgentDeckPluginsForSession(),
-          // Task Manager（CHANGELOG_43）+ Agent Deck MCP（B'3）：开关开 → 挂对应
-          // in-process MCP server + pre-approve `mcp__<name>__*` 通配（应用工具属于
-          // 受控工具，不走 canUseTool 弹框）。两者独立 toggle，可同开 / 同关 / 单挂。
-          // 开关关 → 不展开两字段，与不挂 plugin 同语义零副作用。
-          ...(tasksServer || agentDeckMcpServer
-            ? {
-                mcpServers: {
-                  ...(tasksServer ? { tasks: tasksServer } : {}),
-                  ...(agentDeckMcpServer ? { 'agent-deck': agentDeckMcpServer } : {}),
-                },
-                allowedTools: [
-                  ...(tasksServer ? ['mcp__tasks__*'] : []),
-                  ...(agentDeckMcpServer ? [AGENT_DECK_MCP_TOOL_PATTERN] : []),
-                ],
-              }
-            : {}),
-          // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）
-          settingSources: ['user', 'project', 'local'],
-          canUseTool,
-          // resume：传入历史 sessionId，SDK 会让 CLI 加载 ~/.claude/projects/<cwd>/<sid>.jsonl
-          // 续上之前的对话，第一条 SDKMessage 的 session_id 就是这个 sid。
+          permissionMode: opts.permissionMode,
           resume: opts.resume,
-          // SDK 默认 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
-          // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime（详见 sdk-runtime.ts）。
-          executable: runtime.executable,
-          // REVIEW_12 Bug 5：注入 AGENT_DECK_ORIGIN=sdk env，CLI 子进程继承后由 hook curl
-          // 命令转发为 X-Agent-Deck-Origin: sdk header；HookServer 据此把 event.hookOrigin
-          // 标为 'sdk'。即便 OLD CLI 被 SIGTERM 后内部 fork 出新 sessionId + cwd=home dir
-          // fallback 飞回迟到 hook event，仍带 hookOrigin='sdk'，ingest 入口能据此 skip
-          // 不创建 source='cli' 孤儿 record。用户独立终端跑 `claude` 没有此 env，header
-          // 走默认 'cli'，不受影响。
-          //
-          // Agent Teams（M1）：当 settings.agentTeamsEnabled=true 且 teamName 非空时，
-          // 注入 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 启用 Claude Code 的 agent teams
-          // 实验特性（lead 可 spawn teammates、共享 task list、3 个新 hook 事件）。
-          // env 是 spawn 时一次性传入，关 toggle 不影响在跑会话；summarizer 走自己的
-          // query() 调用、不读 teamName，env 也不传，天然不被污染。
-          // R3.E6：删除 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env 注入。
-          // universal team backend (DB watcher) 不依赖 CLI 实验特性。
-          env: {
-            ...runtime.env,
-            AGENT_DECK_ORIGIN: 'sdk',
-          },
-          // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
-          // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
-          // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
-          // 绕开 SDK 自带 K7。dev 模式下函数返回真实 node_modules 路径，无副作用。
-          ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
-          // OS 级沙盒（REVIEW_14 阶段 2）：根据 settings.claudeCodeSandbox 档位拼装
-          // managedSettings.sandbox 字段（policy 层，user/project/local 不可放宽）。
-          // 'off' 返回空对象，无 sandbox 字段，行为同现状（仅 canUseTool 弹框）。
-          // 'workspace-write' / 'strict' 返回 { managedSettings: { sandbox: {...} } }。
-          //
-          // **summarizer 不被污染**：summarizer 走 `settingSources: []` + 自己 query() 调用，
-          // 不读 sandbox 设置（与 agentTeamsEnabled 隔离同模式）。
-          //
-          // **双弹框 UX 收口**：sandbox 启用后 model 想联网会触发 SDK 内置的
-          // `SandboxNetworkAccess` 工具 → canUseTool 顶部自动 deny + message → model
-          // fallback `dangerouslyDisableSandbox: true` 重试 → canUseTool 弹给用户审批
-          // （仅 1 次弹框）。strict 档因 `allowUnsandboxedCommands: false` 直接封死
-          // 逃逸路径，model 报「无法联网」给用户。
-          //
-          // 用前面预算好的 sandboxOpts（避免重复 settingsStore.get + 让 console.log 与
-          // 实际传给 SDK 的值一定一致，杜绝「log 说 enabled 但实际没传」的矛盾）。
-          ...sandboxOpts,
-        },
+          canUseTool,
+          sandboxOpts,
+          systemPromptAppend: getAgentDeckSystemPromptAppend(),
+          plugins: getAgentDeckPluginsForSession(),
+          runtime,
+          claudeBinary,
+          mcpServers,
+        }),
       });
       internal.query = q;
       this.sessions.set(tempKey, internal);
@@ -462,41 +276,15 @@ export class ClaudeSdkBridge {
     // 真实 id 已经入手，cwd 待领取标记可以释放（如果 hook 已经先消费过则是 no-op）
     releasePending();
 
-    // 主动发一条 session-start，让 UI 能立刻看到这个会话
-    this.opts.emit({
-      sessionId: realId,
-      agentId: AGENT_ID,
-      kind: 'session-start',
-      payload: { cwd: opts.cwd, source: 'sdk' },
-      ts: Date.now(),
-      source: 'sdk',
+    // CHANGELOG_85 Step 3.2：emit session-start + 持久化 sandbox + 补 emit 首条 prompt
+    // 三段固定 finalize 链抽到 session-finalize.ts。
+    finalizeSessionStart({
+      realId,
+      cwd: opts.cwd,
+      prompt: opts.prompt,
+      claudeSandboxMode,
+      emit: this.opts.emit,
     });
-
-    // CHANGELOG_74：emit session-start 同步派发到 sessionManager.ingest → sessionRepo.upsert
-    // 创建 record；之后 setClaudeCodeSandbox UPDATE 字段命中。与 codex setCodexSandbox 同模式。
-    // try/catch 兜底：DB 异常不应阻塞会话启动（最坏情况字段没存，下次会话 fallback 到全局默认）。
-    try {
-      sessionRepo.setClaudeCodeSandbox(realId, claudeSandboxMode);
-    } catch (err) {
-      console.warn(
-        `[claude-bridge] setClaudeCodeSandbox(${realId}, ${claudeSandboxMode}) 失败`,
-        err,
-      );
-    }
-
-    // createSession 的首条 prompt 没有走 sendMessage（直接塞进 pendingUserMessages 给 SDK），
-    // 所以这里补 emit 一条 user message event，让活动流看到「你」发的第一条话
-    // —— 跟新建会话和恢复会话两条路径都适用。
-    if (opts.prompt) {
-      this.opts.emit({
-        sessionId: realId,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: { text: opts.prompt, role: 'user' },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-    }
 
     return {
       sessionId: realId,
@@ -522,44 +310,9 @@ export class ClaudeSdkBridge {
       return;
     }
 
-    // REVIEW_24 HIGH-2 follow-up：单条字符长度上限（与 messageRepo cap 全局对齐）。
-    // 超过就拒绝，让 IPC handler 把错误抛给 renderer，UI 显示红条提示用户精简或拆分。
-    // attachments 走 lazy thunk 内 fs.readFile，不算在 text length 内（IPC 层独立 30MB 校验）。
-    const len = text.length;
-    if (len > MAX_MESSAGE_LENGTH) {
-      throw new Error(
-        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
-      );
-    }
-
-    // 队列上限：超过就拒绝排队，让 UI 给用户明确反馈。
-    if (s.pendingUserMessages.length >= MAX_PENDING_MESSAGES) {
-      throw new Error(
-        `待发送队列已堆积 ${MAX_PENDING_MESSAGES} 条。请先处理 pending 请求（权限/提问/计划批准）` +
-          `或等 Claude 消费当前队列再继续发送。`,
-      );
-    }
-
-    // 提示：还有未响应的权限/提问/计划批准时，SDK query() 正卡在 await canUseTool 的 Promise，
-    // 用户的新消息会进 pendingUserMessages 队列但 Claude 短时间内不会处理它。
-    // 在活动流插一条警告 message，避免用户以为 Claude 死了。
-    const pendCount =
-      s.pendingPermissions.size + s.pendingAskUserQuestions.size + s.pendingExitPlanModes.size;
-    if (pendCount > 0) {
-      this.opts.emit({
-        sessionId,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: {
-          text:
-            `⚠ 还有 ${pendCount} 个待你处理的请求（权限/提问/计划批准）。` +
-            `你这条消息会被排队，但 Claude 要等你先处理完上面的请求才会看到它。`,
-          error: true,
-        },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-    }
+    // CHANGELOG_85 Step 3.2：3 段 pre-condition check 抽到 send-validation.ts
+    // （长度上限 / 队列上限 / pending warning emit）。
+    validateSendMessageOrThrow(s, sessionId, text, this.opts.emit);
 
     s.pendingUserMessages.push(
       this.streamProcessor.makeUserMessage(sessionId, text, attachments),
@@ -682,81 +435,17 @@ export class ClaudeSdkBridge {
       console.warn(`[sdk-bridge] interrupt during close failed: ${sessionId}`, err);
     }
 
-    // 2. 兜底清 pending timer：abort 信号 propagate 不一定立即触发所有 entry handler，
-    //    timer 残留 30s+ 会让进程持有 callback 引用。clear Map 也避免延迟 resolver 收到时
-    //    Map 已空再 set 出错。
-    //
-    // 顺手修：清 Map **之前** emit `*-cancelled` 事件给 renderer，否则 store 端 zombie row
-    // 残留（用户点了 silently no-op）。冷切场景（restartWithPermissionMode）会高频触发
-    // closeSession，没这步就会大量泄漏 zombie row。
-    const realIdForEmit = internal.realSessionId ?? sessionId;
-    for (const entry of internal.pendingPermissions.values()) {
-      this.opts.emit({
-        sessionId: realIdForEmit,
-        agentId: AGENT_ID,
-        kind: 'waiting-for-user',
-        payload: { type: 'permission-cancelled', requestId: entry.payload.requestId },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-      if (entry.timer) clearTimeout(entry.timer);
-    }
-    internal.pendingPermissions.clear();
-    for (const entry of internal.pendingAskUserQuestions.values()) {
-      this.opts.emit({
-        sessionId: realIdForEmit,
-        agentId: AGENT_ID,
-        kind: 'waiting-for-user',
-        payload: { type: 'ask-question-cancelled', requestId: entry.payload.requestId },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-      if (entry.timer) clearTimeout(entry.timer);
-    }
-    internal.pendingAskUserQuestions.clear();
-    for (const entry of internal.pendingExitPlanModes.values()) {
-      this.opts.emit({
-        sessionId: realIdForEmit,
-        agentId: AGENT_ID,
-        kind: 'waiting-for-user',
-        payload: { type: 'exit-plan-cancelled', requestId: entry.payload.requestId },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-      if (entry.timer) clearTimeout(entry.timer);
-    }
-    internal.pendingExitPlanModes.clear();
-
-    // 3. 从 sessions map 移除：consume() 内 createUserMessageStream 检查 sessions.has(key) 决定是否 return，
-    //    delete 之后 stream 在下一次 notify 后自然终止。
-    this.sessions.delete(key);
-
-    // 4. 释放 sdkOwned：避免后续同 sessionId 的 hook 事件被误吞（删了应该当作"不再接管"）。
-    sessionManager.releaseSdkClaim(sessionId);
-    if (internal.realSessionId && internal.realSessionId !== sessionId) {
-      sessionManager.releaseSdkClaim(internal.realSessionId);
-    }
-
-    // REVIEW_12 Bug 5 双保险（origin tag 是主修法，本步是兜底）：把 sessionId 与
-    // realSessionId 加进 recentlyDeleted 60s 黑名单——覆盖「OLD CLI 子进程被 SIGTERM 后
-    // 飞回的迟到 hook event 仍带 OLD_ID 或 realSessionId」窗口。与 SessionManager.delete +
-    // renameSdkSession 入口对称。即便 origin tag 在升级前的老 hook 命令路径下未携带
-    // （hookOrigin === undefined → 按 'cli' 兼容），sessionId 黑名单也能挡住一部分孤儿。
-    sessionManager.markRecentlyDeleted(sessionId);
-    if (internal.realSessionId && internal.realSessionId !== sessionId) {
-      sessionManager.markRecentlyDeleted(internal.realSessionId);
-    }
-
-    // 唤醒 createUserMessageStream 的 await，让它走到 sessions.has(key) === false 后 return。
-    if (internal.notify) {
-      const n = internal.notify;
-      internal.notify = null;
-      try {
-        n();
-      } catch {
-        // ignore
-      }
-    }
+    // 2-5. cleanup 链 — pending cancel + sdkOwned release + zombie row 兜底 + notify wakeup。
+    //      整套抽到 pending-cancellation.ts:runCloseSessionCleanup（CHANGELOG_85 Step 3.2）。
+    //      详见该 helper jsdoc：清三 Map / sessions.delete / releaseSdkClaim / markRecentlyDeleted /
+    //      唤醒 createUserMessageStream 的 await。
+    runCloseSessionCleanup({
+      sessions: this.sessions,
+      internal,
+      key,
+      sessionId,
+      emit: this.opts.emit,
+    });
   }
 
   /** 运行时切换权限模式。SDK 会从下一次工具调用起按新模式判断。 */
@@ -767,20 +456,13 @@ export class ClaudeSdkBridge {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`session ${sessionId} not found`);
     // CHANGELOG_72 Bug 3：先同步 in-memory cache 再 await SDK，让下一次 canUseTool
-    // bypass 短路立刻按新 mode 判断（即使 SDK 还在 round-trip 中）。
-    // 注：bypass 模式有 spawn-time flag 锁死的限制（详见 restartWithPermissionMode 注释），
-    // setPermissionMode('bypassPermissions') 在 SDK 层会被静默吞，但应用层 canUseTool 短路
-    // 会按 internal.permissionMode 判断。该路径只在「冷启走 restartWithPermissionMode」之外
-    // 偶发触发，仍按 fail-secure 处理 — 应用层比 SDK 子进程更严的方向是安全的。
+    // bypass 短路立刻按新 mode 判断。注：bypass 有 spawn-time flag 锁死限制，
+    // SDK 层会静默吞，仍按 fail-secure 处理（应用层比 SDK 严是安全方向）。
     s.permissionMode = mode;
     await s.query.setPermissionMode(mode);
   }
 
-  /**
-   * CHANGELOG_74 Step 3：冷切权限模式 thin delegate（实际实现在 RestartController sub-module）。
-   * 与 setPermissionMode 不同：bypassPermissions 必须冷切（CLI 子进程 spawn-time flag 锁死，
-   * 运行时切档被 SDK 静默吞）。详 restart-controller.ts 注释。
-   */
+  /** 冷切权限模式 thin delegate。bypass 必须走冷切（spawn-time flag 锁死）。详 restart-controller.ts。 */
   async restartWithPermissionMode(
     sessionId: string,
     mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
@@ -789,10 +471,7 @@ export class ClaudeSdkBridge {
     return this.restartController.restartWithPermissionMode(sessionId, mode, handoffPrompt);
   }
 
-  /**
-   * CHANGELOG_74：冷切 OS 沙盒档位 thin delegate（与 codex restartWithCodexSandbox 字面镜像）。
-   * SDK 的 sandbox options 是 query() spawn-time 锁定，必须冷切重启。详 restart-controller.ts 注释。
-   */
+  /** 冷切 OS 沙盒 thin delegate（与 codex restartWithCodexSandbox 字面镜像）。详 restart-controller.ts。 */
   async restartWithClaudeCodeSandbox(
     sessionId: string,
     sandbox: 'off' | 'workspace-write' | 'strict',
