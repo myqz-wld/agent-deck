@@ -1,0 +1,154 @@
+/**
+ * Agent Deck MCP server 7 tool 共用 helper（CHANGELOG_81 / plan deep-review-and-split-20260513
+ * H2 Step 2.1：从原 src/main/agent-deck-mcp/tools.ts 拆出，关注「caller 上下文 + 防御 + 响应
+ * 投影」三组 helper）。
+ *
+ * 依赖：仅 sessionRepo / SessionRecord types / EXTERNAL_CALLER_* 常量；
+ * 不依赖 zod schema / SDK runtime —— 任何 handler 都可安全 import。
+ */
+
+import type { SessionRecord } from '@shared/types';
+import { sessionRepo } from '@main/store/session-repo';
+import {
+  EXTERNAL_CALLER_ALLOWED,
+  EXTERNAL_CALLER_SENTINEL,
+  type CallerContext,
+} from '../types';
+
+/** Handler 共享上下文 —— 所有 handler 第二参数。 */
+export interface HandlerContext {
+  caller: CallerContext;
+}
+
+/** SDK tool handler 的标准返回结构。 */
+export type HandlerResult = {
+  content: Array<{ type: 'text'; text: string }>;
+  isError?: boolean;
+};
+
+/**
+ * Tool handler 共用：把 zod 解析后的 caller_session_id（args 字段）规范为
+ * CallerContext。in-process transport 在外层 wrapper 内会**再次**用 closure
+ * 覆盖 callerSessionId（强制语义防 prompt 注入伪造）。
+ */
+export function makeCallerContext(
+  rawCallerSid: string | null | undefined,
+  rawParentSid: string | undefined,
+  transport: CallerContext['transport'],
+): CallerContext {
+  // REVIEW_32 HIGH-9：caller_session_id 改 optional 后，in-process 走 override 注入真实 sid；
+  // external (HTTP/stdio) 没 override → 用占位 '__external__'，下游 denyExternalIfNotAllowed
+  // 兜底拒绝需要真实 session 上下文的 tool。空字符串 / null 都视为缺省。
+  const callerSid = rawCallerSid && rawCallerSid.length > 0 ? rawCallerSid : '__external__';
+  return {
+    callerSessionId: callerSid,
+    parentSessionId: rawParentSid ?? callerSid,
+    transport,
+  };
+}
+
+/**
+ * external caller 防御：若工具不允许外部调用且 caller = `__external__`，
+ * 直接返回 isError，handler 不执行业务逻辑。
+ */
+export function denyExternalIfNotAllowed(
+  toolName: keyof typeof EXTERNAL_CALLER_ALLOWED,
+  caller: CallerContext,
+): HandlerResult | null {
+  if (
+    caller.callerSessionId === EXTERNAL_CALLER_SENTINEL &&
+    !EXTERNAL_CALLER_ALLOWED[toolName]
+  ) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({
+            error: `tool ${toolName} not allowed for external caller (caller_session_id=__external__)`,
+            hint: 'External MCP clients can only call read-only tools (list_sessions, wait_reply). To spawn / send / shutdown sessions, use the in-process or HTTP transport with a real caller_session_id.',
+          }),
+        },
+      ],
+      isError: true as const,
+    };
+  }
+  return null;
+}
+
+export function ok(data: unknown): HandlerResult {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+  };
+}
+
+export function err(message: string, hint?: string): HandlerResult {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(hint ? { error: message, hint } : { error: message }),
+      },
+    ],
+    isError: true as const,
+  };
+}
+
+/**
+ * caller 反查（HTTP/stdio transport 用；in-process 已通过 closure 强制覆盖跳过）：
+ * - external caller（__external__）已被 denyExternalIfNotAllowed 拦下，不到这里
+ * - in-process closure 覆盖后的 caller 也直接信任
+ * - HTTP/stdio：args.caller_session_id 必须能反查到 sessionRepo 且未 closed
+ *
+ * 返回 null 表示通过；返回错误对象表示 deny。
+ */
+export function validateExternalCaller(caller: CallerContext): HandlerResult | null {
+  if (caller.transport === 'in-process') return null;
+  if (caller.callerSessionId === EXTERNAL_CALLER_SENTINEL) return null;
+  const session = sessionRepo.get(caller.callerSessionId);
+  if (!session) {
+    return err(
+      `unknown caller_session_id: ${caller.callerSessionId}`,
+      'caller_session_id must reference a session managed by Agent Deck. Use list_sessions to find valid session ids, or use the literal "__external__" for read-only access from non-Agent-Deck MCP clients.',
+    );
+  }
+  if (session.lifecycle === 'closed') {
+    return err(
+      `caller_session_id ${caller.callerSessionId} is closed`,
+      'Closed sessions cannot initiate new MCP tool calls. Open a new session via the application.',
+    );
+  }
+  return null;
+}
+
+/**
+ * SessionRecord → metadata 投影。**list_sessions / get_session 共用同一份 projector**
+ * （REVIEW_28 reviewer-codex LOW-2 修法）：避免 get_session 暴露 raw SessionRecord 引入额外
+ * metadata；future visibility predicate 加在这一层即可两 tool 同步生效。
+ *
+ * plan team-cohesion-fix-20260513 Phase A Step A7：直接消费 enriched `s.teams` 字段
+ * （由 sessionManager.enrichWithTeams / enrichWithTeamsBatch 注入），不再 N+1 反查。
+ * 调用方必须传 enriched SessionRecord（list_sessions / get_session handler 已切到
+ * sessionManager facade 路径保证 enriched）。teamName 取 teams[0]?.teamName 与 SessionCard 一致。
+ *
+ * 多 team 共享时取第一个（teamName 字段语义是「展示用」非路由标识；路由用 spawn 时
+ * 显式 args.team_name / send_message 显式 team_id）。新增 teams 完整数组字段方便
+ * caller 自行查多 team 共享场景。
+ */
+export function projectSession(s: SessionRecord) {
+  return {
+    sessionId: s.id,
+    adapter: s.agentId,
+    cwd: s.cwd,
+    lifecycle: s.lifecycle,
+    title: s.title,
+    lastEventAt: s.lastEventAt,
+    teamName: s.teams?.[0]?.teamName ?? null,
+    teams: s.teams ?? [],
+    spawnedBy: s.spawnedBy ?? null,
+    spawnDepth: s.spawnDepth ?? 0,
+  };
+}
+
+// 测试 hooks（保留 _internalOk / _internalErr 老 export 名，向后兼容；当前无 caller 但保留
+// 以防 external 测试依赖）
+export { ok as _internalOk, err as _internalErr };
