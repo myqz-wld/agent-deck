@@ -15,6 +15,11 @@ import {
   normalizeCwd,
 } from './manager-helpers';
 import { enrichRecordWithTeams, enrichRecordsWithTeamsBatch } from './manager-enrich';
+import {
+  leaveTeamsAndAutoArchive,
+  archiveTeamsIfOrphaned,
+  unarchiveTeamsForRevivedLead,
+} from './manager-team-coordinator';
 
 /**
  * SessionManager 不直接 import adapterRegistry（避免反向依赖 + 单职责），
@@ -368,9 +373,9 @@ class SessionManagerClass {
     // plan team-cohesion-fix-20260513 Phase F D6：被动清理 — closed session 自动 leave
     // 所有 active team membership（否则 universal team backend 仍把 closed session 算
     // active member，UI 看到一堆「已 closed 但仍在 team」的幽灵成员）。fire-and-forget
-    // 异步跑，不阻塞 markClosed 的同步语义。
-    void this._leaveAllActiveTeams(sessionId).catch((err) => {
-      console.warn(`[session-mgr] _leaveAllActiveTeams failed during markClosed(${sessionId}):`, err);
+    // 异步跑，不阻塞 markClosed 的同步语义。helper 实现见 manager-team-coordinator.ts。
+    void leaveTeamsAndAutoArchive(sessionId, 'closed').catch((err) => {
+      console.warn(`[session-mgr] leaveTeamsAndAutoArchive failed during markClosed(${sessionId}):`, err);
     });
   }
 
@@ -405,7 +410,7 @@ class SessionManagerClass {
     // plan team-cohesion-fix-20260513 Phase F D6：与 markClosed 同款被动清理。await 而非
     // fire-and-forget（close 已 async，等 leaveTeam 完成再返回让 caller 拿到稳定状态：
     // 比如 IPC TeamShutdownAllTeammates 串行调多个 close 期望每个 close 完后该 sid 已离 team）。
-    await this._leaveAllActiveTeams(sessionId);
+    await leaveTeamsAndAutoArchive(sessionId, 'closed');
   }
 
   async archive(sessionId: string): Promise<void> {
@@ -416,8 +421,8 @@ class SessionManagerClass {
     // bug 修复（plan deep-review-and-split-20260513）：lead session 被归档后，
     // 联动检查所属 active team 是否已无 active lead → auto-archive team。
     // membership 不动（lead 没真离开），countActiveLeads 已加 INNER JOIN sessions
-    // archived_at IS NULL 过滤，本 sid 自动从计数中去除。
-    await this._archiveTeamsIfOrphaned(sessionId);
+    // archived_at IS NULL 过滤，本 sid 自动从计数中去除。helper 实现见 manager-team-coordinator.ts。
+    await archiveTeamsIfOrphaned(sessionId);
   }
 
   async unarchive(sessionId: string): Promise<void> {
@@ -427,8 +432,9 @@ class SessionManagerClass {
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
     // bug 修复（unarchive 联动）：lead session 复活时，所有该 session 还是 active member
-    // 且已 archived 的 team 一并 unarchive（覆盖 archive 联动的反向）。
-    await this._unarchiveTeamsForRevivedLead(sessionId);
+    // 且已 archived 的 team 一并 unarchive（覆盖 archive 联动的反向）。helper 实现见
+    // manager-team-coordinator.ts；REVIEW_32 MED-7 守门只复活 'last-lead-archived'。
+    await unarchiveTeamsForRevivedLead(sessionId);
   }
 
   reactivate(sessionId: string): void {
@@ -470,162 +476,15 @@ class SessionManagerClass {
     if (rec) eventBus.emit('session-upserted', rec);
   }
 
-  /**
-   * plan team-cohesion-fix-20260513 Phase F D6：close / markClosed / delete 共用的「session
-   * 终止时离开所有 active team」清理 helper。
-   *
-   * 与原 delete 路径的实现等价（保持单一逻辑入口）：
-   * 1. lazy import agentDeckTeamRepo + eventBus（防循环依赖）
-   * 2. listActiveMemberships → 逐个 leaveTeam(team_id, sid) 写 left_at = now
-   * 3. emit `agent-deck-team-member-changed` 让 TeamHub / TeamDetail UI 刷新
-   * 4. 0-lead 自动 archive：lead 离开后该 team 无 active lead → archive team + emit
-   *    `agent-deck-team-updated`
-   *
-   * 注意：reactivate 路径**不**自动 rejoin team（草案 D6 反例考虑：语义不清，
-   * 可能加错 team；reactivate 是少数场景，让用户手工 spawn 新 team 才稳）。
-   * 调用方需自己决定 await / fire-and-forget：close 是 async 已 await；markClosed
-   * 是 sync 包 void 不阻塞主流程。
-   */
-  private async _leaveAllActiveTeams(sessionId: string): Promise<void> {
-    try {
-      const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
-      const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
-      for (const m of memberships) {
-        try {
-          agentDeckTeamRepo.leaveTeam(m.teamId, sessionId);
-          eventBus.emit('agent-deck-team-member-changed', {
-            teamId: m.teamId,
-            sessionId,
-            kind: 'left',
-          });
-          // 0-lead 自动 archive：与 delete 路径同款（lead 离开后该 team 无 active lead → archive）
-          const remaining = agentDeckTeamRepo.countActiveLeads(m.teamId);
-          if (remaining === 0) {
-            const team = agentDeckTeamRepo.archive(m.teamId, { reason: 'last-lead-closed' });
-            if (team) eventBus.emit('agent-deck-team-updated', team);
-          }
-        } catch (err) {
-          console.warn(
-            `[session-mgr] leaveTeam(${m.teamId}, ${sessionId}) failed during session end:`,
-            err,
-          );
-        }
-      }
-    } catch (err) {
-      console.warn(`[session-mgr] _leaveAllActiveTeams skipped (import failed): ${sessionId}`, err);
-    }
-  }
-
-  /**
-   * bug 修复（plan deep-review-and-split-20260513）：lead session 被用户归档后，
-   * 该 session 所属的 active team 若已无 active lead → auto-archive team。
-   * 与 _leaveAllActiveTeams 的区别：membership 不动（lead 没真离开，只是被隐藏），
-   * 所以**不**调 leaveTeam、**不**emit team-member-changed。countActiveLeads 已加
-   * INNER JOIN sessions archived_at IS NULL 过滤，本 sid 自动从计数中去除。
-   * lazy import 防循环依赖（与 _leaveAllActiveTeams 同模式）。
-   */
-  private async _archiveTeamsIfOrphaned(sessionId: string): Promise<void> {
-    try {
-      const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
-      const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
-      for (const m of memberships) {
-        try {
-          if (m.role !== 'lead') continue; // teammate 归档不影响 team 存活
-          const remaining = agentDeckTeamRepo.countActiveLeads(m.teamId);
-          if (remaining === 0) {
-            const team = agentDeckTeamRepo.archive(m.teamId, { reason: 'last-lead-archived' });
-            if (team) eventBus.emit('agent-deck-team-updated', team);
-          }
-        } catch (err) {
-          console.warn(
-            `[session-mgr] _archiveTeamsIfOrphaned(${m.teamId}, ${sessionId}) failed:`,
-            err,
-          );
-        }
-      }
-    } catch (err) {
-      console.warn(
-        `[session-mgr] _archiveTeamsIfOrphaned skipped (import failed): ${sessionId}`,
-        err,
-      );
-    }
-  }
-
-  /**
-   * bug 修复 unarchive 联动（plan deep-review-and-split-20260513 + REVIEW_32 MED-7）：
-   * lead session 复活时，所有该 session 还是 active member 且**因本会话 archive 联动**
-   * 自动归档（archive_reason='last-lead-archived'）的 team 一并 unarchive。
-   *
-   * REVIEW_32 MED-7：精确语义 — 只复活 'last-lead-archived'，绝不复活：
-   * - 'user-action'（用户主动归档）
-   * - 'last-lead-closed' / 'last-lead-deleted'（lead 真离开 team，membership 也已 leave，
-   *   走不到本 helper 的 m.role==='lead' 分支）
-   * - 'scheduler'（D7 长期无活动归档，应保持）
-   *
-   * teammate 归档/复活不影响 team 存活，所以只在 role='lead' 时触发。
-   */
-  private async _unarchiveTeamsForRevivedLead(sessionId: string): Promise<void> {
-    try {
-      const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
-      const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
-      for (const m of memberships) {
-        try {
-          if (m.role !== 'lead') continue;
-          const team = agentDeckTeamRepo.get(m.teamId);
-          if (!team || team.archivedAt === null) continue;
-          // REVIEW_32 MED-7：只复活 archive_reason='last-lead-archived'，避免覆盖用户主动归档语义
-          if (team.archiveReason !== 'last-lead-archived') continue;
-          const restored = agentDeckTeamRepo.unarchive(m.teamId);
-          if (restored) eventBus.emit('agent-deck-team-updated', restored);
-        } catch (err) {
-          console.warn(
-            `[session-mgr] _unarchiveTeamsForRevivedLead(${m.teamId}, ${sessionId}) failed:`,
-            err,
-          );
-        }
-      }
-    } catch (err) {
-      console.warn(
-        `[session-mgr] _unarchiveTeamsForRevivedLead skipped (import failed): ${sessionId}`,
-        err,
-      );
-    }
-  }
-
   async delete(sessionId: string): Promise<void> {
     // R3.E0 ADR §2.5：pre-check + 自动 leaveTeam（agent_deck_team_members.session_id ON DELETE
-    // RESTRICT FK 拦下 sessions DELETE，必须先 leaveTeam）。lazy import 避免循环依赖
-    // （session/manager 是底层模块，store/agent-deck-team-repo 间接 import 它）。
-    try {
-      const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
-      const { eventBus } = await import('@main/event-bus');
-      const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
-      for (const m of memberships) {
-        try {
-          agentDeckTeamRepo.leaveTeam(m.teamId, sessionId);
-          eventBus.emit('agent-deck-team-member-changed', {
-            teamId: m.teamId,
-            sessionId,
-            kind: 'left',
-          });
-          // 0-lead 自动 archive：若 lead 离开后该 team 无 active lead，自动 archive
-          const remaining = agentDeckTeamRepo.countActiveLeads(m.teamId);
-          if (remaining === 0) {
-            const team = agentDeckTeamRepo.archive(m.teamId, { reason: 'last-lead-deleted' });
-            if (team) eventBus.emit('agent-deck-team-updated', team);
-          }
-        } catch (err) {
-          console.warn(
-            `[session-mgr] leaveTeam(${m.teamId}, ${sessionId}) failed during delete:`,
-            err,
-          );
-        }
-      }
-    } catch (err) {
-      // import 失败不阻塞 delete，但 FK 会挂；warn 让排查更直接
-      console.warn(`[session-mgr] team pre-check skipped (import failed): ${sessionId}`, err);
-    }
-
+    // RESTRICT FK 拦下 sessions DELETE，必须先 leaveTeam）。**必须 await** —— 后续
+    // sessionRepo.delete 依赖 leaveTeam 已写 left_at，否则 FK 抛错 → DB 半态。
+    // 实现合并到 manager-team-coordinator.ts 的 leaveTeamsAndAutoArchive(sid, 'deleted')，
+    // 与 close/markClosed 路径共享同一逻辑入口；archive reason 由 'deleted' 参数 explicit 区分
+    // ('last-lead-deleted' vs 'last-lead-closed'，事件流 / DB 投影 100% 等价于原 _leaveAllActiveTeams
+    //  + delete 段 1 双段实现）。
+    await leaveTeamsAndAutoArchive(sessionId, 'deleted');
     // REVIEW_4 H1：必须 **await** close 完成再删 DB 行 + 广播。
     // 旧版 fire-and-forget close → DB 同步 delete 后，SDK 侧 abort 触发的尾包
     // `finished{subtype:interrupted}` 仍会到达 ingest → ensureRecord 把已删 session
