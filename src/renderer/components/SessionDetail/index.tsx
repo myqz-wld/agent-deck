@@ -9,6 +9,7 @@ import { ActivityFeed } from '../activity-feed';
 import { SummaryView } from '../SummaryView';
 import { DiffViewer } from '../diff/DiffViewer';
 import { PermissionsView } from '../PermissionsView';
+import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 import {
   EMPTY_ASK_QUESTIONS,
   EMPTY_EXIT_PLAN_MODES,
@@ -35,6 +36,8 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const [changes, setChanges] = useState<FileChangeRecord[] | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedChangeId, setSelectedChangeId] = useState<number | null>(null);
+  /** K3 hand-off preview dialog 开关（plan mcp-bug-and-feature-batch-20260513 Phase 4c）。 */
+  const [handOffOpen, setHandOffOpen] = useState(false);
   /** 最近被 SDK 自动取消的权限/提问，用于 toast 提示「不是你做的，是 SDK 取消的」。 */
   const [cancelToasts, setCancelToasts] = useState<{ id: string; text: string; ts: number }[]>([]);
 
@@ -195,14 +198,26 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           </div>
           <div className="truncate text-[10px] text-deck-muted">{session.cwd}</div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="ml-2 flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
-          title="返回列表"
-        >
-          ←
-        </button>
+        <div className="ml-2 flex shrink-0 items-center gap-1">
+          {isSdk && (
+            <button
+              type="button"
+              onClick={() => setHandOffOpen(true)}
+              className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
+              title="📤 接力到新会话：LLM 总结当前会话历史 → 起新 session（cwd / agent / 权限模式沿用）+ 自动归档原会话"
+            >
+              📤
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
+            title="返回列表"
+          >
+            ←
+          </button>
+        </div>
       </header>
 
       {/* 顶部 banner 已废弃：权限请求 / AskUserQuestion 全部由活动流的 PermissionRow / AskRow 内嵌渲染并响应。
@@ -323,6 +338,15 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
       ) : (
         <CliFooter />
       )}
+
+      {/* K3 hand-off preview dialog（plan mcp-bug-and-feature-batch-20260513 Phase 4c）。
+          spawn 成功后 main 端 emit session-focus-request 让 App 自动切到新 session detail，
+          所以这里 onClose 只关闭 modal 不需 props 传 newSid。 */}
+      <HandOffPreviewDialog
+        open={handOffOpen}
+        sessionId={session.id}
+        onClose={() => setHandOffOpen(false)}
+      />
     </div>
   );
 }
