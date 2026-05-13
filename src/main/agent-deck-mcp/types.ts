@@ -43,10 +43,12 @@ export interface CallerContext {
  * —— K1 hand-off 自动化 plan 收口（git ff merge / mv plan / commit / worktree remove /
  * branch -D 一次调用代替原 user CLAUDE.md §Step 4 cleanup 5 步 Bash）。
  *
- * plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：加 start_next_session tool
- * —— K2 hand-off 自动化「跨会话接力」起新 SDK session（plan-aware spawn_session 包装：
- * 读 plan frontmatter 拿 worktree_path → 调 spawn_session 起新 session + 自动 cold start
- * prompt「按 <plan-abs-path> 接力」+ 自动加入 plan-id team）。
+ * plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：加 hand_off_session tool
+ * （CHANGELOG_99 改名前 `start_next_session`）
+ * —— K2 hand-off 自动化「跨会话接力」起新 SDK session（双模式 spawn_session 包装：
+ * plan-driven 模式读 plan frontmatter 拿 worktree_path 自动构造 cold-start prompt；
+ * generic 模式无需 plan，caller 显式传 prompt + 默认 cwd = caller cwd，让任意会话都能
+ * baton 交给一个新 session）。
  */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
@@ -58,7 +60,7 @@ export const AGENT_DECK_TOOL_NAMES = {
   getSession: 'get_session',
   shutdownSession: 'shutdown_session',
   archivePlan: 'archive_plan',
-  startNextSession: 'start_next_session',
+  handOffSession: 'hand_off_session',
 } as const;
 
 export type AgentDeckToolName =
@@ -67,7 +69,7 @@ export type AgentDeckToolName =
 /**
  * 注册到 in-process MCP / HTTP / stdio 的 tool 是否允许「外部 caller」调用。
  * spawn_session / send_message / reply_message / shutdown_session / archive_plan /
- * start_next_session 默认 deny external（防 fork bomb / 越权 IPC / 高风险 git+fs 写 /
+ * hand_off_session 默认 deny external（防 fork bomb / 越权 IPC / 高风险 git+fs 写 /
  * 起 SDK session 的 fork bomb）；list_sessions / get_session / wait_reply / check_reply
  * 是只读 / 观察类，允许 external。
  */
@@ -81,5 +83,5 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   get_session: true,
   shutdown_session: false,
   archive_plan: false,
-  start_next_session: false,
+  hand_off_session: false,
 };

@@ -1,12 +1,12 @@
 /**
- * start_next_session tool 单测（plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.4）。
+ * hand_off_session tool 单测（plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.4）。
  *
  * 双层覆盖：
- * 1. impl 层（start-next-session-impl.ts）：deps inject mock fs + git，验证 plan 文件路径
+ * 1. impl 层（hand-off-session-impl.ts）：deps inject mock fs + git，验证 plan 文件路径
  *    fallback（main-repo > user-global > 显式 override）+ frontmatter parse + status 校验
  *    （in_progress / completed / abandoned / missing）+ worktree_path 校验（缺失 / 非绝对）
  *    + phase_label prompt 注入
- * 2. handler 层（start-next-session.ts）：deny external caller + happy path 调 mock spawn
+ * 2. handler 层（hand-off-session.ts）：deny external caller + happy path 调 mock spawn
  *    handler 验证 K2 metadata 透传 + spawn 字段透传 + spawn 错误透传
  *
  * 不真起 git / 不真碰 fs / 不真起 SDK session：deps inject 替换全部副作用，跑纯 in-memory，
@@ -14,14 +14,14 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
-  startNextSessionImpl,
-  type StartNextSessionDeps,
-  type StartNextSessionResolved,
-  type StartNextSessionError,
-  _isStartNextSessionError,
-} from '../tools/handlers/start-next-session-impl';
-import { startNextSessionHandler } from '../tools/handlers/start-next-session';
-import type { StartNextSessionArgs, SpawnSessionArgs } from '../tools/schemas';
+  handOffSessionImpl,
+  type HandOffSessionDeps,
+  type HandOffSessionResolved,
+  type HandOffSessionError,
+  _isHandOffSessionError,
+} from '../tools/handlers/hand-off-session-impl';
+import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
+import type { HandOffSessionArgs, SpawnSessionArgs } from '../tools/schemas';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
 import { sessionRepo } from '@main/store/session-repo';
 
@@ -50,7 +50,7 @@ function makeState(overrides: Partial<TestState> = {}): TestState {
   };
 }
 
-function makeDeps(state: TestState): StartNextSessionDeps {
+function makeDeps(state: TestState): HandOffSessionDeps {
   return {
     runGit: async (args: string[], cwd: string) => {
       state.gitCalls.push({ args, cwd });
@@ -100,7 +100,7 @@ function planContent(opts: {
   return lines.join('\n');
 }
 
-describe('startNextSessionImpl — happy path', () => {
+describe('handOffSessionImpl — happy path', () => {
   it('完整 happy path：caller cwd 反查 main-repo → main-repo/.claude/plans/ 命中 → 返回 resolved', async () => {
     const state = makeState();
     const planId = 'test-plan';
@@ -110,15 +110,18 @@ describe('startNextSessionImpl — happy path', () => {
       planContent({ planId, status: 'in_progress', baseBranch: 'main' }),
     );
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
 
-    expect(_isStartNextSessionError(result)).toBe(false);
-    const ok = result as StartNextSessionResolved;
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
     expect(ok.planFilePath).toBe(planFilePath);
     expect(ok.worktreePath).toBe('/Users/test/repo/.claude/worktrees/test-plan');
     expect(ok.coldStartPrompt).toBe(`按 ${planFilePath} 接力`);
     expect(ok.baseBranch).toBe('main');
-    // git 只调 1 次（rev-parse --git-common-dir）
+    // CHANGELOG_99：mainRepo 字段是 caller cwd 反查 git common-dir 后取 dirname
+    expect(ok.mainRepo).toBe('/Users/test/repo');
+    // git 只调 1 次（rev-parse --git-common-dir），CHANGELOG_99 把 mainRepo 计算从 plan
+    // 文件 fallback 段提到主流程开头共享，所以 git 仍只 1 次（不是 2 次）
     expect(state.gitCalls.length).toBe(1);
     expect(state.gitCalls[0]?.args).toEqual(['rev-parse', '--git-common-dir']);
   });
@@ -129,13 +132,13 @@ describe('startNextSessionImpl — happy path', () => {
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
     state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
 
-    const result = await startNextSessionImpl(
+    const result = await handOffSessionImpl(
       { planId, phaseLabel: 'H3 Phase 4b' },
       makeDeps(state),
     );
 
-    expect(_isStartNextSessionError(result)).toBe(false);
-    const ok = result as StartNextSessionResolved;
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
     expect(ok.coldStartPrompt).toBe(`按 ${planFilePath} 接力（Phase: H3 Phase 4b）`);
   });
 
@@ -145,10 +148,10 @@ describe('startNextSessionImpl — happy path', () => {
     const userGlobalPath = `/Users/test/.claude/plans/${planId}.md`;
     state.files.set(userGlobalPath, planContent({ planId, status: 'in_progress' }));
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
 
-    expect(_isStartNextSessionError(result)).toBe(false);
-    expect((result as StartNextSessionResolved).planFilePath).toBe(userGlobalPath);
+    expect(_isHandOffSessionError(result)).toBe(false);
+    expect((result as HandOffSessionResolved).planFilePath).toBe(userGlobalPath);
   });
 
   it('main-repo 反查成功但 main-repo/.claude/plans/ 不存在 → fallback 到 ~/.claude/plans/', async () => {
@@ -157,10 +160,10 @@ describe('startNextSessionImpl — happy path', () => {
     const userGlobalPath = `/Users/test/.claude/plans/${planId}.md`;
     state.files.set(userGlobalPath, planContent({ planId, status: 'in_progress' }));
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
 
-    expect(_isStartNextSessionError(result)).toBe(false);
-    expect((result as StartNextSessionResolved).planFilePath).toBe(userGlobalPath);
+    expect(_isHandOffSessionError(result)).toBe(false);
+    expect((result as HandOffSessionResolved).planFilePath).toBe(userGlobalPath);
   });
 
   it('显式 plan_file_path override → 用之（绕过 fallback）', async () => {
@@ -169,15 +172,17 @@ describe('startNextSessionImpl — happy path', () => {
     const customPath = '/Users/test/some-custom-location/myplan.md';
     state.files.set(customPath, planContent({ planId, status: 'in_progress' }));
 
-    const result = await startNextSessionImpl(
+    const result = await handOffSessionImpl(
       { planId, planFilePathOverride: customPath },
       makeDeps(state),
     );
 
-    expect(_isStartNextSessionError(result)).toBe(false);
-    expect((result as StartNextSessionResolved).planFilePath).toBe(customPath);
-    // git 不应被调（显式 override 绕过 main-repo 反查）
-    expect(state.gitCalls.length).toBe(0);
+    expect(_isHandOffSessionError(result)).toBe(false);
+    expect((result as HandOffSessionResolved).planFilePath).toBe(customPath);
+    // CHANGELOG_99：mainRepo 计算从 plan 文件 fallback 那段提到主流程开头，handler 用作
+    // K2 spawn 默认 cwd（即使 plan_file_path 显式 override 也要算）。所以 git 调 1 次。
+    expect(state.gitCalls.length).toBe(1);
+    expect(state.gitCalls[0]?.args).toEqual(['rev-parse', '--git-common-dir']);
   });
 
   it('git rev-parse 返回相对路径 → 按 caller cwd resolve 成绝对', async () => {
@@ -189,20 +194,63 @@ describe('startNextSessionImpl — happy path', () => {
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
     state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(false);
-    expect((result as StartNextSessionResolved).planFilePath).toBe(planFilePath);
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(false);
+    expect((result as HandOffSessionResolved).planFilePath).toBe(planFilePath);
+  });
+
+  // CHANGELOG_99：mainRepo 启发式 fallback 测试 ─────────────────────────────────────
+  // 核心场景：caller cwd 不是 git repo（典型：Electron main process cwd = `/`），
+  // git rev-parse 抛错；impl 必须从 worktreePath 启发式反推 mainRepo（约定路径
+  // `<main-repo>/.claude/worktrees/<plan-id>`）。
+
+  it('CHANGELOG_99: caller cwd 非 git repo + worktreePath 含 .claude/worktrees/ → mainRepo 启发式命中', async () => {
+    const state = makeState({ gitFails: true });
+    const planId = 'heuristic-hit';
+    const userGlobalPath = `/Users/test/.claude/plans/${planId}.md`;
+    const worktreePath = '/Users/foo/myproject/.claude/worktrees/heuristic-hit';
+    state.files.set(
+      userGlobalPath,
+      planContent({ planId, status: 'in_progress', worktreePath }),
+    );
+
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
+    // mainRepo 启发式从 worktreePath 反推：取 `.claude/worktrees/` 之前部分
+    expect(ok.mainRepo).toBe('/Users/foo/myproject');
+    expect(ok.worktreePath).toBe(worktreePath);
+  });
+
+  it('CHANGELOG_99: caller cwd 非 git repo + worktreePath 不在约定路径 → mainRepo = null（handler 兜底）', async () => {
+    const state = makeState({ gitFails: true });
+    const planId = 'no-heuristic';
+    const userGlobalPath = `/Users/test/.claude/plans/${planId}.md`;
+    // 故意用非约定路径（不含 `.claude/worktrees/` segment）
+    const worktreePath = '/tmp/some-random-worktree';
+    state.files.set(
+      userGlobalPath,
+      planContent({ planId, status: 'in_progress', worktreePath }),
+    );
+
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
+    // 启发式 miss → mainRepo 仍 null（handler 层 `args.cwd ?? mainRepo ?? worktreePath`
+    // 兜底降级到 worktreePath）
+    expect(ok.mainRepo).toBeNull();
+    expect(ok.worktreePath).toBe(worktreePath);
   });
 });
 
-describe('startNextSessionImpl — 校验失败分支', () => {
+describe('handOffSessionImpl — 校验失败分支', () => {
   it('plan 文件不存在（默认两层都没找到）→ reject + hint 含两条路径', async () => {
     const state = makeState();
     const planId = 'no-such-plan';
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(true);
-    const err = result as StartNextSessionError;
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(true);
+    const err = result as HandOffSessionError;
     expect(err.error).toContain('plan file not found');
     expect(err.hint).toContain('/Users/test/repo/.claude/plans');
     expect(err.hint).toContain('/Users/test/.claude/plans');
@@ -212,21 +260,21 @@ describe('startNextSessionImpl — 校验失败分支', () => {
     const state = makeState({ gitFails: true });
     const planId = 'no-such-plan';
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(true);
-    const err = result as StartNextSessionError;
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(true);
+    const err = result as HandOffSessionError;
     expect(err.hint).toContain('not a git repo');
     expect(err.hint).toContain('/Users/test/.claude/plans');
   });
 
   it('显式 plan_file_path override 不存在 → reject', async () => {
     const state = makeState();
-    const result = await startNextSessionImpl(
+    const result = await handOffSessionImpl(
       { planId: 'whatever', planFilePathOverride: '/no/such/path.md' },
       makeDeps(state),
     );
-    expect(_isStartNextSessionError(result)).toBe(true);
-    expect((result as StartNextSessionError).error).toContain(
+    expect(_isHandOffSessionError(result)).toBe(true);
+    expect((result as HandOffSessionError).error).toContain(
       'plan_file_path override does not exist',
     );
   });
@@ -237,9 +285,9 @@ describe('startNextSessionImpl — 校验失败分支', () => {
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
     state.files.set(planFilePath, '# Just a markdown body, no frontmatter\n');
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(true);
-    expect((result as StartNextSessionError).error).toContain('no parseable frontmatter');
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(true);
+    expect((result as HandOffSessionError).error).toContain('no parseable frontmatter');
   });
 
   it('frontmatter 缺 worktree_path → reject', async () => {
@@ -251,9 +299,9 @@ describe('startNextSessionImpl — 校验失败分支', () => {
       planContent({ planId, status: 'in_progress', omitWorktreePath: true }),
     );
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(true);
-    expect((result as StartNextSessionError).error).toContain('missing required field: worktree_path');
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(true);
+    expect((result as HandOffSessionError).error).toContain('missing required field: worktree_path');
   });
 
   it('frontmatter worktree_path 非绝对路径 → reject', async () => {
@@ -265,9 +313,9 @@ describe('startNextSessionImpl — 校验失败分支', () => {
       planContent({ planId, status: 'in_progress', worktreePathRelative: true }),
     );
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(true);
-    expect((result as StartNextSessionError).error).toContain('must be absolute');
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(true);
+    expect((result as HandOffSessionError).error).toContain('must be absolute');
   });
 
   it('plan status = completed → reject + 提示已归档', async () => {
@@ -276,9 +324,9 @@ describe('startNextSessionImpl — 校验失败分支', () => {
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
     state.files.set(planFilePath, planContent({ planId, status: 'completed' }));
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(true);
-    const err = result as StartNextSessionError;
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(true);
+    const err = result as HandOffSessionError;
     expect(err.error).toContain('"completed"');
     expect(err.hint).toContain('in-progress plans');
   });
@@ -289,9 +337,9 @@ describe('startNextSessionImpl — 校验失败分支', () => {
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
     state.files.set(planFilePath, planContent({ planId, status: 'abandoned' }));
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(true);
-    const err = result as StartNextSessionError;
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(true);
+    const err = result as HandOffSessionError;
     expect(err.error).toContain('"abandoned"');
     expect(err.hint).toContain('Abandoned');
   });
@@ -302,14 +350,14 @@ describe('startNextSessionImpl — 校验失败分支', () => {
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
     state.files.set(planFilePath, planContent({ planId })); // 不传 status
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(true);
-    const err = result as StartNextSessionError;
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(true);
+    const err = result as HandOffSessionError;
     expect(err.error).toContain('<missing>');
   });
 });
 
-describe('startNextSessionImpl — base_branch 透传', () => {
+describe('handOffSessionImpl — base_branch 透传', () => {
   it('frontmatter 含 base_branch → resolved.baseBranch 透传', async () => {
     const state = makeState();
     const planId = 'with-base';
@@ -319,9 +367,9 @@ describe('startNextSessionImpl — base_branch 透传', () => {
       planContent({ planId, status: 'in_progress', baseBranch: 'develop' }),
     );
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(false);
-    expect((result as StartNextSessionResolved).baseBranch).toBe('develop');
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(false);
+    expect((result as HandOffSessionResolved).baseBranch).toBe('develop');
   });
 
   it('frontmatter 无 base_branch → resolved.baseBranch = null', async () => {
@@ -330,17 +378,17 @@ describe('startNextSessionImpl — base_branch 透传', () => {
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
     state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
 
-    const result = await startNextSessionImpl({ planId }, makeDeps(state));
-    expect(_isStartNextSessionError(result)).toBe(false);
-    expect((result as StartNextSessionResolved).baseBranch).toBeNull();
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(false);
+    expect((result as HandOffSessionResolved).baseBranch).toBeNull();
   });
 });
 
 // ─── Handler 层测试 ────────────────────────────────────────────────────
 
-describe('startNextSessionHandler — deny external caller', () => {
+describe('handOffSessionHandler — deny external caller', () => {
   it('caller_session_id = __external__ + transport=stdio → 拒绝', async () => {
-    const args: StartNextSessionArgs = {
+    const args: HandOffSessionArgs = {
       plan_id: 'whatever',
       adapter: 'claude-code',
     };
@@ -351,13 +399,13 @@ describe('startNextSessionHandler — deny external caller', () => {
       },
     };
 
-    const result = await startNextSessionHandler(args, ctx);
+    const result = await handOffSessionHandler(args, ctx);
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain('not allowed for external caller');
   });
 });
 
-describe('startNextSessionHandler — happy path with mock spawn', () => {
+describe('handOffSessionHandler — happy path with mock spawn', () => {
   it('调 spawn handler + 透传 K2 metadata + 透传 spawn 字段 + 归档 caller', async () => {
     const state = makeState();
     const planId = 'happy-plan';
@@ -370,6 +418,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
 
     // mock spawnSessionHandler 返回 ok({ sessionId: 'fake-sid', ... })
     // CHANGELOG_97：team 字段 default null（K2 不再默认设 team_name）
+    // CHANGELOG_99：mock 返回 cwd 字段 = mainRepo（与 K2 改 default cwd = mainRepo 一致）
     const mockSpawn = vi.fn(
       async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
         content: [
@@ -378,7 +427,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
             text: JSON.stringify({
               sessionId: 'fake-sid',
               adapter: 'claude-code',
-              cwd: worktreePath,
+              cwd: '/Users/test/repo',
               teamId: null,
               teamName: null,
               agentName: null,
@@ -397,7 +446,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
       archiveCalls.push(sid);
     });
 
-    const args: StartNextSessionArgs = {
+    const args: HandOffSessionArgs = {
       plan_id: planId,
       adapter: 'claude-code',
       phase_label: 'H3 phase 4b',
@@ -433,7 +482,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
       return null;
     });
 
-    const result = await startNextSessionHandler(args, ctx, {
+    const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: makeDeps(state),
@@ -451,18 +500,18 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     // spawn 透传（CHANGELOG_97：team 字段全 null）
     expect(data.sessionId).toBe('fake-sid');
     expect(data.adapter).toBe('claude-code');
-    expect(data.cwd).toBe(worktreePath);
+    expect(data.cwd).toBe('/Users/test/repo'); // CHANGELOG_99: mainRepo 不是 worktreePath
     expect(data.teamId).toBeNull();
     expect(data.teamName).toBeNull();
     expect(data.spawnPromptMessageId).toBeNull();
     // CHANGELOG_98 / Phase A5 / R2 反馈：archived 三态字段断言（'ok' / 'failed' / 'skipped'）
     expect(data.archived).toBe('ok');
 
-    // spawn 调用参数：cwd 默认 worktree_path，**default 不传 team_name**（CHANGELOG_97），
-    // prompt 是 cold-start
+    // spawn 调用参数：cwd 默认 mainRepo（CHANGELOG_99；不再是 worktree_path），
+    // **default 不传 team_name**（CHANGELOG_97），prompt 是 cold-start
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const spawnArgs = mockSpawn.mock.calls[0]![0];
-    expect(spawnArgs.cwd).toBe(worktreePath);
+    expect(spawnArgs.cwd).toBe('/Users/test/repo'); // CHANGELOG_99: mainRepo 不是 worktreePath
     expect(spawnArgs.team_name).toBeUndefined();
     expect(spawnArgs.adapter).toBe('claude-code');
     expect(spawnArgs.prompt).toBe(`按 ${planFilePath} 接力（Phase: H3 phase 4b）`);
@@ -492,7 +541,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     );
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
-    const args: StartNextSessionArgs = {
+    const args: HandOffSessionArgs = {
       plan_id: planId,
       adapter: 'claude-code',
       cwd: '/Users/test/some-other-cwd',
@@ -524,7 +573,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
       return null;
     });
 
-    const result = await startNextSessionHandler(args, ctx, {
+    const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: makeDeps(state),
@@ -562,7 +611,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    const args: StartNextSessionArgs = {
+    const args: HandOffSessionArgs = {
       plan_id: planId,
       adapter: 'claude-code',
     };
@@ -593,7 +642,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
       return null;
     });
 
-    const result = await startNextSessionHandler(args, ctx, {
+    const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: makeDeps(state),
@@ -635,7 +684,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     const mockArchive = vi.fn(async (_sid: string) => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    const args: StartNextSessionArgs = {
+    const args: HandOffSessionArgs = {
       plan_id: planId,
       adapter: 'claude-code',
     };
@@ -646,7 +695,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     // sessionRepo.get(ghost-caller-sid) → null（caller row 不存在 = F1 探针挡）
     const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation(() => null);
 
-    const result = await startNextSessionHandler(args, ctx, {
+    const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: makeDeps(state),
@@ -688,7 +737,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     );
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
-    const args: StartNextSessionArgs = {
+    const args: HandOffSessionArgs = {
       plan_id: planId,
       adapter: 'claude-code',
     };
@@ -696,7 +745,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
     };
 
-    const result = await startNextSessionHandler(args, ctx, {
+    const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: makeDeps(state),
@@ -704,8 +753,8 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain('fan-out limit reached');
-    // 不应嵌套包装（如 "start_next_session error: spawn error: ..."）
-    expect(result.content[0]!.text).not.toContain('start_next_session');
+    // 不应嵌套包装（如 "hand_off_session error: spawn error: ..."）
+    expect(result.content[0]!.text).not.toContain('hand_off_session');
     // CHANGELOG_97：spawn 失败 → 不归档 caller（没接到新 baton 不该让原会话退出）
     expect(mockArchive).not.toHaveBeenCalled();
   });
@@ -719,7 +768,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     );
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
-    const args: StartNextSessionArgs = {
+    const args: HandOffSessionArgs = {
       plan_id: 'no-such-plan',
       adapter: 'claude-code',
     };
@@ -727,7 +776,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
     };
 
-    const result = await startNextSessionHandler(args, ctx, {
+    const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: makeDeps(state),
@@ -741,7 +790,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
   });
 });
 
-describe('startNextSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and-skill-timer-20260514 Phase A1）', () => {
+describe('handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and-skill-timer-20260514 Phase A1）', () => {
   it('caller 不显式传 implDeps.cwd → handler 从 sessionRepo 反查 callerSession.cwd 注入到 impl', async () => {
     const planId = 'sessionrepo-injection';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -777,7 +826,7 @@ describe('startNextSessionHandler — caller cwd 反查（plan mcp-handoff-fix-a
     const files = new Map<string, string>();
     files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
     const gitCallsSeen: Array<{ args: string[]; cwd: string }> = [];
-    const partialDeps: StartNextSessionDeps = {
+    const partialDeps: HandOffSessionDeps = {
       runGit: async (args, cwd) => {
         gitCallsSeen.push({ args, cwd });
         if (args[0] === 'rev-parse' && args[1] === '--git-common-dir') {
@@ -807,12 +856,12 @@ describe('startNextSessionHandler — caller cwd 反查（plan mcp-handoff-fix-a
     );
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
-    const args: StartNextSessionArgs = { plan_id: planId, adapter: 'claude-code' };
+    const args: HandOffSessionArgs = { plan_id: planId, adapter: 'claude-code' };
     const ctx: HandlerContext = {
       caller: { callerSessionId: callerSid, transport: 'in-process' },
     };
 
-    const result = await startNextSessionHandler(args, ctx, {
+    const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: partialDeps,
@@ -863,7 +912,7 @@ describe('startNextSessionHandler — caller cwd 反查（plan mcp-handoff-fix-a
     });
 
     const gitCallsSeen: Array<{ args: string[]; cwd: string }> = [];
-    const explicitDeps: StartNextSessionDeps = {
+    const explicitDeps: HandOffSessionDeps = {
       runGit: async (gitArgs, cwd) => {
         gitCallsSeen.push({ args: gitArgs, cwd });
         if (cwd === explicitCwd) return `${explicitCwd}/.git`;
@@ -887,12 +936,12 @@ describe('startNextSessionHandler — caller cwd 反查（plan mcp-handoff-fix-a
     );
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
-    const args: StartNextSessionArgs = { plan_id: planId, adapter: 'claude-code' };
+    const args: HandOffSessionArgs = { plan_id: planId, adapter: 'claude-code' };
     const ctx: HandlerContext = {
       caller: { callerSessionId: callerSid, transport: 'in-process' },
     };
 
-    const result = await startNextSessionHandler(args, ctx, {
+    const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: explicitDeps,
