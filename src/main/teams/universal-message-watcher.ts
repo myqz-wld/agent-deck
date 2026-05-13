@@ -216,6 +216,34 @@ class TeamEventDispatcher {
 
   start(): void {
     if (this.offMember) return;
+
+    // C MED-D7 修（plan mcp-bug-and-feature-batch-20260513 Phase 2 Step 2.1）：dispatcher.start
+    // 时一次性预填 lastArchivedAt cache，让所有已存在 team 的首次 transition（active→archived）
+    // 能正常 detect。
+    //
+    // 修前：cache 初始空 → 任何 team 第一次 emit `agent-deck-team-updated` 时 prev=undefined →
+    // 直接 return（line 234 「首次见到，不算变更」短路）→ archive transition 被吞，active member
+    // 收不到 team-archived event。常见触发：lead session archive 联动 → countActiveLeads=0 → team
+    // archive → emit team-updated → dispatcher 第一次见到该 team → prev=undefined → 吞。
+    //
+    // 修后：start 时分页 listAll team（含 archived）预填 archivedAt 真值，首次 emit 时 prev 已是
+    // 真值，能正确 detect transition。pagination 与 E 修法（team-lifecycle-scheduler.ts）同款，
+    // 防 long-running 实例 team > 200 时漏扫。
+    try {
+      const PAGE_SIZE = 200;
+      let offset = 0;
+      while (true) {
+        const batch = agentDeckTeamRepo.list({ activeOnly: false, limit: PAGE_SIZE, offset });
+        for (const team of batch) {
+          this.lastArchivedAt.set(team.id, team.archivedAt);
+        }
+        if (batch.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+      }
+    } catch (err) {
+      console.warn('[team-event-dispatcher] preseed lastArchivedAt failed:', err);
+    }
+
     this.offMember = eventBus.on('agent-deck-team-member-changed', (ev) => {
       // 只关心 joined / left；role-changed 不触发 notify（团队 capability 没变）
       if (ev.kind === 'role-changed') return;
