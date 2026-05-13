@@ -68,7 +68,7 @@ export async function buildMcpServersForSession(
 
   // CHANGELOG_<X> R2 / B'3：Agent Deck MCP server in-process 注入。开关 ON 时给
   // claude 会话挂 in-process MCP，让 claude 能跨 adapter 编排其他 session
-  // （spawn / send / wait_reply / list / shutdown）。
+  // （spawn / send / list / get / shutdown / archive_plan / hand_off_session — CHANGELOG_100 7-tool set）。
   // callerSessionIdProvider 走 lazy 工厂，每次 tool 调用时拿当前 SDK session id —
   // tools.ts 内部强制覆盖 args.caller_session_id 防 prompt 注入伪造身份。
   // tempKey 阶段沿用 task-manager 同款宽容策略：caller 反查不到 sessionRepo 时不阻塞，

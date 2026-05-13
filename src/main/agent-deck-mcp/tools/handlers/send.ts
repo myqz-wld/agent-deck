@@ -4,8 +4,12 @@
  * 拆分历史：从 src/main/agent-deck-mcp/tools.ts 671-751 抽出（CHANGELOG_81 / plan
  * deep-review-and-split-20260513 H2 Step 2.1）。
  *
- * 顺手修 MED-3 (send teamId 跨污染)：reply_to_message_id 给定时反查 original.teamId
+ * MED-3 (send teamId 跨污染) 修法：reply_to_message_id 给定时反查 original.teamId
  * 必须 === resolved teamId，避免 caller 把 team A 消息挂到 team B 的 reply chain。
+ *
+ * CHANGELOG_100 / plan mcp-tool-simplify-20260514：删 reply_message tool 后所有 reply
+ * 改走 send_message + reply_to_message_id；J fix 删 → reply 与普通 message 同款 dispatch
+ * 进 receiver SDK conversation flow，receiver 自动看到 reply 作为 user-role message。
  */
 
 import { sessionRepo } from '@main/store/session-repo';
@@ -89,13 +93,13 @@ export async function sendMessageHandler(
     if (!original) {
       return err(
         `reply_to_message_id ${args.reply_to_message_id} not found`,
-        'reply_to_message_id must point to an existing message. Use list_messages or wait_reply to discover live message ids; omit when starting a new topic.',
+        'reply_to_message_id must point to an existing message. Use list_sessions to find live session ids; omit when starting a new topic.',
       );
     }
     if (original.teamId !== teamId) {
       return err(
         `cross-team reply not allowed: reply_to_message_id ${args.reply_to_message_id} belongs to team ${original.teamId}, not target team ${teamId}`,
-        'Reply chains are scoped per-team. Use reply_message tool for in-team replies, or omit reply_to_message_id when sending in a different team.',
+        'Reply chains are scoped per-team. Omit reply_to_message_id when sending in a different team.',
       );
     }
   }

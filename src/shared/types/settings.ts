@@ -285,14 +285,6 @@ export interface AppSettings {
    * 详 B'0 §6.4。
    */
   mcpMaxFanOutPerParent: number;
-  /**
-   * MCP `wait_reply` 的 idle 静默判定阈值（默认 5000ms，范围 [1000, 60000]）。
-   * `until: 'idle'` 模式下，session 在该阈值内无新事件即返回。
-   * **不**暴露给 tool args（避免 prompt 注入打死循环）；用户可在 Settings UI 调全局值。
-   * 高 reasoning effort（codex xhigh / claude opus）场景推荐用 `until: 'turn_complete'`
-   * 而非 idle，避免误判。详 B'0 §3.3.1 / §11.4。
-   */
-  mcpWaitReplyIdleQuietMs: number;
 
   // ─────────────────────────────────────── R3 universal team backend (E0 ADR §7.5)
 
@@ -357,7 +349,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcpMaxSpawnDepth: 3,
   mcpSpawnRatePerMinute: 10,
   mcpMaxFanOutPerParent: 5,
-  mcpWaitReplyIdleQuietMs: 5000,
   // R3.E0 ADR §7.5：universal-message-watcher 限流默认值
   mcpMessageRatePerTeamPerMin: 60,
   mcpMessageMaxTargetInflight: 10,

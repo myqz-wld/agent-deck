@@ -5,6 +5,11 @@
  * 历史：从原 src/main/agent-deck-mcp/tools.ts 剥离（CHANGELOG_81 / plan
  * deep-review-and-split-20260513 H2 Step 2.1）。
  *
+ * CHANGELOG_100 / plan mcp-tool-simplify-20260514：协议大简化删 reply_message /
+ * wait_reply / check_reply 三个 tool 对应的 REPLY_MESSAGE_SCHEMA / WAIT_REPLY_SCHEMA /
+ * CHECK_REPLY_SCHEMA。所有发送统一走 send_message + reply_to_message_id；reply 直接
+ * 进 lead conversation flow（无需主动 poll）。
+ *
  * 字段命名约定：tool args **snake_case**（与 task-manager 既有约定一致），
  * handler 内部消费时再映射 camelCase（不在 schema 层映射，避免 zod 推导出错）。
  */
@@ -107,94 +112,7 @@ export const SEND_MESSAGE_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Optional: link this message as a reply to an existing message in the same team. The reply forms a conversation chain queryable via wait_reply({message_id}). Use this for "I am replying to message X" semantics; for new topics omit it. The dedicated reply_message tool is a more ergonomic alias that auto-resolves to_session_id and team_id from the original message.',
-    ),
-};
-
-export const WAIT_REPLY_SCHEMA = {
-  // plan team-cohesion-fix-20260513 Phase B Step B4：wait_reply 重定义为「等某条 msg 的 reply」
-  // —— 不再是事件流投影，直接 query messages 表 + universal-message-watcher event listener。
-  message_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .describe(
-      'Wait for a reply to this specific message id (returned by send_message / reply_message). The wait resolves when a message with reply_to_message_id = this id is delivered (DB query + event listener).',
-    ),
-  nudge_text: z
-    .string()
-    .min(1)
-    .max(100_000)
-    .optional()
-    .describe(
-      'Optional: if no reply arrives within nudge_after_ms, automatically send a nudge message (text body) to the recipient as a "are you there" reminder. The nudge is itself a reply to the original message (reply_to_message_id chains). Useful when the other side may have forgotten to call reply_message. **NUDGE INVARIANT (Phase A2 fix)**: each nudge gets its own message id; teammate per wire-format protocol replies with reply_to_message_id = NUDGE_ID (not original). wait_reply now double-queries originalId + every nudgeId so the reply IS visible. Returned `nudgeMessageIds: string[]` lets caller cross-check via check_reply too.',
-    ),
-  nudge_after_ms: z
-    .number()
-    .int()
-    .min(5_000)
-    .max(1_800_000)
-    .optional()
-    .describe(
-      'How long (ms) to wait before sending the nudge. Defaults to half of timeout_ms (clamped 5_000 ~ 1_800_000). Ignored when nudge_text is omitted.',
-    ),
-  timeout_ms: z
-    .number()
-    .int()
-    .min(1_000)
-    .max(1_800_000)
-    .default(600_000)
-    .describe(
-      'Total timeout (1s ~ 30min). Returns { reply: null, timedOut: true } when exceeded. Default 10min covers normal review turns; deep multi-file reviews / heavy reasoning may need 15-30min — pass a larger value explicitly.',
-    ),
-  caller_session_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
-    ),
-};
-
-// plan mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.3：check_reply 短查询 tool —
-// wait_reply 的非阻塞配对版。lead 调 check_reply(message_id) 立即返回 { reply, timedOut: false }
-// 或 { reply: null, timedOut: false }，不挂 listener / 不起 nudge timer / 不阻塞 lead 处理
-// 其他 user input。lead 自己 poll 周期由其 reasoning 决定（与 wait_reply 互补）。
-export const CHECK_REPLY_SCHEMA = {
-  message_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .describe(
-      'Check whether a reply to this message id has arrived (returned by send_message / reply_message). Returns immediately with { reply: { messageId, text, sentAt, fromSessionId } | null, timedOut: false } — never blocks. Use this when you want to retain the ability to handle other user input while polling for a reply (vs wait_reply which blocks the lead session).',
-    ),
-  caller_session_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 必须显式传。',
-    ),
-};
-
-export const REPLY_MESSAGE_SCHEMA = {
-  reply_to_message_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .describe(
-      'The id of the original message you are replying to (returned by send_message / wait_reply).',
-    ),
-  text: z.string().min(1).max(100_000).describe('Reply body (1-100KB).'),
-  caller_session_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+      'Optional: link this message into an existing reply chain (the chain is recorded in DB; lead/teammate will see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Use this when answering a specific message you received; omit when starting a new topic. Per-team scope: original.teamId must match the resolved team_id (cross-team chain rejected).',
     ),
 };
 
@@ -392,9 +310,6 @@ export const HAND_OFF_SESSION_SCHEMA = {
 };
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
-export type WaitReplyArgs = z.infer<z.ZodObject<typeof WAIT_REPLY_SCHEMA>>;
-export type CheckReplyArgs = z.infer<z.ZodObject<typeof CHECK_REPLY_SCHEMA>>;
-export type ReplyMessageArgs = z.infer<z.ZodObject<typeof REPLY_MESSAGE_SCHEMA>>;
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
