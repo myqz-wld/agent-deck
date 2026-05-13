@@ -32,7 +32,7 @@ import { writeMcpServersToCodexConfig } from '@main/codex-config/toml-writer';
 import { syncAgentDeckSection } from '@main/codex-config/agents-md-installer';
 import { syncSkills } from '@main/codex-config/skills-installer';
 import type { AppSettings } from '@shared/types';
-import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode, parseAutoApproveTeammateMode } from './_helpers';
+import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode } from './_helpers';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SettingsSet 「即改即生效」分发（CHANGELOG_20 / A）。
@@ -202,13 +202,6 @@ export function registerSettingsIpc(): void {
     if ('codexSandbox' in p) {
       const validated = parseCodexSandboxMode(p.codexSandbox);
       p.codexSandbox = validated ?? 'workspace-write';
-    }
-    // autoApproveTeammateMode（CHANGELOG_<X> B2）：三档 union；null 兜底回默认 'read-only'。
-    // 不需要 apply* 函数——inbox-watcher 每次 processInboxFile 都从 settingsStore 读 current，
-    // 运行时即时生效（与「下次新建会话才生效」的 sandbox / mcpServers 不同）。
-    if ('autoApproveTeammateMode' in p) {
-      const validated = parseAutoApproveTeammateMode(p.autoApproveTeammateMode);
-      p.autoApproveTeammateMode = validated ?? 'read-only';
     }
     // N6 事务保护：先快照改前值，持久化后逐项 apply。任一 apply throw 时回滚 DB **和运行时**
     // 到改前状态（REVIEW_4 H2：旧版只回 DB，apply* 已动 scheduler/loginItem/window/adapter/cache，
