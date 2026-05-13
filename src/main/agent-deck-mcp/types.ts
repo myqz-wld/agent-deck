@@ -44,6 +44,7 @@ export const AGENT_DECK_TOOL_NAMES = {
   sendMessage: 'send_message',
   replyMessage: 'reply_message',
   waitReply: 'wait_reply',
+  checkReply: 'check_reply',
   listSessions: 'list_sessions',
   getSession: 'get_session',
   shutdownSession: 'shutdown_session',
@@ -55,14 +56,15 @@ export type AgentDeckToolName =
 /**
  * 注册到 in-process MCP / HTTP / stdio 的 tool 是否允许「外部 caller」调用。
  * spawn_session / send_message / reply_message / shutdown_session 默认 deny external
- * （防 fork bomb / 越权 IPC）；list_sessions / get_session / wait_reply 是只读 / 观察类，
- * 允许 external。
+ * （防 fork bomb / 越权 IPC）；list_sessions / get_session / wait_reply / check_reply 是
+ * 只读 / 观察类，允许 external。
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,
   send_message: false,
   reply_message: false,
   wait_reply: true,
+  check_reply: true,
   list_sessions: true,
   get_session: true,
   shutdown_session: false,

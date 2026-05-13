@@ -7,7 +7,7 @@
  * 不依赖 zod schema / SDK runtime —— 任何 handler 都可安全 import。
  */
 
-import type { SessionRecord } from '@shared/types';
+import type { AgentDeckMessage, SessionRecord } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import {
   EXTERNAL_CALLER_ALLOWED,
@@ -152,3 +152,37 @@ export function projectSession(s: SessionRecord) {
 // 测试 hooks（保留 _internalOk / _internalErr 老 export 名，向后兼容；当前无 caller 但保留
 // 以防 external 测试依赖）
 export { ok as _internalOk, err as _internalErr };
+
+// ─── reply helper（wait_reply / check_reply 共用，CHANGELOG_87 / plan
+//     mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.3 抽出）─────────
+
+/**
+ * 判定一条 message 是否是 original 的「合法 reply」：方向必须是从 original.toSessionId
+ * 反向回到 original.fromSessionId（REVIEW_32 HIGH-3 修法）。
+ *
+ * 用途：wait_reply / check_reply 两个 tool 都靠这个 filter 排除 nudge 自循环（caller 自己
+ * 给 toSessionId enqueue 的 nudge 也带 replyToMessageId，但方向不对应该被排除）。
+ */
+export function isLegitReply(reply: AgentDeckMessage, original: AgentDeckMessage): boolean {
+  return (
+    reply.fromSessionId === original.toSessionId && reply.toSessionId === original.fromSessionId
+  );
+}
+
+/**
+ * AgentDeckMessage → reply 投影（只暴露 caller 关心的字段，避免泄漏 status / attemptCount /
+ * teamId 等内部 schema）。wait_reply / check_reply 两 tool 共用，保证返回结构一致。
+ */
+export function replyProj(msg: AgentDeckMessage): {
+  messageId: string;
+  text: string;
+  sentAt: number;
+  fromSessionId: string;
+} {
+  return {
+    messageId: msg.id,
+    text: msg.body,
+    sentAt: msg.sentAt,
+    fromSessionId: msg.fromSessionId,
+  };
+}

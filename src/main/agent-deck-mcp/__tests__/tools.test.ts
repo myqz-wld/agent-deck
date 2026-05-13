@@ -1196,3 +1196,79 @@ describe('agent-deck-mcp tools — wait_reply (plan team-cohesion-fix-20260513 P
     expect(parsed.data.nudgesSent).toBe(0);
   });
 });
+
+describe('agent-deck-mcp tools — check_reply (plan mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.3+1.4)', () => {
+  it('returns reply immediately when reply already exists (legitReply 方向校验通过)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate');
+    const original: AgentDeckMessage = {
+      id: 'check-msg-1', teamId: 'team-x', fromSessionId: 'lead', toSessionId: 'teammate',
+      body: 'q', status: 'delivered', statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    };
+    const reply: AgentDeckMessage = {
+      id: 'check-msg-2', teamId: 'team-x', fromSessionId: 'teammate', toSessionId: 'lead',
+      body: 'a', status: 'delivered', statusReason: null,
+      sentAt: 2000, deliveredAt: 2100, attemptCount: 1, lastAttemptAt: 2000, deliveringSince: null,
+      replyToMessageId: 'check-msg-1',
+    };
+    mockMessages.set('check-msg-1', original);
+    mockReplies.set('check-msg-1', [reply]);
+
+    const r = await tools.get('check_reply').handler({
+      message_id: 'check-msg-1',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.reply).toMatchObject({
+      messageId: 'check-msg-2',
+      text: 'a',
+      sentAt: 2000,
+      fromSessionId: 'teammate',
+    });
+    expect(parsed.data.timedOut).toBe(false);
+  });
+
+  it('returns reply: null when no reply exists (non-blocking, no listener / nudge / timeout)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate');
+    const original: AgentDeckMessage = {
+      id: 'check-msg-3', teamId: 'team-x', fromSessionId: 'lead', toSessionId: 'teammate',
+      body: 'q', status: 'delivered', statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    };
+    mockMessages.set('check-msg-3', original);
+    // 不注入 reply
+
+    const t0 = Date.now();
+    const r = await tools.get('check_reply').handler({
+      message_id: 'check-msg-3',
+      caller_session_id: 'lead',
+    }, {});
+    const elapsed = Date.now() - t0;
+    // check_reply 必须立即返回（不阻塞），整个调用 < 100ms
+    expect(elapsed).toBeLessThan(100);
+
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.reply).toBeNull();
+    expect(parsed.data.timedOut).toBe(false); // check_reply 永不 timedOut
+  });
+
+  it('rejects unknown message_id', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    const r = await tools.get('check_reply').handler({
+      message_id: 'ghost-check-msg',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/not found/);
+  });
+});
