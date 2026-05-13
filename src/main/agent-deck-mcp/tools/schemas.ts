@@ -5,6 +5,11 @@
  * 历史：从原 src/main/agent-deck-mcp/tools.ts 剥离（CHANGELOG_81 / plan
  * deep-review-and-split-20260513 H2 Step 2.1）。
  *
+ * CHANGELOG_100 / plan mcp-tool-simplify-20260514：协议大简化删 reply_message /
+ * wait_reply / check_reply 三个 tool 对应的 REPLY_MESSAGE_SCHEMA / WAIT_REPLY_SCHEMA /
+ * CHECK_REPLY_SCHEMA。所有发送统一走 send_message + reply_to_message_id；reply 直接
+ * 进 lead conversation flow（无需主动 poll）。
+ *
  * 字段命名约定：tool args **snake_case**（与 task-manager 既有约定一致），
  * handler 内部消费时再映射 camelCase（不在 schema 层映射，避免 zod 推导出错）。
  */
@@ -107,94 +112,7 @@ export const SEND_MESSAGE_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Optional: link this message as a reply to an existing message in the same team. The reply forms a conversation chain queryable via wait_reply({message_id}). Use this for "I am replying to message X" semantics; for new topics omit it. The dedicated reply_message tool is a more ergonomic alias that auto-resolves to_session_id and team_id from the original message.',
-    ),
-};
-
-export const WAIT_REPLY_SCHEMA = {
-  // plan team-cohesion-fix-20260513 Phase B Step B4：wait_reply 重定义为「等某条 msg 的 reply」
-  // —— 不再是事件流投影，直接 query messages 表 + universal-message-watcher event listener。
-  message_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .describe(
-      'Wait for a reply to this specific message id (returned by send_message / reply_message). The wait resolves when a message with reply_to_message_id = this id is delivered (DB query + event listener).',
-    ),
-  nudge_text: z
-    .string()
-    .min(1)
-    .max(100_000)
-    .optional()
-    .describe(
-      'Optional: if no reply arrives within nudge_after_ms, automatically send a nudge message (text body) to the recipient as a "are you there" reminder. The nudge is itself a reply to the original message (reply_to_message_id chains). Useful when the other side may have forgotten to call reply_message.',
-    ),
-  nudge_after_ms: z
-    .number()
-    .int()
-    .min(5_000)
-    .max(1_800_000)
-    .optional()
-    .describe(
-      'How long (ms) to wait before sending the nudge. Defaults to half of timeout_ms (clamped 5_000 ~ 1_800_000). Ignored when nudge_text is omitted.',
-    ),
-  timeout_ms: z
-    .number()
-    .int()
-    .min(1_000)
-    .max(1_800_000)
-    .default(600_000)
-    .describe(
-      'Total timeout (1s ~ 30min). Returns { reply: null, timedOut: true } when exceeded. Default 10min covers normal review turns; deep multi-file reviews / heavy reasoning may need 15-30min — pass a larger value explicitly.',
-    ),
-  caller_session_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
-    ),
-};
-
-// plan mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.3：check_reply 短查询 tool —
-// wait_reply 的非阻塞配对版。lead 调 check_reply(message_id) 立即返回 { reply, timedOut: false }
-// 或 { reply: null, timedOut: false }，不挂 listener / 不起 nudge timer / 不阻塞 lead 处理
-// 其他 user input。lead 自己 poll 周期由其 reasoning 决定（与 wait_reply 互补）。
-export const CHECK_REPLY_SCHEMA = {
-  message_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .describe(
-      'Check whether a reply to this message id has arrived (returned by send_message / reply_message). Returns immediately with { reply: { messageId, text, sentAt, fromSessionId } | null, timedOut: false } — never blocks. Use this when you want to retain the ability to handle other user input while polling for a reply (vs wait_reply which blocks the lead session).',
-    ),
-  caller_session_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 必须显式传。',
-    ),
-};
-
-export const REPLY_MESSAGE_SCHEMA = {
-  reply_to_message_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .describe(
-      'The id of the original message you are replying to (returned by send_message / wait_reply).',
-    ),
-  text: z.string().min(1).max(100_000).describe('Reply body (1-100KB).'),
-  caller_session_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+      'Optional: link this message into an existing reply chain (the chain is recorded in DB; lead/teammate will see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Use this when answering a specific message you received; omit when starting a new topic. Per-team scope: original.teamId must match the resolved team_id (cross-team chain rejected).',
     ),
 };
 
@@ -249,6 +167,7 @@ export const SHUTDOWN_SESSION_SCHEMA = {
 
 // plan mcp-bug-and-feature-batch-20260513 Phase 4a Step 4a.1：archive_plan tool —
 // K1 hand-off 自动化 plan 收口（git ff merge / mv plan / commit / worktree remove / branch -D）。
+// CHANGELOG_99：default 归档 caller(与 K2 baton 同款语义);plan 收口 = caller 会话使命终结。
 // deny external caller（写 git + 删 worktree 高风险）。
 export const ARCHIVE_PLAN_SCHEMA = {
   plan_id: z
@@ -291,20 +210,45 @@ export const ARCHIVE_PLAN_SCHEMA = {
     ),
 };
 
-// plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：start_next_session tool —
-// K2 hand-off 自动化「跨会话接力」起新 SDK session（plan-aware spawn_session 包装）。
-// 行为：读 plan 文件 frontmatter 拿 worktree_path → 校验 status=in_progress → 调
-// spawn_session 起新 SDK session（cwd=worktree_path 默认 / 初始 prompt = "按 <plan-abs-path>
-// 接力"，含可选 phase_label 后缀）+ 自动加入 plan-id team。deny external caller（起 SDK
-// session 的 fork bomb 风险，与 spawn_session / archive_plan 同档）。
-export const START_NEXT_SESSION_SCHEMA = {
+// plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：hand_off_session tool —
+// （CHANGELOG_99 改名前 `start_next_session`）
+// K2 hand-off 自动化「跨会话接力」起新 SDK session（CHANGELOG_99 双模式 spawn_session 包装）。
+// 双模式行为:
+//   plan-driven 模式 (传 plan_id):读 plan 文件 frontmatter 拿 worktree_path → 校验
+//     status=in_progress → 调 spawn_session 起新 SDK session（cwd=mainRepo 默认 / 初始
+//     prompt = "按 <plan-abs-path> 接力"，含可选 phase_label 后缀）
+//   generic 模式 (不传 plan_id):无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller
+//     cwd（让任意会话都能 baton 交给一个新 session）。CHANGELOG_97 baton 语义:default
+//     不加 team（caller 显式传 team_name 才启用 lead/teammate 关系）+ default 自动归档 caller。
+// CHANGELOG_98 / R2 deep review HIGH-1：spawn 路径走 batonMode 跳 spawn-guards depth check
+// + setSpawnLink lateral parentDepth（不 +1），让 N-phase baton 链不撞 maxDepth=3。
+// CHANGELOG_99 cwd 失效根治：default cwd 改为 mainRepo（不再是 worktree_path）让新 session
+// 行为与 EnterWorktree 模式对齐，避免 archive_plan / git worktree remove 删 worktree 后
+// sessionRepo.cwd 失效弯绕。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
+// EnterWorktree(path: worktreePath) 进 worktree 干活。
+// deny external caller（起 SDK session 的 fork bomb 风险，与 spawn_session / archive_plan 同档）。
+export const HAND_OFF_SESSION_SCHEMA = {
+  // CHANGELOG_99 双模式改造:plan_id 变 optional。
+  // - 传 plan_id → plan-driven 模式（现有行为）：读 plan 文件 + 校验 frontmatter status=in_progress
+  //   + 自动构造 cold-start prompt = `按 <plan-abs-path> 接力`
+  // - 不传 plan_id → generic 模式：无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller cwd
+  //   （让任意会话都能 baton 交给一个新 session,不强制 plan-driven workflow 前提）
   plan_id: z
     .string()
     .min(1)
     .max(128)
     .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .optional()
     .describe(
-      'Plan id (matches plan file stem and worktree dir name). Used to derive plan file path / team_name default / cold-start prompt. Charset matches EnterWorktree restriction.',
+      'Plan id (matches plan file stem and worktree dir name). **Optional (CHANGELOG_99 dual-mode)**: when set → plan-driven mode (read frontmatter, validate status=in_progress, auto-construct cold-start prompt "按 <plan-abs-path> 接力"). When omitted → generic mode (caller must pass `prompt`; default cwd = caller cwd; phase_label/plan_file_path ignored). Charset matches EnterWorktree restriction.',
+    ),
+  prompt: z
+    .string()
+    .min(1)
+    .max(100_000)
+    .optional()
+    .describe(
+      'Cold-start prompt for the new SDK session. **Plan-driven mode (plan_id set)**: ignored — auto-constructed as `按 <plan-abs-path> 接力（Phase: <phase_label>?）`. **Generic mode (no plan_id)**: optional but recommended — defaults to `从上一个会话接力继续工作` if omitted. Use this to give the new session enough context (typical: a paragraph summarizing current work + what to do next).',
     ),
   phase_label: z
     .string()
@@ -312,7 +256,7 @@ export const START_NEXT_SESSION_SCHEMA = {
     .max(80)
     .optional()
     .describe(
-      'Optional phase label (e.g. "H3 - Phase 4c Step 4c.1") appended to the cold-start prompt as `（Phase: <label>）`. Helps the new session immediately know which phase to start. Omit for plain "按 <plan-abs-path> 接力".',
+      'Optional phase label (e.g. "H3 - Phase 4c Step 4c.1") appended to the cold-start prompt as `（Phase: <label>）`. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). Helps the new session immediately know which phase to start. Omit for plain "按 <plan-abs-path> 接力".',
     ),
   cwd: z
     .string()
@@ -324,7 +268,7 @@ export const START_NEXT_SESSION_SCHEMA = {
     )
     .optional()
     .describe(
-      'Override cwd for the new SDK session. When omitted, defaults to plan frontmatter `worktree_path`. Useful when plan worktree was relocated, or for testing in a sibling clone.',
+      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience: previously defaulted to plan worktree_path; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove` deletion of the worktree). New session is expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3 cold-start flow. Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing.',
     ),
   adapter: z
     .enum(['claude-code', 'codex-cli', 'aider', 'generic-pty'])
@@ -338,7 +282,7 @@ export const START_NEXT_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Override team_name. Defaults to plan_id (caller becomes lead in this team, new session becomes teammate). Pass a custom name if you want to scope the next session to a different team.',
+      'Optional team_name. **Default: not set** (CHANGELOG_97 baton semantic — hand-off is a one-way baton transfer, the new session works independently and does NOT need a lead/teammate communication relationship with the caller). Pass a custom name only if you specifically want the caller to remain as lead and the new session to be a teammate (rare; use spawn_session if that is the primary intent).',
     ),
   permission_mode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
@@ -352,7 +296,7 @@ export const START_NEXT_SESSION_SCHEMA = {
     .max(4096)
     .optional()
     .describe(
-      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md (where main-repo is derived from cwd or plan frontmatter), then ~/.claude/plans/<plan_id>.md.',
+      'Override plan file path. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md (where main-repo is derived from cwd or plan frontmatter), then ~/.claude/plans/<plan_id>.md.',
     ),
   caller_session_id: z
     .string()
@@ -360,17 +304,14 @@ export const START_NEXT_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（start_next_session 不允许 external caller）。',
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（hand_off_session 不允许 external caller）。',
     ),
   parent_session_id: z.string().min(1).max(128).optional(),
 };
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
-export type WaitReplyArgs = z.infer<z.ZodObject<typeof WAIT_REPLY_SCHEMA>>;
-export type CheckReplyArgs = z.infer<z.ZodObject<typeof CHECK_REPLY_SCHEMA>>;
-export type ReplyMessageArgs = z.infer<z.ZodObject<typeof REPLY_MESSAGE_SCHEMA>>;
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
 export type ArchivePlanArgs = z.infer<z.ZodObject<typeof ARCHIVE_PLAN_SCHEMA>>;
-export type StartNextSessionArgs = z.infer<z.ZodObject<typeof START_NEXT_SESSION_SCHEMA>>;
+export type HandOffSessionArgs = z.infer<z.ZodObject<typeof HAND_OFF_SESSION_SCHEMA>>;

@@ -37,8 +37,12 @@ export type SessionEndReason = 'closed' | 'deleted';
  * 注意：reactivate 路径**不**自动 rejoin team（草案 D6 反例考虑：语义不清，
  * 可能加错 team；reactivate 是少数场景，让用户手工 spawn 新 team 才稳）。
  *
- * @warning **delete 路径调用必须 await**：sessionRepo.delete 后续段依赖 leaveTeam 已写
- *   left_at（agent_deck_team_members.session_id ON DELETE RESTRICT FK 否则拦截 → DB 半态）。
+ * @note **delete 路径调用 await 是 UX 正确性而非 FK 绕行**（plan linked-swimming-platypus
+ *   v017 起 agent_deck_team_members.session_id FK 改 ON DELETE CASCADE，sessionRepo.delete
+ *   走 CASCADE 自动级联清 member rows，不再撞 FK）。
+ *   await 顺序是为了让 leaveTeam 先 emit 'agent-deck-team-member-changed' + 触发 0-lead
+ *   auto-archive 后再 delete；颠倒顺序会让 CASCADE 已删 member rows，leaveTeam 找不到 active
+ *   row → 不 emit member-changed → UI 不刷新 + archive 联动跑空。
  *   close/markClosed 路径 await 或 fire-and-forget 均可（语义独立）。
  */
 export async function leaveTeamsAndAutoArchive(

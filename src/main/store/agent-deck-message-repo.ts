@@ -177,13 +177,6 @@ export interface AgentDeckMessageRepo {
    * 排序与 listByTeam 一致 ORDER BY sent_at DESC（最新在前）。
    */
   listBySession(sessionId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[];
-  /**
-   * plan team-cohesion-fix-20260513 Phase B Step B1：反查某条 msg 的所有 reply。
-   *
-   * SQL 走 idx_messages_reply_to 部分索引（v015）。按 sent_at ASC 排序保证 FIFO；
-   * wait_reply tool 用此查最早一条 reply（first reply）作为 trigger 条件。
-   */
-  findRepliesByMessageId(messageId: string): AgentDeckMessage[];
 
   // ─── watcher 关键 helpers（§4.1 / §4.3） ───
   /**
@@ -313,16 +306,11 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
     return rows.map(rowToRecord);
   }
 
-  function findRepliesByMessageId(messageId: string): AgentDeckMessage[] {
-    const rows = db
-      .prepare(
-        `SELECT * FROM agent_deck_messages
-         WHERE reply_to_message_id = ?
-         ORDER BY sent_at ASC`,
-      )
-      .all(messageId) as MessageRow[];
-    return rows.map(rowToRecord);
-  }
+  // CHANGELOG_100 / plan mcp-tool-simplify-20260514: deleted findRepliesByMessageId
+  // along with wait_reply / check_reply tools. The reply_to_message_id column is kept as
+  // DB metadata for chain visibility (`agent_deck_messages` schema unchanged), but the
+  // reverse-lookup SQL helper is no longer needed since reply now flows through the same
+  // dispatch path as any other message.
 
   function findEligible(opts: FindEligibleOptions): AgentDeckMessage[] {
     const limit = Math.max(1, Math.min(opts.limit ?? 16, 100));
@@ -473,7 +461,6 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
     cancel,
     countPendingForTarget,
     resetDeliveringOnStartup,
-    findRepliesByMessageId,
   };
 }
 
@@ -497,5 +484,4 @@ export const agentDeckMessageRepo: AgentDeckMessageRepo = {
   cancel: (messageId, reason) => defaultRepo().cancel(messageId, reason),
   countPendingForTarget: (toSessionId) => defaultRepo().countPendingForTarget(toSessionId),
   resetDeliveringOnStartup: () => defaultRepo().resetDeliveringOnStartup(),
-  findRepliesByMessageId: (messageId) => defaultRepo().findRepliesByMessageId(messageId),
 };

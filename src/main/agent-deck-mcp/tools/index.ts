@@ -1,5 +1,5 @@
 /**
- * Agent Deck MCP server 的 10 个 in-process tool 注册 facade（B'0 ADR §3）。
+ * Agent Deck MCP server 的 7 个 in-process tool 注册 facade（B'0 ADR §3）。
  *
  * 三 transport（in-process / HTTP / stdio）共享同一份 buildAgentDeckTools 输出；
  * transport 层负责 caller-id 注入策略：
@@ -11,12 +11,18 @@
  *
  * 拆分历史（CHANGELOG_81 / plan deep-review-and-split-20260513 H2 Step 2.1）：
  *   原 src/main/agent-deck-mcp/tools.ts (1060 行) 拆为：
- *   - tools/index.ts (本文件，~140 行 facade)
- *   - tools/schemas.ts (~270 行 zod schema)
- *   - tools/helpers.ts (~190 行 ok/err/projectSession/validateExternalCaller/...)
- *   - tools/handlers/{spawn,send,reply,wait,check,list,get,shutdown}.ts (各 ~50-260 行)
+ *   - tools/index.ts (本文件，~110 行 facade)
+ *   - tools/schemas.ts (~210 行 zod schema)
+ *   - tools/helpers.ts (~145 行 ok/err/projectSession/validateExternalCaller/...)
+ *   - tools/handlers/{spawn,send,list,get,shutdown}.ts (各 ~50-260 行)
  *   - tools/handlers/archive-plan{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4a)
- *   - tools/handlers/start-next-session{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4b)
+ *   - tools/handlers/hand-off-session{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4b)
+ *
+ * CHANGELOG_100 / plan mcp-tool-simplify-20260514：协议大简化 10 → 7 tool。
+ *   删除 reply_message + wait_reply + check_reply 三个 tool（语法糖 + 阻塞 / 非阻塞 reply
+ *   poll），所有消息发送统一走 send_message + reply_to_message_id；reply 不再被
+ *   universal-message-watcher 的 J fix 拦截，正常 dispatch 给 lead → SDK emit user-role
+ *   message → lead 直接看到 reply 自动 act on it。心智模型大幅简化。
  */
 
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
@@ -31,25 +37,19 @@ import {
 import {
   GET_SESSION_SCHEMA,
   LIST_SESSIONS_SCHEMA,
-  REPLY_MESSAGE_SCHEMA,
   SEND_MESSAGE_SCHEMA,
   SHUTDOWN_SESSION_SCHEMA,
   SPAWN_SESSION_SCHEMA,
-  WAIT_REPLY_SCHEMA,
-  CHECK_REPLY_SCHEMA,
   ARCHIVE_PLAN_SCHEMA,
-  START_NEXT_SESSION_SCHEMA,
+  HAND_OFF_SESSION_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
-import { replyMessageHandler } from './handlers/reply';
-import { waitReplyHandler } from './handlers/wait';
-import { checkReplyHandler } from './handlers/check';
 import { listSessionsHandler } from './handlers/list';
 import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
 import { archivePlanHandler } from './handlers/archive-plan';
-import { startNextSessionHandler } from './handlers/start-next-session';
+import { handOffSessionHandler } from './handlers/hand-off-session';
 
 // helpers 子集 re-export，保持老 caller 兼容（外部对 makeCallerContext / denyExternalIfNotAllowed
 // 的 import 路径 `from './tools'` 仍能 resolve）。
@@ -100,37 +100,14 @@ export async function buildAgentDeckTools(
 
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
-    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing — use wait_reply to observe the response. Multi-team callers must specify team_id.',
+    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing. Pass `reply_to_message_id` to link this message into an existing reply chain (the chain is recorded in DB; lead/teammate see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Multi-team callers must specify `team_id`.',
     SEND_MESSAGE_SCHEMA,
     async (args) => sendMessageHandler(args, makeCtx(args)),
   );
 
-  const replyMessage = tool(
-    AGENT_DECK_TOOL_NAMES.replyMessage,
-    'Reply to an existing message in the same team. Convenience wrapper around send_message: auto-resolves to_session_id (= original message.from_session_id) and team_id (= original message.team_id), and sets reply_to_message_id automatically. Use this when you (lead or teammate) received a message and want to respond — the wait_reply tool on the other side will resolve once your reply is delivered. Returns immediately after queueing.',
-    REPLY_MESSAGE_SCHEMA,
-    async (args) => replyMessageHandler(args, makeCtx(args)),
-  );
-
-  const waitReply = tool(
-    AGENT_DECK_TOOL_NAMES.waitReply,
-    'Wait for a reply to a specific message id. Resolves when a message with reply_to_message_id = this id is delivered (DB query + universal-message-watcher event listener). Optionally sends a nudge_text after nudge_after_ms if no reply arrives — useful when the recipient may have forgotten to call reply_message. Returns { reply: { messageId, text, sentAt, fromSessionId } | null, nudgesSent, timedOut }.',
-    WAIT_REPLY_SCHEMA,
-    async (args) => waitReplyHandler(args, makeCtx(args)),
-    { annotations: { readOnlyHint: false } }, // wait_reply 现在可能 enqueue nudge，不再纯 read-only
-  );
-
-  const checkReply = tool(
-    AGENT_DECK_TOOL_NAMES.checkReply,
-    'Non-blocking poll for a reply to a specific message id. Returns immediately with { reply: { messageId, text, sentAt, fromSessionId } | null, timedOut: false } (timedOut is always false; field kept for shape parity with wait_reply). Unlike wait_reply, never blocks — caller polls at its own cadence and can interleave handling other user input. Use this when you have other work to do while a teammate is processing.',
-    CHECK_REPLY_SCHEMA,
-    async (args) => checkReplyHandler(args, makeCtx(args)),
-    { annotations: { readOnlyHint: true } },
-  );
-
   const listSessions = tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
-    'List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages (use wait_reply for those).',
+    'List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages.',
     LIST_SESSIONS_SCHEMA,
     async (args) => listSessionsHandler(args, makeCtx(args)),
     { annotations: { readOnlyHint: true } },
@@ -138,7 +115,7 @@ export async function buildAgentDeckTools(
 
   const getSession = tool(
     AGENT_DECK_TOOL_NAMES.getSession,
-    'Get a single session metadata by id. Returns same projection as list_sessions (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, teams, spawnedBy, spawnDepth) — does NOT include events / messages (use wait_reply for those). Returns isError when session does not exist.',
+    'Get a single session metadata by id. Returns same projection as list_sessions (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, teams, spawnedBy, spawnDepth) — does NOT include events / messages. Returns isError when session does not exist.',
     GET_SESSION_SCHEMA,
     async (args) => getSessionHandler(args, makeCtx(args)),
     { annotations: { readOnlyHint: true } },
@@ -146,35 +123,32 @@ export async function buildAgentDeckTools(
 
   const shutdownSession = tool(
     AGENT_DECK_TOOL_NAMES.shutdownSession,
-    'Mark a session as closed (lifecycle=closed) + abort its SDK live query. Does NOT delete events / file_changes / summaries — they remain queryable. caller cannot shutdown self.',
+    'Mark a session as closed (lifecycle=closed) + abort its SDK live query. Does NOT delete events / file_changes / summaries / messages — they remain queryable (lead can still cite closed teammate replies in deep-review aftermath; list_sessions(spawned_by_filter) still finds closed children). team_member soft-exit via left_at; spawn_link kept whole. caller cannot shutdown self.',
     SHUTDOWN_SESSION_SCHEMA,
     async (args) => shutdownSessionHandler(args, makeCtx(args)),
   );
 
   const archivePlan = tool(
     AGENT_DECK_TOOL_NAMES.archivePlan,
-    'Archive a completed plan-driven worktree (K1 hand-off automation): ff-merge worktree branch into base_branch, mv plan file to <main-repo>/plans/<plan_id>.md (status=completed + final_commit + completed_at), append plans/INDEX.md, git commit, then git worktree remove + branch -D. Caller must ExitWorktree first (mcp tool cannot call CLI internal ExitWorktree; rejects when process.cwd() is inside worktree). Refuses if plan status is already "completed" or worktree is dirty. Returns { archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_appended, final_status }. deny external caller (high-risk git+fs writes).',
+    'Archive a completed plan-driven worktree (K1 hand-off automation): ff-merge worktree branch into base_branch, mv plan file to <main-repo>/plans/<plan_id>.md (status=completed + final_commit + completed_at), append plans/INDEX.md, git commit, then git worktree remove + branch -D. **CHANGELOG_99: also default-archives the caller session** (with K2 baton semantic — plan completion = caller session\'s mission ends since worktree is gone and cwd is invalidated). Caller must ExitWorktree first (mcp tool cannot call CLI internal ExitWorktree; rejects when process.cwd() is inside worktree). Refuses if plan status is already "completed" or worktree is dirty. Returns { archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_appended, final_status, archived: \'ok\' | \'failed\' | \'skipped\' (CHANGELOG_99 caller archive result; \'failed\' is warn-only and does not block ok return) }. deny external caller (high-risk git+fs writes).',
     ARCHIVE_PLAN_SCHEMA,
     async (args) => archivePlanHandler(args, makeCtx(args)),
   );
 
-  const startNextSession = tool(
-    AGENT_DECK_TOOL_NAMES.startNextSession,
-    'Start the next plan-driven SDK session for cross-session hand-off (K2 hand-off automation): read plan frontmatter to derive worktree_path, validate status=in_progress, then spawn a new session with cwd=worktree_path and an auto-generated cold-start prompt "按 <plan-abs-path> 接力" (optional phase_label appended). The new session auto-joins the plan_id team (caller becomes lead, new session becomes teammate). Defaults: adapter=claude-code, team_name=plan_id, plan file path resolved from caller cwd via git rev-parse → <main-repo>/.claude/plans/<plan_id>.md, fallback ~/.claude/plans/<plan_id>.md. Returns { planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt, sessionId, adapter, cwd, teamId, teamName, spawnDepth, sentAt, spawnPromptMessageId }. deny external caller (SDK session fork bomb risk).',
-    START_NEXT_SESSION_SCHEMA,
-    async (args) => startNextSessionHandler(args, makeCtx(args)),
+  const handOffSession = tool(
+    AGENT_DECK_TOOL_NAMES.handOffSession,
+    'Start the next SDK session for cross-session hand-off (K2 hand-off automation; **CHANGELOG_99 dual-mode**: plan-driven when `plan_id` is set, generic when omitted). **Plan-driven mode**: read plan frontmatter to derive worktree_path, validate status=in_progress, spawn a new session with cwd=mainRepo (default; CHANGELOG_99 cwd resilience) and auto-constructed cold-start prompt "按 <plan-abs-path> 接力" (optional phase_label appended). **Generic mode** (no plan_id): caller passes `prompt` (defaults to "从上一个会话接力继续工作") and default cwd = caller session cwd; lets any session baton off to a new SDK session without plan/worktree prereq. **Baton semantic (CHANGELOG_97)**: by default does NOT join any team (no lead/teammate role assigned to caller / new session) AND auto-archives the caller session after spawn — the new session takes over independently while the caller exits. Pass team_name explicitly only if you want lead/teammate communication. **CHANGELOG_99 cwd resilience (plan-driven mode)**: default cwd is mainRepo (was worktreePath; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove`). New session expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3. Fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. Defaults: adapter=claude-code, plan file path resolved from caller cwd via git rev-parse → <main-repo>/.claude/plans/<plan_id>.md, fallback ~/.claude/plans/<plan_id>.md. Returns { mode: \'plan\' | \'generic\', planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt, ignoredFields: string[] (generic mode warns when caller passed plan-only fields like phase_label / plan_file_path — ignored not error), sessionId, adapter, cwd, teamId (null when no team_name), teamName (null), spawnDepth, sentAt, spawnPromptMessageId (null), archived }. Caller archive failure is warn-only (does not block ok return). deny external caller (SDK session fork bomb risk). **Renamed (CHANGELOG_99)**: was `start_next_session`.',
+    HAND_OFF_SESSION_SCHEMA,
+    async (args) => handOffSessionHandler(args, makeCtx(args)),
   );
 
   return [
     spawnSession,
     sendMessage,
-    replyMessage,
-    waitReply,
-    checkReply,
     listSessions,
     getSession,
     shutdownSession,
     archivePlan,
-    startNextSession,
+    handOffSession,
   ];
 }

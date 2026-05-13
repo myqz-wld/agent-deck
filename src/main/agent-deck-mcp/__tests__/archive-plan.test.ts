@@ -305,6 +305,47 @@ describe('archivePlanImpl — 预检失败分支', () => {
     expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
   });
 
+  it('Phase A4 / R1 MED-3：plan status = abandoned → reject + 指向 user CLAUDE 中止流程', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    state.files.set(
+      planPath,
+      [
+        '---',
+        `plan_id: ${input.planId}`,
+        'status: abandoned',
+        '---',
+        '',
+        'body',
+      ].join('\n'),
+    );
+    const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('abandoned');
+    expect((result as ArchivePlanError).hint).toContain('§Step 4');
+    // git merge 不应被调用（早返）
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+  });
+
+  it('Phase A4：plan status 缺失 / 非合法值 → reject 通用 status 错误', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    // 缺 status 字段
+    state.files.set(
+      planPath,
+      ['---', `plan_id: ${input.planId}`, '---', '', 'body'].join('\n'),
+    );
+    const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('status must be "in_progress"');
+    expect((result as ArchivePlanError).error).toContain('<missing>');
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+  });
+
   it('cwd 在 worktree 内 → reject + 提示先 ExitWorktree', async () => {
     const { state, input } = fixtureHappyPath();
     state.fakeCwd = `${input.worktreePath}/src/main/foo.ts`; // cwd 在 worktree 子树
@@ -526,8 +567,10 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
   });
 });
 
-describe('archivePlanImpl — REVIEW_33 H2 status 三档分流', () => {
-  it('plan status = abandoned → reject + hint 引用 user CLAUDE.md §Step 4 abandoned cleanup', async () => {
+describe('archivePlanImpl — REVIEW_33 H2 status 三档分流（abandoned / unknown / 缺 status）', () => {
+  // 与 main Phase A4 / R1 deep review MED-3 共识：abandoned 不应入项目 git；非 in_progress
+  // 一律 reject。expect 对齐 main impl 的措辞（merge 时双方 review 收敛到 main 版本）。
+  it('plan status = abandoned → reject + hint 引用 user CLAUDE.md §Step 4 中止流程', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
     state.files.set(
@@ -547,15 +590,16 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流', () => {
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(true);
     expect((result as ArchivePlanError).error).toContain('"abandoned"');
-    expect((result as ArchivePlanError).error).toContain('would pollute git history');
-    expect((result as ArchivePlanError).hint).toContain('§Step 4 abandoned cleanup');
+    expect((result as ArchivePlanError).error).toContain('must not be archived as completed');
+    expect((result as ArchivePlanError).hint).toContain('§Step 4');
     expect((result as ArchivePlanError).hint).toContain('git worktree remove --force');
+    expect((result as ArchivePlanError).hint).toContain('git branch -D');
     // git merge / checkout 不应被调用（早返）
     expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
     expect(state.gitCalls.find((c) => c.args[0] === 'checkout')).toBeUndefined();
   });
 
-  it('plan status = unknown 值（如 draft） → reject + hint 列出三档合法 status', async () => {
+  it('plan status = unknown 值（如 draft） → reject + hint 引用三档 lifecycle', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
     state.files.set(
@@ -575,15 +619,14 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流', () => {
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(true);
     expect((result as ArchivePlanError).error).toContain('"draft"');
-    expect((result as ArchivePlanError).error).toContain('only accepts "in_progress"');
-    expect((result as ArchivePlanError).hint).toContain('Valid statuses');
+    expect((result as ArchivePlanError).error).toContain('must be "in_progress"');
     expect((result as ArchivePlanError).hint).toContain('in_progress');
     expect((result as ArchivePlanError).hint).toContain('completed');
     expect((result as ArchivePlanError).hint).toContain('abandoned');
     expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
   });
 
-  it('plan frontmatter 缺 status 字段 → reject (status 视为 unknown，hint 列三档)', async () => {
+  it('plan frontmatter 缺 status 字段 → reject (status 视为 unknown，error 含 <missing>)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
     state.files.set(
@@ -603,7 +646,215 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流', () => {
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(true);
     expect((result as ArchivePlanError).error).toContain('<missing>');
-    expect((result as ArchivePlanError).hint).toContain('Valid statuses');
+    expect((result as ArchivePlanError).error).toContain('must be "in_progress"');
     expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+  });
+});
+
+// ─── CHANGELOG_99 archive caller (与 K2 baton 同款语义) ──────────────────
+
+describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T15:30:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // 用 fixtureHappyPath 拼出能让 impl 真跑过 happy path 的 fixture(9 次 git 调用 + plan
+  // 文件读 + writes + unlinks)。然后通过 handler 调用,验证 archive caller 三态。
+  function makeHandlerStub(implWillSucceed: boolean): {
+    implDeps: ArchivePlanDeps;
+    workArgs: { plan_id: string; worktree_path: string; base_branch: string };
+  } {
+    const { state, input } = fixtureHappyPath();
+    const gitStdouts = implWillSucceed
+      ? [
+          `${input.worktreePath.replace('/.claude/worktrees/' + input.planId, '')}/.git`, // git-common-dir
+          'worktree-mcp-bug-fix-20260513', // abbrev-ref HEAD
+          '', // status --porcelain (clean)
+          '', // merge --ff-only
+          'deadbeef123', // rev-parse HEAD
+          '', // add
+          '', // commit
+          '', // worktree remove
+          '', // branch -D
+        ]
+      : [
+          `${input.worktreePath.replace('/.claude/worktrees/' + input.planId, '')}/.git`,
+          'worktree-mcp-bug-fix-20260513',
+          'M  some-file.ts', // status --porcelain (dirty) → impl 报错短路
+        ];
+    const deps = makeDeps(state, gitStdouts);
+    return {
+      implDeps: deps,
+      workArgs: {
+        plan_id: input.planId,
+        worktree_path: input.worktreePath,
+        base_branch: input.baseBranch,
+      },
+    };
+  }
+
+  it('happy path:caller row 存在 → archive 成功 → archived=ok', async () => {
+    const { archivePlanHandler } = await import('../tools/handlers/archive-plan');
+    const { sessionRepo } = await import('@main/store/session-repo');
+
+    const { implDeps, workArgs } = makeHandlerStub(true);
+    const archiveCalls: string[] = [];
+    const mockArchive = vi.fn(async (sid: string) => {
+      archiveCalls.push(sid);
+    });
+
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
+    const result = await archivePlanHandler(
+      workArgs,
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      { implDeps, archiveSession: mockArchive },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.archived).toBe('ok');
+    expect(archiveCalls).toEqual(['caller-sid']);
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('caller row 缺失 → archived=failed + console.warn,不阻塞 ok return', async () => {
+    const { archivePlanHandler } = await import('../tools/handlers/archive-plan');
+    const { sessionRepo } = await import('@main/store/session-repo');
+
+    const { implDeps, workArgs } = makeHandlerStub(true);
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation(() => null);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await archivePlanHandler(
+      workArgs,
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      { implDeps, archiveSession: mockArchive },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.archived).toBe('failed');
+    expect(mockArchive).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('cannot archive caller caller-sid: not in sessions table'),
+    );
+
+    sessionRepoGetSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('archive 抛错 → archived=failed + console.warn,不阻塞 ok return', async () => {
+    const { archivePlanHandler } = await import('../tools/handlers/archive-plan');
+    const { sessionRepo } = await import('@main/store/session-repo');
+
+    const { implDeps, workArgs } = makeHandlerStub(true);
+    const mockArchive = vi.fn(async (_sid: string) => {
+      throw new Error('simulated archive error (FK constraint / DB locked)');
+    });
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await archivePlanHandler(
+      workArgs,
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      { implDeps, archiveSession: mockArchive },
+    );
+
+    // K2 同款:archive 抛错不阻塞,return ok + archived='failed'
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.archived).toBe('failed');
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('archive caller caller-sid failed:'),
+      expect.any(Error),
+    );
+
+    sessionRepoGetSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('impl 失败短路(worktree dirty)→ 不调 archive caller(plan 收口本身没成功,语义上不该归档 caller)', async () => {
+    const { archivePlanHandler } = await import('../tools/handlers/archive-plan');
+    const { sessionRepo } = await import('@main/store/session-repo');
+
+    const { implDeps, workArgs } = makeHandlerStub(false); // 让 impl 在 status 阶段报 dirty
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
+    const result = await archivePlanHandler(
+      workArgs,
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      { implDeps, archiveSession: mockArchive },
+    );
+
+    expect(result.isError).toBe(true); // impl dirty 检测 → 报错短路
+    expect(mockArchive).not.toHaveBeenCalled();
+
+    sessionRepoGetSpy.mockRestore();
   });
 });

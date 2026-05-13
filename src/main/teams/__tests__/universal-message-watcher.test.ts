@@ -1,8 +1,11 @@
 /**
- * universal-message-watcher.deliver 单测（plan mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.2）
+ * universal-message-watcher.deliver 单测（plan mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.2;
+ * CHANGELOG_100 / plan mcp-tool-simplify-20260514 改写）
  *
- * 关键 case：J fix —— reply message (replyToMessageId != null) 直接 markDelivered，
- * 跳过 adapter.receiveTeammateMessage 防 lead SessionDetail 重复显示。
+ * 关键 case：CHANGELOG_100 协议大简化删 J fix（reply 短路）后，所有 message 现在走完整
+ * adapter dispatch 链 — `if (claimed.replyToMessageId != null)` 直接 markDelivered 跳过
+ * receiveTeammateMessage 的旧逻辑已删除。reply 与普通 send_message 同款 dispatch 进 receiver
+ * SDK conversation flow（一统协议）。
  *
  * 不依赖真实 SQLite / Electron / SDK：vi.mock 替换 agentDeckMessageRepo / sessionRepo /
  * adapterRegistry / eventBus / settingsStore / agentDeckTeamRepo 6 个 dep。
@@ -50,7 +53,6 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
     findEligible: () => [],
     countPendingForTarget: () => 0,
     resetDeliveringOnStartup: () => 0,
-    findRepliesByMessageId: () => [],
     listAllMembers: () => [],
   },
 }));
@@ -148,34 +150,38 @@ beforeEach(() => {
 
 // ─── Tests ──────────────────────────────────────────────────────────────
 
-describe('universal-message-watcher.deliver - J fix (reply 短路)', () => {
-  it('reply message (replyToMessageId != null) 直接 markDelivered 跳过 receiveTeammateMessage', async () => {
+describe('universal-message-watcher.deliver - CHANGELOG_100 J fix removed (统一 dispatch)', () => {
+  it('reply message (replyToMessageId != null) 现在走完整 dispatch 调 receiveTeammateMessage', async () => {
+    // CHANGELOG_100 关键变更：J fix 删除 → reply 不再短路 markDelivered，
+    // 与普通 send_message 同款走 adapter.receiveTeammateMessage（reply 自动注入 receiver
+    // SDK conversation flow，receiver Claude 看到 user-role message 自动 act on it）
     const replyMsg = makeMessage({
       id: 'reply-1',
       replyToMessageId: 'original-msg-1',
       body: 'reply text',
     });
     nextClaimResult = { ...replyMsg, status: 'delivering' };
+    nextSessionResult = { id: 'receiver-sid', lifecycle: 'active', agentId: 'claude-code' };
+    nextAdapterResult = {
+      capabilities: { canCollaborate: true },
+      receiveTeammateMessage: receiveTeammateMessageStub,
+    };
 
     const watcher = new UniversalMessageWatcher();
     await callDeliver(watcher, replyMsg);
 
-    // 关键断言：reply 走短路
+    // 关键断言：reply 走完整 dispatch 链（J fix 已删除）
     expect(claimCalls).toEqual(['reply-1']);
+    expect(sessionRepoGetCalls).toContain('receiver-sid'); // target check 不再被短路
+    expect(adapterRegistryGetCalls).toEqual(['claude-code']);
+    expect(receiveTeammateMessageCalls).toHaveLength(1);
+    expect(receiveTeammateMessageCalls[0]?.to).toBe('receiver-sid');
+    expect(receiveTeammateMessageCalls[0]?.from).toBe('sender-sid');
     expect(markDeliveredCalls).toHaveLength(1);
-    expect(markDeliveredCalls[0]?.id).toBe('reply-1');
-
-    // J fix 核心：以下都不应被调（reply 短路前就 return 了）
-    expect(receiveTeammateMessageCalls).toHaveLength(0);
-    expect(sessionRepoGetCalls).toHaveLength(0);
-    expect(adapterRegistryGetCalls).toHaveLength(0);
     expect(markFailedCalls).toHaveLength(0);
-
-    // 两条 emitStatus：一条 delivering（claim 后）、一条 delivered
-    expect(emitStatusCalls).toHaveLength(2);
   });
 
-  it('non-reply message (replyToMessageId == null) 走原 dispatch 调 receiveTeammateMessage', async () => {
+  it('non-reply message (replyToMessageId == null) 走 dispatch 调 receiveTeammateMessage', async () => {
     const sendMsg = makeMessage({
       id: 'send-1',
       replyToMessageId: null,
@@ -204,13 +210,14 @@ describe('universal-message-watcher.deliver - J fix (reply 短路)', () => {
     expect(markFailedCalls).toHaveLength(0);
   });
 
-  it('reply 即使 target session 已删除也 markDelivered 不 markFailed', async () => {
-    // J fix 副作用：reply 短路在 target check 之前，target 不存在时仍 markDelivered
-    // 而非 markFailed（reply 已入库供 sender wait_reply / check_reply 拿）
+  it('reply 在 target session 已删除时 markFailed（与普通 message 同款，不再短路 markDelivered）', async () => {
+    // CHANGELOG_100：旧 J fix 副作用 — reply 短路在 target check 之前，target 不存在时仍
+    // markDelivered（认为 reply 已入库供 sender wait_reply 拿）。删 J fix + 删 wait_reply tool 后
+    // 不再有此特殊语义 — reply 现在像普通 message 一样需要 receiver 真在 sessions 表才能投递。
     const replyMsg = makeMessage({
       id: 'reply-orphan',
       replyToMessageId: 'original-msg-1',
-      toSessionId: 'deleted-sender-sid',
+      toSessionId: 'deleted-receiver-sid',
     });
     nextClaimResult = { ...replyMsg, status: 'delivering' };
     nextSessionResult = null; // target session 已删
@@ -218,9 +225,12 @@ describe('universal-message-watcher.deliver - J fix (reply 短路)', () => {
     const watcher = new UniversalMessageWatcher();
     await callDeliver(watcher, replyMsg);
 
-    expect(markDeliveredCalls).toHaveLength(1);
-    expect(markFailedCalls).toHaveLength(0);
-    expect(sessionRepoGetCalls).toHaveLength(0); // 短路不 check target
+    // 与普通 send_message 同款：target 不存在 → markFailed
+    expect(markFailedCalls).toHaveLength(1);
+    expect(markFailedCalls[0]?.id).toBe('reply-orphan');
+    expect(markFailedCalls[0]?.reason).toContain('not found');
+    expect(markDeliveredCalls).toHaveLength(0);
+    expect(receiveTeammateMessageCalls).toHaveLength(0); // adapter 没 receive
   });
 });
 
