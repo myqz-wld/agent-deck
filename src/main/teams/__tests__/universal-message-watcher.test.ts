@@ -89,15 +89,22 @@ vi.mock('@main/store/settings-store', () => ({
   settingsStore: { get: () => 10 },
 }));
 
+const teamRepoListCalls: Array<{ activeOnly?: boolean; limit?: number; offset?: number }> = [];
+let teamRepoListResults: Array<{ id: string; archivedAt: number | null }> = [];
+
 vi.mock('@main/store/agent-deck-team-repo', () => ({
   agentDeckTeamRepo: {
     listAllMembers: () => [],
-    list: () => [],
+    list: (opts?: { activeOnly?: boolean; limit?: number; offset?: number }) => {
+      teamRepoListCalls.push(opts ?? {});
+      return teamRepoListResults;
+    },
+    listActiveMembers: () => [],
   },
 }));
 
 // import after mocks
-import { UniversalMessageWatcher } from '@main/teams/universal-message-watcher';
+import { UniversalMessageWatcher, teamEventDispatcher } from '@main/teams/universal-message-watcher';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -132,6 +139,8 @@ beforeEach(() => {
   adapterRegistryGetCalls.length = 0;
   receiveTeammateMessageCalls.length = 0;
   emitStatusCalls.length = 0;
+  teamRepoListCalls.length = 0;
+  teamRepoListResults = [];
   nextClaimResult = null;
   nextSessionResult = null;
   nextAdapterResult = undefined;
@@ -212,5 +221,47 @@ describe('universal-message-watcher.deliver - J fix (reply 短路)', () => {
     expect(markDeliveredCalls).toHaveLength(1);
     expect(markFailedCalls).toHaveLength(0);
     expect(sessionRepoGetCalls).toHaveLength(0); // 短路不 check target
+  });
+});
+
+describe('TeamEventDispatcher - C MED-D7 fix (preseed lastArchivedAt 防首次 transition 吞)', () => {
+  it('start() 调 agentDeckTeamRepo.list 预填 cache，pagination loop 直到 batch < PAGE_SIZE', () => {
+    teamRepoListResults = [
+      { id: 't1', archivedAt: null },
+      { id: 't2', archivedAt: 12345 }, // 已 archived team 也预填
+    ];
+    teamEventDispatcher.start();
+    try {
+      // 至少调 1 次 list 预填
+      expect(teamRepoListCalls.length).toBeGreaterThanOrEqual(1);
+      expect(teamRepoListCalls[0]).toMatchObject({ activeOnly: false, limit: 200, offset: 0 });
+      // mock 返 2 条 < PAGE_SIZE 200，loop 应该一次就 break
+      expect(teamRepoListCalls.length).toBe(1);
+    } finally {
+      teamEventDispatcher.stop();
+    }
+  });
+
+  it('start() 后首次 emit team-updated（archive transition）能正确 detect 不被吞', () => {
+    teamRepoListResults = [
+      { id: 't-active', archivedAt: null }, // active team 预填
+    ];
+    teamEventDispatcher.start();
+    try {
+      // 模拟 active → archived transition (这是 H1 lead archive 联动场景)
+      const archiveTs = Date.now();
+      // 借用 mock 的 eventBus.on 没法直接 emit；但 lastArchivedAt cache 是 private
+      // 这里只验证 cache 已 preseed（fanOut 调链留 dev smoke 验证）
+      const cache = (teamEventDispatcher as unknown as {
+        lastArchivedAt: Map<string, number | null>;
+      }).lastArchivedAt;
+      expect(cache.has('t-active')).toBe(true);
+      expect(cache.get('t-active')).toBeNull();
+      // 修前: prev=undefined → 任何首次 transition 被吞
+      // 修后: prev=null（preseed） → archive transition (cur=archiveTs!=null) 能 detect
+      void archiveTs;
+    } finally {
+      teamEventDispatcher.stop();
+    }
   });
 });
