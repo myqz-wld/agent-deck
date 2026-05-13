@@ -1,25 +1,25 @@
 import type {
   AgentEvent,
-  LifecycleState,
   SessionRecord,
   SessionSource,
 } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
-import { eventRepo } from '@main/store/event-repo';
-import { fileChangeRepo } from '@main/store/file-change-repo';
-import {
-  deriveTitle,
-  extractCwd,
-  nextActivityState,
-  normalizeCwd,
-} from './manager-helpers';
+import { deriveTitle, normalizeCwd } from './manager-helpers';
 import { enrichRecordWithTeams, enrichRecordsWithTeamsBatch } from './manager-enrich';
 import {
   leaveTeamsAndAutoArchive,
   archiveTeamsIfOrphaned,
   unarchiveTeamsForRevivedLead,
 } from './manager-team-coordinator';
+import {
+  type IngestContext,
+  dedupOrClaim,
+  ensureRecord,
+  persistEventRow,
+  persistFileChange,
+  advanceState,
+} from './manager-ingest-pipeline';
 
 /**
  * SessionManager 不直接 import adapterRegistry（避免反向依赖 + 单职责），
@@ -32,7 +32,11 @@ export function setSessionCloseFn(fn: SessionCloseFn | null): void {
   sessionCloseFn = fn;
 }
 
-interface UpsertOptions {
+/**
+ * 创建 / 更新 SessionRecord 的入参契约。export 是为 manager-ingest-pipeline.ts
+ * 的 IngestContext.ensure 签名共享类型（CHANGELOG_86 Step 4.3.3 facade 契约）。
+ */
+export interface UpsertOptions {
   agentId: string;
   cwd?: string;
   title?: string;
@@ -51,7 +55,15 @@ interface UpsertOptions {
  * 同 id 事件会被丢弃。
  */
 class SessionManagerClass {
-  /** 由 SDK 通道接管的会话 id，hook 同 id 事件会被丢弃 */
+  /**
+   * 由 SDK 通道接管的会话 id，hook 同 id 事件会被丢弃。
+   *
+   * ⚠ DO NOT migrate to ECMAScript `#sdkOwned` — manager-public-api.test.ts:134
+   * 反射访问 `(sessionManager as { sdkOwned: Set<string> }).sdkOwned` 依赖此字段
+   * 是 TS-private（compile-time-only）属性。升级到真私有需同款改测试用
+   * `hasSdkClaim` API 断言，作为 H5 follow-up 决策（见 plan adaptive-orbiting-snowglobe.md
+   * §SKILL R1 finding 整合裁决 §H5 follow-up #4）。
+   */
   private sdkOwned = new Set<string>();
 
   /**
@@ -70,6 +82,23 @@ class SessionManagerClass {
    */
   private recentlyDeleted = new Map<string, number>(); // sessionId → deletedAt
   private static readonly RECENTLY_DELETED_TTL_MS = 60_000;
+
+  /**
+   * Pipeline 看到的 facade（Object.freeze 的 5 方法对象）。
+   * 闭包封装 raw state，pipeline 函数 cast `(ctx as any).sdkOwned` 返回 undefined
+   * （cast 路径不可达），保护 claim 单一 mutating 入口不变量。CHANGELOG_86 Step 4.3.3。
+   */
+  private readonly ingestCtx: IngestContext;
+
+  constructor() {
+    this.ingestCtx = Object.freeze<IngestContext>({
+      hasSdkClaim: (sid) => this.sdkOwned.has(sid),
+      claimAsSdk: (sid) => this.claimAsSdk(sid),
+      consumePendingSdkClaim: (cwd) => this.consumePendingSdkClaim(cwd),
+      ensure: (sid, opts) => this.ensure(sid, opts),
+      isRecentlyDeleted: (sid) => this.isRecentlyDeleted(sid),
+    });
+  }
 
   claimAsSdk(sessionId: string): void {
     this.sdkOwned.add(sessionId);
@@ -153,7 +182,8 @@ class SessionManagerClass {
    * 入口：adapter 发来的所有 AgentEvent 都走这里。
    *
    * 拆 5 段（CHANGELOG_20 / B）：dedupOrClaim → ensureRecord → persistEventRow →
-   * persistFileChange → advanceState。每段单一职责、可单测。
+   * persistFileChange → advanceState。每段单一职责、可单测。5 段实现 + IngestContext
+   * facade 见 manager-ingest-pipeline.ts（CHANGELOG_86 Step 4.3.3）。
    *
    * **硬约束**：dedupOrClaim 必须留在最前 + 早返；否则 hook 首发竞争场景会先落一份假 CLI 会话
    * 再 claim，UI 会闪现「内/外两份」。CHANGELOG_16 / REVIEW_1 修过、payload-truncate 测试覆盖。
@@ -164,11 +194,11 @@ class SessionManagerClass {
     // sdk-bridge 的 intentionallyClosed 标记是第一道防线（屏蔽 catch 路径 emit），
     // 这里是第二道（防御 stream 已经 emit 但还没到 ingest 的 in-flight 事件）。
     if (this.isRecentlyDeleted(event.sessionId)) return;
-    if (this.dedupOrClaim(event).skip) return;
-    const record = this.ensureRecord(event);
-    this.persistEventRow(event);
-    this.persistFileChange(event);
-    this.advanceState(record, event);
+    if (dedupOrClaim(this.ingestCtx, event).skip) return;
+    const record = ensureRecord(this.ingestCtx, event);
+    persistEventRow(event);
+    persistFileChange(event);
+    advanceState(record, event);
     // 4. 广播原始事件给渲染端
     eventBus.emit('agent-event', event);
   }
@@ -184,76 +214,6 @@ class SessionManagerClass {
     return true;
   }
 
-  /** 第 1 段：去重 / 时序兜底 claim。skip=true 表示这条事件应被丢弃（hook 与 SDK 重复 / hook 首发被 SDK claim）。 */
-  private dedupOrClaim(event: AgentEvent): { skip: boolean } {
-    // M3 Agent Teams hook（team-task-created / team-task-completed / team-teammate-idle）
-    // 只来自 hook 通道（SDK 通道不 emit 这些 kind），即便 sessionId 已 sdkOwned 也**不要 dedup**
-    // ——否则 lead session 是 SDK 接管的，所有 team-* event 都会被这里第二条 hook+sdkOwned 守卫吞掉，
-    // M3 整套数据流失效。早返让 team-* event 直接进 ensureRecord / persistEventRow。
-    if (
-      event.source === 'hook' &&
-      (event.kind === 'team-task-created' ||
-        event.kind === 'team-task-completed' ||
-        event.kind === 'team-teammate-idle')
-    ) {
-      return { skip: false };
-    }
-    // SDK 已接管的会话，丢弃 hook 通道事件（避免重复入库）
-    if (event.source === 'hook' && this.sdkOwned.has(event.sessionId)) {
-      return { skip: true };
-    }
-    // 时序竞争兜底 A（新 sessionId）：SDK 已注册要拉起这个 cwd 的会话，但真实 session_id
-    // 还没到，hook 通道（CLI 子进程内部 hook）先一步上报。这时如果是该 cwd 上首次见到的
-    // 新 sessionId，认作 SDK 派生：claim 它的 id，丢弃这条 hook 事件，等 SDK 通道事件来。
-    if (event.source === 'hook' && !sessionRepo.get(event.sessionId)) {
-      const cwd = extractCwd(event);
-      if (cwd && this.consumePendingSdkClaim(cwd)) {
-        console.log(
-          `[session-mgr] hook→sdk re-claim (new sid): sessionId=${event.sessionId} cwd=${cwd}`,
-        );
-        this.claimAsSdk(event.sessionId);
-        return { skip: true };
-      }
-    }
-    // REVIEW_5 H1：时序兜底 B（已存在 sessionId，resume 路径专用）：
-    // SDK resume 启动 CLI 子进程后，CLI 内部 SessionStart hook 携带的 session_id 就是
-    // 历史 OLD_ID（DB 里 closed/archived/dormant 一定 existing），上面 A 的 `!sessionRepo.get`
-    // 守卫天然失效；hook 直接通过 → ensure 把 OLD_ID 复活成 active 但 source='cli'，与 SDK
-    // 通道（30s fallback 或后续 first SDKMessage）造的同 cwd active 形成「两条 active」bug。
-    //
-    // 修法：cwd 命中 pendingSdkCwds 时即便 record 已存在也走 claim + skip，让 SDK 通道独享。
-    // sdk-bridge.ts H4 修法已在 createSession 入口预先 claim opts.resume，本分支是双保险，
-    // 应对 expectSdkSession 已注册但 sdk-bridge 还没来得及 claim 的极短窗口（理论上 < 1ms，
-    // 但 microtask 调度无序，留这道防线兜底）。
-    if (event.source === 'hook') {
-      const cwd = extractCwd(event);
-      if (cwd && this.consumePendingSdkClaim(cwd)) {
-        console.log(
-          `[session-mgr] hook→sdk re-claim (existing sid): sessionId=${event.sessionId} cwd=${cwd}`,
-        );
-        this.claimAsSdk(event.sessionId);
-        return { skip: true };
-      }
-    }
-    // REVIEW_12 Bug 5：时序兜底 C（origin tag 兜底，覆盖 A/B 的盲区）：
-    // hook event 带 hookOrigin='sdk' 表示该 CLI 子进程是本应用 SDK 派生（env 注入）。
-    // 走到这里说明 sdkOwned / pendingSdkCwds / record 三层都没认出来 —— 典型场景：
-    // - approve-bypass 冷切：OLD CLI 被 SIGTERM 后内部 fork 出新 sessionId Y + cwd 兜底
-    //   到 home dir，飞回的迟到 SessionEnd hook 不命中黑名单（sessionId 是 Y 不是 OLD）也
-    //   不命中 cwd claim（cwd 是 home dir 不是真实 cwd）。
-    // - SDK 子进程提前飞 hook 但应用层 expectSdkSession 还没注册（理论无，留兜底）。
-    // 既然 hookOrigin='sdk' 已经从源头标记此进程归属于 SDK，且未被任何 SDK 通道认领，
-    // 这条 event 一定是 SDK-derived 进程的孤儿副产品，直接 skip 不创建 source='cli' record。
-    // 用户独立终端跑 `claude` 没有 AGENT_DECK_ORIGIN env → header 走默认 'cli' → 不走本分支。
-    if (event.source === 'hook' && event.hookOrigin === 'sdk') {
-      console.log(
-        `[session-mgr] drop sdk-derived orphan hook: sessionId=${event.sessionId} kind=${event.kind}`,
-      );
-      return { skip: true };
-    }
-    return { skip: false };
-  }
-
   /**
    * REVIEW_12 Bug 5 双保险：把 sessionId 加进 recentlyDeleted 黑名单，覆盖
    * 「closeSession 主动关闭后，OLD CLI 子进程异步飞回的迟到 hook event 仍带 OLD_ID」窗口。
@@ -265,93 +225,6 @@ class SessionManagerClass {
    */
   markRecentlyDeleted(sessionId: string): void {
     this.recentlyDeleted.set(sessionId, Date.now());
-  }
-
-  /** 第 2 段：取/建 SessionRecord。复活 closed 也由 ensure 内部处理。 */
-  private ensureRecord(event: AgentEvent): SessionRecord {
-    return this.ensure(event.sessionId, {
-      agentId: event.agentId,
-      cwd: extractCwd(event),
-      // SDK 通道发来的事件 → 应用内会话；hook 通道（含未标 source 的） → 外部 CLI 会话
-      source: event.source === 'sdk' ? 'sdk' : 'cli',
-    });
-  }
-
-  /** 第 3 段：events 表落库。payload 截断由 event-repo 内部 safeStringifyPayload 处理（CHANGELOG_20 / N1）。 */
-  private persistEventRow(event: AgentEvent): void {
-    eventRepo.insert(event);
-  }
-
-  /** 第 4 段：file-changed 事件附带的文件 diff 落 file_changes 表（其它 kind 直接 return）。 */
-  private persistFileChange(event: AgentEvent): void {
-    if (event.kind !== 'file-changed') return;
-    const p = event.payload as {
-      filePath?: string;
-      kind?: string;
-      before?: unknown;
-      after?: unknown;
-      toolCallId?: string;
-      metadata?: Record<string, unknown>;
-    };
-    if (!p || typeof p.filePath !== 'string') return;
-    // text 通道 before/after 是 string，原样存；image 通道是 ImageSource 对象，需 JSON.stringify。
-    // file_changes.before_blob / after_blob 列是 TEXT，序列化后存得下（典型 < 200 chars）。
-    const serialize = (v: unknown): string | null => {
-      if (v == null) return null;
-      if (typeof v === 'string') return v;
-      return JSON.stringify(v);
-    };
-    fileChangeRepo.insert({
-      sessionId: event.sessionId,
-      filePath: p.filePath,
-      kind: p.kind ?? 'text',
-      beforeBlob: serialize(p.before),
-      afterBlob: serialize(p.after),
-      metadata: p.metadata ?? {},
-      toolCallId: p.toolCallId ?? null,
-      ts: event.ts,
-    });
-  }
-
-  /**
-   * 第 5 段：activity 状态机推进 + lifecycle 复活 + emit。
-   *
-   * 「会话状态真的变了」走重 upsert + 广播 session-upserted（renderer store 同步整个 record）。
-   * 「只是 lastEventAt 推进」走轻量 setActivity 单列 UPDATE，不再广播 —— renderer 通过
-   * agent-event 事件已经知道有新动作；session-upserted 高频会话场景下会被联动放大成
-   * IPC 风暴（每条事件一次 latestSummaries 重读 SQL，10 个活跃会话 = 50 IPC/s 全是浪费）。
-   *
-   * 不在判定里写 archivedAt：归档与 lifecycle 正交，归档的会话来事件不应自动 unarchive。
-   */
-  private advanceState(record: SessionRecord, event: AgentEvent): void {
-    const nextActivity = nextActivityState(record.activity, event.kind, event.payload);
-    let nextLifecycle: LifecycleState = record.lifecycle;
-    if (record.lifecycle !== 'active') {
-      // 任意事件都让会话回到 active（复活）
-      nextLifecycle = 'active';
-    }
-    if (event.kind === 'session-end') {
-      // Hook 通道的 session-end = 终端里 CLI 真退出了，没法再续 → closed。
-      // SDK 通道的 session-end = 我们这边 query 流终止（用户中断 / dev 重启 / 流出错），
-      // 但 ~/.claude/projects 里的对话历史还在，用户随时可以 resume → 标 dormant 更合理。
-      nextLifecycle = event.source === 'sdk' ? 'dormant' : 'closed';
-    }
-
-    if (nextActivity !== record.activity || nextLifecycle !== record.lifecycle) {
-      const updated: SessionRecord = {
-        ...record,
-        activity: nextActivity,
-        lifecycle: nextLifecycle,
-        lastEventAt: event.ts,
-        endedAt: nextLifecycle === 'closed' ? event.ts : null,
-      };
-      sessionRepo.upsert(updated);
-      eventBus.emit('session-upserted', updated);
-    } else {
-      // 仅刷新 activity（即便没真变也顺便把 last_event_at 推进）。
-      // 不广播 session-upserted —— renderer 不需要为「只是 lastEventAt 变了」重渲染整张卡。
-      sessionRepo.setActivity(event.sessionId, nextActivity, event.ts);
-    }
   }
 
   /** lifecycle scheduler 用：把 active 推到 dormant */
