@@ -20,6 +20,18 @@ export const IpcInvoke = {
   SessionListFileChanges: 'session:list-file-changes',
   SessionListSummaries: 'session:list-summaries',
   SessionLatestSummaries: 'session:latest-summaries',
+  /**
+   * K3 hand-off Stage 1（plan mcp-bug-and-feature-batch-20260513 Phase 4c）：拉历史 →
+   * LLM oneshot 生成「目标 / 已做 / 下一步 / 相关文件」结构化接力简报，返回供 renderer
+   * 在 modal preview / 编辑后再确认。失败 throw → renderer 显示 inline error 让用户重试。
+   */
+  SessionHandOffSummarize: 'session:hand-off-summarize',
+  /**
+   * K3 hand-off Stage 2：用 finalPrompt（用户在 modal 可能已编辑）起新 SDK session（adapter
+   * / cwd / permissionMode 沿用原 session）+ 自动归档原 session（archive 失败仅 warn 不阻
+   * 塞 newSid 返回，让用户至少能切到新 session 工作）。
+   */
+  SessionHandOffSpawn: 'session:hand-off-spawn',
   HookInstall: 'hook:install',
   HookUninstall: 'hook:uninstall',
   HookStatus: 'hook:status',
