@@ -1094,6 +1094,8 @@ describe('handOffSessionHandler — generic mode (CHANGELOG_99)', () => {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: makeDeps(state),
+      // CHANGELOG_99 R1 fix MED-4 配套:虚构 caller cwd 真 fs 不存在,test 需 mock cwdExists
+      cwdExists: () => true,
     });
 
     expect(result.isError).toBeFalsy();
@@ -1238,6 +1240,77 @@ describe('handOffSessionHandler — generic mode (CHANGELOG_99)', () => {
     // phase_label 不影响 cold-start prompt
     expect(data.initialPrompt).toBe('gen with ignored');
     expect(data.phaseLabel).toBeNull();
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('CHANGELOG_99 R1 fix MED-4: generic + caller cwd 真不存在 → existsSync precheck false → fallback mainRepo', async () => {
+    const state = makeState();
+
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: 'gen-sid-cwd-bad',
+              adapter: 'claude-code',
+              cwd: '/Users/test/repo',
+              teamId: null,
+              teamName: null,
+              spawnDepth: 1,
+              sentAt: 100,
+              spawnPromptMessageId: null,
+            }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    // caller row 有 cwd 但 cwd 真 fs 不存在(典型场景:K2 老 session,cwd=worktree 已被
+    // archive_plan 删)。mock cwdExists 返回 false 模拟。
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/apple/myrepo/.claude/worktrees/dead-plan',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
+    const args: HandOffSessionArgs = {
+      adapter: 'claude-code',
+      prompt: 'caller cwd dead, fallback test',
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      implDeps: makeDeps(state),
+      // Mock cwdExists:caller cwd 不存在,其他存在
+      cwdExists: (p: string) => p !== '/Users/apple/myrepo/.claude/worktrees/dead-plan',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const spawnArgs = mockSpawn.mock.calls[0]![0];
+    // callerCwd existsSync precheck false → fallback resolved.mainRepo
+    expect(spawnArgs.cwd).toBe('/Users/test/repo');
 
     sessionRepoGetSpy.mockRestore();
   });

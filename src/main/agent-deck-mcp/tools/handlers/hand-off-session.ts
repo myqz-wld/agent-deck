@@ -37,6 +37,7 @@
  * phaseLabel）。
  */
 
+import { existsSync } from 'node:fs';
 import {
   denyExternalIfNotAllowed,
   err,
@@ -66,6 +67,14 @@ export interface HandOffSessionHandlerDeps {
   /** CHANGELOG_97：archive caller 的 test seam，让单测无需 mock 整个 sessionManager */
   archiveSession?: (sessionId: string) => Promise<void>;
   implDeps?: HandOffSessionDeps;
+  /**
+   * CHANGELOG_99 R1 fix MED-4:cwd 存在性 test seam。default 走 fs.existsSync,生产环境
+   * generic 模式 caller cwd 已失效(典型: caller 在 K2 老 session cwd=worktree,worktree 被
+   * archive_plan 删)→ precheck false → handler default cwd fallback 到 mainRepo,而不是把
+   * 失效 cwd 原样传给 spawn(spawn 会 chdir 失败,recoverer 又只覆盖 sendMessage 不覆盖
+   * 新 spawn 的 createSession 路径)。
+   */
+  cwdExists?: (path: string) => boolean;
 }
 
 /**
@@ -78,7 +87,15 @@ export interface HandOffSessionHandlerDeps {
  */
 function resolveCallerCwdDeps(callerSessionId: string): HandOffSessionDeps {
   if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return {};
-  const row = sessionRepo.get(callerSessionId);
+  // CHANGELOG_99 R1 fix MED-1:sessionRepo.get 包 try/catch fail-safe (与 L143 段对称)。
+  // DB 异常 (test 未 init / 生产 SQLite locked / FK conflict) 时返回空 deps,让 impl 退化到
+  // DEFAULT_DEPS.cwd = process.cwd() 兜底,而非 handler 直接 crash。
+  let row: ReturnType<typeof sessionRepo.get> = null;
+  try {
+    row = sessionRepo.get(callerSessionId);
+  } catch {
+    return {};
+  }
   if (!row?.cwd) return {};
   const cwd = row.cwd;
   return { cwd: () => cwd };
@@ -154,21 +171,32 @@ export async function handOffSessionHandler(
       callerSessionRow = null;
     }
   }
-  const callerSessionCwd: string | null = callerSessionRow?.cwd ?? null;
+  // CHANGELOG_99 R1 fix MED-4:generic 模式 default cwd 候选 callerSessionCwd 必须 existsSync
+  // precheck。生产场景:caller 是 K2 老 session,cwd=worktree,worktree 已被 archive_plan 删 →
+  // callerSessionCwd 仍是失效路径 → 直接传给 spawn 会 chdir 失败(recoverer 只覆盖已建立
+  // session 的 sendMessage 路径,不覆盖新 spawn 的 createSession)。precheck false → null
+  // 让 default cwd fallback 到 mainRepo。
+  const cwdExistsFn = handlerDeps?.cwdExists ?? existsSync;
+  const callerSessionCwdRaw: string | null = callerSessionRow?.cwd ?? null;
+  const callerSessionCwd: string | null =
+    callerSessionCwdRaw !== null && cwdExistsFn(callerSessionCwdRaw) ? callerSessionCwdRaw : null;
 
   // 2. 组装 spawn_session args：cwd 双模式 default(CHANGELOG_99)。
   //
-  // **plan-driven 模式 default**: caller cwd > resolved.mainRepo > resolved.worktreePath
-  // (兜底,worktreePath 仅当 mainRepo 反查 + 启发式都失败时退化到原行为)。理由:让新
-  // session 行为与 EnterWorktree 模式对齐 — sessionRepo.cwd 永远是 main repo,worktree
-  // 删了 cwd 仍 valid。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
+  // **plan-driven 模式 default**: args.cwd > resolved.mainRepo > resolved.worktreePath
+  // (R1 fix LOW-7:原注释错把 caller cwd 写在最高优先级,实际 plan 模式不走 caller cwd —
+  // 因 plan-driven 设计就是要让新 session 在 mainRepo 工作 + 自己 EnterWorktree 进 worktree,
+  // caller cwd 无意义。worktreePath 是兜底,仅当 mainRepo 反查 + 启发式都失败时退化到原行为。)
+  // 理由:让新 session 行为与 EnterWorktree 模式对齐 — sessionRepo.cwd 永远是 main repo,
+  // worktree 删了 cwd 仍 valid。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
   // EnterWorktree(path: worktreePath) 进 worktree 干活。
   //
-  // **generic 模式 default**: caller cwd > callerSessionRow.cwd > resolved.mainRepo
+  // **generic 模式 default**: args.cwd > callerSessionRow.cwd (precheck existsSync) > resolved.mainRepo
   // (无 worktreePath 兜底,因为 generic 模式没 plan 也没 worktree 上下文;callerCwd 失败
-  // 时 fallback 到 mainRepo 反查结果,都失败 → spawn handler 自己报 cwd 缺失)。理由:
-  // generic 模式假设 caller 想让新 session 在自己 cwd 工作(最自然延续);只有 caller cwd
-  // 没法用时退化到 mainRepo。
+  // 时 fallback 到 mainRepo 反查结果,都失败 → handler 报 'cannot resolve default cwd')。
+  // 理由:generic 模式假设 caller 想让新 session 在自己 cwd 工作(最自然延续);只有 caller cwd
+  // 没法用时退化到 mainRepo。R1 fix MED-4:callerCwd 必须 existsSync precheck — 否则 caller
+  // 是 K2 老 session(cwd=worktree 已被删)时新 spawn 直接 chdir 失败。
   //
   // CHANGELOG_97：team_name 不再默认设为 plan_id —— baton 单向交接语义不需要 lead/teammate
   // 关系；caller 显式传 team_name 时仍透传给 spawn 启用通信关系（罕见使用）。
@@ -227,13 +255,24 @@ export async function handOffSessionHandler(
   // CHANGELOG_98 / R2 reviewer-codex MED-2：archive 前 sessionRepo.get 探针，缺 row
   // （session 异常被清理 / caller 在 sentinel 之外的边界状态）→ 'failed' 不报 'ok'
   // （旧实现 archive() 是 sessionRepo.setArchived no-op + emit no-op + 仍返回 'ok' 误报）。
-  // CHANGELOG_99：复用 callerSessionRow(generic 模式 default cwd 阶段已反查),避免重复查 DB
+  // CHANGELOG_99 R1 fix MED-5:archive 段**重新反查** sessionRepo.get 而非复用早期 callerSessionRow。
+  // 早期反查在 spawn 之前(用于 generic 模式 default cwd),spawn 是 long-running async 操作,
+  // spawn 期间 caller row 可能被删(用户手动 close / lifecycle scheduler 清理),复用旧探针
+  // 会调 archive,但 UPDATE 对缺失 row 是 no-op → 误报 'ok'。重新反查 ground truth,与 K2
+  // 原模式一致。
   let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
   if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-    if (!callerSessionRow) {
+    let archiveTimeRow: ReturnType<typeof sessionRepo.get> = null;
+    try {
+      archiveTimeRow = sessionRepo.get(caller.callerSessionId);
+    } catch {
+      // DB 异常 fail-safe(同 L143 段)
+      archiveTimeRow = null;
+    }
+    if (!archiveTimeRow) {
       archived = 'failed';
       console.warn(
-        `[mcp hand_off_session] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态)`,
+        `[mcp hand_off_session] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态 / spawn 期间 row 被删)`,
       );
     } else {
       const archiveFn =
