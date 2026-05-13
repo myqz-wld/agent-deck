@@ -30,9 +30,9 @@ import type { UpsertOptions } from './manager';
  *   public lifecycle API；闭包提供 pipeline 访问，不需要为接口公开化。
  * - pipeline 函数签名锁死 IngestContext，不接受 SessionManagerClass 实例（防误传）。
  *
- * sessionManager 自己仍持有 sdkOwned 字段（manager-public-api.test.ts:134 反射依赖），
- * 直接 `(sessionManager as any).sdkOwned` 还能 cast——这条无法在不破坏测试反射的前提下消除，
- * 接受为现实约束。H5 follow-up 评估升级到 ECMAScript `#sdkOwned` 真私有 + 改测试。
+ * sessionManager 现已用 ECMAScript `#sdkOwned` 真私有（H5 follow-up Phase 3 完成）+ 公开
+ * `hasSdkClaim(sid)` API；`(sessionManager as any).sdkOwned === undefined`，cast 路径彻底封死。
+ * 测试反射 `as { sdkOwned }` 不再可用，统一走 sessionManager.hasSdkClaim() 断言。
  */
 
 /**

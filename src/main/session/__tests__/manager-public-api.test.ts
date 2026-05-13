@@ -131,9 +131,9 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
     sessionManager.renameSdkSession('OLD_ID', 'NEW_ID');
 
     // 关键断言：sdkOwned claim 已从 OLD_ID 原子转移到 NEW_ID（M3 修复点）
-    const sdkOwned = (sessionManager as unknown as { sdkOwned: Set<string> }).sdkOwned;
-    expect(sdkOwned.has('OLD_ID')).toBe(false);
-    expect(sdkOwned.has('NEW_ID')).toBe(true);
+    // H5 follow-up Phase 3: `#sdkOwned` 真私有，反射 cast 已封死，统一走公开 hasSdkClaim API。
+    expect(sessionManager.hasSdkClaim('OLD_ID')).toBe(false);
+    expect(sessionManager.hasSdkClaim('NEW_ID')).toBe(true);
 
     // sessionRepo.rename 被调用
     expect(vi.mocked(sessionRepo.rename)).toHaveBeenCalledWith('OLD_ID', 'NEW_ID');
