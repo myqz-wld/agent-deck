@@ -42,7 +42,7 @@
 ```ts
 const reply = await mcp__agent_deck__wait_reply({
   message_id: <spawnPromptMessageId 或 send 返回的 messageId>,
-  timeout_ms: 600_000,             // 默认 600_000ms（10 min），重 review 给足
+  timeout_ms: 600_000,             // 默认 600_000ms (10min)，hard cap 1_800_000ms (30min)；重 review 给足
   // 可选：nudge_text + nudge_after_ms 让 mcp 自动催 reply
   caller_session_id: callerSid,
 });

@@ -189,3 +189,36 @@ export function makeEventBusMock(): {
     off: vi.fn(),
   };
 }
+
+/**
+ * REVIEW_31 测试修复：sessionManager.list / delete / markClosed / close 路径会调
+ * agent-deck-team-repo 的 enrichWithTeamsBatch / findActiveMembershipsBySession /
+ * findActiveMembershipsBySessionIds（v014 universal team backend 接入），三个 manager
+ * test 文件原本只 mock 了 sessionRepo / eventRepo / fileChangeRepo / eventBus，所以这些
+ * 路径走真 `defaultRepo() → getDb()` 时挂在「Database not initialized」。
+ *
+ * 本 mock 的所有方法都返回「无 team membership」结果（空数组 / null / 0），对 archive /
+ * unarchive / reactivate / delete / ingest 主路径测试无语义影响 —— 那些测试不验证 team
+ * 联动逻辑（已由 tools.test.ts / agent-deck-repos.test.ts 覆盖）。
+ *
+ * 用法（每个 test 文件顶部加）：
+ *   vi.mock('@main/store/agent-deck-team-repo', () => ({
+ *     agentDeckTeamRepo: makeAgentDeckTeamRepoMock(),
+ *     TeamInvariantError: class extends Error {},  // sessionManager.delete 路径 catch 时引用
+ *   }));
+ */
+export function makeAgentDeckTeamRepoMock(): {
+  findActiveMembershipsBySession: () => never[];
+  findActiveMembershipsBySessionIds: () => Map<string, never[]>;
+  leaveTeam: () => null;
+  countActiveLeads: () => number;
+  archive: () => null;
+} {
+  return {
+    findActiveMembershipsBySession: () => [],
+    findActiveMembershipsBySessionIds: () => new Map(),
+    leaveTeam: () => null,
+    countActiveLeads: () => 0,
+    archive: () => null,
+  };
+}

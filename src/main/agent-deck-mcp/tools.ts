@@ -214,6 +214,19 @@ const SPAWN_SESSION_SCHEMA = {
     .describe(
       'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the agent body is auto-prepended to `prompt` from bundled-assets registry, so callers do not need to cat & embed the body themselves. Errors when name does not resolve to a known plugin agent.',
     ),
+  /**
+   * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。
+   * UI 列表 / SessionCard / TeamDetail / wire format wireBody 全走 displayName 优先级链
+   * （argument > agent_name > 默认 cwd-basename）—— 解决"多 reviewer 都显示同一个 cwd 区分不出"的体验问题。
+   */
+  display_name: z
+    .string()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe(
+      'Optional human-readable display name for the spawned session (e.g. "reviewer-claude · batch A", "patch-coder"). When omitted, falls back to agent_name (if set), otherwise cwd-basename. Becomes session.title (visible in SessionList / TeamDetail) and team_member.display_name (visible in wire format prefix).',
+    ),
   permission_mode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional(),
@@ -270,19 +283,19 @@ const WAIT_REPLY_SCHEMA = {
     .number()
     .int()
     .min(5_000)
-    .max(600_000)
+    .max(1_800_000)
     .optional()
     .describe(
-      'How long (ms) to wait before sending the nudge. Defaults to half of timeout_ms (clamped 5_000 ~ 600_000). Ignored when nudge_text is omitted.',
+      'How long (ms) to wait before sending the nudge. Defaults to half of timeout_ms (clamped 5_000 ~ 1_800_000). Ignored when nudge_text is omitted.',
     ),
   timeout_ms: z
     .number()
     .int()
     .min(1_000)
-    .max(600_000)
+    .max(1_800_000)
     .default(600_000)
     .describe(
-      'Total timeout. Returns { reply: null, timedOut: true } when exceeded.',
+      'Total timeout (1s ~ 30min). Returns { reply: null, timedOut: true } when exceeded. Default 10min covers normal review turns; deep multi-file reviews / heavy reasoning may need 15-30min — pass a larger value explicitly.',
     ),
   caller_session_id: z.string().min(1).max(128),
 };
@@ -390,13 +403,19 @@ export async function buildAgentDeckTools(
       // 把 body 作为 prompt 前缀注入。getBundledAssetContent('agent', name) 已 startup 时
       // loadBundledAssets 预热缓存（main/index.ts:202 step 8.5），现读 fs 一次性拿到。
       // 找不到（拼写错 / 没安装该 plugin）→ 直接 err 防止静默落空 fallback。
+      //
+      // REVIEW_31 Bug 1+2 修法：getBundledAssetContent 真实签名是 discriminated union
+      // `{ok:true,content:string} | {ok:false,reason:string}`，老代码把它当 `string|null`
+      // 用，模板字符串 `${object}` toString 成 "[object Object]"，agent body 完全没注入；
+      // 测试 mock 也错齐成 string|null 同样错型，单测 100% 通过 / 生产 100% 失败。这里
+      // 必须正确解 union，并把 reason 透传给 err 便于 caller 排查。
       let promptToUse = args.prompt;
       if (args.agent_name) {
-        const body = getBundledAssetContent('agent', args.agent_name);
-        if (body === null) {
+        const bodyResult = getBundledAssetContent('agent', args.agent_name);
+        if (!bodyResult.ok) {
           fanOutSlot.release();
           return err(
-            `agent body not found for agent_name="${args.agent_name}"`,
+            `agent body not found for agent_name="${args.agent_name}": ${bodyResult.reason}`,
             'Plugin agent registry does not include this name. Check Header → 📚 资产库 → Agents tab for available bundled agent names (e.g. "reviewer-claude" / "reviewer-codex"). Spawn aborted to avoid silently falling back to caller prompt without the agent body.',
           );
         }
@@ -405,7 +424,7 @@ export async function buildAgentDeckTools(
         // system prompt prefix（adapter API 没暴露 additionalSystemPrompt），所以在
         // user-message 头部注入是最简兼容方案。reviewer-* agent body 顶部已有 frontmatter，
         // body 本身就是给 reviewer 看的「角色提示」，作为 user message 头部仍能起到 priming 作用。
-        promptToUse = `${body}\n\n---\n\n${args.prompt}`;
+        promptToUse = `${bodyResult.content}\n\n---\n\n${args.prompt}`;
       }
 
       // plan team-cohesion-fix-20260513 Phase B7：spawn 路径 wire format 注入 messageId。
@@ -460,6 +479,21 @@ export async function buildAgentDeckTools(
         sessionManager.recordCreatedPermissionMode(sid, args.permission_mode);
       }
 
+      // REVIEW_31 Bug 4：teammate display name fallback 链 = args.display_name > args.agent_name > 不动。
+      // 只有 caller 显式给了一个有意义的名字（display_name / agent_name）才覆盖默认 cwd-basename
+      // title —— 否则保留默认行为（avoid 把 agent_name 也强加给那些 caller 没传 agent_name 的「裸 spawn」场景）。
+      // teamRepo.addMember 同步把 displayName 写进 team_member 表，wire format buildWireBody 优先取此字段
+      // → wire prefix 从 fallback `claude-code:8023f956` 升级为「reviewer-claude」/「reviewer-codex」。
+      const teammateDisplayName = args.display_name ?? args.agent_name ?? null;
+      if (teammateDisplayName) {
+        try {
+          sessionRepo.setTitle(sid, teammateDisplayName);
+        } catch (e) {
+          // 写 title 失败不阻塞 spawn 成功（最坏 fallback 默认 cwd-basename）
+          console.warn(`[mcp spawn_session] setTitle(${sid}, ${teammateDisplayName}) failed:`, e);
+        }
+      }
+
       // R3.E0 ADR §5.1 amend：team_name 触发 universal team backend ensure-team-by-name
       // + 把 caller 加为 lead + 把新 session 加为 teammate（不再写 sessions.team_name 列）
       let teamId: string | null = null;
@@ -489,7 +523,9 @@ export async function buildAgentDeckTools(
             teamId: team.id,
             sessionId: sid,
             role: 'teammate',
-            displayName: null,
+            // REVIEW_31 Bug 4：teammate displayName 同步写 team_member 表，
+            // 让 wire format buildWireBody 优先取此名字（不再 fallback 到 `<adapter>:<sid_8>`）。
+            displayName: teammateDisplayName,
           });
           // plan team-cohesion-fix-20260513 Phase A Step A7：teammate addMember 后同样触发 session-upserted
           // 让桥点 enrich teams[]（与 lead 路径对称）。
@@ -776,7 +812,7 @@ export async function buildAgentDeckTools(
 
         // nudge timer：nudge_text 非空时，nudge_after_ms 后 enqueue 一条催促消息
         if (args.nudge_text) {
-          const nudgeDelay = args.nudge_after_ms ?? Math.max(5_000, Math.min(args.timeout_ms / 2, 600_000));
+          const nudgeDelay = args.nudge_after_ms ?? Math.max(5_000, Math.min(args.timeout_ms / 2, 1_800_000));
           nudgeTimer = setTimeout(() => {
             if (resolved) return;
             // 给原 msg 的接收方塞一条 nudge（reply_to_message_id 指向原 msg；fromSessionId 是 caller）
