@@ -11,7 +11,7 @@
 - **只放 agent-deck 应用专属差异（Δ user CLAUDE.md）**，绝不复制 user CLAUDE.md 任何通用约定（输出 / 运行时 / 决策对抗 / 复杂 plan / 工程地基 / 模板）—— 这些通用内容由 `~/.claude/CLAUDE.md` 在 user scope 提供，CLI 加载顺序保证它已先入 system prompt
 - 当前文件只含两节：
   - `§应用环境差异（Δ user CLAUDE.md）` —— 协议覆盖 / SKILL 失败兜底分支等仅在 agent-deck 应用环境生效的差异
-  - `§Agent Deck Universal Team Backend` —— 应用专属的 mcp 10 tool 协议（其他环境无此节）
+  - `§Agent Deck Universal Team Backend` —— 应用专属的 mcp 7 tool 协议（其他环境无此节；CHANGELOG_100 删 reply_message / wait_reply / check_reply 后从 10 → 7）
 - 历史的「除本打包文件专属节外，其余通用约定需与 ~/.claude/CLAUDE.md 保持一致；改一处必须同步另一处」**人工同步约定已废弃**（机器无法执行已发生漂移，详 REVIEW_30 H1）
 
 ### 改动维护
@@ -30,7 +30,7 @@
 设计 SSOT：
 
 - `~/.claude/CLAUDE.md` §决策对抗 节定义「单次决策对抗」走双 Bash 起外部 CLI 主路径
-- `resources/claude-config/CLAUDE.md` §Agent Deck Universal Team Backend 定义 mcp 10 tool 协议
+- `resources/claude-config/CLAUDE.md` §Agent Deck Universal Team Backend 定义 mcp 7 tool 协议（CHANGELOG_100 简化后）
 - `agent-deck-plugin/skills/deep-code-review/SKILL.md` 定义「多轮深度 review」走 teammate 模式
 - `agent-deck-plugin/agents/reviewer-{claude,codex}.md` 是两 reviewer teammate 行为契约
 

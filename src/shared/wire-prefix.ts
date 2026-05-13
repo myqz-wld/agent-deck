@@ -36,6 +36,28 @@ const WIRE_PREFIX_RE =
   /^\[from ([^\]]+) @ ([^\]]+)\](?:\[msg ([^\]]+)\])?(?:\[sid ([^\]]+)\])?\n/;
 
 /**
+ * Sanitize wire prefix field value — replace chars that would break parser regex
+ * (`]` ends segment / `\n` ends prefix / `[` confuses humans reading raw text)
+ * with single space. Leading / trailing whitespace also collapsed so wire prefix
+ * stays predictable.
+ *
+ * CHANGELOG_100 R2 fix (codex MED-1): caller-controlled fields like session.title
+ * (used as displayName), agentId, and similar can contain `]` (e.g. `feat: [test]`)
+ * — without sanitization, `[from foo]bar @ ...]` would be parsed wrong by
+ * `parseWirePrefix` regex (greedy `[^\]]+` capture stops at first `]`), making
+ * the chip not render and hand-off context not fold. Apply at every wire prefix
+ * write site (spawn handler / buildWireBody / future adapters).
+ *
+ * Returns single-space fallback when input becomes empty after sanitize (rare:
+ * displayName=`]]]` or `\n\n`).
+ */
+export function sanitizeWireFieldName(raw: string): string {
+  if (typeof raw !== 'string') return ' ';
+  const cleaned = raw.replace(/[\][\n\r]+/g, ' ').trim();
+  return cleaned.length > 0 ? cleaned : ' ';
+}
+
+/**
  * 从 message text 解析 wire prefix。
  * 返回 null 表示该 text 不是 cross-session message（普通 user input）。
  *

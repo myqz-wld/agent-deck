@@ -21,6 +21,7 @@ import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { adapterRegistry } from '@main/adapters/registry';
 import { getBundledAssetContent } from '@main/bundled-assets';
+import { sanitizeWireFieldName } from '@shared/wire-prefix';
 
 import { applySpawnGuards } from '../../spawn-guards';
 import {
@@ -115,11 +116,18 @@ export async function spawnSessionHandler(
   // 后 teammate 必须知道 lead session_id + team_id 才能 send_message 回 lead）。
   // ensureByName 幂等：已存在 team 直接返回；后续 addMember 调用仍需 sid，留在 createSession
   // 之后做（team_member 表 sessionId FK 必须先存在）。
+  //
+  // CHANGELOG_100 R2 fix (codex MED-2): ensureByName 提前后 createSession 失败 catch 路径必须
+  // cleanup 本次新建的空 team，否则 active team 列表会污染（无 lead / 无 teammate 的孤儿 team）。
+  // teamCreatedNow 判定：listAllMembers(team.id).length === 0 表示 ensureByName 刚 INSERT
+  // (existing active team 必有 ≥ 1 lead member)。catch 时再次 verify 防并发抢先 addMember。
   let teamIdEarly: string | null = null;
+  let teamCreatedNow = false;
   if (args.team_name) {
     try {
       const team = agentDeckTeamRepo.ensureByName(args.team_name, { source: 'mcp' });
       teamIdEarly = team.id;
+      teamCreatedNow = agentDeckTeamRepo.listAllMembers(team.id).length === 0;
     } catch (e) {
       // ensure 失败时 lead context block + placeholder 都不注入；後續 addMember 也跳過。
       console.warn(`[mcp spawn_session] team ensureByName failed for "${args.team_name}":`, e);
@@ -133,7 +141,9 @@ export async function spawnSessionHandler(
   const leadDisplayName = leadRecord?.title ?? null;
 
   // plan team-cohesion-fix-20260513 Phase B7 / CHANGELOG_100 D9 升级：spawn 路径
-  // wire format 注入 [msg <id>][sid <senderSessionId>] 双锚点 + lead context block。
+  // wire format 与 buildWireBody 同款 `[from <name> @ <adapter>][msg <id>][sid <senderSid>]`
+  // 三段，让 teammate 端 message-row.tsx parseWirePrefix 能识别这条 prompt 也是 cross-session
+  // message（带 ↩ chip + lead context block 折叠 disclosure），不被当成"自己输入的 user message"渲染。
   //
   // teammate 收到 prompt 后从顶部 regex `\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]` 提
   // messageId + senderSessionId 双锚点，调
@@ -145,11 +155,26 @@ export async function spawnSessionHandler(
   // 不注入（external caller / no-team spawn 没 reply chain anchor，注入也无意义）。
   // **DB messages.body 列存原始 promptToUse**（不含 prefix / lead context block），与 send_message
   // buildWireBody 同款（wire prefix 在内存里加，不写回 DB）。
+  //
+  // leadDisplayName fallback：优先取 leadRecord.title（用户 / cwd-basename 默认），缺失时用
+  // `<leadAdapter>:<lead-sid 前 8>` 同 buildWireBody.resolveFromDisplayName 的 fallback 形态。
+  // 严格说 buildWireBody 优先取 team_member.display_name，但 spawn 路径下 lead addMember 在
+  // createSession 之后做（team_member sessionId FK 必须先存在），所以这里只能用 leadRecord.title。
+  // teammate 看到的是 lead "first impression" 名字，与之后 send_message reply 看到的可能不同
+  // —— 视觉上一致足以让用户识别"是同一个 lead"，无需强一致。
   const willInjectWirePrefix = !!teamIdEarly && callerExists;
   let placeholderId: string | null = null;
   let promptForSpawn = promptToUse; // 给 SDK 的 wire 形式
   if (willInjectWirePrefix) {
     placeholderId = crypto.randomUUID();
+    const leadAdapter = leadRecord?.agentId ?? 'unknown-adapter';
+    // CHANGELOG_100 R2 fix (codex MED-1): sanitizeWireFieldName 处理 `]` / `\n` / `[`，
+    // 避免 user 设的 session.title (e.g. "feat: [test]") 破坏 wire prefix 解析。
+    // 同款 sanitize 在 buildWireBody (universal-message-watcher.ts) 也做了。
+    const leadFromName = sanitizeWireFieldName(
+      leadDisplayName ?? `${leadAdapter}:${caller.callerSessionId.slice(0, 8)}`,
+    );
+    const leadAdapterSanitized = sanitizeWireFieldName(leadAdapter);
     const leadContextBlock =
       `## Hand-off context (auto-injected by Agent Deck MCP)\n` +
       `- Lead session_id: \`${caller.callerSessionId}\`\n` +
@@ -167,7 +192,7 @@ export async function spawnSessionHandler(
       `\`\`\`\n` +
       `wire prefix regex（双锚点）: \`/\\[msg ([0-9a-f-]+)\\]\\[sid ([0-9a-f-]+)\\]/\`\n`;
     promptForSpawn =
-      `[msg ${placeholderId}][sid ${caller.callerSessionId}]\n` +
+      `[from ${leadFromName} @ ${leadAdapterSanitized}][msg ${placeholderId}][sid ${caller.callerSessionId}]\n` +
       `${leadContextBlock}\n---\n\n${promptToUse}`;
   }
 
@@ -202,6 +227,21 @@ export async function spawnSessionHandler(
     }
   } catch (e) {
     fanOutSlot.release();
+    // CHANGELOG_100 R2 fix (codex MED-2): createSession 失败 → cleanup 本次新建的空 team
+    // 防 active team 列表污染。再次 verify 空才删（防并发 caller 已抢先 addMember）。
+    if (teamCreatedNow && teamIdEarly) {
+      try {
+        const remainingMembers = agentDeckTeamRepo.listAllMembers(teamIdEarly);
+        if (remainingMembers.length === 0) {
+          agentDeckTeamRepo.hardDelete(teamIdEarly);
+        }
+      } catch (cleanupErr) {
+        console.warn(
+          `[mcp spawn_session] team cleanup after createSession failure failed for ${teamIdEarly}:`,
+          cleanupErr,
+        );
+      }
+    }
     return err(
       e instanceof Error ? e.message : String(e),
       'createSession failed; no session created. Check adapter logs for details.',
