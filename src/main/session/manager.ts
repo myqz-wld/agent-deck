@@ -8,13 +8,13 @@ import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
-import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import {
   deriveTitle,
   extractCwd,
   nextActivityState,
   normalizeCwd,
 } from './manager-helpers';
+import { enrichRecordWithTeams, enrichRecordsWithTeamsBatch } from './manager-enrich';
 
 /**
  * SessionManager 不直接 import adapterRegistry（避免反向依赖 + 单职责），
@@ -681,53 +681,26 @@ class SessionManagerClass {
   }
 
   list(): SessionRecord[] {
-    return this.enrichWithTeamsBatch(sessionRepo.listActiveAndDormant());
+    return enrichRecordsWithTeamsBatch(sessionRepo.listActiveAndDormant());
   }
 
   get(id: string): SessionRecord | null {
     const rec = sessionRepo.get(id);
-    return rec ? this.enrichWithTeams(rec) : null;
+    return rec ? enrichRecordWithTeams(rec) : null;
   }
 
   /**
-   * plan team-cohesion-fix-20260513 Phase A：把 universal team backend 的 active membership
-   * 拼装到 SessionRecord.teams 字段。单 record 版（hot path：每次 emit session-upserted 桥到
-   * renderer 时调）；indexed (session_id, team_id) WHERE left_at IS NULL 单 query 是 ms 级。
-   *
-   * 不在 sessionRepo.toSessionRecord 内做（repo 层职责单一：纯 DB row → record）；放在
-   * sessionManager 编排层。多 team 共享时按 joined_at DESC（最近加入在前），与 SessionCard
-   * 显示 teams[0] 一致。
-   *
-   * teamName 字段（v012 删前过渡）回填为 teams[0]?.name —— 让所有读 teamName 的老代码无感
-   * 切到 universal team backend，修「lead session teamName 不对称」bug。
+   * 公共 API thin wrapper：把 universal team backend 的 active membership 拼装到
+   * SessionRecord.teams 字段。实际逻辑搬到 manager-enrich.ts free function；class 方法
+   * 保留是为外部 caller（src/main/index.ts:236 桥点 / ipc/sessions.ts / mcp/handlers/list.ts）
+   * 公共 API 签名不变。CHANGELOG_86 Step 4.3.1。
    */
   enrichWithTeams(rec: SessionRecord): SessionRecord {
-    const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(rec.id);
-    const teams = memberships.map((m) => {
-      // findActiveMembershipsBySession 返回 AgentDeckTeamMember（无 teamName），需多查一次 team
-      const team = agentDeckTeamRepo.get(m.teamId);
-      return {
-        teamId: m.teamId,
-        teamName: team?.name ?? '<unknown>',
-        role: m.role,
-        joinedAt: m.joinedAt,
-      };
-    });
-    return { ...rec, teams };
+    return enrichRecordWithTeams(rec);
   }
 
-  /**
-   * 批量版 enrich：list 路径用，避免 N+1（一次 IN 查 + 一次 IN teams JOIN）。
-   * 走 agentDeckTeamRepo.findActiveMembershipsBySessionIds（已 JOIN agent_deck_teams 拿 teamName，
-   * chunk 500 防超 sqlite IN 上限）。
-   */
   enrichWithTeamsBatch(recs: SessionRecord[]): SessionRecord[] {
-    if (recs.length === 0) return recs;
-    const map = agentDeckTeamRepo.findActiveMembershipsBySessionIds(recs.map((r) => r.id));
-    return recs.map((rec) => ({
-      ...rec,
-      teams: map.get(rec.id) ?? [],
-    }));
+    return enrichRecordsWithTeamsBatch(recs);
   }
 }
 
