@@ -10,6 +10,7 @@ import { summaryRepo } from '@main/store/summary-repo';
 import { summariseSessionForHandOff } from '@main/session/summarizer';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
+import { buildHandOffCreateSessionOpts } from './sessions-hand-off-helper';
 import { on, parseStringId, parsePositiveInt, parseStringIdArray, IpcInputError } from './_helpers';
 
 export function registerSessionsIpc(): void {
@@ -110,11 +111,10 @@ export function registerSessionsIpc(): void {
     if (!adapter?.createSession) {
       throw new Error(`adapter cannot create session: ${session.agentId}`);
     }
-    const newSid = await adapter.createSession({
-      cwd: session.cwd,
-      prompt: finalPrompt,
-      ...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
-    });
+    // REVIEW_33 H6：opts 拼装抽到 buildHandOffCreateSessionOpts —— 透传 cwd / permissionMode /
+    // codexSandbox / claudeCodeSandbox 四字段，避免「用户原 session 切到 read-only / strict 后
+    // hand-off 起的新 session 落 settings 全局默认」隐性沙盒 downgrade。详 helper 注释。
+    const newSid = await adapter.createSession(buildHandOffCreateSessionOpts(session, finalPrompt));
     // permissionMode 持久化到新 session（沿用原 session，让 detail 视图显示一致）
     if (session.permissionMode && session.permissionMode !== 'default') {
       sessionManager.recordCreatedPermissionMode(newSid, session.permissionMode);
