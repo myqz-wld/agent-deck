@@ -5,12 +5,14 @@
  * deep-review-and-split-20260513 H2 Step 2.3）。
  */
 
+import type { Database } from 'better-sqlite3';
 import { getDb } from '../db';
 import type { Row } from './types';
 
 /**
- * 把 sessions 表里 fromId 改名 toId，并把 events / file_changes / summaries
- * 的 session_id 引用一起迁移。整体在事务内做，避免外键 CASCADE 误删历史。
+ * 把 sessions 表里 fromId 改名 toId，并把 events / file_changes / summaries / team_members
+ * / messages.from_session_id / messages.to_session_id / sessions.spawned_by 自引用一起迁移。
+ * 整体在事务内做，避免外键 CASCADE 误删历史。
  * 用于 SDK fallback：tempKey 占位行 → 真实 session_id 出现后无损迁移。
  *
  * REVIEW_17 R2 / H1-R2：toExists=true 分支（recoverAndSend jsonl-missing 走
@@ -23,15 +25,34 @@ import type { Row } from './types';
  * 新行（这两类是「会话身份持续性」相关）。其他列（cwd / title / activity / lifecycle
  * 等）由 createSession 已写就绪，不应被 OLD 行旧值覆盖。
  *
- * plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
- * rename 路径不再需要复制 team_name 字段。team 关系由 universal team backend
- * (agent_deck_team_members) 维护，session_id 改名时需调 sessionManager.delete
- * 路径的 leaveTeam 兜底（已实现），或 rename 后由 caller 自行 leaveTeam(OLD) +
- * addMember(NEW)。
+ * plan linked-swimming-platypus（v017）：原过期 contract「session_id 改名时需调
+ * sessionManager.delete 路径的 leaveTeam 兜底（已实现），或 rename 后由 caller 自行
+ * leaveTeam(OLD) + addMember(NEW)」**所有 6 处 renameSdkSession caller 均无实现**，
+ * 加之 leaveTeam 只 UPDATE left_at 不删 row → DELETE OLD 必撞 FK ON DELETE RESTRICT
+ * （用户报 bug：fork rename 后 SDK 流中断 "FOREIGN KEY constraint failed"）。
+ *
+ * 修法（双轨）：
+ * 1. v017 schema：agent_deck_team_members.session_id 改 ON DELETE CASCADE，让
+ *    sessions DELETE 不再撞 FK（同时根治 sessionManager.delete 隐藏 bug）
+ * 2. rename 内显式 UPDATE 迁 team_members.session_id 让 NEW 续接 OLD 在 team 的
+ *    lead/teammate 角色（不依赖 CASCADE 自动删 —— 那会让 NEW 失去 membership →
+ *    team 自动 archive，违反 rename「OLD 整个迁到 NEW 名下」语义）
+ * 3. 同步 UPDATE agent_deck_messages.from/to_session_id（FK 不强制但 watcher 反查
+ *    sessionRepo.get(toSessionId) 会因 OLD 不存在 markFailed 假阴性）
+ * 4. 同步 UPDATE sessions.spawned_by 自引用（v009 ON DELETE SET NULL 兜底不撞 FK，
+ *    主动 UPDATE 是为保 spawn chain 完整性更友好）
  */
 export function rename(fromId: string, toId: string): void {
+  renameWithDb(getDb(), fromId, toId);
+}
+
+/**
+ * Test seam（plan linked-swimming-platypus）：让 agent-deck-repos.test.ts 用 in-memory db
+ * 真测 rename 迁移行为（v017 + 三段 UPDATE 不撞 FK + NEW 续接 OLD 角色）。生产路径走
+ * `rename(fromId, toId)` 默认 wrapper 用 getDb()；测试路径走本函数显式传 db。
+ */
+export function renameWithDb(db: Database, fromId: string, toId: string): void {
   if (fromId === toId) return;
-  const db = getDb();
   const tx = db.transaction(() => {
     const fromRow = db
       .prepare(`SELECT * FROM sessions WHERE id = ?`)
@@ -76,6 +97,46 @@ export function rename(fromId: string, toId: string): void {
     db.prepare(`UPDATE events SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
     db.prepare(`UPDATE file_changes SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
     db.prepare(`UPDATE summaries SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
+
+    // plan linked-swimming-platypus (a) team_members 迁移：从 OLD 改名到 NEW，让 NEW
+    // 续接 OLD 在 team 的 lead/teammate 角色。v017 schema CASCADE 兜底不撞 FK，但 OLD
+    // 一旦被 DELETE 其 team_members 会被级联清 → NEW 失去 membership → team 自动 archive
+    // → 违反 rename「OLD 整个迁到 NEW 名下」语义。所以**必须**显式 UPDATE 在 DELETE OLD 之前。
+    //
+    // PK = (team_id, session_id)。fork 路径下 NEW 不会被 spawn handler 提前 addMember
+    // （createSession 不调 addMember，addMember 仅在 spawn handler 路径），所以 PK
+    // 冲突 100% 不发生；防御性先删 NEW 在同 team 已有 row（保 OLD 优先），为未来
+    // spawn handler 改动留 latitude，不增加 IO 开销（无 row 时 DELETE 0 changes）。
+    db.prepare(
+      `DELETE FROM agent_deck_team_members
+       WHERE session_id = ?
+         AND team_id IN (SELECT team_id FROM agent_deck_team_members WHERE session_id = ?)`,
+    ).run(toId, fromId);
+    db.prepare(
+      `UPDATE agent_deck_team_members SET session_id = ? WHERE session_id = ?`,
+    ).run(toId, fromId);
+
+    // plan linked-swimming-platypus (b) messages.from/to_session_id 迁移：FK 不强制
+    // （v010 设计允许已删 sender 留痕），但 universal-message-watcher 反查
+    // sessionRepo.get(toSessionId) 拿 receiver session 做投递；rename 后 OLD 不在
+    // sessions 表 → markFailed("target session not found") → wait_reply 等的 lead
+    // 收到假阴性。UPDATE 双字段保引用一致性（与 universal team backend 设计一致：
+    // rename 后 NEW 接管 OLD 在 messages 流里的 sender / receiver 角色）。
+    db.prepare(
+      `UPDATE agent_deck_messages SET from_session_id = ? WHERE from_session_id = ?`,
+    ).run(toId, fromId);
+    db.prepare(
+      `UPDATE agent_deck_messages SET to_session_id = ? WHERE to_session_id = ?`,
+    ).run(toId, fromId);
+
+    // plan linked-swimming-platypus (c) sessions.spawned_by 自引用迁移：v009 ON DELETE
+    // SET NULL 兜底，DELETE OLD 自动断链不会撞 FK。但 spawn chain 完整性更友好：UPDATE
+    // 让 OLD 派生的子 session 仍指向 NEW（spawned_by 用于 §6.4 per-parent fan-out 反查
+    // + listAncestors / listChildren，应用层不强依赖非 null 但保留更直观）。
+    db.prepare(
+      `UPDATE sessions SET spawned_by = ? WHERE spawned_by = ?`,
+    ).run(toId, fromId);
+
     // REVIEW_17 R2 / H1-R2：toExists=true 时（recoverAndSend jsonl-missing fallback）
     // 把会话身份相关字段从 OLD 行覆盖到 NEW 行，避免 permission_mode 被 NEW 行
     // createSession 时写的默认值（'default'）「淹没」掉用户的真实状态。
