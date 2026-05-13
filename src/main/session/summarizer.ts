@@ -210,7 +210,7 @@ export class Summarizer {
  * - error: true 的 ⚠ 警告是基础设施消息（API 错误、待响应队列提示），不是真正
  *   的"Claude 在做什么"
  */
-function formatEventsForPrompt(events: AgentEvent[]): string {
+export function formatEventsForPrompt(events: AgentEvent[]): string {
   // 升序后取末尾 30：events 已经是 DESC，先排正，再 slice(-30) 拿最新一段
   const ordered = [...events].sort((a, b) => a.ts - b.ts).slice(-30);
   const lines: string[] = [];
@@ -416,3 +416,131 @@ function localStatsFallback(events: AgentEvent[]): string {
 }
 
 export const summarizer = new Summarizer();
+
+/**
+ * K3 hand-off 接力简报生成（plan mcp-bug-and-feature-batch-20260513 Phase 4c）。
+ *
+ * 与 `summariseViaLlm` 字面镜像但 prompt + model 不同：
+ * - 用 sonnet 模型（hand-off 是低频但要求结构化输出准确，haiku 偏弱）
+ * - prompt 要求输出「目标 / 已做 / 下一步 / 相关文件」四节结构化
+ * - resultMaxLen 拉到 4000（允许更长接力简报，hand-off 不像 30 字 tag-line）
+ *
+ * **不抽公共 helper 重构 summariseViaLlm**：summariseViaLlm 是热路径（每分钟跑数次扫
+ * 所有 active session），复制一份代码的痛苦小于改动它的回归风险。如有第三处 oneshot
+ * 用例再考虑抽 helper（YAGNI）。
+ *
+ * 失败处理：caller (IPC handler) 接到 throw 后透传 → renderer modal inline error 让用户
+ * 重试或手动编辑兜底 prompt。本函数内只做 timeout race + result 收集，不做 fallback。
+ */
+export async function summariseSessionForHandOff(
+  cwd: string,
+  events: AgentEvent[],
+): Promise<string | null> {
+  const activity = formatEventsForPrompt(events);
+  if (!activity) return null;
+
+  const sdk = await loadSdk();
+  const runtime = getSdkRuntimeOptions();
+  const claudeBinary = getPathToClaudeCodeExecutable();
+  const prompt = `下面是某个 Claude Code 会话最近的活动记录。**所有事件都是 Claude（AI 助手）一侧的行为**：
+- [Claude 说] = Claude 自己说的话
+- [Claude 调用工具] = Claude 在调用工具
+- [Claude 主动询问用户] = Claude 用 AskUserQuestion 在向用户提问
+- [Claude 改动文件] / [Claude 请求工具权限] = 字面意思
+
+请基于这些事件生成一份「接力简报」，让另一个新 session agent 能接着干活。
+
+会话 cwd：${cwd || '(未知)'}
+最近活动（按时间从早到晚）：
+${activity}
+
+请用以下严格格式输出，**不要 Markdown code block 包裹、不要任何前后缀**：
+
+【目标】
+<提炼会话主线在解决什么问题 / 完成什么任务，1-3 句>
+
+【已做】
+- <具体已完成的步骤 1>
+- <具体已完成的步骤 2>
+- ...（5-10 条，按时序）
+
+【下一步】
+- <未完成 / 待续 / 下一步该做什么 1>
+- <未完成 / 待续 / 下一步该做什么 2>
+- ...（2-5 条）
+
+【相关文件】
+- <绝对路径 1>
+- <绝对路径 2>
+- ...（最多 10 个，从 [Claude 改动文件] / [Claude 调用工具] Edit/Read/Write 中提）
+
+输出后请直接返回，**不要调用任何工具**。`;
+
+  const q = sdk.query({
+    prompt,
+    options: {
+      cwd: cwd || process.cwd(),
+      // K3 用 sonnet：hand-off 是低频操作（用户主动点按钮）+ 结构化输出对模型理解力
+      // 要求高（4 节模板）。优先级与 summariseViaLlm haiku 同模式：
+      // ANTHROPIC_DEFAULT_SONNET_MODEL（settings.json 显式配的 sonnet id）→
+      // ANTHROPIC_MODEL（用户主模型）→ 'sonnet' alias 兜底。
+      model:
+        process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+        process.env.ANTHROPIC_MODEL ||
+        'sonnet',
+      permissionMode: 'plan',
+      systemPrompt:
+        '你是一个会话接力简报生成助手。基于活动记录生成结构化的「目标 / 已做 / 下一步 / 相关文件」四节简报，' +
+        '让接力的下一个 session 能直接续上工作。不要调用工具，不要 Markdown code block 包裹，' +
+        '严格按四节模板输出。',
+      settingSources: [],
+      executable: runtime.executable,
+      env: runtime.env,
+      ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
+    },
+  });
+
+  // K3 单独的超时（不复用 summaryTimeoutMs—— hand-off 用 sonnet 慢，需要更长 budget）。
+  // 60s 上限：sonnet + 200 events 通常 10-30s，60s 给 outliers 留余量。
+  const timeoutMs = 60_000;
+  let timeoutHandle: NodeJS.Timeout | null = null;
+  let timedOut = false;
+  const consumeLoop = (async () => {
+    let result = '';
+    for await (const msg of q) {
+      const m = msg as {
+        type: string;
+        message?: { content?: { type: string; text?: string }[] };
+      };
+      if (m.type === 'assistant' && m.message?.content) {
+        for (const block of m.message.content) {
+          if (block.type === 'text' && block.text) result += block.text;
+        }
+      }
+      if (m.type === 'result') break;
+    }
+    return result;
+  })();
+  consumeLoop.catch(() => undefined);
+
+  let result = '';
+  try {
+    const timer = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        q.interrupt?.().catch(() => undefined);
+        reject(new Error('__handoff_summary_timeout__'));
+      }, timeoutMs);
+    });
+    result = await Promise.race([consumeLoop, timer]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+  if (timedOut) {
+    throw new Error('__handoff_summary_timeout__');
+  }
+  // K3 接力简报允许较长（4000 字 ≈ 1500 token，足够 4 节展开）；
+  // 不去多余空白（保留 \n 换行让 textarea preview 直接渲染分段）。
+  const cleaned = result.trim();
+  return cleaned ? cleaned.slice(0, 4000) : null;
+}
