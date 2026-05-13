@@ -291,6 +291,47 @@ describe('archivePlanImpl — 预检失败分支', () => {
     expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
   });
 
+  it('Phase A4 / R1 MED-3：plan status = abandoned → reject + 指向 user CLAUDE 中止流程', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    state.files.set(
+      planPath,
+      [
+        '---',
+        `plan_id: ${input.planId}`,
+        'status: abandoned',
+        '---',
+        '',
+        'body',
+      ].join('\n'),
+    );
+    const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('abandoned');
+    expect((result as ArchivePlanError).hint).toContain('§Step 4');
+    // git merge 不应被调用（早返）
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+  });
+
+  it('Phase A4：plan status 缺失 / 非合法值 → reject 通用 status 错误', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    // 缺 status 字段
+    state.files.set(
+      planPath,
+      ['---', `plan_id: ${input.planId}`, '---', '', 'body'].join('\n'),
+    );
+    const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('status must be "in_progress"');
+    expect((result as ArchivePlanError).error).toContain('<missing>');
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+  });
+
   it('cwd 在 worktree 内 → reject + 提示先 ExitWorktree', async () => {
     const { state, input } = fixtureHappyPath();
     state.fakeCwd = `${input.worktreePath}/src/main/foo.ts`; // cwd 在 worktree 子树

@@ -8,6 +8,19 @@
  *
  * isLegitReply / replyProj 已抽到 ../helpers.ts（plan mcp-bug-and-feature-batch-20260513
  * Phase 1 Step 1.3，与 check_reply tool 共用）。
+ *
+ * **nudge 死锁修（plan mcp-handoff-fix-and-skill-timer-20260514 Phase A2 / R1 deep
+ * review HIGH-2）**：内置 `nudge_text` 启用时，wait_reply enqueue 一条 nudge message
+ * 给 teammate；按 wire format invariant（universal-message-watcher.buildWireBody）该
+ * nudge body 注入 `[msg <NUDGE_ID>]` prefix（不是 ORIGINAL_ID）。teammate 协议
+ * （reviewer-{claude,codex}.md §核心纪律 第 9 条）regex 抓**第一个** `[msg ...]` →
+ * 抓到 NUDGE_ID → reply_message({reply_to_message_id: NUDGE_ID})。所以 reply DB 行的
+ * reply_to_message_id = NUDGE_ID 而非 ORIGINAL_ID。
+ *
+ * 修法：发出去的每条 nudge 把 message.id 收集到本闭包 `nudgeMessageIds`，checkReply
+ * 时**同时查 originalId + 所有 nudgeIds**，只要任一命中即认为收到 reply。OK return 加
+ * `nudgeMessageIds: string[]` 字段方便 caller 自检（独立旁路：caller 也可用 check_reply
+ * 自己 poll nudgeIds）。**不动 wire format**（不破 reviewer 协议 invariant）。
  */
 
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
@@ -45,14 +58,28 @@ export async function waitReplyHandler(
     );
   }
 
-  // 防 race：注册 listener 之前先查一次，reply 可能已到（caller wait_reply 慢于 reply 到达）
-  const existing = agentDeckMessageRepo
-    .findRepliesByMessageId(args.message_id)
-    .filter((msg) => isLegitReply(msg, original));
+  // nudge id 收集容器：每发一条 nudge push 一个 id；checkReply 时双查 originalId + nudgeIds。
+  // 闭包变量必须在 listener 注册前声明（onEnqueued / checkReply 都关 close 这个 ref）。
+  const nudgeMessageIds: string[] = [];
+
+  /**
+   * 双查辅助：originalId 查一遍 + 每个 nudgeId 各查一遍，flat 后第一个 legit reply 即返回。
+   * 不去重 / 不排序：同一 reply 不可能同时 reply 多个 messageId（DB 单行 reply_to_message_id 单值）。
+   */
+  const findRepliesAcrossAllAnchors = () => {
+    const allAnchors = [args.message_id, ...nudgeMessageIds];
+    return allAnchors.flatMap((mid) =>
+      agentDeckMessageRepo.findRepliesByMessageId(mid).filter((msg) => isLegitReply(msg, original)),
+    );
+  };
+
+  // 防 race：注册 listener 之前先查一次（仅 originalId，nudgeIds 此时还是空）
+  const existing = findRepliesAcrossAllAnchors();
   if (existing.length > 0) {
     return ok({
       reply: replyProj(existing[0]!),
       nudgesSent: 0,
+      nudgeMessageIds,
       timedOut: false,
     });
   }
@@ -75,10 +102,9 @@ export async function waitReplyHandler(
   return new Promise((resolve) => {
     const checkReply = () => {
       if (resolved) return;
-      // REVIEW_32 HIGH-3：同 existing 检查，过滤出方向正确的 reply（排除 nudge 自循环）
-      const replies = agentDeckMessageRepo
-        .findRepliesByMessageId(args.message_id)
-        .filter((msg) => isLegitReply(msg, original));
+      // REVIEW_32 HIGH-3：filter 方向（排除 nudge 自循环）。Phase A2：双查 originalId +
+      // nudgeIds（解 nudge 死锁，详 file header）。
+      const replies = findRepliesAcrossAllAnchors();
       if (replies.length > 0) {
         resolved = true;
         cleanup();
@@ -86,6 +112,7 @@ export async function waitReplyHandler(
           ok({
             reply: replyProj(replies[0]!),
             nudgesSent,
+            nudgeMessageIds,
             timedOut: false,
           }),
         );
@@ -116,14 +143,24 @@ export async function waitReplyHandler(
         if (resolved) return;
         // 给原 msg 的接收方塞一条 nudge（reply_to_message_id 指向原 msg；fromSessionId 是 caller）
         try {
-          enqueueAgentDeckMessage({
+          const enqueueResult = enqueueAgentDeckMessage({
             teamId: original.teamId,
             fromSessionId: caller.callerSessionId,
             toSessionId: original.toSessionId,
             body: args.nudge_text!,
             replyToMessageId: args.message_id,
           });
-          nudgesSent++;
+          if (enqueueResult.ok) {
+            // Phase A2 nudge 死锁修：捕获 nudgeMessageId 进双查 anchor 列表。
+            // 必须在 nudgesSent++ 前 push，避免 race（虽然 onEnqueued 触发时 checkReply
+            // 不会立刻命中——teammate 处理 nudge 需要时间——但语义上保持「先记录再宣告
+            // 已发」更稳）。
+            nudgeMessageIds.push(enqueueResult.message.id);
+            nudgesSent++;
+          } else {
+            // rate-limit-exceeded：仅 warn，不抛（沿用历史行为）
+            console.warn('[mcp wait_reply] nudge enqueue failed:', enqueueResult.error);
+          }
         } catch (e) {
           console.warn('[mcp wait_reply] nudge enqueue failed:', e);
         }
@@ -139,6 +176,7 @@ export async function waitReplyHandler(
         ok({
           reply: null,
           nudgesSent,
+          nudgeMessageIds,
           timedOut: true,
         }),
       );

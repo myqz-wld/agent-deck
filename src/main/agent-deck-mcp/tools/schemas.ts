@@ -127,7 +127,7 @@ export const WAIT_REPLY_SCHEMA = {
     .max(100_000)
     .optional()
     .describe(
-      'Optional: if no reply arrives within nudge_after_ms, automatically send a nudge message (text body) to the recipient as a "are you there" reminder. The nudge is itself a reply to the original message (reply_to_message_id chains). Useful when the other side may have forgotten to call reply_message.',
+      'Optional: if no reply arrives within nudge_after_ms, automatically send a nudge message (text body) to the recipient as a "are you there" reminder. The nudge is itself a reply to the original message (reply_to_message_id chains). Useful when the other side may have forgotten to call reply_message. **NUDGE INVARIANT (Phase A2 fix)**: each nudge gets its own message id; teammate per wire-format protocol replies with reply_to_message_id = NUDGE_ID (not original). wait_reply now double-queries originalId + every nudgeId so the reply IS visible. Returned `nudgeMessageIds: string[]` lets caller cross-check via check_reply too.',
     ),
   nudge_after_ms: z
     .number()

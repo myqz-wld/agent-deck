@@ -14,7 +14,7 @@
 让 Claude / Codex / 任何支持 MCP 的 coding agent 通过 MCP 协议**编排其它 adapter session**：
 
 ```
-[Claude session #lead] --mcp__agent_deck__spawn_session(adapter:'codex-cli', cwd:..., prompt:...)
+[Claude session #lead] --mcp__agent-deck__spawn_session(adapter:'codex-cli', cwd:..., prompt:...)
                                           ↓
 [Agent Deck 主进程 SessionManager + adapterRegistry]
                                           ↓
@@ -527,14 +527,14 @@ DEFAULT_SETTINGS 同步加默认值。
 
 ```
 1. spawn reviewer-claude:
-   mcp__agent_deck__spawn_session(
+   mcp__agent-deck__spawn_session(
      adapter='claude-code', cwd=$REPO,
      prompt='你是 reviewer-claude... <agent body 全文>',
      team_name='deep-review-2026-05-11')
    → returns { sessionId: 'sess-claude-1' }
 
 2. spawn reviewer-codex:
-   mcp__agent_deck__spawn_session(
+   mcp__agent-deck__spawn_session(
      adapter='codex-cli', cwd=$REPO,
      prompt='你是 reviewer-codex... <agent body 全文>',
      team_name='deep-review-2026-05-11')
@@ -542,18 +542,18 @@ DEFAULT_SETTINGS 同步加默认值。
 
 3. 等两个 reviewer 各自出第一条结论：
    parallel:
-     mcp__agent_deck__wait_reply(session_id='sess-claude-1', until='turn_complete', timeout_ms=300000)
-     mcp__agent_deck__wait_reply(session_id='sess-codex-1', until='turn_complete', timeout_ms=300000)
+     mcp__agent-deck__wait_reply(session_id='sess-claude-1', until='turn_complete', timeout_ms=300000)
+     mcp__agent-deck__wait_reply(session_id='sess-codex-1', until='turn_complete', timeout_ms=300000)
 
 4. lead 自己做三态裁决（不调 tool）
 
 5. 反驳轮：
-   mcp__agent_deck__send_message(session_id='sess-codex-1', text='reviewer-claude 提出 X，请反驳...')
-   mcp__agent_deck__wait_reply(session_id='sess-codex-1', until='turn_complete', timeout_ms=180000)
+   mcp__agent-deck__send_message(session_id='sess-codex-1', text='reviewer-claude 提出 X，请反驳...')
+   mcp__agent-deck__wait_reply(session_id='sess-codex-1', until='turn_complete', timeout_ms=180000)
 
 6. 收尾：
-   mcp__agent_deck__shutdown_session(session_id='sess-claude-1')
-   mcp__agent_deck__shutdown_session(session_id='sess-codex-1')
+   mcp__agent-deck__shutdown_session(session_id='sess-claude-1')
+   mcp__agent-deck__shutdown_session(session_id='sess-codex-1')
 ```
 
 ---
@@ -599,12 +599,12 @@ R2 完成后必须全过：
 | ID | 验证项 | 期望 |
 |---|---|---|
 | V1 | 启动 dev / 已装 .app + Settings 开 `enableAgentDeckMcp` + 启 claude session → console 见 `[agent-deck-mcp] in-process attached for sid=...` | ✅ |
-| V2 | 同上 claude session 内调 `mcp__agent_deck__list_sessions(caller_session_id='<sid>')` → 返回当前所有 session metadata | ✅ |
-| V3 | 同上 调 `mcp__agent_deck__spawn_session(adapter='codex-cli', cwd='/tmp', prompt='ping')` → 起 codex session + UI 看到新 session 卡片 | ✅ |
-| V4 | 紧接调 `mcp__agent_deck__wait_reply(session_id='<codex sid>', until='first_message', timeout_ms=60000)` → 60s 内拿到 codex 第一条文字 | ✅ |
+| V2 | 同上 claude session 内调 `mcp__agent-deck__list_sessions(caller_session_id='<sid>')` → 返回当前所有 session metadata | ✅ |
+| V3 | 同上 调 `mcp__agent-deck__spawn_session(adapter='codex-cli', cwd='/tmp', prompt='ping')` → 起 codex session + UI 看到新 session 卡片 | ✅ |
+| V4 | 紧接调 `mcp__agent-deck__wait_reply(session_id='<codex sid>', until='first_message', timeout_ms=60000)` → 60s 内拿到 codex 第一条文字 | ✅ |
 | V5 | `curl 127.0.0.1:47821/mcp -X POST -d '...'` 不带 token → 401 | ✅ |
 | V6 | 带正确 token → MCP `initialize` 返回 server info | ✅ |
-| V7 | codex 会话 list_mcp_tools 见 `mcp__agent_deck__*` 6 个 | ✅ (R1.A5 + REVIEW_28 加 get_session) |
+| V7 | codex 会话 list_mcp_tools 见 `mcp__agent-deck__*` 6 个 | ✅ (R1.A5 + REVIEW_28 加 get_session) |
 | V8 | 故意构造 `caller_session_id` 不存在 → handler 拒 + 返回 isError | ✅ |
 | V9 | 故意 LLM 在 in-process 内伪造 `caller_session_id` 字段 → 仍按 closure 真实 id 处理（log 出现 override warn）| ✅ |
 | V10 | depth=4 spawn → deny 「spawn depth 3 >= max 3」 | ✅ |
