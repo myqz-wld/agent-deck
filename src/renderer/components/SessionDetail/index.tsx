@@ -200,16 +200,6 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           <div className="truncate text-[10px] text-deck-muted">{session.cwd}</div>
         </div>
         <div className="ml-2 flex shrink-0 items-center gap-1">
-          {isSdk && (
-            <button
-              type="button"
-              onClick={() => setHandOffOpen(true)}
-              className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
-              title="📤 接力到新会话：LLM 总结当前会话历史 → 起新 session（cwd / agent / 权限模式沿用）+ 自动归档原会话"
-            >
-              📤
-            </button>
-          )}
           <button
             type="button"
             onClick={onClose}
@@ -336,9 +326,15 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         )}
       </div>
 
-      {/* 底部输入区：SDK 会话可发消息；CLI 会话只显示提示 */}
+      {/* 底部输入区：SDK 会话可发消息；CLI 会话只显示提示。
+          CHANGELOG_94: 「📤 接力到新会话」按钮从 header 右上角挪到 ComposerSdk 右下角
+          （中断按钮左侧），通过 onHandOff prop 触发 setHandOffOpen(true)。 */}
       {isSdk ? (
-        <ComposerSdk sessionId={session.id} agentId={session.agentId} />
+        <ComposerSdk
+          sessionId={session.id}
+          agentId={session.agentId}
+          onHandOff={() => setHandOffOpen(true)}
+        />
       ) : (
         <CliFooter />
       )}

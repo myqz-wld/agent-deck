@@ -60,6 +60,38 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
     case 'Grep':
     case 'Glob':
       return typeof o.pattern === 'string' ? o.pattern : null;
+    case 'TodoWrite': {
+      // CHANGELOG_95: 与 SessionCard summariseToolInput TodoWrite case 同源逻辑（不抽公共 helper：
+      // SessionCard 用作 SessionList 单行 live activity，本处用作 ActivityFeed 详情 + SimpleRow，
+      // 两处 case 形态接近但 SessionCard 还在 LOC 拆分边界附近，先各自维护避免误抽 helper）。
+      // todos schema：{ content, status, activeForm }[]，status: 'pending' | 'in_progress' | 'completed'
+      // CHANGELOG_95 review fix LOW-1（reviewer-codex 实测 node -e 复现 TypeError）：
+      // 元素为 null/非对象时 t.status 抛错，加 `t && typeof t === 'object'` 守门
+      const rawTodos = Array.isArray(o.todos) ? (o.todos as unknown[]) : [];
+      const todos = rawTodos.filter(
+        (t): t is { status?: string; activeForm?: string } => t !== null && typeof t === 'object',
+      );
+      if (todos.length === 0) return null;
+      const done = todos.filter((t) => t.status === 'completed').length;
+      const inProgress = todos.find((t) => t.status === 'in_progress');
+      const inProgressLabel =
+        inProgress && typeof inProgress.activeForm === 'string'
+          ? ` · ${inProgress.activeForm.slice(0, 40)}${inProgress.activeForm.length > 40 ? '…' : ''}`
+          : '';
+      return `[${done}/${todos.length} done]${inProgressLabel}`;
+    }
+    case 'WebSearch': {
+      // CHANGELOG_95: 显示 query 摘要让用户知道在搜什么
+      const query = typeof o.query === 'string' ? o.query.replace(/\s+/g, ' ').trim() : '';
+      if (!query) return null;
+      return `"${query.slice(0, 50)}${query.length > 50 ? '…' : ''}"`;
+    }
+    case 'WebFetch': {
+      // CHANGELOG_95: 显示 url 摘要
+      const url = typeof o.url === 'string' ? o.url : '';
+      if (!url) return null;
+      return url.slice(0, 60) + (url.length > 60 ? '…' : '');
+    }
     case 'Skill': {
       // Skill input shape：{ skill: "<plugin:name>" | "<name>", args?: string }
       // 实证扫 26 条 jsonl tool_use：skill 全 string、args 14 条 string + 12 条 absent，无 null/object。

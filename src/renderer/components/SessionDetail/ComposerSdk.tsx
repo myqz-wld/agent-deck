@@ -19,9 +19,14 @@ import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 export function ComposerSdk({
   sessionId,
   agentId,
+  onHandOff,
 }: {
   sessionId: string;
   agentId: string;
+  /** CHANGELOG_94: 「📤 接力到新会话」按钮触发 callback，由 SessionDetail 渲染
+   *  HandOffPreviewDialog。仅当 prop 传入时显示按钮（CLI 会话不传，逻辑由
+   *  SessionDetail 决定）。 */
+  onHandOff?: () => void;
 }): JSX.Element {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -428,6 +433,16 @@ export function ComposerSdk({
           </div>
         )}
         <div className="flex-1" />
+        {onHandOff && (
+          <button
+            type="button"
+            onClick={onHandOff}
+            className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10"
+            title="📤 接力到新会话：LLM 总结当前会话历史 → 起新 session（cwd / agent / 权限模式沿用）+ 自动归档原会话"
+          >
+            📤 接力
+          </button>
+        )}
         <button
           type="button"
           onClick={() => void interrupt()}
