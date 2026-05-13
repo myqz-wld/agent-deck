@@ -17,7 +17,7 @@
 
 ### 协议覆盖：teammate 协作走 mcp tool
 
-本应用环境（agent-deck）teammate 协作走 mcp tool（详 §Agent Deck Universal Team Backend 节）。user CLAUDE.md 历史的 §Agent Teams 节描述的 in-process inbox 协议**不适用**本环境。
+本应用环境（agent-deck）teammate 协作走 mcp tool（详 §Agent Deck Universal Team Backend 节）。区别于 SDK Agent Teams 实验特性的 in-process inbox 文件协议（应用 backend 历史 R0 方案，CHANGELOG_45/56 已被 mcp tool 路径替代），本环境**不再**使用 inbox 文件协议；teammate 通过 mcp tool 经 universal-message-watcher 入 messages 表 + lead `wait_reply` / `check_reply` 反向轮询。
 
 ### reviewer-codex 失败 → 应用环境额外有「合规兜底」分支
 
@@ -34,8 +34,8 @@
 ### 三个核心约定（lead 角度）
 
 1. **spawn 首轮锚点**：`spawn_session` 返回 `spawnPromptMessageId: string | null`（仅当传 `team_name` 且 caller 在 sessions 表时非空），是首轮 prompt 在 messages 表的 placeholder id。lead 用它调 `wait_reply({message_id: spawnPromptMessageId})` 等首轮 reply
-2. **后续轮次锚点**：`send_message` 返回 `{ sessionId, teamId, messageId, replyToMessageId, sentAt, queued: true }`。lead 用 `messageId` 调 `wait_reply({message_id})` 等后续 reply
-3. **shutdown 不删数据**：`shutdown_session` 只标 lifecycle='closed' + abort SDK live query；events / file_changes / summaries / messages 子表保留，lead 在裁决报告里仍可引用
+2. **后续轮次锚点**：`send_message` 返回 `{ sessionId, teamId, messageId, replyToMessageId, sentAt, queued: true }`。lead 用 `messageId` 调 `wait_reply({message_id})` 等后续 reply。`replyToMessageId` 仅当 caller 调 send 时显式传入 `reply_to_message_id` 才有值，开新话题（首条 message / 不挂 reply chain）时为 `null`
+3. **shutdown 不删数据**：`shutdown_session` 只标 lifecycle='closed' + abort SDK live query；events / file_changes / summaries / messages 子表保留，lead 在裁决报告里仍可引用。`team_member` 通过 `left_at` 软退出（行不删，archive 时归档面板仍可看 member 历史）；`spawn_link` 父子关系全保留（list_sessions(spawned_by_filter) 跨 lifecycle 全见，跨会话救火依赖此）
 
 ### wait_reply 按 messageId（非事件流轮询）
 
@@ -46,18 +46,28 @@ const reply = await mcp__agent-deck__wait_reply({
   // 可选：nudge_text + nudge_after_ms 让 mcp 自动催 reply
   caller_session_id: callerSid,
 });
-// reply = { reply: { messageId, text, sentAt, fromSessionId } | null, nudgesSent, timedOut }
+// reply = { reply: { messageId, text, sentAt, fromSessionId } | null, nudgesSent, nudgeMessageIds: string[], timedOut }
 ```
 
 按 messageId 反查 `messages` 表的 `reply_to_message_id`（DB query + universal-message-watcher event listener，listener 注册前先查一次防 race）。
 
+> **nudge 死锁修复（A2 / wait.ts:20-24）**：watcher 给 nudge body 自动注入 `[from <name>][msg <nudgeId>]\n` wire prefix，按 reviewer 协议 teammate 强制 regex 抓**第一个** `[msg ...]` 当 reply_to_message_id → teammate 默认会 reply nudgeId 而非原 originalId。wait.ts 闭包把发出去的每条 nudge messageId 收集到 `nudgeMessageIds`，checkReply 时**同时查 originalId + 所有 nudgeIds**，任一命中即 resolve。Caller 看 ok return 的 `nudgeMessageIds` 字段可旁路自检（用 `check_reply` 自己 poll 这些 nudgeId 验证），但**主路径已自动处理**无须 caller 介入。
+
 ### Wire format / regex / DB invariant
 
-teammate 端协议约束（regex 提 messageId / 用 reply_message 回 / DB messages.body 不含 wire prefix 的 invariant）已强约束在 reviewer-{claude,codex}.md「核心纪律」节，**lead 不需关心**这些细节。完整 wire format 协议规范见仓库 `docs/agent-deck-mcp-protocol.md`（应用 backend 开发者文档）。
+teammate 端协议约束（regex 提 messageId / 用 reply_message 回 / DB messages.body 不含 wire prefix 的 invariant）已强约束在 reviewer-{claude,codex}.md「核心纪律」节，**lead 不需关心**这些细节。Wire format 字段 schema 与字段语义 SSOT 在 `src/main/agent-deck-mcp/tools/schemas.ts`（应用 build 时把 description 注入 SDK system prompt 的 tool definitions）；`docs/agent-deck-mcp-protocol.md` 已降级为 stub（CHANGELOG_98），仅保留指针不再维护完整规范。
 
 ### 跨会话救火：list_sessions(spawned_by_filter)
 
 lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawned_by_filter:'<old_lead_sid>', status_filter:'active')` 拉自己以前 spawn 的 active reviewer；按 sessionId 调 `send_message` 发新 prompt → 用返回的 `messageId` 调 `wait_reply` 等本轮 reply（旧 spawn 的 `spawnPromptMessageId` 已不在 lead context，用本轮 send 的 messageId 起新对话锚点）；收尾走 `shutdown_session`。
+
+> ⚠️ **shared-team 前置约束**：`send_message` 必须在 caller session 与 target reviewer 至少共享一个 active team 时才能 dispatch（否则报 `no-shared-team` 立即 reject，不入 messages 表）。
+> - **同 caller session（context 重置 / compaction）**：sessionId 不变 → team_member 关系不变 → 直接 `list_sessions(spawned_by_filter)` 捡回来 + `send_message` 即可
+> - **真换了 caller session**（应用重启 / 用户手动新开 / K2 baton 默认不携 team 起新 session）：新 caller 不在原 team 内 → `send_message` 必报 `no-shared-team` → 必须先满足以下任一条件：
+>   1. 调 `spawn_session({adapter:'claude-code', team_name:<old-team-name>, ...})` 重起一对 reviewer（旧的走 `shutdown_session` 收尾，避免 ghost）
+>   2. 通过 UI 手动把新 caller 加入旧 team（应用 → Team 面板 → Add Member）
+>   3. K2 起新 session 时显式传 `team_name:<old-team-name>` 让新 session 直接落入 team（仅当 plan 接力同 team 场景；baton 单向交接默认场景不加 team）
+> - 选项 1 简单粗暴但丢 reviewer 跨轮 mental model；选项 2/3 保留 mental model 推荐
 
 ### check_reply 非阻塞 poll
 
@@ -95,10 +105,18 @@ const result = await mcp__agent-deck__start_next_session({
 // result = {
 //   planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt,
 //   sessionId, adapter, cwd, teamId (默认 null), teamName (默认 null),
-//   spawnDepth, sentAt, spawnPromptMessageId (默认 null)
+//   spawnDepth, sentAt, spawnPromptMessageId (默认 null),
+//   archived: 'ok' | 'failed' | 'skipped' (A5 升级：caller 无须看 console.warn 即可感知归档结果)
 // }
 ```
 
 tool 自动跑：解析 plan 文件路径（caller cwd 反查 main-repo → `<main-repo>/.claude/plans/<plan-id>.md` / fallback `~/.claude/plans/<plan-id>.md`） / 读 plan frontmatter 拿 `worktree_path` + `base_branch` / 校验 status === `in_progress` / 构造 cold start prompt = `按 <plan-abs-path> 接力`（含 phase_label 时附 `（Phase: <label>）` 后缀） / 调 `spawn_session` 起新 SDK session（cwd = worktree_path 默认 / 默认 adapter `claude-code`） / **CHANGELOG_97 baton 语义**：default 不加任何 team（caller 不被打 lead 标签 / 新 session 不被打 teammate 标签；显式传 `team_name` 才启用通信关系）+ default 自动归档 caller session（baton 完整交出原会话退出，归档失败仅 warn 不阻塞 ok return）。
+
+> **archive 无条件原则**：默认行为无论 caller 是否有 untracked / dirty / 已加入 team 都归档（baton 单向交出 = caller 必须退出原会话），返回 `archived` 三态字段：
+> - `'ok'` — 归档成功
+> - `'failed'` — 归档失败（lifecycle / DB error），仅 `console.warn`，不阻塞 ok return；caller 用户从「历史」面板仍可查看接力前最后一段对话（A5 升级前用户必须看 main 进程 stdout 才知道）
+> - `'skipped'` — caller 是 external caller（不在 sessions 表，理论被 denyExternalIfNotAllowed 拦下；防御性留口）
+>
+> 不允许 caller 传字段「不归档我」—— baton 语义保证「单 plan 单 phase 单 in-flight session」，归档是流程的一部分非选项。
 
 任一预检失败（plan 文件不存在 / status ≠ in_progress / frontmatter 缺 worktree_path / spawn 失败）立即返回 error 短路。**新 session system prompt 必须含 user CLAUDE.md「复杂 plan」节**（settingSources 包含 `'user'` 即可，应用内 SDK 会话默认满足）—— 否则新 session 看 cold start prompt 不知道是什么意思。

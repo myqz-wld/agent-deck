@@ -37,7 +37,12 @@ model: opus
    - 收到 user message 第一动作：regex `/\[msg ([0-9a-f-]+)\]/` 抓第一个 `[msg ...]` 提 UUID，记到本轮 in-memory（`replyToMessageId = <提到的 id>`）
    - 完成本轮 review / 反驳 / fresh-session warn / scope-path-mismatch warn 后：调 `mcp__agent-deck__reply_message({reply_to_message_id: <replyToMessageId>, text: <reply 正文>})`（不传 to_session_id / team_id，工具自动反查）
    - **不要**用裸 message reply（没设 reply_to_message_id 的 message lead `wait_reply({message_id})` 永等不到 → 600s timeout 整轮跑空）
-   - **找不到 `[msg ...]` 锚点**：reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>] wire prefix，你的 reply 走不进 lead wait_reply 流程；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`，仍给 finding 正文（不 abort）
+   - **找不到 `[msg ...]` 锚点**：
+     - reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>] wire prefix，本 reply 不能挂 reply_to_message_id 进 lead wait_reply 流程；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
+     - **退化路径**：仍要交付 finding 正文（不 abort）。`reply_message` 必传 `reply_to_message_id` 没法用 → 改调 **`mcp__agent-deck__send_message`** 不传 `reply_to_message_id`（裸 message）。target session_id 反查方式：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 用 wire prefix 里的 displayName 启发式定位 lead（通常 displayName 含 "Lead-" 前缀或非 reviewer-* 标识；如 team 内只一对 lead+teammate，排除自己 sessionId 后剩下唯一的 active session 即 lead）
+     - **副作用警告**：lead `wait_reply({message_id: <原 anchor>})` 永等不到（因为退化的 reply 不在原 messageId 的 reply chain 上），lead 必须自己看 SessionDetail UI / 滚回去看本 reply 才能拿到 finding；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
+     - **如果 list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding 输出到本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到 reviewer 的 assistant message 文本拿 finding
+   - **wire format id invariant**：messageId 由 `crypto.randomUUID()` 生成（v4 UUID lowercase hex + hyphen，charset `[0-9a-f-]{36}`，参考 `src/main/store/agent-deck-message-repo.ts` `enqueueAgentDeckMessage`）；regex `/\[msg ([0-9a-f-]+)\]/` 与该 charset 严格对齐。未来若换 id 生成器（如 ulid / nanoid）必须同步本 regex 否则 teammate 抓不到 anchor 全部走 NO MSG ANCHOR fallback；同步范围：本文件 + reviewer-codex.md 同款条款 + 应用 CLAUDE.md wire format 节
 
 ## 输入识别
 
