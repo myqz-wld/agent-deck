@@ -5,17 +5,21 @@
  *
  * 拆分历史：从 src/main/agent-deck-mcp/tools.ts 820-940 抽出（CHANGELOG_81 / plan
  * deep-review-and-split-20260513 H2 Step 2.1）。
+ *
+ * isLegitReply / replyProj 已抽到 ../helpers.ts（plan mcp-bug-and-feature-batch-20260513
+ * Phase 1 Step 1.3，与 check_reply tool 共用）。
  */
 
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { enqueueAgentDeckMessage } from '@main/teams/universal-message-watcher';
 import { eventBus } from '@main/event-bus';
-import type { AgentDeckMessage } from '@shared/types';
 
 import {
   denyExternalIfNotAllowed,
   err,
+  isLegitReply,
   ok,
+  replyProj,
   validateExternalCaller,
   type HandlerContext,
   type HandlerResult,
@@ -42,23 +46,12 @@ export async function waitReplyHandler(
   }
 
   // 防 race：注册 listener 之前先查一次，reply 可能已到（caller wait_reply 慢于 reply 到达）
-  const replyProj = (msg: AgentDeckMessage) => ({
-    messageId: msg.id,
-    text: msg.body,
-    sentAt: msg.sentAt,
-    fromSessionId: msg.fromSessionId,
-  });
-  // REVIEW_32 HIGH-3：reply 方向校验 — 真 reply 必须来自 original.toSessionId（对方）回到 caller。
-  // 修前 nudge enqueue 用 fromSessionId=caller, replyToMessageId=args.message_id，
-  // findRepliesByMessageId 会把 nudge 自身当成 reply，wait_reply 假成功（lead 误以为 teammate 已回）。
-  // 此过滤同时把潜在的「caller 自己 send_message 时手填 reply_to_message_id 指向自己等的 msg」
-  // 这种边缘 misuse 也排除，只接受真正的对话反向消息。
-  const isLegitReply = (msg: AgentDeckMessage): boolean =>
-    msg.fromSessionId === original.toSessionId && msg.toSessionId === original.fromSessionId;
-  const existing = agentDeckMessageRepo.findRepliesByMessageId(args.message_id).filter(isLegitReply);
+  const existing = agentDeckMessageRepo
+    .findRepliesByMessageId(args.message_id)
+    .filter((msg) => isLegitReply(msg, original));
   if (existing.length > 0) {
     return ok({
-      reply: replyProj(existing[0]),
+      reply: replyProj(existing[0]!),
       nudgesSent: 0,
       timedOut: false,
     });
@@ -85,13 +78,13 @@ export async function waitReplyHandler(
       // REVIEW_32 HIGH-3：同 existing 检查，过滤出方向正确的 reply（排除 nudge 自循环）
       const replies = agentDeckMessageRepo
         .findRepliesByMessageId(args.message_id)
-        .filter(isLegitReply);
+        .filter((msg) => isLegitReply(msg, original));
       if (replies.length > 0) {
         resolved = true;
         cleanup();
         resolve(
           ok({
-            reply: replyProj(replies[0]),
+            reply: replyProj(replies[0]!),
             nudgesSent,
             timedOut: false,
           }),

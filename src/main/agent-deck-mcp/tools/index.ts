@@ -34,11 +34,13 @@ import {
   SHUTDOWN_SESSION_SCHEMA,
   SPAWN_SESSION_SCHEMA,
   WAIT_REPLY_SCHEMA,
+  CHECK_REPLY_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
 import { replyMessageHandler } from './handlers/reply';
 import { waitReplyHandler } from './handlers/wait';
+import { checkReplyHandler } from './handlers/check';
 import { listSessionsHandler } from './handlers/list';
 import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
@@ -112,6 +114,14 @@ export async function buildAgentDeckTools(
     { annotations: { readOnlyHint: false } }, // wait_reply 现在可能 enqueue nudge，不再纯 read-only
   );
 
+  const checkReply = tool(
+    AGENT_DECK_TOOL_NAMES.checkReply,
+    'Non-blocking poll for a reply to a specific message id. Returns immediately with { reply: { messageId, text, sentAt, fromSessionId } | null, timedOut: false } (timedOut is always false; field kept for shape parity with wait_reply). Unlike wait_reply, never blocks — caller polls at its own cadence and can interleave handling other user input. Use this when you have other work to do while a teammate is processing.',
+    CHECK_REPLY_SCHEMA,
+    async (args) => checkReplyHandler(args, makeCtx(args)),
+    { annotations: { readOnlyHint: true } },
+  );
+
   const listSessions = tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
     'List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages (use wait_reply for those).',
@@ -135,5 +145,5 @@ export async function buildAgentDeckTools(
     async (args) => shutdownSessionHandler(args, makeCtx(args)),
   );
 
-  return [spawnSession, sendMessage, replyMessage, waitReply, listSessions, getSession, shutdownSession];
+  return [spawnSession, sendMessage, replyMessage, waitReply, checkReply, listSessions, getSession, shutdownSession];
 }

@@ -157,6 +157,28 @@ export const WAIT_REPLY_SCHEMA = {
     ),
 };
 
+// plan mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.3：check_reply 短查询 tool —
+// wait_reply 的非阻塞配对版。lead 调 check_reply(message_id) 立即返回 { reply, timedOut: false }
+// 或 { reply: null, timedOut: false }，不挂 listener / 不起 nudge timer / 不阻塞 lead 处理
+// 其他 user input。lead 自己 poll 周期由其 reasoning 决定（与 wait_reply 互补）。
+export const CHECK_REPLY_SCHEMA = {
+  message_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe(
+      'Check whether a reply to this message id has arrived (returned by send_message / reply_message). Returns immediately with { reply: { messageId, text, sentAt, fromSessionId } | null, timedOut: false } — never blocks. Use this when you want to retain the ability to handle other user input while polling for a reply (vs wait_reply which blocks the lead session).',
+    ),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 必须显式传。',
+    ),
+};
+
 export const REPLY_MESSAGE_SCHEMA = {
   reply_to_message_id: z
     .string()
@@ -230,6 +252,7 @@ export const SHUTDOWN_SESSION_SCHEMA = {
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
 export type WaitReplyArgs = z.infer<z.ZodObject<typeof WAIT_REPLY_SCHEMA>>;
+export type CheckReplyArgs = z.infer<z.ZodObject<typeof CHECK_REPLY_SCHEMA>>;
 export type ReplyMessageArgs = z.infer<z.ZodObject<typeof REPLY_MESSAGE_SCHEMA>>;
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
