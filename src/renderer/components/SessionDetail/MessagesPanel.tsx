@@ -5,14 +5,17 @@ import { MarkdownText } from '@renderer/components/MarkdownText';
 import { statusBadge, relativeTime } from '../TeamDetail/helpers';
 
 /**
- * Phase 5 Step 5.2（plan mcp-bug-and-feature-batch-20260513 §决策 5）：SessionDetail 「跨会话
- * 消息」tab 兜底视图。J fix（§决策 1 方案 1）让 reply 不再 inject 给 sender SDK 后，lead 没
- * 主动 wait_reply / check_reply 时 reply 在活动流不可见 —— 此 panel 提供 DB 视角全量补回。
+ * SessionDetail 「跨会话消息」tab —— DB 视角的 send_message 历史全量视图。
+ *
+ * CHANGELOG_100 / plan mcp-tool-simplify-20260514：删 reply_message + wait_reply + check_reply
+ * 三个 tool + J fix 后，所有 reply 现在通过 send_message + reply_to_message_id 发送，
+ * 自动 dispatch 进 receiver SDK conversation flow（活动 tab 能看到）。本 panel 仍提供
+ * DB 视角全量历史 + 状态可见性（包括失败 / 重试 / 已投递时序），活动流补不到的角度。
  *
  * 视觉上区分本 session 角色：
  * - 本 session 是 sender（from = sid）：左侧 "→" 标记 + 高亮目标
  * - 本 session 是 receiver（to = sid）：左侧 "↩" 标记 + 高亮 sender
- * - reply chain：reply_to_message_id 非空时显示「↩ 回复 #abc12345…」
+ * - reply chain：reply_to_message_id 非空时显示「↩ #abc12345…」
  *
  * 数据源：listAgentDeckMessagesBySession（IPC 走 from_session_id OR to_session_id 查询）。
  * 监听 onAgentDeckMessageChanged 200ms 节流后重拉（不解析 payload from/to，整体重拉简单可靠）。
@@ -81,7 +84,7 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
   if (messages.length === 0) {
     return (
       <div className="px-2 py-3 text-[11px] text-deck-muted">
-        本会话暂无跨会话消息（send_message / reply_message）
+        本会话暂无跨会话消息（send_message）
       </div>
     );
   }

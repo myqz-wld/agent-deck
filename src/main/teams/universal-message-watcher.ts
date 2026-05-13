@@ -41,6 +41,7 @@ import {
 } from '@main/store/agent-deck-message-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { settingsStore } from '@main/store/settings-store';
+import { sanitizeWireFieldName } from '@shared/wire-prefix';
 import type {
   AgentDeckMessage,
   AgentDeckTeamMember,
@@ -200,7 +201,11 @@ function buildWireBody(
   // 让 teammate 拿到 senderSessionId 直接 send_message({session_id: sid, team_id, ...})
   // 回 lead，不必依赖 spawn 时注入的 lead context block / 不必 list_sessions 反查（双层冗余防
   // 协议漂移 / 长 prompt 截断）。
-  return `[from ${displayName} @ ${adapterId}][msg ${message.id}][sid ${message.fromSessionId}]\n${message.body}`;
+  // CHANGELOG_100 R2 fix (codex MED-1): sanitizeWireFieldName 处理 displayName / adapterId 里的
+  // `]` / `\n` / `[`，避免 user 设的 session.title (e.g. "feat: [test]") 破坏 wire prefix 解析。
+  const safeDisplayName = sanitizeWireFieldName(displayName);
+  const safeAdapterId = sanitizeWireFieldName(adapterId);
+  return `[from ${safeDisplayName} @ ${safeAdapterId}][msg ${message.id}][sid ${message.fromSessionId}]\n${message.body}`;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
