@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react';
+import { useMemo, useState, type JSX } from 'react';
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import { isImageTool } from '@shared/mcp-tools';
 import { StatusBadge } from './StatusBadge';
@@ -58,9 +58,11 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
   };
 
   // 「在干嘛」：当前活动详情（实时） + 最近一次总结（一句话）
-  // 双行结构：第一行是当下动作（来自最近 events，2-3 秒内会变），
-  // 第二行是较稳定的总结（5min/10events 才更新一次），缺失时回退到 cwd。
-  const liveLine = describeLiveActivity(session, recent);
+  // Phase 5 Step 5.4（plan mcp-bug-and-feature-batch-20260513 §决策 4 L1）：liveLines 最多
+  // 3 行（原 1 行）—— 让用户瞄一眼卡片就知道最近 3 个 tool 用了什么；useMemo 防 recent 引用
+  // 稳定时不重算（已知踩坑：L SessionCard 大改影响 SessionList 滚动性能）。
+  // 第 4 行是较稳定的总结（5min/10events 才更新一次），缺失时回退到 cwd。
+  const liveLines = useMemo(() => describeLiveActivity(session, recent), [session, recent]);
   const summaryLine = latestSummary?.content?.split('\n')[0]?.trim() || session.cwd || '无 cwd';
 
   // plan team-cohesion-fix-20260513 Phase A：teams[] 是 universal team backend 投影
@@ -132,12 +134,19 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
         )}
         <span className="text-[9px] text-deck-muted/60">{session.agentId}</span>
       </div>
-      {liveLine && (
-        <div
-          className="mt-1 truncate text-[10px] text-deck-text/85"
-          title={liveLine}
-        >
-          {liveLine}
+      {liveLines.length > 0 && (
+        <div className="mt-1 flex flex-col gap-0.5">
+          {liveLines.map((line, i) => (
+            <div
+              key={`${i}-${line}`}
+              className={`truncate text-[10px] ${
+                i === 0 ? 'text-deck-text/85' : 'text-deck-text/60'
+              }`}
+              title={line}
+            >
+              {line}
+            </div>
+          ))}
         </div>
       )}
       <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryLine}>
@@ -195,23 +204,32 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
 }
 
 /**
- * 把会话的实时状态浓缩成一行短文案。waiting 优先级最高，否则按事件 kind 翻译，
- * 尽量从 payload 里抠出文件名 / 工具名等可读信息。
+ * 把会话的实时状态浓缩成最多 3 行短文案。waiting 优先级最高（仅返回 1 行），否则按事件 kind
+ * 翻译，尽量从 payload 里抠出文件名 / 工具名等可读信息。
+ *
+ * Phase 5 Step 5.4（plan mcp-bug-and-feature-batch-20260513 §决策 4 L1）：返回数组（最多 3
+ * 行，去重连续同行）让用户瞄一眼卡片就知道最近 N 个 tool 用了什么 —— 比 1 行信息密度高 3x。
  */
 function describeLiveActivity(
   session: SessionRecord,
   recent: AgentEvent[],
-): string | null {
-  if (session.activity === 'waiting') return '⚠ 等待你的输入';
+): string[] {
+  if (session.activity === 'waiting') return ['⚠ 等待你的输入'];
   if (session.activity === 'finished' && recent[0]?.kind !== 'tool-use-start') {
-    return '✅ 一轮完成';
+    return ['✅ 一轮完成'];
   }
-  // 取最近 8 条里"最有信息量"的一条
-  for (const e of recent.slice(0, 8)) {
+  // 取最近 12 条里最多 3 个有信息量的行（去重连续同行避免「Edit foo.ts × 5」刷屏）
+  const lines: string[] = [];
+  let lastLine: string | null = null;
+  for (const e of recent.slice(0, 12)) {
     const line = formatEventLine(e);
-    if (line) return line;
+    if (!line) continue;
+    if (line === lastLine) continue;
+    lines.push(line);
+    lastLine = line;
+    if (lines.length >= 3) break;
   }
-  return null;
+  return lines;
 }
 
 function formatEventLine(e: AgentEvent): string | null {
@@ -261,8 +279,46 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
       return typeof o.pattern === 'string' ? o.pattern : null;
     case 'Grep':
       return typeof o.pattern === 'string' ? o.pattern : null;
-    case 'TodoWrite':
-      return null;
+    case 'TodoWrite': {
+      // Phase 5 Step 5.3（plan mcp-bug-and-feature-batch-20260513 §决策 4 L2）：显示进度
+      // [N/M done]，让用户瞄一眼卡片就知道任务推进度。原来 return null 完全丢信息。
+      // todos schema：{ content, status, activeForm }[]，status: 'pending' | 'in_progress' | 'completed'
+      const todos = Array.isArray(o.todos) ? (o.todos as Array<{ status?: string }>) : [];
+      if (todos.length === 0) return null;
+      const done = todos.filter((t) => t.status === 'completed').length;
+      const inProgress = todos.find((t) => t.status === 'in_progress');
+      const inProgressLabel =
+        inProgress && typeof (inProgress as { activeForm?: string }).activeForm === 'string'
+          ? ` · ${(inProgress as { activeForm: string }).activeForm.slice(0, 40)}${
+              (inProgress as { activeForm: string }).activeForm.length > 40 ? '…' : ''
+            }`
+          : '';
+      return `[${done}/${todos.length} done]${inProgressLabel}`;
+    }
+    case 'WebSearch': {
+      // Phase 5 Step 5.3（plan §决策 4 L2）：显示 query 摘要让用户知道在搜什么
+      const query = typeof o.query === 'string' ? o.query.replace(/\s+/g, ' ').trim() : '';
+      if (!query) return null;
+      return `"${query.slice(0, 50)}${query.length > 50 ? '…' : ''}"`;
+    }
+    case 'WebFetch': {
+      // Phase 5 Step 5.3（plan §决策 4 L2）：显示 url + 简短 prompt
+      const url = typeof o.url === 'string' ? o.url : '';
+      if (!url) return null;
+      // url 长度截 60 字（host 一般够看，太长 prompt 主导）
+      return url.slice(0, 60) + (url.length > 60 ? '…' : '');
+    }
+    case 'Task':
+    case 'Agent': {
+      // Phase 5 Step 5.3（plan §决策 4 L2）：spawn subagent 时显示 subagent_type 让用户知道
+      // 是 explore / general-purpose / agent-deck:reviewer-claude 等谁在干活
+      const sub = typeof o.subagent_type === 'string' ? o.subagent_type : '';
+      const desc = typeof o.description === 'string' ? o.description.replace(/\s+/g, ' ').trim() : '';
+      if (!sub && !desc) return null;
+      const descShort = desc.length > 40 ? desc.slice(0, 40) + '…' : desc;
+      if (sub && desc) return `${sub} · ${descShort}`;
+      return sub || descShort;
+    }
     case 'Skill': {
       // Skill input shape：{ skill: "<plugin:name>" | "<name>", args?: string }
       // 与 activity-feed/describe.ts 的 Skill case 同步；这两份重复实现是历史债（见 REVIEW_16）。
