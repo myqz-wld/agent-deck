@@ -490,6 +490,31 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     expect(msgRepo.listByTeam(teamId, { status: 'pending' })).toHaveLength(1);
   });
 
+  it('listBySession 按 from_session_id OR to_session_id + sentAt DESC（plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2）', async () => {
+    // sA → sB
+    const m1 = msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'a' });
+    await new Promise((r) => setTimeout(r, 5));
+    // sB → sC（sB 是 sender）
+    const m2 = msgRepo.insert({ teamId, fromSessionId: 'sB', toSessionId: 'sC', body: 'b' });
+    await new Promise((r) => setTimeout(r, 5));
+    // sC → sA（与 sB 完全无关）
+    msgRepo.insert({ teamId, fromSessionId: 'sC', toSessionId: 'sA', body: 'c' });
+
+    // sB 视角应拿 m1（被 sA 发到 sB）+ m2（sB 发出去）共 2 条；m3 与 sB 无关不返回
+    const sBView = msgRepo.listBySession('sB');
+    expect(sBView.map((m) => m.id)).toEqual([m2.id, m1.id]);
+
+    // status 过滤生效
+    msgRepo.claim(m1.id, Date.now());
+    msgRepo.markDelivered(m1.id, Date.now() + 100);
+    expect(msgRepo.listBySession('sB', { status: 'delivered' }).map((m) => m.id)).toEqual([m1.id]);
+    expect(msgRepo.listBySession('sB', { status: 'pending' }).map((m) => m.id)).toEqual([m2.id]);
+
+    // limit 透传 + 不存在 session 返回空
+    expect(msgRepo.listBySession('sB', { limit: 1 })).toHaveLength(1);
+    expect(msgRepo.listBySession('sZZZ-no-such')).toHaveLength(0);
+  });
+
   it('CASCADE：删 team 级联删 messages', () => {
     msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'hi' });
     expect(msgRepo.listByTeam(teamId)).toHaveLength(1);

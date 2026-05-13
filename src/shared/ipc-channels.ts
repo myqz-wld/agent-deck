@@ -95,6 +95,13 @@ export const IpcInvoke = {
   AgentDeckTeamSendMessage: 'agent-deck-team:send-message',
   /** 拉一个 team 的近期消息流（默认 100 条 ORDER BY sent_at DESC）。 */
   AgentDeckMessageListByTeam: 'agent-deck-message:list-by-team',
+  /**
+   * plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2：拉某 session 涉及的 cross-session
+   * messages（from_session_id = sid OR to_session_id = sid）。SessionDetail 「跨会话消息」tab
+   * 兜底视图：J fix 后 reply 不再 inject 给 sender SDK，此 channel 给 lead 一个 DB 视角
+   * 全量补回。args: { sessionId, limit?, offset? }，返回 AgentDeckMessage[]。
+   */
+  AgentDeckMessageListBySession: 'agent-deck-message:list-by-session',
   /** 显式 cancel 一条 pending / delivering message。args: { messageId, reason? }。 */
   AgentDeckMessageCancel: 'agent-deck-message:cancel',
   /** 拉指定 team 的 SQLite tasks（替代老 TaskListByTeam）。args: teamId。 */

@@ -10,6 +10,7 @@ import { SummaryView } from '../SummaryView';
 import { DiffViewer } from '../diff/DiffViewer';
 import { PermissionsView } from '../PermissionsView';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
+import { MessagesPanel } from './MessagesPanel';
 import {
   EMPTY_ASK_QUESTIONS,
   EMPTY_EXIT_PLAN_MODES,
@@ -22,7 +23,7 @@ import { CliFooter } from './CliFooter';
 import { ChangeTimeline } from './ChangeTimeline';
 import { decodeBlob } from './helpers';
 
-type Tab = 'activity' | 'diff' | 'summary' | 'permissions';
+type Tab = 'activity' | 'diff' | 'summary' | 'messages' | 'permissions';
 
 const EMPTY_EVENTS_FOR_TOAST: AgentEvent[] = [];
 
@@ -252,7 +253,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
       {/* 权限请求 banner 同样删掉，统一由活动流接管。 */}
 
       <nav className="flex shrink-0 gap-1 border-b border-deck-border/60 px-2 py-1">
-        {(['activity', 'diff', 'summary', 'permissions'] as Tab[]).map((t) => (
+        {(['activity', 'diff', 'summary', 'messages', 'permissions'] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -267,7 +268,9 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
                 ? '改动'
                 : t === 'summary'
                   ? '总结'
-                  : '权限'}
+                  : t === 'messages'
+                    ? '跨会话'
+                    : '权限'}
           </button>
         ))}
       </nav>
@@ -277,6 +280,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} />
         )}
         {tab === 'summary' && <SummaryView sessionId={session.id} />}
+        {tab === 'messages' && <MessagesPanel sessionId={session.id} />}
         {tab === 'permissions' && <PermissionsView cwd={session.cwd} />}
         {tab === 'diff' && (
           <div className="flex h-full flex-col gap-2">

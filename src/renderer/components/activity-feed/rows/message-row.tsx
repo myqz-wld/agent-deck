@@ -1,5 +1,6 @@
 import { useState, type JSX } from 'react';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import { parseWirePrefix } from '@shared/wire-prefix';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { UploadedImageThumb } from '@renderer/components/UploadedImageThumb';
 import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shared';
@@ -32,7 +33,14 @@ export function MessageBubble({
     attachments?: UploadedAttachmentRef[];
   };
   const role = p.role === 'user' ? 'user' : 'assistant';
-  const text = (p.text ?? '').trim();
+  const rawText = p.text ?? '';
+  // Phase 5 Step 5.1（plan mcp-bug-and-feature-batch-20260513 §决策 5 方案 B）：解析
+  // wire prefix（cross-session teammate message 顶部 `[from X @ Y][msg Z]\n`）—— 仅 user
+  // role 才可能含 prefix（teammate 收 lead send_message → adapter.receiveTeammateMessage
+  // → sendMessage → emit role='user' message event）。chip + 隐藏 prefix 让用户一眼区分
+  // 「自己输入」vs「跨会话注入」。
+  const wirePrefix = role === 'user' ? parseWirePrefix(rawText) : null;
+  const text = (wirePrefix?.body ?? rawText).trim();
   const isError = !!p.error;
   const isUser = role === 'user';
   const attachments = isUser && Array.isArray(p.attachments) ? p.attachments : null;
@@ -67,6 +75,20 @@ export function MessageBubble({
           }`}
         >
           <span>{isUser ? '你' : otherName}</span>
+          {wirePrefix && (
+            // Phase 5 Step 5.1：cross-session teammate message chip。区分「自己输入」vs
+            // 「另一个 SDK session 注入的 message」—— 配合 hidden wire prefix（body-only render），
+            // 避免用户疑惑 "为啥 user message 里有 [from ... ] 前缀"。
+            // hover title 显示完整 adapter + msgId，body 区只显示 displayName 节省横向空间。
+            <span
+              className="ml-0.5 inline-flex max-w-[12rem] items-center gap-0.5 truncate rounded bg-cyan-500/15 px-1 py-0.5 text-[9px] font-medium text-cyan-300"
+              title={`来自 ${wirePrefix.from} @ ${wirePrefix.adapter}${
+                wirePrefix.msgId ? ` · msg ${wirePrefix.msgId}` : ''
+              }`}
+            >
+              ↩ {wirePrefix.from}
+            </span>
+          )}
           <span className="text-deck-muted/50">·</span>
           <span className="font-mono tabular-nums text-deck-muted/50">{ts}</span>
           {!isError && text.length > 0 && (
