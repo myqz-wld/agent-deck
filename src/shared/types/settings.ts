@@ -57,13 +57,23 @@ export interface AppSettings {
   permissionTimeoutMs: number;
   alwaysOnTop: boolean;
   /**
-   * pin（始终置顶）时是否同步关闭系统 vibrancy（macOS 「under-window」毛玻璃）让 CSS 主导通透。
-   * - true（默认，与历史行为一致）：pin 时去掉浅灰玻璃基底，肉眼能透到下层桌面 / 其它 app；
-   *   配合 startInvalidateLoop + setBackgroundThrottling(false) 持续刷新下层像素。
-   * - false：pin 时仍保留 'under-window' 实玻璃，看不到下层。
+   * 窗口是否启用透明效果（macOS 关闭 vibrancy 让 CSS frosted-frame 主导通透感，看到下层桌面）。
+   *
+   * Phase 5 Step 5.6（plan mcp-bug-and-feature-batch-20260513）：从 `transparentWhenPinned`
+   * 重命名 + 解耦：原字段语义「pin 时是否同步关闭 vibrancy」让透明绑定 pin，独立快捷键
+   * `Cmd+Alt+T`（CHANGELOG_75）后绑定不再合理 —— 现在透明独立于 alwaysOnTop。
+   *
+   * - true（默认，与原 `transparentWhenPinned: true` 默认一致）：vibrancy null + CSS
+   *   `data-transparent='true'`，透到下层桌面 / 其它 app；配合 startInvalidateLoop +
+   *   setBackgroundThrottling(false) 持续刷新下层像素。
+   * - false：vibrancy `under-window` 实玻璃，看不到下层。
+   *
    * 改动即时生效（不需要重启 / 重建窗口）。
+   *
+   * 与 `alwaysOnTop` 独立：四种组合都合法 —— 「pin + 透明」（最常用）/「pin + 不透明」/
+   * 「不 pin + 透明」（窗口不在最前，但仍能透到桌面）/「不 pin + 不透明」（普通窗口）。
    */
-  transparentWhenPinned: boolean;
+  windowTransparent: boolean;
   startOnLogin: boolean;
   /**
    * 历史会话自动清理保留天数（基于 lastEventAt）。
@@ -325,7 +335,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryTimeoutMs: 60 * 1000,
   permissionTimeoutMs: 5 * 60 * 1000,
   alwaysOnTop: true,
-  transparentWhenPinned: true,
+  windowTransparent: true,
   startOnLogin: false,
   historyRetentionDays: 30,
   codexCliPath: null,

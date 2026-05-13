@@ -23,11 +23,12 @@ export class FloatingWindow {
     width: DEFAULT_WIDTH,
     height: DEFAULT_HEIGHT,
   };
-  /** 是否在 pin 时同步关闭系统 vibrancy 让 CSS 主导通透。
-   *  由 main/index.ts 启动时从 settings 读初始值传进来；之后由 setTransparentWhenPinned 改动。 */
-  private transparentWhenPinned = true;
-  /** 当前 alwaysOnTop 状态，setTransparentWhenPinned 实时切换 vibrancy 时要知道现在 pin 没。 */
-  private alwaysOnTopCurrent = true;
+  /** 透明视觉开关（Phase 5 Step 5.6 plan mcp-bug-and-feature-batch-20260513）：从原
+   *  `transparentWhenPinned` 重命名 + 解耦 alwaysOnTop。true = vibrancy null + CSS
+   *  frosted 主导通透；false = vibrancy under-window 实玻璃。
+   *  由 main/index.ts 启动时从 settings.windowTransparent 读初始值传进来；之后由
+   *  setWindowTransparent 改动。**不再依赖 alwaysOnTopCurrent**：透明独立切换。 */
+  private windowTransparent = true;
 
   create(): BrowserWindow {
     const display = screen.getPrimaryDisplay().workArea;
@@ -112,13 +113,13 @@ export class FloatingWindow {
 
   setAlwaysOnTop(value: boolean): void {
     if (!this.win) return;
-    this.alwaysOnTopCurrent = value;
     this.win.setAlwaysOnTop(value, value ? 'floating' : 'normal');
-    // macOS：pin 模式下默认禁用 vibrancy（去掉浅灰基底），让 CSS 主导通透感；
-    // 解除 pin 时恢复 under-window vibrancy，得到清晰的实玻璃。
-    // transparentWhenPinned=false 时，pin 也保留 under-window vibrancy（用户不希望透）。
+    // Phase 5 Step 5.6（plan mcp-bug-and-feature-batch-20260513）：透明 / 置顶解耦后，
+    // vibrancy 仅由 windowTransparent 决定，不再 && alwaysOnTop。这样四种组合都合法：
+    //   pin + 透明（vibrancy null + frosted）/ pin + 不透明（vibrancy under-window）/
+    //   不 pin + 透明（仍 vibrancy null）/ 不 pin + 不透明（vibrancy under-window）。
     if (process.platform === 'darwin') {
-      this.win.setVibrancy(value && this.transparentWhenPinned ? null : 'under-window');
+      this.win.setVibrancy(this.windowTransparent ? null : 'under-window');
     }
     // pin + macOS：定时强制 webContents.invalidate() 触发 NSWindow 重新与桌面合成，
     // 顺带把下层 app 最新像素拿进来。
@@ -187,14 +188,15 @@ export class FloatingWindow {
     }
   }
 
-  /** 用户在设置里切「置顶时透明」开关时调；当前若已 pin 立即重新应用 vibrancy。
-   *  非 pin 状态下只更新内部 state，下次 setAlwaysOnTop(true) 时按新值生效。 */
-  setTransparentWhenPinned(value: boolean): void {
-    this.transparentWhenPinned = value;
+  /** 用户在设置里 / 快捷键切「窗口透明」开关时调；立即重新应用 vibrancy（不依赖 pin 状态）。
+   *  Phase 5 Step 5.6（plan mcp-bug-and-feature-batch-20260513）：从原 setTransparentWhenPinned
+   *  重命名 + 解耦 alwaysOnTop。透明独立于 pin —— 不 pin 也能切换透明视觉，让用户选择. */
+  setWindowTransparent(value: boolean): void {
+    this.windowTransparent = value;
     if (!this.win || process.platform !== 'darwin') return;
-    if (this.alwaysOnTopCurrent) {
-      this.win.setVibrancy(value ? null : 'under-window');
-    }
+    // 解耦后无论 pin 不 pin 都立即应用 vibrancy 切换。startInvalidateLoop 是 pin 时启的
+    // 100ms 重绘循环，与透明切换正交（不需在此动）。
+    this.win.setVibrancy(value ? null : 'under-window');
   }
 
   toggleCompact(): boolean {

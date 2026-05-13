@@ -25,6 +25,10 @@ const REMOVED_KEYS: readonly string[] = [
   // CHANGELOG_68：R3.E12 一次性「即将硬切」弹窗 + LegacyTeamExportSection 整体下线
   // —— PR-B 硬切已上线 + R4 已实施，备份窗口期已过，相关 IPC / dialog / settings 字段全废
   'r3LegacyExportNoticeAcked',
+  // Phase 5 Step 5.6（plan mcp-bug-and-feature-batch-20260513）：透明 / 置顶解耦
+  // 重命名为 windowTransparent + 解耦语义。一次性 migration 在 ensure() 内做（旧值 →
+  // 新字段），随后 REMOVED_KEYS 自动清孤儿字段，老用户偏好不丢。
+  'transparentWhenPinned',
 ];
 
 let store: (Store<AppSettings> & StoreApi<AppSettings>) | null = null;
@@ -39,6 +43,16 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
     // 清理已弃用字段（idempotent：再次启动时即便没有这些键也无副作用）
     const raw = store.store as unknown as Record<string, unknown>;
     const looseDelete = store as unknown as { delete: (k: string) => void };
+    // Phase 5 Step 5.6 一次性 migration：transparentWhenPinned → windowTransparent。
+    // 必须在 REMOVED_KEYS delete 循环之前做（delete 后旧值就拿不到了）。仅在用户从未
+    // 设置过新字段且持有旧字段值时迁移；否则用户已经主动设了 windowTransparent 不动。
+    if ('transparentWhenPinned' in raw && !('windowTransparent' in raw)) {
+      const legacy = raw['transparentWhenPinned'];
+      if (typeof legacy === 'boolean') {
+        store.set('windowTransparent', legacy);
+        console.log(`[settings] migrated transparentWhenPinned=${legacy} → windowTransparent`);
+      }
+    }
     for (const key of REMOVED_KEYS) {
       if (key in raw) {
         looseDelete.delete(key);

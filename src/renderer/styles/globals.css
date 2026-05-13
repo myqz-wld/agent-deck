@@ -47,8 +47,9 @@
 
 /* 透明态：主进程会同步关掉 macOS vibrancy（去掉浅灰基底），
    CSS 层用极透明深色 + 弱模糊，达到"看穿到下方应用"的效果。
-   仅当 (pinned && transparentWhenPinned) 时由 App.tsx 切到 data-transparent='true'，
-   用户关掉「pin 时透明」时 pin 与非 pin 都走默认深色玻璃，肉眼颜色一致（CHANGELOG_30）。 */
+   Phase 5 Step 5.6（plan mcp-bug-and-feature-batch-20260513）解耦后：由 App.tsx 直接按
+   windowTransparent 单字段切到 data-transparent='true'，不再 && pinned —— 透明独立于 pin
+   状态（CHANGELOG_30 历史 (pinned && transparentWhenPinned) 双条件已废）。 */
 .frosted-frame[data-transparent='true'] {
   background: rgba(18, 18, 24, 0.2);
   backdrop-filter: blur(18px) saturate(160%);
