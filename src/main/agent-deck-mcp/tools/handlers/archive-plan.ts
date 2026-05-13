@@ -42,7 +42,7 @@ export interface ArchivePlanHandlerDeps {
   implDeps?: ArchivePlanDeps;
 }
 
-/** 与 start-next-session.ts 同款：从 caller session id 反查 cwd 构造 implDeps 子集。 */
+/** 与 hand-off-session.ts 同款：从 caller session id 反查 cwd 构造 implDeps 子集。 */
 function resolveCallerCwdDeps(callerSessionId: string): ArchivePlanDeps {
   if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return {};
   const row = sessionRepo.get(callerSessionId);
@@ -76,7 +76,7 @@ export async function archivePlanHandler(
   const callerCheck = validateExternalCaller(caller);
   if (callerCheck) return callerCheck;
 
-  // caller cwd 注入（H5 修复）：详 mergeCallerCwd / start-next-session 同款实现
+  // caller cwd 注入（H5 修复）：详 mergeCallerCwd / hand-off-session 同款实现
   const mergedImplDeps = mergeCallerCwd(handlerDeps?.implDeps, caller.callerSessionId);
 
   const result = await archivePlanImpl(

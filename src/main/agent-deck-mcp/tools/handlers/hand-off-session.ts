@@ -1,16 +1,18 @@
 /**
- * start_next_session handler 入口（plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.2；
- * CHANGELOG_97 改 baton 语义：default 不加 team + 自动归档 caller）。
+ * hand_off_session handler 入口（CHANGELOG_99 改名前 `start_next_session`；
+ * plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.2；
+ * CHANGELOG_97 改 baton 语义：default 不加 team + 自动归档 caller；
+ * CHANGELOG_99 双模式改造：plan_id 变 optional，无 plan_id 时走 generic 模式）。
  *
- * 薄 wrapper：deny external caller + validateExternalCaller + 调 startNextSessionImpl
+ * 薄 wrapper：deny external caller + validateExternalCaller + 调 handOffSessionImpl
  * 拿 resolved 上下文（planFilePath / worktreePath / coldStartPrompt） + 组装 spawn_session
  * args + 调 spawnSessionHandler 完成实际 spawn + **归档 caller** + 包 K2 metadata + spawn 字段透传。
  *
- * 业务行为完全在 start-next-session-impl.ts（plan resolve / frontmatter parse / status 校验
+ * 业务行为完全在 hand-off-session-impl.ts（plan resolve / frontmatter parse / status 校验
  * / prompt 构造），spawn 行为完全复用 spawnSessionHandler（与 spawn_session tool 同款防御链
  * + permission_mode / sandbox 继承）。
  *
- * **Deny external caller**（types.ts: EXTERNAL_CALLER_ALLOWED.start_next_session = false）：
+ * **Deny external caller**（types.ts: EXTERNAL_CALLER_ALLOWED.hand_off_session = false）：
  * 起 SDK session 的 fork bomb 风险（同 spawn_session / archive_plan），绝不允许 stdio
  * external client 调用。
  *
@@ -43,27 +45,27 @@ import {
   type HandlerContext,
   type HandlerResult,
 } from '../helpers';
-import type { StartNextSessionArgs, SpawnSessionArgs } from '../schemas';
+import type { HandOffSessionArgs, SpawnSessionArgs } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import {
-  startNextSessionImpl,
-  _isStartNextSessionError,
-  type StartNextSessionDeps,
-} from './start-next-session-impl';
+  handOffSessionImpl,
+  _isHandOffSessionError,
+  type HandOffSessionDeps,
+} from './hand-off-session-impl';
 import { spawnSessionHandler } from './spawn';
 
 /**
  * 测试 inject seam：默认调真 spawnSessionHandler / sessionManager.archive；test 通过
  * depsOverride 注入 mock 函数避免起真 SDK session / 真碰 DB。impl deps 也透传给
- * startNextSessionImpl。
+ * handOffSessionImpl。
  */
-export interface StartNextSessionHandlerDeps {
+export interface HandOffSessionHandlerDeps {
   spawnSession?: typeof spawnSessionHandler;
   /** CHANGELOG_97：archive caller 的 test seam，让单测无需 mock 整个 sessionManager */
   archiveSession?: (sessionId: string) => Promise<void>;
-  implDeps?: StartNextSessionDeps;
+  implDeps?: HandOffSessionDeps;
 }
 
 /**
@@ -74,7 +76,7 @@ export interface StartNextSessionHandlerDeps {
  * 判定 worktree 都失败。handler 层必须从 sessionRepo 反查 caller session 的真实 cwd
  * 注入。external sentinel / 反查不到时返回空对象，impl 仍走 DEFAULT_DEPS.cwd 兜底。
  */
-function resolveCallerCwdDeps(callerSessionId: string): StartNextSessionDeps {
+function resolveCallerCwdDeps(callerSessionId: string): HandOffSessionDeps {
   if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return {};
   const row = sessionRepo.get(callerSessionId);
   if (!row?.cwd) return {};
@@ -94,22 +96,22 @@ function resolveCallerCwdDeps(callerSessionId: string): StartNextSessionDeps {
  * **后面** spread 覆盖任何 caller implDeps 里 cwd: undefined 的边界 case。
  */
 function mergeCallerCwd(
-  callerImplDeps: StartNextSessionDeps | undefined,
+  callerImplDeps: HandOffSessionDeps | undefined,
   callerSessionId: string,
-): StartNextSessionDeps | undefined {
+): HandOffSessionDeps | undefined {
   if (callerImplDeps?.cwd) return callerImplDeps;
   const callerCwdInjection = resolveCallerCwdDeps(callerSessionId);
   if (!callerCwdInjection.cwd) return callerImplDeps;
   return { ...callerImplDeps, ...callerCwdInjection };
 }
 
-export async function startNextSessionHandler(
-  args: StartNextSessionArgs,
+export async function handOffSessionHandler(
+  args: HandOffSessionArgs,
   ctx: HandlerContext,
-  handlerDeps?: StartNextSessionHandlerDeps,
+  handlerDeps?: HandOffSessionHandlerDeps,
 ): Promise<HandlerResult> {
   const { caller } = ctx;
-  const denial = denyExternalIfNotAllowed('start_next_session', caller);
+  const denial = denyExternalIfNotAllowed('hand_off_session', caller);
   if (denial) return denial;
   const callerCheck = validateExternalCaller(caller);
   if (callerCheck) return callerCheck;
@@ -122,7 +124,7 @@ export async function startNextSessionHandler(
   // git repo」（即使 caller 实际在 worktree / git repo 内）。
   // 优先级：caller 显式 implDeps.cwd > sessionRepo 反查 > impl DEFAULT_DEPS（process.cwd）
   const mergedImplDeps = mergeCallerCwd(handlerDeps?.implDeps, caller.callerSessionId);
-  const resolved = await startNextSessionImpl(
+  const resolved = await handOffSessionImpl(
     {
       planId: args.plan_id,
       phaseLabel: args.phase_label,
@@ -130,17 +132,27 @@ export async function startNextSessionHandler(
     },
     mergedImplDeps,
   );
-  if (_isStartNextSessionError(resolved)) {
+  if (_isHandOffSessionError(resolved)) {
     return err(resolved.error, resolved.hint);
   }
 
-  // 2. 组装 spawn_session args：cwd 默认 worktree_path，其他字段透传 caller 显式传的
-  // （permission_mode / adapter）。CHANGELOG_97：team_name 不再默认设为 plan_id —— baton
-  // 单向交接语义不需要 lead/teammate 关系；caller 显式传 team_name 时仍透传给 spawn 启用
-  // 通信关系（罕见使用）。
+  // 2. 组装 spawn_session args：cwd 默认 mainRepo（CHANGELOG_99 cwd 失效根治），其他字段
+  // 透传 caller 显式传的（permission_mode / adapter）。
+  //
+  // **default cwd = mainRepo 而非 worktreePath**：让新 session 行为与 EnterWorktree 模式
+  // 对齐 — sessionRepo.cwd 永远是 main repo（archive_plan / git worktree remove 删 worktree
+  // 后 cwd 仍 valid，不会撞「Path does not exist」弯绕错误链）。新 session 按 user CLAUDE.md
+  // §Step 3 cold-start 流程自己 EnterWorktree(path: worktreePath) 进 worktree 干活。
+  //
+  // 双层 fallback：caller 显式 args.cwd > resolved.mainRepo > resolved.worktreePath（兜底，
+  // 极端场景如 caller cwd 不是 git repo + worktreePath 不在约定路径 `.claude/worktrees/`
+  // 下时退化到当前行为，保证不崩）。
+  //
+  // CHANGELOG_97：team_name 不再默认设为 plan_id —— baton 单向交接语义不需要 lead/teammate
+  // 关系；caller 显式传 team_name 时仍透传给 spawn 启用通信关系（罕见使用）。
   const spawnArgs: SpawnSessionArgs = {
     adapter: args.adapter ?? 'claude-code',
-    cwd: args.cwd ?? resolved.worktreePath,
+    cwd: args.cwd ?? resolved.mainRepo ?? resolved.worktreePath,
     prompt: resolved.coldStartPrompt,
     ...(args.team_name !== undefined ? { team_name: args.team_name } : {}),
     ...(args.permission_mode !== undefined ? { permission_mode: args.permission_mode } : {}),
@@ -156,7 +168,7 @@ export async function startNextSessionHandler(
   const spawnFn = handlerDeps?.spawnSession ?? spawnSessionHandler;
   const spawnResult = await spawnFn(spawnArgs, ctx, { batonMode: true });
   if (spawnResult.isError) {
-    // 透传 spawn 的 error 不再二次包装（避免「start_next_session error: spawn error: ...」嵌套）
+    // 透传 spawn 的 error 不再二次包装（避免「hand_off_session error: spawn error: ...」嵌套）
     return spawnResult;
   }
 
@@ -185,7 +197,7 @@ export async function startNextSessionHandler(
     if (!callerRow) {
       archived = 'failed';
       console.warn(
-        `[mcp start_next_session] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态)`,
+        `[mcp hand_off_session] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态)`,
       );
     } else {
       const archiveFn =
@@ -196,7 +208,7 @@ export async function startNextSessionHandler(
       } catch (e) {
         archived = 'failed';
         console.warn(
-          `[mcp start_next_session] archive caller ${caller.callerSessionId} failed:`,
+          `[mcp hand_off_session] archive caller ${caller.callerSessionId} failed:`,
           e,
         );
       }

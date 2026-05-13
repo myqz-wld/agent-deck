@@ -1,9 +1,9 @@
 /**
- * start_next_session handler 的实现层 — plan 文件路径 resolve + frontmatter parse +
+ * hand_off_session handler 的实现层 — plan 文件路径 resolve + frontmatter parse +
  * status 校验 + cold-start prompt 构造（plan mcp-bug-and-feature-batch-20260513
  * Phase 4b Step 4b.2）。
  *
- * **抽 impl 子模块的动机**：与 archive-plan-impl 同款 — handler 入口（start-next-session.ts）
+ * **抽 impl 子模块的动机**：与 archive-plan-impl 同款 — handler 入口（hand-off-session.ts）
  * 只做 deny external + caller 反查 + 调本 impl 拿到 resolved 上下文 + 调 spawnSessionHandler
  * 完成 spawn + 包 ok/err。fs / git / frontmatter 解析逻辑在这里，可单测时 inject deps mock
  * 走纯 in-memory，不需 vi.mock node 内置。
@@ -34,7 +34,7 @@ import { parseFrontmatter } from '@main/utils/frontmatter';
 
 const execFileAsync = promisify(execFile);
 
-export interface StartNextSessionInput {
+export interface HandOffSessionInput {
   planId: string;
   /** 可选 phase_label，含值时附 prompt 后缀 `（Phase: <label>）` */
   phaseLabel?: string;
@@ -46,7 +46,7 @@ export interface StartNextSessionInput {
  * impl 解析后返回的「准备好可以 spawn」上下文。handler 拿这个 + 用户传的
  * adapter/team_name/permission_mode/cwd_override 等组装 spawn_session args。
  */
-export interface StartNextSessionResolved {
+export interface HandOffSessionResolved {
   /** 实际命中的 plan 文件绝对路径（默认 fallback / 显式 override 都解析到这里） */
   planFilePath: string;
   /** plan frontmatter 里的 worktree_path（绝对路径） */
@@ -55,11 +55,26 @@ export interface StartNextSessionResolved {
   coldStartPrompt: string;
   /** plan frontmatter 里的 base_branch（如果有，给 caller 透传 archive_plan 用） */
   baseBranch: string | null;
+  /**
+   * caller cwd 反查 git common-dir 得到的 main repo 绝对路径，**handler 用作 K2 spawn 默认 cwd**
+   * （CHANGELOG_99 cwd 失效根治）。优先级：
+   * 1. caller cwd → `git rev-parse --git-common-dir` 反查（impl 现有机制）
+   * 2. 反查失败 → 从 worktreePath 启发式反推 `^(.+)/\.claude/worktrees/[^/]+/?$` 取捕获组 1
+   * 3. 全失败 → null（handler 兜底降级到 worktreePath 保持原行为）
+   *
+   * 为什么需要这个？历史上 K2 default cwd = worktreePath 让新 session 的 sessionRepo.cwd
+   * 一开始就是 worktree 路径；archive_plan / git worktree remove 删 worktree 后 sessionRepo.cwd
+   * 指向已删目录，recoverer 重启 SDK 撞「Path does not exist」弯绕错误链。改 default = mainRepo
+   * 后新 session 行为与 EnterWorktree 模式对齐：sessionRepo.cwd 永远是 main repo，process.cwd
+   * 经 cold-start prompt 的 EnterWorktree(path: ...) 进 worktree 干活；worktree 删了 sessionRepo
+   * cwd 仍 valid。
+   */
+  mainRepo: string | null;
 }
 
-export type StartNextSessionError = { error: string; hint?: string };
+export type HandOffSessionError = { error: string; hint?: string };
 
-export interface StartNextSessionDeps {
+export interface HandOffSessionDeps {
   /** 跑 git 子命令；返回 stdout（trim）。失败抛 error。仅用于反查 main-repo。 */
   runGit?: (args: string[], cwd: string) => Promise<string>;
   /** 读文件 utf8。失败抛（典型 ENOENT）。 */
@@ -72,7 +87,7 @@ export interface StartNextSessionDeps {
   homedir?: () => string;
 }
 
-const DEFAULT_DEPS: Required<StartNextSessionDeps> = {
+const DEFAULT_DEPS: Required<HandOffSessionDeps> = {
   runGit: async (args, cwd) => {
     const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: 1024 * 1024 });
     return stdout.toString().trim();
@@ -91,15 +106,32 @@ const DEFAULT_DEPS: Required<StartNextSessionDeps> = {
   homedir: () => os.homedir(),
 };
 
-function isError(x: StartNextSessionResolved | StartNextSessionError): x is StartNextSessionError {
-  return (x as StartNextSessionError).error !== undefined;
+function isError(x: HandOffSessionResolved | HandOffSessionError): x is HandOffSessionError {
+  return (x as HandOffSessionError).error !== undefined;
 }
 
-export async function startNextSessionImpl(
-  input: StartNextSessionInput,
-  depsOverride?: StartNextSessionDeps,
-): Promise<StartNextSessionResolved | StartNextSessionError> {
-  const deps: Required<StartNextSessionDeps> = { ...DEFAULT_DEPS, ...depsOverride };
+export async function handOffSessionImpl(
+  input: HandOffSessionInput,
+  depsOverride?: HandOffSessionDeps,
+): Promise<HandOffSessionResolved | HandOffSessionError> {
+  const deps: Required<HandOffSessionDeps> = { ...DEFAULT_DEPS, ...depsOverride };
+
+  // 0. 反查 mainRepo（CHANGELOG_99 cwd 失效根治）：单次 git rev-parse，给 plan 文件 fallback
+  // + handler default cwd 共享。优先级：caller cwd 反查 → 校验完 worktreePath 后启发式反推 → null。
+  // 不在主流程末尾再重复 runGit（保持 git 子命令调用次数稳定，避免 test 断言炸）。
+  const callerCwd = deps.cwd();
+  let mainRepo: string | null = null;
+  try {
+    const gitCommonDir = await deps.runGit(['rev-parse', '--git-common-dir'], callerCwd);
+    const commonDirAbs = path.isAbsolute(gitCommonDir)
+      ? gitCommonDir
+      : path.resolve(callerCwd, gitCommonDir);
+    mainRepo = path.dirname(commonDirAbs);
+  } catch {
+    // caller cwd 不是 git repo（如 Electron main process cwd = `/`）→ 留 null，等校验完
+    // worktreePath 再启发式反推
+    mainRepo = null;
+  }
 
   // 1. 解析 plan 文件路径：显式 > main-repo 反查 > user-global
   let planFilePath: string;
@@ -111,20 +143,6 @@ export async function startNextSessionImpl(
     }
     planFilePath = input.planFilePathOverride;
   } else {
-    // 尝试反查 main-repo（caller cwd 在 worktree / main-repo 都能拿到 git common dir）
-    const callerCwd = deps.cwd();
-    let mainRepo: string | null = null;
-    try {
-      const gitCommonDir = await deps.runGit(['rev-parse', '--git-common-dir'], callerCwd);
-      const commonDirAbs = path.isAbsolute(gitCommonDir)
-        ? gitCommonDir
-        : path.resolve(callerCwd, gitCommonDir);
-      mainRepo = path.dirname(commonDirAbs);
-    } catch {
-      // caller cwd 不是 git repo（如桌面 / 临时目录）— 跳过 main-repo 层 fallback
-      mainRepo = null;
-    }
-
     const projectLocal = mainRepo
       ? path.join(mainRepo, '.claude', 'plans', `${input.planId}.md`)
       : null;
@@ -165,7 +183,7 @@ export async function startNextSessionImpl(
   if (!worktreePath || worktreePath.length === 0) {
     return {
       error: `plan frontmatter missing required field: worktree_path`,
-      hint: `start_next_session needs worktree_path to set cwd for the new SDK session. Edit ${planFilePath} frontmatter to include \`worktree_path: <abs-path>\`.`,
+      hint: `hand_off_session (plan-driven mode) needs worktree_path to set cwd for the new SDK session. Edit ${planFilePath} frontmatter to include \`worktree_path: <abs-path>\`.`,
     };
   }
   if (!path.isAbsolute(worktreePath)) {
@@ -180,7 +198,7 @@ export async function startNextSessionImpl(
     if (status === 'completed') {
       return {
         error: `plan status is "completed" — cannot start next session for archived plan`,
-        hint: `Use start_next_session only for in-progress plans. If you need to resume work on this plan, manually edit frontmatter status back to in_progress.`,
+        hint: `Use hand_off_session (plan-driven mode) only for in-progress plans. If you need to resume work on this plan, manually edit frontmatter status back to in_progress.`,
       };
     }
     if (status === 'abandoned') {
@@ -191,11 +209,21 @@ export async function startNextSessionImpl(
     }
     return {
       error: `plan status must be "in_progress" but got "${status ?? '<missing>'}"`,
-      hint: `Edit ${planFilePath} frontmatter to set \`status: in_progress\` before calling start_next_session.`,
+      hint: `Edit ${planFilePath} frontmatter to set \`status: in_progress\` before calling hand_off_session (plan-driven mode).`,
     };
   }
 
-  // 5. 构造 cold-start prompt
+  // 5. mainRepo 启发式 fallback（CHANGELOG_99）：caller cwd 反查 git common-dir 失败时
+  // （如 Electron main process cwd = `/`），从 worktreePath 启发式反推。
+  // 约定路径：`<main-repo>/.claude/worktrees/<plan-id>` → 取 .claude/worktrees/ 之前部分。
+  // 用户用了非约定路径时启发式 miss → 仍 null → handler 兜底降级到 worktreePath（保持
+  // 原行为，保证不崩）。
+  if (mainRepo === null) {
+    const m = worktreePath.match(/^(.+)\/\.claude\/worktrees\/[^/]+\/?$/);
+    if (m) mainRepo = m[1];
+  }
+
+  // 6. 构造 cold-start prompt
   const baseBranch = fm.base_branch ?? null;
   const baseLine = `按 ${planFilePath} 接力`;
   const coldStartPrompt = input.phaseLabel
@@ -207,8 +235,9 @@ export async function startNextSessionImpl(
     worktreePath,
     coldStartPrompt,
     baseBranch,
+    mainRepo,
   };
 }
 
 // 测试 helper export
-export { isError as _isStartNextSessionError };
+export { isError as _isHandOffSessionError };

@@ -16,7 +16,7 @@
  *   - tools/helpers.ts (~190 行 ok/err/projectSession/validateExternalCaller/...)
  *   - tools/handlers/{spawn,send,reply,wait,check,list,get,shutdown}.ts (各 ~50-260 行)
  *   - tools/handlers/archive-plan{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4a)
- *   - tools/handlers/start-next-session{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4b)
+ *   - tools/handlers/hand-off-session{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4b)
  */
 
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
@@ -38,7 +38,7 @@ import {
   WAIT_REPLY_SCHEMA,
   CHECK_REPLY_SCHEMA,
   ARCHIVE_PLAN_SCHEMA,
-  START_NEXT_SESSION_SCHEMA,
+  HAND_OFF_SESSION_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
@@ -49,7 +49,7 @@ import { listSessionsHandler } from './handlers/list';
 import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
 import { archivePlanHandler } from './handlers/archive-plan';
-import { startNextSessionHandler } from './handlers/start-next-session';
+import { handOffSessionHandler } from './handlers/hand-off-session';
 
 // helpers 子集 re-export，保持老 caller 兼容（外部对 makeCallerContext / denyExternalIfNotAllowed
 // 的 import 路径 `from './tools'` 仍能 resolve）。
@@ -158,11 +158,11 @@ export async function buildAgentDeckTools(
     async (args) => archivePlanHandler(args, makeCtx(args)),
   );
 
-  const startNextSession = tool(
-    AGENT_DECK_TOOL_NAMES.startNextSession,
-    'Start the next plan-driven SDK session for cross-session hand-off (K2 hand-off automation): read plan frontmatter to derive worktree_path, validate status=in_progress, then spawn a new session with cwd=worktree_path and an auto-generated cold-start prompt "按 <plan-abs-path> 接力" (optional phase_label appended). **Baton semantic (CHANGELOG_97)**: by default does NOT join any team (no lead/teammate role assigned to caller / new session) AND auto-archives the caller session after spawn — the new session takes over independently while the caller exits. Pass team_name explicitly only if you want lead/teammate communication. Defaults: adapter=claude-code, plan file path resolved from caller cwd via git rev-parse → <main-repo>/.claude/plans/<plan_id>.md, fallback ~/.claude/plans/<plan_id>.md. Returns { planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt, sessionId, adapter, cwd, teamId (null when no team_name), teamName (null), spawnDepth, sentAt, spawnPromptMessageId (null) }. Caller archive failure is warn-only (does not block ok return). deny external caller (SDK session fork bomb risk).',
-    START_NEXT_SESSION_SCHEMA,
-    async (args) => startNextSessionHandler(args, makeCtx(args)),
+  const handOffSession = tool(
+    AGENT_DECK_TOOL_NAMES.handOffSession,
+    'Start the next plan-driven SDK session for cross-session hand-off (K2 hand-off automation): read plan frontmatter to derive worktree_path, validate status=in_progress, then spawn a new session with cwd=mainRepo (default; CHANGELOG_99 cwd resilience) and an auto-generated cold-start prompt "按 <plan-abs-path> 接力" (optional phase_label appended). **Baton semantic (CHANGELOG_97)**: by default does NOT join any team (no lead/teammate role assigned to caller / new session) AND auto-archives the caller session after spawn — the new session takes over independently while the caller exits. Pass team_name explicitly only if you want lead/teammate communication. **CHANGELOG_99 cwd resilience**: default cwd is mainRepo (was worktreePath; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove`). New session expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3. Fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. Defaults: adapter=claude-code, plan file path resolved from caller cwd via git rev-parse → <main-repo>/.claude/plans/<plan_id>.md, fallback ~/.claude/plans/<plan_id>.md. Returns { planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt, sessionId, adapter, cwd, teamId (null when no team_name), teamName (null), spawnDepth, sentAt, spawnPromptMessageId (null) }. Caller archive failure is warn-only (does not block ok return). deny external caller (SDK session fork bomb risk).',
+    HAND_OFF_SESSION_SCHEMA,
+    async (args) => handOffSessionHandler(args, makeCtx(args)),
   );
 
   return [
@@ -175,6 +175,6 @@ export async function buildAgentDeckTools(
     getSession,
     shutdownSession,
     archivePlan,
-    startNextSession,
+    handOffSession,
   ];
 }

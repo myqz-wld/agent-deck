@@ -291,16 +291,24 @@ export const ARCHIVE_PLAN_SCHEMA = {
     ),
 };
 
-// plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：start_next_session tool —
-// K2 hand-off 自动化「跨会话接力」起新 SDK session（plan-aware spawn_session 包装）。
-// 行为：读 plan 文件 frontmatter 拿 worktree_path → 校验 status=in_progress → 调
-// spawn_session 起新 SDK session（cwd=worktree_path 默认 / 初始 prompt = "按 <plan-abs-path>
-// 接力"，含可选 phase_label 后缀）。CHANGELOG_97 baton 语义：default 不加 team
-// （caller 显式传 team_name 才启用 lead/teammate 关系）+ default 自动归档 caller。
+// plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：hand_off_session tool —
+// （CHANGELOG_99 改名前 `start_next_session`）
+// K2 hand-off 自动化「跨会话接力」起新 SDK session（CHANGELOG_99 双模式 spawn_session 包装）。
+// 双模式行为:
+//   plan-driven 模式 (传 plan_id):读 plan 文件 frontmatter 拿 worktree_path → 校验
+//     status=in_progress → 调 spawn_session 起新 SDK session（cwd=mainRepo 默认 / 初始
+//     prompt = "按 <plan-abs-path> 接力"，含可选 phase_label 后缀）
+//   generic 模式 (不传 plan_id):无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller
+//     cwd（让任意会话都能 baton 交给一个新 session）。CHANGELOG_97 baton 语义:default
+//     不加 team（caller 显式传 team_name 才启用 lead/teammate 关系）+ default 自动归档 caller。
 // CHANGELOG_98 / R2 deep review HIGH-1：spawn 路径走 batonMode 跳 spawn-guards depth check
 // + setSpawnLink lateral parentDepth（不 +1），让 N-phase baton 链不撞 maxDepth=3。
+// CHANGELOG_99 cwd 失效根治：default cwd 改为 mainRepo（不再是 worktree_path）让新 session
+// 行为与 EnterWorktree 模式对齐，避免 archive_plan / git worktree remove 删 worktree 后
+// sessionRepo.cwd 失效弯绕。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
+// EnterWorktree(path: worktreePath) 进 worktree 干活。
 // deny external caller（起 SDK session 的 fork bomb 风险，与 spawn_session / archive_plan 同档）。
-export const START_NEXT_SESSION_SCHEMA = {
+export const HAND_OFF_SESSION_SCHEMA = {
   plan_id: z
     .string()
     .min(1)
@@ -327,7 +335,7 @@ export const START_NEXT_SESSION_SCHEMA = {
     )
     .optional()
     .describe(
-      'Override cwd for the new SDK session. When omitted, defaults to plan frontmatter `worktree_path`. Useful when plan worktree was relocated, or for testing in a sibling clone.',
+      'Override cwd for the new SDK session. When omitted, defaults to **main repo path** (CHANGELOG_99 cwd resilience: previously defaulted to plan worktree_path; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove` deletion of the worktree). New session is expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3 cold-start flow. Fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath (last fallback only when caller cwd is not a git repo AND worktreePath does not match `<X>/.claude/worktrees/<plan-id>` heuristic).',
     ),
   adapter: z
     .enum(['claude-code', 'codex-cli', 'aider', 'generic-pty'])
@@ -363,7 +371,7 @@ export const START_NEXT_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（start_next_session 不允许 external caller）。',
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（hand_off_session 不允许 external caller）。',
     ),
   parent_session_id: z.string().min(1).max(128).optional(),
 };
@@ -376,4 +384,4 @@ export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
 export type ArchivePlanArgs = z.infer<z.ZodObject<typeof ARCHIVE_PLAN_SCHEMA>>;
-export type StartNextSessionArgs = z.infer<z.ZodObject<typeof START_NEXT_SESSION_SCHEMA>>;
+export type HandOffSessionArgs = z.infer<z.ZodObject<typeof HAND_OFF_SESSION_SCHEMA>>;
