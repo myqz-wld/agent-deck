@@ -1,5 +1,5 @@
 /**
- * Agent Deck MCP server 的 7 个 in-process tool 注册 facade（B'0 ADR §3）。
+ * Agent Deck MCP server 的 9 个 in-process tool 注册 facade（B'0 ADR §3）。
  *
  * 三 transport（in-process / HTTP / stdio）共享同一份 buildAgentDeckTools 输出；
  * transport 层负责 caller-id 注入策略：
@@ -11,10 +11,11 @@
  *
  * 拆分历史（CHANGELOG_81 / plan deep-review-and-split-20260513 H2 Step 2.1）：
  *   原 src/main/agent-deck-mcp/tools.ts (1060 行) 拆为：
- *   - tools/index.ts (本文件，~120 行 facade)
- *   - tools/schemas.ts (~210 行 zod schema)
- *   - tools/helpers.ts (~155 行 ok/err/projectSession/validateExternalCaller/...)
- *   - tools/handlers/{spawn,send,reply,wait,list,get,shutdown}.ts (各 ~50-260 行)
+ *   - tools/index.ts (本文件，~140 行 facade)
+ *   - tools/schemas.ts (~270 行 zod schema)
+ *   - tools/helpers.ts (~190 行 ok/err/projectSession/validateExternalCaller/...)
+ *   - tools/handlers/{spawn,send,reply,wait,check,list,get,shutdown}.ts (各 ~50-260 行)
+ *   - tools/handlers/archive-plan{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4a)
  */
 
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
@@ -35,6 +36,7 @@ import {
   SPAWN_SESSION_SCHEMA,
   WAIT_REPLY_SCHEMA,
   CHECK_REPLY_SCHEMA,
+  ARCHIVE_PLAN_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
@@ -44,6 +46,7 @@ import { checkReplyHandler } from './handlers/check';
 import { listSessionsHandler } from './handlers/list';
 import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
+import { archivePlanHandler } from './handlers/archive-plan';
 
 // helpers 子集 re-export，保持老 caller 兼容（外部对 makeCallerContext / denyExternalIfNotAllowed
 // 的 import 路径 `from './tools'` 仍能 resolve）。
@@ -145,5 +148,22 @@ export async function buildAgentDeckTools(
     async (args) => shutdownSessionHandler(args, makeCtx(args)),
   );
 
-  return [spawnSession, sendMessage, replyMessage, waitReply, checkReply, listSessions, getSession, shutdownSession];
+  const archivePlan = tool(
+    AGENT_DECK_TOOL_NAMES.archivePlan,
+    'Archive a completed plan-driven worktree (K1 hand-off automation): ff-merge worktree branch into base_branch, mv plan file to <main-repo>/plans/<plan_id>.md (status=completed + final_commit + completed_at), append plans/INDEX.md, git commit, then git worktree remove + branch -D. Caller must ExitWorktree first (mcp tool cannot call CLI internal ExitWorktree; rejects when process.cwd() is inside worktree). Refuses if plan status is already "completed" or worktree is dirty. Returns { archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_appended, final_status }. deny external caller (high-risk git+fs writes).',
+    ARCHIVE_PLAN_SCHEMA,
+    async (args) => archivePlanHandler(args, makeCtx(args)),
+  );
+
+  return [
+    spawnSession,
+    sendMessage,
+    replyMessage,
+    waitReply,
+    checkReply,
+    listSessions,
+    getSession,
+    shutdownSession,
+    archivePlan,
+  ];
 }
