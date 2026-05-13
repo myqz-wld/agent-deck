@@ -110,24 +110,65 @@ export async function spawnSessionHandler(
   const effectiveClaudeCodeSandbox =
     args.claude_code_sandbox ?? leadRecord?.claudeCodeSandbox ?? undefined;
 
-  // plan team-cohesion-fix-20260513 Phase B7：spawn 路径 wire format 注入 messageId。
-  // 流程：先预生成 placeholderId（crypto.randomUUID）→ 拼 `[msg <id>]\n` 到 promptToUse 顶部
-  // → createSession 让 SDK 带含 prefix 的 prompt 启动 teammate → 之后 insert placeholder
-  // 用预先 id（messageRepo.insert 接受 input.id 可选参数，Phase B7 加）。
-  // teammate 收到 prompt 后从顶部 regex `\[msg ([0-9a-f-]+)\]` 提 id 调 reply_message。
-  // 无 team / no-shared-team / external caller 场景下不注入 prefix（teammate reply 也无对话锚点）。
-  // **注意**：DB messages.body 列存**原始 promptToUse**（不含 prefix），与 send_message
-  // 路径同款（buildWireBody 注入 prefix 在 watcher 内存里完成，不写回 DB）；这里 spawn
-  // 路径在 createSession 之前用 promptForSpawn 变量保留 wire 形式，DB 仍存 promptToUse。
-  // callerExists 提前算（不能等到 createSession 之后再判定 willCreatePlaceholder，否则
-  // external caller 仍会拿到含 prefix 的 prompt 但 placeholder 不入 DB → teammate
-  // reply_message 用错 id 调用失败）。
-  const willCreatePlaceholder = !!args.team_name && callerExists;
+  // CHANGELOG_100 / plan mcp-tool-simplify-20260514 D9：把 team ensure 提到 createSession 前，
+  // 这样 wire prefix + lead context block 注入 prompt 时能用真实 teamId（删 reply_message
+  // 后 teammate 必须知道 lead session_id + team_id 才能 send_message 回 lead）。
+  // ensureByName 幂等：已存在 team 直接返回；后续 addMember 调用仍需 sid，留在 createSession
+  // 之后做（team_member 表 sessionId FK 必须先存在）。
+  let teamIdEarly: string | null = null;
+  if (args.team_name) {
+    try {
+      const team = agentDeckTeamRepo.ensureByName(args.team_name, { source: 'mcp' });
+      teamIdEarly = team.id;
+    } catch (e) {
+      // ensure 失败时 lead context block + placeholder 都不注入；後續 addMember 也跳過。
+      console.warn(`[mcp spawn_session] team ensureByName failed for "${args.team_name}":`, e);
+    }
+  }
+
+  // REVIEW_31 Bug 4：teammate display name fallback 链 = args.display_name > args.agent_name > 不动。
+  // teammateDisplayName 在多处被引用（wire prefix injection / setTitle / addMember / ok return），
+  // 提前算供下面 lead context block 注入也能引用 lead displayName 对称信息。
+  const teammateDisplayName = args.display_name ?? args.agent_name ?? null;
+  const leadDisplayName = leadRecord?.title ?? null;
+
+  // plan team-cohesion-fix-20260513 Phase B7 / CHANGELOG_100 D9 升级：spawn 路径
+  // wire format 注入 [msg <id>][sid <senderSessionId>] 双锚点 + lead context block。
+  //
+  // teammate 收到 prompt 后从顶部 regex `\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]` 提
+  // messageId + senderSessionId 双锚点，调
+  // send_message({reply_to_message_id: msgId, session_id: senderSid, team_id, text}) 回复 lead。
+  // lead context block 显式列出 lead session_id / team_id / lead displayName + send_message 用法，
+  // 让 teammate 不必依赖 wire prefix 解析也能 send_message（双层冗余防 prompt 长度截断 / 协议漂移）。
+  //
+  // 注入条件：teamIdEarly 真 + callerExists 真（有 team 且 caller 在 sessions 表）；任一缺
+  // 不注入（external caller / no-team spawn 没 reply chain anchor，注入也无意义）。
+  // **DB messages.body 列存原始 promptToUse**（不含 prefix / lead context block），与 send_message
+  // buildWireBody 同款（wire prefix 在内存里加，不写回 DB）。
+  const willInjectWirePrefix = !!teamIdEarly && callerExists;
   let placeholderId: string | null = null;
-  let promptForSpawn = promptToUse; // 给 SDK 的 wire 形式（可能含 [msg <id>] prefix）
-  if (willCreatePlaceholder) {
+  let promptForSpawn = promptToUse; // 给 SDK 的 wire 形式
+  if (willInjectWirePrefix) {
     placeholderId = crypto.randomUUID();
-    promptForSpawn = `[msg ${placeholderId}]\n${promptToUse}`;
+    const leadContextBlock =
+      `## Hand-off context (auto-injected by Agent Deck MCP)\n` +
+      `- Lead session_id: \`${caller.callerSessionId}\`\n` +
+      `- Team id: \`${teamIdEarly}\`\n` +
+      `- Lead displayName: ${leadDisplayName ?? '(unset)'}\n` +
+      `\n` +
+      `回 lead 用：\n` +
+      `\`\`\`\n` +
+      `mcp__agent-deck__send_message({\n` +
+      `  session_id: '${caller.callerSessionId}',  // lead session_id\n` +
+      `  team_id: '${teamIdEarly}',  // 当前 team id\n` +
+      `  text: '<reply text>',\n` +
+      `  reply_to_message_id: '<msg-id from wire prefix>'  // 从顶部 [msg <id>] 提取\n` +
+      `})\n` +
+      `\`\`\`\n` +
+      `wire prefix regex（双锚点）: \`/\\[msg ([0-9a-f-]+)\\]\\[sid ([0-9a-f-]+)\\]/\`\n`;
+    promptForSpawn =
+      `[msg ${placeholderId}][sid ${caller.callerSessionId}]\n` +
+      `${leadContextBlock}\n---\n\n${promptToUse}`;
   }
 
   // 实际 spawn
@@ -181,7 +222,8 @@ export async function spawnSessionHandler(
   // title —— 否则保留默认行为（avoid 把 agent_name 也强加给那些 caller 没传 agent_name 的「裸 spawn」场景）。
   // teamRepo.addMember 同步把 displayName 写进 team_member 表，wire format buildWireBody 优先取此字段
   // → wire prefix 从 fallback `claude-code:8023f956` 升级为「reviewer-claude」/「reviewer-codex」。
-  const teammateDisplayName = args.display_name ?? args.agent_name ?? null;
+  // CHANGELOG_100 D9: teammateDisplayName 在前面已算（spawn 前注入 lead context block 也用到）；
+  // 这里只负责 setTitle 副作用。
   if (teammateDisplayName) {
     try {
       sessionRepo.setTitle(sid, teammateDisplayName);
@@ -191,19 +233,18 @@ export async function spawnSessionHandler(
     }
   }
 
-  // R3.E0 ADR §5.1 amend：team_name 触发 universal team backend ensure-team-by-name
-  // + 把 caller 加为 lead + 把新 session 加为 teammate（不再写 sessions.team_name 列）
-  let teamId: string | null = null;
-  if (args.team_name) {
+  // R3.E0 ADR §5.1 amend：team_name 触发 universal team backend 把 caller 加为 lead +
+  // 把新 session 加为 teammate（不再写 sessions.team_name 列）。
+  // CHANGELOG_100 D9: ensureByName 已提到 createSession 之前（teamIdEarly），这里只做 addMember。
+  let teamId: string | null = teamIdEarly;
+  if (args.team_name && teamIdEarly) {
     try {
-      const team = agentDeckTeamRepo.ensureByName(args.team_name, { source: 'mcp' });
-      teamId = team.id;
       // caller 自动以 lead role 加入（如已 active 则保留）。caller 不在 sessions 表
       // （external __external__ 等）时跳过。
       if (callerExists) {
         try {
           agentDeckTeamRepo.addMember({
-            teamId: team.id,
+            teamId: teamIdEarly,
             sessionId: caller.callerSessionId,
             role: 'lead',
             displayName: null,
@@ -217,7 +258,7 @@ export async function spawnSessionHandler(
         }
       }
       agentDeckTeamRepo.addMember({
-        teamId: team.id,
+        teamId: teamIdEarly,
         sessionId: sid,
         role: 'teammate',
         // REVIEW_31 Bug 4：teammate displayName 同步写 team_member 表，
@@ -231,21 +272,22 @@ export async function spawnSessionHandler(
       // —— universal team backend addMember 已是 SSOT，不再写老 sessions.team_name 列；
       // v012 migration 后此列彻底 drop。
     } catch (e) {
-      console.warn(`[mcp spawn_session] team ensure / addMember failed for "${args.team_name}":`, e);
+      console.warn(`[mcp spawn_session] addMember failed for "${args.team_name}":`, e);
     }
   }
 
-  // plan team-cohesion-fix-20260513 Phase B5：spawn 路径与 wait_reply 贯通的方案 A 实现 ——
+  // plan team-cohesion-fix-20260513 Phase B5：spawn 路径与 send_message 贯通的方案 A 实现 ——
   // spawn 仍把 prompt 给 adapter（SDK streaming 协议要求 first user message），同时在
   // messages 表 enqueue 一条 placeholder message（body=promptToUse, status='delivered'，
-  // 不重复投递）作为 lead/teammate 对话链的锚点。lead 拿 spawnPromptMessageId 调
-  // wait_reply({message_id})，teammate first turn 完成后调 reply_message(spawnPromptMessageId)
-  // 回复，链路统一。无 team / no-shared-team 时不入队 placeholder（spawn 没有可关联的对话场景）。
+  // 不重复投递）作为 lead/teammate 对话链的锚点。lead 不再主动 wait_reply（CHANGELOG_100 删 tool）；
+  // teammate first turn 完成后调 send_message({reply_to_message_id: spawnPromptMessageId, ...})
+  // 回复，reply 自动 dispatch 进 lead conversation（J fix 删，CHANGELOG_100）。
+  // 无 team / no-shared-team 时不入队 placeholder（spawn 没有可关联的对话场景）。
   // Phase B7：用上面预生成的 placeholderId（与 promptForSpawn 里的 [msg <id>] 一致），
   // body 仍存原始 promptToUse（不含 wire prefix）。
   //
   // 已知 follow-up（REVIEW_32 §Follow-up MED-2）：placeholder enqueue 失败时只 console.warn
-  // 但 prompt 已含 [msg <id>] prefix 发出去，teammate 按规约 reply_message → original
+  // 但 prompt 已含 [msg <id>] prefix 发出去，teammate 按规约 send_message → original
   // 找不到 → reply 100% 失败。真修法需要把 insert 提到 createSession 之前 + messageRepo
   // 加 initialStatus='delivered' / updateToSessionId helper（scope 较大），留下次 phase。
   // 当前最小防御：失败时返回 spawnPromptMessageId=null，lead 至少不会调 wait_reply hang。

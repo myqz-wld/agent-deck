@@ -22,6 +22,8 @@ const REMOVED_KEYS: readonly string[] = [
   // —— inbox 协议 / Claude Code experimental teams flag / autoApprove 三档 全废
   'agentTeamsEnabled',
   'autoApproveTeammateMode',
+  // CHANGELOG_100 / plan mcp-tool-simplify-20260514：删 wait_reply tool 联动删 idle 阈值
+  'mcpWaitReplyIdleQuietMs',
   // CHANGELOG_68：R3.E12 一次性「即将硬切」弹窗 + LegacyTeamExportSection 整体下线
   // —— PR-B 硬切已上线 + R4 已实施，备份窗口期已过，相关 IPC / dialog / settings 字段全废
   'r3LegacyExportNoticeAcked',

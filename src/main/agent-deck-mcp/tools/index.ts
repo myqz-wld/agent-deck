@@ -1,5 +1,5 @@
 /**
- * Agent Deck MCP server 的 10 个 in-process tool 注册 facade（B'0 ADR §3）。
+ * Agent Deck MCP server 的 7 个 in-process tool 注册 facade（B'0 ADR §3）。
  *
  * 三 transport（in-process / HTTP / stdio）共享同一份 buildAgentDeckTools 输出；
  * transport 层负责 caller-id 注入策略：
@@ -11,12 +11,18 @@
  *
  * 拆分历史（CHANGELOG_81 / plan deep-review-and-split-20260513 H2 Step 2.1）：
  *   原 src/main/agent-deck-mcp/tools.ts (1060 行) 拆为：
- *   - tools/index.ts (本文件，~140 行 facade)
- *   - tools/schemas.ts (~270 行 zod schema)
- *   - tools/helpers.ts (~190 行 ok/err/projectSession/validateExternalCaller/...)
- *   - tools/handlers/{spawn,send,reply,wait,check,list,get,shutdown}.ts (各 ~50-260 行)
+ *   - tools/index.ts (本文件，~110 行 facade)
+ *   - tools/schemas.ts (~210 行 zod schema)
+ *   - tools/helpers.ts (~145 行 ok/err/projectSession/validateExternalCaller/...)
+ *   - tools/handlers/{spawn,send,list,get,shutdown}.ts (各 ~50-260 行)
  *   - tools/handlers/archive-plan{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4a)
  *   - tools/handlers/hand-off-session{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4b)
+ *
+ * CHANGELOG_100 / plan mcp-tool-simplify-20260514：协议大简化 10 → 7 tool。
+ *   删除 reply_message + wait_reply + check_reply 三个 tool（语法糖 + 阻塞 / 非阻塞 reply
+ *   poll），所有消息发送统一走 send_message + reply_to_message_id；reply 不再被
+ *   universal-message-watcher 的 J fix 拦截，正常 dispatch 给 lead → SDK emit user-role
+ *   message → lead 直接看到 reply 自动 act on it。心智模型大幅简化。
  */
 
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
@@ -31,20 +37,14 @@ import {
 import {
   GET_SESSION_SCHEMA,
   LIST_SESSIONS_SCHEMA,
-  REPLY_MESSAGE_SCHEMA,
   SEND_MESSAGE_SCHEMA,
   SHUTDOWN_SESSION_SCHEMA,
   SPAWN_SESSION_SCHEMA,
-  WAIT_REPLY_SCHEMA,
-  CHECK_REPLY_SCHEMA,
   ARCHIVE_PLAN_SCHEMA,
   HAND_OFF_SESSION_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
-import { replyMessageHandler } from './handlers/reply';
-import { waitReplyHandler } from './handlers/wait';
-import { checkReplyHandler } from './handlers/check';
 import { listSessionsHandler } from './handlers/list';
 import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
@@ -100,37 +100,14 @@ export async function buildAgentDeckTools(
 
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
-    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing — use wait_reply to observe the response. Multi-team callers must specify team_id.',
+    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing. Pass `reply_to_message_id` to link this message into an existing reply chain (the chain is recorded in DB; lead/teammate see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Multi-team callers must specify `team_id`.',
     SEND_MESSAGE_SCHEMA,
     async (args) => sendMessageHandler(args, makeCtx(args)),
   );
 
-  const replyMessage = tool(
-    AGENT_DECK_TOOL_NAMES.replyMessage,
-    'Reply to an existing message in the same team. Convenience wrapper around send_message: auto-resolves to_session_id (= original message.from_session_id) and team_id (= original message.team_id), and sets reply_to_message_id automatically. Use this when you (lead or teammate) received a message and want to respond — the wait_reply tool on the other side will resolve once your reply is delivered. Returns immediately after queueing.',
-    REPLY_MESSAGE_SCHEMA,
-    async (args) => replyMessageHandler(args, makeCtx(args)),
-  );
-
-  const waitReply = tool(
-    AGENT_DECK_TOOL_NAMES.waitReply,
-    'Wait for a reply to a specific message id. Resolves when a message with reply_to_message_id = this id is delivered (DB query + universal-message-watcher event listener). Optionally sends a nudge_text after nudge_after_ms if no reply arrives — useful when the recipient may have forgotten to call reply_message. Returns { reply: { messageId, text, sentAt, fromSessionId } | null, nudgesSent, nudgeMessageIds: string[], timedOut }. nudgeMessageIds collects every nudge messageId enqueued during this wait — internal double-lookup logic (originalId + nudgeIds) already auto-resolves when teammate replies to the nudge id (default behavior per reviewer wire format protocol), so caller need not poll nudgeIds explicitly; field exposed for diagnostic / sidecar check_reply use.',
-    WAIT_REPLY_SCHEMA,
-    async (args) => waitReplyHandler(args, makeCtx(args)),
-    { annotations: { readOnlyHint: false } }, // wait_reply 现在可能 enqueue nudge，不再纯 read-only
-  );
-
-  const checkReply = tool(
-    AGENT_DECK_TOOL_NAMES.checkReply,
-    'Non-blocking poll for a reply to a specific message id. Returns immediately with { reply: { messageId, text, sentAt, fromSessionId } | null, timedOut: false } (timedOut is always false; field kept for shape parity with wait_reply). Unlike wait_reply, never blocks — caller polls at its own cadence and can interleave handling other user input. Use this when you have other work to do while a teammate is processing.',
-    CHECK_REPLY_SCHEMA,
-    async (args) => checkReplyHandler(args, makeCtx(args)),
-    { annotations: { readOnlyHint: true } },
-  );
-
   const listSessions = tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
-    'List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages (use wait_reply for those).',
+    'List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages.',
     LIST_SESSIONS_SCHEMA,
     async (args) => listSessionsHandler(args, makeCtx(args)),
     { annotations: { readOnlyHint: true } },
@@ -138,7 +115,7 @@ export async function buildAgentDeckTools(
 
   const getSession = tool(
     AGENT_DECK_TOOL_NAMES.getSession,
-    'Get a single session metadata by id. Returns same projection as list_sessions (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, teams, spawnedBy, spawnDepth) — does NOT include events / messages (use wait_reply for those). Returns isError when session does not exist.',
+    'Get a single session metadata by id. Returns same projection as list_sessions (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, teams, spawnedBy, spawnDepth) — does NOT include events / messages. Returns isError when session does not exist.',
     GET_SESSION_SCHEMA,
     async (args) => getSessionHandler(args, makeCtx(args)),
     { annotations: { readOnlyHint: true } },
@@ -168,9 +145,6 @@ export async function buildAgentDeckTools(
   return [
     spawnSession,
     sendMessage,
-    replyMessage,
-    waitReply,
-    checkReply,
     listSessions,
     getSession,
     shutdownSession,

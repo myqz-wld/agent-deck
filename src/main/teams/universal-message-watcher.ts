@@ -194,9 +194,13 @@ function buildWireBody(
     message.teamId,
   );
   // plan team-cohesion-fix-20260513 Phase B7：在 wire body 顶部注入 [msg <id>]，让 teammate
-  // 能从 prompt 提 messageId 调 reply_message —— 否则 lead wait_reply({message_id}) 永 timeout
-  // （teammate 不知 reply_to_message_id 该填啥，只能裸 message reply，wait_reply 查不到）。
-  return `[from ${displayName} @ ${adapterId}][msg ${message.id}]\n${message.body}`;
+  // 能从 prompt 提 messageId 调 send_message —— 否则 lead 收到 reply 没有 reply chain anchor
+  // （teammate 不知 reply_to_message_id 该填啥，只能裸 message reply）。
+  // CHANGELOG_100 / plan mcp-tool-simplify-20260514 D9：升级双锚点 [msg <id>][sid <senderSessionId>]，
+  // 让 teammate 拿到 senderSessionId 直接 send_message({session_id: sid, team_id, ...})
+  // 回 lead，不必依赖 spawn 时注入的 lead context block / 不必 list_sessions 反查（双层冗余防
+  // 协议漂移 / 长 prompt 截断）。
+  return `[from ${displayName} @ ${adapterId}][msg ${message.id}][sid ${message.fromSessionId}]\n${message.body}`;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -433,34 +437,21 @@ export class UniversalMessageWatcher {
     }
     this.emitStatus(claimed);
 
-    // J fix（plan mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.1）：reply 不再 inject
-    // 给 sender SDK 防 lead SessionDetail 重复显示。
+    // CHANGELOG_100 / plan mcp-tool-simplify-20260514：J fix 一刀切拦截已删除。
     //
-    // 修前 reply 也走 adapter.receiveTeammateMessage = adapter.sendMessage，sender (lead) 的
-    // sdk-bridge.sendMessage 会 emit 'message' kind 'user' role event，SessionDetail echo 出
-    // 一条 user message（含 wire prefix + replyText）。同时 lead 之前调的 wait_reply 通过
-    // `agent-deck-message-enqueued` event 拿 reply 作为 mcp tool_result return → SessionDetail
-    // 显示一条 tool_result（含 replyText）。两者并存 = 同份 reply 显示两次，且 reply 被当
-    // user input inject 给 lead SDK，lead Claude 可能 act on reply 跑空 agent loop。
+    // 旧 J fix（CHANGELOG_99 之前）：`if (claimed.replyToMessageId != null)` 直接 markDelivered
+    // + return，不 dispatch 给 sender SDK。当时是为了避免 lead 看到 wait_reply 拿到的 reply
+    // 同时也作为 user-role message 被 inject 进 SDK conversation 重复显示。
     //
-    // 修法：reply 只入库（已由 enqueueAgentDeckMessage 完成），不再 dispatch 给 sender SDK。
-    // sender 通过 wait_reply / check_reply 主动从 messages 表拿 reply（findRepliesByMessageId）。
-    // 不依赖 target session / adapter 状态：reply markDelivered 仅推进 status 状态机，sender
-    // 拿 reply 走 messages 表查询不依赖 target；adapter 不存在 / canCollaborate=false 也不影响。
+    // 但 CHANGELOG_99 反向发现：J fix 一刀切拦截了「lead 给 teammate 发消息时 caller 显式
+    // 传 reply_to_message_id 链接 reply chain」场景 — teammate 不调 wait_reply 只能被动
+    // 等 dispatch，被拦了永远收不到。
     //
-    // **CHANGELOG_99 已知缺陷**(过渡期保留,见 plan mcp-tool-simplify-20260514):
-    // 这条「`replyToMessageId != null` 一刀切」拦截误伤了「lead 给 teammate 发消息时 caller
-    // 显式传 reply_to_message_id 链接 reply chain」的场景 — teammate 不调 wait_reply 只能被动
-    // 等 dispatch,被拦了永远收不到。**短期绕过**:lead 给 teammate 发新 message + 链接
-    // reply chain 时改用 `send_message`(不传 `reply_to_message_id`,或接受 chain 信息丢失);
-    // teammate reply lead 仍可用 reply_message(target = sender 路径正是 J fix 设计场景)。
-    // **彻底修法**:新 plan 完全删除 reply_message + wait_reply + check_reply + J fix 拦截,
-    // 所有 message 走 send_message + adapter dispatch 一统协议。
-    if (claimed.replyToMessageId != null) {
-      const delivered = agentDeckMessageRepo.markDelivered(claimed.id, Date.now());
-      if (delivered) this.emitStatus(delivered);
-      return;
-    }
+    // CHANGELOG_100 协议大简化（删 reply_message + wait_reply + check_reply）：reply 现在
+    // 走与普通 send_message 同款 dispatch 路径 → universal-message-watcher.deliver →
+    // adapter.receiveTeammateMessage → adapter.sendMessage → sender SDK emit 'message'
+    // kind 'user' role event → SessionDetail echo → lead/teammate 直接看到 reply 自动 act on
+    // it。这跟收任意普通 message 同款处理路径，无特殊机制 — 一统协议。
 
     const target = sessionRepo.get(claimed.toSessionId);
     if (!target) {
