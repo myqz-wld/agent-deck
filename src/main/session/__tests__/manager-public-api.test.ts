@@ -84,6 +84,76 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
     expect(r?.lifecycle).toBe(lifecycleBefore); // 不被改动
   });
 
+  it('unarchiveOnUserSend() → dormant + archived → 清 archivedAt + lifecycle 仍 dormant + emit upsert（plan mcp-bug-and-feature-batch-20260513 N bug fix）', async () => {
+    // 预置 dormant + archived 会话（最常见的「历史归档」状态）
+    mockSessions.set('sess-user-send', {
+      id: 'sess-user-send',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 't',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 0,
+      endedAt: null,
+      archivedAt: 1234567890,
+      permissionMode: null,
+    });
+    const emitsBefore = mockEmits.length;
+
+    await sessionManager.unarchiveOnUserSend('sess-user-send');
+
+    const r = mockSessions.get('sess-user-send');
+    expect(r?.archivedAt).toBeNull();
+    expect(r?.lifecycle).toBe('dormant'); // 与 unarchive 同款约定：lifecycle 不动
+    // emit session-upserted 触发（让 renderer 立即看到归档徽章消失 / 移到实时面板）
+    expect(
+      mockEmits.slice(emitsBefore).some(
+        (e) =>
+          e.name === 'session-upserted' &&
+          (e.payload as SessionRecord)?.id === 'sess-user-send' &&
+          (e.payload as SessionRecord)?.archivedAt === null,
+      ),
+    ).toBe(true);
+  });
+
+  it('unarchiveOnUserSend() → 未 archived → noop（不调 unarchive / 不 emit / lifecycle 不动）', async () => {
+    // 预置 active + 未 archived 会话（用户对一条实时会话也调 sendMessage 是常见场景）
+    mockSessions.set('sess-active-send', {
+      id: 'sess-active-send',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 't',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 0,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+    const emitsBefore = mockEmits.length;
+
+    await sessionManager.unarchiveOnUserSend('sess-active-send');
+
+    const r = mockSessions.get('sess-active-send');
+    expect(r?.archivedAt).toBeNull();
+    expect(r?.lifecycle).toBe('active');
+    // 未 archived guard 早返：不该 emit 任何 session-upserted（避免 renderer 不必要刷新 +
+    // team-coordinator 多余 unarchiveTeamsForRevivedLead 跑）
+    expect(
+      mockEmits.slice(emitsBefore).filter((e) => e.name === 'session-upserted').length,
+    ).toBe(0);
+  });
+
+  it('unarchiveOnUserSend() → 不存在的 sid → noop（caller 自己处理 not-found）', async () => {
+    const emitsBefore = mockEmits.length;
+    await sessionManager.unarchiveOnUserSend('sess-non-existent');
+    expect(mockEmits.slice(emitsBefore).length).toBe(0);
+  });
+
   it('reactivate() → closed → active', () => {
     const ev = makeEvent({
       sessionId: 'sess-reactivate',

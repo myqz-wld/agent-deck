@@ -238,8 +238,16 @@ export function registerAdaptersIpc(): void {
     }
     // attachments 写盘：失败 throw 已回滚兄弟附件。sendMessage throw 时本 handler 同款回滚。
     const attachments = await persistAttachments(rawAttachments, 'attachments');
+    // plan mcp-bug-and-feature-batch-20260513 N bug fix: 用户从历史归档会话「续聊」=
+    // 主动 sendMessage 信号，应自动 unarchive 让会话回到实时面板。区分被动事件流路径
+    //（hook event ingest 走 ensure() 的 archived 不动正交约定，manager.ts:152-156 注释），
+    // 那条路径不应触发自动 unarchive。本入口是用户从 UI / CLI 显式 sendMessage 的桥点
+    // （mcp tool send_message 走 universal-message-watcher 不经过这里）。
+    // 详 sessionManager.unarchiveOnUserSend jsdoc。
+    const sidParsed = parseStringId('sessionId', sessionId);
+    await sessionManager.unarchiveOnUserSend(sidParsed);
     try {
-      await adapter.sendMessage(parseStringId('sessionId', sessionId), text, attachments);
+      await adapter.sendMessage(sidParsed, text, attachments);
     } catch (err) {
       // sendMessage throw：path 还没塞进 SDK 队列（adapter 内部入队前 throw），安全清干净
       // ⚠ 关键护栏：成功路径**不**清，因为 adapter 已把 path 塞进 pendingMessages 队列，
