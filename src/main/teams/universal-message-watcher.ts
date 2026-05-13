@@ -447,6 +447,15 @@ export class UniversalMessageWatcher {
     // sender 通过 wait_reply / check_reply 主动从 messages 表拿 reply（findRepliesByMessageId）。
     // 不依赖 target session / adapter 状态：reply markDelivered 仅推进 status 状态机，sender
     // 拿 reply 走 messages 表查询不依赖 target；adapter 不存在 / canCollaborate=false 也不影响。
+    //
+    // **CHANGELOG_99 已知缺陷**(过渡期保留,见 plan mcp-tool-simplify-20260514):
+    // 这条「`replyToMessageId != null` 一刀切」拦截误伤了「lead 给 teammate 发消息时 caller
+    // 显式传 reply_to_message_id 链接 reply chain」的场景 — teammate 不调 wait_reply 只能被动
+    // 等 dispatch,被拦了永远收不到。**短期绕过**:lead 给 teammate 发新 message + 链接
+    // reply chain 时改用 `send_message`(不传 `reply_to_message_id`,或接受 chain 信息丢失);
+    // teammate reply lead 仍可用 reply_message(target = sender 路径正是 J fix 设计场景)。
+    // **彻底修法**:新 plan 完全删除 reply_message + wait_reply + check_reply + J fix 拦截,
+    // 所有 message 走 send_message + adapter dispatch 一统协议。
     if (claimed.replyToMessageId != null) {
       const delivered = agentDeckMessageRepo.markDelivered(claimed.id, Date.now());
       if (delivered) this.emitStatus(delivered);
