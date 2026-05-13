@@ -1,23 +1,38 @@
 /**
- * start_next_session handler 入口（plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.2）。
+ * start_next_session handler 入口（plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.2；
+ * CHANGELOG_97 改 baton 语义：default 不加 team + 自动归档 caller）。
  *
  * 薄 wrapper：deny external caller + validateExternalCaller + 调 startNextSessionImpl
  * 拿 resolved 上下文（planFilePath / worktreePath / coldStartPrompt） + 组装 spawn_session
- * args + 调 spawnSessionHandler 完成实际 spawn + 包 K2 metadata + spawn 字段透传。
+ * args + 调 spawnSessionHandler 完成实际 spawn + **归档 caller** + 包 K2 metadata + spawn 字段透传。
  *
  * 业务行为完全在 start-next-session-impl.ts（plan resolve / frontmatter parse / status 校验
  * / prompt 构造），spawn 行为完全复用 spawnSessionHandler（与 spawn_session tool 同款防御链
- * + permission_mode / sandbox 继承 + team ensure + addMember + placeholder enqueue 全套）。
+ * + permission_mode / sandbox 继承）。
  *
  * **Deny external caller**（types.ts: EXTERNAL_CALLER_ALLOWED.start_next_session = false）：
  * 起 SDK session 的 fork bomb 风险（同 spawn_session / archive_plan），绝不允许 stdio
  * external client 调用。
  *
+ * **CHANGELOG_97 baton 语义改造**：plan 接力的本质是「caller 把 baton 单向交出，新 session
+ * 独立接手，原 caller 退出」，**不是**「派出小弟干活，原 caller 当 lead 持续监督」。所以：
+ *
+ * 1. **default 不传 team_name 给 spawn**：caller 不显式传 team_name 时，spawn 不走
+ *    ensureByName / addMember 路径 → 原 caller 不被打 lead 标签 / 新 session 不被打
+ *    teammate 标签。如果 caller 真的想走 lead/teammate 通信关系（罕见），仍可显式传
+ *    args.team_name 启用。历史行为「team_name = plan_id」实证 47260477 团队仅 1 条
+ *    自动 placeholder message，lead 与 teammate 之间从未真正对话 → 强加 team 关系
+ *    在 SessionList 显示「↳ teammate」缩进 + lead 标签是冗余 UX 噪音。
+ *
+ * 2. **default 自动归档 caller session**：spawn 成功后立即调 sessionManager.archive
+ *    (caller.callerSessionId)，把 baton 完整交出。失败仅 console.warn 不阻塞 K2 成功
+ *    return（caller 至少能拿到 newSid，原会话留 active 影响小，用户可手动右键归档）。
+ *
  * **复用策略**：调 spawnSessionHandler 时透传同一个 ctx（caller_session_id），让 spawn
- * 链路里的 spawn-link / lead 加入 / placeholder enqueue 全部按 caller 视角正确归属。
- * 透传后 spawnSessionHandler 返回的 HandlerResult 含 JSON.stringify ok 数据，本 handler
- * parse 出 sessionId 等字段，包 K2 自己的 ok return（额外加 K2 metadata: planFilePath /
- * worktreePath / initialPrompt / phaseLabel）。
+ * 链路里的 spawn-link 等按 caller 视角正确归属。透传后 spawnSessionHandler 返回的
+ * HandlerResult 含 JSON.stringify ok 数据，本 handler parse 出 sessionId 等字段，包 K2
+ * 自己的 ok return（额外加 K2 metadata: planFilePath / worktreePath / initialPrompt /
+ * phaseLabel）。
  */
 
 import {
@@ -29,6 +44,8 @@ import {
   type HandlerResult,
 } from '../helpers';
 import type { StartNextSessionArgs, SpawnSessionArgs } from '../schemas';
+import { EXTERNAL_CALLER_SENTINEL } from '../../types';
+import { sessionManager } from '@main/session/manager';
 import {
   startNextSessionImpl,
   _isStartNextSessionError,
@@ -37,11 +54,14 @@ import {
 import { spawnSessionHandler } from './spawn';
 
 /**
- * 测试 inject seam：默认调真 spawnSessionHandler；test 通过 depsOverride 注入 mock spawn
- * 函数避免起真 SDK session。impl deps 也透传给 startNextSessionImpl。
+ * 测试 inject seam：默认调真 spawnSessionHandler / sessionManager.archive；test 通过
+ * depsOverride 注入 mock 函数避免起真 SDK session / 真碰 DB。impl deps 也透传给
+ * startNextSessionImpl。
  */
 export interface StartNextSessionHandlerDeps {
   spawnSession?: typeof spawnSessionHandler;
+  /** CHANGELOG_97：archive caller 的 test seam，让单测无需 mock 整个 sessionManager */
+  archiveSession?: (sessionId: string) => Promise<void>;
   implDeps?: StartNextSessionDeps;
 }
 
@@ -69,13 +89,15 @@ export async function startNextSessionHandler(
     return err(resolved.error, resolved.hint);
   }
 
-  // 2. 组装 spawn_session args：cwd 默认 worktree_path，team_name 默认 plan_id，
-  // 其他字段透传 caller 显式传的（permission_mode / adapter）。
+  // 2. 组装 spawn_session args：cwd 默认 worktree_path，其他字段透传 caller 显式传的
+  // （permission_mode / adapter）。CHANGELOG_97：team_name 不再默认设为 plan_id —— baton
+  // 单向交接语义不需要 lead/teammate 关系；caller 显式传 team_name 时仍透传给 spawn 启用
+  // 通信关系（罕见使用）。
   const spawnArgs: SpawnSessionArgs = {
     adapter: args.adapter ?? 'claude-code',
     cwd: args.cwd ?? resolved.worktreePath,
     prompt: resolved.coldStartPrompt,
-    team_name: args.team_name ?? args.plan_id,
+    ...(args.team_name !== undefined ? { team_name: args.team_name } : {}),
     ...(args.permission_mode !== undefined ? { permission_mode: args.permission_mode } : {}),
     // caller_session_id 透传：spawn handler 内 makeCtx 已重新算（in-process closure
     // override），但这里用 ctx 直接转发跳过中间层。下方 spawnSessionHandler 接受 ctx 参数
@@ -99,6 +121,22 @@ export async function startNextSessionHandler(
       `failed to parse spawn_session result: ${(e as Error).message}`,
       'spawn_session returned non-JSON content; this is an internal error.',
     );
+  }
+
+  // 5. CHANGELOG_97：自动归档 caller session（baton 语义 = 原会话退出，新会话独立接手）。
+  // external caller 不在 sessions 表（已被 denyExternalIfNotAllowed 拦下，理论不会到这里；
+  // 防御性双保险）。失败仅 console.warn 不阻塞 K2 成功 return（caller 至少能拿到 newSid）。
+  if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
+    const archiveFn =
+      handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
+    try {
+      await archiveFn(caller.callerSessionId);
+    } catch (e) {
+      console.warn(
+        `[mcp start_next_session] archive caller ${caller.callerSessionId} failed:`,
+        e,
+      );
+    }
   }
 
   return ok({

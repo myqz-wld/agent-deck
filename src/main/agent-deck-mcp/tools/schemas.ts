@@ -338,7 +338,7 @@ export const START_NEXT_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Override team_name. Defaults to plan_id (caller becomes lead in this team, new session becomes teammate). Pass a custom name if you want to scope the next session to a different team.',
+      'Optional team_name. **Default: not set** (CHANGELOG_97 baton semantic — plan hand-off is a one-way baton transfer, the new session works independently and does NOT need a lead/teammate communication relationship with the caller). Pass a custom name only if you specifically want the caller to remain as lead and the new session to be a teammate (rare; use spawn_session if that is the primary intent).',
     ),
   permission_mode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])

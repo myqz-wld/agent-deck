@@ -90,13 +90,15 @@ const result = await mcp__agent_deck__start_next_session({
   plan_id: '<plan-id>',                      // 必填，与 plan 文件 stem / worktree 目录名一致
   phase_label: 'H3 Phase 4b',                // 可选，附加到 cold start prompt 后缀「（Phase: <label>）」
   // 其他字段 cwd / adapter / team_name / permission_mode / plan_file_path 默认即可
+  // CHANGELOG_97: team_name 默认不传（baton 单向交接不强加 lead/teammate 关系）
 });
 // result = {
 //   planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt,
-//   sessionId, adapter, cwd, teamId, teamName, spawnDepth, sentAt, spawnPromptMessageId
+//   sessionId, adapter, cwd, teamId (默认 null), teamName (默认 null),
+//   spawnDepth, sentAt, spawnPromptMessageId (默认 null)
 // }
 ```
 
-tool 自动跑：解析 plan 文件路径（caller cwd 反查 main-repo → `<main-repo>/.claude/plans/<plan-id>.md` / fallback `~/.claude/plans/<plan-id>.md`） / 读 plan frontmatter 拿 `worktree_path` + `base_branch` / 校验 status === `in_progress` / 构造 cold start prompt = `按 <plan-abs-path> 接力`（含 phase_label 时附 `（Phase: <label>）` 后缀） / 调 `spawn_session` 起新 SDK session（cwd = worktree_path 默认 / 默认 adapter `claude-code`） / 自动加入 plan-id team（caller 当前会话成 lead，新 session 成 teammate）。
+tool 自动跑：解析 plan 文件路径（caller cwd 反查 main-repo → `<main-repo>/.claude/plans/<plan-id>.md` / fallback `~/.claude/plans/<plan-id>.md`） / 读 plan frontmatter 拿 `worktree_path` + `base_branch` / 校验 status === `in_progress` / 构造 cold start prompt = `按 <plan-abs-path> 接力`（含 phase_label 时附 `（Phase: <label>）` 后缀） / 调 `spawn_session` 起新 SDK session（cwd = worktree_path 默认 / 默认 adapter `claude-code`） / **CHANGELOG_97 baton 语义**：default 不加任何 team（caller 不被打 lead 标签 / 新 session 不被打 teammate 标签；显式传 `team_name` 才启用通信关系）+ default 自动归档 caller session（baton 完整交出原会话退出，归档失败仅 warn 不阻塞 ok return）。
 
 任一预检失败（plan 文件不存在 / status ≠ in_progress / frontmatter 缺 worktree_path / spawn 失败）立即返回 error 短路。**新 session system prompt 必须含 user CLAUDE.md「复杂 plan」节**（settingSources 包含 `'user'` 即可，应用内 SDK 会话默认满足）—— 否则新 session 看 cold start prompt 不知道是什么意思。
