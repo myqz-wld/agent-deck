@@ -18,6 +18,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { SessionRecord, AgentDeckMessage } from '@shared/types';
+import { eventBus } from '@main/event-bus';
 
 // ─── Mock: sessionRepo / sessionManager / adapterRegistry ──────────────
 
@@ -1194,6 +1195,148 @@ describe('agent-deck-mcp tools — wait_reply (plan team-cohesion-fix-20260513 P
     expect(parsed.data.reply).toBeNull();
     expect(parsed.data.timedOut).toBe(true);
     expect(parsed.data.nudgesSent).toBe(0);
+  });
+
+  // CHANGELOG_98 / R2 reviewer-{claude,codex} MED：Phase A2 nudge 死锁修引入
+  // nudgeMessageIds 双查 + ok return 加 nudgeMessageIds 字段，但 R2 R1 fix 只加了实现
+  // 没补回归测试。本 F2 补 3 case：(a) nudge 触发 → ok return.nudgeMessageIds 含 nudge id
+  // (b) reply 给 originalId（findRepliesAcrossAllAnchors originalId 路径命中）
+  // (c) reply 给 nudgeId（findRepliesAcrossAllAnchors nudgeIds 路径命中，B14 dormant +
+  //     reviewer-codex MED2 实测核心场景：teammate 默认按 wire prefix 第一个 [msg ...]
+  //     抓 messageId，watcher 给 nudge body 自动注入新 nudgeId prefix → teammate 默认
+  //     reply nudgeId 而非 originalId → 旧实现 lead 永等不到，本 case 验证修复后命中）
+
+  it('CHANGELOG_98: nudge 触发 → ok return.nudgeMessageIds 含 nudge id + nudgesSent=1', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate');
+    const original: AgentDeckMessage = {
+      id: 'orig-msg-A', teamId: 'team-y', fromSessionId: 'lead', toSessionId: 'teammate',
+      body: 'q', status: 'delivered', statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    };
+    mockMessages.set('orig-msg-A', original);
+
+    const r = await tools.get('wait_reply').handler({
+      message_id: 'orig-msg-A',
+      timeout_ms: 1500,
+      nudge_text: 'are you there?',
+      nudge_after_ms: 100, // 100ms 后 nudge 触发，剩 1.4s 等 timeout
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.reply).toBeNull();          // 没 reply 注入 → null
+    expect(parsed.data.timedOut).toBe(true);       // 超时
+    expect(parsed.data.nudgesSent).toBe(1);        // nudge 触发 1 次
+    // F2 关键断言：nudgeMessageIds 含 nudge enqueue 返回的 id（mock 给 'msg-N' 形态）
+    expect(parsed.data.nudgeMessageIds).toBeInstanceOf(Array);
+    expect(parsed.data.nudgeMessageIds.length).toBe(1);
+    expect(parsed.data.nudgeMessageIds[0]).toMatch(/^msg-/);
+  });
+
+  it('CHANGELOG_98: reply 给 originalId → findRepliesAcrossAllAnchors originalId 路径命中', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate');
+    const original: AgentDeckMessage = {
+      id: 'orig-msg-B', teamId: 'team-z', fromSessionId: 'lead', toSessionId: 'teammate',
+      body: 'q', status: 'delivered', statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    };
+    mockMessages.set('orig-msg-B', original);
+
+    // 200ms 后注入 reply 给 originalId + emit listener 触发 checkReply
+    const reply: AgentDeckMessage = {
+      id: 'reply-to-orig', teamId: 'team-z', fromSessionId: 'teammate', toSessionId: 'lead',
+      body: 'a', status: 'delivered', statusReason: null,
+      sentAt: 2000, deliveredAt: 2100, attemptCount: 1, lastAttemptAt: 2000, deliveringSince: null,
+      replyToMessageId: 'orig-msg-B',
+    };
+    setTimeout(() => {
+      mockReplies.set('orig-msg-B', [reply]);
+      eventBus.emit('agent-deck-message-enqueued', {
+        id: 'reply-to-orig',
+        teamId: 'team-z',
+        fromSessionId: 'teammate',
+        toSessionId: 'lead',
+      });
+    }, 200);
+
+    const r = await tools.get('wait_reply').handler({
+      message_id: 'orig-msg-B',
+      timeout_ms: 5000,
+      nudge_text: 'are you there?',
+      nudge_after_ms: 100, // 100ms nudge → 200ms 后 reply 来命中
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    // 关键：reply 命中（走 originalId 路径，因为 mockReplies 的 key 是 originalId）
+    expect(parsed.data.reply).toMatchObject({
+      messageId: 'reply-to-orig',
+      text: 'a',
+      fromSessionId: 'teammate',
+    });
+    expect(parsed.data.timedOut).toBe(false);
+    expect(parsed.data.nudgesSent).toBe(1);
+    expect(parsed.data.nudgeMessageIds.length).toBe(1);
+  });
+
+  it('CHANGELOG_98: reply 给 nudgeId → findRepliesAcrossAllAnchors nudgeIds 路径命中（核心场景）', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate');
+    const original: AgentDeckMessage = {
+      id: 'orig-msg-C', teamId: 'team-w', fromSessionId: 'lead', toSessionId: 'teammate',
+      body: 'q', status: 'delivered', statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    };
+    mockMessages.set('orig-msg-C', original);
+
+    // 200ms 后注入 reply 但 reply_to_message_id 指向 nudge 的 id（'msg-1'，mock enqueue
+    // 第一个 id）+ emit。**关键**：mockReplies 的 key 是 'msg-1'（nudge id）不是
+    // originalId。旧实现 findRepliesByMessageId(originalId) 返回 [] → 永等不到；
+    // 新实现 findRepliesAcrossAllAnchors([originalId, ...nudgeIds]) 命中 nudgeIds 路径。
+    const reply: AgentDeckMessage = {
+      id: 'reply-to-nudge', teamId: 'team-w', fromSessionId: 'teammate', toSessionId: 'lead',
+      body: 'a (replied to nudge)', status: 'delivered', statusReason: null,
+      sentAt: 2000, deliveredAt: 2100, attemptCount: 1, lastAttemptAt: 2000, deliveringSince: null,
+      replyToMessageId: 'msg-1', // ← 关键：指向 nudgeId，不是 originalId
+    };
+    setTimeout(() => {
+      // 注入到 mock 'msg-1' 路径（nudgeId）
+      mockReplies.set('msg-1', [reply]);
+      eventBus.emit('agent-deck-message-enqueued', {
+        id: 'reply-to-nudge',
+        teamId: 'team-w',
+        fromSessionId: 'teammate',
+        toSessionId: 'lead',
+      });
+    }, 200);
+
+    const r = await tools.get('wait_reply').handler({
+      message_id: 'orig-msg-C',
+      timeout_ms: 5000,
+      nudge_text: 'are you there?',
+      nudge_after_ms: 100,
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    // 关键：reply 命中走 nudgeIds 路径（旧实现这里 reply=null + timedOut=true）
+    expect(parsed.data.reply).toMatchObject({
+      messageId: 'reply-to-nudge',
+      text: 'a (replied to nudge)',
+      fromSessionId: 'teammate',
+    });
+    expect(parsed.data.timedOut).toBe(false);
+    expect(parsed.data.nudgesSent).toBe(1);
+    expect(parsed.data.nudgeMessageIds.length).toBe(1);
+    expect(parsed.data.nudgeMessageIds[0]).toBe('msg-1');
   });
 });
 

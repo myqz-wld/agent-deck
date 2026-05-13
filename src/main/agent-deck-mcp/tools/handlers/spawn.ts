@@ -36,6 +36,7 @@ import type { SpawnSessionArgs } from '../schemas';
 export async function spawnSessionHandler(
   args: SpawnSessionArgs,
   ctx: HandlerContext,
+  opts?: { batonMode?: boolean },
 ): Promise<HandlerResult> {
   const { caller } = ctx;
   const denial = denyExternalIfNotAllowed('spawn_session', caller);
@@ -61,7 +62,10 @@ export async function spawnSessionHandler(
   // fan-out / spawn-rate（顺序：不消耗资源的检查前置，详 spawn-guards.ts 头注释）。
   // 任一 deny 立即返回；通过 → 拿到 fanOutSlot，必须在 createSession 完成后（无论成功
   // 失败）调 release()。
-  const guard = applySpawnGuards(caller, args.cwd, args.adapter);
+  // CHANGELOG_98：透传 opts.batonMode，K2 baton 路径跳过 depth check（其他 guard 保留）
+  const guard = applySpawnGuards(caller, args.cwd, args.adapter, {
+    batonMode: opts?.batonMode ?? false,
+  });
   if ('isError' in guard) return guard;
   const { parentDepth, fanOutSlot } = guard;
 
@@ -147,8 +151,13 @@ export async function spawnSessionHandler(
     });
     // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）。
     // setSpawnLink 在 release 之前完成，关闭 fan-out race window（详上方 MED-1 注释）。
+    // CHANGELOG_98：batonMode=true 时 spawn_depth 写 parentDepth（lateral，不 +1）—
+    // baton 单向交接不构成 fork-bomb，depth 累积没意义；连续 baton 链应 stay flat
+    // 否则下次以 baton 出来的 session 调普通 spawn 也会撞 depth check（即使 R2 reviewer-codex
+    // 警告：单跳 guard 不改 setSpawnLink 仍会让 depth 4/5/... 累积污染后续 spawn）。
     if (callerExists) {
-      sessionRepo.setSpawnLink(sid, caller.callerSessionId, parentDepth + 1);
+      const newDepth = opts?.batonMode ? parentDepth : parentDepth + 1;
+      sessionRepo.setSpawnLink(sid, caller.callerSessionId, newDepth);
     }
   } catch (e) {
     fanOutSlot.release();
@@ -272,7 +281,7 @@ export async function spawnSessionHandler(
     // 不再需要 list_sessions / get_session 反查）。
     agentName: args.agent_name ?? null,
     displayName: teammateDisplayName,
-    spawnDepth: created?.spawnDepth ?? (callerExists ? parentDepth + 1 : 0),
+    spawnDepth: created?.spawnDepth ?? (callerExists ? (opts?.batonMode ? parentDepth : parentDepth + 1) : 0),
     sentAt: Date.now(),
     // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 调 wait_reply 等 teammate first reply
     spawnPromptMessageId,

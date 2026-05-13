@@ -114,7 +114,7 @@ export async function buildAgentDeckTools(
 
   const waitReply = tool(
     AGENT_DECK_TOOL_NAMES.waitReply,
-    'Wait for a reply to a specific message id. Resolves when a message with reply_to_message_id = this id is delivered (DB query + universal-message-watcher event listener). Optionally sends a nudge_text after nudge_after_ms if no reply arrives — useful when the recipient may have forgotten to call reply_message. Returns { reply: { messageId, text, sentAt, fromSessionId } | null, nudgesSent, timedOut }.',
+    'Wait for a reply to a specific message id. Resolves when a message with reply_to_message_id = this id is delivered (DB query + universal-message-watcher event listener). Optionally sends a nudge_text after nudge_after_ms if no reply arrives — useful when the recipient may have forgotten to call reply_message. Returns { reply: { messageId, text, sentAt, fromSessionId } | null, nudgesSent, nudgeMessageIds: string[], timedOut }. nudgeMessageIds collects every nudge messageId enqueued during this wait — internal double-lookup logic (originalId + nudgeIds) already auto-resolves when teammate replies to the nudge id (default behavior per reviewer wire format protocol), so caller need not poll nudgeIds explicitly; field exposed for diagnostic / sidecar check_reply use.',
     WAIT_REPLY_SCHEMA,
     async (args) => waitReplyHandler(args, makeCtx(args)),
     { annotations: { readOnlyHint: false } }, // wait_reply 现在可能 enqueue nudge，不再纯 read-only

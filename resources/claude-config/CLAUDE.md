@@ -114,6 +114,8 @@ const result = await mcp__agent-deck__start_next_session({
 
 tool 自动跑：解析 plan 文件路径（caller cwd 反查 main-repo → `<main-repo>/.claude/plans/<plan-id>.md` / fallback `~/.claude/plans/<plan-id>.md`） / 读 plan frontmatter 拿 `worktree_path` + `base_branch` / 校验 status === `in_progress` / 构造 cold start prompt = `按 <plan-abs-path> 接力`（含 phase_label 时附 `（Phase: <label>）` 后缀） / 调 `spawn_session` 起新 SDK session（cwd = worktree_path 默认 / 默认 adapter `claude-code`） / **CHANGELOG_97 baton 语义**：default 不加任何 team（caller 不被打 lead 标签 / 新 session 不被打 teammate 标签；显式传 `team_name` 才启用通信关系）+ default 自动归档 caller session（baton 完整交出原会话退出，归档失败仅 warn 不阻塞 ok return）。
 
+> **CHANGELOG_98 / R2 deep review HIGH-1：baton 不计 spawn_depth**：K2 内部走 spawn handler 时传 `{ batonMode: true }` → spawn-guards 跳 depth check + setSpawnLink 写 `parentDepth`（lateral，不 +1）。理由：baton 单向交接（spawn 后立即 archive caller）任意时刻只 1 个 active session，**不构成 fork-bomb 风险**，N-phase 接力链不该撞默认 `mcpMaxSpawnDepth=3`。fan-out + spawn-rate guard 仍 enforce（防 spam baton 接力）。
+
 > **archive 无条件原则**：默认行为无论 caller 是否有 untracked / dirty / 已加入 team 都归档（baton 单向交出 = caller 必须退出原会话），返回 `archived` 三态字段：
 > - `'ok'` — 归档成功
 > - `'failed'` — 归档失败（lifecycle / DB error），仅 `console.warn`，不阻塞 ok return；caller 用户从「历史」面板仍可查看接力前最后一段对话（A5 升级前用户必须看 main 进程 stdout 才知道）

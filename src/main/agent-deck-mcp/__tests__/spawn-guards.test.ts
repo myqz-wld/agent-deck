@@ -101,6 +101,55 @@ describe('applySpawnGuards — depth 上限', () => {
     const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli');
     expect('ok' in r).toBe(true);
   });
+
+  // CHANGELOG_98 / R2 deep review HIGH-1：K2 baton 接力跳 depth check（baton 单向交接
+  // 不构成 fork-bomb 风险）。仅 depth check 跳，fan-out + rate 仍 enforce（防 spam baton）。
+  it('batonMode=true → caller depth >= max 仍通过（跳过 depth check）', () => {
+    seedSession('lead', { spawnDepth: 3 });
+    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { batonMode: true });
+    expect('ok' in r).toBe(true);
+    if ('ok' in r) {
+      // parentDepth 字段仍返回真实值（spawn handler 用它决定 setSpawnLink 是否 +1）
+      expect(r.parentDepth).toBe(3);
+      r.fanOutSlot.release();
+    }
+  });
+
+  it('batonMode=true 但 fan-out 上限仍 enforce（防 baton race 多次接力）', () => {
+    settingsState.mcpMaxFanOutPerParent = 1;
+    seedSession('lead', { spawnDepth: 3 });
+    seedSession('c1', { spawnedBy: 'lead', lifecycle: 'active' });
+    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { batonMode: true });
+    expect('isError' in r).toBe(true);
+    if ('isError' in r) {
+      const data = JSON.parse(r.content[0].text);
+      expect(data.error).toMatch(/fan-out 1 reached/);
+    }
+  });
+
+  it('batonMode=true 但 rate-limit 仍 enforce（防 spam K2 接力）', () => {
+    settingsState.mcpSpawnRatePerMinute = 1;
+    seedSession('lead', { spawnDepth: 5 });
+    const r1 = applySpawnGuards(caller('lead'), '/p1', 'codex-cli', { batonMode: true });
+    expect('ok' in r1).toBe(true);
+    if ('ok' in r1) r1.fanOutSlot.release();
+    const r2 = applySpawnGuards(caller('lead'), '/p2', 'codex-cli', { batonMode: true });
+    expect('isError' in r2).toBe(true);
+    if ('isError' in r2) {
+      const data = JSON.parse(r2.content[0].text);
+      expect(data.error).toMatch(/spawn rate exceeded: 1\/min/);
+    }
+  });
+
+  it('batonMode=false（默认）→ depth check 仍 enforce（普通 spawn 不受 batonMode 影响）', () => {
+    seedSession('lead', { spawnDepth: 3 });
+    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { batonMode: false });
+    expect('isError' in r).toBe(true);
+    if ('isError' in r) {
+      const data = JSON.parse(r.content[0].text);
+      expect(data.error).toMatch(/spawn depth 3 >= max 3/);
+    }
+  });
 });
 
 describe('applySpawnGuards — spawn-rate 滑动窗口', () => {

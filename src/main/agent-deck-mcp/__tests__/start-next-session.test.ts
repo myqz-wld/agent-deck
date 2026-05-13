@@ -409,6 +409,30 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
       },
     };
 
+    // CHANGELOG_98 / R2 reviewer-codex MED-2：F1 修法后 archive 前会 sessionRepo.get
+    // 探针，缺 row → 'failed' 不调 archive。本 case 测正常 archive 路径，所以 spy
+    // 让 caller-sid 有 fake row。
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
     const result = await startNextSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
@@ -431,6 +455,8 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     expect(data.teamId).toBeNull();
     expect(data.teamName).toBeNull();
     expect(data.spawnPromptMessageId).toBeNull();
+    // CHANGELOG_98 / Phase A5 / R2 反馈：archived 三态字段断言（'ok' / 'failed' / 'skipped'）
+    expect(data.archived).toBe('ok');
 
     // spawn 调用参数：cwd 默认 worktree_path，**default 不传 team_name**（CHANGELOG_97），
     // prompt 是 cold-start
@@ -444,6 +470,8 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     // CHANGELOG_97：archive caller 默认被调用，sid = caller.callerSessionId
     expect(mockArchive).toHaveBeenCalledTimes(1);
     expect(archiveCalls).toEqual(['caller-sid']);
+
+    sessionRepoGetSpy.mockRestore();
   });
 
   it('caller 显式 cwd / team_name → 透传给 spawn（不被 default 覆盖）', async () => {
@@ -474,17 +502,43 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
     };
 
-    await startNextSessionHandler(args, ctx, {
+    // CHANGELOG_98 / R2 reviewer-codex MED-2：F1 探针需 caller-sid 有 row
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
+    const result = await startNextSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
       implDeps: makeDeps(state),
     });
 
+    const data = JSON.parse(result.content[0]!.text);
     const spawnArgs = mockSpawn.mock.calls[0]![0];
     expect(spawnArgs.cwd).toBe('/Users/test/some-other-cwd');
     expect(spawnArgs.team_name).toBe('custom-team');
     // CHANGELOG_97：显式传 team_name 时仍归档 caller（baton 语义与是否启用 team 通信关系正交）
     expect(mockArchive).toHaveBeenCalledTimes(1);
+    expect(data.archived).toBe('ok');
+
+    sessionRepoGetSpy.mockRestore();
   });
 
   it('CHANGELOG_97: archive caller 失败 → warn-only 不阻塞 K2 成功 return', async () => {
@@ -516,6 +570,29 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
     };
 
+    // CHANGELOG_98 / R2 reviewer-codex MED-2：F1 探针需 caller-sid 有 row（让 archive
+    // 真被调用，模拟 archive 内部抛错的 'failed' 路径，而非 row missing 的 'failed'）
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
     const result = await startNextSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
@@ -526,12 +603,70 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     expect(result.isError).toBeFalsy();
     const data = JSON.parse(result.content[0]!.text);
     expect(data.sessionId).toBe('newsid');
+    // CHANGELOG_98：archive throw → archived='failed'（与 row missing 路径同状态值不同来源）
+    expect(data.archived).toBe('failed');
     expect(mockArchive).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('archive caller caller-sid failed'),
       expect.any(Error),
     );
     warnSpy.mockRestore();
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  // CHANGELOG_98 / R2 reviewer-codex MED-2：F1 新增 case — caller row missing（session
+  // 异常被清理 / 边界状态）→ archived='failed' + warn + mockArchive 不调用
+  it('CHANGELOG_98: caller row missing → archived=failed + 不调 archive + warn', async () => {
+    const state = makeState();
+    const planId = 'caller-row-missing';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ sessionId: 'newsid', adapter: 'claude-code', cwd: '/x', teamName: null }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const args: StartNextSessionArgs = {
+      plan_id: planId,
+      adapter: 'claude-code',
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'ghost-caller-sid', transport: 'in-process' },
+    };
+
+    // sessionRepo.get(ghost-caller-sid) → null（caller row 不存在 = F1 探针挡）
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation(() => null);
+
+    const result = await startNextSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      implDeps: makeDeps(state),
+    });
+
+    // K2 仍 ok return（不阻塞，与 archive throw 同款）
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.sessionId).toBe('newsid');
+    // F1 关键：archived='failed' (row missing 路径)
+    expect(data.archived).toBe('failed');
+    // F1 关键：archive 函数不被调用（探针在 archive 之前 short-circuit）
+    expect(mockArchive).not.toHaveBeenCalled();
+    // F1 关键：warn 含 row missing 提示
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('cannot archive caller ghost-caller-sid'),
+    );
+
+    warnSpy.mockRestore();
+    sessionRepoGetSpy.mockRestore();
   });
 
   it('spawn handler 返回 isError → 直接透传不二次包装 + archive 不被调用', async () => {
@@ -692,19 +827,45 @@ describe('startNextSessionHandler — caller cwd 反查（plan mcp-handoff-fix-a
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('caller 显式传 implDeps.cwd → 优先级最高，不调 sessionRepo（caller 显式覆盖反查）', async () => {
+  it('caller 显式传 implDeps.cwd → 优先级最高（mergeCallerCwd 不反查 sessionRepo）', async () => {
     const planId = 'caller-explicit-cwd';
-    const callerSid = 'should-not-be-queried';
+    const callerSid = 'should-not-be-queried-for-cwd';
     const explicitCwd = '/Users/test/explicit/cwd';
     const planFilePath = `${explicitCwd}/.claude/plans/${planId}.md`;
     const files = new Map<string, string>();
     files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
 
-    // sessionRepo.get 不应被调用 —— caller 显式传 cwd 时优先级最高
-    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get');
+    // CHANGELOG_98 / R2 reviewer-codex MED-2：F1 在 archive 路径独立加了
+    // sessionRepo.get(callerSid) 探针，与 mergeCallerCwd 反查路径无关。本 case 原
+    // intent 是「caller 显式 cwd → mergeCallerCwd 不反查 sessionRepo」，但 F1 加的
+    // archive 探针仍会调 sessionRepo.get。改 spy 让 callerSid 有 fake row（让 archive
+    // 路径走完）+ 用 gitCalls.cwd === explicitCwd 隐式验证 mergeCallerCwd 走 caller
+    // 显式 cwd（不是 sessionRepo 反查的 cwd）。
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === callerSid) {
+        return {
+          id: callerSid,
+          agentId: 'claude-code',
+          cwd: '/some/sessionrepo/cwd', // ≠ explicitCwd（用来验证 mergeCallerCwd 没用此值）
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
 
+    const gitCallsSeen: Array<{ args: string[]; cwd: string }> = [];
     const explicitDeps: StartNextSessionDeps = {
-      runGit: async (_args, cwd) => {
+      runGit: async (gitArgs, cwd) => {
+        gitCallsSeen.push({ args: gitArgs, cwd });
         if (cwd === explicitCwd) return `${explicitCwd}/.git`;
         throw new Error(`unexpected cwd: ${cwd}`);
       },
@@ -738,8 +899,10 @@ describe('startNextSessionHandler — caller cwd 反查（plan mcp-handoff-fix-a
     });
 
     expect(result.isError).toBeFalsy();
-    // sessionRepo.get **不应被调用** —— caller 显式 cwd 优先于反查
-    expect(sessionRepoGetSpy).not.toHaveBeenCalled();
+    // 关键验证：mergeCallerCwd 走 caller 显式 cwd（gitCalls.cwd === explicitCwd），**不是**
+    // sessionRepo 反查的 cwd（'/some/sessionrepo/cwd'）。证明 mergeCallerCwd 优先 caller 显式。
+    expect(gitCallsSeen).toHaveLength(1);
+    expect(gitCallsSeen[0]!.cwd).toBe(explicitCwd);
     sessionRepoGetSpy.mockRestore();
   });
 });

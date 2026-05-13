@@ -150,8 +150,11 @@ export async function startNextSessionHandler(
   };
 
   // 3. 调 spawn handler 完成实际 spawn（透传同一 ctx 让 caller 视角一致）
+  // CHANGELOG_98 / R2 deep review HIGH-1：传 { batonMode: true } 让 spawn-guards 跳 depth
+  // check + setSpawnLink 写 lateral parentDepth（不 +1）。baton 单向交接（spawn 后立即
+  // archive caller）不构成 fork-bomb 风险，多 phase 接力不该被 maxDepth=3 拒。
   const spawnFn = handlerDeps?.spawnSession ?? spawnSessionHandler;
-  const spawnResult = await spawnFn(spawnArgs, ctx);
+  const spawnResult = await spawnFn(spawnArgs, ctx, { batonMode: true });
   if (spawnResult.isError) {
     // 透传 spawn 的 error 不再二次包装（避免「start_next_session error: spawn error: ...」嵌套）
     return spawnResult;
@@ -173,19 +176,30 @@ export async function startNextSessionHandler(
   // 防御性双保险）。失败仅 console.warn 不阻塞 K2 成功 return（caller 至少能拿到 newSid）。
   // Phase A5 / R1 deep review *未验证* #1 升级：把 archive 结果放到 ok return.archived
   // 字段（'ok' / 'failed' / 'skipped'），让 caller 不必看 console.warn 就能感知归档结果。
+  // CHANGELOG_98 / R2 reviewer-codex MED-2：archive 前 sessionRepo.get 探针，缺 row
+  // （session 异常被清理 / caller 在 sentinel 之外的边界状态）→ 'failed' 不报 'ok'
+  // （旧实现 archive() 是 sessionRepo.setArchived no-op + emit no-op + 仍返回 'ok' 误报）。
   let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
   if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-    const archiveFn =
-      handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
-    try {
-      await archiveFn(caller.callerSessionId);
-      archived = 'ok';
-    } catch (e) {
+    const callerRow = sessionRepo.get(caller.callerSessionId);
+    if (!callerRow) {
       archived = 'failed';
       console.warn(
-        `[mcp start_next_session] archive caller ${caller.callerSessionId} failed:`,
-        e,
+        `[mcp start_next_session] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态)`,
       );
+    } else {
+      const archiveFn =
+        handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
+      try {
+        await archiveFn(caller.callerSessionId);
+        archived = 'ok';
+      } catch (e) {
+        archived = 'failed';
+        console.warn(
+          `[mcp start_next_session] archive caller ${caller.callerSessionId} failed:`,
+          e,
+        );
+      }
     }
   }
 
