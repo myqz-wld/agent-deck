@@ -50,7 +50,8 @@ function deny(error: string, hint?: string): GuardDenial {
  * 应用 3 条防递归规则。**必须**在 spawn_session handler 调 createSession 前同步段内调用。
  *
  * **CHANGELOG_98 / R2 deep review HIGH-1**：`opts.batonMode = true` 时跳过 depth check。
- * baton 单向交接（K2 `start_next_session` 默认行为：spawn 后立即 archive caller）不构成
+ * baton 单向交接（K2 `hand_off_session` 默认行为,CHANGELOG_99 改名前 `start_next_session`：
+ * spawn 后立即 archive caller）不构成
  * fork-bomb 风险——任意时刻只有 1 个 active session，与「lead spawn 多 sub-agent fan-out
  * 爆炸」无关。仅 depth check 跳过，**fan-out + rate-limit 保留**：
  * - fan-out：baton 在 spawn 时刻 caller 还未 archive（archive 在 K2 step 5 spawn 之后），

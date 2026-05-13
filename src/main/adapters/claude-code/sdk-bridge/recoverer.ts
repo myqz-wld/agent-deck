@@ -138,21 +138,10 @@ export class SessionRecoverer {
       throw new Error(`session ${sessionId} not found`);
     }
 
-    // CHANGELOG_31：用户在 detail 里主动发消息触发 recoverAndSend = 显式表达「我又要聊它了」，
-    // 自动取消归档。manager.ts:118-121 立的「归档与 lifecycle 正交，不能因事件流自动 unarchive」
-    // 约束针对的是 hook 触发的事件流（避免外部 CLI 在同 cwd 跑导致用户刚归档的会话被自动恢复），
-    // 本路径是用户显式 UI 动作不冲突。不 unarchive 的话，jsonl 在 + 不 fork 路径（realId === OLD_ID）
-    // 下 OLD_ID record 不动，archived_at 还在 → listHistory 仍返回这条 → 用户体感「我都在跟它聊了
-    // 但它还在历史列表里」与 CLAUDE.md「凡让用户感觉像新开会话 / 跳回列表都是 bug」总纲冲突。
-    // unarchive 内部 emit session-upserted，HistoryPanel 监听后自动 reload 把这条从历史列表移除。
-    if (rec.archivedAt !== null) {
-      console.warn(
-        `[sdk-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
-      );
-      await sessionManager.unarchive(sessionId);
-    }
-
-    // CHANGELOG_99 cwd 失效根治:启发式 fallback。
+    // CHANGELOG_99 cwd 失效根治:启发式 fallback (R1 fix MED-2:**移到 unarchive 之前**,
+    // 避免 archived session 在 cwd fallback 失败前被 unarchive 成 active 但实际死路一条 —
+    // 用户体感"刚归档的会话被自动恢复又死路")。
+    //
     // sessionRepo.cwd 已不存在(典型场景:K2 老 session cwd=worktree 后 worktree 被 archive_plan
     // 删 / 用户手动 git worktree remove / 跨设备同步丢目录 / 误删等)。
     //
@@ -167,6 +156,8 @@ export class SessionRecoverer {
       const fallback = this.findFallbackCwd(rec.cwd);
       if (fallback === null) {
         // 真没救:emit 清晰错误,throw,不进 placeholder 路径
+        // **不 unarchive**:archived 状态下 throw,session 仍归档,用户在 SessionList "已归档"
+        // 列表能看到清晰错误信息(MED-2 fix:之前 unarchive 在前 → throw 后 session 变 active 但死路)
         this.ctx.emit({
           sessionId,
           agentId: AGENT_ID,
@@ -204,6 +195,23 @@ export class SessionRecoverer {
       console.warn(
         `[sdk-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}`,
       );
+    }
+
+    // CHANGELOG_31：用户在 detail 里主动发消息触发 recoverAndSend = 显式表达「我又要聊它了」，
+    // 自动取消归档。manager.ts:118-121 立的「归档与 lifecycle 正交，不能因事件流自动 unarchive」
+    // 约束针对的是 hook 触发的事件流（避免外部 CLI 在同 cwd 跑导致用户刚归档的会话被自动恢复），
+    // 本路径是用户显式 UI 动作不冲突。不 unarchive 的话，jsonl 在 + 不 fork 路径（realId === OLD_ID）
+    // 下 OLD_ID record 不动，archived_at 还在 → listHistory 仍返回这条 → 用户体感「我都在跟它聊了
+    // 但它还在历史列表里」与 CLAUDE.md「凡让用户感觉像新开会话 / 跳回列表都是 bug」总纲冲突。
+    // unarchive 内部 emit session-upserted，HistoryPanel 监听后自动 reload 把这条从历史列表移除。
+    //
+    // CHANGELOG_99 R1 fix MED-2:本段移到 cwd precheck **之后** — 确认 cwd 能恢复(原 cwd 在 OR
+    // fallback cwd 找到)再 unarchive,避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
+    if (rec.archivedAt !== null) {
+      console.warn(
+        `[sdk-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
+      );
+      await sessionManager.unarchive(sessionId);
     }
 
     // REVIEW_24 HIGH-2 follow-up：字符长度上限（与 messageRepo cap 全局对齐）。
@@ -364,17 +372,23 @@ export class SessionRecoverer {
    * test 通过 facade extend override 该方法定制启发式行为。
    */
   protected findFallbackCwd(badCwd: string): string | null {
-    // 启发式 1:K2 老 session 模式(`<main-repo>/.claude/worktrees/<plan-id>` → 取 <main-repo>)
-    const m = badCwd.match(/^(.+)\/\.claude\/worktrees\/[^/]+\/?$/);
+    // 启发式 1:K2 老 session 模式(`<main-repo>/.claude/worktrees/<plan-id>(/.+)?` → 取 <main-repo>)
+    // CHANGELOG_99 R1 fix MED-3:regex 改为允许 worktree **内子目录** 命中 main repo
+    // (caller cwd 进过 worktree 子目录如 `/repo/.claude/worktrees/plan/src`,worktree 删了
+    // parent walk 命中 `.claude/worktrees` 而不是 main repo,违反"启发式 1 优先 main repo"语义)
+    const m = badCwd.match(/^(.+)\/\.claude\/worktrees\/[^/]+(?:\/.*)?$/);
     if (m && this.cwdExistsThunk(m[1])) {
       return m[1];
     }
     // 启发式 2:父目录 walk(不超过 home,避免 fallback 到 `/` / `/Users/<user>`)
+    // CHANGELOG_99 R1 fix LOW-2:安全边界改为「p 不能是 home 也不能是 home 的祖先」,
+    // 避免 badCwd === home 这种边角下 walk 到 `/Users` 等位置(原版只 p === home 比较不够)。
     const home = homedir();
     let p = dirname(badCwd);
-    // 安全边界:p === home 时已经太宽了,不再往上;p === '/' 也不要;循环上限避免无限循环
     for (let i = 0; i < 32; i++) {
-      if (p === '/' || p === home || p.length <= 1) return null;
+      // p 是 `/` / home 本身 / home 的祖先(`/Users` / `/`)/ 长度 ≤ 1 → 边界拒绝
+      const isAncestorOfHome = home === p || home.startsWith(p + '/');
+      if (p === '/' || isAncestorOfHome || p.length <= 1) return null;
       if (this.cwdExistsThunk(p)) return p;
       const next = dirname(p);
       if (next === p) return null; // 已到根

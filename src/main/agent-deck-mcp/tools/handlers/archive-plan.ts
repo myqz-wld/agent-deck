@@ -66,7 +66,15 @@ export interface ArchivePlanHandlerDeps {
 /** 与 hand-off-session.ts 同款：从 caller session id 反查 cwd 构造 implDeps 子集。 */
 function resolveCallerCwdDeps(callerSessionId: string): ArchivePlanDeps {
   if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return {};
-  const row = sessionRepo.get(callerSessionId);
+  // CHANGELOG_99 R1 fix MED-1:sessionRepo.get 包 try/catch fail-safe (与 archive 段 try/catch
+  // 对称)。DB 异常 (test 未 init / 生产 SQLite locked / FK conflict) 时返回空 deps,让 impl
+  // 退化到 DEFAULT_DEPS.cwd = process.cwd() 兜底,而非 handler 直接 crash。
+  let row: ReturnType<typeof sessionRepo.get> = null;
+  try {
+    row = sessionRepo.get(callerSessionId);
+  } catch {
+    return {};
+  }
   if (!row?.cwd) return {};
   const cwd = row.cwd;
   return { cwd: () => cwd };

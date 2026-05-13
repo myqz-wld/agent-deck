@@ -48,6 +48,7 @@ vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
 
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
 import { sessionRepo } from '@main/store/session-repo';
+import { sessionManager } from '@main/session/manager';
 
 interface CreateSessionCall {
   cwd: string;
@@ -125,6 +126,8 @@ function makeBridge(): TestBridge {
 beforeEach(() => {
   emits.length = 0;
   vi.mocked(sessionRepo.get).mockReset();
+  // CHANGELOG_99 R1 fix LOW-8 配套:reset renameSdkSession 让 cwdFellBack rename 断言准确
+  vi.mocked(sessionManager.renameSdkSession).mockReset();
 });
 
 afterEach(() => {
@@ -327,6 +330,13 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       resume: undefined, // cwdFellBack=true 强制不 resume
       permissionMode: 'plan',
     });
+
+    // CHANGELOG_99 R1 fix LOW-8:验证 cwdFellBack 下游路径调 renameSdkSession 把 OLD_ID
+    // 子表迁到 NEW_ID(应用层 events / file_changes / summaries 历史保留)。这条是
+    // cwdFellBack=true 下游正确性的核心回归点(CHANGELOG_99 Phase C 主要承诺之一)。
+    // mockSpawn returns sessionId='new-sid' (TestBridge default),OLD_ID='sess-cwd-bad' →
+    // newRealId !== sessionId,触发 renameSdkSession 调用。
+    expect(sessionManager.renameSdkSession).toHaveBeenCalledWith('sess-cwd-bad', 'new-sid');
 
     // emit 一条 info message(不打 error)告诉用户 fallback 发生
     const fallbackInfo = emits.filter((e) => {
