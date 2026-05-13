@@ -405,6 +405,26 @@ export class UniversalMessageWatcher {
     }
     this.emitStatus(claimed);
 
+    // J fix（plan mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.1）：reply 不再 inject
+    // 给 sender SDK 防 lead SessionDetail 重复显示。
+    //
+    // 修前 reply 也走 adapter.receiveTeammateMessage = adapter.sendMessage，sender (lead) 的
+    // sdk-bridge.sendMessage 会 emit 'message' kind 'user' role event，SessionDetail echo 出
+    // 一条 user message（含 wire prefix + replyText）。同时 lead 之前调的 wait_reply 通过
+    // `agent-deck-message-enqueued` event 拿 reply 作为 mcp tool_result return → SessionDetail
+    // 显示一条 tool_result（含 replyText）。两者并存 = 同份 reply 显示两次，且 reply 被当
+    // user input inject 给 lead SDK，lead Claude 可能 act on reply 跑空 agent loop。
+    //
+    // 修法：reply 只入库（已由 enqueueAgentDeckMessage 完成），不再 dispatch 给 sender SDK。
+    // sender 通过 wait_reply / check_reply 主动从 messages 表拿 reply（findRepliesByMessageId）。
+    // 不依赖 target session / adapter 状态：reply markDelivered 仅推进 status 状态机，sender
+    // 拿 reply 走 messages 表查询不依赖 target；adapter 不存在 / canCollaborate=false 也不影响。
+    if (claimed.replyToMessageId != null) {
+      const delivered = agentDeckMessageRepo.markDelivered(claimed.id, Date.now());
+      if (delivered) this.emitStatus(delivered);
+      return;
+    }
+
     const target = sessionRepo.get(claimed.toSessionId);
     if (!target) {
       const failed = agentDeckMessageRepo.markFailed(
