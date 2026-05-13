@@ -42,8 +42,13 @@ model: sonnet
     - 收到 user message 第一动作：regex `/\[msg ([0-9a-f-]+)\]/` 抓第一个 `[msg ...]` 提 UUID，记到 wrapper in-memory（`replyToMessageId = <提到的 id>`）
     - 跑完 codex 拿到输出后：调 `mcp__agent-deck__reply_message({reply_to_message_id: <replyToMessageId>, text: <codex 输出原样呈递>})`（不传 to_session_id / team_id，工具自动反查）
     - **不要**用裸 message reply（lead `wait_reply({message_id})` 永等不到 → 600s timeout）
-    - **找不到 `[msg ...]` 锚点**：reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>] wire prefix，本 reply 走不进 lead wait_reply 流程；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`，然后仍呈递 codex 输出（不 abort）
+    - **找不到 `[msg ...]` 锚点**：
+      - reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>] wire prefix，本 reply 不能挂 reply_to_message_id 进 lead wait_reply 流程；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
+      - **退化路径**：仍要呈递 codex 输出（不 abort）。`reply_message` 必传 `reply_to_message_id` 没法用 → 改调 **`mcp__agent-deck__send_message`** 不传 `reply_to_message_id`（裸 message）。target session_id 反查方式：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 用启发式（排除自己 sessionId / 非 reviewer-* displayName）定位 lead；team 内只一对 lead+wrapper 时排除自己后唯一的 active session 即 lead
+      - **副作用警告**：lead `wait_reply({message_id: <原 anchor>})` 永等不到（退化 reply 不在原 messageId reply chain 上），lead 必须自己看 SessionDetail UI 才能拿到 codex 输出；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt
+      - **如果 list_sessions 反查 lead 也失败**（多对同时跑歧义 / API 错）：直接把 codex 输出落本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 wrapper 的 SessionDetail UI 仍可看到
     - codex 失败模板（§失败兜底）也必须走 reply_message 而非裸 message
+    - **wire format id invariant**：messageId 由 `crypto.randomUUID()` 生成（v4 UUID lowercase hex + hyphen，charset `[0-9a-f-]{36}`，参考 `src/main/store/agent-deck-message-repo.ts` `enqueueAgentDeckMessage`）；regex `/\[msg ([0-9a-f-]+)\]/` 与该 charset 严格对齐。未来若换 id 生成器（如 ulid / nanoid）必须同步本 regex 否则 wrapper 抓不到 anchor 全部走 NO MSG ANCHOR fallback；同步范围：本文件 + reviewer-claude.md 同款条款 + 应用 CLAUDE.md wire format 节
 
 ## 输入识别
 
@@ -88,7 +93,11 @@ prompt 顶部固定约束段（不可省）：
 完整 Bash 调用（**长 prompt 走 stdin**）：
 
 ```bash
-# mktemp 必走 $TMPDIR：macOS Claude Code sandbox 默认 deny /var/folders/...，详 §核心纪律 第 11 条
+# mktemp 必走 $TMPDIR：macOS Claude Code 的 sandbox-exec profile workspace-write 默认 deny
+# 系统 mktemp 落点 /var/folders/<uid>/T/...（path 不在 sandbox allow list 里），第一个 Bash
+# 写文件被 deny → 卡审批弹给 PendingTab，1200s 后被 SDK 自动 reject 整轮跑空。
+# claude-code 适配器已主动注入 TMPDIR=/tmp/claude-<uid>/（applicationSupport 旁路目录，
+# 在 sandbox allow list 内），强制 mktemp 走 $TMPDIR 即可避坑。详 §核心纪律 第 11 条。
 OUT=$(mktemp "$TMPDIR/codex_out.XXXXXX"); PROMPT=$(mktemp "$TMPDIR/codex_prompt.XXXXXX")
 cat > "$PROMPT" <<'EOF'
 你是对抗 reviewer。请独立审视下面的 scope 与 focus，给出结构化 finding。
