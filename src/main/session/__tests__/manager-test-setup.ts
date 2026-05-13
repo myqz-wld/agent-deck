@@ -13,6 +13,7 @@
  */
 import { vi } from 'vitest';
 import type { AgentEvent, SessionRecord } from '@shared/types';
+import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 模块级 mock 状态（每个 test 在 beforeEach 通过 resetMocks 重置）
@@ -201,24 +202,39 @@ export function makeEventBusMock(): {
  * unarchive / reactivate / delete / ingest 主路径测试无语义影响 —— 那些测试不验证 team
  * 联动逻辑（已由 tools.test.ts / agent-deck-repos.test.ts 覆盖）。
  *
+ * G 修（plan mcp-bug-and-feature-batch-20260513 Phase 2 Step 2.3）：补全所有 18 个 method
+ * 让 mock 接口面与真 AgentDeckTeamRepo 100% 对齐（CHANGELOG_31 Bug 5 历史欠债）。
+ * 修前只暴露 5 method，靠 short-circuit 不暴露 — 一旦未来 lead session 关联真实 membership
+ * 触发未 mock 的 method（如 .get / .unarchive 在 H1 archive/unarchive 联动路径），test 直接挂。
+ * 修后用 `AgentDeckTeamRepo` 强类型 import 兜底 — 真 repo 接口加 method 编译期强制提示。
+ *
  * 用法（每个 test 文件顶部加）：
  *   vi.mock('@main/store/agent-deck-team-repo', () => ({
  *     agentDeckTeamRepo: makeAgentDeckTeamRepoMock(),
  *     TeamInvariantError: class extends Error {},  // sessionManager.delete 路径 catch 时引用
  *   }));
  */
-export function makeAgentDeckTeamRepoMock(): {
-  findActiveMembershipsBySession: () => never[];
-  findActiveMembershipsBySessionIds: () => Map<string, never[]>;
-  leaveTeam: () => null;
-  countActiveLeads: () => number;
-  archive: () => null;
-} {
+export function makeAgentDeckTeamRepoMock(): AgentDeckTeamRepo {
   return {
+    // ─── team CRUD ───
+    create: () => ({}) as ReturnType<AgentDeckTeamRepo['create']>,
+    ensureByName: () => ({}) as ReturnType<AgentDeckTeamRepo['ensureByName']>,
+    get: () => null,
+    getByActiveName: () => null,
+    getWithMembers: () => null,
+    list: () => [],
+    archive: () => null,
+    unarchive: () => null,
+    hardDelete: () => false,
+    // ─── member CRUD ───
+    addMember: () => ({}) as ReturnType<AgentDeckTeamRepo['addMember']>,
+    leaveTeam: () => null,
+    listActiveMembers: () => [],
+    listAllMembers: () => [],
     findActiveMembershipsBySession: () => [],
     findActiveMembershipsBySessionIds: () => new Map(),
-    leaveTeam: () => null,
+    findSharedActiveTeams: () => [],
     countActiveLeads: () => 0,
-    archive: () => null,
+    setRole: () => null,
   };
 }
