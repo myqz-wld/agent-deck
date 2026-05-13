@@ -955,3 +955,290 @@ describe('handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and
     sessionRepoGetSpy.mockRestore();
   });
 });
+
+// ─── CHANGELOG_99 generic 模式（无 plan_id 通用 hand-off） ──────────────────
+
+describe('handOffSessionImpl — generic mode (CHANGELOG_99)', () => {
+  it('无 plan_id + 显式 prompt → mode=generic, planFilePath/worktreePath/baseBranch=null, coldStartPrompt=args.prompt', async () => {
+    const state = makeState();
+    const result = await handOffSessionImpl(
+      { prompt: '继续 review #42 的反馈,重点看 race condition' },
+      makeDeps(state),
+    );
+
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
+    expect(ok.mode).toBe('generic');
+    expect(ok.planFilePath).toBeNull();
+    expect(ok.worktreePath).toBeNull();
+    expect(ok.baseBranch).toBeNull();
+    expect(ok.coldStartPrompt).toBe('继续 review #42 的反馈,重点看 race condition');
+    expect(ok.ignoredFields).toEqual([]);
+    // mainRepo 仍走 caller cwd → git rev-parse 反查（与 plan 模式共用第 0 步）
+    expect(ok.mainRepo).toBe('/Users/test/repo');
+    // git 仅 1 次（rev-parse），plan 文件 fallback 不走（无 plan_id）
+    expect(state.gitCalls.length).toBe(1);
+  });
+
+  it('无 plan_id + 不传 prompt → coldStartPrompt = DEFAULT_GENERIC_COLD_START_PROMPT', async () => {
+    const state = makeState();
+    const result = await handOffSessionImpl({}, makeDeps(state));
+
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
+    expect(ok.mode).toBe('generic');
+    expect(ok.coldStartPrompt).toBe('从上一个会话接力继续工作');
+  });
+
+  it('无 plan_id + 传 phase_label / planFilePathOverride → 记 ignoredFields 不报错', async () => {
+    const state = makeState();
+    const result = await handOffSessionImpl(
+      {
+        prompt: '通用 hand-off',
+        phaseLabel: 'irrelevant-phase',
+        planFilePathOverride: '/tmp/whatever.md',
+      },
+      makeDeps(state),
+    );
+
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
+    expect(ok.mode).toBe('generic');
+    expect(ok.coldStartPrompt).toBe('通用 hand-off'); // phase_label 不影响 prompt
+    expect(ok.ignoredFields).toEqual(['phase_label', 'plan_file_path']);
+  });
+
+  it('无 plan_id + caller cwd 非 git repo → mainRepo = null（不走 worktreePath 启发式 fallback,因为没 worktreePath）', async () => {
+    const state = makeState({ gitFails: true });
+    const result = await handOffSessionImpl({ prompt: 'gen' }, makeDeps(state));
+
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
+    expect(ok.mainRepo).toBeNull();
+    expect(ok.worktreePath).toBeNull();
+  });
+
+  it('plan 模式 ignoredFields 始终为空（plan-only 字段在 plan 模式下是合法的）', async () => {
+    const state = makeState();
+    const planId = 'plan-mode-ignored-empty';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+
+    const result = await handOffSessionImpl(
+      { planId, phaseLabel: 'P1', planFilePathOverride: planFilePath },
+      makeDeps(state),
+    );
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
+    expect(ok.mode).toBe('plan');
+    expect(ok.ignoredFields).toEqual([]);
+  });
+});
+
+describe('handOffSessionHandler — generic mode (CHANGELOG_99)', () => {
+  it('generic happy path: 不传 plan_id + 显式 prompt → spawn cwd = caller session cwd + ok return mode=generic', async () => {
+    const state = makeState();
+
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: 'gen-sid',
+              adapter: 'claude-code',
+              cwd: '/Users/test/repo',
+              teamId: null,
+              teamName: null,
+              spawnDepth: 1,
+              sentAt: 100,
+              spawnPromptMessageId: null,
+            }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    // mock callerRow.cwd → handler 用作 generic mode default cwd
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/some-caller-cwd',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
+    const args: HandOffSessionArgs = {
+      adapter: 'claude-code',
+      prompt: '继续上一会话的 fix',
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      implDeps: makeDeps(state),
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    // 双模式标识 + plan-only 字段全 null
+    expect(data.mode).toBe('generic');
+    expect(data.planId).toBeNull();
+    expect(data.planFilePath).toBeNull();
+    expect(data.worktreePath).toBeNull();
+    expect(data.baseBranch).toBeNull();
+    expect(data.phaseLabel).toBeNull();
+    // generic 模式 cold-start = args.prompt
+    expect(data.initialPrompt).toBe('继续上一会话的 fix');
+    expect(data.ignoredFields).toEqual([]);
+    expect(data.archived).toBe('ok');
+
+    // spawn cwd = caller session cwd（generic 模式 default,不是 mainRepo）
+    const spawnArgs = mockSpawn.mock.calls[0]![0];
+    expect(spawnArgs.cwd).toBe('/Users/test/some-caller-cwd');
+    expect(spawnArgs.prompt).toBe('继续上一会话的 fix');
+    expect(spawnArgs.team_name).toBeUndefined(); // baton 默认无 team
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('generic + caller cwd 缺失 → fallback mainRepo（caller 不在 sessionRepo / cwd 字段空）', async () => {
+    const state = makeState(); // git rev-parse 仍成功 → mainRepo = '/Users/test/repo'
+
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: 'gen-sid-2',
+              adapter: 'claude-code',
+              cwd: '/Users/test/repo',
+              teamId: null,
+              teamName: null,
+              spawnDepth: 1,
+              sentAt: 100,
+              spawnPromptMessageId: null,
+            }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    // sessionRepo.get 返回 null → callerSessionRow null → callerSessionCwd null → fallback mainRepo
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation(() => null);
+
+    const args: HandOffSessionArgs = {
+      adapter: 'claude-code',
+      prompt: 'fallback test',
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      implDeps: makeDeps(state),
+    });
+
+    expect(result.isError).toBeFalsy();
+    const spawnArgs = mockSpawn.mock.calls[0]![0];
+    // callerCwd 拿不到 → fallback resolved.mainRepo
+    expect(spawnArgs.cwd).toBe('/Users/test/repo');
+    // archive failed (callerRow null)
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.archived).toBe('failed');
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('generic + 传 phase_label → ok return ignoredFields 含 phase_label', async () => {
+    const state = makeState();
+
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: 'gen-sid-3',
+              adapter: 'claude-code',
+              cwd: '/Users/test/repo',
+              teamId: null,
+              teamName: null,
+              spawnDepth: 1,
+              sentAt: 100,
+              spawnPromptMessageId: null,
+            }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
+    const args: HandOffSessionArgs = {
+      adapter: 'claude-code',
+      prompt: 'gen with ignored',
+      phase_label: 'wrong-mode-label', // 在 generic 模式下被忽略
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      implDeps: makeDeps(state),
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.mode).toBe('generic');
+    expect(data.ignoredFields).toEqual(['phase_label']);
+    // phase_label 不影响 cold-start prompt
+    expect(data.initialPrompt).toBe('gen with ignored');
+    expect(data.phaseLabel).toBeNull();
+
+    sessionRepoGetSpy.mockRestore();
+  });
+});
