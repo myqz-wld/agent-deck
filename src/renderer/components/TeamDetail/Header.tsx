@@ -1,9 +1,12 @@
 import type { JSX, ReactNode } from 'react';
 
 /**
- * plan team-cohesion-fix-20260513 Phase C：TeamDetail 顶部 header（标题 + back button + 右
- * 侧自定义 actions 槽）。从原 TeamDetail/index.tsx 抽出，便于 5 sections 子组件复用 Section 风格
- * 的同时复用同一 Header。
+ * plan team-cohesion-fix-20260513 Phase C：TeamDetail 顶部 header（标题 + 右侧 actions
+ * + 右上角返回按钮）。从原 TeamDetail/index.tsx 抽出，便于 5 sections 子组件复用 Section
+ * 风格的同时复用同一 Header。
+ *
+ * CHANGELOG_94: 「← 返回」按钮从左上角挪到右上角（与 SessionDetail header 风格统一），
+ * 与 actions 同组在右侧。标题居左占 flex-1。
  */
 interface Props {
   onBack: () => void;
@@ -15,15 +18,18 @@ interface Props {
 export function Header({ onBack, children, actions }: Props): JSX.Element {
   return (
     <div className="flex items-center gap-2 border-b border-deck-border px-3 py-2">
-      <button
-        type="button"
-        onClick={onBack}
-        className="no-drag text-[11px] text-deck-muted hover:text-deck-text"
-      >
-        ← 返回
-      </button>
-      <div className="flex-1 truncate text-[12px] text-deck-text">{children}</div>
-      {actions && <div className="ml-2 shrink-0">{actions}</div>}
+      <div className="min-w-0 flex-1 truncate text-[12px] text-deck-text">{children}</div>
+      <div className="ml-2 flex shrink-0 items-center gap-1.5">
+        {actions}
+        <button
+          type="button"
+          onClick={onBack}
+          className="no-drag flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
+          title="返回列表"
+        >
+          ←
+        </button>
+      </div>
     </div>
   );
 }
