@@ -247,6 +247,50 @@ export const SHUTDOWN_SESSION_SCHEMA = {
   reason: z.string().max(500).optional(),
 };
 
+// plan mcp-bug-and-feature-batch-20260513 Phase 4a Step 4a.1：archive_plan tool —
+// K1 hand-off 自动化 plan 收口（git ff merge / mv plan / commit / worktree remove / branch -D）。
+// deny external caller（写 git + 删 worktree 高风险）。
+export const ARCHIVE_PLAN_SCHEMA = {
+  plan_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .describe(
+      'Plan id (matches plan file stem and worktree dir name). Used to derive plan file path and commit message. Charset matches EnterWorktree restriction.',
+    ),
+  worktree_path: z
+    .string()
+    .min(1)
+    .max(4096)
+    .refine((p) => p.startsWith('/'), 'Must be absolute path')
+    .describe(
+      'Absolute path to the plan worktree (e.g. /Users/apple/Repository/foo/.claude/worktrees/<plan_id>). Caller (mcp tool) must have already ExitWorktree-d before calling — handler refuses if process.cwd() is inside this path.',
+    ),
+  base_branch: z
+    .string()
+    .min(1)
+    .max(128)
+    .default('main')
+    .describe('Target branch to fast-forward merge worktree branch into. Defaults to "main".'),
+  plan_file_path: z
+    .string()
+    .min(1)
+    .max(4096)
+    .optional()
+    .describe(
+      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md.',
+    ),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（archive_plan 不允许 external caller）。',
+    ),
+};
+
 // z.infer 友好的 args 类型 —— handler 直接消费。
 // SDK 的 InferShape<Schema> 等价 z.infer<z.ZodObject<typeof Schema>>。
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
@@ -257,3 +301,4 @@ export type ReplyMessageArgs = z.infer<z.ZodObject<typeof REPLY_MESSAGE_SCHEMA>>
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
+export type ArchivePlanArgs = z.infer<z.ZodObject<typeof ARCHIVE_PLAN_SCHEMA>>;

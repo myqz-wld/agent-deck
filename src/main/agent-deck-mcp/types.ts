@@ -33,11 +33,15 @@ export interface CallerContext {
 }
 
 /**
- * Agent Deck MCP tool 7 个名字常量集中地。
+ * Agent Deck MCP tool 9 个名字常量集中地。
  * 文档（README + skill）+ 防御性 deny 决策（B'5 / B'2.a）共用。
  *
  * plan team-cohesion-fix-20260513 Phase B Step B3：加 reply_message tool（语法糖）
  * —— teammate 收到 user message 后调此 tool 回复，无需手动算 to_session_id / team_id。
+ *
+ * plan mcp-bug-and-feature-batch-20260513 Phase 4a Step 4a.1：加 archive_plan tool
+ * —— K1 hand-off 自动化 plan 收口（git ff merge / mv plan / commit / worktree remove /
+ * branch -D 一次调用代替原 user CLAUDE.md §Step 4 cleanup 5 步 Bash）。
  */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
@@ -48,6 +52,7 @@ export const AGENT_DECK_TOOL_NAMES = {
   listSessions: 'list_sessions',
   getSession: 'get_session',
   shutdownSession: 'shutdown_session',
+  archivePlan: 'archive_plan',
 } as const;
 
 export type AgentDeckToolName =
@@ -55,9 +60,9 @@ export type AgentDeckToolName =
 
 /**
  * 注册到 in-process MCP / HTTP / stdio 的 tool 是否允许「外部 caller」调用。
- * spawn_session / send_message / reply_message / shutdown_session 默认 deny external
- * （防 fork bomb / 越权 IPC）；list_sessions / get_session / wait_reply / check_reply 是
- * 只读 / 观察类，允许 external。
+ * spawn_session / send_message / reply_message / shutdown_session / archive_plan 默认
+ * deny external（防 fork bomb / 越权 IPC / 高风险 git+fs 写）；list_sessions / get_session /
+ * wait_reply / check_reply 是只读 / 观察类，允许 external。
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,
@@ -68,4 +73,5 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   list_sessions: true,
   get_session: true,
   shutdown_session: false,
+  archive_plan: false,
 };
