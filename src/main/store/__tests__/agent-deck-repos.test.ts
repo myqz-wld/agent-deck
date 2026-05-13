@@ -28,6 +28,12 @@ import v008 from '../migrations/v008_sessions_codex_sandbox.sql?raw';
 import v009 from '../migrations/v009_mcp_spawn_chain.sql?raw';
 import v010 from '../migrations/v010_agent_deck_teams.sql?raw';
 import v011 from '../migrations/v011_tasks_team_id.sql?raw';
+import v012 from '../migrations/v012_sessions_generic_pty_config.sql?raw';
+import v013 from '../migrations/v013_sessions_claude_code_sandbox.sql?raw';
+import v014 from '../migrations/v014_drop_sessions_team_name.sql?raw';
+import v015 from '../migrations/v015_agent_deck_messages_reply_to.sql?raw';
+import v016 from '../migrations/v016_agent_deck_teams_archive_reason.sql?raw';
+import v017 from '../migrations/v017_agent_deck_team_members_cascade.sql?raw';
 import {
   createAgentDeckTeamRepo,
   TeamInvariantError,
@@ -39,6 +45,7 @@ import {
   MAX_BODY_LENGTH,
   type AgentDeckMessageRepo,
 } from '../agent-deck-message-repo';
+import { renameWithDb } from '../session-repo/rename';
 
 function probeBetterSqliteBinding(): boolean {
   try {
@@ -59,7 +66,7 @@ function makeMemoryDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011]) {
+  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012, v013, v014, v015, v016, v017]) {
     db.exec(sql);
   }
   return db;
@@ -273,22 +280,84 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     expect(repo.findSharedActiveTeams('sA', 'sB')).toEqual([t2.id]);
   });
 
-  it('session ON DELETE RESTRICT：删 sessions 行时 team_members 拦截（reviewer HIGH-2 修法）', () => {
+  it('session ON DELETE CASCADE：删 sessions 行自动级联清 team_members（v017 修正 v010 RESTRICT 设计冲突）', () => {
     insertSession(db, 'sA');
     const t = repo.create({ name: 'foo' });
     repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'lead' });
-    // 直接 DELETE FROM sessions 应失败
-    expect(() => db.prepare(`DELETE FROM sessions WHERE id = ?`).run('sA')).toThrow(
-      /FOREIGN KEY constraint failed/i,
-    );
-    // leaveTeam 后理论上 row 仍在（left_at 非 NULL），FK 仍生效 → 仍拦
-    repo.leaveTeam(t.id, 'sA');
-    expect(() => db.prepare(`DELETE FROM sessions WHERE id = ?`).run('sA')).toThrow(
-      /FOREIGN KEY constraint failed/i,
-    );
-    // 必须先 DELETE FROM agent_deck_team_members 才能删 sessions（sessionManager.delete pre-check 兜底）
-    db.prepare(`DELETE FROM agent_deck_team_members WHERE session_id = ?`).run('sA');
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS c FROM agent_deck_team_members WHERE session_id = ?`).get('sA') as { c: number }).c,
+    ).toBe(1);
+    // v017 起 session_id FK ON DELETE CASCADE → 直接 DELETE FROM sessions 不抛 FK
     expect(() => db.prepare(`DELETE FROM sessions WHERE id = ?`).run('sA')).not.toThrow();
+    // 自动级联清 team_members rows（不再需要先手动 DELETE FROM agent_deck_team_members）
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS c FROM agent_deck_team_members WHERE session_id = ?`).get('sA') as { c: number }).c,
+    ).toBe(0);
+  });
+
+  it('renameWithDb 内迁移 team_members.session_id 让 NEW 续接 OLD lead 角色（plan linked-swimming-platypus 修法）', () => {
+    insertSession(db, 'sess-old');
+    const t = repo.create({ name: 'review-batch' });
+    repo.addMember({ teamId: t.id, sessionId: 'sess-old', role: 'lead' });
+    expect(repo.listActiveMembers(t.id).map((m) => m.sessionId)).toEqual(['sess-old']);
+
+    // 模拟 fork rename: NEW 不在 sessions 表，走 toExists=false 分支 INSERT 复制 + 子表迁移 + DELETE OLD
+    expect(() => renameWithDb(db, 'sess-old', 'sess-new')).not.toThrow();
+
+    // OLD 已删，NEW 已建
+    expect(db.prepare(`SELECT id FROM sessions WHERE id = ?`).get('sess-old')).toBeUndefined();
+    expect(db.prepare(`SELECT id FROM sessions WHERE id = ?`).get('sess-new')).toBeDefined();
+
+    // team membership 已迁到 NEW + 仍是 lead 角色（NEW 续接 OLD 在 team 的角色）
+    const members = repo.listActiveMembers(t.id);
+    expect(members.map((m) => m.sessionId)).toEqual(['sess-new']);
+    expect(members[0].role).toBe('lead');
+  });
+
+  it('renameWithDb 内迁移 messages.from/to_session_id（保 universal-message-watcher 投递引用）', () => {
+    const msgRepo = createAgentDeckMessageRepo(db);
+    insertSession(db, 'sA');
+    insertSession(db, 'sB');
+    insertSession(db, 'sC');
+    const t = repo.create({ name: 'msg-test' });
+    repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'lead' });
+    repo.addMember({ teamId: t.id, sessionId: 'sB', role: 'teammate' });
+
+    // 插一条 sA → sB 和一条 sB → sA 的 message
+    msgRepo.insert({ teamId: t.id, fromSessionId: 'sA', toSessionId: 'sB', body: 'hi' });
+    msgRepo.insert({ teamId: t.id, fromSessionId: 'sB', toSessionId: 'sA', body: 'reply' });
+
+    renameWithDb(db, 'sA', 'sC');
+
+    // sA 已不在 messages 任何字段；sC 接管 sA 的 sender / receiver 角色
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS c FROM agent_deck_messages WHERE from_session_id = ?`).get('sA') as { c: number }).c,
+    ).toBe(0);
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS c FROM agent_deck_messages WHERE to_session_id = ?`).get('sA') as { c: number }).c,
+    ).toBe(0);
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS c FROM agent_deck_messages WHERE from_session_id = ?`).get('sC') as { c: number }).c,
+    ).toBe(1);
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS c FROM agent_deck_messages WHERE to_session_id = ?`).get('sC') as { c: number }).c,
+    ).toBe(1);
+  });
+
+  it('renameWithDb 内迁移 sessions.spawned_by 自引用（保 spawn chain 完整性）', () => {
+    insertSession(db, 'parent');
+    insertSession(db, 'child');
+    db.prepare(`UPDATE sessions SET spawned_by = ?, spawn_depth = 1 WHERE id = ?`).run('parent', 'child');
+    expect(
+      (db.prepare(`SELECT spawned_by FROM sessions WHERE id = ?`).get('child') as { spawned_by: string }).spawned_by,
+    ).toBe('parent');
+
+    renameWithDb(db, 'parent', 'parent-new');
+
+    // child.spawned_by 已迁到 parent-new（不被 ON DELETE SET NULL 自动断链）
+    expect(
+      (db.prepare(`SELECT spawned_by FROM sessions WHERE id = ?`).get('child') as { spawned_by: string }).spawned_by,
+    ).toBe('parent-new');
   });
 
   it('findActiveMembershipsBySession 仅返回 active', () => {

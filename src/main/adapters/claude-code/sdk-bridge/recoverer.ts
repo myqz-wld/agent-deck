@@ -24,7 +24,7 @@
  */
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
@@ -69,6 +69,12 @@ export type SendMessageThunk = (
 
 export type JsonlExistsThunk = (cwd: string, sessionId: string) => boolean;
 
+/**
+ * CHANGELOG_99：cwd 存在性 thunk(test seam)。默认实现走 node fs `existsSync`,
+ * test 通过 facade extend override 让单测不依赖真 fs。
+ */
+export type CwdExistsThunk = (cwd: string) => boolean;
+
 export class SessionRecoverer {
   /**
    * REVIEW_17 R3 / M3-R3：recoverAndSend 入口 emit 占位 message 的 dedup 窗口。
@@ -87,6 +93,11 @@ export class SessionRecoverer {
      * extend facade override resumeJsonlExists），保证现有测试范式（TestBridge）不破。
      */
     private readonly jsonlExistsThunk: JsonlExistsThunk,
+    /**
+     * CHANGELOG_99：cwd 存在性探测 thunk(test seam)。facade 内部转发给 protected
+     * cwdExists 方法,默认走 fs.existsSync。
+     */
+    private readonly cwdExistsThunk: CwdExistsThunk,
   ) {}
 
   /**
@@ -127,6 +138,65 @@ export class SessionRecoverer {
       throw new Error(`session ${sessionId} not found`);
     }
 
+    // CHANGELOG_99 cwd 失效根治:启发式 fallback (R1 fix MED-2:**移到 unarchive 之前**,
+    // 避免 archived session 在 cwd fallback 失败前被 unarchive 成 active 但实际死路一条 —
+    // 用户体感"刚归档的会话被自动恢复又死路")。
+    //
+    // sessionRepo.cwd 已不存在(典型场景:K2 老 session cwd=worktree 后 worktree 被 archive_plan
+    // 删 / 用户手动 git worktree remove / 跨设备同步丢目录 / 误删等)。
+    //
+    // 走 jsonl missing fallback 同款下游路径:createThunk 不带 resume + 后置 renameSdkSession
+    // (CHANGELOG_28 已成熟;CLI 历史失但应用层 events/file_changes/summaries 子表保留)。
+    //
+    // 找不到 fallback(启发式 1 & 2 全 miss)→ emit error + throw,**不**emit「正在自动恢复」
+    // placeholder(误导:明明不可能恢复)。
+    let effectiveCwd = rec.cwd;
+    let cwdFellBack = false;
+    if (!this.cwdExistsThunk(rec.cwd)) {
+      const fallback = this.findFallbackCwd(rec.cwd);
+      if (fallback === null) {
+        // 真没救:emit 清晰错误,throw,不进 placeholder 路径
+        // **不 unarchive**:archived 状态下 throw,session 仍归档,用户在 SessionList "已归档"
+        // 列表能看到清晰错误信息(MED-2 fix:之前 unarchive 在前 → throw 后 session 变 active 但死路)
+        this.ctx.emit({
+          sessionId,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text:
+              `⚠ 此会话的 cwd 已不存在: ${rec.cwd}\n` +
+              `应用尝试启发式 fallback (含 .claude/worktrees/ 路径反推 / 父目录 walk) 但未找到合适的替代目录。\n` +
+              `请新建会话;或如确认这条会话不再需要,可右键归档。`,
+            error: true,
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+        throw new Error(
+          `session ${sessionId} cwd does not exist and no fallback available: ${rec.cwd}`,
+        );
+      }
+      effectiveCwd = fallback;
+      cwdFellBack = true;
+      // 主动告诉用户 fallback 发生了 + 用了哪个目录(不打 error,info 性质)
+      this.ctx.emit({
+        sessionId,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: {
+          text:
+            `⚠ 此会话的原 cwd 已不存在: ${rec.cwd}\n` +
+            `应用启发式 fallback 到: ${effectiveCwd}\n` +
+            `CLI 内部对话历史(jsonl)将丢失,但 SessionDetail 历史完整保留(应用 DB)。`,
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+      console.warn(
+        `[sdk-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}`,
+      );
+    }
+
     // CHANGELOG_31：用户在 detail 里主动发消息触发 recoverAndSend = 显式表达「我又要聊它了」，
     // 自动取消归档。manager.ts:118-121 立的「归档与 lifecycle 正交，不能因事件流自动 unarchive」
     // 约束针对的是 hook 触发的事件流（避免外部 CLI 在同 cwd 跑导致用户刚归档的会话被自动恢复），
@@ -134,6 +204,9 @@ export class SessionRecoverer {
     // 下 OLD_ID record 不动，archived_at 还在 → listHistory 仍返回这条 → 用户体感「我都在跟它聊了
     // 但它还在历史列表里」与 CLAUDE.md「凡让用户感觉像新开会话 / 跳回列表都是 bug」总纲冲突。
     // unarchive 内部 emit session-upserted，HistoryPanel 监听后自动 reload 把这条从历史列表移除。
+    //
+    // CHANGELOG_99 R1 fix MED-2:本段移到 cwd precheck **之后** — 确认 cwd 能恢复(原 cwd 在 OR
+    // fallback cwd 找到)再 unarchive,避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
     if (rec.archivedAt !== null) {
       console.warn(
         `[sdk-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
@@ -191,17 +264,22 @@ export class SessionRecoverer {
         // 不存在时直接走不带 resume 的新建路径，事后手工 rename OLD_ID → newRealId 把
         // 应用层 events / file_changes / summaries 子表迁过去（CLI jsonl 历史失，但应用层 DB
         // 历史保留 + sessionId 切换链路与 fork detection 路径一致）。
-        if (!this.jsonlExistsThunk(rec.cwd, sessionId)) {
-          console.warn(
-            `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${rec.cwd}, ` +
-              `falling back to new CLI session (CLI history lost but app DB preserved)`,
-          );
+        //
+        // CHANGELOG_99:cwd fallback 时(cwdFellBack=true)强制走 fallback 路径,因为 jsonl 文件
+        // 在 OLD cwd encoded 路径下,新 cwd encoded path 必然不存在 → resume 无意义。
+        if (cwdFellBack || !this.jsonlExistsThunk(effectiveCwd, sessionId)) {
+          if (!cwdFellBack) {
+            console.warn(
+              `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${effectiveCwd}, ` +
+                `falling back to new CLI session (CLI history lost but app DB preserved)`,
+            );
+          }
           // REVIEW_7 H1：直接用 createSession 返回值拿 newRealId，不再 entries() 反查 cwd。
           // 旧版用 `for ... entries() if cwd === rec.cwd break` 取 first 推断「最新创建的」，
           // 但 Map 迭代是插入顺序——同 cwd 已存在别的 SDK 会话时会先取到那条历史 session_id，
           // 把 OLD_ID 的 events/file_changes/summaries 子表错迁到不相关会话上。
           const handle = await this.createThunk({
-            cwd: rec.cwd,
+            cwd: effectiveCwd, // CHANGELOG_99:可能是 fallback cwd
             prompt: text,
             permissionMode: rec.permissionMode ?? undefined,
             // HIGH-1 修法：attachments 透传，jsonl 缺失 fallback 路径下恢复也带图
@@ -232,7 +310,7 @@ export class SessionRecoverer {
         }
 
         await this.createThunk({
-          cwd: rec.cwd,
+          cwd: effectiveCwd, // CHANGELOG_99:正常 resume 路径下 cwd 存在,effectiveCwd === rec.cwd
           prompt: text,
           resume: sessionId,
           // permissionMode null = 用户没主动选过，按 createSession 内默认 'default'；
@@ -266,6 +344,58 @@ export class SessionRecoverer {
       throw err;
     }
   }
+
+  /**
+   * CHANGELOG_99 cwd 失效根治:启发式 fallback 算法。
+   *
+   * 已知 sessionRepo.cwd 不存在时(由 cwdExistsThunk 判定),尝试找一个还能用的 cwd
+   * 让 SDK 子进程能正常 spawn(否则 chdir 失败,撞 "Path does not exist" 弯绕错误链)。
+   *
+   * **算法两阶启发式**:
+   * 1. **路径含 `.claude/worktrees/` 段** → 取段之前部分(典型: K2 老 session
+   *    cwd=worktree 的场景,worktree 删了之后 main repo 仍在)
+   * 2. **父目录 walk** → 沿 dirname 链往上找第一个还存在的目录(覆盖手动 git worktree
+   *    remove / 误删 / 跨设备同步丢目录等场景)。**安全边界**:不超过 home(避免 fallback
+   *    到 `/` / `/Users/<user>` 这种用户不希望的位置;走到这种边界时返回 null)。
+   *
+   * 找不到 → null(handler 上层 emit error + throw,不进 placeholder 路径)。
+   *
+   * **fallback 后下游**:走 createThunk 不带 resume + 后置 renameSdkSession(jsonl missing
+   * fallback 同款路径,CHANGELOG_28),CLI 历史失但应用层 events / file_changes / summaries
+   * 子表保留(用户在 SessionDetail 看到的对话历史完全保留,因为 SessionDetail 渲染走 events
+   * 表不走 CLI jsonl)。
+   *
+   * **不持久化 fallback cwd**:sessionRepo.cwd 不被改写。理由:fallback 是 best-effort 不动
+   * 持久 state;下次发消息再次 detect → fallback,不贵(existsSync + regex)。让用户看
+   * SessionDetail 还是认识"原本是哪个 worktree 的"history。
+   *
+   * test 通过 facade extend override 该方法定制启发式行为。
+   */
+  protected findFallbackCwd(badCwd: string): string | null {
+    // 启发式 1:K2 老 session 模式(`<main-repo>/.claude/worktrees/<plan-id>(/.+)?` → 取 <main-repo>)
+    // CHANGELOG_99 R1 fix MED-3:regex 改为允许 worktree **内子目录** 命中 main repo
+    // (caller cwd 进过 worktree 子目录如 `/repo/.claude/worktrees/plan/src`,worktree 删了
+    // parent walk 命中 `.claude/worktrees` 而不是 main repo,违反"启发式 1 优先 main repo"语义)
+    const m = badCwd.match(/^(.+)\/\.claude\/worktrees\/[^/]+(?:\/.*)?$/);
+    if (m && this.cwdExistsThunk(m[1])) {
+      return m[1];
+    }
+    // 启发式 2:父目录 walk(不超过 home,避免 fallback 到 `/` / `/Users/<user>`)
+    // CHANGELOG_99 R1 fix LOW-2:安全边界改为「p 不能是 home 也不能是 home 的祖先」,
+    // 避免 badCwd === home 这种边角下 walk 到 `/Users` 等位置(原版只 p === home 比较不够)。
+    const home = homedir();
+    let p = dirname(badCwd);
+    for (let i = 0; i < 32; i++) {
+      // p 是 `/` / home 本身 / home 的祖先(`/Users` / `/`)/ 长度 ≤ 1 → 边界拒绝
+      const isAncestorOfHome = home === p || home.startsWith(p + '/');
+      if (p === '/' || isAncestorOfHome || p.length <= 1) return null;
+      if (this.cwdExistsThunk(p)) return p;
+      const next = dirname(p);
+      if (next === p) return null; // 已到根
+      p = next;
+    }
+    return null;
+  }
 }
 
 /**
@@ -290,6 +420,22 @@ export function defaultResumeJsonlExists(cwd: string, sessionId: string): boolea
     return existsSync(jsonlPath);
   } catch {
     // 任意异常（cwd 解析失败 / FS 权限）→ 退化让 createSession 自己 try，最差不过原行为
+    return true;
+  }
+}
+
+/**
+ * CHANGELOG_99:cwd 存在性 thunk 的默认实现 — 直接走 fs.existsSync。
+ *
+ * 这是 facade.cwdExists 的默认实现;test 通过 extend facade override 让单测不依赖真 fs。
+ *
+ * **fail-safe 退化**:任意异常退化返回 true(让 createSession 自己 try),最差不过原行为
+ * (撞 SDK "Path does not exist")。这与 defaultResumeJsonlExists 同款防御策略。
+ */
+export function defaultCwdExists(cwd: string): boolean {
+  try {
+    return existsSync(cwd);
+  } catch {
     return true;
   }
 }

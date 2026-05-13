@@ -10,14 +10,14 @@ interface Props {
 /**
  * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6）。
  *
- * 功能：让 claude / codex / 第三方 MCP client 通过 6 个 tool（spawn_session /
- * send_message / wait_reply / list_sessions / get_session / shutdown_session）跨
- * adapter 编排其他 coding agent session。
+ * 功能：让 claude / codex / 第三方 MCP client 通过 7 个 tool（spawn_session /
+ * send_message / list_sessions / get_session / shutdown_session / archive_plan /
+ * hand_off_session）跨 adapter 编排其他 coding agent session。
  *
  * UI 布局（自顶向下）：
  * 1. 总开关 enableAgentDeckMcp + 描述
  * 2. transport 子开关：mcpHttpEnabled（codex / 外部 client 用）/ mcpStdioEnabled（外部 stdio 用）
- * 3. 防递归 3 条规则的可调阈值（depth / spawn-rate / fan-out）+ wait_reply idleQuiet
+ * 3. 防递归 3 条规则的可调阈值（depth / spawn-rate / fan-out）
  * 4. mcpServerToken 显示（只读 + 复制按钮，自动生成不允许改）
  *
  * 与 ExperimentalSection 区分：那边是「实验功能」（agentTeamsEnabled / TaskManager / sandbox），
@@ -25,7 +25,7 @@ interface Props {
  *
  * 改 mcpHttpEnabled / mcpStdioEnabled 提示：HTTP transport 需要重启应用生效（fastify 不支持
  * 运行时 deregister 路由）；mcpHttpEnabled / mcpStdioEnabled / enableAgentDeckMcp 任一从 OFF
- * → ON 都需重启。spawnRatePerMinute / fanOutPerParent / waitReplyIdleQuietMs 是热生效。
+ * → ON 都需重启。spawnRatePerMinute / fanOutPerParent 是热生效。
  */
 export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
   return (
@@ -36,13 +36,14 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         onChange={(v) => void update({ enableAgentDeckMcp: v })}
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        让 claude / codex / 任何支持 MCP 的 coding agent 通过 6 个 tool 跨 adapter
+        让 claude / codex / 任何支持 MCP 的 coding agent 通过 7 个 tool 跨 adapter
         编排其他会话：<code className="rounded bg-white/5 px-1">spawn_session</code> /
         <code className="rounded bg-white/5 px-1">send_message</code> /
-        <code className="rounded bg-white/5 px-1">wait_reply</code> /
         <code className="rounded bg-white/5 px-1">list_sessions</code> /
         <code className="rounded bg-white/5 px-1">get_session</code> /
-        <code className="rounded bg-white/5 px-1">shutdown_session</code>。
+        <code className="rounded bg-white/5 px-1">shutdown_session</code> /
+        <code className="rounded bg-white/5 px-1">archive_plan</code> /
+        <code className="rounded bg-white/5 px-1">hand_off_session</code>。
         <br />
         <strong className="text-deck-text/85">三 transport 并存</strong>：
         in-process（claude SDK 会话自动挂）/ HTTP（codex 自动挂 + 外部 MCP client） /
@@ -80,7 +81,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
           <code className="rounded bg-white/5 px-1">agent-deck mcp</code> 子命令以 stdio 方式连接。
           外部 caller（<code className="rounded bg-white/5 px-1">caller_session_id=__external__</code>）
           仅允许只读 tool（<code className="rounded bg-white/5 px-1">list_sessions</code> /
-          <code className="rounded bg-white/5 px-1">wait_reply</code>），spawn / send / shutdown 默认 deny。
+          <code className="rounded bg-white/5 px-1">get_session</code>），spawn / send / shutdown 默认 deny。
           <br />
           默认关 —— 仅在你确实需要外部工具调用 agent-deck 时打开。
         </div>
@@ -109,13 +110,6 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             min={1}
             max={20}
             onChange={(v) => void update({ mcpMaxFanOutPerParent: v })}
-          />
-          <NumberInput
-            label="wait_reply idle 静默阈值 ms（mcpWaitReplyIdleQuietMs）"
-            value={settings.mcpWaitReplyIdleQuietMs}
-            min={1000}
-            max={60000}
-            onChange={(v) => void update({ mcpWaitReplyIdleQuietMs: v })}
           />
         </div>
         <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">

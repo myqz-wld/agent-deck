@@ -11,6 +11,31 @@ import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shar
 const COLLAPSE_THRESHOLD_CHARS = 800;
 
 /**
+ * CHANGELOG_100 / plan mcp-tool-simplify-20260514 B4：spawn handler 注入的 lead context block
+ * （`## Hand-off context (auto-injected by Agent Deck MCP)` ~ `\n---\n\n`）从 wire body 抽出
+ * 放到独立 disclosure（默认收起），避免 lead context 占满 UI 让用户看不到真正的 task prompt。
+ *
+ * marker 协议（spawn.ts:148-172 同款字面量）：
+ * - 必须以 `## Hand-off context (auto-injected by Agent Deck MCP)\n` 开头
+ * - 必须含 `\n---\n\n` 作分隔符（spawn 拼时用 `${block}\n---\n\n${prompt}`）
+ *
+ * 任一不匹配 → 视为普通 wire body（不抽 hand-off）；所以 send_message reply chain 的普通
+ * cross-session message 不会被误识别。
+ */
+const HAND_OFF_HEADER = '## Hand-off context (auto-injected by Agent Deck MCP)';
+const HAND_OFF_SEPARATOR = '\n---\n\n';
+
+function parseHandOffContext(body: string): { handOff: string | null; main: string } {
+  if (!body.startsWith(HAND_OFF_HEADER)) return { handOff: null, main: body };
+  const sepIdx = body.indexOf(HAND_OFF_SEPARATOR);
+  if (sepIdx < 0) return { handOff: null, main: body };
+  return {
+    handOff: body.slice(0, sepIdx),
+    main: body.slice(sepIdx + HAND_OFF_SEPARATOR.length),
+  };
+}
+
+/**
  * 普通消息气泡（user / assistant）。每条独立持有 MD/TXT mode（CHANGELOG_34/35：
  * 切单条不级联到全局，无 localStorage 持久化）。error 消息强制 plaintext 避免
  * markdown 解析掩盖错误堆栈结构。
@@ -40,7 +65,13 @@ export function MessageBubble({
   // → sendMessage → emit role='user' message event）。chip + 隐藏 prefix 让用户一眼区分
   // 「自己输入」vs「跨会话注入」。
   const wirePrefix = role === 'user' ? parseWirePrefix(rawText) : null;
-  const text = (wirePrefix?.body ?? rawText).trim();
+  const wireBody = (wirePrefix?.body ?? rawText).trim();
+  // CHANGELOG_100 B4：spawn 注入的 lead context block 抽出到独立 disclosure
+  // （仅 wire prefix 命中时尝试解析；普通用户输入不解析 marker 防误识别）。
+  const { handOff: handOffContext, main } = wirePrefix
+    ? parseHandOffContext(wireBody)
+    : { handOff: null, main: wireBody };
+  const text = main;
   const isError = !!p.error;
   const isUser = role === 'user';
   const attachments = isUser && Array.isArray(p.attachments) ? p.attachments : null;
@@ -79,14 +110,20 @@ export function MessageBubble({
             // Phase 5 Step 5.1：cross-session teammate message chip。区分「自己输入」vs
             // 「另一个 SDK session 注入的 message」—— 配合 hidden wire prefix（body-only render），
             // 避免用户疑惑 "为啥 user message 里有 [from ... ] 前缀"。
-            // hover title 显示完整 adapter + msgId，body 区只显示 displayName 节省横向空间。
+            // hover title 显示完整 adapter + msgId + senderSessionId，body 区只显示 displayName +
+            // sid 8-char short hash 节省横向空间（CHANGELOG_100 B5 加 sid hash）。
             <span
-              className="ml-0.5 inline-flex max-w-[12rem] items-center gap-0.5 truncate rounded bg-cyan-500/15 px-1 py-0.5 text-[9px] font-medium text-cyan-300"
+              className="ml-0.5 inline-flex max-w-[16rem] items-center gap-0.5 truncate rounded bg-cyan-500/15 px-1 py-0.5 text-[9px] font-medium text-cyan-300"
               title={`来自 ${wirePrefix.from} @ ${wirePrefix.adapter}${
-                wirePrefix.msgId ? ` · msg ${wirePrefix.msgId}` : ''
-              }`}
+                wirePrefix.senderSessionId ? ` (sid:${wirePrefix.senderSessionId})` : ''
+              }${wirePrefix.msgId ? ` · msg ${wirePrefix.msgId}` : ''}`}
             >
               ↩ {wirePrefix.from}
+              {wirePrefix.senderSessionId && (
+                <span className="ml-0.5 font-mono text-cyan-300/70">
+                  ·{wirePrefix.senderSessionId.slice(0, 8)}
+                </span>
+              )}
             </span>
           )}
           <span className="text-deck-muted/50">·</span>
@@ -125,6 +162,19 @@ export function MessageBubble({
                 : 'border border-deck-border bg-white/[0.04] text-deck-text'
           }`}
         >
+          {handOffContext && (
+            // CHANGELOG_100 B4：spawn 注入的 lead context block disclosure（默认收起）。
+            // <details>/<summary> 是原生折叠 widget，不需 React state；click summary 切展开/收起。
+            // pre 标签 + whitespace-pre-wrap 保留 markdown 缩进与换行（lead context 含 code fence 与列表）。
+            <details className="mb-1.5 rounded border border-cyan-500/30 bg-cyan-500/5 px-1.5 py-1">
+              <summary className="cursor-pointer select-none text-[10px] text-cyan-300/80 hover:text-cyan-200">
+                Hand-off context（lead 注入，点开查看 lead session_id / team_id / send_message 用法）
+              </summary>
+              <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[10px] leading-snug text-cyan-100/85">
+                {handOffContext}
+              </pre>
+            </details>
+          )}
           {text ? (
             renderAsMarkdown ? (
               <MarkdownText text={text} />

@@ -13,7 +13,8 @@
  * - spawn_session same-cwd same-adapter 是合法路径（REVIEW_28 移除 §6.2 后）
  *
  * 完整防递归 3 条规则（depth / fan-out / spawn-rate）的单测放 spawn-guards.test.ts。
- * wait_reply coordinator + backfill 单测放 wait-reply-coordinator.test.ts。
+ * CHANGELOG_100：删 wait_reply / reply_message / check_reply 三 tool 后，wait-reply-coordinator
+ * 文件已删（无对应 backfill 测试）。所有 reply 现在走 send_message + reply_to_message_id。
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -214,6 +215,10 @@ const mockTeamsById = new Map<string, { name: string }>();
 
 // REVIEW_31 Bug 4：addMember mock 改成记录调用让测试断言 displayName fallback 链
 const addMemberCalls: Array<{ teamId: string; sessionId: string; role: string; displayName: string | null }> = [];
+// CHANGELOG_100 R2 fix (codex MED-2): mock listAllMembers / hardDelete 让 spawn handler 的
+// teamCreatedNow 判定与 createSession 失败 cleanup 路径有合理 mock 行为。
+const mockTeamMembers = new Map<string, Array<{ sessionId: string; role: string; displayName: string | null }>>();
+const hardDeleteCalls: string[] = [];
 
 vi.mock('@main/store/agent-deck-team-repo', () => ({
   agentDeckTeamRepo: {
@@ -231,6 +236,10 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
       displayName: string | null;
     }) => {
       addMemberCalls.push(input);
+      // 同步追到 mockTeamMembers 让 listAllMembers 看见
+      const arr = mockTeamMembers.get(input.teamId) ?? [];
+      arr.push({ sessionId: input.sessionId, role: input.role, displayName: input.displayName });
+      mockTeamMembers.set(input.teamId, arr);
       return {};
     },
     findSharedActiveTeams: (a: string, b: string): string[] => {
@@ -257,12 +266,19 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
     },
     findActiveMembershipsBySession: (sid: string) => mockMembershipsBySession.get(sid) ?? [],
     get: (teamId: string) => mockTeamsById.get(teamId) ?? null,
+    // CHANGELOG_100 R2 fix (codex MED-2)
+    listAllMembers: (teamId: string) => mockTeamMembers.get(teamId) ?? [],
+    hardDelete: (teamId: string) => {
+      hardDeleteCalls.push(teamId);
+      mockTeamMembers.delete(teamId);
+      return true;
+    },
   },
   TeamInvariantError: class TeamInvariantError extends Error {},
 }));
-// plan team-cohesion-fix-20260513 Phase B：mock agent-deck-message-repo for wait_reply tests
+// plan team-cohesion-fix-20260513 Phase B / CHANGELOG_100：mock agent-deck-message-repo
+// for spawn placeholder enqueue + send_message reply chain validation
 const mockMessages = new Map<string, AgentDeckMessage>();
-const mockReplies = new Map<string, AgentDeckMessage[]>();
 const insertedMessages: Array<{ id: string; teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId: string | null }> = [];
 const markedDelivered: string[] = [];
 let nextInsertId = 1;
@@ -270,7 +286,6 @@ let nextInsertId = 1;
 vi.mock('@main/store/agent-deck-message-repo', () => ({
   agentDeckMessageRepo: {
     get: (id: string) => mockMessages.get(id) ?? null,
-    findRepliesByMessageId: (id: string) => mockReplies.get(id) ?? [],
     insert: (input: { id?: string; teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId?: string | null }) => {
       // plan team-cohesion-fix-20260513 Phase B7：input.id 非空 → 用之（spawn 路径预生成 id 注入 wire prefix）；
       // 否则 fallback 自增 mock id（其他路径如 enqueueAgentDeckMessage 仍走原行为）。
@@ -380,8 +395,9 @@ beforeEach(async () => {
   sharedTeamsBySession.clear();
   mockMembershipsBySession.clear();
   mockTeamsById.clear();
+  mockTeamMembers.clear();
+  hardDeleteCalls.length = 0;
   mockMessages.clear();
-  mockReplies.clear();
   insertedMessages.length = 0;
   markedDelivered.length = 0;
   nextInsertId = 1;
@@ -604,10 +620,15 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     // Phase B5: spawn 返 spawnPromptMessageId 非空（Phase B7：UUID v4 形式，由 spawn 预生成）
     const spawnId = parsed.data.spawnPromptMessageId;
     expect(spawnId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    // Phase B7: createSession 收到的 prompt 顶部含 wire prefix `[msg <spawnPromptMessageId>]\n`
-    // 让 teammate 能 regex 提 messageId 调 reply_message。
+    // Phase B7 / CHANGELOG_100: createSession 收到的 prompt 顶部含 wire prefix
+    // `[from <leadName> @ <leadAdapter>][msg <id>][sid <leadSid>]\n` 三段，让 teammate
+    // 端 message-row.tsx parseWirePrefix 能识别并 regex 提 messageId 调 send_message 回 lead。
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].prompt).toBe(`[msg ${spawnId}]\nreview src/foo.ts`);
+    const seenPrompt = createSessionCalls[0].prompt as string;
+    expect(seenPrompt).toMatch(new RegExp(`^\\[from .+ @ .+\\]\\[msg ${spawnId}\\]\\[sid lead\\]\\n`));
+    // body 仍含原始 promptToUse（spawn 拼 lead context block + --- + 原 prompt）
+    expect(seenPrompt).toContain('review src/foo.ts');
+    expect(seenPrompt).toContain('## Hand-off context (auto-injected by Agent Deck MCP)');
     // Phase B5: messages 表 placeholder body 是**原始 promptToUse**（不含 wire prefix）
     expect(insertedMessages).toHaveLength(1);
     expect(insertedMessages[0]).toEqual({
@@ -640,7 +661,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(insertedMessages).toEqual([]);  // 无 team_name 不入 placeholder
   });
 
-  it('Phase B7: spawn with agent_name + team_name → wire prefix on top of injected agent body', async () => {
+  it('Phase B7 / CHANGELOG_100: spawn with agent_name + team_name → wire prefix [from][msg][sid] on top of injected agent body', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
@@ -655,11 +676,13 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(parsed.isError).toBeFalsy();
     const spawnId = parsed.data.spawnPromptMessageId;
     expect(spawnId).toMatch(/^[0-9a-f-]{36}$/);
-    // wire prefix 在最顶 + agent body + caller prompt 顺序：
-    expect(createSessionCalls[0].prompt).toBe(
-      `[msg ${spawnId}]\n# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。\n\n---\n\ntask body: review src/foo.ts`,
-    );
-    // DB body 不含 wire prefix（保留 agent body + ---\n\n + caller prompt 形态）
+    // wire prefix 三段 + lead context block + --- + agent body + --- + caller prompt 顺序
+    const seenPrompt = createSessionCalls[0].prompt as string;
+    expect(seenPrompt).toMatch(new RegExp(`^\\[from .+ @ .+\\]\\[msg ${spawnId}\\]\\[sid lead\\]\\n`));
+    expect(seenPrompt).toContain('## Hand-off context (auto-injected by Agent Deck MCP)');
+    expect(seenPrompt).toContain('# REVIEWER-CLAUDE BODY (mocked)');
+    expect(seenPrompt).toContain('task body: review src/foo.ts');
+    // DB body 不含 wire prefix / lead context block（保留 agent body + ---\n\n + caller prompt 形态）
     expect(insertedMessages[0].body).toBe(
       `# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。\n\n---\n\ntask body: review src/foo.ts`,
     );
@@ -899,6 +922,89 @@ describe('agent-deck-mcp tools — send_message', () => {
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/ambiguous-team/);
   });
+
+  // CHANGELOG_100 R2 fix (claude MED-1 + codex LOW-2 双方共识)：reply_to_message_id 核心防御
+  // 测试覆盖。删 wait_reply describe (含 mockMessages.set 的 reply_to_message_id fixture) 后，
+  // send.ts:91-105 的 reject path 必须由 send_message describe 自己覆盖。
+  it('rejects reply_to_message_id pointing to non-existent message', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    setSharedTeams('lead', 'teammate', ['team-X']);
+    const r = await tools.get('send_message').handler({
+      session_id: 'teammate',
+      text: 'reply text',
+      reply_to_message_id: 'ghost-msg-id',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/reply_to_message_id .* not found/);
+  });
+
+  it('rejects cross-team reply (original.teamId !== resolved teamId)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    setSharedTeams('lead', 'teammate', ['team-X']);
+    // mockMessages: original 在 team-Y，但 caller 试图把 reply 挂到 team-X chain
+    mockMessages.set('cross-team-original', {
+      id: 'cross-team-original',
+      teamId: 'team-Y',  // 不同 team
+      fromSessionId: 'someone-else',
+      toSessionId: 'lead',
+      body: 'original from another team',
+      status: 'delivered',
+      statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    });
+    const r = await tools.get('send_message').handler({
+      session_id: 'teammate',
+      text: 'reply text',
+      reply_to_message_id: 'cross-team-original',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/cross-team reply not allowed/);
+  });
+
+  it('passes reply_to_message_id through to enqueue when same-team original exists', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    setSharedTeams('lead', 'teammate', ['team-X']);
+    mockMessages.set('same-team-original', {
+      id: 'same-team-original',
+      teamId: 'team-X',  // 同 team
+      fromSessionId: 'teammate',
+      toSessionId: 'lead',
+      body: 'first message',
+      status: 'delivered',
+      statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    });
+    const r = await tools.get('send_message').handler({
+      session_id: 'teammate',
+      text: 'my reply',
+      reply_to_message_id: 'same-team-original',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.queued).toBe(true);
+    expect(enqueuedMessages).toEqual([
+      {
+        teamId: 'team-X',
+        fromSessionId: 'lead',
+        toSessionId: 'teammate',
+        body: 'my reply',
+        replyToMessageId: 'same-team-original',
+      },
+    ]);
+  });
 });
 
 describe('agent-deck-mcp tools — shutdown_session', () => {
@@ -1119,156 +1225,3 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
   });
 });
 
-describe('agent-deck-mcp tools — wait_reply (plan team-cohesion-fix-20260513 Phase B 新语义)', () => {
-  it('rejects unknown message_id', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead');
-    // 不注入 mockMessages → get(unknown-msg) 返 null
-    const r = await tools.get('wait_reply').handler({
-      message_id: 'ghost-msg',
-      timeout_ms: 1000,
-      caller_session_id: 'lead',
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/not found/);
-  });
-
-  it('returns reply immediately when reply already exists (race-safe)', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead');
-    seedSession('teammate');
-    // 模拟原 msg + 已存在的 reply
-    const original: AgentDeckMessage = {
-      id: 'msg-1', teamId: 'team-x', fromSessionId: 'lead', toSessionId: 'teammate',
-      body: 'q', status: 'delivered', statusReason: null,
-      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
-      replyToMessageId: null,
-    };
-    const reply: AgentDeckMessage = {
-      id: 'msg-2', teamId: 'team-x', fromSessionId: 'teammate', toSessionId: 'lead',
-      body: 'a', status: 'delivered', statusReason: null,
-      sentAt: 2000, deliveredAt: 2100, attemptCount: 1, lastAttemptAt: 2000, deliveringSince: null,
-      replyToMessageId: 'msg-1',
-    };
-    mockMessages.set('msg-1', original);
-    mockReplies.set('msg-1', [reply]);
-
-    const r = await tools.get('wait_reply').handler({
-      message_id: 'msg-1',
-      timeout_ms: 5000,
-      caller_session_id: 'lead',
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBeFalsy();
-    expect(parsed.data.reply).toMatchObject({
-      messageId: 'msg-2',
-      text: 'a',
-      sentAt: 2000,
-      fromSessionId: 'teammate',
-    });
-    expect(parsed.data.timedOut).toBe(false);
-    expect(parsed.data.nudgesSent).toBe(0);
-  });
-
-  it('returns timed_out=true with reply=null when no reply within timeout', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead');
-    seedSession('teammate');
-    // 注入原 msg 但不注入 reply
-    const original: AgentDeckMessage = {
-      id: 'msg-3', teamId: 'team-x', fromSessionId: 'lead', toSessionId: 'teammate',
-      body: 'q', status: 'delivered', statusReason: null,
-      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
-      replyToMessageId: null,
-    };
-    mockMessages.set('msg-3', original);
-
-    const r = await tools.get('wait_reply').handler({
-      message_id: 'msg-3',
-      timeout_ms: 1000,  // 1s 必超时
-      caller_session_id: 'lead',
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBeFalsy();
-    expect(parsed.data.reply).toBeNull();
-    expect(parsed.data.timedOut).toBe(true);
-    expect(parsed.data.nudgesSent).toBe(0);
-  });
-});
-
-describe('agent-deck-mcp tools — check_reply (plan mcp-bug-and-feature-batch-20260513 Phase 1 Step 1.3+1.4)', () => {
-  it('returns reply immediately when reply already exists (legitReply 方向校验通过)', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead');
-    seedSession('teammate');
-    const original: AgentDeckMessage = {
-      id: 'check-msg-1', teamId: 'team-x', fromSessionId: 'lead', toSessionId: 'teammate',
-      body: 'q', status: 'delivered', statusReason: null,
-      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
-      replyToMessageId: null,
-    };
-    const reply: AgentDeckMessage = {
-      id: 'check-msg-2', teamId: 'team-x', fromSessionId: 'teammate', toSessionId: 'lead',
-      body: 'a', status: 'delivered', statusReason: null,
-      sentAt: 2000, deliveredAt: 2100, attemptCount: 1, lastAttemptAt: 2000, deliveringSince: null,
-      replyToMessageId: 'check-msg-1',
-    };
-    mockMessages.set('check-msg-1', original);
-    mockReplies.set('check-msg-1', [reply]);
-
-    const r = await tools.get('check_reply').handler({
-      message_id: 'check-msg-1',
-      caller_session_id: 'lead',
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBeFalsy();
-    expect(parsed.data.reply).toMatchObject({
-      messageId: 'check-msg-2',
-      text: 'a',
-      sentAt: 2000,
-      fromSessionId: 'teammate',
-    });
-    expect(parsed.data.timedOut).toBe(false);
-  });
-
-  it('returns reply: null when no reply exists (non-blocking, no listener / nudge / timeout)', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead');
-    seedSession('teammate');
-    const original: AgentDeckMessage = {
-      id: 'check-msg-3', teamId: 'team-x', fromSessionId: 'lead', toSessionId: 'teammate',
-      body: 'q', status: 'delivered', statusReason: null,
-      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
-      replyToMessageId: null,
-    };
-    mockMessages.set('check-msg-3', original);
-    // 不注入 reply
-
-    const t0 = Date.now();
-    const r = await tools.get('check_reply').handler({
-      message_id: 'check-msg-3',
-      caller_session_id: 'lead',
-    }, {});
-    const elapsed = Date.now() - t0;
-    // check_reply 必须立即返回（不阻塞），整个调用 < 100ms
-    expect(elapsed).toBeLessThan(100);
-
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBeFalsy();
-    expect(parsed.data.reply).toBeNull();
-    expect(parsed.data.timedOut).toBe(false); // check_reply 永不 timedOut
-  });
-
-  it('rejects unknown message_id', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead');
-    const r = await tools.get('check_reply').handler({
-      message_id: 'ghost-check-msg',
-      caller_session_id: 'lead',
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/not found/);
-  });
-});

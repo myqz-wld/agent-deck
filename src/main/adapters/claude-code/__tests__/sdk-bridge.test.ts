@@ -48,6 +48,7 @@ vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
 
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
 import { sessionRepo } from '@main/store/session-repo';
+import { sessionManager } from '@main/session/manager';
 
 interface CreateSessionCall {
   cwd: string;
@@ -65,6 +66,13 @@ class TestBridge extends ClaudeSdkBridge {
   public rejectWith?: Error;
   /** 默认让 jsonl "存在"，测试 fallback 路径时设 false */
   public jsonlExistsOverride = true;
+  /**
+   * CHANGELOG_99：cwd 存在性 mock。默认 boolean(true 让现有 case cwd precheck 不触发 fallback)。
+   * 测试 fallback 真实行为时改用 Map<path, boolean> 让启发式按路径返回不同值,
+   * 测启发式 1 (worktrees regex 命中) / 启发式 2 (parent walk) 真实算法路径,不直接 spy
+   * findFallbackCwd 私有方法。
+   */
+  public cwdExistsOverride: boolean | Map<string, boolean> = true;
 
   override async createSession(opts: {
     cwd: string;
@@ -93,6 +101,16 @@ class TestBridge extends ClaudeSdkBridge {
   protected resumeJsonlExists(_cwd: string, _sessionId: string): boolean {
     return this.jsonlExistsOverride;
   }
+
+  /**
+   * CHANGELOG_99 cwd 失效 fallback test seam(同 jsonl override 模式)。
+   * 默认 true 让现有 case 不受 cwd precheck 影响;新加的 cwd fallback case 显式设 false 或
+   * Map 触发降级 + 测启发式行为。Map 形式让启发式 walk 算法按路径返回不同值,测真实路径。
+   */
+  protected cwdExists(cwd: string): boolean {
+    if (typeof this.cwdExistsOverride === 'boolean') return this.cwdExistsOverride;
+    return this.cwdExistsOverride.get(cwd) ?? false;
+  }
 }
 
 const emits: AgentEvent[] = [];
@@ -108,6 +126,8 @@ function makeBridge(): TestBridge {
 beforeEach(() => {
   emits.length = 0;
   vi.mocked(sessionRepo.get).mockReset();
+  // CHANGELOG_99 R1 fix LOW-8 配套:reset renameSdkSession 让 cwdFellBack rename 断言准确
+  vi.mocked(sessionManager.renameSdkSession).mockReset();
 });
 
 afterEach(() => {
@@ -274,6 +294,171 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       ((e.payload as { text?: string }).text ?? '').includes('正在自动恢复'),
     );
     expect(placeholders).toHaveLength(1);
+  });
+
+  // ─── CHANGELOG_99 cwd 失效启发式 fallback ────────────────────────────
+
+  it('CHANGELOG_99: cwd 不存在 + .claude/worktrees/ 启发式命中 → fallback main repo + 走 jsonl missing 同款下游', async () => {
+    const bridge = makeBridge();
+    // Map mock:dead worktree path 不存在 + main repo 存在 → 启发式 1 命中
+    bridge.cwdExistsOverride = new Map<string, boolean>([
+      ['/Users/apple/myrepo/.claude/worktrees/dead-plan', false],
+      ['/Users/apple/myrepo', true],
+    ]);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-cwd-bad',
+      agentId: 'claude-code',
+      cwd: '/Users/apple/myrepo/.claude/worktrees/dead-plan',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      permissionMode: 'plan',
+    });
+
+    await bridge.sendMessage('sess-cwd-bad', 'hi');
+
+    // createSession 被调一次,cwd = main repo (启发式 1 命中),不带 resume(强制走 jsonl missing 下游)
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0]).toEqual({
+      cwd: '/Users/apple/myrepo',
+      prompt: 'hi',
+      resume: undefined, // cwdFellBack=true 强制不 resume
+      permissionMode: 'plan',
+    });
+
+    // CHANGELOG_99 R1 fix LOW-8:验证 cwdFellBack 下游路径调 renameSdkSession 把 OLD_ID
+    // 子表迁到 NEW_ID(应用层 events / file_changes / summaries 历史保留)。这条是
+    // cwdFellBack=true 下游正确性的核心回归点(CHANGELOG_99 Phase C 主要承诺之一)。
+    // mockSpawn returns sessionId='new-sid' (TestBridge default),OLD_ID='sess-cwd-bad' →
+    // newRealId !== sessionId,触发 renameSdkSession 调用。
+    expect(sessionManager.renameSdkSession).toHaveBeenCalledWith('sess-cwd-bad', 'new-sid');
+
+    // emit 一条 info message(不打 error)告诉用户 fallback 发生
+    const fallbackInfo = emits.filter((e) => {
+      const p = e.payload as { text?: string };
+      return (p.text ?? '').includes('启发式 fallback 到');
+    });
+    expect(fallbackInfo).toHaveLength(1);
+    expect((fallbackInfo[0]!.payload as { error?: boolean }).error).not.toBe(true);
+    expect((fallbackInfo[0]!.payload as { text: string }).text).toContain('/Users/apple/myrepo');
+
+    // placeholder 也 emit(用户体感"在自动恢复")
+    const placeholders = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('正在自动恢复'),
+    );
+    expect(placeholders).toHaveLength(1);
+  });
+
+  it('CHANGELOG_99: cwd 不存在 + 启发式全 miss → emit error + throw,不进 placeholder 路径', async () => {
+    const bridge = makeBridge();
+    // Map 全 false → 启发式 1 (main repo 不存在) + 启发式 2 (parent walk 全部不存在) 全 miss
+    bridge.cwdExistsOverride = new Map<string, boolean>(); // 空 Map = 任何路径都返 false
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-no-rescue',
+      agentId: 'claude-code',
+      cwd: '/some/random/dead/path',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+    });
+
+    await expect(bridge.sendMessage('sess-no-rescue', 'hi')).rejects.toThrow(
+      /cwd does not exist and no fallback available/,
+    );
+
+    // createSession 不被调(短路 throw 在前)
+    expect(bridge.createCalls).toHaveLength(0);
+
+    // emit error message 说明 cwd 不存在 + 启发式都失败
+    const errorMessages = emits.filter((e) => {
+      const p = e.payload as { text?: string; error?: boolean };
+      return p.error === true && (p.text ?? '').includes('cwd 已不存在');
+    });
+    expect(errorMessages).toHaveLength(1);
+
+    // **不**emit placeholder「正在自动恢复」(误导)
+    const placeholders = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('正在自动恢复'),
+    );
+    expect(placeholders).toHaveLength(0);
+  });
+
+  it('CHANGELOG_99: cwd 不存在 + 启发式 1 不命中 + parent walk 命中 → fallback 到父目录', async () => {
+    const bridge = makeBridge();
+    // 路径不含 .claude/worktrees/ → 启发式 1 跳过;parent walk 找到第一个存在的目录
+    bridge.cwdExistsOverride = new Map<string, boolean>([
+      ['/Users/apple/some/deep/dead/cwd', false],
+      ['/Users/apple/some/deep/dead', false], // parent 1
+      ['/Users/apple/some/deep', false], // parent 2
+      ['/Users/apple/some', true], // parent 3 命中 ✓
+    ]);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-walk',
+      agentId: 'claude-code',
+      cwd: '/Users/apple/some/deep/dead/cwd',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+    });
+
+    await bridge.sendMessage('sess-walk', 'hi');
+
+    // fallback 到 parent walk 第一个存在的目录
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0]?.cwd).toBe('/Users/apple/some');
+    expect(bridge.createCalls[0]?.resume).toBeUndefined(); // cwdFellBack 强制不 resume
+  });
+
+  it('CHANGELOG_99: cwd 存在 → 不触发 fallback,走原 resume 主路径(回归保护)', async () => {
+    const bridge = makeBridge();
+    // cwdExistsOverride 默认 true,不需显式设
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-ok',
+      agentId: 'claude-code',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      permissionMode: 'acceptEdits',
+    });
+
+    await bridge.sendMessage('sess-ok', 'hi');
+
+    // createSession 走原 resume 主路径
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0]).toMatchObject({
+      cwd: '/tmp/x',
+      prompt: 'hi',
+      resume: 'sess-ok', // resume 仍带
+      permissionMode: 'acceptEdits',
+    });
+
+    // **不**emit cwd fallback info message
+    const fallbackInfo = emits.filter((e) => {
+      const p = e.payload as { text?: string };
+      return (p.text ?? '').includes('启发式 fallback 到');
+    });
+    expect(fallbackInfo).toHaveLength(0);
   });
 });
 

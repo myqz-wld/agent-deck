@@ -29,7 +29,11 @@ import { buildAgentDeckTools } from './tools';
  * `getTasksMcpServerForSession` 同款 pattern（CHANGELOG_46 / CHANGELOG_<X> A3）。
  *
  * 与 task-manager server name 'tasks' 区分：本 server name = 'agent-deck'，对应
- * SDK pre-approve `mcp__agent_deck__*` 通配。
+ * SDK pre-approve `mcp__agent-deck__*` 通配（**注意 hyphen 不是 underscore**：MCP
+ * 协议 `mcp__<server-name>__<tool-name>` 中 server-name 含连字符就照搬，不会做
+ * hyphen→underscore 重写。R1 deep review HIGH-1 发现历史 pattern 用 underscore =
+ * 与 server name 'agent-deck' 不匹配 → SDK fnmatch 永远命中不上 → allowedTools 实际
+ * 不生效。Phase A3 修：pattern 与 name 对齐用 hyphen）。
  */
 export async function getAgentDeckMcpServerForSession(
   callerSessionIdProvider: () => string | null,
@@ -48,6 +52,7 @@ export async function getAgentDeckMcpServerForSession(
 
 /**
  * MCP allowedTools 通配（B'3 sdk-bridge query options 用）：
- * 与 'agent-deck' server name 对齐 → `mcp__agent_deck__*`
+ * 与 'agent-deck' server name 对齐 → `mcp__agent-deck__*`（hyphen 与 server name 一致；
+ * 详 getAgentDeckMcpServerForSession 注释 R1 HIGH-1 / Phase A3）。
  */
-export const AGENT_DECK_MCP_TOOL_PATTERN = 'mcp__agent_deck__*';
+export const AGENT_DECK_MCP_TOOL_PATTERN = 'mcp__agent-deck__*';

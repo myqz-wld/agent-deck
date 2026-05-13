@@ -17,8 +17,8 @@
  * ```
  *
  * 安全约束（ADR §4.3 / §11.7）：stdio 没有 caller-id 反查链路，client 只能传特殊
- * 值 `__external__` 作为 caller_session_id，仅允许 list_sessions / get_session /
- * wait_reply 等只读 / 观察类 tool；spawn / send / shutdown 默认 deny（防 fork bomb）。
+ * 值 `__external__` 作为 caller_session_id，仅允许 list_sessions / get_session 等只读 /
+ * 观察类 tool；spawn / send / shutdown 默认 deny（防 fork bomb）。
  *
  * 启用条件：`settings.enableAgentDeckMcp === true && settings.mcpStdioEnabled === true`。
  * 任一关 → 子进程启动时打印「未启用」错误后退出。
