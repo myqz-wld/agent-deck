@@ -241,6 +241,16 @@ export const sessionRepo = {
   },
 
   /**
+   * REVIEW_31 Bug 4：spawn_session 路径让 caller 显式给 teammate 一个有意义的 title
+   * （如 'reviewer-claude' / 'reviewer-codex' / 自定义角色），覆盖默认的 cwd-basename 派生值。
+   * UI 列表 / SessionCard / TeamDetail 全走 session.title 渲染，改这一处即所有显示位生效。
+   * caller 只在「确实拿到非空 title」时才调（spawn handler 内 fallback 链：display_name > agent_name）。
+   */
+  setTitle(id: string, title: string): void {
+    getDb().prepare(`UPDATE sessions SET title = ? WHERE id = ?`).run(title, id);
+  },
+
+  /**
    * 写入 codex sandbox 档位（CHANGELOG_<X> A2a：仅 codex-cli adapter 调用）。
    * null 表示恢复用 settings.codexSandbox 全局值（与 createSession 路径 fallback 同模式）。
    * claude / aider / generic-pty adapter 不应调此方法（字段对它们无意义）。

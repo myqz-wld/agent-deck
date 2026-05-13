@@ -23,6 +23,8 @@ import type { SessionRecord, AgentDeckMessage } from '@shared/types';
 
 const sessionStore = new Map<string, SessionRecord>();
 const setSpawnLinkCalls: Array<{ id: string; parentId: string | null; depth: number }> = [];
+// REVIEW_31 Bug 4: spawn_session display_name fallback 链验证
+const setTitleCalls: Array<{ id: string; title: string }> = [];
 
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: {
@@ -34,6 +36,11 @@ vi.mock('@main/store/session-repo', () => ({
       setSpawnLinkCalls.push({ id, parentId, depth });
       const r = sessionStore.get(id);
       if (r) sessionStore.set(id, { ...r, spawnedBy: parentId, spawnDepth: depth });
+    },
+    setTitle: (id: string, title: string) => {
+      setTitleCalls.push({ id, title });
+      const r = sessionStore.get(id);
+      if (r) sessionStore.set(id, { ...r, title });
     },
     listAncestors: (id: string) => {
       const out: SessionRecord[] = [];
@@ -205,6 +212,9 @@ function setSharedTeams(a: string, b: string, teamIds: string[]): void {
 const mockMembershipsBySession = new Map<string, Array<{ teamId: string }>>();
 const mockTeamsById = new Map<string, { name: string }>();
 
+// REVIEW_31 Bug 4：addMember mock 改成记录调用让测试断言 displayName fallback 链
+const addMemberCalls: Array<{ teamId: string; sessionId: string; role: string; displayName: string | null }> = [];
+
 vi.mock('@main/store/agent-deck-team-repo', () => ({
   agentDeckTeamRepo: {
     ensureByName: (name: string) => ({
@@ -214,7 +224,15 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
       archivedAt: null,
       metadata: {},
     }),
-    addMember: () => ({}),
+    addMember: (input: {
+      teamId: string;
+      sessionId: string;
+      role: 'lead' | 'teammate';
+      displayName: string | null;
+    }) => {
+      addMemberCalls.push(input);
+      return {};
+    },
     findSharedActiveTeams: (a: string, b: string): string[] => {
       const key = [a, b].sort().join(':');
       return sharedTeamsBySession.get(key) ?? [];
@@ -317,13 +335,24 @@ vi.mock('@main/teams/universal-message-watcher', () => ({
 
 // D1 (CHANGELOG_76 / plan deep-review-flow-fix): spawn_session 加 agent_name 时 handler
 // 调 getBundledAssetContent 拼 body 到 prompt 头部。mock 提供 reviewer-claude 假 body，
-// 其他 name 返回 null（模拟「找不到」）。
+// 其他 name 返回失败（模拟「找不到」）。
+//
+// REVIEW_31 Bug 1+2 修法：mock 必须严格按真实签名 `{ok:true,content} | {ok:false,reason}`，
+// 否则 handler call-site 当 string|null 用就会 toString 成 "[object Object]"，单测看不出来
+// 但生产 100% 失败（用户实测 SKILL spawn 出来 reviewer 收到的 prompt 顶部是 [object Object]
+// 紧跟 ---\n\n + 任务体，agent body 完全没注入）。
 vi.mock('@main/bundled-assets', () => ({
-  getBundledAssetContent: (kind: 'agent' | 'skill', name: string): string | null => {
+  getBundledAssetContent: (
+    kind: 'agent' | 'skill',
+    name: string,
+  ): { ok: true; content: string } | { ok: false; reason: string } => {
     if (kind === 'agent' && name === 'reviewer-claude') {
-      return '# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。';
+      return {
+        ok: true,
+        content: '# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。',
+      };
     }
-    return null;
+    return { ok: false, reason: `not found: ${kind}/${name}` };
   },
 }));
 
@@ -334,6 +363,8 @@ let buildAgentDeckTools: typeof import('../tools').buildAgentDeckTools;
 beforeEach(async () => {
   sessionStore.clear();
   setSpawnLinkCalls.length = 0;
+  setTitleCalls.length = 0;
+  addMemberCalls.length = 0;
   closeCalls.length = 0;
   notifyTeamCalls.length = 0;
   recordPermCalls.length = 0;
@@ -694,6 +725,95 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].prompt).toBe('plain prompt without body');
+  });
+
+  // REVIEW_31 Bug 1+2 regression：handler 必须正确解 getBundledAssetContent 的 union
+  // 返回（{ok:true,content} 形态），而不是当 string 用。老 bug 现象：模板字符串
+  // 拿到 object 走 toString → "[object Object]"，agent body 完全没注入到 prompt。
+  // 这条 case 显式断言 spawn 后 prompt **不含** "[object Object]" 且**含** mock content
+  // 真实文本，并锁住 placeholder DB body 同样真实形态。
+  it('regression Bug 1+2: agent body union unpacked correctly (no [object Object])', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'task body',
+      agent_name: 'reviewer-claude',
+      team_name: 'review-team',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls[0].prompt).not.toContain('[object Object]');
+    expect(createSessionCalls[0].prompt).toContain('# REVIEWER-CLAUDE BODY (mocked)');
+    expect(createSessionCalls[0].prompt).toContain('你是对抗 reviewer。');
+    // DB body 同样不含 [object Object]
+    expect(insertedMessages[0].body).not.toContain('[object Object]');
+    expect(insertedMessages[0].body).toContain('# REVIEWER-CLAUDE BODY (mocked)');
+  });
+
+  // REVIEW_31 Bug 4：teammate display name fallback 链 = display_name > agent_name > 不动。
+  it('Bug 4: display_name overrides agent_name for both session.title and team_member.display_name', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'task body',
+      agent_name: 'reviewer-claude',
+      display_name: 'reviewer-claude · batch A',
+      team_name: 'review-team',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    const newSid = parsed.data.sessionId;
+    // session.title 走 display_name（覆盖默认 cwd-basename）
+    expect(setTitleCalls).toContainEqual({ id: newSid, title: 'reviewer-claude · batch A' });
+    // team_member.displayName 同步走 display_name；lead 仍 displayName=null（lead 无 fallback 链）
+    const teammateAdd = addMemberCalls.find((c) => c.sessionId === newSid && c.role === 'teammate');
+    expect(teammateAdd?.displayName).toBe('reviewer-claude · batch A');
+    const leadAdd = addMemberCalls.find((c) => c.sessionId === 'lead' && c.role === 'lead');
+    expect(leadAdd?.displayName).toBeNull();
+  });
+
+  it('Bug 4: agent_name fallback when display_name omitted', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'task body',
+      agent_name: 'reviewer-claude',
+      team_name: 'review-team',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    const newSid = parsed.data.sessionId;
+    expect(setTitleCalls).toContainEqual({ id: newSid, title: 'reviewer-claude' });
+    const teammateAdd = addMemberCalls.find((c) => c.sessionId === newSid && c.role === 'teammate');
+    expect(teammateAdd?.displayName).toBe('reviewer-claude');
+  });
+
+  it('Bug 4: no display_name + no agent_name → setTitle skipped (default cwd-basename preserved)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'naked spawn',
+      team_name: 'review-team',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    const newSid = parsed.data.sessionId;
+    // 无 display_name / agent_name → 不调 setTitle，保留默认 title
+    expect(setTitleCalls.find((c) => c.id === newSid)).toBeUndefined();
+    const teammateAdd = addMemberCalls.find((c) => c.sessionId === newSid && c.role === 'teammate');
+    expect(teammateAdd?.displayName).toBeNull();
   });
 });
 

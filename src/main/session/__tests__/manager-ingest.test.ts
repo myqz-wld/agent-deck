@@ -16,6 +16,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecord } from '@shared/types';
 import {
+  makeAgentDeckTeamRepoMock,
   makeEvent,
   makeEventBusMock,
   makeEventRepoMock,
@@ -32,6 +33,11 @@ vi.mock('@main/store/session-repo', () => ({ sessionRepo: makeSessionRepoMock() 
 vi.mock('@main/store/event-repo', () => ({ eventRepo: makeEventRepoMock() }));
 vi.mock('@main/store/file-change-repo', () => ({ fileChangeRepo: makeFileChangeRepoMock() }));
 vi.mock('@main/event-bus', () => ({ eventBus: makeEventBusMock() }));
+// REVIEW_31 Bug 5：见 manager-public-api.test.ts 同源注释
+vi.mock('@main/store/agent-deck-team-repo', () => ({
+  agentDeckTeamRepo: makeAgentDeckTeamRepoMock(),
+  TeamInvariantError: class extends Error {},
+}));
 
 // 注意：mock 必须在 import sessionManager 之前（vi.mock 是 hoist 的，但显式分隔更清楚）
 import { sessionManager } from '@main/session/manager';

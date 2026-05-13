@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecord } from '@shared/types';
 import {
+  makeAgentDeckTeamRepoMock,
   makeEvent,
   makeEventBusMock,
   makeEventRepoMock,
@@ -21,6 +22,12 @@ vi.mock('@main/store/session-repo', () => ({ sessionRepo: makeSessionRepoMock() 
 vi.mock('@main/store/event-repo', () => ({ eventRepo: makeEventRepoMock() }));
 vi.mock('@main/store/file-change-repo', () => ({ fileChangeRepo: makeFileChangeRepoMock() }));
 vi.mock('@main/event-bus', () => ({ eventBus: makeEventBusMock() }));
+// REVIEW_31 Bug 5：sessionManager.list/delete/markClosed 调真 agent-deck-team-repo →
+// 真 getDb() throws「Database not initialized」。无 team 联动 mock 让主路径走通。
+vi.mock('@main/store/agent-deck-team-repo', () => ({
+  agentDeckTeamRepo: makeAgentDeckTeamRepoMock(),
+  TeamInvariantError: class extends Error {},
+}));
 
 import { sessionManager } from '@main/session/manager';
 
