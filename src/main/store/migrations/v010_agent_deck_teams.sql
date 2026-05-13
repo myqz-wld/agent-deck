@@ -48,6 +48,12 @@ CREATE INDEX IF NOT EXISTS idx_agent_deck_teams_created_at
 -- 或 archiveTeam，否则 sessionRepo.delete throw FK 错。
 -- sessionManager.delete 入口加 pre-check 兜底（详 ADR §2.5），UI 入口同步显式 confirm。
 --
+-- v017 update: session_id FK 改 ON DELETE CASCADE 修正 v010 设计冲突 ——
+-- RESTRICT 阻塞 sessions DELETE 但 leaveTeam 只 UPDATE left_at 不物理删 row，
+-- pre-check「兜底」实际失效；任何 active member session 都不能 delete / rename。
+-- CASCADE 后接受 member row 跟随 session 一起被清（归属感本就在 session 一侧）。
+-- 详 v017 migration 注释 + plan linked-swimming-platypus + CHANGELOG_96。
+--
 -- team_id FK 仍 CASCADE：用户显式 hardDeleteTeam（管理员行为）才走，正常归档不删行。
 CREATE TABLE IF NOT EXISTS agent_deck_team_members (
   team_id      TEXT NOT NULL REFERENCES agent_deck_teams(id) ON DELETE CASCADE,

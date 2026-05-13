@@ -380,13 +380,19 @@ class SessionManagerClass {
   }
 
   async delete(sessionId: string): Promise<void> {
-    // R3.E0 ADR §2.5：pre-check + 自动 leaveTeam（agent_deck_team_members.session_id ON DELETE
-    // RESTRICT FK 拦下 sessions DELETE，必须先 leaveTeam）。**必须 await** —— 后续
-    // sessionRepo.delete 依赖 leaveTeam 已写 left_at，否则 FK 抛错 → DB 半态。
-    // 实现合并到 manager-team-coordinator.ts 的 leaveTeamsAndAutoArchive(sid, 'deleted')，
-    // 与 close/markClosed 路径共享同一逻辑入口；archive reason 由 'deleted' 参数 explicit 区分
-    // ('last-lead-deleted' vs 'last-lead-closed'，事件流 / DB 投影 100% 等价于原 _leaveAllActiveTeams
-    //  + delete 段 1 双段实现）。
+    // R3.E0 ADR §2.5 + plan linked-swimming-platypus (v017)：
+    // v017 起 agent_deck_team_members.session_id FK 改 ON DELETE CASCADE，
+    // sessions DELETE 自动级联清 team_members rows，不再需要 leaveTeam pre-check 绕 FK。
+    // 历史 v010-v016 期间靠 leaveTeam 写 left_at 然后 sessionRepo.delete「兜底」实际**失效**
+    // （RESTRICT 不在乎 left_at 是否非空，DELETE 仍撞 FK，bug 隐藏未触发）—— v017 修正。
+    //
+    // leaveTeamsAndAutoArchive 仍 await 调用是为了正确顺序：
+    // 1. 写 left_at + emit 'agent-deck-team-member-changed' 让 TeamHub / TeamDetail 立刻刷新
+    // 2. 0-active-lead 触发 team auto-archive + emit 'agent-deck-team-updated'
+    // 3. 然后 sessionRepo.delete 走 CASCADE 物理清 row（作为 archive 之后的清理收尾）
+    // 顺序颠倒（先 delete 再 leaveTeamsAndAutoArchive）会让 CASCADE 已删 member rows，
+    // leaveTeam 找不到 active row → 不 emit member-changed → UI 不刷新；同时 archive
+    // 联动也跑空。await 顺序是 UX 正确性而非 FK 绕行。
     await leaveTeamsAndAutoArchive(sessionId, 'deleted');
     // REVIEW_4 H1：必须 **await** close 完成再删 DB 行 + 广播。
     // 旧版 fire-and-forget close → DB 同步 delete 后，SDK 侧 abort 触发的尾包
