@@ -309,13 +309,27 @@ export const ARCHIVE_PLAN_SCHEMA = {
 // EnterWorktree(path: worktreePath) 进 worktree 干活。
 // deny external caller（起 SDK session 的 fork bomb 风险，与 spawn_session / archive_plan 同档）。
 export const HAND_OFF_SESSION_SCHEMA = {
+  // CHANGELOG_99 双模式改造:plan_id 变 optional。
+  // - 传 plan_id → plan-driven 模式（现有行为）：读 plan 文件 + 校验 frontmatter status=in_progress
+  //   + 自动构造 cold-start prompt = `按 <plan-abs-path> 接力`
+  // - 不传 plan_id → generic 模式：无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller cwd
+  //   （让任意会话都能 baton 交给一个新 session,不强制 plan-driven workflow 前提）
   plan_id: z
     .string()
     .min(1)
     .max(128)
     .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .optional()
     .describe(
-      'Plan id (matches plan file stem and worktree dir name). Used to derive plan file path / team_name default / cold-start prompt. Charset matches EnterWorktree restriction.',
+      'Plan id (matches plan file stem and worktree dir name). **Optional (CHANGELOG_99 dual-mode)**: when set → plan-driven mode (read frontmatter, validate status=in_progress, auto-construct cold-start prompt "按 <plan-abs-path> 接力"). When omitted → generic mode (caller must pass `prompt`; default cwd = caller cwd; phase_label/plan_file_path ignored). Charset matches EnterWorktree restriction.',
+    ),
+  prompt: z
+    .string()
+    .min(1)
+    .max(100_000)
+    .optional()
+    .describe(
+      'Cold-start prompt for the new SDK session. **Plan-driven mode (plan_id set)**: ignored — auto-constructed as `按 <plan-abs-path> 接力（Phase: <phase_label>?）`. **Generic mode (no plan_id)**: optional but recommended — defaults to `从上一个会话接力继续工作` if omitted. Use this to give the new session enough context (typical: a paragraph summarizing current work + what to do next).',
     ),
   phase_label: z
     .string()
@@ -323,7 +337,7 @@ export const HAND_OFF_SESSION_SCHEMA = {
     .max(80)
     .optional()
     .describe(
-      'Optional phase label (e.g. "H3 - Phase 4c Step 4c.1") appended to the cold-start prompt as `（Phase: <label>）`. Helps the new session immediately know which phase to start. Omit for plain "按 <plan-abs-path> 接力".',
+      'Optional phase label (e.g. "H3 - Phase 4c Step 4c.1") appended to the cold-start prompt as `（Phase: <label>）`. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). Helps the new session immediately know which phase to start. Omit for plain "按 <plan-abs-path> 接力".',
     ),
   cwd: z
     .string()
@@ -335,7 +349,7 @@ export const HAND_OFF_SESSION_SCHEMA = {
     )
     .optional()
     .describe(
-      'Override cwd for the new SDK session. When omitted, defaults to **main repo path** (CHANGELOG_99 cwd resilience: previously defaulted to plan worktree_path; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove` deletion of the worktree). New session is expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3 cold-start flow. Fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath (last fallback only when caller cwd is not a git repo AND worktreePath does not match `<X>/.claude/worktrees/<plan-id>` heuristic).',
+      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience: previously defaulted to plan worktree_path; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove` deletion of the worktree). New session is expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3 cold-start flow. Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing.',
     ),
   adapter: z
     .enum(['claude-code', 'codex-cli', 'aider', 'generic-pty'])
@@ -349,7 +363,7 @@ export const HAND_OFF_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Optional team_name. **Default: not set** (CHANGELOG_97 baton semantic — plan hand-off is a one-way baton transfer, the new session works independently and does NOT need a lead/teammate communication relationship with the caller). Pass a custom name only if you specifically want the caller to remain as lead and the new session to be a teammate (rare; use spawn_session if that is the primary intent).',
+      'Optional team_name. **Default: not set** (CHANGELOG_97 baton semantic — hand-off is a one-way baton transfer, the new session works independently and does NOT need a lead/teammate communication relationship with the caller). Pass a custom name only if you specifically want the caller to remain as lead and the new session to be a teammate (rare; use spawn_session if that is the primary intent).',
     ),
   permission_mode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
@@ -363,7 +377,7 @@ export const HAND_OFF_SESSION_SCHEMA = {
     .max(4096)
     .optional()
     .describe(
-      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md (where main-repo is derived from cwd or plan frontmatter), then ~/.claude/plans/<plan_id>.md.',
+      'Override plan file path. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md (where main-repo is derived from cwd or plan frontmatter), then ~/.claude/plans/<plan_id>.md.',
     ),
   caller_session_id: z
     .string()

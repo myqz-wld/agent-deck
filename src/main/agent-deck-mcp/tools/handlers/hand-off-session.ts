@@ -116,7 +116,7 @@ export async function handOffSessionHandler(
   const callerCheck = validateExternalCaller(caller);
   if (callerCheck) return callerCheck;
 
-  // 1. impl 层：解析 plan 文件 + frontmatter + 构造 cold-start prompt
+  // 1. impl 层：双模式分流(plan-driven / generic) — 解析 plan 文件 / 构造 cold-start prompt
   // ⚠️ caller cwd 注入：impl 默认用 process.cwd() 当 caller cwd（电子 main 进程的 cwd，
   // 通常是 `/`），与真正的 caller SDK session cwd（在 sessions 表里）完全无关。所以
   // **必须**在 handler 层从 sessionRepo 反查 callerSessionRow.cwd 注入到 implDeps.cwd。
@@ -127,6 +127,7 @@ export async function handOffSessionHandler(
   const resolved = await handOffSessionImpl(
     {
       planId: args.plan_id,
+      prompt: args.prompt,
       phaseLabel: args.phase_label,
       planFilePathOverride: args.plan_file_path,
     },
@@ -136,23 +137,58 @@ export async function handOffSessionHandler(
     return err(resolved.error, resolved.hint);
   }
 
-  // 2. 组装 spawn_session args：cwd 默认 mainRepo（CHANGELOG_99 cwd 失效根治），其他字段
-  // 透传 caller 显式传的（permission_mode / adapter）。
+  // CHANGELOG_99：generic 模式下 caller 还可能想用 callerCwd 作 default cwd(plan 模式不需要)
+  // 反查 caller session row(此处复用 mergeCallerCwd 计算所依赖的 sessionRepo,但单独取
+  // 一次以便 generic 模式 default cwd 用 + 后续归档阶段复用)。external sentinel 时
+  // callerRow null,fallback 到 mainRepo / undefined(让 spawn handler 报 cwd 缺失,理论上
+  // deny external 拦截不到这里)。**try/catch DB 错误**:test 场景下 DB 可能未 init,要让
+  // plan 模式 spawn 失败短路 case 不需要先撞 DB; generic 模式无 DB 时 callerCwd null,
+  // default cwd 退化到 mainRepo。
+  let callerSessionRow: ReturnType<typeof sessionRepo.get> = null;
+  if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
+    try {
+      callerSessionRow = sessionRepo.get(caller.callerSessionId);
+    } catch {
+      // DB 不可用(typical: test 环境 DB 未 init)→ 留 null,后续 default cwd / 归档段
+      // 都按 row missing 路径走(generic 模式 default cwd 退化到 mainRepo;归档阶段标 'failed')
+      callerSessionRow = null;
+    }
+  }
+  const callerSessionCwd: string | null = callerSessionRow?.cwd ?? null;
+
+  // 2. 组装 spawn_session args：cwd 双模式 default(CHANGELOG_99)。
   //
-  // **default cwd = mainRepo 而非 worktreePath**：让新 session 行为与 EnterWorktree 模式
-  // 对齐 — sessionRepo.cwd 永远是 main repo（archive_plan / git worktree remove 删 worktree
-  // 后 cwd 仍 valid，不会撞「Path does not exist」弯绕错误链）。新 session 按 user CLAUDE.md
-  // §Step 3 cold-start 流程自己 EnterWorktree(path: worktreePath) 进 worktree 干活。
+  // **plan-driven 模式 default**: caller cwd > resolved.mainRepo > resolved.worktreePath
+  // (兜底,worktreePath 仅当 mainRepo 反查 + 启发式都失败时退化到原行为)。理由:让新
+  // session 行为与 EnterWorktree 模式对齐 — sessionRepo.cwd 永远是 main repo,worktree
+  // 删了 cwd 仍 valid。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
+  // EnterWorktree(path: worktreePath) 进 worktree 干活。
   //
-  // 双层 fallback：caller 显式 args.cwd > resolved.mainRepo > resolved.worktreePath（兜底，
-  // 极端场景如 caller cwd 不是 git repo + worktreePath 不在约定路径 `.claude/worktrees/`
-  // 下时退化到当前行为，保证不崩）。
+  // **generic 模式 default**: caller cwd > callerSessionRow.cwd > resolved.mainRepo
+  // (无 worktreePath 兜底,因为 generic 模式没 plan 也没 worktree 上下文;callerCwd 失败
+  // 时 fallback 到 mainRepo 反查结果,都失败 → spawn handler 自己报 cwd 缺失)。理由:
+  // generic 模式假设 caller 想让新 session 在自己 cwd 工作(最自然延续);只有 caller cwd
+  // 没法用时退化到 mainRepo。
   //
   // CHANGELOG_97：team_name 不再默认设为 plan_id —— baton 单向交接语义不需要 lead/teammate
   // 关系；caller 显式传 team_name 时仍透传给 spawn 启用通信关系（罕见使用）。
+  const defaultCwd =
+    resolved.mode === 'plan'
+      ? resolved.mainRepo ?? resolved.worktreePath ?? undefined
+      : callerSessionCwd ?? resolved.mainRepo ?? undefined;
+  const finalCwd = args.cwd ?? defaultCwd;
+  if (!finalCwd) {
+    // 极端边界:plan 模式 mainRepo+worktreePath 都 null(impl 不会发生),
+    // 或 generic 模式 callerCwd+mainRepo 都 null(external sentinel + caller cwd 非 git repo,
+    // 且 deny external 失效的极端测试场景)。给清晰错误。
+    return err(
+      `cannot resolve default cwd for new session (mode=${resolved.mode}; pass args.cwd explicitly)`,
+      `For plan-driven mode this typically means both git rev-parse fallback and worktreePath heuristic failed. For generic mode this means caller session has no cwd in sessionRepo and git rev-parse failed.`,
+    );
+  }
   const spawnArgs: SpawnSessionArgs = {
     adapter: args.adapter ?? 'claude-code',
-    cwd: args.cwd ?? resolved.mainRepo ?? resolved.worktreePath,
+    cwd: finalCwd,
     prompt: resolved.coldStartPrompt,
     ...(args.team_name !== undefined ? { team_name: args.team_name } : {}),
     ...(args.permission_mode !== undefined ? { permission_mode: args.permission_mode } : {}),
@@ -191,10 +227,10 @@ export async function handOffSessionHandler(
   // CHANGELOG_98 / R2 reviewer-codex MED-2：archive 前 sessionRepo.get 探针，缺 row
   // （session 异常被清理 / caller 在 sentinel 之外的边界状态）→ 'failed' 不报 'ok'
   // （旧实现 archive() 是 sessionRepo.setArchived no-op + emit no-op + 仍返回 'ok' 误报）。
+  // CHANGELOG_99：复用 callerSessionRow(generic 模式 default cwd 阶段已反查),避免重复查 DB
   let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
   if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-    const callerRow = sessionRepo.get(caller.callerSessionId);
-    if (!callerRow) {
+    if (!callerSessionRow) {
       archived = 'failed';
       console.warn(
         `[mcp hand_off_session] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态)`,
@@ -216,13 +252,21 @@ export async function handOffSessionHandler(
   }
 
   return ok({
-    // K2 metadata（lead 用来追踪 plan 上下文）
-    planId: args.plan_id,
+    // CHANGELOG_99 双模式 metadata
+    mode: resolved.mode, // 'plan' | 'generic'
+    // K2 metadata（plan 模式有值;generic 模式 plan-only 字段全 null）
+    planId: args.plan_id ?? null,
     planFilePath: resolved.planFilePath,
     worktreePath: resolved.worktreePath,
     baseBranch: resolved.baseBranch,
-    phaseLabel: args.phase_label ?? null,
+    phaseLabel: resolved.mode === 'plan' ? args.phase_label ?? null : null,
     initialPrompt: resolved.coldStartPrompt,
+    /**
+     * CHANGELOG_99：generic 模式下 caller 传了 plan-only 字段(phase_label / plan_file_path)
+     * 时被忽略的字段名数组(空数组 = 无忽略)。caller 可见此字段提醒"我传错了"。plan 模式
+     * 始终空数组。
+     */
+    ignoredFields: resolved.ignoredFields,
     archived, // Phase A5：'ok' = 归档成功 / 'failed' = warn-only 不阻塞 / 'skipped' = external caller
     // 透传 spawn_session 字段（兼容 spawn 调用方）
     ...spawnData,

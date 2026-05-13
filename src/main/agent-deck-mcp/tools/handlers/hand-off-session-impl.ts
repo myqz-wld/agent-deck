@@ -1,23 +1,35 @@
 /**
  * hand_off_session handler 的实现层 — plan 文件路径 resolve + frontmatter parse +
  * status 校验 + cold-start prompt 构造（plan mcp-bug-and-feature-batch-20260513
- * Phase 4b Step 4b.2）。
+ * Phase 4b Step 4b.2;CHANGELOG_99 双模式改造)。
  *
  * **抽 impl 子模块的动机**：与 archive-plan-impl 同款 — handler 入口（hand-off-session.ts）
  * 只做 deny external + caller 反查 + 调本 impl 拿到 resolved 上下文 + 调 spawnSessionHandler
  * 完成 spawn + 包 ok/err。fs / git / frontmatter 解析逻辑在这里，可单测时 inject deps mock
  * 走纯 in-memory，不需 vi.mock node 内置。
  *
- * **业务流程**：
+ * **业务流程**(双模式分流):
  *
+ * 0. 反查 mainRepo(caller cwd → `git rev-parse --git-common-dir`,两种模式共用)
+ *
+ * **plan-driven 模式**(input.planId 传):
  * 1. 解析 plan 文件路径：显式 planFilePathOverride > caller cwd 反查 main-repo →
  *    `<main-repo>/.claude/plans/<plan_id>.md` > `~/.claude/plans/<plan_id>.md`
  * 2. 读 plan + parseFrontmatter，校验 frontmatter 含 `worktree_path`
  * 3. 校验 plan status === 'in_progress'（拒 completed / abandoned / 缺 status）
- * 4. 构造 cold-start prompt：基础形式 `按 <plan-abs-path> 接力`；含 phase_label 时附
+ * 4. mainRepo 启发式 fallback(caller cwd 反查失败时从 worktreePath 反推)
+ * 5. 构造 cold-start prompt：基础形式 `按 <plan-abs-path> 接力`；含 phase_label 时附
  *    `（Phase: <label>）` 后缀
- * 5. 返回 resolved 上下文（planFilePath / worktreePath / coldStartPrompt），handler
- *    拿这个组装 spawn_session args 完成实际 spawn
+ * 6. 返回 resolved 上下文 mode='plan'
+ *
+ * **generic 模式**(input.planId 不传,CHANGELOG_99):
+ * 1. 不读 plan 文件 / 不要 worktree_path
+ * 2. coldStartPrompt = input.prompt ?? '从上一个会话接力继续工作'
+ * 3. planFilePath / worktreePath / baseBranch 全 null
+ * 4. mainRepo 仍是 caller cwd 反查的结果(没 worktreePath 启发式 fallback)
+ * 5. caller 在 generic 模式下传了 plan-only 字段(phaseLabel / planFilePathOverride)→
+ *    返回 ignoredFields 警告(handler 透传给 ok return,caller 可见)
+ * 6. 返回 resolved 上下文 mode='generic'
  *
  * **deps inject 模式**：默认实现走 Node 内置（child_process.execFile + fs/promises +
  * os.homedir + process.cwd），test 通过传 `deps` 参数完全替换为 in-memory mock。
@@ -34,11 +46,25 @@ import { parseFrontmatter } from '@main/utils/frontmatter';
 
 const execFileAsync = promisify(execFile);
 
+/** CHANGELOG_99：generic 模式默认 cold-start prompt(caller 不传 args.prompt 时用) */
+export const DEFAULT_GENERIC_COLD_START_PROMPT = '从上一个会话接力继续工作';
+
 export interface HandOffSessionInput {
-  planId: string;
-  /** 可选 phase_label，含值时附 prompt 后缀 `（Phase: <label>）` */
+  /**
+   * 可选 plan id。**双模式分流锚点(CHANGELOG_99)**:
+   * - 传 → plan-driven 模式(读 plan 文件 + 校验 frontmatter)
+   * - 不传 → generic 模式(不读 plan,coldStartPrompt 来自 input.prompt 或默认)
+   */
+  planId?: string;
+  /**
+   * generic 模式 cold-start prompt(CHANGELOG_99)。plan-driven 模式忽略此字段
+   * (cold-start prompt 自动构造为 `按 <plan-abs-path> 接力`)。
+   * generic 模式不传 → 用 DEFAULT_GENERIC_COLD_START_PROMPT。
+   */
+  prompt?: string;
+  /** 可选 phase_label，含值时附 prompt 后缀 `（Phase: <label>）`。**仅 plan-driven 模式有效**(CHANGELOG_99) */
   phaseLabel?: string;
-  /** 显式 plan 文件路径，覆盖 fallback */
+  /** 显式 plan 文件路径，覆盖 fallback。**仅 plan-driven 模式有效**(CHANGELOG_99) */
   planFilePathOverride?: string;
 }
 
@@ -47,20 +73,22 @@ export interface HandOffSessionInput {
  * adapter/team_name/permission_mode/cwd_override 等组装 spawn_session args。
  */
 export interface HandOffSessionResolved {
-  /** 实际命中的 plan 文件绝对路径（默认 fallback / 显式 override 都解析到这里） */
-  planFilePath: string;
-  /** plan frontmatter 里的 worktree_path（绝对路径） */
-  worktreePath: string;
-  /** 构造好的 cold-start prompt（含 phase_label 后缀的最终形态） */
+  /** CHANGELOG_99：'plan' = plan-driven 模式 / 'generic' = 通用 hand-off(无 plan 前提) */
+  mode: 'plan' | 'generic';
+  /** plan-driven 模式:实际命中的 plan 文件绝对路径。generic 模式:null */
+  planFilePath: string | null;
+  /** plan-driven 模式:plan frontmatter 里的 worktree_path(绝对路径)。generic 模式:null */
+  worktreePath: string | null;
+  /** 构造好的 cold-start prompt(两种模式都有值;plan: 自动构造 / generic: input.prompt 或默认) */
   coldStartPrompt: string;
-  /** plan frontmatter 里的 base_branch（如果有，给 caller 透传 archive_plan 用） */
+  /** plan frontmatter 里的 base_branch(plan 模式;generic 模式:null) */
   baseBranch: string | null;
   /**
    * caller cwd 反查 git common-dir 得到的 main repo 绝对路径，**handler 用作 K2 spawn 默认 cwd**
    * （CHANGELOG_99 cwd 失效根治）。优先级：
    * 1. caller cwd → `git rev-parse --git-common-dir` 反查（impl 现有机制）
-   * 2. 反查失败 → 从 worktreePath 启发式反推 `^(.+)/\.claude/worktrees/[^/]+/?$` 取捕获组 1
-   * 3. 全失败 → null（handler 兜底降级到 worktreePath 保持原行为）
+   * 2. plan 模式下 反查失败 → 从 worktreePath 启发式反推 `^(.+)/\.claude/worktrees/[^/]+/?$` 取捕获组 1
+   * 3. 全失败 → null（handler 兜底降级到 worktreePath / caller cwd 保持原行为）
    *
    * 为什么需要这个？历史上 K2 default cwd = worktreePath 让新 session 的 sessionRepo.cwd
    * 一开始就是 worktree 路径；archive_plan / git worktree remove 删 worktree 后 sessionRepo.cwd
@@ -70,6 +98,11 @@ export interface HandOffSessionResolved {
    * cwd 仍 valid。
    */
   mainRepo: string | null;
+  /**
+   * CHANGELOG_99:generic 模式下 caller 传了 plan-only 字段时记录被忽略的字段名(空数组 = 无警告)。
+   * handler 透传到 ok return.ignoredFields,caller 可见。plan-driven 模式始终空数组。
+   */
+  ignoredFields: string[];
 }
 
 export type HandOffSessionError = { error: string; hint?: string };
@@ -116,9 +149,9 @@ export async function handOffSessionImpl(
 ): Promise<HandOffSessionResolved | HandOffSessionError> {
   const deps: Required<HandOffSessionDeps> = { ...DEFAULT_DEPS, ...depsOverride };
 
-  // 0. 反查 mainRepo（CHANGELOG_99 cwd 失效根治）：单次 git rev-parse，给 plan 文件 fallback
-  // + handler default cwd 共享。优先级：caller cwd 反查 → 校验完 worktreePath 后启发式反推 → null。
-  // 不在主流程末尾再重复 runGit（保持 git 子命令调用次数稳定，避免 test 断言炸）。
+  // 0. 反查 mainRepo（CHANGELOG_99 cwd 失效根治 + 通用 hand-off）：单次 git rev-parse,
+  // plan-driven 模式给 plan 文件 fallback + handler default cwd 共享;generic 模式给
+  // handler default cwd 兜底用(caller cwd 偶尔为 main process cwd `/` 时反查必失败)。
   const callerCwd = deps.cwd();
   let mainRepo: string | null = null;
   try {
@@ -129,9 +162,31 @@ export async function handOffSessionImpl(
     mainRepo = path.dirname(commonDirAbs);
   } catch {
     // caller cwd 不是 git repo（如 Electron main process cwd = `/`）→ 留 null，等校验完
-    // worktreePath 再启发式反推
+    // worktreePath 再启发式反推(plan 模式 only)
     mainRepo = null;
   }
+
+  // CHANGELOG_99:generic 模式分支(无 plan_id) — 早返回,不走 plan 文件解析路径
+  if (input.planId === undefined) {
+    // generic 模式:caller 在此模式下传 phaseLabel / planFilePathOverride 是无效的(语义不通)
+    // —— 不报错(handler 透传 ok),仅记录 ignoredFields 警告字段
+    const ignoredFields: string[] = [];
+    if (input.phaseLabel !== undefined) ignoredFields.push('phase_label');
+    if (input.planFilePathOverride !== undefined) ignoredFields.push('plan_file_path');
+
+    return {
+      mode: 'generic',
+      planFilePath: null,
+      worktreePath: null,
+      coldStartPrompt: input.prompt ?? DEFAULT_GENERIC_COLD_START_PROMPT,
+      baseBranch: null,
+      mainRepo,
+      ignoredFields,
+    };
+  }
+
+  // CHANGELOG_99:以下为 plan-driven 模式(input.planId 已确认非 undefined)。
+  const planId: string = input.planId;
 
   // 1. 解析 plan 文件路径：显式 > main-repo 反查 > user-global
   let planFilePath: string;
@@ -144,9 +199,9 @@ export async function handOffSessionImpl(
     planFilePath = input.planFilePathOverride;
   } else {
     const projectLocal = mainRepo
-      ? path.join(mainRepo, '.claude', 'plans', `${input.planId}.md`)
+      ? path.join(mainRepo, '.claude', 'plans', `${planId}.md`)
       : null;
-    const userGlobal = path.join(deps.homedir(), '.claude', 'plans', `${input.planId}.md`);
+    const userGlobal = path.join(deps.homedir(), '.claude', 'plans', `${planId}.md`);
 
     if (projectLocal && (await deps.exists(projectLocal))) {
       planFilePath = projectLocal;
@@ -158,7 +213,7 @@ export async function handOffSessionImpl(
         : `Tried: ${userGlobal} (caller cwd is not a git repo, skipped <main-repo>/.claude/plans/ lookup)`;
       return {
         error: `plan file not found at any default location`,
-        hint: `${triedLines}\nPass plan_file_path explicitly to override, or check that plan_id "${input.planId}" matches the file stem.`,
+        hint: `${triedLines}\nPass plan_file_path explicitly to override, or check that plan_id "${planId}" matches the file stem.`,
       };
     }
   }
@@ -231,11 +286,13 @@ export async function handOffSessionImpl(
     : baseLine;
 
   return {
+    mode: 'plan',
     planFilePath,
     worktreePath,
     coldStartPrompt,
     baseBranch,
     mainRepo,
+    ignoredFields: [], // plan 模式不会忽略字段
   };
 }
 
