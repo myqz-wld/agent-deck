@@ -295,8 +295,11 @@ export const ARCHIVE_PLAN_SCHEMA = {
 // K2 hand-off 自动化「跨会话接力」起新 SDK session（plan-aware spawn_session 包装）。
 // 行为：读 plan 文件 frontmatter 拿 worktree_path → 校验 status=in_progress → 调
 // spawn_session 起新 SDK session（cwd=worktree_path 默认 / 初始 prompt = "按 <plan-abs-path>
-// 接力"，含可选 phase_label 后缀）+ 自动加入 plan-id team。deny external caller（起 SDK
-// session 的 fork bomb 风险，与 spawn_session / archive_plan 同档）。
+// 接力"，含可选 phase_label 后缀）。CHANGELOG_97 baton 语义：default 不加 team
+// （caller 显式传 team_name 才启用 lead/teammate 关系）+ default 自动归档 caller。
+// CHANGELOG_98 / R2 deep review HIGH-1：spawn 路径走 batonMode 跳 spawn-guards depth check
+// + setSpawnLink lateral parentDepth（不 +1），让 N-phase baton 链不撞 maxDepth=3。
+// deny external caller（起 SDK session 的 fork bomb 风险，与 spawn_session / archive_plan 同档）。
 export const START_NEXT_SESSION_SCHEMA = {
   plan_id: z
     .string()

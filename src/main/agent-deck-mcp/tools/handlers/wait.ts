@@ -152,9 +152,13 @@ export async function waitReplyHandler(
           });
           if (enqueueResult.ok) {
             // Phase A2 nudge 死锁修：捕获 nudgeMessageId 进双查 anchor 列表。
-            // 必须在 nudgesSent++ 前 push，避免 race（虽然 onEnqueued 触发时 checkReply
-            // 不会立刻命中——teammate 处理 nudge 需要时间——但语义上保持「先记录再宣告
-            // 已发」更稳）。
+            // R2 reviewer-claude LOW：原 comment 「必须在 nudgesSent++ 前 push 避免 race」
+            // 描述不准确——`enqueueAgentDeckMessage` 内部同步 emit `agent-deck-message-enqueued`
+            // → onEnqueued 同步 → checkReply 此刻读 `nudgeMessageIds` 还没 push 进 nudgeId
+            // 这本身已是 race 但**实际无害**：reply 此刻不存在 onEnqueued 不命中；teammate
+            // 后续真处理 nudge 后 reply enqueue 触发新一轮 onEnqueued 时 nudgeMessageIds
+            // 已 push，正常命中。所以 push 顺序无 race-protection 语义，仅保持「先记录，
+            // 再宣告 nudgesSent++」可读性。
             nudgeMessageIds.push(enqueueResult.message.id);
             nudgesSent++;
           } else {
