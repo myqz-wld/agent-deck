@@ -357,7 +357,7 @@ describe('startNextSessionHandler — deny external caller', () => {
 });
 
 describe('startNextSessionHandler — happy path with mock spawn', () => {
-  it('调 spawn handler + 透传 K2 metadata + 透传 spawn 字段', async () => {
+  it('调 spawn handler + 透传 K2 metadata + 透传 spawn 字段 + 归档 caller', async () => {
     const state = makeState();
     const planId = 'happy-plan';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -368,6 +368,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     );
 
     // mock spawnSessionHandler 返回 ok({ sessionId: 'fake-sid', ... })
+    // CHANGELOG_97：team 字段 default null（K2 不再默认设 team_name）
     const mockSpawn = vi.fn(
       async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
         content: [
@@ -377,18 +378,23 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
               sessionId: 'fake-sid',
               adapter: 'claude-code',
               cwd: worktreePath,
-              teamId: 'fake-team-id',
-              teamName: planId,
+              teamId: null,
+              teamName: null,
               agentName: null,
               displayName: null,
               spawnDepth: 1,
               sentAt: 1234567890,
-              spawnPromptMessageId: 'fake-msg-id',
+              spawnPromptMessageId: null,
             }),
           },
         ],
       }),
     );
+    // CHANGELOG_97：archive caller seam，记录调用 sid
+    const archiveCalls: string[] = [];
+    const mockArchive = vi.fn(async (sid: string) => {
+      archiveCalls.push(sid);
+    });
 
     const args: StartNextSessionArgs = {
       plan_id: planId,
@@ -404,6 +410,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
 
     const result = await startNextSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
+      archiveSession: mockArchive,
       implDeps: makeDeps(state),
     });
 
@@ -416,24 +423,29 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     expect(data.baseBranch).toBe('main');
     expect(data.phaseLabel).toBe('H3 phase 4b');
     expect(data.initialPrompt).toBe(`按 ${planFilePath} 接力（Phase: H3 phase 4b）`);
-    // spawn 透传
+    // spawn 透传（CHANGELOG_97：team 字段全 null）
     expect(data.sessionId).toBe('fake-sid');
     expect(data.adapter).toBe('claude-code');
     expect(data.cwd).toBe(worktreePath);
-    expect(data.teamId).toBe('fake-team-id');
-    expect(data.teamName).toBe(planId);
-    expect(data.spawnPromptMessageId).toBe('fake-msg-id');
+    expect(data.teamId).toBeNull();
+    expect(data.teamName).toBeNull();
+    expect(data.spawnPromptMessageId).toBeNull();
 
-    // spawn 调用参数：cwd 默认 worktree_path，team_name 默认 plan_id，prompt 是 cold-start
+    // spawn 调用参数：cwd 默认 worktree_path，**default 不传 team_name**（CHANGELOG_97），
+    // prompt 是 cold-start
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const spawnArgs = mockSpawn.mock.calls[0]![0];
     expect(spawnArgs.cwd).toBe(worktreePath);
-    expect(spawnArgs.team_name).toBe(planId);
+    expect(spawnArgs.team_name).toBeUndefined();
     expect(spawnArgs.adapter).toBe('claude-code');
     expect(spawnArgs.prompt).toBe(`按 ${planFilePath} 接力（Phase: H3 phase 4b）`);
+
+    // CHANGELOG_97：archive caller 默认被调用，sid = caller.callerSessionId
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+    expect(archiveCalls).toEqual(['caller-sid']);
   });
 
-  it('caller 显式 cwd / team_name → 覆盖默认', async () => {
+  it('caller 显式 cwd / team_name → 透传给 spawn（不被 default 覆盖）', async () => {
     const state = makeState();
     const planId = 'override-test';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -444,11 +456,12 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify({ sessionId: 's', adapter: 'claude-code', cwd: '/x', teamName: 'y' }),
+            text: JSON.stringify({ sessionId: 's', adapter: 'claude-code', cwd: '/x', teamName: 'custom-team' }),
           },
         ],
       }),
     );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
 
     const args: StartNextSessionArgs = {
       plan_id: planId,
@@ -462,15 +475,65 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
 
     await startNextSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
+      archiveSession: mockArchive,
       implDeps: makeDeps(state),
     });
 
     const spawnArgs = mockSpawn.mock.calls[0]![0];
     expect(spawnArgs.cwd).toBe('/Users/test/some-other-cwd');
     expect(spawnArgs.team_name).toBe('custom-team');
+    // CHANGELOG_97：显式传 team_name 时仍归档 caller（baton 语义与是否启用 team 通信关系正交）
+    expect(mockArchive).toHaveBeenCalledTimes(1);
   });
 
-  it('spawn handler 返回 isError → 直接透传不二次包装', async () => {
+  it('CHANGELOG_97: archive caller 失败 → warn-only 不阻塞 K2 成功 return', async () => {
+    const state = makeState();
+    const planId = 'archive-fails';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ sessionId: 'newsid', adapter: 'claude-code', cwd: '/x', teamName: null }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => {
+      throw new Error('simulated archive error (e.g. session row already deleted)');
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const args: StartNextSessionArgs = {
+      plan_id: planId,
+      adapter: 'claude-code',
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    const result = await startNextSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      implDeps: makeDeps(state),
+    });
+
+    // K2 成功 return 不被 archive 错误阻塞
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.sessionId).toBe('newsid');
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('archive caller caller-sid failed'),
+      expect.any(Error),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('spawn handler 返回 isError → 直接透传不二次包装 + archive 不被调用', async () => {
     const state = makeState();
     const planId = 'spawn-fail';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -487,6 +550,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
         isError: true as const,
       }),
     );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
 
     const args: StartNextSessionArgs = {
       plan_id: planId,
@@ -498,6 +562,7 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
 
     const result = await startNextSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
+      archiveSession: mockArchive,
       implDeps: makeDeps(state),
     });
 
@@ -505,15 +570,18 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
     expect(result.content[0]!.text).toContain('fan-out limit reached');
     // 不应嵌套包装（如 "start_next_session error: spawn error: ..."）
     expect(result.content[0]!.text).not.toContain('start_next_session');
+    // CHANGELOG_97：spawn 失败 → 不归档 caller（没接到新 baton 不该让原会话退出）
+    expect(mockArchive).not.toHaveBeenCalled();
   });
 
-  it('impl 错误（plan 文件不存在）→ err 不调 spawn', async () => {
+  it('impl 错误（plan 文件不存在）→ err 不调 spawn + archive 不被调用', async () => {
     const state = makeState();
     const mockSpawn = vi.fn(
       async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
         content: [{ type: 'text' as const, text: '{}' }],
       }),
     );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
 
     const args: StartNextSessionArgs = {
       plan_id: 'no-such-plan',
@@ -525,11 +593,14 @@ describe('startNextSessionHandler — happy path with mock spawn', () => {
 
     const result = await startNextSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
+      archiveSession: mockArchive,
       implDeps: makeDeps(state),
     });
 
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain('plan file not found');
     expect(mockSpawn).not.toHaveBeenCalled();
+    // CHANGELOG_97：plan 解析失败 → 既不 spawn 也不归档（baton 还没出手）
+    expect(mockArchive).not.toHaveBeenCalled();
   });
 });
