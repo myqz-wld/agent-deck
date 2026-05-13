@@ -15,11 +15,11 @@
 | 想了解什么 | 看哪 |
 |---|---|
 | 全部 10 个 mcp tool 的 input/output schema + 每个字段的实际语义 | `src/main/agent-deck-mcp/tools/schemas.ts` |
-| lead agent 怎么调（spawn / send / wait / shutdown / archive_plan / start_next_session 三件套姿势 + 首轮锚点 + 跨会话救火 + ack 字段） | `resources/claude-config/CLAUDE.md` §Agent Deck Universal Team Backend |
+| lead agent 怎么调（spawn / send / wait / shutdown / archive_plan / hand_off_session 三件套姿势 + 首轮锚点 + 跨会话救火 + ack 字段） | `resources/claude-config/CLAUDE.md` §Agent Deck Universal Team Backend |
 | teammate 端协议约束（wire format `[msg <id>] from <Lead-NN>` 注入 / reply_message regex 抓 messageId / DB messages.body 不含 wire prefix invariant / id charset 不变量 / NO MSG ANCHOR fallback） | `resources/claude-config/agent-deck-plugin/agents/reviewer-claude.md` 与 `reviewer-codex.md` 各自的「核心纪律」节 |
 | 多轮 deep code review 的 SKILL 编排（teammate 模式 7 步 / 异构对抗 / 三态裁决 / R2 fix 回路 / R3 反驳轮 / timer fallback / 失败兜底） | `resources/claude-config/agent-deck-plugin/skills/deep-code-review/SKILL.md` |
 | 单次决策对抗（Bash 起外部 CLI 双对抗）的姿势 | `~/.claude/CLAUDE.md` §决策对抗 |
-| 跨会话 hand off / worktree 隔离 / archive_plan / start_next_session 在通用流程中的定位 | `~/.claude/CLAUDE.md` §复杂 plan |
+| 跨会话 hand off / worktree 隔离 / archive_plan / hand_off_session 在通用流程中的定位 | `~/.claude/CLAUDE.md` §复杂 plan |
 
 ## 为什么 stub 而不是删除
 
