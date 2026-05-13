@@ -33,10 +33,10 @@ export function App(): JSX.Element {
   const [assetsLibraryOpen, setAssetsLibraryOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [pinned, setPinned] = useState(true);
-  // CSS frosted-frame 透明态由「物理 pin × transparentWhenPinned 设置项」共同决定，
-  // 不能只看 pinned。否则用户在设置里关掉「pin 时透明」后，CSS 仍按 alpha 0.2 渲染极透明背景，
-  // 与非 pin 的 alpha 0.78 深色玻璃形成肉眼可见色差。
-  const [transparentWhenPinned, setTransparentWhenPinned] = useState(true);
+  // Phase 5 Step 5.6（plan mcp-bug-and-feature-batch-20260513）：从 transparentWhenPinned
+  // 重命名 + 解耦 alwaysOnTop。透明视觉独立于 pin —— 不再 (pinned && transparentWhenPinned)
+  // 共同决定 frosted-frame 透明态，而是 windowTransparent 单字段决定。
+  const [windowTransparent, setWindowTransparent] = useState(true);
   const [compact, setCompact] = useState(false);
   const [historySession, setHistorySession] = useState<SessionRecord | null>(null);
   /** REVIEW_7 L1：historySession 的 ref 镜像，让 onSessionRenamed listener 能在 updater
@@ -47,12 +47,12 @@ export function App(): JSX.Element {
     historySessionRef.current = historySession;
   }, [historySession]);
 
-  // 初始化：从设置读取 alwaysOnTop / transparentWhenPinned，并同步主进程（让 vibrancy 跟 pin 状态匹配）
+  // 初始化：从设置读取 alwaysOnTop / windowTransparent，并同步主进程（让 vibrancy 跟透明开关匹配）
   useEffect(() => {
     void window.api.getSettings().then((s) => {
       const settings = s as AppSettings;
       setPinned(settings.alwaysOnTop);
-      setTransparentWhenPinned(settings.transparentWhenPinned);
+      setWindowTransparent(settings.windowTransparent);
       void window.api.setAlwaysOnTop(settings.alwaysOnTop);
     });
   }, []);
@@ -75,12 +75,13 @@ export function App(): JSX.Element {
     return off;
   }, []);
 
-  // 监听全局快捷键 Cmd+Alt+T：主进程已切换 transparentWhenPinned + vibrancy（pin 状态下立即生效），
-  // 这里同步本地 state（驱动 FloatingFrame 透明态）与持久化设置（settings handler 内 setTransparentWhenPinned 同 value 二次调用 idempotent 安全）。
+  // 监听全局快捷键 Cmd+Alt+T：主进程已切换 windowTransparent + vibrancy（不依赖 pin 状态），
+  // 这里同步本地 state（驱动 FloatingFrame 透明态）与持久化设置（settings handler 内
+  // setWindowTransparent 同 value 二次调用 idempotent 安全）。
   useEffect(() => {
     const off = window.api.onTransparentToggled((next) => {
-      setTransparentWhenPinned(next);
-      void window.api.setSettings({ transparentWhenPinned: next });
+      setWindowTransparent(next);
+      void window.api.setSettings({ windowTransparent: next });
     });
     return off;
   }, []);
@@ -207,7 +208,7 @@ export function App(): JSX.Element {
   };
 
   return (
-    <FloatingFrame transparent={pinned && transparentWhenPinned}>
+    <FloatingFrame transparent={windowTransparent}>
       <div className="flex h-full flex-col">
         <header className="drag-region flex h-9 shrink-0 items-center gap-2 pl-[78px] pr-2.5">
           <div className="min-w-0 flex-1 truncate">
@@ -326,12 +327,13 @@ export function App(): JSX.Element {
         open={settingsOpen}
         onClose={() => {
           setSettingsOpen(false);
-          // 用户可能在 dialog 里改了 transparentWhenPinned；main 已经实时切 vibrancy，
-          // 但 renderer CSS 层的 frosted-frame 颜色判定是 (pinned && transparentWhenPinned)，
-          // 这里 re-fetch 一次让 CSS 透明态与设置对齐（无 settings broadcast 通道时的轻量兜底）。
+          // 用户可能在 dialog 里改了 windowTransparent；main 已经实时切 vibrancy，
+          // 但 renderer CSS 层的 frosted-frame 颜色判定走 windowTransparent 单字段（Phase 5
+          // Step 5.6 解耦后），这里 re-fetch 一次让 CSS 透明态与设置对齐（无 settings broadcast
+          // 通道时的轻量兜底）。
           void window.api.getSettings().then((s) => {
             const settings = s as AppSettings;
-            setTransparentWhenPinned(settings.transparentWhenPinned);
+            setWindowTransparent(settings.windowTransparent);
           });
         }}
       />

@@ -223,7 +223,7 @@ async function bootstrap(): Promise<void> {
   // 9. 创建窗口并把事件总线接到 webContents
   const floating = getFloatingWindow();
   floating.create();
-  floating.setTransparentWhenPinned(settings.transparentWhenPinned);
+  floating.setWindowTransparent(settings.windowTransparent);
   const safeSend = <T>(channel: string, payload: T): void => {
     const w = floating.window;
     if (!w || w.isDestroyed() || w.webContents.isDestroyed()) return;
@@ -291,15 +291,16 @@ async function bootstrap(): Promise<void> {
     console.warn(`[shortcut] failed to register ${pinShortcut} (occupied by another app)`);
   }
 
-  // 10.5 全局快捷键：Cmd/Ctrl+Alt+T 切换「pin 时透明」开关
-  // 与 Cmd+Alt+P 命名一致（Cmd+Alt+<X> 都是窗口控制）；避开浏览器 Cmd+Shift+T（重开关闭标签页）。
-  // floating.setTransparentWhenPinned 是 idempotent，settings handler 走 setSettings 时还会再调一次安全。
+  // 10.5 全局快捷键：Cmd/Ctrl+Alt+T 切换「窗口透明」开关
+  // Phase 5 Step 5.6（plan mcp-bug-and-feature-batch-20260513）：从 transparentWhenPinned
+  // 重命名 + 解耦 alwaysOnTop。透明独立切换，不依赖 pin 状态 —— 用户可以在不 pin 时也开透
+  // 明（视觉效果是 vibrancy null + CSS frosted）。floating.setWindowTransparent 是 idempotent。
   const transparentShortcut = 'CommandOrControl+Alt+T';
   const transparentRegistered = globalShortcut.register(transparentShortcut, () => {
     const w = floating.window;
     if (!w || w.isDestroyed()) return;
-    const next = !(settingsStore.get('transparentWhenPinned') ?? true);
-    floating.setTransparentWhenPinned(next);
+    const next = !(settingsStore.get('windowTransparent') ?? true);
+    floating.setWindowTransparent(next);
     safeSend(IpcEvent.TransparentToggled, next);
   });
   if (!transparentRegistered) {

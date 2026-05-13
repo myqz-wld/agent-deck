@@ -68,9 +68,9 @@ function applyAlwaysOnTop(p: Partial<AppSettings>, next: AppSettings): void {
   }
 }
 
-function applyTransparentWhenPinned(p: Partial<AppSettings>, next: AppSettings): void {
-  if ('transparentWhenPinned' in p) {
-    getFloatingWindow().setTransparentWhenPinned(next.transparentWhenPinned);
+function applyWindowTransparent(p: Partial<AppSettings>, next: AppSettings): void {
+  if ('windowTransparent' in p) {
+    getFloatingWindow().setWindowTransparent(next.windowTransparent);
   }
 }
 
@@ -222,7 +222,7 @@ export function registerSettingsIpc(): void {
       applyLifecycleThresholds,
       applyLoginItem,
       applyAlwaysOnTop,
-      applyTransparentWhenPinned,
+      applyWindowTransparent,
       applyPermissionTimeout,
       applyCodexCliPath,
       applyCodexSandboxMode,
