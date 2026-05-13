@@ -218,10 +218,26 @@ export async function archivePlanImpl(
       hint: 'plan file must start with `---\\n<key>: <value>\\n---\\n` block.',
     };
   }
+  // REVIEW_33 H2：旧实现只 reject `completed`，让 `abandoned` / unknown 走完归档流程。
+  // 后果：abandoned plan 会被 ff-merge 到 main + 写入 plans/ git 历史（违反 user CLAUDE.md
+  // §Step 4 abandoned cleanup —— abandoned 应走 `git worktree remove --force` 静默销毁
+  // 而非入项目 git）。修法：三档 status 显式分流，仅 in_progress 放行。
   if (fm.status === 'completed') {
     return {
       error: `plan status is already "completed"`,
       hint: `archive_plan refuses re-archive (defensive). If you really need to re-run, manually edit frontmatter status back to in_progress.`,
+    };
+  }
+  if (fm.status === 'abandoned') {
+    return {
+      error: `plan status is "abandoned" — archive_plan refuses to archive abandoned plans (would pollute git history)`,
+      hint: `Per user CLAUDE.md §Step 4 abandoned cleanup: ExitWorktree(action: "keep") + Bash \`git worktree remove --force <worktree_path>\` + \`git branch -D worktree-<plan-id>\`. Do not call archive_plan for abandoned plans.`,
+    };
+  }
+  if (fm.status !== 'in_progress') {
+    return {
+      error: `plan status is "${fm.status ?? '<missing>'}" — archive_plan only accepts "in_progress" plans`,
+      hint: `Valid statuses: in_progress (will be archived) / completed (re-archive refused) / abandoned (use manual cleanup, not archive_plan).`,
     };
   }
 

@@ -525,3 +525,85 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
     expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
   });
 });
+
+describe('archivePlanImpl — REVIEW_33 H2 status 三档分流', () => {
+  it('plan status = abandoned → reject + hint 引用 user CLAUDE.md §Step 4 abandoned cleanup', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    state.files.set(
+      planPath,
+      [
+        '---',
+        `plan_id: ${input.planId}`,
+        `worktree_path: ${input.worktreePath}`,
+        'status: abandoned',
+        '---',
+        '',
+        'body',
+      ].join('\n'),
+    );
+    const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('"abandoned"');
+    expect((result as ArchivePlanError).error).toContain('would pollute git history');
+    expect((result as ArchivePlanError).hint).toContain('§Step 4 abandoned cleanup');
+    expect((result as ArchivePlanError).hint).toContain('git worktree remove --force');
+    // git merge / checkout 不应被调用（早返）
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+    expect(state.gitCalls.find((c) => c.args[0] === 'checkout')).toBeUndefined();
+  });
+
+  it('plan status = unknown 值（如 draft） → reject + hint 列出三档合法 status', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    state.files.set(
+      planPath,
+      [
+        '---',
+        `plan_id: ${input.planId}`,
+        `worktree_path: ${input.worktreePath}`,
+        'status: draft',
+        '---',
+        '',
+        'body',
+      ].join('\n'),
+    );
+    const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('"draft"');
+    expect((result as ArchivePlanError).error).toContain('only accepts "in_progress"');
+    expect((result as ArchivePlanError).hint).toContain('Valid statuses');
+    expect((result as ArchivePlanError).hint).toContain('in_progress');
+    expect((result as ArchivePlanError).hint).toContain('completed');
+    expect((result as ArchivePlanError).hint).toContain('abandoned');
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+  });
+
+  it('plan frontmatter 缺 status 字段 → reject (status 视为 unknown，hint 列三档)', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    state.files.set(
+      planPath,
+      [
+        '---',
+        `plan_id: ${input.planId}`,
+        `worktree_path: ${input.worktreePath}`,
+        // 故意缺 status 行
+        '---',
+        '',
+        'body',
+      ].join('\n'),
+    );
+    const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('<missing>');
+    expect((result as ArchivePlanError).hint).toContain('Valid statuses');
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+  });
+});
