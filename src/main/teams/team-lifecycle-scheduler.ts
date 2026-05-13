@@ -80,10 +80,22 @@ export class TeamLifecycleScheduler {
    * pagination。修前 `list({ activeOnly: true, limit: 200 })` 单次只扫前 200 条 active team，
    * 长期使用后超出 200 的 team 永远不被扫到 → 永远不 archive 即使是 ghost。
    * 修后分页扫完所有 active team；list signature 已支持 offset（team-crud.ts:138-141）。
+   *
+   * REVIEW_33 H4 修：两阶段（先收集后批量 archive）。修前边迭代边调 `_archiveTeam`，
+   * `_archiveTeam` 把 `archived_at` 从 NULL 改非 NULL → 下次 `list({ activeOnly: true,
+   * limit: PAGE_SIZE, offset })` active list 立即缩 N 条 → `offset += PAGE_SIZE` 跳过
+   * N 条 ghost team。两 reviewer 双方独立提出（reviewer-claude node 模拟 500 条全
+   * ghost 实测漏扫 200，30% 概率漏 22）。修后:
+   *   1. first pass: 只 collect 满足 archive 条件的 teamId 列表（不调 _archiveTeam）
+   *   2. second pass: 循环候选 list 调 _archiveTeam 批量收尾
+   * 第一阶段全程不动 archived_at，pagination 稳定。
    */
   scan(): void {
     const now = Date.now();
     const PAGE_SIZE = 200;
+
+    // first pass: 只收集候选 teamId + 触发 reason，不调 _archiveTeam
+    const candidates: Array<{ teamId: string; reason: string }> = [];
     let offset = 0;
     while (true) {
       const batch = agentDeckTeamRepo.list({ activeOnly: true, limit: PAGE_SIZE, offset });
@@ -92,7 +104,7 @@ export class TeamLifecycleScheduler {
         if (members.length === 0) {
           // 没 active member 的 team → 已无人在用 → 直接 archive（不需 grace，因为没
           // 任何 session 关联，reactivate 也不会自动 rejoin team）
-          this._archiveTeam(team.id, 'no-active-members');
+          candidates.push({ teamId: team.id, reason: 'no-active-members' });
           continue;
         }
         // 检查所有 active member 对应的 session 是否都 closed
@@ -110,10 +122,15 @@ export class TeamLifecycleScheduler {
         if (!allClosed) continue;
         // grace period：从「最近一次 close」开始算
         if (now - latestClosedAt < this.graceMs) continue;
-        this._archiveTeam(team.id, 'all-members-closed-grace-elapsed');
+        candidates.push({ teamId: team.id, reason: 'all-members-closed-grace-elapsed' });
       }
       if (batch.length < PAGE_SIZE) break;
       offset += PAGE_SIZE;
+    }
+
+    // second pass: 批量 archive 所有候选
+    for (const { teamId, reason } of candidates) {
+      this._archiveTeam(teamId, reason);
     }
   }
 
