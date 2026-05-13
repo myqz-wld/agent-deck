@@ -43,6 +43,8 @@ model: sonnet
     - 收到 user message 第一动作：regex `/\[msg ([0-9a-f-]+)\]/` 抓第一个 `[msg ...]` 提 UUID，记到 wrapper in-memory（`replyToMessageId = <提到的 id>`）
     - 跑完 codex 拿到输出后：调 `mcp__agent-deck__reply_message({reply_to_message_id: <replyToMessageId>, text: <codex 输出原样呈递>})`（不传 to_session_id / team_id，工具自动反查）
     - **不要**用裸 message reply（lead `wait_reply({message_id})` 永等不到 → 600s timeout）
+
+    > ⚠️ **CHANGELOG_99 过渡期**：teammate→lead 的 `reply_message` 工作正常(target=sender 路径正是 J fix 设计场景)。但**未来 plan `mcp-tool-simplify-20260514`** 会完全删 `reply_message` + `wait_reply` + `check_reply` + J fix 拦截,统一 `send_message` + adapter dispatch — 届时本条改成「reply 用 `mcp__agent-deck__send_message({session_id, team_id, text, reply_to_message_id})` 显式传 to/team」。当前继续按本条姿势用 `reply_message`。
     - **找不到 `[msg ...]` 锚点**：
       - reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>] wire prefix，本 reply 不能挂 reply_to_message_id 进 lead wait_reply 流程；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
       - **退化路径**：仍要呈递 codex 输出（不 abort）。`reply_message` 必传 `reply_to_message_id` 没法用 → 改调 **`mcp__agent-deck__send_message`** 不传 `reply_to_message_id`（裸 message）。target session_id 反查方式：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 用启发式（排除自己 sessionId / 非 reviewer-* displayName）定位 lead；team 内只一对 lead+wrapper 时排除自己后唯一的 active session 即 lead
