@@ -31,12 +31,12 @@ export function registerSessionsIpc(): void {
     const arr = parseStringIdArray('ids', ids ?? []);
     return summaryRepo.latestForSessions(arr);
   });
-  on(IpcInvoke.SessionArchive, (_e, id) => {
-    sessionManager.archive(parseStringId('sessionId', id));
+  on(IpcInvoke.SessionArchive, async (_e, id) => {
+    await sessionManager.archive(parseStringId('sessionId', id));
     return true;
   });
-  on(IpcInvoke.SessionUnarchive, (_e, id) => {
-    sessionManager.unarchive(parseStringId('sessionId', id));
+  on(IpcInvoke.SessionUnarchive, async (_e, id) => {
+    await sessionManager.unarchive(parseStringId('sessionId', id));
     return true;
   });
   on(IpcInvoke.SessionReactivate, (_e, id) => {

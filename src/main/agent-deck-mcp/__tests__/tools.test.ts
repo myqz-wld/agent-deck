@@ -304,8 +304,14 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
     markDelivered: (id: string, _now: number) => {
       markedDelivered.push(id);
       const msg = mockMessages.get(id);
-      if (msg) mockMessages.set(id, { ...msg, status: 'delivered', deliveredAt: _now });
-      return msg ?? null;
+      // REVIEW_32 HIGH-1：mock 与生产 SQL 行为对齐（仅 status IN ('pending','delivering') 才切到 delivered，
+      // 否则 no-op 返 null）。旧版无条件改 status='delivered' 与生产 SQL `WHERE status='delivering'` 漂移，
+      // spawn placeholder（status='pending'）单测显示 OK 实际生产 100% no-op，REVIEW_31 Bug 1+2 同款盲区。
+      if (!msg) return null;
+      if (msg.status !== 'pending' && msg.status !== 'delivering') return null;
+      const updated = { ...msg, status: 'delivered' as const, deliveredAt: _now };
+      mockMessages.set(id, updated);
+      return updated;
     },
   },
 }));

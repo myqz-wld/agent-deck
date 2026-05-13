@@ -135,7 +135,7 @@ export function registerTeamsIpc(): void {
     IpcInvoke.AgentDeckTeamArchive,
     async (_e, teamIdRaw): Promise<AgentDeckTeam | null> => {
       const teamId = parseId(teamIdRaw, 'teamId');
-      const team = agentDeckTeamRepo.archive(teamId, { reason: 'user-archive' });
+      const team = agentDeckTeamRepo.archive(teamId, { reason: 'user-action' });
       if (team) eventBus.emit('agent-deck-team-updated', team);
       return team;
     },
@@ -205,7 +205,7 @@ export function registerTeamsIpc(): void {
         // 0-lead 自动 archive 兜底（与 sessionManager.delete 同语义）
         const remaining = agentDeckTeamRepo.countActiveLeads(teamId);
         if (remaining === 0) {
-          const team = agentDeckTeamRepo.archive(teamId, { reason: 'last-lead-removed' });
+          const team = agentDeckTeamRepo.archive(teamId, { reason: 'last-lead-deleted' });
           if (team) eventBus.emit('agent-deck-team-updated', team);
         }
       }

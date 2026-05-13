@@ -23,6 +23,7 @@
 import type { Database } from 'better-sqlite3';
 import type {
   AgentDeckTeam,
+  AgentDeckTeamArchiveReason,
   AgentDeckTeamMember,
   AgentDeckTeamMemberRole,
   SessionTeamMembership,
@@ -58,6 +59,8 @@ interface TeamRow {
   name: string;
   created_at: number;
   archived_at: number | null;
+  // REVIEW_32 MED-7: v016 加列；旧数据 NULL
+  archive_reason: string | null;
   metadata: string;
 }
 
@@ -89,6 +92,8 @@ function teamRowToRecord(r: TeamRow): AgentDeckTeam {
     name: r.name,
     createdAt: r.created_at,
     archivedAt: r.archived_at,
+    // REVIEW_32 MED-7：v016 加列；旧数据 NULL（视为「未知来源」，unarchive 联动不复活）
+    archiveReason: (r.archive_reason as AgentDeckTeam['archiveReason']) ?? null,
     metadata,
   };
 }
@@ -160,8 +165,8 @@ export interface AgentDeckTeamRepo {
   getByActiveName(name: string): AgentDeckTeam | null;
   getWithMembers(teamId: string): (AgentDeckTeam & { members: AgentDeckTeamMember[] }) | null;
   list(opts?: ListTeamsOptions): AgentDeckTeam[];
-  /** 标 archived_at = now()；不删行（与 v006 setLifecycle 同语义） */
-  archive(teamId: string, opts?: { reason?: string }): AgentDeckTeam | null;
+  /** 标 archived_at = now() + archive_reason；不删行。reason 默认 'user-action'。 */
+  archive(teamId: string, opts?: { reason?: AgentDeckTeamArchiveReason }): AgentDeckTeam | null;
   /** 撤销 archive（archived_at = NULL）；如有 active 同名 team 则 throw（部分 unique 冲突） */
   unarchive(teamId: string): AgentDeckTeam | null;
   /**
@@ -313,11 +318,17 @@ export function createAgentDeckTeamRepo(db: Database): AgentDeckTeamRepo {
     return rows.map(teamRowToRecord);
   }
 
-  function archive(teamId: string, _opts?: { reason?: string }): AgentDeckTeam | null {
+  function archive(teamId: string, opts?: { reason?: AgentDeckTeamArchiveReason }): AgentDeckTeam | null {
     const now = Date.now();
+    // REVIEW_32 MED-7：持久化 archive_reason 到 v016 列。caller 不传 → 'user-action'（默认即用户主动）。
+    // 配合 unarchive 联动只复活 'last-lead-archived'，避免覆盖用户主动归档语义。
+    const reason: AgentDeckTeamArchiveReason = opts?.reason ?? 'user-action';
     const result = db
-      .prepare(`UPDATE agent_deck_teams SET archived_at = ? WHERE id = ? AND archived_at IS NULL`)
-      .run(now, teamId);
+      .prepare(
+        `UPDATE agent_deck_teams SET archived_at = ?, archive_reason = ?
+         WHERE id = ? AND archived_at IS NULL`,
+      )
+      .run(now, reason, teamId);
     if (result.changes === 0) {
       // 已 archived 或不存在
       return get(teamId);
@@ -330,7 +341,8 @@ export function createAgentDeckTeamRepo(db: Database): AgentDeckTeamRepo {
     if (!team) return null;
     if (team.archivedAt === null) return team; // 已 active
     try {
-      db.prepare(`UPDATE agent_deck_teams SET archived_at = NULL WHERE id = ?`).run(teamId);
+      // REVIEW_32 MED-7：unarchive 时同时清 archive_reason
+      db.prepare(`UPDATE agent_deck_teams SET archived_at = NULL, archive_reason = NULL WHERE id = ?`).run(teamId);
     } catch (e) {
       // active 同名 team 占位 → 部分 unique 索引拒绝
       if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) {
@@ -501,23 +513,38 @@ export function createAgentDeckTeamRepo(db: Database): AgentDeckTeamRepo {
 
   function findSharedActiveTeams(sessionAId: string, sessionBId: string): string[] {
     if (sessionAId === sessionBId) return [];
+    // REVIEW_32 HIGH-2：JOIN agent_deck_teams 过滤 archived_at IS NULL + JOIN sessions 过滤双方 session
+    // archived_at IS NULL —— 与 send_message 业务边界一致（archived team 或归档 session 不应继续 cross-adapter
+    // dispatch）。修前 last-lead-archived 自动归档 / 用户主动归档后，membership 仍 active → send_message
+    // 误以为 team 还能用 → enqueue 进 watcher → adapter.receiveTeammateMessage 把消息送给已"隐藏"的 teammate。
     const rows = db
       .prepare(
         `SELECT a.team_id AS team_id
          FROM agent_deck_team_members a
          INNER JOIN agent_deck_team_members b ON a.team_id = b.team_id
+         INNER JOIN agent_deck_teams t ON a.team_id = t.id
+         INNER JOIN sessions sa ON a.session_id = sa.id
+         INNER JOIN sessions sb ON b.session_id = sb.id
          WHERE a.session_id = ? AND b.session_id = ?
-           AND a.left_at IS NULL AND b.left_at IS NULL`,
+           AND a.left_at IS NULL AND b.left_at IS NULL
+           AND t.archived_at IS NULL
+           AND sa.archived_at IS NULL AND sb.archived_at IS NULL`,
       )
       .all(sessionAId, sessionBId) as { team_id: string }[];
     return rows.map((r) => r.team_id);
   }
 
   function countActiveLeads(teamId: string): number {
+    // bug 修复（plan deep-review-and-split-20260513）：lead session 被用户归档后，
+    // 该 lead 不应再算作 active。INNER JOIN sessions 过滤 archived_at IS NULL，
+    // 让 0-lead auto-archive 路径（manager.ts archive(sessionId) 联动 + _leaveAllActiveTeams）
+    // 正确触发。membership 仍保留（lead 没真离开），只是计数视角下不算 active。
     const row = db
       .prepare(
-        `SELECT count(*) AS c FROM agent_deck_team_members
-         WHERE team_id = ? AND role = 'lead' AND left_at IS NULL`,
+        `SELECT count(*) AS c FROM agent_deck_team_members m
+         INNER JOIN sessions s ON m.session_id = s.id
+         WHERE m.team_id = ? AND m.role = 'lead'
+           AND m.left_at IS NULL AND s.archived_at IS NULL`,
       )
       .get(teamId) as { c: number };
     return row.c;
@@ -545,10 +572,17 @@ export function createAgentDeckTeamRepo(db: Database): AgentDeckTeamRepo {
     }
     // lead → teammate 时校验「至少 1 lead」（仅当 active members > 0 时强制；空 team 允许无 lead）
     if (role === 'teammate' && existing.role === 'lead') {
+      // REVIEW_32 HIGH-6：JOIN sessions 过滤 archived_at IS NULL，与 countActiveLeads 语义一致。
+      // 修前：team 有 lead-A（session archived） + lead-B（active）。把 lead-B 降级 → otherLeads=1
+      // （把 archived 的 lead-A 算上）→ check 通过 → demote 成功。但 countActiveLeads(T)=0 → 团队进入
+      // 「无可用 lead」死状态：A 不能干活、B 已不是 lead，_archiveTeamsIfOrphaned 不触发（demote 走
+      // setRole 不调 archive 联动）、scheduler D7 也不命中（A 是 archived 不是 closed）→ 永远幽灵。
       const otherLeads = db
         .prepare(
-          `SELECT count(*) AS c FROM agent_deck_team_members
-           WHERE team_id = ? AND session_id != ? AND role = 'lead' AND left_at IS NULL`,
+          `SELECT count(*) AS c FROM agent_deck_team_members m
+           INNER JOIN sessions s ON m.session_id = s.id
+           WHERE m.team_id = ? AND m.session_id != ? AND m.role = 'lead'
+             AND m.left_at IS NULL AND s.archived_at IS NULL`,
         )
         .get(teamId, sessionId) as { c: number };
       if (otherLeads.c === 0) {
