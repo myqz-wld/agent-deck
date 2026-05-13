@@ -168,6 +168,16 @@ export interface AgentDeckMessageRepo {
   get(messageId: string): AgentDeckMessage | null;
   listByTeam(teamId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[];
   /**
+   * plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2：按 session 维度拉 cross-session
+   * messages（from_session_id = sid OR to_session_id = sid）。SessionDetail 「跨会话消息」tab
+   * 兜底用：J fix（§决策 1）让 reply 不再 inject 给 sender SDK 后，lead 没主动 wait_reply /
+   * check_reply 时看不到 reply —— 此 method 提供 DB 视角全量可视化。
+   *
+   * 包含：本 session 发出的 send + 收到的 send + 本 session 发出的 reply + 收到的 reply。
+   * 排序与 listByTeam 一致 ORDER BY sent_at DESC（最新在前）。
+   */
+  listBySession(sessionId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[];
+  /**
    * plan team-cohesion-fix-20260513 Phase B Step B1：反查某条 msg 的所有 reply。
    *
    * SQL 走 idx_messages_reply_to 部分索引（v015）。按 sent_at ASC 排序保证 FIFO；
@@ -274,6 +284,32 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
          ORDER BY sent_at DESC LIMIT ? OFFSET ?`,
       )
       .all(teamId, limit, offset) as MessageRow[];
+    return rows.map(rowToRecord);
+  }
+
+  function listBySession(sessionId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[] {
+    // plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2：from_session_id OR to_session_id
+    // 命中即返回。SessionDetail tab 兜底视图（J fix 后 reply 不入 SDK，此处 DB 视角补回）。
+    // 不走 idx_messages_sent_at（无法两个谓词都索引），扫表 + WHERE filter，rows ≤ 几千问题不大。
+    const limit = Math.max(1, Math.min(opts?.limit ?? 100, 500));
+    const offset = Math.max(0, opts?.offset ?? 0);
+    if (opts?.status) {
+      const rows = db
+        .prepare(
+          `SELECT * FROM agent_deck_messages
+           WHERE (from_session_id = ? OR to_session_id = ?) AND status = ?
+           ORDER BY sent_at DESC LIMIT ? OFFSET ?`,
+        )
+        .all(sessionId, sessionId, opts.status, limit, offset) as MessageRow[];
+      return rows.map(rowToRecord);
+    }
+    const rows = db
+      .prepare(
+        `SELECT * FROM agent_deck_messages
+         WHERE from_session_id = ? OR to_session_id = ?
+         ORDER BY sent_at DESC LIMIT ? OFFSET ?`,
+      )
+      .all(sessionId, sessionId, limit, offset) as MessageRow[];
     return rows.map(rowToRecord);
   }
 
@@ -428,6 +464,7 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
     insert,
     get,
     listByTeam,
+    listBySession,
     findEligible,
     claim,
     markDelivered,
@@ -451,6 +488,7 @@ export const agentDeckMessageRepo: AgentDeckMessageRepo = {
   insert: (input) => defaultRepo().insert(input),
   get: (messageId) => defaultRepo().get(messageId),
   listByTeam: (teamId, opts) => defaultRepo().listByTeam(teamId, opts),
+  listBySession: (sessionId, opts) => defaultRepo().listBySession(sessionId, opts),
   findEligible: (opts) => defaultRepo().findEligible(opts),
   claim: (messageId, now) => defaultRepo().claim(messageId, now),
   markDelivered: (messageId, now) => defaultRepo().markDelivered(messageId, now),

@@ -408,6 +408,13 @@ const api = {
     offset?: number;
   }): Promise<AgentDeckMessage[]> =>
     ipcRenderer.invoke(IpcInvoke.AgentDeckMessageListByTeam, input),
+  /** 拉某 session 涉及的 cross-session messages（plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2）。 */
+  listAgentDeckMessagesBySession: (input: {
+    sessionId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<AgentDeckMessage[]> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckMessageListBySession, input),
   /** Cancel 一条 pending / delivering message。 */
   cancelAgentDeckMessage: (input: {
     messageId: string;

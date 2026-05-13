@@ -269,6 +269,23 @@ export function registerTeamsIpc(): void {
     },
   );
 
+  // List messages by session（plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2）
+  on(
+    IpcInvoke.AgentDeckMessageListBySession,
+    async (_e, input): Promise<AgentDeckMessage[]> => {
+      if (!input || typeof input !== 'object') {
+        throw new IpcInputError('input', 'input must be { sessionId, limit?, offset? }');
+      }
+      const obj = input as Record<string, unknown>;
+      const sessionId = parseId(obj.sessionId, 'sessionId');
+      const limit =
+        typeof obj.limit === 'number' && obj.limit > 0 ? Math.min(obj.limit, 500) : 100;
+      const offset =
+        typeof obj.offset === 'number' && obj.offset >= 0 ? obj.offset : 0;
+      return agentDeckMessageRepo.listBySession(sessionId, { limit, offset });
+    },
+  );
+
   // Cancel message（pending / delivering → cancelled）
   on(
     IpcInvoke.AgentDeckMessageCancel,
