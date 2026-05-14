@@ -75,6 +75,31 @@ export function denyExternalIfNotAllowed(
   return null;
 }
 
+/**
+ * R37 P1 Step 1.1：7 个 handler 共用「deny external + caller 反查」防御链 wrapper。
+ * 抽出前每个 handler 起手都是 5 行模板（4 处独立维护 → 一处漏 denyExternalIfNotAllowed
+ * 即 security risk: external caller 能调禁用 tool）。抽出后 handler 业务直接写 wrapper body。
+ *
+ * 透传 spawnSessionHandler 的第三参数 `opts?: { batonMode?: boolean }` 用 rest param
+ * `...extra` 实现 — wrapper 对 handler 任意签名都透明。
+ */
+export function withMcpGuard<
+  TArgs,
+  TExtra extends unknown[],
+  TResult extends HandlerResult,
+>(
+  toolName: keyof typeof EXTERNAL_CALLER_ALLOWED,
+  handler: (args: TArgs, ctx: HandlerContext, ...extra: TExtra) => Promise<TResult>,
+): (args: TArgs, ctx: HandlerContext, ...extra: TExtra) => Promise<TResult | HandlerResult> {
+  return async (args, ctx, ...extra) => {
+    const denial = denyExternalIfNotAllowed(toolName, ctx.caller);
+    if (denial) return denial;
+    const callerCheck = validateExternalCaller(ctx.caller);
+    if (callerCheck) return callerCheck;
+    return handler(args, ctx, ...extra);
+  };
+}
+
 export function ok(data: unknown): HandlerResult {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
