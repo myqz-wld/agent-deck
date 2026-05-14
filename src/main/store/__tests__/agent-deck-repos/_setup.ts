@@ -1,0 +1,61 @@
+/**
+ * agent-deck-repos 单测共享 fixture（CHANGELOG_105 拆分自 agent-deck-repos.test.ts）。
+ *
+ * 抽出 better-sqlite3 binding probe + in-memory DB factory + insertSession helper +
+ * 17 个 ?raw migration import，让 team-repo 与 message-repo 两组 test 复用。
+ *
+ * 与 task-repo.test.ts 同 pattern：bind probe 失败时 skip 整个 describe。
+ */
+
+import Database from 'better-sqlite3';
+import v001 from '../../migrations/v001_init.sql?raw';
+import v002 from '../../migrations/v002_sessions_source.sql?raw';
+import v003 from '../../migrations/v003_split_archive_from_lifecycle.sql?raw';
+import v004 from '../../migrations/v004_sessions_permission_mode.sql?raw';
+import v005 from '../../migrations/v005_fts.sql?raw';
+import v006 from '../../migrations/v006_sessions_team_name.sql?raw';
+import v007 from '../../migrations/v007_tasks.sql?raw';
+import v008 from '../../migrations/v008_sessions_codex_sandbox.sql?raw';
+import v009 from '../../migrations/v009_mcp_spawn_chain.sql?raw';
+import v010 from '../../migrations/v010_agent_deck_teams.sql?raw';
+import v011 from '../../migrations/v011_tasks_team_id.sql?raw';
+import v012 from '../../migrations/v012_sessions_generic_pty_config.sql?raw';
+import v013 from '../../migrations/v013_sessions_claude_code_sandbox.sql?raw';
+import v014 from '../../migrations/v014_drop_sessions_team_name.sql?raw';
+import v015 from '../../migrations/v015_agent_deck_messages_reply_to.sql?raw';
+import v016 from '../../migrations/v016_agent_deck_teams_archive_reason.sql?raw';
+import v017 from '../../migrations/v017_agent_deck_team_members_cascade.sql?raw';
+
+function probeBetterSqliteBinding(): boolean {
+  try {
+    const db = new Database(':memory:');
+    db.close();
+    return true;
+  } catch (e) {
+    console.warn(
+      `[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。` +
+        `若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：${e instanceof Error ? e.message : String(e)}`,
+    );
+    return false;
+  }
+}
+
+export const bindingAvailable = probeBetterSqliteBinding();
+
+export function makeMemoryDb(): Database.Database {
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  db.pragma('trusted_schema = ON');
+  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012, v013, v014, v015, v016, v017]) {
+    db.exec(sql);
+  }
+  return db;
+}
+
+export function insertSession(db: Database.Database, id: string, agentId = 'claude-code'): void {
+  db.prepare(
+    `INSERT INTO sessions
+     (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at)
+     VALUES (?, ?, ?, ?, 'sdk', 'active', 'idle', ?, ?)`,
+  ).run(id, agentId, '/tmp', `title-${id}`, 1000, 1000);
+}
