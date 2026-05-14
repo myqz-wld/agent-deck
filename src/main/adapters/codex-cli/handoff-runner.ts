@@ -17,7 +17,9 @@
  *   慢、low 结构化输出精度不够，medium 折中）
  * - 60s timeout hardcoded（与 claude hand-off 平齐，参考 llm-runners.ts:summariseSessionForHandOff）
  *   — 不读 settings.summaryTimeoutMs，因为 hand-off 与周期 summarize timeout 语义不同
- * - cleanStructuredResult 保留 \n 换行（4 节简报需分段渲染）+ slice 4000
+ * - cleanStructuredResult 保留 \n 换行（4 节简报需分段渲染）；**不传 maxLen 不 slice**
+ *   （REVIEW_37 R2 MED-1 修法：恢复 a748af1 旧版「不限长度」的有意 trade-off — codex
+ *   handoff 4 节通常 800-2000 字但 outliers 可超 4K，slice 会切断结构节）
  *
  * **model 不显式传** — codex SDK startThread API 不接受 per-thread model override（runtime
  * model 由 ~/.codex/config.toml 顶层 `model` 决定）；plan D4 已说明，settings.handOffModel
@@ -65,6 +67,9 @@ export async function summariseCodexSessionForHandOff(
     timeoutErrorMessage: '__codex_handoff_summary_timeout__',
   });
 
-  // 4 节简报保留 \n 换行让 textarea preview 直接渲染分段，slice 4000 防超长。
-  return cleanStructuredResult(result, 4000);
+  // 4 节简报保留 \n 换行让 textarea preview 直接渲染分段。
+  // **不传 maxLen** — REVIEW_37 R2 MED-1 修法：恢复 a748af1 旧版「不限长度」的有意 trade-off
+  // （codex hand-off 简报 4 节通常 800-2000 字，slice 4000 会切断结构节）。详 clean-result.ts
+  // cleanStructuredResult jsdoc 调用约束。
+  return cleanStructuredResult(result);
 }
