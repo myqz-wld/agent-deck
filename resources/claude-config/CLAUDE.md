@@ -113,7 +113,7 @@ reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <sen
 - **预检短路**：plan-driven 模式 plan 文件不存在 / status ≠ in_progress / frontmatter 缺 `worktree_path` / spawn 失败 → 立即返回 error
 - **新 session 必须含 user CLAUDE「复杂 plan」节**（`settingSources: ['user', ...]` 自动满足），否则 plan-driven cold start prompt 不被识别
 - **典型主动触发（generic mode）**：当前 cwd 不适合手头任务（cwd 已失效 / 不属目标 repo / 用户明示换目录 / 跨 repo 任务）→ 不要在当前 session 强行 `cd` / 跨目录绝对路径，用 generic mode 显式传新 `cwd` + 自包含 `prompt` 接力到正确目录
-- **prompt 装不下完整 context 时**（必要信息务必传递完整，避免 hand-off 丢失大量上下文）：caller 先把 context 落盘到 `<main-repo>/.claude/handoff-<id>.md`（或 `/tmp/handoff-<id>.md`，前者跨设备保留可审计），prompt 起手写「先 `Bash: cat <abs-path>` 再按文件内指令推进」让新 session cold-start 第一步读全
+- **prompt 装不下完整 context 时**（必要信息务必传递完整，避免 hand-off 丢失大量上下文）：caller 先把 context 落盘到 `/tmp/handoff-<id>.md`（临时文件不用清理），prompt 起手写「先 `Bash: cat <abs-path>` 再按文件内指令推进」让新 session cold-start 第一步读全
 - **想保留 caller 不归档** → 用 `spawn_session(cwd:<目标>, prompt:<打包信息>)` 而非 `hand_off_session`（baton 强归档不可关）
 
 ### recoverer cwd 启发式 fallback（兜底）
