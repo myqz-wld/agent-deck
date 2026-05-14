@@ -1,4 +1,6 @@
 /**
+ * **shared/** category: **policy**（跨进程业务规则 — 只读 / 编辑类工具白名单 SSOT）。
+ *
  * 跨进程共享：只读 / 编辑类工具白名单常量（CHANGELOG_<X> B1）。
  *
  * **抽出理由**：lead canUseTool 与 teammate inbox auto-approve（CHANGELOG_<X>）需要

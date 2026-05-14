@@ -1,4 +1,6 @@
 /**
+ * **shared/** category: **policy**（跨进程业务规则 — wire prefix parse 逻辑）。
+ *
  * Wire prefix parser — 与 main 端 `universal-message-watcher.buildWireBody` 形式对称。
  *
  * `buildWireBody` 在 cross-session teammate message 顶部注入：
