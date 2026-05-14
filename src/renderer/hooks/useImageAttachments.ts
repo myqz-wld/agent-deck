@@ -259,10 +259,19 @@ export function useImageAttachments(): UseImageAttachmentsResult {
   const [error, setError] = useState<string | null>(null);
   // 完整 base64 仓库：不进 state 防止 30MB×N 触发整组件 re-render
   const fullBase64Ref = useRef<Map<string, string>>(new Map());
+  // REVIEW_35 follow-up rH R2-M3: mountedRef + generationRef 防 unmount race。
+  // - mountedRef: unmount 后 add() 内 await 完 readAndMaybeCompress/makeThumbnail 不再 setState
+  //   （React 不报「setState on unmounted」warning，但状态 ref 写入是真 leak）
+  // - generationRef: clear()/remove(id) bump generation；resolve 后 generation 不匹配则丢弃
+  //   防 in-flight add 在用户 clear 后「复活」附件
+  const mountedRef = useRef(true);
+  const generationRef = useRef(0);
 
-  // 卸载时清掉 ref（不必要，GC 会回收，但显式清更明确）
+  // 卸载时清掉 ref + mark unmounted
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
+      generationRef.current++;
       fullBase64Ref.current.clear();
     };
   }, []);
@@ -274,6 +283,8 @@ export function useImageAttachments(): UseImageAttachmentsResult {
       if (files.length === 0) return;
       const errors: string[] = [];
       const newEntries: UploadedAttachmentEntry[] = [];
+      // 进 add 时拍 generation 快照；resolve 后比对，不匹配（已被 clear/remove/unmount）则丢弃
+      const generationAtStart = generationRef.current;
       for (const file of files) {
         if (!ALLOWED_MIMES.has(file.type)) {
           errors.push(`${file.name || '(未命名)'}：仅支持 PNG / JPEG / GIF / WebP`);
@@ -291,6 +302,11 @@ export function useImageAttachments(): UseImageAttachmentsResult {
             readAndMaybeCompress(file, file.type),
             makeThumbnail(file, file.type),
           ]);
+          // REVIEW_35 follow-up rH R2-M3: await resolve 后检查 mounted + generation
+          if (!mountedRef.current || generationRef.current !== generationAtStart) {
+            // unmount 或 clear 期间触发的 add → 直接丢弃，不污染 state / ref
+            continue;
+          }
           const id = nextId();
           // REVIEW_35 R2 HIGH-D-R2-1：旧版「闭包变量 admitted + setAttachments updater 内写」
           // 在 React 18 batching 下不可靠 — updater 延迟到下次 render 跑，admitted 仍是初始值
@@ -339,21 +355,29 @@ export function useImageAttachments(): UseImageAttachmentsResult {
         }
       }
       // REVIEW_35 LOW-D-codex-1：成功添加新 entry 时清旧错误，避免 stale error 一直挂在 UI
-      if (newEntries.length > 0 && errors.length === 0) {
-        setError(null);
-      } else if (errors.length > 0) {
-        setError(errors.join('；'));
+      // REVIEW_35 follow-up rH R2-M3: setError 前同样检查 mounted + generation
+      if (mountedRef.current && generationRef.current === generationAtStart) {
+        if (newEntries.length > 0 && errors.length === 0) {
+          setError(null);
+        } else if (errors.length > 0) {
+          setError(errors.join('；'));
+        }
       }
     },
     [],  // REVIEW_35 HIGH-D1：deps=[] 让闭包不再持有 attachments 引用，避免误用闭包 stale state
   );
 
   const remove = useCallback((id: string): void => {
+    // REVIEW_35 follow-up rH R2-M3: bump generation 让 in-flight add() 完成后丢弃，
+    // 避免被 remove 的 entry 因 add() resolve 后又被 setAttachments 复活
+    generationRef.current++;
     fullBase64Ref.current.delete(id);
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
   const clear = useCallback((): void => {
+    // REVIEW_35 follow-up rH R2-M3: bump generation 同 remove
+    generationRef.current++;
     fullBase64Ref.current.clear();
     setAttachments([]);
   }, []);

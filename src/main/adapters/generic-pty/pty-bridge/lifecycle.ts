@@ -43,10 +43,30 @@ export async function closeSessionImpl(
   // F3：close 时立刻 dispose idle detector（避免 SIGTERM 后子进程未退期间还有迟到 chunk 触发 timer）
   state.idleDetector.dispose();
   // codex MED 1：先 SIGTERM 让 kernel 立刻开始 grace（不被 watcher close 阻塞）
+  let sigtermThrew = false;
   try {
     state.pty.kill('SIGTERM');
   } catch (err) {
+    sigtermThrew = true;
     console.warn(`[generic-pty:${opts.adapterId}] SIGTERM ${sessionId} 失败`, err);
+  }
+  // REVIEW_35 follow-up rF R2-2: SIGTERM kill() throw 后 onExit 不会触发，sessions Map 永不
+  // 清。修法：throw 时立即清 state + emit session-end + dispose 资源，避免 sessions 卡住后续
+  // closeSession noop / sendMessage 误以为 session 还活 / UI 无 session-end 反馈。
+  if (sigtermThrew) {
+    void state.fileWatcher.close().catch(() => undefined);
+    if (sessions.has(sessionId)) {
+      opts.emit({
+        sessionId,
+        agentId: opts.adapterId,
+        kind: 'session-end',
+        payload: { reason: 'sigterm-throw' },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+      sessions.delete(sessionId);
+    }
+    return;
   }
   // codex MED 2：onExit 可能已在 SIGTERM 同步路径里 fire 并 delete sessions[sid]
   // → 此处 sessions.has() check 防止 killTimer 引用已脱离 Map 的 state 多挂 10s
@@ -58,6 +78,19 @@ export async function closeSessionImpl(
         s.pty.kill('SIGKILL');
       } catch (err) {
         console.warn(`[generic-pty:${opts.adapterId}] SIGKILL ${sessionId} 失败`, err);
+        // REVIEW_35 follow-up rF R2-2: SIGKILL throw 也兜底 — 同 SIGTERM throw 路径
+        if (sessions.has(sessionId)) {
+          void s.fileWatcher.close().catch(() => undefined);
+          opts.emit({
+            sessionId,
+            agentId: opts.adapterId,
+            kind: 'session-end',
+            payload: { reason: 'sigkill-throw' },
+            ts: Date.now(),
+            source: 'sdk',
+          });
+          sessions.delete(sessionId);
+        }
       }
     }, KILL_GRACE_MS);
   }

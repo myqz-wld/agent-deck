@@ -48,7 +48,25 @@ export async function sendMessageImpl(
   if (text.length > MAX_PROMPT_LENGTH) {
     throw new Error(`[generic-pty:${opts.adapterId}] message > ${MAX_PROMPT_LENGTH} chars`);
   }
-  // emit user message 让 UI 立即看到
+  // REVIEW_35 follow-up C-M5：先 try/catch wrap pty.write，throw 时不 emit user message
+  // (UI 不显示「已发送」)；旧版顺序 emit → write，write throw (EPIPE/EIO) 时 UI 看到一条
+  // user message 视为「已送达」但实际 PTY 没 receive。修法把 emit 移到 write 成功之后。
+  try {
+    state.pty.write(text.endsWith('\n') ? text : text + '\n');
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    // emit 一条 error message 让 UI 知道写入失败（与「不显示已发送」相反，明确 fail-loud）
+    opts.emit({
+      sessionId,
+      agentId: opts.adapterId,
+      kind: 'message',
+      payload: { text: `⚠ 写入 PTY 失败: ${reason}`, role: 'assistant', error: true },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+    throw err;
+  }
+  // write 成功后才 emit user message（让 UI 看到「已发送」是真的发了）
   opts.emit({
     sessionId,
     agentId: opts.adapterId,
@@ -57,7 +75,6 @@ export async function sendMessageImpl(
     ts: Date.now(),
     source: 'sdk',
   });
-  state.pty.write(text.endsWith('\n') ? text : text + '\n');
 }
 
 /**

@@ -189,4 +189,31 @@ describe('makeCanUseTool — bypassPermissions 短路（CHANGELOG_72 Bug 3）', 
     // 切后那次不 emit waiting-for-user（waitings 仅来自切前那次）
     expect(emitted.filter((e) => e.kind === 'waiting-for-user').length).toBe(1);
   });
+
+  // REVIEW_35 follow-up rE R2 #3: TaskOutput READ_ONLY 短路 regression test
+  it('default + TaskOutput → READ_ONLY 白名单短路 allow + 不弹 PendingTab (REVIEW_35 MED-C-claude)', async () => {
+    const internal = makeInternal('default');
+    const { deps, emitted } = makeDeps(internal);
+    const canUseTool = makeCanUseTool(deps);
+
+    const result = await canUseTool('TaskOutput', { task_id: 'tk-1', block: true }, makeCtx());
+
+    expect(result).toEqual({
+      behavior: 'allow',
+      updatedInput: { task_id: 'tk-1', block: true },
+    });
+    expect(emitted.filter((e) => e.kind === 'waiting-for-user')).toEqual([]);
+    expect(internal.pendingPermissions.size).toBe(0);
+  });
+
+  it('plan + TaskOutput → READ_ONLY 白名单短路 allow（plan mode 不拦只读工具）', async () => {
+    const internal = makeInternal('plan');
+    const { deps, emitted } = makeDeps(internal);
+    const canUseTool = makeCanUseTool(deps);
+
+    const result = await canUseTool('TaskOutput', { task_id: 'tk-2' }, makeCtx());
+
+    expect(result).toEqual({ behavior: 'allow', updatedInput: { task_id: 'tk-2' } });
+    expect(emitted.filter((e) => e.kind === 'waiting-for-user')).toEqual([]);
+  });
 });

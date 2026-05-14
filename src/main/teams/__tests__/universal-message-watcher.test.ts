@@ -30,6 +30,14 @@ let nextAdapterResult:
   | { capabilities: { canCollaborate: boolean }; receiveTeammateMessage?: typeof receiveTeammateMessageStub }
   | undefined = undefined;
 
+// REVIEW_35 follow-up A1 R2: stateful pending Map 让 process() 集成 test 可跑
+// findEligible / countPendingForTarget / claim / markDelivered / markFailed 5 个 fn
+// 默认还是返「单值 mock」(nextClaimResult 等)；当 statefulPendingMap !== null 时，5 个 fn
+// 改读 statefulPendingMap 实现真 stateful 行为。每个 stateful test 在 beforeEach 后
+// 直接 push 进 statefulPendingMap 即可。
+let statefulPendingMap: Map<string, AgentDeckMessage> | null = null;
+let statefulMaxInflight = 10;
+
 const receiveTeammateMessageStub = async (to: string, from: string, body: string) => {
   receiveTeammateMessageCalls.push({ to, from, body });
 };
@@ -37,21 +45,60 @@ const receiveTeammateMessageStub = async (to: string, from: string, body: string
 vi.mock('@main/store/agent-deck-message-repo', () => ({
   MAX_RETRY: 3,
   agentDeckMessageRepo: {
-    claim: (id: string) => {
+    claim: (id: string, _now: number) => {
       claimCalls.push(id);
+      // stateful 模式：从 pending Map 取 + 改 status
+      if (statefulPendingMap) {
+        const m = statefulPendingMap.get(id);
+        if (!m || m.status !== 'pending') return null;
+        m.status = 'delivering';
+        return { ...m };
+      }
       return nextClaimResult;
     },
     markDelivered: (id: string, ts: number) => {
       markDeliveredCalls.push({ id, ts });
+      if (statefulPendingMap) {
+        const m = statefulPendingMap.get(id);
+        if (!m) return null;
+        if (m.status !== 'pending' && m.status !== 'delivering') return null;
+        m.status = 'delivered';
+        m.deliveredAt = ts;
+        return { ...m };
+      }
       return nextClaimResult ? { ...nextClaimResult, status: 'delivered', deliveredAt: ts } : null;
     },
     markFailed: (id: string, reason: string) => {
       markFailedCalls.push({ id, reason });
+      if (statefulPendingMap) {
+        const m = statefulPendingMap.get(id);
+        if (!m) return null;
+        m.status = 'failed';
+        m.statusReason = reason;
+        return { ...m };
+      }
       return nextClaimResult ? { ...nextClaimResult, status: 'failed', statusReason: reason } : null;
     },
     retryAfterFail: () => null,
-    findEligible: () => [],
-    countPendingForTarget: () => 0,
+    findEligible: (opts: { now: number; limit: number }) => {
+      if (statefulPendingMap) {
+        return Array.from(statefulPendingMap.values())
+          .filter((m) => m.status === 'pending')
+          .sort((a, b) => a.sentAt - b.sentAt)
+          .slice(0, opts.limit);
+      }
+      return [];
+    },
+    countPendingForTarget: (sid: string) => {
+      if (statefulPendingMap) {
+        let n = 0;
+        for (const m of statefulPendingMap.values()) {
+          if ((m.status === 'pending' || m.status === 'delivering') && m.toSessionId === sid) n++;
+        }
+        return n;
+      }
+      return 0;
+    },
     resetDeliveringOnStartup: () => 0,
     listAllMembers: () => [],
   },
@@ -88,7 +135,7 @@ vi.mock('@main/event-bus', () => ({
 }));
 
 vi.mock('@main/store/settings-store', () => ({
-  settingsStore: { get: () => 10 },
+  settingsStore: { get: () => statefulMaxInflight },
 }));
 
 const teamRepoListCalls: Array<{ activeOnly?: boolean; limit?: number; offset?: number }> = [];
@@ -147,6 +194,9 @@ beforeEach(() => {
   nextClaimResult = null;
   nextSessionResult = null;
   nextAdapterResult = undefined;
+  // REVIEW_35 follow-up A1 R2: 默认关 stateful 模式
+  statefulPendingMap = null;
+  statefulMaxInflight = 10;
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────
@@ -283,27 +333,84 @@ describe('universal-message-watcher.process - REVIEW_35 HIGH-A1 backpressure 死
   // 修后：① `inflight - 1 > maxInflight` 让 cap 抬到 maxInflight+1 解 N=11 死锁
   //       ② starvation guard：单 tick 全 skip → 强制 deliver candidates[0] 解 N=17 跨 target starvation
   //
-  // 完整 stateful 集成测试需要重写整个 vi.mock 上下文（pendingMap closure + spy.mockImplementation
-  // 替换 module-level mock fn）;实施起来 boilerplate 较重。这里走「轻量行为验证」策略：
-  // 直接 grep + read 代码确认修法（修法本身是 1 行 + 6 行 starvation guard），下面只验证
-  // **代码层面的存在性 / 公式正确性**（防回归再撞）。
-  //
-  // 真实集成场景行为：lead/teammate 连发 11 条 send_message 给同 teammate → process() tick 1
-  // 全部 deliver（修前 11>10=true 死锁）；连发 17 条 → tick 1 starvation guard 救 candidates[0]
-  // → tick 2-N 逐步收尾。
+  // REVIEW_35 follow-up A1 R2：从「regex 字面量校验」升级为真 stateful test
+  // （statefulPendingMap closure + mock fn 读 closure 实现真 state machine）
 
-  it('修法存在性：universal-message-watcher.ts process() 含 inflight - 1 > maxInflight 公式', async () => {
-    const fs = await import('node:fs/promises');
-    const watcherSrc = await fs.readFile(
-      new URL('../universal-message-watcher.ts', import.meta.url),
-      'utf-8',
+  function makePendingForTarget(toSessionId: string, n: number, baseTs = 1_000_000): AgentDeckMessage[] {
+    return Array.from({ length: n }, (_, i) =>
+      makeMessage({
+        id: `${toSessionId}-msg-${i}`,
+        toSessionId,
+        sentAt: baseTs + i,
+      }),
     );
-    // 修法 1：inflight - 1 > maxInflight 让 cap 抬到 maxInflight+1（破开 N=11 死锁）
-    expect(watcherSrc).toMatch(/otherInflight\s*=\s*[^;]*countPendingForTarget[^;]*\s-\s1/);
-    expect(watcherSrc).toMatch(/otherInflight\s*>\s*maxInflight/);
-    // 修法 2：starvation guard `if (!deliveredAny && candidates.length > 0)`
-    expect(watcherSrc).toMatch(/if\s*\(\s*!deliveredAny\s*&&\s*candidates\.length\s*>\s*0\s*\)/);
-    expect(watcherSrc).toMatch(/await this\.deliver\(candidates\[0\]\)/);
+  }
+
+  async function runProcessWithPending(pending: AgentDeckMessage[], maxInflight = 10): Promise<{
+    deliveredCount: number;
+    pendingCount: number;
+    deliveredIds: string[];
+  }> {
+    statefulPendingMap = new Map();
+    for (const m of pending) statefulPendingMap.set(m.id, { ...m });
+    statefulMaxInflight = maxInflight;
+    nextSessionResult = { id: 'X', lifecycle: 'active', agentId: 'claude-code' };
+    nextAdapterResult = {
+      capabilities: { canCollaborate: true },
+      receiveTeammateMessage: receiveTeammateMessageStub,
+    };
+    const watcher = new UniversalMessageWatcher();
+    await (watcher as unknown as { process: () => Promise<void> }).process();
+    let deliveredCount = 0;
+    let stillPending = 0;
+    const deliveredIds: string[] = [];
+    for (const m of statefulPendingMap.values()) {
+      if (m.status === 'delivered') {
+        deliveredCount++;
+        deliveredIds.push(m.id);
+      }
+      if (m.status === 'pending' || m.status === 'delivering') stillPending++;
+    }
+    return { deliveredCount, pendingCount: stillPending, deliveredIds };
+  }
+
+  it('N=10 同 target（< maxInflight+1）一个 tick 全部 deliver', async () => {
+    const pending = makePendingForTarget('receiver-A', 10);
+    const result = await runProcessWithPending(pending, 10);
+    expect(result.deliveredCount).toBe(10);
+    expect(result.pendingCount).toBe(0);
+  });
+
+  it('N=11 同 target — 修前死锁 (>10 全 skip)，修后 (>10) → other=10, 10>10=false → 全 deliver', async () => {
+    const pending = makePendingForTarget('receiver-B', 11);
+    const result = await runProcessWithPending(pending, 10);
+    expect(result.deliveredCount).toBe(11);
+    expect(result.pendingCount).toBe(0);
+  });
+
+  it('N=17 同 target — backpressure cap=12 全 skip, starvation guard 强制 deliver candidates[0] 至少 1 条', async () => {
+    const pending = makePendingForTarget('receiver-C', 17);
+    const result = await runProcessWithPending(pending, 10);
+    expect(result.deliveredCount).toBeGreaterThanOrEqual(1);
+    // candidates[0] 是 sent_at 最早，starvation guard 必 deliver receiver-C-msg-0
+    expect(result.deliveredIds).toContain('receiver-C-msg-0');
+  });
+
+  it('N=12 同 target — 临界点（other=11>10 全 skip）→ starvation guard 仍救', async () => {
+    const pending = makePendingForTarget('receiver-D', 12);
+    const result = await runProcessWithPending(pending, 10);
+    expect(result.deliveredCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('N=11 同 target_X + 5 target_Y（X 先入队）— 修后 X 11 全 deliver，Y 5 同样能进 candidates batch', async () => {
+    // BATCH_LIMIT=16，11 X + 5 Y = 16 全在 candidates 内
+    const pending = [
+      ...makePendingForTarget('target-X', 11, 1_000_000),
+      ...makePendingForTarget('target-Y', 5, 2_000_000),
+    ];
+    const result = await runProcessWithPending(pending, 10);
+    expect(result.deliveredCount).toBe(16);
+    expect(result.pendingCount).toBe(0);
   });
 
   it('回归记忆：旧错误公式 `if (inflight > maxInflight)` 不再出现', async () => {
@@ -312,8 +419,6 @@ describe('universal-message-watcher.process - REVIEW_35 HIGH-A1 backpressure 死
       new URL('../universal-message-watcher.ts', import.meta.url),
       'utf-8',
     );
-    // 注意：注释里可能仍有「修前」字样引用，不能简单全词 match；只断言修后代码块没出现
-    // 旧的死锁代码（精确匹配老逻辑：单变量 inflight，无 -1 减项）
     expect(watcherSrc).not.toMatch(/const\s+inflight\s*=\s*[^;]*countPendingForTarget[^;]*;\s*if\s*\(\s*inflight\s*>\s*maxInflight\s*\)/);
   });
 });

@@ -370,6 +370,54 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     repo.leaveTeam(t1.id, 'sA');
     expect(repo.findActiveMembershipsBySession('sA')).toHaveLength(1);
   });
+
+  // REVIEW_35 follow-up A2 R2: 补 findActiveMembershipIn + listActiveMembers JOIN 单测
+  it('findActiveMembershipIn — happy path 返 active member', () => {
+    insertSession(db, 'sA');
+    const t = repo.create({ name: 'foo' });
+    repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'lead', displayName: 'Alice' });
+    const m = repo.findActiveMembershipIn(t.id, 'sA');
+    expect(m).not.toBeNull();
+    expect(m?.role).toBe('lead');
+    expect(m?.displayName).toBe('Alice');
+  });
+
+  it('findActiveMembershipIn — left member 返 null（only active）', () => {
+    insertSession(db, 'sA');
+    const t = repo.create({ name: 'foo' });
+    repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'lead' });
+    repo.leaveTeam(t.id, 'sA');
+    expect(repo.findActiveMembershipIn(t.id, 'sA')).toBeNull();
+  });
+
+  it('findActiveMembershipIn — sessionId 不在 team 返 null', () => {
+    insertSession(db, 'sA');
+    insertSession(db, 'sB');
+    const t = repo.create({ name: 'foo' });
+    repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'lead' });
+    expect(repo.findActiveMembershipIn(t.id, 'sB')).toBeNull();
+  });
+
+  it('findActiveMembershipIn — team 不存在返 null（不抛错）', () => {
+    expect(repo.findActiveMembershipIn('no-such-team-id', 'sA')).toBeNull();
+  });
+
+  it('listActiveMembers — JOIN sessions.archived_at IS NULL 排除 archived session 的 ghost member', () => {
+    // REVIEW_35 LOW-A1：listActiveMembers 加 INNER JOIN sessions 与 countActiveLeads 一致
+    insertSession(db, 'sA-active');
+    insertSession(db, 'sB-archived');
+    // archive sB
+    db.prepare(`UPDATE sessions SET archived_at = ? WHERE id = ?`).run(Date.now(), 'sB-archived');
+    const t = repo.create({ name: 'foo' });
+    repo.addMember({ teamId: t.id, sessionId: 'sA-active', role: 'lead' });
+    repo.addMember({ teamId: t.id, sessionId: 'sB-archived', role: 'teammate' });
+    // active members 应只返 sA-active（sB-archived 被 JOIN archived_at IS NULL 过滤）
+    const active = repo.listActiveMembers(t.id);
+    expect(active).toHaveLength(1);
+    expect(active[0].sessionId).toBe('sA-active');
+    // listAllMembers 不 JOIN（保留所有 row 含 archived session）
+    expect(repo.listAllMembers(t.id)).toHaveLength(2);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
