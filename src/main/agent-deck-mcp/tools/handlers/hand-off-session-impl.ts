@@ -246,6 +246,17 @@ export async function handOffSessionImpl(
       error: `plan frontmatter worktree_path must be absolute: ${worktreePath}`,
     };
   }
+  // REVIEW_33 H10：worktreePath 存在性预检（absolute 校验之后）。
+  // 旧实现只校 absolute 不查目录存在 → worktree 已被 archive_plan / 手工 git worktree
+  // remove / 跨设备同步未带 working tree 时，spawn_session 拿这个 cwd 起新 SDK 会
+  // ENOENT 一片（且 process.cwd() 在 main process 默认路径，调试线索断）。修法：先
+  // exists 一次，缺失立即返结构化 error 提示「重建 worktree / 修正 plan frontmatter」。
+  if (!(await deps.exists(worktreePath))) {
+    return {
+      error: `plan frontmatter worktree_path does not exist on disk: ${worktreePath}`,
+      hint: `worktree may have been archived (\`archive_plan\` removed it) / cross-device synced without working tree / manually removed. To resume, recreate worktree (\`git worktree add ${worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktree_path to a valid path.`,
+    };
+  }
 
   // 4. 校验 status === 'in_progress'
   const status = fm.status;

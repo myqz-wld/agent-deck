@@ -117,6 +117,19 @@ export async function archivePlanImpl(
 ): Promise<ArchivePlanResult | ArchivePlanError> {
   const deps: Required<ArchivePlanDeps> = { ...DEFAULT_DEPS, ...depsOverride };
 
+  // REVIEW_33 H10：worktree_path 存在性预检（放最前，所有其他预检之前）。
+  // 旧实现 step 1 直接 `git rev-parse --git-common-dir` in cwd: input.worktreePath；
+  // worktree 已被手工 `git worktree remove` / 跨机器迁移 / 误删时 → child_process
+  // ENOENT，被 step 1 的 try/catch 抓但 error message 不清晰（混在 git rev-parse 错误
+  // 里 caller 难判断到底是 worktree 不存在还是 git 真出错）。修法：先显式 deps.exists
+  // 检查，缺失立即返结构化 error 提示「先建 worktree / 修正路径」。
+  if (!(await deps.exists(input.worktreePath))) {
+    return {
+      error: `worktree_path does not exist: ${input.worktreePath}`,
+      hint: `worktree may have been manually removed (\`git worktree remove\`) / cross-device synced without working tree / wrong path. Verify with \`ls -la ${input.worktreePath}\`. If you really intend to clean up the orphan branch only (no worktree dir), follow user CLAUDE.md §Step 4 manual cleanup instead of archive_plan.`,
+    };
+  }
+
   // 1. 解析 worktree → main repo 路径
   let gitCommonDir: string;
   try {

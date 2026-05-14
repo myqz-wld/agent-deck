@@ -106,6 +106,9 @@ function fixtureHappyPath(): {
   const planId = 'mcp-bug-fix-20260513';
   const worktreePath = '/Users/test/repo/.claude/worktrees/mcp-bug-fix-20260513';
   const mainRepo = '/Users/test/repo';
+  // REVIEW_33 H10：worktreePath 必须在 fixture 里标记存在（用空字符串占位标记目录），
+  // 否则 archivePlanImpl step 0 的 deps.exists(worktreePath) 预检会拦在最前面。
+  state.files.set(worktreePath, '__worktree_dir_placeholder__');
   // plan 文件在默认 main-repo/.claude/plans/ 路径
   const planFilePath = `${mainRepo}/.claude/plans/${planId}.md`;
   state.files.set(
@@ -393,6 +396,7 @@ describe('archivePlanImpl — 预检失败分支', () => {
       worktreePath: '/Users/test/repo/.claude/worktrees/no-such-plan',
       baseBranch: 'main',
     };
+    state.files.set(input.worktreePath, '__dir__'); // REVIEW_33 H10：worktreePath 必须存在
     const deps = makeDeps(state, [
       '/Users/test/repo/.git',
       'wb',
@@ -413,6 +417,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
     const planId = 'global-plan';
     const worktreePath = '/Users/test/repo/.claude/worktrees/global-plan';
     const mainRepo = '/Users/test/repo';
+    state.files.set(worktreePath, '__dir__'); // REVIEW_33 H10
     const userGlobalPath = `${state.fakeHomedir}/.claude/plans/${planId}.md`;
     state.files.set(
       userGlobalPath,
@@ -458,6 +463,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
       ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
     );
     const worktreePath = '/Users/test/repo/.claude/worktrees/override-plan';
+    state.files.set(worktreePath, '__dir__'); // REVIEW_33 H10
 
     const deps = makeDeps(state, [
       '/Users/test/repo/.git',
@@ -488,6 +494,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
 
   it('显式 plan_file_path override 不存在 → reject', async () => {
     const state = makeState();
+    state.files.set('/Users/test/repo/.claude/worktrees/whatever', '__dir__'); // REVIEW_33 H10
     const deps = makeDeps(state, ['/Users/test/repo/.git', 'wb', '']);
 
     const result = await archivePlanImpl(
@@ -781,6 +788,51 @@ describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
     // prefix 知道 main 还没动 → 可以简单 retry）
     expect((result as ArchivePlanError).error).not.toContain('[post-ff-merge:');
     expect((result as ArchivePlanError).error).toContain('base_branch');
+  });
+});
+
+describe('archivePlanImpl — REVIEW_33 H10 worktreePath 存在性预检', () => {
+  it('worktreePath 不存在（state.files 没标记）→ step 0 立即 reject + hint 提示重建 worktree', async () => {
+    const state = makeState();
+    const input = {
+      planId: 'orphan-plan',
+      worktreePath: '/Users/test/repo/.claude/worktrees/orphan-plan',
+      baseBranch: 'main',
+    };
+    // 关键：state.files 不包含 worktreePath，模拟「worktree 已被手工 git worktree
+    // remove / 跨设备同步未带 working tree」场景
+    const deps = makeDeps(state, []); // git mock 不应被调用（step 0 就拦下）
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('worktree_path does not exist');
+    expect((result as ArchivePlanError).error).toContain(input.worktreePath);
+    expect((result as ArchivePlanError).hint).toContain('manually removed');
+    expect((result as ArchivePlanError).hint).toContain('§Step 4 manual cleanup');
+    // git 命令一次都不应被调用（最快短路）
+    expect(state.gitCalls.length).toBe(0);
+  });
+
+  it('worktreePath 存在 → 走完正常预检流程（step 0 放行，step 1+ 继续）', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    // fixtureHappyPath 已设了 worktreePath 占位 → step 0 应放行
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'worktree-mcp-bug-fix',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhash',
+      '',
+      '',
+      '',
+      '',
+    ]);
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(false);
+    // step 0 放行后 step 1 git rev-parse 真的被调用
+    expect(state.gitCalls[0]?.args).toEqual(['rev-parse', '--git-common-dir']);
   });
 });
 
