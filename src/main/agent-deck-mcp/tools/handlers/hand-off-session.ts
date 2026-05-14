@@ -79,8 +79,17 @@ export interface HandOffSessionHandlerDeps {
    * 新 spawn 的 createSession 路径)。
    */
   cwdExists?: (path: string) => boolean;
-  /** CHANGELOG_106：teammate shutdown helper 的 test seam（与 archive_plan 同款） */
-  shutdownTeammates?: (callerSessionId: string) => Promise<ShutdownTeammatesResult>;
+  /**
+   * CHANGELOG_106 + REVIEW_36 R2 HIGH-A：teammate shutdown helper 的 test seam（与 archive_plan 同款）。
+   *
+   * REVIEW_36 R2 HIGH-A：seam signature 加可选 `excludeSessionIds` 参数，让 hand-off 把刚 spawn 的新
+   * sessionId 显式排除（修前 `team_name=x` baton 路径下新 session 被 spawn handler 加为 teammate，
+   * 然后被 helper 一并 close）。default 实现 `(sid, exclude) => shutdownTeammatesOnBaton(sid, { excludeSessionIds: exclude })`。
+   */
+  shutdownTeammates?: (
+    callerSessionId: string,
+    excludeSessionIds?: ReadonlySet<string>,
+  ) => Promise<ShutdownTeammatesResult>;
 }
 
 /**
@@ -187,15 +196,27 @@ export async function handOffSessionHandler(
   const callerSessionCwd: string | null =
     callerSessionCwdRaw !== null && cwdExistsFn(callerSessionCwdRaw) ? callerSessionCwdRaw : null;
 
-  // 2. 组装 spawn_session args：cwd 双模式 default(CHANGELOG_99)。
+  // 2. 组装 spawn_session args：cwd 双模式 default(CHANGELOG_99 + REVIEW_36 HIGH-3)。
   //
-  // **plan-driven 模式 default**: args.cwd > resolved.mainRepo > resolved.worktreePath
-  // (R1 fix LOW-7:原注释错把 caller cwd 写在最高优先级,实际 plan 模式不走 caller cwd —
-  // 因 plan-driven 设计就是要让新 session 在 mainRepo 工作 + 自己 EnterWorktree 进 worktree,
-  // caller cwd 无意义。worktreePath 是兜底,仅当 mainRepo 反查 + 启发式都失败时退化到原行为。)
-  // 理由:让新 session 行为与 EnterWorktree 模式对齐 — sessionRepo.cwd 永远是 main repo,
+  // **plan-driven 模式 default**: args.cwd > resolved.mainRepo (仅当 worktree 在 mainRepo subtree)
+  //                              > resolved.worktreePath (外置 worktree fallback)
+  // (R1 fix LOW-7 + REVIEW_36 HIGH-3:约定 worktree(`<mainRepo>/.claude/worktrees/<plan-id>`)走 mainRepo
+  // 享 CHANGELOG_99 cwd resilience;**外置 worktree**(用户手动 `git worktree add /tmp/wt` /
+  // `/Users/me/elsewhere/wt`)若仍走 mainRepo,sandbox.allowWrite=[mainRepo, /tmp, ~/.cache/claude-code]
+  // 不覆盖外置 worktree → workspace-write 写每个文件都弹框 / strict 完全卡死。降级到 worktreePath
+  // 让 sandbox.allowWrite=[worktreePath, ...] 自然覆盖。worktree 删了 cwd 失效场景由
+  // recoverer.findFallbackCwd 启发式 fallback 兜底(父目录 walk 启发式 2 仍能命中 worktree 父目录)。)
+  // 理由:让新 session 行为与 EnterWorktree 模式对齐 — sessionRepo.cwd 永远是 main repo(约定 worktree),
   // worktree 删了 cwd 仍 valid。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
   // EnterWorktree(path: worktreePath) 进 worktree 干活。
+  //
+  // **HIGH-3 已知限制**（R2 review claude INFO-1 反馈）：
+  // - **strict 档下降级 worktreePath 无意义**：strict 档不给 allowWrite，cwd 也只读
+  //   （sandbox-config.ts 设计），workspace-write 档才是修法重点
+  // - **外置 worktree 删了之后 fallback 路径**：recoverer.findFallbackCwd 启发式 1 不命中
+  //   （regex `^(.+)/\.claude/worktrees/[^/]+(?:\/.*)?$` 仅配 `.claude/worktrees/` 形态）→ 落到
+  //   启发式 2 父目录 walk → fallback cwd 可能不覆盖原 worktree 子目录写。**建议外置 worktree
+  //   保留约定路径**(放在 `<main-repo>/.claude/worktrees/<plan-id>` 内)避免此 trade-off
   //
   // **generic 模式 default**: args.cwd > callerSessionRow.cwd (precheck existsSync) > resolved.mainRepo
   // (无 worktreePath 兜底,因为 generic 模式没 plan 也没 worktree 上下文;callerCwd 失败
@@ -206,11 +227,52 @@ export async function handOffSessionHandler(
   //
   // CHANGELOG_97：team_name 不再默认设为 plan_id —— baton 单向交接语义不需要 lead/teammate
   // 关系；caller 显式传 team_name 时仍透传给 spawn 启用通信关系（罕见使用）。
+
+  // REVIEW_36 HIGH-3：plan-driven 模式 default cwd 推导。
+  // 优先 mainRepo（约定 worktree 走 cwd resilience），外置 worktree 退化 worktreePath
+  // （让 sandbox.allowWrite=[cwd, /tmp, ~/.cache] 自然覆盖外置路径，否则
+  // workspace-write 写每个文件弹框 / strict 完全卡死）。
+  // 严格判定 worktree 在 mainRepo subtree（mainRepo + '/' 防同名前缀误命中
+  // 如 `/repo` vs `/repo-other` —— `/repo-other`.startsWith('/repo') === true）。
+  let planModeDefaultCwd: string | undefined;
+  if (!resolved.mainRepo) {
+    planModeDefaultCwd = resolved.worktreePath ?? undefined;
+  } else if (!resolved.worktreePath) {
+    planModeDefaultCwd = resolved.mainRepo;
+  } else {
+    const mainRepoWithSep = resolved.mainRepo.endsWith('/')
+      ? resolved.mainRepo
+      : resolved.mainRepo + '/';
+    const isInternalWorktree = resolved.worktreePath.startsWith(mainRepoWithSep);
+    planModeDefaultCwd = isInternalWorktree ? resolved.mainRepo : resolved.worktreePath;
+  }
+
   const defaultCwd =
     resolved.mode === 'plan'
-      ? resolved.mainRepo ?? resolved.worktreePath ?? undefined
+      ? planModeDefaultCwd
       : callerSessionCwd ?? resolved.mainRepo ?? undefined;
   const finalCwd = args.cwd ?? defaultCwd;
+
+  // REVIEW_36 R2 MED-C：外置 worktree 场景下 finalCwd=worktreePath，
+  // sandbox.allowWrite=[worktreePath, /tmp, cache] 不含 mainRepo → 接力 session
+  // 写 mainRepo plan 文件被沙盒拦下（user CLAUDE.md §Step 4 完成时更新 frontmatter
+  // status=completed 必写，不能拦）。修法：plan-driven + 外置 worktree → 自动加
+  // mainRepo 进 extraAllowWrite。caller 显式传 args.extra_allow_write 优先（合并）。
+  let computedExtraAllowWrite: readonly string[] | undefined;
+  if (
+    resolved.mode === 'plan' &&
+    resolved.mainRepo &&
+    resolved.worktreePath &&
+    finalCwd === resolved.worktreePath
+  ) {
+    // 外置 worktree 路径已被 default cwd 推导降级到 worktreePath（HIGH-3 fix）→ 加 mainRepo 让 plan 文件可写
+    const merged = new Set<string>(args.extra_allow_write ?? []);
+    merged.add(resolved.mainRepo);
+    computedExtraAllowWrite = Array.from(merged);
+  } else {
+    // 约定 worktree（finalCwd=mainRepo 已含 mainRepo subtree 写权）/ generic 模式 → 仅 caller 显式
+    computedExtraAllowWrite = args.extra_allow_write;
+  }
   if (!finalCwd) {
     // 极端边界:plan 模式 mainRepo+worktreePath 都 null(impl 不会发生),
     // 或 generic 模式 callerCwd+mainRepo 都 null(external sentinel + caller cwd 非 git repo,
@@ -226,6 +288,16 @@ export async function handOffSessionHandler(
     prompt: resolved.coldStartPrompt,
     ...(args.team_name !== undefined ? { team_name: args.team_name } : {}),
     ...(args.permission_mode !== undefined ? { permission_mode: args.permission_mode } : {}),
+    // REVIEW_36 HIGH-2 修法：sandbox 字段镜像 permission_mode 透传策略
+    ...(args.codex_sandbox !== undefined ? { codex_sandbox: args.codex_sandbox } : {}),
+    ...(args.claude_code_sandbox !== undefined
+      ? { claude_code_sandbox: args.claude_code_sandbox }
+      : {}),
+    // REVIEW_36 R2 MED-C 修法：computedExtraAllowWrite 含 mainRepo（外置 worktree 自动加）+
+    // caller 显式 args.extra_allow_write 合并去重。仅当非空时透传给 spawn。
+    ...(computedExtraAllowWrite !== undefined && computedExtraAllowWrite.length > 0
+      ? { extra_allow_write: [...computedExtraAllowWrite] }
+      : {}),
     // caller_session_id 透传：spawn handler 内 makeCtx 已重新算（in-process closure
     // override），但这里用 ctx 直接转发跳过中间层。下方 spawnSessionHandler 接受 ctx 参数
     // 直接传同一个 caller，不依赖 spawn_session 的 args.caller_session_id 字段。
@@ -253,12 +325,18 @@ export async function handOffSessionHandler(
     );
   }
 
-  // 5. CHANGELOG_106：先 shutdown 同 team 内其他 active teammate(default,可 keep_teammates 关)。
+  // 5. CHANGELOG_106 + REVIEW_36 R2 HIGH-A：先 shutdown 同 team 内其他 active teammate(default,可 keep_teammates 关)。
   // 时序必须**先 helper 后 archive caller**(同 archive_plan,详 archive-plan.ts 同段注释)。
   //
   // baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex
   // 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。caller 显式传 team_name 让
   // 新 session 接管 lead 角色时 → 应传 keep_teammates=true 让原 teammate 留给新 lead 继续用。
+  //
+  // REVIEW_36 R2 HIGH-A 修法：caller 显式 team_name 时 spawn handler 把新 sid 加为 teammate
+  // (spawn.ts:310-317)，然后本段 default 调 shutdownTeammatesOnBaton(caller) 会把新 sid 也关掉
+  // (helper 只排除 callerSessionId)。修法 = 把新 spawn 的 sid 通过 excludeSessionIds 传给 helper，
+  // 让它跳过新 session 不 close。spawnData.sessionId 必有(spawn handler ok return 必带 sessionId
+  // 字段)，否则前面 isError 短路返回。
   let teammatesShutdown: ShutdownTeammatesResult = {
     closed: [],
     failed: [],
@@ -268,9 +346,18 @@ export async function handOffSessionHandler(
     if (args.keep_teammates === true) {
       teammatesShutdown = { closed: [], failed: [], skipped: 'keep-teammates' };
     } else {
-      const shutdownFn = handlerDeps?.shutdownTeammates ?? shutdownTeammatesOnBaton;
+      // REVIEW_36 R2 HIGH-A：从 spawn ok return 取新 spawn 的 sessionId，加进 excludeSessionIds
+      // 防被 helper 误关（fix-to-fix bug：HIGH-2 加 sandbox schema 后用户更可能传 team_name 撞此 bug）。
+      const newSpawnedSid = typeof spawnData.sessionId === 'string' ? spawnData.sessionId : null;
+      const excludeSessionIds = newSpawnedSid
+        ? new Set<string>([newSpawnedSid])
+        : undefined;
+      const shutdownFn =
+        handlerDeps?.shutdownTeammates ??
+        ((callerSid: string, exclude?: ReadonlySet<string>) =>
+          shutdownTeammatesOnBaton(callerSid, { excludeSessionIds: exclude }));
       try {
-        teammatesShutdown = await shutdownFn(caller.callerSessionId);
+        teammatesShutdown = await shutdownFn(caller.callerSessionId, excludeSessionIds);
       } catch (e) {
         console.warn(
           `[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller ${caller.callerSessionId}:`,

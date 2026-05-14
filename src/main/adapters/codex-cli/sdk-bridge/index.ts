@@ -385,9 +385,28 @@ export class CodexSdkBridge {
         resume: sessionId,
         codexSandbox: sandbox,
       });
-      // codex resume 不会隐式 fork（与 claude SDK 不同），newRealId 必然 = 入参 sessionId。
-      // 不做 rename 防御（如果未来 codex 改了行为引入 fork，本处需要补 sessionManager.renameSdkSession）。
-      return handle.sessionId;
+      // REVIEW_36 R2 codex follow-up：加 runtime defense 防 codex SDK 未来某版本让 resume 返回新 thread id
+      // (与 claude SDK 隐式 fork 同款风险)。当前 codex SDK 实测 resumeThread 永远返回同 id（spike-A2 验证），
+      // 但代码 thread-loop 仍走 `if (!internal.threadId)` 检测 thread.started.thread_id（即新 id 会被忽略）。
+      // 加 rename 防御让此前提失效时（SDK 升级 / 行为变更）能整体迁移 app-side history 到 NEW_ID 名下，
+      // 与 claude restartWithClaudeCodeSandbox / restartWithPermissionMode 同款保护。
+      const newRealId = handle.sessionId;
+      if (newRealId !== sessionId) {
+        console.warn(
+          `[codex-bridge] restartWithCodexSandbox: codex SDK returned different sessionId ${sessionId} → ${newRealId}; ` +
+            `this is unexpected (codex resume historically returns same id). Carrying app-side history to NEW_ID via renameSdkSession.`,
+        );
+        try {
+          sessionManager.renameSdkSession(sessionId, newRealId);
+        } catch (renameErr) {
+          console.error(
+            `[codex-bridge] post-restart rename failed ${sessionId} → ${newRealId}, ` +
+              `NEW session works but app-side history not migrated.`,
+            renameErr,
+          );
+        }
+      }
+      return newRealId;
     } catch (err) {
       // 回滚：DB 改回 oldSandbox + emit error message
       sessionRepo.setCodexSandbox(sessionId, oldSandbox);

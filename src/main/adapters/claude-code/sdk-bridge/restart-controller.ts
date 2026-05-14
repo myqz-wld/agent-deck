@@ -100,16 +100,21 @@ export class RestartController {
       source: 'sdk',
     });
 
-    // close OLD：内部已修为 emit *-cancelled 事件清 renderer zombie row 后再清 Map
-    await this.ctx.closeSession(sessionId);
-
-    // 写 DB：必须先于 createSession（cold path 翻序；hot path 不动保持 ipc.ts:451-462 原样）。
-    // 同步 emit upsert 让 SessionDetail 下拉值立即跟到新 mode（5-10s busy 期间用户已经看到「切完了」）。
-    sessionRepo.setPermissionMode(sessionId, mode);
-    const updatedRec = sessionRepo.get(sessionId);
-    if (updatedRec) eventBus.emit('session-upserted', updatedRec);
-
+    // REVIEW_36 R2 MED-B 修法：单飞标记必须在 closeSession + DB write + createSession **之前**
+    // set，覆盖整个冷重启的副作用窗口。原实现 inflight 检查后直到 createSession promise 建好才 set，
+    // 两个并发 restart 都能越过 inflight 检查，同时进入 close → DB write 阶段，结果交错。
+    // 修法：先建 placeholder Promise + set 到 recovering Map，让后续并发 restart inflight 检查命中
+    // 等待本次完成；再串行跑 close → DB → createSession。
     const p = (async (): Promise<string> => {
+      // close OLD：内部已修为 emit *-cancelled 事件清 renderer zombie row 后再清 Map
+      await this.ctx.closeSession(sessionId);
+
+      // 写 DB：必须先于 createSession（cold path 翻序；hot path 不动保持 ipc.ts:451-462 原样）。
+      // 同步 emit upsert 让 SessionDetail 下拉值立即跟到新 mode（5-10s busy 期间用户已经看到「切完了」）。
+      sessionRepo.setPermissionMode(sessionId, mode);
+      const updatedRec = sessionRepo.get(sessionId);
+      if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+
       try {
         const handle = await this.ctx.createSession({
           cwd: rec.cwd,
@@ -217,20 +222,26 @@ export class RestartController {
       source: 'sdk',
     });
 
-    await this.ctx.closeSession(sessionId);
-
-    // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox
-    sessionRepo.setClaudeCodeSandbox(sessionId, sandbox);
-    const updatedRec = sessionRepo.get(sessionId);
-    if (updatedRec) eventBus.emit('session-upserted', updatedRec);
-
+    // REVIEW_36 R2 MED-B 修法：单飞标记必须在 closeSession + DB write + createSession **之前**
+    // set，覆盖整个冷重启的副作用窗口。同 restartWithPermissionMode 修法。
     const p = (async (): Promise<string> => {
+      await this.ctx.closeSession(sessionId);
+
+      // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox
+      sessionRepo.setClaudeCodeSandbox(sessionId, sandbox);
+      const updatedRec = sessionRepo.get(sessionId);
+      if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+
       try {
         const handle = await this.ctx.createSession({
           cwd: rec.cwd,
           prompt: handoffPrompt,
           resume: sessionId,
           claudeCodeSandbox: sandbox,
+          // REVIEW_36 R2 MED-A 修法：必须透传 rec.permissionMode 否则新 SDK 默认 'default'，
+          // DB 仍保留旧 mode（acceptEdits/plan/bypassPermissions）→ DB/UI 与 SDK 实际行为不一致。
+          // 与 restartWithPermissionMode 透传 mode 同款理由（用户辛苦切的 mode 不能被 sandbox 切档静默重置）。
+          permissionMode: rec.permissionMode ?? undefined,
         });
         const newRealId = handle.sessionId;
         if (newRealId !== sessionId) {

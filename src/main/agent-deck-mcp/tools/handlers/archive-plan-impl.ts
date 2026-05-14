@@ -46,7 +46,15 @@ const execFileAsync = promisify(execFile);
 export interface ArchivePlanInput {
   planId: string;
   worktreePath: string;
-  baseBranch: string;
+  /**
+   * Caller 显式传的 base branch。
+   * REVIEW_36 R2 user feedback：caller 不传（undefined）→ impl 优先读 plan frontmatter.base_branch，
+   * frontmatter 也没设 → fallback "main"。caller 显式传 string 始终覆盖 frontmatter（最高优先级）。
+   * 旧实现 schema `.default('main')` 让 caller 不传时 string='main' 强制合到 main，与 user CLAUDE
+   * §Step 4 「合回切 worktree 时的原分支」契约不符（feature branch 上跑 plan 应合回 feature branch
+   * 而非污染 main）。
+   */
+  baseBranch?: string;
   planFilePathOverride?: string;
 }
 
@@ -262,19 +270,31 @@ export async function archivePlanImpl(
   // 与「ff merge into base_branch」契约不符——caller 当前 checkout 在 feature-x 时把 worktree
   // branch 合进 feature-x 而非 main。修法：merge 前先 verify base_branch 存在 + checkout 到
   // base_branch（merge 后不切回，假设 caller 默认在 base_branch 工作；如不在 caller 自己处理）。
+  //
+  // REVIEW_36 R2 user feedback：base_branch 解析优先级 = caller 显式 input.baseBranch >
+  // plan frontmatter.base_branch (plan 创建时记录) > "main" fallback。旧 schema `.default('main')`
+  // 让 caller 不传时强制合到 main，feature branch 上跑 plan 会污染主线。frontmatter 字段让用户
+  // 在 plan 创建时记录原分支（user CLAUDE.md §Step 2 plan 内容文档已加该字段说明）。
+  const fmBaseBranch = typeof fm.base_branch === 'string' ? fm.base_branch.trim() : '';
+  const effectiveBaseBranch =
+    input.baseBranch !== undefined && input.baseBranch.length > 0
+      ? input.baseBranch
+      : fmBaseBranch.length > 0
+        ? fmBaseBranch
+        : 'main';
   try {
-    await deps.runGit(['rev-parse', '--verify', input.baseBranch], mainRepo);
+    await deps.runGit(['rev-parse', '--verify', effectiveBaseBranch], mainRepo);
   } catch (e) {
     return {
-      error: `base_branch "${input.baseBranch}" does not exist in main repo: ${(e as Error).message}`,
-      hint: `Pass an existing branch name via base_branch (default "main"). Verify with \`git -C ${mainRepo} branch --list\`.`,
+      error: `base_branch "${effectiveBaseBranch}" does not exist in main repo: ${(e as Error).message}`,
+      hint: `REVIEW_36 R2: base_branch resolves from caller arg > plan frontmatter.base_branch > "main" fallback. Pass an existing branch name via base_branch arg, or set frontmatter base_branch in ${planFilePath}. Verify with \`git -C ${mainRepo} branch --list\`.`,
     };
   }
   try {
-    await deps.runGit(['checkout', input.baseBranch], mainRepo);
+    await deps.runGit(['checkout', effectiveBaseBranch], mainRepo);
   } catch (e) {
     return {
-      error: `git checkout ${input.baseBranch} failed in main repo: ${(e as Error).message}`,
+      error: `git checkout ${effectiveBaseBranch} failed in main repo: ${(e as Error).message}`,
       hint: `Caller cwd or main repo state may prevent branch switch (uncommitted changes / pre-commit hooks). Resolve and retry.`,
     };
   }
@@ -283,7 +303,7 @@ export async function archivePlanImpl(
   } catch (e) {
     return {
       error: `git merge --ff-only ${worktreeBranch} failed in main repo: ${(e as Error).message}`,
-      hint: `${input.baseBranch} cannot be fast-forwarded to ${worktreeBranch}. Manually rebase or merge first.`,
+      hint: `${effectiveBaseBranch} cannot be fast-forwarded to ${worktreeBranch}. Manually rebase or merge first.`,
     };
   }
 

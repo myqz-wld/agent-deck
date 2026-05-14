@@ -56,6 +56,24 @@ export interface CreateSessionOptions {
    */
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   /**
+   * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter 接收并起效；
+   * 其它 adapter 忽略）。
+   *
+   * 典型场景：
+   * - hand_off_session 外置 worktree（cwd=worktreePath 不在 mainRepo subtree）→ caller 传 `[mainRepo]`
+   *   让外置 worktree session 能写 `mainRepo/.claude/plans/<id>.md` plan 文件（user CLAUDE.md §Step 4
+   *   plan 完成时更新 frontmatter status=completed 必须写）
+   * - recoverer cwd fallback → caller 传 `[原 mainRepo]` 防 fallback 后 sandbox.allowWrite 失去原 mainRepo
+   *   写权限（与「workspace-write + cwd fallback 写权限静默扩大」相反方向 — 是写权限保留而非扩大）
+   *
+   * 仅 workspace-write 档生效（strict 档无 allowWrite，extra 也无效；'off' 档忽略）。
+   * undefined / 空数组 → 行为同原版。
+   *
+   * 持久化：spawn 路径下由 finalizeSessionStart 写 sessions.extra_allow_write；recoverer 从 sessionRepo
+   * 读回透传防 fallback 时丢失。
+   */
+  extraAllowWrite?: readonly string[];
+  /**
    * R4·F2：generic-pty / aider session 的 spawn config 透传（仅这两 adapter 接收并起效；
    * 其它 adapter 忽略）。zod 校验由 IPC 入口统一前置（adapters.ts createAdapterSession handler）。
    *

@@ -73,6 +73,11 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
      * settings 全局值 → 'off' 兜底）。与 codex codexSandbox 字面镜像。
      */
     claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+    /**
+     * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 workspace-write 档生效）。
+     * 透传给 bridge.createSession → buildSandboxOptions 第三参。详 adapters/types.ts CreateSessionOptions。
+     */
+    extraAllowWrite?: readonly string[];
   }): Promise<string> {
     if (!this.bridge) throw new Error('adapter not initialized');
     const handle = await this.bridge.createSession(opts);

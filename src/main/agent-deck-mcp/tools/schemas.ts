@@ -74,6 +74,19 @@ export const SPAWN_SESSION_SCHEMA = {
     .describe(
       'REVIEW_32 HIGH-5: claude-code adapter 沙盒切档（off / workspace-write / strict）。不传时从 lead 继承（避免 spawn 出的 reviewer-codex 被外层 sandbox 拦 in-process app-server 初始化）。caller 显式传覆盖。',
     ),
+  /**
+   * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
+   * hand_off_session 在外置 worktree 场景下传 `[mainRepo]` 让外置 worktree session 能写 mainRepo plan
+   * 文件（user CLAUDE.md §Step 4 plan 完成时更新 frontmatter status=completed 必须写）。
+   * 直接调 spawn_session 时一般不传（lead 继承已覆盖大多数场景）。
+   */
+  extra_allow_write: z
+    .array(z.string().min(1).max(4096))
+    .max(16)
+    .optional()
+    .describe(
+      'REVIEW_36 R2 HIGH-B + MED-C: claude-code adapter 沙盒额外 writable roots（仅 workspace-write 档生效；strict / off 忽略）。每个绝对路径加进 sandbox.allowWrite 让 SDK 子进程能写。典型：hand_off_session 外置 worktree → 传 [mainRepo] 让 plan 文件路径不被 sandbox 拦。',
+    ),
   caller_session_id: z
     .string()
     .min(1)
@@ -190,8 +203,10 @@ export const ARCHIVE_PLAN_SCHEMA = {
     .string()
     .min(1)
     .max(128)
-    .default('main')
-    .describe('Target branch to fast-forward merge worktree branch into. Defaults to "main".'),
+    .optional()
+    .describe(
+      'REVIEW_36 R2 user feedback 修法：caller 不传时优先读 plan frontmatter.base_branch（plan 创建时记录切 worktree 时所在的原分支，feature branch 上开 plan 就是 feature branch 名），frontmatter 也没设 base_branch 字段时 fallback "main"。**强烈建议在 plan frontmatter 显式写 base_branch**，避免 ff-merge 错合到 main 污染主线（feature branch 上跑 plan 但合到 main = worktree 改动从 feature branch 跳过去合主线）。Caller 显式传此参数始终覆盖 frontmatter。',
+    ),
   plan_file_path: z
     .string()
     .min(1)
@@ -275,7 +290,7 @@ export const HAND_OFF_SESSION_SCHEMA = {
     )
     .optional()
     .describe(
-      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience: previously defaulted to plan worktree_path; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove` deletion of the worktree). New session is expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3 cold-start flow. Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing.',
+      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience: previously defaulted to plan worktree_path; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove` deletion of the worktree). New session is expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3 cold-start flow. Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. **REVIEW_36 R2 user feedback / HIGH-3 follow-up**: 约定 worktree (在 mainRepo subtree 内,如 `<main-repo>/.claude/worktrees/<plan-id>`) 走 mainRepo 享 cwd resilience；**外置 worktree** (如 `/tmp/wt` / `/Users/me/elsewhere/wt`) 自动降级走 worktreePath，让 sandbox.allowWrite 自然覆盖外置路径 + handler 自动加 mainRepo 进 extra_allow_write 让 plan 文件可写。**Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing.',
     ),
   adapter: z
     .enum(['claude-code', 'codex-cli', 'aider', 'generic-pty'])
@@ -296,6 +311,30 @@ export const HAND_OFF_SESSION_SCHEMA = {
     .optional()
     .describe(
       'Permission mode for the new SDK session. When omitted, follows spawn_session defaults (caller_session_id lead inheritance > undefined / adapter default).',
+    ),
+  codex_sandbox: z
+    .enum(['workspace-write', 'read-only', 'danger-full-access'])
+    .optional()
+    .describe(
+      'REVIEW_36 HIGH-2: codex-cli sandbox override for the new SDK session. When omitted, follows spawn_session defaults (caller_session_id lead inheritance > undefined / adapter default = "workspace-write"). Pass explicitly to override (e.g. baton from claude lead to codex-cli with stricter "read-only" for sensitive task). Mirrors spawn_session.codex_sandbox 1:1.',
+    ),
+  claude_code_sandbox: z
+    .enum(['off', 'workspace-write', 'strict'])
+    .optional()
+    .describe(
+      'REVIEW_36 HIGH-2: claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults (caller_session_id lead inheritance > undefined / settings global). Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claude_code_sandbox 1:1.',
+    ),
+  /**
+   * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
+   * Plan-driven 模式下外置 worktree 场景**自动**加 mainRepo（让外置 session 能写 plan 文件），caller 显式
+   * 传此字段会与自动计算的 mainRepo 合并去重。直接调 hand_off_session 时一般不传。
+   */
+  extra_allow_write: z
+    .array(z.string().min(1).max(4096))
+    .max(16)
+    .optional()
+    .describe(
+      'REVIEW_36 R2 HIGH-B + MED-C: extra writable roots for the new SDK session sandbox (claude-code adapter + workspace-write only). Plan-driven mode + external worktree (worktree not in mainRepo subtree) **auto-adds** mainRepo to let the new session write plan files. Caller-supplied paths are merged with auto-computed mainRepo. Direct callers usually leave this unset.',
     ),
   plan_file_path: z
     .string()

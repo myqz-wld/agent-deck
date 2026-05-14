@@ -122,10 +122,16 @@ function buildSensitiveDenyReadPaths(): string[] {
  *
  * @param mode 档位（'off' / 'workspace-write' / 'strict'）。未知值按 'off' 处理（防御性兜底）。
  * @param cwd 会话 cwd（用于 workspace-write 档的 allowWrite 路径）
+ * @param extraAllowWrite REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（hand-off 外置 worktree
+ *   场景下 caller 传 `[mainRepo]` 让外置 worktree session 能写 mainRepo plan 文件 / recoverer cwd
+ *   fallback 场景下 caller 传 `[原 mainRepo]` 防 fallback 后 sandbox.allowWrite 失去原 mainRepo 写权限）。
+ *   仅 workspace-write 档生效（strict 档无 allowWrite，extra 也无效）；'off' 档忽略。
+ *   undefined / 空数组 → 行为同原版（仅 cwd / /tmp / cache）。
  */
 export function buildSandboxOptions(
   mode: SandboxMode | undefined,
   cwd: string,
+  extraAllowWrite?: readonly string[],
 ): { sandbox?: SandboxSettings } {
   if (mode === undefined || mode === 'off') return {};
   // 防御性兜底：未知 mode 字符串静默回 'off' 太隐蔽（settings store 入了脏数据 / 旧版本
@@ -137,6 +143,10 @@ export function buildSandboxOptions(
 
   const sensitiveDenyRead = buildSensitiveDenyReadPaths();
   const home = homedir();
+  // REVIEW_36 R2 HIGH-B + MED-C: 去重 + 排除 cwd 自身（cwd 已是 allowWrite 第一项）
+  const dedupedExtra = extraAllowWrite
+    ? Array.from(new Set(extraAllowWrite.filter((p) => p !== cwd && p.length > 0)))
+    : [];
 
   if (mode === 'workspace-write') {
     return {
@@ -152,8 +162,11 @@ export function buildSandboxOptions(
         allowUnsandboxedCommands: true,
         excludedCommands: [...SANDBOX_EXCLUDED_COMMANDS],
         filesystem: {
-          // 写权限：cwd + /tmp + SDK 缓存目录
-          allowWrite: [cwd, '/tmp', join(home, '.cache', 'claude-code')],
+          // 写权限：cwd + extra writable roots + /tmp + SDK 缓存目录
+          // REVIEW_36 R2 HIGH-B + MED-C：extra 在 cwd 之后、/tmp 之前，让 hand-off 外置 worktree
+          // session（cwd=worktreePath）能写 mainRepo plan 文件；recoverer cwd fallback 时 caller
+          // 传原 mainRepo 让 fallback 后仍保留原写权限（防写权限静默扩大）
+          allowWrite: [cwd, ...dedupedExtra, '/tmp', join(home, '.cache', 'claude-code')],
           // 用户敏感目录禁读（防偷凭据）
           denyRead: sensitiveDenyRead,
         },
@@ -180,7 +193,7 @@ export function buildSandboxOptions(
     };
   }
 
-  // mode === 'strict'：完全只读 + 封死逃逸
+  // mode === 'strict'：完全只读 + 封死逃逸（extraAllowWrite 在 strict 档无意义，因为没 allowWrite）
   return {
     sandbox: {
       enabled: true,
