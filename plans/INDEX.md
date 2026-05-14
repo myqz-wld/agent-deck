@@ -24,3 +24,4 @@
 | [review-33-high-fix-20260513.md](review-33-high-fix-20260513.md) | review-33-high-fix-20260513 |
 | [deep-review-and-refactor-20260514.md](deep-review-and-refactor-20260514.md) | deep-review-and-refactor-20260514 |
 | [review-35-followup-p1-p2-20260514.md](review-35-followup-p1-p2-20260514.md) | review-35-followup-p1-p2-20260514 |
+| [summarizer-split-20260514.md](summarizer-split-20260514.md) | summarizer-split-20260514 |
