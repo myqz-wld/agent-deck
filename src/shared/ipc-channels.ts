@@ -1,6 +1,16 @@
 /**
+ * **shared/** category: **contract**（跨进程通信契约 — IPC 通道字符串常量）。
+ *
  * IPC 通道常量。Renderer ↔ Main 之间的所有通信都使用这些字符串。
  * 命名规范：<scope>:<verb>。invoke = 请求-响应；event = main → renderer 单向推送。
+ *
+ * **shared/ 边界约定**（R37 P3-J Step 4.7 加 jsdoc 标签）：
+ * - **contract**: 跨进程通信形式 + 数据 schema（IPC 通道名 / domain types / 序列化 contract），
+ *   改动属破坏性变更需双端同步（main + renderer），typecheck 自动覆盖
+ * - **policy**: 跨进程共享的业务规则 / 识别 / 解析逻辑（如 wire prefix parser / 图片工具识别 /
+ *   read-only tool 白名单），改动属业务行为变更，需评估对 main + renderer 行为的统一影响
+ *
+ * 本文件属 **contract**。
  */
 
 export const IpcInvoke = {
