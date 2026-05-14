@@ -21,7 +21,7 @@
  * task_list / task_get 跨 team 读 + A3 sessionIdProvider → ingest 在同目录
  * tools.read-ingest.test.ts。
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskRecord } from '@shared/types';
 import type { TaskRepo } from '@main/store/task-repo';
 
@@ -118,17 +118,8 @@ async function buildToolsAsDict(repo: TaskRepo, teamName: string | null) {
   return dict;
 }
 
-/** 加固定 sid 的 buildTools helper（A3 ingest 路径专用）。 */
-async function buildToolsWithSession(
-  repo: TaskRepo,
-  teamName: string | null,
-  sessionId: string | null,
-) {
-  const arr = await buildTaskTools(repo, () => teamName, () => sessionId);
-  const dict: Record<string, (typeof arr)[number]> = {};
-  for (const t of arr) dict[t.name] = t;
-  return dict;
-}
+// 注：CHANGELOG_105 拆分 — buildToolsWithSession（A3 ingest 路径专用 helper）只在
+// read-ingest sub-test 用，本文件（crud sub-test）无须，已剔除。
 
 // ──────────────── tests ────────────────
 describe('buildTaskTools / 工具集合形状', () => {
