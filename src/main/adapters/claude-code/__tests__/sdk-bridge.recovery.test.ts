@@ -21,6 +21,21 @@ vi.mock('@main/store/session-repo', () => ({
   },
 }));
 
+vi.mock('@main/store/event-repo', () => ({
+  eventRepo: {
+    listForSession: vi.fn(() => []),
+  },
+}));
+
+vi.mock('@main/store/settings-store', () => ({
+  settingsStore: {
+    get: vi.fn((key: string) => {
+      if (key === 'autoSummariseOnFallback') return true;
+      return undefined;
+    }),
+  },
+}));
+
 vi.mock('@main/session/manager', () => ({
   sessionManager: {
     claimAsSdk: vi.fn(),

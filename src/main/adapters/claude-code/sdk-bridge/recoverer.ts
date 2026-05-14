@@ -28,8 +28,11 @@ import { dirname, join } from 'node:path';
 import type { AgentEvent, SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { eventRepo } from '@main/store/event-repo';
+import { settingsStore } from '@main/store/settings-store';
 import { encodeClaudeProjectDir } from '@main/platform';
 import { AGENT_ID, MAX_MESSAGE_LENGTH, PLACEHOLDER_DEDUP_MS } from './constants';
+import { prependHistorySummary } from './recoverer-helpers';
 import type { SdkBridgeOptions, SdkSessionHandle } from './types';
 
 export interface RecovererCtx {
@@ -300,37 +303,70 @@ export class SessionRecoverer {
         // CHANGELOG_99:cwd fallback 时(cwdFellBack=true)强制走 fallback 路径,因为 jsonl 文件
         // 在 OLD cwd encoded 路径下,新 cwd encoded path 必然不存在 → resume 无意义。
         if (cwdFellBack || !this.jsonlExistsThunk(effectiveCwd, sessionId)) {
+          // CHANGELOG_107 Step 3: 在起 fresh CLI 之前调 LLM 摘要 prepend 到首条 prompt
+          // (让 Claude 知前情,而不是 CHANGELOG_106 兜底「请下条消息把背景告诉它一次」手动补)。
+          //
+          // **永不抛错**(helper 内 try/catch 把 thunk throw 封装到 PrependResult.thrown);
+          // settings 关 / DB 没历史 / 摘要空 / 超长 → result.used=false 退回 originalText。
+          //
+          // **cwd 入参语义**(plan §下一会话第一步 决策点):cwdFellBack=true 时**应**传
+          // rec.cwd 而非 effectiveCwd(让摘要保留「原本是哪个 worktree」语义)。Step 3
+          // 仅接 jsonl missing 路径(cwdFellBack=false → rec.cwd === effectiveCwd 等价);
+          // Step 4 接 cwdFellBack 路径时已传 rec.cwd(下面 if 块外 cwd 字段)。
+          const summaryResult = await prependHistorySummary({
+            sessionId,
+            originalText: text,
+            cwd: cwdFellBack ? rec.cwd : effectiveCwd,
+            autoSummariseOnFallback: settingsStore.get('autoSummariseOnFallback'),
+            summariseFn: this.summariseFn,
+            listEventsFn: (sid) => eventRepo.listForSession(sid),
+          });
+
           if (!cwdFellBack) {
-            console.warn(
-              `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${effectiveCwd}, ` +
-                `falling back to new CLI session (CLI history lost but app DB preserved)`,
-            );
-            // CHANGELOG_106 bug fix:对称化 cwdFellBack=true 路径(L161-194)— jsonl missing
-            // 也是「CLI 历史失但应用层 DB 历史保留」的 fresh CLI 路径,必须 emit 告诉用户,
-            // 否则 SessionDetail 看到完整历史 + Claude 答非所问 = 用户问「你是不是没有
-            // 历史会话信息了」(实测用户报)。原版只 console.warn 用户看不到;cwdFellBack
-            // 路径已 emit 同款警告,本路径补齐让两个 fallback 分支 UX 一致。
-            //
-            // 触发时机:dormant session 唤醒发消息 → recoverAndSend → cwd 仍在但 jsonl 缺
-            // (典型: 用户清 ~/.claude/projects / 跨设备同步漏 jsonl / CLI 自己清理 / 应用
-            // 重装 jsonl 没带过来)。
-            //
-            // 用 info 性质(不打 error: true)— 与 cwdFellBack 路径一致,因为这是设计内的
-            // graceful 兜底;打 error 会让时间线像系统崩,误导。
-            this.ctx.emit({
-              sessionId,
-              agentId: AGENT_ID,
-              kind: 'message',
-              payload: {
-                text:
-                  `⚠ 此会话的 CLI 内部对话历史(jsonl)已丢失: ${effectiveCwd}\n` +
-                  `典型原因: 用户清理 ~/.claude/projects / 跨设备同步未带 jsonl / CLI 自身清理 / 应用重装。\n` +
-                  `应用 DB 的 SessionDetail 历史完整保留(本面板看到的对话仍在),但 Claude 这条新启动的 CLI ` +
-                  `不知前情。如要继续之前话题,请在下条消息里把背景再告诉它一次。`,
-              },
-              ts: Date.now(),
-              source: 'sdk',
-            });
+            if (summaryResult.used) {
+              // CHANGELOG_107 Step 3: 摘要成功注入 → emit info 让用户知道 Claude 应能续上
+              console.warn(
+                `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${effectiveCwd}, ` +
+                  `falling back to new CLI session with auto-generated summary prepended ` +
+                  `(prompt ${summaryResult.prompt.length} chars)`,
+              );
+              this.ctx.emit({
+                sessionId,
+                agentId: AGENT_ID,
+                kind: 'message',
+                payload: {
+                  text:
+                    `⚠ 此会话的 CLI 内部对话历史(jsonl)已丢失: ${effectiveCwd}\n` +
+                    `应用通过 LLM 摘要自动注入了历史上下文(自 DB events 表),Claude 应能续上前情。\n` +
+                    `如答非所问,请下条消息补充关键背景。`,
+                },
+                ts: Date.now(),
+                source: 'sdk',
+              });
+            } else {
+              // CHANGELOG_106 原文案保留:摘要 fallback(settings off / no events / summary empty /
+              // over length / thunk throw)→ emit 让用户手动补背景,与 CHANGELOG_106 行为一致。
+              console.warn(
+                `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${effectiveCwd}, ` +
+                  `falling back to new CLI session (CLI history lost but app DB preserved); ` +
+                  `summary skipped reason=${summaryResult.failReason ?? 'unknown'}` +
+                  (summaryResult.thrown ? ` (${summaryResult.thrown.message})` : ''),
+              );
+              this.ctx.emit({
+                sessionId,
+                agentId: AGENT_ID,
+                kind: 'message',
+                payload: {
+                  text:
+                    `⚠ 此会话的 CLI 内部对话历史(jsonl)已丢失: ${effectiveCwd}\n` +
+                    `典型原因: 用户清理 ~/.claude/projects / 跨设备同步未带 jsonl / CLI 自身清理 / 应用重装。\n` +
+                    `应用 DB 的 SessionDetail 历史完整保留(本面板看到的对话仍在),但 Claude 这条新启动的 CLI ` +
+                    `不知前情。如要继续之前话题,请在下条消息里把背景再告诉它一次。`,
+                },
+                ts: Date.now(),
+                source: 'sdk',
+              });
+            }
           }
           // REVIEW_7 H1：直接用 createSession 返回值拿 newRealId，不再 entries() 反查 cwd。
           // 旧版用 `for ... entries() if cwd === rec.cwd break` 取 first 推断「最新创建的」，
@@ -338,7 +374,8 @@ export class SessionRecoverer {
           // 把 OLD_ID 的 events/file_changes/summaries 子表错迁到不相关会话上。
           const handle = await this.createThunk({
             cwd: effectiveCwd, // CHANGELOG_99:可能是 fallback cwd
-            prompt: text,
+            // CHANGELOG_107 Step 3: 用 prepended prompt(摘要成功)或 originalText(失败)
+            prompt: summaryResult.prompt,
             permissionMode: rec.permissionMode ?? undefined,
             // HIGH-1 修法：attachments 透传，jsonl 缺失 fallback 路径下恢复也带图
             attachments,
