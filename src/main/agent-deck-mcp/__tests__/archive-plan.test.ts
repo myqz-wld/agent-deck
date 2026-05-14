@@ -651,6 +651,139 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流（abandoned / unk
   });
 });
 
+describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T15:30:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('rev-parse HEAD (step 8) 失败 → error 含 [post-ff-merge:rev-parse-HEAD] + 通用 hint', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'wb',
+      '',
+      'mainhash', // rev-parse --verify base
+      '', // checkout base
+      '', // merge --ff-only ✅ ff 已成功
+      new Error('fatal: bad revision HEAD'), // rev-parse HEAD ❌ post-ff-merge step 1 失败
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('[post-ff-merge:rev-parse-HEAD]');
+    expect((result as ArchivePlanError).error).toContain('bad revision HEAD');
+    expect((result as ArchivePlanError).hint).toContain('ff-merge 已完成');
+    expect((result as ArchivePlanError).hint).toContain('main HEAD 已推进');
+    expect((result as ArchivePlanError).hint).toContain('phase 标识手工补完');
+  });
+
+  it('git add (step 13a) 失败 → error 含 [post-ff-merge:git-add]', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'wb',
+      '',
+      'mainhash',
+      '', // checkout
+      '', // merge --ff-only
+      'finalhash', // rev-parse HEAD ✅
+      new Error('error: pathspec did not match any files'), // git add ❌
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('[post-ff-merge:git-add]');
+    expect((result as ArchivePlanError).error).toContain('pathspec did not match');
+  });
+
+  it('git commit (step 13b) 失败 → error 含 [post-ff-merge:git-commit]', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'wb',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhash',
+      '', // git add ✅
+      new Error('hint: pre-commit hook rejected'), // git commit ❌
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('[post-ff-merge:git-commit]');
+  });
+
+  it('git worktree remove (step 14a) 失败 → 仍用 phase prefix 但 hint 是精细化版本（提示 --force）', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'wb',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhash',
+      '',
+      '', // git commit ✅
+      new Error('fatal: validation failed, cannot remove working tree'), // worktree remove ❌
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('[post-ff-merge:git-worktree-remove]');
+    // phaseHint override 生效：精细化提示用 --force
+    expect((result as ArchivePlanError).hint).toContain('--force');
+    expect((result as ArchivePlanError).hint).toContain('git worktree remove');
+    // 不会包含通用 hint（因为传了 phaseHint override）
+    expect((result as ArchivePlanError).hint).not.toContain('main HEAD 已推进');
+  });
+
+  it('git branch -D (step 14b) 失败 → phase prefix + 精细化 hint（branch may already be deleted）', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'wb',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhash',
+      '',
+      '',
+      '', // worktree remove ✅
+      new Error('error: branch not found'), // branch -D ❌
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('[post-ff-merge:git-branch-D]');
+    expect((result as ArchivePlanError).hint).toContain('Branch may already be deleted');
+  });
+
+  it('pre-ff-merge 失败（如 base_branch 不存在）→ error **不含** [post-ff-merge:] prefix（区分清楚 ff 前后）', async () => {
+    const { state, input } = fixtureHappyPath();
+    const deps = makeDeps(state, [
+      `/Users/test/repo/.git`,
+      'wb',
+      '',
+      new Error('fatal: Needed a single revision'), // rev-parse --verify base ❌（pre-ff-merge）
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    // 关键：pre-ff-merge 失败的 error 不应含 [post-ff-merge:] prefix（caller 看到没有
+    // prefix 知道 main 还没动 → 可以简单 retry）
+    expect((result as ArchivePlanError).error).not.toContain('[post-ff-merge:');
+    expect((result as ArchivePlanError).error).toContain('base_branch');
+  });
+});
+
 // ─── CHANGELOG_99 archive caller (与 K2 baton 同款语义) ──────────────────
 
 describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {

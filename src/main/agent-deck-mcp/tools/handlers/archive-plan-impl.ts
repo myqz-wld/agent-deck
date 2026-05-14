@@ -279,7 +279,7 @@ export async function archivePlanImpl(
   try {
     finalCommit = await deps.runGit(['rev-parse', 'HEAD'], mainRepo);
   } catch (e) {
-    return { error: `git rev-parse HEAD failed in main repo: ${(e as Error).message}` };
+    return postFfMergeErr('rev-parse-HEAD', e as Error);
   }
 
   // 9. 更新 frontmatter
@@ -297,7 +297,7 @@ export async function archivePlanImpl(
   try {
     await deps.mkdir(archivedDir);
   } catch (e) {
-    return { error: `mkdir ${archivedDir} failed: ${(e as Error).message}` };
+    return postFfMergeErr('mkdir-plans-dir', e as Error);
   }
   // body 是 frontmatter block 之后的全部正文（保持原样）
   const body = stripFrontmatter(planContent);
@@ -305,7 +305,7 @@ export async function archivePlanImpl(
   try {
     await deps.writeFile(archivedPath, newContent);
   } catch (e) {
-    return { error: `write archived plan failed: ${(e as Error).message}` };
+    return postFfMergeErr('write-archived-plan', e as Error);
   }
 
   // 11. 同步 plans/INDEX.md（存在则 append 一行 / 不存在则创建带 header）
@@ -334,7 +334,7 @@ export async function archivePlanImpl(
       plansIndexAppended = true;
     }
   } catch (e) {
-    return { error: `update plans/INDEX.md failed: ${(e as Error).message}` };
+    return postFfMergeErr('sync-plans-INDEX', e as Error);
   }
 
   // 12. 删除原 plan 文件（如果原位置不在新位置）
@@ -342,7 +342,7 @@ export async function archivePlanImpl(
     try {
       await deps.unlink(planFilePath);
     } catch (e) {
-      return { error: `unlink original plan file failed: ${(e as Error).message}` };
+      return postFfMergeErr('unlink-original-plan', e as Error);
     }
   }
 
@@ -354,31 +354,33 @@ export async function archivePlanImpl(
   try {
     await deps.runGit(['add', ...filesToAdd], mainRepo);
   } catch (e) {
-    return { error: `git add failed: ${(e as Error).message}` };
+    return postFfMergeErr('git-add', e as Error);
   }
   const commitMsg = `docs(plans): 归档 ${input.planId} plan + 同步 INDEX (archive_plan)`;
   try {
     await deps.runGit(['commit', '-m', commitMsg], mainRepo);
   } catch (e) {
-    return { error: `git commit failed: ${(e as Error).message}` };
+    return postFfMergeErr('git-commit', e as Error);
   }
 
   // 14. git worktree remove + branch -D
   try {
     await deps.runGit(['worktree', 'remove', input.worktreePath], mainRepo);
   } catch (e) {
-    return {
-      error: `git worktree remove failed: ${(e as Error).message}`,
-      hint: 'Worktree may have uncommitted state added between predecessor check and remove. Manually run `git worktree remove --force` and `git branch -D`.',
-    };
+    return postFfMergeErr(
+      'git-worktree-remove',
+      e as Error,
+      'Worktree may have uncommitted state added between predecessor check and remove. Manually run `git worktree remove --force` and `git branch -D`.',
+    );
   }
   try {
     await deps.runGit(['branch', '-D', worktreeBranch], mainRepo);
   } catch (e) {
-    return {
-      error: `git branch -D ${worktreeBranch} failed: ${(e as Error).message}`,
-      hint: 'Branch may already be deleted. Worktree was already removed; commit + merge already done.',
-    };
+    return postFfMergeErr(
+      'git-branch-D',
+      e as Error,
+      'Branch may already be deleted. Worktree was already removed; commit + merge already done.',
+    );
   }
 
   return {
@@ -404,6 +406,47 @@ function stripFrontmatter(text: string): string {
   const m = text.match(/^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n/);
   if (!m) return text;
   return text.slice(m[0].length);
+}
+
+/**
+ * REVIEW_33 H9：post-ff-merge 阶段标识。一旦 ff-merge 成功（step 7 后），main HEAD
+ * 已推进到 worktree branch tip，**不可简单回滚**（reset --hard 风险高）。任何后续
+ * step 失败时 caller 必须知道：(1) main 已收到 worktree 的 commits（不是「nothing
+ * happened」可重试场景）；(2) 应手工补完 step 标识对应的 cleanup（write archived /
+ * sync INDEX / unlink plan / git add+commit / git worktree remove / git branch -D）。
+ *
+ * 7 个 phase 一一对应 step 8-14。
+ */
+export type PostFfMergePhase =
+  | 'rev-parse-HEAD' // step 8
+  | 'mkdir-plans-dir' // step 10a
+  | 'write-archived-plan' // step 10b
+  | 'sync-plans-INDEX' // step 11
+  | 'unlink-original-plan' // step 12
+  | 'git-add' // step 13a
+  | 'git-commit' // step 13b
+  | 'git-worktree-remove' // step 14a
+  | 'git-branch-D'; // step 14b
+
+const POST_FF_MERGE_HINT_GENERIC =
+  'ff-merge 已完成（main HEAD 已推进到 worktree branch tip），失败发生在 post-ff-merge 阶段。' +
+  '不能简单 retry archive_plan（会撞 "branch already merged" 等已成功步骤）；按 phase 标识手工补完后续 cleanup。';
+
+/**
+ * REVIEW_33 H9：统一 post-ff-merge error 构造器。error 文本前缀加 `[post-ff-merge:<phase>]`
+ * 让 caller 一眼识别这是 ff-merge 之后的失败（不是 ff-merge 前的可重试失败），hint
+ * 默认提示「不能简单 retry，按 phase 手工补完」；caller 可传 phaseHint override 给
+ * 特定 phase 的精细 hint（如 git-worktree-remove 提示用 --force）。
+ */
+export function postFfMergeErr(
+  phase: PostFfMergePhase,
+  e: Error,
+  phaseHint?: string,
+): ArchivePlanError {
+  return {
+    error: `[post-ff-merge:${phase}] ${e.message}`,
+    hint: phaseHint ?? POST_FF_MERGE_HINT_GENERIC,
+  };
 }
 
 // 测试 helper export
