@@ -443,6 +443,283 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
   });
 });
 
+// ─── REVIEW_36 HIGH-2 + HIGH-3: sandbox 透传 + 外置 worktree cwd 降级 ──────────
+//
+// HIGH-2: hand_off_session schema 加 codex_sandbox / claude_code_sandbox 字段，
+//         caller 显式传时透传给 spawnArgs（验证修法关闭「caller 永远只能继承 lead」断链）
+// HIGH-3: 外置 worktree (worktreePath 不在 mainRepo subtree 内) → default cwd
+//         降级 worktreePath，让 SDK sandbox.allowWrite=[cwd, /tmp, ~/.cache] 自然
+//         覆盖外置路径（修前 cwd=mainRepo 不覆盖外置 worktree → workspace-write 弹框
+//         / strict 卡死）
+describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree', () => {
+  const noopShutdown = vi.fn(async (_callerSid: string) => ({
+    closed: [],
+    failed: [],
+    skipped: 'caller-not-lead' as const,
+  }));
+
+  function setupHappySpawn() {
+    return vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: 'fake-sid',
+              adapter: 'claude-code',
+              cwd: '/x',
+              teamId: null,
+              teamName: null,
+            }),
+          },
+        ],
+      }),
+    );
+  }
+
+  function spyCallerRow() {
+    return vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+  }
+
+  it('HIGH-2: caller 显式传 claude_code_sandbox + codex_sandbox → 透传 spawnArgs', async () => {
+    const state = makeState();
+    const planId = 'sandbox-pass';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+
+    const mockSpawn = setupHappySpawn();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const sessionRepoGetSpy = spyCallerRow();
+
+    const args: HandOffSessionArgs = {
+      plan_id: planId,
+      adapter: 'claude-code',
+      claude_code_sandbox: 'strict',
+      codex_sandbox: 'read-only',
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      shutdownTeammates: noopShutdown,
+      implDeps: makeDeps(state),
+    });
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    const spawnArgs = mockSpawn.mock.calls[0]![0];
+    expect(spawnArgs.claude_code_sandbox).toBe('strict');
+    expect(spawnArgs.codex_sandbox).toBe('read-only');
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('HIGH-2: caller 不传 sandbox 字段 → spawnArgs 也不带 sandbox 字段（让 spawn 走 lead 继承）', async () => {
+    const state = makeState();
+    const planId = 'sandbox-default';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+
+    const mockSpawn = setupHappySpawn();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const sessionRepoGetSpy = spyCallerRow();
+
+    const args: HandOffSessionArgs = {
+      plan_id: planId,
+      adapter: 'claude-code',
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      shutdownTeammates: noopShutdown,
+      implDeps: makeDeps(state),
+    });
+
+    const spawnArgs = mockSpawn.mock.calls[0]![0];
+    expect(spawnArgs.claude_code_sandbox).toBeUndefined();
+    expect(spawnArgs.codex_sandbox).toBeUndefined();
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('HIGH-3a: 约定 worktree (在 mainRepo subtree) → cwd=mainRepo (CHANGELOG_99 不变)', async () => {
+    const state = makeState();
+    const planId = 'internal-wt';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    const worktreePath = `/Users/test/repo/.claude/worktrees/${planId}`; // 约定路径
+    state.files.set(
+      planFilePath,
+      planContent({ planId, status: 'in_progress', worktreePath }),
+    );
+
+    const mockSpawn = setupHappySpawn();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const sessionRepoGetSpy = spyCallerRow();
+
+    await handOffSessionHandler(
+      { plan_id: planId, adapter: 'claude-code' },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    const spawnArgs = mockSpawn.mock.calls[0]![0];
+    expect(spawnArgs.cwd).toBe('/Users/test/repo'); // mainRepo - CHANGELOG_99 cwd resilience 不变
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('HIGH-3b: 外置 worktree (不在 mainRepo subtree) → cwd 降级 worktreePath 让 sandbox 覆盖', async () => {
+    const state = makeState();
+    const planId = 'external-wt';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    const worktreePath = `/tmp/external-wt`; // 外置路径，不在 /Users/test/repo subtree
+    state.files.set(
+      planFilePath,
+      planContent({ planId, status: 'in_progress', worktreePath }),
+    );
+    // 让 exists 对外置 worktreePath 返 true（默认 mock 仅对 .claude/worktrees/ 形态默认 true）
+    state.files.set(worktreePath, '');
+
+    const mockSpawn = setupHappySpawn();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const sessionRepoGetSpy = spyCallerRow();
+
+    await handOffSessionHandler(
+      { plan_id: planId, adapter: 'claude-code' },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    const spawnArgs = mockSpawn.mock.calls[0]![0];
+    expect(spawnArgs.cwd).toBe('/tmp/external-wt'); // 降级 worktreePath 让 sandbox.allowWrite 覆盖
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('HIGH-3c: 同名前缀防御 (`/repo` vs `/repo-other`) → 不误判为内部 worktree', async () => {
+    // mainRepo `/Users/test/repo`，worktree 在 `/Users/test/repo-other/...`
+    // 旧的 startsWith 不带 sep 会误命中（'/Users/test/repo-other' starts with '/Users/test/repo'）。
+    // REVIEW_36 修法用 `mainRepo + '/'` 防同名前缀。
+    const state = makeState();
+    const planId = 'prefix-collision';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    const worktreePath = `/Users/test/repo-other/wt`; // 共享 `/Users/test/repo` 前缀但不是 subtree
+    state.files.set(
+      planFilePath,
+      planContent({ planId, status: 'in_progress', worktreePath }),
+    );
+    // 让 exists 对外置 worktreePath 返 true（默认 mock 仅对 .claude/worktrees/ 形态默认 true）
+    state.files.set(worktreePath, '');
+
+    const mockSpawn = setupHappySpawn();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const sessionRepoGetSpy = spyCallerRow();
+
+    await handOffSessionHandler(
+      { plan_id: planId, adapter: 'claude-code' },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    const spawnArgs = mockSpawn.mock.calls[0]![0];
+    expect(spawnArgs.cwd).toBe('/Users/test/repo-other/wt'); // 正确判定为外置 → worktreePath
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  // REVIEW_36 R2 HIGH-A regression: hand_off_session(team_name=x) baton 不应关掉刚 spawn 的新 session
+  it('R2 HIGH-A: team_name 显式传 → shutdownTeammates 收到新 sid 在 excludeSessionIds 中', async () => {
+    const state = makeState();
+    const planId = 'baton-exclude';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+
+    const newSpawnedSid = 'newly-spawned-teammate-sid';
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: newSpawnedSid,
+              adapter: 'claude-code',
+              cwd: '/Users/test/repo',
+              teamId: 'team-x',
+              teamName: 'custom-team',
+            }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_sid: string, _exclude?: ReadonlySet<string>) => ({
+      closed: [],
+      failed: [],
+      skipped: null as null,
+    }));
+    spyCallerRow();
+
+    await handOffSessionHandler(
+      {
+        plan_id: planId,
+        adapter: 'claude-code',
+        team_name: 'custom-team',
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: mockShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    expect(mockShutdown).toHaveBeenCalledTimes(1);
+    // 关键断言：第二参 excludeSessionIds 必须含 newSpawnedSid
+    expect(mockShutdown).toHaveBeenCalledWith('caller-sid', new Set([newSpawnedSid]));
+  });
+});
+
 // ─── CHANGELOG_106: shutdownTeammatesOnBaton 集成 ────────────────────────
 //
 // 范围:handOffSessionHandler 调 shutdownTeammates helper 的行为 + ok return.teammatesShutdown 字段。
@@ -540,7 +817,9 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
       skipped: null,
     });
     expect(mockShutdown).toHaveBeenCalledTimes(1);
-    expect(mockShutdown).toHaveBeenCalledWith('caller-sid');
+    // REVIEW_36 R2 HIGH-A：seam 加第二参 excludeSessionIds (Set 含新 spawn sid 'new-sid')，
+    // makeOkSpawn 默认返回 sessionId='new-sid'。helper 不会把这个 sid 当 teammate 误关。
+    expect(mockShutdown).toHaveBeenCalledWith('caller-sid', new Set(['new-sid']));
     expect(mockArchive).toHaveBeenCalledTimes(1);
     expect(data.archived).toBe('ok');
 

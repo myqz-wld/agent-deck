@@ -152,6 +152,13 @@ export class ClaudeSdkBridge {
      * settings.claudeCodeSandbox 全局值 → 'off' 兜底。与 codex codexSandbox 字面镜像。
      */
     claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+    /**
+     * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 workspace-write 档生效）。
+     * 典型场景：
+     * - hand_off_session 外置 worktree（cwd=worktreePath）→ 传 `[mainRepo]` 让 session 能写 mainRepo plan
+     * - recoverer cwd fallback → 传 `[原 mainRepo]` 防写权限静默扩大到 fallback 父目录
+     */
+    extraAllowWrite?: readonly string[];
   }): Promise<SdkSessionHandle> {
     // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
     // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
@@ -235,10 +242,14 @@ export class ClaudeSdkBridge {
       // REVIEW_14 阶段 2 排查盲点：sandbox 是否生效在 SDK / OS 层不打 log，应用主进程
       // 看不到「sandbox 装载成功 / 失败」信号；改回顶层 sandbox 字段后此 log 帮助
       // 实证「buildSandboxOptions 真的传了对应配置进 SDK options」，下次问题排查少绕一圈。
-      const sandboxOpts = buildSandboxOptions(claudeSandboxMode, opts.cwd);
+      const sandboxOpts = buildSandboxOptions(claudeSandboxMode, opts.cwd, opts.extraAllowWrite);
       console.log(
         `[sandbox] mode=${claudeSandboxMode} → ${
           sandboxOpts.sandbox ? 'enabled (top-level)' : 'disabled (no field)'
+        }${
+          opts.extraAllowWrite && opts.extraAllowWrite.length > 0
+            ? ` extraAllowWrite=[${opts.extraAllowWrite.join(', ')}]`
+            : ''
         }`,
       );
       // CHANGELOG_85 Step 3.2：mcp server 拼装抽到 mcp-server-init.ts

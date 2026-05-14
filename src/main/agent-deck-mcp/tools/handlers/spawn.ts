@@ -104,8 +104,9 @@ export async function spawnSessionHandler(
   // 沿用 adapter 默认（避免外部 MCP client 误触发 lead 沙盒透传）。
   // 解决 reviewer-codex 报「外层 Claude Code sandbox 拦了 codex in-process app-server 初始化」
   // 的根因 —— spawn 出的 reviewer-codex teammate 没继承 lead 的 sandbox 设置，跑在受限沙盒里。
-  const callerExists = sessionRepo.get(caller.callerSessionId) !== null;
-  const leadRecord = callerExists ? sessionRepo.get(caller.callerSessionId) : null;
+  // REVIEW_36 LOW-1：sessionRepo.get 单次反查（旧实现 callerExists / leadRecord 各调一次）。
+  const leadRecord = sessionRepo.get(caller.callerSessionId);
+  const callerExists = leadRecord !== null;
   const effectivePermissionMode =
     args.permission_mode ?? leadRecord?.permissionMode ?? undefined;
   const effectiveCodexSandbox = args.codex_sandbox ?? leadRecord?.codexSandbox ?? undefined;
@@ -213,6 +214,10 @@ export async function spawnSessionHandler(
       ...(effectiveCodexSandbox !== undefined ? { codexSandbox: effectiveCodexSandbox } : {}),
       ...(effectiveClaudeCodeSandbox !== undefined
         ? { claudeCodeSandbox: effectiveClaudeCodeSandbox }
+        : {}),
+      // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（仅 caller 显式传时）
+      ...(args.extra_allow_write !== undefined && args.extra_allow_write.length > 0
+        ? { extraAllowWrite: args.extra_allow_write }
         : {}),
       ...(args.team_name !== undefined ? { teamName: args.team_name } : {}),
     });

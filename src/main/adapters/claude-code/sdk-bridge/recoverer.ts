@@ -51,6 +51,18 @@ export type CreateSessionThunk = (opts: {
   resume?: string;
   teamName?: string;
   attachments?: UploadedAttachmentRef[];
+  /**
+   * REVIEW_36 HIGH-1：recoverer fallback 路径（jsonl missing / cwdFellBack）显式透传 sandbox 档位。
+   *
+   * 修前漏洞：fallback 不走 resume → resolveClaudeSandboxMode 拿 opts.resume=undef + opts.claudeCodeSandbox=undef
+   * → 走 settings 全局 fallback（默认 'off'）→ SDK 子进程 spawn 时按全局值装载沙盒，**与历史 record 持久化的
+   * `sessionRepo.claudeCodeSandbox` 无关**。后续 renameSdkSession(OLD, NEW) 把 fromRow.claude_code_sandbox 覆盖到
+   * NEW row 让 DB 字段看起来正确，但**已 spawn 的 SDK 进程已无法改沙盒**（spawn-time 锁定）。
+   *
+   * 用户场景：strict 档历史会话 + 全局默认 'off' + jsonl 丢失 → fallback 后 SDK 子进程实际无沙盒（DB 仍显示 strict），
+   * agent 能读 ~/.ssh / 写任意目录，安全语义静默降级。
+   */
+  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
 }) => Promise<SdkSessionHandle>;
 
 /**
@@ -130,9 +142,9 @@ export class SessionRecoverer {
      */
     private readonly summariseFn: SummariseFnThunk,
   ) {
-    // Step 1 typecheck pass: TS6138 (declared but never read) 临时 silence。
-    // Step 2 helper 起开始真正 await this.summariseFn(...) 后本行可移除。
-    void this.summariseFn;
+    // REVIEW_36 LOW-3: CHANGELOG_107 Step 1 临时 silence TS6138 的 `void this.summariseFn`
+    // 已成死代码 — Step 3 起 prependHistorySummary helper 通过 opts 透传该字段调用，TS 已识别
+    // 字段被 read，原 silence 不再需要。删除让 ctor body 不带误导性副作用语句。
   }
 
   /**
@@ -218,6 +230,14 @@ export class SessionRecoverer {
       // prependHistorySummary 决定丢失 / 续上(成功 → inner 分支 emit「LLM 摘要已注入」;
       // 失败 → inner 分支 emit「将丢失,请补背景」)。outer 只 emit cwd 切换 fact,
       // 不预判 jsonl 命运,避免「outer 说将丢 + inner 说不丢」前后矛盾误导用户。
+      // REVIEW_36 R2 HIGH-B 修法：补 sandbox 写权限边界变化提示。fallback 后 SDK 子进程
+      // chdir effectiveCwd，sandbox.allowWrite=[effectiveCwd, /tmp, ~/.cache] 自动跟着切到
+      // fallback 目录 → workspace-write 档下写权限边界**可能扩大**（典型：原 worktree 写
+      // `/Users/me/wt`，fallback 到 `/Users/me/elsewhere` 后能写 `/Users/me/elsewhere` 下任何
+      // 内容）。让用户透明知情决策（如安全敏感请右键归档新建会话），而非黑盒静默扩大。
+      // 仅 workspace-write 档需要提示（off 档无 sandbox / strict 档完全只读没扩大风险）。
+      const sandboxModeForWarn = rec.claudeCodeSandbox; // 透传值（与 createThunk 一致）
+      const needSandboxWarn = sandboxModeForWarn === 'workspace-write';
       this.ctx.emit({
         sessionId,
         agentId: AGENT_ID,
@@ -225,13 +245,20 @@ export class SessionRecoverer {
         payload: {
           text:
             `⚠ 此会话的原 cwd 已不存在: ${rec.cwd}\n` +
-            `应用启发式 fallback 到: ${effectiveCwd}`,
+            `应用启发式 fallback 到: ${effectiveCwd}` +
+            (needSandboxWarn
+              ? `\n\n⚠ 沙盒边界已变化（workspace-write 档）：\n` +
+                `   原写权限范围: ${rec.cwd}（已不存在）\n` +
+                `   新写权限范围: ${effectiveCwd}（fallback 父目录，可能比原 worktree 范围大）\n` +
+                `   如安全敏感（怕 agent 写入超出原 worktree 的文件），请右键归档此会话 + 新建会话从干净 cwd 重启。`
+              : ''),
         },
         ts: Date.now(),
         source: 'sdk',
       });
       console.warn(
-        `[sdk-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}`,
+        `[sdk-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}` +
+          (needSandboxWarn ? ' (workspace-write sandbox.allowWrite boundary changed)' : ''),
       );
     }
 
@@ -422,6 +449,11 @@ export class SessionRecoverer {
             // CHANGELOG_107 Step 3: 用 prepended prompt(摘要成功)或 originalText(失败)
             prompt: summaryResult.prompt,
             permissionMode: rec.permissionMode ?? undefined,
+            // REVIEW_36 HIGH-1 修法：fallback 路径必须显式透传 claudeCodeSandbox，不能依赖 sandbox-resolve
+            // 的 resume 兜底（fallback 不带 resume，会走 settings 全局值 = 静默降级到 'off'）。
+            // 与 permissionMode 同款显式透传 + ?? undefined 兜底（rec.claudeCodeSandbox 历史 null
+            // 时让 sandbox-resolve 走 settings 全局，与原行为对齐）。
+            claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
             // HIGH-1 修法：attachments 透传，jsonl 缺失 fallback 路径下恢复也带图
             attachments,
           });
@@ -457,6 +489,10 @@ export class SessionRecoverer {
           // 已选过的（acceptEdits / plan / bypassPermissions）必须复原，否则用户体感
           // 「我设过的权限模式被悄悄重置」
           permissionMode: rec.permissionMode ?? undefined,
+          // REVIEW_36 HIGH-1 修法：与 fallback 分支同款显式透传（resume 路径 sandbox-resolve
+          // 的 fallback #2 sessionRepo 反查 也能拿到，但显式透传 fallback #1 优先级更高 +
+          // 与 permissionMode 处理方式对称 + 一致性更好 + 防 sessionRepo 边界 race）。
+          claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
           // HIGH-1 修法：attachments 透传，正常 resume 路径下首条恢复消息带图
           attachments,
         });

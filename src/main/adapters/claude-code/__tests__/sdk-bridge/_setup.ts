@@ -20,6 +20,11 @@ export interface CreateSessionCall {
   prompt?: string;
   resume?: string;
   permissionMode?: string;
+  /**
+   * REVIEW_36 HIGH-1 regression：让 recovery test 能断言 fallback 路径透传 claudeCodeSandbox
+   * 给 createThunk（修前 fallback 漏传，导致 sandbox-resolve 走 settings 全局值 = 静默降级）。
+   */
+  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
 }
 
 export class TestBridge extends ClaudeSdkBridge {
@@ -56,12 +61,15 @@ export class TestBridge extends ClaudeSdkBridge {
     prompt?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
     resume?: string;
+    /** REVIEW_36 HIGH-1：fallback 透传 sandbox 档位 */
+    claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   }): Promise<{ sessionId: string; abort: () => void }> {
     this.createCalls.push({
       cwd: opts.cwd,
       prompt: opts.prompt,
       resume: opts.resume,
       permissionMode: opts.permissionMode,
+      claudeCodeSandbox: opts.claudeCodeSandbox,
     });
     if (this.createBehavior === 'block') {
       await new Promise<void>((res) => {

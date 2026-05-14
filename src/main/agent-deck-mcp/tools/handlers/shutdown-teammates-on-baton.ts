@@ -49,6 +49,16 @@ export interface ShutdownTeammatesDeps {
   /** test seam：默认走真 agentDeckTeamRepo */
   findActiveMembershipsBySession?: (sid: string) => AgentDeckTeamMember[];
   listActiveMembers?: (teamId: string) => AgentDeckTeamMember[];
+  /**
+   * REVIEW_36 R2 HIGH-A：caller 端可显式排除某些 sessionId 不被 shutdown。
+   * 典型场景：hand_off_session(team_name=x) 显式 spawn 新 session 后立即调本 helper —
+   * 新 session 已被 spawn handler 加为 teammate（spawn.ts:310-317），如果不排除 → helper
+   * 把刚交出 baton 的新 session 也关掉（fix-to-fix bug）。
+   *
+   * caller 已知不该被关的 sid 集合（如 hand-off 新 spawn 的 sessionId）传入此参数即可豁免。
+   * 默认空 Set 时行为与原来完全一致（仅排除 callerSessionId）。
+   */
+  excludeSessionIds?: ReadonlySet<string>;
 }
 
 export async function shutdownTeammatesOnBaton(
@@ -66,6 +76,7 @@ export async function shutdownTeammatesOnBaton(
   const listMembers =
     deps?.listActiveMembers ?? ((teamId: string) => agentDeckTeamRepo.listActiveMembers(teamId));
   const closeFn = deps?.closeFn ?? ((sid: string) => sessionManager.close(sid));
+  const excludeSet = deps?.excludeSessionIds ?? new Set<string>();
 
   // 反查 caller 在哪些 team 里是 lead
   const memberships = findMemberships(callerSessionId);
@@ -77,11 +88,14 @@ export async function shutdownTeammatesOnBaton(
   }
 
   // 收集所有 caller=lead 的 team 内其他 active teammate（多 team 共享同 sid 时 dedup）
+  // REVIEW_36 R2 HIGH-A：排除 callerSessionId + caller 显式 exclude（hand-off 新 spawn 的 sid）
   const targetSids = new Set<string>();
   for (const teamId of leadTeamIds) {
     const members = listMembers(teamId);
     for (const m of members) {
-      if (m.sessionId !== callerSessionId) targetSids.add(m.sessionId);
+      if (m.sessionId === callerSessionId) continue;
+      if (excludeSet.has(m.sessionId)) continue;
+      targetSids.add(m.sessionId);
     }
   }
 

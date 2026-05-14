@@ -130,10 +130,11 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
     // 绕开 SDK 自带 K7。dev 模式下函数返回真实 node_modules 路径，无副作用。
     ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
-    // OS 级沙盒（REVIEW_14 阶段 2）：根据 settings.claudeCodeSandbox 档位拼装
-    // managedSettings.sandbox 字段（policy 层，user/project/local 不可放宽）。
+    // OS 级沙盒（REVIEW_14 阶段 2 + REVIEW_15 实测纠错）：根据 settings.claudeCodeSandbox
+    // 档位拼装**顶层 sandbox 字段**（REVIEW_15 实测铁证：managedSettings.sandbox 包装无效，
+    // 必须用顶层 `sandbox: SandboxSettings` 字段，详 sandbox-config.ts 头注释决策 #1）。
     // 'off' 返回空对象，无 sandbox 字段，行为同现状（仅 canUseTool 弹框）。
-    // 'workspace-write' / 'strict' 返回 { managedSettings: { sandbox: {...} } }。
+    // 'workspace-write' / 'strict' 返回 `{ sandbox: {...} }` 顶层（spread 到 SDK options 顶层）。
     //
     // **summarizer 不被污染**：summarizer 走 `settingSources: []` + 自己 query() 调用，
     // 不读 sandbox 设置（与 agentTeamsEnabled 隔离同模式）。

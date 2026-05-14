@@ -123,6 +123,8 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       prompt: 'hi',
       resume: 'sess-1',
       permissionMode: 'plan',
+      // REVIEW_36 HIGH-1: 正常 resume 路径也透传（fixture 中 record 没设字段，undefined）
+      claudeCodeSandbox: undefined,
     });
   });
 
@@ -238,6 +240,8 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       prompt: 'hi',
       resume: undefined, // 关键：fallback 路径不带 resume
       permissionMode: 'acceptEdits', // 但 permissionMode 仍要复原
+      // REVIEW_36 HIGH-1: claudeCodeSandbox 也透传（fixture 中 record 没设此字段，应为 undefined）
+      claudeCodeSandbox: undefined,
     });
 
     // 占位 message 仍 emit（用户体感「在自动恢复」与正常 resume 路径一致）
@@ -654,5 +658,67 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       ((e.payload as { text?: string }).text ?? '').includes('CLI 内部对话历史(jsonl)将丢失'),
     );
     expect(willLoseNotice).toHaveLength(0);
+  });
+
+  // ─── REVIEW_36 HIGH-1: recoverer fallback claudeCodeSandbox 透传回归 ────────
+  //
+  // 修前漏洞：fallback 路径调 createThunk 没传 claudeCodeSandbox，sandbox-resolve 拿
+  // opts.resume=undef + opts.claudeCodeSandbox=undef → 走 settings 全局 fallback（默认 'off'）
+  // → SDK 子进程实际无沙盒，与 sessionRepo.claudeCodeSandbox='strict' 完全脱钩。
+  //
+  // 这两个 case 锁定 fix：fallback 路径必须把 rec.claudeCodeSandbox 显式透传给 createThunk。
+
+  it('REVIEW_36 HIGH-1: jsonl 不存在 + record claudeCodeSandbox=strict → fallback 透传 strict', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-strict',
+      agentId: 'claude-code',
+      cwd: '/tmp/sandboxed',
+      title: 'strict-session',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      permissionMode: 'default',
+      // 关键：用户上次主动选了 strict
+      claudeCodeSandbox: 'strict',
+    });
+
+    await bridge.sendMessage('sess-strict', 'hi');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    // 关键断言：fallback 路径必须把 record.claudeCodeSandbox 透传给 createThunk
+    // （而不是 undefined → sandbox-resolve fallback 到 settings 全局 'off' 静默降级）
+    expect(bridge.createCalls[0].claudeCodeSandbox).toBe('strict');
+  });
+
+  it('REVIEW_36 HIGH-1: 正常 resume + record claudeCodeSandbox=workspace-write → 透传', async () => {
+    const bridge = makeBridge();
+    // jsonl 默认 true → 走正常 resume 路径
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-ws',
+      agentId: 'claude-code',
+      cwd: '/tmp/work',
+      title: 'ws-session',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+      claudeCodeSandbox: 'workspace-write',
+    });
+
+    await bridge.sendMessage('sess-ws', 'hi');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].resume).toBe('sess-ws');
+    expect(bridge.createCalls[0].claudeCodeSandbox).toBe('workspace-write');
   });
 });
