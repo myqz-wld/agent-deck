@@ -354,8 +354,8 @@ export interface AgentAdapter {
 |---|---|---|---|---|
 | claude-code | true | 调 `sdkBridge.sendMessage(sessionId, body)`（与 IPC 路径同款） | optional 实现：sendMessage 一条 system-style 文本 | E6 删 |
 | codex-cli | true | 调 `codexSdkBridge.sendMessage(sessionId, body)`（注意配套 §7.5 backpressure，避免触发 codex MAX_PENDING_MESSAGES=20 限制） | 同上 | E6 删 |
-| aider | false 占位 → F 阶段实装 | placeholder throw `not_implemented_yet` | — | E6 删 |
-| generic-pty | false 占位 → F 阶段实装 | placeholder throw `not_implemented_yet` | — | E6 删 |
+| aider | true（R4·F-bonus 实装） | 调 `genericPtyBridge.sendMessage(sessionId, body)`（PTY stdin 写入与 user 输入等价） | 同上 | E6 删 |
+| generic-pty | true（R4·F-bonus 实装） | 调 `genericPtyBridge.sendMessage(sessionId, body)`（PTY stdin 写入与 user 输入等价） | 同上 | E6 删 |
 
 **老 capability `canJoinTeam` E6 同步删除**（reviewer 修订）：定义里它只表征「是否能让 Claude
 Code CLI 启用 experimental teams flag」，与 universal team 无关。settings.agentTeamsEnabled

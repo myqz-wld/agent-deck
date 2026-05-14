@@ -23,6 +23,7 @@ import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
 import { getBundledAssetContent } from '@main/bundled-assets';
 import { parseFrontmatter } from '@main/utils/frontmatter';
+import { omitUndefined } from '@main/utils/optional-fields';
 import { sanitizeWireFieldName } from '@shared/wire-prefix';
 
 import { applySpawnGuards } from '../../spawn-guards';
@@ -230,12 +231,16 @@ export const spawnSessionHandler = withMcpGuard(
         cwd: args.cwd,
         prompt: promptForSpawn, // wire 形式（spawn 路径下若有 team_name 则含 [msg <id>] prefix）
         // REVIEW_32 HIGH-5：使用 effective 字段（caller 显式 > lead 继承 > undefined）
-        ...(effectivePermissionMode !== undefined ? { permissionMode: effectivePermissionMode } : {}),
-        ...(effectiveCodexSandbox !== undefined ? { codexSandbox: effectiveCodexSandbox } : {}),
-        ...(effectiveClaudeCodeSandbox !== undefined
-          ? { claudeCodeSandbox: effectiveClaudeCodeSandbox }
-          : {}),
-        // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（仅 caller 显式传时）
+        // REVIEW_37 P1-Phase2 (claude F4 LOW)：omitUndefined 收口 4 个简单 spread+ternary。
+        // 仅 extra_allow_write（length > 0 语义）+ model（falsy 语义）保留 inline ternary。
+        ...omitUndefined({
+          permissionMode: effectivePermissionMode,
+          codexSandbox: effectiveCodexSandbox,
+          claudeCodeSandbox: effectiveClaudeCodeSandbox,
+          teamName: args.team_name,
+        }),
+        // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（仅 caller 显式传时）—
+        // 留 inline 因要 length > 0 检查（空数组也跳过，omitUndefined 不处理 empty array）
         ...(args.extra_allow_write !== undefined && args.extra_allow_write.length > 0
           ? { extraAllowWrite: args.extra_allow_write }
           : {}),
@@ -243,8 +248,8 @@ export const spawnSessionHandler = withMcpGuard(
         // claude-code adapter → bridge.createSession → buildClaudeQueryOptions → SDK options.model
         // （runtime 切 model）+ setModel 持久化 resume 一致。
         // codex-cli adapter → bridge 仅 setModel 持久化 + warn（D5：runtime 不生效）。
+        // 留 inline 因 falsy 语义（空字符串视作未设，omitUndefined 仅过滤 undefined）。
         ...(modelFromFrontmatter ? { model: modelFromFrontmatter } : {}),
-        ...(args.team_name !== undefined ? { teamName: args.team_name } : {}),
       });
       // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）。
       // setSpawnLink 在 release 之前完成，关闭 fan-out race window（详上方 MED-1 注释）。

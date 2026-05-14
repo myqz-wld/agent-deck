@@ -48,6 +48,7 @@ import type { HandOffSessionArgs, SpawnSessionArgs } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { omitUndefined } from '@main/utils/optional-fields';
 import {
   handOffSessionImpl,
   _isHandOffSessionError,
@@ -282,15 +283,18 @@ export const handOffSessionHandler = withMcpGuard(
       adapter: args.adapter ?? 'claude-code',
       cwd: finalCwd,
       prompt: resolved.coldStartPrompt,
-      ...(args.team_name !== undefined ? { team_name: args.team_name } : {}),
-      ...(args.permission_mode !== undefined ? { permission_mode: args.permission_mode } : {}),
-      // REVIEW_36 HIGH-2 修法：sandbox 字段镜像 permission_mode 透传策略
-      ...(args.codex_sandbox !== undefined ? { codex_sandbox: args.codex_sandbox } : {}),
-      ...(args.claude_code_sandbox !== undefined
-        ? { claude_code_sandbox: args.claude_code_sandbox }
-        : {}),
+      // REVIEW_37 P1-Phase2 (claude F4 LOW)：omitUndefined 收口 4 个简单 spread+ternary。
+      // 仅 extra_allow_write（length > 0 语义）保留 inline ternary。
+      ...omitUndefined({
+        team_name: args.team_name,
+        permission_mode: args.permission_mode,
+        // REVIEW_36 HIGH-2 修法：sandbox 字段镜像 permission_mode 透传策略
+        codex_sandbox: args.codex_sandbox,
+        claude_code_sandbox: args.claude_code_sandbox,
+      }),
       // REVIEW_36 R2 MED-C 修法：computedExtraAllowWrite 含 mainRepo（外置 worktree 自动加）+
-      // caller 显式 args.extra_allow_write 合并去重。仅当非空时透传给 spawn。
+      // caller 显式 args.extra_allow_write 合并去重。仅当非空时透传给 spawn —
+      // 留 inline 因要 length > 0 检查（空数组也跳过，omitUndefined 不处理 empty array）
       ...(computedExtraAllowWrite !== undefined && computedExtraAllowWrite.length > 0
         ? { extra_allow_write: [...computedExtraAllowWrite] }
         : {}),

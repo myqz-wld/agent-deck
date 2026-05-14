@@ -140,13 +140,15 @@ export interface AdapterCapabilities {
   /**
    * 删会话时 SessionManager 是否调 closeSession 彻底关闭 SDK 侧 live query/turn 与 pending Maps。
    * 与 canInterrupt 区别：interrupt 允许 resume / 复用 session；close 表示永久关闭。
-   * 占位 adapter（aider / generic-pty）置 false；hook-only / SDK 通道有 internal session 的 adapter 置 true。
+   * SDK / PTY 通道有 internal session 的 adapter 都置 true（claude-code / codex-cli /
+   * aider / generic-pty）；纯 hook-only adapter 置 false。
    */
   canCloseSession: boolean;
   /**
    * 是否支持作为 team member 接收 cross-adapter 消息（R3.E0 ADR §3.1 / E4 新增）。
-   * - claude-code / codex-cli: true（都有 sendMessage 把外来文字塞进 user turn）
-   * - aider / generic-pty: false（占位，F 阶段实装后改 true）
+   * - claude-code / codex-cli: true（SDK sendMessage 把外来文字塞进 user turn）
+   * - aider / generic-pty: true（R4·F-bonus 实装：PTY bridge sendMessage 把外来文字
+   *   写入 stdin，与 user 输入等价）
    *
    * UI 据此与 archived/closed 双条件决定 NewTeamMember dialog 是否暴露该 adapter。
    * 取代老 capability `canJoinTeam`（R3.E6 已删，仅 Claude experimental teams flag 触发器）。
@@ -175,7 +177,8 @@ export interface AgentAdapter {
   interruptSession?(sessionId: string): Promise<void>;
   /**
    * 由 SessionManager.delete 调用：abort SDK 侧 live query/turn + 清 pending Maps + 移除 internal session 记录。
-   * 占位 adapter / hook-only adapter 不实现；SDK 通道 adapter（claude-code / codex-cli）实现。
+   * 纯 hook-only adapter 不实现；SDK / PTY 通道 adapter（claude-code / codex-cli / aider /
+   * generic-pty）均实现。
    * 不抛错（出错只 warn）：删除路径不能因为 close 失败而失败，否则 DB 行删了 bridge 状态留着会更糟。
    */
   closeSession?(sessionId: string): Promise<void>;

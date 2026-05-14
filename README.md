@@ -266,8 +266,8 @@ src/
 │   ├── adapters/
 │   │   ├── claude-code/   hook 路由 + hook installer + SDK bridge + CLAUDE.md / skill / agents 注入 + sandbox-config（三档 OS 隔离配置）
 │   │   ├── codex-cli/     @openai/codex-sdk 封装（pendingMessages 串行 turn + AbortController interrupt）
-│   │   ├── aider/         占位
-│   │   └── generic-pty/   占位
+│   │   ├── aider/         GenericPtyBridge 复用 + aider preset 默认（R4·F-bonus）
+│   │   └── generic-pty/   PTY backend（GenericPtyBridge + ansi-parser + file-watcher）
 │   ├── session/           SessionManager / LifecycleScheduler / Summarizer
 │   ├── teams/             R3 Universal Team Backend：universal-message-watcher（cross-adapter team message 投递）+ team-fs 仅保留 exportLegacyTeams（老 ~/.claude/teams 数据一次性导出）
 │   ├── notify/            sound.ts（跨平台播放 + 防叠播 + 5s 上限）/ visual.ts（系统通知 + Dock）

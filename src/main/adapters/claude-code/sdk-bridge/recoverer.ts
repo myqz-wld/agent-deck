@@ -163,11 +163,7 @@ export class SessionRecoverer {
      * 把摘要 prepend 到 fresh CLI 首条 prompt。
      */
     private readonly summariseFn: SummariseFnThunk,
-  ) {
-    // REVIEW_36 LOW-3: CHANGELOG_107 Step 1 临时 silence TS6138 的 `void this.summariseFn`
-    // 已成死代码 — Step 3 起 prependHistorySummary helper 通过 opts 透传该字段调用，TS 已识别
-    // 字段被 read，原 silence 不再需要。删除让 ctor body 不带误导性副作用语句。
-  }
+  ) {}
 
   /**
    * 断连自愈 + 单飞复用：sendMessage 检测 sessions Map 没有该 sessionId 时调本路径。
