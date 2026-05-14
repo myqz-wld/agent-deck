@@ -15,6 +15,7 @@ import type {
   AgentEvent,
   TaskRecord,
 } from '@shared/types';
+import { subscribe } from './_helpers';
 
 export const teamsApi = {
   // ─────────── R3.E8 Universal Team Backend (替代老 Agent Teams M2/M3 facade) ───────────
@@ -113,28 +114,20 @@ export const teamsApi = {
 
   /** 订阅 team 增删改 / member 改的 push（main bootstrap 16ms debounce + per-team 累加）。 */
   onAgentDeckTeamChanged: (
-    cb: (
-      items: { kind: string; teamId: string; payload: unknown }[],
-    ) => void,
-  ): (() => void) => {
-    const handler = (
-      _: unknown,
-      items: { kind: string; teamId: string; payload: unknown }[],
-    ): void => cb(items);
-    ipcRenderer.on(IpcEvent.AgentDeckTeamChanged, handler);
-    return () => ipcRenderer.off(IpcEvent.AgentDeckTeamChanged, handler);
-  },
+    cb: (items: { kind: string; teamId: string; payload: unknown }[]) => void,
+  ): (() => void) =>
+    subscribe<{ kind: string; teamId: string; payload: unknown }[]>(
+      IpcEvent.AgentDeckTeamChanged,
+      cb,
+    ),
   /** 订阅 message 入队 / 状态变迁 push（main bootstrap 16ms debounce + per-message 累加）。 */
   onAgentDeckMessageChanged: (
     cb: (
       items: { kind: string; teamId: string; messageId: string; payload: unknown }[],
     ) => void,
-  ): (() => void) => {
-    const handler = (
-      _: unknown,
-      items: { kind: string; teamId: string; messageId: string; payload: unknown }[],
-    ): void => cb(items);
-    ipcRenderer.on(IpcEvent.AgentDeckMessageChanged, handler);
-    return () => ipcRenderer.off(IpcEvent.AgentDeckMessageChanged, handler);
-  },
+  ): (() => void) =>
+    subscribe<{ kind: string; teamId: string; messageId: string; payload: unknown }[]>(
+      IpcEvent.AgentDeckMessageChanged,
+      cb,
+    ),
 };

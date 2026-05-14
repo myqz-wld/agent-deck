@@ -33,12 +33,10 @@
  */
 
 import {
-  denyExternalIfNotAllowed,
   err,
   ok,
-  validateExternalCaller,
+  withMcpGuard,
   type HandlerContext,
-  type HandlerResult,
 } from '../helpers';
 import type { ArchivePlanArgs } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
@@ -104,135 +102,134 @@ function mergeCallerCwd(
   return { ...callerImplDeps, ...callerCwdInjection };
 }
 
-export async function archivePlanHandler(
-  args: ArchivePlanArgs,
-  ctx: HandlerContext,
-  handlerDeps?: ArchivePlanHandlerDeps,
-): Promise<HandlerResult> {
-  const { caller } = ctx;
-  const denial = denyExternalIfNotAllowed('archive_plan', caller);
-  if (denial) return denial;
-  const callerCheck = validateExternalCaller(caller);
-  if (callerCheck) return callerCheck;
+export const archivePlanHandler = withMcpGuard(
+  'archive_plan',
+  async (
+    args: ArchivePlanArgs,
+    ctx: HandlerContext,
+    handlerDeps?: ArchivePlanHandlerDeps,
+  ) => {
+    const { caller } = ctx;
 
-  // caller cwd 注入（H5 修复）：详 mergeCallerCwd / hand-off-session 同款实现
-  const mergedImplDeps = mergeCallerCwd(handlerDeps?.implDeps, caller.callerSessionId);
+    // caller cwd 注入（H5 修复）：详 mergeCallerCwd / hand-off-session 同款实现
+    const mergedImplDeps = mergeCallerCwd(handlerDeps?.implDeps, caller.callerSessionId);
 
-  const result = await archivePlanImpl(
-    {
-      planId: args.plan_id,
-      worktreePath: args.worktree_path,
-      baseBranch: args.base_branch,
-      planFilePathOverride: args.plan_file_path,
-    },
-    mergedImplDeps,
-  );
+    const result = await archivePlanImpl(
+      {
+        planId: args.plan_id,
+        worktreePath: args.worktree_path,
+        baseBranch: args.base_branch,
+        planFilePathOverride: args.plan_file_path,
+      },
+      mergedImplDeps,
+    );
 
-  if (_isArchivePlanError(result)) {
-    return err(result.error, result.hint);
-  }
+    if (_isArchivePlanError(result)) {
+      return err(result.error, result.hint);
+    }
 
-  // CHANGELOG_106：先 shutdown 同 team 内其他 active teammate(default,可 keep_teammates 关)。
-  // 时序必须**先 helper 后 archive caller**:
-  //   1. helper 反查 caller lead memberships → listActiveMembers(team) 拿 teammate
-  //   2. 串行 close teammate(close 内 leaveTeam,team 仍有 active lead caller 不触发 auto-archive)
-  //   3. 然后 archive caller(archiveTeamsIfOrphaned 触发 0-lead → team auto-archive)
-  // 颠倒顺序会让 archive caller 先把 team auto-archive,helper 反查时 listActiveMembers
-  // (JOIN sessions archived_at IS NULL)看不到 caller,但 caller 没 archive 之前的 lead 反查
-  // 还在(findActiveMembershipsBySession 不过滤 archived)→ 行为可能 OK 但语义混乱;先 helper
-  // 后 archive 是「先清理 member 后退场」更自然。
-  //
-  // 三态决策(skipped 字段):
-  // - 'keep-teammates': caller 显式传 keep_teammates=true(典型: lead 想保留 reviewer 给后续会话)
-  // - 'caller-not-lead': helper 反查 caller 不是任何 team 的 lead(罕见: caller 是 teammate 自己 hand_off)
-  // - null: helper 正常处理(含 closed=[] 的「caller 是 lead 但 team 内无其他 active teammate」case)
-  //
-  // 失败容错:
-  // - helper 内部单个 close 抛错 → result.failed[] 收集 + warn,继续后面 teammate(helper 自动)
-  // - helper 自身抛错(罕见: 反查 DB 异常 / mock 失败)→ handler 这层 try/catch warn + 兜底
-  //   skipped=null + closed=[] + failed=[],archive caller 仍正常走(不让 helper 故障阻塞 plan 收口)
-  let teammatesShutdown: ShutdownTeammatesResult = {
-    closed: [],
-    failed: [],
-    skipped: 'caller-not-lead',
-  };
-  if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-    if (args.keep_teammates === true) {
-      teammatesShutdown = { closed: [], failed: [], skipped: 'keep-teammates' };
-    } else {
-      const shutdownFn = handlerDeps?.shutdownTeammates ?? shutdownTeammatesOnBaton;
-      try {
-        teammatesShutdown = await shutdownFn(caller.callerSessionId);
-      } catch (e) {
-        console.warn(
-          `[mcp archive_plan] shutdownTeammatesOnBaton helper failed for caller ${caller.callerSessionId}:`,
-          e,
-        );
-        // 兜底:helper 自身炸 → archive caller 仍走,只是 closed=[] + skipped=null
-        teammatesShutdown = { closed: [], failed: [], skipped: null };
+    // CHANGELOG_106：先 shutdown 同 team 内其他 active teammate(default,可 keep_teammates 关)。
+    // 时序必须**先 helper 后 archive caller**:
+    //   1. helper 反查 caller lead memberships → listActiveMembers(team) 拿 teammate
+    //   2. 串行 close teammate(close 内 leaveTeam,team 仍有 active lead caller 不触发 auto-archive)
+    //   3. 然后 archive caller(archiveTeamsIfOrphaned 触发 0-lead → team auto-archive)
+    // 颠倒顺序会让 archive caller 先把 team auto-archive,helper 反查时 listActiveMembers
+    // (JOIN sessions archived_at IS NULL)看不到 caller,但 caller 没 archive 之前的 lead 反查
+    // 还在(findActiveMembershipsBySession 不过滤 archived)→ 行为可能 OK 但语义混乱;先 helper
+    // 后 archive 是「先清理 member 后退场」更自然。
+    //
+    // 三态决策(skipped 字段):
+    // - 'keep-teammates': caller 显式传 keep_teammates=true(典型: lead 想保留 reviewer 给后续会话)
+    // - 'caller-not-lead': helper 反查 caller 不是任何 team 的 lead(罕见: caller 是 teammate 自己 hand_off)
+    // - null: helper 正常处理(含 closed=[] 的「caller 是 lead 但 team 内无其他 active teammate」case)
+    //
+    // 失败容错:
+    // - helper 内部单个 close 抛错 → result.failed[] 收集 + warn,继续后面 teammate(helper 自动)
+    // - helper 自身抛错(罕见: 反查 DB 异常 / mock 失败)→ handler 这层 try/catch warn + 兜底
+    //   skipped=null + closed=[] + failed=[],archive caller 仍正常走(不让 helper 故障阻塞 plan 收口)
+    let teammatesShutdown: ShutdownTeammatesResult = {
+      closed: [],
+      failed: [],
+      skipped: 'caller-not-lead',
+    };
+    if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
+      if (args.keep_teammates === true) {
+        teammatesShutdown = { closed: [], failed: [], skipped: 'keep-teammates' };
+      } else {
+        const shutdownFn = handlerDeps?.shutdownTeammates ?? shutdownTeammatesOnBaton;
+        try {
+          teammatesShutdown = await shutdownFn(caller.callerSessionId);
+        } catch (e) {
+          console.warn(
+            `[mcp archive_plan] shutdownTeammatesOnBaton helper failed for caller ${caller.callerSessionId}:`,
+            e,
+          );
+          // 兜底:helper 自身炸 → archive caller 仍走,只是 closed=[] + skipped=null
+          teammatesShutdown = { closed: [], failed: [], skipped: null };
+        }
       }
     }
-  }
 
-  // CHANGELOG_99：default 归档 caller(与 K2 baton 同款)。impl 已成功(git ff merge / mv plan
-  // / commit / git worktree remove 全跑完),caller 的 cwd 已失效 → 归档让用户在 SessionList
-  // 直接看到这条会话已归档,避免后续发消息撞 cwd 弯绕。
-  // archive 行为镜像 K2 hand-off-session.ts L194-216:
-  // - external sentinel → 'skipped' (deny external 拦下不会到这,双保险)
-  // - 反查 callerSessionRow try/catch DB 不可用 → 'failed' + console.warn 不阻塞
-  // - row missing → 'failed' + console.warn 不阻塞
-  // - archive 抛错 → 'failed' + console.warn 不阻塞
-  // - 成功 → 'ok'
-  let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
-  if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-    let callerSessionRow: ReturnType<typeof sessionRepo.get> = null;
-    try {
-      callerSessionRow = sessionRepo.get(caller.callerSessionId);
-    } catch {
-      // DB 不可用(typical: test 环境 DB 未 init)→ 留 null,按 row missing 路径 'failed'
-      callerSessionRow = null;
-    }
-    if (!callerSessionRow) {
-      archived = 'failed';
-      console.warn(
-        `[mcp archive_plan] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态)`,
-      );
-    } else {
-      const archiveFn =
-        handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
+    // CHANGELOG_99：default 归档 caller(与 K2 baton 同款)。impl 已成功(git ff merge / mv plan
+    // / commit / git worktree remove 全跑完),caller 的 cwd 已失效 → 归档让用户在 SessionList
+    // 直接看到这条会话已归档,避免后续发消息撞 cwd 弯绕。
+    // archive 行为镜像 K2 hand-off-session.ts L194-216:
+    // - external sentinel → 'skipped' (deny external 拦下不会到这,双保险)
+    // - 反查 callerSessionRow try/catch DB 不可用 → 'failed' + console.warn 不阻塞
+    // - row missing → 'failed' + console.warn 不阻塞
+    // - archive 抛错 → 'failed' + console.warn 不阻塞
+    // - 成功 → 'ok'
+    let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
+    if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
+      let callerSessionRow: ReturnType<typeof sessionRepo.get> = null;
       try {
-        await archiveFn(caller.callerSessionId);
-        archived = 'ok';
-      } catch (e) {
+        callerSessionRow = sessionRepo.get(caller.callerSessionId);
+      } catch {
+        // DB 不可用(typical: test 环境 DB 未 init)→ 留 null,按 row missing 路径 'failed'
+        callerSessionRow = null;
+      }
+      if (!callerSessionRow) {
         archived = 'failed';
         console.warn(
-          `[mcp archive_plan] archive caller ${caller.callerSessionId} failed:`,
-          e,
+          `[mcp archive_plan] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态)`,
         );
+      } else {
+        const archiveFn =
+          handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
+        try {
+          await archiveFn(caller.callerSessionId);
+          archived = 'ok';
+        } catch (e) {
+          archived = 'failed';
+          console.warn(
+            `[mcp archive_plan] archive caller ${caller.callerSessionId} failed:`,
+            e,
+          );
+        }
       }
     }
-  }
 
-  return ok({
-    archived_path: result.archivedPath,
-    commit_hash: result.commitHash,
-    branch_deleted: result.branchDeleted,
-    worktree_removed: result.worktreeRemoved,
-    plans_index_appended: result.plansIndexAppended,
-    final_status: result.finalStatus,
-    /**
-     * CHANGELOG_99：'ok' = caller 归档成功 / 'failed' = warn-only 不阻塞(callerRow 缺 / DB
-     * 不可用 / archive 抛错) / 'skipped' = external caller(理论上 deny external 拦截不到这里)
-     */
-    archived,
-    /**
-     * CHANGELOG_106：teammate shutdown 详情 — { closed: string[], failed: Array<{sessionId,reason}>,
-     * skipped: 'caller-not-lead' | 'keep-teammates' | null }。
-     * - closed: 成功 close 的 teammate sid 列表(已 dedup 跨 team 共享同 sid)
-     * - failed: close 失败的 teammate(含 reason),warn 不阻塞 ok return
-     * - skipped: 'keep-teammates'(caller 显式传) / 'caller-not-lead'(caller 不是 lead) /
-     *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
-     */
+    return ok({
+      archived_path: result.archivedPath,
+      commit_hash: result.commitHash,
+      branch_deleted: result.branchDeleted,
+      worktree_removed: result.worktreeRemoved,
+      plans_index_appended: result.plansIndexAppended,
+      final_status: result.finalStatus,
+      /**
+       * CHANGELOG_99：'ok' = caller 归档成功 / 'failed' = warn-only 不阻塞(callerRow 缺 / DB
+       * 不可用 / archive 抛错) / 'skipped' = external caller(理论上 deny external 拦截不到这里)
+       */
+      archived,
+      /**
+       * CHANGELOG_106：teammate shutdown 详情 — { closed: string[], failed: Array<{sessionId,reason}>,
+       * skipped: 'caller-not-lead' | 'keep-teammates' | null }。
+       * - closed: 成功 close 的 teammate sid 列表(已 dedup 跨 team 共享同 sid)
+       * - failed: close 失败的 teammate(含 reason),warn 不阻塞 ok return
+       * - skipped: 'keep-teammates'(caller 显式传) / 'caller-not-lead'(caller 不是 lead) /
+       *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
+       */
     teammatesShutdown,
-  });
-}
+    });
+  },
+);

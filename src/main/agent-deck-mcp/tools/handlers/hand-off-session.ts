@@ -39,12 +39,10 @@
 
 import { existsSync } from 'node:fs';
 import {
-  denyExternalIfNotAllowed,
   err,
   ok,
-  validateExternalCaller,
+  withMcpGuard,
   type HandlerContext,
-  type HandlerResult,
 } from '../helpers';
 import type { HandOffSessionArgs, SpawnSessionArgs } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
@@ -137,307 +135,306 @@ function mergeCallerCwd(
   return { ...callerImplDeps, ...callerCwdInjection };
 }
 
-export async function handOffSessionHandler(
-  args: HandOffSessionArgs,
-  ctx: HandlerContext,
-  handlerDeps?: HandOffSessionHandlerDeps,
-): Promise<HandlerResult> {
-  const { caller } = ctx;
-  const denial = denyExternalIfNotAllowed('hand_off_session', caller);
-  if (denial) return denial;
-  const callerCheck = validateExternalCaller(caller);
-  if (callerCheck) return callerCheck;
+export const handOffSessionHandler = withMcpGuard(
+  'hand_off_session',
+  async (
+    args: HandOffSessionArgs,
+    ctx: HandlerContext,
+    handlerDeps?: HandOffSessionHandlerDeps,
+  ) => {
+    const { caller } = ctx;
 
-  // 1. impl 层：双模式分流(plan-driven / generic) — 解析 plan 文件 / 构造 cold-start prompt
-  // ⚠️ caller cwd 注入：impl 默认用 process.cwd() 当 caller cwd（电子 main 进程的 cwd，
-  // 通常是 `/`），与真正的 caller SDK session cwd（在 sessions 表里）完全无关。所以
-  // **必须**在 handler 层从 sessionRepo 反查 callerSessionRow.cwd 注入到 implDeps.cwd。
-  // 不传 → impl 默认 process.cwd() → main-repo 反查永远失败 → 报「caller cwd is not a
-  // git repo」（即使 caller 实际在 worktree / git repo 内）。
-  // 优先级：caller 显式 implDeps.cwd > sessionRepo 反查 > impl DEFAULT_DEPS（process.cwd）
-  const mergedImplDeps = mergeCallerCwd(handlerDeps?.implDeps, caller.callerSessionId);
-  const resolved = await handOffSessionImpl(
-    {
-      planId: args.plan_id,
-      prompt: args.prompt,
-      phaseLabel: args.phase_label,
-      planFilePathOverride: args.plan_file_path,
-    },
-    mergedImplDeps,
-  );
-  if (_isHandOffSessionError(resolved)) {
-    return err(resolved.error, resolved.hint);
-  }
-
-  // CHANGELOG_99：generic 模式下 caller 还可能想用 callerCwd 作 default cwd(plan 模式不需要)
-  // 反查 caller session row(此处复用 mergeCallerCwd 计算所依赖的 sessionRepo,但单独取
-  // 一次以便 generic 模式 default cwd 用 + 后续归档阶段复用)。external sentinel 时
-  // callerRow null,fallback 到 mainRepo / undefined(让 spawn handler 报 cwd 缺失,理论上
-  // deny external 拦截不到这里)。**try/catch DB 错误**:test 场景下 DB 可能未 init,要让
-  // plan 模式 spawn 失败短路 case 不需要先撞 DB; generic 模式无 DB 时 callerCwd null,
-  // default cwd 退化到 mainRepo。
-  let callerSessionRow: ReturnType<typeof sessionRepo.get> = null;
-  if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-    try {
-      callerSessionRow = sessionRepo.get(caller.callerSessionId);
-    } catch {
-      // DB 不可用(typical: test 环境 DB 未 init)→ 留 null,后续 default cwd / 归档段
-      // 都按 row missing 路径走(generic 模式 default cwd 退化到 mainRepo;归档阶段标 'failed')
-      callerSessionRow = null;
+    // 1. impl 层：双模式分流(plan-driven / generic) — 解析 plan 文件 / 构造 cold-start prompt
+    // ⚠️ caller cwd 注入：impl 默认用 process.cwd() 当 caller cwd（电子 main 进程的 cwd，
+    // 通常是 `/`），与真正的 caller SDK session cwd（在 sessions 表里）完全无关。所以
+    // **必须**在 handler 层从 sessionRepo 反查 callerSessionRow.cwd 注入到 implDeps.cwd。
+    // 不传 → impl 默认 process.cwd() → main-repo 反查永远失败 → 报「caller cwd is not a
+    // git repo」（即使 caller 实际在 worktree / git repo 内）。
+    // 优先级：caller 显式 implDeps.cwd > sessionRepo 反查 > impl DEFAULT_DEPS（process.cwd）
+    const mergedImplDeps = mergeCallerCwd(handlerDeps?.implDeps, caller.callerSessionId);
+    const resolved = await handOffSessionImpl(
+      {
+        planId: args.plan_id,
+        prompt: args.prompt,
+        phaseLabel: args.phase_label,
+        planFilePathOverride: args.plan_file_path,
+      },
+      mergedImplDeps,
+    );
+    if (_isHandOffSessionError(resolved)) {
+      return err(resolved.error, resolved.hint);
     }
-  }
-  // CHANGELOG_99 R1 fix MED-4:generic 模式 default cwd 候选 callerSessionCwd 必须 existsSync
-  // precheck。生产场景:caller 是 K2 老 session,cwd=worktree,worktree 已被 archive_plan 删 →
-  // callerSessionCwd 仍是失效路径 → 直接传给 spawn 会 chdir 失败(recoverer 只覆盖已建立
-  // session 的 sendMessage 路径,不覆盖新 spawn 的 createSession)。precheck false → null
-  // 让 default cwd fallback 到 mainRepo。
-  const cwdExistsFn = handlerDeps?.cwdExists ?? existsSync;
-  const callerSessionCwdRaw: string | null = callerSessionRow?.cwd ?? null;
-  const callerSessionCwd: string | null =
-    callerSessionCwdRaw !== null && cwdExistsFn(callerSessionCwdRaw) ? callerSessionCwdRaw : null;
 
-  // 2. 组装 spawn_session args：cwd 双模式 default(CHANGELOG_99 + REVIEW_36 HIGH-3)。
-  //
-  // **plan-driven 模式 default**: args.cwd > resolved.mainRepo (仅当 worktree 在 mainRepo subtree)
-  //                              > resolved.worktreePath (外置 worktree fallback)
-  // (R1 fix LOW-7 + REVIEW_36 HIGH-3:约定 worktree(`<mainRepo>/.claude/worktrees/<plan-id>`)走 mainRepo
-  // 享 CHANGELOG_99 cwd resilience;**外置 worktree**(用户手动 `git worktree add /tmp/wt` /
-  // `/Users/me/elsewhere/wt`)若仍走 mainRepo,sandbox.allowWrite=[mainRepo, /tmp, ~/.cache/claude-code]
-  // 不覆盖外置 worktree → workspace-write 写每个文件都弹框 / strict 完全卡死。降级到 worktreePath
-  // 让 sandbox.allowWrite=[worktreePath, ...] 自然覆盖。worktree 删了 cwd 失效场景由
-  // recoverer.findFallbackCwd 启发式 fallback 兜底(父目录 walk 启发式 2 仍能命中 worktree 父目录)。)
-  // 理由:让新 session 行为与 EnterWorktree 模式对齐 — sessionRepo.cwd 永远是 main repo(约定 worktree),
-  // worktree 删了 cwd 仍 valid。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
-  // EnterWorktree(path: worktreePath) 进 worktree 干活。
-  //
-  // **HIGH-3 已知限制**（R2 review claude INFO-1 反馈）：
-  // - **strict 档下降级 worktreePath 无意义**：strict 档不给 allowWrite，cwd 也只读
-  //   （sandbox-config.ts 设计），workspace-write 档才是修法重点
-  // - **外置 worktree 删了之后 fallback 路径**：recoverer.findFallbackCwd 启发式 1 不命中
-  //   （regex `^(.+)/\.claude/worktrees/[^/]+(?:\/.*)?$` 仅配 `.claude/worktrees/` 形态）→ 落到
-  //   启发式 2 父目录 walk → fallback cwd 可能不覆盖原 worktree 子目录写。**建议外置 worktree
-  //   保留约定路径**(放在 `<main-repo>/.claude/worktrees/<plan-id>` 内)避免此 trade-off
-  //
-  // **generic 模式 default**: args.cwd > callerSessionRow.cwd (precheck existsSync) > resolved.mainRepo
-  // (无 worktreePath 兜底,因为 generic 模式没 plan 也没 worktree 上下文;callerCwd 失败
-  // 时 fallback 到 mainRepo 反查结果,都失败 → handler 报 'cannot resolve default cwd')。
-  // 理由:generic 模式假设 caller 想让新 session 在自己 cwd 工作(最自然延续);只有 caller cwd
-  // 没法用时退化到 mainRepo。R1 fix MED-4:callerCwd 必须 existsSync precheck — 否则 caller
-  // 是 K2 老 session(cwd=worktree 已被删)时新 spawn 直接 chdir 失败。
-  //
-  // CHANGELOG_97：team_name 不再默认设为 plan_id —— baton 单向交接语义不需要 lead/teammate
-  // 关系；caller 显式传 team_name 时仍透传给 spawn 启用通信关系（罕见使用）。
-
-  // REVIEW_36 HIGH-3：plan-driven 模式 default cwd 推导。
-  // 优先 mainRepo（约定 worktree 走 cwd resilience），外置 worktree 退化 worktreePath
-  // （让 sandbox.allowWrite=[cwd, /tmp, ~/.cache] 自然覆盖外置路径，否则
-  // workspace-write 写每个文件弹框 / strict 完全卡死）。
-  // 严格判定 worktree 在 mainRepo subtree（mainRepo + '/' 防同名前缀误命中
-  // 如 `/repo` vs `/repo-other` —— `/repo-other`.startsWith('/repo') === true）。
-  let planModeDefaultCwd: string | undefined;
-  if (!resolved.mainRepo) {
-    planModeDefaultCwd = resolved.worktreePath ?? undefined;
-  } else if (!resolved.worktreePath) {
-    planModeDefaultCwd = resolved.mainRepo;
-  } else {
-    const mainRepoWithSep = resolved.mainRepo.endsWith('/')
-      ? resolved.mainRepo
-      : resolved.mainRepo + '/';
-    const isInternalWorktree = resolved.worktreePath.startsWith(mainRepoWithSep);
-    planModeDefaultCwd = isInternalWorktree ? resolved.mainRepo : resolved.worktreePath;
-  }
-
-  const defaultCwd =
-    resolved.mode === 'plan'
-      ? planModeDefaultCwd
-      : callerSessionCwd ?? resolved.mainRepo ?? undefined;
-  const finalCwd = args.cwd ?? defaultCwd;
-
-  // REVIEW_36 R2 MED-C：外置 worktree 场景下 finalCwd=worktreePath，
-  // sandbox.allowWrite=[worktreePath, /tmp, cache] 不含 mainRepo → 接力 session
-  // 写 mainRepo plan 文件被沙盒拦下（user CLAUDE.md §Step 4 完成时更新 frontmatter
-  // status=completed 必写，不能拦）。修法：plan-driven + 外置 worktree → 自动加
-  // mainRepo 进 extraAllowWrite。caller 显式传 args.extra_allow_write 优先（合并）。
-  let computedExtraAllowWrite: readonly string[] | undefined;
-  if (
-    resolved.mode === 'plan' &&
-    resolved.mainRepo &&
-    resolved.worktreePath &&
-    finalCwd === resolved.worktreePath
-  ) {
-    // 外置 worktree 路径已被 default cwd 推导降级到 worktreePath（HIGH-3 fix）→ 加 mainRepo 让 plan 文件可写
-    const merged = new Set<string>(args.extra_allow_write ?? []);
-    merged.add(resolved.mainRepo);
-    computedExtraAllowWrite = Array.from(merged);
-  } else {
-    // 约定 worktree（finalCwd=mainRepo 已含 mainRepo subtree 写权）/ generic 模式 → 仅 caller 显式
-    computedExtraAllowWrite = args.extra_allow_write;
-  }
-  if (!finalCwd) {
-    // 极端边界:plan 模式 mainRepo+worktreePath 都 null(impl 不会发生),
-    // 或 generic 模式 callerCwd+mainRepo 都 null(external sentinel + caller cwd 非 git repo,
-    // 且 deny external 失效的极端测试场景)。给清晰错误。
-    return err(
-      `cannot resolve default cwd for new session (mode=${resolved.mode}; pass args.cwd explicitly)`,
-      `For plan-driven mode this typically means both git rev-parse fallback and worktreePath heuristic failed. For generic mode this means caller session has no cwd in sessionRepo and git rev-parse failed.`,
-    );
-  }
-  const spawnArgs: SpawnSessionArgs = {
-    adapter: args.adapter ?? 'claude-code',
-    cwd: finalCwd,
-    prompt: resolved.coldStartPrompt,
-    ...(args.team_name !== undefined ? { team_name: args.team_name } : {}),
-    ...(args.permission_mode !== undefined ? { permission_mode: args.permission_mode } : {}),
-    // REVIEW_36 HIGH-2 修法：sandbox 字段镜像 permission_mode 透传策略
-    ...(args.codex_sandbox !== undefined ? { codex_sandbox: args.codex_sandbox } : {}),
-    ...(args.claude_code_sandbox !== undefined
-      ? { claude_code_sandbox: args.claude_code_sandbox }
-      : {}),
-    // REVIEW_36 R2 MED-C 修法：computedExtraAllowWrite 含 mainRepo（外置 worktree 自动加）+
-    // caller 显式 args.extra_allow_write 合并去重。仅当非空时透传给 spawn。
-    ...(computedExtraAllowWrite !== undefined && computedExtraAllowWrite.length > 0
-      ? { extra_allow_write: [...computedExtraAllowWrite] }
-      : {}),
-    // caller_session_id 透传：spawn handler 内 makeCtx 已重新算（in-process closure
-    // override），但这里用 ctx 直接转发跳过中间层。下方 spawnSessionHandler 接受 ctx 参数
-    // 直接传同一个 caller，不依赖 spawn_session 的 args.caller_session_id 字段。
-  };
-
-  // 3. 调 spawn handler 完成实际 spawn（透传同一 ctx 让 caller 视角一致）
-  // CHANGELOG_98 / R2 deep review HIGH-1：传 { batonMode: true } 让 spawn-guards 跳 depth
-  // check + setSpawnLink 写 lateral parentDepth（不 +1）。baton 单向交接（spawn 后立即
-  // archive caller）不构成 fork-bomb 风险，多 phase 接力不该被 maxDepth=3 拒。
-  const spawnFn = handlerDeps?.spawnSession ?? spawnSessionHandler;
-  const spawnResult = await spawnFn(spawnArgs, ctx, { batonMode: true });
-  if (spawnResult.isError) {
-    // 透传 spawn 的 error 不再二次包装（避免「hand_off_session error: spawn error: ...」嵌套）
-    return spawnResult;
-  }
-
-  // 4. parse spawn 的 ok JSON → 包 K2 metadata
-  let spawnData: Record<string, unknown>;
-  try {
-    spawnData = JSON.parse(spawnResult.content[0]?.text ?? '{}');
-  } catch (e) {
-    return err(
-      `failed to parse spawn_session result: ${(e as Error).message}`,
-      'spawn_session returned non-JSON content; this is an internal error.',
-    );
-  }
-
-  // 5. CHANGELOG_106 + REVIEW_36 R2 HIGH-A：先 shutdown 同 team 内其他 active teammate(default,可 keep_teammates 关)。
-  // 时序必须**先 helper 后 archive caller**(同 archive_plan,详 archive-plan.ts 同段注释)。
-  //
-  // baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex
-  // 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。caller 显式传 team_name 让
-  // 新 session 接管 lead 角色时 → 应传 keep_teammates=true 让原 teammate 留给新 lead 继续用。
-  //
-  // REVIEW_36 R2 HIGH-A 修法：caller 显式 team_name 时 spawn handler 把新 sid 加为 teammate
-  // (spawn.ts:310-317)，然后本段 default 调 shutdownTeammatesOnBaton(caller) 会把新 sid 也关掉
-  // (helper 只排除 callerSessionId)。修法 = 把新 spawn 的 sid 通过 excludeSessionIds 传给 helper，
-  // 让它跳过新 session 不 close。spawnData.sessionId 必有(spawn handler ok return 必带 sessionId
-  // 字段)，否则前面 isError 短路返回。
-  let teammatesShutdown: ShutdownTeammatesResult = {
-    closed: [],
-    failed: [],
-    skipped: 'caller-not-lead',
-  };
-  if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-    if (args.keep_teammates === true) {
-      teammatesShutdown = { closed: [], failed: [], skipped: 'keep-teammates' };
-    } else {
-      // REVIEW_36 R2 HIGH-A：从 spawn ok return 取新 spawn 的 sessionId，加进 excludeSessionIds
-      // 防被 helper 误关（fix-to-fix bug：HIGH-2 加 sandbox schema 后用户更可能传 team_name 撞此 bug）。
-      const newSpawnedSid = typeof spawnData.sessionId === 'string' ? spawnData.sessionId : null;
-      const excludeSessionIds = newSpawnedSid
-        ? new Set<string>([newSpawnedSid])
-        : undefined;
-      const shutdownFn =
-        handlerDeps?.shutdownTeammates ??
-        ((callerSid: string, exclude?: ReadonlySet<string>) =>
-          shutdownTeammatesOnBaton(callerSid, { excludeSessionIds: exclude }));
+    // CHANGELOG_99：generic 模式下 caller 还可能想用 callerCwd 作 default cwd(plan 模式不需要)
+    // 反查 caller session row(此处复用 mergeCallerCwd 计算所依赖的 sessionRepo,但单独取
+    // 一次以便 generic 模式 default cwd 用 + 后续归档阶段复用)。external sentinel 时
+    // callerRow null,fallback 到 mainRepo / undefined(让 spawn handler 报 cwd 缺失,理论上
+    // deny external 拦截不到这里)。**try/catch DB 错误**:test 场景下 DB 可能未 init,要让
+    // plan 模式 spawn 失败短路 case 不需要先撞 DB; generic 模式无 DB 时 callerCwd null,
+    // default cwd 退化到 mainRepo。
+    let callerSessionRow: ReturnType<typeof sessionRepo.get> = null;
+    if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
       try {
-        teammatesShutdown = await shutdownFn(caller.callerSessionId, excludeSessionIds);
-      } catch (e) {
-        console.warn(
-          `[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller ${caller.callerSessionId}:`,
-          e,
-        );
-        // 兜底:helper 自身炸 → archive caller 仍走,只是 closed=[] + skipped=null
-        teammatesShutdown = { closed: [], failed: [], skipped: null };
+        callerSessionRow = sessionRepo.get(caller.callerSessionId);
+      } catch {
+        // DB 不可用(typical: test 环境 DB 未 init)→ 留 null,后续 default cwd / 归档段
+        // 都按 row missing 路径走(generic 模式 default cwd 退化到 mainRepo;归档阶段标 'failed')
+        callerSessionRow = null;
       }
     }
-  }
+    // CHANGELOG_99 R1 fix MED-4:generic 模式 default cwd 候选 callerSessionCwd 必须 existsSync
+    // precheck。生产场景:caller 是 K2 老 session,cwd=worktree,worktree 已被 archive_plan 删 →
+    // callerSessionCwd 仍是失效路径 → 直接传给 spawn 会 chdir 失败(recoverer 只覆盖已建立
+    // session 的 sendMessage 路径,不覆盖新 spawn 的 createSession)。precheck false → null
+    // 让 default cwd fallback 到 mainRepo。
+    const cwdExistsFn = handlerDeps?.cwdExists ?? existsSync;
+    const callerSessionCwdRaw: string | null = callerSessionRow?.cwd ?? null;
+    const callerSessionCwd: string | null =
+      callerSessionCwdRaw !== null && cwdExistsFn(callerSessionCwdRaw) ? callerSessionCwdRaw : null;
 
-  // 6. CHANGELOG_97：自动归档 caller session（baton 语义 = 原会话退出，新会话独立接手）。
-  // external caller 不在 sessions 表（已被 denyExternalIfNotAllowed 拦下，理论不会到这里；
-  // 防御性双保险）。失败仅 console.warn 不阻塞 K2 成功 return（caller 至少能拿到 newSid）。
-  // Phase A5 / R1 deep review *未验证* #1 升级：把 archive 结果放到 ok return.archived
-  // 字段（'ok' / 'failed' / 'skipped'），让 caller 不必看 console.warn 就能感知归档结果。
-  // CHANGELOG_98 / R2 reviewer-codex MED-2：archive 前 sessionRepo.get 探针，缺 row
-  // （session 异常被清理 / caller 在 sentinel 之外的边界状态）→ 'failed' 不报 'ok'
-  // （旧实现 archive() 是 sessionRepo.setArchived no-op + emit no-op + 仍返回 'ok' 误报）。
-  // CHANGELOG_99 R1 fix MED-5:archive 段**重新反查** sessionRepo.get 而非复用早期 callerSessionRow。
-  // 早期反查在 spawn 之前(用于 generic 模式 default cwd),spawn 是 long-running async 操作,
-  // spawn 期间 caller row 可能被删(用户手动 close / lifecycle scheduler 清理),复用旧探针
-  // 会调 archive,但 UPDATE 对缺失 row 是 no-op → 误报 'ok'。重新反查 ground truth,与 K2
-  // 原模式一致。
-  let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
-  if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-    let archiveTimeRow: ReturnType<typeof sessionRepo.get> = null;
-    try {
-      archiveTimeRow = sessionRepo.get(caller.callerSessionId);
-    } catch {
-      // DB 异常 fail-safe(同 L143 段)
-      archiveTimeRow = null;
-    }
-    if (!archiveTimeRow) {
-      archived = 'failed';
-      console.warn(
-        `[mcp hand_off_session] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态 / spawn 期间 row 被删)`,
-      );
+    // 2. 组装 spawn_session args：cwd 双模式 default(CHANGELOG_99 + REVIEW_36 HIGH-3)。
+    //
+    // **plan-driven 模式 default**: args.cwd > resolved.mainRepo (仅当 worktree 在 mainRepo subtree)
+    //                              > resolved.worktreePath (外置 worktree fallback)
+    // (R1 fix LOW-7 + REVIEW_36 HIGH-3:约定 worktree(`<mainRepo>/.claude/worktrees/<plan-id>`)走 mainRepo
+    // 享 CHANGELOG_99 cwd resilience;**外置 worktree**(用户手动 `git worktree add /tmp/wt` /
+    // `/Users/me/elsewhere/wt`)若仍走 mainRepo,sandbox.allowWrite=[mainRepo, /tmp, ~/.cache/claude-code]
+    // 不覆盖外置 worktree → workspace-write 写每个文件都弹框 / strict 完全卡死。降级到 worktreePath
+    // 让 sandbox.allowWrite=[worktreePath, ...] 自然覆盖。worktree 删了 cwd 失效场景由
+    // recoverer.findFallbackCwd 启发式 fallback 兜底(父目录 walk 启发式 2 仍能命中 worktree 父目录)。)
+    // 理由:让新 session 行为与 EnterWorktree 模式对齐 — sessionRepo.cwd 永远是 main repo(约定 worktree),
+    // worktree 删了 cwd 仍 valid。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
+    // EnterWorktree(path: worktreePath) 进 worktree 干活。
+    //
+    // **HIGH-3 已知限制**（R2 review claude INFO-1 反馈）：
+    // - **strict 档下降级 worktreePath 无意义**：strict 档不给 allowWrite，cwd 也只读
+    //   （sandbox-config.ts 设计），workspace-write 档才是修法重点
+    // - **外置 worktree 删了之后 fallback 路径**：recoverer.findFallbackCwd 启发式 1 不命中
+    //   （regex `^(.+)/\.claude/worktrees/[^/]+(?:\/.*)?$` 仅配 `.claude/worktrees/` 形态）→ 落到
+    //   启发式 2 父目录 walk → fallback cwd 可能不覆盖原 worktree 子目录写。**建议外置 worktree
+    //   保留约定路径**(放在 `<main-repo>/.claude/worktrees/<plan-id>` 内)避免此 trade-off
+    //
+    // **generic 模式 default**: args.cwd > callerSessionRow.cwd (precheck existsSync) > resolved.mainRepo
+    // (无 worktreePath 兜底,因为 generic 模式没 plan 也没 worktree 上下文;callerCwd 失败
+    // 时 fallback 到 mainRepo 反查结果,都失败 → handler 报 'cannot resolve default cwd')。
+    // 理由:generic 模式假设 caller 想让新 session 在自己 cwd 工作(最自然延续);只有 caller cwd
+    // 没法用时退化到 mainRepo。R1 fix MED-4:callerCwd 必须 existsSync precheck — 否则 caller
+    // 是 K2 老 session(cwd=worktree 已被删)时新 spawn 直接 chdir 失败。
+    //
+    // CHANGELOG_97：team_name 不再默认设为 plan_id —— baton 单向交接语义不需要 lead/teammate
+    // 关系；caller 显式传 team_name 时仍透传给 spawn 启用通信关系（罕见使用）。
+
+    // REVIEW_36 HIGH-3：plan-driven 模式 default cwd 推导。
+    // 优先 mainRepo（约定 worktree 走 cwd resilience），外置 worktree 退化 worktreePath
+    // （让 sandbox.allowWrite=[cwd, /tmp, ~/.cache] 自然覆盖外置路径，否则
+    // workspace-write 写每个文件弹框 / strict 完全卡死）。
+    // 严格判定 worktree 在 mainRepo subtree（mainRepo + '/' 防同名前缀误命中
+    // 如 `/repo` vs `/repo-other` —— `/repo-other`.startsWith('/repo') === true）。
+    let planModeDefaultCwd: string | undefined;
+    if (!resolved.mainRepo) {
+      planModeDefaultCwd = resolved.worktreePath ?? undefined;
+    } else if (!resolved.worktreePath) {
+      planModeDefaultCwd = resolved.mainRepo;
     } else {
-      const archiveFn =
-        handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
+      const mainRepoWithSep = resolved.mainRepo.endsWith('/')
+        ? resolved.mainRepo
+        : resolved.mainRepo + '/';
+      const isInternalWorktree = resolved.worktreePath.startsWith(mainRepoWithSep);
+      planModeDefaultCwd = isInternalWorktree ? resolved.mainRepo : resolved.worktreePath;
+    }
+
+    const defaultCwd =
+      resolved.mode === 'plan'
+        ? planModeDefaultCwd
+        : callerSessionCwd ?? resolved.mainRepo ?? undefined;
+    const finalCwd = args.cwd ?? defaultCwd;
+
+    // REVIEW_36 R2 MED-C：外置 worktree 场景下 finalCwd=worktreePath，
+    // sandbox.allowWrite=[worktreePath, /tmp, cache] 不含 mainRepo → 接力 session
+    // 写 mainRepo plan 文件被沙盒拦下（user CLAUDE.md §Step 4 完成时更新 frontmatter
+    // status=completed 必写，不能拦）。修法：plan-driven + 外置 worktree → 自动加
+    // mainRepo 进 extraAllowWrite。caller 显式传 args.extra_allow_write 优先（合并）。
+    let computedExtraAllowWrite: readonly string[] | undefined;
+    if (
+      resolved.mode === 'plan' &&
+      resolved.mainRepo &&
+      resolved.worktreePath &&
+      finalCwd === resolved.worktreePath
+    ) {
+      // 外置 worktree 路径已被 default cwd 推导降级到 worktreePath（HIGH-3 fix）→ 加 mainRepo 让 plan 文件可写
+      const merged = new Set<string>(args.extra_allow_write ?? []);
+      merged.add(resolved.mainRepo);
+      computedExtraAllowWrite = Array.from(merged);
+    } else {
+      // 约定 worktree（finalCwd=mainRepo 已含 mainRepo subtree 写权）/ generic 模式 → 仅 caller 显式
+      computedExtraAllowWrite = args.extra_allow_write;
+    }
+    if (!finalCwd) {
+      // 极端边界:plan 模式 mainRepo+worktreePath 都 null(impl 不会发生),
+      // 或 generic 模式 callerCwd+mainRepo 都 null(external sentinel + caller cwd 非 git repo,
+      // 且 deny external 失效的极端测试场景)。给清晰错误。
+      return err(
+        `cannot resolve default cwd for new session (mode=${resolved.mode}; pass args.cwd explicitly)`,
+        `For plan-driven mode this typically means both git rev-parse fallback and worktreePath heuristic failed. For generic mode this means caller session has no cwd in sessionRepo and git rev-parse failed.`,
+      );
+    }
+    const spawnArgs: SpawnSessionArgs = {
+      adapter: args.adapter ?? 'claude-code',
+      cwd: finalCwd,
+      prompt: resolved.coldStartPrompt,
+      ...(args.team_name !== undefined ? { team_name: args.team_name } : {}),
+      ...(args.permission_mode !== undefined ? { permission_mode: args.permission_mode } : {}),
+      // REVIEW_36 HIGH-2 修法：sandbox 字段镜像 permission_mode 透传策略
+      ...(args.codex_sandbox !== undefined ? { codex_sandbox: args.codex_sandbox } : {}),
+      ...(args.claude_code_sandbox !== undefined
+        ? { claude_code_sandbox: args.claude_code_sandbox }
+        : {}),
+      // REVIEW_36 R2 MED-C 修法：computedExtraAllowWrite 含 mainRepo（外置 worktree 自动加）+
+      // caller 显式 args.extra_allow_write 合并去重。仅当非空时透传给 spawn。
+      ...(computedExtraAllowWrite !== undefined && computedExtraAllowWrite.length > 0
+        ? { extra_allow_write: [...computedExtraAllowWrite] }
+        : {}),
+      // caller_session_id 透传：spawn handler 内 makeCtx 已重新算（in-process closure
+      // override），但这里用 ctx 直接转发跳过中间层。下方 spawnSessionHandler 接受 ctx 参数
+      // 直接传同一个 caller，不依赖 spawn_session 的 args.caller_session_id 字段。
+    };
+
+    // 3. 调 spawn handler 完成实际 spawn（透传同一 ctx 让 caller 视角一致）
+    // CHANGELOG_98 / R2 deep review HIGH-1：传 { batonMode: true } 让 spawn-guards 跳 depth
+    // check + setSpawnLink 写 lateral parentDepth（不 +1）。baton 单向交接（spawn 后立即
+    // archive caller）不构成 fork-bomb 风险，多 phase 接力不该被 maxDepth=3 拒。
+    const spawnFn = handlerDeps?.spawnSession ?? spawnSessionHandler;
+    const spawnResult = await spawnFn(spawnArgs, ctx, { batonMode: true });
+    if (spawnResult.isError) {
+      // 透传 spawn 的 error 不再二次包装（避免「hand_off_session error: spawn error: ...」嵌套）
+      return spawnResult;
+    }
+
+    // 4. parse spawn 的 ok JSON → 包 K2 metadata
+    let spawnData: Record<string, unknown>;
+    try {
+      spawnData = JSON.parse(spawnResult.content[0]?.text ?? '{}');
+    } catch (e) {
+      return err(
+        `failed to parse spawn_session result: ${(e as Error).message}`,
+        'spawn_session returned non-JSON content; this is an internal error.',
+      );
+    }
+
+    // 5. CHANGELOG_106 + REVIEW_36 R2 HIGH-A：先 shutdown 同 team 内其他 active teammate(default,可 keep_teammates 关)。
+    // 时序必须**先 helper 后 archive caller**(同 archive_plan,详 archive-plan.ts 同段注释)。
+    //
+    // baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex
+    // 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。caller 显式传 team_name 让
+    // 新 session 接管 lead 角色时 → 应传 keep_teammates=true 让原 teammate 留给新 lead 继续用。
+    //
+    // REVIEW_36 R2 HIGH-A 修法：caller 显式 team_name 时 spawn handler 把新 sid 加为 teammate
+    // (spawn.ts:310-317)，然后本段 default 调 shutdownTeammatesOnBaton(caller) 会把新 sid 也关掉
+    // (helper 只排除 callerSessionId)。修法 = 把新 spawn 的 sid 通过 excludeSessionIds 传给 helper，
+    // 让它跳过新 session 不 close。spawnData.sessionId 必有(spawn handler ok return 必带 sessionId
+    // 字段)，否则前面 isError 短路返回。
+    let teammatesShutdown: ShutdownTeammatesResult = {
+      closed: [],
+      failed: [],
+      skipped: 'caller-not-lead',
+    };
+    if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
+      if (args.keep_teammates === true) {
+        teammatesShutdown = { closed: [], failed: [], skipped: 'keep-teammates' };
+      } else {
+        // REVIEW_36 R2 HIGH-A：从 spawn ok return 取新 spawn 的 sessionId，加进 excludeSessionIds
+        // 防被 helper 误关（fix-to-fix bug：HIGH-2 加 sandbox schema 后用户更可能传 team_name 撞此 bug）。
+        const newSpawnedSid = typeof spawnData.sessionId === 'string' ? spawnData.sessionId : null;
+        const excludeSessionIds = newSpawnedSid
+          ? new Set<string>([newSpawnedSid])
+          : undefined;
+        const shutdownFn =
+          handlerDeps?.shutdownTeammates ??
+          ((callerSid: string, exclude?: ReadonlySet<string>) =>
+            shutdownTeammatesOnBaton(callerSid, { excludeSessionIds: exclude }));
+        try {
+          teammatesShutdown = await shutdownFn(caller.callerSessionId, excludeSessionIds);
+        } catch (e) {
+          console.warn(
+            `[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller ${caller.callerSessionId}:`,
+            e,
+          );
+          // 兜底:helper 自身炸 → archive caller 仍走,只是 closed=[] + skipped=null
+          teammatesShutdown = { closed: [], failed: [], skipped: null };
+        }
+      }
+    }
+
+    // 6. CHANGELOG_97：自动归档 caller session（baton 语义 = 原会话退出，新会话独立接手）。
+    // external caller 不在 sessions 表（已被 denyExternalIfNotAllowed 拦下，理论不会到这里；
+    // 防御性双保险）。失败仅 console.warn 不阻塞 K2 成功 return（caller 至少能拿到 newSid）。
+    // Phase A5 / R1 deep review *未验证* #1 升级：把 archive 结果放到 ok return.archived
+    // 字段（'ok' / 'failed' / 'skipped'），让 caller 不必看 console.warn 就能感知归档结果。
+    // CHANGELOG_98 / R2 reviewer-codex MED-2：archive 前 sessionRepo.get 探针，缺 row
+    // （session 异常被清理 / caller 在 sentinel 之外的边界状态）→ 'failed' 不报 'ok'
+    // （旧实现 archive() 是 sessionRepo.setArchived no-op + emit no-op + 仍返回 'ok' 误报）。
+    // CHANGELOG_99 R1 fix MED-5:archive 段**重新反查** sessionRepo.get 而非复用早期 callerSessionRow。
+    // 早期反查在 spawn 之前(用于 generic 模式 default cwd),spawn 是 long-running async 操作,
+    // spawn 期间 caller row 可能被删(用户手动 close / lifecycle scheduler 清理),复用旧探针
+    // 会调 archive,但 UPDATE 对缺失 row 是 no-op → 误报 'ok'。重新反查 ground truth,与 K2
+    // 原模式一致。
+    let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
+    if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
+      let archiveTimeRow: ReturnType<typeof sessionRepo.get> = null;
       try {
-        await archiveFn(caller.callerSessionId);
-        archived = 'ok';
-      } catch (e) {
+        archiveTimeRow = sessionRepo.get(caller.callerSessionId);
+      } catch {
+        // DB 异常 fail-safe(同 L143 段)
+        archiveTimeRow = null;
+      }
+      if (!archiveTimeRow) {
         archived = 'failed';
         console.warn(
-          `[mcp hand_off_session] archive caller ${caller.callerSessionId} failed:`,
-          e,
+          `[mcp hand_off_session] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态 / spawn 期间 row 被删)`,
         );
+      } else {
+        const archiveFn =
+          handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
+        try {
+          await archiveFn(caller.callerSessionId);
+          archived = 'ok';
+        } catch (e) {
+          archived = 'failed';
+          console.warn(
+            `[mcp hand_off_session] archive caller ${caller.callerSessionId} failed:`,
+            e,
+          );
+        }
       }
     }
-  }
 
-  return ok({
-    // CHANGELOG_99 双模式 metadata
-    mode: resolved.mode, // 'plan' | 'generic'
-    // K2 metadata（plan 模式有值;generic 模式 plan-only 字段全 null）
-    planId: args.plan_id ?? null,
-    planFilePath: resolved.planFilePath,
-    worktreePath: resolved.worktreePath,
-    baseBranch: resolved.baseBranch,
-    phaseLabel: resolved.mode === 'plan' ? args.phase_label ?? null : null,
-    initialPrompt: resolved.coldStartPrompt,
-    /**
-     * CHANGELOG_99：generic 模式下 caller 传了 plan-only 字段(phase_label / plan_file_path)
-     * 时被忽略的字段名数组(空数组 = 无忽略)。caller 可见此字段提醒"我传错了"。plan 模式
-     * 始终空数组。
-     */
-    ignoredFields: resolved.ignoredFields,
-    archived, // Phase A5：'ok' = 归档成功 / 'failed' = warn-only 不阻塞 / 'skipped' = external caller
-    /**
-     * CHANGELOG_106：teammate shutdown 详情(与 archive_plan 同款)。
-     * - closed: 成功 close 的 teammate sid 列表
-     * - failed: close 失败的 teammate(含 reason),warn 不阻塞 ok return
-     * - skipped: 'keep-teammates'(caller 显式传) / 'caller-not-lead'(caller 不是 lead) /
-     *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
-     */
-    teammatesShutdown,
-    // 透传 spawn_session 字段（兼容 spawn 调用方）
-    ...spawnData,
-  });
-}
+    return ok({
+      // CHANGELOG_99 双模式 metadata
+      mode: resolved.mode, // 'plan' | 'generic'
+      // K2 metadata（plan 模式有值;generic 模式 plan-only 字段全 null）
+      planId: args.plan_id ?? null,
+      planFilePath: resolved.planFilePath,
+      worktreePath: resolved.worktreePath,
+      baseBranch: resolved.baseBranch,
+      phaseLabel: resolved.mode === 'plan' ? args.phase_label ?? null : null,
+      initialPrompt: resolved.coldStartPrompt,
+      /**
+       * CHANGELOG_99：generic 模式下 caller 传了 plan-only 字段(phase_label / plan_file_path)
+       * 时被忽略的字段名数组(空数组 = 无忽略)。caller 可见此字段提醒"我传错了"。plan 模式
+       * 始终空数组。
+       */
+      ignoredFields: resolved.ignoredFields,
+      archived, // Phase A5：'ok' = 归档成功 / 'failed' = warn-only 不阻塞 / 'skipped' = external caller
+      /**
+       * CHANGELOG_106：teammate shutdown 详情(与 archive_plan 同款)。
+       * - closed: 成功 close 的 teammate sid 列表
+       * - failed: close 失败的 teammate(含 reason),warn 不阻塞 ok return
+       * - skipped: 'keep-teammates'(caller 显式传) / 'caller-not-lead'(caller 不是 lead) /
+       *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
+       */
+      teammatesShutdown,
+      // 透传 spawn_session 字段（兼容 spawn 调用方）
+      ...spawnData,
+      });
+  },
+);
