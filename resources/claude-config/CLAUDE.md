@@ -1,9 +1,4 @@
-<!--
-此文件由仓库 `resources/claude-config/CLAUDE.md` 打包注入到每个 SDK 会话的 system prompt 末尾。
-不要手动改打包后版本；改 `resources/claude-config/CLAUDE.md` + 应用 build。
-本文件**只放 agent-deck 应用专属差异**；通用约定全部由 `~/.claude/CLAUDE.md` 提供（CLI 已按 user → project → 这份顺序加载，user 内容已先入 system prompt，不再复制）。
-维护说明详 `resources/claude-config/README.md`。
--->
+<!-- 由 resources/claude-config/CLAUDE.md 打包注入 SDK system prompt 末尾;维护说明详 resources/claude-config/README.md。 -->
 
 --- Agent Deck 应用环境约定（随应用打包注入到每个 SDK 会话）---
 
@@ -70,88 +65,38 @@ lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawned_by
 
 ### Wire format / regex / DB invariant
 
-teammate 端协议约束（`[from <name> @ <adapter>][msg <id>][sid <senderSid>]\n` 三段 wire prefix / regex 提 messageId + senderSessionId / 用 send_message 回 / DB messages.body 不含 wire prefix 的 invariant）已强约束在 reviewer-{claude,codex}.md「核心纪律」节，**lead 不需关心**这些细节。Wire format 字段 schema 与字段语义 SSOT 在 `src/main/agent-deck-mcp/tools/schemas.ts`（应用 build 时把 description 注入 SDK system prompt 的 tool definitions）；`docs/agent-deck-mcp-protocol.md` 已降级为 stub，仅保留指针不再维护完整规范。
+teammate 端协议约束（`[from <name> @ <adapter>][msg <id>][sid <senderSid>]\n` 三段 wire prefix / regex 提 messageId + senderSessionId / 用 send_message 回 / DB messages.body 不含 wire prefix 的 invariant）已强约束在 reviewer-{claude,codex}.md「核心纪律」节，**lead 不需关心**这些细节。Wire format 字段 schema 与字段语义 SSOT 在 `src/main/agent-deck-mcp/tools/schemas.ts`（应用 build 时把 description 注入 SDK system prompt 的 tool definitions）。
+
+**wire format id invariant**：`messageId` / `senderSessionId` 都由 `crypto.randomUUID()` 生成（v4 UUID lowercase hex + hyphen，charset `[0-9a-f-]{36}`），regex `/\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]/` 与该 charset 严格对齐。
+
+### NO MSG ANCHOR 退化路径（reviewer 端 fallback）
+
+reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <senderSid>]` 双锚点 wire prefix（典型：lead context 重置后用裸文本 ping / 第三方 dispatch 路径丢前缀），按下面 fallback 处理：
+
+1. reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>][sid <senderSessionId>] wire prefix，本 reply 没法挂 reply_to_message_id 进 lead 对话链；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
+2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 用启发式定位 lead（通常 displayName 含 "Lead-" 前缀或非 reviewer-* 标识；team 内只一对 lead+teammate 时排除自己 sessionId 后唯一 active 即 lead）。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）
+3. **副作用警告**：reply 不挂 `reply_to_message_id` 失去对话链锚点，DB / SessionDetail 看不出 reply 链关系；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
+4. **list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding / codex 输出落本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到
 
 ### plan hand-off 自动化：archive_plan
 
-完成 `~/.claude/CLAUDE.md` 的「复杂 plan：worktree 隔离 + 跨会话 hand off」流程的 §Step 4 cleanup 一次调用代替 5 步 Bash：
+落地 user CLAUDE.md §Step 4 cleanup（详 user CLAUDE 节，args / 返回值 schema 不在此重复）。**app-only 差异**：
 
-```ts
-const result = await mcp__agent-deck__archive_plan({
-  plan_id: '<plan-id>',                      // 与 worktree 目录名 / plan 文件 stem 一致
-  worktree_path: '<absolute-worktree-path>', // /Users/.../repo/.claude/worktrees/<plan-id>
-  base_branch: 'main',                       // 默认 'main'
-  // plan_file_path: '<override>'            // 默认按 <main-repo>/.claude/plans/<id>.md → ~/.claude/plans/<id>.md fallback
-});
-// result = { archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_appended, final_status: 'completed' }
-// 默认行为：plan 收口后自动归档 caller session（baton 同款语义；archived: 'ok' | 'failed' | 'skipped' 字段）
-```
-
-tool 自动完成：git ff merge worktree branch → base_branch / 更新 plan frontmatter (status=completed + final_commit + completed_at) / mv plan 到 `<main-repo>/plans/<plan-id>.md` + 同步 `plans/INDEX.md` / git add + commit / git worktree remove + branch -D / 自动归档 caller session。
-
-任一预检失败（worktree dirty / cwd 在 worktree 内 / plan status ≠ completed / detached HEAD）立即返回 error 短路。**lead agent 必须先 ExitWorktree** 让 cwd 出 worktree 再调本 tool（mcp 不能调 ExitWorktree CLI 内部 tool；cwd 在 worktree 内时 tool 直接 reject 提示 ExitWorktree）。
+- **预检短路**：plan status ≠ in_progress（completed / abandoned 均拒）/ worktree dirty / cwd 在 worktree 内 / detached HEAD 任一命中 → 立即返回 error，不做部分回滚（git 操作不可逆）
+- **lead 必须先 ExitWorktree**：mcp 不能调 ExitWorktree CLI 内部 tool；cwd 在 worktree 内时 tool 直接 reject 提示 ExitWorktree
+- **自动归档 caller session**：plan 收口后默认归档 caller（baton 同款语义），返回 `archived: 'ok' | 'failed' | 'skipped'` 字段；归档失败仅 warn 不阻塞 ok return
 
 ### plan hand-off 自动化：hand_off_session
 
-完成 `~/.claude/CLAUDE.md` 的「复杂 plan：worktree 隔离 + 跨会话 hand off」流程的 §Step 3 接力姿势 §选项 B（自动起新 SDK session 接力下一 phase，免去用户手动新开会话 + 复制 cold start prompt）；同时双模式还支持任意会话不带 plan 也能 baton 交给新 session。
+落地 user CLAUDE.md §Step 3 §选项 B（详 user CLAUDE 节，args / 返回值 schema / 自动做的事情清单不在此重复）。**app-only 差异**：
 
-**plan-driven 模式**（传 `plan_id`）：
-
-```ts
-const result = await mcp__agent-deck__hand_off_session({
-  plan_id: '<plan-id>',                      // 传 plan_id 走 plan-driven 模式
-  phase_label: 'H3 Phase 4b',                // 可选，附加到 cold start prompt 后缀「（Phase: <label>）」
-  // 其他字段 cwd / adapter / team_name / permission_mode / plan_file_path 默认即可
-  // team_name 默认不传（baton 单向交接不强加 lead/teammate 关系）
-});
-// result = {
-//   mode: 'plan',
-//   planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt,
-//   ignoredFields: [],  // plan 模式始终空
-//   sessionId, adapter, cwd, teamId (默认 null), teamName (默认 null),
-//   spawnDepth, sentAt, spawnPromptMessageId (默认 null),
-//   archived: 'ok' | 'failed' | 'skipped'
-// }
-```
-
-tool 自动跑：解析 plan 文件路径（caller cwd 反查 main-repo → `<main-repo>/.claude/plans/<plan-id>.md` / fallback `~/.claude/plans/<plan-id>.md`） / 读 plan frontmatter 拿 `worktree_path` + `base_branch` / 校验 status === `in_progress` / 构造 cold start prompt = `按 <plan-abs-path> 接力`（含 phase_label 时附 `（Phase: <label>）` 后缀） / 调 `spawn_session` 起新 SDK session（**cwd resilience**：cwd default = mainRepo 而非 worktreePath，让新 session sessionRepo.cwd 在 worktree 被 archive_plan 删后仍 valid；新 session 按 user CLAUDE.md §Step 3 cold-start 自己 EnterWorktree(path: worktreePath) 进 worktree 干活；fallback 链 `caller args.cwd > resolved.mainRepo > resolved.worktreePath`） / **baton 语义**：default 不加任何 team（caller 不被打 lead 标签 / 新 session 不被打 teammate 标签；显式传 `team_name` 才启用通信关系）+ default 自动归档 caller session（baton 完整交出原会话退出，归档失败仅 warn 不阻塞 ok return）。
-
-**generic 模式**（不传 `plan_id`）：
-
-```ts
-const result = await mcp__agent-deck__hand_off_session({
-  // 不传 plan_id → 走 generic 模式
-  prompt: '继续 review #42 的反馈,重点看 race condition',  // 可选,默认 '从上一个会话接力继续工作'
-  // cwd 默认 = caller session cwd (从 sessionRepo 反查) ↓ resolved.mainRepo (兜底)
-});
-// result = {
-//   mode: 'generic',
-//   planId / planFilePath / worktreePath / baseBranch / phaseLabel: null,  // plan-only 字段全 null
-//   initialPrompt: '继续 review #42 的反馈,重点看 race condition',  // = args.prompt 或默认
-//   ignoredFields: [],  // 若 caller 在 generic 模式下传了 phase_label / plan_file_path 会列入
-//   sessionId, adapter, cwd, teamId (默认 null), teamName (默认 null),
-//   spawnDepth, sentAt, spawnPromptMessageId (默认 null), archived
-// }
-```
-
-generic 模式适用场景:任意会话想 baton 交给新 session 但**不**走 plan-driven workflow(典型:普通会话讨论事情想换会话继续 / context 太满想换会话)。
-
-> **baton 不计 spawn_depth**：hand_off_session 内部走 spawn handler 时传 `{ batonMode: true }` → spawn-guards 跳 depth check + setSpawnLink 写 `parentDepth`（lateral，不 +1）。理由：baton 单向交接（spawn 后立即 archive caller）任意时刻只 1 个 active session，**不构成 fork-bomb 风险**，N-phase 接力链不该撞默认 `mcpMaxSpawnDepth=3`。fan-out + spawn-rate guard 仍 enforce（防 spam baton 接力）。
-
-> **archive 无条件原则**：默认行为无论 caller 是否有 untracked / dirty / 已加入 team 都归档（baton 单向交出 = caller 必须退出原会话），返回 `archived` 三态字段：
-> - `'ok'` — 归档成功
-> - `'failed'` — 归档失败（lifecycle / DB error），仅 `console.warn`，不阻塞 ok return；caller 用户从「历史」面板仍可查看接力前最后一段对话
-> - `'skipped'` — caller 是 external caller（不在 sessions 表，理论被 denyExternalIfNotAllowed 拦下；防御性留口）
->
-> 不允许 caller 传字段「不归档我」—— baton 语义保证「任意时刻单 in-flight session」，归档是流程的一部分非选项。
-
-任一预检失败（plan-driven 模式:plan 文件不存在 / status ≠ in_progress / frontmatter 缺 worktree_path；任意模式:spawn 失败）立即返回 error 短路。**新 session system prompt 必须含 user CLAUDE.md「复杂 plan」节**（settingSources 包含 `'user'` 即可，应用内 SDK 会话默认满足）—— 否则 plan-driven 模式新 session 看 cold start prompt 不知道是什么意思。
+- **双模式**：传 `plan_id` → plan-driven（读 frontmatter / 校验 status === in_progress / cold start prompt = `按 <plan-abs-path> 接力`）；不传 → generic（caller 自由 prompt，default `从上一个会话接力继续工作`，不读 plan / 不要 worktreePath）。generic 模式适用任意会话不带 plan baton 给新 session（典型：context 太满想换会话）
+- **cwd resilience**：plan-driven 模式下新 session cwd default = mainRepo 而非 worktreePath，让 sessionRepo.cwd 在 worktree 被 archive_plan 删后仍 valid。新 session 按 user CLAUDE §Step 3 cold-start 自己 EnterWorktree(path: worktreePath) 进 worktree。fallback 链：`caller args.cwd > resolved.mainRepo > resolved.worktreePath`
+- **baton 不计 spawn_depth**：内部走 spawn handler 时传 `{ batonMode: true }` → spawn-guards 跳 depth check + setSpawnLink 写 `parentDepth`（lateral，不 +1）。理由：baton 单向交接（spawn 后立即 archive caller）任意时刻只 1 个 active session，**不构成 fork-bomb 风险**，N-phase 接力链不该撞默认 `mcpMaxSpawnDepth=3`。fan-out + spawn-rate guard 仍 enforce
+- **archive 无条件原则**：default 无论 caller 是否 untracked / dirty / 已加入 team 都归档（baton 单向交出 = caller 必须退出原会话），返回 `archived` 三态字段（同 archive_plan）。**不允许** caller 传字段「不归档我」 — baton 语义保证「任意时刻单 in-flight session」
+- **default 不加任何 team**（baton 单向交接不强加 lead/teammate 关系；显式传 `team_name` 才启用通信关系）
+- **预检短路**：plan-driven 模式 plan 文件不存在 / status ≠ in_progress / frontmatter 缺 worktree_path / spawn 失败 → 立即返回 error。**新 session system prompt 必须含 user CLAUDE.md「复杂 plan」节**（settingSources 包含 `'user'` 即可，应用内 SDK 会话默认满足）— 否则 plan-driven 新 session 看 cold start prompt 不知道是什么意思
 
 ### recoverer cwd 启发式 fallback（兜底）
 
-如果 caller 取消归档继续给已收口的 plan-driven session 发消息(撞 cwd 失效),或者用户手动 `git worktree remove` 不走 archive_plan / 误删 / 跨设备同步丢目录,sdk-bridge.recoverer 会:
-1. cwd precheck:`existsSync(sessionRepo.cwd)` → 不存在触发启发式 fallback
-2. 启发式 1:路径含 `.claude/worktrees/<x>` → 取段之前部分(典型 hand-off 老 session 模式)
-3. 启发式 2:父目录 walk 找第一个还存在的目录(安全边界:不超过 home)
-4. 找到 fallback → emit info message + 强制走 jsonl missing fallback 同款下游(createThunk 不带 resume + renameSdkSession),CLI 历史失但应用层 events / file_changes / summaries 子表保留(SessionDetail 渲染走 events 表)
-5. 找不到 → emit error message 清晰告诉用户 + throw,**不**emit「正在自动恢复」placeholder(误导)
+caller 取消归档继续给已收口 plan-driven session 发消息（撞 cwd 失效）/ 用户手动 `git worktree remove` 不走 archive_plan / 跨设备同步丢目录 → sdk-bridge.recoverer 启发式找仍存在的祖先目录当 cwd 兜底（worktree 路径取段之前部分 / 父目录 walk 不超过 home），找到 → emit info + 强制走 jsonl missing fallback 同款下游（CLI 历史失但应用层 events / file_changes / summaries 子表保留）；找不到 → emit error 清晰告诉用户。算法详 `src/main/adapters/claude-code/sdk-bridge/recoverer.ts:103-220`。

@@ -37,12 +37,8 @@ model: opus
    - **team_id**：从 spawn 首轮收到的 lead context block 顶部 `Team id:` 字段提取（spawn handler 自动注入）；如 lead context block 缺失，调 `mcp__agent-deck__list_sessions({status_filter: 'active'})` 反查 lead 所在 team（与自己 active session 共享同一 team 的即是）
    - 完成本轮 review / 反驳 / fresh-session warn / scope-path-mismatch warn 后：调 `mcp__agent-deck__send_message({session_id: leadSessionId, team_id: <team id>, text: <reply 正文>, reply_to_message_id: replyToMessageId})`
    - **不要**用裸 message reply（不传 `reply_to_message_id` 的 message 还是会被 lead 收到，但失去对话链锚点；只在 NO MSG ANCHOR 退化路径下使用）
-   - **找不到双锚点**：
-     - reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>][sid <senderSessionId>] wire prefix，本 reply 没法挂 reply_to_message_id 进 lead 对话链；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
-     - **退化路径**：仍要交付 finding 正文（不 abort）。`session_id` 反查方式：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 用启发式定位 lead（通常 displayName 含 "Lead-" 前缀或非 reviewer-* 标识；如 team 内只一对 lead+teammate，排除自己 sessionId 后剩下唯一 active session 即 lead）。`team_id` 反查方式：调 `mcp__agent-deck__list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）
-     - **副作用警告**：reply 不挂 `reply_to_message_id` 失去对话链锚点，DB / SessionDetail 看不出 reply 链关系；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
-     - **如果 list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding 输出到本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到 reviewer 的 assistant message 文本拿 finding
-   - **wire format id invariant**：messageId / senderSessionId 都由 `crypto.randomUUID()` 生成（v4 UUID lowercase hex + hyphen，charset `[0-9a-f-]{36}`），regex `/\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]/` 与该 charset 严格对齐
+   - **找不到双锚点 / list_sessions 反查 lead 失败**：走 NO MSG ANCHOR 退化路径（含 reply 顶部 warn 文本 / 反查启发式 / 副作用提示 / 终极兜底落 assistant output），详**应用 CLAUDE.md §NO MSG ANCHOR 退化路径**
+   - **wire format id invariant**：详应用 CLAUDE.md §Wire format / regex / DB invariant 节
 
 ## 输入识别
 
