@@ -415,8 +415,9 @@ describe('universal-message-watcher.process - REVIEW_35 HIGH-A1 backpressure 死
 
   it('回归记忆：旧错误公式 `if (inflight > maxInflight)` 不再出现', async () => {
     const fs = await import('node:fs/promises');
+    // CHANGELOG_105 拆分后 process 方法在 universal-message-watcher/index.ts
     const watcherSrc = await fs.readFile(
-      new URL('../universal-message-watcher.ts', import.meta.url),
+      new URL('../universal-message-watcher/index.ts', import.meta.url),
       'utf-8',
     );
     expect(watcherSrc).not.toMatch(/const\s+inflight\s*=\s*[^;]*countPendingForTarget[^;]*;\s*if\s*\(\s*inflight\s*>\s*maxInflight\s*\)/);
