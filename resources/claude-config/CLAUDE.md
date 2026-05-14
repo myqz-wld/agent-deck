@@ -112,6 +112,8 @@ reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <sen
 - **default 不加 team**：baton 单向交接不强加 lead/teammate 关系；显式 `team_name` 才启用通信
 - **预检短路**：plan-driven 模式 plan 文件不存在 / status ≠ in_progress / frontmatter 缺 `worktree_path` / spawn 失败 → 立即返回 error
 - **新 session 必须含 user CLAUDE「复杂 plan」节**（`settingSources: ['user', ...]` 自动满足），否则 plan-driven cold start prompt 不被识别
+- **典型主动触发（generic mode）**：当前 cwd 不适合手头任务（cwd 已失效 / 不属目标 repo / 用户明示换目录 / 跨 repo 任务）→ 不要在当前 session 强行 `cd` / 跨目录绝对路径，用 generic mode 显式传新 `cwd` + 自包含 `prompt` 接力到正确目录
+- **想保留 caller 不归档** → 用 `spawn_session(cwd:<目标>, prompt:<打包信息>)` 而非 `hand_off_session`（baton 强归档不可关）
 
 ### recoverer cwd 启发式 fallback（兜底）
 
