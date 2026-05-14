@@ -33,7 +33,7 @@ import {
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import type { SpawnSessionArgs } from '../schemas';
+import type { SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 
 export const spawnSessionHandler = withMcpGuard(
   'spawn_session',
@@ -427,6 +427,6 @@ export const spawnSessionHandler = withMcpGuard(
       sentAt: Date.now(),
       // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 调 wait_reply 等 teammate first reply
       spawnPromptMessageId,
-    });
+    } satisfies SpawnSessionResult);
   },
 );

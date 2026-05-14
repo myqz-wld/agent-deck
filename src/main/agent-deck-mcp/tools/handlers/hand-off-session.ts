@@ -46,7 +46,7 @@ import {
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import type { HandOffSessionArgs, SpawnSessionArgs } from '../schemas';
+import type { HandOffSessionArgs, HandOffSessionResult, SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import { sessionRepo } from '@main/store/session-repo';
 import { omitUndefined } from '@main/utils/optional-fields';
@@ -325,9 +325,14 @@ export const handOffSessionHandler = withMcpGuard(
     }
 
     // 4. parse spawn 的 ok JSON → 包 K2 metadata
-    let spawnData: Record<string, unknown>;
+    // R37 P3-L Step 4.5：cast as SpawnSessionResult 让下游 satisfies HandOffSessionResult
+    // 静态校验 spread 字段；JSON.parse 是 unsafe cast — spawn handler ok return 漂移时
+    // hand-off return 类型校验失效（trade-off：mcp tool 协议要求 content[].text 字符串
+    // 序列化，handler 间无法直接共享 typed result instance；schemas.ts SpawnSessionResult
+    // 是 SSOT，spawn handler return 漂移 satisfies 必先在 spawn 自己处拦下，间接守门此处）。
+    let spawnData: SpawnSessionResult;
     try {
-      spawnData = JSON.parse(spawnResult.content[0]?.text ?? '{}');
+      spawnData = JSON.parse(spawnResult.content[0]?.text ?? '{}') as SpawnSessionResult;
     } catch (e) {
       return err(
         `failed to parse spawn_session result: ${(e as Error).message}`,
@@ -353,6 +358,8 @@ export const handOffSessionHandler = withMcpGuard(
     // CHANGELOG_99 R1 fix MED-5: archive 段必须**重新反查** sessionRepo.get 而非复用早期
     // callerSessionRow(L142 段)。spawn 是 long-running async,期间 caller row 可能被删 → 复用
     // 旧探针调 archive 的 UPDATE 对缺失 row 是 no-op 误报 'ok'。helper 内部反查保证 ground truth。
+    // spawnData.sessionId 是 SpawnSessionResult.sessionId（cast 后 string，原 typeof 校验是
+    // R37 P3-L 前的 Record<string, unknown> 兜底，cast 后 typeof 校验成 redundant 但保留无害）。
     const newSpawnedSid = typeof spawnData.sessionId === 'string' ? spawnData.sessionId : null;
     const excludeSessionIds = newSpawnedSid ? new Set<string>([newSpawnedSid]) : undefined;
     const cleanup = await runBatonCleanup(
@@ -393,8 +400,9 @@ export const handOffSessionHandler = withMcpGuard(
        *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
        */
       teammatesShutdown: cleanup.teammatesShutdown,
-      // 透传 spawn_session 字段（兼容 spawn 调用方）
+      // 透传 spawn_session 字段（兼容 spawn 调用方）— spread SpawnSessionResult 全部字段，
+      // 与 HandOffSessionResult extends SpawnSessionResult 对应让 satisfies 通过。
       ...spawnData,
-      });
+      } satisfies HandOffSessionResult);
   },
 );

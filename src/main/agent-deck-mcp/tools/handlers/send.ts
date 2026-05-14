@@ -25,7 +25,7 @@ import {
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import type { SendMessageArgs } from '../schemas';
+import type { SendMessageArgs, SendMessageResult } from '../schemas';
 
 export const sendMessageHandler = withMcpGuard(
   'send_message',
@@ -121,6 +121,6 @@ export const sendMessageHandler = withMcpGuard(
       replyToMessageId: result.message.replyToMessageId,
       sentAt: result.message.sentAt,
       queued: true,
-    });
+    } satisfies SendMessageResult);
   },
 );

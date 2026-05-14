@@ -30,7 +30,7 @@ import {
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import type { ArchivePlanArgs } from '../schemas';
+import type { ArchivePlanArgs, ArchivePlanResult } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import { sessionRepo } from '@main/store/session-repo';
 import {
@@ -162,6 +162,6 @@ export const archivePlanHandler = withMcpGuard(
        *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
        */
       teammatesShutdown: cleanup.teammatesShutdown,
-    });
+    } satisfies ArchivePlanResult);
   },
 );

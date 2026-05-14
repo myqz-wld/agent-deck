@@ -368,3 +368,137 @@ export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
 export type ArchivePlanArgs = z.infer<z.ZodObject<typeof ARCHIVE_PLAN_SCHEMA>>;
 export type HandOffSessionArgs = z.infer<z.ZodObject<typeof HAND_OFF_SESSION_SCHEMA>>;
+
+// =============== Result types (R37 P3-L Step 4.5) ===============
+//
+// 7 tool 的 ok return shape SSOT（与上方 7 个 args type 对称，让 input/output schema
+// 都在 schemas.ts 一处可读）。Handler return 用 `satisfies XxxResult` 做静态字段校验
+// 防漂移（typo / 漏字段 / 字段类型错被 TS 拦）。
+//
+// **设计权衡**：
+// - **不抽 typed builder**（保留 helpers.ts 的 untyped `ok(data: unknown)` 8 处统一调用）
+//   typed builder 增加 indirection（每个 tool 多一层 wrapper），satisfies 校验已能完成
+//   核心收益「字段拼写错被 TS 拦」，wrapper 收益是 marginal 类型文档
+// - **HandOffSessionResult extends SpawnSessionResult**：hand-off-session.ts:397 用 `...spawnData`
+//   spread 透传 spawn return 字段；用 extends 让 spread 后字段被 satisfies 静态校验
+// - **TeammatesShutdownInfo inline 定义**：避免 schemas.ts 依赖 handlers/ 内 implementation
+//   type（反向耦合）。若 handlers/shutdown-teammates-on-baton.ts 的 ShutdownTeammatesResult
+//   字段漂移，本处 satisfies 会拦下 archive-plan / hand-off return 不匹配（反向加固）。
+
+/** sessions.list_sessions / get_session 共享的 metadata 投影（与 helpers.ts projectSession 对齐 — 字段漂移此处 satisfies 必拦）。 */
+export interface ProjectedSession {
+  sessionId: string;
+  adapter: string;
+  cwd: string;
+  lifecycle: 'active' | 'dormant' | 'closed';
+  title: string | null;
+  lastEventAt: number | null;
+  teamName: string | null;
+  teams: Array<{ teamId: string; teamName: string }>;
+  spawnedBy: string | null;
+  spawnDepth: number;
+}
+
+/**
+ * baton cleanup phase 1 返回的 teammate shutdown 详情（inline 定义，与
+ * handlers/shutdown-teammates-on-baton.ts ShutdownTeammatesResult 字段对齐）。
+ *
+ * - closed: 成功 close 的 teammate sid 列表（dedup 跨 team 共享同 sid）
+ * - failed: close 失败的 teammate（reason 含错误信息），warn 不阻塞
+ * - skipped: 'keep-teammates'（caller 显式传） / 'caller-not-lead'（caller 不是 lead） /
+ *   null（正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate / helper 抛错兜底）
+ */
+type TeammatesShutdownInfo = {
+  closed: string[];
+  failed: Array<{ sessionId: string; reason: string }>;
+  skipped: 'caller-not-lead' | 'keep-teammates' | null;
+};
+
+/** list_sessions ok return shape（list.ts handler）。 */
+export interface ListSessionsResult {
+  total: number;
+  sessions: ProjectedSession[];
+}
+
+/** get_session ok return shape（get.ts handler）。 */
+export type GetSessionResult = ProjectedSession;
+
+/** send_message ok return shape（send.ts handler；queued: true 字面常量约束）。 */
+export interface SendMessageResult {
+  sessionId: string;
+  teamId: string | null;
+  messageId: string;
+  replyToMessageId: string | null;
+  sentAt: number;
+  queued: true;
+}
+
+/** shutdown_session ok return shape（shutdown.ts handler；lifecycle: 'closed' 字面常量约束）。 */
+export interface ShutdownSessionResult {
+  sessionId: string;
+  lifecycle: 'closed';
+  alreadyClosed: boolean;
+}
+
+/** spawn_session ok return shape（spawn.ts handler；hand-off-session 通过 extends 复用全部字段）。 */
+export interface SpawnSessionResult {
+  sessionId: string;
+  adapter: string;
+  cwd: string;
+  teamId: string | null;
+  teamName: string | null;
+  agentName: string | null;
+  /** display_name 优先 → agent_name → null（spawn.ts:163 三级 fallback）。 */
+  displayName: string | null;
+  spawnDepth: number;
+  sentAt: number;
+  spawnPromptMessageId: string | null;
+}
+
+/**
+ * archive_plan ok return shape（archive-plan.ts handler；snake_case 字段保持 mcp tool 协议向后兼容）。
+ *
+ * 字段类型与 archive-plan-impl.ts ArchivePlanImplResult 对齐：
+ * - branch_deleted / worktree_removed: string（git 命令 stdout，非 boolean）
+ * - final_status: 'completed' literal 由 impl 强制写入 frontmatter status 字段
+ */
+export interface ArchivePlanResult {
+  archived_path: string;
+  commit_hash: string;
+  branch_deleted: string;
+  worktree_removed: string;
+  plans_index_appended: boolean;
+  final_status: 'completed';
+  archived: 'ok' | 'failed' | 'skipped';
+  teammatesShutdown: TeammatesShutdownInfo;
+}
+
+/**
+ * hand_off_session ok return shape（hand-off-session.ts handler）。
+ *
+ * **extends SpawnSessionResult**：hand-off 内部调 spawnSessionHandler 拿到 spawn return
+ * 字段后 spread 透传（caller 拿到 K2 metadata + spawn 字段都齐）。extends 让 satisfies
+ * 校验时 TS 知道 spread 字段已 cover SpawnSessionResult 全部字段。
+ */
+export interface HandOffSessionResult extends SpawnSessionResult {
+  /** CHANGELOG_99: 'plan' = plan-driven 模式（含 worktreePath） / 'generic' = 通用 hand-off。 */
+  mode: 'plan' | 'generic';
+  /** plan id（plan-driven 模式有值；generic 模式 null）。 */
+  planId: string | null;
+  /** plan 文件绝对路径（plan-driven 模式有值；generic 模式 null）。 */
+  planFilePath: string | null;
+  /** worktree 绝对路径（plan-driven 模式有值；generic 模式 null）。 */
+  worktreePath: string | null;
+  /** plan frontmatter base_branch（plan-driven 模式有值；generic 模式 null）。 */
+  baseBranch: string | null;
+  /** phase 标签（plan-driven + caller 传 phase_label 时有值；其他 null）。 */
+  phaseLabel: string | null;
+  /** cold-start prompt 完整字面（caller 可对照 sessionRepo.events 验证 spawn first message 一致）。 */
+  initialPrompt: string;
+  /** generic 模式下 caller 传了 plan-only 字段（phase_label / plan_file_path）时被忽略的字段名数组；plan 模式始终空。 */
+  ignoredFields: string[];
+  /** caller archive 三态：'ok'=成功 / 'failed'=warn-only 不阻塞 / 'skipped'=external caller。 */
+  archived: 'ok' | 'failed' | 'skipped';
+  /** baton cleanup phase 1 详情（与 archive_plan 同款）。 */
+  teammatesShutdown: TeammatesShutdownInfo;
+}

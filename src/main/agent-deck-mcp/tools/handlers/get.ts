@@ -16,7 +16,7 @@ import {
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import type { GetSessionArgs } from '../schemas';
+import type { GetSessionArgs, GetSessionResult } from '../schemas';
 
 export const getSessionHandler = withMcpGuard(
   'get_session',
@@ -29,6 +29,6 @@ export const getSessionHandler = withMcpGuard(
         'session_id must reference an existing session. Use list_sessions to discover ids; pass status_filter:"all" to include closed sessions.',
       );
     }
-    return ok(projectSession(session));
+    return ok(projectSession(session) satisfies GetSessionResult);
   },
 );

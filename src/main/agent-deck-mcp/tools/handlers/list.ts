@@ -18,7 +18,7 @@ import {
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import type { ListSessionsArgs } from '../schemas';
+import type { ListSessionsArgs, ListSessionsResult } from '../schemas';
 
 export const listSessionsHandler = withMcpGuard(
   'list_sessions',
@@ -59,6 +59,6 @@ export const listSessionsHandler = withMcpGuard(
     return ok({
       total: enriched.length,
       sessions: enriched.map(projectSession),
-    });
+    } satisfies ListSessionsResult);
   },
 );
