@@ -166,7 +166,29 @@ async function bootstrap(): Promise<void> {
     await hookServer.start();
     console.log(`[hook-server] listening on 127.0.0.1:${hookServer.listeningPort}`);
   } catch (err) {
+    // REVIEW_35 follow-up rH R2-M4: HookServer 是 hooks/MCP 通道的根基，启动失败不能让应用
+    // 半启动（旧版只 console.error 后继续 → scheduler/IPC/window 正常起，hooks 通道全挂但
+    // UI 无明确错误）。EADDRINUSE 典型场景：上次崩溃 / 另一实例残留 / 端口被占用。
+    // fail-loud：dialog.showErrorBox 同步反馈用户 + app.exit(1) 释放单实例锁让用户能改端口重启。
     console.error('[hook-server] failed to start', err);
+    const reason = err instanceof Error ? err.message : String(err);
+    const isAddrInUse = /EADDRINUSE/i.test(reason);
+    try {
+      dialog.showErrorBox(
+        'Agent Deck 启动失败 — Hook 服务无法绑定端口',
+        isAddrInUse
+          ? `端口 ${hookServer.listeningPort} 被占用（EADDRINUSE）。\n\n可能原因：\n` +
+            `• 另一个 Agent Deck 实例残留（请检查任务管理器 / Activity Monitor 杀掉旧进程）\n` +
+            `• 该端口被其他应用占用\n\n` +
+            `修法：在 ~/.claude/agent-deck/settings.json 改 hookServerPort 后重启。\n\n` +
+            `详细错误：\n${reason.slice(0, 500)}`
+          : `Hook 服务启动失败：${reason.slice(0, 1000)}`,
+      );
+    } catch (dialogErr) {
+      console.error('showErrorBox failed during hook-server EADDRINUSE:', dialogErr);
+    }
+    app.exit(1);
+    return;
   }
 
   // 7. 启动生命周期调度器与总结器

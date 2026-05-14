@@ -313,4 +313,40 @@ describe('IdleDetector', () => {
     // 配合 fallback：纯 idleQuietMs 触发 → fired 1 次（不是因为 regex match，是 fallback）
     expect(fired).toBe(1);
   });
+
+  // REVIEW_35 follow-up rE R2 #2: IdleDetector dispose flag regression test
+  it('dispose() 后 onData() 不再注册新 timer (REVIEW_35 MED-C-claude)', () => {
+    let fired = 0;
+    const buf = new PtyOutputBuffer();
+    const det = new IdleDetector({
+      idleQuietMs: 100,
+      promptSuffixRegex: '',
+      onIdle: () => {
+        fired++;
+      },
+    });
+    buf.push('hello');
+    det.dispose(); // dispose 之前没 onData
+    det.onData(buf); // 应当 noop（disposed flag 守门）
+    vi.advanceTimersByTime(200);
+    expect(fired).toBe(0);
+  });
+
+  it('dispose() 之前 onData() 已注册 timer，dispose 立即清除', () => {
+    let fired = 0;
+    const buf = new PtyOutputBuffer();
+    const det = new IdleDetector({
+      idleQuietMs: 100,
+      promptSuffixRegex: '',
+      onIdle: () => {
+        fired++;
+      },
+    });
+    buf.push('x');
+    det.onData(buf); // 启动 timer
+    vi.advanceTimersByTime(50); // 还没 fire
+    det.dispose(); // 应清掉
+    vi.advanceTimersByTime(200);
+    expect(fired).toBe(0);
+  });
 });

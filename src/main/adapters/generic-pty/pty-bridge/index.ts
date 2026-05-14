@@ -138,6 +138,38 @@ export class GenericPtyBridge {
     }
 
     const sessionId = randomUUID();
+    // REVIEW_35 follow-up C-M1: PTY 子进程 spawn 后**第一时间**注册 onData/onExit listener，
+    // 然后再做 state 初始化 / sessions.set / emit / setGenericPtyConfig 等耗时段。
+    // 旧版顺序：spawn → state init (idleDetector + fileWatcher.start) → sessions.set →
+    // emit session-start → setGenericPtyConfig → 然后才 pty.onData/onExit。秒退命令（典型
+    // /bin/true）在 listener 注册之前就 exit，onExit 永不触发，留下 active session +
+    // file watcher orphan。codex node-pty 实测 misses=6/20。
+    // 修法：listener 紧贴 spawn 后注册（factory 函数延迟引用 state，避免 closure-too-early
+    // 问题 — 通过 stateRef 在初始化后填充）。stdoutBuffer 用 push 缓存早到 data，state init
+    // 完成后回放。
+    const earlyDataBuffer: string[] = [];
+    let earlyExit: { exitCode?: number; signal?: number } | null = null;
+    let stateReady = false;
+    let stateRef: PtySessionState | null = null;
+
+    // 第一时间注册 native listener（捕获秒退场景）
+    pty.onData((data: string) => {
+      if (!stateReady) {
+        earlyDataBuffer.push(data);
+        return;
+      }
+      // state 已 init，转发给真正的 stdout listener
+      makeStdoutListener(stateRef!, sessionId, this.opts)(data);
+    });
+    pty.onExit(({ exitCode, signal }) => {
+      if (!stateReady) {
+        // state 还没 init，缓存 early exit info；下面 state init 完成后立即合成 exit emit
+        earlyExit = { exitCode, signal };
+        return;
+      }
+      makeExitListener(this.sessions, stateRef!, sessionId, this.opts)({ exitCode, signal });
+    });
+
     const outputBuffer = new PtyOutputBuffer();
     const idleDetector = new IdleDetector({
       idleQuietMs: config.idleQuietMs,
@@ -176,6 +208,8 @@ export class GenericPtyBridge {
       fileWatcher,
     };
     this.sessions.set(sessionId, state);
+    stateRef = state;
+    stateReady = true;
 
     // emit session-start 同步派发 → ingest 创建 sessions row（agent_id = adapterId）
     this.opts.emit({
@@ -198,9 +232,17 @@ export class GenericPtyBridge {
       );
     }
 
-    // 注册 stdout / exit listener（factory 见 message-io.ts）
-    pty.onData(makeStdoutListener(state, sessionId, this.opts));
-    pty.onExit(makeExitListener(this.sessions, state, sessionId, this.opts));
+    // 回放 early data（state init 期间 PTY 已经吐出来的输出）
+    if (earlyDataBuffer.length > 0) {
+      const stdoutListener = makeStdoutListener(state, sessionId, this.opts);
+      for (const data of earlyDataBuffer) stdoutListener(data);
+      earlyDataBuffer.length = 0;
+    }
+    // 回放 early exit（state init 期间 PTY 已经退出）
+    if (earlyExit !== null) {
+      makeExitListener(this.sessions, state, sessionId, this.opts)(earlyExit);
+      // 不 return，让 createSession 仍正常返回 sessionId（caller 通过后续 session-end 知道）
+    }
 
     // 首条 user message：emit + 写 stdin
     if (input.prompt && input.prompt.length > 0) {
