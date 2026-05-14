@@ -52,6 +52,14 @@ export const MAX_BODY_LENGTH = 102_400; // 100 KB hard cap（SQLite CHECK 同款
  * 输入：当前 attempt_count（已 ++ 后的值）
  * 输出：距离 last_attempt_at 至少 N 毫秒后才 eligible
  */
+/**
+ * 退避表：JS 镜像。**`findEligible` SQL 内 hardcode 同款常量 1000ms / 4000ms（详 line 327-336）**，
+ * 改任一处必须同步另一处。
+ *
+ * REVIEW_35 LOW-A3：本函数仅在 unit test 内引用，prod 路径完全不调（findEligible 走 SQL CASE 分支
+ * 直接展开常量）。保留是为了：(a) 文档化 attempt_count → backoff 的语义；(b) test 可 import
+ * 同款表做对照断言。**严禁** prod 路径调它，否则 SSOT 在 SQL/JS 两侧漂移就更隐蔽。
+ */
 export function backoffMs(attemptCount: number): number {
   if (attemptCount <= 0) return 0;
   if (attemptCount === 1) return 1_000;

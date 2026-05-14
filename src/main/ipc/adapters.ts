@@ -196,6 +196,14 @@ export function registerAdaptersIpc(): void {
             displayName: null,
           });
           sessionManager.notifyTeamMembershipChanged(sid);
+          // REVIEW_35 MED-A7：emit `agent-deck-team-member-changed` 让 universal-message-watcher
+          // dispatcher 收到 → fan-out member-joined adapter event 给同 team active member。
+          // 修前 spawn / cli / ipc.adapters 三条路径只刷 UI 不通知 adapter chain。
+          eventBus.emit('agent-deck-team-member-changed', {
+            teamId: team.id,
+            sessionId: sid,
+            kind: 'joined',
+          });
         } catch (e) {
           // 已 active 时 invariant 抛错；幂等成功
           if (!(e instanceof TeamInvariantError)) throw e;

@@ -73,6 +73,7 @@ export interface AgentDeckTeamRepo {
   leaveTeam(teamId: string, sessionId: string): AgentDeckTeamMember | null;
   listActiveMembers(teamId: string): AgentDeckTeamMember[];
   listAllMembers(teamId: string): AgentDeckTeamMember[];
+  findActiveMembershipIn(teamId: string, sessionId: string): AgentDeckTeamMember | null;
   findActiveMembershipsBySession(sessionId: string): AgentDeckTeamMember[];
   findActiveMembershipsBySessionIds(sessionIds: string[]): Map<string, SessionTeamMembership[]>;
   findSharedActiveTeams(sessionAId: string, sessionBId: string): string[];
@@ -122,6 +123,7 @@ export const agentDeckTeamRepo: AgentDeckTeamRepo = {
   leaveTeam: (teamId, sessionId) => defaultRepo().leaveTeam(teamId, sessionId),
   listActiveMembers: (teamId) => defaultRepo().listActiveMembers(teamId),
   listAllMembers: (teamId) => defaultRepo().listAllMembers(teamId),
+  findActiveMembershipIn: (teamId, sessionId) => defaultRepo().findActiveMembershipIn(teamId, sessionId),
   findActiveMembershipsBySession: (sessionId) =>
     defaultRepo().findActiveMembershipsBySession(sessionId),
   findActiveMembershipsBySessionIds: (sessionIds) =>

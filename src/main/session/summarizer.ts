@@ -26,6 +26,8 @@ export class Summarizer {
   private lastErrorBySession = new Map<string, { message: string; ts: number }>();
   /** event-bus 上 session-removed 监听的解绑函数，stop() 时调一下避免泄漏。 */
   private offSessionRemoved: (() => void) | null = null;
+  /** event-bus 上 session-renamed 监听的解绑函数，stop() 时调一下避免泄漏（REVIEW_35 MED-B2）。 */
+  private offSessionRenamed: (() => void) | null = null;
 
   start(): void {
     if (this.timer) return;
@@ -42,6 +44,27 @@ export class Summarizer {
       eventBus.on('session-removed', handler);
       this.offSessionRemoved = () => eventBus.off('session-removed', handler);
     }
+    // REVIEW_35 MED-B2：summarizer per-session state 必须跟随 session rename 迁移。
+    // manager.renameSdkSession 只 emit `session-renamed` + `session-upserted`，**不**emit
+    // `session-removed`。如果只挂 session-removed listener，CLI 隐式 fork (OLD→NEW) /
+    // SDK fallback (tempKey→realId) 后 lastSummarizedAt[OLD] 变孤儿、NEW 从 startedAt 重算
+    // 重复处理旧事件；lastErrorBySession[OLD] 同样孤儿（renderer 设置面板永远显示 OLD_ID 错）。
+    if (!this.offSessionRenamed) {
+      const renameHandler = (payload: { from: string; to: string }): void => {
+        const lastTs = this.lastSummarizedAt.get(payload.from);
+        if (lastTs !== undefined) {
+          this.lastSummarizedAt.set(payload.to, lastTs);
+          this.lastSummarizedAt.delete(payload.from);
+        }
+        const errInfo = this.lastErrorBySession.get(payload.from);
+        if (errInfo !== undefined) {
+          this.lastErrorBySession.set(payload.to, errInfo);
+          this.lastErrorBySession.delete(payload.from);
+        }
+      };
+      eventBus.on('session-renamed', renameHandler);
+      this.offSessionRenamed = () => eventBus.off('session-renamed', renameHandler);
+    }
   }
 
   stop(): void {
@@ -53,6 +76,10 @@ export class Summarizer {
     if (this.offSessionRemoved) {
       this.offSessionRemoved();
       this.offSessionRemoved = null;
+    }
+    if (this.offSessionRenamed) {
+      this.offSessionRenamed();
+      this.offSessionRenamed = null;
     }
   }
 
@@ -113,12 +140,15 @@ export class Summarizer {
           });
           eventBus.emit('summary-added', rec);
           this.lastSummarizedAt.set(s.id, Date.now());
-          // 成功了就清掉历史错误（避免诊断面板里挂着早已修复的旧错误）。
-          this.lastErrorBySession.delete(s.id);
+          // REVIEW_35 MED-B1：旧版 .then 无脑 delete LLM 错误 — 但 summarize() 在 LLM 失败时
+          // 会继续走 fallback 兜底（assistant 文字 / 事件统计），fallback 成功 → content 非 null →
+          // 走到这里 → delete 把刚发生的 LLM 错误诊断洗掉，CLAUDE.md「LLM oneshot 失败要透传 stderr」
+          // 约束被破坏。修法：lastErrorBySession 的 set/delete 都收口在 summarize() 内部
+          // （只有 LLM 真成功时才 delete），caller .then 不再 touch。
         })
         .catch((err) => {
-          // CHANGELOG_20 / G：把错误信息暂存，IPC 拉取后展示给用户，
-          // 比 console.warn 进黑洞强（用户看不到主进程 stderr）。
+          // 总失败（LLM + fallback 都挂）：summarize() 内 catch 已 set；这里兜底再写一次保证
+          // 极端情况（summarize() throw 在 catch 之前的 sync 段）也有诊断。
           this.lastErrorBySession.set(s.id, {
             message: (err as Error)?.message ?? String(err),
             ts: Date.now(),
@@ -170,10 +200,51 @@ export class Summarizer {
       if (session.agentId === 'claude-code') {
         llm = await summariseViaLlm(session.cwd, events);
       } else if (session.agentId === 'codex-cli') {
-        llm = await summariseCodexSessionViaOneshot(session.cwd, events, formatEventsForPrompt);
+        // REVIEW_35 HIGH-B1：codex SDK 的 thread.run 没有 q.interrupt() 等价物 + runner 注释
+        // 明确「不实现超时」。caller 侧用 Promise.race 兜底防 codex 卡住占死 inFlight 槽
+        // （默认 maxConcurrent=2 → 2 个 codex 卡 = summarizer 全局死锁）。
+        // race 赢 → return result；race 输（timer 先 reject）→ 走 catch fallback。
+        // codex 子进程仍在后台跑，最终也会被 codex SDK 的进程退出回收，但应用层 inFlight
+        // 槽已释放（finally chain 里 .delete(s.id)）。
+        const codexPromise = summariseCodexSessionViaOneshot(
+          session.cwd,
+          events,
+          formatEventsForPrompt,
+        );
+        // 提前 catch 吞 codex 后台错误防 unhandled rejection（与 claude consumeLoop.catch 同款）
+        codexPromise.catch(() => undefined);
+        const codexTimeoutMs = settingsStore.get('summaryTimeoutMs');
+        if (codexTimeoutMs > 0) {
+          let codexTimer: NodeJS.Timeout | undefined;
+          const timer = new Promise<null>((_, reject) => {
+            codexTimer = setTimeout(
+              () => reject(new Error('__codex_summarizer_timeout__')),
+              codexTimeoutMs,
+            );
+          });
+          try {
+            llm = await Promise.race([codexPromise, timer]);
+          } finally {
+            if (codexTimer) clearTimeout(codexTimer);
+          }
+        } else {
+          llm = await codexPromise;
+        }
       }
-      if (llm) return llm;
+      if (llm) {
+        // REVIEW_35 MED-B1：LLM 真成功才 delete 历史错误，确保「LLM 失败 + fallback 成功」
+        // 时 lastErrorBySession 仍保留 LLM 错误诊断（与 CLAUDE.md「LLM oneshot 失败要透传 stderr」
+        // 约束一致）。
+        this.lastErrorBySession.delete(sessionId);
+        return llm;
+      }
     } catch (err) {
+      // REVIEW_35 MED-B1：LLM 失败时立即 set 错误诊断（不仅 console.warn）。caller .then 不再
+      // 删除（已修），所以「fallback 成功」不会洗掉本错误。下次 LLM 真成功时 delete（line 上方）。
+      this.lastErrorBySession.set(sessionId, {
+        message: (err as Error)?.message ?? String(err),
+        ts: Date.now(),
+      });
       console.warn(`[summarizer] LLM failed for ${sessionId} (${session.agentId}), fallback to last-message`, err);
     }
 
@@ -344,7 +415,8 @@ ${activity}`;
 
   const timeoutMs = settingsStore.get('summaryTimeoutMs');
   let timeoutHandle: NodeJS.Timeout | null = null;
-  let timedOut = false;
+  // REVIEW_35 LOW-B3：删 `let timedOut + if (timedOut) throw` 死代码（race winner 必走 throw
+  // 路径，timedOut 变量从未被读）。timer 直接 reject 即可，外层 try/finally 异常传播完整。
   const consumeLoop = (async () => {
     let result = '';
     for await (const msg of q) {
@@ -370,8 +442,7 @@ ${activity}`;
     if (timeoutMs > 0) {
       const timer = new Promise<never>((_, reject) => {
         timeoutHandle = setTimeout(() => {
-          timedOut = true;
-          // 优先优雅中断让 SDK 自己清子进程；interrupt 失败也无所谓，下面走 throw 兜底
+          // 优先优雅中断让 SDK 自己清子进程；interrupt 失败也无所谓，reject 抛错兜底
           q.interrupt?.().catch(() => undefined);
           reject(new Error('__summarizer_timeout__'));
         }, timeoutMs);
@@ -383,11 +454,10 @@ ${activity}`;
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
   }
-  if (timedOut) {
-    // 走到这里说明 race 已经被 timer 抢先 reject 了，consumeLoop 在后台继续跑也没关系
-    // （interrupt 让它尽快终止）；外层 catch 会走最近一条 assistant 文字 / 事件统计兜底。
-    throw new Error('__summarizer_timeout__');
-  }
+  // REVIEW_35 LOW-B3：删除 `if (timedOut) throw` 死代码 — race timer 先赢时 reject 已抛错
+  // 经 try → finally → 异常向上传播，从未到达此处；race consumeLoop 先赢时 timedOut 永远 false
+  // （setTimeout callback 永不触发）。timedOut 变量可保留作 race tracing/语义注释，但
+  // 「if (timedOut) throw」是 dead branch。
   const cleaned = result.replace(/\s+/g, ' ').trim();
   return cleaned ? cleaned.slice(0, 120) : null;
 }
@@ -504,7 +574,7 @@ ${activity}
   // 60s 上限：sonnet + 200 events 通常 10-30s，60s 给 outliers 留余量。
   const timeoutMs = 60_000;
   let timeoutHandle: NodeJS.Timeout | null = null;
-  let timedOut = false;
+  // REVIEW_35 LOW-B3：删 `let timedOut + if (timedOut) throw` 死代码（同 summariseViaLlm）。
   const consumeLoop = (async () => {
     let result = '';
     for await (const msg of q) {
@@ -527,7 +597,6 @@ ${activity}
   try {
     const timer = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
-        timedOut = true;
         q.interrupt?.().catch(() => undefined);
         reject(new Error('__handoff_summary_timeout__'));
       }, timeoutMs);
@@ -536,9 +605,7 @@ ${activity}
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
   }
-  if (timedOut) {
-    throw new Error('__handoff_summary_timeout__');
-  }
+  // REVIEW_35 LOW-B3 镜像：同 summariseViaLlm 删 `if (timedOut) throw` 死代码。
   // K3 接力简报允许较长（4000 字 ≈ 1500 token，足够 4 节展开）；
   // 不去多余空白（保留 \n 换行让 textarea preview 直接渲染分段）。
   const cleaned = result.trim();

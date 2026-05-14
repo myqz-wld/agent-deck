@@ -6,6 +6,7 @@ import type {
   AgentDeckTeamMember,
   AgentDeckTeamMemberRole,
   AgentEvent,
+  AppSettings,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
   AssetContentResult,
@@ -14,6 +15,7 @@ import type {
   BundledAssetsSnapshot,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
+  FileChangeRecord,
   ImageSource,
   LoadImageBlobResult,
   PermissionRequest,
@@ -77,7 +79,7 @@ const api = {
     ipcRenderer.invoke(IpcInvoke.SessionDelete, id),
   listEvents: (id: string, limit?: number): Promise<AgentEvent[]> =>
     ipcRenderer.invoke(IpcInvoke.SessionListEvents, id, limit),
-  listFileChanges: (id: string): Promise<unknown[]> =>
+  listFileChanges: (id: string): Promise<FileChangeRecord[]> =>
     ipcRenderer.invoke(IpcInvoke.SessionListFileChanges, id),
   listSummaries: (id: string): Promise<SummaryRecord[]> =>
     ipcRenderer.invoke(IpcInvoke.SessionListSummaries, id),
@@ -116,8 +118,8 @@ const api = {
     ipcRenderer.invoke(IpcInvoke.HookStatus, scope, cwd),
 
   // 设置
-  getSettings: (): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.SettingsGet),
-  setSettings: (patch: Record<string, unknown>): Promise<unknown> =>
+  getSettings: (): Promise<AppSettings> => ipcRenderer.invoke(IpcInvoke.SettingsGet),
+  setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke(IpcInvoke.SettingsSet, patch),
 
   // Adapter
@@ -508,19 +510,15 @@ const api = {
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('api', api);
-    contextBridge.exposeInMainWorld('electronIpc', {
-      invoke: (channel: string, ...args: unknown[]): Promise<unknown> =>
-        ipcRenderer.invoke(channel, ...args),
-    });
+    // REVIEW_35 MED-B4: 删除 raw electronIpc.invoke(channel: string) 兜底通道。
+    // 该通道 0 个 renderer 消费方（grep 实证），让新增 channel 可绕过 AgentDeckApi 强类型 facade
+    // 是潜在反模式。HistoryPanel.tsx:56 注释也明确说「走 preload 强类型 facade 而非 ipcInvokeRaw」。
+    // 真未来需要动态 channel 时显式重新 export，避免长期保留死代码。
   } catch (e) {
     console.error(e);
   }
 } else {
   (window as unknown as { api: typeof api }).api = api;
-  (window as unknown as { electronIpc: unknown }).electronIpc = {
-    invoke: (channel: string, ...args: unknown[]): Promise<unknown> =>
-      ipcRenderer.invoke(channel, ...args),
-  };
 }
 
 export type AgentDeckApi = typeof api;

@@ -20,6 +20,7 @@ import { sessionManager } from '@main/session/manager';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { adapterRegistry } from '@main/adapters/registry';
+import { eventBus } from '@main/event-bus';
 import { getBundledAssetContent } from '@main/bundled-assets';
 import { sanitizeWireFieldName } from '@shared/wire-prefix';
 
@@ -292,6 +293,14 @@ export async function spawnSessionHandler(
           // plan team-cohesion-fix-20260513 Phase A：lead addMember 后触发 session-upserted
           // 让桥点 enrich teams[] → renderer 立即看到 lead 的 🛡 chip（不再等下一个 agent event）。
           sessionManager.notifyTeamMembershipChanged(caller.callerSessionId);
+          // REVIEW_35 MED-A7：emit `agent-deck-team-member-changed` 让 universal-message-watcher
+          // dispatcher 收到 → fan-out member-joined adapter event 给同 team active member。
+          // 修前 spawn / cli / ipc.adapters 三条路径只刷 UI 不通知 adapter chain。
+          eventBus.emit('agent-deck-team-member-changed', {
+            teamId: teamIdEarly,
+            sessionId: caller.callerSessionId,
+            kind: 'joined',
+          });
         } catch (e) {
           // 已 active 时 invariant 抛错；视为「已是 lead」幂等成功
           if (!(e instanceof TeamInvariantError)) throw e;
@@ -308,6 +317,12 @@ export async function spawnSessionHandler(
       // plan team-cohesion-fix-20260513 Phase A Step A7：teammate addMember 后同样触发 session-upserted
       // 让桥点 enrich teams[]（与 lead 路径对称）。
       sessionManager.notifyTeamMembershipChanged(sid);
+      // REVIEW_35 MED-A7：同 lead 路径补 emit 让 dispatcher 看到 teammate 加入。
+      eventBus.emit('agent-deck-team-member-changed', {
+        teamId: teamIdEarly,
+        sessionId: sid,
+        kind: 'joined',
+      });
       // plan team-cohesion-fix-20260513 Phase A Step A8：删 sessionManager.recordCreatedTeamName 调用
       // —— universal team backend addMember 已是 SSOT，不再写老 sessions.team_name 列；
       // v012 migration 后此列彻底 drop。
