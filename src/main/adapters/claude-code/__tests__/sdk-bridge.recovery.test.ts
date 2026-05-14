@@ -14,11 +14,16 @@
  *     避免本机 vitest 跑测试时 spawn 真 claude binary
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
+import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
+import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 
+// R37 P2-F Step 3.1：sessionRepo / sdk-loader / settings-store 走 _shared/mocks/ factory；
+// sessionRepo.get 用 vi.fn override 让 caller 在 beforeEach mockReset / mockReturnValue 切换 fixture。
 vi.mock('@main/store/session-repo', () => ({
-  sessionRepo: {
-    get: vi.fn(),
-  },
+  sessionRepo: makeSessionRepoMock({
+    overrides: { get: vi.fn() },
+  }),
 }));
 
 vi.mock('@main/store/event-repo', () => ({
@@ -28,12 +33,14 @@ vi.mock('@main/store/event-repo', () => ({
 }));
 
 vi.mock('@main/store/settings-store', () => ({
-  settingsStore: {
-    get: vi.fn((key: string) => {
-      if (key === 'autoSummariseOnFallback') return true;
-      return undefined;
-    }),
-  },
+  settingsStore: makeSettingsStoreMock({
+    overrides: {
+      get: vi.fn((key: string) => {
+        if (key === 'autoSummariseOnFallback') return true;
+        return undefined;
+      }),
+    },
+  }),
 }));
 
 vi.mock('@main/session/manager', () => ({
@@ -46,9 +53,7 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
-vi.mock('@main/adapters/claude-code/sdk-loader', () => ({
-  loadSdk: vi.fn(),
-}));
+vi.mock('@main/adapters/claude-code/sdk-loader', () => makeBareSdkLoaderMock());
 
 vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
   getSdkRuntimeOptions: () => ({ executable: 'node', env: {} }),

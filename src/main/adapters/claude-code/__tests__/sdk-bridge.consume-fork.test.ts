@@ -6,11 +6,14 @@
  * Mock 策略与 recovery sub-test 同款，hoisted vi.mock 必须每个文件独立写。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
+import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 
+// R37 P2-F Step 3.1：sessionRepo / sdk-loader 走 _shared/mocks/ factory。
 vi.mock('@main/store/session-repo', () => ({
-  sessionRepo: {
-    get: vi.fn(),
-  },
+  sessionRepo: makeSessionRepoMock({
+    overrides: { get: vi.fn() },
+  }),
 }));
 
 vi.mock('@main/session/manager', () => ({
@@ -23,9 +26,7 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
-vi.mock('@main/adapters/claude-code/sdk-loader', () => ({
-  loadSdk: vi.fn(),
-}));
+vi.mock('@main/adapters/claude-code/sdk-loader', () => makeBareSdkLoaderMock());
 
 vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
   getSdkRuntimeOptions: () => ({ executable: 'node', env: {} }),

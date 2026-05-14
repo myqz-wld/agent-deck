@@ -9,8 +9,13 @@
  * eventBus 三个 dep。
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { makeAgentDeckTeamRepoMock } from '@main/__tests__/_shared/mocks/agent-deck-team-repo';
+import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
+import { makeEventBusMock } from '@main/__tests__/_shared/mocks/event-bus';
+import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 
 // ─── Mock setup ─────────────────────────────────────────────────────────
+// R37 P2-F Step 3.1：5 类 mock 全走 _shared/mocks/ factory + override stateful 行为。
 
 interface FakeTeam {
   id: string;
@@ -34,39 +39,46 @@ let sessions: Map<string, FakeSession> = new Map();
 const archiveCalls: string[] = [];
 
 vi.mock('@main/store/agent-deck-team-repo', () => ({
-  agentDeckTeamRepo: {
-    list: (opts?: { activeOnly?: boolean; limit?: number; offset?: number }) => {
-      const all = opts?.activeOnly ? teams.filter((t) => t.archivedAt === null) : teams;
-      const offset = opts?.offset ?? 0;
-      const limit = opts?.limit ?? 200;
-      return all.slice(offset, offset + limit);
+  agentDeckTeamRepo: makeAgentDeckTeamRepoMock({
+    overrides: {
+      list: ((opts?: { activeOnly?: boolean; limit?: number; offset?: number }) => {
+        const all = opts?.activeOnly ? teams.filter((t) => t.archivedAt === null) : teams;
+        const offset = opts?.offset ?? 0;
+        const limit = opts?.limit ?? 200;
+        return all.slice(offset, offset + limit);
+      }) as unknown as AgentDeckTeamRepo['list'],
+      listActiveMembers: ((teamId: string) =>
+        teamMembers.get(teamId) ?? []) as unknown as AgentDeckTeamRepo['listActiveMembers'],
+      archive: ((teamId: string, _opts?: { reason?: string }) => {
+        archiveCalls.push(teamId);
+        const t = teams.find((x) => x.id === teamId);
+        if (!t) return null;
+        // 关键：模拟真实 archive 行为 — archived_at 从 NULL 变非 NULL，下次 list({activeOnly:true})
+        // 该 team 立刻消失。这正是 H4 漏扫的根因。
+        t.archivedAt = Date.now();
+        return t;
+      }) as unknown as AgentDeckTeamRepo['archive'],
     },
-    listActiveMembers: (teamId: string) => teamMembers.get(teamId) ?? [],
-    archive: (teamId: string, _opts: { reason: string }) => {
-      archiveCalls.push(teamId);
-      const t = teams.find((x) => x.id === teamId);
-      if (!t) return null;
-      // 关键：模拟真实 archive 行为 — archived_at 从 NULL 变非 NULL，下次 list({activeOnly:true})
-      // 该 team 立刻消失。这正是 H4 漏扫的根因。
-      t.archivedAt = Date.now();
-      return t;
-    },
-  },
+  }),
 }));
 
 vi.mock('@main/store/session-repo', () => ({
-  sessionRepo: {
-    get: (id: string) => sessions.get(id) ?? null,
-  },
+  sessionRepo: makeSessionRepoMock({
+    overrides: {
+      get: (id: string) => sessions.get(id) ?? null,
+    },
+  }),
 }));
 
 const emittedEvents: Array<{ channel: string; payload: unknown }> = [];
 vi.mock('@main/event-bus', () => ({
-  eventBus: {
-    emit: (channel: string, payload: unknown) => {
-      emittedEvents.push({ channel, payload });
+  eventBus: makeEventBusMock({
+    overrides: {
+      emit: (channel: string, payload: unknown) => {
+        emittedEvents.push({ channel, payload });
+      },
     },
-  },
+  }),
 }));
 
 // import after mocks

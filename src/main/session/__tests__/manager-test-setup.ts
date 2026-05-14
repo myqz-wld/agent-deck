@@ -1,5 +1,5 @@
 /**
- * SessionManager 单测共享 setup（CHANGELOG_52 / 第三轮大文件拆分 Step 1）。
+ * SessionManager 单测共享 setup（CHANGELOG_52 / 第三轮大文件拆分 Step 1；R37 P2-F Step 3.1 转 re-export）。
  *
  * 由 `manager-ingest.test.ts` / `manager-public-api.test.ts` / `manager-delete.test.ts`
  * 三个文件共用 mock Map 引用 + makeEvent helper + resetMocks。
@@ -10,10 +10,22 @@
  *
  * **factory 内引用 import 的 const 是安全的**：vi.mock factory 是 lazy execution，
  * 实际只在 mocked 模块第一次被加载时被调用，那时所有 import 都已经解析完毕。
+ *
+ * **R37 P2-F Step 3.1 转 re-export**：
+ * `makeSessionRepoMock` / `makeEventBusMock` / `makeAgentDeckTeamRepoMock` 移到
+ * `src/main/__tests__/_shared/mocks/` 让其他 test 也能复用。本文件包一层把 mockSessions /
+ * mockEmits 作为 external state 注入 shared factory，3 个 manager test 调用方签名不变。
+ * `makeEventRepoMock` / `makeFileChangeRepoMock` 保留本地（manager 系列独占，未达「3+ 文件复用」
+ * 阈值不抽到 _shared）。
  */
 import { vi } from 'vitest';
 import type { AgentEvent, SessionRecord } from '@shared/types';
-import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { makeSessionRepoMock as makeSessionRepoMockBase } from '@main/__tests__/_shared/mocks/session-repo';
+import { makeEventBusMock as makeEventBusMockBase } from '@main/__tests__/_shared/mocks/event-bus';
+
+export {
+  makeAgentDeckTeamRepoMock,
+} from '@main/__tests__/_shared/mocks/agent-deck-team-repo';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 模块级 mock 状态（每个 test 在 beforeEach 通过 resetMocks 重置）
@@ -93,52 +105,12 @@ export async function resetMocks(): Promise<void> {
 // 这样 4 段 vi.mock 调用必须各 test 文件重复一遍（hoist 约束），但 factory 体复用本 setup。
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function makeSessionRepoMock(): {
-  get: (id: string) => SessionRecord | null;
-  upsert: (rec: SessionRecord) => void;
-  setActivity: (id: string, activity: SessionRecord['activity'], ts: number) => void;
-  setLifecycle: (id: string, lifecycle: SessionRecord['lifecycle'], ts: number) => void;
-  setArchived: (id: string, ts: number | null) => void;
-  setPermissionMode: ReturnType<typeof vi.fn>;
-  delete: (id: string) => void;
-  listActiveAndDormant: () => SessionRecord[];
-  listHistory: () => SessionRecord[];
-  rename: ReturnType<typeof vi.fn>;
-} {
-  return {
-    get: (id) => mockSessions.get(id) ?? null,
-    upsert: (rec) => {
-      mockSessions.set(rec.id, rec);
-    },
-    setActivity: (id, activity, ts) => {
-      const r = mockSessions.get(id);
-      if (r) mockSessions.set(id, { ...r, activity, lastEventAt: ts });
-    },
-    setLifecycle: (id, lifecycle, ts) => {
-      const r = mockSessions.get(id);
-      if (r) {
-        mockSessions.set(id, {
-          ...r,
-          lifecycle,
-          endedAt: lifecycle === 'closed' ? ts : null,
-        });
-      }
-    },
-    setArchived: (id, ts) => {
-      const r = mockSessions.get(id);
-      if (r) mockSessions.set(id, { ...r, archivedAt: ts });
-    },
-    setPermissionMode: vi.fn(),
-    delete: (id) => {
-      mockSessions.delete(id);
-    },
-    listActiveAndDormant: () =>
-      [...mockSessions.values()].filter(
-        (s) => s.lifecycle !== 'closed' && s.archivedAt === null,
-      ),
-    listHistory: () => [],
-    rename: vi.fn(),
-  };
+/**
+ * 包一层 shared factory，注入 module-level mockSessions Map 作为 external state container。
+ * 3 个 manager test 调用方签名 `makeSessionRepoMock()` 保持不变（hoist 约束 + zero-arg API）。
+ */
+export function makeSessionRepoMock(): Record<string, unknown> {
+  return makeSessionRepoMockBase({ sessions: mockSessions });
 }
 
 export function makeEventRepoMock(): {
@@ -177,65 +149,9 @@ export function makeFileChangeRepoMock(): {
   };
 }
 
-export function makeEventBusMock(): {
-  emit: (name: string, payload: unknown) => void;
-  on: ReturnType<typeof vi.fn>;
-  off: ReturnType<typeof vi.fn>;
-} {
-  return {
-    emit: (name, payload) => {
-      mockEmits.push({ name, payload });
-    },
-    on: vi.fn(),
-    off: vi.fn(),
-  };
-}
-
 /**
- * REVIEW_31 测试修复：sessionManager.list / delete / markClosed / close 路径会调
- * agent-deck-team-repo 的 enrichWithTeamsBatch / findActiveMembershipsBySession /
- * findActiveMembershipsBySessionIds（v014 universal team backend 接入），三个 manager
- * test 文件原本只 mock 了 sessionRepo / eventRepo / fileChangeRepo / eventBus，所以这些
- * 路径走真 `defaultRepo() → getDb()` 时挂在「Database not initialized」。
- *
- * 本 mock 的所有方法都返回「无 team membership」结果（空数组 / null / 0），对 archive /
- * unarchive / reactivate / delete / ingest 主路径测试无语义影响 —— 那些测试不验证 team
- * 联动逻辑（已由 tools.test.ts / agent-deck-repos.test.ts 覆盖）。
- *
- * G 修（plan mcp-bug-and-feature-batch-20260513 Phase 2 Step 2.3）：补全所有 18 个 method
- * 让 mock 接口面与真 AgentDeckTeamRepo 100% 对齐（CHANGELOG_31 Bug 5 历史欠债）。
- * 修前只暴露 5 method，靠 short-circuit 不暴露 — 一旦未来 lead session 关联真实 membership
- * 触发未 mock 的 method（如 .get / .unarchive 在 H1 archive/unarchive 联动路径），test 直接挂。
- * 修后用 `AgentDeckTeamRepo` 强类型 import 兜底 — 真 repo 接口加 method 编译期强制提示。
- *
- * 用法（每个 test 文件顶部加）：
- *   vi.mock('@main/store/agent-deck-team-repo', () => ({
- *     agentDeckTeamRepo: makeAgentDeckTeamRepoMock(),
- *     TeamInvariantError: class extends Error {},  // sessionManager.delete 路径 catch 时引用
- *   }));
+ * 包一层 shared factory，注入 module-level mockEmits 数组作为 external state container。
  */
-export function makeAgentDeckTeamRepoMock(): AgentDeckTeamRepo {
-  return {
-    // ─── team CRUD ───
-    create: () => ({}) as ReturnType<AgentDeckTeamRepo['create']>,
-    ensureByName: () => ({}) as ReturnType<AgentDeckTeamRepo['ensureByName']>,
-    get: () => null,
-    getByActiveName: () => null,
-    getWithMembers: () => null,
-    list: () => [],
-    archive: () => null,
-    unarchive: () => null,
-    hardDelete: () => false,
-    // ─── member CRUD ───
-    addMember: () => ({}) as ReturnType<AgentDeckTeamRepo['addMember']>,
-    leaveTeam: () => null,
-    listActiveMembers: () => [],
-    listAllMembers: () => [],
-    findActiveMembershipIn: () => null,
-    findActiveMembershipsBySession: () => [],
-    findActiveMembershipsBySessionIds: () => new Map(),
-    findSharedActiveTeams: () => [],
-    countActiveLeads: () => 0,
-    setRole: () => null,
-  };
+export function makeEventBusMock(): Record<string, unknown> {
+  return makeEventBusMockBase({ emits: mockEmits });
 }

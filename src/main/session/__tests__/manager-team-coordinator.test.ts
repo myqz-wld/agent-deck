@@ -13,8 +13,12 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { AgentDeckTeam, AgentDeckTeamMember } from '@shared/types';
+import { makeAgentDeckTeamRepoMock } from '@main/__tests__/_shared/mocks/agent-deck-team-repo';
+import { makeEventBusMock } from '@main/__tests__/_shared/mocks/event-bus';
+import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 
 // ─── Mock setup ─────────────────────────────────────────────────────────
+// R37 P2-F Step 3.1：agent-deck-team-repo / event-bus 走 _shared/mocks/ factory + override。
 
 const leaveTeamCalls: Array<{ teamId: string; sessionId: string }> = [];
 const countActiveLeadsCalls: string[] = [];
@@ -26,33 +30,33 @@ let nextCountActiveLeads = 0;
 let nextArchiveResult: AgentDeckTeam | null = null;
 
 vi.mock('@main/store/agent-deck-team-repo', () => ({
-  agentDeckTeamRepo: {
-    findActiveMembershipsBySession: () => nextActiveMemberships,
-    leaveTeam: (teamId: string, sessionId: string) => {
-      leaveTeamCalls.push({ teamId, sessionId });
-      return null;
+  agentDeckTeamRepo: makeAgentDeckTeamRepoMock({
+    overrides: {
+      findActiveMembershipsBySession: () => nextActiveMemberships,
+      leaveTeam: ((teamId: string, sessionId: string) => {
+        leaveTeamCalls.push({ teamId, sessionId });
+        return null;
+      }) as AgentDeckTeamRepo['leaveTeam'],
+      countActiveLeads: (teamId: string) => {
+        countActiveLeadsCalls.push(teamId);
+        return nextCountActiveLeads;
+      },
+      archive: ((teamId: string, opts?: { reason?: string }) => {
+        archiveCalls.push({ teamId, reason: opts?.reason });
+        return nextArchiveResult;
+      }) as AgentDeckTeamRepo['archive'],
     },
-    countActiveLeads: (teamId: string) => {
-      countActiveLeadsCalls.push(teamId);
-      return nextCountActiveLeads;
-    },
-    archive: (teamId: string, opts?: { reason?: string }) => {
-      archiveCalls.push({ teamId, reason: opts?.reason });
-      return nextArchiveResult;
-    },
-    // 其他 method 不在本 helper 路径，留 stub
-    get: () => null,
-    unarchive: () => null,
-  },
+  }),
 }));
 
 vi.mock('@main/event-bus', () => ({
-  eventBus: {
-    emit: (name: string, payload: unknown) => {
-      emitCalls.push({ name, payload });
+  eventBus: makeEventBusMock({
+    overrides: {
+      emit: (name: string, payload: unknown) => {
+        emitCalls.push({ name, payload });
+      },
     },
-    on: () => () => {},
-  },
+  }),
 }));
 
 // import after mocks

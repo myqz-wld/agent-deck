@@ -13,8 +13,16 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { AgentDeckMessage } from '@shared/types';
+import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
+import { makeEventBusMock } from '@main/__tests__/_shared/mocks/event-bus';
+import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
+import { makeAgentDeckTeamRepoMock } from '@main/__tests__/_shared/mocks/agent-deck-team-repo';
+import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 
 // ─── Mock setup ─────────────────────────────────────────────────────────
+// R37 P2-F Step 3.1：sessionRepo / eventBus / settingsStore / agentDeckTeamRepo 走
+// _shared/mocks/ factory + override stateful 行为；agent-deck-message-repo + adapter-registry
+// 仍 inline（前者高度 stateful pending Map、后者本地路径专用，不在 5 类抽离范围）。
 
 const claimCalls: string[] = [];
 const markDeliveredCalls: Array<{ id: string; ts: number }> = [];
@@ -105,12 +113,14 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
 }));
 
 vi.mock('@main/store/session-repo', () => ({
-  sessionRepo: {
-    get: (id: string) => {
-      sessionRepoGetCalls.push(id);
-      return nextSessionResult;
+  sessionRepo: makeSessionRepoMock({
+    overrides: {
+      get: (id: string) => {
+        sessionRepoGetCalls.push(id);
+        return nextSessionResult;
+      },
     },
-  },
+  }),
 }));
 
 vi.mock('@main/adapters/registry', () => ({
@@ -124,33 +134,33 @@ vi.mock('@main/adapters/registry', () => ({
 }));
 
 vi.mock('@main/event-bus', () => ({
-  eventBus: {
-    emit: (channel: string, payload: { id?: string; status?: string }) => {
-      if (channel === 'agent-deck-message-status-changed' && payload.id) {
-        emitStatusCalls.push({ id: payload.id, status: payload.status ?? '' });
-      }
+  eventBus: makeEventBusMock({
+    overrides: {
+      emit: (channel: string, payload: { id?: string; status?: string }) => {
+        if (channel === 'agent-deck-message-status-changed' && payload.id) {
+          emitStatusCalls.push({ id: payload.id, status: payload.status ?? '' });
+        }
+      },
     },
-    on: () => () => {},
-  },
+  }),
 }));
 
 vi.mock('@main/store/settings-store', () => ({
-  settingsStore: { get: () => statefulMaxInflight },
+  settingsStore: makeSettingsStoreMock({ get: () => statefulMaxInflight }),
 }));
 
 const teamRepoListCalls: Array<{ activeOnly?: boolean; limit?: number; offset?: number }> = [];
 let teamRepoListResults: Array<{ id: string; archivedAt: number | null }> = [];
 
 vi.mock('@main/store/agent-deck-team-repo', () => ({
-  agentDeckTeamRepo: {
-    listAllMembers: () => [],
-    findActiveMembershipIn: () => null, // REVIEW_35 MED-A2: PK lookup 替代 listAllMembers 全表扫
-    list: (opts?: { activeOnly?: boolean; limit?: number; offset?: number }) => {
-      teamRepoListCalls.push(opts ?? {});
-      return teamRepoListResults;
+  agentDeckTeamRepo: makeAgentDeckTeamRepoMock({
+    overrides: {
+      list: ((opts?: { activeOnly?: boolean; limit?: number; offset?: number }) => {
+        teamRepoListCalls.push(opts ?? {});
+        return teamRepoListResults;
+      }) as AgentDeckTeamRepo['list'],
     },
-    listActiveMembers: () => [],
-  },
+  }),
 }));
 
 // import after mocks

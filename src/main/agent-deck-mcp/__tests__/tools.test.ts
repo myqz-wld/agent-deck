@@ -19,48 +19,42 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { SessionRecord, AgentDeckMessage } from '@shared/types';
+import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
+import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
+import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
+import { makeAgentDeckTeamRepoMock } from '@main/__tests__/_shared/mocks/agent-deck-team-repo';
+import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 
 // ─── Mock: sessionRepo / sessionManager / adapterRegistry ──────────────
-
-const sessionStore = new Map<string, SessionRecord>();
-const setSpawnLinkCalls: Array<{ id: string; parentId: string | null; depth: number }> = [];
-// REVIEW_31 Bug 4: spawn_session display_name fallback 链验证
-const setTitleCalls: Array<{ id: string; title: string }> = [];
+// R37 P2-F Step 3.1：sessionRepo / sdk-loader / settings-store / agent-deck-team-repo
+// 走 _shared/mocks/ factory；vi.hoisted 让 sessionStore 等 const 在 vi.mock factory
+// 调用前已初始化（factory immediate access 闭包外 const 撞 ReferenceError）。
+const { sessionStore, setSpawnLinkCalls, setTitleCalls } = vi.hoisted(() => ({
+  sessionStore: new Map<string, SessionRecord>(),
+  setSpawnLinkCalls: [] as Array<{ id: string; parentId: string | null; depth: number }>,
+  setTitleCalls: [] as Array<{ id: string; title: string }>,
+}));
 
 vi.mock('@main/store/session-repo', () => ({
-  sessionRepo: {
-    get: (id: string) => sessionStore.get(id) ?? null,
-    listActiveAndDormant: () => [...sessionStore.values()].slice(0, 100),
-    listHistory: () => [],
-    getSpawnDepth: (id: string) => sessionStore.get(id)?.spawnDepth ?? 0,
-    setSpawnLink: (id: string, parentId: string | null, depth: number) => {
-      setSpawnLinkCalls.push({ id, parentId, depth });
-      const r = sessionStore.get(id);
-      if (r) sessionStore.set(id, { ...r, spawnedBy: parentId, spawnDepth: depth });
+  sessionRepo: makeSessionRepoMock({
+    sessions: sessionStore,
+    overrides: {
+      // setSpawnLink / setTitle 被多处 test 断言调用 — 用 spy 包装记录调用 + 同步 stateful。
+      setSpawnLink: (id: string, parentId: string | null, depth: number) => {
+        setSpawnLinkCalls.push({ id, parentId, depth });
+        const r = sessionStore.get(id);
+        if (r) sessionStore.set(id, { ...r, spawnedBy: parentId, spawnDepth: depth });
+      },
+      setTitle: (id: string, title: string) => {
+        setTitleCalls.push({ id, title });
+        const r = sessionStore.get(id);
+        if (r) sessionStore.set(id, { ...r, title });
+      },
+      // listActiveAndDormant 默认按 lifecycle≠closed && archivedAt==null 过滤；本 test 之前
+      // 用 `slice(0, 100)` 全表（不过滤），这里保持原行为。
+      listActiveAndDormant: () => [...sessionStore.values()].slice(0, 100),
     },
-    setTitle: (id: string, title: string) => {
-      setTitleCalls.push({ id, title });
-      const r = sessionStore.get(id);
-      if (r) sessionStore.set(id, { ...r, title });
-    },
-    listAncestors: (id: string) => {
-      const out: SessionRecord[] = [];
-      let cursor = sessionStore.get(id);
-      const visited = new Set<string>([id]);
-      while (cursor && cursor.spawnedBy && !visited.has(cursor.spawnedBy)) {
-        visited.add(cursor.spawnedBy);
-        const parent = sessionStore.get(cursor.spawnedBy);
-        if (!parent) break;
-        out.push(parent);
-        cursor = parent;
-      }
-      return out;
-    },
-    listChildren: (parentId: string) =>
-      [...sessionStore.values()].filter(
-        (s) => s.spawnedBy === parentId && s.lifecycle === 'active',
-      ),
-  },
+  }),
 }));
 
 const closeCalls: string[] = [];
@@ -161,8 +155,8 @@ vi.mock('@main/adapters/registry', () => ({
 
 // SDK loader 必须 mock —— 真实 loader 会动态 import @anthropic-ai/claude-agent-sdk
 // 拉起底层 wasm，单测不需要实际 SDK
-vi.mock('@main/adapters/claude-code/sdk-loader', () => ({
-  loadSdk: async () => ({
+vi.mock('@main/adapters/claude-code/sdk-loader', () =>
+  makeSdkLoaderMock({
     tool: <Args>(name: string, description: string, inputSchema: Args, handler: (args: any, extra: unknown) => Promise<any>) => ({
       name,
       description,
@@ -170,25 +164,21 @@ vi.mock('@main/adapters/claude-code/sdk-loader', () => ({
       handler,
     }),
   }),
-}));
+);
 
 // settingsStore 走 electron-store / Electron app —— 测试环境拉不起来；
 // 这里仅给 mcpWaitReplyIdleQuietMs 默认值就够（其他 setting 测试不读）。
 vi.mock('@main/store/settings-store', () => ({
-  settingsStore: {
-    get: (key: string) => {
-      if (key === 'mcpWaitReplyIdleQuietMs') return 50; // 短一点让 idle 测试快返
-      if (key === 'mcpMessageRatePerTeamPerMin') return 9999; // 测试不限流
-      return undefined;
-    },
-    getAll: () => ({
+  settingsStore: makeSettingsStoreMock({
+    initial: {
       // spawn-guards 读这些字段；测试默认给宽松值不阻塞 spawn 测试
       mcpMaxSpawnDepth: 3,
       mcpMaxFanOutPerParent: 5,
       mcpSpawnRatePerMinute: 100, // 测试调高，避免 21 测试连环 spawn 触发限流
-      mcpWaitReplyIdleQuietMs: 50,
-    }),
-  },
+      mcpWaitReplyIdleQuietMs: 50, // 短一点让 idle 测试快返
+      mcpMessageRatePerTeamPerMin: 9999, // 测试不限流
+    },
+  }),
 }));
 
 // eventRepo backfill 单元用空数组（B'2.b backfill 行为在专门测试里覆盖）
@@ -221,59 +211,64 @@ const mockTeamMembers = new Map<string, Array<{ sessionId: string; role: string;
 const hardDeleteCalls: string[] = [];
 
 vi.mock('@main/store/agent-deck-team-repo', () => ({
-  agentDeckTeamRepo: {
-    ensureByName: (name: string) => ({
-      id: `team-${name}`,
-      name,
-      createdAt: Date.now(),
-      archivedAt: null,
-      metadata: {},
-    }),
-    addMember: (input: {
-      teamId: string;
-      sessionId: string;
-      role: 'lead' | 'teammate';
-      displayName: string | null;
-    }) => {
-      addMemberCalls.push(input);
-      // 同步追到 mockTeamMembers 让 listAllMembers 看见
-      const arr = mockTeamMembers.get(input.teamId) ?? [];
-      arr.push({ sessionId: input.sessionId, role: input.role, displayName: input.displayName });
-      mockTeamMembers.set(input.teamId, arr);
-      return {};
+  agentDeckTeamRepo: makeAgentDeckTeamRepoMock({
+    overrides: {
+      ensureByName: ((name: string) => ({
+        id: `team-${name}`,
+        name,
+        createdAt: Date.now(),
+        archivedAt: null,
+        archiveReason: null,
+        metadata: {},
+      })) as AgentDeckTeamRepo['ensureByName'],
+      addMember: ((input: {
+        teamId: string;
+        sessionId: string;
+        role: 'lead' | 'teammate';
+        displayName: string | null;
+      }) => {
+        addMemberCalls.push(input);
+        // 同步追到 mockTeamMembers 让 listAllMembers 看见
+        const arr = mockTeamMembers.get(input.teamId) ?? [];
+        arr.push({ sessionId: input.sessionId, role: input.role, displayName: input.displayName });
+        mockTeamMembers.set(input.teamId, arr);
+        return {};
+      }) as unknown as AgentDeckTeamRepo['addMember'],
+      findSharedActiveTeams: (a: string, b: string): string[] => {
+        const key = [a, b].sort().join(':');
+        return sharedTeamsBySession.get(key) ?? [];
+      },
+      // plan team-cohesion-fix-20260513 Phase A Step A2/A7：批量反查 (sessionManager.enrichWithTeamsBatch 用)
+      findActiveMembershipsBySessionIds: ((sids: string[]) => {
+        const map = new Map<string, Array<{ teamId: string; teamName: string; role: 'teammate'; joinedAt: number }>>();
+        for (const sid of sids) {
+          const memberships = mockMembershipsBySession.get(sid);
+          if (!memberships) continue;
+          map.set(
+            sid,
+            memberships.map((m) => ({
+              teamId: m.teamId,
+              teamName: mockTeamsById.get(m.teamId)?.name ?? '<unknown>',
+              role: 'teammate' as const,
+              joinedAt: Date.now(),
+            })),
+          );
+        }
+        return map;
+      }) as unknown as AgentDeckTeamRepo['findActiveMembershipsBySessionIds'],
+      findActiveMembershipsBySession: ((sid: string) =>
+        mockMembershipsBySession.get(sid) ?? []) as unknown as AgentDeckTeamRepo['findActiveMembershipsBySession'],
+      get: (teamId: string) => (mockTeamsById.get(teamId) ?? null) as ReturnType<AgentDeckTeamRepo['get']>,
+      // CHANGELOG_100 R2 fix (codex MED-2)
+      listAllMembers: ((teamId: string) =>
+        mockTeamMembers.get(teamId) ?? []) as unknown as AgentDeckTeamRepo['listAllMembers'],
+      hardDelete: (teamId: string) => {
+        hardDeleteCalls.push(teamId);
+        mockTeamMembers.delete(teamId);
+        return true;
+      },
     },
-    findSharedActiveTeams: (a: string, b: string): string[] => {
-      const key = [a, b].sort().join(':');
-      return sharedTeamsBySession.get(key) ?? [];
-    },
-    // plan team-cohesion-fix-20260513 Phase A Step A2/A7：批量反查 (sessionManager.enrichWithTeamsBatch 用)
-    findActiveMembershipsBySessionIds: (sids: string[]) => {
-      const map = new Map<string, Array<{ teamId: string; teamName: string; role: 'teammate'; joinedAt: number }>>();
-      for (const sid of sids) {
-        const memberships = mockMembershipsBySession.get(sid);
-        if (!memberships) continue;
-        map.set(
-          sid,
-          memberships.map((m) => ({
-            teamId: m.teamId,
-            teamName: mockTeamsById.get(m.teamId)?.name ?? '<unknown>',
-            role: 'teammate' as const,
-            joinedAt: Date.now(),
-          })),
-        );
-      }
-      return map;
-    },
-    findActiveMembershipsBySession: (sid: string) => mockMembershipsBySession.get(sid) ?? [],
-    get: (teamId: string) => mockTeamsById.get(teamId) ?? null,
-    // CHANGELOG_100 R2 fix (codex MED-2)
-    listAllMembers: (teamId: string) => mockTeamMembers.get(teamId) ?? [],
-    hardDelete: (teamId: string) => {
-      hardDeleteCalls.push(teamId);
-      mockTeamMembers.delete(teamId);
-      return true;
-    },
-  },
+  }),
   TeamInvariantError: class TeamInvariantError extends Error {},
 }));
 // plan team-cohesion-fix-20260513 Phase B / CHANGELOG_100：mock agent-deck-message-repo
