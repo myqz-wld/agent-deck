@@ -33,6 +33,14 @@ import { settingsStore } from '@main/store/settings-store';
 import { encodeClaudeProjectDir } from '@main/platform';
 import { AGENT_ID, MAX_MESSAGE_LENGTH, PLACEHOLDER_DEDUP_MS } from './constants';
 import { prependHistorySummary } from './recoverer-helpers';
+import {
+  buildCwdFallbackInfoText,
+  buildCwdFallbackSummarySkippedText,
+  buildCwdFallbackSummaryUsedText,
+  buildCwdMissingErrorText,
+  buildJsonlMissingSummarySkippedText,
+  buildJsonlMissingSummaryUsedText,
+} from './recoverer-messages';
 import type { SdkBridgeOptions, SdkSessionHandle } from './types';
 
 export interface RecovererCtx {
@@ -224,10 +232,7 @@ export class SessionRecoverer {
           agentId: AGENT_ID,
           kind: 'message',
           payload: {
-            text:
-              `⚠ 此会话的 cwd 已不存在: ${rec.cwd}\n` +
-              `应用尝试启发式 fallback (含 .claude/worktrees/ 路径反推 / 父目录 walk) 但未找到合适的替代目录。\n` +
-              `请新建会话;或如确认这条会话不再需要,可右键归档。`,
+            text: buildCwdMissingErrorText(rec.cwd),
             error: true,
           },
           ts: Date.now(),
@@ -250,26 +255,21 @@ export class SessionRecoverer {
       // `/Users/me/wt`，fallback 到 `/Users/me/elsewhere` 后能写 `/Users/me/elsewhere` 下任何
       // 内容）。让用户透明知情决策（如安全敏感请右键归档新建会话），而非黑盒静默扩大。
       // 仅 workspace-write 档需要提示（off 档无 sandbox / strict 档完全只读没扩大风险）。
-      const sandboxModeForWarn = rec.claudeCodeSandbox; // 透传值（与 createThunk 一致）
-      const needSandboxWarn = sandboxModeForWarn === 'workspace-write';
       this.ctx.emit({
         sessionId,
         agentId: AGENT_ID,
         kind: 'message',
         payload: {
-          text:
-            `⚠ 此会话的原 cwd 已不存在: ${rec.cwd}\n` +
-            `应用启发式 fallback 到: ${effectiveCwd}` +
-            (needSandboxWarn
-              ? `\n\n⚠ 沙盒边界已变化（workspace-write 档）：\n` +
-                `   原写权限范围: ${rec.cwd}（已不存在）\n` +
-                `   新写权限范围: ${effectiveCwd}（fallback 父目录，可能比原 worktree 范围大）\n` +
-                `   如安全敏感（怕 agent 写入超出原 worktree 的文件），请右键归档此会话 + 新建会话从干净 cwd 重启。`
-              : ''),
+          text: buildCwdFallbackInfoText({
+            badCwd: rec.cwd,
+            fallbackCwd: effectiveCwd,
+            sandboxMode: rec.claudeCodeSandbox,
+          }),
         },
         ts: Date.now(),
         source: 'sdk',
       });
+      const needSandboxWarn = rec.claudeCodeSandbox === 'workspace-write';
       console.warn(
         `[sdk-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}` +
           (needSandboxWarn ? ' (workspace-write sandbox.allowWrite boundary changed)' : ''),
@@ -379,10 +379,7 @@ export class SessionRecoverer {
                 agentId: AGENT_ID,
                 kind: 'message',
                 payload: {
-                  text:
-                    `⚠ 此会话的 CLI 内部对话历史(jsonl)已丢失: ${effectiveCwd}\n` +
-                    `应用通过 LLM 摘要自动注入了历史上下文(自 DB events 表),Claude 应能续上前情。\n` +
-                    `如答非所问,请下条消息补充关键背景。`,
+                  text: buildJsonlMissingSummaryUsedText(effectiveCwd),
                 },
                 ts: Date.now(),
                 source: 'sdk',
@@ -401,11 +398,7 @@ export class SessionRecoverer {
                 agentId: AGENT_ID,
                 kind: 'message',
                 payload: {
-                  text:
-                    `⚠ 此会话的 CLI 内部对话历史(jsonl)已丢失: ${effectiveCwd}\n` +
-                    `典型原因: 用户清理 ~/.claude/projects / 跨设备同步未带 jsonl / CLI 自身清理 / 应用重装。\n` +
-                    `应用 DB 的 SessionDetail 历史完整保留(本面板看到的对话仍在),但 Claude 这条新启动的 CLI ` +
-                    `不知前情。如要继续之前话题,请在下条消息里把背景再告诉它一次。`,
+                  text: buildJsonlMissingSummarySkippedText(effectiveCwd),
                 },
                 ts: Date.now(),
                 source: 'sdk',
@@ -425,9 +418,7 @@ export class SessionRecoverer {
                 agentId: AGENT_ID,
                 kind: 'message',
                 payload: {
-                  text:
-                    `应用通过 LLM 摘要自动注入了历史上下文(自 DB events 表),Claude 应能在新 cwd 续上前情。\n` +
-                    `如答非所问,请下条消息补充关键背景。`,
+                  text: buildCwdFallbackSummaryUsedText(),
                 },
                 ts: Date.now(),
                 source: 'sdk',
@@ -444,10 +435,7 @@ export class SessionRecoverer {
                 agentId: AGENT_ID,
                 kind: 'message',
                 payload: {
-                  text:
-                    `CLI 内部对话历史(jsonl)将丢失(原 cwd 编码下的 jsonl 在新 cwd 不可用)。\n` +
-                    `应用 DB 的 SessionDetail 历史完整保留,但 Claude 这条新启动的 CLI 不知前情。\n` +
-                    `如要继续之前话题,请在下条消息里把背景再告诉它一次。`,
+                  text: buildCwdFallbackSummarySkippedText(),
                 },
                 ts: Date.now(),
                 source: 'sdk',
