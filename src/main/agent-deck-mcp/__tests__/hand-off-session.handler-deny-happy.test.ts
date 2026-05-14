@@ -441,6 +441,98 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     // CHANGELOG_97：plan 解析失败 → 既不 spawn 也不归档（baton 还没出手）
     expect(mockArchive).not.toHaveBeenCalled();
   });
+
+  // REVIEW_37 R2 HIGH-1 修法（双方一致 ✅ 真 HIGH）：hand-off-session 必须在 spawn opts 透传
+  // batonRole='lead'，让新 session 在 team 内以 lead 角色加入。修前 spawn 把新 session 加成
+  // 'teammate' → caller archive 触发 archiveTeamsIfOrphaned → countActiveLeads=0 → team
+  // auto-archive → 残留 reviewer + 新 session 失去 active shared team → 后续 send_message
+  // 走 no-shared-team reject。本 case 防 regression：保护「baton 接管 lead」语义不丢。
+  it('REVIEW_37 R2 HIGH-1: spawn opts 第三参数必带 batonMode+batonRole=lead（让新 session 接管 lead 角色）', async () => {
+    const state = makeState();
+    const planId = 'baton-role-test';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    state.files.set(
+      planFilePath,
+      planContent({ planId, status: 'in_progress', baseBranch: 'main' }),
+    );
+
+    // mockSpawn 第三参数（opts）由 vi.fn 隐式收 — 通过 mock.calls[i][2] 断言
+    const mockSpawn = vi.fn(
+      async (
+        _args: SpawnSessionArgs,
+        _ctx: HandlerContext,
+        _opts?: { batonMode?: boolean; batonRole?: 'lead' | 'teammate' },
+      ): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: 'baton-newsid',
+              adapter: 'claude-code',
+              cwd: '/Users/test/repo',
+              teamId: 'team-X-id',
+              teamName: 'team-X',
+              spawnPromptMessageId: null,
+            }),
+          },
+        ],
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    // caller-sid 在 sessionRepo（让 archive 真被调用而非走 row missing）
+    const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+
+    // 带 team_name 的 baton（典型 baton 接管 lead 场景：plan 接力 + reviewer 续 team）
+    const args: HandOffSessionArgs = {
+      plan_id: planId,
+      adapter: 'claude-code',
+      team_name: 'team-X',
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      shutdownTeammates: noopShutdown,
+      implDeps: makeDeps(state),
+    });
+
+    expect(result.isError).toBeFalsy();
+
+    // 关键断言：spawn 调用第三参数含 batonMode=true + batonRole='lead'
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    const spawnOpts = mockSpawn.mock.calls[0]![2];
+    expect(spawnOpts).toBeDefined();
+    expect(spawnOpts?.batonMode).toBe(true);
+    expect(spawnOpts?.batonRole).toBe('lead');
+
+    // archive caller 仍被调（baton 完整 — spawn + archive caller）
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+
+    sessionRepoGetSpy.mockRestore();
+  });
 });
 
 // ─── REVIEW_36 HIGH-2 + HIGH-3: sandbox 透传 + 外置 worktree cwd 降级 ──────────
