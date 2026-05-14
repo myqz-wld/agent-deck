@@ -31,13 +31,21 @@ export function cleanCompactResult(raw: string, maxLen: number): string | null {
 }
 
 /**
- * 结构化简报清洗：仅 trim 首尾空白 + slice(maxLen)，**保留中间 \n**。
+ * 结构化简报清洗：仅 trim 首尾空白 + 可选 slice(maxLen)，**保留中间 \n**。
+ *
+ * **maxLen 可选 / undefined 不 slice**（REVIEW_37 R2 MED-1 修法 — codex handoff 旧版有意
+ * 不 slice，理由见 R37 base codex handoff commit message：「hand-off 简报 4 节通常 800-2000 字，
+ * 不像 30 字 tag-line 要 slice 到 120 char」codex 输出偶尔超 4000 char 截断会切断结构节）。
+ * 调用约束：
+ * - claude handoff: 传 4000（与 K3 旧版字面一致 — 给 sonnet outliers 留余量但仍兜底防超长）
+ * - codex handoff: 不传（恢复 a748af1 旧版「不限长度」的有意 trade-off）
  *
  * @param raw - LLM 原始输出
- * @param maxLen - 最大字符数（典型 4000 = 4 节模板 ~1500 token 输出留余量）
+ * @param maxLen - 最大字符数；undefined 不 slice（保留全文 trim 后）
  * @returns 清洗后字符串；raw 全空白 → null
  */
-export function cleanStructuredResult(raw: string, maxLen: number): string | null {
+export function cleanStructuredResult(raw: string, maxLen?: number): string | null {
   const cleaned = raw.trim();
-  return cleaned ? cleaned.slice(0, maxLen) : null;
+  if (!cleaned) return null;
+  return maxLen !== undefined ? cleaned.slice(0, maxLen) : cleaned;
 }

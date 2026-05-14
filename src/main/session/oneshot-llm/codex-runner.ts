@@ -28,6 +28,10 @@
  *
  * **codex SDK 没 q.interrupt() 等价物**：raceWithTimeout 不传 onTimeout，timer reject 后 codex
  * 子进程仍后台跑，最终被 codex SDK 进程退出回收（对 hand-off / summarize 一次性触发场景无副作用）。
+ *
+ * **race scope**（REVIEW_37 R2 MED-1 修法）：包整个 oneshot 流程（getCodexInstance + startThread
+ * + thread.run），而非只 thread.run。修前 SDK init 卡住时 caller inFlight 不释放（旧 caller 端
+ * race 整个 promise 无此问题）。修后行为与 P2-H 抽 helper 前等价。
  */
 import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import { raceWithTimeout } from './race-with-timeout';
@@ -52,22 +56,30 @@ export async function runCodexOneshot(opts: {
   /** Timer 触发 reject 的 errorMessage（caller 区分 summarize / handoff）。 */
   timeoutErrorMessage: string;
 }): Promise<string> {
-  const codex = await getCodexInstance();
-
-  const thread = codex.startThread({
-    workingDirectory: opts.cwd || process.cwd(),
-    sandboxMode: 'read-only',
-    approvalPolicy: 'never',
-    skipGitRepoCheck: true,
-    modelReasoningEffort: opts.modelReasoningEffort,
-  });
-
-  const codexPromise = thread.run(opts.prompt);
-
+  // REVIEW_37 R2 MED-1 修法：timeout race 必须包整个 oneshot 流程（getCodexInstance +
+  // startThread + thread.run），而非只 thread.run。修前 getCodexInstance / startThread 卡住
+  // 时不受 timeout 保护 → caller 端 inFlight 不释放（旧 caller 端 race 整个
+  // summariseCodexSessionViaOneshot promise）。修后行为与 R37 P2-H 抽 helper 前的 caller
+  // 端 race 字面等价 — race scope 覆盖整个 SDK init + run 链路。
+  //
   // codex SDK 没 q.interrupt() 等价物 — race 输 → codex 子进程仍后台跑 → 等 codex SDK 进
   // 程退出回收（一次性 oneshot 触发场景不影响 inFlight，应用层 finally 已 .delete(s.id)）。
+  const work = (async () => {
+    const codex = await getCodexInstance();
+
+    const thread = codex.startThread({
+      workingDirectory: opts.cwd || process.cwd(),
+      sandboxMode: 'read-only',
+      approvalPolicy: 'never',
+      skipGitRepoCheck: true,
+      modelReasoningEffort: opts.modelReasoningEffort,
+    });
+
+    return thread.run(opts.prompt);
+  })();
+
   const result = await raceWithTimeout({
-    work: codexPromise,
+    work,
     timeoutMs: opts.timeoutMs,
     errorMessage: opts.timeoutErrorMessage,
   });
