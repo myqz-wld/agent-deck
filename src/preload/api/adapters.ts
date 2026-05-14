@@ -1,0 +1,136 @@
+/**
+ * preload/api/adapters: Adapter 通道相关 IPC facade。
+ *
+ * 包含会话生命周期（create / interrupt）、消息发送、3 类 pending request 响应
+ * （permission / askUserQuestion / exitPlanMode）、permission mode 切换、Codex 与
+ * Claude 双沙盒冷切，以及 pending request 列表拉取。
+ */
+
+import { ipcRenderer } from 'electron';
+import { IpcInvoke } from '@shared/ipc-channels';
+import type {
+  AskUserQuestionAnswer,
+  AskUserQuestionRequest,
+  ExitPlanModeRequest,
+  ExitPlanModeResponse,
+  PermissionRequest,
+  PermissionResponse,
+  UploadedAttachmentInput,
+} from '@shared/types';
+
+export const adaptersApi = {
+  // Adapter
+  listAdapters: (): Promise<{ id: string; displayName: string; capabilities: Record<string, boolean> }[]> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterList),
+  createAdapterSession: (agentId: string, opts: Record<string, unknown>): Promise<string> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterCreateSession, agentId, opts),
+  interruptAdapterSession: (agentId: string, sessionId: string): Promise<void> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterInterrupt, agentId, sessionId),
+  sendAdapterMessage: (
+    agentId: string,
+    sessionId: string,
+    payload: string | { text: string; attachments?: UploadedAttachmentInput[] },
+  ): Promise<void> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterSendMessage, agentId, sessionId, payload),
+  respondPermission: (
+    agentId: string,
+    sessionId: string,
+    requestId: string,
+    response: PermissionResponse,
+  ): Promise<void> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterRespondPermission, agentId, sessionId, requestId, response),
+  respondAskUserQuestion: (
+    agentId: string,
+    sessionId: string,
+    requestId: string,
+    answer: AskUserQuestionAnswer,
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterRespondAskUserQuestion,
+      agentId,
+      sessionId,
+      requestId,
+      answer,
+    ),
+  respondExitPlanMode: (
+    agentId: string,
+    sessionId: string,
+    requestId: string,
+    response: ExitPlanModeResponse,
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterRespondExitPlanMode,
+      agentId,
+      sessionId,
+      requestId,
+      response,
+    ),
+  setAdapterPermissionMode: (
+    agentId: string,
+    sessionId: string,
+    mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
+  ): Promise<void> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterSetPermissionMode, agentId, sessionId, mode),
+
+  /**
+   * Codex 专属冷切（CHANGELOG_<X> A2b）：销毁旧 codex thread + 用新 sandbox 档位
+   * resume 重建。adapter 必须 capabilities.canRestartWithCodexSandbox === true，
+   * handoffPrompt 必须非空（codex SDK runStreamed 协议约束）。
+   * 失败时主进程已 emit error message + 回滚 sessionRepo.codexSandbox，本接口仅 throw 让 UI catch。
+   */
+  restartWithCodexSandbox: (
+    agentId: string,
+    sessionId: string,
+    sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
+    handoffPrompt: string,
+  ): Promise<string> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterRestartWithCodexSandbox,
+      agentId,
+      sessionId,
+      sandbox,
+      handoffPrompt,
+    ),
+
+  /**
+   * Claude Code OS 沙盒冷切（CHANGELOG_74）：与 restartWithCodexSandbox 字面镜像。
+   * SDK 的 sandbox options 是 query() spawn-time 锁定，运行时切档必须冷切（销毁旧 SDK
+   * 子进程 + 用新档位 createSession resume 重建）。adapter 必须
+   * capabilities.canRestartWithClaudeCodeSandbox === true。失败回滚 sessionRepo.claudeCodeSandbox。
+   */
+  restartWithClaudeCodeSandbox: (
+    agentId: string,
+    sessionId: string,
+    sandbox: 'off' | 'workspace-write' | 'strict',
+    handoffPrompt: string,
+  ): Promise<string> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterRestartWithClaudeCodeSandbox,
+      agentId,
+      sessionId,
+      sandbox,
+      handoffPrompt,
+    ),
+
+  /** 拉取主进程 SDK 当前还在等的 pending 请求；renderer HMR / 重启后用来重建 store。 */
+  listAdapterPending: (
+    agentId: string,
+    sessionId: string,
+  ): Promise<{
+    permissions: PermissionRequest[];
+    askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
+  }> => ipcRenderer.invoke(IpcInvoke.AdapterListPending, agentId, sessionId),
+  listAdapterPendingAll: (
+    agentId: string,
+  ): Promise<
+    Record<
+      string,
+      {
+        permissions: PermissionRequest[];
+        askQuestions: AskUserQuestionRequest[];
+        exitPlanModes: ExitPlanModeRequest[];
+      }
+    >
+  > => ipcRenderer.invoke(IpcInvoke.AdapterListPendingAll, agentId),
+};
