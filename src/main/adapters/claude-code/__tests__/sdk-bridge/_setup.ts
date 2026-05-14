@@ -38,6 +38,12 @@ export class TestBridge extends ClaudeSdkBridge {
    * findFallbackCwd 私有方法。
    */
   public cwdExistsOverride: boolean | Map<string, boolean> = true;
+  /**
+   * CHANGELOG_107: LLM 摘要 mock。默认 null 让 Step 2 helper 集成后 prependHistorySummary
+   * 走 fallback 路径(不 prepend 摘要),不破现有 9 case 行为。Step 6 新加的「摘要成功」
+   * case 显式覆盖返回字符串验证 prepend 路径。
+   */
+  public summariseOverride: string | null = null;
 
   override async createSession(opts: {
     cwd: string;
@@ -75,6 +81,18 @@ export class TestBridge extends ClaudeSdkBridge {
   protected cwdExists(cwd: string): boolean {
     if (typeof this.cwdExistsOverride === 'boolean') return this.cwdExistsOverride;
     return this.cwdExistsOverride.get(cwd) ?? false;
+  }
+
+  /**
+   * CHANGELOG_107 LLM 摘要 test seam(同 resumeJsonlExists / cwdExists 模式)。
+   * 默认 null 让 Step 2 集成后 prependHistorySummary 走 skip 路径(不 prepend),
+   * 不破现有 9 case;Step 6 新加 case 显式覆盖 summariseOverride 验证 prepend 行为。
+   */
+  protected async summariseForHandOff(
+    _cwd: string,
+    _events: AgentEvent[],
+  ): Promise<string | null> {
+    return this.summariseOverride;
   }
 }
 

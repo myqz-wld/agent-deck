@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AgentEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
   ExitPlanModeRequest,
@@ -16,6 +17,7 @@ import {
   getAgentDeckSystemPromptAppend,
 } from '@main/adapters/claude-code/sdk-injection';
 import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
+import { summariseSessionForHandOff } from '@main/session/summarizer/llm-runners';
 // CHANGELOG_52 Step 3a-3g + CHANGELOG_85 Step 3.2：拆 class 完成。本目录（sdk-bridge/）
 // 含 11 个 sub-module + index.ts (facade)。
 //
@@ -112,12 +114,15 @@ export class ClaudeSdkBridge {
     // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
     // attachments 透传 sendMessage 第三参（HIGH-1：避免 inflight 第二条等待者丢图）。
     // CHANGELOG_99：cwdExists thunk 也走 facade extend override 模式(同 resumeJsonlExists)
+    // CHANGELOG_107: summariseFn thunk 同款 facade extend override 模式,默认实现 =
+    // summariseSessionForHandOff,Step 2 起 prependHistorySummary helper 调它。
     this.recoverer = new SessionRecoverer(
       { recovering: this.recovering, emit: opts.emit },
       (createOpts) => this.createSession(createOpts),
       (sid, text, attachments) => this.sendMessage(sid, text, attachments),
       (cwd, sid) => this.resumeJsonlExists(cwd, sid),
       (cwd) => this.cwdExists(cwd),
+      (cwd, events) => this.summariseForHandOff(cwd, events),
     );
 
     this.streamProcessor = new StreamProcessor({ sessions: this.sessions, emit: opts.emit });
@@ -364,6 +369,21 @@ export class ClaudeSdkBridge {
    */
   protected cwdExists(cwd: string): boolean {
     return defaultCwdExists(cwd);
+  }
+
+  /**
+   * CHANGELOG_107: LLM 摘要 protected wrapper(同 resumeJsonlExists / cwdExists 模式)。
+   *
+   * 让 test 通过子类化 override 不调真 LLM(撞 OAuth / 计费 / DB 未 init);实际走
+   * module-level `summariseSessionForHandOff`(sonnet + 60s timeout + 4 节结构化输出)。
+   *
+   * recoverer 拿这个 thunk 在 jsonl missing fallback / cwdFellBack=true 路径前生成
+   * 摘要 prepend 到 fresh CLI 首条 prompt(Step 2 prependHistorySummary helper)。
+   *
+   * 失败语义参见 SummariseFnThunk type jsdoc。
+   */
+  protected summariseForHandOff(cwd: string, events: AgentEvent[]): Promise<string | null> {
+    return summariseSessionForHandOff(cwd, events);
   }
 
   // CHANGELOG_52 Step 3b：6 respond/list 方法 + 3 timeout 方法迁到 PermissionResponder。
