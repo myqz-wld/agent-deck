@@ -14,10 +14,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentEvent } from '@shared/types';
+import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 
-vi.mock('@main/adapters/claude-code/sdk-loader', () => ({
-  loadSdk: vi.fn(),
-}));
+// R37 P2-F Step 3.1：sdk-loader 走 _shared/mocks/ factory（bare 版让 caller mockResolvedValue）。
+vi.mock('@main/adapters/claude-code/sdk-loader', () => makeBareSdkLoaderMock());
 
 vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
   getSdkRuntimeOptions: () => ({ executable: 'node', env: {} }),

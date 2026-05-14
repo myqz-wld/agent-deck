@@ -9,43 +9,31 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { SessionRecord } from '@shared/types';
+import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
+import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 
-const sessionStore = new Map<string, SessionRecord>();
-
-vi.mock('@main/store/session-repo', () => ({
-  sessionRepo: {
-    get: (id: string) => sessionStore.get(id) ?? null,
-    getSpawnDepth: (id: string) => sessionStore.get(id)?.spawnDepth ?? 0,
-    listAncestors: (id: string) => {
-      const out: SessionRecord[] = [];
-      let cursor = sessionStore.get(id);
-      const visited = new Set<string>([id]);
-      while (cursor && cursor.spawnedBy && !visited.has(cursor.spawnedBy)) {
-        visited.add(cursor.spawnedBy);
-        const parent = sessionStore.get(cursor.spawnedBy);
-        if (!parent) break;
-        out.push(parent);
-        cursor = parent;
-      }
-      return out;
-    },
-    listChildren: (parentId: string) =>
-      [...sessionStore.values()].filter(
-        (s) => s.spawnedBy === parentId && s.lifecycle === 'active',
-      ),
+// R37 P2-F Step 3.1：sessionRepo / settingsStore 走 _shared/mocks/ factory；
+// vi.hoisted 让 sessionStore Map 在 vi.mock factory 调用前已初始化（vitest hoist 后
+// vi.mock 求值时直接 access module-level const 会撞 ReferenceError）。
+const { sessionStore, settingsState } = vi.hoisted(() => ({
+  sessionStore: new Map<string, SessionRecord>(),
+  settingsState: {
+    mcpMaxSpawnDepth: 3,
+    mcpMaxFanOutPerParent: 5,
+    mcpSpawnRatePerMinute: 100,
   },
 }));
 
-const settingsState = {
-  mcpMaxSpawnDepth: 3,
-  mcpMaxFanOutPerParent: 5,
-  mcpSpawnRatePerMinute: 100,
-};
+vi.mock('@main/store/session-repo', () => ({
+  sessionRepo: makeSessionRepoMock({ sessions: sessionStore }),
+}));
 
 vi.mock('@main/store/settings-store', () => ({
-  settingsStore: {
-    getAll: () => ({ ...settingsState }),
-  },
+  settingsStore: makeSettingsStoreMock({
+    overrides: {
+      getAll: () => ({ ...settingsState }),
+    },
+  }),
 }));
 
 import { applySpawnGuards } from '../spawn-guards';

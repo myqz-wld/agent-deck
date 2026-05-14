@@ -15,38 +15,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskRecord } from '@shared/types';
 import type { TaskRepo } from '@main/store/task-repo';
+import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
+import { makeEventBusMock } from '@main/__tests__/_shared/mocks/event-bus';
 
 // ──────────────── module mocks ────────────────
-// loadSdk: 返回一个 fake 的 tool 函数，签名同 SDK 真 tool()，return 透明 SdkMcpToolDefinition
-// （annotations 字段对齐真 SDK 的 SdkMcpToolDefinition 形状：annotations 直接挂在
-// 顶层，extras 不暴露）
-vi.mock('@main/adapters/claude-code/sdk-loader', () => ({
-  loadSdk: async () => ({
-    tool: (
-      name: string,
-      description: string,
-      inputSchema: unknown,
-      handler: (args: unknown, extra: unknown) => Promise<unknown>,
-      extras?: { annotations?: Record<string, unknown> },
-    ) => ({
-      name,
-      description,
-      inputSchema,
-      handler,
-      ...(extras?.annotations ? { annotations: extras.annotations } : {}),
-    }),
-  }),
-}));
+// R37 P2-F Step 3.1：sdk-loader / event-bus 走 _shared/mocks/ factory。
+vi.mock('@main/adapters/claude-code/sdk-loader', () => makeSdkLoaderMock());
 
 // event-bus: emit 变成 spy 函数
 const emitSpy = vi.fn();
 vi.mock('@main/event-bus', () => ({
-  eventBus: {
-    emit: (...args: unknown[]) => emitSpy(...args),
-    on: vi.fn(),
-    off: vi.fn(),
-    removeAllListeners: vi.fn(),
-  },
+  eventBus: makeEventBusMock({
+    overrides: {
+      emit: (...args: unknown[]) => emitSpy(...args),
+    },
+  }),
 }));
 
 // session/manager: ingest 变成 spy（CHANGELOG_<X> A3：tools.ts 写操作后调 ingest
