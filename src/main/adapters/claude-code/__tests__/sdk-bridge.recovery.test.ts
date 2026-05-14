@@ -220,6 +220,21 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       ((e.payload as { text?: string }).text ?? '').includes('正在自动恢复'),
     );
     expect(placeholders).toHaveLength(1);
+
+    // CHANGELOG_106 bug fix:jsonl missing 路径必须 emit info message 告诉用户
+    // 「CLI 历史已丢失,Claude 不知前情,需重新告知背景」— 否则 SessionDetail 看完整历史
+    // + Claude 答非所问 = 用户问「你是不是没有历史会话信息了」(实测用户报)。与 cwdFellBack
+    // 路径(已 emit `启发式 fallback 到`)对称。
+    const jsonlLostInfo = emits.filter((e) => {
+      const p = e.payload as { text?: string; error?: boolean };
+      return (p.text ?? '').includes('CLI 内部对话历史(jsonl)已丢失');
+    });
+    expect(jsonlLostInfo).toHaveLength(1);
+    expect(jsonlLostInfo[0].sessionId).toBe('sess-no-jsonl');
+    // info 性质,不打 error: true(与 cwdFellBack 路径一致;打 error 时间线像系统崩误导用户)
+    expect((jsonlLostInfo[0].payload as { error?: boolean }).error).not.toBe(true);
+    // 关键文案断言:「请...再告诉它一次」让用户知道下条消息要补充背景
+    expect((jsonlLostInfo[0].payload as { text: string }).text).toMatch(/再告诉它一次|背景/);
   });
 
   // ─── CHANGELOG_99 cwd 失效启发式 fallback ────────────────────────────
