@@ -56,6 +56,10 @@ import {
   type HandOffSessionDeps,
 } from './hand-off-session-impl';
 import { spawnSessionHandler } from './spawn';
+import {
+  shutdownTeammatesOnBaton,
+  type ShutdownTeammatesResult,
+} from './shutdown-teammates-on-baton';
 
 /**
  * 测试 inject seam：默认调真 spawnSessionHandler / sessionManager.archive；test 通过
@@ -75,6 +79,8 @@ export interface HandOffSessionHandlerDeps {
    * 新 spawn 的 createSession 路径)。
    */
   cwdExists?: (path: string) => boolean;
+  /** CHANGELOG_106：teammate shutdown helper 的 test seam（与 archive_plan 同款） */
+  shutdownTeammates?: (callerSessionId: string) => Promise<ShutdownTeammatesResult>;
 }
 
 /**
@@ -247,7 +253,36 @@ export async function handOffSessionHandler(
     );
   }
 
-  // 5. CHANGELOG_97：自动归档 caller session（baton 语义 = 原会话退出，新会话独立接手）。
+  // 5. CHANGELOG_106：先 shutdown 同 team 内其他 active teammate(default,可 keep_teammates 关)。
+  // 时序必须**先 helper 后 archive caller**(同 archive_plan,详 archive-plan.ts 同段注释)。
+  //
+  // baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex
+  // 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。caller 显式传 team_name 让
+  // 新 session 接管 lead 角色时 → 应传 keep_teammates=true 让原 teammate 留给新 lead 继续用。
+  let teammatesShutdown: ShutdownTeammatesResult = {
+    closed: [],
+    failed: [],
+    skipped: 'caller-not-lead',
+  };
+  if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
+    if (args.keep_teammates === true) {
+      teammatesShutdown = { closed: [], failed: [], skipped: 'keep-teammates' };
+    } else {
+      const shutdownFn = handlerDeps?.shutdownTeammates ?? shutdownTeammatesOnBaton;
+      try {
+        teammatesShutdown = await shutdownFn(caller.callerSessionId);
+      } catch (e) {
+        console.warn(
+          `[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller ${caller.callerSessionId}:`,
+          e,
+        );
+        // 兜底:helper 自身炸 → archive caller 仍走,只是 closed=[] + skipped=null
+        teammatesShutdown = { closed: [], failed: [], skipped: null };
+      }
+    }
+  }
+
+  // 6. CHANGELOG_97：自动归档 caller session（baton 语义 = 原会话退出，新会话独立接手）。
   // external caller 不在 sessions 表（已被 denyExternalIfNotAllowed 拦下，理论不会到这里；
   // 防御性双保险）。失败仅 console.warn 不阻塞 K2 成功 return（caller 至少能拿到 newSid）。
   // Phase A5 / R1 deep review *未验证* #1 升级：把 archive 结果放到 ok return.archived
@@ -307,6 +342,14 @@ export async function handOffSessionHandler(
      */
     ignoredFields: resolved.ignoredFields,
     archived, // Phase A5：'ok' = 归档成功 / 'failed' = warn-only 不阻塞 / 'skipped' = external caller
+    /**
+     * CHANGELOG_106：teammate shutdown 详情(与 archive_plan 同款)。
+     * - closed: 成功 close 的 teammate sid 列表
+     * - failed: close 失败的 teammate(含 reason),warn 不阻塞 ok return
+     * - skipped: 'keep-teammates'(caller 显式传) / 'caller-not-lead'(caller 不是 lead) /
+     *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
+     */
+    teammatesShutdown,
     // 透传 spawn_session 字段（兼容 spawn 调用方）
     ...spawnData,
   });

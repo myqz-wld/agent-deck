@@ -208,6 +208,13 @@ export const ARCHIVE_PLAN_SCHEMA = {
     .describe(
       'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（archive_plan 不允许 external caller）。',
     ),
+  // CHANGELOG_106：default shutdown caller 是 lead 的 team 内其他 active teammate
+  keep_teammates: z
+    .boolean()
+    .optional()
+    .describe(
+      'Default false (即 default shutdown caller=lead 同 team 其他 active teammate)。plan 完成 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。**仅当 caller 在该 team 是 lead 才 shutdown 同 team 其他成员**(caller 是 teammate 时罕见 baton 不牵连他人);单个 close 失败 warn 不阻塞;helper 自身炸亦 warn 不阻塞 caller archive。Pass `keep_teammates: true` 跳过(罕见: lead 想保留 reviewer 给后续会话继续用,或新 session 显式继承 team 接管 lead 角色)。Detail 见 ok return.teammatesShutdown 字段:{ closed: string[], failed: Array<{sessionId, reason}>, skipped: "caller-not-lead" | "keep-teammates" | null }。',
+    ),
 };
 
 // plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：hand_off_session tool —
@@ -307,6 +314,13 @@ export const HAND_OFF_SESSION_SCHEMA = {
       'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（hand_off_session 不允许 external caller）。',
     ),
   parent_session_id: z.string().min(1).max(128).optional(),
+  // CHANGELOG_106：default shutdown caller 是 lead 的 team 内其他 active teammate(同 archive_plan 同款语义)
+  keep_teammates: z
+    .boolean()
+    .optional()
+    .describe(
+      'Default false (即 default shutdown caller=lead 同 team 其他 active teammate)。baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。**仅当 caller 在该 team 是 lead 才 shutdown 同 team 其他成员**(caller 是 teammate 时罕见 baton 不牵连他人);单个 close 失败 warn 不阻塞;helper 自身炸亦 warn 不阻塞 caller archive。Pass `keep_teammates: true` 跳过(典型: 显式传 team_name 让新 session 继承 team 接管 lead 角色)。Detail 见 ok return.teammatesShutdown 字段:{ closed: string[], failed: Array<{sessionId, reason}>, skipped: "caller-not-lead" | "keep-teammates" | null }。',
+    ),
 };
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;

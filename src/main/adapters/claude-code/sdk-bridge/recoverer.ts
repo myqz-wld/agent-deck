@@ -273,6 +273,32 @@ export class SessionRecoverer {
               `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${effectiveCwd}, ` +
                 `falling back to new CLI session (CLI history lost but app DB preserved)`,
             );
+            // CHANGELOG_106 bug fix:对称化 cwdFellBack=true 路径(L161-194)— jsonl missing
+            // 也是「CLI 历史失但应用层 DB 历史保留」的 fresh CLI 路径,必须 emit 告诉用户,
+            // 否则 SessionDetail 看到完整历史 + Claude 答非所问 = 用户问「你是不是没有
+            // 历史会话信息了」(实测用户报)。原版只 console.warn 用户看不到;cwdFellBack
+            // 路径已 emit 同款警告,本路径补齐让两个 fallback 分支 UX 一致。
+            //
+            // 触发时机:dormant session 唤醒发消息 → recoverAndSend → cwd 仍在但 jsonl 缺
+            // (典型: 用户清 ~/.claude/projects / 跨设备同步漏 jsonl / CLI 自己清理 / 应用
+            // 重装 jsonl 没带过来)。
+            //
+            // 用 info 性质(不打 error: true)— 与 cwdFellBack 路径一致,因为这是设计内的
+            // graceful 兜底;打 error 会让时间线像系统崩,误导。
+            this.ctx.emit({
+              sessionId,
+              agentId: AGENT_ID,
+              kind: 'message',
+              payload: {
+                text:
+                  `⚠ 此会话的 CLI 内部对话历史(jsonl)已丢失: ${effectiveCwd}\n` +
+                  `典型原因: 用户清理 ~/.claude/projects / 跨设备同步未带 jsonl / CLI 自身清理 / 应用重装。\n` +
+                  `应用 DB 的 SessionDetail 历史完整保留(本面板看到的对话仍在),但 Claude 这条新启动的 CLI ` +
+                  `不知前情。如要继续之前话题,请在下条消息里把背景再告诉它一次。`,
+              },
+              ts: Date.now(),
+              source: 'sdk',
+            });
           }
           // REVIEW_7 H1：直接用 createSession 返回值拿 newRealId，不再 entries() 反查 cwd。
           // 旧版用 `for ... entries() if cwd === rec.cwd break` 取 first 推断「最新创建的」，

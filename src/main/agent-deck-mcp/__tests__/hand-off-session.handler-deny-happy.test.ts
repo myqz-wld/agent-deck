@@ -39,6 +39,14 @@ describe('handOffSessionHandler — deny external caller', () => {
 });
 
 describe('handOffSessionHandler — happy path with mock spawn', () => {
+  // CHANGELOG_106:noop shutdownTeammates seam,让本 describe 6 case 不撞 DB 未 init
+  // (CHANGELOG_97/98 case 范围与 teammate shutdown 无关,但 handler 集成 helper 后默认走
+  // 真 helper 会调 agentDeckTeamRepo 撞 DB)
+  const noopShutdown = vi.fn(async (_callerSid: string) => ({
+    closed: [],
+    failed: [],
+    skipped: 'caller-not-lead' as const,
+  }));
   it('调 spawn handler + 透传 K2 metadata + 透传 spawn 字段 + 归档 caller', async () => {
     const state = makeState();
     const planId = 'happy-plan';
@@ -118,6 +126,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
+      // CHANGELOG_106:noop shutdownTeammates 防默认 helper 撞 DB 未 init 噪音
+      shutdownTeammates: noopShutdown,
       implDeps: makeDeps(state),
     });
 
@@ -209,6 +219,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
+      // CHANGELOG_106:noop shutdownTeammates 防默认 helper 撞 DB 未 init 噪音
+      shutdownTeammates: noopShutdown,
       implDeps: makeDeps(state),
     });
 
@@ -278,6 +290,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
+      // CHANGELOG_106:noop shutdownTeammates 防默认 helper 撞 DB 未 init 噪音
+      shutdownTeammates: noopShutdown,
       implDeps: makeDeps(state),
     });
 
@@ -331,6 +345,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
+      // CHANGELOG_106:noop shutdownTeammates 防默认 helper 撞 DB 未 init 噪音
+      shutdownTeammates: noopShutdown,
       implDeps: makeDeps(state),
     });
 
@@ -381,6 +397,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
+      // CHANGELOG_106:noop shutdownTeammates 防默认 helper 撞 DB 未 init 噪音
+      shutdownTeammates: noopShutdown,
       implDeps: makeDeps(state),
     });
 
@@ -412,6 +430,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
       archiveSession: mockArchive,
+      // CHANGELOG_106:noop shutdownTeammates 防默认 helper 撞 DB 未 init 噪音
+      shutdownTeammates: noopShutdown,
       implDeps: makeDeps(state),
     });
 
@@ -419,6 +439,255 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     expect(result.content[0]!.text).toContain('plan file not found');
     expect(mockSpawn).not.toHaveBeenCalled();
     // CHANGELOG_97：plan 解析失败 → 既不 spawn 也不归档（baton 还没出手）
+    expect(mockArchive).not.toHaveBeenCalled();
+  });
+});
+
+// ─── CHANGELOG_106: shutdownTeammatesOnBaton 集成 ────────────────────────
+//
+// 范围:handOffSessionHandler 调 shutdownTeammates helper 的行为 + ok return.teammatesShutdown 字段。
+// deps inject + mock helper,不需要真碰 sessionManager.close / agentDeckTeamRepo。
+//
+// 与 archive-plan handler 同款 5 case:
+// 1. happy path: helper 返回 closed=[A,B] → 透传
+// 2. keep_teammates=true: 不调 helper + skipped='keep-teammates'
+// 3. caller-not-lead: helper 返回 → 透传(caller 是 teammate 罕见 case)
+// 4. helper 抛错: 兜底 skipped=null + closed=[] + warn,archive caller 仍走
+// 5. spawn 失败短路: 不调 helper(baton 没成功不该牵连 teammate)
+describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成', () => {
+  // helper:让 caller-sid 在 sessionRepo 表里有 row(让 archive caller 走 'ok' 路径)
+  async function spyCallerRow() {
+    const { sessionRepo } = await import('@main/store/session-repo');
+    return vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+  }
+
+  function makePlanFixture(planId: string): { state: ReturnType<typeof makeState>; planFilePath: string; worktreePath: string } {
+    const state = makeState();
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    const worktreePath = `/Users/test/repo/.claude/worktrees/${planId}`;
+    state.files.set(
+      planFilePath,
+      planContent({ planId, status: 'in_progress', worktreePath, baseBranch: 'main' }),
+    );
+    return { state, planFilePath, worktreePath };
+  }
+
+  function makeOkSpawn() {
+    return vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: 'new-sid',
+              adapter: 'claude-code',
+              cwd: '/Users/test/repo',
+              teamId: null,
+              teamName: null,
+            }),
+          },
+        ],
+      }),
+    );
+  }
+
+  it('happy path: helper 返回 closed=[A,B] → ok.teammatesShutdown 透传 + archive caller 仍调用', async () => {
+    const { state } = makePlanFixture('happy-helper');
+    const mockSpawn = makeOkSpawn();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_callerSid: string) => ({
+      closed: ['teammate-X', 'teammate-Y'],
+      failed: [],
+      skipped: null as null,
+    }));
+    const sessionRepoGetSpy = await spyCallerRow();
+
+    const result = await handOffSessionHandler(
+      { plan_id: 'happy-helper', adapter: 'claude-code' },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: mockShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.teammatesShutdown).toEqual({
+      closed: ['teammate-X', 'teammate-Y'],
+      failed: [],
+      skipped: null,
+    });
+    expect(mockShutdown).toHaveBeenCalledTimes(1);
+    expect(mockShutdown).toHaveBeenCalledWith('caller-sid');
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+    expect(data.archived).toBe('ok');
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('keep_teammates=true → 不调 helper + skipped=keep-teammates + archive caller 仍调用', async () => {
+    const { state } = makePlanFixture('keep-teammates');
+    const mockSpawn = makeOkSpawn();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_sid: string) => ({
+      closed: [],
+      failed: [],
+      skipped: null as null,
+    }));
+    const sessionRepoGetSpy = await spyCallerRow();
+
+    const result = await handOffSessionHandler(
+      { plan_id: 'keep-teammates', adapter: 'claude-code', keep_teammates: true },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: mockShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.teammatesShutdown).toEqual({
+      closed: [],
+      failed: [],
+      skipped: 'keep-teammates',
+    });
+    expect(mockShutdown).not.toHaveBeenCalled();
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+    expect(data.archived).toBe('ok');
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('caller-not-lead: helper 返回 caller-not-lead → 透传', async () => {
+    const { state } = makePlanFixture('not-lead');
+    const mockSpawn = makeOkSpawn();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_sid: string) => ({
+      closed: [],
+      failed: [],
+      skipped: 'caller-not-lead' as const,
+    }));
+    const sessionRepoGetSpy = await spyCallerRow();
+
+    const result = await handOffSessionHandler(
+      { plan_id: 'not-lead', adapter: 'claude-code' },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: mockShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.teammatesShutdown.skipped).toBe('caller-not-lead');
+    expect(data.teammatesShutdown.closed).toEqual([]);
+    expect(mockShutdown).toHaveBeenCalledTimes(1);
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('helper 自身抛错 → 兜底 skipped=null + closed=[] + warn,archive caller 仍走', async () => {
+    const { state } = makePlanFixture('helper-crash');
+    const mockSpawn = makeOkSpawn();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_sid: string) => {
+      throw new Error('simulated helper crash (DB exception / mock failure)');
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const sessionRepoGetSpy = await spyCallerRow();
+
+    const result = await handOffSessionHandler(
+      { plan_id: 'helper-crash', adapter: 'claude-code' },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: mockShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.teammatesShutdown).toEqual({
+      closed: [],
+      failed: [],
+      skipped: null,
+    });
+    // 关键: archive caller 仍走(helper 故障不阻塞 baton 收口)
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+    expect(data.archived).toBe('ok');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('shutdownTeammatesOnBaton helper failed for caller caller-sid'),
+      expect.any(Error),
+    );
+
+    sessionRepoGetSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('spawn 失败短路 → 不调 helper / 不调 archive(baton 没成功不该牵连 teammate)', async () => {
+    const { state } = makePlanFixture('spawn-fail');
+    const mockSpawn = vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: 'fan-out limit reached' }),
+          },
+        ],
+        isError: true as const,
+      }),
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_sid: string) => ({
+      closed: [],
+      failed: [],
+      skipped: null as null,
+    }));
+
+    const result = await handOffSessionHandler(
+      { plan_id: 'spawn-fail', adapter: 'claude-code' },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: mockShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(mockShutdown).not.toHaveBeenCalled();
     expect(mockArchive).not.toHaveBeenCalled();
   });
 });
