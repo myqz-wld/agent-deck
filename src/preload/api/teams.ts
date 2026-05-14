@@ -18,8 +18,11 @@ import type {
 
 export const teamsApi = {
   // ─────────── R3.E8 Universal Team Backend (替代老 Agent Teams M2/M3 facade) ───────────
-  /** 列出 active team。pass { includeArchived: true } 看含 archived 的全集。 */
-  listAgentDeckTeams: (opts?: { includeArchived?: boolean }): Promise<AgentDeckTeam[]> =>
+  /** 列出 active team（含 members 让 TeamHub 渲染 memberCount + lastEventAt;
+   *  CHANGELOG_105 #7 修「0 members 但最近活跃」bug 配套类型升级)。pass { includeArchived: true } 看含 archived 的全集。 */
+  listAgentDeckTeams: (
+    opts?: { includeArchived?: boolean },
+  ): Promise<(AgentDeckTeam & { members: AgentDeckTeamMember[] })[]> =>
     ipcRenderer.invoke(IpcInvoke.AgentDeckTeamList, opts ?? {}),
   /** 拉一个 team 的完整 snapshot（含 members + 最近 100 条 messages）。 */
   getAgentDeckTeam: (

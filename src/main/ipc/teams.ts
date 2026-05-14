@@ -45,15 +45,26 @@ export function registerTeamsIpc(): void {
 
   // ───────── R3.E8 Universal Team Backend ─────────
 
-  // List：默认隐藏 archived，UI 想看 archived 时传 args.includeArchived = true
+  // List：默认隐藏 archived，UI 想看 archived 时传 args.includeArchived = true。
+  // 含 members（TeamHub 渲染 memberCount + lastEventAt 需要；CHANGELOG_105 #7 修复
+  // 「0 members 但最近活跃」bug —— 旧实现只 list 基础 team 不挂 members）。
   on(
     IpcInvoke.AgentDeckTeamList,
-    async (_e, opts): Promise<AgentDeckTeam[]> => {
+    async (
+      _e,
+      opts,
+    ): Promise<(AgentDeckTeam & { members: AgentDeckTeamMember[] })[]> => {
       const includeArchived =
         opts && typeof opts === 'object' && 'includeArchived' in opts
           ? Boolean((opts as { includeArchived: unknown }).includeArchived)
           : false;
-      return agentDeckTeamRepo.list({ activeOnly: !includeArchived, limit: 200 });
+      const teams = agentDeckTeamRepo.list({ activeOnly: !includeArchived, limit: 200 });
+      // N+1 query: list 上限 200 + per-team 单 SQL,可接受(team list 渲染不高频)。
+      // 真有性能瓶颈再考虑 listWithMembers JOIN 单 SQL 优化。
+      return teams.map((t) => ({
+        ...t,
+        members: agentDeckTeamRepo.listActiveMembers(t.id),
+      }));
     },
   );
 
