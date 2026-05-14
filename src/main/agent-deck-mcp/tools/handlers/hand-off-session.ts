@@ -306,8 +306,19 @@ export const handOffSessionHandler = withMcpGuard(
     // CHANGELOG_98 / R2 deep review HIGH-1：传 { batonMode: true } 让 spawn-guards 跳 depth
     // check + setSpawnLink 写 lateral parentDepth（不 +1）。baton 单向交接（spawn 后立即
     // archive caller）不构成 fork-bomb 风险，多 phase 接力不该被 maxDepth=3 拒。
+    //
+    // REVIEW_37 R2 HIGH-1 修法（双方异构对抗一致 ✅ 真 HIGH）：传 batonRole: 'lead' 让新
+    // session 在 team 内以 lead 角色加入。修前：spawn 把新 session 加成 'teammate' →
+    // caller archive 触发 archiveTeamsIfOrphaned → countActiveLeads=0 → team auto-archive →
+    // 残留 reviewer + 新 session 失去 active shared team → 后续 send_message 走
+    // no-shared-team reject。修后：新 session 是 lead → archive caller 后 countActiveLeads=1
+    // 不触发 auto-archive → 整个 team 续命 + 协作链不断（baton 接管 lead 的设计意图兑现）。
+    //
+    // 仅当 args.team_name 真启用 team 通信时此 opts 才被 spawn 用到（spawn 内部 addMember
+    // 分支 `if (args.team_name && teamIdEarly)`）；不带 team_name 的 baton 不 addMember，
+    // batonRole 是 no-op。但仍传 'lead' 保持语义清晰（baton 接管 lead 是一致意图）。
     const spawnFn = handlerDeps?.spawnSession ?? spawnSessionHandler;
-    const spawnResult = await spawnFn(spawnArgs, ctx, { batonMode: true });
+    const spawnResult = await spawnFn(spawnArgs, ctx, { batonMode: true, batonRole: 'lead' });
     if (spawnResult.isError) {
       // 透传 spawn 的 error 不再二次包装（避免「hand_off_session error: spawn error: ...」嵌套）
       return spawnResult;

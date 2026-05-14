@@ -841,6 +841,88 @@ describe('agent-deck-mcp tools — spawn_session', () => {
   });
 });
 
+// REVIEW_37 R2 HIGH-1 修法（双方一致 ✅ 真 HIGH 异构强冗余验证）：spawn handler opts
+// 第三参数 batonRole 让 caller 控制新 session 在 team 内是 'lead' 还是 'teammate'。
+// 默认 'teammate'（普通 spawn_session 行为不变）；hand-off-session baton 路径显式传 'lead'
+// 让新 session 接管 lead 角色，archive caller 时 countActiveLeads ≥ 1 不触发 auto-archive。
+//
+// 本 describe 直接 import spawnSessionHandler 调用（不走 tools registry），让能透传 opts
+// 第三参数 — registry 包装层不暴露 opts。
+describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)', () => {
+  it('opts.batonRole=undefined（默认）→ addMember 用 role=teammate（普通 spawn 行为不变）', async () => {
+    seedSession('lead', { cwd: '/repo' });
+    const { spawnSessionHandler } = await import('../tools/handlers/spawn');
+
+    const r = await spawnSessionHandler(
+      {
+        adapter: 'claude-code',
+        cwd: '/repo',
+        prompt: 'task body',
+        team_name: 'review-team',
+        caller_session_id: 'lead',
+      },
+      { caller: { callerSessionId: 'lead', transport: 'in-process' } },
+      // opts 缺省 → batonRole 默认 'teammate'
+    );
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    const newSid = parsed.data.sessionId;
+    const newSidAdd = addMemberCalls.find((c) => c.sessionId === newSid);
+    expect(newSidAdd?.role).toBe('teammate');
+    // caller 仍以 lead 加入（lead 路径不受 batonRole 影响）
+    const leadAdd = addMemberCalls.find((c) => c.sessionId === 'lead');
+    expect(leadAdd?.role).toBe('lead');
+  });
+
+  it('opts.batonRole=lead → addMember 用 role=lead（hand-off-session baton 接管路径）', async () => {
+    seedSession('lead', { cwd: '/repo' });
+    const { spawnSessionHandler } = await import('../tools/handlers/spawn');
+
+    const r = await spawnSessionHandler(
+      {
+        adapter: 'claude-code',
+        cwd: '/repo',
+        prompt: 'baton task body',
+        team_name: 'review-team',
+        caller_session_id: 'lead',
+      },
+      { caller: { callerSessionId: 'lead', transport: 'in-process' } },
+      { batonMode: true, batonRole: 'lead' },
+    );
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    const newSid = parsed.data.sessionId;
+    // 关键断言：新 session 是 lead（archive caller 后 countActiveLeads ≥ 1 不触发 auto-archive）
+    const newSidAdd = addMemberCalls.find((c) => c.sessionId === newSid);
+    expect(newSidAdd?.role).toBe('lead');
+    // caller 仍以 lead 加入 — addMember 不去重，但实际生产 active 时 invariant 抛错（被 catch 视作幂等成功）
+    const leadAdd = addMemberCalls.find((c) => c.sessionId === 'lead');
+    expect(leadAdd?.role).toBe('lead');
+  });
+
+  it('opts.batonRole=teammate（显式）→ 与默认相同 role=teammate', async () => {
+    seedSession('lead', { cwd: '/repo' });
+    const { spawnSessionHandler } = await import('../tools/handlers/spawn');
+
+    const r = await spawnSessionHandler(
+      {
+        adapter: 'claude-code',
+        cwd: '/repo',
+        prompt: 'task body',
+        team_name: 'review-team',
+        caller_session_id: 'lead',
+      },
+      { caller: { callerSessionId: 'lead', transport: 'in-process' } },
+      { batonMode: true, batonRole: 'teammate' },
+    );
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    const newSid = parsed.data.sessionId;
+    const newSidAdd = addMemberCalls.find((c) => c.sessionId === newSid);
+    expect(newSidAdd?.role).toBe('teammate');
+  });
+});
+
 describe('agent-deck-mcp tools — send_message', () => {
   it('forwards via universal-message-watcher and returns queued', async () => {
     const tools = await getTools({ transport: 'http' });

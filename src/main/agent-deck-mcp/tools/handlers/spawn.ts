@@ -40,7 +40,7 @@ export const spawnSessionHandler = withMcpGuard(
   async (
     args: SpawnSessionArgs,
     ctx: HandlerContext,
-    opts?: { batonMode?: boolean },
+    opts?: { batonMode?: boolean; batonRole?: 'lead' | 'teammate' },
   ) => {
     const { caller } = ctx;
 
@@ -344,7 +344,17 @@ export const spawnSessionHandler = withMcpGuard(
         agentDeckTeamRepo.addMember({
           teamId: teamIdEarly,
           sessionId: sid,
-          role: 'teammate',
+          // REVIEW_37 R2 HIGH-1 修法（双方一致 ✅ 真 HIGH，异构强冗余验证）：默认 'teammate'，
+          // 但 baton 路径（hand_off_session 传 batonRole='lead'）让新 session 接管 lead 角色。
+          // 修前：hand_off_session(team_name=X) 后 caller archive 触发 archiveTeamsIfOrphaned
+          // → countActiveLeads=0 → team auto-archive → 残留 reviewer + 新 session 失去 active
+          // shared team → send_message 走 no-shared-team reject。修后：新 session 是 lead →
+          // archive caller 后 countActiveLeads=1 不触发 auto-archive → 残留 reviewer 通过新
+          // session 仍可继续协作。
+          //
+          // 普通 spawn_session（caller 是 lead，新 session 通常是 teammate）行为不变 — opts.batonRole
+          // 仅在 hand-off-session baton 路径显式传入；其他 caller（spawn-via-tool / 测试）走默认 'teammate'。
+          role: opts?.batonRole ?? 'teammate',
           // REVIEW_31 Bug 4：teammate displayName 同步写 team_member 表，
           // 让 wire format buildWireBody 优先取此名字（不再 fallback 到 `<adapter>:<sid_8>`）。
           displayName: teammateDisplayName,
