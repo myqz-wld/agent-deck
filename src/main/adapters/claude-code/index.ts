@@ -1,5 +1,6 @@
 import type { AgentAdapter, AdapterContext, PermissionMode } from '../types';
 import type {
+  AgentEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
   ExitPlanModeRequest,
@@ -12,6 +13,10 @@ import { buildHookRoutes } from './hook-routes';
 import { HookInstaller } from './hook-installer';
 import { ClaudeSdkBridge } from './sdk-bridge';
 import { settingsStore } from '@main/store/settings-store';
+import {
+  summariseViaLlm,
+  summariseSessionForHandOff,
+} from '@main/session/summarizer/llm-runners';
 
 const ADAPTER_ID = 'claude-code';
 
@@ -213,6 +218,24 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
   async integrationStatus(opts: { scope: 'user' | 'project'; cwd?: string }): Promise<unknown> {
     if (!this.installer) throw new Error('adapter not initialized');
     return this.installer.status(opts);
+  }
+
+  /**
+   * R37 P2-I Step 3.3：LLM 驱动的「最近做什么」入口（dispatch 下放）。
+   *
+   * - 'summary' → `summariseViaLlm` (haiku 30 字 tag-line，settings.summaryTimeoutMs)
+   * - 'handoff' → `summariseSessionForHandOff` (sonnet 4 节简报，60s timeout hardcoded)
+   *
+   * model / systemPrompt / timeout / result 清洗等差异全在底层 runner，本 adapter 只做 dispatch。
+   */
+  async summariseEvents(
+    cwd: string,
+    events: AgentEvent[],
+    kind: 'summary' | 'handoff',
+  ): Promise<string | null> {
+    return kind === 'summary'
+      ? summariseViaLlm(cwd, events)
+      : summariseSessionForHandOff(cwd, events);
   }
 }
 

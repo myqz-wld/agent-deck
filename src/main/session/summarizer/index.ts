@@ -4,13 +4,18 @@ import { eventRepo } from '@main/store/event-repo';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { settingsStore } from '@main/store/settings-store';
-import { summariseCodexSessionViaOneshot } from '@main/adapters/codex-cli/summarizer-runner';
-import { formatEventsForPrompt, localStatsFallback } from './event-formatter';
-import { summariseViaLlm } from './llm-runners';
+import { adapterRegistry } from '@main/adapters/registry';
+import { localStatsFallback } from './event-formatter';
 
 // CHANGELOG_104 物理拆分：保持外部 import path `from '@main/session/summarizer'` 不变
-// （sessions.ts / hand-off.test.ts caller 直接用），TS module resolution 自动 fallback
+// （hand-off.test.ts caller 直接用），TS module resolution 自动 fallback
 // 到 `summarizer/index.ts`。re-export 也方便未来直接 import 子文件无歧义。
+//
+// R37 P2-I Step 3.3：dispatch 下放到 adapter.summariseEvents 后，本文件不再直接 import
+// 4 个 LLM runner（summariseViaLlm / summariseCodexSessionViaOneshot / formatEventsForPrompt）；
+// summariseSessionForHandOff re-export 保留给 hand-off.test.ts unit test seam，
+// formatEventsForPrompt re-export 保留作为 summarizer facade 公共 API（recoverer-helpers
+// 等外部 caller 通过 facade 引用而非子文件直接 import 仍能 work）。
 export { summariseSessionForHandOff } from './llm-runners';
 export { formatEventsForPrompt } from './event-formatter';
 
@@ -207,10 +212,13 @@ export class Summarizer {
     const events = eventRepo.listForSession(sessionId, 40);
     if (events.length === 0) return null;
 
-    // 1) 优先：跑一次 LLM oneshot，按 session.agentId dispatch（CHANGELOG_<X> A3）：
-    //    - 'claude-code' → claude SDK oneshot（haiku，~/.claude OAuth）
-    //    - 'codex-cli'   → codex SDK oneshot（read-only sandbox + 'low' reasoning effort）
-    //    - 其他 adapter（aider / generic-pty）→ 没有 SDK oneshot 通道，跳过 LLM 直接走 fallback
+    // 1) 优先：跑一次 LLM oneshot，**dispatch 已下放到 adapter.summariseEvents**
+    //    （R37 P2-I Step 3.3）。caller 不再 if (agentId === '...') 派发：
+    //    - claude-code adapter → claude SDK oneshot（haiku，~/.claude OAuth）
+    //    - codex-cli adapter   → codex SDK oneshot（read-only sandbox + 'low' reasoning effort）
+    //    - 其他 adapter（aider / generic-pty）未实装 summariseEvents → adapter?.summariseEvents
+    //      返 undefined → llm 保持 null → 跳过 LLM 直接走下方 fallback（assistant 文字 / 事件统计）
+    //
     //    spike-A3 实测 5 codex 并发 oneshot 复用 app-server 单例，资源温和（10s / ~44MB），
     //    与 claude 共用全局 summaryMaxConcurrent 不需分桶。
     //
@@ -219,15 +227,10 @@ export class Summarizer {
     //    `summariseCodexSessionViaOneshot` 内部（走 settings.summaryTimeoutMs，与 claude path
     //    统一），caller 直接 await 即可。
     try {
+      const adapter = adapterRegistry.get(session.agentId);
       let llm: string | null = null;
-      if (session.agentId === 'claude-code') {
-        llm = await summariseViaLlm(session.cwd, events);
-      } else if (session.agentId === 'codex-cli') {
-        llm = await summariseCodexSessionViaOneshot(
-          session.cwd,
-          events,
-          formatEventsForPrompt,
-        );
+      if (adapter?.summariseEvents) {
+        llm = await adapter.summariseEvents(session.cwd, events, 'summary');
       }
       if (llm) {
         // REVIEW_35 MED-B1：LLM 真成功才 delete 历史错误，确保「LLM 失败 + fallback 成功」
