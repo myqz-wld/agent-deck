@@ -28,3 +28,4 @@
 | [universal-message-watcher-split-20260514.md](universal-message-watcher-split-20260514.md) | universal-message-watcher-split-20260514 |
 | [llm-handoff-summary-fallback-20260514.md](llm-handoff-summary-fallback-20260514.md) | llm-handoff-summary-fallback-20260514 |
 | [model-wiring-and-handoff-20260514.md](model-wiring-and-handoff-20260514.md) | model-wiring-and-handoff-20260514 |
+| [deep-review-and-refactor-r37-20260515.md](deep-review-and-refactor-r37-20260515.md) | deep-review-and-refactor-r37-20260515 |
