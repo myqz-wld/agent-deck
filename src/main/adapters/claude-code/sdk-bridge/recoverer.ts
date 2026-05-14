@@ -214,6 +214,10 @@ export class SessionRecoverer {
       effectiveCwd = fallback;
       cwdFellBack = true;
       // 主动告诉用户 fallback 发生了 + 用了哪个目录(不打 error,info 性质)
+      // CHANGELOG_107 Step 4: 删去「CLI 内部对话历史(jsonl)将丢失」字眼,让后续
+      // prependHistorySummary 决定丢失 / 续上(成功 → inner 分支 emit「LLM 摘要已注入」;
+      // 失败 → inner 分支 emit「将丢失,请补背景」)。outer 只 emit cwd 切换 fact,
+      // 不预判 jsonl 命运,避免「outer 说将丢 + inner 说不丢」前后矛盾误导用户。
       this.ctx.emit({
         sessionId,
         agentId: AGENT_ID,
@@ -221,8 +225,7 @@ export class SessionRecoverer {
         payload: {
           text:
             `⚠ 此会话的原 cwd 已不存在: ${rec.cwd}\n` +
-            `应用启发式 fallback 到: ${effectiveCwd}\n` +
-            `CLI 内部对话历史(jsonl)将丢失,但 SessionDetail 历史完整保留(应用 DB)。`,
+            `应用启发式 fallback 到: ${effectiveCwd}`,
         },
         ts: Date.now(),
         source: 'sdk',
@@ -362,6 +365,48 @@ export class SessionRecoverer {
                     `典型原因: 用户清理 ~/.claude/projects / 跨设备同步未带 jsonl / CLI 自身清理 / 应用重装。\n` +
                     `应用 DB 的 SessionDetail 历史完整保留(本面板看到的对话仍在),但 Claude 这条新启动的 CLI ` +
                     `不知前情。如要继续之前话题,请在下条消息里把背景再告诉它一次。`,
+                },
+                ts: Date.now(),
+                source: 'sdk',
+              });
+            }
+          } else {
+            // CHANGELOG_107 Step 4: cwdFellBack=true 路径 — outer L156-176 已 emit cwd 切换 fact
+            // 但不预判 jsonl 命运,本分支基于 result.used 补 emit「成功续上 / 将丢失」详情。
+            if (summaryResult.used) {
+              console.warn(
+                `[sdk-bridge] cwdFellBack for ${sessionId} → ${effectiveCwd}, ` +
+                  `falling back to new CLI session with auto-generated summary prepended ` +
+                  `(prompt ${summaryResult.prompt.length} chars)`,
+              );
+              this.ctx.emit({
+                sessionId,
+                agentId: AGENT_ID,
+                kind: 'message',
+                payload: {
+                  text:
+                    `应用通过 LLM 摘要自动注入了历史上下文(自 DB events 表),Claude 应能在新 cwd 续上前情。\n` +
+                    `如答非所问,请下条消息补充关键背景。`,
+                },
+                ts: Date.now(),
+                source: 'sdk',
+              });
+            } else {
+              console.warn(
+                `[sdk-bridge] cwdFellBack for ${sessionId} → ${effectiveCwd}, ` +
+                  `falling back to new CLI session (CLI history lost but app DB preserved); ` +
+                  `summary skipped reason=${summaryResult.failReason ?? 'unknown'}` +
+                  (summaryResult.thrown ? ` (${summaryResult.thrown.message})` : ''),
+              );
+              this.ctx.emit({
+                sessionId,
+                agentId: AGENT_ID,
+                kind: 'message',
+                payload: {
+                  text:
+                    `CLI 内部对话历史(jsonl)将丢失(原 cwd 编码下的 jsonl 在新 cwd 不可用)。\n` +
+                    `应用 DB 的 SessionDetail 历史完整保留,但 Claude 这条新启动的 CLI 不知前情。\n` +
+                    `如要继续之前话题,请在下条消息里把背景再告诉它一次。`,
                 },
                 ts: Date.now(),
                 source: 'sdk',
