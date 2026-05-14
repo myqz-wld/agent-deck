@@ -4,6 +4,7 @@ import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
 import { settingsStore } from '@main/store/settings-store';
+import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import {
   buildAgentDeckMcpConfigForCodex,
   mergeCodexConfig,
@@ -175,7 +176,7 @@ export class CodexSdkBridge {
     }
 
     const codex = await this.ensureCodex();
-    const cwd = opts.cwd && opts.cwd.trim() ? opts.cwd : process.cwd();
+    const cwd = resolveSpawnCwd(opts);
     // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
     // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
     // 2. resume 路径下 sessionRepo.get(resume).codexSandbox（用户上次该会话选过的，重启应用后回放）

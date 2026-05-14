@@ -17,7 +17,8 @@
  * - sandboxMode='read-only'：禁 codex 真跑工具改文件
  * - approvalPolicy='never'：不等审批（read-only 下也无可审批，双保险）
  * - skipGitRepoCheck=true：跳 codex 默认 git repo 校验（任意 cwd 都能跑 oneshot）
- * - cwd: opts.cwd || process.cwd()：cwd 为空降级到主进程 cwd
+ * - cwd: resolveSpawnCwd(opts) —— trim 后非空才用 caller cwd，否则降级 process.cwd()
+ *   （R37 P3-C Step 4.1 抽 helper 收口前是宽松版 `opts.cwd || process.cwd()`，对正常调用零变化）
  *
  * **不在本 helper 处理**：
  * - prompt 模板（用 build-prompt.ts buildSummarizePrompt({agentName:'Agent'}) /
@@ -34,6 +35,7 @@
  * race 整个 promise 无此问题）。修后行为与 P2-H 抽 helper 前等价。
  */
 import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
+import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { raceWithTimeout } from './race-with-timeout';
 
 /**
@@ -42,7 +44,7 @@ import { raceWithTimeout } from './race-with-timeout';
  * @returns codex 完整输出文本（未清洗）；race 输（timer 先 reject）→ throw `Error(timeoutErrorMessage)`
  */
 export async function runCodexOneshot(opts: {
-  /** Session cwd（空字符串降级到 process.cwd()）。 */
+  /** Session cwd（trim 后空降级到 process.cwd() — 见 cwd-resolver.ts）。 */
   cwd: string;
   /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt / buildHandoffPrompt 组装。 */
   prompt: string;
@@ -68,7 +70,7 @@ export async function runCodexOneshot(opts: {
     const codex = await getCodexInstance();
 
     const thread = codex.startThread({
-      workingDirectory: opts.cwd || process.cwd(),
+      workingDirectory: resolveSpawnCwd(opts),
       sandboxMode: 'read-only',
       approvalPolicy: 'never',
       skipGitRepoCheck: true,
