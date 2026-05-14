@@ -97,6 +97,23 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
         默认 <code className="rounded bg-white/5 px-1">workspace-write</code> 与 Claude 默认对齐；
         切档仅下次新建会话生效。
       </div>
+      <div className="mt-3">
+        <Toggle
+          label="Fallback 路径自动用 LLM 生成历史摘要(CHANGELOG_107)"
+          value={settings.autoSummariseOnFallback}
+          onChange={(v) => void update({ autoSummariseOnFallback: v })}
+        />
+        <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">
+          会话 cwd 失效 / CLI 内部 jsonl 历史丢失时,fresh CLI 起来前自动调 LLM(sonnet)生成
+          历史摘要 prepend 到首条 prompt,让 Claude 知道前情。<strong>开(默认)</strong> →
+          用户体感「能续聊」;<strong>关</strong> → 静默退回 CHANGELOG_106 行为(emit「请补背景」让用户手动补)。
+          <br />
+          <strong className="text-amber-300/90">⚠ 摘要按 sonnet 调用计费</strong>
+          (~10-30s / 4000 字),fallback 频繁的长历史会话有可观成本时可关。
+          <br />
+          LLM 失败 / DB 没历史 / 摘要超长 → 静默退回 CHANGELOG_106 路径,本开关只控制是否尝试。
+        </div>
+      </div>
     </Section>
   );
 }

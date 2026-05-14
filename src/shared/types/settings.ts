@@ -167,6 +167,23 @@ export interface AppSettings {
    */
   enableTaskManager: boolean;
   /**
+   * CHANGELOG_107:fallback 路径(jsonl missing / cwdFellBack=true)起 fresh CLI 之前
+   * 自动调 LLM 生成历史摘要 prepend 到首条 prompt(让用户体感「Claude 还能续聊」,
+   * 而不是 CHANGELOG_106 兜底「请下条消息把背景告诉它一次」的手动补)。
+   *
+   * - true(默认):每次 fallback 触发都跑一次 LLM(sonnet,~10-30s,4000 字摘要),
+   *   prepend 到 fresh CLI 首条 prompt 前。LLM 失败 / DB 没历史 / 摘要超长 → 静默退回
+   *   原 fallback 路径(emit「请补背景」与 CHANGELOG_106 行为一致)。
+   * - false:跳过摘要,fallback 直接走 CHANGELOG_106 原路径。成本敏感用户可关
+   *   (sonnet 摘要按调用计费;fallback 频繁的长历史会话有可观成本)。
+   *
+   * 不影响正常 resume 路径(jsonl 在 + cwd 在 → CLI 自续 jsonl,Claude 看完整对话)。
+   *
+   * 即改即生效:消费者(recoverer Step 3/4)每次 fallback 触发临时 settingsStore.get,
+   * 无 cache 需 invalidate;ipc/settings.ts 无 apply* helper(同 enableSound 等纯 boolean)。
+   */
+  autoSummariseOnFallback: boolean;
+  /**
    * Claude Code SDK 子进程的 OS 级沙盒档位（默认 'off'）。SDK 0.2.118 内置 sandbox 能力
    * （macOS Seatbelt / Linux bubblewrap），让用户在 UI 主动开启文件系统 + 网络 OS 级隔离。
    *
@@ -337,6 +354,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   injectAgentDeckPlugin: true,
   // R3.E6 (PR-B) 删 agentTeamsEnabled / autoApproveTeammateMode；REMOVED_KEYS 自动清历史
   enableTaskManager: false,
+  autoSummariseOnFallback: true,
   claudeCodeSandbox: 'off',
   codexSandbox: 'workspace-write',
   codexMcpServers: [],
