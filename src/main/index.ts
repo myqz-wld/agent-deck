@@ -51,6 +51,9 @@ let teamScheduler: TeamLifecycleScheduler;
 let agentDeckMcpHttpShutdown: (() => Promise<void>) | null = null;
 
 const gotLock = app.requestSingleInstanceLock();
+// 锁失败立即 quit；后续 listener 注册全部隔离到 if (gotLock) { ... } 分支（line 316+）
+// 防止第二实例进 bootstrap 副作用（initDb / hookServer / IPC handler 重复注册）。
+// REVIEW_35 MED-D-claude（HIGH→MED 降级 by codex 反驳）。
 if (!gotLock) {
   app.quit();
 }
@@ -313,60 +316,86 @@ async function bootstrap(): Promise<void> {
   });
 }
 
-app.whenReady().then(() => {
-  bootstrap().catch((err) => console.error('bootstrap failed', err));
-});
+// REVIEW_35 MED-D-claude (HIGH→MED 降级 by codex 反驳)：line 53 锁失败已 app.quit() 立即退出。
+// 后续所有 listener / whenReady().then(bootstrap) 全部隔离到 if (gotLock) { ... } 分支，
+// 防止第二实例进 bootstrap 副作用（initDb / hookServer / IPC handler 重复注册等）。
+// codex 反驳：whenReady 是 ready 后才 fulfilled 而非 microtask，原 finding「必现脏初始化」
+// 证明过强，但工程问题真实 → 修法用 if(gotLock){...} 分支隔离（top-level return ESM 不合法）。
+if (gotLock) {
+  // REVIEW_35 MED-D-codex-4: 抓 bootstrap 完成 promise 让 second-instance handler 能等待
+  const bootstrappedPromise = app.whenReady().then(() => bootstrap());
+  bootstrappedPromise.catch((err) => console.error('bootstrap failed', err));
 
-app.on('second-instance', (_event, argv) => {
-  const all = BrowserWindow.getAllWindows();
-  if (all.length) {
-    all[0].show();
-    all[0].focus();
-  }
-  void handleCliArgv(argv);
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-let cleaningUp = false;
-app.on('before-quit', (event) => {
-  if (cleaningUp) return;
-  event.preventDefault();
-  cleaningUp = true;
-  void (async () => {
-    try {
-      globalShortcut.unregisterAll();
-      scheduler?.stop();
-      setLifecycleScheduler(null);
-      teamScheduler?.stop();
-      setTeamLifecycleScheduler(null);
-      summarizer.stop();
-      stopAllSounds();
-      // R3.E5：universal-message-watcher shutdown
-      universalMessageWatcher.stop();
-      await adapterRegistry.shutdownAll();
-      if (agentDeckMcpHttpShutdown) {
-        try {
-          await agentDeckMcpHttpShutdown();
-        } catch (err) {
-          console.warn('[agent-deck-mcp] HTTP shutdown failed during cleanup', err);
-        }
-        agentDeckMcpHttpShutdown = null;
-      }
-      try {
-        await hookServer?.stop();
-      } catch {
-        // ignore: 已经在退出
-      }
-      closeDb();
-    } catch (err) {
-      console.warn('[before-quit] cleanup error', err);
-    } finally {
-      app.exit(0);
+  app.on('second-instance', (_event, argv) => {
+    const all = BrowserWindow.getAllWindows();
+    if (all.length) {
+      all[0].show();
+      all[0].focus();
     }
-  })();
-});
+    // REVIEW_35 MED-D-codex (codex MED-D4)：second-instance 在 cold-start 时可能在
+    // bootstrap() 完成前触发 → handleCliArgv 调 adapterRegistry.get 拿不到 adapter → CLI new
+    // 被当作 adapter 不可用处理。修法：把 bootstrap 完成 promise 抓回来，second-instance handler
+    // 等 bootstrap 完成再投递 argv。
+    void bootstrappedPromise.then(() => handleCliArgv(argv)).catch((err) =>
+      console.warn('[second-instance] handleCliArgv failed', err),
+    );
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  let cleaningUp = false;
+  app.on('before-quit', (event) => {
+    if (cleaningUp) return;
+    event.preventDefault();
+    cleaningUp = true;
+    void (async () => {
+      try {
+        globalShortcut.unregisterAll();
+        scheduler?.stop();
+        setLifecycleScheduler(null);
+        teamScheduler?.stop();
+        setTeamLifecycleScheduler(null);
+        summarizer.stop();
+        stopAllSounds();
+        // R3.E5：universal-message-watcher shutdown
+        universalMessageWatcher.stop();
+        // REVIEW_35 MED-D-claude (D6): cleanup 整体 race-with-timeout 兜底，防 adapter
+        // shutdown / hookServer stop / mcp http shutdown 任一卡死整个 quit 流程（codex CLI
+        // 卡死 / aider 阻塞 stdin 等场景）。10s 超时降级 process.exit(1) 强退。
+        const cleanupSteps = (async (): Promise<void> => {
+          await adapterRegistry.shutdownAll();
+          if (agentDeckMcpHttpShutdown) {
+            try {
+              await agentDeckMcpHttpShutdown();
+            } catch (err) {
+              console.warn('[agent-deck-mcp] HTTP shutdown failed during cleanup', err);
+            }
+            agentDeckMcpHttpShutdown = null;
+          }
+          try {
+            await hookServer?.stop();
+          } catch {
+            // ignore: 已经在退出
+          }
+          closeDb();
+        })();
+        const cleanupTimeout = new Promise<'__timeout__'>((resolve) =>
+          setTimeout(() => resolve('__timeout__'), 10_000),
+        );
+        const result = await Promise.race([cleanupSteps.then(() => 'ok' as const), cleanupTimeout]);
+        if (result === '__timeout__') {
+          console.warn('[before-quit] cleanup timeout (10s), forcing exit');
+          process.exit(1);
+        }
+      } catch (err) {
+        console.warn('[before-quit] cleanup error', err);
+      } finally {
+        app.exit(0);
+      }
+    })();
+  });
+}

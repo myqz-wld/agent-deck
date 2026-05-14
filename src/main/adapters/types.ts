@@ -114,6 +114,15 @@ export interface AdapterCapabilities {
    * 取代老 capability `canJoinTeam`（R3.E6 已删，仅 Claude experimental teams flag 触发器）。
    */
   canCollaborate: boolean;
+  /**
+   * REVIEW_35 HIGH-D2：是否支持图片附件（用户在 Composer 上传 / 粘 / 拖图）。
+   * - claude-code / codex-cli: true（SDK content blocks 接收 image base64）
+   * - aider / generic-pty: false（PTY 写 stdin 没法编码二进制 → 静默丢图）
+   *
+   * UI 据此 gate Composer 的图片入口（隐藏上传按钮 + 不绑 onPaste/onDrop/onDragOver）+
+   * send 入口拦截 attachments-only 请求（避免 imgs.clear 后用户失去 retry 能力）。
+   */
+  canAcceptAttachments: boolean;
 }
 
 export interface AgentAdapter {

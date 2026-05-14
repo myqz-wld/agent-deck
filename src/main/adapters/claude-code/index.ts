@@ -32,6 +32,8 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     canCloseSession: true,
     // R3.E4：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage = sendMessage）
     canCollaborate: true,
+    // REVIEW_35 HIGH-D2：SDK content blocks 接收 image base64
+    canAcceptAttachments: true,
   };
 
   private installer: HookInstaller | null = null;

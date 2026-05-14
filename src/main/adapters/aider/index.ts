@@ -42,6 +42,8 @@ class AiderAdapterImpl implements AgentAdapter {
     canCloseSession: true,
     // R4·F-bonus：universal team backend 接收 cross-adapter 消息（与 generic-pty 同款）
     canCollaborate: true,
+    // REVIEW_35 HIGH-D2：PTY 写 stdin 没法编码二进制 → 静默丢图，UI 必须 gate 入口
+    canAcceptAttachments: false,
   };
 
   private bridge: GenericPtyBridge | null = null;

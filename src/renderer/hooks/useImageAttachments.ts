@@ -235,6 +235,14 @@ async function makeThumbnail(file: File, mime: string): Promise<string> {
         return;
       }
       ctx.drawImage(img, 0, 0, w, h);
+      // REVIEW_35 MED-D-claude-3：toDataURL('image/jpeg') 不支持 alpha → 透明像素被编为黑色。
+      // 与 encodeToJpegBase64 (line 155-158) 同款先填白底再 drawImage，保证 png 透明区域
+      // 缩略图显示白底而非黑底（macOS 截图常带透明，旧版黑底误以为图片损坏）。
+      // 注：drawImage 已经发生 → 重新创建顺序
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalCompositeOperation = 'source-over';
       // 缩略图统一 jpeg 0.7 压缩（ratio < 1 时节省体积；webp 浏览器支持但兼容性 jpeg 更稳）
       try {
         resolve(canvas.toDataURL('image/jpeg', 0.7));
@@ -266,9 +274,6 @@ export function useImageAttachments(): UseImageAttachmentsResult {
       if (files.length === 0) return;
       const errors: string[] = [];
       const newEntries: UploadedAttachmentEntry[] = [];
-      // 提前算总大小（含已有的），超限直接拒
-      const existingTotal = attachments.reduce((s, a) => s + a.bytes, 0);
-      let runningTotal = existingTotal;
       for (const file of files) {
         if (!ALLOWED_MIMES.has(file.type)) {
           errors.push(`${file.name || '(未命名)'}：仅支持 PNG / JPEG / GIF / WebP`);
@@ -280,13 +285,6 @@ export function useImageAttachments(): UseImageAttachmentsResult {
           );
           continue;
         }
-        // 总大小预检按原图 size 算（最坏情况），压缩成功后实际占用更小不会反向触发限制
-        if (runningTotal + file.size > MAX_TOTAL_BYTES) {
-          errors.push(
-            `总附件超过 ${MAX_TOTAL_BYTES / 1024 / 1024}MB 上限（剩余可用 ${((MAX_TOTAL_BYTES - runningTotal) / 1024 / 1024).toFixed(1)}MB）`,
-          );
-          continue;
-        }
         try {
           // 压缩与缩略图并发跑（缩略图始终用原图算，与压缩独立）
           const [compressed, thumb] = await Promise.all([
@@ -294,29 +292,58 @@ export function useImageAttachments(): UseImageAttachmentsResult {
             makeThumbnail(file, file.type),
           ]);
           const id = nextId();
-          fullBase64Ref.current.set(id, compressed.base64);
-          newEntries.push({
-            id,
-            thumbnailDataUrl: thumb,
-            mime: compressed.mime,
-            bytes: compressed.bytes,
-            name: file.name,
-            ...(compressed.compressed ? { originalBytes: file.size } : {}),
+          // REVIEW_35 HIGH-D1：30MB 总额度限制必须在 setAttachments updater 内重新计算
+          // （而非闭包 attachments.reduce 一次性算）。旧版闭包 deps=[attachments] + Promise.all
+          // await 期间下个 add 调用看到的仍是旧 attachments → 多并发 add 各自通过限制 → setAttachments
+          // 用 functional update 合并 → 最终总和可超 MAX_TOTAL_BYTES（rG-claude Node sim 实测 47MB）。
+          // 修法：把 limit check 挪到 setAttachments updater 内，基于 prev（最新真实 state）算总和。
+          // 超限的 entry 把 fullBase64Ref 也回滚，保证 state 与 ref 一致。
+          let admitted = true;
+          setAttachments((prev) => {
+            const currentTotal = prev.reduce((s, a) => s + a.bytes, 0);
+            if (currentTotal + compressed.bytes > MAX_TOTAL_BYTES) {
+              admitted = false;
+              return prev;
+            }
+            return [
+              ...prev,
+              {
+                id,
+                thumbnailDataUrl: thumb,
+                mime: compressed.mime,
+                bytes: compressed.bytes,
+                name: file.name,
+                ...(compressed.compressed ? { originalBytes: file.size } : {}),
+              },
+            ];
           });
-          // runningTotal 用压缩后的字节数累计（与 entry.bytes 对齐，让 UI 显示的剩余额度准确）
-          runningTotal += compressed.bytes;
+          if (admitted) {
+            fullBase64Ref.current.set(id, compressed.base64);
+            newEntries.push({
+              id,
+              thumbnailDataUrl: thumb,
+              mime: compressed.mime,
+              bytes: compressed.bytes,
+              name: file.name,
+              ...(compressed.compressed ? { originalBytes: file.size } : {}),
+            });
+          } else {
+            errors.push(
+              `${file.name}：总附件超过 ${MAX_TOTAL_BYTES / 1024 / 1024}MB 上限`,
+            );
+          }
         } catch (err) {
           errors.push(`${file.name}：${(err as Error).message}`);
         }
       }
-      if (newEntries.length > 0) {
-        setAttachments((prev) => [...prev, ...newEntries]);
-      }
-      if (errors.length > 0) {
+      // REVIEW_35 LOW-D-codex-1：成功添加新 entry 时清旧错误，避免 stale error 一直挂在 UI
+      if (newEntries.length > 0 && errors.length === 0) {
+        setError(null);
+      } else if (errors.length > 0) {
         setError(errors.join('；'));
       }
     },
-    [attachments],
+    [],  // REVIEW_35 HIGH-D1：deps=[] 让闭包不再持有 attachments 引用，避免误用闭包 stale state
   );
 
   const remove = useCallback((id: string): void => {

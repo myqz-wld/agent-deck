@@ -124,7 +124,12 @@ export function makeCanUseTool(deps: MakeCanUseToolDeps): CanUseTool {
     if (toolName === 'AskUserQuestion') {
       const inAsked = (input as { questions?: AskUserQuestionItem[] }) ?? {};
       const questions = Array.isArray(inAsked.questions) ? inAsked.questions : [];
-      const toolUseId = (ctx as { tool_use_id?: string }).tool_use_id;
+      // REVIEW_35 LOW-C-codex: SDK 类型是 `toolUseID` 不是 `tool_use_id`（snake_case typo）。
+      // 实测 ctx 字段读不出 → AskUserQuestion / ExitPlanMode payload 的 toolUseId 永远 undefined。
+      // UI 主要靠 requestId 响应不致命，但破坏 activity/tool 关联能力。优先读 toolUseID 兼容老 tool_use_id。
+      const toolUseId =
+        (ctx as { toolUseID?: string }).toolUseID ??
+        (ctx as { tool_use_id?: string }).tool_use_id;
       const askPayload: AskUserQuestionRequest = {
         type: 'ask-user-question',
         requestId,
@@ -191,7 +196,10 @@ export function makeCanUseTool(deps: MakeCanUseToolDeps): CanUseTool {
     if (toolName === 'ExitPlanMode') {
       const inExit = (input as { plan?: unknown }) ?? {};
       const plan = typeof inExit.plan === 'string' ? inExit.plan : '';
-      const toolUseId = (ctx as { tool_use_id?: string }).tool_use_id;
+      // REVIEW_35 LOW-C-codex: 同上 toolUseID typo 修法
+      const toolUseId =
+        (ctx as { toolUseID?: string }).toolUseID ??
+        (ctx as { tool_use_id?: string }).tool_use_id;
       const exitPayload: ExitPlanModeRequest = {
         type: 'exit-plan-mode',
         requestId,
