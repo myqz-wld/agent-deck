@@ -1,10 +1,10 @@
 /**
- * GenericPtyBridge 单测（R4·F2）。
+ * GenericPtyBridge lifecycle 单测（R4·F2 — CHANGELOG_105 拆分自 pty-bridge.test.ts）。
  *
  * 完全 mock node-pty 与 sessionRepo —— **不 import 真的 node-pty**（CLAUDE.md「打包配置已踩
  * 的坑」node-pty native binding 风险：vitest 跑真测可能触发 prebuild 重新拷贝 / 权限漂移）。
  *
- * 守门点：
+ * 守门点（lifecycle 范围）：
  * - createSession lifecycle：spawn → emit session-start + 首条 user message → 写 stdin
  * - 无 prompt：不 emit user message / 不 写 stdin
  * - missing config（无 fallback）throw / empty command throw / prompt > 100KB throw
@@ -13,6 +13,8 @@
  * - interrupt：写 \x03；session 不存在 noop（不抛错）
  * - closeSession：SIGTERM + 10s grace 后 SIGKILL；双 close 安全；onExit 清 sessions
  * - shutdownAll：所有 session SIGKILL + 清 Map
+ *
+ * idle detection (F3) 与 file-watcher integration (F4) 在同目录 pty-bridge.idle-fwatch.test.ts。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -436,136 +438,3 @@ describe('GenericPtyBridge.shutdownAll', () => {
 
 // ─── F3：idle detection → emit waiting-for-user ──────────────────────────────
 
-describe('GenericPtyBridge idle detection (F3)', () => {
-  it('emits waiting-for-user after idleQuietMs without new chunks', async () => {
-    vi.useFakeTimers();
-    await bridge.createSession({
-      cwd: '/tmp',
-      // idle 1s + 不配 promptSuffixRegex → 纯静默触发
-      genericPtyConfig: { ...validConfig, idleQuietMs: 1000, promptSuffixRegex: '' },
-    });
-    ptyInstances[0].emitData('hello');
-    events.length = 0; // 清掉 emit message 事件，只留接下来 idle
-    vi.advanceTimersByTime(1001);
-    const idleEvent = events.find((e) => e.kind === 'waiting-for-user');
-    expect(idleEvent).toBeDefined();
-    expect((idleEvent?.payload as { source: string }).source).toBe('pty-idle');
-  });
-
-  it('does not emit waiting-for-user when promptSuffixRegex set but tail does not match', async () => {
-    vi.useFakeTimers();
-    await bridge.createSession({
-      cwd: '/tmp',
-      genericPtyConfig: {
-        ...validConfig,
-        idleQuietMs: 1000,
-        promptSuffixRegex: '\\>\\s*$',
-      },
-    });
-    ptyInstances[0].emitData('thinking...'); // tail 末尾不是 `> `
-    events.length = 0;
-    vi.advanceTimersByTime(1001);
-    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeUndefined();
-  });
-
-  it('emits waiting-for-user when promptSuffixRegex matches tail', async () => {
-    vi.useFakeTimers();
-    await bridge.createSession({
-      cwd: '/tmp',
-      genericPtyConfig: {
-        ...validConfig,
-        idleQuietMs: 1000,
-        promptSuffixRegex: '\\>\\s*$',
-      },
-    });
-    ptyInstances[0].emitData('done\n> '); // tail 末尾 `> ` 命中
-    events.length = 0;
-    vi.advanceTimersByTime(1001);
-    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeDefined();
-  });
-
-  it('resets timer on each new onData (debounce)', async () => {
-    vi.useFakeTimers();
-    await bridge.createSession({
-      cwd: '/tmp',
-      genericPtyConfig: { ...validConfig, idleQuietMs: 1000, promptSuffixRegex: '' },
-    });
-    ptyInstances[0].emitData('first');
-    vi.advanceTimersByTime(800); // 还没到 idle
-    ptyInstances[0].emitData('second'); // reset
-    events.length = 0;
-    vi.advanceTimersByTime(800); // 总 1600 ms 但 second 后只 800 ms
-    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeUndefined();
-    vi.advanceTimersByTime(300); // second 后总 1100 ms → 触发
-    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeDefined();
-  });
-
-  it('dedups consecutive idle (only one waiting-for-user per quiet period)', async () => {
-    vi.useFakeTimers();
-    await bridge.createSession({
-      cwd: '/tmp',
-      genericPtyConfig: { ...validConfig, idleQuietMs: 500, promptSuffixRegex: '' },
-    });
-    ptyInstances[0].emitData('x');
-    vi.advanceTimersByTime(501); // first idle
-    vi.advanceTimersByTime(501); // 应该不再 emit（detector 已 fire 一次，timer null）
-    const idleEvents = events.filter((e) => e.kind === 'waiting-for-user');
-    expect(idleEvents.length).toBe(1);
-  });
-
-  it('cancels idle timer on closeSession (no leaked emit)', async () => {
-    vi.useFakeTimers();
-    const { sessionId } = await bridge.createSession({
-      cwd: '/tmp',
-      genericPtyConfig: { ...validConfig, idleQuietMs: 500, promptSuffixRegex: '' },
-    });
-    ptyInstances[0].emitData('x');
-    await bridge.closeSession(sessionId);
-    events.length = 0;
-    vi.advanceTimersByTime(2000);
-    // close 后 dispose detector → 不 emit waiting-for-user
-    expect(events.find((e) => e.kind === 'waiting-for-user')).toBeUndefined();
-  });
-});
-
-// ─── F4：file-watcher integration ────────────────────────────────────────────
-
-describe('GenericPtyBridge file-watcher integration (F4)', () => {
-  it('closeSession awaits fileWatcher.close (release fs handle)', async () => {
-    const { sessionId } = await bridge.createSession({
-      cwd: '/tmp',
-      genericPtyConfig: validConfig,
-    });
-    expect(fileWatcherCloseCalls).toEqual([]);
-    await bridge.closeSession(sessionId);
-    // close 调到了 PtyFileWatcher.close 至少一次
-    expect(fileWatcherCloseCalls).toContain(sessionId);
-  });
-
-  it('shutdownAll awaits all fileWatcher.close in parallel', async () => {
-    const { sessionId: s1 } = await bridge.createSession({
-      cwd: '/tmp',
-      genericPtyConfig: validConfig,
-    });
-    const { sessionId: s2 } = await bridge.createSession({
-      cwd: '/tmp',
-      genericPtyConfig: validConfig,
-    });
-    await bridge.shutdownAll();
-    expect(fileWatcherCloseCalls).toContain(s1);
-    expect(fileWatcherCloseCalls).toContain(s2);
-  });
-
-  it('onExit fires fileWatcher.close (fire-and-forget, sessions cleared)', async () => {
-    const { sessionId } = await bridge.createSession({
-      cwd: '/tmp',
-      genericPtyConfig: validConfig,
-    });
-    ptyInstances[0].emitExit(0);
-    // sessions Map 清空（onExit 同步触发）
-    expect(bridge.__debugSessionCount()).toBe(0);
-    // fileWatcher.close 是异步 fire-and-forget；用 setImmediate 让微任务跑完
-    await new Promise((r) => setImmediate(r));
-    expect(fileWatcherCloseCalls).toContain(sessionId);
-  });
-});
