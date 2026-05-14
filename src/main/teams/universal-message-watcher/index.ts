@@ -29,6 +29,14 @@
  * **sessionManager.close 兜底**：watcher 检测 receiver session lifecycle='closed' →
  * messageRepo.markFailed reason='session-closed'。wait-reply-coordinator 同步监听
  * `session-upserted.lifecycle='closed'` 让 lead 立即拿到 reason='session-closed' 结果。
+ *
+ * **CHANGELOG_105 拆分**（universal-message-watcher-split-20260514）：原 581 LOC 单文件按
+ * 档位 1 拆为：
+ * - `rate-limiter.ts`        — PerKeyRateLimiter class + messageRateLimiter 单例
+ * - `enqueue.ts`             — EnqueueMessageInput + enqueueAgentDeckMessage caller-facing 入队 API
+ * - `team-event-dispatcher.ts` — TeamEventDispatcher class + teamEventDispatcher 单例
+ * - `index.ts` (本文件)      — UniversalMessageWatcher 主类 + buildWireBody 内部 helper + 单例 + facade re-export
+ * 外部 import 路径不变（TS module resolution 自动 fallback 到 index.ts）。
  */
 
 import type { AgentAdapter } from '@main/adapters/types';
@@ -42,11 +50,15 @@ import {
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { settingsStore } from '@main/store/settings-store';
 import { sanitizeWireFieldName } from '@shared/wire-prefix';
-import type {
-  AgentDeckMessage,
-  AgentDeckTeamMember,
-  AgentDeckTeammateEvent,
-} from '@shared/types';
+import type { AgentDeckMessage } from '@shared/types';
+
+import { teamEventDispatcher } from './team-event-dispatcher';
+
+// facade re-export：保持外部 import 路径完全兼容
+// (`from '@main/teams/universal-message-watcher'` → TS module resolution fallback 到 index.ts)
+export { PerKeyRateLimiter, messageRateLimiter } from './rate-limiter';
+export { enqueueAgentDeckMessage, type EnqueueMessageInput } from './enqueue';
+export { teamEventDispatcher } from './team-event-dispatcher';
 
 /** 默认 poll 节奏；测试可注入更短 tick 加速。 */
 const DEFAULT_POLL_INTERVAL_MS = 250;
@@ -54,114 +66,6 @@ const DEFAULT_POLL_INTERVAL_MS = 250;
 const ENQUEUE_DEBOUNCE_MS = 50;
 /** 单 tick 单批 claim 上限（避免单次循环吃光 event-loop）。 */
 const BATCH_LIMIT = 16;
-
-// ────────────────────────────────────────────────────────────────────────────
-// PerKey rate limiter (§7.5)
-// ────────────────────────────────────────────────────────────────────────────
-
-/**
- * Per-key 滑动窗口限流（与 spawnRateLimiter 同款 patterns，但按 key 分桶）。
- * key = teamId；用 messageRepo.insert 入口校验：覆盖 IPC + MCP 两路。
- *
- * 同步操作（不 await），event-loop 单线程下无 race。
- */
-export class PerKeyRateLimiter {
-  private buckets = new Map<string, number[]>();
-
-  constructor(
-    private maxPerWindow: number,
-    private windowMs: number,
-  ) {}
-
-  tryConsume(key: string, now = Date.now()): boolean {
-    const arr = this.buckets.get(key) ?? [];
-    const threshold = now - this.windowMs;
-    let i = 0;
-    while (i < arr.length && arr[i] < threshold) i++;
-    const fresh = i > 0 ? arr.slice(i) : arr;
-    if (fresh.length >= this.maxPerWindow) {
-      // 写回（如果裁剪过）
-      if (i > 0) this.buckets.set(key, fresh);
-      return false;
-    }
-    fresh.push(now);
-    this.buckets.set(key, fresh);
-    return true;
-  }
-
-  retryAfterMs(key: string, now = Date.now()): number {
-    const arr = this.buckets.get(key);
-    if (!arr || arr.length === 0) return 0;
-    return Math.max(0, this.windowMs - (now - arr[0]));
-  }
-
-  setLimits(maxPerWindow: number, windowMs: number): void {
-    this.maxPerWindow = maxPerWindow;
-    this.windowMs = windowMs;
-  }
-
-  reset(): void {
-    this.buckets.clear();
-  }
-}
-
-/** 应用全局单例。messageRepo.insert 调用方（IPC + MCP send_message）入口校验。 */
-export const messageRateLimiter = new PerKeyRateLimiter(60, 60_000);
-
-/** caller-side 校验前缀拼装 + 入队的便利封装。caller 应用方都走此入口（统一 wire format）。 */
-export interface EnqueueMessageInput {
-  teamId: string;
-  fromSessionId: string;
-  toSessionId: string;
-  body: string;
-  /**
-   * plan team-cohesion-fix-20260513 Phase B Step B1：可选对话链关联。
-   * 非 NULL 时该 msg 是对 reply_to_message_id 指向的原 msg 的 reply（wait_reply 走此字段反查）。
-   */
-  replyToMessageId?: string | null;
-}
-
-/**
- * 入队一条 cross-adapter message（供 IPC handler / MCP send_message 调用）。
- *
- * 入口校验顺序：
- * 1. body 长度（messageRepo.insert 内部 100KB cap）
- * 2. self-message 防御（messageRepo.insert 内部）
- * 3. team / member 关系校验（caller 自己负责，因为 IPC vs MCP caller 有不同 ACL）
- * 4. per-team rate limit（settings.mcpMessageRatePerTeamPerMin，默认 60/min）
- *
- * **不**做「team active / archived」校验：archived team 的 send_message 由 caller 自己拒；
- * 此处入队只校验数据完整性（与老 messageRepo.insert 注释一致）。
- */
-export function enqueueAgentDeckMessage(input: EnqueueMessageInput): {
-  ok: true;
-  message: AgentDeckMessage;
-} | {
-  ok: false;
-  error: 'rate-limit-exceeded';
-  retryAfterMs: number;
-} {
-  const limit = settingsStore.get('mcpMessageRatePerTeamPerMin') ?? 60;
-  // 同步更新当前 limit 到 limiter（settings hot-toggle 立即生效）
-  messageRateLimiter.setLimits(limit, 60_000);
-  const now = Date.now();
-  if (!messageRateLimiter.tryConsume(input.teamId, now)) {
-    return {
-      ok: false,
-      error: 'rate-limit-exceeded',
-      retryAfterMs: messageRateLimiter.retryAfterMs(input.teamId, now),
-    };
-  }
-  const message = agentDeckMessageRepo.insert(input);
-  // emit 让 watcher 立刻 process（debounced 50ms）
-  eventBus.emit('agent-deck-message-enqueued', {
-    id: message.id,
-    teamId: message.teamId,
-    fromSessionId: message.fromSessionId,
-    toSessionId: message.toSessionId,
-  });
-  return { ok: true, message };
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // fromMember displayName 反查（§4.4 wire format 前缀拼装）
@@ -207,145 +111,6 @@ function buildWireBody(
   const safeAdapterId = sanitizeWireFieldName(adapterId);
   return `[from ${safeDisplayName} @ ${safeAdapterId}][msg ${message.id}][sid ${message.fromSessionId}]\n${message.body}`;
 }
-
-// ────────────────────────────────────────────────────────────────────────────
-// TeamEventDispatcher (§4.9) — best-effort notify adapter of teammate join/leave/archive
-// ────────────────────────────────────────────────────────────────────────────
-
-/**
- * 监听 `agent-deck-team-member-changed` / `agent-deck-team-updated` 然后 fan-out 给同 team
- * 所有 active member 的 adapter.notifyTeammateEvent。dispatcher 不等返回也不重试 ——
- * 这只是观察性事件。
- */
-class TeamEventDispatcher {
-  private offMember: (() => void) | null = null;
-  private offUpdated: (() => void) | null = null;
-  private offCreated: (() => void) | null = null;
-  /** 缓存上次看到的 team archived_at，detect archive transition 用 */
-  private lastArchivedAt = new Map<string, number | null>();
-
-  start(): void {
-    if (this.offMember) return;
-
-    // C MED-D7 修（plan mcp-bug-and-feature-batch-20260513 Phase 2 Step 2.1）：dispatcher.start
-    // 时一次性预填 lastArchivedAt cache，让所有已存在 team 的首次 transition（active→archived）
-    // 能正常 detect。
-    //
-    // 修前：cache 初始空 → 任何 team 第一次 emit `agent-deck-team-updated` 时 prev=undefined →
-    // 直接 return（line 234 「首次见到，不算变更」短路）→ archive transition 被吞，active member
-    // 收不到 team-archived event。常见触发：lead session archive 联动 → countActiveLeads=0 → team
-    // archive → emit team-updated → dispatcher 第一次见到该 team → prev=undefined → 吞。
-    //
-    // 修后：start 时分页 listAll team（含 archived）预填 archivedAt 真值，首次 emit 时 prev 已是
-    // 真值，能正确 detect transition。pagination 与 E 修法（team-lifecycle-scheduler.ts）同款，
-    // 防 long-running 实例 team > 200 时漏扫。
-    try {
-      const PAGE_SIZE = 200;
-      let offset = 0;
-      while (true) {
-        const batch = agentDeckTeamRepo.list({ activeOnly: false, limit: PAGE_SIZE, offset });
-        for (const team of batch) {
-          this.lastArchivedAt.set(team.id, team.archivedAt);
-        }
-        if (batch.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
-      }
-    } catch (err) {
-      console.warn('[team-event-dispatcher] preseed lastArchivedAt failed:', err);
-    }
-
-    this.offMember = eventBus.on('agent-deck-team-member-changed', (ev) => {
-      // 只关心 joined / left；role-changed 不触发 notify（团队 capability 没变）
-      if (ev.kind === 'role-changed') return;
-      const session = sessionRepo.get(ev.sessionId);
-      const displayName = session?.title ?? ev.sessionId.slice(0, 8);
-      const teammateEvent: AgentDeckTeammateEvent =
-        ev.kind === 'joined'
-          ? { kind: 'member-joined', teamId: ev.teamId, sessionId: ev.sessionId, displayName }
-          : { kind: 'member-left', teamId: ev.teamId, sessionId: ev.sessionId, displayName };
-      void this.fanOut(ev.teamId, teammateEvent, ev.sessionId);
-    });
-    this.offUpdated = eventBus.on('agent-deck-team-updated', (team) => {
-      const prev = this.lastArchivedAt.get(team.id);
-      const cur = team.archivedAt;
-      this.lastArchivedAt.set(team.id, cur);
-      // REVIEW_35 R2 HIGH-A1：旧版 `if (prev === undefined) return` 把任何「未见」team 一律
-      // 当作 baseline 吞掉。但 spawn_session / cli / ipc.adapters.ts 三条创建路径走 ensureByName
-      // **不**emit `agent-deck-team-created`（dispatcher 加的 offCreated listener 只 catch
-      // ipc/teams.ts:128 UI 创建路径），导致这三条路径创建的 team 第一次 emit team-updated
-      // (典型：lead session archive 联动 0-lead auto-archive → emit team-updated cur=archiveTs)
-      // 仍 prev=undefined → return → team-archived notify 永久不发。
-      // 修法：未见 team **且** cur=null 时才当 baseline；未见 team **但** cur!=null 时当作
-      // 「未见就直接 archived」的 transition 处理。
-      if (prev === undefined) {
-        if (cur !== null) {
-          // 未见过的 team 直接观察到 archived → 视作 archive transition fan-out
-          void this.fanOut(team.id, { kind: 'team-archived', teamId: team.id }, null);
-        }
-        return;
-      }
-      // 仅关心从 active → archived 的变迁（unarchive 通常不需要打扰 active member）
-      if (prev === null && cur !== null) {
-        void this.fanOut(team.id, { kind: 'team-archived', teamId: team.id }, null);
-      }
-    });
-    // REVIEW_35 MED-A1：dispatcher.start() 的 preseed 只 cover start 时已存在的 team。runtime
-    // 新建的 team（典型：spawn_session 走 ensureByName 自动创建）从不入 cache，首次 emit
-    // `agent-deck-team-updated` 时 prev=undefined → return → 吞掉。
-    // 修法：订阅 `agent-deck-team-created` 把新 team 立刻入 cache（archivedAt 显然 null，但
-    // 显式 set 而非 missing，区别开「未见 vs 见过 active」）。
-    this.offCreated = eventBus.on('agent-deck-team-created', (team) => {
-      this.lastArchivedAt.set(team.id, team.archivedAt);
-    });
-  }
-
-  stop(): void {
-    this.offMember?.();
-    this.offUpdated?.();
-    this.offCreated?.();
-    this.offMember = null;
-    this.offUpdated = null;
-    this.offCreated = null;
-    this.lastArchivedAt.clear();
-  }
-
-  private async fanOut(
-    teamId: string,
-    event: AgentDeckTeammateEvent,
-    excludeSessionId: string | null,
-  ): Promise<void> {
-    let members: AgentDeckTeamMember[];
-    try {
-      members = agentDeckTeamRepo.listActiveMembers(teamId);
-    } catch (err) {
-      console.warn(`[team-event-dispatcher] listActiveMembers failed for team ${teamId}:`, err);
-      return;
-    }
-    const targets = members.filter((m) => m.sessionId !== excludeSessionId);
-    await Promise.allSettled(
-      targets.map((m) => this.notifyOne(m.sessionId, event)),
-    );
-  }
-
-  private async notifyOne(sessionId: string, event: AgentDeckTeammateEvent): Promise<void> {
-    const session = sessionRepo.get(sessionId);
-    if (!session) return;
-    const adapter = adapterRegistry.get(session.agentId);
-    if (!adapter?.notifyTeammateEvent) return;
-    try {
-      await adapter.notifyTeammateEvent(sessionId, event);
-    } catch (err) {
-      // best-effort：不重试，仅 warn
-      console.warn(
-        `[team-event-dispatcher] notifyTeammateEvent failed for ${sessionId} (${session.agentId}):`,
-        err,
-      );
-    }
-  }
-}
-
-const teamEventDispatcher = new TeamEventDispatcher();
-export { teamEventDispatcher };
 
 // ────────────────────────────────────────────────────────────────────────────
 // UniversalMessageWatcher 主类
