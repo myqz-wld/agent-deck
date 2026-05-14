@@ -847,8 +847,10 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
     vi.useRealTimers();
   });
 
-  // 用 fixtureHappyPath 拼出能让 impl 真跑过 happy path 的 fixture(9 次 git 调用 + plan
+  // 用 fixtureHappyPath 拼出能让 impl 真跑过 happy path 的 fixture(11 次 git 调用 + plan
   // 文件读 + writes + unlinks)。然后通过 handler 调用,验证 archive caller 三态。
+  // REVIEW_33 H1：在 ff-merge 前加了 rev-parse --verify <baseBranch> + checkout <baseBranch>
+  // 共 2 次 git 调用 → 11 次（原 9 次）。
   function makeHandlerStub(implWillSucceed: boolean): {
     implDeps: ArchivePlanDeps;
     workArgs: { plan_id: string; worktree_path: string; base_branch: string };
@@ -859,6 +861,8 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
           `${input.worktreePath.replace('/.claude/worktrees/' + input.planId, '')}/.git`, // git-common-dir
           'worktree-mcp-bug-fix-20260513', // abbrev-ref HEAD
           '', // status --porcelain (clean)
+          'mainhash', // REVIEW_33 H1: rev-parse --verify <baseBranch>
+          '', // REVIEW_33 H1: checkout <baseBranch>
           '', // merge --ff-only
           'deadbeef123', // rev-parse HEAD
           '', // add
