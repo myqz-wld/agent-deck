@@ -32,7 +32,11 @@
 2. **后续轮次锚点**：`send_message` 返回 `{ sessionId, teamId, messageId, replyToMessageId, sentAt, queued: true }`。caller 用 `messageId` 在 DB 查 reply chain（如有审计需求）；正常对话不需要 — receiver 收到 message 后会**自动通过 wire prefix `[msg <id>][sid <senderSid>]`** 提到 caller 的 messageId 当 `reply_to_message_id` 调 send_message reply 回来。`replyToMessageId` 仅当 caller 调 send 时显式传入 `reply_to_message_id` 才有值，开新话题（首条 message / 不挂 reply chain）时为 `null`
 3. **shutdown 不删数据**：`shutdown_session` 只标 lifecycle='closed' + abort SDK live query；events / file_changes / summaries / messages 子表保留，lead 在裁决报告里仍可引用。`team_member` 通过 `left_at` 软退出（行不删，archive 时归档面板仍可看 member 历史）；`spawn_link` 父子关系全保留（list_sessions(spawned_by_filter) 跨 lifecycle 全见，跨会话救火依赖此）
 
-> **dormant ≠ 丢 mental model**（关键反直觉，**别再推理错**）：lifecycle scheduler 把 idle session 自动转 `dormant` 只是 abort SDK live query + 清 in-process Map，**不删 jsonl 文件**。下一次 `send_message` 给 dormant session：universal-message-watcher → adapter.sendMessage → sdk-bridge 检测 `!sessions.has(sid)` → recoverAndSend 预检 jsonl 在 → `createSession({resume: oldSid, prompt})` → CLI 复原对话历史 → teammate 看到自己上轮 reply + 已读文件痕迹 → in-memory mental model 通过 conversation history 隐式保留 ✅。**只有 jsonl 缺失**（典型：用户手动删 ~/.claude/projects 目录 / 应用重装 / 跨设备同步未带 jsonl）走 hard fail fallback (createSession 不带 resume) 才真 fresh = teammate 触发 `⚠ FRESH SESSION` warn = 必须重 spawn。所以「dormant 后想复用 mental model 不必担心，直接 send_message 就好」；只有彻底不再用才 `shutdown_session`。具体机制详 `src/main/adapters/claude-code/sdk-bridge/recoverer.ts:103-220` 与项目 CLAUDE.md「会话恢复 / 断连 UX」节。
+> **dormant ≠ 丢 mental model**（反直觉但常见）：lifecycle scheduler 把 idle session 转 `dormant` 只是 abort SDK live query + 清 in-process Map，**不删 jsonl**。下一次 `send_message` 自动 SDK resume 复原对话历史 → mental model 通过 conversation history 隐式保留。
+>
+> **唯一例外**：jsonl 缺失（用户手动删 `~/.claude/projects/` / 应用重装 / 跨设备同步未带 jsonl）走 hard fail fallback → teammate 触发 `⚠ FRESH SESSION` warn 必须重 spawn。
+>
+> 实操结论：dormant 后想复用直接 `send_message` 即可；只有彻底不再用才 `shutdown_session`。机制详 `src/main/adapters/claude-code/sdk-bridge/recoverer.ts:103-220` 与项目 CLAUDE.md「会话恢复 / 断连 UX」节。
 
 ### send_message 一统消息发送
 
