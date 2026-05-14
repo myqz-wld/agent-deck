@@ -1,6 +1,17 @@
 import { useRef, useState, type JSX } from 'react';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
+import { ImageIcon } from './composer-sdk/ImageIcon';
+import { ErrorBanner } from './composer-sdk/ErrorBanner';
+import {
+  SelectRow,
+  PERMISSION_MODE_OPTIONS,
+  CODEX_SANDBOX_OPTIONS,
+  CLAUDE_CODE_SANDBOX_OPTIONS,
+  type PermissionMode,
+  type CodexSandbox,
+  type ClaudeCodeSandbox,
+} from './composer-sdk/SandboxSelects';
 
 /**
  * SDK 会话的输入区 + 权限模式下拉。
@@ -15,6 +26,11 @@ import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
  * - 图片附件：粘贴 / 拖放 / 上传按钮三件套；缩略图 strip 在 textarea 上方。
  *   失败回填只回填文字（base64 已 clear），用户需重新粘 / 拖 — 这是 trade-off：
  *   保留 base64 ref 让「乐观清空」语义混乱，多数失败是真错而非 race
+ *
+ * **CHANGELOG_105 拆分**：原 512 LOC 单文件按档位 1 抽 3 个 sub-component:
+ * - `composer-sdk/ImageIcon.tsx`        inline SVG icon
+ * - `composer-sdk/ErrorBanner.tsx`      通用错误条（5 处复用）
+ * - `composer-sdk/SandboxSelects.tsx`   通用 SelectRow + permission/codex/claude 三组 options
  */
 export function ComposerSdk({
   sessionId,
@@ -39,11 +55,7 @@ export function ComposerSdk({
   // permission_mode 列读「用户上次主动选过的值」。这是持久化的（DB），切别的 detail
   // 再切回来 / 重启 dev / 恢复会话，下拉都能正确还原。CLI 通道这字段是 null → 默认。
   const session = useSessionStore((s) => s.sessions.get(sessionId));
-  const permissionMode = (session?.permissionMode ?? 'default') as
-    | 'default'
-    | 'acceptEdits'
-    | 'plan'
-    | 'bypassPermissions';
+  const permissionMode = (session?.permissionMode ?? 'default') as PermissionMode;
   const [pmBusy, setPmBusy] = useState(false);
   const [pmError, setPmError] = useState<string | null>(null);
 
@@ -51,20 +63,14 @@ export function ComposerSdk({
   // codex SDK 的 sandboxMode 是 startThread/resumeThread spawn-time 锁定，
   // 切档必须冷切（销毁旧 thread + 用新 sandbox resume 重建），与 claude
   // bypassPermissions 路径同模式。
-  const codexSandbox = (session?.codexSandbox ?? 'workspace-write') as
-    | 'workspace-write'
-    | 'read-only'
-    | 'danger-full-access';
+  const codexSandbox = (session?.codexSandbox ?? 'workspace-write') as CodexSandbox;
   const [csBusy, setCsBusy] = useState(false);
   const [csError, setCsError] = useState<string | null>(null);
 
   // CHANGELOG_74：claude OS 沙盒切档（与 codex 字面镜像）。SDK 的 sandbox options 是
   // query() spawn-time 锁定，切档必须冷切重启 SDK 子进程。session.claudeCodeSandbox
   // null/undefined → 'off' 兜底（与全局默认对齐）。
-  const claudeCodeSandbox = (session?.claudeCodeSandbox ?? 'off') as
-    | 'off'
-    | 'workspace-write'
-    | 'strict';
+  const claudeCodeSandbox = (session?.claudeCodeSandbox ?? 'off') as ClaudeCodeSandbox;
   const [csClaudeBusy, setCsClaudeBusy] = useState(false);
   const [csClaudeError, setCsClaudeError] = useState<string | null>(null);
 
@@ -157,7 +163,7 @@ export function ComposerSdk({
     }
   };
 
-  const changeMode = async (next: typeof permissionMode): Promise<void> => {
+  const changeMode = async (next: PermissionMode): Promise<void> => {
     if (next === permissionMode || pmBusy) return;
     // bypassPermissions 必须冷切：SDK 的 allowDangerouslySkipPermissions flag 在 CLI
     // 子进程启动时锁死，运行时调 setPermissionMode('bypassPermissions') 会被 SDK 静默吞。
@@ -197,7 +203,7 @@ export function ComposerSdk({
    * 切到 'danger-full-access' 必须 confirm（让 codex 完全免审批触达系统资源）；
    * 'read-only' 是降级到只读，无破坏性，免 confirm。
    */
-  const changeSandbox = async (next: typeof codexSandbox): Promise<void> => {
+  const changeSandbox = async (next: CodexSandbox): Promise<void> => {
     if (next === codexSandbox || csBusy) return;
     if (next === 'danger-full-access' && codexSandbox !== 'danger-full-access') {
       const ok = await window.api.confirmDialog({
@@ -236,7 +242,7 @@ export function ComposerSdk({
    * 不受 OS 隔离约束，与 codex `danger-full-access` 同性质）；切到 `'workspace-write'` /
    * `'strict'` 是同档/更严格，无破坏性，免 confirm。
    */
-  const changeClaudeCodeSandbox = async (next: typeof claudeCodeSandbox): Promise<void> => {
+  const changeClaudeCodeSandbox = async (next: ClaudeCodeSandbox): Promise<void> => {
     if (next === claudeCodeSandbox || csClaudeBusy) return;
     if (next === 'off' && claudeCodeSandbox !== 'off') {
       const ok = await window.api.confirmDialog({
@@ -270,118 +276,41 @@ export function ComposerSdk({
   return (
     <div className="shrink-0 border-t border-deck-border px-2.5 py-2">
       {supportsPermissionMode && (
-        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-deck-muted">
-          <span>权限</span>
-          <select
-            value={permissionMode}
-            onChange={(e) => void changeMode(e.target.value as typeof permissionMode)}
-            disabled={pmBusy}
-            className="no-drag flex-1 min-w-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
-          >
-            <option value="default">默认（每次询问）</option>
-            <option value="acceptEdits">自动接受编辑</option>
-            <option value="plan">Plan 模式（只规划）</option>
-            <option value="bypassPermissions">完全免询问 ⚠️</option>
-          </select>
-        </div>
+        <SelectRow
+          label="权限"
+          value={permissionMode}
+          options={PERMISSION_MODE_OPTIONS}
+          disabled={pmBusy}
+          onChange={(next) => void changeMode(next)}
+        />
       )}
       {supportsCodexSandbox && (
-        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-deck-muted">
-          <span>沙盒</span>
-          <select
-            value={codexSandbox}
-            onChange={(e) => void changeSandbox(e.target.value as typeof codexSandbox)}
-            disabled={csBusy}
-            className="no-drag flex-1 min-w-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
-          >
-            <option value="workspace-write">workspace-write（默认）</option>
-            <option value="read-only">read-only（只读）</option>
-            <option value="danger-full-access">danger-full-access ⚠️</option>
-          </select>
-        </div>
+        <SelectRow
+          label="沙盒"
+          value={codexSandbox}
+          options={CODEX_SANDBOX_OPTIONS}
+          disabled={csBusy}
+          onChange={(next) => void changeSandbox(next)}
+        />
       )}
       {supportsClaudeCodeSandbox && (
-        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-deck-muted">
-          <span>沙盒</span>
-          <select
-            value={claudeCodeSandbox}
-            onChange={(e) =>
-              void changeClaudeCodeSandbox(e.target.value as typeof claudeCodeSandbox)
-            }
-            disabled={csClaudeBusy}
-            className="no-drag flex-1 min-w-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
-          >
-            <option value="off">off（不启 OS 沙盒）⚠️</option>
-            <option value="workspace-write">workspace-write</option>
-            <option value="strict">strict（cwd 也只读）</option>
-          </select>
-        </div>
+        <SelectRow
+          label="沙盒"
+          value={claudeCodeSandbox}
+          options={CLAUDE_CODE_SANDBOX_OPTIONS}
+          disabled={csClaudeBusy}
+          onChange={(next) => void changeClaudeCodeSandbox(next)}
+        />
       )}
-      {pmError && (
-        <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
-          <span className="flex-1">⚠ 权限模式切换失败：{pmError}</span>
-          <button
-            type="button"
-            onClick={() => setPmError(null)}
-            className="text-status-waiting/70 hover:text-status-waiting"
-            aria-label="dismiss"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      {csError && (
-        <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
-          <span className="flex-1">⚠ Codex sandbox 切换失败：{csError}</span>
-          <button
-            type="button"
-            onClick={() => setCsError(null)}
-            className="text-status-waiting/70 hover:text-status-waiting"
-            aria-label="dismiss"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      {csClaudeError && (
-        <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
-          <span className="flex-1">⚠ Claude OS 沙盒切换失败：{csClaudeError}</span>
-          <button
-            type="button"
-            onClick={() => setCsClaudeError(null)}
-            className="text-status-waiting/70 hover:text-status-waiting"
-            aria-label="dismiss"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      {sendError && (
-        <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
-          <span className="flex-1">⚠ {sendError}</span>
-          <button
-            type="button"
-            onClick={() => setSendError(null)}
-            className="text-status-waiting/70 hover:text-status-waiting"
-            aria-label="dismiss"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      {imgs.error && (
-        <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
-          <span className="flex-1">⚠ {imgs.error}</span>
-          <button
-            type="button"
-            onClick={imgs.dismissError}
-            className="text-status-waiting/70 hover:text-status-waiting"
-            aria-label="dismiss"
-          >
-            ✕
-          </button>
-        </div>
-      )}
+      <ErrorBanner message={pmError} prefix="权限模式切换失败" onDismiss={() => setPmError(null)} />
+      <ErrorBanner message={csError} prefix="Codex sandbox 切换失败" onDismiss={() => setCsError(null)} />
+      <ErrorBanner
+        message={csClaudeError}
+        prefix="Claude OS 沙盒切换失败"
+        onDismiss={() => setCsClaudeError(null)}
+      />
+      <ErrorBanner message={sendError} onDismiss={() => setSendError(null)} />
+      <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -489,24 +418,5 @@ export function ComposerSdk({
         </button>
       </div>
     </div>
-  );
-}
-
-function ImageIcon({ className }: { className?: string }): JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <circle cx="8.5" cy="8.5" r="1.5" />
-      <path d="M21 15l-5-5L5 21" />
-    </svg>
   );
 }
