@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Codex, Input, Thread, UserInput } from '@openai/codex-sdk';
+import type { Codex, Thread } from '@openai/codex-sdk';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
@@ -14,6 +14,10 @@ import {
 // 模式下 `import './sdk-bridge'` 优先匹配 `sdk-bridge.ts` 文件（不存在时才走 `sdk-bridge/index.ts`）。
 // Step 4c 删了原 `sdk-bridge.ts` 文件，import 自动切到本 index.ts；外部 import 站点
 // （`@main/adapters/codex-cli/sdk-bridge`）零变更继续工作。
+//
+// R37 P2-E Step 3.4a：抽 input-pack.ts (packCodexInput + extractAttachmentPaths 模块级纯函数)。
+// R37 P2-E Step 3.4b：抽 session-finalize.ts (persistSessionFields 收口 setCodexSandbox + setModel + warn)。
+// R37 P2-E Step 3.4c：抽 restart-controller.ts (RestartController sub-class 持冷切 sandbox method)。
 import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES } from './constants';
 import type {
   CodexBridgeOptions,
@@ -22,49 +26,14 @@ import type {
 } from './types';
 import { resolveBundledCodexBinary } from './codex-binary';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
+import { packCodexInput, extractAttachmentPaths } from './input-pack';
+import { persistSessionFields } from './session-finalize';
+import { RestartController, type RestartCtx } from './restart-controller';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import type { UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
-
-/**
- * 把 (text, attachments) 包成 codex SDK 接受的 Input 形态。
- *
- * - 纯文本：直接返回 string（与原行为字节级一致）
- * - 带 attachments：返回 UserInput[]，按 [local_image, ..., text] 顺序
- *   （与 Claude SDK image-block-first 顺序对齐，让 LLM 先看到图再读问题）
- *
- * codex SDK `local_image` 只接 path，不接 base64：path 已由 IPC 层 writeUploadedImage
- * 落盘到 <userData>/image-uploads/<uuid>.<ext>，codex 子进程自己 fs 读。
- */
-function packCodexInput(text: string, attachments?: UploadedAttachmentRef[]): Input {
-  if (!attachments || attachments.length === 0) return text;
-  const items: UserInput[] = [];
-  for (const ref of attachments) {
-    items.push({ type: 'local_image', path: ref.path });
-  }
-  if (text.length > 0) {
-    items.push({ type: 'text', text });
-  }
-  return items;
-}
-
-/**
- * 从 codex Input 中提取 attachments path 集合（用于 closeSession 时清理 unused 文件）。
- *
- * 仅扫 UserInput[] 形态；string 形态直接返回 []。
- */
-function extractAttachmentPaths(input: Input): string[] {
-  if (typeof input === 'string') return [];
-  const paths: string[] = [];
-  for (const item of input) {
-    if (item.type === 'local_image' && typeof item.path === 'string') {
-      paths.push(item.path);
-    }
-  }
-  return paths;
-}
 
 /**
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
@@ -92,6 +61,12 @@ export class CodexSdkBridge {
    * 调用走 this.threadLoop.xxx 委托。
    */
   private threadLoop: ThreadLoop;
+  /**
+   * R37 P2-E Step 3.4c：RestartController sub-class 持 restartWithCodexSandbox method。
+   * ctx 通过 thunk 反调本 facade 的 closeSession + createSession（避免循环引用），
+   * facade 端只保留 thin wrapper 委托（与 claude RestartController 同模式）。
+   */
+  private restartController: RestartController;
 
   constructor(private opts: CodexBridgeOptions) {
     const ctx: ThreadLoopCtx = {
@@ -99,6 +74,13 @@ export class CodexSdkBridge {
       emit: opts.emit,
     };
     this.threadLoop = new ThreadLoop(ctx);
+    const restartCtx: RestartCtx = {
+      emit: opts.emit,
+      // thunk 反调本 facade 的 closeSession / createSession，避免直接持有 facade ref
+      closeSession: (sessionId: string): Promise<void> => this.closeSession(sessionId),
+      createSession: (restartOpts) => this.createSession(restartOpts),
+    };
+    this.restartController = new RestartController(restartCtx);
   }
 
   /**
@@ -251,26 +233,8 @@ export class CodexSdkBridge {
       // CHANGELOG_<X> A2a：emit session-start 是同步派发到 sessionManager.ingest →
       // sessionRepo.upsert 创建 record（如果不存在）；之后调 setCodexSandbox UPDATE 字段。
       // 后续 advanceState 内 spread record 时会带上最新 codex_sandbox 不会被静默重置。
-      // try/catch 兜底：DB 异常不应阻塞会话启动（最坏情况只是字段没存，下次会话退化默认）。
-      try {
-        sessionRepo.setCodexSandbox(opts.resume, sandboxMode);
-      } catch (err) {
-        console.warn(`[codex-bridge] setCodexSandbox(${opts.resume}, ${sandboxMode}) 失败`, err);
-      }
-      // plan model-wiring-and-handoff-20260514 Step 2.5：opts.model 持久化（D5：runtime 不生效，
-      // codex CLI runtime model 由 ~/.codex/config.toml 顶层 `model` 决定；本字段仅记账让 UI
-      // 显示 frontmatter 意图）。配合下方 warn 提示用户改 toml 才真正切 model。
-      if (opts.model) {
-        try {
-          sessionRepo.setModel(opts.resume, opts.model);
-        } catch (err) {
-          console.warn(`[codex-bridge] setModel(${opts.resume}, ${opts.model}) 失败`, err);
-        }
-        console.warn(
-          `[codex-bridge] frontmatter model="${opts.model}" 仅持久化未生效：codex SDK 不接受` +
-            ` per-thread model override，runtime model 由 ~/.codex/config.toml 顶层 \`model\` 字段决定。`,
-        );
-      }
+      // R37 P2-E Step 3.4b：setSandbox + setModel + warn 收口到 persistSessionFields helper。
+      persistSessionFields({ sessionId: opts.resume, sandboxMode, model: opts.model });
       this.opts.emit({
         sessionId: opts.resume,
         agentId: AGENT_ID,
@@ -301,27 +265,11 @@ export class CodexSdkBridge {
       opts.attachments,
     );
 
-    // CHANGELOG_<X> A2a：新建路径拿到 realId 后持久化 sandboxMode。
+    // CHANGELOG_<X> A2a：新建路径拿到 realId 后持久化 sandboxMode + model。
     // startNewThreadAndAwaitId 内部已 emit session-start（同步派发 → ingest 创建 record），
-    // 此处 setCodexSandbox 紧跟 await 之后跑，UPDATE 必然命中。
-    try {
-      sessionRepo.setCodexSandbox(realId, sandboxMode);
-    } catch (err) {
-      console.warn(`[codex-bridge] setCodexSandbox(${realId}, ${sandboxMode}) 失败`, err);
-    }
-    // plan model-wiring-and-handoff-20260514 Step 2.5：opts.model 持久化（D5：runtime 不生效，
-    // 与 resume 分支同款）。新建路径同样写库 + warn 提示用户。
-    if (opts.model) {
-      try {
-        sessionRepo.setModel(realId, opts.model);
-      } catch (err) {
-        console.warn(`[codex-bridge] setModel(${realId}, ${opts.model}) 失败`, err);
-      }
-      console.warn(
-        `[codex-bridge] frontmatter model="${opts.model}" 仅持久化未生效：codex SDK 不接受` +
-          ` per-thread model override，runtime model 由 ~/.codex/config.toml 顶层 \`model\` 字段决定。`,
-      );
-    }
+    // 此处 persistSessionFields 紧跟 await 之后跑，UPDATE 必然命中。
+    // R37 P2-E Step 3.4b：与 resume 路径同款收口（差异仅 sessionId 来源 = realId vs opts.resume）。
+    persistSessionFields({ sessionId: realId, sandboxMode, model: opts.model });
 
     return { sessionId: realId };
   }
@@ -382,98 +330,16 @@ export class CodexSdkBridge {
   /**
    * 冷切 codex sandbox 档位（CHANGELOG_<X> A2b）：销毁旧 thread + 用新 sandbox resume 重建。
    *
-   * 与 claude restartWithPermissionMode 同模式：
-   * - emit 占位 message → close OLD → 写 DB → createSession({resume, codexSandbox, prompt})
-   * - 失败回滚 sessionRepo.codexSandbox + emit error message
-   *
-   * codex SDK sandboxMode 是 startThread/resumeThread spawn-time 锁定，无法运行时热切；
-   * 必须冷切（销毁旧 thread + 重建）。spike-A2 实测确认 resumeThread 透传新 sandbox 真生效。
-   *
-   * @returns 重启后的 sessionId（codex resume 不会隐式 fork，理论上等于入参 sid，
-   *   但接口签名与 claude 对齐保留 string 返回）
+   * R37 P2-E Step 3.4c：实现下沉到 RestartController sub-class（与 claude restart-controller 同模式）。
+   * 本 facade method 仅 thin wrapper 委托给 restartController.restartWithCodexSandbox(...)。
+   * 行为零变化：emit / close / DB write / createSession resume / rename 防御 / 回滚序列字面一致。
    */
   async restartWithCodexSandbox(
     sessionId: string,
     sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
     handoffPrompt: string,
   ): Promise<string> {
-    if (!handoffPrompt.trim()) {
-      throw new Error(
-        'restartWithCodexSandbox 要求 handoffPrompt 非空（codex SDK runStreamed 协议约束，' +
-          'resume 路径必须有 prompt 触发首条 turn）',
-      );
-    }
-
-    const rec = sessionRepo.get(sessionId);
-    if (!rec) throw new Error(`session ${sessionId} not found in repo`);
-    const oldSandbox: 'workspace-write' | 'read-only' | 'danger-full-access' | null =
-      rec.codexSandbox ?? null;
-
-    // 占位 message：让用户在 close + 重建 期间看到状态（与 claude 冷切同模式）
-    this.opts.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: {
-        text: `⚠ 正在切换 Codex sandbox 到 ${sandbox}，重启 thread 中…`,
-      },
-      ts: Date.now(),
-      source: 'sdk',
-    });
-
-    // close OLD：内部 intentionallyClosed=true → abort current turn → runTurnLoop 静默退出
-    await this.closeSession(sessionId);
-
-    // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox
-    sessionRepo.setCodexSandbox(sessionId, sandbox);
-
-    try {
-      const handle = await this.createSession({
-        cwd: rec.cwd,
-        prompt: handoffPrompt,
-        resume: sessionId,
-        codexSandbox: sandbox,
-      });
-      // REVIEW_36 R2 codex follow-up：加 runtime defense 防 codex SDK 未来某版本让 resume 返回新 thread id
-      // (与 claude SDK 隐式 fork 同款风险)。当前 codex SDK 实测 resumeThread 永远返回同 id（spike-A2 验证），
-      // 但代码 thread-loop 仍走 `if (!internal.threadId)` 检测 thread.started.thread_id（即新 id 会被忽略）。
-      // 加 rename 防御让此前提失效时（SDK 升级 / 行为变更）能整体迁移 app-side history 到 NEW_ID 名下，
-      // 与 claude restartWithClaudeCodeSandbox / restartWithPermissionMode 同款保护。
-      const newRealId = handle.sessionId;
-      if (newRealId !== sessionId) {
-        console.warn(
-          `[codex-bridge] restartWithCodexSandbox: codex SDK returned different sessionId ${sessionId} → ${newRealId}; ` +
-            `this is unexpected (codex resume historically returns same id). Carrying app-side history to NEW_ID via renameSdkSession.`,
-        );
-        try {
-          sessionManager.renameSdkSession(sessionId, newRealId);
-        } catch (renameErr) {
-          console.error(
-            `[codex-bridge] post-restart rename failed ${sessionId} → ${newRealId}, ` +
-              `NEW session works but app-side history not migrated.`,
-            renameErr,
-          );
-        }
-      }
-      return newRealId;
-    } catch (err) {
-      // 回滚：DB 改回 oldSandbox + emit error message
-      sessionRepo.setCodexSandbox(sessionId, oldSandbox);
-      this.opts.emit({
-        sessionId,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: {
-          text:
-            `⚠ 切到 sandbox ${sandbox} 失败：${(err as Error)?.message ?? String(err)}。` +
-            `档位已回退到 ${oldSandbox ?? '(默认)'}，请重新发送一条消息让 Codex 续上。`,
-          error: true,
-        },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-      throw err;
-    }
+    return this.restartController.restartWithCodexSandbox(sessionId, sandbox, handoffPrompt);
   }
 
   /**
