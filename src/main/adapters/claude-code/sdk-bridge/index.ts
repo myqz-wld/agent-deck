@@ -48,6 +48,7 @@ import { buildClaudeQueryOptions } from './query-options-builder';
 import { validateSendMessageOrThrow } from './send-validation';
 import { finalizeSessionStart } from './session-finalize';
 import { resolveClaudeSandboxMode } from './sandbox-resolve';
+import { resolveClaudeModel } from './model-resolve';
 
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
@@ -159,6 +160,14 @@ export class ClaudeSdkBridge {
      * - recoverer cwd fallback → 传 `[原 mainRepo]` 防写权限静默扩大到 fallback 父目录
      */
     extraAllowWrite?: readonly string[];
+    /**
+     * plan model-wiring-and-handoff-20260514 Step 2.2：SDK / agent model 透传。
+     * 来源：spawn handler 解 agent body frontmatter `model` 字段（reviewer-claude.md 的
+     * `model: opus` 等）后传入。fallback 链 opts.model > sessionRepo.model > undefined
+     * （详 model-resolve.ts）。透传给 SDK `query({ options.model })` 真正生效，并
+     * setModel 持久化让 resume / dormant 唤醒后保持一致。
+     */
+    model?: string;
   }): Promise<SdkSessionHandle> {
     // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
     // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
@@ -235,6 +244,9 @@ export class ClaudeSdkBridge {
     // CHANGELOG_85 Step 3.2：sandbox mode fallback 链抽到 sandbox-resolve.ts。
     // 提到 try 块外，让 emit session-start 之后的 setClaudeCodeSandbox 持久化用同一变量。
     const claudeSandboxMode = resolveClaudeSandboxMode(opts);
+    // plan model-wiring-and-handoff-20260514 Step 2.2：model fallback 链抽到 model-resolve.ts。
+    // 提到 try 块外让 finalizeSessionStart 持久化用同一变量（与 sandbox 同模式）。
+    const claudeModel = resolveClaudeModel(opts);
     try {
       const { query } = await loadSdk();
       const runtime = getSdkRuntimeOptions();
@@ -270,6 +282,7 @@ export class ClaudeSdkBridge {
           runtime,
           claudeBinary,
           mcpServers,
+          model: claudeModel,
         }),
       });
       internal.query = q;
@@ -301,6 +314,7 @@ export class ClaudeSdkBridge {
       cwd: opts.cwd,
       prompt: opts.prompt,
       claudeSandboxMode,
+      claudeModel,
       emit: this.opts.emit,
     });
 

@@ -21,13 +21,16 @@ export function upsert(rec: SessionRecord): void {
   // CHANGELOG_74：claude_code_sandbox 同款（claude OS 沙盒 per-session 覆盖与 codex 对称）。
   // R4·F2：generic_pty_config 同款 — generic-pty / aider session 的 spawn config 必须
   // 在 upsert 时透传，否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn。
+  // plan model-wiring-and-handoff-20260514 Step 1.3：model 同款 — spawn 时 frontmatter `model`
+  // 透传给 SDK 后持久化，让 SDK resume / dormant 唤醒后保持模型一致；upsert 必须参与
+  // 否则 lifecycle 复活路径丢字段，resume 拿不到 model。
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
   // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, spawned_by, spawn_depth, generic_pty_config)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @spawned_by, @spawn_depth, @generic_pty_config)
+       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, spawned_by, spawn_depth, generic_pty_config)
+       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @spawned_by, @spawn_depth, @generic_pty_config)
        ON CONFLICT(id) DO UPDATE SET
          cwd = excluded.cwd,
          title = excluded.title,
@@ -40,6 +43,7 @@ export function upsert(rec: SessionRecord): void {
          permission_mode = excluded.permission_mode,
          codex_sandbox = excluded.codex_sandbox,
          claude_code_sandbox = excluded.claude_code_sandbox,
+         model = excluded.model,
          spawned_by = excluded.spawned_by,
          spawn_depth = excluded.spawn_depth,
          generic_pty_config = excluded.generic_pty_config`,
@@ -59,6 +63,7 @@ export function upsert(rec: SessionRecord): void {
       permission_mode: rec.permissionMode ?? null,
       codex_sandbox: rec.codexSandbox ?? null,
       claude_code_sandbox: rec.claudeCodeSandbox ?? null,
+      model: rec.model ?? null,
       spawned_by: rec.spawnedBy ?? null,
       spawn_depth: rec.spawnDepth ?? 0,
       generic_pty_config: rec.genericPtyConfig ? JSON.stringify(rec.genericPtyConfig) : null,
@@ -195,4 +200,20 @@ export function setClaudeCodeSandbox(
 export function setGenericPtyConfig(id: string, config: GenericPtyConfig | null): void {
   const json = config ? JSON.stringify(config) : null;
   getDb().prepare(`UPDATE sessions SET generic_pty_config = ? WHERE id = ?`).run(json, id);
+}
+
+/**
+ * 写入 SDK / agent model（plan model-wiring-and-handoff-20260514 Step 1.3）。
+ *
+ * 调用方：
+ * - claude-code adapter createSession：opts.model 非空时调，让 SDK resume / dormant 唤醒后
+ *   保持模型一致（与 setPermissionMode / setClaudeCodeSandbox 同款 per-session 持久化）
+ * - codex-cli adapter createSession：opts.model 非空时也调（runtime 不生效但写库便于 UI 显示）
+ * - aider / generic-pty adapter：不应调（字段对它们无意义）
+ *
+ * model=null → 清空（恢复"不指定，跟 SDK 默认 / ANTHROPIC_MODEL env"语义）。
+ * 与 setCodexSandbox / setClaudeCodeSandbox 完全对称的字面镜像。
+ */
+export function setModel(id: string, model: string | null): void {
+  getDb().prepare(`UPDATE sessions SET model = ? WHERE id = ?`).run(model, id);
 }

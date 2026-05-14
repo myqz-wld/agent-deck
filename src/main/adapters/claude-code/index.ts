@@ -78,6 +78,12 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
      * 透传给 bridge.createSession → buildSandboxOptions 第三参。详 adapters/types.ts CreateSessionOptions。
      */
     extraAllowWrite?: readonly string[];
+    /**
+     * plan model-wiring-and-handoff-20260514 Step 2.2：spawn handler 解 agent body frontmatter
+     * `model` 字段后透传。bridge 内 model-resolve 内部 fallback 链 `opts.model >
+     * sessionRepo.model > undefined` → SDK options.model。详 adapters/types.ts CreateSessionOptions.model。
+     */
+    model?: string;
   }): Promise<string> {
     if (!this.bridge) throw new Error('adapter not initialized');
     const handle = await this.bridge.createSession(opts);

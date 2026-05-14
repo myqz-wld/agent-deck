@@ -53,6 +53,37 @@ export interface AppSettings {
    * inFlight 槽永不释放，maxConcurrent 个卡死后整个 Summarizer 不再产新总结。
    */
   summaryTimeoutMs: number;
+  /**
+   * plan model-wiring-and-handoff-20260514 Step 4.1：周期性 summarize 用的 SDK model（覆盖
+   * env / alias 兜底）。
+   *
+   * 优先级链（summariseViaLlm 实施）：
+   *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ `ANTHROPIC_MODEL` env
+   *   ＞ 'haiku' alias 兜底
+   *
+   * - `''`（默认空）= 沿用现有 env / alias 链（老用户无感，零迁移成本）
+   * - 非空 = 完全覆盖 env，传给 SDK options.model（'haiku' / 'sonnet' / 'opus' alias 或具体
+   *   model id 如 `claude-haiku-4-5-20251001`）
+   *
+   * 仅对 claude-code session 周期性 summarize 生效。codex session 用 codex CLI 自身的
+   * `~/.codex/config.toml` 顶层 `model` 字段决定（codex SDK 不接受 per-thread model override）。
+   */
+  summaryModel: string;
+  /**
+   * plan model-wiring-and-handoff-20260514 Step 4.1：hand-off 接力简报用的 SDK model（覆盖
+   * env / alias 兜底）。
+   *
+   * 优先级链（summariseSessionForHandOff 实施）：
+   *   `settings.handOffModel` ＞ `ANTHROPIC_DEFAULT_SONNET_MODEL` env ＞ `ANTHROPIC_MODEL`
+   *   env ＞ 'sonnet' alias 兜底
+   *
+   * - `''`（默认空）= 沿用现有 env / alias 链
+   * - 非空 = 覆盖
+   *
+   * 仅对 claude-code session hand-off 生效。codex session hand-off 已切到走 codex SDK 自身
+   * （Step 5），其 model 同样由 ~/.codex/config.toml 决定，不受本字段影响。
+   */
+  handOffModel: string;
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。 */
   permissionTimeoutMs: number;
   alwaysOnTop: boolean;
@@ -342,6 +373,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryEventCount: 10,
   summaryMaxConcurrent: 2,
   summaryTimeoutMs: 60 * 1000,
+  // plan model-wiring-and-handoff-20260514 Step 4.1：默认空字符串 = 沿用 env / alias 兜底
+  // 不强制改任何老用户的现状（兜底链 → env → SDK alias 链路完全保留）
+  summaryModel: '',
+  handOffModel: '',
   permissionTimeoutMs: 5 * 60 * 1000,
   alwaysOnTop: true,
   windowTransparent: true,

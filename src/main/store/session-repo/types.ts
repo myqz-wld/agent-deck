@@ -35,6 +35,8 @@ export interface Row {
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，Row 接口不再含
   codex_sandbox: string | null;
   claude_code_sandbox: string | null;
+  // plan model-wiring-and-handoff-20260514 Step 1.3：SDK / agent model per-session 持久化
+  model: string | null;
   spawned_by: string | null;
   spawn_depth: number;
   generic_pty_config: string | null;
@@ -61,6 +63,7 @@ export function rowToRecord(r: Row): SessionRecord {
       (r.codex_sandbox as 'workspace-write' | 'read-only' | 'danger-full-access' | null) ?? null,
     claudeCodeSandbox:
       (r.claude_code_sandbox as 'off' | 'workspace-write' | 'strict' | null) ?? null,
+    model: r.model ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
     genericPtyConfig: parseGenericPtyConfigJson(r.generic_pty_config),

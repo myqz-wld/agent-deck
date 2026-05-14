@@ -155,6 +155,16 @@ export class CodexSdkBridge {
     attachments?: UploadedAttachmentRef[];
     /** 见 types.ts CreateSessionOptions.codexSandbox（per-session 覆盖）。 */
     codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+    /**
+     * plan model-wiring-and-handoff-20260514 Step 2.5：spawn handler 解 agent body frontmatter
+     * `model` 字段后传入。codex SDK startThread / resumeThread **不接受 per-thread model
+     * override**（model 由 ~/.codex/config.toml 顶层 `model` 字段决定），所以本字段：
+     * - 仅 setModel 持久化（让 UI / sessions detail 看到 frontmatter 设的 model）
+     * - 配合 console.warn 提示用户改 toml 才能真正生效
+     *
+     * runtime 不影响 codex 实际跑的 model（详 plan D5 / 上方 import comments）。
+     */
+    model?: string;
   }): Promise<CodexSessionHandle> {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
@@ -235,6 +245,20 @@ export class CodexSdkBridge {
       } catch (err) {
         console.warn(`[codex-bridge] setCodexSandbox(${opts.resume}, ${sandboxMode}) 失败`, err);
       }
+      // plan model-wiring-and-handoff-20260514 Step 2.5：opts.model 持久化（D5：runtime 不生效，
+      // codex CLI runtime model 由 ~/.codex/config.toml 顶层 `model` 决定；本字段仅记账让 UI
+      // 显示 frontmatter 意图）。配合下方 warn 提示用户改 toml 才真正切 model。
+      if (opts.model) {
+        try {
+          sessionRepo.setModel(opts.resume, opts.model);
+        } catch (err) {
+          console.warn(`[codex-bridge] setModel(${opts.resume}, ${opts.model}) 失败`, err);
+        }
+        console.warn(
+          `[codex-bridge] frontmatter model="${opts.model}" 仅持久化未生效：codex SDK 不接受` +
+            ` per-thread model override，runtime model 由 ~/.codex/config.toml 顶层 \`model\` 字段决定。`,
+        );
+      }
       this.opts.emit({
         sessionId: opts.resume,
         agentId: AGENT_ID,
@@ -272,6 +296,19 @@ export class CodexSdkBridge {
       sessionRepo.setCodexSandbox(realId, sandboxMode);
     } catch (err) {
       console.warn(`[codex-bridge] setCodexSandbox(${realId}, ${sandboxMode}) 失败`, err);
+    }
+    // plan model-wiring-and-handoff-20260514 Step 2.5：opts.model 持久化（D5：runtime 不生效，
+    // 与 resume 分支同款）。新建路径同样写库 + warn 提示用户。
+    if (opts.model) {
+      try {
+        sessionRepo.setModel(realId, opts.model);
+      } catch (err) {
+        console.warn(`[codex-bridge] setModel(${realId}, ${opts.model}) 失败`, err);
+      }
+      console.warn(
+        `[codex-bridge] frontmatter model="${opts.model}" 仅持久化未生效：codex SDK 不接受` +
+          ` per-thread model override，runtime model 由 ~/.codex/config.toml 顶层 \`model\` 字段决定。`,
+      );
     }
 
     return { sessionId: realId };

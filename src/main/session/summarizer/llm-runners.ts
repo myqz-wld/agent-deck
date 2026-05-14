@@ -42,11 +42,15 @@ ${activity}`;
     options: {
       cwd: cwd || process.cwd(),
       // 总结只一句话，用 haiku 足够：成本低、吐字快，多个会话排队也不会卡。
-      // 模型优先级：settings.json 里配的 ANTHROPIC_DEFAULT_HAIKU_MODEL（具体 id）→
-      // ANTHROPIC_MODEL（用户主模型，没配 haiku 但配了主模型时退而求其次）→
-      // 'haiku' alias（让什么都没配的环境也能跑，由 SDK / CLI 自己解析）。
+      // 模型优先级（plan model-wiring-and-handoff-20260514 Step 4.3）：
+      //   1. settings.summaryModel（UI 暴露的字符串字段，'' 表示沿用下面 env / alias 链）
+      //   2. settings.json 里配的 ANTHROPIC_DEFAULT_HAIKU_MODEL（具体 id）
+      //   3. ANTHROPIC_MODEL（用户主模型，没配 haiku 但配了主模型时退而求其次）
+      //   4. 'haiku' alias（让什么都没配的环境也能跑，由 SDK / CLI 自己解析）
       // applyClaudeSettingsEnv 在 bootstrap 时已把 settings.json 的 env 注入 process.env。
+      // settingsStore.get 在 main 进程内可调（本函数跑在 main 进程，不是 SDK 子进程）。
       model:
+        settingsStore.get('summaryModel') ||
         process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
         process.env.ANTHROPIC_MODEL ||
         'haiku',
@@ -181,10 +185,14 @@ ${activity}
     options: {
       cwd: cwd || process.cwd(),
       // K3 用 sonnet：hand-off 是低频操作（用户主动点按钮）+ 结构化输出对模型理解力
-      // 要求高（4 节模板）。优先级与 summariseViaLlm haiku 同模式：
-      // ANTHROPIC_DEFAULT_SONNET_MODEL（settings.json 显式配的 sonnet id）→
-      // ANTHROPIC_MODEL（用户主模型）→ 'sonnet' alias 兜底。
+      // 要求高（4 节模板）。优先级与 summariseViaLlm haiku 同模式（plan
+      // model-wiring-and-handoff-20260514 Step 4.4）：
+      //   1. settings.handOffModel（UI 暴露的字符串字段，'' 表示沿用下面 env / alias 链）
+      //   2. ANTHROPIC_DEFAULT_SONNET_MODEL（settings.json 显式配的 sonnet id）
+      //   3. ANTHROPIC_MODEL（用户主模型）
+      //   4. 'sonnet' alias 兜底
       model:
+        settingsStore.get('handOffModel') ||
         process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
         process.env.ANTHROPIC_MODEL ||
         'sonnet',

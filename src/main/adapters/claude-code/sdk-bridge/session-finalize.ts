@@ -24,6 +24,12 @@ export interface FinalizeSessionStartArgs {
   cwd: string;
   prompt?: string;
   claudeSandboxMode: 'off' | 'workspace-write' | 'strict';
+  /**
+   * plan model-wiring-and-handoff-20260514 Step 2.2：resolveClaudeModel 算出的 effective model。
+   * undefined → 不持久化（保留 sessions.model 原值，resume 路径下保持原 model）；
+   * 非 undefined → setModel 写入，让 dormant 唤醒 / SDK 重启 resume 仍用此 model。
+   */
+  claudeModel?: string;
   emit: (e: AgentEvent) => void;
 }
 
@@ -32,7 +38,7 @@ export interface FinalizeSessionStartArgs {
  * 顺序与原 createSession 末段 100% 一致。
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
-  const { realId, cwd, prompt, claudeSandboxMode, emit } = args;
+  const { realId, cwd, prompt, claudeSandboxMode, claudeModel, emit } = args;
 
   // 1. 主动 emit session-start
   emit({
@@ -52,6 +58,18 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
       `[claude-bridge] setClaudeCodeSandbox(${realId}, ${claudeSandboxMode}) 失败`,
       err,
     );
+  }
+
+  // 2b. plan model-wiring-and-handoff-20260514 Step 2.2：持久化 model（与 sandbox 同位置同模式）。
+  // claudeModel undefined → 跳过（resume 路径下 sessionRepo.model 已存 → 保留原值；
+  // 新建未传 model 的会话 → 字段保持 NULL，SDK 跑默认 model）。
+  // 非 undefined → setModel 写入，让 dormant 唤醒 / SDK 重启 resume 仍用此 model。
+  if (claudeModel !== undefined) {
+    try {
+      sessionRepo.setModel(realId, claudeModel);
+    } catch (err) {
+      console.warn(`[claude-bridge] setModel(${realId}, ${claudeModel}) 失败`, err);
+    }
   }
 
   // 3. 补 emit 首条 user message（覆盖新建会话 + 恢复会话两条路径）
