@@ -147,6 +147,11 @@ export class IdleDetector {
   private regex: RegExp | null = null;
   private setTimerFn: typeof setTimeout;
   private clearTimerFn: typeof clearTimeout;
+  // REVIEW_35 MED-C-claude: dispose flag 防 dispose() 后 onData() 仍能注册新 timer。
+  // close 流程：dispose() → SIGTERM → PTY socket 200ms close grace → 期间 buffered data
+  // flush → pty.onData fire → state.idleDetector.onData(state.outputBuffer) → 重新注册 timer。
+  // intentionallyClosed 守门避免 emit waiting-for-user，但 timer 占用 + 视图不连贯。
+  private disposed = false;
 
   constructor(private readonly opts: IdleDetectorOptions) {
     this.setTimerFn = opts.setTimerFn ?? setTimeout;
@@ -181,6 +186,8 @@ export class IdleDetector {
    * buffer 用于 fire 时的 promptSuffix 二次校验。
    */
   onData(buffer: PtyOutputBuffer): void {
+    // REVIEW_35 MED-C-claude: dispose 后任何 onData 都 noop（防 SIGTERM grace 期 buffered data 重启 timer）
+    if (this.disposed) return;
     this.cancel();
     this.timer = this.setTimerFn(() => {
       this.timer = null;
@@ -205,8 +212,9 @@ export class IdleDetector {
     }
   }
 
-  /** 停定时器 + 不可再用（与 close 同义）。 */
+  /** 停定时器 + 不可再用（与 close 同义）。REVIEW_35 MED-C-claude: 设 disposed flag。 */
   dispose(): void {
+    this.disposed = true;
     this.cancel();
   }
 }

@@ -30,6 +30,8 @@ export function ComposerSdk({
 }): JSX.Element {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // REVIEW_35 MED-D-claude-4：busyRef 同步锁，防超快连点（< 16ms）双 send race
+  const busyRef = useRef(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgs = useImageAttachments();
@@ -68,20 +70,36 @@ export function ComposerSdk({
 
   // 多 agent 适配：
   // - 标签 / placeholder 文案用对应 agent 名（Claude / Codex / ...）
-  // - 权限模式 select 仅 claude-code 显示（codex SDK 没有运行时切权限模式）
+  // - 权限模式 select 仅 claude-code 显示（codex SDK 没有运行时切权限模式；REVIEW_35 MED-D-codex-3
+  //   修法：generic-pty / aider 也不支持 setPermissionMode（capabilities.canSetPermissionMode=false），
+  //   旧代码 `agentId !== 'codex-cli'` 错误地把它们也归入支持，切换抛 IPC 错）
   // - codex sandbox select 仅 codex-cli 显示（claude 没有 codex 那套档位）
   // - claude OS sandbox select 仅 claude-code 显示（CHANGELOG_74，与 codex 字面镜像）
+  // - 图片附件入口（粘贴 / 拖放 / 上传）按 capabilities.canAcceptAttachments gate
+  //   （REVIEW_35 HIGH-D2：claude-code/codex-cli=true，generic-pty/aider=false 静默丢图必须挡）
   const agentDisplayName = agentId === 'codex-cli' ? 'Codex' : 'Claude';
-  const supportsPermissionMode = agentId !== 'codex-cli';
+  const supportsPermissionMode = agentId === 'claude-code';
   const supportsCodexSandbox = agentId === 'codex-cli';
   const supportsClaudeCodeSandbox = agentId === 'claude-code';
+  const canAcceptAttachments = agentId === 'claude-code' || agentId === 'codex-cli';
 
   const send = async (): Promise<void> => {
     const t = text.trim();
     const hasAttachments = imgs.attachments.length > 0;
     // 允许「只发图不带文字」：text 空 + 至少一张图 → 走发送
     if (!t && !hasAttachments) return;
+    // REVIEW_35 MED-D-claude-4：busyRef 同步锁，busy state async 不立即生效，超快连点（< 16ms）
+    // 第 2 次闭包仍看 busy=false 重复发同款消息（attachments 已 clear，发空附件 / 空文本）
+    if (busyRef.current) return;
     if (busy) return;
+    // REVIEW_35 HIGH-D2：generic-pty / aider 不支持 attachments，gate 拒发并保留 attachments
+    // （不调 imgs.clear()）让用户能切 adapter 或删图后重发；旧版静默丢图 + 用户失去 retry 能力
+    if (!canAcceptAttachments && hasAttachments) {
+      setSendError(
+        `当前 adapter (${agentId}) 不支持图片附件，请先移除附件再发送，或切换到 Claude / Codex adapter`,
+      );
+      return;
+    }
     // SDK streaming mode 不支持 slash 命令——CLI 那套 slash command 注册表
     // 在 SDK 模式下不存在，'/clear' / '/compact' / '/cost' 等都会让 SDK 抛
     // "Unknown slash command" 或 "only prompt commands are supported in streaming mode"。
@@ -94,6 +112,7 @@ export function ComposerSdk({
       );
       return;
     }
+    busyRef.current = true;
     // 乐观清空：让用户立刻感觉「发出去了」
     setText('');
     setBusy(true);
@@ -103,6 +122,7 @@ export function ComposerSdk({
     try {
       attachmentInputs = imgs.toIpcInputs();
     } catch (err) {
+      busyRef.current = false;
       setBusy(false);
       setText(t);
       setSendError(`附件读取失败：${(err as Error).message}`);
@@ -124,6 +144,7 @@ export function ComposerSdk({
       setText(t);
       setSendError((err as Error).message);
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -364,9 +385,11 @@ export function ComposerSdk({
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        onPaste={imgs.onPaste}
-        onDrop={imgs.onDrop}
-        onDragOver={imgs.onDragOver}
+        // REVIEW_35 HIGH-D2：仅 canAcceptAttachments adapter 才绑 paste/drop/dragover；
+        // generic-pty / aider 不绑，防止用户拖入触发空发送 + 静默丢图。
+        onPaste={canAcceptAttachments ? imgs.onPaste : undefined}
+        onDrop={canAcceptAttachments ? imgs.onDrop : undefined}
+        onDragOver={canAcceptAttachments ? imgs.onDragOver : undefined}
         onKeyDown={(e) => {
           // Enter 发送；Shift+Enter 换行（IME 拼写期间不拦，避免吞掉中文上屏的 Enter）
           if (
@@ -388,27 +411,32 @@ export function ComposerSdk({
           替代了原「右侧三按钮纵向堆叠」+「单独 attachments strip」，让附件操作分组、
           发送/中断作为主操作右对齐。emoji 图标换成 inline SVG 避免基线对不齐。 */}
       <div className="mt-1.5 flex items-center gap-1.5">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            void imgs.add(e.target.files);
-            // 重置 input.value 让用户可重选同名文件
-            if (fileInputRef.current) fileInputRef.current.value = '';
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
-          title="上传图片（也可粘贴 / 拖放）"
-          aria-label="上传图片"
-        >
-          <ImageIcon className="h-4 w-4" />
-        </button>
+        {/* REVIEW_35 HIGH-D2：仅 canAcceptAttachments adapter 才显示图片入口 */}
+        {canAcceptAttachments && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void imgs.add(e.target.files);
+                // 重置 input.value 让用户可重选同名文件
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
+              title="上传图片（也可粘贴 / 拖放）"
+              aria-label="上传图片"
+            >
+              <ImageIcon className="h-4 w-4" />
+            </button>
+          </>
+        )}
         {imgs.attachments.length > 0 && (
           <div className="flex min-w-0 flex-wrap gap-1.5">
             {imgs.attachments.map((a) => (

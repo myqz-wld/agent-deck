@@ -27,11 +27,17 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set<string>([
   'Read',
   'Grep',
   'Glob',
-  'LS',
+  // REVIEW_35 LOW-C-claude: 'LS' 工具在 SDK 0.2.118 已删除（strings claude binary 验证 21 个内置
+  // 工具不含 LS；用 Glob / Bash `ls` 替代）。dead constant 删除。
   'WebFetch',
   'WebSearch',
   'TodoWrite',
   'NotebookRead',
+  // REVIEW_35 MED-C-claude: TaskOutput 是只读工具（读 background task 输出，本质 read-only，与 Read
+  // 同性质）。SDK 0.2.118 已暴露但白名单缺失 → 每次读 background task 输出都弹 PendingTab 审批，
+  // deep-code-review SKILL / 任何 background task 流程 UX 噪声严重。TaskStop / Agent / Task 是 mutation
+  // 保持默认审批不加入。
+  'TaskOutput',
 ]);
 
 /**
