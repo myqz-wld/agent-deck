@@ -56,6 +56,26 @@ export interface CreateSessionOptions {
    */
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   /**
+   * SDK / agent model 透传（plan model-wiring-and-handoff-20260514 Step 2.1）。
+   *
+   * 来源链：spawn handler 解 agent body frontmatter `model` 字段（reviewer-claude.md 的
+   * `model: opus` / reviewer-codex.md 的 `model: sonnet`）→ 传给 createSession。
+   *
+   * adapter 行为：
+   * - claude-code：透传给 SDK `query({ options.model })` 真正生效；并 setModel 持久化让
+   *   resume / dormant 唤醒后保持一致
+   * - codex-cli：仅 setModel 持久化（让 UI 看到 frontmatter 设的 model），runtime 仍由
+   *   ~/.codex/config.toml 顶层 `model` 决定（codex SDK startThread 不接受 per-thread
+   *   model override，详 plan D5）
+   * - aider / generic-pty：忽略
+   *
+   * 优先级（fallback 链，由各 adapter 内部实现）：opts.model → sessionRepo.get(resume)?.model
+   * → undefined（让 SDK 用 ANTHROPIC_MODEL env / 自己默认）。settings.summaryModel /
+   * handOffModel **不**在此路径用 — 那两字段只在 oneshot summary/hand-off 路径生效，
+   * spawn / resume 路径不查 settings 全局值。
+   */
+  model?: string;
+  /**
    * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter 接收并起效；
    * 其它 adapter 忽略）。
    *

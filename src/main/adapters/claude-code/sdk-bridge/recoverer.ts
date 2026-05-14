@@ -63,6 +63,20 @@ export type CreateSessionThunk = (opts: {
    * agent 能读 ~/.ssh / 写任意目录，安全语义静默降级。
    */
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  /**
+   * plan model-wiring-and-handoff-20260514 Step 2.4：recoverer fallback / resume 路径显式透传
+   * spawn 时持久化的 model（来源：spawn handler 解 frontmatter `model` 字段）。
+   *
+   * 修前漏洞：fallback 路径不走 resume → resolveClaudeModel 拿 opts.resume=undef +
+   * opts.model=undef → 返回 undefined → SDK 用 ANTHROPIC_MODEL env / 默认 model；
+   * **与历史 record 持久化的 sessionRepo.model 无关**。后续 renameSdkSession(OLD, NEW) 把
+   * fromRow.model 覆盖到 NEW row 让 DB 字段看起来正确，但**已 spawn 的 SDK 进程已用错
+   * model**（query options 锁定后无法切）。
+   *
+   * 用户场景：reviewer-claude opus 历史会话 + lead 主模型 sonnet + jsonl 丢失 → fallback 后
+   * reviewer SDK 子进程实际跑 sonnet（DB 仍显示 opus），异构对抗强度静默降级。
+   */
+  model?: string;
 }) => Promise<SdkSessionHandle>;
 
 /**
@@ -454,6 +468,12 @@ export class SessionRecoverer {
             // 与 permissionMode 同款显式透传 + ?? undefined 兜底（rec.claudeCodeSandbox 历史 null
             // 时让 sandbox-resolve 走 settings 全局，与原行为对齐）。
             claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
+            // plan model-wiring-and-handoff-20260514 Step 2.4：fallback 路径显式透传 model
+            // （rec.model 持久化的 spawn 时 frontmatter 值，必须保留 — 否则 fallback 重建
+            // session 走默认 ANTHROPIC_MODEL，reviewer-claude opus 静默降到 lead 主模型）。
+            // 与 claudeCodeSandbox 同款显式透传 + ?? undefined 兜底（历史 NULL 时让
+            // model-resolve 走默认 = undefined → SDK 用 ANTHROPIC_MODEL）。
+            model: rec.model ?? undefined,
             // HIGH-1 修法：attachments 透传，jsonl 缺失 fallback 路径下恢复也带图
             attachments,
           });
@@ -493,6 +513,10 @@ export class SessionRecoverer {
           // 的 fallback #2 sessionRepo 反查 也能拿到，但显式透传 fallback #1 优先级更高 +
           // 与 permissionMode 处理方式对称 + 一致性更好 + 防 sessionRepo 边界 race）。
           claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
+          // plan model-wiring-and-handoff-20260514 Step 2.4：与 fallback 分支同款显式透传
+          // （resume 路径 model-resolve 内部也会 sessionRepo 反查，但显式透传更清晰 + 与
+          // claudeCodeSandbox / permissionMode 处理方式对称）。
+          model: rec.model ?? undefined,
           // HIGH-1 修法：attachments 透传，正常 resume 路径下首条恢复消息带图
           attachments,
         });

@@ -74,6 +74,12 @@ class CodexCliAdapterImpl implements AgentAdapter {
     codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
     /** 首条 user message 的图片附件（IPC 层已落盘到 <userData>/image-uploads/） */
     attachments?: UploadedAttachmentRef[];
+    /**
+     * plan model-wiring-and-handoff-20260514 Step 2.5：spawn handler 解 agent body frontmatter
+     * `model` 字段后透传。codex SDK runtime 不接受 model override（详 bridge createSession
+     * 注释 D5），bridge 内仅 setModel 持久化 + warn 提示。透传即可。
+     */
+    model?: string;
   }): Promise<string> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     const handle = await this.bridge.createSession({
@@ -82,6 +88,7 @@ class CodexCliAdapterImpl implements AgentAdapter {
       resume: opts.resume,
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
+      model: opts.model,
     });
     return handle.sessionId;
   }

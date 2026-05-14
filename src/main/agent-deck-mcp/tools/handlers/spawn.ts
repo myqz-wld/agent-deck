@@ -22,6 +22,7 @@ import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-te
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
 import { getBundledAssetContent } from '@main/bundled-assets';
+import { parseFrontmatter } from '@main/utils/frontmatter';
 import { sanitizeWireFieldName } from '@shared/wire-prefix';
 
 import { applySpawnGuards } from '../../spawn-guards';
@@ -82,6 +83,11 @@ export async function spawnSessionHandler(
   // 测试 mock 也错齐成 string|null 同样错型，单测 100% 通过 / 生产 100% 失败。这里
   // 必须正确解 union，并把 reason 透传给 err 便于 caller 排查。
   let promptToUse = args.prompt;
+  // plan model-wiring-and-handoff-20260514 Step 3.1：agent body frontmatter `model` 提取。
+  // reviewer-claude.md `model: opus` / reviewer-codex.md `model: sonnet` 现状零改动即生效；
+  // 提取后通过 createSession({ model }) 透传给 SDK，让 reviewer teammate 真正按 frontmatter
+  // 标的 model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
+  let modelFromFrontmatter: string | undefined;
   if (args.agent_name) {
     const bodyResult = getBundledAssetContent('agent', args.agent_name);
     if (!bodyResult.ok) {
@@ -97,6 +103,24 @@ export async function spawnSessionHandler(
     // user-message 头部注入是最简兼容方案。reviewer-* agent body 顶部已有 frontmatter，
     // body 本身就是给 reviewer 看的「角色提示」，作为 user message 头部仍能起到 priming 作用。
     promptToUse = `${bodyResult.content}\n\n---\n\n${args.prompt}`;
+
+    // plan Step 3.1：parse frontmatter 拿 model（仅 type === 'string' 且非空白才认）。
+    // bodyResult.content 含完整文件含 frontmatter block；parseFrontmatter 没 frontmatter
+    // 时返回 {}，model 字段不存在时 fm.model = undefined → modelFromFrontmatter 仍 undefined。
+    const fm = parseFrontmatter(bodyResult.content);
+    if (typeof fm.model === 'string' && fm.model.trim().length > 0) {
+      modelFromFrontmatter = fm.model.trim();
+      // plan Step 3.2 / D5：codex-cli adapter SDK startThread 不接受 per-thread model
+      // override（runtime model 由 ~/.codex/config.toml 决定）—— 配 frontmatter model
+      // 仅持久化 + UI 显示，不会真正切 model。warn 一次让维护者知道（spawn 不阻断）。
+      if (args.adapter === 'codex-cli') {
+        console.warn(
+          `[mcp spawn_session] agent_name="${args.agent_name}" frontmatter model="${modelFromFrontmatter}"` +
+            ` 对 codex-cli adapter 仅持久化未生效：codex SDK 不接受 per-thread model override，` +
+            `runtime model 由 ~/.codex/config.toml 顶层 \`model\` 字段决定。`,
+        );
+      }
+    }
   }
 
   // REVIEW_32 HIGH-5：spawn 默认继承 lead session 的 permission_mode / codex_sandbox /
@@ -219,6 +243,11 @@ export async function spawnSessionHandler(
       ...(args.extra_allow_write !== undefined && args.extra_allow_write.length > 0
         ? { extraAllowWrite: args.extra_allow_write }
         : {}),
+      // plan model-wiring-and-handoff-20260514 Step 3.1：透传 frontmatter `model` 给 createSession。
+      // claude-code adapter → bridge.createSession → buildClaudeQueryOptions → SDK options.model
+      // （runtime 切 model）+ setModel 持久化 resume 一致。
+      // codex-cli adapter → bridge 仅 setModel 持久化 + warn（D5：runtime 不生效）。
+      ...(modelFromFrontmatter ? { model: modelFromFrontmatter } : {}),
       ...(args.team_name !== undefined ? { teamName: args.team_name } : {}),
     });
     // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）。

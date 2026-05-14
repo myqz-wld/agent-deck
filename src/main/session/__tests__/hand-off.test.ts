@@ -182,4 +182,36 @@ describe('summariseSessionForHandOff', () => {
       else process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = old;
     }
   });
+
+  /**
+   * plan model-wiring-and-handoff-20260514 Step 6.4：settings.handOffModel 优先级最高。
+   *
+   * 验证 llm-runners.ts:summariseSessionForHandOff fallback 链
+   *   `settings.handOffModel ＞ ANTHROPIC_DEFAULT_SONNET_MODEL ＞ ANTHROPIC_MODEL ＞ 'sonnet'`
+   * 第一档：settings 显式值即使 env 都已设也优先采用。
+   *
+   * Mock 策略：用 settingsStore.set 直接写真实 store（test 环境共享 hookServerToken 已生成
+   * 的 store，set 是 idempotent），跑后立即清空恢复，避免污染下一 test。
+   */
+  it('uses settings.handOffModel when set, overriding both env vars', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const oldDefault = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+    const oldModel = process.env.ANTHROPIC_MODEL;
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'claude-sonnet-4-6';
+    process.env.ANTHROPIC_MODEL = 'claude-opus-4-7';
+    settingsStore.set('handOffModel', 'claude-opus-4-7-thinking-max');
+    try {
+      const sdk = makeMockSdk({ mode: 'ok' });
+      loadSdkMock.mockResolvedValue(sdk as unknown as Awaited<ReturnType<typeof loadSdk>>);
+      await summariseSessionForHandOff('/tmp/cwd', sampleEvents());
+      expect(sdk.__calls[0].options.model).toBe('claude-opus-4-7-thinking-max');
+    } finally {
+      // 恢复 settings + env，下一 test 不被污染
+      settingsStore.set('handOffModel', '');
+      if (oldDefault === undefined) delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+      else process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = oldDefault;
+      if (oldModel === undefined) delete process.env.ANTHROPIC_MODEL;
+      else process.env.ANTHROPIC_MODEL = oldModel;
+    }
+  });
 });

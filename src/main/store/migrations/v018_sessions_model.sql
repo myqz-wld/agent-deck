@@ -1,0 +1,11 @@
+-- plan model-wiring-and-handoff-20260514 Step 1.1：spawn 时 frontmatter `model` 透传给 SDK 后
+-- 持久化到 sessions.model，让 SDK resume / dormant 唤醒后保持模型一致（与 permission_mode /
+-- claude_code_sandbox / codex_sandbox 同款 per-session resilience 模式）。
+--
+-- 字段值：自由 string（claude SDK 接受 'opus' / 'sonnet' / 'haiku' alias，也接受具体 model id 如
+-- 'claude-opus-4-7-thinking-max[1m]'）。NULL = 不指定，SDK 自己读 ANTHROPIC_MODEL env。
+--
+-- 兼容性：codex / aider / generic-pty 会话该字段持久化但不传给 SDK（codex SDK startThread 不接受
+-- per-thread model override，详 plan D5 / D4）；codex teammate spawn 时 frontmatter model 仅写入
+-- 该字段供 UI 显示，runtime 仍由 ~/.codex/config.toml 顶层 model 决定。
+ALTER TABLE sessions ADD COLUMN model TEXT;

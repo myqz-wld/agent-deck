@@ -38,6 +38,13 @@ export interface BuildClaudeQueryOptionsArgs {
     tasksServer: McpSdkServerConfigWithInstance | null;
     agentDeckMcpServer: McpSdkServerConfigWithInstance | null;
   };
+  /**
+   * plan model-wiring-and-handoff-20260514 Step 2.3：SDK model 透传。
+   * undefined → 不传 model 字段，SDK 自己读 ANTHROPIC_MODEL env / 默认 model；
+   * 非 undefined → 'opus' / 'sonnet' / 'haiku' alias 或具体 model id（详
+   * model-resolve.ts fallback 链）。
+   */
+  model?: string;
 }
 
 /**
@@ -57,6 +64,7 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     runtime,
     claudeBinary,
     mcpServers: { tasksServer, agentDeckMcpServer },
+    model,
   } = args;
 
   return {
@@ -130,6 +138,12 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
     // 绕开 SDK 自带 K7。dev 模式下函数返回真实 node_modules 路径，无副作用。
     ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
+    // plan model-wiring-and-handoff-20260514 Step 2.3：spawn 时 frontmatter `model` 透传给
+    // SDK。空（undefined）→ 不展开此字段，SDK 自己读 ANTHROPIC_MODEL env / 默认 model；
+    // 非空 → 'opus' / 'sonnet' / 'haiku' alias 或具体 model id（如
+    // 'claude-opus-4-7-thinking-max[1m]'），SDK CLI 透传给 API 决定模型。
+    // 优先级链由 model-resolve.ts 负责（opts.model > sessionRepo.model > undefined）。
+    ...(model ? { model } : {}),
     // OS 级沙盒（REVIEW_14 阶段 2 + REVIEW_15 实测纠错）：根据 settings.claudeCodeSandbox
     // 档位拼装**顶层 sandbox 字段**（REVIEW_15 实测铁证：managedSettings.sandbox 包装无效，
     // 必须用顶层 `sandbox: SandboxSettings` 字段，详 sandbox-config.ts 头注释决策 #1）。

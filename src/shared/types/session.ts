@@ -68,6 +68,26 @@ export interface SessionRecord {
    */
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict' | null;
   /**
+   * Agent / SDK model（plan model-wiring-and-handoff-20260514 Step 1.3）。
+   *
+   * 持久化 spawn 时来源（含 agent_name 触发的 frontmatter `model` 字段、未来 caller 显式
+   * 传入），让 SDK resume / dormant 唤醒后保持模型一致 — 与 permissionMode /
+   * claudeCodeSandbox 同款 per-session resilience 模式。
+   *
+   * - claude-code adapter：值会通过 buildClaudeQueryOptions → SDK `query({ options.model })`
+   *   真正传给 cli.js；接受 'opus' / 'sonnet' / 'haiku' alias 或具体 model id 如
+   *   'claude-opus-4-7-thinking-max[1m]'
+   * - codex-cli adapter：值仅写入持久化（让 UI 看到 frontmatter 设的 model），runtime
+   *   仍由 ~/.codex/config.toml 顶层 `model` 字段决定（codex SDK startThread 不接受 per-thread
+   *   model override，详 plan D5）
+   * - aider / generic-pty adapter：始终 null
+   *
+   * null/undefined：不指定，SDK 自己读 ANTHROPIC_MODEL env / 自己默认值（与 settings 全局
+   * model 设置无关 — settings.summaryModel/handOffModel 只在 oneshot summary/hand-off 路径用，
+   * spawn/resume 路径不查 settings）。
+   */
+  model?: string | null;
+  /**
    * Agent Deck MCP server (R2 / B'0 ADR §6.5)：spawn 链上的父 session id。
    * - null/undefined：顶层 session（用户 IPC / CLI 直接起 / R2 之前老数据）
    * - 字符串：MCP `spawn_session` tool 调用方的 session id
