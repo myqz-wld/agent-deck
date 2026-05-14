@@ -2,13 +2,15 @@
 
 ## 概要
 
-REVIEW_33 9 条 HIGH 修复（plan `review-33-high-fix-20260513`）：5 条原子 commit 落地 H1/H2/H4/H6/H7/H9/H10，H3 因 main `7639b23` 删 wait_reply/check_reply/reply_message 自然作废，H8 落地后 main 已无相关字段引用。
+REVIEW_34 9 条 HIGH 修复（plan `review-33-high-fix-20260513`）：5 条原子 commit 落地 H1/H2/H4/H6/H7/H9/H10，H3 因 main `7639b23` 删 wait_reply/check_reply/reply_message 自然作废，H8 落地后 main 已无相关字段引用。
 
-完整 review 推理（4 批异构对抗 reviewer-claude × Opus 4.7 + reviewer-codex × gpt-5.5 xhigh + lead grep/read 验证 6 条单方 HIGH）+ 三态裁决见 `reviews/REVIEW_33.md`。本 changelog 只记落地修法 + 测试覆盖。
+> **编号变更**：本轮 review 原命名 `REVIEW_33`（与 plan_id `review-33-high-fix-20260513` 对齐），merge main 时撞用户在另一会话新加的 `REVIEW_33`（5 份指令文档 review，main commit `903d53f`）。让位改名 `REVIEW_34`，commit history 引用 `(REVIEW_33)` 不可变保留，本 changelog / INDEX / plan 的文档引用全改 REVIEW_34。
+
+完整 review 推理（4 批异构对抗 reviewer-claude × Opus 4.7 + reviewer-codex × gpt-5.5 xhigh + lead grep/read 验证 6 条单方 HIGH）+ 三态裁决见 `reviews/REVIEW_34.md`。本 changelog 只记落地修法 + 测试覆盖。
 
 ## 变更内容
 
-### REVIEW_33 修复落地
+### REVIEW_34 修复落地
 
 - **H1** archive_plan ff-merge 前 `git checkout base_branch` + branch 存在性 verify（`958c828`）：旧实现直接在 mainRepo 当前 HEAD 上 ff，caller 在 feature-x 时把 worktree branch 合错分支。修法在 `archive-plan-impl.ts` 加 `rev-parse --verify <baseBranch>` + `checkout <baseBranch>` 双步。新增 `REVIEW_33 H1 base_branch checkout` describe 3 case。
 - **H2** archive_plan reject `abandoned` + unknown status（`a978a9e` + merge 时收敛到 main `438a613` Phase A4 同款修法）：旧实现只 reject `completed`，让 abandoned 走完归档污染 git。修法三档分流 + hint 引用 user CLAUDE.md §Step 4 中止流程。新增 `REVIEW_33 H2 status 三档分流` describe 3 case。
