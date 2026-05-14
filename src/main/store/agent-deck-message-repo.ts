@@ -20,53 +20,37 @@
  * - §4.6：crash recovery 不无条件 ++attempt_count（resetDeliveringOnStartup）
  * - 自循环防御：caller-side insert 校验 from != to
  * - 100KB body：caller-side validation + SQLite CHECK 兜底
+ *
+ * **CHANGELOG_109 / R37 P2-N Step 3.6**：状态机常量（MAX_RETRY / MAX_BODY_LENGTH /
+ * BACKOFF_TIERS / VALID_MESSAGE_STATUSES）+ 纯 helpers（backoffMs / coerceMessageStatus /
+ * buildFindEligibleWhereSql）+ MessageInvariantError 已抽到 `./message-delivery-state.ts`，
+ * 本文件 re-export 全部 named export 保 back-compat（外部 caller 无须改 import 路径）。
+ * 新代码请直接从 `@main/store/message-delivery-state` import；本文件保持只暴露 repo +
+ * factory + input shapes 的 narrow API。
  */
 import type { Database } from 'better-sqlite3';
 import type { AgentDeckMessage, AgentDeckMessageStatus } from '@shared/types';
 import { getDb } from './db';
+import {
+  BACKOFF_TIERS,
+  MAX_BODY_LENGTH,
+  MAX_RETRY,
+  MessageInvariantError,
+  buildFindEligibleWhereSql,
+  coerceMessageStatus,
+  backoffMs,
+} from './message-delivery-state';
 
-// ────────────────────────────────────────────────────────────────────────────
-// Errors
-// ────────────────────────────────────────────────────────────────────────────
-
-export class MessageInvariantError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'MessageInvariantError';
-  }
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Constants（与 ADR §4.3 一致；可被 settings 覆盖见 watcher §4）
-// ────────────────────────────────────────────────────────────────────────────
-
-export const MAX_RETRY = 3;
-export const MAX_BODY_LENGTH = 102_400; // 100 KB hard cap（SQLite CHECK 同款）
-
-/**
- * 退避表（ADR §4.3 / reviewer HIGH-1 修法）：
- * - attempt_count = 1 → 1s
- * - attempt_count = 2 → 4s
- * - attempt_count = 3 → never picked（直接 failed）
- *
- * 输入：当前 attempt_count（已 ++ 后的值）
- * 输出：距离 last_attempt_at 至少 N 毫秒后才 eligible
- */
-/**
- * 退避表：JS 镜像。**`findEligible` SQL 内 hardcode 同款常量 1000ms / 4000ms（详 line 327-336）**，
- * 改任一处必须同步另一处。
- *
- * REVIEW_35 LOW-A3：本函数仅在 unit test 内引用，prod 路径完全不调（findEligible 走 SQL CASE 分支
- * 直接展开常量）。保留是为了：(a) 文档化 attempt_count → backoff 的语义；(b) test 可 import
- * 同款表做对照断言。**严禁** prod 路径调它，否则 SSOT 在 SQL/JS 两侧漂移就更隐蔽。
- */
-export function backoffMs(attemptCount: number): number {
-  if (attemptCount <= 0) return 0;
-  if (attemptCount === 1) return 1_000;
-  if (attemptCount === 2) return 4_000;
-  // attempt_count >= 3：never eligible，调用方应已设 status='failed' 不会进 findEligible
-  return Number.MAX_SAFE_INTEGER;
-}
+// back-compat re-export（旧 caller 仍可 `from '@main/store/agent-deck-message-repo'` 取常量）
+export {
+  BACKOFF_TIERS,
+  MAX_BODY_LENGTH,
+  MAX_RETRY,
+  MessageInvariantError,
+  backoffMs,
+  buildFindEligibleWhereSql,
+  coerceMessageStatus,
+};
 
 // ────────────────────────────────────────────────────────────────────────────
 // 行 → record 转换
@@ -89,24 +73,15 @@ interface MessageRow {
 }
 
 function rowToRecord(r: MessageRow): AgentDeckMessage {
-  // status: SQL CHECK 已挡，理论上不应到这里有非法值；防御性 fallback 到 'failed'
-  const validStatuses: AgentDeckMessageStatus[] = [
-    'pending',
-    'delivering',
-    'delivered',
-    'failed',
-    'cancelled',
-  ];
-  const status = (validStatuses as string[]).includes(r.status)
-    ? (r.status as AgentDeckMessageStatus)
-    : 'failed';
+  // status: SQL CHECK 已挡，理论上不应到这里有非法值；防御性 fallback 到 'failed'（详
+  // message-delivery-state.ts coerceMessageStatus jsdoc）
   return {
     id: r.id,
     teamId: r.team_id,
     fromSessionId: r.from_session_id,
     toSessionId: r.to_session_id,
     body: r.body,
-    status,
+    status: coerceMessageStatus(r.status),
     statusReason: r.status_reason,
     sentAt: r.sent_at,
     deliveredAt: r.delivered_at,
@@ -322,32 +297,22 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
 
   function findEligible(opts: FindEligibleOptions): AgentDeckMessage[] {
     const limit = Math.max(1, Math.min(opts.limit ?? 16, 100));
-    // backoff 是连续函数：用 SQL 表达 (last_attempt_at IS NULL OR last_attempt_at + backoff(attempt_count) <= now)
-    // backoff(attempt_count) 在 SQL 里展开成 CASE，避免引入 sqlite custom fn
-    // attempt_count: 0 → 不用退避（last_attempt_at IS NULL 兜底）
-    // attempt_count: 1 → +1000ms
-    // attempt_count: 2 → +4000ms
-    // attempt_count: 3 → never eligible（直接 failed，不在 status='pending'）
-    const rows = db
-      .prepare(
-        `SELECT * FROM agent_deck_messages
-         WHERE status = 'pending'
-           AND (
-             last_attempt_at IS NULL
-             OR (
-               attempt_count = 1 AND last_attempt_at + 1000 <= ?
-             )
-             OR (
-               attempt_count = 2 AND last_attempt_at + 4000 <= ?
-             )
-             OR (
-               attempt_count = 0
-             )
-           )
-         ORDER BY sent_at ASC
-         LIMIT ?`,
-      )
-      .all(opts.now, opts.now, limit) as MessageRow[];
+    // backoff WHERE 子句从 message-delivery-state.ts BACKOFF_TIERS 表派生（CHANGELOG_109 R37
+    // P2-N Step 3.6 codex 11 LOW SSOT）。改 backoff schedule 只动 BACKOFF_TIERS 数组，本处
+    // 自动跟着对（每 tier 一个 ? placeholder 绑 now）。详 buildFindEligibleWhereSql jsdoc。
+    const { whereSql, backoffPlaceholderCount } = buildFindEligibleWhereSql();
+    const sql = `
+      SELECT * FROM agent_deck_messages
+      WHERE status = 'pending'
+        AND (
+          ${whereSql}
+        )
+      ORDER BY sent_at ASC
+      LIMIT ?`;
+    const params: number[] = [];
+    for (let i = 0; i < backoffPlaceholderCount; i++) params.push(opts.now);
+    params.push(limit);
+    const rows = db.prepare(sql).all(...params) as MessageRow[];
     return rows.map(rowToRecord);
   }
 
