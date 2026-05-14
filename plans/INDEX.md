@@ -22,3 +22,4 @@
 | [cwd-resilience-fix-20260514.md](cwd-resilience-fix-20260514.md) | cwd-resilience-fix-20260514 |
 | [mcp-tool-simplify-20260514.md](mcp-tool-simplify-20260514.md) | mcp-tool-simplify-20260514 |
 | [review-33-high-fix-20260513.md](review-33-high-fix-20260513.md) | review-33-high-fix-20260513 |
+| [deep-review-and-refactor-20260514.md](deep-review-and-refactor-20260514.md) | deep-review-and-refactor-20260514 |
