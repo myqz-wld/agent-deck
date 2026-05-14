@@ -62,6 +62,8 @@ vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
 
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
+import { eventRepo } from '@main/store/event-repo';
+import { settingsStore } from '@main/store/settings-store';
 import { emits, makeBridge } from './sdk-bridge/_setup';
 
 beforeEach(() => {
@@ -69,6 +71,14 @@ beforeEach(() => {
   vi.mocked(sessionRepo.get).mockReset();
   // CHANGELOG_99 R1 fix LOW-8 配套:reset renameSdkSession 让 cwdFellBack rename 断言准确
   vi.mocked(sessionManager.renameSdkSession).mockReset();
+  // CHANGELOG_107 Step 6 配套:reset event-repo / settings-store mock 让 case 间隔离
+  vi.mocked(eventRepo.listForSession).mockReset();
+  vi.mocked(eventRepo.listForSession).mockReturnValue([]);
+  vi.mocked(settingsStore.get).mockReset();
+  vi.mocked(settingsStore.get).mockImplementation(((key: unknown) => {
+    if (key === 'autoSummariseOnFallback') return true;
+    return undefined;
+  }) as never);
 });
 
 afterEach(() => {
@@ -415,5 +425,234 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       return (p.text ?? '').includes('启发式 fallback 到');
     });
     expect(fallbackInfo).toHaveLength(0);
+  });
+
+  // ─── CHANGELOG_107 LLM 摘要 fallback 自动注入 ────────────────────────────
+
+  it('CHANGELOG_107: jsonl 不存在 + 摘要成功 → prepended prompt + emit「LLM 摘要已注入」', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    bridge.summariseOverride = '用户在做 X,已完成 Y,下一步 Z';
+    // listEventsFn 返非空让 helper 不走 'no-events' fallback;具体内容不重要(thunk mock 返固定字符串)
+    vi.mocked(eventRepo.listForSession).mockReturnValue([
+      {
+        id: 1,
+        sessionId: 'sess-summary-ok',
+        agentId: '',
+        kind: 'message',
+        payload: { text: 'hi' },
+        ts: 1,
+      },
+    ]);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-summary-ok',
+      agentId: 'claude-code',
+      cwd: '/tmp/with-summary',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: 'plan',
+    });
+
+    await bridge.sendMessage('sess-summary-ok', '继续之前的话题');
+
+    // createSession 用 prepended prompt(含五等号块 + summary + originalText)
+    expect(bridge.createCalls).toHaveLength(1);
+    const createdPrompt = bridge.createCalls[0]?.prompt ?? '';
+    expect(createdPrompt).toContain('===== 历史会话摘要');
+    expect(createdPrompt).toContain('用户在做 X,已完成 Y,下一步 Z');
+    expect(createdPrompt).toContain('===== 用户当前消息');
+    expect(createdPrompt).toContain('继续之前的话题');
+    expect(bridge.createCalls[0]?.resume).toBeUndefined(); // jsonl missing 路径仍不带 resume
+
+    // emit「LLM 摘要自动注入」info(不打 error)
+    const summaryOk = emits.filter((e) => {
+      const p = e.payload as { text?: string; error?: boolean };
+      return (p.text ?? '').includes('应用通过 LLM 摘要自动注入');
+    });
+    expect(summaryOk).toHaveLength(1);
+    expect((summaryOk[0]!.payload as { error?: boolean }).error).not.toBe(true);
+    expect((summaryOk[0]!.payload as { text: string }).text).toContain('Claude 应能续上前情');
+
+    // **不**emit CHANGELOG_106「请补背景」原文案(摘要成功 ≠ 丢失)
+    const compatNotice = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('请在下条消息里把背景再告诉它一次'),
+    );
+    expect(compatNotice).toHaveLength(0);
+  });
+
+  it('CHANGELOG_107: jsonl 不存在 + settings.autoSummariseOnFallback=false → skip 摘要,走原 CHANGELOG_106 文案', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    bridge.summariseOverride = '不应被调用(settings off 在前)';
+    // settings off — 即使 listEvents 非空也不该调 summariseFn
+    vi.mocked(settingsStore.get).mockImplementation(((key: unknown) => {
+      if (key === 'autoSummariseOnFallback') return false;
+      return undefined;
+    }) as never);
+    vi.mocked(eventRepo.listForSession).mockReturnValue([
+      {
+        id: 1,
+        sessionId: 'sess-settings-off',
+        agentId: '',
+        kind: 'message',
+        payload: { text: 'hi' },
+        ts: 1,
+      },
+    ]);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-settings-off',
+      agentId: 'claude-code',
+      cwd: '/tmp/no-summary',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    await bridge.sendMessage('sess-settings-off', 'hi');
+
+    // createSession 用原 prompt(不 prepend 摘要)
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0]?.prompt).toBe('hi');
+
+    // emit 原 CHANGELOG_106 文案(走 fallback 失败分支)
+    const compatNotice = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('请在下条消息里把背景再告诉它一次'),
+    );
+    expect(compatNotice).toHaveLength(1);
+
+    // **不**emit「LLM 摘要自动注入」(根本没调 summariseFn)
+    const summaryOk = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('应用通过 LLM 摘要自动注入'),
+    );
+    expect(summaryOk).toHaveLength(0);
+  });
+
+  it('CHANGELOG_107: jsonl 不存在 + summariseFn throw → skip 摘要,走原 CHANGELOG_106 文案', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    bridge.summariseThrow = new Error('LLM timeout: __handoff_summary_timeout__');
+    vi.mocked(eventRepo.listForSession).mockReturnValue([
+      {
+        id: 1,
+        sessionId: 'sess-thunk-throw',
+        agentId: '',
+        kind: 'message',
+        payload: { text: 'hi' },
+        ts: 1,
+      },
+    ]);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-thunk-throw',
+      agentId: 'claude-code',
+      cwd: '/tmp/llm-fail',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    // helper 内 try/catch 把 thunk throw 封装到 PrependResult.thrown,recoverer
+    // 主路径不抛错 → sendMessage 正常完成 + createSession 用原 prompt
+    await bridge.sendMessage('sess-thunk-throw', 'hi');
+
+    // createSession 用原 prompt(thunk throw 退到 originalText)
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0]?.prompt).toBe('hi');
+
+    // emit 原 CHANGELOG_106 文案
+    const compatNotice = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('请在下条消息里把背景再告诉它一次'),
+    );
+    expect(compatNotice).toHaveLength(1);
+
+    // **不**emit「LLM 摘要自动注入」(thunk throw 退回原 prompt 不算注入成功)
+    const summaryOk = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('应用通过 LLM 摘要自动注入'),
+    );
+    expect(summaryOk).toHaveLength(0);
+  });
+
+  it('CHANGELOG_107: cwdFellBack=true + 摘要成功 → prepended prompt + emit cwdFellBack 摘要成功文案', async () => {
+    const bridge = makeBridge();
+    // 启发式 1 命中(worktrees 路径取段之前)
+    bridge.cwdExistsOverride = new Map<string, boolean>([
+      ['/Users/apple/myrepo/.claude/worktrees/dead-plan', false],
+      ['/Users/apple/myrepo', true],
+    ]);
+    bridge.summariseOverride = 'cwdFellBack 摘要内容';
+    vi.mocked(eventRepo.listForSession).mockReturnValue([
+      {
+        id: 1,
+        sessionId: 'sess-cwd-summary',
+        agentId: '',
+        kind: 'message',
+        payload: { text: 'hi' },
+        ts: 1,
+      },
+    ]);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-cwd-summary',
+      agentId: 'claude-code',
+      cwd: '/Users/apple/myrepo/.claude/worktrees/dead-plan',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      permissionMode: 'plan',
+    });
+
+    await bridge.sendMessage('sess-cwd-summary', 'hi');
+
+    // createSession cwd = main repo (启发式 1) + prompt 含 prepended 摘要
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0]?.cwd).toBe('/Users/apple/myrepo');
+    expect(bridge.createCalls[0]?.resume).toBeUndefined();
+    const createdPrompt = bridge.createCalls[0]?.prompt ?? '';
+    expect(createdPrompt).toContain('===== 历史会话摘要');
+    expect(createdPrompt).toContain('cwdFellBack 摘要内容');
+    expect(createdPrompt).toContain('===== 用户当前消息');
+
+    // emit cwdFellBack 摘要成功文案(含「在新 cwd 续上」字眼区分 jsonl missing 路径)
+    const summaryOk = emits.filter((e) => {
+      const p = e.payload as { text?: string };
+      return (
+        (p.text ?? '').includes('应用通过 LLM 摘要自动注入') &&
+        (p.text ?? '').includes('在新 cwd 续上')
+      );
+    });
+    expect(summaryOk).toHaveLength(1);
+
+    // outer cwdFellBack info 仍 emit「启发式 fallback 到」(Step 4 简化保留 cwd 切换 fact)
+    const fallbackInfo = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('启发式 fallback 到'),
+    );
+    expect(fallbackInfo).toHaveLength(1);
+
+    // **不**emit cwdFellBack「将丢失」原文案(摘要成功 ≠ 丢失)
+    const willLoseNotice = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('CLI 内部对话历史(jsonl)将丢失'),
+    );
+    expect(willLoseNotice).toHaveLength(0);
   });
 });

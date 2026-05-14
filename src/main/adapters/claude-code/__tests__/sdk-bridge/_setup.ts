@@ -44,6 +44,12 @@ export class TestBridge extends ClaudeSdkBridge {
    * case 显式覆盖返回字符串验证 prepend 路径。
    */
   public summariseOverride: string | null = null;
+  /**
+   * CHANGELOG_107 Step 6: 让 summariseForHandOff 抛错的 mock(测 thunk-throw failReason
+   * 路径)。默认 null 不抛;set 为 Error 实例让 override 抛。优先级 > summariseOverride
+   * (throw 检测在前)。
+   */
+  public summariseThrow: Error | null = null;
 
   override async createSession(opts: {
     cwd: string;
@@ -92,6 +98,7 @@ export class TestBridge extends ClaudeSdkBridge {
     _cwd: string,
     _events: AgentEvent[],
   ): Promise<string | null> {
+    if (this.summariseThrow) throw this.summariseThrow;
     return this.summariseOverride;
   }
 }
