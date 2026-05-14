@@ -25,7 +25,7 @@ import {
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import type { ShutdownSessionArgs } from '../schemas';
+import type { ShutdownSessionArgs, ShutdownSessionResult } from '../schemas';
 
 export const shutdownSessionHandler = withMcpGuard(
   'shutdown_session',
@@ -42,7 +42,7 @@ export const shutdownSessionHandler = withMcpGuard(
     }
     if (session.lifecycle === 'closed') {
       // 已 closed，幂等返回 success（与 IPC delete 同模式：noop）
-      return ok({ sessionId: args.session_id, lifecycle: 'closed', alreadyClosed: true });
+      return ok({ sessionId: args.session_id, lifecycle: 'closed', alreadyClosed: true } satisfies ShutdownSessionResult);
     }
     try {
       await sessionManager.close(args.session_id);
@@ -52,6 +52,6 @@ export const shutdownSessionHandler = withMcpGuard(
         'sessionManager.close failed; check main process logs for adapter close errors.',
       );
     }
-    return ok({ sessionId: args.session_id, lifecycle: 'closed', alreadyClosed: false });
+    return ok({ sessionId: args.session_id, lifecycle: 'closed', alreadyClosed: false } satisfies ShutdownSessionResult);
   },
 );
