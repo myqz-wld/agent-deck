@@ -351,7 +351,10 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
     });
     // helper 用 caller sid 调用了一次
     expect(mockShutdown).toHaveBeenCalledTimes(1);
-    expect(mockShutdown).toHaveBeenCalledWith('caller-sid');
+    // CHANGELOG_109(R37 P2-M Step 3.5): runBatonCleanup 内部统一双参签名传给 shutdownFn,
+    // archive_plan 不传 excludeSessionIds 时第二参是 undefined(行为等价 — 旧 handler 单参调
+    // shutdownTeammatesOnBaton 等价于新 helper 第二参 undefined)
+    expect(mockShutdown).toHaveBeenCalledWith('caller-sid', undefined);
     // archive caller 也调了(独立动作不被 helper 影响)
     expect(mockArchive).toHaveBeenCalledTimes(1);
     expect(data.archived).toBe('ok');

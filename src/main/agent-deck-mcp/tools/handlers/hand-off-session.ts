@@ -2,7 +2,8 @@
  * hand_off_session handler 入口（CHANGELOG_99 改名前 `start_next_session`；
  * plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.2；
  * CHANGELOG_97 改 baton 语义：default 不加 team + 自动归档 caller；
- * CHANGELOG_99 双模式改造：plan_id 变 optional，无 plan_id 时走 generic 模式）。
+ * CHANGELOG_99 双模式改造：plan_id 变 optional，无 plan_id 时走 generic 模式;
+ * CHANGELOG_109 R37 P2-M Step 3.5 抽 baton-cleanup.ts 共享 ~80 行模板）。
  *
  * 薄 wrapper：deny external caller + validateExternalCaller + 调 handOffSessionImpl
  * 拿 resolved 上下文（planFilePath / worktreePath / coldStartPrompt） + 组装 spawn_session
@@ -26,9 +27,10 @@
  *    自动 placeholder message，lead 与 teammate 之间从未真正对话 → 强加 team 关系
  *    在 SessionList 显示「↳ teammate」缩进 + lead 标签是冗余 UX 噪音。
  *
- * 2. **default 自动归档 caller session**：spawn 成功后立即调 sessionManager.archive
- *    (caller.callerSessionId)，把 baton 完整交出。失败仅 console.warn 不阻塞 K2 成功
- *    return（caller 至少能拿到 newSid，原会话留 active 影响小，用户可手动右键归档）。
+ * 2. **default 自动归档 caller session + CHANGELOG_106 teammate shutdown(同 archive_plan)**：
+ *    spawn 成功后调 baton-cleanup.ts 的 runBatonCleanup helper 完成两段(详 baton-cleanup.ts
+ *    顶部 jsdoc)。caller 显式传 keep_teammates=true 跳过 teammate shutdown(典型: 让新 session
+ *    继承 team 接管 lead 角色)。
  *
  * **复用策略**：调 spawnSessionHandler 时透传同一个 ctx（caller_session_id），让 spawn
  * 链路里的 spawn-link 等按 caller 视角正确归属。透传后 spawnSessionHandler 返回的
@@ -46,7 +48,6 @@ import {
 } from '../helpers';
 import type { HandOffSessionArgs, SpawnSessionArgs } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
-import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { omitUndefined } from '@main/utils/optional-fields';
 import {
@@ -55,10 +56,8 @@ import {
   type HandOffSessionDeps,
 } from './hand-off-session-impl';
 import { spawnSessionHandler } from './spawn';
-import {
-  shutdownTeammatesOnBaton,
-  type ShutdownTeammatesResult,
-} from './shutdown-teammates-on-baton';
+import { runBatonCleanup } from './baton-cleanup';
+import type { ShutdownTeammatesResult } from './shutdown-teammates-on-baton';
 
 /**
  * 测试 inject seam：默认调真 spawnSessionHandler / sessionManager.archive；test 通过
@@ -325,92 +324,38 @@ export const handOffSessionHandler = withMcpGuard(
       );
     }
 
-    // 5. CHANGELOG_106 + REVIEW_36 R2 HIGH-A：先 shutdown 同 team 内其他 active teammate(default,可 keep_teammates 关)。
-    // 时序必须**先 helper 后 archive caller**(同 archive_plan,详 archive-plan.ts 同段注释)。
+    // 5. CHANGELOG_109(R37 P2-M Step 3.5): baton cleanup 两段(teammate shutdown + archive caller)
+    // 收口到 runBatonCleanup helper(详 baton-cleanup.ts 顶部 jsdoc)。helper 内部串行跑 phase 1
+    // (shutdown teammates) → phase 2 (archive caller),失败容错全在 helper 里(单个 close warn /
+    // helper 抛错兜底 / archive 失败 warn / DB 异常 fail-safe);handler 这层只透传 input + 把
+    // 两个三态结果 spread 进 ok return。
     //
     // baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex
     // 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。caller 显式传 team_name 让
     // 新 session 接管 lead 角色时 → 应传 keep_teammates=true 让原 teammate 留给新 lead 继续用。
     //
-    // REVIEW_36 R2 HIGH-A 修法：caller 显式 team_name 时 spawn handler 把新 sid 加为 teammate
-    // (spawn.ts:310-317)，然后本段 default 调 shutdownTeammatesOnBaton(caller) 会把新 sid 也关掉
-    // (helper 只排除 callerSessionId)。修法 = 把新 spawn 的 sid 通过 excludeSessionIds 传给 helper，
-    // 让它跳过新 session 不 close。spawnData.sessionId 必有(spawn handler ok return 必带 sessionId
-    // 字段)，否则前面 isError 短路返回。
-    let teammatesShutdown: ShutdownTeammatesResult = {
-      closed: [],
-      failed: [],
-      skipped: 'caller-not-lead',
-    };
-    if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-      if (args.keep_teammates === true) {
-        teammatesShutdown = { closed: [], failed: [], skipped: 'keep-teammates' };
-      } else {
-        // REVIEW_36 R2 HIGH-A：从 spawn ok return 取新 spawn 的 sessionId，加进 excludeSessionIds
-        // 防被 helper 误关（fix-to-fix bug：HIGH-2 加 sandbox schema 后用户更可能传 team_name 撞此 bug）。
-        const newSpawnedSid = typeof spawnData.sessionId === 'string' ? spawnData.sessionId : null;
-        const excludeSessionIds = newSpawnedSid
-          ? new Set<string>([newSpawnedSid])
-          : undefined;
-        const shutdownFn =
-          handlerDeps?.shutdownTeammates ??
-          ((callerSid: string, exclude?: ReadonlySet<string>) =>
-            shutdownTeammatesOnBaton(callerSid, { excludeSessionIds: exclude }));
-        try {
-          teammatesShutdown = await shutdownFn(caller.callerSessionId, excludeSessionIds);
-        } catch (e) {
-          console.warn(
-            `[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller ${caller.callerSessionId}:`,
-            e,
-          );
-          // 兜底:helper 自身炸 → archive caller 仍走,只是 closed=[] + skipped=null
-          teammatesShutdown = { closed: [], failed: [], skipped: null };
-        }
-      }
-    }
-
-    // 6. CHANGELOG_97：自动归档 caller session（baton 语义 = 原会话退出，新会话独立接手）。
-    // external caller 不在 sessions 表（已被 denyExternalIfNotAllowed 拦下，理论不会到这里；
-    // 防御性双保险）。失败仅 console.warn 不阻塞 K2 成功 return（caller 至少能拿到 newSid）。
-    // Phase A5 / R1 deep review *未验证* #1 升级：把 archive 结果放到 ok return.archived
-    // 字段（'ok' / 'failed' / 'skipped'），让 caller 不必看 console.warn 就能感知归档结果。
-    // CHANGELOG_98 / R2 reviewer-codex MED-2：archive 前 sessionRepo.get 探针，缺 row
-    // （session 异常被清理 / caller 在 sentinel 之外的边界状态）→ 'failed' 不报 'ok'
-    // （旧实现 archive() 是 sessionRepo.setArchived no-op + emit no-op + 仍返回 'ok' 误报）。
-    // CHANGELOG_99 R1 fix MED-5:archive 段**重新反查** sessionRepo.get 而非复用早期 callerSessionRow。
-    // 早期反查在 spawn 之前(用于 generic 模式 default cwd),spawn 是 long-running async 操作,
-    // spawn 期间 caller row 可能被删(用户手动 close / lifecycle scheduler 清理),复用旧探针
-    // 会调 archive,但 UPDATE 对缺失 row 是 no-op → 误报 'ok'。重新反查 ground truth,与 K2
-    // 原模式一致。
-    let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
-    if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-      let archiveTimeRow: ReturnType<typeof sessionRepo.get> = null;
-      try {
-        archiveTimeRow = sessionRepo.get(caller.callerSessionId);
-      } catch {
-        // DB 异常 fail-safe(同 L143 段)
-        archiveTimeRow = null;
-      }
-      if (!archiveTimeRow) {
-        archived = 'failed';
-        console.warn(
-          `[mcp hand_off_session] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态 / spawn 期间 row 被删)`,
-        );
-      } else {
-        const archiveFn =
-          handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
-        try {
-          await archiveFn(caller.callerSessionId);
-          archived = 'ok';
-        } catch (e) {
-          archived = 'failed';
-          console.warn(
-            `[mcp hand_off_session] archive caller ${caller.callerSessionId} failed:`,
-            e,
-          );
-        }
-      }
-    }
+    // REVIEW_36 R2 HIGH-A: caller 显式 team_name 时 spawn handler 把新 sid 加为 teammate
+    // (spawn.ts:310-317)。如果不通过 excludeSessionIds 排除 → helper 把刚交出 baton 的新 session
+    // 也关掉(fix-to-fix bug)。spawnData.sessionId 必有(spawn handler ok return 必带 sessionId
+    // 字段),否则前面 isError 短路返回。
+    //
+    // CHANGELOG_99 R1 fix MED-5: archive 段必须**重新反查** sessionRepo.get 而非复用早期
+    // callerSessionRow(L142 段)。spawn 是 long-running async,期间 caller row 可能被删 → 复用
+    // 旧探针调 archive 的 UPDATE 对缺失 row 是 no-op 误报 'ok'。helper 内部反查保证 ground truth。
+    const newSpawnedSid = typeof spawnData.sessionId === 'string' ? spawnData.sessionId : null;
+    const excludeSessionIds = newSpawnedSid ? new Set<string>([newSpawnedSid]) : undefined;
+    const cleanup = await runBatonCleanup(
+      {
+        callerSessionId: caller.callerSessionId,
+        keepTeammates: args.keep_teammates === true,
+        excludeSessionIds,
+        toolName: 'hand_off_session',
+      },
+      {
+        shutdownTeammates: handlerDeps?.shutdownTeammates,
+        archiveSession: handlerDeps?.archiveSession,
+      },
+    );
 
     return ok({
       // CHANGELOG_99 双模式 metadata
@@ -428,7 +373,7 @@ export const handOffSessionHandler = withMcpGuard(
        * 始终空数组。
        */
       ignoredFields: resolved.ignoredFields,
-      archived, // Phase A5：'ok' = 归档成功 / 'failed' = warn-only 不阻塞 / 'skipped' = external caller
+      archived: cleanup.archived, // Phase A5：'ok' = 归档成功 / 'failed' = warn-only 不阻塞 / 'skipped' = external caller
       /**
        * CHANGELOG_106：teammate shutdown 详情(与 archive_plan 同款)。
        * - closed: 成功 close 的 teammate sid 列表
@@ -436,7 +381,7 @@ export const handOffSessionHandler = withMcpGuard(
        * - skipped: 'keep-teammates'(caller 显式传) / 'caller-not-lead'(caller 不是 lead) /
        *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
        */
-      teammatesShutdown,
+      teammatesShutdown: cleanup.teammatesShutdown,
       // 透传 spawn_session 字段（兼容 spawn 调用方）
       ...spawnData,
       });
