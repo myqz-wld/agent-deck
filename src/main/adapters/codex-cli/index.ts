@@ -1,7 +1,10 @@
 import type { AgentAdapter, AdapterContext, PermissionMode } from '../types';
-import type { UploadedAttachmentRef } from '@shared/types';
+import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { CodexSdkBridge } from './sdk-bridge';
+import { summariseCodexSessionViaOneshot } from './summarizer-runner';
+import { summariseCodexSessionForHandOff } from './handoff-runner';
+import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter';
 
 const ADAPTER_ID = 'codex-cli';
 
@@ -168,6 +171,25 @@ class CodexCliAdapterImpl implements AgentAdapter {
   ): Promise<string> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     return this.bridge.restartWithCodexSandbox(sessionId, sandbox, handoffPrompt);
+  }
+
+  /**
+   * R37 P2-I Step 3.3：LLM 驱动的「最近做什么」入口（dispatch 下放）。
+   *
+   * - 'summary' → `summariseCodexSessionViaOneshot` ('low' effort，settings.summaryTimeoutMs)
+   * - 'handoff' → `summariseCodexSessionForHandOff` ('medium' effort，60s timeout hardcoded)
+   *
+   * 两个 codex runner 都需 caller 注入 `formatEventsForPrompt`（避免 codex/ 子目录反向
+   * import @main/session/summarizer/event-formatter；adapter 在此一处统一注入）。
+   */
+  async summariseEvents(
+    cwd: string,
+    events: AgentEvent[],
+    kind: 'summary' | 'handoff',
+  ): Promise<string | null> {
+    return kind === 'summary'
+      ? summariseCodexSessionViaOneshot(cwd, events, formatEventsForPrompt)
+      : summariseCodexSessionForHandOff(cwd, events, formatEventsForPrompt);
   }
 
   // 不实现：respondPermission / respondAskUserQuestion / respondExitPlanMode /

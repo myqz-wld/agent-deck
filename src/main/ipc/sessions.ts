@@ -8,8 +8,6 @@ import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
 import { summaryRepo } from '@main/store/summary-repo';
 import { summariseSessionForHandOff } from '@main/session/summarizer';
-import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter';
-import { summariseCodexSessionForHandOff } from '@main/adapters/codex-cli/handoff-runner';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
 import { buildHandOffCreateSessionOpts, dedupHandOff } from './sessions-hand-off-helper';
@@ -69,14 +67,16 @@ export function registerSessionsIpc(): void {
       throw new IpcInputError('sessionId', `session not found: ${sid}`);
     }
     const events = eventRepo.listForSession(sid, 200);
-    // plan model-wiring-and-handoff-20260514 Step 5.2：按 session.agentId 派发 hand-off summarize。
-    // 修前 codex session hand-off 借用 claude SDK + sonnet（用 sonnet 给 codex session 写
-    // 接力简报，不一致）；修后 codex session 走 codex SDK 自身（reasoning='medium'，model 由
-    // ~/.codex/config.toml 决定）。claude session 仍走原 summariseSessionForHandOff。
-    // 其他 adapter（aider / generic-pty）没有 SDK oneshot 通道，落到 default 走 claude 兜底
-    // — 仅保留对历史调用的兼容（这俩 adapter 实际不会触发 hand-off UI 入口）。
-    const summary = session.agentId === 'codex-cli'
-      ? await summariseCodexSessionForHandOff(session.cwd, events, formatEventsForPrompt)
+    // R37 P2-I Step 3.3：dispatch 已下放到 adapter.summariseEvents（kind: 'handoff'）。
+    // - claude-code → claude SDK + sonnet（4 节简报，60s timeout）
+    // - codex-cli   → codex SDK + 'medium' effort（reasoning，60s timeout，model 由
+    //   ~/.codex/config.toml 决定，settings.handOffModel 对 codex 路径无影响）
+    // - 其他 adapter（aider / generic-pty）未实装 summariseEvents → fallback 兜底走 claude
+    //   path 的 `summariseSessionForHandOff`（保历史兼容；这俩 adapter 实际不会触发 hand-off
+    //   UI 入口，但保留兜底防止入口意外暴露时静默炸）
+    const adapter = adapterRegistry.get(session.agentId);
+    const summary = adapter?.summariseEvents
+      ? await adapter.summariseEvents(session.cwd, events, 'handoff')
       : await summariseSessionForHandOff(session.cwd, events);
     if (!summary) {
       // events 为空（新会话）/ LLM 返回空串都视为「没东西可总结」—— 让 renderer

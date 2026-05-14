@@ -312,4 +312,34 @@ export interface AgentAdapter {
     sessionId: string,
     event: AgentDeckTeammateEvent,
   ): Promise<void>;
+
+  /**
+   * R37 P2-I Step 3.3：LLM 驱动的「会话最近做什么」生成入口（dispatch 下放）。
+   *
+   * 之前 caller (summarizer/index.ts + ipc/sessions.ts hand-off path) 自己 `if
+   * (session.agentId === 'claude-code') ... else if ('codex-cli')` 派发到不同 runner，
+   * adapter 概念被 caller 端 leak。下放到 adapter 后 caller 只调
+   * `adapter.summariseEvents?.(cwd, events, kind)`，未实装则拿 undefined 自然走 fallback
+   * （summarizer 路径走 assistant message / 兜底统计；ipc/sessions hand-off 路径走
+   * claude path 兜底，详 caller 端注释）。
+   *
+   * @param kind 区分两种 prompt 模板 + timeout：
+   *   - 'summary'：周期 30 字短摘要（claude haiku ~6s / codex 'low' effort，timeout 走
+   *     settings.summaryTimeoutMs）
+   *   - 'handoff'：4 节结构化简报（claude sonnet / codex 'medium' effort，60s timeout
+   *     hardcoded）
+   *
+   * @returns LLM 生成的文本；events 为空 / LLM 返回空串 → null；timeout / 进程错 → throw
+   *   （caller 走 catch 兜底）。
+   *
+   * 行为契约：
+   * - 不抛 fallback：runner 失败必须 throw（caller 决定要不要降级），不要内部 swallow
+   * - kind 必须 narrow 到 'summary' | 'handoff' 两值之一（unknown kind → throw）
+   * - aider / generic-pty 不实装：没 SDK oneshot 通道，caller 拿 undefined 走 fallback
+   */
+  summariseEvents?(
+    cwd: string,
+    events: AgentEvent[],
+    kind: 'summary' | 'handoff',
+  ): Promise<string | null>;
 }
