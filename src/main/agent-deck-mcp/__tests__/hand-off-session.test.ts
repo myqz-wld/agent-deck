@@ -36,6 +36,8 @@ interface TestState {
   gitFails: boolean;
   /** runGit 返回的 git common dir（默认 `<mainRepo>/.git`） */
   gitCommonDir: string;
+  /** REVIEW_33 H10：设为 true 时 exists() 对 `.claude/worktrees/` 路径返 false，模拟 worktree 已删 */
+  missingWorktree?: boolean;
 }
 
 function makeState(overrides: Partial<TestState> = {}): TestState {
@@ -68,7 +70,15 @@ function makeDeps(state: TestState): HandOffSessionDeps {
       if (c === undefined) throw new Error(`ENOENT: no mock file at ${p}`);
       return c;
     },
-    exists: async (p) => state.files.has(p),
+    exists: async (p) => {
+      if (state.files.has(p)) return true;
+      // REVIEW_33 H10：worktree dir 占位 fallback。impl 加了 worktreePath 存在性预检
+      // (deps.exists(worktreePath))，但绝大多数测试 fixture 只在 state.files 里塞 plan
+      // 文件、没塞 worktree dir。让 exists 对路径形态 `.claude/worktrees/<x>` 默认返 true
+      // 模拟 worktree 总存在；想测「worktreePath 不存在」case 时 set state.missingWorktree=true。
+      if (p.includes('/.claude/worktrees/') && !state.missingWorktree) return true;
+      return false;
+    },
     cwd: () => state.fakeCwd,
     homedir: () => state.fakeHomedir,
   };
@@ -232,6 +242,8 @@ describe('handOffSessionImpl — happy path', () => {
       userGlobalPath,
       planContent({ planId, status: 'in_progress', worktreePath }),
     );
+    // REVIEW_33 H10：worktreePath 非约定路径 → makeDeps 的 fallback miss → 必须显式占位
+    state.files.set(worktreePath, '__dir__');
 
     const result = await handOffSessionImpl({ planId }, makeDeps(state));
     expect(_isHandOffSessionError(result)).toBe(false);
@@ -354,6 +366,45 @@ describe('handOffSessionImpl — 校验失败分支', () => {
     expect(_isHandOffSessionError(result)).toBe(true);
     const err = result as HandOffSessionError;
     expect(err.error).toContain('<missing>');
+  });
+});
+
+describe('handOffSessionImpl — REVIEW_33 H10 worktreePath 存在性预检', () => {
+  it('frontmatter worktree_path 路径在 fs 上不存在 → reject + hint 提示重建 worktree / 改 frontmatter', async () => {
+    const state = makeState();
+    const planId = 'orphan-plan';
+    const worktreePath = '/Users/test/repo/.claude/worktrees/orphan-plan';
+    state.files.set(
+      `${state.fakeCwd}/.claude/plans/${planId}.md`,
+      planContent({ planId, status: 'in_progress', worktreePath }),
+    );
+    // 关键：模拟 worktree 已删（state.files 没设 worktreePath，且 missingWorktree=true
+    // 阻止 makeDeps 的 `.claude/worktrees/` fallback）
+    state.missingWorktree = true;
+
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(true);
+    const err = result as HandOffSessionError;
+    expect(err.error).toContain('worktree_path does not exist on disk');
+    expect(err.error).toContain(worktreePath);
+    expect(err.hint).toContain('git worktree add');
+    expect(err.hint).toContain('archive_plan');
+  });
+
+  it('frontmatter worktree_path 存在 → step 0 放行，正常返 resolved 上下文', async () => {
+    const state = makeState();
+    const planId = 'live-plan';
+    const worktreePath = '/Users/test/repo/.claude/worktrees/live-plan';
+    state.files.set(
+      `${state.fakeCwd}/.claude/plans/${planId}.md`,
+      planContent({ planId, status: 'in_progress', worktreePath }),
+    );
+    // missingWorktree 默认 false → makeDeps 的 fallback 让 .claude/worktrees/ 路径默认存在
+
+    const result = await handOffSessionImpl({ planId }, makeDeps(state));
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
+    expect(ok.worktreePath).toBe(worktreePath);
   });
 });
 
@@ -825,6 +876,9 @@ describe('handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and
     // **不**注入（让 handler 走 sessionRepo 反查路径）；files / readFile 模拟正常
     const files = new Map<string, string>();
     files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+    // REVIEW_33 H10：plan 默认 worktreePath = /Users/test/repo/.claude/worktrees/test-plan，
+    // 加占位防 impl step 0 exists 检查 reject
+    files.set('/Users/test/repo/.claude/worktrees/test-plan', '__dir__');
     const gitCallsSeen: Array<{ args: string[]; cwd: string }> = [];
     const partialDeps: HandOffSessionDeps = {
       runGit: async (args, cwd) => {
@@ -883,6 +937,8 @@ describe('handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and
     const planFilePath = `${explicitCwd}/.claude/plans/${planId}.md`;
     const files = new Map<string, string>();
     files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+    // REVIEW_33 H10：worktreePath 占位（plan 默认 wp = /Users/test/repo/.claude/worktrees/test-plan）
+    files.set('/Users/test/repo/.claude/worktrees/test-plan', '__dir__');
 
     // CHANGELOG_98 / R2 reviewer-codex MED-2：F1 在 archive 路径独立加了
     // sessionRepo.get(callerSid) 探针，与 mergeCallerCwd 反查路径无关。本 case 原
