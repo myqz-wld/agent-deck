@@ -1,0 +1,112 @@
+/**
+ * Claude SDK oneshot runner（R37 P2-H Step 3.2）— 跑一次 SDK query + consume + race。
+ *
+ * **抽出动机**（reviewer 双对抗 R1 H4 finding）：
+ * `summariseViaLlm` + `summariseSessionForHandOff` 两路 claude SDK oneshot 字面镜像 ~95%：
+ *   - loadSdk + getSdkRuntimeOptions + getPathToClaudeCodeExecutable 同款 3 行
+ *   - sdk.query 8+ option 同款（permissionMode / settingSources / executable / env / pathToClaudeCodeExecutable）
+ *   - consumeLoop async iter（拼 assistant text + 收到 result 立刻 break 让 cli.js 退出）
+ *   - race 模板（q.interrupt onTimeout + setTimeout reject + try/finally clearTimeout）
+ *
+ * 仅模型 / prompt / systemPrompt / timeout / errorMessage 5 处差异。抽公共 helper 后两路
+ * caller 只需传这 5 个字段。
+ *
+ * **不变量**（与原 2 runner 一致 — 不改行为）：
+ * - permissionMode: 'plan'：禁实调用工具，只让模型输出文字
+ * - settingSources: []：不读 ~/.claude/settings.json，避免 hook 回环到自己
+ * - cwd: opts.cwd || process.cwd()：cwd 为空时降级到主进程 cwd
+ * - 收到 type='result' 立刻 break，让 cli.js 子进程尽快退出（不等下个 message）
+ * - executable + env + pathToClaudeCodeExecutable 走 sdk-runtime helper（解 Electron .app 启
+ *   动 PATH 失 + asar 不 unpack 双重坑，详 sdk-runtime.ts）
+ *
+ * **不在本 helper 处理**：
+ * - 模型优先级链（settings > env > alias）— caller 自己组装 + 传字符串 model 进来
+ * - prompt 模板（summarize 30 字 vs handoff 4 节）— caller 用 build-prompt.ts helper 组装
+ * - result 清洗（compact vs structured）— caller 用 clean-result.ts helper 处理
+ * - errorMessage 字面（`__summarizer_timeout__` / `__handoff_summary_timeout__`）— caller 传
+ */
+import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
+import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
+import { raceWithTimeout } from './race-with-timeout';
+
+/**
+ * 跑一次 claude SDK oneshot query，返回 LLM 原始拼接的 assistant text。
+ *
+ * @returns LLM 完整输出文本（未清洗）；race 输（timer 先 reject）→ throw `Error(timeoutErrorMessage)`
+ */
+export async function runClaudeOneshot(opts: {
+  /** Session cwd（空字符串降级到 process.cwd()）。 */
+  cwd: string;
+  /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt / buildHandoffPrompt 组装。 */
+  prompt: string;
+  /** 模型 id（caller 已组装 settings > env > alias 优先级链，传最终字符串）。 */
+  model: string;
+  /** systemPrompt（caller 从 build-prompt.ts CLAUDE_*_SYSTEM_PROMPT 常量取）。 */
+  systemPrompt: string;
+  /** Timeout 毫秒；<= 0 不起 timer。 */
+  timeoutMs: number;
+  /** Timer 触发 reject 的 errorMessage（caller 区分 summarize / handoff）。 */
+  timeoutErrorMessage: string;
+}): Promise<string> {
+  const sdk = await loadSdk();
+  const runtime = getSdkRuntimeOptions();
+  const claudeBinary = getPathToClaudeCodeExecutable();
+
+  const q = sdk.query({
+    prompt: opts.prompt,
+    options: {
+      cwd: opts.cwd || process.cwd(),
+      model: opts.model,
+      permissionMode: 'plan',
+      systemPrompt: opts.systemPrompt,
+      settingSources: [],
+      // SDK 默认会 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
+      // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime，零依赖系统 node。
+      executable: runtime.executable,
+      env: runtime.env,
+      // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
+      // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
+      // 不经 Electron fs patch → ENOTDIR → summarizer LLM 100% 失败 → 全降级到事件统计。
+      // 显式传解析后的 unpacked 路径绕开 SDK 自带 K7。详见 sdk-runtime.ts。
+      ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
+    },
+  });
+
+  const consumeLoop = consumeClaudeQuery(q);
+
+  return raceWithTimeout({
+    work: consumeLoop,
+    timeoutMs: opts.timeoutMs,
+    errorMessage: opts.timeoutErrorMessage,
+    // 优先优雅中断让 SDK 自己清子进程；interrupt 失败也无所谓（reject 抛错兜底）。
+    onTimeout: () => {
+      q.interrupt?.().catch(() => undefined);
+    },
+  });
+}
+
+/**
+ * Consume claude SDK query async iter：拼所有 assistant text 块，收到 type='result' 立刻 break。
+ *
+ * 早 break 关键：cli.js 子进程在收到 result 后还会发若干 metadata message，但应用层不
+ * 需要——break 让 for-await 退 → q 析构 → cli.js 收 SIGTERM → 子进程 1-2s 内退（vs 等
+ * 自然超时 10s+ 才退），降低 inFlight 槽占用时间。
+ */
+async function consumeClaudeQuery(
+  q: AsyncIterable<unknown>,
+): Promise<string> {
+  let result = '';
+  for await (const msg of q) {
+    const m = msg as {
+      type: string;
+      message?: { content?: { type: string; text?: string }[] };
+    };
+    if (m.type === 'assistant' && m.message?.content) {
+      for (const block of m.message.content) {
+        if (block.type === 'text' && block.text) result += block.text;
+      }
+    }
+    if (m.type === 'result') break;
+  }
+  return result;
+}

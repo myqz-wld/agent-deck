@@ -213,41 +213,21 @@ export class Summarizer {
     //    - 其他 adapter（aider / generic-pty）→ 没有 SDK oneshot 通道，跳过 LLM 直接走 fallback
     //    spike-A3 实测 5 codex 并发 oneshot 复用 app-server 单例，资源温和（10s / ~44MB），
     //    与 claude 共用全局 summaryMaxConcurrent 不需分桶。
+    //
+    //    R37 P2-H Step 3.2：原本 caller 这里为 codex 路径起 Promise.race 兜底防卡死（codex
+    //    SDK 没 q.interrupt 等价物，runner 当时不内置 timeout）。重构后 timeout 已下沉到
+    //    `summariseCodexSessionViaOneshot` 内部（走 settings.summaryTimeoutMs，与 claude path
+    //    统一），caller 直接 await 即可。
     try {
       let llm: string | null = null;
       if (session.agentId === 'claude-code') {
         llm = await summariseViaLlm(session.cwd, events);
       } else if (session.agentId === 'codex-cli') {
-        // REVIEW_35 HIGH-B1：codex SDK 的 thread.run 没有 q.interrupt() 等价物 + runner 注释
-        // 明确「不实现超时」。caller 侧用 Promise.race 兜底防 codex 卡住占死 inFlight 槽
-        // （默认 maxConcurrent=2 → 2 个 codex 卡 = summarizer 全局死锁）。
-        // race 赢 → return result；race 输（timer 先 reject）→ 走 catch fallback。
-        // codex 子进程仍在后台跑，最终也会被 codex SDK 的进程退出回收，但应用层 inFlight
-        // 槽已释放（finally chain 里 .delete(s.id)）。
-        const codexPromise = summariseCodexSessionViaOneshot(
+        llm = await summariseCodexSessionViaOneshot(
           session.cwd,
           events,
           formatEventsForPrompt,
         );
-        // 提前 catch 吞 codex 后台错误防 unhandled rejection（与 claude consumeLoop.catch 同款）
-        codexPromise.catch(() => undefined);
-        const codexTimeoutMs = settingsStore.get('summaryTimeoutMs');
-        if (codexTimeoutMs > 0) {
-          let codexTimer: NodeJS.Timeout | undefined;
-          const timer = new Promise<null>((_, reject) => {
-            codexTimer = setTimeout(
-              () => reject(new Error('__codex_summarizer_timeout__')),
-              codexTimeoutMs,
-            );
-          });
-          try {
-            llm = await Promise.race([codexPromise, timer]);
-          } finally {
-            if (codexTimer) clearTimeout(codexTimer);
-          }
-        } else {
-          llm = await codexPromise;
-        }
       }
       if (llm) {
         // REVIEW_35 MED-B1：LLM 真成功才 delete 历史错误，确保「LLM 失败 + fallback 成功」
