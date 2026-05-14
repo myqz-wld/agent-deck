@@ -21,3 +21,4 @@
 | [mcp-handoff-fix-and-skill-timer-20260514.md](mcp-handoff-fix-and-skill-timer-20260514.md) | completed | [98](../changelog/CHANGELOG_98.md) | mcp tool 5 份核心文档 R1 deep review 25 finding + R2 反馈 9 项 + R3 收口 + B14 dormant 反直觉踩坑沉淀（4 atomic commit：A `438a613` src 7 项 / B `0cc4f79` 文档 13 项 / B14 `58a5db9` dormant 沉淀 / E+F `4d48ef0` R2 反馈 1 HIGH + 4 MED + 3 LOW + 8 case test + final `4723fe5` changelog）。R3 双 reviewer 一致裁决「fix 对症 + 0 引新 bug + 可合 (R3 收口)」。新发现 K2 baton spawn_depth 误判 (E1 三改) + dormant 反直觉踩坑 (B14)。tally P34 + U7 候选 +1。 |
 | [cwd-resilience-fix-20260514.md](cwd-resilience-fix-20260514.md) | cwd-resilience-fix-20260514 |
 | [mcp-tool-simplify-20260514.md](mcp-tool-simplify-20260514.md) | mcp-tool-simplify-20260514 |
+| [review-33-high-fix-20260513.md](review-33-high-fix-20260513.md) | review-33-high-fix-20260513 |
