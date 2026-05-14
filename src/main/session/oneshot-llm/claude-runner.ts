@@ -14,7 +14,8 @@
  * **不变量**（与原 2 runner 一致 — 不改行为）：
  * - permissionMode: 'plan'：禁实调用工具，只让模型输出文字
  * - settingSources: []：不读 ~/.claude/settings.json，避免 hook 回环到自己
- * - cwd: opts.cwd || process.cwd()：cwd 为空时降级到主进程 cwd
+ * - cwd: resolveSpawnCwd(opts) —— trim 后非空才用 caller cwd，否则降级 process.cwd()
+ *   （R37 P3-C Step 4.1 抽 helper 收口前是宽松版 `opts.cwd || process.cwd()`，对正常调用零变化）
  * - 收到 type='result' 立刻 break，让 cli.js 子进程尽快退出（不等下个 message）
  * - executable + env + pathToClaudeCodeExecutable 走 sdk-runtime helper（解 Electron .app 启
  *   动 PATH 失 + asar 不 unpack 双重坑，详 sdk-runtime.ts）
@@ -27,6 +28,7 @@
  */
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
+import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { raceWithTimeout } from './race-with-timeout';
 
 /**
@@ -35,7 +37,7 @@ import { raceWithTimeout } from './race-with-timeout';
  * @returns LLM 完整输出文本（未清洗）；race 输（timer 先 reject）→ throw `Error(timeoutErrorMessage)`
  */
 export async function runClaudeOneshot(opts: {
-  /** Session cwd（空字符串降级到 process.cwd()）。 */
+  /** Session cwd（trim 后空降级到 process.cwd() — 见 cwd-resolver.ts）。 */
   cwd: string;
   /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt / buildHandoffPrompt 组装。 */
   prompt: string;
@@ -55,7 +57,7 @@ export async function runClaudeOneshot(opts: {
   const q = sdk.query({
     prompt: opts.prompt,
     options: {
-      cwd: opts.cwd || process.cwd(),
+      cwd: resolveSpawnCwd(opts),
       model: opts.model,
       permissionMode: 'plan',
       systemPrompt: opts.systemPrompt,
