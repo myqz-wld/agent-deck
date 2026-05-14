@@ -174,9 +174,9 @@ function resolveFromDisplayName(
   const session = sessionRepo.get(fromSessionId);
   // adapter 已删时走二级 fallback（避免 `null:abcd1234`）
   const adapterId = session?.agentId ?? 'unknown-adapter';
-  // 优先取该 team 的 display_name
-  const members = agentDeckTeamRepo.listAllMembers(teamId);
-  const myMembership = members.find((m) => m.sessionId === fromSessionId);
+  // REVIEW_35 MED-A2：用 PK lookup 替代 listAllMembers 全表扫。high-volume team 单条 dispatch
+  // 的 O(M_team) SQL 降到 O(log N)（走 (team_id, session_id) 复合索引）。
+  const myMembership = agentDeckTeamRepo.findActiveMembershipIn(teamId, fromSessionId);
   if (myMembership?.displayName && myMembership.displayName.trim()) {
     return { displayName: myMembership.displayName, adapterId };
   }
@@ -220,6 +220,7 @@ function buildWireBody(
 class TeamEventDispatcher {
   private offMember: (() => void) | null = null;
   private offUpdated: (() => void) | null = null;
+  private offCreated: (() => void) | null = null;
   /** 缓存上次看到的 team archived_at，detect archive transition 用 */
   private lastArchivedAt = new Map<string, number | null>();
 
@@ -274,13 +275,23 @@ class TeamEventDispatcher {
         void this.fanOut(team.id, { kind: 'team-archived', teamId: team.id }, null);
       }
     });
+    // REVIEW_35 MED-A1：dispatcher.start() 的 preseed 只 cover start 时已存在的 team。runtime
+    // 新建的 team（典型：spawn_session 走 ensureByName 自动创建）从不入 cache，首次 emit
+    // `agent-deck-team-updated` 时 prev=undefined → return → 吞掉。
+    // 修法：订阅 `agent-deck-team-created` 把新 team 立刻入 cache（archivedAt 显然 null，但
+    // 显式 set 而非 missing，区别开「未见 vs 见过 active」）。
+    this.offCreated = eventBus.on('agent-deck-team-created', (team) => {
+      this.lastArchivedAt.set(team.id, team.archivedAt);
+    });
   }
 
   stop(): void {
     this.offMember?.();
     this.offUpdated?.();
+    this.offCreated?.();
     this.offMember = null;
     this.offUpdated = null;
+    this.offCreated = null;
     this.lastArchivedAt.clear();
   }
 
@@ -410,15 +421,32 @@ export class UniversalMessageWatcher {
       // per-target backpressure 阈值同步当前 settings
       const maxInflight = settingsStore.get('mcpMessageMaxTargetInflight') ?? 10;
 
+      let deliveredAny = false;
       for (const candidate of candidates) {
-        // backpressure check（注：候选已经包含 status='pending' + 退避到期；现役 inflight count
-        // 含 candidate 自身——还在 pending，未 claim）
-        const inflight = agentDeckMessageRepo.countPendingForTarget(candidate.toSessionId);
-        if (inflight > maxInflight) {
-          // 跳过本 row 本轮；下次 poll 时若 inflight 降下来再选
+        // backpressure check：候选已经包含 status='pending' + 退避到期。
+        // REVIEW_35 HIGH-A1：`countPendingForTarget` 返回 pending+delivering 之和，包含 candidate
+        // 自身（candidate 在此处仍 pending、未 claim）。旧逻辑 `if (inflight > maxInflight) continue`
+        // 让同一 target 入队 N=maxInflight+1 条 pending 后**永久死锁**：每条 candidate 都看 inflight=N
+        // → 全部 continue → 无人 claim → count 不降。N≥BATCH_LIMIT(16) 同 target 时还会让 batch
+        // 被同 target 占满，跨 target 也饿死（rA-claude Scenario D 实证）。
+        // 修法：减掉 candidate 自身让本 candidate 永远能被 deliver，破开死锁。
+        // 实际语义：「除 candidate 自身外，其他 in-flight ≤ maxInflight」，即每 tick 总能至少
+        // deliver 1 条破开闸门；总 in-flight 上限 = maxInflight + 1。可接受微超 1 来避免死锁。
+        const otherInflight =
+          agentDeckMessageRepo.countPendingForTarget(candidate.toSessionId) - 1;
+        if (otherInflight > maxInflight) {
           continue;
         }
         await this.deliver(candidate);
+        deliveredAny = true;
+      }
+      // REVIEW_35 HIGH-A1 starvation guard：N >> maxInflight+1 同 target（典型：N≥17 撑爆 BATCH_LIMIT=16）
+      // 时单 tick 所有 candidates 仍可能全 skip，跨 target 也饿死（其他 target 被挤出 batch）。
+      // 修法：deliveredAny=false 且 candidates 非空 → 强制 deliver candidates[0] 破开闸门。
+      // 代价：实际允许偶尔超 cap 一条短瞬窗口（candidate[0] deliver 完后 cap 降回）。这是
+      // unbounded queue + bounded resource 经典 trade-off — 优先保活而非严格 cap。
+      if (!deliveredAny && candidates.length > 0) {
+        await this.deliver(candidates[0]);
       }
     } catch (err) {
       console.warn('[universal-message-watcher] process tick failed:', err);

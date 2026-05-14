@@ -69,10 +69,14 @@ export function createMemberCrudHelpers(
       }
       // rejoin：更新 role / display_name / joined_at = now / left_at = NULL
       // 校验 lead 数（rejoin 为 lead 时）
-      if (role === 'lead' && memberQuery.countActiveLeads(teamId) >= MAX_LEADS_PER_TEAM) {
-        throw new TeamInvariantError(
-          `team ${teamId} lead count ${memberQuery.countActiveLeads(teamId)} >= ${MAX_LEADS_PER_TEAM}`,
-        );
+      if (role === 'lead') {
+        // REVIEW_35 LOW-A2：缓存 countActiveLeads 避免错误信息里二次 SQL
+        const leadCount = memberQuery.countActiveLeads(teamId);
+        if (leadCount >= MAX_LEADS_PER_TEAM) {
+          throw new TeamInvariantError(
+            `team ${teamId} lead count ${leadCount} >= ${MAX_LEADS_PER_TEAM}`,
+          );
+        }
       }
       db.prepare(
         `UPDATE agent_deck_team_members
@@ -86,10 +90,14 @@ export function createMemberCrudHelpers(
     }
 
     // 新加：lead 数校验
-    if (role === 'lead' && memberQuery.countActiveLeads(teamId) >= MAX_LEADS_PER_TEAM) {
-      throw new TeamInvariantError(
-        `team ${teamId} lead count ${memberQuery.countActiveLeads(teamId)} >= ${MAX_LEADS_PER_TEAM}`,
-      );
+    if (role === 'lead') {
+      // REVIEW_35 LOW-A2：缓存 countActiveLeads 避免错误信息里二次 SQL
+      const leadCount = memberQuery.countActiveLeads(teamId);
+      if (leadCount >= MAX_LEADS_PER_TEAM) {
+        throw new TeamInvariantError(
+          `team ${teamId} lead count ${leadCount} >= ${MAX_LEADS_PER_TEAM}`,
+        );
+      }
     }
 
     db.prepare(
@@ -134,10 +142,14 @@ export function createMemberCrudHelpers(
     if (existing.role === role) return memberRowToRecord(existing); // no-op
 
     // teammate → lead 时校验上限
-    if (role === 'lead' && memberQuery.countActiveLeads(teamId) >= MAX_LEADS_PER_TEAM) {
-      throw new TeamInvariantError(
-        `team ${teamId} lead count ${memberQuery.countActiveLeads(teamId)} >= ${MAX_LEADS_PER_TEAM}`,
-      );
+    if (role === 'lead') {
+      // REVIEW_35 LOW-A2：缓存 countActiveLeads 避免错误信息里二次 SQL
+      const leadCount = memberQuery.countActiveLeads(teamId);
+      if (leadCount >= MAX_LEADS_PER_TEAM) {
+        throw new TeamInvariantError(
+          `team ${teamId} lead count ${leadCount} >= ${MAX_LEADS_PER_TEAM}`,
+        );
+      }
     }
     // lead → teammate 时校验「至少 1 lead」（仅当 active members > 0 时强制；空 team 允许无 lead）
     if (role === 'teammate' && existing.role === 'lead') {

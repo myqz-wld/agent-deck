@@ -17,10 +17,17 @@ import type {
 import { memberRowToRecord, type MemberRow } from './types';
 
 export interface MemberQueryHelpers {
-  /** 仅返回当前 active member（left_at IS NULL） */
+  /** 仅返回当前 active member（left_at IS NULL + 关联 session 未归档）—— 与 countActiveLeads / findSharedActiveTeams 语义一致。
+   *
+   * REVIEW_35 LOW-A1：修前不 JOIN sessions.archived_at IS NULL，会让「lead session 已归档但 membership 仍 active」的 ghost
+   * member 被算入 active 列表。setRole 用 `listActiveMembers.length` 判断「demote last lead」时把 ghost 算进 totalActive 阻塞合法
+   * demote。修法对齐其他两个 helper。
+   */
   listActiveMembers(teamId: string): AgentDeckTeamMember[];
   /** 含 left（历史 + 当前）；UI 显示「曾经的 member」用 */
   listAllMembers(teamId: string): AgentDeckTeamMember[];
+  /** PK lookup：某 session 在指定 team 的当前 active membership（buildWireBody 反查 displayName 用，避免全表扫）。 */
+  findActiveMembershipIn(teamId: string, sessionId: string): AgentDeckTeamMember | null;
   /** 反查：某 session 当前 active 在哪些 team */
   findActiveMembershipsBySession(sessionId: string): AgentDeckTeamMember[];
   /**
@@ -40,9 +47,10 @@ export function createMemberQueryHelpers(db: Database): MemberQueryHelpers {
   function listActiveMembers(teamId: string): AgentDeckTeamMember[] {
     const rows = db
       .prepare(
-        `SELECT * FROM agent_deck_team_members
-         WHERE team_id = ? AND left_at IS NULL
-         ORDER BY joined_at ASC`,
+        `SELECT m.* FROM agent_deck_team_members m
+         INNER JOIN sessions s ON m.session_id = s.id
+         WHERE m.team_id = ? AND m.left_at IS NULL AND s.archived_at IS NULL
+         ORDER BY m.joined_at ASC`,
       )
       .all(teamId) as MemberRow[];
     return rows.map(memberRowToRecord);
@@ -57,6 +65,20 @@ export function createMemberQueryHelpers(db: Database): MemberQueryHelpers {
       )
       .all(teamId) as MemberRow[];
     return rows.map(memberRowToRecord);
+  }
+
+  function findActiveMembershipIn(teamId: string, sessionId: string): AgentDeckTeamMember | null {
+    // REVIEW_35 MED-A2：buildWireBody 反查 sender displayName 用 PK lookup 替代 listAllMembers 全表扫。
+    // 走 (team_id, session_id) 复合 PK 索引（v010 schema），O(log N) 替代 O(M_team)。不 JOIN sessions
+    // archived 过滤：wire body 应该在 sender session archived 后仍能渲染历史 displayName。
+    const row = db
+      .prepare(
+        `SELECT * FROM agent_deck_team_members
+         WHERE team_id = ? AND session_id = ? AND left_at IS NULL
+         LIMIT 1`,
+      )
+      .get(teamId, sessionId) as MemberRow | undefined;
+    return row ? memberRowToRecord(row) : null;
   }
 
   function findActiveMembershipsBySession(sessionId: string): AgentDeckTeamMember[] {
@@ -158,6 +180,7 @@ export function createMemberQueryHelpers(db: Database): MemberQueryHelpers {
   return {
     listActiveMembers,
     listAllMembers,
+    findActiveMembershipIn,
     findActiveMembershipsBySession,
     findActiveMembershipsBySessionIds,
     findSharedActiveTeams,

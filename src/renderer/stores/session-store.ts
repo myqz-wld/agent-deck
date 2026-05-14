@@ -19,7 +19,6 @@ import {
 interface State {
   sessions: Map<string, SessionRecord>;
   selectedSessionId: string | null;
-  view: 'live' | 'history' | 'settings';
   recentEventsBySession: Map<string, AgentEvent[]>;
   summariesBySession: Map<string, SummaryRecord[]>;
   /** 每个会话的最新一条 summary —— 用于在 SessionCard 上展示「在干嘛」 */
@@ -39,7 +38,6 @@ interface State {
   setLatestSummaries: (map: Record<string, SummaryRecord>) => void;
   setRecentEvents: (sessionId: string, events: AgentEvent[]) => void;
   selectSession: (id: string | null) => void;
-  setView: (view: 'live' | 'history' | 'settings') => void;
   resolvePermission: (sessionId: string, requestId: string) => void;
   resolveAskQuestion: (sessionId: string, requestId: string) => void;
   resolveExitPlanMode: (sessionId: string, requestId: string) => void;
@@ -121,7 +119,6 @@ function upsertEvent(arr: AgentEvent[], event: AgentEvent): AgentEvent[] {
 export const useSessionStore = create<State>((set) => ({
   sessions: new Map(),
   selectedSessionId: null,
-  view: 'live',
   recentEventsBySession: new Map(),
   summariesBySession: new Map(),
   latestSummaryBySession: new Map(),
@@ -306,7 +303,14 @@ export const useSessionStore = create<State>((set) => ({
   setLatestSummaries: (map) =>
     set((state) => {
       const next = new Map(state.latestSummaryBySession);
-      for (const [sid, s] of Object.entries(map)) next.set(sid, s);
+      for (const [sid, s] of Object.entries(map)) {
+        // REVIEW_35 LOW-B5：与 pushSummary (line 287-289) 对齐做 ts 比较，避免启动 IIFE
+        // 顺序问题：listSessions IPC 等 await 期间 summarizer 跑出 fresh summary → emit
+        // summary-added → pushSummary 写 latestMap[sid]=fresh → 后到的 setLatestSummaries
+        // 用 snapshot_older 覆盖回老 summary，UI 显示 stale 直到下次 push。
+        const cur = next.get(sid);
+        if (!cur || s.ts >= cur.ts) next.set(sid, s);
+      }
       return { latestSummaryBySession: next };
     }),
 
@@ -320,7 +324,6 @@ export const useSessionStore = create<State>((set) => ({
     }),
 
   selectSession: (id) => set({ selectedSessionId: id }),
-  setView: (view) => set({ view }),
 
   resolvePermission: (sessionId, requestId) =>
     set((state) => {

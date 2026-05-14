@@ -288,6 +288,16 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
           role: 'lead',
           displayName: null,
         });
+        // REVIEW_35 MED-A7：emit `agent-deck-team-member-changed` 让 universal-message-watcher
+        // dispatcher 收到 → fan-out member-joined adapter event 给同 team active member。
+        // 修前 cli/spawn/ipc.adapters 只调 sessionManager.notifyTeamMembershipChanged 触发
+        // session-upserted（renderer UI chip 刷新），但**不**emit member-changed → dispatcher
+        // 永远收不到 member-joined，adapter notifyTeammateEvent 永远不被通知。
+        eventBus.emit('agent-deck-team-member-changed', {
+          teamId: team.id,
+          sessionId: sid,
+          kind: 'joined',
+        });
       } catch (e) {
         if (!(e instanceof TeamInvariantError)) throw e;
       }
@@ -314,6 +324,12 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
               sessionId: memberSid,
               role: 'teammate',
               displayName: m.slug,
+            });
+            // REVIEW_35 MED-A7：同 lead 路径，补 emit 让 dispatcher 看到 teammate 加入。
+            eventBus.emit('agent-deck-team-member-changed', {
+              teamId: team.id,
+              sessionId: memberSid,
+              kind: 'joined',
             });
           } catch (e) {
             console.warn(

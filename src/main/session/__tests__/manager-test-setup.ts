@@ -231,6 +231,7 @@ export function makeAgentDeckTeamRepoMock(): AgentDeckTeamRepo {
     leaveTeam: () => null,
     listActiveMembers: () => [],
     listAllMembers: () => [],
+    findActiveMembershipIn: () => null,
     findActiveMembershipsBySession: () => [],
     findActiveMembershipsBySessionIds: () => new Map(),
     findSharedActiveTeams: () => [],
