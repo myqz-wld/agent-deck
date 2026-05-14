@@ -1,6 +1,7 @@
 /**
  * archive_plan handler 入口（plan mcp-bug-and-feature-batch-20260513 Phase 4a Step 4a.2;
- * CHANGELOG_99 加 default 归档 caller,与 K2 baton CHANGELOG_97 同款语义)。
+ * CHANGELOG_99 加 default 归档 caller,与 K2 baton CHANGELOG_97 同款语义;
+ * CHANGELOG_109 R37 P2-M Step 3.5 抽 baton-cleanup.ts 共享 ~80 行模板）。
  *
  * 薄 wrapper：deny external caller + validateExternalCaller + 调 archivePlanImpl + 包 ok/err。
  * 业务行为完全在 archive-plan-impl.ts（git/fs/frontmatter 操作 + DEFAULT_DEPS inject 模式），
@@ -17,19 +18,10 @@
  * 修法：handler 从 sessionRepo 反查 caller cwd 注入到 implDeps。external sentinel 时
  * 跳过注入（impl 仍走 DEFAULT_DEPS.cwd 兜底；按 deny external 规则其实到不了这里）。
  *
- * **CHANGELOG_99 default 归档 caller(与 K2 baton 同款语义)**：plan 收口 = 这条 plan-driven
- * 会话使命终结(代码已合并 / worktree 已删 / cwd 已失效)。caller session 留 active 没意义,
- * 用户继续点开发消息会撞「Path does not exist」弯绕错误链。归档 = 用户在 SessionList 看到
- * 它移到「已归档」列表,自然不会主动给它发消息;即便取消归档发消息,recoverer cwd 启发式
- * fallback (CHANGELOG_99 Phase C)兜底给清晰错误。
- *
- * archive 行为复制 K2 hand-off-session.ts L194-216 模式:
- * - 反查 callerSessionRow 探针 (try/catch DB 不可用 fail-safe)
- * - external sentinel → 'skipped' (按 deny external 拦截不到这里;防御性双保险)
- * - row missing → 'failed' + console.warn 不阻塞 ok return
- * - archive 抛错 → 'failed' + console.warn 不阻塞
- * - 成功 → 'ok'
- * - ok return 加 `archived: 'ok' | 'failed' | 'skipped'` 字段
+ * **CHANGELOG_99 default 归档 caller + CHANGELOG_106 teammate shutdown(baton 同款语义)**：
+ * 两段统一收口到 baton-cleanup.ts 的 runBatonCleanup helper(R37 P2-M Step 3.5)。本 handler
+ * 只在 impl 成功后调一次 helper,把 teammate shutdown + archive caller 两个三态结果透传到
+ * ok return,不再独立维护 ~80 行模板代码。详 baton-cleanup.ts 顶部 jsdoc。
  */
 
 import {
@@ -41,16 +33,13 @@ import {
 import type { ArchivePlanArgs } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import { sessionRepo } from '@main/store/session-repo';
-import { sessionManager } from '@main/session/manager';
 import {
   archivePlanImpl,
   _isArchivePlanError,
   type ArchivePlanDeps,
 } from './archive-plan-impl';
-import {
-  shutdownTeammatesOnBaton,
-  type ShutdownTeammatesResult,
-} from './shutdown-teammates-on-baton';
+import { runBatonCleanup } from './baton-cleanup';
+import type { ShutdownTeammatesResult } from './shutdown-teammates-on-baton';
 
 /**
  * 测试 inject seam：test 通过 depsOverride.implDeps 注入 mock fs/git 走纯 in-memory。
@@ -62,10 +51,13 @@ import {
  * CHANGELOG_106：shutdownTeammates seam,让单测无需 mock 整个 shutdownTeammatesOnBaton 内部
  * 的 sessionManager.close / agentDeckTeamRepo 调用即可验证 handler 集成行为。default 走真
  * helper(它内部走真 sessionManager.close + agentDeckTeamRepo)。
+ *
+ * CHANGELOG_109(R37 P2-M Step 3.5)：handler 端 seam shape 不变(向后兼容),内部把这两个
+ * seam 透传给 runBatonCleanup deps,让现有 archive-plan.handler.test.ts 5 case 0 改造跑过。
  */
 export interface ArchivePlanHandlerDeps {
   implDeps?: ArchivePlanDeps;
-  /** CHANGELOG_99：archive caller 的 test seam(与 K2 hand-off-session.ts 同款) */
+  /** CHANGELOG_99：archive caller 的 test seam(与 K2 hand-off-session 同款) */
   archiveSession?: (sessionId: string) => Promise<void>;
   /** CHANGELOG_106：teammate shutdown helper 的 test seam（mock 整个 helper 调用） */
   shutdownTeammates?: (callerSessionId: string) => Promise<ShutdownTeammatesResult>;
@@ -128,86 +120,26 @@ export const archivePlanHandler = withMcpGuard(
       return err(result.error, result.hint);
     }
 
-    // CHANGELOG_106：先 shutdown 同 team 内其他 active teammate(default,可 keep_teammates 关)。
-    // 时序必须**先 helper 后 archive caller**:
-    //   1. helper 反查 caller lead memberships → listActiveMembers(team) 拿 teammate
-    //   2. 串行 close teammate(close 内 leaveTeam,team 仍有 active lead caller 不触发 auto-archive)
-    //   3. 然后 archive caller(archiveTeamsIfOrphaned 触发 0-lead → team auto-archive)
-    // 颠倒顺序会让 archive caller 先把 team auto-archive,helper 反查时 listActiveMembers
-    // (JOIN sessions archived_at IS NULL)看不到 caller,但 caller 没 archive 之前的 lead 反查
-    // 还在(findActiveMembershipsBySession 不过滤 archived)→ 行为可能 OK 但语义混乱;先 helper
-    // 后 archive 是「先清理 member 后退场」更自然。
+    // CHANGELOG_109(R37 P2-M Step 3.5)：baton cleanup 两段(teammate shutdown + archive caller)
+    // 收口到 runBatonCleanup helper(详 baton-cleanup.ts 顶部 jsdoc)。helper 内部串行跑 phase 1
+    // → phase 2,失败容错全在 helper 里(单个 close warn / helper 抛错兜底 / archive 失败 warn);
+    // handler 这层只透传 input + 把两个三态结果 spread 进 ok return。
     //
-    // 三态决策(skipped 字段):
-    // - 'keep-teammates': caller 显式传 keep_teammates=true(典型: lead 想保留 reviewer 给后续会话)
-    // - 'caller-not-lead': helper 反查 caller 不是任何 team 的 lead(罕见: caller 是 teammate 自己 hand_off)
-    // - null: helper 正常处理(含 closed=[] 的「caller 是 lead 但 team 内无其他 active teammate」case)
+    // 时序保证(必须 phase 1 → phase 2):由 helper 内部 await 串行保证;handler 不能颠倒调用顺序。
     //
-    // 失败容错:
-    // - helper 内部单个 close 抛错 → result.failed[] 收集 + warn,继续后面 teammate(helper 自动)
-    // - helper 自身抛错(罕见: 反查 DB 异常 / mock 失败)→ handler 这层 try/catch warn + 兜底
-    //   skipped=null + closed=[] + failed=[],archive caller 仍正常走(不让 helper 故障阻塞 plan 收口)
-    let teammatesShutdown: ShutdownTeammatesResult = {
-      closed: [],
-      failed: [],
-      skipped: 'caller-not-lead',
-    };
-    if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-      if (args.keep_teammates === true) {
-        teammatesShutdown = { closed: [], failed: [], skipped: 'keep-teammates' };
-      } else {
-        const shutdownFn = handlerDeps?.shutdownTeammates ?? shutdownTeammatesOnBaton;
-        try {
-          teammatesShutdown = await shutdownFn(caller.callerSessionId);
-        } catch (e) {
-          console.warn(
-            `[mcp archive_plan] shutdownTeammatesOnBaton helper failed for caller ${caller.callerSessionId}:`,
-            e,
-          );
-          // 兜底:helper 自身炸 → archive caller 仍走,只是 closed=[] + skipped=null
-          teammatesShutdown = { closed: [], failed: [], skipped: null };
-        }
-      }
-    }
-
-    // CHANGELOG_99：default 归档 caller(与 K2 baton 同款)。impl 已成功(git ff merge / mv plan
-    // / commit / git worktree remove 全跑完),caller 的 cwd 已失效 → 归档让用户在 SessionList
-    // 直接看到这条会话已归档,避免后续发消息撞 cwd 弯绕。
-    // archive 行为镜像 K2 hand-off-session.ts L194-216:
-    // - external sentinel → 'skipped' (deny external 拦下不会到这,双保险)
-    // - 反查 callerSessionRow try/catch DB 不可用 → 'failed' + console.warn 不阻塞
-    // - row missing → 'failed' + console.warn 不阻塞
-    // - archive 抛错 → 'failed' + console.warn 不阻塞
-    // - 成功 → 'ok'
-    let archived: 'ok' | 'failed' | 'skipped' = 'skipped';
-    if (caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-      let callerSessionRow: ReturnType<typeof sessionRepo.get> = null;
-      try {
-        callerSessionRow = sessionRepo.get(caller.callerSessionId);
-      } catch {
-        // DB 不可用(typical: test 环境 DB 未 init)→ 留 null,按 row missing 路径 'failed'
-        callerSessionRow = null;
-      }
-      if (!callerSessionRow) {
-        archived = 'failed';
-        console.warn(
-          `[mcp archive_plan] cannot archive caller ${caller.callerSessionId}: not in sessions table (异常被清理 / 边界状态)`,
-        );
-      } else {
-        const archiveFn =
-          handlerDeps?.archiveSession ?? ((sid: string) => sessionManager.archive(sid));
-        try {
-          await archiveFn(caller.callerSessionId);
-          archived = 'ok';
-        } catch (e) {
-          archived = 'failed';
-          console.warn(
-            `[mcp archive_plan] archive caller ${caller.callerSessionId} failed:`,
-            e,
-          );
-        }
-      }
-    }
+    // archive_plan 不传 excludeSessionIds(plan 收口前不 spawn 新 session);keep_teammates 从
+    // args 直接读 boolean(不传 / undefined → false → 走真 helper 关 teammate)。
+    const cleanup = await runBatonCleanup(
+      {
+        callerSessionId: caller.callerSessionId,
+        keepTeammates: args.keep_teammates === true,
+        toolName: 'archive_plan',
+      },
+      {
+        shutdownTeammates: handlerDeps?.shutdownTeammates,
+        archiveSession: handlerDeps?.archiveSession,
+      },
+    );
 
     return ok({
       archived_path: result.archivedPath,
@@ -220,7 +152,7 @@ export const archivePlanHandler = withMcpGuard(
        * CHANGELOG_99：'ok' = caller 归档成功 / 'failed' = warn-only 不阻塞(callerRow 缺 / DB
        * 不可用 / archive 抛错) / 'skipped' = external caller(理论上 deny external 拦截不到这里)
        */
-      archived,
+      archived: cleanup.archived,
       /**
        * CHANGELOG_106：teammate shutdown 详情 — { closed: string[], failed: Array<{sessionId,reason}>,
        * skipped: 'caller-not-lead' | 'keep-teammates' | null }。
@@ -229,7 +161,7 @@ export const archivePlanHandler = withMcpGuard(
        * - skipped: 'keep-teammates'(caller 显式传) / 'caller-not-lead'(caller 不是 lead) /
        *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
        */
-    teammatesShutdown,
+      teammatesShutdown: cleanup.teammatesShutdown,
     });
   },
 );
