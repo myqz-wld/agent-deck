@@ -158,6 +158,15 @@ export function registerAdaptersIpc(): void {
       }
     }
 
+    // REVIEW_35 R2 HIGH-D codex H1：last-line defense — adapter 不支持 attachments 时拒绝。
+    // createSession 同 sendMessage 路径同样 enforce，防 NewSessionDialog / 测试 / 直接 IPC 绕过 ComposerSdk gate。
+    if (raw.attachments && Array.isArray(raw.attachments) && raw.attachments.length > 0
+        && !adapter.capabilities.canAcceptAttachments) {
+      throw new IpcInputError(
+        'opts.attachments',
+        `adapter "${agentId}" does not support attachments`,
+      );
+    }
     // attachments 写盘：失败 throw 已回滚兄弟附件。createSession throw 时本 handler 同款回滚。
     const attachments = await persistAttachments(raw.attachments, 'opts.attachments');
     let sid: string;
@@ -243,6 +252,17 @@ export function registerAdaptersIpc(): void {
     // MAX_MESSAGE_LENGTH + agent-deck-message-repo MAX_BODY_LENGTH 全局对齐）
     if (text.length > 102_400) {
       throw new IpcInputError('text', `> 102400 chars (got ${text.length.toLocaleString()} chars)`);
+    }
+    // REVIEW_35 R2 HIGH-D codex H1：last-line defense — adapter 不支持 attachments 时直接拒绝，
+    // 不让 attachments 落盘到 image-uploads 占空间。修前 ComposerSdk gate 入口 + send 拦截，
+    // 但 main 进程 IPC 没 enforce → 任意 IPC caller (NewSessionDialog / 测试 / 直接 IPC mock) 都可
+    // 把 attachments 塞给 generic-pty/aider，bridge 静默丢图 + 文件落盘后无清理。
+    if (rawAttachments && Array.isArray(rawAttachments) && rawAttachments.length > 0
+        && !adapter.capabilities.canAcceptAttachments) {
+      throw new IpcInputError(
+        'attachments',
+        `adapter "${agentId}" does not support attachments`,
+      );
     }
     // attachments 写盘：失败 throw 已回滚兄弟附件。sendMessage throw 时本 handler 同款回滚。
     const attachments = await persistAttachments(rawAttachments, 'attachments');

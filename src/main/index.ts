@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut } from 'electron';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -324,7 +324,23 @@ async function bootstrap(): Promise<void> {
 if (gotLock) {
   // REVIEW_35 MED-D-codex-4: 抓 bootstrap 完成 promise 让 second-instance handler 能等待
   const bootstrappedPromise = app.whenReady().then(() => bootstrap());
-  bootstrappedPromise.catch((err) => console.error('bootstrap failed', err));
+  bootstrappedPromise.catch((err) => {
+    // REVIEW_35 R2 HIGH-D codex H2：bootstrap fatal reject 不能只 console.error，必须给用户
+    // 可见反馈 + 退出（否则单实例锁仍占着，二次启动也只走 rejected promise warn，用户看到
+    // 应用「假启动」状态：窗口未现 / 后续功能全挂）。dialog.showErrorBox 是同步阻塞，确保
+    // 用户看到错误才退出。app.exit(1) 释放单实例锁。
+    console.error('bootstrap failed', err);
+    try {
+      const msg = err instanceof Error ? `${err.message}\n\n${err.stack ?? ''}` : String(err);
+      dialog.showErrorBox(
+        'Agent Deck 启动失败',
+        `应用初始化未完成，将退出。错误详情：\n\n${msg.slice(0, 2000)}`,
+      );
+    } catch (dialogErr) {
+      console.error('showErrorBox failed during bootstrap fatal:', dialogErr);
+    }
+    app.exit(1);
+  });
 
   app.on('second-instance', (_event, argv) => {
     const all = BrowserWindow.getAllWindows();
@@ -366,6 +382,9 @@ if (gotLock) {
         // REVIEW_35 MED-D-claude (D6): cleanup 整体 race-with-timeout 兜底，防 adapter
         // shutdown / hookServer stop / mcp http shutdown 任一卡死整个 quit 流程（codex CLI
         // 卡死 / aider 阻塞 stdin 等场景）。10s 超时降级 process.exit(1) 强退。
+        // REVIEW_35 R2 MED-D claude (R2-3): closeDb 必须在 race 外**总是**跑保证 SQLite WAL
+        // checkpoint（旧版包在 race 内 → 任一前序步骤卡 9.5s 后 closeDb 仅剩 0.5s budget → process.exit(1)
+        // 在 closeDb 之前 → WAL 文件未 checkpoint 下次启动 replay log，极端 corruption 风险）。
         const cleanupSteps = (async (): Promise<void> => {
           await adapterRegistry.shutdownAll();
           if (agentDeckMcpHttpShutdown) {
@@ -381,14 +400,19 @@ if (gotLock) {
           } catch {
             // ignore: 已经在退出
           }
-          closeDb();
         })();
         const cleanupTimeout = new Promise<'__timeout__'>((resolve) =>
           setTimeout(() => resolve('__timeout__'), 10_000),
         );
         const result = await Promise.race([cleanupSteps.then(() => 'ok' as const), cleanupTimeout]);
+        // closeDb 在 race 之外**总是**跑（sync 操作 + WAL checkpoint 关键）
+        try {
+          closeDb();
+        } catch (err) {
+          console.warn('[before-quit] closeDb error', err);
+        }
         if (result === '__timeout__') {
-          console.warn('[before-quit] cleanup timeout (10s), forcing exit');
+          console.warn('[before-quit] cleanup timeout (10s), forcing exit (closeDb 已跑保证 WAL checkpoint)');
           process.exit(1);
         }
       } catch (err) {

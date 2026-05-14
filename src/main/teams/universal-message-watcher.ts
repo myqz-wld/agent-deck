@@ -269,7 +269,21 @@ class TeamEventDispatcher {
       const prev = this.lastArchivedAt.get(team.id);
       const cur = team.archivedAt;
       this.lastArchivedAt.set(team.id, cur);
-      if (prev === undefined) return; // 首次见到，不算变更
+      // REVIEW_35 R2 HIGH-A1：旧版 `if (prev === undefined) return` 把任何「未见」team 一律
+      // 当作 baseline 吞掉。但 spawn_session / cli / ipc.adapters.ts 三条创建路径走 ensureByName
+      // **不**emit `agent-deck-team-created`（dispatcher 加的 offCreated listener 只 catch
+      // ipc/teams.ts:128 UI 创建路径），导致这三条路径创建的 team 第一次 emit team-updated
+      // (典型：lead session archive 联动 0-lead auto-archive → emit team-updated cur=archiveTs)
+      // 仍 prev=undefined → return → team-archived notify 永久不发。
+      // 修法：未见 team **且** cur=null 时才当 baseline；未见 team **但** cur!=null 时当作
+      // 「未见就直接 archived」的 transition 处理。
+      if (prev === undefined) {
+        if (cur !== null) {
+          // 未见过的 team 直接观察到 archived → 视作 archive transition fan-out
+          void this.fanOut(team.id, { kind: 'team-archived', teamId: team.id }, null);
+        }
+        return;
+      }
       // 仅关心从 active → archived 的变迁（unarchive 通常不需要打扰 active member）
       if (prev === null && cur !== null) {
         void this.fanOut(team.id, { kind: 'team-archived', teamId: team.id }, null);
