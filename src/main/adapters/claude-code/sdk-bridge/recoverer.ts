@@ -223,17 +223,7 @@ export class SessionRecoverer {
         // 真没救:emit 清晰错误,throw,不进 placeholder 路径
         // **不 unarchive**:archived 状态下 throw,session 仍归档,用户在 SessionList "已归档"
         // 列表能看到清晰错误信息(MED-2 fix:之前 unarchive 在前 → throw 后 session 变 active 但死路)
-        this.ctx.emit({
-          sessionId,
-          agentId: AGENT_ID,
-          kind: 'message',
-          payload: {
-            text: buildCwdMissingErrorText(rec.cwd),
-            error: true,
-          },
-          ts: Date.now(),
-          source: 'sdk',
-        });
+        this.emitFallbackMessage(sessionId, buildCwdMissingErrorText(rec.cwd), { error: true });
         throw new Error(
           `session ${sessionId} cwd does not exist and no fallback available: ${rec.cwd}`,
         );
@@ -251,20 +241,14 @@ export class SessionRecoverer {
       // `/Users/me/wt`，fallback 到 `/Users/me/elsewhere` 后能写 `/Users/me/elsewhere` 下任何
       // 内容）。让用户透明知情决策（如安全敏感请右键归档新建会话），而非黑盒静默扩大。
       // 仅 workspace-write 档需要提示（off 档无 sandbox / strict 档完全只读没扩大风险）。
-      this.ctx.emit({
+      this.emitFallbackMessage(
         sessionId,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: {
-          text: buildCwdFallbackInfoText({
-            badCwd: rec.cwd,
-            fallbackCwd: effectiveCwd,
-            sandboxMode: rec.claudeCodeSandbox,
-          }),
-        },
-        ts: Date.now(),
-        source: 'sdk',
-      });
+        buildCwdFallbackInfoText({
+          badCwd: rec.cwd,
+          fallbackCwd: effectiveCwd,
+          sandboxMode: rec.claudeCodeSandbox,
+        }),
+      );
       const needSandboxWarn = rec.claudeCodeSandbox === 'workspace-write';
       console.warn(
         `[sdk-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}` +
@@ -370,16 +354,7 @@ export class SessionRecoverer {
                   `falling back to new CLI session with auto-generated summary prepended ` +
                   `(prompt ${summaryResult.prompt.length} chars)`,
               );
-              this.ctx.emit({
-                sessionId,
-                agentId: AGENT_ID,
-                kind: 'message',
-                payload: {
-                  text: buildJsonlMissingSummaryUsedText(effectiveCwd),
-                },
-                ts: Date.now(),
-                source: 'sdk',
-              });
+              this.emitFallbackMessage(sessionId, buildJsonlMissingSummaryUsedText(effectiveCwd));
             } else {
               // CHANGELOG_106 原文案保留:摘要 fallback(settings off / no events / summary empty /
               // over length / thunk throw)→ emit 让用户手动补背景,与 CHANGELOG_106 行为一致。
@@ -389,16 +364,7 @@ export class SessionRecoverer {
                   `summary skipped reason=${summaryResult.failReason ?? 'unknown'}` +
                   (summaryResult.thrown ? ` (${summaryResult.thrown.message})` : ''),
               );
-              this.ctx.emit({
-                sessionId,
-                agentId: AGENT_ID,
-                kind: 'message',
-                payload: {
-                  text: buildJsonlMissingSummarySkippedText(effectiveCwd),
-                },
-                ts: Date.now(),
-                source: 'sdk',
-              });
+              this.emitFallbackMessage(sessionId, buildJsonlMissingSummarySkippedText(effectiveCwd));
             }
           } else {
             // CHANGELOG_107 Step 4: cwdFellBack=true 路径 — outer L156-176 已 emit cwd 切换 fact
@@ -409,16 +375,7 @@ export class SessionRecoverer {
                   `falling back to new CLI session with auto-generated summary prepended ` +
                   `(prompt ${summaryResult.prompt.length} chars)`,
               );
-              this.ctx.emit({
-                sessionId,
-                agentId: AGENT_ID,
-                kind: 'message',
-                payload: {
-                  text: buildCwdFallbackSummaryUsedText(),
-                },
-                ts: Date.now(),
-                source: 'sdk',
-              });
+              this.emitFallbackMessage(sessionId, buildCwdFallbackSummaryUsedText());
             } else {
               console.warn(
                 `[sdk-bridge] cwdFellBack for ${sessionId} → ${effectiveCwd}, ` +
@@ -426,16 +383,7 @@ export class SessionRecoverer {
                   `summary skipped reason=${summaryResult.failReason ?? 'unknown'}` +
                   (summaryResult.thrown ? ` (${summaryResult.thrown.message})` : ''),
               );
-              this.ctx.emit({
-                sessionId,
-                agentId: AGENT_ID,
-                kind: 'message',
-                payload: {
-                  text: buildCwdFallbackSummarySkippedText(),
-                },
-                ts: Date.now(),
-                source: 'sdk',
-              });
+              this.emitFallbackMessage(sessionId, buildCwdFallbackSummarySkippedText());
             }
           }
           // REVIEW_7 H1：直接用 createSession 返回值拿 newRealId，不再 entries() 反查 cwd。
@@ -527,6 +475,45 @@ export class SessionRecoverer {
       });
       throw err;
     }
+  }
+
+  /**
+   * REVIEW_37 P3-C Step 4.3: emit fallback message struct 收口（与 Step 1.3 抽出的 6 个
+   * recoverer-messages.ts builder 1:1 配套）。
+   *
+   * **抽出动机**：recoverer.ts 内 6 处 `this.ctx.emit({ sessionId, agentId: AGENT_ID,
+   * kind: 'message', payload: { text: builder(...) }, ts: Date.now(), source: 'sdk' })`
+   * 字面镜像 100%，仅 payload.text / payload.error 不同。每处占 9 行让 emit 时机
+   * 与控制流交织阅读体验差；helper 收口后 caller 一行 `emitFallbackMessage(sid, builder(...))`
+   * 自描述意图。
+   *
+   * **覆盖范围**（与 builder #1-#6 1:1）：
+   * - outer cwd missing throw（buildCwdMissingErrorText，带 `error: true`）
+   * - outer cwd fallback info（buildCwdFallbackInfoText）
+   * - inner jsonl missing summary used / skipped（buildJsonlMissingSummary*Text）
+   * - inner cwdFellBack summary used / skipped（buildCwdFallbackSummary*Text）
+   *
+   * **不覆盖**（recoverer-messages.ts 注释明示「单行字面量留 inline」）：
+   * - L317 占位 message 「⚠ SDK 通道已断开，正在自动恢复…」（占位 dedup 用 nowTs 同款 const）
+   * - L517 兜底失败 message 「⚠ 自动恢复失败：${err}」（err.message 内联，无 builder）
+   *
+   * @param sessionId 当前 recover 中的 sessionId
+   * @param text 调 builder 出来的最终文案
+   * @param opts.error 是否 emit error message（默认 false → info 性质）
+   */
+  private emitFallbackMessage(
+    sessionId: string,
+    text: string,
+    opts?: { error?: boolean },
+  ): void {
+    this.ctx.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: opts?.error ? { text, error: true } : { text },
+      ts: Date.now(),
+      source: 'sdk',
+    });
   }
 
   /**
