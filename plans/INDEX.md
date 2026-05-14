@@ -26,3 +26,4 @@
 | [review-35-followup-p1-p2-20260514.md](review-35-followup-p1-p2-20260514.md) | review-35-followup-p1-p2-20260514 |
 | [summarizer-split-20260514.md](summarizer-split-20260514.md) | summarizer-split-20260514 |
 | [universal-message-watcher-split-20260514.md](universal-message-watcher-split-20260514.md) | universal-message-watcher-split-20260514 |
+| [llm-handoff-summary-fallback-20260514.md](llm-handoff-summary-fallback-20260514.md) | llm-handoff-summary-fallback-20260514 |
