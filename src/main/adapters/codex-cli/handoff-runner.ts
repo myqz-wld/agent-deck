@@ -22,31 +22,17 @@
  * 失败处理与 claude 同：caller (IPC handler) 接到 throw 后透传 → renderer modal inline error
  * 让用户重试或手动编辑兜底 prompt。本 runner 内只做 timeout race + result 收集，不做 fallback。
  */
-import type { Codex } from '@openai/codex-sdk';
 import type { AgentEvent } from '@shared/types';
-import { settingsStore } from '@main/store/settings-store';
-import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
-import { resolveBundledCodexBinary } from '@main/adapters/codex-cli/sdk-bridge/codex-binary';
-
-let cachedCodex: Codex | null = null;
-let cachedPath: string | null = null;
+import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 
 /**
- * 懒创建并缓存 codex 实例（与 summarizer-runner.ts:ensureCodex 完全字面对称 —— 同样不与
- * codex-cli adapter 的 bridge.ensureCodex 共享实例，hand-off 也是 read-only oneshot 用途，
- * 共享反而需要处理跨用途 lifecycle 协调，不值得）。
+ * R37 P1 Step 1.2 (G)：原 module-level cachedCodex / cachedPath / ensureCodex 已下沉到
+ * `codex-instance-pool.ts` 应用全局 pool（与 sdk-bridge / summarizer-runner 共享同一实例）。
+ * 本 runner 直接调 `getCodexInstance()`，path 改变时 pool 内部 path 比较自动失效。
  *
- * settings.codexCliPath 改了 → 实例失效，下次 call 重建（与 summarizer 同 cachedPath 模式）。
+ * 失败模式不变（codex 二进制缺失 / spawn 失败 / 空 finalResponse / 限流 / 超时）— 详见
+ * 函数内 timeout race 注释。
  */
-async function ensureCodex(): Promise<Codex> {
-  const path = settingsStore.get('codexCliPath');
-  const overridePath = (path && path.trim()) || resolveBundledCodexBinary();
-  if (cachedCodex && cachedPath === overridePath) return cachedCodex;
-  const sdk = await loadCodexSdk();
-  cachedCodex = new sdk.Codex(overridePath ? { codexPathOverride: overridePath } : {});
-  cachedPath = overridePath;
-  return cachedCodex;
-}
 
 /**
  * 跑一次 codex hand-off 简报。`formatEvents` 由 ipc/sessions.ts 注入（与 summarizer 路径同款，
@@ -63,7 +49,7 @@ export async function summariseCodexSessionForHandOff(
   const activity = formatEvents(events);
   if (!activity) return null;
 
-  const codex = await ensureCodex();
+  const codex = await getCodexInstance();
 
   // 与 summarizer-runner.ts:70-76 同款约束（read-only 防 codex 真跑工具改文件、never approval
   // policy 不等审批、skipGitRepoCheck 跳 codex 默认 git repo 校验）。

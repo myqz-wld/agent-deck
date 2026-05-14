@@ -20,32 +20,14 @@
  * 应用层 timeout 走 Promise.race 即可（参考 claude summariseViaLlm 范式）。
  * 但 spike-A3 显示典型 oneshot 在 ~2s 内返回，超时风险低，本 runner 暂不实现 timeout。
  */
-import type { Codex } from '@openai/codex-sdk';
 import type { AgentEvent } from '@shared/types';
-import { settingsStore } from '@main/store/settings-store';
-import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
-import { resolveBundledCodexBinary } from '@main/adapters/codex-cli/sdk-bridge/codex-binary';
-
-let cachedCodex: Codex | null = null;
-let cachedPath: string | null = null;
+import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 
 /**
- * 懒创建并缓存 codex 实例。settings.codexCliPath 改了 → 实例失效，下次 call 重建。
- *
- * 与 codex-cli adapter 的 bridge.ensureCodex 不共享实例：summarizer 是 read-only oneshot
- * 用途，与会话级 thread 完全隔离；共享反而需要处理跨用途的 lifecycle 协调（adapter
- * 切 cliPath 时是否要影响 in-flight summary 等），不值得。
+ * R37 P1 Step 1.2 (G)：原 module-level cachedCodex / cachedPath / ensureCodex 已下沉到
+ * `codex-instance-pool.ts` 应用全局 pool（与 sdk-bridge / handoff-runner 共享同一实例）。
+ * 本 runner 直接调 `getCodexInstance()`，path 改变时 pool 内部 path 比较自动失效。
  */
-async function ensureCodex(): Promise<Codex> {
-  const path = settingsStore.get('codexCliPath');
-  const overridePath = (path && path.trim()) || resolveBundledCodexBinary();
-  // path 改了就丢老实例
-  if (cachedCodex && cachedPath === overridePath) return cachedCodex;
-  const sdk = await loadCodexSdk();
-  cachedCodex = new sdk.Codex(overridePath ? { codexPathOverride: overridePath } : {});
-  cachedPath = overridePath;
-  return cachedCodex;
-}
 
 /**
  * 跑一次 codex oneshot 总结。`formatEvents` 由 summarizer.ts 注入（避免在本 runner 重复
@@ -62,7 +44,7 @@ export async function summariseCodexSessionViaOneshot(
   const activity = formatEvents(events);
   if (!activity) return null;
 
-  const codex = await ensureCodex();
+  const codex = await getCodexInstance();
 
   // codex 没有 plan/permission mode 概念；read-only sandbox 防止 codex 真跑工具改文件。
   // approvalPolicy='never' 让 codex 不要在 oneshot 中等待审批（虽然 read-only 下也没什么

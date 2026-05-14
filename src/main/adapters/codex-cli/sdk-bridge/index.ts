@@ -22,6 +22,7 @@ import type {
 } from './types';
 import { resolveBundledCodexBinary } from './codex-binary';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
+import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import type { UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 
@@ -78,8 +79,6 @@ export class CodexSdkBridge {
   /** key = 真实 thread_id（拿到前用 tempKey） */
   private sessions = new Map<string, InternalSession>();
   private codex: Codex | null = null;
-  /** 用户在设置面板填的 codex 二进制路径覆盖；null = 用 SDK vendored 二进制 */
-  private codexCliPath: string | null = null;
   /**
    * 当前 codex 沙盒档位（CHANGELOG_54 B-4）。默认与历史硬编码一致 'workspace-write'，
    * 下次 createSession 调 startThread 时透传。已在跑的 thread 不受影响（sandboxMode 是
@@ -102,13 +101,24 @@ export class CodexSdkBridge {
     this.threadLoop = new ThreadLoop(ctx);
   }
 
-  /** 设置面板「Codex 二进制路径」变更：清掉 Codex 实例，下次 createSession 重建。 */
-  setCodexCliPath(path: string | null): void {
-    this.codexCliPath = path && path.trim() ? path.trim() : null;
-    // 清掉 Codex 实例。已存在的 Thread 实例继续用旧 codex 配置（codex 实例只在 spawn 子进程时被读到，
-    // 旧 thread 下次 runStreamed 时会用旧 path；新建会话才用新 path）。可以接受：用户改 path
-    // 通常不需要立即影响在跑的会话。
+  /**
+   * 设置面板「Codex 二进制路径」变更：清掉 Codex 实例，下次 createSession 重建。
+   *
+   * R37 P1 Step 1.2 (G)：删 `private codexCliPath` field — path 实际从 `settingsStore.get('codexCliPath')`
+   * 同步读（IPC settingsStore.set 是 setCodexCliPath 的前置步骤），不需要 instance field 镜像；
+   * setCodexCliPath 仅作 invalidation hook（清 this.codex 让下次 ensureCodex 重建 + 调 pool
+   * invalidate 让两个 oneshot runner 也下次重建）。
+   *
+   * 已存在的 Thread 实例继续用旧 codex 配置（codex 实例只在 spawn 子进程时被读到，旧 thread
+   * 下次 runStreamed 时会用旧 path；新建会话才用新 path）。可以接受：用户改 path 通常不需要
+   * 立即影响在跑的会话。
+   */
+  setCodexCliPath(_path: string | null): void {
+    // 注意：不再持 instance field，path 实际从 settingsStore.get 读。本方法仅作 invalidation hook
     this.codex = null;
+    // R37 P1 Step 1.2 (G)：同步 invalidate oneshot pool，让 summarizer-runner / handoff-runner
+    // 下次 call 也用新 path 重建（修前 3 处独立 cache，path 改要等各自 path 比较 miss 才同步）
+    invalidateCodexInstance();
   }
 
   /**
@@ -126,7 +136,9 @@ export class CodexSdkBridge {
     // 优先级：用户在设置面板填的 codexCliPath（可指向自装版本）> 打包后内置的 unpacked 二进制
     // > SDK 自己 resolve（dev 模式正常，打包后会拼出 app.asar 内路径导致 spawn ENOTDIR，见
     // resolveBundledCodexBinary 注释）
-    const overridePath = this.codexCliPath || resolveBundledCodexBinary();
+    // R37 P1 Step 1.2 (G)：直接 settingsStore.get（删 private codexCliPath field）
+    const codexCliPath = settingsStore.get('codexCliPath');
+    const overridePath = (codexCliPath && codexCliPath.trim()) || resolveBundledCodexBinary();
     // CHANGELOG_<X> R2 / B'4 + R1.A5 + R1.D7：自动注入 agent-deck MCP server 配置
     // 给 codex SDK，让 codex CLI 子进程 spawn 时通过 --config mcp_servers.agent-deck.url=...
     // 连接到本应用 HookServer /mcp 路由（HTTP transport）。bearer token 走 env var
