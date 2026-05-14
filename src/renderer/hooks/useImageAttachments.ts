@@ -292,19 +292,22 @@ export function useImageAttachments(): UseImageAttachmentsResult {
             makeThumbnail(file, file.type),
           ]);
           const id = nextId();
-          // REVIEW_35 HIGH-D1：30MB 总额度限制必须在 setAttachments updater 内重新计算
-          // （而非闭包 attachments.reduce 一次性算）。旧版闭包 deps=[attachments] + Promise.all
-          // await 期间下个 add 调用看到的仍是旧 attachments → 多并发 add 各自通过限制 → setAttachments
-          // 用 functional update 合并 → 最终总和可超 MAX_TOTAL_BYTES（rG-claude Node sim 实测 47MB）。
-          // 修法：把 limit check 挪到 setAttachments updater 内，基于 prev（最新真实 state）算总和。
-          // 超限的 entry 把 fullBase64Ref 也回滚，保证 state 与 ref 一致。
-          let admitted = true;
+          // REVIEW_35 R2 HIGH-D-R2-1：旧版「闭包变量 admitted + setAttachments updater 内写」
+          // 在 React 18 batching 下不可靠 — updater 延迟到下次 render 跑，admitted 仍是初始值
+          // true → fullBase64Ref.set 仍执行 → 即使 reducer 后来 reject 不进 attachments，
+          // **ref 已留下孤儿** (rG-claude Node sim 实测 5×7MB 并发 → attachments 4 OK + ref 5 = 1 孤儿)。
+          // 修法：fullBase64Ref.set **也移到 setAttachments updater 内**，与 attachments 状态原子更新
+          // （违反 React 纯 updater 契约理论上 strict mode 双跑会出现 ref set 两次 → Map.set 同 key
+          // 是幂等的所以无害；超限时不 set 直接跳过）。
+          let admittedThisRound = false;
           setAttachments((prev) => {
             const currentTotal = prev.reduce((s, a) => s + a.bytes, 0);
             if (currentTotal + compressed.bytes > MAX_TOTAL_BYTES) {
-              admitted = false;
               return prev;
             }
+            // 在 updater 内同步写 ref 与 newEntries 局部追踪（admittedThisRound 仅给 errors 路径用）
+            fullBase64Ref.current.set(id, compressed.base64);
+            admittedThisRound = true;
             return [
               ...prev,
               {
@@ -317,8 +320,7 @@ export function useImageAttachments(): UseImageAttachmentsResult {
               },
             ];
           });
-          if (admitted) {
-            fullBase64Ref.current.set(id, compressed.base64);
+          if (admittedThisRound) {
             newEntries.push({
               id,
               thumbnailDataUrl: thumb,

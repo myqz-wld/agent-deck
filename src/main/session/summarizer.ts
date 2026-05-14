@@ -132,6 +132,15 @@ export class Summarizer {
       void this.summarize(s.id)
         .then((content) => {
           if (!content) return;
+          // REVIEW_35 R2 HIGH-B1：in-flight summary 在 LLM await 期间撞 renameSdkSession(OLD,NEW)
+          // → sessionRepo.rename 已 UPDATE summaries SET session_id=NEW + DELETE FROM sessions WHERE id=OLD
+          // → 此处 insert sessionId=OLD 撞 FK constraint failed (v001 schema CASCADE+pragma foreign_keys=ON)
+          // 修法：insert 前预检 sessionRepo.get(s.id)，rename 后 OLD 已不存在则短路（让 next scanAll
+          // 拿 NEW 重新跑 LLM，本次 LLM 工作白费但避免 FK 错 + 不写孤儿诊断）
+          if (!sessionRepo.get(s.id)) {
+            console.warn(`[summarizer] session ${s.id} renamed/deleted during in-flight LLM, skipping insert`);
+            return;
+          }
           const rec = summaryRepo.insert({
             sessionId: s.id,
             content,
@@ -147,6 +156,9 @@ export class Summarizer {
           // （只有 LLM 真成功时才 delete），caller .then 不再 touch。
         })
         .catch((err) => {
+          // REVIEW_35 R2 HIGH-B1 同款防御：rename 后 OLD 不存在则 set lastErrorBySession[OLD] 是
+          // orphan（rename listener 已迁，再 set 创建第二个 OLD key 永久滞留）→ 短路防 orphan diagnostics
+          if (!sessionRepo.get(s.id)) return;
           // 总失败（LLM + fallback 都挂）：summarize() 内 catch 已 set；这里兜底再写一次保证
           // 极端情况（summarize() throw 在 catch 之前的 sync 段）也有诊断。
           this.lastErrorBySession.set(s.id, {

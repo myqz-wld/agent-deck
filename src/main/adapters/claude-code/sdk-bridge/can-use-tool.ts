@@ -168,6 +168,15 @@ export function makeCanUseTool(deps: MakeCanUseToolDeps): CanUseTool {
             responder.timeoutAskUserQuestion(realId, requestId);
           }, timeoutMs);
         }
+        // REVIEW_35 R2 MED-rF-1：同步预检 ctx.signal.aborted，已 abort 时立即 resolve(deny) +
+        // 不再注册 listener（已 aborted 的 signal 上 addEventListener('abort') 不会触发，导致 entry
+        // 永远挂到 timeout 才清）。生产 race：上游 query 在我们 set entry 与 add listener 之间 abort。
+        if (ctx.signal?.aborted) {
+          if (entry.timer) clearTimeout(entry.timer);
+          internal.pendingAskUserQuestions.delete(requestId);
+          resolve({ behavior: 'deny', message: 'aborted (signal.aborted=true on entry)', interrupt: true });
+          return;
+        }
         ctx.signal?.addEventListener('abort', () => {
           const cur = internal.pendingAskUserQuestions.get(requestId);
           if (cur) {
@@ -281,6 +290,13 @@ export function makeCanUseTool(deps: MakeCanUseToolDeps): CanUseTool {
             responder.timeoutExitPlanMode(realId, requestId);
           }, timeoutMs);
         }
+        // REVIEW_35 R2 MED-rF-1：同步预检 aborted（同 AskUserQuestion 修法）
+        if (ctx.signal?.aborted) {
+          if (entry.timer) clearTimeout(entry.timer);
+          internal.pendingExitPlanModes.delete(requestId);
+          resolve({ behavior: 'deny', message: 'aborted (signal.aborted=true on entry)', interrupt: true });
+          return;
+        }
         ctx.signal?.addEventListener('abort', () => {
           const cur = internal.pendingExitPlanModes.get(requestId);
           if (cur) {
@@ -350,6 +366,13 @@ export function makeCanUseTool(deps: MakeCanUseToolDeps): CanUseTool {
         entry.timer = setTimeout(() => {
           responder.timeoutPermission(realId, requestId);
         }, timeoutMs);
+      }
+      // REVIEW_35 R2 MED-rF-1：同步预检 aborted（同 AskUserQuestion / ExitPlanMode 修法）
+      if (ctx.signal?.aborted) {
+        if (entry.timer) clearTimeout(entry.timer);
+        internal.pendingPermissions.delete(requestId);
+        resolve({ behavior: 'deny', message: 'aborted (signal.aborted=true on entry)', interrupt: true });
+        return;
       }
       ctx.signal?.addEventListener('abort', () => {
         const cur = internal.pendingPermissions.get(requestId);
