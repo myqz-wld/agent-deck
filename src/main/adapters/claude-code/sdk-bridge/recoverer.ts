@@ -25,7 +25,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
+import type { AgentEvent, SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { encodeClaudeProjectDir } from '@main/platform';
@@ -75,6 +75,25 @@ export type JsonlExistsThunk = (cwd: string, sessionId: string) => boolean;
  */
 export type CwdExistsThunk = (cwd: string) => boolean;
 
+/**
+ * CHANGELOG_107: LLM 摘要 thunk(test seam)。签名与 `summariseSessionForHandOff` 1:1
+ * 镜像(避免 facade ctor 写额外包装层),但通过 ctor 注入让单测不调真 LLM 撞 OAuth /
+ * 计费 / DB 未 init。
+ *
+ * 触发场景:Step 2 起 `prependHistorySummary` helper 在 jsonl missing fallback /
+ * cwdFellBack=true 路径起 fresh CLI 之前调本 thunk → 拿到摘要 prepend 到 user prompt
+ * 前作为 fresh CLI 首条 prompt(让用户体感「Claude 还能续聊」)。
+ *
+ * 失败语义(与 `summariseSessionForHandOff` 一致):
+ * - throw → helper 内部 try/catch 退到「emit 提示让用户自己补背景」原 CHANGELOG_106 路径
+ * - return null → events 空 / 摘要为空,helper skip 不 prepend
+ * - return string → 成功(限 4000 字符,helper 再做 MAX_MESSAGE_LENGTH 校验)
+ */
+export type SummariseFnThunk = (
+  cwd: string,
+  events: AgentEvent[],
+) => Promise<string | null>;
+
 export class SessionRecoverer {
   /**
    * REVIEW_17 R3 / M3-R3：recoverAndSend 入口 emit 占位 message 的 dedup 窗口。
@@ -98,7 +117,20 @@ export class SessionRecoverer {
      * cwdExists 方法,默认走 fs.existsSync。
      */
     private readonly cwdExistsThunk: CwdExistsThunk,
-  ) {}
+    /**
+     * CHANGELOG_107: LLM 摘要 thunk(test seam)。facade 内部转发给 protected
+     * summariseForHandOff 方法,默认实现 = `summariseSessionForHandOff`。
+     *
+     * Step 1: 仅接通 thunk 通道,recoverer 主路径暂不调用(零业务行为变化)。
+     * Step 2 起 `prependHistorySummary` helper 在 fallback 路径前调用本 thunk
+     * 把摘要 prepend 到 fresh CLI 首条 prompt。
+     */
+    private readonly summariseFn: SummariseFnThunk,
+  ) {
+    // Step 1 typecheck pass: TS6138 (declared but never read) 临时 silence。
+    // Step 2 helper 起开始真正 await this.summariseFn(...) 后本行可移除。
+    void this.summariseFn;
+  }
 
   /**
    * 断连自愈 + 单飞复用：sendMessage 检测 sessions Map 没有该 sessionId 时调本路径。
