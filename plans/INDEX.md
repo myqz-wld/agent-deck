@@ -37,3 +37,4 @@
 | [cross-adapter-parity-20260515.md](cross-adapter-parity-20260515.md) | cross-adapter-parity-20260515 |
 | [archive-failure-ux-upthrow-20260515.md](archive-failure-ux-upthrow-20260515.md) | archive-failure-ux-upthrow-20260515 |
 | [archive-toctou-fix-20260515.md](archive-toctou-fix-20260515.md) | archive-toctou-fix-20260515 |
+| [adapter-architecture-design-20260515.md](adapter-architecture-design-20260515.md) | adapter-architecture-design-20260515 |
