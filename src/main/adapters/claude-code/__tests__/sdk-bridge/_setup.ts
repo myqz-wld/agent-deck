@@ -13,7 +13,7 @@
  */
 
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 
 export interface CreateSessionCall {
   cwd: string;
@@ -61,6 +61,22 @@ export class TestBridge extends ClaudeSdkBridge {
    * (throw 检测在前)。
    */
   public summariseThrow: Error | null = null;
+  /**
+   * plan cross-adapter-parity-20260515 Phase B.4 regression: capture sendMessage 调用让
+   * waiter Promise<string> regression test 能断言 inflight 等待者 path 拿 finalId 调
+   * sendThunk(finalId, ...) 而非 sendThunk(OLD sid, ...)。
+   *
+   * **opt-in seam**:default 空 Set 时 sendMessage 走 super.sendMessage 原行为不破现有 case;
+   * 测 waiter 行为时 caller 设 `interceptSidSet = new Set(['new-sid'])` 让仅特定 sid 的
+   * sendMessage 调用 push 到 sendMessageCalls + 立即 return(模拟 sessions Map 在 recovery
+   * 后已 sync 命中);其它 sid 走 super 原行为,让 p1/p2 第一波 OLD sid 真进 recoverer。
+   */
+  public sendMessageCalls: Array<{
+    sessionId: string;
+    text: string;
+    attachments?: UploadedAttachmentRef[];
+  }> = [];
+  public interceptSidSet: Set<string> = new Set();
 
   override async createSession(opts: {
     cwd: string;
@@ -94,6 +110,29 @@ export class TestBridge extends ClaudeSdkBridge {
   // 默认返回 true 让测试走 resume 主路径；fallback case 显式设 false 验证降级路径
   protected resumeJsonlExists(_cwd: string, _sessionId: string): boolean {
     return this.jsonlExistsOverride;
+  }
+
+  /**
+   * plan cross-adapter-parity-20260515 Phase B.4 regression test seam:让 waiter Promise<string>
+   * 测 case 能断言 inflight 等待者 path 调 sendThunk 时收到的 sid 参数是 finalId 而非 OLD。
+   *
+   * `interceptSidSet.has(sessionId)` 时:capture 调用参数 + 立即 return(模拟 sessions Map 在
+   * recovery 后已 sync,sendMessage 命中 internal session 直接 push prompt;否则 mock 环境
+   * sessions Map 永空 → recoverer 递归撞 sessionRepo.get(NEW)=null → throw not found 干扰
+   * 真要测的 fix 行为)。
+   *
+   * 其它 sid:走 super.sendMessage 原行为不破现有 case;让 p1/p2 第一波 OLD sid 真进 recoverer。
+   */
+  override async sendMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
+    if (this.interceptSidSet.has(sessionId)) {
+      this.sendMessageCalls.push({ sessionId, text, attachments });
+      return;
+    }
+    return super.sendMessage(sessionId, text, attachments);
   }
 
   /**

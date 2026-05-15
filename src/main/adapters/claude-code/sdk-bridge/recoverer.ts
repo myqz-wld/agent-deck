@@ -192,26 +192,44 @@ export class SessionRecoverer {
    * - permissionMode 用户上次主动选过的值复原，不能默认 'default' 否则用户辛苦切到的
    *   plan / acceptEdits 被静默还原
    * - 历史 record 完全不存在时直接抛与原行为一致的 'not found'，让 IPC 把错原样透传 renderer
+   *
+   * **plan cross-adapter-parity-20260515 Phase B Step B.1 — 返回 Promise<string>**:
+   * 返回 final session id(fallback path 返 newRealId / resume path 返 sessionId)。修前
+   * `Promise<void>` waiter 等 inflight 后用 OLD sessionId 调 sendThunk → bridge.sendMessage
+   * 内 sessions Map miss → 又进 recoverAndSend → sessionRepo.get(OLD) 已 rename DELETE → throw
+   * "not found" — 用户体感「第二条消息消失」(REVIEW_40 R2 reviewer-codex MED parity 限制)。
+   *
+   * 修后 waiter 拿 finalId 调 sendThunk(finalId, text, atts),fallback path 走 NEW(主 recovery
+   * 完成后 sessions Map 已 rename 同步)直接 push 进 NEW session;resume path finalId === sessionId
+   * 行为零变化。失败路径 reject 仍透传(catch 静默 fallback finalId=sessionId 让等待者再撞一次
+   * 触发新一轮 recovery,plan §B.5 设计)。
    */
   async recoverAndSend(
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
-  ): Promise<void> {
+  ): Promise<string> {
     const inflight = this.ctx.recovering.get(sessionId);
     if (inflight) {
       // 等同一恢复完成 → 然后正常走完整 sendMessage 流程把这条新 text push 进 sessions。
       // catch 静默：第一波恢复失败时第二条等待者自己再走 sendMessage，要么进新一轮 recovery，
       // 要么拿到真错。不要把第一波的错往第二条上抛 —— 调用方只关心自己这条的成败。
+      //
+      // plan cross-adapter-parity-20260515 Phase B.1: try/catch 拿 finalId 让 sendThunk 用 NEW
+      // sid 不撞 not found(plan §B.5 设计:reject 时 finalId=sessionId 让等待者再撞一次触发
+      // 新一轮 recovery,与原行为一致)。
+      let finalId: string;
       try {
-        await inflight;
+        finalId = (await inflight) as string;
       } catch {
-        // 第一波恢复已失败，第二条自己再撞一次
+        // 第一波恢复已失败,第二条用 OLD 再撞一次触发新一轮 recovery 路径
+        finalId = sessionId;
       }
       // HIGH-1 修法：attachments 透传给第二条等待者 sendThunk。
       // 原版只 sendThunk(sessionId, text) 静默吞掉 attachments；
       // 这条等待者带的图属于「自己这条 message」与第一条独立，必须走完整 sendMessage 路径。
-      return this.sendThunk(sessionId, text, attachments);
+      await this.sendThunk(finalId, text, attachments);
+      return finalId;
     }
 
     const rec: SessionRecord | null = sessionRepo.get(sessionId);
@@ -325,7 +343,7 @@ export class SessionRecoverer {
       });
     }
 
-    const p = (async () => {
+    const p = (async (): Promise<string> => {
       try {
         // CHANGELOG_28：预检 jsonl 是否存在 —— CLI 在 resume 时若找不到
         // ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl 会 hard fail 抛
@@ -454,7 +472,9 @@ export class SessionRecoverer {
               );
             }
           }
-          return;
+          // plan cross-adapter-parity-20260515 Phase B Step B.1: 返 final id 给等待者 path
+          // (newRealId 才是真实 active session,OLD sessionId 在 fallback rename 后已 DB DELETE)。
+          return newRealId;
         }
 
         await this.createThunk({
@@ -480,6 +500,10 @@ export class SessionRecoverer {
           // HIGH-1 修法：attachments 透传，正常 resume 路径下首条恢复消息带图
           attachments,
         });
+        // plan cross-adapter-parity-20260515 Phase B Step B.1: resume 路径不 fork(claude
+        // CLI 隐式 fork 会被 stream-processor consume rename Map key,但 sessions Map 内
+        // 仍以 finalId 作 key — bridge.sendMessage(finalId) 命中)。返 sessionId 给等待者。
+        return sessionId;
       } finally {
         this.ctx.recovering.delete(sessionId);
       }
@@ -487,7 +511,9 @@ export class SessionRecoverer {
     this.ctx.recovering.set(sessionId, p);
 
     try {
-      await p;
+      // plan cross-adapter-parity-20260515 Phase B Step B.1: 返 finalId 给 caller(虽 bridge
+      // sendMessage 当前 caller 不消费返回值,但等待者 path 经 inflight 拿同款 finalId)。
+      return await p;
     } catch (err) {
       // createSession 失败：占位 message 已经 emit，再补一条 error message 让用户看到原因
       this.ctx.emit({
