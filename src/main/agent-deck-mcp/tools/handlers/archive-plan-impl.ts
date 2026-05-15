@@ -329,8 +329,12 @@ export async function archivePlanImpl(
   // 回写(典型 Phase 5 收尾 commit:[x] step checklist / 跳过理由 / 已知踩坑修正等)被覆盖。
   //
   // **修法**:ff-merge 成功后(step 7-8 之后)重新 read planContent 拿 fresh body + fm,
-  // 之后 step 9 / step 10 全部用 freshFm + freshContent。预检阶段(step 6)的 fm 仍用于
-  // status check / base_branch fallback / fm 元数据派生(已用完),不再参与 step 10 写入。
+  // 之后 step 9 / step 10 / step 11 全部用 freshFm + freshContent(step 11 INDEX summary
+  // 是 R1 review HIGH-A fix 加入的 carry-forward 点)。预检阶段(step 6)的 fm 仍用于
+  // status check / base_branch fallback / fm 元数据派生(已用完),不再参与 step 10 /
+  // step 11 写入。**post-ff-merge 写入路径不变量**:任何 step 8c 之后向 fs 写入的内容
+  // 必须从 freshFm / freshContent 读取,严禁回到 step 6 fm / planContent —— 未来添加新
+  // post-ff-merge step 时务必遵守该 invariant(R1 review 双方共识)。
   //
   // **失败兜底**:fresh re-read fail → postFfMergeErr (与其他 post-ff-merge 失败统一姿势:
   // 报 phase prefix + 通用 hint「ff-merge 已完成,按 phase 手工补完」,不做自动 git revert
@@ -381,9 +385,18 @@ export async function archivePlanImpl(
           `cannot proceed with non-in_progress fresh status to avoid violating user CLAUDE.md ` +
           `§Step 4 "中止" contract (abandoned plans must not enter project git archive).`,
       ),
+      // R2 MED 1 修法:`--ff-only` 可带入 worktree branch 多个 commit(实测本 plan 收口
+      // 时已 4+ commit ahead of main),`git revert HEAD` 仅撤 tip 一个 commit 不完整。
+      // 改成范围化 cleanup 指引:推荐 `git reset --hard ORIG_HEAD`(干净简单 — archive_plan
+      // 失败前 main repo 不会有 caller 未提交改动,destructive 风险低),保留
+      // `git revert ORIG_HEAD..HEAD`(history-preserving 选项,逐 commit revert 但 caller 需
+      // 处理可能的 conflict)。
       'main HEAD has advanced (ff-merge complete) and the plan file at the main repo has a ' +
         'status that drifted from "in_progress" on the worktree branch. Cleanup choices: ' +
-        '(1) if caller intended abandoned: `git revert HEAD` to undo the ff-merge in main repo, ' +
+        '(1) if caller intended abandoned: undo the ff-merge in main repo with ' +
+        '`git reset --hard ORIG_HEAD` (recommended — clean reset; archive_plan made no other ' +
+        'main-repo changes before this failure) or `git revert ORIG_HEAD..HEAD` ' +
+        '(history-preserving; per-commit revert, may need conflict resolution), ' +
         'then follow user CLAUDE.md §Step 4 "中止" path (keep status=abandoned, manual ' +
         '`git worktree remove --force` + `git branch -D`); ' +
         '(2) if caller intended to continue: edit the plan frontmatter to `status: in_progress` ' +
@@ -528,9 +541,10 @@ function stripFrontmatter(text: string): string {
  * happened」可重试场景）；(2) 应手工补完 step 标识对应的 cleanup（write archived /
  * sync INDEX / unlink plan / git add+commit / git worktree remove / git branch -D）。
  *
- * 8 个 phase 一一对应 step 8 / 8b / 10-14（plan archive-plan-content-overwritten-fix
- * -20260515 加 'reread-plan-after-ffmerge' phase 对应 step 8b 重新 read 失败 + 8c
- * fresh status 漂移拒绝;两 case 复用同一 phase value,具体原因看 error 内 message）。
+ * 10 个 phase 一一对应 step 8 / 8b / 10a / 10b / 11 / 12 / 13a / 13b / 14a / 14b
+ * (plan archive-plan-content-overwritten-fix-20260515 加 'reread-plan-after-ffmerge'
+ * phase 对应 step 8b 重新 read 失败 + 8c fresh status 漂移拒绝;两 case 复用同一 phase
+ * value,具体原因看 error 内 message)。
  */
 export type PostFfMergePhase =
   | 'rev-parse-HEAD' // step 8
