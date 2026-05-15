@@ -18,8 +18,9 @@
  * | 4. shutdown 透传 caller-not-lead             | skipped='caller-not-lead' 透传 | 'ok'                          | not called |
  * | 5. shutdown 抛错                             | 兜底 + warn       | 'ok' (不阻塞)                 | not called |
  * | 6. getSession 返回 null (row missing)        | closed=[A]        | 'failed' + warn (不调 archiveFn) | reasonKind='row-missing' |
- * | 7. getSession 抛错 (DB 异常 fail-safe)       | closed=[A]        | 'failed' + warn (走 row missing 路径) | reasonKind='row-missing' |
- * | 8. archiveFn 抛错                            | closed=[A]        | 'failed' + warn               | reasonKind='archive-throw' |
+ * | 7. getSession 抛错 (DB 异常)                 | closed=[A]        | 'failed' + warn (不调 archiveFn) | reasonKind='probe-throw' (archive-toctou-fix-20260515) |
+ * | 8. archiveFn 抛 generic Error                | closed=[A]        | 'failed' + warn               | reasonKind='archive-throw' |
+ * | 8b. archiveFn 抛 SessionRowMissingError      | closed=[A]        | 'failed' + warn (race window) | reasonKind='row-missing' (archive-toctou-fix-20260515 instanceof 判别) |
  * | 9. excludeSessionIds 透传给 shutdown helper  | seam 收到 exclude 参数 | -                         | not called(archive ok)|
  * | 10. 时序: shutdown 在 archive 之前           | call order 验证   | -                             | not called(archive ok)|
  * | 11. archiveCaller=false → phase 2 跳过       | closed=[A]        | 'skipped' (不调 getFn/archiveFn)| -         |
@@ -28,11 +29,16 @@
  * archive-failure-ux-upthrow-20260515 plan: case 6/7/8 加 emit 断言验证 'caller-archive-failed'
  * payload schema(sessionId / toolName / reason / reasonKind);case 1/3 加 not.toHaveBeenCalled
  * 守门「成功路径不误上抛」。
+ *
+ * archive-toctou-fix-20260515 plan: case 7 改 'probe-throw' (DB 异常独立 reasonKind 不再误归
+ * row-missing — LOW probe-throw bug);新增 case 8b 验证 archiveFn 抛 SessionRowMissingError 时
+ * instanceof 判别准确归 reasonKind='row-missing' (race window 修法 R1 reviewer-codex MED-1)。
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { runBatonCleanup } from '../tools/handlers/baton-cleanup';
 import type { ShutdownTeammatesResult } from '../tools/handlers/shutdown-teammates-on-baton';
+import { SessionRowMissingError } from '@main/store/session-repo';
 
 /** 构造一个 fake sessionRepo.get row(测试不在乎字段细节,只在乎 truthy/null) */
 function fakeRow(id: string) {
@@ -232,7 +238,7 @@ describe('runBatonCleanup', () => {
     warnSpy.mockRestore();
   });
 
-  it('case 7: getSession 抛错 (DB 异常 fail-safe) → 走 row missing 路径 archive=failed + emit row-missing', async () => {
+  it('case 7: getSession 抛错 (DB 异常) → 走 probe-throw 路径 archive=failed + emit probe-throw (archive-toctou-fix-20260515)', async () => {
     const shutdownFn = vi.fn(async (_sid: string) =>
       ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
     );
@@ -252,24 +258,29 @@ describe('runBatonCleanup', () => {
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
     );
 
-    // 关键: getSession 抛错 → catch 兜底为 null → 走 row missing 路径 'failed'
+    // archive-toctou-fix-20260515 plan: getSession 抛错独立分支 (DB 异常状态未知 row 可能仍存在),
+    // 与 row 真不存在的 'row-missing' 区分 → 上抛 'probe-throw' 让 UI 显示「可重试归档」按钮
+    // (修前老语义吞错归 row-missing 隐藏 UI 重试入口 — LOW probe-throw bug)。
     expect(result.archived).toBe('failed');
     expect(archiveFn).not.toHaveBeenCalled();
     // teammate 段不受 phase 2 异常影响
     expect(result.teammatesShutdown.closed).toEqual(['team-A']);
-    // archive-failure-ux-upthrow-20260515 plan: DB 异常 fail-safe 走 row-missing 路径同款 emit(语义对齐 row 不可读)
     expect(emitFn).toHaveBeenCalledTimes(1);
     expect(emitFn).toHaveBeenCalledWith({
       sessionId: 'caller',
       toolName: 'archive_plan',
-      reason: expect.stringContaining('cannot archive caller caller: not in sessions table'),
-      reasonKind: 'row-missing',
+      reason: expect.stringContaining('probe getSession threw for caller'),
+      reasonKind: 'probe-throw',
     });
+    // warn 也带「probe getSession threw」前缀方便排查
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('probe getSession threw for caller'),
+    );
 
     warnSpy.mockRestore();
   });
 
-  it('case 8: archiveFn 抛错 → archive=failed + warn(与 row missing 同状态值不同来源)+ emit archive-throw', async () => {
+  it('case 8: archiveFn 抛 generic Error (非 SessionRowMissingError) → archive=failed + emit archive-throw (row 仍存在 archive 内部错)', async () => {
     const shutdownFn = vi.fn(async (_sid: string) =>
       ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
     );
@@ -297,6 +308,8 @@ describe('runBatonCleanup', () => {
     );
     // archive-failure-ux-upthrow-20260515 plan: row 存在但 archive 抛错 → reasonKind='archive-throw',
     // UI 可显示「重试归档」按钮(reason 含 stringified Error message 提供具体错误)。
+    // archive-toctou-fix-20260515 plan: instanceof SessionRowMissingError === false → 'archive-throw'
+    // 路径(generic Error 走非 row-missing 分支)。
     expect(emitFn).toHaveBeenCalledTimes(1);
     expect(emitFn).toHaveBeenCalledWith({
       sessionId: 'caller',
@@ -304,6 +317,48 @@ describe('runBatonCleanup', () => {
       reason: expect.stringContaining('simulated FK constraint violation'),
       reasonKind: 'archive-throw',
     });
+
+    warnSpy.mockRestore();
+  });
+
+  it('case 8b: archiveFn 抛 SessionRowMissingError → race window → archive=failed + emit row-missing (archive-toctou-fix-20260515 R1 reviewer-codex MED-1)', async () => {
+    const shutdownFn = vi.fn(async (_sid: string) =>
+      ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
+    );
+    const archiveFn = vi.fn(async (_sid: string) => {
+      // 模拟 race window: probe 探针时 row 还在,但 await archive 时 row 已被外部删,
+      // setArchived UPDATE 撞 .changes !== 1 → throw SessionRowMissingError
+      throw new SessionRowMissingError('caller');
+    });
+    const getFn = vi.fn(() => fakeRow('caller'));
+    const emitFn = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await runBatonCleanup(
+      {
+        callerSessionId: 'caller',
+        keepTeammates: false,
+        toolName: 'hand_off_session',
+      },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
+    );
+
+    expect(result.archived).toBe('failed');
+    // 关键: instanceof SessionRowMissingError 判别准确归 reasonKind='row-missing' (UI 仅告知不显示
+    // 「重试归档」按钮 — row 真不存在重试无效)。修前 catch-all 把 setter no-op 误归 'archive-throw'
+    // 误导用户。
+    expect(emitFn).toHaveBeenCalledTimes(1);
+    expect(emitFn).toHaveBeenCalledWith({
+      sessionId: 'caller',
+      toolName: 'hand_off_session',
+      reason: expect.stringContaining('race window: probe OK 后 setArchived no-op'),
+      reasonKind: 'row-missing',
+    });
+    // warn 包含 race window 提示便于排查
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('setArchived no-op (race window)'),
+      expect.any(SessionRowMissingError),
+    );
 
     warnSpy.mockRestore();
   });

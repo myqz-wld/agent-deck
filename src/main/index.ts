@@ -8,6 +8,7 @@ import { loadBundledAssets } from './bundled-assets';
 import { HookServer } from './hook-server/server';
 import { RouteRegistry } from './hook-server/route-registry';
 import { eventBus } from './event-bus';
+import type { EventMap } from './event-bus';
 import { initDb, closeDb } from './store/db';
 import { settingsStore } from './store/settings-store';
 import { adapterRegistry } from './adapters/registry';
@@ -293,7 +294,13 @@ async function bootstrap(): Promise<void> {
   // 'SessionHandOffSpawn'),其中前两个是 mcp tool 名 (用户在 codex/claude 调用 mcp tool 时熟悉),
   // 'SessionHandOffSpawn' 是 IPC channel 内部名 (IpcInvoke.SessionHandOffSpawn = 'session:hand-off-spawn',
   // 用户在 UI 看不到)。映射成「会话接力」让通知 body 对用户友好,不暴露内部名。
-  const TOOL_DISPLAY_NAME: Record<string, string> = {
+  //
+  // archive-toctou-fix-20260515 plan: TOOL_DISPLAY_NAME 从 `Record<string, string>` narrow 到
+  // `Record<CallerArchiveFailedToolName, string>` 强制完整覆盖 — 加新 emit 触发点(EventMap toolName
+  // union 加值)忘加 TOOL_DISPLAY_NAME 条目时 tsc 编译期 fail(✅ feature),不再走 fallback `??
+  // payload.toolName` 软兜底导致 IPC channel 内部名暴露给用户(R2 MED-1 修法的强化版)。
+  type CallerArchiveFailedToolName = EventMap['caller-archive-failed'][0]['toolName'];
+  const TOOL_DISPLAY_NAME: Record<CallerArchiveFailedToolName, string> = {
     archive_plan: 'plan 归档',
     hand_off_session: '会话接力',
     SessionHandOffSpawn: '会话接力',
@@ -301,11 +308,24 @@ async function bootstrap(): Promise<void> {
   eventBus.on('caller-archive-failed', (payload) => {
     try {
       const shortSid = payload.sessionId.slice(0, 8);
-      const isRetryable = payload.reasonKind === 'archive-throw';
-      const toolDisplay = TOOL_DISPLAY_NAME[payload.toolName] ?? payload.toolName;
-      const body = isRetryable
-        ? `原会话未归档，可重试归档（${shortSid}…，工具：${toolDisplay}）`
-        : `原会话记录不可用，归档未完成（${shortSid}…，工具：${toolDisplay}）`;
+      // archive-toctou-fix-20260515 plan: isRetryable 同时认 'archive-throw' (row 存在 archive 失败,
+      // 重试可能有效) 与 'probe-throw' (DB probe 异常 row 状态未知,重试可能有效)。
+      // 'row-missing' 是 row 真不存在 (重试无效仅告知)。
+      const isRetryable =
+        payload.reasonKind === 'archive-throw' || payload.reasonKind === 'probe-throw';
+      const toolDisplay = TOOL_DISPLAY_NAME[payload.toolName];
+      // body 文案区分 reasonKind 三档:
+      // - archive-throw: row 存在但 archive 失败 → 「可重试归档」
+      // - probe-throw: DB probe 异常 → 「可稍后重试」(区分 archive-throw 让用户知道是 DB 问题)
+      // - row-missing: row 真不存在 → 「记录不可用」(仅告知)
+      let body: string;
+      if (payload.reasonKind === 'archive-throw') {
+        body = `原会话未归档，可重试归档（${shortSid}…，工具：${toolDisplay}）`;
+      } else if (payload.reasonKind === 'probe-throw') {
+        body = `数据库异常无法探针原会话，可稍后重试归档（${shortSid}…，工具：${toolDisplay}）`;
+      } else {
+        body = `原会话记录不可用，归档未完成（${shortSid}…，工具：${toolDisplay}）`;
+      }
       // R3 reviewer-codex MED-1 修法: 双通道独立 try/catch,避免 notifyUser 同步抛错导致
       // safeSend 不执行 → 双通道桥接退化为单通道 (macOS 通知故障时 renderer IPC 也丢)。
       // 通道 1 (macOS 通知) 与通道 2 (IPC 上抛) 各自独立 try/catch + console.error 兜底。
@@ -323,6 +343,7 @@ async function bootstrap(): Promise<void> {
       } catch (err) {
         console.error('[caller-archive-failed listener] safeSend 异常:', err);
       }
+      void isRetryable; // archive-toctou-fix-20260515: P2 toast 用本字段决定显「重试」按钮,P1 暂不消费(避免 unused warn)
     } catch (err) {
       // 兜底: body 构造或两通道 catch 自身异常,不能冒泡到 emit caller (会反向打崩 baton-cleanup /
       // archiveSourceSessionWithEmit 的 warn-only 不阻塞语义)。console.error 让排查不丢信息。

@@ -20,6 +20,7 @@
  */
 import type { SessionRecord } from '@shared/types';
 import type { CreateSessionOptions } from '@main/adapters/types';
+import { SessionRowMissingError } from '@main/store/session-repo';
 
 export function buildHandOffCreateSessionOpts(
   session: SessionRecord,
@@ -68,12 +69,15 @@ export interface ArchiveSourceSessionDeps {
    *
    * R2 reviewer-codex MED-1 修法: reasonKind 从单一 'archive-throw' 改成 union 含 'row-missing'
    * 与 mcp baton-cleanup 对齐 (event-bus.ts EventMap 已是 union)。
+   *
+   * archive-toctou-fix-20260515 plan: reasonKind 加 'probe-throw' (DB probe 异常,可重试),让 UI
+   * 三档区分(row-missing 仅告知 / probe-throw + archive-throw 显示「重试归档」按钮)。
    */
   emitArchiveFailed: (payload: {
     sessionId: string;
     toolName: 'SessionHandOffSpawn';
     reason: string;
-    reasonKind: 'row-missing' | 'archive-throw';
+    reasonKind: 'row-missing' | 'probe-throw' | 'archive-throw';
   }) => void;
 }
 
@@ -92,15 +96,34 @@ export async function archiveSourceSessionWithEmit(
   // 期间 source row 可能被异常清理 (lifecycle scheduler / 用户手动 close / DB reaper)。
   // sessionManager.archive 对缺失 row 是 silent no-op (UPDATE 不查 .changes),漏 emit 用户感知不到。
   // 重新探针保证 ground truth,与 mcp baton-cleanup helper 行为对齐。
+  // archive-toctou-fix-20260515 plan: probe try/catch 拆 'probe-throw' 独立 reasonKind (DB 异常
+  // 可重试,与 row 真不存在的 'row-missing' 区分),与 mcp baton-cleanup 行为对齐;archive try/catch
+  // 内 instanceof SessionRowMissingError 区分 setter no-op (race window) vs 真 archive 异常,准确
+  // 反射 reasonKind 给 UI 而非 catch-all 误归 'archive-throw' 误导用户(LOW probe-throw bug + R1
+  // reviewer-codex MED-1)。
   let row: unknown | null = null;
+  let probeError: { reason: string } | null = null;
   try {
     row = deps.getSession(sid);
-  } catch {
-    // DB 异常 fail-safe (与 baton-cleanup.ts 同款): 留 null,按 row missing 路径 emit。
-    row = null;
+  } catch (e) {
+    // archive-toctou-fix-20260515 plan: probe 抛错独立分支 — DB 异常 (SQLite locked / read failure)
+    // 状态未知 row 可能仍存在,与 row 真不存在的 'row-missing' 区分。reasonKind='probe-throw' 让 UI
+    // 显示「重试归档」按钮。修前吞错归 row-missing 隐藏 UI 重试入口。
+    const errStr = e instanceof Error ? e.message : String(e);
+    probeError = { reason: `probe getSession threw for ${sid}: ${errStr}` };
+  }
+  if (probeError) {
+    console.warn(`[ipc sessions hand-off] ${probeError.reason}`);
+    deps.emitArchiveFailed({
+      sessionId: sid,
+      toolName: 'SessionHandOffSpawn',
+      reason: probeError.reason,
+      reasonKind: 'probe-throw',
+    });
+    return;
   }
   if (!row) {
-    const reason = `cannot archive caller ${sid}: not in sessions table (createSession 期间被异常清理 / DB 不可读)`;
+    const reason = `cannot archive caller ${sid}: not in sessions table (createSession 期间被异常清理)`;
     console.warn(`[ipc sessions hand-off] ${reason}`);
     deps.emitArchiveFailed({
       sessionId: sid,
@@ -113,14 +136,28 @@ export async function archiveSourceSessionWithEmit(
   try {
     await deps.archive(sid);
   } catch (err) {
+    // archive-toctou-fix-20260515 plan: 用 instanceof SessionRowMissingError 区分 setArchived no-op
+    // (race window: probe OK 后 row 被外部删) vs 真 archive 异常 (FK constraint / DB locked / etc)。
+    // 修前 catch-all 把 setter no-op 误归 'archive-throw' (UI 显示「重试归档」误导:row 真不存在
+    // 重试无效),修后 instanceof 判别准确反射 reasonKind (R1 reviewer-codex MED-1 修法)。
+    const isRowMissing = err instanceof SessionRowMissingError;
     const errStr = err instanceof Error ? err.message : String(err);
-    const reason = `archive caller ${sid} failed: ${errStr}`;
-    console.warn(`[ipc sessions hand-off] archive source session ${sid} failed:`, err);
+    const reason = isRowMissing
+      ? `cannot archive caller ${sid}: ${errStr} (race window: probe OK 后 setArchived no-op)`
+      : `archive caller ${sid} failed: ${errStr}`;
+    console.warn(
+      `[ipc sessions hand-off] ${
+        isRowMissing
+          ? `archive source session ${sid} setArchived no-op (race window)`
+          : `archive source session ${sid} failed`
+      }:`,
+      err,
+    );
     deps.emitArchiveFailed({
       sessionId: sid,
       toolName: 'SessionHandOffSpawn',
       reason,
-      reasonKind: 'archive-throw',
+      reasonKind: isRowMissing ? 'row-missing' : 'archive-throw',
     });
   }
 }

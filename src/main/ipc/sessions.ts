@@ -3,7 +3,7 @@
  */
 import { IpcInvoke } from '@shared/ipc-channels';
 import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
+import { sessionRepo, SessionRowMissingError } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
 import { summaryRepo } from '@main/store/summary-repo';
@@ -37,12 +37,47 @@ export function registerSessionsIpc(): void {
     return summaryRepo.latestForSessions(arr);
   });
   on(IpcInvoke.SessionArchive, async (_e, id) => {
-    await sessionManager.archive(parseStringId('sessionId', id));
-    return true;
+    const sid = parseStringId('sessionId', id);
+    // archive-toctou-fix-20260515 plan (R1 reviewer-codex MED-3 修法): 用户主动归档撞 race window
+    // (sync probe 后 setArchived 之间 row 被外部删) → setArchived throw SessionRowMissingError。
+    // 该路径 row 已不存在 = 等价已归档无害,**幂等静默 return true** 让 UI 视为成功(用户主动操作
+    // 已删 row 应当无害,通知反而打扰;P1 emit caller-archive-failed 通道是给 mcp/K3 自动归档场景设
+    // 计的,IPC 用户主动操作不走该通道避免 noise)。其他 archive 异常 (FK constraint / DB locked 等
+    // 非 SessionRowMissingError) 仍 throw 让 IPC reply error → renderer 可见 inline error
+    // (HistoryPanel.tsx:106 / SessionCard.tsx:39 当前裸 await 无 catch,P2 toast plan 后续接 catch)。
+    try {
+      await sessionManager.archive(sid);
+      return true;
+    } catch (err) {
+      if (err instanceof SessionRowMissingError) {
+        console.warn(
+          `[ipc SessionArchive] ${sid} setArchived no-op (row 已不在,幂等静默 return true):`,
+          err,
+        );
+        return true;
+      }
+      throw err;
+    }
   });
   on(IpcInvoke.SessionUnarchive, async (_e, id) => {
-    await sessionManager.unarchive(parseStringId('sessionId', id));
-    return true;
+    const sid = parseStringId('sessionId', id);
+    // archive-toctou-fix-20260515 plan (R1 reviewer-claude LOW + reviewer-codex 共识): 用户从历史
+    // 列表「右键取消归档」撞 race window → setArchived(sid, null) throw SessionRowMissingError。
+    // row 已不存在 = 等价「已经不在归档列表」无害,**try/catch + console.warn 静默 return true**
+    // (与 SessionArchive 同款幂等语义,通知反而打扰)。其他异常 throw 让 IPC reply error。
+    try {
+      await sessionManager.unarchive(sid);
+      return true;
+    } catch (err) {
+      if (err instanceof SessionRowMissingError) {
+        console.warn(
+          `[ipc SessionUnarchive] ${sid} setArchived(null) no-op (row 已不在,幂等静默 return true):`,
+          err,
+        );
+        return true;
+      }
+      throw err;
+    }
   });
   on(IpcInvoke.SessionReactivate, (_e, id) => {
     sessionManager.reactivate(parseStringId('sessionId', id));
