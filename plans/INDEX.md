@@ -38,5 +38,6 @@
 | [archive-failure-ux-upthrow-20260515.md](archive-failure-ux-upthrow-20260515.md) | archive-failure-ux-upthrow-20260515 |
 | [archive-toctou-fix-20260515.md](archive-toctou-fix-20260515.md) | archive-toctou-fix-20260515 |
 | [adapter-architecture-design-20260515.md](adapter-architecture-design-20260515.md) | adapter-architecture-design-20260515 |
-| [p4-baseadapter-d2-implement-20260515.md](p4-baseadapter-d2-implement-20260515.md) | in_progress | — | RFC §1 Option D2 实施 stub(CreateSessionOptions 拆判别联合 + typed registry binding;5 处 caller migration;~+165/-140 行;待 hand-off 接力)|
+| [p4-baseadapter-d2-implement-20260515.md](p4-baseadapter-d2-implement-20260515.md) | completed | [121](../changelog/CHANGELOG_121.md) | RFC §1 Option D2 落地(CreateSessionOptions 拆 4 union arm + buildCreateSessionOptions builder + typed registry binding + 5 处 SSOT 守门链);3 轮异构对抗 review × fix 收口(R1 fix 8a15a6f / R2 fix ad221de / 双方 R3 均 Y);6 处 caller migration(含 RFC §1.5 漏列 sessions-hand-off-helper 第 6 处) |
 | [cross-adapter-sandbox-inherit-20260515.md](cross-adapter-sandbox-inherit-20260515.md) | in_progress | — | RFC §2 Option D 重写 + E 重写实施 stub(inherit_sandbox 'restrictions-only' string enum 仅安全方向映射 + warnings 字段;~+175 行;Chapter 1 plan 收口后串行)|
+| [archive-plan-content-overwritten-fix-20260515.md](archive-plan-content-overwritten-fix-20260515.md) | in_progress | — | archive_plan tool 写 frontmatter 时覆盖 plan 正文 bug fix(p4-d2 plan 实测撞 + 已 manual fix commit 30467f6);root cause 已实证 archive-plan-impl.ts:228 在 ff merge 前 read planContent;修法拆两次 read |
