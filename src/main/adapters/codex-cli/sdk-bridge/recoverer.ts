@@ -1,0 +1,440 @@
+/**
+ * SessionRecoverer — codex 端断连自愈 + jsonl 兜底（symmetry-plan P2 HIGH-B + MED-E + LOW-A）。
+ *
+ * 镜像 claude `claude-code/sdk-bridge/recoverer.ts` 同款架构，**精简版**：
+ * - claude 1.0 (612 LOC + 6 builder + helpers + LLM 摘要 prepend)
+ * - codex 1.0 (本文件 ~280 LOC，无摘要 prepend / 无 hook 通道)
+ *
+ * **抽出动机**（R1 reviewer-claude 主题 C HIGH 双方独立 + lead 实证）：
+ * 修前 codex `sendMessage` 缺 sessions Map 时直接 `throw new Error('session ${sid} not found')`。
+ * app 重启 / dev mode vite hot reload / main process crash 重生 → 内存 sessions Map 空 →
+ * 用户在 SessionDetail 输入消息 → renderer 报错红字，**不能继续聊**（必须新建会话，丢上下文）。
+ * claude 端走 recoverer 自愈占位 + resume + 体感「掉线但又续上了」，codex 完全缺这条路径。
+ *
+ * **State 所有权**：
+ * - `recovering` Map：**SHARED**，与 facade 持有的同一份 ref（symmetry-plan P2 HIGH-A 已就位），
+ *   restartController + recoverer 双方读写同一份单飞表。同 sessionId 同时只有一条 recovery /
+ *   restart in-flight。
+ * - `placeholderEmittedAt` Map：**recoverer 独占**，5s dedup 同 sessionId 短时间反复 recover
+ *   重 emit「⚠ Codex 通道已断开...」噪声（与 claude REVIEW_17 R3 / M3-R3 同款）。
+ *
+ * **循环依赖回避**（与 claude 同款）：
+ * - recoverAndSend 调 facade.createSession（resume / 不带 resume 兜底）→ 走 createThunk
+ * - recoverAndSend 调 facade.sendMessage（inflight 等完后递归把第二条 text 正常 push）→ 走 sendThunk
+ * - jsonlExistsThunk + cwdExistsThunk 走 thunk 让 test 注入 mock
+ *
+ * **codex 与 claude 的关键差异**（架构内禀 / SDK 形态）：
+ * - codex 无 hook 通道：不调 sessionManager.expectSdkSession（claude 走 hook 路径需要）
+ * - codex 无 LLM 摘要 prepend：claude 用 `summariseSessionForHandOff` thunk + `prependHistorySummary`
+ *   helper 在 fallback 路径起 fresh CLI 之前生成摘要 prepend。codex 现版本暂不接，原因：
+ *   `summariseCodexSessionForHandOff` 走 codex SDK 自身（codex 不支持 systemPrompt + 4 节模板
+ *   reasoning effort 'medium'），与 claude `summariseSessionForHandOff` 签名差异较大；
+ *   shared `prependHistorySummary` helper 现持有 claude `MAX_MESSAGE_LENGTH` 常量耦合。
+ *   留独立 follow-up 收口（R37 R3 类似的 INFO 触发条件 — 一并 polish 时合入）。
+ * - codex 不支持 implicit fork：spike-A2 实测 codex CLI resume 永远返回同 thread_id（详
+ *   restart-controller line 97 注释）。recoverer 仍保留 post-rename 防御（`if newRealId !== sessionId`）
+ *   future-proof 防 SDK 升级 / CLI 行为变更。
+ * - codex 无 permissionMode：codex SDK approvalPolicy 写死 'never'（详 codex-cli/index.ts:21）。
+ * - codex jsonl 路径与 claude 不同：claude 在 `~/.claude/projects/<encoded-cwd>/<sid>.jsonl`，
+ *   codex 在 `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<TIMESTAMP>-<thread_id>.jsonl`，
+ *   pre-check 算法见 `defaultCodexResumeJsonlExists`。
+ *
+ * **护栏（与 claude 同款）**：
+ * - CHANGELOG_26 — recovering 单飞 + 30s placeholder UX
+ * - CHANGELOG_28 — jsonl 预检不在则走不带 resume 的新建 createSession + 事后 renameSdkSession
+ * - CHANGELOG_31 — 用户显式发消息触发 recoverAndSend 自动 unarchive
+ * - REVIEW_17 R3 — 5s placeholder dedup
+ * - CHANGELOG_99 — cwd 失效启发式 fallback
+ */
+import { existsSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
+import { sessionManager } from '@main/session/manager';
+import { sessionRepo } from '@main/store/session-repo';
+import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
+import type { CodexBridgeOptions, CodexSessionHandle } from './types';
+
+/** 5s dedup 窗口防同 sessionId 短时间内多次 recover 重 emit「⚠ Codex 通道已断开」噪声。 */
+const PLACEHOLDER_DEDUP_MS = 5_000;
+
+export interface RecovererCtx {
+  /**
+   * **SHARED** with restartController.recovering（symmetry-plan P2 HIGH-A 已加 facade 持权威 ref）。
+   * 单飞 invariant：同 sessionId 同时只有一条 recovery / restart in-flight。
+   */
+  readonly recovering: Map<string, Promise<unknown>>;
+  readonly emit: CodexBridgeOptions['emit'];
+}
+
+export type CreateSessionThunk = (opts: {
+  cwd: string;
+  prompt: string;
+  resume?: string;
+  codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  attachments?: UploadedAttachmentRef[];
+  /**
+   * recoverer fallback / resume 路径显式透传 spawn 时持久化的 model（与 claude
+   * `recoverer.ts` HIGH-1 同款修法 — fallback 路径不走 resume 时若不显式透传，
+   * 已 spawn 的 codex 实际跑默认 model 而 DB record 仍显示原 model）。
+   *
+   * 注意：codex SDK 不接受 per-thread model override（runtime 由 ~/.codex/config.toml 决定，
+   * 详 plan model-wiring-and-handoff-20260514 D5），但 createSession 内部仍 setModel 持久化
+   * 让 UI 显示一致 — 保留入参字段对齐 claude 接口形态。
+   */
+  model?: string;
+}) => Promise<CodexSessionHandle>;
+
+export type SendMessageThunk = (
+  sessionId: string,
+  text: string,
+  attachments?: UploadedAttachmentRef[],
+) => Promise<void>;
+
+/**
+ * jsonl 探测 thunk(test seam)。签名与 claude `JsonlExistsThunk` 形态对齐但参数不同：
+ * - claude 用 (cwd, sessionId) — jsonl 路径含 encoded cwd
+ * - codex 用 (threadId, startedAt) — jsonl 路径含 createdAt 日期段
+ *
+ * 默认实现 `defaultCodexResumeJsonlExists` 走 fs.readdirSync 扫 startedAt 日期目录。
+ * Test 通过 facade extend override 让单测不依赖真 ~/.codex/sessions 目录。
+ */
+export type JsonlExistsThunk = (threadId: string, startedAt: number) => boolean;
+
+/** cwd 存在性 thunk(test seam)。默认 fs.existsSync。test 通过 facade extend override。 */
+export type CwdExistsThunk = (cwd: string) => boolean;
+
+export class SessionRecoverer {
+  /**
+   * 5s dedup 窗口防同 sessionId 短时间反复 recover（与 claude REVIEW_17 R3 同款）。
+   */
+  private readonly placeholderEmittedAt = new Map<string, number>();
+
+  constructor(
+    private readonly ctx: RecovererCtx,
+    private readonly createThunk: CreateSessionThunk,
+    private readonly sendThunk: SendMessageThunk,
+    private readonly jsonlExistsThunk: JsonlExistsThunk,
+    private readonly cwdExistsThunk: CwdExistsThunk,
+  ) {}
+
+  /**
+   * 断连自愈：sendMessage 检测 sessions Map 没有该 sessionId 时调本路径。
+   *
+   * 关键约束（与 claude recoverer 同款）：
+   * - 完整复用 createSession，让 createSession 内部全套 protocol 走完
+   * - 历史 record 完全不存在时直接抛 'not found'，让 IPC 把错原样透传 renderer
+   * - 单飞防并发自愈起多个 codex CLI 子进程
+   * - permissionMode 不传（codex 无此概念）；codexSandbox / model 必须显式透传从 sessionRepo
+   *   读到的历史值，否则 fallback 路径下静默用全局默认（详 claudeCodeSandbox HIGH-1 教训）
+   */
+  async recoverAndSend(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
+    const inflight = this.ctx.recovering.get(sessionId);
+    if (inflight) {
+      // 等同一恢复完成 → 然后正常走完整 sendMessage 流程把这条新 text push 进 sessions。
+      // catch 静默：第一波恢复失败时第二条等待者自己再走 sendMessage，要么进新一轮 recovery，
+      // 要么拿到真错（与 claude 同款）。
+      try {
+        await inflight;
+      } catch {
+        // 第一波恢复已失败，第二条自己再撞一次
+      }
+      // attachments 透传（与 claude HIGH-1 修法同款）：第二条等待者带的图属于「自己这条 message」
+      // 与第一条独立，必须走完整 sendMessage 路径。
+      return this.sendThunk(sessionId, text, attachments);
+    }
+
+    const rec: SessionRecord | null = sessionRepo.get(sessionId);
+    if (!rec) {
+      // 没有历史 record：彻底无法恢复，保留原 throw 信号兼容上层处理
+      throw new Error(`session ${sessionId} not found`);
+    }
+
+    // CHANGELOG_99 cwd 失效根治（与 claude 同款 R1 fix MED-2 顺序：cwd 校验 → unarchive,
+    // 避免 archived session cwd fallback 失败前被 unarchive 成 active 但实际死路一条）。
+    let effectiveCwd = rec.cwd;
+    let cwdFellBack = false;
+    if (!this.cwdExistsThunk(rec.cwd)) {
+      const fallback = this.findFallbackCwd(rec.cwd);
+      if (fallback === null) {
+        // 真没救：emit 清晰错误,throw,不进 placeholder 路径。
+        // **不 unarchive**（archived 状态下 throw,session 仍归档，用户在 SessionList "已归档"
+        // 列表能看到清晰错误信息 — 与 claude MED-2 fix 同款）
+        this.ctx.emit({
+          sessionId,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text:
+              `⚠ 会话 cwd 不存在且无可用 fallback：${rec.cwd}。` +
+              `请检查目录是否被删除 / 跨设备同步丢失，或新建会话。`,
+            error: true,
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+        throw new Error(
+          `session ${sessionId} cwd does not exist and no fallback available: ${rec.cwd}`,
+        );
+      }
+      effectiveCwd = fallback;
+      cwdFellBack = true;
+      // emit cwd fallback info 让用户知情
+      this.ctx.emit({
+        sessionId,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: {
+          text:
+            `⚠ 会话原 cwd 不存在 (${rec.cwd}),已切到 fallback (${effectiveCwd}) 继续。` +
+            `Codex CLI 内部对话历史 (jsonl) 在原 cwd 下,本会话续聊从 fresh thread 开始。`,
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+      console.warn(
+        `[codex-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}`,
+      );
+    }
+
+    // CHANGELOG_31：用户在 detail 里主动发消息触发 recoverAndSend = 显式表达「我又要聊它了」，
+    // 自动取消归档（与 claude 同款）。manager.ts 立的「归档与 lifecycle 正交，不能因事件流自动
+    // unarchive」约束针对的是 hook 触发路径，本路径是用户显式 UI 动作不冲突。
+    // CHANGELOG_99 R1 fix MED-2 顺序：本段必须在 cwd precheck 之后 — 确认 cwd 能恢复再 unarchive,
+    // 避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
+    if (rec.archivedAt !== null) {
+      console.warn(
+        `[codex-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
+      );
+      await sessionManager.unarchive(sessionId);
+    }
+
+    // MAX_MESSAGE_LENGTH 字符长度上限（与 messageRepo cap 全局对齐）。
+    // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
+    const len = text.length;
+    if (len > MAX_MESSAGE_LENGTH) {
+      throw new Error(
+        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
+      );
+    }
+
+    // 占位 message：起 codex 子进程期间用户至少看到「在恢复」而不是哑巴 busy（与 claude 同款）。
+    // 5s dedup 窗口防同 sessionId 短时间内反复 recover 重 emit 多条「⚠ Codex 通道已断开」噪声。
+    const lastPlaceholderAt = this.placeholderEmittedAt.get(sessionId);
+    const nowTs = Date.now();
+    if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > PLACEHOLDER_DEDUP_MS) {
+      this.placeholderEmittedAt.set(sessionId, nowTs);
+      // 顺手清掉过期 entry（避免 Map 无限涨）
+      for (const [k, ts] of this.placeholderEmittedAt) {
+        if (nowTs - ts > PLACEHOLDER_DEDUP_MS) this.placeholderEmittedAt.delete(k);
+      }
+      this.ctx.emit({
+        sessionId,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: { text: '⚠ Codex 通道已断开，正在自动恢复…' },
+        ts: nowTs,
+        source: 'sdk',
+      });
+    }
+
+    const p = (async () => {
+      try {
+        // CHANGELOG_28 同款：预检 jsonl 是否存在 — codex CLI resume 时找不到 jsonl 会失败，
+        // SDK 抛 "Codex Exec exited with ..." 错误，比 try/catch 后字符串匹配 fallback 更可靠。
+        //
+        // 触发条件：jsonl 被用户手动清 / 跨设备同步未带 / codex CLI 自身清理。预检使用
+        // sessionRepo.startedAt 拿 createdAt 日期定位 ~/.codex/sessions/<YYYY>/<MM>/<DD>/ 目录,
+        // 扫 *-<threadId>.jsonl 文件。详 `defaultCodexResumeJsonlExists` 算法。
+        //
+        // CHANGELOG_99: cwd fallback 时(cwdFellBack=true)强制走 fallback 路径 — 即使 jsonl 在,
+        // resume 也无意义（codex 在 fallback cwd 下没历史上下文）。
+        if (cwdFellBack || !this.jsonlExistsThunk(sessionId, rec.startedAt)) {
+          if (!cwdFellBack) {
+            console.warn(
+              `[codex-bridge] resume jsonl missing for ${sessionId} (startedAt ${new Date(rec.startedAt).toISOString()}), ` +
+                `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
+            );
+            this.ctx.emit({
+              sessionId,
+              agentId: AGENT_ID,
+              kind: 'message',
+              payload: {
+                text:
+                  `⚠ Codex 内部对话历史 (jsonl) 已不存在,本会话续聊从 fresh thread 开始 ` +
+                  `(应用层 events 历史保留)。请下条消息把背景给 Codex 一次。`,
+              },
+              ts: Date.now(),
+              source: 'sdk',
+            });
+          }
+          // fallback 路径：不带 resume + 显式透传 sandbox/model 否则静默降到全局默认（与 claude
+          // REVIEW_36 HIGH-1 同款教训）。attachments 透传让首条恢复消息带图。
+          const handle = await this.createThunk({
+            cwd: effectiveCwd,
+            prompt: text,
+            codexSandbox: rec.codexSandbox ?? undefined,
+            model: rec.model ?? undefined,
+            attachments,
+          });
+          const newRealId = handle.sessionId;
+          if (newRealId !== sessionId) {
+            console.warn(
+              `[codex-bridge] post-fallback rename ${sessionId} → ${newRealId} ` +
+                `(carry app-side events/file_changes/summaries history)`,
+            );
+            // 与 claude REVIEW_7 M1+M3 同款：rename 失败不 throw — NEW_ID 通道已建立，
+            // rename 只是 best-effort history carry，throw 会让 sendMessage 失败影响主路径。
+            try {
+              sessionManager.renameSdkSession(sessionId, newRealId);
+            } catch (renameErr) {
+              console.error(
+                `[codex-bridge] post-fallback rename failed ${sessionId} → ${newRealId}, ` +
+                  `NEW_ID session still works but app-side history not migrated.`,
+                renameErr,
+              );
+            }
+          }
+          return;
+        }
+
+        // 正常 resume 路径：jsonl 在 + cwd 有 → 走 createSession({resume, prompt, codexSandbox, model, attachments})
+        // 复用 createSession 内部全套 protocol。
+        await this.createThunk({
+          cwd: effectiveCwd,
+          prompt: text,
+          resume: sessionId,
+          // 显式透传：resume 路径下 createSession 内部 sandboxMode fallback 也能从 sessionRepo
+          // 反查到（详 codex-cli/sdk-bridge/index.ts:185-188 fallback chain），但显式透传更清晰
+          // 一致 + 与 claude HIGH-1 处理方式对称 + 防 sessionRepo 边界 race。
+          codexSandbox: rec.codexSandbox ?? undefined,
+          model: rec.model ?? undefined,
+          attachments,
+        });
+      } finally {
+        this.ctx.recovering.delete(sessionId);
+      }
+    })();
+    this.ctx.recovering.set(sessionId, p);
+
+    try {
+      await p;
+    } catch (err) {
+      // createSession 失败：占位 message 已经 emit，再补一条 error message 让用户看到原因
+      this.ctx.emit({
+        sessionId,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: {
+          text: `⚠ 自动恢复失败：${(err as Error)?.message ?? String(err)}`,
+          error: true,
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * cwd 失效启发式 fallback 算法（与 claude `recoverer.ts` `findFallbackCwd` 同款）。
+   *
+   * 已知 sessionRepo.cwd 不存在时(由 cwdExistsThunk 判定),尝试找一个还能用的 cwd
+   * 让 codex CLI 子进程能正常 spawn(否则 chdir 失败,撞 "Path does not exist" 弯绕错误链)。
+   *
+   * **算法两阶启发式**:
+   * 1. **路径含 `.claude/worktrees/` 段** → 取段之前部分（典型: K2 老 session
+   *    cwd=worktree 的场景,worktree 删了之后 main repo 仍在）
+   * 2. **父目录 walk** → 沿 dirname 链往上找第一个还存在的目录(覆盖手动 git worktree
+   *    remove / 误删 / 跨设备同步丢目录等场景)。**安全边界**:不超过 home。
+   *
+   * 找不到 → null(handler 上层 emit error + throw,不进 placeholder 路径)。
+   *
+   * **fallback 后下游**:走 createThunk 不带 resume + 后置 renameSdkSession（CLI 历史失但应用层
+   * events / file_changes / summaries 子表保留）。
+   *
+   * **不持久化 fallback cwd**:sessionRepo.cwd 不被改写。理由：fallback 是 best-effort 不动持久
+   * state；下次发消息再次 detect → fallback。
+   *
+   * test 通过 facade extend override 该方法定制启发式行为。
+   */
+  protected findFallbackCwd(badCwd: string): string | null {
+    // 启发式 1：K2 老 session 模式(`<main-repo>/.claude/worktrees/<plan-id>(/.+)?` → 取 <main-repo>)
+    const m = badCwd.match(/^(.+)\/\.claude\/worktrees\/[^/]+(?:\/.*)?$/);
+    if (m && this.cwdExistsThunk(m[1])) {
+      return m[1];
+    }
+    // 启发式 2：父目录 walk（不超过 home，避免 fallback 到 `/` / `/Users/<user>`）
+    const home = homedir();
+    let p = dirname(badCwd);
+    for (let i = 0; i < 32; i++) {
+      const isAncestorOfHome = home === p || home.startsWith(p + '/');
+      if (p === '/' || isAncestorOfHome || p.length <= 1) return null;
+      if (this.cwdExistsThunk(p)) return p;
+      const next = dirname(p);
+      if (next === p) return null;
+      p = next;
+    }
+    return null;
+  }
+}
+
+/**
+ * 默认 codex jsonl 探测 — 扫 ~/.codex/sessions/<YYYY>/<MM>/<DD>/ 找匹配 thread_id 的 rollout 文件。
+ *
+ * **codex CLI jsonl 路径规则**：
+ *   `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<TIMESTAMP>-<thread_id>.jsonl`
+ *   YYYY/MM/DD = codex 创建 thread 时的本地日期；TIMESTAMP = 同时刻 ISO 字符串
+ *
+ * **算法**：
+ * 1. 用 sessionRepo.startedAt 算 createdAt Date（应用 emit session-start 时取的 Date.now()，
+ *    与 codex 自己写 jsonl 的时刻通常差 < 几秒；同日的概率 99%+）
+ * 2. 扫 `<sessions>/<YYYY>/<MM>/<DD>/` 找文件名 endsWith `-<thread_id>.jsonl`
+ * 3. 找不到就再试 ±1 day（覆盖时区边界 / startedAt 与 codex 实际写 jsonl 的时刻跨日的边角）
+ * 4. 任意异常（fs 权限 / 路径解析失败）→ 返回 true（让 SDK 自己 try，最差不过原行为）
+ *
+ * 这是 facade.codexResumeJsonlExists 的默认实现；test 通过 extend facade override 该方法
+ * 让单测不依赖真 ~/.codex/sessions 目录。
+ */
+export function defaultCodexResumeJsonlExists(threadId: string, startedAt: number): boolean {
+  try {
+    const sessionsRoot = join(homedir(), '.codex', 'sessions');
+    if (!existsSync(sessionsRoot)) return false;
+
+    const startDate = new Date(startedAt);
+    // 扫 startedAt 当天 + ±1 day（共 3 天）覆盖时区边界
+    for (const dayOffset of [0, -1, 1]) {
+      const d = new Date(startDate.getTime() + dayOffset * 86_400_000);
+      const yyyy = d.getFullYear().toString();
+      const mm = (d.getMonth() + 1).toString().padStart(2, '0');
+      const dd = d.getDate().toString().padStart(2, '0');
+      const dayDir = join(sessionsRoot, yyyy, mm, dd);
+      if (!existsSync(dayDir)) continue;
+      const files = readdirSync(dayDir);
+      if (files.some((f) => f.endsWith(`-${threadId}.jsonl`))) return true;
+    }
+    return false;
+  } catch {
+    // 任意异常退化返回 true(让 createSession 自己 try),最差不过原行为
+    return true;
+  }
+}
+
+/**
+ * cwd 存在性 thunk 的默认实现 — 直接走 fs.existsSync（与 claude `defaultCwdExists` 同款）。
+ *
+ * 这是 facade.cwdExists 的默认实现;test 通过 extend facade override 让单测不依赖真 fs。
+ *
+ * **fail-safe 退化**:任意异常退化返回 true(让 createSession 自己 try),最差不过原行为。
+ */
+export function defaultCwdExists(cwd: string): boolean {
+  try {
+    return existsSync(cwd);
+  } catch {
+    return true;
+  }
+}
