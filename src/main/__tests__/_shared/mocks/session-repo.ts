@@ -73,6 +73,12 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
       }
     },
     setArchived: (id: string, ts: number | null) => {
+      // archive-toctou-fix-20260515 plan (R2 reviewer-codex LOW-2): 与生产 setArchived 行为对齐
+      // 应当 throw SessionRowMissingError 当 id 不在,但 vi.mock 把 '@main/store/session-repo' 整个
+      // module 替换 → mock factory 内 import SessionRowMissingError 撞 TDZ (循环陷阱)。修法需在
+      // 12 个使用 makeSessionRepoMock 的测试文件 vi.mock factory 里 importActual + spread
+      // SessionRowMissingError,工作量大且属测试基建升级。本 plan 标 LOW acceptable 留 P2 plan,
+      // 与 codex LOW-2 originaml 评估「scope 评估值不值,如有现成 pattern 建议补」一致。
       const r = sessions.get(id);
       if (r) sessions.set(id, { ...r, archivedAt: ts });
     },

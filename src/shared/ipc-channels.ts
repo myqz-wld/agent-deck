@@ -140,15 +140,16 @@ export const IpcEvent = {
   /**
    * archive-failure-ux-upthrow-20260515 plan：caller archive 失败 UX 上抛通道。
    *
-   * payload schema 与 event-bus.ts EventMap['caller-archive-failed'] 同：
-   *   { sessionId: string; toolName: string; reason: string;
-   *     reasonKind: 'row-missing' | 'archive-throw' }
+   * payload schema 与 event-bus.ts EventMap['caller-archive-failed'] 同(archive-toctou-fix-20260515
+   * plan 已 narrow union):
+   *   { sessionId: string; toolName: 'archive_plan' | 'hand_off_session' | 'SessionHandOffSpawn';
+   *     reason: string; reasonKind: 'row-missing' | 'probe-throw' | 'archive-throw' }
    *
    * 触发：mcp baton-cleanup（archive_plan / hand_off_session）+ K3 SessionHandOffSpawn
    * 三处 archive caller 失败时；main bootstrap listener 桥接到此 IPC channel。
    *
    * 当前 MVP 仅 macOS 系统通知 + IPC 上抛；renderer 端 P2 enhancement 全局 toast 容器
-   * + 重试按钮（reasonKind='archive-throw' 显示重试 / 'row-missing' 仅告知）留后续 plan。
+   * + 重试按钮（reasonKind='archive-throw' / 'probe-throw' 显示重试 / 'row-missing' 仅告知）留后续 plan。
    */
   CallerArchiveFailed: 'event:caller-archive-failed',
 

@@ -308,11 +308,6 @@ async function bootstrap(): Promise<void> {
   eventBus.on('caller-archive-failed', (payload) => {
     try {
       const shortSid = payload.sessionId.slice(0, 8);
-      // archive-toctou-fix-20260515 plan: isRetryable 同时认 'archive-throw' (row 存在 archive 失败,
-      // 重试可能有效) 与 'probe-throw' (DB probe 异常 row 状态未知,重试可能有效)。
-      // 'row-missing' 是 row 真不存在 (重试无效仅告知)。
-      const isRetryable =
-        payload.reasonKind === 'archive-throw' || payload.reasonKind === 'probe-throw';
       const toolDisplay = TOOL_DISPLAY_NAME[payload.toolName];
       // body 文案区分 reasonKind 三档:
       // - archive-throw: row 存在但 archive 失败 → 「可重试归档」
@@ -343,7 +338,6 @@ async function bootstrap(): Promise<void> {
       } catch (err) {
         console.error('[caller-archive-failed listener] safeSend 异常:', err);
       }
-      void isRetryable; // archive-toctou-fix-20260515: P2 toast 用本字段决定显「重试」按钮,P1 暂不消费(避免 unused warn)
     } catch (err) {
       // 兜底: body 构造或两通道 catch 自身异常,不能冒泡到 emit caller (会反向打崩 baton-cleanup /
       // archiveSourceSessionWithEmit 的 warn-only 不阻塞语义)。console.error 让排查不丢信息。
