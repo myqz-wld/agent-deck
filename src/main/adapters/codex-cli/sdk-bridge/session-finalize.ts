@@ -25,7 +25,7 @@ import { sessionRepo } from '@main/store/session-repo';
 export interface PersistSessionFieldsArgs {
   /** thread sessionId（resume 路径 = opts.resume；新建路径 = startNewThreadAndAwaitId 拿到的 realId） */
   sessionId: string;
-  /** 解析后的 sandboxMode（已通过 opts.codexSandbox > sessionRepo > currentSandboxMode 三级 fallback） */
+  /** 解析后的 sandboxMode（已通过 opts.codexSandbox > sessionRepo > settingsStore 三级 fallback） */
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.5：opts.model 透传值。

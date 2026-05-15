@@ -87,21 +87,24 @@ function applyCodexCliPath(p: Partial<AppSettings>, next: AppSettings): void {
   }
 }
 
-function applyCodexSandboxMode(p: Partial<AppSettings>, next: AppSettings): void {
-  // sandboxMode 只在 startThread 时一次性传入；setter 仅更新 bridge 字段，
-  // 「切档仅下次新建会话生效」与 claudeCodeSandbox 同模式。
-  if ('codexSandbox' in p) {
-    adapterRegistry.get('codex-cli')?.setCodexSandboxMode?.(next.codexSandbox);
-  }
-}
+/**
+ * symmetry-plan P2 MED-B：codex sandbox 切档不再需要 apply hook。
+ *
+ * 修法前：bridge 持 `private currentSandboxMode` field 当 settings 镜像，settings 改 →
+ * `applyCodexSandboxMode` push 到 bridge → bridge createSession 用 field。修法后：bridge
+ * createSession 改为直接 `settingsStore.get('codexSandbox')` 直读，与 claude-code adapter
+ * `sdk-bridge/sandbox-resolve.ts` 同款直读模式 — 删 in-memory mirror + setter + apply hook
+ * 三层冗余,降配置回路复杂度。「切档仅下次新建会话生效」语义不变（spawn-time 锁定,与
+ * claudeCodeSandbox 同模式）。
+ */
 
 /**
  * CHANGELOG_<X> A4b：codexMcpServers 改了 → 把 Agent Deck 自管的 mcp_servers 段
  * 同步写到 ~/.codex/config.toml（marker 包裹 / atomic write，不破坏用户其他段）。
  *
  * 即改即生效**对下次新建 codex 会话**：codex 子进程 startThread 时按当时
- * config.toml 加载 mcp_servers 配置，已在跑的 thread 不撤销（与 setCodexSandboxMode
- * 同模式：spawn-time options 不可热切）。
+ * config.toml 加载 mcp_servers 配置，已在跑的 thread 不撤销（与 codexSandbox /
+ * claudeCodeSandbox 同模式：spawn-time options 不可热切）。
  *
  * 写盘失败只 warn，不阻断 settings 保存（settings DB 一定要先写，让 UI 状态稳定；
  * 写 codex config 失败用户可以手动重试 / 看 console 日志）。
@@ -218,7 +221,6 @@ export function registerSettingsIpc(): void {
       applyWindowTransparent,
       applyPermissionTimeout,
       applyCodexCliPath,
-      applyCodexSandboxMode,
       applyCodexMcpServers,
       applyCodexAgentsMd,
       applyCodexSkills,

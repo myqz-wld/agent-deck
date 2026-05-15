@@ -55,9 +55,10 @@ class CodexCliAdapterImpl implements AgentAdapter {
     // CHANGELOG_<X> R2 / B'4：把 ctx.hookServer 传给 bridge，让 ensureCodex 在 spawn
     // codex CLI 时通过 SDK config 字段注入 mcp_servers.agent-deck（连接到本应用 /mcp）。
     this.bridge = new CodexSdkBridge({ emit: ctx.emit, hookServer: ctx.hookServer });
-    // 启动时读一次 codexCliPath / codexSandbox，给 bridge
+    // 启动时读一次 codexCliPath，给 bridge（codexSandbox 不再透传：bridge createSession
+    // 已直接 settingsStore.get('codexSandbox')，与 claude-code adapter 的 sandbox-resolve
+    // 同款直读模式 — symmetry-plan P2 MED-B 删 currentSandboxMode in-memory mirror）
     this.bridge.setCodexCliPath(settingsStore.get('codexCliPath'));
-    this.bridge.setCodexSandboxMode(settingsStore.get('codexSandbox'));
     // 不注册 hook routes：codex 没有 hook 通道
   }
 
@@ -72,7 +73,8 @@ class CodexCliAdapterImpl implements AgentAdapter {
     resume?: string;
     /**
      * Per-session sandbox 覆盖（CHANGELOG_<X>）。NewSessionDialog 的「权限模式 (sandbox)」
-     * 下拉传递；undefined = 用 settings.codexSandbox 全局值（bridge.currentSandboxMode）。
+     * 下拉传递；undefined = bridge createSession 内部 fallback `settingsStore.get('codexSandbox')`
+     * 全局值（symmetry-plan P2 MED-B 后直读 settings 不再走 in-memory mirror）。
      */
     codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
     /** 首条 user message 的图片附件（IPC 层已落盘到 <userData>/image-uploads/） */
@@ -152,11 +154,6 @@ class CodexCliAdapterImpl implements AgentAdapter {
   /** Codex 专属：设置面板「Codex 二进制路径」变更时即改即生效。 */
   setCodexCliPath(path: string | null): void {
     this.bridge?.setCodexCliPath(path);
-  }
-
-  /** Codex 专属：设置面板「Codex 沙盒档位」变更；下次新建会话生效。 */
-  setCodexSandboxMode(mode: 'workspace-write' | 'read-only' | 'danger-full-access'): void {
-    this.bridge?.setCodexSandboxMode(mode);
   }
 
   /**
