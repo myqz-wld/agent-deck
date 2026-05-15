@@ -3,6 +3,7 @@ import type { ClaudeCodeAdapter } from './claude-code';
 import type { CodexCliAdapter } from './codex-cli';
 import type { AiderAdapter } from './aider';
 import type { GenericPtyAdapter } from './generic-pty';
+import type { CreateSessionOptionsByAdapter } from './options-builder';
 
 /**
  * D2 typed adapter id 映射：agentId → 具体 adapter class type。
@@ -17,9 +18,11 @@ import type { GenericPtyAdapter } from './generic-pty';
  * 后 return adapter union 调 createSession(opts) 会撞 union dispatch fail（opts 必须
  * assignable to 每个 arm createSession opts type,而 narrow opts 单 arm 不满足）。
  *
- * 加新 adapter 时三步：(1) types.ts 加 union arm; (2) options-builder.ts switch 加 case;
- * (3) 本 map 加映射 + index.ts 加 register。漏 (1)/(2) TS 编译期报错;漏 (3) 运行时
- * register 时报 "already registered" 假阳但 caller 仍能用 string overload 拿。
+ * **多侧 SSOT 守门**（p4-d2-impl R1 reviewer-codex MED follow-up）:加新 adapter 时漏改本
+ * map → `_assertAdapterIdMapMatchesOptions` TS 编译期报错。详 options-builder.ts §D2 多侧
+ * SSOT 守门 注释表(本 map 是守门点 4)。
+
+ * 加新 adapter 完整 checklist 见 options-builder.ts 同名注释。
  */
 export type AdapterIdMap = {
   'claude-code': ClaudeCodeAdapter;
@@ -27,6 +30,22 @@ export type AdapterIdMap = {
   'aider': AiderAdapter;
   'generic-pty': GenericPtyAdapter;
 };
+
+/**
+ * **守门 (4)**: AdapterIdMap keys 必须与 CreateSessionOptionsByAdapter keys 严格一致
+ * (与 options-builder.ts 守门 (3) 同款 trick)。漏 entry → 此 type 解析为 false → 赋值 true 报错。
+ * 反向:CreateSessionOptionsByAdapter 加 entry 但本 map 未加 → 同款报错。
+ */
+type _AssertSameKeys<A, B> = keyof A extends keyof B
+  ? keyof B extends keyof A
+    ? true
+    : false
+  : false;
+const _assertAdapterIdMapMatchesOptions: _AssertSameKeys<
+  AdapterIdMap,
+  CreateSessionOptionsByAdapter
+> = true;
+void _assertAdapterIdMapMatchesOptions;
 
 class AdapterRegistryClass {
   private map = new Map<string, AgentAdapter>();
