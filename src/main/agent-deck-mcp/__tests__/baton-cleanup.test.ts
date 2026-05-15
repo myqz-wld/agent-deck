@@ -308,13 +308,14 @@ describe('runBatonCleanup', () => {
     warnSpy.mockRestore();
   });
 
-  it('case 9: excludeSessionIds 透传给 shutdown helper(REVIEW_36 R2 HIGH-A)', async () => {
+  it('case 9: excludeSessionIds 透传给 shutdown helper(REVIEW_36 R2 HIGH-A)+ R2 INFO emit not called 守门', async () => {
     const shutdownFn = vi.fn(
       async (_sid: string, _exclude?: ReadonlySet<string>) =>
         ({ closed: [], failed: [], skipped: null } as ShutdownTeammatesResult),
     );
     const archiveFn = vi.fn(async (_sid: string) => undefined);
     const getFn = vi.fn(() => fakeRow('caller'));
+    const emitFn = vi.fn();
 
     const exclude = new Set<string>(['newly-spawned-sid']);
     await runBatonCleanup(
@@ -324,14 +325,16 @@ describe('runBatonCleanup', () => {
         excludeSessionIds: exclude,
         toolName: 'hand_off_session',
       },
-      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
     );
 
     expect(shutdownFn).toHaveBeenCalledTimes(1);
     expect(shutdownFn).toHaveBeenCalledWith('caller', exclude);
+    // R2 reviewer-claude INFO 修法: archive ok 路径不该 emit caller-archive-failed (回归保护)
+    expect(emitFn).not.toHaveBeenCalled();
   });
 
-  it('case 10: 时序保证 — shutdown 在 archive 之前(callOrder 断言)', async () => {
+  it('case 10: 时序保证 — shutdown 在 archive 之前(callOrder 断言)+ R2 INFO emit not called 守门', async () => {
     const order: string[] = [];
     const shutdownFn = vi.fn(async (_sid: string) => {
       order.push('shutdown');
@@ -344,6 +347,7 @@ describe('runBatonCleanup', () => {
       order.push('getSession');
       return fakeRow('caller');
     });
+    const emitFn = vi.fn();
 
     await runBatonCleanup(
       {
@@ -351,11 +355,13 @@ describe('runBatonCleanup', () => {
         keepTeammates: false,
         toolName: 'archive_plan',
       },
-      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
     );
 
     // 关键: shutdown 必须在 getSession + archive 之前(详 baton-cleanup.ts 顶部注释「时序保证」)
     expect(order).toEqual(['shutdown', 'getSession', 'archive']);
+    // R2 reviewer-claude INFO 修法: archive ok 路径不该 emit caller-archive-failed (回归保护)
+    expect(emitFn).not.toHaveBeenCalled();
   });
 
   // hand-off-mcp-archive-opt-20260515: caller 显式传 archive_caller=false → phase 2 跳过 + archived='skipped'。

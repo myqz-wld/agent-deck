@@ -143,10 +143,14 @@ export function registerSessionsIpc(): void {
       // baton-cleanup helper,通过 archiveSourceSessionWithEmit 上抛 'caller-archive-failed' event,
       // main bootstrap listener 桥到 notifyUser + IPC channel,避免 archive 失败被静默吞掉。
       // toolName='SessionHandOffSpawn' 区分 mcp baton-cleanup ('archive_plan' / 'hand_off_session')
-      // 让 UI 能识别触发场景。reasonKind 固定 'archive-throw'(K3 已 sessionRepo.get 验证 row 存在)。
+      // 让 UI 能识别触发场景 (main/index.ts listener 通过 TOOL_DISPLAY_NAME 映射成「会话接力」)。
       // EventMap satisfies 编译期守门 helper payload schema 与 event-bus.ts 类型一致。
+      // R2 reviewer-codex MED-1 修法: 必传 getSession seam,helper 内部重新探针 source row
+      // (createSession 是 long-running async,row 可能在期间被异常清理),与 mcp baton-cleanup 行为
+      // 对齐 (row-missing → emit 'row-missing' 短路 / row 存在 → archive → 异常 emit 'archive-throw')。
       await archiveSourceSessionWithEmit(sid, {
         archive: (id) => sessionManager.archive(id),
+        getSession: (id) => sessionRepo.get(id),
         emitArchiveFailed: (payload) =>
           eventBus.emit('caller-archive-failed', payload satisfies EventMap['caller-archive-failed'][0]),
       });

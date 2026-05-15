@@ -252,15 +252,24 @@ describe('dedupHandOff — REVIEW_33 H7 inflight Map 单飞', () => {
 });
 
 describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 plan', () => {
+  /** 构造 fake row(测试不在乎字段细节,只在乎 truthy/null) */
+  function fakeRow() {
+    return { id: 'fake', archivedAt: null } as unknown;
+  }
+
   it('archive ok → emitArchiveFailed 不被调用(happy path 不误打扰)', async () => {
     const archiveFn = vi.fn(async (_sid: string) => undefined);
+    const getFn = vi.fn(() => fakeRow());
     const emitFn = vi.fn();
 
     await archiveSourceSessionWithEmit('source-sid', {
       archive: archiveFn,
+      getSession: getFn,
       emitArchiveFailed: emitFn,
     });
 
+    expect(getFn).toHaveBeenCalledTimes(1);
+    expect(getFn).toHaveBeenCalledWith('source-sid');
     expect(archiveFn).toHaveBeenCalledTimes(1);
     expect(archiveFn).toHaveBeenCalledWith('source-sid');
     expect(emitFn).not.toHaveBeenCalled();
@@ -270,12 +279,14 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
     const archiveFn = vi.fn(async (_sid: string) => {
       throw new Error('FK constraint violation');
     });
+    const getFn = vi.fn(() => fakeRow());
     const emitFn = vi.fn();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     await expect(
       archiveSourceSessionWithEmit('source-sid', {
         archive: archiveFn,
+        getSession: getFn,
         emitArchiveFailed: emitFn,
       }),
     ).resolves.toBeUndefined();
@@ -300,11 +311,13 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
       // eslint-disable-next-line @typescript-eslint/no-throw-literal
       throw 'opaque error string';
     });
+    const getFn = vi.fn(() => fakeRow());
     const emitFn = vi.fn();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     await archiveSourceSessionWithEmit('source-sid', {
       archive: archiveFn,
+      getSession: getFn,
       emitArchiveFailed: emitFn,
     });
 
@@ -314,6 +327,63 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
       toolName: 'SessionHandOffSpawn',
       reason: expect.stringContaining('opaque error string'),
       reasonKind: 'archive-throw',
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  // R2 reviewer-codex MED-1 修法新增 case: 验证 createSession 异步窗口期间 row 被删的场景
+  it('R2 MED-1: getSession 返回 null (row missing)→ emit row-missing + 不调 archive', async () => {
+    const archiveFn = vi.fn(async (_sid: string) => undefined);
+    const getFn = vi.fn(() => null);
+    const emitFn = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await archiveSourceSessionWithEmit('ghost-sid', {
+      archive: archiveFn,
+      getSession: getFn,
+      emitArchiveFailed: emitFn,
+    });
+
+    // 关键: getSession 探针 null → archive 不调用 (避免 silent no-op resolve 漏 emit)
+    expect(getFn).toHaveBeenCalledTimes(1);
+    expect(archiveFn).not.toHaveBeenCalled();
+    expect(emitFn).toHaveBeenCalledTimes(1);
+    expect(emitFn).toHaveBeenCalledWith({
+      sessionId: 'ghost-sid',
+      toolName: 'SessionHandOffSpawn',
+      reason: expect.stringContaining('cannot archive caller ghost-sid: not in sessions table'),
+      reasonKind: 'row-missing',
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[ipc sessions hand-off]'),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  // R2 reviewer-codex MED-1 修法新增 case: getSession 抛错 (DB 异常 fail-safe)→ 走 row-missing 路径
+  it('R2 MED-1: getSession 抛错 (DB 异常 fail-safe)→ 走 row-missing 路径 emit', async () => {
+    const archiveFn = vi.fn(async (_sid: string) => undefined);
+    const getFn = vi.fn(() => {
+      throw new Error('simulated SQLite locked');
+    });
+    const emitFn = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await archiveSourceSessionWithEmit('source-sid', {
+      archive: archiveFn,
+      getSession: getFn,
+      emitArchiveFailed: emitFn,
+    });
+
+    // 关键: getSession 抛错 → catch 兜底 null → 走 row-missing 路径
+    expect(archiveFn).not.toHaveBeenCalled();
+    expect(emitFn).toHaveBeenCalledWith({
+      sessionId: 'source-sid',
+      toolName: 'SessionHandOffSpawn',
+      reason: expect.stringContaining('cannot archive caller source-sid: not in sessions table'),
+      reasonKind: 'row-missing',
     });
 
     warnSpy.mockRestore();
