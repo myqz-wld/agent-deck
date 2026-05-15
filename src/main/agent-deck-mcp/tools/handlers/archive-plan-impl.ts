@@ -16,13 +16,19 @@
  *    主从关系判定）—— mcp tool 不能调 ExitWorktree（CLI 内部 tool），caller 必须先 ExitWorktree
  *    再调 archive_plan
  * 5. 解析 plan 文件路径（显式给 > <main-repo>/.claude/plans/<id>.md > ~/.claude/plans/<id>.md）
- * 6. 读 plan + parseFrontmatter，预检 status ≠ completed（防误调；abandoned 也允许收口）
+ * 6. 读 plan + parseFrontmatter，预检 status：仅 in_progress 放行；completed 拒绝防误调；
+ *    abandoned 拒绝并指向 user CLAUDE.md §Step 4 「中止」流程（REVIEW_33 H2）
  * 7. fast-forward merge：在 main repo 跑 `git merge --ff-only <worktree-branch>`
  * 8. 拿最终 commit hash：`git -C <main-repo> rev-parse HEAD`
  * 8b. **重新 read plan + parse fresh frontmatter**（plan archive-plan-content-overwritten
  *     -fix-20260515）：ff-merge 后 main working tree 已含 caller 在 worktree branch 的最后
  *     一笔 plan 回写（[x] checklist / 跳过理由 / 当前进度 等）。step 6 的 fm 已用完，下面
- *     step 9 / step 10 全部用 freshFm + freshContent，避免覆盖 caller 收尾回写。
+ *     step 9 / step 10 / step 11 全部用 freshFm + freshContent，避免覆盖 caller 收尾回写。
+ * 8c. **重新校验 freshFm.status === 'in_progress'**（plan archive-plan-content-overwritten
+ *     -fix-20260515 R1 review HIGH-B）：caller 若在 worktree branch commit 把 status 改
+ *     abandoned/completed/未知值，ff-merge 把改动带进 main → 必须 postFfMergeErr 拒绝，否则
+ *     step 9 spread 后 `status: 'completed'` 强制覆盖会静默归档 abandoned plan 为 completed,
+ *     违反 user CLAUDE.md §Step 4 「中止」契约 + 回归 REVIEW_33 H2 已修过的 abandoned 防线。
  * 9. 更新 frontmatter：status=completed / final_commit / completed_at（YYYY-MM-DD 本地时区）
  * 10. 写新 plan 到 `<main-repo>/plans/<plan_id>.md`（recursive mkdir <main>/plans/）
  * 11. 同步 `<main-repo>/plans/INDEX.md`：append 一行 `| [<id>.md](<id>.md) | <一句话> |`
@@ -391,16 +397,24 @@ export async function archivePlanImpl(
       // 失败前 main repo 不会有 caller 未提交改动,destructive 风险低),保留
       // `git revert ORIG_HEAD..HEAD`(history-preserving 选项,逐 commit revert 但 caller 需
       // 处理可能的 conflict)。
+      //
+      // R3 MED 1 修法:选项 (2) 继续推进路径不闭合 — 旧版「on both main repo and worktree
+      // branch edit」会让 caller 误编辑 main repo plan(uncommitted)→ re-call 时 step 7
+      // ff-merge 撞 dirty working tree 拒绝。改成「reset → 仅在 worktree 修 → re-call(干净
+      // 重跑)」让两选项都先 reset --hard ORIG_HEAD(等价 undo) 再分流(中止 / 继续)。
       'main HEAD has advanced (ff-merge complete) and the plan file at the main repo has a ' +
-        'status that drifted from "in_progress" on the worktree branch. Cleanup choices: ' +
-        '(1) if caller intended abandoned: undo the ff-merge in main repo with ' +
+        'status that drifted from "in_progress" on the worktree branch. ' +
+        '**First step (both choices)**: undo the ff-merge in main repo with ' +
         '`git reset --hard ORIG_HEAD` (recommended — clean reset; archive_plan made no other ' +
         'main-repo changes before this failure) or `git revert ORIG_HEAD..HEAD` ' +
-        '(history-preserving; per-commit revert, may need conflict resolution), ' +
-        'then follow user CLAUDE.md §Step 4 "中止" path (keep status=abandoned, manual ' +
-        '`git worktree remove --force` + `git branch -D`); ' +
+        '(history-preserving; per-commit revert, may need conflict resolution). ' +
+        'Then choose: ' +
+        '(1) if caller intended abandoned: follow user CLAUDE.md §Step 4 "中止" path ' +
+        '(keep status=abandoned, manual `git worktree remove --force` + `git branch -D`); ' +
         '(2) if caller intended to continue: edit the plan frontmatter to `status: in_progress` ' +
-        'on both main repo and worktree branch (commit the worktree-side fix), then re-call archive_plan.',
+        '**only on the worktree branch** (cd into worktree, edit, commit; do NOT edit main repo ' +
+        '— the reset already restored main to pre-archive state, and re-calling archive_plan will ' +
+        'pick up the worktree-side fix via fresh ff-merge), then re-call archive_plan.',
     );
   }
 
@@ -536,10 +550,16 @@ function stripFrontmatter(text: string): string {
 
 /**
  * REVIEW_33 H9：post-ff-merge 阶段标识。一旦 ff-merge 成功（step 7 后），main HEAD
- * 已推进到 worktree branch tip，**不可简单回滚**（reset --hard 风险高）。任何后续
- * step 失败时 caller 必须知道：(1) main 已收到 worktree 的 commits（不是「nothing
- * happened」可重试场景）；(2) 应手工补完 step 标识对应的 cleanup（write archived /
- * sync INDEX / unlink plan / git add+commit / git worktree remove / git branch -D）。
+ * 已推进到 worktree branch tip。**一般阶段（step 10a/10b/11/12/13/14）不可简单
+ * `git reset --hard ORIG_HEAD` 回滚**（已累积写入 archived plan / INDEX / unlink 原 plan
+ * / git commit 等中间状态会被销毁），需手工补完 step 标识对应的 cleanup（write
+ * archived / sync INDEX / unlink plan / git add+commit / git worktree remove / git branch -D）。
+ * **唯一例外是 step 8b/8c**（无任何 fs 写入累积，仅 ff-merge 已成功），此时
+ * `git reset --hard ORIG_HEAD` 干净安全，详 8c phaseHint 推荐路径。
+ *
+ * 任何后续 step 失败时 caller 必须知道：(1) main 已收到 worktree 的 commits（不是
+ * 「nothing happened」可重试场景）；(2) 应按 phase 标识查 phaseHint 选 cleanup 路径
+ * （8b/8c 走 reset --hard ORIG_HEAD;一般 phase 按 step 手工补完后续）。
  *
  * 10 个 phase 一一对应 step 8 / 8b / 10a / 10b / 11 / 12 / 13a / 13b / 14a / 14b
  * (plan archive-plan-content-overwritten-fix-20260515 加 'reread-plan-after-ffmerge'
