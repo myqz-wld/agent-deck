@@ -896,4 +896,47 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     });
     expect(errorMsgs).toHaveLength(0);
   });
+
+  it('REVIEW_41 MED-2 fix: 2 并发 sendMessage + resume implicit fork → 第二条 waiter 拿 forked-id 不撞 not found', async () => {
+    const bridge = makeBridge();
+    bridge.createBehavior = 'block';
+    // 关键:走 resume 主路径(jsonl 在),不走 fallback;用 forkOnResumeOverride 模拟 CLI 隐式 fork
+    bridge.forkOnResumeOverride = 'forked-id'; // resume 路径 createSession 返 'forked-id' 而非 OLD
+    bridge.interceptSidSet = new Set(['forked-id']); // 仅 'forked-id' intercept(模拟 sessions Map sync 完后命中)
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-fork',
+      agentId: 'claude-code',
+      cwd: '/tmp/fork',
+      title: 'fork-resume',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    const p1 = bridge.sendMessage('sess-fork', 'first').catch(() => undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+    const p2 = bridge.sendMessage('sess-fork', 'second').catch(() => undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].resume).toBe('sess-fork'); // 验证走 resume 路径(不是 fallback)
+
+    bridge.unblock?.();
+    await p1;
+    await p2;
+
+    // 关键断言:waiter path 拿 finalId='forked-id'(handle.sessionId)而非 OLD 'sess-fork'
+    // 修前 recoverer resume path 固定 `return sessionId` → 等待者拿 OLD sessionId 撞 not found
+    // (REVIEW_41 reviewer-codex MED-2 单方提出 + lead grep 实证修法 partial fix only fallback)
+    expect(bridge.sendMessageCalls).toHaveLength(1);
+    expect(bridge.sendMessageCalls[0].sessionId).toBe('forked-id');
+    expect(bridge.sendMessageCalls[0].text).toBe('second');
+  });
 });

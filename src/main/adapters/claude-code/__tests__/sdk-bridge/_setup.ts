@@ -77,6 +77,15 @@ export class TestBridge extends ClaudeSdkBridge {
     attachments?: UploadedAttachmentRef[];
   }> = [];
   public interceptSidSet: Set<string> = new Set();
+  /**
+   * plan cross-adapter-parity-20260515 + REVIEW_41 MED-2 fix regression seam: 模拟 CLI
+   * implicit fork — opts.resume 命中时 createSession 返回此 forked sid 而非 opts.resume。
+   *
+   * 默认 null:behavior 不变(`return { sessionId: opts.resume ?? 'new-sid' }`),不破现有 case。
+   * set 为字符串时:opts.resume 命中走 forked path 返回此 sid,模拟 stream-processor.consume
+   * `if (resumeId !== realId)` 触发 renameSdkSession 后 createSession 返回 NEW realId。
+   */
+  public forkOnResumeOverride: string | null = null;
 
   override async createSession(opts: {
     cwd: string;
@@ -102,6 +111,12 @@ export class TestBridge extends ClaudeSdkBridge {
       });
     } else if (this.createBehavior === 'reject') {
       throw this.rejectWith ?? new Error('mock create reject');
+    }
+    // plan cross-adapter-parity-20260515 + REVIEW_41 MED-2 fix regression: 模拟 CLI implicit
+    // fork — opts.resume 命中时返 forkOnResumeOverride 而非 opts.resume。让 B.4 fork case
+    // 能验证 recoverer.recoverAndSend resume 路径返 handle.sessionId(NEW) 而非固定 sessionId(OLD)。
+    if (opts.resume && this.forkOnResumeOverride !== null) {
+      return { sessionId: this.forkOnResumeOverride, abort: () => undefined };
     }
     return { sessionId: opts.resume ?? 'new-sid', abort: () => undefined };
   }

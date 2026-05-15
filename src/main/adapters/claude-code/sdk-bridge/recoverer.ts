@@ -477,7 +477,13 @@ export class SessionRecoverer {
           return newRealId;
         }
 
-        await this.createThunk({
+        // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix:
+        // resume 路径下 createThunk 仍可能返回不同 sessionId(CLI 隐式 fork: stream-processor.consume
+        // L245 `if (resumeId && resumeId !== realId)` 触发 renameSdkSession + sessions Map rename
+        // key)。修前固定 `return sessionId` 等待者拿 OLD,resume implicit fork 时仍撞 not found
+        // (修法只覆盖 50% 场景)。修后用 handle.sessionId 反映真实 finalId(不 fork 时 ===
+        // sessionId,fork 时 === newRealId)。
+        const handle = await this.createThunk({
           cwd: effectiveCwd, // CHANGELOG_99:正常 resume 路径下 cwd 存在,effectiveCwd === rec.cwd
           prompt: text,
           resume: sessionId,
@@ -500,10 +506,11 @@ export class SessionRecoverer {
           // HIGH-1 修法：attachments 透传，正常 resume 路径下首条恢复消息带图
           attachments,
         });
-        // plan cross-adapter-parity-20260515 Phase B Step B.1: resume 路径不 fork(claude
-        // CLI 隐式 fork 会被 stream-processor consume rename Map key,但 sessions Map 内
-        // 仍以 finalId 作 key — bridge.sendMessage(finalId) 命中)。返 sessionId 给等待者。
-        return sessionId;
+        // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix: 返
+        // handle.sessionId 反映真实 finalId(implicit fork 时是 newRealId,正常 resume 时
+        // 是 sessionId — 与 fallback path 行为对称)。等待者拿到 finalId 不再撞 fork 后
+        // not found。
+        return handle.sessionId;
       } finally {
         this.ctx.recovering.delete(sessionId);
       }

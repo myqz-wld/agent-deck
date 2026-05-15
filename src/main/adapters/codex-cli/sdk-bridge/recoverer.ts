@@ -353,7 +353,10 @@ export class SessionRecoverer {
         // 正常 resume 路径：jsonl 在 + cwd 有 → 走 createSession({resume, prompt, codexSandbox, model, attachments})
         // 复用 createSession 内部全套 protocol。
         // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 同 model 同款显式透传。
-        await this.createThunk({
+        // plan cross-adapter-parity-20260515 Phase B Step B.2 + REVIEW_41 MED-2 fix: 拿 handle
+        // 反映真实 finalId(codex spike-A2 实测 resume 不 fork → handle.sessionId === sessionId,
+        // 但保 future-proof 防 codex SDK 升级 / 行为变更,且与 claude resume path 对称)。
+        const handle = await this.createThunk({
           cwd: effectiveCwd,
           prompt: text,
           resume: sessionId,
@@ -365,10 +368,9 @@ export class SessionRecoverer {
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
           attachments,
         });
-        // plan cross-adapter-parity-20260515 Phase B Step B.2: codex resume 路径不会 fork
-        // (spike-A2 实测 codex CLI resume 永远返回同 thread_id,详 L34 节注释)。返 sessionId
-        // 给等待者 — finalId === sessionId 行为零变化。
-        return sessionId;
+        // plan cross-adapter-parity-20260515 Phase B Step B.2 + REVIEW_41 MED-2 fix: 与 claude
+        // resume path 对称返 handle.sessionId(codex 现实测不 fork 但写法 future-proof)。
+        return handle.sessionId;
       } finally {
         this.ctx.recovering.delete(sessionId);
       }
