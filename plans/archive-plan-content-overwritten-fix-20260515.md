@@ -60,18 +60,14 @@ scope 严格限 frontmatter-update overwrites plan body bug,**不修**:
 
 ### Phase 1: 实现修复
 
-- [ ] **Step 1.1 — 复现 bug + 写 1 case 守门 fail-first 验证**:在 archive_plan unit test 框架内复现 bug(模拟 caller 在 worktree branch commit plan 回写 → ff merge → archive_plan → assert body 保留)。先让 case 在现 archive-plan-impl.ts fail,然后 Step 1.2 fix 让它 pass(red-green test 模式)。
-- [ ] **Step 1.2 — 修 archive-plan-impl.ts:228-235 拆两次 read**:
-  - 保留预检阶段 read planContent + parseFrontmatter(已有)
-  - 在 ff merge 后(line ~310-330 step 8 后)加「重新 read」一段(`fmFreshContent = await deps.readFile(planFilePath)` + `parseFrontmatter` 拿 fresh fm + body)
-  - step 10 用 fresh body + 改 frontmatter 写新文件
-  - 失败兜底:fresh read fail → throw + git revert(用现有 `postFfMergeErr` helper 类似模式)
-- [ ] **Step 1.3 — 跑 Step 1.1 case + 现有 archive-plan unit tests**:Step 1.1 case 必须 green(行为变化兑现);现有 unit tests 全过(行为不变)
+- [x] **Step 1.1 — 复现 bug + 写 1 case 守门 fail-first 验证**:done by lead-handoff-1 on 2026-05-15, commit 5403b71. 在 archive_plan unit test 框架内用 deps inject custom `runGit` hijack 在 `merge --ff-only` 调用时 mutate `state.files[planFilePath]` 模拟 ff-merge 把 caller worktree branch 回写带进 main working tree。fail-first 验证 ✅(red phase 实测 expected `[x] Step 1.1 — done by lead`,actual `# Plan body content\n\nSome details.` 旧 stub body)。
+- [x] **Step 1.2 — 修 archive-plan-impl.ts:228-235 拆两次 read**:done by lead-handoff-1 on 2026-05-15, commit 5403b71. 在 step 8(rev-parse HEAD)后插 step 8b 重新 `await deps.readFile(planFilePath)` + `parseFrontmatter` 拿 `freshContent` + `freshFm`,step 9 / step 10 全部用 freshFm + freshContent。**两层失败兜底**:(a) fresh re-read fail → `postFfMergeErr('reread-plan-after-ffmerge', err)` 与现有 post-ff-merge 失败统一姿势;(b) freshFm 缺 frontmatter block(caller 误删) → 同款 postFfMergeErr 提示责任方修后再调。新增 PostFfMergePhase 值 `'reread-plan-after-ffmerge'`,docstring 也加了 step 8b 描述。
+- [x] **Step 1.3 — 跑 Step 1.1 case + 现有 archive-plan unit tests**:done by lead-handoff-1 on 2026-05-15, commit 5403b71. green phase ✅(Step 1.1 case 由 fail → pass)。现有 36 个 archive-plan tests(impl-core 12 + impl-r33 15 + handler 9)全过。
 
 ### Phase 2: regression test + 边角
 
-- [ ] **Step 2.1 — 加边角 case**:caller 没在 worktree branch commit plan 回写(plan 在 worktree branch 仍是 stub)→ archive_plan 仍正常 → main repo plan body 仍是 stub + frontmatter status=completed(预期行为不变)
-- [ ] **Step 2.2 — 跑全 vitest**:typecheck + 全套 vitest 一遍(确认 fix 不破坏其他模块)
+- [x] **Step 2.1 — 加边角 case**:done by lead-handoff-1 on 2026-05-15, commit 5403b71. 在 `archive-plan.impl-ff-merge-body.test.ts` 加 3 case 共 4 个:(1) 主 case caller 在 worktree branch commit 回写 → fresh body 保留;(2) regression caller 没改 plan → 归档 body == stub(行为不变);(3) fresh re-read 失败(state.files.delete 模拟 fs ENOENT) → postFfMergeErr;(4) fresh fm 缺 frontmatter block(caller 误删) → postFfMergeErr 提示责任方。
+- [x] **Step 2.2 — 跑全 vitest**:done by lead-handoff-1 on 2026-05-15, commit 5403b71. typecheck pass(无 error)。全套 vitest:**45 file pass / 3 skip / 600 tests pass / 64 skip / 0 fail**。无回归。
 
 ### Phase 3: 异构对抗 review
 
@@ -92,38 +88,45 @@ archive_plan 默认查 `.claude/plans/<id>.md` 和 `~/.claude/plans/<id>.md`,**�
 
 ## 当前进度
 
-- ⬜ **stub 状态**:本 plan 已建文件 + commit stub。未启动实施。
-- ⬜ Step 1.1 起手(先复现 bug 写 fail-first case)
+- ✅ **Phase 1 完成** (Step 1.1+1.2+1.3,commit 5403b71):fix archive-plan-impl.ts 拆两次 read + 1 个 fail-first case 守门
+- ✅ **Phase 2 完成** (Step 2.1+2.2,commit 5403b71):regression baseline + 失败兜底 case + 全套 vitest 600 pass / 0 fail
+- ⬜ **Phase 3.1 待启**:下一会话起手 — 异构对抗 review 评 fix(scope = `src/main/agent-deck-mcp/tools/handlers/archive-plan-impl.ts` diff vs base `33381fc` + 新加 `src/main/agent-deck-mcp/__tests__/archive-plan.impl-ff-merge-body.test.ts`)
+- ⬜ Phase 4 收口待 Phase 3.1 review 之后
 
 ## 下一会话第一步
 
 按 user CLAUDE.md cold-start 流程:
 
 1. `Bash: cat /workspace/example/agent-deck/plans/archive-plan-content-overwritten-fix-20260515.md` 全文读 plan(强制 cat 不用 Read,详 user CLAUDE.md §Step 3 末尾 callout)
-2. **避开 EnterWorktree CLI stale base bug**(详 user CLAUDE.md §Step 1 末尾 callout):用 Bash 显式建 worktree(隐式用 HEAD 作 base):
+2. `EnterWorktree(path: "/workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515")` 进 worktree(注意是 path 不是 name;worktree 已存在不需要再建)
+3. 自检 worktree HEAD == 最新 commit(应是包含 Phase 1+2 fix 的 commit `5403b71` + plan 更新 commit):
    ```bash
-   git -C /workspace/example/agent-deck worktree add -b worktree-archive-plan-content-overwritten-fix-20260515 /workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515
+   git -C /workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515 log --oneline -5
    ```
-   然后 `EnterWorktree(path: "/workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515")` 进入(注意是 path 不是 name)
-3. 自检 worktree HEAD == main HEAD == frontmatter `base_commit` (`30467f6`):
-   ```bash
-   git -C /workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515 rev-parse HEAD
-   git -C /workspace/example/agent-deck rev-parse HEAD
-   ```
-   不等 → `git -C <worktree-abs-path> reset --hard <main-HEAD>` 修正
-4. `Bash: cat` 读 archive-plan-impl.ts 主体 + 已有 unit tests:
-   ```bash
-   cat /workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515/src/main/agent-deck-mcp/tools/handlers/archive-plan-impl.ts
-   ls /workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515/src/main/agent-deck-mcp/__tests__/archive-plan*
-   ```
-5. **从 Step 1.1 开始动手**(先复现 bug 写 fail-first case,模拟 caller 在 worktree branch commit plan 回写后 archive_plan 用 stub body 覆盖)
-6. 改完每步:
-   - **路径全用 worktree 内绝对路径**(详 user CLAUDE.md §Step 1 末尾 callout)
-   - `pnpm typecheck` + 跑相关 archive-plan unit tests 必跑
-   - commit message 含「(archive-plan-fix Step <X.Y>)」
-7. 决策点(非 plan 内已 SSOT 决定的)告诉用户征得确认
+4. **node_modules 已 symlink**(上一会话建的 `<worktree>/node_modules → <main-repo>/node_modules`)— 直接 `pnpm exec vitest run ...` 即可。**不要** `pnpm install` / 重建 worktree(会覆盖)。
+5. **从 Phase 3.1 起手 — 起 deep-code-review SKILL**:调 Skill tool `agent-deck:deep-code-review`
+   - 给 SKILL 的 scope:`src/main/agent-deck-mcp/tools/handlers/archive-plan-impl.ts` (diff vs base `33381fc`) + `src/main/agent-deck-mcp/__tests__/archive-plan.impl-ff-merge-body.test.ts` (新文件)
+   - 给 SKILL 的 focus:
+     - **拆两次 read 是否真覆盖 bug 场景** —— step 8b re-read 时机是否正确(必须在 ff-merge 后,step 8 rev-parse HEAD 是 read-only 不影响) / freshFm 替换 fm 是否引入字段语义偏移
+     - **是否引入新 race window** —— ff-merge 与 step 8b re-read 之间(fs race / 外部并发改 plan 文件 / git index lock)
+     - **失败兜底是否完整** —— `'reread-plan-after-ffmerge'` PostFfMergePhase 值是否合适 / 失败时 main HEAD 已动 caller 该如何手工 cleanup / 缺 frontmatter block 报错措辞
+     - **其他 archive_plan 路径是否受影响** —— abandoned plan 仍在 step 6 短路(不到 step 8b)/ archive_caller opt-out / planFilePathOverride 路径 / freshFm 透传可能引入意外字段(如 caller 在 worktree branch commit 添加新 fm 字段是否安全 echo back)
+   - 三态裁决:双方独立提出 = ✅ 必修 / 单方独有 + HIGH → 起对方反驳轮 → 仍 ✅ 修 / 单方独有 + MED → lead 自己 grep / 写 mini-test 验证 / 双方都说没问题 = ✅ 可合
+6. **review 出 ≥ 1 HIGH finding 必修**:在同 worktree 内改 archive-plan-impl.ts / 测试文件 → 再跑 archive-plan tests + 全套 vitest 验证 → commit message 含「(archive-plan-fix Step 3.1 review fix)」
+7. **Phase 3.1 收口后 → Phase 4**:
+   - **Step 4.1**:Phase 3.1 异构对抗有 ≥ 2 HIGH finding → 写 `reviews/REVIEW_44.md`(下一个 X 是 44,本 worktree 跑 `ls /workspace/example/agent-deck/reviews/ | grep -oE 'REVIEW_[0-9]+' | sort -t_ -k2 -n | tail -1` 自检最新);否则合并到 CHANGELOG
+   - **Step 4.2**:写 `changelog/CHANGELOG_X.md`(同样 `ls` 自检最新 X)+ `changelog/INDEX.md` 加行 + `plans/INDEX.md` 后续 archive 时同步(archive_plan tool 自动)
+   - **Step 4.3 dogfooding archive**:调 `mcp__agent-deck__archive_plan` 显式传:
+     - `plan_id: 'archive-plan-content-overwritten-fix-20260515'`
+     - `worktree_path: '/workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515'`
+     - `plan_file_path: '/workspace/example/agent-deck/plans/archive-plan-content-overwritten-fix-20260515.md'`(default 路径不查 `<main>/plans/`,所以必须显式传)
+     - `base_branch: 'main'`(也可不传,frontmatter 已记录)
+     **调前**先 `ExitWorktree(action: keep)`(mcp tool 不能调 CLI 内部 ExitWorktree,caller 必须 cwd 不在 worktree 内)
+   - **Step 4.3 dogfooding 验证关键**:archive 完毕回项目 root 看 `<main>/plans/<plan-id>.md` 内容,**步骤 checklist 的 [x] 标记应该全部保留**(如果保留 = 本次 fix 真生效;如果丢 = mcp server 没 hot reload 跑的还是旧 buggy 版本,需重启 dev / 重新打包后再 archive,或者手工修像 commit `30467f6` 那样)
 
-⚠️ **跨会话第一次读「长期存在 + 其他会话动过的文件」必须用 `Bash: cat` 而非 `Read` 工具**(详 user CLAUDE.md §Step 3 末尾 callout)— 包括本 plan / archive-plan-impl.ts / unit tests / 第一次接触的代码文件
+⚠️ **跨会话第一次读「长期存在 + 其他会话动过的文件」必须用 `Bash: cat` 而非 `Read` 工具**(详 user CLAUDE.md §Step 3 末尾 callout)— 包括本 plan / archive-plan-impl.ts / 已写 tests / 第一次接触的代码文件。但本会话内自己刚改 / 刚建 / 已 Read 过的文件用 Read 正常。
+
+⚠️ **mcp server hot reload 假设需验证**:archive_plan tool 实现(`archive-plan-impl.ts`)的修改是否需要重启 Electron dev / 重新打包 .app 才生效?如果不 hot reload,Step 4.3 dogfooding 调用走的是旧 buggy mcp 进程内的代码 — bug 仍在,plan body 仍被覆盖。**新会话起 deep-review 之前可先**:`zsh -i -l -c "ps -ef | grep -E '(electron|Agent Deck)' | grep -v grep"` 看 mcp server 在哪个 Electron 进程内,判断是 dev mode 还是已装 .app(dev 改 ts 一般要重启;.app 装的版本完全无法 hot reload)。
 
 ## 已知踩坑
 
@@ -145,3 +148,4 @@ archive_plan 默认查 `.claude/plans/<id>.md` 和 `~/.claude/plans/<id>.md`,**�
 - **Phase 3.1 异构对抗 review HIGH finding** 默认采纳;反驳轮裁决属常规流程不打扰用户
 - **新增非 RFC 决策点**(如修 archive_plan 顺手加 mcp hot reload / 改 default 路径)必须告诉用户征得确认或拆 followup
 - **真不能拆的决策点**(如 fix 引入新 race / unit test 框架是否要重组)拿不准时停下问用户
+- **session 1 (2026-05-15) 用户额外授权**(原话:「你一路推进吧，hand off 的时机你自己决定」+「把上面这个授权也加入到 hand off 里」):后续每个 session 都自主一路推进 + 自己判断 hand-off 时机(不需要每个 phase 中间 stop 问用户),hand-off 时把本授权显式带到下一会话 cold-start prompt 里持续生效。
