@@ -33,6 +33,11 @@ import { RestartController, type RestartCtx } from './restart-controller';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import type { UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
+import {
+  SessionRecoverer,
+  defaultCodexResumeJsonlExists,
+  defaultCwdExists,
+} from './recoverer';
 
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
 
@@ -75,6 +80,15 @@ export class CodexSdkBridge {
    */
   private restartController: RestartController;
 
+  /**
+   * symmetry-plan P2 HIGH-B：SessionRecoverer 持 recoverAndSend 主体。
+   *
+   * ctx 与 RestartController 共享 facade.recovering Map（HIGH-A 已建权威 ref）。
+   * thunk 反调 facade.createSession / sendMessage / cwdExists / resumeJsonlExists（test
+   * 通过 facade extend override 让单测不依赖真 fs / 真 LLM）。与 claude SessionRecoverer 同模式。
+   */
+  private recoverer: SessionRecoverer;
+
   constructor(private opts: CodexBridgeOptions) {
     const ctx: ThreadLoopCtx = {
       sessions: this.sessions,
@@ -89,6 +103,17 @@ export class CodexSdkBridge {
       createSession: (restartOpts) => this.createSession(restartOpts),
     };
     this.restartController = new RestartController(restartCtx);
+
+    // symmetry-plan P2 HIGH-B：SessionRecoverer 装配（与 claude facade 同款 thunk 注入模式）。
+    // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
+    // attachments 透传 sendMessage 第三参（与 claude HIGH-1 同款 — 避免 inflight 第二条等待者丢图）。
+    this.recoverer = new SessionRecoverer(
+      { recovering: this.recovering, emit: opts.emit },
+      (createOpts) => this.createSession(createOpts),
+      (sid, text, attachments) => this.sendMessage(sid, text, attachments),
+      (threadId, startedAt) => this.codexResumeJsonlExists(threadId, startedAt),
+      (cwd) => this.cwdExists(cwd),
+    );
   }
 
   /**
@@ -283,7 +308,13 @@ export class CodexSdkBridge {
     attachments?: UploadedAttachmentRef[],
   ): Promise<void> {
     const s = this.sessions.get(sessionId);
-    if (!s) throw new Error(`session ${sessionId} not found`);
+    // symmetry-plan P2 HIGH-B：sessions Map 缺该 sessionId → 走 recoverer 自愈（与 claude
+    // sdk-bridge/index.ts:332 同款）。修前直接 throw 让用户在 app 重启 / dev mode vite hot reload
+    // / main process crash 重生场景下不可恢复（必须新建会话丢上下文）。
+    if (!s) {
+      await this.recoverer.recoverAndSend(sessionId, text, attachments);
+      return;
+    }
 
     // REVIEW_24 HIGH-2 follow-up：MAX_MESSAGE_LENGTH 算 text 字符（与 messageRepo cap
     // 全局对齐）。attachments 总大小由 IPC 层独立 30MB 校验，sdk-bridge 这层只管 text。
@@ -408,5 +439,34 @@ export class CodexSdkBridge {
     { permissions: never[]; askQuestions: never[]; exitPlanModes: never[] }
   > {
     return {};
+  }
+
+  /**
+   * symmetry-plan P2 HIGH-B：codex jsonl 预检 protected wrapper（与 claude
+   * `resumeJsonlExists` 同款 facade extend override 模式）。
+   *
+   * 让 test 通过子类化 override 不依赖真 ~/.codex/sessions 目录；实际走 module-level
+   * `defaultCodexResumeJsonlExists`（扫 startedAt 日期目录 + ±1 day 找 *-<threadId>.jsonl）。
+   *
+   * recoverer 拿这个判定 codex CLI resume 用的 jsonl 是否还在；不在时走 fallback 路径
+   * （createSession 不带 resume + 后置 renameSdkSession 把应用层 events / file_changes /
+   * summaries 子表迁过去）。
+   */
+  protected codexResumeJsonlExists(threadId: string, startedAt: number): boolean {
+    return defaultCodexResumeJsonlExists(threadId, startedAt);
+  }
+
+  /**
+   * symmetry-plan P2 LOW-A：cwd 存在性 protected wrapper（与 claude `cwdExists` 同款）。
+   *
+   * 让 test 通过子类化 override 不依赖真 fs；实际走 module-level `defaultCwdExists`
+   * （直接 existsSync，异常 fail-safe 退化返回 true 让 SDK 自己 try）。
+   *
+   * recoverer 拿这个判定 sessionRepo.cwd 是否还有效；不存在时走 `findFallbackCwd` 启发式
+   * fallback 路径（典型：K2 老 session cwd=worktree 后 worktree 被 archive_plan 删 /
+   * 用户手动 git worktree remove / 跨设备同步丢目录）。
+   */
+  protected cwdExists(cwd: string): boolean {
+    return defaultCwdExists(cwd);
   }
 }
