@@ -33,3 +33,4 @@
 | [hand-off-mcp-teammate-bug-20260515.md](hand-off-mcp-teammate-bug-20260515.md) | hand-off-mcp-teammate-bug-20260515 |
 | [codex-claude-adapter-symmetry-20260515.md](codex-claude-adapter-symmetry-20260515.md) | codex-claude-adapter-symmetry-20260515 |
 | [hand-off-mcp-archive-opt-20260515.md](hand-off-mcp-archive-opt-20260515.md) | hand-off-mcp-archive-opt-20260515 |
+| [codex-sdk-bridge-tests-20260515.md](codex-sdk-bridge-tests-20260515.md) | codex-sdk-bridge-tests-20260515 |
