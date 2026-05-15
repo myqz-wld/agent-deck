@@ -24,13 +24,17 @@ export function upsert(rec: SessionRecord): void {
   // plan model-wiring-and-handoff-20260514 Step 1.3：model 同款 — spawn 时 frontmatter `model`
   // 透传给 SDK 后持久化，让 SDK resume / dormant 唤醒后保持模型一致；upsert 必须参与
   // 否则 lifecycle 复活路径丢字段，resume 拿不到 model。
+  // plan cross-adapter-parity-20260515 Phase A Step A.2：extra_allow_write 同款 — caller
+  // 透传的 SDK sandbox 额外可写根 spawn 时持久化,让 recoverer / SDK resume 路径还原
+  // sandbox.allowWrite,与 codex_sandbox / claude_code_sandbox / model 同 per-session
+  // resilience 模式;upsert 必须参与否则 lifecycle 复活路径丢字段。
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
   // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, spawned_by, spawn_depth, generic_pty_config)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @spawned_by, @spawn_depth, @generic_pty_config)
+       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, spawned_by, spawn_depth, generic_pty_config)
+       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @extra_allow_write, @spawned_by, @spawn_depth, @generic_pty_config)
        ON CONFLICT(id) DO UPDATE SET
          cwd = excluded.cwd,
          title = excluded.title,
@@ -44,6 +48,7 @@ export function upsert(rec: SessionRecord): void {
          codex_sandbox = excluded.codex_sandbox,
          claude_code_sandbox = excluded.claude_code_sandbox,
          model = excluded.model,
+         extra_allow_write = excluded.extra_allow_write,
          spawned_by = excluded.spawned_by,
          spawn_depth = excluded.spawn_depth,
          generic_pty_config = excluded.generic_pty_config`,
@@ -64,6 +69,10 @@ export function upsert(rec: SessionRecord): void {
       codex_sandbox: rec.codexSandbox ?? null,
       claude_code_sandbox: rec.claudeCodeSandbox ?? null,
       model: rec.model ?? null,
+      extra_allow_write:
+        rec.extraAllowWrite && rec.extraAllowWrite.length > 0
+          ? JSON.stringify(rec.extraAllowWrite)
+          : null,
       spawned_by: rec.spawnedBy ?? null,
       spawn_depth: rec.spawnDepth ?? 0,
       generic_pty_config: rec.genericPtyConfig ? JSON.stringify(rec.genericPtyConfig) : null,
@@ -216,4 +225,24 @@ export function setGenericPtyConfig(id: string, config: GenericPtyConfig | null)
  */
 export function setModel(id: string, model: string | null): void {
   getDb().prepare(`UPDATE sessions SET model = ? WHERE id = ?`).run(model, id);
+}
+
+/**
+ * 写入 SDK sandbox 额外可写根（plan cross-adapter-parity-20260515 Phase A Step A.2 /
+ * REVIEW_40 R1 reviewer-codex MED-F follow-up）。
+ *
+ * 调用方:
+ * - claude-code adapter session-finalize:opts.extraAllowWrite 非空时调,让 SDK resume /
+ *   dormant 唤醒 / app 重启 / sdk-bridge state lost 后,recoverer 路径仍能从 sessionRepo
+ *   读回交还 SDK sandbox.allowWrite(workspace-write 档生效)
+ * - codex-cli adapter session-finalize:opts.extraAllowWrite 非空时也调(parity 对称写库,
+ *   runtime 不消费 — codex SDK 不支持 extra writable roots);future codex SDK 加支持时零迁移
+ * - aider / generic-pty adapter:不应调(字段对它们无意义)
+ *
+ * `paths`:绝对路径数组;空数组 / null → 列写 NULL(语义同 caller 不传 extraAllowWrite,
+ * sandbox.allowWrite 不增 root)。
+ */
+export function setExtraAllowWrite(id: string, paths: string[] | null): void {
+  const json = paths && paths.length > 0 ? JSON.stringify(paths) : null;
+  getDb().prepare(`UPDATE sessions SET extra_allow_write = ? WHERE id = ?`).run(json, id);
 }

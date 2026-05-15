@@ -69,10 +69,16 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // CHANGELOG_74：列再扩 1 → 18 列（claude_code_sandbox）。
       // plan team-cohesion-fix-20260513 Phase A Step A9：v014 drop sessions.team_name 后
       // 列回缩 1 → 17 列。
+      // plan cross-adapter-parity-20260515 Phase A Step A.2：列扩 2 → 19 列(顺手补
+      // v018 model 漏列 latent bug + 加本 plan 的 v019 extra_allow_write)。
+      // model latent bug 触发场景:recoverAndSend jsonl-missing fallback path → toExists=false
+      // INSERT path 时 model 字段未带过来 → resume 拿不到 spawn 时 frontmatter 设的 model。
+      // 实测虽未 user-report 但与 permission_mode 同款风险已被 REVIEW_17 R2 / H1-R2 治过,
+      // 本 plan 列扩同 modules 顺手补齐(commit message 透明注明)。
       db.prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, spawned_by, spawn_depth, generic_pty_config)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, spawned_by, spawn_depth, generic_pty_config)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         toId,
         fromRow.agent_id,
@@ -88,6 +94,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.permission_mode,
         fromRow.codex_sandbox,
         fromRow.claude_code_sandbox,
+        fromRow.model,
+        fromRow.extra_allow_write,
         fromRow.spawned_by,
         fromRow.spawn_depth,
         fromRow.generic_pty_config,
@@ -174,6 +182,24 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn（与 codex_sandbox 同模式）。
       db.prepare(`UPDATE sessions SET generic_pty_config = ? WHERE id = ?`).run(
         fromRow.generic_pty_config,
+        toId,
+      );
+    }
+    if (toExists && fromRow.model) {
+      // plan cross-adapter-parity-20260515 Phase A Step A.2 顺手修 v018 model 漏列 latent bug:
+      // recoverAndSend / SDK fallback rename(toExists=true 分支)时 model 必须从 fromRow 覆盖到
+      // NEW 行,否则 NEW 行 createSession 时写的 default(null)「淹没」掉 spawn 时 frontmatter
+      // 设的 model — 与 permission_mode / codex_sandbox / claude_code_sandbox 同模式。
+      db.prepare(`UPDATE sessions SET model = ? WHERE id = ?`).run(fromRow.model, toId);
+    }
+    if (toExists && fromRow.extra_allow_write) {
+      // plan cross-adapter-parity-20260515 Phase A Step A.2:extra_allow_write 同 codex_sandbox
+      // 同款 — recoverAndSend / SDK fallback rename(toExists=true 分支)时必须从 fromRow 覆盖
+      // 到 NEW 行,否则用户 spawn / hand_off_session 时传的 extra_allow_write(让外置 worktree
+      // session 能写 mainRepo plan 文件)被 NEW 行 createSession 时写的 NULL「淹没」掉,
+      // 后续 recoverer 路径 SDK sandbox.allowWrite 不含原 mainRepo → 写 plan 文件静默失败。
+      db.prepare(`UPDATE sessions SET extra_allow_write = ? WHERE id = ?`).run(
+        fromRow.extra_allow_write,
         toId,
       );
     }

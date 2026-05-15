@@ -88,6 +88,33 @@ export interface SessionRecord {
    */
   model?: string | null;
   /**
+   * SDK sandbox 额外可写根（plan cross-adapter-parity-20260515 Phase A / REVIEW_40 R1
+   * reviewer-codex MED-F follow-up）。
+   *
+   * 持久化 `mcp__agent-deck__spawn_session` / `hand_off_session` 调用时 caller 透传的
+   * `extra_allow_write` 参数（绝对路径数组），让 SDK resume / dormant 唤醒 / app 重启 /
+   * sdk-bridge state lost 后,recoverer 路径仍能从 sessionRepo 读回交还 SDK
+   * sandbox.allowWrite,与 permissionMode / claudeCodeSandbox / model 同款 per-session
+   * resilience 模式。
+   *
+   * 典型场景:hand_off_session 外置 worktree(cwd=worktreePath 不在 mainRepo subtree)+
+   * caller 传 [mainRepo] 让外置 worktree session 能写 mainRepo plan 文件。app 重启 /
+   * recoverer fallback 路径若不读回 → SDK sandbox.allowWrite 不含原 mainRepo → 写 plan
+   * 文件静默失败(sandbox 拦)→ 用户体感 plan 完成时 frontmatter 更新失败莫名其妙。
+   *
+   * - claude-code adapter:值通过 finalizeSessionStart → buildSandboxConfig 真正注入
+   *   SDK options.sandbox.allowWrite(workspace-write 档生效;strict / off 忽略)
+   * - codex-cli adapter:字段持久化(parity 对称),但 codex bridge createSession opts
+   *   不消费(codex SDK 不支持 extra writable roots);future codex SDK 加支持时零迁移成本
+   * - aider / generic-pty adapter:始终 null
+   *
+   * null/undefined:不指定,sandbox.allowWrite 仅含 cwd + /tmp + cache(与 caller 不传
+   * extraAllowWrite 行为同款)。
+   *
+   * 持久化层:sessions.extra_allow_write TEXT 列,JSON.stringify(string[])。
+   */
+  extraAllowWrite?: string[] | null;
+  /**
    * Agent Deck MCP server (R2 / B'0 ADR §6.5)：spawn 链上的父 session id。
    * - null/undefined：顶层 session（用户 IPC / CLI 直接起 / R2 之前老数据）
    * - 字符串：MCP `spawn_session` tool 调用方的 session id
