@@ -156,8 +156,10 @@ export class SessionRecoverer {
 
     // CHANGELOG_99 cwd 失效根治（与 claude 同款 R1 fix MED-2 顺序：cwd 校验 → unarchive,
     // 避免 archived session cwd fallback 失败前被 unarchive 成 active 但实际死路一条）。
+    //
+    // symmetry-plan P3 R2-2 (reviewer-claude MED-G):cwd fallback 后 effectiveCwd 仍可走正常 resume
+    // (codex jsonl 独立于 cwd,详 L38-40 节注释),不再像 claude 那样强制 fresh thread。
     let effectiveCwd = rec.cwd;
-    let cwdFellBack = false;
     if (!this.cwdExistsThunk(rec.cwd)) {
       const fallback = this.findFallbackCwd(rec.cwd);
       if (fallback === null) {
@@ -182,16 +184,23 @@ export class SessionRecoverer {
         );
       }
       effectiveCwd = fallback;
-      cwdFellBack = true;
-      // emit cwd fallback info 让用户知情
+      // emit cwd fallback info 让用户知情。
+      // symmetry-plan P3 R2-2 (reviewer-claude MED-G):text 改正确反映 codex 实际行为 — codex jsonl
+      // 在 ~/.codex/sessions/<YYYY>/<MM>/<DD>/ date-based 目录,**完全独立于 cwd**(与 claude
+      // ~/.claude/projects/<encoded-cwd>/<sid>.jsonl 不同 — 详 recoverer.ts L38-40 节注释)。
+      // 修前 text 错说「jsonl 在原 cwd 下,本会话续聊从 fresh thread 开始」与代码自身注释自相矛盾。
+      // 修后 cwd fallback 不再强制 fresh thread(下方 fallback 条件改 `if (!jsonlExistsThunk)`),
+      // codex resumeThread + workingDirectory:effectiveCwd 正常进 SDK 保留对话历史。
+      // 用户提示重点是「文件引用可能不再指向同一文件」(SDK turn 内引用 cwd 内相对路径会失效)。
       this.ctx.emit({
         sessionId,
         agentId: AGENT_ID,
         kind: 'message',
         payload: {
           text:
-            `⚠ 会话原 cwd 不存在 (${rec.cwd}),已切到 fallback (${effectiveCwd}) 继续。` +
-            `Codex CLI 内部对话历史 (jsonl) 在原 cwd 下,本会话续聊从 fresh thread 开始。`,
+            `⚠ 会话原 cwd 不存在 (${rec.cwd}),已切到 fallback (${effectiveCwd}) 继续 ` +
+            `(对话历史保留)。注意:历史中对原 cwd 文件的相对引用 (如 "edit foo.ts at line 10") ` +
+            `可能不再指向同一文件,如需精确恢复请新建会话。`,
         },
         ts: Date.now(),
         source: 'sdk',
@@ -251,27 +260,29 @@ export class SessionRecoverer {
         // sessionRepo.startedAt 拿 createdAt 日期定位 ~/.codex/sessions/<YYYY>/<MM>/<DD>/ 目录,
         // 扫 *-<threadId>.jsonl 文件。详 `defaultCodexResumeJsonlExists` 算法。
         //
-        // CHANGELOG_99: cwd fallback 时(cwdFellBack=true)强制走 fallback 路径 — 即使 jsonl 在,
-        // resume 也无意义（codex 在 fallback cwd 下没历史上下文）。
-        if (cwdFellBack || !this.jsonlExistsThunk(sessionId, rec.startedAt)) {
-          if (!cwdFellBack) {
-            console.warn(
-              `[codex-bridge] resume jsonl missing for ${sessionId} (startedAt ${new Date(rec.startedAt).toISOString()}), ` +
-                `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
-            );
-            this.ctx.emit({
-              sessionId,
-              agentId: AGENT_ID,
-              kind: 'message',
-              payload: {
-                text:
-                  `⚠ Codex 内部对话历史 (jsonl) 已不存在,本会话续聊从 fresh thread 开始 ` +
-                  `(应用层 events 历史保留)。请下条消息把背景给 Codex 一次。`,
-              },
-              ts: Date.now(),
-              source: 'sdk',
-            });
-          }
+        // symmetry-plan P3 R2-2 (reviewer-claude MED-G):删 `cwdFellBack ||` 强制 fallback。
+        // 修前 cwdFellBack 强制 fresh thread 即使 jsonl 在 — 用户无谓失去对话历史。
+        // 实际上 codex jsonl 完全独立于 cwd(date-based 路径,详 L38-40 注释 + L186-188 emit text),
+        // codex resumeThread + workingDirectory:effectiveCwd 让 SDK 在 fallback cwd 下 chdir 但仍
+        // 拿到原 thread 历史 → 与 claude 行为对称(claude 同款场景下 force fallback 是因为 jsonl
+        // 真在 cwd 下,codex 没这个限制)。仅 jsonl 真不在时才走 fresh thread fallback。
+        if (!this.jsonlExistsThunk(sessionId, rec.startedAt)) {
+          console.warn(
+            `[codex-bridge] resume jsonl missing for ${sessionId} (startedAt ${new Date(rec.startedAt).toISOString()}), ` +
+              `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
+          );
+          this.ctx.emit({
+            sessionId,
+            agentId: AGENT_ID,
+            kind: 'message',
+            payload: {
+              text:
+                `⚠ Codex 内部对话历史 (jsonl) 已不存在,本会话续聊从 fresh thread 开始 ` +
+                `(应用层 events 历史保留)。请下条消息把背景给 Codex 一次。`,
+            },
+            ts: Date.now(),
+            source: 'sdk',
+          });
           // fallback 路径：不带 resume + 显式透传 sandbox/model 否则静默降到全局默认（与 claude
           // REVIEW_36 HIGH-1 同款教训）。attachments 透传让首条恢复消息带图。
           const handle = await this.createThunk({

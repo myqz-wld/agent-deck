@@ -304,6 +304,22 @@ export class CodexSdkBridge {
             `[codex-bridge] resume ${opts.resume} no thread.started in ${THREAD_STARTED_FALLBACK_MS}ms, ` +
               `returning original id (turn loop may still recover)`,
           );
+          // symmetry-plan P3 R2-3 (reviewer-claude LOW-B):补 emit info message 让用户在
+          // SessionDetail 知道 30s 没拿到 thread.started — 不 `error: true`(commit c9c94d7
+          // 注释明示 resume 已 emit session-start + user msg 不应武断标 finished:error,
+          // 仅 turn loop 慢启动场景信息提示)。修前 silent resolve 用户等 30s 啥反馈没有。
+          this.opts.emit({
+            sessionId: opts.resume!,
+            agentId: AGENT_ID,
+            kind: 'message',
+            payload: {
+              text:
+                `⚠ Codex 30 秒内未发出 thread.started 事件,可能 SDK 慢启动 — 后续 turn 可能仍能` +
+                `恢复,请等待或检查 codex 鉴权 / 二进制路径(终端 \`codex auth\` 或设置面板「Codex 二进制路径」)。`,
+            },
+            ts: Date.now(),
+            source: 'sdk',
+          });
           resolve(opts.resume!);
         }, THREAD_STARTED_FALLBACK_MS);
 
@@ -322,6 +338,13 @@ export class CodexSdkBridge {
             if (resolved) return;
             resolved = true;
             clearTimeout(fallback);
+            // symmetry-plan P3 R2-1 (reviewer-codex HIGH):resume early-error 必须先 cleanup
+            // 半初始化 sessions Map + sdkClaim,否则 outer caller (restart-controller catch /
+            // recoverer catch) 走 rollback DB 后,sessions Map 仍留着 stale internal.thread →
+            // 后续 sendMessage `if (!s)` 命中 → 绕过 recoverer → 用 stale thread 跑 turn。
+            // 修前用户场景:切 sandbox=read-only 失败 → DB 回滚 → 用 stale thread 跑 (sandbox 错位)。
+            this.sessions.delete(opts.resume!);
+            sessionManager.releaseSdkClaim(opts.resume!);
             // resume 路径已 emit session-start + user msg,补 finished 完成 UI 序列。
             // **不 emit error message** — 让 outer caller (restart-controller catch / recoverer
             // catch / ipc handler) 自己 emit 上下文相关错误消息,避免双错误消息。
