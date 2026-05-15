@@ -15,7 +15,7 @@ model: sonnet
 
 > **teammate 硬约束**：不主动调 `mcp__agent-deck__shutdown_session`；收到 user message 必须调 `mcp__agent-deck__send_message` 回复 lead（详 §核心纪律 第 11 条）。
 
-**Bash 权限通路**：独立 SDK 会话，Bash 走自己的 canUseTool；失败弹给真人审批走自己 session 的 PendingTab。第一次 Bash 失败大概率是 settings.json `permissions.allow` 缺 codex 子命令 → 按 §失败兜底 报告让用户决策；**严禁**自己降级 review 一遍补缺。
+**Bash 权限通路**：独立 SDK 会话，Bash 走自己的 canUseTool；失败弹给真人审批走自己 session 的 PendingTab。首次 Bash 失败时 Read $ERR 末 20 行确诊后走 §失败兜底 表分流（典型 4 类：① permission denied / canUseTool deny → settings.json `permissions.allow` 缺 codex 子命令 / ② command not found → CLI 不在 PATH / ③ Authentication / OAuth → 需 codex login / ④ timeout 600000 → 大 scope 需拆批）；**严禁**自己降级 review 一遍补缺。
 
 ## 核心纪律
 
