@@ -726,4 +726,106 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     expect(bridge.createCalls[0].resume).toBe('sess-ws');
     expect(bridge.createCalls[0].claudeCodeSandbox).toBe('workspace-write');
   });
+
+  // ─── plan cross-adapter-parity-20260515 Phase A.9: extraAllowWrite 持久化往返 ──────
+  //
+  // 修前漏洞:hand_off_session 外置 worktree caller 传 [mainRepo] 让 session 能写 mainRepo
+  // plan 文件,但 sessions.extra_allow_write 列不存在 → app 重启 / sdk-bridge state lost /
+  // recoverer fallback 路径 createThunk 不带 extraAllowWrite → SDK sandbox.allowWrite 不含
+  // 原 mainRepo → 写 plan 文件静默失败(sandbox 拦)→ 用户体感 plan 完成时 frontmatter
+  // 更新失败莫名其妙(REVIEW_40 R1 reviewer-codex MED-F)。
+  //
+  // 这两个 case 锁定 fix:fallback 路径 + 正常 resume 路径都必须把 rec.extraAllowWrite 显式
+  // 透传给 createThunk(与 claudeCodeSandbox / model HIGH-1 同款治法)。
+
+  it('parity-plan A.9: jsonl 不存在 + record extraAllowWrite=[mainRepo] → fallback 透传', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-extra-fb',
+      agentId: 'claude-code',
+      cwd: '/tmp/worktree',
+      title: 'extra-allow-fallback',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      permissionMode: null,
+      claudeCodeSandbox: 'workspace-write',
+      // 关键:hand_off_session 外置 worktree caller 传 [mainRepo] 持久化到 record
+      extraAllowWrite: ['/Users/apple/mainrepo'],
+    });
+
+    await bridge.sendMessage('sess-extra-fb', 'hi');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    // 关键断言:fallback 路径必须把 record.extraAllowWrite 透传给 createThunk
+    // (而不是 undefined → SDK sandbox.allowWrite 不含 mainRepo,写 plan 文件静默失败)
+    expect(bridge.createCalls[0].extraAllowWrite).toEqual(['/Users/apple/mainrepo']);
+    // claudeCodeSandbox 也透传(回归 REVIEW_36 HIGH-1)
+    expect(bridge.createCalls[0].claudeCodeSandbox).toBe('workspace-write');
+  });
+
+  it('parity-plan A.9: 正常 resume + record extraAllowWrite=[mainRepo] → 透传', async () => {
+    const bridge = makeBridge();
+    // jsonl 默认 true → 走正常 resume 路径
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-extra-resume',
+      agentId: 'claude-code',
+      cwd: '/tmp/worktree',
+      title: 'extra-allow-resume',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+      claudeCodeSandbox: 'workspace-write',
+      extraAllowWrite: ['/Users/apple/mainrepo', '/Users/apple/anotherrepo'],
+    });
+
+    await bridge.sendMessage('sess-extra-resume', 'hi');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].resume).toBe('sess-extra-resume');
+    // 关键断言:resume 路径同款显式透传(防 sessionRepo 边界 race + 与 claudeCodeSandbox 对称)
+    expect(bridge.createCalls[0].extraAllowWrite).toEqual([
+      '/Users/apple/mainrepo',
+      '/Users/apple/anotherrepo',
+    ]);
+  });
+
+  it('parity-plan A.9: record extraAllowWrite=null → 透传 undefined(历史 NULL 兜底)', async () => {
+    const bridge = makeBridge();
+    // jsonl 默认 true → 走正常 resume 路径
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-null-extra',
+      agentId: 'claude-code',
+      cwd: '/tmp/worktree',
+      title: 'null-extra',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+      // 关键:历史 record(本 plan land 之前创建的 session)extraAllowWrite=null
+      extraAllowWrite: null,
+    });
+
+    await bridge.sendMessage('sess-null-extra', 'hi');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    // 关键断言:rec.extraAllowWrite=null → ?? undefined → createThunk 收 undefined
+    // (与 caller 不传 extraAllowWrite 行为同款,sandbox.allowWrite 仅含 cwd + /tmp + cache,
+    // 历史 NULL 不强升级行为保兼容)
+    expect(bridge.createCalls[0].extraAllowWrite).toBeUndefined();
+  });
 });
