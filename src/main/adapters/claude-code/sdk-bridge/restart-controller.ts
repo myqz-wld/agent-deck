@@ -22,6 +22,14 @@ export interface RestartCreateOpts {
   resume?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  /**
+   * plan cross-adapter-parity-20260515 Phase A + REVIEW_41 MED-3 fix: cold-restart 路径
+   * (restartWithPermissionMode / restartWithClaudeCodeSandbox)透传 extra writable roots。
+   * 修前 restart-controller 调 createSession 时不带 extraAllowWrite → 用户在 detail 切
+   * acceptEdits/bypass / 切 OS sandbox 档冷重启后 SDK 子进程 sandbox.allowWrite 不含原
+   * mainRepo → 写 plan 文件静默失败(与 plan 主旨 app 重启同款 bug,触发条件不同)。
+   */
+  extraAllowWrite?: readonly string[];
 }
 
 export interface RestartCtx {
@@ -121,6 +129,13 @@ export class RestartController {
           prompt: handoffPrompt,
           resume: sessionId,
           permissionMode: mode,
+          // plan cross-adapter-parity-20260515 + REVIEW_41 MED-3 fix:rec.claudeCodeSandbox /
+          // rec.extraAllowWrite 必须透传,否则冷重启后 SDK 子进程 sandbox.allowWrite 丢失原
+          // 用户透传的 mainRepo (典型 hand_off_session 外置 worktree caller 传 [mainRepo] 让
+          // session 能写 mainRepo plan 文件)。与 createSession opts.claudeCodeSandbox /
+          // recoverer fallback 路径同款显式透传 + ?? undefined 兜底。
+          claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
+          extraAllowWrite: rec.extraAllowWrite ?? undefined,
         });
         const newRealId = handle.sessionId;
         // CLI 隐式 fork：拿到的 newRealId 可能 ≠ OLD sessionId（CLI 在 streaming + resume 下行为不可控，
@@ -242,6 +257,10 @@ export class RestartController {
           // DB 仍保留旧 mode（acceptEdits/plan/bypassPermissions）→ DB/UI 与 SDK 实际行为不一致。
           // 与 restartWithPermissionMode 透传 mode 同款理由（用户辛苦切的 mode 不能被 sandbox 切档静默重置）。
           permissionMode: rec.permissionMode ?? undefined,
+          // plan cross-adapter-parity-20260515 + REVIEW_41 MED-3 fix:rec.extraAllowWrite 必须
+          // 透传,否则切 OS sandbox 档冷重启后 SDK 子进程 sandbox.allowWrite 不含原 mainRepo
+          // (与 restartWithPermissionMode 同款治法)。
+          extraAllowWrite: rec.extraAllowWrite ?? undefined,
         });
         const newRealId = handle.sessionId;
         if (newRealId !== sessionId) {

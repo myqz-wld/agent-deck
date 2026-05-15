@@ -85,6 +85,17 @@ class CodexCliAdapterImpl implements AgentAdapter {
      * 注释 D5），bridge 内仅 setModel 持久化 + warn 提示。透传即可。
      */
     model?: string;
+    /**
+     * plan cross-adapter-parity-20260515 Phase A Step A.7 + REVIEW_41 MED-1 fix:
+     * caller 透传的 SDK sandbox 额外可写根。**codex SDK runtime 不消费**(SDK 不支持 extra
+     * writable roots),但 bridge 内 setExtraAllowWrite 持久化保跨 adapter parity 对称
+     * (与 model 字段同款 — runtime 不生效 / DB 写库保 SessionRecord 形态一致)。
+     *
+     * 修前(REVIEW_41 reviewer-codex MED-1)漏点:facade 层不接此字段 → spawn handler /
+     * hand_off_session 透传给 codex adapter 的 extraAllowWrite 实际**完全断档**(bridge
+     * 永远收 undefined → setExtraAllowWrite 永远 skip → codex 端 parity 落空)。
+     */
+    extraAllowWrite?: readonly string[];
   }): Promise<string> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     const handle = await this.bridge.createSession({
@@ -94,6 +105,7 @@ class CodexCliAdapterImpl implements AgentAdapter {
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
       model: opts.model,
+      extraAllowWrite: opts.extraAllowWrite,
     });
     return handle.sessionId;
   }
