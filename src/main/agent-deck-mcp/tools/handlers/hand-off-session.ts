@@ -304,8 +304,13 @@ export const handOffSessionHandler = withMcpGuard(
 
     // 3. 调 spawn handler 完成实际 spawn（透传同一 ctx 让 caller 视角一致）
     // CHANGELOG_98 / R2 deep review HIGH-1：传 { batonMode: true } 让 spawn-guards 跳 depth
-    // check + setSpawnLink 写 lateral parentDepth（不 +1）。baton 单向交接（spawn 后立即
+    // check（其他 guard fan-out / spawn-rate 仍 enforce）。baton 单向交接（spawn 后立即
     // archive caller）不构成 fork-bomb 风险，多 phase 接力不该被 maxDepth=3 拒。
+    //
+    // **REVIEW_39 方案 1（hand-off-mcp-teammate-bug-20260515）**: spawn handler 现在 batonMode=true
+    // 路径完全跳 setSpawnLink（spawn.ts:285），新 session.spawnedBy=null + spawnDepth=0。
+    // 历史 CHANGELOG_98 「setSpawnLink 写 lateral parentDepth」语义已被本 fix 推翻 — baton 不是
+    // spawn parent-child 关系，数据层不应假装是。详 spawn.ts:257-284 完整注释。
     //
     // REVIEW_37 R2 HIGH-1 修法（双方异构对抗一致 ✅ 真 HIGH）：传 batonRole: 'lead' 让新
     // session 在 team 内以 lead 角色加入。修前：spawn 把新 session 加成 'teammate' →
