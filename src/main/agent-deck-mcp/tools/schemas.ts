@@ -213,7 +213,17 @@ export const ARCHIVE_PLAN_SCHEMA = {
     .max(4096)
     .optional()
     .describe(
-      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md.',
+      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then <main-repo>/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md. **stem 约束**(impl-level refine,follow-up 20260515): plan_file_path 文件名 stem(去 .md 后缀)必须等于 plan_id — 否则 archive_plan reject(防 archived path / INDEX key 派生与 caller 给的文件 stem 脱节导致 silent unlink 风险)。',
+    ),
+  changelog_id: z
+    .string()
+    .regex(
+      /^\s*\d+(\s*,\s*\d+)*\s*$/,
+      'changelog_id must be a digit (e.g. "122") or comma-separated digits (e.g. "121,122" / "121, 122") matching CHANGELOG_X.md naming; whitespace around digits/commas allowed',
+    )
+    .optional()
+    .describe(
+      'Optional changelog reference(s) for plans/INDEX.md smart update (followup 20260515 (b)+(c))。caller 在 archive_plan 之前已经写完 CHANGELOG_X.md 并 commit,此处显式传 X 数字(如 "122")或多个逗号分隔(如 "121,122" 或 "121, 122" — R1 fix MED-3 放松 regex 容空格,与 helper trim 行为对齐)。impl 拼成 markdown link `[X](../changelog/CHANGELOG_X.md)` 写入 INDEX 第 3 列「关联 changelog」。**caller 不传时**:smart update existing 4-列 row 保留原 changelog 列;旧 2 列 row 或新 append 行用 `—` placeholder(不强制清空已有,避免数据丢失)。',
     ),
   caller_session_id: z
     .string()
@@ -475,8 +485,25 @@ export interface ArchivePlanResult {
   commit_hash: string;
   branch_deleted: string;
   worktree_removed: string;
-  plans_index_appended: boolean;
+  /**
+   * archive-plan-tool-ux-followup-20260515 (b)+(c):plansIndexAppended boolean → plansIndexAction
+   * 四态 enum,让 caller 区分 INDEX 行真正发生的事情:
+   * - 'created':INDEX 文件不存在,创建带 4 列 header 的初始文件 + 第一行
+   * - 'appended':INDEX 已存在但无本 plan_id 行,append 一行 4 列 row
+   * - 'updated':INDEX 已存在且有本 plan_id 行 → smart update canonical rewrite 4 列
+   *   (status=completed + changelog 列 + description 列)
+   * - 'unchanged':smart update 后内容与原行完全相同(罕见 idempotent)
+   */
+  plans_index_action: 'created' | 'appended' | 'updated' | 'unchanged';
   final_status: 'completed';
+  /**
+   * archive-plan-tool-ux-followup-20260515 HIGH-2 (双方独立 HIGH 共识 — silent override 防覆盖
+   * 走 warn 而非 reject):non-fatal warning 列表。典型场景:
+   * - `.claude/plans/<id>.md` 与 `<main-repo>/plans/<id>.md` 同 id 双存,fallback 选 .claude/
+   *   plans/ 后会覆盖 plans/ 历史 completed archive → 加 warning 让 caller 看到
+   * 调用方应在 ok return display 时把 warnings 列出来,而非吞掉。空数组表示无 warning。
+   */
+  warnings: string[];
   archived: 'ok' | 'failed' | 'skipped';
   teammatesShutdown: TeammatesShutdownInfo;
 }

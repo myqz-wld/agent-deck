@@ -66,6 +66,13 @@ export interface ArchivePlanInput {
    */
   baseBranch?: string;
   planFilePathOverride?: string;
+  /**
+   * archive-plan-tool-ux-followup-20260515 (b)+(c)：caller 显式传 changelog X 数字（如 "122"
+   * 单值 / "121,122" 多值 csv）让 impl 把它格式化成 markdown link 写入 plans/INDEX.md
+   * 第 3 列「关联 changelog」。caller 不传时 smart update 保留 existing 4 列 row 的原 changelog
+   * 列；旧 2 列 row 或新 append 行用 `—` placeholder（不强制清空已有，避免数据丢失）。
+   */
+  changelogId?: string;
 }
 
 export interface ArchivePlanResult {
@@ -73,8 +80,25 @@ export interface ArchivePlanResult {
   commitHash: string;
   branchDeleted: string;
   worktreeRemoved: string;
-  plansIndexAppended: boolean;
+  /**
+   * archive-plan-tool-ux-followup-20260515 (b)+(c)：plansIndexAppended boolean → plansIndexAction
+   * 四态 enum,让 caller 区分 INDEX 行真正发生的事情:
+   * - 'created':INDEX 文件不存在,创建带 4 列 header 的初始文件 + 写第一行
+   * - 'appended':INDEX 已存在但无本 plan_id 行,append 一行 4 列 row
+   * - 'updated':INDEX 已存在且有本 plan_id 行(老 in_progress / 旧 2 列 stub / 老 4 列 completed)
+   *   → smart update canonical rewrite 4 列(status=completed + changelog 列 + description 列)
+   * - 'unchanged':INDEX 已存在且有本 plan_id 行,smart update 后内容与原行完全相同(罕见 idempotent)
+   */
+  plansIndexAction: 'created' | 'appended' | 'updated' | 'unchanged';
   finalStatus: 'completed';
+  /**
+   * archive-plan-tool-ux-followup-20260515 HIGH-2:non-fatal warning 列表(双方独立 HIGH 共识 — silent
+   * override 防覆盖走 warn 而非 reject 模式,见 plan §设计决策 Q1 用户决策)。典型场景:
+   * - `.claude/plans/<id>.md` 与 `<main-repo>/plans/<id>.md` 同 id 双存,fallback 选 .claude/plans/
+   *   后会覆盖 plans/ 历史 completed archive → 加 warning 让 caller 看到
+   * 调用方应在 ok return display 时把 warnings 列出来,而非吞掉。空数组表示无 warning。
+   */
+  warnings: string[];
 }
 
 export type ArchivePlanError = { error: string; hint?: string };
@@ -134,6 +158,9 @@ export async function archivePlanImpl(
   depsOverride?: ArchivePlanDeps,
 ): Promise<ArchivePlanResult | ArchivePlanError> {
   const deps: Required<ArchivePlanDeps> = { ...DEFAULT_DEPS, ...depsOverride };
+  // archive-plan-tool-ux-followup-20260515 HIGH-2:non-fatal warning 数组(silent override 防覆盖等
+  // 场景的 warn 收集口子)。impl 走完所有步骤都成功才会 return ok + warnings 透传 caller。
+  const warnings: string[] = [];
 
   // REVIEW_33 H10：worktree_path 存在性预检（放最前，所有其他预检之前）。
   // 旧实现 step 1 直接 `git rev-parse --git-common-dir` in cwd: input.worktreePath；
@@ -219,18 +246,38 @@ export async function archivePlanImpl(
         error: `plan_file_path override does not exist: ${input.planFilePathOverride}`,
       };
     }
+    // archive-plan-tool-ux-followup-20260515 HIGH-1 (claude 单方 + 现场验证): plan_file_path
+    // 文件名 stem 必须等于 plan_id。否则 step 10 archivedPath 用 plan_id 派生 = `<main-repo>
+    // /plans/<plan_id>.md` 与 caller 给的 plan_file_path 文件完全脱节,step 12 因 path !==
+    // archivedPath 删 caller 文件,silent unlink 风险。impl 层校验给清晰 hint(schema 是 record
+    // shape 不支持 cross-field refine,故落 impl 而非 schema)。
+    const overrideStem = path.basename(input.planFilePathOverride, '.md');
+    if (overrideStem !== input.planId) {
+      return {
+        error: `plan_file_path stem "${overrideStem}" does not match plan_id "${input.planId}"`,
+        hint: `archived path / INDEX key are derived from plan_id (\`<main-repo>/plans/${input.planId}.md\`); step 12 unlink would silently move the plan_file_path file. Either rename plan_file_path to \`${input.planId}.md\` or change plan_id to "${overrideStem}". 修法 followup 20260515 HIGH-1.`,
+      };
+    }
     planFilePath = input.planFilePathOverride;
   } else {
+    // archive-plan-tool-ux-followup-20260515 (a): fallback 链加 `<main-repo>/plans/<id>.md`
+    // 中间档(双 reviewer 共识 HIGH:本项目实际惯例所有 stub plan 都直接创在 plans/,旧 fallback
+    // 缺中间档 → caller 不传 plan_file_path 时全失败)。顺序 .claude/plans/ > plans/ >
+    // ~/.claude/plans/(贴 user CLAUDE.md §Step 2 文档约定 .claude/plans/ in_progress 优先,
+    // 但 plans/ 中间档兜底本项目实际惯例)。
     const projectLocal = path.join(mainRepo, '.claude', 'plans', `${input.planId}.md`);
+    const projectArchived = path.join(mainRepo, 'plans', `${input.planId}.md`);
     const userGlobal = path.join(deps.homedir(), '.claude', 'plans', `${input.planId}.md`);
     if (await deps.exists(projectLocal)) {
       planFilePath = projectLocal;
+    } else if (await deps.exists(projectArchived)) {
+      planFilePath = projectArchived;
     } else if (await deps.exists(userGlobal)) {
       planFilePath = userGlobal;
     } else {
       return {
-        error: `plan file not found at either default location`,
-        hint: `Tried: ${projectLocal}\n       ${userGlobal}\nPass plan_file_path explicitly to override.`,
+        error: `plan file not found at any default location`,
+        hint: `Tried (in order): ${projectLocal}\n                  ${projectArchived}\n                  ${userGlobal}\nPass plan_file_path explicitly to override.`,
       };
     }
   }
@@ -322,7 +369,13 @@ export async function archivePlanImpl(
   try {
     finalCommit = await deps.runGit(['rev-parse', 'HEAD'], mainRepo);
   } catch (e) {
-    return postFfMergeErr('rev-parse-HEAD', e as Error);
+    return postFfMergeErr(
+      'rev-parse-HEAD',
+      e as Error,
+      `git rev-parse HEAD failed in main repo (rare — git internal state / perm). ` +
+        `Manually run \`git -C ${mainRepo} rev-parse HEAD\` to get current hash; ` +
+        `complete steps 9-14 manually (update plan frontmatter with status=completed + final_commit + completed_at, write to ${path.join(mainRepo, 'plans', `${input.planId}.md`)}, sync plans/INDEX.md, unlink original plan, git add+commit, worktree remove, branch -D).`,
+    );
   }
 
   // 8b. **重新 read plan 文件 + parse fresh frontmatter**
@@ -442,49 +495,77 @@ export async function archivePlanImpl(
   // / 跳过理由 / 当前进度 等收尾回写)
   const archivedDir = path.join(mainRepo, 'plans');
   const archivedPath = path.join(archivedDir, `${input.planId}.md`);
+  // archive-plan-tool-ux-followup-20260515 HIGH-2 (双方独立 HIGH 共识) silent override warn:
+  // 同 plan_id 同时存在 `.claude/plans/<id>.md` AND `<main-repo>/plans/<id>.md`(caller 误操作 /
+  // 历史遗留)→ fallback 链选 .claude/plans/ 后 step 10 静默覆盖 plans/ 历史 completed archive。
+  // 用户决策(Q1):走 warn 而非 reject(不阻断 archive,只让 caller 看到风险)。
+  if (path.resolve(planFilePath) !== path.resolve(archivedPath)) {
+    if (await deps.exists(archivedPath)) {
+      warnings.push(
+        `silent-override: plan_id "${input.planId}" exists at both source ${planFilePath} and archived target ${archivedPath}. ` +
+          `Step 10 will overwrite ${archivedPath} (历史 completed archive 可能被覆盖)。建议 caller 后续手工 reconcile:` +
+          `(1) inspect git log ${path.relative(mainRepo, archivedPath)} 看老归档历史;` +
+          `(2) 决定保留哪份(典型: 老归档 + 本次 fix 用 git revert 回滚或 merge);` +
+          `(3) rm 多余的 ${planFilePath} 防再次撞同款 warning。`,
+      );
+    }
+  }
   try {
     await deps.mkdir(archivedDir);
   } catch (e) {
-    return postFfMergeErr('mkdir-plans-dir', e as Error);
+    return postFfMergeErr(
+      'mkdir-plans-dir',
+      e as Error,
+      `mkdir -p ${archivedDir} failed (disk full / perm denied / path conflict). ` +
+        `Fix fs state then manually \`mkdir -p ${archivedDir}\` (idempotent — this single step is retry-safe); ` +
+        `complete steps 10b-14 manually (write archived plan / sync INDEX / unlink original / git add+commit / worktree remove / branch -D). ` +
+        `Cannot retry archive_plan as a whole (would hit "branch already merged" on ff-merge).`,
+    );
   }
   const body = stripFrontmatter(freshContent);
   const newContent = `${stringifyFrontmatter(newFm)}\n${body}`;
   try {
     await deps.writeFile(archivedPath, newContent);
   } catch (e) {
-    return postFfMergeErr('write-archived-plan', e as Error);
+    return postFfMergeErr(
+      'write-archived-plan',
+      e as Error,
+      `Writing archived plan to ${archivedPath} failed (disk full / perm denied / fs lock). ` +
+        `Fix fs state then manually write the same content to ${archivedPath} (frontmatter: status=completed + final_commit=${finalCommit} + completed_at=${today}, body = original plan body from ${planFilePath}); ` +
+        `complete steps 11-14 manually (sync INDEX / unlink original / git add+commit / worktree remove / branch -D).`,
+    );
   }
 
-  // 11. 同步 plans/INDEX.md（存在则 append 一行 / 不存在则创建带 header）
+  // 11. 同步 plans/INDEX.md(archive-plan-tool-ux-followup-20260515 (b)+(c) syncPlansIndex helper
+  // 重写):4 列 canonical 格式 `| 文件 | 状态 | 关联 changelog | 概要 |`,smart update existing
+  // 行(替换 status / changelog / description 列),caller 不传 changelog_id 时保留老 4 列 changelog
+  // 列 / 旧 2 列 row 或新 append 用 `—` placeholder。description / changelog 列 escape `|` + 换行。
   const indexPath = path.join(archivedDir, 'INDEX.md');
   // freshFm 而非 step 6 fm — 与 step 9-10 frontmatter / body 写入保持同源
-  // (R1 review HIGH:caller 在 worktree branch commit 更新 description 时,旧实现
-  // INDEX.md 仍写老 description,与归档 plan frontmatter / body 不一致)
-  const summary = (freshFm.description ?? freshFm.plan_id ?? input.planId).slice(0, 200);
-  let plansIndexAppended = false;
+  const rawSummary = (freshFm.description ?? freshFm.plan_id ?? input.planId).slice(0, 200);
+  const summary = escapeTableCell(rawSummary);
+  const changelogCell = formatChangelogCell(input.changelogId);
+  let plansIndexAction: ArchivePlanResult['plansIndexAction'];
   try {
     const indexExists = await deps.exists(indexPath);
-    if (indexExists) {
-      const indexContent = await deps.readFile(indexPath);
-      // 防重复 append（如果同 plan_id 已经在 INDEX 里则跳过）
-      if (!indexContent.includes(`(${input.planId}.md)`)) {
-        const appendLine = `| [${input.planId}.md](${input.planId}.md) | ${summary} |\n`;
-        const sep = indexContent.endsWith('\n') ? '' : '\n';
-        await deps.writeFile(indexPath, indexContent + sep + appendLine);
-        plansIndexAppended = true;
-      }
-    } else {
-      const initial =
-        '# Plans 索引\n\n' +
-        '> 已归档 plan 一行表（archive_plan tool 自动维护）。\n\n' +
-        '| 文件 | 概要 |\n' +
-        '|---|---|\n' +
-        `| [${input.planId}.md](${input.planId}.md) | ${summary} |\n`;
-      await deps.writeFile(indexPath, initial);
-      plansIndexAppended = true;
+    const existingContent = indexExists ? await deps.readFile(indexPath) : null;
+    const syncResult = syncPlansIndex(existingContent, {
+      planId: input.planId,
+      description: summary,
+      changelogCell,
+    });
+    if (syncResult.action !== 'unchanged') {
+      await deps.writeFile(indexPath, syncResult.newContent);
     }
+    plansIndexAction = syncResult.action;
   } catch (e) {
-    return postFfMergeErr('sync-plans-INDEX', e as Error);
+    return postFfMergeErr(
+      'sync-plans-INDEX',
+      e as Error,
+      `Writing ${indexPath} failed (rare race / fs perm). ` +
+        `Fix fs state then manually append a 4-column row \`| [${input.planId}.md](${input.planId}.md) | completed | <changelog ref or "—"> | <description> |\` to the INDEX table at ${indexPath} (header should be \`| 文件 | 状态 | 关联 changelog | 概要 |\`); ` +
+        `complete steps 12-14 manually (unlink original / git add+commit / worktree remove / branch -D).`,
+    );
   }
 
   // 12. 删除原 plan 文件（如果原位置不在新位置）
@@ -492,7 +573,13 @@ export async function archivePlanImpl(
     try {
       await deps.unlink(planFilePath);
     } catch (e) {
-      return postFfMergeErr('unlink-original-plan', e as Error);
+      return postFfMergeErr(
+        'unlink-original-plan',
+        e as Error,
+        `rm ${planFilePath} failed (perm denied / file already removed by external / mv to elsewhere). ` +
+          `Fix fs state then manually \`rm ${planFilePath}\` (or skip if file is already gone — that's the desired end state); ` +
+          `complete steps 13-14 manually (git add+commit / worktree remove / branch -D).`,
+      );
     }
   }
 
@@ -504,13 +591,25 @@ export async function archivePlanImpl(
   try {
     await deps.runGit(['add', ...filesToAdd], mainRepo);
   } catch (e) {
-    return postFfMergeErr('git-add', e as Error);
+    return postFfMergeErr(
+      'git-add',
+      e as Error,
+      `git add failed (rare — git lock / index corrupt / paths outside main repo). ` +
+        `Fix git lock (rm .git/index.lock if stale) then manually \`git -C ${mainRepo} add ${filesToAdd.join(' ')}\`; ` +
+        `complete steps 13b-14 manually (git commit / worktree remove / branch -D).`,
+    );
   }
   const commitMsg = `docs(plans): 归档 ${input.planId} plan + 同步 INDEX (archive_plan)`;
   try {
     await deps.runGit(['commit', '-m', commitMsg], mainRepo);
   } catch (e) {
-    return postFfMergeErr('git-commit', e as Error);
+    return postFfMergeErr(
+      'git-commit',
+      e as Error,
+      `git commit failed (pre-commit hook reject / commit-msg validator failed / nothing to commit / signing key issue). ` +
+        `Inspect the git error and fix root cause (skip hook with --no-verify only if necessary, fix message format, configure signing key); ` +
+        `then manually \`git -C ${mainRepo} commit -m "${commitMsg}"\` and complete step 14 manually (worktree remove / branch -D).`,
+    );
   }
 
   // 14. git worktree remove + branch -D
@@ -538,8 +637,9 @@ export async function archivePlanImpl(
     commitHash: finalCommit,
     branchDeleted: worktreeBranch,
     worktreeRemoved: input.worktreePath,
-    plansIndexAppended,
+    plansIndexAction,
     finalStatus: 'completed',
+    warnings,
   };
 }
 
@@ -556,6 +656,172 @@ function stripFrontmatter(text: string): string {
   const m = text.match(/^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n/);
   if (!m) return text;
   return text.slice(m[0].length);
+}
+
+/**
+ * archive-plan-tool-ux-followup-20260515 (c) HIGH-5 (claude HIGH-5 / codex LOW-2 共识):
+ * markdown table cell escape — frontmatter description / changelog 列含 `|` 或换行会破表 (列被切错
+ * / 多行 row)。写入 INDEX 表前必经此 escape。
+ */
+export function escapeTableCell(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+/**
+ * archive-plan-tool-ux-followup-20260515 (b) LOW-1 (codex) / claude MED-5: caller 传 changelog_id
+ * (string + csv 解析,schema 已 regex 守门 `^\d+(,\d+)*$`) → 拼成 markdown link 单值或 ` / ` 分隔多值。
+ * - "122" → "[122](../changelog/CHANGELOG_122.md)"
+ * - "121,122" → "[121](../changelog/CHANGELOG_121.md) / [122](../changelog/CHANGELOG_122.md)"
+ * - undefined / 空串 → null (caller 不传,smart update 时按 fallback 处理)
+ *
+ * markdown link 不需 escape (`(` `)` `[` `]` 是 markdown link 语法本身,但 `|` 会破表 — link
+ * url/text 都是纯数字 + 斜杠 + 下划线无 pipe,安全)。
+ */
+export function formatChangelogCell(changelogId: string | undefined): string | null {
+  if (!changelogId) return null;
+  const ids = changelogId
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (ids.length === 0) return null;
+  return ids.map((id) => `[${id}](../changelog/CHANGELOG_${id}.md)`).join(' / ');
+}
+
+/**
+ * archive-plan-tool-ux-followup-20260515 (b)+(c) syncPlansIndex helper(双方 reviewer 共识 HIGH:
+ * INDEX 行 smart update 不能 naive split,必须行级匹配锚定行首)。
+ *
+ * **行为契约**:
+ * - existingContent === null → action='created':写带 4 列 header 的初始 INDEX(`| 文件 | 状态 |
+ *   关联 changelog | 概要 |`) + 第一行 4 列 row
+ * - existingContent 已含 plan_id 行(行首 `^| [<plan_id>.md](`)→ action='updated':canonical
+ *   rewrite 该行为 4 列(status='completed' / changelog 列按规则 / description 列覆盖);完全相同 →
+ *   action='unchanged'(caller 端可跳过 writeFile)
+ * - existingContent 不含 plan_id 行 → action='appended':append 一行 4 列 row 到 INDEX 末尾
+ *
+ * **caller 不传 changelog_id 时(opts.changelogCell === null)**:smart update 已存在 4 列 row 时
+ * 保留原 changelog 列(避免清空已有);旧 2 列 row 或新 append 用 `—` placeholder。
+ *
+ * **行级 regex 锚定行首 `^| [<plan_id>.md](`** 而非 `indexContent.includes('(${planId}.md)')` —
+ * 后者会撞 description / changelog 列含同款 substring 误命中(罕见但可能,如 description 引用其他
+ * plan link)。锚定行首 + 文件链接前缀语法保证只匹配 row 第一列。
+ */
+export type PlansIndexAction = 'created' | 'appended' | 'updated' | 'unchanged';
+export interface SyncPlansIndexOptions {
+  planId: string;
+  /** 已 escape + slice 200 char 的 description,直接写 INDEX 第 4 列。 */
+  description: string;
+  /**
+   * caller 传 changelog_id 时拼成的 markdown link string (formatChangelogCell 输出);
+   * caller 不传时 null,smart update 时保留老 4 列 changelog 列 / append 时用 `—` placeholder。
+   */
+  changelogCell: string | null;
+}
+export interface SyncPlansIndexResult {
+  newContent: string;
+  action: PlansIndexAction;
+}
+
+export function syncPlansIndex(
+  existingContent: string | null,
+  opts: SyncPlansIndexOptions,
+): SyncPlansIndexResult {
+  const { planId, description, changelogCell } = opts;
+  const fileLink = `[${planId}.md](${planId}.md)`;
+  // regex 锚定行首 + 文件链接前缀:`^| [<plan_id>.md](` 转义 plan_id 中 regex 特殊字符
+  // (按 schema plan_id charset `[A-Za-z0-9._-]` 含 `.`)
+  const escapedPlanId = planId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const planLineRegex = new RegExp(`^\\| \\[${escapedPlanId}\\.md\\]\\(`);
+
+  // case 1: 不存在 INDEX → 创建 4 列 header + 4 列 row
+  if (existingContent === null) {
+    const initial =
+      '# Plans 索引\n\n' +
+      '> 已归档 plan 一行表（archive_plan tool 自动维护)。\n\n' +
+      '| 文件 | 状态 | 关联 changelog | 概要 |\n' +
+      '|------|------|---------------|------|\n' +
+      `| ${fileLink} | completed | ${changelogCell ?? '—'} | ${description} |\n`;
+    return { newContent: initial, action: 'created' };
+  }
+
+  // archive-plan-tool-ux-followup-20260515 R1 fix codex MED-1:旧 2 列 header
+  // (`| 文件 | 概要 |` + `|---|---|`)在 (b)+(c) 升级为 4 列 row 后会与 row 错位
+  // (4 列 row 挂 2 列 header 下,markdown 渲染破损)。修法:syncPlansIndex 在 case 2 /
+  // case 3 路径前先 detect + canonicalize 升级 header,让 archive_plan 自动平滑迁移
+  // 老 INDEX 而非要求 caller 手工 fix。upgrade 自身 idempotent(第二次跑无 2 列
+  // header 检测不到即 no-op)。
+  const headerUpgrade = upgradeIndexHeader(existingContent);
+  const workingContent = headerUpgrade.content;
+
+  const lines = workingContent.split('\n');
+  const targetIdx = lines.findIndex((line) => planLineRegex.test(line));
+
+  // case 2: 已含 plan_id 行 → smart update canonical rewrite 4 列
+  if (targetIdx >= 0) {
+    // parse 老行用 split('|') 拿 cells;`split('|')` 第一段空(行首 `|`)+ 中间 cells + 末尾空
+    // (行尾 `|`)。slice(1, -1) 拿 cells 部分,trim 去 padding。caller 不传 changelog_id 时
+    // 用老 4 列的第 3 列(index 2)作 fallback。
+    //
+    // **invariant**(R1 fix codex MED-3 / claude MED-4):**只用 oldCols[2] 作 changelog
+    // fallback,严禁扩展用 oldCols[3+]**(后续列若含 escaped `\|` 会被 naive split 误切;
+    // 当前 impl 仅读 oldCols[2]=changelog 列在 description 之前,不受 description escape
+    // 影响,故安全)。任何未来扩展涉及 oldCols[3+] 必须先实现 escape-aware splitter。
+    const oldCols = lines[targetIdx]
+      .split('|')
+      .slice(1, -1)
+      .map((c) => c.trim());
+    let newChangelog: string;
+    if (changelogCell !== null) {
+      newChangelog = changelogCell;
+    } else if (oldCols.length >= 3 && oldCols[2]) {
+      // 老 4 列 row: oldCols = [fileLink, status, changelog, description, ...]
+      newChangelog = oldCols[2];
+    } else {
+      newChangelog = '—';
+    }
+    const newLine = `| ${fileLink} | completed | ${newChangelog} | ${description} |`;
+    if (lines[targetIdx] === newLine && !headerUpgrade.upgraded) {
+      // unchanged 仅当 row 自身相同 AND header 未升级两者都满足
+      return { newContent: existingContent, action: 'unchanged' };
+    }
+    lines[targetIdx] = newLine;
+    return { newContent: lines.join('\n'), action: 'updated' };
+  }
+
+  // case 3: 不含 plan_id 行 → append 4 列 row(若 header 已升级,workingContent 反映新 header)
+  const appendLine = `| ${fileLink} | completed | ${changelogCell ?? '—'} | ${description} |`;
+  const sep = workingContent.endsWith('\n') ? '' : '\n';
+  return { newContent: workingContent + sep + appendLine + '\n', action: 'appended' };
+}
+
+/**
+ * archive-plan-tool-ux-followup-20260515 R1 fix codex MED-1:detect 老 2 列 header
+ * `| 文件 | 概要 |` + 紧接 separator `|---|---|`(或类似 2 列 separator)→ 替换为 4 列
+ * canonical header `| 文件 | 状态 | 关联 changelog | 概要 |` + `|------|------|---------------|------|`。
+ *
+ * 保守 detect:必须 header 行只含「文件 / 概要」两列(允许 padding)+ 紧跟 2 列 separator
+ * (避免误改用户自定义 header / 多列 header)。idempotent:已是 4 列 header 时 detect 不到 2 列
+ * 模式即 no-op。
+ *
+ * 仅扫描首个匹配的 header(避免一份 INDEX 含多个 table 的极端 case 全部被改 — 不太合理)。
+ *
+ * **invariant(R2 codex LOW-1)**:本 helper 假设 INDEX **单 table**(本应用约定 plans/INDEX.md
+ * 单一表格);多 table INDEX 边角下 target row 可能在第 2+ table,而本 helper 只升级首 table
+ * header → 出现 4 列 row 挂 2 列 header。本应用不建议多 table INDEX 模式;后续如要支持需要
+ * 「按 target row 找最近上方 table header」精细化升级。
+ */
+function upgradeIndexHeader(content: string): { content: string; upgraded: boolean } {
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length - 1; i++) {
+    const headerMatch = lines[i].match(/^\|\s*文件\s*\|\s*概要\s*\|\s*$/);
+    const sepMatch = lines[i + 1].match(/^\|[-:\s]+\|[-:\s]+\|\s*$/);
+    if (headerMatch && sepMatch) {
+      lines[i] = '| 文件 | 状态 | 关联 changelog | 概要 |';
+      lines[i + 1] = '|------|------|---------------|------|';
+      return { content: lines.join('\n'), upgraded: true };
+    }
+  }
+  return { content, upgraded: false };
 }
 
 /**
@@ -593,19 +859,40 @@ const POST_FF_MERGE_HINT_GENERIC =
   '不能简单 retry archive_plan（会撞 "branch already merged" 等已成功步骤）；按 phase 标识手工补完后续 cleanup。';
 
 /**
+ * archive-plan-tool-ux-followup-20260515 R1 fix MED-2 共识(双方独立):统一 retry-invariant prefix。
+ * 7 phase 专用 phaseHint(R1 follow-up Phase 2.1)覆盖了 GENERIC,但除 mkdir-plans-dir 外都丢了
+ * 「不能整体 retry archive_plan」的关键 invariant — caller 看到精细 manual recovery 步骤可能
+ * 误以为按完后可 re-call archive_plan retry → 第二次跑 ff-merge 撞「branch already merged」/
+ * merge already done 撞墙;或 caller 已手工补完 cleanup 后 retry 触发重复 git add / commit /
+ * worktree remove "validation failed"。
+ *
+ * 修法:postFfMergeErr 内部把 phaseHint 与 retry-invariant prefix 拼起来,保 caller 任何 phase
+ * 失败都看到这一条。GENERIC fallback 自身已含该语义,无需重复 prefix(if phaseHint missing)。
+ */
+const POST_FF_MERGE_RETRY_INVARIANT_PREFIX =
+  '⚠ Cannot retry archive_plan as a whole (would hit "branch already merged" / "validation failed" on ff-merge or repeat already-completed steps). ' +
+  'Manually complete remaining cleanup steps according to the phase below, then DO NOT re-call archive_plan; the worktree branch is already merged into base_branch.\n\n';
+
+/**
  * REVIEW_33 H9：统一 post-ff-merge error 构造器。error 文本前缀加 `[post-ff-merge:<phase>]`
  * 让 caller 一眼识别这是 ff-merge 之后的失败（不是 ff-merge 前的可重试失败），hint
  * 默认提示「不能简单 retry，按 phase 手工补完」；caller 可传 phaseHint override 给
  * 特定 phase 的精细 hint（如 git-worktree-remove 提示用 --force）。
+ *
+ * archive-plan-tool-ux-followup-20260515 R1 fix MED-2:phaseHint 传入时,自动加 retry-invariant
+ * prefix(GENERIC fallback 自身已含该语义不重复)。
  */
 export function postFfMergeErr(
   phase: PostFfMergePhase,
   e: Error,
   phaseHint?: string,
 ): ArchivePlanError {
+  const hint = phaseHint
+    ? POST_FF_MERGE_RETRY_INVARIANT_PREFIX + phaseHint
+    : POST_FF_MERGE_HINT_GENERIC;
   return {
     error: `[post-ff-merge:${phase}] ${e.message}`,
-    hint: phaseHint ?? POST_FF_MERGE_HINT_GENERIC,
+    hint,
   };
 }
 

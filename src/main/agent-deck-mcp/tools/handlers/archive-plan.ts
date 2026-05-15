@@ -112,6 +112,7 @@ export const archivePlanHandler = withMcpGuard(
         worktreePath: args.worktree_path,
         baseBranch: args.base_branch,
         planFilePathOverride: args.plan_file_path,
+        changelogId: args.changelog_id,
       },
       mergedImplDeps,
     );
@@ -146,8 +147,9 @@ export const archivePlanHandler = withMcpGuard(
       commit_hash: result.commitHash,
       branch_deleted: result.branchDeleted,
       worktree_removed: result.worktreeRemoved,
-      plans_index_appended: result.plansIndexAppended,
+      plans_index_action: result.plansIndexAction,
       final_status: result.finalStatus,
+      warnings: result.warnings,
       /**
        * CHANGELOG_99：'ok' = caller 归档成功 / 'failed' = warn-only 不阻塞(callerRow 缺 / DB
        * 不可用 / archive 抛错) / 'skipped' = external caller(理论上 deny external 拦截不到这里)

@@ -84,8 +84,8 @@ reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <sen
 
 `archive_plan` 在 plan 完成后**原子执行** user CLAUDE §Step 4「完成」5 步：ff merge worktree branch → `base_branch` / 更新 frontmatter (`status=completed` + `final_commit` + `completed_at`) / mv plan → `<main-repo>/plans/<plan_id>.md` / 同步 `<main-repo>/plans/INDEX.md` / `git add` + commit / `git worktree remove` + `git branch -D`。caller 调用前必须先 `ExitWorktree(action: "keep")`。
 
-**调用**：`mcp__agent-deck__archive_plan({ plan_id, worktree_path, base_branch?: "main", plan_file_path?, keep_teammates?: false })`
-**返回**：`{ archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_appended, final_status, archived: 'ok'|'failed'|'skipped', teammatesShutdown: { closed, failed, skipped } }`
+**调用**：`mcp__agent-deck__archive_plan({ plan_id, worktree_path, base_branch?: "main", plan_file_path?, changelog_id?, keep_teammates?: false })`
+**返回**：`{ archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_action: 'created'|'appended'|'updated'|'unchanged', final_status, warnings: string[], archived: 'ok'|'failed'|'skipped', teammatesShutdown: { closed, failed, skipped } }`
 
 **app-only 差异**：
 
@@ -94,6 +94,14 @@ reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <sen
 - **自动归档 caller session**：plan 收口后默认归档 caller（baton 同款语义），返回 `archived` 三态字段；归档失败仅 warn 不阻塞 ok return
 - **abandoned plan 不走本 tool**：tool 强制 `status=completed` 且入项目 git 归档；abandoned 走 user CLAUDE §Step 4 §中止 手工流程
 - **changelog 引用归档** agent 自己写（tool 不做）
+- **followup 20260515 (a)+(b)+(c)+(d) UX 完善**：
+  - fallback 链 `<main-repo>/.claude/plans/` > `<main-repo>/plans/` > `~/.claude/plans/`(加中间档兜底本项目实际惯例)
+  - `plan_file_path` 文件名 stem 必须 == `plan_id`(impl 层 reject 防 silent unlink)
+  - INDEX 4 列 canonical `| 文件 | 状态 | 关联 changelog | 概要 |` + smart update existing 行(替换 status / changelog / description)
+  - `changelog_id` optional string + csv(单值 `"122"` / 多值 `"121,122"`),拼成 markdown link 写入 INDEX 第 3 列;不传时 smart update 保留老 4 列 changelog 列 / 旧 2 列或新 append 用 `—` placeholder
+  - `plans_index_action` 四态 enum 替代旧 boolean,让 caller 区分 INDEX 行真正发生的事情
+  - `warnings` non-fatal warning 数组(如 `.claude/plans/<id>.md` 与 `plans/<id>.md` 同 id 双存覆盖警告 — 走 warn 而非 reject)
+  - 7 phase post-ff-merge 失败专用 phaseHint 给具体 manual recovery 决策树(替代旧通用 hint)
 
 ### plan hand-off 自动化：hand_off_session
 
