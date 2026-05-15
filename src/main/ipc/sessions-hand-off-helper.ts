@@ -39,36 +39,77 @@ export function buildHandOffCreateSessionOpts(
  *
  * 抽到本 helper 是为了让 K3 emit schema 有 unit test 守门(sessions.test.ts 不能 import sessions.ts
  * 整套 Electron 链 — sessionManager / sessionRepo / eventBus / dedupHandOff 拉起报错)。本 helper
- * 走纯 deps inject(无 default 实现),caller 必传真 archiveFn + emitFn。
+ * 走纯 deps inject(无 default 实现),caller 必传真 archiveFn + emitFn + getSessionFn。
  *
  * **K3 与 mcp baton-cleanup 区别**: K3 走独立 sessionManager.archive(sid) 不经 baton-cleanup
  * helper(K3 是用户 UI 触发的 hand-off,不通过 mcp tool,但 archive 失败 UX 上抛语义需对齐)。
  *
- * **reasonKind 固定 'archive-throw'**: K3 进入 try 前已 sessionRepo.get 验证 session 存在(sessions.ts
- * line 116-119),不可能走 row-missing 路径。reason 含 stringified Error message 给 UI 展示具体错误。
+ * **R2 reviewer-codex MED-1 修法**: K3 也加 row-missing 探针(与 mcp baton-cleanup 同款)。
+ * 原 R1 修法假设「K3 进入 try 前已 sessionRepo.get 验证 session 存在(sessions.ts:117),
+ * 不可能走 row-missing 路径」**结论错误** —— sessions.ts:117 探针发生在 createSession 之前,
+ * 而 createSession 是 long-running async,期间 source row 可能被其它 path(lifecycle scheduler /
+ * 用户手动 close / DB reaper)清理掉。`sessionRepo.setArchived` (archive.ts:19) 是裸
+ * `UPDATE sessions SET archived_at = ? WHERE id = ?` 不检查 .changes,对缺失 row 是 silent
+ * resolve;`sessionManager.archive` (manager.ts:296-306) 也不抛错对缺失 row。结果: archive
+ * 走 happy path 不 emit,用户不知道 source row 已被异常清理。修法: archive 前重新探针 row,
+ * 不存在则 emit reasonKind='row-missing' 跳过 archive,与 mcp baton-cleanup 行为对齐。
  */
 export interface ArchiveSourceSessionDeps {
   archive: (sid: string) => Promise<void>;
   /**
+   * R2 reviewer-codex MED-1 修法新增: archive 前重新探针 source row(K3 createSession 是
+   * long-running async,row 可能在期间被删 → archive UPDATE no-op silent resolve → 漏 emit)。
+   * 返回 null 即视为 row-missing 短路 emit row-missing 不调 archive。
+   */
+  getSession: (sid: string) => unknown | null;
+  /**
    * Emit `caller-archive-failed` event payload(schema 与 event-bus.ts EventMap 同 — 编译期 tsc
    * 检查在 sessions.ts handler 调用处用 `satisfies EventMap['caller-archive-failed'][0]`)。
+   *
+   * R2 reviewer-codex MED-1 修法: reasonKind 从单一 'archive-throw' 改成 union 含 'row-missing'
+   * 与 mcp baton-cleanup 对齐 (event-bus.ts EventMap 已是 union)。
    */
   emitArchiveFailed: (payload: {
     sessionId: string;
     toolName: 'SessionHandOffSpawn';
     reason: string;
-    reasonKind: 'archive-throw';
+    reasonKind: 'row-missing' | 'archive-throw';
   }) => void;
 }
 
 /**
  * 归档原 session + archive 失败上抛 'caller-archive-failed' event。失败仅 warn 不抛(与 sessions.ts
  * 历史语义一致 — archive 失败不阻塞 hand-off ok return,用户至少能切到新 session 工作)。
+ *
+ * R2 reviewer-codex MED-1 修法: archive 前重新探针 source row,缺失 → emit row-missing 短路
+ * (与 mcp baton-cleanup 同款 ground truth 探针)。
  */
 export async function archiveSourceSessionWithEmit(
   sid: string,
   deps: ArchiveSourceSessionDeps,
 ): Promise<void> {
+  // R2 reviewer-codex MED-1 修法: archive 前重新探针 row。createSession 是 long-running async,
+  // 期间 source row 可能被异常清理 (lifecycle scheduler / 用户手动 close / DB reaper)。
+  // sessionManager.archive 对缺失 row 是 silent no-op (UPDATE 不查 .changes),漏 emit 用户感知不到。
+  // 重新探针保证 ground truth,与 mcp baton-cleanup helper 行为对齐。
+  let row: unknown | null = null;
+  try {
+    row = deps.getSession(sid);
+  } catch {
+    // DB 异常 fail-safe (与 baton-cleanup.ts 同款): 留 null,按 row missing 路径 emit。
+    row = null;
+  }
+  if (!row) {
+    const reason = `cannot archive caller ${sid}: not in sessions table (createSession 期间被异常清理 / DB 不可读)`;
+    console.warn(`[ipc sessions hand-off] ${reason}`);
+    deps.emitArchiveFailed({
+      sessionId: sid,
+      toolName: 'SessionHandOffSpawn',
+      reason,
+      reasonKind: 'row-missing',
+    });
+    return;
+  }
   try {
     await deps.archive(sid);
   } catch (err) {

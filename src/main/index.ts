@@ -272,7 +272,7 @@ async function bootstrap(): Promise<void> {
   // 触发源 3 处:
   // 1. mcp baton-cleanup row-missing 短路 (toolName='archive_plan' / 'hand_off_session', reasonKind='row-missing')
   // 2. mcp baton-cleanup archiveFn 抛错 (toolName 同上, reasonKind='archive-throw')
-  // 3. K3 SessionHandOffSpawn archive 抛错 (toolName='SessionHandOffSpawn', reasonKind='archive-throw')
+  // 3. K3 SessionHandOffSpawn archive 抛错或 row-missing (toolName='SessionHandOffSpawn', reasonKind 区分)
   //
   // listener 双通道桥接:
   // - notifyUser({level:'info'}) — macOS 系统通知,settings.enableSystemNotification 开启时显示;
@@ -280,21 +280,43 @@ async function bootstrap(): Promise<void> {
   // - safeSend(IpcEvent.CallerArchiveFailed) — IPC 上抛 renderer,P2 enhancement 可挂全局 toast
   //   + 「重试归档」按钮(reasonKind='archive-throw' 显示 / 'row-missing' 仅告知)
   //
-  // 失败容错: notifyUser 内部 try/catch (Notification.isSupported 检查 + 不抛错)。listener 自身
-  // 故意不再加 try/catch — eventBus 单 listener 抛错只 console.error 不阻塞其它 listener,且
-  // notifyUser / safeSend 都是 fire-and-forget 设计已自含错误兜底。
+  // R2 reviewer-claude HIGH-1 + reviewer-codex HIGH 双方共识守门: listener 顶部必须包 try/catch。
+  // notifyUser (visual.ts) 没自己 try/catch — 内部调 settingsStore.getAll / Notification.isSupported /
+  // new Notification(...).show / playSoundOnce 任一抛错都会冒泡;safeSend (line 252) 也没 catch。
+  // Node EventEmitter 行为: listener throw 在 sync emit 中会冒泡到 emit 调用方,并阻塞同 emit
+  // 上后续 listener。如果 listener throw,baton-cleanup / archiveSourceSessionWithEmit 内的 emitFn
+  // 调用会 reject → mcp tool 在核心操作已成功后返回失败 / K3 跳过 session-focus-request + newSid
+  // 返回,把「archive 失败 warn-only 不阻塞 caller」硬不变量彻底搞反 (UX 上抛通道反成 UX 倒灌通道)。
+  // 修法: listener 顶层 try/catch + console.error 兜底,零成本守住不变量。
+  //
+  // R2 reviewer-claude MED-1 守门: payload.toolName 含三种值 ('archive_plan' / 'hand_off_session' /
+  // 'SessionHandOffSpawn'),其中前两个是 mcp tool 名 (用户在 codex/claude 调用 mcp tool 时熟悉),
+  // 'SessionHandOffSpawn' 是 IPC channel 内部名 (IpcInvoke.SessionHandOffSpawn = 'session:hand-off-spawn',
+  // 用户在 UI 看不到)。映射成「会话接力」让通知 body 对用户友好,不暴露内部名。
+  const TOOL_DISPLAY_NAME: Record<string, string> = {
+    archive_plan: 'plan 归档',
+    hand_off_session: '会话接力',
+    SessionHandOffSpawn: '会话接力',
+  };
   eventBus.on('caller-archive-failed', (payload) => {
-    const shortSid = payload.sessionId.slice(0, 8);
-    const isRetryable = payload.reasonKind === 'archive-throw';
-    const body = isRetryable
-      ? `原会话未归档，可重试归档（${shortSid}…，工具：${payload.toolName}）`
-      : `原会话记录不可用，归档未完成（${shortSid}…，工具：${payload.toolName}）`;
-    notifyUser({
-      title: 'Agent Deck 归档失败',
-      body,
-      level: 'info',
-    });
-    safeSend(IpcEvent.CallerArchiveFailed, payload);
+    try {
+      const shortSid = payload.sessionId.slice(0, 8);
+      const isRetryable = payload.reasonKind === 'archive-throw';
+      const toolDisplay = TOOL_DISPLAY_NAME[payload.toolName] ?? payload.toolName;
+      const body = isRetryable
+        ? `原会话未归档，可重试归档（${shortSid}…，工具：${toolDisplay}）`
+        : `原会话记录不可用，归档未完成（${shortSid}…，工具：${toolDisplay}）`;
+      notifyUser({
+        title: 'Agent Deck 归档失败',
+        body,
+        level: 'info',
+      });
+      safeSend(IpcEvent.CallerArchiveFailed, payload);
+    } catch (err) {
+      // 兜底: notifyUser / safeSend 同步抛错决不能冒泡到 emit caller (会反向打崩 baton-cleanup /
+      // archiveSourceSessionWithEmit 的 warn-only 不阻塞语义)。console.error 让排查不丢信息。
+      console.error('[caller-archive-failed listener] internal throw (吞掉防撞穿 emit caller):', err);
+    }
   });
 
   // ─── R3.E9 universal team backend → renderer 桥接 ───
