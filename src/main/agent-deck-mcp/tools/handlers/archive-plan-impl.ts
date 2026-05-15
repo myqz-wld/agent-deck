@@ -19,6 +19,10 @@
  * 6. 读 plan + parseFrontmatter，预检 status ≠ completed（防误调；abandoned 也允许收口）
  * 7. fast-forward merge：在 main repo 跑 `git merge --ff-only <worktree-branch>`
  * 8. 拿最终 commit hash：`git -C <main-repo> rev-parse HEAD`
+ * 8b. **重新 read plan + parse fresh frontmatter**（plan archive-plan-content-overwritten
+ *     -fix-20260515）：ff-merge 后 main working tree 已含 caller 在 worktree branch 的最后
+ *     一笔 plan 回写（[x] checklist / 跳过理由 / 当前进度 等）。step 6 的 fm 已用完，下面
+ *     step 9 / step 10 全部用 freshFm + freshContent，避免覆盖 caller 收尾回写。
  * 9. 更新 frontmatter：status=completed / final_commit / completed_at（YYYY-MM-DD 本地时区）
  * 10. 写新 plan 到 `<main-repo>/plans/<plan_id>.md`（recursive mkdir <main>/plans/）
  * 11. 同步 `<main-repo>/plans/INDEX.md`：append 一行 `| [<id>.md](<id>.md) | <一句话> |`
@@ -315,16 +319,54 @@ export async function archivePlanImpl(
     return postFfMergeErr('rev-parse-HEAD', e as Error);
   }
 
-  // 9. 更新 frontmatter
+  // 8b. **重新 read plan 文件 + parse fresh frontmatter**
+  //
+  // plan archive-plan-content-overwritten-fix-20260515 修法 A:拆两次 read。
+  //
+  // **bug 根因**:旧实现 step 6 在 ff-merge **之前** read planContent → step 7 ff-merge
+  // 把 worktree branch 上 caller 的最后一笔 plan 回写带进 main working tree → step 10
+  // 用 step 6 读的旧 planContent.body + 改 frontmatter 写新文件 → ff-merge 进来的 caller
+  // 回写(典型 Phase 5 收尾 commit:[x] step checklist / 跳过理由 / 已知踩坑修正等)被覆盖。
+  //
+  // **修法**:ff-merge 成功后(step 7-8 之后)重新 read planContent 拿 fresh body + fm,
+  // 之后 step 9 / step 10 全部用 freshFm + freshContent。预检阶段(step 6)的 fm 仍用于
+  // status check / base_branch fallback / fm 元数据派生(已用完),不再参与 step 10 写入。
+  //
+  // **失败兜底**:fresh re-read fail → postFfMergeErr (与其他 post-ff-merge 失败统一姿势:
+  // 报 phase prefix + 通用 hint「ff-merge 已完成,按 phase 手工补完」,不做自动 git revert
+  // 保持与 step 8/10/11/12/13/14 既有 post-ff-merge 失败处理风格一致)。
+  let freshContent: string;
+  try {
+    freshContent = await deps.readFile(planFilePath);
+  } catch (e) {
+    return postFfMergeErr('reread-plan-after-ffmerge', e as Error);
+  }
+  const freshFm = parseFrontmatter(freshContent);
+  if (Object.keys(freshFm).length === 0) {
+    // 边角:caller 在 worktree branch 上把 frontmatter block 删了(误操作),ff-merge 后
+    // main 拿到的 plan 没有 frontmatter。step 6 fm 已用完不能 fallback(也不该 fallback —
+    // 用 step 6 fm + fresh body 的混合状态语义更乱)。直接报错让 caller 手工修后再调。
+    return postFfMergeErr(
+      'reread-plan-after-ffmerge',
+      new Error(
+        `plan file at ${planFilePath} has no parseable frontmatter after ff-merge ` +
+          `(caller may have stripped the frontmatter block on the worktree branch)`,
+      ),
+    );
+  }
+
+  // 9. 更新 frontmatter(用 freshFm,而非 step 6 的 fm — 让 caller 在 worktree branch
+  // commit 的任意 fm 字段变更也透传到归档 plan)
   const today = formatLocalDate(new Date());
   const newFm: Record<string, string> = {
-    ...fm,
+    ...freshFm,
     status: 'completed',
     final_commit: finalCommit,
     completed_at: today,
   };
 
-  // 10. 写新 plan
+  // 10. 写新 plan(body 用 freshContent — 保留 caller 在 worktree branch 的 [x] checklist
+  // / 跳过理由 / 当前进度 等收尾回写)
   const archivedDir = path.join(mainRepo, 'plans');
   const archivedPath = path.join(archivedDir, `${input.planId}.md`);
   try {
@@ -332,8 +374,7 @@ export async function archivePlanImpl(
   } catch (e) {
     return postFfMergeErr('mkdir-plans-dir', e as Error);
   }
-  // body 是 frontmatter block 之后的全部正文（保持原样）
-  const body = stripFrontmatter(planContent);
+  const body = stripFrontmatter(freshContent);
   const newContent = `${stringifyFrontmatter(newFm)}\n${body}`;
   try {
     await deps.writeFile(archivedPath, newContent);
@@ -448,10 +489,12 @@ function stripFrontmatter(text: string): string {
  * happened」可重试场景）；(2) 应手工补完 step 标识对应的 cleanup（write archived /
  * sync INDEX / unlink plan / git add+commit / git worktree remove / git branch -D）。
  *
- * 7 个 phase 一一对应 step 8-14。
+ * 8 个 phase 一一对应 step 8 / 8b / 10-14（plan archive-plan-content-overwritten-fix
+ * -20260515 加 'reread-plan-after-ffmerge' phase 对应 step 8b 重新 read 失败）。
  */
 export type PostFfMergePhase =
   | 'rev-parse-HEAD' // step 8
+  | 'reread-plan-after-ffmerge' // step 8b (plan archive-plan-content-overwritten-fix-20260515)
   | 'mkdir-plans-dir' // step 10a
   | 'write-archived-plan' // step 10b
   | 'sync-plans-INDEX' // step 11
