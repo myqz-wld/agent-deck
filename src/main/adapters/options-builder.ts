@@ -37,7 +37,22 @@ export type CreateSessionOptionsByAdapter = {
   'generic-pty': PtyCreateOpts;
 };
 
-export type AgentId = keyof CreateSessionOptionsByAdapter;
+/**
+ * **agentId SSOT list**（p4-d2-impl R2 reviewer-codex MED follow-up）:
+ *
+ * 加新 adapter 时漏改本 list → `_assertAgentIdsListMatchesOptions` TS 编译期报错。本 list 同时
+ * 驱动:
+ * 1. `AgentId` type union(`(typeof AGENT_IDS)[number]`)— 旧版用 `keyof CreateSessionOptionsByAdapter`,
+ *    现统一改用 list 驱动让 SSOT 唯一(避免 ByAdapter map / AGENT_IDS list 双源不一致)
+ * 2. `isAgentId()` runtime guard — 旧版手写 4 个字面量,新增 adapter 漏改这里 TS 0 error 但 runtime
+ *    string overload guard 拒绝(reviewer-codex R2 MED 指出);现 list 驱动让 runtime guard 与 type
+ *    union 严格同源
+ *
+ * 详 §D2 多侧 SSOT 守门 注释表 守门点 (5)。
+ */
+export const AGENT_IDS = ['claude-code', 'codex-cli', 'aider', 'generic-pty'] as const;
+
+export type AgentId = (typeof AGENT_IDS)[number];
 
 /**
  * raw → ClaudeCreateOpts narrow：从 raw 中挑 claude-code adapter 接受的字段（filter 掉
@@ -149,40 +164,41 @@ export function buildCreateSessionOptions(
  * 类型守卫：raw 中的 string agentId 是否合法 union 成员。
  * caller 端从 IPC raw 输入拿到 agentId（string）时用本守卫窄化到 AgentId union 后才能调
  * buildCreateSessionOptions / typed registry overload。
+ *
+ * **list 驱动**（p4-d2-impl R2 reviewer-codex MED follow-up）:用 AGENT_IDS list 替代手写
+ * 字面量,与 AgentId type union 同源。加新 adapter 时只改 AGENT_IDS 一处 list 即可同时刷新
+ * type union + runtime guard,无双源漂移风险。
  */
 export function isAgentId(value: string): value is AgentId {
-  return (
-    value === 'claude-code' ||
-    value === 'codex-cli' ||
-    value === 'aider' ||
-    value === 'generic-pty'
-  );
+  return (AGENT_IDS as readonly string[]).includes(value);
 }
 
 /**
- * **D2 多侧 SSOT 守门（p4-d2-impl R1 reviewer-codex MED follow-up）**:
+ * **D2 多侧 SSOT 守门（p4-d2-impl R1 reviewer-codex MED follow-up + R2 reviewer-codex MED follow-up）**:
  *
  * 加新 adapter 时漏改任一处 → TS 编译期报错 / 运行时立即 throw。强约束的范围:
  *
  * | 守门点 | 漏改时行为 | 守门方式 |
  * |---|---|---|
- * | (1) types.ts CreateSessionOptions union 加 arm | TS 报错 | `_assertCreateSessionUnionConsistent` |
+ * | (1) types.ts CreateSessionOptions union 加 arm | TS 报错 | `_assertOptionsByAdapterMatchesUnion`(同 (3),双向覆盖 union arm ⇆ ByAdapter entry 一致性) |
  * | (2) options-builder.ts switch 加 case + narrowToXOpts | TS 报错 | `_exhaustive: never = agentId` switch default |
  * | (3) options-builder.ts CreateSessionOptionsByAdapter 加 entry | TS 报错 | `_assertOptionsByAdapterMatchesUnion` |
  * | (4) registry.ts AdapterIdMap 加 entry | TS 报错 | `_assertAdapterIdMapMatchesOptions` (registry.ts 内) |
- * | (5) main/index.ts adapterRegistry.register(<NewAdapter>) | runtime 拿不到 adapter,caller throw "adapter cannot create sessions" | **流程检查** + adapter init 集成测试 |
- * | (6) MCP schemas.ts SpawnSessionArgs.adapter zod enum / IPC schema enum | runtime user 调 mcp 时 zod 报「不在 enum」 | **流程检查** + MCP handler 集成测试 |
- * | (7) cli.ts parseCliInvocation enum 校验(若有) | runtime user CLI 调时报 unknown agent | **流程检查** |
+ * | (5) options-builder.ts AGENT_IDS list 加 entry(同时驱动 AgentId type + isAgentId runtime guard) | TS 报错 | `_assertAgentIdsListMatchesOptions`(本文件) |
+ * | (6) main/index.ts adapterRegistry.register(<NewAdapter>) | runtime 拿不到 adapter,caller throw "adapter cannot create sessions" | **流程检查** + adapter init 集成测试 |
+ * | (7) MCP schemas.ts SpawnSessionArgs.adapter zod enum / IPC schema enum | runtime user 调 mcp 时 zod 报「不在 enum」 | **流程检查** + MCP handler 集成测试 |
+ * | (8) cli.ts parseCliInvocation enum 校验(若有) | runtime user CLI 调时报 unknown agent | **流程检查** |
  *
- * (1)+(2)+(3)+(4) 是「主链 4 处 TS 编译期强守门」— 加新 adapter 时漏改 TS 编译必报错;
- * (5)+(6)+(7) 是「runtime 边界 3 处流程检查」— TS 类型层无法守门(register 是 runtime 调用,
+ * (1)+(2)+(3)+(4)+(5) 是「主链 5 处 TS 编译期强守门」— 加新 adapter 时漏改 TS 编译必报错;
+ * (6)+(7)+(8) 是「runtime 边界 3 处流程检查」— TS 类型层无法守门(register 是 runtime 调用,
  * zod schema 是 runtime parser),靠 commit message + plan checklist + 集成测试覆盖。
  *
  * **TS 守门 trick 解释**:
  * - `AssertSameKeys<A, B>`: A/B 两 type 的 keys 必须严格一致(双向 extends)。漏 entry → false → 赋值
  *   true 报错 — Type 'false' is not assignable to type 'true'。
  * - 用 `keyof CreateSessionOptionsByAdapter` 作 single source of truth,反向 extract union arm
- *   agentId 字面量与之一致。
+ *   agentId 字面量与之一致。AGENT_IDS list 通过 `Record<AgentId, unknown>` 转 keys 后与 ByAdapter
+ *   双向比较。
  */
 type AssertSameKeys<A, B> = keyof A extends keyof B
   ? keyof B extends keyof A
@@ -205,3 +221,14 @@ const _assertOptionsByAdapterMatchesUnion: AssertSameKeys<
   _UnionAgentIdsAsKeys
 > = true;
 void _assertOptionsByAdapterMatchesUnion;
+
+/**
+ * 守门 (5): AGENT_IDS list 通过 `Record<AgentId, unknown>` 转 keys 后必须与 ByAdapter keys 严格
+ * 一致。AGENT_IDS 漏 entry → AgentId union 缺成员 → Record keys 缺 → 报错;反向 ByAdapter 漏 entry
+ * → 同款报错。让 isAgentId runtime guard 与 type union / ByAdapter map 三向 SSOT 同源。
+ */
+const _assertAgentIdsListMatchesOptions: AssertSameKeys<
+  Record<AgentId, unknown>,
+  CreateSessionOptionsByAdapter
+> = true;
+void _assertAgentIdsListMatchesOptions;
