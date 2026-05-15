@@ -70,45 +70,55 @@ REVIEW_44(plan archive-plan-content-overwritten-fix-20260515 收口)留 4 条同
 
 ### Phase 1: 设计 review
 
-- [ ] **Step 1.1 — 读 archive-plan-impl.ts 现状 + 4 条 followup 各自影响范围 grep**:确认 (a)(b)(c)(d) 各自不冲突 + 实施顺序(建议 (a)→(b)→(c)→(d) 或先并行后整合,看 scope)
-- [ ] **Step 1.2 — 单点决策对抗 (a)+(b)**:这两条耦合(都涉及 step 11 INDEX 行为),走 user CLAUDE.md §决策对抗主路径双 Bash 起异构外部 CLI(scope 较窄不走多轮 SKILL teammate 模式),决定 fallback 链顺序 + smart update vs 跳过 vs caller 手工
-- [ ] **Step 1.3 — (c) 单点决策**:与 (b) 联动,confirmed 后 inline 实施
-- [ ] **Step 1.4 — (d) 7 phase hint 措辞**:每 phase 写 ~3 行 cleanup 决策树,先写好草稿再 review
+- [x] **Step 1.1 — 读 archive-plan-impl.ts 现状 + 4 条 followup 各自影响范围 grep** — done by session 1 (2026-05-15),无 commit(只读)
+- [x] **Step 1.2 — 单点决策对抗 (a)+(b)+(c)** — done by session 1 (2026-05-15),双 Bash 异构外部 CLI(reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 xhigh),共识 11 项 fix(详 §设计决策 sign-off + R1 三态裁决)
+- [x] **Step 1.3 — (d) 7 phase hint 措辞草稿** — done by session 1 (2026-05-15),独立设计,inline 实施
+- [x] **Step 1.4 — 与 1.3 合并** — N/A
 
 ### Phase 2: 实施
 
-- [ ] **Step 2.1 — (a) 改 step 5 fallback 链**:加 `<main-repo>/plans/<id>.md`,加新加守门 case
-- [ ] **Step 2.2 — (b) 改 step 11 INDEX 行为**:smart update existing line,加新加守门 case(模拟 INDEX 已含 in_progress 行 → archive 后 status 改 completed + changelog X)
-- [ ] **Step 2.3 — (c) 改 step 11 auto-append 行格式 4 列**:与 (b) 共用 changelog_id arg,加新加守门 case
-- [ ] **Step 2.4 — (d) 7 phase hint 措辞 inline**:加测试守门 7 phase 各自 hint anchor
+- [x] **Step 2.1 — (d) 7 phase hint inline** — done by session 1 (2026-05-15)
+- [x] **Step 2.2 — schemas.ts 扩 changelog_id + plan_file_path describe(stem refine 落 impl 层)** — done by session 1 (2026-05-15)
+- [x] **Step 2.3 — (a) fallback 链 + impl 层 stem refine + Input 加 changelogId 传递链** — done by session 1 (2026-05-15)
+- [x] **Step 2.4 — return shape: plansIndexAppended boolean → plansIndexAction enum + warnings 字段** — done by session 1 (2026-05-15)
+- [x] **Step 2.5 — (b)+(c) syncPlansIndex helper + smart update + 4 列 row + escape** — done by session 1 (2026-05-15)
+- [x] **Step 2.6 — HIGH-2 silent override warn(不 reject)** — done by session 1 (2026-05-15)
+- [x] **Step 2.7 — vitest + typecheck baseline 验证** — done by session 1 (2026-05-15),vitest 638 pass + typecheck 全过
 
 ### Phase 3: 异构对抗 review × fix
 
-- [ ] **Step 3.1 — 异构对抗 review**:scope = archive-plan-impl.ts diff + 新加 守门 case + plans/INDEX.md 格式变更 / focus = (a)(b)(c)(d) 各自实施是否完整 + 是否引入新 race / cluster 检查 / 7 phase hint 措辞一致性
+- [x] **Step 3.1 — R1 异构对抗 review(diff scope)** — done by session 1 (2026-05-15),双方共识 0 HIGH + 5 真 MED + 1 polish + 1 反驳
+- [x] **Step 3.2 — R1 fix 5 真问题 + 1 polish + R2 复查** — done by session 1 (2026-05-15),R2 双方 ack 0 HIGH/MED + 共识 LOW polish 2 项合进
 
 ### Phase 4: 收口
 
-- [ ] **Step 4.1 — REVIEW_X.md(若 ≥ 2 HIGH)或并入 CHANGELOG**
-- [ ] **Step 4.2 — CHANGELOG_X.md + plans/INDEX.md 同步**(注意:本 plan 收口走 archive_plan tool,如果 (b) fix 真生效,plans/INDEX.md 会被 smart update 而非 caller 手工修)
-- [ ] **Step 4.3 — `mcp__agent-deck__archive_plan` 自动归档**(dogfooding,验证 (a)+(b)+(c)+(d) fix 真生效:archive 后 plan 文件 [x] + INDEX 自动改 completed + 关联 changelog X + 4 列对齐)
+- [x] **Step 4.1 — CHANGELOG_123.md(0 HIGH 并入 changelog,无 REVIEW_X.md)+ 同步 changelog/INDEX.md** — done by session 1 (2026-05-15)
+- [ ] **Step 4.2 — 更新 plan 进度 + commit + plans/INDEX.md 同步 in_progress 行**
+- [ ] **Step 4.3 — `mcp__agent-deck__archive_plan` 自动归档(dogfooding)** — **⚠️ 已知踩坑**:mcp server 不 hot reload(详 §已知踩坑),本 plan 收口走 mcp archive_plan 会跑旧 buggy 代码 → 走 user CLAUDE.md §Step 4「完成」5 步手工流程或 重启应用后再 dogfood(用户决策)
 
 ## 当前进度
 
-- ⬜ stub 创建,待新会话接力 Phase 1 起手
+✅ **Phase 1+2+3 全完成**(11 项主 fix + R1 fix 6 项 + R2 polish 2 项,vitest 652 pass + typecheck 通过)
+✅ **Phase 4.1 完成**(CHANGELOG_123 + changelog/INDEX.md 同步)
+⬜ **Phase 4.2-4.3 待收口**(plan 进度更新 + commit + dogfooding 路径决策)
 
-## 下一会话第一步
+**关键交付**:
+- 11 项主 fix(Phase 2)+ R1 fix 6 项 + R2 polish 2 项 = **总 19 项落地**
+- 测试守门 92 case(原 42 + 新 50)+ 全套 vitest 652 pass + typecheck 双端 clean
+- 改动 8 文件 / +410/-61 LOC
+- 详 [`changelog/CHANGELOG_123.md`](../changelog/CHANGELOG_123.md)
 
-按 user CLAUDE.md cold-start 流程:
+**双异构对抗 review 收敛**:R1 双方共识 5 真 MED 全修 + R2 双方 ack 0 HIGH/MED + 共识 LOW 全 polish 不阻塞 + codex R2 明确「ack 收口推荐 Phase 4」。
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/plans/archive-plan-tool-ux-followup-20260515.md` 全文读 plan(强制 cat 不用 Read)
+## 下一会话第一步(若 hand off)
+
+本会话已完成 Phase 1+2+3+4.1。剩余:
+
+1. `Bash: cat /Users/apple/Repository/personal/agent-deck/plans/archive-plan-tool-ux-followup-20260515.md` 全文(本 plan 文件 — 在 main-repo `plans/` 而非 worktree 内)
 2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-tool-ux-followup-20260515")` 进 worktree
-3. 自检 worktree HEAD == 99f1e61(本 stub 创建时 main HEAD):
-   ```bash
-   git -C /Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-tool-ux-followup-20260515 log --oneline -3
-   ```
-4. **node_modules 共享 main repo**(worktree 创建时 git worktree add 默认共享或 fresh,需自检):若不共享 → `cd worktree && pnpm install` 或 symlink 到 main repo node_modules
-5. **从 Phase 1 起手** — 读 archive-plan-impl.ts step 5 / step 11 / PostFfMergePhase 现状 + grep 各 caller(看 (a) 影响 / (b) 现有 INDEX 写法 / (c) 当前 4 列 INDEX 例子 / (d) 7 phase 现状 hint)
-6. 按 §设计决策 顺序推进 (a)(b)(c)(d),先单点对抗(a)+(b) 耦合决策 → 其他 inline → Phase 3 异构对抗 4 项一起 review
+3. (若新会话)从 frontmatter 拿 worktree_path → 路径自检
+4. **从 Phase 4.2 起手**:更新本 plan 进度 + git commit fix 改动(若 session 1 未 commit)+ 同步 plans/INDEX.md 本 plan 行(从 in_progress 改 completed + 关联 CHANGELOG_123 + 4 列对齐)
+5. **Phase 4.3 dogfooding**:用户决策路径 — (A) 重启应用让 mcp server 加载新代码 + 再 dogfood / (B) 走 user CLAUDE.md §Step 4 手工 5 步收口(放弃 dogfood,留下次 mcp server 重启后任意 plan 收口实测 fix 真生效)
 
 ## 已知踩坑
 
