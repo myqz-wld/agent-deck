@@ -371,8 +371,9 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(err.error).toContain('in_progress'); // 提示原 preflight 校验值
     expect(err.error).toContain('§Step 4'); // 引 user CLAUDE.md 中止契约
 
-    // 2. hint 含 cleanup 指引(git revert / 中止 path)— 不是通用 GENERIC hint
-    expect(err.hint).toContain('git revert HEAD'); // 引导 caller undo ff-merge
+    // 2. hint 含 cleanup 指引(R2 MED 1 fix:范围化命令而非 `git revert HEAD` 单 commit)
+    expect(err.hint).toContain('git reset --hard ORIG_HEAD'); // 推荐路径(干净简单)
+    expect(err.hint).toContain('git revert ORIG_HEAD..HEAD'); // history-preserving 选项
     expect(err.hint).toContain('§Step 4'); // 引中止流程
     expect(err.hint).toContain('git worktree remove'); // 中止流程动作
     expect(err.hint).toContain('status: in_progress'); // 另一选择:撤回继续推进
