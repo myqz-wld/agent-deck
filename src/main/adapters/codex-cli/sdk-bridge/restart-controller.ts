@@ -18,7 +18,6 @@
  *   （与 claude 同款，5-10s busy 期间用户已经看到「切完了」）
  */
 import type { AgentEvent } from '@shared/types';
-import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
@@ -124,28 +123,22 @@ export class RestartController {
           resume: sessionId,
           codexSandbox: sandbox,
         });
-        // REVIEW_36 R2 codex follow-up：加 runtime defense 防 codex SDK 未来某版本让 resume 返回新 thread id
-        // (与 claude SDK 隐式 fork 同款风险)。当前 codex SDK 实测 resumeThread 永远返回同 id（spike-A2 验证），
-        // 但代码 thread-loop 仍走 `if (!internal.threadId)` 检测 thread.started.thread_id（即新 id 会被忽略）。
-        // 加 rename 防御让此前提失效时（SDK 升级 / 行为变更）能整体迁移 app-side history 到 NEW_ID 名下，
-        // 与 claude restartWithClaudeCodeSandbox / restartWithPermissionMode 同款保护。
-        const newRealId = handle.sessionId;
-        if (newRealId !== sessionId) {
-          console.warn(
-            `[codex-bridge] restartWithCodexSandbox: codex SDK returned different sessionId ${sessionId} → ${newRealId}; ` +
-              `this is unexpected (codex resume historically returns same id). Carrying app-side history to NEW_ID via renameSdkSession.`,
-          );
-          try {
-            sessionManager.renameSdkSession(sessionId, newRealId);
-          } catch (renameErr) {
-            console.error(
-              `[codex-bridge] post-restart rename failed ${sessionId} → ${newRealId}, ` +
-                `NEW session works but app-side history not migrated.`,
-              renameErr,
-            );
-          }
-        }
-        return newRealId;
+        // codex-tests-plan P3 LOW (REVIEW_40 R2 reviewer-codex):删 post-rename 防御 block
+        // (原 block 见 commit 6e0eb37 / REVIEW_40 注释)。
+        //
+        // 删除理由(thread-loop case 3 已 owner rename):symmetry-plan P2 MED-D 落地后
+        // (commit 6e0eb37),thread-loop.ts:229-261 case 3 在 ev.thread_id !== internal.threadId
+        // 时已:
+        //   1. sessions Map 切 key (delete oldId + set newId)
+        //   2. internal.threadId 切到 newId
+        //   3. 调 sessionManager.renameSdkSession(oldId, newId)  ← 已 owner
+        // 所以 createSession resume path await `runTurnLoop` 拿到 firstIdCb(newId) 时,rename
+        // 已经发生,handle.sessionId === newId。restart-controller 这里再调一次 renameSdkSession
+        // 是 idempotent no-op (sessionRepo/rename.ts:60 `if (!fromRow) return` 静默走 no-op),
+        // 但 console.warn 会多打一次("returned different sessionId"),误导日志读者以为这里是
+        // owner 实际是 thread-loop case 3。删除冗余 console.warn + double rename 防御让 SSOT
+        // 集中在 thread-loop case 3 single owner。
+        return handle.sessionId;
       } catch (err) {
         // 回滚：DB 改回 oldSandbox + emit session-upserted 让下拉回弹 + emit error message
         sessionRepo.setCodexSandbox(sessionId, oldSandbox);
