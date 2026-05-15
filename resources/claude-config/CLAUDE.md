@@ -55,7 +55,7 @@ const result = await mcp__agent-deck__send_message({
 
 ### 跨会话救火：list_sessions(spawned_by_filter)
 
-lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawned_by_filter:'<old_lead_sid>', status_filter:'active')` 拉自己以前 spawn 的 active reviewer；按 sessionId 调 `send_message` 发新 prompt（reply 自动注入同 §三个核心约定 §1）；收尾走 `shutdown_session`。
+lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawned_by_filter:'<old_lead_sid>', status_filter:'active')` 拉自己以前 spawn 的 active reviewer；按 sessionId 调 `send_message` 发新 prompt（receiver reply 通过 wire prefix `[msg <id>][sid <senderSid>]` 自动挂 reply chain 注入 lead conversation，与 §三个核心约定 §2 后续轮次锚点同款）；收尾走 `shutdown_session`。
 
 > ⚠️ **shared-team 前置约束**：`send_message` 必须在 caller session 与 target reviewer 至少共享一个 active team 时才能 dispatch（否则报 `no-shared-team` 立即 reject，不入 messages 表）。
 > - **同 caller session（context 重置 / compaction）**：sessionId 不变 → team_member 关系不变 → 直接 `list_sessions(spawned_by_filter)` 捡回来 + `send_message` 即可
@@ -76,7 +76,7 @@ teammate 端协议约束（`[from <name> @ <adapter>][msg <id>][sid <senderSid>]
 reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <senderSid>]` 双锚点 wire prefix（典型：lead context 重置后用裸文本 ping / 第三方 dispatch 路径丢前缀），按下面 fallback 处理：
 
 1. reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>][sid <senderSessionId>] wire prefix，本 reply 没法挂 reply_to_message_id 进 lead 对话链；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
-2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 用启发式定位 lead（通常 displayName 含 "Lead-" 前缀或非 reviewer-* 标识；team 内只一对 lead+teammate 时排除自己 sessionId 后唯一 active 即 lead）。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）
+2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 按以下顺序定位 lead：① displayName 含 "Lead-" 前缀 / ② displayName 非 reviewer-* 标识 / ③ team 内排除自己 sessionId 后唯一 active；3 条都失败走第 4 步终极兜底。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）
 3. **副作用警告**：reply 不挂 `reply_to_message_id` 失去对话链锚点，DB / SessionDetail 看不出 reply 链关系；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
 4. **list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding / codex 输出落本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到
 
