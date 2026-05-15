@@ -183,6 +183,17 @@ export class CodexSdkBridge {
      * runtime 不影响 codex 实际跑的 model（详 plan D5 / 上方 import comments）。
      */
     model?: string;
+    /**
+     * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
+     * caller 透传的 SDK sandbox 额外可写根。**codex SDK 不消费 extra writable roots**
+     * (sandboxMode 三档 'workspace-write' / 'read-only' / 'danger-full-access' 控根 sandbox
+     * profile,无 extra allowWrite 字段),但本字段仍持久化到 sessions.extra_allow_write 保跨
+     * adapter parity 对称(让 SessionRecord 字段在 claude / codex 之间形态一致 + future codex
+     * SDK 加支持时零迁移成本)。
+     *
+     * 与 model 字段同款语义(持久化 + warn,runtime 不消费)。
+     */
+    extraAllowWrite?: readonly string[];
   }): Promise<CodexSessionHandle> {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
@@ -262,7 +273,14 @@ export class CodexSdkBridge {
       // sessionRepo.upsert 创建 record（如果不存在）；之后调 setCodexSandbox UPDATE 字段。
       // 后续 advanceState 内 spread record 时会带上最新 codex_sandbox 不会被静默重置。
       // R37 P2-E Step 3.4b：setSandbox + setModel + warn 收口到 persistSessionFields helper。
-      persistSessionFields({ sessionId: opts.resume, sandboxMode, model: opts.model });
+      // plan cross-adapter-parity-20260515 Phase A Step A.7：extraAllowWrite 同 model 同款持久化
+      // (parity 对称写库,codex runtime 不消费,helper 内 warn 提示)。
+      persistSessionFields({
+        sessionId: opts.resume,
+        sandboxMode,
+        model: opts.model,
+        extraAllowWrite: opts.extraAllowWrite,
+      });
       this.opts.emit({
         sessionId: opts.resume,
         agentId: AGENT_ID,
@@ -404,7 +422,13 @@ export class CodexSdkBridge {
     // startNewThreadAndAwaitId 内部已 emit session-start（同步派发 → ingest 创建 record），
     // 此处 persistSessionFields 紧跟 await 之后跑，UPDATE 必然命中。
     // R37 P2-E Step 3.4b：与 resume 路径同款收口（差异仅 sessionId 来源 = realId vs opts.resume）。
-    persistSessionFields({ sessionId: realId, sandboxMode, model: opts.model });
+    // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 同 resume 路径同款。
+    persistSessionFields({
+      sessionId: realId,
+      sandboxMode,
+      model: opts.model,
+      extraAllowWrite: opts.extraAllowWrite,
+    });
 
     return { sessionId: realId };
   }

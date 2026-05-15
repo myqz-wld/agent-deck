@@ -83,6 +83,20 @@ export type CreateSessionThunk = (opts: {
    * 让 UI 显示一致 — 保留入参字段对齐 claude 接口形态。
    */
   model?: string;
+  /**
+   * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
+   * recoverer fallback / resume 路径显式透传 spawn 时持久化的 SDK sandbox 额外可写根。
+   *
+   * 与 model 字段同款语义:codex SDK 不消费 extra writable roots(sandboxMode 三档无 allowWrite
+   * 字段),但 createSession 内部仍 setExtraAllowWrite 持久化保 parity 对称 — 保留入参字段对齐
+   * claude 接口形态。**透传到当前不消费的 opts 无副作用**(persistSessionFields 内 if 卫语句
+   * skip 空数组,setExtraAllowWrite null 也是合法值)。
+   *
+   * 修法理由(plan §4 推荐 ✅ 做):即使 codex bridge 当前不消费,持久化字段 + 读回保 parity 完整,
+   * future codex SDK 加支持时零迁移成本 + 减跨 adapter 漂移。与 claudeCodeSandbox / model 同款
+   * 显式透传 + ?? undefined 兜底(rec.extraAllowWrite 历史 NULL 时 undefined 跳过 setter)。
+   */
+  extraAllowWrite?: readonly string[];
 }) => Promise<CodexSessionHandle>;
 
 export type SendMessageThunk = (
@@ -285,11 +299,14 @@ export class SessionRecoverer {
           });
           // fallback 路径：不带 resume + 显式透传 sandbox/model 否则静默降到全局默认（与 claude
           // REVIEW_36 HIGH-1 同款教训）。attachments 透传让首条恢复消息带图。
+          // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 同 model 同款显式
+          // 透传(codex 不消费但 createSession 内部仍 setExtraAllowWrite 持久化保 parity 对称)。
           const handle = await this.createThunk({
             cwd: effectiveCwd,
             prompt: text,
             codexSandbox: rec.codexSandbox ?? undefined,
             model: rec.model ?? undefined,
+            extraAllowWrite: rec.extraAllowWrite ?? undefined,
             attachments,
           });
           const newRealId = handle.sessionId;
@@ -315,6 +332,7 @@ export class SessionRecoverer {
 
         // 正常 resume 路径：jsonl 在 + cwd 有 → 走 createSession({resume, prompt, codexSandbox, model, attachments})
         // 复用 createSession 内部全套 protocol。
+        // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 同 model 同款显式透传。
         await this.createThunk({
           cwd: effectiveCwd,
           prompt: text,
@@ -324,6 +342,7 @@ export class SessionRecoverer {
           // 一致 + 与 claude HIGH-1 处理方式对称 + 防 sessionRepo 边界 race。
           codexSandbox: rec.codexSandbox ?? undefined,
           model: rec.model ?? undefined,
+          extraAllowWrite: rec.extraAllowWrite ?? undefined,
           attachments,
         });
       } finally {
