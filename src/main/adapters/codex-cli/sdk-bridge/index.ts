@@ -50,6 +50,19 @@ export class CodexSdkBridge {
   private sessions = new Map<string, InternalSession>();
   private codex: Codex | null = null;
   /**
+   * symmetry-plan P2 HIGH-A：与 claude `recovering` Map 同模式 — 单飞 Map 覆盖
+   * `restartWithCodexSandbox` 整段副作用窗口（close + DB write + createSession）。
+   *
+   * 修前并发两次 restartWithCodexSandbox(sid, ...) 可同时进 close → setCodexSandbox（写库
+   * 竞争最后写赢）→ 各 createSession resume 一次（双 SDK 子进程同 sid），DB 字段与第二个
+   * 进程 actual sandbox 不一致。修后单飞排队执行（后者等前者完成再跑），与 claude
+   * `restartWithPermissionMode` / `restartWithClaudeCodeSandbox` 同款保护（REVIEW_36 R2 MED-B）。
+   *
+   * 未来 HIGH-B codex recoverer 也共享本 Map，与 claude 同模式 facade 持权威 ref（双方 mutate
+   * 同一份），同 sessionId 的并发 recoverAndSend / restartWithX 排队执行。
+   */
+  private recovering = new Map<string, Promise<unknown>>();
+  /**
    * CHANGELOG_52 Step 4b：ThreadLoop sub-class 持 startNewThreadAndAwaitId + runTurnLoop。
    * sessions Map / emit 通过 ThreadLoopCtx 注入；class 上 createSession / sendMessage 内的
    * 调用走 this.threadLoop.xxx 委托。
@@ -69,6 +82,7 @@ export class CodexSdkBridge {
     };
     this.threadLoop = new ThreadLoop(ctx);
     const restartCtx: RestartCtx = {
+      recovering: this.recovering,
       emit: opts.emit,
       // thunk 反调本 facade 的 closeSession / createSession，避免直接持有 facade ref
       closeSession: (sessionId: string): Promise<void> => this.closeSession(sessionId),
