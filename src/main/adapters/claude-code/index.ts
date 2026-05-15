@@ -71,7 +71,20 @@ class ClaudeCodeAdapter implements AgentAdapter {
 
   async createSession(opts: ClaudeCreateOpts & { agentId: 'claude-code' }): Promise<string> {
     if (!this.bridge) throw new Error('adapter not initialized');
-    const handle = await this.bridge.createSession(opts);
+    // p4-d2-impl R1 reviewer-claude MED follow-up:显式 spread 各字段(与其他 3 adapter 风格一致),
+    // 不整 opts(含 D2 discriminator agentId 字段)塞 bridge — bridge.createSession opts inline
+    // type 不接 agentId 字段,TS structural typing 当前接受但 future bridge 加 strict check 会破。
+    const handle = await this.bridge.createSession({
+      cwd: opts.cwd,
+      prompt: opts.prompt,
+      permissionMode: opts.permissionMode,
+      resume: opts.resume,
+      teamName: opts.teamName,
+      attachments: opts.attachments,
+      claudeCodeSandbox: opts.claudeCodeSandbox,
+      extraAllowWrite: opts.extraAllowWrite,
+      model: opts.model,
+    });
     return handle.sessionId;
   }
 

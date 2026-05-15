@@ -158,3 +158,50 @@ export function isAgentId(value: string): value is AgentId {
     value === 'generic-pty'
   );
 }
+
+/**
+ * **D2 多侧 SSOT 守门（p4-d2-impl R1 reviewer-codex MED follow-up）**:
+ *
+ * 加新 adapter 时漏改任一处 → TS 编译期报错 / 运行时立即 throw。强约束的范围:
+ *
+ * | 守门点 | 漏改时行为 | 守门方式 |
+ * |---|---|---|
+ * | (1) types.ts CreateSessionOptions union 加 arm | TS 报错 | `_assertCreateSessionUnionConsistent` |
+ * | (2) options-builder.ts switch 加 case + narrowToXOpts | TS 报错 | `_exhaustive: never = agentId` switch default |
+ * | (3) options-builder.ts CreateSessionOptionsByAdapter 加 entry | TS 报错 | `_assertOptionsByAdapterMatchesUnion` |
+ * | (4) registry.ts AdapterIdMap 加 entry | TS 报错 | `_assertAdapterIdMapMatchesOptions` (registry.ts 内) |
+ * | (5) main/index.ts adapterRegistry.register(<NewAdapter>) | runtime 拿不到 adapter,caller throw "adapter cannot create sessions" | **流程检查** + adapter init 集成测试 |
+ * | (6) MCP schemas.ts SpawnSessionArgs.adapter zod enum / IPC schema enum | runtime user 调 mcp 时 zod 报「不在 enum」 | **流程检查** + MCP handler 集成测试 |
+ * | (7) cli.ts parseCliInvocation enum 校验(若有) | runtime user CLI 调时报 unknown agent | **流程检查** |
+ *
+ * (1)+(2)+(3)+(4) 是「主链 4 处 TS 编译期强守门」— 加新 adapter 时漏改 TS 编译必报错;
+ * (5)+(6)+(7) 是「runtime 边界 3 处流程检查」— TS 类型层无法守门(register 是 runtime 调用,
+ * zod schema 是 runtime parser),靠 commit message + plan checklist + 集成测试覆盖。
+ *
+ * **TS 守门 trick 解释**:
+ * - `AssertSameKeys<A, B>`: A/B 两 type 的 keys 必须严格一致(双向 extends)。漏 entry → false → 赋值
+ *   true 报错 — Type 'false' is not assignable to type 'true'。
+ * - 用 `keyof CreateSessionOptionsByAdapter` 作 single source of truth,反向 extract union arm
+ *   agentId 字面量与之一致。
+ */
+type AssertSameKeys<A, B> = keyof A extends keyof B
+  ? keyof B extends keyof A
+    ? true
+    : false
+  : false;
+
+/**
+ * 守门 (3): CreateSessionOptionsByAdapter keys 必须与 CreateSessionOptions union arm
+ * `agentId` literals 严格一致。types.ts 加 union arm 但 options-builder.ts 未加 entry → 此 type
+ * 解析为 false → 赋值 true 报错。反向:options-builder.ts 加 entry 但 types.ts 未加 union arm →
+ * 同款报错。
+ */
+type ExtractAgentIdsFromUnion<T extends { agentId: string }> = T['agentId'];
+type _UnionAgentIds = ExtractAgentIdsFromUnion<CreateSessionOptions>;
+type _UnionAgentIdsAsKeys = { [K in _UnionAgentIds]: unknown };
+
+const _assertOptionsByAdapterMatchesUnion: AssertSameKeys<
+  CreateSessionOptionsByAdapter,
+  _UnionAgentIdsAsKeys
+> = true;
+void _assertOptionsByAdapterMatchesUnion;
