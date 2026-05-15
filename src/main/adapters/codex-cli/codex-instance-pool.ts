@@ -1,26 +1,24 @@
 /**
- * Codex SDK 实例 pool（R37 P1 Step 1.2 / G）— 应用全局唯一 codex 实例。
+ * Codex SDK 实例 pool — 仅服务 oneshot LLM caller（summarizer-runner / handoff-runner）。
  *
- * **抽出动机**（reviewer-claude F1[HIGH] + grep 实证）：
- * 原本 3 处独立维护「懒创建 + 按 codexCliPath 缓存 Codex 实例」逻辑：
- * - `adapters/codex-cli/sdk-bridge/index.ts:80` instance field `private codex` + `ensureCodex()`
- * - `adapters/codex-cli/summarizer-runner.ts:29` module-level `cachedCodex` / `cachedPath` / `ensureCodex()`
- * - `adapters/codex-cli/handoff-runner.ts:31` 同款 module-level（注释明示「与 summarizer-runner 完全字面对称」）
+ * **scope（重要 — 与 sdk-bridge live cache 不重叠）**：
+ * - 本 pool 仅给 oneshot caller 用：`@main/adapters/codex-cli/summarizer-runner.ts` +
+ *   `@main/adapters/codex-cli/handoff-runner.ts`（两处都直接 `getCodexInstance()`）
+ * - **不**服务 `adapters/codex-cli/sdk-bridge/index.ts` 的 live session bridge — bridge 自带
+ *   `private codex` + `ensureCodex()`，因为 live bridge 实例化 Codex 时需要按 settings + hookServer
+ *   动态拼 `mcp_servers.agent-deck.url` config 注入（详 sdk-bridge/index.ts:131-141），本 pool
+ *   接口仅接受 codexPathOverride 不接受 `config`，bridge 不能用 pool
  *
- * 三处行为差异为 0（都是 `if cachedCodex && cachedPath === overridePath return cachedCodex；
- * else loadCodexSdk + new sdk.Codex(...)`），仅 codexCliPath 来源差异：sdk-bridge 用 instance
- * field（IPC setCodexCliPath 同步 push），两 runner 直接 `settingsStore.get('codexCliPath')`。
- * 但 setCodexCliPath 内部就是写 settingsStore，两者最终值等价 — 三处独立缓存等于让 path 改变
- * 时 3 个 cache 各自 miss 才同步。
+ * 两套 cache 实质需求不同（oneshot 不需要 mcp，live bridge 必须 mcp），不强行合并；
+ * 但 path 失效信号统一：`setCodexCliPath` 既清 bridge.codex 也调 invalidateCodexInstance()
+ * （详 sdk-bridge/index.ts:99-105），让 settings 改 path 后两侧下次 call 都重建实例。
  *
- * **本 pool 收益**：
- * 1. 一处缓存，path 改时 invalidate 一次所有 caller 同步生效
- * 2. sdk-bridge 不再需要 `private codex` field + `private codexCliPath` field（可删）
- * 3. 节省 sdk-loader 重复加载（spike-A3 实测共享单实例 ~44 MB RSS，3 路独立缓存可能各起一份）
- * 4. 未来加新 codex oneshot 用例（如 batch summarizer / 第 4 种 LLM 调用）零模板压力
+ * **抽出动机**（R37 P1 Step 1.2 / G）：
+ * 原本 oneshot 两处（summarizer-runner / handoff-runner）各自维护 module-level cache 镜像，
+ * 行为零差异。收口到本 pool 让 path 改时一处 invalidate 同步所有 oneshot caller。
  *
  * **Codex 实例本身轻量**（lightweight handle）— 真正 spawn 子进程是 startThread() 时才发生。
- * 共享 1 个 instance 等价于让所有 caller 共享同款 SDK config（codexPathOverride），不会因为
+ * 共享 1 个 instance 等价于让 oneshot caller 共享同款 SDK config（codexPathOverride），不会因为
  * 共享造成跨用途 lifecycle 干扰（每个 thread 独立、Codex 实例只是 thread 工厂）。
  */
 import type { Codex } from '@openai/codex-sdk';
@@ -32,13 +30,16 @@ let cachedCodex: Codex | null = null;
 let cachedPath: string | null = null;
 
 /**
- * 拿（或懒创建）应用全局唯一 codex 实例。当前 codex 二进制路径取自 settings.codexCliPath
+ * 拿（或懒创建）oneshot caller 共享的 codex 实例。当前 codex 二进制路径取自 settings.codexCliPath
  * （IPC setCodexCliPath 路径同步写）/ 缺省 `resolveBundledCodexBinary()`（打包内置 unpacked 路径）。
  *
  * settings.codexCliPath 改了 → 旧实例失效 → 下次 call 重建。这层 path 检查每次调用都执行
  * （单同步读 settingsStore + 同步 fs.existsSync，开销可忽略），不需要 IPC push 主动 invalidate；
  * 但 IPC setCodexCliPath 仍可显式调 `invalidateCodexInstance()` 作为提示性 invalidation
  * （让下次 call 立刻进 sdk re-load 路径，不等惰性 path mismatch）。
+ *
+ * 不接受 mcp_servers config 注入 — live session bridge 需要 mcp 注入因此自带
+ * `private codex` cache（详 `sdk-bridge/index.ts:131-141`），不走本 pool。
  */
 export async function getCodexInstance(): Promise<Codex> {
   const path = settingsStore.get('codexCliPath');
