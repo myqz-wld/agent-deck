@@ -32,6 +32,30 @@ export interface EventMap {
   /** Task Manager (CHANGELOG_43)：tasks 表写操作（task_create/update/delete handler 内
    *  调用 repo 成功后 emit）。main bootstrap 桥接到 IPC IpcEvent.TaskChanged 推 renderer。 */
   'task-changed': [TaskChangedEvent];
+  /**
+   * archive-failure-ux-upthrow-20260515 plan：caller archive 失败 UX 上抛通道。
+   *
+   * 触发点 3 处（mcp baton-cleanup 2 + K3 SessionHandOffSpawn 1）：
+   * - baton-cleanup.ts row-missing 短路（reasonKind='row-missing'，reason 含 sessionRepo.get 返回 null 上下文）
+   * - baton-cleanup.ts archiveFn 抛错（reasonKind='archive-throw'，reason 含 stringified Error）
+   * - ipc/sessions.ts SessionHandOffSpawn archive 抛错（reasonKind='archive-throw'）
+   *
+   * main/index.ts bootstrap listener 桥接到 notifyUser + safeSend(IpcEvent.CallerArchiveFailed)。
+   * 不在 mcp handler 内直接 import notify/visual.ts —— 保持 mcp handler 与通知层职责分离。
+   */
+  'caller-archive-failed': [{
+    sessionId: string;
+    /** 触发的工具名（'archive_plan' / 'hand_off_session' / 'SessionHandOffSpawn'），方便用户区分场景 */
+    toolName: string;
+    /** 完整 reason 描述（含 stringified Error 或 'not in sessions table' 类提示），UI 显示用 */
+    reason: string;
+    /**
+     * 失败子类，决定 UI 是否显示「重试归档」按钮:
+     * - 'row-missing': sessionRepo.get 返回 null（session 已被异常清理 / 长 async 期间被删）→ 重试无效，仅告知
+     * - 'archive-throw': sessionManager.archive 抛错（FK constraint / DB locked 等）→ row 仍存在，可重试
+     */
+    reasonKind: 'row-missing' | 'archive-throw';
+  }];
 
   // ──────────── R3.E9 universal team backend events（ADR §6.5）────────────
   /** repo.create 成功后；payload = AgentDeckTeam（裸，不含 members）。 */

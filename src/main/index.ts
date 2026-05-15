@@ -24,6 +24,7 @@ import {
 } from './teams/team-lifecycle-scheduler';
 import { summarizer } from './session/summarizer';
 import { routeEventToNotification } from './notify/event-router';
+import { notifyUser } from './notify/visual';
 import { stopAllSounds } from './notify/sound';
 import { handleCliArgv } from './cli';
 import { setAgentDeckMcpTokenEnv } from './codex-config/agent-deck-mcp-injector';
@@ -266,6 +267,35 @@ async function bootstrap(): Promise<void> {
 
   // Task Manager (CHANGELOG_43)：tasks 表写操作 → renderer
   eventBus.on('task-changed', (p) => safeSend(IpcEvent.TaskChanged, p));
+
+  // ─── archive-failure-ux-upthrow-20260515 plan: caller archive 失败 UX 上抛 ───
+  // 触发源 3 处:
+  // 1. mcp baton-cleanup row-missing 短路 (toolName='archive_plan' / 'hand_off_session', reasonKind='row-missing')
+  // 2. mcp baton-cleanup archiveFn 抛错 (toolName 同上, reasonKind='archive-throw')
+  // 3. K3 SessionHandOffSpawn archive 抛错 (toolName='SessionHandOffSpawn', reasonKind='archive-throw')
+  //
+  // listener 双通道桥接:
+  // - notifyUser({level:'info'}) — macOS 系统通知,settings.enableSystemNotification 开启时显示;
+  //   reasonKind 区分文案: 'archive-throw' 提示「可重试归档」/ 'row-missing' 提示「记录已不可用」
+  // - safeSend(IpcEvent.CallerArchiveFailed) — IPC 上抛 renderer,P2 enhancement 可挂全局 toast
+  //   + 「重试归档」按钮(reasonKind='archive-throw' 显示 / 'row-missing' 仅告知)
+  //
+  // 失败容错: notifyUser 内部 try/catch (Notification.isSupported 检查 + 不抛错)。listener 自身
+  // 故意不再加 try/catch — eventBus 单 listener 抛错只 console.error 不阻塞其它 listener,且
+  // notifyUser / safeSend 都是 fire-and-forget 设计已自含错误兜底。
+  eventBus.on('caller-archive-failed', (payload) => {
+    const shortSid = payload.sessionId.slice(0, 8);
+    const isRetryable = payload.reasonKind === 'archive-throw';
+    const body = isRetryable
+      ? `原会话未归档，可重试归档（${shortSid}…，工具：${payload.toolName}）`
+      : `原会话记录不可用，归档未完成（${shortSid}…，工具：${payload.toolName}）`;
+    notifyUser({
+      title: 'Agent Deck 归档失败',
+      body,
+      level: 'info',
+    });
+    safeSend(IpcEvent.CallerArchiveFailed, payload);
+  });
 
   // ─── R3.E9 universal team backend → renderer 桥接 ───
   // team 增删改 / member 改：聚合到 IpcEvent.AgentDeckTeamChanged

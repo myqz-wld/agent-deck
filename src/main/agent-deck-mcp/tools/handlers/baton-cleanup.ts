@@ -52,6 +52,8 @@
 
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
+import { eventBus } from '@main/event-bus';
+import type { EventMap } from '@main/event-bus';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import {
   shutdownTeammatesOnBaton,
@@ -121,6 +123,14 @@ export interface RunBatonCleanupDeps {
    * (row missing → archive='failed' / row OK → 走 archiveFn)。
    */
   getSession?: (sessionId: string) => ReturnType<typeof sessionRepo.get>;
+  /**
+   * test seam: emit 'caller-archive-failed' event(默认 eventBus.emit)。让单测可断言 emit
+   * 调用 + payload schema 不需 mock 整个 eventBus 模块。
+   *
+   * archive-failure-ux-upthrow-20260515 plan: row missing 短路 + archiveFn 抛错两处都调用
+   * 此 emit 上抛失败给 main bootstrap listener → notifyUser + IPC channel。
+   */
+  emitArchiveFailed?: (payload: EventMap['caller-archive-failed'][0]) => void;
 }
 
 export interface RunBatonCleanupResult {
@@ -206,6 +216,12 @@ export async function runBatonCleanup(
   // (UPDATE 对缺失 row 是 no-op 误报)。
   // CHANGELOG_99 R1 fix MED-5: 重新反查 ground truth(不复用 spawn 之前的探针),spawn 是
   // long-running async,期间 caller row 可能被删。本 helper 内反查保证 spawn 后 ground truth。
+  // archive-failure-ux-upthrow-20260515 plan: row missing 与 archive throw 两处失败时都
+  // 调 emitFn 上抛 'caller-archive-failed' event,main bootstrap listener 桥到 notifyUser
+  // + IPC channel,避免 archive='failed' 字段被 caller 静默吞掉用户感知不到。
+  const emitFn =
+    deps?.emitArchiveFailed ??
+    ((payload: EventMap['caller-archive-failed'][0]) => eventBus.emit('caller-archive-failed', payload));
   let callerRow: ReturnType<typeof sessionRepo.get> = null;
   const getFn = deps?.getSession ?? ((sid: string) => sessionRepo.get(sid));
   try {
@@ -216,9 +232,15 @@ export async function runBatonCleanup(
     callerRow = null;
   }
   if (!callerRow) {
-    console.warn(
-      `[mcp ${input.toolName}] cannot archive caller ${input.callerSessionId}: not in sessions table (异常被清理 / 边界状态 / 长 async 期间 row 被删)`,
-    );
+    const reason = `cannot archive caller ${input.callerSessionId}: not in sessions table (异常被清理 / 边界状态 / 长 async 期间 row 被删)`;
+    console.warn(`[mcp ${input.toolName}] ${reason}`);
+    // 上抛 row-missing: row 不存在 → 重试归档无效, UI 仅告知。
+    emitFn({
+      sessionId: input.callerSessionId,
+      toolName: input.toolName,
+      reason,
+      reasonKind: 'row-missing',
+    });
     return { teammatesShutdown, archived: 'failed' };
   }
 
@@ -227,10 +249,20 @@ export async function runBatonCleanup(
     await archiveFn(input.callerSessionId);
     return { teammatesShutdown, archived: 'ok' };
   } catch (e) {
+    const errStr = e instanceof Error ? `${e.message}` : String(e);
+    const reason = `archive caller ${input.callerSessionId} failed: ${errStr}`;
     console.warn(
       `[mcp ${input.toolName}] archive caller ${input.callerSessionId} failed:`,
       e,
     );
+    // 上抛 archive-throw: row 存在但 archive 失败(FK constraint / DB locked 等),UI 显示
+    // 「重试归档」按钮调 window.api.archiveSession(id) 重试。
+    emitFn({
+      sessionId: input.callerSessionId,
+      toolName: input.toolName,
+      reason,
+      reasonKind: 'archive-throw',
+    });
     return { teammatesShutdown, archived: 'failed' };
   }
 }
