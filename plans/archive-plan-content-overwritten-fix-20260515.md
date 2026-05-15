@@ -97,7 +97,7 @@ archive_plan 默认查 `.claude/plans/<id>.md` 和 `~/.claude/plans/<id>.md`,**�
 
 按 user CLAUDE.md cold-start 流程:
 
-1. `Bash: cat /workspace/example/agent-deck/plans/archive-plan-content-overwritten-fix-20260515.md` 全文读 plan(强制 cat 不用 Read,详 user CLAUDE.md §Step 3 末尾 callout)
+1. `Bash: cat /workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515/plans/archive-plan-content-overwritten-fix-20260515.md` 全文读 plan(强制 cat 不用 Read,详 user CLAUDE.md §Step 3 末尾 callout)。**注意路径是 worktree 内的 plan**(latest 内容在 worktree branch,main HEAD 还没 ff-merge),非 main repo `<main>/plans/...md`(那是 stub 旧版)。
 2. `EnterWorktree(path: "/workspace/example/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515")` 进 worktree(注意是 path 不是 name;worktree 已存在不需要再建)
 3. 自检 worktree HEAD == 最新 commit(应是包含 Phase 1+2 fix 的 commit `5403b71` + plan 更新 commit):
    ```bash
