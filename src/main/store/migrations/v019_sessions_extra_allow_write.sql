@@ -1,0 +1,21 @@
+-- plan cross-adapter-parity-20260515 Phase A Step A.1 / REVIEW_40 R1 reviewer-codex MED-F follow-up：
+-- adapters/types.ts:78-95 jsdoc 原承诺「持久化:spawn 路径下由 finalizeSessionStart 写
+-- sessions.extra_allow_write;recoverer 从 sessionRepo 读回」是 fictional aspirational claim
+-- (commit 8b607a1 已 jsdoc reflect reality 改成「未持久化」+ 列「FUTURE 持久化方案」)。本
+-- migration 加 TEXT JSON 列实现 jsdoc 承诺,与 codex_sandbox / claude_code_sandbox / model
+-- 同款 per-session resilience 模式。
+--
+-- 用户场景:hand_off_session 外置 worktree(cwd=worktreePath 不在 mainRepo subtree)+ caller
+-- 传 `extra_allow_write: [mainRepo]` 让外置 worktree session 能写 mainRepo plan 文件。app
+-- 重启 / sdk-bridge state lost / recoverer fallback 路径 → SDK sandbox.allowWrite 不含原
+-- mainRepo → 写 plan 文件静默失败(sandbox 拦)→ 用户体感 plan 完成时 frontmatter 更新失败莫名其妙。
+--
+-- 字段值:JSON.stringify(string[]),e.g. `'["/Users/apple/repo"]'`。NULL = 不指定(与 caller 不传
+-- extraAllowWrite 行为同款,sandbox.allowWrite 仅含 cwd + /tmp + cache)。读取端 JSON.parse 后
+-- 期望 string[](全绝对路径);解析失败 / 类型不对 fallback null,与 generic_pty_config 同款防脏。
+--
+-- 兼容性:
+-- - claude session 该字段持久化 + recoverer 透传给 SDK sandbox.allowWrite(workspace-write 档生效)
+-- - codex session 该字段持久化但当前 codex bridge createSession opts 不消费(codex SDK
+--   不支持 extra writable roots);persist 字段保对称,future codex SDK 加支持时零迁移成本
+ALTER TABLE sessions ADD COLUMN extra_allow_write TEXT;
