@@ -21,6 +21,7 @@
  * branch commit 任何 plan 回写 → 行为不变,归档 body 与 stub 一致)。
  */
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import * as path from 'node:path';
 import {
   archivePlanImpl,
   _isArchivePlanError,
@@ -239,5 +240,150 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(err.error).toContain('no parseable frontmatter');
     expect(err.error).toContain('worktree branch'); // 提示责任方
     expect(err.hint).toContain('ff-merge 已完成');
+  });
+
+  // ─── Phase 3.1 R1 异构对抗 review fix 守门 case ──────────────────────────
+  // R1 双方独立提出 1 HIGH(INDEX summary 用 stale fm.description)+ 反驳轮 codex 单方
+  // HIGH(step 8b 后未 re-validate status)。fix:line 387 freshFm.description / 8c 加 status
+  // re-check。下面两 case 守门 R1 fix,fix 前必 fail / fix 后必 pass。
+
+  it('R1 fix HIGH-A 守门: caller 在 worktree branch commit 改 description 字段 → INDEX.md summary 必须用 freshFm.description(不能用 step 6 stale fm)', async () => {
+    const { state, input, expectedMainRepo, expectedArchivedPath } = fixtureHappyPath();
+    const planFilePath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+
+    // post-ff-merge:caller 在 worktree branch 收尾 commit 加 description 字段(stub 没该字段)
+    const freshDescription = '完整收尾概要-post-ff-merge-fresh-description';
+    const postFfMergeContent = [
+      '---',
+      `plan_id: ${input.planId}`,
+      'created_at: 2026-05-13',
+      `worktree_path: ${input.worktreePath}`,
+      'status: in_progress',
+      'base_commit: abc123',
+      `description: ${freshDescription}`,
+      '---',
+      '',
+      '# Plan body content',
+      '',
+      'Some details with collapsed scope.',
+    ].join('\n');
+
+    const baseDeps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'worktree-mcp-bug-fix',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhashdesc',
+      '',
+      '',
+      '',
+      '',
+    ]);
+    const wrappedRunGit = baseDeps.runGit!;
+    const deps = {
+      ...baseDeps,
+      runGit: async (args: string[], cwd: string) => {
+        if (args[0] === 'merge' && args[1] === '--ff-only') {
+          state.files.set(planFilePath, postFfMergeContent);
+        }
+        return wrappedRunGit(args, cwd);
+      },
+    };
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(false);
+
+    // 1. archived plan body 含 fresh description fm 字段(R1 主 case 同款验证 freshFm 透传)
+    const archivedWrite = state.writes.find((w) => w.path === expectedArchivedPath);
+    expect(archivedWrite).toBeTruthy();
+    expect(archivedWrite!.content).toContain(`description: "${freshDescription}"`);
+
+    // 2. **关键 assertion**:plans/INDEX.md 必须用 freshFm.description(不能 fallback 到
+    // freshFm.plan_id 或 input.planId,这是 fix 前的 buggy 行为 — fm.description undefined
+    // 时 fallback 链落到 fm.plan_id == input.planId)
+    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexWrites = state.writes.filter((w) => w.path === indexPath);
+    expect(indexWrites.length).toBeGreaterThan(0);
+    const lastIndexWrite = indexWrites[indexWrites.length - 1];
+    expect(lastIndexWrite.content).toContain(freshDescription);
+    // 反向守门:INDEX.md 不应该用 plan_id fallback(若 fix 前 buggy,summary 会落到 plan_id)
+    // 验证手段:INDEX content 行 `| [<id>.md](<id>.md) | <summary> |` 中 summary col 是
+    // freshDescription 而非 input.planId。
+    const summaryColumnRegex = new RegExp(
+      `\\| \\[${input.planId}\\.md\\]\\(${input.planId}\\.md\\) \\| ([^|]+) \\|`,
+    );
+    const match = lastIndexWrite.content.match(summaryColumnRegex);
+    expect(match).toBeTruthy();
+    expect(match![1].trim()).toBe(freshDescription);
+  });
+
+  it('R1 fix HIGH-B 守门: caller 在 worktree branch commit 把 status 改 abandoned → archive_plan 必须 postFfMergeErr 拒绝(不能静默归档为 completed)', async () => {
+    const { state, input, expectedMainRepo, expectedArchivedPath } = fixtureHappyPath();
+    const planFilePath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+
+    // post-ff-merge:caller 在 worktree branch 中途变卦 commit `status: abandoned` 后忘改回
+    // (Scenario A;reviewer-claude 反驳轮列举 3 现实场景之一)
+    const postFfMergeContent = [
+      '---',
+      `plan_id: ${input.planId}`,
+      'created_at: 2026-05-13',
+      `worktree_path: ${input.worktreePath}`,
+      'status: abandoned', // ← 关键:fresh status 漂移到 abandoned
+      'base_commit: abc123',
+      '---',
+      '',
+      '# Plan body content',
+      '',
+      '## 中止理由',
+      '- caller 中途决定不 ship,但又改主意继续推进 fix,忘了把 status 撤回 in_progress',
+    ].join('\n');
+
+    const baseDeps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'worktree-mcp-bug-fix',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhashabandoned',
+      // git add / commit / worktree remove / branch -D 都不会被调用(短路在 step 8c)
+    ]);
+    const wrappedRunGit = baseDeps.runGit!;
+    const deps = {
+      ...baseDeps,
+      runGit: async (args: string[], cwd: string) => {
+        if (args[0] === 'merge' && args[1] === '--ff-only') {
+          state.files.set(planFilePath, postFfMergeContent);
+        }
+        return wrappedRunGit(args, cwd);
+      },
+    };
+
+    const result = await archivePlanImpl(input, deps);
+
+    // 1. **关键 assertion**:必须返回 ArchivePlanError 拒绝(不能 ok)
+    expect(_isArchivePlanError(result)).toBe(true);
+    const err = result as { error: string; hint: string };
+    expect(err.error).toContain('[post-ff-merge:reread-plan-after-ffmerge]');
+    expect(err.error).toContain('status changed to "abandoned"');
+    expect(err.error).toContain('in_progress'); // 提示原 preflight 校验值
+    expect(err.error).toContain('§Step 4'); // 引 user CLAUDE.md 中止契约
+
+    // 2. hint 含 cleanup 指引(git revert / 中止 path)— 不是通用 GENERIC hint
+    expect(err.hint).toContain('git revert HEAD'); // 引导 caller undo ff-merge
+    expect(err.hint).toContain('§Step 4'); // 引中止流程
+    expect(err.hint).toContain('git worktree remove'); // 中止流程动作
+    expect(err.hint).toContain('status: in_progress'); // 另一选择:撤回继续推进
+
+    // 3. archive 写不应该发生(短路 in step 8c,不到 step 10 写 archived plan / step 11 INDEX)
+    const archivedWrite = state.writes.find((w) => w.path === expectedArchivedPath);
+    expect(archivedWrite).toBeUndefined();
+    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexWrite = state.writes.find((w) => w.path === indexPath);
+    expect(indexWrite).toBeUndefined();
+    // 4. 原 plan 文件没被 unlink(短路在 step 8c,step 12 unlink 不会跑)
+    expect(state.unlinks).toEqual([]);
   });
 });

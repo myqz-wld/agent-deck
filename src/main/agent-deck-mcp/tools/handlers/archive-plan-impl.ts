@@ -355,6 +355,42 @@ export async function archivePlanImpl(
     );
   }
 
+  // 8c. **重新校验 fresh status**(R1 review 反驳轮异构同源共识 HIGH)
+  //
+  // **bug 根因**:本次 fix(plan archive-plan-content-overwritten-fix-20260515 Phase 1+2)
+  // 把 step 9 spread 来源从 step 6 fm 切到 freshFm,但 step 6 的 status 三档分流校验
+  // (line 250/259/265)没同步迁移到 step 8b。caller 若在 worktree branch commit 把
+  // plan status 改 abandoned / completed / 未知值,ff-merge 把改动带进 main → step 9
+  // `{ ...freshFm, status: 'completed' }` 会静默把 abandoned plan 强制归档成 completed,
+  // 违反 user CLAUDE.md §Step 4「中止」契约 + 回归 REVIEW_33 H2 已修过的 abandoned 防线。
+  //
+  // **现实场景**(reviewer-claude 反驳轮列举):
+  // - Scenario A:caller worktree commit `status: abandoned` → 改主意继续推进 fix → 忘改回
+  // - Scenario B:hand_off_session 跨会话漂移,Session 2 接力没注意 frontmatter 变更
+  // - Scenario C:多人 / 多 agent 协作,A commit abandoned 意向 → B 接管完成 → 调 archive
+  //
+  // **修法**:8c re-check `freshFm.status === 'in_progress'`,否则 postFfMergeErr 拒绝。
+  // 不再细分三档(step 6 preflight 已细分):post-ff-merge 阶段 main HEAD 已动,cleanup
+  // 路径需 caller inspect 真实意图后 git revert + edit fm 再 retry,统一专用 phaseHint。
+  if (freshFm.status !== 'in_progress') {
+    return postFfMergeErr(
+      'reread-plan-after-ffmerge',
+      new Error(
+        `plan status changed to "${freshFm.status ?? '<missing>'}" on the worktree branch ` +
+          `(was "in_progress" at preflight). archive_plan only handles in_progress → completed; ` +
+          `cannot proceed with non-in_progress fresh status to avoid violating user CLAUDE.md ` +
+          `§Step 4 "中止" contract (abandoned plans must not enter project git archive).`,
+      ),
+      'main HEAD has advanced (ff-merge complete) and the plan file at the main repo has a ' +
+        'status that drifted from "in_progress" on the worktree branch. Cleanup choices: ' +
+        '(1) if caller intended abandoned: `git revert HEAD` to undo the ff-merge in main repo, ' +
+        'then follow user CLAUDE.md §Step 4 "中止" path (keep status=abandoned, manual ' +
+        '`git worktree remove --force` + `git branch -D`); ' +
+        '(2) if caller intended to continue: edit the plan frontmatter to `status: in_progress` ' +
+        'on both main repo and worktree branch (commit the worktree-side fix), then re-call archive_plan.',
+    );
+  }
+
   // 9. 更新 frontmatter(用 freshFm,而非 step 6 的 fm — 让 caller 在 worktree branch
   // commit 的任意 fm 字段变更也透传到归档 plan)
   const today = formatLocalDate(new Date());
@@ -384,7 +420,10 @@ export async function archivePlanImpl(
 
   // 11. 同步 plans/INDEX.md（存在则 append 一行 / 不存在则创建带 header）
   const indexPath = path.join(archivedDir, 'INDEX.md');
-  const summary = (fm.description ?? fm.plan_id ?? input.planId).slice(0, 200);
+  // freshFm 而非 step 6 fm — 与 step 9-10 frontmatter / body 写入保持同源
+  // (R1 review HIGH:caller 在 worktree branch commit 更新 description 时,旧实现
+  // INDEX.md 仍写老 description,与归档 plan frontmatter / body 不一致)
+  const summary = (freshFm.description ?? freshFm.plan_id ?? input.planId).slice(0, 200);
   let plansIndexAppended = false;
   try {
     const indexExists = await deps.exists(indexPath);
@@ -490,7 +529,8 @@ function stripFrontmatter(text: string): string {
  * sync INDEX / unlink plan / git add+commit / git worktree remove / git branch -D）。
  *
  * 8 个 phase 一一对应 step 8 / 8b / 10-14（plan archive-plan-content-overwritten-fix
- * -20260515 加 'reread-plan-after-ffmerge' phase 对应 step 8b 重新 read 失败）。
+ * -20260515 加 'reread-plan-after-ffmerge' phase 对应 step 8b 重新 read 失败 + 8c
+ * fresh status 漂移拒绝;两 case 复用同一 phase value,具体原因看 error 内 message）。
  */
 export type PostFfMergePhase =
   | 'rev-parse-HEAD' // step 8
