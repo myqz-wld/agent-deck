@@ -67,7 +67,11 @@ describe('archivePlanImpl — happy path', () => {
     expect(ok.commitHash).toBe('deadbeef123');
     expect(ok.branchDeleted).toBe('worktree-mcp-bug-fix');
     expect(ok.worktreeRemoved).toBe(input.worktreePath);
-    expect(ok.plansIndexAppended).toBe(true);
+    // archive-plan-tool-ux-followup-20260515 (b)+(c): plansIndexAppended boolean → plansIndexAction
+    // 四态 enum。fixture INDEX 不存在 → action='created'。warnings 数组(HIGH-2 silent override warn)
+    // happy path 应为空(plan 仅在 .claude/plans/ 不在 plans/,无双存)。
+    expect(ok.plansIndexAction).toBe('created');
+    expect(ok.warnings).toEqual([]);
     expect(ok.finalStatus).toBe('completed');
 
     // git 调用次数严格 11 次（happy path 完整，REVIEW_33 H1 加了 verify + checkout）
@@ -106,12 +110,12 @@ describe('archivePlanImpl — happy path', () => {
     expect(state.unlinks).toContain(`${expectedMainRepo}/.claude/plans/${input.planId}.md`);
   });
 
-  it('INDEX 已存在 → append 一行（不重复 / 不重写 header）', async () => {
+  it('INDEX 已存在 + 不含本 plan_id → append 一行 4 列 row(plansIndexAction=appended)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
     state.files.set(
       indexPath,
-      '# Plans 索引\n\n| 文件 | 概要 |\n|---|---|\n| [old-plan.md](old-plan.md) | older |\n',
+      '# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [old-plan.md](old-plan.md) | completed | — | older |\n',
     );
 
     const deps = makeDeps(state, [
@@ -129,22 +133,29 @@ describe('archivePlanImpl — happy path', () => {
     ]);
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(false);
+    expect((result as ArchivePlanResult).plansIndexAction).toBe('appended');
 
     const indexWrite = state.writes.find((w) => w.path === indexPath);
     expect(indexWrite).toBeTruthy();
-    // 旧条目保留 + 新条目追加
+    // 旧条目保留 + 新条目追加(4 列 row)
     expect(indexWrite!.content).toContain('[old-plan.md]');
     expect(indexWrite!.content).toContain(`[${input.planId}.md]`);
-    // 没有重写 header（header 出现 1 次）
+    // append 行必须 4 列(完整含 status=completed + changelog 列 + description 列)
+    const newRowRegex = new RegExp(
+      `\\| \\[${input.planId}\\.md\\]\\(${input.planId}\\.md\\) \\| completed \\| [^|]+ \\| [^|]+ \\|`,
+    );
+    expect(indexWrite!.content).toMatch(newRowRegex);
+    // 没有重写 header(header 出现 1 次)
     expect((indexWrite!.content.match(/# Plans 索引/g) ?? []).length).toBe(1);
   });
 
-  it('plan_id 已在 INDEX → 跳过 append（防重复 + plansIndexAppended=false）', async () => {
+  it('archive-plan-tool-ux-followup-20260515 (b)+(c): plan_id 已在 INDEX → smart update 4 列(plansIndexAction=updated,不再跳过)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    // caller 在 in_progress 阶段已经手工把 plan_id 行写进 INDEX(典型 stub 创建惯例)
     state.files.set(
       indexPath,
-      `# Plans 索引\n\n| 文件 | 概要 |\n|---|---|\n| [${input.planId}.md](${input.planId}.md) | already here |\n`,
+      `# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [${input.planId}.md](${input.planId}.md) | in_progress | — | stub:work in progress |\n`,
     );
 
     const deps = makeDeps(state, [
@@ -162,11 +173,23 @@ describe('archivePlanImpl — happy path', () => {
     ]);
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(false);
-    expect((result as ArchivePlanResult).plansIndexAppended).toBe(false);
+    // 旧契约「跳过 append + plansIndexAppended=false」已废,新契约 smart update updated
+    expect((result as ArchivePlanResult).plansIndexAction).toBe('updated');
 
-    // INDEX 没有第二次 write
+    // smart update 后 INDEX 应有 1 次 write(updated 行)
     const indexWrites = state.writes.filter((w) => w.path === indexPath);
-    expect(indexWrites.length).toBe(0);
+    expect(indexWrites.length).toBe(1);
+    // status 列被改成 'completed'(原 'in_progress' 替换)
+    expect(indexWrites[0].content).toContain('| completed |');
+    expect(indexWrites[0].content).not.toMatch(/\| in_progress \|/);
+    // 旧 description 列被替换为 freshFm(fixture 无 description → fallback 到 plan_id)
+    // 反向守门:'stub:work in progress' 老 description 被覆盖
+    expect(indexWrites[0].content).not.toContain('stub:work in progress');
+    // 行格式必须 4 列 canonical
+    const rewrittenRowRegex = new RegExp(
+      `\\| \\[${input.planId}\\.md\\]\\(${input.planId}\\.md\\) \\| completed \\| [^|]+ \\| [^|]+ \\|`,
+    );
+    expect(indexWrites[0].content).toMatch(rewrittenRowRegex);
   });
 });
 
@@ -276,7 +299,7 @@ describe('archivePlanImpl — 预检失败分支', () => {
     expect((result as ArchivePlanError).error).toContain('detached');
   });
 
-  it('plan 文件不存在（默认两条路径都没找到）→ reject + 提示 hint 含两条 fallback 路径', async () => {
+  it('plan 文件不存在（默认三条路径都没找到）→ reject + 提示 hint 含三条 fallback 路径', async () => {
     const state = makeState();
     const input = {
       planId: 'no-such-plan',
@@ -293,7 +316,10 @@ describe('archivePlanImpl — 预检失败分支', () => {
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(true);
     expect((result as ArchivePlanError).error).toContain('plan file not found');
-    expect((result as ArchivePlanError).hint).toContain('.claude/plans');
+    // archive-plan-tool-ux-followup-20260515 (a) fallback 链 3 档:
+    // .claude/plans/ → plans/ → ~/.claude/plans/
+    expect((result as ArchivePlanError).hint).toContain('/Users/test/repo/.claude/plans');
+    expect((result as ArchivePlanError).hint).toContain('/Users/test/repo/plans');
     expect((result as ArchivePlanError).hint).toContain('/Users/test/.claude/plans');
   });
 });

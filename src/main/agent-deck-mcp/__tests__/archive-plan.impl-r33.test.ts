@@ -68,7 +68,9 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
   it('显式 plan_file_path override → 用之（覆盖默认 fallback）', async () => {
     const state = makeState();
     const planId = 'override-plan';
-    const customPath = '/Users/test/some-custom-location/myplan.md';
+    // archive-plan-tool-ux-followup-20260515 HIGH-1 stem refine: customPath 文件名 stem 必须
+    // 等于 planId,否则 step 5 拒绝(防 archived path / INDEX key 派生与 caller 给的文件 stem 脱节)。
+    const customPath = `/Users/test/some-custom-location/${planId}.md`;
     state.files.set(
       customPath,
       ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
@@ -278,7 +280,7 @@ describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
     vi.useRealTimers();
   });
 
-  it('rev-parse HEAD (step 8) 失败 → error 含 [post-ff-merge:rev-parse-HEAD] + 通用 hint', async () => {
+  it('rev-parse HEAD (step 8) 失败 → error 含 [post-ff-merge:rev-parse-HEAD] + 专用 phaseHint(followup 20260515 (d))', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
@@ -294,9 +296,10 @@ describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
     expect(_isArchivePlanError(result)).toBe(true);
     expect((result as ArchivePlanError).error).toContain('[post-ff-merge:rev-parse-HEAD]');
     expect((result as ArchivePlanError).error).toContain('bad revision HEAD');
-    expect((result as ArchivePlanError).hint).toContain('ff-merge 已完成');
-    expect((result as ArchivePlanError).hint).toContain('main HEAD 已推进');
-    expect((result as ArchivePlanError).hint).toContain('phase 标识手工补完');
+    // followup 20260515 (d):rev-parse-HEAD phase 现在有专用 phaseHint 而非通用 GENERIC。
+    // 期望 hint 含具体 manual recovery 指引(rev-parse HEAD command + complete steps 9-14)。
+    expect((result as ArchivePlanError).hint).toContain('rev-parse HEAD');
+    expect((result as ArchivePlanError).hint).toContain('complete steps 9-14 manually');
   });
 
   it('git add (step 13a) 失败 → error 含 [post-ff-merge:git-add]', async () => {

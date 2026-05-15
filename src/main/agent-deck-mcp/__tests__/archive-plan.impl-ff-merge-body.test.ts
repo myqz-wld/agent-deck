@@ -309,10 +309,11 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     const lastIndexWrite = indexWrites[indexWrites.length - 1];
     expect(lastIndexWrite.content).toContain(freshDescription);
     // 反向守门:INDEX.md 不应该用 plan_id fallback(若 fix 前 buggy,summary 会落到 plan_id)
-    // 验证手段:INDEX content 行 `| [<id>.md](<id>.md) | <summary> |` 中 summary col 是
-    // freshDescription 而非 input.planId。
+    // 验证手段:archive-plan-tool-ux-followup-20260515 (c) 4 列 row format:
+    // `| [<id>.md](<id>.md) | completed | <changelog or "—"> | <description> |`
+    // description 在第 4 列;regex 用 4 个 ` \| ` 分隔的 cells 锚定。
     const summaryColumnRegex = new RegExp(
-      `\\| \\[${input.planId}\\.md\\]\\(${input.planId}\\.md\\) \\| ([^|]+) \\|`,
+      `\\| \\[${input.planId}\\.md\\]\\(${input.planId}\\.md\\) \\| completed \\| [^|]+ \\| ([^|]+) \\|`,
     );
     const match = lastIndexWrite.content.match(summaryColumnRegex);
     expect(match).toBeTruthy();
