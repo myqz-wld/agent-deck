@@ -360,6 +360,14 @@ export const HAND_OFF_SESSION_SCHEMA = {
     .describe(
       'Default false (即 default shutdown caller=lead 同 team 其他 active teammate)。baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。**仅当 caller 在该 team 是 lead 才 shutdown 同 team 其他成员**(caller 是 teammate 时罕见 baton 不牵连他人);单个 close 失败 warn 不阻塞;helper 自身炸亦 warn 不阻塞 caller archive。Pass `keep_teammates: true` 跳过(典型: 显式传 team_name 让新 session 继承 team 接管 lead 角色)。Detail 见 ok return.teammatesShutdown 字段:{ closed: string[], failed: Array<{sessionId, reason}>, skipped: "caller-not-lead" | "keep-teammates" | null }。',
     ),
+  // hand-off-mcp-archive-opt-20260515: caller archive 可选 opt-out。
+  // 与 keep_teammates 字段同款 boolean 默认行为 — baton 默认动作可显式 opt-out。
+  archive_caller: z
+    .boolean()
+    .optional()
+    .describe(
+      'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archive_caller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。`archive_caller: false` 与 `keep_teammates: true` 互相独立(可分别 opt-out)。',
+    ),
 };
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
@@ -497,7 +505,7 @@ export interface HandOffSessionResult extends SpawnSessionResult {
   initialPrompt: string;
   /** generic 模式下 caller 传了 plan-only 字段（phase_label / plan_file_path）时被忽略的字段名数组；plan 模式始终空。 */
   ignoredFields: string[];
-  /** caller archive 三态：'ok'=成功 / 'failed'=warn-only 不阻塞 / 'skipped'=external caller。 */
+  /** caller archive 三态：'ok'=成功 / 'failed'=warn-only 不阻塞 / 'skipped'=external caller 或 caller 显式传 archive_caller=false。 */
   archived: 'ok' | 'failed' | 'skipped';
   /** baton cleanup phase 1 详情（与 archive_plan 同款）。 */
   teammatesShutdown: TeammatesShutdownInfo;

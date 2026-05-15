@@ -22,6 +22,8 @@
  * | 8. archiveFn 抛错                            | closed=[A]        | 'failed' + warn               |
  * | 9. excludeSessionIds 透传给 shutdown helper  | seam 收到 exclude 参数 | -                         |
  * | 10. 时序: shutdown 在 archive 之前           | call order 验证   | -                             |
+ * | 11. archiveCaller=false → phase 2 跳过       | closed=[A]        | 'skipped' (不调 getFn/archiveFn)|
+ * | 12. archiveCaller=false + keepTeammates=true | skipped='keep-teammates' (不调 helper) | 'skipped' (不调 getFn/archiveFn) |
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -316,5 +318,65 @@ describe('runBatonCleanup', () => {
 
     // 关键: shutdown 必须在 getSession + archive 之前(详 baton-cleanup.ts 顶部注释「时序保证」)
     expect(order).toEqual(['shutdown', 'getSession', 'archive']);
+  });
+
+  // hand-off-mcp-archive-opt-20260515: caller 显式传 archive_caller=false → phase 2 跳过 + archived='skipped'。
+  // 与 case 1 external sentinel 同款 'skipped' 值,但来源不同(case 1 = 防御短路,本 case = 显式 caller 意图);
+  // 关键差异:case 1 phase 1 也短路(skipped='caller-not-lead'),本 case phase 1 仍正常跑。
+  it('case 11: archiveCaller=false → phase 2 跳过 + archived=skipped + 不调 getFn/archiveFn(phase 1 仍跑)', async () => {
+    const shutdownFn = vi.fn(async (_sid: string) =>
+      ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
+    );
+    const archiveFn = vi.fn(async (_sid: string) => undefined);
+    const getFn = vi.fn(() => fakeRow('caller'));
+
+    const result = await runBatonCleanup(
+      {
+        callerSessionId: 'caller',
+        keepTeammates: false,
+        archiveCaller: false,
+        toolName: 'hand_off_session',
+      },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+    );
+
+    expect(result).toEqual({
+      teammatesShutdown: { closed: ['team-A'], failed: [], skipped: null },
+      archived: 'skipped',
+    });
+    // phase 1 仍正常跑(archive_caller 与 keep_teammates 字段正交)
+    expect(shutdownFn).toHaveBeenCalledTimes(1);
+    // 关键:phase 2 完全短路 — getFn / archiveFn 都不调
+    expect(getFn).not.toHaveBeenCalled();
+    expect(archiveFn).not.toHaveBeenCalled();
+  });
+
+  // hand-off-mcp-archive-opt-20260515: 两 opt-out 字段正交可同时启用 — caller 想起新 session 并行做事
+  // (archive_caller=false) + 保留 reviewer 给 follow-up(keep_teammates=true)。
+  it('case 12: archiveCaller=false + keepTeammates=true → phase 1 + phase 2 都跳过(两字段正交可同时 opt-out)', async () => {
+    const shutdownFn = vi.fn(async (_sid: string) =>
+      ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
+    );
+    const archiveFn = vi.fn(async (_sid: string) => undefined);
+    const getFn = vi.fn(() => fakeRow('caller'));
+
+    const result = await runBatonCleanup(
+      {
+        callerSessionId: 'caller',
+        keepTeammates: true,
+        archiveCaller: false,
+        toolName: 'hand_off_session',
+      },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+    );
+
+    expect(result).toEqual({
+      teammatesShutdown: { closed: [], failed: [], skipped: 'keep-teammates' },
+      archived: 'skipped',
+    });
+    // 关键:两 opt-out 字段都被尊重 — 全 0 调用
+    expect(shutdownFn).not.toHaveBeenCalled();
+    expect(getFn).not.toHaveBeenCalled();
+    expect(archiveFn).not.toHaveBeenCalled();
   });
 });
