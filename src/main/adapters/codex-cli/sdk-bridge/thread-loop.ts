@@ -208,13 +208,55 @@ export class ThreadLoop {
             signal: controller.signal,
           });
           for await (const ev of events) {
-            // 拦截 thread.started：拿到真实 thread_id，通知 createSession promise resolve
-            if (ev.type === 'thread.started' && !internal.threadId) {
-              internal.threadId = ev.thread_id;
-              if (firstIdCb) {
+            // 拦截 thread.started：拿到真实 thread_id。三种情况处理（symmetry-plan P2 MED-D）：
+            // 1. 新建路径（!internal.threadId）：第一次拿到 thread_id，设字段 + 触发 firstIdCb
+            // 2. 恢复路径正常 case（internal.threadId === ev.thread_id）：仅触发 firstIdCb
+            //    通知外层 awaitResumeFirstThreadId 等到了 SDK 实际启动 → resolve
+            // 3. 恢复路径 SDK 返回不同 id（internal.threadId !== ev.thread_id）：CLI 隐式 fork —
+            //    当前 codex CLI 实测不会发生（spike-A2 验证 + restart-controller.ts:97 注释），
+            //    但 SDK 源码不阻止此行为（dist/index.js:84-87 无条件 swap _id），future-proof
+            //    防 SDK 升级 / CLI 行为变更。修前 `&& !internal.threadId` 保护让 resume 路径
+            //    跳过 ev.thread_id 校验 → app 层 ↔ SDK actual id silent split → 历史会话静默断链。
+            if (ev.type === 'thread.started') {
+              if (!internal.threadId) {
+                // case 1: 新建路径
+                internal.threadId = ev.thread_id;
+                if (firstIdCb) {
+                  firstIdCb(ev.thread_id);
+                  firstIdCb = undefined;
+                  earlyErrCb = undefined;
+                }
+              } else if (internal.threadId !== ev.thread_id) {
+                // case 3: 恢复路径但 SDK 返回不同 id（罕见 + future-proof）
+                const oldId = internal.threadId;
+                const newId = ev.thread_id;
+                console.warn(
+                  `[codex-bridge] resumeThread returned different thread_id ${oldId} → ${newId}; ` +
+                    `unexpected (codex resume historically returns same id). Carrying app-side ` +
+                    `history via renameSdkSession.`,
+                );
+                // 切 sessions Map 的 key（与 startNewThreadAndAwaitId 内 tempKey→realId rename 同款）
+                this.ctx.sessions.delete(oldId);
+                this.ctx.sessions.set(newId, internal);
+                internal.threadId = newId;
+                try {
+                  sessionManager.renameSdkSession(oldId, newId);
+                } catch (renameErr) {
+                  console.error(
+                    `[codex-bridge] post-resume rename failed ${oldId} → ${newId}, ` +
+                      `NEW thread runs but app-side history not migrated.`,
+                    renameErr,
+                  );
+                }
+                if (firstIdCb) {
+                  firstIdCb(newId);
+                  firstIdCb = undefined;
+                  earlyErrCb = undefined;
+                }
+              } else if (firstIdCb) {
+                // case 2: 恢复路径正常 case — id 一致仅触发 cb
                 firstIdCb(ev.thread_id);
                 firstIdCb = undefined;
-                // 已拿到 thread_id：后续错误走常规 catch，不再算 early error
                 earlyErrCb = undefined;
               }
             }
