@@ -77,7 +77,7 @@ export interface CreateSessionOptions {
   model?: string;
   /**
    * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter 接收并起效；
-   * 其它 adapter 忽略）。
+   * 其它 adapter 字段持久化保 parity 对称但 runtime 不消费）。
    *
    * 典型场景：
    * - hand_off_session 外置 worktree（cwd=worktreePath 不在 mainRepo subtree）→ caller 传 `[mainRepo]`
@@ -89,26 +89,22 @@ export interface CreateSessionOptions {
    * 仅 workspace-write 档生效（strict 档无 allowWrite，extra 也无效；'off' 档忽略）。
    * undefined / 空数组 → 行为同原版。
    *
-   * **持久化（symmetry-plan P2 MED-F 修正）**：当前**未持久化** — 仅 transient 注入到首次 spawn
-   * （createSession opts → buildSandboxOptions → sandbox.allowWrite，详 sandbox-config.ts:147-148）。
-   * **已知限制**：
-   * - app 重启 → bridge state 失 → recoverer 重 spawn → fallback 路径 createThunk 不带
-   *   extraAllowWrite → SDK sandbox.allowWrite 不含原 mainRepo
-   * - 用户场景：hand_off_session 外置 worktree（cwd=worktreePath） + app 重启 + plan 完成时
-   *   SDK 写 mainRepo plan 文件 → 静默失败（sandbox 拦）
-   * - workaround：用户重发 hand_off_session / 手动编辑 plan 文件
+   * **持久化（plan cross-adapter-parity-20260515 Phase A 实装,REVIEW_40 R1 reviewer-codex MED-F
+   * follow-up）**:spawn 路径下由 finalizeSessionStart(claude) / persistSessionFields(codex)
+   * 写 sessions.extra_allow_write 列(JSON.stringify(string[]));recoverer fallback / resume
+   * 路径从 sessionRepo.extraAllowWrite 读回交还 createThunk → SDK sandbox.allowWrite。
+   * 让 app 重启 / sdk-bridge state lost / recoverer fallback 路径下 SDK 不丢 caller spawn 时
+   * 透传的 extra writable roots(典型 hand_off_session 外置 worktree caller 传 [mainRepo] 让
+   * session 能写 mainRepo plan 文件)。
    *
-   * **FUTURE 持久化方案**（独立 plan，不在 symmetry-plan scope）：
-   * 1. migration v019_sessions_extra_allow_write.sql 加 TEXT JSON 列
-   * 2. session-repo: SessionRow + setExtraAllowWrite + 加入 toSessionRecord / rename
-   * 3. shared/types/session.ts: SessionRecord.extraAllowWrite
-   * 4. claude session-finalize.ts: setExtraAllowWrite 写库（紧跟 setSandbox）
-   * 5. claude recoverer.ts: 从 rec.extraAllowWrite 读回 → createThunk 透传（resume + fallback 双路径）
-   *
-   * 修前 jsdoc 写「spawn 路径下由 finalizeSessionStart 写 sessions.extra_allow_write；recoverer
-   * 从 sessionRepo 读回透传防 fallback 时丢失」是**虚构的（aspirational claim）**——session-finalize.ts
-   * 实际只 setSandbox + setModel,不写 extra_allow_write;sessions 表也无该列。reviewer-codex R1 主题
-   * 「sandbox 字段」MED 单方提出 + lead 实证 grep 0 命中实施代码。
+   * **跨 adapter 行为差异**:
+   * - claude-code:全链路实装(persist + read-back + buildSandboxOptions 注入 SDK
+   *   sandbox.allowWrite,workspace-write 档真正生效)
+   * - codex-cli:字段持久化保 parity 对称(setExtraAllowWrite 写库 + recoverer 读回),但 codex
+   *   SDK 不消费 extra writable roots(sandboxMode 三档无 allowWrite 字段),runtime 不生效;
+   *   future codex SDK 加支持时零迁移成本(与 codex `model` 字段同款语义 — persist 保对称
+   *   runtime 不生效,user CLAUDE.md plan D5)
+   * - aider / generic-pty:不接收(字段对它们无意义)
    */
   extraAllowWrite?: readonly string[];
   /**
