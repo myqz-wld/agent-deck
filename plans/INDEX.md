@@ -38,3 +38,5 @@
 | [archive-failure-ux-upthrow-20260515.md](archive-failure-ux-upthrow-20260515.md) | archive-failure-ux-upthrow-20260515 |
 | [archive-toctou-fix-20260515.md](archive-toctou-fix-20260515.md) | archive-toctou-fix-20260515 |
 | [adapter-architecture-design-20260515.md](adapter-architecture-design-20260515.md) | adapter-architecture-design-20260515 |
+| [p4-baseadapter-d2-implement-20260515.md](p4-baseadapter-d2-implement-20260515.md) | in_progress | — | RFC §1 Option D2 实施 stub(CreateSessionOptions 拆判别联合 + typed registry binding;5 处 caller migration;~+165/-140 行;待 hand-off 接力)|
+| [cross-adapter-sandbox-inherit-20260515.md](cross-adapter-sandbox-inherit-20260515.md) | in_progress | — | RFC §2 Option D 重写 + E 重写实施 stub(inherit_sandbox 'restrictions-only' string enum 仅安全方向映射 + warnings 字段;~+175 行;Chapter 1 plan 收口后串行)|
