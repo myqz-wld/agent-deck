@@ -272,12 +272,20 @@ export function registerAdaptersIpc(): void {
     // 那条路径不应触发自动 unarchive。本入口是用户从 UI / CLI 显式 sendMessage 的桥点
     // （mcp tool send_message 走 universal-message-watcher 不经过这里）。
     // 详 sessionManager.unarchiveOnUserSend jsdoc。
+    //
+    // archive-toctou-fix-20260515 plan: unarchiveOnUserSend 内部调 sessionManager.unarchive →
+    // sessionRepo.setArchived(sid, null),修法 A 后 setArchived 撞 race window (probe 后 row 被
+    // 外部删) 会 throw SessionRowMissingError。该 throw 必须挪进 try/catch 块**与** sendMessage
+    // 共享 attachments cleanup,否则 unarchive throw → 跳过 catch → attachments 残留磁盘 leak
+    // (持久化层无清理钩子)。throw 仍冒泡走 IPC reply error → renderer Composer inline error,
+    // 与 reviewer-codex R1 HIGH「row 真不存在让 throw 冒泡更合理」立场一致。
     const sidParsed = parseStringId('sessionId', sessionId);
-    await sessionManager.unarchiveOnUserSend(sidParsed);
     try {
+      await sessionManager.unarchiveOnUserSend(sidParsed);
       await adapter.sendMessage(sidParsed, text, attachments);
     } catch (err) {
-      // sendMessage throw：path 还没塞进 SDK 队列（adapter 内部入队前 throw），安全清干净
+      // sendMessage / unarchive throw：path 还没塞进 SDK 队列（adapter 内部入队前 throw），
+      // 安全清干净
       // ⚠ 关键护栏：成功路径**不**清，因为 adapter 已把 path 塞进 pendingMessages 队列，
       //   清了 codex 子进程消费时 ENOENT。
       await Promise.all(attachments.map((r) => deleteUploadIfExists(r.path)));

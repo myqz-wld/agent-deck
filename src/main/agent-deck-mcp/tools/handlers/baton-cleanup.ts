@@ -50,7 +50,7 @@
  * 耦合。
  */
 
-import { sessionRepo } from '@main/store/session-repo';
+import { sessionRepo, SessionRowMissingError } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { eventBus } from '@main/event-bus';
 import type { EventMap } from '@main/event-bus';
@@ -95,14 +95,19 @@ export interface RunBatonCleanupInput {
    */
   archiveCaller?: boolean;
   /**
-   * console.warn 前缀的工具名(如 'archive_plan' / 'hand_off_session'),拼成 `[mcp <toolName>] ...`
-   * 帮调试时分辨哪个 handler 触发的 cleanup。
+   * console.warn 前缀的工具名(union narrow,archive-toctou-fix-20260515 plan):
+   * - 'archive_plan': mcp archive_plan handler 调用
+   * - 'hand_off_session': mcp hand_off_session handler 调用
+   *
+   * K3 SessionHandOffSpawn 走独立 archiveSourceSessionWithEmit helper 不经本路径,
+   * 故 union 仅 2 值。新增 mcp tool 走本 helper 必须先在 EventMap 'caller-archive-failed'
+   * payload toolName union 加值,然后在此同步 narrow,否则 emit 时 tsc 报错(✅ feature)。
    *
    * test 断言核心 substring 与 toolName 无关(`shutdownTeammatesOnBaton helper failed for caller <sid>`
    * / `cannot archive caller <sid>: not in sessions table` / `archive caller <sid> failed:`),
    * 但 toolName 让 stderr 实际看到的 warn 行更易定位。
    */
-  toolName: string;
+  toolName: 'archive_plan' | 'hand_off_session';
 }
 
 export interface RunBatonCleanupDeps {
@@ -213,23 +218,40 @@ export async function runBatonCleanup(
 
   // archive 前 sessionRepo.get 探针(CHANGELOG_98 / R2 reviewer-codex MED-2):
   // session 异常被清理 / 边界状态 / spawn 期间 row 被删 → archived='failed' 不报 'ok'
-  // (UPDATE 对缺失 row 是 no-op 误报)。
+  // (UPDATE 对缺失 row 是 no-op 误报 — archive-toctou-fix-20260515 plan setArchived 已 throw
+  // SessionRowMissingError,但探针仍是第一道闸门让常见 row missing 不必走 archive 段)。
   // CHANGELOG_99 R1 fix MED-5: 重新反查 ground truth(不复用 spawn 之前的探针),spawn 是
   // long-running async,期间 caller row 可能被删。本 helper 内反查保证 spawn 后 ground truth。
-  // archive-failure-ux-upthrow-20260515 plan: row missing 与 archive throw 两处失败时都
-  // 调 emitFn 上抛 'caller-archive-failed' event,main bootstrap listener 桥到 notifyUser
+  // archive-failure-ux-upthrow-20260515 plan: row missing / probe-throw / archive throw 三处
+  // 失败时都调 emitFn 上抛 'caller-archive-failed' event,main bootstrap listener 桥到 notifyUser
   // + IPC channel,避免 archive='failed' 字段被 caller 静默吞掉用户感知不到。
+  // archive-toctou-fix-20260515 plan: probe try/catch 拆出 'probe-throw' 独立 reasonKind
+  // (DB 异常可重试,与 row 真不存在的 'row-missing' 区分),修前老语义把 DB probe 异常误归
+  // row-missing 隐藏 UI 重试入口(LOW probe-throw bug)。
   const emitFn =
     deps?.emitArchiveFailed ??
     ((payload: EventMap['caller-archive-failed'][0]) => eventBus.emit('caller-archive-failed', payload));
   let callerRow: ReturnType<typeof sessionRepo.get> = null;
+  let probeError: { reason: string } | null = null;
   const getFn = deps?.getSession ?? ((sid: string) => sessionRepo.get(sid));
   try {
     callerRow = getFn(input.callerSessionId);
-  } catch {
-    // DB 异常 fail-safe(typical: test 环境 DB 未 init / 生产 SQLite locked / FK conflict)→
-    // 留 null,按 row missing 路径 'failed'。
-    callerRow = null;
+  } catch (e) {
+    // archive-toctou-fix-20260515 plan: probe 抛错独立分支 — DB 异常 (SQLite locked / read failure)
+    // 状态未知 row 可能仍存在,与 row 真不存在的 'row-missing' 区分。reasonKind='probe-throw' 让 UI
+    // 显示「重试归档」按钮(同 'archive-throw' 重试路径,但 reason 文案区分 DB probe 错与 archive 错)。
+    const errStr = e instanceof Error ? `${e.message}` : String(e);
+    probeError = { reason: `probe getSession threw for ${input.callerSessionId}: ${errStr}` };
+  }
+  if (probeError) {
+    console.warn(`[mcp ${input.toolName}] ${probeError.reason}`);
+    emitFn({
+      sessionId: input.callerSessionId,
+      toolName: input.toolName,
+      reason: probeError.reason,
+      reasonKind: 'probe-throw',
+    });
+    return { teammatesShutdown, archived: 'failed' };
   }
   if (!callerRow) {
     const reason = `cannot archive caller ${input.callerSessionId}: not in sessions table (异常被清理 / 边界状态 / 长 async 期间 row 被删)`;
@@ -249,19 +271,28 @@ export async function runBatonCleanup(
     await archiveFn(input.callerSessionId);
     return { teammatesShutdown, archived: 'ok' };
   } catch (e) {
+    // archive-toctou-fix-20260515 plan: 用 instanceof SessionRowMissingError 区分 setArchived no-op
+    // (race window: probe OK 后 row 被外部删) vs 真 archive 异常 (FK constraint / DB locked / etc)。
+    // 修前 catch-all 把 setter no-op 误归 'archive-throw' (UI 显示「重试归档」误导用户:row 真不存在
+    // 重试无效),修后 instanceof 判别准确反射 reasonKind 给 UI(R1 reviewer-codex MED-1 修法)。
+    const isRowMissing = e instanceof SessionRowMissingError;
     const errStr = e instanceof Error ? `${e.message}` : String(e);
-    const reason = `archive caller ${input.callerSessionId} failed: ${errStr}`;
+    const reason = isRowMissing
+      ? `cannot archive caller ${input.callerSessionId}: ${errStr} (race window: probe OK 后 setArchived no-op)`
+      : `archive caller ${input.callerSessionId} failed: ${errStr}`;
     console.warn(
-      `[mcp ${input.toolName}] archive caller ${input.callerSessionId} failed:`,
+      `[mcp ${input.toolName}] ${
+        isRowMissing
+          ? `archive caller ${input.callerSessionId} setArchived no-op (race window)`
+          : `archive caller ${input.callerSessionId} failed`
+      }:`,
       e,
     );
-    // 上抛 archive-throw: row 存在但 archive 失败(FK constraint / DB locked 等),UI 显示
-    // 「重试归档」按钮调 window.api.archiveSession(id) 重试。
     emitFn({
       sessionId: input.callerSessionId,
       toolName: input.toolName,
       reason,
-      reasonKind: 'archive-throw',
+      reasonKind: isRowMissing ? 'row-missing' : 'archive-throw',
     });
     return { teammatesShutdown, archived: 'failed' };
   }

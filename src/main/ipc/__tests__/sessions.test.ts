@@ -20,6 +20,7 @@ import {
   archiveSourceSessionWithEmit,
 } from '../sessions-hand-off-helper';
 import type { SessionRecord } from '@shared/types';
+import { SessionRowMissingError } from '@main/store/session-repo';
 
 function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
@@ -275,7 +276,7 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
     expect(emitFn).not.toHaveBeenCalled();
   });
 
-  it('archive 抛 Error → emit archive-throw + reason 含 Error message + 不抛(by design)', async () => {
+  it('archive 抛 generic Error (非 SessionRowMissingError) → emit archive-throw + reason 含 Error message + 不抛 (by design)', async () => {
     const archiveFn = vi.fn(async (_sid: string) => {
       throw new Error('FK constraint violation');
     });
@@ -292,6 +293,8 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
     ).resolves.toBeUndefined();
 
     expect(emitFn).toHaveBeenCalledTimes(1);
+    // archive-toctou-fix-20260515 plan: instanceof SessionRowMissingError === false (generic Error)
+    // → 'archive-throw' 路径,UI 显示「重试归档」按钮。
     expect(emitFn).toHaveBeenCalledWith({
       sessionId: 'source-sid',
       toolName: 'SessionHandOffSpawn',
@@ -301,6 +304,38 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('[ipc sessions hand-off] archive source session source-sid failed:'),
       expect.any(Error),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('archive 抛 SessionRowMissingError → race window → emit row-missing (archive-toctou-fix-20260515 R1 reviewer-codex MED-1)', async () => {
+    const archiveFn = vi.fn(async (_sid: string) => {
+      // 模拟 race window: createSession 期间 source row 被删,setArchived UPDATE no-op throw
+      throw new SessionRowMissingError('source-sid');
+    });
+    const getFn = vi.fn(() => fakeRow());
+    const emitFn = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await archiveSourceSessionWithEmit('source-sid', {
+      archive: archiveFn,
+      getSession: getFn,
+      emitArchiveFailed: emitFn,
+    });
+
+    expect(emitFn).toHaveBeenCalledTimes(1);
+    // 关键: instanceof SessionRowMissingError === true → reasonKind='row-missing' (UI 仅告知不显
+    // 「重试归档」— row 真不存在重试无效)。修前 catch-all 把 setter no-op 误归 'archive-throw'。
+    expect(emitFn).toHaveBeenCalledWith({
+      sessionId: 'source-sid',
+      toolName: 'SessionHandOffSpawn',
+      reason: expect.stringContaining('race window: probe OK 后 setArchived no-op'),
+      reasonKind: 'row-missing',
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('setArchived no-op (race window)'),
+      expect.any(SessionRowMissingError),
     );
 
     warnSpy.mockRestore();
@@ -362,8 +397,8 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
     warnSpy.mockRestore();
   });
 
-  // R2 reviewer-codex MED-1 修法新增 case: getSession 抛错 (DB 异常 fail-safe)→ 走 row-missing 路径
-  it('R2 MED-1: getSession 抛错 (DB 异常 fail-safe)→ 走 row-missing 路径 emit', async () => {
+  // archive-toctou-fix-20260515 plan: getSession 抛错独立分支 → 'probe-throw' 不再误归 row-missing
+  it('archive-toctou-fix-20260515: getSession 抛错 (DB 异常)→ 走 probe-throw 路径 emit (修前误归 row-missing)', async () => {
     const archiveFn = vi.fn(async (_sid: string) => undefined);
     const getFn = vi.fn(() => {
       throw new Error('simulated SQLite locked');
@@ -377,14 +412,18 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
       emitArchiveFailed: emitFn,
     });
 
-    // 关键: getSession 抛错 → catch 兜底 null → 走 row-missing 路径
+    // 关键: probe 抛错独立分支 'probe-throw' 让 UI 显示「重试归档」按钮(状态未知 row 可能仍存在)。
+    // 修前老语义: catch 兜底 row=null → 走 row-missing 路径误导(UI 不显示重试入口)
     expect(archiveFn).not.toHaveBeenCalled();
     expect(emitFn).toHaveBeenCalledWith({
       sessionId: 'source-sid',
       toolName: 'SessionHandOffSpawn',
-      reason: expect.stringContaining('cannot archive caller source-sid: not in sessions table'),
-      reasonKind: 'row-missing',
+      reason: expect.stringContaining('probe getSession threw for source-sid'),
+      reasonKind: 'probe-throw',
     });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('probe getSession threw for source-sid'),
+    );
 
     warnSpy.mockRestore();
   });
