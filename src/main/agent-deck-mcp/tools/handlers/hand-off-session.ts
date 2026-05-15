@@ -371,6 +371,10 @@ export const handOffSessionHandler = withMcpGuard(
       {
         callerSessionId: caller.callerSessionId,
         keepTeammates: args.keep_teammates === true,
+        // hand-off-mcp-archive-opt-20260515: caller archive opt-out。
+        // default true(baton 单向交接 = caller 使命终结);仅 caller 显式传 false 跳过。
+        // 与 keep_teammates 字段互相独立 — 可分别 opt-out。
+        archiveCaller: args.archive_caller !== false,
         excludeSessionIds,
         toolName: 'hand_off_session',
       },

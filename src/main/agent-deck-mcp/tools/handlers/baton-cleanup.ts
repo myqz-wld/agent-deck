@@ -13,6 +13,8 @@
  *
  * 2. **archive caller 三态**(archived: 'ok' | 'failed' | 'skipped')
  *    - external sentinel → archived='skipped'
+ *    - **archive_caller=false 显式 opt-out**(hand-off-mcp-archive-opt-20260515)→ archived='skipped'
+ *      (与 external sentinel 同款 'skipped' 值,不同来源:caller 显式意图 vs 防御短路)
  *    - sessionRepo.get 探针(CHANGELOG_98 / R2 reviewer-codex MED-2): row missing → 'failed' +
  *      warn,不调 archive(避免 UPDATE no-op 误报 'ok')
  *    - 调 sessionManager.archive(callerSid) → 'ok'
@@ -77,6 +79,20 @@ export interface RunBatonCleanupInput {
    */
   excludeSessionIds?: ReadonlySet<string>;
   /**
+   * hand-off-mcp-archive-opt-20260515: caller 是否要归档(handler 层从 args.archive_caller 读出)。
+   * - true (default,不传时按 true 走): phase 2 走 sessionRepo.get + sessionManager.archive 完整流程
+   * - false: phase 2 跳过,标 archived='skipped' (与 external sentinel 同款 'skipped' 值,不同来源)
+   *
+   * **典型场景**: hand_off_session caller 想起新 session 并行做事(更接近 spawn 用法),自己仍要
+   * 继续观察 reviewer reply / 出 summary,显式传 archive_caller=false 跳过 archive 让 caller still active。
+   *
+   * archive_plan 不传(plan 收口 = caller 使命终结必归档,语义上不应 opt-out)— optional + default true 保持
+   * archive_plan handler 调用方零改动向后兼容。
+   *
+   * 与 keepTeammates 互相独立 — 可分别 opt-out。
+   */
+  archiveCaller?: boolean;
+  /**
    * console.warn 前缀的工具名(如 'archive_plan' / 'hand_off_session'),拼成 `[mcp <toolName>] ...`
    * 帮调试时分辨哪个 handler 触发的 cleanup。
    *
@@ -120,7 +136,8 @@ export interface RunBatonCleanupResult {
    * Phase 2 结果:
    * - 'ok' = caller 归档成功
    * - 'failed' = warn-only 不阻塞(callerRow 缺 / DB 不可用 / archive 抛错)
-   * - 'skipped' = external caller(理论上 deny external 拦截不到这里,防御性双保险)
+   * - 'skipped' = external caller(防御短路) **或** caller 显式传 archive_caller=false 跳过
+   *   (hand-off-mcp-archive-opt-20260515 — 与 external sentinel 同款值不同来源)
    */
   archived: 'ok' | 'failed' | 'skipped';
 }
@@ -176,6 +193,14 @@ export async function runBatonCleanup(
   }
 
   // ─── Phase 2: archive caller ────────────────────────────────────
+  // hand-off-mcp-archive-opt-20260515: caller 显式传 archive_caller=false → 跳过 phase 2 标
+  // archived='skipped'。与 external sentinel 短路同款 'skipped' 值,但来源不同(external = 防御
+  // 短路,archive_caller=false = 显式 caller 意图)。跳过路径不调 getFn / archiveFn,零副作用,
+  // 与 keep_teammates 跳 phase 1 同款语义。
+  if (input.archiveCaller === false) {
+    return { teammatesShutdown, archived: 'skipped' };
+  }
+
   // archive 前 sessionRepo.get 探针(CHANGELOG_98 / R2 reviewer-codex MED-2):
   // session 异常被清理 / 边界状态 / spawn 期间 row 被删 → archived='failed' 不报 'ok'
   // (UPDATE 对缺失 row 是 no-op 误报)。
