@@ -33,6 +33,17 @@ export interface PersistSessionFieldsArgs {
    * 非 undefined → setModel 写入 + 触发 codex 专属 runtime-not-effective warn 提示。
    */
   model?: string;
+  /**
+   * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
+   * caller 透传的 SDK sandbox 额外可写根。**codex SDK 不消费 extra writable roots**
+   * (sandboxMode 只接 'workspace-write' / 'read-only' / 'danger-full-access' 三档),
+   * 但本字段仍持久化到 sessions.extra_allow_write 保跨 adapter parity 对称(让 SessionRecord
+   * 字段在 claude / codex 之间形态一致 + future codex SDK 加支持时零迁移成本)。
+   *
+   * undefined / 空数组 → 跳过持久化(保留 sessions.extra_allow_write 原值)。非空数组 →
+   * setExtraAllowWrite 写入 + warn 提示 codex runtime 不消费(同 model warn 模式)。
+   */
+  extraAllowWrite?: readonly string[];
 }
 
 /**
@@ -42,7 +53,7 @@ export interface PersistSessionFieldsArgs {
  * console.warn：失败时透出错误，与 claude session-finalize 同款诊断模式。
  */
 export function persistSessionFields(args: PersistSessionFieldsArgs): void {
-  const { sessionId, sandboxMode, model } = args;
+  const { sessionId, sandboxMode, model, extraAllowWrite } = args;
 
   // 1. 持久化 sandbox 档位（CHANGELOG_<X> A2a）
   try {
@@ -63,6 +74,26 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
     console.warn(
       `[codex-bridge] frontmatter model="${model}" 仅持久化未生效：codex SDK 不接受` +
         ` per-thread model override，runtime model 由 ~/.codex/config.toml 顶层 \`model\` 字段决定。`,
+    );
+  }
+
+  // 3. plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 MED-F:
+  // opts.extraAllowWrite 持久化(parity 对称写库,runtime 不生效 — codex SDK 不接受 extra
+  // writable roots 字段,sandboxMode 三档只控制根 sandbox profile)。配合下方 warn 提示。
+  if (extraAllowWrite !== undefined && extraAllowWrite.length > 0) {
+    try {
+      // setExtraAllowWrite 接 string[] | null,readonly string[] 转 mutable copy
+      sessionRepo.setExtraAllowWrite(sessionId, [...extraAllowWrite]);
+    } catch (err) {
+      console.warn(
+        `[codex-bridge] setExtraAllowWrite(${sessionId}, [${extraAllowWrite.join(', ')}]) 失败`,
+        err,
+      );
+    }
+    console.warn(
+      `[codex-bridge] extraAllowWrite=[${extraAllowWrite.join(', ')}] 仅持久化未生效:` +
+        ` codex SDK 不支持 extra writable roots,sandboxMode 三档(workspace-write / read-only /` +
+        ` danger-full-access)只控根 sandbox profile。本字段持久化保跨 adapter parity 对称。`,
     );
   }
 }
