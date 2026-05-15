@@ -37,6 +37,9 @@ export interface Row {
   claude_code_sandbox: string | null;
   // plan model-wiring-and-handoff-20260514 Step 1.3：SDK / agent model per-session 持久化
   model: string | null;
+  // plan cross-adapter-parity-20260515 Phase A Step A.2：SDK sandbox 额外可写根 per-session 持久化
+  // (REVIEW_40 R1 reviewer-codex MED-F follow-up)。JSON.stringify(string[]) 全绝对路径 / NULL = 不指定。
+  extra_allow_write: string | null;
   spawned_by: string | null;
   spawn_depth: number;
   generic_pty_config: string | null;
@@ -64,6 +67,7 @@ export function rowToRecord(r: Row): SessionRecord {
     claudeCodeSandbox:
       (r.claude_code_sandbox as 'off' | 'workspace-write' | 'strict' | null) ?? null,
     model: r.model ?? null,
+    extraAllowWrite: parseExtraAllowWriteJson(r.extra_allow_write),
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
     genericPtyConfig: parseGenericPtyConfigJson(r.generic_pty_config),
@@ -92,4 +96,25 @@ export function parseGenericPtyConfigJson(raw: string | null): GenericPtyConfig 
   }
   const result = genericPtyConfigSchema.safeParse(parsed);
   return result.success ? result.data : null;
+}
+
+/**
+ * sessions.extra_allow_write 列存的是 JSON.stringify(string[])（绝对路径数组）。
+ * 解析失败 / NULL / 类型不对 → null（不抛错,与 parseGenericPtyConfigJson 同款 defense-in-depth）。
+ *
+ * 写入端(setExtraAllowWrite / upsert)做 JSON.stringify;读取端二次校验防止用户手改 DB /
+ * migration 故障 / 历史脏数据等情形(过滤掉非数组 / 非 string 元素 / 空数组 → null,
+ * 与 caller 不传 extraAllowWrite 行为对齐 sandbox.allowWrite 不增 root)。
+ */
+export function parseExtraAllowWriteJson(raw: string | null): string[] | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  const filtered = parsed.filter((x): x is string => typeof x === 'string' && x.length > 0);
+  return filtered.length > 0 ? filtered : null;
 }
