@@ -29,6 +29,7 @@ import v015 from './v015_agent_deck_messages_reply_to.sql?raw';
 import v016 from './v016_agent_deck_teams_archive_reason.sql?raw';
 import v017 from './v017_agent_deck_team_members_cascade.sql?raw';
 import v018 from './v018_sessions_model.sql?raw';
+import v019 from './v019_sessions_extra_allow_write.sql?raw';
 
 export interface Migration {
   version: number;
@@ -55,4 +56,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 16, name: 'agent_deck_teams_archive_reason', sql: v016 },
   { version: 17, name: 'agent_deck_team_members_cascade', sql: v017 },
   { version: 18, name: 'sessions_model', sql: v018 },
+  { version: 19, name: 'sessions_extra_allow_write', sql: v019 },
 ];
