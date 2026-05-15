@@ -30,3 +30,4 @@
 | [model-wiring-and-handoff-20260514.md](model-wiring-and-handoff-20260514.md) | model-wiring-and-handoff-20260514 |
 | [deep-review-and-refactor-r37-20260515.md](deep-review-and-refactor-r37-20260515.md) | deep-review-and-refactor-r37-20260515 |
 | [worktree-stale-base-bug-20260515.md](worktree-stale-base-bug-20260515.md) | worktree-stale-base-bug-20260515 |
+| [hand-off-mcp-teammate-bug-20260515.md](hand-off-mcp-teammate-bug-20260515.md) | hand-off-mcp-teammate-bug-20260515 |
