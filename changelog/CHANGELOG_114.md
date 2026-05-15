@@ -2,50 +2,39 @@
 
 ## 概要
 
-`codex-sdk-bridge-tests-20260515` plan 落地：codex sdk-bridge 单测套件 + LOW double rename owner cleanup（REVIEW_40 R2 reviewer-claude INFO-T 横向技术债收口 + reviewer-codex LOW 顺手清）。
-
-REVIEW_40 落地的 HIGH-A (single-flight) / HIGH-B (recoverer) / MED-D (thread-loop case 3 rename) / MED-E (jsonl pre-check) / MED-A (emit session-upserted) **修前全无 unit test 守门**，仅 manual / 生产实测发现 bug。本 plan 镜像 claude `__tests__/sdk-bridge.recovery.test.ts` + `sdk-bridge.consume-fork.test.ts` 两套范式给 codex sdk-bridge 加同款测试守门，行为零变化。
+`hand_off_session` mcp tool 加 `archive_caller` 字段让 caller 可选 opt-out 归档（plan `hand-off-mcp-archive-opt-20260515`）。修前 hand-off 强制 archive caller（baton 单向交接默认语义），不灵活;新增 `archive_caller: false` 让 caller 起新 session 并行做事自己仍 active —— 典型用例 lead 起多个 follow-up hand-off 自己继续协调进度 / debug 工具实测某 plan 但 caller 仍要观察 reviewer reply。Schema 默认 `true` 保持向后兼容,与 `keep_teammates` 字段对称命名（baton 默认动作可显式 opt-out）。trivial schema 加 + handler 透传 + helper 分支 + 5 regression test,不走多轮对抗 review。typecheck 双端 + vitest 全套 595 测 0 regression。
 
 ## 变更内容
 
-### Phase 1 - codex `_setup.ts` + `sdk-bridge.recovery.test.ts`（commit `db45318`）
+### 1. schema (src/main/agent-deck-mcp/tools/schemas.ts)
 
-- **新文件 `src/main/adapters/codex-cli/__tests__/sdk-bridge/_setup.ts`**：镜像 claude `_setup.ts` TestBridge extend pattern，抽 `TestCodexBridge` extend `CodexSdkBridge` + `emits` 模块级 array + `makeBridge()` factory。`TestCodexBridge` override `createSession` / `cwdExists` / `codexResumeJsonlExists` 三个 protected method 让单测不依赖真 fs / 真 codex CLI 子进程。**与 claude `_setup.ts` 关键差异**：codex method 名 `cwdExists` / `codexResumeJsonlExists`（不是 jsonlExists）+ 没有 `summariseForHandOff`（recoverer 不接 LLM 摘要 prepend，详 recoverer.ts L29-33）+ per-session 沙盒字段 `codexSandbox`（不是 claudeCodeSandbox）+ 还有 `model` 字段（fallback 路径需透传 sessionRepo.model 否则 DB / spawn 不一致）。
-- **新文件 `src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts` 15 cases**：覆盖 HIGH-B `recoverAndSend` / MED-E jsonl pre-check / LOW-A cwd 启发式 fallback / R2-2 cwdFellBack 保留对话历史 / 单飞 / placeholder 5s dedup / MAX_LENGTH / archived → unarchive / codexSandbox+model 透传（HIGH-1 等价）共 15 case。
-- **电源切断 6 个入口模块 vi.mock**（绕过 vitest node 环境下 electron 模块的 'failed to install'）：codex-binary / image-uploads / paths / settings-store / codex-config/agent-deck-mcp-injector / codex-instance-pool。
+- `HAND_OFF_SESSION_SCHEMA` 加 `archive_caller?: z.boolean().optional()` 字段（与 `keep_teammates` 字段同款 boolean 默认行为 + 紧邻分组）
+- `HandOffSessionResult.archived` jsdoc 扩 `'skipped'` 多来源说明: external caller(防御短路) + caller 显式传 archive_caller=false(显式 caller 意图)
+- 字段命名决策见 plan §设计决策 1：`archive_caller` 不是 `keep_caller`(与 `keep_teammates` 对称风格 — 都是「描述会做什么动作」+ 默认值 + boolean opt-out)
 
-### Phase 2 - `sdk-bridge.consume-fork.test.ts`（commit `9f4cdb1`）
+### 2. handler (src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts)
 
-- **新文件 `src/main/adapters/codex-cli/__tests__/sdk-bridge.consume-fork.test.ts` 9 cases**：覆盖 ThreadLoop.runTurnLoop thread.started 三态（case 1 新建 / case 2 resume 同 id / **case 3 resume 不同 id — symmetry-plan P2 MED-D 核心 fix 目标**）+ intentionallyClosed 静默 catch（REVIEW_4 H1+M5 守门）+ RestartController HIGH-A 单飞（2 并发同 sid 串行）+ MED-A emit `session-upserted` 前置 / 回滚双路径 + handoffPrompt 空 / record 不存在边界。
-- **未覆盖留 follow-up**：R2-1 sessions cleanup（resume earlyErrCb path）+ R3-1 late earlyErr cleanup（30s timeout 后）— 这两个修复点位于 `createSession` resume path 的 `earlyErrCb` wrapper 内，需要真 createSession + fake codex SDK + 控制 thread.runStreamed 抛错，测试 infra 工作量较大；本 plan 范围内留 follow-up，后续可补 fake codex SDK module 让真 createSession 跑起来。
+- `runBatonCleanup` 调用透传 `archiveCaller: args.archive_caller !== false`(默认 true,仅 caller 显式 false 跳过)
+- 与 `keepTeammates: args.keep_teammates === true` 字段并列(两 opt-out 字段互相独立可分别 opt-out)
 
-### Phase 3 - `restart-controller.ts` double rename owner cleanup（commit `c4c84ea`）
+### 3. helper (src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts)
 
-- **`src/main/adapters/codex-cli/sdk-bridge/restart-controller.ts:113-128` 删 post-rename 防御 block**：删 `if (newRealId !== sessionId) { ... renameSdkSession + console.warn + try/catch ... }` 共 23 行删除 + 16 行注释更新（净 -8 LOC，文件 178 → 170 LOC）+ 删 unused `sessionManager` import。
-- **删除理由（thread-loop case 3 已 owner rename）**：symmetry-plan P2 MED-D 落地后（commit `6e0eb37`），`thread-loop.ts:229-261` case 3 在 `ev.thread_id !== internal.threadId` 时已：(1) sessions Map 切 key（delete oldId + set newId）；(2) `internal.threadId` 切到 newId；(3) 调 `sessionManager.renameSdkSession(oldId, newId)`。所以 `createSession` resume path `await runTurnLoop` 拿到 `firstIdCb(newId)` 时，rename 已经发生，`handle.sessionId === newId`。restart-controller 这里再调一次 `renameSdkSession` 是 idempotent no-op（`sessionRepo/rename.ts:60` `if (!fromRow) return` 静默走 no-op），但 `console.warn` 会多打一次，误导日志读者以为这里是 owner 实际是 thread-loop case 3。删除让 SSOT 集中在 thread-loop case 3 single owner。
+- `RunBatonCleanupInput` 加 `archiveCaller?: boolean` 字段(optional + default true 保持 archive_plan 调用方零改动向后兼容)
+- phase 2 入口 external sentinel 短路之后加 `if (input.archiveCaller === false) return { teammatesShutdown, archived: 'skipped' }`(零副作用 — 不调 getFn / archiveFn)
+- 顶部 jsdoc 「archive caller 三态」段 + `RunBatonCleanupResult.archived` 字段 jsdoc 同步反映 archive_caller=false 新分支
 
-### Phase 4 - 收口
+### 4. test 加 case
 
-- 不单建 review（本 plan 是 test infrastructure + LOW cleanup 横向技术债，无新发现 fix-to-fix bug）。
-- archive_plan tool 自动归档：plan frontmatter `status: completed` + `final_commit` + ff-merge worktree branch → main + mv plan → `<main-repo>/plans/`。
+- `__tests__/baton-cleanup.test.ts` 加 case 11 (archiveCaller=false → phase 2 跳过 + archived='skipped' + 不调 getFn/archiveFn / phase 1 仍跑) + case 12 (两 opt-out 字段同时启用 → phase 1+2 都跳)
+- `__tests__/hand-off-session.handler-deny-happy.test.ts` 新建 describe `archive_caller opt-out` 加 3 case (handler 端到端透传 archive_caller=false / 显式 archive_caller=true 等同默认 / archive_caller=false + keep_teammates=true 正交两字段)
 
-## 测试结果
+## 测试
 
-- **`pnpm typecheck`**：双端 0 错。
-- **`pnpm exec vitest run src/main/adapters/codex-cli/__tests__/`**：48/48 通过（24 translate + 15 recovery + 9 consume-fork）。
-- 全套 vitest 在主仓库 jsonless 环境下 524 全过；worktree 跑全套有 11 文件 / 9 case Electron native binary 安装失败（pre-existing 与本 plan 无关，详「已知踩坑」）。
+- typecheck 双端 0 错(node + web)
+- vitest 全套 39 文件 / 531 passed / 64 skipped / **0 failure**(better-sqlite3 ABI 不匹配 64 环境 skip,与本改动无关)
+- 直接受影响: baton-cleanup.test.ts 12/12 + hand-off-session.handler-deny-happy.test.ts 22/22 + hand-off-session.handler-cwd-generic + impl-core + session/hand-off + archive-plan handler 全过
 
-## 已知踩坑
+## 引用
 
-- **vitest 在 worktree 跑时 Electron native binary 安装失败**：worktree 第一次 `pnpm install` 时 `electron-rebuild` 拉 node-pty native module build 失败，但 vitest 本身能跑（worktree 跑 codex-cli/__tests__/ 全过）。主仓库无此问题。打 vi.mock 6 个入口模块（codex-binary / image-uploads / paths / settings-store / mcp-injector / instance-pool）绕过 electron 链。这与 CHANGELOG_101/104/105 同款 worktree 跑测的已知 infra 问题。
-- **TestBridge override `createSession` 后 ensureCodex / loadCodexSdk 不会被调**：所以 `loadCodexSdk` mock 只需 `makeBareSdkLoaderMock()` bare stub 即可，不需 mockResolvedValue。
-- **`runTurnLoop intentionallyClosed catch` 静默退出守门**：`thread.runStreamed` 抛 error 时若 `internal.intentionallyClosed=true` → `internal.currentTurn=null + break`，**不**emit `finished:interrupted`（REVIEW_4 H1+M5：避免 manager 把已删 session 复活成幽灵）。
-- **restart-controller test 用 `vi.spyOn(eventBus, 'emit')` 而非 mock module**：eventBus 是 module-level singleton，spy + restore 模式比独立 mock 模块简洁。
-
-## commit list
-
-- `db45318` test(codex-bridge): _setup.ts + sdk-bridge.recovery.test.ts 15 cases (codex-tests-plan P1)
-- `9f4cdb1` test(codex-bridge): sdk-bridge.consume-fork.test.ts 9 cases (codex-tests-plan P2)
-- `c4c84ea` refactor(codex-bridge): restart-controller 删 double rename owner 冗余 (codex-tests-plan P3)
-
-详 [`plans/codex-sdk-bridge-tests-20260515.md`](../plans/codex-sdk-bridge-tests-20260515.md)。
+- 配套 plan(归档后): [`plans/hand-off-mcp-archive-opt-20260515.md`](../plans/hand-off-mcp-archive-opt-20260515.md)
+- 父功能: CHANGELOG_97(baton 自动归档 caller 落地)+ CHANGELOG_106(teammate shutdown 同款 keep_teammates opt-out)+ CHANGELOG_109(R37 baton-cleanup helper 抽出)— 本次 archive_caller opt-out 与 keep_teammates 字段对称

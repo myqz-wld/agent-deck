@@ -1063,3 +1063,180 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
   });
 });
 
+// ─── hand-off-mcp-archive-opt-20260515: archive_caller opt-out ─────
+//
+// 范围: handOffSessionHandler 调 runBatonCleanup 时透传 args.archive_caller 字段。
+// caller 显式传 archive_caller=false 跳过 phase 2 archive caller(让 caller still active),
+// 与 keep_teammates 字段互相独立(可分别 opt-out)。
+describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_caller opt-out', () => {
+  // helper:让 caller-sid 在 sessionRepo 表里有 row(让 archive caller 走 'ok' 路径,确认是
+  // archive_caller=false 跳的 archive,而非 row missing 误打 'failed' / 'skipped')
+  function spyCallerRow() {
+    return vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
+      if (id === 'caller-sid') {
+        return {
+          id: 'caller-sid',
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        } as never;
+      }
+      return null;
+    });
+  }
+
+  function makePlanFixtureLocal(planId: string) {
+    const state = makeState();
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    state.files.set(
+      planFilePath,
+      planContent({ planId, status: 'in_progress', baseBranch: 'main' }),
+    );
+    return { state, planFilePath };
+  }
+
+  function makeOkSpawnLocal() {
+    return vi.fn(
+      async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: 'new-sid',
+              adapter: 'claude-code',
+              cwd: '/Users/test/repo',
+              teamId: null,
+              teamName: null,
+            }),
+          },
+        ],
+      }),
+    );
+  }
+
+  it('archive_caller=false → mockArchive 不调 + ok return.archived=skipped(caller still active)', async () => {
+    const { state, planFilePath } = makePlanFixtureLocal('archive-opt-out');
+    const mockSpawn = makeOkSpawnLocal();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_sid: string) => ({
+      closed: ['teammate-X'],
+      failed: [],
+      skipped: null as null,
+    }));
+    const sessionRepoGetSpy = spyCallerRow();
+
+    const result = await handOffSessionHandler(
+      {
+        plan_id: 'archive-opt-out',
+        adapter: 'claude-code',
+        archive_caller: false,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: mockShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    // 关键: ok return.archived='skipped'(显式 caller 意图,与 external sentinel 同款值不同来源)
+    expect(data.archived).toBe('skipped');
+    // 关键: archive 未被调 (archive_caller=false 短路 phase 2)
+    expect(mockArchive).not.toHaveBeenCalled();
+    // phase 1 仍正常跑 (与 keep_teammates 字段正交)
+    expect(mockShutdown).toHaveBeenCalledTimes(1);
+    expect(data.teammatesShutdown.closed).toEqual(['teammate-X']);
+    // K2 metadata 仍齐全(spawn 成功,baton 成功 — 仅 caller 没 archive)
+    expect(data.sessionId).toBe('new-sid');
+    expect(data.planId).toBe('archive-opt-out');
+    expect(data.initialPrompt).toBe(`按 ${planFilePath} 接力`);
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('archive_caller=true (显式) → 同默认行为(mockArchive 仍调 + archived=ok)', async () => {
+    const { state } = makePlanFixtureLocal('archive-explicit-true');
+    const mockSpawn = makeOkSpawnLocal();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_sid: string) => ({
+      closed: [],
+      failed: [],
+      skipped: null as null,
+    }));
+    const sessionRepoGetSpy = spyCallerRow();
+
+    const result = await handOffSessionHandler(
+      {
+        plan_id: 'archive-explicit-true',
+        adapter: 'claude-code',
+        archive_caller: true,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: mockShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    // 显式 true 等同默认: archive 调 + archived='ok'
+    expect(data.archived).toBe('ok');
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('archive_caller=false + keep_teammates=true → 两 opt-out 字段正交(都尊重)', async () => {
+    const { state } = makePlanFixtureLocal('both-opt-out');
+    const mockSpawn = makeOkSpawnLocal();
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_sid: string) => ({
+      closed: [],
+      failed: [],
+      skipped: null as null,
+    }));
+    const sessionRepoGetSpy = spyCallerRow();
+
+    const result = await handOffSessionHandler(
+      {
+        plan_id: 'both-opt-out',
+        adapter: 'claude-code',
+        archive_caller: false,
+        keep_teammates: true,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: mockSpawn,
+        archiveSession: mockArchive,
+        shutdownTeammates: mockShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+    // 关键: 两字段都尊重 — phase 1 跳(skipped='keep-teammates') + phase 2 跳(archived='skipped')
+    expect(data.teammatesShutdown.skipped).toBe('keep-teammates');
+    expect(data.archived).toBe('skipped');
+    // 关键: 两个 helper / archive 全 0 调用
+    expect(mockShutdown).not.toHaveBeenCalled();
+    expect(mockArchive).not.toHaveBeenCalled();
+
+    sessionRepoGetSpy.mockRestore();
+  });
+});
