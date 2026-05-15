@@ -36,3 +36,4 @@
 | [codex-sdk-bridge-tests-20260515.md](codex-sdk-bridge-tests-20260515.md) | codex-sdk-bridge-tests-20260515 |
 | [cross-adapter-parity-20260515.md](cross-adapter-parity-20260515.md) | cross-adapter-parity-20260515 |
 | [archive-failure-ux-upthrow-20260515.md](archive-failure-ux-upthrow-20260515.md) | archive-failure-ux-upthrow-20260515 |
+| [archive-toctou-fix-20260515.md](archive-toctou-fix-20260515.md) | archive-toctou-fix-20260515 |
