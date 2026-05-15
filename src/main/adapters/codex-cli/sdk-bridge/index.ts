@@ -19,7 +19,7 @@ import {
 // R37 P2-E Step 3.4a：抽 input-pack.ts (packCodexInput + extractAttachmentPaths 模块级纯函数)。
 // R37 P2-E Step 3.4b：抽 session-finalize.ts (persistSessionFields 收口 setCodexSandbox + setModel + warn)。
 // R37 P2-E Step 3.4c：抽 restart-controller.ts (RestartController sub-class 持冷切 sandbox method)。
-import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES } from './constants';
+import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type {
   CodexBridgeOptions,
   CodexSessionHandle,
@@ -277,9 +277,67 @@ export class CodexSdkBridge {
         ts: Date.now(),
         source: 'sdk',
       });
-      // 启动 turn loop（不阻塞当前 createSession）
-      void this.threadLoop.runTurnLoop(internal, opts.resume);
-      return { sessionId: opts.resume };
+      // symmetry-plan P2 MED-D：await 首条 thread.started OR earlyError OR 30s timeout 才 return,
+      // 让外层 createSession await 真的等待 SDK 实际状态(与 claude waitForRealSessionId 同款语义)。
+      //
+      // 修前问题（reviewer-claude rebuttal 反驳点 2/3 + lead 实证）：
+      // - resume path 直接 `void runTurnLoop` + `return { sessionId: opts.resume }` 立即返回,
+      //   restart-controller catch 在 resume path 实际死代码（runTurnLoop earlyErr 路径
+      //   `else if (earlyErrCb)` 默认 undefined → emit error 自己处理,createSession 已 resolve）
+      // - thread-loop:212 `&& !internal.threadId` 保护让 resume 路径跳过 thread.started.thread_id
+      //   校验 → 即使 SDK 真返新 id,application layer 完全感知不到（latent silent split,future-proof
+      //   防 SDK 升级 / CLI 行为变更）
+      //
+      // 修法：仿 startNewThreadAndAwaitId Promise 模式 + onFirstId/onEarlyError 回调:
+      // - onFirstId 触发 → resolve 实际 id（thread-loop 已处理 rename 同 / 不同 id 三种情况）
+      // - onEarlyError 触发 → emit finished 完成 UI 序列 + reject 让 outer (restart-controller /
+      //   recoverer / ipc) catch 触发上下文相关错误处理 (如 DB rollback)
+      // - 30s timeout → 退化 resolve(opts.resume) 假定 SDK 慢但能起,与新路径 resolveWithFallback
+      //   不同（new 路径需 emit error + finished 完整序列；resume 已 emit session-start + user msg
+      //   只缺 thread.started 后续事件,不应武断标 finished:error）
+      const resumedId = await new Promise<string>((resolve, reject) => {
+        let resolved = false;
+        const fallback = setTimeout(() => {
+          if (resolved) return;
+          resolved = true;
+          console.warn(
+            `[codex-bridge] resume ${opts.resume} no thread.started in ${THREAD_STARTED_FALLBACK_MS}ms, ` +
+              `returning original id (turn loop may still recover)`,
+          );
+          resolve(opts.resume!);
+        }, THREAD_STARTED_FALLBACK_MS);
+
+        void this.threadLoop.runTurnLoop(
+          internal,
+          opts.resume!,
+          (realId) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(fallback);
+            // realId 可能 = opts.resume(common case)或新 id(thread-loop 已 rename Map key + 调
+            // renameSdkSession + update internal.threadId,outer 仅取最终 id 即可)
+            resolve(realId);
+          },
+          (earlyErr) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(fallback);
+            // resume 路径已 emit session-start + user msg,补 finished 完成 UI 序列。
+            // **不 emit error message** — 让 outer caller (restart-controller catch / recoverer
+            // catch / ipc handler) 自己 emit 上下文相关错误消息,避免双错误消息。
+            this.opts.emit({
+              sessionId: opts.resume!,
+              agentId: AGENT_ID,
+              kind: 'finished',
+              payload: { ok: false, subtype: 'error' },
+              ts: Date.now(),
+              source: 'sdk',
+            });
+            reject(new Error(`Codex resume early error: ${earlyErr}`));
+          },
+        );
+      });
+      return { sessionId: resumedId };
     }
 
     // 新建路径：先用 tempKey 占位，等 thread.started 事件拿到 realId 后 rename
