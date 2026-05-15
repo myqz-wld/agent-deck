@@ -4,9 +4,9 @@
 
 # 应用环境约定
 
-> **通用约定**（输出 / 运行时 / 决策对抗 / 复杂 plan / 工程地基 / 模板）见 `~/.claude/CLAUDE.md` —— CLI 加载顺序（user → project → app）保证已先入本会话 system prompt。本文件只补 agent-deck 应用专属差异，不再复制 user CLAUDE.md 任何内容。
+> 通用约定见 `~/.claude/CLAUDE.md`（CLI 按 user → project → app 顺序加载到 system prompt）。本文件只补 agent-deck 应用专属差异，不复制 user CLAUDE.md。
 >
-> **保证范围**：仅对 `settingSources: ['user','project','local']` 的交互式应用 SDK 会话保证 user CLAUDE.md 已加载（如应用内 ComposerSdk 起的会话）。`settingSources: []` 的内部 oneshot（如间歇总结 SDK 调用）**不**依赖 user CLAUDE.md 通用约定，需要时由调用方自行注入最小规则。
+> **加载范围**：仅 `settingSources: ['user','project','local']` 的交互式 SDK 会话保证 user CLAUDE.md 加载。`settingSources: []` 的内部 oneshot（如间歇总结）**不**依赖 user CLAUDE.md 通用约定，需要时由调用方注入最小规则。
 
 ## 应用环境差异（Δ user CLAUDE.md）
 
@@ -32,11 +32,9 @@
 2. **后续轮次锚点**：`send_message` 返回 `{ sessionId, teamId, messageId, replyToMessageId, sentAt, queued: true }`。caller 用 `messageId` 在 DB 查 reply chain（如有审计需求）；正常对话不需要 — receiver 收到 message 后会**自动通过 wire prefix `[msg <id>][sid <senderSid>]`** 提到 caller 的 messageId 当 `reply_to_message_id` 调 send_message reply 回来。`replyToMessageId` 仅当 caller 调 send 时显式传入 `reply_to_message_id` 才有值，开新话题（首条 message / 不挂 reply chain）时为 `null`
 3. **shutdown 不删数据**：`shutdown_session` 只标 lifecycle='closed' + abort SDK live query；events / file_changes / summaries / messages 子表保留，lead 在裁决报告里仍可引用。`team_member` 通过 `left_at` 软退出（行不删，archive 时归档面板仍可看 member 历史）；`spawn_link` 父子关系全保留（list_sessions(spawned_by_filter) 跨 lifecycle 全见，跨会话救火依赖此）
 
-> **dormant ≠ 丢 mental model**（反直觉但常见）：lifecycle scheduler 把 idle session 转 `dormant` 只是 abort SDK live query + 清 in-process Map，**不删 jsonl**。下一次 `send_message` 自动 SDK resume 复原对话历史 → mental model 通过 conversation history 隐式保留。
+> **dormant ≠ 丢 mental model**：lifecycle scheduler 转 dormant 只 abort SDK live query + 清 in-process Map，**不删 jsonl**；下一次 `send_message` 自动 SDK resume 复原对话历史。**唯一例外**：jsonl 缺失（用户手动删 `~/.claude/projects/` / 应用重装 / 跨设备同步未带）走 hard fail fallback → teammate 触发 `⚠ FRESH SESSION` warn 必须重 spawn。
 >
-> **唯一例外**：jsonl 缺失（用户手动删 `~/.claude/projects/` / 应用重装 / 跨设备同步未带 jsonl）走 hard fail fallback → teammate 触发 `⚠ FRESH SESSION` warn 必须重 spawn。
->
-> 实操结论：dormant 后想复用直接 `send_message` 即可；只有彻底不再用才 `shutdown_session`。机制详 `src/main/adapters/claude-code/sdk-bridge/recoverer.ts:103-220` 与项目 CLAUDE.md「会话恢复 / 断连 UX」节。
+> 实操：复用直接 `send_message`；彻底不再用才 `shutdown_session`。机制详 `src/main/adapters/claude-code/sdk-bridge/recoverer.ts:103-220`。
 
 ### send_message 一统消息发送
 
@@ -53,11 +51,11 @@ const result = await mcp__agent-deck__send_message({
 
 **发消息（普通 / reply）**：都用 `send_message`。reply 是普通 send_message 加 `reply_to_message_id` 字段（链接 DB 对话链）。
 
-**收消息（自动注入 conversation flow）**：universal-message-watcher 异步把 message dispatch 给 receiver adapter → adapter.receiveTeammateMessage 把消息加 wire prefix `[from <senderName> @ <adapter>][msg <messageId>][sid <senderSessionId>]` → adapter.sendMessage 喂给 receiver SDK → receiver Claude 看到 user-role message 直接处理。**lead/teammate 都无需主动 poll**。
+**收消息（自动注入 conversation flow）**：universal-message-watcher 异步把 message dispatch 给 receiver adapter → adapter.receiveTeammateMessage 把消息加 wire prefix `[from <senderName> @ <adapter>][msg <messageId>][sid <senderSessionId>]` → adapter.sendMessage 喂给 receiver SDK → receiver Claude 看到 user-role message 直接处理。
 
 ### 跨会话救火：list_sessions(spawned_by_filter)
 
-lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawned_by_filter:'<old_lead_sid>', status_filter:'active')` 拉自己以前 spawn 的 active reviewer；按 sessionId 调 `send_message` 发新 prompt。reply 自动注入新 lead conversation flow（与 spawn 后第一轮同款），新 lead 不需主动 poll；收尾走 `shutdown_session`。
+lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawned_by_filter:'<old_lead_sid>', status_filter:'active')` 拉自己以前 spawn 的 active reviewer；按 sessionId 调 `send_message` 发新 prompt（reply 自动注入同 §三个核心约定 §1）；收尾走 `shutdown_session`。
 
 > ⚠️ **shared-team 前置约束**：`send_message` 必须在 caller session 与 target reviewer 至少共享一个 active team 时才能 dispatch（否则报 `no-shared-team` 立即 reject，不入 messages 表）。
 > - **同 caller session（context 重置 / compaction）**：sessionId 不变 → team_member 关系不变 → 直接 `list_sessions(spawned_by_filter)` 捡回来 + `send_message` 即可

@@ -9,11 +9,11 @@ model: opus
 
 ## 使用形态：teammate-only
 
-由 lead 通过 `mcp__agent-deck__spawn_session(adapter:'claude-code', team_name, agent_name:'reviewer-claude')` 启动，lead shutdown 前持久化；Round 2+ 复用已读文件 + 上轮 finding 推理链（反驳轮精准度比 fresh cold start 高一档），不重读全量 scope。
+由 lead 通过 `mcp__agent-deck__spawn_session(adapter:'claude-code', team_name, agent_name:'reviewer-claude')` 启动；lead shutdown 前持久化。
 
-> **teammate 模式硬约束**：你是被驱动方 —— 不主动调 `mcp__agent-deck__shutdown_session`，**收到 user message 后必须调 `mcp__agent-deck__send_message({session_id, team_id, text, reply_to_message_id})` 回复 lead**（详 §核心纪律 第 9 条 wire format 双锚点）。
+> **teammate 硬约束**：不主动调 `mcp__agent-deck__shutdown_session`；收到 user message 必须调 `mcp__agent-deck__send_message` 回复 lead（详 §核心纪律 第 9 条）。
 
-**Bash 权限通路**：你是独立 SDK 会话，Bash 走**自己的** canUseTool。失败时弹给真人审批走自己 session 的 PendingTab。
+**Bash 权限通路**：独立 SDK 会话，Bash 走自己的 canUseTool；失败弹给真人审批走自己 session 的 PendingTab。
 
 ## 核心纪律
 
