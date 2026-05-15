@@ -50,13 +50,6 @@ export class CodexSdkBridge {
   private sessions = new Map<string, InternalSession>();
   private codex: Codex | null = null;
   /**
-   * 当前 codex 沙盒档位（CHANGELOG_54 B-4）。默认与历史硬编码一致 'workspace-write'，
-   * 下次 createSession 调 startThread 时透传。已在跑的 thread 不受影响（sandboxMode 是
-   * startThread 一次性参数，与 claudeCodeSandbox 同模式 spawn-time 锁定）。
-   */
-  private currentSandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access' =
-    'workspace-write';
-  /**
    * CHANGELOG_52 Step 4b：ThreadLoop sub-class 持 startNewThreadAndAwaitId + runTurnLoop。
    * sessions Map / emit 通过 ThreadLoopCtx 注入；class 上 createSession / sendMessage 内的
    * 调用走 this.threadLoop.xxx 委托。
@@ -102,15 +95,6 @@ export class CodexSdkBridge {
     // R37 P1 Step 1.2 (G)：同步 invalidate oneshot pool，让 summarizer-runner / handoff-runner
     // 下次 call 也用新 path 重建（修前 3 处独立 cache，path 改要等各自 path 比较 miss 才同步）
     invalidateCodexInstance();
-  }
-
-  /**
-   * 设置面板「Codex 沙盒档位」变更：仅更新本字段，不清 codex 实例（sandboxMode 不在
-   * codex 实例上，是 startThread 调用时透传）。已在跑的 thread 已按旧档位 spawn 不受影响；
-   * 新建会话使用新值。
-   */
-  setCodexSandboxMode(mode: 'workspace-write' | 'read-only' | 'danger-full-access'): void {
-    this.currentSandboxMode = mode;
   }
 
   private async ensureCodex(): Promise<Codex> {
@@ -180,12 +164,16 @@ export class CodexSdkBridge {
     // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
     // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
     // 2. resume 路径下 sessionRepo.get(resume).codexSandbox（用户上次该会话选过的，重启应用后回放）
-    // 3. bridge.currentSandboxMode（settings.codexSandbox 全局值兜底）
-    // 不写 4. settings 直接读 — bridge.currentSandboxMode 已经是 settings 的最新镜像（setCodexSandboxMode 触发更新）
+    // 3. settingsStore.get('codexSandbox')（settings 全局值兜底）
+    //
+    // symmetry-plan P2 MED-B：从 `bridge.currentSandboxMode` field 改为直接 settingsStore 读
+    // — 与 claude-code adapter sandbox-resolve.ts 同款直读模式（删 in-memory mirror + setter
+    // + apply hook 三层冗余）。settings 改 codexSandbox 不需 push 到 bridge,下次 createSession
+    // 即按新值生效（与 claude 同款语义,spawn-time 锁定不变）。
     const persistedSandbox = opts.resume
       ? (sessionRepo.get(opts.resume)?.codexSandbox ?? null)
       : null;
-    const sandboxMode = opts.codexSandbox ?? persistedSandbox ?? this.currentSandboxMode;
+    const sandboxMode = opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
 
     let thread: Thread;
     if (opts.resume) {

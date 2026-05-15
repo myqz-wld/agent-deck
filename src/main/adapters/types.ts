@@ -260,8 +260,6 @@ export interface AgentAdapter {
   setPermissionTimeoutMs?(ms: number): void;
   /** Codex 专属：设置面板「Codex 二进制路径」变更时即改即生效。 */
   setCodexCliPath?(path: string | null): void;
-  /** Codex 专属：设置面板「Codex 沙盒档位」变更时更新 bridge 字段；下次新建会话生效。 */
-  setCodexSandboxMode?(mode: 'workspace-write' | 'read-only' | 'danger-full-access'): void;
 
   installIntegration?(opts: {
     scope: 'user' | 'project';
