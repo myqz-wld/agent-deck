@@ -2,9 +2,11 @@
 plan_id: "archive-plan-tool-ux-followup-20260515"
 created_at: "2026-05-15"
 worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-tool-ux-followup-20260515"
-status: "in_progress"
+status: "completed"
 base_commit: "99f1e61"
 base_branch: "main"
+final_commit: "55dfb88"
+completed_at: "2026-05-15"
 parent_plan_id: "archive-plan-content-overwritten-fix-20260515"
 parent_review_id: "REVIEW_44"
 ---
