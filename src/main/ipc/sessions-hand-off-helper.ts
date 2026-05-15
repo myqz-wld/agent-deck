@@ -20,19 +20,25 @@
  */
 import type { SessionRecord } from '@shared/types';
 import type { CreateSessionOptions } from '@main/adapters/types';
+import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 import { SessionRowMissingError } from '@main/store/session-repo';
 
 export function buildHandOffCreateSessionOpts(
   session: SessionRecord,
   finalPrompt: string,
 ): CreateSessionOptions {
-  return {
+  // p4-d2-impl Step 2.2：用 buildCreateSessionOptions builder helper 按 session.agentId
+  // narrow 到对应 union arm（filter 掉不属本 adapter 的字段，TS 编译期阻止字段误传）。
+  // session.agentId 是 SessionRecord.agentId: string，走 string overload 内部 isAgentId
+  // guard，invalid throw（caller 端 sessions.ts:113 已先 sessionRepo.get 验过 session 存在
+  // + line 156 验 adapter.createSession 存在，到此 session.agentId 应都是合法 union 成员）。
+  return buildCreateSessionOptions(session.agentId, {
     cwd: session.cwd,
     prompt: finalPrompt,
     ...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
     ...(session.codexSandbox ? { codexSandbox: session.codexSandbox } : {}),
     ...(session.claudeCodeSandbox ? { claudeCodeSandbox: session.claudeCodeSandbox } : {}),
-  };
+  });
 }
 
 /**

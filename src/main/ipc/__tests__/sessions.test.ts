@@ -20,6 +20,7 @@ import {
   archiveSourceSessionWithEmit,
 } from '../sessions-hand-off-helper';
 import type { SessionRecord } from '@shared/types';
+import type { CreateSessionOptions } from '@main/adapters/types';
 import { SessionRowMissingError } from '@main/store/session-repo';
 
 function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -42,10 +43,13 @@ function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
 }
 
 describe('buildHandOffCreateSessionOpts — REVIEW_33 H6 sandbox 透传', () => {
-  it('原 session 无 permissionMode / sandbox → opts 只含 cwd + prompt（不写空字段，让 adapter 走 fallback）', () => {
+  it('原 session 无 permissionMode / sandbox → opts 只含 agentId + cwd + prompt（不写空字段，让 adapter 走 fallback）', () => {
     const session = makeSession();
     const opts = buildHandOffCreateSessionOpts(session, 'continue from prev');
+    // p4-d2-impl Step 2.2：buildHandOffCreateSessionOpts 改用 buildCreateSessionOptions
+    // builder helper 自动塞 agentId 字段（按 session.agentId narrow 到对应 union arm）。
     expect(opts).toEqual({
+      agentId: 'claude-code',
       cwd: '/Users/test/project',
       prompt: 'continue from prev',
     });
@@ -58,35 +62,71 @@ describe('buildHandOffCreateSessionOpts — REVIEW_33 H6 sandbox 透传', () => 
   it('原 session permissionMode=acceptEdits → opts 透传', () => {
     const session = makeSession({ permissionMode: 'acceptEdits' });
     const opts = buildHandOffCreateSessionOpts(session, 'p');
-    expect(opts.permissionMode).toBe('acceptEdits');
+    // p4-d2-impl: session.agentId default 'claude-code' → narrowToClaudeOpts → opts 含 permissionMode
+    const claudeOpts = opts as Extract<CreateSessionOptions, { agentId: 'claude-code' }>;
+    expect(claudeOpts.permissionMode).toBe('acceptEdits');
   });
 
   it('REVIEW_33 H6 核心：codexSandbox=read-only → 必须透传（修前漏 → 隐性沙盒 downgrade 到 workspace-write 全局默认）', () => {
     const session = makeSession({ agentId: 'codex-cli', codexSandbox: 'read-only' });
     const opts = buildHandOffCreateSessionOpts(session, 'p');
-    expect(opts.codexSandbox).toBe('read-only');
+    // p4-d2-impl: session.agentId='codex-cli' → narrowToCodexOpts → opts 含 codexSandbox
+    const codexOpts = opts as Extract<CreateSessionOptions, { agentId: 'codex-cli' }>;
+    expect(codexOpts.codexSandbox).toBe('read-only');
   });
 
   it('REVIEW_33 H6 核心：claudeCodeSandbox=strict → 必须透传（修前漏 → 隐性沙盒 downgrade 到 off 全局默认）', () => {
     const session = makeSession({ claudeCodeSandbox: 'strict' });
     const opts = buildHandOffCreateSessionOpts(session, 'p');
-    expect(opts.claudeCodeSandbox).toBe('strict');
+    // p4-d2-impl: session.agentId default 'claude-code' → narrowToClaudeOpts → opts 含 claudeCodeSandbox
+    const claudeOpts = opts as Extract<CreateSessionOptions, { agentId: 'claude-code' }>;
+    expect(claudeOpts.claudeCodeSandbox).toBe('strict');
   });
 
-  it('全字段都设：四个透传字段 + cwd + prompt 全在 opts 内', () => {
+  it('claude session 全字段：agentId + cwd + prompt + permissionMode + claudeCodeSandbox 全在 opts 内（codexSandbox 被 D2 narrow filter 掉）', () => {
+    // p4-d2-impl Step 2.2：D2 强约束让 buildHandOffCreateSessionOpts 按 session.agentId
+    // narrow 到对应 union arm — claude session.codexSandbox 字段在 narrow 时 filter 掉
+    // （ClaudeCreateOpts 不含 codexSandbox 字段，让 caller TS 编译期阻止字段误传）。
+    // 修前 buildHandOffCreateSessionOpts 是宽 union 不挑 adapter 透传所有字段；现按
+    // session.agentId narrow 后跨 adapter 字段被 filter（行为变化但符合 sessions table
+    // 现实 — 一个 session row 一个 adapter，不可能同时设 claudeCodeSandbox + codexSandbox）。
     const session = makeSession({
       permissionMode: 'plan',
-      codexSandbox: 'workspace-write',
+      codexSandbox: 'workspace-write', // claude session 不消费 codexSandbox，narrow filter 掉
       claudeCodeSandbox: 'workspace-write',
     });
     const opts = buildHandOffCreateSessionOpts(session, 'continue work');
     expect(opts).toEqual({
+      agentId: 'claude-code',
       cwd: '/Users/test/project',
       prompt: 'continue work',
       permissionMode: 'plan',
-      codexSandbox: 'workspace-write',
       claudeCodeSandbox: 'workspace-write',
+      // 注意：没有 codexSandbox — D2 narrow filter
     });
+    expect('codexSandbox' in opts).toBe(false);
+  });
+
+  it('codex session 全字段：agentId + cwd + prompt + codexSandbox 全在 opts 内（permissionMode + claudeCodeSandbox 被 D2 narrow filter 掉）', () => {
+    // p4-d2-impl Step 2.2：D2 强约束 codex session narrow 到 CodexCreateOpts，filter 掉
+    // permissionMode（codex 不支持运行时 permission mode，approvalPolicy 是 startThread
+    // 一次性配置）+ claudeCodeSandbox（claude 专属字段）。
+    const session = makeSession({
+      agentId: 'codex-cli',
+      permissionMode: 'plan', // codex 不消费 permissionMode，narrow filter 掉
+      codexSandbox: 'workspace-write',
+      claudeCodeSandbox: 'strict', // codex 不消费 claudeCodeSandbox，narrow filter 掉
+    });
+    const opts = buildHandOffCreateSessionOpts(session, 'continue work');
+    expect(opts).toEqual({
+      agentId: 'codex-cli',
+      cwd: '/Users/test/project',
+      prompt: 'continue work',
+      codexSandbox: 'workspace-write',
+      // 注意：没有 permissionMode / claudeCodeSandbox — D2 narrow filter
+    });
+    expect('permissionMode' in opts).toBe(false);
+    expect('claudeCodeSandbox' in opts).toBe(false);
   });
 
   it('null 字段（DB 列允许 null）→ 不写 opts（走 fallback）', () => {
@@ -107,7 +147,9 @@ describe('buildHandOffCreateSessionOpts — REVIEW_33 H6 sandbox 透传', () => 
     // 就当 default 处理 — 与 settings.permissionMode 全局值合并由 adapter 决定）。
     const session = makeSession({ permissionMode: 'default' });
     const opts = buildHandOffCreateSessionOpts(session, 'p');
-    expect(opts.permissionMode).toBe('default');
+    // p4-d2-impl: session.agentId default 'claude-code' → narrowToClaudeOpts
+    const claudeOpts = opts as Extract<CreateSessionOptions, { agentId: 'claude-code' }>;
+    expect(claudeOpts.permissionMode).toBe('default');
   });
 });
 

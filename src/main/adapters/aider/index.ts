@@ -15,7 +15,7 @@
  * 可在本文件注入额外 listener，不影响 generic-pty 通用实现。
  */
 
-import type { AgentAdapter, AdapterContext, CreateSessionOptions } from '../types';
+import type { AgentAdapter, AdapterContext, PtyCreateOpts } from '../types';
 import type { UploadedAttachmentRef } from '@shared/types';
 import { GENERIC_PTY_PRESETS } from '@shared/types';
 import { ADAPTER_ID_AIDER, GenericPtyBridge } from '../generic-pty/pty-bridge';
@@ -26,7 +26,7 @@ if (!AIDER_PRESET) {
   throw new Error('[aider-adapter] missing "aider" preset in GENERIC_PTY_PRESETS');
 }
 
-class AiderAdapterImpl implements AgentAdapter {
+class AiderAdapter implements AgentAdapter {
   id = ADAPTER_ID_AIDER;
   displayName = 'Aider';
   capabilities = {
@@ -65,7 +65,7 @@ class AiderAdapterImpl implements AgentAdapter {
     }
   }
 
-  async createSession(opts: CreateSessionOptions): Promise<string> {
+  async createSession(opts: PtyCreateOpts & { agentId: 'aider' }): Promise<string> {
     if (!this.bridge) throw new Error('aider adapter not initialized');
     const result = await this.bridge.createSession({
       cwd: opts.cwd,
@@ -109,4 +109,9 @@ class AiderAdapterImpl implements AgentAdapter {
   }
 }
 
-export const aiderAdapter: AgentAdapter = new AiderAdapterImpl();
+/**
+ * Typed export（D2）：与 GenericPtyAdapter 字面镜像（共享 GenericPtyBridge class，
+ * 各自 own 独立 instance）。
+ */
+export type { AiderAdapter };
+export const aiderAdapter: AiderAdapter = new AiderAdapter();

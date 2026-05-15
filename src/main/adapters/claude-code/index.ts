@@ -1,4 +1,9 @@
-import type { AgentAdapter, AdapterContext, PermissionMode } from '../types';
+import type {
+  AgentAdapter,
+  AdapterContext,
+  ClaudeCreateOpts,
+  PermissionMode,
+} from '../types';
 import type {
   AgentEvent,
   AskUserQuestionAnswer,
@@ -20,7 +25,7 @@ import {
 
 const ADAPTER_ID = 'claude-code';
 
-class ClaudeCodeAdapterImpl implements AgentAdapter {
+class ClaudeCodeAdapter implements AgentAdapter {
   id = ADAPTER_ID;
   displayName = 'Claude Code';
   capabilities = {
@@ -64,32 +69,7 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
     // fastify 路由关闭由 HookServer.stop() 统一处理
   }
 
-  async createSession(opts: {
-    cwd: string;
-    prompt?: string;
-    permissionMode?: PermissionMode;
-    systemPrompt?: string;
-    resume?: string;
-    teamName?: string;
-    attachments?: UploadedAttachmentRef[];
-    /**
-     * CHANGELOG_74：Claude Code OS 沙盒 per-session 覆盖（NewSessionDialog / ComposerSdk
-     * 切档传入）。undefined → bridge 内 fallback 链（resume 路径 sessionRepo →
-     * settings 全局值 → 'off' 兜底）。与 codex codexSandbox 字面镜像。
-     */
-    claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
-    /**
-     * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 workspace-write 档生效）。
-     * 透传给 bridge.createSession → buildSandboxOptions 第三参。详 adapters/types.ts CreateSessionOptions。
-     */
-    extraAllowWrite?: readonly string[];
-    /**
-     * plan model-wiring-and-handoff-20260514 Step 2.2：spawn handler 解 agent body frontmatter
-     * `model` 字段后透传。bridge 内 model-resolve 内部 fallback 链 `opts.model >
-     * sessionRepo.model > undefined` → SDK options.model。详 adapters/types.ts CreateSessionOptions.model。
-     */
-    model?: string;
-  }): Promise<string> {
+  async createSession(opts: ClaudeCreateOpts & { agentId: 'claude-code' }): Promise<string> {
     if (!this.bridge) throw new Error('adapter not initialized');
     const handle = await this.bridge.createSession(opts);
     return handle.sessionId;
@@ -239,4 +219,10 @@ class ClaudeCodeAdapterImpl implements AgentAdapter {
   }
 }
 
-export const claudeCodeAdapter: AgentAdapter = new ClaudeCodeAdapterImpl();
+/**
+ * Typed export（D2）：caller `adapterRegistry.get('claude-code')` 拿到本 class 实例后,
+ * 自动暴露 claude 专属方法（respondPermission / restartWithClaudeCodeSandbox 等）TS visible。
+ * AgentAdapter union 兜底兼容仍可（ClaudeCodeAdapter implements AgentAdapter）。
+ */
+export type { ClaudeCodeAdapter };
+export const claudeCodeAdapter: ClaudeCodeAdapter = new ClaudeCodeAdapter();
