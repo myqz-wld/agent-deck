@@ -898,6 +898,11 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
     // caller 仍以 lead 加入 — addMember 不去重，但实际生产 active 时 invariant 抛错（被 catch 视作幂等成功）
     const leadAdd = addMemberCalls.find((c) => c.sessionId === 'lead');
     expect(leadAdd?.role).toBe('lead');
+    // hand-off-mcp-teammate-bug-20260515 R2 LOW-1 / INFO-1（双方独立 ✅）：
+    // 守门 batonMode=true + 显式 team_name 组合下也跳 setSpawnLink。防未来 refactor
+    // 误把 team_name 加进短路条件（如 `if (callerExists && !args.team_name && !opts?.batonMode)`）
+    // 让显式 team_name baton 退化回 bug。
+    expect(setSpawnLinkCalls.find((c) => c.id === newSid)).toBeUndefined();
   });
 
   it('opts.batonRole=teammate（显式）→ 与默认相同 role=teammate', async () => {
@@ -920,6 +925,61 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
     const newSid = parsed.data.sessionId;
     const newSidAdd = addMemberCalls.find((c) => c.sessionId === newSid);
     expect(newSidAdd?.role).toBe('teammate');
+  });
+
+  // hand-off-mcp-teammate-bug-20260515 方案 1（双对抗 R1+R1.5 反驳轮共识）：batonMode=true
+  // 路径不写 spawn-link，防 SessionList Phase C(CHANGELOG_77)按 spawnedBy 树形分组渲染新
+  // session 为 caller 的 ↳ teammate badge。baton 是单向交接（hand-off-session.ts:21-39 jsdoc
+  // 「不是派出小弟干活」），不是 spawn parent-child 关系，数据层不应记录假 spawn-link。
+  it('hand-off-mcp-teammate-bug-20260515 方案 1: batonMode=true → 不调 setSpawnLink + spawnDepth=0', async () => {
+    seedSession('lead', { cwd: '/repo' });
+    const { spawnSessionHandler } = await import('../tools/handlers/spawn');
+
+    const r = await spawnSessionHandler(
+      {
+        adapter: 'claude-code',
+        cwd: '/repo',
+        prompt: 'baton task body',
+        // 不传 team_name，模拟真实 hand_off_session default 路径
+        caller_session_id: 'lead',
+      },
+      { caller: { callerSessionId: 'lead', transport: 'in-process' } },
+      { batonMode: true, batonRole: 'lead' },
+    );
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    const newSid = parsed.data.sessionId;
+    // 关键断言 1: setSpawnLink 不被调用（baton 路径数据层不记 spawn-link）
+    const spawnLinkForNew = setSpawnLinkCalls.find((c) => c.id === newSid);
+    expect(spawnLinkForNew).toBeUndefined();
+    // 关键断言 2: ok return.spawnDepth = 0（baton 路径下新 session 在 DB 表现为顶层，无 spawn 关系）
+    expect(parsed.data.spawnDepth).toBe(0);
+  });
+
+  // hand-off-mcp-teammate-bug-20260515 方案 1 守门: 普通 spawn (batonMode=false / 缺省) 行为
+  // 不变 — 仍写 spawn-link 让 reviewer 派活路径继续走树形分组（CHANGELOG_77 by design）。
+  it('hand-off-mcp-teammate-bug-20260515 方案 1 守门: batonMode=false（缺省）→ setSpawnLink 仍写 + spawnDepth=parentDepth+1', async () => {
+    seedSession('lead', { cwd: '/repo' });
+    const { spawnSessionHandler } = await import('../tools/handlers/spawn');
+
+    const r = await spawnSessionHandler(
+      {
+        adapter: 'claude-code',
+        cwd: '/repo',
+        prompt: 'reviewer task body',
+        team_name: 'review-team',
+        caller_session_id: 'lead',
+      },
+      { caller: { callerSessionId: 'lead', transport: 'in-process' } },
+      // opts 缺省 → batonMode 默认 false，普通 spawn 路径不变
+    );
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    const newSid = parsed.data.sessionId;
+    // 普通 spawn 仍写 spawn-link（CHANGELOG_77 by design：lead 派活，UI 树形分组合理）
+    const spawnLinkForNew = setSpawnLinkCalls.find((c) => c.id === newSid);
+    expect(spawnLinkForNew).toEqual({ id: newSid, parentId: 'lead', depth: 1 });
+    expect(parsed.data.spawnDepth).toBe(1);
   });
 });
 
