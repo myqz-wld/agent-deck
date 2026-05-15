@@ -10,20 +10,24 @@
  *
  * 覆盖矩阵:
  *
- * | case                                         | phase 1 (shutdown) | phase 2 (archive)             |
- * |----------------------------------------------|--------------------|-------------------------------|
- * | 1. external sentinel 短路                    | skipped='caller-not-lead' | 'skipped' (不调 getSession/archive) |
- * | 2. keep_teammates=true                       | skipped='keep-teammates' (不调 helper) | 'ok' (仍 archive caller) |
- * | 3. happy path                                | closed=[A,B] 透传 | 'ok'                          |
- * | 4. shutdown 透传 caller-not-lead             | skipped='caller-not-lead' 透传 | 'ok'                          |
- * | 5. shutdown 抛错                             | 兜底 + warn       | 'ok' (不阻塞)                 |
- * | 6. getSession 返回 null (row missing)        | closed=[A]        | 'failed' + warn (不调 archiveFn) |
- * | 7. getSession 抛错 (DB 异常 fail-safe)       | closed=[A]        | 'failed' + warn (走 row missing 路径) |
- * | 8. archiveFn 抛错                            | closed=[A]        | 'failed' + warn               |
- * | 9. excludeSessionIds 透传给 shutdown helper  | seam 收到 exclude 参数 | -                         |
- * | 10. 时序: shutdown 在 archive 之前           | call order 验证   | -                             |
- * | 11. archiveCaller=false → phase 2 跳过       | closed=[A]        | 'skipped' (不调 getFn/archiveFn)|
- * | 12. archiveCaller=false + keepTeammates=true | skipped='keep-teammates' (不调 helper) | 'skipped' (不调 getFn/archiveFn) |
+ * | case                                         | phase 1 (shutdown) | phase 2 (archive)             | emit 上抛 |
+ * |----------------------------------------------|--------------------|-------------------------------|-----------|
+ * | 1. external sentinel 短路                    | skipped='caller-not-lead' | 'skipped' (不调 getSession/archive) | not called |
+ * | 2. keep_teammates=true                       | skipped='keep-teammates' (不调 helper) | 'ok' (仍 archive caller) | not called |
+ * | 3. happy path                                | closed=[A,B] 透传 | 'ok'                          | not called |
+ * | 4. shutdown 透传 caller-not-lead             | skipped='caller-not-lead' 透传 | 'ok'                          | not called |
+ * | 5. shutdown 抛错                             | 兜底 + warn       | 'ok' (不阻塞)                 | not called |
+ * | 6. getSession 返回 null (row missing)        | closed=[A]        | 'failed' + warn (不调 archiveFn) | reasonKind='row-missing' |
+ * | 7. getSession 抛错 (DB 异常 fail-safe)       | closed=[A]        | 'failed' + warn (走 row missing 路径) | reasonKind='row-missing' |
+ * | 8. archiveFn 抛错                            | closed=[A]        | 'failed' + warn               | reasonKind='archive-throw' |
+ * | 9. excludeSessionIds 透传给 shutdown helper  | seam 收到 exclude 参数 | -                         | not called(archive ok)|
+ * | 10. 时序: shutdown 在 archive 之前           | call order 验证   | -                             | not called(archive ok)|
+ * | 11. archiveCaller=false → phase 2 跳过       | closed=[A]        | 'skipped' (不调 getFn/archiveFn)| -         |
+ * | 12. archiveCaller=false + keepTeammates=true | skipped='keep-teammates' (不调 helper) | 'skipped' (不调 getFn/archiveFn) | -         |
+ *
+ * archive-failure-ux-upthrow-20260515 plan: case 6/7/8 加 emit 断言验证 'caller-archive-failed'
+ * payload schema(sessionId / toolName / reason / reasonKind);case 1/3 加 not.toHaveBeenCalled
+ * 守门「成功路径不误上抛」。
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -56,6 +60,7 @@ describe('runBatonCleanup', () => {
     );
     const archiveFn = vi.fn(async (_sid: string) => undefined);
     const getFn = vi.fn(() => fakeRow('whatever'));
+    const emitFn = vi.fn();
 
     const result = await runBatonCleanup(
       {
@@ -63,7 +68,7 @@ describe('runBatonCleanup', () => {
         keepTeammates: false,
         toolName: 'archive_plan',
       },
-      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
     );
 
     expect(result).toEqual({
@@ -74,6 +79,8 @@ describe('runBatonCleanup', () => {
     expect(shutdownFn).not.toHaveBeenCalled();
     expect(archiveFn).not.toHaveBeenCalled();
     expect(getFn).not.toHaveBeenCalled();
+    // 短路返回 archived='skipped' 不是 'failed' → 不上抛 caller-archive-failed
+    expect(emitFn).not.toHaveBeenCalled();
   });
 
   it('case 2: keep_teammates=true → 跳过 shutdown helper + skipped=keep-teammates + archive 仍走', async () => {
@@ -109,6 +116,7 @@ describe('runBatonCleanup', () => {
     );
     const archiveFn = vi.fn(async (_sid: string) => undefined);
     const getFn = vi.fn(() => fakeRow('caller'));
+    const emitFn = vi.fn();
 
     const result = await runBatonCleanup(
       {
@@ -116,7 +124,7 @@ describe('runBatonCleanup', () => {
         keepTeammates: false,
         toolName: 'archive_plan',
       },
-      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
     );
 
     expect(result).toEqual({
@@ -125,6 +133,8 @@ describe('runBatonCleanup', () => {
     });
     expect(shutdownFn).toHaveBeenCalledTimes(1);
     expect(archiveFn).toHaveBeenCalledTimes(1);
+    // 关键: archive ok 不上抛 caller-archive-failed (避免 happy path 误打扰)
+    expect(emitFn).not.toHaveBeenCalled();
   });
 
   it('case 4: shutdown 透传 caller-not-lead(caller 是 teammate 罕见 case)+ archive 仍走', async () => {
@@ -181,12 +191,13 @@ describe('runBatonCleanup', () => {
     warnSpy.mockRestore();
   });
 
-  it('case 6: getSession 返回 null (row missing) → archive=failed + warn + 不调 archiveFn', async () => {
+  it('case 6: getSession 返回 null (row missing) → archive=failed + warn + 不调 archiveFn + emit row-missing', async () => {
     const shutdownFn = vi.fn(async (_sid: string) =>
       ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
     );
     const archiveFn = vi.fn(async (_sid: string) => undefined);
     const getFn = vi.fn(() => null);
+    const emitFn = vi.fn();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const result = await runBatonCleanup(
@@ -195,7 +206,7 @@ describe('runBatonCleanup', () => {
         keepTeammates: false,
         toolName: 'hand_off_session',
       },
-      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
     );
 
     // teammate 仍正常 close(phase 1 与 phase 2 独立)
@@ -209,11 +220,19 @@ describe('runBatonCleanup', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('[mcp hand_off_session]'),
     );
+    // archive-failure-ux-upthrow-20260515 plan: 上抛 row-missing 让 main bootstrap 桥接 notifyUser
+    expect(emitFn).toHaveBeenCalledTimes(1);
+    expect(emitFn).toHaveBeenCalledWith({
+      sessionId: 'ghost-caller',
+      toolName: 'hand_off_session',
+      reason: expect.stringContaining('cannot archive caller ghost-caller: not in sessions table'),
+      reasonKind: 'row-missing',
+    });
 
     warnSpy.mockRestore();
   });
 
-  it('case 7: getSession 抛错 (DB 异常 fail-safe) → 走 row missing 路径 archive=failed', async () => {
+  it('case 7: getSession 抛错 (DB 异常 fail-safe) → 走 row missing 路径 archive=failed + emit row-missing', async () => {
     const shutdownFn = vi.fn(async (_sid: string) =>
       ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
     );
@@ -221,6 +240,7 @@ describe('runBatonCleanup', () => {
     const getFn = vi.fn(() => {
       throw new Error('simulated SQLite locked');
     });
+    const emitFn = vi.fn();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const result = await runBatonCleanup(
@@ -229,7 +249,7 @@ describe('runBatonCleanup', () => {
         keepTeammates: false,
         toolName: 'archive_plan',
       },
-      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
     );
 
     // 关键: getSession 抛错 → catch 兜底为 null → 走 row missing 路径 'failed'
@@ -237,11 +257,19 @@ describe('runBatonCleanup', () => {
     expect(archiveFn).not.toHaveBeenCalled();
     // teammate 段不受 phase 2 异常影响
     expect(result.teammatesShutdown.closed).toEqual(['team-A']);
+    // archive-failure-ux-upthrow-20260515 plan: DB 异常 fail-safe 走 row-missing 路径同款 emit(语义对齐 row 不可读)
+    expect(emitFn).toHaveBeenCalledTimes(1);
+    expect(emitFn).toHaveBeenCalledWith({
+      sessionId: 'caller',
+      toolName: 'archive_plan',
+      reason: expect.stringContaining('cannot archive caller caller: not in sessions table'),
+      reasonKind: 'row-missing',
+    });
 
     warnSpy.mockRestore();
   });
 
-  it('case 8: archiveFn 抛错 → archive=failed + warn(与 row missing 同状态值不同来源)', async () => {
+  it('case 8: archiveFn 抛错 → archive=failed + warn(与 row missing 同状态值不同来源)+ emit archive-throw', async () => {
     const shutdownFn = vi.fn(async (_sid: string) =>
       ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
     );
@@ -249,6 +277,7 @@ describe('runBatonCleanup', () => {
       throw new Error('simulated FK constraint violation');
     });
     const getFn = vi.fn(() => fakeRow('caller'));
+    const emitFn = vi.fn();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const result = await runBatonCleanup(
@@ -257,7 +286,7 @@ describe('runBatonCleanup', () => {
         keepTeammates: false,
         toolName: 'archive_plan',
       },
-      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
     );
 
     expect(result.archived).toBe('failed');
@@ -266,6 +295,15 @@ describe('runBatonCleanup', () => {
       expect.stringContaining('archive caller caller failed:'),
       expect.any(Error),
     );
+    // archive-failure-ux-upthrow-20260515 plan: row 存在但 archive 抛错 → reasonKind='archive-throw',
+    // UI 可显示「重试归档」按钮(reason 含 stringified Error message 提供具体错误)。
+    expect(emitFn).toHaveBeenCalledTimes(1);
+    expect(emitFn).toHaveBeenCalledWith({
+      sessionId: 'caller',
+      toolName: 'archive_plan',
+      reason: expect.stringContaining('simulated FK constraint violation'),
+      reasonKind: 'archive-throw',
+    });
 
     warnSpy.mockRestore();
   });

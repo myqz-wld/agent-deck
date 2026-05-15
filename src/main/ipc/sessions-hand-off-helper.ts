@@ -35,6 +35,56 @@ export function buildHandOffCreateSessionOpts(
 }
 
 /**
+ * archive-failure-ux-upthrow-20260515 plan: K3 SessionHandOffSpawn archive 失败 UX 上抛 helper。
+ *
+ * 抽到本 helper 是为了让 K3 emit schema 有 unit test 守门(sessions.test.ts 不能 import sessions.ts
+ * 整套 Electron 链 — sessionManager / sessionRepo / eventBus / dedupHandOff 拉起报错)。本 helper
+ * 走纯 deps inject(无 default 实现),caller 必传真 archiveFn + emitFn。
+ *
+ * **K3 与 mcp baton-cleanup 区别**: K3 走独立 sessionManager.archive(sid) 不经 baton-cleanup
+ * helper(K3 是用户 UI 触发的 hand-off,不通过 mcp tool,但 archive 失败 UX 上抛语义需对齐)。
+ *
+ * **reasonKind 固定 'archive-throw'**: K3 进入 try 前已 sessionRepo.get 验证 session 存在(sessions.ts
+ * line 116-119),不可能走 row-missing 路径。reason 含 stringified Error message 给 UI 展示具体错误。
+ */
+export interface ArchiveSourceSessionDeps {
+  archive: (sid: string) => Promise<void>;
+  /**
+   * Emit `caller-archive-failed` event payload(schema 与 event-bus.ts EventMap 同 — 编译期 tsc
+   * 检查在 sessions.ts handler 调用处用 `satisfies EventMap['caller-archive-failed'][0]`)。
+   */
+  emitArchiveFailed: (payload: {
+    sessionId: string;
+    toolName: 'SessionHandOffSpawn';
+    reason: string;
+    reasonKind: 'archive-throw';
+  }) => void;
+}
+
+/**
+ * 归档原 session + archive 失败上抛 'caller-archive-failed' event。失败仅 warn 不抛(与 sessions.ts
+ * 历史语义一致 — archive 失败不阻塞 hand-off ok return,用户至少能切到新 session 工作)。
+ */
+export async function archiveSourceSessionWithEmit(
+  sid: string,
+  deps: ArchiveSourceSessionDeps,
+): Promise<void> {
+  try {
+    await deps.archive(sid);
+  } catch (err) {
+    const errStr = err instanceof Error ? err.message : String(err);
+    const reason = `archive caller ${sid} failed: ${errStr}`;
+    console.warn(`[ipc sessions hand-off] archive source session ${sid} failed:`, err);
+    deps.emitArchiveFailed({
+      sessionId: sid,
+      toolName: 'SessionHandOffSpawn',
+      reason,
+      reasonKind: 'archive-throw',
+    });
+  }
+}
+
+/**
  * REVIEW_33 H7：sourceSid → in-flight hand-off Promise 单飞 Map。
  *
  * 用法：

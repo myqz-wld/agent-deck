@@ -17,6 +17,7 @@ import {
   buildHandOffCreateSessionOpts,
   dedupHandOff,
   handOffInflight,
+  archiveSourceSessionWithEmit,
 } from '../sessions-hand-off-helper';
 import type { SessionRecord } from '@shared/types';
 
@@ -247,5 +248,74 @@ describe('dedupHandOff — REVIEW_33 H7 inflight Map 单飞', () => {
     expect(handOffInflight.get('shared-sid')).toBe(replacementPromise); // 第二个 entry 仍在
 
     handOffInflight.delete('shared-sid'); // cleanup
+  });
+});
+
+describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 plan', () => {
+  it('archive ok → emitArchiveFailed 不被调用(happy path 不误打扰)', async () => {
+    const archiveFn = vi.fn(async (_sid: string) => undefined);
+    const emitFn = vi.fn();
+
+    await archiveSourceSessionWithEmit('source-sid', {
+      archive: archiveFn,
+      emitArchiveFailed: emitFn,
+    });
+
+    expect(archiveFn).toHaveBeenCalledTimes(1);
+    expect(archiveFn).toHaveBeenCalledWith('source-sid');
+    expect(emitFn).not.toHaveBeenCalled();
+  });
+
+  it('archive 抛 Error → emit archive-throw + reason 含 Error message + 不抛(by design)', async () => {
+    const archiveFn = vi.fn(async (_sid: string) => {
+      throw new Error('FK constraint violation');
+    });
+    const emitFn = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(
+      archiveSourceSessionWithEmit('source-sid', {
+        archive: archiveFn,
+        emitArchiveFailed: emitFn,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(emitFn).toHaveBeenCalledTimes(1);
+    expect(emitFn).toHaveBeenCalledWith({
+      sessionId: 'source-sid',
+      toolName: 'SessionHandOffSpawn',
+      reason: expect.stringContaining('FK constraint violation'),
+      reasonKind: 'archive-throw',
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[ipc sessions hand-off] archive source session source-sid failed:'),
+      expect.any(Error),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('archive 抛非 Error(e.g. string)→ emit reason 也能 stringify 不挂', async () => {
+    const archiveFn = vi.fn(async (_sid: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-throw-literal
+      throw 'opaque error string';
+    });
+    const emitFn = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await archiveSourceSessionWithEmit('source-sid', {
+      archive: archiveFn,
+      emitArchiveFailed: emitFn,
+    });
+
+    expect(emitFn).toHaveBeenCalledTimes(1);
+    expect(emitFn).toHaveBeenCalledWith({
+      sessionId: 'source-sid',
+      toolName: 'SessionHandOffSpawn',
+      reason: expect.stringContaining('opaque error string'),
+      reasonKind: 'archive-throw',
+    });
+
+    warnSpy.mockRestore();
   });
 });

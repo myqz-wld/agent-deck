@@ -10,7 +10,8 @@ import { summaryRepo } from '@main/store/summary-repo';
 import { summariseSessionForHandOff } from '@main/session/summarizer';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
-import { buildHandOffCreateSessionOpts, dedupHandOff } from './sessions-hand-off-helper';
+import type { EventMap } from '@main/event-bus';
+import { buildHandOffCreateSessionOpts, dedupHandOff, archiveSourceSessionWithEmit } from './sessions-hand-off-helper';
 import { on, parseStringId, parsePositiveInt, parseStringIdArray, IpcInputError } from './_helpers';
 
 export function registerSessionsIpc(): void {
@@ -138,11 +139,17 @@ export function registerSessionsIpc(): void {
         sessionManager.recordCreatedPermissionMode(newSid, session.permissionMode);
       }
       // 自动归档原 session：失败仅 warn 不阻塞 newSid 返回（用户至少能切到新 session 工作）。
-      try {
-        await sessionManager.archive(sid);
-      } catch (err) {
-        console.warn(`[ipc sessions hand-off] archive source session ${sid} failed:`, err);
-      }
+      // archive-failure-ux-upthrow-20260515 plan: K3 走独立 sessionManager.archive(sid) 不经
+      // baton-cleanup helper,通过 archiveSourceSessionWithEmit 上抛 'caller-archive-failed' event,
+      // main bootstrap listener 桥到 notifyUser + IPC channel,避免 archive 失败被静默吞掉。
+      // toolName='SessionHandOffSpawn' 区分 mcp baton-cleanup ('archive_plan' / 'hand_off_session')
+      // 让 UI 能识别触发场景。reasonKind 固定 'archive-throw'(K3 已 sessionRepo.get 验证 row 存在)。
+      // EventMap satisfies 编译期守门 helper payload schema 与 event-bus.ts 类型一致。
+      await archiveSourceSessionWithEmit(sid, {
+        archive: (id) => sessionManager.archive(id),
+        emitArchiveFailed: (payload) =>
+          eventBus.emit('caller-archive-failed', payload satisfies EventMap['caller-archive-failed'][0]),
+      });
       // emit session-focus-request → main/index.ts forwarder 转发到 IpcEvent.SessionFocusRequest →
       // App.tsx onSessionFocusRequest listener 自动 setView('live') + select(newSid)。与 cli.ts
       // `agent-deck new` / NewSessionDialog onCreated 同款 UX：起新 session 后 detail 自动切到新

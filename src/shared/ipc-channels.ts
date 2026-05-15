@@ -137,6 +137,20 @@ export const IpcEvent = {
   SessionFocusRequest: 'event:session-focus-request',
   /** Task Manager (CHANGELOG_43)：tasks 表写操作 after-commit 推送。 */
   TaskChanged: 'event:task-changed',
+  /**
+   * archive-failure-ux-upthrow-20260515 plan：caller archive 失败 UX 上抛通道。
+   *
+   * payload schema 与 event-bus.ts EventMap['caller-archive-failed'] 同：
+   *   { sessionId: string; toolName: string; reason: string;
+   *     reasonKind: 'row-missing' | 'archive-throw' }
+   *
+   * 触发：mcp baton-cleanup（archive_plan / hand_off_session）+ K3 SessionHandOffSpawn
+   * 三处 archive caller 失败时；main bootstrap listener 桥接到此 IPC channel。
+   *
+   * 当前 MVP 仅 macOS 系统通知 + IPC 上抛；renderer 端 P2 enhancement 全局 toast 容器
+   * + 重试按钮（reasonKind='archive-throw' 显示重试 / 'row-missing' 仅告知）留后续 plan。
+   */
+  CallerArchiveFailed: 'event:caller-archive-failed',
 
   // ─────────── R3.E9 — Agent Deck universal team backend events ───────────
   /** team 增删改 / member 改：聚合数组 payload，16ms debounce + per-team 累加。 */
