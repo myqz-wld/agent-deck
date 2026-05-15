@@ -341,6 +341,13 @@ export class ClaudeSdkBridge {
       // 委托 recoverer.recoverAndSend：单飞 + 完整复用 createSession（H4/H1 全套护栏不绕）。
       // CHANGELOG_52 Step 3d：实现迁到 SessionRecoverer，class 上 sendMessage 路径不变。
       // attachments 透传：HIGH-1 修法，避免 inflight 第二条等待者丢图
+      //
+      // plan cross-adapter-parity-20260515 Phase B Step B.3:recoverAndSend signature 改
+      // Promise<string>(返 finalId)。本 caller(bridge sendMessage)**不消费**返回值 —
+      // bridge sendMessage 整个 return 流程结束;但 recoverAndSend 内部 inflight 等待者 path
+      // 通过 `await inflight` 拿同款 finalId 调 sendThunk → bridge.sendMessage(finalId, ...)
+      // 直接命中 sessions Map(主 recovery 完成后已 sync),不再撞 OLD sid not found(REVIEW_40
+      // R2 reviewer-codex MED parity 限制治法,plan §B 主体)。
       await this.recoverer.recoverAndSend(sessionId, text, attachments);
       // 失败仍 throw 给 IPC，与原 'not found' 路径行为一致。
       return;

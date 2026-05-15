@@ -442,6 +442,12 @@ export class CodexSdkBridge {
     // symmetry-plan P2 HIGH-B：sessions Map 缺该 sessionId → 走 recoverer 自愈（与 claude
     // sdk-bridge/index.ts:332 同款）。修前直接 throw 让用户在 app 重启 / dev mode vite hot reload
     // / main process crash 重生场景下不可恢复（必须新建会话丢上下文）。
+    //
+    // plan cross-adapter-parity-20260515 Phase B Step B.3:recoverAndSend signature 改
+    // Promise<string>(返 finalId)。本 caller(codex bridge sendMessage)**不消费**返回值 —
+    // 但 recoverAndSend 内部 inflight 等待者 path 通过 `await inflight` 拿同款 finalId 调
+    // sendThunk → bridge.sendMessage(finalId, ...) 不再撞 OLD sid not found(REVIEW_40 R2
+    // reviewer-codex MED parity 限制治法,plan §B 主体)。
     if (!s) {
       await this.recoverer.recoverAndSend(sessionId, text, attachments);
       return;

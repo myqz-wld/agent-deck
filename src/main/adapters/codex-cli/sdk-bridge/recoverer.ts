@@ -141,25 +141,43 @@ export class SessionRecoverer {
    * - 单飞防并发自愈起多个 codex CLI 子进程
    * - permissionMode 不传（codex 无此概念）；codexSandbox / model 必须显式透传从 sessionRepo
    *   读到的历史值，否则 fallback 路径下静默用全局默认（详 claudeCodeSandbox HIGH-1 教训）
+   *
+   * **plan cross-adapter-parity-20260515 Phase B Step B.2 — 返回 Promise<string>**:
+   * 返回 final session id(fallback path 返 newRealId / resume path 返 sessionId)。修前
+   * `Promise<void>` waiter 等 inflight 后用 OLD sessionId 调 sendThunk → bridge.sendMessage
+   * 内 sessions Map miss → 又进 recoverAndSend → sessionRepo.get(OLD) 已 rename DELETE → throw
+   * "not found" — 用户体感「第二条消息消失」(REVIEW_40 R2 reviewer-codex MED parity 限制)。
+   *
+   * 修后 waiter 拿 finalId 调 sendThunk(finalId, text, atts),fallback path 走 NEW(主 recovery
+   * 完成后 sessions Map 已 rename 同步)直接 push 进 NEW session;resume path finalId === sessionId
+   * 行为零变化(codex 不 implicit fork,详 L34 节注释)。失败路径 reject 仍透传(catch 静默
+   * fallback finalId=sessionId 让等待者再撞一次触发新一轮 recovery,plan §B.5 设计)。
    */
   async recoverAndSend(
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
-  ): Promise<void> {
+  ): Promise<string> {
     const inflight = this.ctx.recovering.get(sessionId);
     if (inflight) {
       // 等同一恢复完成 → 然后正常走完整 sendMessage 流程把这条新 text push 进 sessions。
       // catch 静默：第一波恢复失败时第二条等待者自己再走 sendMessage，要么进新一轮 recovery，
       // 要么拿到真错（与 claude 同款）。
+      //
+      // plan cross-adapter-parity-20260515 Phase B.2: try/catch 拿 finalId 让 sendThunk 用 NEW
+      // sid 不撞 not found(plan §B.5 设计:reject 时 finalId=sessionId 让等待者再撞一次触发
+      // 新一轮 recovery,与原行为一致)。
+      let finalId: string;
       try {
-        await inflight;
+        finalId = (await inflight) as string;
       } catch {
-        // 第一波恢复已失败，第二条自己再撞一次
+        // 第一波恢复已失败,第二条用 OLD 再撞一次触发新一轮 recovery 路径
+        finalId = sessionId;
       }
       // attachments 透传（与 claude HIGH-1 修法同款）：第二条等待者带的图属于「自己这条 message」
       // 与第一条独立，必须走完整 sendMessage 路径。
-      return this.sendThunk(sessionId, text, attachments);
+      await this.sendThunk(finalId, text, attachments);
+      return finalId;
     }
 
     const rec: SessionRecord | null = sessionRepo.get(sessionId);
@@ -265,7 +283,7 @@ export class SessionRecoverer {
       });
     }
 
-    const p = (async () => {
+    const p = (async (): Promise<string> => {
       try {
         // CHANGELOG_28 同款：预检 jsonl 是否存在 — codex CLI resume 时找不到 jsonl 会失败，
         // SDK 抛 "Codex Exec exited with ..." 错误，比 try/catch 后字符串匹配 fallback 更可靠。
@@ -327,7 +345,9 @@ export class SessionRecoverer {
               );
             }
           }
-          return;
+          // plan cross-adapter-parity-20260515 Phase B Step B.2: 返 final id 给等待者 path
+          // (newRealId 才是真实 active session,OLD sessionId 在 fallback rename 后已 DB DELETE)。
+          return newRealId;
         }
 
         // 正常 resume 路径：jsonl 在 + cwd 有 → 走 createSession({resume, prompt, codexSandbox, model, attachments})
@@ -345,6 +365,10 @@ export class SessionRecoverer {
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
           attachments,
         });
+        // plan cross-adapter-parity-20260515 Phase B Step B.2: codex resume 路径不会 fork
+        // (spike-A2 实测 codex CLI resume 永远返回同 thread_id,详 L34 节注释)。返 sessionId
+        // 给等待者 — finalId === sessionId 行为零变化。
+        return sessionId;
       } finally {
         this.ctx.recovering.delete(sessionId);
       }
@@ -352,7 +376,9 @@ export class SessionRecoverer {
     this.ctx.recovering.set(sessionId, p);
 
     try {
-      await p;
+      // plan cross-adapter-parity-20260515 Phase B Step B.2: 返 finalId 给 caller(虽 bridge
+      // sendMessage 当前 caller 不消费返回值,但等待者 path 经 inflight 拿同款 finalId)。
+      return await p;
     } catch (err) {
       // createSession 失败：占位 message 已经 emit，再补一条 error message 让用户看到原因
       this.ctx.emit({

@@ -828,4 +828,72 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     // 历史 NULL 不强升级行为保兼容)
     expect(bridge.createCalls[0].extraAllowWrite).toBeUndefined();
   });
+
+  // ─── plan cross-adapter-parity-20260515 Phase B.4: waiter Promise<string> regression ──
+  //
+  // 修前漏洞:recoverer.recoverAndSend 返 Promise<void> → 等待者 path `try{await inflight}catch{}
+  // return this.sendThunk(sessionId, text, atts)` 用 OLD sessionId 调 sendThunk → 走
+  // bridge.sendMessage(OLD) → sessions.get(OLD) miss(主 recovery fallback rename 已 OLD→NEW)
+  // → 又进 recoverAndSend(OLD) → sessionRepo.get(OLD) === null(rename DELETE OLD row) → throw
+  // "not found" — 用户体感「第二条消息消失」(REVIEW_40 R2 reviewer-codex MED parity 限制)。
+  //
+  // 修后 recoverAndSend 返 Promise<string>(返 finalId / fallback path 返 newRealId / resume
+  // path 返 sessionId)。等待者 path `let finalId; try{finalId=await inflight as string}
+  // catch{finalId=sessionId} return this.sendThunk(finalId, text, atts)` 用 NEW sid 调
+  // sendThunk → bridge.sendMessage(NEW) → sessions.get(NEW) 命中(主 recovery 完成后已 sync)
+  // → 直接 push 进 NEW session pendingMessages,不再 recursive recovery 撞 not found。
+
+  it('parity-plan B.4: 2 并发 sendMessage + jsonl missing fallback rename → 第二条 waiter 拿 newRealId 不撞 not found', async () => {
+    const bridge = makeBridge();
+    bridge.createBehavior = 'block'; // 让第一波 createSession 阻塞,模拟 recovery in-flight 期间第二条 arrival
+    bridge.jsonlExistsOverride = false; // 走 jsonl missing fallback 路径(rename OLD → newRealId='new-sid')
+    // intercept 仅 'new-sid'(模拟 sessions Map sync 完后命中)→ 让 OLD sid 的 sendMessage 走 super 真进 recoverer
+    bridge.interceptSidSet = new Set(['new-sid']);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-waiter',
+      agentId: 'claude-code',
+      cwd: '/tmp/waiter',
+      title: 'waiter',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    // 第一波 sendMessage(不 await,让 inflight Promise 注册到 recovering Map)
+    const p1 = bridge.sendMessage('sess-waiter', 'first').catch(() => undefined);
+    // microtask flush,确保 p1 已经把 inflight 写入 recovering Map
+    await Promise.resolve();
+    await Promise.resolve();
+    // 第二波同 sessionId(进 inflight 等待者 path)
+    const p2 = bridge.sendMessage('sess-waiter', 'second').catch(() => undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // createSession 此刻只被调过一次(单飞,第二条等同一 inflight)
+    expect(bridge.createCalls).toHaveLength(1);
+
+    // 解锁 inflight,让两波 promise 都退出
+    bridge.unblock?.();
+    await p1;
+    await p2;
+
+    // 关键断言 #1:waiter path 调 sendThunk 用 finalId='new-sid'(不是 OLD 'sess-waiter')
+    // 修前 sendThunk('sess-waiter', ...) 走 bridge.sendMessage('sess-waiter') 撞 not found
+    expect(bridge.sendMessageCalls).toHaveLength(1);
+    expect(bridge.sendMessageCalls[0].sessionId).toBe('new-sid');
+    // 关键断言 #2:waiter 带的是自己的 text 'second' 不是 'first'(独立 message)
+    expect(bridge.sendMessageCalls[0].text).toBe('second');
+
+    // 没 emit error message(修前会 emit「⚠ 自动恢复失败」之类 error)
+    const errorMsgs = emits.filter((e) => {
+      const p = e.payload as { error?: boolean; text?: string };
+      return p.error === true && (p.text ?? '').includes('自动恢复失败');
+    });
+    expect(errorMsgs).toHaveLength(0);
+  });
 });
