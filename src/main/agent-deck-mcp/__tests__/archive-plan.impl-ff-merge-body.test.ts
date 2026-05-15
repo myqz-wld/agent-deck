@@ -372,14 +372,17 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(err.error).toContain('§Step 4'); // 引 user CLAUDE.md 中止契约
 
     // 2. hint 含 cleanup 指引(R2 MED 1 fix:范围化命令而非 `git revert HEAD` 单 commit;
-    //    R3 MED 1 fix:选项 (2) 闭合 — 仅在 worktree branch 修,防 caller 误编辑 main)
+    //    R3 MED 1 fix:选项 (2) 闭合 — 仅在 worktree branch 修,防 caller 误编辑 main;
+    //    R4 LOW 1 fix:revert 限定 abandoned 路径(选项 1),continue 必须 reset 防 git 拓扑分叉)
     expect(err.hint).toContain('git reset --hard ORIG_HEAD'); // 推荐路径(干净简单)
-    expect(err.hint).toContain('git revert ORIG_HEAD..HEAD'); // history-preserving 选项
+    expect(err.hint).toContain('git revert ORIG_HEAD..HEAD'); // history-preserving 选项(限选项 1)
     expect(err.hint).toContain('§Step 4'); // 引中止流程
     expect(err.hint).toContain('git worktree remove'); // 中止流程动作
     expect(err.hint).toContain('status: in_progress'); // 另一选择:撤回继续推进
     expect(err.hint).toContain('only on the worktree branch'); // R3 MED 1 闭合:防 caller 误编辑 main repo plan
     expect(err.hint).toContain('do NOT edit main repo'); // R3 MED 1 反向锚点
+    expect(err.hint).toContain('do NOT use revert for option 2'); // R4 LOW 1:防 revert+continue 拓扑分叉
+    expect(err.hint).toContain('only valid for option 1'); // R4 LOW 1 反向锚点(revert 限 abandoned)
 
     // 3. archive 写不应该发生(短路 in step 8c,不到 step 10 写 archived plan / step 11 INDEX)
     const archivedWrite = state.writes.find((w) => w.path === expectedArchivedPath);

@@ -402,16 +402,26 @@ export async function archivePlanImpl(
       // branch edit」会让 caller 误编辑 main repo plan(uncommitted)→ re-call 时 step 7
       // ff-merge 撞 dirty working tree 拒绝。改成「reset → 仅在 worktree 修 → re-call(干净
       // 重跑)」让两选项都先 reset --hard ORIG_HEAD(等价 undo) 再分流(中止 / 继续)。
+      //
+      // R4 LOW 1 修法:revert + continue 组合 git 拓扑 — caller 选 revert range 后 main 带
+      // revert commit (R1..R3),worktree 不知道 → next ff-merge 失败(main 不是 worktree
+      // 祖先)。改成「revert range 仅限 abandoned 路径(选项 1 history-preserving)」+
+      // 「continue 路径(选项 2)必须用 reset --hard ORIG_HEAD(reset 让 main 回到 worktree
+      // 祖先,fresh ff-merge 才能成功)」。
       'main HEAD has advanced (ff-merge complete) and the plan file at the main repo has a ' +
         'status that drifted from "in_progress" on the worktree branch. ' +
         '**First step (both choices)**: undo the ff-merge in main repo with ' +
         '`git reset --hard ORIG_HEAD` (recommended — clean reset; archive_plan made no other ' +
-        'main-repo changes before this failure) or `git revert ORIG_HEAD..HEAD` ' +
-        '(history-preserving; per-commit revert, may need conflict resolution). ' +
+        'main-repo changes before this failure). ' +
         'Then choose: ' +
         '(1) if caller intended abandoned: follow user CLAUDE.md §Step 4 "中止" path ' +
-        '(keep status=abandoned, manual `git worktree remove --force` + `git branch -D`); ' +
-        '(2) if caller intended to continue: edit the plan frontmatter to `status: in_progress` ' +
+        '(keep status=abandoned, manual `git worktree remove --force` + `git branch -D`). ' +
+        'For history-preserving abandon (audit trail), `git revert ORIG_HEAD..HEAD` instead ' +
+        'of reset (per-commit revert, may need conflict resolution; only valid for option 1 — ' +
+        'do NOT use revert for option 2 below: revert leaves main with new revert commits ' +
+        'that diverge from worktree branch, breaking the next ff-merge); ' +
+        '(2) if caller intended to continue: **must use `git reset --hard ORIG_HEAD`** ' +
+        '(not revert), then edit the plan frontmatter to `status: in_progress` ' +
         '**only on the worktree branch** (cd into worktree, edit, commit; do NOT edit main repo ' +
         '— the reset already restored main to pre-archive state, and re-calling archive_plan will ' +
         'pick up the worktree-side fix via fresh ff-merge), then re-call archive_plan.',
