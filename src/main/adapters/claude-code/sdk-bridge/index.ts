@@ -309,12 +309,16 @@ export class ClaudeSdkBridge {
 
     // CHANGELOG_85 Step 3.2：emit session-start + 持久化 sandbox + 补 emit 首条 prompt
     // 三段固定 finalize 链抽到 session-finalize.ts。
+    // plan cross-adapter-parity-20260515 Phase A Step A.5: extraAllowWrite 同 claudeModel
+    // 同款持久化(spawn-time 透传给 finalizeSessionStart → setExtraAllowWrite 写库),让
+    // recoverer fallback / resume 路径读回交还 SDK sandbox.allowWrite。
     finalizeSessionStart({
       realId,
       cwd: opts.cwd,
       prompt: opts.prompt,
       claudeSandboxMode,
       claudeModel,
+      extraAllowWrite: opts.extraAllowWrite,
       emit: this.opts.emit,
     });
 

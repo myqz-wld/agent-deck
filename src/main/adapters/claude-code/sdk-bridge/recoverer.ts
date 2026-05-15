@@ -73,7 +73,7 @@ export type CreateSessionThunk = (opts: {
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.4：recoverer fallback / resume 路径显式透传
-   * spawn 时持久化的 model（来源：spawn handler 解 frontmatter `model` 字段）。
+   * spawn 时持久化的 model（来源:spawn handler 解 frontmatter `model` 字段）。
    *
    * 修前漏洞：fallback 路径不走 resume → resolveClaudeModel 拿 opts.resume=undef +
    * opts.model=undef → 返回 undefined → SDK 用 ANTHROPIC_MODEL env / 默认 model；
@@ -85,6 +85,23 @@ export type CreateSessionThunk = (opts: {
    * reviewer SDK 子进程实际跑 sonnet（DB 仍显示 opus），异构对抗强度静默降级。
    */
   model?: string;
+  /**
+   * plan cross-adapter-parity-20260515 Phase A Step A.6 / REVIEW_40 R1 reviewer-codex MED-F:
+   * recoverer fallback / resume 路径显式透传 spawn 时持久化的 SDK sandbox 额外可写根。
+   *
+   * 修前漏洞:fallback 路径不走 resume → createSession opts.extraAllowWrite=undef →
+   * buildSandboxOptions 走默认值 sandbox.allowWrite=[cwd, /tmp, ~/.cache];
+   * **与历史 record 持久化的 sessionRepo.extraAllowWrite 无关**(此前 sessions.extra_allow_write
+   * 列不存在 → 透传断点 → app 重启后 mainRepo 写权限丢失)。本字段实现 jsdoc 承诺的
+   * 「recoverer 从 sessionRepo 读回」语义,与 claudeCodeSandbox / model 同款显式透传 + ?? undefined
+   * 兜底(rec.extraAllowWrite 历史 NULL 时让 buildSandboxOptions 走默认)。
+   *
+   * 用户场景:hand_off_session 外置 worktree(cwd=worktreePath 不在 mainRepo subtree)+ caller
+   * 传 [mainRepo] 让 session 能写 mainRepo plan 文件。app 重启 / sdk-bridge state lost /
+   * recoverer fallback 路径不读回 → SDK sandbox.allowWrite 不含原 mainRepo → 写 plan 文件
+   * 静默失败(sandbox 拦)→ 用户体感 plan 完成时 frontmatter 更新失败莫名其妙。
+   */
+  extraAllowWrite?: readonly string[];
 }) => Promise<SdkSessionHandle>;
 
 /**
@@ -406,6 +423,13 @@ export class SessionRecoverer {
             // 与 claudeCodeSandbox 同款显式透传 + ?? undefined 兜底（历史 NULL 时让
             // model-resolve 走默认 = undefined → SDK 用 ANTHROPIC_MODEL）。
             model: rec.model ?? undefined,
+            // plan cross-adapter-parity-20260515 Phase A Step A.6 / REVIEW_40 R1 MED-F:fallback
+            // 路径显式透传 SDK sandbox 额外可写根。rec.extraAllowWrite 持久化的 spawn 时 caller
+            // 透传值(典型:hand_off_session 外置 worktree caller 传 [mainRepo]),必须保留 —
+            // 否则 fallback 重建 session 走默认 sandbox.allowWrite=[cwd, /tmp, ~/.cache] 不含
+            // mainRepo,写 plan 文件静默失败。与 claudeCodeSandbox / model 同款显式透传 +
+            // ?? undefined 兜底(历史 NULL 时让 buildSandboxOptions 走默认)。
+            extraAllowWrite: rec.extraAllowWrite ?? undefined,
             // HIGH-1 修法：attachments 透传，jsonl 缺失 fallback 路径下恢复也带图
             attachments,
           });
@@ -449,6 +473,10 @@ export class SessionRecoverer {
           // （resume 路径 model-resolve 内部也会 sessionRepo 反查，但显式透传更清晰 + 与
           // claudeCodeSandbox / permissionMode 处理方式对称）。
           model: rec.model ?? undefined,
+          // plan cross-adapter-parity-20260515 Phase A Step A.6 / REVIEW_40 R1 MED-F:与 fallback
+          // 分支同款显式透传(resume 路径下 sessionRepo 反查也能拿到,但显式透传更清晰 + 与
+          // claudeCodeSandbox / model / permissionMode 处理方式对称 + 一致性更好)。
+          extraAllowWrite: rec.extraAllowWrite ?? undefined,
           // HIGH-1 修法：attachments 透传，正常 resume 路径下首条恢复消息带图
           attachments,
         });

@@ -30,6 +30,14 @@ export interface FinalizeSessionStartArgs {
    * 非 undefined → setModel 写入，让 dormant 唤醒 / SDK 重启 resume 仍用此 model。
    */
   claudeModel?: string;
+  /**
+   * plan cross-adapter-parity-20260515 Phase A Step A.4 / REVIEW_40 R1 reviewer-codex MED-F:
+   * caller 透传的 SDK sandbox 额外可写根。原 createSession 收 opts.extraAllowWrite 后仅
+   * transient 注入 buildSandboxOptions(spawn 时一次性);本字段让 finalize 链 setExtraAllowWrite
+   * 持久化到 sessions.extra_allow_write,recoverer fallback / resume 路径读回交还 SDK。
+   * undefined / 空数组 → 不持久化(保留 sessions.extra_allow_write 原值,与 claudeModel 同款)。
+   */
+  extraAllowWrite?: readonly string[];
   emit: (e: AgentEvent) => void;
 }
 
@@ -38,7 +46,7 @@ export interface FinalizeSessionStartArgs {
  * 顺序与原 createSession 末段 100% 一致。
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
-  const { realId, cwd, prompt, claudeSandboxMode, claudeModel, emit } = args;
+  const { realId, cwd, prompt, claudeSandboxMode, claudeModel, extraAllowWrite, emit } = args;
 
   // 1. 主动 emit session-start
   emit({
@@ -69,6 +77,24 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
       sessionRepo.setModel(realId, claudeModel);
     } catch (err) {
       console.warn(`[claude-bridge] setModel(${realId}, ${claudeModel}) 失败`, err);
+    }
+  }
+
+  // 2c. plan cross-adapter-parity-20260515 Phase A Step A.4 / REVIEW_40 R1 MED-F:持久化
+  // SDK sandbox 额外可写根(与 sandbox + model 同位置同模式)。
+  // extraAllowWrite undefined / 空数组 → 跳过(resume 路径下 sessionRepo.extraAllowWrite
+  // 已存 → 保留原值;新建未传 extraAllowWrite 的会话 → 字段保持 NULL,sandbox.allowWrite
+  // 仅含 cwd + /tmp + cache)。非空数组 → setExtraAllowWrite 写入,让 recoverer fallback /
+  // resume 路径读回交还 SDK sandbox.allowWrite(workspace-write 档生效)。
+  if (extraAllowWrite !== undefined && extraAllowWrite.length > 0) {
+    try {
+      // setExtraAllowWrite 接 string[] | null,readonly string[] 转 mutable copy
+      sessionRepo.setExtraAllowWrite(realId, [...extraAllowWrite]);
+    } catch (err) {
+      console.warn(
+        `[claude-bridge] setExtraAllowWrite(${realId}, [${extraAllowWrite.join(', ')}]) 失败`,
+        err,
+      );
     }
   }
 
