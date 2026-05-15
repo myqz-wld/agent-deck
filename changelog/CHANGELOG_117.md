@@ -1,8 +1,10 @@
-# CHANGELOG_114
+# CHANGELOG_117
 
 ## 概要
 
 cross-adapter-parity-20260515 plan 收口（REVIEW_40 R1 reviewer-codex MED-F + R2 MED parity 限制双 follow-up 独立 plan）—— `sessions.extra_allow_write` 持久化全链路 + recoverer waiter Promise<string> signature。共 7 commit(Phase A 6 + Phase B 1 + Phase C review-fix 1 inline) / 16 文件 / +693/-54 LOC / typecheck 双端 + vitest 531/595 全过(64 skipped 是 better-sqlite3 ABI 环境问题)。详 [REVIEW_41.md](../reviews/REVIEW_41.md)。
+
+> ⚠️ **编号说明**:本 changelog 编号原计划用 `114`,但 plan 收口期间 main 已被并行 plan(`hand-off-mcp-archive-opt-20260515`)抢先用 114 + `codex-sdk-bridge-tests-20260515` 用 115 + sdk-bridge-tests follow-up 用 116。rebase main 后 rename 至 `117`。
 
 ## 变更内容
 
@@ -100,4 +102,3 @@ cross-adapter-parity-20260515 plan 收口（REVIEW_40 R1 reviewer-codex MED-F + 
 - **path-isabsolute-validation**: extra_allow_write zod refine + reject 非绝对路径(LOW-1)
 - **reviewer-claude sandbox 锁 cwd 修复**: 调研 `claude -p` 启动时为何 cwd 被锁到 node_modules/.pnpm/electron — 影响所有 claude reviewer 用本模板的场景
 - **adapter-architecture-design-20260515**: R40 follow-up #1 P4 BaseAdapter / #3 跨 adapter sandbox 继承 / #2 scheduler 命名(后续 P2 design hand-off)
-- **codex-sdk-bridge-tests-20260515**: R40 follow-up #5 double rename cleanup + #6 codex sdk-bridge tests(独立 hand-off P0)
