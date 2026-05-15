@@ -15,11 +15,11 @@
  * aider adapter 注入 'aider' preset 作为 fallback。
  */
 
-import type { AgentAdapter, AdapterContext, CreateSessionOptions } from '../types';
+import type { AgentAdapter, AdapterContext, PtyCreateOpts } from '../types';
 import type { UploadedAttachmentRef } from '@shared/types';
 import { ADAPTER_ID_GENERIC_PTY, GenericPtyBridge } from './pty-bridge';
 
-class GenericPtyAdapterImpl implements AgentAdapter {
+class GenericPtyAdapter implements AgentAdapter {
   id = ADAPTER_ID_GENERIC_PTY;
   displayName = 'Generic PTY';
   capabilities = {
@@ -57,7 +57,7 @@ class GenericPtyAdapterImpl implements AgentAdapter {
     }
   }
 
-  async createSession(opts: CreateSessionOptions): Promise<string> {
+  async createSession(opts: PtyCreateOpts & { agentId: 'generic-pty' }): Promise<string> {
     if (!this.bridge) throw new Error('generic-pty adapter not initialized');
     const result = await this.bridge.createSession({
       cwd: opts.cwd,
@@ -102,4 +102,9 @@ class GenericPtyAdapterImpl implements AgentAdapter {
   }
 }
 
-export const genericPtyAdapter: AgentAdapter = new GenericPtyAdapterImpl();
+/**
+ * Typed export（D2）：与 AiderAdapter 字面镜像（共享 GenericPtyBridge class，各自 own
+ * 独立 instance；displayName / fallback config 不同）。
+ */
+export type { GenericPtyAdapter };
+export const genericPtyAdapter: GenericPtyAdapter = new GenericPtyAdapter();

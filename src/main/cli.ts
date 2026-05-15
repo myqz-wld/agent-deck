@@ -18,6 +18,7 @@ import { realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { adapterRegistry } from './adapters/registry';
+import { buildCreateSessionOptions } from './adapters/options-builder';
 import { eventBus } from './event-bus';
 import { getFloatingWindow } from './window';
 import { sessionManager } from './session/manager';
@@ -265,13 +266,19 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
     throw new Error(`agent-deck new: adapter "${inv.agent}" 不支持创建会话`);
   }
   const cwd = await resolveCwd(inv.cwd);
-  const sid = await adapter.createSession({
-    cwd,
-    prompt: inv.prompt,
-    permissionMode: inv.permissionMode,
-    resume: inv.resume,
-    ...(inv.codexSandbox !== undefined ? { codexSandbox: inv.codexSandbox } : {}),
-  });
+  // p4-d2-impl Step 2.1：用 buildCreateSessionOptions builder helper 按 inv.agent narrow
+  // 到对应 union arm。inv.agent 是 string（CliInvocation.agent: string）走 string overload
+  // 内部 isAgentId guard，invalid throw（caller 已 line 263-266 验过 adapter 存在 +
+  // capabilities.canCreateSession，到此 inv.agent 应都是合法 union 成员）。
+  const sid = await adapter.createSession(
+    buildCreateSessionOptions(inv.agent, {
+      cwd,
+      prompt: inv.prompt,
+      permissionMode: inv.permissionMode,
+      resume: inv.resume,
+      ...(inv.codexSandbox !== undefined ? { codexSandbox: inv.codexSandbox } : {}),
+    }),
+  );
   if (adapter.capabilities.canSetPermissionMode) {
     sessionManager.recordCreatedPermissionMode(sid, inv.permissionMode);
   }
@@ -312,13 +319,17 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
             return;
           }
           try {
-            const memberSid = await memberAdapter.createSession({
-              cwd,
-              prompt: `你被 lead 加入了 team "${inv.team}"，等待 lead 通过 mcp__agent-deck__send_message 给你发消息。`,
-              ...(inv.codexSandbox !== undefined && m.adapter === 'codex-cli'
-                ? { codexSandbox: inv.codexSandbox }
-                : {}),
-            });
+            // p4-d2-impl Step 2.1：team member spawn 也走 buildCreateSessionOptions narrow。
+            // m.adapter 是 string（CliMemberSpec.adapter: string）走 string overload。
+            const memberSid = await memberAdapter.createSession(
+              buildCreateSessionOptions(m.adapter, {
+                cwd,
+                prompt: `你被 lead 加入了 team "${inv.team}"，等待 lead 通过 mcp__agent-deck__send_message 给你发消息。`,
+                ...(inv.codexSandbox !== undefined && m.adapter === 'codex-cli'
+                  ? { codexSandbox: inv.codexSandbox }
+                  : {}),
+              }),
+            );
             agentDeckTeamRepo.addMember({
               teamId: team.id,
               sessionId: memberSid,

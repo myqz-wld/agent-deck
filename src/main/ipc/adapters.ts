@@ -11,6 +11,7 @@
 import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { adapterRegistry } from '@main/adapters/registry';
+import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
@@ -104,7 +105,8 @@ export function registerAdaptersIpc(): void {
     }));
   });
   on(IpcInvoke.AdapterCreateSession, async (_e, agentId, opts) => {
-    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
+    const validAgentId = parseStringId('agentId', agentId, 64);
+    const adapter = adapterRegistry.get(validAgentId);
     if (!adapter?.createSession) throw new Error('adapter cannot create session');
     if (opts === undefined || opts === null || typeof opts !== 'object' || Array.isArray(opts)) {
       throw new IpcInputError('opts', 'must be object');
@@ -171,17 +173,23 @@ export function registerAdaptersIpc(): void {
     const attachments = await persistAttachments(raw.attachments, 'opts.attachments');
     let sid: string;
     try {
-      sid = await adapter.createSession({
-        cwd,
-        prompt,
-        ...(permissionMode !== null ? { permissionMode } : {}),
-        ...(resume !== undefined ? { resume } : {}),
-        ...(teamName !== null ? { teamName } : {}),
-        ...(codexSandbox !== null ? { codexSandbox } : {}),
-        ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
-        ...(attachments.length > 0 ? { attachments } : {}),
-        ...(genericPtyConfig !== null ? { genericPtyConfig } : {}),
-      });
+      // p4-d2-impl Step 2.1：用 buildCreateSessionOptions builder helper 按 agentId narrow
+      // 到对应 union arm。agentId 是 parseStringId 后的 string,走 string overload 内部
+      // isAgentId guard,invalid throw（caller 已 line 107 验过 adapter 存在 +
+      // line 161-169 验 attachments capability,到此 agentId 应都是合法 union 成员）。
+      sid = await adapter.createSession(
+        buildCreateSessionOptions(validAgentId, {
+          cwd,
+          prompt,
+          ...(permissionMode !== null ? { permissionMode } : {}),
+          ...(resume !== undefined ? { resume } : {}),
+          ...(teamName !== null ? { teamName } : {}),
+          ...(codexSandbox !== null ? { codexSandbox } : {}),
+          ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
+          ...(genericPtyConfig !== null ? { genericPtyConfig } : {}),
+        }),
+      );
     } catch (err) {
       // createSession 失败：path 还没塞进 SDK 队列，安全清干净
       await Promise.all(attachments.map((r) => deleteUploadIfExists(r.path)));

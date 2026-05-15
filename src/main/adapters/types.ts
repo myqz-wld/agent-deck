@@ -23,16 +23,64 @@ export interface AdapterContext {
   };
 }
 
-export interface CreateSessionOptions {
+/**
+ * 所有 4 adapter 共享的最小字段集（cwd / prompt）。各 adapter 专属 interface 内联其余
+ * 字段保 jsdoc 集中（不抽 BaseCreateOpts，让每个 interface 自身可读完整字段集）。
+ */
+
+/**
+ * 共享 PTY 子集（aider / generic-pty 共用）。
+ *
+ * PTY adapter 只消费 cwd / prompt / genericPtyConfig；teamName 透传不消费（universal team
+ * backend 走 sessionManager 路径，不在 adapter.createSession 内处理）；attachments 字段保留
+ * 兼容 caller 透传，adapter 静默丢图（capabilities.canAcceptAttachments=false 上层 UI 已 gate
+ * 入口，REVIEW_35 HIGH-D2）。
+ *
+ * **不**含 resume（PTY 不支持恢复 — 每次新起 PTY 子进程）/ permissionMode（无概念）/
+ * model（无概念）/ codexSandbox / claudeCodeSandbox / extraAllowWrite。
+ */
+export interface PtyCreateOpts {
+  cwd: string;
+  prompt?: string;
+  /**
+   * R3 universal team backend：spawn_session 入口可附 team_name，由 MCP / IPC handler 在调用前
+   * ensure-team-by-name + addMember；adapter 自己**不**处理 team。字段透传不消费保 caller spread
+   * 兼容（spawn caller 不挑 adapter 透 teamName）。
+   */
+  teamName?: string;
+  /**
+   * 字段兼容 caller 透传（attachments 在 caller / IPC 端不挑 adapter spread）；PTY adapter 静默
+   * 丢图（capabilities.canAcceptAttachments=false 上层 UI 已 gate 入口）。
+   */
+  attachments?: UploadedAttachmentRef[];
+  /**
+   * R4·F2：generic-pty / aider session 的 spawn config 透传。zod 校验由 IPC 入口统一前置
+   * （adapters.ts createAdapterSession handler）。
+   *
+   * - undefined：generic-pty / aider adapter 自行 fallback 到内置 preset config
+   *   （aider 的 fallback = 'aider' preset；generic-pty 的 fallback = createSession throw "missing config"）
+   * - GenericPtyConfig：用户在 NewSessionDialog 自定义 / 选 preset 后微调
+   *
+   * adapter 内部把入参 config 写入 sessions.generic_pty_config 持久化，resume 时读回。
+   */
+  genericPtyConfig?: GenericPtyConfig;
+}
+
+/**
+ * Claude Code adapter 专属 createSession opts。与 CodexCreateOpts 字段不同处:
+ * 含 permissionMode（claude SDK 支持 default / acceptEdits / plan / bypassPermissions 四档）+
+ * claudeCodeSandbox（OS 沙盒档位）+ 不含 codexSandbox。
+ */
+export interface ClaudeCreateOpts {
   cwd: string;
   prompt?: string;
   permissionMode?: PermissionMode;
   /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
   resume?: string;
   /**
-   * R3 universal team backend：spawn_session 入口可附 team_name，由 MCP / IPC handler
-   * 在调用前 ensure-team-by-name + addMember；adapter 自己**不**处理 team。
-   * 字段保留用于把「lead 在 spawn 时同时建 team + 加 teammate」语义透传到 sessionManager.recordCreatedTeamName。
+   * R3 universal team backend：spawn_session 入口可附 team_name，由 MCP / IPC handler 在调用前
+   * ensure-team-by-name + addMember；adapter 自己**不**处理 team。字段保留用于把「lead 在 spawn
+   * 时同时建 team + 加 teammate」语义透传到 sessionManager.recordCreatedTeamName。
    * 老 Claude Code experimental teams flag (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) 已 R3.E6 删除。
    */
   teamName?: string;
@@ -43,80 +91,125 @@ export interface CreateSessionOptions {
    */
   attachments?: UploadedAttachmentRef[];
   /**
-   * Codex per-session sandbox 档位覆盖（仅 codex-cli adapter 接收并起效；其它 adapter 忽略）。
-   * 三档直接复用 codex SDK 原生 SandboxMode 字面量。undefined = 用 settings.codexSandbox 全局值。
-   * 与 settings 全局值的关系：spawn-time 一次性透传给 codex.startThread；已在跑的 thread 不受影响。
-   */
-  codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
-  /**
-   * Claude Code per-session OS 沙盒档位覆盖（CHANGELOG_74：仅 claude-code adapter 接收并起效；
-   * 其它 adapter 忽略）。三档直接复用 settings.claudeCodeSandbox 字面量。
-   * undefined = 用 settings.claudeCodeSandbox 全局值（resume 路径会再从 sessionRepo 兜底读回）。
-   * 与 codexSandbox 完全字面对称。
-   */
-  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
-  /**
    * SDK / agent model 透传（plan model-wiring-and-handoff-20260514 Step 2.1）。
    *
    * 来源链：spawn handler 解 agent body frontmatter `model` 字段（reviewer-claude.md 的
-   * `model: opus` / reviewer-codex.md 的 `model: sonnet`）→ 传给 createSession。
+   * `model: opus`）→ 传给 createSession。
    *
-   * adapter 行为：
-   * - claude-code：透传给 SDK `query({ options.model })` 真正生效；并 setModel 持久化让
-   *   resume / dormant 唤醒后保持一致
-   * - codex-cli：仅 setModel 持久化（让 UI 看到 frontmatter 设的 model），runtime 仍由
-   *   ~/.codex/config.toml 顶层 `model` 决定（codex SDK startThread 不接受 per-thread
-   *   model override，详 plan D5）
-   * - aider / generic-pty：忽略
+   * adapter 行为：透传给 SDK `query({ options.model })` 真正生效；并 setModel 持久化让
+   * resume / dormant 唤醒后保持一致。
    *
-   * 优先级（fallback 链，由各 adapter 内部实现）：opts.model → sessionRepo.get(resume)?.model
+   * 优先级（fallback 链，由 adapter 内部实现）：opts.model → sessionRepo.get(resume)?.model
    * → undefined（让 SDK 用 ANTHROPIC_MODEL env / 自己默认）。settings.summaryModel /
    * handOffModel **不**在此路径用 — 那两字段只在 oneshot summary/hand-off 路径生效，
    * spawn / resume 路径不查 settings 全局值。
    */
   model?: string;
   /**
-   * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter 接收并起效；
-   * 其它 adapter 字段持久化保 parity 对称但 runtime 不消费）。
+   * Claude Code per-session OS 沙盒档位覆盖（CHANGELOG_74）。三档直接复用
+   * settings.claudeCodeSandbox 字面量。undefined = 用 settings.claudeCodeSandbox 全局值
+   * （resume 路径会再从 sessionRepo 兜底读回）。与 CodexCreateOpts.codexSandbox 完全字面对称。
+   */
+  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  /**
+   * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 workspace-write 档生效;
+   * strict 档无 allowWrite,extra 也无效;'off' 档忽略）。undefined / 空数组 → 行为同原版。
    *
    * 典型场景：
-   * - hand_off_session 外置 worktree（cwd=worktreePath 不在 mainRepo subtree）→ caller 传 `[mainRepo]`
-   *   让外置 worktree session 能写 `mainRepo/.claude/plans/<id>.md` plan 文件（user CLAUDE.md §Step 4
-   *   plan 完成时更新 frontmatter status=completed 必须写）
-   * - recoverer cwd fallback → caller 传 `[原 mainRepo]` 防 fallback 后 sandbox.allowWrite 失去原 mainRepo
-   *   写权限（与「workspace-write + cwd fallback 写权限静默扩大」相反方向 — 是写权限保留而非扩大）
+   * - hand_off_session 外置 worktree（cwd=worktreePath 不在 mainRepo subtree）→ caller 传
+   *   `[mainRepo]` 让外置 worktree session 能写 `mainRepo/.claude/plans/<id>.md` plan 文件
+   *   （user CLAUDE.md §Step 4 plan 完成时更新 frontmatter status=completed 必须写）
+   * - recoverer cwd fallback → caller 传 `[原 mainRepo]` 防 fallback 后 sandbox.allowWrite
+   *   失去原 mainRepo 写权限
    *
-   * 仅 workspace-write 档生效（strict 档无 allowWrite，extra 也无效；'off' 档忽略）。
-   * undefined / 空数组 → 行为同原版。
-   *
-   * **持久化（plan cross-adapter-parity-20260515 Phase A 实装,REVIEW_40 R1 reviewer-codex MED-F
-   * follow-up）**:spawn 路径下由 finalizeSessionStart(claude) / persistSessionFields(codex)
-   * 写 sessions.extra_allow_write 列(JSON.stringify(string[]));recoverer fallback / resume
-   * 路径从 sessionRepo.extraAllowWrite 读回交还 createThunk → SDK sandbox.allowWrite。
-   * 让 app 重启 / sdk-bridge state lost / recoverer fallback 路径下 SDK 不丢 caller spawn 时
-   * 透传的 extra writable roots(典型 hand_off_session 外置 worktree caller 传 [mainRepo] 让
-   * session 能写 mainRepo plan 文件)。
-   *
-   * **跨 adapter 行为差异**:
-   * - claude-code:全链路实装(persist + read-back + buildSandboxOptions 注入 SDK
-   *   sandbox.allowWrite,workspace-write 档真正生效)
-   * - codex-cli:字段持久化保 parity 对称(setExtraAllowWrite 写库 + recoverer 读回),但 codex
-   *   SDK 不消费 extra writable roots(sandboxMode 三档无 allowWrite 字段),runtime 不生效;
-   *   future codex SDK 加支持时零迁移成本(与 codex `model` 字段同款语义 — persist 保对称
-   *   runtime 不生效,user CLAUDE.md plan D5)
-   * - aider / generic-pty:不接收(字段对它们无意义)
+   * **持久化（plan cross-adapter-parity-20260515 Phase A 实装,REVIEW_40 R1 reviewer-codex
+   * MED-F follow-up）**: spawn 路径下由 finalizeSessionStart 写 sessions.extra_allow_write 列
+   * (JSON.stringify(string[]));recoverer fallback / resume 路径从 sessionRepo.extraAllowWrite
+   * 读回交还 createThunk → SDK sandbox.allowWrite。让 app 重启 / sdk-bridge state lost /
+   * recoverer fallback 路径下 SDK 不丢 caller spawn 时透传的 extra writable roots。全链路实装
+   * （persist + read-back + buildSandboxOptions 注入 SDK sandbox.allowWrite，workspace-write 档
+   * 真正生效）。codex 端字段持久化保 parity 对称但 runtime 不消费，详 CodexCreateOpts.extraAllowWrite。
    */
   extraAllowWrite?: readonly string[];
+}
+
+/**
+ * Codex CLI adapter 专属 createSession opts。与 ClaudeCreateOpts 字段不同处:
+ * 不含 permissionMode（codex SDK 不支持 canUseTool 等价回调,approvalPolicy 是 startThread 字符串
+ * 枚举一次性配置）+ 含 codexSandbox（codex SDK 三档 sandboxMode）+ 不含 claudeCodeSandbox。
+ */
+export interface CodexCreateOpts {
+  cwd: string;
+  prompt?: string;
+  /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
+  resume?: string;
   /**
-   * R4·F2：generic-pty / aider session 的 spawn config 透传（仅这两 adapter 接收并起效；
-   * 其它 adapter 忽略）。zod 校验由 IPC 入口统一前置（adapters.ts createAdapterSession handler）。
-   *
-   * - undefined：generic-pty / aider adapter 自行 fallback 到内置 preset config
-   *   （aider 的 fallback = 'aider' preset；generic-pty 的 fallback = createSession throw "missing config"）
-   * - GenericPtyConfig：用户在 NewSessionDialog 自定义 / 选 preset 后微调
-   *
-   * adapter 内部把入参 config 写入 sessions.generic_pty_config 持久化，resume 时读回。
+   * R3 universal team backend：spawn_session 入口可附 team_name，由 MCP / IPC handler 在调用前
+   * ensure-team-by-name + addMember；adapter 自己**不**处理 team。
    */
+  teamName?: string;
+  /**
+   * 首条 user message 的图片附件。IPC 层 writeUploadedImage 已落盘到
+   * <userData>/image-uploads/<uuid>.<ext>，这里传的是落盘后的 ref。
+   */
+  attachments?: UploadedAttachmentRef[];
+  /**
+   * SDK / agent model 透传（plan model-wiring-and-handoff-20260514 Step 2.5）。
+   *
+   * adapter 行为：仅 setModel 持久化（让 UI 看到 frontmatter 设的 model），runtime 仍由
+   * ~/.codex/config.toml 顶层 `model` 决定（codex SDK startThread 不接受 per-thread model
+   * override，详 plan D5 与 bridge createSession 注释）。
+   */
+  model?: string;
+  /**
+   * Codex per-session sandbox 档位覆盖。三档直接复用 codex SDK 原生 SandboxMode 字面量。
+   * undefined = 用 settings.codexSandbox 全局值。spawn-time 一次性透传给 codex.startThread；
+   * 已在跑的 thread 不受影响（运行时切档走 restartWithCodexSandbox 冷切）。
+   */
+  codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  /**
+   * 字段持久化保 parity 对称（与 ClaudeCreateOpts.extraAllowWrite 字面镜像）。
+   * **codex SDK runtime 不消费**（SDK 不支持 extra writable roots, sandboxMode 三档无 allowWrite
+   * 字段）；bridge 内 setExtraAllowWrite 写库保跨 adapter parity 对称（与 model 字段同款语义 —
+   * runtime 不生效 / DB 写库保 SessionRecord 形态一致）。future codex SDK 加支持时零迁移成本。
+   *
+   * 详细持久化路径见 ClaudeCreateOpts.extraAllowWrite jsdoc。
+   */
+  extraAllowWrite?: readonly string[];
+}
+
+/**
+ * adapter.createSession 入参判别联合（D2 设计）。
+ *
+ * caller 端用 `buildCreateSessionOptions(agentId, raw)` builder helper 在编译期 narrow 到
+ * 对应 union arm，TS 阻止字段误传（如 codexSandbox 给 claude adapter / permissionMode 给 codex
+ * adapter）。adapter 实现端用 `agentId` 字段 narrow 知道字段集合。
+ *
+ * 加新 adapter 时：(1) 加新 union arm; (2) buildCreateSessionOptions exhaustive switch 漏 arm
+ * TS 编译期 `_exhaustive: never = agentId` 报错强制补 arm。
+ */
+export type CreateSessionOptions =
+  | ({ agentId: 'claude-code' } & ClaudeCreateOpts)
+  | ({ agentId: 'codex-cli' } & CodexCreateOpts)
+  | ({ agentId: 'aider' } & PtyCreateOpts)
+  | ({ agentId: 'generic-pty' } & PtyCreateOpts);
+
+/**
+ * caller 端通用「全字段 raw」入参（buildCreateSessionOptions 的 raw 参数类型）。
+ * 含所有 adapter 字段并集 + 都为 optional（caller 不挑 adapter 透传）；builder 内 switch
+ * 按 agentId 把字段 narrow 到对应 union arm（filter 掉不属于该 adapter 的字段）。
+ */
+export interface CreateSessionOptionsRaw {
+  cwd: string;
+  prompt?: string;
+  permissionMode?: PermissionMode;
+  resume?: string;
+  teamName?: string;
+  attachments?: UploadedAttachmentRef[];
+  model?: string;
+  codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  extraAllowWrite?: readonly string[];
   genericPtyConfig?: GenericPtyConfig;
 }
 

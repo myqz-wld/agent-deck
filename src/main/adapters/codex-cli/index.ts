@@ -1,4 +1,4 @@
-import type { AgentAdapter, AdapterContext, PermissionMode } from '../types';
+import type { AgentAdapter, AdapterContext, CodexCreateOpts } from '../types';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { CodexSdkBridge } from './sdk-bridge';
@@ -26,7 +26,7 @@ const ADAPTER_ID = 'codex-cli';
  * 二进制：随 @openai/codex-sdk 装上 @openai/codex（含 vendored 平台二进制 ~150MB），
  * 跟随 .app 走。用户可在设置面板填 codexCliPath 覆盖为外部 codex（如自装的更新版本）。
  */
-class CodexCliAdapterImpl implements AgentAdapter {
+class CodexCliAdapter implements AgentAdapter {
   id = ADAPTER_ID;
   displayName = 'Codex CLI';
   capabilities = {
@@ -66,37 +66,7 @@ class CodexCliAdapterImpl implements AgentAdapter {
     // 没有需要主动关闭的资源（codex SDK 子进程是 per-turn spawn，turn 结束自动清理）
   }
 
-  async createSession(opts: {
-    cwd: string;
-    prompt?: string;
-    permissionMode?: PermissionMode; // 收下但忽略：codex 不支持运行时 permission mode
-    resume?: string;
-    /**
-     * Per-session sandbox 覆盖（CHANGELOG_<X>）。NewSessionDialog 的「权限模式 (sandbox)」
-     * 下拉传递；undefined = bridge createSession 内部 fallback `settingsStore.get('codexSandbox')`
-     * 全局值（symmetry-plan P2 MED-B 后直读 settings 不再走 in-memory mirror）。
-     */
-    codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
-    /** 首条 user message 的图片附件（IPC 层已落盘到 <userData>/image-uploads/） */
-    attachments?: UploadedAttachmentRef[];
-    /**
-     * plan model-wiring-and-handoff-20260514 Step 2.5：spawn handler 解 agent body frontmatter
-     * `model` 字段后透传。codex SDK runtime 不接受 model override（详 bridge createSession
-     * 注释 D5），bridge 内仅 setModel 持久化 + warn 提示。透传即可。
-     */
-    model?: string;
-    /**
-     * plan cross-adapter-parity-20260515 Phase A Step A.7 + REVIEW_41 MED-1 fix:
-     * caller 透传的 SDK sandbox 额外可写根。**codex SDK runtime 不消费**(SDK 不支持 extra
-     * writable roots),但 bridge 内 setExtraAllowWrite 持久化保跨 adapter parity 对称
-     * (与 model 字段同款 — runtime 不生效 / DB 写库保 SessionRecord 形态一致)。
-     *
-     * 修前(REVIEW_41 reviewer-codex MED-1)漏点:facade 层不接此字段 → spawn handler /
-     * hand_off_session 透传给 codex adapter 的 extraAllowWrite 实际**完全断档**(bridge
-     * 永远收 undefined → setExtraAllowWrite 永远 skip → codex 端 parity 落空)。
-     */
-    extraAllowWrite?: readonly string[];
-  }): Promise<string> {
+  async createSession(opts: CodexCreateOpts & { agentId: 'codex-cli' }): Promise<string> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
@@ -206,4 +176,9 @@ class CodexCliAdapterImpl implements AgentAdapter {
   // uninstallIntegration / integrationStatus —— capabilities 已表明不支持
 }
 
-export const codexCliAdapter: AgentAdapter = new CodexCliAdapterImpl();
+/**
+ * Typed export（D2）：caller `adapterRegistry.get('codex-cli')` 拿到本 class 实例后,
+ * 自动暴露 codex 专属方法（restartWithCodexSandbox / setCodexCliPath 等）TS visible。
+ */
+export type { CodexCliAdapter };
+export const codexCliAdapter: CodexCliAdapter = new CodexCliAdapter();

@@ -64,6 +64,7 @@ describe('genericPtyAdapter capabilities (R4·F-bonus)', () => {
   it('receiveTeammateMessage delegates to sendMessage (writes to PTY stdin)', async () => {
     await genericPtyAdapter.init(fakeCtx);
     const sid = await genericPtyAdapter.createSession!({
+      agentId: 'generic-pty',
       cwd: '/tmp',
       genericPtyConfig: {
         command: '/bin/echo',
@@ -94,7 +95,7 @@ describe('aiderAdapter capabilities (R4·F-bonus)', () => {
   it('uses aider preset as fallback (createSession works without explicit genericPtyConfig)', async () => {
     await aiderAdapter.init(fakeCtx);
     // aider adapter 不传 config 也能创建（fallback 'aider' preset）
-    const sid = await aiderAdapter.createSession!({ cwd: '/tmp' });
+    const sid = await aiderAdapter.createSession!({ agentId: 'aider', cwd: '/tmp' });
     expect(sid).toMatch(/^[0-9a-f-]{36}$/i);
     await aiderAdapter.shutdown();
   });
