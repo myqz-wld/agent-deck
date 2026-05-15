@@ -306,14 +306,25 @@ async function bootstrap(): Promise<void> {
       const body = isRetryable
         ? `原会话未归档，可重试归档（${shortSid}…，工具：${toolDisplay}）`
         : `原会话记录不可用，归档未完成（${shortSid}…，工具：${toolDisplay}）`;
-      notifyUser({
-        title: 'Agent Deck 归档失败',
-        body,
-        level: 'info',
-      });
-      safeSend(IpcEvent.CallerArchiveFailed, payload);
+      // R3 reviewer-codex MED-1 修法: 双通道独立 try/catch,避免 notifyUser 同步抛错导致
+      // safeSend 不执行 → 双通道桥接退化为单通道 (macOS 通知故障时 renderer IPC 也丢)。
+      // 通道 1 (macOS 通知) 与通道 2 (IPC 上抛) 各自独立 try/catch + console.error 兜底。
+      try {
+        notifyUser({
+          title: 'Agent Deck 归档失败',
+          body,
+          level: 'info',
+        });
+      } catch (err) {
+        console.error('[caller-archive-failed listener] notifyUser 异常 (吞掉,继续走 IPC 通道):', err);
+      }
+      try {
+        safeSend(IpcEvent.CallerArchiveFailed, payload);
+      } catch (err) {
+        console.error('[caller-archive-failed listener] safeSend 异常:', err);
+      }
     } catch (err) {
-      // 兜底: notifyUser / safeSend 同步抛错决不能冒泡到 emit caller (会反向打崩 baton-cleanup /
+      // 兜底: body 构造或两通道 catch 自身异常,不能冒泡到 emit caller (会反向打崩 baton-cleanup /
       // archiveSourceSessionWithEmit 的 warn-only 不阻塞语义)。console.error 让排查不丢信息。
       console.error('[caller-archive-failed listener] internal throw (吞掉防撞穿 emit caller):', err);
     }
