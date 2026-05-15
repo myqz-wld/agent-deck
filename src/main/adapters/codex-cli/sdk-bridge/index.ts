@@ -335,19 +335,21 @@ export class CodexSdkBridge {
             resolve(realId);
           },
           (earlyErr) => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(fallback);
-            // symmetry-plan P3 R2-1 (reviewer-codex HIGH):resume early-error 必须先 cleanup
-            // 半初始化 sessions Map + sdkClaim,否则 outer caller (restart-controller catch /
-            // recoverer catch) 走 rollback DB 后,sessions Map 仍留着 stale internal.thread →
-            // 后续 sendMessage `if (!s)` 命中 → 绕过 recoverer → 用 stale thread 跑 turn。
-            // 修前用户场景:切 sandbox=read-only 失败 → DB 回滚 → 用 stale thread 跑 (sandbox 错位)。
+            // symmetry-plan P3 R3 (reviewer-codex MED):cleanup + emit finished **永远做**(不管
+            // resolved 不 resolved),覆盖两条路径:
+            // 1. 30s 内 earlyErr (resolved=false):cleanup → emit finished → reject(让 outer caller
+            //    catch 触发上下文相关错误处理 / DB rollback)
+            // 2. 30s timeout 后 late earlyErr (resolved=true):cleanup → emit finished + emit error
+            //    message(outer caller 已 resolve 不会 catch,补 emit error 让用户在 SessionDetail 看到失败)
+            //
+            // 修前 R2-1 仅修了路径 1,路径 2 (timeout resolve → late earlyErr → `if (resolved) return`
+            // 短路) 仍残留 stale internal.thread + 后续 sendMessage `if (!s)` 命中绕过 recoverer。
+            //
+            // symmetry-plan P3 R2-1 (reviewer-codex HIGH):cleanup 半初始化 sessions Map + sdkClaim,
+            // 让后续 sendMessage 走 sessions Map miss → recoverer 自愈正常路径。
             this.sessions.delete(opts.resume!);
             sessionManager.releaseSdkClaim(opts.resume!);
             // resume 路径已 emit session-start + user msg,补 finished 完成 UI 序列。
-            // **不 emit error message** — 让 outer caller (restart-controller catch / recoverer
-            // catch / ipc handler) 自己 emit 上下文相关错误消息,避免双错误消息。
             this.opts.emit({
               sessionId: opts.resume!,
               agentId: AGENT_ID,
@@ -356,6 +358,30 @@ export class CodexSdkBridge {
               ts: Date.now(),
               source: 'sdk',
             });
+
+            if (resolved) {
+              // 路径 2 (late earlyErr after 30s timeout):outer caller 已 resolve 不会 catch,
+              // 补 emit error message 让用户看到失败原因 + 知道下条消息会自愈。
+              this.opts.emit({
+                sessionId: opts.resume!,
+                agentId: AGENT_ID,
+                kind: 'message',
+                payload: {
+                  text:
+                    `⚠ Codex 启动失败 (30s timeout 后 late error):${earlyErr}。` +
+                    `会话已清理,下条消息将走自愈路径重新尝试 resume。`,
+                  error: true,
+                },
+                ts: Date.now(),
+                source: 'sdk',
+              });
+              return;
+            }
+
+            // 路径 1 (30s 内 earlyErr):reject 让 outer caller 自己 emit 上下文相关错误消息
+            // (避免双错误消息)。
+            resolved = true;
+            clearTimeout(fallback);
             reject(new Error(`Codex resume early error: ${earlyErr}`));
           },
         );
