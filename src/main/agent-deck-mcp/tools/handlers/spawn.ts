@@ -253,12 +253,37 @@ export const spawnSessionHandler = withMcpGuard(
       });
       // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）。
       // setSpawnLink 在 release 之前完成，关闭 fan-out race window（详上方 MED-1 注释）。
-      // CHANGELOG_98：batonMode=true 时 spawn_depth 写 parentDepth（lateral，不 +1）—
-      // baton 单向交接不构成 fork-bomb，depth 累积没意义；连续 baton 链应 stay flat
-      // 否则下次以 baton 出来的 session 调普通 spawn 也会撞 depth check（即使 R2 reviewer-codex
-      // 警告：单跳 guard 不改 setSpawnLink 仍会让 depth 4/5/... 累积污染后续 spawn）。
-      if (callerExists) {
-        const newDepth = opts?.batonMode ? parentDepth : parentDepth + 1;
+      //
+      // **REVIEW_39 方案 1（双对抗 R1+R1.5 反驳轮共识，hand-off-mcp-teammate-bug-20260515）**：
+      // batonMode=true 路径**不写 spawn-link**(spawnedBy=null + spawnDepth=0 默认值)。
+      //
+      // 修前 bug：hand_off_session 不传 team_name 时 setSpawnLink 仍写新 session.spawnedBy=
+      // callerSid,SessionList Phase C(CHANGELOG_77)按 spawnedBy 树形分组渲染 ↳ teammate badge。
+      // 真实窗口来自 spawn 后续 child upsert(典型 recordCreatedPermissionMode → manager
+      // notifyTeamMembershipChanged emit session-upserted)早于 runBatonCleanup archive caller
+      // 完成 — 即使 archive 100% 成功也触发(异步 await 几十-几百 ms),不依赖 archive 失败子集。
+      //
+      // 修法理由(R1+R1.5 反驳轮 codex 最终立场,claude grep 验证 7 处 spawned_by_filter 全
+      // reviewer 派活路径无 production 消费方,无副作用):baton 是 caller 单向交出 + 新 session
+      // 独立接手(hand-off-session.ts:21-39 jsdoc 设计意图明文「不是派出小弟干活」),不是 spawn
+      // parent-child 关系。数据层不应记录 spawn-link 假装是 spawn 派遣关系。
+      //
+      // 历史 CHANGELOG_98 batonMode lateral spawnDepth 写入意图是给 spawn-guards 跳 depth check
+      // 用,**不是** UI 区分 baton vs spawn 显示;方案 5(改 SessionList 用 spawnDepth 区分)是用
+      // depth 字段编码 type 的 ad-hoc encoding(若未来真需要 baton chain audit,应引入显式
+      // `spawn_link_kind: 'spawn' | 'baton'` 枚举字段或独立 baton-link 表)。
+      //
+      // 副作用范围(已逐一验证无影响):
+      // - LineageSection.tsx 仅画 active team members(leftAt === null);baton default 不传
+      //   team_name → 新 session 不入 team → LineageSection 不渲染 → 无影响
+      // - list_sessions(spawned_by_filter) 救火针对 reviewer 派活路径,不针对 baton 路径
+      //   (baton 后 caller 已 archive 退出,无人捡 baton child)
+      // - PendingTab 用 session.teams[] 不用 spawnedBy → 无影响
+      // - SessionDetail / TeamDetail 不引用 spawnedBy → 无影响
+      // - spawn-guards.ts depth check 用 callerSession.spawnDepth 不用新 session.spawnDepth
+      //   → 无影响
+      if (callerExists && !opts?.batonMode) {
+        const newDepth = parentDepth + 1;
         sessionRepo.setSpawnLink(sid, caller.callerSessionId, newDepth);
       }
     } catch (e) {
@@ -423,7 +448,7 @@ export const spawnSessionHandler = withMcpGuard(
       // 不再需要 list_sessions / get_session 反查）。
       agentName: args.agent_name ?? null,
       displayName: teammateDisplayName,
-      spawnDepth: created?.spawnDepth ?? (callerExists ? (opts?.batonMode ? parentDepth : parentDepth + 1) : 0),
+      spawnDepth: created?.spawnDepth ?? (callerExists && !opts?.batonMode ? parentDepth + 1 : 0),
       sentAt: Date.now(),
       // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 调 wait_reply 等 teammate first reply
       spawnPromptMessageId,
