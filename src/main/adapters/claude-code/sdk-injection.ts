@@ -46,11 +46,14 @@ const APPEND_HEADER =
 let cachedClaudeMdAppend: string | null = null;
 
 /**
- * 返回 agent-deck 自带 plugin 根的绝对路径，传给 SDK 的 `plugins[].path`。
+ * 返回 claude 视角 agent-deck plugin 根的绝对路径，传给 SDK 的 `plugins[].path`。
  * SDK 会读 `<plugin>/.claude-plugin/plugin.json` + 自动扫 `<plugin>/skills/` 与
  * `<plugin>/agents/` 子目录（skills 与 agents 一同注入，绑定生效）。
+ *
+ * codex 视角同款路径在 `src/main/adapters/codex-cli/codex-config-paths.ts:getCodexAgentDeckPluginPath`，
+ * 双 root 由 `src/main/adapters/agent-deck-plugin-paths.ts:getAgentDeckPluginPathForAdapter` 调度。
  */
-export function getAgentDeckPluginPath(): string {
+export function getClaudeAgentDeckPluginPath(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, 'claude-config', 'agent-deck-plugin');
   }
@@ -67,10 +70,13 @@ export function getAgentDeckPluginPath(): string {
  *
  * 改这个开关只影响**下次新建**的 SDK 会话；已运行的会话已经在启动时拿到
  * plugin 列表，关掉不会撤销。
+ *
+ * **claude-code only**：codex SDK 没有 `plugins[]` 字段（走 `~/.codex/AGENTS.md` 静态
+ * 注入 + `~/.codex/agents/` 目录），故本 helper signature 不通用化（plan §P3 Step 3.2 决策）。
  */
 export function getAgentDeckPluginsForSession(): Array<{ type: 'local'; path: string }> {
   if (!settingsStore.get('injectAgentDeckPlugin')) return [];
-  return [{ type: 'local', path: getAgentDeckPluginPath() }];
+  return [{ type: 'local', path: getClaudeAgentDeckPluginPath() }];
 }
 
 /** 内置 CLAUDE.md 在 .app / repo 内的绝对路径（dev/prod 自动分流）。 */
