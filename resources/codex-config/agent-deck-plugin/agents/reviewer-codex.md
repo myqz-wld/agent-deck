@@ -5,7 +5,7 @@ tools: shell
 model: gpt-5.5
 ---
 
-> 本文件是 **codex 视角** 的 reviewer-codex teammate body。**claude 视角等价物**在 `resources/claude-config/agent-deck-plugin/agents/reviewer-codex.md`(claude lead spawn claude SDK 子 session + Bash 起外部 codex CLI wrapper),与本文件**架构对偶**:claude 端是「同源 lead × 异构 reviewer」需走 Bash wrapper 跨 SDK,codex 端是「同源 lead × 同源 reviewer」直接 codex SDK spawn codex SDK 子 session 不需 wrapper。两份 file `name` 同名(adapter 字段消歧,详 P3 Step 3.5 D7 信号源)。
+> 本文件是 **codex 视角** 的 reviewer-codex teammate body。**claude 视角等价物**在 `resources/claude-config/agent-deck-plugin/agents/reviewer-codex.md`(claude lead spawn claude SDK 子 session + Bash 起外部 codex CLI wrapper),与本文件**架构对偶**:claude 端是「同源 lead × 异构 reviewer」需走 Bash wrapper 跨 SDK,codex 端是「同源 lead × 同源 reviewer」直接 codex SDK spawn codex SDK 子 session 不需 wrapper。两份 file `name` 同名(adapter 字段消歧)。
 >
 > 应用环境总协议层 (Wire format / send_message / fresh session 自检 / scope 路径前缀 / NO MSG ANCHOR fallback) 在 `resources/codex-config/CODEX_AGENTS.md`。本文件**仅** inline reviewer 角色专属规约 (核心纪律 / 输入识别 / 输出格式 / 重点维度 / 反模式 / 失败兜底)。
 
@@ -24,8 +24,8 @@ model: gpt-5.5
 本 reviewer 由 codex-cli SDK spawn,受 sandbox 限制(`sandboxMode='workspace-write'` 默认能写 worktree 内 / 跨目录写仍受限,`additionalDirectories=['~/.claude','~/.codex','/tmp']` 已 default 扩允许范围)。scope 路径含上述 default 范围**之外**(如其他 repo `/Users/<user>/Repository/<other-project>/...` / 系统路径 `/etc/...`)→ 默认 shell 工具 cat / read fs 撞 sandbox 拒。
 
 **caller 责任分流**:
-- caller (lead) 走 `/agent-deck:deep-review` SKILL（plan codex-handoff-team-alignment-20260518 P6.7 改名;老名 `/agent-deck:deep-code-review` 仍作 6 个月 deprecation stub）→ SKILL 自动 cp 临时副本进 worktree `<worktree>/.deep-review-cache/<invocation-id>/<file-sha8>-<basename>.md`(详 SKILL.md `§Sandbox 处理` 节),reviewer 收到的 scope 路径已是 cache 内 worktree 路径,shell 能正常读
-- caller 绕开 SKILL 直接 spawn reviewer-codex(如自定义 deep review 流程)→ caller 应在 spawn options 显式加 `additionalDirectories: [<额外路径>]` 扩 sandbox 允许范围,或把外部文件 cp 进 sandbox 默认允许的位置之一(worktree 内 / `~/.claude` / `~/.codex` / `/tmp` 任一)后再传 scope (P6.5 reviewer-codex LOW-3 修法 — worktree 与 default 三目录是两类位置,caller 选哪种都行)
+- caller (lead) 走 `/agent-deck:deep-review` SKILL → SKILL 自动 cp 临时副本进 worktree `<worktree>/.deep-review-cache/<invocation-id>/<file-sha8>-<basename>.md`(详 SKILL.md `§Sandbox 处理` 节),reviewer 收到的 scope 路径已是 cache 内 worktree 路径,shell 能正常读
+- caller 绕开 SKILL 直接 spawn reviewer-codex(如自定义 deep review 流程)→ caller 应在 spawn options 显式加 `additionalDirectories: [<额外路径>]` 扩 sandbox 允许范围,或把外部文件 cp 进 sandbox 默认允许的位置之一(worktree 内 / `~/.claude` / `~/.codex` / `/tmp` 任一)后再传 scope（worktree 与 default 三目录是两类位置,caller 选哪种都行）
 
 ## 核心纪律
 

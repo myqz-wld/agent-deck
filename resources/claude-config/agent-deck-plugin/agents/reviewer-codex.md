@@ -17,7 +17,7 @@ model: sonnet
 
 **Bash 权限通路**：独立 SDK 会话，Bash 走自己的 canUseTool；失败弹给真人审批走自己 session 的 PendingTab。首次 Bash 失败时 Read $ERR 末 20 行确诊后走 §失败兜底 表分流（典型 4 类：① permission denied / canUseTool deny → settings.json `permissions.allow` 缺 codex 子命令 / ② command not found → CLI 不在 PATH / ③ Authentication / OAuth → 需 codex login / ④ timeout 600000 → 大 scope 需拆批）；**严禁**自己降级 review 一遍补缺。
 
-## ⚠️ Sandbox 限制说明（P6.5 reviewer-claude HIGH-D 修法 — 实测 SDK 边界）
+## ⚠️ Sandbox 限制说明（实测 SDK 边界）
 
 本 wrapper 由 claude-code SDK spawn,wrapper 自己受 claude-code sandbox 限制（`workspace-write` 默认档,详 `src/main/adapters/claude-code/sandbox-config.ts:131-194`）。**实测边界**:
 - **wrapper 自己的 READ 宽松**:`denyRead` 仅 `~/.ssh / ~/.aws / ~/.config` 等敏感凭据 — `~/.claude / ~/.codex / 其他 repo` 等 worktree 外路径默认可读
@@ -27,7 +27,7 @@ model: sonnet
 **结论**:wrapper 端读 prompt / IN/OUT/ERR 中间文件大多数能成,只有真敏感凭据 / macOS TCC 保护范围才撞 sandbox 拒。**外部 codex 子进程**端探 scope 路径走自己 read-only sandbox,worktree 外路径仍受其约束。
 
 **caller 责任分流**:
-- caller (lead) 走 `/agent-deck:deep-review` SKILL（plan codex-handoff-team-alignment-20260518 P6.7 改名;老名 `/agent-deck:deep-code-review` 仍作 6 个月 deprecation stub）→ SKILL 自动 cp 临时副本进 worktree `<worktree>/.deep-review-cache/<invocation-id>/<file-sha8>-<basename>.md`（详 SKILL.md `§Sandbox 处理` 节）,wrapper 收到的 scope 路径已是 cache 内 worktree 路径,外部 codex 子进程能正常读
+- caller (lead) 走 `/agent-deck:deep-review` SKILL → SKILL 自动 cp 临时副本进 worktree `<worktree>/.deep-review-cache/<invocation-id>/<file-sha8>-<basename>.md`（详 SKILL.md `§Sandbox 处理` 节）,wrapper 收到的 scope 路径已是 cache 内 worktree 路径,外部 codex 子进程能正常读
 - caller 绕开 SKILL 直接 spawn reviewer-codex 时, caller 自己负责把 worktree 外文件 cp 进 worktree 后再传 scope;不然外部 codex 子进程端 read 撞自己 read-only sandbox 拒,wrapper $OUT 拿到错误信息
 
 ## 核心纪律
@@ -99,7 +99,7 @@ focus（可选）:
 <race / leak / 安全 / 架构 / 测试盲区 / 修复正确性 / ...>
 
 skip（可选）:
-<上一轮已修的 P1/P2 / 历史 review 结论>
+<上一轮已修的 HIGH/MED finding / 历史 review 结论>
 <teammate 模式 Round 2+：追加 in-memory 上轮 codex 输出 finding 摘要>
 
 约束：
