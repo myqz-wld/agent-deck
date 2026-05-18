@@ -190,10 +190,22 @@ export class CodexSdkBridge {
    * spread `process.env`（snapshotProcessEnv 过滤 undefined 值）让 codex CLI 子进程仍能拿到
    * PATH / HOME 等基础 env，再加上 per-session token。
    *
+   * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D1 ADR §(c) 升级**:
+   * 第 3 参数 `envOverrideExtra` 让 caller (createSession) 透传额外 env 字段（reviewer-claude
+   * wrapper 路径需要 `AGENT_DECK_CLAUDE_PATH`）。merge 顺序 = `snapshotProcessEnv()` >
+   * `AGENT_DECK_MCP_TOKEN` > `envOverrideExtra` —— extra 字段在最末，优先级最高（如 caller
+   * 真要覆盖某个全局 env 字段也允许）。
+   *
    * Map 命中后**不**校验 token 一致性 — caller（createSession）保证 sessionId 内 token 不变
-   * （Step 2.5c sid 时序：allocate 一次后 token frozen 直到 close）。
+   * （Step 2.5c sid 时序：allocate 一次后 token frozen 直到 close）。**Map 命中也不重新 merge
+   * envOverrideExtra**（同 token frozen 语义；envOverrideExtra 在 Codex 实例 lifetime 内
+   * frozen 拷贝到子进程 env，spike 2 §1 实证）。
    */
-  private async ensureCodex(sessionId: string, sessionToken: string): Promise<Codex> {
+  private async ensureCodex(
+    sessionId: string,
+    sessionToken: string,
+    envOverrideExtra?: Readonly<Record<string, string>>,
+  ): Promise<Codex> {
     const cached = this.codexBySession.get(sessionId);
     if (cached) return cached;
     const sdk = await loadCodexSdk();
@@ -219,8 +231,14 @@ export class CodexSdkBridge {
     // codex SDK 0.120.0 type 注释:env 传值后子进程不再继承 process.env(spike 2 §2 line 222-234
     // 实证 envOverride 优先 + 绕过 process.env fallback)。所以必须手工 spread process.env 过滤
     // undefined 值,再叠加 per-session AGENT_DECK_MCP_TOKEN 让子进程拿到完整 env。
+    //
+    // plan §P3 Step 3.5 + §D1 ADR §(c) 升级: caller 透传的 envOverrideExtra（如 reviewer-claude
+    // wrapper 路径的 AGENT_DECK_CLAUDE_PATH）merge 到末尾，优先级最高（允许覆盖全局 env 字段）。
     const envOverride: Record<string, string> = snapshotProcessEnv();
     envOverride[AGENT_DECK_MCP_TOKEN_ENV] = sessionToken;
+    if (envOverrideExtra) {
+      Object.assign(envOverride, envOverrideExtra);
+    }
     const codex = new sdk.Codex({
       ...(overridePath ? { codexPathOverride: overridePath } : {}),
       ...(codexConfig ? { config: codexConfig } : {}),
@@ -281,6 +299,39 @@ export class CodexSdkBridge {
      * 与 model 字段同款语义(持久化 + warn,runtime 不消费)。
      */
     extraAllowWrite?: readonly string[];
+    /**
+     * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订):
+     * codex SDK startThread/resumeThread `approvalPolicy` 透传。bridge 不主动 enforce default —
+     * undefined 沿用现状 'never'（保持普通 codex session lead 路径不被污染）；options-builder
+     * narrowToCodexOpts 在 agentName='reviewer-*' 路径下 spread 'never' 让 reviewer teammate
+     * 跳过 codex CLI 工具审批弹窗（PendingTab UI 走应用层，不进 codex CLI 直接审批）。
+     */
+    approvalPolicy?: 'never' | 'on-request';
+    /**
+     * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `networkAccessEnabled` 透传。
+     * bridge 不主动 enforce default — undefined 沿用 SDK 默认；options-builder 在 reviewer-*
+     * 路径下 spread true 让 reviewer 跨网络访问稳定（reviewer-codex web search /
+     * reviewer-claude wrapper 内 claude SDK fetch 工具）。
+     */
+    networkAccessEnabled?: boolean;
+    /**
+     * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `additionalDirectories` 透传，
+     * 让 codex sandbox=workspace-write 档位额外允许的可读写根。bridge 不主动 enforce default —
+     * undefined 沿用 SDK 默认（无额外路径）；options-builder 在 reviewer-* 路径下 spread
+     * `['~/.claude', '~/.codex']`。
+     */
+    additionalDirectories?: readonly string[];
+    /**
+     * plan §P3 Step 3.5 + §D1 ADR §(c) per-session env 增量字段：merge 到 codex 子进程
+     * envOverride 末尾（优先级最高，与 caller / options-builder spread 一致）。bridge 不主动
+     * enforce default — undefined / 空 object 不新增字段；options-builder 在 reviewer-claude
+     * 路径下 spread `{AGENT_DECK_CLAUDE_PATH: resolveBundledClaudeBinary()}` 让 wrapper Bash
+     * `$AGENT_DECK_CLAUDE_PATH -p ...` 引用 bundled claude binary。
+     *
+     * 注入路径：ensureCodex 接收 envOverrideExtra 参数后 `Object.assign(envOverride,
+     * opts.envOverrideExtra ?? {})`（后写覆盖前写，options-builder spread 字段最终生效）。
+     */
+    envOverrideExtra?: Readonly<Record<string, string>>;
   }): Promise<CodexSessionHandle> {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
@@ -307,7 +358,9 @@ export class CodexSdkBridge {
     //   函数体(Step 2.8)统一 rename codexBySession Map + token map(不变量 7)
     const initialSid = opts.resume ?? randomUUID();
     const sessionToken = mcpSessionTokenMap.allocate(initialSid);
-    const codex = await this.ensureCodex(initialSid, sessionToken);
+    // plan §P3 Step 3.5: 透传 envOverrideExtra（如 reviewer-claude wrapper 的
+    // AGENT_DECK_CLAUDE_PATH）到 ensureCodex,让 codex 子进程 env merge extra 字段。
+    const codex = await this.ensureCodex(initialSid, sessionToken, opts.envOverrideExtra);
     const cwd = resolveSpawnCwd(opts);
     // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
     // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
@@ -329,18 +382,36 @@ export class CodexSdkBridge {
       // 否则 codex SDK 默认行为 = 不传 --sandbox flag，让 codex CLI 用 ~/.codex/config.toml 全局
       // 默认 / read-only 兜底，丢失用户上次该会话选过的档位（spike-A2 实测验证 SDK
       // resumeThread(id, options) 透传到每次 turn 的 CLI args）。
+      //
+      // plan §P3 Step 3.5 + §不变量 6: 3 个新字段（approvalPolicy / networkAccessEnabled /
+      // additionalDirectories）从 opts 读，bridge **不主动 enforce default**。caller 缺省 →
+      // approvalPolicy 沿用 'never'（现状）；networkAccessEnabled / additionalDirectories
+      // 不写字段（codex SDK 走 ThreadOptions 默认）。options-builder 在 reviewer-* 路径下
+      // 已 spread 4 字段 unsafe default,这里直接透传不影响普通 codex session lead 路径。
       thread = codex.resumeThread(opts.resume, {
         workingDirectory: cwd,
         sandboxMode,
-        approvalPolicy: 'never',
+        approvalPolicy: opts.approvalPolicy ?? 'never',
         skipGitRepoCheck: true,
+        ...(opts.networkAccessEnabled !== undefined
+          ? { networkAccessEnabled: opts.networkAccessEnabled }
+          : {}),
+        ...(opts.additionalDirectories !== undefined
+          ? { additionalDirectories: [...opts.additionalDirectories] }
+          : {}),
       });
     } else {
       thread = codex.startThread({
         workingDirectory: cwd,
         sandboxMode,
-        approvalPolicy: 'never',
+        approvalPolicy: opts.approvalPolicy ?? 'never',
         skipGitRepoCheck: true,
+        ...(opts.networkAccessEnabled !== undefined
+          ? { networkAccessEnabled: opts.networkAccessEnabled }
+          : {}),
+        ...(opts.additionalDirectories !== undefined
+          ? { additionalDirectories: [...opts.additionalDirectories] }
+          : {}),
       });
     }
 
