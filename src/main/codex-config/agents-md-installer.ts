@@ -1,9 +1,15 @@
 /**
  * Codex `~/.codex/AGENTS.md` Agent Deck 注入段管理（CHANGELOG_<X> D1，含 D5 决策实现）。
  *
- * 设计目标：让 Agent Deck 把自带的应用约定（resources/claude-config/CLAUDE.md
- * 同一份内容）同步到 codex 一侧的 AGENTS.md，让 codex 会话也能享受 Agent Deck
- * 的项目通用约定（输出语言 / 运行时 / 决策对抗 / 等）。
+ * 设计目标：让 Agent Deck 把自带的应用约定同步到 codex 一侧的 AGENTS.md，让 codex
+ * 会话也能享受 Agent Deck 的项目通用约定（输出语言 / 运行时 / 决策对抗 / 等）。
+ *
+ * **plan codex-handoff-team-alignment-20260518 §D5 fallback 策略（P3 Step 3.6 修法）**:
+ * 内置内容源切到 `resources/codex-config/CODEX_AGENTS.md`（codex 视角约定独立维护，不再
+ * 共享 claude-config/CLAUDE.md 同一份）。
+ * - codex-config/CODEX_AGENTS.md 不存在 → throw 显式 error（**禁** silent fallback 到
+ *   claude-config/CLAUDE.md，避免 typecheck/build 过但运行时 codex AGENTS.md 注入静默
+ *   退化到 claude 视角内容，让用户视角直到跑 codex 才发现错）
  *
  * **D5 决策（用户拍板）**：单向 overwrite Agent Deck 段，用户段（marker 之外的内容）
  * 严格保留。用户在 Agent Deck 段内手改不会反向同步到 <userData>/agent-deck-codex-agents.md
@@ -17,7 +23,7 @@
  *
  *   ## Agent Deck 应用约定
  *
- *   ... CLAUDE.md 内容 ...
+ *   ... CODEX_AGENTS.md 内容 ...
  *
  *   <!-- === Agent Deck END === -->
  *
@@ -28,9 +34,9 @@
  * - 自愈：marker 缺失 / 损坏 / 用户删了 → 下次启动追加新段
  *
  * 加载优先级（与 sdk-injection.ts 同模式）：
- * - 用户副本 `<userData>/agent-deck-codex-agents.md` → 优先
- * - 内置 `resources/claude-config/CLAUDE.md`（共享一份内容）→ 回落
- * - 都失败 → 不写入（不破坏现有 AGENTS.md）
+ * - 用户副本 `<userData>/agent-deck-codex-agents.md` → 优先（用户自定义 codex 视角约定）
+ * - 内置 `resources/codex-config/CODEX_AGENTS.md` → 回落（codex 视角默认约定）
+ * - 都失败 → throw（D5 fallback 策略，让 caller syncAgentDeckSection 决定是否阻断启动）
  *
  * 同步时机：
  * - app ready 后：调 `syncAgentDeckSection()`（首次启动 / 升级后）
@@ -68,20 +74,23 @@ function getUserCodexAgentsMdPath(): string {
   return join(app.getPath('userData'), USER_AGENTS_MD_FILENAME);
 }
 
-/** 内置 codex AGENTS.md 内容的绝对路径（与 sdk-injection.ts 共享 CLAUDE.md 一份内容）。 */
+/**
+ * 内置 codex AGENTS.md 内容的绝对路径（plan §D5 fallback 策略 P3 Step 3.6 修法 — 切到
+ * codex 视角独立维护的 codex-config/CODEX_AGENTS.md，不再共享 claude-config/CLAUDE.md）。
+ */
 function getBuiltinAgentsMdContentPath(): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'claude-config', 'CLAUDE.md');
+    return join(process.resourcesPath, 'codex-config', 'CODEX_AGENTS.md');
   }
-  return join(app.getAppPath(), 'resources', 'claude-config', 'CLAUDE.md');
+  return join(app.getAppPath(), 'resources', 'codex-config', 'CODEX_AGENTS.md');
 }
 
 /**
- * 内置 markdown 内容（与 sdk-injection.ts 共用 CLAUDE.md）。
- * 加载优先级：用户副本 → 内置 → 空字符串（warn）。
+ * 内置 markdown 内容（plan §D5 fallback 策略 P3 Step 3.6 修法）。
+ * 加载优先级：用户副本 → 内置 codex-config/CODEX_AGENTS.md → throw。
  *
  * 内存缓存：与 sdk-injection.ts 各自维护一份缓存（两条注入通路独立 invalidate）。
- * 改 CLAUDE.md 编辑器保存后调 invalidateCodexAgentsMdContent() 让下次同步读最新。
+ * 改 CODEX_AGENTS.md 编辑器保存后调 invalidateCodexAgentsMdContent() 让下次同步读最新。
  */
 let cachedContent: string | null = null;
 
@@ -101,8 +110,14 @@ function readContentRaw(): string {
   try {
     return readFileSync(getBuiltinAgentsMdContentPath(), 'utf8');
   } catch (err) {
-    console.warn('[codex-agents-md] 读内置 CLAUDE.md 失败，跳过同步:', err);
-    return '';
+    // plan §D5 fallback 策略: codex-config/CODEX_AGENTS.md 不存在即 throw,禁 silent
+    // fallback 到 claude-config/CLAUDE.md(避免 typecheck/build 过但运行时 codex AGENTS.md
+    // 注入静默退化到 claude 视角内容,让用户视角直到跑 codex 才发现错)。
+    // syncAgentDeckSection 内 try/catch 兜底转 error log(不阻断启动,但 prominent log 让
+    // dev / prod 用户立即看到错)。
+    throw new Error(
+      `codex-config/CODEX_AGENTS.md missing or unreadable, build/dev config error: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -119,6 +134,10 @@ function getContent(): string {
  * - settings.injectAgentDeckCodexAgentsMd === false → 移除 Agent Deck 段（保留用户内容）
  * - true（默认）→ 写入 / 替换 Agent Deck 段
  * - 内容空 / 读失败 → 跳过（不破坏现有 AGENTS.md）
+ *
+ * **plan §D5 fallback 策略（P3 Step 3.6 修法）**：getContent() 内部 throw 时本函数 catch
+ * + 转 console.error prominent log（不阻断启动 — caller main bootstrap 仍能继续；但 log
+ * 显著高于 warn，让 dev / prod 用户立即看到 codex-config/CODEX_AGENTS.md 缺失错）。
  *
  * 不抛错：DB / 配置异常都 warn 不阻断启动。
  *
@@ -146,7 +165,20 @@ export function syncAgentDeckSection(
     return next;
   }
 
-  const content = getContent();
+  // plan §D5 fallback 策略 (P3 Step 3.6): getContent() 内部读 CODEX_AGENTS.md 失败时 throw,
+  // 此处 catch 转 console.error prominent log + return null 跳过同步(不阻断启动)。
+  let content: string;
+  try {
+    content = getContent();
+  } catch (err) {
+    console.error(
+      `[codex-agents-md] D5 fallback 策略触发: codex-config/CODEX_AGENTS.md 内置内容读取失败,跳过同步。` +
+        ` 这通常意味着 build/dev config 错误(extraResources 漏配 codex-config / 文件被误删)。` +
+        ` 详见 plan codex-handoff-team-alignment-20260518 §D5。详细错误:`,
+      err,
+    );
+    return null;
+  }
   if (!content.trim()) return null;
   const newSection = buildSection(content);
   const next = replaceOrAppendMarkerSection(existing, newSection);
