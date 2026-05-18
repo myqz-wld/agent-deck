@@ -51,6 +51,11 @@ export interface CallerContext {
  * 删 reply_message + wait_reply + check_reply 三个 tool；caller 改用
  * send_message + reply_to_message_id；reply 自动 dispatch 进 lead conversation flow，
  * 无需主动 poll。J fix 拦截删（universal-message-watcher 不再特别拦 reply）。
+ *
+ * plan codex-handoff-team-alignment-20260518 P1 Step 1.2 / D2 + 不变量 5：
+ * 加 enter_worktree + exit_worktree 两个 tool — 7 → 9 tool。给 codex / 跨 adapter caller
+ * 提供 claude builtin EnterWorktree / ExitWorktree 的等价能力,让 archive_plan 预检走 4
+ * 态分流时认得跨 adapter 路径(详 P1 Step 1.4 archive-plan-impl.ts)。
  */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
@@ -60,6 +65,8 @@ export const AGENT_DECK_TOOL_NAMES = {
   shutdownSession: 'shutdown_session',
   archivePlan: 'archive_plan',
   handOffSession: 'hand_off_session',
+  enterWorktree: 'enter_worktree',
+  exitWorktree: 'exit_worktree',
 } as const;
 
 export type AgentDeckToolName =
@@ -67,9 +74,10 @@ export type AgentDeckToolName =
 
 /**
  * 注册到 in-process MCP / HTTP / stdio 的 tool 是否允许「外部 caller」调用。
- * spawn_session / send_message / shutdown_session / archive_plan / hand_off_session
- * 默认 deny external（防 fork bomb / 越权 IPC / 高风险 git+fs 写 / 起 SDK session
- * 的 fork bomb）；list_sessions / get_session 是只读 / 观察类，允许 external。
+ * spawn_session / send_message / shutdown_session / archive_plan / hand_off_session /
+ * enter_worktree / exit_worktree 默认 deny external（防 fork bomb / 越权 IPC / 高风险
+ * git+fs 写 / 起 SDK session 的 fork bomb / setMarker 需 per-session 真实 caller_session_id）；
+ * list_sessions / get_session 是只读 / 观察类，允许 external。
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,
@@ -79,4 +87,6 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   shutdown_session: false,
   archive_plan: false,
   hand_off_session: false,
+  enter_worktree: false,
+  exit_worktree: false,
 };
