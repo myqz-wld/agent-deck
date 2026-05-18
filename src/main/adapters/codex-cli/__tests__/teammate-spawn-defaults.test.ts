@@ -14,7 +14,7 @@
  *   - codexSandbox: 'workspace-write'
  *   - approvalPolicy: 'never'
  *   - networkAccessEnabled: true
- *   - additionalDirectories: ['<home>/.claude', '<home>/.codex']
+ *   - additionalDirectories: ['<home>/.claude', '<home>/.codex', '/tmp']
  *
  * 测试策略：直接调 buildCreateSessionOptions('codex-cli', raw) 单测 narrowToCodexOpts 行为
  * （不过 spawn handler 链路，最直接验证 v4 D7 信号源 + 不变量 6 enforce 点 = options-builder 层）。
@@ -57,9 +57,12 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     expect(opts.codexSandbox).toBe('workspace-write');
     expect(opts.approvalPolicy).toBe('never');
     expect(opts.networkAccessEnabled).toBe(true);
+    // additionalDirectories 含 /tmp(spike4 实证 reviewer-claude wrapper 必需;reviewer-codex
+    // 同款 spread 保持对偶,与 reviewer-claude 同 default 不分叉)
     expect(opts.additionalDirectories).toEqual([
       path.join(os.homedir(), '.claude'),
       path.join(os.homedir(), '.codex'),
+      '/tmp',
     ]);
 
     // reviewer-codex **不**走 wrapper Bash 路径 → envOverrideExtra 不被注入 AGENT_DECK_CLAUDE_PATH
@@ -82,9 +85,11 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     expect(opts.codexSandbox).toBe('workspace-write');
     expect(opts.approvalPolicy).toBe('never');
     expect(opts.networkAccessEnabled).toBe(true);
+    // additionalDirectories 含 /tmp(spike4 实证 wrapper 必需 — 见 §spike4 衔接 节 reviewer-claude.md)
     expect(opts.additionalDirectories).toEqual([
       path.join(os.homedir(), '.claude'),
       path.join(os.homedir(), '.codex'),
+      '/tmp',
     ]);
 
     // reviewer-claude wrapper 路径额外注入 AGENT_DECK_CLAUDE_PATH env var（v4 M7）

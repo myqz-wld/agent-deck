@@ -119,11 +119,15 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
     // 内的 claude SDK 能 fetch 工具调外部资源(spike 3 实证 codex sandbox=workspace-write
     // 默认 networkAccessEnabled 在某些 platform 受限,显式打开稳)
     out.networkAccessEnabled = true;
-    // additionalDirectories: ['~/.claude', '~/.codex'] 让 codex sandbox 允许跨目录访 plan /
-    // claude config / codex config 文件(不需 caller 每次 cp 副本到 worktree 内)
+    // additionalDirectories: ['~/.claude', '~/.codex', '/tmp'] 让 codex sandbox 允许跨目录访
+    // plan / claude config / codex config 文件 + reviewer-claude wrapper 走 /tmp 中间文件
+    // (spike4 实证 `/tmp` 必需 — wrapper Bash 模板写 `/tmp/<basename>.in.txt` `.out.txt`
+    // `.err.txt` 路由 stdin/stdout/stderr;不含 /tmp 时 codex sandbox-exec 拒读 wrapper 输出;
+    // 详 `<worktree>/spike-reports/spike4-claude-nested-sandbox.md`)。
     out.additionalDirectories = [
       path.join(os.homedir(), '.claude'),
       path.join(os.homedir(), '.codex'),
+      '/tmp',
     ];
 
     // v4 M7: reviewer-claude wrapper 路径加 AGENT_DECK_CLAUDE_PATH env 让 wrapper Bash 模板
