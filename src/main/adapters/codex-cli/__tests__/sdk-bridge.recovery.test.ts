@@ -48,6 +48,8 @@ vi.mock('@main/store/settings-store', () => ({
 vi.mock('@main/codex-config/agent-deck-mcp-injector', () => ({
   buildAgentDeckMcpConfigForCodex: () => null,
   mergeCodexConfig: (a: unknown) => a,
+  // plan codex-handoff-team-alignment-20260518 P2 Step 2.5b: ensureCodex 用此常量当 env key
+  AGENT_DECK_MCP_TOKEN_ENV: 'AGENT_DECK_MCP_TOKEN',
 }));
 // codex-instance-pool 的 invalidateCodexInstance 在 setCodexCliPath 时被调，TestBridge 不走这条
 vi.mock('@main/adapters/codex-cli/codex-instance-pool', () => ({
