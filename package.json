@@ -88,6 +88,13 @@
         ]
       },
       {
+        "from": "resources/codex-config",
+        "to": "codex-config",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "resources/sounds",
         "to": "sounds",
         "filter": [
