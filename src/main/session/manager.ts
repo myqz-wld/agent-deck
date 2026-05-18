@@ -269,6 +269,11 @@ class SessionManagerClass {
     const r = sessionRepo.get(sessionId);
     if (!r || (r.lifecycle !== 'dormant' && r.lifecycle !== 'active')) return;
     sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
+    // plan codex-handoff-team-alignment-20260518 P5 Round 1 reviewer-claude MED-4 修法:
+    // 联动清 cwd_release_marker (worktree 持有标记是 transient session state,close 后必清避免
+    // 被 SDK 隐式 fork rename 路径复制到新 sid 触发 archive_plan 状态 4 误 reject)。
+    // 三入口 (markClosed / close / archive) 统一 — 详 v020 SQL 注释。
+    sessionRepo.clearCwdReleaseMarker(sessionId);
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
     // plan team-cohesion-fix-20260513 Phase F D6：被动清理 — closed session 自动 leave
@@ -306,6 +311,9 @@ class SessionManagerClass {
       }
     }
     sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
+    // plan codex-handoff-team-alignment-20260518 P5 Round 1 reviewer-claude MED-4 修法:
+    // 联动清 cwd_release_marker (与 markClosed 同款,详 markClosed 处注释)。
+    sessionRepo.clearCwdReleaseMarker(sessionId);
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
     // plan codex-handoff-team-alignment-20260518 P2 Step 2.9：释放 per-session mcp token map
@@ -486,12 +494,29 @@ class SessionManagerClass {
       // codex per-session 实例 / sessions Map / sdkOwned / token map 四处 key 同步迁移)。
       // claude bridge 不需要 hook(in-process MCP transport 不消费 token map),hook 注册时
       // 按 agentId 分流即可。
+      //
+      // **P5 Round 1 reviewer-codex M2 修法 (4-key 原子性加固)**：
+      // hook 缺失或抛错时 sessions Map / sdkOwned / token map 已迁移完 + DB rename 已成,但
+      // codexBySession Map key 仍指向 fromId — 后续 sendMessage(toId) 走 ensureCodex 命中
+      // miss → 重建 Codex 实例;旧 Codex 实例 stale 在 codexBySession[fromId] 等下次 close
+      // 清。属轻微 leak 不致命,但 codex agent session 必须经 hook 才能保 4 keys 一致。
+      // codex agent + hook 缺失 = 严重 bug → console.error prominent 让 operator 看到
+      // (而非 silently warn)。claude agent 不需 hook → silent 跳过保留语义。
+      if (updated.agentId === 'codex-cli' && !sessionRenameHookFn) {
+        console.error(
+          `[sessionManager] CRITICAL: rename(${fromId} → ${toId}) for codex-cli agent but sessionRenameHookFn not registered. ` +
+            `codexBySession Map will be stale (entry kept under fromId). main/index.ts bootstrap step 5.1.1 must call setSessionRenameHookFn before any codex spawn. ` +
+            `Continuing with 3-key rename (DB / sdkOwned / token map) — codex Codex instance leak until session closeSession.`,
+        );
+      }
       if (updated.agentId && sessionRenameHookFn) {
         try {
           sessionRenameHookFn(updated.agentId, fromId, toId);
         } catch (err) {
-          console.warn(
-            `[sessionManager] rename hook failed for ${updated.agentId} ${fromId} → ${toId}`,
+          console.error(
+            `[sessionManager] rename hook for ${updated.agentId} ${fromId} → ${toId} threw — ` +
+              `4-key sync degraded to 3 keys (DB / sdkOwned / token map migrated, codexBySession stale). ` +
+              `Stale codex instance leaked until next closeSession; downstream sendMessage(${toId}) will rebuild via ensureCodex.`,
             err,
           );
         }

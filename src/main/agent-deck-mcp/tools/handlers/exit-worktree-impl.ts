@@ -65,6 +65,15 @@ export interface ExitWorktreeDeps {
   runGit?: (args: string[], cwd: string) => Promise<string>;
   /** 文件 / 目录是否存在（true / false，不抛）。 */
   exists?: (p: string) => Promise<boolean>;
+  /**
+   * P5 Round 1 reviewer-claude MED-2 修法 (realpath alignment with archive-plan-impl):
+   * args.worktree_path 与 marker 字面比较前必须 realpath 解 symlink 才与 archive_plan 4 态对称。
+   * macOS firmlink (/var → /private/var) / 用户软链 worktree 路径 / cross-device 同步走不同符号链
+   * 路径时 caller 显式传 args.worktree_path 解析后形与 marker literal 不字面相等会错报 cross-worktree
+   * reject。realpath 失败 fallback 字面（与 archive-plan-impl §step 4 marker 处理同款,极端 edge case
+   * 字面比较）。
+   */
+  realpath?: (p: string) => Promise<string>;
   /** sessionRepo.get(callerSid).cwdReleaseMarker 反查 seam。 */
   callerMarker?: (callerSid: string) => string | null;
   /** clearCwdReleaseMarker seam。 */
@@ -85,6 +94,7 @@ const DEFAULT_DEPS: Required<ExitWorktreeDeps> = {
       return false;
     }
   },
+  realpath: async (p) => fs.realpath(p),
   // callerMarker / clearCwdReleaseMarker 由 handler 显式注入(handler 端 import sessionRepo,
   // 避免 impl import 触发 electron.app load — 让本 impl test 走 deps inject 时不撞 electron)。
   // DEFAULT_DEPS 这两项故意抛 hint error,提示 caller 必须注入(silently no-op 会让 marker 不清
@@ -128,11 +138,29 @@ export async function exitWorktreeImpl(
   }
 
   // 3. 校验 args override vs marker 一致性
-  if (input.worktreePathOverride && marker && marker !== input.worktreePathOverride) {
-    return {
-      error: `args.worktree_path (${input.worktreePathOverride}) does not match caller marker (${marker})`,
-      hint: `Cross-worktree exit is not allowed (caller holds marker for a different worktree). Resolve by: (a) call exit_worktree without args.worktree_path to operate on marker's worktree, or (b) clear marker by calling enter_worktree → exit_worktree on the marker's worktree first.`,
-    };
+  // P5 Round 1 reviewer-claude MED-2 修法 (realpath alignment): 字面比较升级为 realpath 解 symlink 后
+  // 比较,与 archive-plan-impl §step 4 marker 处理对称。两边都解 symlink — args 端 macOS firmlink
+  // /var → /private/var,marker 端用户跨会话 marker 走不同符号链路径 → 字面 !== 但 realpath ===
+  // 时旧实现错报 cross-worktree reject。realpath 失败 fallback 字面（极端 edge case 退化）。
+  if (input.worktreePathOverride && marker) {
+    let argReal = input.worktreePathOverride;
+    let markerReal = marker;
+    try {
+      argReal = await deps.realpath(input.worktreePathOverride);
+    } catch {
+      /* fallback 字面 */
+    }
+    try {
+      markerReal = await deps.realpath(marker);
+    } catch {
+      /* fallback 字面 */
+    }
+    if (argReal !== markerReal) {
+      return {
+        error: `args.worktree_path (${input.worktreePathOverride}) does not match caller marker (${marker})`,
+        hint: `Cross-worktree exit is not allowed (caller holds marker for a different worktree). Resolve by: (a) call exit_worktree without args.worktree_path to operate on marker's worktree, or (b) clear marker by calling enter_worktree → exit_worktree on the marker's worktree first.`,
+      };
+    }
   }
 
   // 4. 解析 main_repo（用 git-common-dir 在 worktree 内查 main repo）
@@ -214,17 +242,30 @@ export async function exitWorktreeImpl(
       };
     }
 
-    // 5d. git branch -D（保护清单 + branch == null 跳过）
+    // 5d. git branch -d / -D（保护清单 + branch == null 跳过）
+    // P5 Round 1 reviewer-codex MED-4 修法 (discard_changes 也保护未合并 commit):
+    // 旧实现无条件 `branch -D` 删未合并 commit,违反 schema "discard_changes=false 不丢 caller
+    // 工作"契约(schema 描述含 "commits not on base branch")。
+    // - discard_changes=false: 用 `git branch -d` (lowercase)只删已合并 branch,未合并撞 git error
+    //   "branch is not fully merged" → impl 转 partial-success error 让 caller 决定 (commit / merge / 显式 force)
+    // - discard_changes=true: 用 `git branch -D` 强制删 (caller 已显式接受 commit 丢失)
     if (branchName && !PROTECTED_BRANCHES.has(branchName)) {
+      const branchDeleteFlag = input.discardChanges ? '-D' : '-d';
       try {
-        await deps.runGit(['branch', '-D', branchName], mainRepo);
+        await deps.runGit(['branch', branchDeleteFlag, branchName], mainRepo);
         branchDeleted = true;
       } catch (e) {
-        // 罕见(branch 不存在 / 别 worktree 还在用)— 不视为 fatal error,worktree 已删,
-        // caller 仍能手工 `git branch -D` 清。warn 给 caller log 但 ok return。
+        // P5 Round 1 reviewer-claude MED-1 修法 (comment vs code 对齐):虽 worktree 已成功删,
+        // branch -d/-D 失败仍 return error 让 caller 显式处理(silently ok 会让 caller 错以为
+        // 完全清理,实际 branch 仍存在污染 list)。caller 拿到 hint 后手工 git branch -D。
+        const errMsg = (e as Error).message;
+        const isUnmerged =
+          !input.discardChanges && /not fully merged|not yet been merged/i.test(errMsg);
         return {
-          error: `worktree removed but git branch -D ${branchName} failed: ${(e as Error).message}`,
-          hint: `worktree at ${worktreePath} was successfully removed, but the branch ${branchName} still exists. Manual cleanup: \`git -C ${mainRepo} branch -D ${branchName}\`.`,
+          error: `worktree removed but git branch ${branchDeleteFlag} ${branchName} failed: ${errMsg}`,
+          hint: isUnmerged
+            ? `branch ${branchName} has commits not yet merged into base — refusing to delete (discard_changes=false). Options: (a) merge / cherry-pick the unmerged commits into your base branch first, then retry exit_worktree; (b) call exit_worktree({ action: 'remove', worktree_path: '${worktreePath}', discard_changes: true }) to force delete (destructive, you will lose those commits); (c) manually clean up: \`git -C ${mainRepo} branch -D ${branchName}\`.`
+            : `worktree at ${worktreePath} was successfully removed, but the branch ${branchName} still exists (this is partial-success not full failure). Manual cleanup: \`git -C ${mainRepo} branch -D ${branchName}\`. Common causes: branch already deleted by another tool / branch checked out in another worktree.`,
         };
       }
     }
@@ -236,11 +277,12 @@ export async function exitWorktreeImpl(
     deps.clearCwdReleaseMarker(input.callerSessionId);
     markerCleared = true;
   } catch (e) {
-    // marker 清失败不视为 fatal — git 操作已完成,caller 下次 enter_worktree 会覆盖 marker。
-    // 但仍返 error 让 caller 知道 DB 写失败(可能 SQLite locked / 测试 mock 错)。
+    // P5 Round 1 reviewer-claude MED-1 修法 (comment vs code 对齐):虽 git 操作已完成,
+    // marker 清失败仍 return error 让 caller 显式知道 DB 写挂(silently ok return 会让 stale
+    // marker 跟到下次 archive_plan 撞 4 态状态 4 误 reject)。
     return {
       error: `${input.action === 'remove' ? 'worktree removed but ' : ''}clearCwdReleaseMarker failed: ${(e as Error).message}`,
-      hint: `${input.action === 'remove' ? `worktree at ${worktreePath} (branch ${branchName ?? '<unknown>'}) was successfully removed, but ` : ''}the per-session cwd_release_marker DB clear failed. Manual recovery: call enter_worktree to reset marker, then exit_worktree to clean up.`,
+      hint: `${input.action === 'remove' ? `worktree at ${worktreePath} (branch ${branchName ?? '<unknown>'}) was successfully removed, but ` : ''}the per-session cwd_release_marker DB clear failed (partial-success). Manual recovery: call enter_worktree to reset marker, then exit_worktree to clean up. Common causes: SQLite locked / DB connection lost / read-only filesystem.`,
     };
   }
 

@@ -22,4 +22,11 @@
 -- per-session 字段 (非全局),不同 caller 各自持自己的 marker;rename 路径(SDK fork / recover)
 -- 必须复制此列到 NEW 行(详 rename.ts) — 否则 codex teammate enter_worktree 设的 marker 在 fork 后丢失,
 -- 下次 archive_plan 预检走「在 worktree 内 + 无 marker」分支 reject (H1 关键修法)。
+--
+-- 幂等性说明 (P5 Round 1 reviewer-codex MED-3 修法 clarify):
+-- SQLite ALTER TABLE ADD COLUMN 不支持 IF NOT EXISTS,SQL 级**不**幂等(第二次执行抛 dup column)。
+-- 但 migration runner 用 PRAGMA user_version 版本号追踪 (db.ts:25-36),v020 仅在
+-- user_version < 20 时执行一次,执行后 user_version 写为 20,后续启动跳过。**生产场景幂等**。
+-- 测试 fixture 重复 init memory DB 时显式重置 user_version 才会重跑此 SQL — 这是测试机制
+-- 而非生产路径。详 cwd-release-marker.test.ts §setup 注释。
 ALTER TABLE sessions ADD COLUMN cwd_release_marker TEXT DEFAULT NULL;

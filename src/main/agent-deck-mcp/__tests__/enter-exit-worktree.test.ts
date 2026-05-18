@@ -383,12 +383,15 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
     expect(result.branchDeleted).toBe(true);
     expect(result.markerCleared).toBe(true);
     expect(state.markerClears).toEqual(['caller-sid']);
-    // git 命令顺序: common-dir, status, branch --show-current, worktree remove, branch -D
+    // git 命令顺序: common-dir, status, branch --show-current, worktree remove, branch -d/-D
     expect(state.gitCalls.map((c) => c.args[0])).toEqual([
       'rev-parse', 'status', 'branch', 'worktree', 'branch',
     ]);
     expect(state.gitCalls[3].args).toEqual(['worktree', 'remove', WT]);
-    expect(state.gitCalls[4].args).toEqual(['branch', '-D', 'worktree-plan1']);
+    // P5 Round 1 reviewer-codex M4 修法 (discard_changes 也保护未合并 commit):
+    // 默认 discard_changes=false → 用 `branch -d` (lowercase) 只删已合并 branch (不丢未合并 commit);
+    // 测试场景 mock branch 已合并(runGit mock 默认成功),`-d` 删除成功,branchDeleted=true。
+    expect(state.gitCalls[4].args).toEqual(['branch', '-d', 'worktree-plan1']);
   });
 
   it('action=remove + worktree dirty + !discard_changes → reject + marker 不清', async () => {
