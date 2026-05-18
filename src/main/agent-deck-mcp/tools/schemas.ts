@@ -379,6 +379,103 @@ export const HAND_OFF_SESSION_SCHEMA = {
       'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archive_caller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。`archive_caller: false` 与 `keep_teammates: true` 互相独立(可分别 opt-out)。',
     ),
 };
+
+// plan codex-handoff-team-alignment-20260518 P1 Step 1.2 / D2 + 不变量 5：
+// enter_worktree / exit_worktree MCP tool — 给 codex / 跨 adapter caller 提供 claude builtin
+// EnterWorktree / ExitWorktree 的等价能力,让 archive_plan 预检走 4 态分流时认得跨 adapter
+// 路径(详 P1 Step 1.4 archive-plan-impl.ts 4 态分流)。
+//
+// 设计要点:
+// - enter_worktree 走 `git worktree add -b worktree-<plan_id> <worktree_path>` 显式 HEAD 作 base
+//   (避开 claude builtin v2.1.112 stale base bug — 详 user CLAUDE.md §Step 1 末 callout)
+// - enter_worktree 成功后 setCwdReleaseMarker(callerSid, worktreePath) — 让 archive_plan
+//   预检识别「caller 显式持有该 worktree」放过(状态 2)
+// - exit_worktree 走 `git worktree remove` + `git branch -D` + clearCwdReleaseMarker(callerSid)
+// - 字段对称 archive_plan / hand_off_session 既有约定(snake_case args / 4096 max path / 128 max plan_id)
+// - deny external caller(写 git + setMarker 是 per-session 状态,需要真实 caller_session_id)
+export const ENTER_WORKTREE_SCHEMA = {
+  plan_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .describe(
+      'Plan id (matches plan file stem, derives branch name `worktree-<plan_id>` and default worktree path `<main-repo>/.claude/worktrees/<plan_id>/`). Charset aligned with archive_plan / hand_off_session.',
+    ),
+  worktree_path: z
+    .string()
+    .min(1)
+    .max(4096)
+    .refine((p) => p.startsWith('/'), 'Must be absolute path')
+    .optional()
+    .describe(
+      'Optional override for worktree absolute path. When omitted, derived as `<main-repo>/.claude/worktrees/<plan_id>/` (main-repo from caller sessionRepo.cwd via `git rev-parse --show-toplevel`). Caller-supplied path overrides default; handler still uses it verbatim as branch checkout target.',
+    ),
+  base_commit: z
+    .string()
+    .min(7)
+    .max(64)
+    .regex(/^[0-9a-f]+$/i, 'base_commit must be hex SHA (≥7 chars)')
+    .optional()
+    .describe(
+      'Optional explicit base commit SHA. Highest priority in base resolution chain (plan D2): caller args.base_commit > caller args.base_branch > plan frontmatter base_commit > plan frontmatter base_branch > HEAD. Use to lock new worktree to a specific commit (e.g. for reproducing historical state).',
+    ),
+  base_branch: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'Optional base branch name (resolves to that branch HEAD as base commit). Lower priority than base_commit but higher than plan frontmatter / HEAD fallback (plan D2). Useful when caller wants to branch off a non-current branch without manually resolving SHA.',
+    ),
+  plan_file_path: z
+    .string()
+    .min(1)
+    .max(4096)
+    .optional()
+    .describe(
+      'Optional plan file absolute path (for frontmatter base_commit / base_branch fallback chain when caller args do not specify base). When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then <main-repo>/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md (same fallback chain as archive_plan).',
+    ),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（enter_worktree 不允许 external caller — git worktree add 是写操作 + setCwdReleaseMarker 是 per-session 状态需真实 caller sid）。',
+    ),
+};
+
+export const EXIT_WORKTREE_SCHEMA = {
+  action: z
+    .enum(['keep', 'remove'])
+    .describe(
+      '"keep" 留 worktree 目录与 branch 不动(典型 plan in_progress 中途 hand-off 切会话场景 — 新 session cold-start EnterWorktree(path:...) 复用同一 worktree)；"remove" 删 worktree 目录 + branch(典型 plan 完成或中止收口场景)。两种 action 都会 clearCwdReleaseMarker(callerSid)清 marker。',
+    ),
+  worktree_path: z
+    .string()
+    .min(1)
+    .max(4096)
+    .refine((p) => p.startsWith('/'), 'Must be absolute path')
+    .optional()
+    .describe(
+      'Optional override for worktree absolute path to exit. When omitted, derived from caller sessionRepo.cwd_release_marker (caller must have called enter_worktree first to set the marker — otherwise reject). Use override only when caller knows the path but lost marker (e.g. session restart between enter_worktree and exit_worktree).',
+    ),
+  discard_changes: z
+    .boolean()
+    .optional()
+    .describe(
+      'Only meaningful with action="remove". If worktree has uncommitted files / commits not on base branch, tool refuses unless this is true (matches claude builtin ExitWorktree semantic — protects against accidentally losing work). action="keep" 时此字段忽略(留下来的 worktree 改动一定保留)。',
+    ),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（exit_worktree 不允许 external caller — git worktree remove 是写操作 + clearCwdReleaseMarker 是 per-session 状态需真实 caller sid）。',
+    ),
+};
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
@@ -386,6 +483,8 @@ export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
 export type ArchivePlanArgs = z.infer<z.ZodObject<typeof ARCHIVE_PLAN_SCHEMA>>;
 export type HandOffSessionArgs = z.infer<z.ZodObject<typeof HAND_OFF_SESSION_SCHEMA>>;
+export type EnterWorktreeArgs = z.infer<z.ZodObject<typeof ENTER_WORKTREE_SCHEMA>>;
+export type ExitWorktreeArgs = z.infer<z.ZodObject<typeof EXIT_WORKTREE_SCHEMA>>;
 
 // =============== Result types (R37 P3-L Step 4.5) ===============
 //
@@ -536,4 +635,49 @@ export interface HandOffSessionResult extends SpawnSessionResult {
   archived: 'ok' | 'failed' | 'skipped';
   /** baton cleanup phase 1 详情（与 archive_plan 同款）。 */
   teammatesShutdown: TeammatesShutdownInfo;
+}
+
+/**
+ * enter_worktree ok return shape (handlers/enter-worktree.ts)。
+ *
+ * - worktreePath: 实际创建 / 进入的 worktree 绝对路径（caller 不传 args.worktree_path 时由
+ *   handler 派生 `<main-repo>/.claude/worktrees/<plan_id>/`,有传则等于 args.worktree_path)
+ * - branchName: 创建的 branch 名(`worktree-<plan_id>` 固定模式)
+ * - baseCommit: 实际作为 base 的 commit SHA(40 字符 hex)
+ * - baseSource: 5 态枚举表明 base 是从哪个来源 resolved(plan D2 优先级链)
+ *   - 'arg-base-commit': caller args.base_commit 显式传
+ *   - 'arg-base-branch': caller args.base_branch 显式传,handler resolve 到 HEAD
+ *   - 'frontmatter-base-commit': plan frontmatter base_commit 字段
+ *   - 'frontmatter-base-branch': plan frontmatter base_branch 字段
+ *   - 'head': 都没传,fallback 主仓库 HEAD（标准走法）
+ * - markerSet: setCwdReleaseMarker 成功标 true(几乎一定 true,失败 handler 应已 reject)
+ */
+export interface EnterWorktreeResult {
+  worktreePath: string;
+  branchName: string;
+  baseCommit: string;
+  baseSource:
+    | 'arg-base-commit'
+    | 'arg-base-branch'
+    | 'frontmatter-base-commit'
+    | 'frontmatter-base-branch'
+    | 'head';
+  markerSet: boolean;
+}
+
+/**
+ * exit_worktree ok return shape (handlers/exit-worktree.ts)。
+ *
+ * - worktreePath: 实际处理的 worktree 绝对路径(从 args 或从 cwd_release_marker 解析)
+ * - action: 'keep' | 'remove' 镜像 args
+ * - branchDeleted: action='remove' 时为 true / 'keep' 时永远 false
+ * - worktreeRemoved: action='remove' 时为 true / 'keep' 时永远 false
+ * - markerCleared: clearCwdReleaseMarker 成功标 true(几乎一定 true,失败 handler 应已 reject)
+ */
+export interface ExitWorktreeResult {
+  worktreePath: string;
+  action: 'keep' | 'remove';
+  branchDeleted: boolean;
+  worktreeRemoved: boolean;
+  markerCleared: boolean;
 }
