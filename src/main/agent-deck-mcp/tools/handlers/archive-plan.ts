@@ -76,19 +76,47 @@ function resolveCallerCwdDeps(callerSessionId: string): ArchivePlanDeps {
   // 对称)。DB 异常 (test 未 init / 生产 SQLite locked / FK conflict) 时返回空 deps,让 impl
   // 退化到 DEFAULT_DEPS.cwd = process.cwd() + cwdReleaseMarker = () => null 兜底,而非 handler
   // 直接 crash。
+  // P5 Round 1 reviewer-codex HIGH-2 (downgraded MED) 修法:DB 异常时 console.warn 让 operator
+  // 看到 fail-open 退化(原静默 return {} 看不到 DB 问题)。fail-open 设计取舍保留(handler 稳定
+  // > 严格安全),archive git 操作走 mainRepo 不依赖 callerCwd 限定 blast radius。
   let row: ReturnType<typeof sessionRepo.get> = null;
   try {
     row = sessionRepo.get(callerSessionId);
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[archive-plan] sessionRepo.get(${callerSessionId}) threw — falling back to DEFAULT_DEPS (cwd=process.cwd, marker=null). Archive proceeds via mainRepo git ops; cwd precheck degrades to "no marker" branch.`,
+      err,
+    );
     return {};
   }
-  if (!row?.cwd) return {};
-  const cwd = row.cwd;
+  if (!row) return {};
+  // P5 Round 1 reviewer-claude LOW-5 修法 (cwd / marker 独立 fallback):
+  // 旧实现 `if (!row?.cwd) return {};` 一刀切丢弃 marker,即使 row.cwdReleaseMarker 有值也整体退化
+  // 到 DEFAULT_DEPS。改为各自独立条件 — cwd null 仍 inject marker 让 impl 4 态认得 cwd invalid
+  // 状态(plan §不变量 5 (b)/(d) 走 cwd-invalid 分支)。
+  // sessions 表 cwd 列 NOT NULL DEFAULT '' (v001 init schema),实际 row.cwd 通常 truthy;但
+  // 健壮起见两字段各自独立处理。
+  const cwd = row.cwd || null;
   // plan codex-handoff-team-alignment-20260518 P1 Step 1.4：marker 同 cwd 一次 row read 注入,
   // 让 impl 4 态分流认得跨 adapter 路径(状态 2 放过)。marker 为 null 时 impl 走「无 marker」
   // 分支(状态 3 reject if inWorktree)。
   const marker = row.cwdReleaseMarker ?? null;
-  return { cwd: () => cwd, cwdReleaseMarker: () => marker };
+  // P5 Round 1 reviewer-codex HIGH-1 修法 (release marker seam):
+  // archive 成功后 impl 调本 thunk 清 sessionRepo.cwd_release_marker 字段(与 markClosed/close
+  // hook 同款,但本 release seam 在 archive 路径独立 — archive_caller=false 时 caller session
+  // 仍 active 也必须清 stale marker 避免下次 archive 撞 4 态状态 4 误 reject)。
+  // sessionRepo.clearCwdReleaseMarker 是 sync,包成 async thunk 与 impl signature 对齐。
+  const clearMarker = async (): Promise<void> => {
+    sessionRepo.clearCwdReleaseMarker(callerSessionId);
+  };
+  const deps: ArchivePlanDeps = {
+    cwdReleaseMarker: () => marker,
+    clearCwdReleaseMarker: clearMarker,
+  };
+  if (cwd) {
+    deps.cwd = () => cwd;
+  }
+  return deps;
 }
 
 /**

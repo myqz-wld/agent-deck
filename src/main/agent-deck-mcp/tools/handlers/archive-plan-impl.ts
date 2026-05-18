@@ -127,6 +127,15 @@ export interface ArchivePlanDeps {
    * 默认 fallback `() => null`(impl 走「未持有 marker」分支,即原 2 态行为)。
    */
   cwdReleaseMarker?: () => string | null;
+  /**
+   * P5 Round 1 reviewer-codex HIGH-1 修法 (release marker seam):
+   * archive_plan 在 4 态分流命中状态 (b) [cwd invalid + marker==worktreeReal] / 状态 (c)
+   * [cwd valid + 但 inWorktree=false 时 marker 残留] 时，archive 成功后必须 release marker
+   * 让 sessionRepo 行回到 null（不变量 5 (b) "release marker, 预检通过"）。Handler 注入
+   * `() => Promise.resolve(sessionRepo.clearCwdReleaseMarker(callerSid))` 接同一 sid。
+   * 默认 fallback no-op (DEFAULT_DEPS.cwdReleaseMarker = null 时无 marker 可清,no-op 安全)。
+   */
+  clearCwdReleaseMarker?: () => Promise<void>;
   /** $HOME 路径。 */
   homedir?: () => string;
 }
@@ -154,6 +163,9 @@ const DEFAULT_DEPS: Required<ArchivePlanDeps> = {
   realpath: async (p) => fs.realpath(p),
   cwd: () => process.cwd(),
   cwdReleaseMarker: () => null,
+  clearCwdReleaseMarker: async () => {
+    /* P5 Round 1 reviewer-codex HIGH-1 修法 default fallback: no-op (无 marker 可清) */
+  },
   homedir: () => os.homedir(),
 };
 
@@ -230,30 +242,40 @@ export async function archivePlanImpl(
 
   // 4. 预检 cwd 4 态分流（plan codex-handoff-team-alignment-20260518 P1 Step 1.4 / 不变量 5 + D2）
   //
-  // 老 2 态预检：cwd 在 worktree 内一律 reject（只支持 claude builtin EnterWorktree/ExitWorktree
-  // 路径的 caller — caller 走 ExitWorktree 后 cwd 移出 worktree → 通过）。codex / 跨 adapter
-  // caller 没有 builtin EnterWorktree/ExitWorktree → 必撞 reject，archive_plan 对它们完全失效。
+  // **P5 Round 1 reviewer-codex HIGH-1 修法 (cwd valid/invalid 4 态分流完整实现)**：
+  // 旧 impl 用 `inWorktree × marker` 4 态,但 plan §不变量 5 是 `cwd valid/invalid` 4 态。
+  // 旧 impl realpath(callerCwd) 失败直接 return error,从未读 marker → 不变量 5 (b)
+  // "cwd invalid + marker==worktreeReal → release marker 预检通过"完全没实现,违反 P1 phase
+  // 解锁 HIGH-C 根本目的(codex teammate worktree 被外部 git worktree remove 后还能 archive_plan)。
   //
-  // 新 4 态分流（D2）：
-  // - 状态 1 (!inWorktree)                     → 放过 (caller 已 ExitWorktree, 现有 claude builtin 路径不变)
-  // - 状态 2 (inWorktree + marker == worktree) → 放过 (caller 持 mcp enter_worktree marker, codex / 跨 adapter 路径)
-  // - 状态 3 (inWorktree + marker == null)     → reject (走 claude builtin 路径但忘 ExitWorktree)
-  // - 状态 4 (inWorktree + marker != worktree) → reject (marker 指向另一个 worktree, 不允许跨 worktree archive)
+  // **新分流（plan §不变量 5 4 态 + cwd-valid 子分流细化）**：
+  // - cwd valid + !inWorktree + marker null      → 状态 (a):  放过 (claude builtin caller, 已 ExitWorktree)
+  // - cwd valid + inWorktree  + marker==worktree → 放过 + release (codex caller with marker)
+  // - cwd valid + inWorktree  + marker null      → reject (claude builtin caller, 忘 ExitWorktree)
+  // - cwd valid + inWorktree  + marker!=worktree → reject (cross-worktree)
+  // - cwd valid + !inWorktree + marker present   → 状态 (c):  warning + 放过 + release (caller 移走 cwd 但忘 exit_worktree)
+  // - cwd invalid + marker==worktree             → 状态 (b):  放过 + release (worktree 已被外部 git worktree remove,marker 兜底)
+  // - cwd invalid + marker null                  → 状态 (d):  reject (cwd resilience guard rail,session state 丢失)
+  // - cwd invalid + marker present + !=worktree  → 状态 (d):  reject (cwd 失效 + marker 指其他 worktree,confused state)
   //
-  // 状态 4 业务场景：codex teammate 可能并发多个 plan / hand_off_session 起新 worktree 后误 archive
-  // 旧 plan；4 态明确区分让 caller 拿到清晰 hint。
+  // **release marker 时序**：releaseMarkerOnSuccess flag 标记需在 archive 完整成功后调
+  // deps.clearCwdReleaseMarker(),否则 archive 中途失败 marker 残留让 caller 可重试。
   const callerCwd = deps.cwd();
-  let cwdReal: string;
-  let worktreeReal: string;
+  let cwdReal: string | null = null;
+  let cwdValid = true;
   try {
     cwdReal = await deps.realpath(callerCwd);
+  } catch {
+    cwdValid = false;
+  }
+  // worktreeReal 走单独 try/catch — 这里失败是真错（line 179 deps.exists 已确认 worktree 存在,
+  // realpath 仍失败说明 permission / I/O 异常,与 callerCwd 失效语义不同）
+  let worktreeReal: string;
+  try {
     worktreeReal = await deps.realpath(input.worktreePath);
   } catch (e) {
-    return { error: `realpath failed: ${(e as Error).message}` };
+    return { error: `realpath of worktree_path failed: ${(e as Error).message}` };
   }
-  // worktree 子树检测：cwdReal 必须 startWith worktreeReal + sep（或精确等于）
-  const inWorktree =
-    cwdReal === worktreeReal || cwdReal.startsWith(worktreeReal + path.sep);
   const marker = deps.cwdReleaseMarker();
   // marker 也走 realpath 解 symlink 与 worktreeReal 对齐（防 caller marker 写绝对路径但
   // 与 worktreeReal symlink 化解析结果不字面相等导致 false negative）。realpath 失败 fallback
@@ -267,24 +289,63 @@ export async function archivePlanImpl(
     }
   }
 
-  if (inWorktree) {
-    if (markerReal === worktreeReal) {
-      // 状态 2: 放过 (caller 持 mcp enter_worktree marker)
-    } else if (markerReal === null) {
-      // 状态 3: reject (走 claude builtin 路径但忘 ExitWorktree)
-      return {
-        error: `caller cwd ${cwdReal} is inside the worktree ${worktreeReal} but no enter_worktree marker held`,
-        hint: 'mcp tool cannot call ExitWorktree (Claude CLI internal tool). For claude SDK session caller, ExitWorktree first then call archive_plan. For codex / cross-adapter caller, use mcp enter_worktree to acquire the marker before this archive_plan call.',
-      };
+  let releaseMarkerOnSuccess = false;
+
+  if (cwdValid && cwdReal) {
+    // worktree 子树检测：cwdReal 必须 startWith worktreeReal + sep（或精确等于）
+    const inWorktree =
+      cwdReal === worktreeReal || cwdReal.startsWith(worktreeReal + path.sep);
+    if (inWorktree) {
+      if (markerReal === worktreeReal) {
+        // cwd valid + inWorktree + marker==worktree: 放过 (codex caller 持 mcp enter_worktree marker)
+        // archive 完成后 release marker（caller 调 archive 后 marker 已无意义,清掉避免下次复用 stale）
+        releaseMarkerOnSuccess = true;
+      } else if (markerReal === null) {
+        // 状态 3 (旧编号): reject (走 claude builtin 路径但忘 ExitWorktree)
+        return {
+          error: `caller cwd ${cwdReal} is inside the worktree ${worktreeReal} but no enter_worktree marker held`,
+          hint: 'mcp tool cannot call ExitWorktree (Claude CLI internal tool). For claude SDK session caller, ExitWorktree first then call archive_plan. For codex / cross-adapter caller, use mcp enter_worktree to acquire the marker before this archive_plan call.',
+        };
+      } else {
+        // 状态 4 (旧编号): reject (marker 指向另一个 worktree)
+        return {
+          error: `caller cwd inside worktree ${worktreeReal} but holds marker for a different worktree (${markerReal})`,
+          hint: `Cross-worktree archive is not allowed. Either call exit_worktree on the marker's worktree first (to clear the stale marker), or call archive_plan with worktree_path matching the held marker (${markerReal}).`,
+        };
+      }
     } else {
-      // 状态 4: reject (marker 指向另一个 worktree)
+      // cwd valid + !inWorktree
+      if (markerReal !== null) {
+        // 状态 (c) plan §不变量 5: cwd valid + marker present → WARN 但 cwd 优先
+        // caller 持 marker 但 cwd 已移出 worktree,典型场景 caller 手动 cd 出 worktree 但忘 exit_worktree。
+        // 不阻塞 archive,但加 warning 提示并 release marker（archive 后 marker stale）。
+        warnings.push(
+          `cwd ${cwdReal} is outside worktree but enter_worktree marker (${markerReal}) is held — caller likely forgot exit_worktree before changing cwd. Marker will be released after archive succeeds.`,
+        );
+        releaseMarkerOnSuccess = true;
+      }
+      // 状态 (a) plan §不变量 5: cwd valid + marker null + !inWorktree → 直接放过 (claude builtin
+      // caller 已 ExitWorktree, 现有路径不变)。
+    }
+  } else {
+    // cwdValid === false: caller cwd 失效（目录被删 / permission error / 跨 adapter 后 cwd resilience 移除）
+    if (markerReal === worktreeReal) {
+      // 状态 (b) plan §不变量 5: cwd invalid + marker==worktreeReal → release marker, 预检通过。
+      // 典型场景: codex teammate enter_worktree 持 marker → 外部 git worktree remove --force →
+      // cwd 失效但 marker 仍指向被删的 worktree。允许 archive_plan 走完归档动作（git ops 走 mainRepo
+      // 不依赖 callerCwd），并清 marker 避免 session 重启后 stale。
+      releaseMarkerOnSuccess = true;
+    } else {
+      // 状态 (d) plan §不变量 5: cwd invalid + marker null OR marker 不匹配 worktree → ERROR
+      // (cwd resilience guard rail: caller session state 丢失/混乱)
       return {
-        error: `caller cwd inside worktree ${worktreeReal} but holds marker for a different worktree (${markerReal})`,
-        hint: `Cross-worktree archive is not allowed. Either call exit_worktree on the marker's worktree first (to clear the stale marker), or call archive_plan with worktree_path matching the held marker (${markerReal}).`,
+        error: `caller cwd ${callerCwd} is invalid (realpath failed)${markerReal ? ` and marker (${markerReal}) does not match worktree_path (${worktreeReal})` : ' and no enter_worktree marker held'}`,
+        hint: markerReal
+          ? `cwd resilience guard rail: caller cwd was deleted/moved while a stale marker for a different worktree remains. Either call exit_worktree({ worktree_path: '${markerReal}' }) on the held worktree first to clear the stale marker, or call archive_plan with worktree_path matching the marker.`
+          : `cwd resilience guard rail: caller cwd was deleted/moved without an enter_worktree marker fallback. Restart the caller session in a valid working directory before retrying archive_plan, or pass a fresh caller_session_id whose sessionRepo.cwd is valid.`,
       };
     }
   }
-  // 状态 1 (!inWorktree): 直接放过 (caller 已 ExitWorktree, 现有 claude builtin 路径不变)
 
   // 5. 解析 plan 文件路径
   let planFilePath: string;
@@ -678,6 +739,20 @@ export async function archivePlanImpl(
       e as Error,
       'Branch may already be deleted. Worktree was already removed; commit + merge already done.',
     );
+  }
+
+  // P5 Round 1 reviewer-codex HIGH-1 修法 (release marker on archive success):
+  // 4 态分流 step 4 决定 releaseMarkerOnSuccess flag 后,archive 完整跑完所有 git/fs 步骤再 release。
+  // archive 中途任一步失败 (postFfMergeErr / runGit throw) 都已通过 return 短路,marker 保留让 caller
+  // 修复后可重试。release 失败仅 warn 不阻塞 ok return（archive 已成功,marker 残留属轻微 leak）。
+  if (releaseMarkerOnSuccess) {
+    try {
+      await deps.clearCwdReleaseMarker();
+    } catch (e) {
+      warnings.push(
+        `archive succeeded but clearCwdReleaseMarker failed: ${(e as Error).message}. Caller may need to manually clear via exit_worktree or session close.`,
+      );
+    }
   }
 
   return {

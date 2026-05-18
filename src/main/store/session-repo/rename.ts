@@ -209,13 +209,15 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         toId,
       );
     }
-    if (toExists && fromRow.cwd_release_marker) {
+    if (toExists) {
       // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 H1 关键修法 (toExists 分支):
-      // cwd_release_marker 同 codex_sandbox / extra_allow_write 同款 — recoverAndSend /
-      // SDK fallback rename (toExists=true 分支) 时必须从 fromRow 覆盖到 NEW 行,否则
-      // codex teammate mcp enter_worktree 设的 marker 在 fork 后被 NEW 行 createSession
-      // 时写的 NULL「淹没」掉, 后续 archive_plan 预检走「在 worktree 内 + 无 marker」分支
-      // reject (状态 3) — 与 toExists=false INSERT 分支同款修法保证两条 fallback 路径都不丢 marker。
+      // cwd_release_marker 与 permission_mode / codex_sandbox / extra_allow_write / model 行为
+      // **不同** — 那些是 user preference (OLD 未设时保留 NEW 已有偏好),marker 是 transient
+      // session state (worktree 持有标记) 必须无条件按 OLD 覆盖 (P5 Round 1 reviewer-codex MED-2
+      // 修法):OLD null + NEW stale value 时 NEW 应清空 (rename = OLD 接管 NEW 身份,worktree
+      // 持有状态必须以 OLD 为准),否则 codex SDK 隐式 fork 后 stale marker 跟到新 sid 触发
+      // archive_plan 状态 4 (marker != worktree) 误 reject。
+      // 与 toExists=false INSERT 分支同款无条件复制 marker (核心 SQL 已包含此列,binds 直接传)。
       db.prepare(`UPDATE sessions SET cwd_release_marker = ? WHERE id = ?`).run(
         fromRow.cwd_release_marker,
         toId,

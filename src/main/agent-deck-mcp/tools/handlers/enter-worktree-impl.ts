@@ -305,11 +305,13 @@ export async function enterWorktreeImpl(
     deps.setCwdReleaseMarker(input.callerSessionId, worktreePath);
     markerSet = true;
   } catch (e) {
-    // marker 写失败不阻塞 ok return —— worktree 已建好，caller 仍能用 builtin claude
-    // ExitWorktree 收尾。warn 留给 caller log，让 caller 知道 archive_plan 预检 4 态可能走错路径。
+    // P5 Round 1 reviewer-claude MED-1 修法 (comment vs code 对齐):marker 写失败必须 return error
+    // 让 caller 显式处理(silently no-op + ok return 会让 archive_plan 预检 4 态走错路径,更危险)。
+    // P5 Round 1 reviewer-claude INFO-8 修法:hint 加「must pass args.worktree_path」 — marker 没写
+    // exit_worktree 自动反查不到要操作的 worktree,caller 必须显式传 worktree_path 才能清。
     return {
       error: `worktree created but setCwdReleaseMarker failed: ${(e as Error).message}`,
-      hint: `worktree at ${worktreePath} (branch ${branchName}) was successfully created, but the per-session cwd_release_marker DB write failed. archive_plan preflight 4-state dispatch may misclassify this caller as "in worktree but no marker" (reject). Manual recovery: call exit_worktree to clean up the marker state, then retry enter_worktree.`,
+      hint: `worktree at ${worktreePath} (branch ${branchName}) was successfully created, but the per-session cwd_release_marker DB write failed. archive_plan preflight 4-state dispatch will misclassify this caller as "in worktree but no marker" (reject). Manual recovery: call exit_worktree({ action: 'remove', worktree_path: '${worktreePath}' }) explicitly (must pass args.worktree_path because marker was never set so auto-resolution can't find it), then retry enter_worktree. Marker write failure usually indicates SQLite locked / corrupted DB / read-only filesystem.`,
     };
   }
 
