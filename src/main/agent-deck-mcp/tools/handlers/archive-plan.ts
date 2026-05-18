@@ -63,12 +63,19 @@ export interface ArchivePlanHandlerDeps {
   shutdownTeammates?: (callerSessionId: string) => Promise<ShutdownTeammatesResult>;
 }
 
-/** 与 hand-off-session.ts 同款：从 caller session id 反查 cwd 构造 implDeps 子集。 */
+/**
+ * 与 hand-off-session.ts 同款：从 caller session id 反查 cwd + cwdReleaseMarker 构造 implDeps 子集。
+ *
+ * plan codex-handoff-team-alignment-20260518 P1 Step 1.4 扩展：除注入 cwd 外，同时注入
+ * cwdReleaseMarker fetcher 让 impl 走 4 态分流（详 archive-plan-impl §step 4）。两个字段都
+ * 从同一个 sessionRepo.get(callerSid) row 派生（一次 DB read 复用，避免 N+1）。
+ */
 function resolveCallerCwdDeps(callerSessionId: string): ArchivePlanDeps {
   if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return {};
   // CHANGELOG_99 R1 fix MED-1:sessionRepo.get 包 try/catch fail-safe (与 archive 段 try/catch
   // 对称)。DB 异常 (test 未 init / 生产 SQLite locked / FK conflict) 时返回空 deps,让 impl
-  // 退化到 DEFAULT_DEPS.cwd = process.cwd() 兜底,而非 handler 直接 crash。
+  // 退化到 DEFAULT_DEPS.cwd = process.cwd() + cwdReleaseMarker = () => null 兜底,而非 handler
+  // 直接 crash。
   let row: ReturnType<typeof sessionRepo.get> = null;
   try {
     row = sessionRepo.get(callerSessionId);
@@ -77,21 +84,34 @@ function resolveCallerCwdDeps(callerSessionId: string): ArchivePlanDeps {
   }
   if (!row?.cwd) return {};
   const cwd = row.cwd;
-  return { cwd: () => cwd };
+  // plan codex-handoff-team-alignment-20260518 P1 Step 1.4：marker 同 cwd 一次 row read 注入,
+  // 让 impl 4 态分流认得跨 adapter 路径(状态 2 放过)。marker 为 null 时 impl 走「无 marker」
+  // 分支(状态 3 reject if inWorktree)。
+  const marker = row.cwdReleaseMarker ?? null;
+  return { cwd: () => cwd, cwdReleaseMarker: () => marker };
 }
 
 /**
- * 合并 caller 显式 implDeps 与 sessionRepo 反查的 callerCwd 注入。
- * 优先级（高→低）：caller 显式 implDeps.cwd > sessionRepo 反查 > impl DEFAULT_DEPS。
+ * 合并 caller 显式 implDeps 与 sessionRepo 反查的 callerCwd + cwdReleaseMarker 注入。
+ * 优先级（高→低）：caller 显式 implDeps.cwd / cwdReleaseMarker > sessionRepo 反查 > impl DEFAULT_DEPS。
+ *
+ * plan codex-handoff-team-alignment-20260518 P1 Step 1.4：merge 同时处理 cwd 和 cwdReleaseMarker
+ * 两个字段独立优先级 — caller 可只覆盖其中一个（如 unit test mock cwd 不 mock marker → marker
+ * 从 sessionRepo 反查；mock marker 不 mock cwd → cwd 从 sessionRepo 反查），互不耦合。
  */
 function mergeCallerCwd(
   callerImplDeps: ArchivePlanDeps | undefined,
   callerSessionId: string,
 ): ArchivePlanDeps | undefined {
-  if (callerImplDeps?.cwd) return callerImplDeps;
-  const callerCwdInjection = resolveCallerCwdDeps(callerSessionId);
-  if (!callerCwdInjection.cwd) return callerImplDeps;
-  return { ...callerImplDeps, ...callerCwdInjection };
+  // 如 caller 同时显式传 cwd + cwdReleaseMarker → 直接用，不再反查
+  if (callerImplDeps?.cwd && callerImplDeps?.cwdReleaseMarker) return callerImplDeps;
+  const sessionInjection = resolveCallerCwdDeps(callerSessionId);
+  if (!sessionInjection.cwd && !sessionInjection.cwdReleaseMarker) return callerImplDeps;
+  // caller 显式字段优先（cwd / cwdReleaseMarker 各自独立），sessionRepo 反查仅填缺位
+  return {
+    ...sessionInjection,
+    ...callerImplDeps,
+  };
 }
 
 export const archivePlanHandler = withMcpGuard(

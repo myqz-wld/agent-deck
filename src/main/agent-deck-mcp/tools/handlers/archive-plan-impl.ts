@@ -120,6 +120,13 @@ export interface ArchivePlanDeps {
   realpath?: (p: string) => Promise<string>;
   /** 当前进程 cwd。 */
   cwd?: () => string;
+  /**
+   * plan codex-handoff-team-alignment-20260518 P1 Step 1.4：caller sessionRepo.cwdReleaseMarker
+   * 反查 seam。Handler 注入 `() => sessionRepo.get(callerSid)?.cwdReleaseMarker ?? null`,
+   * impl 用于 4 态 cwd 预检分流（详 archive-plan-impl §step 4）。
+   * 默认 fallback `() => null`(impl 走「未持有 marker」分支,即原 2 态行为)。
+   */
+  cwdReleaseMarker?: () => string | null;
   /** $HOME 路径。 */
   homedir?: () => string;
 }
@@ -146,6 +153,7 @@ const DEFAULT_DEPS: Required<ArchivePlanDeps> = {
   },
   realpath: async (p) => fs.realpath(p),
   cwd: () => process.cwd(),
+  cwdReleaseMarker: () => null,
   homedir: () => os.homedir(),
 };
 
@@ -220,7 +228,20 @@ export async function archivePlanImpl(
     };
   }
 
-  // 4. 预检 cwd 不在 worktree 内
+  // 4. 预检 cwd 4 态分流（plan codex-handoff-team-alignment-20260518 P1 Step 1.4 / 不变量 5 + D2）
+  //
+  // 老 2 态预检：cwd 在 worktree 内一律 reject（只支持 claude builtin EnterWorktree/ExitWorktree
+  // 路径的 caller — caller 走 ExitWorktree 后 cwd 移出 worktree → 通过）。codex / 跨 adapter
+  // caller 没有 builtin EnterWorktree/ExitWorktree → 必撞 reject，archive_plan 对它们完全失效。
+  //
+  // 新 4 态分流（D2）：
+  // - 状态 1 (!inWorktree)                     → 放过 (caller 已 ExitWorktree, 现有 claude builtin 路径不变)
+  // - 状态 2 (inWorktree + marker == worktree) → 放过 (caller 持 mcp enter_worktree marker, codex / 跨 adapter 路径)
+  // - 状态 3 (inWorktree + marker == null)     → reject (走 claude builtin 路径但忘 ExitWorktree)
+  // - 状态 4 (inWorktree + marker != worktree) → reject (marker 指向另一个 worktree, 不允许跨 worktree archive)
+  //
+  // 状态 4 业务场景：codex teammate 可能并发多个 plan / hand_off_session 起新 worktree 后误 archive
+  // 旧 plan；4 态明确区分让 caller 拿到清晰 hint。
   const callerCwd = deps.cwd();
   let cwdReal: string;
   let worktreeReal: string;
@@ -231,12 +252,39 @@ export async function archivePlanImpl(
     return { error: `realpath failed: ${(e as Error).message}` };
   }
   // worktree 子树检测：cwdReal 必须 startWith worktreeReal + sep（或精确等于）
-  if (cwdReal === worktreeReal || cwdReal.startsWith(worktreeReal + path.sep)) {
-    return {
-      error: `caller cwd ${cwdReal} is inside the worktree ${worktreeReal}`,
-      hint: 'mcp tool cannot call ExitWorktree (Claude CLI internal tool). Caller must ExitWorktree first (so cwd is outside the worktree), then call archive_plan again.',
-    };
+  const inWorktree =
+    cwdReal === worktreeReal || cwdReal.startsWith(worktreeReal + path.sep);
+  const marker = deps.cwdReleaseMarker();
+  // marker 也走 realpath 解 symlink 与 worktreeReal 对齐（防 caller marker 写绝对路径但
+  // 与 worktreeReal symlink 化解析结果不字面相等导致 false negative）。realpath 失败 fallback
+  // 原 marker（不抛），与 cwd 失败处理对齐 — 极端 edge case 退化为字面比较。
+  let markerReal: string | null = marker;
+  if (marker) {
+    try {
+      markerReal = await deps.realpath(marker);
+    } catch {
+      markerReal = marker;
+    }
   }
+
+  if (inWorktree) {
+    if (markerReal === worktreeReal) {
+      // 状态 2: 放过 (caller 持 mcp enter_worktree marker)
+    } else if (markerReal === null) {
+      // 状态 3: reject (走 claude builtin 路径但忘 ExitWorktree)
+      return {
+        error: `caller cwd ${cwdReal} is inside the worktree ${worktreeReal} but no enter_worktree marker held`,
+        hint: 'mcp tool cannot call ExitWorktree (Claude CLI internal tool). For claude SDK session caller, ExitWorktree first then call archive_plan. For codex / cross-adapter caller, use mcp enter_worktree to acquire the marker before this archive_plan call.',
+      };
+    } else {
+      // 状态 4: reject (marker 指向另一个 worktree)
+      return {
+        error: `caller cwd inside worktree ${worktreeReal} but holds marker for a different worktree (${markerReal})`,
+        hint: `Cross-worktree archive is not allowed. Either call exit_worktree on the marker's worktree first (to clear the stale marker), or call archive_plan with worktree_path matching the held marker (${markerReal}).`,
+      };
+    }
+  }
+  // 状态 1 (!inWorktree): 直接放过 (caller 已 ExitWorktree, 现有 claude builtin 路径不变)
 
   // 5. 解析 plan 文件路径
   let planFilePath: string;
