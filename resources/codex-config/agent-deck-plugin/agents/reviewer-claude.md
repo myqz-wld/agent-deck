@@ -108,13 +108,15 @@ skip(可选):
 EOF
 
 # claude binary 从 env var 取,严禁 hardcode(详 §使用形态 §claude binary path)
-PATH="$(dirname "$AGENT_DECK_CLAUDE_PATH"):$PATH" \
+# claude CLI **没有 `-C <CWD>` 参数**(P5 Round 1 reviewer-codex HIGH-1 实证 — claude --help 无 -C);
+# wrapper cwd 通过 `cd <CWD> &&` 切目录后再起 claude(子 shell 不影响 codex sandbox 进程 cwd)。
+( cd "<CWD>" && \
+  PATH="$(dirname "$AGENT_DECK_CLAUDE_PATH"):$PATH" \
   "$AGENT_DECK_CLAUDE_PATH" \
     -p \
     --permission-mode bypassPermissions \
     --effort xhigh \
-    -C "<CWD>" \
-    < "$IN" > "$OUT" 2> "$ERR"
+    < "$IN" > "$OUT" 2> "$ERR" )
 echo "EXIT=$?" >&2
 ```
 
@@ -122,12 +124,12 @@ echo "EXIT=$?" >&2
 
 ### 关键参数(一个都不能漏)
 
+- `( cd "<CWD>" && ... )`:子 shell cd 进 worktree 让 claude 内部 Bash/Read 默认 cwd 在 worktree 内(claude CLI 无 `-C` 参数,实证 P5 Round 1 codex HIGH-1)。worktree 前缀不换;详 §核心纪律 第 9 条
 - `PATH="$(dirname "$AGENT_DECK_CLAUDE_PATH"):$PATH"`:让 claude 内部找到 node binary(claude 是 node script,需 node 在 PATH);env var dir 即 node binary 所在目录(打包内置 SDK 自带 node)
 - `"$AGENT_DECK_CLAUDE_PATH"`:claude binary 绝对路径(envOverrideExtra 注入,见 §使用形态)
 - `-p`:print mode oneshot 退出,无 interactive
 - `--permission-mode bypassPermissions`:**spike4 实证必需** —— oneshot 模式 claude 内部工具撞默认 default 模式会试图弹审批 SDK 无 UI 挂死;bypassPermissions 让 claude 跳过工具审批 gate(双层 sandbox 兜底:外层 codex sandbox-exec workspace-write 仍限 fs 写权限到 worktree + additionalDirectories,bypassPermissions 不能跑出 sandbox)
 - `--effort xhigh`:最高档 reasoning effort(review 精度 / 弱断言降级判断的关键)
-- `-C "<CWD>"`:wrapper cwd(worktree 前缀不换;详 §核心纪律 第 9 条)
 - `< "$IN"`:长 prompt 走 stdin 避 argv 长度 / shell 转义陷阱
 - `> "$OUT"`:答案抓独立文件
 - `2> "$ERR"`:stderr 单独捕获(失败兜底「cat $ERR 末 20 行」可执行)
