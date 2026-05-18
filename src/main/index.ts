@@ -28,7 +28,7 @@ import { routeEventToNotification } from './notify/event-router';
 import { notifyUser } from './notify/visual';
 import { stopAllSounds } from './notify/sound';
 import { handleCliArgv } from './cli';
-import { setAgentDeckMcpTokenEnv } from './codex-config/agent-deck-mcp-injector';
+import { AGENT_DECK_MCP_TOKEN_ENV } from './codex-config/agent-deck-mcp-injector';
 // NOTE(REVIEW_<X>)：以下两个 codex-config 模块**必须**走 static import，不要改回 dynamic import。
 // 同一模块在多处 dynamic import（index.ts × 2 + ipc/settings.ts × 3）会让 vite SSR/rollup 把模块代码 inline
 // 进主 index.js，独立 chunk 文件只剩 require 空壳没有 export → 运行时 dynamic import 拿到空对象 →
@@ -143,12 +143,20 @@ async function bootstrap(): Promise<void> {
   // app.route() 会抛 FST_ERR_INSTANCE_ALREADY_LISTENING（lib/route.js:208
   // throwIfAlreadyStarted）→ MCP HTTP /mcp 完全不挂 → codex / 外部 MCP client 连不上。
   // 详见 REVIEW_27 / CHANGELOG_70（cdb01ae 引入时位置错了，本次前移收口）。
-  // - 把 mcpServerToken 设进 process.env，让后续 spawn 的 codex 子进程继承后能 readEnv
-  //   AGENT_DECK_MCP_TOKEN（agent-deck-mcp-injector 写入 codex SDK config 的
-  //   bearer_token_env_var = 'AGENT_DECK_MCP_TOKEN'）
+  // - 把 mcpServerToken 设进 process.env 当全局 fallback token（plan codex-handoff-team-alignment-20260518
+  //   D1 §(c) 共存策略）：per-session codex teammate 通过 envOverride 注入自己的 session token
+  //   走 mcpSessionTokenMap 反查 sid（sdk-bridge ensureCodex per-session 路径）；外部 codex CLI /
+  //   非应用 spawn 路径继承全局 process.env.AGENT_DECK_MCP_TOKEN 走全局 fallback token →
+  //   HookServer.checkMcpAuth 走 fallbackToGlobal=true 路径让 handler 视为 external caller
+  //   （EXTERNAL_CALLER_ALLOWED 表只允许 list/get,spawn/send/shutdown 全 deny）。
+  //   一次性设,运行时不再 mutate（删 setAgentDeckMcpTokenEnv setter,P2 Step 2.6）。
   // - 双开关同 ON 时挂 HTTP /mcp 路由（StreamableHTTPServerTransport），让 codex /
   //   外部 MCP client 能连
-  setAgentDeckMcpTokenEnv(settings.mcpServerToken ?? null);
+  if (settings.mcpServerToken && settings.mcpServerToken.length > 0) {
+    process.env[AGENT_DECK_MCP_TOKEN_ENV] = settings.mcpServerToken;
+  } else {
+    delete process.env[AGENT_DECK_MCP_TOKEN_ENV];
+  }
   if (settings.enableAgentDeckMcp && settings.mcpHttpEnabled) {
     try {
       const { registerAgentDeckMcpHttpRoutes } = await import(
