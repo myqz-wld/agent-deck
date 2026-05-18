@@ -8,7 +8,9 @@ import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import {
   buildAgentDeckMcpConfigForCodex,
   mergeCodexConfig,
+  AGENT_DECK_MCP_TOKEN_ENV,
 } from '@main/codex-config/agent-deck-mcp-injector';
+import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 // CHANGELOG_52 Step 4a-4c：拆 class 完成。本目录（sdk-bridge/）含 4 sub-module + index.ts (facade)。
 //
 // **TS module resolution 假设**（与 claude sdk-bridge 同款）：moduleResolution: node
@@ -42,6 +44,24 @@ import {
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
 
 /**
+ * 把 process.env 转成 Record<string, string>（过滤 undefined 值），让 codex SDK
+ * `new Codex({env})` 能拿到一个全 string 字段的 env 表（plan codex-handoff-team-alignment-20260518
+ * P2 Step 2.5b helper）。
+ *
+ * 背景：Node.js `process.env` 类型是 `Record<string, string | undefined>`，TS 严格模式下
+ * 不能直接 spread 到 `Record<string, string>`。codex SDK 0.120.0 type 注释明示「env 传值后
+ * 子进程不再继承 process.env」，所以必须手工 spread + 过滤 undefined 拷贝出快照,再叠加
+ * per-session AGENT_DECK_MCP_TOKEN（spike 2 §2 codex SDK 内部已用同款过滤逻辑 line 222-234）。
+ */
+function snapshotProcessEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/**
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
  *
  * - 无 canUseTool / AskUserQuestion / ExitPlanMode（codex SDK 不支持，capabilities 已 false）
@@ -53,7 +73,26 @@ export type { CodexSessionHandle, CodexBridgeOptions } from './types';
 export class CodexSdkBridge {
   /** key = 真实 thread_id（拿到前用 tempKey） */
   private sessions = new Map<string, InternalSession>();
-  private codex: Codex | null = null;
+  /**
+   * Per-session Codex SDK 实例（plan codex-handoff-team-alignment-20260518 P2 Step 2.5a 字段重组）。
+   *
+   * 修前 single `private codex: Codex | null` 给所有 codex teammate 共享，子进程 envOverride
+   * 复用同一份全局 token，应用层无法区分「这条 MCP 请求来自哪个 codex teammate」（HIGH-1
+   * caller_session_id 透传困境）。
+   *
+   * 修后 per-session Map：每个 codex live session 独立 new Codex({env: {...process.env,
+   * AGENT_DECK_MCP_TOKEN: <session-token>}})，token 由 mcpSessionTokenMap.allocate 在
+   * createSession 起始时分配（Step 2.5c sid 时序），子进程通过 envOverride 拿到自己的 token，
+   * agent-deck MCP server `/mcp` 路由 `request.raw.auth` 反查 token map 得到真正 caller sid。
+   *
+   * Sub-step 2.5d closeSession 同步 delete entry + release token；Sub-step 2.5e
+   * setCodexCliPath 路径变更时 clear 整 Map（已 spawn 的 codex 子进程不受影响 —
+   * spike 2 §1 实证 envOverride 已 frozen 拷贝到子进程 env）。
+   *
+   * `codex-instance-pool.ts` 仅服务 oneshot caller（summarizer-runner / handoff-runner），
+   * 不需要 per-session token，沿用全局 process.env 路径，与本 Map 双轨独立维护（plan §M5）。
+   */
+  private codexBySession: Map<string, Codex> = new Map();
   /**
    * symmetry-plan P2 HIGH-A：与 claude `recovering` Map 同模式 — 单飞 Map 覆盖
    * `restartWithCodexSandbox` 整段副作用窗口（close + DB write + createSession）。
@@ -117,12 +156,17 @@ export class CodexSdkBridge {
   }
 
   /**
-   * 设置面板「Codex 二进制路径」变更：清掉 Codex 实例，下次 createSession 重建。
+   * 设置面板「Codex 二进制路径」变更：清掉所有 Codex 实例，下次 createSession 重建。
    *
    * R37 P1 Step 1.2 (G)：删 `private codexCliPath` field — path 实际从 `settingsStore.get('codexCliPath')`
    * 同步读（IPC settingsStore.set 是 setCodexCliPath 的前置步骤），不需要 instance field 镜像；
-   * setCodexCliPath 仅作 invalidation hook（清 this.codex 让下次 ensureCodex 重建 + 调 pool
+   * setCodexCliPath 仅作 invalidation hook（清 codexBySession Map 让下次 ensureCodex 重建 + 调 pool
    * invalidate 让两个 oneshot runner 也下次重建）。
+   *
+   * **plan codex-handoff-team-alignment-20260518 P2 Step 2.5e**：从清单 `this.codex = null`
+   * 改成清整 codexBySession Map（per-session 实例字段重组后所有 codex live session 各持一个）。
+   * 已 spawn 中的 codex 子进程不受影响（spike 2 §1 实证 envOverride 已 frozen 拷贝到子进程 env，
+   * Map 清空只让下次 ensureCodex 重建实例 — 已跑的子进程仍用旧二进制 + 旧 token）。
    *
    * 已存在的 Thread 实例继续用旧 codex 配置（codex 实例只在 spawn 子进程时被读到，旧 thread
    * 下次 runStreamed 时会用旧 path；新建会话才用新 path）。可以接受：用户改 path 通常不需要
@@ -130,14 +174,28 @@ export class CodexSdkBridge {
    */
   setCodexCliPath(_path: string | null): void {
     // 注意：不再持 instance field，path 实际从 settingsStore.get 读。本方法仅作 invalidation hook
-    this.codex = null;
+    this.codexBySession.clear();
     // R37 P1 Step 1.2 (G)：同步 invalidate oneshot pool，让 summarizer-runner / handoff-runner
     // 下次 call 也用新 path 重建（修前 3 处独立 cache，path 改要等各自 path 比较 miss 才同步）
     invalidateCodexInstance();
   }
 
-  private async ensureCodex(): Promise<Codex> {
-    if (this.codex) return this.codex;
+  /**
+   * 拿（或新建）指定 session 的 Codex SDK 实例（plan P2 Step 2.5b signature 改造）。
+   *
+   * 修前 `ensureCodex(): Promise<Codex>` 无参数 + 共享单实例。修后 `(sessionId, sessionToken)`
+   * 双参数 + per-session Map cache：命中 return；未命中 new Codex 时 envOverride 注入
+   * `{...process.env, AGENT_DECK_MCP_TOKEN: sessionToken}` — codex SDK type 注释明示
+   * 「When provided, the SDK will not inherit variables from process.env」，所以必须手工
+   * spread `process.env`（snapshotProcessEnv 过滤 undefined 值）让 codex CLI 子进程仍能拿到
+   * PATH / HOME 等基础 env，再加上 per-session token。
+   *
+   * Map 命中后**不**校验 token 一致性 — caller（createSession）保证 sessionId 内 token 不变
+   * （Step 2.5c sid 时序：allocate 一次后 token frozen 直到 close）。
+   */
+  private async ensureCodex(sessionId: string, sessionToken: string): Promise<Codex> {
+    const cached = this.codexBySession.get(sessionId);
+    if (cached) return cached;
     const sdk = await loadCodexSdk();
     // 优先级：用户在设置面板填的 codexCliPath（可指向自装版本）> 打包后内置的 unpacked 二进制
     // > SDK 自己 resolve（dev 模式正常，打包后会拼出 app.asar 内路径导致 spawn ENOTDIR，见
@@ -148,20 +206,49 @@ export class CodexSdkBridge {
     // CHANGELOG_<X> R2 / B'4 + R1.A5 + R1.D7：自动注入 agent-deck MCP server 配置
     // 给 codex SDK，让 codex CLI 子进程 spawn 时通过 --config mcp_servers.agent-deck.url=...
     // 连接到本应用 HookServer /mcp 路由（HTTP transport）。bearer token 走 env var
-    // 间接引用（AGENT_DECK_MCP_TOKEN 由 main bootstrap 设进 process.env，子进程继承）。
+    // 间接引用（AGENT_DECK_MCP_TOKEN 由本 ensureCodex 通过 envOverride 注入子进程,plan P2 Step 2.5b
+    // per-session 路径替代修前 main bootstrap 设全局 process.env 路径）。
     // 不满足注入条件（设置 OFF / hookServer 未启 / token 未生成）→ 返回 null，
     // codex 不挂 agent-deck server（其他用户手配 mcp_servers 段不受影响，走 ~/.codex/config.toml 持久化）
     const settings = settingsStore.getAll();
     const agentDeckMcpConfig = buildAgentDeckMcpConfigForCodex(settings, this.opts.hookServer ?? null);
     const codexConfig = mergeCodexConfig(null, agentDeckMcpConfig);
     if (agentDeckMcpConfig) {
-      console.log('[codex-bridge] agent-deck MCP server config injected (HTTP transport)');
+      console.log(`[codex-bridge] agent-deck MCP server config injected (HTTP transport, sid=${sessionId})`);
     }
-    this.codex = new sdk.Codex({
+    // codex SDK 0.120.0 type 注释:env 传值后子进程不再继承 process.env(spike 2 §2 line 222-234
+    // 实证 envOverride 优先 + 绕过 process.env fallback)。所以必须手工 spread process.env 过滤
+    // undefined 值,再叠加 per-session AGENT_DECK_MCP_TOKEN 让子进程拿到完整 env。
+    const envOverride: Record<string, string> = snapshotProcessEnv();
+    envOverride[AGENT_DECK_MCP_TOKEN_ENV] = sessionToken;
+    const codex = new sdk.Codex({
       ...(overridePath ? { codexPathOverride: overridePath } : {}),
       ...(codexConfig ? { config: codexConfig } : {}),
+      env: envOverride,
     });
-    return this.codex;
+    this.codexBySession.set(sessionId, codex);
+    return codex;
+  }
+
+  /**
+   * 把指定 session 的 Codex 实例 Map key 从 oldId 改到 newId（plan P2 Step 2.5 Sub-step 2.5d
+   * 同款语义,plan §不变量 7 / Step 2.8 调用入口）。
+   *
+   * 调用契约：必须由 `sessionManager.renameSdkSession` 函数体统一调（Step 2.8 接入），不允许
+   * 散调（thread-loop / sdk-bridge recoverer 各自调会漏一处）。token map 同步 rename 由
+   * sessionManager 统一管，本 method 只动 codexBySession Map。
+   *
+   * 边角处理:
+   * - oldId 不在 Map(claude adapter / 已 release / never allocated)→ 静默 no-op
+   * - newId 已经在 Map(理论不应发生:rename 前 newId 是新 thread id 不可能 already-allocated)
+   *   → 仍 no-op,保留 newId 现 entry,不覆盖(防丢已 spawn 子进程引用)
+   */
+  renameCodexInstance(oldId: string, newId: string): void {
+    const codex = this.codexBySession.get(oldId);
+    if (codex === undefined) return;
+    if (this.codexBySession.has(newId)) return;
+    this.codexBySession.delete(oldId);
+    this.codexBySession.set(newId, codex);
   }
 
   async createSession(opts: {
@@ -209,7 +296,18 @@ export class CodexSdkBridge {
       );
     }
 
-    const codex = await this.ensureCodex();
+    // plan codex-handoff-team-alignment-20260518 P2 Step 2.5c sid 时序（v4 H2 关键修法）：
+    // 必须先确定 sessionId 再 allocate token 起 Codex 子进程,这样子进程 envOverride 拿到
+    // per-session token,后续 codex CLI MCP client 调 /mcp 时 HookServer.checkMcpAuth 反查
+    // mcpSessionTokenMap.get(token) 才能命中拿到真正 caller sid。
+    //
+    // - resume 路径:initialSid = opts.resume(已知 thread id)
+    // - 新建路径:initialSid = 提前生成的 tempKey,用作 codex 实例 + sessions Map key,等
+    //   threadLoop.startNewThreadAndAwaitId 拿到 realId 后通过 sessionManager.renameSdkSession
+    //   函数体(Step 2.8)统一 rename codexBySession Map + token map(不变量 7)
+    const initialSid = opts.resume ?? randomUUID();
+    const sessionToken = mcpSessionTokenMap.allocate(initialSid);
+    const codex = await this.ensureCodex(initialSid, sessionToken);
     const cwd = resolveSpawnCwd(opts);
     // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
     // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
@@ -407,8 +505,12 @@ export class CodexSdkBridge {
       return { sessionId: resumedId };
     }
 
-    // 新建路径：先用 tempKey 占位，等 thread.started 事件拿到 realId 后 rename
-    const tempKey = randomUUID();
+    // 新建路径：用 initialSid（顶部 allocate 出的 tempKey）占位，等 thread.started 事件拿到
+    // realId 后 rename。plan P2 Step 2.5c：initialSid = randomUUID() 已经在顶部分配 + allocate
+    // 过 token,这里直接复用,不再二次 randomUUID(避免 token / Codex 实例 / sessions Map 三处 key
+    // 不一致)。realId 与 initialSid 不同时,sessionManager.renameSdkSession 函数体内(Step 2.8)
+    // 统一 rename codexBySession Map + token map（不变量 7）。
+    const tempKey = initialSid;
     this.sessions.set(tempKey, internal);
     const realId = await this.threadLoop.startNewThreadAndAwaitId(
       internal,
@@ -556,6 +658,18 @@ export class CodexSdkBridge {
     sessionManager.releaseSdkClaim(sessionId);
     if (internal.threadId && internal.threadId !== sessionId) {
       sessionManager.releaseSdkClaim(internal.threadId);
+    }
+
+    // plan codex-handoff-team-alignment-20260518 P2 Sub-step 2.5d：清 per-session
+    // codexBySession Map entry + 释放 token map entry。覆盖两个 key:sessionId 与 internal.threadId
+    // 不一致时(例如新建路径 thread-loop firstId 拿到 realId !== tempKey 的瞬间已经 rename 过
+    // codexBySession + token map,这里 sessionId == realId / threadId == realId 同款,只命中一次
+    // 不会双删;但保险起见两条都跑同款 noop 边角)。
+    this.codexBySession.delete(sessionId);
+    mcpSessionTokenMap.release(sessionId);
+    if (internal.threadId && internal.threadId !== sessionId) {
+      this.codexBySession.delete(internal.threadId);
+      mcpSessionTokenMap.release(internal.threadId);
     }
   }
 
