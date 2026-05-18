@@ -49,7 +49,19 @@ class CodexCliAdapter implements AgentAdapter {
     canAcceptAttachments: true,
   };
 
-  private bridge: CodexSdkBridge | null = null;
+  /**
+   * codex bridge 实例。
+   *
+   * **可见性**（plan codex-handoff-team-alignment-20260518 P2 Step 2.8）：从 `private` 改为
+   * 默认（class 内部字段无访问修饰符 = public）让 main bootstrap 注入的
+   * `setSessionRenameHookFn` 能 cast access `adapter.bridge?.renameCodexInstance` 同步 rename
+   * codexBySession Map key(不变量 7:sessionManager.renameSdkSession 函数体内统一调,
+   * 与 sdkOwned / token map / sessions Map / per-session Codex 实例 Map 四处 key 同步)。
+   *
+   * 不加进 AgentAdapter interface(避免 claude adapter 也得 noop 实现一份污染契约) —
+   * codex 是唯一需要 per-session bridge instance rename 的 adapter,通过 cast 探测特化。
+   */
+  bridge: CodexSdkBridge | null = null;
 
   async init(ctx: AdapterContext): Promise<void> {
     // CHANGELOG_<X> R2 / B'4：把 ctx.hookServer 传给 bridge，让 ensureCodex 在 spawn

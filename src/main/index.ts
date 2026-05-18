@@ -17,7 +17,7 @@ import { applyClaudeSettingsEnv } from './adapters/claude-code/settings-env';
 import { codexCliAdapter } from './adapters/codex-cli';
 import { aiderAdapter } from './adapters/aider';
 import { genericPtyAdapter } from './adapters/generic-pty';
-import { sessionManager, setSessionCloseFn } from './session/manager';
+import { sessionManager, setSessionCloseFn, setSessionRenameHookFn } from './session/manager';
 import { LifecycleScheduler, setLifecycleScheduler } from './session/lifecycle-scheduler';
 import {
   TeamLifecycleScheduler,
@@ -136,6 +136,24 @@ async function bootstrap(): Promise<void> {
     const adapter = adapterRegistry.get(agentId);
     if (!adapter?.closeSession) return;
     await adapter.closeSession(sessionId);
+  });
+
+  // 5.1.1 plan codex-handoff-team-alignment-20260518 P2 Step 2.8 / 不变量 7：注入 rename hook
+  // 让 sessionManager.renameSdkSession 函数体内统一调到 codex bridge.renameCodexInstance,
+  // 同步 rename codexBySession Map key(token map / sessions Map / sdkOwned 三处 key 已经
+  // 在 renameSdkSession 内同步迁移,本 hook 补 codex bridge per-session 实例 Map 第四处)。
+  // claude bridge 不需要 hook(in-process MCP transport closure override,不消费 token map),
+  // 命中 agentId === 'claude-code' 时 noop 退出。
+  setSessionRenameHookFn((agentId, fromId, toId) => {
+    if (agentId !== 'codex-cli') return;
+    const adapter = adapterRegistry.get(agentId);
+    // adapter.bridge 不在 AdapterCapabilities 标准接口上,需类型探测。codex adapter 暴露
+    // codexCliBridge 实例(详 src/main/adapters/codex-cli/index.ts setup),里面有 renameCodexInstance
+    // public method(plan P2 Step 2.5)。
+    const bridge = (adapter as { bridge?: { renameCodexInstance?: (a: string, b: string) => void } })
+      ?.bridge;
+    if (!bridge?.renameCodexInstance) return;
+    bridge.renameCodexInstance(fromId, toId);
   });
 
   // 5.5. R2 / B'4 + R1.A5 + R1.D7：Agent Deck MCP server 自动启停（PRE_LISTEN 阶段）
