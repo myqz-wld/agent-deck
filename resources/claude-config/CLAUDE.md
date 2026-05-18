@@ -7,14 +7,8 @@
 > 通用约定见 `~/.claude/CLAUDE.md`（CLI 按 user → project → app 顺序加载到 system prompt）。本文件只补 agent-deck 应用专属差异，不复制 user CLAUDE.md。
 >
 > **加载范围**：仅 `settingSources: ['user','project','local']` 的交互式 SDK 会话保证 user CLAUDE.md 加载。`settingSources: []` 的内部 oneshot（如间歇总结）**不**依赖 user CLAUDE.md 通用约定，需要时由调用方注入最小规则。
->
-> **复杂 plan 流程（v2 RFC + spike + Deep-Review 前置）详 user CLAUDE.md `§复杂 plan / §Step 0 RFC 前置 / §Step 0.5 Spike 前置 / §Step 1.5 Deep-Review`**（plan codex-handoff-team-alignment-20260518 P6 升级，2026-05-19）。
 
 ## 应用环境差异（Δ user CLAUDE.md）
-
-### §应用环境 RFC / spike 差异
-
-当前与 user CLAUDE.md §RFC 前置 / §spike 前置 同款,本应用环境无 SDK 会话专属差异。
 
 ### 协议覆盖：teammate 协作走 mcp tool
 
@@ -22,7 +16,7 @@
 
 ### reviewer-codex 失败 → 应用环境额外有「合规兜底」分支
 
-应用环境跑 `deep-code-review` SKILL 时若 reviewer-codex teammate 失败（CLI 不可用 / OAuth 过期 / Bash 卡审批被拒 / timeout），可走「合规兜底（仍异构）」：lead 自己 Bash `run_in_background: true` 起外部 codex CLI（按 reviewer-codex.md §codex CLI 调用模板填模板，lead 自己执行而非 wrapper teammate），与 reviewer-claude teammate 仍构成 gpt-5.5 vs Opus 4.7 异构对。
+应用环境跑 `deep-review` SKILL 时若 reviewer-codex teammate 失败（CLI 不可用 / OAuth 过期 / Bash 卡审批被拒 / timeout），可走「合规兜底（仍异构）」：lead 自己 Bash `run_in_background: true` 起外部 codex CLI（按 reviewer-codex.md §codex CLI 调用模板填模板，lead 自己执行而非 wrapper teammate），与 reviewer-claude teammate 仍构成 gpt-5.5 vs Opus 4.7 异构对。
 
 > 通用 CLAUDE.md `§reviewer-codex 失败兜底` 只走「严禁同源化降级 / 提示用户决策」一条；本应用环境额外有上述 SKILL 内合规兜底分支。详 SKILL.md `§失败兜底` 表第 1 行。
 
@@ -82,21 +76,21 @@ teammate 端协议约束（`[from <name> @ <adapter>][msg <id>][sid <senderSid>]
 reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <senderSid>]` 双锚点 wire prefix（典型：lead context 重置后用裸文本 ping / 第三方 dispatch 路径丢前缀），按下面 fallback 处理：
 
 1. reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>][sid <senderSessionId>] wire prefix，本 reply 没法挂 reply_to_message_id 进 lead 对话链；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
-2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 按以下顺序定位 lead：① displayName 含 "Lead-" 前缀 / ② displayName 非 reviewer-* 标识 / ③ team 内排除自己 sessionId 后唯一 active；3 条都失败走第 4 步终极兜底。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）。**注**(P5 Round 1 reviewer-claude INFO 修法)：claude-config 端 lead 必为 claude-code adapter（claude SDK lead 不存在跨 adapter 子 session 当 lead 的场景），filter 减小结果集；codex-config 端 lead 可能跨 adapter（claude lead × codex wrapper teammate 等场景），不 filter 才能反查到 lead — 是异构对偶设计，不是 bug
+2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 按以下顺序定位 lead：① displayName 含 "Lead-" 前缀 / ② displayName 非 reviewer-* 标识 / ③ team 内排除自己 sessionId 后唯一 active；3 条都失败走第 4 步终极兜底。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）。**注**：claude-config 端 lead 必为 claude-code adapter（claude SDK lead 不存在跨 adapter 子 session 当 lead 的场景），filter 减小结果集；codex-config 端 lead 可能跨 adapter（claude lead × codex wrapper teammate 等场景），不 filter 才能反查到 lead — 异构对偶设计
 3. **副作用警告**：reply 不挂 `reply_to_message_id` 失去对话链锚点，DB / SessionDetail 看不出 reply 链关系；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
 4. **list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding / codex 输出落本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到
 
 ### enter_worktree / exit_worktree（MCP 替代方案）
 
-claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调用建/退 git worktree + 切 cwd + 写 sessionRepo.cwd 子表）。本应用 P1 加的 MCP 等价 tool 用于以下场景（builtin 不适用时）:
+claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调用建/退 git worktree + 切 cwd + 写 sessionRepo.cwd 子表）。本应用 MCP 等价 tool 用于以下场景（builtin 不适用时）:
 
-- `mcp__agent-deck__enter_worktree({ plan_id, worktree_path?, base_commit?, base_branch?, plan_file_path? })`:创建 / 进入 worktree 目录(P6.5 reviewer-codex MED-D 修法 — schema 实际字段是 `base_commit / base_branch` 两字段而非旧 `base?`;详 user CLAUDE.md §Step 2 EnterWorktree 节)
+- `mcp__agent-deck__enter_worktree({ plan_id, worktree_path?, base_commit?, base_branch?, plan_file_path? })`:创建 / 进入 worktree 目录(详 user CLAUDE.md §Step 2 EnterWorktree 节)
 - `mcp__agent-deck__exit_worktree({ action: "keep" | "remove", worktree_path?, discard_changes?: false })`:退出 worktree
 
 **何时走 MCP 替代**:
 - 想避开 EnterWorktree CLI v2.1.112 stale base bug（详 user CLAUDE.md §Step 2 EnterWorktree §EnterWorktree CLI stale base bug callout）— MCP impl 显式用 HEAD 作 base 不撞 origin/<default> 落后陷阱
 - 跨 adapter 测试 / 调试 — MCP 路径主路径(codex 必走 MCP),claude 端走同款 MCP 可对齐行为
-- 需要明确写 `sessionRepo.cwd_release_marker` 字段（archive_plan 4 态预检场景 C 必需 — 见 plan §不变量 5）— MCP enter_worktree 自动写 marker，builtin EnterWorktree 不写。**默认 workflow** 仍 builtin EnterWorktree + 手工 `ExitWorktree(action:"keep")` → archive_plan 走 sessionRepo.cwd 兜底,无需切 MCP
+- 需要明确写 `sessionRepo.cwd_release_marker` 字段（archive_plan 4 态预检场景必需）— MCP enter_worktree 自动写 marker，builtin EnterWorktree 不写。**默认 workflow** 仍 builtin EnterWorktree + 手工 `ExitWorktree(action:"keep")` → archive_plan 走 sessionRepo.cwd 兜底,无需切 MCP
 
 详 codex 端 protocol layer `resources/codex-config/CODEX_AGENTS.md §enter_worktree / exit_worktree` 节(codex 必走 MCP,无 fallback)。
 
@@ -104,7 +98,7 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 
 `archive_plan` 在 plan 完成后**原子执行** user CLAUDE §Step 4「完成」5 步：ff merge worktree branch → `base_branch` / 更新 frontmatter (`status=completed` + `final_commit` + `completed_at`) / mv plan → `<main-repo>/plans/<plan_id>.md` / 同步 `<main-repo>/plans/INDEX.md` / `git add` + commit / `git worktree remove` + `git branch -D`。caller 调用前必须先 `ExitWorktree(action: "keep")`。
 
-**调用**：`mcp__agent-deck__archive_plan({ plan_id, worktree_path, base_branch?: <plan frontmatter.base_branch ?? "main">, plan_file_path?, changelog_id?, keep_teammates?: false })` (P6.5 reviewer-codex LOW-1 修法 — base_branch 默认值非简单 "main";schema 优先读 plan frontmatter.base_branch,缺失才 fallback "main";详 §archive_plan 实施细节 节)
+**调用**：`mcp__agent-deck__archive_plan({ plan_id, worktree_path, base_branch?: <plan frontmatter.base_branch ?? "main">, plan_file_path?, changelog_id?, keep_teammates?: false })`(`base_branch` 默认值:schema 优先读 plan frontmatter.base_branch,缺失才 fallback "main")
 **返回**：`{ archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_action: 'created'|'appended'|'updated'|'unchanged', final_status, warnings: string[], archived: 'ok'|'failed'|'skipped', teammatesShutdown: { closed, failed, skipped } }`
 
 **app-only 差异**：
@@ -134,13 +128,13 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 
 - **cwd resilience**：plan-driven 默认 `cwd = mainRepo`（fallback 链 `args.cwd > resolved.mainRepo > resolved.worktreePath`），让 sessionRepo.cwd 在 worktree 被 archive_plan 删后仍 valid；新 session 自己按 user CLAUDE §Step 3 cold-start `EnterWorktree(path: worktreePath)` 进 worktree。generic 默认 `cwd = caller cwd`
 - **baton 不计 spawn_depth**：内部 spawn 传 `batonMode: true` 跳 depth check + 写 `parentDepth`（lateral，不 +1）。理由：baton 单向交接（spawn 后立即 archive caller）任意时刻只 1 个 active session，**不构成 fork-bomb 风险**，N-phase 接力链不该撞默认 `mcpMaxSpawnDepth=3`。fan-out + spawn-rate guard 仍 enforce
-- **archive 默认 true,可 opt-out**（P5 Round 1 reviewer-codex M2 修法 — 文档与 schema 对齐）：caller 无论 untracked / dirty / 已加入 team 都归档（default）；typical baton 语义「任意时刻单 in-flight session」自然成立。**例外 opt-out**：caller 显式传 `archive_caller: false` 跳过归档（罕见场景：lead 起多个 hand-off 子任务并行做事自己仍想看 reviewer reply / 出 summary；debug 工具想起新 session 实测某 plan 但 caller 仍要观察）。`archive_caller: false` 时 ok return.archived === "skipped"
+- **archive 默认 true,可 opt-out**：caller 无论 untracked / dirty / 已加入 team 都归档（default）；typical baton 语义「任意时刻单 in-flight session」自然成立。**例外 opt-out**：caller 显式传 `archive_caller: false` 跳过归档（罕见场景：lead 起多个 hand-off 子任务并行做事自己仍想看 reviewer reply / 出 summary；debug 工具想起新 session 实测某 plan 但 caller 仍要观察）。`archive_caller: false` 时 ok return.archived === "skipped"
 - **default 不加 team**：baton 单向交接不强加 lead/teammate 关系；显式 `team_name` 才启用通信
 - **预检短路**：plan-driven 模式 plan 文件不存在 / status ≠ in_progress / frontmatter 缺 `worktree_path` / spawn 失败 → 立即返回 error
 - **新 session 必须含 user CLAUDE「复杂 plan」节**（`settingSources: ['user', ...]` 自动满足），否则 plan-driven cold start prompt 不被识别
 - **典型主动触发（generic mode）**：当前 cwd 不适合手头任务（cwd 已失效 / 不属目标 repo / 用户明示换目录 / 跨 repo 任务）→ 不要在当前 session 强行 `cd` / 跨目录绝对路径，用 generic mode 显式传新 `cwd` + 自包含 `prompt` 接力到正确目录
 - **prompt 装不下完整 context 时**（必要信息务必传递完整，避免 hand-off 丢失大量上下文）：caller 先把 context 落盘到 `/tmp/handoff-<id>.md`（临时文件不用清理），prompt 起手写「先 `Bash: cat <abs-path>` 再按文件内指令推进」让新 session cold-start 第一步读全
-- **想保留 caller 不归档** → 两个选项：① `hand_off_session({..., archive_caller: false})` 显式 opt-out（详上方 archive 默认 true 节；P6.5 reviewer-codex MED-3 修法 — 旧"baton 强归档不可关"已被 archive_caller 字段废除）；② `spawn_session(cwd:<目标>, prompt:<打包信息>)` 而非 hand_off_session（spawn 出新 session 但不切换接力身份,适合并行子任务）
+- **想保留 caller 不归档** → 两个选项：① `hand_off_session({..., archive_caller: false})` 显式 opt-out（详上方 archive 默认 true 节）；② `spawn_session(cwd:<目标>, prompt:<打包信息>)` 而非 hand_off_session（spawn 出新 session 但不切换接力身份,适合并行子任务）
 
 ### recoverer cwd 启发式 fallback（兜底）
 
