@@ -42,6 +42,8 @@ import {
   SPAWN_SESSION_SCHEMA,
   ARCHIVE_PLAN_SCHEMA,
   HAND_OFF_SESSION_SCHEMA,
+  ENTER_WORKTREE_SCHEMA,
+  EXIT_WORKTREE_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
@@ -50,6 +52,8 @@ import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
 import { archivePlanHandler } from './handlers/archive-plan';
 import { handOffSessionHandler } from './handlers/hand-off-session';
+import { enterWorktreeHandler } from './handlers/enter-worktree';
+import { exitWorktreeHandler } from './handlers/exit-worktree';
 
 // helpers 子集 re-export，保持老 caller 兼容（外部对 makeCallerContext / denyExternalIfNotAllowed
 // 的 import 路径 `from './tools'` 仍能 resolve）。
@@ -142,6 +146,24 @@ export async function buildAgentDeckTools(
     async (args) => handOffSessionHandler(args, makeCtx(args)),
   );
 
+  // plan codex-handoff-team-alignment-20260518 P1 Step 1.3：mcp 版 enter_worktree / exit_worktree
+  // 给 codex / 跨 adapter caller 提供 claude builtin EnterWorktree / ExitWorktree 的等价能力。
+  // 不取代 claude builtin（claude SDK session 仍首选 builtin），仅作补充让跨 adapter caller
+  // 走 archive_plan 预检 4 态分流时认得跨 adapter 路径（详 P1 Step 1.4 archive-plan-impl.ts）。
+  const enterWorktree = tool(
+    AGENT_DECK_TOOL_NAMES.enterWorktree,
+    'Create a new git worktree at `<main-repo>/.claude/worktrees/<plan_id>/` (or caller-overridden path) with branch `worktree-<plan_id>`, based on HEAD by default (resolution chain: args.base_commit > args.base_branch > plan frontmatter.base_commit > plan frontmatter.base_branch > HEAD). Sets `sessions.cwd_release_marker = <worktree_path>` for the caller session so that `archive_plan` preflight 4-state dispatch recognizes the cross-adapter path (state 2: in worktree + marker == worktree_path → pass). Uses explicit `git worktree add -b <branch> <path> <base_commit>` (avoids claude builtin EnterWorktree v2.1.112 stale base bug — see user CLAUDE.md §Step 1 末 callout). Returns { worktreePath, branchName, baseCommit, baseSource: arg-base-commit|arg-base-branch|frontmatter-base-commit|frontmatter-base-branch|head, markerSet }. Refuses if worktree path or branch already exists (no silent reuse). deny external caller (git write + per-session marker write).',
+    ENTER_WORKTREE_SCHEMA,
+    async (args) => enterWorktreeHandler(args, makeCtx(args)),
+  );
+
+  const exitWorktree = tool(
+    AGENT_DECK_TOOL_NAMES.exitWorktree,
+    'Exit a git worktree previously entered via enter_worktree (or claude builtin EnterWorktree if caller manually set cwd_release_marker). Two actions: action="keep" leaves worktree directory + branch intact (typical mid-plan hand-off scenario, new session can re-enter via EnterWorktree(path: ...)); action="remove" deletes worktree + branch (typical plan completion / abandon cleanup). Both actions clear `sessions.cwd_release_marker` for the caller session. Worktree path resolution: args.worktree_path > caller sessionRepo.cwd_release_marker. action="remove" preflights worktree is clean (refuses if dirty unless discard_changes=true). Returns { worktreePath, action, branchDeleted, worktreeRemoved, markerCleared }. Refuses cross-worktree exit (args.worktree_path mismatches caller marker — stale state). deny external caller (git write + per-session marker clear).',
+    EXIT_WORKTREE_SCHEMA,
+    async (args) => exitWorktreeHandler(args, makeCtx(args)),
+  );
+
   return [
     spawnSession,
     sendMessage,
@@ -150,5 +172,7 @@ export async function buildAgentDeckTools(
     shutdownSession,
     archivePlan,
     handOffSession,
+    enterWorktree,
+    exitWorktree,
   ];
 }
