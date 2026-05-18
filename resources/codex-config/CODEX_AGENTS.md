@@ -93,16 +93,21 @@ reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <sen
 
 codex SDK session 内进 / 退 git worktree 必须通过本应用 MCP tool(codex CLI 无 native EnterWorktree / ExitWorktree builtin)。
 
-**调用**:`mcp__agent-deck__enter_worktree({ plan_id, base?: "HEAD" | "origin/<branch>" })`
-- `plan_id`:同 plan frontmatter `plan_id`,worktree 目录名 = `<main-repo>/.claude/worktrees/<plan_id>`,branch 名 = `worktree-<plan_id>`
-- `base`(optional):优先级链 (1) caller 显式传 > (2) plan frontmatter `base_commit` > (3) sessionRepo `cwd_release_marker` (HIGH-C 修法字段) > (4) `HEAD`。**避开 EnterWorktree CLI stale base bug**(claude 端 builtin v2.1.112 默认用 `origin/<default>` 落后本地 HEAD;MCP impl 走 HEAD 不撞此坑)
-- 副作用:创建 worktree 目录 + 新 branch + 切当前 session cwd 到 worktree(下次 turn shell tool cwd 自动更新)
-- 返回:`{ worktreePath, branch, baseCommit, baseSource: 'caller' | 'plan' | 'marker' | 'head' }`
+**调用**:`mcp__agent-deck__enter_worktree({ plan_id, worktree_path?, base_commit?, base_branch?, plan_file_path? })`
+- `plan_id`:同 plan frontmatter `plan_id`,worktree 目录名 = `<main-repo>/.claude/worktrees/<plan_id>`,branch 名 = `worktree-<plan_id>`(P5 Round 1 reviewer-codex M1 修法 — 实际 schema 用 `base_commit` / `base_branch` 两字段而非旧文档的 `base`)
+- `base_commit`(optional):caller 显式 commit hash / ref(最高优先级)
+- `base_branch`(optional):caller 显式 branch 名
+- `worktree_path`(optional):override 默认 worktree 目录路径
+- `plan_file_path`(optional):override plan 文件路径
+- **base 优先级链** 5 态:(1) `args.base_commit` → `'arg-base-commit'` (2) `args.base_branch` → `'arg-base-branch'` (3) plan frontmatter `base_commit` → `'frontmatter-base-commit'` (4) plan frontmatter `base_branch` → `'frontmatter-base-branch'` (5) main repo HEAD → `'head'`。**避开 EnterWorktree CLI stale base bug**(claude 端 builtin v2.1.112 默认用 `origin/<default>` 落后本地 HEAD;MCP impl 走 HEAD 不撞此坑)
+- 副作用:创建 worktree 目录 + 新 branch + setCwdReleaseMarker(让 archive_plan 4 态预检状态 (b) 放过 codex caller)。**不**自动切 codex SDK session cwd(codex SDK session cwd 在 spawn 时 frozen,后续 shell tool 走子 shell `cd` 进 worktree)
+- 返回:`{ worktreePath: string, branchName: string, baseCommit: string, baseSource: 'arg-base-commit' | 'arg-base-branch' | 'frontmatter-base-commit' | 'frontmatter-base-branch' | 'head', markerSet: boolean }`
 
-**调用**:`mcp__agent-deck__exit_worktree({ action: "keep" | "remove", discard_changes?: false })`
-- `keep`:切 cwd 回 main repo,保留 worktree 目录 + branch(常用 — 准备 archive_plan 前的标准操作)
-- `remove`:同 keep + 删 worktree 目录 + 强删 branch(仅 worktree 内无未保存改动且非 protected branch 时;`discard_changes: true` 强制忽略 dirty 预检)
-- 返回:`{ previousCwd, removed: boolean, branchDeleted: boolean }`
+**调用**:`mcp__agent-deck__exit_worktree({ action: "keep" | "remove", worktree_path?, discard_changes?: false })`
+- `keep`:仅 clearCwdReleaseMarker(让 archive_plan 4 态预检走 marker null 路径),保留 worktree 目录 + branch(常用 — 准备 archive_plan 前的标准操作 since archive_plan 自己也清 marker)
+- `remove`:同 keep + `git worktree remove` + `git branch -d/-D`(P5 Round 1 reviewer-codex M4 修法 — 默认 `-d` 拒删未合并 commit;`discard_changes: true` 切 `-D` 强制删 + 同时跳过 dirty 预检)
+- `worktree_path`(optional):caller 显式覆盖,通常省略让 impl 自动从 marker 反查
+- 返回:`{ worktreePath, action, branchDeleted: boolean, worktreeRemoved: boolean, markerCleared: boolean }`
 
 ### plan hand-off 自动化:archive_plan
 
@@ -138,7 +143,7 @@ codex SDK session 内进 / 退 git worktree 必须通过本应用 MCP tool(codex
 
 - **cwd resilience**:plan-driven 默认 `cwd = mainRepo`(fallback 链 `args.cwd > resolved.mainRepo > resolved.worktreePath`),让 sessionRepo.cwd 在 worktree 被 archive_plan 删后仍 valid;新 session 自己按 user CLAUDE §Step 3 cold-start 调 MCP `enter_worktree(plan_id)` 进 worktree(codex 端必走 MCP,不是 claude builtin)。generic 默认 `cwd = caller cwd`
 - **baton 不计 spawn_depth**:内部 spawn 传 `batonMode: true` 跳 depth check + 写 `parentDepth`(lateral,不 +1)。理由:baton 单向交接(spawn 后立即 archive caller)任意时刻只 1 个 active session,**不构成 fork-bomb 风险**,N-phase 接力链不该撞默认 `mcpMaxSpawnDepth=3`。fan-out + spawn-rate guard 仍 enforce
-- **archive 无条件**:caller 无论 untracked / dirty / 已加入 team 都归档;不允许 caller 传字段「不归档我」 — baton 语义保证「任意时刻单 in-flight session」
+- **archive 默认 true,可 opt-out**(P5 Round 1 reviewer-codex M2 修法 — 文档与 schema 对齐):caller 无论 untracked / dirty / 已加入 team 都归档(default);typical baton 语义「任意时刻单 in-flight session」自然成立。**例外 opt-out**:caller 显式传 `archive_caller: false` 跳过归档(罕见场景:lead 起多个 hand-off 子任务并行做事自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要观察)。`archive_caller: false` 时 ok return.archived === "skipped"
 - **default 不加 team**:baton 单向交接不强加 lead/teammate 关系;显式 `team_name` 才启用通信
 - **预检短路**:plan-driven 模式 plan 文件不存在 / status ≠ in_progress / frontmatter 缺 `worktree_path` / spawn 失败 → 立即返回 error
 - **新 session 必须含 user CLAUDE「复杂 plan」节 cold-start protocol 5 步**:codex SDK 加载链是 `~/.codex/AGENTS.md`(本文件),**不**自动加载 user CLAUDE.md(claude 端走 `settingSources: ['user',...]` 自动加载,codex 端无对等机制)。本应用环境**已在 §plan cold-start protocol(codex 端) 节 inline 5 步**让 codex 收到 `按 <plan-abs-path> 接力` 字面提示后能正确执行;若该节缺失或被裁剪,caller 起 cold-start prompt 时必须显式把 5 步 inline 进 prompt
@@ -150,7 +155,7 @@ codex SDK session 内进 / 退 git worktree 必须通过本应用 MCP tool(codex
 
 新 codex SDK session 收到 hand_off_session 注入的 cold-start prompt(典型字面:`按 <plan-abs-path> 接力(Phase: <phase_label>)`)时,**必做** 5 步:
 
-1. `shell: cat <plan-abs-path>` 读 plan 全文(**严禁**用 codex 自带 Read tool 读第一次 — 跨会话第一次读「长期存在 + 其他会话动过的文件」走 `shell: cat` 走真 fs;Read 工具可能因 SDK 层 cache 命中旧版本内容)
+1. `shell: cat <plan-abs-path>` 读 plan 全文(P5 Round 1 reviewer-claude INFO 修法:codex CLI 默认无 native Read tool,与 claude CLI 不同 — 跨会话第一次读「长期存在 + 其他会话动过的文件」务必走 `shell: cat` 走真 fs。本规约对 codex 端单方有效;claude 端有 Read tool 缓存陷阱另规)
 2. 从 frontmatter 拿 `worktree_path` + `plan_id` → 调 `mcp__agent-deck__enter_worktree({ plan_id, base: <frontmatter.base_commit> })` 进 worktree(codex 无 native EnterWorktree CLI 必须走 MCP;`base` 显式传 frontmatter 的 `base_commit` 避撞 EnterWorktree CLI stale base bug)
 3. 自检:`shell: git -C <worktree_path> rev-parse HEAD` 与 `git -C <worktree_path> log --oneline -3`,确认 HEAD = frontmatter `base_commit` / `final_commit` 或之后
 4. 按 plan **§下一会话第一步** 节直接动手:**不重新讨论已记录的 §设计决策**;**所有指向代码资产的路径换 worktree 前缀**(`.claude/worktrees/<plan_id>/...`);plan 「§下一会话第一步」描述的「先 X 再 Y 再 Z」级别动作按字面执行

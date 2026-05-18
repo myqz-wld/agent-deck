@@ -24,9 +24,10 @@
  *
  * 路径分流：dev `<repo>/resources/<adapter>-config/agent-deck-plugin/`，prod
  * `<resourcesPath>/<adapter>-config/agent-deck-plugin/`，由 sdk-injection.ts (claude) /
- * codex-config-paths.ts (codex) 各自实现 dev/prod 路径解析；`getAgentDeckPluginPathForAdapter`
- * 在 `src/main/adapters/agent-deck-plugin-paths.ts` 提供 switch 调度（spawn handler 等动态
- * caller 用），本文件直接 import 两个具体 helper（双 root scan 内部已知 adapter，不必走 dispatcher）。
+ * codex-config-paths.ts (codex) 各自实现 dev/prod 路径解析；本文件直接 import 两个具体 helper
+ * 各自 scan claude / codex root（双 root scan 内部已知 adapter，不需 dispatcher 中间层 —
+ * P5 Round 1 reviewer-claude MED 修法已删 agent-deck-plugin-paths.ts dispatcher 死代码，
+ * 0 production caller，违反 user CLAUDE.md §提示词资产维护 约束 2「不写预测未来用例代码」）。
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -228,9 +229,14 @@ function extractTriggers(description: string): string[] | undefined {
  * adapter 视觉分组（claude 资产成片 / codex 资产成片）。
  */
 function compareAdapterThenName(a: AssetMeta, b: AssetMeta): number {
-  const adapterRank = (x: AssetMeta['adapter']): number => (x === 'claude-code' ? 0 : x === 'codex-cli' ? 1 : 2);
-  const ra = adapterRank(a.adapter);
-  const rb = adapterRank(b.adapter);
+  // P5 Round 1 reviewer-claude LOW 修法 (`null` 分支 dead code 削除):
+  // 本函数仅在 loadBundledAssets() sort callback 用,传入数组来自 scanAgents/scanSkills,两 helper
+  // 强制接收 `adapter: BundledAdapter`('claude-code' | 'codex-cli'),TS 排除 null。运行时也无 null。
+  // 严格 narrow signature 让 TS 编译期排除 null,删 `: 2` dead branch + exhaustive default。
+  const adapterRank = (x: 'claude-code' | 'codex-cli'): number => (x === 'claude-code' ? 0 : 1);
+  // user 资产 adapter=null 不进 bundled sort 链路;assert non-null 转 BundledAdapter narrow。
+  const ra = adapterRank(a.adapter as 'claude-code' | 'codex-cli');
+  const rb = adapterRank(b.adapter as 'claude-code' | 'codex-cli');
   if (ra !== rb) return ra - rb;
   return a.name.localeCompare(b.name);
 }

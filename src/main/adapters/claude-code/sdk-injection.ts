@@ -51,7 +51,9 @@ let cachedClaudeMdAppend: string | null = null;
  * `<plugin>/agents/` 子目录（skills 与 agents 一同注入，绑定生效）。
  *
  * codex 视角同款路径在 `src/main/adapters/codex-cli/codex-config-paths.ts:getCodexAgentDeckPluginPath`，
- * 双 root 由 `src/main/adapters/agent-deck-plugin-paths.ts:getAgentDeckPluginPathForAdapter` 调度。
+ * 双 root scan 各自直接 import 在 `src/main/bundled-assets.ts`（P5 Round 1 reviewer-claude MED
+ * 修法删除原 agent-deck-plugin-paths.ts 死代码 dispatcher — 0 production caller，违反 §提示词
+ * 资产维护 约束 2）。
  */
 export function getClaudeAgentDeckPluginPath(): string {
   if (app.isPackaged) {

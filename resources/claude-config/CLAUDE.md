@@ -76,7 +76,7 @@ teammate 端协议约束（`[from <name> @ <adapter>][msg <id>][sid <senderSid>]
 reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <senderSid>]` 双锚点 wire prefix（典型：lead context 重置后用裸文本 ping / 第三方 dispatch 路径丢前缀），按下面 fallback 处理：
 
 1. reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>][sid <senderSessionId>] wire prefix，本 reply 没法挂 reply_to_message_id 进 lead 对话链；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
-2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 按以下顺序定位 lead：① displayName 含 "Lead-" 前缀 / ② displayName 非 reviewer-* 标识 / ③ team 内排除自己 sessionId 后唯一 active；3 条都失败走第 4 步终极兜底。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）
+2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 按以下顺序定位 lead：① displayName 含 "Lead-" 前缀 / ② displayName 非 reviewer-* 标识 / ③ team 内排除自己 sessionId 后唯一 active；3 条都失败走第 4 步终极兜底。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）。**注**(P5 Round 1 reviewer-claude INFO 修法)：claude-config 端 lead 必为 claude-code adapter（claude SDK lead 不存在跨 adapter 子 session 当 lead 的场景），filter 减小结果集；codex-config 端 lead 可能跨 adapter（claude lead × codex wrapper teammate 等场景），不 filter 才能反查到 lead — 是异构对偶设计，不是 bug
 3. **副作用警告**：reply 不挂 `reply_to_message_id` 失去对话链锚点，DB / SessionDetail 看不出 reply 链关系；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
 4. **list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding / codex 输出落本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到
 
@@ -128,7 +128,7 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 
 - **cwd resilience**：plan-driven 默认 `cwd = mainRepo`（fallback 链 `args.cwd > resolved.mainRepo > resolved.worktreePath`），让 sessionRepo.cwd 在 worktree 被 archive_plan 删后仍 valid；新 session 自己按 user CLAUDE §Step 3 cold-start `EnterWorktree(path: worktreePath)` 进 worktree。generic 默认 `cwd = caller cwd`
 - **baton 不计 spawn_depth**：内部 spawn 传 `batonMode: true` 跳 depth check + 写 `parentDepth`（lateral，不 +1）。理由：baton 单向交接（spawn 后立即 archive caller）任意时刻只 1 个 active session，**不构成 fork-bomb 风险**，N-phase 接力链不该撞默认 `mcpMaxSpawnDepth=3`。fan-out + spawn-rate guard 仍 enforce
-- **archive 无条件**：caller 无论 untracked / dirty / 已加入 team 都归档；不允许 caller 传字段「不归档我」 — baton 语义保证「任意时刻单 in-flight session」
+- **archive 默认 true,可 opt-out**（P5 Round 1 reviewer-codex M2 修法 — 文档与 schema 对齐）：caller 无论 untracked / dirty / 已加入 team 都归档（default）；typical baton 语义「任意时刻单 in-flight session」自然成立。**例外 opt-out**：caller 显式传 `archive_caller: false` 跳过归档（罕见场景：lead 起多个 hand-off 子任务并行做事自己仍想看 reviewer reply / 出 summary；debug 工具想起新 session 实测某 plan 但 caller 仍要观察）。`archive_caller: false` 时 ok return.archived === "skipped"
 - **default 不加 team**：baton 单向交接不强加 lead/teammate 关系；显式 `team_name` 才启用通信
 - **预检短路**：plan-driven 模式 plan 文件不存在 / status ≠ in_progress / frontmatter 缺 `worktree_path` / spawn 失败 → 立即返回 error
 - **新 session 必须含 user CLAUDE「复杂 plan」节**（`settingSources: ['user', ...]` 自动满足），否则 plan-driven cold start prompt 不被识别
