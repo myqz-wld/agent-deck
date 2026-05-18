@@ -35,7 +35,6 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { parseFrontmatter } from '@main/utils/frontmatter';
-import { sessionRepo } from '@main/store/session-repo';
 
 const execFileAsync = promisify(execFile);
 
@@ -100,8 +99,20 @@ const DEFAULT_DEPS: Required<EnterWorktreeDeps> = {
     }
   },
   homedir: () => os.homedir(),
-  callerCwd: (sid) => sessionRepo.get(sid)?.cwd ?? null,
-  setCwdReleaseMarker: (sid, marker) => sessionRepo.setCwdReleaseMarker(sid, marker),
+  // callerCwd / setCwdReleaseMarker 由 handler 显式注入(handler 端 import sessionRepo,
+  // 避免 impl import 触发 electron.app load — 让本 impl test 走 deps inject 时不撞 electron)。
+  // DEFAULT_DEPS 这两项故意抛 hint error,提示 caller 必须注入(silently no-op 会让 marker 不写
+  // 静默失败,更危险)。
+  callerCwd: (_sid: string) => {
+    throw new Error(
+      'enter-worktree-impl: deps.callerCwd not injected. Handler must provide a real sessionRepo wrapper.',
+    );
+  },
+  setCwdReleaseMarker: (_sid: string, _marker: string) => {
+    throw new Error(
+      'enter-worktree-impl: deps.setCwdReleaseMarker not injected. Handler must provide a real sessionRepo wrapper.',
+    );
+  },
 };
 
 function isError(x: unknown): x is EnterWorktreeError {
@@ -245,12 +256,7 @@ export async function enterWorktreeImpl(
   // 4. branch_name
   const branchName = `worktree-${input.planId}`;
 
-  // 5. base resolution
-  const baseResult = await resolveBaseCommit(input, mainRepo, deps);
-  if (isError(baseResult)) return baseResult;
-  const { baseCommit, baseSource } = baseResult;
-
-  // 6. 预检 worktree_path / branch 不存在
+  // 5. 预检 worktree_path / branch 不存在(先 reject 短路,避免无谓 base resolution git 调用)
   if (await deps.exists(worktreePath)) {
     return {
       error: `worktree path already exists: ${worktreePath}`,
@@ -275,6 +281,11 @@ export async function enterWorktreeImpl(
     };
   }
 
+  // 6. base resolution (放在存在性检查后,避免无谓 git rev-parse HEAD 调用)
+  const baseResult = await resolveBaseCommit(input, mainRepo, deps);
+  if (isError(baseResult)) return baseResult;
+  const { baseCommit, baseSource } = baseResult;
+
   // 7. git worktree add
   try {
     await deps.runGit(
@@ -284,7 +295,7 @@ export async function enterWorktreeImpl(
   } catch (e) {
     return {
       error: `git worktree add failed: ${(e as Error).message}`,
-      hint: `git worktree add -b ${branchName} ${worktreePath} ${baseCommit} (in ${mainRepo}) failed. Common causes: worktree_path parent dir not writable / base_commit not in repo / branch already exists despite step 6 check (race). Verify with the same command manually.`,
+      hint: `git worktree add -b ${branchName} ${worktreePath} ${baseCommit} (in ${mainRepo}) failed. Common causes: worktree_path parent dir not writable / base_commit not in repo / branch already exists despite step 5 check (race). Verify with the same command manually.`,
     };
   }
 

@@ -2,9 +2,10 @@
  * exit_worktree handler 入口（plan codex-handoff-team-alignment-20260518 P1 Step 1.3 /
  * D2 + 不变量 5）。
  *
- * 薄 wrapper：deny external caller + validateExternalCaller + 调 exitWorktreeImpl + 包 ok/err。
- * 业务行为完全在 exit-worktree-impl.ts（git/fs/DB 操作 + DEFAULT_DEPS inject 模式），
- * 单测在那里 cover；本 handler 只验证 deny external + caller 反查行为（与其他 handler 一致）。
+ * 薄 wrapper：deny external caller + validateExternalCaller + 注入 sessionRepo seam(callerMarker /
+ * clearCwdReleaseMarker)+ 调 exitWorktreeImpl + 包 ok/err。业务行为完全在 exit-worktree-impl.ts
+ * （git/fs/DB 操作 + DEFAULT_DEPS inject 模式）;impl 不 import sessionRepo 避免触发 electron.app load
+ * （让 impl test 走 deps inject 时不撞 electron）。
  *
  * **Deny external caller**（types.ts: EXTERNAL_CALLER_ALLOWED.exit_worktree = false）：
  * 写 git + clearCwdReleaseMarker 是 per-session 状态写,需要真实 caller_session_id;external
@@ -16,6 +17,7 @@
  * - 'remove': plan 完成/中止收口场景,worktree + branch 整片删,marker 清
  */
 
+import { sessionRepo } from '@main/store/session-repo';
 import {
   err,
   ok,
@@ -31,11 +33,22 @@ import {
 
 /**
  * 测试 inject seam:test 通过 depsOverride.implDeps 注入 mock git/fs/sessionRepo 走纯 in-memory。
- * 默认走 exit-worktree-impl.ts 的 DEFAULT_DEPS(真 git / fs / sessionRepo)。
+ * 默认 handler 自己注入 sessionRepo 的真实 callerMarker / clearCwdReleaseMarker 调用,impl 其他
+ * fs/git deps fallback impl 的 DEFAULT_DEPS(真 execFile / fs)。
  */
 export interface ExitWorktreeHandlerDeps {
   implDeps?: ExitWorktreeDeps;
 }
+
+/**
+ * 默认 sessionRepo seam:callerMarker 反查 sessionRepo.get(sid).cwdReleaseMarker;
+ * clearCwdReleaseMarker 写 DB null。与 archive-plan / enter-worktree handler 同款 —
+ * sessionRepo 在 handler 层 import 触发 electron load OK,但 impl 不能 import。
+ */
+const DEFAULT_SESSION_DEPS: Required<Pick<ExitWorktreeDeps, 'callerMarker' | 'clearCwdReleaseMarker'>> = {
+  callerMarker: (sid) => sessionRepo.get(sid)?.cwdReleaseMarker ?? null,
+  clearCwdReleaseMarker: (sid) => sessionRepo.clearCwdReleaseMarker(sid),
+};
 
 export const exitWorktreeHandler = withMcpGuard(
   'exit_worktree',
@@ -44,6 +57,12 @@ export const exitWorktreeHandler = withMcpGuard(
     ctx: HandlerContext,
     handlerDeps?: ExitWorktreeHandlerDeps,
   ) => {
+    // 默认 sessionRepo seam 合并 caller 显式 implDeps(caller 显式字段优先 — 与 enter-worktree.ts
+    // 同款思路)。
+    const mergedDeps: ExitWorktreeDeps = {
+      ...DEFAULT_SESSION_DEPS,
+      ...handlerDeps?.implDeps,
+    };
     const result = await exitWorktreeImpl(
       {
         callerSessionId: ctx.caller.callerSessionId,
@@ -51,7 +70,7 @@ export const exitWorktreeHandler = withMcpGuard(
         worktreePathOverride: args.worktree_path,
         discardChanges: args.discard_changes,
       },
-      handlerDeps?.implDeps,
+      mergedDeps,
     );
 
     if (_internalIsError(result)) {

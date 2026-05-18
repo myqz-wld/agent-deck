@@ -38,8 +38,6 @@ import { promisify } from 'node:util';
 import { promises as fs, type Stats } from 'node:fs';
 import * as path from 'node:path';
 
-import { sessionRepo } from '@main/store/session-repo';
-
 const execFileAsync = promisify(execFile);
 
 /** branch -D 保护清单 — 这些 branch 绝不允许 exit_worktree 自动删（即使 caller 显式 force）。 */
@@ -87,8 +85,20 @@ const DEFAULT_DEPS: Required<ExitWorktreeDeps> = {
       return false;
     }
   },
-  callerMarker: (sid) => sessionRepo.get(sid)?.cwdReleaseMarker ?? null,
-  clearCwdReleaseMarker: (sid) => sessionRepo.clearCwdReleaseMarker(sid),
+  // callerMarker / clearCwdReleaseMarker 由 handler 显式注入(handler 端 import sessionRepo,
+  // 避免 impl import 触发 electron.app load — 让本 impl test 走 deps inject 时不撞 electron)。
+  // DEFAULT_DEPS 这两项故意抛 hint error,提示 caller 必须注入(silently no-op 会让 marker 不清
+  // 静默失败,更危险)。
+  callerMarker: (_sid: string) => {
+    throw new Error(
+      'exit-worktree-impl: deps.callerMarker not injected. Handler must provide a real sessionRepo wrapper.',
+    );
+  },
+  clearCwdReleaseMarker: (_sid: string) => {
+    throw new Error(
+      'exit-worktree-impl: deps.clearCwdReleaseMarker not injected. Handler must provide a real sessionRepo wrapper.',
+    );
+  },
 };
 
 function isError(x: unknown): x is ExitWorktreeError {
