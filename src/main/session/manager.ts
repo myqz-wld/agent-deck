@@ -5,6 +5,7 @@ import type {
 } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
+import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { deriveTitle, normalizeCwd } from './manager-helpers';
 import { enrichRecordWithTeams, enrichRecordsWithTeamsBatch } from './manager-enrich';
 import {
@@ -30,6 +31,26 @@ type SessionCloseFn = (agentId: string, sessionId: string) => Promise<void>;
 let sessionCloseFn: SessionCloseFn | null = null;
 export function setSessionCloseFn(fn: SessionCloseFn | null): void {
   sessionCloseFn = fn;
+}
+
+/**
+ * plan codex-handoff-team-alignment-20260518 P2 Step 2.8 / 不变量 7：rename 同步必须在
+ * `sessionManager.renameSdkSession` 函数体内统一调（与 sdkOwned 转移同款保证），不能让
+ * caller（codex bridge thread-loop / sdk-bridge recoverer）各自调（漏调风险）。
+ *
+ * SessionManager 不直接 import 各 adapter bridge（避免反向依赖 + 单职责），main bootstrap
+ * 通过 setSessionRenameHookFn 注入「按 agentId 派发 rename hook」回调，让 SessionManager
+ * 在 renameSdkSession 函数体末尾同步调到 bridge.renameCodexInstance / 其他 adapter 的同款
+ * method（claude adapter 走 in-process MCP transport,closure override,不需 token map rename,
+ * hook 可以 noop）。
+ *
+ * 同步执行（不走事件订阅）：renameSdkSession 调用方依赖 rename 完成后立即看到一致的
+ * sdkOwned + token map + per-session bridge instance map 三处 key 同步迁移。
+ */
+type SessionRenameHookFn = (agentId: string, fromId: string, toId: string) => void;
+let sessionRenameHookFn: SessionRenameHookFn | null = null;
+export function setSessionRenameHookFn(fn: SessionRenameHookFn | null): void {
+  sessionRenameHookFn = fn;
 }
 
 /**
@@ -287,6 +308,12 @@ class SessionManagerClass {
     sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
+    // plan codex-handoff-team-alignment-20260518 P2 Step 2.9：释放 per-session mcp token map
+    // entry(双向 map 双 entry 同步清)。codex bridge.closeSession 已经在 sub-step 2.5d 内做过
+    // mcpSessionTokenMap.release 一次,这里再做一次走 noop fast-path(token map 不在则静默退出),
+    // 不影响幂等。手动 close (从 IPC / Detail UI 触发) 而非 codex bridge.closeSession 走的路径
+    // 也保证 token map 清干净 (若 close 没经 adapter.closeSession ⇒ token leak)。
+    mcpSessionTokenMap.release(sessionId);
     // plan team-cohesion-fix-20260513 Phase F D6：与 markClosed 同款被动清理。await 而非
     // fire-and-forget（close 已 async，等 leaveTeam 完成再返回让 caller 拿到稳定状态：
     // 比如 IPC TeamShutdownAllTeammates 串行调多个 close 期望每个 close 完后该 sid 已离 team）。
@@ -443,9 +470,33 @@ class SessionManagerClass {
     // 不会进 ensureRecord 复活成一条 source='cli' 的孤儿会话。覆盖所有 rename 场景：
     // SDK fallback 的 tempKey→realId、CLI 隐式 fork 的 OLD→NEW、bypass 冷切的 close+restart。
     this.recentlyDeleted.set(fromId, Date.now());
+
+    // plan codex-handoff-team-alignment-20260518 P2 Step 2.8 / 不变量 7：rename per-session
+    // mcp token map(原 sid → 新 sid 的 token 一致迁移)。claude adapter 路径走 in-process MCP
+    // transport closure override 不消费 token map,但 mcpSessionTokenMap.rename 内 oldSid 不在
+    // map 时 noop 静默,不影响 claude 路径。
+    mcpSessionTokenMap.rename(fromId, toId);
+
     eventBus.emit('session-renamed', { from: fromId, to: toId });
     const updated = sessionRepo.get(toId);
-    if (updated) eventBus.emit('session-upserted', updated);
+    if (updated) {
+      eventBus.emit('session-upserted', updated);
+      // plan P2 Step 2.8 / 不变量 7：按 agentId 派发 rename hook 到 adapter bridge
+      // (codex 走 bridge.renameCodexInstance 同步 rename codexBySession Map key,确保
+      // codex per-session 实例 / sessions Map / sdkOwned / token map 四处 key 同步迁移)。
+      // claude bridge 不需要 hook(in-process MCP transport 不消费 token map),hook 注册时
+      // 按 agentId 分流即可。
+      if (updated.agentId && sessionRenameHookFn) {
+        try {
+          sessionRenameHookFn(updated.agentId, fromId, toId);
+        } catch (err) {
+          console.warn(
+            `[sessionManager] rename hook failed for ${updated.agentId} ${fromId} → ${toId}`,
+            err,
+          );
+        }
+      }
+    }
   }
 
   list(): SessionRecord[] {
