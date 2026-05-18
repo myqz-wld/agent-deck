@@ -22,6 +22,15 @@ export interface ThreadLoopCtx {
   /** 共享 sessions Map ref（facade 持有） */
   readonly sessions: Map<string, InternalSession>;
   readonly emit: CodexBridgeOptions['emit'];
+  /**
+   * P5 Round 1 reviewer-claude MED-1 修法 (resolveWithFallback 漏清):
+   * resolveWithFallback (30s timeout / earlyErr) 走兜底路径时必须清 codexBySession + token map
+   * (sessions Map 仍保留是 intentional — 让 sendMessage 走 silent break 而非 recoverer,避免对死
+   * 会话反复 spawn 子进程)。closeSession 标准 cleanup 含双轨,resolveWithFallback 缺 → leak 直到
+   * 用户主动 close。facade 注入 thunk 实现解耦,thread-loop 不直接 import codexBySession /
+   * mcp-session-token-map 模块。失败 swallow 不阻塞 fallback emit 序列。
+   */
+  readonly cleanupTempKey: (tempKey: string) => void;
 }
 
 export class ThreadLoop {
@@ -58,6 +67,17 @@ export class ThreadLoop {
         if (resolved) return;
         resolved = true;
         clearTimeout(fallback);
+        // P5 Round 1 reviewer-claude MED-1 修法:fallback 路径(30s timeout / earlyErr)清 codexBySession
+        // + mcp-session-token-map entry。sessions Map 仍保留 intentional — sendMessage 走 silent break
+        // 防对死会话反复 spawn(详 ThreadLoopCtx.cleanupTempKey 注释)。失败 swallow 不阻塞 fallback emit。
+        try {
+          this.ctx.cleanupTempKey(tempKey);
+        } catch (cleanupErr) {
+          console.warn(
+            `[codex-thread-loop] cleanupTempKey(${tempKey}) failed during resolveWithFallback:`,
+            cleanupErr,
+          );
+        }
         internal.threadId = tempKey;
         sessionManager.claimAsSdk(tempKey);
         this.ctx.emit({

@@ -132,6 +132,28 @@ export class CodexSdkBridge {
     const ctx: ThreadLoopCtx = {
       sessions: this.sessions,
       emit: opts.emit,
+      // P5 Round 1 reviewer-claude MED-1 修法 (resolveWithFallback 漏清 codexBySession + token map):
+      // facade 注入 thunk 让 thread-loop 不直接 import codexBySession / mcp-session-token-map 模块。
+      // 失败 swallow — fallback 路径已经在错误状态下,cleanup 失败不应再 throw 阻塞 emit 序列(thread-loop
+      // resolveWithFallback 内已 catch 本 thunk 的 throw 但仍兜底)。
+      cleanupTempKey: (tempKey: string) => {
+        try {
+          this.codexBySession.delete(tempKey);
+        } catch (cleanupErr) {
+          console.warn(
+            `[codex-bridge] codexBySession.delete failed in cleanupTempKey for ${tempKey}:`,
+            cleanupErr,
+          );
+        }
+        try {
+          mcpSessionTokenMap.release(tempKey);
+        } catch (cleanupErr) {
+          console.warn(
+            `[codex-bridge] mcpSessionTokenMap.release failed in cleanupTempKey for ${tempKey}:`,
+            cleanupErr,
+          );
+        }
+      },
     };
     this.threadLoop = new ThreadLoop(ctx);
     const restartCtx: RestartCtx = {
@@ -301,10 +323,21 @@ export class CodexSdkBridge {
     extraAllowWrite?: readonly string[];
     /**
      * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订):
-     * codex SDK startThread/resumeThread `approvalPolicy` 透传。bridge 不主动 enforce default —
-     * undefined 沿用现状 'never'（保持普通 codex session lead 路径不被污染）；options-builder
-     * narrowToCodexOpts 在 agentName='reviewer-*' 路径下 spread 'never' 让 reviewer teammate
-     * 跳过 codex CLI 工具审批弹窗（PendingTab UI 走应用层，不进 codex CLI 直接审批）。
+     * codex SDK startThread/resumeThread `approvalPolicy` 透传。
+     *
+     * **P5 Round 1 reviewer-codex M1 修法 (clarify 不变量 6 边界)**：
+     * bridge 层 fallback `?? 'never'` 是 **in-process 安全基线**(主进程跑 codex SDK 无 UI 应答
+     * approval 弹窗,'on-request' 会让子进程挂死等审批)— 与 sandboxMode / networkAccessEnabled /
+     * additionalDirectories 三 reviewer-* 专属 unsafe default **语义不同**。
+     *
+     * **不变量 6 修订理解**：
+     * - 3 字段 `sandboxMode / networkAccessEnabled / additionalDirectories` reviewer-* 专属 spread
+     *   (普通 codex session lead 路径**不**应注入,options-builder narrowToCodexOpts 守门)
+     * - 1 字段 `approvalPolicy` **所有 codex session 共享**'never' 基线,bridge 兜底 + options-builder
+     *   reviewer-* 路径冗余设置(都为 'never',无 contention)。caller 显式传 'on-request' 仅在 codex CLI
+     *   外部进程上下文有意义,本 in-process bridge 不支持。
+     *
+     * options-builder 端 reviewer-* 仍写 'never'(与 bridge fallback 一致,显式 + 防 caller 误传)。
      */
     approvalPolicy?: 'never' | 'on-request';
     /**
@@ -534,8 +567,35 @@ export class CodexSdkBridge {
             //
             // symmetry-plan P3 R2-1 (reviewer-codex HIGH):cleanup 半初始化 sessions Map + sdkClaim,
             // 让后续 sendMessage 走 sessions Map miss → recoverer 自愈正常路径。
+            //
+            // **P5 Round 1 reviewer-claude+codex 双方独立 HIGH-2 修法**：earlyErrCb cleanup 必须
+            // 同步清 codexBySession + mcpSessionTokenMap (旧实现仅清 sessions Map + releaseSdkClaim,
+            // 漏清两个 Map → recoverer 重试 createSession({resume}) 顶部 allocate(opts.resume) 走
+            // re-allocate 路径 (mcp-session-token-map.ts:52 清旧反向 entry + 生成新 tokenB),
+            // ensureCodex(opts.resume, tokenB) 命中 codexBySession.get cache 返 leaked Codex-A
+            // (env 仍 frozen tokenA),resumeThread 在 Codex-A spawn 子进程读 frozen tokenA
+            // → HookServer.checkMcpAuth 反查 tokenA = null + 全局 token mismatch → 401,
+            // codex teammate mcp send_message 全失败,reply chain 断)。closeSession line 730-744
+            // 标准 cleanup 模板已含双轨 (codexBySession.delete + mcpSessionTokenMap.release),
+            // 这里同款。delete / release 失败仅 console.warn 不阻塞 cleanup 后续 emit。
             this.sessions.delete(opts.resume!);
             sessionManager.releaseSdkClaim(opts.resume!);
+            try {
+              this.codexBySession.delete(opts.resume!);
+            } catch (cleanupErr) {
+              console.warn(
+                `[codex-bridge] codexBySession.delete failed during earlyErr cleanup for ${opts.resume}:`,
+                cleanupErr,
+              );
+            }
+            try {
+              mcpSessionTokenMap.release(opts.resume!);
+            } catch (cleanupErr) {
+              console.warn(
+                `[codex-bridge] mcpSessionTokenMap.release failed during earlyErr cleanup for ${opts.resume}:`,
+                cleanupErr,
+              );
+            }
             // resume 路径已 emit session-start + user msg,补 finished 完成 UI 序列。
             this.opts.emit({
               sessionId: opts.resume!,
