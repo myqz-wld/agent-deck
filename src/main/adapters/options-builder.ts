@@ -109,6 +109,15 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   // unsafe default spread enforce 点。caller 路径 / 普通 codex session 走 raw.agentName 缺省 /
   // 非 reviewer-* 路径,不进本分支不被污染。
   if (raw.agentName === 'reviewer-claude' || raw.agentName === 'reviewer-codex') {
+    // P5 Round 1 reviewer-claude M3 / reviewer-codex M3 修法 (override warn for caller debug):
+    // caller 显式传 codexSandbox 给 reviewer-* 会被 override → console.warn 让 caller 在主进程
+    // log 看到「我设的 read-only 怎么 reviewer 还能写文件」debug 路径不静默(schema 文案已明示
+    // reviewer-* 路径不 override 契约,本 warn 是落地实证 + 调试信号)。
+    if (raw.codexSandbox !== undefined && raw.codexSandbox !== 'workspace-write') {
+      console.warn(
+        `[options-builder] reviewer-* spawn (agent_name=${raw.agentName}) ignoring caller codex_sandbox='${raw.codexSandbox}' — reviewer body design requires workspace-write (read source + write /tmp middleware files). plan §不变量 6 enforce.`,
+      );
+    }
     // codexSandbox 强制 'workspace-write'(不允许 caller 覆盖) — reviewer 必须能写 worktree 内
     // cache 副本 + 跨目录读 plan / claude config / codex config(配合 additionalDirectories)
     out.codexSandbox = 'workspace-write';

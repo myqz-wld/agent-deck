@@ -67,7 +67,9 @@ export const SPAWN_SESSION_SCHEMA = {
   codex_sandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
-    .describe('REVIEW_32 HIGH-5: 不传时从 lead 继承；caller 显式传覆盖。'),
+    .describe(
+      'REVIEW_32 HIGH-5: 不传时从 lead 继承；caller 显式传覆盖。**P5 Round 1 reviewer-codex M3 修法 (clarify 契约边界)**：reviewer-* teammate spawn 路径 (agent_name="reviewer-claude" / "reviewer-codex") 由 options-builder 强制 spread "workspace-write" (plan §不变量 6 — reviewer body 内 Bash/shell 工具需读源码 + 写中间文件)，caller 显式传 codex_sandbox 会被 reviewer-* unsafe default override + 主进程 console.warn 提示。如需严格 read-only 给 reviewer，目前不支持 — reviewer body 设计依赖 workspace-write。',
+    ),
   claude_code_sandbox: z
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
