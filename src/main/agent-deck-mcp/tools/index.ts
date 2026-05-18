@@ -66,10 +66,22 @@ export {
 
 export interface BuildAgentDeckToolsDeps {
   /**
-   * in-process transport 强制覆盖 caller_session_id 的 lazy provider；
-   * HTTP / stdio transport 传 null（用 args.caller_session_id）。
+   * caller_session_id 覆盖 lazy provider（plan codex-handoff-team-alignment-20260518
+   * P2 Step 2.3 / D1 ADR signature 扩展）。
+   *
+   * 三 transport 行为：
+   * - **in-process**：closure 直接 override（getAgentDeckMcpServerForSession 传无参数
+   *   lambda 也兼容 `extra` optional），现状不变
+   * - **HTTP**：transport-http.ts 实现 `(extra) => extra?.authInfo?.resolvedSid ?? null`
+   *   读 mcp-sdk 注入的 RequestHandlerExtra.authInfo.resolvedSid（HookServer.checkMcpAuth
+   *   反查 mcpSessionTokenMap 后写入 IncomingMessage.auth）
+   * - **stdio**：null（stdio 无 HTTP auth，handler 自动 fallback args.caller_session_id）
+   *
+   * `extra` 类型用 `unknown` 保最 conservative；transport-http 那一层 cast 为
+   * `{ authInfo?: McpAuthInfo }`。返回 null 表示「没有 override」（caller 用
+   * args.caller_session_id 兜底）。
    */
-  callerSessionIdOverride: (() => string | null) | null;
+  callerSessionIdOverride: ((extra?: unknown) => string | null) | null;
   /** transport 类型，写入 CallerContext.transport 字段供 handler 决策。 */
   transport: CallerContext['transport'];
 }
@@ -82,13 +94,18 @@ export async function buildAgentDeckTools(
 
   /**
    * 把 zod 解析后的 args 字段（含 caller_session_id / parent_session_id）规范成
-   * HandlerContext。in-process transport 用 closure override 覆盖伪造的 caller_session_id。
+   * HandlerContext。in-process transport 用 closure override 覆盖伪造的 caller_session_id;
+   * HTTP transport 通过 mcp-sdk handler 第二参数 extra 透传 RequestHandlerExtra,
+   * 由 callerSessionIdOverride 拿 extra.authInfo.resolvedSid 反查（plan P2 Step 2.3）。
    */
-  function makeCtx(args: {
-    caller_session_id?: string;
-    parent_session_id?: string;
-  }): HandlerContext {
-    const overridden = callerSessionIdOverride?.() ?? null;
+  function makeCtx(
+    args: {
+      caller_session_id?: string;
+      parent_session_id?: string;
+    },
+    extra?: unknown,
+  ): HandlerContext {
+    const overridden = callerSessionIdOverride?.(extra) ?? null;
     const callerSid = overridden ?? args.caller_session_id;
     return {
       caller: makeCallerContext(callerSid, args.parent_session_id, transport),
@@ -99,21 +116,21 @@ export async function buildAgentDeckTools(
     AGENT_DECK_TOOL_NAMES.spawnSession,
     'Spawn a new agent session via the given adapter (claude-code / codex-cli / aider / generic-pty). Returns the new sessionId. Subject to depth / per-parent fan-out / per-app rate-limit (see Agent Deck Settings → MCP Server). caller_session_id is required (in-process transport overrides with the real session id).',
     SPAWN_SESSION_SCHEMA,
-    async (args) => spawnSessionHandler(args, makeCtx(args)),
+    async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
   );
 
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
     'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing. Pass `reply_to_message_id` to link this message into an existing reply chain (the chain is recorded in DB; lead/teammate see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Multi-team callers must specify `team_id`.',
     SEND_MESSAGE_SCHEMA,
-    async (args) => sendMessageHandler(args, makeCtx(args)),
+    async (args, extra) => sendMessageHandler(args, makeCtx(args, extra)),
   );
 
   const listSessions = tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
     'List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages.',
     LIST_SESSIONS_SCHEMA,
-    async (args) => listSessionsHandler(args, makeCtx(args)),
+    async (args, extra) => listSessionsHandler(args, makeCtx(args, extra)),
     { annotations: { readOnlyHint: true } },
   );
 
@@ -121,7 +138,7 @@ export async function buildAgentDeckTools(
     AGENT_DECK_TOOL_NAMES.getSession,
     'Get a single session metadata by id. Returns same projection as list_sessions (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, teams, spawnedBy, spawnDepth) — does NOT include events / messages. Returns isError when session does not exist.',
     GET_SESSION_SCHEMA,
-    async (args) => getSessionHandler(args, makeCtx(args)),
+    async (args, extra) => getSessionHandler(args, makeCtx(args, extra)),
     { annotations: { readOnlyHint: true } },
   );
 
@@ -129,21 +146,21 @@ export async function buildAgentDeckTools(
     AGENT_DECK_TOOL_NAMES.shutdownSession,
     'Mark a session as closed (lifecycle=closed) + abort its SDK live query. Does NOT delete events / file_changes / summaries / messages — they remain queryable (lead can still cite closed teammate replies in deep-review aftermath; list_sessions(spawned_by_filter) still finds closed children). team_member soft-exit via left_at; spawn_link kept whole. caller cannot shutdown self.',
     SHUTDOWN_SESSION_SCHEMA,
-    async (args) => shutdownSessionHandler(args, makeCtx(args)),
+    async (args, extra) => shutdownSessionHandler(args, makeCtx(args, extra)),
   );
 
   const archivePlan = tool(
     AGENT_DECK_TOOL_NAMES.archivePlan,
     'Archive a completed plan-driven worktree (K1 hand-off automation): ff-merge worktree branch into base_branch, mv plan file to <main-repo>/plans/<plan_id>.md (status=completed + final_commit + completed_at), sync plans/INDEX.md (followup 20260515: 4-column smart update — `appended`/`updated`/`unchanged`/`created`), git commit, then git worktree remove + branch -D. **CHANGELOG_99: also default-archives the caller session** (with K2 baton semantic — plan completion = caller session\'s mission ends since worktree is gone and cwd is invalidated). Caller must ExitWorktree first (mcp tool cannot call CLI internal ExitWorktree; rejects when process.cwd() is inside worktree). Refuses if plan status is already "completed" or worktree is dirty. Returns { archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_action: \'created\'|\'appended\'|\'updated\'|\'unchanged\', final_status, warnings: string[] (followup 20260515 HIGH-2 silent override 等 non-fatal warning,e.g. `.claude/plans/<id>.md` 与 `plans/<id>.md` 同 id 双存覆盖警告), archived: \'ok\' | \'failed\' | \'skipped\' (CHANGELOG_99 caller archive result; \'failed\' is warn-only and does not block ok return) }. deny external caller (high-risk git+fs writes).',
     ARCHIVE_PLAN_SCHEMA,
-    async (args) => archivePlanHandler(args, makeCtx(args)),
+    async (args, extra) => archivePlanHandler(args, makeCtx(args, extra)),
   );
 
   const handOffSession = tool(
     AGENT_DECK_TOOL_NAMES.handOffSession,
     'Start the next SDK session for cross-session hand-off (K2 hand-off automation; **CHANGELOG_99 dual-mode**: plan-driven when `plan_id` is set, generic when omitted). **Plan-driven mode**: read plan frontmatter to derive worktree_path, validate status=in_progress, spawn a new session with cwd=mainRepo (default; CHANGELOG_99 cwd resilience) and auto-constructed cold-start prompt "按 <plan-abs-path> 接力" (optional phase_label appended). **Generic mode** (no plan_id): caller passes `prompt` (defaults to "从上一个会话接力继续工作") and default cwd = caller session cwd; lets any session baton off to a new SDK session without plan/worktree prereq. **Baton semantic (CHANGELOG_97)**: by default does NOT join any team (no lead/teammate role assigned to caller / new session) AND auto-archives the caller session after spawn — the new session takes over independently while the caller exits. Pass team_name explicitly only if you want lead/teammate communication. **CHANGELOG_99 cwd resilience (plan-driven mode)**: default cwd is mainRepo (was worktreePath; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove`). New session expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3. Fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. Defaults: adapter=claude-code, plan file path resolved from caller cwd via git rev-parse → <main-repo>/.claude/plans/<plan_id>.md, fallback ~/.claude/plans/<plan_id>.md. Returns { mode: \'plan\' | \'generic\', planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt, ignoredFields: string[] (generic mode warns when caller passed plan-only fields like phase_label / plan_file_path — ignored not error), sessionId, adapter, cwd, teamId (null when no team_name), teamName (null), spawnDepth, sentAt, spawnPromptMessageId (null), archived }. Caller archive failure is warn-only (does not block ok return). deny external caller (SDK session fork bomb risk). **Renamed (CHANGELOG_99)**: was `start_next_session`.',
     HAND_OFF_SESSION_SCHEMA,
-    async (args) => handOffSessionHandler(args, makeCtx(args)),
+    async (args, extra) => handOffSessionHandler(args, makeCtx(args, extra)),
   );
 
   // plan codex-handoff-team-alignment-20260518 P1 Step 1.3：mcp 版 enter_worktree / exit_worktree
@@ -154,14 +171,14 @@ export async function buildAgentDeckTools(
     AGENT_DECK_TOOL_NAMES.enterWorktree,
     'Create a new git worktree at `<main-repo>/.claude/worktrees/<plan_id>/` (or caller-overridden path) with branch `worktree-<plan_id>`, based on HEAD by default (resolution chain: args.base_commit > args.base_branch > plan frontmatter.base_commit > plan frontmatter.base_branch > HEAD). Sets `sessions.cwd_release_marker = <worktree_path>` for the caller session so that `archive_plan` preflight 4-state dispatch recognizes the cross-adapter path (state 2: in worktree + marker == worktree_path → pass). Uses explicit `git worktree add -b <branch> <path> <base_commit>` (avoids claude builtin EnterWorktree v2.1.112 stale base bug — see user CLAUDE.md §Step 1 末 callout). Returns { worktreePath, branchName, baseCommit, baseSource: arg-base-commit|arg-base-branch|frontmatter-base-commit|frontmatter-base-branch|head, markerSet }. Refuses if worktree path or branch already exists (no silent reuse). deny external caller (git write + per-session marker write).',
     ENTER_WORKTREE_SCHEMA,
-    async (args) => enterWorktreeHandler(args, makeCtx(args)),
+    async (args, extra) => enterWorktreeHandler(args, makeCtx(args, extra)),
   );
 
   const exitWorktree = tool(
     AGENT_DECK_TOOL_NAMES.exitWorktree,
     'Exit a git worktree previously entered via enter_worktree (or claude builtin EnterWorktree if caller manually set cwd_release_marker). Two actions: action="keep" leaves worktree directory + branch intact (typical mid-plan hand-off scenario, new session can re-enter via EnterWorktree(path: ...)); action="remove" deletes worktree + branch (typical plan completion / abandon cleanup). Both actions clear `sessions.cwd_release_marker` for the caller session. Worktree path resolution: args.worktree_path > caller sessionRepo.cwd_release_marker. action="remove" preflights worktree is clean (refuses if dirty unless discard_changes=true). Returns { worktreePath, action, branchDeleted, worktreeRemoved, markerCleared }. Refuses cross-worktree exit (args.worktree_path mismatches caller marker — stale state). deny external caller (git write + per-session marker clear).',
     EXIT_WORKTREE_SCHEMA,
-    async (args) => exitWorktreeHandler(args, makeCtx(args)),
+    async (args, extra) => exitWorktreeHandler(args, makeCtx(args, extra)),
   );
 
   return [
