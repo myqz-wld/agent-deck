@@ -24,7 +24,7 @@
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 7 tool（`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 9 tool（`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
 ### 三个核心约定（lead 角度）
 
@@ -79,6 +79,20 @@ reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <sen
 2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 按以下顺序定位 lead：① displayName 含 "Lead-" 前缀 / ② displayName 非 reviewer-* 标识 / ③ team 内排除自己 sessionId 后唯一 active；3 条都失败走第 4 步终极兜底。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）
 3. **副作用警告**：reply 不挂 `reply_to_message_id` 失去对话链锚点，DB / SessionDetail 看不出 reply 链关系；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
 4. **list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding / codex 输出落本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到
+
+### enter_worktree / exit_worktree（MCP 替代方案）
+
+claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调用建/退 git worktree + 切 cwd + 写 sessionRepo.cwd 子表）。本应用 P1 加的 MCP 等价 tool 用于以下场景（builtin 不适用时）:
+
+- `mcp__agent-deck__enter_worktree({ plan_id, base?: "HEAD" })`:创建 / 进入 worktree 目录
+- `mcp__agent-deck__exit_worktree({ action: "keep" | "remove", discard_changes?: false })`:退出 worktree
+
+**何时走 MCP 替代**:
+- 想避开 EnterWorktree CLI v2.1.112 stale base bug（详 user CLAUDE.md §Step 1 callout）— MCP impl 显式用 HEAD 作 base 不撞 origin/<default> 落后陷阱
+- 跨 adapter 测试 / 调试 — MCP 路径主路径(codex 必走 MCP),claude 端走同款 MCP 可对齐行为
+- 需要明确写 `sessionRepo.cwd_release_marker` 字段（archive_plan 4 态预检场景 C 必需 — 见 plan §不变量 5）— MCP enter_worktree 自动写 marker，builtin EnterWorktree 不写。**默认 workflow** 仍 builtin EnterWorktree + 手工 `ExitWorktree(action:"keep")` → archive_plan 走 sessionRepo.cwd 兜底,无需切 MCP
+
+详 codex 端 protocol layer `resources/codex-config/CODEX_AGENTS.md §enter_worktree / exit_worktree` 节(codex 必走 MCP,无 fallback)。
 
 ### plan hand-off 自动化：archive_plan
 
