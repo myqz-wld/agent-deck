@@ -1,20 +1,32 @@
 /**
- * agent-deck plugin 内置 agents/skills 元数据扫描与缓存（CHANGELOG_57 C2）。
+ * agent-deck plugin 内置 agents/skills 元数据扫描与缓存（CHANGELOG_57 C2 / plan
+ * codex-handoff-team-alignment-20260518 §P3 Step 3.3 双 root multi-adapter）。
  *
- * 数据源：`getClaudeAgentDeckPluginPath()` 下的两个子目录
+ * 数据源：双 root scan（plan §P3 Step 3.3 升级）
+ *   - claude-code root: `getClaudeAgentDeckPluginPath()` → `resources/claude-config/agent-deck-plugin/`
+ *   - codex-cli  root: `getCodexAgentDeckPluginPath()`  → `resources/codex-config/agent-deck-plugin/`
+ *
+ * 各 root 下两个子目录：
  *   - `agents/<name>.md`        —— frontmatter: name/description/tools/model
  *   - `skills/<name>/SKILL.md`  —— frontmatter: name/description
  *
- * 启动时一次性扫描全部、解析 frontmatter（手写正则，避免引 YAML 依赖——4 个字段、
- * 单行 key:value 模式足够）、缓存到模块级 module variable。`AssetsListBundled` IPC
- * handler 直接读缓存零开销。读单个文件原文（「查看完整内容」/编辑器打开）走
- * `getBundledAssetContent` 现读，避免长文本 + 多文件常驻内存。
+ * 启动时一次性扫描两 root 全部、合并到同一 snapshot、解析 frontmatter（手写正则，避免引
+ * YAML 依赖——4 个字段、单行 key:value 模式足够）、缓存到模块级 module variable。
+ * `AssetsListBundled` IPC handler 直接读缓存零开销。读单个文件原文（「查看完整内容」/编辑器
+ * 打开）走 `getBundledAssetContent(kind, name, adapter)` 现读，避免长文本 + 多文件常驻内存。
  *
- * 路径分流：dev `<repo>/resources/claude-config/agent-deck-plugin/`，
- * prod `<resourcesPath>/claude-config/agent-deck-plugin/`，由 sdk-injection.ts 复用。
+ * **adapter narrowing**（plan §P3 Step 3.3 关键修法）：
+ * - bundled 同名资产可能在双 root 各有一份内容不同的版本（如 reviewer-claude wrapper 在 claude
+ *   视角是 SDK teammate 直接跑 / 在 codex 视角是 Bash spawn 外部 claude CLI）。`getBundledAssetContent`
+ *   / `getBundledAssetPath` 必须显式传 adapter narrow 到具体 root，不能 fallback 任意一边。
+ * - qualifiedName 升级：`agent-deck:<adapter>:<name>`（替代旧 `agent-deck:<name>`）
+ *   防同名冲突；user 资产 qualifiedName 不变（`<name>`）。
  *
- * **plan §P3 Step 3.2 起 claude 路径解析改名 `getClaudeAgentDeckPluginPath`**（双 root
- * 多 adapter scan 在 Step 3.3 落地；本 Step 仅 rename caller，行为零变化）。
+ * 路径分流：dev `<repo>/resources/<adapter>-config/agent-deck-plugin/`，prod
+ * `<resourcesPath>/<adapter>-config/agent-deck-plugin/`，由 sdk-injection.ts (claude) /
+ * codex-config-paths.ts (codex) 各自实现 dev/prod 路径解析；`getAgentDeckPluginPathForAdapter`
+ * 在 `src/main/adapters/agent-deck-plugin-paths.ts` 提供 switch 调度（spawn handler 等动态
+ * caller 用），本文件直接 import 两个具体 helper（双 root scan 内部已知 adapter，不必走 dispatcher）。
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -22,7 +34,11 @@ import { app } from 'electron';
 import type { AssetMeta, BundledAssetsSnapshot } from '@shared/types';
 import { ASSET_NAME_REGEX } from '@shared/types';
 import { getClaudeAgentDeckPluginPath } from './adapters/claude-code/sdk-injection';
+import { getCodexAgentDeckPluginPath } from './adapters/codex-cli/codex-config-paths';
 import { parseFrontmatter } from './utils/frontmatter';
+
+/** plan §P3 Step 3.3：bundled 资产 adapter narrowing key。user 资产此字段为 null。 */
+export type BundledAdapter = 'claude-code' | 'codex-cli';
 
 let cached: BundledAssetsSnapshot | null = null;
 
@@ -30,16 +46,28 @@ let cached: BundledAssetsSnapshot | null = null;
  * main 启动时调一次（在 bootstrapIpc 之前），让 IPC handler 直接读缓存。
  *
  * Dev / packaged 缓存策略不同（CHANGELOG_57 R1·F11 收口）：
- * - **packaged**：`process.resourcesPath/claude-config/` 是 read-only 资源，cache 永久有效
- * - **dev (`!app.isPackaged`)**：每次调都重扫，让开发者改 plugin md 后立刻在「资产库」里看到新 frontmatter，
- *   不必重启 Electron。代价：每次 mount AssetsLibraryDialog 重扫 ~4 文件 frontmatter（毫秒级）。
+ * - **packaged**：`process.resourcesPath/<adapter>-config/` 是 read-only 资源，cache 永久有效
+ * - **dev (`!app.isPackaged`)**：每次调都重扫，让开发者改 plugin md 后立刻在「资产库」里看到
+ *   新 frontmatter，不必重启 Electron。代价：每次 mount AssetsLibraryDialog 重扫双 root
+ *   ~8 文件 frontmatter（毫秒级）。
+ *
+ * **plan §P3 Step 3.3 升级 — 双 root 合并**：claude-code root + codex-cli root 各自扫，
+ * agents / skills 数组合并；同 kind 同 name 跨 root 不去重（由 adapter 字段区分）。snapshot
+ * 内部 sort 按 (adapter asc, name asc)，UI 渲染顺序稳定。
  */
 export function loadBundledAssets(): BundledAssetsSnapshot {
   if (cached && app.isPackaged) return cached;
-  const root = getClaudeAgentDeckPluginPath();
+  const claudeRoot = getClaudeAgentDeckPluginPath();
+  const codexRoot = getCodexAgentDeckPluginPath();
   const snapshot: BundledAssetsSnapshot = {
-    agents: scanAgents(root),
-    skills: scanSkills(root),
+    agents: [
+      ...scanAgents(claudeRoot, 'claude-code'),
+      ...scanAgents(codexRoot, 'codex-cli'),
+    ].sort(compareAdapterThenName),
+    skills: [
+      ...scanSkills(claudeRoot, 'claude-code'),
+      ...scanSkills(codexRoot, 'codex-cli'),
+    ].sort(compareAdapterThenName),
   };
   if (app.isPackaged) cached = snapshot;
   return snapshot;
@@ -49,13 +77,20 @@ export function getBundledAssets(): BundledAssetsSnapshot {
   return loadBundledAssets();
 }
 
-/** 读单个 bundled asset 完整文件文本（含 frontmatter + body）。 */
+/**
+ * 读单个 bundled asset 完整文件文本（含 frontmatter + body）。
+ *
+ * **plan §P3 Step 3.3 breaking change**：必传 `adapter`。同 kind/name 跨 adapter 内容
+ * 完全不同（如 reviewer-claude wrapper），无 fallback —— 不传 adapter 没法定位 fs 路径。
+ * caller 通过 `AssetMeta.adapter` 字段或 args.adapter 拿到。
+ */
 export function getBundledAssetContent(
   kind: 'agent' | 'skill',
   name: string,
+  adapter: BundledAdapter,
 ): { ok: true; content: string } | { ok: false; reason: string } {
-  const path = getBundledAssetPath(kind, name);
-  if (!path) return { ok: false, reason: `not found: ${kind}/${name}` };
+  const path = getBundledAssetPath(kind, name, adapter);
+  if (!path) return { ok: false, reason: `not found: ${adapter}/${kind}/${name}` };
   try {
     return { ok: true, content: readFileSync(path, 'utf8') };
   } catch (err) {
@@ -63,15 +98,23 @@ export function getBundledAssetContent(
   }
 }
 
-/** 返回 bundled asset 的绝对路径，给 shell.showItemInFolder 用。 */
-export function getBundledAssetPath(kind: 'agent' | 'skill', name: string): string | null {
+/**
+ * 返回 bundled asset 的绝对路径，给 shell.showItemInFolder 用。
+ *
+ * **plan §P3 Step 3.3 breaking change**：必传 `adapter` narrow 到具体 root。
+ */
+export function getBundledAssetPath(
+  kind: 'agent' | 'skill',
+  name: string,
+  adapter: BundledAdapter,
+): string | null {
   if (!isSafeName(name)) return null;
-  const root = getClaudeAgentDeckPluginPath();
+  const root = adapter === 'claude-code' ? getClaudeAgentDeckPluginPath() : getCodexAgentDeckPluginPath();
   const path = kind === 'agent' ? join(root, 'agents', `${name}.md`) : join(root, 'skills', name, 'SKILL.md');
   return existsSync(path) ? path : null;
 }
 
-function scanAgents(root: string): AssetMeta[] {
+function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
   const dir = join(root, 'agents');
   if (!existsSync(dir)) return [];
   const out: AssetMeta[] = [];
@@ -82,15 +125,15 @@ function scanAgents(root: string): AssetMeta[] {
     const absPath = join(dir, file);
     try {
       const fm = parseFrontmatter(readFileSync(absPath, 'utf8'));
-      out.push(buildAgentMeta(name, absPath, fm, 'bundled'));
+      out.push(buildAgentMeta(name, absPath, fm, 'bundled', adapter));
     } catch (err) {
-      console.warn(`[bundled-assets] skip agent ${name}:`, (err as Error).message);
+      console.warn(`[bundled-assets] skip agent ${adapter}/${name}:`, (err as Error).message);
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function scanSkills(root: string): AssetMeta[] {
+function scanSkills(root: string, adapter: BundledAdapter): AssetMeta[] {
   const dir = join(root, 'skills');
   if (!existsSync(dir)) return [];
   const out: AssetMeta[] = [];
@@ -102,26 +145,37 @@ function scanSkills(root: string): AssetMeta[] {
     if (!existsSync(skillFile)) continue;
     try {
       const fm = parseFrontmatter(readFileSync(skillFile, 'utf8'));
-      out.push(buildSkillMeta(entry, skillFile, fm, 'bundled'));
+      out.push(buildSkillMeta(entry, skillFile, fm, 'bundled', adapter));
     } catch (err) {
-      console.warn(`[bundled-assets] skip skill ${entry}:`, (err as Error).message);
+      console.warn(`[bundled-assets] skip skill ${adapter}/${entry}:`, (err as Error).message);
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * plan §P3 Step 3.3：buildAgentMeta / buildSkillMeta 多收一个 `adapter` 参数。
+ * - bundled 资产：传具体 adapter ('claude-code' / 'codex-cli')
+ * - user 资产（user-assets.ts via `__metaBuilders`）：传 null（不属任何 plugin root）
+ *
+ * qualifiedName 拼装：
+ * - bundled: `agent-deck:<adapter>:<name>` —— 防双 root 同名 agent 冲突
+ * - user:    `<name>` —— 不变（user 资产无 adapter scope）
+ */
 function buildAgentMeta(
   name: string,
   absPath: string,
   fm: Record<string, string>,
   source: 'bundled' | 'user',
+  adapter: BundledAdapter | null,
 ): AssetMeta {
   const description = fm.description ?? '';
   return {
     kind: 'agent',
     source,
+    adapter,
     name,
-    qualifiedName: source === 'bundled' ? `agent-deck:${name}` : name,
+    qualifiedName: source === 'bundled' && adapter ? `agent-deck:${adapter}:${name}` : name,
     description,
     tools: fm.tools,
     model: fm.model,
@@ -135,13 +189,15 @@ function buildSkillMeta(
   absPath: string,
   fm: Record<string, string>,
   source: 'bundled' | 'user',
+  adapter: BundledAdapter | null,
 ): AssetMeta {
   const description = fm.description ?? '';
   return {
     kind: 'skill',
     source,
+    adapter,
     name,
-    qualifiedName: source === 'bundled' ? `agent-deck:${name}` : name,
+    qualifiedName: source === 'bundled' && adapter ? `agent-deck:${adapter}:${name}` : name,
     description,
     triggers: extractTriggers(description),
     absPath,
@@ -164,6 +220,19 @@ function extractTriggers(description: string): string[] | undefined {
     if (set.size >= 5) break;
   }
   return set.size > 0 ? Array.from(set) : undefined;
+}
+
+/**
+ * snapshot 排序：先 adapter（claude-code 排前 / codex-cli 排后 / null user 资产由 user-assets
+ * 单独管不混入 bundled snapshot），再 name。AssetsLibraryDialog 单 section 内顺序稳定 + 跨
+ * adapter 视觉分组（claude 资产成片 / codex 资产成片）。
+ */
+function compareAdapterThenName(a: AssetMeta, b: AssetMeta): number {
+  const adapterRank = (x: AssetMeta['adapter']): number => (x === 'claude-code' ? 0 : x === 'codex-cli' ? 1 : 2);
+  const ra = adapterRank(a.adapter);
+  const rb = adapterRank(b.adapter);
+  if (ra !== rb) return ra - rb;
+  return a.name.localeCompare(b.name);
 }
 
 /**

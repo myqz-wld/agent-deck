@@ -44,9 +44,33 @@ export const ASSET_LIMITS = {
 export interface AssetMeta {
   kind: AssetKind;
   source: AssetSource;
+  /**
+   * 资产所属 adapter（plan codex-handoff-team-alignment-20260518 §P3 Step 3.3）：
+   * - `'claude-code'`：bundled 资产，扫自 `resources/claude-config/agent-deck-plugin/`
+   * - `'codex-cli'`：bundled 资产，扫自 `resources/codex-config/agent-deck-plugin/`
+   * - `null`：user 资产（`~/.claude/{agents,skills}/`），不属任何 plugin root —— user assets 是
+   *   SDK `settingSources: ['user', ...]` 自动加载，与 adapter root scope 无关
+   *
+   * 用途：
+   * 1. spawn_session(adapter, agent_name) 路由到对应 plugin root 取 agent body（同名 agent
+   *    跨 adapter 内容不同，如 reviewer-claude wrapper 在 claude 视角 / codex 视角实现完全不同）
+   * 2. `getBundledAssetContent(kind, name, adapter)` / `getBundledAssetPath(kind, name, adapter)`
+   *    必须的 narrowing key —— 不知 adapter 没法定位 fs 路径
+   * 3. UI 渲染分组（资产库 dialog 双 adapter 资产分组显示）
+   */
+  adapter: 'claude-code' | 'codex-cli' | null;
   /** skills: 子目录名；agents: 文件名去后缀。slug 见 `ASSET_NAME_REGEX`。 */
   name: string;
-  /** 内置：`agent-deck:<name>`；用户：`<name>`。UI 直接展示用，让用户复制即得 SDK 引用名。 */
+  /**
+   * 内置：`agent-deck:<adapter>:<name>`（如 `agent-deck:claude-code:reviewer-claude` /
+   * `agent-deck:codex-cli:reviewer-claude`，加 adapter 段防双 root 同名 agent 冲突）；
+   * 用户：`<name>`（不变）。
+   *
+   * UI 直接展示用，让用户清楚该资产来自哪个 adapter root；React key 用此字段时跨 adapter
+   * 同名 agent 仍唯一。**plan §P3 Step 3.3 由 `agent-deck:<name>` 升级**——历史 caller 通过
+   * `agent_name: 'reviewer-claude'` (不带 prefix) 引用 SDK，qualifiedName 仅 UI 展示，无 runtime
+   * 影响。
+   */
   qualifiedName: string;
   description: string;
   /** agent only。逗号分隔的 tool 列表，如 `Read, Grep, Glob, Bash`。 */

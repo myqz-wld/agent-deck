@@ -1,5 +1,6 @@
 /**
- * Assets Library IPC handlers（CHANGELOG_57 C2）。
+ * Assets Library IPC handlers（CHANGELOG_57 C2 / plan codex-handoff-team-alignment-20260518
+ * §P3 Step 3.4 双 adapter cascade）。
  *
  * 6 个 channel 收口资产库读写：
  *   - AssetsListBundled / AssetsListUser    —— 列表
@@ -10,13 +11,24 @@
  * 入参校验：name 走 isSafeName（slug `[a-z0-9-]+`，长度 1-64），kind 严格枚举，
  * source 严格枚举，UserAssetInput 委托 user-assets.saveUserAsset 内部校验。
  * 所有失败统一返回 `{ ok: false, reason }`，renderer 透传给用户。
+ *
+ * **plan §P3 Step 3.4 升级**：AssetsGetContent / AssetsRevealInFolder 加 adapter 第 4 参数：
+ * - source==='bundled'：adapter 必传（'claude-code' / 'codex-cli'）—— bundled 双 root narrow
+ *   key，不传或非法直接 reject
+ * - source==='user'：adapter 忽略（user 资产无 plugin scope，renderer 传 null）
  */
 import { shell } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import type { AssetKind, AssetSource, UserAssetInput } from '@shared/types';
 import { ASSET_LIMITS } from '@shared/types';
 import { on, IpcInputError, parseStringId } from './_helpers';
-import { getBundledAssets, getBundledAssetContent, getBundledAssetPath, isSafeName } from '@main/bundled-assets';
+import {
+  getBundledAssets,
+  getBundledAssetContent,
+  getBundledAssetPath,
+  isSafeName,
+  type BundledAdapter,
+} from '@main/bundled-assets';
 import {
   deleteUserAsset,
   getUserAssetContent,
@@ -27,6 +39,7 @@ import {
 
 const KIND_VALUES: ReadonlyArray<AssetKind> = ['agent', 'skill'];
 const SOURCE_VALUES: ReadonlyArray<AssetSource> = ['bundled', 'user'];
+const BUNDLED_ADAPTER_VALUES: ReadonlyArray<BundledAdapter> = ['claude-code', 'codex-cli'];
 
 function parseKind(value: unknown): AssetKind {
   if (typeof value !== 'string' || !KIND_VALUES.includes(value as AssetKind)) {
@@ -40,6 +53,25 @@ function parseSource(value: unknown): AssetSource {
     throw new IpcInputError('source', `must be one of ${SOURCE_VALUES.join('|')}, got ${String(value)}`);
   }
   return value as AssetSource;
+}
+
+/**
+ * plan §P3 Step 3.4：bundled adapter narrow key 入参校验。
+ * - source==='bundled'：必传 'claude-code' / 'codex-cli'，缺失或非法 throw
+ * - source==='user'：caller 应传 null（renderer 直接透传 `asset.adapter`，user 资产是 null）
+ *
+ * 返回 BundledAdapter（bundled 路径用）/ null（user 路径用）；caller 必须按 source 自己 narrow
+ * 拒绝非法组合（如 source='bundled' + adapter=null）。
+ */
+function parseBundledAdapterOrNull(value: unknown): BundledAdapter | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || !BUNDLED_ADAPTER_VALUES.includes(value as BundledAdapter)) {
+    throw new IpcInputError(
+      'adapter',
+      `must be one of ${BUNDLED_ADAPTER_VALUES.join('|')} or null, got ${String(value)}`,
+    );
+  }
+  return value as BundledAdapter;
 }
 
 function parseAssetName(value: unknown): string {
@@ -122,11 +154,21 @@ export function registerAssetsIpc(): void {
 
   on(IpcInvoke.AssetsListUser, () => listUserAssets());
 
-  on(IpcInvoke.AssetsGetContent, (_e, kindArg, nameArg, sourceArg) => {
+  on(IpcInvoke.AssetsGetContent, (_e, kindArg, nameArg, sourceArg, adapterArg) => {
     const kind = parseKind(kindArg);
     const name = parseAssetName(nameArg);
     const source = parseSource(sourceArg);
-    const r = source === 'bundled' ? getBundledAssetContent(kind, name) : getUserAssetContent(kind, name);
+    const adapter = parseBundledAdapterOrNull(adapterArg);
+    if (source === 'bundled') {
+      if (adapter === null) {
+        // plan §P3 Step 3.4：bundled 必带 adapter narrow key（claude-code / codex-cli）
+        return { ok: false, content: '', reason: `bundled asset must include adapter narrow key (got null)` };
+      }
+      const r = getBundledAssetContent(kind, name, adapter);
+      if (r.ok) return { ok: true, content: r.content };
+      return { ok: false, content: '', reason: r.reason };
+    }
+    const r = getUserAssetContent(kind, name);
     if (r.ok) return { ok: true, content: r.content };
     return { ok: false, content: '', reason: r.reason };
   });
@@ -142,11 +184,20 @@ export function registerAssetsIpc(): void {
     return deleteUserAsset(kind, name);
   });
 
-  on(IpcInvoke.AssetsRevealInFolder, (_e, kindArg, nameArg, sourceArg) => {
+  on(IpcInvoke.AssetsRevealInFolder, (_e, kindArg, nameArg, sourceArg, adapterArg) => {
     const kind = parseKind(kindArg);
     const name = parseAssetName(nameArg);
     const source = parseSource(sourceArg);
-    const path = source === 'bundled' ? getBundledAssetPath(kind, name) : getUserAssetPath(kind, name);
+    const adapter = parseBundledAdapterOrNull(adapterArg);
+    let path: string | null = null;
+    if (source === 'bundled') {
+      if (adapter === null) {
+        return { ok: false, reason: `bundled asset must include adapter narrow key (got null)` };
+      }
+      path = getBundledAssetPath(kind, name, adapter);
+    } else {
+      path = getUserAssetPath(kind, name);
+    }
     if (!path) return { ok: false, reason: `not found: ${source}/${kind}/${name}` };
     try {
       shell.showItemInFolder(path);
