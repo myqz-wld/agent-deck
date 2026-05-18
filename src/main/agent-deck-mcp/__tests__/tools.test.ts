@@ -357,10 +357,15 @@ vi.mock('@main/teams/universal-message-watcher', () => ({
 // 否则 handler call-site 当 string|null 用就会 toString 成 "[object Object]"，单测看不出来
 // 但生产 100% 失败（用户实测 SKILL spawn 出来 reviewer 收到的 prompt 顶部是 [object Object]
 // 紧跟 ---\n\n + 任务体，agent body 完全没注入）。
+//
+// **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4 升级**：mock signature 加第 3
+// 参数 `adapter`（'claude-code' | 'codex-cli'）；现有测试 mock 行为对 adapter 不敏感（仅按
+// kind+name 反查），保留 noop 兼容；新加 D3 矩阵 4 行测试时按需 narrow adapter 写更精确 mock。
 vi.mock('@main/bundled-assets', () => ({
   getBundledAssetContent: (
     kind: 'agent' | 'skill',
     name: string,
+    _adapter: 'claude-code' | 'codex-cli',
   ): { ok: true; content: string } | { ok: false; reason: string } => {
     if (kind === 'agent' && name === 'reviewer-claude') {
       return {

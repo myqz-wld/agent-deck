@@ -121,13 +121,21 @@ export const miscApi = {
   /** 列用户自定义 ~/.claude/{agents,skills}/ 下全部资产；每次现扫现读。 */
   listUserAssets: (): Promise<UserAssetsSnapshot> =>
     ipcRenderer.invoke(IpcInvoke.AssetsListUser),
-  /** 读单个 asset 完整 md 文本（含 frontmatter + body）。「查看完整内容」/ 编辑器 mount 用。 */
+  /**
+   * 读单个 asset 完整 md 文本（含 frontmatter + body）。「查看完整内容」/ 编辑器 mount 用。
+   *
+   * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4 升级**：第 4 参数 `adapter`：
+   * - bundled 资产：传 `asset.adapter`（'claude-code' / 'codex-cli'，bundled 双 root narrow key）
+   * - user 资产：传 `null`（user 资产无 plugin scope）
+   * - renderer 直接透传 `AssetMeta.adapter` 字段值即可
+   */
   getAssetContent: (
     kind: AssetKind,
     name: string,
     source: AssetSource,
+    adapter: 'claude-code' | 'codex-cli' | null,
   ): Promise<AssetContentResult> =>
-    ipcRenderer.invoke(IpcInvoke.AssetsGetContent, kind, name, source),
+    ipcRenderer.invoke(IpcInvoke.AssetsGetContent, kind, name, source, adapter),
   /** 保存用户 asset；main 端拼装 frontmatter + 原子写。返回写盘后的 AssetMeta。 */
   saveUserAsset: (input: UserAssetInput): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AssetsSaveUser, input),
@@ -137,13 +145,19 @@ export const miscApi = {
     name: string,
   ): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AssetsDeleteUser, kind, name),
-  /** 在 Finder / 资源管理器中显示对应文件，跨平台。 */
+  /**
+   * 在 Finder / 资源管理器中显示对应文件，跨平台。
+   *
+   * **plan §P3 Step 3.4 升级**：第 4 参数 `adapter` 同 getAssetContent 语义（bundled 必传 /
+   * user 传 null）。
+   */
   revealAssetInFolder: (
     kind: AssetKind,
     name: string,
     source: AssetSource,
+    adapter: 'claude-code' | 'codex-cli' | null,
   ): Promise<{ ok: boolean; reason?: string }> =>
-    ipcRenderer.invoke(IpcInvoke.AssetsRevealInFolder, kind, name, source),
+    ipcRenderer.invoke(IpcInvoke.AssetsRevealInFolder, kind, name, source, adapter),
 
   /**
    * 拉取 summarizer 最近一次失败原因（by sessionId），UI 设置面板诊断用。

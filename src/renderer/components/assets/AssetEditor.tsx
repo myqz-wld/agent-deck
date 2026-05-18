@@ -54,7 +54,9 @@ export function AssetEditor({ kind, asset, onClose, onSaved }: Props): JSX.Eleme
     // 时孤儿 then 写到旧 body。fetch 失败也算 cancel scope 内（防写孤儿 error）。
     let cancelled = false;
     void window.api
-      .getAssetContent(asset.kind, asset.name, 'user')
+      // plan codex-handoff-team-alignment-20260518 §P3 Step 3.4：getAssetContent 第 4 参数
+      // adapter；AssetEditor 仅编辑 user 资产（source 必为 'user'），adapter 永远 null。
+      .getAssetContent(asset.kind, asset.name, 'user', null)
       .then((r) => {
         if (cancelled) return;
         if (r.ok) {

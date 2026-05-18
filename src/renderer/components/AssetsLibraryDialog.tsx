@@ -141,11 +141,14 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
   /**
    * 打开 viewer：seq guard 防 closure 捕获 stale asset。用户先点 A 后点 B 时，
    * 即使 A 的 fetch 比 B 慢，也只接受当前最新 seq 的响应（CHANGELOG_57 R1·F5）。
+   *
+   * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4**：getAssetContent 第 4 参数
+   * `adapter` 直接透传 `asset.adapter`（bundled='claude-code'|'codex-cli' / user=null）。
    */
   const openViewer = (asset: AssetMeta): void => {
     const seq = ++viewerSeqRef.current;
     setViewer({ asset, content: null, error: null });
-    void window.api.getAssetContent(asset.kind, asset.name, asset.source).then((r) => {
+    void window.api.getAssetContent(asset.kind, asset.name, asset.source, asset.adapter).then((r) => {
       if (seq !== viewerSeqRef.current) return;
       if (r.ok) setViewer({ asset, content: r.content, error: null });
       else setViewer({ asset, content: null, error: r.reason ?? '未知错误' });
@@ -269,7 +272,12 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
         <ContentViewerModal
           state={viewer}
           onReveal={() =>
-            void window.api.revealAssetInFolder(viewer.asset.kind, viewer.asset.name, viewer.asset.source)
+            void window.api.revealAssetInFolder(
+              viewer.asset.kind,
+              viewer.asset.name,
+              viewer.asset.source,
+              viewer.asset.adapter,
+            )
           }
           onClose={() => setViewer(null)}
         />

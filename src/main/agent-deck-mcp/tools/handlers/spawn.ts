@@ -71,9 +71,14 @@ export const spawnSessionHandler = withMcpGuard(
     const { parentDepth, fanOutSlot } = guard;
 
     // D1 (CHANGELOG_76): agent_name 非空 → 按 plugin agents registry resolve body file，
-    // 把 body 作为 prompt 前缀注入。getBundledAssetContent('agent', name) 已 startup 时
-    // loadBundledAssets 预热缓存（main/index.ts:202 step 8.5），现读 fs 一次性拿到。
+    // 把 body 作为 prompt 前缀注入。getBundledAssetContent('agent', name, adapter) 已 startup
+    // 时 loadBundledAssets 预热缓存（main/index.ts:202 step 8.5），现读 fs 一次性拿到。
     // 找不到（拼写错 / 没安装该 plugin）→ 直接 err 防止静默落空 fallback。
+    //
+    // **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4 升级**：getBundledAssetContent
+    // 新增 adapter 第 3 参数（plugin root narrow key），caller 必须从 args.adapter 透传。bundled
+    // 资产仅 claude-code / codex-cli 双 root；aider / generic-pty adapter 无 plugin 注入概念
+    // （agent_name 字段对它们无意义），此处提前 reject 避免传非法 adapter 给 bundled-assets。
     //
     // REVIEW_31 Bug 1+2 修法：getBundledAssetContent 真实签名是 discriminated union
     // `{ok:true,content:string} | {ok:false,reason:string}`，老代码把它当 `string|null`
@@ -87,7 +92,14 @@ export const spawnSessionHandler = withMcpGuard(
     // 标的 model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
     let modelFromFrontmatter: string | undefined;
     if (args.agent_name) {
-      const bodyResult = getBundledAssetContent('agent', args.agent_name);
+      if (args.adapter !== 'claude-code' && args.adapter !== 'codex-cli') {
+        fanOutSlot.release();
+        return err(
+          `agent_name not supported for adapter "${args.adapter}"`,
+          'Plugin agents are scanned from claude-config / codex-config plugin roots only. aider / generic-pty adapters have no agent_deck plugin scope; drop agent_name and pass full prompt directly.',
+        );
+      }
+      const bodyResult = getBundledAssetContent('agent', args.agent_name, args.adapter);
       if (!bodyResult.ok) {
         fanOutSlot.release();
         return err(

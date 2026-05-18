@@ -164,7 +164,7 @@ function scanUserAgents(): AssetMeta[] {
     const absPath = join(USER_AGENTS_DIR, file);
     try {
       const fm = parseFrontmatter(readFileSync(absPath, 'utf8'));
-      out.push(__metaBuilders.buildAgentMeta(name, absPath, fm, 'user'));
+      out.push(__metaBuilders.buildAgentMeta(name, absPath, fm, 'user', null));
     } catch (err) {
       console.warn(`[user-assets] skip agent ${name}:`, (err as Error).message);
     }
@@ -183,7 +183,7 @@ function scanUserSkills(): AssetMeta[] {
     if (!existsSync(skillFile)) continue;
     try {
       const fm = parseFrontmatter(readFileSync(skillFile, 'utf8'));
-      out.push(__metaBuilders.buildSkillMeta(entry, skillFile, fm, 'user'));
+      out.push(__metaBuilders.buildSkillMeta(entry, skillFile, fm, 'user', null));
     } catch (err) {
       console.warn(`[user-assets] skip skill ${entry}:`, (err as Error).message);
     }
