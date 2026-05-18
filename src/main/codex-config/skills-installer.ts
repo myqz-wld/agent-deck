@@ -44,7 +44,7 @@ export function getCodexSkillsAgentDeckDir(): string {
   return join(homedir(), '.codex', 'skills', 'agent-deck');
 }
 
-/** 内置 plugin skills 源目录绝对路径（dev / prod 自动分流，与 sdk-injection.getAgentDeckPluginPath 同模式）。 */
+/** 内置 plugin skills 源目录绝对路径（dev / prod 自动分流，与 sdk-injection.getClaudeAgentDeckPluginPath 同模式）。 */
 function getBuiltinSkillsSourceDir(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, 'claude-config', 'agent-deck-plugin', 'skills');

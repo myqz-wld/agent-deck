@@ -34,7 +34,7 @@ vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
 }));
 
 vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
-  getAgentDeckPluginPath: () => '/fake/plugin',
+  getClaudeAgentDeckPluginPath: () => '/fake/plugin',
   getAgentDeckSystemPromptAppend: () => '',
 }));
 

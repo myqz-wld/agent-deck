@@ -1,7 +1,7 @@
 /**
  * agent-deck plugin 内置 agents/skills 元数据扫描与缓存（CHANGELOG_57 C2）。
  *
- * 数据源：`getAgentDeckPluginPath()` 下的两个子目录
+ * 数据源：`getClaudeAgentDeckPluginPath()` 下的两个子目录
  *   - `agents/<name>.md`        —— frontmatter: name/description/tools/model
  *   - `skills/<name>/SKILL.md`  —— frontmatter: name/description
  *
@@ -12,13 +12,16 @@
  *
  * 路径分流：dev `<repo>/resources/claude-config/agent-deck-plugin/`，
  * prod `<resourcesPath>/claude-config/agent-deck-plugin/`，由 sdk-injection.ts 复用。
+ *
+ * **plan §P3 Step 3.2 起 claude 路径解析改名 `getClaudeAgentDeckPluginPath`**（双 root
+ * 多 adapter scan 在 Step 3.3 落地；本 Step 仅 rename caller，行为零变化）。
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 import type { AssetMeta, BundledAssetsSnapshot } from '@shared/types';
 import { ASSET_NAME_REGEX } from '@shared/types';
-import { getAgentDeckPluginPath } from './adapters/claude-code/sdk-injection';
+import { getClaudeAgentDeckPluginPath } from './adapters/claude-code/sdk-injection';
 import { parseFrontmatter } from './utils/frontmatter';
 
 let cached: BundledAssetsSnapshot | null = null;
@@ -33,7 +36,7 @@ let cached: BundledAssetsSnapshot | null = null;
  */
 export function loadBundledAssets(): BundledAssetsSnapshot {
   if (cached && app.isPackaged) return cached;
-  const root = getAgentDeckPluginPath();
+  const root = getClaudeAgentDeckPluginPath();
   const snapshot: BundledAssetsSnapshot = {
     agents: scanAgents(root),
     skills: scanSkills(root),
@@ -63,7 +66,7 @@ export function getBundledAssetContent(
 /** 返回 bundled asset 的绝对路径，给 shell.showItemInFolder 用。 */
 export function getBundledAssetPath(kind: 'agent' | 'skill', name: string): string | null {
   if (!isSafeName(name)) return null;
-  const root = getAgentDeckPluginPath();
+  const root = getClaudeAgentDeckPluginPath();
   const path = kind === 'agent' ? join(root, 'agents', `${name}.md`) : join(root, 'skills', name, 'SKILL.md');
   return existsSync(path) ? path : null;
 }
