@@ -321,16 +321,17 @@ export interface AppSettings {
    */
   mcpMaxSpawnDepth: number;
   /**
-   * MCP `spawn_session` 防递归：应用级全局 spawn-rate 上限（默认 10/min，范围 [1, 60]）。
+   * MCP `spawn_session` 防递归：应用级全局 spawn-rate 上限（默认 20/min，范围 [1, 60]）。
    * 滑动窗口跨所有 caller 累计。触顶 → handler 返回 isError + retry_after_ms。
-   * 默认 10 是 reviewer 双对抗 MED 修法（原 5 偏紧，并行 deep-review 留 buffer）。
-   * 详 B'0 §6.3。
+   * 默认 20 是 P5 plan codex-handoff-team-alignment-20260518 deep-review 多 batch 并发实跑修法
+   * （原 10 在 3 batch × 2 reviewer = 6 并发 spawn 时偏紧）。详 B'0 §6.3。
    */
   mcpSpawnRatePerMinute: number;
   /**
-   * MCP `spawn_session` 防递归：单 caller 的 active children 上限（默认 5，范围 [1, 20]）。
+   * MCP `spawn_session` 防递归：单 caller 的 active children 上限（默认 10，范围 [1, 20]）。
    * 触顶 → handler 返回 isError「fan-out N reached for parent X」。
-   * 详 B'0 §6.4。
+   * 默认 10 是 P5 plan codex-handoff-team-alignment-20260518 deep-review 多 batch 并发实跑修法
+   * （原 5 在 3 batch × 2 reviewer = 6 teammate 时撞顶 + 加一对反驳轮就溢出）。详 B'0 §6.4。
    */
   mcpMaxFanOutPerParent: number;
 
@@ -400,8 +401,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcpHttpEnabled: true,
   mcpStdioEnabled: false,
   mcpMaxSpawnDepth: 3,
-  mcpSpawnRatePerMinute: 10,
-  mcpMaxFanOutPerParent: 5,
+  mcpSpawnRatePerMinute: 20,
+  mcpMaxFanOutPerParent: 10,
   // R3.E0 ADR §7.5：universal-message-watcher 限流默认值
   mcpMessageRatePerTeamPerMin: 60,
   mcpMessageMaxTargetInflight: 10,
