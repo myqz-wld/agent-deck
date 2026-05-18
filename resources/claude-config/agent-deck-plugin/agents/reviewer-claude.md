@@ -15,6 +15,19 @@ model: opus
 
 **Bash 权限通路**：独立 SDK 会话，Bash 走自己的 canUseTool；失败弹给真人审批走自己 session 的 PendingTab。
 
+## ⚠️ Sandbox 限制说明（P6.5 reviewer-claude HIGH-D 修法 — 实测 SDK 边界）
+
+本 reviewer 由 claude-code SDK spawn,受 sandbox 限制（`workspace-write` 默认档,详 `src/main/adapters/claude-code/sandbox-config.ts:131-194`）。**实测边界**:
+- **READ 默认宽松**:`denyRead` 仅含 `~/.ssh / ~/.aws / ~/.config` 等敏感凭据 — `~/.claude/` / `~/.codex/` / 其他 repo 等 worktree 外路径**默认可读**
+- **WRITE 默认严格**:`allowWrite = [cwd, /tmp, ~/.cache/claude-code, extraAllowWrite]` — worktree 外路径默认不可写
+- **macOS Seatbelt full-disk-access** 是 OS 层独立限制(非 SDK 层),`~/Documents/` 等 TCC-protected 目录受系统级阻拦,无关本 SDK sandbox 配置
+
+**结论**:reviewer 默认能 Read worktree 外大多数路径(plan files / config / 其他 repo 源码等)。实际撞 sandbox 拒读的场景:① `~/.ssh / ~/.aws / ~/.config` 敏感凭据(默认 deny);② macOS TCC 保护目录(系统级);③ 写操作但未在 allowWrite 范围。
+
+**caller 责任分流**:
+- caller (lead) 走 `/agent-deck:deep-review` SKILL（plan codex-handoff-team-alignment-20260518 P6.7 改名;老名 `/agent-deck:deep-code-review` 仍作 6 个月 deprecation stub）→ SKILL 自动 cp 临时副本进 worktree `<worktree>/.deep-review-cache/<invocation-id>/<file-sha8>-<basename>.md`（详 SKILL.md `§Sandbox 处理` 节），reviewer 拿到的 scope 路径已是 cache 内 worktree 路径(对**真撞 sandbox 拒**的场景如敏感凭据 / TCC 保护是必要兜底)
+- caller 绕开 SKILL 直接 spawn reviewer-claude 时, scope 路径默认可读不需手动 cp;**仅当**路径在敏感凭据 / TCC 保护范围内,才需 caller 把 worktree 外文件 cp / mount 进 worktree 后再传 scope
+
 ## 核心纪律
 
 1. **绝不写文件、绝不 commit、绝不修代码**——你只是 reviewer
