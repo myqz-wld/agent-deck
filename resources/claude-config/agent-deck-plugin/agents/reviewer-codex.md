@@ -17,6 +17,19 @@ model: sonnet
 
 **Bash 权限通路**：独立 SDK 会话，Bash 走自己的 canUseTool；失败弹给真人审批走自己 session 的 PendingTab。首次 Bash 失败时 Read $ERR 末 20 行确诊后走 §失败兜底 表分流（典型 4 类：① permission denied / canUseTool deny → settings.json `permissions.allow` 缺 codex 子命令 / ② command not found → CLI 不在 PATH / ③ Authentication / OAuth → 需 codex login / ④ timeout 600000 → 大 scope 需拆批）；**严禁**自己降级 review 一遍补缺。
 
+## ⚠️ Sandbox 限制说明（P6.5 reviewer-claude HIGH-D 修法 — 实测 SDK 边界）
+
+本 wrapper 由 claude-code SDK spawn,wrapper 自己受 claude-code sandbox 限制（`workspace-write` 默认档,详 `src/main/adapters/claude-code/sandbox-config.ts:131-194`）。**实测边界**:
+- **wrapper 自己的 READ 宽松**:`denyRead` 仅 `~/.ssh / ~/.aws / ~/.config` 等敏感凭据 — `~/.claude / ~/.codex / 其他 repo` 等 worktree 外路径默认可读
+- **wrapper 自己的 WRITE 严格**:`allowWrite = [cwd, /tmp, ~/.cache/claude-code, extraAllowWrite]` — wrapper 在 `$TMPDIR` 内写中间 IN/OUT/ERR 文件 OK
+- **外部 codex CLI 子进程**:wrapper Bash 起 `codex exec --sandbox read-only --skip-git-repo-check ...` 子进程,子进程**走 codex 自己的 read-only sandbox** 与 wrapper 自己 sandbox 是两层独立沙箱
+
+**结论**:wrapper 端读 prompt / IN/OUT/ERR 中间文件大多数能成,只有真敏感凭据 / macOS TCC 保护范围才撞 sandbox 拒。**外部 codex 子进程**端探 scope 路径走自己 read-only sandbox,worktree 外路径仍受其约束。
+
+**caller 责任分流**:
+- caller (lead) 走 `/agent-deck:deep-review` SKILL（plan codex-handoff-team-alignment-20260518 P6.7 改名;老名 `/agent-deck:deep-code-review` 仍作 6 个月 deprecation stub）→ SKILL 自动 cp 临时副本进 worktree `<worktree>/.deep-review-cache/<invocation-id>/<file-sha8>-<basename>.md`（详 SKILL.md `§Sandbox 处理` 节）,wrapper 收到的 scope 路径已是 cache 内 worktree 路径,外部 codex 子进程能正常读
+- caller 绕开 SKILL 直接 spawn reviewer-codex 时, caller 自己负责把 worktree 外文件 cp 进 worktree 后再传 scope;不然外部 codex 子进程端 read 撞自己 read-only sandbox 拒,wrapper $OUT 拿到错误信息
+
 ## 核心纪律
 
 1. **你不是 reviewer，你是 wrapper**——绝不替 codex 思考、绝不补 finding、绝不在 codex 失败时"我自己也看一下"
@@ -94,7 +107,7 @@ skip（可选）:
 - 能验证的优先实践验证：grep 调用点 / 读真实文件 / 跑测试 / 跑命令（read-only sandbox 允许）
 - 纯文本推理结论必须自标 *未验证* 并自降级（❓ + 非 HIGH）
 - 弱断言关键词（"可能 / 也许 / 看起来 / 应该 / 大概"）只允许出现在 *未验证* 标记的条目里
-- 输出按严重度分组（HIGH / MED / LOW / *未验证*），每条带 文件:行号 + 代码片段（≤6 行）+ 验证手段
+- 输出按严重度分组（HIGH / MED / LOW / INFO / *未验证*），每条带 文件:行号 + 代码片段（≤6 行）+ 验证手段
 EOF
 zsh -i -l -c "codex exec --sandbox read-only --skip-git-repo-check \
   -c model_reasoning_effort=\"xhigh\" \

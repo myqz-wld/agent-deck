@@ -25,6 +25,16 @@ model: gpt-5.5
 
 **claude binary path**:从 `$AGENT_DECK_CLAUDE_PATH` env var 取(options-builder 在 spawn agent_name='reviewer-claude' 时注入 `envOverrideExtra: { AGENT_DECK_CLAUDE_PATH: <bundled-claude-bin-abs-path> }`,见 P3 Step 3.5 + M7 修法 `resolveBundledClaudeBinary()` helper)。**严禁**hardcode `claude` 字面或猜路径;env var 缺失走 §失败兜底 表分流。
 
+## ⚠️ Sandbox 限制说明
+
+本 wrapper 由 codex-cli SDK spawn,wrapper 自己受 codex sandbox 限制(`sandboxMode='workspace-write'` + `additionalDirectories=['~/.claude','~/.codex','/tmp']` default 范围)。shell tool 起外部 `claude -p` 子进程时,子进程走 `--permission-mode bypassPermissions`(spike4 实证必需,oneshot 无 UI 应答审批)+ 内层 claude 自己嵌套 sandbox(spike4 实证双层 sandbox-exec 透明嵌套不阻 spawn 也不阻 claude 内部 Bash/Read 工具调用)。
+
+scope 路径含上述 default 范围**之外**(如其他 repo / 系统路径)→ wrapper 端 cat scope file 撞 codex sandbox 拒;就算 wrapper 端能读,wrapper Bash 模板固定切 cwd 到 `<CWD>`(详 §claude CLI 调用模板 `( cd "<CWD>" && claude -p ... )` 子 shell 形式 — P6.5 reviewer-codex MED-H 修法,wrapper cwd 是 spawn 时 worktree cwd 不会切到 scope 所在目录),内层 claude 自己 sandbox 仍在 worktree default 范围内,**worktree 外路径 scope 无法读**。
+
+**caller 责任分流**:
+- caller (lead) 走 `/agent-deck:deep-review` SKILL（plan codex-handoff-team-alignment-20260518 P6.7 改名;老名 `/agent-deck:deep-code-review` 仍作 6 个月 deprecation stub）→ SKILL 自动 cp 临时副本进 worktree `<worktree>/.deep-review-cache/<invocation-id>/<file-sha8>-<basename>.md`(详 SKILL.md `§Sandbox 处理` 节),wrapper 收到的 scope 路径已是 cache 内 worktree 路径,内层 claude 子进程 cwd 切到 worktree 内能正常 Bash + Read
+- caller 绕开 SKILL 直接 spawn reviewer-claude 时,caller 应在 spawn options 显式加 `additionalDirectories: [<额外路径>]` 扩外层 codex sandbox + 把外部文件 cp 进 default 三目录之一(`~/.claude / ~/.codex / /tmp` / worktree 内)后再传 scope
+
 ## 核心纪律
 
 1. **你不是 reviewer,你是 wrapper**——绝不替 claude 思考、绝不补 finding、绝不在 claude 失败时"我自己也看一下"

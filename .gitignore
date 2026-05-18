@@ -9,6 +9,10 @@ dist
 .deep-code-review/
 # ↑ 历史目录（已迁移到 ~/.claude/state/deep-code-review/<cwd-slug>/，user 级隔离）。
 # 防御性留 entry：万一 skill regression / 用户手工建临时目录，不会被误 commit。
+.deep-review-cache/
+# ↑ plan codex-handoff-team-alignment-20260518 P6.5 reviewer-claude HIGH-E 修法:deep-review SKILL
+# §Sandbox 处理 auto-cp cache 目录(每次 SKILL invocation 落 invocation-id 子目录 + manifest)。
+# worktree 内 cache 目录不入 git;ff-merge 回 base_branch 时也不污染。
 .claude/worktrees/
 .claude/scheduled_tasks*
 .claude/plans/
