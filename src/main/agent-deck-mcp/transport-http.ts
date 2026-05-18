@@ -25,6 +25,7 @@
 import { randomUUID } from 'node:crypto';
 import type { RouteRegistry } from '@main/hook-server/route-registry';
 import { buildAgentDeckTools } from './tools';
+import type { McpAuthInfo } from './types';
 
 const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
   s: string,
@@ -82,8 +83,21 @@ async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http'
   // SdkMcpToolDefinition 内部已含 zod schema + handler；mcp-sdk McpServer.registerTool
   // 接受 inputSchema = ZodRawShape。两个 tool() 工厂的字段名兼容（name / description /
   // inputSchema / handler），但 SdkMcpToolDefinition 把字段塞在不同 key 下，需要一次浅适配。
+  //
+  // **plan codex-handoff-team-alignment-20260518 P2 Step 2.4 修法**：HTTP transport 的
+  // callerSessionIdOverride 从 mcp-sdk RequestHandlerExtra.authInfo 读取 resolvedSid
+  // （HookServer.checkMcpAuth 已经写到 IncomingMessage.auth → mcp-sdk handleRequest 读
+  // req.auth → 注入到 tool handler extra.authInfo）。stdio transport 维持 null（stdio
+  // 无 HTTP auth，handler fallback args.caller_session_id）。
+  const callerSessionIdOverride =
+    transportName === 'http'
+      ? (extra?: unknown): string | null => {
+          const authInfo = (extra as { authInfo?: McpAuthInfo } | undefined)?.authInfo;
+          return authInfo?.resolvedSid ?? null;
+        }
+      : null;
   const adapted = await buildAgentDeckTools({
-    callerSessionIdOverride: null,
+    callerSessionIdOverride,
     transport: transportName,
   });
   for (const t of adapted) {
