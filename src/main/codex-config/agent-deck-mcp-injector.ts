@@ -14,14 +14,27 @@
  * - settings.mcpHttpEnabled === true
  * - hookServer 已启动（拿到 listeningPort + mcpBearerToken）
  *
- * Token 通过 env var `AGENT_DECK_MCP_TOKEN` 间接引用（codex 子进程继承主进程 env 自动拿到）：
- * - bearer_token_env_var = 'AGENT_DECK_MCP_TOKEN'
- * - 主进程 bootstrap 在启动时调 setAgentDeckMcpTokenEnv 把 token 设到 process.env
+ * Token 通过 env var `AGENT_DECK_MCP_TOKEN` 间接引用 — codex CLI 子进程 readEnv 拿到 token
+ * 拼 HTTP Authorization: Bearer header。**plan codex-handoff-team-alignment-20260518 P2 / D1
+ * ADR token 共存策略**：env 来源双轨道：
+ * - **per-session 路径**（应用 spawn 的 codex teammate live session）：sdk-bridge
+ *   ensureCodex 内 `new Codex({env: {...snapshotProcessEnv(), AGENT_DECK_MCP_TOKEN: <session-token>}})`
+ *   把 per-session token 注入子进程 envOverride（codex SDK 0.120.0 spec 确认 envOverride frozen
+ *   拷贝到子进程 env，spike 2 §1 实证）。HookServer.checkMcpAuth 反查 mcpSessionTokenMap.get(token)
+ *   命中 sid → handler 拿到真实 caller_session_id
+ * - **全局 fallback 路径**（外部 codex CLI / 非应用 spawn）：子进程继承主进程 process.env，
+ *   读到全局 `AGENT_DECK_MCP_TOKEN`（main bootstrap 一次性设）。HookServer.checkMcpAuth 反查
+ *   mcpSessionTokenMap 不命中 → 比对全局 token 命中 → fallbackToGlobal=true → handler 视为
+ *   external caller（EXTERNAL_CALLER_ALLOWED 表只允许 list/get）
  *
  * 为什么不直接 inline `bearer_token = "<literal>"`：
  * - codex 配置审计 / 调试时 cat config.toml 看不到明文 token（虽然这里走 --config
  *   inline，理论上 ps -ef 能看到，但更难被偶然抓走）
  * - 与 codex 文档推荐用法一致（用户手配 mcp_servers http 时也用 env var 引用）
+ *
+ * **plan P2 Step 2.6 修订**：删 `setAgentDeckMcpTokenEnv()` setter — 全局 token 在 main
+ * bootstrap 启动时一次性设到 process.env（详 D1 §(c)），运行时不再 mutate。让 main bootstrap
+ * 直接 inline `process.env[AGENT_DECK_MCP_TOKEN_ENV] = token`，移除多余抽象层。
  */
 
 import type { AppSettings } from '@shared/types';
@@ -61,25 +74,6 @@ export function buildAgentDeckMcpConfigForCodex(
       },
     },
   };
-}
-
-/**
- * 把 mcpServerToken 设进当前主进程 env，让 codex 子进程继承后能 readEnv(AGENT_DECK_MCP_TOKEN_ENV)
- * 拿到。codex SDK 默认透传主进程 env（除非显式传 env: {} 字段，本应用不传）。
- *
- * 注意：codex 子进程的 sandbox 模式（read-only / workspace-write）只限文件系统 + 网络，
- * 不限制 env 读取，所以 readEnv 在所有档位都可用。
- *
- * 调用时机：main bootstrap 在 settings 加载完后调一次（让首个 codex 会话启动前 env 已就绪）；
- * 用户在 Settings 改 mcpServerToken（理论上不应改，仅泄漏轮换时手动清除）后重启应用即可
- * （不做 hot-toggle —— mcpServerToken 是首次启动随机生成的，几乎不该变）。
- */
-export function setAgentDeckMcpTokenEnv(token: string | null): void {
-  if (token && token.length > 0) {
-    process.env[AGENT_DECK_MCP_TOKEN_ENV] = token;
-  } else {
-    delete process.env[AGENT_DECK_MCP_TOKEN_ENV];
-  }
 }
 
 /**
