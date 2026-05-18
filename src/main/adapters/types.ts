@@ -176,6 +176,57 @@ export interface CodexCreateOpts {
    * 详细持久化路径见 ClaudeCreateOpts.extraAllowWrite jsdoc。
    */
   extraAllowWrite?: readonly string[];
+  /**
+   * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7：
+   * codex SDK startThread/resumeThread `approvalPolicy` 透传（caller 显式 / options-builder
+   * spread default）。codex SDK 4 档 `'never' | 'on-request' | 'on-failure' | 'untrusted'`；
+   * 应用层只暴露 `'never' | 'on-request'`（teammate reviewer 默认 never 不阻断；future caller
+   * 想加 on-request 走 PendingTab 兜底）。
+   *
+   * **enforce 点** = `options-builder.ts narrowToCodexOpts` 按 `agentName in ['reviewer-claude',
+   * 'reviewer-codex']` 路径触发 default spread；**bridge 不主动 hardcode default** —— 让 caller
+   * 路径 / 普通 codex session 不被污染（不变量 6）。
+   *
+   * spawn-time 一次性透传给 codex.startThread；undefined 时 bridge 沿用现有 default 'never'
+   * （保持现状不污染普通 codex session）。运行时无热切（与 codexSandbox 同款语义）。
+   */
+  approvalPolicy?: 'never' | 'on-request';
+  /**
+   * plan §P3 Step 3.5 + §不变量 6：codex SDK startThread `networkAccessEnabled` 透传。
+   * codex teammate reviewer 调外部 CLI（reviewer-claude wrapper 跑 `$AGENT_DECK_CLAUDE_PATH -p ...`）
+   * 不需要 codex 本身访网；但 reviewer-codex 内可能 web search → 默认 true 让 codex SDK 内置
+   * networking 走通（不被 sandbox 网络层拦），与 `webSearchEnabled` 解耦。
+   *
+   * undefined → 沿用 codex SDK 默认（false）。reviewer-* 路径 options-builder spread 为 true。
+   */
+  networkAccessEnabled?: boolean;
+  /**
+   * plan §P3 Step 3.5 + §不变量 6：codex SDK startThread `additionalDirectories` 透传，
+   * 让 codex sandbox=workspace-write 档位下额外允许的可读写根。
+   *
+   * reviewer-* 路径 options-builder spread 为 `['~/.claude', '~/.codex']`，让 reviewer 端
+   * 跨目录访问 plan 文件 / claude config / codex config（review 阶段 cp 临时副本到 worktree
+   * 内仍依赖这两路径作 fallback 源）。
+   *
+   * undefined → 沿用 codex SDK 默认（不加额外路径）。普通 codex session 不被污染（不变量 6）。
+   */
+  additionalDirectories?: readonly string[];
+  /**
+   * plan §P3 Step 3.5 + §D1 ADR §(c) per-session env 增量字段：caller 想在 codex 子进程
+   * env 注入额外变量（reviewer-claude wrapper 路径需要 `AGENT_DECK_CLAUDE_PATH` 让 Bash
+   * 模板 `$AGENT_DECK_CLAUDE_PATH -p ...` 找到 bundled claude binary 路径）。
+   *
+   * **enforce 点** = `options-builder.ts narrowToCodexOpts` 按 `agentName === 'reviewer-claude'`
+   * 触发 spread `{AGENT_DECK_CLAUDE_PATH: resolveBundledClaudeBinary()}`（v4 M7 修法 —
+   * wrapper Bash 模板用 `$AGENT_DECK_CLAUDE_PATH` env var 不 hardcode 路径）。
+   *
+   * 注入路径：bridge `ensureCodex` 在 `envOverride = snapshotProcessEnv() + AGENT_DECK_MCP_TOKEN`
+   * 之后 merge `opts.envOverrideExtra`（caller / options-builder spread 的字段优先级最高）。
+   * 子进程拿到完整 env 集（PATH / HOME / 全局 token / per-session token / extra fields）。
+   *
+   * undefined / 空 object → 无新增 env 字段，behavior 与现状一致。
+   */
+  envOverrideExtra?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -198,6 +249,15 @@ export type CreateSessionOptions =
  * caller 端通用「全字段 raw」入参（buildCreateSessionOptions 的 raw 参数类型）。
  * 含所有 adapter 字段并集 + 都为 optional（caller 不挑 adapter 透传）；builder 内 switch
  * 按 agentId 把字段 narrow 到对应 union arm（filter 掉不属于该 adapter 的字段）。
+ *
+ * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D7（v4 信号源约定）**:
+ * `agentName` 透传通道 — caller (spawn handler) 把 `args.agent_name` 透到本字段；
+ * `narrowToCodexOpts` 按 `agentName in ['reviewer-claude', 'reviewer-codex']` 触发 codex
+ * teammate spawn default spread（不变量 6: enforce 点 = options-builder 层，**禁** bridge
+ * hardcode default 污染普通 codex session）。
+ *
+ * `narrowToClaudeOpts` / `narrowToPtyOpts` filter 掉本字段（claude/pty adapter 没 codex
+ * teammate default 概念）。
  */
 export interface CreateSessionOptionsRaw {
   cwd: string;
@@ -211,6 +271,12 @@ export interface CreateSessionOptionsRaw {
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   extraAllowWrite?: readonly string[];
   genericPtyConfig?: GenericPtyConfig;
+  /**
+   * plan §P3 Step 3.5 信号源（v4 D7）：spawn handler 透传 `args.agent_name` 让
+   * `narrowToCodexOpts` 按 reviewer-* 路径触发 codex teammate spawn default spread。
+   * 仅 codex-cli adapter 消费；claude-code / pty adapter narrow 时 filter 掉。
+   */
+  agentName?: string | null;
 }
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';

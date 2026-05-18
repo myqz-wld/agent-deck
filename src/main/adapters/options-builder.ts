@@ -18,6 +18,9 @@
  * (3) registry.ts AdapterIdMap 加映射。漏任一 TS 编译期报错。
  */
 
+import os from 'node:os';
+import path from 'node:path';
+import { resolveBundledClaudeBinary } from './claude-code/resolve-bundled-claude';
 import type {
   ClaudeCreateOpts,
   CodexCreateOpts,
@@ -75,6 +78,22 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
 /**
  * raw → CodexCreateOpts narrow：从 raw 中挑 codex-cli adapter 接受的字段（filter 掉
  * permissionMode / claudeCodeSandbox / genericPtyConfig）。
+ *
+ * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7**:
+ * 按 `raw.agentName in ['reviewer-claude', 'reviewer-codex']` 触发 codex teammate spawn
+ * default spread —— 4 字段 unsafe default 强制（`codexSandbox: 'workspace-write'` 不允许
+ * caller 覆盖；`approvalPolicy: 'never'` / `networkAccessEnabled: true` /
+ * `additionalDirectories: ['~/.claude', '~/.codex']`）+ reviewer-claude 路径加
+ * `envOverrideExtra: {AGENT_DECK_CLAUDE_PATH: resolveBundledClaudeBinary()}`（v4 M7：
+ * wrapper Bash 模板用 env var，不 hardcode 路径）。
+ *
+ * **enforce 点 = 本函数（options-builder 层）**，**禁** `bridge.startThread` hardcode default
+ * （污染普通 codex session lead 路径）。普通 codex session（agentName 缺省 / 非 reviewer-*）
+ * 走 caller 显式字段路径，不被 spread 污染（不变量 6）。
+ *
+ * **信号源 = `raw.agentName`**（v4 D7）：禁用 `opts.spawnedBy` 反向信号源（v3 错误信号 — spawn
+ * link 在 spawn handler `setSpawnLink` 后才写库，adapter.createSession 时刻 spawned_by 还没
+ * 持久化；baton 路径已删 spawnedBy 写入更不能用）。
  */
 function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   const out: CodexCreateOpts = { cwd: raw.cwd };
@@ -85,6 +104,42 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   if (raw.model !== undefined) out.model = raw.model;
   if (raw.codexSandbox !== undefined) out.codexSandbox = raw.codexSandbox;
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
+
+  // plan §P3 Step 3.5 + §不变量 6: codex teammate spawn (reviewer-claude / reviewer-codex)
+  // unsafe default spread enforce 点。caller 路径 / 普通 codex session 走 raw.agentName 缺省 /
+  // 非 reviewer-* 路径,不进本分支不被污染。
+  if (raw.agentName === 'reviewer-claude' || raw.agentName === 'reviewer-codex') {
+    // codexSandbox 强制 'workspace-write'(不允许 caller 覆盖) — reviewer 必须能写 worktree 内
+    // cache 副本 + 跨目录读 plan / claude config / codex config(配合 additionalDirectories)
+    out.codexSandbox = 'workspace-write';
+    // approvalPolicy='never' 跳过 codex CLI 工具审批弹窗(reviewer 是 in-process bridge 派发,
+    // PendingTab UI 走应用层 / 没有 user 在 codex CLI 直接审批的入口)
+    out.approvalPolicy = 'never';
+    // networkAccessEnabled=true 让 reviewer-codex 能 web search / reviewer-claude wrapper
+    // 内的 claude SDK 能 fetch 工具调外部资源(spike 3 实证 codex sandbox=workspace-write
+    // 默认 networkAccessEnabled 在某些 platform 受限,显式打开稳)
+    out.networkAccessEnabled = true;
+    // additionalDirectories: ['~/.claude', '~/.codex'] 让 codex sandbox 允许跨目录访 plan /
+    // claude config / codex config 文件(不需 caller 每次 cp 副本到 worktree 内)
+    out.additionalDirectories = [
+      path.join(os.homedir(), '.claude'),
+      path.join(os.homedir(), '.codex'),
+    ];
+
+    // v4 M7: reviewer-claude wrapper 路径加 AGENT_DECK_CLAUDE_PATH env 让 wrapper Bash 模板
+    // `$AGENT_DECK_CLAUDE_PATH -p < input.txt` 引用 bundled claude binary(不 hardcode 路径)。
+    // resolveBundledClaudeBinary() 委托 sdk-runtime.getPathToClaudeCodeExecutable(),dev /
+    // packaged 双路径都返非 null(dev 真实 node_modules 路径 / packaged unpacked 路径)。
+    // 返 null(require.resolve 失败 / OS 不在 candidate list)→ 不注入 env var,wrapper Bash
+    // 模板回退到 PATH 找 `claude`(脚本作者职责处理 fallback;options-builder 不静默替换)。
+    if (raw.agentName === 'reviewer-claude') {
+      const claudePath = resolveBundledClaudeBinary();
+      if (claudePath !== null) {
+        out.envOverrideExtra = { AGENT_DECK_CLAUDE_PATH: claudePath };
+      }
+    }
+  }
+
   return out;
 }
 
