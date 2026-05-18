@@ -15,6 +15,28 @@ export type AgentDeckMcpTransport = 'in-process' | 'http' | 'stdio';
 
 export const EXTERNAL_CALLER_SENTINEL = '__external__' as const;
 
+/**
+ * HookServer.onRequest /mcp 分支注入到 IncomingMessage `req.auth` 的契约
+ * （plan codex-handoff-team-alignment-20260518 P2 Step 2.2 / D1 §(b)）。
+ *
+ * 数据流：fastify onRequest 写 `request.raw.auth: McpAuthInfo` →
+ * `transport.handleRequest(req.raw, ...)` 把 IncomingMessage 透传给 mcp-sdk →
+ * `streamableHttp.js:130 const authInfo = req.auth` → 注入 tool handler
+ * `extra.authInfo: McpAuthInfo` → `transport-http.ts.callerSessionIdOverride` 读取。
+ *
+ * 三态语义：
+ * - **per-session 命中**：`{resolvedSid: '<sid>', fallbackToGlobal: false}` —
+ *   token 在 mcpSessionTokenMap 反查命中，handler 用 resolvedSid 当 caller
+ * - **全局 fallback**：`{resolvedSid: null, fallbackToGlobal: true}` —
+ *   token 不在 per-session map 但等于全局 mcpServerToken，handler 视为
+ *   external caller（EXTERNAL_CALLER_ALLOWED 表 spawn/send/shutdown 全 deny）
+ * - **不存在**：onRequest 直接 401，handler 收不到这种 case
+ */
+export interface McpAuthInfo {
+  resolvedSid: string | null;
+  fallbackToGlobal: boolean;
+}
+
 export interface CallerContext {
   /**
    * 调用方 session id。in-process 走 closure 覆盖（无视 args 字段），HTTP/stdio
