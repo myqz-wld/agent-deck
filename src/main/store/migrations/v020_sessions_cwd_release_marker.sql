@@ -1,0 +1,25 @@
+-- plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：
+-- archive_plan 预检解锁场景 C — codex / 外部 caller 走 mcp enter_worktree 路径进 worktree
+-- 时,在 sessions.cwd_release_marker 字段记录「caller 已显式持有 worktreePath marker」
+-- 让 archive_plan 预检 4 态分流时认得 (cwd 在 worktree 内 + marker == worktreePath) → 放过,
+-- 而不是无差别拒绝「cwd 在 worktree 内必须先 ExitWorktree」(claude builtin EnterWorktree
+-- 路径 caller 走 ExitWorktree 后 cwd 移出 worktree;codex / 外部 caller 没有等价 builtin tool,
+-- 之前只能靠 claude builtin 拒绝 → 走 mcp enter_worktree 时给应用层 marker 当解锁信号)。
+--
+-- 字段值:绝对路径 string(worktreePath),NULL = 未持有 marker(caller 走 claude builtin 路径
+-- 或还没调 mcp enter_worktree)。
+--
+-- 何时 set:mcp enter_worktree handler 在 git worktree add 成功后 setCwdReleaseMarker(sid, worktreePath)。
+-- 何时 clear:mcp exit_worktree handler 在 ExitWorktree 完成后 clearCwdReleaseMarker(sid);
+--             session close hook 联动清(避免 marker 残留)。
+--
+-- 预检 4 态(详 archive-plan-impl.ts):
+-- 1. !inWorktree         → 放过 (caller 已 ExitWorktree, 现有 claude builtin 路径)
+-- 2. marker == worktree  → 放过 (caller 持 mcp enter_worktree marker, codex / 跨 adapter 路径)
+-- 3. inWorktree + null   → reject (走 claude builtin 路径但忘 ExitWorktree)
+-- 4. marker != worktree  → reject (marker 指向另一个 worktree, 不允许跨 worktree archive)
+--
+-- per-session 字段 (非全局),不同 caller 各自持自己的 marker;rename 路径(SDK fork / recover)
+-- 必须复制此列到 NEW 行(详 rename.ts) — 否则 codex teammate enter_worktree 设的 marker 在 fork 后丢失,
+-- 下次 archive_plan 预检走「在 worktree 内 + 无 marker」分支 reject (H1 关键修法)。
+ALTER TABLE sessions ADD COLUMN cwd_release_marker TEXT DEFAULT NULL;

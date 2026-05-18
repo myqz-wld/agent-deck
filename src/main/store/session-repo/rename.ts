@@ -75,10 +75,15 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // INSERT path 时 model 字段未带过来 → resume 拿不到 spawn 时 frontmatter 设的 model。
       // 实测虽未 user-report 但与 permission_mode 同款风险已被 REVIEW_17 R2 / H1-R2 治过,
       // 本 plan 列扩同 modules 顺手补齐(commit message 透明注明)。
+      // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 H1 关键修法:列扩 1 → 20 列
+      // (v020 cwd_release_marker)。SDK fork / recover rename 路径必须把此列从 fromRow 复制
+      // 到 NEW 行,否则 codex teammate mcp enter_worktree 设的 marker 在 fork 后丢失,
+      // 下次 archive_plan 预检走「在 worktree 内 + 无 marker」分支 reject(状态 3)
+      // — 完全堵死跨 adapter / 外部 caller 路径的解锁意义。
       db.prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, spawned_by, spawn_depth, generic_pty_config)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         toId,
         fromRow.agent_id,
@@ -96,6 +101,7 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.claude_code_sandbox,
         fromRow.model,
         fromRow.extra_allow_write,
+        fromRow.cwd_release_marker,
         fromRow.spawned_by,
         fromRow.spawn_depth,
         fromRow.generic_pty_config,
@@ -200,6 +206,18 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 后续 recoverer 路径 SDK sandbox.allowWrite 不含原 mainRepo → 写 plan 文件静默失败。
       db.prepare(`UPDATE sessions SET extra_allow_write = ? WHERE id = ?`).run(
         fromRow.extra_allow_write,
+        toId,
+      );
+    }
+    if (toExists && fromRow.cwd_release_marker) {
+      // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 H1 关键修法 (toExists 分支):
+      // cwd_release_marker 同 codex_sandbox / extra_allow_write 同款 — recoverAndSend /
+      // SDK fallback rename (toExists=true 分支) 时必须从 fromRow 覆盖到 NEW 行,否则
+      // codex teammate mcp enter_worktree 设的 marker 在 fork 后被 NEW 行 createSession
+      // 时写的 NULL「淹没」掉, 后续 archive_plan 预检走「在 worktree 内 + 无 marker」分支
+      // reject (状态 3) — 与 toExists=false INSERT 分支同款修法保证两条 fallback 路径都不丢 marker。
+      db.prepare(`UPDATE sessions SET cwd_release_marker = ? WHERE id = ?`).run(
+        fromRow.cwd_release_marker,
         toId,
       );
     }

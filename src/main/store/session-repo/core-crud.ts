@@ -28,13 +28,17 @@ export function upsert(rec: SessionRecord): void {
   // 透传的 SDK sandbox 额外可写根 spawn 时持久化,让 recoverer / SDK resume 路径还原
   // sandbox.allowWrite,与 codex_sandbox / claude_code_sandbox / model 同 per-session
   // resilience 模式;upsert 必须参与否则 lifecycle 复活路径丢字段。
+  // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：cwd_release_marker
+  // 同款 — mcp enter_worktree marker 让 archive_plan 预检 4 态分流认得跨 adapter 路径,upsert
+  // 必须参与否则 lifecycle 复活路径丢失 marker（与 codex_sandbox / extra_allow_write 同模式;
+  // rename 路径 H1 关键修法也依赖此字段在 fork 后跟到 NEW 行）。
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
   // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, spawned_by, spawn_depth, generic_pty_config)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @extra_allow_write, @spawned_by, @spawn_depth, @generic_pty_config)
+       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config)
+       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config)
        ON CONFLICT(id) DO UPDATE SET
          cwd = excluded.cwd,
          title = excluded.title,
@@ -49,6 +53,7 @@ export function upsert(rec: SessionRecord): void {
          claude_code_sandbox = excluded.claude_code_sandbox,
          model = excluded.model,
          extra_allow_write = excluded.extra_allow_write,
+         cwd_release_marker = excluded.cwd_release_marker,
          spawned_by = excluded.spawned_by,
          spawn_depth = excluded.spawn_depth,
          generic_pty_config = excluded.generic_pty_config`,
@@ -73,6 +78,7 @@ export function upsert(rec: SessionRecord): void {
         rec.extraAllowWrite && rec.extraAllowWrite.length > 0
           ? JSON.stringify(rec.extraAllowWrite)
           : null,
+      cwd_release_marker: rec.cwdReleaseMarker ?? null,
       spawned_by: rec.spawnedBy ?? null,
       spawn_depth: rec.spawnDepth ?? 0,
       generic_pty_config: rec.genericPtyConfig ? JSON.stringify(rec.genericPtyConfig) : null,
@@ -245,4 +251,31 @@ export function setModel(id: string, model: string | null): void {
 export function setExtraAllowWrite(id: string, paths: string[] | null): void {
   const json = paths && paths.length > 0 ? JSON.stringify(paths) : null;
   getDb().prepare(`UPDATE sessions SET extra_allow_write = ? WHERE id = ?`).run(json, id);
+}
+
+/**
+ * 写入 mcp enter_worktree marker（plan codex-handoff-team-alignment-20260518 P1 Step 1.1 /
+ * 不变量 5 + D2）。
+ *
+ * 调用方:
+ * - mcp `enter_worktree` handler: git worktree add 成功后调 setCwdReleaseMarker(sid, worktreePath)
+ *   标记 caller 显式持有该 worktreePath, 让 archive_plan 预检 4 态分流认得跨 adapter 路径
+ * - mcp `exit_worktree` handler: ExitWorktree 完成后调 clearCwdReleaseMarker(sid) = setCwdReleaseMarker(sid, null)
+ * - sessionManager.close hook: session close 时调 clearCwdReleaseMarker 避免 marker 残留
+ *
+ * marker = worktreePath 绝对路径（caller 当前持有）；marker = null 视为「未持有 marker」
+ * （caller 走 claude builtin 路径或还没调 mcp enter_worktree）。
+ *
+ * SDK fork / recover rename 路径必须把此列从 fromRow 复制到 NEW 行（详 rename.ts H1 修法）—
+ * 否则 codex teammate enter_worktree 设的 marker 在 fork 后丢失, 下次 archive_plan 预检走
+ * 「在 worktree 内 + 无 marker」分支 reject。
+ *
+ * 与 setCodexSandbox / setClaudeCodeSandbox 完全对称的字面镜像。
+ */
+export function setCwdReleaseMarker(id: string, marker: string | null): void {
+  getDb().prepare(`UPDATE sessions SET cwd_release_marker = ? WHERE id = ?`).run(marker, id);
+}
+
+export function clearCwdReleaseMarker(id: string): void {
+  setCwdReleaseMarker(id, null);
 }
