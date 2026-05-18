@@ -40,6 +40,9 @@ export interface Row {
   // plan cross-adapter-parity-20260515 Phase A Step A.2：SDK sandbox 额外可写根 per-session 持久化
   // (REVIEW_40 R1 reviewer-codex MED-F follow-up)。JSON.stringify(string[]) 全绝对路径 / NULL = 不指定。
   extra_allow_write: string | null;
+  // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：mcp enter_worktree marker
+  // 标记 caller 显式持有的 worktreePath（archive_plan 预检 4 态分流用），NULL = 未持有 marker。
+  cwd_release_marker: string | null;
   spawned_by: string | null;
   spawn_depth: number;
   generic_pty_config: string | null;
@@ -68,6 +71,7 @@ export function rowToRecord(r: Row): SessionRecord {
       (r.claude_code_sandbox as 'off' | 'workspace-write' | 'strict' | null) ?? null,
     model: r.model ?? null,
     extraAllowWrite: parseExtraAllowWriteJson(r.extra_allow_write),
+    cwdReleaseMarker: r.cwd_release_marker ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
     genericPtyConfig: parseGenericPtyConfigJson(r.generic_pty_config),

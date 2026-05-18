@@ -115,6 +115,26 @@ export interface SessionRecord {
    */
   extraAllowWrite?: string[] | null;
   /**
+   * mcp enter_worktree marker（plan codex-handoff-team-alignment-20260518 P1 Step 1.1 /
+   * 不变量 5 + D2）：caller 走 mcp `enter_worktree` 进 worktree 时设为 worktreePath 绝对路径,
+   * 走 mcp `exit_worktree` 或 session close hook 清回 null。
+   *
+   * 与 archive_plan 预检 4 态分流配合解锁场景 C（codex / 外部 caller 走 mcp 路径进 worktree）：
+   * - !inWorktree                  → 放过（caller 已 ExitWorktree, 现有 claude builtin 路径）
+   * - inWorktree + marker == wt    → 放过（caller 持 mcp enter_worktree marker, 跨 adapter 路径）
+   * - inWorktree + marker == null  → reject（走 claude builtin 路径但忘 ExitWorktree）
+   * - inWorktree + marker != wt    → reject（marker 指向另一个 worktree, 不允许跨 worktree archive）
+   *
+   * per-session 字段（非全局）,不同 caller 各自持自己 marker。SDK fork / recover rename 路径
+   * 必须把此列从 fromRow 复制到 NEW 行（详 session-repo/rename.ts），否则 codex teammate
+   * enter_worktree 设的 marker 在 fork 后丢失,下次 archive_plan 预检走「在 worktree 内 +
+   * 无 marker」分支 reject（plan H1 关键修法 — 20 列扩展 + toExists UPDATE 覆盖块）。
+   *
+   * null/undefined: 未持有 marker（caller 走 claude builtin 路径或还没调 mcp enter_worktree）。
+   * 持久化层: sessions.cwd_release_marker TEXT 列 (v020), 绝对路径 string / NULL。
+   */
+  cwdReleaseMarker?: string | null;
+  /**
    * Agent Deck MCP server (R2 / B'0 ADR §6.5)：spawn 链上的父 session id。
    * - null/undefined：顶层 session（用户 IPC / CLI 直接起 / R2 之前老数据）
    * - 字符串：MCP `spawn_session` tool 调用方的 session id
