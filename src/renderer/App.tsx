@@ -86,6 +86,17 @@ export function App(): JSX.Element {
     return off;
   }, []);
 
+  // CHANGELOG_124 R1 fix REVIEW_45 MED-1：toggleMaximize / toggleDefault (Cmd+Alt+= / -)
+  // 退出 compact 态时主进程 emit IpcEvent.CompactToggled — 同步本地 compact state 避免
+  // 按钮 label `{compact ? '▢' : '─'}` 与实际窗口尺寸反转（用户先点 ▢ 折叠 → 按 Cmd+Alt+= 后
+  // 窗口实际 max 但按钮仍显示 ▢ → 用户点 ▢ 反而又把窗口收成 compact）。
+  useEffect(() => {
+    const off = window.api.onCompactToggled((next) => {
+      setCompact(next);
+    });
+    return off;
+  }, []);
+
   // CLI 子命令新建会话后跳转：切到「实时」并选中新 sessionId。
   // 主进程在 createSession resolve 后才 emit，所以 renderer 此时一般已 mount；
   // 仅在 createSession 极快返回（如 --resume）时可能丢失，可接受。

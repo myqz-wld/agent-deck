@@ -43,6 +43,10 @@ export const eventsApi = {
     subscribe<boolean>(IpcEvent.PinToggled, cb),
   onTransparentToggled: (cb: (transparent: boolean) => void): (() => void) =>
     subscribe<boolean>(IpcEvent.TransparentToggled, cb),
+  /** CHANGELOG_124 R1 fix REVIEW_45 MED-1：toggleMaximize / toggleDefault 退出 compact 态时
+   *  emit，让 renderer 同步本地 compact state（避免按钮 label 与窗口实际尺寸反转）。 */
+  onCompactToggled: (cb: (compact: boolean) => void): (() => void) =>
+    subscribe<boolean>(IpcEvent.CompactToggled, cb),
   onSessionFocusRequest: (cb: (sessionId: string) => void): (() => void) =>
     subscribe<string>(IpcEvent.SessionFocusRequest, cb),
 };

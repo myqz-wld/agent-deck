@@ -247,8 +247,10 @@ Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「
 |---|---|
 | `Cmd+Alt+P` | toggle 主窗口置顶（同步「设置 → 窗口 → 置顶」开关） |
 | `Cmd+Alt+T` | toggle 主窗口「置顶时透明」（同步「设置 → 窗口 → 置顶时透明」开关；pin 状态下立即切 CSS frosted-frame + macOS vibrancy，非 pin 时只更新设置值，下次 pin 按新值生效） |
+| `Cmd+Alt+=` | 一键放大到屏幕最大（workArea 减 40px 边距）；再按一次回到上次手动尺寸（与 `Cmd+Alt+-` 共享记忆） |
+| `Cmd+Alt+-` | 一键回到默认 520×680；再按一次回到上次手动尺寸（与 `Cmd+Alt+=` 共享记忆） |
 
-> macOS 浏览器 `Cmd+Shift+T`（重开关闭标签页）会被 OS 级 `globalShortcut` 抢占，所以选 `Cmd+Alt+T`（与 `Cmd+Alt+P` 命名一致，且 Alt 修饰键不冲突浏览器常用快捷键）。
+> macOS 浏览器 `Cmd+Shift+T`（重开关闭标签页）会被 OS 级 `globalShortcut` 抢占，所以选 `Cmd+Alt+T`（与 `Cmd+Alt+P` 命名一致，且 Alt 修饰键不冲突浏览器常用快捷键）。`Cmd+Alt+=` / `Cmd+Alt+-` 与浏览器自带的 `Cmd+=` / `Cmd+-` 页面缩放正交，不互相覆盖。
 
 ---
 

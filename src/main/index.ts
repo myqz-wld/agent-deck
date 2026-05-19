@@ -282,6 +282,10 @@ async function bootstrap(): Promise<void> {
     if (!w || w.isDestroyed() || w.webContents.isDestroyed()) return;
     w.webContents.send(channel, payload);
   };
+  // CHANGELOG_124 R1 fix REVIEW_45 MED-1：toggleMaximize / toggleDefault 退出 compact 态时
+  // 通过此回调 emit IpcEvent.CompactToggled，让 renderer App.tsx 同步本地 compact state，
+  // 避免按钮 label `{compact ? '▢' : '─'}` 与窗口实际尺寸反转。
+  floating.emitCompactChanged = (compact) => safeSend(IpcEvent.CompactToggled, compact);
   eventBus.on('agent-event', (e) => safeSend(IpcEvent.AgentEvent, e));
   // plan team-cohesion-fix-20260513 Phase A：桥到 renderer 前 enrichWithTeams 把 universal team
   // backend membership 拼到 SessionRecord.teams[]，让 SessionCard / PendingTab / TeamDetail
@@ -434,6 +438,32 @@ async function bootstrap(): Promise<void> {
   });
   if (!transparentRegistered) {
     console.warn(`[shortcut] failed to register ${transparentShortcut} (occupied by another app)`);
+  }
+
+  // 10.6 全局快捷键（CHANGELOG_124）：Cmd/Ctrl+Alt+= 一键到屏幕最大、Cmd/Ctrl+Alt+- 一键回默认 520×680
+  // 两键各自 toggle：再按一次恢复上次「自定义」尺寸（共享 preferredSize 记忆字段，详 window.ts 内 JSDoc）。
+  // 不发 IPC event：窗口尺寸 renderer 不需直接订阅（DOM 自身响应 resize），与 pin/transparent
+  // 这种「persistent bool 视觉态」不同，无需双端 state 同步。
+  //
+  // 注：electron 接受多种 accelerator 写法，'=' 与 'Plus' 等价（同物理键，源码 keyboard_code_conversion.cc
+  // 把两者都映射到 VKEY_OEM_PLUS）；macOS 上 Cmd+Alt+= 不撞系统快捷键，其他平台 Ctrl+Alt+= 同样空闲。
+  // 若未来跨平台实测发现差异可改 'CommandOrControl+Alt+Plus'。
+  // globalShortcut.register 返回 false 时仅 warn 不抛错（被其他 app 占用是合理边界）；
+  // before-quit handler line ~487 `globalShortcut.unregisterAll()` 已统一收尾，新增两键无需单独处理。
+  const maximizeShortcut = 'CommandOrControl+Alt+=';
+  const maximizeRegistered = globalShortcut.register(maximizeShortcut, () => {
+    floating.toggleMaximize();
+  });
+  if (!maximizeRegistered) {
+    console.warn(`[shortcut] failed to register ${maximizeShortcut} (occupied by another app)`);
+  }
+
+  const defaultSizeShortcut = 'CommandOrControl+Alt+-';
+  const defaultSizeRegistered = globalShortcut.register(defaultSizeShortcut, () => {
+    floating.toggleDefault();
+  });
+  if (!defaultSizeRegistered) {
+    console.warn(`[shortcut] failed to register ${defaultSizeShortcut} (occupied by another app)`);
   }
 
   // 11. 首启命令行

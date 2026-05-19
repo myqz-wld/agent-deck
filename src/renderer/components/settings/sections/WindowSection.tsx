@@ -16,8 +16,11 @@ interface Props {
  * - 这里不放重复的「始终置顶」toggle，避免两处状态打架。
  * - 「窗口透明」由独立 toggle / 全局快捷键 Cmd+Alt+T 控制（Phase 5 Step 5.6 解耦：透明
  *   不再依赖 pin 状态，独立切换；与 alwaysOnTop 平级）。
+ * - 「放大 / 缩小窗口」由全局快捷键 Cmd+Alt+= / Cmd+Alt+- 控制（CHANGELOG_124），
+ *   一键到屏幕最大 / 一键回默认 520×680；再按一次回到上次手动尺寸（共享 preferredSize 记忆）。
  */
 export function WindowSection({ settings, update }: Props): JSX.Element {
+  const mod = IS_DARWIN ? 'Cmd' : 'Ctrl';
   return (
     <Section title="窗口" storageKey="window" defaultOpen={false}>
       <Toggle
@@ -39,6 +42,13 @@ export function WindowSection({ settings, update }: Props): JSX.Element {
             独立于「置顶」开关。切换后立即生效，无需重启。
           </>
         )}
+      </div>
+      <div className="text-[10px] leading-snug text-deck-muted/70">
+        快捷键速查：
+        <code>{mod}+Alt+P</code> 切换置顶 ·
+        <code>{mod}+Alt+T</code> 切换透明 ·
+        <code>{mod}+Alt+=</code> 一键最大 ·
+        <code>{mod}+Alt+-</code> 一键回默认（两键再按一次回上次手动尺寸）
       </div>
       <Toggle
         label="开机自启"
