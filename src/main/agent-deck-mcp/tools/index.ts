@@ -136,13 +136,16 @@ export async function buildAgentDeckTools(
       // plan reviewer-codex-cross-adapter-20260519 Phase 0 Step 0.4-tris: codex CLI 内部 mcp tool
       // approval gate 看 mcp annotations 决策放行 vs 走审批 gate (cancel)。给 8 个 write tool
       // 加 spec-compliant annotations 让 codex / 其他 mcp client 都能正确决策。
-      // spawn_session: 起 SDK 子进程外部副作用 → openWorldHint:true; 写 sessions 表 INSERT
-      // 不破坏不幂等 → destructiveHint:false / idempotentHint:false。
+      // spawn_session: 起 SDK 子进程是应用内 closed-world (主进程 spawn 应用边界内 SDK CLI 子进程,
+      // 不是 web search 那种真正外部 open-world); 写 sessions 表 INSERT 不破坏不幂等。
+      // **fix v3** (2026-05-20): openWorldHint 由 true 改 false — Phase 0 Step 0.5 方向 B 实测
+      // codex CLI 把 openWorldHint:true 当 destructive 触发审批 gate cancel; 改 false 让 codex 放行,
+      // spec 上也更准确(应用内部 spawn 不是真正 open world)。
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: false,
-        openWorldHint: true,
+        openWorldHint: false,
       },
     },
   );
@@ -220,14 +223,15 @@ export async function buildAgentDeckTools(
     HAND_OFF_SESSION_SCHEMA,
     async (args, extra) => handOffSessionHandler(args, makeCtx(args, extra)),
     {
-      // hand_off_session: 起 SDK 子进程(openWorldHint:true) + 默认 archive_caller=true 归档 caller
-      // (destructiveHint:true,会 close 当前 caller session); 重复 hand-off 起 N 个新 session →
-      // idempotentHint:false。
+      // hand_off_session: 起 SDK 子进程同 spawn_session 是应用内 closed-world; 默认 archive_caller=true
+      // 归档 caller (destructiveHint:true,会 close 当前 caller session); 重复 hand-off 起 N 个新
+      // session → idempotentHint:false。
+      // **fix v3** (2026-05-20): openWorldHint 由 true 改 false — 与 spawn_session 同款修订(详上)。
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
         idempotentHint: false,
-        openWorldHint: true,
+        openWorldHint: false,
       },
     },
   );
