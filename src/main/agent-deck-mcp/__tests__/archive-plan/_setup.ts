@@ -82,18 +82,24 @@ export function makeState(overrides: Partial<TestState> = {}): TestState {
 export function makeDeps(
   state: TestState,
   gitMockPlan: Array<string | Error>,
-  opts: { mainRepoStatus?: string | Error } = {},
+  opts: { mainRepoStatus?: string | Error; mainRepoCheckRefFormat?: string | Error } = {},
 ): ArchivePlanDeps {
   const queue = [...gitMockPlan];
   const mainRepoStatus = opts.mainRepoStatus ?? '';
+  // R3 fix-2 (H3): check-ref-format --branch <name> 透明 mock。默认 '' (=exit 0 valid branch name)
+  const mainRepoCheckRefFormat = opts.mainRepoCheckRefFormat ?? '';
   return {
-    runGit: async (args: string[], cwd: string) => {
+    runGit: async (args: string[], cwd: string, _opts?: { raw?: boolean }) => {
       // Phase 1 B-HIGH-4 修法配套:mainRepo status precheck 透明 mock,**不消耗 queue 也不 push
       // gitCalls**(让所有现有 test 的 gitCalls[idx] 期望 / 队列结构都不偏移)。worktreePath
       // status precheck 仍走 queue + 计入 gitCalls(cwd 不在 recognizedMainRepos 内)。
       //
       // **Phase 1.2a 升级**:同时识别新 args `['status', '--porcelain=v1', '-z']`
       // (lambda assertMainRepoCleanForArchive 内部调用)。
+      //
+      // **R3 fix-2 (H2 + H4) 升级**:args 现在含 `--untracked-files=all`(H4 codex Batch C+D
+      // 未验证升级) + caller 传 `{ raw: true }`(H2 codex Batch B HIGH-1)。识别 args[0]+[1]+[2]+[3]
+      // 全套四参（接受 args.length === 4 + `--untracked-files=all`）。
       const isMainRepoStatusOld =
         args.length === 2 && args[0] === 'status' && args[1] === '--porcelain';
       const isMainRepoStatusNew =
@@ -101,12 +107,28 @@ export function makeDeps(
         args[0] === 'status' &&
         args[1] === '--porcelain=v1' &&
         args[2] === '-z';
+      const isMainRepoStatusR3 =
+        args.length === 4 &&
+        args[0] === 'status' &&
+        args[1] === '--porcelain=v1' &&
+        args[2] === '-z' &&
+        args[3] === '--untracked-files=all';
       if (
-        (isMainRepoStatusOld || isMainRepoStatusNew) &&
+        (isMainRepoStatusOld || isMainRepoStatusNew || isMainRepoStatusR3) &&
         state.recognizedMainRepos.has(cwd)
       ) {
         if (mainRepoStatus instanceof Error) throw mainRepoStatus;
         return mainRepoStatus;
+      }
+      // **R3 fix-2 (H3 codex Batch C+D HIGH-1)**:assertBaseBranchIsNamedBranch 现在先调
+      // `check-ref-format --branch <name>` 一阶 reject rev suffix。recognizedMainRepos
+      // 内 mainRepo 透明 mock 返 ''(等同 git exit 0 即 valid branch name),不消耗 queue。
+      // test 想测 rev suffix reject 时显式传 mainRepoCheckRefFormat = Error。
+      const isCheckRefFormat =
+        args.length === 3 && args[0] === 'check-ref-format' && args[1] === '--branch';
+      if (isCheckRefFormat && state.recognizedMainRepos.has(cwd)) {
+        if (mainRepoCheckRefFormat instanceof Error) throw mainRepoCheckRefFormat;
+        return mainRepoCheckRefFormat;
       }
       state.gitCalls.push({ args, cwd });
       const next = queue.shift();

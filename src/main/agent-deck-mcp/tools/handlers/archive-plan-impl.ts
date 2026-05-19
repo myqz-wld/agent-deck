@@ -106,7 +106,18 @@ export type ArchivePlanError = { error: string; hint?: string };
 
 export interface ArchivePlanDeps {
   /** 跑 git 子命令；返回 stdout（trim）。失败抛 error。 */
-  runGit?: (args: string[], cwd: string) => Promise<string>;
+  /**
+   * 跑 git 子命令拿 stdout。
+   *
+   * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase R3 fix-2 修法 (H2 codex Batch B HIGH-1)**：
+   * 加 `opts.raw` 选项让 caller 显式决定是否 trim stdout。默认 raw=false（旧行为：trim 掉首尾
+   * whitespace + NUL，适合 rev-parse / commit / status --porcelain 等单行 trim 安全场景）。
+   * 仅在 `git status --porcelain=v1 -z` NUL 分隔输出场景必须传 `{ raw: true }`，否则 trim 会
+   * 把首列 space（Y 列 unstaged status）也吃掉 → status 错位 → criticalSet 永不命中 → Y 列
+   * unstaged critical path 全漏判（H2 现场实测铁证：`' M plans/INDEX.md\0'.trim()` →
+   * `'M plans/INDEX.md\0'` → parser status=`'M '` filename=`'lans/INDEX.md\0'`）。
+   */
+  runGit?: (args: string[], cwd: string, opts?: { raw?: boolean }) => Promise<string>;
   /** 读文件 utf8。失败抛（典型 ENOENT）。 */
   readFile?: (filePath: string) => Promise<string>;
   /** 写文件 utf8。 */
@@ -142,8 +153,11 @@ export interface ArchivePlanDeps {
 }
 
 const DEFAULT_DEPS: Required<ArchivePlanDeps> = {
-  runGit: async (args, cwd) => {
+  runGit: async (args, cwd, opts) => {
     const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: 1024 * 1024 });
+    // R3 fix-2 (H2): raw=true 时不 trim，保留首列 space 与尾部 NUL 让 NUL parser 正确处理。
+    // 默认 raw=false 保持旧 caller 行为（rev-parse / commit 单行 trim 安全）。
+    if (opts?.raw) return stdout.toString();
     return stdout.toString().trim();
   },
   readFile: async (p) => fs.readFile(p, 'utf8'),
@@ -234,7 +248,7 @@ export interface AssertMainRepoCleanResult {
 }
 
 export async function assertMainRepoCleanForArchive(
-  deps: { runGit: (args: string[], cwd: string) => Promise<string> },
+  deps: { runGit: (args: string[], cwd: string, opts?: { raw?: boolean }) => Promise<string> },
   input: AssertMainRepoCleanInput,
 ): Promise<AssertMainRepoCleanResult> {
   // critical paths 转 repo-relative 与 git status 输出对齐（R3 codex MED-1）
@@ -246,9 +260,18 @@ export async function assertMainRepoCleanForArchive(
 
   let stdout: string;
   try {
+    // **R3 fix-2 (H2 codex Batch B HIGH-1)**：传 `{ raw: true }` 跳 trim 防破坏 -z NUL 输出
+    // （`' M plans/INDEX.md\0'.trim()` → `'M plans/INDEX.md\0'` 首列 space 被吃 → status 错位
+    // → criticalSet 永不命中 → Y 列 unstaged critical path 全漏判）。
+    //
+    // **R3 fix-2 (H4 codex Batch C+D 未验证升级)**：加 `--untracked-files=all` flag 让 untracked
+    // 文件展开到完整路径而非目录级（default mode 输出 `?? plans/\0` → criticalSet.has('plans/
+    // INDEX.md') 不命中 → untracked critical 文件全漏判；`--untracked-files=all` 输出
+    // `?? plans/INDEX.md\0?? plans/myplan.md\0` 才能命中）。
     stdout = await deps.runGit(
-      ['status', '--porcelain=v1', '-z'],
+      ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
       input.mainRepoAbsPath,
+      { raw: true },
     );
   } catch (e) {
     // git 失败 → fail-safe ok=false 让 caller decide，不静默 ok（防 mainRepo git 异常时
@@ -338,9 +361,29 @@ export interface AssertBaseBranchResult {
 }
 
 export async function assertBaseBranchIsNamedBranch(
-  deps: { runGit: (args: string[], cwd: string) => Promise<string> },
+  deps: { runGit: (args: string[], cwd: string, opts?: { raw?: boolean }) => Promise<string> },
   input: AssertBaseBranchInput,
 ): Promise<AssertBaseBranchResult> {
+  // **R3 fix-2 (H3 codex Batch C+D HIGH-1)**：先 `git check-ref-format --branch <name>` reject
+  // rev suffix（`main~1` / `main^{commit}` 等）。仅 `git rev-parse --verify --quiet refs/heads/X`
+  // 不够 — 实测 `git rev-parse --verify --quiet refs/heads/main~1` 返回 commit hash exit 0
+  // （rev-parse 接受 `refs/heads/main~1` 作为 valid rev expression：从 main 倒退一个 commit）。
+  // 后续 ff-merge `git checkout main~1` 会进入 detached HEAD → 归档 commit 落 detached HEAD
+  // → B-HIGH-3 同款数据丢失风险。`git check-ref-format --branch main~1` exit 128 实测铁证拦下。
+  try {
+    await deps.runGit(['check-ref-format', '--branch', input.baseBranch], input.mainRepoAbsPath);
+  } catch (e) {
+    return {
+      ok: false,
+      error: `base_branch "${input.baseBranch}" is not a valid branch name (contains rev syntax like '~' / '^{commit}' or other illegal chars).`,
+      hint:
+        `archive_plan ff-merge requires a plain branch name (no rev suffix); names containing '~' / '^' / '@{' are rev expressions ` +
+        `that would resolve to a commit + ` +
+        `git checkout <name> → detached HEAD → archive commit lost after branch -D + gc. ` +
+        `Edit plan frontmatter base_branch to a plain branch name (e.g. "main" / "feature-x"). ` +
+        `Verify with \`git -C ${input.mainRepoAbsPath} check-ref-format --branch <name>\`. ${(e as Error).message}`,
+    };
+  }
   try {
     await deps.runGit(
       ['rev-parse', '--verify', '--quiet', `refs/heads/${input.baseBranch}`],
