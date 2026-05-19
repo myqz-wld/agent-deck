@@ -74,7 +74,17 @@ export const exitWorktreeHandler = withMcpGuard(
     );
 
     if (_internalIsError(result)) {
-      return err(result.error, result.hint);
+      // R3 fix-5 (M5 codex Batch B MED-2): partial-success error path 透传 markerCleared 字段
+      // 给 MCP caller。result.markerCleared 在 exit-worktree-impl ExitWorktreeError 类型可能
+      // undefined（无 marker 场景）或 boolean（partial-success 如 step 5d branch 失败时 step 5c
+      // 已 clear marker / step 4 .git 损坏 action=keep cleanup 已 clear marker）。caller 据此
+      // 决定 retry hint（marker 已清 → 不需手动 clearCwdReleaseMarker；marker 未清 → 提示 caller
+      // 走 IPC sessionRepo.clearCwdReleaseMarker 兜底）。
+      const extras =
+        result.markerCleared !== undefined
+          ? { markerCleared: result.markerCleared }
+          : undefined;
+      return err(result.error, result.hint, extras);
     }
 
     return ok({
