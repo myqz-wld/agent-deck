@@ -978,14 +978,30 @@ export async function archivePlanImpl(
   }
   const commitMsg = `docs(plans): 归档 ${input.planId} plan + 同步 INDEX (archive_plan)`;
   try {
-    await deps.runGit(['commit', '-m', commitMsg], mainRepo);
+    // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 4 修法 (D3 F2 不变量 4)**:
+    // 显式 pathspec 隔离归档 commit 只含 plan / INDEX / archived plan path 三类归档文件，
+    // 不吞 mainRepo 预存 staged。修前 `git commit -m <msg>` 默认 commit 所有 staged
+    // → 如果 mainRepo 之前已 stage 其他文件（如 caller 在跑 archive_plan 之前手工 git add 过
+    // 其他 file，或 step 13 之前的 step 偶然 stage 文件）会一起进归档 commit，污染归档语义
+    // 「只含归档相关变更」+ 让归档 commit 包含与 plan 完全无关的代码。
+    //
+    // **不变量 4 兑现**：archive_plan commit 隔离 — `git commit -- <pathspec>` 显式只包含
+    // plan / INDEX / changelog 三类归档文件，不吞 mainRepo 预存 staged。
+    //
+    // **F2 真根因复诊**（lead 现场验证）：本会话上轮归档撞 mainRepo 9 staged + 4 untracked →
+    // B-HIGH-4 precheck fail-fast 拦下 → 用户走手工归档绕过 archive_plan tool → runBatonCleanup
+    // 没被调到 → 6 旧 reviewer 自然衰减成 dormant 但**没** closed。F2 修法本质 = commit
+    // pathspec 显式隔离 + mainRepo precheck 精确化（仅 reject path ∈ {archivedPath, indexPath,
+    // planFilePath} 三具体路径，其他 dirty 降 warning + commit message 注脚）— 后者已 land
+    // (Phase 1.2 副作用，详 plan 当前进度)，本 step 仅修 commit pathspec。
+    await deps.runGit(['commit', '-m', commitMsg, '--', ...filesToAdd], mainRepo);
   } catch (e) {
     return postFfMergeErr(
       'git-commit',
       e as Error,
       `git commit failed (pre-commit hook reject / commit-msg validator failed / nothing to commit / signing key issue). ` +
         `Inspect the git error and fix root cause (skip hook with --no-verify only if necessary, fix message format, configure signing key); ` +
-        `then manually \`git -C ${mainRepo} commit -m "${commitMsg}"\` and complete step 14 manually (worktree remove / branch -D).`,
+        `then manually \`git -C ${mainRepo} commit -m "${commitMsg}" -- ${filesToAdd.join(' ')}\` and complete step 14 manually (worktree remove / branch -D).`,
     );
   }
 
