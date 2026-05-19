@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { DEFAULT_SETTINGS, type AppSettings, type AssetKind, type AssetMeta, type BundledAssetsSnapshot, type UserAssetsSnapshot } from '@shared/types';
-import { AssetCard, dedupBundledByName } from './assets/AssetCard';
+import { AssetCard, dedupBundledByName, type NonEmptyAssetGroup } from './assets/AssetCard';
 import { AssetEditor } from './assets/AssetEditor';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
@@ -80,6 +80,10 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
   useEffect(() => {
     if (!open) {
       // CHANGELOG_57 R1·F6：关闭 dialog 时主动 reset 子 modal state，避免重开瞬间显示残留
+      // plan reviewer-codex-cross-adapter-20260519 §Phase 5 Step 5.1 reviewer-codex MED finding fix:
+      // close dialog 路径必须自增 viewerSeqRef 失效 in-flight fetch,防止 fetch 迟到时
+      // `seq === viewerSeqRef.current` 仍成立 setViewer 复活 modal
+      ++viewerSeqRef.current;
       setViewer(null);
       setEditor(null);
       return;
@@ -140,6 +144,19 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
   };
 
   /**
+   * 关闭 viewer：自增 viewerSeqRef 失效所有 in-flight fetch + setViewer(null) reset state。
+   *
+   * **plan reviewer-codex-cross-adapter-20260519 §Phase 5 Step 5.1 reviewer-codex MED finding fix**:
+   * 旧版 `onClose: () => setViewer(null)` 不增 seq → fetch 迟到 resolved 时
+   * `seq === viewerSeqRef.current` 仍成立,会 setViewer 重塞 viewer state 复活 modal(用户关
+   * 后 fetch 迟到把 modal 又显示出来)。修法:onClose / open=false cleanup 都先 ++seq 再 setViewer(null)。
+   */
+  const closeViewer = (): void => {
+    ++viewerSeqRef.current;
+    setViewer(null);
+  };
+
+  /**
    * 打开 viewer：seq guard 防 closure 捕获 stale asset。用户先点 A 后点 B 时，
    * 即使 A 的 fetch 比 B 慢，也只接受当前最新 seq 的响应（CHANGELOG_57 R1·F5）。
    *
@@ -147,19 +164,33 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
    * `adapter` 直接透传 `asset.adapter`（bundled='claude-code'|'codex-cli' / user=null）。
    *
    * **plan reviewer-codex-cross-adapter-20260519 §Phase 4 Step 4.2**：input 改成 group
-   * （AssetMeta[]，1=single 或 2=dual-adapter SKILL）。default 选 first asset's adapter
+   * （`NonEmptyAssetGroup`，1=single 或 2=dual-adapter SKILL）。default 选 first asset's adapter
    * （`dedupBundledByName` 已按 claude-code 优先 / codex-cli 后排序，default 选 [claude]）。
+   *
+   * **plan §Phase 5 Step 5.1 reviewer-codex LOW finding fix**：fetch 链补 `.catch` 处理 IPC
+   * invoke reject 路径(handler throw / IPC channel error),否则 viewer 永久卡 `读取中…` loading
+   * 态 + unhandled rejection。catch 仍受 seq guard 约束(seq 不一致 = 已被 close/切 tab 失效)。
    */
-  const openViewer = (assets: AssetMeta[]): void => {
+  const openViewer = (assets: NonEmptyAssetGroup): void => {
     const first = assets[0];
-    if (!first) return;
     const seq = ++viewerSeqRef.current;
     setViewer({ assets, currentAdapter: first.adapter, content: null, error: null });
-    void window.api.getAssetContent(first.kind, first.name, first.source, first.adapter).then((r) => {
-      if (seq !== viewerSeqRef.current) return;
-      if (r.ok) setViewer({ assets, currentAdapter: first.adapter, content: r.content, error: null });
-      else setViewer({ assets, currentAdapter: first.adapter, content: null, error: r.reason ?? '未知错误' });
-    });
+    void window.api
+      .getAssetContent(first.kind, first.name, first.source, first.adapter)
+      .then((r) => {
+        if (seq !== viewerSeqRef.current) return;
+        if (r.ok) setViewer({ assets, currentAdapter: first.adapter, content: r.content, error: null });
+        else setViewer({ assets, currentAdapter: first.adapter, content: null, error: r.reason ?? '未知错误' });
+      })
+      .catch((err) => {
+        if (seq !== viewerSeqRef.current) return;
+        setViewer({
+          assets,
+          currentAdapter: first.adapter,
+          content: null,
+          error: `IPC 调用失败：${(err as Error).message ?? String(err)}`,
+        });
+      });
   };
 
   /**
@@ -281,23 +312,34 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
           onReveal={() => {
             // reveal 当前选中 tab 对应文件（dual-adapter SKILL 切 tab 后 reveal 切到对应文件位置）
             const cur = viewer.assets.find((a) => a.adapter === viewer.currentAdapter) ?? viewer.assets[0];
-            if (!cur) return;
             void window.api.revealAssetInFolder(cur.kind, cur.name, cur.source, cur.adapter);
           }}
           onTabSwitch={(adapter) => {
             // dual-adapter tab 切换：seq guard fetch 切到目标 adapter 的内容
             // closure 每次 render 重建拿到最新 viewer state；React 18 batched update 队列保证一致性
+            // plan §Phase 5 Step 5.1 reviewer-codex LOW finding fix: fetch 链补 .catch 处理 IPC reject
             const target = viewer.assets.find((a) => a.adapter === adapter);
             if (!target || adapter === viewer.currentAdapter) return;
             const seq = ++viewerSeqRef.current;
             setViewer({ assets: viewer.assets, currentAdapter: adapter, content: null, error: null });
-            void window.api.getAssetContent(target.kind, target.name, target.source, target.adapter).then((r) => {
-              if (seq !== viewerSeqRef.current) return;
-              if (r.ok) setViewer({ assets: viewer.assets, currentAdapter: adapter, content: r.content, error: null });
-              else setViewer({ assets: viewer.assets, currentAdapter: adapter, content: null, error: r.reason ?? '未知错误' });
-            });
+            void window.api
+              .getAssetContent(target.kind, target.name, target.source, target.adapter)
+              .then((r) => {
+                if (seq !== viewerSeqRef.current) return;
+                if (r.ok) setViewer({ assets: viewer.assets, currentAdapter: adapter, content: r.content, error: null });
+                else setViewer({ assets: viewer.assets, currentAdapter: adapter, content: null, error: r.reason ?? '未知错误' });
+              })
+              .catch((err) => {
+                if (seq !== viewerSeqRef.current) return;
+                setViewer({
+                  assets: viewer.assets,
+                  currentAdapter: adapter,
+                  content: null,
+                  error: `IPC 调用失败：${(err as Error).message ?? String(err)}`,
+                });
+              });
           }}
-          onClose={() => setViewer(null)}
+          onClose={closeViewer}
         />
       )}
       {editor && (
@@ -345,7 +387,7 @@ function AssetsTab({
   kind: AssetKind;
   bundled: AssetMeta[];
   user: AssetMeta[];
-  onView: (assets: AssetMeta[]) => void;
+  onView: (assets: NonEmptyAssetGroup) => void;
   onEdit: (asset: AssetMeta) => void;
   onNew: () => void;
 }): JSX.Element {
@@ -389,7 +431,7 @@ function AssetsTab({
         ) : (
           <div className="flex flex-col gap-1.5">
             {user.map((a) => (
-              <AssetCard key={a.qualifiedName} assets={[a]} onView={onView} onEdit={onEdit} />
+              <AssetCard key={a.qualifiedName} assets={[a] as const} onView={onView} onEdit={onEdit} />
             ))}
           </div>
         )}
