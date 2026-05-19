@@ -165,11 +165,11 @@ codex SDK session 内进 / 退 git worktree 必须通过本应用 MCP tool(codex
 
 ### codex SDK 特有:per-session token / spawn options default
 
-codex teammate spawn(`adapter: 'codex-cli'`)走 options-builder 默认 enforce 一组 spawn options(reviewer wrapper 必需):
+codex teammate spawn(`adapter: 'codex-cli'`)走 options-builder 默认 enforce 一组 spawn options(reviewer-* 必需):
 - `sandboxMode: 'workspace-write'`(SDK 默认档;`approvalPolicy: 'never'` 配合不弹审批)
 - `approvalPolicy: 'never'`(SDK 无 UI 弹审批会挂)
-- `networkAccessEnabled: true`(claude wrapper 需调 Anthropic API;reviewer-codex teammate 调 OpenAI API)
-- `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']`(claude wrapper 读 OAuth + 写 jsonl 在 `~/.claude/`;codex 自己 config + jsonl 在 `~/.codex/`;wrapper Bash 中间文件交换走 `/tmp/<input>.txt` `/tmp/<output>.txt`)
+- `networkAccessEnabled: true`(reviewer-codex teammate 调 OpenAI API;cross-adapter pair 时 reviewer-claude 跑在 claude SDK 端不走本 default)
+- `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']`(reviewer 跨目录读 plan / claude config / codex config 文件 + cache 中间文件落 `/tmp`)
 - caller 显式传同字段则覆盖 default;`narrowToCodexOpts` filter 掉 claude 专属字段(`permissionMode` 等)
 
 per-session MCP token(D1 ADR):
