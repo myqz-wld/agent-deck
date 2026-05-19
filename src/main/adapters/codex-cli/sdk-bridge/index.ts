@@ -213,10 +213,11 @@ export class CodexSdkBridge {
    * PATH / HOME 等基础 env，再加上 per-session token。
    *
    * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D1 ADR §(c) 升级**:
-   * 第 3 参数 `envOverrideExtra` 让 caller (createSession) 透传额外 env 字段（reviewer-claude
-   * wrapper 路径需要 `AGENT_DECK_CLAUDE_PATH`）。merge 顺序 = `snapshotProcessEnv()` >
-   * `AGENT_DECK_MCP_TOKEN` > `envOverrideExtra` —— extra 字段在最末，优先级最高（如 caller
-   * 真要覆盖某个全局 env 字段也允许）。
+   * 第 3 参数 `envOverrideExtra` 让 caller (createSession) 透传额外 env 字段(generic 透传
+   * 机制,目前无 hot caller — reviewer-claude wrapper 路径已改 cross-adapter native 删除;
+   * 字段保留供未来 caller 重用)。merge 顺序 = `snapshotProcessEnv()` > `AGENT_DECK_MCP_TOKEN`
+   * > `envOverrideExtra` —— extra 字段在最末，优先级最高（如 caller 真要覆盖某个全局 env
+   * 字段也允许）。
    *
    * Map 命中后**不**校验 token 一致性 — caller（createSession）保证 sessionId 内 token 不变
    * （Step 2.5c sid 时序：allocate 一次后 token frozen 直到 close）。**Map 命中也不重新 merge
@@ -254,8 +255,8 @@ export class CodexSdkBridge {
     // 实证 envOverride 优先 + 绕过 process.env fallback)。所以必须手工 spread process.env 过滤
     // undefined 值,再叠加 per-session AGENT_DECK_MCP_TOKEN 让子进程拿到完整 env。
     //
-    // plan §P3 Step 3.5 + §D1 ADR §(c) 升级: caller 透传的 envOverrideExtra（如 reviewer-claude
-    // wrapper 路径的 AGENT_DECK_CLAUDE_PATH）merge 到末尾，优先级最高（允许覆盖全局 env 字段）。
+    // plan §P3 Step 3.5 + §D1 ADR §(c) 升级: caller 透传的 envOverrideExtra（generic 透传机制,
+    // 目前无 hot caller）merge 到末尾，优先级最高（允许覆盖全局 env 字段）。
     const envOverride: Record<string, string> = snapshotProcessEnv();
     envOverride[AGENT_DECK_MCP_TOKEN_ENV] = sessionToken;
     if (envOverrideExtra) {
@@ -357,9 +358,8 @@ export class CodexSdkBridge {
     /**
      * plan §P3 Step 3.5 + §D1 ADR §(c) per-session env 增量字段：merge 到 codex 子进程
      * envOverride 末尾（优先级最高，与 caller / options-builder spread 一致）。bridge 不主动
-     * enforce default — undefined / 空 object 不新增字段；options-builder 在 reviewer-claude
-     * 路径下 spread `{AGENT_DECK_CLAUDE_PATH: resolveBundledClaudeBinary()}` 让 wrapper Bash
-     * `$AGENT_DECK_CLAUDE_PATH -p ...` 引用 bundled claude binary。
+     * enforce default — undefined / 空 object 不新增字段;generic 透传机制(目前无 hot caller —
+     * reviewer-claude wrapper 路径已改 cross-adapter native 删除;字段保留供未来 caller 重用)。
      *
      * 注入路径：ensureCodex 接收 envOverrideExtra 参数后 `Object.assign(envOverride,
      * opts.envOverrideExtra ?? {})`（后写覆盖前写，options-builder spread 字段最终生效）。
@@ -391,8 +391,8 @@ export class CodexSdkBridge {
     //   函数体(Step 2.8)统一 rename codexBySession Map + token map(不变量 7)
     const initialSid = opts.resume ?? randomUUID();
     const sessionToken = mcpSessionTokenMap.allocate(initialSid);
-    // plan §P3 Step 3.5: 透传 envOverrideExtra（如 reviewer-claude wrapper 的
-    // AGENT_DECK_CLAUDE_PATH）到 ensureCodex,让 codex 子进程 env merge extra 字段。
+    // plan §P3 Step 3.5: 透传 envOverrideExtra（generic 透传机制,目前无 hot caller）到
+    // ensureCodex,让 codex 子进程 env merge extra 字段。
     const codex = await this.ensureCodex(initialSid, sessionToken, opts.envOverrideExtra);
     const cwd = resolveSpawnCwd(opts);
     // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：

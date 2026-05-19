@@ -20,7 +20,6 @@
 
 import os from 'node:os';
 import path from 'node:path';
-import { resolveBundledClaudeBinary } from './claude-code/resolve-bundled-claude';
 import type {
   ClaudeCreateOpts,
   CodexCreateOpts,
@@ -115,9 +114,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
  * 按 `raw.agentName in ['reviewer-claude', 'reviewer-codex']` 触发 codex teammate spawn
  * default spread —— 4 字段 unsafe default 强制（`codexSandbox: 'workspace-write'` 不允许
  * caller 覆盖；`approvalPolicy: 'never'` / `networkAccessEnabled: true` /
- * `additionalDirectories: ['~/.claude', '~/.codex']`）+ reviewer-claude 路径加
- * `envOverrideExtra: {AGENT_DECK_CLAUDE_PATH: resolveBundledClaudeBinary()}`（v4 M7：
- * wrapper Bash 模板用 env var，不 hardcode 路径）。
+ * `additionalDirectories: ['~/.claude', '~/.codex']`）。
  *
  * **enforce 点 = 本函数（options-builder 层）**，**禁** `bridge.startThread` hardcode default
  * （污染普通 codex session lead 路径）。普通 codex session（agentName 缺省 / 非 reviewer-*）
@@ -172,19 +169,6 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
       path.join(os.homedir(), '.codex'),
       '/tmp',
     ];
-
-    // v4 M7: reviewer-claude wrapper 路径加 AGENT_DECK_CLAUDE_PATH env 让 wrapper Bash 模板
-    // `$AGENT_DECK_CLAUDE_PATH -p < input.txt` 引用 bundled claude binary(不 hardcode 路径)。
-    // resolveBundledClaudeBinary() 委托 sdk-runtime.getPathToClaudeCodeExecutable(),dev /
-    // packaged 双路径都返非 null(dev 真实 node_modules 路径 / packaged unpacked 路径)。
-    // 返 null(require.resolve 失败 / OS 不在 candidate list)→ 不注入 env var,wrapper Bash
-    // 模板回退到 PATH 找 `claude`(脚本作者职责处理 fallback;options-builder 不静默替换)。
-    if (raw.agentName === 'reviewer-claude') {
-      const claudePath = resolveBundledClaudeBinary();
-      if (claudePath !== null) {
-        out.envOverrideExtra = { AGENT_DECK_CLAUDE_PATH: claudePath };
-      }
-    }
   }
 
   return out;

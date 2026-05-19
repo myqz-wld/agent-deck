@@ -213,12 +213,8 @@ export interface CodexCreateOpts {
   additionalDirectories?: readonly string[];
   /**
    * plan §P3 Step 3.5 + §D1 ADR §(c) per-session env 增量字段：caller 想在 codex 子进程
-   * env 注入额外变量（reviewer-claude wrapper 路径需要 `AGENT_DECK_CLAUDE_PATH` 让 Bash
-   * 模板 `$AGENT_DECK_CLAUDE_PATH -p ...` 找到 bundled claude binary 路径）。
-   *
-   * **enforce 点** = `options-builder.ts narrowToCodexOpts` 按 `agentName === 'reviewer-claude'`
-   * 触发 spread `{AGENT_DECK_CLAUDE_PATH: resolveBundledClaudeBinary()}`（v4 M7 修法 —
-   * wrapper Bash 模板用 `$AGENT_DECK_CLAUDE_PATH` env var 不 hardcode 路径）。
+   * env 注入额外变量。generic 透传机制(目前无 hot caller — reviewer-claude wrapper 路径已
+   * 改 cross-adapter native 删除;字段保留供未来 caller 重用)。
    *
    * 注入路径：bridge `ensureCodex` 在 `envOverride = snapshotProcessEnv() + AGENT_DECK_MCP_TOKEN`
    * 之后 merge `opts.envOverrideExtra`（caller / options-builder spread 的字段优先级最高）。
