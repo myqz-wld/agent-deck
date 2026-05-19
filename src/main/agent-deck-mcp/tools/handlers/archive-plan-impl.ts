@@ -1026,7 +1026,20 @@ export async function archivePlanImpl(
         `complete steps 13b-14 manually (git commit / worktree remove / branch -D).`,
     );
   }
-  const commitMsg = `docs(plans): 归档 ${input.planId} plan + 同步 INDEX (archive_plan)`;
+  // **R3 fix-7 (M4 codex Batch B MED-1)**: commit message 加 mainRepo unrelated dirty 注脚,
+  // 让归档 commit 有可审计 trail 表明本归档时 mainRepo 还有 N 个无关 dirty 文件（不会被
+  // pathspec 吞,但归档时刻状态可追溯）。caller 看 git log 能立刻判断「这次归档时 mainRepo
+  // 有其他未 commit 改动」,与 ok return warnings 字段冗余但 commit history 比 ok return
+  // 持久（caller 不一定看 ok return,但 git log 一直在）。
+  let commitMsg = `docs(plans): 归档 ${input.planId} plan + 同步 INDEX (archive_plan)`;
+  if (mainRepoClean.warnings.length > 0) {
+    const sample = mainRepoClean.warnings
+      .slice(0, 3)
+      .map((w) => `${w.status} ${w.path}`)
+      .join(', ');
+    const sampleSuffix = mainRepoClean.warnings.length > 3 ? '...' : '';
+    commitMsg += `\n\nNote: ${mainRepoClean.warnings.length} unrelated dirty file${mainRepoClean.warnings.length === 1 ? '' : 's'} in main repo at archive time (excluded from this commit by pathspec). Sample: ${sample}${sampleSuffix}.`;
+  }
   try {
     // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 4 修法 (D3 F2 不变量 4)**:
     // 显式 pathspec 隔离归档 commit 只含 plan / INDEX / archived plan path 三类归档文件，

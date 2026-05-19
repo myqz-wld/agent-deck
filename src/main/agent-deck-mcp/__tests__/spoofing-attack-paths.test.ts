@@ -117,6 +117,9 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
       'hand_off_session',
       'enter_worktree',
       'exit_worktree',
+      // R3 fix-7 (M1 reviewer-claude LOW): Phase 5.3 新增 shutdown_baton_teammates 写 tool
+      // (types.ts EXTERNAL_CALLER_ALLOWED.shutdown_baton_teammates=false)
+      'shutdown_baton_teammates',
     ] as const) {
       const denial = denyExternalIfNotAllowed(tool, ctx);
       expect(denial, `tool=${tool}`).not.toBeNull();
