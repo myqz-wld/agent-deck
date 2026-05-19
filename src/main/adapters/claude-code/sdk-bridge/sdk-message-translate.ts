@@ -183,6 +183,19 @@ export function translateSdkMessage(
     // 时从 jsonl 读出的 mode、外部 settings 改 mode 等）应用层只能靠这两条 frame 知道。
     // 之前直接忽略 → DB 留旧值、不 emit upsert、store 卡旧值、详情面板显示器卡旧值。
     // 修法：白名单校验 → 与 DB 比 → 不同则写 DB + emit upsert（renderer 走原有 listener）。
+    //
+    // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 3 修法 (H3 D7)**：先同步 internal
+    // cache，再走 DB 比对路径。
+    //
+    // 真根因：旧 impl 仅写 sessionRepo（DB） + emit upsert，**没**同步 internal.permissionMode
+    // (canUseTool bypass 短路读 internal.permissionMode 不读 sessionRepo,详 types.ts permissionMode
+    // 字段 jsdoc)。SDK 上行 init/status frame 把 mode 改为 bypassPermissions 等关键档位时,
+    // canUseTool 仍按旧 cache 的 'default' 走 fail-secure 路径 → 弹 unwanted permission-request
+    // (CLI 实际已是 bypass 但应用以为还在 default)。
+    //
+    // 不变量 2: DB/UI ↔ internal cache 单一源（跨字段约束）— 凡 internal cache 镜像 sessionRepo
+    // 字段，任一方向 update 必同时更新两边。本 step 修 permissionMode 路径；其他字段 cache split
+    // 风险作为后续 review focus 立项 (cwd / claudeCodeSandbox / extraAllowWrite / model)。
     const next = msg.permissionMode;
     if (
       next === 'default' ||
@@ -190,6 +203,9 @@ export function translateSdkMessage(
       next === 'plan' ||
       next === 'bypassPermissions'
     ) {
+      // Phase 3 修法：先同步 internal cache（让 canUseTool bypass 短路立刻按新 mode 判断），
+      // 再走 DB 比对路径。internal.permissionMode 与 sessionRepo.permissionMode 同步更新。
+      internal.permissionMode = next;
       const cur = sessionRepo.get(sessionId);
       if (cur && cur.permissionMode !== next) {
         sessionRepo.setPermissionMode(sessionId, next);
