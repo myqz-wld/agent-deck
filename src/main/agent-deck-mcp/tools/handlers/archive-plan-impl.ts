@@ -240,6 +240,29 @@ export async function archivePlanImpl(
     };
   }
 
+  // 3.5. 预检 mainRepo clean —— B-HIGH-4 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
+  // 旧 impl 仅校 worktree clean，不校 mainRepo。caller 在 mainRepo `git add <unrelated>` 后调
+  // archive_plan → step 13 `git commit -m <msg>` 默认行为是 commit all staged，预先 staged 文件
+  // 被吞进归档 commit；commit msg 「归档 X plan + 同步 INDEX」与实际内容不符，最坏情况半成品代码
+  // 被混入 plan 归档 + git revert 归档时连带 revert（B-HIGH-4 reviewer-claude 反驳轮 git 实测复现）。
+  // 修法: fail-fast precheck mainRepo `git status --porcelain`，dirty 则 reject + hint 让 caller
+  // 先 commit/stash/restore 再 archive。worktree precheck 之后 / git checkout base_branch 之前。
+  let mainStatusOutput: string;
+  try {
+    mainStatusOutput = await deps.runGit(['status', '--porcelain'], mainRepo);
+  } catch (e) {
+    return {
+      error: `git status --porcelain failed in main repo ${mainRepo}: ${(e as Error).message}`,
+    };
+  }
+  if (mainStatusOutput.trim().length > 0) {
+    const lines = mainStatusOutput.trim().split('\n');
+    const preview = lines.slice(0, 5).join('\n');
+    return {
+      error: `main repo ${mainRepo} is not clean (uncommitted/staged changes); archive_plan would mix them into the archive commit.`,
+      hint: `Please commit / stash / git restore the staged changes first, then retry archive_plan. Detected:\n${preview}${lines.length > 5 ? '\n  (... more)' : ''}`,
+    };
+  }
   // 4. 预检 cwd 4 态分流（plan codex-handoff-team-alignment-20260518 P1 Step 1.4 / 不变量 5 + D2）
   //
   // **P5 Round 1 reviewer-codex HIGH-1 修法 (cwd valid/invalid 4 态分流完整实现)**：
@@ -448,12 +471,23 @@ export async function archivePlanImpl(
       : fmBaseBranch.length > 0
         ? fmBaseBranch
         : 'main';
+  // B-HIGH-3 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
+  // 旧 impl `rev-parse --verify <branch>` 接受 SHA / tag / detached HEAD（git man 默认
+  // namespace 含 refs/heads/ refs/tags/ refs/remotes/ raw SHA 等），caller 误传 tag 名当
+  // base_branch（典型: plan frontmatter `base_branch: v1.2.0`）→ checkout tag 后 detached
+  // HEAD → ff-merge 推 HEAD → commit 落 detached → branch -D worktreeBranch 删工作分支 ref
+  // → 归档 commit 仅 reflog 可达，gc 30 天后丢失（B-HIGH-3 reviewer-claude 反驳轮 git 端到端
+  // 实测复现）。修法: 显式 verify `refs/heads/<branch>` namespace，强制 named branch（plan-review
+  // MED-1 claude 修订: rev-parse --verify --quiet refs/heads/ 比 symbolic-ref 语义更直观）。
   try {
-    await deps.runGit(['rev-parse', '--verify', effectiveBaseBranch], mainRepo);
+    await deps.runGit(
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${effectiveBaseBranch}`],
+      mainRepo,
+    );
   } catch (e) {
     return {
-      error: `base_branch "${effectiveBaseBranch}" does not exist in main repo: ${(e as Error).message}`,
-      hint: `REVIEW_36 R2: base_branch resolves from caller arg > plan frontmatter.base_branch > "main" fallback. Pass an existing branch name via base_branch arg, or set frontmatter base_branch in ${planFilePath}. Verify with \`git -C ${mainRepo} branch --list\`.`,
+      error: `base_branch "${effectiveBaseBranch}" is not a named branch (refs/heads/<name>); SHA / tag / detached HEAD refs are not allowed.`,
+      hint: `archive_plan ff-merge requires a named branch to commit onto. If "${effectiveBaseBranch}" is a tag or SHA, plan cannot be archived (commits would land on detached HEAD and be lost after branch -D + gc). Edit plan frontmatter base_branch to a named branch (e.g. "main" / "feature-x"), or pass base_branch arg explicitly. Verify with \`git -C ${mainRepo} branch --list\`. ${(e as Error).message}`,
     };
   }
   try {

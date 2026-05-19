@@ -25,6 +25,7 @@
  */
 
 import { buildAgentDeckTools } from './tools';
+import { EXTERNAL_CALLER_SENTINEL } from './types';
 
 const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
   s: string,
@@ -73,8 +74,15 @@ export async function runAgentDeckMcpStdio(): Promise<void> {
     version: '0.1.0',
   });
 
+  // B-HIGH-1 (C) 修法 (b)（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
+  // stdio transport 没 per-session authn 链路，client 只能传特殊值 `__external__` 当
+  // caller_session_id（ADR §4.3 / §11.7 文档约定）。旧版 callerSessionIdOverride: null 让
+  // tools/index.ts:108 的 `overridden ?? args.caller_session_id` fallback 到任意 args 字段，
+  // client 能填已存在 active sid spoof 写工具（B-HIGH-1 reviewer-claude 反驳轮 mini-test 实证）。
+  // 修法: force callerSessionIdOverride 永返 sentinel，让 stdio transport 在源头切断 spoofing
+  // 路径（与 helpers.ts denyExternalIfNotAllowed (a) stdio invariant assertion 双层守门 = 修法 (C)）。
   const adapted = await buildAgentDeckTools({
-    callerSessionIdOverride: null,
+    callerSessionIdOverride: () => EXTERNAL_CALLER_SENTINEL,
     transport: 'stdio',
   });
   for (const t of adapted) {

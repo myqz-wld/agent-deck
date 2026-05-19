@@ -50,6 +50,20 @@ export function makeCallerContext(
 /**
  * external caller 防御：若工具不允许外部调用且 caller = `__external__`，
  * 直接返回 isError，handler 不执行业务逻辑。
+ *
+ * **B-HIGH-1 (C) 修法 (a) — stdio invariant assertion 兜底层**
+ * （deep-review-batch-a1-b-fixes-20260519 plan / REVIEW_46）:
+ * 旧版仅 sentinel 检测让 stdio caller 能传 `args.caller_session_id` 当任意 active sid 调写工具
+ * （EXTERNAL_CALLER_ALLOWED[X]=false 但 callerSid != sentinel → bypass deny → 以 victim 身份执行）。
+ * 修法 (b)/(c) 在 transport 层把 stdio / HTTP global token fallback 强制 force sentinel
+ * 切断 spoofing 源头；本处 (a) 加 stdio transport invariant 兜底守门：transport=stdio 时
+ * callerSid 应该总是 sentinel（transport-stdio.ts:77 修法已 force），如出现非 sentinel =
+ * transport 层漏改 invariant violation → deny + console.error 兜底。
+ *
+ * **不**对 HTTP transport 加同款守门：HTTP per-session authn（authInfo.resolvedSid = real sid）
+ * 是合法路径，误杀会破坏 mcp-session-token-map 流程（plan-review v2 NEW-H1 codex 反馈）。
+ * HTTP global token fallback 的 spoofing 防御**完全靠 transport-http.ts:92-98 修法 (c)** 在源头
+ * force sentinel；本处仅 stdio 兜底，不再尝试集中守门 HTTP。
  */
 export function denyExternalIfNotAllowed(
   toolName: keyof typeof EXTERNAL_CALLER_ALLOWED,
@@ -66,6 +80,28 @@ export function denyExternalIfNotAllowed(
           text: JSON.stringify({
             error: `tool ${toolName} not allowed for external caller (caller_session_id=__external__)`,
             hint: 'External MCP clients can only call read-only tools (list_sessions, get_session). To spawn / send / shutdown sessions, use the in-process or HTTP transport with a real caller_session_id.',
+          }),
+        },
+      ],
+      isError: true as const,
+    };
+  }
+  // B-HIGH-1 (C) 修法 (a): stdio invariant assertion 兜底守门
+  if (
+    caller.transport === 'stdio' &&
+    caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL &&
+    !EXTERNAL_CALLER_ALLOWED[toolName]
+  ) {
+    console.error(
+      `[helpers] invariant violated: stdio transport callerSid="${caller.callerSessionId}" (should always be "__external__" sentinel — check transport-stdio.ts callerSessionIdOverride is set to () => EXTERNAL_CALLER_SENTINEL)`,
+    );
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({
+            error: `tool ${toolName} not allowed for stdio transport with non-sentinel caller_session_id (stdio invariant violation — transport layer should force sentinel).`,
+            hint: 'stdio transport must use callerSessionId="__external__" sentinel for write tools (no per-session authn supported on stdio). If you see this error, transport-stdio.ts:77 callerSessionIdOverride was not properly set to () => EXTERNAL_CALLER_SENTINEL.',
           }),
         },
       ],
