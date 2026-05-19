@@ -138,6 +138,26 @@ export interface InternalSession {
    * flag 不需清（与 expectedClose 同款 — internal session 紧接着会被 sessions Map 删除 + GC）。
    */
   interruptFired?: boolean;
+  /**
+   * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.7 修法**（R3 plan-review codex MED-2
+   * + R2 plan-review MED-F + R4 plan-review codex MED-1 强制 per-session seq）：setPermissionMode
+   * 无锁 async 并发回滚 race 防御计数器。
+   *
+   * **race 真根因**：旧 impl 单 try/catch 同步赋值 + catch 回滚 oldMode。同 session same-mode 并发
+   * 撞 race：A 设 plan await SDK 失败 + B 设 plan await SDK 成功 → A SDK throw catch 当前 mode=plan
+   * 按「当前值 guard」错误回滚成 default 把 B 已成功 plan 改回去（B 实际 SDK 已切到 plan，应用
+   * cache 却被 A catch 错误降回 default → cache vs SDK 不同步）。
+   *
+   * **修法 = per-session seq counter**：setPermissionMode 入口 ++seq；catch 内仅当 `s.permissionModeSeq ===
+   * seq`（无后续 setPermissionMode 推进 seq）时回滚。同 session 多次切档只看 seq 是否被推进过决定
+   * 是否回滚，与「当前值 guard」无关。
+   *
+   * **不能用 bridge 全局 seq**（R2 plan-review MED-F）：会被跨 session 干扰（A session 设 plan +
+   * B session 设 default 并发 → A throw 时全局 seq 已被 B 推进 → A 错误判定 seq 推进 → 不回滚）。
+   *
+   * 默认 0；makeInternalSession factory 初始化为 0；不需清。
+   */
+  permissionModeSeq: number;
 }
 
 /**
@@ -164,5 +184,7 @@ export function makeInternalSession(opts: {
     pendingExitPlanModes: new Map(),
     toolUseNames: new Map(),
     pendingFileChangeIntents: new Map(),
+    // Phase 2.7 修法：per-session seq counter 默认 0（详 InternalSession.permissionModeSeq jsdoc）
+    permissionModeSeq: 0,
   };
 }

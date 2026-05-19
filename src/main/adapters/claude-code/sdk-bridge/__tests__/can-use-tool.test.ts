@@ -35,6 +35,7 @@ function makeInternal(permissionMode: PermissionMode): InternalSession {
     pendingExitPlanModes: new Map(),
     toolUseNames: new Map(),
     pendingFileChangeIntents: new Map(),
+    permissionModeSeq: 0, // Phase 2.7 修法：per-session seq counter
   };
 }
 

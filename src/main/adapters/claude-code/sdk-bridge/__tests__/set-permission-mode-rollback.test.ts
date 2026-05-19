@@ -168,24 +168,102 @@ describe('Phase 3 Step 3.1 — setPermissionMode SDK throw 回滚 in-memory cach
   });
 });
 
-describe('Phase 2.7 (待 land) — per-session seq guard 防并发回滚污染', () => {
-  it.skip(
-    '同 session same-mode 并发: A 设 plan 失败 + B 设 plan 成功 → A catch 因 seq 推进不回滚 (Phase 2.7 修法待 land 后 unskip)',
-    async () => {
-      // Phase 2.7 修法 (R3 plan-review codex MED-2)：setPermissionMode 无锁 async；同 session
-      // same-mode 并发场景：A 设 plan await → B 设 plan await SDK 成功 → A SDK 失败 catch 当前=plan
-      // 按「当前值 guard」错误回滚成 default 把 B 已成功 plan 改回去。
-      //
-      // 修法 = per-session seq counter：
-      //   InternalSession.permissionModeSeq: number (默认 0)
-      //   setPermissionMode 入口 ++seq；catch 内仅当 s.permissionModeSeq === seq (无后续推进) 才回滚
-      //
-      // Phase 2.7 land 后 unskip + 实现 case：
-      // 1. setupBridgeWithSession initialMode='default'
-      // 2. mock setPermissionMode 让第 1 次 throw, 第 2 次 resolve
-      // 3. 并发 await bridge.setPermissionMode('sid', 'plan') × 2 (concurrent)
-      // 4. assert: 1 次成功 + 1 次 throw + internal.permissionMode === 'plan' (B 成功值,不被 A catch 错误回滚 default)
-      // 5. assert: internal.permissionModeSeq === 2 (per-session 计数,两次都推进 seq)
-    },
-  );
+describe('Phase 2.7 — per-session seq guard 防并发回滚污染（已 land 验证）', () => {
+  it('同 session same-mode 并发: A 设 plan 失败 + B 设 plan 成功 → A catch 因 seq 推进不回滚 → cache 保留 B 成功 mode', async () => {
+    // Phase 2.7 修法 (R3 plan-review codex MED-2)：per-session seq counter 防 race。
+    //
+    // race 真根因：setPermissionMode 无锁 async；同 session same-mode 并发：
+    //   A 设 plan await → B 设 plan await SDK 成功 → A SDK 失败 catch 当前=plan
+    //   按「当前值 guard」错误回滚成 default 把 B 已成功 plan 改回去（B 实际 SDK 已切到 plan，
+    //   应用 cache 却被 A catch 错误降回 default → cache vs SDK 不同步）。
+    //
+    // 修法 = per-session seq counter (InternalSession.permissionModeSeq)：
+    //   入口 ++seq；catch 内仅当 s.permissionModeSeq === seq (无后续推进) 才回滚
+    const { bridge, internal, mockQuery } = setupBridgeWithSession({
+      sessionId: 'sid-concurrent',
+      initialMode: 'default',
+    });
+    expect(internal.permissionModeSeq).toBe(0);
+
+    // 控制 SDK setPermissionMode 行为：第 1 次延迟 throw，第 2 次立即 resolve
+    // 用 deferred resolver 让 caller 控制时序
+    let resolveB: (() => void) | null = null;
+    let rejectA: ((err: Error) => void) | null = null;
+    let callCount = 0;
+    vi.spyOn(mockQuery, 'setPermissionMode').mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        // A: 等 B 完成后才 throw
+        return new Promise<void>((_resolve, reject) => {
+          rejectA = reject as (err: Error) => void;
+        });
+      } else {
+        // B: 等待 caller manually resolve
+        return new Promise<void>((resolve) => {
+          resolveB = resolve as () => void;
+        });
+      }
+    });
+
+    // 1. A 启动 setPermissionMode('plan')（不 await，模拟并发 A 在等 SDK）
+    const promiseA = bridge.setPermissionMode('sid-concurrent', 'plan');
+    // A 入口 ++seq → 1，s.permissionMode = 'plan'
+    expect(internal.permissionModeSeq).toBe(1);
+    expect(internal.permissionMode).toBe('plan');
+
+    // 2. B 启动 setPermissionMode('plan')（同 mode 并发）
+    const promiseB = bridge.setPermissionMode('sid-concurrent', 'plan');
+    // B 入口 ++seq → 2，s.permissionMode 仍 'plan'（同 mode）
+    expect(internal.permissionModeSeq).toBe(2);
+    expect(internal.permissionMode).toBe('plan');
+
+    // 3. B 先成功 resolve
+    (resolveB as null | (() => void))?.();
+    await promiseB; // B happy
+    expect(internal.permissionMode).toBe('plan'); // B 成功 → cache 保持 plan
+
+    // 4. A 后失败 throw
+    (rejectA as null | ((err: Error) => void))?.(new Error('A SDK throw after B succeeded'));
+    let aCaught: Error | null = null;
+    try {
+      await promiseA;
+    } catch (err) {
+      aCaught = err as Error;
+    }
+    expect(aCaught?.message).toContain('A SDK throw');
+
+    // **核心 invariant**：A catch 看到 s.permissionModeSeq === 2 ≠ A 自己的 seq=1
+    // → A catch 不回滚（B 已推进 seq）→ cache 仍是 B 已成功的 'plan'，不被错误降回 'default'
+    expect(internal.permissionMode).toBe('plan');
+    expect(internal.permissionModeSeq).toBe(2); // 双方都推进过 seq
+  });
+
+  it('per-session seq counter 隔离：A session + B session 并发不互相干扰', async () => {
+    // R2 plan-review MED-F：不能用 bridge 全局 seq — 跨 session race 干扰。本 case 验证
+    // permissionModeSeq 是 per-session 字段（不是 bridge 全局），A 与 B session 各自计数。
+    const { bridge, internal: a } = setupBridgeWithSession({
+      sessionId: 'sid-A',
+      initialMode: 'default',
+    });
+    const internalB = makeInternalSession({ cwd: '/tmp/test-B', permissionMode: 'default' });
+    const mockQueryB = new MockSdkQuery();
+    internalB.query = mockQueryB as unknown as Query;
+    (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions.set(
+      'sid-B',
+      internalB,
+    );
+
+    expect(a.permissionModeSeq).toBe(0);
+    expect(internalB.permissionModeSeq).toBe(0);
+
+    // A 切档成功
+    await bridge.setPermissionMode('sid-A', 'plan');
+    expect(a.permissionModeSeq).toBe(1);
+    expect(internalB.permissionModeSeq).toBe(0); // B 不受影响
+
+    // B 切档成功
+    await bridge.setPermissionMode('sid-B', 'acceptEdits');
+    expect(a.permissionModeSeq).toBe(1); // A 不受影响
+    expect(internalB.permissionModeSeq).toBe(1);
+  });
 });
