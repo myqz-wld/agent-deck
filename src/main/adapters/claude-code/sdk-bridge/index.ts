@@ -567,12 +567,27 @@ export class ClaudeSdkBridge {
     // in-memory cache（与 restartWithPermissionMode 失败回滚 DB 同款 fail-fast 模式）。
     // 修前：SDK throw → s.permissionMode 已经被改为 mode → caller 收到 throw 但 cache
     // 已脏(canUseTool / sandbox decision 用脏 cache)→ DB / UI / 实际 SDK 行为三不一致。
+    //
+    // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.7 修法**（R3 plan-review codex MED-2
+    // + R2 plan-review MED-F + R4 plan-review codex MED-1）：per-session seq guard 防同 session
+    // same-mode 并发 race 误回滚。详 InternalSession.permissionModeSeq jsdoc 完整 race 真根因。
+    //
+    // 修前 race：A 设 plan await SDK 失败 + B 设 plan await SDK 成功 → A SDK throw catch 当前
+    // mode=plan 按「当前值 guard」错误回滚成 default 把 B 已成功 plan 改回去。
+    //
+    // 修后 = per-session seq counter：入口 ++seq，catch 内仅当 `s.permissionModeSeq === seq`
+    // (无后续 setPermissionMode 推进 seq) 才回滚。同 session 多次切档只看 seq 是否被推进过决定
+    // 是否回滚。
+    const seq = ++s.permissionModeSeq;
     const oldMode = s.permissionMode;
     s.permissionMode = mode;
     try {
       await s.query.setPermissionMode(mode);
     } catch (err) {
-      s.permissionMode = oldMode;
+      // Phase 2.7 修法：仅当本次 seq 仍是该 session 最新（无后续 setPermissionMode 推进 seq）时
+      // 才回滚。后续 setPermissionMode 已推进 seq → 说明已有更新成功的 mode，本 catch 不应回滚
+      // (A throw 不能把 B 已成功的 mode 改回 oldMode)。
+      if (s.permissionModeSeq === seq) s.permissionMode = oldMode;
       throw err;
     }
   }
