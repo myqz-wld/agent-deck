@@ -174,6 +174,192 @@ function isError(x: ArchivePlanResult | ArchivePlanError): x is ArchivePlanError
   return (x as ArchivePlanError).error !== undefined;
 }
 
+// ===========================================================================
+// Internal-only test seams (plan deep-review-batch-a1-b-followup-r3-20260519
+// §Phase 1.2a + 1.2b / D6 export production lambda)
+//
+// 抽 archivePlanImpl 内 mainRepo precheck (step 3.5) + base_branch 校验 (step 7)
+// 两段逻辑为 module-level export,让 __tests__/ 调真实代码而非 inline 复制合约
+// (H4 教训 — REVIEW_47 §A1-HIGH-1)。
+//
+// 严禁外部 production 文件 import 这两个 lambda — 业务路径仍走 archivePlanImpl
+// 内部 step 3.5 / step 7 调用 (`hasError` 不变, handler 不知 lambda 存在)。
+// ===========================================================================
+
+/**
+ * @internal Only for `__tests__/`. Do NOT import from other production files.
+ *
+ * mainRepo dirty precheck 精确化（plan deep-review-batch-a1-b-followup-r3-20260519
+ * §不变量 5 / D3）：
+ *
+ * 不再全场 fail-fast（旧 B-HIGH-4 修法把任意 mainRepo dirty 都 reject）— 只 reject
+ * 三个具体路径 {archivedPath, indexPath, planFilePath} 的 modified（X 列或 Y 列任一非空 /
+ * status `??` untracked 命中）+ rename R/C 类型同时检查 old/new path，其他 dirty 降
+ * warning（commit message 后续可加注脚）。这样 caller 在 mainRepo 有无关 dirty 文件
+ * （如别 plan 的草稿）时也能正常归档，只挡真冲突路径。
+ *
+ * **R2 plan-review MED-C 修订**：用 `git status --porcelain=v1 -z` NUL 分隔（可靠处理
+ * rename / 含空格 path / quoted path，避免 newline-split parser 漏 rename 类型）。
+ *
+ * **R3 plan-review codex MED-1 修订**：三具体路径必须转 repo-relative 才能与 git status
+ * 输出比对（archive-plan-impl.ts:648 实证 archivedPath 是绝对路径 `path.join(mainRepo, ...)`；
+ * git status --porcelain 输出 repo-relative 如 ` M README.md\0`；绝对 vs relative 比对
+ * **永不命中**）。
+ *
+ * **R3 plan-review codex MED-3 修订**：rename/copy 类型（status[0]='R'|'C'）格式
+ * `"RY newname\0oldname\0"` 两段 NUL 分隔，parser 必须读两段；同时检查 old/new path 是否
+ * 命中 critical（任一命中即 reject）。
+ */
+export interface AssertMainRepoCleanInput {
+  mainRepoAbsPath: string;
+  archivedPath: string;
+  indexPath: string;
+  planFilePath: string;
+}
+
+/** porcelain entry: status XY + 1-2 paths（普通 1 段 / rename-copy 2 段 new->old）。 */
+export interface MainRepoStatusEntry {
+  /** 显示用 path 字符串（rename/copy 类型 = "newname -> oldname"）。 */
+  path: string;
+  /** git status --porcelain XY 二字符状态码（如 "M ", " M", "MM", "??", "R ", "C "）。 */
+  status: string;
+}
+
+export interface AssertMainRepoCleanResult {
+  ok: boolean;
+  /** 命中三具体路径的 dirty entries（reject 归档）。 */
+  conflicts: MainRepoStatusEntry[];
+  /** 不命中三具体路径的 dirty entries（warn pass，commit message 加注脚）。 */
+  warnings: MainRepoStatusEntry[];
+}
+
+export async function assertMainRepoCleanForArchive(
+  deps: { runGit: (args: string[], cwd: string) => Promise<string> },
+  input: AssertMainRepoCleanInput,
+): Promise<AssertMainRepoCleanResult> {
+  // critical paths 转 repo-relative 与 git status 输出对齐（R3 codex MED-1）
+  const criticalSet = new Set([
+    path.relative(input.mainRepoAbsPath, input.archivedPath),
+    path.relative(input.mainRepoAbsPath, input.indexPath),
+    path.relative(input.mainRepoAbsPath, input.planFilePath),
+  ]);
+
+  let stdout: string;
+  try {
+    stdout = await deps.runGit(
+      ['status', '--porcelain=v1', '-z'],
+      input.mainRepoAbsPath,
+    );
+  } catch (e) {
+    // git 失败 → fail-safe ok=false 让 caller decide，不静默 ok（防 mainRepo git 异常时
+    // ghost-archive）。但也不抛 — caller 收到结构化结果在 step 3.5 调用方包成 error 返回。
+    return {
+      ok: false,
+      conflicts: [{ path: '<git-status-failed>', status: (e as Error).message }],
+      warnings: [],
+    };
+  }
+
+  if (!stdout) {
+    // mainRepo clean
+    return { ok: true, conflicts: [], warnings: [] };
+  }
+
+  const conflicts: MainRepoStatusEntry[] = [];
+  const warnings: MainRepoStatusEntry[] = [];
+
+  // parse NUL-separated entries:
+  // - 普通:  "XY filename\0"           (X = staged status, Y = unstaged status)
+  // - rename/copy: "RY newname\0oldname\0"  (X='R' or 'C', 两段 NUL)
+  let i = 0;
+  while (i < stdout.length) {
+    const firstNul = stdout.indexOf('\0', i);
+    if (firstNul < 0) break;
+    const entry = stdout.substring(i, firstNul); // "XY filename"
+    if (entry.length < 3) {
+      // malformed, skip
+      i = firstNul + 1;
+      continue;
+    }
+    const status = entry.substring(0, 2);
+    const filename = entry.substring(3);
+    i = firstNul + 1;
+
+    const paths = [filename];
+    if (status[0] === 'R' || status[0] === 'C') {
+      // rename/copy 第二段：oldname
+      const secondNul = stdout.indexOf('\0', i);
+      if (secondNul >= 0) {
+        const oldname = stdout.substring(i, secondNul);
+        paths.push(oldname);
+        i = secondNul + 1;
+      }
+    }
+
+    // 任一 path 命中 critical 即 conflict（rename 把 plan/INDEX/archived 重命名风险高）
+    const hitCritical = paths.some((p) => criticalSet.has(p));
+    const displayPath = paths.length > 1 ? paths.join(' -> ') : paths[0];
+    if (hitCritical) {
+      conflicts.push({ path: displayPath, status });
+    } else {
+      warnings.push({ path: displayPath, status });
+    }
+  }
+
+  return { ok: conflicts.length === 0, conflicts, warnings };
+}
+
+/**
+ * @internal Only for `__tests__/`. Do NOT import from other production files.
+ *
+ * base_branch refs/heads namespace 校验（plan deep-review-batch-a1-b-fixes-20260519
+ * §Phase 1 Step 1.2 / B-HIGH-3 修法）。
+ *
+ * 旧 impl `rev-parse --verify <branch>` 接受 SHA / tag / detached HEAD（git man 默认
+ * namespace 含 refs/heads/ refs/tags/ refs/remotes/ raw SHA 等），caller 误传 tag 名当
+ * base_branch（典型: plan frontmatter `base_branch: v1.2.0`）→ checkout tag 后 detached
+ * HEAD → ff-merge 推 HEAD → commit 落 detached → branch -D worktreeBranch 删工作分支 ref
+ * → 归档 commit 仅 reflog 可达，gc 30 天后丢失（B-HIGH-3 reviewer-claude 反驳轮 git
+ * 端到端实测复现）。修法：显式 verify `refs/heads/<branch>` namespace，强制 named branch
+ * （plan-review MED-1 claude 修订：rev-parse --verify --quiet refs/heads/ 比 symbolic-ref
+ * 语义更直观）。
+ */
+export interface AssertBaseBranchInput {
+  mainRepoAbsPath: string;
+  baseBranch: string;
+}
+
+export interface AssertBaseBranchResult {
+  ok: boolean;
+  /** 失败时给 caller 的人类可读错误（含具体 base_branch 名 + git stderr 摘录）。 */
+  error?: string;
+  /** 失败时给 caller 的修复建议（指向 plan frontmatter 修订 / git branch --list）。 */
+  hint?: string;
+}
+
+export async function assertBaseBranchIsNamedBranch(
+  deps: { runGit: (args: string[], cwd: string) => Promise<string> },
+  input: AssertBaseBranchInput,
+): Promise<AssertBaseBranchResult> {
+  try {
+    await deps.runGit(
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${input.baseBranch}`],
+      input.mainRepoAbsPath,
+    );
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: `base_branch "${input.baseBranch}" is not a named branch (refs/heads/<name>); SHA / tag / detached HEAD refs are not allowed.`,
+      hint:
+        `archive_plan ff-merge requires a named branch to commit onto. If "${input.baseBranch}" is a tag or SHA, ` +
+        `plan cannot be archived (commits would land on detached HEAD and be lost after branch -D + gc). ` +
+        `Edit plan frontmatter base_branch to a named branch (e.g. "main" / "feature-x"), or pass base_branch arg explicitly. ` +
+        `Verify with \`git -C ${input.mainRepoAbsPath} branch --list\`. ${(e as Error).message}`,
+    };
+  }
+}
+
 export async function archivePlanImpl(
   input: ArchivePlanInput,
   depsOverride?: ArchivePlanDeps,
@@ -241,28 +427,90 @@ export async function archivePlanImpl(
     };
   }
 
-  // 3.5. 预检 mainRepo clean —— B-HIGH-4 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
-  // 旧 impl 仅校 worktree clean，不校 mainRepo。caller 在 mainRepo `git add <unrelated>` 后调
-  // archive_plan → step 13 `git commit -m <msg>` 默认行为是 commit all staged，预先 staged 文件
-  // 被吞进归档 commit；commit msg 「归档 X plan + 同步 INDEX」与实际内容不符，最坏情况半成品代码
-  // 被混入 plan 归档 + git revert 归档时连带 revert（B-HIGH-4 reviewer-claude 反驳轮 git 实测复现）。
-  // 修法: fail-fast precheck mainRepo `git status --porcelain`，dirty 则 reject + hint 让 caller
-  // 先 commit/stash/restore 再 archive。worktree precheck 之后 / git checkout base_branch 之前。
-  let mainStatusOutput: string;
-  try {
-    mainStatusOutput = await deps.runGit(['status', '--porcelain'], mainRepo);
-  } catch (e) {
+  // 3.5a. 解析 plan 文件路径（原 step 5 — plan deep-review-batch-a1-b-followup-r3-20260519
+  // §Phase 1.2a 挪上去：mainRepo precheck 精确化需要知道 planFilePath/archivedPath/indexPath
+  // 三个具体路径来与 git status 输出比对，所以 plan 文件路径解析必须先于 mainRepo precheck）。
+  //
+  // 挪过去后 step 6 plan 读 + frontmatter parse 仍用此 planFilePath（outer scope local）；
+  // step 4 cwd 4 态分流不依赖 planFilePath（仅依赖 mainRepo + worktreeReal + cwdReal）；
+  // step 8b 重新 read fresh plan 也走同 planFilePath 不受影响。
+  let planFilePath: string;
+  if (input.planFilePathOverride) {
+    if (!(await deps.exists(input.planFilePathOverride))) {
+      return {
+        error: `plan_file_path override does not exist: ${input.planFilePathOverride}`,
+      };
+    }
+    // archive-plan-tool-ux-followup-20260515 HIGH-1 (claude 单方 + 现场验证): plan_file_path
+    // 文件名 stem 必须等于 plan_id。否则 step 10 archivedPath 用 plan_id 派生 = `<main-repo>
+    // /plans/<plan_id>.md` 与 caller 给的 plan_file_path 文件完全脱节,step 12 因 path !==
+    // archivedPath 删 caller 文件,silent unlink 风险。impl 层校验给清晰 hint(schema 是 record
+    // shape 不支持 cross-field refine,故落 impl 而非 schema)。
+    const overrideStem = path.basename(input.planFilePathOverride, '.md');
+    if (overrideStem !== input.planId) {
+      return {
+        error: `plan_file_path stem "${overrideStem}" does not match plan_id "${input.planId}"`,
+        hint: `archived path / INDEX key are derived from plan_id (\`<main-repo>/plans/${input.planId}.md\`); step 12 unlink would silently move the plan_file_path file. Either rename plan_file_path to \`${input.planId}.md\` or change plan_id to "${overrideStem}". 修法 followup 20260515 HIGH-1.`,
+      };
+    }
+    planFilePath = input.planFilePathOverride;
+  } else {
+    // archive-plan-tool-ux-followup-20260515 (a) + plan deep-review-batch-a1-b-fixes-20260519
+    // §Phase 3 Step 3.9 修法 (B-MED-3 双方独立强冗余):抽 resolvePlanFilePath helper 共享
+    // hand-off-session-impl.ts 同款 3 档 fallback (projectLocal > projectArchived > userGlobal),
+    // 顺序贴 user CLAUDE.md §Step 2 文档约定 .claude/plans/ in_progress 优先,但 plans/ 中间
+    // 档兜底本项目实际惯例(archive_plan 完成后 mv 目标位置)。
+    const resolved = await resolvePlanFilePath(mainRepo, input.planId, {
+      exists: deps.exists,
+      homedir: deps.homedir,
+    });
+    if ('error' in resolved) {
+      return resolved;
+    }
+    planFilePath = resolved.path;
+  }
+  // archivedPath / indexPath：纯路径推导（不依赖 frontmatter / git 状态），与 step 10/11
+  // 计算公式 1:1 一致（archive-plan-impl.ts:648 / :694）— precheck 与 step 10/11 共享同款
+  // 路径，否则会出现「precheck 检的与 step 11 实际写的不是同一文件」silent bug。
+  const archivedDir = path.join(mainRepo, 'plans');
+  const archivedPath = path.join(archivedDir, `${input.planId}.md`);
+  const indexPath = path.join(archivedDir, 'INDEX.md');
+
+  // 3.5b. 预检 mainRepo 三具体路径无 dirty（plan deep-review-batch-a1-b-followup-r3-20260519
+  // §不变量 5 / D3 精确化 — 不再全场 fail-fast）：lambda 内部 git status --porcelain=v1 -z
+  // NUL 分隔 parser + rename R/C 类型检查 + critical path repo-relative 转换。
+  //
+  // **行为变化（vs B-HIGH-4 旧 fail-fast 修法）**：
+  // - 旧版：mainRepo 任意 dirty → 全部 reject + hint 让 caller 先 commit/stash
+  // - 新版：只 reject 三具体路径 {archivedPath, indexPath, planFilePath} 的 dirty + rename
+  //   的 old/new path 任一命中也 reject；其他 dirty 文件降 warning，commit 阶段后面会用
+  //   pathspec 隔离（Phase 4.1）只 commit 三个归档路径不吞无关 staged。
+  const mainRepoClean = await assertMainRepoCleanForArchive(
+    { runGit: deps.runGit },
+    { mainRepoAbsPath: mainRepo, archivedPath, indexPath, planFilePath },
+  );
+  if (!mainRepoClean.ok) {
+    const conflictLines = mainRepoClean.conflicts
+      .map((c) => `  ${c.status} ${c.path}`)
+      .slice(0, 10)
+      .join('\n');
     return {
-      error: `git status --porcelain failed in main repo ${mainRepo}: ${(e as Error).message}`,
+      error: `main repo ${mainRepo} has uncommitted changes on archive-critical paths (${mainRepoClean.conflicts.length} conflict${mainRepoClean.conflicts.length === 1 ? '' : 's'}); archive_plan refuses to overwrite.`,
+      hint:
+        `Critical paths checked: ${path.relative(mainRepo, archivedPath)} / ${path.relative(mainRepo, indexPath)} / ${path.relative(mainRepo, planFilePath)}. ` +
+        `Detected conflicts:\n${conflictLines}${mainRepoClean.conflicts.length > 10 ? '\n  (... more)' : ''}\n` +
+        `Please commit / stash / git restore these specific paths first, then retry archive_plan. ` +
+        `(plan deep-review-batch-a1-b-followup-r3-20260519 §不变量 5 精确化：不再因无关 dirty 而 reject，但 ` +
+        `archive-critical paths 仍 fail-fast 避免 silent overwrite。)`,
     };
   }
-  if (mainStatusOutput.trim().length > 0) {
-    const lines = mainStatusOutput.trim().split('\n');
-    const preview = lines.slice(0, 5).join('\n');
-    return {
-      error: `main repo ${mainRepo} is not clean (uncommitted/staged changes); archive_plan would mix them into the archive commit.`,
-      hint: `Please commit / stash / git restore the staged changes first, then retry archive_plan. Detected:\n${preview}${lines.length > 5 ? '\n  (... more)' : ''}`,
-    };
+  // mainRepoClean.warnings 透传 caller 让 Phase 4.1 commit message 后续可加注脚（暂不在
+  // ok return 中暴露 — warnings 数组已是 result 字段但来自 silent-override 等 step 10 路径，
+  // 本层 dirty warning 在 commit 阶段决定如何呈现）。
+  if (mainRepoClean.warnings.length > 0) {
+    warnings.push(
+      `main-repo-unrelated-dirty: ${mainRepoClean.warnings.length} unrelated dirty file${mainRepoClean.warnings.length === 1 ? '' : 's'} in main repo (not on archive-critical paths). archive_plan will commit only archive-critical pathspec (Phase 4.1) so these files remain dirty post-archive but not mixed into the archive commit. Sample: ${mainRepoClean.warnings.slice(0, 3).map((w) => `${w.status} ${w.path}`).join(', ')}${mainRepoClean.warnings.length > 3 ? '...' : ''}.`,
+    );
   }
   // 4. 预检 cwd 4 态分流（plan codex-handoff-team-alignment-20260518 P1 Step 1.4 / 不变量 5 + D2）
   //
@@ -385,42 +633,10 @@ export async function archivePlanImpl(
     }
   }
 
-  // 5. 解析 plan 文件路径
-  let planFilePath: string;
-  if (input.planFilePathOverride) {
-    if (!(await deps.exists(input.planFilePathOverride))) {
-      return {
-        error: `plan_file_path override does not exist: ${input.planFilePathOverride}`,
-      };
-    }
-    // archive-plan-tool-ux-followup-20260515 HIGH-1 (claude 单方 + 现场验证): plan_file_path
-    // 文件名 stem 必须等于 plan_id。否则 step 10 archivedPath 用 plan_id 派生 = `<main-repo>
-    // /plans/<plan_id>.md` 与 caller 给的 plan_file_path 文件完全脱节,step 12 因 path !==
-    // archivedPath 删 caller 文件,silent unlink 风险。impl 层校验给清晰 hint(schema 是 record
-    // shape 不支持 cross-field refine,故落 impl 而非 schema)。
-    const overrideStem = path.basename(input.planFilePathOverride, '.md');
-    if (overrideStem !== input.planId) {
-      return {
-        error: `plan_file_path stem "${overrideStem}" does not match plan_id "${input.planId}"`,
-        hint: `archived path / INDEX key are derived from plan_id (\`<main-repo>/plans/${input.planId}.md\`); step 12 unlink would silently move the plan_file_path file. Either rename plan_file_path to \`${input.planId}.md\` or change plan_id to "${overrideStem}". 修法 followup 20260515 HIGH-1.`,
-      };
-    }
-    planFilePath = input.planFilePathOverride;
-  } else {
-    // archive-plan-tool-ux-followup-20260515 (a) + plan deep-review-batch-a1-b-fixes-20260519
-    // §Phase 3 Step 3.9 修法 (B-MED-3 双方独立强冗余):抽 resolvePlanFilePath helper 共享
-    // hand-off-session-impl.ts 同款 3 档 fallback (projectLocal > projectArchived > userGlobal),
-    // 顺序贴 user CLAUDE.md §Step 2 文档约定 .claude/plans/ in_progress 优先,但 plans/ 中间
-    // 档兜底本项目实际惯例(archive_plan 完成后 mv 目标位置)。
-    const resolved = await resolvePlanFilePath(mainRepo, input.planId, {
-      exists: deps.exists,
-      homedir: deps.homedir,
-    });
-    if ('error' in resolved) {
-      return resolved;
-    }
-    planFilePath = resolved.path;
-  }
+  // 5. 解析 plan 文件路径 — **已挪到 step 3.5a**（plan deep-review-batch-a1-b-followup-r3
+  // -20260519 §Phase 1.2a）。`planFilePath` 在 outer scope 已被 step 3.5a 赋值（含
+  // planFilePathOverride 校验 + 3 档 fallback resolvePlanFilePath），此处保留 step 5
+  // 编号 placeholder 以保持下游编号连续；step 6 仍可直接用 outer scope 的 planFilePath。
 
   // 6. 读 + parse frontmatter，预检 status
   let planContent: string;
@@ -479,23 +695,17 @@ export async function archivePlanImpl(
       : fmBaseBranch.length > 0
         ? fmBaseBranch
         : 'main';
-  // B-HIGH-3 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
-  // 旧 impl `rev-parse --verify <branch>` 接受 SHA / tag / detached HEAD（git man 默认
-  // namespace 含 refs/heads/ refs/tags/ refs/remotes/ raw SHA 等），caller 误传 tag 名当
-  // base_branch（典型: plan frontmatter `base_branch: v1.2.0`）→ checkout tag 后 detached
-  // HEAD → ff-merge 推 HEAD → commit 落 detached → branch -D worktreeBranch 删工作分支 ref
-  // → 归档 commit 仅 reflog 可达，gc 30 天后丢失（B-HIGH-3 reviewer-claude 反驳轮 git 端到端
-  // 实测复现）。修法: 显式 verify `refs/heads/<branch>` namespace，强制 named branch（plan-review
-  // MED-1 claude 修订: rev-parse --verify --quiet refs/heads/ 比 symbolic-ref 语义更直观）。
-  try {
-    await deps.runGit(
-      ['rev-parse', '--verify', '--quiet', `refs/heads/${effectiveBaseBranch}`],
-      mainRepo,
-    );
-  } catch (e) {
+  // B-HIGH-3 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）— 抽 lambda
+  // export `assertBaseBranchIsNamedBranch`（plan deep-review-batch-a1-b-followup-r3-20260519
+  // §Phase 1.2b / D6），handler 调真实 lambda 而非 inline 复制合约（H4 教训）。
+  const baseBranchCheck = await assertBaseBranchIsNamedBranch(
+    { runGit: deps.runGit },
+    { mainRepoAbsPath: mainRepo, baseBranch: effectiveBaseBranch },
+  );
+  if (!baseBranchCheck.ok) {
     return {
-      error: `base_branch "${effectiveBaseBranch}" is not a named branch (refs/heads/<name>); SHA / tag / detached HEAD refs are not allowed.`,
-      hint: `archive_plan ff-merge requires a named branch to commit onto. If "${effectiveBaseBranch}" is a tag or SHA, plan cannot be archived (commits would land on detached HEAD and be lost after branch -D + gc). Edit plan frontmatter base_branch to a named branch (e.g. "main" / "feature-x"), or pass base_branch arg explicitly. Verify with \`git -C ${mainRepo} branch --list\`. ${(e as Error).message}`,
+      error: baseBranchCheck.error ?? `base_branch validation failed for "${effectiveBaseBranch}"`,
+      hint: baseBranchCheck.hint,
     };
   }
   try {
@@ -644,8 +854,7 @@ export async function archivePlanImpl(
 
   // 10. 写新 plan(body 用 freshContent — 保留 caller 在 worktree branch 的 [x] checklist
   // / 跳过理由 / 当前进度 等收尾回写)
-  const archivedDir = path.join(mainRepo, 'plans');
-  const archivedPath = path.join(archivedDir, `${input.planId}.md`);
+  // archivedDir / archivedPath 已在 step 3.5a 计算（Phase 1.2a 提前路径算法）— 此处复用。
   // archive-plan-tool-ux-followup-20260515 HIGH-2 (双方独立 HIGH 共识) silent override warn:
   // 同 plan_id 同时存在 `.claude/plans/<id>.md` AND `<main-repo>/plans/<id>.md`(caller 误操作 /
   // 历史遗留)→ fallback 链选 .claude/plans/ 后 step 10 静默覆盖 plans/ 历史 completed archive。
@@ -691,7 +900,7 @@ export async function archivePlanImpl(
   // 重写):4 列 canonical 格式 `| 文件 | 状态 | 关联 changelog | 概要 |`,smart update existing
   // 行(替换 status / changelog / description 列),caller 不传 changelog_id 时保留老 4 列 changelog
   // 列 / 旧 2 列 row 或新 append 用 `—` placeholder。description / changelog 列 escape `|` + 换行。
-  const indexPath = path.join(archivedDir, 'INDEX.md');
+  // indexPath 已在 step 3.5a 计算（Phase 1.2a 提前路径算法）— 此处复用。
   // freshFm 而非 step 6 fm — 与 step 9-10 frontmatter / body 写入保持同源
   const rawSummary = (freshFm.description ?? freshFm.plan_id ?? input.planId).slice(0, 200);
   const summary = escapeTableCell(rawSummary);
