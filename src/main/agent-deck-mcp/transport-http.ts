@@ -17,18 +17,26 @@
  * 显示「需要重启应用生效」提示。
  *
  * mcp-sdk 1.29.0 `StreamableHTTPServerTransport` 支持 **stateful**（自管 sessionIdGenerator）
- * 与 **stateless**（sessionIdGenerator=undefined）两种模式。本应用走 **stateless 模式**，
- * 理由（plan reviewer-codex-cross-adapter-20260519 Phase 0 fix）：
+ * 与 **stateless**（sessionIdGenerator=undefined）两种模式。本应用走 **stateless 模式 +
+ * per-request fresh transport instance**（plan reviewer-codex-cross-adapter-20260519
+ * Phase 0 收口结论 + Step 0.4 fix 路径 B 实证）：
  *
- * - 我们的 5 个 mcp tool（spawn / send / list / get / shutdown）**无 cross-request session state
- *   需求** — 每条 request 携带 caller_session_id（per-session token 反查 → resolvedSid），
- *   handler 只看单 request 内 args 即可处理，不需要 mcp-sdk 协议层 session lifecycle
+ * - 我们的 5 个 mcp tool（spawn / send / list / get / shutdown）+ 5 个新 plan-driven tool
+ *   （archive_plan / hand_off_session / enter_worktree / exit_worktree / shutdown_baton_teammates）
+ *   都**无 cross-request session state 需求** — 每条 request 携带 caller_session_id（per-session
+ *   token 反查 → resolvedSid），handler 只看单 request 内 args 即可处理，不需要 mcp-sdk
+ *   协议层 session lifecycle
  * - **stateful 模式撞「multi-client 共用单 transport instance」缺陷**：单 transport 维护一个
  *   session id；多 codex SDK 子进程（每个独立 mcp client）共用同一 transport 时，第二个
- *   client `initialize` 会撞 `Server already initialized` (-32600) 错误，全数 send_message
- *   等写工具 cross-adapter dispatch 失败。spike 1+2 实测铁证。
- * - **stateless 模式**：每 request 独立，不返 mcp-session-id header，不做 session validation；
- *   multi-client 直接 work（mcp-sdk 1.29 streamableHttp.js:44-46 注释明示语义）
+ *   client `initialize` 撞 `Server already initialized` (-32600) 错误。spike 1+2 实测铁证
+ * - **stateless 模式 + 单 transport reuse 仍 broken**：mcp-sdk webStandardStreamableHttp.js:142-144
+ *   throw `Stateless transport cannot be reused across requests` — hono `handleFetchError`
+ *   把 throw 转 status=500 空 body。multi-client 第二次 init 仍失败,只是错码换成 500。
+ *   transport-http-multi-client-init.test.ts 实证（fix c67ddde 不充分）
+ * - **修法 = stateless + per-request fresh transport**（mcp-sdk official example
+ *   `simpleStatelessStreamableHttp.js` 标准 pattern）：每 request 创建 fresh transport +
+ *   fresh McpServer + connect → handleRequest，request 完成后 close 两者。每 request 独立
+ *   transport instance，不撞 reuse / already-initialized 错。test 实证两次 init 都 200。
  *
  * 鉴权：B'5 在 HookServer.onRequest 加 `/mcp` 前缀分支 + 独立 mcpServerToken（与
  * hookServerToken 隔离）。本文件不重复鉴权 —— 路由级 hook 已在请求进入 handler 前
@@ -176,7 +184,23 @@ async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http'
 
 /**
  * HTTP transport：由 main bootstrap 在 enableAgentDeckMcp+mcpHttpEnabled 双开 ON 时调用。
- * 注册 POST/GET/DELETE /mcp 三个 fastify 路由，所有请求转发到同一个 StreamableHTTPServerTransport。
+ * 注册 POST/GET/DELETE /mcp 三个 fastify 路由。
+ *
+ * **per-request fresh transport + fresh server**（plan reviewer-codex-cross-adapter-20260519
+ * Phase 0 Step 0.4 finding：fix c67ddde 的 stateless 单 transport reuse 仍 broken — mcp-sdk
+ * webStandardStreamableHttp.js:142-144 throw `Stateless transport cannot be reused across requests`,
+ * hono `handleFetchError` 把 throw 转 status=500 空 body。multi-client init 仍失败,只是错码换成 500）。
+ *
+ * 修法走 mcp-sdk 1.29 官方 example `simpleStatelessStreamableHttp.js` 标准 pattern:
+ * - POST /mcp 每 request 创建 fresh `StreamableHTTPServerTransport` + 新 `McpServer` + connect
+ *   → handleRequest → 完成后 close 两者。每个 request 独立 transport instance, no
+ *   `Stateless transport cannot be reused` throw, no `Server already initialized` (-32600)
+ * - GET /mcp / DELETE /mcp → 405 Method not allowed（stateless 不支持 SSE 长连 / session DELETE）
+ *
+ * 性能开销:每 request 跑 `buildAgentDeckMcpServerForExternalTransport`（new McpServer + 5
+ * tool register）+ McpServer.connect(transport)。loadSdk module cache 命中（V8 dedupe）,
+ * 整体毫秒级,production load 可接受。test: transport-http-multi-client-init.test.ts 实证
+ * fix 路径 B 两次 init 都 200。
  *
  * **注意**：fastify 5 默认会解析 JSON body，所以 POST /mcp 的 `req.body` 已经是对象，
  * 透传给 transport.handleRequest 第三参数 `parsedBody`（详 mcp-sdk 文档示例）。
@@ -185,30 +209,94 @@ export async function registerAgentDeckMcpHttpRoutes(
   routeRegistry: RouteRegistry,
 ): Promise<{ shutdown: () => Promise<void> }> {
   const { http } = await loadMcpSdk();
-  // plan reviewer-codex-cross-adapter-20260519 Phase 0 fix：stateless 模式
-  // (sessionIdGenerator=undefined)。multi-client 共用同一 transport instance 不撞
-  // 「Invalid Request: Server already initialized」(spike 1+2 实测 root cause)。详 file
-  // header 注释解释 stateful vs stateless 选择理由。
-  const transport = new http.StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
-  const mcpServer = await buildAgentDeckMcpServerForExternalTransport('http');
-  // McpServer.connect 接受 SDK 自定义 Transport 接口；StreamableHTTPServerTransport 已实现该接口
-  await (mcpServer as unknown as { connect: (t: unknown) => Promise<void> }).connect(transport);
 
-  // 注册三个 fastify route。adapter id 用 'agent-deck-mcp' 占位，未来如果要按 adapter 启停
-  // 路由可以按这个 id 反查 listForAdapter。
-  for (const method of ['POST', 'GET', 'DELETE'] as const) {
+  // POST /mcp — per-request fresh transport + fresh server + connect → handleRequest
+  routeRegistry.registerForAdapter('agent-deck-mcp', {
+    method: 'POST',
+    url: '/mcp',
+    handler: async (req, reply) => {
+      const transport = new http.StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+      const mcpServer = await buildAgentDeckMcpServerForExternalTransport('http');
+      // McpServer.connect 接受 SDK 自定义 Transport 接口；StreamableHTTPServerTransport 已实现该接口
+      await (mcpServer as unknown as { connect: (t: unknown) => Promise<void> }).connect(
+        transport,
+      );
+
+      // res.on('close') 注册清理 — handleRequest 完成（含 SSE 流式发送结束）后清 transport / server
+      // mcp-sdk official example simpleStatelessStreamableHttp.js 同款套路（不用 try/finally
+      // 因为 SSE response 是流式 close 后才能 close transport）
+      reply.raw.on('close', () => {
+        // 兜底 close — 触发 mcp-sdk transport / server 内部 cleanup（释放任何 in-memory 资源）
+        // close 失败 swallow（避免 process unhandled rejection）
+        Promise.resolve()
+          .then(async () => {
+            try {
+              await transport.close();
+            } catch {
+              /* ignore */
+            }
+            try {
+              await (mcpServer as unknown as { close: () => Promise<void> }).close();
+            } catch {
+              /* ignore */
+            }
+          })
+          .catch(() => {
+            /* swallow */
+          });
+      });
+
+      try {
+        await transport.handleRequest(req.raw, reply.raw, req.body as unknown);
+      } catch (e) {
+        // mcp-sdk handleRequest 内部 throw 一般被 hono getRequestListener `handleFetchError`
+        // 转成 status=500 空 body（不会到这里）。极端情况兜底 — request 还没写过 header 就抛
+        // 错,我们补 500 + JSON-RPC error 让 client 能解析（mcp-sdk official example 同款套路）。
+        if (!reply.raw.headersSent) {
+          reply.raw.statusCode = 500;
+          reply.raw.setHeader('content-type', 'application/json');
+          reply.raw.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              error: {
+                code: -32603,
+                message:
+                  'Internal server error: ' +
+                  (e instanceof Error ? e.message : String(e)),
+              },
+              id: null,
+            }),
+          );
+        } else if (!reply.raw.writableEnded) {
+          reply.raw.end();
+        }
+      }
+      // transport.handleRequest 已经直接写 reply.raw，告诉 fastify 别接管
+      reply.hijack();
+    },
+  });
+
+  // GET / DELETE — stateless 模式不支持（mcp-sdk official example 同款 405 套路）
+  for (const method of ['GET', 'DELETE'] as const) {
     routeRegistry.registerForAdapter('agent-deck-mcp', {
       method,
       url: '/mcp',
-      handler: async (req, reply) => {
-        await transport.handleRequest(
-          req.raw,
-          reply.raw,
-          method === 'POST' ? (req.body as unknown) : undefined,
+      handler: async (_req, reply) => {
+        reply.raw.statusCode = 405;
+        reply.raw.setHeader('content-type', 'application/json');
+        reply.raw.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: -32000,
+              message:
+                'Method not allowed (stateless mode: GET/DELETE not supported, POST only).',
+            },
+            id: null,
+          }),
         );
-        // transport.handleRequest 已经直接写 reply.raw，告诉 fastify 别接管
         reply.hijack();
       },
     });
@@ -216,16 +304,9 @@ export async function registerAgentDeckMcpHttpRoutes(
 
   return {
     shutdown: async () => {
-      try {
-        await transport.close();
-      } catch {
-        /* ignore */
-      }
-      try {
-        await (mcpServer as unknown as { close: () => Promise<void> }).close();
-      } catch {
-        /* ignore */
-      }
+      // per-request transport / server lifecycle 在 reply.raw close 事件里清理 — shutdown 时
+      // 没有「全局持久 transport」需要 close。fastify route 由 routeRegistry / HookServer 自行
+      // deregister（HookServer 重启时一并清）。本 shutdown 是 noop 兼容 caller bootstrap 接口。
     },
   };
 }
