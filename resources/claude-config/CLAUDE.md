@@ -16,7 +16,7 @@
 
 ### reviewer-codex 失败 → 应用环境额外有「合规兜底」分支
 
-应用环境跑 `deep-review` SKILL 时若 reviewer-codex teammate 失败（CLI 不可用 / OAuth 过期 / Bash 卡审批被拒 / timeout），可走「合规兜底（仍异构）」：lead 自己 Bash `run_in_background: true` 起外部 codex CLI（按 reviewer-codex.md §codex CLI 调用模板填模板，lead 自己执行而非 wrapper teammate），与 reviewer-claude teammate 仍构成 gpt-5.5 vs Opus 4.7 异构对。
+应用环境跑 `deep-review` SKILL 时若 reviewer-codex teammate 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort），可走「合规兜底（仍异构）」：lead 自己 Bash `run_in_background: true` 起外部 codex CLI（按 user 全局模板 `~/.claude/templates/reviewer-codex.sh.tmpl` 填，lead 自己执行而非 teammate），与 reviewer-claude teammate 仍构成 gpt-5.5 vs Opus 4.7 异构对。
 
 > 通用 CLAUDE.md `§reviewer-codex 失败兜底` 只走「严禁同源化降级 / 提示用户决策」一条；本应用环境额外有上述 SKILL 内合规兜底分支。详 SKILL.md `§失败兜底` 表第 1 行。
 
