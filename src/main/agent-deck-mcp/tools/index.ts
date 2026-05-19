@@ -132,6 +132,19 @@ export async function buildAgentDeckTools(
     'Spawn a new agent session via the given adapter (claude-code / codex-cli / aider / generic-pty). Returns the new sessionId. Subject to depth / per-parent fan-out / per-app rate-limit (see Agent Deck Settings → MCP Server). caller_session_id is required (in-process transport overrides with the real session id).',
     SPAWN_SESSION_SCHEMA,
     async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
+    {
+      // plan reviewer-codex-cross-adapter-20260519 Phase 0 Step 0.4-tris: codex CLI 内部 mcp tool
+      // approval gate 看 mcp annotations 决策放行 vs 走审批 gate (cancel)。给 8 个 write tool
+      // 加 spec-compliant annotations 让 codex / 其他 mcp client 都能正确决策。
+      // spawn_session: 起 SDK 子进程外部副作用 → openWorldHint:true; 写 sessions 表 INSERT
+      // 不破坏不幂等 → destructiveHint:false / idempotentHint:false。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
   );
 
   const sendMessage = tool(
@@ -139,6 +152,16 @@ export async function buildAgentDeckTools(
     'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing. Pass `reply_to_message_id` to link this message into an existing reply chain (the chain is recorded in DB; lead/teammate see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Multi-team callers must specify `team_id`.',
     SEND_MESSAGE_SCHEMA,
     async (args, extra) => sendMessageHandler(args, makeCtx(args, extra)),
+    {
+      // send_message: 写 messages 表 INSERT(队列入站),不破坏(不删任何东西)、不幂等(重复发会发多条
+      // 不同 message)、不与外部世界交互(限项目内 team / session)。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
   );
 
   const listSessions = tool(
@@ -162,6 +185,16 @@ export async function buildAgentDeckTools(
     'Mark a session as closed (lifecycle=closed) + abort its SDK live query. Does NOT delete events / file_changes / summaries / messages — they remain queryable (lead can still cite closed teammate replies in deep-review aftermath; list_sessions(spawned_by_filter) still finds closed children). team_member soft-exit via left_at; spawn_link kept whole. caller cannot shutdown self.',
     SHUTDOWN_SESSION_SCHEMA,
     async (args, extra) => shutdownSessionHandler(args, makeCtx(args, extra)),
+    {
+      // shutdown_session: 终止 session lifecycle + abort SDK live query 是破坏性操作(虽然不删
+      // events 等子表数据); 重复 shutdown 已 closed session 是 noop 等价 → idempotentHint:true。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
   );
 
   const archivePlan = tool(
@@ -169,6 +202,16 @@ export async function buildAgentDeckTools(
     'Archive a completed plan-driven worktree (K1 hand-off automation): ff-merge worktree branch into base_branch, mv plan file to <main-repo>/plans/<plan_id>.md (status=completed + final_commit + completed_at), sync plans/INDEX.md (followup 20260515: 4-column smart update — `appended`/`updated`/`unchanged`/`created`), git commit, then git worktree remove + branch -D. **CHANGELOG_99: also default-archives the caller session** (with K2 baton semantic — plan completion = caller session\'s mission ends since worktree is gone and cwd is invalidated). Caller must ExitWorktree first (mcp tool cannot call CLI internal ExitWorktree; rejects when process.cwd() is inside worktree). Refuses if plan status is already "completed" or worktree is dirty. Returns { archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_action: \'created\'|\'appended\'|\'updated\'|\'unchanged\', final_status, warnings: string[] (followup 20260515 HIGH-2 silent override 等 non-fatal warning,e.g. `.claude/plans/<id>.md` 与 `plans/<id>.md` 同 id 双存覆盖警告), archived: \'ok\' | \'failed\' | \'skipped\' (CHANGELOG_99 caller archive result; \'failed\' is warn-only and does not block ok return) }. deny external caller (high-risk git+fs writes).',
     ARCHIVE_PLAN_SCHEMA,
     async (args, extra) => archivePlanHandler(args, makeCtx(args, extra)),
+    {
+      // archive_plan: git ff-merge / mv plan / git commit / git worktree remove / branch -D — 极
+      // 破坏性多步 git+fs writes; 重复跑撞 plan status=completed 直接 reject → idempotentHint:false。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
   );
 
   const handOffSession = tool(
@@ -176,6 +219,17 @@ export async function buildAgentDeckTools(
     'Start the next SDK session for cross-session hand-off (K2 hand-off automation; **CHANGELOG_99 dual-mode**: plan-driven when `plan_id` is set, generic when omitted). **Plan-driven mode**: read plan frontmatter to derive worktree_path, validate status=in_progress, spawn a new session with cwd=mainRepo (default; CHANGELOG_99 cwd resilience) and auto-constructed cold-start prompt "按 <plan-abs-path> 接力" (optional phase_label appended). **Generic mode** (no plan_id): caller passes `prompt` (defaults to "从上一个会话接力继续工作") and default cwd = caller session cwd; lets any session baton off to a new SDK session without plan/worktree prereq. **Baton semantic (CHANGELOG_97)**: by default does NOT join any team (no lead/teammate role assigned to caller / new session) AND auto-archives the caller session after spawn — the new session takes over independently while the caller exits. Pass team_name explicitly only if you want lead/teammate communication. **CHANGELOG_99 cwd resilience (plan-driven mode)**: default cwd is mainRepo (was worktreePath; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove`). New session expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3. Fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. Defaults: adapter=claude-code, plan file path resolved from caller cwd via git rev-parse → <main-repo>/.claude/plans/<plan_id>.md, fallback ~/.claude/plans/<plan_id>.md. Returns { mode: \'plan\' | \'generic\', planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt, ignoredFields: string[] (generic mode warns when caller passed plan-only fields like phase_label / plan_file_path — ignored not error), sessionId, adapter, cwd, teamId (null when no team_name), teamName (null), spawnDepth, sentAt, spawnPromptMessageId (null), archived }. Caller archive failure is warn-only (does not block ok return). deny external caller (SDK session fork bomb risk). **Renamed (CHANGELOG_99)**: was `start_next_session`.',
     HAND_OFF_SESSION_SCHEMA,
     async (args, extra) => handOffSessionHandler(args, makeCtx(args, extra)),
+    {
+      // hand_off_session: 起 SDK 子进程(openWorldHint:true) + 默认 archive_caller=true 归档 caller
+      // (destructiveHint:true,会 close 当前 caller session); 重复 hand-off 起 N 个新 session →
+      // idempotentHint:false。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
   );
 
   // plan codex-handoff-team-alignment-20260518 P1 Step 1.3：mcp 版 enter_worktree / exit_worktree
@@ -187,6 +241,16 @@ export async function buildAgentDeckTools(
     'Create a new git worktree at `<main-repo>/.claude/worktrees/<plan_id>/` (or caller-overridden path) with branch `worktree-<plan_id>`, based on HEAD by default (resolution chain: args.base_commit > args.base_branch > plan frontmatter.base_commit > plan frontmatter.base_branch > HEAD). Sets `sessions.cwd_release_marker = <worktree_path>` for the caller session so that `archive_plan` preflight 4-state dispatch recognizes the cross-adapter path (state 2: in worktree + marker == worktree_path → pass). Uses explicit `git worktree add -b <branch> <path> <base_commit>` (avoids claude builtin EnterWorktree v2.1.112 stale base bug — see user CLAUDE.md §Step 1 末 callout). Returns { worktreePath, branchName, baseCommit, baseSource: arg-base-commit|arg-base-branch|frontmatter-base-commit|frontmatter-base-branch|head, markerSet }. Refuses if worktree path or branch already exists (no silent reuse). deny external caller (git write + per-session marker write).',
     ENTER_WORKTREE_SCHEMA,
     async (args, extra) => enterWorktreeHandler(args, makeCtx(args, extra)),
+    {
+      // enter_worktree: 创新 git worktree dir + branch (不破坏现有, refuses if path/branch
+      // already exists 走 reject 路径); 重复跑同 plan_id 撞 reject → idempotentHint:false。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
   );
 
   const exitWorktree = tool(
@@ -194,6 +258,17 @@ export async function buildAgentDeckTools(
     'Exit a git worktree previously entered via enter_worktree (or claude builtin EnterWorktree if caller manually set cwd_release_marker). Two actions: action="keep" leaves worktree directory + branch intact (typical mid-plan hand-off scenario, new session can re-enter via EnterWorktree(path: ...)); action="remove" deletes worktree + branch (typical plan completion / abandon cleanup). Both actions clear `sessions.cwd_release_marker` for the caller session. Worktree path resolution: args.worktree_path > caller sessionRepo.cwd_release_marker. action="remove" preflights worktree is clean (refuses if dirty unless discard_changes=true). Returns { worktreePath, action, branchDeleted, worktreeRemoved, markerCleared }. Refuses cross-worktree exit (args.worktree_path mismatches caller marker — stale state). deny external caller (git write + per-session marker clear).',
     EXIT_WORKTREE_SCHEMA,
     async (args, extra) => exitWorktreeHandler(args, makeCtx(args, extra)),
+    {
+      // exit_worktree: action=keep 不破坏(只 clear cwd marker), action=remove 真删 git worktree
+      // dir + branch -D 是破坏性 → 整体保守 destructiveHint:true。重复 exit 撞 marker not set
+      // 走 reject → idempotentHint:false。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
   );
 
   // plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.3 / D4 F1c：
@@ -204,6 +279,17 @@ export async function buildAgentDeckTools(
     'Escape hatch: shutdown all active teammates of every team where caller is the lead — equivalent of `archive_plan` / `hand_off_session` baton-cleanup phase 1, **without** archiving caller (phase 2). Use this ONLY when archive_plan tool precheck failed (mainRepo dirty on archive-critical paths / cwd resilience guard / etc.) and you went the user CLAUDE.md §Step 4 manual archive 5-step path (commit + mv + git worktree remove + branch -D), bypassing archive_plan tool — then runBatonCleanup phase 1 was never invoked → reviewer-claude / reviewer-codex teammates naturally decay to dormant but stay un-closed (memory + SDK live query waste). This tool restores the baton-cleanup teammate-shutdown semantic. Behavior: dedup teammate sids across multi-team shared sids → serial close → handle individual close failures (warn, continue). **Important error contract** (plan §F1c R2 codex MED-4): if caller is not a lead in any active team (caller is teammate / no active membership / all caller-lead teams already archived), returns ERROR with hint pointing to IPC TeamShutdownAllTeammates handler or UI Team panel — NOT silent success (that would mislead caller into believing cleanup happened). deny external caller (sessionManager.close write + per-session caller=lead lookup needs real caller_session_id). Returns { closed: string[], failed: Array<{sessionId,reason}>, skipped: null, planId: string | null }.',
     SHUTDOWN_BATON_TEAMMATES_SCHEMA,
     async (args, extra) => shutdownBatonTeammatesHandler(args, makeCtx(args, extra)),
+    {
+      // shutdown_baton_teammates: 终止所有 caller-lead team 的 active teammates 是破坏性 (close
+      // sessions + abort SDK live queries); 重复跑已 closed teammates 是 noop 等价 →
+      // idempotentHint:true。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
   );
 
   return [
