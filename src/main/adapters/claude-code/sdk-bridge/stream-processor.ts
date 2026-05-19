@@ -144,6 +144,20 @@ export class StreamProcessor {
         const fallbackId = resumeId ?? tempKey;
         console.warn(`[sdk-bridge] no SDKMessage in 30s, falling back to id ${fallbackId}`);
         internal.realSessionId = fallbackId;
+        // A1-HIGH-2 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
+        // 旧 impl 仅改 internal.realSessionId 不切 sessions Map key,与 consume L207-219
+        // first-id 路径行为不对称。createSession 返回 fallbackId 后,sessions Map 仅有
+        // tempKey: internal,不存在 fallbackId: internal → sendMessage(fallbackId) miss 触发
+        // recoverer 起第二个 SDK CLI 子进程(双 CLI 同 jsonl);listPending(fallbackId)/respond
+        // Permission/setPermissionMode/interrupt 都直接 sessions.get(fallbackId) miss → 假空
+        // 或 silent miss 或 throw(A1-HIGH-2 reviewer-claude 反驳轮 5 关键缺失动作铁证)。修法:
+        // 与 consume L207-219 first-id 路径同款 sessions Map key 切换;不调 renameSdkSession
+        // (resume 场景 fallbackId === resumeId === OLD_ID,renameWithDb 走 toExists=true 但
+        // tempKey 行不存在(还没 ingest)早返,实际 no-op,省 SQL)。
+        if (tempKey !== fallbackId) {
+          this.ctx.sessions.delete(tempKey);
+          this.ctx.sessions.set(fallbackId, internal);
+        }
         // 推一条错误消息，让 UI 在新会话里立刻看到出了什么问题，而不是空白等待。
         this.ctx.emit({
           sessionId: fallbackId,
