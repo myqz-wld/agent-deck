@@ -316,6 +316,19 @@ export class ClaudeSdkBridge {
       sessionManager.claimAsSdk(realId);
     } catch (err) {
       // 任何中间步骤抛错：回滚 sessions / 释放 pending，再 throw 给上层 IPC 显错
+      // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.5 修法 (H2 + A1-HIGH-1 race 双保险 (A) abort consume)**:
+      // catch 块入口立刻 set expectedClose=true + fire-and-forget interrupt() 防 detached SDK
+      // 子进程继续跑 LLM 调用 + 防 SDK in-flight first-id frame 撞 Phase 2.2 (B) guard 入口
+      // (sdk-message-translate.ts:159 expectedClose skip 路径已 land,详 D2 注释)。**idempotency
+      // guard** (R3 plan-review codex LOW-1 + claude INFO 收窄文案): interruptFired flag 仅作用
+      // 本路径 + stream-processor.ts setTimeout fallback fire 路径双路径,不覆盖 public
+      // interrupt(sessionId) + closeSession(sessionId) 入口 (设计内 — caller 显式调用应当直通
+      // SDK,与 spike1 实证 interrupt() 幂等 SDK 行为一致)。
+      if (!internal.interruptFired) {
+        internal.expectedClose = true;
+        internal.interruptFired = true;
+        void internal.query?.interrupt?.();
+      }
       this.sessions.delete(tempKey);
       releasePending();
       // REVIEW_5 H4：构造期就 claim 了 opts.resume，失败路径必须释放，
