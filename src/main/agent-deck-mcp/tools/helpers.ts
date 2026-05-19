@@ -143,12 +143,29 @@ export function ok(data: unknown): HandlerResult {
   };
 }
 
-export function err(message: string, hint?: string): HandlerResult {
+/**
+ * 构造 error result。
+ *
+ * **R3 fix-5 (M5 codex Batch B MED-2)**: 加 optional `extras` 第三参 — partial-success error
+ * path 透传额外结构化字段（如 exit-worktree handler 的 `markerCleared` 状态）给 MCP caller。
+ * 旧 caller (仅 message + hint) 行为不变 — extras 缺省时仍 serialize `{error, hint?}`。
+ *
+ * 使用约束: extras 仅用于结构化 partial-success 字段（caller 需要根据这些字段决定 retry / 兜底
+ * 行为）。普通 error 不传 extras（避免无意义 noise）。
+ */
+export function err(
+  message: string,
+  hint?: string,
+  extras?: Record<string, unknown>,
+): HandlerResult {
+  const payload: Record<string, unknown> = { error: message };
+  if (hint !== undefined) payload.hint = hint;
+  if (extras !== undefined) Object.assign(payload, extras);
   return {
     content: [
       {
         type: 'text' as const,
-        text: JSON.stringify(hint ? { error: message, hint } : { error: message }),
+        text: JSON.stringify(payload),
       },
     ],
     isError: true as const,
