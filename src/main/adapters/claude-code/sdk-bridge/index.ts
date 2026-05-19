@@ -578,6 +578,15 @@ export class ClaudeSdkBridge {
     // 修后 = per-session seq counter：入口 ++seq，catch 内仅当 `s.permissionModeSeq === seq`
     // (无后续 setPermissionMode 推进 seq) 才回滚。同 session 多次切档只看 seq 是否被推进过决定
     // 是否回滚。
+    //
+    // **plan §Phase 6.3 L1 by-design 时序窗口标注（reviewer fresh review 反复 confirm）**：
+    // L582-583 `s.permissionMode = mode;` 在 L584 `await s.query.setPermissionMode(mode)` 之前
+    // 写 in-memory cache 是**by-design** 不是 race bug — reviewer fresh review 多轮提出同款
+    // finding 都被推到 L (LOW) 就因为这是「让 canUseTool bypass 短路立刻按新 mode 判断」的
+    // 必要时序（CHANGELOG_72 Bug 3 修法核心）。await SDK ack 之前的临时窗口里 cache 提前生效
+    // 是 fail-secure（用户期望立刻 bypass / 立刻收紧），SDK throw 时 catch 内 per-session seq
+    // guard 回滚是兜底（不在「同 session 期间又被推进过」前提）。L1 finding 标注 by-design
+    // 防 reviewer 后续轮次重新提同款。
     const seq = ++s.permissionModeSeq;
     const oldMode = s.permissionMode;
     s.permissionMode = mode;

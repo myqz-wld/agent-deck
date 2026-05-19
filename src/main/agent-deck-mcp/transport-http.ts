@@ -125,6 +125,13 @@ async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http'
   //
   // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 1.1a 修订**：lambda body 抽到
   // module-level `resolveCallerSidForReadOnly` export 让 __tests__/ 调真实代码（D6 修法）。
+  //
+  // **plan §Phase 6.3 L3 注释精确化（不删 ternary）**：旧版三元
+  // `transportName === 'http' ? resolveCallerSidForReadOnly : null` 在 buildAgentDeckMcpServerForExternalTransport
+  // 唯一 caller（line 171）只传 'http' 的现状下永真，但保留 ternary 防未来扩展 stdio external
+  // transport（注：stdio 当前走 transport-stdio.ts 自己的 buildAgentDeckTools 调用,不进本 fn）。
+  // 同步 BuildAgentDeckToolsDeps.callerSessionIdOverride 类型仍是 `(...) | null` 兼容 test seam,
+  // 不收窄类型避免大幅改 test。
   const callerSessionIdOverride = transportName === 'http' ? resolveCallerSidForReadOnly : null;
   const adapted = await buildAgentDeckTools({
     callerSessionIdOverride,
