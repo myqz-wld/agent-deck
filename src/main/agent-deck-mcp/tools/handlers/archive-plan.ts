@@ -22,6 +22,25 @@
  * 两段统一收口到 baton-cleanup.ts 的 runBatonCleanup helper(R37 P2-M Step 3.5)。本 handler
  * 只在 impl 成功后调一次 helper,把 teammate shutdown + archive caller 两个三态结果透传到
  * ok return,不再独立维护 ~80 行模板代码。详 baton-cleanup.ts 顶部 jsdoc。
+ *
+ * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.4 / D4 F1d confirm**:
+ * 上轮 R3 实证「6 reviewer dormant 未 closed」误归因 lifecycle 过滤问题。lead 现场 grep +
+ * reviewer 双方独立 cross-cite 确认真根因 = F2 mainRepo dirty precheck fail-fast → caller 走
+ * user CLAUDE.md §Step 4 5 步手工归档绕过 archive_plan tool → 本 handler 没被调到 →
+ * runBatonCleanup phase 1 没跑 → reviewer 自然衰减成 dormant 但**没** closed。
+ *
+ * confirm 现状（grep 可重跑验证 — 阈值 ≥ 1 处命中即 confirm）:
+ *   $ grep -n "keep_teammates" src/main/agent-deck-mcp/tools/handlers/archive-plan.ts
+ *   → L184 `keepTeammates: args.keep_teammates === true,` (args field 消费)
+ *   $ grep -n "runBatonCleanup" src/main/agent-deck-mcp/tools/handlers/archive-plan.ts
+ *   → L41 import / L173 jsdoc reference / L181 invoke
+ *
+ * F1d default 行为 = 「caller archive_plan 成功 → default keep_teammates=false → runBatonCleanup
+ * phase 1 调 shutdownTeammatesOnBaton helper → close 同 team active+dormant teammate」**已经是
+ * 当前行为**(非本 plan 新加)。本 plan 仅补 F1b 软引导 hint(archive-plan-impl.ts mainRepo
+ * dirty precheck 失败时引导 caller fix critical paths 后重 invoke / 必须手工归档场景调 escape
+ * hatch shutdown_baton_teammates 补跑)+ F1c shutdown_baton_teammates mcp tool(escape hatch)。
+ * changelog 不标 BREAKING(行为不变)。
  */
 
 import {
