@@ -71,17 +71,24 @@ export interface BuildAgentDeckToolsDeps {
    * caller_session_id 覆盖 lazy provider（plan codex-handoff-team-alignment-20260518
    * P2 Step 2.3 / D1 ADR signature 扩展）。
    *
-   * 三 transport 行为：
-   * - **in-process**：closure 直接 override（getAgentDeckMcpServerForSession 传无参数
-   *   lambda 也兼容 `extra` optional），现状不变
-   * - **HTTP**：transport-http.ts 实现 `(extra) => extra?.authInfo?.resolvedSid ?? null`
-   *   读 mcp-sdk 注入的 RequestHandlerExtra.authInfo.resolvedSid（HookServer.checkMcpAuth
-   *   反查 mcpSessionTokenMap 后写入 IncomingMessage.auth）
-   * - **stdio**：null（stdio 无 HTTP auth，handler 自动 fallback args.caller_session_id）
+   * 三 transport 行为（**plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 6.2 修订
+   * (M7 claude B MED-1 + I2)**：注释精确化 — 生产 3 transport 永不返 null,fallback chain
+   * `?? args.caller_session_id` 仅作 test seam 保留兼容,不构成生产代码 dead behavior。
+   * 旧描述误把 fallback 当生产语义,reviewer fresh review 反复发为 finding,本注释清晰区分）：
+   * - **in-process**：`() => internal.realSessionId ?? tempKey` — realSessionId 可能为 null
+   *   但 tempKey 永远是 string（SDK init 起点就分配）,lambda 永远返 string
+   * - **HTTP**：`resolveCallerSidForReadOnly` lambda — fallbackToGlobal=true 时 force sentinel,
+   *   per-session authn 通过返 real sid,任何其他情况兜底 sentinel(B-HIGH-1 (C) 修法 (c)),
+   *   永不返 null
+   * - **stdio**：`() => EXTERNAL_CALLER_SENTINEL` — 永远返 sentinel(B-HIGH-1 (C) 修法 (b))
    *
    * `extra` 类型用 `unknown` 保最 conservative；transport-http 那一层 cast 为
-   * `{ authInfo?: McpAuthInfo }`。返回 null 表示「没有 override」（caller 用
-   * args.caller_session_id 兜底）。
+   * `{ authInfo?: McpAuthInfo }`。lambda 返 string 表 caller sid（实 sid / sentinel）。
+   *
+   * **保留 `(...) | null` 外层**：test 文件 tools.test.ts 用 `callerSessionIdOverride: null` 让
+   * makeCtx 的 `?? args.caller_session_id` fallback 命中,作为 test seam 注入 args 字段路径
+   * （与 transport=http 真实路径仅 fallback 时机不同,行为契约一致）。生产代码无 caller 传 null,
+   * fallback chain 在生产是 dead path 但保留 test seam — 不收窄类型避免大幅改 test。
    */
   callerSessionIdOverride: ((extra?: unknown) => string | null) | null;
   /** transport 类型，写入 CallerContext.transport 字段供 handler 决策。 */
@@ -99,6 +106,12 @@ export async function buildAgentDeckTools(
    * HandlerContext。in-process transport 用 closure override 覆盖伪造的 caller_session_id;
    * HTTP transport 通过 mcp-sdk handler 第二参数 extra 透传 RequestHandlerExtra,
    * 由 callerSessionIdOverride 拿 extra.authInfo.resolvedSid 反查（plan P2 Step 2.3）。
+   *
+   * **fallback chain 现状**（plan §Phase 6.2 注释精确化 — 不删 dead code 仅明确语义）：
+   * `?? args.caller_session_id` 在生产 3 transport 是 dead path（lambda 永不返 null,详
+   * BuildAgentDeckToolsDeps.callerSessionIdOverride jsdoc）；仅在 test 文件传
+   * `callerSessionIdOverride: null` 时命中,作 test seam。Future caller 不应依赖 args
+   * 字段命中(B-HIGH-1 (C) 修法已堵伪造路径)。
    */
   function makeCtx(
     args: {
