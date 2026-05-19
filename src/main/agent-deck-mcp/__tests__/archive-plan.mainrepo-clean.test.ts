@@ -74,8 +74,9 @@ describe('assertMainRepoCleanForArchive — clean baseline', () => {
     expect(result.conflicts).toEqual([]);
     expect(result.warnings).toEqual([]);
     expect(runGit).toHaveBeenCalledWith(
-      ['status', '--porcelain=v1', '-z'],
+      ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
       MAIN_REPO,
+      { raw: true },
     );
   });
 });
