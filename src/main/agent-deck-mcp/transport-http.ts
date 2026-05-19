@@ -54,6 +54,33 @@ interface McpStreamableHttpModule {
 
 let cachedMcpSdk: { server: McpSdkServerModule; http: McpStreamableHttpModule } | null = null;
 
+/**
+ * @internal Only for `__tests__/`. Do NOT import from other production files.
+ *
+ * 抽自 `registerAgentDeckMcpHttpRoutes` 内部 `callerSessionIdOverride` lambda（plan
+ * deep-review-batch-a1-b-followup-r3-20260519 §Phase 1.1a / D6 export production lambda）。
+ * 让 spoofing-attack-paths.test.ts / transport-http-extra-auth.test.ts 调真实 lambda
+ * 而非 inline 复制合约（H4 教训：inline 合约漂移 bug）。
+ *
+ * 行为契约（B-HIGH-1 (C) 修法 (c)）：
+ * - `authInfo.fallbackToGlobal === true` → return EXTERNAL_CALLER_SENTINEL（防 spoofing）
+ * - `authInfo.resolvedSid` 非空 → return 该 sid（per-session authn 通过路径）
+ * - 缺 authInfo / resolvedSid 兜底 → return EXTERNAL_CALLER_SENTINEL
+ *
+ * 外部 production 文件**严禁** import 此 lambda 用作业务逻辑 — 业务路径仍走
+ * `registerAgentDeckMcpHttpRoutes` 内部传入 `buildAgentDeckTools` 的 closure。
+ */
+export function resolveCallerSidForReadOnly(extra?: unknown): string {
+  const authInfo = (extra as { authInfo?: McpAuthInfo } | undefined)?.authInfo;
+  if (authInfo?.fallbackToGlobal) {
+    // global token 路径 — 无 per-session authn → force sentinel 防 spoofing
+    return EXTERNAL_CALLER_SENTINEL;
+  }
+  // per-session authn 通过 → resolvedSid = real sid（合法）；
+  // 缺 authInfo / resolvedSid 兜底 sentinel（不让 args fallback path 触发）。
+  return authInfo?.resolvedSid ?? EXTERNAL_CALLER_SENTINEL;
+}
+
 async function loadMcpSdk(): Promise<{
   server: McpSdkServerModule;
   http: McpStreamableHttpModule;
@@ -95,19 +122,10 @@ async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http'
   // 能填 args.caller_session_id 当任意 active sid spoof 写工具（B-HIGH-1 反驳轮 mini-test 实证）。
   // 修法: fallbackToGlobal=true 时 force sentinel；per-session authn 通过时 resolvedSid = real sid
   // 走合法路径；任何其他情况兜底 sentinel（不让 args.caller_session_id 字段 escape 到 spoof 路径）。
-  const callerSessionIdOverride =
-    transportName === 'http'
-      ? (extra?: unknown): string => {
-          const authInfo = (extra as { authInfo?: McpAuthInfo } | undefined)?.authInfo;
-          if (authInfo?.fallbackToGlobal) {
-            // global token 路径 — 无 per-session authn → force sentinel 防 spoofing
-            return EXTERNAL_CALLER_SENTINEL;
-          }
-          // per-session authn 通过 → resolvedSid = real sid（合法）；
-          // 缺 authInfo / resolvedSid 兜底 sentinel（不让 args fallback path 触发）。
-          return authInfo?.resolvedSid ?? EXTERNAL_CALLER_SENTINEL;
-        }
-      : null;
+  //
+  // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 1.1a 修订**：lambda body 抽到
+  // module-level `resolveCallerSidForReadOnly` export 让 __tests__/ 调真实代码（D6 修法）。
+  const callerSessionIdOverride = transportName === 'http' ? resolveCallerSidForReadOnly : null;
   const adapted = await buildAgentDeckTools({
     callerSessionIdOverride,
     transport: transportName,
