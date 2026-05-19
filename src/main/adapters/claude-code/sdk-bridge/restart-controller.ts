@@ -96,9 +96,26 @@ export class RestartController {
     //
     // 修法：listen session-renamed event，inflight wait 期间 fork rename 后更新 local sid ref
     // (currentSid)。finally 注销 listener 防 leak。
+    //
+    // **R3 plan-review codex Batch A HIGH-1 follow-up**：listener 同时把 `recovering` Map entry
+    // 从 OLD 转移到 NEW，否则 set(OLD, p) 在 listener 改 currentSid 后 delete(NEW, p) 留 OLD
+    // stale Promise 永驻 → 后续 OLD caller 撞死循环 `while (inflight)` 反复 await done promise；
+    // 同时 NEW caller 在 in-flight 期间 lookup NEW 没 lock → 绕过单飞 → 并发执行第二个 restart
+    // → race。transfer Map entry 后两个问题同款解决。
     let currentSid = sessionId;
     const renameListener = (payload: { from: string; to: string }): void => {
-      if (payload.from === currentSid) currentSid = payload.to;
+      if (payload.from === currentSid) {
+        // R3 codex A HIGH-1 修法：transfer recovering Map entry from OLD → NEW。
+        // listener 同步执行（event-bus.ts:94-103），rename emit 时 set(OLD, p) 已发生，
+        // 此处把 OLD entry 删 + 同 promise 放到 NEW key 让 finally delete(currentSid=NEW)
+        // 配对正确 + NEW caller lookup NEW 命中 lock 不绕过单飞。
+        const oldPromise = this.ctx.recovering.get(currentSid);
+        if (oldPromise) {
+          this.ctx.recovering.delete(currentSid);
+          this.ctx.recovering.set(payload.to, oldPromise);
+        }
+        currentSid = payload.to;
+      }
     };
     eventBus.on('session-renamed', renameListener);
     try {
@@ -243,99 +260,124 @@ export class RestartController {
     // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.6 修法 (A1-MED-2 codex):
     // 同 restartWithPermissionMode 修法 — `if (inflight)` 改 `while (inflight)` 循环 re-check
     // 防 multi waiter race。详上方 restartWithPermissionMode 同款修法 jsdoc。
-    let inflight = this.ctx.recovering.get(sessionId);
-    while (inflight) {
-      try {
-        await inflight;
-      } catch {
-        // 上一个失败不影响本次
-      }
-      inflight = this.ctx.recovering.get(sessionId);
-    }
-
-    const rec = sessionRepo.get(sessionId);
-    if (!rec) throw new Error(`session ${sessionId} not found in repo`);
-    const oldSandbox: 'off' | 'workspace-write' | 'strict' | null =
-      rec.claudeCodeSandbox ?? null;
-
-    // 占位 message：让用户在重启期间看到状态
-    const enterOff = sandbox === 'off';
-    const placeholderText = enterOff
-      ? '⚠ 正在关闭 OS 沙盒，重启 SDK 中…'
-      : `⚠ 正在切换 OS 沙盒档位到 ${sandbox}，重启 SDK 中…`;
-    this.ctx.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: { text: placeholderText },
-      ts: Date.now(),
-      source: 'sdk',
-    });
-
-    // REVIEW_36 R2 MED-B 修法：单飞标记必须在 closeSession + DB write + createSession **之前**
-    // set，覆盖整个冷重启的副作用窗口。同 restartWithPermissionMode 修法。
-    const p = (async (): Promise<string> => {
-      await this.ctx.closeSession(sessionId);
-
-      // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox
-      sessionRepo.setClaudeCodeSandbox(sessionId, sandbox);
-      const updatedRec = sessionRepo.get(sessionId);
-      if (updatedRec) eventBus.emit('session-upserted', updatedRec);
-
-      try {
-        const handle = await this.ctx.createSession({
-          cwd: rec.cwd,
-          prompt: handoffPrompt,
-          resume: sessionId,
-          claudeCodeSandbox: sandbox,
-          // REVIEW_36 R2 MED-A 修法：必须透传 rec.permissionMode 否则新 SDK 默认 'default'，
-          // DB 仍保留旧 mode（acceptEdits/plan/bypassPermissions）→ DB/UI 与 SDK 实际行为不一致。
-          // 与 restartWithPermissionMode 透传 mode 同款理由（用户辛苦切的 mode 不能被 sandbox 切档静默重置）。
-          permissionMode: rec.permissionMode ?? undefined,
-          // plan cross-adapter-parity-20260515 + REVIEW_41 MED-3 fix:rec.extraAllowWrite 必须
-          // 透传,否则切 OS sandbox 档冷重启后 SDK 子进程 sandbox.allowWrite 不含原 mainRepo
-          // (与 restartWithPermissionMode 同款治法)。
-          extraAllowWrite: rec.extraAllowWrite ?? undefined,
-        });
-        const newRealId = handle.sessionId;
-        if (newRealId !== sessionId) {
-          try {
-            sessionManager.renameSdkSession(sessionId, newRealId);
-          } catch (renameErr) {
-            console.error(
-              `[sdk-bridge] post-restart rename failed ${sessionId} → ${newRealId}, ` +
-                `NEW session works but app-side history not migrated.`,
-              renameErr,
-            );
-          }
+    //
+    // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase R3 fix-1 修法**
+    // （R3 plan-review claude MED-1 + codex Batch A HIGH-1 合并升级）：
+    // restartWithClaudeCodeSandbox 之前**完全没改** Phase 2.9（不对称漏修）→ inflight wait
+    // 期间 fork rename 后用 OLD sessionId 查 sessionRepo / closeSession / setClaudeCodeSandbox
+    // / createSession resume / renameSdkSession 全错。同款 listener + currentSid ref + transfer
+    // Map entry 三件套（详 restartWithPermissionMode 同款修法 jsdoc + R3 codex A HIGH-1 transfer
+    // Map entry 防 stale entry / NEW caller 绕过单飞）。
+    let currentSid = sessionId;
+    const renameListener = (payload: { from: string; to: string }): void => {
+      if (payload.from === currentSid) {
+        const oldPromise = this.ctx.recovering.get(currentSid);
+        if (oldPromise) {
+          this.ctx.recovering.delete(currentSid);
+          this.ctx.recovering.set(payload.to, oldPromise);
         }
-        return newRealId;
-      } catch (err) {
-        // 回滚：DB 改回 oldSandbox + emit upsert + emit error message
-        sessionRepo.setClaudeCodeSandbox(sessionId, oldSandbox);
-        const rolled = sessionRepo.get(sessionId);
-        if (rolled) eventBus.emit('session-upserted', rolled);
-        this.ctx.emit({
-          sessionId,
-          agentId: AGENT_ID,
-          kind: 'message',
-          payload: {
-            text:
-              `⚠ 切到 sandbox ${sandbox} 失败：${(err as Error)?.message ?? String(err)}。` +
-              `档位已回退到 ${oldSandbox ?? '(全局默认)'}，请重新发送一条消息让 Claude 续上。`,
-            error: true,
-          },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        throw err;
+        currentSid = payload.to;
       }
-    })();
-    this.ctx.recovering.set(sessionId, p);
+    };
+    eventBus.on('session-renamed', renameListener);
     try {
-      return await p;
+      let inflight = this.ctx.recovering.get(currentSid);
+      while (inflight) {
+        try {
+          await inflight;
+        } catch {
+          // 上一个失败不影响本次
+        }
+        inflight = this.ctx.recovering.get(currentSid);
+      }
+
+      const rec = sessionRepo.get(currentSid);
+      if (!rec) throw new Error(`session ${currentSid} not found in repo`);
+      const oldSandbox: 'off' | 'workspace-write' | 'strict' | null =
+        rec.claudeCodeSandbox ?? null;
+
+      // 占位 message：让用户在重启期间看到状态
+      const enterOff = sandbox === 'off';
+      const placeholderText = enterOff
+        ? '⚠ 正在关闭 OS 沙盒，重启 SDK 中…'
+        : `⚠ 正在切换 OS 沙盒档位到 ${sandbox}，重启 SDK 中…`;
+      this.ctx.emit({
+        sessionId: currentSid,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: { text: placeholderText },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+
+      // REVIEW_36 R2 MED-B 修法：单飞标记必须在 closeSession + DB write + createSession **之前**
+      // set，覆盖整个冷重启的副作用窗口。同 restartWithPermissionMode 修法。
+      const p = (async (): Promise<string> => {
+        await this.ctx.closeSession(currentSid);
+
+        // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox
+        sessionRepo.setClaudeCodeSandbox(currentSid, sandbox);
+        const updatedRec = sessionRepo.get(currentSid);
+        if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+
+        try {
+          const handle = await this.ctx.createSession({
+            cwd: rec.cwd,
+            prompt: handoffPrompt,
+            resume: currentSid,
+            claudeCodeSandbox: sandbox,
+            // REVIEW_36 R2 MED-A 修法：必须透传 rec.permissionMode 否则新 SDK 默认 'default'，
+            // DB 仍保留旧 mode（acceptEdits/plan/bypassPermissions）→ DB/UI 与 SDK 实际行为不一致。
+            // 与 restartWithPermissionMode 透传 mode 同款理由（用户辛苦切的 mode 不能被 sandbox 切档静默重置）。
+            permissionMode: rec.permissionMode ?? undefined,
+            // plan cross-adapter-parity-20260515 + REVIEW_41 MED-3 fix:rec.extraAllowWrite 必须
+            // 透传,否则切 OS sandbox 档冷重启后 SDK 子进程 sandbox.allowWrite 不含原 mainRepo
+            // (与 restartWithPermissionMode 同款治法)。
+            extraAllowWrite: rec.extraAllowWrite ?? undefined,
+          });
+          const newRealId = handle.sessionId;
+          if (newRealId !== currentSid) {
+            try {
+              sessionManager.renameSdkSession(currentSid, newRealId);
+            } catch (renameErr) {
+              console.error(
+                `[sdk-bridge] post-restart rename failed ${currentSid} → ${newRealId}, ` +
+                  `NEW session works but app-side history not migrated.`,
+                renameErr,
+              );
+            }
+          }
+          return newRealId;
+        } catch (err) {
+          // 回滚：DB 改回 oldSandbox + emit upsert + emit error message
+          sessionRepo.setClaudeCodeSandbox(currentSid, oldSandbox);
+          const rolled = sessionRepo.get(currentSid);
+          if (rolled) eventBus.emit('session-upserted', rolled);
+          this.ctx.emit({
+            sessionId: currentSid,
+            agentId: AGENT_ID,
+            kind: 'message',
+            payload: {
+              text:
+                `⚠ 切到 sandbox ${sandbox} 失败：${(err as Error)?.message ?? String(err)}。` +
+                `档位已回退到 ${oldSandbox ?? '(全局默认)'}，请重新发送一条消息让 Claude 续上。`,
+              error: true,
+            },
+            ts: Date.now(),
+            source: 'sdk',
+          });
+          throw err;
+        }
+      })();
+      this.ctx.recovering.set(currentSid, p);
+      try {
+        return await p;
+      } finally {
+        this.ctx.recovering.delete(currentSid);
+      }
     } finally {
-      this.ctx.recovering.delete(sessionId);
+      // Phase R3 fix-1: 注销 rename listener 防 leak (与 restartWithPermissionMode 同款)
+      eventBus.off('session-renamed', renameListener);
     }
   }
 }
