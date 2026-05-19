@@ -25,7 +25,7 @@
 import { randomUUID } from 'node:crypto';
 import type { RouteRegistry } from '@main/hook-server/route-registry';
 import { buildAgentDeckTools } from './tools';
-import type { McpAuthInfo } from './types';
+import { EXTERNAL_CALLER_SENTINEL, type McpAuthInfo } from './types';
 
 const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
   s: string,
@@ -89,11 +89,23 @@ async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http'
   // （HookServer.checkMcpAuth 已经写到 IncomingMessage.auth → mcp-sdk handleRequest 读
   // req.auth → 注入到 tool handler extra.authInfo）。stdio transport 维持 null（stdio
   // 无 HTTP auth，handler fallback args.caller_session_id）。
+  //
+  // **B-HIGH-1 (C) 修法 (c)（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）**:
+  // 旧版 `?? null` 让 fallbackToGlobal=true（global token 路径无 per-session authn）的 caller
+  // 能填 args.caller_session_id 当任意 active sid spoof 写工具（B-HIGH-1 反驳轮 mini-test 实证）。
+  // 修法: fallbackToGlobal=true 时 force sentinel；per-session authn 通过时 resolvedSid = real sid
+  // 走合法路径；任何其他情况兜底 sentinel（不让 args.caller_session_id 字段 escape 到 spoof 路径）。
   const callerSessionIdOverride =
     transportName === 'http'
-      ? (extra?: unknown): string | null => {
+      ? (extra?: unknown): string => {
           const authInfo = (extra as { authInfo?: McpAuthInfo } | undefined)?.authInfo;
-          return authInfo?.resolvedSid ?? null;
+          if (authInfo?.fallbackToGlobal) {
+            // global token 路径 — 无 per-session authn → force sentinel 防 spoofing
+            return EXTERNAL_CALLER_SENTINEL;
+          }
+          // per-session authn 通过 → resolvedSid = real sid（合法）；
+          // 缺 authInfo / resolvedSid 兜底 sentinel（不让 args fallback path 触发）。
+          return authInfo?.resolvedSid ?? EXTERNAL_CALLER_SENTINEL;
         }
       : null;
   const adapted = await buildAgentDeckTools({
