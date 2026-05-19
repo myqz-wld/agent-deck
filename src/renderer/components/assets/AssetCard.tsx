@@ -39,11 +39,13 @@ export function AssetCard({
       <div className="flex items-start justify-between gap-2">
         <code className="text-[11px] font-medium text-deck-text">{first.qualifiedName}</code>
         <div className="flex shrink-0 items-center gap-1 no-drag">
-          {/* dual-adapter 双角标（仅当 group 含 ≥ 2 项跨 adapter 才显示，节省视觉空间） */}
+          {/* dual-adapter 双角标（仅当 group 含 ≥ 2 项跨 adapter 才显示，节省视觉空间）
+              key 用 `<adapter>-<idx>` 防异常重复输入(如 fs 扫描 buggy 同 adapter 重复扫到)key 撞 —
+              plan §Phase 5 Step 5.2 reviewer-claude LOW finding fix */}
           {assets.length > 1 && (
             <div className="flex gap-0.5">
-              {assets.map((a) => (
-                <AdapterBadge key={a.adapter ?? 'user'} adapter={a.adapter} />
+              {assets.map((a, idx) => (
+                <AdapterBadge key={`${a.adapter ?? 'user'}-${idx}`} adapter={a.adapter} />
               ))}
             </div>
           )}
@@ -121,6 +123,11 @@ export function AdapterBadge({ adapter }: { adapter: 'claude-code' | 'codex-cli'
  *
  * 返回 `NonEmptyAssetGroup[]`（plan §Phase 5 Step 5.1 INFO finding fix）：每个 group 至少含 1
  * 项（`groups.set(key, [a])` 后才入 Map），用类型层非空断言而非运行时 guard。
+ *
+ * **input 不变量**(plan §Phase 5 Step 5.2 reviewer-claude LOW finding 注释明确)：caller 仅传
+ * `bundled` array(`AssetsTab`:`bundledGroups = dedupBundledByName(bundled)`)。bundled 来自
+ * `bundled-assets.ts:236` adapter narrow scan,`adapter` 永远是 'claude-code' | 'codex-cli',
+ * 不为 null。`order(null)` 是 dead branch defensive(future caller 误传 user assets 时安全降级)。
  */
 export function dedupBundledByName(assets: AssetMeta[]): NonEmptyAssetGroup[] {
   const groups = new Map<string, AssetMeta[]>();
@@ -133,7 +140,8 @@ export function dedupBundledByName(assets: AssetMeta[]): NonEmptyAssetGroup[] {
     }
     group.push(a);
   }
-  // 每组按 adapter 排序：claude-code 先 / codex-cli 后 / null（user）末尾
+  // 每组按 adapter 排序:claude-code 先 / codex-cli 后 / null(user) 末尾。
+  // null 分支按 input 不变量是 dead branch(bundled adapter 永远非 null,见上方 jsdoc),保留作 defensive。
   const order = (x: 'claude-code' | 'codex-cli' | null): number =>
     x === 'claude-code' ? 0 : x === 'codex-cli' ? 1 : 2;
   for (const group of groups.values()) {
