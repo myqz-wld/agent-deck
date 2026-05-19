@@ -134,6 +134,10 @@ export const IpcEvent = {
   SummaryAdded: 'event:summary-added',
   PinToggled: 'event:pin-toggled',
   TransparentToggled: 'event:transparent-toggled',
+  /** CHANGELOG_124 R1 fix REVIEW_45 MED-1：toggleMaximize / toggleDefault 退出 compact 态时
+   *  emit 让 renderer 把本地 `compact` state 翻回 false，避免按钮 label `{compact ? '▢' : '─'}`
+   *  与实际窗口尺寸反转（用户先点 ▢ 折叠 → 按 Cmd+Alt+= 后窗口实际 max 但按钮仍显示 ▢）。 */
+  CompactToggled: 'event:compact-toggled',
   SessionFocusRequest: 'event:session-focus-request',
   /** Task Manager (CHANGELOG_43)：tasks 表写操作 after-commit 推送。 */
   TaskChanged: 'event:task-changed',
