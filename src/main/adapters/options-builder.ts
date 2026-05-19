@@ -58,6 +58,38 @@ export const AGENT_IDS = ['claude-code', 'codex-cli', 'aider', 'generic-pty'] as
 export type AgentId = (typeof AGENT_IDS)[number];
 
 /**
+ * **reviewer-* SSOT list**(plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.2 修法,
+ * A1-MED-2 (claude) — 修前 `'reviewer-claude' || 'reviewer-codex'` hardcode 散布在多处 runtime
+ * 分支与文档)。
+ *
+ * **覆盖 runtime 分支**(本文件):
+ * 1. `narrowToCodexOpts` L111 主分支 — codex teammate spawn unsafe default spread enforce 点
+ * 2. `narrowToCodexOpts` L148 子分支 — 仅 'reviewer-claude' 触发 AGENT_DECK_CLAUDE_PATH 注入
+ *    (不抽 SSOT — 这是 reviewer-claude 子集独有逻辑,不应被 reviewer-codex 触发)
+ *
+ * **不 SSOT 化的位置**(by design):
+ * - jsdoc / 注释里的字面量字符串(说明文档可读性优先,引用 const 名反而绕)
+ * - 测试 fixture / mock data(测试就是要 hardcode 字面量验证 runtime 分支)
+ * - schema description / hint 文案(给 caller LLM 看的英文文档)
+ *
+ * 加新 reviewer agent 时只需把名字加进本 list,主分支 `narrowToCodexOpts` L111 default spread
+ * 自动覆盖。子分支(reviewer-claude AGENT_DECK_CLAUDE_PATH 注入)按需手工加 case 即可。
+ */
+export const REVIEWER_AGENT_NAMES = ['reviewer-claude', 'reviewer-codex'] as const;
+export type ReviewerAgentName = (typeof REVIEWER_AGENT_NAMES)[number];
+
+/**
+ * runtime guard:`raw.agentName` 是否属于 reviewer-* SSOT list。narrow 也用作 type predicate
+ * 让 TS 在分支里把 `raw.agentName` narrow 到 `ReviewerAgentName` union。
+ *
+ * **签名**:接收 `string | null | undefined`(`CreateSessionOptionsRaw.agentName` 的精确类型),
+ * null / undefined 全 narrow 为 false。
+ */
+export function isReviewerAgentName(name: string | null | undefined): name is ReviewerAgentName {
+  return name != null && (REVIEWER_AGENT_NAMES as readonly string[]).includes(name);
+}
+
+/**
  * raw → ClaudeCreateOpts narrow：从 raw 中挑 claude-code adapter 接受的字段（filter 掉
  * codexSandbox / genericPtyConfig）。undefined 字段被剔除（避免 spread 进 opts 后变成显式
  * undefined 字段污染 caller spread 链）。
@@ -105,10 +137,12 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   if (raw.codexSandbox !== undefined) out.codexSandbox = raw.codexSandbox;
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
 
-  // plan §P3 Step 3.5 + §不变量 6: codex teammate spawn (reviewer-claude / reviewer-codex)
-  // unsafe default spread enforce 点。caller 路径 / 普通 codex session 走 raw.agentName 缺省 /
+  // plan §P3 Step 3.5 + §不变量 6: codex teammate spawn (REVIEWER_AGENT_NAMES SSOT) unsafe
+  // default spread enforce 点。caller 路径 / 普通 codex session 走 raw.agentName 缺省 /
   // 非 reviewer-* 路径,不进本分支不被污染。
-  if (raw.agentName === 'reviewer-claude' || raw.agentName === 'reviewer-codex') {
+  // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.2 修法(A1-MED-2 claude):用
+  // isReviewerAgentName SSOT guard 替代 hardcode `=== 'reviewer-claude' || === 'reviewer-codex'`。
+  if (isReviewerAgentName(raw.agentName)) {
     // P5 Round 1 reviewer-claude M3 / reviewer-codex M3 修法 (override warn for caller debug):
     // caller 显式传 codexSandbox 给 reviewer-* 会被 override → console.warn 让 caller 在主进程
     // log 看到「我设的 read-only 怎么 reviewer 还能写文件」debug 路径不静默(schema 文案已明示

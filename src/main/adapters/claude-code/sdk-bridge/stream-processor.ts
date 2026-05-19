@@ -320,6 +320,11 @@ export class StreamProcessor {
         entry.resolver({ decision: 'keep-planning', feedback: '会话已结束' });
       }
       internal.pendingExitPlanModes.clear();
+      // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.5 修法 (A1-MED-1 codex):
+      // 显式 clear pendingFileChangeIntents 防 leak (SDK 流终止前 tool_use 已 push 但 tool_result
+      // 没回的 intent)。internal 整体被 sessions.delete 后会 GC 掉,显式 clear 与 toolUseNames /
+      // pendingPermissions 等同款保险,不依赖 GC 时机。intent 是纯数据没 resolver,不需要 reject。
+      internal.pendingFileChangeIntents.clear();
       this.ctx.emit({
         sessionId: sid,
         agentId: AGENT_ID,

@@ -43,6 +43,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { parseFrontmatter } from '@main/utils/frontmatter';
+import { resolvePlanFilePath } from './plan-path-helpers';
 
 const execFileAsync = promisify(execFile);
 
@@ -189,6 +190,10 @@ export async function handOffSessionImpl(
   const planId: string = input.planId;
 
   // 1. 解析 plan 文件路径：显式 > main-repo 反查 > user-global
+  // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.9 修法 (B-MED-3 双方独立强冗余):
+  // 抽 resolvePlanFilePath helper 共享 archive-plan-impl 同款 3 档 fallback (projectLocal >
+  // projectArchived > userGlobal),修前漏中间档 `<main-repo>/plans/<id>.md` 导致已归档
+  // plan 无法 hand-off。
   let planFilePath: string;
   if (input.planFilePathOverride) {
     if (!(await deps.exists(input.planFilePathOverride))) {
@@ -196,26 +201,31 @@ export async function handOffSessionImpl(
         error: `plan_file_path override does not exist: ${input.planFilePathOverride}`,
       };
     }
-    planFilePath = input.planFilePathOverride;
-  } else {
-    const projectLocal = mainRepo
-      ? path.join(mainRepo, '.claude', 'plans', `${planId}.md`)
-      : null;
-    const userGlobal = path.join(deps.homedir(), '.claude', 'plans', `${planId}.md`);
-
-    if (projectLocal && (await deps.exists(projectLocal))) {
-      planFilePath = projectLocal;
-    } else if (await deps.exists(userGlobal)) {
-      planFilePath = userGlobal;
-    } else {
-      const triedLines = projectLocal
-        ? `Tried: ${projectLocal}\n       ${userGlobal}`
-        : `Tried: ${userGlobal} (caller cwd is not a git repo, skipped <main-repo>/.claude/plans/ lookup)`;
+    // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.11 修法 (B-MED-2 codex):
+    // plan_file_path 文件名 stem 必须等于 plan_id。否则 cold-start prompt `按 <plan-abs-path>
+    // 接力` 中的 abs-path 是 caller 给的 plan_file_path 文件,但新 SDK session 走 user CLAUDE.md
+    // §Step 3 cold-start 流程会从 frontmatter.worktree_path 自己 EnterWorktree,worktree 路径
+    // 与 plan_id 关联(本 plan worktree-deep-review-batch-a1-b-fixes-20260519,plan_id 派生)。
+    // stem != plan_id 时 caller 实际指向另一个 plan 的文件,新 session 路径混乱。impl 层
+    // 校验给清晰 hint(schema 是 record shape 不支持 cross-field refine,故落 impl 与
+    // archive-plan-impl L386-392 同款治法)。
+    const overrideStem = path.basename(input.planFilePathOverride, '.md');
+    if (overrideStem !== planId) {
       return {
-        error: `plan file not found at any default location`,
-        hint: `${triedLines}\nPass plan_file_path explicitly to override, or check that plan_id "${planId}" matches the file stem.`,
+        error: `plan_file_path stem "${overrideStem}" does not match plan_id "${planId}"`,
+        hint: `worktree_path / plan-driven cold-start prompt are derived from plan_id. Mismatched stem would lead the new SDK session to the wrong plan. Either rename plan_file_path to "${planId}.md" or change plan_id to "${overrideStem}". 修法 plan §Phase 3 Step 3.11 (B-MED-2 codex)。`,
       };
     }
+    planFilePath = input.planFilePathOverride;
+  } else {
+    const resolved = await resolvePlanFilePath(mainRepo, planId, {
+      exists: deps.exists,
+      homedir: deps.homedir,
+    });
+    if ('error' in resolved) {
+      return resolved;
+    }
+    planFilePath = resolved.path;
   }
 
   // 2. 读 plan + parseFrontmatter

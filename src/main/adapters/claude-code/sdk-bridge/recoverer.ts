@@ -601,6 +601,16 @@ export class SessionRecoverer {
    * 持久 state;下次发消息再次 detect → fallback,不贵(existsSync + regex)。让用户看
    * SessionDetail 还是认识"原本是哪个 worktree 的"history。
    *
+   * **NOTE (caller 链路视角)** — plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.3
+   * 修法(A1-MED-3 claude 降级)。虽 findFallbackCwd 本身不写 sessionRepo,但 caller 拿到
+   * fallback cwd 后调 createSession({cwd: effectiveCwd, ...}) → finalize emit session-start
+   * 写 newRealId 行 cwd = effectiveCwd → rename(OLD, newRealId) 后 OLD 行 DELETE,最终
+   * sessionRepo.get(newRealId).cwd === effectiveCwd(fallback cwd)。SessionDetail 显示
+   * fallback cwd 是设计内 by-design(旧 worktree path 永久丢失换 SDK 子进程能起来的取舍)。
+   * 行为不可改 — rename 时复制 OLD.cwd 到 NEW 会撞 cwd-not-exists 死循环。
+   * 故本 jsdoc 上一段「不持久化 fallback cwd」精确描述的是 **findFallbackCwd 函数本身的
+   * 副作用契约**(纯函数 + best-effort + 不写库),不是 caller 链路最终持久化结果。
+   *
    * test 通过 facade extend override 该方法定制启发式行为。
    */
   protected findFallbackCwd(badCwd: string): string | null {

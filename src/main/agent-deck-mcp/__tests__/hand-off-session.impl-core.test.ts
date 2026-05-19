@@ -95,7 +95,11 @@ describe('handOffSessionImpl — happy path', () => {
   it('显式 plan_file_path override → 用之（绕过 fallback）', async () => {
     const state = makeState();
     const planId = 'override-plan';
-    const customPath = '/Users/test/some-custom-location/myplan.md';
+    // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.11 修法 (B-MED-2 codex):
+    // hand_off_session impl 加 stem 校验,plan_file_path 文件名 stem 必须等于 plan_id。
+    // 旧 fixture customPath stem 是 `myplan` 不匹配 planId `override-plan` → reject。
+    // 测试本意是验证 override 路径生效,改用 stem 匹配的 path(同步 archive-plan stem 测试)。
+    const customPath = `/Users/test/some-custom-location/${planId}.md`;
     state.files.set(customPath, planContent({ planId, status: 'in_progress' }));
 
     const result = await handOffSessionImpl(
@@ -205,6 +209,32 @@ describe('handOffSessionImpl — 校验失败分支', () => {
     expect((result as HandOffSessionError).error).toContain(
       'plan_file_path override does not exist',
     );
+  });
+
+  // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.11 测试 (B-MED-2 codex):
+  // hand_off plan_file_path stem 必须等于 plan_id,否则 reject + hint。
+  it('显式 plan_file_path stem != plan_id → reject + hint(防 worktree path 错位)', async () => {
+    const state = makeState();
+    const planId = 'expected-plan';
+    // stem `wrong-stem` 与 planId `expected-plan` 不匹配
+    const customPath = '/Users/test/some-loc/wrong-stem.md';
+    state.files.set(
+      customPath,
+      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
+    );
+
+    const result = await handOffSessionImpl(
+      { planId, planFilePathOverride: customPath },
+      makeDeps(state),
+    );
+    expect(_isHandOffSessionError(result)).toBe(true);
+    const err = result as HandOffSessionError;
+    expect(err.error).toContain('plan_file_path stem');
+    expect(err.error).toContain('"wrong-stem"');
+    expect(err.error).toContain('does not match plan_id');
+    expect(err.error).toContain('"expected-plan"');
+    expect(err.hint).toBeDefined();
+    expect(err.hint).toContain('rename plan_file_path');
   });
 
   it('plan 文件无 frontmatter → reject', async () => {

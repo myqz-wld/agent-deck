@@ -96,6 +96,23 @@ export interface InternalSession {
    */
   toolUseNames: Map<string, string>;
   /**
+   * tool_use_id → file-changed payload(不含 sessionId/agentId/kind/ts) 映射。
+   *
+   * **plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.5 修法**(A1-MED-1 codex):
+   * Edit / Write / MultiEdit 的 file-changed emit 时序从 assistant.tool_use(SDK 上行 tool_use
+   * 帧) 推迟到 user.tool_result + status='completed'。修前:tool_use 阶段就 emit file-changed,
+   * 但 SDK 工具调用可能 fail(典型 Edit old_string mismatch / Write 写入 perm denied / MultiEdit
+   * 中间一条 mismatch),tool_result 回 is_error=true 仍 emit 了脏 file-changed 进 DB +
+   * SessionDetail 时间线 + 用户看到「编辑了文件」错觉但 fs 上没改。
+   *
+   * 修法:tool_use 阶段把 intent push 到本 Map(pushFileChangeIntent),tool_result 阶段拿
+   * tool_use_id find → status='completed' emit + delete / status='failed' 仅 delete 不 emit。
+   * session-end / consume finally 时显式 clear 防 leak(虽然 internal GC 会带走,显式 clear
+   * 与 toolUseNames 同款保险)。图片工具路径走 maybeEmitImageFileChanged 另一路径,本 Map
+   * 不参与图片工具(图片工具已经是 tool_result 阶段 emit,无 fail 路径污染问题)。
+   */
+  pendingFileChangeIntents: Map<string, Record<string, unknown>>;
+  /**
    * 应用层主动关闭/重启该 session 的标记。置位时 query loop catch 块抛的 SDK 错误
    * （典型：approve-bypass deny+interrupt:true 触发 SDK 内部 [ede_diagnostic] 状态机
    * 不一致诊断错误）属于设计内副产品，UI 不再 emit 红字，仅 console.warn 留痕。
@@ -128,5 +145,6 @@ export function makeInternalSession(opts: {
     pendingAskUserQuestions: new Map(),
     pendingExitPlanModes: new Map(),
     toolUseNames: new Map(),
+    pendingFileChangeIntents: new Map(),
   };
 }

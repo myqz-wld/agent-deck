@@ -491,6 +491,33 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
     expect(state.gitCalls).toEqual([]); // 没调 git
   });
 
+  // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.8 测试 (B-MED-2 claude):
+  // worktree 已删 + clearCwdReleaseMarker 抛错 → 旧版默默吞错仍 markerCleared:true (脏状态),
+  // 修后 catch return error + hint(partial-success 显式报告给 caller)。
+  it('Step 3.8: worktree 已删 + clearCwdReleaseMarker throw → return error (不吞静默)', async () => {
+    const state = makeExitState();
+    state.markerStore.set('caller-sid', WT);
+    const deps = makeExitDeps(state, []);
+    // mock clearCwdReleaseMarker 抛错 (典型 DB lock / fs perm denied)
+    deps.clearCwdReleaseMarker = () => {
+      throw new Error('DB write failed: SQLITE_LOCKED');
+    };
+
+    const result = await exitWorktreeImpl(
+      { callerSessionId: 'caller-sid', action: 'remove' },
+      deps,
+    );
+
+    expect(exitIsError(result)).toBe(true);
+    if (!exitIsError(result)) return;
+    expect(result.error).toContain('worktree was already removed');
+    expect(result.error).toContain('clearCwdReleaseMarker failed');
+    expect(result.error).toContain('SQLITE_LOCKED');
+    expect(result.hint).toBeDefined();
+    expect(result.hint).toContain('partial-success');
+    expect(result.hint).toContain('Manual recovery');
+  });
+
   it('caller marker 与 args.worktree_path 不一致 → reject 跨 worktree 操作', async () => {
     const state = makeExitState();
     const otherWt = '/Users/test/repo/.claude/worktrees/other-plan';

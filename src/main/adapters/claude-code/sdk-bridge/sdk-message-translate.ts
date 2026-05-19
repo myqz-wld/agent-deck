@@ -98,8 +98,12 @@ export function translateSdkMessage(
           toolInput: block.input,
           toolUseId: block.id,
         });
-        // 同时把 Edit/Write/MultiEdit 翻译成 file-changed（用 input 重建 before/after）
-        maybeEmitFileChanged(e, block.name, block.input, block.id);
+        // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.5 修法 (A1-MED-1 codex):
+        // Edit / Write / MultiEdit intent 不在 tool_use 阶段立即 emit file-changed;改为 push
+        // 到 internal.pendingFileChangeIntents,延迟到 user.tool_result + status='completed'
+        // 再 emit (status='failed' 仅 delete 不 emit,避免 SDK 工具 fail 时仍发出脏 file-changed)。
+        // 详 types.ts pendingFileChangeIntents 字段 jsdoc。
+        pushFileChangeIntent(internal, block.name, block.input, block.id);
       }
     }
   } else if (msg.type === 'user') {
@@ -126,6 +130,11 @@ export function translateSdkMessage(
           toolResult: block.content,
           status,
         });
+        // plan §Phase 3 Step 3.5 修法 (A1-MED-1 codex): pendingFileChangeIntents 消费时序。
+        // status='completed' → emit 之前 push 的 intent + delete;status='failed' 仅 delete
+        // (intent 不 emit,避免 SDK 工具 fail 时发出脏 file-changed)。intent 没找到 (typically
+        // 图片工具走 maybeEmitImageFileChanged 另一路径,本 Map 不参与) → no-op。
+        consumePendingFileChangeIntent(e, internal, block.tool_use_id, status);
         // mcp 图片工具结果识别：反查 toolName，匹配则把 result.content 解析后翻译成 file-changed
         maybeEmitImageFileChanged(e, internal, block.tool_use_id, block.content);
       }
@@ -182,16 +191,24 @@ export function translateSdkMessage(
 }
 
 /**
- * Edit / Write / MultiEdit 工具调用 → file-changed 事件翻译。
- * 行为与原 ClaudeSdkBridge.maybeEmitFileChanged 字节级等价。
+ * Edit / Write / MultiEdit 工具调用 → file-changed intent 入队。
+ *
+ * **plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.5 修法**(A1-MED-1 codex):
+ * 旧 maybeEmitFileChanged 在 tool_use 阶段直接 emit file-changed,SDK 工具 fail 时仍 emit
+ * 脏事件污染 DB / SessionDetail / 用户认知。新 pushFileChangeIntent 仅构造 intent payload
+ * 入队 internal.pendingFileChangeIntents,等 tool_result + status='completed' 才 emit
+ * (consumePendingFileChangeIntent),status='failed' 仅 delete intent 不 emit。
+ *
+ * 行为与原 ClaudeSdkBridge.maybeEmitFileChanged 字节级等价(intent payload 结构不变,仅 emit
+ * 时机推迟)。
  */
-export function maybeEmitFileChanged(
-  e: (kind: AgentEvent['kind'], payload: unknown) => void,
+export function pushFileChangeIntent(
+  internal: InternalSession,
   toolName: string | undefined,
   input: unknown,
   toolUseId: string | undefined,
 ): void {
-  if (!toolName) return;
+  if (!toolName || !toolUseId) return;
   const i = (input ?? {}) as {
     file_path?: string;
     old_string?: string;
@@ -199,35 +216,59 @@ export function maybeEmitFileChanged(
     content?: string;
     edits?: { old_string: string; new_string: string }[];
   };
+  let payload: Record<string, unknown> | null = null;
   if (toolName === 'Edit' && i.file_path) {
-    e('file-changed', {
+    payload = {
       filePath: i.file_path,
       kind: 'text',
       before: i.old_string ?? null,
       after: i.new_string ?? null,
       metadata: { source: 'Edit' },
       toolCallId: toolUseId,
-    });
+    };
   } else if (toolName === 'Write' && i.file_path) {
-    e('file-changed', {
+    payload = {
       filePath: i.file_path,
       kind: 'text',
       before: null,
       after: i.content ?? null,
       metadata: { source: 'Write' },
       toolCallId: toolUseId,
-    });
+    };
   } else if (toolName === 'MultiEdit' && i.file_path && Array.isArray(i.edits)) {
     const before = i.edits.map((ed) => ed.old_string).join('\n---\n');
     const after = i.edits.map((ed) => ed.new_string).join('\n---\n');
-    e('file-changed', {
+    payload = {
       filePath: i.file_path,
       kind: 'text',
       before,
       after,
       metadata: { source: 'MultiEdit', editCount: i.edits.length },
       toolCallId: toolUseId,
-    });
+    };
+  }
+  if (payload) {
+    internal.pendingFileChangeIntents.set(toolUseId, payload);
+  }
+}
+
+/**
+ * 消费 pendingFileChangeIntents:tool_result 阶段调,status='completed' emit + delete /
+ * status='failed' 仅 delete 不 emit。intent 没找到 → no-op (图片工具走 maybeEmitImageFileChanged
+ * 另一路径,本函数不参与)。
+ */
+export function consumePendingFileChangeIntent(
+  e: (kind: AgentEvent['kind'], payload: unknown) => void,
+  internal: InternalSession,
+  toolUseId: string | undefined,
+  status: 'completed' | 'failed',
+): void {
+  if (!toolUseId) return;
+  const intent = internal.pendingFileChangeIntents.get(toolUseId);
+  if (!intent) return;
+  internal.pendingFileChangeIntents.delete(toolUseId);
+  if (status === 'completed') {
+    e('file-changed', intent);
   }
 }
 

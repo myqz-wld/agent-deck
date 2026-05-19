@@ -76,6 +76,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingAskUserQuestions: new Map(),
       pendingExitPlanModes: new Map(),
       toolUseNames: new Map(),
+      pendingFileChangeIntents: new Map(),
     };
 
     let firstId: string | null = null;
@@ -118,6 +119,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingAskUserQuestions: new Map(),
       pendingExitPlanModes: new Map(),
       toolUseNames: new Map(),
+      pendingFileChangeIntents: new Map(),
     };
 
     const { sessionManager } = await import('@main/session/manager');

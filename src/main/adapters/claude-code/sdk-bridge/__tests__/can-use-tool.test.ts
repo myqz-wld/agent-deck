@@ -34,6 +34,7 @@ function makeInternal(permissionMode: PermissionMode): InternalSession {
     pendingAskUserQuestions: new Map(),
     pendingExitPlanModes: new Map(),
     toolUseNames: new Map(),
+    pendingFileChangeIntents: new Map(),
   };
 }
 
