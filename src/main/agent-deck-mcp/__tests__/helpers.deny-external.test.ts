@@ -175,8 +175,10 @@ describe('denyExternalIfNotAllowed — stdio invariant violation 兜底（B-HIGH
   });
 });
 
-describe('denyExternalIfNotAllowed — 7 写 tool × 3 transport 全覆盖矩阵', () => {
-  // 矩阵覆盖：sentinel × 3 transport × 7 写 tool 全 DENY
+describe('denyExternalIfNotAllowed — 8 写 tool × 3 transport 全覆盖矩阵', () => {
+  // 矩阵覆盖：sentinel × 3 transport × 8 写 tool 全 DENY
+  // **R3 fix-7 (M1 reviewer-claude LOW)**: 加 'shutdown_baton_teammates' 第 8 个写 tool
+  // (Phase 5.3 新增 mcp tool,types.ts EXTERNAL_CALLER_ALLOWED.shutdown_baton_teammates=false)
   const writeTools = [
     'spawn_session',
     'send_message',
@@ -185,6 +187,7 @@ describe('denyExternalIfNotAllowed — 7 写 tool × 3 transport 全覆盖矩阵
     'hand_off_session',
     'enter_worktree',
     'exit_worktree',
+    'shutdown_baton_teammates',
   ] as const;
   const transports: CallerContext['transport'][] = ['in-process', 'http', 'stdio'];
 

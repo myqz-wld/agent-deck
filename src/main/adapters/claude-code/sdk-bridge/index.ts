@@ -327,7 +327,11 @@ export class ClaudeSdkBridge {
       if (!internal.interruptFired) {
         internal.expectedClose = true;
         internal.interruptFired = true;
-        void internal.query?.interrupt?.();
+        // R3 fix-7 (I1 reviewer-claude INFO + codex A MED-1): 加 .catch 吞错防 unhandled
+        // rejection（SDK interrupt 在 catch 路径 reject 可能性）。fire-and-forget 语义保持。
+        void internal.query?.interrupt?.().catch((err: unknown) => {
+          console.warn('[sdk-bridge] interrupt during createSession throw failed:', err);
+        });
       }
       this.sessions.delete(tempKey);
       releasePending();

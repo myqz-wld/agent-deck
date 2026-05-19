@@ -154,7 +154,12 @@ export class StreamProcessor {
         if (!internal.interruptFired) {
           internal.expectedClose = true;
           internal.interruptFired = true;
-          void internal.query?.interrupt?.();
+          // R3 fix-7 (I1 reviewer-claude INFO + codex A MED-1): 加 .catch 吞错防 unhandled
+          // rejection（SDK interrupt 在 race 路径 reject 可能性 + spike1 实证 interrupt 多种边界
+          // 行为含 reject 可能），console.warn 留痕。fire-and-forget 语义保持（不 await）。
+          void internal.query?.interrupt?.().catch((err: unknown) => {
+            console.warn('[sdk-bridge] interrupt during setTimeout fallback failed:', err);
+          });
         }
         resolved = true;
         // REVIEW_5 H4：resume 路径下 fallback 直接落在 OLD_ID 上，避免造孤儿 tempKey
