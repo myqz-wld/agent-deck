@@ -568,37 +568,40 @@ export class ClaudeSdkBridge {
     // 修前：SDK throw → s.permissionMode 已经被改为 mode → caller 收到 throw 但 cache
     // 已脏(canUseTool / sandbox decision 用脏 cache)→ DB / UI / 实际 SDK 行为三不一致。
     //
-    // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.7 修法**（R3 plan-review codex MED-2
-    // + R2 plan-review MED-F + R4 plan-review codex MED-1）：per-session seq guard 防同 session
-    // same-mode 并发 race 误回滚。详 InternalSession.permissionModeSeq jsdoc 完整 race 真根因。
+    // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase R3 fix-3 修法**（R3 plan-review
+    // codex Batch A HIGH-2 升级，替代 Phase 2.7 per-session seq counter）：per-session async
+    // lock 串行化 setPermissionMode。
     //
-    // 修前 race：A 设 plan await SDK 失败 + B 设 plan await SDK 成功 → A SDK throw catch 当前
-    // mode=plan 按「当前值 guard」错误回滚成 default 把 B 已成功 plan 改回去。
+    // **Phase 2.7 per-session seq 残留 race 真根因**（codex A HIGH-2）：
+    // 同 session 并发 + 双失败：A: ++seq=1, oldMode='default', s.permissionMode='plan',
+    // await 失败 → B: ++seq=2, oldMode='plan'(A optimistic 写入), s.permissionMode='bypass',
+    // await 失败 → B catch: seq===2 === B.seq → s.permissionMode = oldMode = 'plan'(A 脏值);
+    // A catch: seq===2 !== A.seq(1) → 跳过回滚 → s.permissionMode 保留 'plan'。
+    // 最终 cache='plan' 但 SDK 实际仍'default' → canUseTool 按脏 cache 判断 → 安全降级风险。
     //
-    // 修后 = per-session seq counter：入口 ++seq，catch 内仅当 `s.permissionModeSeq === seq`
-    // (无后续 setPermissionMode 推进 seq) 才回滚。同 session 多次切档只看 seq 是否被推进过决定
-    // 是否回滚。
+    // **修法 = chain 串行化**：通过 `s.permissionModeChain` 串行执行 setPermissionMode；
+    // 串行化后 oldMode 永远是上次 catch rollback 后的真值（永不读他人 optimistic 写入），
+    // catch rollback 是 race-free 的简单 oldMode 还原。
     //
-    // **plan §Phase 6.3 L1 by-design 时序窗口标注（reviewer fresh review 反复 confirm）**：
-    // L582-583 `s.permissionMode = mode;` 在 L584 `await s.query.setPermissionMode(mode)` 之前
-    // 写 in-memory cache 是**by-design** 不是 race bug — reviewer fresh review 多轮提出同款
-    // finding 都被推到 L (LOW) 就因为这是「让 canUseTool bypass 短路立刻按新 mode 判断」的
-    // 必要时序（CHANGELOG_72 Bug 3 修法核心）。await SDK ack 之前的临时窗口里 cache 提前生效
-    // 是 fail-secure（用户期望立刻 bypass / 立刻收紧），SDK throw 时 catch 内 per-session seq
-    // guard 回滚是兜底（不在「同 session 期间又被推进过」前提）。L1 finding 标注 by-design
-    // 防 reviewer 后续轮次重新提同款。
-    const seq = ++s.permissionModeSeq;
-    const oldMode = s.permissionMode;
-    s.permissionMode = mode;
-    try {
-      await s.query.setPermissionMode(mode);
-    } catch (err) {
-      // Phase 2.7 修法：仅当本次 seq 仍是该 session 最新（无后续 setPermissionMode 推进 seq）时
-      // 才回滚。后续 setPermissionMode 已推进 seq → 说明已有更新成功的 mode，本 catch 不应回滚
-      // (A throw 不能把 B 已成功的 mode 改回 oldMode)。
-      if (s.permissionModeSeq === seq) s.permissionMode = oldMode;
-      throw err;
-    }
+    // **chain 设计**：caller 拿到的 Promise 仍 reject 真错；chain 内部 `.catch(() => undefined)`
+    // 吞 throw 让 chain 不被打破（否则一次失败后 chain 永卡 reject）。
+    //
+    // **plan §Phase 6.3 L1 by-design 时序窗口标注**：optimistic 写 cache 在 await SDK ack 之前
+    // 是 by-design fail-secure（详 InternalSession.permissionModeChain jsdoc 完整论述）。
+    const prev = s.permissionModeChain ?? Promise.resolve();
+    const next = prev.then(async () => {
+      const oldMode = s.permissionMode; // 串行化后 oldMode 永远是上次 catch rollback 后的真值
+      s.permissionMode = mode; // optimistic
+      try {
+        await s.query.setPermissionMode(mode);
+      } catch (err) {
+        s.permissionMode = oldMode; // race-free rollback (chain 串行化保证 oldMode 真值)
+        throw err;
+      }
+    });
+    // chain 自身吞 throw 防链路打破，caller 拿到的 next promise 仍 reject 真错给上层
+    s.permissionModeChain = next.catch(() => undefined);
+    return next;
   }
 
   /** 冷切权限模式 thin delegate。bypass 必须走冷切（spawn-time flag 锁死）。详 restart-controller.ts。 */

@@ -139,25 +139,30 @@ export interface InternalSession {
    */
   interruptFired?: boolean;
   /**
-   * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.7 修法**（R3 plan-review codex MED-2
-   * + R2 plan-review MED-F + R4 plan-review codex MED-1 强制 per-session seq）：setPermissionMode
-   * 无锁 async 并发回滚 race 防御计数器。
+   * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase R3 fix-3 修法**（R3 plan-review
+   * codex Batch A HIGH-2 升级，替代 Phase 2.7 per-session seq counter）：setPermissionMode
+   * per-session 串行化 chain。
    *
-   * **race 真根因**：旧 impl 单 try/catch 同步赋值 + catch 回滚 oldMode。同 session same-mode 并发
-   * 撞 race：A 设 plan await SDK 失败 + B 设 plan await SDK 成功 → A SDK throw catch 当前 mode=plan
-   * 按「当前值 guard」错误回滚成 default 把 B 已成功 plan 改回去（B 实际 SDK 已切到 plan，应用
-   * cache 却被 A catch 错误降回 default → cache vs SDK 不同步）。
+   * **Phase 2.7 per-session seq 的残留 race**（codex A HIGH-2 论述 + lead 推演验证）：
+   * - A: ++seq=1, oldMode='default'(原始), s.permissionMode='plan'(optimistic), await SDK 失败
+   * - B 在 A 失败前进入: ++seq=2, oldMode='plan'(A optimistic 写入值,非 SDK 真值),
+   *   s.permissionMode='bypassPermissions'(optimistic), await SDK 失败
+   * - B catch: s.permissionModeSeq === 2 === B.seq → s.permissionMode = oldMode = 'plan'
+   * - A catch: s.permissionModeSeq === 2 !== A.seq(1) → 跳过回滚 → s.permissionMode 保留 'plan'
+   * - 最终 cache='plan' 但 SDK 实际仍'default'(两次都失败) → cache 与 SDK 真值脱节 →
+   *   canUseTool 按脏 cache 判断 → 若 mode=bypass 安全降级
    *
-   * **修法 = per-session seq counter**：setPermissionMode 入口 ++seq；catch 内仅当 `s.permissionModeSeq ===
-   * seq`（无后续 setPermissionMode 推进 seq）时回滚。同 session 多次切档只看 seq 是否被推进过决定
-   * 是否回滚，与「当前值 guard」无关。
+   * **修法 = per-session async lock 串行化**：setPermissionMode 调用通过 chain 串行执行,前一次
+   * await 完成(成功或失败)后下一次才进临界区。串行化后 oldMode 永远是上次 catch rollback 的真值
+   * （永不读到他人 optimistic 写入），catch rollback 是无 race 的简单 oldMode 还原。
    *
-   * **不能用 bridge 全局 seq**（R2 plan-review MED-F）：会被跨 session 干扰（A session 设 plan +
-   * B session 设 default 并发 → A throw 时全局 seq 已被 B 推进 → A 错误判定 seq 推进 → 不回滚）。
+   * **chain 设计**：用 Promise 链。`s.permissionModeChain` 是「下一次入链需 await 的 promise」，
+   * 默认 undefined（无 in-flight）。caller 拿到的 Promise 仍 reject 真错给上层；chain 内部
+   * `.catch(() => undefined)` 吞 throw 让 chain 不被打破（否则一次失败后 chain 永卡 reject）。
    *
-   * 默认 0；makeInternalSession factory 初始化为 0；不需清。
+   * 默认 undefined；不需清；session GC 时随 internal session 一起释放。
    */
-  permissionModeSeq: number;
+  permissionModeChain?: Promise<unknown>;
 }
 
 /**
@@ -184,7 +189,6 @@ export function makeInternalSession(opts: {
     pendingExitPlanModes: new Map(),
     toolUseNames: new Map(),
     pendingFileChangeIntents: new Map(),
-    // Phase 2.7 修法：per-session seq counter 默认 0（详 InternalSession.permissionModeSeq jsdoc）
-    permissionModeSeq: 0,
+    // R3 fix-3: permissionModeChain 默认 undefined（无 in-flight setPermissionMode）
   };
 }
