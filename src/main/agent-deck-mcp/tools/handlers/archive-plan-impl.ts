@@ -100,6 +100,17 @@ export interface ArchivePlanResult {
    * 调用方应在 ok return display 时把 warnings 列出来,而非吞掉。空数组表示无 warning。
    */
   warnings: string[];
+  /**
+   * **plan deep-review-batch-a1-b-followup-r3-20260519 follow-up (spike-reports/ 归档流程缺口)**:
+   * spike artifacts 自动归档结果。
+   *
+   * - `null`: plan 无 spike (`<plan-dir>/<plan-id>/spike-reports/` 不存在),skip
+   * - `{ srcPath, dstPath }`: spike-reports/ 成功 mv 到 `<main-repo>/plans/<plan-id>/spike-reports/`
+   *   并入 git 归档 commit
+   *
+   * mv 失败 (EXDEV 跨 fs / perm) 时不阻塞 ok return,落 warnings 数组让 caller 手工 mv。
+   */
+  spikeReportsArchived: { srcPath: string; dstPath: string } | null;
 }
 
 export type ArchivePlanError = { error: string; hint?: string };
@@ -126,6 +137,20 @@ export interface ArchivePlanDeps {
   unlink?: (filePath: string) => Promise<void>;
   /** mkdir { recursive }。 */
   mkdir?: (dirPath: string) => Promise<void>;
+  /**
+   * mv 目录 (src → dst)，用于 spike-reports/ 归档。
+   *
+   * **plan deep-review-batch-a1-b-followup-r3-20260519 follow-up (spike-reports/ 归档流程缺口)**:
+   * 旧实现 archive_plan tool 只 mv plan .md 不动 spike-reports/，导致 spike artifacts 留在
+   * `.claude/plans/<plan-id>/spike-reports/` (.gitignore 不入 git 临时位置) → 永久丢失风险。
+   * 修法: 加 mvDir deps 让 step 12.5 detect + mv `<plan-dir>/spike-reports/` 到
+   * `<main-repo>/plans/<plan-id>/spike-reports/` 入 git 归档。
+   *
+   * 默认实现走 `fs.rename`(同 fs 原子 mv);跨 fs 失败 (EXDEV) 抛错让 caller decide:
+   * step 12.5 catch EXDEV → warning + 不阻塞 ok return(caller 看 hint 手工 mv)。test 可
+   * inject mock 实现非 fs 路径(in-memory state set/del)。
+   */
+  mvDir?: (src: string, dst: string) => Promise<void>;
   /** 文件 / 目录是否存在（true / false，不抛）。 */
   exists?: (p: string) => Promise<boolean>;
   /** realpath 解 symlink，失败抛（caller 决定是否兜底）。 */
@@ -166,6 +191,7 @@ const DEFAULT_DEPS: Required<ArchivePlanDeps> = {
   mkdir: async (p) => {
     await fs.mkdir(p, { recursive: true });
   },
+  mvDir: async (src, dst) => fs.rename(src, dst),
   exists: async (p) => {
     try {
       const _: Stats = await fs.stat(p);
@@ -993,6 +1019,45 @@ export async function archivePlanImpl(
     }
   }
 
+  // 12.5. spike-reports/ 归档 (plan deep-review-batch-a1-b-followup-r3-20260519 follow-up):
+  //
+  // **背景**: user CLAUDE.md §Step 0.5 spike 节约定 spike artifacts 落 `<plan-dir>/spike-reports/`
+  // (典型: `<main-repo>/.claude/plans/<plan-id>/spike-reports/`)。旧 archive_plan tool 只 mv plan
+  // .md 不动 spike-reports/ 导致 artifacts 留 .claude/plans/ (.gitignore 不入 git) → 永久丢失。
+  //
+  // **修法**: detect `<plan-dir-parent>/<plan-id>/spike-reports/` 存在 → mv 到
+  // `<main-repo>/plans/<plan-id>/spike-reports/` (plan .md 同名子目录,与 plan .md 平级),
+  // push 路径到 filesToAdd 入归档 commit。失败 (EXDEV 跨 fs / perm) → warning + 不阻塞 ok return。
+  //
+  // **不存在时**: skip 不报错 (plan 没 spike 是合法场景,如 trivial plan / spike 阶段被跳过)。
+  const srcSpikeDir = path.join(path.dirname(planFilePath), input.planId, 'spike-reports');
+  const dstSpikeDir = path.join(mainRepo, 'plans', input.planId, 'spike-reports');
+  let spikeReportsArchived: { srcPath: string; dstPath: string } | null = null;
+  if (await deps.exists(srcSpikeDir)) {
+    try {
+      // mkdir parent dir (`<main-repo>/plans/<plan-id>/`) for dstSpikeDir
+      await deps.mkdir(path.dirname(dstSpikeDir));
+      await deps.mvDir(srcSpikeDir, dstSpikeDir);
+      spikeReportsArchived = { srcPath: srcSpikeDir, dstPath: dstSpikeDir };
+      // 顺手清空 `<plan-dir-parent>/<plan-id>/` 父目录 (mv 后空目录残留)
+      // 用 try/catch 防止其他子目录残留时 rmdir fail (best-effort,不阻塞)
+      try {
+        const fs2 = await import('node:fs/promises');
+        await fs2.rmdir(path.join(path.dirname(planFilePath), input.planId));
+      } catch {
+        /* 父目录非空或不存在,best-effort no-op */
+      }
+    } catch (e) {
+      // mv 失败 (典型 EXDEV 跨 fs / perm denied) → warning + 不阻塞 ok return
+      warnings.push(
+        `spike-reports archive failed: mv "${srcSpikeDir}" → "${dstSpikeDir}" threw ${(e as Error).message}. ` +
+          `Plan .md already archived to ${archivedPath} but spike-reports/ still at source. ` +
+          `Manually run \`mkdir -p ${path.dirname(dstSpikeDir)} && mv "${srcSpikeDir}" "${dstSpikeDir}"\` ` +
+          `then \`git add ${path.relative(mainRepo, dstSpikeDir)} && git commit --amend --no-edit\` to include spike-reports/ in archive commit.`,
+      );
+    }
+  }
+
   // 13. git add + commit
   // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.10 修法 (B-MED-1 codex):
   // 修前 filesToAdd 只含 archivedPath / indexPath,如果 source planFilePath 不等于
@@ -1014,6 +1079,10 @@ export async function archivePlanImpl(
     !path.isAbsolute(planRelative)
   ) {
     filesToAdd.push(planRelative);
+  }
+  // R3 follow-up: spike-reports/ 子目录入 filesToAdd 让 git add 递归处理整个目录
+  if (spikeReportsArchived !== null) {
+    filesToAdd.push(path.relative(mainRepo, spikeReportsArchived.dstPath));
   }
   try {
     await deps.runGit(['add', ...filesToAdd], mainRepo);
@@ -1110,6 +1179,7 @@ export async function archivePlanImpl(
     plansIndexAction,
     finalStatus: 'completed',
     warnings,
+    spikeReportsArchived,
   };
 }
 

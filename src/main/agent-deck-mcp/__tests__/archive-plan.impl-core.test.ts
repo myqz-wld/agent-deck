@@ -201,6 +201,136 @@ describe('archivePlanImpl — happy path', () => {
   });
 });
 
+describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T15:30:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('plan 无 spike-reports/ → spikeReportsArchived=null (skip 不报错)', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    // fixture 默认不 set spike-reports 文件 → exists 反查 false → skip
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'worktree-mcp-bug-fix',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhash',
+      '',
+      '',
+      '',
+      '',
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(false);
+    const ok = result as ArchivePlanResult;
+    expect(ok.spikeReportsArchived).toBeNull();
+    expect(ok.warnings).toEqual([]); // 无 warning(skip 不算异常)
+  });
+
+  it('plan 有 spike-reports/ → 自动 mv 到 plans/<plan-id>/spike-reports/ + filesToAdd 含路径 + spikeReportsArchived 填充', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    // 在 fixture 上加 spike-reports/ 文件 (src = `<plan-dir-parent>/<plan-id>/spike-reports/`)
+    const srcSpikeDir = `${expectedMainRepo}/.claude/plans/${input.planId}/spike-reports`;
+    const dstSpikeDir = `${expectedMainRepo}/plans/${input.planId}/spike-reports`;
+    state.files.set(srcSpikeDir, '__dir_placeholder__');
+    state.files.set(`${srcSpikeDir}/spike1-sdk-interrupt.md`, '# spike1 结论\n...');
+    state.files.set(`${srcSpikeDir}/spike1-sdk-interrupt-runner.mjs`, '#!/usr/bin/env node\n...');
+    state.files.set(`${srcSpikeDir}/case-A.log`, 'case A trace');
+
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'worktree-mcp-bug-fix',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhash',
+      '',
+      '',
+      '',
+      '',
+    ]);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(false);
+    const ok = result as ArchivePlanResult;
+    expect(ok.spikeReportsArchived).toEqual({
+      srcPath: srcSpikeDir,
+      dstPath: dstSpikeDir,
+    });
+    expect(ok.warnings).toEqual([]);
+
+    // src 已 mv 走（不在 files Map）+ dst 已生成（在 files Map）
+    expect(state.files.has(srcSpikeDir)).toBe(false);
+    expect(state.files.has(`${srcSpikeDir}/spike1-sdk-interrupt.md`)).toBe(false);
+    expect(state.files.has(`${dstSpikeDir}/spike1-sdk-interrupt.md`)).toBe(true);
+    expect(state.files.has(`${dstSpikeDir}/spike1-sdk-interrupt-runner.mjs`)).toBe(true);
+    expect(state.files.has(`${dstSpikeDir}/case-A.log`)).toBe(true);
+
+    // mkdir parent dir `<main-repo>/plans/<plan-id>/` 被调用
+    expect(state.mkdirs).toContain(`${expectedMainRepo}/plans/${input.planId}`);
+
+    // git add 调用 args 含 spike-reports/ 相对路径
+    const gitAddCall = state.gitCalls.find((c) => c.args[0] === 'add');
+    expect(gitAddCall).toBeTruthy();
+    expect(gitAddCall!.args).toContain(`plans/${input.planId}/spike-reports`);
+  });
+
+  it('spike-reports/ mv 失败 (mock mvDir throw) → warnings 含 spike-reports archive failed hint + ok return 不阻塞', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const srcSpikeDir = `${expectedMainRepo}/.claude/plans/${input.planId}/spike-reports`;
+    state.files.set(srcSpikeDir, '__dir_placeholder__');
+    state.files.set(`${srcSpikeDir}/spike1.md`, 'spike content');
+
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'worktree-mcp-bug-fix',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhash',
+      '',
+      '',
+      '',
+      '',
+    ]);
+    // override mvDir 让它抛 EXDEV 模拟跨 fs 失败
+    deps.mvDir = async () => {
+      throw new Error('EXDEV: cross-device link not permitted');
+    };
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(false);
+    const ok = result as ArchivePlanResult;
+
+    // mv 失败 → spikeReportsArchived 仍 null
+    expect(ok.spikeReportsArchived).toBeNull();
+    // warnings 含 hint
+    expect(ok.warnings.length).toBeGreaterThanOrEqual(1);
+    const spikeWarning = ok.warnings.find((w) => w.includes('spike-reports archive failed'));
+    expect(spikeWarning).toBeTruthy();
+    expect(spikeWarning).toContain('EXDEV');
+    expect(spikeWarning).toContain(srcSpikeDir);
+    expect(spikeWarning).toContain('mkdir -p');
+    expect(spikeWarning).toContain('git add');
+
+    // src 仍在原位置（mv 失败 not 移走）
+    expect(state.files.has(srcSpikeDir)).toBe(true);
+
+    // git add 调用 args 不含 spike-reports/ (mv 失败 → 不入 filesToAdd)
+    const gitAddCall = state.gitCalls.find((c) => c.args[0] === 'add');
+    expect(gitAddCall!.args).not.toContain(`plans/${input.planId}/spike-reports`);
+  });
+});
+
 describe('archivePlanImpl — 预检失败分支', () => {
   it('plan status 已是 completed → reject + 提示信息', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
