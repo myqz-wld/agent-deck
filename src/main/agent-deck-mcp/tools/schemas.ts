@@ -654,6 +654,17 @@ export interface ArchivePlanResult {
    * 调用方应在 ok return display 时把 warnings 列出来,而非吞掉。空数组表示无 warning。
    */
   warnings: string[];
+  /**
+   * **R3 follow-up (spike-reports/ 归档流程缺口)**: spike artifacts 自动归档结果。
+   *
+   * - `null`: plan 无 spike (`<plan-dir>/spike-reports/` 不存在),skip
+   * - `{ src_path, dst_path }`: spike-reports/ 成功 mv 到 `<main-repo>/plans/<plan-id>/spike-reports/`
+   *   (plan .md 同名子目录,与 plan .md 平级),入 git 归档 commit
+   *
+   * mv 失败 (EXDEV 跨 fs / perm) 时不阻塞 ok return,落 warnings 数组让 caller 手工
+   * `mkdir -p && mv && git add+commit --amend` 补归档。
+   */
+  spike_reports_archived: { src_path: string; dst_path: string } | null;
   archived: 'ok' | 'failed' | 'skipped';
   teammatesShutdown: TeammatesShutdownInfo;
 }

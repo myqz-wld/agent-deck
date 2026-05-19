@@ -154,6 +154,26 @@ export function makeDeps(
     mkdir: async (p) => {
       state.mkdirs.push(p);
     },
+    /**
+     * R3 follow-up (spike-reports/ 归档): in-memory mvDir mock — 把 state.files Map 内所有
+     * 以 `${src}` 或 `${src}/` 前缀的 key rename 成 `${dst}` / `${dst}/...` (模拟 fs.rename
+     * 整个子目录 mv)。src 完全不存在时抛 ENOENT 与真 fs.rename 行为一致。
+     */
+    mvDir: async (src, dst) => {
+      let movedCount = 0;
+      const entries = Array.from(state.files.entries());
+      for (const [k, v] of entries) {
+        if (k === src || k.startsWith(`${src}/`)) {
+          const newKey = k === src ? dst : `${dst}${k.slice(src.length)}`;
+          state.files.set(newKey, v);
+          state.files.delete(k);
+          movedCount++;
+        }
+      }
+      if (movedCount === 0) {
+        throw new Error(`ENOENT: mock mvDir src "${src}" empty (no files matched)`);
+      }
+    },
     exists: async (p) => state.files.has(p),
     realpath: async (p) => state.realpathMap.get(p) ?? p,
     cwd: () => state.fakeCwd,

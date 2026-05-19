@@ -218,6 +218,20 @@ export const archivePlanHandler = withMcpGuard(
       final_status: result.finalStatus,
       warnings: result.warnings,
       /**
+       * R3 follow-up (spike-reports/ 归档): spike artifacts 自动归档结果。
+       * - `null`: plan 无 spike (`<plan-dir>/spike-reports/` 不存在), skip
+       * - `{ src_path, dst_path }`: spike-reports/ 成功 mv 入归档 commit 与 plan .md 平级
+       *
+       * mv 失败时 spikeReportsArchived 仍为 null 但 result.warnings 含 spike-reports archive failed
+       * 详细 hint (caller 手工 `mkdir -p && mv && git add+commit --amend` 补归档)。
+       */
+      spike_reports_archived: result.spikeReportsArchived
+        ? {
+            src_path: result.spikeReportsArchived.srcPath,
+            dst_path: result.spikeReportsArchived.dstPath,
+          }
+        : null,
+      /**
        * CHANGELOG_99：'ok' = caller 归档成功 / 'failed' = warn-only 不阻塞(callerRow 缺 / DB
        * 不可用 / archive 抛错) / 'skipped' = external caller(理论上 deny external 拦截不到这里)
        */
