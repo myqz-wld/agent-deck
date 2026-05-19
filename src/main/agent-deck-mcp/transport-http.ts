@@ -16,13 +16,26 @@
  * UI 可加「重启 MCP HTTP transport」按钮，或 settings.mcpHttpEnabled 改了之后
  * 显示「需要重启应用生效」提示。
  *
- * mcp-sdk 1.29.0 `StreamableHTTPServerTransport` 是 stateful 模式（自管 sessionIdGenerator）。
- * 使用 `sessionIdGenerator: () => randomUUID()` 让每次 client `initialize` 服务端分配
- * 一个 session id（与 agent-deck 自己的 sessionId 无关，仅 MCP 协议层）。无 sessionId 的
- * 非 init 请求会被 transport 拒成 400，与 MCP spec 一致。
+ * mcp-sdk 1.29.0 `StreamableHTTPServerTransport` 支持 **stateful**（自管 sessionIdGenerator）
+ * 与 **stateless**（sessionIdGenerator=undefined）两种模式。本应用走 **stateless 模式**，
+ * 理由（plan reviewer-codex-cross-adapter-20260519 Phase 0 fix）：
+ *
+ * - 我们的 5 个 mcp tool（spawn / send / list / get / shutdown）**无 cross-request session state
+ *   需求** — 每条 request 携带 caller_session_id（per-session token 反查 → resolvedSid），
+ *   handler 只看单 request 内 args 即可处理，不需要 mcp-sdk 协议层 session lifecycle
+ * - **stateful 模式撞「multi-client 共用单 transport instance」缺陷**：单 transport 维护一个
+ *   session id；多 codex SDK 子进程（每个独立 mcp client）共用同一 transport 时，第二个
+ *   client `initialize` 会撞 `Server already initialized` (-32600) 错误，全数 send_message
+ *   等写工具 cross-adapter dispatch 失败。spike 1+2 实测铁证。
+ * - **stateless 模式**：每 request 独立，不返 mcp-session-id header，不做 session validation；
+ *   multi-client 直接 work（mcp-sdk 1.29 streamableHttp.js:44-46 注释明示语义）
+ *
+ * 鉴权：B'5 在 HookServer.onRequest 加 `/mcp` 前缀分支 + 独立 mcpServerToken（与
+ * hookServerToken 隔离）。本文件不重复鉴权 —— 路由级 hook 已在请求进入 handler 前
+ * 拦截非法请求。两层正交：mcp-sdk transport stateless（无协议层 session）+
+ * HookServer auth check（per-session bearer token → resolvedSid 注入）。
  */
 
-import { randomUUID } from 'node:crypto';
 import type { RouteRegistry } from '@main/hook-server/route-registry';
 import { buildAgentDeckTools } from './tools';
 import { EXTERNAL_CALLER_SENTINEL, type McpAuthInfo } from './types';
@@ -172,8 +185,12 @@ export async function registerAgentDeckMcpHttpRoutes(
   routeRegistry: RouteRegistry,
 ): Promise<{ shutdown: () => Promise<void> }> {
   const { http } = await loadMcpSdk();
+  // plan reviewer-codex-cross-adapter-20260519 Phase 0 fix：stateless 模式
+  // (sessionIdGenerator=undefined)。multi-client 共用同一 transport instance 不撞
+  // 「Invalid Request: Server already initialized」(spike 1+2 实测 root cause)。详 file
+  // header 注释解释 stateful vs stateless 选择理由。
   const transport = new http.StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
+    sessionIdGenerator: undefined,
   });
   const mcpServer = await buildAgentDeckMcpServerForExternalTransport('http');
   // McpServer.connect 接受 SDK 自定义 Transport 接口；StreamableHTTPServerTransport 已实现该接口
