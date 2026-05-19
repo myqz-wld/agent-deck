@@ -346,7 +346,50 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
     expect(ok.warnings.some((w) => w.includes('outside worktree') && w.includes('marker'))).toBe(
       true,
     );
-    // 必 release marker (state c 也 release,与 plan §不变量 5 (c) "cwd 优先 + release stale" 一致)
+    // 必 release marker (state c-1 也 release,与 plan §不变量 5 (c) "cwd 优先 + release stale" 一致)
     expect(deps.clearMarkerCalled.count).toBe(1);
+  });
+
+  // ─── TC15 (plan §Phase 3 Step 3.7 修法 B-MED-1 claude): cwd valid + !inWorktree +
+  //         marker 指向另一 worktree → 仅 warn 不 release (拒绝跨 worktree release 别人 marker) ─
+  it('TC15 状态 (c-2): cwd valid + !inWorktree + marker 指向另一 worktree → warn + 放过但不 release', async () => {
+    const { state, input } = fixtureHappyPath();
+    // fakeCwd default '/Users/test/some-other-cwd' 已在 worktree 外 (cwd valid)
+    // marker 指向另一个 worktree(不是当前 archive 目标),不应被 release(让 caller 自己
+    // exit_worktree 清自己的 marker)。
+    const otherWorktreeMarker = '/Users/test/repo/.claude/worktrees/some-other-plan';
+    const deps = makeDepsWithMarker(
+      state,
+      [
+        '/Users/test/repo/.git',
+        'worktree-mcp-bug-fix',
+        '',
+        'mainhash',
+        '',
+        '',
+        'finalhash',
+        '',
+        '',
+        '',
+        '',
+      ],
+      otherWorktreeMarker,
+    );
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(false);
+    const ok = result as ArchivePlanResult;
+    expect(ok.commitHash).toBe('finalhash');
+    // warning 应提示 marker 指向另一 worktree + 不 release
+    expect(
+      ok.warnings.some(
+        (w) =>
+          w.includes('outside worktree') &&
+          w.includes('different worktree') &&
+          w.includes(otherWorktreeMarker),
+      ),
+    ).toBe(true);
+    // 关键 assertion: 不可 release 别人 worktree 的 marker (跨 worktree release 拒绝)
+    expect(deps.clearMarkerCalled.count).toBe(0);
   });
 });

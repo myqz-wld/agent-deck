@@ -50,6 +50,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { parseFrontmatter, stringifyFrontmatter } from '@main/utils/frontmatter';
+import { resolvePlanFilePath } from './plan-path-helpers';
 
 const execFileAsync = promisify(execFile);
 
@@ -338,17 +339,31 @@ export async function archivePlanImpl(
       }
     } else {
       // cwd valid + !inWorktree
-      if (markerReal !== null) {
-        // 状态 (c) plan §不变量 5: cwd valid + marker present → WARN 但 cwd 优先
-        // caller 持 marker 但 cwd 已移出 worktree,典型场景 caller 手动 cd 出 worktree 但忘 exit_worktree。
-        // 不阻塞 archive,但加 warning 提示并 release marker（archive 后 marker stale）。
+      // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.7 修法 (B-MED-1 claude):
+      // 旧版 `if (markerReal !== null)` 一档全部 release marker — markerReal 指向另一 worktree
+      // 时也错误 release,silent 偷 cross-worktree caller 状态。拆 3 子档:
+      // (c-1) marker == worktree → 可 release(caller 持本 worktree marker 但 cd 出去)
+      // (c-2) marker 指向另一 worktree → 仅 warn 不 release(let caller exit_worktree 自己清)
+      // (c-3) marker null → 直接放过(claude builtin caller 已 ExitWorktree,现有路径不变)
+      if (markerReal === worktreeReal) {
+        // 状态 (c-1) plan §不变量 5: cwd valid + marker == worktreeReal → WARN + release
+        // caller 持本 worktree marker 但 cd 出去,典型 claude SDK ExitWorktree(action:keep)
+        // 之前用 mcp enter_worktree 进过,现在改用 builtin ExitWorktree 但 marker 还在。
         warnings.push(
           `cwd ${cwdReal} is outside worktree but enter_worktree marker (${markerReal}) is held — caller likely forgot exit_worktree before changing cwd. Marker will be released after archive succeeds.`,
         );
         releaseMarkerOnSuccess = true;
+      } else if (markerReal !== null) {
+        // 状态 (c-2) plan §不变量 5: cwd valid + marker 指向另一 worktree → 仅 WARN 不 release。
+        // 不可 release 别人的 worktree marker — 让 caller 自己 exit_worktree(markerReal) 清。
+        // archive 本身仍走 happy path(不阻塞 cross-worktree archive,本字段语义只是 release marker)。
+        warnings.push(
+          `cwd ${cwdReal} is outside worktree, but caller holds marker for a different worktree (${markerReal}). Archive(${worktreeReal}) will not release marker(${markerReal}); caller should call exit_worktree on ${markerReal} separately.`,
+        );
+        // 不设 releaseMarkerOnSuccess: 不允许跨 worktree release 别人 marker
       }
-      // 状态 (a) plan §不变量 5: cwd valid + marker null + !inWorktree → 直接放过 (claude builtin
-      // caller 已 ExitWorktree, 现有路径不变)。
+      // 状态 (c-3) plan §不变量 5: cwd valid + marker null + !inWorktree → 直接放过 (claude
+      // builtin caller 已 ExitWorktree, 现有路径不变)。
     }
   } else {
     // cwdValid === false: caller cwd 失效（目录被删 / permission error / 跨 adapter 后 cwd resilience 移除）
@@ -392,26 +407,19 @@ export async function archivePlanImpl(
     }
     planFilePath = input.planFilePathOverride;
   } else {
-    // archive-plan-tool-ux-followup-20260515 (a): fallback 链加 `<main-repo>/plans/<id>.md`
-    // 中间档(双 reviewer 共识 HIGH:本项目实际惯例所有 stub plan 都直接创在 plans/,旧 fallback
-    // 缺中间档 → caller 不传 plan_file_path 时全失败)。顺序 .claude/plans/ > plans/ >
-    // ~/.claude/plans/(贴 user CLAUDE.md §Step 2 文档约定 .claude/plans/ in_progress 优先,
-    // 但 plans/ 中间档兜底本项目实际惯例)。
-    const projectLocal = path.join(mainRepo, '.claude', 'plans', `${input.planId}.md`);
-    const projectArchived = path.join(mainRepo, 'plans', `${input.planId}.md`);
-    const userGlobal = path.join(deps.homedir(), '.claude', 'plans', `${input.planId}.md`);
-    if (await deps.exists(projectLocal)) {
-      planFilePath = projectLocal;
-    } else if (await deps.exists(projectArchived)) {
-      planFilePath = projectArchived;
-    } else if (await deps.exists(userGlobal)) {
-      planFilePath = userGlobal;
-    } else {
-      return {
-        error: `plan file not found at any default location`,
-        hint: `Tried (in order): ${projectLocal}\n                  ${projectArchived}\n                  ${userGlobal}\nPass plan_file_path explicitly to override.`,
-      };
+    // archive-plan-tool-ux-followup-20260515 (a) + plan deep-review-batch-a1-b-fixes-20260519
+    // §Phase 3 Step 3.9 修法 (B-MED-3 双方独立强冗余):抽 resolvePlanFilePath helper 共享
+    // hand-off-session-impl.ts 同款 3 档 fallback (projectLocal > projectArchived > userGlobal),
+    // 顺序贴 user CLAUDE.md §Step 2 文档约定 .claude/plans/ in_progress 优先,但 plans/ 中间
+    // 档兜底本项目实际惯例(archive_plan 完成后 mv 目标位置)。
+    const resolved = await resolvePlanFilePath(mainRepo, input.planId, {
+      exists: deps.exists,
+      homedir: deps.homedir,
+    });
+    if ('error' in resolved) {
+      return resolved;
     }
+    planFilePath = resolved.path;
   }
 
   // 6. 读 + parse frontmatter，预检 status
@@ -727,10 +735,27 @@ export async function archivePlanImpl(
   }
 
   // 13. git add + commit
+  // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.10 修法 (B-MED-1 codex):
+  // 修前 filesToAdd 只含 archivedPath / indexPath,如果 source planFilePath 不等于
+  // archivedPath(典型本项目惯例 source 在 `<main-repo>/.claude/plans/<id>.md`)且 source 是
+  // tracked file → step 12 unlink 已把 source 从 working tree 移走但 git index 不知道,
+  // 归档 commit 只含「+archivedPath」不含「-source」,git status 仍显示「deleted: source」未
+  // 入 commit,用户后续 `git status` 看到 confusing pending deletion。修法:source 在 mainRepo
+  // 子树内 + source ≠ archivedPath → 把 source 相对路径加入 filesToAdd(git add 处理 deletion
+  // = stage 文件删除)。source 不在 mainRepo 子树内(如 `~/.claude/plans/` 全局位置) → 不加
+  // (不污染 mainRepo git history)。
   const filesToAdd = [
     path.relative(mainRepo, archivedPath),
     path.relative(mainRepo, indexPath),
   ];
+  const planRelative = path.relative(mainRepo, planFilePath);
+  if (
+    path.resolve(planFilePath) !== path.resolve(archivedPath) &&
+    !planRelative.startsWith('..') &&
+    !path.isAbsolute(planRelative)
+  ) {
+    filesToAdd.push(planRelative);
+  }
   try {
     await deps.runGit(['add', ...filesToAdd], mainRepo);
   } catch (e) {

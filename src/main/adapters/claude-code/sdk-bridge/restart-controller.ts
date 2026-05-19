@@ -80,13 +80,20 @@ export class RestartController {
     }
 
     // 单飞：等同 sessionId 的 in-flight recovery / restart 完成
-    const inflight = this.ctx.recovering.get(sessionId);
-    if (inflight) {
+    // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.6 修法 (A1-MED-2 codex):
+    // 旧版 `if (inflight)` 单等一次 → multi waiter race。3 个 caller 同时进入,inflight=A,
+    // A finally 释放 recovering Map → waiter B 拿到 lock + set 新 promise,但 waiter C 还在
+    // await A,A resolve 后 C 直接进 close+createSession 跟 B 并发(close OLD twice、写 DB
+    // 二次、createSession 两个 SDK 子进程,DB final 状态依赖竞速顺序)。修法:循环 re-check
+    // recovering Map 直到为空再继续,保证任意时刻只 1 个 inflight + 后续 waiter 依次 chain。
+    let inflight = this.ctx.recovering.get(sessionId);
+    while (inflight) {
       try {
         await inflight;
       } catch {
         // 上一个 recovery 失败不影响本次重启尝试
       }
+      inflight = this.ctx.recovering.get(sessionId);
     }
 
     const rec = sessionRepo.get(sessionId);
@@ -209,13 +216,17 @@ export class RestartController {
     }
 
     // 单飞（与 restartWithPermissionMode 共享 recovering Map）
-    const inflight = this.ctx.recovering.get(sessionId);
-    if (inflight) {
+    // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.6 修法 (A1-MED-2 codex):
+    // 同 restartWithPermissionMode 修法 — `if (inflight)` 改 `while (inflight)` 循环 re-check
+    // 防 multi waiter race。详上方 restartWithPermissionMode 同款修法 jsdoc。
+    let inflight = this.ctx.recovering.get(sessionId);
+    while (inflight) {
       try {
         await inflight;
       } catch {
         // 上一个失败不影响本次
       }
+      inflight = this.ctx.recovering.get(sessionId);
     }
 
     const rec = sessionRepo.get(sessionId);

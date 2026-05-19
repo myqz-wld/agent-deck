@@ -79,7 +79,15 @@ describe('archivePlanImpl — happy path', () => {
     expect(state.gitCalls[0]?.args).toEqual(['rev-parse', '--git-common-dir']);
     expect(state.gitCalls[0]?.cwd).toBe(input.worktreePath);
     // REVIEW_33 H1：verify base_branch 存在 + checkout 到 base_branch
-    expect(state.gitCalls[3]?.args).toEqual(['rev-parse', '--verify', 'main']);
+    // plan deep-review-batch-a1-b-fixes-20260519 §Phase 1 Step 1.2 修法 (B-HIGH-3): args 改为
+    // ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] 让校验严格落 refs/heads/
+    // namespace 不接受 SHA / tag / detached HEAD。
+    expect(state.gitCalls[3]?.args).toEqual([
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      'refs/heads/main',
+    ]);
     expect(state.gitCalls[3]?.cwd).toBe(expectedMainRepo);
     expect(state.gitCalls[4]?.args).toEqual(['checkout', 'main']);
     expect(state.gitCalls[4]?.cwd).toBe(expectedMainRepo);

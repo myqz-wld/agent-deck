@@ -29,6 +29,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
     const worktreePath = '/Users/test/repo/.claude/worktrees/global-plan';
     const mainRepo = '/Users/test/repo';
     state.files.set(worktreePath, '__dir__'); // REVIEW_33 H10
+    state.recognizedMainRepos.add(mainRepo); // B-HIGH-4 mainRepo status precheck 透明 mock
     const userGlobalPath = `${state.fakeHomedir}/.claude/plans/${planId}.md`;
     state.files.set(
       userGlobalPath,
@@ -77,6 +78,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
     );
     const worktreePath = '/Users/test/repo/.claude/worktrees/override-plan';
     state.files.set(worktreePath, '__dir__'); // REVIEW_33 H10
+    state.recognizedMainRepos.add('/Users/test/repo'); // B-HIGH-4 mainRepo status precheck 透明 mock
 
     const deps = makeDeps(state, [
       '/Users/test/repo/.git',
@@ -108,6 +110,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
   it('显式 plan_file_path override 不存在 → reject', async () => {
     const state = makeState();
     state.files.set('/Users/test/repo/.claude/worktrees/whatever', '__dir__'); // REVIEW_33 H10
+    state.recognizedMainRepos.add('/Users/test/repo'); // B-HIGH-4 mainRepo status precheck 透明 mock
     const deps = makeDeps(state, ['/Users/test/repo/.git', 'wb', '']);
 
     const result = await archivePlanImpl(
@@ -145,13 +148,21 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
 
     const result = await archivePlanImpl(customInput, deps);
     expect(_isArchivePlanError(result)).toBe(false);
-    expect(state.gitCalls[3]?.args).toEqual(['rev-parse', '--verify', 'develop']);
+    // plan deep-review-batch-a1-b-fixes-20260519 §Phase 1 Step 1.2 修法 (B-HIGH-3): args 改为
+    // ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] 让校验严格落 refs/heads/
+    // namespace 不接受 SHA / tag / detached HEAD。
+    expect(state.gitCalls[3]?.args).toEqual([
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      'refs/heads/develop',
+    ]);
     expect(state.gitCalls[4]?.args).toEqual(['checkout', 'develop']);
     expect(state.gitCalls[4]?.cwd).toBe(expectedMainRepo);
     expect(state.gitCalls[5]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix']);
   });
 
-  it('base_branch 不存在 → rev-parse --verify throw → reject 提示 base_branch 缺失', async () => {
+  it('base_branch 不存在 → rev-parse --verify refs/heads/<branch> throw → reject 提示 base_branch 不是 named branch', async () => {
     const { state, input } = fixtureHappyPath();
     const deps = makeDeps(state, [
       `/Users/test/repo/.git`,
@@ -162,7 +173,13 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
 
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(true);
-    expect((result as ArchivePlanError).error).toContain('base_branch "main" does not exist');
+    // plan deep-review-batch-a1-b-fixes-20260519 §Phase 1 Step 1.2 修法 (B-HIGH-3):
+    // 措辞从 "does not exist" 改为 "is not a named branch (refs/heads/<name>); SHA / tag /
+    // detached HEAD refs are not allowed." — 同时 hint 提示 archive_plan ff-merge 要求
+    // 命名 branch、不接受 SHA / tag / detached HEAD。
+    expect((result as ArchivePlanError).error).toContain('base_branch "main"');
+    expect((result as ArchivePlanError).error).toContain('not a named branch');
+    expect((result as ArchivePlanError).error).toContain('refs/heads/');
     // checkout / merge 不应被调用（早返）
     expect(state.gitCalls.find((c) => c.args[0] === 'checkout')).toBeUndefined();
     expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();

@@ -167,11 +167,21 @@ export async function exitWorktreeImpl(
   if (!(await deps.exists(worktreePath))) {
     // worktree 已被手工删 — 仍清 marker 让 caller 不再持过期标记。
     // 不视为 error(idempotent 收尾)。
+    // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.8 修法 (B-MED-2 claude):
+    // 旧版 catch 默默吞 clear failure 仍 return markerCleared:true → caller 看到「已清」错觉
+    // 但 marker DB 仍脏,下次再调任何路径触发 marker 校验仍命中 stale。修法:catch return
+    // error 与 step 6 happy path (L260+ clearCwdReleaseMarker throw → 上层 try/catch return error)
+    // 对称,partial-success 显式报告给 caller 决定如何 recover。
+    let markerCleared = false;
     if (marker) {
       try {
         deps.clearCwdReleaseMarker(input.callerSessionId);
-      } catch {
-        // clear 失败也不阻塞 — caller 仍能下次 enter_worktree 重置 marker
+        markerCleared = true;
+      } catch (e) {
+        return {
+          error: `worktree was already removed but clearCwdReleaseMarker failed: ${(e as Error).message}`,
+          hint: `worktree at ${worktreePath} no longer exists. Marker DB clear failed (partial-success). Manual recovery: call enter_worktree to reset marker, then exit_worktree.`,
+        };
       }
     }
     return {
@@ -179,7 +189,7 @@ export async function exitWorktreeImpl(
       action: input.action,
       branchDeleted: false,
       worktreeRemoved: false,
-      markerCleared: true,
+      markerCleared,
     };
   }
 

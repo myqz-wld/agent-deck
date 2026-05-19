@@ -549,8 +549,19 @@ export class ClaudeSdkBridge {
     // CHANGELOG_72 Bug 3：先同步 in-memory cache 再 await SDK，让下一次 canUseTool
     // bypass 短路立刻按新 mode 判断。注：bypass 有 spawn-time flag 锁死限制，
     // SDK 层会静默吞，仍按 fail-secure 处理（应用层比 SDK 严是安全方向）。
+    //
+    // A1-MED-1 (claude) plan §Phase 3 Step 3.1 修法：SDK setPermissionMode 抛错时回滚
+    // in-memory cache（与 restartWithPermissionMode 失败回滚 DB 同款 fail-fast 模式）。
+    // 修前：SDK throw → s.permissionMode 已经被改为 mode → caller 收到 throw 但 cache
+    // 已脏(canUseTool / sandbox decision 用脏 cache)→ DB / UI / 实际 SDK 行为三不一致。
+    const oldMode = s.permissionMode;
     s.permissionMode = mode;
-    await s.query.setPermissionMode(mode);
+    try {
+      await s.query.setPermissionMode(mode);
+    } catch (err) {
+      s.permissionMode = oldMode;
+      throw err;
+    }
   }
 
   /** 冷切权限模式 thin delegate。bypass 必须走冷切（spawn-time flag 锁死）。详 restart-controller.ts。 */

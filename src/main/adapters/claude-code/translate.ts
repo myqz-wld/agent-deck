@@ -187,12 +187,25 @@ export function imageResultToFileChanges(
 /**
  * PostToolUse 翻译。如果 tool_name 是 Edit/Write/MultiEdit，会同时返回
  * 一个 file-changed 事件（包含 before/after）。
+ *
+ * **plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.4 修法**(A1-MED-4 claude):
+ * - 函数签名 narrow 加 `tool_use_id?: string`(SDK PostToolUse hook payload 协议提供此字段,
+ *   spike1 已实证 sdk.d.ts:1870-1875 PostToolUse event 含 `tool_use_id: string`,
+ *   PermissionRequest 不含此字段是 SDK 协议事实)
+ * - 4 处 file-changed emit(Edit / Write / MultiEdit / image tool 内嵌 N 条) 都补 `toolCallId`
+ *   字段透传 p.tool_use_id,与 sdk-message-translate maybeEmitFileChanged 路径对称
+ *   (sdk-message-translate L209/L218/L229 早就在 tool_use 阶段传了 toolCallId,hook 路径
+ *   漏传 → 仅当 SDK hook 模式没传 tool_use_id 时下游 FileChangeRecord.toolCallId=null,
+ *   破坏「reverse lookup tool from file change」契约)。
+ * - 修法范围**仅 translatePostToolUse**(当前唯一调用 file-changed emit 的 hook 路径);
+ *   translatePreToolUse / translatePostToolUseFailure 不调 file-changed,无需修改。
  */
 export function translatePostToolUse(
   p: BaseHookPayload & {
     tool_name?: string;
     tool_input?: unknown;
     tool_response?: unknown;
+    tool_use_id?: string;
   },
 ): AgentEvent[] {
   const ts = Date.now();
@@ -227,6 +240,7 @@ export function translatePostToolUse(
           before: input.old_string ?? null,
           after: input.new_string ?? null,
           metadata: { source: 'Edit' },
+          toolCallId: p.tool_use_id,
         },
         ts,
       });
@@ -245,6 +259,7 @@ export function translatePostToolUse(
           before: null, // Write 不携带 before；UI 渲染时可标记为「新文件」
           after: input.content ?? null,
           metadata: { source: 'Write' },
+          toolCallId: p.tool_use_id,
         },
         ts,
       });
@@ -266,6 +281,7 @@ export function translatePostToolUse(
           before,
           after,
           metadata: { source: 'MultiEdit', editCount: input.edits.length },
+          toolCallId: p.tool_use_id,
         },
         ts,
       });
@@ -273,9 +289,11 @@ export function translatePostToolUse(
   } else if (isImageTool(p.tool_name)) {
     // MCP 图片工具（mcp__<server>__Image*）：解析 server 返回的结构化 JSON，
     // 翻译成 0~N 条 file-changed 事件（payload.before/after 是 ImageSource，不带图片二进制）
+    // plan §Phase 3 Step 3.4 修法:imageResultToFileChanges 传 tool_use_id,内部循环 N 条都带
+    // toolCallId(image-multi-edit 1 个 tool_use 对应 N file-changed 共享同 toolCallId)。
     const parsed = parseImageToolResult(p.tool_response);
     if (parsed) {
-      for (const fc of imageResultToFileChanges(parsed)) {
+      for (const fc of imageResultToFileChanges(parsed, p.tool_use_id)) {
         events.push({
           sessionId: p.session_id,
           agentId: AGENT_ID,
