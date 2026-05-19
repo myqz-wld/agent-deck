@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { DEFAULT_SETTINGS, type AppSettings, type AssetKind, type AssetMeta, type BundledAssetsSnapshot, type UserAssetsSnapshot } from '@shared/types';
+import { AssetCard, dedupBundledByName } from './assets/AssetCard';
 import { AssetEditor } from './assets/AssetEditor';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
@@ -144,14 +145,20 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
    *
    * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4**：getAssetContent 第 4 参数
    * `adapter` 直接透传 `asset.adapter`（bundled='claude-code'|'codex-cli' / user=null）。
+   *
+   * **plan reviewer-codex-cross-adapter-20260519 §Phase 4 Step 4.2**：input 改成 group
+   * （AssetMeta[]，1=single 或 2=dual-adapter SKILL）。default 选 first asset's adapter
+   * （`dedupBundledByName` 已按 claude-code 优先 / codex-cli 后排序，default 选 [claude]）。
    */
-  const openViewer = (asset: AssetMeta): void => {
+  const openViewer = (assets: AssetMeta[]): void => {
+    const first = assets[0];
+    if (!first) return;
     const seq = ++viewerSeqRef.current;
-    setViewer({ asset, content: null, error: null });
-    void window.api.getAssetContent(asset.kind, asset.name, asset.source, asset.adapter).then((r) => {
+    setViewer({ assets, currentAdapter: first.adapter, content: null, error: null });
+    void window.api.getAssetContent(first.kind, first.name, first.source, first.adapter).then((r) => {
       if (seq !== viewerSeqRef.current) return;
-      if (r.ok) setViewer({ asset, content: r.content, error: null });
-      else setViewer({ asset, content: null, error: r.reason ?? '未知错误' });
+      if (r.ok) setViewer({ assets, currentAdapter: first.adapter, content: r.content, error: null });
+      else setViewer({ assets, currentAdapter: first.adapter, content: null, error: r.reason ?? '未知错误' });
     });
   };
 
@@ -271,14 +278,25 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       {viewer && (
         <ContentViewerModal
           state={viewer}
-          onReveal={() =>
-            void window.api.revealAssetInFolder(
-              viewer.asset.kind,
-              viewer.asset.name,
-              viewer.asset.source,
-              viewer.asset.adapter,
-            )
-          }
+          onReveal={() => {
+            // reveal 当前选中 tab 对应文件（dual-adapter SKILL 切 tab 后 reveal 切到对应文件位置）
+            const cur = viewer.assets.find((a) => a.adapter === viewer.currentAdapter) ?? viewer.assets[0];
+            if (!cur) return;
+            void window.api.revealAssetInFolder(cur.kind, cur.name, cur.source, cur.adapter);
+          }}
+          onTabSwitch={(adapter) => {
+            // dual-adapter tab 切换：seq guard fetch 切到目标 adapter 的内容
+            // closure 每次 render 重建拿到最新 viewer state；React 18 batched update 队列保证一致性
+            const target = viewer.assets.find((a) => a.adapter === adapter);
+            if (!target || adapter === viewer.currentAdapter) return;
+            const seq = ++viewerSeqRef.current;
+            setViewer({ assets: viewer.assets, currentAdapter: adapter, content: null, error: null });
+            void window.api.getAssetContent(target.kind, target.name, target.source, target.adapter).then((r) => {
+              if (seq !== viewerSeqRef.current) return;
+              if (r.ok) setViewer({ assets: viewer.assets, currentAdapter: adapter, content: r.content, error: null });
+              else setViewer({ assets: viewer.assets, currentAdapter: adapter, content: null, error: r.reason ?? '未知错误' });
+            });
+          }}
           onClose={() => setViewer(null)}
         />
       )}
@@ -327,22 +345,25 @@ function AssetsTab({
   kind: AssetKind;
   bundled: AssetMeta[];
   user: AssetMeta[];
-  onView: (asset: AssetMeta) => void;
+  onView: (assets: AssetMeta[]) => void;
   onEdit: (asset: AssetMeta) => void;
   onNew: () => void;
 }): JSX.Element {
+  // bundled (kind+name) group dedup —— Phase 4 Step 4.1 同名跨 adapter 合并为单条双角标
+  // user assets 不会跨 adapter，直接每条包 [asset] 单元素数组喂给 AssetCard
+  const bundledGroups = dedupBundledByName(bundled);
   return (
     <div className="flex flex-col gap-3">
       <section>
         <div className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
           内置（agent-deck plugin，只读）
         </div>
-        {bundled.length === 0 ? (
+        {bundledGroups.length === 0 ? (
           <div className="text-[10px] text-deck-muted/60">（无）</div>
         ) : (
           <div className="flex flex-col gap-1.5">
-            {bundled.map((a) => (
-              <AssetCard key={a.qualifiedName} asset={a} onView={onView} />
+            {bundledGroups.map((group) => (
+              <AssetCard key={`${group[0].kind}:${group[0].name}`} assets={group} onView={onView} />
             ))}
           </div>
         )}
@@ -368,67 +389,11 @@ function AssetsTab({
         ) : (
           <div className="flex flex-col gap-1.5">
             {user.map((a) => (
-              <AssetCard key={a.qualifiedName} asset={a} onView={onView} onEdit={onEdit} />
+              <AssetCard key={a.qualifiedName} assets={[a]} onView={onView} onEdit={onEdit} />
             ))}
           </div>
         )}
       </section>
-    </div>
-  );
-}
-
-function AssetCard({
-  asset,
-  onView,
-  onEdit,
-}: {
-  asset: AssetMeta;
-  onView: (asset: AssetMeta) => void;
-  onEdit?: (asset: AssetMeta) => void;
-}): JSX.Element {
-  return (
-    <div className="rounded-md border border-deck-border bg-white/[0.03] p-2">
-      <div className="flex items-start justify-between gap-2">
-        <code className="text-[11px] font-medium text-deck-text">{asset.qualifiedName}</code>
-        <div className="flex shrink-0 gap-1 no-drag">
-          <button
-            type="button"
-            onClick={() => onView(asset)}
-            title="查看完整内容"
-            className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
-          >
-            查看
-          </button>
-          {onEdit && (
-            <button
-              type="button"
-              onClick={() => onEdit(asset)}
-              title="编辑（删除入口在编辑器内）"
-              className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
-            >
-              编辑
-            </button>
-          )}
-        </div>
-      </div>
-      {asset.kind === 'agent' && (asset.model || asset.tools) && (
-        <div className="mt-0.5 text-[10px] text-deck-muted/70">
-          {asset.model && <span>model: <code className="rounded bg-white/5 px-1">{asset.model}</code> </span>}
-          {asset.tools && <span>tools: <code className="rounded bg-white/5 px-1">{asset.tools}</code></span>}
-        </div>
-      )}
-      {asset.description && (
-        <div className="mt-1 text-[10px] leading-relaxed text-deck-muted line-clamp-3">
-          {asset.description}
-        </div>
-      )}
-      {asset.triggers && asset.triggers.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {asset.triggers.map((t) => (
-            <code key={t} className="rounded bg-white/5 px-1 text-[10px] text-deck-muted/80">{t}</code>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
