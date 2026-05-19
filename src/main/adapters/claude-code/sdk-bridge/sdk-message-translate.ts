@@ -136,7 +136,11 @@ export function translateSdkMessage(
         // 图片工具走 maybeEmitImageFileChanged 另一路径,本 Map 不参与) → no-op。
         consumePendingFileChangeIntent(e, internal, block.tool_use_id, status);
         // mcp 图片工具结果识别：反查 toolName，匹配则把 result.content 解析后翻译成 file-changed
-        maybeEmitImageFileChanged(e, internal, block.tool_use_id, block.content);
+        // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.8 修法**（M2 codex A1 MED-2）：
+        // status 透传给 maybeEmitImageFileChanged，与 Step 3.5 修法对称 — failed 时不 emit
+        // file-changed (避免 SDK 图片工具 fail 时发出脏 file-changed,与 Edit/Write/MultiEdit
+        // 的 status='failed' 不 emit intent 行为对齐)。
+        maybeEmitImageFileChanged(e, internal, block.tool_use_id, block.content, status);
       }
     }
   } else if (msg.type === 'result') {
@@ -287,18 +291,27 @@ export function consumePendingFileChangeIntent(
  * 之前只在图片工具分支末尾 delete，导致普通工具（Bash/Edit/Read…）每条 turn 漏一条，
  * 长会话 toolUseNames Map 线性增长直到 session-end 才清空。
  *
- * 行为与原 ClaudeSdkBridge.maybeEmitImageFileChanged 字节级等价。
+ * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.8 修法**（M2 codex A1 MED-2）：
+ * 加 `status: 'completed' | 'failed'` 参数与 consumePendingFileChangeIntent 行为对称。
+ * status='failed' → 仅 toolUseNames.delete (清 Map 防 leak) 早返不 emit file-changed,
+ * 避免 SDK 图片工具 fail 时发出脏 file-changed (类似 Edit/Write/MultiEdit 的 intent failed
+ * 路径不 emit)。
+ *
+ * 行为与原 ClaudeSdkBridge.maybeEmitImageFileChanged 字节级等价（completed 路径不变）。
  */
 export function maybeEmitImageFileChanged(
   e: (kind: AgentEvent['kind'], payload: unknown) => void,
   internal: InternalSession,
   toolUseId: string | undefined,
   content: unknown,
+  status: 'completed' | 'failed' = 'completed',
 ): void {
   if (!toolUseId) return;
   const toolName = internal.toolUseNames.get(toolUseId);
   // 收到 tool_result 即可消费这条映射，无论是否图片工具
   internal.toolUseNames.delete(toolUseId);
+  // Phase 2.8 修法：status='failed' 早返不 emit file-changed (toolUseNames 已 delete 防 leak)
+  if (status === 'failed') return;
   if (!isImageTool(toolName)) return;
   const parsed = parseImageToolResult(content);
   if (!parsed) return;
