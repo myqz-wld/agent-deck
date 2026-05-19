@@ -58,7 +58,21 @@ export interface ExitWorktreeImplResult {
   markerCleared: boolean;
 }
 
-export type ExitWorktreeError = { error: string; hint?: string };
+export type ExitWorktreeError = {
+  error: string;
+  hint?: string;
+  /**
+   * plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.8 (L2 claude B LOW-1):
+   * markerCleared 语义在 happy / early-return path 对称。partial-success error 路径也透传
+   * markerCleared 让 caller 知道 marker DB 状态(避免 caller 重试时仍持 stale marker)。
+   * - true: marker 已清(典型 step 4 worktree 不存在 partial-success / step 5d branch 删失败但
+   *   worktree 已删 / step 4 .git 损坏 action='keep' 路径)
+   * - false: marker 未清(worktree dirty 拦下 / cross-worktree 不允许 release / git worktree remove
+   *   失败保留 caller 仍在 worktree 内的状态 / step 6 clear marker 自身失败)
+   * - undefined: error 路径未涉及 marker 操作(早期 input 校验失败等),caller 应当 marker 状态未知
+   */
+  markerCleared?: boolean;
+};
 
 export interface ExitWorktreeDeps {
   /** 跑 git 子命令；返回 stdout（trim）。失败抛 error。 */
@@ -178,9 +192,12 @@ export async function exitWorktreeImpl(
         deps.clearCwdReleaseMarker(input.callerSessionId);
         markerCleared = true;
       } catch (e) {
+        // plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.8: error 路径加 markerCleared
+        // 字段(false 表示 marker DB clear 失败 — 与 happy/partial-success 对称)
         return {
           error: `worktree was already removed but clearCwdReleaseMarker failed: ${(e as Error).message}`,
           hint: `worktree at ${worktreePath} no longer exists. Marker DB clear failed (partial-success). Manual recovery: call enter_worktree to reset marker, then exit_worktree.`,
+          markerCleared: false,
         };
       }
     }
@@ -201,9 +218,39 @@ export async function exitWorktreeImpl(
       : path.resolve(worktreePath, gitCommonDir);
     mainRepo = path.dirname(commonDirAbs);
   } catch (e) {
+    // plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.7 + 5.8 (M11 codex B MED-3 + L2)：
+    // .git 损坏时 action='keep' 路径仍能清 marker(纯本地状态清理,不依赖 git ops):
+    // - action='keep' 不删 worktree 不删 branch,仅清 caller per-session marker → 即使 .git 损坏
+    //   也能 idempotent 收尾(让下次 archive_plan 4 态预检不撞 stale marker)
+    // - action='remove' 必需 git worktree remove + branch -D,git 通讯断层无法 fallback → 仍 reject
+    // markerCleared 字段透传 caller 让其知道 marker DB 状态(plan §5.8 happy/early-return 对称)
+    const errMsg = (e as Error).message;
+    if (input.action === 'keep') {
+      let markerCleared = false;
+      if (marker) {
+        try {
+          deps.clearCwdReleaseMarker(input.callerSessionId);
+          markerCleared = true;
+        } catch (markerErr) {
+          return {
+            error: `partial-success: git rev-parse --git-common-dir failed in worktree ${worktreePath} (${errMsg}); .git metadata may be corrupt. action='keep' attempted to clear caller marker but clearCwdReleaseMarker also failed: ${(markerErr as Error).message}`,
+            hint: `worktree directory at ${worktreePath} exists but its .git metadata is unreadable AND marker DB clear failed. Manual recovery: (a) check worktree.git existence with \`ls -la ${worktreePath}/.git\`; if file present but corrupt, repair via main repo \`git worktree repair\`; (b) restart Agent Deck to retry marker clear. Marker DB still holds stale marker for ${worktreePath}.`,
+            markerCleared: false,
+          };
+        }
+      }
+      return {
+        error: `partial-success: git rev-parse --git-common-dir failed in worktree ${worktreePath}: ${errMsg}; .git metadata may be corrupt`,
+        hint: `worktree directory at ${worktreePath} exists but its .git metadata is unreadable. action='keep' completed marker cleanup (markerCleared=${markerCleared}) so caller no longer holds stale marker for this worktree. Manual recovery: check \`ls -la ${worktreePath}/.git\`; if file present but corrupt, repair via \`git -C <main-repo> worktree repair\` or simply re-create the worktree.`,
+        markerCleared,
+      };
+    }
+    // action='remove' 路径: git ops 必需 .git 通讯,无法 fallback。marker 不清(worktree 仍在,
+    // caller 可能仍引用)。
     return {
-      error: `git rev-parse --git-common-dir failed in worktree ${worktreePath}: ${(e as Error).message}`,
-      hint: `worktree_path "${worktreePath}" is not a valid git worktree (or git not installed). Verify with \`git -C ${worktreePath} status\`.`,
+      error: `git rev-parse --git-common-dir failed in worktree ${worktreePath}: ${errMsg}`,
+      hint: `worktree_path "${worktreePath}" is not a valid git worktree (or git not installed). action='remove' requires intact .git metadata for \`git worktree remove\` + \`git branch -D\`. Verify with \`git -C ${worktreePath} status\`. If .git is corrupt, manually clean up via \`rm -rf ${worktreePath}\` + \`git -C <main-repo> worktree prune\` then retry exit_worktree({ action: 'keep' }) to clear marker. Marker DB unchanged.`,
+      markerCleared: false,
     };
   }
 
@@ -268,14 +315,30 @@ export async function exitWorktreeImpl(
         // P5 Round 1 reviewer-claude MED-1 修法 (comment vs code 对齐):虽 worktree 已成功删,
         // branch -d/-D 失败仍 return error 让 caller 显式处理(silently ok 会让 caller 错以为
         // 完全清理,实际 branch 仍存在污染 list)。caller 拿到 hint 后手工 git branch -D。
+        //
+        // plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.6 + 5.8 (M10 codex B MED-2 + L2):
+        // - error 第一行加 "partial-success" 前缀(让 caller 不读 hint 就知道是 partial vs full)
+        // - 加 markerCleared 字段(worktree 已删 = caller 不再在 worktree 内 = 清 marker 防 stale)
+        // - hint 已经含可执行 `git -C ${mainRepo} branch -D ${branchName}` 命令(M10 描述「改可执行」
+        //   要求满足),isUnmerged 路径还多 (a)/(b)/(c) 三选项让 caller 选合适恢复方式
         const errMsg = (e as Error).message;
         const isUnmerged =
           !input.discardChanges && /not fully merged|not yet been merged/i.test(errMsg);
+        // 尝试清 marker(worktree 已删,caller 不再在 worktree 内,清 marker 防 stale)
+        let markerCleared = false;
+        try {
+          deps.clearCwdReleaseMarker(input.callerSessionId);
+          markerCleared = true;
+        } catch {
+          // marker 清失败也不阻塞 partial-success error 返回(caller 已知 branch 有问题,
+          // marker 清失败再加一层告知意义不大,让主诉求 branch 删失败先呈现)
+        }
         return {
-          error: `worktree removed but git branch ${branchDeleteFlag} ${branchName} failed: ${errMsg}`,
+          error: `partial-success: worktree removed but git branch ${branchDeleteFlag} ${branchName} failed: ${errMsg}`,
           hint: isUnmerged
-            ? `branch ${branchName} has commits not yet merged into base — refusing to delete (discard_changes=false). Options: (a) merge / cherry-pick the unmerged commits into your base branch first, then retry exit_worktree; (b) call exit_worktree({ action: 'remove', worktree_path: '${worktreePath}', discard_changes: true }) to force delete (destructive, you will lose those commits); (c) manually clean up: \`git -C ${mainRepo} branch -D ${branchName}\`.`
-            : `worktree at ${worktreePath} was successfully removed, but the branch ${branchName} still exists (this is partial-success not full failure). Manual cleanup: \`git -C ${mainRepo} branch -D ${branchName}\`. Common causes: branch already deleted by another tool / branch checked out in another worktree.`,
+            ? `branch ${branchName} has commits not yet merged into base — refusing to delete (discard_changes=false). Options: (a) merge / cherry-pick the unmerged commits into your base branch first, then retry exit_worktree; (b) call exit_worktree({ action: 'remove', worktree_path: '${worktreePath}', discard_changes: true }) to force delete (destructive, you will lose those commits); (c) manually clean up: \`git -C ${mainRepo} branch -D ${branchName}\`. Marker DB cleared (markerCleared=${markerCleared}) so caller no longer holds stale marker for ${worktreePath}.`
+            : `worktree at ${worktreePath} was successfully removed, but the branch ${branchName} still exists (this is partial-success not full failure). Manual cleanup: \`git -C ${mainRepo} branch -D ${branchName}\`. Common causes: branch already deleted by another tool / branch checked out in another worktree. Marker DB cleared (markerCleared=${markerCleared}).`,
+          markerCleared,
         };
       }
     }
@@ -290,9 +353,12 @@ export async function exitWorktreeImpl(
     // P5 Round 1 reviewer-claude MED-1 修法 (comment vs code 对齐):虽 git 操作已完成,
     // marker 清失败仍 return error 让 caller 显式知道 DB 写挂(silently ok return 会让 stale
     // marker 跟到下次 archive_plan 撞 4 态状态 4 误 reject)。
+    // plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.8: error 路径加 markerCleared
+    // 字段(false 表示 marker DB clear 失败 — 与 happy/partial-success 对称)
     return {
-      error: `${input.action === 'remove' ? 'worktree removed but ' : ''}clearCwdReleaseMarker failed: ${(e as Error).message}`,
+      error: `${input.action === 'remove' ? 'partial-success: worktree removed but ' : ''}clearCwdReleaseMarker failed: ${(e as Error).message}`,
       hint: `${input.action === 'remove' ? `worktree at ${worktreePath} (branch ${branchName ?? '<unknown>'}) was successfully removed, but ` : ''}the per-session cwd_release_marker DB clear failed (partial-success). Manual recovery: call enter_worktree to reset marker, then exit_worktree to clean up. Common causes: SQLite locked / DB connection lost / read-only filesystem.`,
+      markerCleared: false,
     };
   }
 
