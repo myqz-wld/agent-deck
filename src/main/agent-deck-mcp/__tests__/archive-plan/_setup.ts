@@ -13,6 +13,13 @@
  * 队列。让所有现有 test 的 gitMockPlan 数组结构不变(已经按 worktree-status 之后 = base_branch
  * verify 之后 ... 顺序写),只在测试故意要验 mainRepo dirty 时显式传 `mainRepoStatus`。
  *
+ * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 1.2a 升级**:Phase 1.2a 抽
+ * `assertMainRepoCleanForArchive` lambda 后,mainRepo precheck 用新 args
+ * `['status', '--porcelain=v1', '-z']`(NUL 分隔)替代老 `['status', '--porcelain']`。
+ * 拦截条件同步扩展识别新 args,默认仍返回 `''`(空 string 在 NUL parser 下解出 0 entries =
+ * clean,行为兼容)。test 想测 dirty 时仍传 mainRepoStatus,但需用 NUL 分隔格式
+ * (`'M file.ts\0'`),老 newline 格式 lambda parser 找不到 NUL 会解出 0 entries 不触发 dirty。
+ *
  * 区分 cwd 是 mainRepo 还是 worktreePath 用 `state.recognizedMainRepos: Set<string>`
  * (fixtureHappyPath 默认填 `/Users/test/repo`,test 自定义时手动加)。
  */
@@ -32,9 +39,10 @@ export interface TestState {
   fakeHomedir: string;
   realpathMap: Map<string, string>;
   /**
-   * mainRepo 路径白名单。makeDeps 内部 runGit 拦 `['status', '--porcelain']` 在这些 cwd
-   * 下不消耗 queue,默认返回 makeDeps opts.mainRepoStatus。
-   * fixtureHappyPath 默认填 `/Users/test/repo`;test 自定义其他 mainRepo 路径时手动 add。
+   * mainRepo 路径白名单。makeDeps 内部 runGit 拦 mainRepo `status --porcelain*` 调用
+   * (老 `--porcelain` / 新 `--porcelain=v1 -z` 都拦),不消耗 queue,默认返回
+   * makeDeps opts.mainRepoStatus。fixtureHappyPath 默认填 `/Users/test/repo`;
+   * test 自定义其他 mainRepo 路径时手动 add。
    */
   recognizedMainRepos: Set<string>;
 }
@@ -63,9 +71,13 @@ export function makeState(overrides: Partial<TestState> = {}): TestState {
  * gitMockPlan 是按调用顺序逐条返回的 stdout 队列（默认 trim）。
  *
  * **opts.mainRepoStatus** (B-HIGH-4 mainRepo dirty precheck 配套):cwd 在
- * `state.recognizedMainRepos` 内 + args === ['status', '--porcelain'] → 透明返回
- * opts.mainRepoStatus(默认 '' = clean),不消耗 gitMockPlan 队列。仍记 gitCalls
+ * `state.recognizedMainRepos` 内 + args 是 `status --porcelain` / `status --porcelain=v1 -z`
+ * → 透明返回 opts.mainRepoStatus(默认 '' = clean),不消耗 gitMockPlan 队列。仍记 gitCalls
  * (assertion 可见此 call,但 index 偏移交由 caller 自检)。
+ *
+ * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 1.2a 升级**:lambda 用
+ * `--porcelain=v1 -z`(NUL 分隔),拦截识别新 args 同样透明返回。dirty test 需用 NUL 分隔
+ * 格式 mainRepoStatus(老 newline 格式 lambda parser 找不到 NUL 会解出 0 entries)。
  */
 export function makeDeps(
   state: TestState,
@@ -79,10 +91,18 @@ export function makeDeps(
       // Phase 1 B-HIGH-4 修法配套:mainRepo status precheck 透明 mock,**不消耗 queue 也不 push
       // gitCalls**(让所有现有 test 的 gitCalls[idx] 期望 / 队列结构都不偏移)。worktreePath
       // status precheck 仍走 queue + 计入 gitCalls(cwd 不在 recognizedMainRepos 内)。
-      if (
-        args.length === 2 &&
+      //
+      // **Phase 1.2a 升级**:同时识别新 args `['status', '--porcelain=v1', '-z']`
+      // (lambda assertMainRepoCleanForArchive 内部调用)。
+      const isMainRepoStatusOld =
+        args.length === 2 && args[0] === 'status' && args[1] === '--porcelain';
+      const isMainRepoStatusNew =
+        args.length === 3 &&
         args[0] === 'status' &&
-        args[1] === '--porcelain' &&
+        args[1] === '--porcelain=v1' &&
+        args[2] === '-z';
+      if (
+        (isMainRepoStatusOld || isMainRepoStatusNew) &&
         state.recognizedMainRepos.has(cwd)
       ) {
         if (mainRepoStatus instanceof Error) throw mainRepoStatus;
