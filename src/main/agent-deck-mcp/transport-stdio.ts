@@ -27,6 +27,26 @@
 import { buildAgentDeckTools } from './tools';
 import { EXTERNAL_CALLER_SENTINEL } from './types';
 
+/**
+ * @internal Only for `__tests__/`. Do NOT import from other production files.
+ *
+ * **R3 fix-4 (M2 codex Batch C+D MED-1)**：stdio transport 的 callerSessionIdOverride lambda
+ * export 给 spoofing-attack-paths.test.ts 真 import 绑 production。
+ *
+ * **抽出动机**：旧版 test 本地复制 `const stdioOverride = () => EXTERNAL_CALLER_SENTINEL` 不绑
+ * production transport-stdio.ts → 将来 transport-stdio.ts 回退成 `callerSessionIdOverride: null`
+ * test 仍 pass 不报警 → B-HIGH-1 修法回归被静默 ship。export 后 test 真 import lambda,production
+ * 回退会让 test 同步 fail。
+ *
+ * **行为不变**: 永返 `__external__` sentinel 切断 spoofing 路径（与 buildAgentDeckTools 内部
+ * `overridden ?? args.caller_session_id` 短路逻辑配合，让任何 args.caller_session_id 被忽略）。
+ *
+ * **禁止扩散**: 仅 transport-stdio.ts 内使用 + `__tests__/spoofing-attack-paths.test.ts` 校验
+ * 用。其他 production 文件想用 sentinel 直接 `import { EXTERNAL_CALLER_SENTINEL } from './types'`
+ * 即可，不要 import 本 lambda（与 D6 export 仅供 __tests__/ 原则对称）。
+ */
+export const stdioCallerSessionIdOverride = (): string => EXTERNAL_CALLER_SENTINEL;
+
 const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
   s: string,
 ) => Promise<T>;
@@ -81,8 +101,13 @@ export async function runAgentDeckMcpStdio(): Promise<void> {
   // client 能填已存在 active sid spoof 写工具（B-HIGH-1 reviewer-claude 反驳轮 mini-test 实证）。
   // 修法: force callerSessionIdOverride 永返 sentinel，让 stdio transport 在源头切断 spoofing
   // 路径（与 helpers.ts denyExternalIfNotAllowed (a) stdio invariant assertion 双层守门 = 修法 (C)）。
+  //
+  // **R3 fix-4 (M2 codex Batch C+D MED-1)**: 抽 module-level export `stdioCallerSessionIdOverride`
+  // 给 spoofing-attack-paths.test.ts 真 import 绑 production（旧版 test 本地复制 const stdioOverride
+  // 不绑 production → 将来 transport-stdio.ts 回退成 `callerSessionIdOverride: null` test 仍 pass
+  // 不报警 → 漏洞回归被静默 ship）。export 仅供 __tests__ import,严禁其他 production 文件 import。
   const adapted = await buildAgentDeckTools({
-    callerSessionIdOverride: () => EXTERNAL_CALLER_SENTINEL,
+    callerSessionIdOverride: stdioCallerSessionIdOverride,
     transport: 'stdio',
   });
   for (const t of adapted) {

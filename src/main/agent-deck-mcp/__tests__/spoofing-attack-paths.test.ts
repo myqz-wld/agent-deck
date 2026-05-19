@@ -42,6 +42,7 @@ vi.mock('@main/store/session-repo', () => ({
 }));
 
 import { resolveCallerSidForReadOnly } from '../transport-http';
+import { stdioCallerSessionIdOverride } from '../transport-stdio';
 import { makeCallerContext, denyExternalIfNotAllowed } from '../tools/helpers';
 import {
   EXTERNAL_CALLER_SENTINEL,
@@ -66,8 +67,12 @@ function simulateMakeCtx(opts: {
   return makeCallerContext(callerSid, undefined, opts.transport);
 }
 
-/** stdio transport override — 与 transport-stdio.ts:85 写死一致 */
-const stdioOverride = () => EXTERNAL_CALLER_SENTINEL;
+/**
+ * R3 fix-4 (M2 codex Batch C+D MED-1) 修法：真 import production stdio override lambda
+ * 替代旧版本地复制 `() => EXTERNAL_CALLER_SENTINEL`。production transport-stdio.ts 若回退成
+ * `callerSessionIdOverride: null` test 同步 fail（防 B-HIGH-1 修法被静默回归）。
+ */
+const stdioOverride = stdioCallerSessionIdOverride;
 
 describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
   // ============================================================================
