@@ -44,6 +44,7 @@ import {
   HAND_OFF_SESSION_SCHEMA,
   ENTER_WORKTREE_SCHEMA,
   EXIT_WORKTREE_SCHEMA,
+  SHUTDOWN_BATON_TEAMMATES_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
@@ -54,6 +55,7 @@ import { archivePlanHandler } from './handlers/archive-plan';
 import { handOffSessionHandler } from './handlers/hand-off-session';
 import { enterWorktreeHandler } from './handlers/enter-worktree';
 import { exitWorktreeHandler } from './handlers/exit-worktree';
+import { shutdownBatonTeammatesHandler } from './handlers/shutdown-baton-teammates';
 
 // helpers 子集 re-export，保持老 caller 兼容（外部对 makeCallerContext / denyExternalIfNotAllowed
 // 的 import 路径 `from './tools'` 仍能 resolve）。
@@ -181,6 +183,16 @@ export async function buildAgentDeckTools(
     async (args, extra) => exitWorktreeHandler(args, makeCtx(args, extra)),
   );
 
+  // plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.3 / D4 F1c：
+  // shutdown_baton_teammates tool — escape hatch 让 caller 手工归档 plan 后补跑 baton-cleanup
+  // phase 1（仅 teammate shutdown，不归档 caller）。
+  const shutdownBatonTeammates = tool(
+    AGENT_DECK_TOOL_NAMES.shutdownBatonTeammates,
+    'Escape hatch: shutdown all active teammates of every team where caller is the lead — equivalent of `archive_plan` / `hand_off_session` baton-cleanup phase 1, **without** archiving caller (phase 2). Use this ONLY when archive_plan tool precheck failed (mainRepo dirty on archive-critical paths / cwd resilience guard / etc.) and you went the user CLAUDE.md §Step 4 manual archive 5-step path (commit + mv + git worktree remove + branch -D), bypassing archive_plan tool — then runBatonCleanup phase 1 was never invoked → reviewer-claude / reviewer-codex teammates naturally decay to dormant but stay un-closed (memory + SDK live query waste). This tool restores the baton-cleanup teammate-shutdown semantic. Behavior: dedup teammate sids across multi-team shared sids → serial close → handle individual close failures (warn, continue). **Important error contract** (plan §F1c R2 codex MED-4): if caller is not a lead in any active team (caller is teammate / no active membership / all caller-lead teams already archived), returns ERROR with hint pointing to IPC TeamShutdownAllTeammates handler or UI Team panel — NOT silent success (that would mislead caller into believing cleanup happened). deny external caller (sessionManager.close write + per-session caller=lead lookup needs real caller_session_id). Returns { closed: string[], failed: Array<{sessionId,reason}>, skipped: null, planId: string | null }.',
+    SHUTDOWN_BATON_TEAMMATES_SCHEMA,
+    async (args, extra) => shutdownBatonTeammatesHandler(args, makeCtx(args, extra)),
+  );
+
   return [
     spawnSession,
     sendMessage,
@@ -191,5 +203,6 @@ export async function buildAgentDeckTools(
     handOffSession,
     enterWorktree,
     exitWorktree,
+    shutdownBatonTeammates,
   ];
 }

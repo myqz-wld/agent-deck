@@ -89,6 +89,11 @@ export const AGENT_DECK_TOOL_NAMES = {
   handOffSession: 'hand_off_session',
   enterWorktree: 'enter_worktree',
   exitWorktree: 'exit_worktree',
+  // plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.3 / D4 F1c：
+  // escape hatch tool — caller 手工归档 plan 后补跑 baton-cleanup phase 1（仅 teammate
+  // shutdown，不归档 caller）。仅供 archive_plan precheck fail fallback / 历史 dormant 残留
+  // 清理使用。
+  shutdownBatonTeammates: 'shutdown_baton_teammates',
 } as const;
 
 export type AgentDeckToolName =
@@ -97,8 +102,9 @@ export type AgentDeckToolName =
 /**
  * 注册到 in-process MCP / HTTP / stdio 的 tool 是否允许「外部 caller」调用。
  * spawn_session / send_message / shutdown_session / archive_plan / hand_off_session /
- * enter_worktree / exit_worktree 默认 deny external（防 fork bomb / 越权 IPC / 高风险
- * git+fs 写 / 起 SDK session 的 fork bomb / setMarker 需 per-session 真实 caller_session_id）；
+ * enter_worktree / exit_worktree / shutdown_baton_teammates 默认 deny external（防 fork bomb /
+ * 越权 IPC / 高风险 git+fs 写 / 起 SDK session 的 fork bomb / setMarker 需 per-session 真实
+ * caller_session_id / 写 sessionManager.close 需 caller=lead 反查关系）；
  * list_sessions / get_session 是只读 / 观察类，允许 external。
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
@@ -111,4 +117,5 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   hand_off_session: false,
   enter_worktree: false,
   exit_worktree: false,
+  shutdown_baton_teammates: false,
 };
