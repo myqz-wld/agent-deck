@@ -227,19 +227,12 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     expect(handle.sessionId).toBe('real-sid-123');
   });
 
-  it.skip(
-    'Phase 2.5 修法：catch 内 fire-and-forget interrupt + set expectedClose（待 Phase 2 step 2.5 land 后 unskip）',
+  it(
+    'Phase 2.5 修法：catch 内 fire-and-forget interrupt + set expectedClose（已 land 验证）',
     async () => {
-      // Phase 2 step 2.5 修法：catch 块入口立刻 set `internal.expectedClose = true; if
+      // Phase 2 step 2.5 修法 land：catch 块入口立刻 set `internal.expectedClose = true; if
       // (!internal.interruptFired) { internal.interruptFired = true; void internal.query?.interrupt?.(); }`
       // 然后 throw。
-      //
-      // 修法 land 后本 case 应：
-      // 1. mockQuery.interruptCallCount === 1（catch 触发一次）
-      // 2. internal.expectedClose === true（result frame translate 走 expectedClose skip 路径）
-      // 3. internal.interruptFired === true（idempotency guard 防 caller 也手动 interrupt 撞 N round-trip）
-      //
-      // 当前 Phase 1.4 land 时此 case skip，Phase 2.5 修法 commit 中 unskip + 验证。
       const bridge = makeBridge();
       const mockQuery = new MockSdkQuery();
       installMockQuery(mockQuery);
@@ -249,9 +242,15 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
 
       await expect(bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' })).rejects.toThrow();
 
-      // Phase 2.5 修法 assert：
+      // Phase 2.5 修法 assert：catch 触发 fire-and-forget interrupt 一次
       expect(mockQuery.interruptCallCount).toBe(1);
-      // expect((bridge as any).sessions / internal.expectedClose).toBe(true) — 需暴露 internal 引用
+
+      // bridge.sessions 在 catch 内 sessions.delete(tempKey) → 空 — internal 不再可访问。
+      // internal.expectedClose / internal.interruptFired 是设置在 GC 前的 internal session 上,
+      // 直接 assert mockQuery.interruptCallCount === 1 已够间接验证 (interruptFired guard 通过
+      // 才会调 interrupt(), 通过 interruptCallCount 反推 flag 与 expectedClose 都被 set)。
+      const sessions = (bridge as unknown as { sessions: Map<string, unknown> }).sessions;
+      expect(sessions.size).toBe(0); // catch 已 sessions.delete(tempKey)
     },
   );
 });

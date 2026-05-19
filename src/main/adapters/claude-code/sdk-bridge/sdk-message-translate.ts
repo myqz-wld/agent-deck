@@ -156,6 +156,13 @@ export function translateSdkMessage(
     // OLD record 后续会被 renameSdkSession 整体迁到 NEW_ID，OLD 的 finished 既不影响
     // 新 record 状态推进（NEW SDK 自己会发 finished），也不应该污染 dock / 通知 / UI 时间线。
     // 修法：expectedClose 时整段 return，三个通道（红字 / finished UI / 系统通知）一起 skip。
+    //
+    // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.6 关联**：H1+H2 race 修法
+    // (Phase 2.1+2.5) 在 fallback fire / createSession throw catch 双路径 fire-and-forget
+    // interrupt()，spike1 case A 实证 SDK 仍 emit result frame subtype='error_during_execution'
+    // (替代 success)。本 L159 已 land 的 `if (internal.expectedClose) return;` 覆盖该 result
+    // frame 整段静默路径（不需 Phase 2 新增 skip 逻辑，复核确认 expectedClose 已 land 且覆盖
+    // result frame 翻译）。
     if (internal.expectedClose) return;
     if (r.is_error || (r.subtype && r.subtype !== 'success')) {
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
