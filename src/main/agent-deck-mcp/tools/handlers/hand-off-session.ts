@@ -135,6 +135,38 @@ function mergeCallerCwd(
   return { ...callerImplDeps, ...callerCwdInjection };
 }
 
+/**
+ * Phase 1.3a (deep-review-batch-a1-b-followup-r3-20260519)：spawn handler `opts.batonMode` /
+ * `opts.batonRole` 决策抽 lambda export 让 test 端到端调真实 production lambda 而非 inline
+ * 复制合约（不变量 3）。
+ *
+ * **B-HIGH-2 修法**（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）：旧 impl 无条件
+ * `batonMode=true` 让 `archive_caller=false` 也跳 spawn-guards depth check + 不写 spawn-link →
+ * caller 持 `archive_caller=false` × N 次调 hand_off 形成无限 spawn 路径绕过 fan-out=5/parent +
+ * depth=3 双护栏。修法：条件化 `batonMode`，仅 `archive_caller=true`（默认 baton 语义）跳 depth；
+ * `archive_caller=false` 退化 normal spawn 走完整 depth/fan-out/setSpawnLink 与 spawn_session 同款。
+ *
+ * **M12 修法**（REVIEW_47 codex·B MED-4）：旧 impl 无条件 `batonRole: 'lead'`，即使
+ * `archive_caller=false` 退化 normal spawn 也无脑传 'lead' 让 spawn.ts:408 addMember 分支拿到
+ * 错误 role（如果同时有 team_name 启用 team 通信）。修法：条件化 batonRole — 仅 `batonMode=true`
+ * 真 baton 行为时传 'lead'（新 session 接管 lead 角色防 archiveTeamsIfOrphaned 误触发）；
+ * `batonMode=false` 退化 normal spawn → undefined 让 spawn 走默认 'teammate'。
+ *
+ * `args.team_name` 在签名预留但暂未参与决策 — 当前 `batonMode=true` 不带 team_name 时 spawn
+ * 内部 `if (args.team_name && teamIdEarly)` addMember 分支不会跑，batonRole 是 no-op，传
+ * 'lead' / undefined 行为一致；但传 undefined 更显式表达 "normal spawn" 语义（M12 修法核心）。
+ *
+ * @internal Only for __tests__/. Do NOT import from other production files.
+ */
+export function resolveBatonRoleForSpawn(args: {
+  archive_caller?: boolean;
+  team_name?: string;
+}): { batonMode: boolean; batonRole: 'lead' | 'teammate' | undefined } {
+  const batonMode = args.archive_caller !== false;
+  const batonRole: 'lead' | 'teammate' | undefined = batonMode ? 'lead' : undefined;
+  return { batonMode, batonRole };
+}
+
 export const handOffSessionHandler = withMcpGuard(
   'hand_off_session',
   async (
@@ -303,39 +335,25 @@ export const handOffSessionHandler = withMcpGuard(
     };
 
     // 3. 调 spawn handler 完成实际 spawn（透传同一 ctx 让 caller 视角一致）
-    // CHANGELOG_98 / R2 deep review HIGH-1：传 { batonMode: true } 让 spawn-guards 跳 depth
-    // check（其他 guard fan-out / spawn-rate 仍 enforce）。baton 单向交接（spawn 后立即
-    // archive caller）不构成 fork-bomb 风险，多 phase 接力不该被 maxDepth=3 拒。
-    //
-    // **REVIEW_39 方案 1（hand-off-mcp-teammate-bug-20260515）**: spawn handler 现在 batonMode=true
-    // 路径完全跳 setSpawnLink（spawn.ts:285），新 session.spawnedBy=null + spawnDepth=0。
-    // 历史 CHANGELOG_98 「setSpawnLink 写 lateral parentDepth」语义已被本 fix 推翻 — baton 不是
-    // spawn parent-child 关系，数据层不应假装是。详 spawn.ts:257-284 完整注释。
-    //
-    // REVIEW_37 R2 HIGH-1 修法（双方异构对抗一致 ✅ 真 HIGH）：传 batonRole: 'lead' 让新
-    // session 在 team 内以 lead 角色加入。修前：spawn 把新 session 加成 'teammate' →
-    // caller archive 触发 archiveTeamsIfOrphaned → countActiveLeads=0 → team auto-archive →
-    // 残留 reviewer + 新 session 失去 active shared team → 后续 send_message 走
-    // no-shared-team reject。修后：新 session 是 lead → archive caller 后 countActiveLeads=1
-    // 不触发 auto-archive → 整个 team 续命 + 协作链不断（baton 接管 lead 的设计意图兑现）。
-    //
-    // 仅当 args.team_name 真启用 team 通信时此 opts 才被 spawn 用到（spawn 内部 addMember
-    // 分支 `if (args.team_name && teamIdEarly)`）；不带 team_name 的 baton 不 addMember，
-    // batonRole 是 no-op。但仍传 'lead' 保持语义清晰（baton 接管 lead 是一致意图）。
+    // batonMode / batonRole 决策详 `resolveBatonRoleForSpawn` lambda jsdoc（B-HIGH-2 + M12）。
+    // spawn handler 端消费语义：
+    // - batonMode=true 跳 spawn-guards depth check（spawn-guards.ts:89）+ 不写 spawn-link
+    //   （spawn.ts:311；REVIEW_39 baton 不是 spawn parent-child 关系）
+    // - batonRole='lead' 让新 session 在 team 内以 lead 角色加入（spawn.ts:408；REVIEW_37 R2
+    //   HIGH-1 修法），仅当 args.team_name 真启用 team 通信时被 spawn addMember 分支用到；
+    //   不带 team_name 的 baton 不 addMember 时 batonRole 是 no-op。
     const spawnFn = handlerDeps?.spawnSession ?? spawnSessionHandler;
-    // B-HIGH-2 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
-    // 旧 impl 无条件 batonMode=true 让 archive_caller=false 也跳 spawn-guards depth check +
-    // 不写 spawn-link → caller 持 archive_caller=false × N 次调 hand_off 形成无限 spawn 路径
-    // (绕过 fan-out=5/parent + depth=3 双护栏,仅 app-wide rate-limit 10/min 拦)。设计假设
-    // 「baton 单向交接立即 archive caller 不构成 fork-bomb」被 args.archive_caller=false 直接
-    // 破坏(B-HIGH-2 双方共识真问题 + reviewer-claude 反驳轮 grep + 设计假设破坏铁证)。
-    // 修法 (A) 条件化 batonMode: archive_caller=true(默认 baton 语义) 仍 batonMode=true 跳
-    // depth;archive_caller=false 退化 normal spawn 走完整 depth/fan-out/setSpawnLink 与 spawn_session
-    // 同款语义。spawn-guards.ts:89 + spawn.ts:311 已按 batonMode flag 控制行为,本修法仅改传参。
-    const spawnResult = await spawnFn(spawnArgs, ctx, {
-      batonMode: args.archive_caller !== false,
-      batonRole: 'lead',
+    const { batonMode, batonRole } = resolveBatonRoleForSpawn({
+      archive_caller: args.archive_caller,
+      team_name: args.team_name,
     });
+    const spawnResult = await spawnFn(
+      spawnArgs,
+      ctx,
+      // M12 修法：batonRole 可能是 undefined（archive_caller=false 退化 normal spawn）→ omitUndefined
+      // 滤掉 undefined 字段避免 opts.batonRole 显式 undefined 撞 spawn handler 类型边界。
+      omitUndefined({ batonMode, batonRole }) as { batonMode: boolean; batonRole?: 'lead' | 'teammate' },
+    );
     if (spawnResult.isError) {
       // 透传 spawn 的 error 不再二次包装（避免「hand_off_session error: spawn error: ...」嵌套）
       return spawnResult;
