@@ -139,6 +139,23 @@ export class StreamProcessor {
       let resolved = false;
       const fallback = setTimeout(() => {
         if (resolved) return;
+        // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.1 修法 (H1+M1 race 双保险 (A) abort consume)**:
+        // fallback fire 路径在最早入口 fire-and-forget interrupt() — 减少 detached SDK 子进程
+        // 在 fallback 之后继续跑 LLM 调用的 token cost (spike1 实证 interrupt() 让 SDK result
+        // 走 error_during_execution 而非继续模型推理)。**不 await** interrupt() 避免阻塞 fallback
+        // 同步路径 (spike1 实证 interrupt resolve 时机在 in-flight burst 之后,await 会让 fallback
+        // 卡住几十-几百 ms)。**不能作为 race 唯一护栏** — race window 真正护栏在 consume L221
+        // (B) guard (Phase 2.2)。
+        //
+        // **idempotency guard** (R2 plan-review *未验证* U-A): 防 caller 也手动 interrupt 与
+        // fallback fire 并发触发 N round-trip — interruptFired flag 守门 (作用域仅本路径 +
+        // createSession throw catch,不覆盖 public interrupt/closeSession 入口,详 types.ts
+        // interruptFired 字段 jsdoc R3 收窄文案)。
+        if (!internal.interruptFired) {
+          internal.expectedClose = true;
+          internal.interruptFired = true;
+          void internal.query?.interrupt?.();
+        }
         resolved = true;
         // REVIEW_5 H4：resume 路径下 fallback 直接落在 OLD_ID 上，避免造孤儿 tempKey
         const fallbackId = resumeId ?? tempKey;
@@ -219,7 +236,31 @@ export class StreamProcessor {
 
         // 第一次拿到 session_id：完成 key 切换 + 通知 createSession
         if (!realId && typeof m.session_id === 'string' && m.session_id) {
-          realId = m.session_id;
+          // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.2 修法 (H1+H2 race 双保险 (B) consume guard)**:
+          // R2 plan-review HIGH-A 修订：用临时 incomingId 局部变量 — guard 命中时**不能**直接
+          // 写入 realId 然后 continue。如果 `realId = m.session_id` 后 continue 跳出当前 frame,
+          // 但后续 frame `sid = realId ?? internal.realSessionId ?? tempKey` 三档链仍选 late id,
+          // finally cleanup 同款撞 race。
+          //
+          // **race 真正护栏**：fallback fire 后 internal.realSessionId 已被 set 为 fallbackId
+          // (Phase 2.1 + A1-HIGH-2 修法)。此时 SDK in-flight burst 仍 emit late first-id frame
+          // (spike1 case A 实证)→ guard 命中 → console.warn + continue 让 translate 仍 emit 后续
+          // frame (用 sid 三档链 → fallbackId) 但**不**改 sessions Map / **不**改 realId / **不**调
+          // renameSdkSession,确保 fallbackId 上的 record 不丢失。
+          //
+          // 不变量 1: race 修法 land 后 fallback fire / createSession throw 路径 SDK 真发的 first
+          // id frame 不能覆盖 fallback 已设的 fallbackId / 已 mutate 的 sessions Map。
+          const incomingId = m.session_id;
+          if (internal.realSessionId !== null && internal.realSessionId !== incomingId) {
+            console.warn(
+              `[sdk-bridge] late first-id arrived after fallback; ` +
+                `incoming=${incomingId} fallback=${internal.realSessionId}; skipping mutation`,
+            );
+            // realId 保持 null,后续 frame `sid = realId ?? internal.realSessionId ?? tempKey`
+            // 三档链 → fallbackId,translate 仍 emit 但不撞 sessions Map race。
+            continue;
+          }
+          realId = incomingId;
           internal.realSessionId = realId;
           if (tempKey !== realId) {
             this.ctx.sessions.delete(tempKey);
@@ -270,7 +311,11 @@ export class StreamProcessor {
           onFirstId(realId);
         }
 
-        const sid = realId ?? tempKey;
+        // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.3 修法**：sid 三档链
+        // `realId ?? internal.realSessionId ?? tempKey`。Phase 2.2 (B) guard 命中时 realId
+        // 仍 null,但 internal.realSessionId 已被 fallback set 为 fallbackId → 选 fallbackId 让
+        // late frame translate 走 fallbackId 而非 tempKey (避免 emit 给孤儿 sid)。
+        const sid = realId ?? internal.realSessionId ?? tempKey;
         translateSdkMessage(this.ctx.emit, sid, m, internal);
       }
     } catch (err) {
@@ -285,7 +330,9 @@ export class StreamProcessor {
       } else {
         // CHANGELOG_47：流中途抛错（鉴权过期 / token 限额 / CLI 子进程崩 / 网络）
         // 之前只 console.warn，UI 时间线只看到 session-end 不知道为什么。补一条 error message。
-        const sid = realId ?? tempKey;
+        // **Phase 2.3 同款三档链**：catch 里也用 `realId ?? internal.realSessionId ?? tempKey`
+        // 让 fallback fire 后 catch 仍能 emit 给 fallbackId 而非 tempKey。
+        const sid = realId ?? internal.realSessionId ?? tempKey;
         this.ctx.emit({
           sessionId: sid,
           agentId: AGENT_ID,
@@ -299,7 +346,13 @@ export class StreamProcessor {
         });
       }
     } finally {
-      const sid = realId ?? tempKey;
+      // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.4 修法**：sid 三档链同款。
+      // fallback 路径 realId 仍 null (Phase 2.2 guard 让 late id 不写 realId),但 internal.realSessionId
+      // 已经是 fallbackId → cleanup 拿到正确 sid 删除 (sessions.delete + releaseSdkClaim)。
+      // 不变量 1 兜底 — sessions Map 在 Phase 2.1 fallback fire 时已 set fallbackId entry,finally
+      // 必须删之 (用 fallbackId 三档链 sid),否则 sessions Map 残留 fallbackId entry → 影响下次
+      // sendMessage / closeSession / list。
+      const sid = realId ?? internal.realSessionId ?? tempKey;
       // 流终止时拒掉所有未决的权限请求，避免上游 await 永久挂起
       for (const entry of internal.pendingPermissions.values()) {
         if (entry.timer) clearTimeout(entry.timer);
