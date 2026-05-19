@@ -86,106 +86,130 @@ export class RestartController {
     // await A,A resolve 后 C 直接进 close+createSession 跟 B 并发(close OLD twice、写 DB
     // 二次、createSession 两个 SDK 子进程,DB final 状态依赖竞速顺序)。修法:循环 re-check
     // recovering Map 直到为空再继续,保证任意时刻只 1 个 inflight + 后续 waiter 依次 chain。
-    let inflight = this.ctx.recovering.get(sessionId);
-    while (inflight) {
-      try {
-        await inflight;
-      } catch {
-        // 上一个 recovery 失败不影响本次重启尝试
-      }
-      inflight = this.ctx.recovering.get(sessionId);
-    }
-
-    const rec = sessionRepo.get(sessionId);
-    if (!rec) throw new Error(`session ${sessionId} not found in repo`);
-    const oldMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' =
-      rec.permissionMode ?? 'default';
-
-    // 占位 message：分方向文案，让用户在 5-10s busy 期间看到状态
-    const enterBypass = mode === 'bypassPermissions';
-    const placeholderText = enterBypass
-      ? '⚠ 正在切换到完全免询问模式（bypass），重启 SDK 中…'
-      : `⚠ 正在切换权限模式到 ${mode}，重启 SDK 中…`;
-    this.ctx.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: { text: placeholderText },
-      ts: Date.now(),
-      source: 'sdk',
-    });
-
-    // REVIEW_36 R2 MED-B 修法：单飞标记必须在 closeSession + DB write + createSession **之前**
-    // set，覆盖整个冷重启的副作用窗口。原实现 inflight 检查后直到 createSession promise 建好才 set，
-    // 两个并发 restart 都能越过 inflight 检查，同时进入 close → DB write 阶段，结果交错。
-    // 修法：先建 placeholder Promise + set 到 recovering Map，让后续并发 restart inflight 检查命中
-    // 等待本次完成；再串行跑 close → DB → createSession。
-    const p = (async (): Promise<string> => {
-      // close OLD：内部已修为 emit *-cancelled 事件清 renderer zombie row 后再清 Map
-      await this.ctx.closeSession(sessionId);
-
-      // 写 DB：必须先于 createSession（cold path 翻序；hot path 不动保持 ipc.ts:451-462 原样）。
-      // 同步 emit upsert 让 SessionDetail 下拉值立即跟到新 mode（5-10s busy 期间用户已经看到「切完了」）。
-      sessionRepo.setPermissionMode(sessionId, mode);
-      const updatedRec = sessionRepo.get(sessionId);
-      if (updatedRec) eventBus.emit('session-upserted', updatedRec);
-
-      try {
-        const handle = await this.ctx.createSession({
-          cwd: rec.cwd,
-          prompt: handoffPrompt,
-          resume: sessionId,
-          permissionMode: mode,
-          // plan cross-adapter-parity-20260515 + REVIEW_41 MED-3 fix:rec.claudeCodeSandbox /
-          // rec.extraAllowWrite 必须透传,否则冷重启后 SDK 子进程 sandbox.allowWrite 丢失原
-          // 用户透传的 mainRepo (典型 hand_off_session 外置 worktree caller 传 [mainRepo] 让
-          // session 能写 mainRepo plan 文件)。与 createSession opts.claudeCodeSandbox /
-          // recoverer fallback 路径同款显式透传 + ?? undefined 兜底。
-          claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
-          extraAllowWrite: rec.extraAllowWrite ?? undefined,
-        });
-        const newRealId = handle.sessionId;
-        // CLI 隐式 fork：拿到的 newRealId 可能 ≠ OLD sessionId（CLI 在 streaming + resume 下行为不可控，
-        // 见 CLAUDE.md「会话恢复 / 断连 UX」节）。rename 把 DB 子表 + sdkOwned 整体迁到 NEW 名下。
-        if (newRealId !== sessionId) {
-          try {
-            sessionManager.renameSdkSession(sessionId, newRealId);
-          } catch (renameErr) {
-            console.error(
-              `[sdk-bridge] post-restart rename failed ${sessionId} → ${newRealId}, ` +
-                `NEW session works but app-side history not migrated.`,
-              renameErr,
-            );
-          }
-        }
-        return newRealId;
-      } catch (err) {
-        // 回滚：DB 改回 oldMode + emit upsert 让下拉回弹
-        sessionRepo.setPermissionMode(sessionId, oldMode);
-        const rolled = sessionRepo.get(sessionId);
-        if (rolled) eventBus.emit('session-upserted', rolled);
-        // 占位 message 已 emit 过，再 emit 一条 error 让用户知道失败 + 已回退
-        this.ctx.emit({
-          sessionId,
-          agentId: AGENT_ID,
-          kind: 'message',
-          payload: {
-            text:
-              `⚠ 切到 ${mode} 失败：${(err as Error)?.message ?? String(err)}。` +
-              `权限模式已回退到 ${oldMode}，请重新发送一条消息让 Claude 续上 plan。`,
-            error: true,
-          },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        throw err;
-      }
-    })();
-    this.ctx.recovering.set(sessionId, p);
+    //
+    // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.9 修法**（M3 codex A1 MED-3）：
+    // inflight wait 期间另一并发 caller 可能触发 SDK fork rename (CHANGELOG_27 / REVIEW_6 CLI
+    // 隐式 fork) — sessions Map / DB record 的 sessionId 从 OLD → NEW 改名。本路径若仍用入参
+    // sessionId 查 sessionRepo.get / 调 closeSession → 后续都用 OLD id (NEW id 的 record 在
+    // sessionManager.renameSdkSession 后已是 SSOT) → close OLD miss / setPermissionMode 写 OLD
+    // record (已 delete) / createSession resume OLD jsonl 找不到。
+    //
+    // 修法：listen session-renamed event，inflight wait 期间 fork rename 后更新 local sid ref
+    // (currentSid)。finally 注销 listener 防 leak。
+    let currentSid = sessionId;
+    const renameListener = (payload: { from: string; to: string }): void => {
+      if (payload.from === currentSid) currentSid = payload.to;
+    };
+    eventBus.on('session-renamed', renameListener);
     try {
-      return await p;
+      let inflight = this.ctx.recovering.get(currentSid);
+      while (inflight) {
+        try {
+          await inflight;
+        } catch {
+          // 上一个 recovery 失败不影响本次重启尝试
+        }
+        // Phase 2.9：每次 re-check 用 currentSid (fork rename 后已更新)，防 inflight wait 期间
+        // fork 让 OLD id 的 inflight 已结束但 NEW id 上仍有 inflight
+        inflight = this.ctx.recovering.get(currentSid);
+      }
+
+      const rec = sessionRepo.get(currentSid);
+      if (!rec) throw new Error(`session ${currentSid} not found in repo`);
+      const oldMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' =
+        rec.permissionMode ?? 'default';
+
+      // 占位 message：分方向文案，让用户在 5-10s busy 期间看到状态
+      // Phase 2.9: 用 currentSid 让 emit 落到正确 session（fork rename 后 NEW id）
+      const enterBypass = mode === 'bypassPermissions';
+      const placeholderText = enterBypass
+        ? '⚠ 正在切换到完全免询问模式（bypass），重启 SDK 中…'
+        : `⚠ 正在切换权限模式到 ${mode}，重启 SDK 中…`;
+      this.ctx.emit({
+        sessionId: currentSid,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: { text: placeholderText },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+
+      // REVIEW_36 R2 MED-B 修法：单飞标记必须在 closeSession + DB write + createSession **之前**
+      // set，覆盖整个冷重启的副作用窗口。原实现 inflight 检查后直到 createSession promise 建好才 set，
+      // 两个并发 restart 都能越过 inflight 检查，同时进入 close → DB write 阶段，结果交错。
+      // 修法：先建 placeholder Promise + set 到 recovering Map，让后续并发 restart inflight 检查命中
+      // 等待本次完成；再串行跑 close → DB → createSession。
+      const p = (async (): Promise<string> => {
+        // close OLD：内部已修为 emit *-cancelled 事件清 renderer zombie row 后再清 Map
+        // Phase 2.9: 用 currentSid 让 close 操作落到正确 record
+        await this.ctx.closeSession(currentSid);
+
+        // 写 DB：必须先于 createSession（cold path 翻序；hot path 不动保持 ipc.ts:451-462 原样）。
+        // 同步 emit upsert 让 SessionDetail 下拉值立即跟到新 mode（5-10s busy 期间用户已经看到「切完了」）。
+        sessionRepo.setPermissionMode(currentSid, mode);
+        const updatedRec = sessionRepo.get(currentSid);
+        if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+
+        try {
+          const handle = await this.ctx.createSession({
+            cwd: rec.cwd,
+            prompt: handoffPrompt,
+            resume: currentSid,
+            permissionMode: mode,
+            // plan cross-adapter-parity-20260515 + REVIEW_41 MED-3 fix:rec.claudeCodeSandbox /
+            // rec.extraAllowWrite 必须透传,否则冷重启后 SDK 子进程 sandbox.allowWrite 丢失原
+            // 用户透传的 mainRepo (典型 hand_off_session 外置 worktree caller 传 [mainRepo] 让
+            // session 能写 mainRepo plan 文件)。与 createSession opts.claudeCodeSandbox /
+            // recoverer fallback 路径同款显式透传 + ?? undefined 兜底。
+            claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
+            extraAllowWrite: rec.extraAllowWrite ?? undefined,
+          });
+          const newRealId = handle.sessionId;
+          // CLI 隐式 fork：拿到的 newRealId 可能 ≠ OLD sessionId（CLI 在 streaming + resume 下行为不可控，
+          // 见 CLAUDE.md「会话恢复 / 断连 UX」节）。rename 把 DB 子表 + sdkOwned 整体迁到 NEW 名下。
+          if (newRealId !== currentSid) {
+            try {
+              sessionManager.renameSdkSession(currentSid, newRealId);
+            } catch (renameErr) {
+              console.error(
+                `[sdk-bridge] post-restart rename failed ${currentSid} → ${newRealId}, ` +
+                  `NEW session works but app-side history not migrated.`,
+                renameErr,
+              );
+            }
+          }
+          return newRealId;
+        } catch (err) {
+          // 回滚：DB 改回 oldMode + emit upsert 让下拉回弹
+          sessionRepo.setPermissionMode(currentSid, oldMode);
+          const rolled = sessionRepo.get(currentSid);
+          if (rolled) eventBus.emit('session-upserted', rolled);
+          // 占位 message 已 emit 过，再 emit 一条 error 让用户知道失败 + 已回退
+          this.ctx.emit({
+            sessionId: currentSid,
+            agentId: AGENT_ID,
+            kind: 'message',
+            payload: {
+              text:
+                `⚠ 切到 ${mode} 失败：${(err as Error)?.message ?? String(err)}。` +
+                `权限模式已回退到 ${oldMode}，请重新发送一条消息让 Claude 续上 plan。`,
+              error: true,
+            },
+            ts: Date.now(),
+            source: 'sdk',
+          });
+          throw err;
+        }
+      })();
+      this.ctx.recovering.set(currentSid, p);
+      try {
+        return await p;
+      } finally {
+        this.ctx.recovering.delete(currentSid);
+      }
     } finally {
-      this.ctx.recovering.delete(sessionId);
+      // Phase 2.9: 注销 rename listener 防 leak (event-bus 长生命周期，listener 不清会持续监听)
+      eventBus.off('session-renamed', renameListener);
     }
   }
 
