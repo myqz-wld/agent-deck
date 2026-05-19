@@ -120,6 +120,24 @@ export interface InternalSession {
    * 之前置位；不需要清，因为 internal session 紧接着会被 sessions Map 删除。
    */
   expectedClose?: boolean;
+  /**
+   * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.1+2.5 修法**（H1+H2 race 双保险
+   * (A) abort consume）：fallback fire / createSession throw 双路径 fire-and-forget interrupt 的
+   * idempotency guard。
+   *
+   * **作用范围严格限定**（R3 plan-review codex LOW-1 + claude INFO 收窄文案）：
+   * - stream-processor.ts setTimeout fallback fire 路径（Phase 2.1）
+   * - index.ts createSession throw catch 块（Phase 2.5）
+   *
+   * **不覆盖**：public `interrupt(sessionId)` (index.ts:487-491) + `closeSession(sessionId)`
+   * (index.ts:522-527) 入口仍独立 await SDK interrupt **不读** 此 flag（设计内 — caller 显式
+   * 调用应当直通 SDK，与 spike1 实证 interrupt() 幂等 SDK 行为一致）。
+   *
+   * 防 caller 也手动 interrupt 与 fallback/throw 路径并发触发 N round-trip：双路径都先查
+   * `if (!internal.interruptFired) { internal.interruptFired = true; void internal.query?.interrupt?.(); }`。
+   * flag 不需清（与 expectedClose 同款 — internal session 紧接着会被 sessions Map 删除 + GC）。
+   */
+  interruptFired?: boolean;
 }
 
 /**

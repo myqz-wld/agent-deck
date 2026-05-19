@@ -197,23 +197,12 @@ describe('setTimeout fallback symmetry — A1-HIGH-2 + Phase 2 race guard', () =
     expect(errorMessages[0].sessionId).toBe(RESUME_ID); // 用 fallbackId 而非 tempKey emit
   });
 
-  it.skip(
-    '(II) late first-id 到达不覆盖 fallbackId — Phase 2 step 2.2 (B) guard 修法（待 Phase 2 land 后 unskip）',
+  it(
+    '(II) late first-id 到达不覆盖 fallbackId — Phase 2 step 2.2 (B) guard 修法（已 land 验证）',
     async () => {
       // Phase 2 step 2.2 修法：stream-processor.consume L221 first-id 路径加 guard，
       // 当 internal.realSessionId 已被 fallback set 且 ≠ incoming id → skip mutation + continue。
-      //
-      // 修法 land 后本 case 应：
-      // 1. fallback @ 30s fire 后 internal.realSessionId === fallbackId (RESUME_ID)
-      // 2. SDK 仍 emit late first-id frame（session_id='LATE-REAL-ID' ≠ fallbackId）— spike1 实证
-      // 3. consume L221 guard 命中 → realId 仍 null + sessions Map 不被切（仍 fallbackId entry）
-      // 4. endStream → finally cleanup 用 sid 三档链 `realId ?? internal.realSessionId ?? tempKey`
-      //    = fallbackId → sessions.delete(fallbackId)
-      //
-      // 当前 Phase 1 land 时此 case skip：现状 first-id 路径无条件切 sessions Map → late id 会
-      // 撞 sessions.delete(tempKey)（已被 fallback 删）+ sessions.set('LATE-REAL-ID', internal)，
-      // 让 fallbackId entry 丢失，原本 sendMessage(fallbackId) 命中的会变 sendMessage('LATE-REAL-ID')
-      // race。Phase 2 step 2.2 修法 land 时 unskip + 验证 race window 关闭。
+      // 修法已 land。
       vi.useFakeTimers({ shouldAdvanceTime: false });
       const bridge = makeBridge();
       const mockQuery = new MockSdkQuery();
