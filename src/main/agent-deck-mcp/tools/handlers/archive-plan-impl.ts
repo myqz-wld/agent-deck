@@ -501,7 +501,14 @@ export async function archivePlanImpl(
         `Detected conflicts:\n${conflictLines}${mainRepoClean.conflicts.length > 10 ? '\n  (... more)' : ''}\n` +
         `Please commit / stash / git restore these specific paths first, then retry archive_plan. ` +
         `(plan deep-review-batch-a1-b-followup-r3-20260519 §不变量 5 精确化：不再因无关 dirty 而 reject，但 ` +
-        `archive-critical paths 仍 fail-fast 避免 silent overwrite。)`,
+        `archive-critical paths 仍 fail-fast 避免 silent overwrite。)\n\n` +
+        `F1b 软引导（plan §D4 真根因防绕过）: 不建议手工 commit + mv 绕过 archive_plan tool — ` +
+        `会让 baton-cleanup phase 1 teammate shutdown 没被调到，导致 reviewer 自然衰减成 dormant 残留 ` +
+        `（R3 实证「6 reviewer dormant 未 closed」即此场景）。优先 fix 上述 conflicts 后重 invoke archive_plan tool；` +
+        `若必须手工归档（conflicts 无法立即修），手工 commit + mv 后调 mcp__agent-deck__shutdown_baton_teammates tool ` +
+        `补跑 baton-cleanup phase 1（其参数 { caller_session_id, plan_id? }，单独 shutdown 同 team active+dormant teammate ` +
+        `+ 写 team_member.left_at 软退出，不归档 caller — escape hatch 仅供本场景 fallback 使用，user CLAUDE.md §Step 4 ` +
+        `5 步手工归档仍是合法 fallback）。`,
     };
   }
   // mainRepoClean.warnings 透传 caller 让 Phase 4.1 commit message 后续可加注脚（暂不在

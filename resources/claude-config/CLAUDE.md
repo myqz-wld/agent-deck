@@ -24,7 +24,7 @@
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 9 tool（`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 10 tool（`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
 ### 三个核心约定（lead 角度）
 
@@ -116,6 +116,30 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
   - `plans_index_action` 四态 enum 替代旧 boolean,让 caller 区分 INDEX 行真正发生的事情
   - `warnings` non-fatal warning 数组(如 `.claude/plans/<id>.md` 与 `plans/<id>.md` 同 id 双存覆盖警告 — 走 warn 而非 reject)
   - 7 phase post-ff-merge 失败专用 phaseHint 给具体 manual recovery 决策树(替代旧通用 hint)
+- **mainRepo dirty precheck 精确化（plan deep-review-batch-a1-b-followup-r3-20260519 §不变量 5）**：旧版 mainRepo 任意 dirty 全场 fail-fast；新版仅 reject 三具体路径 `{archivedPath, indexPath, planFilePath}` 命中 dirty / staged / untracked / R rename / C copy（含 old/new path 任一命中）— 其他无关 dirty 文件降 warning + commit message 注脚（commit pathspec 隔离不吞）。precheck 失败时 hint 软引导 caller fix 撞 critical paths 后重 invoke archive_plan，**或** 走 §escape hatch: shutdown_baton_teammates 补跑 baton-cleanup phase 1（如 caller 必须手工归档场景）— 不硬技术阻断手工归档（user CLAUDE.md §Step 4 5 步手工归档仍是合法 fallback）
+
+### escape hatch: shutdown_baton_teammates
+
+`shutdown_baton_teammates` 让 caller 手工归档 plan 后**补跑** baton-cleanup phase 1（同 team 其他 active+dormant teammate 一并 close + `team_member.left_at` 软退出）。仅供 archive_plan 撞 precheck fail / 历史 dormant 残留清理使用。
+
+**调用**：`mcp__agent-deck__shutdown_baton_teammates({ caller_session_id?, plan_id? })`
+**返回**：`{ closed: string[], failed: Array<{sessionId,reason}>, skipped: null, planId: string | null }`
+
+**典型场景**（plan deep-review-batch-a1-b-followup-r3-20260519 §D4 F1c）：
+
+archive_plan tool 撞 mainRepo dirty / cwd resilience guard 等 precheck fail → caller 走 user CLAUDE.md §Step 4 5 步手工归档绕过 archive_plan tool（commit + mv plan + git worktree remove + branch -D）→ runBatonCleanup phase 1 没被调到 → 同 team teammate（reviewer-claude / reviewer-codex 等）自然衰减成 dormant 但**没** closed，占内存 + SDK live query。本 tool 让 caller 显式补跑 phase 1。
+
+**与 archive_plan + keep_teammates=true 的边界**：
+
+- archive_plan 是 plan 收口 tool（git ff-merge / mv plan / commit / git worktree remove）+ default baton-cleanup phase 1+2；`keep_teammates=true` 仅跳 phase 1
+- `shutdown_baton_teammates` 是「补跑 phase 1」的独立 tool，**不**做任何 git/fs 归档操作；**不**调 phase 2 archive caller（caller 决定何时 archive；典型场景 caller 已手工归档完毕）
+
+**错误契约**（plan §F1c R2 codex MED-4）：
+
+- caller 不在任何 team 是 lead（caller 是 teammate / 无 active membership / 所有 caller-lead 团队都已 archive）→ **error + hint**（**非** silent return success — escape hatch 是 caller 显式请求 cleanup，no-op 误导 caller 以为成功了）。hint 指向 IPC `TeamShutdownAllTeammates` handler 或 UI Team 面板「Shutdown all teammates」按钮（不要求 caller 是 lead）
+- helper 自身抛错（agentDeckTeamRepo SQLite locked / sessionManager.close abort 等）→ error + console.warn，**不**像 archive_plan / hand_off_session 兜底 warn 不阻塞（本 tool 是 escape hatch，helper 失败就是补跑没成功，需让 caller 显式知道）
+
+**deny external caller**（types.ts EXTERNAL_CALLER_ALLOWED.shutdown_baton_teammates = false）：sessionManager.close 是写操作 + caller=lead 反查需要真实 caller_session_id，绝不允许 stdio external client 调用（避免被恶意 mcp client 利用清理任意 team session）。
 
 ### plan hand-off 自动化：hand_off_session
 

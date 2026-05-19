@@ -478,6 +478,52 @@ export const EXIT_WORKTREE_SCHEMA = {
       'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（exit_worktree 不允许 external caller — git worktree remove 是写操作 + clearCwdReleaseMarker 是 per-session 状态需真实 caller sid）。',
     ),
 };
+
+// plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.3a / D4 F1c：
+// shutdown_baton_teammates tool — escape hatch 让 caller 手工归档 plan 后补跑 baton-cleanup
+// phase 1（teammate shutdown）。
+//
+// **场景**：archive_plan tool precheck 失败（mainRepo dirty 撞 archive-critical 路径 / cwd
+// resilience guard 等）→ caller 走 user CLAUDE.md §Step 4 5 步手工归档绕过 archive_plan tool
+// → runBatonCleanup phase 1 没被调到 → 同 team teammate（reviewer-claude / reviewer-codex 等）
+// 自然衰减成 dormant 但**没** closed,占内存 + SDK live query。本 tool 让 caller 显式补跑 phase 1
+// （仅 teammate shutdown,不归档 caller — 与 archive_plan + keep_teammates=true 不同,本 tool
+// 设计就是「caller 已经手工归档 / 不归档，仅恢复 baton-cleanup teammate 收口语义」）。
+//
+// **行为契约**：
+// - 复用 shutdownTeammatesOnBaton helper Phase 1（findActiveMembershipsBySession +
+//   listActiveMembers + closeFn 串行调度）— 与 archive_plan / hand_off_session default 同款行为
+// - **不**调 phase 2 archive caller（caller 决定何时 archive；典型场景 caller 已手工归档完毕）
+// - findMemberships 返空（caller 不在任何 team 是 lead）→ error + hint，**不** silent return
+//   success（plan §F1c 明确 buggy 行为：escape hatch 是 caller 显式请求 cleanup，no-op 误导）
+// - deny external（写 sessionManager.close 是高风险 + 需要真实 caller_session_id 才能反查 lead 关系）
+//
+// **与 archive_plan + keep_teammates=true 的边界**：
+// - archive_plan 是 plan 收口 tool（git ff-merge / mv plan / commit / git worktree remove）+
+//   default baton-cleanup phase 1+2；keep_teammates=true 仅跳 phase 1
+// - shutdown_baton_teammates 是「补跑 phase 1」的独立 tool，不做 git/fs 归档操作
+//
+// 字段对称 archive_plan / hand_off_session 既有约定（snake_case args / 128 max plan_id）。
+export const SHUTDOWN_BATON_TEAMMATES_SCHEMA = {
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（shutdown_baton_teammates 不允许 external caller — sessionManager.close 是写操作 + caller=lead 反查需要真实 caller_session_id）。',
+    ),
+  plan_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .optional()
+    .describe(
+      'Optional plan id（仅供 console.warn / event 前缀辨识本次 escape hatch 调用属哪个 plan 收口场景）。本 tool 不读 plan 文件 / 不读 frontmatter / 不依赖 plan 状态（caller 已手工归档完成时 plan 已 mv 走，传 plan_id 仍可辨识）。Charset 与 archive_plan / hand_off_session 对称。',
+    ),
+};
+
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
@@ -487,6 +533,9 @@ export type ArchivePlanArgs = z.infer<z.ZodObject<typeof ARCHIVE_PLAN_SCHEMA>>;
 export type HandOffSessionArgs = z.infer<z.ZodObject<typeof HAND_OFF_SESSION_SCHEMA>>;
 export type EnterWorktreeArgs = z.infer<z.ZodObject<typeof ENTER_WORKTREE_SCHEMA>>;
 export type ExitWorktreeArgs = z.infer<z.ZodObject<typeof EXIT_WORKTREE_SCHEMA>>;
+export type ShutdownBatonTeammatesArgs = z.infer<
+  z.ZodObject<typeof SHUTDOWN_BATON_TEAMMATES_SCHEMA>
+>;
 
 // =============== Result types (R37 P3-L Step 4.5) ===============
 //
@@ -682,4 +731,25 @@ export interface ExitWorktreeResult {
   branchDeleted: boolean;
   worktreeRemoved: boolean;
   markerCleared: boolean;
+}
+
+/**
+ * shutdown_baton_teammates ok return shape (handlers/shutdown-baton-teammates.ts)。
+ *
+ * 与 archive_plan / hand_off_session 的 `teammatesShutdown` 字段子集对齐 — 仅含 baton-cleanup
+ * phase 1（teammate shutdown）相关字段，**不**含 phase 2 archive caller 相关 `archived` 字段。
+ *
+ * - closed: 成功 close 的 teammate sid 列表（dedup 跨 team 共享同 sid）
+ * - failed: close 失败的 teammate（含 reason），warn 不阻塞
+ * - skipped: 'caller-not-lead' = caller 不在任何 team 是 lead → escape hatch reject 走 error 路径
+ *   不在 ok return（详 handler 错误契约）；ok return 中 skipped 永远是 null（找到 lead 关系
+ *   并跑完 phase 1 才算成功 ok）。'keep-teammates' 不在 union（escape hatch 设计就是「显式
+ *   补跑 phase 1」，没有 keep_teammates 字段）
+ * - planId: 透传 args.plan_id，方便 caller 关联本次 escape hatch 调用属哪个 plan 收口场景
+ */
+export interface ShutdownBatonTeammatesResult {
+  closed: string[];
+  failed: Array<{ sessionId: string; reason: string }>;
+  skipped: null;
+  planId: string | null;
 }
