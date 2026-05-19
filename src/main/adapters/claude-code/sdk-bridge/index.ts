@@ -293,6 +293,25 @@ export class ClaudeSdkBridge {
       // 替代 tempKey emit 占位事件，让 ingest 走 existing 分支不再创建第二条 active record
       realId = await this.streamProcessor.waitForRealSessionId(internal, tempKey, opts.resume);
 
+      // A1-HIGH-1 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
+      // 旧 impl waitForRealSessionId 在 SDK 流结束但从未发 first session_id frame 时
+      // resolve(realId ?? tempKey) = tempKey（stream-processor.ts:180）。createSession 继续
+      // 走 finalizeSessionStart 创建一条 sessionId=tempKey 的假 DB record（无 SDK live state）
+      // + opts.resume 的 sdkOwned claim 永不释放（OLD_ID 后续 hook 事件被静默吞 = leak）。
+      // 修法 (A) 彻底失败语义: realId === tempKey 表示 consume 自吞错且 fallback 也没拿到
+      // resumeId（非 resume 路径）→ throw 让 createSession 进 catch L298 走完整 cleanup
+      // （sessions.delete + releasePending + releaseSdkClaim(opts.resume) + throw IPC）。
+      // renderer 收到 error 直接显示，不创建假会话（A1-HIGH-1 双方共识真问题 + reviewer-claude
+      // 反驳轮精确时序追踪铁证 + lead 现场验证 finalizeSessionStart emit session-start 链路写
+      // sessionId=tempKey 的 DB record + sessions.delete(tempKey) 后 finalize 仍执行）。
+      if (realId === tempKey) {
+        throw new Error(
+          'createSession: SDK stream ended without emitting first session_id frame ' +
+            '(consume swallowed SDK error / no resume id available). ' +
+            'Refusing to create a session-less DB record.',
+        );
+      }
+
       // 注册到 SessionManager 的 sdk-owned 集合，后续 hook 回环将被去重
       sessionManager.claimAsSdk(realId);
     } catch (err) {
