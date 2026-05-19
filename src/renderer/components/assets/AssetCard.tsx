@@ -10,9 +10,17 @@ import type { AssetMeta } from '@shared/types';
  * 风险最低）拆出 AssetCard + AdapterBadge + dedupBundledByName 三件零业务依赖的纯展示物到本
  * 文件，主文件回到 ~420 行。
  *
- * AssetCard 接 group（`AssetMeta[]`，1=single 或 2=dual-adapter SKILL）；display data 取 first
+ * AssetCard 接 `NonEmptyAssetGroup`（1=single 或 2=dual-adapter SKILL）；display data 取 first
  * asset（dedupBundledByName 保证 claude-code 优先排序，dual-adapter SSOT 镜像 frontmatter 一致）。
  */
+
+/**
+ * 非空 asset group tuple type（plan reviewer-codex-cross-adapter-20260519 §Phase 5 Step 5.1
+ * reviewer-codex INFO finding fix）：dedupBundledByName 返回 / AssetCard 入参 / ContentViewerState
+ * 都用此类型编码「至少 1 项」不变量,防未来 caller / 测试直接传 `[]` 让 `assets[0]` 拿 undefined
+ * 解引用 `first.qualifiedName` 立即崩。
+ */
+export type NonEmptyAssetGroup = readonly [AssetMeta, ...AssetMeta[]];
 
 export function AssetCard({
   assets,
@@ -20,8 +28,8 @@ export function AssetCard({
   onEdit,
 }: {
   /** 1=single（user / single-adapter bundled） 或 2=dual-adapter SKILL（同 kind+name 跨 adapter）。 */
-  assets: AssetMeta[];
-  onView: (assets: AssetMeta[]) => void;
+  assets: NonEmptyAssetGroup;
+  onView: (assets: NonEmptyAssetGroup) => void;
   /** user-only edit；bundled 不传，dual-adapter SKILL 也不会有 edit（永远 bundled）。 */
   onEdit?: (asset: AssetMeta) => void;
 }): JSX.Element {
@@ -110,8 +118,11 @@ export function AdapterBadge({ adapter }: { adapter: 'claude-code' | 'codex-cli'
  *   native）各只剩 1 份，自然单 group 单 asset，进 AssetCard 后 `assets.length === 1` 走旧 UI
  * - bundled skills：deep-review / hello-from-deck（Phase 3 build-time cp 两端 SSOT 镜像）每个
  *   形成 2-asset group，进 AssetCard 后 `assets.length === 2` 显示双角标
+ *
+ * 返回 `NonEmptyAssetGroup[]`（plan §Phase 5 Step 5.1 INFO finding fix）：每个 group 至少含 1
+ * 项（`groups.set(key, [a])` 后才入 Map），用类型层非空断言而非运行时 guard。
  */
-export function dedupBundledByName(assets: AssetMeta[]): AssetMeta[][] {
+export function dedupBundledByName(assets: AssetMeta[]): NonEmptyAssetGroup[] {
   const groups = new Map<string, AssetMeta[]>();
   for (const a of assets) {
     const key = `${a.kind}:${a.name}`;
@@ -128,5 +139,7 @@ export function dedupBundledByName(assets: AssetMeta[]): AssetMeta[][] {
   for (const group of groups.values()) {
     group.sort((a, b) => order(a.adapter) - order(b.adapter));
   }
-  return Array.from(groups.values());
+  // groups.get(key) 不存在分支后 push,所以每个 group 至少含 1 项 — 类型断言通过 unknown 中转
+  return Array.from(groups.values()) as unknown as NonEmptyAssetGroup[];
 }
+

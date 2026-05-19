@@ -1,5 +1,5 @@
 import { type JSX } from 'react';
-import type { AssetMeta } from '@shared/types';
+import type { NonEmptyAssetGroup } from './AssetCard';
 
 /**
  * 资产 / CLAUDE.md 内容只读 viewer modal（CHANGELOG_57 / CHANGELOG_69 抽出；
@@ -17,8 +17,10 @@ import type { AssetMeta } from '@shared/types';
  * tab 切换由 caller 走 seq guard fetch（与 viewerSeqRef 同款套路防 closure 捕获 stale tab）。
  */
 export interface ContentViewerState {
-  /** 1（single）或 2（dual-adapter SKILL，同 kind+name 跨 adapter）。 */
-  assets: AssetMeta[];
+  /** 1（single）或 2（dual-adapter SKILL，同 kind+name 跨 adapter）。`NonEmptyAssetGroup`
+   *  类型层编码至少 1 项不变量（plan §Phase 5 Step 5.1 INFO finding fix），防 caller / 测试
+   *  传 `[]` 让 `assets[0]` 拿 undefined 解引用 `current.qualifiedName` 立即崩。 */
+  assets: NonEmptyAssetGroup;
   /**
    * 当前选中 tab：'claude-code' / 'codex-cli'（dual-adapter）或 null（user asset 不属任何 adapter）。
    * single asset 时 = `assets[0].adapter`；dual-adapter 时 default 选 'claude-code'。
