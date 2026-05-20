@@ -17,7 +17,7 @@
 import { z } from 'zod';
 
 export const SPAWN_SESSION_SCHEMA = {
-  adapter: z.enum(['claude-code', 'codex-cli', 'aider', 'generic-pty']),
+  adapter: z.enum(['claude-code', 'codex-cli']),
   cwd: z
     .string()
     .min(1)
@@ -142,7 +142,7 @@ export const LIST_SESSIONS_SCHEMA = {
     ),
   status_filter: z.enum(['active', 'dormant', 'closed', 'all']).default('active'),
   adapter_filter: z
-    .enum(['claude-code', 'codex-cli', 'aider', 'generic-pty'])
+    .enum(['claude-code', 'codex-cli'])
     .optional(),
   spawned_by_filter: z
     .string()
@@ -305,10 +305,10 @@ export const HAND_OFF_SESSION_SCHEMA = {
       'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience: previously defaulted to plan worktree_path; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove` deletion of the worktree). New session is expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3 cold-start flow. Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. **REVIEW_36 R2 user feedback / HIGH-3 follow-up**: 约定 worktree (在 mainRepo subtree 内,如 `<main-repo>/.claude/worktrees/<plan-id>`) 走 mainRepo 享 cwd resilience；**外置 worktree** (如 `/tmp/wt` / `/Users/me/elsewhere/wt`) 自动降级走 worktreePath，让 sandbox.allowWrite 自然覆盖外置路径 + handler 自动加 mainRepo 进 extra_allow_write 让 plan 文件可写。**Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing.',
     ),
   adapter: z
-    .enum(['claude-code', 'codex-cli', 'aider', 'generic-pty'])
+    .enum(['claude-code', 'codex-cli'])
     .default('claude-code')
     .describe(
-      'Adapter for the new session. Defaults to "claude-code" (the canonical plan-driven workflow runs Claude Code). Set to "codex-cli" / "aider" only when plan explicitly designates a different agent.',
+      'Adapter for the new session. Defaults to "claude-code" (the canonical plan-driven workflow runs Claude Code). Set to "codex-cli" only when plan explicitly designates a different agent.',
     ),
   team_name: z
     .string()
