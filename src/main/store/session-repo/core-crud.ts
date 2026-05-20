@@ -19,8 +19,10 @@ export function upsert(rec: SessionRecord): void {
   // CHANGELOG_<X> A2a：codex_sandbox 同样必须参与 INSERT / UPDATE，避免 spread 调用
   // 时静默丢弃用户在 NewSessionDialog 选过的 sandbox 档位。
   // CHANGELOG_74：claude_code_sandbox 同款（claude OS 沙盒 per-session 覆盖与 codex 对称）。
-  // R4·F2：generic_pty_config 同款 — generic-pty / aider session 的 spawn config 必须
+  // R4·F2：generic_pty_config 同款 — 老 PTY-based session 的 spawn config 必须
   // 在 upsert 时透传，否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn。
+  // (plan remove-aider-generic-pty-adapters-20260520 后 adapter 已删,新 session
+  // 永远 binding null;column 保留兼容老 SQLite rows。)
   // plan model-wiring-and-handoff-20260514 Step 1.3：model 同款 — spawn 时 frontmatter `model`
   // 透传给 SDK 后持久化，让 SDK resume / dormant 唤醒后保持模型一致；upsert 必须参与
   // 否则 lifecycle 复活路径丢字段，resume 拿不到 model。
@@ -184,7 +186,7 @@ export function setTitle(id: string, title: string): void {
 /**
  * 写入 codex sandbox 档位（CHANGELOG_<X> A2a：仅 codex-cli adapter 调用）。
  * null 表示恢复用 settings.codexSandbox 全局值（与 createSession 路径 fallback 同模式）。
- * claude / aider / generic-pty adapter 不应调此方法（字段对它们无意义）。
+ * claude-code adapter 不应调此方法（字段对它无意义）。
  */
 export function setCodexSandbox(
   id: string,
@@ -196,7 +198,7 @@ export function setCodexSandbox(
 /**
  * 写入 claude OS sandbox 档位（CHANGELOG_74：仅 claude-code adapter 调用）。
  * null 表示恢复用 settings.claudeCodeSandbox 全局值（与 createSession 路径 fallback 同模式）。
- * codex / aider / generic-pty adapter 不应调此方法（字段对它们无意义）。
+ * codex-cli adapter 不应调此方法（字段对它无意义）。
  * 与 setCodexSandbox 完全对称的字面镜像。
  */
 export function setClaudeCodeSandbox(
@@ -231,7 +233,6 @@ export function setModel(id: string, model: string | null): void {
  *   读回交还 SDK sandbox.allowWrite(workspace-write 档生效)
  * - codex-cli adapter session-finalize:opts.extraAllowWrite 非空时也调(parity 对称写库,
  *   runtime 不消费 — codex SDK 不支持 extra writable roots);future codex SDK 加支持时零迁移
- * - aider / generic-pty adapter:不应调(字段对它们无意义)
  *
  * `paths`:绝对路径数组;空数组 / null → 列写 NULL(语义同 caller 不传 extraAllowWrite,
  * sandbox.allowWrite 不增 root)。
