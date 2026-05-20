@@ -2,8 +2,8 @@
  * 测试用 sessionRepo mock factory（R37 P2-F Step 3.1）。
  *
  * 抽自 `src/main/session/__tests__/manager-test-setup.ts` 的 `makeSessionRepoMock`，
- * 加 `setSpawnLink / setTitle / getSpawnDepth / listAncestors / listChildren / setGenericPtyConfig`
- * 等 spawn-chain / pty 扩展 method 的 stateful default，让 mcp-tools / spawn-guards / pty-bridge
+ * 加 `setSpawnLink / setTitle / getSpawnDepth / listAncestors / listChildren`
+ * 等 spawn-chain 扩展 method 的 stateful default，让 mcp-tools / spawn-guards
  * 等 test 也能复用同一份 factory（之前各文件 inline 写自己的 mock，13 个 test 散落）。
  *
  * **vi.mock factory hoisting 约束**：
@@ -89,7 +89,6 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     },
     setCodexSandbox: vi.fn(),
     setClaudeCodeSandbox: vi.fn(),
-    setGenericPtyConfig: vi.fn(),
     setModel: vi.fn(),
 
     // ─── rename ───
