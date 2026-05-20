@@ -1,0 +1,1410 @@
+
+> agent-deck@0.1.0 test /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+> vitest run --run
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+
+ ✓ src/main/agent-deck-mcp/__tests__/enter-exit-worktree.test.ts (18 tests) 6ms
+ ✓ src/main/agent-deck-mcp/__tests__/archive-plan.impl-ff-merge-body.test.ts (6 tests) 6ms
+ ✓ src/main/agent-deck-mcp/__tests__/archive-plan.impl-core.test.ts (15 tests) 11ms
+ ✓ src/main/agent-deck-mcp/__tests__/hand-off-session.impl-core.test.ts (27 tests) 5ms
+ ✓ src/main/teams/__tests__/universal-message-watcher.test.ts (11 tests) 7ms
+ ✓ src/main/agent-deck-mcp/__tests__/archive-plan.impl-followup-20260515.test.ts (50 tests) 51ms
+ ✓ src/main/task-manager/__tests__/tools.crud.test.ts (20 tests) 30ms
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.consume-fork.test.ts > codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 MED-D） > case 3 (恢复路径,id 不同 — MED-D 核心 fix 目标): SDK 返不同 thread_id → sessions Map key 切 + renameSdkSession
+[codex-bridge] resumeThread returned different thread_id old-resume-id → new-fork-id; unexpected (codex resume historically returns same id). Carrying app-side history via renameSdkSession.
+
+ ✓ src/main/adapters/codex-cli/__tests__/sdk-bridge.consume-fork.test.ts (9 tests) 6ms
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > jsonl 不存在 → fallback 走不带 resume 的 createSession + emit jsonl missing info（MED-E + CHANGELOG_28 同款）
+[codex-bridge] resume jsonl missing for sess-no-jsonl (startedAt 1970-01-01T00:00:00.001Z), falling back to new thread (CLI history lost but app DB events/file_changes preserved)
+[codex-bridge] post-fallback rename sess-no-jsonl → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > jsonl 不存在 + handle.sessionId !== sessionId → 调 renameSdkSession(OLD, NEW)
+[codex-bridge] resume jsonl missing for sess-rename (startedAt 1970-01-01T00:00:00.001Z), falling back to new thread (CLI history lost but app DB events/file_changes preserved)
+[codex-bridge] post-fallback rename sess-rename → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > archived session → 自动 unarchive + recover（用户显式发消息触发）
+[codex-bridge] recoverAndSend on archived session sess-archived, auto-unarchiving (user explicitly sending message)
+
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > CHANGELOG_99: cwd 不存在 + .claude/worktrees/ 启发式命中 → fallback main repo + R2-2 保留对话历史（jsonl 在）
+[codex-bridge] cwd fallback for sess-cwd-bad: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
+
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > CHANGELOG_99: cwd 不存在 + 启发式 1 不命中 + parent walk 命中 → fallback 到父目录
+[codex-bridge] cwd fallback for sess-walk: /Users/apple/some/deep/dead/cwd → /Users/apple/some
+
+ ✓ src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts (15 tests) 18ms
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > CHANGELOG_99 + R2-2: cwd 不存在 + jsonl 也不在 → 走 fresh thread 兜底（不 resume）
+[codex-bridge] cwd fallback for sess-dual-bad: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
+[codex-bridge] resume jsonl missing for sess-dual-bad (startedAt 1970-01-01T00:00:00.001Z), falling back to new thread (CLI history lost but app DB events/file_changes preserved)
+[codex-bridge] post-fallback rename sess-dual-bad → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > HIGH-1 等价: jsonl 不存在 + record codexSandbox=danger-full-access → fallback 透传
+[codex-bridge] resume jsonl missing for sess-danger (startedAt 1970-01-01T00:00:00.001Z), falling back to new thread (CLI history lost but app DB events/file_changes preserved)
+[codex-bridge] post-fallback rename sess-danger → new-sid (carry app-side events/file_changes/summaries history)
+
+ ✓ src/main/agent-deck-mcp/__tests__/archive-plan.impl-cwd-marker.test.ts (10 tests) 7ms
+ ✓ src/main/agent-deck-mcp/__tests__/archive-plan.impl-r33.test.ts (15 tests) 6ms
+ ✓ src/main/agent-deck-mcp/__tests__/tools.test.ts (46 tests) 200ms
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.early-err-cleanup.test.ts > codex sdk-bridge createSession resume earlyErrCb cleanup > R3-1: 30s timeout 后 late earlyErr → cleanup sessions Map + releaseSdkClaim + emit late error message + emit finished:error 一次 (createPromise 已 resolve 不抛)
+[codex-bridge] resume sess-r2 no thread.started in 30000ms, returning original id (turn loop may still recover)
+
+ ✓ src/main/adapters/codex-cli/__tests__/sdk-bridge.early-err-cleanup.test.ts (3 tests) 7ms
+stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.early-err-cleanup.test.ts > codex sdk-bridge createSession resume earlyErrCb cleanup > R2-1 联合 recoverer: earlyErrCb cleanup 后 sendMessage 走 recoverer 自愈路径 (sessions Map miss + sdkClaim release → recoverAndSend emit placeholder)
+[codex-bridge] cwd fallback for sess-r3: /tmp/r3 → /tmp
+[codex-bridge] resume jsonl missing for sess-r3 (startedAt 1970-01-01T00:00:00.001Z), falling back to new thread (CLI history lost but app DB events/file_changes preserved)
+[codex-bridge] post-fallback rename sess-r3 → 6a43ba9c-a592-4912-8408-f0f9d35b0b8f (carry app-side events/file_changes/summaries history)
+
+ ✓ src/main/ipc/__tests__/sessions.test.ts (21 tests) 44ms
+ ✓ src/main/adapters/codex-cli/__tests__/wire-prefix-e2e.test.ts (7 tests) 4ms
+ ↓ src/main/store/__tests__/task-repo.test.ts (26 tests | 26 skipped)
+stderr | src/main/store/__tests__/task-repo.test.ts
+[task-repo.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 130. This version of Node.js requires
+NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+
+ ↓ src/main/store/__tests__/agent-deck-team-repo.test.ts (24 tests | 24 skipped)
+stderr | src/main/store/__tests__/agent-deck-team-repo.test.ts
+[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 130. This version of Node.js requires
+NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+
+ ✓ src/main/agent-deck-mcp/__tests__/archive-plan.handler.test.ts (9 tests) 311ms
+   ✓ archivePlanHandler — CHANGELOG_99 archive caller > happy path:caller row 存在 → archive 成功 → archived=ok 306ms
+ ✓ src/main/agent-deck-mcp/__tests__/baton-cleanup.test.ts (13 tests) 5ms
+ ✓ src/main/adapters/codex-cli/__tests__/translate.test.ts (24 tests) 6ms
+ ✓ src/main/agent-deck-mcp/__tests__/archive-plan.mainrepo-clean.test.ts (21 tests) 6ms
+ ✓ src/main/adapters/codex-cli/__tests__/per-session-codex-env.test.ts (12 tests) 4ms
+stderr | src/main/agent-deck-mcp/__tests__/helpers.deny-external.test.ts > denyExternalIfNotAllowed — stdio invariant violation 兜底（B-HIGH-1 (C) 修法 (a)） > stdio + 非 sentinel callerSid + 写 tool → DENY（invariant violation 兜底守门）
+[helpers] invariant violated: stdio transport callerSid="attacker-sid" (should always be "__external__" sentinel — check transport-stdio.ts callerSessionIdOverride is set to () => EXTERNAL_CALLER_SENTINEL)
+
+ ✓ src/main/agent-deck-mcp/__tests__/helpers.deny-external.test.ts (35 tests) 5ms
+ ✓ src/main/task-manager/__tests__/tools.read-ingest.test.ts (17 tests) 30ms
+stderr | src/main/agent-deck-mcp/__tests__/spawn-agent-name-routing.test.ts > spawn handler agent_name 按 adapter 路由 (plan §P3 Step 3.9 TC3-7) > TC4 (D3 行 4, v4 关键修正): codex lead × claude wrapper teammate — adapter=codex-cli, agent_name=reviewer-claude → 找 codex-config root (不是 claude-config)
+[mcp spawn_session] agent_name="reviewer-claude" frontmatter model="opus" 对 codex-cli adapter 仅持久化未生效：codex SDK 不接受 per-thread model override，runtime model 由 ~/.codex/config.toml 顶层 `model` 字段决定。
+
+stderr | src/main/agent-deck-mcp/__tests__/spawn-agent-name-routing.test.ts > spawn handler agent_name 按 adapter 路由 (plan §P3 Step 3.9 TC3-7) > TC5 (D3 行 3): codex lead × codex teammate — adapter=codex-cli, agent_name=reviewer-codex → 找 codex-config root
+[mcp spawn_session] agent_name="reviewer-codex" frontmatter model="opus" 对 codex-cli adapter 仅持久化未生效：codex SDK 不接受 per-thread model override，runtime model 由 ~/.codex/config.toml 顶层 `model` 字段决定。
+
+ ✓ src/main/agent-deck-mcp/__tests__/spawn-agent-name-routing.test.ts (4 tests) 75ms
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts > setTimeout fallback symmetry — A1-HIGH-2 + Phase 2 race guard > (I) fallback fire 后 Map 切换正确 — A1-HIGH-2 已 land 行为
+[sandbox] mode=off → disabled (no field)
+
+stderr | src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts > setTimeout fallback symmetry — A1-HIGH-2 + Phase 2 race guard > (I) fallback fire 后 Map 切换正确 — A1-HIGH-2 已 land 行为
+[sdk-bridge] no SDKMessage in 30s, falling back to id resume-id-A1H2
+
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/set-permission-mode-rollback.test.ts (8 tests) 4ms
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts > createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame > non-resume 路径：mock SDK 1 frame 无 session_id + endStream → createSession throw + sessions Map empty + releasePending
+[sandbox] mode=off → disabled (no field)
+
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts > createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame > resume 路径：opts.resume 传入 → catch 内 releaseSdkClaim(opts.resume) 调
+[sandbox] mode=off → disabled (no field)
+
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts > createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame > happy: createSession 正常拿到 first session_id → 不 throw + sessions Map 含 realId
+[sandbox] mode=off → disabled (no field)
+
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts > createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame > Phase 2.5 修法：catch 内 fire-and-forget interrupt + set expectedClose（已 land 验证）
+[sandbox] mode=off → disabled (no field)
+
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts (4 tests) 4ms
+stderr | src/main/agent-deck-mcp/__tests__/dormant-teammate-shutdown.test.ts
+[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 130. This version of Node.js requires
+NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts > setTimeout fallback symmetry — A1-HIGH-2 + Phase 2 race guard > (II) late first-id 到达不覆盖 fallbackId — Phase 2 step 2.2 (B) guard 修法（已 land 验证）
+[sandbox] mode=off → disabled (no field)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > jsonl 不存在 → fallback 走不带 resume 的 createSession（CHANGELOG_28）
+[sdk-bridge] resume jsonl missing for sess-no-jsonl @ /tmp/abandoned, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] post-fallback rename sess-no-jsonl → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_99: cwd 不存在 + .claude/worktrees/ 启发式命中 → fallback main repo + 走 jsonl missing 同款下游
+[sdk-bridge] cwd fallback for sess-cwd-bad: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
+[sdk-bridge] cwdFellBack for sess-cwd-bad → /Users/apple/myrepo, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] post-fallback rename sess-cwd-bad → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_99: cwd 不存在 + 启发式 1 不命中 + parent walk 命中 → fallback 到父目录
+[sdk-bridge] cwd fallback for sess-walk: /Users/apple/some/deep/dead/cwd → /Users/apple/some
+[sdk-bridge] cwdFellBack for sess-walk → /Users/apple/some, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] post-fallback rename sess-walk → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_107: jsonl 不存在 + 摘要成功 → prepended prompt + emit「LLM 摘要已注入」
+[sdk-bridge] resume jsonl missing for sess-summary-ok @ /tmp/with-summary, falling back to new CLI session with auto-generated summary prepended (prompt 99 chars)
+[sdk-bridge] post-fallback rename sess-summary-ok → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_107: jsonl 不存在 + settings.autoSummariseOnFallback=false → skip 摘要,走原 CHANGELOG_106 文案
+[sdk-bridge] resume jsonl missing for sess-settings-off @ /tmp/no-summary, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=settings-off
+[sdk-bridge] post-fallback rename sess-settings-off → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_107: jsonl 不存在 + summariseFn throw → skip 摘要,走原 CHANGELOG_106 文案
+[sdk-bridge] resume jsonl missing for sess-thunk-throw @ /tmp/llm-fail, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=thunk-throw (LLM timeout: __handoff_summary_timeout__)
+[sdk-bridge] post-fallback rename sess-thunk-throw → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_107: cwdFellBack=true + 摘要成功 → prepended prompt + emit cwdFellBack 摘要成功文案
+[sdk-bridge] cwd fallback for sess-cwd-summary: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
+[sdk-bridge] cwdFellBack for sess-cwd-summary → /Users/apple/myrepo, falling back to new CLI session with auto-generated summary prepended (prompt 92 chars)
+[sdk-bridge] post-fallback rename sess-cwd-summary → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > REVIEW_36 HIGH-1: jsonl 不存在 + record claudeCodeSandbox=strict → fallback 透传 strict
+[sdk-bridge] resume jsonl missing for sess-strict @ /tmp/sandboxed, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] post-fallback rename sess-strict → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > parity-plan A.9: jsonl 不存在 + record extraAllowWrite=[mainRepo] → fallback 透传
+[sdk-bridge] resume jsonl missing for sess-extra-fb @ /tmp/worktree, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] post-fallback rename sess-extra-fb → new-sid (carry app-side events/file_changes/summaries history)
+
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > parity-plan B.4: 2 并发 sendMessage + jsonl missing fallback rename → 第二条 waiter 拿 newRealId 不撞 not found
+[sdk-bridge] resume jsonl missing for sess-waiter @ /tmp/waiter, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] post-fallback rename sess-waiter → new-sid (carry app-side events/file_changes/summaries history)
+
+ ✓ src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts (20 tests) 10ms
+stderr | src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts > setTimeout fallback symmetry — A1-HIGH-2 + Phase 2 race guard > (II) late first-id 到达不覆盖 fallbackId — Phase 2 step 2.2 (B) guard 修法（已 land 验证）
+[sdk-bridge] no SDKMessage in 30s, falling back to id resume-id-race
+[sdk-bridge] late first-id arrived after fallback; incoming=late-real-id-from-sdk-burst fallback=resume-id-race; skipping mutation
+
+ ✓ src/main/agent-deck-mcp/__tests__/dormant-teammate-shutdown.test.ts (4 tests | 2 skipped) 2ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts (3 tests) 8ms
+stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and-skill-timer-20260514 Phase A1） > caller 不显式传 implDeps.cwd → handler 从 sessionRepo 反查 callerSession.cwd 注入到 impl
+[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-with-cwd-in-repo: Error: Database not initialized. Call initDb() first.
+    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:97:20
+
+stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and-skill-timer-20260514 Phase A1） > caller 显式传 implDeps.cwd → 优先级最高（mergeCallerCwd 不反查 sessionRepo）
+[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller should-not-be-queried-for-cwd: Error: Database not initialized. Call initDb() first.
+    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:179:20
+
+stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — generic mode (CHANGELOG_99) > generic happy path: 不传 plan_id + 显式 prompt → spawn cwd = caller session cwd + ok return mode=generic
+[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-sid: Error: Database not initialized. Call initDb() first.
+    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:251:20
+
+stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — generic mode (CHANGELOG_99) > generic + caller cwd 缺失 → fallback mainRepo（caller 不在 sessionRepo / cwd 字段空）
+[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-sid: Error: Database not initialized. Call initDb() first.
+    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:317:20
+[mcp hand_off_session] cannot archive caller caller-sid: not in sessions table (异常被清理 / 边界状态 / 长 async 期间 row 被删)
+
+stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — generic mode (CHANGELOG_99) > generic + 传 phase_label → ok return ignoredFields 含 phase_label
+[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-sid: Error: Database not initialized. Call initDb() first.
+    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:388:20
+
+ ✓ src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts (6 tests) 9ms
+stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — generic mode (CHANGELOG_99) > CHANGELOG_99 R1 fix MED-4: generic + caller cwd 真不存在 → existsSync precheck false → fallback mainRepo
+[mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-sid: Error: Database not initialized. Call initDb() first.
+    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:460:20
+
+ ✓ src/main/agent-deck-mcp/__tests__/hand-off-session.handler-deny-happy.test.ts (22 tests) 8ms
+ ↓ src/main/store/__tests__/agent-deck-message-repo.test.ts (14 tests | 14 skipped)
+stderr | src/main/store/__tests__/agent-deck-message-repo.test.ts
+[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 130. This version of Node.js requires
+NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/file-change-intent-delay.test.ts (8 tests) 6ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/restart-controller-fork-rename.test.ts (5 tests) 3ms
+ ✓ src/main/agent-deck-mcp/__tests__/hand-off-session.archive-caller-false.test.ts (8 tests) 5ms
+stderr | src/main/agent-deck-mcp/__tests__/spoofing-attack-paths.test.ts > B-HIGH-1 防御链兜底：stdio invariant violation（transport 层漏改时兜底守门） > stdio + 非 sentinel callerSid（假设 transport 层漏改） → denyExternalIfNotAllowed 兜底 DENY
+[helpers] invariant violated: stdio transport callerSid="attacker-sid" (should always be "__external__" sentinel — check transport-stdio.ts callerSessionIdOverride is set to () => EXTERNAL_CALLER_SENTINEL)
+
+ ✓ src/main/agent-deck-mcp/__tests__/spoofing-attack-paths.test.ts (11 tests) 4ms
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/can-use-tool.test.ts > makeCanUseTool — bypassPermissions 短路（CHANGELOG_72 Bug 3） > bypass + SandboxNetworkAccess → 仍 auto-deny + 引导 fallback（不被 bypass 短路覆盖）
+[sandbox-canusetool] SandboxNetworkAccess intercept host=example.com → auto-deny + fallback hint
+
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/can-use-tool.test.ts (8 tests) 15ms
+ ✓ src/main/adapters/claude-code/__tests__/sandbox-config.test.ts (22 tests) 6ms
+ ✓ src/main/__tests__/bundled-assets-multi-root.test.ts (4 tests) 63ms
+ ✓ src/main/agent-deck-mcp/__tests__/spawn-guards.test.ts (12 tests) 5ms
+ ✓ src/main/agent-deck-mcp/__tests__/archive-plan.base-branch-named-only.test.ts (10 tests) 3ms
+stdout | src/main/teams/__tests__/team-lifecycle-scheduler.test.ts > TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集后批量 archive） > 500 条全 ghost team → 全部被 archive，无漏扫（核心 H4 case：边迭代边 archive 会漏扫 200）
+[team-lifecycle-scheduler] archived team team-0 (Team 0) — no-active-members
+[team-lifecycle-scheduler] archived team team-1 (Team 1) — no-active-members
+[team-lifecycle-scheduler] archived team team-2 (Team 2) — no-active-members
+[team-lifecycle-scheduler] archived team team-3 (Team 3) — no-active-members
+[team-lifecycle-scheduler] archived team team-4 (Team 4) — no-active-members
+[team-lifecycle-scheduler] archived team team-5 (Team 5) — no-active-members
+[team-lifecycle-scheduler] archived team team-6 (Team 6) — no-active-members
+[team-lifecycle-scheduler] archived team team-7 (Team 7) — no-active-members
+[team-lifecycle-scheduler] archived team team-8 (Team 8) — no-active-members
+[team-lifecycle-scheduler] archived team team-9 (Team 9) — no-active-members
+[team-lifecycle-scheduler] archived team team-10 (Team 10) — no-active-members
+[team-lifecycle-scheduler] archived team team-11 (Team 11) — no-active-members
+[team-lifecycle-scheduler] archived team team-12 (Team 12) — no-active-members
+[team-lifecycle-scheduler] archived team team-13 (Team 13) — no-active-members
+[team-lifecycle-scheduler] archived team team-14 (Team 14) — no-active-members
+[team-lifecycle-scheduler] archived team team-15 (Team 15) — no-active-members
+[team-lifecycle-scheduler] archived team team-16 (Team 16) — no-active-members
+[team-lifecycle-scheduler] archived team team-17 (Team 17) — no-active-members
+[team-lifecycle-scheduler] archived team team-18 (Team 18) — no-active-members
+[team-lifecycle-scheduler] archived team team-19 (Team 19) — no-active-members
+[team-lifecycle-scheduler] archived team team-20 (Team 20) — no-active-members
+[team-lifecycle-scheduler] archived team team-21 (Team 21) — no-active-members
+[team-lifecycle-scheduler] archived team team-22 (Team 22) — no-active-members
+[team-lifecycle-scheduler] archived team team-23 (Team 23) — no-active-members
+[team-lifecycle-scheduler] archived team team-24 (Team 24) — no-active-members
+[team-lifecycle-scheduler] archived team team-25 (Team 25) — no-active-members
+[team-lifecycle-scheduler] archived team team-26 (Team 26) — no-active-members
+[team-lifecycle-scheduler] archived team team-27 (Team 27) — no-active-members
+[team-lifecycle-scheduler] archived team team-28 (Team 28) — no-active-members
+[team-lifecycle-scheduler] archived team team-29 (Team 29) — no-active-members
+[team-lifecycle-scheduler] archived team team-30 (Team 30) — no-active-members
+[team-lifecycle-scheduler] archived team team-31 (Team 31) — no-active-members
+[team-lifecycle-scheduler] archived team team-32 (Team 32) — no-active-members
+[team-lifecycle-scheduler] archived team team-33 (Team 33) — no-active-members
+[team-lifecycle-scheduler] archived team team-34 (Team 34) — no-active-members
+[team-lifecycle-scheduler] archived team team-35 (Team 35) — no-active-members
+[team-lifecycle-scheduler] archived team team-36 (Team 36) — no-active-members
+[team-lifecycle-scheduler] archived team team-37 (Team 37) — no-active-members
+[team-lifecycle-scheduler] archived team team-38 (Team 38) — no-active-members
+[team-lifecycle-scheduler] archived team team-39 (Team 39) — no-active-members
+[team-lifecycle-scheduler] archived team team-40 (Team 40) — no-active-members
+[team-lifecycle-scheduler] archived team team-41 (Team 41) — no-active-members
+[team-lifecycle-scheduler] archived team team-42 (Team 42) — no-active-members
+[team-lifecycle-scheduler] archived team team-43 (Team 43) — no-active-members
+[team-lifecycle-scheduler] archived team team-44 (Team 44) — no-active-members
+[team-lifecycle-scheduler] archived team team-45 (Team 45) — no-active-members
+[team-lifecycle-scheduler] archived team team-46 (Team 46) — no-active-members
+[team-lifecycle-scheduler] archived team team-47 (Team 47) — no-active-members
+[team-lifecycle-scheduler] archived team team-48 (Team 48) — no-active-members
+[team-lifecycle-scheduler] archived team team-49 (Team 49) — no-active-members
+[team-lifecycle-scheduler] archived team team-50 (Team 50) — no-active-members
+[team-lifecycle-scheduler] archived team team-51 (Team 51) — no-active-members
+[team-lifecycle-scheduler] archived team team-52 (Team 52) — no-active-members
+[team-lifecycle-scheduler] archived team team-53 (Team 53) — no-active-members
+[team-lifecycle-scheduler] archived team team-54 (Team 54) — no-active-members
+[team-lifecycle-scheduler] archived team team-55 (Team 55) — no-active-members
+[team-lifecycle-scheduler] archived team team-56 (Team 56) — no-active-members
+[team-lifecycle-scheduler] archived team team-57 (Team 57) — no-active-members
+[team-lifecycle-scheduler] archived team team-58 (Team 58) — no-active-members
+[team-lifecycle-scheduler] archived team team-59 (Team 59) — no-active-members
+[team-lifecycle-scheduler] archived team team-60 (Team 60) — no-active-members
+[team-lifecycle-scheduler] archived team team-61 (Team 61) — no-active-members
+[team-lifecycle-scheduler] archived team team-62 (Team 62) — no-active-members
+[team-lifecycle-scheduler] archived team team-63 (Team 63) — no-active-members
+[team-lifecycle-scheduler] archived team team-64 (Team 64) — no-active-members
+[team-lifecycle-scheduler] archived team team-65 (Team 65) — no-active-members
+[team-lifecycle-scheduler] archived team team-66 (Team 66) — no-active-members
+[team-lifecycle-scheduler] archived team team-67 (Team 67) — no-active-members
+[team-lifecycle-scheduler] archived team team-68 (Team 68) — no-active-members
+[team-lifecycle-scheduler] archived team team-69 (Team 69) — no-active-members
+[team-lifecycle-scheduler] archived team team-70 (Team 70) — no-active-members
+[team-lifecycle-scheduler] archived team team-71 (Team 71) — no-active-members
+[team-lifecycle-scheduler] archived team team-72 (Team 72) — no-active-members
+[team-lifecycle-scheduler] archived team team-73 (Team 73) — no-active-members
+[team-lifecycle-scheduler] archived team team-74 (Team 74) — no-active-members
+[team-lifecycle-scheduler] archived team team-75 (Team 75) — no-active-members
+[team-lifecycle-scheduler] archived team team-76 (Team 76) — no-active-members
+[team-lifecycle-scheduler] archived team team-77 (Team 77) — no-active-members
+[team-lifecycle-scheduler] archived team team-78 (Team 78) — no-active-members
+[team-lifecycle-scheduler] archived team team-79 (Team 79) — no-active-members
+[team-lifecycle-scheduler] archived team team-80 (Team 80) — no-active-members
+[team-lifecycle-scheduler] archived team team-81 (Team 81) — no-active-members
+[team-lifecycle-scheduler] archived team team-82 (Team 82) — no-active-members
+[team-lifecycle-scheduler] archived team team-83 (Team 83) — no-active-members
+[team-lifecycle-scheduler] archived team team-84 (Team 84) — no-active-members
+[team-lifecycle-scheduler] archived team team-85 (Team 85) — no-active-members
+[team-lifecycle-scheduler] archived team team-86 (Team 86) — no-active-members
+[team-lifecycle-scheduler] archived team team-87 (Team 87) — no-active-members
+[team-lifecycle-scheduler] archived team team-88 (Team 88) — no-active-members
+[team-lifecycle-scheduler] archived team team-89 (Team 89) — no-active-members
+[team-lifecycle-scheduler] archived team team-90 (Team 90) — no-active-members
+[team-lifecycle-scheduler] archived team team-91 (Team 91) — no-active-members
+[team-lifecycle-scheduler] archived team team-92 (Team 92) — no-active-members
+[team-lifecycle-scheduler] archived team team-93 (Team 93) — no-active-members
+[team-lifecycle-scheduler] archived team team-94 (Team 94) — no-active-members
+[team-lifecycle-scheduler] archived team team-95 (Team 95) — no-active-members
+[team-lifecycle-scheduler] archived team team-96 (Team 96) — no-active-members
+[team-lifecycle-scheduler] archived team team-97 (Team 97) — no-active-members
+[team-lifecycle-scheduler] archived team team-98 (Team 98) — no-active-members
+[team-lifecycle-scheduler] archived team team-99 (Team 99) — no-active-members
+[team-lifecycle-scheduler] archived team team-100 (Team 100) — no-active-members
+[team-lifecycle-scheduler] archived team team-101 (Team 101) — no-active-members
+[team-lifecycle-scheduler] archived team team-102 (Team 102) — no-active-members
+[team-lifecycle-scheduler] archived team team-103 (Team 103) — no-active-members
+[team-lifecycle-scheduler] archived team team-104 (Team 104) — no-active-members
+[team-lifecycle-scheduler] archived team team-105 (Team 105) — no-active-members
+[team-lifecycle-scheduler] archived team team-106 (Team 106) — no-active-members
+[team-lifecycle-scheduler] archived team team-107 (Team 107) — no-active-members
+[team-lifecycle-scheduler] archived team team-108 (Team 108) — no-active-members
+[team-lifecycle-scheduler] archived team team-109 (Team 109) — no-active-members
+[team-lifecycle-scheduler] archived team team-110 (Team 110) — no-active-members
+[team-lifecycle-scheduler] archived team team-111 (Team 111) — no-active-members
+[team-lifecycle-scheduler] archived team team-112 (Team 112) — no-active-members
+[team-lifecycle-scheduler] archived team team-113 (Team 113) — no-active-members
+[team-lifecycle-scheduler] archived team team-114 (Team 114) — no-active-members
+[team-lifecycle-scheduler] archived team team-115 (Team 115) — no-active-members
+[team-lifecycle-scheduler] archived team team-116 (Team 116) — no-active-members
+[team-lifecycle-scheduler] archived team team-117 (Team 117) — no-active-members
+[team-lifecycle-scheduler] archived team team-118 (Team 118) — no-active-members
+[team-lifecycle-scheduler] archived team team-119 (Team 119) — no-active-members
+[team-lifecycle-scheduler] archived team team-120 (Team 120) — no-active-members
+[team-lifecycle-scheduler] archived team team-121 (Team 121) — no-active-members
+[team-lifecycle-scheduler] archived team team-122 (Team 122) — no-active-members
+[team-lifecycle-scheduler] archived team team-123 (Team 123) — no-active-members
+[team-lifecycle-scheduler] archived team team-124 (Team 124) — no-active-members
+[team-lifecycle-scheduler] archived team team-125 (Team 125) — no-active-members
+[team-lifecycle-scheduler] archived team team-126 (Team 126) — no-active-members
+[team-lifecycle-scheduler] archived team team-127 (Team 127) — no-active-members
+[team-lifecycle-scheduler] archived team team-128 (Team 128) — no-active-members
+[team-lifecycle-scheduler] archived team team-129 (Team 129) — no-active-members
+[team-lifecycle-scheduler] archived team team-130 (Team 130) — no-active-members
+[team-lifecycle-scheduler] archived team team-131 (Team 131) — no-active-members
+[team-lifecycle-scheduler] archived team team-132 (Team 132) — no-active-members
+[team-lifecycle-scheduler] archived team team-133 (Team 133) — no-active-members
+[team-lifecycle-scheduler] archived team team-134 (Team 134) — no-active-members
+[team-lifecycle-scheduler] archived team team-135 (Team 135) — no-active-members
+[team-lifecycle-scheduler] archived team team-136 (Team 136) — no-active-members
+[team-lifecycle-scheduler] archived team team-137 (Team 137) — no-active-members
+[team-lifecycle-scheduler] archived team team-138 (Team 138) — no-active-members
+[team-lifecycle-scheduler] archived team team-139 (Team 139) — no-active-members
+[team-lifecycle-scheduler] archived team team-140 (Team 140) — no-active-members
+[team-lifecycle-scheduler] archived team team-141 (Team 141) — no-active-members
+[team-lifecycle-scheduler] archived team team-142 (Team 142) — no-active-members
+[team-lifecycle-scheduler] archived team team-143 (Team 143) — no-active-members
+[team-lifecycle-scheduler] archived team team-144 (Team 144) — no-active-members
+[team-lifecycle-scheduler] archived team team-145 (Team 145) — no-active-members
+[team-lifecycle-scheduler] archived team team-146 (Team 146) — no-active-members
+[team-lifecycle-scheduler] archived team team-147 (Team 147) — no-active-members
+[team-lifecycle-scheduler] archived team team-148 (Team 148) — no-active-members
+[team-lifecycle-scheduler] archived team team-149 (Team 149) — no-active-members
+[team-lifecycle-scheduler] archived team team-150 (Team 150) — no-active-members
+[team-lifecycle-scheduler] archived team team-151 (Team 151) — no-active-members
+[team-lifecycle-scheduler] archived team team-152 (Team 152) — no-active-members
+[team-lifecycle-scheduler] archived team team-153 (Team 153) — no-active-members
+[team-lifecycle-scheduler] archived team team-154 (Team 154) — no-active-members
+[team-lifecycle-scheduler] archived team team-155 (Team 155) — no-active-members
+[team-lifecycle-scheduler] archived team team-156 (Team 156) — no-active-members
+[team-lifecycle-scheduler] archived team team-157 (Team 157) — no-active-members
+[team-lifecycle-scheduler] archived team team-158 (Team 158) — no-active-members
+[team-lifecycle-scheduler] archived team team-159 (Team 159) — no-active-members
+[team-lifecycle-scheduler] archived team team-160 (Team 160) — no-active-members
+[team-lifecycle-scheduler] archived team team-161 (Team 161) — no-active-members
+[team-lifecycle-scheduler] archived team team-162 (Team 162) — no-active-members
+[team-lifecycle-scheduler] archived team team-163 (Team 163) — no-active-members
+[team-lifecycle-scheduler] archived team team-164 (Team 164) — no-active-members
+[team-lifecycle-scheduler] archived team team-165 (Team 165) — no-active-members
+[team-lifecycle-scheduler] archived team team-166 (Team 166) — no-active-members
+[team-lifecycle-scheduler] archived team team-167 (Team 167) — no-active-members
+[team-lifecycle-scheduler] archived team team-168 (Team 168) — no-active-members
+[team-lifecycle-scheduler] archived team team-169 (Team 169) — no-active-members
+[team-lifecycle-scheduler] archived team team-170 (Team 170) — no-active-members
+[team-lifecycle-scheduler] archived team team-171 (Team 171) — no-active-members
+[team-lifecycle-scheduler] archived team team-172 (Team 172) — no-active-members
+[team-lifecycle-scheduler] archived team team-173 (Team 173) — no-active-members
+[team-lifecycle-scheduler] archived team team-174 (Team 174) — no-active-members
+[team-lifecycle-scheduler] archived team team-175 (Team 175) — no-active-members
+[team-lifecycle-scheduler] archived team team-176 (Team 176) — no-active-members
+[team-lifecycle-scheduler] archived team team-177 (Team 177) — no-active-members
+[team-lifecycle-scheduler] archived team team-178 (Team 178) — no-active-members
+[team-lifecycle-scheduler] archived team team-179 (Team 179) — no-active-members
+[team-lifecycle-scheduler] archived team team-180 (Team 180) — no-active-members
+[team-lifecycle-scheduler] archived team team-181 (Team 181) — no-active-members
+[team-lifecycle-scheduler] archived team team-182 (Team 182) — no-active-members
+[team-lifecycle-scheduler] archived team team-183 (Team 183) — no-active-members
+[team-lifecycle-scheduler] archived team team-184 (Team 184) — no-active-members
+[team-lifecycle-scheduler] archived team team-185 (Team 185) — no-active-members
+[team-lifecycle-scheduler] archived team team-186 (Team 186) — no-active-members
+[team-lifecycle-scheduler] archived team team-187 (Team 187) — no-active-members
+[team-lifecycle-scheduler] archived team team-188 (Team 188) — no-active-members
+[team-lifecycle-scheduler] archived team team-189 (Team 189) — no-active-members
+[team-lifecycle-scheduler] archived team team-190 (Team 190) — no-active-members
+[team-lifecycle-scheduler] archived team team-191 (Team 191) — no-active-members
+[team-lifecycle-scheduler] archived team team-192 (Team 192) — no-active-members
+[team-lifecycle-scheduler] archived team team-193 (Team 193) — no-active-members
+[team-lifecycle-scheduler] archived team team-194 (Team 194) — no-active-members
+[team-lifecycle-scheduler] archived team team-195 (Team 195) — no-active-members
+[team-lifecycle-scheduler] archived team team-196 (Team 196) — no-active-members
+[team-lifecycle-scheduler] archived team team-197 (Team 197) — no-active-members
+[team-lifecycle-scheduler] archived team team-198 (Team 198) — no-active-members
+[team-lifecycle-scheduler] archived team team-199 (Team 199) — no-active-members
+[team-lifecycle-scheduler] archived team team-200 (Team 200) — no-active-members
+[team-lifecycle-scheduler] archived team team-201 (Team 201) — no-active-members
+[team-lifecycle-scheduler] archived team team-202 (Team 202) — no-active-members
+[team-lifecycle-scheduler] archived team team-203 (Team 203) — no-active-members
+[team-lifecycle-scheduler] archived team team-204 (Team 204) — no-active-members
+[team-lifecycle-scheduler] archived team team-205 (Team 205) — no-active-members
+[team-lifecycle-scheduler] archived team team-206 (Team 206) — no-active-members
+[team-lifecycle-scheduler] archived team team-207 (Team 207) — no-active-members
+[team-lifecycle-scheduler] archived team team-208 (Team 208) — no-active-members
+[team-lifecycle-scheduler] archived team team-209 (Team 209) — no-active-members
+[team-lifecycle-scheduler] archived team team-210 (Team 210) — no-active-members
+[team-lifecycle-scheduler] archived team team-211 (Team 211) — no-active-members
+[team-lifecycle-scheduler] archived team team-212 (Team 212) — no-active-members
+[team-lifecycle-scheduler] archived team team-213 (Team 213) — no-active-members
+[team-lifecycle-scheduler] archived team team-214 (Team 214) — no-active-members
+[team-lifecycle-scheduler] archived team team-215 (Team 215) — no-active-members
+[team-lifecycle-scheduler] archived team team-216 (Team 216) — no-active-members
+[team-lifecycle-scheduler] archived team team-217 (Team 217) — no-active-members
+[team-lifecycle-scheduler] archived team team-218 (Team 218) — no-active-members
+[team-lifecycle-scheduler] archived team team-219 (Team 219) — no-active-members
+[team-lifecycle-scheduler] archived team team-220 (Team 220) — no-active-members
+[team-lifecycle-scheduler] archived team team-221 (Team 221) — no-active-members
+[team-lifecycle-scheduler] archived team team-222 (Team 222) — no-active-members
+[team-lifecycle-scheduler] archived team team-223 (Team 223) — no-active-members
+[team-lifecycle-scheduler] archived team team-224 (Team 224) — no-active-members
+[team-lifecycle-scheduler] archived team team-225 (Team 225) — no-active-members
+[team-lifecycle-scheduler] archived team team-226 (Team 226) — no-active-members
+[team-lifecycle-scheduler] archived team team-227 (Team 227) — no-active-members
+[team-lifecycle-scheduler] archived team team-228 (Team 228) — no-active-members
+[team-lifecycle-scheduler] archived team team-229 (Team 229) — no-active-members
+[team-lifecycle-scheduler] archived team team-230 (Team 230) — no-active-members
+[team-lifecycle-scheduler] archived team team-231 (Team 231) — no-active-members
+[team-lifecycle-scheduler] archived team team-232 (Team 232) — no-active-members
+[team-lifecycle-scheduler] archived team team-233 (Team 233) — no-active-members
+[team-lifecycle-scheduler] archived team team-234 (Team 234) — no-active-members
+[team-lifecycle-scheduler] archived team team-235 (Team 235) — no-active-members
+[team-lifecycle-scheduler] archived team team-236 (Team 236) — no-active-members
+[team-lifecycle-scheduler] archived team team-237 (Team 237) — no-active-members
+[team-lifecycle-scheduler] archived team team-238 (Team 238) — no-active-members
+[team-lifecycle-scheduler] archived team team-239 (Team 239) — no-active-members
+[team-lifecycle-scheduler] archived team team-240 (Team 240) — no-active-members
+[team-lifecycle-scheduler] archived team team-241 (Team 241) — no-active-members
+[team-lifecycle-scheduler] archived team team-242 (Team 242) — no-active-members
+[team-lifecycle-scheduler] archived team team-243 (Team 243) — no-active-members
+[team-lifecycle-scheduler] archived team team-244 (Team 244) — no-active-members
+[team-lifecycle-scheduler] archived team team-245 (Team 245) — no-active-members
+[team-lifecycle-scheduler] archived team team-246 (Team 246) — no-active-members
+[team-lifecycle-scheduler] archived team team-247 (Team 247) — no-active-members
+[team-lifecycle-scheduler] archived team team-248 (Team 248) — no-active-members
+[team-lifecycle-scheduler] archived team team-249 (Team 249) — no-active-members
+[team-lifecycle-scheduler] archived team team-250 (Team 250) — no-active-members
+[team-lifecycle-scheduler] archived team team-251 (Team 251) — no-active-members
+[team-lifecycle-scheduler] archived team team-252 (Team 252) — no-active-members
+[team-lifecycle-scheduler] archived team team-253 (Team 253) — no-active-members
+[team-lifecycle-scheduler] archived team team-254 (Team 254) — no-active-members
+[team-lifecycle-scheduler] archived team team-255 (Team 255) — no-active-members
+[team-lifecycle-scheduler] archived team team-256 (Team 256) — no-active-members
+[team-lifecycle-scheduler] archived team team-257 (Team 257) — no-active-members
+[team-lifecycle-scheduler] archived team team-258 (Team 258) — no-active-members
+[team-lifecycle-scheduler] archived team team-259 (Team 259) — no-active-members
+[team-lifecycle-scheduler] archived team team-260 (Team 260) — no-active-members
+[team-lifecycle-scheduler] archived team team-261 (Team 261) — no-active-members
+[team-lifecycle-scheduler] archived team team-262 (Team 262) — no-active-members
+[team-lifecycle-scheduler] archived team team-263 (Team 263) — no-active-members
+[team-lifecycle-scheduler] archived team team-264 (Team 264) — no-active-members
+[team-lifecycle-scheduler] archived team team-265 (Team 265) — no-active-members
+[team-lifecycle-scheduler] archived team team-266 (Team 266) — no-active-members
+[team-lifecycle-scheduler] archived team team-267 (Team 267) — no-active-members
+[team-lifecycle-scheduler] archived team team-268 (Team 268) — no-active-members
+[team-lifecycle-scheduler] archived team team-269 (Team 269) — no-active-members
+[team-lifecycle-scheduler] archived team team-270 (Team 270) — no-active-members
+[team-lifecycle-scheduler] archived team team-271 (Team 271) — no-active-members
+[team-lifecycle-scheduler] archived team team-272 (Team 272) — no-active-members
+[team-lifecycle-scheduler] archived team team-273 (Team 273) — no-active-members
+[team-lifecycle-scheduler] archived team team-274 (Team 274) — no-active-members
+[team-lifecycle-scheduler] archived team team-275 (Team 275) — no-active-members
+[team-lifecycle-scheduler] archived team team-276 (Team 276) — no-active-members
+[team-lifecycle-scheduler] archived team team-277 (Team 277) — no-active-members
+[team-lifecycle-scheduler] archived team team-278 (Team 278) — no-active-members
+[team-lifecycle-scheduler] archived team team-279 (Team 279) — no-active-members
+[team-lifecycle-scheduler] archived team team-280 (Team 280) — no-active-members
+[team-lifecycle-scheduler] archived team team-281 (Team 281) — no-active-members
+[team-lifecycle-scheduler] archived team team-282 (Team 282) — no-active-members
+[team-lifecycle-scheduler] archived team team-283 (Team 283) — no-active-members
+[team-lifecycle-scheduler] archived team team-284 (Team 284) — no-active-members
+[team-lifecycle-scheduler] archived team team-285 (Team 285) — no-active-members
+[team-lifecycle-scheduler] archived team team-286 (Team 286) — no-active-members
+[team-lifecycle-scheduler] archived team team-287 (Team 287) — no-active-members
+[team-lifecycle-scheduler] archived team team-288 (Team 288) — no-active-members
+[team-lifecycle-scheduler] archived team team-289 (Team 289) — no-active-members
+[team-lifecycle-scheduler] archived team team-290 (Team 290) — no-active-members
+[team-lifecycle-scheduler] archived team team-291 (Team 291) — no-active-members
+[team-lifecycle-scheduler] archived team team-292 (Team 292) — no-active-members
+[team-lifecycle-scheduler] archived team team-293 (Team 293) — no-active-members
+[team-lifecycle-scheduler] archived team team-294 (Team 294) — no-active-members
+[team-lifecycle-scheduler] archived team team-295 (Team 295) — no-active-members
+[team-lifecycle-scheduler] archived team team-296 (Team 296) — no-active-members
+[team-lifecycle-scheduler] archived team team-297 (Team 297) — no-active-members
+[team-lifecycle-scheduler] archived team team-298 (Team 298) — no-active-members
+[team-lifecycle-scheduler] archived team team-299 (Team 299) — no-active-members
+[team-lifecycle-scheduler] archived team team-300 (Team 300) — no-active-members
+[team-lifecycle-scheduler] archived team team-301 (Team 301) — no-active-members
+[team-lifecycle-scheduler] archived team team-302 (Team 302) — no-active-members
+[team-lifecycle-scheduler] archived team team-303 (Team 303) — no-active-members
+[team-lifecycle-scheduler] archived team team-304 (Team 304) — no-active-members
+[team-lifecycle-scheduler] archived team team-305 (Team 305) — no-active-members
+[team-lifecycle-scheduler] archived team team-306 (Team 306) — no-active-members
+[team-lifecycle-scheduler] archived team team-307 (Team 307) — no-active-members
+[team-lifecycle-scheduler] archived team team-308 (Team 308) — no-active-members
+[team-lifecycle-scheduler] archived team team-309 (Team 309) — no-active-members
+[team-lifecycle-scheduler] archived team team-310 (Team 310) — no-active-members
+[team-lifecycle-scheduler] archived team team-311 (Team 311) — no-active-members
+[team-lifecycle-scheduler] archived team team-312 (Team 312) — no-active-members
+[team-lifecycle-scheduler] archived team team-313 (Team 313) — no-active-members
+[team-lifecycle-scheduler] archived team team-314 (Team 314) — no-active-members
+[team-lifecycle-scheduler] archived team team-315 (Team 315) — no-active-members
+[team-lifecycle-scheduler] archived team team-316 (Team 316) — no-active-members
+[team-lifecycle-scheduler] archived team team-317 (Team 317) — no-active-members
+[team-lifecycle-scheduler] archived team team-318 (Team 318) — no-active-members
+[team-lifecycle-scheduler] archived team team-319 (Team 319) — no-active-members
+[team-lifecycle-scheduler] archived team team-320 (Team 320) — no-active-members
+[team-lifecycle-scheduler] archived team team-321 (Team 321) — no-active-members
+[team-lifecycle-scheduler] archived team team-322 (Team 322) — no-active-members
+[team-lifecycle-scheduler] archived team team-323 (Team 323) — no-active-members
+[team-lifecycle-scheduler] archived team team-324 (Team 324) — no-active-members
+[team-lifecycle-scheduler] archived team team-325 (Team 325) — no-active-members
+[team-lifecycle-scheduler] archived team team-326 (Team 326) — no-active-members
+[team-lifecycle-scheduler] archived team team-327 (Team 327) — no-active-members
+[team-lifecycle-scheduler] archived team team-328 (Team 328) — no-active-members
+[team-lifecycle-scheduler] archived team team-329 (Team 329) — no-active-members
+[team-lifecycle-scheduler] archived team team-330 (Team 330) — no-active-members
+[team-lifecycle-scheduler] archived team team-331 (Team 331) — no-active-members
+[team-lifecycle-scheduler] archived team team-332 (Team 332) — no-active-members
+[team-lifecycle-scheduler] archived team team-333 (Team 333) — no-active-members
+[team-lifecycle-scheduler] archived team team-334 (Team 334) — no-active-members
+[team-lifecycle-scheduler] archived team team-335 (Team 335) — no-active-members
+[team-lifecycle-scheduler] archived team team-336 (Team 336) — no-active-members
+[team-lifecycle-scheduler] archived team team-337 (Team 337) — no-active-members
+[team-lifecycle-scheduler] archived team team-338 (Team 338) — no-active-members
+[team-lifecycle-scheduler] archived team team-339 (Team 339) — no-active-members
+[team-lifecycle-scheduler] archived team team-340 (Team 340) — no-active-members
+[team-lifecycle-scheduler] archived team team-341 (Team 341) — no-active-members
+[team-lifecycle-scheduler] archived team team-342 (Team 342) — no-active-members
+[team-lifecycle-scheduler] archived team team-343 (Team 343) — no-active-members
+[team-lifecycle-scheduler] archived team team-344 (Team 344) — no-active-members
+[team-lifecycle-scheduler] archived team team-345 (Team 345) — no-active-members
+[team-lifecycle-scheduler] archived team team-346 (Team 346) — no-active-members
+[team-lifecycle-scheduler] archived team team-347 (Team 347) — no-active-members
+[team-lifecycle-scheduler] archived team team-348 (Team 348) — no-active-members
+[team-lifecycle-scheduler] archived team team-349 (Team 349) — no-active-members
+[team-lifecycle-scheduler] archived team team-350 (Team 350) — no-active-members
+[team-lifecycle-scheduler] archived team team-351 (Team 351) — no-active-members
+[team-lifecycle-scheduler] archived team team-352 (Team 352) — no-active-members
+[team-lifecycle-scheduler] archived team team-353 (Team 353) — no-active-members
+[team-lifecycle-scheduler] archived team team-354 (Team 354) — no-active-members
+[team-lifecycle-scheduler] archived team team-355 (Team 355) — no-active-members
+[team-lifecycle-scheduler] archived team team-356 (Team 356) — no-active-members
+[team-lifecycle-scheduler] archived team team-357 (Team 357) — no-active-members
+[team-lifecycle-scheduler] archived team team-358 (Team 358) — no-active-members
+[team-lifecycle-scheduler] archived team team-359 (Team 359) — no-active-members
+[team-lifecycle-scheduler] archived team team-360 (Team 360) — no-active-members
+[team-lifecycle-scheduler] archived team team-361 (Team 361) — no-active-members
+[team-lifecycle-scheduler] archived team team-362 (Team 362) — no-active-members
+[team-lifecycle-scheduler] archived team team-363 (Team 363) — no-active-members
+[team-lifecycle-scheduler] archived team team-364 (Team 364) — no-active-members
+[team-lifecycle-scheduler] archived team team-365 (Team 365) — no-active-members
+[team-lifecycle-scheduler] archived team team-366 (Team 366) — no-active-members
+[team-lifecycle-scheduler] archived team team-367 (Team 367) — no-active-members
+[team-lifecycle-scheduler] archived team team-368 (Team 368) — no-active-members
+[team-lifecycle-scheduler] archived team team-369 (Team 369) — no-active-members
+[team-lifecycle-scheduler] archived team team-370 (Team 370) — no-active-members
+[team-lifecycle-scheduler] archived team team-371 (Team 371) — no-active-members
+[team-lifecycle-scheduler] archived team team-372 (Team 372) — no-active-members
+[team-lifecycle-scheduler] archived team team-373 (Team 373) — no-active-members
+[team-lifecycle-scheduler] archived team team-374 (Team 374) — no-active-members
+[team-lifecycle-scheduler] archived team team-375 (Team 375) — no-active-members
+[team-lifecycle-scheduler] archived team team-376 (Team 376) — no-active-members
+[team-lifecycle-scheduler] archived team team-377 (Team 377) — no-active-members
+[team-lifecycle-scheduler] archived team team-378 (Team 378) — no-active-members
+[team-lifecycle-scheduler] archived team team-379 (Team 379) — no-active-members
+[team-lifecycle-scheduler] archived team team-380 (Team 380) — no-active-members
+[team-lifecycle-scheduler] archived team team-381 (Team 381) — no-active-members
+[team-lifecycle-scheduler] archived team team-382 (Team 382) — no-active-members
+[team-lifecycle-scheduler] archived team team-383 (Team 383) — no-active-members
+[team-lifecycle-scheduler] archived team team-384 (Team 384) — no-active-members
+[team-lifecycle-scheduler] archived team team-385 (Team 385) — no-active-members
+[team-lifecycle-scheduler] archived team team-386 (Team 386) — no-active-members
+[team-lifecycle-scheduler] archived team team-387 (Team 387) — no-active-members
+[team-lifecycle-scheduler] archived team team-388 (Team 388) — no-active-members
+[team-lifecycle-scheduler] archived team team-389 (Team 389) — no-active-members
+[team-lifecycle-scheduler] archived team team-390 (Team 390) — no-active-members
+[team-lifecycle-scheduler] archived team team-391 (Team 391) — no-active-members
+[team-lifecycle-scheduler] archived team team-392 (Team 392) — no-active-members
+[team-lifecycle-scheduler] archived team team-393 (Team 393) — no-active-members
+[team-lifecycle-scheduler] archived team team-394 (Team 394) — no-active-members
+[team-lifecycle-scheduler] archived team team-395 (Team 395) — no-active-members
+[team-lifecycle-scheduler] archived team team-396 (Team 396) — no-active-members
+[team-lifecycle-scheduler] archived team team-397 (Team 397) — no-active-members
+[team-lifecycle-scheduler] archived team team-398 (Team 398) — no-active-members
+[team-lifecycle-scheduler] archived team team-399 (Team 399) — no-active-members
+[team-lifecycle-scheduler] archived team team-400 (Team 400) — no-active-members
+[team-lifecycle-scheduler] archived team team-401 (Team 401) — no-active-members
+[team-lifecycle-scheduler] archived team team-402 (Team 402) — no-active-members
+[team-lifecycle-scheduler] archived team team-403 (Team 403) — no-active-members
+[team-lifecycle-scheduler] archived team team-404 (Team 404) — no-active-members
+[team-lifecycle-scheduler] archived team team-405 (Team 405) — no-active-members
+[team-lifecycle-scheduler] archived team team-406 (Team 406) — no-active-members
+[team-lifecycle-scheduler] archived team team-407 (Team 407) — no-active-members
+[team-lifecycle-scheduler] archived team team-408 (Team 408) — no-active-members
+[team-lifecycle-scheduler] archived team team-409 (Team 409) — no-active-members
+[team-lifecycle-scheduler] archived team team-410 (Team 410) — no-active-members
+[team-lifecycle-scheduler] archived team team-411 (Team 411) — no-active-members
+[team-lifecycle-scheduler] archived team team-412 (Team 412) — no-active-members
+[team-lifecycle-scheduler] archived team team-413 (Team 413) — no-active-members
+[team-lifecycle-scheduler] archived team team-414 (Team 414) — no-active-members
+[team-lifecycle-scheduler] archived team team-415 (Team 415) — no-active-members
+[team-lifecycle-scheduler] archived team team-416 (Team 416) — no-active-members
+[team-lifecycle-scheduler] archived team team-417 (Team 417) — no-active-members
+[team-lifecycle-scheduler] archived team team-418 (Team 418) — no-active-members
+[team-lifecycle-scheduler] archived team team-419 (Team 419) — no-active-members
+[team-lifecycle-scheduler] archived team team-420 (Team 420) — no-active-members
+[team-lifecycle-scheduler] archived team team-421 (Team 421) — no-active-members
+[team-lifecycle-scheduler] archived team team-422 (Team 422) — no-active-members
+[team-lifecycle-scheduler] archived team team-423 (Team 423) — no-active-members
+[team-lifecycle-scheduler] archived team team-424 (Team 424) — no-active-members
+[team-lifecycle-scheduler] archived team team-425 (Team 425) — no-active-members
+[team-lifecycle-scheduler] archived team team-426 (Team 426) — no-active-members
+[team-lifecycle-scheduler] archived team team-427 (Team 427) — no-active-members
+[team-lifecycle-scheduler] archived team team-428 (Team 428) — no-active-members
+[team-lifecycle-scheduler] archived team team-429 (Team 429) — no-active-members
+[team-lifecycle-scheduler] archived team team-430 (Team 430) — no-active-members
+[team-lifecycle-scheduler] archived team team-431 (Team 431) — no-active-members
+[team-lifecycle-scheduler] archived team team-432 (Team 432) — no-active-members
+[team-lifecycle-scheduler] archived team team-433 (Team 433) — no-active-members
+[team-lifecycle-scheduler] archived team team-434 (Team 434) — no-active-members
+[team-lifecycle-scheduler] archived team team-435 (Team 435) — no-active-members
+[team-lifecycle-scheduler] archived team team-436 (Team 436) — no-active-members
+[team-lifecycle-scheduler] archived team team-437 (Team 437) — no-active-members
+[team-lifecycle-scheduler] archived team team-438 (Team 438) — no-active-members
+[team-lifecycle-scheduler] archived team team-439 (Team 439) — no-active-members
+[team-lifecycle-scheduler] archived team team-440 (Team 440) — no-active-members
+[team-lifecycle-scheduler] archived team team-441 (Team 441) — no-active-members
+[team-lifecycle-scheduler] archived team team-442 (Team 442) — no-active-members
+[team-lifecycle-scheduler] archived team team-443 (Team 443) — no-active-members
+[team-lifecycle-scheduler] archived team team-444 (Team 444) — no-active-members
+[team-lifecycle-scheduler] archived team team-445 (Team 445) — no-active-members
+[team-lifecycle-scheduler] archived team team-446 (Team 446) — no-active-members
+[team-lifecycle-scheduler] archived team team-447 (Team 447) — no-active-members
+[team-lifecycle-scheduler] archived team team-448 (Team 448) — no-active-members
+[team-lifecycle-scheduler] archived team team-449 (Team 449) — no-active-members
+[team-lifecycle-scheduler] archived team team-450 (Team 450) — no-active-members
+[team-lifecycle-scheduler] archived team team-451 (Team 451) — no-active-members
+[team-lifecycle-scheduler] archived team team-452 (Team 452) — no-active-members
+[team-lifecycle-scheduler] archived team team-453 (Team 453) — no-active-members
+[team-lifecycle-scheduler] archived team team-454 (Team 454) — no-active-members
+[team-lifecycle-scheduler] archived team team-455 (Team 455) — no-active-members
+[team-lifecycle-scheduler] archived team team-456 (Team 456) — no-active-members
+[team-lifecycle-scheduler] archived team team-457 (Team 457) — no-active-members
+[team-lifecycle-scheduler] archived team team-458 (Team 458) — no-active-members
+[team-lifecycle-scheduler] archived team team-459 (Team 459) — no-active-members
+[team-lifecycle-scheduler] archived team team-460 (Team 460) — no-active-members
+[team-lifecycle-scheduler] archived team team-461 (Team 461) — no-active-members
+[team-lifecycle-scheduler] archived team team-462 (Team 462) — no-active-members
+[team-lifecycle-scheduler] archived team team-463 (Team 463) — no-active-members
+[team-lifecycle-scheduler] archived team team-464 (Team 464) — no-active-members
+[team-lifecycle-scheduler] archived team team-465 (Team 465) — no-active-members
+[team-lifecycle-scheduler] archived team team-466 (Team 466) — no-active-members
+[team-lifecycle-scheduler] archived team team-467 (Team 467) — no-active-members
+[team-lifecycle-scheduler] archived team team-468 (Team 468) — no-active-members
+[team-lifecycle-scheduler] archived team team-469 (Team 469) — no-active-members
+[team-lifecycle-scheduler] archived team team-470 (Team 470) — no-active-members
+[team-lifecycle-scheduler] archived team team-471 (Team 471) — no-active-members
+[team-lifecycle-scheduler] archived team team-472 (Team 472) — no-active-members
+[team-lifecycle-scheduler] archived team team-473 (Team 473) — no-active-members
+[team-lifecycle-scheduler] archived team team-474 (Team 474) — no-active-members
+[team-lifecycle-scheduler] archived team team-475 (Team 475) — no-active-members
+[team-lifecycle-scheduler] archived team team-476 (Team 476) — no-active-members
+[team-lifecycle-scheduler] archived team team-477 (Team 477) — no-active-members
+[team-lifecycle-scheduler] archived team team-478 (Team 478) — no-active-members
+[team-lifecycle-scheduler] archived team team-479 (Team 479) — no-active-members
+[team-lifecycle-scheduler] archived team team-480 (Team 480) — no-active-members
+[team-lifecycle-scheduler] archived team team-481 (Team 481) — no-active-members
+[team-lifecycle-scheduler] archived team team-482 (Team 482) — no-active-members
+[team-lifecycle-scheduler] archived team team-483 (Team 483) — no-active-members
+[team-lifecycle-scheduler] archived team team-484 (Team 484) — no-active-members
+[team-lifecycle-scheduler] archived team team-485 (Team 485) — no-active-members
+[team-lifecycle-scheduler] archived team team-486 (Team 486) — no-active-members
+[team-lifecycle-scheduler] archived team team-487 (Team 487) — no-active-members
+[team-lifecycle-scheduler] archived team team-488 (Team 488) — no-active-members
+[team-lifecycle-scheduler] archived team team-489 (Team 489) — no-active-members
+[team-lifecycle-scheduler] archived team team-490 (Team 490) — no-active-members
+[team-lifecycle-scheduler] archived team team-491 (Team 491) — no-active-members
+[team-lifecycle-scheduler] archived team team-492 (Team 492) — no-active-members
+[team-lifecycle-scheduler] archived team team-493 (Team 493) — no-active-members
+[team-lifecycle-scheduler] archived team team-494 (Team 494) — no-active-members
+[team-lifecycle-scheduler] archived team team-495 (Team 495) — no-active-members
+[team-lifecycle-scheduler] archived team team-496 (Team 496) — no-active-members
+[team-lifecycle-scheduler] archived team team-497 (Team 497) — no-active-members
+[team-lifecycle-scheduler] archived team team-498 (Team 498) — no-active-members
+[team-lifecycle-scheduler] archived team team-499 (Team 499) — no-active-members
+
+stdout | src/main/teams/__tests__/team-lifecycle-scheduler.test.ts > TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集后批量 archive） > PAGE_SIZE 边界：恰好 200 条 ghost → 必须 archive 200 条不少不多
+[team-lifecycle-scheduler] archived team team-0 (Team 0) — no-active-members
+[team-lifecycle-scheduler] archived team team-1 (Team 1) — no-active-members
+[team-lifecycle-scheduler] archived team team-2 (Team 2) — no-active-members
+[team-lifecycle-scheduler] archived team team-3 (Team 3) — no-active-members
+[team-lifecycle-scheduler] archived team team-4 (Team 4) — no-active-members
+[team-lifecycle-scheduler] archived team team-5 (Team 5) — no-active-members
+[team-lifecycle-scheduler] archived team team-6 (Team 6) — no-active-members
+[team-lifecycle-scheduler] archived team team-7 (Team 7) — no-active-members
+[team-lifecycle-scheduler] archived team team-8 (Team 8) — no-active-members
+[team-lifecycle-scheduler] archived team team-9 (Team 9) — no-active-members
+[team-lifecycle-scheduler] archived team team-10 (Team 10) — no-active-members
+[team-lifecycle-scheduler] archived team team-11 (Team 11) — no-active-members
+[team-lifecycle-scheduler] archived team team-12 (Team 12) — no-active-members
+[team-lifecycle-scheduler] archived team team-13 (Team 13) — no-active-members
+[team-lifecycle-scheduler] archived team team-14 (Team 14) — no-active-members
+[team-lifecycle-scheduler] archived team team-15 (Team 15) — no-active-members
+[team-lifecycle-scheduler] archived team team-16 (Team 16) — no-active-members
+[team-lifecycle-scheduler] archived team team-17 (Team 17) — no-active-members
+[team-lifecycle-scheduler] archived team team-18 (Team 18) — no-active-members
+[team-lifecycle-scheduler] archived team team-19 (Team 19) — no-active-members
+[team-lifecycle-scheduler] archived team team-20 (Team 20) — no-active-members
+[team-lifecycle-scheduler] archived team team-21 (Team 21) — no-active-members
+[team-lifecycle-scheduler] archived team team-22 (Team 22) — no-active-members
+[team-lifecycle-scheduler] archived team team-23 (Team 23) — no-active-members
+[team-lifecycle-scheduler] archived team team-24 (Team 24) — no-active-members
+[team-lifecycle-scheduler] archived team team-25 (Team 25) — no-active-members
+[team-lifecycle-scheduler] archived team team-26 (Team 26) — no-active-members
+[team-lifecycle-scheduler] archived team team-27 (Team 27) — no-active-members
+[team-lifecycle-scheduler] archived team team-28 (Team 28) — no-active-members
+[team-lifecycle-scheduler] archived team team-29 (Team 29) — no-active-members
+[team-lifecycle-scheduler] archived team team-30 (Team 30) — no-active-members
+[team-lifecycle-scheduler] archived team team-31 (Team 31) — no-active-members
+[team-lifecycle-scheduler] archived team team-32 (Team 32) — no-active-members
+[team-lifecycle-scheduler] archived team team-33 (Team 33) — no-active-members
+[team-lifecycle-scheduler] archived team team-34 (Team 34) — no-active-members
+[team-lifecycle-scheduler] archived team team-35 (Team 35) — no-active-members
+[team-lifecycle-scheduler] archived team team-36 (Team 36) — no-active-members
+[team-lifecycle-scheduler] archived team team-37 (Team 37) — no-active-members
+[team-lifecycle-scheduler] archived team team-38 (Team 38) — no-active-members
+[team-lifecycle-scheduler] archived team team-39 (Team 39) — no-active-members
+[team-lifecycle-scheduler] archived team team-40 (Team 40) — no-active-members
+[team-lifecycle-scheduler] archived team team-41 (Team 41) — no-active-members
+[team-lifecycle-scheduler] archived team team-42 (Team 42) — no-active-members
+[team-lifecycle-scheduler] archived team team-43 (Team 43) — no-active-members
+[team-lifecycle-scheduler] archived team team-44 (Team 44) — no-active-members
+[team-lifecycle-scheduler] archived team team-45 (Team 45) — no-active-members
+[team-lifecycle-scheduler] archived team team-46 (Team 46) — no-active-members
+[team-lifecycle-scheduler] archived team team-47 (Team 47) — no-active-members
+[team-lifecycle-scheduler] archived team team-48 (Team 48) — no-active-members
+[team-lifecycle-scheduler] archived team team-49 (Team 49) — no-active-members
+[team-lifecycle-scheduler] archived team team-50 (Team 50) — no-active-members
+[team-lifecycle-scheduler] archived team team-51 (Team 51) — no-active-members
+[team-lifecycle-scheduler] archived team team-52 (Team 52) — no-active-members
+[team-lifecycle-scheduler] archived team team-53 (Team 53) — no-active-members
+[team-lifecycle-scheduler] archived team team-54 (Team 54) — no-active-members
+[team-lifecycle-scheduler] archived team team-55 (Team 55) — no-active-members
+[team-lifecycle-scheduler] archived team team-56 (Team 56) — no-active-members
+[team-lifecycle-scheduler] archived team team-57 (Team 57) — no-active-members
+[team-lifecycle-scheduler] archived team team-58 (Team 58) — no-active-members
+[team-lifecycle-scheduler] archived team team-59 (Team 59) — no-active-members
+[team-lifecycle-scheduler] archived team team-60 (Team 60) — no-active-members
+[team-lifecycle-scheduler] archived team team-61 (Team 61) — no-active-members
+[team-lifecycle-scheduler] archived team team-62 (Team 62) — no-active-members
+[team-lifecycle-scheduler] archived team team-63 (Team 63) — no-active-members
+[team-lifecycle-scheduler] archived team team-64 (Team 64) — no-active-members
+[team-lifecycle-scheduler] archived team team-65 (Team 65) — no-active-members
+[team-lifecycle-scheduler] archived team team-66 (Team 66) — no-active-members
+[team-lifecycle-scheduler] archived team team-67 (Team 67) — no-active-members
+[team-lifecycle-scheduler] archived team team-68 (Team 68) — no-active-members
+[team-lifecycle-scheduler] archived team team-69 (Team 69) — no-active-members
+[team-lifecycle-scheduler] archived team team-70 (Team 70) — no-active-members
+[team-lifecycle-scheduler] archived team team-71 (Team 71) — no-active-members
+[team-lifecycle-scheduler] archived team team-72 (Team 72) — no-active-members
+[team-lifecycle-scheduler] archived team team-73 (Team 73) — no-active-members
+[team-lifecycle-scheduler] archived team team-74 (Team 74) — no-active-members
+[team-lifecycle-scheduler] archived team team-75 (Team 75) — no-active-members
+[team-lifecycle-scheduler] archived team team-76 (Team 76) — no-active-members
+[team-lifecycle-scheduler] archived team team-77 (Team 77) — no-active-members
+[team-lifecycle-scheduler] archived team team-78 (Team 78) — no-active-members
+[team-lifecycle-scheduler] archived team team-79 (Team 79) — no-active-members
+[team-lifecycle-scheduler] archived team team-80 (Team 80) — no-active-members
+[team-lifecycle-scheduler] archived team team-81 (Team 81) — no-active-members
+[team-lifecycle-scheduler] archived team team-82 (Team 82) — no-active-members
+[team-lifecycle-scheduler] archived team team-83 (Team 83) — no-active-members
+[team-lifecycle-scheduler] archived team team-84 (Team 84) — no-active-members
+[team-lifecycle-scheduler] archived team team-85 (Team 85) — no-active-members
+[team-lifecycle-scheduler] archived team team-86 (Team 86) — no-active-members
+[team-lifecycle-scheduler] archived team team-87 (Team 87) — no-active-members
+[team-lifecycle-scheduler] archived team team-88 (Team 88) — no-active-members
+[team-lifecycle-scheduler] archived team team-89 (Team 89) — no-active-members
+[team-lifecycle-scheduler] archived team team-90 (Team 90) — no-active-members
+[team-lifecycle-scheduler] archived team team-91 (Team 91) — no-active-members
+[team-lifecycle-scheduler] archived team team-92 (Team 92) — no-active-members
+[team-lifecycle-scheduler] archived team team-93 (Team 93) — no-active-members
+[team-lifecycle-scheduler] archived team team-94 (Team 94) — no-active-members
+[team-lifecycle-scheduler] archived team team-95 (Team 95) — no-active-members
+[team-lifecycle-scheduler] archived team team-96 (Team 96) — no-active-members
+[team-lifecycle-scheduler] archived team team-97 (Team 97) — no-active-members
+[team-lifecycle-scheduler] archived team team-98 (Team 98) — no-active-members
+[team-lifecycle-scheduler] archived team team-99 (Team 99) — no-active-members
+[team-lifecycle-scheduler] archived team team-100 (Team 100) — no-active-members
+[team-lifecycle-scheduler] archived team team-101 (Team 101) — no-active-members
+[team-lifecycle-scheduler] archived team team-102 (Team 102) — no-active-members
+[team-lifecycle-scheduler] archived team team-103 (Team 103) — no-active-members
+[team-lifecycle-scheduler] archived team team-104 (Team 104) — no-active-members
+[team-lifecycle-scheduler] archived team team-105 (Team 105) — no-active-members
+[team-lifecycle-scheduler] archived team team-106 (Team 106) — no-active-members
+[team-lifecycle-scheduler] archived team team-107 (Team 107) — no-active-members
+[team-lifecycle-scheduler] archived team team-108 (Team 108) — no-active-members
+[team-lifecycle-scheduler] archived team team-109 (Team 109) — no-active-members
+[team-lifecycle-scheduler] archived team team-110 (Team 110) — no-active-members
+[team-lifecycle-scheduler] archived team team-111 (Team 111) — no-active-members
+[team-lifecycle-scheduler] archived team team-112 (Team 112) — no-active-members
+[team-lifecycle-scheduler] archived team team-113 (Team 113) — no-active-members
+[team-lifecycle-scheduler] archived team team-114 (Team 114) — no-active-members
+[team-lifecycle-scheduler] archived team team-115 (Team 115) — no-active-members
+[team-lifecycle-scheduler] archived team team-116 (Team 116) — no-active-members
+[team-lifecycle-scheduler] archived team team-117 (Team 117) — no-active-members
+[team-lifecycle-scheduler] archived team team-118 (Team 118) — no-active-members
+[team-lifecycle-scheduler] archived team team-119 (Team 119) — no-active-members
+[team-lifecycle-scheduler] archived team team-120 (Team 120) — no-active-members
+[team-lifecycle-scheduler] archived team team-121 (Team 121) — no-active-members
+[team-lifecycle-scheduler] archived team team-122 (Team 122) — no-active-members
+[team-lifecycle-scheduler] archived team team-123 (Team 123) — no-active-members
+[team-lifecycle-scheduler] archived team team-124 (Team 124) — no-active-members
+[team-lifecycle-scheduler] archived team team-125 (Team 125) — no-active-members
+[team-lifecycle-scheduler] archived team team-126 (Team 126) — no-active-members
+[team-lifecycle-scheduler] archived team team-127 (Team 127) — no-active-members
+[team-lifecycle-scheduler] archived team team-128 (Team 128) — no-active-members
+[team-lifecycle-scheduler] archived team team-129 (Team 129) — no-active-members
+[team-lifecycle-scheduler] archived team team-130 (Team 130) — no-active-members
+[team-lifecycle-scheduler] archived team team-131 (Team 131) — no-active-members
+[team-lifecycle-scheduler] archived team team-132 (Team 132) — no-active-members
+[team-lifecycle-scheduler] archived team team-133 (Team 133) — no-active-members
+[team-lifecycle-scheduler] archived team team-134 (Team 134) — no-active-members
+[team-lifecycle-scheduler] archived team team-135 (Team 135) — no-active-members
+[team-lifecycle-scheduler] archived team team-136 (Team 136) — no-active-members
+[team-lifecycle-scheduler] archived team team-137 (Team 137) — no-active-members
+[team-lifecycle-scheduler] archived team team-138 (Team 138) — no-active-members
+[team-lifecycle-scheduler] archived team team-139 (Team 139) — no-active-members
+[team-lifecycle-scheduler] archived team team-140 (Team 140) — no-active-members
+[team-lifecycle-scheduler] archived team team-141 (Team 141) — no-active-members
+[team-lifecycle-scheduler] archived team team-142 (Team 142) — no-active-members
+[team-lifecycle-scheduler] archived team team-143 (Team 143) — no-active-members
+[team-lifecycle-scheduler] archived team team-144 (Team 144) — no-active-members
+[team-lifecycle-scheduler] archived team team-145 (Team 145) — no-active-members
+[team-lifecycle-scheduler] archived team team-146 (Team 146) — no-active-members
+[team-lifecycle-scheduler] archived team team-147 (Team 147) — no-active-members
+[team-lifecycle-scheduler] archived team team-148 (Team 148) — no-active-members
+[team-lifecycle-scheduler] archived team team-149 (Team 149) — no-active-members
+[team-lifecycle-scheduler] archived team team-150 (Team 150) — no-active-members
+[team-lifecycle-scheduler] archived team team-151 (Team 151) — no-active-members
+[team-lifecycle-scheduler] archived team team-152 (Team 152) — no-active-members
+[team-lifecycle-scheduler] archived team team-153 (Team 153) — no-active-members
+[team-lifecycle-scheduler] archived team team-154 (Team 154) — no-active-members
+[team-lifecycle-scheduler] archived team team-155 (Team 155) — no-active-members
+[team-lifecycle-scheduler] archived team team-156 (Team 156) — no-active-members
+[team-lifecycle-scheduler] archived team team-157 (Team 157) — no-active-members
+[team-lifecycle-scheduler] archived team team-158 (Team 158) — no-active-members
+[team-lifecycle-scheduler] archived team team-159 (Team 159) — no-active-members
+[team-lifecycle-scheduler] archived team team-160 (Team 160) — no-active-members
+[team-lifecycle-scheduler] archived team team-161 (Team 161) — no-active-members
+[team-lifecycle-scheduler] archived team team-162 (Team 162) — no-active-members
+[team-lifecycle-scheduler] archived team team-163 (Team 163) — no-active-members
+[team-lifecycle-scheduler] archived team team-164 (Team 164) — no-active-members
+[team-lifecycle-scheduler] archived team team-165 (Team 165) — no-active-members
+[team-lifecycle-scheduler] archived team team-166 (Team 166) — no-active-members
+[team-lifecycle-scheduler] archived team team-167 (Team 167) — no-active-members
+[team-lifecycle-scheduler] archived team team-168 (Team 168) — no-active-members
+[team-lifecycle-scheduler] archived team team-169 (Team 169) — no-active-members
+[team-lifecycle-scheduler] archived team team-170 (Team 170) — no-active-members
+[team-lifecycle-scheduler] archived team team-171 (Team 171) — no-active-members
+[team-lifecycle-scheduler] archived team team-172 (Team 172) — no-active-members
+[team-lifecycle-scheduler] archived team team-173 (Team 173) — no-active-members
+[team-lifecycle-scheduler] archived team team-174 (Team 174) — no-active-members
+[team-lifecycle-scheduler] archived team team-175 (Team 175) — no-active-members
+[team-lifecycle-scheduler] archived team team-176 (Team 176) — no-active-members
+[team-lifecycle-scheduler] archived team team-177 (Team 177) — no-active-members
+[team-lifecycle-scheduler] archived team team-178 (Team 178) — no-active-members
+[team-lifecycle-scheduler] archived team team-179 (Team 179) — no-active-members
+[team-lifecycle-scheduler] archived team team-180 (Team 180) — no-active-members
+[team-lifecycle-scheduler] archived team team-181 (Team 181) — no-active-members
+[team-lifecycle-scheduler] archived team team-182 (Team 182) — no-active-members
+[team-lifecycle-scheduler] archived team team-183 (Team 183) — no-active-members
+[team-lifecycle-scheduler] archived team team-184 (Team 184) — no-active-members
+[team-lifecycle-scheduler] archived team team-185 (Team 185) — no-active-members
+[team-lifecycle-scheduler] archived team team-186 (Team 186) — no-active-members
+[team-lifecycle-scheduler] archived team team-187 (Team 187) — no-active-members
+[team-lifecycle-scheduler] archived team team-188 (Team 188) — no-active-members
+[team-lifecycle-scheduler] archived team team-189 (Team 189) — no-active-members
+[team-lifecycle-scheduler] archived team team-190 (Team 190) — no-active-members
+[team-lifecycle-scheduler] archived team team-191 (Team 191) — no-active-members
+[team-lifecycle-scheduler] archived team team-192 (Team 192) — no-active-members
+[team-lifecycle-scheduler] archived team team-193 (Team 193) — no-active-members
+[team-lifecycle-scheduler] archived team team-194 (Team 194) — no-active-members
+[team-lifecycle-scheduler] archived team team-195 (Team 195) — no-active-members
+[team-lifecycle-scheduler] archived team team-196 (Team 196) — no-active-members
+[team-lifecycle-scheduler] archived team team-197 (Team 197) — no-active-members
+[team-lifecycle-scheduler] archived team team-198 (Team 198) — no-active-members
+[team-lifecycle-scheduler] archived team team-199 (Team 199) — no-active-members
+
+stdout | src/main/teams/__tests__/team-lifecycle-scheduler.test.ts > TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集后批量 archive） > 小于 PAGE_SIZE：50 条 ghost → 一页扫完，全部 archive
+[team-lifecycle-scheduler] archived team team-0 (Team 0) — no-active-members
+[team-lifecycle-scheduler] archived team team-1 (Team 1) — no-active-members
+[team-lifecycle-scheduler] archived team team-2 (Team 2) — no-active-members
+[team-lifecycle-scheduler] archived team team-3 (Team 3) — no-active-members
+[team-lifecycle-scheduler] archived team team-4 (Team 4) — no-active-members
+[team-lifecycle-scheduler] archived team team-5 (Team 5) — no-active-members
+[team-lifecycle-scheduler] archived team team-6 (Team 6) — no-active-members
+[team-lifecycle-scheduler] archived team team-7 (Team 7) — no-active-members
+[team-lifecycle-scheduler] archived team team-8 (Team 8) — no-active-members
+[team-lifecycle-scheduler] archived team team-9 (Team 9) — no-active-members
+[team-lifecycle-scheduler] archived team team-10 (Team 10) — no-active-members
+[team-lifecycle-scheduler] archived team team-11 (Team 11) — no-active-members
+[team-lifecycle-scheduler] archived team team-12 (Team 12) — no-active-members
+[team-lifecycle-scheduler] archived team team-13 (Team 13) — no-active-members
+[team-lifecycle-scheduler] archived team team-14 (Team 14) — no-active-members
+[team-lifecycle-scheduler] archived team team-15 (Team 15) — no-active-members
+[team-lifecycle-scheduler] archived team team-16 (Team 16) — no-active-members
+[team-lifecycle-scheduler] archived team team-17 (Team 17) — no-active-members
+[team-lifecycle-scheduler] archived team team-18 (Team 18) — no-active-members
+[team-lifecycle-scheduler] archived team team-19 (Team 19) — no-active-members
+[team-lifecycle-scheduler] archived team team-20 (Team 20) — no-active-members
+[team-lifecycle-scheduler] archived team team-21 (Team 21) — no-active-members
+[team-lifecycle-scheduler] archived team team-22 (Team 22) — no-active-members
+[team-lifecycle-scheduler] archived team team-23 (Team 23) — no-active-members
+[team-lifecycle-scheduler] archived team team-24 (Team 24) — no-active-members
+[team-lifecycle-scheduler] archived team team-25 (Team 25) — no-active-members
+[team-lifecycle-scheduler] archived team team-26 (Team 26) — no-active-members
+[team-lifecycle-scheduler] archived team team-27 (Team 27) — no-active-members
+[team-lifecycle-scheduler] archived team team-28 (Team 28) — no-active-members
+[team-lifecycle-scheduler] archived team team-29 (Team 29) — no-active-members
+[team-lifecycle-scheduler] archived team team-30 (Team 30) — no-active-members
+[team-lifecycle-scheduler] archived team team-31 (Team 31) — no-active-members
+[team-lifecycle-scheduler] archived team team-32 (Team 32) — no-active-members
+[team-lifecycle-scheduler] archived team team-33 (Team 33) — no-active-members
+[team-lifecycle-scheduler] archived team team-34 (Team 34) — no-active-members
+[team-lifecycle-scheduler] archived team team-35 (Team 35) — no-active-members
+[team-lifecycle-scheduler] archived team team-36 (Team 36) — no-active-members
+[team-lifecycle-scheduler] archived team team-37 (Team 37) — no-active-members
+[team-lifecycle-scheduler] archived team team-38 (Team 38) — no-active-members
+[team-lifecycle-scheduler] archived team team-39 (Team 39) — no-active-members
+[team-lifecycle-scheduler] archived team team-40 (Team 40) — no-active-members
+[team-lifecycle-scheduler] archived team team-41 (Team 41) — no-active-members
+[team-lifecycle-scheduler] archived team team-42 (Team 42) — no-active-members
+[team-lifecycle-scheduler] archived team team-43 (Team 43) — no-active-members
+[team-lifecycle-scheduler] archived team team-44 (Team 44) — no-active-members
+[team-lifecycle-scheduler] archived team team-45 (Team 45) — no-active-members
+[team-lifecycle-scheduler] archived team team-46 (Team 46) — no-active-members
+[team-lifecycle-scheduler] archived team team-47 (Team 47) — no-active-members
+[team-lifecycle-scheduler] archived team team-48 (Team 48) — no-active-members
+[team-lifecycle-scheduler] archived team team-49 (Team 49) — no-active-members
+
+stdout | src/main/teams/__tests__/team-lifecycle-scheduler.test.ts > TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集后批量 archive） > 混合 fixture（5 ghost + 5 alive + 5 closed-grace-elapsed）→ archive 10 条（ghost + closed），跳过 5 alive
+[team-lifecycle-scheduler] archived team ghost-0 (Ghost 0) — no-active-members
+[team-lifecycle-scheduler] archived team ghost-1 (Ghost 1) — no-active-members
+[team-lifecycle-scheduler] archived team ghost-2 (Ghost 2) — no-active-members
+[team-lifecycle-scheduler] archived team ghost-3 (Ghost 3) — no-active-members
+[team-lifecycle-scheduler] archived team ghost-4 (Ghost 4) — no-active-members
+[team-lifecycle-scheduler] archived team closed-0 (Closed 0) — all-members-closed-grace-elapsed
+[team-lifecycle-scheduler] archived team closed-1 (Closed 1) — all-members-closed-grace-elapsed
+[team-lifecycle-scheduler] archived team closed-2 (Closed 2) — all-members-closed-grace-elapsed
+[team-lifecycle-scheduler] archived team closed-3 (Closed 3) — all-members-closed-grace-elapsed
+[team-lifecycle-scheduler] archived team closed-4 (Closed 4) — all-members-closed-grace-elapsed
+
+stdout | src/main/teams/__tests__/team-lifecycle-scheduler.test.ts > TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集后批量 archive） > candidate list 收集阶段不动 archived_at（pagination 在 first pass 全程稳定）
+[team-lifecycle-scheduler] archived team team-0 (Team 0) — no-active-members
+[team-lifecycle-scheduler] archived team team-1 (Team 1) — no-active-members
+[team-lifecycle-scheduler] archived team team-2 (Team 2) — no-active-members
+[team-lifecycle-scheduler] archived team team-3 (Team 3) — no-active-members
+[team-lifecycle-scheduler] archived team team-4 (Team 4) — no-active-members
+[team-lifecycle-scheduler] archived team team-5 (Team 5) — no-active-members
+[team-lifecycle-scheduler] archived team team-6 (Team 6) — no-active-members
+[team-lifecycle-scheduler] archived team team-7 (Team 7) — no-active-members
+[team-lifecycle-scheduler] archived team team-8 (Team 8) — no-active-members
+[team-lifecycle-scheduler] archived team team-9 (Team 9) — no-active-members
+[team-lifecycle-scheduler] archived team team-10 (Team 10) — no-active-members
+[team-lifecycle-scheduler] archived team team-11 (Team 11) — no-active-members
+[team-lifecycle-scheduler] archived team team-12 (Team 12) — no-active-members
+[team-lifecycle-scheduler] archived team team-13 (Team 13) — no-active-members
+[team-lifecycle-scheduler] archived team team-14 (Team 14) — no-active-members
+[team-lifecycle-scheduler] archived team team-15 (Team 15) — no-active-members
+[team-lifecycle-scheduler] archived team team-16 (Team 16) — no-active-members
+[team-lifecycle-scheduler] archived team team-17 (Team 17) — no-active-members
+[team-lifecycle-scheduler] archived team team-18 (Team 18) — no-active-members
+[team-lifecycle-scheduler] archived team team-19 (Team 19) — no-active-members
+[team-lifecycle-scheduler] archived team team-20 (Team 20) — no-active-members
+[team-lifecycle-scheduler] archived team team-21 (Team 21) — no-active-members
+[team-lifecycle-scheduler] archived team team-22 (Team 22) — no-active-members
+[team-lifecycle-scheduler] archived team team-23 (Team 23) — no-active-members
+[team-lifecycle-scheduler] archived team team-24 (Team 24) — no-active-members
+[team-lifecycle-scheduler] archived team team-25 (Team 25) — no-active-members
+[team-lifecycle-scheduler] archived team team-26 (Team 26) — no-active-members
+[team-lifecycle-scheduler] archived team team-27 (Team 27) — no-active-members
+[team-lifecycle-scheduler] archived team team-28 (Team 28) — no-active-members
+[team-lifecycle-scheduler] archived team team-29 (Team 29) — no-active-members
+[team-lifecycle-scheduler] archived team team-30 (Team 30) — no-active-members
+[team-lifecycle-scheduler] archived team team-31 (Team 31) — no-active-members
+[team-lifecycle-scheduler] archived team team-32 (Team 32) — no-active-members
+[team-lifecycle-scheduler] archived team team-33 (Team 33) — no-active-members
+[team-lifecycle-scheduler] archived team team-34 (Team 34) — no-active-members
+[team-lifecycle-scheduler] archived team team-35 (Team 35) — no-active-members
+[team-lifecycle-scheduler] archived team team-36 (Team 36) — no-active-members
+[team-lifecycle-scheduler] archived team team-37 (Team 37) — no-active-members
+[team-lifecycle-scheduler] archived team team-38 (Team 38) — no-active-members
+[team-lifecycle-scheduler] archived team team-39 (Team 39) — no-active-members
+[team-lifecycle-scheduler] archived team team-40 (Team 40) — no-active-members
+[team-lifecycle-scheduler] archived team team-41 (Team 41) — no-active-members
+[team-lifecycle-scheduler] archived team team-42 (Team 42) — no-active-members
+[team-lifecycle-scheduler] archived team team-43 (Team 43) — no-active-members
+[team-lifecycle-scheduler] archived team team-44 (Team 44) — no-active-members
+[team-lifecycle-scheduler] archived team team-45 (Team 45) — no-active-members
+[team-lifecycle-scheduler] archived team team-46 (Team 46) — no-active-members
+[team-lifecycle-scheduler] archived team team-47 (Team 47) — no-active-members
+[team-lifecycle-scheduler] archived team team-48 (Team 48) — no-active-members
+[team-lifecycle-scheduler] archived team team-49 (Team 49) — no-active-members
+[team-lifecycle-scheduler] archived team team-50 (Team 50) — no-active-members
+[team-lifecycle-scheduler] archived team team-51 (Team 51) — no-active-members
+[team-lifecycle-scheduler] archived team team-52 (Team 52) — no-active-members
+[team-lifecycle-scheduler] archived team team-53 (Team 53) — no-active-members
+[team-lifecycle-scheduler] archived team team-54 (Team 54) — no-active-members
+[team-lifecycle-scheduler] archived team team-55 (Team 55) — no-active-members
+[team-lifecycle-scheduler] archived team team-56 (Team 56) — no-active-members
+[team-lifecycle-scheduler] archived team team-57 (Team 57) — no-active-members
+[team-lifecycle-scheduler] archived team team-58 (Team 58) — no-active-members
+[team-lifecycle-scheduler] archived team team-59 (Team 59) — no-active-members
+[team-lifecycle-scheduler] archived team team-60 (Team 60) — no-active-members
+[team-lifecycle-scheduler] archived team team-61 (Team 61) — no-active-members
+[team-lifecycle-scheduler] archived team team-62 (Team 62) — no-active-members
+[team-lifecycle-scheduler] archived team team-63 (Team 63) — no-active-members
+[team-lifecycle-scheduler] archived team team-64 (Team 64) — no-active-members
+[team-lifecycle-scheduler] archived team team-65 (Team 65) — no-active-members
+[team-lifecycle-scheduler] archived team team-66 (Team 66) — no-active-members
+[team-lifecycle-scheduler] archived team team-67 (Team 67) — no-active-members
+[team-lifecycle-scheduler] archived team team-68 (Team 68) — no-active-members
+[team-lifecycle-scheduler] archived team team-69 (Team 69) — no-active-members
+[team-lifecycle-scheduler] archived team team-70 (Team 70) — no-active-members
+[team-lifecycle-scheduler] archived team team-71 (Team 71) — no-active-members
+[team-lifecycle-scheduler] archived team team-72 (Team 72) — no-active-members
+[team-lifecycle-scheduler] archived team team-73 (Team 73) — no-active-members
+[team-lifecycle-scheduler] archived team team-74 (Team 74) — no-active-members
+[team-lifecycle-scheduler] archived team team-75 (Team 75) — no-active-members
+[team-lifecycle-scheduler] archived team team-76 (Team 76) — no-active-members
+[team-lifecycle-scheduler] archived team team-77 (Team 77) — no-active-members
+[team-lifecycle-scheduler] archived team team-78 (Team 78) — no-active-members
+[team-lifecycle-scheduler] archived team team-79 (Team 79) — no-active-members
+[team-lifecycle-scheduler] archived team team-80 (Team 80) — no-active-members
+[team-lifecycle-scheduler] archived team team-81 (Team 81) — no-active-members
+[team-lifecycle-scheduler] archived team team-82 (Team 82) — no-active-members
+[team-lifecycle-scheduler] archived team team-83 (Team 83) — no-active-members
+[team-lifecycle-scheduler] archived team team-84 (Team 84) — no-active-members
+[team-lifecycle-scheduler] archived team team-85 (Team 85) — no-active-members
+[team-lifecycle-scheduler] archived team team-86 (Team 86) — no-active-members
+[team-lifecycle-scheduler] archived team team-87 (Team 87) — no-active-members
+[team-lifecycle-scheduler] archived team team-88 (Team 88) — no-active-members
+[team-lifecycle-scheduler] archived team team-89 (Team 89) — no-active-members
+[team-lifecycle-scheduler] archived team team-90 (Team 90) — no-active-members
+[team-lifecycle-scheduler] archived team team-91 (Team 91) — no-active-members
+[team-lifecycle-scheduler] archived team team-92 (Team 92) — no-active-members
+[team-lifecycle-scheduler] archived team team-93 (Team 93) — no-active-members
+[team-lifecycle-scheduler] archived team team-94 (Team 94) — no-active-members
+[team-lifecycle-scheduler] archived team team-95 (Team 95) — no-active-members
+[team-lifecycle-scheduler] archived team team-96 (Team 96) — no-active-members
+[team-lifecycle-scheduler] archived team team-97 (Team 97) — no-active-members
+[team-lifecycle-scheduler] archived team team-98 (Team 98) — no-active-members
+[team-lifecycle-scheduler] archived team team-99 (Team 99) — no-active-members
+[team-lifecycle-scheduler] archived team team-100 (Team 100) — no-active-members
+[team-lifecycle-scheduler] archived team team-101 (Team 101) — no-active-members
+[team-lifecycle-scheduler] archived team team-102 (Team 102) — no-active-members
+[team-lifecycle-scheduler] archived team team-103 (Team 103) — no-active-members
+[team-lifecycle-scheduler] archived team team-104 (Team 104) — no-active-members
+[team-lifecycle-scheduler] archived team team-105 (Team 105) — no-active-members
+[team-lifecycle-scheduler] archived team team-106 (Team 106) — no-active-members
+[team-lifecycle-scheduler] archived team team-107 (Team 107) — no-active-members
+[team-lifecycle-scheduler] archived team team-108 (Team 108) — no-active-members
+[team-lifecycle-scheduler] archived team team-109 (Team 109) — no-active-members
+[team-lifecycle-scheduler] archived team team-110 (Team 110) — no-active-members
+[team-lifecycle-scheduler] archived team team-111 (Team 111) — no-active-members
+[team-lifecycle-scheduler] archived team team-112 (Team 112) — no-active-members
+[team-lifecycle-scheduler] archived team team-113 (Team 113) — no-active-members
+[team-lifecycle-scheduler] archived team team-114 (Team 114) — no-active-members
+[team-lifecycle-scheduler] archived team team-115 (Team 115) — no-active-members
+[team-lifecycle-scheduler] archived team team-116 (Team 116) — no-active-members
+[team-lifecycle-scheduler] archived team team-117 (Team 117) — no-active-members
+[team-lifecycle-scheduler] archived team team-118 (Team 118) — no-active-members
+[team-lifecycle-scheduler] archived team team-119 (Team 119) — no-active-members
+[team-lifecycle-scheduler] archived team team-120 (Team 120) — no-active-members
+[team-lifecycle-scheduler] archived team team-121 (Team 121) — no-active-members
+[team-lifecycle-scheduler] archived team team-122 (Team 122) — no-active-members
+[team-lifecycle-scheduler] archived team team-123 (Team 123) — no-active-members
+[team-lifecycle-scheduler] archived team team-124 (Team 124) — no-active-members
+[team-lifecycle-scheduler] archived team team-125 (Team 125) — no-active-members
+[team-lifecycle-scheduler] archived team team-126 (Team 126) — no-active-members
+[team-lifecycle-scheduler] archived team team-127 (Team 127) — no-active-members
+[team-lifecycle-scheduler] archived team team-128 (Team 128) — no-active-members
+[team-lifecycle-scheduler] archived team team-129 (Team 129) — no-active-members
+[team-lifecycle-scheduler] archived team team-130 (Team 130) — no-active-members
+[team-lifecycle-scheduler] archived team team-131 (Team 131) — no-active-members
+[team-lifecycle-scheduler] archived team team-132 (Team 132) — no-active-members
+[team-lifecycle-scheduler] archived team team-133 (Team 133) — no-active-members
+[team-lifecycle-scheduler] archived team team-134 (Team 134) — no-active-members
+[team-lifecycle-scheduler] archived team team-135 (Team 135) — no-active-members
+[team-lifecycle-scheduler] archived team team-136 (Team 136) — no-active-members
+[team-lifecycle-scheduler] archived team team-137 (Team 137) — no-active-members
+[team-lifecycle-scheduler] archived team team-138 (Team 138) — no-active-members
+[team-lifecycle-scheduler] archived team team-139 (Team 139) — no-active-members
+[team-lifecycle-scheduler] archived team team-140 (Team 140) — no-active-members
+[team-lifecycle-scheduler] archived team team-141 (Team 141) — no-active-members
+[team-lifecycle-scheduler] archived team team-142 (Team 142) — no-active-members
+[team-lifecycle-scheduler] archived team team-143 (Team 143) — no-active-members
+[team-lifecycle-scheduler] archived team team-144 (Team 144) — no-active-members
+[team-lifecycle-scheduler] archived team team-145 (Team 145) — no-active-members
+[team-lifecycle-scheduler] archived team team-146 (Team 146) — no-active-members
+[team-lifecycle-scheduler] archived team team-147 (Team 147) — no-active-members
+[team-lifecycle-scheduler] archived team team-148 (Team 148) — no-active-members
+[team-lifecycle-scheduler] archived team team-149 (Team 149) — no-active-members
+[team-lifecycle-scheduler] archived team team-150 (Team 150) — no-active-members
+[team-lifecycle-scheduler] archived team team-151 (Team 151) — no-active-members
+[team-lifecycle-scheduler] archived team team-152 (Team 152) — no-active-members
+[team-lifecycle-scheduler] archived team team-153 (Team 153) — no-active-members
+[team-lifecycle-scheduler] archived team team-154 (Team 154) — no-active-members
+[team-lifecycle-scheduler] archived team team-155 (Team 155) — no-active-members
+[team-lifecycle-scheduler] archived team team-156 (Team 156) — no-active-members
+[team-lifecycle-scheduler] archived team team-157 (Team 157) — no-active-members
+[team-lifecycle-scheduler] archived team team-158 (Team 158) — no-active-members
+[team-lifecycle-scheduler] archived team team-159 (Team 159) — no-active-members
+[team-lifecycle-scheduler] archived team team-160 (Team 160) — no-active-members
+[team-lifecycle-scheduler] archived team team-161 (Team 161) — no-active-members
+[team-lifecycle-scheduler] archived team team-162 (Team 162) — no-active-members
+[team-lifecycle-scheduler] archived team team-163 (Team 163) — no-active-members
+[team-lifecycle-scheduler] archived team team-164 (Team 164) — no-active-members
+[team-lifecycle-scheduler] archived team team-165 (Team 165) — no-active-members
+[team-lifecycle-scheduler] archived team team-166 (Team 166) — no-active-members
+[team-lifecycle-scheduler] archived team team-167 (Team 167) — no-active-members
+[team-lifecycle-scheduler] archived team team-168 (Team 168) — no-active-members
+[team-lifecycle-scheduler] archived team team-169 (Team 169) — no-active-members
+[team-lifecycle-scheduler] archived team team-170 (Team 170) — no-active-members
+[team-lifecycle-scheduler] archived team team-171 (Team 171) — no-active-members
+[team-lifecycle-scheduler] archived team team-172 (Team 172) — no-active-members
+[team-lifecycle-scheduler] archived team team-173 (Team 173) — no-active-members
+[team-lifecycle-scheduler] archived team team-174 (Team 174) — no-active-members
+[team-lifecycle-scheduler] archived team team-175 (Team 175) — no-active-members
+[team-lifecycle-scheduler] archived team team-176 (Team 176) — no-active-members
+[team-lifecycle-scheduler] archived team team-177 (Team 177) — no-active-members
+[team-lifecycle-scheduler] archived team team-178 (Team 178) — no-active-members
+[team-lifecycle-scheduler] archived team team-179 (Team 179) — no-active-members
+[team-lifecycle-scheduler] archived team team-180 (Team 180) — no-active-members
+[team-lifecycle-scheduler] archived team team-181 (Team 181) — no-active-members
+[team-lifecycle-scheduler] archived team team-182 (Team 182) — no-active-members
+[team-lifecycle-scheduler] archived team team-183 (Team 183) — no-active-members
+[team-lifecycle-scheduler] archived team team-184 (Team 184) — no-active-members
+[team-lifecycle-scheduler] archived team team-185 (Team 185) — no-active-members
+[team-lifecycle-scheduler] archived team team-186 (Team 186) — no-active-members
+[team-lifecycle-scheduler] archived team team-187 (Team 187) — no-active-members
+[team-lifecycle-scheduler] archived team team-188 (Team 188) — no-active-members
+[team-lifecycle-scheduler] archived team team-189 (Team 189) — no-active-members
+[team-lifecycle-scheduler] archived team team-190 (Team 190) — no-active-members
+[team-lifecycle-scheduler] archived team team-191 (Team 191) — no-active-members
+[team-lifecycle-scheduler] archived team team-192 (Team 192) — no-active-members
+[team-lifecycle-scheduler] archived team team-193 (Team 193) — no-active-members
+[team-lifecycle-scheduler] archived team team-194 (Team 194) — no-active-members
+[team-lifecycle-scheduler] archived team team-195 (Team 195) — no-active-members
+[team-lifecycle-scheduler] archived team team-196 (Team 196) — no-active-members
+[team-lifecycle-scheduler] archived team team-197 (Team 197) — no-active-members
+[team-lifecycle-scheduler] archived team team-198 (Team 198) — no-active-members
+[team-lifecycle-scheduler] archived team team-199 (Team 199) — no-active-members
+[team-lifecycle-scheduler] archived team team-200 (Team 200) — no-active-members
+[team-lifecycle-scheduler] archived team team-201 (Team 201) — no-active-members
+[team-lifecycle-scheduler] archived team team-202 (Team 202) — no-active-members
+[team-lifecycle-scheduler] archived team team-203 (Team 203) — no-active-members
+[team-lifecycle-scheduler] archived team team-204 (Team 204) — no-active-members
+[team-lifecycle-scheduler] archived team team-205 (Team 205) — no-active-members
+[team-lifecycle-scheduler] archived team team-206 (Team 206) — no-active-members
+[team-lifecycle-scheduler] archived team team-207 (Team 207) — no-active-members
+[team-lifecycle-scheduler] archived team team-208 (Team 208) — no-active-members
+[team-lifecycle-scheduler] archived team team-209 (Team 209) — no-active-members
+[team-lifecycle-scheduler] archived team team-210 (Team 210) — no-active-members
+[team-lifecycle-scheduler] archived team team-211 (Team 211) — no-active-members
+[team-lifecycle-scheduler] archived team team-212 (Team 212) — no-active-members
+[team-lifecycle-scheduler] archived team team-213 (Team 213) — no-active-members
+[team-lifecycle-scheduler] archived team team-214 (Team 214) — no-active-members
+[team-lifecycle-scheduler] archived team team-215 (Team 215) — no-active-members
+[team-lifecycle-scheduler] archived team team-216 (Team 216) — no-active-members
+[team-lifecycle-scheduler] archived team team-217 (Team 217) — no-active-members
+[team-lifecycle-scheduler] archived team team-218 (Team 218) — no-active-members
+[team-lifecycle-scheduler] archived team team-219 (Team 219) — no-active-members
+[team-lifecycle-scheduler] archived team team-220 (Team 220) — no-active-members
+[team-lifecycle-scheduler] archived team team-221 (Team 221) — no-active-members
+[team-lifecycle-scheduler] archived team team-222 (Team 222) — no-active-members
+[team-lifecycle-scheduler] archived team team-223 (Team 223) — no-active-members
+[team-lifecycle-scheduler] archived team team-224 (Team 224) — no-active-members
+[team-lifecycle-scheduler] archived team team-225 (Team 225) — no-active-members
+[team-lifecycle-scheduler] archived team team-226 (Team 226) — no-active-members
+[team-lifecycle-scheduler] archived team team-227 (Team 227) — no-active-members
+[team-lifecycle-scheduler] archived team team-228 (Team 228) — no-active-members
+[team-lifecycle-scheduler] archived team team-229 (Team 229) — no-active-members
+[team-lifecycle-scheduler] archived team team-230 (Team 230) — no-active-members
+[team-lifecycle-scheduler] archived team team-231 (Team 231) — no-active-members
+[team-lifecycle-scheduler] archived team team-232 (Team 232) — no-active-members
+[team-lifecycle-scheduler] archived team team-233 (Team 233) — no-active-members
+[team-lifecycle-scheduler] archived team team-234 (Team 234) — no-active-members
+[team-lifecycle-scheduler] archived team team-235 (Team 235) — no-active-members
+[team-lifecycle-scheduler] archived team team-236 (Team 236) — no-active-members
+[team-lifecycle-scheduler] archived team team-237 (Team 237) — no-active-members
+[team-lifecycle-scheduler] archived team team-238 (Team 238) — no-active-members
+[team-lifecycle-scheduler] archived team team-239 (Team 239) — no-active-members
+[team-lifecycle-scheduler] archived team team-240 (Team 240) — no-active-members
+[team-lifecycle-scheduler] archived team team-241 (Team 241) — no-active-members
+[team-lifecycle-scheduler] archived team team-242 (Team 242) — no-active-members
+[team-lifecycle-scheduler] archived team team-243 (Team 243) — no-active-members
+[team-lifecycle-scheduler] archived team team-244 (Team 244) — no-active-members
+[team-lifecycle-scheduler] archived team team-245 (Team 245) — no-active-members
+[team-lifecycle-scheduler] archived team team-246 (Team 246) — no-active-members
+[team-lifecycle-scheduler] archived team team-247 (Team 247) — no-active-members
+[team-lifecycle-scheduler] archived team team-248 (Team 248) — no-active-members
+[team-lifecycle-scheduler] archived team team-249 (Team 249) — no-active-members
+[team-lifecycle-scheduler] archived team team-250 (Team 250) — no-active-members
+[team-lifecycle-scheduler] archived team team-251 (Team 251) — no-active-members
+[team-lifecycle-scheduler] archived team team-252 (Team 252) — no-active-members
+[team-lifecycle-scheduler] archived team team-253 (Team 253) — no-active-members
+[team-lifecycle-scheduler] archived team team-254 (Team 254) — no-active-members
+[team-lifecycle-scheduler] archived team team-255 (Team 255) — no-active-members
+[team-lifecycle-scheduler] archived team team-256 (Team 256) — no-active-members
+[team-lifecycle-scheduler] archived team team-257 (Team 257) — no-active-members
+[team-lifecycle-scheduler] archived team team-258 (Team 258) — no-active-members
+[team-lifecycle-scheduler] archived team team-259 (Team 259) — no-active-members
+[team-lifecycle-scheduler] archived team team-260 (Team 260) — no-active-members
+[team-lifecycle-scheduler] archived team team-261 (Team 261) — no-active-members
+[team-lifecycle-scheduler] archived team team-262 (Team 262) — no-active-members
+[team-lifecycle-scheduler] archived team team-263 (Team 263) — no-active-members
+[team-lifecycle-scheduler] archived team team-264 (Team 264) — no-active-members
+[team-lifecycle-scheduler] archived team team-265 (Team 265) — no-active-members
+[team-lifecycle-scheduler] archived team team-266 (Team 266) — no-active-members
+[team-lifecycle-scheduler] archived team team-267 (Team 267) — no-active-members
+[team-lifecycle-scheduler] archived team team-268 (Team 268) — no-active-members
+[team-lifecycle-scheduler] archived team team-269 (Team 269) — no-active-members
+[team-lifecycle-scheduler] archived team team-270 (Team 270) — no-active-members
+[team-lifecycle-scheduler] archived team team-271 (Team 271) — no-active-members
+[team-lifecycle-scheduler] archived team team-272 (Team 272) — no-active-members
+[team-lifecycle-scheduler] archived team team-273 (Team 273) — no-active-members
+[team-lifecycle-scheduler] archived team team-274 (Team 274) — no-active-members
+[team-lifecycle-scheduler] archived team team-275 (Team 275) — no-active-members
+[team-lifecycle-scheduler] archived team team-276 (Team 276) — no-active-members
+[team-lifecycle-scheduler] archived team team-277 (Team 277) — no-active-members
+[team-lifecycle-scheduler] archived team team-278 (Team 278) — no-active-members
+[team-lifecycle-scheduler] archived team team-279 (Team 279) — no-active-members
+[team-lifecycle-scheduler] archived team team-280 (Team 280) — no-active-members
+[team-lifecycle-scheduler] archived team team-281 (Team 281) — no-active-members
+[team-lifecycle-scheduler] archived team team-282 (Team 282) — no-active-members
+[team-lifecycle-scheduler] archived team team-283 (Team 283) — no-active-members
+[team-lifecycle-scheduler] archived team team-284 (Team 284) — no-active-members
+[team-lifecycle-scheduler] archived team team-285 (Team 285) — no-active-members
+[team-lifecycle-scheduler] archived team team-286 (Team 286) — no-active-members
+[team-lifecycle-scheduler] archived team team-287 (Team 287) — no-active-members
+[team-lifecycle-scheduler] archived team team-288 (Team 288) — no-active-members
+[team-lifecycle-scheduler] archived team team-289 (Team 289) — no-active-members
+[team-lifecycle-scheduler] archived team team-290 (Team 290) — no-active-members
+[team-lifecycle-scheduler] archived team team-291 (Team 291) — no-active-members
+[team-lifecycle-scheduler] archived team team-292 (Team 292) — no-active-members
+[team-lifecycle-scheduler] archived team team-293 (Team 293) — no-active-members
+[team-lifecycle-scheduler] archived team team-294 (Team 294) — no-active-members
+[team-lifecycle-scheduler] archived team team-295 (Team 295) — no-active-members
+[team-lifecycle-scheduler] archived team team-296 (Team 296) — no-active-members
+[team-lifecycle-scheduler] archived team team-297 (Team 297) — no-active-members
+[team-lifecycle-scheduler] archived team team-298 (Team 298) — no-active-members
+[team-lifecycle-scheduler] archived team team-299 (Team 299) — no-active-members
+
+ ✓ src/main/teams/__tests__/team-lifecycle-scheduler.test.ts (6 tests) 7ms
+stdout | src/main/session/__tests__/manager-ingest.test.ts > SessionManager.ingest 时序 > 3) 同 cwd 多 hook（pendingSdkCwds 兜底）→ 第一条被 claim 丢、第二条创建 cli 会话
+[session-mgr] expect sdk session @ /private/tmp (ttl 60000ms)
+[session-mgr] hook→sdk re-claim (new sid): sessionId=sess-1 cwd=/tmp
+
+stdout | src/main/session/__tests__/manager-ingest.test.ts > SessionManager.ingest 时序 > 额外约束：claim 早退顺序 —— hook 首发被 claim 时绝不调 ensure（不落假 cli 会话）
+[session-mgr] expect sdk session @ /private/tmp (ttl 60000ms)
+[session-mgr] hook→sdk re-claim (new sid): sessionId=sess-after-claim cwd=/tmp
+
+stdout | src/main/session/__tests__/manager-ingest.test.ts > SessionManager.ingest 时序 > REVIEW_5 H1：hook 抢先复活 OLD_ID（resume 路径）→ cwd 命中 pendingSdkCwds 即便 record 已存在也 skip+claim
+[session-mgr] expect sdk session @ /private/tmp (ttl 60000ms)
+[session-mgr] hook→sdk re-claim (existing sid): sessionId=OLD_ID cwd=/tmp
+
+ ✓ src/main/session/__tests__/manager-ingest.test.ts (7 tests) 4ms
+ ✓ src/main/session/__tests__/manager-team-coordinator.test.ts (5 tests) 3ms
+ ✓ src/main/session/__tests__/manager-public-api.test.ts (7 tests) 5ms
+ ✓ src/main/agent-deck-mcp/__tests__/shutdown-teammates-on-baton.test.ts (6 tests) 7ms
+ ✓ src/main/agent-deck-mcp/__tests__/shutdown-baton-teammates.handler.test.ts (6 tests) 4ms
+ ✓ src/main/agent-deck-mcp/__tests__/transport-http-multi-client-init.test.ts (3 tests) 201ms
+ ✓ src/shared/__tests__/wire-prefix.test.ts (18 tests) 3ms
+ ✓ src/main/agent-deck-mcp/__tests__/mcp-session-token-map.test.ts (8 tests) 4ms
+ ✓ src/main/session/__tests__/hand-off.test.ts (6 tests) 15ms
+ ✓ src/main/adapters/codex-cli/__tests__/teammate-spawn-defaults.test.ts (5 tests) 2ms
+ ✓ src/main/codex-config/__tests__/toml-writer.test.ts (13 tests) 7ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/sdk-status-permission-mode-sync.test.ts (3 tests) 3ms
+ ↓ src/main/store/__tests__/rejoin-after-soft-exit.test.ts (3 tests | 3 skipped)
+stderr | src/main/store/__tests__/rejoin-after-soft-exit.test.ts
+[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 130. This version of Node.js requires
+NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+
+stderr | src/main/store/session-repo/__tests__/cwd-release-marker.test.ts
+[session-repo.test] better-sqlite3 binding 不可用,跳过本文件全部用例。若需本地实测:临时跑 pnpm rebuild better-sqlite3,跑完 pnpm install 还原。原因:The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 130. This version of Node.js requires
+NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+
+ ↓ src/main/store/session-repo/__tests__/cwd-release-marker.test.ts (7 tests | 7 skipped)
+ ✓ src/main/session/__tests__/manager-delete.test.ts (3 tests) 2ms
+ ✓ src/main/utils/__tests__/frontmatter.test.ts (15 tests) 3ms
+ ✓ src/main/store/payload-truncate.test.ts (12 tests) 209ms
+ ✓ src/main/store/search-predicate.test.ts (13 tests) 4ms
+ ✓ src/main/store/session-repo/__tests__/archive.test.ts (7 tests) 3ms
+ ✓ src/main/agent-deck-mcp/__tests__/plan-path-helpers.test.ts (8 tests) 2ms
+ ✓ src/main/utils/__tests__/cwd-resolver.test.ts (6 tests) 1ms
+ ✓ src/main/session/__tests__/manager-helpers.test.ts (15 tests) 2ms
+ ✓ src/main/adapters/claude-code/__tests__/translate-post-tool-use-toolcallid.test.ts (5 tests) 2ms
+ ✓ src/main/codex-config/__tests__/agent-deck-mcp-injector.test.ts (12 tests) 2ms
+ ✓ src/main/agent-deck-mcp/__tests__/transport-http-extra-auth.test.ts (10 tests) 2ms
+stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.consume-fork.test.ts > sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6） > first realId ≠ opts.resume → 调 sessionManager.renameSdkSession(OLD_ID, NEW_ID) + release OLD claim
+[sdk-bridge] CLI forked: requested resume=requested-old-id but got realId=forked-new-id; renaming OLD record → NEW so history continues under the new session id
+
+ ✓ src/main/adapters/claude-code/__tests__/sdk-bridge.consume-fork.test.ts (2 tests) 3ms
+
+ Test Files  64 passed | 5 skipped (69)
+      Tests  762 passed | 76 skipped (838)
+   Start at  17:21:12
+   Duration  1.61s (transform 2.60s, setup 0ms, collect 8.53s, tests 1.51s, environment 6ms, prepare 2.51s)
+

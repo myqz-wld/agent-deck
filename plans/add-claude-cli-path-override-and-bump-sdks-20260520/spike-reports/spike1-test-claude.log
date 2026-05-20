@@ -1,0 +1,74 @@
+
+> agent-deck@0.1.0 test /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+> vitest run --run src/main/adapters/claude-code/ src/main/session/__tests__/hand-off.test.ts
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+
+ ✓ src/main/adapters/claude-code/__tests__/sandbox-config.test.ts (22 tests) 5ms
+ ✓ src/main/adapters/claude-code/__tests__/translate-post-tool-use-toolcallid.test.ts (5 tests) 2ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/restart-controller-fork-rename.test.ts (5 tests) 3ms
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/can-use-tool.test.ts > makeCanUseTool — bypassPermissions 短路（CHANGELOG_72 Bug 3） > bypass + SandboxNetworkAccess → 仍 auto-deny + 引导 fallback（不被 bypass 短路覆盖）
+[sandbox-canusetool] SandboxNetworkAccess intercept host=example.com → auto-deny + fallback hint
+
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/can-use-tool.test.ts (8 tests) 3ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/sdk-status-permission-mode-sync.test.ts (3 tests) 2ms
+ ❯ src/main/adapters/claude-code/sdk-bridge/__tests__/set-permission-mode-rollback.test.ts (0 test)
+ ❯ src/main/adapters/claude-code/sdk-bridge/__tests__/file-change-intent-delay.test.ts (0 test)
+ ❯ src/main/session/__tests__/hand-off.test.ts (0 test)
+ ❯ src/main/adapters/claude-code/__tests__/sdk-bridge.consume-fork.test.ts (0 test)
+ ❯ src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts (0 test)
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts > setTimeout fallback symmetry — A1-HIGH-2 + Phase 2 race guard > (I) fallback fire 后 Map 切换正确 — A1-HIGH-2 已 land 行为
+[sandbox] mode=off → disabled (no field)
+
+stderr | src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts > setTimeout fallback symmetry — A1-HIGH-2 + Phase 2 race guard > (I) fallback fire 后 Map 切换正确 — A1-HIGH-2 已 land 行为
+[sdk-bridge] no SDKMessage in 30s, falling back to id resume-id-A1H2
+
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts > createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame > non-resume 路径：mock SDK 1 frame 无 session_id + endStream → createSession throw + sessions Map empty + releasePending
+[sandbox] mode=off → disabled (no field)
+
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts > createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame > resume 路径：opts.resume 传入 → catch 内 releaseSdkClaim(opts.resume) 调
+[sandbox] mode=off → disabled (no field)
+
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts > createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame > happy: createSession 正常拿到 first session_id → 不 throw + sessions Map 含 realId
+[sandbox] mode=off → disabled (no field)
+
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts > createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame > Phase 2.5 修法：catch 内 fire-and-forget interrupt + set expectedClose（已 land 验证）
+[sandbox] mode=off → disabled (no field)
+
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/createsession-fail-fast.test.ts (4 tests) 4ms
+stdout | src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts > setTimeout fallback symmetry — A1-HIGH-2 + Phase 2 race guard > (II) late first-id 到达不覆盖 fallbackId — Phase 2 step 2.2 (B) guard 修法（已 land 验证）
+[sandbox] mode=off → disabled (no field)
+
+stderr | src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts > setTimeout fallback symmetry — A1-HIGH-2 + Phase 2 race guard > (II) late first-id 到达不覆盖 fallbackId — Phase 2 step 2.2 (B) guard 修法（已 land 验证）
+[sdk-bridge] no SDKMessage in 30s, falling back to id resume-id-race
+[sdk-bridge] late first-id arrived after fallback; incoming=late-real-id-from-sdk-burst fallback=resume-id-race; skipping mutation
+
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/setttimeout-fallback-symmetry.test.ts (3 tests) 6ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/main/session/__tests__/hand-off.test.ts [ src/main/session/__tests__/hand-off.test.ts ]
+ FAIL  src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts [ src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts ]
+ FAIL  src/main/adapters/claude-code/sdk-bridge/__tests__/file-change-intent-delay.test.ts [ src/main/adapters/claude-code/sdk-bridge/__tests__/file-change-intent-delay.test.ts ]
+ FAIL  src/main/adapters/claude-code/sdk-bridge/__tests__/set-permission-mode-rollback.test.ts [ src/main/adapters/claude-code/sdk-bridge/__tests__/set-permission-mode-rollback.test.ts ]
+Error: Electron failed to install correctly, please delete node_modules/electron and try installing again
+ ❯ getElectronPath node_modules/.pnpm/electron@33.4.11/node_modules/electron/index.js:17:11
+ ❯ Object.<anonymous> node_modules/.pnpm/electron@33.4.11/node_modules/electron/index.js:21:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/main/adapters/claude-code/__tests__/sdk-bridge.consume-fork.test.ts [ src/main/adapters/claude-code/__tests__/sdk-bridge.consume-fork.test.ts ]
+Error: Electron failed to install correctly, please delete node_modules/electron and try installing again
+ ❯ getElectronPath node_modules/.pnpm/electron@33.4.11/node_modules/electron/index.js:17:11
+ ❯ Object.<anonymous> node_modules/.pnpm/electron@33.4.11/node_modules/electron/index.js:21:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ Test Files  5 failed | 7 passed (12)
+      Tests  50 passed (50)
+   Start at  17:13:39
+   Duration  854ms (transform 910ms, setup 0ms, collect 907ms, tests 26ms, environment 1ms, prepare 6.15s)
+
+ ELIFECYCLE  Test failed. See above for more details.

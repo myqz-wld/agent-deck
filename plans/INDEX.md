@@ -48,3 +48,4 @@
 | [deep-review-batch-a1-b-followup-r3-20260519.md](deep-review-batch-a1-b-followup-r3-20260519.md) | completed | [129](../changelog/CHANGELOG_129.md) | deep-review-batch-a1-b-followup-r3-20260519 |
 | [reviewer-codex-cross-adapter-20260519.md](reviewer-codex-cross-adapter-20260519.md) | completed | [130](../changelog/CHANGELOG_130.md) | reviewer-codex-cross-adapter-20260519 |
 | [remove-aider-generic-pty-adapters-20260520.md](remove-aider-generic-pty-adapters-20260520.md) | completed | [131](../changelog/CHANGELOG_131.md) | remove-aider-generic-pty-adapters-20260520 |
+| [add-claude-cli-path-override-and-bump-sdks-20260520.md](add-claude-cli-path-override-and-bump-sdks-20260520.md) | completed | [133](../changelog/CHANGELOG_133.md) | add-claude-cli-path-override-and-bump-sdks-20260520 |
