@@ -442,6 +442,12 @@ export const handOffSessionHandler = withMcpGuard(
        *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
        */
       teammatesShutdown: cleanup.teammatesShutdown,
+      // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D7 v8) — adopt 路径详情。
+      // Phase 4a 仅加 schema 字段(satisfies HandOffSessionResult 约束);Phase 4d 实施
+      // adopt_teammates: true 时的 phase 1.5 adopt 流程,设为 non-null 含 {preserved,
+      // failed, teamsTotal, teamsAdopted, firstTeamId}。当前 Phase 4a 永远返 null(default
+      // baton 路径)。
+      adopted: null,
       // 透传 spawn_session 字段（兼容 spawn 调用方）— spread SpawnSessionResult 全部字段，
       // 与 HandOffSessionResult extends SpawnSessionResult 对应让 satisfies 通过。
       ...spawnData,
