@@ -94,6 +94,24 @@ export interface RunBatonCleanupInput {
    */
   archiveCaller?: boolean;
   /**
+   * plan hand-off-session-adopt-teammates-20260520 Phase 4 (D3 + D5): hand_off_session
+   * caller 是否显式传 adopt_teammates=true 让新 session 接管 teammate(handler 层从
+   * args.adopt_teammates 读出)。
+   *
+   * - **undefined / false (default)**: phase 1 走 shutdownTeammatesOnBaton(default 行为,
+   *   关 teammate)+ phase 2 archive caller
+   * - **true**: phase 1 跳过 shutdownTeammatesOnBaton 标 skipped='adopt-keep-implicit'
+   *   (teammate 由 hand-off-session.ts handler phase 1.5 adopt 路径调 swapLead 接管 — Phase 4
+   *   阶段 phase 1.5 在 hand-off-session.ts handler 内,Phase 6 移到 baton-cleanup helper 内)
+   *
+   * **archive_plan 不传**(plan 收口 = caller 使命终结,teammate 一并 shutdown,语义上不应
+   * opt-out 接管)— optional + default 行为对 archive_plan 调用方零改动向后兼容。
+   *
+   * **与 archiveCaller 互相独立**:adopt_teammates=true + archive_caller=false 同传合法
+   * (caller 自己仍 active,新 session 接管 lead role,两个 lead 共存)— 罕见 但 schema 不阻拦。
+   */
+  adoptTeammates?: boolean;
+  /**
    * console.warn 前缀的工具名(union narrow,archive-toctou-fix-20260515 plan):
    * - 'archive_plan': mcp archive_plan handler 调用
    * - 'hand_off_session': mcp hand_off_session handler 调用
@@ -186,23 +204,34 @@ export async function runBatonCleanup(
 
   // ─── Phase 1: teammate shutdown ─────────────────────────────────
   // plan hand-off-session-adopt-teammates-20260520 Phase 3 简化(D2 + N4): 删除 phase 1
-  // teammate-shutdown opt-out 字段。default 永远调 shutdownTeammatesOnBaton。Phase 4 引入
-  // adopt_teammates: true 时再加 adoptTeammates 入参标 skipped='adopt-keep-implicit'。
+  // teammate-shutdown opt-out 字段。default 永远调 shutdownTeammatesOnBaton。
+  //
+  // **Phase 4 (D3 + D5)**: adopt_teammates=true 时跳过本 helper 标 skipped='adopt-keep-implicit'
+  // — teammate 由 hand-off-session.ts handler phase 1.5 adopt 路径调 swapLead 接管(Phase 4
+  // 阶段 phase 1.5 在 hand-off-session.ts handler 内;Phase 6 移到 baton-cleanup helper 内
+  // 完整化 phase 1.5 流程含 swapLead + listAllMembers + emit + collect preserved/failed)。
   let teammatesShutdown: ShutdownTeammatesResult;
-  const shutdownFn =
-    deps?.shutdownTeammates ??
-    ((callerSid: string, exclude?: ReadonlySet<string>) =>
-      shutdownTeammatesOnBaton(callerSid, { excludeSessionIds: exclude }));
-  try {
-    teammatesShutdown = await shutdownFn(input.callerSessionId, input.excludeSessionIds);
-  } catch (e) {
-    // helper 自身抛错(罕见: 反查 DB 异常 / mock 失败)→ 兜底 + warn,phase 2 仍正常走
-    // (不让 helper 故障阻塞 plan 收口 / baton 收口)。
-    console.warn(
-      `[mcp ${input.toolName}] shutdownTeammatesOnBaton helper failed for caller ${input.callerSessionId}:`,
-      e,
-    );
-    teammatesShutdown = { closed: [], failed: [], skipped: null };
+  if (input.adoptTeammates === true) {
+    // Phase 4: adopt 路径下不调 shutdownTeammatesOnBaton,标 skipped='adopt-keep-implicit'
+    // (与 'caller-not-lead' 三态 union 对齐)。caller 仍是 lead 但 teammate 由新 session
+    // 接管 — 详 hand-off-session.ts handler adopt 分支。
+    teammatesShutdown = { closed: [], failed: [], skipped: 'adopt-keep-implicit' };
+  } else {
+    const shutdownFn =
+      deps?.shutdownTeammates ??
+      ((callerSid: string, exclude?: ReadonlySet<string>) =>
+        shutdownTeammatesOnBaton(callerSid, { excludeSessionIds: exclude }));
+    try {
+      teammatesShutdown = await shutdownFn(input.callerSessionId, input.excludeSessionIds);
+    } catch (e) {
+      // helper 自身抛错(罕见: 反查 DB 异常 / mock 失败)→ 兜底 + warn,phase 2 仍正常走
+      // (不让 helper 故障阻塞 plan 收口 / baton 收口)。
+      console.warn(
+        `[mcp ${input.toolName}] shutdownTeammatesOnBaton helper failed for caller ${input.callerSessionId}:`,
+        e,
+      );
+      teammatesShutdown = { closed: [], failed: [], skipped: null };
+    }
   }
 
   // ─── Phase 2: archive caller ────────────────────────────────────

@@ -50,6 +50,7 @@ import {
 import type { HandOffSessionArgs, HandOffSessionResult, SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import { sessionRepo } from '@main/store/session-repo';
+import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { omitUndefined } from '@main/utils/optional-fields';
 import {
   handOffSessionImpl,
@@ -58,6 +59,10 @@ import {
 } from './hand-off-session-impl';
 import { spawnSessionHandler } from './spawn';
 import { runBatonCleanup } from './baton-cleanup';
+import {
+  buildAdoptedTeamsContextBlock,
+  type AdoptedTeam,
+} from './adopted-teams-context-block';
 import type { ShutdownTeammatesResult } from './shutdown-teammates-on-baton';
 
 /**
@@ -311,10 +316,84 @@ export const handOffSessionHandler = withMcpGuard(
         `For plan-driven mode this typically means both git rev-parse fallback and worktreePath heuristic failed. For generic mode this means caller session has no cwd in sessionRepo and git rev-parse failed.`,
       );
     }
+
+    // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D1 + D7 + D11 v8 + N5 + N2.b):
+    // adopt_teammates: true 路径 — caller 同 team 其他 active+dormant teammate 原地保留 +
+    // 新 session 接管 caller=lead 的 team 当 lead。详 plan §D11 v8 (handler 自拼
+    // buildAdoptedTeamsContextBlock,不复用 spawn 的 buildLeadContextBlock + 不写 placeholder)。
+    //
+    // **N5 ≥1 lead 硬约束 fail-fast**(plan §N5 + Round 4 NEW MED-A1):caller 在所有 team 都
+    // 不是 lead(全 teammate / 无 active membership)→ handler **spawn 之前** return err,
+    // 不 spawn / 不 archive caller。理由:adopt 语义本质是「caller=lead 把 lead role 转给新
+    // session」,caller 不是任何 team 的 lead 时该语义无意义。
+    //
+    // **N2.c 互斥 invariant** 已在 zod refine 层 reject(adopt_teammates: true 与 args.team_name
+    // 不可同传 — schemas.ts HAND_OFF_SESSION_ARGS_SCHEMA.refine);此处 args.team_name 必为
+    // undefined,直接走 default baton spawn 路径(spawn handler 不写 placeholder / 不 addMember)。
+    //
+    // **adopt 路径 cold-start prompt**:
+    // - snapshot caller 所有 active membership → filter role==='lead' 拿 callerLeadMemberships
+    //   (frozen at this point — Phase 6 phase 1.5 swapLead 改 team_member 表后再反查会丢失
+    //   caller=lead 状态)
+    // - firstTeam = callerLeadMemberships[0](joined_at DESC ordering = 最近加入)
+    // - otherLeadTeams = callerLeadMemberships.slice(1)
+    // - 调 buildAdoptedTeamsContextBlock(firstTeam, otherLeadTeams) 装配 prompt prepend block
+    // - cold-start prompt = `${adoptedBlock}\n---\n\n${resolved.coldStartPrompt}`
+    let coldStartPromptForSDK = resolved.coldStartPrompt;
+    let adoptedSnapshot: {
+      firstTeamId: string;
+      teamsTotal: number;
+    } | null = null;
+    if (args.adopt_teammates === true) {
+      // N5 fail-fast:precheck caller 至少 1 个 lead membership;不读 lead memberships 时直接
+      // findActiveMembershipsBySession 失败(external sentinel 时 caller 不在 sessions 表,
+      // findActiveMembershipsBySession 返空 → length === 0 → return err — 同 N5 语义)。
+      const allCallerMemberships = agentDeckTeamRepo.findActiveMembershipsBySession(
+        caller.callerSessionId,
+      );
+      const callerLeadMemberships = allCallerMemberships.filter((m) => m.role === 'lead');
+      if (callerLeadMemberships.length === 0) {
+        return err(
+          'adopt_teammates 要求 caller 至少在一个 active team 是 lead',
+          `caller_session_id ${caller.callerSessionId} 当前在 ${allCallerMemberships.length} 个 active team 内,但全部 role !== 'lead'(全 teammate / 无 lead membership)。adopt 语义本质是「lead 把 lead role 转给新 session」,caller 不是任何 team 的 lead 时该语义无意义。改走 default baton(adopt_teammates: false / 不传)或先确认 caller 在某个 team 是 lead 再重试。`,
+        );
+      }
+
+      // 装配 adopt 路径 cold-start prompt(详 buildAdoptedTeamsContextBlock 顶部 jsdoc)。
+      // teammateSids = listAllMembers(teamId).filter(m => m.leftAt === null && m.sessionId !== callerSid)
+      //   (含 active + dormant — sessionRepo lifecycle 维度不参与本筛选;Phase 6 phase 1.5
+      //   adopt 流程会另做 lifecycle precheck 区分 closed teammate 进 failed)
+      const firstTeamMembership = callerLeadMemberships[0]!;
+      const firstTeam: AdoptedTeam = {
+        id: firstTeamMembership.teamId,
+        name: agentDeckTeamRepo.get(firstTeamMembership.teamId)?.name ?? '(unknown-team-name)',
+        teammateSids: agentDeckTeamRepo
+          .listAllMembers(firstTeamMembership.teamId)
+          .filter((m) => m.leftAt === null && m.sessionId !== caller.callerSessionId)
+          .map((m) => m.sessionId),
+      };
+      const otherLeadTeams: AdoptedTeam[] = callerLeadMemberships.slice(1).map((m) => ({
+        id: m.teamId,
+        name: agentDeckTeamRepo.get(m.teamId)?.name ?? '(unknown-team-name)',
+        teammateSids: agentDeckTeamRepo
+          .listAllMembers(m.teamId)
+          .filter((mm) => mm.leftAt === null && mm.sessionId !== caller.callerSessionId)
+          .map((mm) => mm.sessionId),
+      }));
+
+      const adoptedBlock = buildAdoptedTeamsContextBlock({ firstTeam, otherLeadTeams });
+      coldStartPromptForSDK = `${adoptedBlock}\n---\n\n${resolved.coldStartPrompt}`;
+      adoptedSnapshot = {
+        firstTeamId: firstTeamMembership.teamId,
+        teamsTotal: callerLeadMemberships.length,
+      };
+    }
+
     const spawnArgs: SpawnSessionArgs = {
       adapter: args.adapter ?? 'claude-code',
       cwd: finalCwd,
-      prompt: resolved.coldStartPrompt,
+      // adopt 路径 prompt 含 adoptedBlock prepend;non-adopt 路径用 resolved.coldStartPrompt 原值
+      prompt: coldStartPromptForSDK,
       // REVIEW_37 P1-Phase2 (claude F4 LOW)：omitUndefined 收口 4 个简单 spread+ternary。
       // 仅 extra_allow_write（length > 0 语义）保留 inline ternary。
       ...omitUndefined({
@@ -405,6 +484,13 @@ export const handOffSessionHandler = withMcpGuard(
         // hand-off-mcp-archive-opt-20260515: caller archive opt-out。
         // default true(baton 单向交接 = caller 使命终结);仅 caller 显式传 false 跳过。
         archiveCaller: args.archive_caller !== false,
+        // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D3 + D5):
+        // adopt_teammates: true 透传到 baton-cleanup → phase 1 跳过 shutdownTeammatesOnBaton
+        // 标 skipped='adopt-keep-implicit'。teammate 由 phase 1.5 adopt 路径调 swapLead 接管
+        // (Phase 4 阶段 phase 1.5 在 hand-off-session.ts handler adopt 分支只装配 cold-start
+        // prompt;Phase 6 在 baton-cleanup helper 内调 swapLead 完整化 phase 1.5 流程含
+        // listAllMembers + emit + collect preserved/failed)。
+        adoptTeammates: args.adopt_teammates === true,
         excludeSessionIds,
         toolName: 'hand_off_session',
       },
@@ -423,7 +509,11 @@ export const handOffSessionHandler = withMcpGuard(
       worktreePath: resolved.worktreePath,
       baseBranch: resolved.baseBranch,
       phaseLabel: resolved.mode === 'plan' ? args.phase_label ?? null : null,
-      initialPrompt: resolved.coldStartPrompt,
+      // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D11 v8 + Round 5 MED-2):
+      // initialPrompt 必与 SDK first message 一致(schemas.ts:690-693「完整字面」契约)。
+      // adopt 路径返 coldStartPromptForSDK(含 adopted teams context block + user prompt,
+      // 不含 wire prefix);non-adopt 路径返 resolved.coldStartPrompt 原值。
+      initialPrompt: args.adopt_teammates === true ? coldStartPromptForSDK : resolved.coldStartPrompt,
       /**
        * CHANGELOG_99：generic 模式下 caller 传了 plan-only 字段(phase_label / plan_file_path)
        * 时被忽略的字段名数组(空数组 = 无忽略)。caller 可见此字段提醒"我传错了"。plan 模式
@@ -443,11 +533,20 @@ export const handOffSessionHandler = withMcpGuard(
        */
       teammatesShutdown: cleanup.teammatesShutdown,
       // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D7 v8) — adopt 路径详情。
-      // Phase 4a 仅加 schema 字段(satisfies HandOffSessionResult 约束);Phase 4d 实施
-      // adopt_teammates: true 时的 phase 1.5 adopt 流程,设为 non-null 含 {preserved,
-      // failed, teamsTotal, teamsAdopted, firstTeamId}。当前 Phase 4a 永远返 null(default
-      // baton 路径)。
-      adopted: null,
+      // **Phase 4 阶段中间状态**:swapLead 还没在 baton-cleanup helper 跑(Phase 6 才完整化
+      // phase 1.5 流程含 swapLead + listAllMembers + emit),所以 teamsAdopted=0 +
+      // preserved=[] + failed=[] 暂不反映真实 adopt 进度;**仅 firstTeamId + teamsTotal 有
+      // snapshot 值**(spawn 之前 freeze)。Phase 6 完成后这些字段会含完整 adopt 结果。
+      adopted:
+        adoptedSnapshot !== null
+          ? {
+              preserved: [],
+              failed: [],
+              teamsTotal: adoptedSnapshot.teamsTotal,
+              teamsAdopted: 0,
+              firstTeamId: adoptedSnapshot.firstTeamId,
+            }
+          : null,
       // 透传 spawn_session 字段（兼容 spawn 调用方）— spread SpawnSessionResult 全部字段，
       // 与 HandOffSessionResult extends SpawnSessionResult 对应让 satisfies 通过。
       ...spawnData,

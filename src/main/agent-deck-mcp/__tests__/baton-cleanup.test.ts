@@ -411,4 +411,85 @@ describe('runBatonCleanup', () => {
     expect(getFn).not.toHaveBeenCalled();
     expect(archiveFn).not.toHaveBeenCalled();
   });
+
+  // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D3 + D5):
+  // adopt_teammates=true 入参语义守门 — phase 1 跳过 shutdownTeammatesOnBaton 标
+  // skipped='adopt-keep-implicit'(teammate 由 hand-off-session.ts handler phase 1.5 adopt
+  // 路径调 swapLead 接管;Phase 6 在 baton-cleanup helper 内调 swapLead 完整化 phase 1.5)。
+  it('case 13 (Phase 4): adoptTeammates=true → skipped=adopt-keep-implicit + shutdown 不调用 + archive 仍走', async () => {
+    const shutdownFn = vi.fn(async (_sid: string) =>
+      ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
+    );
+    const archiveFn = vi.fn(async (_sid: string) => undefined);
+    const getFn = vi.fn(() => fakeRow('caller'));
+
+    const result = await runBatonCleanup(
+      {
+        callerSessionId: 'caller',
+        adoptTeammates: true,
+        toolName: 'hand_off_session',
+      },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+    );
+
+    expect(result).toEqual({
+      teammatesShutdown: { closed: [], failed: [], skipped: 'adopt-keep-implicit' },
+      archived: 'ok',
+    });
+    // 关键:shutdownTeammatesOnBaton helper 完全不被调(adopt 路径 teammate 由新 session 接管)
+    expect(shutdownFn).not.toHaveBeenCalled();
+    // archive caller 仍走(adopt 路径不影响 phase 2 archive caller)
+    expect(archiveFn).toHaveBeenCalledTimes(1);
+    expect(archiveFn).toHaveBeenCalledWith('caller');
+  });
+
+  it('case 14 (Phase 4): adoptTeammates=true + archiveCaller=false → 两 opt-out 并存,phase 1 + phase 2 都短路', async () => {
+    const shutdownFn = vi.fn(async (_sid: string) =>
+      ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
+    );
+    const archiveFn = vi.fn(async (_sid: string) => undefined);
+    const getFn = vi.fn(() => fakeRow('caller'));
+
+    const result = await runBatonCleanup(
+      {
+        callerSessionId: 'caller',
+        adoptTeammates: true,
+        archiveCaller: false,
+        toolName: 'hand_off_session',
+      },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+    );
+
+    expect(result).toEqual({
+      teammatesShutdown: { closed: [], failed: [], skipped: 'adopt-keep-implicit' },
+      archived: 'skipped',
+    });
+    // 关键:adopt + archive_caller=false 同传 → phase 1 跳 + phase 2 跳,全 0 调用
+    expect(shutdownFn).not.toHaveBeenCalled();
+    expect(getFn).not.toHaveBeenCalled();
+    expect(archiveFn).not.toHaveBeenCalled();
+  });
+
+  it('case 15 (Phase 4 回归): adoptTeammates=undefined → 走 default phase 1 路径(无 adopt 字段时不影响默认行为)', async () => {
+    const shutdownFn = vi.fn(async (_sid: string) =>
+      ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
+    );
+    const archiveFn = vi.fn(async (_sid: string) => undefined);
+    const getFn = vi.fn(() => fakeRow('caller'));
+
+    const result = await runBatonCleanup(
+      {
+        callerSessionId: 'caller',
+        // adoptTeammates 不传,等价 false → 走 default 路径调 helper
+        toolName: 'archive_plan',
+      },
+      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
+    );
+
+    expect(result.teammatesShutdown).toEqual({ closed: ['team-A'], failed: [], skipped: null });
+    expect(result.archived).toBe('ok');
+    // 关键:adopt 字段缺省时仍调 default helper(回归保护)
+    expect(shutdownFn).toHaveBeenCalledTimes(1);
+    expect(archiveFn).toHaveBeenCalledTimes(1);
+  });
 });
