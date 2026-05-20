@@ -31,11 +31,9 @@ import {
 } from '@main/store/image-uploads';
 import { MAX_TOTAL_ATTACHMENTS_BYTES } from './_image-constants';
 import type {
-  GenericPtyConfig,
   UploadedAttachmentInput,
   UploadedAttachmentRef,
 } from '@shared/types';
-import { parseGenericPtyConfig } from '@shared/types';
 
 /**
  * 校验 + 写盘 attachments。失败抛错，由调用方决定回滚兄弟附件。
@@ -144,21 +142,6 @@ export function registerAdaptersIpc(): void {
     // 其它 adapter 静默忽略。白名单走 parseSandboxMode（_helpers.ts 已有，复用零新增）；
     // null = 不传 → claude-code adapter 用 settings.claudeCodeSandbox 全局值。
     const claudeCodeSandbox = parseSandboxMode(raw.claudeCodeSandbox);
-    // R4·F2：generic-pty / aider 专属 spawn config 透传（其它 adapter 静默忽略）。
-    // zod parse 防 IPC bypass 灌入 number / undefined（schema min(1) 强制 command 非空）。
-    // raw.genericPtyConfig === undefined → 不传字段，adapter fallback 走 preset；
-    // 任意非 undefined 值都走 zod parse，invalid 直接 throw（renderer 层应已 zod parse 一次）。
-    let genericPtyConfig: GenericPtyConfig | null = null;
-    if (raw.genericPtyConfig !== undefined) {
-      try {
-        genericPtyConfig = parseGenericPtyConfig(raw.genericPtyConfig);
-      } catch (err) {
-        throw new IpcInputError(
-          'opts.genericPtyConfig',
-          `zod parse failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
 
     // REVIEW_35 R2 HIGH-D codex H1：last-line defense — adapter 不支持 attachments 时拒绝。
     // createSession 同 sendMessage 路径同样 enforce，防 NewSessionDialog / 测试 / 直接 IPC 绕过 ComposerSdk gate。
@@ -187,7 +170,6 @@ export function registerAdaptersIpc(): void {
           ...(codexSandbox !== null ? { codexSandbox } : {}),
           ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
-          ...(genericPtyConfig !== null ? { genericPtyConfig } : {}),
         }),
       );
     } catch (err) {
