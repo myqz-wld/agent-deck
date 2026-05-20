@@ -35,6 +35,7 @@ import {
   type HandlerContext,
 } from '../helpers';
 import type { SpawnSessionArgs, SpawnSessionResult } from '../schemas';
+import { shouldWriteSpawnLink } from './spawn-link-guard';
 
 export const spawnSessionHandler = withMcpGuard(
   'spawn_session',
@@ -312,7 +313,7 @@ export const spawnSessionHandler = withMcpGuard(
       // - SessionDetail / TeamDetail 不引用 spawnedBy → 无影响
       // - spawn-guards.ts depth check 用 callerSession.spawnDepth 不用新 session.spawnDepth
       //   → 无影响
-      if (callerExists && !opts?.batonMode) {
+      if (callerExists && shouldWriteSpawnLink({ batonMode: opts?.batonMode })) {
         const newDepth = parentDepth + 1;
         sessionRepo.setSpawnLink(sid, caller.callerSessionId, newDepth);
       }
@@ -478,7 +479,7 @@ export const spawnSessionHandler = withMcpGuard(
       // 不再需要 list_sessions / get_session 反查）。
       agentName: args.agent_name ?? null,
       displayName: teammateDisplayName,
-      spawnDepth: created?.spawnDepth ?? (callerExists && !opts?.batonMode ? parentDepth + 1 : 0),
+      spawnDepth: created?.spawnDepth ?? (callerExists && shouldWriteSpawnLink({ batonMode: opts?.batonMode }) ? parentDepth + 1 : 0),
       sentAt: Date.now(),
       // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 调 wait_reply 等 teammate first reply
       spawnPromptMessageId,
