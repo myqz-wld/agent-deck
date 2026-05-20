@@ -1,8 +1,6 @@
 import type { AgentAdapter, AdapterContext } from './types';
 import type { ClaudeCodeAdapter } from './claude-code';
 import type { CodexCliAdapter } from './codex-cli';
-import type { AiderAdapter } from './aider';
-import type { GenericPtyAdapter } from './generic-pty';
 import type { CreateSessionOptionsByAdapter } from './options-builder';
 
 /**
@@ -27,8 +25,6 @@ import type { CreateSessionOptionsByAdapter } from './options-builder';
 export type AdapterIdMap = {
   'claude-code': ClaudeCodeAdapter;
   'codex-cli': CodexCliAdapter;
-  'aider': AiderAdapter;
-  'generic-pty': GenericPtyAdapter;
 };
 
 /**
