@@ -19,7 +19,7 @@ export const AGENT_ID = 'claude-code';
  * `[from xxx]\n` + body 长度还会增加；如果 bridge 端用 byteLength 100_000 校验，CJK /
  * 接近 ASCII 上限的 cross-adapter team message 会在 watcher 入队 OK 但 bridge 端 throw →
  * markFailed 重试 3 次都同款失败。改 `.length` 与 messageRepo 对齐，让所有 adapter
- * (claude / codex / aider / generic-pty) 的 cap 全局一致。
+ * (claude / codex) 的 cap 全局一致。
  *
  * Claude SDK / Anthropic API 本身没有 byte 上限，按 token 计费；102_400 char ~25k tokens
  * 远小于 200k context window，SDK 不会拒绝。
