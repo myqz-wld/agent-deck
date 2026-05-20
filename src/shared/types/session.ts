@@ -2,7 +2,6 @@
  * 跨进程共享：Session 与 lifecycle / activity / permission mode 类型。
  */
 
-import type { GenericPtyConfig } from './generic-pty';
 import type { SessionTeamMembership } from './agent-deck-team';
 
 export type ActivityState = 'idle' | 'working' | 'waiting' | 'finished';
@@ -153,9 +152,10 @@ export interface SessionRecord {
    */
   spawnDepth?: number;
   /**
-   * R4·F2：generic-pty / aider session 的 spawn config（持久化到 sessions.generic_pty_config 列）。
-   * - generic-pty / aider adapter：createSession 时落库，resume 时读回 spawn 同 config
-   * - claude-code / codex-cli adapter：始终 null（字段无意义，与 codexSandbox 同模式）
+   * R4·F2 历史字段(plan remove-aider-generic-pty-adapters-20260520 后):
+   * 老 generic-pty / aider session 的 spawn config(持久化到 sessions.generic_pty_config 列)。
+   * 现 adapter 已删,新 session 永远写 NULL;rowToRecord 直接读 string raw value 不再 schema parse。
+   * 字段保留兼容老 SQLite DB rows;type 改 `unknown | null` 让 caller 不再依赖具体 schema。
    */
-  genericPtyConfig?: GenericPtyConfig | null;
+  genericPtyConfig?: unknown | null;
 }
