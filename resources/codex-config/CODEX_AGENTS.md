@@ -136,7 +136,7 @@ codex SDK session 内进 / 退 git worktree 必须通过本应用 MCP tool(codex
 
 `hand_off_session` 起新 SDK session 接力 + 自动归档 caller。**双模式**:plan-driven 传 `plan_id`(读 plan frontmatter,要求 `status: in_progress` + 有 `worktree_path`,cold start prompt = `按 <plan-abs-path> 接力`,可附 `phase_label`);generic 不传 `plan_id`(不读 plan,cold start prompt = `args.prompt` 或默认「从上一个会话接力继续工作」)。
 
-**调用**:`mcp__agent-deck__hand_off_session({ plan_id?, phase_label?, prompt?, cwd?, adapter?: "codex-cli", team_name?, codex_sandbox?, plan_file_path? })`
+**调用**:`mcp__agent-deck__hand_off_session({ plan_id?, phase_label?, prompt?, cwd?, adapter?: "codex-cli", team_name?, codex_sandbox?, plan_file_path?, adopt_teammates?: false })`
 **返回**:`{ mode: 'plan'|'generic', planId, planFilePath, worktreePath, initialPrompt, sessionId, cwd, teamId, teamName, spawnPromptMessageId, archived, teammatesShutdown, ... }`
 
 **app-only 差异**:
