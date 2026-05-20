@@ -1,5 +1,5 @@
 /**
- * session-repo —— Row 类型 + rowToRecord + parseGenericPtyConfigJson 共享 helper。
+ * session-repo —— Row 类型 + rowToRecord + parseExtraAllowWriteJson 共享 helper。
  *
  * 拆分历史：从 src/main/store/session-repo.ts 抽出（CHANGELOG_83 / plan
  * deep-review-and-split-20260513 H2 Step 2.3）。所有 sub-module 共享 import 此处。
@@ -7,13 +7,11 @@
 
 import type {
   ActivityState,
-  GenericPtyConfig,
   LifecycleState,
   PermissionMode,
   SessionRecord,
   SessionSource,
 } from '@shared/types';
-import { genericPtyConfigSchema } from '@shared/types';
 
 // ────────────────────────────────────────────────────────────────────────────
 // SQLite row shape + record 转换
@@ -74,37 +72,13 @@ export function rowToRecord(r: Row): SessionRecord {
     cwdReleaseMarker: r.cwd_release_marker ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
-    genericPtyConfig: parseGenericPtyConfigJson(r.generic_pty_config),
+    genericPtyConfig: r.generic_pty_config ?? null,
   };
 }
 
 /**
- * sessions.generic_pty_config 列存的是 JSON.stringify(GenericPtyConfig)。
- * 解析失败 / NULL → null（不抛错，老脏数据 / NULL 都安全 fallback）。
- *
- * REVIEW_24 codex MED 6：原仅 JSON.parse + cast，合法 JSON 如 `"x"` / `42` / `[]` /
- * `{}` 不会 fallback null 而被当 GenericPtyConfig 返回 → 下游 adapter 拿 invalid config
- * 起 PTY 时 spawn 失败或更糟 silent 误用。修法：JSON.parse 后再走 zod schema parse 二次
- * 校验，partial / 类型不对都 fallback null。
- *
- * 设计取舍：写入端（IPC handler / adapter.createSession）已 zod parse 防脏；读取端二次
- * 校验是 defense-in-depth — 防止用户手改 DB / migration 故障 / 历史脏数据等情形。
- */
-export function parseGenericPtyConfigJson(raw: string | null): GenericPtyConfig | null {
-  if (!raw) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const result = genericPtyConfigSchema.safeParse(parsed);
-  return result.success ? result.data : null;
-}
-
-/**
  * sessions.extra_allow_write 列存的是 JSON.stringify(string[])（绝对路径数组）。
- * 解析失败 / NULL / 类型不对 → null（不抛错,与 parseGenericPtyConfigJson 同款 defense-in-depth）。
+ * 解析失败 / NULL / 类型不对 → null（不抛错,defense-in-depth）。
  *
  * 写入端(setExtraAllowWrite / upsert)做 JSON.stringify;读取端二次校验防止用户手改 DB /
  * migration 故障 / 历史脏数据等情形(过滤掉非数组 / 非 string 元素 / 空数组 → null,

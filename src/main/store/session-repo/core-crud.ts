@@ -1,12 +1,12 @@
 /**
  * session-repo —— core CRUD（upsert / get / list*）+ per-session settings setter
- * (permissionMode / title / codexSandbox / claudeCodeSandbox / genericPtyConfig) + delete。
+ * (permissionMode / title / codexSandbox / claudeCodeSandbox / model / extraAllowWrite) + delete。
  *
  * 拆分历史：从 src/main/store/session-repo.ts 抽出（CHANGELOG_83 / plan
  * deep-review-and-split-20260513 H2 Step 2.3）。
  */
 
-import type { GenericPtyConfig, PermissionMode, SessionRecord } from '@shared/types';
+import type { PermissionMode, SessionRecord } from '@shared/types';
 import { getDb } from '../db';
 import { buildKeywordPredicate } from '../search-predicate';
 import { rowToRecord, type Row } from './types';
@@ -81,7 +81,7 @@ export function upsert(rec: SessionRecord): void {
       cwd_release_marker: rec.cwdReleaseMarker ?? null,
       spawned_by: rec.spawnedBy ?? null,
       spawn_depth: rec.spawnDepth ?? 0,
-      generic_pty_config: rec.genericPtyConfig ? JSON.stringify(rec.genericPtyConfig) : null,
+      generic_pty_config: null,
     });
 }
 
@@ -207,24 +207,12 @@ export function setClaudeCodeSandbox(
 }
 
 /**
- * R4·F2：写入 generic-pty / aider session 的 spawn config。
- * 仅 generic-pty / aider adapter 的 createSession / config 微调路径调；
- * claude-code / codex-cli adapter 不应调（字段对它们无意义）。
- * config=null → 清空（极少用，正常 session 删除走 sessionRepo.delete 整行）。
- */
-export function setGenericPtyConfig(id: string, config: GenericPtyConfig | null): void {
-  const json = config ? JSON.stringify(config) : null;
-  getDb().prepare(`UPDATE sessions SET generic_pty_config = ? WHERE id = ?`).run(json, id);
-}
-
-/**
  * 写入 SDK / agent model（plan model-wiring-and-handoff-20260514 Step 1.3）。
  *
  * 调用方：
  * - claude-code adapter createSession：opts.model 非空时调，让 SDK resume / dormant 唤醒后
  *   保持模型一致（与 setPermissionMode / setClaudeCodeSandbox 同款 per-session 持久化）
  * - codex-cli adapter createSession：opts.model 非空时也调（runtime 不生效但写库便于 UI 显示）
- * - aider / generic-pty adapter：不应调（字段对它们无意义）
  *
  * model=null → 清空（恢复"不指定，跟 SDK 默认 / ANTHROPIC_MODEL env"语义）。
  * 与 setCodexSandbox / setClaudeCodeSandbox 完全对称的字面镜像。
