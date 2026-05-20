@@ -76,12 +76,13 @@ export function ComposerSdk({
   // 多 agent 适配：
   // - 标签 / placeholder 文案用对应 agent 名（Claude / Codex / ...）
   // - 权限模式 select 仅 claude-code 显示（codex SDK 没有运行时切权限模式；REVIEW_35 MED-D-codex-3
-  //   修法：generic-pty / aider 也不支持 setPermissionMode（capabilities.canSetPermissionMode=false），
-  //   旧代码 `agentId !== 'codex-cli'` 错误地把它们也归入支持，切换抛 IPC 错）
+  //   修法：用 capabilities.canSetPermissionMode 而非 `agentId !== 'codex-cli'` —— 后者把
+  //   不支持 setPermissionMode 的 adapter 错归入支持类，切换抛 IPC 错）
   // - codex sandbox select 仅 codex-cli 显示（claude 没有 codex 那套档位）
   // - claude OS sandbox select 仅 claude-code 显示（CHANGELOG_74，与 codex 字面镜像）
   // - 图片附件入口（粘贴 / 拖放 / 上传）按 capabilities.canAcceptAttachments gate
-  //   （REVIEW_35 HIGH-D2：claude-code/codex-cli=true，generic-pty/aider=false 静默丢图必须挡）
+  //   （REVIEW_35 HIGH-D2：当前 claude-code 与 codex-cli 都 true；白名单 gate 防止未来新
+  //   adapter 默认就拿到 attachments 路径，必须显式 opt-in）
   const agentDisplayName = agentId === 'codex-cli' ? 'Codex' : 'Claude';
   const supportsPermissionMode = agentId === 'claude-code';
   const supportsCodexSandbox = agentId === 'codex-cli';
@@ -97,8 +98,9 @@ export function ComposerSdk({
     // 第 2 次闭包仍看 busy=false 重复发同款消息（attachments 已 clear，发空附件 / 空文本）
     if (busyRef.current) return;
     if (busy) return;
-    // REVIEW_35 HIGH-D2：generic-pty / aider 不支持 attachments，gate 拒发并保留 attachments
-    // （不调 imgs.clear()）让用户能切 adapter 或删图后重发；旧版静默丢图 + 用户失去 retry 能力
+    // REVIEW_35 HIGH-D2：不在白名单的 adapter（当前白名单仅 claude-code / codex-cli）
+    // gate 拒发并保留 attachments（不调 imgs.clear()）让用户能切 adapter 或删图后重发；
+    // 静默丢图 + 失去 retry 能力的旧版本回归不可接受
     if (!canAcceptAttachments && hasAttachments) {
       setSendError(
         `当前 adapter (${agentId}) 不支持图片附件，请先移除附件再发送，或切换到 Claude / Codex adapter`,
@@ -302,7 +304,7 @@ export function ComposerSdk({
         value={text}
         onChange={(e) => setText(e.target.value)}
         // REVIEW_35 HIGH-D2：仅 canAcceptAttachments adapter 才绑 paste/drop/dragover；
-        // generic-pty / aider 不绑，防止用户拖入触发空发送 + 静默丢图。
+        // 不在白名单的 adapter 不绑，防止用户拖入触发空发送 + 静默丢图。
         onPaste={canAcceptAttachments ? imgs.onPaste : undefined}
         onDrop={canAcceptAttachments ? imgs.onDrop : undefined}
         onDragOver={canAcceptAttachments ? imgs.onDragOver : undefined}
