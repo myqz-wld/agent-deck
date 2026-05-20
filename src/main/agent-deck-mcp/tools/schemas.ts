@@ -755,11 +755,17 @@ export interface HandOffSessionResult extends SpawnSessionResult {
    * - **preserved**: 跨 team 接管成功的 teammate sid 列表(已 dedup,Set 去重)
    * - **failed**: 接管失败的条目,sid 字段 polymorphic by reason:
    *   - `'caller-not-lead-in-team'` → callerSid(N5 上游过滤,caller 是 teammate 不是 lead)
+   *   - `'team-archived'` → callerSid(Phase 7 reviewer-codex Round 2 LOW 修法:caller=lead
+   *     但 team archived ghost membership;snapshot 时已分流,prompt 不含该 team)
    *   - `'swap-lead-failed: <inner reason>'` → callerSid(swapLead returns swapped:false)
    *   - `'swap-lead-error: <e.message>'` → callerSid(swapLead throws)
    *   - `'session-missing'` → teammateSid(getSession 返 null,MED-A 修法)
    *   - `'lifecycle-closed'` → teammateSid(closed teammate,N3 / D6)
-   * - **teamsTotal**: caller 所有 active team 数(含 lead + teammate role)
+   *   - `'session-archived'` → teammateSid(Phase 7 reviewer-codex Round 1 MED 修法:archived
+   *     teammate;sessionManager.archive 不 leaveTeam,prompt 装配也已过滤不含该 sid)
+   * - **teamsTotal**: caller 所有 active team 数(含 lead + teammate role,**排除 archived
+   *   team ghost membership** — Phase 7 reviewer-codex Round 2 LOW 修法对齐 send_message
+   *   active shared-team 边界,数学上 `teamsTotal === teamsAdopted + active failed.length`)
    * - **teamsAdopted**: swapLead 成功的 team 数(`<= teamsTotal`)
    * - **firstTeamId**: 第一个 caller=lead team 的 id(callerLeadMemberships[0].teamId);
    *   仅在 ok return 路径出现 non-null:
