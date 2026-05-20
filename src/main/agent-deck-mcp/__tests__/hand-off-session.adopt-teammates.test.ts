@@ -244,6 +244,12 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
       fakeMember({ teamId: 'team-A', sessionId: 'caller-sid', role: 'teammate' }),
       fakeMember({ teamId: 'team-B', sessionId: 'caller-sid', role: 'teammate' }),
     ]);
+    // Phase 7 reviewer-codex Round 3 polish:caller=teammate 现在也查 team archived,
+    // T4.7 加 spy 让 active fakeTeam 让 snapshot loop 不撞 spy-less DB error;
+    // active team + caller 全 teammate → callerLeadMemberships=0 → 仍走 fail-fast。
+    vi.spyOn(agentDeckTeamRepo, 'get').mockImplementation((teamId: string) =>
+      fakeTeam(teamId, `${teamId}-name`),
+    );
 
     const seenSpawn = { ref: null as SpawnSessionArgs | null };
     const mockSpawn = makeOkSpawn(seenSpawn);
@@ -1394,5 +1400,85 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
     expect(seenSpawn.ref!.prompt).not.toContain('tm-archived');
     // active teammate 仍出现在 prompt(eligibility precheck 通过)
     expect(seenSpawn.ref!.prompt).toContain('tm-active');
+  });
+
+  // T6.A3(Phase 7 reviewer-codex Round 3 LOW polish): caller=teammate 在 archived team
+  // 也走 archived 分支 → push failed reason='team-archived'(与 caller=lead 在 archived
+  // team 一致)。修前 commit 4ca89e5 caller=teammate 不查 team archived,在 archived team
+  // push reason='caller-not-lead-in-team' 与 schemas.ts/文档「teamsTotal 排除 archived
+  // ghost」语义略不一致;polish 后所有 caller role 在 archived team 都 reason='team-archived'。
+  it('T6.A3 archived team caller=teammate filter: caller=teammate 在 archived team → failed reason="team-archived"(不是 caller-not-lead-in-team)', async () => {
+    const state = makeState();
+    setupPlanFile(state, 't6-a3-mixed');
+
+    // caller 在 active team-A 是 lead + caller 在 archived team-A2 是 teammate
+    vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipsBySession').mockReturnValue([
+      fakeMember({ teamId: 'team-A', sessionId: 'caller-sid', role: 'lead' }),
+      fakeMember({ teamId: 'team-A2', sessionId: 'caller-sid', role: 'teammate' }),
+    ]);
+    vi.spyOn(agentDeckTeamRepo, 'get').mockImplementation((teamId: string) => {
+      if (teamId === 'team-A') return fakeTeam('team-A', 'team-A-name');
+      if (teamId === 'team-A2') {
+        return { ...fakeTeam('team-A2', 'team-A2-name'), archivedAt: 9999 };
+      }
+      return null;
+    });
+    vi.spyOn(agentDeckTeamRepo, 'listAllMembers').mockImplementation((teamId: string) => {
+      if (teamId === 'team-A') {
+        return [fakeMember({ teamId: 'team-A', sessionId: 'caller-sid', role: 'lead' })];
+      }
+      return [];
+    });
+    vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) =>
+      id === 'caller-sid' ? fakeCallerRow() : null,
+    );
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+    const mockSwapLead = vi.fn(() => ({ swapped: true as const }));
+
+    const result = await handOffSessionHandler(
+      {
+        plan_id: 't6-a3-mixed',
+        adapter: 'claude-code',
+        adopt_teammates: true,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: makeOkSpawn(seenSpawn),
+        archiveSession: noopArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+        swapLead: mockSwapLead,
+        getSessionForLifecycle: activeLifecycleGet,
+        listAllMembersForAdopt: agentDeckTeamRepo.listAllMembers,
+        closeSession: noopCloseSession,
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+
+    // **caller=lead 在 active team-A → adopt 成功**(firstTeamId=team-A / teamsAdopted=1)
+    expect(data.adopted.firstTeamId).toBe('team-A');
+    expect(data.adopted.teamsAdopted).toBe(1);
+
+    // **teamsTotal=1**(active eligibility = lead 1 + teammate 0,archived team-A2 排除)
+    expect(data.adopted.teamsTotal).toBe(1);
+
+    // **caller=teammate 在 archived team-A2 → failed reason='team-archived'**
+    // (Round 3 polish:不再用 'caller-not-lead-in-team',而是与 caller=lead in archived
+    // 一致 reason='team-archived')
+    expect(data.adopted.failed).toContainEqual({
+      sid: 'caller-sid',
+      teamId: 'team-A2',
+      reason: 'team-archived',
+    });
+    // **不再含 caller-not-lead-in-team 入口**(commit 4ca89e5 之前 caller=teammate 在
+    // archived team 的旧 reason)
+    expect(data.adopted.failed).not.toContainEqual({
+      sid: 'caller-sid',
+      teamId: 'team-A2',
+      reason: 'caller-not-lead-in-team',
+    });
   });
 });
