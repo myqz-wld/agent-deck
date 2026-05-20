@@ -136,20 +136,21 @@ codex SDK session 内进 / 退 git worktree 必须通过本应用 MCP tool(codex
 
 `hand_off_session` 起新 SDK session 接力 + 自动归档 caller。**双模式**:plan-driven 传 `plan_id`(读 plan frontmatter,要求 `status: in_progress` + 有 `worktree_path`,cold start prompt = `按 <plan-abs-path> 接力`,可附 `phase_label`);generic 不传 `plan_id`(不读 plan,cold start prompt = `args.prompt` 或默认「从上一个会话接力继续工作」)。
 
-**调用**:`mcp__agent-deck__hand_off_session({ plan_id?, phase_label?, prompt?, cwd?, adapter?: "codex-cli", team_name?, codex_sandbox?, plan_file_path?, adopt_teammates?: false })`
+**调用**:`mcp__agent-deck__hand_off_session({ plan_id?, phase_label?, prompt?, cwd?, adapter?: "codex-cli", team_name?, codex_sandbox?, plan_file_path?, archive_caller?: true, adopt_teammates?: false })`
 **返回**:`{ mode: 'plan'|'generic', planId, planFilePath, worktreePath, initialPrompt, sessionId, cwd, teamId, teamName, spawnPromptMessageId, archived, teammatesShutdown, ... }`
 
 **app-only 差异**:
 
 - **cwd resilience**:plan-driven 默认 `cwd = mainRepo`(fallback 链 `args.cwd > resolved.mainRepo > resolved.worktreePath`),让 sessionRepo.cwd 在 worktree 被 archive_plan 删后仍 valid;新 session 自己按 user CLAUDE §Step 3 cold-start 调 MCP `enter_worktree(plan_id)` 进 worktree(codex 端必走 MCP,不是 claude builtin)。generic 默认 `cwd = caller cwd`
-- **baton 不计 spawn_depth**:内部 spawn 传 `batonMode: true` 跳 depth check + 写 `parentDepth`(lateral,不 +1)。理由:baton 单向交接(spawn 后立即 archive caller)任意时刻只 1 个 active session,**不构成 fork-bomb 风险**,N-phase 接力链不该撞默认 `mcpMaxSpawnDepth=3`。fan-out + spawn-rate guard 仍 enforce
+- **baton 不计 spawn_depth(仅 archive_caller=true 时)**:默认 `archive_caller=true` 路径内部 spawn 传 `batonMode: true` 跳 depth check + 写 `parentDepth`(lateral,不 +1)。理由:baton 单向交接(spawn 后立即 archive caller)任意时刻只 1 个 active session,**不构成 fork-bomb 风险**,N-phase 接力链不该撞默认 `mcpMaxSpawnDepth=3`。fan-out + spawn-rate guard 仍 enforce。**`archive_caller: false` 退化 normal spawn**:caller 不归档 = caller 与新 session 同时 active = 接近 spawn 用法,`resolveBatonRoleForSpawn` 返 `batonMode=false` 不跳 depth check(防止 caller 用 opt-out 路径绕过 spawn_depth 限制开 N-phase fork-bomb)
 - **archive 默认 true,可 opt-out**(P5 Round 1 reviewer-codex M2 修法 — 文档与 schema 对齐):caller 无论 untracked / dirty / 已加入 team 都归档(default);typical baton 语义「任意时刻单 in-flight session」自然成立。**例外 opt-out**:caller 显式传 `archive_caller: false` 跳过归档(罕见场景:lead 起多个 hand-off 子任务并行做事自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要观察)。`archive_caller: false` 时 ok return.archived === "skipped"
 - **default 不加 team**:baton 单向交接不强加 lead/teammate 关系;显式 `team_name` 才启用通信
+- **adopt_teammates 选 in 接管 caller 同 team 当 lead**(plan hand-off-session-adopt-teammates-20260520 Phase 4):default false 走纯 baton(原 teammate 与新 session 失去 shared active team,`send_message` 撞 no-shared-team)。**`adopt_teammates: true`** 让新 session 接管 caller 同 team 当 lead,原 teammate 与新 session 共享 active team 可继续 send_message 沟通。**N5 ≥1 lead 硬约束**:caller 在所有 team 都不是 lead → handler spawn 之前 fail-fast 返 error,不 spawn / 不 archive caller。**N2.c 互斥**:adopt_teammates=true 与 args.team_name 不可同传(zod refine reject + handler 防御性硬约束 — adopt 路径自动过继 caller 自己 team,与显式额外 team 语义冲突)。Detail 见 ok return.adopted 字段:`{ preserved, failed, teamsTotal, teamsAdopted, firstTeamId } | null`(adopt_teammates: true 时 non-null)。
 - **预检短路**:plan-driven 模式 plan 文件不存在 / status ≠ in_progress / frontmatter 缺 `worktree_path` / spawn 失败 → 立即返回 error
 - **新 session 必须含 user CLAUDE「复杂 plan」节 cold-start protocol 5 步**:codex SDK 加载链是 `~/.codex/AGENTS.md`(本文件),**不**自动加载 user CLAUDE.md(claude 端走 `settingSources: ['user',...]` 自动加载,codex 端无对等机制)。本应用环境**已在 §plan cold-start protocol(codex 端) 节 inline 5 步**让 codex 收到 `按 <plan-abs-path> 接力` 字面提示后能正确执行;若该节缺失或被裁剪,caller 起 cold-start prompt 时必须显式把 5 步 inline 进 prompt
 - **典型主动触发(generic mode)**:当前 cwd 不适合手头任务(cwd 已失效 / 不属目标 repo / 用户明示换目录 / 跨 repo 任务) → 不要在当前 session 强行 `cd` / 跨目录绝对路径(codex shell tool 切 cwd 不持久跨 turn),用 generic mode 显式传新 `cwd` + 自包含 `prompt` 接力到正确目录
 - **prompt 装不下完整 context 时**(必要信息务必传递完整,避免 hand-off 丢失大量上下文):caller 先把 context 落盘到 `/tmp/handoff-<id>.md`(临时文件不用清理),prompt 起手写「先 `shell: cat <abs-path>` 再按文件内指令推进」让新 session cold-start 第一步读全
-- **想保留 caller 不归档** → 用 `spawn_session(cwd:<目标>, prompt:<打包信息>)` 而非 `hand_off_session`(baton 强归档不可关)
+- **想保留 caller 不归档** → 两个选项:① `hand_off_session({..., archive_caller: false})` 显式 opt-out(详上方 archive 默认 true 节);② `spawn_session(cwd:<目标>, prompt:<打包信息>)` 而非 `hand_off_session`(spawn 出新 session 但不切换接力身份,适合并行子任务)
 
 ### plan cold-start protocol(codex 端 5 步)
 

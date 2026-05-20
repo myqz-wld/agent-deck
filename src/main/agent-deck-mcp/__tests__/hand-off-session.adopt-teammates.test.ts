@@ -29,7 +29,9 @@ import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
 import type { HandOffSessionArgs, SpawnSessionArgs } from '../tools/schemas';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
 import { sessionRepo } from '@main/store/session-repo';
+import { sessionManager } from '@main/session/manager';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { eventBus } from '@main/event-bus';
 import type { AgentDeckTeam, AgentDeckTeamMember } from '@shared/types';
 import { makeState, makeDeps, planContent } from './hand-off-session/_setup';
 
@@ -628,6 +630,15 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
       id === 'caller-sid' ? fakeCallerRow() : null,
     );
 
+    // Phase 7 reviewer-codex INFO 修法:N8 emit 守门 — spy eventBus.emit + sessionManager
+    // .notifyTeamMembershipChanged 让删 handler 内 emit/notify 行为时本测试立即失败。
+    // 修前 T6.1 测试名「emit × 4 + N8 守门」与实际无 spy 断言矛盾(grep 0 处),让 N8 的 4 处
+    // emit/notify 漏测。
+    const emitSpy = vi.spyOn(eventBus, 'emit').mockImplementation(() => undefined);
+    const notifySpy = vi
+      .spyOn(sessionManager, 'notifyTeamMembershipChanged')
+      .mockImplementation(() => undefined);
+
     const seenSpawn = { ref: null as SpawnSessionArgs | null };
     const mockSwapLead = vi.fn(() => ({ swapped: true as const }));
     const mockListMembers = vi.fn((teamId: string) =>
@@ -672,6 +683,27 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
     expect(data.adopted.preserved.sort()).toEqual(['tm-1', 'tm-2']);
     expect(data.adopted.failed).toEqual([]);
     expect(data.adopted.firstTeamId).toBe('team-A');
+
+    // **N8 emit 守门**(Phase 7 reviewer-codex INFO 修法):每成功 swap team(team-A)
+    // 触发 2 次 eventBus.emit('agent-deck-team-member-changed', ...) + 2 次
+    // sessionManager.notifyTeamMembershipChanged(...)。teamsAdopted=1 → 共 2 emit + 2 notify。
+    const memberEmits = emitSpy.mock.calls.filter(
+      (call) => call[0] === 'agent-deck-team-member-changed',
+    );
+    expect(memberEmits.length).toBe(2);
+    expect(memberEmits[0]?.[1]).toMatchObject({
+      teamId: 'team-A',
+      sessionId: 'caller-sid',
+      kind: 'left',
+    });
+    expect(memberEmits[1]?.[1]).toMatchObject({
+      teamId: 'team-A',
+      sessionId: 'new-sid',
+      kind: 'joined',
+    });
+    expect(notifySpy).toHaveBeenCalledTimes(2);
+    expect(notifySpy).toHaveBeenNthCalledWith(1, 'caller-sid');
+    expect(notifySpy).toHaveBeenNthCalledWith(2, 'new-sid');
   });
 
   it('T6.2 closed teammate → failed.reason="lifecycle-closed"', async () => {
@@ -1138,5 +1170,212 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
     // partial adopt 可能失败,新 session 须 list_sessions 验证 shared membership)
     expect(seenSpawn.ref!.prompt).toMatch(/\*\*attempted\*\* to adopt as lead/);
     expect(seenSpawn.ref!.prompt).toMatch(/verify shared team membership via `list_sessions`/);
+  });
+
+  // ─── Phase 7 reviewer-codex finding 修法守门 ───────────────────────────
+
+  // T4.3d handler 入口 N2.c 防御性硬约束(Phase 7 reviewer-codex HIGH 修法 — 第二道闸门):
+  // 模拟「假设 schema strict refine 被绕过」场景(实际生产 mcp tool 注册路径走 SHAPE 不跑
+  // ARGS_SCHEMA refine,需 handler 入口防御作 defense in depth)。直接调 handler 同传 args →
+  // 立即 reject + spawnFn 未调用 + caller 状态零变化。
+  it('T4.3d handler 入口 N2.c 防御:adopt_teammates=true + team_name 同传立即 reject(spawn 未调用)', async () => {
+    const state = makeState();
+    setupPlanFile(state, 't4-3d-defense');
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+    const spawnFn = makeOkSpawn(seenSpawn);
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    const result = await handOffSessionHandler(
+      // cast 模拟绕过 zod schema 直接调 handler(测 handler defense-in-depth)
+      {
+        plan_id: 't4-3d-defense',
+        adapter: 'claude-code',
+        adopt_teammates: true,
+        team_name: 'extra-team',
+      } as unknown as HandOffSessionArgs,
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: spawnFn,
+        archiveSession: mockArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    // **handler reject**:isError + 错误信息含 'adopt_teammates 与 team_name 不可同传'
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.error).toMatch(/adopt_teammates 与 team_name 不可同传/);
+
+    // **副作用零变化**:spawn 未调用 + caller 未 archive
+    expect(spawnFn).toHaveBeenCalledTimes(0);
+    expect(mockArchive).toHaveBeenCalledTimes(0);
+  });
+
+  // T6.A1(MED archived team filter): caller 在 1 active team + 1 archived team 都是 lead →
+  // callerLeadMemberships 应过滤掉 archived team(team.archivedAt !== null);仅 active team 进
+  // adopt 流程。修前 findActiveMembershipsBySession 只过滤 left_at IS NULL 不过滤 archived_at,
+  // archived team 的 ghost lead membership 列入 cold-start prompt → 新 session 调 send_message
+  // 撞 no-shared-team(silent dual-team-broken bug)。
+  it('T6.A1 archived team filter: caller 在 1 active + 1 archived team 都是 lead → 仅 active team 走 adopt', async () => {
+    const state = makeState();
+    setupPlanFile(state, 't6-a1-archived-team');
+
+    // active team-A + archived team-A2 都是 lead
+    vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipsBySession').mockReturnValue([
+      fakeMember({ teamId: 'team-A', sessionId: 'caller-sid', role: 'lead' }),
+      fakeMember({ teamId: 'team-A2', sessionId: 'caller-sid', role: 'lead' }),
+    ]);
+    vi.spyOn(agentDeckTeamRepo, 'get').mockImplementation((teamId: string) => {
+      if (teamId === 'team-A') return fakeTeam('team-A', 'team-A-name');
+      if (teamId === 'team-A2') {
+        // archived team
+        return { ...fakeTeam('team-A2', 'team-A2-name'), archivedAt: 1234 };
+      }
+      return null;
+    });
+    vi.spyOn(agentDeckTeamRepo, 'listAllMembers').mockImplementation((teamId: string) => {
+      if (teamId === 'team-A') {
+        return [
+          fakeMember({ teamId: 'team-A', sessionId: 'caller-sid', role: 'lead' }),
+          fakeMember({ teamId: 'team-A', sessionId: 'tm-1', role: 'teammate' }),
+        ];
+      }
+      return [];
+    });
+    vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) =>
+      id === 'caller-sid' ? fakeCallerRow() : null,
+    );
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+    const mockSwapLead = vi.fn(() => ({ swapped: true as const }));
+
+    const result = await handOffSessionHandler(
+      {
+        plan_id: 't6-a1-archived-team',
+        adapter: 'claude-code',
+        adopt_teammates: true,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: makeOkSpawn(seenSpawn),
+        archiveSession: noopArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+        swapLead: mockSwapLead,
+        getSessionForLifecycle: activeLifecycleGet,
+        listAllMembersForAdopt: agentDeckTeamRepo.listAllMembers,
+        closeSession: noopCloseSession,
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+
+    // **archived team-A2 已被 filter 掉**:firstTeamId=team-A(active)+ teamsAdopted=1
+    expect(data.adopted.firstTeamId).toBe('team-A');
+    expect(data.adopted.teamsAdopted).toBe(1);
+
+    // **swapLead 仅 1 调用**(active team-A,跳 archived team-A2)
+    expect(mockSwapLead).toHaveBeenCalledTimes(1);
+    expect(mockSwapLead).toHaveBeenCalledWith('team-A', 'caller-sid', 'new-sid');
+
+    // **cold-start prompt 不含 archived team-A2**(silent prompt 数据丢失防止)
+    expect(seenSpawn.ref!.prompt).not.toMatch(/team-A2/);
+  });
+
+  // T6.A2(MED archived teammate filter): teammate 中 archivedAt !== null → 进 failed
+  // reason='session-archived',与 'lifecycle-closed' 平行。修前 lifecycle precheck 仅查
+  // session === null / lifecycle === 'closed',archived teammate 被列入 preserved →
+  // 新 session 调 send_message 撞 findSharedActiveTeams 强制 sb.archived_at IS NULL → 拒。
+  it('T6.A2 archived teammate filter: archived teammate 进 failed.reason="session-archived"', async () => {
+    const state = makeState();
+    setupPlanFile(state, 't6-a2-archived-tm');
+    setupCallerLead(
+      ['team-X'],
+      new Map([
+        [
+          'team-X',
+          [
+            fakeMember({ teamId: 'team-X', sessionId: 'tm-active', role: 'teammate' }),
+            fakeMember({ teamId: 'team-X', sessionId: 'tm-archived', role: 'teammate' }),
+          ],
+        ],
+      ]),
+    );
+    vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) =>
+      id === 'caller-sid' ? fakeCallerRow() : null,
+    );
+
+    const archivedLifecycleGet = vi.fn((sid: string) => {
+      if (sid === 'tm-active') {
+        return {
+          id: sid,
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+          cwdReleaseMarker: null,
+        } as never;
+      }
+      if (sid === 'tm-archived') {
+        return {
+          id: sid,
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active', // 还 active 但 archivedAt 非 null(归档与 lifecycle 正交)
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: 9999, // archived
+          spawnedBy: null,
+          spawnDepth: 0,
+          cwdReleaseMarker: null,
+        } as never;
+      }
+      return null;
+    });
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+
+    const result = await handOffSessionHandler(
+      {
+        plan_id: 't6-a2-archived-tm',
+        adapter: 'claude-code',
+        adopt_teammates: true,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: makeOkSpawn(seenSpawn),
+        archiveSession: noopArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+        swapLead: okSwapLead,
+        getSessionForLifecycle: archivedLifecycleGet,
+        listAllMembersForAdopt: agentDeckTeamRepo.listAllMembers,
+        closeSession: noopCloseSession,
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+
+    // **active teammate 进 preserved**;archived teammate 进 failed.reason='session-archived'
+    expect(data.adopted.preserved).toEqual(['tm-active']);
+    expect(data.adopted.failed).toEqual([
+      { sid: 'tm-archived', teamId: 'team-X', reason: 'session-archived' },
+    ]);
   });
 });

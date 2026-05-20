@@ -357,9 +357,23 @@ export const handOffSessionHandler = withMcpGuard(
     // 不 spawn / 不 archive caller。理由:adopt 语义本质是「caller=lead 把 lead role 转给新
     // session」,caller 不是任何 team 的 lead 时该语义无意义。
     //
-    // **N2.c 互斥 invariant** 已在 zod refine 层 reject(adopt_teammates: true 与 args.team_name
-    // 不可同传 — schemas.ts HAND_OFF_SESSION_ARGS_SCHEMA.refine);此处 args.team_name 必为
-    // undefined,直接走 default baton spawn 路径(spawn handler 不写 placeholder / 不 addMember)。
+    // **N2.c 互斥 invariant 双层防御**(Phase 7 reviewer-codex HIGH 修法):
+    // - schema 层 zod refine reject(schemas.ts HAND_OFF_SESSION_ARGS_SCHEMA.refine)
+    // - handler 入口防御性硬约束(本节)— 因为生产 mcp tool 注册路径走 SHAPE 不跑 strict.refine,
+    //   schema 守门只在 *.test.ts 显式调 ARGS_SCHEMA.safeParse 时生效
+    //
+    // 此处防御性 reject 让生产路径(in-process / HTTP / stdio transport)同传时立即 fail-fast,
+    // 避免 args.team_name 透传给 spawn → spawn 内 batonRole='lead' 写新 sid 进 team_name 的
+    // team → swapLead 之后形成 dual-lead window(N1 violation)/ silent prompt 数据丢失
+    // (cold-start prompt 仅含 callerLeadMemberships,不含 args.team_name)。
+    //
+    // 第二道防御独立于 schema strict;生产 mcp tool 注册路径走 SHAPE 时此 handler 仍 reject。
+    if (args.adopt_teammates === true && args.team_name !== undefined) {
+      return err(
+        'adopt_teammates 与 team_name 不可同传',
+        'adopt 路径自动过继 caller 同 team(走 swapLead transaction),与显式额外 team_name(spawn 内 addMember 写新 sid as lead)语义冲突 — 同传会形成 spawn 写 lead → swapLead demote caller 之间的 dual-lead window 破坏 N1 invariant,且 cold-start prompt 仅含 callerLeadMemberships 不含额外 team 形成 silent prompt 数据丢失。改用 adopt_teammates: false + 显式 team_name 走 default spawn,或 adopt_teammates: true 不传 team_name 走 adopt 自动过继。',
+      );
+    }
     //
     // **adopt 路径 cold-start prompt**:
     // - snapshot caller 所有 active membership → filter role==='lead' 拿 callerLeadMemberships
@@ -386,14 +400,26 @@ export const handOffSessionHandler = withMcpGuard(
       // N5 fail-fast:precheck caller 至少 1 个 lead membership;不读 lead memberships 时直接
       // findActiveMembershipsBySession 失败(external sentinel 时 caller 不在 sessions 表,
       // findActiveMembershipsBySession 返空 → length === 0 → return err — 同 N5 语义)。
+      //
+      // **Phase 7 reviewer-codex MED 修法**:findActiveMembershipsBySession 只过滤 left_at
+      // IS NULL,不 JOIN agent_deck_teams / sessions 过滤 archived_at,与 send_message 的
+      // findSharedActiveTeams 强制 archived 过滤(member-query.ts:147-158)边界不一致 →
+      // adopt 把 archived team 误算 lead membership → cold-start prompt 列 archived team
+      // 让新 session 发消息撞 no-shared-team(silent dual-team-broken bug)。修法:
+      // filter 加 team archivedAt === null 守门(用 adopt-local filter 不动公共 helper
+      // 避免影响其他 caller — REVIEW_35 LOW-A1 / REVIEW_32 HIGH-2 等历史 caller 期望)。
       const allCallerMemberships = agentDeckTeamRepo.findActiveMembershipsBySession(
         caller.callerSessionId,
       );
-      const callerLeadMemberships = allCallerMemberships.filter((m) => m.role === 'lead');
+      const callerLeadMemberships = allCallerMemberships.filter((m) => {
+        if (m.role !== 'lead') return false;
+        const team = agentDeckTeamRepo.get(m.teamId);
+        return team !== null && team.archivedAt === null;
+      });
       if (callerLeadMemberships.length === 0) {
         return err(
           'adopt_teammates 要求 caller 至少在一个 active team 是 lead',
-          `caller_session_id ${caller.callerSessionId} 当前在 ${allCallerMemberships.length} 个 active team 内,但全部 role !== 'lead'(全 teammate / 无 lead membership)。adopt 语义本质是「lead 把 lead role 转给新 session」,caller 不是任何 team 的 lead 时该语义无意义。改走 default baton(adopt_teammates: false / 不传)或先确认 caller 在某个 team 是 lead 再重试。`,
+          `caller_session_id ${caller.callerSessionId} 当前在 ${allCallerMemberships.length} 个 active membership 内(含 archived team 的 ghost membership),但 active team(team.archived_at IS NULL)中 role==='lead' 的 0 个(全 teammate / 全 archived team / 无 lead membership)。adopt 语义本质是「lead 把 lead role 转给新 session」,caller 不是任何 active team 的 lead 时该语义无意义。改走 default baton(adopt_teammates: false / 不传)或先确认 caller 在某个 active team 是 lead 再重试。`,
         );
       }
 
@@ -592,6 +618,16 @@ export const handOffSessionHandler = withMcpGuard(
           }
           if (tmSession.lifecycle === 'closed') {
             failedList.push({ sid: tm.sessionId, reason: 'lifecycle-closed', teamId });
+            continue;
+          }
+          // Phase 7 reviewer-codex MED 修法:archived teammate 也不算可 preserved
+          // (与 send_message 的 findSharedActiveTeams 强制 sa.archived_at IS NULL +
+          // sb.archived_at IS NULL 边界一致;archived teammate 列入 preserved 后新
+          // session 调 send_message 必撞 no-shared-team)。reason='session-archived'
+          // 与 'lifecycle-closed' 平行 — 都让 caller 通过 ok return.adopted.failed
+          // 看到为啥 some teammate 没 preserve。
+          if (tmSession.archivedAt !== null) {
+            failedList.push({ sid: tm.sessionId, reason: 'session-archived', teamId });
             continue;
           }
           // 'active' / 'dormant' → preservedSet(Round 3 LOW Set 去重)
