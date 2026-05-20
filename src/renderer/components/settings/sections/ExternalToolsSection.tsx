@@ -16,6 +16,12 @@ export function ExternalToolsSection({ settings, update }: Props): JSX.Element {
         path={settings.codexCliPath}
         onChange={(p) => void update({ codexCliPath: p })}
       />
+      <ExecutablePicker
+        label="Claude 二进制路径"
+        hint="留空 = 用应用内置 Claude CLI（推荐）。填路径 = 覆盖为外部 Claude CLI（如 `which claude` 给的路径）"
+        path={settings.claudeCliPath}
+        onChange={(p) => void update({ claudeCliPath: p })}
+      />
     </Section>
   );
 }

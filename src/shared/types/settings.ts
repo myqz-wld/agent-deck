@@ -122,6 +122,15 @@ export interface AppSettings {
    */
   codexCliPath: string | null;
   /**
+   * Claude CLI 二进制绝对路径（claude-agent-sdk 的 pathToClaudeCodeExecutable override）。
+   * - null：用 SDK 自带的 vendored 二进制（@anthropic-ai/claude-agent-sdk-{platform}-{arch} 跟随 npm 装上，已打包进 .app.unpacked）
+   * - 绝对路径：覆盖为外部 claude（例如用户自装的更新版 `which claude` 给的路径）
+   * agent-deck 不读不写 claude 鉴权（`~/.claude/.credentials.json`），全由用户终端 OAuth 处理。
+   * 与 codexCliPath 字面镜像(plan add-claude-cli-path-override-and-bump-sdks-20260520 §不变量 N1)。
+   * spawn-time options:改设置项不影响在跑会话(新建 SDK 会话才取新值,plan §N6 同款 codex 语义)。
+   */
+  claudeCliPath: string | null;
+  /**
    * 是否把 agent-deck 自带的 CLAUDE.md（`resources/claude-config/CLAUDE.md` 或用户副本
    * `userData/agent-deck-claude.md`）注入到 SDK 会话 system prompt 末尾。
    * - true（默认）：注入，让会话遵循 agent-deck 项目内通用约定
@@ -384,6 +393,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   startOnLogin: false,
   historyRetentionDays: 30,
   codexCliPath: null,
+  claudeCliPath: null,
   injectAgentDeckClaudeMd: true,
   injectAgentDeckCodexAgentsMd: true,
   injectAgentDeckCodexSkills: true,

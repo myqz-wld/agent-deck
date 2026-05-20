@@ -29,6 +29,7 @@
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
+import { settingsStore } from '@main/store/settings-store';
 import { raceWithTimeout } from './race-with-timeout';
 
 /**
@@ -52,7 +53,11 @@ export async function runClaudeOneshot(opts: {
 }): Promise<string> {
   const sdk = await loadSdk();
   const runtime = getSdkRuntimeOptions();
-  const claudeBinary = getPathToClaudeCodeExecutable();
+  // plan add-claude-cli-path-override-and-bump-sdks-20260520 §设计决策 D1 + §不变量 N5:
+  // user override claudeCliPath 非空(trim 后)→ 用 user 路径;否则 fallback bundled
+  // (镜像 codex codex-instance-pool.ts:46 + codex-cli/sdk-bridge/index.ts:240 inline pattern)。
+  const claudeCliPath = settingsStore.get('claudeCliPath');
+  const claudeBinary = (claudeCliPath && claudeCliPath.trim()) || getPathToClaudeCodeExecutable();
 
   const q = sdk.query({
     prompt: opts.prompt,

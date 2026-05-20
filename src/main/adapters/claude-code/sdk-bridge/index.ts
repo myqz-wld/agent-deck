@@ -10,6 +10,7 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
+import { settingsStore } from '@main/store/settings-store';
 import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
@@ -250,7 +251,11 @@ export class ClaudeSdkBridge {
     try {
       const { query } = await loadSdk();
       const runtime = getSdkRuntimeOptions();
-      const claudeBinary = getPathToClaudeCodeExecutable();
+      // plan add-claude-cli-path-override-and-bump-sdks-20260520 §设计决策 D1 + §不变量 N5:
+      // user override claudeCliPath 非空(trim 后)→ 用 user 路径;否则 fallback bundled
+      // (镜像 codex codex-instance-pool.ts:46 + codex-cli/sdk-bridge/index.ts:240 inline pattern)。
+      const claudeCliPath = settingsStore.get('claudeCliPath');
+      const claudeBinary = (claudeCliPath && claudeCliPath.trim()) || getPathToClaudeCodeExecutable();
       // REVIEW_14 阶段 2 排查盲点：sandbox 是否生效在 SDK / OS 层不打 log，应用主进程
       // 看不到「sandbox 装载成功 / 失败」信号；改回顶层 sandbox 字段后此 log 帮助
       // 实证「buildSandboxOptions 真的传了对应配置进 SDK options」，下次问题排查少绕一圈。

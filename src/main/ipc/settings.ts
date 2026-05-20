@@ -87,6 +87,17 @@ function applyCodexCliPath(p: Partial<AppSettings>, next: AppSettings): void {
   }
 }
 
+function applyClaudeCliPath(p: Partial<AppSettings>, _next: AppSettings): void {
+  // plan add-claude-cli-path-override-and-bump-sdks-20260520 §设计决策 D6:claude SDK 不持
+  // instance pool / per-session bridge cache,不需 invalidate。占位 if-block 与 codexCliPath
+  // 对称(读者一眼看出对称结构),body 留空 — sdk-bridge/index.ts:253 + claude-runner.ts:55 每次
+  // createSession 重新 settingsStore.get('claudeCliPath'),即改即生效(下次 createSession 用新路径)。
+  // 已 spawn 中的 SDK 子进程已经把 binary path 喂给 cli.js,setting 改了不会回滚已跑会话(N6)。
+  if ('claudeCliPath' in p) {
+    // 故意 no-op:见上方注释。symmetry-plan 同款思路 — 读者一眼看出 codex 与 claude apply 链对称。
+  }
+}
+
 /**
  * symmetry-plan P2 MED-B：codex sandbox 切档不再需要 apply hook。
  *
@@ -221,6 +232,7 @@ export function registerSettingsIpc(): void {
       applyWindowTransparent,
       applyPermissionTimeout,
       applyCodexCliPath,
+      applyClaudeCliPath,
       applyCodexMcpServers,
       applyCodexAgentsMd,
       applyCodexSkills,
