@@ -25,7 +25,6 @@ import { eventBus } from '@main/event-bus';
 import { getBundledAssetContent } from '@main/bundled-assets';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import { omitUndefined } from '@main/utils/optional-fields';
-import { sanitizeWireFieldName } from '@shared/wire-prefix';
 
 import { applySpawnGuards } from '../../spawn-guards';
 import {
@@ -36,6 +35,7 @@ import {
 } from '../helpers';
 import type { SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 import { shouldWriteSpawnLink } from './spawn-link-guard';
+import { buildLeadContextBlock } from './lead-context-block';
 
 export const spawnSessionHandler = withMcpGuard(
   'spawn_session',
@@ -206,35 +206,26 @@ export const spawnSessionHandler = withMcpGuard(
     const willInjectWirePrefix = !!teamIdEarly && callerExists;
     let placeholderId: string | null = null;
     let promptForSpawn = promptToUse; // 给 SDK 的 wire 形式
-    if (willInjectWirePrefix) {
-      placeholderId = crypto.randomUUID();
+    if (willInjectWirePrefix && teamIdEarly) {
+      const newPlaceholderId = crypto.randomUUID();
+      placeholderId = newPlaceholderId;
       const leadAdapter = leadRecord?.agentId ?? 'unknown-adapter';
-      // CHANGELOG_100 R2 fix (codex MED-1): sanitizeWireFieldName 处理 `]` / `\n` / `[`，
-      // 避免 user 设的 session.title (e.g. "feat: [test]") 破坏 wire prefix 解析。
-      // 同款 sanitize 在 buildWireBody (universal-message-watcher.ts) 也做了。
-      const leadFromName = sanitizeWireFieldName(
-        leadDisplayName ?? `${leadAdapter}:${caller.callerSessionId.slice(0, 8)}`,
-      );
-      const leadAdapterSanitized = sanitizeWireFieldName(leadAdapter);
-      const leadContextBlock =
-        `## Hand-off context (auto-injected by Agent Deck MCP)\n` +
-        `- Lead session_id: \`${caller.callerSessionId}\`\n` +
-        `- Team id: \`${teamIdEarly}\`\n` +
-        `- Lead displayName: ${leadDisplayName ?? '(unset)'}\n` +
-        `\n` +
-        `回 lead 用：\n` +
-        `\`\`\`\n` +
-        `mcp__agent-deck__send_message({\n` +
-        `  session_id: '${caller.callerSessionId}',  // lead session_id\n` +
-        `  team_id: '${teamIdEarly}',  // 当前 team id\n` +
-        `  text: '<reply text>',\n` +
-        `  reply_to_message_id: '<msg-id from wire prefix>'  // 从顶部 [msg <id>] 提取\n` +
-        `})\n` +
-        `\`\`\`\n` +
-        `wire prefix regex（双锚点）: \`/\\[msg ([0-9a-f-]+)\\]\\[sid ([0-9a-f-]+)\\]/\`\n`;
-      promptForSpawn =
-        `[from ${leadFromName} @ ${leadAdapterSanitized}][msg ${placeholderId}][sid ${caller.callerSessionId}]\n` +
-        `${leadContextBlock}\n---\n\n${promptToUse}`;
+      // plan hand-off-session-adopt-teammates-20260520 Phase 4 (Round 4 NEW MED-B 修法 —
+      // SSOT 唯一化):wire prefix + lead context block 装配抽到 buildLeadContextBlock helper
+      // (lead-context-block.ts)。helper 仅给 spawn 路径用 — adopt 路径 (Phase 4c) 走独立
+      // buildAdoptedTeamsContextBlock helper (adopted-teams-context-block.ts),不复用本
+      // helper(详 lead-context-block.ts 顶部 jsdoc)。
+      // 注:`willInjectWirePrefix && teamIdEarly` 等价 willInjectWirePrefix 单条件,加 explicit
+      // teamIdEarly null check 让 TS narrow `string | null` → `string`(willInjectWirePrefix
+      // 用 `!!teamIdEarly` 但 TS 不能跨变量 narrow)。
+      const { wirePrefix, contextBlock } = buildLeadContextBlock({
+        leadSessionId: caller.callerSessionId,
+        teamId: teamIdEarly,
+        leadDisplayName,
+        leadAdapter,
+        placeholderId: newPlaceholderId,
+      });
+      promptForSpawn = `${wirePrefix}${contextBlock}\n---\n\n${promptToUse}`;
     }
 
     // 实际 spawn

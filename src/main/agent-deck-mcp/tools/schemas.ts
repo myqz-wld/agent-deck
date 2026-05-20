@@ -389,6 +389,21 @@ export const HAND_OFF_SESSION_SHAPE = {
     .describe(
       'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archive_caller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。`archive_caller: false` 与其他 opt-out 字段(若未来新增)互相独立。',
     ),
+  // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D1 + D11 v8 + N2.b + N2.c):
+  // baton 单向交接默认会让原 teammate 与新 session 失去共享 active team(send_message 撞
+  // no-shared-team)。adopt_teammates: true 让新 session 接管 caller 同 team 当 lead,与
+  // 保留 teammate 形成共享 active team。详 plan §D11 v8 (handler 自拼 buildAdoptedTeamsContextBlock)。
+  //
+  // **N2.c invariant**: adopt_teammates: true 与 args.team_name 互斥(zod refine reject) —
+  // adopt 路径自动过继 caller 同 team,显式 team_name 通常表示 spawn 时让新 session 进
+  // 另一个 team(可能不在 caller 自己 team),与 adopt 语义冲突。互斥简化语义 + 消除
+  // silent prompt 数据丢失 bug。
+  adopt_teammates: z
+    .boolean()
+    .optional()
+    .describe(
+      'Default false (baton 默认行为)。**true 时**: caller 同 team 其他 active+dormant teammate **原地保留**(swapLead 把 lead role 从 caller 转给新 session,teammate 与新 session 共享 active team 可继续 send_message 沟通)。**仅当 caller 是 lead 的 team 走 adopt**(caller 是 teammate 的 team 跳过 + 进 failed.reason="caller-not-lead-in-team")。**N5 ≥1 lead 硬约束**: caller 在所有 team 都不是 lead(全 teammate / 无 active membership)→ handler spawn 之前 fail-fast 返 error,不 spawn / 不 archive caller。**N2.c 互斥**: 不可与 args.team_name 同传(zod refine reject — adopt 路径自动过继 caller 自己 team,与显式指定额外 team 语义冲突)。Detail 见 ok return.adopted 字段:{ preserved: string[], failed: Array<{sid,reason,teamId}>, teamsTotal: number, teamsAdopted: number, firstTeamId: string | null }。',
+    ),
 };
 
 // plan codex-handoff-team-alignment-20260518 P1 Step 1.2 / D2 + 不变量 5：
@@ -544,11 +559,22 @@ export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SC
 // - SHAPE = ZodRawShape 给 `tool()` 注册 + 三 transport 的现有接口 (上方已 export)
 // - ARGS_SCHEMA = z.object(SHAPE).strict() 给 handler / type / test 用
 //   strict 模式让 unknown keys (如已废弃的 opt-out 字段) 在 parse 时直接 throw
-//   `unrecognized_keys` (Phase 4 加 .refine() 实现 N2.c invariant)
+//   `unrecognized_keys`
+// - HAND_OFF_SESSION_ARGS_SCHEMA 加 .refine() 实现 Phase 4 N2.c invariant
+//   (adopt_teammates: true 与 args.team_name 互斥)
 // - type infer 用 strict 版本 (旧的 z.ZodObject<typeof SHAPE> 推导出的是 passthrough,
 //   不能 reject unknown keys; strict 版才匹配 handler 实际 parse 路径)
 export const ARCHIVE_PLAN_ARGS_SCHEMA = z.object(ARCHIVE_PLAN_SHAPE).strict();
-export const HAND_OFF_SESSION_ARGS_SCHEMA = z.object(HAND_OFF_SESSION_SHAPE).strict();
+export const HAND_OFF_SESSION_ARGS_SCHEMA = z
+  .object(HAND_OFF_SESSION_SHAPE)
+  .strict()
+  .refine(
+    (args) => !(args.adopt_teammates === true && args.team_name !== undefined),
+    {
+      message:
+        'adopt_teammates 与 team_name 不可同传 — adopt 路径自动过继 caller 同 team,不应指定额外 team_name(N2.c 互斥 invariant,plan hand-off-session-adopt-teammates-20260520 Phase 4)',
+    },
+  );
 
 export type ArchivePlanArgs = z.infer<typeof ARCHIVE_PLAN_ARGS_SCHEMA>;
 export type HandOffSessionArgs = z.infer<typeof HAND_OFF_SESSION_ARGS_SCHEMA>;
@@ -720,6 +746,34 @@ export interface HandOffSessionResult extends SpawnSessionResult {
   archived: 'ok' | 'failed' | 'skipped';
   /** baton cleanup phase 1 详情（与 archive_plan 同款）。 */
   teammatesShutdown: TeammatesShutdownInfo;
+  /**
+   * plan hand-off-session-adopt-teammates-20260520 Phase 4 (D7 v8 + Round 7 codex INFO-3):
+   * adopt_teammates: true 时的 phase 1.5 adopt 详情;`adopt_teammates: false / undefined`
+   * 时为 `null`(default baton 路径)。
+   *
+   * 字段语义:
+   * - **preserved**: 跨 team 接管成功的 teammate sid 列表(已 dedup,Set 去重)
+   * - **failed**: 接管失败的条目,sid 字段 polymorphic by reason:
+   *   - `'caller-not-lead-in-team'` → callerSid(N5 上游过滤,caller 是 teammate 不是 lead)
+   *   - `'swap-lead-failed: <inner reason>'` → callerSid(swapLead returns swapped:false)
+   *   - `'swap-lead-error: <e.message>'` → callerSid(swapLead throws)
+   *   - `'session-missing'` → teammateSid(getSession 返 null,MED-A 修法)
+   *   - `'lifecycle-closed'` → teammateSid(closed teammate,N3 / D6)
+   * - **teamsTotal**: caller 所有 active team 数(含 lead + teammate role)
+   * - **teamsAdopted**: swapLead 成功的 team 数(`<= teamsTotal`)
+   * - **firstTeamId**: 第一个 caller=lead team 的 id(callerLeadMemberships[0].teamId);
+   *   仅在 ok return 路径出现 non-null:
+   *   - 0 lead memberships 已被 N5 fail-fast → handler return error,`adopted/firstTeamId` 不出现
+   *   - firstTeam swapLead 失败已 fatal abort → return error,`adopted/firstTeamId` 不出现
+   *   - 全 lead team adopt 完成 / partial adopt 接受 → ok return non-null
+   */
+  adopted: {
+    preserved: string[];
+    failed: Array<{ sid: string; reason: string; teamId: string }>;
+    teamsTotal: number;
+    teamsAdopted: number;
+    firstTeamId: string | null;
+  } | null;
 }
 
 /**

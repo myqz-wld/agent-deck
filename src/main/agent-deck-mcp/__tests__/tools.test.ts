@@ -1456,3 +1456,57 @@ describe('plan hand-off-session-adopt-teammates-20260520 Phase 3: ARGS_SCHEMA st
     expect(result.success).toBe(true);
   });
 });
+
+// ─── plan hand-off-session-adopt-teammates-20260520 Phase 4 N2.c invariant ─
+//
+// **范围**: 验证 HAND_OFF_SESSION_ARGS_SCHEMA.refine() 实现 N2.c 互斥不变量 —
+// args.adopt_teammates: true 与 args.team_name 不可同传(zod refine reject)。
+//
+// **理由**(plan §N2.c + §决策对抗 Round 3 MED-3 修法):
+// - caller 显式 args.team_name 通常表示「spawn 时让新 session 进这个 team(可能不在
+//   caller 自己 team)」,与 adopt(过继 caller 自己 team)语义本来就有冲突
+// - 互斥简化语义 + 消除 silent prompt 数据丢失 bug
+//
+// **守门 case** (3 条):
+// T4.3a HAND_OFF_SESSION_ARGS_SCHEMA reject adopt_teammates: true + team_name 同传
+// T4.3b adopt_teammates: true 单传 (无 team_name) 通过
+// T4.3c team_name 单传 (无 adopt_teammates) 通过(回归保护)
+describe('plan hand-off-session-adopt-teammates-20260520 Phase 4: HAND_OFF_SESSION_ARGS_SCHEMA N2.c 互斥 invariant', () => {
+  it('T4.3a: reject adopt_teammates=true + team_name 同传 (N2.c 互斥)', async () => {
+    const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
+    const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      plan_id: 'foo',
+      adapter: 'claude-code',
+      adopt_teammates: true,
+      team_name: 'some-team',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // refine 失败时 zod 报 'custom' issue code + plan §N2.c 文案 message
+      const hasRefineFail = result.error.issues.some(
+        (i) => i.code === 'custom' && /adopt_teammates 与 team_name 不可同传/.test(i.message),
+      );
+      expect(hasRefineFail).toBe(true);
+    }
+  });
+
+  it('T4.3b: accept adopt_teammates=true 单传 (无 team_name — adopt 主路径)', async () => {
+    const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
+    const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      plan_id: 'foo',
+      adapter: 'claude-code',
+      adopt_teammates: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('T4.3c: accept team_name 单传 (无 adopt_teammates — 回归保护)', async () => {
+    const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
+    const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      plan_id: 'foo',
+      adapter: 'claude-code',
+      team_name: 'some-team',
+    });
+    expect(result.success).toBe(true);
+  });
+});
