@@ -19,10 +19,6 @@ export function getAgentShortName(agentId: string): string {
   switch (agentId) {
     case 'codex-cli':
       return 'Codex';
-    case 'aider':
-      return 'Aider';
-    case 'generic-pty':
-      return 'Shell';
     default:
       return 'Claude';
   }
