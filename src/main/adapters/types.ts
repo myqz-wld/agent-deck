@@ -266,15 +266,13 @@ export interface AdapterCapabilities {
   /**
    * 删会话时 SessionManager 是否调 closeSession 彻底关闭 SDK 侧 live query/turn 与 pending Maps。
    * 与 canInterrupt 区别：interrupt 允许 resume / 复用 session；close 表示永久关闭。
-   * SDK / PTY 通道有 internal session 的 adapter 都置 true（claude-code / codex-cli /
-   * aider / generic-pty）；纯 hook-only adapter 置 false。
+   * SDK 通道有 internal session 的 adapter 都置 true（claude-code / codex-cli）；
+   * 纯 hook-only adapter 置 false。
    */
   canCloseSession: boolean;
   /**
    * 是否支持作为 team member 接收 cross-adapter 消息（R3.E0 ADR §3.1 / E4 新增）。
    * - claude-code / codex-cli: true（SDK sendMessage 把外来文字塞进 user turn）
-   * - aider / generic-pty: true（R4·F-bonus 实装：PTY bridge sendMessage 把外来文字
-   *   写入 stdin，与 user 输入等价）
    *
    * UI 据此与 archived/closed 双条件决定 NewTeamMember dialog 是否暴露该 adapter。
    * 取代老 capability `canJoinTeam`（R3.E6 已删，仅 Claude experimental teams flag 触发器）。
@@ -283,7 +281,6 @@ export interface AdapterCapabilities {
   /**
    * REVIEW_35 HIGH-D2：是否支持图片附件（用户在 Composer 上传 / 粘 / 拖图）。
    * - claude-code / codex-cli: true（SDK content blocks 接收 image base64）
-   * - aider / generic-pty: false（PTY 写 stdin 没法编码二进制 → 静默丢图）
    *
    * UI 据此 gate Composer 的图片入口（隐藏上传按钮 + 不绑 onPaste/onDrop/onDragOver）+
    * send 入口拦截 attachments-only 请求（避免 imgs.clear 后用户失去 retry 能力）。
@@ -303,8 +300,7 @@ export interface AgentAdapter {
   interruptSession?(sessionId: string): Promise<void>;
   /**
    * 由 SessionManager.delete 调用：abort SDK 侧 live query/turn + 清 pending Maps + 移除 internal session 记录。
-   * 纯 hook-only adapter 不实现；SDK / PTY 通道 adapter（claude-code / codex-cli / aider /
-   * generic-pty）均实现。
+   * 纯 hook-only adapter 不实现；SDK 通道 adapter（claude-code / codex-cli）均实现。
    * 不抛错（出错只 warn）：删除路径不能因为 close 失败而失败，否则 DB 行删了 bridge 状态留着会更糟。
    */
   closeSession?(sessionId: string): Promise<void>;
@@ -459,7 +455,7 @@ export interface AgentAdapter {
    * 行为契约：
    * - 不抛 fallback：runner 失败必须 throw（caller 决定要不要降级），不要内部 swallow
    * - kind 必须 narrow 到 'summary' | 'handoff' 两值之一（unknown kind → throw）
-   * - aider / generic-pty 不实装：没 SDK oneshot 通道，caller 拿 undefined 走 fallback
+   * - 未实装的 adapter caller 拿 undefined 走 fallback
    */
   summariseEvents?(
     cwd: string,
