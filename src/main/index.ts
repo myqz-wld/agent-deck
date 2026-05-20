@@ -15,8 +15,6 @@ import { adapterRegistry } from './adapters/registry';
 import { claudeCodeAdapter } from './adapters/claude-code';
 import { applyClaudeSettingsEnv } from './adapters/claude-code/settings-env';
 import { codexCliAdapter } from './adapters/codex-cli';
-import { aiderAdapter } from './adapters/aider';
-import { genericPtyAdapter } from './adapters/generic-pty';
 import { sessionManager, setSessionCloseFn, setSessionRenameHookFn } from './session/manager';
 import { LifecycleScheduler, setLifecycleScheduler } from './session/lifecycle-scheduler';
 import {
@@ -114,8 +112,6 @@ async function bootstrap(): Promise<void> {
   // 4. 注册 adapter
   adapterRegistry.register(claudeCodeAdapter);
   adapterRegistry.register(codexCliAdapter);
-  adapterRegistry.register(aiderAdapter);
-  adapterRegistry.register(genericPtyAdapter);
 
   // 5. 把 adapter 发出的 AgentEvent 接入 SessionManager
   await adapterRegistry.initAll({
@@ -537,7 +533,7 @@ if (gotLock) {
         universalMessageWatcher.stop();
         // REVIEW_35 MED-D-claude (D6): cleanup 整体 race-with-timeout 兜底，防 adapter
         // shutdown / hookServer stop / mcp http shutdown 任一卡死整个 quit 流程（codex CLI
-        // 卡死 / aider 阻塞 stdin 等场景）。10s 超时降级 process.exit(1) 强退。
+        // 卡死等场景）。10s 超时降级 process.exit(1) 强退。
         // REVIEW_35 R2 MED-D claude (R2-3): closeDb 必须在 race 外**总是**跑保证 SQLite WAL
         // checkpoint（旧版包在 race 内 → 任一前序步骤卡 9.5s 后 closeDb 仅剩 0.5s budget → process.exit(1)
         // 在 closeDb 之前 → WAL 文件未 checkpoint 下次启动 replay log，极端 corruption 风险）。
