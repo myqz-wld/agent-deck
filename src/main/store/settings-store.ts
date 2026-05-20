@@ -55,6 +55,22 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
         console.log(`[settings] migrated transparentWhenPinned=${legacy} → windowTransparent`);
       }
     }
+    // plan remove-aider-generic-pty-adapters-20260520 Follow-up F2 一次性 migration：
+    // CHANGELOG_125 P5 plan codex-handoff-team-alignment-20260518 升级 mcpMaxFanOutPerParent
+    // 默认 5 → 10 / mcpSpawnRatePerMinute 默认 10 → 20，但已 persist user 老值不更新。
+    // 检测 persisted 值正好等于老 default → 升级到新 default；user 显式选非 default 值
+    // (7 / 15 等) → 保留 user 选择。
+    // Trade-off: 罕见 false positive — user 主动选与老 default 同值时被 migrate（覆盖 user
+    // 显式选择）。但 deep-review 多 batch 场景下老 default 不够用 user 必须调高，migrate
+    // 实际是 friendly action（与 README 描述对齐 + 设置面板 jsdoc "默认 10/20" 一致）。
+    if (raw['mcpMaxFanOutPerParent'] === 5) {
+      store.set('mcpMaxFanOutPerParent', 10);
+      console.log('[settings] migrated mcpMaxFanOutPerParent 5 → 10 (default uplift, plan F2)');
+    }
+    if (raw['mcpSpawnRatePerMinute'] === 10) {
+      store.set('mcpSpawnRatePerMinute', 20);
+      console.log('[settings] migrated mcpSpawnRatePerMinute 10 → 20 (default uplift, plan F2)');
+    }
     for (const key of REMOVED_KEYS) {
       if (key in raw) {
         looseDelete.delete(key);
