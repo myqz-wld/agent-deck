@@ -50,7 +50,9 @@ import {
 import type { HandOffSessionArgs, HandOffSessionResult, SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import { sessionRepo } from '@main/store/session-repo';
+import { sessionManager } from '@main/session/manager';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { eventBus } from '@main/event-bus';
 import { omitUndefined } from '@main/utils/optional-fields';
 import {
   handOffSessionImpl,
@@ -94,6 +96,34 @@ export interface HandOffSessionHandlerDeps {
     callerSessionId: string,
     excludeSessionIds?: ReadonlySet<string>,
   ) => Promise<ShutdownTeammatesResult>;
+  /**
+   * plan hand-off-session-adopt-teammates-20260520 Phase 6 (D4 + D5 + D6 + N8):
+   * adopt_teammates: true 路径 phase 1.5 swapLead test seam。default 走
+   * agentDeckTeamRepo.swapLead;test 注入控制每个 teamId 的 swap 结果(成功 / swapped:false /
+   * throws)验证 firstTeam fatal abort + 非 firstTeam 软失败 partial adopt 路径。
+   */
+  swapLead?: (
+    teamId: string,
+    oldLeadSid: string,
+    newLeadSid: string,
+    opts?: { newDisplayName?: string | null },
+  ) => { swapped: true } | { swapped: false; reason: string };
+  /**
+   * Phase 6 phase 1.5: lifecycle precheck test seam(D6 closed teammate 显式 fail-fast)。
+   * default 走 sessionRepo.get;test 注入控制 teammate sessionId 的 lifecycle 返回值(null /
+   * 'closed' / 'active' / 'dormant')。
+   */
+  getSessionForLifecycle?: (sessionId: string) => ReturnType<typeof sessionRepo.get>;
+  /**
+   * Phase 6 phase 1.5: listAllMembers test seam(拿 swap 后 team 内 teammate 列表做 lifecycle
+   * precheck)。default 走 agentDeckTeamRepo.listAllMembers。
+   */
+  listAllMembersForAdopt?: (teamId: string) => ReturnType<typeof agentDeckTeamRepo.listAllMembers>;
+  /**
+   * Phase 6 phase 1.5: firstTeam fatal abort 时 shutdown newSid。default 走
+   * sessionManager.close;test 注入观察是否调用(关键守门)。
+   */
+  closeSession?: (sessionId: string) => Promise<void>;
 }
 
 /**
@@ -343,6 +373,14 @@ export const handOffSessionHandler = withMcpGuard(
     let adoptedSnapshot: {
       firstTeamId: string;
       teamsTotal: number;
+      /** Phase 6: phase 1.5 swapLead loop 用的 team id 顺序(firstTeamId 在 [0],其他在 slice(1)) */
+      callerLeadTeamIds: string[];
+      /**
+       * Phase 6 D5 step 2 (plan §N5 line 119): caller 是 teammate 的 team 进 failed,reason=
+       * 'caller-not-lead-in-team' — 让 caller 看到为什么 some team 没 adopt(snapshot 时已分流,
+       * 不进 swapLead loop 但要透传到 ok return.adopted.failed)。
+       */
+      teammateOnlyTeamIds: string[];
     } | null = null;
     if (args.adopt_teammates === true) {
       // N5 fail-fast:precheck caller 至少 1 个 lead membership;不读 lead memberships 时直接
@@ -385,7 +423,11 @@ export const handOffSessionHandler = withMcpGuard(
       coldStartPromptForSDK = `${adoptedBlock}\n---\n\n${resolved.coldStartPrompt}`;
       adoptedSnapshot = {
         firstTeamId: firstTeamMembership.teamId,
-        teamsTotal: callerLeadMemberships.length,
+        teamsTotal: allCallerMemberships.length,
+        callerLeadTeamIds: callerLeadMemberships.map((m) => m.teamId),
+        teammateOnlyTeamIds: allCallerMemberships
+          .filter((m) => m.role === 'teammate')
+          .map((m) => m.teamId),
       };
     }
 
@@ -478,6 +520,162 @@ export const handOffSessionHandler = withMcpGuard(
     // R37 P3-L 前的 Record<string, unknown> 兜底，cast 后 typeof 校验成 redundant 但保留无害）。
     const newSpawnedSid = typeof spawnData.sessionId === 'string' ? spawnData.sessionId : null;
     const excludeSessionIds = newSpawnedSid ? new Set<string>([newSpawnedSid]) : undefined;
+
+    // plan hand-off-session-adopt-teammates-20260520 Phase 6 (D4 + D5 + D6 + N8) — phase 1.5
+    // adopt 流程:在 spawn 成功后、runBatonCleanup 之前跑 swapLead loop + listAllMembers +
+    // lifecycle precheck + emit + collect preserved/failed。设计要点:
+    //
+    // **firstTeam fatal abort 路径**(Round 5 codex MED-3):firstTeam swapLead 失败(swapped:false /
+    // throws)→ fatal abort:
+    // - 调 closeFn(newSpawnedSid) shutdown 新 session(避免交出 stale firstTeam anchor 的孤儿
+    //   新 session)
+    // - **不 archive caller**(caller 状态零变化 — phase 1.5 入口 caller 仍是 lead,swapLead
+    //   transaction 内 precheck 短路 demote 未执行)
+    // - hand_off_session **return error**「adopt firstTeam swap failed: <reason>」+ hint 含
+    //   failed firstTeamId + reason
+    //
+    // **firstTeam 成功后非 firstTeam swapLead 软失败接受 partial adopt**(D5):非 firstTeam
+    // swapLead failed → push failed + continue 下一 team(其他 team 仍可成功)。
+    //
+    // **lifecycle precheck**(D6):每 teammate 显式 lifecycle precheck → session === null /
+    // lifecycle === 'closed' 进 failed;'active' / 'dormant' 进 preservedSet(去重)。
+    //
+    // **N8 emit**:swapLead 成功后 eventBus.emit × 2 + sessionManager.notifyTeamMembershipChanged ×
+    // 2(caller 'left' + newSid 'joined')。
+    let phase15Detail: {
+      preserved: string[];
+      failed: Array<{ sid: string; reason: string; teamId: string }>;
+      teamsAdopted: number;
+    } = { preserved: [], failed: [], teamsAdopted: 0 };
+    if (args.adopt_teammates === true && adoptedSnapshot && newSpawnedSid) {
+      const swapLeadFn =
+        handlerDeps?.swapLead ??
+        ((teamId: string, oldSid: string, newSid: string, opts?: { newDisplayName?: string | null }) =>
+          agentDeckTeamRepo.swapLead(teamId, oldSid, newSid, opts));
+      const getSessionFn =
+        handlerDeps?.getSessionForLifecycle ?? ((sid: string) => sessionRepo.get(sid));
+      const listMembersFn =
+        handlerDeps?.listAllMembersForAdopt ??
+        ((teamId: string) => agentDeckTeamRepo.listAllMembers(teamId));
+      const closeSessionFn =
+        handlerDeps?.closeSession ?? ((sid: string) => sessionManager.close(sid));
+
+      const preservedSet = new Set<string>();
+      const failedList: Array<{ sid: string; reason: string; teamId: string }> = [];
+      let teamsAdoptedCount = 0;
+
+      // Phase 6 D5 step 2 (plan §N5 line 119): caller 是 teammate 的 team push failed
+      // (snapshot 时已分流,不进 swapLead loop 但透传到 ok return.adopted.failed 让 caller
+      // 看到为什么 some team 没 adopt)。
+      for (const teammateTeamId of adoptedSnapshot.teammateOnlyTeamIds) {
+        failedList.push({
+          sid: caller.callerSessionId,
+          teamId: teammateTeamId,
+          reason: 'caller-not-lead-in-team',
+        });
+      }
+
+      // helper:每个成功 swap 的 team 跑 — listAllMembers + lifecycle precheck + emit
+      const processSwappedTeam = (teamId: string): void => {
+        // listAllMembers 拿 teammate(过滤 caller 已 demote + newSpawnedSid 自己 + leftAt 软退出)
+        const teammates = listMembersFn(teamId).filter(
+          (m) =>
+            m.leftAt === null &&
+            m.sessionId !== caller.callerSessionId &&
+            m.sessionId !== newSpawnedSid,
+        );
+        for (const tm of teammates) {
+          const tmSession = getSessionFn(tm.sessionId);
+          if (tmSession === null) {
+            failedList.push({ sid: tm.sessionId, reason: 'session-missing', teamId });
+            continue;
+          }
+          if (tmSession.lifecycle === 'closed') {
+            failedList.push({ sid: tm.sessionId, reason: 'lifecycle-closed', teamId });
+            continue;
+          }
+          // 'active' / 'dormant' → preservedSet(Round 3 LOW Set 去重)
+          preservedSet.add(tm.sessionId);
+        }
+        // N8 emit:caller 'left' + newSid 'joined' + notifyTeamMembershipChanged × 2
+        eventBus.emit('agent-deck-team-member-changed', {
+          teamId,
+          sessionId: caller.callerSessionId,
+          kind: 'left',
+        });
+        eventBus.emit('agent-deck-team-member-changed', {
+          teamId,
+          sessionId: newSpawnedSid,
+          kind: 'joined',
+        });
+        sessionManager.notifyTeamMembershipChanged(caller.callerSessionId);
+        sessionManager.notifyTeamMembershipChanged(newSpawnedSid);
+      };
+
+      // firstTeam swapLead — 失败 fatal abort
+      const firstTeamId = adoptedSnapshot.callerLeadTeamIds[0]!;
+      let firstSwapResult: { swapped: true } | { swapped: false; reason: string };
+      try {
+        firstSwapResult = swapLeadFn(firstTeamId, caller.callerSessionId, newSpawnedSid);
+      } catch (e) {
+        // try/catch 围 swapLead 调用(Round 6 claude LOW-1 修法 — throws 路径同款 fatal abort)
+        firstSwapResult = {
+          swapped: false,
+          reason: `swap-lead-error: ${e instanceof Error ? e.message : String(e)}`,
+        };
+      }
+      if (firstSwapResult.swapped !== true) {
+        // **fatal abort**:close newSpawnedSid + 不 archive caller + return error
+        try {
+          await closeSessionFn(newSpawnedSid);
+        } catch (closeErr) {
+          // close 失败 warn 不阻塞 — 仍 return error 让 caller 知道 fatal abort
+          console.warn(
+            `[mcp hand_off_session] adopt firstTeam fatal abort: close newSid ${newSpawnedSid} failed (continuing return err):`,
+            closeErr,
+          );
+        }
+        return err(
+          `adopt firstTeam swap failed: ${firstSwapResult.reason}`,
+          `firstTeamId=${firstTeamId},swapLead 软失败 reason=${firstSwapResult.reason}。caller 状态零变化(swapLead transaction 内 Phase A.0 precheck 短路 demote 未执行 / throws 自动 ROLLBACK),新 session ${newSpawnedSid} 已 close 避免交出 stale firstTeam anchor 的孤儿。caller 防御路径:① 修复 firstTeam(用户重新 spawn 同 team teammate / 修复 DB / 排查 swapLead 撞 invariant)+ 重试 hand_off_session ② 改走 default baton(adopt_teammates: false / 不传)放弃 adopt 走 normal hand-off。`,
+        );
+      }
+      teamsAdoptedCount++;
+      processSwappedTeam(firstTeamId);
+
+      // firstTeam 成功后跑非 firstTeam(slice(1))— 软失败 push failed + continue
+      for (const teamId of adoptedSnapshot.callerLeadTeamIds.slice(1)) {
+        let swapResult: { swapped: true } | { swapped: false; reason: string };
+        try {
+          swapResult = swapLeadFn(teamId, caller.callerSessionId, newSpawnedSid);
+        } catch (e) {
+          // catch + push failed 同款 throws 路径(非 firstTeam 不 fatal abort)
+          failedList.push({
+            sid: caller.callerSessionId,
+            teamId,
+            reason: `swap-lead-error: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          continue;
+        }
+        if (swapResult.swapped !== true) {
+          failedList.push({
+            sid: caller.callerSessionId,
+            teamId,
+            reason: `swap-lead-failed: ${swapResult.reason}`,
+          });
+          continue;
+        }
+        teamsAdoptedCount++;
+        processSwappedTeam(teamId);
+      }
+
+      phase15Detail = {
+        preserved: Array.from(preservedSet),
+        failed: failedList,
+        teamsAdopted: teamsAdoptedCount,
+      };
+    }
+
     const cleanup = await runBatonCleanup(
       {
         callerSessionId: caller.callerSessionId,
@@ -532,18 +730,18 @@ export const handOffSessionHandler = withMcpGuard(
        *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
        */
       teammatesShutdown: cleanup.teammatesShutdown,
-      // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D7 v8) — adopt 路径详情。
-      // **Phase 4 阶段中间状态**:swapLead 还没在 baton-cleanup helper 跑(Phase 6 才完整化
-      // phase 1.5 流程含 swapLead + listAllMembers + emit),所以 teamsAdopted=0 +
-      // preserved=[] + failed=[] 暂不反映真实 adopt 进度;**仅 firstTeamId + teamsTotal 有
-      // snapshot 值**(spawn 之前 freeze)。Phase 6 完成后这些字段会含完整 adopt 结果。
+      // plan hand-off-session-adopt-teammates-20260520 Phase 6 (D7 v8) — adopt 路径详情。
+      // **Phase 6 完整化**:phase 1.5 swapLead loop + listAllMembers + lifecycle precheck +
+      // emit + collect 完成,adopted 字段反映真实 adopt 结果(teamsAdopted / preserved /
+      // failed)。firstTeam fatal abort 路径已在前面 return error 短路,本 return 仅在 ok
+      // 路径(全 lead team adopt 完成 / partial adopt 接受)出现 non-null。
       adopted:
         adoptedSnapshot !== null
           ? {
-              preserved: [],
-              failed: [],
+              preserved: phase15Detail.preserved,
+              failed: phase15Detail.failed,
               teamsTotal: adoptedSnapshot.teamsTotal,
-              teamsAdopted: 0,
+              teamsAdopted: phase15Detail.teamsAdopted,
               firstTeamId: adoptedSnapshot.firstTeamId,
             }
           : null,
