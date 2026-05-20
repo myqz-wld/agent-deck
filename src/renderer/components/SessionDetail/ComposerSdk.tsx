@@ -17,7 +17,6 @@ import {
  * SDK 会话的输入区 + 权限模式下拉。
  *
  * 关键护栏（不要破坏）：
- * - SDK streaming mode 不支持 slash 命令，入口拦截给本地提示比让用户撞神秘 SDK 报错友好
  * - bypassPermissions 必须冷切（重启 SDK 子进程），切换前弹 confirm 二次确认；
  *   ipc.ts SetPermissionMode handler 检测到 bypass 时路由到 restartWithPermissionMode
  * - sendError / pmError 失败时把文本回填到输入框（乐观清空），用户能改文字继续发
@@ -103,18 +102,6 @@ export function ComposerSdk({
     if (!canAcceptAttachments && hasAttachments) {
       setSendError(
         `当前 adapter (${agentId}) 不支持图片附件，请先移除附件再发送，或切换到 Claude / Codex adapter`,
-      );
-      return;
-    }
-    // SDK streaming mode 不支持 slash 命令——CLI 那套 slash command 注册表
-    // 在 SDK 模式下不存在，'/clear' / '/compact' / '/cost' 等都会让 SDK 抛
-    // "Unknown slash command" 或 "only prompt commands are supported in streaming mode"。
-    // 在入口拦截，给本地提示比让用户撞神秘 SDK 报错友好；不清空输入框，
-    // 让用户能改成普通文本继续发。
-    if (t.startsWith('/')) {
-      setSendError(
-        '应用内会话不支持斜杠命令（如 /clear /compact /cost）。' +
-          '如需使用这些命令，请回终端运行 `claude`。',
       );
       return;
     }
