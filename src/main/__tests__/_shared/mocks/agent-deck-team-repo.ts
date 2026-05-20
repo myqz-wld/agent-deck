@@ -47,6 +47,10 @@ export function makeAgentDeckTeamRepoMock(
     findSharedActiveTeams: () => [],
     countActiveLeads: () => 0,
     setRole: () => null,
+    // plan hand-off-session-adopt-teammates-20260520 Phase 5: swapLead 默认 stub 返
+    // swapped:false reason='mocked-no-op'(让单测必须显式 override 才模拟成功 — 防默认
+    // success 漏测)
+    swapLead: () => ({ swapped: false, reason: 'mocked-no-op' }) as ReturnType<AgentDeckTeamRepo['swapLead']>,
   };
 
   return { ...base, ...(opts.overrides ?? {}) };

@@ -83,6 +83,18 @@ export interface AgentDeckTeamRepo {
     sessionId: string,
     role: AgentDeckTeamMemberRole,
   ): AgentDeckTeamMember | null;
+  /**
+   * plan hand-off-session-adopt-teammates-20260520 Phase 5 (D4 + N1 zero dual-lead window):
+   * lead role swap atomic — caller demote + newSid promote 同 transaction(better-sqlite3 单
+   * connection serializable-like 隔离,外部 observer 永远看不到 dual-lead 中间态)。详
+   * member-crud.ts swapLead jsdoc(三 case 分流 + MAX_LEADS_PER_TEAM bypass + 失败语义)。
+   */
+  swapLead(
+    teamId: string,
+    oldLeadSid: string,
+    newLeadSid: string,
+    opts?: { newDisplayName?: string | null },
+  ): { swapped: true } | { swapped: false; reason: string };
 }
 
 export function createAgentDeckTeamRepo(db: Database): AgentDeckTeamRepo {
@@ -131,4 +143,6 @@ export const agentDeckTeamRepo: AgentDeckTeamRepo = {
   findSharedActiveTeams: (a, b) => defaultRepo().findSharedActiveTeams(a, b),
   countActiveLeads: (teamId) => defaultRepo().countActiveLeads(teamId),
   setRole: (teamId, sessionId, role) => defaultRepo().setRole(teamId, sessionId, role),
+  swapLead: (teamId, oldLeadSid, newLeadSid, opts) =>
+    defaultRepo().swapLead(teamId, oldLeadSid, newLeadSid, opts),
 };
