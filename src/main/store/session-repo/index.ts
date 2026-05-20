@@ -4,7 +4,7 @@
  * 拆分历史（CHANGELOG_83 / plan deep-review-and-split-20260513 H2 Step 2.3）：
  *   原 src/main/store/session-repo.ts (590 行) 拆为：
  *   - index.ts (本文件，~85 行 facade)
- *   - types.ts (~95 行 Row + rowToRecord + parseGenericPtyConfigJson 共享 helper)
+ *   - types.ts (~95 行 Row + rowToRecord helper;原 parseGenericPtyConfigJson 已 P1.4 删)
  *   - core-crud.ts (~190 行 11 个 method：upsert / get / listActiveAndDormant /
  *     listHistory / _delete + 5 setter)
  *   - archive.ts (~22 行 setArchived 单独抽出，呼应「lifecycle 与 archived_at 正交」原则)

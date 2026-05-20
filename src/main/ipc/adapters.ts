@@ -246,7 +246,7 @@ export function registerAdaptersIpc(): void {
     // REVIEW_35 R2 HIGH-D codex H1：last-line defense — adapter 不支持 attachments 时直接拒绝，
     // 不让 attachments 落盘到 image-uploads 占空间。修前 ComposerSdk gate 入口 + send 拦截，
     // 但 main 进程 IPC 没 enforce → 任意 IPC caller (NewSessionDialog / 测试 / 直接 IPC mock) 都可
-    // 把 attachments 塞给 generic-pty/aider，bridge 静默丢图 + 文件落盘后无清理。
+    // 把 attachments 塞给 canAcceptAttachments=false adapter，bridge 静默丢图 + 文件落盘后无清理。
     if (rawAttachments && Array.isArray(rawAttachments) && rawAttachments.length > 0
         && !adapter.capabilities.canAcceptAttachments) {
       throw new IpcInputError(

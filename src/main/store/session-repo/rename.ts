@@ -183,9 +183,10 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       db.prepare(`UPDATE sessions SET spawn_depth = ? WHERE id = ?`).run(fromRow.spawn_depth, toId);
     }
     if (toExists && fromRow.generic_pty_config) {
-      // R4·F2：generic-pty / aider session 的 spawn config 是会话身份相关字段，
+      // R4·F2：老 PTY-based session 的 spawn config 是会话身份相关字段，
       // recoverAndSend / SDK fallback rename 时必须从 fromRow 覆盖到 NEW 行，
       // 否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn（与 codex_sandbox 同模式）。
+      // (plan remove-aider-generic-pty-adapters-20260520 后 adapter 已删,column 保留兼容老 rows。)
       db.prepare(`UPDATE sessions SET generic_pty_config = ? WHERE id = ?`).run(
         fromRow.generic_pty_config,
         toId,
