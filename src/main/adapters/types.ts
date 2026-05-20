@@ -5,7 +5,6 @@ import type {
   AskUserQuestionRequest,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
-  GenericPtyConfig,
   PermissionRequest,
   PermissionResponse,
   UploadedAttachmentRef,
@@ -24,47 +23,9 @@ export interface AdapterContext {
 }
 
 /**
- * 所有 4 adapter 共享的最小字段集（cwd / prompt）。各 adapter 专属 interface 内联其余
+ * 所有 2 adapter 共享的最小字段集（cwd / prompt）。各 adapter 专属 interface 内联其余
  * 字段保 jsdoc 集中（不抽 BaseCreateOpts，让每个 interface 自身可读完整字段集）。
  */
-
-/**
- * 共享 PTY 子集（aider / generic-pty 共用）。
- *
- * PTY adapter 只消费 cwd / prompt / genericPtyConfig；teamName 透传不消费（universal team
- * backend 走 sessionManager 路径，不在 adapter.createSession 内处理）；attachments 字段保留
- * 兼容 caller 透传，adapter 静默丢图（capabilities.canAcceptAttachments=false 上层 UI 已 gate
- * 入口，REVIEW_35 HIGH-D2）。
- *
- * **不**含 resume（PTY 不支持恢复 — 每次新起 PTY 子进程）/ permissionMode（无概念）/
- * model（无概念）/ codexSandbox / claudeCodeSandbox / extraAllowWrite。
- */
-export interface PtyCreateOpts {
-  cwd: string;
-  prompt?: string;
-  /**
-   * R3 universal team backend：spawn_session 入口可附 team_name，由 MCP / IPC handler 在调用前
-   * ensure-team-by-name + addMember；adapter 自己**不**处理 team。字段透传不消费保 caller spread
-   * 兼容（spawn caller 不挑 adapter 透 teamName）。
-   */
-  teamName?: string;
-  /**
-   * 字段兼容 caller 透传（attachments 在 caller / IPC 端不挑 adapter spread）；PTY adapter 静默
-   * 丢图（capabilities.canAcceptAttachments=false 上层 UI 已 gate 入口）。
-   */
-  attachments?: UploadedAttachmentRef[];
-  /**
-   * R4·F2：generic-pty / aider session 的 spawn config 透传。zod 校验由 IPC 入口统一前置
-   * （adapters.ts createAdapterSession handler）。
-   *
-   * - undefined：generic-pty / aider adapter 自行 fallback 到内置 preset config
-   *   （aider 的 fallback = 'aider' preset；generic-pty 的 fallback = createSession throw "missing config"）
-   * - GenericPtyConfig：用户在 NewSessionDialog 自定义 / 选 preset 后微调
-   *
-   * adapter 内部把入参 config 写入 sessions.generic_pty_config 持久化，resume 时读回。
-   */
-  genericPtyConfig?: GenericPtyConfig;
-}
 
 /**
  * Claude Code adapter 专属 createSession opts。与 CodexCreateOpts 字段不同处:
@@ -237,9 +198,7 @@ export interface CodexCreateOpts {
  */
 export type CreateSessionOptions =
   | ({ agentId: 'claude-code' } & ClaudeCreateOpts)
-  | ({ agentId: 'codex-cli' } & CodexCreateOpts)
-  | ({ agentId: 'aider' } & PtyCreateOpts)
-  | ({ agentId: 'generic-pty' } & PtyCreateOpts);
+  | ({ agentId: 'codex-cli' } & CodexCreateOpts);
 
 /**
  * caller 端通用「全字段 raw」入参（buildCreateSessionOptions 的 raw 参数类型）。
@@ -252,8 +211,7 @@ export type CreateSessionOptions =
  * teammate spawn default spread（不变量 6: enforce 点 = options-builder 层，**禁** bridge
  * hardcode default 污染普通 codex session）。
  *
- * `narrowToClaudeOpts` / `narrowToPtyOpts` filter 掉本字段（claude/pty adapter 没 codex
- * teammate default 概念）。
+ * `narrowToClaudeOpts` filter 掉本字段（claude adapter 没 codex teammate default 概念）。
  */
 export interface CreateSessionOptionsRaw {
   cwd: string;
@@ -266,11 +224,10 @@ export interface CreateSessionOptionsRaw {
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   extraAllowWrite?: readonly string[];
-  genericPtyConfig?: GenericPtyConfig;
   /**
    * plan §P3 Step 3.5 信号源（v4 D7）：spawn handler 透传 `args.agent_name` 让
    * `narrowToCodexOpts` 按 reviewer-* 路径触发 codex teammate spawn default spread。
-   * 仅 codex-cli adapter 消费；claude-code / pty adapter narrow 时 filter 掉。
+   * 仅 codex-cli adapter 消费；claude-code adapter narrow 时 filter 掉。
    */
   agentName?: string | null;
 }
