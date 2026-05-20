@@ -25,7 +25,6 @@ import type {
   CodexCreateOpts,
   CreateSessionOptions,
   CreateSessionOptionsRaw,
-  PtyCreateOpts,
 } from './types';
 
 /**
@@ -35,8 +34,6 @@ import type {
 export type CreateSessionOptionsByAdapter = {
   'claude-code': ClaudeCreateOpts;
   'codex-cli': CodexCreateOpts;
-  'aider': PtyCreateOpts;
-  'generic-pty': PtyCreateOpts;
 };
 
 /**
@@ -52,7 +49,7 @@ export type CreateSessionOptionsByAdapter = {
  *
  * 详 §D2 多侧 SSOT 守门 注释表 守门点 (5)。
  */
-export const AGENT_IDS = ['claude-code', 'codex-cli', 'aider', 'generic-pty'] as const;
+export const AGENT_IDS = ['claude-code', 'codex-cli'] as const;
 
 export type AgentId = (typeof AGENT_IDS)[number];
 
@@ -90,7 +87,7 @@ export function isReviewerAgentName(name: string | null | undefined): name is Re
 
 /**
  * raw → ClaudeCreateOpts narrow：从 raw 中挑 claude-code adapter 接受的字段（filter 掉
- * codexSandbox / genericPtyConfig）。undefined 字段被剔除（避免 spread 进 opts 后变成显式
+ * codexSandbox 等 codex 专属字段）。undefined 字段被剔除（避免 spread 进 opts 后变成显式
  * undefined 字段污染 caller spread 链）。
  */
 function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
@@ -108,7 +105,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
 
 /**
  * raw → CodexCreateOpts narrow：从 raw 中挑 codex-cli adapter 接受的字段（filter 掉
- * permissionMode / claudeCodeSandbox / genericPtyConfig）。
+ * permissionMode / claudeCodeSandbox 等 claude 专属字段）。
  *
  * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7**:
  * 按 `raw.agentName in ['reviewer-claude', 'reviewer-codex']` 触发 codex teammate spawn
@@ -175,20 +172,6 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
 }
 
 /**
- * raw → PtyCreateOpts narrow：从 raw 中挑 PTY adapter（aider / generic-pty）接受的字段
- * （filter 掉 permissionMode / resume / model / codexSandbox / claudeCodeSandbox /
- * extraAllowWrite）。
- */
-function narrowToPtyOpts(raw: CreateSessionOptionsRaw): PtyCreateOpts {
-  const out: PtyCreateOpts = { cwd: raw.cwd };
-  if (raw.prompt !== undefined) out.prompt = raw.prompt;
-  if (raw.teamName !== undefined) out.teamName = raw.teamName;
-  if (raw.attachments !== undefined) out.attachments = raw.attachments;
-  if (raw.genericPtyConfig !== undefined) out.genericPtyConfig = raw.genericPtyConfig;
-  return out;
-}
-
-/**
  * D2 核心 builder：按 agentId narrow raw 到对应 union arm + 自动塞 agentId 字段。
  *
  * 加新 adapter 时 default 分支 `_exhaustive: never = agentId` TS 编译期报错强制补 case。
@@ -228,7 +211,7 @@ export function buildCreateSessionOptions(
 ): CreateSessionOptions {
   if (!isAgentId(agentId)) {
     throw new Error(
-      `unknown agentId: "${agentId}" (expected: claude-code | codex-cli | aider | generic-pty)`,
+      `unknown agentId: "${agentId}" (expected: claude-code | codex-cli)`,
     );
   }
   switch (agentId) {
@@ -236,9 +219,6 @@ export function buildCreateSessionOptions(
       return { agentId, ...narrowToClaudeOpts(raw) };
     case 'codex-cli':
       return { agentId, ...narrowToCodexOpts(raw) };
-    case 'aider':
-    case 'generic-pty':
-      return { agentId, ...narrowToPtyOpts(raw) };
     default: {
       const _exhaustive: never = agentId;
       throw new Error(`unknown agentId: ${String(_exhaustive)}`);
