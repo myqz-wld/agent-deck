@@ -111,7 +111,19 @@ export function registerSessionsIpc(): void {
     //   `summariseSessionForHandOff`（future-proof：未来加新 adapter 没实装时仍可用，
     //   防止 hand-off 入口意外暴露时静默炸）
     const adapter = adapterRegistry.get(session.agentId);
-    const summary = adapter?.summariseEvents
+    // plan remove-aider-generic-pty-adapters-20260520 P9 R2 reviewer-codex MED 修法：
+    // hand-off 是 2 stage 流程(Stage 1 paid LLM summary + Stage 2 SessionHandOffSpawn)。
+    // Stage 2 (line 156+) 对 `!adapter?.createSession` 硬性 throw；Stage 1 必须 fail-fast
+    // 同款 check,否则老 SQLite row(adapter='aider'/'generic-pty' 已删,adapterRegistry.get
+    // 返 undefined)走 fallback `summariseSessionForHandOff` 跑 paid Claude oneshot 后
+    // Stage 2 必然 throw,浪费 LLM API quota + 用户钱。defense-in-depth 不依赖 plan D1
+    // "用户无历史数据" 假设。
+    if (!adapter?.createSession) {
+      throw new Error(
+        `adapter cannot create session: ${session.agentId} (hand-off Stage 1 fail-fast)`,
+      );
+    }
+    const summary = adapter.summariseEvents
       ? await adapter.summariseEvents(session.cwd, events, 'handoff')
       : await summariseSessionForHandOff(session.cwd, events);
     if (!summary) {
