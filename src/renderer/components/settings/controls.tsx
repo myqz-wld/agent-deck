@@ -262,7 +262,7 @@ export function ExecutablePicker({
             <button
               type="button"
               onClick={() => onChange(null)}
-              title="恢复默认（用应用内置 codex）"
+              title="恢复默认（用应用内置可执行文件）"
               className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-status-waiting/80 hover:bg-status-waiting/20"
             >
               重置
@@ -270,7 +270,7 @@ export function ExecutablePicker({
           )}
         </div>
       </div>
-      <div className="truncate text-[10px] text-deck-muted/70" title={path ?? '使用应用内置 codex'}>
+      <div className="truncate text-[10px] text-deck-muted/70" title={path ?? '使用应用内置可执行文件'}>
         {path ?? '使用应用内置（默认）'}
       </div>
       <div className="text-[10px] text-deck-muted/60 leading-snug">{hint}</div>
