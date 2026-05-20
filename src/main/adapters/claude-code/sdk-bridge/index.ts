@@ -10,8 +10,8 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
-import { settingsStore } from '@main/store/settings-store';
-import { getSdkRuntimeOptions, getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
+import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
+import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
   getAgentDeckPluginsForSession,
@@ -251,11 +251,11 @@ export class ClaudeSdkBridge {
     try {
       const { query } = await loadSdk();
       const runtime = getSdkRuntimeOptions();
-      // plan add-claude-cli-path-override-and-bump-sdks-20260520 §设计决策 D1 + §不变量 N5:
-      // user override claudeCliPath 非空(trim 后)→ 用 user 路径;否则 fallback bundled
-      // (镜像 codex codex-instance-pool.ts:46 + codex-cli/sdk-bridge/index.ts:240 inline pattern)。
-      const claudeCliPath = settingsStore.get('claudeCliPath');
-      const claudeBinary = (claudeCliPath && claudeCliPath.trim()) || getPathToClaudeCodeExecutable();
+      // plan add-claude-cli-path-override-and-bump-sdks-20260520 §设计决策 D1 + §不变量 N5
+      // + Follow-up F2+F3 抽 helper(plan §D5 + §D7 deviation):resolveClaudeBinary 内含
+      // user override priority chain + existsSync 护栏 + bundled fallback;让 follow-up 单测
+      // 不依赖 sdk-bridge 全 mock boilerplate(详 resolve-claude-binary.ts 抽出动机)。
+      const claudeBinary = resolveClaudeBinary();
       // REVIEW_14 阶段 2 排查盲点：sandbox 是否生效在 SDK / OS 层不打 log，应用主进程
       // 看不到「sandbox 装载成功 / 失败」信号；改回顶层 sandbox 字段后此 log 帮助
       // 实证「buildSandboxOptions 真的传了对应配置进 SDK options」，下次问题排查少绕一圈。
