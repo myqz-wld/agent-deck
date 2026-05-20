@@ -1283,6 +1283,16 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     // **cold-start prompt 不含 archived team-A2**(silent prompt 数据丢失防止)
     expect(seenSpawn.ref!.prompt).not.toMatch(/team-A2/);
+
+    // **Phase 7 reviewer-codex Round 2 LOW 修法守门**:
+    // teamsTotal=1(activeMemberships 排除 archived team-A2 ghost)+ archived team-A2
+    // push failed reason='team-archived' → caller 通过 ok return 看到为啥 team-A2 没 adopt。
+    expect(data.adopted.teamsTotal).toBe(1);
+    expect(data.adopted.failed).toContainEqual({
+      sid: 'caller-sid',
+      teamId: 'team-A2',
+      reason: 'team-archived',
+    });
   });
 
   // T6.A2(MED archived teammate filter): teammate 中 archivedAt !== null → 进 failed
@@ -1377,5 +1387,12 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
     expect(data.adopted.failed).toEqual([
       { sid: 'tm-archived', teamId: 'team-X', reason: 'session-archived' },
     ]);
+
+    // **Phase 7 reviewer-codex Round 2 MED 修法守门**:cold-start prompt 装配时已过滤
+    // archived teammate(sessionRepo precheck),prompt 不含 tm-archived sid 字符串 →
+    // 新 session 不会按 prompt 发 send_message 给已归档 teammate 撞 no-shared-team。
+    expect(seenSpawn.ref!.prompt).not.toContain('tm-archived');
+    // active teammate 仍出现在 prompt(eligibility precheck 通过)
+    expect(seenSpawn.ref!.prompt).toContain('tm-active');
   });
 });
