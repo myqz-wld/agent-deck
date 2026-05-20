@@ -52,7 +52,7 @@ export class MessageInvariantError extends Error {
  * 单条 body 长度上限（字符数，**非** 字节数，与 SQLite CHECK 同款）。
  *
  * REVIEW_24 HIGH-2 follow-up：与 sdk-bridge MAX_MESSAGE_LENGTH（claude-code）/
- * pty-session-state MAX_MESSAGE_LENGTH（generic-pty）/ ipc/sessions.ts finalPrompt /
+ * codex-cli adapter / ipc/sessions.ts finalPrompt /
  * ipc/adapters.ts AdapterCreateSession + AdapterSendMessage 5 处 102_400 全局对齐。
  * 改这里必须同步那 4 处（grep `102_400` 确认）。
  */

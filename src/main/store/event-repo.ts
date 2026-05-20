@@ -57,7 +57,7 @@ export const eventRepo = {
 
   /**
    * plan team-cohesion-fix-20260513 Phase C：按 teamId 拉 team 内所有 active 成员的最近 events，
-   * 跨 adapter 聚合（claude-code / codex-cli / aider / generic-pty）。TeamDetail 事件流 section 用。
+   * 跨 adapter 聚合（claude-code / codex-cli）。TeamDetail 事件流 section 用。
    *
    * v014 drop sessions.team_name 后，原 `s.team_name = ?` JOIN 已不可用。改走 universal team
    * backend：先 listActiveMembers(teamId) 拿 sessionIds，再 events.session_id IN (...) 查询。

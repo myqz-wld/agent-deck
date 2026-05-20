@@ -216,7 +216,7 @@ export class Summarizer {
     //    （R37 P2-I Step 3.3）。caller 不再 if (agentId === '...') 派发：
     //    - claude-code adapter → claude SDK oneshot（haiku，~/.claude OAuth）
     //    - codex-cli adapter   → codex SDK oneshot（read-only sandbox + 'low' reasoning effort）
-    //    - 其他 adapter（aider / generic-pty）未实装 summariseEvents → adapter?.summariseEvents
+    //    - 其他 adapter 未实装 summariseEvents → adapter?.summariseEvents
     //      返 undefined → llm 保持 null → 跳过 LLM 直接走下方 fallback（assistant 文字 / 事件统计）
     //
     //    spike-A3 实测 5 codex 并发 oneshot 复用 app-server 单例，资源温和（10s / ~44MB），
