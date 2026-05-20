@@ -42,7 +42,6 @@ describe('handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and
           permissionMode: null,
           codexSandbox: null,
           claudeCodeSandbox: null,
-          genericPtyConfig: null,
           createdAt: 1234,
           lastEventAt: 5678,
           spawnedBy: null,

@@ -20,7 +20,7 @@
  * - **不**同步 user 副本（resources/ 本身就是只读快照，不需要副本机制）
  *
  * 不实现：
- * - chokidar 监听 source skills 目录（dev 模式 hot reload 暂不需要，启动同步即可）
+ * - 外部 watch / hot reload monitor 监听 source skills 目录（dev 模式 hot reload 暂不需要，启动同步即可）
  * - skill 内 references/ 子目录递归同步（目前 deep-code-review / hello-from-deck 都没
  *   references；future 加 references 时再扩，本批简化）
  * - 跨平台路径处理（codex 默认用 ~/.codex 与 macOS 同模式，Win/Linux 同样 homedir）

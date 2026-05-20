@@ -149,11 +149,4 @@ export interface SessionRecord {
    * 用于 §6.1 depth 上限校验（mcpMaxSpawnDepth 默认 3）。NOT NULL，DEFAULT 0。
    */
   spawnDepth?: number;
-  /**
-   * R4·F2 历史字段(plan remove-aider-generic-pty-adapters-20260520 后):
-   * 老 PTY-based session 的 spawn config(持久化到 sessions.generic_pty_config 列)。
-   * 该 adapter 已删,新 session 永远写 NULL;rowToRecord 直接读 string raw value 不再 schema parse。
-   * 字段保留兼容老 SQLite DB rows;type 改 `unknown | null` 让 caller 不再依赖具体 schema。
-   */
-  genericPtyConfig?: unknown | null;
 }
