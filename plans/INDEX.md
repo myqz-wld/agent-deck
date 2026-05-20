@@ -49,3 +49,4 @@
 | [reviewer-codex-cross-adapter-20260519.md](reviewer-codex-cross-adapter-20260519.md) | completed | [130](../changelog/CHANGELOG_130.md) | reviewer-codex-cross-adapter-20260519 |
 | [remove-aider-generic-pty-adapters-20260520.md](remove-aider-generic-pty-adapters-20260520.md) | completed | [131](../changelog/CHANGELOG_131.md) | remove-aider-generic-pty-adapters-20260520 |
 | [add-claude-cli-path-override-and-bump-sdks-20260520.md](add-claude-cli-path-override-and-bump-sdks-20260520.md) | completed | [133](../changelog/CHANGELOG_133.md) | add-claude-cli-path-override-and-bump-sdks-20260520 |
+| [hand-off-session-adopt-teammates-20260520.md](hand-off-session-adopt-teammates-20260520.md) | completed | [135](../changelog/CHANGELOG_135.md) | hand-off-session-adopt-teammates-20260520 |
