@@ -55,7 +55,7 @@ export const spawnSessionHandler = withMcpGuard(
     if (!adapter.capabilities.canCreateSession) {
       return err(
         `adapter "${args.adapter}" does not support session creation`,
-        'Some adapters (e.g. aider / generic-pty placeholders) are read-only.',
+        'Adapter has capabilities.canCreateSession=false (read-only adapter).',
       );
     }
 
@@ -77,7 +77,7 @@ export const spawnSessionHandler = withMcpGuard(
     //
     // **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4 升级**：getBundledAssetContent
     // 新增 adapter 第 3 参数（plugin root narrow key），caller 必须从 args.adapter 透传。bundled
-    // 资产仅 claude-code / codex-cli 双 root；aider / generic-pty adapter 无 plugin 注入概念
+    // 资产仅 claude-code / codex-cli 双 root；adapter 不在该 list 时无 plugin 注入概念
     // （agent_name 字段对它们无意义），此处提前 reject 避免传非法 adapter 给 bundled-assets。
     //
     // REVIEW_31 Bug 1+2 修法：getBundledAssetContent 真实签名是 discriminated union
@@ -96,7 +96,7 @@ export const spawnSessionHandler = withMcpGuard(
         fanOutSlot.release();
         return err(
           `agent_name not supported for adapter "${args.adapter}"`,
-          'Plugin agents are scanned from claude-config / codex-config plugin roots only. aider / generic-pty adapters have no agent_deck plugin scope; drop agent_name and pass full prompt directly.',
+          'Plugin agents are scanned from claude-config / codex-config plugin roots only. Adapters outside this list have no agent_deck plugin scope; drop agent_name and pass full prompt directly.',
         );
       }
       const bodyResult = getBundledAssetContent('agent', args.agent_name, args.adapter);
