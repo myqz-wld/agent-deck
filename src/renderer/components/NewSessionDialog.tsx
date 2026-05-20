@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
-import type { GenericPtyConfig } from '@shared/types';
-import { GenericPtyConfigForm } from './GenericPtyConfigForm';
 
 interface AdapterInfo {
   id: string;
@@ -52,8 +50,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   // CHANGELOG_74：claude-code OS 沙盒 per-session 覆盖（与 codexSandbox 字面镜像）
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
-  // R4·F5：generic-pty / aider session 的 spawn config（preset 或自定义）；null = invalid 配置
-  const [genericPtyConfig, setGenericPtyConfig] = useState<GenericPtyConfig | null>(null);
   // R3.E7：删 agentTeamsEnabled / canJoinTeam 路径（老 inbox 协议下线）。
   // 新 universal team backend 不需要在新建会话对话框里预选 team —— 用户在 TeamHub
   // 单独建 team / 加 member。
@@ -84,8 +80,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const showCodexSandbox = agentId === 'codex-cli';
   // CHANGELOG_74：Claude OS 沙盒：仅 claude-code adapter 时显示（与 codex 字面镜像）
   const showClaudeCodeSandbox = agentId === 'claude-code';
-  // R4·F5：generic-pty / aider 时显示 GenericPtyConfigForm；其它 adapter 隐藏
-  const showGenericPtyConfig = agentId === 'generic-pty' || agentId === 'aider';
 
   const browse = async (): Promise<void> => {
     const r = await window.api.chooseDirectory(cwd || undefined);
@@ -96,11 +90,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     setError(null);
     if (!prompt.trim()) {
       setError('请填写首条消息（SDK 必须有首条消息才能启动 CLI 子进程）');
-      return;
-    }
-    // R4·F5：generic-pty / aider 必须有 valid config；form 内 zod parse 失败时 config = null
-    if (showGenericPtyConfig && !genericPtyConfig) {
-      setError('Generic PTY 配置无效（请检查命令 / 参数 / idle 阈值）');
       return;
     }
     setBusy(true);
@@ -121,7 +110,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         claudeCodeSandbox:
           showClaudeCodeSandbox && claudeCodeSandbox ? claudeCodeSandbox : undefined,
         ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
-        ...(showGenericPtyConfig && genericPtyConfig ? { genericPtyConfig } : {}),
       });
       onCreated(id);
       // 重置部分字段，留下 cwd / 设置便于连开多个会话
@@ -303,21 +291,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                     </option>
                   ))}
                 </select>
-              </Field>
-            )}
-
-            {showGenericPtyConfig && (
-              <Field label="PTY 配置">
-                {/*
-                  REVIEW_24 MED-Claude6 + Codex MED 7：用 key={agentId} 强制 remount，
-                  让用户切 Agent (aider ↔ generic-pty) 时 form 内部 useState 全 reset
-                  到对应 preset 默认值（之前 props.adapterId 变 form 内 state 不刷新）。
-                */}
-                <GenericPtyConfigForm
-                  key={agentId}
-                  adapterId={agentId as 'aider' | 'generic-pty'}
-                  onChange={setGenericPtyConfig}
-                />
               </Field>
             )}
 
