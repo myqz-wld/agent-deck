@@ -107,9 +107,9 @@ export function registerSessionsIpc(): void {
     // - claude-code → claude SDK + sonnet（4 节简报，60s timeout）
     // - codex-cli   → codex SDK + 'medium' effort（reasoning，60s timeout，model 由
     //   ~/.codex/config.toml 决定，settings.handOffModel 对 codex 路径无影响）
-    // - 其他 adapter（aider / generic-pty）未实装 summariseEvents → fallback 兜底走 claude
-    //   path 的 `summariseSessionForHandOff`（保历史兼容；这俩 adapter 实际不会触发 hand-off
-    //   UI 入口，但保留兜底防止入口意外暴露时静默炸）
+    // - 未实装 summariseEvents 的 adapter → fallback 兜底走 claude path 的
+    //   `summariseSessionForHandOff`（future-proof：未来加新 adapter 没实装时仍可用，
+    //   防止 hand-off 入口意外暴露时静默炸）
     const adapter = adapterRegistry.get(session.agentId);
     const summary = adapter?.summariseEvents
       ? await adapter.summariseEvents(session.cwd, events, 'handoff')
