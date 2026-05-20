@@ -396,13 +396,14 @@ export const handOffSessionHandler = withMcpGuard(
        */
       teammateOnlyTeamIds: string[];
       /**
-       * Phase 7 reviewer-codex Round 2 LOW 修法:caller=lead 但 team.archivedAt !== null 的
-       * team(archived ghost lead membership)进 failed reason='team-archived' — 让 caller 看
-       * 到为什么 some lead team 没 adopt。修前 callerLeadMemberships filter archived 但
-       * 没记 ghost + teamsTotal 用 allCallerMemberships.length 含 ghost,数学不通
-       * (teamsTotal=2 / teamsAdopted=1 / failed=[])。
+       * Phase 7 reviewer-codex Round 2 LOW + Round 3 LOW polish 修法:caller 在
+       * archived team 的 ghost membership(role 不论 lead / teammate)进 failed
+       * reason='team-archived' — 让 caller 看到为什么 some team 没 adopt。修前
+       * (commit 4ca89e5)只 caller=lead 的 archived team 进此字段,caller=teammate
+       * 在 archived team 仍 push 'caller-not-lead-in-team' 与「teamsTotal 排除
+       * archived ghost」语义不一致。修后 archived 不论 role 一致。
        */
-      archivedLeadTeamIds: string[];
+      archivedTeamIds: string[];
     } | null = null;
     if (args.adopt_teammates === true) {
       // N5 fail-fast:precheck caller 至少 1 个 lead membership;不读 lead memberships 时直接
@@ -418,24 +419,28 @@ export const handOffSessionHandler = withMcpGuard(
       // 避免影响其他 caller — REVIEW_35 LOW-A1 / REVIEW_32 HIGH-2 等历史 caller 期望)。
       //
       // **Phase 7 reviewer-codex Round 2 修法**(MED + LOW):分类 active / archived ghost
-      // lead memberships,让 prompt 装配 + teamsTotal + failed 语义对齐 send_message
-      // active shared-team 边界。仅 caller=lead 角色查 team archived 状态(caller=teammate
-      // 反正 push failed reason='caller-not-lead-in-team' 不区分 active/archived,避免
-      // 多调一次 agentDeckTeamRepo.get 让 spy-less test fail-fast 路径撞 DB not init)。
+      // memberships,让 prompt 装配 + teamsTotal + failed 语义对齐 send_message
+      // active shared-team 边界。
+      //
+      // **Phase 7 reviewer-codex Round 3 LOW polish**:caller=teammate 在 archived team
+      // 也走 archived 分支(reason='team-archived'),与 caller=lead 在 archived team
+      // 一致(commit 4ca89e5 之前 caller=teammate 不查 team archived 是 spy-less safety
+      // trade-off,polish 后给 T4.7 加 spy 让所有 caller role 都查 team archived,语义
+      // 与 schemas.ts/文档「teamsTotal 排除 archived ghost」严格对齐)。
       const allCallerMemberships = agentDeckTeamRepo.findActiveMembershipsBySession(
         caller.callerSessionId,
       );
       const callerLeadMemberships: typeof allCallerMemberships = [];
-      const archivedLeadTeamIds: string[] = [];
+      const archivedTeamIds: string[] = [];
       const teammateOnlyTeamIds: string[] = [];
       for (const m of allCallerMemberships) {
-        if (m.role === 'lead') {
-          const team = agentDeckTeamRepo.get(m.teamId);
-          if (team !== null && team.archivedAt === null) {
-            callerLeadMemberships.push(m);
-          } else {
-            archivedLeadTeamIds.push(m.teamId);
-          }
+        const team = agentDeckTeamRepo.get(m.teamId);
+        const teamArchived = team === null || team.archivedAt !== null;
+        if (teamArchived) {
+          // archived team:不论 caller role(lead / teammate)都不进 adopt eligibility
+          archivedTeamIds.push(m.teamId);
+        } else if (m.role === 'lead') {
+          callerLeadMemberships.push(m);
         } else {
           teammateOnlyTeamIds.push(m.teamId);
         }
@@ -443,7 +448,7 @@ export const handOffSessionHandler = withMcpGuard(
       if (callerLeadMemberships.length === 0) {
         return err(
           'adopt_teammates 要求 caller 至少在一个 active team 是 lead',
-          `caller_session_id ${caller.callerSessionId} 当前在 ${allCallerMemberships.length} 个 active membership 内(含 archived team 的 ghost lead membership ${archivedLeadTeamIds.length} 条),但 active team(team.archived_at IS NULL)中 role==='lead' 的 0 个(全 teammate / 全 archived team / 无 lead membership)。adopt 语义本质是「lead 把 lead role 转给新 session」,caller 不是任何 active team 的 lead 时该语义无意义。改走 default baton(adopt_teammates: false / 不传)或先确认 caller 在某个 active team 是 lead 再重试。`,
+          `caller_session_id ${caller.callerSessionId} 当前在 ${allCallerMemberships.length} 个 active membership 内(含 archived team 的 ghost membership ${archivedTeamIds.length} 条),但 active team(team.archived_at IS NULL)中 role==='lead' 的 0 个(全 teammate / 全 archived team / 无 lead membership)。adopt 语义本质是「lead 把 lead role 转给新 session」,caller 不是任何 active team 的 lead 时该语义无意义。改走 default baton(adopt_teammates: false / 不传)或先确认 caller 在某个 active team 是 lead 再重试。`,
         );
       }
 
@@ -486,14 +491,14 @@ export const handOffSessionHandler = withMcpGuard(
       coldStartPromptForSDK = `${adoptedBlock}\n---\n\n${resolved.coldStartPrompt}`;
       adoptedSnapshot = {
         firstTeamId: firstTeamMembership.teamId,
-        // **Phase 7 reviewer-codex Round 2 LOW 修法**:teamsTotal 改算 active lead +
-        // teammateOnly memberships(排除 archived team ghost lead membership)— 与
-        // send_message active shared-team 边界一致,数学上 teamsTotal === teamsAdopted +
-        // active failed.length(adopt eligibility 内的 team)。
+        // **Phase 7 reviewer-codex Round 2 LOW 修法 + Round 3 polish**:teamsTotal 改算
+        // active eligibility 内的 team 数(callerLead + teammateOnly,排 archived ghost)。
+        // 数学:teamsTotal === callerLeadMemberships.length + teammateOnlyTeamIds.length;
+        // 与 send_message active shared-team 边界一致。
         teamsTotal: callerLeadMemberships.length + teammateOnlyTeamIds.length,
         callerLeadTeamIds: callerLeadMemberships.map((m) => m.teamId),
         teammateOnlyTeamIds,
-        archivedLeadTeamIds,
+        archivedTeamIds,
       };
     }
 
@@ -640,11 +645,12 @@ export const handOffSessionHandler = withMcpGuard(
           reason: 'caller-not-lead-in-team',
         });
       }
-      // Phase 7 reviewer-codex Round 2 LOW 修法:caller=lead 但 team 已 archived 的 ghost
-      // membership push failed reason='team-archived' — 与 teammateOnlyTeamIds push failed
-      // 同款语义透传(snapshot 时已分流,不进 swapLead loop 但让 caller 通过 ok return 看到
-      // 为什么 some lead team 没 adopt;teamsTotal/teamsAdopted/failed 数学上对齐)。
-      for (const archivedTeamId of adoptedSnapshot.archivedLeadTeamIds) {
+      // Phase 7 reviewer-codex Round 2 LOW + Round 3 polish 修法:archived team
+      // (caller 不论 lead / teammate role)push failed reason='team-archived' —
+      // 与 teammateOnlyTeamIds push failed 同款语义透传(snapshot 时已分流,不进
+      // swapLead loop 但让 caller 通过 ok return 看到为什么 some team 没 adopt;
+      // teamsTotal/teamsAdopted/failed 数学上对齐)。
+      for (const archivedTeamId of adoptedSnapshot.archivedTeamIds) {
         failedList.push({
           sid: caller.callerSessionId,
           teamId: archivedTeamId,
