@@ -11,8 +11,10 @@
  * 占内存 + SDK live query。本 tool 让 caller 显式补跑 phase 1。
  *
  * **行为契约**（plan §F1c + R2 plan-review codex MED-4 错误契约）：
- * - **不**调 phase 2 archive caller（与 archive_plan + keep_teammates=true 不同 — 本 tool
- *   设计就是「caller 已经手工归档 / 不归档,仅恢复 baton-cleanup teammate 收口语义」）
+ * - **不**调 phase 2 archive caller（本 tool 设计就是「caller 已经手工归档 / 不归档,仅恢复
+ *   baton-cleanup teammate 收口语义」— plan hand-off-session-adopt-teammates-20260520 Phase 3
+ *   删 baton-cleanup teammate-shutdown opt-out 字段后,archive_plan / hand_off_session 不再有
+ *   phase 1 opt-out,本 escape hatch 是唯一「补跑 phase 1」入口)
  * - findMemberships 返空（caller 不在任何 team 是 lead 或 caller 是 teammate）→ **error + hint**
  *   （非 silent return success）：escape hatch 是 caller 显式请求 cleanup,no-op 误导 caller
  *   以为成功了；改为 error 让 caller 看到「caller 不是任何 team 的 lead,本 tool 无目标可

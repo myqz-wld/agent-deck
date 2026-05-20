@@ -29,8 +29,9 @@
  *
  * 2. **default 自动归档 caller session + CHANGELOG_106 teammate shutdown(同 archive_plan)**：
  *    spawn 成功后调 baton-cleanup.ts 的 runBatonCleanup helper 完成两段(详 baton-cleanup.ts
- *    顶部 jsdoc)。caller 显式传 keep_teammates=true 跳过 teammate shutdown(典型: 让新 session
- *    继承 team 接管 lead 角色)。
+ *    顶部 jsdoc)。plan hand-off-session-adopt-teammates-20260520 Phase 3 简化:删除 baton-cleanup
+ *    phase 1 opt-out 字段。Phase 4 引入 adopt_teammates: true 时由 caller 显式接管 teammate
+ *    (走独立 phase 1.5 adopt 路径,baton-cleanup phase 1 跳过标 skipped='adopt-keep-implicit')。
  *
  * **复用策略**：调 spawnSessionHandler 时透传同一个 ctx（caller_session_id），让 spawn
  * 链路里的 spawn-link 等按 caller 视角正确归属。透传后 spawnSessionHandler 返回的
@@ -382,8 +383,9 @@ export const handOffSessionHandler = withMcpGuard(
     // 两个三态结果 spread 进 ok return。
     //
     // baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex
-    // 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。caller 显式传 team_name 让
-    // 新 session 接管 lead 角色时 → 应传 keep_teammates=true 让原 teammate 留给新 lead 继续用。
+    // 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。plan
+    // hand-off-session-adopt-teammates-20260520 Phase 3 删除 phase 1 opt-out 字段;Phase 4 引入
+    // adopt_teammates: true 时走独立 phase 1.5 adopt 路径接管 teammate。
     //
     // REVIEW_36 R2 HIGH-A: caller 显式 team_name 时 spawn handler 把新 sid 加为 teammate
     // (spawn.ts:310-317)。如果不通过 excludeSessionIds 排除 → helper 把刚交出 baton 的新 session
@@ -400,10 +402,8 @@ export const handOffSessionHandler = withMcpGuard(
     const cleanup = await runBatonCleanup(
       {
         callerSessionId: caller.callerSessionId,
-        keepTeammates: args.keep_teammates === true,
         // hand-off-mcp-archive-opt-20260515: caller archive opt-out。
         // default true(baton 单向交接 = caller 使命终结);仅 caller 显式传 false 跳过。
-        // 与 keep_teammates 字段互相独立 — 可分别 opt-out。
         archiveCaller: args.archive_caller !== false,
         excludeSessionIds,
         toolName: 'hand_off_session',
@@ -435,7 +435,10 @@ export const handOffSessionHandler = withMcpGuard(
        * CHANGELOG_106：teammate shutdown 详情(与 archive_plan 同款)。
        * - closed: 成功 close 的 teammate sid 列表
        * - failed: close 失败的 teammate(含 reason),warn 不阻塞 ok return
-       * - skipped: 'keep-teammates'(caller 显式传) / 'caller-not-lead'(caller 不是 lead) /
+       * - skipped: 'caller-not-lead'(caller 不是 lead) /
+       *   'adopt-keep-implicit'(plan hand-off-session-adopt-teammates-20260520 Phase 4 引入,
+       *   adopt_teammates: true 时 teammate 由 swapLead 接管不 shutdown — Phase 3 完成时
+       *   未启用) /
        *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
        */
       teammatesShutdown: cleanup.teammatesShutdown,

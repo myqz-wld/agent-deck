@@ -184,7 +184,14 @@ export const SHUTDOWN_SESSION_SCHEMA = {
 // K1 hand-off 自动化 plan 收口（git ff merge / mv plan / commit / worktree remove / branch -D）。
 // CHANGELOG_99：default 归档 caller(与 K2 baton 同款语义);plan 收口 = caller 会话使命终结。
 // deny external caller（写 git + 删 worktree 高风险）。
-export const ARCHIVE_PLAN_SCHEMA = {
+//
+// **plan hand-off-session-adopt-teammates-20260520 Phase 3 双层命名**(D2 + N4 + Round 3 MED-2):
+// - `ARCHIVE_PLAN_SHAPE` (ZodRawShape) 给 `tool()` 注册 + 三 transport(in-process / HTTP /
+//   stdio)的现有接口用(SDK tool() 接受 raw shape 不能直接接受 z.object 包装的 ZodObject)
+// - `ARCHIVE_PLAN_ARGS_SCHEMA = z.object(SHAPE).strict()` 给 handler / type / test 用,
+//   strict 模式让 unknown keys (如已废弃的 opt-out 字段) 在 parse 时直接 throw
+//   `unrecognized_keys` 既挡 caller 从外部传旧字段误以为生效,也作为 schema breaking change 守门。
+export const ARCHIVE_PLAN_SHAPE = {
   plan_id: z
     .string()
     .min(1)
@@ -235,14 +242,14 @@ export const ARCHIVE_PLAN_SCHEMA = {
     .describe(
       'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（archive_plan 不允许 external caller）。',
     ),
-  // CHANGELOG_106：default shutdown caller 是 lead 的 team 内其他 active teammate
-  keep_teammates: z
-    .boolean()
-    .optional()
-    .describe(
-      'Default false (即 default shutdown caller=lead 同 team 其他 active teammate)。plan 完成 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。**仅当 caller 在该 team 是 lead 才 shutdown 同 team 其他成员**(caller 是 teammate 时罕见 baton 不牵连他人);单个 close 失败 warn 不阻塞;helper 自身炸亦 warn 不阻塞 caller archive。Pass `keep_teammates: true` 跳过(罕见: lead 想保留 reviewer 给后续会话继续用,或新 session 显式继承 team 接管 lead 角色)。Detail 见 ok return.teammatesShutdown 字段:{ closed: string[], failed: Array<{sessionId, reason}>, skipped: "caller-not-lead" | "keep-teammates" | null }。',
-    ),
+  // plan hand-off-session-adopt-teammates-20260520 Phase 3：删除 baton-cleanup
+  // teammate-shutdown 的 opt-out 字段 (D2 + N4 hard gate 1)。default baton-cleanup phase 1
+  // 仍 shutdown caller=lead 同 team 其他 active teammate;adopt 路径走 hand_off_session
+  // 的 adopt_teammates: true(详 plan Phase 4)显式接管 teammate。archive_plan 不再支持
+  // opt-out,简化语义。
 };
+
+// =============== HAND_OFF_SESSION (K2 hand-off automation) ===============
 
 // plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：hand_off_session tool —
 // （CHANGELOG_99 改名前 `start_next_session`）
@@ -261,7 +268,13 @@ export const ARCHIVE_PLAN_SCHEMA = {
 // sessionRepo.cwd 失效弯绕。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
 // EnterWorktree(path: worktreePath) 进 worktree 干活。
 // deny external caller（起 SDK session 的 fork bomb 风险，与 spawn_session / archive_plan 同档）。
-export const HAND_OFF_SESSION_SCHEMA = {
+//
+// **plan hand-off-session-adopt-teammates-20260520 Phase 3 双层命名**(D2 + N4 + Round 3 MED-2):
+// - `HAND_OFF_SESSION_SHAPE` (ZodRawShape) 给 `tool()` 注册 + 三 transport 的现有接口用
+// - `HAND_OFF_SESSION_ARGS_SCHEMA = z.object(SHAPE).strict()` 给 handler / type / test 用,
+//   strict 模式让 unknown keys (如已废弃的 opt-out 字段) 在 parse 时直接 throw `unrecognized_keys`
+// - N2.c invariant (adopt_teammates: true 与 args.team_name 互斥) 在 Phase 4 加 .refine()
+export const HAND_OFF_SESSION_SHAPE = {
   // CHANGELOG_99 双模式改造:plan_id 变 optional。
   // - 传 plan_id → plan-driven 模式（现有行为）：读 plan 文件 + 校验 frontmatter status=in_progress
   //   + 自动构造 cold-start prompt = `按 <plan-abs-path> 接力`
@@ -365,20 +378,16 @@ export const HAND_OFF_SESSION_SCHEMA = {
       'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（hand_off_session 不允许 external caller）。',
     ),
   parent_session_id: z.string().min(1).max(128).optional(),
-  // CHANGELOG_106：default shutdown caller 是 lead 的 team 内其他 active teammate(同 archive_plan 同款语义)
-  keep_teammates: z
-    .boolean()
-    .optional()
-    .describe(
-      'Default false (即 default shutdown caller=lead 同 team 其他 active teammate)。baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。**仅当 caller 在该 team 是 lead 才 shutdown 同 team 其他成员**(caller 是 teammate 时罕见 baton 不牵连他人);单个 close 失败 warn 不阻塞;helper 自身炸亦 warn 不阻塞 caller archive。Pass `keep_teammates: true` 跳过(典型: 显式传 team_name 让新 session 继承 team 接管 lead 角色)。Detail 见 ok return.teammatesShutdown 字段:{ closed: string[], failed: Array<{sessionId, reason}>, skipped: "caller-not-lead" | "keep-teammates" | null }。',
-    ),
+  // plan hand-off-session-adopt-teammates-20260520 Phase 3：删除 baton-cleanup
+  // teammate-shutdown 的 opt-out 字段 (D2 + N4 hard gate 1)。default baton-cleanup phase 1
+  // 仍 shutdown caller=lead 同 team 其他 active teammate;adopt 路径走 adopt_teammates: true
+  // (详 plan Phase 4)显式接管 teammate。hand_off_session 不再支持 opt-out,简化语义。
   // hand-off-mcp-archive-opt-20260515: caller archive 可选 opt-out。
-  // 与 keep_teammates 字段同款 boolean 默认行为 — baton 默认动作可显式 opt-out。
   archive_caller: z
     .boolean()
     .optional()
     .describe(
-      'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archive_caller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。`archive_caller: false` 与 `keep_teammates: true` 互相独立(可分别 opt-out)。',
+      'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archive_caller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。`archive_caller: false` 与其他 opt-out 字段(若未来新增)互相独立。',
     ),
 };
 
@@ -487,8 +496,8 @@ export const EXIT_WORKTREE_SCHEMA = {
 // resilience guard 等）→ caller 走 user CLAUDE.md §Step 4 5 步手工归档绕过 archive_plan tool
 // → runBatonCleanup phase 1 没被调到 → 同 team teammate（reviewer-claude / reviewer-codex 等）
 // 自然衰减成 dormant 但**没** closed,占内存 + SDK live query。本 tool 让 caller 显式补跑 phase 1
-// （仅 teammate shutdown,不归档 caller — 与 archive_plan + keep_teammates=true 不同,本 tool
-// 设计就是「caller 已经手工归档 / 不归档，仅恢复 baton-cleanup teammate 收口语义」）。
+// （仅 teammate shutdown,不归档 caller — 本 tool 设计就是「caller 已经手工归档 / 不归档，
+// 仅恢复 baton-cleanup teammate 收口语义」）。
 //
 // **行为契约**：
 // - 复用 shutdownTeammatesOnBaton helper Phase 1（findActiveMembershipsBySession +
@@ -498,9 +507,10 @@ export const EXIT_WORKTREE_SCHEMA = {
 //   success（plan §F1c 明确 buggy 行为：escape hatch 是 caller 显式请求 cleanup，no-op 误导）
 // - deny external（写 sessionManager.close 是高风险 + 需要真实 caller_session_id 才能反查 lead 关系）
 //
-// **与 archive_plan + keep_teammates=true 的边界**：
+// **与 archive_plan 的边界**：
 // - archive_plan 是 plan 收口 tool（git ff-merge / mv plan / commit / git worktree remove）+
-//   default baton-cleanup phase 1+2；keep_teammates=true 仅跳 phase 1
+//   default baton-cleanup phase 1+2(plan hand-off-session-adopt-teammates-20260520 Phase 3
+//   删 baton-cleanup teammate-shutdown 的 opt-out 字段,phase 1 不再支持 opt-out)
 // - shutdown_baton_teammates 是「补跑 phase 1」的独立 tool，不做 git/fs 归档操作
 //
 // 字段对称 archive_plan / hand_off_session 既有约定（snake_case args / 128 max plan_id）。
@@ -529,8 +539,19 @@ export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
-export type ArchivePlanArgs = z.infer<z.ZodObject<typeof ARCHIVE_PLAN_SCHEMA>>;
-export type HandOffSessionArgs = z.infer<z.ZodObject<typeof HAND_OFF_SESSION_SCHEMA>>;
+
+// plan hand-off-session-adopt-teammates-20260520 Phase 3 双层命名 (D2 + N4 + Round 3 MED-2):
+// - SHAPE = ZodRawShape 给 `tool()` 注册 + 三 transport 的现有接口 (上方已 export)
+// - ARGS_SCHEMA = z.object(SHAPE).strict() 给 handler / type / test 用
+//   strict 模式让 unknown keys (如已废弃的 opt-out 字段) 在 parse 时直接 throw
+//   `unrecognized_keys` (Phase 4 加 .refine() 实现 N2.c invariant)
+// - type infer 用 strict 版本 (旧的 z.ZodObject<typeof SHAPE> 推导出的是 passthrough,
+//   不能 reject unknown keys; strict 版才匹配 handler 实际 parse 路径)
+export const ARCHIVE_PLAN_ARGS_SCHEMA = z.object(ARCHIVE_PLAN_SHAPE).strict();
+export const HAND_OFF_SESSION_ARGS_SCHEMA = z.object(HAND_OFF_SESSION_SHAPE).strict();
+
+export type ArchivePlanArgs = z.infer<typeof ARCHIVE_PLAN_ARGS_SCHEMA>;
+export type HandOffSessionArgs = z.infer<typeof HAND_OFF_SESSION_ARGS_SCHEMA>;
 export type EnterWorktreeArgs = z.infer<z.ZodObject<typeof ENTER_WORKTREE_SCHEMA>>;
 export type ExitWorktreeArgs = z.infer<z.ZodObject<typeof EXIT_WORKTREE_SCHEMA>>;
 export type ShutdownBatonTeammatesArgs = z.infer<
@@ -573,13 +594,15 @@ export interface ProjectedSession {
  *
  * - closed: 成功 close 的 teammate sid 列表（dedup 跨 team 共享同 sid）
  * - failed: close 失败的 teammate（reason 含错误信息），warn 不阻塞
- * - skipped: 'keep-teammates'（caller 显式传） / 'caller-not-lead'（caller 不是 lead） /
- *   null（正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate / helper 抛错兜底）
+ * - skipped: 'caller-not-lead'（caller 不是 lead） / 'adopt-keep-implicit'（plan
+ *   hand-off-session-adopt-teammates-20260520 Phase 4 — adopt_teammates: true 时
+ *   teammate 由 swapLead 接管不 shutdown） / null（正常处理含 closed=[] 的 caller=lead
+ *   但 team 内无其他 teammate / helper 抛错兜底）
  */
 type TeammatesShutdownInfo = {
   closed: string[];
   failed: Array<{ sessionId: string; reason: string }>;
-  skipped: 'caller-not-lead' | 'keep-teammates' | null;
+  skipped: 'caller-not-lead' | 'adopt-keep-implicit' | null;
 };
 
 /** list_sessions ok return shape（list.ts handler）。 */
@@ -754,8 +777,10 @@ export interface ExitWorktreeResult {
  * - failed: close 失败的 teammate（含 reason），warn 不阻塞
  * - skipped: 'caller-not-lead' = caller 不在任何 team 是 lead → escape hatch reject 走 error 路径
  *   不在 ok return（详 handler 错误契约）；ok return 中 skipped 永远是 null（找到 lead 关系
- *   并跑完 phase 1 才算成功 ok）。'keep-teammates' 不在 union（escape hatch 设计就是「显式
- *   补跑 phase 1」，没有 keep_teammates 字段）
+ *   并跑完 phase 1 才算成功 ok）。本 escape hatch 设计就是「显式补跑 phase 1」,没有
+ *   teammate 接管 / opt-out 字段(plan hand-off-session-adopt-teammates-20260520 Phase 3
+ *   删 baton-cleanup teammate-shutdown opt-out 字段后,'adopt-keep-implicit' 也不出现 —
+ *   本 tool 调用方已经手工归档不走 adopt 路径)
  * - planId: 透传 args.plan_id，方便 caller 关联本次 escape hatch 调用属哪个 plan 收口场景
  */
 export interface ShutdownBatonTeammatesResult {

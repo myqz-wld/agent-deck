@@ -20,9 +20,11 @@
  *   - 单个 close 抛错 → 收 failed[] + console.warn 继续后面 teammate（不一刀切）
  *   - helper 自身反查 / mock 抛错 → 由 caller 端 try/catch 包成 console.warn，本 helper 不另行兜底
  *
- * **不**处理 keep_teammates 短路：caller 在 handler 层根据 args.keep_teammates 直接跳过本
- * helper 调用并自己塞 skipped='keep-teammates'（避免 helper 既懂 schema 字段又懂 caller role
- * 检测的耦合）。
+ * **plan hand-off-session-adopt-teammates-20260520 Phase 3 简化** (D2 + N4):
+ * 删除 baton-cleanup teammate-shutdown opt-out 字段。本 helper 永远跑(caller 不再有
+ * 短路途径)。Phase 4 引入 hand_off_session adopt_teammates: true 时走独立 phase 1.5
+ * adopt 路径,baton-cleanup helper 用 adoptTeammates: true 跳过本 helper 标
+ * skipped='adopt-keep-implicit'(详 baton-cleanup.ts jsdoc)。
  */
 
 import type { AgentDeckTeamMember } from '@shared/types';
@@ -37,10 +39,13 @@ export interface ShutdownTeammatesResult {
   failed: Array<{ sessionId: string; reason: string }>;
   /**
    * - 'caller-not-lead': caller 在所有 team 都不是 lead（含 external sentinel / 无 membership）
-   * - 'keep-teammates': caller 显式传 keep_teammates=true（由 handler 层填，不在 helper 里产生）
+   * - 'adopt-keep-implicit': plan hand-off-session-adopt-teammates-20260520 Phase 4 引入,
+   *   hand_off_session adopt_teammates: true 时 baton-cleanup helper 跳过本 helper(由
+   *   handler 层 baton-cleanup 入参 adoptTeammates: true 标定)— Phase 3 完成时仅类型预留
+   *   不会出现
    * - null: helper 正常处理完（含「caller 是 lead 但 team 内无其他 active teammate」的 closed=[] case）
    */
-  skipped: 'caller-not-lead' | 'keep-teammates' | null;
+  skipped: 'caller-not-lead' | 'adopt-keep-implicit' | null;
 }
 
 export interface ShutdownTeammatesDeps {

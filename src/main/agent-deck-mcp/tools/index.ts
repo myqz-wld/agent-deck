@@ -40,8 +40,8 @@ import {
   SEND_MESSAGE_SCHEMA,
   SHUTDOWN_SESSION_SCHEMA,
   SPAWN_SESSION_SCHEMA,
-  ARCHIVE_PLAN_SCHEMA,
-  HAND_OFF_SESSION_SCHEMA,
+  ARCHIVE_PLAN_SHAPE,
+  HAND_OFF_SESSION_SHAPE,
   ENTER_WORKTREE_SCHEMA,
   EXIT_WORKTREE_SCHEMA,
   SHUTDOWN_BATON_TEAMMATES_SCHEMA,
@@ -203,7 +203,7 @@ export async function buildAgentDeckTools(
   const archivePlan = tool(
     AGENT_DECK_TOOL_NAMES.archivePlan,
     'Archive a completed plan-driven worktree (K1 hand-off automation): ff-merge worktree branch into base_branch, mv plan file to <main-repo>/plans/<plan_id>.md (status=completed + final_commit + completed_at), sync plans/INDEX.md (followup 20260515: 4-column smart update — `appended`/`updated`/`unchanged`/`created`), git commit, then git worktree remove + branch -D. **CHANGELOG_99: also default-archives the caller session** (with K2 baton semantic — plan completion = caller session\'s mission ends since worktree is gone and cwd is invalidated). Caller must ExitWorktree first (mcp tool cannot call CLI internal ExitWorktree; rejects when process.cwd() is inside worktree). Refuses if plan status is already "completed" or worktree is dirty. Returns { archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_action: \'created\'|\'appended\'|\'updated\'|\'unchanged\', final_status, warnings: string[] (followup 20260515 HIGH-2 silent override 等 non-fatal warning,e.g. `.claude/plans/<id>.md` 与 `plans/<id>.md` 同 id 双存覆盖警告), archived: \'ok\' | \'failed\' | \'skipped\' (CHANGELOG_99 caller archive result; \'failed\' is warn-only and does not block ok return) }. deny external caller (high-risk git+fs writes).',
-    ARCHIVE_PLAN_SCHEMA,
+    ARCHIVE_PLAN_SHAPE,
     async (args, extra) => archivePlanHandler(args, makeCtx(args, extra)),
     {
       // archive_plan: git ff-merge / mv plan / git commit / git worktree remove / branch -D — 极
@@ -220,7 +220,7 @@ export async function buildAgentDeckTools(
   const handOffSession = tool(
     AGENT_DECK_TOOL_NAMES.handOffSession,
     'Start the next SDK session for cross-session hand-off (K2 hand-off automation; **CHANGELOG_99 dual-mode**: plan-driven when `plan_id` is set, generic when omitted). **Plan-driven mode**: read plan frontmatter to derive worktree_path, validate status=in_progress, spawn a new session with cwd=mainRepo (default; CHANGELOG_99 cwd resilience) and auto-constructed cold-start prompt "按 <plan-abs-path> 接力" (optional phase_label appended). **Generic mode** (no plan_id): caller passes `prompt` (defaults to "从上一个会话接力继续工作") and default cwd = caller session cwd; lets any session baton off to a new SDK session without plan/worktree prereq. **Baton semantic (CHANGELOG_97)**: by default does NOT join any team (no lead/teammate role assigned to caller / new session) AND auto-archives the caller session after spawn — the new session takes over independently while the caller exits. Pass team_name explicitly only if you want lead/teammate communication. **CHANGELOG_99 cwd resilience (plan-driven mode)**: default cwd is mainRepo (was worktreePath; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove`). New session expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3. Fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. Defaults: adapter=claude-code, plan file path resolved from caller cwd via git rev-parse → <main-repo>/.claude/plans/<plan_id>.md, fallback ~/.claude/plans/<plan_id>.md. Returns { mode: \'plan\' | \'generic\', planId, planFilePath, worktreePath, baseBranch, phaseLabel, initialPrompt, ignoredFields: string[] (generic mode warns when caller passed plan-only fields like phase_label / plan_file_path — ignored not error), sessionId, adapter, cwd, teamId (null when no team_name), teamName (null), spawnDepth, sentAt, spawnPromptMessageId (null), archived }. Caller archive failure is warn-only (does not block ok return). deny external caller (SDK session fork bomb risk). **Renamed (CHANGELOG_99)**: was `start_next_session`.',
-    HAND_OFF_SESSION_SCHEMA,
+    HAND_OFF_SESSION_SHAPE,
     async (args, extra) => handOffSessionHandler(args, makeCtx(args, extra)),
     {
       // hand_off_session: 起 SDK 子进程同 spawn_session 是应用内 closed-world; 默认 archive_caller=true

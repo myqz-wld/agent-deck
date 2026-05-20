@@ -8,12 +8,12 @@
  * helper 集成测试(handler 调 helper 的端到端)在 archive-plan.handler.test.ts /
  * hand-off-session.handler-deny-happy.test.ts 已覆盖。本文件专注 helper 自身行为。
  *
- * 覆盖矩阵:
+ * 覆盖矩阵(plan hand-off-session-adopt-teammates-20260520 Phase 3 删 baton-cleanup phase 1
+ * opt-out 字段后,旧 case 2 和 case 12 双 opt-out 已废弃):
  *
  * | case                                         | phase 1 (shutdown) | phase 2 (archive)             | emit 上抛 |
  * |----------------------------------------------|--------------------|-------------------------------|-----------|
  * | 1. external sentinel 短路                    | skipped='caller-not-lead' | 'skipped' (不调 getSession/archive) | not called |
- * | 2. keep_teammates=true                       | skipped='keep-teammates' (不调 helper) | 'ok' (仍 archive caller) | not called |
  * | 3. happy path                                | closed=[A,B] 透传 | 'ok'                          | not called |
  * | 4. shutdown 透传 caller-not-lead             | skipped='caller-not-lead' 透传 | 'ok'                          | not called |
  * | 5. shutdown 抛错                             | 兜底 + warn       | 'ok' (不阻塞)                 | not called |
@@ -24,7 +24,6 @@
  * | 9. excludeSessionIds 透传给 shutdown helper  | seam 收到 exclude 参数 | -                         | not called(archive ok)|
  * | 10. 时序: shutdown 在 archive 之前           | call order 验证   | -                             | not called(archive ok)|
  * | 11. archiveCaller=false → phase 2 跳过       | closed=[A]        | 'skipped' (不调 getFn/archiveFn)| -         |
- * | 12. archiveCaller=false + keepTeammates=true | skipped='keep-teammates' (不调 helper) | 'skipped' (不调 getFn/archiveFn) | -         |
  *
  * archive-failure-ux-upthrow-20260515 plan: case 6/7/8 加 emit 断言验证 'caller-archive-failed'
  * payload schema(sessionId / toolName / reason / reasonKind);case 1/3 加 not.toHaveBeenCalled
@@ -71,7 +70,6 @@ describe('runBatonCleanup', () => {
     const result = await runBatonCleanup(
       {
         callerSessionId: '__external__',
-        keepTeammates: false,
         toolName: 'archive_plan',
       },
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
@@ -89,33 +87,6 @@ describe('runBatonCleanup', () => {
     expect(emitFn).not.toHaveBeenCalled();
   });
 
-  it('case 2: keep_teammates=true → 跳过 shutdown helper + skipped=keep-teammates + archive 仍走', async () => {
-    const shutdownFn = vi.fn(async (_sid: string) =>
-      ({ closed: [], failed: [], skipped: null } as ShutdownTeammatesResult),
-    );
-    const archiveFn = vi.fn(async (_sid: string) => undefined);
-    const getFn = vi.fn(() => fakeRow('caller'));
-
-    const result = await runBatonCleanup(
-      {
-        callerSessionId: 'caller',
-        keepTeammates: true,
-        toolName: 'hand_off_session',
-      },
-      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
-    );
-
-    expect(result).toEqual({
-      teammatesShutdown: { closed: [], failed: [], skipped: 'keep-teammates' },
-      archived: 'ok',
-    });
-    // 关键: shutdown 完全不被调(caller 显式传 keep_teammates=true)
-    expect(shutdownFn).not.toHaveBeenCalled();
-    // archive 仍走(keep_teammates 与 archive caller 正交)
-    expect(archiveFn).toHaveBeenCalledTimes(1);
-    expect(archiveFn).toHaveBeenCalledWith('caller');
-  });
-
   it('case 3: happy path → shutdown 返回 closed=[A,B] 透传 + archive ok', async () => {
     const shutdownFn = vi.fn(async (_sid: string) =>
       ({ closed: ['team-A', 'team-B'], failed: [], skipped: null } as ShutdownTeammatesResult),
@@ -127,7 +98,6 @@ describe('runBatonCleanup', () => {
     const result = await runBatonCleanup(
       {
         callerSessionId: 'caller',
-        keepTeammates: false,
         toolName: 'archive_plan',
       },
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
@@ -153,7 +123,6 @@ describe('runBatonCleanup', () => {
     const result = await runBatonCleanup(
       {
         callerSessionId: 'teammate-caller',
-        keepTeammates: false,
         toolName: 'hand_off_session',
       },
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
@@ -174,7 +143,6 @@ describe('runBatonCleanup', () => {
     const result = await runBatonCleanup(
       {
         callerSessionId: 'caller',
-        keepTeammates: false,
         toolName: 'archive_plan',
       },
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
@@ -209,7 +177,6 @@ describe('runBatonCleanup', () => {
     const result = await runBatonCleanup(
       {
         callerSessionId: 'ghost-caller',
-        keepTeammates: false,
         toolName: 'hand_off_session',
       },
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
@@ -252,7 +219,6 @@ describe('runBatonCleanup', () => {
     const result = await runBatonCleanup(
       {
         callerSessionId: 'caller',
-        keepTeammates: false,
         toolName: 'archive_plan',
       },
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
@@ -294,7 +260,6 @@ describe('runBatonCleanup', () => {
     const result = await runBatonCleanup(
       {
         callerSessionId: 'caller',
-        keepTeammates: false,
         toolName: 'archive_plan',
       },
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
@@ -337,7 +302,6 @@ describe('runBatonCleanup', () => {
     const result = await runBatonCleanup(
       {
         callerSessionId: 'caller',
-        keepTeammates: false,
         toolName: 'hand_off_session',
       },
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
@@ -376,7 +340,6 @@ describe('runBatonCleanup', () => {
     await runBatonCleanup(
       {
         callerSessionId: 'caller',
-        keepTeammates: false,
         excludeSessionIds: exclude,
         toolName: 'hand_off_session',
       },
@@ -407,7 +370,6 @@ describe('runBatonCleanup', () => {
     await runBatonCleanup(
       {
         callerSessionId: 'caller',
-        keepTeammates: false,
         toolName: 'archive_plan',
       },
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn, emitArchiveFailed: emitFn },
@@ -432,7 +394,6 @@ describe('runBatonCleanup', () => {
     const result = await runBatonCleanup(
       {
         callerSessionId: 'caller',
-        keepTeammates: false,
         archiveCaller: false,
         toolName: 'hand_off_session',
       },
@@ -443,38 +404,10 @@ describe('runBatonCleanup', () => {
       teammatesShutdown: { closed: ['team-A'], failed: [], skipped: null },
       archived: 'skipped',
     });
-    // phase 1 仍正常跑(archive_caller 与 keep_teammates 字段正交)
+    // phase 1 仍正常跑(phase 1 已不支持 opt-out — plan hand-off-session-adopt-teammates-20260520
+    // Phase 3 删 baton-cleanup teammate-shutdown 入参字段)
     expect(shutdownFn).toHaveBeenCalledTimes(1);
     // 关键:phase 2 完全短路 — getFn / archiveFn 都不调
-    expect(getFn).not.toHaveBeenCalled();
-    expect(archiveFn).not.toHaveBeenCalled();
-  });
-
-  // hand-off-mcp-archive-opt-20260515: 两 opt-out 字段正交可同时启用 — caller 想起新 session 并行做事
-  // (archive_caller=false) + 保留 reviewer 给 follow-up(keep_teammates=true)。
-  it('case 12: archiveCaller=false + keepTeammates=true → phase 1 + phase 2 都跳过(两字段正交可同时 opt-out)', async () => {
-    const shutdownFn = vi.fn(async (_sid: string) =>
-      ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
-    );
-    const archiveFn = vi.fn(async (_sid: string) => undefined);
-    const getFn = vi.fn(() => fakeRow('caller'));
-
-    const result = await runBatonCleanup(
-      {
-        callerSessionId: 'caller',
-        keepTeammates: true,
-        archiveCaller: false,
-        toolName: 'hand_off_session',
-      },
-      { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
-    );
-
-    expect(result).toEqual({
-      teammatesShutdown: { closed: [], failed: [], skipped: 'keep-teammates' },
-      archived: 'skipped',
-    });
-    // 关键:两 opt-out 字段都被尊重 — 全 0 调用
-    expect(shutdownFn).not.toHaveBeenCalled();
     expect(getFn).not.toHaveBeenCalled();
     expect(archiveFn).not.toHaveBeenCalled();
   });

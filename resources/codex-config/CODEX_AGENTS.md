@@ -113,7 +113,7 @@ codex SDK session 内进 / 退 git worktree 必须通过本应用 MCP tool(codex
 
 `archive_plan` 在 plan 完成后**原子执行** user CLAUDE §Step 4「完成」5 步:ff merge worktree branch → `base_branch` / 更新 frontmatter (`status=completed` + `final_commit` + `completed_at`) / mv plan → `<main-repo>/plans/<plan_id>.md` / 同步 `<main-repo>/plans/INDEX.md` / `git add` + commit / `git worktree remove` + `git branch -D`。caller 调用前必须先 `exit_worktree(action: "keep")`(codex 端走 MCP,不是 claude builtin)。
 
-**调用**:`mcp__agent-deck__archive_plan({ plan_id, worktree_path, base_branch?: "main", plan_file_path?, changelog_id?, keep_teammates?: false })`
+**调用**:`mcp__agent-deck__archive_plan({ plan_id, worktree_path, base_branch?: "main", plan_file_path?, changelog_id? })`
 **返回**:`{ archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_action: 'created'|'appended'|'updated'|'unchanged', final_status, warnings: string[], archived: 'ok'|'failed'|'skipped', teammatesShutdown: { closed, failed, skipped } }`
 
 **app-only 差异**:
@@ -136,7 +136,7 @@ codex SDK session 内进 / 退 git worktree 必须通过本应用 MCP tool(codex
 
 `hand_off_session` 起新 SDK session 接力 + 自动归档 caller。**双模式**:plan-driven 传 `plan_id`(读 plan frontmatter,要求 `status: in_progress` + 有 `worktree_path`,cold start prompt = `按 <plan-abs-path> 接力`,可附 `phase_label`);generic 不传 `plan_id`(不读 plan,cold start prompt = `args.prompt` 或默认「从上一个会话接力继续工作」)。
 
-**调用**:`mcp__agent-deck__hand_off_session({ plan_id?, phase_label?, prompt?, cwd?, adapter?: "codex-cli", team_name?, codex_sandbox?, plan_file_path?, keep_teammates?: false })`
+**调用**:`mcp__agent-deck__hand_off_session({ plan_id?, phase_label?, prompt?, cwd?, adapter?: "codex-cli", team_name?, codex_sandbox?, plan_file_path? })`
 **返回**:`{ mode: 'plan'|'generic', planId, planFilePath, worktreePath, initialPrompt, sessionId, cwd, teamId, teamName, spawnPromptMessageId, archived, teammatesShutdown, ... }`
 
 **app-only 差异**:
