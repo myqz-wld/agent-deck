@@ -751,8 +751,8 @@ describe('archive-plan-tool-ux-followup-20260515 return shape', () => {
 describe('archive-plan-tool-ux-followup-20260515 R1 fix: changelog_id schema 校验(zod)', () => {
   it('R1 fix codex LOW-2 / claude LOW-3:invalid changelog_id "abc" → schema reject + 清晰错误信息', async () => {
     const { z } = await import('zod');
-    const { ARCHIVE_PLAN_SCHEMA } = await import('../tools/schemas');
-    const schema = z.object(ARCHIVE_PLAN_SCHEMA);
+    const { ARCHIVE_PLAN_SHAPE } = await import('../tools/schemas');
+    const schema = z.object(ARCHIVE_PLAN_SHAPE);
     const result = schema.safeParse({
       plan_id: 'foo',
       worktree_path: '/abs/path',
@@ -766,8 +766,8 @@ describe('archive-plan-tool-ux-followup-20260515 R1 fix: changelog_id schema 校
 
   it('R1 fix codex LOW-2 / claude LOW-3:invalid changelog_id "122,abc" → schema reject', async () => {
     const { z } = await import('zod');
-    const { ARCHIVE_PLAN_SCHEMA } = await import('../tools/schemas');
-    const schema = z.object(ARCHIVE_PLAN_SCHEMA);
+    const { ARCHIVE_PLAN_SHAPE } = await import('../tools/schemas');
+    const schema = z.object(ARCHIVE_PLAN_SHAPE);
     const result = schema.safeParse({
       plan_id: 'foo',
       worktree_path: '/abs/path',
@@ -778,8 +778,8 @@ describe('archive-plan-tool-ux-followup-20260515 R1 fix: changelog_id schema 校
 
   it('R1 fix claude MED-3:放松 regex → "121, 122"(csv 含空格)合法,与 helper trim 行为对齐', async () => {
     const { z } = await import('zod');
-    const { ARCHIVE_PLAN_SCHEMA } = await import('../tools/schemas');
-    const schema = z.object(ARCHIVE_PLAN_SCHEMA);
+    const { ARCHIVE_PLAN_SHAPE } = await import('../tools/schemas');
+    const schema = z.object(ARCHIVE_PLAN_SHAPE);
     const result = schema.safeParse({
       plan_id: 'foo',
       worktree_path: '/abs/path',
@@ -790,8 +790,8 @@ describe('archive-plan-tool-ux-followup-20260515 R1 fix: changelog_id schema 校
 
   it('R1 fix claude MED-3: " 122 "(单值前后有空格)合法', async () => {
     const { z } = await import('zod');
-    const { ARCHIVE_PLAN_SCHEMA } = await import('../tools/schemas');
-    const schema = z.object(ARCHIVE_PLAN_SCHEMA);
+    const { ARCHIVE_PLAN_SHAPE } = await import('../tools/schemas');
+    const schema = z.object(ARCHIVE_PLAN_SHAPE);
     const result = schema.safeParse({
       plan_id: 'foo',
       worktree_path: '/abs/path',
@@ -802,8 +802,8 @@ describe('archive-plan-tool-ux-followup-20260515 R1 fix: changelog_id schema 校
 
   it('valid changelog_id "122"(单值) / "121,122"(csv 无空格) → 校验通过', async () => {
     const { z } = await import('zod');
-    const { ARCHIVE_PLAN_SCHEMA } = await import('../tools/schemas');
-    const schema = z.object(ARCHIVE_PLAN_SCHEMA);
+    const { ARCHIVE_PLAN_SHAPE } = await import('../tools/schemas');
+    const schema = z.object(ARCHIVE_PLAN_SHAPE);
     expect(
       schema.safeParse({
         plan_id: 'foo',
@@ -822,8 +822,8 @@ describe('archive-plan-tool-ux-followup-20260515 R1 fix: changelog_id schema 校
 
   it('omitted changelog_id → 校验通过(optional)', async () => {
     const { z } = await import('zod');
-    const { ARCHIVE_PLAN_SCHEMA } = await import('../tools/schemas');
-    const schema = z.object(ARCHIVE_PLAN_SCHEMA);
+    const { ARCHIVE_PLAN_SHAPE } = await import('../tools/schemas');
+    const schema = z.object(ARCHIVE_PLAN_SHAPE);
     expect(
       schema.safeParse({
         plan_id: 'foo',

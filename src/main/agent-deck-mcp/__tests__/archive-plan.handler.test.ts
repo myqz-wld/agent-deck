@@ -254,9 +254,9 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
 // 用 deps inject 的 shutdownTeammates seam mock 整个 helper 调用,不需要真碰 sessionManager.close
 // / agentDeckTeamRepo。
 //
-// 覆盖:
+// 覆盖(plan hand-off-session-adopt-teammates-20260520 Phase 3 删 baton-cleanup phase 1 opt-out 字段
+// 后,旧 case 2 (phase 1 跳过 opt-out) 已废弃):
 // 1. happy path: helper 返回 closed=[A,B] + skipped=null → ok.teammatesShutdown 透传
-// 2. keep_teammates=true: 不调 helper + skipped='keep-teammates' + closed=[]
 // 3. caller-not-lead: helper 返回 skipped='caller-not-lead' + closed=[] → 透传(caller 是 teammate)
 // 4. helper 抛错: 兜底 skipped=null + closed=[] + warn,archive caller 仍走
 // 5. impl 失败短路: 不调 helper(plan 收口没成功,不该牵连 teammate)
@@ -356,39 +356,6 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
     // shutdownTeammatesOnBaton 等价于新 helper 第二参 undefined)
     expect(mockShutdown).toHaveBeenCalledWith('caller-sid', undefined);
     // archive caller 也调了(独立动作不被 helper 影响)
-    expect(mockArchive).toHaveBeenCalledTimes(1);
-    expect(data.archived).toBe('ok');
-
-    sessionRepoGetSpy.mockRestore();
-  });
-
-  it('keep_teammates=true → 不调 helper + skipped=keep-teammates + archive caller 仍调用', async () => {
-    const { archivePlanHandler } = await import('../tools/handlers/archive-plan');
-    const { implDeps, workArgs } = makeHandlerStub();
-    const mockArchive = vi.fn(async (_sid: string) => undefined);
-    const mockShutdown = vi.fn(async (_sid: string) => ({
-      closed: [],
-      failed: [],
-      skipped: null as null,
-    }));
-    const sessionRepoGetSpy = await spyCallerRow();
-
-    const result = await archivePlanHandler(
-      { ...workArgs, keep_teammates: true },
-      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
-      { implDeps, archiveSession: mockArchive, shutdownTeammates: mockShutdown },
-    );
-
-    expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]!.text);
-    expect(data.teammatesShutdown).toEqual({
-      closed: [],
-      failed: [],
-      skipped: 'keep-teammates',
-    });
-    // 关键:helper 完全不被调用
-    expect(mockShutdown).not.toHaveBeenCalled();
-    // archive caller 仍走(keep_teammates 与 archive caller 正交)
     expect(mockArchive).toHaveBeenCalledTimes(1);
     expect(data.archived).toBe('ok');
 

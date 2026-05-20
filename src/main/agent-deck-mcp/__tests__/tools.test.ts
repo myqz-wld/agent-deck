@@ -1374,3 +1374,85 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
   });
 });
 
+// ─── plan hand-off-session-adopt-teammates-20260520 Phase 3 hard gate 2 ─────
+//
+// **范围**: 验证 ARCHIVE_PLAN_ARGS_SCHEMA / HAND_OFF_SESSION_ARGS_SCHEMA 双层命名
+// (D2 + N4 + Round 3 MED-2) 的 strict reject 行为 — unknown keys (如已废弃的
+// keep_teammates 字段) 必 throw `unrecognized_keys`。
+//
+// **设计要点**:
+// - SHAPE = ZodRawShape 给 `tool()` 注册 + 三 transport 现有接口 — passthrough,允许 unknown keys
+// - ARGS_SCHEMA = z.object(SHAPE).strict() 给 handler / type / test 用 — strict 模式 reject
+//   unknown keys
+// - 既挡 caller 从外部传旧字段误以为生效,也作为 schema breaking change 守门
+//
+// **守门 case** (3 条 + 1 happy path):
+// 1. ARCHIVE_PLAN_ARGS_SCHEMA reject 旧 keep_teammates 字段(破除式守门)
+// 2. HAND_OFF_SESSION_ARGS_SCHEMA reject 旧 keep_teammates 字段
+// 3. ARCHIVE_PLAN_ARGS_SCHEMA reject 任意 unknown 字段(generic strict 守门)
+// 4. ARCHIVE_PLAN_ARGS_SCHEMA happy path: 已知字段全 accept(回归保护)
+describe('plan hand-off-session-adopt-teammates-20260520 Phase 3: ARGS_SCHEMA strict reject 守门', () => {
+  it('hard gate 2: ARCHIVE_PLAN_ARGS_SCHEMA reject keep_teammates (Phase 3 已删字段)', async () => {
+    const { ARCHIVE_PLAN_ARGS_SCHEMA } = await import('../tools/schemas');
+    const result = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse({
+      plan_id: 'foo',
+      worktree_path: '/abs/path',
+      keep_teammates: true,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // 关键: zod strict 模式 reject unknown keys 时报 'unrecognized_keys' issue code
+      const issues = result.error.issues;
+      const hasUnrecognized = issues.some(
+        (i) => i.code === 'unrecognized_keys' && (i as { keys?: string[] }).keys?.includes('keep_teammates'),
+      );
+      expect(hasUnrecognized).toBe(true);
+    }
+  });
+
+  it('hard gate 2: HAND_OFF_SESSION_ARGS_SCHEMA reject keep_teammates (Phase 3 已删字段)', async () => {
+    const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
+    const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      plan_id: 'foo',
+      adapter: 'claude-code',
+      keep_teammates: true,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issues = result.error.issues;
+      const hasUnrecognized = issues.some(
+        (i) => i.code === 'unrecognized_keys' && (i as { keys?: string[] }).keys?.includes('keep_teammates'),
+      );
+      expect(hasUnrecognized).toBe(true);
+    }
+  });
+
+  it('strict generic: ARCHIVE_PLAN_ARGS_SCHEMA reject 任意 unknown 字段', async () => {
+    const { ARCHIVE_PLAN_ARGS_SCHEMA } = await import('../tools/schemas');
+    const result = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse({
+      plan_id: 'foo',
+      worktree_path: '/abs/path',
+      __random_typo_field__: 'should be rejected',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const hasUnrecognized = result.error.issues.some(
+        (i) =>
+          i.code === 'unrecognized_keys' &&
+          (i as { keys?: string[] }).keys?.includes('__random_typo_field__'),
+      );
+      expect(hasUnrecognized).toBe(true);
+    }
+  });
+
+  it('happy path 回归: ARCHIVE_PLAN_ARGS_SCHEMA accept 已知字段', async () => {
+    const { ARCHIVE_PLAN_ARGS_SCHEMA } = await import('../tools/schemas');
+    const result = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse({
+      plan_id: 'foo',
+      worktree_path: '/abs/path',
+      base_branch: 'main',
+      changelog_id: '99',
+    });
+    expect(result.success).toBe(true);
+  });
+});

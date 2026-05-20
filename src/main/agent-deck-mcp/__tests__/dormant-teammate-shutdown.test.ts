@@ -18,9 +18,11 @@
  *    → team_member.left_at 软退出 — case A assert closed[] 透传契约
  *
  * 3. **archive_plan handler 默认调 runBatonCleanup → 调 helper**（archive-plan.ts:181-191）
- *    `keep_teammates: false` default。end-to-end 集成已在 archive-plan.handler.test.ts
- *    CHANGELOG_106 段 cover（mock shutdownTeammates seam 验证 handler→helper 契约）。
- *    本文件 case A 走真 helper（不 mock seam），inject deeper mock 验证 helper 默认行为。
+ *    plan hand-off-session-adopt-teammates-20260520 Phase 3 删 baton-cleanup phase 1 opt-out
+ *    字段后,runBatonCleanup 永远调 helper(无 opt-out 路径短路)。end-to-end 集成已在
+ *    archive-plan.handler.test.ts CHANGELOG_106 段 cover(mock shutdownTeammates seam 验证
+ *    handler→helper 契约)。本文件 case A 走真 helper(不 mock seam),inject deeper mock
+ *    验证 helper 默认行为。
  *
  * **测试边界**:
  * - 不端到端走真 sessionManager / sessionRepo / agentDeckTeamRepo（撞 DB 未 init 噪音）

@@ -817,9 +817,9 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
 // 范围:handOffSessionHandler 调 shutdownTeammates helper 的行为 + ok return.teammatesShutdown 字段。
 // deps inject + mock helper,不需要真碰 sessionManager.close / agentDeckTeamRepo。
 //
-// 与 archive-plan handler 同款 5 case:
+// 与 archive-plan handler 同款 4 case(plan hand-off-session-adopt-teammates-20260520 Phase 3
+// 删 baton-cleanup phase 1 opt-out 字段后,旧 case 2 (phase 1 opt-out) 已废弃):
 // 1. happy path: helper 返回 closed=[A,B] → 透传
-// 2. keep_teammates=true: 不调 helper + skipped='keep-teammates'
 // 3. caller-not-lead: helper 返回 → 透传(caller 是 teammate 罕见 case)
 // 4. helper 抛错: 兜底 skipped=null + closed=[] + warn,archive caller 仍走
 // 5. spawn 失败短路: 不调 helper(baton 没成功不该牵连 teammate)
@@ -912,42 +912,6 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
     // REVIEW_36 R2 HIGH-A：seam 加第二参 excludeSessionIds (Set 含新 spawn sid 'new-sid')，
     // makeOkSpawn 默认返回 sessionId='new-sid'。helper 不会把这个 sid 当 teammate 误关。
     expect(mockShutdown).toHaveBeenCalledWith('caller-sid', new Set(['new-sid']));
-    expect(mockArchive).toHaveBeenCalledTimes(1);
-    expect(data.archived).toBe('ok');
-
-    sessionRepoGetSpy.mockRestore();
-  });
-
-  it('keep_teammates=true → 不调 helper + skipped=keep-teammates + archive caller 仍调用', async () => {
-    const { state } = makePlanFixture('keep-teammates');
-    const mockSpawn = makeOkSpawn();
-    const mockArchive = vi.fn(async (_sid: string) => undefined);
-    const mockShutdown = vi.fn(async (_sid: string) => ({
-      closed: [],
-      failed: [],
-      skipped: null as null,
-    }));
-    const sessionRepoGetSpy = await spyCallerRow();
-
-    const result = await handOffSessionHandler(
-      { plan_id: 'keep-teammates', adapter: 'claude-code', keep_teammates: true },
-      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
-      {
-        spawnSession: mockSpawn,
-        archiveSession: mockArchive,
-        shutdownTeammates: mockShutdown,
-        implDeps: makeDeps(state),
-      },
-    );
-
-    expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]!.text);
-    expect(data.teammatesShutdown).toEqual({
-      closed: [],
-      failed: [],
-      skipped: 'keep-teammates',
-    });
-    expect(mockShutdown).not.toHaveBeenCalled();
     expect(mockArchive).toHaveBeenCalledTimes(1);
     expect(data.archived).toBe('ok');
 
@@ -1066,8 +1030,9 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
 // ─── hand-off-mcp-archive-opt-20260515: archive_caller opt-out ─────
 //
 // 范围: handOffSessionHandler 调 runBatonCleanup 时透传 args.archive_caller 字段。
-// caller 显式传 archive_caller=false 跳过 phase 2 archive caller(让 caller still active),
-// 与 keep_teammates 字段互相独立(可分别 opt-out)。
+// caller 显式传 archive_caller=false 跳过 phase 2 archive caller(让 caller still active)。
+// 注: plan hand-off-session-adopt-teammates-20260520 Phase 3 删 baton-cleanup phase 1 opt-out
+// 字段后,archive_caller 是 hand_off_session 唯一保留的 caller 显式 opt-out 字段。
 describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_caller opt-out', () => {
   // helper:让 caller-sid 在 sessionRepo 表里有 row(让 archive caller 走 'ok' 路径,确认是
   // archive_caller=false 跳的 archive,而非 row missing 误打 'failed' / 'skipped')
@@ -1155,7 +1120,8 @@ describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_ca
     expect(data.archived).toBe('skipped');
     // 关键: archive 未被调 (archive_caller=false 短路 phase 2)
     expect(mockArchive).not.toHaveBeenCalled();
-    // phase 1 仍正常跑 (与 keep_teammates 字段正交)
+    // phase 1 仍正常跑 (plan hand-off-session-adopt-teammates-20260520 Phase 3 删 phase 1
+    // opt-out 字段,archive_caller=false 不再影响 phase 1)
     expect(mockShutdown).toHaveBeenCalledTimes(1);
     expect(data.teammatesShutdown.closed).toEqual(['teammate-X']);
     // K2 metadata 仍齐全(spawn 成功,baton 成功 — 仅 caller 没 archive)
@@ -1201,42 +1167,4 @@ describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_ca
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('archive_caller=false + keep_teammates=true → 两 opt-out 字段正交(都尊重)', async () => {
-    const { state } = makePlanFixtureLocal('both-opt-out');
-    const mockSpawn = makeOkSpawnLocal();
-    const mockArchive = vi.fn(async (_sid: string) => undefined);
-    const mockShutdown = vi.fn(async (_sid: string) => ({
-      closed: [],
-      failed: [],
-      skipped: null as null,
-    }));
-    const sessionRepoGetSpy = spyCallerRow();
-
-    const result = await handOffSessionHandler(
-      {
-        plan_id: 'both-opt-out',
-        adapter: 'claude-code',
-        archive_caller: false,
-        keep_teammates: true,
-      },
-      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
-      {
-        spawnSession: mockSpawn,
-        archiveSession: mockArchive,
-        shutdownTeammates: mockShutdown,
-        implDeps: makeDeps(state),
-      },
-    );
-
-    expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]!.text);
-    // 关键: 两字段都尊重 — phase 1 跳(skipped='keep-teammates') + phase 2 跳(archived='skipped')
-    expect(data.teammatesShutdown.skipped).toBe('keep-teammates');
-    expect(data.archived).toBe('skipped');
-    // 关键: 两个 helper / archive 全 0 调用
-    expect(mockShutdown).not.toHaveBeenCalled();
-    expect(mockArchive).not.toHaveBeenCalled();
-
-    sessionRepoGetSpy.mockRestore();
-  });
 });

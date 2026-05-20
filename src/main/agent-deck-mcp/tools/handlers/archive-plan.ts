@@ -30,17 +30,20 @@
  * runBatonCleanup phase 1 没跑 → reviewer 自然衰减成 dormant 但**没** closed。
  *
  * confirm 现状（grep 可重跑验证 — 阈值 ≥ 1 处命中即 confirm）:
- *   $ grep -n "keep_teammates" src/main/agent-deck-mcp/tools/handlers/archive-plan.ts
- *   → L184 `keepTeammates: args.keep_teammates === true,` (args field 消费)
  *   $ grep -n "runBatonCleanup" src/main/agent-deck-mcp/tools/handlers/archive-plan.ts
- *   → L41 import / L173 jsdoc reference / L181 invoke
+ *   → import / jsdoc reference / invoke
  *
- * F1d default 行为 = 「caller archive_plan 成功 → default keep_teammates=false → runBatonCleanup
- * phase 1 调 shutdownTeammatesOnBaton helper → close 同 team active+dormant teammate」**已经是
+ * F1d default 行为 = 「caller archive_plan 成功 → runBatonCleanup phase 1 调
+ * shutdownTeammatesOnBaton helper → close 同 team active+dormant teammate」**已经是
  * 当前行为**(非本 plan 新加)。本 plan 仅补 F1b 软引导 hint(archive-plan-impl.ts mainRepo
  * dirty precheck 失败时引导 caller fix critical paths 后重 invoke / 必须手工归档场景调 escape
  * hatch shutdown_baton_teammates 补跑)+ F1c shutdown_baton_teammates mcp tool(escape hatch)。
  * changelog 不标 BREAKING(行为不变)。
+ *
+ * **plan hand-off-session-adopt-teammates-20260520 Phase 3 简化** (D2 + N4): 删除 baton-cleanup
+ * teammate-shutdown opt-out 字段。archive_plan 不再支持 phase 1 opt-out — phase 1 永远跑
+ * shutdownTeammatesOnBaton(plan 收口语义上不应让 teammate 留下来,plan 完成 = team
+ * 整片收口)。
  */
 
 import {
@@ -195,12 +198,12 @@ export const archivePlanHandler = withMcpGuard(
     //
     // 时序保证(必须 phase 1 → phase 2):由 helper 内部 await 串行保证;handler 不能颠倒调用顺序。
     //
-    // archive_plan 不传 excludeSessionIds(plan 收口前不 spawn 新 session);keep_teammates 从
-    // args 直接读 boolean(不传 / undefined → false → 走真 helper 关 teammate)。
+    // archive_plan 不传 excludeSessionIds(plan 收口前不 spawn 新 session)。plan
+    // hand-off-session-adopt-teammates-20260520 Phase 3 简化:删除 baton-cleanup phase 1
+    // opt-out 字段,archive_plan 永远跑真 helper 关 teammate(plan 完成 = team 整片收口)。
     const cleanup = await runBatonCleanup(
       {
         callerSessionId: caller.callerSessionId,
-        keepTeammates: args.keep_teammates === true,
         toolName: 'archive_plan',
       },
       {
@@ -238,10 +241,12 @@ export const archivePlanHandler = withMcpGuard(
       archived: cleanup.archived,
       /**
        * CHANGELOG_106：teammate shutdown 详情 — { closed: string[], failed: Array<{sessionId,reason}>,
-       * skipped: 'caller-not-lead' | 'keep-teammates' | null }。
+       * skipped: 'caller-not-lead' | 'adopt-keep-implicit' | null }(plan
+       * hand-off-session-adopt-teammates-20260520 Phase 3 删 phase 1 opt-out 字段后,
+       * archive_plan 路径下 skipped 仅 'caller-not-lead' / null 两值)。
        * - closed: 成功 close 的 teammate sid 列表(已 dedup 跨 team 共享同 sid)
        * - failed: close 失败的 teammate(含 reason),warn 不阻塞 ok return
-       * - skipped: 'keep-teammates'(caller 显式传) / 'caller-not-lead'(caller 不是 lead) /
+       * - skipped: 'caller-not-lead'(caller 不是 lead) /
        *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
        */
       teammatesShutdown: cleanup.teammatesShutdown,
