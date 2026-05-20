@@ -12,8 +12,6 @@
  *   getBundledAssetContent 第 3 参数 = 'codex-cli'
  * - TC6 (D3 行 2): `{adapter:'claude-code', agent_name:'reviewer-codex'}` →
  *   getBundledAssetContent 第 3 参数 = 'claude-code'
- * - TC7: `{adapter:'aider', agent_name:'reviewer-claude'}` → spawn handler 提前 reject
- *   "agent_name not supported for adapter" (spawn.ts:95-101 ban PTY adapter 走 plugin)
  *
  * 测试策略：mock getBundledAssetContent 用 spy 记录 (kind, name, adapter) 三参，验证
  * spawn handler 真实透传 args.adapter 作第 3 参数（plan §D4 路由实现点）。
@@ -72,9 +70,7 @@ let nextSpawnedSid = 1;
 vi.mock('@main/adapters/registry', () => ({
   adapterRegistry: {
     get: (id: string) => {
-      // 4 个 adapter 都注册让 TC7 跑到 spawn handler 校验 agent_name vs adapter 兼容性
-      // （aider / generic-pty capabilities.canCreateSession=true 让 adapter "exists"，
-      // spawn handler 后续按 plugin scope reject — plan §D4 + spawn.ts:95-101）
+      // 仅 claude-code / codex-cli 注册;非 schema-valid adapter 由 zod enum 拒
       return {
         id,
         capabilities: {
@@ -399,39 +395,5 @@ describe('spawn handler agent_name 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)
       adapter: 'claude-code',
     });
     expect(createSessionCalls[0].prompt).toContain('# claude-code/reviewer-codex body');
-  });
-
-  it('TC7: agent_name 配合 PTY adapter (aider) → spawn handler 提前 reject "agent_name not supported for adapter"', async () => {
-    const r = await spawn({
-      adapter: 'aider',
-      agent_name: 'reviewer-claude',
-      cwd: '/repo',
-      prompt: 'review task',
-    });
-
-    const { isError, parsed } = parseToolResult(r as any);
-    expect(isError).toBe(true);
-    expect(String(parsed.error)).toContain('agent_name not supported for adapter');
-    expect(String(parsed.error)).toContain('aider');
-
-    // **关键 negative**：getBundledAssetContent 没被调用 — spawn handler 在 plugin scope 校验
-    // 阶段就 reject，连 root 都不应该尝试 narrow（防 caller 拿 aider 误注入 claude-config 路径）
-    expect(getBundledAssetContentCalls).toHaveLength(0);
-    expect(createSessionCalls).toHaveLength(0);
-  });
-
-  it('TC7b: agent_name 配合 generic-pty adapter → 同款 reject (D4 plugin scope 限 claude-code / codex-cli)', async () => {
-    const r = await spawn({
-      adapter: 'generic-pty',
-      agent_name: 'reviewer-codex',
-      cwd: '/repo',
-      prompt: 'review task',
-    });
-
-    const { isError, parsed } = parseToolResult(r as any);
-    expect(isError).toBe(true);
-    expect(String(parsed.error)).toContain('agent_name not supported for adapter');
-    expect(String(parsed.error)).toContain('generic-pty');
-    expect(getBundledAssetContentCalls).toHaveLength(0);
   });
 });
