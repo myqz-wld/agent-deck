@@ -54,7 +54,7 @@ export interface SessionRecord {
    * 持久化用户在 NewSessionDialog 选过的 codex sandbox（workspace-write / read-only /
    * danger-full-access），让重启应用后 resume 仍按原 sandbox。null/undefined 视为
    * settings.codexSandbox 全局值（与 createSession 路径 fallback 同模式）。
-   * claude / aider / generic-pty 会话该字段始终 null。
+   * claude-code 会话该字段始终 null。
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
   /**
@@ -63,7 +63,7 @@ export interface SessionRecord {
    * （off / workspace-write / strict），让重启应用 resume 仍按原档位。
    * null/undefined 视为 settings.claudeCodeSandbox 全局值（与 createSession 路径
    * fallback 同模式 — 与 codexSandbox 完全对称）。
-   * codex / aider / generic-pty 会话该字段始终 null。
+   * codex-cli 会话该字段始终 null。
    */
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict' | null;
   /**
@@ -79,7 +79,6 @@ export interface SessionRecord {
    * - codex-cli adapter：值仅写入持久化（让 UI 看到 frontmatter 设的 model），runtime
    *   仍由 ~/.codex/config.toml 顶层 `model` 字段决定（codex SDK startThread 不接受 per-thread
    *   model override，详 plan D5）
-   * - aider / generic-pty adapter：始终 null
    *
    * null/undefined：不指定，SDK 自己读 ANTHROPIC_MODEL env / 自己默认值（与 settings 全局
    * model 设置无关 — settings.summaryModel/handOffModel 只在 oneshot summary/hand-off 路径用，
@@ -105,7 +104,6 @@ export interface SessionRecord {
    *   SDK options.sandbox.allowWrite(workspace-write 档生效;strict / off 忽略)
    * - codex-cli adapter:字段持久化(parity 对称),但 codex bridge createSession opts
    *   不消费(codex SDK 不支持 extra writable roots);future codex SDK 加支持时零迁移成本
-   * - aider / generic-pty adapter:始终 null
    *
    * null/undefined:不指定,sandbox.allowWrite 仅含 cwd + /tmp + cache(与 caller 不传
    * extraAllowWrite 行为同款)。
@@ -153,8 +151,8 @@ export interface SessionRecord {
   spawnDepth?: number;
   /**
    * R4·F2 历史字段(plan remove-aider-generic-pty-adapters-20260520 后):
-   * 老 generic-pty / aider session 的 spawn config(持久化到 sessions.generic_pty_config 列)。
-   * 现 adapter 已删,新 session 永远写 NULL;rowToRecord 直接读 string raw value 不再 schema parse。
+   * 老 PTY-based session 的 spawn config(持久化到 sessions.generic_pty_config 列)。
+   * 该 adapter 已删,新 session 永远写 NULL;rowToRecord 直接读 string raw value 不再 schema parse。
    * 字段保留兼容老 SQLite DB rows;type 改 `unknown | null` 让 caller 不再依赖具体 schema。
    */
   genericPtyConfig?: unknown | null;
