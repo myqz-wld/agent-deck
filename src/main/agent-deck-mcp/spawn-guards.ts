@@ -77,8 +77,8 @@ export function applySpawnGuards(
 ): GuardDenial | { ok: true; parentDepth: number; fanOutSlot: { release: () => void } } {
   const settings = settingsStore.getAll();
   const maxDepth = settings.mcpMaxSpawnDepth ?? 3;
-  const maxFanOut = settings.mcpMaxFanOutPerParent ?? 5;
-  const ratePerMin = settings.mcpSpawnRatePerMinute ?? 10;
+  const maxFanOut = settings.mcpMaxFanOutPerParent ?? 10;
+  const ratePerMin = settings.mcpSpawnRatePerMinute ?? 20;
 
   // 0. 同步刷新 RateLimiter 配置（hot-toggle 用户 Settings 立即生效）
   spawnRateLimiter.setLimits(ratePerMin, 60_000);
