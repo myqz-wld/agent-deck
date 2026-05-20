@@ -45,7 +45,7 @@
  *
  * 不实现：
  * - 双向同步（用户改 Agent Deck 段反向回 <userData>）—— D5 决策不做
- * - chokidar 监听 ~/.codex/AGENTS.md 外部改动（用户手改 marker 外保留即可）
+ * - 外部 watch / hot reload monitor 监听 ~/.codex/AGENTS.md 外部改动（用户手改 marker 外保留即可）
  * - 跨进程通知 codex 在跑会话重新加载约定（codex SDK 不支持热重载 AGENTS.md，
  *   下次新建会话生效，与 sdk-injection.ts 同模式）
  */

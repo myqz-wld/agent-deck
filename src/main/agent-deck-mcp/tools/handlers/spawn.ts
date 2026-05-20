@@ -92,6 +92,10 @@ export const spawnSessionHandler = withMcpGuard(
     // 标的 model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
     let modelFromFrontmatter: string | undefined;
     if (args.agent_name) {
+      // **structurally unreachable today** —— zod enum (schemas.ts:20) 已 narrow args.adapter
+      // 为 'claude-code' | 'codex-cli'，但作为 zod-enum drift defense 保留：future 加新 adapter
+      // 到 enum 但忘 plugin-scope（claude-config / codex-config double-root）注册时，此 check
+      // 仍会 reject 防止 caller 拿非 plugin scope adapter 走 bundled-assets 误注入路径。
       if (args.adapter !== 'claude-code' && args.adapter !== 'codex-cli') {
         fanOutSlot.release();
         return err(
@@ -260,8 +264,8 @@ export const spawnSessionHandler = withMcpGuard(
             // teammate spawn default spread（4 字段 unsafe default：codexSandbox /
             // approvalPolicy / networkAccessEnabled / additionalDirectories）。
             //
-            // 仅 codex-cli adapter 消费；claude-code / pty adapter narrow 时 filter 掉
-            // （narrowToClaudeOpts / narrowToPtyOpts 不引用 agentName 字段）。
+            // 仅 codex-cli adapter 消费；claude-code adapter narrow 时 filter 掉
+            // （narrowToClaudeOpts 不引用 agentName 字段）。
             agentName: args.agent_name,
           }),
           // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（仅 caller 显式传时）—

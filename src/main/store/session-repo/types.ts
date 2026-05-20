@@ -72,7 +72,6 @@ export function rowToRecord(r: Row): SessionRecord {
     cwdReleaseMarker: r.cwd_release_marker ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
-    genericPtyConfig: r.generic_pty_config ?? null,
   };
 }
 
