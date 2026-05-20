@@ -15,15 +15,15 @@
 ### 1.1 目标
 
 把 Agent Deck 的 team 抽象从「Claude Code Agent Teams in-process backend 的薄壁纸」**硬切**
-为 **adapter-agnostic 的 first-class 容器**，让任意 adapter（claude-code / codex-cli / aider /
-generic-pty）的 session 都能以 member 身份加入 team，并通过 DB 通道接收 / 发送 cross-adapter
+为 **adapter-agnostic 的 first-class 容器**，让任意 adapter（claude-code / codex-cli）的
+session 都能以 member 身份加入 team，并通过 DB 通道接收 / 发送 cross-adapter
 message，无需依赖 Claude Code CLI 的 `~/.claude/teams/<X>/` 目录、inbox 文件协议、CLI 实验
 特性 env。
 
 完成后的核心能力：
 
 ```
-[Team T = { lead: claude-session-A, teammate: codex-session-B, teammate: aider-session-C }]
+[Team T = { lead: claude-session-A, teammate: codex-session-B }]
                                           ↑
 [claude-session-A] —MCP→ mcp__agent-deck__send_message(target_session: codex-B, team_id: T, text: ...)
                                           ↓
@@ -302,7 +302,6 @@ export interface AdapterCapabilities {
   /**
    * 是否支持作为 team member 接收 cross-adapter 消息。
    * - claude-code / codex-cli: true
-   * - aider / generic-pty: 视实现而定（占位 false 直到 F 阶段实装）
    *
    * UI 据此与 archived/closed 双条件决定 NewTeamMember dialog 是否暴露该 adapter。
    * 取代老 capability `canJoinTeam`（仅指 Claude Code experimental teams flag）。
@@ -354,8 +353,6 @@ export interface AgentAdapter {
 |---|---|---|---|---|
 | claude-code | true | 调 `sdkBridge.sendMessage(sessionId, body)`（与 IPC 路径同款） | optional 实现：sendMessage 一条 system-style 文本 | E6 删 |
 | codex-cli | true | 调 `codexSdkBridge.sendMessage(sessionId, body)`（注意配套 §7.5 backpressure，避免触发 codex MAX_PENDING_MESSAGES=20 限制） | 同上 | E6 删 |
-| aider | true（R4·F-bonus 实装） | 调 `genericPtyBridge.sendMessage(sessionId, body)`（PTY stdin 写入与 user 输入等价） | 同上 | E6 删 |
-| generic-pty | true（R4·F-bonus 实装） | 调 `genericPtyBridge.sendMessage(sessionId, body)`（PTY stdin 写入与 user 输入等价） | 同上 | E6 删 |
 
 **老 capability `canJoinTeam` E6 同步删除**（reviewer 修订）：定义里它只表征「是否能让 Claude
 Code CLI 启用 experimental teams flag」，与 universal team 无关。settings.agentTeamsEnabled

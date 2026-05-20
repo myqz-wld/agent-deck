@@ -16,11 +16,11 @@
 - **控制权交接提醒**：waiting → 红闪烁 + 提示音 + 系统通知 + Dock 弹跳；finished → 黄 + 完成音；可逐项关闭，可换自定义提示音
 - **三类人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Plan mode 执行计划批准 —— 全部在活动流卡片里直接处理。批准 plan 时可选目标权限模式（默认 / 自动接受编辑 / 保持 Plan / 完全免询问）；切到「完全免询问」会自动重启 SDK 子进程
 - **OS 级沙盒**（CHANGELOG_74 起对称三件套）：Claude Code SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐。**三件套**（与 Codex 完全对称）：① 全局默认（设置面板 / 默认关）；② 新建会话覆盖（NewSessionDialog 4 档下拉「跟随设置 / off / workspace-write / strict」）；③ 会话内运行时切档（SessionDetail 输入区上方下拉，切到 `off` 弹 confirm，切到 `workspace-write` / `strict` 直接生效，5-10s 冷切重启 SDK 子进程）
-- **Universal Team Backend**（R3 起，硬切替代老 Claude Code Agent Teams 入口）：cross-adapter（claude / codex / aider / generic-pty）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent-deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；`mcp__agent-deck__send_message` 走 DB queue 投递；`mcp__agent-deck__wait_reply` 等 reply。**老 inbox 协议（CHANGELOG_45/46/56）已 R3 完全下线**——CLI 内自起的 team 在 agent-deck UI 永久失明；`~/.claude/teams/<X>/` 老数据只读历史保留，Settings 提供一次性 export 入口
+- **Universal Team Backend**（R3 起，硬切替代老 Claude Code Agent Teams 入口）：cross-adapter（claude-code / codex-cli）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent-deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；`mcp__agent-deck__send_message` 走 DB queue 投递；`mcp__agent-deck__wait_reply` 等 reply。**老 inbox 协议（CHANGELOG_45/46/56）已 R3 完全下线**——CLI 内自起的 team 在 agent-deck UI 永久失明；`~/.claude/teams/<X>/` 老数据只读历史保留，Settings 提供一次性 export 入口
 - **输入框图片附件**：会话主输入框 + 新建会话 dialog 都支持「粘贴 / 拖放 / 上传按钮」三件套发图（PNG / JPEG / GIF / WebP，单图 ≤ 20MB / 单条总附件 ≤ 30MB）。Claude SDK 走 base64 image content block，Codex SDK 接 `local_image` 文件路径，主进程统一把 base64 落盘到 `<userData>/image-uploads/<uuid>.<ext>` 喂下游；历史 detail view 里能看到自己发了什么图，14 天孤儿文件 reaper 自动清理
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
 - **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md 到 system prompt；可注入 agent-deck plugin 自带的 `deep-code-review` skill + `reviewer-claude` (Opus 4.7) / `reviewer-codex` (Codex CLI wrapper) 双异构对抗 subagent
-- **多 Adapter**：Claude Code（hook + SDK 双通道）+ Codex CLI（单 SDK 通道）+ Aider / Generic PTY（R4 起，node-pty 包装任意 stdin/stdout-only CLI，可加 universal team backend 当 cross-adapter teammate）
+- **多 Adapter**：Claude Code（hook + SDK 双通道）+ Codex CLI（单 SDK 通道）
 
 ---
 
@@ -67,7 +67,6 @@ closed 后再来同 sessionId 事件 → 自动复活回 active。归档跳过 l
 
 - **Claude Code**：hook + SDK 双通道，能力全开（创建 / 中断 / 发消息 / 工具批准 / AskUserQuestion / ExitPlanMode / 切权限模式 / 安装 hook）
 - **Codex CLI**：基于 `@openai/codex-sdk` 单 SDK 通道，支持创建 / 发消息 / 中断 / 恢复；不支持工具批准 / 主动询问 / Plan mode / 运行时切权限模式（codex SDK 物理不支持）
-- **Aider / Generic PTY**：基于 `node-pty` 包装任意 stdin/stdout-only CLI（aider / continue / 自管 wrapper / curl-able LLM CLI 都行）。支持创建 / 发消息（写 stdin）/ 中断（Ctrl+C）/ 关闭（SIGTERM → 10s grace → SIGKILL）；ANSI escape 自动 strip 后再 emit message，stdout 静默 N ms 后（可选 prompt suffix regex 二次校验）emit `waiting-for-user`；cwd 文件改动通过 chokidar 监听 emit `file-changed`（不读 content，diff 用 git diff 兜底）。**Aider** 是 Generic PTY 的内置 preset：用户在新建会话选「Aider」时自动填好 `aider --no-stream --no-pretty` 等参数，`> ` prompt suffix 实测覆盖。两 adapter `canCollaborate=true`，可加 universal team backend 当 cross-adapter teammate；不挂 mcp_servers，所以 PTY teammate 看不到 `mcp__tasks__*` 工具（task 协作需走 prompt 注入 + message channel）
 
 新增 adapter 实现 `AgentAdapter` 接口注册即可。
 
@@ -267,9 +266,7 @@ src/
 │   ├── hook-server/       共享 fastify 实例 + RouteRegistry（adapter 动态注册路由）
 │   ├── adapters/
 │   │   ├── claude-code/   hook 路由 + hook installer + SDK bridge + CLAUDE.md / skill / agents 注入 + sandbox-config（三档 OS 隔离配置）
-│   │   ├── codex-cli/     @openai/codex-sdk 封装（pendingMessages 串行 turn + AbortController interrupt）
-│   │   ├── aider/         GenericPtyBridge 复用 + aider preset 默认（R4·F-bonus）
-│   │   └── generic-pty/   PTY backend（GenericPtyBridge + ansi-parser + file-watcher）
+│   │   └── codex-cli/     @openai/codex-sdk 封装（pendingMessages 串行 turn + AbortController interrupt）
 │   ├── session/           SessionManager / LifecycleScheduler / Summarizer
 │   ├── teams/             R3 Universal Team Backend：universal-message-watcher（cross-adapter team message 投递）+ team-fs 仅保留 exportLegacyTeams（老 ~/.claude/teams 数据一次性导出）
 │   ├── notify/            sound.ts（跨平台播放 + 防叠播 + 5s 上限）/ visual.ts（系统通知 + Dock）
