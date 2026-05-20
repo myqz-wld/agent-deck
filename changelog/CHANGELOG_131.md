@@ -89,6 +89,28 @@ P6.7 ⚑ pnpm typecheck + pnpm build 全 GREEN。环境 blocker 一并解锁:旧
 - 项目 CLAUDE.md / 应用打包 CLAUDE.md grep 实测 0 hit(无需改动)
 - 本 CHANGELOG_131.md + `changelog/INDEX.md` 加行
 
+### P9 — 验证 + deep-review(2 commits 跨 3 round)
+
+走 `/agent-deck:deep-review` SKILL,kind='code',scope = 51 files changed since base_commit `84a6910`。重 spawn 跨 adapter native pair:reviewer-claude(claude-code adapter,Opus 4.7)+ reviewer-codex(codex-cli adapter native,gpt-5.5 xhigh)。
+
+**R1 finding**:
+- **MED 双方独立**(reviewer-claude MED-1 + reviewer-codex MED):plan focus #7 准则触发(`grep -rn "\.genericPtyConfig\b" src/` = 0 alive caller)→ escalate 整删字段。`a8a4685` 实施:删 `SessionRecord.genericPtyConfig` 字段(shared/types/session.ts) + rowToRecord 投影(session-repo/types.ts) + test fixture key(handler-cwd-generic.test.ts);DB 层不动(N6 保留 SQL DDL column / Row interface / INSERT binding NULL / rename.ts toExists UPDATE 老 row 兼容)
+- **LOW reviewer-codex** spawn.ts:263 注释 `narrowToPtyOpts` stale(函数 P1.6 已删)→ 改 "claude-code adapter narrow / narrowToClaudeOpts"
+- **LOW reviewer-claude × 3**:① `codex-config/{agents-md-installer,skills-installer}.ts` 2 处 chokidar 注释 stale → 改 "外部 watch / hot reload monitor";② `spawn.ts:95-101` zod-enum drift defense 加 4 行注释解释 "structurally unreachable today, kept as zod-enum drift defense";③ v019 migration SQL 注释类比失效 — D5 决策不修(historical immutable)
+- **INFO** slash 删除缺 regression test — ack 不修(项目本来 ComposerSdk 0 测试)
+
+**R2 finding**:
+- reviewer-claude R2 ✅ 可合 + 12 caller path 全 verified graceful(legacy aider DB row 经各 caller 路径 noop / throw / fallback / markFailed / warn 都优雅)
+- **MED reviewer-codex 单方 + lead spot-check verify**:hand-off 是 2 stage 流程,Stage 1 走 fallback `summariseSessionForHandOff` 跑 paid Claude oneshot 后 Stage 2 必然 throw "adapter cannot create session"(老 aider/generic-pty SQLite row 命中)。`c66b4e5` 实施:`ipc/sessions.ts:113-125` Stage 1 加 `if (!adapter?.createSession) throw` early gate,与 Stage 2 line 156 镜像。defense-in-depth 不依赖 plan D1 "用户无历史数据" 假设
+- **INFO reviewer-codex** 缺老 row 兼容 regression test — ack 不修(better-sqlite3 binding skip 在 vitest CI path,test infra 限制,符合 CHANGELOG_42 教训)
+
+**R3 finding**:双方 ✅ 可合 + 0 新 finding(R2 fix 验证 — Stage 1/2 adapter gate 对齐 + typecheck PASS + caller / UX / typing 全对称),终态裁决收口。
+
+**reviewer 状态**:
+- reviewer-claude · rm-pty sid=`f1a938f7-28d0-4d0d-9021-7789536a5133`
+- reviewer-codex · rm-pty sid=`019e4445-a995-7990-ab40-37008a48e880`
+- 由 P10 `archive_plan` 自动 baton shutdown 收口
+
 ## 关键不变量(改造后)
 
 1. **N1**:剩 2 adapter — `claude-code` + `codex-cli`
@@ -101,6 +123,8 @@ P6.7 ⚑ pnpm typecheck + pnpm build 全 GREEN。环境 blocker 一并解锁:旧
 ## 关键 follow-up(本 plan 之外的发现)
 
 **F1: hand_off_session 增加 teammate 过继(adopt)语义**(优先级 LOW)— 本 plan P2 起手会话由 hand_off_session 接力起,默认 `keep_teammates=false` shutdown 了 caller 同 team 两个 reviewer(plan §当前进度 reviewer 状态节标 ⚠ closed,P9 重 spawn 新 pair),mental model 从此丢失。建议 future plan 给 `hand_off_session` 加 `adopt_teammates: boolean` 参数(默认 false 与现状一致),true 时新 session 自动加入 caller 同 team + caller teammate 不 shutdown + 新 session 接 caller lead 角色,保留 mental model。详 [`plans/remove-aider-generic-pty-adapters-20260520.md`](../plans/remove-aider-generic-pty-adapters-20260520.md) §Follow-up F1 节(本 plan 完成 archive_plan 时入项目 git,后续如要做新建独立 feature plan 走 §RFC + §spike + §Deep-Review 全流程)。
+
+**F2: 防递归阈值默认值上调**(优先级 MED)— 用户实测设置面板「防递归阈值」当前默认值仍是 `mcpMaxFanOutPerParent` = 5 + `mcpSpawnRatePerMinute` = 10。CHANGELOG_125 末文字称已调高但实际未落地(可能 settings-defaults 漏改 / 老 settings 持久化未 migrate)。当前在 deep-review 多对 reviewer + plan baton hand-off 多场景下偏紧。建议 future plan 升级 `mcpMaxFanOutPerParent` 5→10 + `mcpSpawnRatePerMinute` 10→20 + 验证 settings-defaults / settings-store migrate 逻辑 + 同步面板 jsdoc 描述更新。详 [`plans/remove-aider-generic-pty-adapters-20260520.md`](../plans/remove-aider-generic-pty-adapters-20260520.md) §Follow-up F2 节。
 
 ## 详情
 
