@@ -24,6 +24,7 @@ import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 import { makeAgentDeckTeamRepoMock } from '@main/__tests__/_shared/mocks/agent-deck-team-repo';
 import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { adapterRegistry } from '@main/adapters/registry';
 
 // ─── Mock: sessionRepo / sessionManager / adapterRegistry ──────────────
 // R37 P2-F Step 3.1：sessionRepo / sdk-loader / settings-store / agent-deck-team-repo
@@ -691,8 +692,13 @@ describe('agent-deck-mcp tools — spawn_session', () => {
   it('rejects unknown adapter', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
+    // P3.1 zod enum 已限只允 claude-code / codex-cli;无法用未注册 adapter 名字测 spawn handler
+    // 内部 cannot create sessions 路径(zod 在更早的 schema 层 reject)。改用 schema-valid
+    // adapter ('codex-cli') + spy 局部覆盖 adapterRegistry.get 返 undefined,模拟
+    // "schema 通过但 adapter 未 register 或无 createSession" 路径(spawn.ts:48-53 第一段 if)。
+    const getSpy = vi.spyOn(adapterRegistry, 'get').mockReturnValueOnce(undefined);
     const r = await tools.get('spawn_session').handler({
-      adapter: 'aider', // adapter mock 只 register 了 claude-code/codex-cli
+      adapter: 'codex-cli',
       cwd: '/elsewhere',
       prompt: 'p',
       caller_session_id: 'lead',
@@ -700,6 +706,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/cannot create sessions/);
+    getSpy.mockRestore();
   });
 
   // D1 (CHANGELOG_76 / plan deep-review-flow-fix): agent_name 自动注入 plugin agent body
