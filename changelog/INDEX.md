@@ -5,6 +5,7 @@
 
 | 文件 | 概要（≤80 字） |
 |------|------|
+| [CHANGELOG_139.md](CHANGELOG_139.md) | codex spawn 主路径 applicationSid 漏切修复(双 reviewer 独立 HIGH-1 铁证):thread-loop.ts case 1 加 1 行 `internal.applicationSid = ev.thread_id;` + spawn-chain.ts setSpawnLink 加 changes=0 warn |
 | [CHANGELOG_138.md](CHANGELOG_138.md) | 图片附件「随便粘一张图就报超 30MB」误报修复:`useImageAttachments` admittedThisRound flag race(setState updater 异步 enqueue)→ 改用 attachmentsRef 同步预算 currentTotal |
 | [CHANGELOG_1.md](CHANGELOG_1.md) | 项目初始化 M1-M9（Electron+React+TS+Tailwind 半透明窗 / Adapter+Diff 双插件 / SDK+Hook 双通道 / DB v3）+ 应用图标 |
 | [CHANGELOG_2.md](CHANGELOG_2.md) | 工具适配 AskUserQuestion + ExitPlanMode：独立类型 + 独立 IPC + 专用 UI（option 按钮 / 批准计划 + markdown 反馈） |

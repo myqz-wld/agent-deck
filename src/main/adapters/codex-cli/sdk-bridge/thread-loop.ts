@@ -252,9 +252,20 @@ export class ThreadLoop {
                 //   仅 update internal.threadId (本 case 1 走 !internal.threadId 分支不进 resume case 3)
                 // 当前 case 1 仅 spawn 主路径触发 (resume 路径 ctor 时 internal.threadId 已有 opts.resume),
                 // 故无条件设 applicationSid 即可 (与 claude stream-processor.ts:271 isNewSpawn 分支同款)
+                //
+                // **CHANGELOG_139 双 reviewer 独立同款铁证 HIGH-1 修法**(reviewer-claude Opus 4.7
+                // + reviewer-codex gpt-5.5 单轮异构对抗):plan reverse-rename-sid-stability-20260520
+                // §A.4-pre S3 在 codex 端实施时漏了 `internal.applicationSid = ev.thread_id;` 这行
+                // assignment(claude 端 stream-processor.ts:328 已落,codex 注释口头说"切到 first thread_id"
+                // 但代码没切)。漏切导致 internal.applicationSid 永远是 ctor 时的 tempKey,
+                // bridge.createSession 返 tempKey 不是 realId,spawn handler setSpawnLink(tempKey, ...)
+                // 撞 sessions 表里没 tempKey row(rename.ts:57 fromRow 不存在直接 noop) → UPDATE
+                // changes=0 静默失败,spawned_by 永远 NULL;后续 runTurnLoop 用 internal.applicationSid=
+                // tempKey emit message → ingest 兜底 ensureRecord 建 tempKey row,cwd=''/title=sid 自身,
+                // 与 firstIdCb emit session-start 写的 realId row 形成 split-brain 双 row。
+                // 现场 SQL 实测 6 项指标 100% 命中预测(详 reviews/REVIEW_50.md HIGH-1)。
+                internal.applicationSid = ev.thread_id;
                 internal.threadId = ev.thread_id;
-                // codex spawn 主路径 applicationSid 切换由 sdk-bridge/index.ts startNewThreadAndAwaitId
-                // 内的 sessionManager.renameSdkSession 触发 (与 claude S3 isNewSpawn 同款,详 codex sdk-bridge/index.ts)
                 if (firstIdCb) {
                   firstIdCb(ev.thread_id);
                   firstIdCb = undefined;

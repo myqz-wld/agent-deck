@@ -25,12 +25,24 @@ export function getSpawnDepth(id: string): number {
  * UPDATE sessions SET spawned_by, spawn_depth WHERE id = ?。
  * MCP `spawn_session` handler 在 reserve 占位行 + createSession 后调，
  * 写入 spawn 链路关系。session 必须先存在（通常先 INSERT 占位行 / 由 createSession
- * adapter 写入），否则该调用静默失败（changes=0）。
+ * adapter 写入），否则该调用 changes=0。
+ *
+ * **CHANGELOG_139 加 changes=0 console.warn 配套(reviewer-claude LOW-2 + reviewer-codex MED-1
+ * 共识)**:旧版 SQL UPDATE 失败完全静默,任何 sid mismatch 类 bug(如 codex spawn 主路径
+ * applicationSid 漏切到 realId,setSpawnLink 写到不存在的 tempKey row)隐藏到现在。加 warn
+ * 让 future regression 能从 log 早抓到,不静默淹没。
  */
 export function setSpawnLink(id: string, spawnedBy: string | null, depth: number): void {
-  getDb()
+  const info = getDb()
     .prepare(`UPDATE sessions SET spawned_by = ?, spawn_depth = ? WHERE id = ?`)
     .run(spawnedBy, depth, id);
+  if (info.changes === 0) {
+    console.warn(
+      `[setSpawnLink] UPDATE 0 rows for id=${id} (spawnedBy=${spawnedBy}, depth=${depth}) — ` +
+        `session row 不存在,spawn-link 写入静默失败。可能根因:adapter.createSession 返了 tempKey 不是 realId,` +
+        `或 caller 在 setSpawnLink 之前 row 已被删/未建。`,
+    );
+  }
 }
 
 /**
