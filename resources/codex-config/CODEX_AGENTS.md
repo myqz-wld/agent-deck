@@ -14,6 +14,24 @@
 
 本应用环境(agent-deck) teammate 协作走 mcp tool(详 §Agent Deck Universal Team Backend 节)。teammate 通过 `send_message` 发消息 → universal-message-watcher → adapter.receiveTeammateMessage → adapter.sendMessage → codex SDK 把 message 喂给 receiver thread 自动注入 conversation flow(receiver codex 看到 user-role message 直接 act on it,无需主动 poll)。
 
+### task 进度跟踪走 `mcp__tasks__*`(codex 端无原生 task 工具,直接用本组)
+
+本应用环境跑 plan / 多 Agent 协作 / 多步骤工作时,**task 进度跟踪必须走** `mcp__tasks__task_create` / `task_update` / `task_list` / `task_get` / `task_delete`(codex CLI 本身无内置原生 task 工具,所以不存在"替代"问题,直接用本组)。
+
+**Why**:
+- `mcp__tasks__*` 自动闭包当前 codex SDK session 的 `team_id` 进 universal team backend。写操作锁自己 team(防跨 team 误改),只读允许 lead 跨 team 协调
+- task 状态对 teammate(claude / codex 任一 adapter)/ hand-off 后新 session 全可见,不丢进度
+- codex SDK 走 streamable HTTP transport 连本应用 MCP server,本组工具与 `send_message` / `spawn_session` 等同款 transport / 同款 per-session token 鉴权
+
+**How to apply**:
+- 新建 task: `mcp__tasks__task_create({ subject, description?, status?, priority?, blocks?, blocked_by?, labels? })` → 返 `{ id, ... }`,team_id 自动闭包
+- 状态切换: `mcp__tasks__task_update({ task_id, status })`,枚举 `pending` / `active` / `completed` / `blocked` / `abandoned`
+- 列表查询: `mcp__tasks__task_list({ status_filter?, subject_filter?, team_id? })`,不传 team_id = 当前 team / 显式 null = 全局 / 显式 string = 跨 team 协调
+- 单个查询: `mcp__tasks__task_get({ task_id })`(不限 team,跨 team 可读)
+- 删除: `mcp__tasks__task_delete({ task_id, force?: false })`,force=true 级联删 downstream
+
+**例外**: 应用 settings `enableTaskManager: false` 关闭时本组工具不挂 → codex SDK session 没有 task 工具可用(codex CLI 本身无原生替代),plan / 多步骤工作进度跟踪只能落在 plan 文件 §当前进度 节 + 对话历史。本应用打包 SDK 会话 toggle ON 时挂上,挂上后**优先用 mcp__tasks__\***。
+
 ### codex 无 native EnterWorktree / ExitWorktree CLI → 必须走 MCP
 
 claude SDK 在 CLI binary 内置 `EnterWorktree` / `ExitWorktree` 工具(直接调用建/退 git worktree + 切 cwd)。**codex CLI 没有等价 builtin** — 想从 codex session 内进/退 worktree,只能调本应用提供的 MCP tool:
