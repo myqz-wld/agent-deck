@@ -10,9 +10,9 @@ interface Props {
 /**
  * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6）。
  *
- * 功能：让 claude / codex / 第三方 MCP client 通过 7 个 tool（spawn_session /
+ * 功能：让 claude / codex / 第三方 MCP client 通过 10 个 tool（spawn_session /
  * send_message / list_sessions / get_session / shutdown_session / archive_plan /
- * hand_off_session）跨 adapter 编排其他 coding agent session。
+ * hand_off_session / enter_worktree / exit_worktree / shutdown_baton_teammates）跨 adapter 编排其他 coding agent session。
  *
  * UI 布局（自顶向下）：
  * 1. 总开关 enableAgentDeckMcp + 描述
@@ -36,14 +36,17 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         onChange={(v) => void update({ enableAgentDeckMcp: v })}
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        让 claude / codex / 任何支持 MCP 的 coding agent 通过 7 个 tool 跨 adapter
+        让 claude / codex / 任何支持 MCP 的 coding agent 通过 10 个 tool 跨 adapter
         编排其他会话：<code className="rounded bg-white/5 px-1">spawn_session</code> /
         <code className="rounded bg-white/5 px-1">send_message</code> /
         <code className="rounded bg-white/5 px-1">list_sessions</code> /
         <code className="rounded bg-white/5 px-1">get_session</code> /
         <code className="rounded bg-white/5 px-1">shutdown_session</code> /
         <code className="rounded bg-white/5 px-1">archive_plan</code> /
-        <code className="rounded bg-white/5 px-1">hand_off_session</code>。
+        <code className="rounded bg-white/5 px-1">hand_off_session</code> /
+        <code className="rounded bg-white/5 px-1">enter_worktree</code> /
+        <code className="rounded bg-white/5 px-1">exit_worktree</code> /
+        <code className="rounded bg-white/5 px-1">shutdown_baton_teammates</code>。
         <br />
         <strong className="text-deck-text/85">三 transport 并存</strong>：
         in-process（claude SDK 会话自动挂）/ HTTP（codex 自动挂 + 外部 MCP client） /

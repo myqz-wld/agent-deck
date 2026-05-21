@@ -5,7 +5,7 @@
  * - 持久化链：setSpawnLink + recordCreatedPermissionMode + setTitle +
  *   teamRepo.ensureByName/addMember(lead+teammate) + messageRepo.insert (placeholder)
  * - permission/sandbox 继承（REVIEW_32 HIGH-5）：caller 显式 > lead 继承 > undefined
- * - team-cohesion-fix-20260513 Phase B5/B7：spawn 路径与 wait_reply 贯通的 placeholder + wire prefix
+ * - team-cohesion-fix-20260513 Phase B5/B7：spawn 路径与 reply chain 贯通的 placeholder + wire prefix
  *
  * 拆分历史：从 src/main/agent-deck-mcp/tools.ts 432-668 抽出（CHANGELOG_81 / plan
  * deep-review-and-split-20260513 H2 Step 2.1）。
@@ -440,7 +440,7 @@ export const spawnSessionHandler = withMcpGuard(
     // plan team-cohesion-fix-20260513 Phase B5：spawn 路径与 send_message 贯通的方案 A 实现 ——
     // spawn 仍把 prompt 给 adapter（SDK streaming 协议要求 first user message），同时在
     // messages 表 enqueue 一条 placeholder message（body=promptToUse, status='delivered'，
-    // 不重复投递）作为 lead/teammate 对话链的锚点。lead 不再主动 wait_reply（CHANGELOG_100 删 tool）；
+    // 不重复投递）作为 lead/teammate 对话链的锚点。lead 不再主动 poll reply（CHANGELOG_100 删旧 tool）；
     // teammate first turn 完成后调 send_message({reply_to_message_id: spawnPromptMessageId, ...})
     // 回复，reply 自动 dispatch 进 lead conversation（J fix 删，CHANGELOG_100）。
     // 无 team / no-shared-team 时不入队 placeholder（spawn 没有可关联的对话场景）。
@@ -451,7 +451,7 @@ export const spawnSessionHandler = withMcpGuard(
     // 但 prompt 已含 [msg <id>] prefix 发出去，teammate 按规约 send_message → original
     // 找不到 → reply 100% 失败。真修法需要把 insert 提到 createSession 之前 + messageRepo
     // 加 initialStatus='delivered' / updateToSessionId helper（scope 较大），留下次 phase。
-    // 当前最小防御：失败时返回 spawnPromptMessageId=null，lead 至少不会调 wait_reply hang。
+    // 当前最小防御：失败时返回 spawnPromptMessageId=null，lead 至少不会等一个不存在的 reply anchor。
     let spawnPromptMessageId: string | null = null;
     // **[caller-scoped #3/4]** placeholder message(grep anchor 详 L148-160 callerExists 定义)
     if (teamId && callerExists && placeholderId) {
@@ -481,14 +481,14 @@ export const spawnSessionHandler = withMcpGuard(
       teamId,
       teamName: args.team_name ?? null,
       // REVIEW_32 HIGH-4：spawn-time agent_name / display_name 回传给 caller
-      // （deep-code-review SKILL 里 lead 起多组并发 review 时按这两字段区分 reviewer 实例，
+      // （deep-review SKILL 里 lead 起多组并发 review 时按这两字段区分 reviewer 实例，
       // 不再需要 list_sessions / get_session 反查）。
       agentName: args.agent_name ?? null,
       displayName: teammateDisplayName,
       // **[caller-scoped #4/4]** spawnDepth fallback (grep anchor 详 L148-160 callerExists 定义)
       spawnDepth: created?.spawnDepth ?? (callerExists && shouldWriteSpawnLink({ batonMode: opts?.batonMode }) ? parentDepth + 1 : 0),
       sentAt: Date.now(),
-      // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 调 wait_reply 等 teammate first reply
+      // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 作为 teammate first reply anchor
       spawnPromptMessageId,
     } satisfies SpawnSessionResult);
   },

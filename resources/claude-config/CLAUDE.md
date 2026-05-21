@@ -44,6 +44,8 @@
 
 跨 adapter 协作通过 Agent Deck MCP 10 tool（`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
+速查：`spawn_session` 起 SDK session；`send_message` 统一发消息 / reply；`list_sessions` / `get_session` 只读查会话；`shutdown_session` close lifecycle 不删数据；`archive_plan` 原子归档 plan；`hand_off_session` baton 接力；`enter_worktree` / `exit_worktree` 管 worktree；`shutdown_baton_teammates` 补跑 teammate cleanup。
+
 ### 三个核心约定（lead 角度）
 
 1. **spawn 首轮锚点**：`spawn_session` 返回 `spawnPromptMessageId: string | null`（仅当传 `team_name` 且 caller 在 sessions 表时非空），是首轮 prompt 在 messages 表的 placeholder id。teammate first turn 完成后调 `send_message({reply_to_message_id: spawnPromptMessageId, ...})` 回复，reply 自动注入 lead conversation。lead 不需主动 poll —— 看到 user-role wire-prefixed message 即知 reply 到了
@@ -94,7 +96,7 @@ teammate 端协议约束（`[from <name> @ <adapter>][msg <id>][sid <senderSid>]
 reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <senderSid>]` 双锚点 wire prefix（典型：lead context 重置后用裸文本 ping / 第三方 dispatch 路径丢前缀），按下面 fallback 处理：
 
 1. reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>][sid <senderSessionId>] wire prefix，本 reply 没法挂 reply_to_message_id 进 lead 对话链；建议 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
-2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({adapter_filter: 'claude-code', status_filter: 'active'})` → 按以下顺序定位 lead：① displayName 含 "Lead-" 前缀 / ② displayName 非 reviewer-* 标识 / ③ team 内排除自己 sessionId 后唯一 active；3 条都失败走第 4 步终极兜底。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）。**注**：claude-config 端 lead 必为 claude-code adapter（claude SDK lead 不存在跨 adapter 子 session 当 lead 的场景），filter 减小结果集；codex-config 端 lead 可能跨 adapter（claude lead × codex teammate 等场景），不 filter 才能反查到 lead — 异构对偶设计
+2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`session_id` 反查：调 `mcp__agent-deck__list_sessions({status_filter: 'active'})`（不 filter adapter：cross-adapter native pair 中 lead 可能是 claude-code 或 codex-cli 任一）→ 按以下顺序定位 lead：① displayName 含 "Lead-" 前缀 / ② displayName 非 reviewer-* 标识 / ③ team 内排除自己 sessionId 后唯一 active；3 条都失败走第 4 步终极兜底。`team_id` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 team_id）
 3. **副作用警告**：reply 不挂 `reply_to_message_id` 失去对话链锚点，DB / SessionDetail 看不出 reply 链关系；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
 4. **list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding / codex 输出落本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到
 
@@ -102,7 +104,7 @@ reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <sen
 
 claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调用建/退 git worktree + 切 cwd + 写 sessionRepo.cwd 子表）。本应用 MCP 等价 tool 用于以下场景（builtin 不适用时）:
 
-- `mcp__agent-deck__enter_worktree({ plan_id, worktree_path?, base_commit?, base_branch?, plan_file_path? })`:创建 / 进入 worktree 目录(详 user CLAUDE.md §Step 2 EnterWorktree 节)
+- `mcp__agent-deck__enter_worktree({ plan_id, worktree_path?, base_commit?, base_branch?, plan_file_path? })`:创建 worktree 目录 + 写 `cwd_release_marker`；它不是 Claude CLI builtin `EnterWorktree(path:)`，不会替调用方切当前 SDK cwd
 - `mcp__agent-deck__exit_worktree({ action: "keep" | "remove", worktree_path?, discard_changes?: false })`:退出 worktree
 
 **何时走 MCP 替代**:
@@ -114,7 +116,7 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 
 ### plan hand-off 自动化：archive_plan
 
-`archive_plan` 在 plan 完成后**原子执行** user CLAUDE §Step 4「完成」5 步：ff merge worktree branch → `base_branch` / 更新 frontmatter (`status=completed` + `final_commit` + `completed_at`) / mv plan → `<main-repo>/plans/<plan_id>.md` / **如 plan 有 spike-reports/ → mv `<plan-dir>/spike-reports/` → `<main-repo>/plans/<plan_id>/spike-reports/`** / 同步 `<main-repo>/plans/INDEX.md` / `git add` + commit / `git worktree remove` + `git branch -D`。caller 调用前必须先 `ExitWorktree(action: "keep")`。
+`archive_plan` 在 plan 完成后**原子执行** user CLAUDE §Step 4「完成」5 步：ff merge worktree branch → `base_branch` / 更新 frontmatter (`status=completed` + `final_commit` + `completed_at`) / mv plan → `<main-repo>/plans/<plan_id>.md` / **如 plan 有 spike-reports/ → mv `<plan-artifact-dir>/spike-reports/` → `<main-repo>/plans/<plan_id>/spike-reports/`** / 同步 `<main-repo>/plans/INDEX.md` / `git add` + commit / `git worktree remove` + `git branch -D`。caller 调用前必须先 `ExitWorktree(action: "keep")`。
 
 **调用**：`mcp__agent-deck__archive_plan({ plan_id, worktree_path, base_branch?: <plan frontmatter.base_branch ?? "main">, plan_file_path?, changelog_id? })`(`base_branch` 默认值:schema 优先读 plan frontmatter.base_branch,缺失才 fallback "main")
 **返回**：`{ archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_action: 'created'|'appended'|'updated'|'unchanged', final_status, warnings: string[], spike_reports_archived: { src_path, dst_path } | null, archived: 'ok'|'failed'|'skipped', teammatesShutdown: { closed, failed, skipped } }`
@@ -126,7 +128,7 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 - **自动归档 caller session**：plan 收口后默认归档 caller（baton 同款语义），返回 `archived` 三态字段；归档失败仅 warn 不阻塞 ok return
 - **abandoned plan 不走本 tool**：tool 强制 `status=completed` 且入项目 git 归档；abandoned 走 user CLAUDE §Step 4 §中止 手工流程
 - **changelog 引用归档** agent 自己写（tool 不做）
-- **spike-reports/ 自动归档**：detect `<plan-dir-parent>/<plan-id>/spike-reports/` 存在 → mv 到 `<main-repo>/plans/<plan_id>/spike-reports/`（plan .md 同名子目录与 plan .md 平级，约定 plan .md 是主体 + 同名目录是 artifacts），spike-reports/ 子目录递归入 git 归档 commit。不存在 → skip 不报错（trivial plan 无 spike 是合法场景）。mv 失败（EXDEV 跨 fs / perm）→ warnings 落 hint「spike-reports archive failed: ... Manually run \`mkdir -p && mv && git add+commit --amend\`」+ 不阻塞 ok return。`spike_reports_archived` 字段告诉 caller 实际归档结果（null = skip / `{src_path, dst_path}` = 成功）
+- **spike-reports/ 自动归档**：detect `<plan-artifact-dir>/spike-reports/` 存在（`<plan-artifact-dir>` = `<plan-file-dir>/<plan-id>/`，即 plan 文件父目录下的同名 artifacts 目录）→ mv 到 `<main-repo>/plans/<plan_id>/spike-reports/`（plan .md 同名子目录与 plan .md 平级，约定 plan .md 是主体 + 同名目录是 artifacts），spike-reports/ 子目录递归入 git 归档 commit。不存在 → skip 不报错（trivial plan 无 spike 是合法场景）。mv 失败（EXDEV 跨 fs / perm）→ warnings 落 hint「spike-reports archive failed: ... Manually run \`mkdir -p && mv && git add+commit --amend\`」+ 不阻塞 ok return。`spike_reports_archived` 字段告诉 caller 实际归档结果（null = skip / `{src_path, dst_path}` = 成功）
 - **followup 20260515 (a)+(b)+(c)+(d) UX 完善**：
   - fallback 链 `<main-repo>/.claude/plans/` > `<main-repo>/plans/` > `~/.claude/plans/`(加中间档兜底本项目实际惯例)
   - `plan_file_path` 文件名 stem 必须 == `plan_id`(impl 层 reject 防 silent unlink)

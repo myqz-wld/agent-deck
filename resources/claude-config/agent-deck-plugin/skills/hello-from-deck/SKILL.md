@@ -15,4 +15,4 @@ description: Agent Deck 内置 skill 自检。当用户调用 /agent-deck:hello-
 ## 步骤
 
 1. 回复一句确认消息：`Agent Deck 自带 skill 已就绪：hello-from-deck`
-2. 同时附上当前会话 cwd 与时间戳，方便用户核对（用 Bash `pwd` + `date` 取，或直接复用上下文里的信息）
+2. 同时附上当前会话 cwd 与时间戳，方便用户核对（Claude 侧用 Bash `pwd` + `date`；Codex 侧用 shell `pwd` + `date`；也可直接复用上下文里的信息）
