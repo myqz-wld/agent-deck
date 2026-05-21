@@ -259,6 +259,15 @@ export function useImageAttachments(): UseImageAttachmentsResult {
   const [error, setError] = useState<string | null>(null);
   // 完整 base64 仓库：不进 state 防止 30MB×N 触发整组件 re-render
   const fullBase64Ref = useRef<Map<string, string>>(new Map());
+  // CHANGELOG_<X> 30MB-误报 fix:attachmentsRef 同步映射 attachments state,让 add() 在
+  // setAttachments **之前** 用 ref 预算 currentTotal — 不再依赖 setState(updater) 的
+  // 同步语义。React 18 setState(updater) 是 enqueue 等当前 callback 结束才 flush,
+  // 旧版 `let admittedThisRound = false; setAttachments(prev => {...; admittedThisRound = true})`
+  // 后立即 `if (admittedThisRound)` 检查时 updater 永远没跑,flag 永远 false → 用户粘
+  // **一张** 图就误报「总附件超过 30MB 上限」(Node sim 实测 100% 复现)。
+  // 修法:add 内用 attachmentsRef 直接算 currentTotal,通过则 ref + state 一起手动更新,
+  // updater 退化为简单 `prev => [...prev, entry]` 不再判断 limit。
+  const attachmentsRef = useRef<UploadedAttachmentEntry[]>([]);
   // REVIEW_35 follow-up rH R2-M3: mountedRef + generationRef 防 unmount race。
   // - mountedRef: unmount 后 add() 内 await 完 readAndMaybeCompress/makeThumbnail 不再 setState
   //   （React 不报「setState on unmounted」warning，但状态 ref 写入是真 leak）
@@ -267,12 +276,20 @@ export function useImageAttachments(): UseImageAttachmentsResult {
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
 
+  // attachmentsRef 与 attachments state 同步:commit phase 跑,让外部「我」拿 ref 反查
+  // currentTotal 时与最新 state 一致(add/remove/clear 内手动 sync ref 是 fast path,
+  // useEffect 是兜底防遗漏 / 未来新增 setAttachments 入口忘了同步 ref)。
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
   // 卸载时清掉 ref + mark unmounted
   useEffect(() => {
     return () => {
       mountedRef.current = false;
       generationRef.current++;
       fullBase64Ref.current.clear();
+      attachmentsRef.current = [];
     };
   }, []);
 
@@ -308,48 +325,41 @@ export function useImageAttachments(): UseImageAttachmentsResult {
             continue;
           }
           const id = nextId();
-          // REVIEW_35 R2 HIGH-D-R2-1：旧版「闭包变量 admitted + setAttachments updater 内写」
-          // 在 React 18 batching 下不可靠 — updater 延迟到下次 render 跑，admitted 仍是初始值
-          // true → fullBase64Ref.set 仍执行 → 即使 reducer 后来 reject 不进 attachments，
-          // **ref 已留下孤儿** (rG-claude Node sim 实测 5×7MB 并发 → attachments 4 OK + ref 5 = 1 孤儿)。
-          // 修法：fullBase64Ref.set **也移到 setAttachments updater 内**，与 attachments 状态原子更新
-          // （违反 React 纯 updater 契约理论上 strict mode 双跑会出现 ref set 两次 → Map.set 同 key
-          // 是幂等的所以无害；超限时不 set 直接跳过）。
-          let admittedThisRound = false;
-          setAttachments((prev) => {
-            const currentTotal = prev.reduce((s, a) => s + a.bytes, 0);
-            if (currentTotal + compressed.bytes > MAX_TOTAL_BYTES) {
-              return prev;
-            }
-            // 在 updater 内同步写 ref 与 newEntries 局部追踪（admittedThisRound 仅给 errors 路径用）
-            fullBase64Ref.current.set(id, compressed.base64);
-            admittedThisRound = true;
-            return [
-              ...prev,
-              {
-                id,
-                thumbnailDataUrl: thumb,
-                mime: compressed.mime,
-                bytes: compressed.bytes,
-                name: file.name,
-                ...(compressed.compressed ? { originalBytes: file.size } : {}),
-              },
-            ];
-          });
-          if (admittedThisRound) {
-            newEntries.push({
-              id,
-              thumbnailDataUrl: thumb,
-              mime: compressed.mime,
-              bytes: compressed.bytes,
-              name: file.name,
-              ...(compressed.compressed ? { originalBytes: file.size } : {}),
-            });
-          } else {
+          // CHANGELOG_<X> 30MB-误报 fix:用 attachmentsRef 在 setAttachments **之前**
+          // 预算 currentTotal,不再依赖 React 18 setState(updater) 的同步语义。
+          //
+          // 旧版「闭包 admittedThisRound flag + setAttachments updater 内 mutate flag」
+          // 在 React 18 下 100% 失效:setState(updater) 是 enqueue 等当前 callback 结束
+          // 才 flush,`if (admittedThisRound)` 紧跟在 setAttachments 之后(同 tick sync code),
+          // updater 永远还没跑,flag 永远 false → 用户粘 1 张 5MB 图也误报「总附件超过 30MB
+          // 上限」(/tmp/admit-flag-race.mjs Node sim 100% 复现)。
+          //
+          // REVIEW_35 R2 HIGH-D-R2-1 的「ref 孤儿」race 修法仍保留意图:fullBase64Ref.set
+          // 与 attachments 加 entry 必须原子。本修法把判断 + ref.set + state push 都收口
+          // 到 ref 同步路径(ref 立即更新 → state setAttachments(prev => [...prev, entry]) 必
+          // 成功,不再有 reject 路径 → ref 不会孤儿)。**为下一 iter 同步**:attachmentsRef.current
+          // 立刻指向新数组,for 循环下一 iter 用最新值算 currentTotal。
+          const currentTotal = attachmentsRef.current.reduce((s, a) => s + a.bytes, 0);
+          if (currentTotal + compressed.bytes > MAX_TOTAL_BYTES) {
             errors.push(
               `${file.name}：总附件超过 ${MAX_TOTAL_BYTES / 1024 / 1024}MB 上限`,
             );
+            continue;
           }
+          const entry: UploadedAttachmentEntry = {
+            id,
+            thumbnailDataUrl: thumb,
+            mime: compressed.mime,
+            bytes: compressed.bytes,
+            name: file.name,
+            ...(compressed.compressed ? { originalBytes: file.size } : {}),
+          };
+          // 同步:ref + fullBase64 在 setAttachments 之前手动更新,for 循环下一 iter 用
+          // 最新 ref currentTotal。setAttachments updater 退化为简单 push(无 limit 判断)。
+          fullBase64Ref.current.set(id, compressed.base64);
+          attachmentsRef.current = [...attachmentsRef.current, entry];
+          setAttachments((prev) => [...prev, entry]);
+          newEntries.push(entry);
         } catch (err) {
           errors.push(`${file.name}：${(err as Error).message}`);
         }
@@ -372,6 +382,8 @@ export function useImageAttachments(): UseImageAttachmentsResult {
     // 避免被 remove 的 entry 因 add() resolve 后又被 setAttachments 复活
     generationRef.current++;
     fullBase64Ref.current.delete(id);
+    // 同步 ref + state(为下一次 add() 用 ref 算 currentTotal 时取最新值)
+    attachmentsRef.current = attachmentsRef.current.filter((a) => a.id !== id);
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
@@ -379,6 +391,7 @@ export function useImageAttachments(): UseImageAttachmentsResult {
     // REVIEW_35 follow-up rH R2-M3: bump generation 同 remove
     generationRef.current++;
     fullBase64Ref.current.clear();
+    attachmentsRef.current = [];
     setAttachments([]);
   }, []);
 
