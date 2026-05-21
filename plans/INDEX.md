@@ -50,3 +50,4 @@
 | [remove-aider-generic-pty-adapters-20260520.md](remove-aider-generic-pty-adapters-20260520.md) | completed | [131](../changelog/CHANGELOG_131.md) | remove-aider-generic-pty-adapters-20260520 |
 | [add-claude-cli-path-override-and-bump-sdks-20260520.md](add-claude-cli-path-override-and-bump-sdks-20260520.md) | completed | [133](../changelog/CHANGELOG_133.md) | add-claude-cli-path-override-and-bump-sdks-20260520 |
 | [hand-off-session-adopt-teammates-20260520.md](hand-off-session-adopt-teammates-20260520.md) | completed | [135](../changelog/CHANGELOG_135.md) | hand-off-session-adopt-teammates-20260520 |
+| [reverse-rename-sid-stability-20260520.md](reverse-rename-sid-stability-20260520.md) | completed | [136](../changelog/CHANGELOG_136.md) | reverse-rename-sid-stability-20260520 |

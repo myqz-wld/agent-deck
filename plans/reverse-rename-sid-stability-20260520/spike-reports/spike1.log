@@ -1,0 +1,6 @@
+[spike1.1] SDK --resume verbatim 透传: ✅ 命中 `if(k)i.push("--resume",k)`
+[spike1.2] jsonl 文件名 == body.sessionId: 5/5 match, 0 mismatch
+[spike1.3] encodeClaudeProjectDir('/Users/apple/Repository/personal/agent-deck') = '-Users-apple-Repository-personal-agent-deck' (expected '-Users-apple-Repository-personal-agent-deck') ✅
+[spike1.4] SDK has forkSession 接口: ✅
+
+[spike1] 完成。结论 inline 进 spike1-cli-session-id-resume.md
