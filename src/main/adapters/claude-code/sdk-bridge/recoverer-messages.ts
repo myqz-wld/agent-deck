@@ -134,3 +134,41 @@ export function buildCwdFallbackSummarySkippedText(): string {
     `如要继续之前话题,请在下条消息里把背景再告诉它一次。`
   );
 }
+
+/**
+ * 7. restart 路径 jsonl missing fallback + LLM 摘要成功：emit info（不带 error: true）。
+ *
+ * 用于 restart-controller (restartWithPermissionMode / restartWithClaudeCodeSandbox)
+ * 通过 jsonl-fallback helper 的 emitContext='restart' + summaryResult.used=true 分支。
+ *
+ * 文案告知用户：jsonl 已丢失但 LLM 摘要自动注入历史上下文 + 已切到新档（mode / sandbox），
+ * Claude 应能续上前情；如答非所问请下条消息补充关键背景。
+ *
+ * label 参数：`权限模式 ${mode}` (restartWithPermissionMode 路径) /
+ * `OS 沙盒 ${sandbox}` (restartWithClaudeCodeSandbox 路径)。
+ */
+export function buildRestartJsonlMissingSummaryUsedText(label: string, cwd: string): string {
+  return (
+    `⚠ 此会话的 CLI 内部对话历史(jsonl)已丢失: ${cwd}\n` +
+    `应用通过 LLM 摘要自动注入了历史上下文(自 DB events 表),Claude 应能续上前情,已切到 ${label}。\n` +
+    `如答非所问,请下条消息补充关键背景。`
+  );
+}
+
+/**
+ * 8. restart 路径 jsonl missing fallback + LLM 摘要跳过 / 失败：emit info（不带 error: true）。
+ *
+ * 用于 restart-controller 通过 jsonl-fallback helper 的 emitContext='restart' +
+ * summaryResult.used=false 分支。
+ *
+ * 文案与 #4（buildJsonlMissingSummarySkippedText）同款 + 补「已切到新档」说明，
+ * 让用户知道 restart 已生效但 CLI 历史失，需补背景。
+ */
+export function buildRestartJsonlMissingSummarySkippedText(label: string, cwd: string): string {
+  return (
+    `⚠ 此会话的 CLI 内部对话历史(jsonl)已丢失: ${cwd}\n` +
+    `典型原因: 用户清理 ~/.claude/projects / 跨设备同步未带 jsonl / CLI 自身清理 / 应用重装。\n` +
+    `应用 DB 的 SessionDetail 历史完整保留(本面板看到的对话仍在),但 Claude 这条新启动的 CLI ` +
+    `不知前情(已切到 ${label})。如要继续之前话题,请在下条消息里把背景再告诉它一次。`
+  );
+}

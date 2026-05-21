@@ -28,19 +28,17 @@ import { join } from 'node:path';
 import type { AgentEvent, SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
-import { eventRepo } from '@main/store/event-repo';
-import { settingsStore } from '@main/store/settings-store';
 import { encodeClaudeProjectDir } from '@main/platform';
 import { findFallbackCwd as findFallbackCwdShared } from '@main/adapters/shared/find-fallback-cwd';
 import { AGENT_ID, MAX_MESSAGE_LENGTH, PLACEHOLDER_DEDUP_MS } from './constants';
-import { prependHistorySummary } from './recoverer-helpers';
+// **plan restart-controller-jsonl-precheck-20260521 §Step 3f 重构**:
+// jsonl missing fallback 整段移到 jsonl-fallback.ts helper,recoverer 不再直接调
+// prependHistorySummary / settingsStore / eventRepo / 4 个 jsonlMissing/cwdFallback 文案 builder
+// (这 4 个 import 已删,改 maybeJsonlFallback 一行覆盖)。
+import { maybeJsonlFallback } from './jsonl-fallback';
 import {
   buildCwdFallbackInfoText,
-  buildCwdFallbackSummarySkippedText,
-  buildCwdFallbackSummaryUsedText,
   buildCwdMissingErrorText,
-  buildJsonlMissingSummarySkippedText,
-  buildJsonlMissingSummaryUsedText,
 } from './recoverer-messages';
 import type { SdkBridgeOptions, SdkSessionHandle } from './types';
 
@@ -194,6 +192,16 @@ export class SessionRecoverer {
      * 把摘要 prepend 到 fresh CLI 首条 prompt。
      */
     private readonly summariseFn: SummariseFnThunk,
+    /**
+     * **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
+     * events 来源 thunk(test seam)。facade 内部转发给 protected
+     * listEventsForSession 方法,默认走 `eventRepo.listForSession`。
+     *
+     * 让 jsonl-fallback helper (Step 3f 重构后 fallback 路径调本 thunk) 与 recoverer
+     * 主路径共享同款 facade extend override 模式(避免 recoverer.ts 与 helper 双处
+     * hardcode eventRepo 漂移)。
+     */
+    private readonly listEventsFn: (sessionId: string) => AgentEvent[],
   ) {}
 
   /**
@@ -359,137 +367,48 @@ export class SessionRecoverer {
 
     const p = (async (): Promise<string> => {
       try {
-        // CHANGELOG_28：预检 jsonl 是否存在 —— CLI 在 resume 时若找不到
-        // ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl 会 hard fail 抛
-        // "No conversation found with session ID: <sid>"，consume 内 catch 吞错只 emit
-        // 一条「⚠ SDK 流中断」error message + finally emit session-end，createSession 本身
-        // 不抛错（waitForRealSessionId 拿不到 first session_id 走 30s fallback 用 tempKey 兜底
-        // → 注册一个无实际 SDK 状态的占位 session）。这种场景对用户表现：detail 卡在
-        // 「⚠ SDK 通道已断开」+ 「⚠ SDK 流中断」+ 「会话结束」三条红字之间，再发还是同样错。
+        // **plan restart-controller-jsonl-precheck-20260521 §Step 3f 修法**:
+        // jsonl 预检 + fallback 整段 inline 实施 (原 recoverer.ts:378-491 ~113 LOC) 抽到
+        // jsonl-fallback.ts helper `maybeJsonlFallback`,与 restart-controller 两条路径共享。
+        // helper 内部包办:① prependHistorySummary 续历史摘要 ② createSession with
+        // resumeMode='fresh-cli-reuse-app' ③ emit fallback info message (按 §D4 三轴选 builder)
+        // ④ emit role='user' message (含 attachments 透传)。详 §D2-C helper 接口设计 + §不变量 11。
         //
-        // 触发条件：jsonl 被 CLI 自身清理 / 用户手动删过 / 跨设备同步未带 jsonl 等。预检比
-        // try/catch 后 fallback 更可靠（不依赖 SDK 错误字符串匹配，正是 P12 教训）。
-        // 不存在时直接走不带 resume 的新建路径，事后手工 rename OLD_ID → newRealId 把
-        // 应用层 events / file_changes / summaries 子表迁过去（CLI jsonl 历史失，但应用层 DB
-        // 历史保留 + sessionId 切换链路与 fork detection 路径一致）。
+        // CHANGELOG_28 / CHANGELOG_99 / CHANGELOG_107 现行 jsonl missing fallback 行为
+        // (prependCwd: cwdFellBack ? rec.cwd : effectiveCwd — R2 claude HIGH-F1-2 修法 让
+        // cwdFellBack=true 路径保留「原本是哪个 worktree」摘要语义) 由 helper 透传 opts.prependCwd
+        // 字段一并迁移。
         //
-        // CHANGELOG_99:cwd fallback 时(cwdFellBack=true)强制走 fallback 路径,因为 jsonl 文件
-        // 在 OLD cwd encoded 路径下,新 cwd encoded path 必然不存在 → resume 无意义。
-        if (cwdFellBack || !this.jsonlExistsThunk(effectiveCwd, sessionId)) {
-          // CHANGELOG_107 Step 3: 在起 fresh CLI 之前调 LLM 摘要 prepend 到首条 prompt
-          // (让 Claude 知前情,而不是 CHANGELOG_106 兜底「请下条消息把背景告诉它一次」手动补)。
-          //
-          // **永不抛错**(helper 内 try/catch 把 thunk throw 封装到 PrependResult.thrown);
-          // settings 关 / DB 没历史 / 摘要空 / 超长 → result.used=false 退回 originalText。
-          //
-          // **cwd 入参语义**(plan §下一会话第一步 决策点):cwdFellBack=true 时**应**传
-          // rec.cwd 而非 effectiveCwd(让摘要保留「原本是哪个 worktree」语义)。Step 3
-          // 仅接 jsonl missing 路径(cwdFellBack=false → rec.cwd === effectiveCwd 等价);
-          // Step 4 接 cwdFellBack 路径时已传 rec.cwd(下面 if 块外 cwd 字段)。
-          const summaryResult = await prependHistorySummary({
-            sessionId,
-            originalText: text,
-            cwd: cwdFellBack ? rec.cwd : effectiveCwd,
-            autoSummariseOnFallback: settingsStore.get('autoSummariseOnFallback'),
+        // outer cwdFellBack 路径已 emit cwd 切换 fact (line 293-300 不动),helper 内部
+        // 进 fallback 分支后会补 emit「成功续上 / 将丢失」详情 (cwdFellBack=true 分支)。
+        const fbResult = await maybeJsonlFallback(
+          {
+            jsonlExistsThunk: this.jsonlExistsThunk,
+            createSession: this.createThunk, // RecovererCtx 字段名是 createThunk (helper 接口字段名是 createSession,命名对齐 RestartCtx)
+            emit: this.ctx.emit,
             summariseFn: this.summariseFn,
-            listEventsFn: (sid) => eventRepo.listForSession(sid),
-          });
-
-          if (!cwdFellBack) {
-            if (summaryResult.used) {
-              // CHANGELOG_107 Step 3: 摘要成功注入 → emit info 让用户知道 Claude 应能续上
-              console.warn(
-                `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${effectiveCwd}, ` +
-                  `falling back to new CLI session with auto-generated summary prepended ` +
-                  `(prompt ${summaryResult.prompt.length} chars)`,
-              );
-              this.emitFallbackMessage(sessionId, buildJsonlMissingSummaryUsedText(effectiveCwd));
-            } else {
-              // CHANGELOG_106 原文案保留:摘要 fallback(settings off / no events / summary empty /
-              // over length / thunk throw)→ emit 让用户手动补背景,与 CHANGELOG_106 行为一致。
-              console.warn(
-                `[sdk-bridge] resume jsonl missing for ${sessionId} @ ${effectiveCwd}, ` +
-                  `falling back to new CLI session (CLI history lost but app DB preserved); ` +
-                  `summary skipped reason=${summaryResult.failReason ?? 'unknown'}` +
-                  (summaryResult.thrown ? ` (${summaryResult.thrown.message})` : ''),
-              );
-              this.emitFallbackMessage(sessionId, buildJsonlMissingSummarySkippedText(effectiveCwd));
-            }
-          } else {
-            // CHANGELOG_107 Step 4: cwdFellBack=true 路径 — outer L156-176 已 emit cwd 切换 fact
-            // 但不预判 jsonl 命运,本分支基于 result.used 补 emit「成功续上 / 将丢失」详情。
-            if (summaryResult.used) {
-              console.warn(
-                `[sdk-bridge] cwdFellBack for ${sessionId} → ${effectiveCwd}, ` +
-                  `falling back to new CLI session with auto-generated summary prepended ` +
-                  `(prompt ${summaryResult.prompt.length} chars)`,
-              );
-              this.emitFallbackMessage(sessionId, buildCwdFallbackSummaryUsedText());
-            } else {
-              console.warn(
-                `[sdk-bridge] cwdFellBack for ${sessionId} → ${effectiveCwd}, ` +
-                  `falling back to new CLI session (CLI history lost but app DB preserved); ` +
-                  `summary skipped reason=${summaryResult.failReason ?? 'unknown'}` +
-                  (summaryResult.thrown ? ` (${summaryResult.thrown.message})` : ''),
-              );
-              this.emitFallbackMessage(sessionId, buildCwdFallbackSummarySkippedText());
-            }
-          }
-          // REVIEW_7 H1：直接用 createSession 返回值拿 newRealId，不再 entries() 反查 cwd。
-          // 旧版用 `for ... entries() if cwd === rec.cwd break` 取 first 推断「最新创建的」，
-          // 但 Map 迭代是插入顺序——同 cwd 已存在别的 SDK 会话时会先取到那条历史 session_id，
-          // 把 OLD_ID 的 events/file_changes/summaries 子表错迁到不相关会话上。
-          // **plan reverse-rename-sid-stability-20260520 §A.4-pre S8 R3 HIGH-G + R5 HIGH-R5-1 +
-          // R6 MED-R6-1 + R7 HIGH-R7-1 修订**: jsonl-missing fallback 不再走 createThunk 新建路径
-          // (createThunk 会按 first realId 创建 NEW sessions row + sessions Map key + SDK claim/token
-          // 然后 updateCliSessionId 撞唯一索引或留 NEW 孤儿 row,违反不变量 1 sessions.id 永不变)。
-          //
-          // 改用 resumeMode='fresh-cli-reuse-app' 显式语义:
-          // - resume = sessionId (applicationSid 复用旧 sid,bridge 内部 createThunk 识别此 mode 不创建新 row)
-          // - resumeCliSid = undefined (caller 明示 fresh CLI thread,SDK 不带 resume)
-          // - bridge 内部 effectiveResumeCliSid = undefined (S1 三分支 fresh-cli-reuse-app → undefined)
-          // - SDK options.resume 不传 → CLI 起 fresh thread → first realId = 新 cli sid
-          // - first realId 后通过 sessionManager.updateCliSessionId(applicationSid, newCliSid) 走
-          //   manager 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订:DB 写必须经 sessionManager 包装,
-          //   manager 内部 readOldCliSid + recentlyDeleted.set(oldCliSid, ...) 60s 黑名单)
-          // - **不**调 finalizeSessionStart 创建新 sessions row,**不**emit session-start (避免撞唯一索引)
-          // **R6 MED-R6-1 修订**: handle 不再使用 (S8 重写后 fresh fallback 不创建新 row,
-          // first realId 通过 sessionManager.updateCliSessionId 写库)。仍 await createThunk 让
-          // SDK 完成 spawn + first realId 拿到,createThunk 内部已处理 cli_session_id 写入。
-          // S5 修订让 createThunk 返 internal.applicationSid (= sessionId),无需再用 handle.sessionId
-          // 反查 — 直接 return sessionId 即可 (与下方 line 506+ 同款 R6 fix line 234 字面已正确)。
-          await this.createThunk({
-            cwd: effectiveCwd, // CHANGELOG_99:可能是 fallback cwd
-            // CHANGELOG_107 Step 3: 用 prepended prompt(摘要成功)或 originalText(失败)
-            prompt: summaryResult.prompt,
-            // **R6 MED-R6-1 修订**: resume = applicationSid (复用 caller 入参 sessionId 不创建新 row)
-            resume: sessionId,
-            // **R3 HIGH-G + R7 HIGH-R7-1 修订**: 显式 mode 字段触发 fresh CLI thread + 复用 applicationSid
-            resumeMode: 'fresh-cli-reuse-app',
+            listEventsFn: this.listEventsFn, // Step 3g 新增 ctor 字段(replace recoverer.ts:395 inline closure)
+          },
+          {
+            sessionId,
+            cliSessionId: rec.cliSessionId ?? null, // SessionRecord.cliSessionId 是 optional (?: string | null) → ?? null 兜底到 helper opts 的 string | null
+            cwd: effectiveCwd, // SDK chdir 目标 (cwdFellBack=true 时是 fallback cwd)
+            prependCwd: cwdFellBack ? rec.cwd : effectiveCwd, // R2 claude HIGH-F1-2 修法 (与原 line 392 现行为对齐)
+            prompt: text,
             permissionMode: rec.permissionMode ?? undefined,
-            // REVIEW_36 HIGH-1 修法：fallback 路径必须显式透传 claudeCodeSandbox，不能依赖 sandbox-resolve
-            // 的 resume 兜底（fallback 不带 resume，会走 settings 全局值 = 静默降级到 'off'）。
-            // 与 permissionMode 同款显式透传 + ?? undefined 兜底（rec.claudeCodeSandbox 历史 null
-            // 时让 sandbox-resolve 走 settings 全局，与原行为对齐）。
             claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
-            // plan model-wiring-and-handoff-20260514 Step 2.4：fallback 路径显式透传 model
             model: rec.model ?? undefined,
-            // plan cross-adapter-parity-20260515 Phase A Step A.6 / REVIEW_40 R1 MED-F:fallback
-            // 路径显式透传 SDK sandbox 额外可写根
             extraAllowWrite: rec.extraAllowWrite ?? undefined,
-            // HIGH-1 修法：attachments 透传，jsonl 缺失 fallback 路径下恢复也带图
             attachments,
-          });
-          // **R6 MED-R6-1 修订**: handle.sessionId === applicationSid (S5 修订让 createSession
-          // 返回 internal.applicationSid;fresh-cli-reuse-app 路径 applicationSid 全程不变 = sessionId)
-          // 不再调 sessionManager.renameSdkSession (反向 rename 不动 sessions.id);
-          // first realId (cli sid) 已在 createThunk 内部通过 sessionManager.updateCliSessionId 写库
-          // (TODO sub-commit A-4 后续:bridge 内部识别 fresh-cli-reuse-app 路径调 sessionManager.updateCliSessionId,
-          // 或在 finalizeSessionStart skip 创建 row 但仍写 cli_session_id 列 — 当前 sub-commit A-4
-          // 部分实施,完整 fresh-cli-reuse-app 路径 bridge 端语义实施留 caller 端验证)
-          // plan cross-adapter-parity-20260515 Phase B Step B.1: 返 sessionId (== applicationSid 不变)
-          return sessionId;
+            cwdFellBack,
+            emitContext: 'recover',
+          },
+        );
+        if (fbResult.fellBack) {
+          // helper 已包办 createSession + 2 emit,不再重复;applicationSid 全程不变 (不变量 3)
+          return fbResult.finalSessionId; // == sessionId
         }
+        // fellBack=false → fall through 到下面正常 resume 路径 (jsonl 在,行为不变,§不变量 8)
 
         // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix:
         // resume 路径下 createThunk 仍可能返回不同 sessionId(CLI 隐式 fork: stream-processor.consume

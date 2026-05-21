@@ -13,6 +13,8 @@ import type { AgentEvent } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
+import { maybeJsonlFallback } from './jsonl-fallback';
+import type { JsonlExistsThunk, SummariseFnThunk } from './recoverer';
 import type { SdkSessionHandle } from './types';
 // **plan reverse-rename-sid-stability-20260520 §C.1 反向 rename 修订**:
 // 不再需要 import sessionManager — restart-controller 不再直接调 sessionManager.renameSdkSession;
@@ -31,6 +33,16 @@ export interface RestartCreateOpts {
    * effectiveResumeCliSid 解析 resolver 直接拿 cli sid (不依赖反查)。
    */
   resumeCliSid?: string;
+  /**
+   * **plan restart-controller-jsonl-precheck-20260521 §Step 3b 修法**:
+   * 与 ClaudeCreateOpts.resumeMode 字段对齐(types.ts:186 / index.ts:186)让 ctx.createSession
+   * 透传 fallback 路径不丢精度。helper `maybeJsonlFallback` fellBack=true 路径调 ctx.createSession
+   * 时显式传 'fresh-cli-reuse-app' 触发 index.ts:419 finalize guard 跳过整个 finalizeSessionStart。
+   *
+   * - 'resume-cli' (default): normal resume 行为 (与 restartWithPermissionMode / restartWithClaudeCodeSandbox 现行路径 line 182-198 / 331-346 字面等价)
+   * - 'fresh-cli-reuse-app': jsonl-missing fallback 专用 — 仅 helper 内部使用,RestartCreateOpts caller 不直接传
+   */
+  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   /**
@@ -55,6 +67,14 @@ export interface RestartCtx {
   closeSession: (sessionId: string) => Promise<void>;
   /** thunk 反调 facade.createSession，restart 路径用 resume + 新 mode/sandbox 重建 */
   createSession: (opts: RestartCreateOpts) => Promise<SdkSessionHandle>;
+  /**
+   * **plan restart-controller-jsonl-precheck-20260521 §Step 3c 修法**:
+   * helper `maybeJsonlFallback` 需要的 3 个新 thunk(与 RecovererCtx 共享同一份 instance —
+   * facade 注入,详 §Step 3g)。
+   */
+  jsonlExistsThunk: JsonlExistsThunk;
+  summariseFn: SummariseFnThunk;
+  listEventsFn: (sessionId: string) => AgentEvent[];
 }
 
 export class RestartController {
@@ -179,6 +199,38 @@ export class RestartController {
         if (updatedRec) eventBus.emit('session-upserted', updatedRec);
 
         try {
+          // **plan restart-controller-jsonl-precheck-20260521 §Step 3d 修法**:
+          // jsonl 预检 + fallback (jsonl 缺失走 fresh-cli-reuse-app + helper 内部续历史摘要 +
+          // emit fallback info + emit role='user';不变量 11 helper 已包办 createSession + 2 emit)。
+          // fellBack=true 时直接 return currentSid (helper 已 createSession 不再重复)。
+          // fellBack=false 时 fall through 到下面原 line 182-198 resume 路径 (jsonl 在,行为不变,
+          // §不变量 8)。
+          const fbResult = await maybeJsonlFallback(
+            {
+              jsonlExistsThunk: this.ctx.jsonlExistsThunk,
+              createSession: this.ctx.createSession, // RestartCreateOpts 的 createSession (覆盖 JsonlFallbackCreateOpts 子集)
+              emit: this.ctx.emit,
+              summariseFn: this.ctx.summariseFn,
+              listEventsFn: this.ctx.listEventsFn,
+            },
+            {
+              sessionId: currentSid,
+              cliSessionId: rec.cliSessionId ?? null, // SessionRecord.cliSessionId 是 optional (?: string | null) → ?? null 兜底
+              cwd: rec.cwd,
+              prependCwd: rec.cwd, // restart 路径 cwdFellBack 永远 false → prependCwd === cwd
+              prompt: handoffPrompt,
+              permissionMode: mode,
+              claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
+              extraAllowWrite: rec.extraAllowWrite ?? undefined,
+              cwdFellBack: false,
+              emitContext: 'restart',
+              restartLabel: `权限模式 ${mode}`, // discriminated union 'restart' 分支必填
+            },
+          );
+          if (fbResult.fellBack) {
+            return fbResult.finalSessionId; // == currentSid (不变量 3 applicationSid 全程不变)
+          }
+
           await this.ctx.createSession({
             cwd: rec.cwd,
             prompt: handoffPrompt,
@@ -328,6 +380,38 @@ export class RestartController {
         if (updatedRec) eventBus.emit('session-upserted', updatedRec);
 
         try {
+          // **plan restart-controller-jsonl-precheck-20260521 §Step 3e 修法** (与 Step 3d 同款):
+          // jsonl 预检 + fallback (jsonl 缺失走 fresh-cli-reuse-app + helper 内部续历史摘要 +
+          // emit fallback info + emit role='user';不变量 11 helper 已包办)。
+          // fellBack=true 时直接 return currentSid (helper 已 createSession 不再重复)。
+          // fellBack=false 时 fall through 到下面原 line 331-346 resume 路径 (jsonl 在,行为不变,
+          // §不变量 8)。
+          const fbResult = await maybeJsonlFallback(
+            {
+              jsonlExistsThunk: this.ctx.jsonlExistsThunk,
+              createSession: this.ctx.createSession,
+              emit: this.ctx.emit,
+              summariseFn: this.ctx.summariseFn,
+              listEventsFn: this.ctx.listEventsFn,
+            },
+            {
+              sessionId: currentSid,
+              cliSessionId: rec.cliSessionId ?? null, // SessionRecord.cliSessionId 是 optional (?: string | null) → ?? null 兜底
+              cwd: rec.cwd,
+              prependCwd: rec.cwd, // restart 路径 cwdFellBack 永远 false → prependCwd === cwd
+              prompt: handoffPrompt,
+              permissionMode: rec.permissionMode ?? undefined, // 透传保留用户辛苦切的 mode (不被 sandbox 切档静默重置)
+              claudeCodeSandbox: sandbox, // 新 sandbox 档 (与下方 createSession 同款)
+              extraAllowWrite: rec.extraAllowWrite ?? undefined,
+              cwdFellBack: false,
+              emitContext: 'restart',
+              restartLabel: `OS 沙盒 ${sandbox}`, // discriminated union 'restart' 分支必填
+            },
+          );
+          if (fbResult.fellBack) {
+            return fbResult.finalSessionId; // == currentSid (不变量 3 applicationSid 全程不变)
+          }
+
           await this.ctx.createSession({
             cwd: rec.cwd,
             prompt: handoffPrompt,
