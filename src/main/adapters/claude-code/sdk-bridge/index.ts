@@ -10,6 +10,7 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
+import { sessionRepo } from '@main/store/session-repo';
 import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
 import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
@@ -169,6 +170,20 @@ export class ClaudeSdkBridge {
      * setModel 持久化让 resume / dormant 唤醒后保持一致。
      */
     model?: string;
+    /**
+     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
+     * bridge 内部 internal 字段(详 ClaudeCreateOpts.resumeCliSid jsdoc):
+     * - caller 不该传(默认走反查 sessionRepo.cliSessionId 兜底回填)
+     * - recoverer.ts:486 + restart-controller.ts:185/339 caller 显式传 `rec.cliSessionId ?? sessionId`
+     */
+    resumeCliSid?: string;
+    /**
+     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
+     * 解决 resumeCliSid: undefined 双语义冲突,详 ClaudeCreateOpts.resumeMode jsdoc 7 种合法/非法组合:
+     * - 'resume-cli' (default): normal resume 行为
+     * - 'fresh-cli-reuse-app': jsonl-missing fallback 专用,SDK 不带 resume 起 fresh CLI thread
+     */
+    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
   }): Promise<SdkSessionHandle> {
     // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
     // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
@@ -281,6 +296,20 @@ export class ClaudeSdkBridge {
       // CHANGELOG_85 Step 3.2：mcp server 拼装抽到 mcp-server-init.ts
       // （settings.enableTaskManager / enableAgentDeckMcp 两 toggle 独立，可同开 / 同关 / 单挂）
       const mcpServers = await buildMcpServersForSession(internal, tempKey);
+
+      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1
+      // bridge 内部 effectiveResumeCliSid 集中兜底**:
+      // 三分支显式 guard opts.resume 防 spawn 主路径走 sessionRepo.get(undefined):
+      // - fresh-cli-reuse-app fallback: SDK 不带 resume 起 fresh CLI thread → undefined
+      // - spawn 主路径(无 opts.resume): undefined (SDK options.resume 不传)
+      // - normal resume: opts.resumeCliSid 显式优先 / 不传时反查 sessionRepo.cliSessionId 兜底回填
+      // **R8 LOW-R8-1**: assertCreateOptsValid runtime guard 应在 effective resolver **之前**跑
+      // (fail-fast 原则,未实装,本 sub-commit A-4 仅落 effective 集中处理点,guard 留实施期补)。
+      const effectiveResumeCliSid =
+        opts.resumeMode === 'fresh-cli-reuse-app' ? undefined :
+        !opts.resume ? undefined :
+        (opts.resumeCliSid ?? sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume);
+
       const q = query({
         prompt: userMessageIterable,
         // CHANGELOG_85 Step 3.2：query() options 整段抽到 query-options-builder.ts
@@ -288,7 +317,11 @@ export class ClaudeSdkBridge {
         options: buildClaudeQueryOptions({
           cwd: opts.cwd,
           permissionMode: opts.permissionMode,
-          resume: opts.resume,
+          // **R6 HIGH-R6-1 修订**: SDK options.resume 字段用 effectiveResumeCliSid (cli sid 维度,
+          // fresh fallback 时 undefined 让 SDK 不带 resume 起 fresh CLI thread,正常 resume 时
+          // 反查 sessionRepo.cliSessionId 兜底回填 — 替代旧 opts.resume 字面 = applicationSid 维度,
+          // 反向 rename 后 appSid != cliSid 时让 CLI 找正确 jsonl 文件)。
+          resume: effectiveResumeCliSid,
           canUseTool,
           sandboxOpts,
           systemPromptAppend: getAgentDeckSystemPromptAppend(),
@@ -305,7 +338,16 @@ export class ClaudeSdkBridge {
       // 等待第一条带 session_id 的 SDKMessage（system init 几乎一定会先到）
       // REVIEW_5 H4：把 opts.resume 传下去，30s fallback 时用 OLD_ID 作 sessionId
       // 替代 tempKey emit 占位事件，让 ingest 走 existing 分支不再创建第二条 active record
-      realId = await this.streamProcessor.waitForRealSessionId(internal, tempKey, opts.resume);
+      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 + R7 修订**: 透传
+      // effectiveResumeCliSid + resumeMode 给 consume() 让 isNewSpawn 三分支 + S6 fork detect
+      // 用 effective 值不 short-circuit。
+      realId = await this.streamProcessor.waitForRealSessionId(
+        internal,
+        tempKey,
+        opts.resume,  // resumeId 入参 = applicationSid 维度 (fallback emit 占位用)
+        effectiveResumeCliSid,
+        opts.resumeMode,
+      );
 
       // A1-HIGH-1 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
       // 旧 impl waitForRealSessionId 在 SDK 流结束但从未发 first session_id frame 时
@@ -362,8 +404,13 @@ export class ClaudeSdkBridge {
     // plan cross-adapter-parity-20260515 Phase A Step A.5: extraAllowWrite 同 claudeModel
     // 同款持久化(spawn-time 透传给 finalizeSessionStart → setExtraAllowWrite 写库),让
     // recoverer fallback / resume 路径读回交还 SDK sandbox.allowWrite。
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S9 R3 HIGH-F + R6 MED-R6-1 修订**:
+    // applicationSid + cliSessionId 双入参 — spawn 主路径下 internal.applicationSid 已切到
+    // realId 后冻结 (S3 isNewSpawn 修订),emit session-start { sessionId: applicationSid }
+    // 与现有 emit session-start { sessionId: realId } 行为字面等价 (S9 jsdoc)。
     finalizeSessionStart({
-      realId,
+      applicationSid: internal.applicationSid,
+      cliSessionId: realId,
       cwd: opts.cwd,
       prompt: opts.prompt,
       claudeSandboxMode,
@@ -372,9 +419,14 @@ export class ClaudeSdkBridge {
       emit: this.opts.emit,
     });
 
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S5 R3 HIGH-F jsdoc 等价性注明**:
+    // return handle.sessionId 用 internal.applicationSid (替代旧 return { sessionId: realId })。
+    // spawn 主路径下 applicationSid 已在 S3 first realId 到达时切到 realId 后冻结,与现有
+    // return { sessionId: realId } 字面行为等价 — caller 拿到的就是 first realId。
+    // resume / fallback 路径下 applicationSid = caller 传入 opts.resume 全程不变。
     return {
-      sessionId: realId,
-      abort: () => void this.interrupt(realId),
+      sessionId: internal.applicationSid,
+      abort: () => void this.interrupt(internal.applicationSid),
     };
   }
 

@@ -323,6 +323,18 @@ export class CodexSdkBridge {
      */
     extraAllowWrite?: readonly string[];
     /**
+     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1 (codex 对称)**:
+     * bridge 内部 internal 字段(详 ClaudeCreateOpts.resumeCliSid jsdoc):
+     * - caller 不该传(默认走反查 sessionRepo.cliSessionId 兜底回填)
+     * - codex/recoverer.ts:359 + codex/restart-controller.ts caller 显式传 `rec.cliSessionId ?? sessionId`
+     */
+    resumeCliSid?: string;
+    /**
+     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1 (codex 对称)**:
+     * 'fresh-cli-reuse-app' 让 jsonl-missing fallback 路径显式触发 SDK fresh thread + 复用 applicationSid。
+     */
+    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+    /**
      * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订):
      * codex SDK startThread/resumeThread `approvalPolicy` 透传。
      *
@@ -651,7 +663,7 @@ export class CodexSdkBridge {
     // 统一 rename codexBySession Map + token map（不变量 7）。
     const tempKey = initialSid;
     this.sessions.set(tempKey, internal);
-    const realId = await this.threadLoop.startNewThreadAndAwaitId(
+    await this.threadLoop.startNewThreadAndAwaitId(
       internal,
       tempKey,
       cwd,
@@ -664,14 +676,17 @@ export class CodexSdkBridge {
     // 此处 persistSessionFields 紧跟 await 之后跑，UPDATE 必然命中。
     // R37 P2-E Step 3.4b：与 resume 路径同款收口（差异仅 sessionId 来源 = realId vs opts.resume）。
     // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 同 resume 路径同款。
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S5 R3 HIGH-F + S9 修订**:
+    // persistSessionFields 用 internal.applicationSid (spawn 主路径 first thread.started 后切到 realId 冻结);
+    // return handle.sessionId 用 internal.applicationSid (与 claude S5 修订对称)。
     persistSessionFields({
-      sessionId: realId,
+      sessionId: internal.applicationSid,
       sandboxMode,
       model: opts.model,
       extraAllowWrite: opts.extraAllowWrite,
     });
 
-    return { sessionId: realId };
+    return { sessionId: internal.applicationSid };
   }
 
   async sendMessage(

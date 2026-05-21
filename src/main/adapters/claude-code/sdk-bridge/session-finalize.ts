@@ -20,7 +20,26 @@ import { sessionRepo } from '@main/store/session-repo';
 import { AGENT_ID } from './constants';
 
 export interface FinalizeSessionStartArgs {
-  realId: string;
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S9 R3 HIGH-F + R6 MED-R6-1 修订**:
+   * applicationSid 维度 (替代旧 realId 字段语义):spawn 主路径下 internal.applicationSid 已切到
+   * realId 后冻结 (S3 isNewSpawn 三分支保护),emit session-start 用 applicationSid 与
+   * 现有 emit session-start { sessionId: realId } 行为字面等价 (caller 仍拿 first realId)。
+   * resume / fallback 路径下 applicationSid = caller 入参 opts.resume 全程不变。
+   *
+   * **R6 MED-R6-1 修订**: jsonl-missing fallback 路径**不调** finalizeSessionStart (S8 重写后
+   * fresh fallback 复用 applicationSid 行 + 走 sessionManager.updateCliSessionId 黑名单链,不需
+   * emit session-start 创建新 sessions row 撞唯一索引)。仅 spawn 主路径调本 helper。
+   */
+  applicationSid: string;
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S9**:
+   * SDK / CLI 当前 thread sid (= sessions.cli_session_id 列值)。spawn 主路径下 = realId
+   * (与 applicationSid 同款 first realId 维度);如反向 rename 后 caller 显式传不同值,
+   * 本 helper 内部 sessionRepo.updateCliSessionId(applicationSid, cliSessionId) 写库。
+   * undefined → 跳过 cli_session_id 写库 (与 R6 MED-R6-1 修订 fresh fallback 路径不调本 helper 对应)。
+   */
+  cliSessionId?: string;
   cwd: string;
   prompt?: string;
   claudeSandboxMode: 'off' | 'workspace-write' | 'strict';
@@ -44,13 +63,23 @@ export interface FinalizeSessionStartArgs {
 /**
  * createSession 在 streamProcessor.waitForRealSessionId 拿到 realId 后跑的 finalize 链。
  * 顺序与原 createSession 末段 100% 一致。
+ *
+ * **plan reverse-rename-sid-stability-20260520 §A.4-pre S9 R3 HIGH-F + R6 MED-R6-1 修订**:
+ * 函数签名 realId 改为 applicationSid + cliSessionId 双入参 (语义双轨化)。spawn 主路径下
+ * caller 传 internal.applicationSid (已切到 first realId 后冻结) + cliSessionId=realId,
+ * emit session-start { sessionId: applicationSid } 与现有 emit session-start { sessionId: realId }
+ * 行为字面等价 (S3 isNewSpawn 修订让 applicationSid === realId in spawn 路径)。
+ *
+ * **不调本 helper 的路径** (R6 MED-R6-1 修订):
+ * - jsonl-missing fallback (S8 重写后): fresh fallback 路径只调 sessionManager.updateCliSessionId
+ *   (manager 黑名单链),不创建新 sessions row 不 emit session-start (避免撞唯一索引)
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
-  const { realId, cwd, prompt, claudeSandboxMode, claudeModel, extraAllowWrite, emit } = args;
+  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, extraAllowWrite, emit } = args;
 
   // 1. 主动 emit session-start
   emit({
-    sessionId: realId,
+    sessionId: applicationSid,
     agentId: AGENT_ID,
     kind: 'session-start',
     payload: { cwd, source: 'sdk' },
@@ -58,41 +87,50 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
     source: 'sdk',
   });
 
+  // 1b. **plan reverse-rename-sid-stability-20260520 §A.4-pre S9**: 写 cli_session_id 列。
+  // spawn 主路径下 cliSessionId === applicationSid (S3 isNewSpawn 后两者同 first realId 值);
+  // resume 路径下 cliSessionId 可能 != applicationSid (反向 rename 后场景,但本 helper
+  // resume 路径不调,见上 jsdoc)。
+  // ensure() 默认行为 (manager.ts:191 新建 row 时 cli_session_id 默认 NULL) 由本 helper
+  // 显式 setCliSessionId 兜底覆盖,确保新 row 走 SDK 主路径时 cli_session_id 列填正确 realId。
+  if (cliSessionId !== undefined) {
+    try {
+      sessionRepo.updateCliSessionId(applicationSid, cliSessionId);
+    } catch (err) {
+      console.warn(
+        `[claude-bridge] updateCliSessionId(${applicationSid}, ${cliSessionId}) 失败`,
+        err,
+      );
+    }
+  }
+
   // 2. CHANGELOG_74：持久化 sandbox 档位（紧跟 emit session-start，record 已建必然命中）
   try {
-    sessionRepo.setClaudeCodeSandbox(realId, claudeSandboxMode);
+    sessionRepo.setClaudeCodeSandbox(applicationSid, claudeSandboxMode);
   } catch (err) {
     console.warn(
-      `[claude-bridge] setClaudeCodeSandbox(${realId}, ${claudeSandboxMode}) 失败`,
+      `[claude-bridge] setClaudeCodeSandbox(${applicationSid}, ${claudeSandboxMode}) 失败`,
       err,
     );
   }
 
   // 2b. plan model-wiring-and-handoff-20260514 Step 2.2：持久化 model（与 sandbox 同位置同模式）。
-  // claudeModel undefined → 跳过（resume 路径下 sessionRepo.model 已存 → 保留原值；
-  // 新建未传 model 的会话 → 字段保持 NULL，SDK 跑默认 model）。
-  // 非 undefined → setModel 写入，让 dormant 唤醒 / SDK 重启 resume 仍用此 model。
   if (claudeModel !== undefined) {
     try {
-      sessionRepo.setModel(realId, claudeModel);
+      sessionRepo.setModel(applicationSid, claudeModel);
     } catch (err) {
-      console.warn(`[claude-bridge] setModel(${realId}, ${claudeModel}) 失败`, err);
+      console.warn(`[claude-bridge] setModel(${applicationSid}, ${claudeModel}) 失败`, err);
     }
   }
 
   // 2c. plan cross-adapter-parity-20260515 Phase A Step A.4 / REVIEW_40 R1 MED-F:持久化
   // SDK sandbox 额外可写根(与 sandbox + model 同位置同模式)。
-  // extraAllowWrite undefined / 空数组 → 跳过(resume 路径下 sessionRepo.extraAllowWrite
-  // 已存 → 保留原值;新建未传 extraAllowWrite 的会话 → 字段保持 NULL,sandbox.allowWrite
-  // 仅含 cwd + /tmp + cache)。非空数组 → setExtraAllowWrite 写入,让 recoverer fallback /
-  // resume 路径读回交还 SDK sandbox.allowWrite(workspace-write 档生效)。
   if (extraAllowWrite !== undefined && extraAllowWrite.length > 0) {
     try {
-      // setExtraAllowWrite 接 string[] | null,readonly string[] 转 mutable copy
-      sessionRepo.setExtraAllowWrite(realId, [...extraAllowWrite]);
+      sessionRepo.setExtraAllowWrite(applicationSid, [...extraAllowWrite]);
     } catch (err) {
       console.warn(
-        `[claude-bridge] setExtraAllowWrite(${realId}, [${extraAllowWrite.join(', ')}]) 失败`,
+        `[claude-bridge] setExtraAllowWrite(${applicationSid}, [${extraAllowWrite.join(', ')}]) 失败`,
         err,
       );
     }
@@ -101,7 +139,7 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
   // 3. 补 emit 首条 user message（覆盖新建会话 + 恢复会话两条路径）
   if (prompt) {
     emit({
-      sessionId: realId,
+      sessionId: applicationSid,
       agentId: AGENT_ID,
       kind: 'message',
       payload: { text: prompt, role: 'user' },

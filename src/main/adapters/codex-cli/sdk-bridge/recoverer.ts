@@ -97,6 +97,16 @@ export type CreateSessionThunk = (opts: {
    * 显式透传 + ?? undefined 兜底(rec.extraAllowWrite 历史 NULL 时 undefined 跳过 setter)。
    */
   extraAllowWrite?: readonly string[];
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1 (codex 对称)**:
+   * caller 显式传 cli sid (rec.cliSessionId ?? sessionId) 让 codex SDK resumeThread 拿正确 thread sid。
+   */
+  resumeCliSid?: string;
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1 (codex 对称)**:
+   * 'fresh-cli-reuse-app' 让 jsonl-missing fallback 路径显式触发 SDK fresh thread + 复用 applicationSid。
+   */
+  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
 }) => Promise<CodexSessionHandle>;
 
 export type SendMessageThunk = (
@@ -319,35 +329,26 @@ export class SessionRecoverer {
           // REVIEW_36 HIGH-1 同款教训）。attachments 透传让首条恢复消息带图。
           // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 同 model 同款显式
           // 透传(codex 不消费但 createSession 内部仍 setExtraAllowWrite 持久化保 parity 对称)。
-          const handle = await this.createThunk({
+          // **plan reverse-rename-sid-stability-20260520 §A.4-pre S8 R3 HIGH-G + R5 HIGH-R5-1 +
+          // R6 MED-R6-1 + R7 HIGH-R7-1 修订 (codex 对称 claude recoverer.ts:466)**:
+          // jsonl-missing fallback 不再创建新 sessions row,改用 resumeMode='fresh-cli-reuse-app'
+          // 显式语义 + 复用 applicationSid (sessionId);first realId 后通过 sessionManager.updateCliSessionId
+          // 走 manager 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订)。
+          await this.createThunk({
             cwd: effectiveCwd,
             prompt: text,
+            // **R6 MED-R6-1 修订**: resume = applicationSid (复用 caller 入参 sessionId)
+            resume: sessionId,
+            // **R3 HIGH-G + R7 HIGH-R7-1 修订**: 显式 mode 字段触发 fresh CLI thread + 复用 applicationSid
+            resumeMode: 'fresh-cli-reuse-app',
             codexSandbox: rec.codexSandbox ?? undefined,
             model: rec.model ?? undefined,
             extraAllowWrite: rec.extraAllowWrite ?? undefined,
             attachments,
           });
-          const newRealId = handle.sessionId;
-          if (newRealId !== sessionId) {
-            console.warn(
-              `[codex-bridge] post-fallback rename ${sessionId} → ${newRealId} ` +
-                `(carry app-side events/file_changes/summaries history)`,
-            );
-            // 与 claude REVIEW_7 M1+M3 同款：rename 失败不 throw — NEW_ID 通道已建立，
-            // rename 只是 best-effort history carry，throw 会让 sendMessage 失败影响主路径。
-            try {
-              sessionManager.renameSdkSession(sessionId, newRealId);
-            } catch (renameErr) {
-              console.error(
-                `[codex-bridge] post-fallback rename failed ${sessionId} → ${newRealId}, ` +
-                  `NEW_ID session still works but app-side history not migrated.`,
-                renameErr,
-              );
-            }
-          }
-          // plan cross-adapter-parity-20260515 Phase B Step B.2: 返 final id 给等待者 path
-          // (newRealId 才是真实 active session,OLD sessionId 在 fallback rename 后已 DB DELETE)。
-          return newRealId;
+          // plan cross-adapter-parity-20260515 Phase B Step B.2: 返 sessionId (== applicationSid 不变,
+          // 不再调 sessionManager.renameSdkSession — 反向 rename 不动 sessions.id)
+          return sessionId;
         }
 
         // 正常 resume 路径：jsonl 在 + cwd 有 → 走 createSession({resume, prompt, codexSandbox, model, attachments})
@@ -360,6 +361,12 @@ export class SessionRecoverer {
           cwd: effectiveCwd,
           prompt: text,
           resume: sessionId,
+          // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6.5 R6 HIGH-R6-1 双方共识必修
+          // (codex 对称 claude recoverer.ts:486)**:
+          // 显式传 resumeCliSid = rec.cliSessionId ?? sessionId 防 caller 不传时 S6 fork detect
+          // 短路;反向 rename 后 rec.cliSessionId 是 SDK 当前 thread sid (允许变化),sessionId 是
+          // applicationSid (永远稳定)。
+          resumeCliSid: rec.cliSessionId ?? sessionId,
           // 显式透传：resume 路径下 createSession 内部 sandboxMode fallback 也能从 sessionRepo
           // 反查到（详 codex-cli/sdk-bridge/index.ts:185-188 fallback chain），但显式透传更清晰
           // 一致 + 与 claude HIGH-1 处理方式对称 + 防 sessionRepo 边界 race。

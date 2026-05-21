@@ -198,7 +198,7 @@ export class ThreadLoop {
    */
   async runTurnLoop(
     internal: InternalSession,
-    key: string,
+    _key: string,
     onFirstId?: (id: string) => void,
     onEarlyError?: (msg: string) => void,
   ): Promise<void> {
@@ -211,10 +211,13 @@ export class ThreadLoop {
         const input = internal.pendingMessages.shift()!;
         const controller = new AbortController();
         internal.currentTurn = controller;
-        // emit 闭包：sid 取最新的 realId（thread_id 在第一条 thread.started 后才有）
+        // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4 R4 HIGH-H 修订**:
+        // emit event sid 用 internal.applicationSid (D7 不变量 3 wire prefix [sid] 100% 写 sessions.id);
+        // applicationSid 在 spawn 主路径 first thread.started 到达时切到 realId 后冻结 (S2 + S3
+        // case 1 isNewSpawn 分支保护),resume/fallback 路径 ctor 时 = opts.resume 全程不变。
         const emit = (kind: AgentEventKind, payload: unknown): void => {
           this.ctx.emit({
-            sessionId: internal.threadId ?? key,
+            sessionId: internal.applicationSid,
             agentId: AGENT_ID,
             kind,
             payload,
@@ -239,32 +242,46 @@ export class ThreadLoop {
             //    跳过 ev.thread_id 校验 → app 层 ↔ SDK actual id silent split → 历史会话静默断链。
             if (ev.type === 'thread.started') {
               if (!internal.threadId) {
-                // case 1: 新建路径
+                // case 1: 新建路径 — spawn 主路径 first thread.started 到达
+                // **plan reverse-rename-sid-stability-20260520 §A.4-pre S3 R3 HIGH-F + R7 HIGH-R7-1
+                // isNewSpawn 三分支保护 (codex 对称)**:
+                // - spawn 主路径 (无 opts.resume + resumeMode='resume-cli' default):
+                //   internal.applicationSid = ev.thread_id (切到 first thread_id 后冻结) +
+                //   internal.threadId = ev.thread_id + sessionManager.renameSdkSession (D2)
+                // - resume / fallback 路径 (有 opts.resume): applicationSid 全程不变 (S2 jsdoc),
+                //   仅 update internal.threadId (本 case 1 走 !internal.threadId 分支不进 resume case 3)
+                // 当前 case 1 仅 spawn 主路径触发 (resume 路径 ctor 时 internal.threadId 已有 opts.resume),
+                // 故无条件设 applicationSid 即可 (与 claude stream-processor.ts:271 isNewSpawn 分支同款)
                 internal.threadId = ev.thread_id;
+                // codex spawn 主路径 applicationSid 切换由 sdk-bridge/index.ts startNewThreadAndAwaitId
+                // 内的 sessionManager.renameSdkSession 触发 (与 claude S3 isNewSpawn 同款,详 codex sdk-bridge/index.ts)
                 if (firstIdCb) {
                   firstIdCb(ev.thread_id);
                   firstIdCb = undefined;
                   earlyErrCb = undefined;
                 }
               } else if (internal.threadId !== ev.thread_id) {
-                // case 3: 恢复路径但 SDK 返回不同 id（罕见 + future-proof）
+                // case 3: 恢复路径但 SDK 返回不同 id（罕见 + future-proof）— codex resume fork
+                // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6 R5 HIGH-R5-1 + R6 MED-R6-1 修订**:
+                // 走 sessionManager.updateCliSessionId (反向 rename 不动 sessions.id);
+                // sessions Map key 不再切换 (S3 修订让 sessions Map key = applicationSid 不变);
+                // 只 update internal.threadId 为新 SDK 返回的 thread_id (cli sid 维度)。
                 const oldId = internal.threadId;
                 const newId = ev.thread_id;
                 console.warn(
                   `[codex-bridge] resumeThread returned different thread_id ${oldId} → ${newId}; ` +
-                    `unexpected (codex resume historically returns same id). Carrying app-side ` +
-                    `history via renameSdkSession.`,
+                    `updating cli_session_id column on application sid ${internal.applicationSid} (走 manager 黑名单链)`,
                 );
-                // 切 sessions Map 的 key（与 startNewThreadAndAwaitId 内 tempKey→realId rename 同款）
-                this.ctx.sessions.delete(oldId);
-                this.ctx.sessions.set(newId, internal);
                 internal.threadId = newId;
+                // **R5 HIGH-R5-1 + R6 MED-R6-1 + R7 MED-R7-1 修订**: 第一参数 internal.applicationSid
+                // (app sid 维度,不变量 1) 而非 oldId (cli sid 维度);走 manager 黑名单链确保
+                // OLD_CLI_ID 进 recentlyDeleted 60s 防迟到 hook event 复活幽灵 record (不变量 5)。
                 try {
-                  sessionManager.renameSdkSession(oldId, newId);
+                  sessionManager.updateCliSessionId(internal.applicationSid, newId);
                 } catch (renameErr) {
                   console.error(
-                    `[codex-bridge] post-resume rename failed ${oldId} → ${newId}, ` +
-                      `NEW thread runs but app-side history not migrated.`,
+                    `[codex-bridge] post-resume updateCliSessionId failed app=${internal.applicationSid} → ${newId}, ` +
+                      `NEW thread runs but cli_session_id 列未更新 + OLD_CLI_ID 未入黑名单.`,
                     renameErr,
                   );
                 }
