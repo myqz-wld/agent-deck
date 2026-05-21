@@ -14,6 +14,24 @@
 
 本应用环境（agent-deck）teammate 协作走 mcp tool（详 §Agent Deck Universal Team Backend 节）。teammate 通过 `send_message` 发消息 → universal-message-watcher → adapter.receiveTeammateMessage → adapter.sendMessage → SDK emit user-role event 自动注入 receiver conversation flow（receiver Claude 看到 user message 直接 act on it，无需主动 poll）。
 
+### task 进度跟踪走 `mcp__tasks__*`,不走原生 `TaskCreate / TaskUpdate / TaskList`
+
+本应用环境跑 plan / 多 Agent 协作 / 多步骤工作时,**task 进度跟踪必须走** `mcp__tasks__task_create` / `task_update` / `task_list` / `task_get` / `task_delete`,**不走** Claude Code CLI 内置的 `TaskCreate` / `TaskUpdate` / `TaskList`。
+
+**Why**:
+- `mcp__tasks__*` 自动闭包当前 SDK session 的 `team_id` 进 universal team backend。写操作锁自己 team(防跨 team 误改),只读允许 lead 跨 team 协调
+- task 状态对 teammate / hand-off 后新 session 全可见,不丢进度
+- 原生 `TaskCreate` 只 in-process 当前 SDK session 可见,跨会话 / 跨 teammate 全部丢失,与 universal team backend 设计意图相违背
+
+**How to apply**:
+- 新建 task: `mcp__tasks__task_create({ subject, description?, status?, priority?, blocks?, blocked_by?, labels? })` → 返 `{ id, ... }`,team_id 自动闭包
+- 状态切换: `mcp__tasks__task_update({ task_id, status })`,枚举 `pending` / `active` / `completed` / `blocked` / `abandoned`(注意 `active` 替代原生 `in_progress`)
+- 列表查询: `mcp__tasks__task_list({ status_filter?, subject_filter?, team_id? })`,不传 team_id = 当前 team / 显式 null = 全局 / 显式 string = 跨 team 协调
+- 单个查询: `mcp__tasks__task_get({ task_id })`(不限 team,跨 team 可读)
+- 删除: `mcp__tasks__task_delete({ task_id, force?: false })`,force=true 级联删 downstream
+
+**例外**: 应用 settings `enableTaskManager: false` 关闭时本组工具不挂 → 退化用户全局 user CLAUDE.md 默认机制(原生 TaskCreate/TaskUpdate);但本应用打包 SDK 会话默认行为是 toggle ON 时挂上,挂上后**优先用 mcp__tasks__\***,不重复用原生 TaskCreate 制造两套 task list 进度漂移。
+
 ### reviewer-codex 失败 → 应用环境额外有「合规兜底」分支
 
 应用环境跑 `deep-review` SKILL 时若 reviewer-codex teammate 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort），可走「合规兜底（仍异构）」：lead 自己 Bash `run_in_background: true` 起外部 codex CLI（按 user 全局模板 `~/.claude/templates/reviewer-codex.sh.tmpl` 填，lead 自己执行而非 teammate），与 reviewer-claude teammate 仍构成 gpt-5.5 vs Opus 4.7 异构对。
