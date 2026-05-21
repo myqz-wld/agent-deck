@@ -309,13 +309,16 @@ export class StreamProcessor {
           internal.cliSessionId = realId;
           // **plan reverse-rename-sid-stability-20260520 §A.4-pre S3 R4 HIGH-R4-1 + R7 HIGH-R7-1
           // isNewSpawn 三分支保护**: 区分 spawn 主路径 vs resume/fallback 路径,防 fallback 路径
-          // 误进 spawn rename 分支破 5 处契约。S6 fork detect 比较 effectiveResumeCliSid 留 sub-commit A-4 处理。
+          // 误进 spawn rename 分支破 5 处契约。S6 fork detect 比较 effectiveResumeCliSid 在本块 if 之后处理。
           //
           // - spawn 主路径 (无 opts.resume + resumeMode='resume-cli' default): tempKey !== realId
           //   时 D2 spawn bootstrap rename 保留,sessions Map 切到 realId + applicationSid 切到 realId 冻结
-          // - resume / fallback 路径 (有 opts.resume): applicationSid 全程不变 (S2 jsdoc),
-          //   仅 update internal.cliSessionId (上一行已做);sessions Map 切换由 ctor 时已 set applicationSid
-          //   保证 (sub-commit A-3 S3 + A-4 S8 重写 jsonl-missing fallback 后 ctor 时直接 set applicationSid)
+          // - resume / fallback 路径 (有 opts.resume): applicationSid 全程不变 (S2 jsdoc),sessions Map
+          //   key 已在 ctor 时 set 为 applicationSid (sub-commit A-5 fix); jsonl-missing fallback
+          //   (resumeMode='fresh-cli-reuse-app') 走 sessionManager.updateCliSessionId 黑名单链
+          //   (R5 HIGH-R5-1 + R6 MED-R6-1 修订: DB 写经 manager 包装,manager 内部读 oldCliSid 进黑名单 60s)。
+          //   normal resume (resumeMode='resume-cli') 不在此处写 DB,交给 S6 fork detect 处理(无 fork
+          //   时 cliSid 同值无需写,真实 fork 时由 S6 经 manager 黑名单链写入)。
           const isNewSpawn = !resumeId && resumeMode !== 'fresh-cli-reuse-app';
           if (tempKey !== realId) {
             if (isNewSpawn) {
@@ -330,12 +333,17 @@ export class StreamProcessor {
               // 事件同步迁移 selectedId / by-session 状态，不会被踢回主界面。
               // REVIEW_7 M3：renameSdkSession 内聚 sdkOwned claim 转移，调用方不再手工 release+claim。
               sessionManager.renameSdkSession(tempKey, realId);
+            } else if (resumeMode === 'fresh-cli-reuse-app') {
+              // **plan §A.4-pre S3 R5 HIGH-R5-1 + R6 MED-R6-1 修订**:
+              // jsonl-missing fallback: opts.resumeCliSid undefined,S6 fork detect 不触发(短路);
+              // DB cli_session_id 列 + OLD_CLI_ID 黑名单交给 sessionManager.updateCliSessionId
+              // 让 manager 内部读 oldCliSid + recentlyDeleted.set(oldCliSid, 60s) 防迟到 hook event
+              // 复活幽灵 record (不变量 5)。
+              sessionManager.updateCliSessionId(internal.applicationSid, realId);
             }
-            // resume / fallback 路径 (isNewSpawn=false): applicationSid 全程不变 (S2 contract);
-            // sessions Map 切换由 sub-commit A-4 S8 重写 jsonl-missing fallback 时让 ctor 时直接 set applicationSid 保证;
-            // 当前实现 sessions Map ctor 时仍 set tempKey,A-3 暂不 mutate (留 A-4 + A-5 test verify)。
-            // **TODO sub-commit A-4**: jsonl-missing fallback 路径 (resumeMode='fresh-cli-reuse-app')
-            // 走 sessionManager.updateCliSessionId 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订)
+            // normal resume 路径 (isNewSpawn=false + resumeMode='resume-cli'): applicationSid 全程不变;
+            // sessions Map key 已 ctor 时 set 为 applicationSid 不需要 mutate;
+            // DB cli_session_id 列写入交给 S6 fork detect 处理(下方 if (resumeId && resumeId !== realId))。
           }
 
           // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6 R6 HIGH-R6-1 + R7 HIGH-R7-1 + R7 MED-R7-1 修订**:

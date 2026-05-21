@@ -94,6 +94,18 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     // ─── rename ───
     rename: vi.fn(),
 
+    // ─── plan reverse-rename-sid-stability-20260520 §A.4-pre cli_session_id 列 ───
+    findByCliSessionId: (cliSid: string) => {
+      for (const r of sessions.values()) {
+        if ((r.cliSessionId ?? null) === cliSid) return r;
+      }
+      return null;
+    },
+    updateCliSessionId: (id: string, newCliSid: string | null) => {
+      const r = sessions.get(id);
+      if (r) sessions.set(id, { ...r, cliSessionId: newCliSid });
+    },
+
     // ─── spawn-chain（mcp tools / spawn-guards 用） ───
     getSpawnDepth: (id: string) => sessions.get(id)?.spawnDepth ?? 0,
     setSpawnLink: (id: string, parentId: string | null, depth: number) => {

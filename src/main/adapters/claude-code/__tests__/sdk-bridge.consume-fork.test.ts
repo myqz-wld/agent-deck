@@ -22,6 +22,7 @@ vi.mock('@main/session/manager', () => ({
     releaseSdkClaim: vi.fn(),
     expectSdkSession: vi.fn(() => () => undefined),
     renameSdkSession: vi.fn(),
+    updateCliSessionId: vi.fn(),
     unarchive: vi.fn(),
   },
 }));
@@ -67,7 +68,10 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
     }
 
     const internal = {
-      realSessionId: null as string | null,
+      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 字段命名升级**:
+      // realSessionId → cliSessionId + 新增 applicationSid 双字段
+      applicationSid: OLD_ID,
+      cliSessionId: null as string | null,
       cwd: '/tmp/x',
       query: fakeSdkStream() as unknown,
       pendingUserMessages: [] as unknown[],
@@ -94,10 +98,16 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
 
     expect(firstId).toBe(NEW_ID);
 
-    // REVIEW_7 M3：renameSdkSession 内聚 sdkOwned claim 转移（OLD_ID → NEW_ID 原子），
-    // 调用方不再手工 releaseSdkClaim(OLD_ID)。只断言 renameSdkSession 被正确调用。
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6 反向 rename 修订**:
+    // fork detect 走 sessionManager.updateCliSessionId(applicationSid, NEW_ID) 替代 renameSdkSession;
+    // 第一参数 applicationSid (= OLD_ID for resume path),走 manager 黑名单链确保 OLD_CLI_ID
+    // 进 recentlyDeleted 60s 防迟到 hook event 复活幽灵 record (不变量 5)。
     const { sessionManager } = await import('@main/session/manager');
-    expect(vi.mocked(sessionManager.renameSdkSession)).toHaveBeenCalledWith(OLD_ID, NEW_ID);
+    expect(vi.mocked(sessionManager.updateCliSessionId)).toHaveBeenCalledWith(internal.applicationSid, NEW_ID);
+    // 旧 renameSdkSession 不再因 fork 调用 (反向 rename 不动 sessions.id)
+    const renameCalls = vi.mocked(sessionManager.renameSdkSession).mock.calls;
+    const forkRenames = renameCalls.filter(([from, to]) => from === OLD_ID && to === NEW_ID);
+    expect(forkRenames).toHaveLength(0);
   });
 
   it('first realId === opts.resume → 不触发 fork 分支（不调 renameSdkSession）', async () => {
@@ -110,7 +120,8 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
     }
 
     const internal = {
-      realSessionId: null as string | null,
+      applicationSid: SAME_ID,
+      cliSessionId: null as string | null,
       cwd: '/tmp/x',
       query: fakeSdkStream() as unknown,
       pendingUserMessages: [] as unknown[],
@@ -124,6 +135,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
 
     const { sessionManager } = await import('@main/session/manager');
     vi.mocked(sessionManager.renameSdkSession).mockClear();
+    vi.mocked(sessionManager.updateCliSessionId).mockClear();
     vi.mocked(sessionManager.releaseSdkClaim).mockClear();
 
     await (bridge as unknown as {
@@ -135,12 +147,13 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       ) => Promise<string | null>;
     }).consume(internal, tempKey, () => undefined, SAME_ID);
 
-    // tempKey !== realId 路径会走 rename(tempKey, SAME_ID)，但不应该走 fork 分支 rename(SAME_ID, SAME_ID)
+    // first realId === SAME_ID === resumeId → 不应触发 fork 分支
+    // (反向 rename 修订:fork detect 走 sessionManager.updateCliSessionId 不再 renameSdkSession)
+    expect(vi.mocked(sessionManager.updateCliSessionId)).not.toHaveBeenCalled();
+    // 旧 renameSdkSession 也不应被 fork 分支调用 (但 spawn 路径 tempKey → realId rename 仍会调,
+    // 这里只 filter 验证 fork 分支字面 rename(SAME_ID, SAME_ID))
     const renameCalls = vi.mocked(sessionManager.renameSdkSession).mock.calls;
     const forkRenames = renameCalls.filter(([from, to]) => from === SAME_ID && to === SAME_ID);
     expect(forkRenames).toHaveLength(0);
-    // releaseSdkClaim(SAME_ID) 是 finally 释放，能调 1 次正常；但不应该来自 fork 分支
-    // 这里只断言不重复 release（finally 1 次 + 如果 fork 分支错误地走过 release 又 1 次 = 2 次会出问题）
-    // 简化：只断言 fork 分支没触发 rename
   });
 });

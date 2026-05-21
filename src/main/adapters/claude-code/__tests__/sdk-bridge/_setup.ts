@@ -19,6 +19,12 @@ export interface CreateSessionCall {
   cwd: string;
   prompt?: string;
   resume?: string;
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
+   * jsonl-missing fallback 走 resumeMode='fresh-cli-reuse-app' 让 SDK 不带 resume 起 fresh CLI thread
+   * 但复用 caller 入参 sid 作 applicationSid (不创建新 row)。recovery test 断言此字段。
+   */
+  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
   permissionMode?: string;
   /**
    * REVIEW_36 HIGH-1 regression：让 recovery test 能断言 fallback 路径透传 claudeCodeSandbox
@@ -92,6 +98,7 @@ export class TestBridge extends ClaudeSdkBridge {
     prompt?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
     resume?: string;
+    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
     /** REVIEW_36 HIGH-1：fallback 透传 sandbox 档位 */
     claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
     /** plan cross-adapter-parity-20260515 Phase A.9: fallback / resume 透传 extra writable roots */
@@ -101,6 +108,7 @@ export class TestBridge extends ClaudeSdkBridge {
       cwd: opts.cwd,
       prompt: opts.prompt,
       resume: opts.resume,
+      resumeMode: opts.resumeMode,
       permissionMode: opts.permissionMode,
       claudeCodeSandbox: opts.claudeCodeSandbox,
       extraAllowWrite: opts.extraAllowWrite,
@@ -137,13 +145,24 @@ export class TestBridge extends ClaudeSdkBridge {
    * 真要测的 fix 行为)。
    *
    * 其它 sid:走 super.sendMessage 原行为不破现有 case;让 p1/p2 第一波 OLD sid 真进 recoverer。
+   *
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S5 修订**:反向 rename 后 applicationSid 不变,
+   * recoverer 返 sessionId 与 caller 入参相同 → p1/p2 都用同 sid → 单纯 interceptSidSet.has 区分不了
+   * "首次进 recoverer" vs "waiter post-recoverer 调"。新增 `interceptSkipFirstCalls` 计数:
+   * 命中 interceptSidSet 时先扣计数,>0 时仍走 super(模拟 p1 首次 sendMessage 进 recoverer),
+   * 计数 === 0 时才真 intercept (模拟 waiter post-recoverer sendThunk → bridge.sendMessage 命中)。
    */
+  public interceptSkipFirstCalls = 0;
   override async sendMessage(
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
   ): Promise<void> {
     if (this.interceptSidSet.has(sessionId)) {
+      if (this.interceptSkipFirstCalls > 0) {
+        this.interceptSkipFirstCalls -= 1;
+        return super.sendMessage(sessionId, text, attachments);
+      }
       this.sendMessageCalls.push({ sessionId, text, attachments });
       return;
     }
