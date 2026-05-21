@@ -52,3 +52,4 @@
 | [hand-off-session-adopt-teammates-20260520.md](hand-off-session-adopt-teammates-20260520.md) | completed | [135](../changelog/CHANGELOG_135.md) | hand-off-session-adopt-teammates-20260520 |
 | [reverse-rename-sid-stability-20260520.md](reverse-rename-sid-stability-20260520.md) | completed | [136](../changelog/CHANGELOG_136.md) | reverse-rename-sid-stability-20260520 |
 | [codex-stream-error-classify-20260521.md](codex-stream-error-classify-20260521.md) | completed | [140](../changelog/CHANGELOG_140.md) | codex CLI 5 次内置重连中间态识别 — translate.ts 三态分类(白名单 + 启发式双层 + fatal 优先)|
+| [assets-codex-user-and-ui-unify-20260521.md](assets-codex-user-and-ui-unify-20260521.md) | completed | [141](../changelog/CHANGELOG_141.md) | assets-codex-user-and-ui-unify-20260521 |
