@@ -907,6 +907,105 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
     expect(data.adopted.failed).toEqual([]);
   });
 
+  // **REVIEW_49 R1 follow-up 回归 test (D-MED)**: processSwappedTeam 4 处 emit/notify 改
+  // safeEmit wrapper try/catch 兜底 — emit 任一抛错(eventBus listener throw / sessionRepo.get
+  // 撞 disposed connection / SQLite locked)swap 主流程不打断,后续 team 仍 swap;返 ok 不返 error。
+  it('REVIEW_49 R1 follow-up: processSwappedTeam emit 抛错 → safeEmit 兜底不打断 swap 主流程', async () => {
+    const state = makeState();
+    setupPlanFile(state, 'safeemit-test');
+    // multi-team 场景,验证 firstTeam emit 抛错后非 firstTeam 仍能 swap
+    setupCallerLead(
+      ['team-1', 'team-2'],
+      new Map([
+        [
+          'team-1',
+          [fakeMember({ teamId: 'team-1', sessionId: 'tm-1', role: 'teammate' })],
+        ],
+        [
+          'team-2',
+          [fakeMember({ teamId: 'team-2', sessionId: 'tm-2', role: 'teammate' })],
+        ],
+      ]),
+    );
+    vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) =>
+      id === 'caller-sid' ? fakeCallerRow() : null,
+    );
+
+    // **关键 mock**: eventBus.emit 抛错(模拟 listener throw)
+    const emitSpy = vi.spyOn(eventBus, 'emit').mockImplementation(() => {
+      throw new Error('simulated listener throw');
+    });
+    // notifyTeamMembershipChanged 同款抛错(模拟 SQLite locked)
+    const notifySpy = vi
+      .spyOn(sessionManager, 'notifyTeamMembershipChanged')
+      .mockImplementation(() => {
+        throw new Error('simulated sqlite locked');
+      });
+    // 抑制 safeEmit 的 console.warn 输出,test 输出干净
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+    const mockSwapLead = vi.fn(() => ({ swapped: true as const }));
+    const mockListMembers = vi.fn((teamId: string) => {
+      if (teamId === 'team-1') {
+        return [
+          fakeMember({ teamId: 'team-1', sessionId: 'caller-sid', role: 'lead' }),
+          fakeMember({ teamId: 'team-1', sessionId: 'tm-1', role: 'teammate' }),
+        ];
+      }
+      if (teamId === 'team-2') {
+        return [
+          fakeMember({ teamId: 'team-2', sessionId: 'caller-sid', role: 'lead' }),
+          fakeMember({ teamId: 'team-2', sessionId: 'tm-2', role: 'teammate' }),
+        ];
+      }
+      return [];
+    });
+
+    const result = await handOffSessionHandler(
+      {
+        plan_id: 'safeemit-test',
+        adapter: 'claude-code',
+        adopt_teammates: true,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: makeOkSpawn(seenSpawn),
+        archiveSession: noopArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+        swapLead: mockSwapLead,
+        getSessionForLifecycle: activeLifecycleGet,
+        listAllMembersForAdopt: mockListMembers,
+        closeSession: noopCloseSession,
+      },
+    );
+
+    // **关键断言**: 整体返回 ok 不被 emit 抛错打断
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+
+    // swap 主流程仍跑两次(firstTeam team-1 + 非 firstTeam team-2),emit 抛错不让 slice(1) 循环 abort
+    expect(mockSwapLead).toHaveBeenCalledTimes(2);
+    expect(data.adopted.teamsTotal).toBe(2);
+    expect(data.adopted.teamsAdopted).toBe(2); // 两 team 都 swap 成功
+    expect(data.adopted.preserved.sort()).toEqual(['tm-1', 'tm-2']);
+    expect(data.adopted.failed).toEqual([]);
+
+    // safeEmit wrapper 调 console.warn (4 emit/notify × 2 team = 8 次,但 emit 调 4×2=8 都抛错)
+    // 至少 emit 4 次 / notify 4 次 都被 wrapper catch 住没向上抛
+    expect(warnSpy).toHaveBeenCalled();
+    // 验证 wrapper 调 console.warn 含 processSwappedTeam 标识(safeEmit 实现内的 label)
+    const safeEmitWarns = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('processSwappedTeam'),
+    );
+    expect(safeEmitWarns.length).toBeGreaterThanOrEqual(4); // 至少 4 次(2 team × 2 类失败)
+
+    emitSpy.mockRestore();
+    notifySpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
   it('T6.X1 caller-not-lead-in-team: caller 在 team-L 是 lead + team-T 是 teammate → team-T 进 failed', async () => {
     const state = makeState();
     setupPlanFile(state, 't6-x1-mixed');

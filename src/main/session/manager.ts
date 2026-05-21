@@ -625,6 +625,12 @@ class SessionManagerClass {
    * **caller 必须经本 helper 包装,不能直接调 sessionRepo.updateCliSessionId** (否则黑名单链断,
    * R7 MED-R7-2 test 6 已加断言 verify)。
    *
+   * **spawn-path no-op 短路** (REVIEW_49 R3 follow-up LOW): spawn 主路径下 oldCliSid ===
+   * applicationSid === newCliSessionId,L632 `oldCliSid !== newCliSessionId` 判断不写黑名单 →
+   * 行为等价直调 sessionRepo.updateCliSessionId。统一走 wrapper 是契约层硬约束 SSOT;不要因
+   * 「spawn 路径反正等价」而在 caller 处直调 sessionRepo,会让未来 fork 路径误传不同
+   * cliSessionId 时静默跳过黑名单写入(blame radius 隐蔽 + 复活 ghost record 风险)。
+   *
    * 调用方 (6 处反向 rename 路径,详 plan §D2 表):
    * - recoverer.ts:466 jsonl-missing fallback (claude)
    * - codex/recoverer.ts:339 jsonl-missing fallback (codex)

@@ -48,10 +48,11 @@
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { findFallbackCwd as findFallbackCwdShared } from '@main/adapters/shared/find-fallback-cwd';
 import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
 import type { CodexBridgeOptions, CodexSessionHandle } from './types';
 
@@ -426,25 +427,13 @@ export class SessionRecoverer {
    * state；下次发消息再次 detect → fallback。
    *
    * test 通过 facade extend override 该方法定制启发式行为。
+   *
+   * **REVIEW_49 R1 follow-up MED-G**: 抽 `findFallbackCwd` 实现到 `@main/adapters/shared/find-fallback-cwd`
+   * (与 claude/recoverer.ts:637 同款),本方法保留作为 facade extend override 注入点(test
+   * 仍可 override 该 protected method 改启发式)。
    */
   protected findFallbackCwd(badCwd: string): string | null {
-    // 启发式 1：K2 老 session 模式(`<main-repo>/.claude/worktrees/<plan-id>(/.+)?` → 取 <main-repo>)
-    const m = badCwd.match(/^(.+)\/\.claude\/worktrees\/[^/]+(?:\/.*)?$/);
-    if (m && this.cwdExistsThunk(m[1])) {
-      return m[1];
-    }
-    // 启发式 2：父目录 walk（不超过 home，避免 fallback 到 `/` / `/Users/<user>`）
-    const home = homedir();
-    let p = dirname(badCwd);
-    for (let i = 0; i < 32; i++) {
-      const isAncestorOfHome = home === p || home.startsWith(p + '/');
-      if (p === '/' || isAncestorOfHome || p.length <= 1) return null;
-      if (this.cwdExistsThunk(p)) return p;
-      const next = dirname(p);
-      if (next === p) return null;
-      p = next;
-    }
-    return null;
+    return findFallbackCwdShared(badCwd, this.cwdExistsThunk);
   }
 }
 

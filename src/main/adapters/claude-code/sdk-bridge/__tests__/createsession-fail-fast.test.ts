@@ -228,6 +228,33 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     expect(handle.sessionId).toBe('real-sid-123');
   });
 
+  // **REVIEW_49 R1 follow-up 回归 test (F-MED)**: session-finalize.ts:98 改走
+  // sessionManager.updateCliSessionId wrapper(R2 fix-F)统一黑名单链 SSOT — 防御未来若有
+  // caller 误传不同 cliSessionId 时静默跳过黑名单写入。spawn 主路径下 oldCliSid ===
+  // applicationSid === newCliSessionId,wrapper 内 L632 不写黑名单语义等价直调 sessionRepo
+  // (短路 by-design),但调用面必须走 wrapper SSOT。
+  it('REVIEW_49 R1 follow-up: spawn happy 路径调 sessionManager.updateCliSessionId wrapper (非 sessionRepo 直调)', async () => {
+    const bridge = makeBridge();
+    const mockQuery = new MockSdkQuery();
+    installMockQuery(mockQuery);
+
+    mockQuery.pushFrame({ type: 'system', subtype: 'init', session_id: 'spawn-sid-456' });
+
+    const createPromise = bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' });
+    await new Promise((r) => setImmediate(r));
+    mockQuery.endStream();
+
+    await createPromise;
+
+    // **关键断言**: session-finalize.ts L98 走 wrapper 而非直调 sessionRepo
+    expect(vi.mocked(sessionManager.updateCliSessionId)).toHaveBeenCalledWith(
+      'spawn-sid-456',
+      'spawn-sid-456',
+    );
+    // spawn 主路径 oldCliSid === applicationSid === newCliSessionId,语义等价直调 sessionRepo,
+    // 但走 wrapper 让 SSOT 不被绕过(防未来 fork 路径误传不同 cliSessionId 静默跳过黑名单)
+  });
+
   it(
     'Phase 2.5 修法：catch 内 fire-and-forget interrupt + set expectedClose（已 land 验证）',
     async () => {

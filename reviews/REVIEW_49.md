@@ -93,3 +93,56 @@ heterogeneous_dual_completed: true
 3. R2/R3 共 3 测试盲区 LOW (safeEmit / wrapper switch / archive clearMarker 回归 test)
 
 `heterogeneous_dual_completed: true`。
+
+---
+
+## R3 Follow-up 落地（commit 紧跟主 commit `fe427a5`）
+
+用户指示「全包(除 by-design)」处理 R3 followup,共 8 项 fix 分 5 phase 落地(typecheck 五轮全过)：
+
+### Phase 1: P0 ingest 3a closed/archived precheck
+
+`src/main/session/manager-ingest-pipeline.ts:208-214` advanceState 函数最开头加 short-circuit:
+```ts
+if (record.lifecycle === 'closed' || record.archivedAt !== null) {
+  return;
+}
+```
+
+**修法语义**:closed/archived session 收到迟到 hook event → 整段 short-circuit return。persistEventRow + persistFileChange 仍跑(数据保留供审计),仅不更新 sessions.lastEventAt + 不复活 lifecycle + 不 emit session-upserted。dormant 仍正常复活成 active(不在 short-circuit 范围)。
+
+### Phase 2: wrapper jsdoc perf hint (LOW)
+
+`src/main/session/manager.ts:617-621` updateCliSessionId wrapper jsdoc 加「spawn-path no-op 短路」段,说明 spawn 主路径 oldCliSid === newCliSessionId 时 wrapper 内 L632 不写黑名单语义等价直调,但调用面必须走 wrapper SSOT 防未来 fork 路径误传。
+
+### Phase 3: 3 测试盲区补回归 test (LOW)
+
+| 测试 | 文件:行号 | 覆盖 |
+|---|---|---|
+| advanceState short-circuit | `manager-ingest.test.ts:230-364` 3 个 it | closed 不复活 + archived 不更新 lastEventAt + dormant 仍复活(不在范围) |
+| archive() clearCwdReleaseMarker | `manager-public-api.test.ts:69-100` | 预置 marker → archive() 后 marker=null + archivedAt 已设 |
+| safeEmit 抛错不打断 swap 主流程 | `hand-off-session.adopt-teammates.test.ts:914-1017` | multi-team caller eventBus.emit + notifyTeamMembershipChanged 全抛错 → safeEmit catch wrapper console.warn 兜底 + swap 主流程仍跑两次 + 返 ok 不返 error |
+| spawn happy 路径走 wrapper | `createsession-fail-fast.test.ts:231-252` | `vi.mocked(sessionManager.updateCliSessionId).toHaveBeenCalledWith('spawn-sid-456', 'spawn-sid-456')` 断言 session-finalize.ts:98 走 wrapper |
+
+### Phase 4: findFallbackCwd 抽 SSOT helper (架构 LOW)
+
+新建 `src/main/adapters/shared/find-fallback-cwd.ts` 共享纯函数 + thunk 注入:
+- `claude/recoverer.ts:637-644` + `codex/recoverer.ts:430-437` protected method 改为 `return findFallbackCwdShared(badCwd, this.cwdExistsThunk)`,1 行委托
+- 删两端各 25 行重复代码 + 删 dirname import (不再使用)
+- protected method 保留作为 facade extend override 注入点(test 仍可 override 改启发式)
+
+### Phase 5: spawn.ts callerExists `[caller-scoped]` anchor (LOW)
+
+reviewer-claude R1 推荐抽 `applyCallerScopedSideEffects` helper,但实际权衡:4 个不同副作用 + 各自 try/catch + 闭包返回值 + 测试需重新覆盖,**抽 helper 复杂度比当前散落更高**。改用轻量重构:
+- `spawn.ts:148-160` callerExists 定义处加 jsdoc 列出 4 处依赖点 + 不变量 + helper 评估理由
+- `spawn.ts:319 / 379 / 454 / 485` 4 处依赖点加 `[caller-scoped #N/4]` grep anchor 注释
+- 未来加新副作用走相同 anchor 标记 + 校验 callerExists 守门
+
+### 不动(by-design 维持)
+
+- `recovering Map 两端独立维护`: cross-adapter parity 原则(reviewer-claude R2 标 by-design)
+- `safeEmit silent`: 设计内兜底链(emit 失败 console.warn + UI 通过 session-upserted eventual consistency 收敛)
+
+### 结论
+
+R3 followup 全包(除 by-design 2 条)落地 ✅。typecheck 五轮全过(P0 / jsdoc / 3 测试盲区 / Phase 4 抽 SSOT / Phase 5 anchor)。`heterogeneous_dual_completed: true` 标记保持(本节是 R3 follow-up land 记录,不重新对抗)。剩余 followup 仅 by-design 2 条,REVIEW_49 三焦点全收口。
