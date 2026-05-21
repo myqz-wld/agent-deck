@@ -5,6 +5,7 @@ import { AssetEditor } from './assets/AssetEditor';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
 import { ClaudeMdEditor } from './settings/ClaudeMdEditor';
+import { CodexAgentsMdEditor } from './settings/CodexAgentsMdEditor';
 
 /**
  * 资产库 Dialog（CHANGELOG_57 C1+C3+C4；CHANGELOG_58 把 CLAUDE.md 编辑器从 SettingsDialog
@@ -441,22 +442,106 @@ function AssetsTab({
 }
 
 /**
- * 「应用约定」tab：直接内嵌 ClaudeMdEditor。编辑器自己 fetch 当前生效内容（用户副本优先 →
- * 回落内置）+ 自带 dirty / 保存 / 撤销 / 恢复默认；本 tab 只额外加一行说明，强调与
- * user/project/local CLAUDE.md 互不影响（避免和 Claude Code 自带 memory 文件混淆）。
+ * 「应用约定」tab:加 adapter switcher(Claude / Codex 二选一)分别渲染对应编辑器。
+ *
+ * - Claude 视角:`resources/claude-config/CLAUDE.md` 注入到每个 claude SDK 会话 system prompt
+ *   末尾(独立于 user/project/local CLAUDE.md,避免和 Claude Code 自带 memory 文件混淆)
+ * - Codex 视角:`resources/codex-config/CODEX_AGENTS.md` 同步到 ~/.codex/AGENTS.md Agent Deck
+ *   marker 段(用户其他 marker 外内容严格保留)
+ *
+ * dirty 上报双层:
+ * - 子 editor 通过 onSubDirty 上报,本组件 forward 给父级 onDirtyChange(让父级关闭弹窗时拦截)
+ * - 子 adapter 切换时本组件**也**用同款 confirmDialog 拦截(否则 dirty 草稿会随子 editor unmount
+ *   静默丢失 — adapter switcher 行为应与主 tab 切换对称)
  */
 function ClaudeMdTab({
   onDirtyChange,
 }: {
   onDirtyChange: (dirty: boolean) => void;
 }): JSX.Element {
+  const [adapter, setAdapter] = useState<'claude' | 'codex'>('claude');
+  const subDirtyRef = useRef(false);
+
+  // forward 给父级,让 dialog 关闭 / 主 tab 切换时拦截 — 与 ClaudeMdTab 之前直接 forward 单 editor
+  // dirty 同款契约。子 editor unmount 时 useEffect cleanup 会上报 false,本 ref 自然回 false。
+  const onSubDirty = useCallback(
+    (d: boolean) => {
+      subDirtyRef.current = d;
+      onDirtyChange(d);
+    },
+    [onDirtyChange],
+  );
+
+  // 子 adapter 切换前的二次确认 — 与主 tab 切换 confirmDiscardClaudeMd 同款语义,但 prompt 文案
+  // 区分 (Claude / Codex 都说「应用约定」即可,不用细分)。
+  const switchAdapter = async (next: 'claude' | 'codex'): Promise<void> => {
+    if (next === adapter) return;
+    if (subDirtyRef.current) {
+      const ok = await window.api.confirmDialog({
+        title: '切换视角',
+        message: '应用约定有未保存的草稿,确定要丢弃吗?',
+        detail: '切换后改动将丢失,无法恢复。',
+        okLabel: '丢弃并切换',
+        cancelLabel: '继续编辑',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setAdapter(next);
+  };
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-[10px] leading-snug text-deck-muted/70">
-        应用内置 CLAUDE.md，独立于 user / project / local CLAUDE.md，
-        拼到每个 SDK 会话 system prompt 末尾。改动只对「下次新建会话」生效。
+      <div className="flex items-center gap-1 text-[11px]">
+        <span className="text-[10px] text-deck-muted/70">视角:</span>
+        <SubTabBtn active={adapter === 'claude'} onClick={() => void switchAdapter('claude')}>
+          Claude
+        </SubTabBtn>
+        <SubTabBtn active={adapter === 'codex'} onClick={() => void switchAdapter('codex')}>
+          Codex
+        </SubTabBtn>
       </div>
-      <ClaudeMdEditor onDirtyChange={onDirtyChange} />
+      {adapter === 'claude' ? (
+        <>
+          <div className="text-[10px] leading-snug text-deck-muted/70">
+            应用内置 CLAUDE.md，独立于 user / project / local CLAUDE.md，
+            拼到每个 claude SDK 会话 system prompt 末尾。改动只对「下次新建会话」生效。
+          </div>
+          <ClaudeMdEditor onDirtyChange={onSubDirty} />
+        </>
+      ) : (
+        <>
+          <div className="text-[10px] leading-snug text-deck-muted/70">
+            应用内置 CODEX_AGENTS.md，同步到 ~/.codex/AGENTS.md 内 Agent Deck marker 段
+            (用户其他 marker 外内容严格保留)。改动只对「下次新建 codex 会话」生效。
+          </div>
+          <CodexAgentsMdEditor onDirtyChange={onSubDirty} />
+        </>
+      )}
     </div>
+  );
+}
+
+function SubTabBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
+        active
+          ? 'bg-status-working/20 text-status-working'
+          : 'bg-white/5 text-deck-muted hover:bg-white/10 hover:text-deck-text'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

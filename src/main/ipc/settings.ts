@@ -29,7 +29,13 @@ import {
 // 「X is not a function」（dev 模式 ESM 直 import 测不出，只在打包后炸）。三个模块顶部都纯 import + export
 // function，无副作用，static import 与 dynamic import 等价（只是模块解析时机提前到 main 启动时）。
 import { writeMcpServersToCodexConfig } from '@main/codex-config/toml-writer';
-import { syncAgentDeckSection } from '@main/codex-config/agents-md-installer';
+import {
+  syncAgentDeckSection,
+  getActiveCodexAgentsMd,
+  getBuiltinCodexAgentsMd,
+  saveUserCodexAgentsMd,
+  resetUserCodexAgentsMd,
+} from '@main/codex-config/agents-md-installer';
 import { syncSkills } from '@main/codex-config/skills-installer';
 import type { AppSettings } from '@shared/types';
 import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode } from './_helpers';
@@ -285,5 +291,25 @@ export function registerSettingsIpc(): void {
   on(IpcInvoke.ClaudeMdReset, () => {
     resetUserAgentDeckClaudeMd();
     return { ok: true, content: getBuiltinAgentDeckClaudeMd() };
+  });
+
+  // CODEX_AGENTS.md(注入到 ~/.codex/AGENTS.md Agent Deck 段的 codex 视角应用约定):
+  // 与 ClaudeMd Get/Save/Reset 对偶。save / reset 内部触发 syncAgentDeckSection 立即同步
+  // ~/.codex/AGENTS.md(否则用户改了用户副本但 codex SDK 仍读旧 cache)。
+  // 已运行的 codex SDK 会话已经把 AGENTS.md 固化进 thread system prompt,不会热改;只有
+  // 「下次新建会话」生效(对偶 ClaudeMd 同模式)。
+  on(IpcInvoke.CodexAgentsMdGet, () => getActiveCodexAgentsMd());
+  on(IpcInvoke.CodexAgentsMdSave, (_e, content) => {
+    if (typeof content !== 'string') {
+      throw new IpcInputError('content', 'must be string');
+    }
+    if (Buffer.byteLength(content, 'utf8') > 2 * 1024 * 1024) {
+      throw new IpcInputError('content', '> 2MB');
+    }
+    return saveUserCodexAgentsMd(content);
+  });
+  on(IpcInvoke.CodexAgentsMdReset, () => {
+    resetUserCodexAgentsMd();
+    return { ok: true, content: getBuiltinCodexAgentsMd() };
   });
 }

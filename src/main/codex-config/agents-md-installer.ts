@@ -50,7 +50,7 @@
  *   下次新建会话生效，与 sdk-injection.ts 同模式）
  */
 import { app } from 'electron';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { settingsStore } from '@main/store/settings-store';
@@ -207,6 +207,78 @@ export function readAgentDeckSection(
   );
   const m = sectionRe.exec(content);
   return m ? m[1].trim() : null;
+}
+
+/**
+ * 读取「当前生效」的 codex CODEX_AGENTS.md 原文(不含 marker / banner / header,只是 raw markdown
+ * 内容主体),给设置面板用。isCustom = true 表示当前是用户副本,false 表示回落到内置。
+ *
+ * 与 sdk-injection.ts:getActiveAgentDeckClaudeMd 对偶 — claude 副本在 `<userData>/agent-deck-claude.md`,
+ * codex 副本在 `<userData>/agent-deck-codex-agents.md`,两份独立文件互不影响。
+ */
+export function getActiveCodexAgentsMd(): { content: string; isCustom: boolean } {
+  const userPath = getUserCodexAgentsMdPath();
+  if (existsSync(userPath)) {
+    try {
+      return { content: readFileSync(userPath, 'utf8'), isCustom: true };
+    } catch (err) {
+      console.warn('[codex-agents-md] 读取用户副本失败,回落内置:', err);
+    }
+  }
+  return { content: getBuiltinCodexAgentsMd(), isCustom: false };
+}
+
+/** 永远读内置 codex-config/CODEX_AGENTS.md,给「恢复默认」按钮用。读不到返回空串 + warn。 */
+export function getBuiltinCodexAgentsMd(): string {
+  try {
+    return readFileSync(getBuiltinAgentsMdContentPath(), 'utf8');
+  } catch (err) {
+    console.warn('[codex-agents-md] 读取内置 CODEX_AGENTS.md 失败:', err);
+    return '';
+  }
+}
+
+/**
+ * 写用户副本到 userData/agent-deck-codex-agents.md + invalidate cache + 立即同步 ~/.codex/AGENTS.md
+ * 段(让 codex CLI 下次新建 thread 加载到新内容)。返回写盘后实际读回的内容(对偶
+ * sdk-injection.ts:saveUserAgentDeckClaudeMd REVIEW_4 M11 修法,防 main 端规范化让 dirty 永真)。
+ *
+ * 原子写: write tmp + rename(对偶 sdk-injection saveUserAgentDeckClaudeMd / hook-installer.writeSettings)。
+ */
+export function saveUserCodexAgentsMd(content: string): { content: string; isCustom: true } {
+  const path = getUserCodexAgentsMdPath();
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp.${process.pid}`;
+  writeFileSync(tmp, content, 'utf8');
+  renameSync(tmp, path);
+  invalidateCodexAgentsMdContent();
+  // 立即同步 ~/.codex/AGENTS.md Agent Deck 段(否则用户副本改了但 codex SDK 仍读旧 cache /
+  // 旧 ~/.codex/AGENTS.md 段内容,典型表现:用户改了 codex 视角约定但 codex 子进程拿不到新内容)
+  try {
+    syncAgentDeckSection();
+  } catch (err) {
+    console.warn('[codex-agents-md] saveUser 后 syncAgentDeckSection 失败:', err);
+  }
+  return { content: readFileSync(path, 'utf8'), isCustom: true };
+}
+
+/** 删除用户副本(如果存在) + invalidate cache + 同步 ~/.codex/AGENTS.md 段回到内置内容。 */
+export function resetUserCodexAgentsMd(): void {
+  const path = getUserCodexAgentsMdPath();
+  if (existsSync(path)) {
+    try {
+      unlinkSync(path);
+    } catch (err) {
+      console.warn('[codex-agents-md] 删除用户副本失败:', err);
+      throw err;
+    }
+  }
+  invalidateCodexAgentsMdContent();
+  try {
+    syncAgentDeckSection();
+  } catch (err) {
+    console.warn('[codex-agents-md] resetUser 后 syncAgentDeckSection 失败:', err);
+  }
 }
 
 // ────────────────────────────────────────────────────────── helpers
