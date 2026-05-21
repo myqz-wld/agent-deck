@@ -96,11 +96,29 @@ class SessionManagerClass {
   /**
    * 最近被 delete 的 sessionId 黑名单（REVIEW_4 H1 兜底）。
    * SDK 已用 `intentionallyClosed` 屏蔽 close 后 catch 路径的 emit；这里再加一道：
+  /**
+   * 最近被 delete 的 cli_session_id 黑名单（REVIEW_4 H1 兜底 + R5 HIGH-R5-1 / R6 MED-R6-1
+   * + R5 MED-R5-1 黑名单分场景双写升级)。
+   * SDK 已用 `intentionallyClosed` 屏蔽 close 后 catch 路径的 emit；这里再加一道：
    * 删除窗口内（60s）任何来源的尾包都直接丢弃，避免 ensureRecord 把 sessionRepo.get 已 null
    * 的 sessionId 当成首次见到 → 新建 record 复活成幽灵。
    * 60s 远大于任何 SDK 收尾延时，但又不长到无意义占内存。
+   *
+   * **plan reverse-rename-sid-stability-20260520 §A.3 / §D7 黑名单分场景升级**:
+   * Map<string, number> 结构本身不动,key 语义按场景分:
+   * - **updateCliSessionId 活跃路径** (反向 rename 6 处场景): 仅黑 OLD_CLI_ID
+   *   (applicationSid 仍 active 不可拒,详 sessionManager.updateCliSessionId helper)
+   * - **delete / close / markRecentlyDeleted 路径** (会话结束兜底场景): 双写
+   *   `{applicationSid, cliSessionId}` 黑名单 (反向 rename 后 SDK 尾包用 appSid 来 /
+   *   hook 尾包用 cliSid 来,黑名单必须双 key 覆盖才能挡住所有来源)
+   *
+   * **ingest 4 态分流** (manager.ts:219 入口,详 plan §A.3):
+   * - 3a: findByCliSessionId(eventSid) 命中 → 覆写 event.sessionId 走原 dedupOrClaim 5 段流程
+   * - 3b: 不命中 + isRecentlyDeleted(eventSid) 命中 → drop 迟到 event
+   * - 3c: 不命中 + 不在黑名单 + cwd 命中 pendingSdkCwds → 走原 dedupOrClaim 时序兜底 claim+skip (REVIEW_5 H1 / REVIEW_12 修法保留)
+   * - 3d: 全没命中 → 走原 ensureRecord 建外部 CLI 会话 (现状 fallback 不变)
    */
-  private recentlyDeleted = new Map<string, number>(); // sessionId → deletedAt
+  private recentlyDeleted = new Map<string, number>(); // cli_session_id (or applicationSid) → deletedAt
   private static readonly RECENTLY_DELETED_TTL_MS = 60_000;
 
   /**
@@ -217,11 +235,37 @@ class SessionManagerClass {
    * 再 claim，UI 会闪现「内/外两份」。CHANGELOG_16 / REVIEW_1 修过、payload-truncate 测试覆盖。
    */
   ingest(event: AgentEvent): void {
-    // REVIEW_4 H1 兜底：删除窗口内的尾包（无论 sdk/hook）一律静默丢弃，
-    // 避免已删 session 在 ensureRecord 里复活成幽灵 record。
-    // sdk-bridge 的 intentionallyClosed 标记是第一道防线（屏蔽 catch 路径 emit），
-    // 这里是第二道（防御 stream 已经 emit 但还没到 ingest 的 in-flight 事件）。
+    // plan reverse-rename-sid-stability-20260520 §A.3 / §D7 / §不变量 5 修订:
+    // ingest 入口 4 态分流 — hook event sessionId 是 CLI thread sid 维度 (translate.ts:31
+    // sessionId: p.session_id 来自 hook payload),反向 rename 后 cli_session_id 与
+    // sessions.id (applicationSid) 解耦,需先 findByCliSessionId 反查覆写为 appSid。
+    //
+    // 3a: findByCliSessionId(eventSid) 命中 → 覆写 event.sessionId 走原 dedupOrClaim 5 段
+    // 3b: 不命中 + isRecentlyDeleted(originalEventSid) 命中 → drop 迟到 event
+    // 3c: 不命中 + 不在黑名单 + cwd 命中 pendingSdkCwds → 走原 dedupOrClaim 时序兜底 claim+skip
+    //     (REVIEW_5 H1 / REVIEW_12 修法保留,在 dedupOrClaim 内部分支处理)
+    // 3d: 全没命中 → 走原 ensureRecord 建外部 CLI 会话 (现状 fallback,不变)
+    //
+    // **不变量 5 (黑名单链)**: 反向 rename 后 SDK 尾包用 appSid 来 / hook 尾包用 cliSid 来,
+    // delete/close 路径黑名单双写 {appSid, cliSid} 才能挡住所有来源 (R5 MED-R5-1 修订)。
+    // 检查 originalEventSid (而非反查后的 appSid) — 因为黑名单双写后两 key 都能命中。
+
+    // **3a**: findByCliSessionId 反查 — 反向 rename 后命中场景才覆写
+    const appSession = sessionRepo.findByCliSessionId(event.sessionId);
+    if (appSession && appSession.id !== event.sessionId) {
+      // 反向 rename 后 cliSid 与 appSid 不同 — 覆写 event.sessionId 走应用 sid 维度
+      event = { ...event, sessionId: appSession.id };
+    }
+    // 注:appSession === null 或 appSession.id === event.sessionId (历史 row backfill cli_session_id == id 场景)
+    // 时不需覆写,直接走原路径
+
+    // **3b**: 黑名单检查 — 用原始 event.sessionId 维度 (黑名单双写后 cliSid 和 appSid 都能命中)
+    // 注:覆写后 event.sessionId 已是 appSid,但 isRecentlyDeleted 双写黑名单两个 key 都能命中,
+    // 用 event.sessionId (覆写后 appSid 或未覆写 cliSid) 都正确
     if (this.isRecentlyDeleted(event.sessionId)) return;
+
+    // **3c + 3d**: dedupOrClaim 内部时序兜底 (REVIEW_5 H1 / REVIEW_12 修法保留) → ensureRecord 建会话
+    // 与原 ingest 5 段流程保持不变 (dedupOrClaim 必须留在最前 + 早返硬约束)
     if (dedupOrClaim(this.ingestCtx, event).skip) return;
     const record = ensureRecord(this.ingestCtx, event);
     persistEventRow(event);
@@ -250,9 +294,26 @@ class SessionManagerClass {
    * 都应保证后续 60s 内同 sessionId 的 hook event 被 ingest 入口 isRecentlyDeleted 直接丢弃。
    * sdk-bridge.ts:closeSession 调本方法 + 内部已配 hookOrigin='sdk' 兜底（REVIEW_12 主修法），
    * 双保险确保 origin tag 升级前的老 hook 命令（settings.json 残留）路径也能挡住。
+   *
+   * **plan reverse-rename-sid-stability-20260520 §A.3 / R5 MED-R5-1 双写升级**:
+   * 反向 rename 后 SDK 尾包用 appSid 来 / hook 尾包用 cliSid 来,黑名单必须**双写**
+   * `{applicationSid, cliSessionId}` 才能挡住所有来源。caller 入参 sessionId 通常是
+   * applicationSid (sdk-bridge.ts closeSession 路径),但鲁棒兼容传 cliSid 也能写入。
+   *
+   * caller 不存在 sessions row 时(已删) → rec=null,只 set sessionId 入参一个 key
+   * (兜底防御:行已不存在但 caller 仍主动加黑名单,典型 closeSession 时 sessions row
+   * 已被 sessionRepo.delete 清的边角)。
    */
   markRecentlyDeleted(sessionId: string): void {
-    this.recentlyDeleted.set(sessionId, Date.now());
+    const now = Date.now();
+    this.recentlyDeleted.set(sessionId, now);
+    // R5 MED-R5-1 双写:从 sessionRepo 反查 cliSessionId,与 sessionId 不同时也写入黑名单
+    // (反向 rename 后 sessionId 通常是 appSid,cliSid 是另一 key 维度,需双写覆盖)
+    const rec = sessionRepo.get(sessionId);
+    const cliSid = rec?.cliSessionId;
+    if (cliSid && cliSid !== sessionId) {
+      this.recentlyDeleted.set(cliSid, now);
+    }
   }
 
   /** lifecycle scheduler 用：把 active 推到 dormant */
@@ -446,10 +507,21 @@ class SessionManagerClass {
         console.warn(`[session-mgr] close on delete failed: ${sessionId}`, err);
       }
     }
+    // plan reverse-rename-sid-stability-20260520 §A.3 / R5 MED-R5-1 黑名单双写升级:
+    // 在 sessionRepo.delete 之前先反查 cliSessionId(DELETE 后 row 不在),
+    // 让 SessionManager.delete 路径与 markRecentlyDeleted 同款双写 {appSid, cliSid}。
+    // 反向 rename 后 SDK 尾包用 appSid 来 / hook 尾包用 cliSid 来,双写才挡得住所有来源。
+    const recBeforeDelete = sessionRepo.get(sessionId);
+    const cliSidBeforeDelete = recBeforeDelete?.cliSessionId;
     sessionRepo.delete(sessionId);
     // REVIEW_4 H1：把 id 加入「最近删除黑名单」60s，ingest 看到该 id 直接丢弃，
     // 防 SDK 流终止 / 异常 stream 的尾包在 sessionRepo.delete 后到达 ensureRecord。
-    this.recentlyDeleted.set(sessionId, Date.now());
+    // R5 MED-R5-1 双写:applicationSid + cliSessionId 双 key 入黑名单
+    const now = Date.now();
+    this.recentlyDeleted.set(sessionId, now);
+    if (cliSidBeforeDelete && cliSidBeforeDelete !== sessionId) {
+      this.recentlyDeleted.set(cliSidBeforeDelete, now);
+    }
     eventBus.emit('session-removed', sessionId);
   }
 

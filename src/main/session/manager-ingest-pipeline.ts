@@ -52,7 +52,20 @@ export interface IngestContext {
   consumePendingSdkClaim(cwd: string): boolean;
   /** 取/建 SessionRecord；closed → revive 复活逻辑由 ensure 自己处理。 */
   ensure(sessionId: string, opts: UpsertOptions): SessionRecord;
-  /** 60s 黑名单 TTL 检查 + 自清。 */
+  /**
+   * 60s 黑名单 TTL 检查 + 自清。
+   *
+   * **plan reverse-rename-sid-stability-20260520 §A.3 黑名单语义**:
+   * 入参 `sid` 维度按 caller 路径不同:
+   * - **ingest 入口 (manager.ts:219 4 态分流)**: caller 传 event.sessionId (反向 rename 后已经过
+   *   findByCliSessionId 反查覆写,可能是 applicationSid 或原始 cliSessionId — 黑名单双写后
+   *   两 key 都能命中)
+   * - **delete / close / markRecentlyDeleted 路径 (双写黑名单)**: 入参传 sid 写入,manager 内部
+   *   再 sessionRepo.get 反查 cliSessionId 双写(R5 MED-R5-1 升级,详 manager.ts:103 jsdoc)
+   * - **updateCliSessionId 活跃路径**: 仅写 OLD_CLI_ID(applicationSid 仍 active 不可拒)
+   *
+   * Map<string, number> 结构本身不动,key 语义按场景区分(详 manager.ts:103 jsdoc 双写规则)。
+   */
   isRecentlyDeleted(sid: string): boolean;
 }
 
