@@ -99,7 +99,7 @@ export class StreamProcessor {
 
   async *createUserMessageStream(
     internal: InternalSession,
-    tempKey: string,
+    _tempKey: string,
   ): AsyncIterable<SDKUserMessage> {
     while (true) {
       while (internal.pendingUserMessages.length > 0) {
@@ -112,7 +112,12 @@ export class StreamProcessor {
         internal.notify = resolve;
       });
       internal.notify = null;
-      const key = internal.realSessionId ?? tempKey;
+      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4b R4 HIGH-H 修订**:
+      // sessions Map key 是 applicationSid 维度 (S3 修订让 sessions.set 用 applicationSid),
+      // createUserMessageStream 流式 prompt 喂 SDK 主循环必须用 applicationSid 才能命中
+      // (否则反向 rename 后 cliSid != appSid 时 sessions.has(cliSid) miss → 用户 message 断流,
+      // 用户报告 bug 触发场景之一)。
+      const key = internal.applicationSid;
       if (!this.ctx.sessions.has(key)) return;
     }
   }
@@ -163,9 +168,23 @@ export class StreamProcessor {
         }
         resolved = true;
         // REVIEW_5 H4：resume 路径下 fallback 直接落在 OLD_ID 上，避免造孤儿 tempKey
+        // **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 + S3 修订**:
+        // fallback fire 路径 internal.cliSessionId set 为 fallbackId (cli sid 维度),
+        // applicationSid 切换走 isNewSpawn 分支保护(spawn 主路径 fallbackId === tempKey, applicationSid
+        // 切到 fallbackId;resume 路径 fallbackId === resumeId === applicationSid,internal.applicationSid
+        // 已是 opts.resume 不需切)。这里 fallback 也走同款 isNewSpawn 三分支语义。
         const fallbackId = resumeId ?? tempKey;
+        const isNewSpawnFallback = !resumeId;
         console.warn(`[sdk-bridge] no SDKMessage in 30s, falling back to id ${fallbackId}`);
-        internal.realSessionId = fallbackId;
+        internal.cliSessionId = fallbackId;
+        if (isNewSpawnFallback) {
+          // spawn 主路径 fallback (fallbackId === tempKey === applicationSid 初值): 切到 fallbackId 后冻结
+          // 此时 fallbackId === tempKey,applicationSid 已是 tempKey 不需切 — D2 spawn rename 仍由后续
+          // sessions Map mutate 触发(下方 if (tempKey !== fallbackId) 在此 case false 不进 mutate)
+          internal.applicationSid = fallbackId;
+        }
+        // resume 路径 fallback: fallbackId === resumeId === applicationSid,internal.applicationSid
+        // 已是 opts.resume 全程不变 (S2 jsdoc resume/fallback 类型)
         // A1-HIGH-2 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
         // 旧 impl 仅改 internal.realSessionId 不切 sessions Map key,与 consume L207-219
         // first-id 路径行为不对称。createSession 返回 fallbackId 后,sessions Map 仅有
@@ -233,6 +252,13 @@ export class StreamProcessor {
     tempKey: string,
     onFirstId: (id: string) => void,
     resumeId?: string,
+    /**
+     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
+     * jsonl-missing fallback 走 resumeMode='fresh-cli-reuse-app' 时,caller 传 resumeId=applicationSid
+     * 但 SDK 不带 resume 起 fresh CLI thread。consume 内部需要识别此 case 不走 spawn 主路径
+     * D2 rename — 故传 resumeMode 让 isNewSpawn 三分支保护正确判定。
+     */
+    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app',
   ): Promise<string | null> {
     let realId: string | null = null;
     try {
@@ -256,71 +282,69 @@ export class StreamProcessor {
           // 不变量 1: race 修法 land 后 fallback fire / createSession throw 路径 SDK 真发的 first
           // id frame 不能覆盖 fallback 已设的 fallbackId / 已 mutate 的 sessions Map。
           const incomingId = m.session_id;
-          if (internal.realSessionId !== null && internal.realSessionId !== incomingId) {
+          if (internal.cliSessionId !== null && internal.cliSessionId !== incomingId) {
             console.warn(
               `[sdk-bridge] late first-id arrived after fallback; ` +
-                `incoming=${incomingId} fallback=${internal.realSessionId}; skipping mutation`,
+                `incoming=${incomingId} fallback=${internal.cliSessionId}; skipping mutation`,
             );
-            // realId 保持 null,后续 frame `sid = realId ?? internal.realSessionId ?? tempKey`
+            // realId 保持 null,后续 frame `sid = realId ?? internal.cliSessionId ?? tempKey`
             // 三档链 → fallbackId,translate 仍 emit 但不撞 sessions Map race。
             continue;
           }
           realId = incomingId;
-          internal.realSessionId = realId;
+          internal.cliSessionId = realId;
+          // **plan reverse-rename-sid-stability-20260520 §A.4-pre S3 R4 HIGH-R4-1 + R7 HIGH-R7-1
+          // isNewSpawn 三分支保护**: 区分 spawn 主路径 vs resume/fallback 路径,防 fallback 路径
+          // 误进 spawn rename 分支破 5 处契约。S6 fork detect 比较 effectiveResumeCliSid 留 sub-commit A-4 处理。
+          //
+          // - spawn 主路径 (无 opts.resume + resumeMode='resume-cli' default): tempKey !== realId
+          //   时 D2 spawn bootstrap rename 保留,sessions Map 切到 realId + applicationSid 切到 realId 冻结
+          // - resume / fallback 路径 (有 opts.resume): applicationSid 全程不变 (S2 jsdoc),
+          //   仅 update internal.cliSessionId (上一行已做);sessions Map 切换由 ctor 时已 set applicationSid
+          //   保证 (sub-commit A-3 S3 + A-4 S8 重写 jsonl-missing fallback 后 ctor 时直接 set applicationSid)
+          const isNewSpawn = !resumeId && resumeMode !== 'fresh-cli-reuse-app';
           if (tempKey !== realId) {
-            this.ctx.sessions.delete(tempKey);
-            this.ctx.sessions.set(realId, internal);
-            // fallback 路径：createSession 已用 tempKey 调过 claimAsSdk 并 emit 了 session-start，
-            // sessionManager 已写入了一条以 tempKey 为 id 的「内」会话占位行（含 permission_mode 等）。
-            // 用 rename 而不是 delete + new：保留 tempKey 行的内容（包括用户已选过的 permission_mode、
-            // 已落库的事件 / 文件改动 / 总结），整体迁到 realId。renderer 侧通过 session-renamed
-            // 事件同步迁移 selectedId / by-session 状态，不会被踢回主界面。
-            // REVIEW_7 M3：renameSdkSession 内聚 sdkOwned claim 转移，调用方不再手工 release+claim。
-            sessionManager.renameSdkSession(tempKey, realId);
+            if (isNewSpawn) {
+              // spawn 主路径: D2 spawn bootstrap rename 保留 + applicationSid 切到 realId 冻结
+              this.ctx.sessions.delete(tempKey);
+              this.ctx.sessions.set(realId, internal);
+              internal.applicationSid = realId;  // ← spawn 路径 applicationSid 切到 first realId 后冻结 (S2 jsdoc)
+              // fallback 路径：createSession 已用 tempKey 调过 claimAsSdk 并 emit 了 session-start，
+              // sessionManager 已写入了一条以 tempKey 为 id 的「内」会话占位行（含 permission_mode 等）。
+              // 用 rename 而不是 delete + new：保留 tempKey 行的内容（包括用户已选过的 permission_mode、
+              // 已落库的事件 / 文件改动 / 总结），整体迁到 realId。renderer 侧通过 session-renamed
+              // 事件同步迁移 selectedId / by-session 状态，不会被踢回主界面。
+              // REVIEW_7 M3：renameSdkSession 内聚 sdkOwned claim 转移，调用方不再手工 release+claim。
+              sessionManager.renameSdkSession(tempKey, realId);
+            }
+            // resume / fallback 路径 (isNewSpawn=false): applicationSid 全程不变 (S2 contract);
+            // sessions Map 切换由 sub-commit A-4 S8 重写 jsonl-missing fallback 时让 ctor 时直接 set applicationSid 保证;
+            // 当前实现 sessions Map ctor 时仍 set tempKey,A-3 暂不 mutate (留 A-4 + A-5 test verify)。
+            // **TODO sub-commit A-4**: jsonl-missing fallback 路径 (resumeMode='fresh-cli-reuse-app')
+            // 走 sessionManager.updateCliSessionId 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订)
           }
 
-          // CHANGELOG_27 / REVIEW_6：CLI 在 SDK streaming input + resume + 新 prompt 下
-          // 隐式 fork —— 实测铁证：resume=OLD_ID, prompt='ping' → first session_id=NEW_ID
-          // (≠ OLD_ID)，CLI 内置 fork 与 SDK 文档「forkSession 默认 false 不 fork」不一致。
-          // 默认 fork 在更深的 native binary 内，应用层无法关掉。
-          //
-          // CHANGELOG_24 备注早预警过这个边界，B 方案 (CHANGELOG_26) 落地后用户场景实测
-          // 触发：detail 卡在「⚠ SDK 通道已断开」占位 message 后无下文，实时面板冒一条新
-          // SDK 会话 = NEW_ID（manager.ensure 把 NEW_ID 当全新会话落库，OLD_ID detail 不动）。
-          //
-          // 修法：把 OLD_ID 的 DB record + 子表（events / file_changes / summaries）全部
-          // rename 成 NEW_ID，让历史"续上"NEW_ID 名下；renderer 通过 session-renamed 自动
-          // 把 selectedId / sessions Map / by-session state 迁过去（store.renameSession 已实现）。
-          // 副作用：会话 id 字段变了（与 jsonl 文件名一致），但 detail / list 内容完全连续，
-          // 用户在 UI 上看不到 sessionId 字段，体感等同「会话续上」。
-          //
-          // 关键约束（REVIEW_7 L4 修正注释 → 与实际代码顺序一致）：
-          // - 实际顺序：本 fork rename(OLD_ID → NEW_ID) 在 onFirstId(realId) 之前（即下面这行 1183 块），
-          //   onFirstId 才 resolve waitForRealSessionId，createSession 才走到 line 467 emit session-start。
-          //   也就是 rename 在 NEW_ID 的 session-start emit 之前发生 —— 此时 NEW_ID record 在 DB 中
-          //   尚不存在。sessionRepo.rename (session-repo.ts:183-218) 对 toExists=false 走 INSERT
-          //   复制 OLD_ID 内容（含 permission_mode 等）+ 迁子表 + DELETE OLD_ID 路径，结果与
-          //   toExists=true 分支一致——OLD_ID 内容被完整保留到 NEW_ID 名下，干净无遗漏。
-          // - claim 转移：renameSdkSession 内聚处理（REVIEW_7 M3），调用方不再手工 release/claim。
+          // **sub-commit A-4 处理**: S6 fork detect 比较 effectiveResumeCliSid 不 short-circuit
+          // (R6 HIGH-R6-1 + R7 HIGH-R7-1 修订)。当前 sub-commit A-3 仅 atomic patch S1-S5/S4b/S7/S9 不动 S6。
+          // 保留旧 fork detect 逻辑等 A-4 重写 (TODO):
+          // CHANGELOG_27 / REVIEW_6：CLI 在 SDK streaming input + resume + 新 prompt 下隐式 fork。
           if (resumeId && resumeId !== realId) {
             console.warn(
               `[sdk-bridge] CLI forked: requested resume=${resumeId} but got realId=${realId}; ` +
                 `renaming OLD record → NEW so history continues under the new session id`,
             );
-            // REVIEW_7 M3：renameSdkSession 内聚 sdkOwned claim 转移（resumeId → realId 原子），
-            // 消除 fork 路径「fork rename → onFirstId → createSession 行 453 才 claimAsSdk(realId)」
-            // 窗口内 NEW_ID 未 claim、hook 通道抢先 NEW_ID 事件造另一条 record 的微概率风险。
+            // **TODO sub-commit A-4**: 改用 sessionManager.updateCliSessionId(internal.applicationSid, realId)
             sessionManager.renameSdkSession(resumeId, realId);
           }
 
           onFirstId(realId);
         }
 
-        // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.3 修法**：sid 三档链
-        // `realId ?? internal.realSessionId ?? tempKey`。Phase 2.2 (B) guard 命中时 realId
-        // 仍 null,但 internal.realSessionId 已被 fallback set 为 fallbackId → 选 fallbackId 让
-        // late frame translate 走 fallbackId 而非 tempKey (避免 emit 给孤儿 sid)。
-        const sid = realId ?? internal.realSessionId ?? tempKey;
+        // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4 R4 HIGH-H 修订**:
+        // event sid 派发统一用 internal.applicationSid (D7 不变量 3 wire prefix [sid] 100% 写 sessions.id)。
+        // applicationSid 在 spawn 主路径 first realId 到达时切到 realId 后冻结 (S2 + S3 R4 HIGH-R4-1
+        // isNewSpawn 分支保护),resume/fallback 路径 ctor 时 = opts.resume 全程不变。
+        const sid = internal.applicationSid;
         translateSdkMessage(this.ctx.emit, sid, m, internal);
       }
     } catch (err) {
@@ -335,9 +359,8 @@ export class StreamProcessor {
       } else {
         // CHANGELOG_47：流中途抛错（鉴权过期 / token 限额 / CLI 子进程崩 / 网络）
         // 之前只 console.warn，UI 时间线只看到 session-end 不知道为什么。补一条 error message。
-        // **Phase 2.3 同款三档链**：catch 里也用 `realId ?? internal.realSessionId ?? tempKey`
-        // 让 fallback fire 后 catch 仍能 emit 给 fallbackId 而非 tempKey。
-        const sid = realId ?? internal.realSessionId ?? tempKey;
+        // **R4 HIGH-H 修订 同 S4 sid 派发**:catch 里也用 internal.applicationSid (替代旧三档链)
+        const sid = internal.applicationSid;
         this.ctx.emit({
           sessionId: sid,
           agentId: AGENT_ID,
@@ -351,13 +374,12 @@ export class StreamProcessor {
         });
       }
     } finally {
-      // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.4 修法**：sid 三档链同款。
-      // fallback 路径 realId 仍 null (Phase 2.2 guard 让 late id 不写 realId),但 internal.realSessionId
-      // 已经是 fallbackId → cleanup 拿到正确 sid 删除 (sessions.delete + releaseSdkClaim)。
-      // 不变量 1 兜底 — sessions Map 在 Phase 2.1 fallback fire 时已 set fallbackId entry,finally
-      // 必须删之 (用 fallbackId 三档链 sid),否则 sessions Map 残留 fallbackId entry → 影响下次
-      // sendMessage / closeSession / list。
-      const sid = realId ?? internal.realSessionId ?? tempKey;
+      // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.4 + R4 HIGH-H 修订**:
+      // sid 三档链统一改用 internal.applicationSid (S2 jsdoc 双阶段化保证 spawn 路径切到 realId
+      // 后冻结 / resume 路径全程不变),不再三档链 fallback。fallback 路径下 internal.cliSessionId 已是
+      // fallbackId (Phase 2.1) + internal.applicationSid 已切 (R4 HIGH-R4-1 isNewSpawn 修订),
+      // sessions Map key 是 applicationSid,cleanup 用 applicationSid 删除 (sessions.delete + releaseSdkClaim)。
+      const sid = internal.applicationSid;
       // 流终止时拒掉所有未决的权限请求，避免上游 await 永久挂起
       for (const entry of internal.pendingPermissions.values()) {
         if (entry.timer) clearTimeout(entry.timer);

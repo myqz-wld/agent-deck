@@ -39,7 +39,7 @@ function setupInternal(): {
   emit: (kind: AgentEvent['kind'], payload: unknown) => void;
   emitted: Array<{ kind: string; payload: unknown }>;
 } {
-  const internal = makeInternalSession({ cwd: '/tmp/test' });
+  const internal = makeInternalSession({ cwd: '/tmp/test', applicationSid: 'sess-test' });
   const emitted: Array<{ kind: string; payload: unknown }> = [];
   const emit = (kind: AgentEvent['kind'], payload: unknown): void => {
     emitted.push({ kind, payload });
@@ -149,7 +149,7 @@ describe('Phase 1.5 (M6) — consume finally clear pendingFileChangeIntents 防 
     // 但对应 tool_result 没回（典型：SDK 网络断 / CLI 子进程崩 / 用户主动 close session），
     // consume finally 必须显式 clear 防 intent 滞留（虽然 internal 整体被 GC 但显式 clear 与
     // toolUseNames / pendingPermissions 等同款保险，与 ts-cleanup 模式对齐）。
-    const internal = makeInternalSession({ cwd: '/tmp/test-leak' });
+    const internal = makeInternalSession({ cwd: '/tmp/test-leak', applicationSid: 'sess-test-leak' });
     const mockQuery = new MockSdkQuery();
     internal.query = mockQuery as unknown as Query;
 
@@ -220,7 +220,7 @@ describe('Phase 1.5 (M6) — consume finally clear pendingFileChangeIntents 防 
   it('多 intent + 部分 tool_result 回（completed）+ 部分没回 → finally clear 剩余防 leak', async () => {
     // 部分 intent 走正常路径（completed → emit + delete），剩余 intent 因 SDK 流断没等到
     // tool_result → finally clear 清掉。验证 finally clear 对部分清/部分未清 case 都收口。
-    const internal = makeInternalSession({ cwd: '/tmp/test-mixed' });
+    const internal = makeInternalSession({ cwd: '/tmp/test-mixed', applicationSid: 'sess-test-mixed' });
     const mockQuery = new MockSdkQuery();
     internal.query = mockQuery as unknown as Query;
 

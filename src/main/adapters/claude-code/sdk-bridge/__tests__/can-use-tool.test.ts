@@ -24,7 +24,8 @@ import type { PermissionMode } from '@main/adapters/types';
 
 function makeInternal(permissionMode: PermissionMode): InternalSession {
   return {
-    realSessionId: 'sess-test',
+    applicationSid: 'sess-test',
+    cliSessionId: 'sess-test',
     cwd: '/tmp/test',
     query: undefined as unknown as Query,
     permissionMode,
@@ -46,7 +47,7 @@ function makeDeps(internal: InternalSession): {
   const emitted: AgentEvent[] = [];
   const deps: MakeCanUseToolDeps = {
     internal,
-    getSessionId: () => internal.realSessionId ?? 'tempkey',
+    getSessionId: () => internal.cliSessionId ?? 'tempkey',
     getPermissionMode: () => internal.permissionMode,
     emit: (e) => {
       emitted.push(e);

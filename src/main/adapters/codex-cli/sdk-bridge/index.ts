@@ -449,7 +449,15 @@ export class CodexSdkBridge {
     }
 
     const firstInput = packCodexInput(opts.prompt, opts.attachments);
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 + S7**: applicationSid 双阶段化
+    // (initialSid = opts.resume ?? randomUUID() 已是合适 applicationSid 初值,line 392 同款逻辑):
+    // - spawn 主路径(无 opts.resume): ctor 时 applicationSid = initialSid (= randomUUID 即 tempKey),
+    //   first thread.started 到达时 thread-loop.ts:142 isNewSpawn 分支保护切到 realId 后冻结
+    // - resume / fallback 路径(有 opts.resume): ctor 时 applicationSid = opts.resume,全生命周期不变
+    // S7 修订:mcpSessionTokenMap.allocate 已用 initialSid (line 393),与 applicationSid 同款 = sessions.id 维度,
+    //   反向 rename 不动 sessions.id → token map key 永远稳定。
     const internal: InternalSession = {
+      applicationSid: initialSid,
       threadId: opts.resume ?? null,
       cwd,
       thread,

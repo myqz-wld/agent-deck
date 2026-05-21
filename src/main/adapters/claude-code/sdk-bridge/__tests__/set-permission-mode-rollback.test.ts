@@ -76,6 +76,7 @@ function setupBridgeWithSession(opts: {
   const internal = makeInternalSession({
     cwd: '/tmp/test',
     permissionMode: opts.initialMode,
+    applicationSid: 'sess-test',
   });
   const mockQuery = new MockSdkQuery();
   internal.query = mockQuery as unknown as Query;
@@ -358,7 +359,7 @@ describe('Phase R3 fix-3 — per-session async lock 串行化 setPermissionMode�
       sessionId: 'sid-A',
       initialMode: 'default',
     });
-    const internalB = makeInternalSession({ cwd: '/tmp/test-B', permissionMode: 'default' });
+    const internalB = makeInternalSession({ cwd: '/tmp/test-B', permissionMode: 'default', applicationSid: 'sess-test-B' });
     const mockQueryB = new MockSdkQuery();
     internalB.query = mockQueryB as unknown as Query;
     (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions.set(

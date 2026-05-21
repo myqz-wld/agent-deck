@@ -48,7 +48,7 @@ beforeEach(() => {
 
 describe('Phase 3 (H3) — translateSdkMessage status frame permissionMode 同步 internal cache + DB', () => {
   it('SDK status frame permissionMode=bypassPermissions → internal cache 同步 + DB 写 + emit upsert', () => {
-    const internal = makeInternalSession({ cwd: '/tmp/h3-1', permissionMode: 'default' });
+    const internal = makeInternalSession({ cwd: '/tmp/h3-1', permissionMode: 'default', applicationSid: 'sess-h3-1' });
     expect(internal.permissionMode).toBe('default');
 
     // mock sessionRepo.get 返回 cur 是 default (与 next 不同 → 走完整 DB 写 + emit 路径)
@@ -91,7 +91,7 @@ describe('Phase 3 (H3) — translateSdkMessage status frame permissionMode 同�
   it('SDK frame mode 与 cur 相同 → internal cache 仍同步 (no-op DB 跳过 emit)', () => {
     // 边界场景：cur 已经是 bypassPermissions，新 frame 也是 bypassPermissions → DB 不写
     // 但 internal cache 仍 set (修法：先 internal.permissionMode = next 再走 DB 比对)
-    const internal = makeInternalSession({ cwd: '/tmp/h3-2', permissionMode: 'default' });
+    const internal = makeInternalSession({ cwd: '/tmp/h3-2', permissionMode: 'default', applicationSid: 'sess-h3-2' });
 
     vi.mocked(sessionRepo.get).mockReturnValueOnce({
       id: 'sid-h3-2',
@@ -122,7 +122,7 @@ describe('Phase 3 (H3) — translateSdkMessage status frame permissionMode 同�
   });
 
   it('SDK frame permissionMode 非白名单 (typo / 不支持) → internal cache 不变 + DB 不写', () => {
-    const internal = makeInternalSession({ cwd: '/tmp/h3-3', permissionMode: 'default' });
+    const internal = makeInternalSession({ cwd: '/tmp/h3-3', permissionMode: 'default', applicationSid: 'sess-h3-3' });
     expect(internal.permissionMode).toBe('default');
 
     vi.mocked(sessionRepo.get).mockReturnValueOnce({

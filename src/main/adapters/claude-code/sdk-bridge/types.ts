@@ -62,8 +62,49 @@ export interface PendingExitPlanModeEntry {
 export type PendingUserMessage = () => Promise<SDKUserMessage>;
 
 export interface InternalSession {
-  /** 等待 SDK 真实 session_id 之前用的临时 id；拿到后会被替换 */
-  realSessionId: string | null;
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 / 不变量 1+2 双轨字段**:
+   *
+   * applicationSid 生命周期分两类(R3 HIGH-F + R7 HIGH-R7-1 修订双阶段化):
+   *
+   * 【spawn 主路径】(无 opts.resume 起新 SDK thread,resumeMode='resume-cli' default):
+   * - ctor 时 applicationSid = tempKey (randomUUID() 临时占位)
+   * - first realId 到达时 (stream-processor.ts:271 isNewSpawn 分支保护):
+   *   - 调 sessionManager.renameSdkSession(tempKey, realId) 迁 DB row + 子表 (D2 spawn bootstrap rename 保留)
+   *   - internal.applicationSid = realId (切到 first realId,从此冻结)
+   *   - emit session-renamed{from: tempKey, to: realId} (D6 契约)
+   * - first realId 之后任何 6 处反向 rename 都**不动** applicationSid
+   *
+   * 【resume / jsonl-missing fallback / restart-controller 路径】(已有会话):
+   * - ctor 时 applicationSid = caller 传入 opts.resume (= sessions.id 应用稳定身份)
+   * - 全生命周期 applicationSid 不变 (6 处反向 rename 仅改 cliSessionId 列)
+   *
+   * 用途 (S3-S5/S4b/S7/S9):
+   * - sessions Map key 用 applicationSid (S3)
+   * - event sid 派发用 applicationSid (S4 + S4b mcp-server-init / canUseTool / createUserMessageStream / pending-cancellation)
+   * - createSession return handle.sessionId 用 applicationSid (S5)
+   * - MCP token allocate 用 applicationSid (S7)
+   * - finalizeSessionStart 入参用 applicationSid + cliSessionId (S9)
+   */
+  applicationSid: string;
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2**:
+   * SDK / CLI 当前 thread sid (与 v021 sessions.cli_session_id 列对齐,允许 6 处反向 rename 路径变化)。
+   *
+   * 用途 (SDK / CLI 入参侧):
+   * - SDK options.resume + jsonl preflight + S6 fork detect compare 用 effectiveResumeCliSid
+   *   (S1 R6 升级:caller 传 opts.resumeCliSid 优先 / 不传时 bridge 内部反查 sessionRepo.cliSessionId 兜底回填)
+   * - jsonl 路径命名 `~/.claude/projects/<encoded-cwd>/<cliSessionId>.jsonl` (spike1 §1.2 实证)
+   *
+   * **null 边角** (D4 cli_session_id 列允许 NULL):
+   * - spawn tempKey 阶段:SDK 还没给 first realId,cliSessionId 为 null
+   * - jsonl-missing fallback 起 fresh CLI 期间 (resumeMode='fresh-cli-reuse-app'):cliSessionId 暂时 null,
+   *   first realId 后通过 sessionManager.updateCliSessionId 写入 (R5 HIGH-R5-1 + R6 MED-R6-1 黑名单链)
+   *
+   * **R7 HIGH-R7-1 修订**: rename `realSessionId` → `cliSessionId` 字面切到 SDK 维度,
+   * 与 SessionRecord.cliSessionId 字段对称。
+   */
+  cliSessionId: string | null;
   cwd: string;
   query: Query;
   /**
@@ -176,9 +217,11 @@ export interface InternalSession {
 export function makeInternalSession(opts: {
   cwd: string;
   permissionMode?: PermissionMode;
+  applicationSid: string;
 }): InternalSession {
   return {
-    realSessionId: null,
+    applicationSid: opts.applicationSid,
+    cliSessionId: null,
     cwd: opts.cwd,
     query: undefined as unknown as Query,
     permissionMode: opts.permissionMode ?? 'default',
