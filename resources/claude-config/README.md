@@ -36,7 +36,3 @@
 - `agent-deck-plugin/agents/reviewer-{claude,codex}.md` 是两 reviewer teammate 行为契约
 
 reviewer agent body 引用上述 SSOT，**不复述协议细节**（避免维护漂移）。
-
-## 历史
-
-- 2026-05-13：REVIEW_30 异构对抗 review 决议把 5 大通用节从 `resources/claude-config/CLAUDE.md` 删除，改为引用 `~/.claude/CLAUDE.md` SSOT；6 markdown 模板 + 2 个 reviewer bash 模板移到 `~/.claude/templates/`；3 个 SOP 移到 `~/.claude/SOPs/`；本 README 取代历史 HTML 注释里的同步约定（详 CHANGELOG_79）

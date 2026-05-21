@@ -32,11 +32,9 @@
 
 **例外**: 应用 settings `enableTaskManager: false` 关闭时本组工具不挂 → 退化用户全局 user CLAUDE.md 默认机制(原生 TaskCreate/TaskUpdate);但本应用打包 SDK 会话默认行为是 toggle ON 时挂上,挂上后**优先用 mcp__tasks__\***,不重复用原生 TaskCreate 制造两套 task list 进度漂移。
 
-### reviewer-codex 失败 → 应用环境额外有「合规兜底」分支
+### reviewer-codex 失败 → SKILL 内合规兜底分支
 
-应用环境跑 `deep-review` SKILL 时若 reviewer-codex teammate 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort），可走「合规兜底（仍异构）」：lead 自己 Bash `run_in_background: true` 起外部 codex CLI（按 user 全局模板 `~/.claude/templates/reviewer-codex.sh.tmpl` 填，lead 自己执行而非 teammate），与 reviewer-claude teammate 仍构成 gpt-5.5 vs Opus 4.7 异构对。
-
-> 通用 CLAUDE.md `§reviewer-codex 失败兜底` 只走「严禁同源化降级 / 提示用户决策」一条；本应用环境额外有上述 SKILL 内合规兜底分支。详 SKILL.md `§失败兜底` 表第 1 行。
+`deep-review` SKILL 内若 reviewer-codex teammate 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort），lead 走 Bash `~/.claude/templates/reviewer-codex.sh.tmpl` 起外部 codex CLI 仍构成异构对（详 SKILL.md §失败兜底 表第 1 行）。通用 user CLAUDE.md §reviewer-codex 失败兜底「严禁同源化降级」一条仍 enforce。
 
 ---
 
