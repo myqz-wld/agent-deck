@@ -11,6 +11,7 @@ import type {
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { eventRepo } from '@main/store/event-repo';
 import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
 import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
@@ -98,11 +99,19 @@ export class ClaudeSdkBridge {
     this.permissionTimeoutMs = Math.max(0, opts.permissionTimeoutMs ?? 0);
 
     // RestartController 必须先 init：PermissionResponder ctx thunk 要 restart ref
+    // **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
+    // ctor 注入 3 个新 thunk (jsonlExistsThunk + summariseFn + listEventsFn) — 与
+    // SessionRecoverer 共享同一份 thunk instance,让 helper maybeJsonlFallback 内部
+    // jsonl 预检 / LLM 摘要 / events 拉取 走与 recoverer 同款 facade extend override
+    // 模式 (test 子类化 facade override protected method)。
     this.restartController = new RestartController({
       recovering: this.recovering,
       emit: opts.emit,
       closeSession: (sid) => this.closeSession(sid),
       createSession: (createOpts) => this.createSession(createOpts).then((h) => h),
+      jsonlExistsThunk: (cwd, sid) => this.resumeJsonlExists(cwd, sid),
+      summariseFn: (cwd, events) => this.summariseForHandOff(cwd, events),
+      listEventsFn: (sid) => this.listEventsForSession(sid),
     });
 
     this.responder = new PermissionResponder(
@@ -119,6 +128,11 @@ export class ClaudeSdkBridge {
     // CHANGELOG_99：cwdExists thunk 也走 facade extend override 模式(同 resumeJsonlExists)
     // CHANGELOG_107: summariseFn thunk 同款 facade extend override 模式,默认实现 =
     // summariseSessionForHandOff,Step 2 起 prependHistorySummary helper 调它。
+    // **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
+    // 新增 listEventsFn ctor 字段(末尾),与 RestartController 共享同一 closure
+    // `(sid) => this.listEventsForSession(sid)`,让 helper maybeJsonlFallback 内部
+    // events 拉取走同款 facade extend override 模式(test 子类化 facade override
+    // listEventsForSession protected method)。
     this.recoverer = new SessionRecoverer(
       { recovering: this.recovering, emit: opts.emit },
       (createOpts) => this.createSession(createOpts),
@@ -126,6 +140,7 @@ export class ClaudeSdkBridge {
       (cwd, sid) => this.resumeJsonlExists(cwd, sid),
       (cwd) => this.cwdExists(cwd),
       (cwd, events) => this.summariseForHandOff(cwd, events),
+      (sid) => this.listEventsForSession(sid),
     );
 
     this.streamProcessor = new StreamProcessor({ sessions: this.sessions, emit: opts.emit });
@@ -416,16 +431,27 @@ export class ClaudeSdkBridge {
     // applicationSid + cliSessionId 双入参 — spawn 主路径下 internal.applicationSid 已切到
     // realId 后冻结 (S3 isNewSpawn 修订),emit session-start { sessionId: applicationSid }
     // 与现有 emit session-start { sessionId: realId } 行为字面等价 (S9 jsdoc)。
-    finalizeSessionStart({
-      applicationSid: internal.applicationSid,
-      cliSessionId: realId,
-      cwd: opts.cwd,
-      prompt: opts.prompt,
-      claudeSandboxMode,
-      claudeModel,
-      extraAllowWrite: opts.extraAllowWrite,
-      emit: this.opts.emit,
-    });
+    //
+    // **plan restart-controller-jsonl-precheck-20260521 §Step 3a.5 修法**:
+    // resumeMode='fresh-cli-reuse-app' 路径 (jsonl-missing fallback via maybeJsonlFallback helper)
+    // **跳过整段 finalize 链** — 该路径复用 applicationSid 行 (不创建新 sessions row),
+    // emit session-start 会撞唯一索引 / 创建假 record;setClaudeCodeSandbox / setModel /
+    // setExtraAllowWrite 已由 helper caller (restart-controller / recoverer) 之前显式写过 DB;
+    // 首条 user message emit 由 helper 在 ctx.createSession 成功后补回 (不变量 11)。
+    // fresh fallback 仅依赖 stream-processor S3 isNewSpawn 三分支内部 sessionManager.updateCliSessionId
+    // 单点 UPDATE cli_session_id 列 (不变量 9 + session-finalize.ts:31/41/74 jsdoc 契约对齐)。
+    if (opts.resumeMode !== 'fresh-cli-reuse-app') {
+      finalizeSessionStart({
+        applicationSid: internal.applicationSid,
+        cliSessionId: realId,
+        cwd: opts.cwd,
+        prompt: opts.prompt,
+        claudeSandboxMode,
+        claudeModel,
+        extraAllowWrite: opts.extraAllowWrite,
+        emit: this.opts.emit,
+      });
+    }
 
     // **plan reverse-rename-sid-stability-20260520 §A.4-pre S5 R3 HIGH-F jsdoc 等价性注明**:
     // return handle.sessionId 用 internal.applicationSid (替代旧 return { sessionId: realId })。
@@ -530,6 +556,22 @@ export class ClaudeSdkBridge {
    */
   protected summariseForHandOff(cwd: string, events: AgentEvent[]): Promise<string | null> {
     return summariseSessionForHandOff(cwd, events);
+  }
+
+  /**
+   * **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
+   * events 来源 protected wrapper(同 resumeJsonlExists / cwdExists / summariseForHandOff 模式)。
+   *
+   * 让 test 通过子类化 override 不依赖真 DB(单测 mock event 序列);实际走 module-level
+   * `eventRepo.listForSession(sid)`(默认 limit=200,DESC 排序;`formatEventsForPrompt`
+   * 内部已自己 sort ASC + slice(-30) 取最新一段)。
+   *
+   * RestartController + SessionRecoverer ctor 共享同一份 closure 注入,让 helper
+   * `maybeJsonlFallback` 内部 events 拉取 + recoverer 主路径 prependHistorySummary
+   * 调用走同款 thunk(避免 recoverer.ts 与 helper 双处 hardcode eventRepo 漂移)。
+   */
+  protected listEventsForSession(sessionId: string): AgentEvent[] {
+    return eventRepo.listForSession(sessionId);
   }
 
   // CHANGELOG_52 Step 3b：6 respond/list 方法 + 3 timeout 方法迁到 PermissionResponder。
