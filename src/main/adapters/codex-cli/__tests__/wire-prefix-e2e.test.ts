@@ -96,6 +96,7 @@ function makeFakeThread(): Thread {
 
 function makeInternalSession(threadId: string): InternalSession {
   return {
+    applicationSid: threadId,
     threadId,
     cwd: '/tmp/codex-cwd',
     thread: makeFakeThread(),

@@ -87,6 +87,7 @@ function makeFakeCodex(label: string): Codex {
 
 function makeInternalSession(threadId: string | null = null): InternalSession {
   return {
+    applicationSid: threadId ?? 'sess-test',
     threadId,
     cwd: '/tmp/x',
     thread: {} as InternalSession['thread'],

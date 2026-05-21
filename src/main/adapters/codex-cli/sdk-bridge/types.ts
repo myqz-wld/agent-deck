@@ -25,7 +25,28 @@ export interface CodexBridgeOptions {
 }
 
 export interface InternalSession {
-  /** 真实 thread_id，第一次 thread.started 事件后写入。resume 路径在创建时就有。 */
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2**:
+   * applicationSid 生命周期分两类(详 claude InternalSession.applicationSid jsdoc):
+   *
+   * 【spawn 主路径】(无 opts.resume 起新 thread):
+   * - ctor 时 applicationSid = tempKey
+   * - first thread.started 到达时 (thread-loop.ts:142 isNewSpawn 分支保护):
+   *   - 调 sessionManager.renameSdkSession(tempKey, realId)
+   *   - internal.applicationSid = realId, internal.threadId = realId
+   *
+   * 【resume / jsonl-missing fallback / restart 路径】:
+   * - ctor 时 applicationSid = caller 传入 opts.resume
+   * - 全生命周期 applicationSid 不变 (反向 rename 仅改 threadId)
+   *
+   * codex 端 sessions Map / event sid / handle return / MCP token 全部用此字段。
+   */
+  applicationSid: string;
+  /** 真实 thread_id，第一次 thread.started 事件后写入。resume 路径在创建时就有。
+   *
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2**: 与 v021 sessions.cli_session_id 列对齐,
+   * SDK / CLI thread 当前 sid。codex case 3 fork (thread-loop.ts:263) 时 update 此字段,
+   * applicationSid 不动。 */
   threadId: string | null;
   cwd: string;
   thread: Thread;

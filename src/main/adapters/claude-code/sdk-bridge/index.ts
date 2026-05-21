@@ -203,9 +203,14 @@ export class ClaudeSdkBridge {
     // CHANGELOG_85 Step 3.2：InternalSession 字段初值集中到 types.ts:makeInternalSession factory
     // （permissionMode 与 query options 同源 `opts.permissionMode ?? 'default'`，详
     // makeInternalSession + InternalSession.permissionMode 字段 jsdoc）。
+    // plan reverse-rename-sid-stability-20260520 §A.4-pre S2: applicationSid 双阶段化:
+    // - spawn 主路径(无 opts.resume): ctor 时 = tempKey,first realId 到达时 stream-processor.ts:271
+    //   isNewSpawn 分支保护切到 realId 后冻结
+    // - resume / fallback 路径(有 opts.resume): ctor 时 = opts.resume,全生命周期不变
     const internal = makeInternalSession({
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
+      applicationSid: opts.resume ?? tempKey,
     });
 
     if (opts.prompt) {
@@ -227,9 +232,13 @@ export class ClaudeSdkBridge {
     // / approve-bypass deny+interrupt / 超时 timer + abort listener）全部完整保留在 module。
     const canUseTool = makeCanUseTool({
       internal,
-      // realId lazy getter：canUseTool 第一次被 SDK 调用时一定在 waitForRealSessionId 之后，
-      // 所以 internal.realSessionId 已经被赋值；wait 之前的兜底用 tempKey（与原 inline 行为一致）
-      getSessionId: () => internal.realSessionId ?? tempKey,
+      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4b R4 HIGH-H 修订**:
+      // canUseTool getSessionId 返 internal.applicationSid (替代 internal.realSessionId ?? tempKey) —
+      // can-use-tool.ts:139/219/349 多处 emit waiting-for-user event 用此 sid,renderer SessionDetail
+      // 路由必须用 applicationSid 才能命中 PendingTab 不漂浮 (D7 不变量 3 wire prefix [sid] 100%
+      // 写 sessions.id);spawn 主路径 ctor 时 applicationSid = tempKey,first realId 后切到 realId
+      // 冻结 (S2 jsdoc)。
+      getSessionId: () => internal.applicationSid,
       // CHANGELOG_72 Bug 3：bypass 短路读 internal.permissionMode（与 SDK options 同源），
       // 不查 sessionRepo —— 避免 createSession 期间 sessionRepo 还没记录 permission_mode 的 race。
       getPermissionMode: () => internal.permissionMode,
@@ -525,7 +534,7 @@ export class ClaudeSdkBridge {
     let key: string | null = null;
     let internal: InternalSession | null = null;
     for (const [k, v] of this.sessions.entries()) {
-      if (k === sessionId || v.realSessionId === sessionId) {
+      if (k === sessionId || v.cliSessionId === sessionId || v.applicationSid === sessionId) {
         key = k;
         internal = v;
         break;

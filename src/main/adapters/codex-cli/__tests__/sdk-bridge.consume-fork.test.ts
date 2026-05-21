@@ -112,6 +112,7 @@ function makeFakeThread(events: ThreadEvent[], throwBeforeEvents?: Error): Threa
 
 function makeInternalSession(thread: Thread, threadId: string | null = null): InternalSession {
   return {
+    applicationSid: threadId ?? 'sess-test',
     threadId,
     cwd: '/tmp/x',
     thread,

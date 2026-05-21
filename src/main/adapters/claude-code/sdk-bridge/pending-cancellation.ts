@@ -92,24 +92,38 @@ export function runCloseSessionCleanup(args: {
   const { sessions, internal, key, sessionId, emit } = args;
 
   // step 2 + 顺手修：先 emit 后 clear，避免 store 端 zombie row 残留
-  const realIdForEmit = internal.realSessionId ?? sessionId;
+  // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4b R5 MED-R5-1 修订**:
+  // realIdForEmit 改用 internal.applicationSid (替代 internal.realSessionId ?? sessionId) —
+  // S4b 弹窗初始 emit (can-use-tool.ts:139/219/349 走 getSessionId() = internal.applicationSid 维度)
+  // 必须与 cancellation event 维度对齐,PendingTab(appSid) 路由 cancellation 才能清掉 pending 项;
+  // 反向 rename 后 internal.cliSessionId 是 cli sid 维度,close cleanup 用 cli sid 发 cancellation
+  // event 会让 PendingTab 漂浮 pending 项无人清 (R4 HIGH-H 13 同款 PendingTab 路由错位)。
+  const realIdForEmit = internal.applicationSid;
   cancelPendingAndEmit(internal, realIdForEmit, emit);
 
   // step 3：从 sessions map 移除
   sessions.delete(key);
 
-  // step 4：释放 sdkOwned（sessionId + realSessionId 双面）
+  // step 4：释放 sdkOwned (sessionId + applicationSid + cliSessionId 三面 — applicationSid 总是
+  // 与 sessionId 同款维度但显式 release 一份保险;cliSessionId 与 applicationSid 不同时释放 cli sid claim)
   sessionManager.releaseSdkClaim(sessionId);
-  if (internal.realSessionId && internal.realSessionId !== sessionId) {
-    sessionManager.releaseSdkClaim(internal.realSessionId);
+  if (internal.applicationSid !== sessionId) {
+    sessionManager.releaseSdkClaim(internal.applicationSid);
+  }
+  if (internal.cliSessionId && internal.cliSessionId !== sessionId && internal.cliSessionId !== internal.applicationSid) {
+    sessionManager.releaseSdkClaim(internal.cliSessionId);
   }
 
-  // REVIEW_12 Bug 5 双保险：sessionId + realSessionId 加 recentlyDeleted 60s 黑名单。
-  // 覆盖 OLD CLI 子进程 SIGTERM 后飞回的迟到 hook event 仍带 OLD_ID 或 realSessionId 窗口。
-  // 与 SessionManager.delete + renameSdkSession 入口对称。
+  // REVIEW_12 Bug 5 双保险 + R5 MED-R5-1 升级: sessionId + applicationSid + cliSessionId 加 recentlyDeleted 60s 黑名单。
+  // 覆盖 OLD CLI 子进程 SIGTERM 后飞回的迟到 hook event 仍带 OLD_ID 或 cliSessionId 窗口。
+  // 与 SessionManager.delete + renameSdkSession 入口对称 (markRecentlyDeleted 内部 R5 MED-R5-1 双写已加 cliSid,
+  // 此处显式调一次保 sessionId 自己 + 反向 rename 后 caller 入参 sessionId 是 appSid / cliSid 不同 都被覆盖)。
   sessionManager.markRecentlyDeleted(sessionId);
-  if (internal.realSessionId && internal.realSessionId !== sessionId) {
-    sessionManager.markRecentlyDeleted(internal.realSessionId);
+  if (internal.applicationSid !== sessionId) {
+    sessionManager.markRecentlyDeleted(internal.applicationSid);
+  }
+  if (internal.cliSessionId && internal.cliSessionId !== sessionId && internal.cliSessionId !== internal.applicationSid) {
+    sessionManager.markRecentlyDeleted(internal.cliSessionId);
   }
 
   // step 5：唤醒 createUserMessageStream 的 await，让它走到 sessions.has(key) === false 后 return。
