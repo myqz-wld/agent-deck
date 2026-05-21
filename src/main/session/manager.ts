@@ -392,6 +392,15 @@ class SessionManagerClass {
   async archive(sessionId: string): Promise<void> {
     // 只设归档标记，不动 lifecycle —— 这样取消归档可以恢复原本的生命周期。
     sessionRepo.setArchived(sessionId, Date.now());
+    // R2 reviewer-codex MED 修法:archive() 同步清 cwd_release_marker。
+    // 推理链:hand_off_session / archive_plan baton phase 2 调本 archive(callerSid) →
+    // 仅打 archived_at 不清 marker → caller 后续被 unarchiveOnUserSend 复活 → 仍带旧 worktree
+    // marker(指向 archive_plan 已删的 worktree path,marker 指向 stale 路径)→ 复活后调
+    // archive_plan / 4 态 cwd dispatch 走 cwdReleaseMarker thunk(archive-plan-impl.ts:627)
+    // 拿 stale marker 撞 cross-worktree warning / cwd invalid reject。
+    // archive 语义 = caller 使命终结;复活时 marker 应已清空(unarchive 后 caller 应重新
+    // EnterWorktree 才能再次 hold worktree state),清 marker 是符合预期的副作用。
+    sessionRepo.clearCwdReleaseMarker(sessionId);
     const updated = sessionRepo.get(sessionId);
     if (updated) eventBus.emit('session-upserted', updated);
     // bug 修复（plan deep-review-and-split-20260513）：lead session 被归档后，
@@ -623,6 +632,11 @@ class SessionManagerClass {
    * - codex/thread-loop.ts:263 case 3 post-resume fork (codex,future-proof)
    * - restart-controller.ts:189 restartWithPermissionMode (claude)
    * - restart-controller.ts:341 restartWithClaudeCodeSandbox (claude)
+   *
+   * 调用方 (spawn 主路径,新增 R2 reviewer-claude MED 修法):
+   * - claude-code/sdk-bridge/session-finalize.ts:98 spawn 主路径 cli_session_id 写入
+   *   (spawn 时 oldCliSid === newCliSessionId === applicationSid,wrapper 内 L632 不写
+   *   黑名单语义等价直调 sessionRepo;统一走 wrapper 让契约层硬约束 SSOT 不被绕过)
    */
   updateCliSessionId(applicationSid: string, newCliSessionId: string): void {
     const rec = sessionRepo.get(applicationSid);

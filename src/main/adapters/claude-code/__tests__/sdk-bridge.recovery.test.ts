@@ -50,6 +50,7 @@ vi.mock('@main/session/manager', () => ({
     expectSdkSession: vi.fn(() => () => undefined),
     renameSdkSession: vi.fn(),
     unarchive: vi.fn(),
+    updateCliSessionId: vi.fn(),
   },
 }));
 

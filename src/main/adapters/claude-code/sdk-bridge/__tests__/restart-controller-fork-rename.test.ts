@@ -38,6 +38,7 @@ vi.mock('@main/store/session-repo', () => ({
 vi.mock('@main/session/manager', () => ({
   sessionManager: {
     renameSdkSession: vi.fn(),
+    updateCliSessionId: vi.fn(),
   },
 }));
 

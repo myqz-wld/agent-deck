@@ -245,7 +245,7 @@ export async function buildTaskTools(
   // ───── task_update
   const taskUpdate = tool(
     'task_update',
-    `Incrementally update a task. The task must belong to the current session's team; attempting to update another team's task returns an error. Omitted fields are left unchanged. Pass null to clear nullable fields (description, active_form). updated_at is auto-refreshed.`,
+    `Incrementally update a task. The task must belong to the current session's team OR be a global task (team_id = null). Cross-team non-global tasks return permission-denied. Omitted fields are left unchanged. Pass null to clear nullable fields (description, active_form). updated_at is auto-refreshed.`,
     {
       task_id: z.string().describe('Task UUID to update'),
       subject: z.string().min(1).max(200).optional(),
@@ -263,10 +263,17 @@ export async function buildTaskTools(
         const existing = repo.get(task_id);
         if (!existing) return err(`task ${task_id} not found`);
         const currentTeam = getTeamId();
-        // R3.E8 写权限锁：只能改自己 team_id 的任务
-        if (existing.teamId !== currentTeam) {
+        // R3.E8 写权限锁:只能改自己 team_id 的任务
+        // **deep-review-trio-20260521 fix**:允许 caller 改 team_id=null (`<global>`) 老 task —
+        // 防止「caller 没 team 时建 task → spawn 加 team → caller 想 task_update 撞 team mismatch」反模式
+        // (典型: deep-review SKILL 流程 mcp__tasks__task_create 在 spawn_session 之前跑跟踪进度,
+        // task 创建时 caller team_id=`<global>`,spawn 后 caller 进 team N,task_update 撞 reject)。
+        // 语义:全局 task 是 caller 在「无 team」状态下创建的孤儿 task,任何后续 caller(无论加哪个 team)
+        // 都能改/删 — 单用户单进程应用此放宽安全。反之 caller 在 team N 仍不能改 team M 的 non-global task
+        // (non-null vs non-null mismatch 仍 reject 防跨 team 误改)。
+        if (existing.teamId !== null && existing.teamId !== currentTeam) {
           return err(
-            `permission denied: task ${task_id} belongs to team_id "${existing.teamId ?? '<global>'}", current session is in team_id "${currentTeam ?? '<global>'}"`,
+            `permission denied: task ${task_id} belongs to team_id "${existing.teamId}", current session is in team_id "${currentTeam ?? '<global>'}"`,
           );
         }
         // argsToInputWithoutTeam 已不放 teamId / teamName，patch 不会有 teamId 键
@@ -310,7 +317,7 @@ export async function buildTaskTools(
   // ───── task_delete
   const taskDelete = tool(
     'task_delete',
-    `Delete a task by id. The task must belong to the current session's team. With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also team-checked: cross-team children are skipped, not deleted). Without force, surviving tasks have their blocks/blocked_by references to it cleaned up.`,
+    `Delete a task by id. The task must belong to the current session's team OR be a global task (team_id = null). With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also team-checked: cross-team non-global children are skipped, not deleted; global children are removed). Without force, surviving tasks have their blocks/blocked_by references to it cleaned up.`,
     {
       task_id: z.string().describe('Task UUID to delete'),
       force: z
@@ -323,17 +330,21 @@ export async function buildTaskTools(
         const target = repo.get(args.task_id);
         if (!target) return err(`task ${args.task_id} not found`);
         const currentTeam = getTeamId();
-        // R3.E8 写权限锁：只能删自己 team_id 的任务
-        if (target.teamId !== currentTeam) {
+        // R3.E8 写权限锁:只能删自己 team_id 的任务
+        // **deep-review-trio-20260521 fix**:允许 caller 删 team_id=null (`<global>`) 老 task —
+        // 与 task_update 同款放宽,单用户单进程应用全局 task 谁都能删。详 task_update 修法注释。
+        if (target.teamId !== null && target.teamId !== currentTeam) {
           return err(
-            `permission denied: task ${args.task_id} belongs to team_id "${target.teamId ?? '<global>'}", current session is in team_id "${currentTeam ?? '<global>'}"`,
+            `permission denied: task ${args.task_id} belongs to team_id "${target.teamId}", current session is in team_id "${currentTeam ?? '<global>'}"`,
           );
         }
-        // R3.E8：cascade=true 时把 closure team_id predicate 传进 repo.delete。
+        // R3.E8:cascade=true 时把 closure team_id predicate 传进 repo.delete。
         // BFS 路径上跨 team 的 child 整个跳过（不删 + 不展开它的下游），避免越权。
+        // **deep-review-trio-20260521 fix**:与 task_update / task_delete 入口语义一致 — global task
+        // (teamId === null) 也允许 cascade 删,与「全局 task 谁都能删」放宽对齐。
         const deletedIds = repo.delete(args.task_id, {
           cascade: args.force ?? false,
-          predicate: (_, _teamName, teamId) => teamId === currentTeam,
+          predicate: (_, _teamName, teamId) => teamId === currentTeam || teamId === null,
         });
         for (const id of deletedIds) {
           eventBus.emit('task-changed', {

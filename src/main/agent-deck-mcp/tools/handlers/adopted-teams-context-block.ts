@@ -23,7 +23,7 @@
  *   prefix `[msg <id>]` 锚点 + send_message → lead 收到 reply auto-injected
  * - **adopt = baton 单向交接**:lead 退出(archive),新 session 接管成为新 lead,与 caller
  *   无 reply chain(caller 已 exit);新 session 自己用 send_message 给保留的 teammate 发新
- *   消息,teammate first reply 自动含 wire prefix `[from <name>][msg <id>][sid <sid>]` 让新
+ *   消息,teammate first reply 自动含 wire prefix `[from <name> @ <adapter>][msg <id>][sid <sid>]` 让新
  *   session 用 reply_to_message_id 维持 reply chain
  *
  * **Round 7 codex MED-1 修法**(v7 → v8):删 newLeadSid 字段 — 现有 spawn/adapter contract
@@ -85,7 +85,7 @@ export interface BuildAdoptedTeamsContextBlockOpts {
  *
  * ### How to communicate with teammates
  * Use `send_message({ session_id: <teammate-sid>, team_id: <team-id>, text: ... })` — for first-turn message omit `reply_to_message_id`.
- * Teammates' first reply will auto-include wire prefix `[from <name>][msg <id>][sid <sid>]` — use `reply_to_message_id` from that prefix on subsequent send_message to maintain reply chain.
+ * Teammates' first reply will auto-include wire prefix `[from <name> @ <adapter>][msg <id>][sid <sid>]` — use `reply_to_message_id` from that prefix on subsequent send_message to maintain reply chain.
  * ```
  *
  * **不含** wire prefix / placeholderId / "回 lead" 指令(spawn 派小弟语义),与 adopt 单向交接
@@ -127,7 +127,7 @@ export function buildAdoptedTeamsContextBlock(
     ``,
     `### How to communicate with teammates`,
     `Use \`send_message({ session_id: <teammate-sid>, team_id: <team-id>, text: ... })\` — for first-turn message omit \`reply_to_message_id\`.`,
-    `Teammates' first reply will auto-include wire prefix \`[from <name>][msg <id>][sid <sid>]\` — use \`reply_to_message_id\` from that prefix on subsequent send_message to maintain reply chain.`,
+    `Teammates' first reply will auto-include wire prefix \`[from <name> @ <adapter>][msg <id>][sid <sid>]\` — use \`reply_to_message_id\` from that prefix on subsequent send_message to maintain reply chain.`,
     ``,
   );
 

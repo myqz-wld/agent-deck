@@ -151,7 +151,7 @@ describe('buildAdoptedTeamsContextBlock — adopt 路径 cold-start prompt prepe
         `\n` +
         `### How to communicate with teammates\n` +
         `Use \`send_message({ session_id: <teammate-sid>, team_id: <team-id>, text: ... })\` — for first-turn message omit \`reply_to_message_id\`.\n` +
-        `Teammates' first reply will auto-include wire prefix \`[from <name>][msg <id>][sid <sid>]\` — use \`reply_to_message_id\` from that prefix on subsequent send_message to maintain reply chain.\n`,
+        `Teammates' first reply will auto-include wire prefix \`[from <name> @ <adapter>][msg <id>][sid <sid>]\` — use \`reply_to_message_id\` from that prefix on subsequent send_message to maintain reply chain.\n`,
     );
   });
 
@@ -182,7 +182,7 @@ describe('buildAdoptedTeamsContextBlock — adopt 路径 cold-start prompt prepe
         `\n` +
         `### How to communicate with teammates\n` +
         `Use \`send_message({ session_id: <teammate-sid>, team_id: <team-id>, text: ... })\` — for first-turn message omit \`reply_to_message_id\`.\n` +
-        `Teammates' first reply will auto-include wire prefix \`[from <name>][msg <id>][sid <sid>]\` — use \`reply_to_message_id\` from that prefix on subsequent send_message to maintain reply chain.\n`,
+        `Teammates' first reply will auto-include wire prefix \`[from <name> @ <adapter>][msg <id>][sid <sid>]\` — use \`reply_to_message_id\` from that prefix on subsequent send_message to maintain reply chain.\n`,
     );
   });
 });
