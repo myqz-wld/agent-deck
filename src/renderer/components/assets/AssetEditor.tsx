@@ -3,22 +3,33 @@ import type { AssetKind, AssetMeta } from '@shared/types';
 import { ASSET_LIMITS, ASSET_NAME_REGEX } from '@shared/types';
 
 /**
- * 用户自定义 agent / skill 编辑器（CHANGELOG_57 C3）。
+ * 用户自定义 agent / skill 编辑器（CHANGELOG_57 C3 / plan assets-codex-user-and-ui-unify-20260521
+ * §D5 §D7 双 adapter 编辑姿势）。
  *
  * 字段（按 kind 分流）：
  * - 共用：name (slug，仅新建时可填) / description (必填) / body (markdown 正文)
  * - agent only：model (必填，opus/sonnet/haiku 下拉) / tools (逗号分隔，可空)
  *
+ * **plan §D5 升级**:接 `adapter` prop（'claude-code' | 'codex-cli'，必传，由 sub-tab 锁定）
+ * - 新建模式：adapter = 当前 sub-tab 值（在 Codex sub-tab 内点 + 新建则 adapter='codex-cli'）
+ * - 编辑模式：adapter = `asset.adapter`（与 name 同款 read-only 不可改;改 adapter = 跨 root mv,
+ *   本批不实现）
+ *
  * mount 行为：
  * - asset === null：新建模式，全部空字段
- * - asset !== null：编辑模式，调 getAssetContent 拉完整 md 解析 frontmatter + body 填入
+ * - asset !== null：编辑模式，调 getAssetContent(asset.adapter) 拉完整 md 解析 frontmatter + body
  *
  * dirty 契约：本组件用本地 dirty state 自管，弹关闭确认；不向父级上报（与
  * ClaudeMdEditor 不同，那个是嵌在设置里的常驻 textarea，本编辑器只在 modal 模式下打开）。
+ *
+ * **plan §D3 不变量 #4**：codex+agent 组合本组件不会进入（AssetsTab Codex sub-tab Agents 内
+ * 不显「+ 新建 Agent」按钮 + bundled 不可编辑;但 IPC 层仍硬拒做 defense in depth）。
  */
 
 interface Props {
   kind: AssetKind;
+  /** plan §D5：adapter 必传（由 sub-tab 锁定）。 */
+  adapter: 'claude-code' | 'codex-cli';
   /** null = 新建模式；AssetMeta = 编辑模式（来源固定为 user）。 */
   asset: AssetMeta | null;
   onClose: () => void;
@@ -28,7 +39,7 @@ interface Props {
 
 const MODEL_OPTIONS = ['opus', 'sonnet', 'haiku'];
 
-export function AssetEditor({ kind, asset, onClose, onSaved }: Props): JSX.Element {
+export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): JSX.Element {
   const isEdit = asset !== null;
   const [name, setName] = useState(asset?.name ?? '');
   const [description, setDescription] = useState(asset?.description ?? '');
@@ -54,9 +65,8 @@ export function AssetEditor({ kind, asset, onClose, onSaved }: Props): JSX.Eleme
     // 时孤儿 then 写到旧 body。fetch 失败也算 cancel scope 内（防写孤儿 error）。
     let cancelled = false;
     void window.api
-      // plan codex-handoff-team-alignment-20260518 §P3 Step 3.4：getAssetContent 第 4 参数
-      // adapter；AssetEditor 仅编辑 user 资产（source 必为 'user'），adapter 永远 null。
-      .getAssetContent(asset.kind, asset.name, 'user', null)
+      // plan §D7：getAssetContent 第 4 参数 adapter 必传（user 资产也按 adapter narrow 派发）
+      .getAssetContent(asset.kind, asset.name, 'user', asset.adapter)
       .then((r) => {
         if (cancelled) return;
         if (r.ok) {
@@ -136,6 +146,7 @@ export function AssetEditor({ kind, asset, onClose, onSaved }: Props): JSX.Eleme
     try {
       const r = await window.api.saveUserAsset({
         kind,
+        adapter,
         name,
         description: description.trim(),
         tools: kind === 'agent' ? tools.trim() || undefined : undefined,
@@ -157,12 +168,18 @@ export function AssetEditor({ kind, asset, onClose, onSaved }: Props): JSX.Eleme
 
   const remove = async (): Promise<void> => {
     if (!asset) return;
+    // plan §不变量 #8 + Step 3.5：codex skill 删除 confirmDialog detail 含 restart codex 提示
+    // （删除后 codex CLI in-memory cache 残留场景，让用户在确认前就知道）。claude skill 不需提示。
+    const codexSkillHint =
+      asset.kind === 'skill' && asset.adapter === 'codex-cli'
+        ? '\n注意：运行中的 codex CLI 需重启（pkill -f codex 后重启）才看到生效（codex CLI in-memory skills cache 残留）。'
+        : '';
     const ok = await window.api.confirmDialog({
       title: `删除${kind === 'agent' ? ' Agent' : ' Skill'}`,
       message: `确定要删除「${asset.name}」吗？`,
-      detail: kind === 'skill'
+      detail: (kind === 'skill'
         ? `将递归删除目录 ${asset.absPath} 所在的 skill 子目录。`
-        : `将删除文件 ${asset.absPath}。`,
+        : `将删除文件 ${asset.absPath}。`) + codexSkillHint,
       okLabel: '删除',
       cancelLabel: '取消',
       destructive: true,
@@ -170,7 +187,8 @@ export function AssetEditor({ kind, asset, onClose, onSaved }: Props): JSX.Eleme
     if (!ok) return;
     setBusy(true);
     try {
-      const r = await window.api.deleteUserAsset(asset.kind, asset.name);
+      // plan §D7 + reviewer-codex MED-D：deleteUserAsset 三参（含 adapter，只删当前 root）
+      const r = await window.api.deleteUserAsset(asset.kind, asset.name, asset.adapter);
       if (r.ok) {
         onSaved();
         onClose();
@@ -199,6 +217,20 @@ export function AssetEditor({ kind, asset, onClose, onSaved }: Props): JSX.Eleme
     if (ok) onClose();
   };
 
+  // plan §D5 + reviewer-claude R2 LOW-2：modal header 加 adapter chip,与 ContentViewerModal 对齐
+  const adapterLabel = adapter === 'claude-code' ? '[claude]' : '[codex]';
+  const adapterChipClass =
+    adapter === 'claude-code'
+      ? 'bg-status-working/20 text-status-working'
+      : 'bg-status-running/20 text-status-running';
+
+  // placeholder 文案 sub-tab 切换：claude → ~/.claude/{agents,skills}/ / codex → ~/.codex/skills/
+  const pathHint = !isEdit
+    ? adapter === 'claude-code'
+      ? `slug 格式 [a-z0-9-]+；保存后即文件名（agent: ~/.claude/agents/${name || '<name>'}.md；skill: ~/.claude/skills/${name || '<name>'}/SKILL.md）`
+      : `slug 格式 [a-z0-9-]+；保存后即文件名（skill: ~/.codex/skills/${name || '<name>'}/SKILL.md;codex 不支持 user agent）`
+    : '';
+
   const title = isEdit
     ? `编辑${kind === 'agent' ? ' Agent' : ' Skill'}：${asset?.name}`
     : `新建${kind === 'agent' ? ' Agent' : ' Skill'}`;
@@ -206,12 +238,15 @@ export function AssetEditor({ kind, asset, onClose, onSaved }: Props): JSX.Eleme
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="no-drag flex h-[80%] w-[400px] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
-        <header className="mb-3 flex items-center justify-between">
-          <h3 className="text-[13px] font-medium">{title}</h3>
+        <header className="mb-3 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <code className={`shrink-0 rounded px-1 py-0.5 text-[9px] ${adapterChipClass}`}>{adapterLabel}</code>
+            <h3 className="truncate text-[13px] font-medium">{title}</h3>
+          </div>
           <button
             type="button"
             onClick={() => void handleClose()}
-            className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
           >
             ✕
           </button>
@@ -233,11 +268,7 @@ export function AssetEditor({ kind, asset, onClose, onSaved }: Props): JSX.Eleme
               placeholder="my-skill"
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
             />
-            {!isEdit && (
-              <div className="text-[10px] text-deck-muted/60">
-                slug 格式 [a-z0-9-]+；保存后即文件名（agent: ~/.claude/agents/{name || '<name>'}.md；skill: ~/.claude/skills/{name || '<name>'}/SKILL.md）
-              </div>
-            )}
+            {!isEdit && <div className="text-[10px] text-deck-muted/60">{pathHint}</div>}
           </Field>
 
           <Field label="description" error={descError}>

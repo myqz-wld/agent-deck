@@ -127,48 +127,50 @@ export const miscApi = {
   resetCodexAgentsMd: (): Promise<{ ok: boolean; content: string }> =>
     ipcRenderer.invoke(IpcInvoke.CodexAgentsMdReset),
 
-  // ─────────── Assets Library (CHANGELOG_57) ───────────
+  // ─────────── Assets Library (CHANGELOG_57 / plan assets-codex-user-and-ui-unify-20260521 §D7) ───────────
   /** 列内置 plugin agents+skills（main 启动时一次性扫 frontmatter，缓存读）。 */
   listBundledAssets: (): Promise<BundledAssetsSnapshot> =>
     ipcRenderer.invoke(IpcInvoke.AssetsListBundled),
-  /** 列用户自定义 ~/.claude/{agents,skills}/ 下全部资产；每次现扫现读。 */
+  /** 列用户自定义资产（双 root scan：~/.claude/{agents,skills}/ + ~/.codex/skills/）；每次现扫现读。 */
   listUserAssets: (): Promise<UserAssetsSnapshot> =>
     ipcRenderer.invoke(IpcInvoke.AssetsListUser),
   /**
    * 读单个 asset 完整 md 文本（含 frontmatter + body）。「查看完整内容」/ 编辑器 mount 用。
    *
-   * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4 升级**：第 4 参数 `adapter`：
-   * - bundled 资产：传 `asset.adapter`（'claude-code' / 'codex-cli'，bundled 双 root narrow key）
-   * - user 资产：传 `null`（user 资产无 plugin scope）
-   * - renderer 直接透传 `AssetMeta.adapter` 字段值即可
+   * **plan assets-codex-user-and-ui-unify-20260521 §D7 升级**：第 4 参数 `adapter` user 也必传：
+   * - bundled 资产：传 `asset.adapter`（'claude-code' / 'codex-cli'，narrow 到 plugin root）
+   * - user 资产：传 `asset.adapter`（'claude-code' / 'codex-cli'，narrow 到 ~/.claude/ 或 ~/.codex/ root）
+   * - renderer 直接透传 `AssetMeta.adapter` 字段值即可（null 类型已删除）
    */
   getAssetContent: (
     kind: AssetKind,
     name: string,
     source: AssetSource,
-    adapter: 'claude-code' | 'codex-cli' | null,
+    adapter: 'claude-code' | 'codex-cli',
   ): Promise<AssetContentResult> =>
     ipcRenderer.invoke(IpcInvoke.AssetsGetContent, kind, name, source, adapter),
-  /** 保存用户 asset；main 端拼装 frontmatter + 原子写。返回写盘后的 AssetMeta。 */
+  /** 保存用户 asset；main 端拼装 frontmatter + 原子写。返回写盘后的 AssetMeta。
+   *  input 含 `adapter` 字段（plan §D5 sub-tab 锁定），codex+agent 组合 IPC 层硬拒。 */
   saveUserAsset: (input: UserAssetInput): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AssetsSaveUser, input),
-  /** 删除用户 asset。skill 子目录递归 rm，agent 单文件 unlink。 */
+  /** 删除用户 asset。skill 子目录递归 rm，agent 单文件 unlink。
+   *  **plan §D7 升级**：第 3 参数 `adapter` 必传（同名跨 adapter 独立资产不变量 #5，只删当前 adapter root）。 */
   deleteUserAsset: (
     kind: AssetKind,
     name: string,
+    adapter: 'claude-code' | 'codex-cli',
   ): Promise<{ ok: boolean; reason?: string }> =>
-    ipcRenderer.invoke(IpcInvoke.AssetsDeleteUser, kind, name),
+    ipcRenderer.invoke(IpcInvoke.AssetsDeleteUser, kind, name, adapter),
   /**
    * 在 Finder / 资源管理器中显示对应文件，跨平台。
    *
-   * **plan §P3 Step 3.4 升级**：第 4 参数 `adapter` 同 getAssetContent 语义（bundled 必传 /
-   * user 传 null）。
+   * **plan §D7 升级**：第 4 参数 `adapter` user 也必传（同 getAssetContent 语义）。
    */
   revealAssetInFolder: (
     kind: AssetKind,
     name: string,
     source: AssetSource,
-    adapter: 'claude-code' | 'codex-cli' | null,
+    adapter: 'claude-code' | 'codex-cli',
   ): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AssetsRevealInFolder, kind, name, source, adapter),
 
