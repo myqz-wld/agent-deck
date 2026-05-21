@@ -1,6 +1,7 @@
 /**
  * Assets Library IPC handlers（CHANGELOG_57 C2 / plan codex-handoff-team-alignment-20260518
- * §P3 Step 3.4 双 adapter cascade）。
+ * §P3 Step 3.4 双 adapter cascade / plan assets-codex-user-and-ui-unify-20260521 §D3 §D5 §D7
+ * 双 adapter user 自定义补齐 + UI sub-tab 统一改造）。
  *
  * 6 个 channel 收口资产库读写：
  *   - AssetsListBundled / AssetsListUser    —— 列表
@@ -12,22 +13,23 @@
  * source 严格枚举，UserAssetInput 委托 user-assets.saveUserAsset 内部校验。
  * 所有失败统一返回 `{ ok: false, reason }`，renderer 透传给用户。
  *
- * **plan §P3 Step 3.4 升级**：AssetsGetContent / AssetsRevealInFolder 加 adapter 第 4 参数：
- * - source==='bundled'：adapter 必传（'claude-code' / 'codex-cli'）—— bundled 双 root narrow
- *   key，不传或非法直接 reject
- * - source==='user'：adapter 忽略（user 资产无 plugin scope，renderer 传 null）
+ * **plan assets-codex-user-and-ui-unify-20260521 §D7 升级**：
+ * - `AssetMeta.adapter` user 资产也带 ('claude-code' | 'codex-cli')，null 删除
+ * - `AssetsGetContent` / `AssetsRevealInFolder` / `AssetsDeleteUser` source==='user' 时也必传 adapter
+ *   （user 资产现也按 adapter 派发到不同 root：~/.claude/{agents,skills}/ vs ~/.codex/skills/）
+ * - `AssetsSaveUser` UserAssetInput 加 adapter 字段（必填）
+ * - `validateAdapterKind` 拒 codex+agent 组合（plan §D3 不变量 #4 — codex CLI 无 user agent 概念）
  */
 import { shell } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import type { AssetKind, AssetSource, UserAssetInput } from '@shared/types';
-import { ASSET_LIMITS } from '@shared/types';
+import { ASSET_LIMITS, validateAdapterKind } from '@shared/types';
 import { on, IpcInputError, parseStringId } from './_helpers';
 import {
   getBundledAssets,
   getBundledAssetContent,
   getBundledAssetPath,
   isSafeName,
-  type BundledAdapter,
 } from '@main/bundled-assets';
 import {
   deleteUserAsset,
@@ -39,7 +41,8 @@ import {
 
 const KIND_VALUES: ReadonlyArray<AssetKind> = ['agent', 'skill'];
 const SOURCE_VALUES: ReadonlyArray<AssetSource> = ['bundled', 'user'];
-const BUNDLED_ADAPTER_VALUES: ReadonlyArray<BundledAdapter> = ['claude-code', 'codex-cli'];
+type AdapterKey = 'claude-code' | 'codex-cli';
+const ADAPTER_VALUES: ReadonlyArray<AdapterKey> = ['claude-code', 'codex-cli'];
 
 function parseKind(value: unknown): AssetKind {
   if (typeof value !== 'string' || !KIND_VALUES.includes(value as AssetKind)) {
@@ -56,22 +59,22 @@ function parseSource(value: unknown): AssetSource {
 }
 
 /**
- * plan §P3 Step 3.4：bundled adapter narrow key 入参校验。
- * - source==='bundled'：必传 'claude-code' / 'codex-cli'，缺失或非法 throw
- * - source==='user'：caller 应传 null（renderer 直接透传 `asset.adapter`，user 资产是 null）
+ * adapter 必传校验（plan §D7 升级）：bundled 与 user 都必传 adapter narrow key。
  *
- * 返回 BundledAdapter（bundled 路径用）/ null（user 路径用）；caller 必须按 source 自己 narrow
- * 拒绝非法组合（如 source='bundled' + adapter=null）。
+ * - bundled：narrow 到具体 plugin root（claude-config / codex-config）取 SSOT
+ * - user：narrow 到 ~/.claude/ 或 ~/.codex/ 对应 root（user 资产现也按 adapter 派发）
+ *
+ * 与旧版 `parseBundledAdapterOrNull`（user 路径忽略 adapter）的 breaking change：
+ * 老 caller 传 null 时 throw IpcInputError 而非静默接受。
  */
-function parseBundledAdapterOrNull(value: unknown): BundledAdapter | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'string' || !BUNDLED_ADAPTER_VALUES.includes(value as BundledAdapter)) {
+function parseAdapterRequired(value: unknown): AdapterKey {
+  if (typeof value !== 'string' || !ADAPTER_VALUES.includes(value as AdapterKey)) {
     throw new IpcInputError(
       'adapter',
-      `must be one of ${BUNDLED_ADAPTER_VALUES.join('|')} or null, got ${String(value)}`,
+      `must be one of ${ADAPTER_VALUES.join('|')}, got ${String(value)}`,
     );
   }
-  return value as BundledAdapter;
+  return value as AdapterKey;
 }
 
 function parseAssetName(value: unknown): string {
@@ -137,6 +140,12 @@ function parseUserAssetInput(value: unknown): UserAssetInput {
   }
   const v = value as Record<string, unknown>;
   const kind = parseKind(v.kind);
+  const adapter = parseAdapterRequired(v.adapter);
+  // plan §D3 不变量 #4：codex+agent 组合 IPC 层硬拒（不靠前端 disable）
+  const valid = validateAdapterKind(adapter, kind);
+  if (!valid.ok) {
+    throw new IpcInputError('adapter+kind', valid.reason);
+  }
   const name = parseAssetName(v.name);
   const description = parseSingleLineString('description', v.description ?? '', ASSET_LIMITS.description);
   const body = parseAssetBody(v.body ?? '');
@@ -146,7 +155,7 @@ function parseUserAssetInput(value: unknown): UserAssetInput {
   const model = v.model !== undefined && v.model !== ''
     ? parseSingleLineString('model', v.model, ASSET_LIMITS.model)
     : undefined;
-  return { kind, name, description, body, tools, model };
+  return { kind, adapter, name, description, body, tools, model };
 }
 
 export function registerAssetsIpc(): void {
@@ -158,17 +167,16 @@ export function registerAssetsIpc(): void {
     const kind = parseKind(kindArg);
     const name = parseAssetName(nameArg);
     const source = parseSource(sourceArg);
-    const adapter = parseBundledAdapterOrNull(adapterArg);
+    const adapter = parseAdapterRequired(adapterArg);
     if (source === 'bundled') {
-      if (adapter === null) {
-        // plan §P3 Step 3.4：bundled 必带 adapter narrow key（claude-code / codex-cli）
-        return { ok: false, content: '', reason: `bundled asset must include adapter narrow key (got null)` };
-      }
       const r = getBundledAssetContent(kind, name, adapter);
       if (r.ok) return { ok: true, content: r.content };
       return { ok: false, content: '', reason: r.reason };
     }
-    const r = getUserAssetContent(kind, name);
+    // source === 'user'：plan §D3 codex+agent IPC 层硬拒
+    const valid = validateAdapterKind(adapter, kind);
+    if (!valid.ok) return { ok: false, content: '', reason: valid.reason };
+    const r = getUserAssetContent(kind, name, adapter);
     if (r.ok) return { ok: true, content: r.content };
     return { ok: false, content: '', reason: r.reason };
   });
@@ -178,25 +186,28 @@ export function registerAssetsIpc(): void {
     return saveUserAsset(input);
   });
 
-  on(IpcInvoke.AssetsDeleteUser, (_e, kindArg, nameArg) => {
+  on(IpcInvoke.AssetsDeleteUser, (_e, kindArg, nameArg, adapterArg) => {
     const kind = parseKind(kindArg);
     const name = parseAssetName(nameArg);
-    return deleteUserAsset(kind, name);
+    const adapter = parseAdapterRequired(adapterArg);
+    // plan §D3 codex+agent IPC 层硬拒
+    const valid = validateAdapterKind(adapter, kind);
+    if (!valid.ok) return { ok: false, reason: valid.reason };
+    return deleteUserAsset(kind, name, adapter);
   });
 
   on(IpcInvoke.AssetsRevealInFolder, (_e, kindArg, nameArg, sourceArg, adapterArg) => {
     const kind = parseKind(kindArg);
     const name = parseAssetName(nameArg);
     const source = parseSource(sourceArg);
-    const adapter = parseBundledAdapterOrNull(adapterArg);
+    const adapter = parseAdapterRequired(adapterArg);
     let path: string | null = null;
     if (source === 'bundled') {
-      if (adapter === null) {
-        return { ok: false, reason: `bundled asset must include adapter narrow key (got null)` };
-      }
       path = getBundledAssetPath(kind, name, adapter);
     } else {
-      path = getUserAssetPath(kind, name);
+      const valid = validateAdapterKind(adapter, kind);
+      if (!valid.ok) return { ok: false, reason: valid.reason };
+      path = getUserAssetPath(kind, name, adapter);
     }
     if (!path) return { ok: false, reason: `not found: ${source}/${kind}/${name}` };
     try {

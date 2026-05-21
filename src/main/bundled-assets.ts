@@ -155,20 +155,24 @@ function scanSkills(root: string, adapter: BundledAdapter): AssetMeta[] {
 }
 
 /**
- * plan §P3 Step 3.3：buildAgentMeta / buildSkillMeta 多收一个 `adapter` 参数。
- * - bundled 资产：传具体 adapter ('claude-code' / 'codex-cli')
- * - user 资产（user-assets.ts via `__metaBuilders`）：传 null（不属任何 plugin root）
+ * plan §P3 Step 3.3 + plan assets-codex-user-and-ui-unify-20260521 §D7：buildAgentMeta /
+ * buildSkillMeta `adapter` 参数收紧为 `'claude-code' | 'codex-cli'` 必填（null 删除）。
+ *
+ * - bundled 资产：传具体 adapter ('claude-code' / 'codex-cli'，narrow 到 plugin root)
+ * - user 资产（user-assets.ts via `__metaBuilders`）：传具体 adapter（plan §D7 user 资产
+ *   也按 adapter 派发到 ~/.claude/ 或 ~/.codex/，AssetMeta.adapter null 完全删除）
  *
  * qualifiedName 拼装：
  * - bundled: `agent-deck:<adapter>:<name>` —— 防双 root 同名 agent 冲突
- * - user:    `<name>` —— 不变（user 资产无 adapter scope）
+ * - user:    `<name>` —— 不变（user 资产 qualifiedName 不带 adapter 后缀，UI 单 sub-tab
+ *   filter 视图内 name 天然唯一，跨 sub-tab 同名也是合法独立两条 plan §不变量 #5）
  */
 function buildAgentMeta(
   name: string,
   absPath: string,
   fm: Record<string, string>,
   source: 'bundled' | 'user',
-  adapter: BundledAdapter | null,
+  adapter: BundledAdapter,
 ): AssetMeta {
   const description = fm.description ?? '';
   return {
@@ -176,7 +180,7 @@ function buildAgentMeta(
     source,
     adapter,
     name,
-    qualifiedName: source === 'bundled' && adapter ? `agent-deck:${adapter}:${name}` : name,
+    qualifiedName: source === 'bundled' ? `agent-deck:${adapter}:${name}` : name,
     description,
     tools: fm.tools,
     model: fm.model,
@@ -190,7 +194,7 @@ function buildSkillMeta(
   absPath: string,
   fm: Record<string, string>,
   source: 'bundled' | 'user',
-  adapter: BundledAdapter | null,
+  adapter: BundledAdapter,
 ): AssetMeta {
   const description = fm.description ?? '';
   return {
@@ -198,7 +202,7 @@ function buildSkillMeta(
     source,
     adapter,
     name,
-    qualifiedName: source === 'bundled' && adapter ? `agent-deck:${adapter}:${name}` : name,
+    qualifiedName: source === 'bundled' ? `agent-deck:${adapter}:${name}` : name,
     description,
     triggers: extractTriggers(description),
     absPath,
@@ -224,19 +228,17 @@ function extractTriggers(description: string): string[] | undefined {
 }
 
 /**
- * snapshot 排序：先 adapter（claude-code 排前 / codex-cli 排后 / null user 资产由 user-assets
- * 单独管不混入 bundled snapshot），再 name。AssetsLibraryDialog 单 section 内顺序稳定 + 跨
- * adapter 视觉分组（claude 资产成片 / codex 资产成片）。
+ * snapshot 排序：先 adapter（claude-code 排前 / codex-cli 排后），再 name。
+ * AssetsLibraryDialog 单 section 内顺序稳定 + 跨 adapter 视觉分组（claude 资产成片 / codex 资产成片）。
+ *
+ * **plan assets-codex-user-and-ui-unify-20260521 §D7**：AssetMeta.adapter 类型已收紧为
+ * `'claude-code' | 'codex-cli'`（null 删除），以前 `as 'claude-code' | 'codex-cli'` defensive
+ * narrow 不再需要 — 直接读 a.adapter / b.adapter 即可。
  */
 function compareAdapterThenName(a: AssetMeta, b: AssetMeta): number {
-  // P5 Round 1 reviewer-claude LOW 修法 (`null` 分支 dead code 削除):
-  // 本函数仅在 loadBundledAssets() sort callback 用,传入数组来自 scanAgents/scanSkills,两 helper
-  // 强制接收 `adapter: BundledAdapter`('claude-code' | 'codex-cli'),TS 排除 null。运行时也无 null。
-  // 严格 narrow signature 让 TS 编译期排除 null,删 `: 2` dead branch + exhaustive default。
   const adapterRank = (x: 'claude-code' | 'codex-cli'): number => (x === 'claude-code' ? 0 : 1);
-  // user 资产 adapter=null 不进 bundled sort 链路;assert non-null 转 BundledAdapter narrow。
-  const ra = adapterRank(a.adapter as 'claude-code' | 'codex-cli');
-  const rb = adapterRank(b.adapter as 'claude-code' | 'codex-cli');
+  const ra = adapterRank(a.adapter);
+  const rb = adapterRank(b.adapter);
   if (ra !== rb) return ra - rb;
   return a.name.localeCompare(b.name);
 }
