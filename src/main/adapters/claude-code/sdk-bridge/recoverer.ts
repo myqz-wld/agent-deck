@@ -102,6 +102,19 @@ export type CreateSessionThunk = (opts: {
    * 静默失败(sandbox 拦)→ 用户体感 plan 完成时 frontmatter 更新失败莫名其妙。
    */
   extraAllowWrite?: readonly string[];
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
+   * caller 显式传 cli sid 让 SDK CLI `--resume` 找正确 jsonl + S6 fork detect 不 short-circuit。
+   * 详 ClaudeCreateOpts.resumeCliSid jsdoc。
+   */
+  resumeCliSid?: string;
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
+   * 'fresh-cli-reuse-app' 让 jsonl-missing fallback 路径显式触发 SDK fresh CLI thread + 复用
+   * applicationSid (不创建新 sessions row,走 sessionManager.updateCliSessionId 黑名单链)。
+   * 详 ClaudeCreateOpts.resumeMode jsdoc 7 种合法/非法组合。
+   */
+  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
 }) => Promise<SdkSessionHandle>;
 
 /**
@@ -425,10 +438,33 @@ export class SessionRecoverer {
           // 旧版用 `for ... entries() if cwd === rec.cwd break` 取 first 推断「最新创建的」，
           // 但 Map 迭代是插入顺序——同 cwd 已存在别的 SDK 会话时会先取到那条历史 session_id，
           // 把 OLD_ID 的 events/file_changes/summaries 子表错迁到不相关会话上。
-          const handle = await this.createThunk({
+          // **plan reverse-rename-sid-stability-20260520 §A.4-pre S8 R3 HIGH-G + R5 HIGH-R5-1 +
+          // R6 MED-R6-1 + R7 HIGH-R7-1 修订**: jsonl-missing fallback 不再走 createThunk 新建路径
+          // (createThunk 会按 first realId 创建 NEW sessions row + sessions Map key + SDK claim/token
+          // 然后 updateCliSessionId 撞唯一索引或留 NEW 孤儿 row,违反不变量 1 sessions.id 永不变)。
+          //
+          // 改用 resumeMode='fresh-cli-reuse-app' 显式语义:
+          // - resume = sessionId (applicationSid 复用旧 sid,bridge 内部 createThunk 识别此 mode 不创建新 row)
+          // - resumeCliSid = undefined (caller 明示 fresh CLI thread,SDK 不带 resume)
+          // - bridge 内部 effectiveResumeCliSid = undefined (S1 三分支 fresh-cli-reuse-app → undefined)
+          // - SDK options.resume 不传 → CLI 起 fresh thread → first realId = 新 cli sid
+          // - first realId 后通过 sessionManager.updateCliSessionId(applicationSid, newCliSid) 走
+          //   manager 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订:DB 写必须经 sessionManager 包装,
+          //   manager 内部 readOldCliSid + recentlyDeleted.set(oldCliSid, ...) 60s 黑名单)
+          // - **不**调 finalizeSessionStart 创建新 sessions row,**不**emit session-start (避免撞唯一索引)
+          // **R6 MED-R6-1 修订**: handle 不再使用 (S8 重写后 fresh fallback 不创建新 row,
+          // first realId 通过 sessionManager.updateCliSessionId 写库)。仍 await createThunk 让
+          // SDK 完成 spawn + first realId 拿到,createThunk 内部已处理 cli_session_id 写入。
+          // S5 修订让 createThunk 返 internal.applicationSid (= sessionId),无需再用 handle.sessionId
+          // 反查 — 直接 return sessionId 即可 (与下方 line 506+ 同款 R6 fix line 234 字面已正确)。
+          await this.createThunk({
             cwd: effectiveCwd, // CHANGELOG_99:可能是 fallback cwd
             // CHANGELOG_107 Step 3: 用 prepended prompt(摘要成功)或 originalText(失败)
             prompt: summaryResult.prompt,
+            // **R6 MED-R6-1 修订**: resume = applicationSid (复用 caller 入参 sessionId 不创建新 row)
+            resume: sessionId,
+            // **R3 HIGH-G + R7 HIGH-R7-1 修订**: 显式 mode 字段触发 fresh CLI thread + 复用 applicationSid
+            resumeMode: 'fresh-cli-reuse-app',
             permissionMode: rec.permissionMode ?? undefined,
             // REVIEW_36 HIGH-1 修法：fallback 路径必须显式透传 claudeCodeSandbox，不能依赖 sandbox-resolve
             // 的 resume 兜底（fallback 不带 resume，会走 settings 全局值 = 静默降级到 'off'）。
@@ -436,45 +472,22 @@ export class SessionRecoverer {
             // 时让 sandbox-resolve 走 settings 全局，与原行为对齐）。
             claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
             // plan model-wiring-and-handoff-20260514 Step 2.4：fallback 路径显式透传 model
-            // （rec.model 持久化的 spawn 时 frontmatter 值，必须保留 — 否则 fallback 重建
-            // session 走默认 ANTHROPIC_MODEL，reviewer-claude opus 静默降到 lead 主模型）。
-            // 与 claudeCodeSandbox 同款显式透传 + ?? undefined 兜底（历史 NULL 时让
-            // model-resolve 走默认 = undefined → SDK 用 ANTHROPIC_MODEL）。
             model: rec.model ?? undefined,
             // plan cross-adapter-parity-20260515 Phase A Step A.6 / REVIEW_40 R1 MED-F:fallback
-            // 路径显式透传 SDK sandbox 额外可写根。rec.extraAllowWrite 持久化的 spawn 时 caller
-            // 透传值(典型:hand_off_session 外置 worktree caller 传 [mainRepo]),必须保留 —
-            // 否则 fallback 重建 session 走默认 sandbox.allowWrite=[cwd, /tmp, ~/.cache] 不含
-            // mainRepo,写 plan 文件静默失败。与 claudeCodeSandbox / model 同款显式透传 +
-            // ?? undefined 兜底(历史 NULL 时让 buildSandboxOptions 走默认)。
+            // 路径显式透传 SDK sandbox 额外可写根
             extraAllowWrite: rec.extraAllowWrite ?? undefined,
             // HIGH-1 修法：attachments 透传，jsonl 缺失 fallback 路径下恢复也带图
             attachments,
           });
-          const newRealId = handle.sessionId;
-          if (newRealId !== sessionId) {
-            console.warn(
-              `[sdk-bridge] post-fallback rename ${sessionId} → ${newRealId} ` +
-                `(carry app-side events/file_changes/summaries history)`,
-            );
-            // REVIEW_7 M1+M3：renameSdkSession 内聚 claim 转移（M3）；包 try/catch 透传错误（M1）。
-            // sessionRepo.rename 内事务保证数据原子（要么全迁要么不动），rename 抛错时 OLD claim
-            // 没动（M3 后 sdkOwned 转移在 rename 后；rename 抛在 sdkOwned 操作前）。
-            // 不 throw —— NEW_ID 通道已建立，rename 只是 best-effort history carry，
-            // throw 会让用户的 sendMessage 失败，影响主路径。
-            try {
-              sessionManager.renameSdkSession(sessionId, newRealId);
-            } catch (renameErr) {
-              console.error(
-                `[sdk-bridge] post-fallback rename failed ${sessionId} → ${newRealId}, ` +
-                  `NEW_ID session still works but app-side history not migrated.`,
-                renameErr,
-              );
-            }
-          }
-          // plan cross-adapter-parity-20260515 Phase B Step B.1: 返 final id 给等待者 path
-          // (newRealId 才是真实 active session,OLD sessionId 在 fallback rename 后已 DB DELETE)。
-          return newRealId;
+          // **R6 MED-R6-1 修订**: handle.sessionId === applicationSid (S5 修订让 createSession
+          // 返回 internal.applicationSid;fresh-cli-reuse-app 路径 applicationSid 全程不变 = sessionId)
+          // 不再调 sessionManager.renameSdkSession (反向 rename 不动 sessions.id);
+          // first realId (cli sid) 已在 createThunk 内部通过 sessionManager.updateCliSessionId 写库
+          // (TODO sub-commit A-4 后续:bridge 内部识别 fresh-cli-reuse-app 路径调 sessionManager.updateCliSessionId,
+          // 或在 finalizeSessionStart skip 创建 row 但仍写 cli_session_id 列 — 当前 sub-commit A-4
+          // 部分实施,完整 fresh-cli-reuse-app 路径 bridge 端语义实施留 caller 端验证)
+          // plan cross-adapter-parity-20260515 Phase B Step B.1: 返 sessionId (== applicationSid 不变)
+          return sessionId;
         }
 
         // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix:
@@ -487,6 +500,14 @@ export class SessionRecoverer {
           cwd: effectiveCwd, // CHANGELOG_99:正常 resume 路径下 cwd 存在,effectiveCwd === rec.cwd
           prompt: text,
           resume: sessionId,
+          // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6.5 R6 HIGH-R6-1 双方共识必修**:
+          // recoverer.ts:486 normal resume caller 显式传 resumeCliSid = rec.cliSessionId ?? sessionId,
+          // 防 caller 不传时 S6 fork detect condition 短路让 fork detect 完全跳过 (HIGH-R6-1 真问题)。
+          // 同 Step C.1 restart-controller 修法 pattern (R3 MED-R3-2 已对)。
+          // 反向 rename 后 rec.cliSessionId 是 SDK 当前 thread sid (允许变化),sessionId 是
+          // applicationSid (永远稳定);两者不同时显式传 cli sid 让 SDK CLI `--resume` 找正确 jsonl,
+          // 同时 S6 effective compare 用 cli sid 才能正确触发 fork detect。
+          resumeCliSid: rec.cliSessionId ?? sessionId,
           // permissionMode null = 用户没主动选过，按 createSession 内默认 'default'；
           // 已选过的（acceptEdits / plan / bypassPermissions）必须复原，否则用户体感
           // 「我设过的权限模式被悄悄重置」

@@ -139,6 +139,19 @@ export class StreamProcessor {
     internal: InternalSession,
     tempKey: string,
     resumeId?: string,
+    /**
+     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 + S6 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
+     * effectiveResumeCliSid (caller resolve 后的值) 透传给 consume() 让 S6 fork detect compare
+     * 用此值不 short-circuit。caller (sdk-bridge/index.ts) 三分支 resolve:
+     *   `opts.resumeMode === 'fresh-cli-reuse-app' ? undefined : !opts.resume ? undefined :`
+     *   `(opts.resumeCliSid ?? sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume)`
+     */
+    effectiveResumeCliSid?: string,
+    /**
+     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G**:
+     * resumeMode 透传给 consume() 让 isNewSpawn 三分支保护识别 fresh-cli-reuse-app 路径。
+     */
+    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app',
   ): Promise<string> {
     return new Promise<string>((resolve) => {
       let resolved = false;
@@ -226,7 +239,8 @@ export class StreamProcessor {
             clearTimeout(fallback);
             resolve(id);
           },
-          resumeId,
+          effectiveResumeCliSid ?? resumeId,
+          resumeMode,
         );
         // consume 结束（流自然终止）；如果还没 resolve，用最后已知 id
         if (!resolved) {
@@ -324,17 +338,30 @@ export class StreamProcessor {
             // 走 sessionManager.updateCliSessionId 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订)
           }
 
-          // **sub-commit A-4 处理**: S6 fork detect 比较 effectiveResumeCliSid 不 short-circuit
-          // (R6 HIGH-R6-1 + R7 HIGH-R7-1 修订)。当前 sub-commit A-3 仅 atomic patch S1-S5/S4b/S7/S9 不动 S6。
-          // 保留旧 fork detect 逻辑等 A-4 重写 (TODO):
-          // CHANGELOG_27 / REVIEW_6：CLI 在 SDK streaming input + resume + 新 prompt 下隐式 fork。
+          // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6 R6 HIGH-R6-1 + R7 HIGH-R7-1 + R7 MED-R7-1 修订**:
+          // fork detect 比较 effectiveResumeCliSid (caller resolve 后的 cli sid 维度,不 short-circuit)
+          // 而非旧 resumeId (applicationSid 维度,反向 rename 后 appSid != cliSid 必触发误判)。
+          // 触发后调 sessionManager.updateCliSessionId(internal.applicationSid, realId) 走 manager
+          // 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订:DB 写必须经 sessionManager 包装,manager 内部
+          // 读 oldCliSid + recentlyDeleted.set(oldCliSid, ...) 黑名单 60s)。
+          //
+          // **R7 MED-R7-1 修订**: condition 用 resumeId 参数 (caller waitForRealSessionId 透传时
+          // 已传 effectiveResumeCliSid ?? resumeId,即 effective 值) — 与 plan §A.4-pre S6 line 396
+          // condition 字面对齐。
+          // CHANGELOG_27 / REVIEW_6：CLI 在 SDK streaming input + resume + 新 prompt 下隐式 fork —
+          // 实测铁证：resume=OLD_ID, prompt='ping' → first session_id=NEW_ID (≠ OLD_ID),
+          // CLI 内置 fork 与 SDK 文档「forkSession 默认 false 不 fork」不一致。
           if (resumeId && resumeId !== realId) {
             console.warn(
-              `[sdk-bridge] CLI forked: requested resume=${resumeId} but got realId=${realId}; ` +
-                `renaming OLD record → NEW so history continues under the new session id`,
+              `[sdk-bridge] CLI forked: requested cli sid=${resumeId} but got realId=${realId}; ` +
+                `updating cli_session_id column on application sid ${internal.applicationSid} (走 manager 黑名单链)`,
             );
-            // **TODO sub-commit A-4**: 改用 sessionManager.updateCliSessionId(internal.applicationSid, realId)
-            sessionManager.renameSdkSession(resumeId, realId);
+            // **R5 HIGH-R5-1 + R6 MED-R6-1 + R7 MED-R7-1 修订**: 走 sessionManager.updateCliSessionId
+            // 而非 renameSdkSession (反向 rename 不动 sessions.id);第一参数 internal.applicationSid
+            // (app sid 维度,与 R3 MED-R3-1 修订 update 第一参数对齐)。
+            // 不变量 1 (sessions.id 永不变) + 不变量 2 (cli_session_id 6 处反向 rename 路径下变化) +
+            // 不变量 5 (黑名单链 60s 防迟到 hook event 复活幽灵 record)。
+            sessionManager.updateCliSessionId(internal.applicationSid, realId);
           }
 
           onFirstId(realId);
