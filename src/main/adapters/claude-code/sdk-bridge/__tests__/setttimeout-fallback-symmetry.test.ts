@@ -66,6 +66,9 @@ vi.mock('@main/session/manager', () => ({
     expectSdkSession: vi.fn(() => () => undefined),
     renameSdkSession: vi.fn(),
     unarchive: vi.fn(),
+    // R3 reviewer-codex LOW 修法:R2 fix-F 切 spawn finalize 路径走 sessionManager.updateCliSessionId
+    // wrapper,各 bridge test mock 必须补该 method 否则 finalize catch 吞成 console.warn 测试失真
+    updateCliSessionId: vi.fn(),
   },
 }));
 

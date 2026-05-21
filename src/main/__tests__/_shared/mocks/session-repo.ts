@@ -82,6 +82,13 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
       const r = sessions.get(id);
       if (r) sessions.set(id, { ...r, archivedAt: ts });
     },
+    // R2 reviewer-codex MED 修法: archive() 新增 clearCwdReleaseMarker(sessionId) 调用,
+    // mock 必须补该 method 否则 manager-public-api.test.ts 撞 TypeError。
+    // 与生产 sessionRepo.clearCwdReleaseMarker 语义一致(置 cwdReleaseMarker = null)。
+    clearCwdReleaseMarker: (id: string) => {
+      const r = sessions.get(id);
+      if (r) sessions.set(id, { ...r, cwdReleaseMarker: null });
+    },
     setPermissionMode: vi.fn(),
     setTitle: (id: string, title: string) => {
       const r = sessions.get(id);
@@ -90,6 +97,9 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     setCodexSandbox: vi.fn(),
     setClaudeCodeSandbox: vi.fn(),
     setModel: vi.fn(),
+    // R3 reviewer-claude LOW 修法:与 setClaudeCodeSandbox / setModel 同款 vi.fn 桩
+    // (大部分测试不消费返回值,显式调用走 mockClear / toHaveBeenCalledWith 即可)。
+    setExtraAllowWrite: vi.fn(),
 
     // ─── rename ───
     rename: vi.fn(),

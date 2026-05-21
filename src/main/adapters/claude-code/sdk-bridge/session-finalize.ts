@@ -17,6 +17,7 @@
 
 import type { AgentEvent } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
+import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from './constants';
 
 export interface FinalizeSessionStartArgs {
@@ -93,9 +94,14 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
   // resume 路径不调,见上 jsdoc)。
   // ensure() 默认行为 (manager.ts:191 新建 row 时 cli_session_id 默认 NULL) 由本 helper
   // 显式 setCliSessionId 兜底覆盖,确保新 row 走 SDK 主路径时 cli_session_id 列填正确 realId。
+  // R2 reviewer-claude MED 修法:统一走 sessionManager.updateCliSessionId wrapper(manager.ts:619-625
+  // jsdoc 已列 6 处反向 rename 路径全走 wrapper 是契约层硬约束)。spawn 主路径下 oldCliSid ===
+  // applicationSid === newCliSessionId,wrapper 内 L632 `oldCliSid !== newCliSessionId` 判断不
+  // 写黑名单(语义等价直调 sessionRepo)。统一 wrapper 路径让黑名单链 SSOT 不被绕过,防御未来
+  // fork 路径 / caller 误传不同 cliSessionId 时静默跳过黑名单写入。
   if (cliSessionId !== undefined) {
     try {
-      sessionRepo.updateCliSessionId(applicationSid, cliSessionId);
+      sessionManager.updateCliSessionId(applicationSid, cliSessionId);
     } catch (err) {
       console.warn(
         `[claude-bridge] updateCliSessionId(${applicationSid}, ${cliSessionId}) 失败`,

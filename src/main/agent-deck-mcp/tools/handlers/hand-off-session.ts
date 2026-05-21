@@ -721,18 +721,41 @@ export const handOffSessionHandler = withMcpGuard(
           preservedSet.add(tm.sessionId);
         }
         // N8 emit:caller 'left' + newSid 'joined' + notifyTeamMembershipChanged × 2
-        eventBus.emit('agent-deck-team-member-changed', {
-          teamId,
-          sessionId: caller.callerSessionId,
-          kind: 'left',
-        });
-        eventBus.emit('agent-deck-team-member-changed', {
-          teamId,
-          sessionId: newSpawnedSid,
-          kind: 'joined',
-        });
-        sessionManager.notifyTeamMembershipChanged(caller.callerSessionId);
-        sessionManager.notifyTeamMembershipChanged(newSpawnedSid);
+        // R2 reviewer-claude MED 修法:emit / notify 任一抛错(eventBus listener throw /
+        // sessionRepo.get 撞 disposed connection / SQLite locked)若直 propagate 出
+        // processSwappedTeam → 跳过 caller 处 slice(1) 循环 → 后续 team 永远不 swap
+        // (DB transaction 已完成,但应用层 emit 漏)。每条 emit / notify 各自包 try/catch +
+        // console.warn 兜底,不让 side-effect 异常打断 swap 主流程。
+        const safeEmit = (label: string, fn: () => void) => {
+          try {
+            fn();
+          } catch (e) {
+            console.warn(
+              `[mcp hand_off_session] processSwappedTeam(${teamId}) ${label} 失败 (continuing):`,
+              e,
+            );
+          }
+        };
+        safeEmit('emit-left', () =>
+          eventBus.emit('agent-deck-team-member-changed', {
+            teamId,
+            sessionId: caller.callerSessionId,
+            kind: 'left',
+          }),
+        );
+        safeEmit('emit-joined', () =>
+          eventBus.emit('agent-deck-team-member-changed', {
+            teamId,
+            sessionId: newSpawnedSid,
+            kind: 'joined',
+          }),
+        );
+        safeEmit('notify-caller', () =>
+          sessionManager.notifyTeamMembershipChanged(caller.callerSessionId),
+        );
+        safeEmit('notify-newSid', () =>
+          sessionManager.notifyTeamMembershipChanged(newSpawnedSid),
+        );
       };
 
       // firstTeam swapLead — 失败 fatal abort
