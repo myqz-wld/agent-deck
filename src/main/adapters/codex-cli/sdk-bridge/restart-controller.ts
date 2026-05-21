@@ -27,6 +27,12 @@ export interface RestartCreateOpts {
   cwd: string;
   prompt: string;
   resume?: string;
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §C.2 R3 MED-R3-2 修订**:
+   * 反向 rename 后 createSession opts.resume 是 applicationSid;codex SDK resumeThread 的 thread_id
+   * 字段需要 cli sid (= rec.cliSessionId)。caller 显式传 resumeCliSid 兜底。
+   */
+  resumeCliSid?: string;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
 }
 
@@ -121,23 +127,17 @@ export class RestartController {
           cwd: rec.cwd,
           prompt: handoffPrompt,
           resume: sessionId,
+          // **plan reverse-rename-sid-stability-20260520 §C.2 R3 MED-R3-2 修订**:
+          // 显式传 cli sid 让 codex SDK resumeThread 拿正确 thread_id (反向 rename 后两者不同时)。
+          resumeCliSid: rec.cliSessionId ?? sessionId,
           codexSandbox: sandbox,
         });
-        // codex-tests-plan P3 LOW (REVIEW_40 R2 reviewer-codex):删 post-rename 防御 block
-        // (原 block 见 commit 6e0eb37 / REVIEW_40 注释)。
-        //
-        // 删除理由(thread-loop case 3 已 owner rename):symmetry-plan P2 MED-D 落地后
-        // (commit 6e0eb37),thread-loop.ts:229-261 case 3 在 ev.thread_id !== internal.threadId
-        // 时已:
-        //   1. sessions Map 切 key (delete oldId + set newId)
-        //   2. internal.threadId 切到 newId
-        //   3. 调 sessionManager.renameSdkSession(oldId, newId)  ← 已 owner
-        // 所以 createSession resume path await `runTurnLoop` 拿到 firstIdCb(newId) 时,rename
-        // 已经发生,handle.sessionId === newId。restart-controller 这里再调一次 renameSdkSession
-        // 是 idempotent no-op (sessionRepo/rename.ts:60 `if (!fromRow) return` 静默走 no-op),
-        // 但 console.warn 会多打一次("returned different sessionId"),误导日志读者以为这里是
-        // owner 实际是 thread-loop case 3。删除冗余 console.warn + double rename 防御让 SSOT
-        // 集中在 thread-loop case 3 single owner。
+        // **plan reverse-rename-sid-stability-20260520 §C.2 反向 rename 修订**:
+        // codex resume 路径下 applicationSid 全程不变 = sessionId;
+        // CLI 真实 fork (case 3) 由 thread-loop 内部走 sessionManager.updateCliSessionId 黑名单链
+        // (与 §A.4-pre S6 同款),不再调 sessionManager.renameSdkSession。
+        // codex-tests-plan P3 LOW (REVIEW_40 R2 reviewer-codex):原 post-rename 防御 block 已删
+        // (commit 6e0eb37 / REVIEW_40 注释);thread-loop case 3 是 SSOT。
         return handle.sessionId;
       } catch (err) {
         // 回滚：DB 改回 oldSandbox + emit session-upserted 让下拉回弹 + emit error message
