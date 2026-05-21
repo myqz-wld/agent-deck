@@ -31,6 +31,7 @@ import v017 from './v017_agent_deck_team_members_cascade.sql?raw';
 import v018 from './v018_sessions_model.sql?raw';
 import v019 from './v019_sessions_extra_allow_write.sql?raw';
 import v020 from './v020_sessions_cwd_release_marker.sql?raw';
+import v021 from './v021_sessions_cli_session_id.sql?raw';
 
 export interface Migration {
   version: number;
@@ -59,4 +60,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 18, name: 'sessions_model', sql: v018 },
   { version: 19, name: 'sessions_extra_allow_write', sql: v019 },
   { version: 20, name: 'sessions_cwd_release_marker', sql: v020 },
+  { version: 21, name: 'sessions_cli_session_id', sql: v021 },
 ];

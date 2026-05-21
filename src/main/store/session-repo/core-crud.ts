@@ -36,11 +36,21 @@ export function upsert(rec: SessionRecord): void {
   // rename 路径 H1 关键修法也依赖此字段在 fork 后跟到 NEW 行）。
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
   // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
+  // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：cwd_release_marker
+  // 同款 — mcp enter_worktree marker 让 archive_plan 预检 4 态分流认得跨 adapter 路径,upsert
+  // 必须参与否则 lifecycle 复活路径丢失 marker（与 codex_sandbox / extra_allow_write 同模式;
+  // rename 路径 H1 关键修法也依赖此字段在 fork 后跟到 NEW 行）。
+  // plan reverse-rename-sid-stability-20260520 §A.1 / 设计决策 D1 / 不变量 2:cli_session_id
+  // 列扩 (列 21,与 v020 cwd_release_marker pattern 同款 upsert 透传) — 让 lifecycle 复活路径不
+  // 丢 cli_session_id;rename 路径 §A.2 重写规则:spawn 主路径 (toExists=false INSERT) hardcode
+  // toId / toExists=true 分支保留 NEW 行已有 cli_session_id 不覆盖(详 rename.ts)。
+  // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
+  // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config)
+       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id)
+       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id)
        ON CONFLICT(id) DO UPDATE SET
          cwd = excluded.cwd,
          title = excluded.title,
@@ -58,7 +68,8 @@ export function upsert(rec: SessionRecord): void {
          cwd_release_marker = excluded.cwd_release_marker,
          spawned_by = excluded.spawned_by,
          spawn_depth = excluded.spawn_depth,
-         generic_pty_config = excluded.generic_pty_config`,
+         generic_pty_config = excluded.generic_pty_config,
+         cli_session_id = excluded.cli_session_id`,
     )
     .run({
       id: rec.id,
@@ -84,6 +95,7 @@ export function upsert(rec: SessionRecord): void {
       spawned_by: rec.spawnedBy ?? null,
       spawn_depth: rec.spawnDepth ?? 0,
       generic_pty_config: null,
+      cli_session_id: rec.cliSessionId ?? null,
     });
 }
 
@@ -267,4 +279,52 @@ export function setCwdReleaseMarker(id: string, marker: string | null): void {
 
 export function clearCwdReleaseMarker(id: string): void {
   setCwdReleaseMarker(id, null);
+}
+
+/**
+ * 反查 cli_session_id 列对应的 sessions row(plan reverse-rename-sid-stability-20260520
+ * §A.2 / §设计决策 D7 / 不变量 5)。
+ *
+ * 调用方:
+ * - sessionManager.ingest 入口(manager.ts §A.3 4 态分流 3a):hook event sessionId 是 CLI thread sid
+ *   维度,findByCliSessionId 反查 application sid → 覆写 event.sessionId 走原 dedupOrClaim 5 段流程
+ * - sdk-bridge / recoverer S1 effective resolver 反查兜底回填 (caller 不传 resumeCliSid 时
+ *   `sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume`,详 §A.4-pre S1)
+ *
+ * 行为:
+ * - 命中 → SessionRecord 投影(rowToRecord 处理子表 enrichment 在更高层)
+ * - 不命中 → null(caller 走 fallback,反查路径不强假设 NOT NULL)
+ *
+ * 性能:走唯一索引 idx_sessions_cli_session_id (v021),O(log N) 反查。允许多 NULL,非空唯一。
+ */
+export function findByCliSessionId(cliSessionId: string): SessionRecord | null {
+  const row = getDb()
+    .prepare(`SELECT * FROM sessions WHERE cli_session_id = ?`)
+    .get(cliSessionId) as Row | undefined;
+  return row ? rowToRecord(row) : null;
+}
+
+/**
+ * 更新 sessions.cli_session_id 列(plan reverse-rename-sid-stability-20260520 §A.2 /
+ * §设计决策 D5 / §不变量 2)。
+ *
+ * **关键 invariant**: 仅 UPDATE cli_session_id 单列,不动 sessions.id (= applicationSid 应用稳定身份)。
+ * 与 rename(fromId, toId) 跨表事务复杂迁移**完全不同** — 本 helper 是纯单列 UPDATE。
+ *
+ * 调用方(必须经 sessionManager.updateCliSessionId 包装,**不**直接调本 helper 绕过黑名单):
+ * - 6 处反向 rename 路径(详 D2 表):recoverer.ts:466 jsonl-missing fallback / codex/recoverer.ts:339
+ *   同款 / stream-processor.ts:313 fork detect / codex/thread-loop.ts:263 case 3 post-resume fork /
+ *   restart-controller.ts:189 restartWithPermissionMode / restart-controller.ts:341 restartWithClaudeCodeSandbox
+ *
+ * **applicationSid 入参语义**: caller 传 sessions.id (应用稳定身份),不能传 cli sid (会撞表中错 row)。
+ * S6 fork detect compare 时第一参数必须是 `internal.applicationSid` (详 R3 MED-R3-1 修订)。
+ *
+ * **黑名单链不变量**(R5 HIGH-R5-1 + R6 MED-R6-1 修订): caller 必须经 sessionManager.updateCliSessionId
+ * 包装 — manager 内部读 oldCliSid + 调本 helper 单列 UPDATE + 调 recentlyDeleted.set(oldCliSid, ...) 包黑名单。
+ * 直接调本 helper 跳过 sessionManager 会让 OLD_CLI 黑名单链断,迟到 hook event 撞 D7 3b miss 复活幽灵 record。
+ */
+export function updateCliSessionId(applicationSid: string, newCliSessionId: string): void {
+  getDb()
+    .prepare(`UPDATE sessions SET cli_session_id = ? WHERE id = ?`)
+    .run(newCliSessionId, applicationSid);
 }

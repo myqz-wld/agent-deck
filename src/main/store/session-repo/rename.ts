@@ -80,10 +80,16 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 到 NEW 行,否则 codex teammate mcp enter_worktree 设的 marker 在 fork 后丢失,
       // 下次 archive_plan 预检走「在 worktree 内 + 无 marker」分支 reject(状态 3)
       // — 完全堵死跨 adapter / 外部 caller 路径的解锁意义。
+      // plan reverse-rename-sid-stability-20260520 §A.2 关键修法:列扩 1 → 21 列 (v021 cli_session_id)。
+      // **R6 HIGH-R6-1 + R7 HIGH-R7-1 修订**: spawn 主路径 (toExists=false INSERT) cli_session_id
+      // hardcode `toId` (= first realId, S2 jsdoc spawn 路径 applicationSid 切到 realId 后冻结),
+      // 不复制 fromRow.cli_session_id (避免 tempKey 阶段 NULL / fromRow stale value 带过来)。
+      // toExists=true 分支 cli_session_id 处理: see L213+ — **R5 MED-R5-1 + R7 HIGH-R7-1 修订**:
+      // 保留 NEW 行已有 cli_session_id 不覆盖 (语义 != cwd_release_marker 无条件覆盖,详注释)。
       db.prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         toId,
         fromRow.agent_id,
@@ -105,6 +111,7 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.spawned_by,
         fromRow.spawn_depth,
         fromRow.generic_pty_config,
+        toId,  // ← cli_session_id hardcode toId (R6 HIGH-R6-1 + R7 HIGH-R7-1 修订:spawn 主路径 first realId 即 toId)
       );
     }
     // 迁移子表引用（外键 ON DELETE CASCADE 在删 fromId 时不会误删，因为 session_id 已改）
@@ -223,6 +230,20 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.cwd_release_marker,
         toId,
       );
+
+      // plan reverse-rename-sid-stability-20260520 §A.2 / R5 MED-R5-1 + R7 HIGH-R7-1 修订:
+      // cli_session_id 在 toExists=true 分支语义**不同**于 cwd_release_marker (上方无条件覆盖):
+      // - cwd_release_marker 是 transient session state,OLD null + NEW stale 时必须以 OLD 为准
+      // - cli_session_id 是反查 key (有副作用,影响 jsonl 路径 / SDK resume / ingest 反查),
+      //   toExists=true 分支 NEW 行已存在意味着已走过 spawn first realId 确认,
+      //   NEW 行 cli_session_id 已是正确 realId — 不能被 OLD 覆盖 (违反 D2 不变量 2)
+      //
+      // 修法:**保留 NEW 行已有 cli_session_id 不覆盖** — 显式跳过 UPDATE。
+      // 推理:rename 是 OLD 整迁到 NEW;cli_session_id 这一列由 NEW 自己维护(因为 NEW 是真
+      // 跑 SDK / CLI thread 的那个);OLD 的 cli_session_id 历史值在反向 rename 路径下不需保留
+      // (反向 rename 路径走 sessionManager.updateCliSessionId 单列 UPDATE + 黑名单链,
+      // 不走本 rename helper 的 toExists=true 分支)。
+      // **不调** db.prepare UPDATE — 显式跳过 (注释明示防 future regression 误加 UPDATE)。
     }
     db.prepare(`DELETE FROM sessions WHERE id = ?`).run(fromId);
   });
