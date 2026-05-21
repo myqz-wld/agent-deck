@@ -204,8 +204,22 @@ export function persistFileChange(event: AgentEvent): void {
  * IPC 风暴（每条事件一次 latestSummaries 重读 SQL，10 个活跃会话 = 50 IPC/s 全是浪费）。
  *
  * 不在判定里写 archivedAt：归档与 lifecycle 正交，归档的会话来事件不应自动 unarchive。
+ *
+ * **REVIEW_49 R3 followup HIGH-2 修法**:**closed lifecycle / archived 会话短路丢迟到 hook event**。
+ * 触发链:closeSession 调 markClosed (manager.ts:333) 不写 recentlyDeleted 黑名单 +
+ * shutdown_session 后 60s 黑名单 TTL 过 / hook 子进程内部 buffer 异步飞回 → ingest 走
+ * dispatch (manager.ts:253 3a findByCliSessionId 命中已 closed row 覆写后) → advanceState
+ * 旧版 L211-214 任何非 active lifecycle 都复活回 active → emit session-upserted → UI 看到
+ * 「我刚 shutdown 的 reviewer 又活了」假活。修法:closed/archived 整段 short-circuit return —
+ * persistEventRow + persistFileChange 仍会写 events/file_changes 子表(数据保留供审计),
+ * 仅不更新 sessions.lastEventAt + 不复活 lifecycle + 不 emit session-upserted。
+ * dormant 仍可正常复活成 active(user resume 走真路径)— 不在 short-circuit 范围。
  */
 export function advanceState(record: SessionRecord, event: AgentEvent): void {
+  // **REVIEW_49 R3 follow-up HIGH-2**: closed/archived 短路 — 见函数 jsdoc 修法说明
+  if (record.lifecycle === 'closed' || record.archivedAt !== null) {
+    return;
+  }
   const nextActivity = nextActivityState(record.activity, event.kind, event.payload);
   let nextLifecycle: LifecycleState = record.lifecycle;
   if (record.lifecycle !== 'active') {

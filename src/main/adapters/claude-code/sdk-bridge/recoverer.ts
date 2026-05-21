@@ -24,13 +24,14 @@
  */
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { AgentEvent, SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { settingsStore } from '@main/store/settings-store';
 import { encodeClaudeProjectDir } from '@main/platform';
+import { findFallbackCwd as findFallbackCwdShared } from '@main/adapters/shared/find-fallback-cwd';
 import { AGENT_ID, MAX_MESSAGE_LENGTH, PLACEHOLDER_DEDUP_MS } from './constants';
 import { prependHistorySummary } from './recoverer-helpers';
 import {
@@ -633,31 +634,13 @@ export class SessionRecoverer {
    * 副作用契约**(纯函数 + best-effort + 不写库),不是 caller 链路最终持久化结果。
    *
    * test 通过 facade extend override 该方法定制启发式行为。
+   *
+   * **REVIEW_49 R1 follow-up MED-G**: 抽 `findFallbackCwd` 实现到 `@main/adapters/shared/find-fallback-cwd`
+   * (与 codex/recoverer.ts:430 同款),本方法保留作为 facade extend override 注入点(test
+   * 仍可 override 该 protected method 改启发式)。
    */
   protected findFallbackCwd(badCwd: string): string | null {
-    // 启发式 1:K2 老 session 模式(`<main-repo>/.claude/worktrees/<plan-id>(/.+)?` → 取 <main-repo>)
-    // CHANGELOG_99 R1 fix MED-3:regex 改为允许 worktree **内子目录** 命中 main repo
-    // (caller cwd 进过 worktree 子目录如 `/repo/.claude/worktrees/plan/src`,worktree 删了
-    // parent walk 命中 `.claude/worktrees` 而不是 main repo,违反"启发式 1 优先 main repo"语义)
-    const m = badCwd.match(/^(.+)\/\.claude\/worktrees\/[^/]+(?:\/.*)?$/);
-    if (m && this.cwdExistsThunk(m[1])) {
-      return m[1];
-    }
-    // 启发式 2:父目录 walk(不超过 home,避免 fallback 到 `/` / `/Users/<user>`)
-    // CHANGELOG_99 R1 fix LOW-2:安全边界改为「p 不能是 home 也不能是 home 的祖先」,
-    // 避免 badCwd === home 这种边角下 walk 到 `/Users` 等位置(原版只 p === home 比较不够)。
-    const home = homedir();
-    let p = dirname(badCwd);
-    for (let i = 0; i < 32; i++) {
-      // p 是 `/` / home 本身 / home 的祖先(`/Users` / `/`)/ 长度 ≤ 1 → 边界拒绝
-      const isAncestorOfHome = home === p || home.startsWith(p + '/');
-      if (p === '/' || isAncestorOfHome || p.length <= 1) return null;
-      if (this.cwdExistsThunk(p)) return p;
-      const next = dirname(p);
-      if (next === p) return null; // 已到根
-      p = next;
-    }
-    return null;
+    return findFallbackCwdShared(badCwd, this.cwdExistsThunk);
   }
 }
 

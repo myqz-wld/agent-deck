@@ -144,6 +144,18 @@ export const spawnSessionHandler = withMcpGuard(
     // 解决 reviewer-codex 报「外层 Claude Code sandbox 拦了 codex in-process app-server 初始化」
     // 的根因 —— spawn 出的 reviewer-codex teammate 没继承 lead 的 sandbox 设置，跑在受限沙盒里。
     // REVIEW_36 LOW-1：sessionRepo.get 单次反查（旧实现 callerExists / leadRecord 各调一次）。
+    //
+    // **REVIEW_49 R1 follow-up LOW**: `callerExists` 控制 caller-scoped side effects 散落 4 处
+    // (grep `[caller-scoped]` anchor 可定位):
+    //   1. L307 spawn-link 写入 (`callerExists && shouldWriteSpawnLink({batonMode})`)
+    //   2. L367 team addMember (caller 加入新 team 当 lead)
+    //   3. L442 placeholder message (lead context 注入消息表)
+    //   4. L473 spawnDepth fallback (created?.spawnDepth ?? 0)
+    // **不变量**:这 4 处都依赖 `callerExists === true` (caller 在 sessions 表) 才执行;
+    // external caller / 已 archive 的 caller / 不存在的 sid 一律跳过。未来加新副作用走 `[caller-scoped]`
+    // anchor 标记 + 校验 `callerExists` 守门。**抽 helper 评估**: 抽 `applyCallerScopedSideEffects`
+    // 单入口 helper 反而复杂 (4 个不同 side effect 各自 try/catch + 错误 propagate + 返回闭包),
+    // 当前散落 + anchor 注释比抽 helper 维护负担低。
     const leadRecord = sessionRepo.get(caller.callerSessionId);
     const callerExists = leadRecord !== null;
     const effectivePermissionMode =
@@ -304,6 +316,7 @@ export const spawnSessionHandler = withMcpGuard(
       // - SessionDetail / TeamDetail 不引用 spawnedBy → 无影响
       // - spawn-guards.ts depth check 用 callerSession.spawnDepth 不用新 session.spawnDepth
       //   → 无影响
+      // **[caller-scoped #1/4]** spawn-link 写入(grep anchor 详 L148-160 callerExists 定义)
       if (callerExists && shouldWriteSpawnLink({ batonMode: opts?.batonMode })) {
         const newDepth = parentDepth + 1;
         sessionRepo.setSpawnLink(sid, caller.callerSessionId, newDepth);
@@ -364,6 +377,7 @@ export const spawnSessionHandler = withMcpGuard(
       try {
         // caller 自动以 lead role 加入（如已 active 则保留）。caller 不在 sessions 表
         // （external __external__ 等）时跳过。
+        // **[caller-scoped #2/4]** team addMember(grep anchor 详 L148-160 callerExists 定义)
         if (callerExists) {
           try {
             agentDeckTeamRepo.addMember({
@@ -439,6 +453,7 @@ export const spawnSessionHandler = withMcpGuard(
     // 加 initialStatus='delivered' / updateToSessionId helper（scope 较大），留下次 phase。
     // 当前最小防御：失败时返回 spawnPromptMessageId=null，lead 至少不会调 wait_reply hang。
     let spawnPromptMessageId: string | null = null;
+    // **[caller-scoped #3/4]** placeholder message(grep anchor 详 L148-160 callerExists 定义)
     if (teamId && callerExists && placeholderId) {
       try {
         const placeholder = agentDeckMessageRepo.insert({
@@ -470,6 +485,7 @@ export const spawnSessionHandler = withMcpGuard(
       // 不再需要 list_sessions / get_session 反查）。
       agentName: args.agent_name ?? null,
       displayName: teammateDisplayName,
+      // **[caller-scoped #4/4]** spawnDepth fallback (grep anchor 详 L148-160 callerExists 定义)
       spawnDepth: created?.spawnDepth ?? (callerExists && shouldWriteSpawnLink({ batonMode: opts?.batonMode }) ? parentDepth + 1 : 0),
       sentAt: Date.now(),
       // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 调 wait_reply 等 teammate first reply

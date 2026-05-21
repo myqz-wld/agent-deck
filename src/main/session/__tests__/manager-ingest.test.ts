@@ -256,4 +256,134 @@ describe('SessionManager.ingest 时序', () => {
     // 清理：让其他测试不被这条 sdkOwned 污染
     sessionManager.releaseSdkClaim('OLD_ID');
   });
+
+  // **REVIEW_49 R3 follow-up HIGH-2 回归 test**:advanceState 对 closed/archived session
+  // 撞迟到 hook event 短路丢弃,不复活 lifecycle / 不更新 lastEventAt / 不 emit session-upserted。
+  // 触发链:closeSession → markClosed (manager.ts:333,**不**写 recentlyDeleted 黑名单) →
+  // 60s 后 hook 子进程内部 buffer 异步飞回,event.sessionId === appSid 直接 dispatch
+  // (绕过 3a findByCliSessionId / 黑名单两道防线) → 旧版 advanceState L211-214 复活 closed → active。
+  it('REVIEW_49 R3 follow-up: closed session 收到迟到 hook → advanceState short-circuit 不复活', () => {
+    // 预置 closed session (模拟 closeSession 已跑过)
+    mockSessions.set('CLOSED_SID', {
+      id: 'CLOSED_SID',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'closed reviewer',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: 200,
+      archivedAt: null,
+      permissionMode: null,
+    });
+    const upsertCountBefore = mockEmits.filter(
+      (e) =>
+        e.name === 'session-upserted' &&
+        (e.payload as SessionRecord)?.id === 'CLOSED_SID',
+    ).length;
+
+    // 60s 后迟到 hook event(典型:hook 子进程内部 buffer flush 撞 closeSession 后异步飞回)
+    const lateHook = makeEvent({
+      sessionId: 'CLOSED_SID',
+      source: 'hook',
+      kind: 'message',
+      payload: { text: 'late hook flushed after close' },
+      ts: 5000,
+    });
+    sessionManager.ingest(lateHook);
+
+    // **关键断言**: lifecycle 仍 closed (没复活)
+    expect(mockSessions.get('CLOSED_SID')?.lifecycle).toBe('closed');
+    // lastEventAt 未推进(advanceState 整段 short-circuit 不调 setActivity)
+    expect(mockSessions.get('CLOSED_SID')?.lastEventAt).toBe(100);
+    // 没有新 session-upserted emit (UI 不会看到「reviewer 又活了」假活)
+    const upsertCountAfter = mockEmits.filter(
+      (e) =>
+        e.name === 'session-upserted' &&
+        (e.payload as SessionRecord)?.id === 'CLOSED_SID',
+    ).length;
+    expect(upsertCountAfter).toBe(upsertCountBefore);
+    // events / file_changes 子表保留供审计 (advanceState 之前的 persistEventRow 仍跑)
+    expect(mockEvents.length).toBeGreaterThan(0);
+  });
+
+  it('REVIEW_49 R3 follow-up: archived session 收到迟到 event → advanceState short-circuit', () => {
+    // 预置 archived session(用户手动归档,lifecycle 仍 active 但 archivedAt 非 null)
+    mockSessions.set('ARCHIVED_SID', {
+      id: 'ARCHIVED_SID',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'archived reviewer',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: 5000, // 关键:archived
+      permissionMode: null,
+    });
+    const upsertCountBefore = mockEmits.filter(
+      (e) =>
+        e.name === 'session-upserted' &&
+        (e.payload as SessionRecord)?.id === 'ARCHIVED_SID',
+    ).length;
+
+    // 用户归档后 SDK 仍异步推 message event
+    const lateEvent = makeEvent({
+      sessionId: 'ARCHIVED_SID',
+      source: 'sdk',
+      kind: 'message',
+      payload: { text: 'after archive' },
+      ts: 6000,
+    });
+    sessionManager.ingest(lateEvent);
+
+    // **关键断言**: archivedAt 不被自动清空 (本来 advanceState 不动 archivedAt 即正交设计)
+    expect(mockSessions.get('ARCHIVED_SID')?.archivedAt).toBe(5000);
+    // lastEventAt 未推进 (UI 不会看到「归档的还在活动」假活)
+    expect(mockSessions.get('ARCHIVED_SID')?.lastEventAt).toBe(100);
+    // activity 不变(setActivity 不被调)
+    expect(mockSessions.get('ARCHIVED_SID')?.activity).toBe('idle');
+    // 没有新 session-upserted emit
+    const upsertCountAfter = mockEmits.filter(
+      (e) =>
+        e.name === 'session-upserted' &&
+        (e.payload as SessionRecord)?.id === 'ARCHIVED_SID',
+    ).length;
+    expect(upsertCountAfter).toBe(upsertCountBefore);
+  });
+
+  it('REVIEW_49 R3 follow-up: dormant session 收到 event → 仍走复活路径(不在 short-circuit 范围)', () => {
+    // 预置 dormant session(SDK query 结束但 jsonl 在,user resume 应能复活)
+    mockSessions.set('DORMANT_SID', {
+      id: 'DORMANT_SID',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'dormant',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    const resumeEvent = makeEvent({
+      sessionId: 'DORMANT_SID',
+      source: 'sdk',
+      kind: 'message',
+      payload: { text: 'user resume' },
+      ts: 7000,
+    });
+    sessionManager.ingest(resumeEvent);
+
+    // **关键断言**: dormant 走复活路径 → active(short-circuit 仅 closed/archived)
+    expect(mockSessions.get('DORMANT_SID')?.lifecycle).toBe('active');
+    expect(mockSessions.get('DORMANT_SID')?.lastEventAt).toBe(7000);
+  });
 });
