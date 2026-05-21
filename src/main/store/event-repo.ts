@@ -9,6 +9,7 @@ interface Row {
   kind: string;
   payload_json: string;
   ts: number;
+  tool_use_id: string | null;
 }
 
 function rowToEvent(r: Row): AgentEvent & { id: number } {
@@ -22,21 +23,78 @@ function rowToEvent(r: Row): AgentEvent & { id: number } {
   };
 }
 
+/**
+ * 从 event payload 提取 toolUseId。仅 tool-use-start / tool-use-end 才有；其他 kind 返 null
+ * 让 tool_use_id 列保持 NULL（partial UNIQUE INDEX 自动跳过）。
+ *
+ * 守门同步 session-store.ts:99-105 upsertEvent dedup（REVIEW_52 A1）：
+ *   - typeof string 必要
+ *   - 非空字符串必要（避免空串撞 partial UNIQUE 与历史 toolUseId 冗余漂移）
+ */
+function extractToolUseId(event: AgentEvent): string | null {
+  if (event.kind !== 'tool-use-start' && event.kind !== 'tool-use-end') return null;
+  const tid = (event.payload as { toolUseId?: unknown })?.toolUseId;
+  return typeof tid === 'string' && tid !== '' ? tid : null;
+}
+
 export const eventRepo = {
+  /**
+   * INSERT or UPSERT depending on dedup eligibility（REVIEW_52 A2）。
+   *
+   * `tool-use-start` + 有 toolUseId → ON CONFLICT DO UPDATE 替 payload+ts，row id 不变。
+   * 其他 kind / 缺 toolUseId → 普通 INSERT 新行。
+   *
+   * **partial conflict target 必须重复 partial UNIQUE INDEX 的 WHERE 子句**（双 reviewer
+   * F1 共识 + SQLite 3.49.2 lang_upsert.html 文档明定 + reviewer-codex sqlite3 :memory:
+   * 实测：缺 WHERE 直接 parser error `ON CONFLICT clause does not match any PRIMARY KEY
+   * or UNIQUE constraint`）。WHERE 子句与 v022_events_tool_use_dedup.sql 步骤 4 创建
+   * partial UNIQUE INDEX 的 WHERE 字节级一致。
+   *
+   * RETURNING id 而非 lastInsertRowid（INFO-1 reviewer-codex 实证）：UPSERT DO UPDATE
+   * 命中 conflict 时 lastInsertRowid 仍是 attempt rowid（不是 victim）→ 取 victim id
+   * 必须用 RETURNING（victim row id 在 conflict 路径上）。
+   */
   insert(event: AgentEvent): number {
+    const toolUseId = extractToolUseId(event);
+
+    if (event.kind === 'tool-use-start' && toolUseId) {
+      const row = getDb()
+        .prepare(
+          `INSERT INTO events (session_id, kind, payload_json, ts, tool_use_id)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(session_id, kind, tool_use_id)
+             WHERE kind = 'tool-use-start' AND tool_use_id IS NOT NULL
+             DO UPDATE SET payload_json = excluded.payload_json, ts = excluded.ts
+           RETURNING id`,
+        )
+        .get(
+          event.sessionId,
+          event.kind,
+          safeStringifyPayload(event.payload),
+          event.ts,
+          toolUseId,
+        ) as { id: number };
+      return row.id;
+    }
+
     const info = getDb()
       .prepare(
-        `INSERT INTO events (session_id, kind, payload_json, ts)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO events (session_id, kind, payload_json, ts, tool_use_id)
+         VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(event.sessionId, event.kind, safeStringifyPayload(event.payload), event.ts);
+      .run(event.sessionId, event.kind, safeStringifyPayload(event.payload), event.ts, toolUseId);
     return Number(info.lastInsertRowid);
   },
 
   listForSession(sessionId: string, limit = 200, offset = 0): (AgentEvent & { id: number })[] {
+    // REVIEW_52 F3：加 id DESC 作 secondary key。同毫秒 ts（codex item.updated 推几条
+    // 同 toolUseId tool-use-start payload，Date.now() 在 ms 边界可能撞同毫秒）SQLite 不保证
+    // 顺序稳定，导致 setRecentEvents read-side dedup「首条即最新」语义破坏（双 reviewer
+    // claude MED-1 / codex MED-3 同款 finding）。id AUTOINCREMENT 单调递增 → 同毫秒按 id 取
+    // 最大即最晚插入。
     const rows = getDb()
       .prepare(
-        `SELECT * FROM events WHERE session_id = ? ORDER BY ts DESC LIMIT ? OFFSET ?`,
+        `SELECT * FROM events WHERE session_id = ? ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?`,
       )
       .all(sessionId, limit, offset) as Row[];
     return rows.map(rowToEvent);

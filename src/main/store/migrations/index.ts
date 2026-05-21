@@ -32,6 +32,7 @@ import v018 from './v018_sessions_model.sql?raw';
 import v019 from './v019_sessions_extra_allow_write.sql?raw';
 import v020 from './v020_sessions_cwd_release_marker.sql?raw';
 import v021 from './v021_sessions_cli_session_id.sql?raw';
+import v022 from './v022_events_tool_use_dedup.sql?raw';
 
 export interface Migration {
   version: number;
@@ -61,4 +62,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 19, name: 'sessions_extra_allow_write', sql: v019 },
   { version: 20, name: 'sessions_cwd_release_marker', sql: v020 },
   { version: 21, name: 'sessions_cli_session_id', sql: v021 },
+  { version: 22, name: 'events_tool_use_dedup', sql: v022 },
 ];

@@ -319,7 +319,26 @@ export const useSessionStore = create<State>((set) => ({
       const m = new Map(state.recentEventsBySession);
       // REVIEW_4 H4：与 pushEvent 同样切到 RECENT_LIMIT —— listEvents 调用方传 200，
       // 这里再切一刀防止 push 后立刻 slice(0,30) 让 70 条历史秒蒸发。
-      m.set(sessionId, events.slice(0, RECENT_LIMIT));
+      //
+      // REVIEW_52 A1：dedup tool-use-start by toolUseId（与 upsertEvent line 98-115
+      // 同款语义）。listForSession SQL `ORDER BY ts DESC, id DESC`（event-repo.ts F3 修），
+      // 第一次出现即最新。codex item.updated 重发同 toolUseId 历史路径在 DB 已有 N 条
+      // 冗余 tool-use-start（A2 + v022 migration 落地后这些会被 cleanup 但 A1 仍兜底
+      // 拉历史路径）。tool-use-end 不 dedup（每对独立终态）；toolUseId 缺失/非 string/
+      // 空字符串时不 dedup（fallback 不漏渲染，与 upsertEvent line 100-101 守门一致）。
+      const seen = new Set<string>();
+      const deduped: AgentEvent[] = [];
+      for (const e of events) {
+        if (e.kind === 'tool-use-start') {
+          const tid = (e.payload as { toolUseId?: unknown })?.toolUseId;
+          if (typeof tid === 'string' && tid) {
+            if (seen.has(tid)) continue;
+            seen.add(tid);
+          }
+        }
+        deduped.push(e);
+      }
+      m.set(sessionId, deduped.slice(0, RECENT_LIMIT));
       return { recentEventsBySession: m };
     }),
 

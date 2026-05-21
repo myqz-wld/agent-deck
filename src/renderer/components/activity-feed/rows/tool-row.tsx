@@ -196,12 +196,11 @@ export function ToolEndRow({
     <li className={containerClass}>
       <button
         type="button"
-        onClick={() => hasContent && setOpen((v) => !v)}
-        disabled={!hasContent}
+        onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 text-left disabled:cursor-default"
+        className="flex w-full items-center gap-1.5 text-left"
       >
-        <span>{hasContent ? (open ? '▾' : '▸') : '·'}</span>
+        <span>{open ? '▾' : '▸'}</span>
         <span>
           {imageRead ? '🖼 ImageRead' : `${toolIcon(tool)} ${tool}`}{' '}
           {isFailed ? (
@@ -243,11 +242,22 @@ export function ToolEndRow({
           </div>
         </div>
       )}
-      {open && hasContent && (
+      {/* REVIEW_52 B1：移除 disabled={!hasContent}，总是允许 ▸/▾ 展开。
+         空结果展开（codex 无 stdout 命令 mkdir/cd / mcp_tool_call 返 [] / null）显示
+         status / exitCode 元信息，避免「点不动 + 没解释」UX 卡住感。imageRead 由
+         上面 mt-2 分支独立渲染，本块仅文本结果路径。*/}
+      {open && !imageRead && (hasContent ? (
         <pre className="mt-1 max-h-64 overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
           {text}
         </pre>
-      )}
+      ) : (
+        <div className="mt-1 px-1.5 py-1 text-[10px] italic text-deck-muted/70">
+          (无输出
+          {typeof p.status === 'string' && p.status !== 'completed' && ` · status: ${p.status}`}
+          {typeof p.exitCode === 'number' && ` · exit ${p.exitCode}`}
+          )
+        </div>
+      ))}
     </li>
   );
 }
