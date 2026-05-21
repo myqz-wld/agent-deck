@@ -384,6 +384,13 @@ export const handOffSessionHandler = withMcpGuard(
     // - 调 buildAdoptedTeamsContextBlock(firstTeam, otherLeadTeams) 装配 prompt prepend block
     // - cold-start prompt = `${adoptedBlock}\n---\n\n${resolved.coldStartPrompt}`
     let coldStartPromptForSDK = resolved.coldStartPrompt;
+    // **plan hand-off-session-adopt-teammates-20260520 follow-up INFO-6 修法**:adopt 路径
+    // prompt 装配 + phase 1.5 lifecycle precheck 共享同款 deps-aware fallback 提到外层 scope
+    // declare 一次(原 line 465-466 + line 626-627 两处重复 declare 整合);test seam 与生产
+    // 路径都走 `handlerDeps?.getSessionForLifecycle ?? sessionRepo.get` 同 closure。adopt_teammates
+    // 不为 true 时 fallback 仍 declare 但不被消费(零 cost)。
+    const getSessionFn =
+      handlerDeps?.getSessionForLifecycle ?? ((sid: string) => sessionRepo.get(sid));
     let adoptedSnapshot: {
       firstTeamId: string;
       teamsTotal: number;
@@ -404,6 +411,12 @@ export const handOffSessionHandler = withMcpGuard(
        * archived ghost」语义不一致。修后 archived 不论 role 一致。
        */
       archivedTeamIds: string[];
+      /**
+       * Follow-up INFO-7 修法:caller membership 指向的 team row 不存在(DB 不一致罕见
+       * corner case,FK 约束 ON DELETE 应拦,defense in depth)— push failed reason=
+       * 'team-not-found' 与 archived 区分,future debug DB 不一致更易定位。
+       */
+      notFoundTeamIds: string[];
     } | null = null;
     if (args.adopt_teammates === true) {
       // N5 fail-fast:precheck caller 至少 1 个 lead membership;不读 lead memberships 时直接
@@ -431,12 +444,20 @@ export const handOffSessionHandler = withMcpGuard(
         caller.callerSessionId,
       );
       const callerLeadMemberships: typeof allCallerMemberships = [];
+      // **follow-up INFO-7 修法**:team row missing(`agentDeckTeamRepo.get` 返 null —
+      // FK 约束 ON DELETE 应拦不该出现,defense in depth)与 archived(`archivedAt !== null`)
+      // 分两 reason 'team-not-found' / 'team-archived';修前合并进 archivedTeamIds 全 push
+      // reason='team-archived' 误导(实际 row 不存在 ≠ archived)。两态分流让 caller 看到精
+      // 确原因,future debug DB 不一致更易定位。
+      const notFoundTeamIds: string[] = [];
       const archivedTeamIds: string[] = [];
       const teammateOnlyTeamIds: string[] = [];
       for (const m of allCallerMemberships) {
         const team = agentDeckTeamRepo.get(m.teamId);
-        const teamArchived = team === null || team.archivedAt !== null;
-        if (teamArchived) {
+        if (team === null) {
+          // team row missing(DB 不一致罕见 corner case,defense in depth)
+          notFoundTeamIds.push(m.teamId);
+        } else if (team.archivedAt !== null) {
           // archived team:不论 caller role(lead / teammate)都不进 adopt eligibility
           archivedTeamIds.push(m.teamId);
         } else if (m.role === 'lead') {
@@ -448,7 +469,7 @@ export const handOffSessionHandler = withMcpGuard(
       if (callerLeadMemberships.length === 0) {
         return err(
           'adopt_teammates 要求 caller 至少在一个 active team 是 lead',
-          `caller_session_id ${caller.callerSessionId} 当前在 ${allCallerMemberships.length} 个 active membership 内(含 archived team 的 ghost membership ${archivedTeamIds.length} 条),但 active team(team.archived_at IS NULL)中 role==='lead' 的 0 个(全 teammate / 全 archived team / 无 lead membership)。adopt 语义本质是「lead 把 lead role 转给新 session」,caller 不是任何 active team 的 lead 时该语义无意义。改走 default baton(adopt_teammates: false / 不传)或先确认 caller 在某个 active team 是 lead 再重试。`,
+          `caller_session_id ${caller.callerSessionId} 当前在 ${allCallerMemberships.length} 个 active membership 内(含 archived team ghost ${archivedTeamIds.length} 条 + team row missing ghost ${notFoundTeamIds.length} 条),但 active team(team.archived_at IS NULL)中 role==='lead' 的 0 个(全 teammate / 全 archived team / team row missing / 无 lead membership)。adopt 语义本质是「lead 把 lead role 转给新 session」,caller 不是任何 active team 的 lead 时该语义无意义。改走 default baton(adopt_teammates: false / 不传)或先确认 caller 在某个 active team 是 lead 再重试。`,
         );
       }
 
@@ -460,16 +481,14 @@ export const handOffSessionHandler = withMcpGuard(
       // 修法:装配时一起做 sessionRepo lifecycle/archived precheck,与 phase 1.5 lifecycle
       // precheck 同款 eligibility(missing / closed / archived 都不进 prompt)。phase 1.5
       // 仍 push failed 让 caller 通过 ok return 看到原因。
-      // **deps-aware**:复用 handlerDeps.getSessionForLifecycle test seam(同 phase 1.5
-      // 用法,line 615-616)— 测试 mock teammate session 即可,不影响生产真实 sessionRepo.get。
-      const promptGetSessionFn =
-        handlerDeps?.getSessionForLifecycle ?? ((sid: string) => sessionRepo.get(sid));
+      // **follow-up INFO-6 修法**:复用外层 scope `getSessionFn`(原 line 472-473 重复 declare
+      // 已提外层)— prompt 装配 + phase 1.5 共享同一 closure,改 deps abstraction 时单点修改。
       const eligibleTeammateSidsForPrompt = (teamId: string): string[] =>
         agentDeckTeamRepo
           .listAllMembers(teamId)
           .filter((m) => m.leftAt === null && m.sessionId !== caller.callerSessionId)
           .filter((m) => {
-            const s = promptGetSessionFn(m.sessionId);
+            const s = getSessionFn(m.sessionId);
             return s !== null && s.lifecycle !== 'closed' && s.archivedAt === null;
           })
           .map((m) => m.sessionId);
@@ -499,6 +518,7 @@ export const handOffSessionHandler = withMcpGuard(
         callerLeadTeamIds: callerLeadMemberships.map((m) => m.teamId),
         teammateOnlyTeamIds,
         archivedTeamIds,
+        notFoundTeamIds,
       };
     }
 
@@ -623,8 +643,8 @@ export const handOffSessionHandler = withMcpGuard(
         handlerDeps?.swapLead ??
         ((teamId: string, oldSid: string, newSid: string, opts?: { newDisplayName?: string | null }) =>
           agentDeckTeamRepo.swapLead(teamId, oldSid, newSid, opts));
-      const getSessionFn =
-        handlerDeps?.getSessionForLifecycle ?? ((sid: string) => sessionRepo.get(sid));
+      // **follow-up INFO-6 修法**:复用外层 scope `getSessionFn`(原 line 626-627 重复 declare
+      // 已提外层)— 与 prompt 装配 line 465-466 共享同一 closure。
       const listMembersFn =
         handlerDeps?.listAllMembersForAdopt ??
         ((teamId: string) => agentDeckTeamRepo.listAllMembers(teamId));
@@ -655,6 +675,16 @@ export const handOffSessionHandler = withMcpGuard(
           sid: caller.callerSessionId,
           teamId: archivedTeamId,
           reason: 'team-archived',
+        });
+      }
+      // Follow-up INFO-7 修法:team row missing 与 archived 区分,push reason='team-not-found'
+      // (defense in depth — FK 约束 ON DELETE 应拦实际 row missing,但 DB 不一致罕见 corner
+      // case 时 caller 通过 ok return 看到精确原因)。
+      for (const notFoundTeamId of adoptedSnapshot.notFoundTeamIds) {
+        failedList.push({
+          sid: caller.callerSessionId,
+          teamId: notFoundTeamId,
+          reason: 'team-not-found',
         });
       }
 
