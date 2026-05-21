@@ -267,4 +267,78 @@ describe('Phase R3 fix-1 — restart-controller race fix (recovering Map entry t
     const sessionRenamedOffCalls = offSpy.mock.calls.filter((c) => c[0] === 'session-renamed');
     expect(sessionRenamedOffCalls.length).toBeGreaterThanOrEqual(1);
   });
+
+  // ─── plan reverse-rename-sid-stability-20260520 §C.3 R1 MED-D + R3 MED-R3-2 必加 test ───
+
+  it('反向 rename §C.1: restartWithPermissionMode 调 createSession 用 resume=applicationSid + resumeCliSid=rec.cliSessionId 双轨', async () => {
+    const APP_SID = 'app-sid-stable';
+    const CLI_SID = 'cli-sid-thread';
+    const rec = { ...makeRec(APP_SID), cliSessionId: CLI_SID } as unknown as SessionRecord;
+    repoCache.set(APP_SID, rec);
+
+    const createCalls: RestartCreateOpts[] = [];
+    const { ctx } = makeCtx({
+      createSession: async (opts: RestartCreateOpts) => {
+        createCalls.push(opts);
+        return { sessionId: APP_SID, cwd: '/tmp/test' } as unknown as SdkSessionHandle;
+      },
+    });
+    const controller = new RestartController(ctx);
+
+    const finalId = await controller.restartWithPermissionMode(APP_SID, 'plan', 'go');
+
+    // **§C.1 R3 MED-R3-2 双轨入参**:
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].resume).toBe(APP_SID); // applicationSid 维度 (与现状一致)
+    expect(createCalls[0].resumeCliSid).toBe(CLI_SID); // cli sid 维度 (反向 rename 后新加)
+
+    // **§C.1 反向 rename: applicationSid 不变 (handle.sessionId 实际 === APP_SID,等价)**
+    expect(finalId).toBe(APP_SID); // 不再返 newRealId,返 currentSid (=== applicationSid 稳定)
+  });
+
+  it('反向 rename §C.1: restartWithClaudeCodeSandbox 同款 resume + resumeCliSid 双轨', async () => {
+    const APP_SID = 'app-sid-stable-2';
+    const CLI_SID = 'cli-sid-thread-2';
+    const rec = { ...makeRec(APP_SID), cliSessionId: CLI_SID } as unknown as SessionRecord;
+    repoCache.set(APP_SID, rec);
+
+    const createCalls: RestartCreateOpts[] = [];
+    const { ctx } = makeCtx({
+      createSession: async (opts: RestartCreateOpts) => {
+        createCalls.push(opts);
+        return { sessionId: APP_SID, cwd: '/tmp/test' } as unknown as SdkSessionHandle;
+      },
+    });
+    const controller = new RestartController(ctx);
+
+    const finalId = await controller.restartWithClaudeCodeSandbox(APP_SID, 'off', 'go');
+
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].resume).toBe(APP_SID);
+    expect(createCalls[0].resumeCliSid).toBe(CLI_SID);
+
+    expect(finalId).toBe(APP_SID);
+  });
+
+  it('反向 rename §C.1: cliSessionId === null 时 resumeCliSid 兜底为 currentSid (字面等价旧行为)', async () => {
+    // session 没设 cliSessionId (typical: 历史 record 在 v021 backfill 后 cliSessionId === id 也是常态)
+    const SID = 'no-cli-sid';
+    const rec = { ...makeRec(SID), cliSessionId: null } as unknown as SessionRecord;
+    repoCache.set(SID, rec);
+
+    const createCalls: RestartCreateOpts[] = [];
+    const { ctx } = makeCtx({
+      createSession: async (opts: RestartCreateOpts) => {
+        createCalls.push(opts);
+        return { sessionId: SID, cwd: '/tmp/test' } as unknown as SdkSessionHandle;
+      },
+    });
+    const controller = new RestartController(ctx);
+
+    await controller.restartWithPermissionMode(SID, 'plan', 'go');
+
+    // cliSessionId === null → resumeCliSid 兜底 currentSid (与 resume 同值,行为字面等价旧实现)
+    expect(createCalls[0].resume).toBe(SID);
+    expect(createCalls[0].resumeCliSid).toBe(SID);
+  });
 });

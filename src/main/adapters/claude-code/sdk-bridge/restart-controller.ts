@@ -10,16 +10,27 @@
  * 不持有 sessions Map：close + createSession 已隐含管理，restart 路径无需直接 mutate。
  */
 import type { AgentEvent } from '@shared/types';
-import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import type { SdkSessionHandle } from './types';
+// **plan reverse-rename-sid-stability-20260520 §C.1 反向 rename 修订**:
+// 不再需要 import sessionManager — restart-controller 不再直接调 sessionManager.renameSdkSession;
+// CLI fork rename 走 bridge stream-processor S6 fork detect 内部 sessionManager.updateCliSessionId
+// (sessions.id 不变,cli_session_id 列单点 UPDATE)。
 
 export interface RestartCreateOpts {
   cwd: string;
   prompt: string;
   resume?: string;
+  /**
+   * **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订**:
+   * 反向 rename 后 createSession opts.resume 是 applicationSid 维度;但 SDK CLI `--resume` 字段
+   * 需要 cli sid 才能找到正确 jsonl 文件。caller (restart-controller) 显式传 resumeCliSid =
+   * `sessionRepo.get(currentSid)?.cliSessionId ?? currentSid`,让 createSession bridge 内部
+   * effectiveResumeCliSid 解析 resolver 直接拿 cli sid (不依赖反查)。
+   */
+  resumeCliSid?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   /**
@@ -168,10 +179,14 @@ export class RestartController {
         if (updatedRec) eventBus.emit('session-upserted', updatedRec);
 
         try {
-          const handle = await this.ctx.createSession({
+          await this.ctx.createSession({
             cwd: rec.cwd,
             prompt: handoffPrompt,
             resume: currentSid,
+            // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订**:
+            // 反向 rename 后 currentSid 是 applicationSid;SDK CLI `--resume` 需 cli sid 找 jsonl。
+            // caller 显式传 cliSessionId 兜底,反向 rename 后两者不同时才生效(否则字面等价旧行为)。
+            resumeCliSid: rec.cliSessionId ?? currentSid,
             permissionMode: mode,
             // plan cross-adapter-parity-20260515 + REVIEW_41 MED-3 fix:rec.claudeCodeSandbox /
             // rec.extraAllowWrite 必须透传,否则冷重启后 SDK 子进程 sandbox.allowWrite 丢失原
@@ -181,21 +196,13 @@ export class RestartController {
             claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
             extraAllowWrite: rec.extraAllowWrite ?? undefined,
           });
-          const newRealId = handle.sessionId;
-          // CLI 隐式 fork：拿到的 newRealId 可能 ≠ OLD sessionId（CLI 在 streaming + resume 下行为不可控，
-          // 见 CLAUDE.md「会话恢复 / 断连 UX」节）。rename 把 DB 子表 + sdkOwned 整体迁到 NEW 名下。
-          if (newRealId !== currentSid) {
-            try {
-              sessionManager.renameSdkSession(currentSid, newRealId);
-            } catch (renameErr) {
-              console.error(
-                `[sdk-bridge] post-restart rename failed ${currentSid} → ${newRealId}, ` +
-                  `NEW session works but app-side history not migrated.`,
-                renameErr,
-              );
-            }
-          }
-          return newRealId;
+          // **plan reverse-rename-sid-stability-20260520 §C.1 反向 rename 修订**:
+          // handle.sessionId === currentSid (S5 修订让 createSession 返 internal.applicationSid;
+          // resume 路径下 applicationSid 全程不变 = currentSid)。CLI 真实 fork 由
+          // bridge stream-processor S6 fork detect 内部走 sessionManager.updateCliSessionId
+          // 黑名单链处理 (cli_session_id 列单点 UPDATE,不动 sessions.id)。
+          // 此处不再调 sessionManager.renameSdkSession (反向 rename 不动 sessions.id)。
+          return currentSid; // application sid 稳定 (与 §不变量 1 对齐)
         } catch (err) {
           // 回滚：DB 改回 oldMode + emit upsert 让下拉回弹
           sessionRepo.setPermissionMode(currentSid, oldMode);
@@ -321,10 +328,12 @@ export class RestartController {
         if (updatedRec) eventBus.emit('session-upserted', updatedRec);
 
         try {
-          const handle = await this.ctx.createSession({
+          await this.ctx.createSession({
             cwd: rec.cwd,
             prompt: handoffPrompt,
             resume: currentSid,
+            // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订** (同 restartWithPermissionMode):
+            resumeCliSid: rec.cliSessionId ?? currentSid,
             claudeCodeSandbox: sandbox,
             // REVIEW_36 R2 MED-A 修法：必须透传 rec.permissionMode 否则新 SDK 默认 'default'，
             // DB 仍保留旧 mode（acceptEdits/plan/bypassPermissions）→ DB/UI 与 SDK 实际行为不一致。
@@ -335,19 +344,10 @@ export class RestartController {
             // (与 restartWithPermissionMode 同款治法)。
             extraAllowWrite: rec.extraAllowWrite ?? undefined,
           });
-          const newRealId = handle.sessionId;
-          if (newRealId !== currentSid) {
-            try {
-              sessionManager.renameSdkSession(currentSid, newRealId);
-            } catch (renameErr) {
-              console.error(
-                `[sdk-bridge] post-restart rename failed ${currentSid} → ${newRealId}, ` +
-                  `NEW session works but app-side history not migrated.`,
-                renameErr,
-              );
-            }
-          }
-          return newRealId;
+          // **plan reverse-rename-sid-stability-20260520 §C.1 反向 rename 修订** (同 restartWithPermissionMode):
+          // handle.sessionId === currentSid (applicationSid 不变);CLI 真实 fork 由 stream-processor S6
+          // fork detect 内部走 sessionManager.updateCliSessionId 黑名单链处理。
+          return currentSid;
         } catch (err) {
           // 回滚：DB 改回 oldSandbox + emit upsert + emit error message
           sessionRepo.setClaudeCodeSandbox(currentSid, oldSandbox);
