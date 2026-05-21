@@ -1068,6 +1068,14 @@ export async function archivePlanImpl(
   // 子树内 + source ≠ archivedPath → 把 source 相对路径加入 filesToAdd(git add 处理 deletion
   // = stage 文件删除)。source 不在 mainRepo 子树内(如 `~/.claude/plans/` 全局位置) → 不加
   // (不污染 mainRepo git history)。
+  //
+  // **plan hand-off-session-adopt-teammates-20260520 follow-up bug fix**:
+  // 上面修法漏判 source ignored / untracked 路径(典型本项目 `.claude/plans/` 在 `.gitignore`
+  // 从未 git tracked)。这种 source 文件:① 真实存在 fs ② step 12 unlink 移走 ③ 不在 git
+  // index 内 → planRelative push 后 git add 撞 `did not match any files` post-ff-merge fail。
+  // 修法:planRelative push 前用 `git ls-files --error-unmatch` precheck source tracked,
+  // exitcode 0(tracked)才 push;exitcode 非 0(untracked / ignored)skip 不 push(git
+  // history 本来就不含,不需要记 deletion)。
   const filesToAdd = [
     path.relative(mainRepo, archivedPath),
     path.relative(mainRepo, indexPath),
@@ -1078,7 +1086,22 @@ export async function archivePlanImpl(
     !planRelative.startsWith('..') &&
     !path.isAbsolute(planRelative)
   ) {
-    filesToAdd.push(planRelative);
+    // precheck source 是否 git tracked。`git ls-files --error-unmatch <path>` exitcode 0 =
+    // tracked / 非 0 = untracked / ignored / typo。runGit throws on non-zero exit → 用
+    // try/catch 区分两态。本路径在 step 12 unlink 之后跑,源文件已不在 fs;但 git index
+    // 仍可能记 tracked 状态(刚 unlink 还没 stage 删除)→ ls-files 看 index 视角。
+    let sourceTracked = false;
+    try {
+      await deps.runGit(['ls-files', '--error-unmatch', planRelative], mainRepo);
+      sourceTracked = true;
+    } catch {
+      // exitcode 非 0:source 在 .gitignore / 从未 tracked / 路径 typo → skip,git history
+      // 本来不含 source 不需要记 deletion(典型本项目 .claude/plans/ ignored case)。
+      sourceTracked = false;
+    }
+    if (sourceTracked) {
+      filesToAdd.push(planRelative);
+    }
   }
   // R3 follow-up: spike-reports/ 子目录入 filesToAdd 让 git add 递归处理整个目录
   if (spikeReportsArchived !== null) {

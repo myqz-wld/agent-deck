@@ -1481,4 +1481,76 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
       reason: 'caller-not-lead-in-team',
     });
   });
+
+  // T6.A4(follow-up INFO-7): team row missing(`agentDeckTeamRepo.get` 返 null,DB 不一致
+  // 罕见 corner case — FK 约束 ON DELETE 应拦,defense in depth)→ push failed reason=
+  // 'team-not-found' 与 'team-archived' 区分;让 caller 通过 ok return 看到精确原因。
+  it('T6.A4 team row missing filter: caller=lead 在 active team-A + caller=lead 在 missing team-MISSING → failed reason="team-not-found"', async () => {
+    const state = makeState();
+    setupPlanFile(state, 't6-a4-missing');
+
+    // caller 在 active team-A 是 lead + caller 在 team-MISSING 是 lead(但 team row 不存在)
+    vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipsBySession').mockReturnValue([
+      fakeMember({ teamId: 'team-A', sessionId: 'caller-sid', role: 'lead' }),
+      fakeMember({ teamId: 'team-MISSING', sessionId: 'caller-sid', role: 'lead' }),
+    ]);
+    vi.spyOn(agentDeckTeamRepo, 'get').mockImplementation((teamId: string) => {
+      if (teamId === 'team-A') return fakeTeam('team-A', 'team-A-name');
+      // team-MISSING 返 null 模拟 DB 不一致(FK ON DELETE 应拦但 defense in depth)
+      return null;
+    });
+    vi.spyOn(agentDeckTeamRepo, 'listAllMembers').mockImplementation((teamId: string) => {
+      if (teamId === 'team-A') {
+        return [fakeMember({ teamId: 'team-A', sessionId: 'caller-sid', role: 'lead' })];
+      }
+      return [];
+    });
+    vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) =>
+      id === 'caller-sid' ? fakeCallerRow() : null,
+    );
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+    const mockSwapLead = vi.fn(() => ({ swapped: true as const }));
+
+    const result = await handOffSessionHandler(
+      {
+        plan_id: 't6-a4-missing',
+        adapter: 'claude-code',
+        adopt_teammates: true,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: makeOkSpawn(seenSpawn),
+        archiveSession: noopArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+        swapLead: mockSwapLead,
+        getSessionForLifecycle: activeLifecycleGet,
+        listAllMembersForAdopt: agentDeckTeamRepo.listAllMembers,
+        closeSession: noopCloseSession,
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+
+    // **active team-A adopt 成功**
+    expect(data.adopted.firstTeamId).toBe('team-A');
+    expect(data.adopted.teamsAdopted).toBe(1);
+    // **teamsTotal=1**(active eligibility 1 lead,team-MISSING ghost 排除)
+    expect(data.adopted.teamsTotal).toBe(1);
+
+    // **team-MISSING ghost → failed reason='team-not-found'**(与 'team-archived' 区分)
+    expect(data.adopted.failed).toContainEqual({
+      sid: 'caller-sid',
+      teamId: 'team-MISSING',
+      reason: 'team-not-found',
+    });
+    // **不 push reason='team-archived'**(团队 row 不存在 ≠ archived,语义不混淆)
+    expect(data.adopted.failed).not.toContainEqual({
+      sid: 'caller-sid',
+      teamId: 'team-MISSING',
+      reason: 'team-archived',
+    });
+  });
 });

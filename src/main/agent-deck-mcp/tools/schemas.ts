@@ -758,6 +758,9 @@ export interface HandOffSessionResult extends SpawnSessionResult {
    *   - `'team-archived'` → callerSid(Phase 7 reviewer-codex Round 2 LOW + Round 3 polish:
    *     caller 在 archived team 的 ghost membership,role 不论 lead / teammate;snapshot
    *     时已分流,prompt 不含该 team)
+   *   - `'team-not-found'` → callerSid(follow-up INFO-7:caller membership 指向 team row
+   *     不存在 — DB 不一致罕见 corner case,FK 约束 ON DELETE 应拦,defense in depth;与
+   *     'team-archived' 区分让 caller 看到精确原因)
    *   - `'swap-lead-failed: <inner reason>'` → callerSid(swapLead returns swapped:false)
    *   - `'swap-lead-error: <e.message>'` → callerSid(swapLead throws)
    *   - `'session-missing'` → teammateSid(getSession 返 null,MED-A 修法)

@@ -82,12 +82,25 @@ export function makeState(overrides: Partial<TestState> = {}): TestState {
 export function makeDeps(
   state: TestState,
   gitMockPlan: Array<string | Error>,
-  opts: { mainRepoStatus?: string | Error; mainRepoCheckRefFormat?: string | Error } = {},
+  opts: {
+    mainRepoStatus?: string | Error;
+    mainRepoCheckRefFormat?: string | Error;
+    /**
+     * Follow-up archive_plan bug fix:`git ls-files --error-unmatch <planRelative>` precheck
+     * source 是否 git tracked(exitcode 0 = tracked / 非 0 throw = untracked / ignored)。
+     * 透明 mock 默认返 '' (= exit 0 即 tracked,与历史 happy path 行为一致 — 老 test 全部
+     * 假设 source 是 tracked file).test 显式传 Error 才模拟 untracked / ignored 路径。
+     * 不消耗 queue / 不计入 gitCalls(让现有 test queue 偏移不变)。
+     */
+    mainRepoLsFiles?: string | Error;
+  } = {},
 ): ArchivePlanDeps {
   const queue = [...gitMockPlan];
   const mainRepoStatus = opts.mainRepoStatus ?? '';
   // R3 fix-2 (H3): check-ref-format --branch <name> 透明 mock。默认 '' (=exit 0 valid branch name)
   const mainRepoCheckRefFormat = opts.mainRepoCheckRefFormat ?? '';
+  // Follow-up archive_plan bug fix:ls-files --error-unmatch 透明 mock。默认 '' (=exit 0 tracked)
+  const mainRepoLsFiles = opts.mainRepoLsFiles ?? '';
   return {
     runGit: async (args: string[], cwd: string, _opts?: { raw?: boolean }) => {
       // Phase 1 B-HIGH-4 修法配套:mainRepo status precheck 透明 mock,**不消耗 queue 也不 push
@@ -129,6 +142,15 @@ export function makeDeps(
       if (isCheckRefFormat && state.recognizedMainRepos.has(cwd)) {
         if (mainRepoCheckRefFormat instanceof Error) throw mainRepoCheckRefFormat;
         return mainRepoCheckRefFormat;
+      }
+      // Follow-up archive_plan bug fix:ls-files --error-unmatch <path> 透明 mock。
+      // 默认 ''(exit 0 = tracked)— 老 test 全 happy path source tracked 不变。test 想测
+      // untracked source 撞 git add fail 时显式传 mainRepoLsFiles = Error。
+      const isLsFilesErrorUnmatch =
+        args.length === 3 && args[0] === 'ls-files' && args[1] === '--error-unmatch';
+      if (isLsFilesErrorUnmatch && state.recognizedMainRepos.has(cwd)) {
+        if (mainRepoLsFiles instanceof Error) throw mainRepoLsFiles;
+        return mainRepoLsFiles;
       }
       state.gitCalls.push({ args, cwd });
       const next = queue.shift();
