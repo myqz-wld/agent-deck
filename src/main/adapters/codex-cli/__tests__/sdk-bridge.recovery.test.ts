@@ -237,12 +237,14 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
 
     await bridge.sendMessage('sess-no-jsonl', 'hi');
 
-    // createSession 被调一次,**不带 resume** — 走新建 thread 路径
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S8 修订**:
+    // createSession 调一次,resume = applicationSid (复用) + resumeMode='fresh-cli-reuse-app'
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]).toMatchObject({
       cwd: '/tmp/abandoned',
       prompt: 'hi',
-      resume: undefined, // 关键：fallback 路径不带 resume
+      resume: 'sess-no-jsonl',
+      resumeMode: 'fresh-cli-reuse-app',
       // codexSandbox + model 仍要透传（HIGH-1 同款防静默降级）
       codexSandbox: 'read-only',
       model: 'gpt-5-codex',
@@ -267,7 +269,7 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     expect((jsonlLostInfo[0].payload as { text: string }).text).toMatch(/fresh thread|背景/);
   });
 
-  it('jsonl 不存在 + handle.sessionId !== sessionId → 调 renameSdkSession(OLD, NEW)', async () => {
+  it('jsonl 不存在 + handle.sessionId !== sessionId → 调 updateCliSessionId(applicationSid, NEW_CLI) — 反向 rename 修订', async () => {
     const bridge = makeBridge();
     bridge.jsonlExistsOverride = false;
     // TestBridge override createSession 在 fallback 路径(无 resume)返回 'new-sid'(默认)
@@ -287,9 +289,12 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
 
     await bridge.sendMessage('sess-rename', 'hi');
 
-    // recoverer 主体在 jsonl missing 路径 + handle.sessionId !== sessionId 时调 renameSdkSession 把
-    // 应用层 events / file_changes / summaries 子表迁到 NEW_ID 名下（CHANGELOG_28 同款）
-    expect(sessionManager.renameSdkSession).toHaveBeenCalledWith('sess-rename', 'new-sid');
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6+S8 修订**:
+    // 反向 rename 后 sessions.id 不变 (applicationSid 复用 caller 入参 'sess-rename');
+    // jsonl missing fallback 路径 cli sid 写入交给 createThunk 内部 sessionManager.updateCliSessionId
+    // 走 OLD_CLI 黑名单链(本测试用 mock createSession 没真跑 SDK 流,
+    // 故 updateCliSessionId 不会被实际调用 — 只断言旧 renameSdkSession 不再因 fallback 被调)。
+    expect(sessionManager.renameSdkSession).not.toHaveBeenCalledWith('sess-rename', 'new-sid');
   });
 
   // ─── archived session → unarchive + recover（CHANGELOG_31 同款） ──────────
@@ -536,10 +541,12 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     await bridge.sendMessage('sess-dual-bad', 'hi');
 
     // jsonl 也不在 → R2-2 修法仍允许 fresh thread fallback（!jsonlExistsThunk 分支命中）
+    // **plan §A.4-pre S8 修订**: cwdFellBack 也走 jsonl missing 同款下游 (resume + resumeMode)
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]).toMatchObject({
       cwd: '/Users/apple/myrepo', // 启发式 1 命中的 fallback cwd
-      resume: undefined, // jsonl 不在强制 fresh thread
+      resume: 'sess-dual-bad', // applicationSid 复用
+      resumeMode: 'fresh-cli-reuse-app',
     });
     // 同时应该 emit 两条 info: cwd fallback + jsonl missing
     const cwdInfo = emits.filter((e) =>

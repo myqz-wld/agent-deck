@@ -66,6 +66,7 @@ vi.mock('@main/session/manager', () => ({
     claimAsSdk: vi.fn(),
     releaseSdkClaim: vi.fn(),
     renameSdkSession: vi.fn(),
+    updateCliSessionId: vi.fn(),
     unarchive: vi.fn(),
   },
 }));
@@ -85,6 +86,7 @@ beforeEach(() => {
   vi.mocked(sessionRepo.get).mockReset();
   vi.mocked(sessionRepo.setCodexSandbox).mockReset();
   vi.mocked(sessionManager.renameSdkSession).mockReset();
+  vi.mocked(sessionManager.updateCliSessionId).mockReset();
   vi.mocked(sessionManager.claimAsSdk).mockReset();
   vi.mocked(sessionManager.releaseSdkClaim).mockReset();
 });
@@ -183,7 +185,12 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
     expect(sessionsMap.has(SAME_ID)).toBe(true);
   });
 
-  it('case 3 (恢复路径,id 不同 — MED-D 核心 fix 目标): SDK 返不同 thread_id → sessions Map key 切 + renameSdkSession', async () => {
+  it('case 3 (恢复路径,id 不同 — 反向 rename 后不动 sessions Map,只 update cli_session_id 列): SDK 返不同 thread_id → sessions Map key 不变 + sessionManager.updateCliSessionId(applicationSid, NEW_ID)', async () => {
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6 反向 rename 修订**:
+    // case 3 fork detect 不再切 sessions Map key (sessions.id 不变);
+    // applicationSid 维度: sessions Map key = applicationSid (S3 ctor + S6 fork detect 后冻结);
+    // cli sid 维度: 走 sessionManager.updateCliSessionId(applicationSid, NEW_ID) 单列 UPDATE +
+    // OLD_CLI_ID 进 recentlyDeleted 黑名单 60s (R5 HIGH-R5-1 + R6 MED-R6-1 修订)。
     const bridge = makeBridge();
     const OLD_ID = 'old-resume-id';
     const NEW_ID = 'new-fork-id';
@@ -192,8 +199,9 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
       { type: 'thread.started', thread_id: NEW_ID } as ThreadEvent,
     ]);
     const internal = makeInternalSession(thread, OLD_ID); // resume path: threadId 已设
+    // 反向 rename 后 sessions Map key = applicationSid (= OLD_ID for resume path); cli sid 维度 internal.threadId
     const sessionsMap = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
-    sessionsMap.set(OLD_ID, internal);
+    sessionsMap.set(internal.applicationSid, internal);
 
     const firstIdCb = vi.fn();
     const threadLoop = (bridge as unknown as { threadLoop: { runTurnLoop: unknown } }).threadLoop as {
@@ -205,17 +213,20 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
     };
     await threadLoop.runTurnLoop(internal, OLD_ID, firstIdCb);
 
-    // case 3 关键行为（修前 `&& !internal.threadId` 保护让 resume 路径跳过 ev.thread_id 校验
-    // → app 层 ↔ SDK actual id silent split）：
+    // case 3 关键行为(反向 rename 修订):
     // 1. firstIdCb 收 NEW_ID（不是 OLD_ID）
     expect(firstIdCb).toHaveBeenCalledWith(NEW_ID);
-    // 2. internal.threadId 切到 NEW_ID
+    // 2. internal.threadId 切到 NEW_ID (cli sid 维度 update)
     expect(internal.threadId).toBe(NEW_ID);
-    // 3. sessions Map: OLD_ID delete + NEW_ID set 同一 internal
-    expect(sessionsMap.has(OLD_ID)).toBe(false);
-    expect(sessionsMap.get(NEW_ID)).toBe(internal);
-    // 4. sessionManager.renameSdkSession 调用迁移应用层 events / file_changes / summaries 子表
-    expect(sessionManager.renameSdkSession).toHaveBeenCalledWith(OLD_ID, NEW_ID);
+    // 3. sessions Map key 不变 (applicationSid 维度): OLD_ID 不删,NEW_ID 不 set
+    expect(sessionsMap.has(internal.applicationSid)).toBe(true);
+    expect(sessionsMap.get(internal.applicationSid)).toBe(internal);
+    expect(sessionsMap.has(NEW_ID)).toBe(false);
+    // 4. sessionManager.updateCliSessionId 调用 (反向 rename 替代 renameSdkSession)
+    //    第一参数 applicationSid (= OLD_ID for resume path),走 manager 黑名单链
+    expect(sessionManager.updateCliSessionId).toHaveBeenCalledWith(internal.applicationSid, NEW_ID);
+    // 5. 旧 sessionManager.renameSdkSession 不再调 (反向 rename 不动 sessions.id)
+    expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
   });
 
   it('runTurnLoop intentionallyClosed catch: 主动 abort → 静默退出不 emit finished:interrupted', async () => {

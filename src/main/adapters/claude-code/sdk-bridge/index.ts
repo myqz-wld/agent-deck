@@ -333,7 +333,15 @@ export class ClaudeSdkBridge {
         }),
       });
       internal.query = q;
-      this.sessions.set(tempKey, internal);
+      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S3 ctor sessions Map key 修正**:
+      // sessions Map key = internal.applicationSid (S2 ctor 时已 = opts.resume ?? tempKey)。
+      // - spawn 主路径(无 opts.resume): applicationSid = tempKey,行为与旧 sessions.set(tempKey) 字面等价
+      // - resume / fallback 路径(有 opts.resume): applicationSid = opts.resume,Map key 与
+      //   createUserMessageStream / sendMessage / canUseTool 等 callsite 用的 internal.applicationSid 对齐;
+      //   否则 sessions.has(applicationSid) miss → 流断,符合 plan §S4b 不变量「sessions Map key = applicationSid」
+      // first realId 到达后 stream-processor.ts S3 isNewSpawn 分支 spawn 主路径 delete tempKey + set realId,
+      // resume 路径不再 mutate sessions Map (Map key 已是 applicationSid 不变)。
+      this.sessions.set(internal.applicationSid, internal);
 
       // 等待第一条带 session_id 的 SDKMessage（system init 几乎一定会先到）
       // REVIEW_5 H4：把 opts.resume 传下去，30s fallback 时用 OLD_ID 作 sessionId

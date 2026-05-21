@@ -238,12 +238,15 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
     await bridge.sendMessage('sess-no-jsonl', 'hi');
 
-    // createSession 被调一次，**不带 resume** —— 走新建 CLI session 路径
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S8 修订**:
+    // createSession 调一次,resume = applicationSid (复用 caller 入参 sid 不创建新 row) +
+    // resumeMode='fresh-cli-reuse-app' 显式触发 fresh CLI thread 但复用 applicationSid
     expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0]).toEqual({
+    expect(bridge.createCalls[0]).toMatchObject({
       cwd: '/tmp/abandoned',
       prompt: 'hi',
-      resume: undefined, // 关键：fallback 路径不带 resume
+      resume: 'sess-no-jsonl',
+      resumeMode: 'fresh-cli-reuse-app',
       permissionMode: 'acceptEdits', // 但 permissionMode 仍要复原
       // REVIEW_36 HIGH-1: claudeCodeSandbox 也透传（fixture 中 record 没设此字段，应为 undefined）
       claudeCodeSandbox: undefined,
@@ -297,21 +300,23 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
     await bridge.sendMessage('sess-cwd-bad', 'hi');
 
-    // createSession 被调一次,cwd = main repo (启发式 1 命中),不带 resume(强制走 jsonl missing 下游)
+    // createSession 被调一次,cwd = main repo (启发式 1 命中)
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S8 修订**: cwdFellBack=true 仍走
+    // jsonl missing 同款下游(resumeMode='fresh-cli-reuse-app' + resume = applicationSid)
     expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0]).toEqual({
+    expect(bridge.createCalls[0]).toMatchObject({
       cwd: '/Users/apple/myrepo',
       prompt: 'hi',
-      resume: undefined, // cwdFellBack=true 强制不 resume
+      resume: 'sess-cwd-bad',
+      resumeMode: 'fresh-cli-reuse-app',
       permissionMode: 'plan',
     });
 
-    // CHANGELOG_99 R1 fix LOW-8:验证 cwdFellBack 下游路径调 renameSdkSession 把 OLD_ID
-    // 子表迁到 NEW_ID(应用层 events / file_changes / summaries 历史保留)。这条是
-    // cwdFellBack=true 下游正确性的核心回归点(CHANGELOG_99 Phase C 主要承诺之一)。
-    // mockSpawn returns sessionId='new-sid' (TestBridge default),OLD_ID='sess-cwd-bad' →
-    // newRealId !== sessionId,触发 renameSdkSession 调用。
-    expect(sessionManager.renameSdkSession).toHaveBeenCalledWith('sess-cwd-bad', 'new-sid');
+    // **plan §A.4-pre S6+S8 修订**: 反向 rename 后 sessions.id 不变;jsonl missing fallback
+    // 路径 cli sid 写入交给 createThunk 内部 sessionManager.updateCliSessionId 走黑名单链
+    // (不再 renameSdkSession 切 sessions.id)。本测试用 mock createSession 没真跑 SDK 流,
+    // 故 updateCliSessionId 不会被实际调用 — 只断言旧 renameSdkSession 不再因 fallback 被调。
+    expect(sessionManager.renameSdkSession).not.toHaveBeenCalledWith('sess-cwd-bad', 'new-sid');
 
     // emit 一条 info message(不打 error)告诉用户 fallback 发生
     const fallbackInfo = emits.filter((e) => {
@@ -394,9 +399,11 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     await bridge.sendMessage('sess-walk', 'hi');
 
     // fallback 到 parent walk 第一个存在的目录
+    // **plan §A.4-pre S8 修订**: cwdFellBack=true 走 jsonl missing 同款下游,resume = applicationSid + resumeMode
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]?.cwd).toBe('/Users/apple/some');
-    expect(bridge.createCalls[0]?.resume).toBeUndefined(); // cwdFellBack 强制不 resume
+    expect(bridge.createCalls[0]?.resume).toBe('sess-walk');
+    expect(bridge.createCalls[0]?.resumeMode).toBe('fresh-cli-reuse-app');
   });
 
   it('CHANGELOG_99: cwd 存在 → 不触发 fallback,走原 resume 主路径(回归保护)', async () => {
@@ -477,7 +484,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     expect(createdPrompt).toContain('用户在做 X,已完成 Y,下一步 Z');
     expect(createdPrompt).toContain('===== 用户当前消息');
     expect(createdPrompt).toContain('继续之前的话题');
-    expect(bridge.createCalls[0]?.resume).toBeUndefined(); // jsonl missing 路径仍不带 resume
+    expect(bridge.createCalls[0]?.resume).toBe('sess-summary-ok'); // **§A.4-pre S8 修订**: resume = applicationSid 复用
 
     // emit「LLM 摘要自动注入」info(不打 error)
     const summaryOk = emits.filter((e) => {
@@ -636,7 +643,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     // createSession cwd = main repo (启发式 1) + prompt 含 prepended 摘要
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]?.cwd).toBe('/Users/apple/myrepo');
-    expect(bridge.createCalls[0]?.resume).toBeUndefined();
+    expect(bridge.createCalls[0]?.resume).toBe('sess-cwd-summary'); // **§A.4-pre S8 修订**: resume = applicationSid 复用
     const createdPrompt = bridge.createCalls[0]?.prompt ?? '';
     expect(createdPrompt).toContain('===== 历史会话摘要');
     expect(createdPrompt).toContain('cwdFellBack 摘要内容');
@@ -843,12 +850,19 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
   // sendThunk → bridge.sendMessage(NEW) → sessions.get(NEW) 命中(主 recovery 完成后已 sync)
   // → 直接 push 进 NEW session pendingMessages,不再 recursive recovery 撞 not found。
 
-  it('parity-plan B.4: 2 并发 sendMessage + jsonl missing fallback rename → 第二条 waiter 拿 newRealId 不撞 not found', async () => {
+  it('parity-plan B.4: 2 并发 sendMessage + jsonl missing fallback (反向 rename 后 applicationSid 不变) → 第二条 waiter 拿 applicationSid 不撞 not found', async () => {
     const bridge = makeBridge();
     bridge.createBehavior = 'block'; // 让第一波 createSession 阻塞,模拟 recovery in-flight 期间第二条 arrival
-    bridge.jsonlExistsOverride = false; // 走 jsonl missing fallback 路径(rename OLD → newRealId='new-sid')
-    // intercept 仅 'new-sid'(模拟 sessions Map sync 完后命中)→ 让 OLD sid 的 sendMessage 走 super 真进 recoverer
-    bridge.interceptSidSet = new Set(['new-sid']);
+    bridge.jsonlExistsOverride = false; // 走 jsonl missing fallback 路径
+    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S5+S8 修订**:
+    // 反向 rename 后 createSession 返 applicationSid (= 'sess-waiter') 不再是 'new-sid';
+    // intercept 'sess-waiter' 模拟 sessions Map 在 recovery 后已 sync 命中(本测试用 mock createSession
+    // 没真跑 SDK 流,sessions Map 不会被自动 set,intercept seam 模拟该状态)。
+    // skip first 2 calls 因为反向 rename 后 p1/p2 都用 'sess-waiter' 进 recoverer (与原 'new-sid'
+    // 仅 waiter 调用区分不同) — 计数让前 2 次走 super (p1 + p2 进 recoverer),第 3 次 (waiter
+    // post-recoverer sendThunk → bridge.sendMessage) 才真 intercept。
+    bridge.interceptSidSet = new Set(['sess-waiter']);
+    bridge.interceptSkipFirstCalls = 2;
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-waiter',
       agentId: 'claude-code',
@@ -882,10 +896,11 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     await p1;
     await p2;
 
-    // 关键断言 #1:waiter path 调 sendThunk 用 finalId='new-sid'(不是 OLD 'sess-waiter')
-    // 修前 sendThunk('sess-waiter', ...) 走 bridge.sendMessage('sess-waiter') 撞 not found
+    // **§A.4-pre S5 修订**: waiter path 调 sendThunk 用 finalId='sess-waiter' (applicationSid 不变);
+    // 反向 rename 前: createSession 返 'new-sid' → waiter 拿 'new-sid';
+    // 反向 rename 后: createSession 返 applicationSid 'sess-waiter' → waiter 拿 'sess-waiter' (稳定不变)。
     expect(bridge.sendMessageCalls).toHaveLength(1);
-    expect(bridge.sendMessageCalls[0].sessionId).toBe('new-sid');
+    expect(bridge.sendMessageCalls[0].sessionId).toBe('sess-waiter');
     // 关键断言 #2:waiter 带的是自己的 text 'second' 不是 'first'(独立 message)
     expect(bridge.sendMessageCalls[0].text).toBe('second');
 

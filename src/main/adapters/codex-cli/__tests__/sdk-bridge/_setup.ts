@@ -28,6 +28,12 @@ export interface CreateSessionCall {
   prompt?: string;
   resume?: string;
   /**
+   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
+   * jsonl-missing fallback 走 resumeMode='fresh-cli-reuse-app' 让 SDK 不带 resume 起 fresh CLI thread
+   * 但复用 caller 入参 sid 作 applicationSid (不创建新 row)。recovery test 断言此字段。
+   */
+  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+  /**
    * codex per-session sandbox 档位透传校验（与 claude HIGH-1 同款 — fallback 路径漏传
    * 会让 sandbox-resolve 走 settings 全局值静默降级）。
    */
@@ -62,6 +68,7 @@ export class TestCodexBridge extends CodexSdkBridge {
     cwd: string;
     prompt?: string;
     resume?: string;
+    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
     codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
     model?: string;
     attachments?: UploadedAttachmentRef[];
@@ -70,6 +77,7 @@ export class TestCodexBridge extends CodexSdkBridge {
       cwd: opts.cwd,
       prompt: opts.prompt,
       resume: opts.resume,
+      resumeMode: opts.resumeMode,
       codexSandbox: opts.codexSandbox,
       model: opts.model,
       attachments: opts.attachments,
