@@ -149,4 +149,33 @@ export interface SessionRecord {
    * 用于 §6.1 depth 上限校验（mcpMaxSpawnDepth 默认 3）。NOT NULL，DEFAULT 0。
    */
   spawnDepth?: number;
+  /**
+   * CLI 当前 thread sid(plan reverse-rename-sid-stability-20260520 §设计决策 D1)。
+   *
+   * 与 sessions.id (= applicationSid 应用稳定身份)正交:
+   * - **sessions.id**: 应用层稳定身份,spawn 后首次落定 (D2 spawn 主路径 tempKey → first realId rename) 即冻结,
+   *   全 lifecycle 内绝不改变 (不变量 1)。caller / wire prefix [sid] / team_members.session_id /
+   *   mcp-session-token-map / agent_deck_messages.from_session_id 全部用此维度 (spike3 §3.1-3.7 实证)。
+   * - **cliSessionId**: SDK / CLI thread 当前 sid,允许 6 处反向 rename 路径变化 (不变量 2):
+   *   recoverer.ts:466 jsonl-missing fallback / codex/recoverer.ts:339 同款 / stream-processor.ts:313 fork detect /
+   *   codex/thread-loop.ts:263 case 3 post-resume fork / restart-controller.ts:189 restartWithPermissionMode /
+   *   restart-controller.ts:341 restartWithClaudeCodeSandbox。
+   *
+   * 用途:
+   * - jsonl 路径命名:`~/.claude/projects/<encoded-cwd>/<cli_session_id>.jsonl` (spike1 §1.2 实证 5/5 sample
+   *   jsonl 文件名 == body.sessionId == cli_session_id 维度)
+   * - SDK CLI `--resume` 入参传 cli_session_id (spike1 §1.1 sdk.mjs `if(k)i.push("--resume",k)` verbatim 透传)
+   * - sdk-bridge S6 fork detect compare 用 effectiveResumeCliSid (反查 cli_session_id 兜底回填)
+   *
+   * **null 边角** (D4 cli_session_id 列允许 NULL):
+   * - spawn tempKey 阶段:SDK 还没给 first realId,cli_session_id 为 null
+   * - jsonl-missing fallback 起 fresh CLI 期间 (resumeMode='fresh-cli-reuse-app'):cli_session_id 暂时 null,
+   *   first realId 后通过 sessionManager.updateCliSessionId 写入
+   * - 反查路径 (findByCliSessionId) 走 fallback 不强假设 NOT NULL (S6 effectiveResumeCliSid 三分支 guard
+   *   `!opts.resume → undefined`,详 §A.4-pre S1)
+   *
+   * **持久化层**: sessions.cli_session_id TEXT 列 (v021), CLI thread sid string / NULL。
+   * 唯一索引 idx_sessions_cli_session_id 保 findByCliSessionId 反查 O(log N) (允许多 NULL,非空唯一)。
+   */
+  cliSessionId?: string | null;
 }

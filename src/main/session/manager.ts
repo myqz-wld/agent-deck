@@ -524,6 +524,47 @@ class SessionManagerClass {
     }
   }
 
+  /**
+   * 反向 rename:仅 UPDATE sessions.cli_session_id 单列(不动 sessions.id 应用稳定身份)。
+   * plan reverse-rename-sid-stability-20260520 §A.4 / §设计决策 D5 / §不变量 2 + 5。
+   *
+   * **关键 invariant** (与 renameSdkSession 跨表事务复杂迁移**完全不同**):
+   * - sessions.id 不变(applicationSid 是应用稳定身份,不变量 1)
+   * - 仅 cli_session_id 列变化(允许 6 处反向 rename 路径,不变量 2)
+   * - **不**触发 session-renamed event(D6 line 92 反向 rename 不 emit,renderer listener 不触发)
+   * - **不**调 mcpSessionTokenMap.rename(token map 用 sessions.id 做 key,sessions.id 不变 → token 永远稳定)
+   * - **不**触发 sessions Map / SDK claim mutate(applicationSid 不变,bridge S3 isNewSpawn 分支保护已让 fork detect 路径只 update internal.cliSessionId)
+   *
+   * **黑名单链** (R5 HIGH-R5-1 + R6 MED-R6-1 修订):
+   * - 读 oldCliSid = sessionRepo.get(applicationSid)?.cliSessionId ?? applicationSid (兜底防 null)
+   * - 调 sessionRepo.updateCliSessionId(applicationSid, newCliSid) 单列 UPDATE
+   * - 调 recentlyDeleted.set(oldCliSid, Date.now()) 加 OLD_CLI 黑名单 60s
+   *   防迟到 hook event 携带 OLD_CLI 时撞 D7 3b miss 复活幽灵 record
+   *
+   * **caller 必须经本 helper 包装,不能直接调 sessionRepo.updateCliSessionId** (否则黑名单链断,
+   * R7 MED-R7-2 test 6 已加断言 verify)。
+   *
+   * 调用方 (6 处反向 rename 路径,详 plan §D2 表):
+   * - recoverer.ts:466 jsonl-missing fallback (claude)
+   * - codex/recoverer.ts:339 jsonl-missing fallback (codex)
+   * - stream-processor.ts:313 fork detect (claude)
+   * - codex/thread-loop.ts:263 case 3 post-resume fork (codex,future-proof)
+   * - restart-controller.ts:189 restartWithPermissionMode (claude)
+   * - restart-controller.ts:341 restartWithClaudeCodeSandbox (claude)
+   */
+  updateCliSessionId(applicationSid: string, newCliSessionId: string): void {
+    const rec = sessionRepo.get(applicationSid);
+    const oldCliSid = rec?.cliSessionId ?? applicationSid;
+    sessionRepo.updateCliSessionId(applicationSid, newCliSessionId);
+    // OLD_CLI 进黑名单 60s — 防迟到 hook event 携带 OLD_CLI 复活幽灵 record (D7 3b ingest drop)
+    if (oldCliSid && oldCliSid !== newCliSessionId) {
+      this.recentlyDeleted.set(oldCliSid, Date.now());
+    }
+    // 不 emit session-renamed (D6 反向 rename 不 emit)
+    // 不调 mcpSessionTokenMap.rename (token map key = sessions.id 不变)
+    // 不调 sessionRenameHookFn (codex bridge 不需 rename codexBySession Map key — applicationSid 不变)
+  }
+
   list(): SessionRecord[] {
     return enrichRecordsWithTeamsBatch(sessionRepo.listActiveAndDormant());
   }

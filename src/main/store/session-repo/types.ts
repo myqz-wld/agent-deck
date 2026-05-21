@@ -44,6 +44,13 @@ export interface Row {
   spawned_by: string | null;
   spawn_depth: number;
   generic_pty_config: string | null;
+  /**
+   * plan reverse-rename-sid-stability-20260520 §A.1 / §设计决策 D1 / §不变量 2:
+   * CLI 当前 thread sid。允许 6 处反向 rename 路径下变化(详 D2 表 6 处),与 sessions.id
+   * (= applicationSid 应用稳定身份,不变量 1) 正交。NULL = spawn tempKey 阶段未拿到 first realId
+   * 或 jsonl-missing fallback fresh CLI 起动期间。详 SessionRecord.cliSessionId jsdoc。
+   */
+  cli_session_id: string | null;
 }
 
 export function rowToRecord(r: Row): SessionRecord {
@@ -72,6 +79,7 @@ export function rowToRecord(r: Row): SessionRecord {
     cwdReleaseMarker: r.cwd_release_marker ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
+    cliSessionId: r.cli_session_id ?? null,
   };
 }
 
