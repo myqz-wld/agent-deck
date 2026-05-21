@@ -1,5 +1,5 @@
 /**
- * Agent Deck MCP server 7 tool 共用 helper（CHANGELOG_81 / plan deep-review-and-split-20260513
+ * Agent Deck MCP server tool 共用 helper（CHANGELOG_81 / plan deep-review-and-split-20260513
  * H2 Step 2.1：从原 src/main/agent-deck-mcp/tools.ts 拆出，关注「caller 上下文 + 防御 + 响应
  * 投影」三组 helper）。
  *

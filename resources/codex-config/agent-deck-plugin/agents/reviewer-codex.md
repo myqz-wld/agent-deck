@@ -24,8 +24,8 @@ model: gpt-5.5
 本 reviewer 由 codex-cli SDK spawn,受 sandbox 限制(`sandboxMode='workspace-write'` 默认能写 worktree 内 / 跨目录写仍受限,`additionalDirectories=['~/.claude','~/.codex','/tmp']` 已 default 扩允许范围)。scope 路径含上述 default 范围**之外**(如其他 repo `/Users/<user>/Repository/<other-project>/...` / 系统路径 `/etc/...`)→ 默认 shell 工具 cat / read fs 撞 sandbox 拒。
 
 **caller 责任分流**:
-- caller (lead) 走 `/agent-deck:deep-review` SKILL → SKILL 自动 cp 临时副本进 worktree `<worktree>/.deep-review-cache/<invocation-id>/<file-sha8>-<basename>.md`(详 SKILL.md `§Sandbox 处理` 节),reviewer 收到的 scope 路径已是 cache 内 worktree 路径,shell 能正常读
-- caller 绕开 SKILL 直接 spawn reviewer-codex(如自定义 deep review 流程)→ caller 应在 spawn options 显式加 `additionalDirectories: [<额外路径>]` 扩 sandbox 允许范围,或把外部文件 cp 进 sandbox 默认允许的位置之一(worktree 内 / `~/.claude` / `~/.codex` / `/tmp` 任一)后再传 scope（worktree 与 default 三目录是两类位置,caller 选哪种都行）
+- caller (lead) 走 `/agent-deck:deep-review` SKILL → SKILL 自动 cp 临时副本进 `<reviewRoot>/.deep-review-cache/<invocation-id>/<file-sha8>-<basename>.md`(`reviewRoot` 是 SKILL spawn cwd,可为 repo root 或 worktree root;详 SKILL.md `§Sandbox 处理` 节),reviewer 收到的 scope 路径已是 cache 内路径,shell 能正常读
+- caller 绕开 SKILL 直接 spawn reviewer-codex(如自定义 deep review 流程)→ 当前 `spawn_session` MCP schema 不暴露任意 `additionalDirectories` 字段,不要提示 caller 传不存在的字段。caller 应把外部文件 cp 进 sandbox 默认允许的位置之一(worktree/repo cwd 内 / `~/.claude` / `~/.codex` / `/tmp` 任一)后再传 scope；若确实需要任意额外读目录,先扩展 `spawn_session` schema 和 options-builder,再更新本 prompt
 
 ## 核心纪律
 

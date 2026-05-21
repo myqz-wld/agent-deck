@@ -1,14 +1,13 @@
 /**
- * Agent Deck MCP server 7 tool 的 zod schema 集中地。
+ * Agent Deck MCP server 10 tool 的 zod schema 集中地。
  * 三 transport（in-process / HTTP / stdio）共享同一份 schema。
  *
  * 历史：从原 src/main/agent-deck-mcp/tools.ts 剥离（CHANGELOG_81 / plan
  * deep-review-and-split-20260513 H2 Step 2.1）。
  *
- * CHANGELOG_100 / plan mcp-tool-simplify-20260514：协议大简化删 reply_message /
- * wait_reply / check_reply 三个 tool 对应的 REPLY_MESSAGE_SCHEMA / WAIT_REPLY_SCHEMA /
- * CHECK_REPLY_SCHEMA。所有发送统一走 send_message + reply_to_message_id；reply 直接
- * 进 lead conversation flow（无需主动 poll）。
+ * CHANGELOG_100 / plan mcp-tool-simplify-20260514：协议大简化删除旧 reply
+ * 轮询三件套 schema。所有发送统一走 send_message + reply_to_message_id；
+ * reply 直接进 lead conversation flow（无需主动 poll）。
  *
  * 字段命名约定：tool args **snake_case**（与 task-manager 既有约定一致），
  * handler 内部消费时再映射 camelCase（不在 schema 层映射，避免 zod 推导出错）。
@@ -150,7 +149,7 @@ export const LIST_SESSIONS_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Filter to sessions whose spawnedBy === this id. Useful for lead → list children pattern (e.g. deep-code-review SKILL recovers stranded reviewer teammates after lead context reset). No ownership enforcement: any caller can query any spawnedBy id, consistent with list_sessions current single-user app-wide trust model.',
+      'Filter to sessions whose spawnedBy === this id. Useful for lead → list children pattern (e.g. deep-review SKILL recovers stranded reviewer teammates after lead context reset). No ownership enforcement: any caller can query any spawnedBy id, consistent with list_sessions current single-user app-wide trust model.',
     ),
   limit: z.number().int().min(1).max(200).default(50),
 };
@@ -251,8 +250,8 @@ export const ARCHIVE_PLAN_SHAPE = {
 
 // =============== HAND_OFF_SESSION (K2 hand-off automation) ===============
 
-// plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：hand_off_session tool —
-// （CHANGELOG_99 改名前 `start_next_session`）
+// plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：hand_off_session tool
+// （CHANGELOG_99 起的当前 K2 hand-off 自动化入口）
 // K2 hand-off 自动化「跨会话接力」起新 SDK session（CHANGELOG_99 双模式 spawn_session 包装）。
 // 双模式行为:
 //   plan-driven 模式 (传 plan_id):读 plan 文件 frontmatter 拿 worktree_path → 校验
@@ -586,7 +585,7 @@ export type ShutdownBatonTeammatesArgs = z.infer<
 
 // =============== Result types (R37 P3-L Step 4.5) ===============
 //
-// 7 tool 的 ok return shape SSOT（与上方 7 个 args type 对称，让 input/output schema
+// 10 tool 的 ok return shape SSOT（与上方 args type 对称，让 input/output schema
 // 都在 schemas.ts 一处可读）。Handler return 用 `satisfies XxxResult` 做静态字段校验
 // 防漂移（typo / 漏字段 / 字段类型错被 TS 拦）。
 //
@@ -706,7 +705,7 @@ export interface ArchivePlanResult {
   /**
    * **R3 follow-up (spike-reports/ 归档流程缺口)**: spike artifacts 自动归档结果。
    *
-   * - `null`: plan 无 spike (`<plan-dir>/spike-reports/` 不存在),skip
+   * - `null`: plan 无 spike (`<plan-artifact-dir>/spike-reports/` 不存在),skip
    * - `{ src_path, dst_path }`: spike-reports/ 成功 mv 到 `<main-repo>/plans/<plan-id>/spike-reports/`
    *   (plan .md 同名子目录,与 plan .md 平级),入 git 归档 commit
    *

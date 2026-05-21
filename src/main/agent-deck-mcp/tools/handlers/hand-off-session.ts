@@ -1,5 +1,5 @@
 /**
- * hand_off_session handler 入口（CHANGELOG_99 改名前 `start_next_session`；
+ * hand_off_session handler 入口（CHANGELOG_99 当前 K2 hand-off 自动化入口；
  * plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.2；
  * CHANGELOG_97 改 baton 语义：default 不加 team + 自动归档 caller；
  * CHANGELOG_99 双模式改造：plan_id 变 optional，无 plan_id 时走 generic 模式;

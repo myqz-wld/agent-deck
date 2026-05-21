@@ -175,7 +175,7 @@ export interface AppSettings {
    * 是否把 agent-deck 自带的 plugin（`resources/claude-config/agent-deck-plugin/`）
    * 注入到 SDK 会话。**plugin 整体注入或整体不注入**——一个 toggle 同时控制两类内容：
    *
-   * - **skills**：以 `agent-deck:<skill-name>` 命名空间注册（如 `agent-deck:deep-code-review`，
+   * - **skills**：以 `agent-deck:<skill-name>` 命名空间注册（如 `agent-deck:deep-review`，
    *   多轮异构 review × fix 收口工作流）
    * - **agents**：以 `agent-deck:<agent-name>` 命名空间注册（如 `agent-deck:reviewer-claude`、
    *   `agent-deck:reviewer-codex`，异构对抗 reviewer subagent）
@@ -352,7 +352,7 @@ export interface AppSettings {
    * messageRepo.insert 入口校验：覆盖 IPC + MCP 两路；超限抛 `team-rate-limit-exceeded` +
    * retryAfterMs，caller decide 重试。详 docs/agent-deck-team-protocol.md §7.5。
    *
-   * 调高建议：deep-code-review 反驳轮 + cross-adapter 协作场景下 60/min 偶有不足；可调到
+   * 调高规则：deep-review 反驳轮 + cross-adapter 协作场景下 60/min 偶有不足时，调到
    * 120-180。调到 ≥ 300 前请确认 codex MAX_PENDING_MESSAGES=20 队列不会被堵死
    * （per-target backpressure 兜底，但会触发 caller-side 重试风暴）。
    */

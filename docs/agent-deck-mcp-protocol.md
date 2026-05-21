@@ -4,7 +4,7 @@
 > - 真实 wire schema + 字段语义 by `src/main/agent-deck-mcp/tools/schemas.ts` —— 这才是单一信源（SSOT），改 schema 一刀同步 system prompt 给 SDK 看的 tool description
 > - 跨进程协议字段约束（wire format / regex / DB invariant）by reviewer-{claude,codex}.md「核心纪律」节
 > - lead 角度调用姿势 + spawn_session 首轮锚点 + send_message ack 字段 + reply 自动 dispatch by 应用 CLAUDE.md（`resources/claude-config/CLAUDE.md`）
-> - SKILL 编排范式 by `resources/claude-config/agent-deck-plugin/skills/deep-code-review/SKILL.md`
+> - SKILL 编排范式 by `resources/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md`
 >
 > 维护完整 ADR + 5 份运行时文档**长期漂移成本极高，收益接近零**：所有运行时 caller（lead agent / teammate / SKILL）都从 schemas.ts 注入的 tool description 里看真实约束，没人去 fetch 这份 .md。完整版 ADR 已通过 git history 永久保留（commit 5db9844 之前任意 ref 即可拉回，最近一次见 `git log -- docs/agent-deck-mcp-protocol.md`）。
 
@@ -14,10 +14,10 @@
 
 | 想了解什么 | 看哪 |
 |---|---|
-| 全部 7 个 mcp tool 的 input/output schema + 每个字段的实际语义（CHANGELOG_100 删 reply_message / wait_reply / check_reply 后从 10 → 7） | `src/main/agent-deck-mcp/tools/schemas.ts` |
+| 全部 10 个 mcp tool 的 input/output schema + 每个字段的实际语义 | `src/main/agent-deck-mcp/tools/schemas.ts` |
 | lead agent 怎么调（spawn / send / shutdown / archive_plan / hand_off_session 三件套姿势 + 首轮锚点 + 跨会话救火 + reply 自动注入 conversation 心智模型） | `resources/claude-config/CLAUDE.md` §Agent Deck Universal Team Backend |
 | teammate 端协议约束（wire format `[from <name> @ <adapter>][msg <id>][sid <senderSid>]` 三段双锚点注入 / send_message + reply_to_message_id 回复 / regex 抓 messageId + senderSessionId / DB messages.body 不含 wire prefix invariant / id charset 不变量 / NO MSG ANCHOR fallback） | `resources/claude-config/agent-deck-plugin/agents/reviewer-claude.md` 与 `reviewer-codex.md` 各自的「核心纪律」节 |
-| 多轮 deep code review 的 SKILL 编排（teammate 模式 7 步 / 异构对抗 / 三态裁决 / R2 fix 回路 / R3 反驳轮 / reply 自动注入 / 失败兜底） | `resources/claude-config/agent-deck-plugin/skills/deep-code-review/SKILL.md` |
+| 多轮 deep review 的 SKILL 编排（teammate 模式 7 步 / 异构对抗 / 三态裁决 / fix 回路 / 反驳轮 / reply 自动注入 / 失败兜底） | `resources/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md` |
 | 单次决策对抗（Bash 起外部 CLI 双对抗）的姿势 | `~/.claude/CLAUDE.md` §决策对抗 |
 | 跨会话 hand off / worktree 隔离 / archive_plan / hand_off_session 在通用流程中的定位 | `~/.claude/CLAUDE.md` §复杂 plan |
 

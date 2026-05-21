@@ -104,7 +104,7 @@ export interface ArchivePlanResult {
    * **plan deep-review-batch-a1-b-followup-r3-20260519 follow-up (spike-reports/ 归档流程缺口)**:
    * spike artifacts 自动归档结果。
    *
-   * - `null`: plan 无 spike (`<plan-dir>/<plan-id>/spike-reports/` 不存在),skip
+   * - `null`: plan 无 spike (`<plan-artifact-dir>/spike-reports/` 不存在),skip
    * - `{ srcPath, dstPath }`: spike-reports/ 成功 mv 到 `<main-repo>/plans/<plan-id>/spike-reports/`
    *   并入 git 归档 commit
    *
@@ -143,7 +143,7 @@ export interface ArchivePlanDeps {
    * **plan deep-review-batch-a1-b-followup-r3-20260519 follow-up (spike-reports/ 归档流程缺口)**:
    * 旧实现 archive_plan tool 只 mv plan .md 不动 spike-reports/，导致 spike artifacts 留在
    * `.claude/plans/<plan-id>/spike-reports/` (.gitignore 不入 git 临时位置) → 永久丢失风险。
-   * 修法: 加 mvDir deps 让 step 12.5 detect + mv `<plan-dir>/spike-reports/` 到
+   * 修法: 加 mvDir deps 让 step 12.5 detect + mv `<plan-artifact-dir>/spike-reports/` 到
    * `<main-repo>/plans/<plan-id>/spike-reports/` 入 git 归档。
    *
    * 默认实现走 `fs.rename`(同 fs 原子 mv);跨 fs 失败 (EXDEV) 抛错让 caller decide:
@@ -1021,11 +1021,11 @@ export async function archivePlanImpl(
 
   // 12.5. spike-reports/ 归档 (plan deep-review-batch-a1-b-followup-r3-20260519 follow-up):
   //
-  // **背景**: user CLAUDE.md §Step 0.5 spike 节约定 spike artifacts 落 `<plan-dir>/spike-reports/`
+  // **背景**: user CLAUDE.md §Step 0.5 spike 节约定 spike artifacts 落 `<plan-artifact-dir>/spike-reports/`
   // (典型: `<main-repo>/.claude/plans/<plan-id>/spike-reports/`)。旧 archive_plan tool 只 mv plan
   // .md 不动 spike-reports/ 导致 artifacts 留 .claude/plans/ (.gitignore 不入 git) → 永久丢失。
   //
-  // **修法**: detect `<plan-dir-parent>/<plan-id>/spike-reports/` 存在 → mv 到
+  // **修法**: detect `<plan-artifact-dir>/spike-reports/` 存在 → mv 到
   // `<main-repo>/plans/<plan-id>/spike-reports/` (plan .md 同名子目录,与 plan .md 平级),
   // push 路径到 filesToAdd 入归档 commit。失败 (EXDEV 跨 fs / perm) → warning + 不阻塞 ok return。
   //
@@ -1039,7 +1039,7 @@ export async function archivePlanImpl(
       await deps.mkdir(path.dirname(dstSpikeDir));
       await deps.mvDir(srcSpikeDir, dstSpikeDir);
       spikeReportsArchived = { srcPath: srcSpikeDir, dstPath: dstSpikeDir };
-      // 顺手清空 `<plan-dir-parent>/<plan-id>/` 父目录 (mv 后空目录残留)
+      // 顺手清空 `<plan-artifact-dir>/` 空目录 (mv 后空目录残留)
       // 用 try/catch 防止其他子目录残留时 rmdir fail (best-effort,不阻塞)
       try {
         const fs2 = await import('node:fs/promises');

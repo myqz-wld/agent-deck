@@ -222,7 +222,7 @@ export const archivePlanHandler = withMcpGuard(
       warnings: result.warnings,
       /**
        * R3 follow-up (spike-reports/ 归档): spike artifacts 自动归档结果。
-       * - `null`: plan 无 spike (`<plan-dir>/spike-reports/` 不存在), skip
+       * - `null`: plan 无 spike (`<plan-artifact-dir>/spike-reports/` 不存在), skip
        * - `{ src_path, dst_path }`: spike-reports/ 成功 mv 入归档 commit 与 plan .md 平级
        *
        * mv 失败时 spikeReportsArchived 仍为 null 但 result.warnings 含 spike-reports archive failed

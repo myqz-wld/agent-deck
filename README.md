@@ -16,10 +16,10 @@
 - **控制权交接提醒**：waiting → 红闪烁 + 提示音 + 系统通知 + Dock 弹跳；finished → 黄 + 完成音；可逐项关闭，可换自定义提示音
 - **三类人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Plan mode 执行计划批准 —— 全部在活动流卡片里直接处理。批准 plan 时可选目标权限模式（默认 / 自动接受编辑 / 保持 Plan / 完全免询问）；切到「完全免询问」会自动重启 SDK 子进程
 - **OS 级沙盒**（CHANGELOG_74 起对称三件套）：Claude Code SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐。**三件套**（与 Codex 完全对称）：① 全局默认（设置面板 / 默认关）；② 新建会话覆盖（NewSessionDialog 4 档下拉「跟随设置 / off / workspace-write / strict」）；③ 会话内运行时切档（SessionDetail 输入区上方下拉，切到 `off` 弹 confirm，切到 `workspace-write` / `strict` 直接生效，5-10s 冷切重启 SDK 子进程）
-- **Universal Team Backend**（R3 起，硬切替代老 Claude Code Agent Teams 入口）：cross-adapter（claude-code / codex-cli）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent-deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；`mcp__agent-deck__send_message` 走 DB queue 投递；`mcp__agent-deck__wait_reply` 等 reply。**老 inbox 协议（CHANGELOG_45/46/56）已 R3 完全下线**——CLI 内自起的 team 在 agent-deck UI 永久失明；`~/.claude/teams/<X>/` 老数据只读历史保留，Settings 提供一次性 export 入口
+- **Universal Team Backend**（R3 起，硬切替代老 Claude Code Agent Teams 入口）：cross-adapter（claude-code / codex-cli）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent-deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；`mcp__agent-deck__send_message` 走 DB queue 投递并自动把 reply 注入 lead conversation。**老 inbox 协议（CHANGELOG_45/46/56）已 R3 完全下线**——CLI 内自起的 team 在 agent-deck UI 永久失明；`~/.claude/teams/<X>/` 老数据只读历史保留，Settings 提供一次性 export 入口
 - **输入框图片附件**：会话主输入框 + 新建会话 dialog 都支持「粘贴 / 拖放 / 上传按钮」三件套发图（PNG / JPEG / GIF / WebP，单图 ≤ 20MB / 单条总附件 ≤ 30MB）。Claude SDK 走 base64 image content block，Codex SDK 接 `local_image` 文件路径，主进程统一把 base64 落盘到 `<userData>/image-uploads/<uuid>.<ext>` 喂下游；历史 detail view 里能看到自己发了什么图，14 天孤儿文件 reaper 自动清理
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
-- **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md 到 system prompt；可注入 agent-deck plugin 自带的 `deep-code-review` skill + `reviewer-claude` (Opus 4.7) / `reviewer-codex` (Codex CLI wrapper) 双异构对抗 subagent
+- **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md / CODEX_AGENTS.md 到 system prompt；可注入 agent-deck plugin 自带的 `deep-review` skill + native `reviewer-claude` (Claude Code / Opus 4.7) / `reviewer-codex` (Codex SDK / gpt-5.5) 双异构对抗 reviewer
 - **多 Adapter**：Claude Code（hook + SDK 双通道）+ Codex CLI（单 SDK 通道）
 
 ---
@@ -222,12 +222,12 @@ agent-deck new \
     - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免。本档位是「全局默认」；新建会话对话框可 per-session 覆盖；会话内可运行时切档冷切重启（CHANGELOG_74，与 Codex 对称三件套）
     - **Codex 沙盒**：三档下拉（Workspace Write / Read Only / Danger Full Access），与 Claude 默认对齐
 - **跨工具协作（MCP）**
-  - **Agent Deck MCP server（R2，默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 6 个 tool（`spawn_session` / `send_message` / `wait_reply` / `list_sessions` / `get_session` / `shutdown_session`）跨 adapter 编排其他 coding agent session。三 transport 并存：
+  - **Agent Deck MCP server（默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 10 个 tool（`spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`）跨 adapter 编排其他 coding agent session。三 transport 并存：
     - **in-process**：claude SDK 会话自动挂（与 Task Manager 同模式）
     - **HTTP** `/mcp`：codex 启动时通过 SDK config 自动注入 `mcp_servers.agent-deck` 段连接（独立 Bearer token，env var `AGENT_DECK_MCP_TOKEN` 引用）；外部 MCP client 也可连
     - **stdio**：外部 MCP client（Cursor / Continue / Claude Desktop）通过 `agent-deck mcp` 子命令连，仅允许只读 tool（spawn / send / shutdown 默认 deny 防 fork bomb）
 
-    防递归 4 条规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 10） / 单 caller 最大子会话（默认 5） / cwd realpath 整链回溯 cycle 检测。`wait_reply` 三档 until：`first_message` / `turn_complete` / `idle`（高 reasoning effort 推荐 turn_complete）。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值。详见 [`docs/agent-deck-mcp-protocol.md`](docs/agent-deck-mcp-protocol.md) 协议 ADR
+    防递归规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 20） / 单 caller 最大子会话（默认 10） / cwd realpath 整链回溯 cycle 检测；team message 另有 per-team rate limit（默认 60/min）。reply 不再轮询等待，`send_message` 送达后由 universal-message-watcher 自动注入目标会话和 reply chain。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值。详见 [`docs/agent-deck-mcp-protocol.md`](docs/agent-deck-mcp-protocol.md) 协议 stub
   - **Codex MCP Servers**：JSON 编辑 codex CLI 接的外部 MCP server，写到 `~/.codex/config.toml` 的 marker 段（不破坏用户手写其他段）
 
 > CHANGELOG_69 把 5 个「资产注入」开关（CLAUDE.md / agent-deck plugin / Codex AGENTS.md / Codex skills 同步）从设置面板整体迁到「📚 资产库」三 tab 顶部，与资产编辑界面单一真源。设置面板内不再有任何资产相关 section。

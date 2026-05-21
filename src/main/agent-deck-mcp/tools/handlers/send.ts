@@ -81,7 +81,7 @@ export const sendMessageHandler = withMcpGuard(
     // original.teamId 必须 === resolved teamId，避免 caller 把 team A 消息挂到 team B reply chain。
     // 旧实现只校验 caller/target 共享 team + args.team_id ⊆ sharedTeams，**不**反查
     // original.teamId，错误或恶意 caller 可在 cross-team 投递时把任意 reply_to_message_id 挂到
-    // 任意 sharedTeam 的 chain 上 → wait_reply 走 reply_to_message_id 反查会拿到错 team 的 reply，
+    // 任意 sharedTeam 的 chain 上 → reply_to_message_id 反查会拿到错 team 的 reply，
     // 污染对话链。
     if (args.reply_to_message_id) {
       const original = agentDeckMessageRepo.get(args.reply_to_message_id);

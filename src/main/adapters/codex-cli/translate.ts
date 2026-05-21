@@ -39,6 +39,137 @@ import type { AgentEventKind } from '@shared/types';
 export type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
 
 /**
+ * 中间态白名单 — codex CLI binary `strings` 抓出来的字面集合（plan
+ * codex-stream-error-classify-20260521 §D1）。codex CLI 内置 5 次自动重连，每次
+ * 重试通过 ThreadErrorEvent (`type: "error"`) 通知应用层「我断了」，但 codex CLI
+ * **内部仍在恢复**。SDK d.ts 注释说 ThreadErrorEvent 是 unrecoverable，但 codex CLI
+ * 实际行为是用它通知 recoverable 中间态，协议契约 vs 实际行为不一致 → 应用层必须识别区分。
+ *
+ * 不变量 1（plan §不变量）：未命中本白名单也未命中 STREAM_ERROR_HEURISTIC_RE 的事件
+ * 走 fatal 路径不吞真错。
+ */
+const TRANSIENT_STREAM_ERROR_PHRASES = [
+  'Reconnecting...',
+  'stream disconnected before completion',
+  'stream disconnected - retrying sampling request',
+  'reconnecting:',
+  'app-server event stream disconnected',
+  'TCP Connection with remote is closed, trying to reconnect',
+] as const;
+
+/**
+ * 启发式 regex — 白名单未命中时兜底（plan §D1 + REVIEW HIGH-1 修法）。
+ *
+ * **REVIEW HIGH-1 修法**（reviewer-claude/codex 双方独立 + 现场验证）: 修前
+ * `/(retr|reconnect|disconnect)/i` 词根级匹配 `retrieving / retransmit / retrograde`
+ * 等无关词,导致 codex binary ≥ 13 条真 fatal 字面（`Error retrieving credentials...`
+ * / `failed to retrieve local addr` / `exec-server transport disconnected` / `Convert
+ * it to UTF-8 and retry` / `Too many retransmissions` 等）被错归 transient → 不变量 1
+ * 「不吞真错误」违反。
+ *
+ * 修后用 word-boundary 限定完整词形 `\b(retry|retrying|retried|reconnect|reconnecting|
+ * reconnected|disconnect|disconnected|disconnecting)\b`,只匹配 transient 真正语义。
+ * 仍漏匹配的 transient 字面（codex 升级换形）走 fatal 兜底，配 console.warn 留诊断信号。
+ *
+ * 不变量 5（plan §不变量）：协议向前兼容 — 即使 codex SDK / CLI 升级后字面变化，
+ * 启发式层仍能兜底，**只要 transient 词形不变**。codex 改用「Connection failed
+ * gracefully」类 transient 不含三词形 → 走保守 fatal（用户看到错误总比 turn stuck 好）。
+ */
+const STREAM_ERROR_HEURISTIC_RE =
+  /\b(retry|retrying|retried|reconnect|reconnecting|reconnected|disconnect|disconnected|disconnecting)\b/i;
+
+/**
+ * 终态白名单 — codex CLI binary `strings` 抓出来的「真 fatal」字面集合（plan §D1
+ * + REVIEW HIGH-1/HIGH-2 修法）。命中即 fatal,优先于 transient 白名单 + 启发式。
+ *
+ * **REVIEW HIGH-1 修法** (reviewer-claude/codex 双方独立 + grep ≥ 13 条真错样本):
+ * 修前仅 `'max retry times reached'` 一条,把现实 codex binary 里的 `Error retrieving
+ * credentials` / `failed to retrieve local addr` / `exec-server connection disconnected`
+ * / `Convert it to UTF-8 and retry` 等 fatal 字面留给启发式吞 transient。修后扩到 12
+ * 条覆盖 codex binary 实测 fatal 字面（凭证 / API key / 网络层 / exec-server / 配置 /
+ * 编码 / 重传 / 重试用尽 全场景）。
+ *
+ * **REVIEW HIGH-2 修法**: `'exceeded retry limit'` 是 codex `codex-rs/codex-client/src/
+ * retry.rs` 真终态字面,与 `, max retry times reached` 同等地位但旧 fatal regex
+ * `/(max\s+retr|exhaust|gave\s+up)/i` 不匹配（`exceeded retry` 不含 `max`）→ 修前会被
+ * 启发式吞 transient → fatal 漏抓。修后加进白名单 + 启发式 regex 加 `exceeded\s+retr`。
+ *
+ * 启发式 regex `STREAM_ERROR_FATAL_RE` 兜底 codex 升级换字面场景。
+ */
+const FATAL_STREAM_ERROR_PHRASES = [
+  'max retry times reached',
+  'exceeded retry limit',
+  'Error retrieving',
+  'could not retrieve',
+  'Could not retrieve',
+  'failed to retrieve',
+  'Failed to retrieve',
+  'exec-server connection disconnected',
+  'exec-server transport disconnected',
+  'disconnecting slow connection',
+  'dropping message for disconnected',
+  'Convert it to UTF-8',
+  'Fix the config',
+  'Too many retransmissions',
+] as const;
+const STREAM_ERROR_FATAL_RE =
+  /(max\s+retr|exceeded\s+retr|exhaust|gave\s+up|maximum\s+retr)/i;
+
+/**
+ * 把 codex SDK ThreadErrorEvent.message 分类为 transient（中间态重连）或 fatal（真错误）。
+ *
+ * 决策树（plan §D1 + REVIEW HIGH-1/HIGH-2 修法）：
+ * 1. 命中 FATAL_STREAM_ERROR_PHRASES 任一字面 / STREAM_ERROR_FATAL_RE → fatal（终态优先）
+ * 2. 命中 TRANSIENT_STREAM_ERROR_PHRASES 任一字面 → transient（白名单严格匹配）
+ * 3. 命中 STREAM_ERROR_HEURISTIC_RE → transient（启发式兜底 + console.warn 诊断信号）
+ * 4. 都不命中 → fatal（不变量 1：保守走终态，不吞真错）
+ *
+ * 步骤 1 优先识别 fatal 防止 fatal 报文含 transient 词根（如 `exceeded retry limit`
+ * 含 `retry` 词根但是终态）被错归 transient。**步骤 1 之后 transient 路径就只剩
+ * 白名单/启发式 word-boundary 严格词形匹配**,不再撞 retrieving / retransmission 类
+ * 假阳性（HIGH-1 修法的 word-boundary 直接根治）。
+ *
+ * 启发式命中（步骤 3）console.warn 是 plan §D1 设计要求 + REVIEW MED-1 修法
+ * 落地：让 codex 升级换字面进入启发式时主进程日志可见,方便后续补白名单。
+ *
+ * 出参 `'transient' | 'fatal'`：
+ * - transient → emit message no error + 不 emit finished（让 turn 继续等）
+ * - fatal → emit message error + finished(ok:false, error)（原行为）
+ */
+export function classifyStreamErrorEvent(message: string): 'transient' | 'fatal' {
+  if (FATAL_STREAM_ERROR_PHRASES.some((p) => message.includes(p))) return 'fatal';
+  if (STREAM_ERROR_FATAL_RE.test(message)) return 'fatal';
+  if (TRANSIENT_STREAM_ERROR_PHRASES.some((p) => message.includes(p))) return 'transient';
+  if (STREAM_ERROR_HEURISTIC_RE.test(message)) {
+    console.warn(
+      `[codex-cli/translate] heuristic-only transient match (consider adding to white-list): ${message}`,
+    );
+    return 'transient';
+  }
+  return 'fatal';
+}
+
+/**
+ * 从 ThreadErrorEvent.message 里 best-effort 提取重连进度数字（如 `1/5`）。
+ *
+ * **REVIEW HIGH-3 修法** (reviewer-claude HIGH UX + reviewer-codex LOW): 修前
+ * regex `/(\d+)\s*\/\s*(\d+)/` 无上下文锚点,会误抓任意「数字/数字」结构（日期前缀
+ * `2026/05/21` / HTTP 序列 `503/502` / 路径段 `123/456` / IP 子网 `192.168.1.0/24`）
+ * → 用户在 UI 看到「重连尝试 2026/05」之类乱码。
+ *
+ * 修后要求 `N/M` 紧邻 transient 关键词（`Reconnecting...` / `attempt` / `retry`）才
+ * 提取,没匹配上返空字符串（caller 仍 emit「Codex 正在重连...」基础提示）。
+ *
+ * codex CLI 的格式样例（实测 user log）：
+ *   `Reconnecting... 1/5 (stream disconnected before completion: ...)`
+ */
+export function extractRetryProgress(message: string): string {
+  const m = message.match(/(?:Reconnecting\.\.\.|attempt|retry)\s+(\d+)\s*\/\s*(\d+)/i);
+  if (!m) return '';
+  return ` 重连尝试 ${m[1]}/${m[2]}`;
+}
+
+/**
  * 把一条 ThreadEvent 翻译为 0~N 条 AgentEvent，通过 emit 回调发出。
  *
  * 不在这里处理 thread.started（sessionId 同步在 sdk-bridge 控制）。
@@ -71,6 +202,17 @@ export function translateCodexEvent(event: ThreadEvent, emit: EmitFn): void {
     }
 
     case 'error': {
+      // plan codex-stream-error-classify-20260521：codex CLI 5 次内置重连透中间态
+      // 走 ThreadErrorEvent，应用层不能盲 emit finished:error 让 UI 状态机以为 turn 结束。
+      // classifyStreamErrorEvent 三态分流：
+      // - transient (中间重连态) → 1 条 message 不带 error，不 emit finished，让 turn 继续等
+      // - fatal (真终态/重试用尽) → 原行为：1 条 message error + 1 条 finished(error)
+      const classification = classifyStreamErrorEvent(event.message);
+      if (classification === 'transient') {
+        const progress = extractRetryProgress(event.message);
+        emit('message', { text: `🔄 Codex 正在重连...${progress}` });
+        return;
+      }
       emit('message', { text: `⚠ Codex 流级错误：${event.message}`, error: true });
       emit('finished', { ok: false, subtype: 'error' });
       return;
