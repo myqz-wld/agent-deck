@@ -114,6 +114,19 @@ export const miscApi = {
   resetClaudeMd: (): Promise<{ ok: boolean; content: string }> =>
     ipcRenderer.invoke(IpcInvoke.ClaudeMdReset),
 
+  // CODEX_AGENTS.md（注入到 ~/.codex/AGENTS.md Agent Deck 段的 codex 视角应用约定）
+  /** 读取「当前生效」的 CODEX_AGENTS.md（用户副本优先 → 回落内置）。 */
+  getCodexAgentsMd: (): Promise<{ content: string; isCustom: boolean }> =>
+    ipcRenderer.invoke(IpcInvoke.CodexAgentsMdGet),
+  /** 保存用户副本到 userData/agent-deck-codex-agents.md。save 后**主进程主动 syncAgentDeckSection**
+   *  把内容立即同步到 ~/.codex/AGENTS.md(否则 user 改了 但 codex SDK 仍读旧 cache);返回写盘后
+   *  实际读回的内容(同 saveClaudeMd 模式)。 */
+  saveCodexAgentsMd: (content: string): Promise<{ content: string; isCustom: true }> =>
+    ipcRenderer.invoke(IpcInvoke.CodexAgentsMdSave, content),
+  /** 删除用户副本回落内置 + 同步 ~/.codex/AGENTS.md 段;返回新的内置内容供 UI 同步刷新。 */
+  resetCodexAgentsMd: (): Promise<{ ok: boolean; content: string }> =>
+    ipcRenderer.invoke(IpcInvoke.CodexAgentsMdReset),
+
   // ─────────── Assets Library (CHANGELOG_57) ───────────
   /** 列内置 plugin agents+skills（main 启动时一次性扫 frontmatter，缓存读）。 */
   listBundledAssets: (): Promise<BundledAssetsSnapshot> =>

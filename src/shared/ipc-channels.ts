@@ -72,6 +72,9 @@ export const IpcInvoke = {
   ClaudeMdGet: 'claude-md:get',
   ClaudeMdSave: 'claude-md:save',
   ClaudeMdReset: 'claude-md:reset',
+  CodexAgentsMdGet: 'codex-agents-md:get',
+  CodexAgentsMdSave: 'codex-agents-md:save',
+  CodexAgentsMdReset: 'codex-agents-md:reset',
   SummarizerLastErrors: 'summarizer:last-errors',
 
   // ─────────── R3.E8 — Agent Deck universal team backend (替代老 team:* channel) ───────────
