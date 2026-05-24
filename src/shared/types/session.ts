@@ -179,3 +179,34 @@ export interface SessionRecord {
    */
   cliSessionId?: string | null;
 }
+
+/**
+ * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.1:hand-off cold-start prompt
+ * 的 metadata,通过 events.payload (message kind) 的 optional `handOff?: HandOffMetadata` 字段
+ * 携带,让 renderer 端 message-row.tsx 识别两种 hand-off 路径 (spawn × adopt) + 渲染 Hand-off
+ * badge + 折叠 adoptedBlock 区块。
+ *
+ * **不变量**(plan §不变量 5+6):
+ * - **不**进 SDK first message 文本(receiver Claude 看了会误解);仅走 events.payload 字段
+ *   (UI 可见 SDK 不可见)
+ * - **不**在 codex-cli `thread-loop.ts:103-110` error emit 出现(payload `{text:errorText,
+ *   error:true}` 无 `role:'user'`,塞 handOff 会污染 error 语义)
+ * - **不**在 sendMessage 后续 user message 出现(本类型仅 createSession first user message
+ *   场景有意义,sendMessage 不接 createSession handOff opts)
+ *
+ * 跨 adapter 对偶(plan §不变量 5):claude-code (`session-finalize.ts:147-154` × 1 emit) +
+ * codex-cli (`thread-loop.ts:91-99` fallback + `:166-173` success + `sdk-bridge/index.ts:506-516`
+ * resume **共 3 处**) 都必须同时携带,否则 hand_off_session 跨 adapter 行为不一致。
+ */
+export interface HandOffMetadata {
+  /** 'plan' = plan-driven hand-off(传 plan_id) / 'generic' = generic baton(不传 plan_id)。 */
+  mode: 'plan' | 'generic';
+  /** plan id(plan-driven 模式有值;generic 模式 null)。 */
+  planId: string | null;
+  /** plan phase label(caller 传 phase_label 时有值;否则 null)。 */
+  phaseLabel: string | null;
+  /** caller(发起 hand-off 的 lead session)的 sessionId。 */
+  fromCallerSid: string;
+  /** 本次 hand-off 是否走 adopt_teammates: true 路径(true → cold-start prompt 含 adoptedBlock)。 */
+  hasAdoptedBlock: boolean;
+}

@@ -100,6 +100,10 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
   if (raw.model !== undefined) out.model = raw.model;
   if (raw.claudeCodeSandbox !== undefined) out.claudeCodeSandbox = raw.claudeCodeSandbox;
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
+  // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2:透传 handOff metadata
+  // 给 claude-code adapter,bridge createSession → finalizeSessionStart emit first user message
+  // 时 spread 进 events.payload。
+  if (raw.handOff !== undefined) out.handOff = raw.handOff;
   return out;
 }
 
@@ -130,6 +134,11 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   if (raw.model !== undefined) out.model = raw.model;
   if (raw.codexSandbox !== undefined) out.codexSandbox = raw.codexSandbox;
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
+  // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2:透传 handOff metadata
+  // 给 codex-cli adapter,bridge createSession → thread-loop / resume emit first user message
+  // 时 spread 进 events.payload(3 处 emit:thread-loop fallback + thread-loop success +
+  // sdk-bridge resume,详 plan §不变量 5)。
+  if (raw.handOff !== undefined) out.handOff = raw.handOff;
 
   // plan §P3 Step 3.5 + §不变量 6: codex teammate spawn (REVIEWER_AGENT_NAMES SSOT) unsafe
   // default spread enforce 点。caller 路径 / 普通 codex session 走 raw.agentName 缺省 /

@@ -38,6 +38,8 @@
  * failed for some teams" warning,让新 session 先验证 shared membership 再 send_message。
  */
 
+import { HAND_OFF_ADOPT_HEADER } from '@shared/hand-off-headers';
+
 export interface AdoptedTeam {
   /** team id(`agent_deck_teams.id`) */
   id: string;
@@ -99,7 +101,7 @@ export function buildAdoptedTeamsContextBlock(
     sids.length === 0 ? '(none)' : sids.map((s) => `\`${s}\``).join(', ');
 
   const lines: string[] = [
-    `## You're the new lead — adopted teams context (auto-injected by Agent Deck MCP)`,
+    HAND_OFF_ADOPT_HEADER,
     ``,
     `You (the new SDK session) just became lead of ${totalTeams} team${totalTeams > 1 ? 's' : ''} via hand_off_session adopt path.`,
     `The previous caller has handed off this baton and exited — you should not try to reply to them.`,

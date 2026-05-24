@@ -33,7 +33,7 @@ import { packCodexInput, extractAttachmentPaths } from './input-pack';
 import { persistSessionFields } from './session-finalize';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
-import type { UploadedAttachmentRef } from '@shared/types';
+import type { HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import {
   SessionRecoverer,
@@ -377,6 +377,14 @@ export class CodexSdkBridge {
      * opts.envOverrideExtra ?? {})`（后写覆盖前写，options-builder spread 字段最终生效）。
      */
     envOverrideExtra?: Readonly<Record<string, string>>;
+    /**
+     * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 internal plumbing
+     * (codex 端镜像 claude bridge createSession opts.handOff):hand-off cold-start prompt
+     * metadata。spawn 主路径 first user message emit 时 spread 进 events.payload(thread-loop
+     * fallback :91-99 + success :166-173 + 本 bridge resume :510-516 共 3 处)。
+     * 详 HandOffMetadata jsdoc + plan §不变量 5。caller 不该传。
+     */
+    handOff?: HandOffMetadata;
   }): Promise<CodexSessionHandle> {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
@@ -513,6 +521,10 @@ export class CodexSdkBridge {
           ...(opts.attachments && opts.attachments.length > 0
             ? { attachments: opts.attachments }
             : {}),
+          // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 (resume 路径
+          // first-user-message emit 3 处之一,详 plan §不变量 5):spread handOff metadata 让
+          // renderer 端 message-row 识别 hand-off cold-start prompt + 渲染 Hand-off badge。
+          ...(opts.handOff ? { handOff: opts.handOff } : {}),
         },
         ts: Date.now(),
         source: 'sdk',
@@ -669,6 +681,10 @@ export class CodexSdkBridge {
       cwd,
       opts.prompt,
       opts.attachments,
+      // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步:透传 handOff
+      // 给 thread-loop 让 thread-loop fallback / success 2 处 first-user-message emit 时
+      // spread 进 events.payload(详 plan §不变量 5 — codex 3 处 emit:fallback / success / resume)。
+      opts.handOff,
     );
 
     // CHANGELOG_<X> A2a：新建路径拿到 realId 后持久化 sandboxMode + model。
@@ -733,6 +749,10 @@ export class CodexSdkBridge {
         text,
         role: 'user',
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        // plan handoff-render-and-image-batch-20260521 §不变量 5 严守 + R1 reviewer-claude
+        // INFO-1 修法:仅 createSession first user message 携带 handOff metadata,后续 sendMessage
+        // 轮(本 emit)不重复携带 — 防 events 表 hand-off baton 链识别误把后续轮次也计为新 baton
+        // 触发点;handler 契约语义「hand-off 仅 cold-start 一次」严守。
       },
       ts: Date.now(),
       source: 'sdk',

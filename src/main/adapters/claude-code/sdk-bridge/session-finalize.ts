@@ -15,7 +15,7 @@
  *    直接塞进 pendingUserMessages 给 SDK，UI 活动流要看到「你」发的第一条话）
  */
 
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from './constants';
@@ -58,6 +58,21 @@ export interface FinalizeSessionStartArgs {
    * undefined / 空数组 → 不持久化(保留 sessions.extra_allow_write 原值,与 claudeModel 同款)。
    */
   extraAllowWrite?: readonly string[];
+  /**
+   * plan handoff-render-and-image-batch-20260521 Phase 3:createSession 首条 user message 的
+   * 图片附件(spawn-time 透传,与 sendMessage 接口对齐)。漏传时 events.payload 不含 attachments
+   * → message-row UploadedImageThumb 不渲染缩略图(create session 带图后看不到图 UX bug)。
+   */
+  attachments?: readonly UploadedAttachmentRef[];
+  /**
+   * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 8 步 internal plumbing:
+   * hand-off cold-start prompt metadata。spawn 主路径首条 user message emit 时 spread 进
+   * events.payload,renderer 端 message-row 据此渲染 Hand-off badge + 折叠 adoptedBlock
+   * disclosure。详 HandOffMetadata jsdoc(shared/types/session.ts) + plan §不变量 5+6。
+   * **不变量 5 重申**:claude-code adapter 仅本 finalize × 1 emit 携带 handOff,其他路径
+   * (sendMessage 后续 user message / fallback fresh CLI 路径)不携带。
+   */
+  handOff?: HandOffMetadata;
   emit: (e: AgentEvent) => void;
 }
 
@@ -76,7 +91,7 @@ export interface FinalizeSessionStartArgs {
  *   (manager 黑名单链),不创建新 sessions row 不 emit session-start (避免撞唯一索引)
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
-  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, extraAllowWrite, emit } = args;
+  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, extraAllowWrite, attachments, handOff, emit } = args;
 
   // 1. 主动 emit session-start
   emit({
@@ -148,7 +163,12 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
       sessionId: applicationSid,
       agentId: AGENT_ID,
       kind: 'message',
-      payload: { text: prompt, role: 'user' },
+      payload: {
+        text: prompt,
+        role: 'user',
+        ...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
+        ...(handOff ? { handOff } : {}),
+      },
       ts: Date.now(),
       source: 'sdk',
     });

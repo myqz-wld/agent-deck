@@ -399,6 +399,20 @@ describe('handOffSessionHandler — generic mode (CHANGELOG_99)', () => {
     expect(data.initialPrompt).toBe('gen with ignored');
     expect(data.phaseLabel).toBeNull();
 
+    // plan handoff-render-and-image-batch-20260521 R1 reviewer-codex LOW 修法配套断言:
+    // generic mode 时 spawnArgs.hand_off.phaseLabel 必须为 null(契约一致性 — 与 ok return
+    // phaseLabel + ignoredFields 同步标 phase_label 被忽略)。修前 spawnArgs.hand_off.phaseLabel
+    // 直接用 args.phase_label ?? null → events.payload / UI tooltip 显示 phase 但 ok return
+    // 说被忽略,silent UI/metadata 漂移。
+    const spawnArgsCaught = mockSpawn.mock.calls[0]![0];
+    expect(spawnArgsCaught.hand_off).toEqual({
+      mode: 'generic',
+      planId: null,
+      phaseLabel: null,
+      fromCallerSid: 'caller-sid',
+      hasAdoptedBlock: false,
+    });
+
     sessionRepoGetSpy.mockRestore();
   });
 

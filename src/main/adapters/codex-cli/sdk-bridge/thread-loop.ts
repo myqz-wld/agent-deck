@@ -12,7 +12,7 @@
  * - earlyErrCb 路径与 closeSession / fallback 路径互斥，不出双 finished
  */
 import type { ThreadEvent } from '@openai/codex-sdk';
-import type { AgentEventKind, UploadedAttachmentRef } from '@shared/types';
+import type { AgentEventKind, HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { translateCodexEvent } from '@main/adapters/codex-cli/translate';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
@@ -54,6 +54,13 @@ export class ThreadLoop {
     cwd: string,
     promptText: string,
     attachments?: UploadedAttachmentRef[],
+    /**
+     * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 (codex 端 thread-loop
+     * 函数签名加 handOff 入参):bridge createSession 调本 method 时透传 opts.handOff,让 thread-loop
+     * fallback (:95-99) + success (:170-173) 2 处 first-user-message emit 时 spread 进 events.payload
+     * (详 plan §不变量 5 — codex 3 处 emit:fallback / success / sdk-bridge resume)。
+     */
+    handOff?: HandOffMetadata,
   ): Promise<string> {
     return new Promise<string>((resolve) => {
       let resolved = false;
@@ -96,6 +103,13 @@ export class ThreadLoop {
             text: promptText,
             role: 'user',
             ...(attachments && attachments.length > 0 ? { attachments } : {}),
+            // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 10 步 (codex
+            // fallback first-user-message emit 3 处之一):spread handOff metadata。**不变量 5
+            // 严守**:本 emit 是 user-prompt(`role: 'user'`),与下方 :103-110 error emit
+            // (`payload: {text: errorText, error: true}` 无 `role: 'user'`)不同语义,error
+            // emit 绝对不能 spread handOff(污染 error 语义 + 未来扫 events 误把 error 计入
+            // hand-off baton 链)。
+            ...(handOff ? { handOff } : {}),
           },
           ts: Date.now(),
           source: 'sdk',
@@ -171,6 +185,10 @@ export class ThreadLoop {
               text: promptText,
               role: 'user',
               ...(attachments && attachments.length > 0 ? { attachments } : {}),
+              // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 10 步 (codex
+              // success first-user-message emit 3 处之一):spread handOff metadata,与 fallback
+              // 同款不变量 5 守门(本 emit `role: 'user'` 携带,error emit 不携带)。
+              ...(handOff ? { handOff } : {}),
             },
             ts: Date.now(),
             source: 'sdk',

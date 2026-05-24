@@ -16,7 +16,7 @@ import type { LoadImageBlobResult } from '@shared/types';
  *   方便调用方处理「无 before」/「path 缺失」等空态
  */
 
-interface CacheEntry {
+export interface CacheEntry {
   result: LoadImageBlobResult;
   ts: number;
 }

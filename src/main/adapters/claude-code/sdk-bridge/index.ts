@@ -5,6 +5,7 @@ import type {
   AskUserQuestionRequest,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
+  HandOffMetadata,
   PermissionRequest,
   PermissionResponse,
   UploadedAttachmentRef,
@@ -184,6 +185,13 @@ export class ClaudeSdkBridge {
      * - 'fresh-cli-reuse-app': jsonl-missing fallback 专用,SDK 不带 resume 起 fresh CLI thread
      */
     resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+    /**
+     * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
+     * hand_off_session handler 装配后透传给 finalize 链 emit first user message 时 spread 进
+     * events.payload(详 session-finalize.ts FinalizeSessionStartArgs.handOff jsdoc)。
+     * caller 不该传(typical caller 走 spawn handler / hand_off handler 注入)。
+     */
+    handOff?: HandOffMetadata;
   }): Promise<SdkSessionHandle> {
     // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
     // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
@@ -424,6 +432,10 @@ export class ClaudeSdkBridge {
       claudeSandboxMode,
       claudeModel,
       extraAllowWrite: opts.extraAllowWrite,
+      attachments: opts.attachments,
+      // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 8 步:透传 handOff
+      // 给 finalize 链让首条 user message emit 时 spread 进 events.payload。
+      handOff: opts.handOff,
       emit: this.opts.emit,
     });
 
@@ -482,6 +494,10 @@ export class ClaudeSdkBridge {
         text,
         role: 'user',
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        // plan handoff-render-and-image-batch-20260521 §不变量 5 严守 + R1 reviewer-claude
+        // INFO-1 修法:仅 createSession first user message 携带 handOff metadata(finalizeSessionStart
+        // 路径),后续 sendMessage 轮(本 emit)不重复携带 — 防 events 表 hand-off baton 链识别
+        // 误把后续轮次也计为新 baton 触发点。与 codex sdk-bridge sendMessage emit 同款语义。
       },
       ts: Date.now(),
       source: 'sdk',
