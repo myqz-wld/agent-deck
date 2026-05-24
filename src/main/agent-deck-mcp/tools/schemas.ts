@@ -282,6 +282,12 @@ export const ARCHIVE_PLAN_SHAPE = {
 // 行为与 EnterWorktree 模式对齐，避免 archive_plan / git worktree remove 删 worktree 后
 // sessionRepo.cwd 失效弯绕。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
 // EnterWorktree(path: worktreePath) 进 worktree 干活。
+// **plan task-mcp-owner-session-id-rewrite-20260521 v023 §D3**: spawn 完成 + 新 sid 落 DB +
+// adopt 完成后、archive caller 之前，原子把 caller 拥有的所有 task 过继给新 session
+// （UPDATE tasks SET owner_session_id = newSid WHERE owner_session_id = oldSid）。失败仅
+// warn 不阻塞 ok return（task 过继是 nice-to-have）。配合 v023 ON DELETE CASCADE FK，
+// caller archive 后 sessions row 被 LifecycleScheduler.findHistoryOlderThan 物理删时
+// 已过继 task 留在新 session 名下不被 CASCADE 删（plan §不变量 4）。
 // deny external caller（起 SDK session 的 fork bomb 风险，与 spawn_session / archive_plan 同档）。
 //
 // **plan hand-off-session-adopt-teammates-20260520 Phase 3 双层命名**(D2 + N4 + Round 3 MED-2):
@@ -802,6 +808,29 @@ export interface HandOffSessionResult extends SpawnSessionResult {
     teamsAdopted: number;
     firstTeamId: string | null;
   } | null;
+  /**
+   * plan task-mcp-owner-session-id-rewrite-20260521 v023 §D3 + deep-review Round 1 F3 修法:
+   * hand_off 内部 reassignTaskOwner(caller→newSpawnedSid)三态结果 + count / error。
+   * 让 caller 通过 ok return 看到 task ownership 转移是否成功(修前仅 console.warn 静默吞错)。
+   *
+   * 三态语义:
+   * - `'ok'`: reassign 成功,count 字段是被改 owner 的 task 行数(0 = caller 没拥有任何
+   *   task,也算成功)
+   * - `'failed'`: reassign 抛错(SQLite locked / FK 异常 / DB 故障),error 字段是错误消息;
+   *   caller 仍会被 archive(若 archive_caller=true),其 task 触发 ON DELETE CASCADE 物理删
+   *   (best-effort 兜底 by LifecycleScheduler.historyRetentionDays TTL GC 不适用 — 已被
+   *   即时 CASCADE 删,只是 baton 仍 ok return 不阻塞 — 失败概率低)。caller 通过此字段看
+   *   到失败原因决定后续动作(重试 / 手工恢复 task)
+   * - `'skipped'`: 跳过 reassign 的两种情况:
+   *   - `reason: 'archive-caller-false'`: caller 显式传 archive_caller=false(F1 修法),
+   *     caller 仍 active 继续 own 自己的 task
+   *   - `reason: 'spawn-no-sid'`: spawn handler ok return 未带 sessionId(不应发生,type-safe
+   *     兜底);type 上 newSpawnedSid 是 string | null,null 时跳过
+   */
+  taskReassignment:
+    | { status: 'ok'; count: number }
+    | { status: 'failed'; error: string }
+    | { status: 'skipped'; reason: 'archive-caller-false' | 'spawn-no-sid' };
 }
 
 /**

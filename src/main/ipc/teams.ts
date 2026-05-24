@@ -110,7 +110,23 @@ export function registerTeamsIpc(): void {
       const team = agentDeckTeamRepo.getWithMembers(teamId);
       if (!team) return null;
       const recentEvents = eventRepo.findTeamEvents(teamId, 50);
-      const tasks = taskRepo.list({ teamId, limit: 200 });
+      // plan task-mcp-owner-session-id-rewrite-20260521 v023：task 表无 team_id 列，
+      // team scope 改成 owner_session_id IN (team active member sids) reverse join。
+      //
+      // **F9 修法**(deep-review Round 2 reviewer-codex LOW-2-2):archived team
+      // detail 不该显示成员当前在其他 active team / 个人上下文里的 live task。v023
+      // owner-only 模型下 task 不再 own by team,team detail tasks 仅展示「team 成员
+      // 当前 task」是辅助信息;archived team 已不再使用,显示成员 live task 反而误
+      // 导用户。team archived → 返 [] 与 task_list 的 archived team filter 纪律对齐
+      // (tools.ts:114 getVisibleOwnerSessionIds 同款)。
+      const memberSids =
+        team.archivedAt !== null
+          ? []
+          : agentDeckTeamRepo.listActiveMembers(teamId).map((m) => m.sessionId);
+      const tasks =
+        memberSids.length === 0
+          ? []
+          : taskRepo.list({ ownerSessionIds: memberSids, limit: 200 });
       const recentMessages = agentDeckMessageRepo.listByTeam(teamId, { limit: 100 });
       return { ...team, recentEvents, tasks, recentMessages };
     },
@@ -323,12 +339,23 @@ export function registerTeamsIpc(): void {
     },
   );
 
-  // TaskListByTeam：用 team_id 查 tasks（v011），R3.E8 配套 task-manager 迁移
+  // TaskListByTeam: 按 team 拉 task（plan task-mcp-owner-session-id-rewrite-20260521
+  // v023 重设计后，team scope 改成 owner_session_id IN (team active member sids)
+  // reverse join；task 表不再有 team_id 列）。
+  //
+  // **F9 修法**(deep-review Round 2 reviewer-codex LOW-2-2):archived team detail
+  // 不该返成员当前 live task（同 AgentDeckTeamGetFull）— 与 task_list filter 对齐。
   on(
     IpcInvoke.TaskListByTeam,
     async (_e, teamIdRaw): Promise<{ tasks: TaskRecord[] }> => {
       const teamId = parseId(teamIdRaw, 'teamId');
-      return { tasks: taskRepo.list({ teamId, limit: 200 }) };
+      const team = agentDeckTeamRepo.get(teamId);
+      if (!team || team.archivedAt !== null) {
+        return { tasks: [] };
+      }
+      const memberSids = agentDeckTeamRepo.listActiveMembers(teamId).map((m) => m.sessionId);
+      if (memberSids.length === 0) return { tasks: [] };
+      return { tasks: taskRepo.list({ ownerSessionIds: memberSids, limit: 200 }) };
     },
   );
 

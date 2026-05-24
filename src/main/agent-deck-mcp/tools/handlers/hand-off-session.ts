@@ -54,6 +54,7 @@ import { sessionManager } from '@main/session/manager';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { eventBus } from '@main/event-bus';
 import { omitUndefined } from '@main/utils/optional-fields';
+import { taskRepo } from '@main/store/task-repo';
 import {
   handOffSessionImpl,
   _isHandOffSessionError,
@@ -124,6 +125,13 @@ export interface HandOffSessionHandlerDeps {
    * sessionManager.close;test 注入观察是否调用(关键守门)。
    */
   closeSession?: (sessionId: string) => Promise<void>;
+  /**
+   * plan task-mcp-owner-session-id-rewrite-20260521 v023 §D3: task 过继 test seam。
+   * default 走 taskRepo.reassignOwner;test 注入 spy 验证 spawn 之后、archive caller
+   * 之前是否调到 + caller 拥有的 task 行数。失败仅 warn 不阻塞 ok return(task 过继
+   * 是 nice-to-have,hand_off baton 本质是 session 接力)。
+   */
+  reassignTaskOwner?: (oldSessionId: string, newSessionId: string) => number;
 }
 
 /**
@@ -839,6 +847,61 @@ export const handOffSessionHandler = withMcpGuard(
       };
     }
 
+    // plan task-mcp-owner-session-id-rewrite-20260521 v023 §D3: task 过继。
+    //
+    // 时机要求(plan §不变量 4):spawn 新 session 完成 + 新 sid 已落 DB(spawnResult ok
+    // return + spawn handler 内部 sessionRepo.insert 已 commit) + adopt 流程 (如有) 完成
+    // 后 → archive caller 之前。无 SQL 错误的成功路径上不留窗口;reassignOwner 抛错时
+    // baton 仍继续,由 LifecycleScheduler.historyRetentionDays TTL GC 作 best-effort 兜底。
+    //
+    // **F1 修法**(deep-review Round 1 双方独立 ✅):仅 `args.archive_caller !== false`
+    // 时自动过继。archive_caller=false 路径(caller 仍 active,典型场景:lead 起多个
+    // hand-off 子任务并行做事 / debug 工具想观察新 session)→ 跳过过继,caller 仍是自己
+    // task owner 继续拥有写权限(走 isCallerAuthorizedToWrite caller==owner 特例)。
+    // 修前所有路径无条件过继,撞「caller 仍 active 但 task ownership 已转给新 sid,
+    // caller 与新 sid 无 shared team(default 不加 team)→ caller 失去自己 task 写权限」
+    // 路径 ①(deep-review Round 1 reviewer-claude MED-c1 + reviewer-codex MED-2)。
+    //
+    // **F3 修法**(reviewer-codex MED-3 + reviewer-claude MED-c5):收集 reassign 状态
+    // 进 ok return.taskReassignment 字段(三态枚举 + count + error),caller 可见性强
+    // 化。失败仍仅 warn 不阻塞 ok return — task 过继是 nice-to-have,baton 本质是 session
+    // 接力,但 caller 通过 ok return 字段看到失败原因,不像修前 console.warn 静默吞错。
+    //
+    // newSpawnedSid 为 null(spawn handler ok return 不带 sessionId — 不应发生但 type-safe
+    // 兜底)→ taskReassignment.status='skipped' + reason='spawn-no-sid'。
+    let taskReassignment: HandOffSessionResult['taskReassignment'];
+    if (!newSpawnedSid) {
+      console.warn(
+        `[mcp hand_off_session] newSpawnedSid is null after spawn ok return — task ownership reassignment skipped (unexpected: spawn handler should always return sessionId on ok)`,
+      );
+      taskReassignment = { status: 'skipped', reason: 'spawn-no-sid' };
+    } else if (args.archive_caller === false) {
+      // F1 修法:archive_caller=false 路径跳过过继,caller 仍 own 自己 task
+      taskReassignment = { status: 'skipped', reason: 'archive-caller-false' };
+    } else {
+      try {
+        const reassignFn =
+          handlerDeps?.reassignTaskOwner ?? ((oldSid: string, newSid: string) =>
+            taskRepo.reassignOwner(oldSid, newSid));
+        const reassignedCount = reassignFn(caller.callerSessionId, newSpawnedSid);
+        if (reassignedCount > 0) {
+          console.log(
+            `[mcp hand_off_session] task ownership reassigned: ${reassignedCount} task(s) from ${caller.callerSessionId} → ${newSpawnedSid}`,
+          );
+        }
+        taskReassignment = { status: 'ok', count: reassignedCount };
+      } catch (e) {
+        console.warn(
+          `[mcp hand_off_session] task ownership reassign failed (continuing — task reassignment is nice-to-have, hand_off baton still ok; caller archive will still trigger CASCADE delete of caller-owned tasks):`,
+          e,
+        );
+        taskReassignment = {
+          status: 'failed',
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }
+
     const cleanup = await runBatonCleanup(
       {
         callerSessionId: caller.callerSessionId,
@@ -908,6 +971,10 @@ export const handOffSessionHandler = withMcpGuard(
               firstTeamId: adoptedSnapshot.firstTeamId,
             }
           : null,
+      // plan task-mcp-owner-session-id-rewrite-20260521 v023 §D3 + deep-review Round 1
+      // F3 修法:task 过继三态状态 + count + error,让 caller 通过 ok return 看到 task
+      // ownership 转移结果(修前 console.warn 静默吞错)。详上方 try/catch 块顶部注释。
+      taskReassignment,
       // 透传 spawn_session 字段（兼容 spawn 调用方）— spread SpawnSessionResult 全部字段，
       // 与 HandOffSessionResult extends SpawnSessionResult 对应让 satisfies 通过。
       ...spawnData,
