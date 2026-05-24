@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { SessionRecord, AgentDeckMessage } from '@shared/types';
+import type { SessionRecord, AgentDeckMessage, HandOffMetadata } from '@shared/types';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
@@ -114,7 +114,16 @@ let nextSpawnedSid = 'spawned-1';
 const sendMessageCalls: Array<{ sid: string; text: string }> = [];
 
 // D1 (CHANGELOG_76): spy createSession opts 让 test 能断言 prompt 是否被 body 前缀注入。
-const createSessionCalls: Array<{ adapter: string; cwd: string; prompt?: string; teamName?: string }> = [];
+// R1 reviewer-codex INFO 修法 (handoff-render-and-image-batch-20260521):扩 spy 捕获
+// `handOff` 字段,让 hand_off plumbing 透传到 adapter.createSession opts.handOff 有回归断言守门
+// (覆盖 R3 曾经漏掉的 adapter facade → bridge 链路)。
+const createSessionCalls: Array<{
+  adapter: string;
+  cwd: string;
+  prompt?: string;
+  teamName?: string;
+  handOff?: HandOffMetadata;
+}> = [];
 
 vi.mock('@main/adapters/registry', () => ({
   adapterRegistry: {
@@ -126,9 +135,20 @@ vi.mock('@main/adapters/registry', () => ({
           canCreateSession: true,
           canSetPermissionMode: id === 'claude-code',
         },
-        createSession: async (opts: { cwd: string; prompt?: string; teamName?: string }) => {
+        createSession: async (opts: {
+          cwd: string;
+          prompt?: string;
+          teamName?: string;
+          handOff?: HandOffMetadata;
+        }) => {
           const sid = nextSpawnedSid;
-          createSessionCalls.push({ adapter: id, cwd: opts.cwd, prompt: opts.prompt, teamName: opts.teamName });
+          createSessionCalls.push({
+            adapter: id,
+            cwd: opts.cwd,
+            prompt: opts.prompt,
+            teamName: opts.teamName,
+            handOff: opts.handOff,
+          });
           sessionStore.set(sid, {
             id: sid,
             agentId: id,
@@ -761,6 +781,70 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].prompt).toBe('plain prompt without body');
+  });
+
+  // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 + R1 reviewer-codex INFO 修法:
+  // hand_off plumbing 透传到 adapter.createSession opts.handOff 的回归断言(覆盖 spawn handler →
+  // buildCreateSessionOptions → adapter narrow → facade → bridge 链路)。
+  it('hand_off plumbing: claude-code adapter receives handOff metadata via createSession opts', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const handOffMeta: HandOffMetadata = {
+      mode: 'plan',
+      planId: 'test-plan-id',
+      phaseLabel: 'Phase 2 Step X',
+      fromCallerSid: 'lead-sid',
+      hasAdoptedBlock: true,
+    };
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'cold-start prompt',
+      caller_session_id: 'lead',
+      hand_off: handOffMeta,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].handOff).toEqual(handOffMeta);
+  });
+
+  it('hand_off plumbing: codex-cli adapter receives handOff metadata via createSession opts', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const handOffMeta: HandOffMetadata = {
+      mode: 'generic',
+      planId: null,
+      phaseLabel: null,
+      fromCallerSid: 'lead-sid',
+      hasAdoptedBlock: false,
+    };
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'cold-start prompt',
+      caller_session_id: 'lead',
+      hand_off: handOffMeta,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].handOff).toEqual(handOffMeta);
+  });
+
+  it('hand_off plumbing: caller not passing hand_off → adapter receives handOff=undefined', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'plain spawn without hand_off',
+      caller_session_id: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].handOff).toBeUndefined();
   });
 
   // REVIEW_31 Bug 1+2 regression：handler 必须正确解 getBundledAssetContent 的 union

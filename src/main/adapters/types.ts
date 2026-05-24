@@ -5,6 +5,7 @@ import type {
   AskUserQuestionRequest,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
+  HandOffMetadata,
   PermissionRequest,
   PermissionResponse,
   UploadedAttachmentRef,
@@ -135,6 +136,14 @@ export interface ClaudeCreateOpts {
    * 计算(fail-fast 原则)。
    */
   resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+  /**
+   * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
+   * hand_off_session handler 装配后透传给 adapter,让 createSession first user message emit
+   * 时 spread 进 events.payload 让 renderer 渲染 Hand-off badge + 折叠 adoptedBlock。
+   * 详 HandOffMetadata jsdoc(shared/types/session.ts)+ plan §不变量 5+6。
+   * caller(spawn handler / hand_off handler 之外)不该传。
+   */
+  handOff?: HandOffMetadata;
 }
 
 /**
@@ -244,6 +253,13 @@ export interface CodexCreateOpts {
    * undefined / 空 object → 无新增 env 字段，behavior 与现状一致。
    */
   envOverrideExtra?: Readonly<Record<string, string>>;
+  /**
+   * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing(codex 端
+   * 镜像 ClaudeCreateOpts.handOff)。详 HandOffMetadata jsdoc(shared/types/session.ts) +
+   * plan §不变量 5(codex 3 处 first-user-message emit:thread-loop fallback + thread-loop
+   * success + sdk-bridge resume)。caller 不该传。
+   */
+  handOff?: HandOffMetadata;
 }
 
 /**
@@ -297,6 +313,13 @@ export interface CreateSessionOptionsRaw {
    * 仅 codex-cli adapter 消费；claude-code adapter narrow 时 filter 掉。
    */
   agentName?: string | null;
+  /**
+   * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
+   * hand_off_session handler 透传给 spawn handler args.hand_off,builder 透传给 adapter narrow。
+   * 详 HandOffMetadata jsdoc(shared/types/session.ts)。caller(spawn handler / hand_off handler
+   * 之外)不该传。
+   */
+  handOff?: HandOffMetadata;
 }
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';

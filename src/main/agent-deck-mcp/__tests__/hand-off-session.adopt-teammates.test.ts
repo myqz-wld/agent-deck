@@ -350,6 +350,19 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
 
     // **adopt 路径不传 team_name 给 spawn**(N2.c 互斥 + adopt 路径强制 default baton)
     expect(seenSpawn.ref!.team_name).toBeUndefined();
+
+    // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.4 测试覆盖:handOff metadata
+    // 透传 assertion(spawn 收到的 args.hand_off 字段值正确)— plan-driven + adopt_teammates: true
+    // 路径覆盖。验 hand_off 5 字段:mode='plan' / planId='single-team' / phaseLabel=null /
+    // fromCallerSid='caller-sid' / hasAdoptedBlock=true(adopt_teammates: true + adoptedSnapshot
+    // 装配成功)。
+    expect(seenSpawn.ref!.hand_off).toEqual({
+      mode: 'plan',
+      planId: 'single-team',
+      phaseLabel: null,
+      fromCallerSid: 'caller-sid',
+      hasAdoptedBlock: true,
+    });
   });
 
   it('T4.5 N2.b 守门 (multi-team N=2): primary + multi-team 节 + attempted warning', async () => {

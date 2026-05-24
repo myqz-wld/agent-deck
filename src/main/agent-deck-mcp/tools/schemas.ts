@@ -97,6 +97,22 @@ export const SPAWN_SESSION_SCHEMA = {
       'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
     ),
   parent_session_id: z.string().min(1).max(128).optional(),
+  // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
+  // hand_off_session handler 装配后透传给本 spawn handler,后者透传给 buildCreateSessionOptions
+  // → adapter narrow → bridge createSession → finalize / thread-loop / resume emit first user
+  // message 时 spread 进 events.payload。详 HandOffMetadata jsdoc + plan §不变量 5。
+  hand_off: z
+    .object({
+      mode: z.enum(['plan', 'generic']),
+      planId: z.string().nullable(),
+      phaseLabel: z.string().nullable(),
+      fromCallerSid: z.string(),
+      hasAdoptedBlock: z.boolean(),
+    })
+    .optional()
+    .describe(
+      'hand_off_session internal plumbing; direct callers leave unset. When set, the adapter emits this metadata on the first user message events.payload so renderer can render a Hand-off badge + collapse adoptedBlock disclosure.',
+    ),
 };
 
 export const SEND_MESSAGE_SCHEMA = {

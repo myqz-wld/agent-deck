@@ -271,6 +271,10 @@ export const spawnSessionHandler = withMcpGuard(
             // 仅 codex-cli adapter 消费；claude-code adapter narrow 时 filter 掉
             // （narrowToClaudeOpts 不引用 agentName 字段）。
             agentName: args.agent_name,
+            // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2: hand_off_session
+            // handler 装配的 HandOffMetadata 透传给 builder → adapter narrow → bridge
+            // createSession → first user message emit spread 进 events.payload。
+            handOff: args.hand_off,
           }),
           // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（仅 caller 显式传时）—
           // 留 inline 因要 length > 0 检查（空数组也跳过，omitUndefined 不处理 empty array）

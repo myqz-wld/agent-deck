@@ -23,6 +23,7 @@
  */
 
 import { sanitizeWireFieldName } from '@shared/wire-prefix';
+import { HAND_OFF_SPAWN_HEADER } from '@shared/hand-off-headers';
 
 export interface BuildLeadContextBlockOpts {
   /** caller(lead)session id,放入 wire prefix `[sid <id>]` + lead context block "Lead session_id" 字段 */
@@ -83,7 +84,7 @@ export function buildLeadContextBlock(
   const leadAdapterSanitized = sanitizeWireFieldName(opts.leadAdapter);
 
   const contextBlock =
-    `## Hand-off context (auto-injected by Agent Deck MCP)\n` +
+    `${HAND_OFF_SPAWN_HEADER}\n` +
     `- Lead session_id: \`${opts.leadSessionId}\`\n` +
     `- Team id: \`${opts.teamId}\`\n` +
     `- Lead displayName: ${opts.leadDisplayName ?? '(unset)'}\n` +

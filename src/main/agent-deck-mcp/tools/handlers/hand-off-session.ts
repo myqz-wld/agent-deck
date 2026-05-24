@@ -527,6 +527,23 @@ export const handOffSessionHandler = withMcpGuard(
       cwd: finalCwd,
       // adopt 路径 prompt 含 adoptedBlock prepend;non-adopt 路径用 resolved.coldStartPrompt 原值
       prompt: coldStartPromptForSDK,
+      // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing +
+      // R1 reviewer-codex LOW 修法 (generic mode phaseLabel 契约一致性):装配 HandOffMetadata
+      // 透传给 spawn handler → builder → adapter narrow → bridge createSession → first user
+      // message emit 时 spread 进 events.payload,renderer 渲染 Hand-off badge + 折叠 adoptedBlock。
+      //
+      // **phaseLabel 按 resolved.mode 过滤**(R1 reviewer-codex LOW 修法):generic mode 时
+      // hand-off-session-impl.ts:170-186 已把 `phase_label` 标到 ignoredFields(ok return
+      // phaseLabel 也是 null);为了让 events.payload metadata 与 handler 契约一致,此处也按
+      // resolved.mode 过滤,避免 caller 误传 phase_label 给 generic mode 时 events.payload /
+      // UI tooltip 显示该 phase 但 ok return 说被忽略(契约不一致 = silent UI/metadata 漂移)。
+      hand_off: {
+        mode: resolved.mode,
+        planId: args.plan_id ?? null,
+        phaseLabel: resolved.mode === 'plan' ? args.phase_label ?? null : null,
+        fromCallerSid: caller.callerSessionId,
+        hasAdoptedBlock: args.adopt_teammates === true && adoptedSnapshot !== null,
+      },
       // REVIEW_37 P1-Phase2 (claude F4 LOW)：omitUndefined 收口 4 个简单 spread+ternary。
       // 仅 extra_allow_write（length > 0 语义）保留 inline ternary。
       ...omitUndefined({
