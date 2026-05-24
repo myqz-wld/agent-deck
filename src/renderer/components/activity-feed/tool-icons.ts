@@ -12,15 +12,16 @@
  *   Skill 7 / EnterPlanMode 7 / TeamCreate 6 / Task 3
  * 后续按主题加 case 即可；其他 mcp__*（含 mcp 图片工具）走 🔧 兜底。
  *
- * REVIEW_17 R1 / L10：本应用自带 task-manager MCP server (CHANGELOG_42-43)，
- * 5 个工具真名 `mcp__tasks__task_*`，作为应用核心新模块需 UI 可识别，单独列。
+ * REVIEW_17 R1 / L10：本应用自带 task store MCP server (CHANGELOG_42-43 + plan
+ * task-mcp-merge-into-agent-deck-mcp-20260521 合并入 agent-deck namespace)，
+ * 5 个工具真名 `mcp__agent-deck__task_*`，作为应用核心模块需 UI 可识别，单独列。
  *
  * 避撞约束：
  *  - ✅ 已被「一轮完成」状态用 → TodoWrite 不能用 ✅，改 📌
  *  - 📝 已被 file-changed 用 → 不复用
  *  - 📋 ExitPlanMode 已用，EnterPlanMode 配对，复用 OK
  *  - 🤖 Task 已用，Agent 是 Task 的别名（新版 Claude Code SDK），复用 OK
- *  - mcp__tasks__task_create 与 CLI builtin TaskCreate 同 ➕（语义对齐）
+ *  - mcp__agent-deck__task_create 与 CLI builtin TaskCreate 同 ➕（语义对齐）
  */
 const ICON_MAP: Record<string, string> = {
   // 文件
@@ -56,12 +57,12 @@ const ICON_MAP: Record<string, string> = {
   TaskOutput: '📤',
   TaskStop: '🛑',
   TeamCreate: '👥',
-  // Task Manager MCP（agent-deck 自带，CHANGELOG_42-43）
-  mcp__tasks__task_create: '➕',
-  mcp__tasks__task_list: '📋',
-  mcp__tasks__task_get: '🔎',
-  mcp__tasks__task_update: '🔄',
-  mcp__tasks__task_delete: '🗑',
+  // Task store MCP（agent-deck 自带，CHANGELOG_42-43 + plan task-mcp-merge-into-agent-deck-mcp-20260521 合并入 agent-deck namespace）
+  'mcp__agent-deck__task_create': '➕',
+  'mcp__agent-deck__task_list': '📋',
+  'mcp__agent-deck__task_get': '🔎',
+  'mcp__agent-deck__task_update': '🔄',
+  'mcp__agent-deck__task_delete': '🗑',
 };
 
 export function toolIcon(tool: string | undefined | null): string {

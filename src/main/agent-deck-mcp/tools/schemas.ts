@@ -1,5 +1,5 @@
 /**
- * Agent Deck MCP server 10 tool 的 zod schema 集中地。
+ * Agent Deck MCP server 15 tool 的 zod schema 集中地（10 现有 + 5 task — plan task-mcp-merge-into-agent-deck-mcp-20260521 合并）。
  * 三 transport（in-process / HTTP / stdio）共享同一份 schema。
  *
  * 历史：从原 src/main/agent-deck-mcp/tools.ts 剥离（CHANGELOG_81 / plan
@@ -14,6 +14,24 @@
  */
 
 import { z } from 'zod';
+import type { TaskRecord } from '@shared/types';
+
+/**
+ * Task tool status 枚举（plan task-mcp-merge-into-agent-deck-mcp-20260521 Step 0.5 + R2 F-R2-4 修法）：
+ * 放 schemas.ts 顶部 export 而非 handler/task-helpers.ts —— schema 层 enum 天然位置，
+ * 避免 schema 层从 handler 层间接拉 sessionRepo / agentDeckTeamRepo 运行时依赖，
+ * 破坏 schemas.ts 只依赖 zod 的纯 schema 边界。5 个 task tool schema + 5 handler 都从本处 import。
+ *
+ * 对齐 Claude Code CLI TaskCreate / TaskUpdate 状态字段语义。
+ */
+export const STATUS_VALUES = [
+  'pending',
+  'active',
+  'completed',
+  'blocked',
+  'abandoned',
+] as const;
+export type TaskStatusValue = (typeof STATUS_VALUES)[number];
 
 export const SPAWN_SESSION_SCHEMA = {
   adapter: z.enum(['claude-code', 'codex-cli']),
@@ -607,7 +625,7 @@ export type ShutdownBatonTeammatesArgs = z.infer<
 
 // =============== Result types (R37 P3-L Step 4.5) ===============
 //
-// 10 tool 的 ok return shape SSOT（与上方 args type 对称，让 input/output schema
+// 15 tool 的 ok return shape SSOT（10 现有 + 5 task；与上方 args type 对称，让 input/output schema
 // 都在 schemas.ts 一处可读）。Handler return 用 `satisfies XxxResult` 做静态字段校验
 // 防漂移（typo / 漏字段 / 字段类型错被 TS 拦）。
 //
@@ -899,4 +917,185 @@ export interface ShutdownBatonTeammatesResult {
   failed: Array<{ sessionId: string; reason: string }>;
   skipped: null;
   planId: string | null;
+}
+
+// =============== TASK_* (plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 5 个 task tool) ===============
+//
+// 5 个 task tool schema：从原 src/main/task-manager/tools.ts 抽出，转 agent-deck-mcp 同款 SHAPE 模式。
+//
+// **D5 修法**：schema 加 caller_session_id?（与现有 10 个 simple tool 同款 — in-process closure
+// override 优先于 args 字段）。task_create owner_session_id 不在 schema 暴露（closure 强制注入
+// ctx.caller.callerSessionId）。
+//
+// 协议: caller_session_id 字段在 in-process / HTTP / stdio 三 transport 行为见 SPAWN_SESSION_SCHEMA
+// 同字段注释。task 5 个 tool 同款语义。
+
+export const TASK_CREATE_SCHEMA = {
+  subject: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe('Short task title (1-200 chars)'),
+  description: z
+    .string()
+    .max(2000)
+    .nullable()
+    .optional()
+    .describe('Detailed description (≤2000 chars)'),
+  status: z
+    .enum(STATUS_VALUES)
+    .optional()
+    .describe('Initial status (default "pending")'),
+  active_form: z
+    .string()
+    .nullable()
+    .optional()
+    .describe('Name of the agent currently working on / claiming this task'),
+  priority: z
+    .number()
+    .int()
+    .min(0)
+    .max(10)
+    .optional()
+    .describe('Priority 0-10 (default 5)'),
+  blocks: z
+    .array(z.string())
+    .optional()
+    .describe('IDs of downstream tasks that this task blocks'),
+  blocked_by: z
+    .array(z.string())
+    .optional()
+    .describe('IDs of upstream tasks that block this task'),
+  labels: z.array(z.string()).optional().describe('Free-form tags'),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（task_create 不允许 external caller）。',
+    ),
+};
+
+export const TASK_LIST_SCHEMA = {
+  status_filter: z
+    .enum(STATUS_VALUES)
+    .optional()
+    .describe('Only return tasks with this status'),
+  subject_filter: z
+    .string()
+    .optional()
+    .describe('Case-insensitive substring match on subject'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe('Default 100, max 500'),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe('Default 0'),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__；task_list 允许 external (返空 visible scope 是预期)。',
+    ),
+};
+
+export const TASK_GET_SCHEMA = {
+  task_id: z.string().describe('Task UUID returned by task_create'),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__；task_get 允许 external (read-only cross-team visibility)。',
+    ),
+};
+
+export const TASK_UPDATE_SCHEMA = {
+  task_id: z.string().describe('Task UUID to update'),
+  subject: z.string().min(1).max(200).optional(),
+  description: z.string().max(2000).nullable().optional(),
+  status: z.enum(STATUS_VALUES).optional(),
+  active_form: z.string().nullable().optional(),
+  priority: z.number().int().min(0).max(10).optional(),
+  blocks: z.array(z.string()).optional(),
+  blocked_by: z.array(z.string()).optional(),
+  labels: z.array(z.string()).optional(),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（task_update 不允许 external caller）。',
+    ),
+};
+
+export const TASK_DELETE_SCHEMA = {
+  task_id: z.string().describe('Task UUID to delete'),
+  force: z
+    .boolean()
+    .optional()
+    .describe('Default false; true = cascade delete blocks downstream chain'),
+  caller_session_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（task_delete 不允许 external caller）。',
+    ),
+};
+
+// Args type infer（与现有 10 个 simple tool 同款 z.infer<z.ZodObject<typeof SCHEMA>>）
+export type TaskCreateArgs = z.infer<z.ZodObject<typeof TASK_CREATE_SCHEMA>>;
+export type TaskListArgs = z.infer<z.ZodObject<typeof TASK_LIST_SCHEMA>>;
+export type TaskGetArgs = z.infer<z.ZodObject<typeof TASK_GET_SCHEMA>>;
+export type TaskUpdateArgs = z.infer<z.ZodObject<typeof TASK_UPDATE_SCHEMA>>;
+export type TaskDeleteArgs = z.infer<z.ZodObject<typeof TASK_DELETE_SCHEMA>>;
+
+// Result types — handler return 用 `satisfies XxxResult` 校验
+
+/** task_create ok return shape (handlers/task-create.ts)。 */
+export type TaskCreateResult = TaskRecord;
+
+/**
+ * task_list ok return shape (handlers/task-list.ts)。
+ *
+ * F4 修法 (deep-review Round 1 reviewer-claude MED-c2)：total 仅是当前页 task 数
+ * (post-LIMIT/OFFSET 已截断的数组长度)；hasMore = tasks.length === effectiveLimit
+ * 提示 caller 是否需要翻下一页。完整 matching count 不暴露（不另起 SELECT COUNT(*)）。
+ */
+export interface TaskListResult {
+  total: number;
+  hasMore: boolean;
+  tasks: TaskRecord[];
+}
+
+/** task_get ok return shape (handlers/task-get.ts)。 */
+export type TaskGetResult = TaskRecord;
+
+/** task_update ok return shape (handlers/task-update.ts)。 */
+export type TaskUpdateResult = TaskRecord;
+
+/**
+ * task_delete ok return shape (handlers/task-delete.ts)。
+ * - success: deleted_ids.length > 0 即视为成功（cascade=false 至少删 target；cascade=true 含下游）
+ * - task_id: 透传 args.task_id（root 删除目标）
+ * - deleted_ids: 实际被删的所有 task id（root + cascade 下游）
+ */
+export interface TaskDeleteResult {
+  success: boolean;
+  task_id: string;
+  deleted_ids: string[];
 }

@@ -331,7 +331,7 @@ describe('translateCodexEvent', () => {
           item: {
             id: 'mcp-1',
             type: 'mcp_tool_call',
-            server: 'tasks',
+            server: 'agent-deck',
             tool: 'task_create',
             arguments: { subject: 'X' },
             status: 'in_progress',
@@ -343,7 +343,7 @@ describe('translateCodexEvent', () => {
       expect(events[0]).toEqual({
         kind: 'tool-use-start',
         payload: {
-          toolName: 'mcp__tasks__task_create',
+          toolName: 'mcp__agent-deck__task_create',
           toolInput: { subject: 'X' },
           toolUseId: 'mcp-1',
         },
@@ -423,7 +423,7 @@ describe('translateCodexEvent', () => {
           item: {
             id: 'mcp-1',
             type: 'mcp_tool_call',
-            server: 'agent_deck',
+            server: 'agent-deck',
             tool: 'spawn_session',
             arguments: { adapter: 'claude-code' },
             status: 'in_progress',
@@ -433,7 +433,7 @@ describe('translateCodexEvent', () => {
       );
       expect(events).toHaveLength(1);
       expect(events[0].payload).toMatchObject({
-        toolName: 'mcp__agent_deck__spawn_session',
+        toolName: 'mcp__agent-deck__spawn_session',
         toolUseId: 'mcp-1',
         status: 'in_progress',
       });
@@ -581,7 +581,7 @@ describe('translateCodexEvent', () => {
           item: {
             id: 'mcp-1',
             type: 'mcp_tool_call',
-            server: 'tasks',
+            server: 'agent-deck',
             tool: 'task_list',
             arguments: {},
             result: { content: [{ type: 'text', text: '[]' }] },
@@ -593,7 +593,7 @@ describe('translateCodexEvent', () => {
       expect(events).toHaveLength(1);
       expect(events[0].payload).toMatchObject({
         toolUseId: 'mcp-1',
-        toolName: 'mcp__tasks__task_list',
+        toolName: 'mcp__agent-deck__task_list',
         status: 'completed',
       });
     });
@@ -606,7 +606,7 @@ describe('translateCodexEvent', () => {
           item: {
             id: 'mcp-2',
             type: 'mcp_tool_call',
-            server: 'tasks',
+            server: 'agent-deck',
             tool: 'task_create',
             arguments: {},
             error: { message: 'subject required' },

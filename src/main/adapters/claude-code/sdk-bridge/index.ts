@@ -317,7 +317,8 @@ export class ClaudeSdkBridge {
         }`,
       );
       // CHANGELOG_85 Step 3.2：mcp server 拼装抽到 mcp-server-init.ts
-      // （settings.enableTaskManager / enableAgentDeckMcp 两 toggle 独立，可同开 / 同关 / 单挂）
+      // （plan task-mcp-merge-into-agent-deck-mcp-20260521 合并后单 server，task tools 跟随
+      // settings.enableAgentDeckMcp toggle；smart migration 守护老用户 enableTaskManager:true 不丢失能力）
       const mcpServers = await buildMcpServersForSession(internal, tempKey);
 
       // **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1

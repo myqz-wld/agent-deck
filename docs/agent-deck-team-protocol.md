@@ -180,7 +180,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_team_id
 -- 注：
 -- 1) 不做 backfill（老 task 的 team_id 全 NULL，需要时由 task-manager 重写阶段 lazy 关联）
 -- 2) task-repo.list({teamId}) 优先走 team_id 列；旧 team_name 仅做 fallback
--- 3) 老 mcp__tasks__task_create 入参 team_name 临时映射：lookup agent_deck_teams.name → team_id（active 唯一）
+-- 3) 老 mcp__agent-deck__task_create 入参 team_name 临时映射：lookup agent_deck_teams.name → team_id（active 唯一）
 ```
 
 ### 2.3 老字段 deprecate 策略

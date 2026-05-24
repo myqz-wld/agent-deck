@@ -1,5 +1,6 @@
 /**
- * Agent Deck MCP server 的 10 个 in-process tool 注册 facade（B'0 ADR §3）。
+ * Agent Deck MCP server 的 15 个 in-process tool 注册 facade（B'0 ADR §3；10 现有 + 5 task —
+ * plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 task-manager 入本 namespace 后）。
  *
  * 三 transport（in-process / HTTP / stdio）共享同一份 buildAgentDeckTools 输出；
  * transport 层负责 caller-id 注入策略：
@@ -48,6 +49,11 @@ import {
   ENTER_WORKTREE_SCHEMA,
   EXIT_WORKTREE_SCHEMA,
   SHUTDOWN_BATON_TEAMMATES_SCHEMA,
+  TASK_CREATE_SCHEMA,
+  TASK_LIST_SCHEMA,
+  TASK_GET_SCHEMA,
+  TASK_UPDATE_SCHEMA,
+  TASK_DELETE_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
@@ -59,6 +65,11 @@ import { handOffSessionHandler } from './handlers/hand-off-session';
 import { enterWorktreeHandler } from './handlers/enter-worktree';
 import { exitWorktreeHandler } from './handlers/exit-worktree';
 import { shutdownBatonTeammatesHandler } from './handlers/shutdown-baton-teammates';
+import { taskCreateHandler } from './handlers/task-create';
+import { taskListHandler } from './handlers/task-list';
+import { taskGetHandler } from './handlers/task-get';
+import { taskUpdateHandler } from './handlers/task-update';
+import { taskDeleteHandler } from './handlers/task-delete';
 
 // helpers 子集 re-export，保持老 caller 兼容（外部对 makeCallerContext / denyExternalIfNotAllowed
 // 的 import 路径 `from './tools'` 仍能 resolve）。
@@ -330,6 +341,81 @@ export async function buildAgentDeckTools(
     },
   );
 
+  // plan task-mcp-merge-into-agent-deck-mcp-20260521：5 个 task tool 合并入 agent-deck-mcp
+  // namespace（工具名从 mcp__tasks__task_* 切到 mcp__agent-deck__task_*，breaking change）。
+  // R3-claude-LOW-1：用 plain SHAPE 注册（与 8 个 simple tool 同款，不走 archive_plan /
+  // hand_off_session 的 ARGS_SCHEMA.safeParse-wrapper pattern — task tools 无 .strict() /
+  // .refine() invariant 需 production 真跑校验）。
+  // R1 F3 + R2 F-R2-1：annotations 4-tuple 显式标 — task_delete idempotentHint:false 与现状
+  // contract 对齐（not-found 返 isError 不是 noop）。
+  const taskCreate = tool(
+    AGENT_DECK_TOOL_NAMES.taskCreate,
+    `Create a structured task in the agent-deck task store. The task is automatically owned by the current session (owner_session_id = caller_session_id). Visible to all sessions sharing any active team with the caller. Returns the created task with auto-generated id.`,
+    TASK_CREATE_SCHEMA,
+    async (args, extra) => taskCreateHandler(args, makeCtx(args, extra)),
+    {
+      // task_create: 写 tasks 表 INSERT 不破坏不幂等（重复 create 多条不同 task）；
+      // 不与外部世界交互（限项目内 task store）。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+  );
+
+  const taskList = tool(
+    AGENT_DECK_TOOL_NAMES.taskList,
+    `List tasks visible to the current session: caller-owned tasks + tasks owned by any session sharing an active team with caller (archived teams excluded). Returns { total, hasMore, tasks: [...] } where total = tasks.length on current page (post-LIMIT/OFFSET) and hasMore signals more results may exist (tasks.length === limit). Default limit=100, max 500.`,
+    TASK_LIST_SCHEMA,
+    async (args, extra) => taskListHandler(args, makeCtx(args, extra)),
+    { annotations: { readOnlyHint: true } },
+  );
+
+  const taskGet = tool(
+    AGENT_DECK_TOOL_NAMES.taskGet,
+    'Get a single task by id. Returns the task regardless of team scope (read-only cross-team visibility).',
+    TASK_GET_SCHEMA,
+    async (args, extra) => taskGetHandler(args, makeCtx(args, extra)),
+    { annotations: { readOnlyHint: true } },
+  );
+
+  const taskUpdate = tool(
+    AGENT_DECK_TOOL_NAMES.taskUpdate,
+    `Incrementally update a task. Caller must share an active team with the task owner (or be the owner). Omitted fields are left unchanged. Pass null to clear nullable fields (description, active_form). updated_at is auto-refreshed.`,
+    TASK_UPDATE_SCHEMA,
+    async (args, extra) => taskUpdateHandler(args, makeCtx(args, extra)),
+    {
+      // task_update: 写 tasks 表 UPDATE 不破坏不幂等（重复 update 状态值会重复改但语义稳定）；
+      // 不与外部世界交互。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+  );
+
+  const taskDelete = tool(
+    AGENT_DECK_TOOL_NAMES.taskDelete,
+    `Delete a task by id. Caller must share an active team with the task owner (or be the owner). With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also write-permission-checked: cross-team children are skipped, not deleted). Without force, surviving tasks have their blocks/blocked_by references to it cleaned up.`,
+    TASK_DELETE_SCHEMA,
+    async (args, extra) => taskDeleteHandler(args, makeCtx(args, extra)),
+    {
+      // task_delete: 真删 task + cascade 下游是破坏性；R2 F-R2-1：idempotentHint:false
+      // 与现状 contract 对齐（not-found 返 isError 不是 noop —— 与 archive_plan idempotentHint:false
+      // 同款；不像 shutdown_session 已 closed noop 等价）。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+  );
+
   return [
     spawnSession,
     sendMessage,
@@ -341,5 +427,10 @@ export async function buildAgentDeckTools(
     enterWorktree,
     exitWorktree,
     shutdownBatonTeammates,
+    taskCreate,
+    taskList,
+    taskGet,
+    taskUpdate,
+    taskDelete,
   ];
 }

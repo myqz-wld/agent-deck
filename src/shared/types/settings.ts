@@ -190,22 +190,9 @@ export interface AppSettings {
   injectAgentDeckPlugin: boolean;
   // R3.E6 (PR-B) 删除：原 `agentTeamsEnabled` / `autoApproveTeammateMode` 字段下线，
   // 由新 universal team backend 取代（详 docs/agent-deck-team-protocol.md）。
-  // settings-store REMOVED_KEYS 自动清理历史持久化值。
-  /**
-   * SDK Task Manager 总开关（默认 OFF / CHANGELOG_43）。开启后 SDK 会话 `query()`
-   * 注入 5 个 in-process MCP tools（mcp__tasks__task_create / list / get / update /
-   * delete），让 Claude 能跨 SDK Agent 协作管理结构化任务（与 ~/.claude/tasks/<team>/
-   * <list>.md 自然语言任务并行；本工具是结构化、可被 tool 精确调用的另一套）。
-   *
-   * 与 injectAgentDeckPlugin / agentTeamsEnabled 同模式：spawn-time 注入，关掉**只影响
-   * 下次新建会话**——已起的 CLI 子进程已按这个 flag 启动 mcpServers / allowedTools，
-   * 撤不掉。summarizer 走自己的 query() 不受本开关影响（设计与 sandbox 同隔离）。
-   *
-   * Closure 自动注入 team_name：每个 SDK 会话的 task_create / task_update / task_delete
-   * 强制用当前 session.team_name（agent 不必也不能瞎传），避免任务漂到别的 team；
-   * task_list / task_get 是只读，允许 args 显式跨 team 查询协调。
-   */
-  enableTaskManager: boolean;
+  // plan task-mcp-merge-into-agent-deck-mcp-20260521：原 `enableTaskManager` 字段下线，
+  // 5 个 task tool 合并入 agent-deck-mcp namespace，跟随 enableAgentDeckMcp 开关；
+  // settings-store REMOVED_KEYS + smart migration 守护老用户 ON 值不丢失能力。
   /**
    * CHANGELOG_107:fallback 路径(jsonl missing / cwdFellBack=true)起 fresh CLI 之前
    * 自动调 LLM 生成历史摘要 prepend 到首条 prompt(让用户体感「Claude 还能续聊」,
@@ -295,8 +282,12 @@ export interface AppSettings {
    * 关 → in-process 不挂 + HTTP 路由 401 + stdio 子命令报「未启用」 +
    * Codex config.toml 自动剥离 `mcp_servers.agent_deck` 段。
    *
-   * 与 enableTaskManager 同模式：spawn-time 注入，关掉只影响**下次新建会话**。
+   * 与 injectAgentDeckPlugin 同模式：spawn-time 注入，关掉只影响**下次新建会话**。
    * HTTP 路由 hot-toggle 立即生效。
+   *
+   * **plan task-mcp-merge-into-agent-deck-mcp-20260521**：原 enableTaskManager 字段下线后，
+   * 5 个 task tool（task_create / task_list / task_get / task_update / task_delete）
+   * 也跟随本开关，工具名 mcp__agent-deck__task_*（breaking from mcp__tasks__*）。
    */
   enableAgentDeckMcp: boolean;
   /**
@@ -398,14 +389,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   injectAgentDeckCodexAgentsMd: true,
   injectAgentDeckCodexSkills: true,
   injectAgentDeckPlugin: true,
-  // R3.E6 (PR-B) 删 agentTeamsEnabled / autoApproveTeammateMode；REMOVED_KEYS 自动清历史
-  enableTaskManager: false,
+  // R3.E6 (PR-B) 删 agentTeamsEnabled / autoApproveTeammateMode；
+  // plan task-mcp-merge-into-agent-deck-mcp-20260521 删 enableTaskManager；
+  // REMOVED_KEYS + smart migration 自动清历史 + 守护老用户 ON 值（详 settings-store.ts）
   autoSummariseOnFallback: true,
   claudeCodeSandbox: 'off',
   codexSandbox: 'workspace-write',
   codexMcpServers: [],
   // R3.E6 删 autoApproveTeammateMode；REMOVED_KEYS 自动清历史
-  // R2 / B'0 ADR §7：Agent Deck MCP server 默认 OFF（与 enableTaskManager 同模式）
+  // B'0 ADR §7：Agent Deck MCP server 默认 OFF（task tools 跟随，详 enableAgentDeckMcp jsdoc）
   enableAgentDeckMcp: false,
   mcpServerToken: null,
   mcpHttpEnabled: true,

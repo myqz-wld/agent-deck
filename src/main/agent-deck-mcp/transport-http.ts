@@ -21,8 +21,8 @@
  * per-request fresh transport instance**（plan reviewer-codex-cross-adapter-20260519
  * Phase 0 收口结论 + Step 0.4 fix 路径 B 实证）：
  *
- * - 我们的 5 个 mcp tool（spawn / send / list / get / shutdown）+ 5 个新 plan-driven tool
- *   （archive_plan / hand_off_session / enter_worktree / exit_worktree / shutdown_baton_teammates）
+ * - 我们的 15 个 mcp tool（10 现有 + 5 task；详 server.ts:36-39 SSOT — plan
+ *   task-mcp-merge-into-agent-deck-mcp-20260521 合并 task-manager 入本 namespace 后）
  *   都**无 cross-request session state 需求** — 每条 request 携带 caller_session_id（per-session
  *   token 反查 → resolvedSid），handler 只看单 request 内 args 即可处理，不需要 mcp-sdk
  *   协议层 session lifecycle
@@ -119,7 +119,8 @@ async function loadMcpSdk(): Promise<{
 }
 
 /**
- * 创建 mcp-sdk McpServer 实例并注册 5 个 agent-deck tool。
+ * 创建 mcp-sdk McpServer 实例并注册 15 个 agent-deck tool（10 现有 + 5 task — plan
+ * task-mcp-merge-into-agent-deck-mcp-20260521 合并后）。
  * 调用方负责把它 connect 到 transport（HTTP / stdio）。
  */
 async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http' | 'stdio') {

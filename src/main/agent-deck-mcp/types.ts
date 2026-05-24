@@ -55,7 +55,7 @@ export interface CallerContext {
 }
 
 /**
- * Agent Deck MCP tool 7 个名字常量集中地。
+ * Agent Deck MCP tool 15 个名字常量集中地（10 现有 + 5 task — plan task-mcp-merge-into-agent-deck-mcp-20260521 合并）。
  * 文档（README + skill）+ 防御性 deny 决策（B'5 / B'2.a）共用。
  *
  * plan mcp-bug-and-feature-batch-20260513 Phase 4a Step 4a.1：加 archive_plan tool
@@ -78,6 +78,10 @@ export interface CallerContext {
  * 加 enter_worktree + exit_worktree 两个 tool — 7 → 9 tool。给 codex / 跨 adapter caller
  * 提供 claude builtin EnterWorktree / ExitWorktree 的等价能力,让 archive_plan 预检走 4
  * 态分流时认得跨 adapter 路径(详 P1 Step 1.4 archive-plan-impl.ts)。
+ *
+ * plan task-mcp-merge-into-agent-deck-mcp-20260521：合并 task-manager/ 的 5 个 task tool
+ * 进 agent-deck-mcp namespace — 10 → 15 tool（含 task_create/list/get/update/delete）。
+ * 让 codex SDK 子进程通过现有 mcp_servers.agent-deck HTTP transport 自动拿到 task tool。
  */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
@@ -94,6 +98,13 @@ export const AGENT_DECK_TOOL_NAMES = {
   // shutdown，不归档 caller）。仅供 archive_plan precheck fail fallback / 历史 dormant 残留
   // 清理使用。
   shutdownBatonTeammates: 'shutdown_baton_teammates',
+  // plan task-mcp-merge-into-agent-deck-mcp-20260521：5 个 task tool 合并入 agent-deck namespace
+  // （工具名从 mcp__tasks__task_* 切到 mcp__agent-deck__task_*，breaking change）。
+  taskCreate: 'task_create',
+  taskList: 'task_list',
+  taskGet: 'task_get',
+  taskUpdate: 'task_update',
+  taskDelete: 'task_delete',
 } as const;
 
 export type AgentDeckToolName =
@@ -106,6 +117,14 @@ export type AgentDeckToolName =
  * 越权 IPC / 高风险 git+fs 写 / 起 SDK session 的 fork bomb / setMarker 需 per-session 真实
  * caller_session_id / 写 sessionManager.close 需 caller=lead 反查关系）；
  * list_sessions / get_session 是只读 / 观察类，允许 external。
+ *
+ * **plan task-mcp-merge-into-agent-deck-mcp-20260521 §D6 + R1 F1**：5 个 task tool 严格类型 +
+ * 显式赋值（不存在「不加 = allow」语义 — Record 严格类型 + denyExternalIfNotAllowed 把
+ * undefined 当 deny）：
+ * - task_create / task_update / task_delete deny external（防 UUID 不可恢复 / blocks 链路混乱 /
+ *   owner_session_id 跨 session FK 误改 — 与现有 8 个 write tool 防御一致）
+ * - task_list / task_get allow external（只读没 spoofing 风险；合法 read-only mcp client
+ *   查询自己已知 task_id 是合法 use case）
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,
@@ -118,4 +137,10 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   enter_worktree: false,
   exit_worktree: false,
   shutdown_baton_teammates: false,
+  // task tools (plan task-mcp-merge-into-agent-deck-mcp-20260521 §D6 R1 F1)
+  task_create: false,
+  task_update: false,
+  task_delete: false,
+  task_list: true,
+  task_get: true,
 };

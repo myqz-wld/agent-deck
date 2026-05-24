@@ -81,10 +81,6 @@ vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
   getAgentDeckPluginsForSession: () => undefined,
 }));
 
-vi.mock('@main/task-manager/server', () => ({
-  getTasksMcpServerForSession: vi.fn(() => null),
-}));
-
 vi.mock('@main/agent-deck-mcp/server', () => ({
   getAgentDeckMcpServerForSession: vi.fn(() => null),
   AGENT_DECK_MCP_TOOL_PATTERN: /^mcp__agent-deck/,

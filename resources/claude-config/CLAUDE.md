@@ -14,12 +14,12 @@
 
 本应用环境（agent-deck）teammate 协作走 mcp tool（详 §Agent Deck Universal Team Backend 节）。teammate 通过 `send_message` 发消息 → universal-message-watcher → adapter.receiveTeammateMessage → adapter.sendMessage → SDK emit user-role event 自动注入 receiver conversation flow（receiver Claude 看到 user message 直接 act on it，无需主动 poll）。
 
-### task 进度跟踪走 `mcp__tasks__*`,不走原生 `TaskCreate / TaskUpdate / TaskList`
+### task 进度跟踪走 `mcp__agent-deck__task_*`,不走原生 `TaskCreate / TaskUpdate / TaskList`
 
-本应用环境跑 plan / 多 Agent 协作 / 多步骤工作时,**task 进度跟踪必须走** `mcp__tasks__task_create` / `task_update` / `task_list` / `task_get` / `task_delete`,**不走** Claude Code CLI 内置的 `TaskCreate` / `TaskUpdate` / `TaskList`。
+本应用环境跑 plan / 多 Agent 协作 / 多步骤工作时,**task 进度跟踪必须走** `mcp__agent-deck__task_create` / `task_update` / `task_list` / `task_get` / `task_delete`,**不走** Claude Code CLI 内置的 `TaskCreate` / `TaskUpdate` / `TaskList`。
 
-**Why** (plan task-mcp-owner-session-id-rewrite-20260521 v023):
-- `mcp__tasks__*` 自动把当前 SDK session 闭包为 task `owner_session_id`(NOT NULL FK → sessions(id) ON DELETE CASCADE)。task 必有 owner,无 "global task" 概念
+**Why** (plan task-mcp-owner-session-id-rewrite-20260521 v023 + task-mcp-merge-into-agent-deck-mcp-20260521 合并):
+- `mcp__agent-deck__task_*` 自动把当前 SDK session 闭包为 task `owner_session_id`(NOT NULL FK → sessions(id) ON DELETE CASCADE)。task 必有 owner,无 "global task" 概念
 - 可见性 = caller 同 team active member 的 task(reverse join sessions → agent_deck_team_members 算)。同 team 都能看到对方的 task,teammate / hand-off 后新 session 不丢进度
 - 写权限 = caller 与 task owner 共享 active team(含 caller==owner 特例)。跨 team 写 reject;同 team 协作放宽
 - `hand_off_session` baton 时自动过继 task: spawn 新 session 后原子 `UPDATE tasks SET owner_session_id = newSid WHERE owner_session_id = oldSid`,baton 单向交接语义自然成立
@@ -27,13 +27,15 @@
 - 原生 `TaskCreate` 只 in-process 当前 SDK session 可见,跨会话 / 跨 teammate 全部丢失,与 universal team backend 协作意图相违背
 
 **How to apply**:
-- 新建 task: `mcp__tasks__task_create({ subject, description?, status?, priority?, blocks?, blocked_by?, labels? })` → 返 `{ id, ownerSessionId, ... }`,owner_session_id 自动闭包当前 caller
-- 状态切换: `mcp__tasks__task_update({ task_id, status })`,枚举 `pending` / `active` / `completed` / `blocked` / `abandoned`(注意 `active` 替代原生 `in_progress`)
-- 列表查询: `mcp__tasks__task_list({ status_filter?, subject_filter?, limit?, offset? })` — 自动返 caller 视角 visible scope(caller 自己 + 同 team active member 的 task)。无 team_id 参数(team scope 自动 reverse join 算)
-- 单个查询: `mcp__tasks__task_get({ task_id })`(不限 team scope,跨 team 可读)
-- 删除: `mcp__tasks__task_delete({ task_id, force?: false })`,force=true 级联删 downstream(cascade BFS 路径上每个 child 都过写权限,跨 team 子节点 skip)
+- 新建 task: `mcp__agent-deck__task_create({ subject, description?, status?, priority?, blocks?, blocked_by?, labels? })` → 返 `{ id, ownerSessionId, ... }`,owner_session_id 自动闭包当前 caller
+- 状态切换: `mcp__agent-deck__task_update({ task_id, status })`,枚举 `pending` / `active` / `completed` / `blocked` / `abandoned`(注意 `active` 替代原生 `in_progress`)
+- 列表查询: `mcp__agent-deck__task_list({ status_filter?, subject_filter?, limit?, offset? })` — 自动返 caller 视角 visible scope(caller 自己 + 同 team active member 的 task)。无 team_id 参数(team scope 自动 reverse join 算)
+- 单个查询: `mcp__agent-deck__task_get({ task_id })`(不限 team scope,跨 team 可读)
+- 删除: `mcp__agent-deck__task_delete({ task_id, force?: false })`,force=true 级联删 downstream(cascade BFS 路径上每个 child 都过写权限,跨 team 子节点 skip)
 
-**例外**: 应用 settings `enableTaskManager: false` 关闭时本组工具不挂 → 退化用户全局 user CLAUDE.md 默认机制(原生 TaskCreate/TaskUpdate);但本应用打包 SDK 会话默认行为是 toggle ON 时挂上,挂上后**优先用 mcp__tasks__\***,不重复用原生 TaskCreate 制造两套 task list 进度漂移。
+**例外**: 应用 settings `enableAgentDeckMcp: false` 关闭时本组工具(以及其他 agent-deck mcp 工具)整体不挂 → 退化用户全局 user CLAUDE.md 默认机制(原生 TaskCreate/TaskUpdate);本应用打包 SDK 会话默认行为是 toggle ON 时挂上,挂上后**优先用 mcp__agent-deck__task_\***,不重复用原生 TaskCreate 制造两套 task list 进度漂移。
+
+**Breaking 历史**: 5 个 task tool 从 `mcp__tasks__task_*` 改名 `mcp__agent-deck__task_*`(plan task-mcp-merge-into-agent-deck-mcp-20260521),task 物理位置合并入 agent-deck-mcp namespace + 删独立 `enableTaskManager` toggle(smart migration 自动 carry 老用户 ON 值到 `enableAgentDeckMcp`)。
 
 ### reviewer-codex 失败 → SKILL 内合规兜底分支
 
@@ -43,7 +45,7 @@
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 10 tool（`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`）编排。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 15 tool（10 现有：`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`；+ 5 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`）编排 + 管理结构化任务。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
 速查：`spawn_session` 起 SDK session；`send_message` 统一发消息 / reply；`list_sessions` / `get_session` 只读查会话；`shutdown_session` close lifecycle 不删数据；`archive_plan` 原子归档 plan；`hand_off_session` baton 接力；`enter_worktree` / `exit_worktree` 管 worktree；`shutdown_baton_teammates` 补跑 teammate cleanup。
 
