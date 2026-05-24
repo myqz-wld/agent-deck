@@ -10,9 +10,11 @@ interface Props {
 /**
  * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6）。
  *
- * 功能：让 claude / codex / 第三方 MCP client 通过 10 个 tool（spawn_session /
+ * 功能：让 claude / codex / 第三方 MCP client 通过 15 个 tool（10 现有：spawn_session /
  * send_message / list_sessions / get_session / shutdown_session / archive_plan /
- * hand_off_session / enter_worktree / exit_worktree / shutdown_baton_teammates）跨 adapter 编排其他 coding agent session。
+ * hand_off_session / enter_worktree / exit_worktree / shutdown_baton_teammates；+
+ * 5 task：task_create / task_list / task_get / task_update / task_delete）跨 adapter 编排
+ * 其他 coding agent session + 管理结构化任务。
  *
  * UI 布局（自顶向下）：
  * 1. 总开关 enableAgentDeckMcp + 描述
@@ -20,8 +22,9 @@ interface Props {
  * 3. 防递归 3 条规则的可调阈值（depth / spawn-rate / fan-out）
  * 4. mcpServerToken 显示（只读 + 复制按钮，自动生成不允许改）
  *
- * 与 ExperimentalSection 区分：那边是「实验功能」（agentTeamsEnabled / TaskManager / sandbox），
- * 这边是「跨 runtime 编排」独立 section。
+ * 与 ExperimentalSection 区分：那边是「实验功能」（sandbox / autoSummariseOnFallback），
+ * 这边是「跨 runtime 编排 + 结构化任务管理」独立 section（plan task-mcp-merge-into-agent-deck-mcp-20260521：
+ * task tools 合并入此 namespace 后 ExperimentalSection 删 enableTaskManager 独立 toggle）。
  *
  * 改 mcpHttpEnabled / mcpStdioEnabled 提示：HTTP transport 需要重启应用生效（fastify 不支持
  * 运行时 deregister 路由）；mcpHttpEnabled / mcpStdioEnabled / enableAgentDeckMcp 任一从 OFF
@@ -36,8 +39,8 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         onChange={(v) => void update({ enableAgentDeckMcp: v })}
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        让 claude / codex / 任何支持 MCP 的 coding agent 通过 10 个 tool 跨 adapter
-        编排其他会话：<code className="rounded bg-white/5 px-1">spawn_session</code> /
+        让 claude / codex / 任何支持 MCP 的 coding agent 通过 15 个 tool 跨 adapter
+        编排其他会话 + 管理结构化任务：<code className="rounded bg-white/5 px-1">spawn_session</code> /
         <code className="rounded bg-white/5 px-1">send_message</code> /
         <code className="rounded bg-white/5 px-1">list_sessions</code> /
         <code className="rounded bg-white/5 px-1">get_session</code> /
@@ -46,7 +49,18 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         <code className="rounded bg-white/5 px-1">hand_off_session</code> /
         <code className="rounded bg-white/5 px-1">enter_worktree</code> /
         <code className="rounded bg-white/5 px-1">exit_worktree</code> /
-        <code className="rounded bg-white/5 px-1">shutdown_baton_teammates</code>。
+        <code className="rounded bg-white/5 px-1">shutdown_baton_teammates</code> /
+        <code className="rounded bg-white/5 px-1">task_create</code> /
+        <code className="rounded bg-white/5 px-1">task_list</code> /
+        <code className="rounded bg-white/5 px-1">task_get</code> /
+        <code className="rounded bg-white/5 px-1">task_update</code> /
+        <code className="rounded bg-white/5 px-1">task_delete</code>。
+        <br />
+        <strong className="text-deck-text/85">task tools 权限模型</strong>：
+        owner_session_id 自动闭包 = caller_session_id；写操作（create / update / delete）
+        要求 caller 与 task owner 共享 active team（含 caller==owner 特例），跨 team 写拒；
+        只读（list / get）允许跨 team visibility 协调。external caller（HTTP/stdio sentinel）
+        仅允许只读（task_list / task_get），写默认 deny。
         <br />
         <strong className="text-deck-text/85">三 transport 并存</strong>：
         in-process（claude SDK 会话自动挂）/ HTTP（codex 自动挂 + 外部 MCP client） /

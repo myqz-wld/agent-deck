@@ -35,7 +35,6 @@ export interface BuildClaudeQueryOptionsArgs {
   /** undefined → SDK 自己解析；非 undefined → 显式覆盖 .app/asar.unpacked 路径 */
   claudeBinary: string | undefined;
   mcpServers: {
-    tasksServer: McpSdkServerConfigWithInstance | null;
     agentDeckMcpServer: McpSdkServerConfigWithInstance | null;
   };
   /**
@@ -63,7 +62,7 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     plugins,
     runtime,
     claudeBinary,
-    mcpServers: { tasksServer, agentDeckMcpServer },
+    mcpServers: { agentDeckMcpServer },
     model,
   } = args;
 
@@ -95,20 +94,16 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突
     // （plugin 强制命名空间前缀）。
     plugins,
-    // Task Manager（CHANGELOG_43）+ Agent Deck MCP（B'3）：开关开 → 挂对应
-    // in-process MCP server + pre-approve `mcp__<name>__*` 通配（应用工具属于
-    // 受控工具，不走 canUseTool 弹框）。两者独立 toggle，可同开 / 同关 / 单挂。
-    // 开关关 → 不展开两字段，与不挂 plugin 同语义零副作用。
-    ...(tasksServer || agentDeckMcpServer
+    // Agent Deck MCP（plan task-mcp-merge-into-agent-deck-mcp-20260521 合并后单 server，15 tool —
+    // 10 现有 + 5 task）：开关开 → 挂 in-process MCP server + pre-approve `mcp__agent-deck__*`
+    // 通配（应用工具属于受控工具，不走 canUseTool 弹框）。开关关 → 不展开两字段，与不挂 plugin
+    // 同语义零副作用。原独立 tasks server 已合并入 agent-deck namespace，删 enableTaskManager 独立 toggle。
+    ...(agentDeckMcpServer
       ? {
           mcpServers: {
-            ...(tasksServer ? { tasks: tasksServer } : {}),
-            ...(agentDeckMcpServer ? { 'agent-deck': agentDeckMcpServer } : {}),
+            'agent-deck': agentDeckMcpServer,
           },
-          allowedTools: [
-            ...(tasksServer ? ['mcp__tasks__*'] : []),
-            ...(agentDeckMcpServer ? [AGENT_DECK_MCP_TOOL_PATTERN] : []),
-          ],
+          allowedTools: [AGENT_DECK_MCP_TOOL_PATTERN],
         }
       : {}),
     // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）

@@ -31,6 +31,12 @@ const REMOVED_KEYS: readonly string[] = [
   // 重命名为 windowTransparent + 解耦语义。一次性 migration 在 ensure() 内做（旧值 →
   // 新字段），随后 REMOVED_KEYS 自动清孤儿字段，老用户偏好不丢。
   'transparentWhenPinned',
+  // plan task-mcp-merge-into-agent-deck-mcp-20260521：5 个 task tool 合并入
+  // agent-deck-mcp namespace 后删 enableTaskManager 独立 toggle，task tools 跟随
+  // enableAgentDeckMcp 开关。smart migration（见 ensure() 内）守护老用户 ON 值不丢
+  // 失能力 — raw enableTaskManager:true + raw 不含 enableAgentDeckMcp → 自动 set
+  // enableAgentDeckMcp:true 后再 delete legacy（详 plan §D2 R1 F11 + R3-claude-MED-1）。
+  'enableTaskManager',
 ];
 
 let store: (Store<AppSettings> & StoreApi<AppSettings>) | null = null;
@@ -70,6 +76,27 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
     if (raw['mcpSpawnRatePerMinute'] === 10) {
       store.set('mcpSpawnRatePerMinute', 20);
       console.log('[settings] migrated mcpSpawnRatePerMinute 10 → 20 (default uplift, plan F2)');
+    }
+    // plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 + R3-claude-MED-1:
+    // smart migration 守护老用户 enableTaskManager:true 不丢失能力。在 REMOVED_KEYS
+    // delete loop 之前 (line 74) 读 raw.enableTaskManager 决定是否 carry 到 enableAgentDeckMcp。
+    //
+    // 4 case 矩阵（详 plan §测试覆盖矩阵 settings-store migration 4 格断言）：
+    // - raw enableTaskManager:true + raw 不含 enableAgentDeckMcp → set enableAgentDeckMcp:true
+    //   + warn（保留老用户「task tools 可用」语义；5 个 task tool 已合入 agent-deck namespace）
+    // - raw enableTaskManager:false + raw 不含 enableAgentDeckMcp → 不动 enableAgentDeckMcp
+    //   （保留默认 false；老用户主动 OFF 表达「不想用」尊重）
+    // - raw 含 explicit enableAgentDeckMcp 值 → migration skip（用户决策优先）
+    // - raw 全空（fresh install）→ migration no-op + 不打 warn（新用户路径不该看 warn 噪音）
+    if (
+      'enableTaskManager' in raw &&
+      raw['enableTaskManager'] === true &&
+      !('enableAgentDeckMcp' in raw)
+    ) {
+      store.set('enableAgentDeckMcp', true);
+      console.log(
+        '[settings] migrated enableTaskManager=true → enableAgentDeckMcp=true (plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 — task tools 合并入 agent-deck namespace，保留老用户 ON 值不丢失能力)',
+      );
     }
     for (const key of REMOVED_KEYS) {
       if (key in raw) {

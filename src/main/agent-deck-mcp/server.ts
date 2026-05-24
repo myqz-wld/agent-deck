@@ -9,7 +9,7 @@
  *   通过 `agent-deck mcp` 子命令的子进程入口启动
  *
  * 调用者契约：
- * - in-process（per-session 实例化，与 task-manager getTasksMcpServerForSession 同模式）：
+ * - in-process（B'3，per-session 实例化）：
  *   `await getAgentDeckMcpServerForSession(callerSessionIdProvider)` → 挂 query.mcpServers
  * - HTTP（应用全局单例，跟 HookServer 一起启停）：
  *   `await registerAgentDeckMcpHttpRoutes(routeRegistry)` → fastify 自动挂 /mcp
@@ -25,15 +25,18 @@ import { buildAgentDeckTools } from './tools';
  * 构造 in-process MCP server（B'3 在 sdk-bridge 内调，per-session 实例化）。
  *
  * `callerSessionIdProvider` lazy 工厂：每次 tool 调用时调一次拿当前 SDK session id，
- * 用于强制覆盖 args.caller_session_id（防 prompt 注入伪造身份）。与 task-manager
- * `getTasksMcpServerForSession` 同款 pattern（CHANGELOG_46 / CHANGELOG_<X> A3）。
+ * 用于强制覆盖 args.caller_session_id（防 prompt 注入伪造身份）。
  *
- * 与 task-manager server name 'tasks' 区分：本 server name = 'agent-deck'，对应
- * SDK pre-approve `mcp__agent-deck__*` 通配（**注意 hyphen 不是 underscore**：MCP
- * 协议 `mcp__<server-name>__<tool-name>` 中 server-name 含连字符就照搬，不会做
- * hyphen→underscore 重写。R1 deep review HIGH-1 发现历史 pattern 用 underscore =
- * 与 server name 'agent-deck' 不匹配 → SDK fnmatch 永远命中不上 → allowedTools 实际
- * 不生效。Phase A3 修：pattern 与 name 对齐用 hyphen）。
+ * **server name = 'agent-deck'**：对应 SDK pre-approve `mcp__agent-deck__*` 通配
+ * （**注意 hyphen 不是 underscore**：MCP 协议 `mcp__<server-name>__<tool-name>` 中
+ * server-name 含连字符就照搬，不会做 hyphen→underscore 重写。R1 deep review HIGH-1
+ * 发现历史 pattern 用 underscore = 与 server name 'agent-deck' 不匹配 → SDK fnmatch
+ * 永远命中不上 → allowedTools 实际不生效。Phase A3 修：pattern 与 name 对齐用 hyphen）。
+ *
+ * **plan task-mcp-merge-into-agent-deck-mcp-20260521**：原独立 tasks server 已合并入 agent-deck
+ * namespace，5 个 task tool（task_create / task_list / task_get / task_update / task_delete）
+ * 通过本 server 暴露（工具名 mcp__agent-deck__task_*）。删 task-manager/ 独立模块 + 删
+ * enableTaskManager 独立 toggle，task tools 跟随 enableAgentDeckMcp 开关。
  */
 export async function getAgentDeckMcpServerForSession(
   callerSessionIdProvider: () => string | null,

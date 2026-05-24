@@ -218,21 +218,20 @@ agent-deck new \
   - **Hook Server（本地端口）**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
   - **外部工具**：Codex 二进制路径（留空用应用内置 vendored 版本，约 150MB / 平台）
   - **实验功能**：
-    - **SDK Task Manager**：toggle；开启后 SDK 会话注入 `mcp__tasks__*` 系列结构化任务工具让多 Agent 跨会话协作管理结构化任务。当前会话 team_id（universal team backend）自动闭包注入到工具，写操作锁在自己 team；只读允许跨 team 协调。仅下次新建会话生效。完整工具清单见 Header「📚 资产库」
     - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免。本档位是「全局默认」；新建会话对话框可 per-session 覆盖；会话内可运行时切档冷切重启
     - **Codex 沙盒**：三档下拉（Workspace Write / Read Only / Danger Full Access），与 Claude 默认对齐
 - **跨工具协作（MCP）**
-  - **Agent Deck MCP server（默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 10 个 tool（`spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`）跨 adapter 编排其他 coding agent session。三 transport 并存：
-    - **in-process**：claude SDK 会话自动挂（与 Task Manager 同模式）
+  - **Agent Deck MCP server（默认关）**：toggle 启用后让 claude / codex / 第三方 MCP client 通过 15 个 tool（10 现有：`spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`；+ 5 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`）跨 adapter 编排其他 coding agent session + 管理结构化任务。三 transport 并存：
+    - **in-process**：claude SDK 会话自动挂
     - **HTTP** `/mcp`：codex 启动时通过 SDK config 自动注入 `mcp_servers.agent-deck` 段连接（独立 Bearer token，env var `AGENT_DECK_MCP_TOKEN` 引用）；外部 MCP client 也可连
-    - **stdio**：外部 MCP client（Cursor / Continue / Claude Desktop）通过 `agent-deck mcp` 子命令连，仅允许只读 tool（spawn / send / shutdown 默认 deny 防 fork bomb）
+    - **stdio**：外部 MCP client（Cursor / Continue / Claude Desktop）通过 `agent-deck mcp` 子命令连，仅暴露 4 个只读 tool 给 external caller（`list_sessions` / `get_session` / `task_list` / `task_get`）；其余 11 个 write tool（`spawn_session` / `send_message` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates` / `task_create` / `task_update` / `task_delete`）一律 deny external，防 fork bomb / 跨 client 越权
 
-    防递归规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 20） / 单 caller 最大子会话（默认 10） / cwd realpath 整链回溯 cycle 检测；team message 另有 per-team rate limit（默认 60/min）。reply 不再轮询等待，`send_message` 送达后由 universal-message-watcher 自动注入目标会话和 reply chain。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值。详见 [`docs/agent-deck-mcp-protocol.md`](docs/agent-deck-mcp-protocol.md) 协议 stub
+    防递归规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 20） / 单 caller 最大子会话（默认 10） / cwd realpath 整链回溯 cycle 检测；team message 另有 per-team rate limit（默认 60/min）。reply 不再轮询等待，`send_message` 送达后由 universal-message-watcher 自动注入目标会话和 reply chain。task 工具自动闭包 owner_session_id = caller_session_id；写权限同 team active member 共享；hand_off_session baton 时自动过继 task。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值。详见 [`docs/agent-deck-mcp-protocol.md`](docs/agent-deck-mcp-protocol.md) 协议 stub
   - **Codex MCP Servers**：JSON 编辑 codex CLI 接的外部 MCP server，写到 `~/.codex/config.toml` 的 marker 段（不破坏用户手写其他段）
 
 > 资产注入开关在 Header「📚 资产库」三 tab 顶部，设置面板内不重复（避免单一开关多处真源）。
 
-大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；SDK Task Manager / 沙盒档位 / Agent Deck MCP transport 开关 / 资产注入开关均为 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / idleQuiet）热生效。
+大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；沙盒档位 / Agent Deck MCP transport 开关 / 资产注入开关均为 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / idleQuiet）热生效。
 
 Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md。每个 tab 顶部带「注入开关」横条（Skills tab：Claude plugin + Codex skills 同步；Agents tab：与 Skills 共用 plugin 开关；应用约定 tab：Claude system prompt + Codex AGENTS.md 同步）。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
 
