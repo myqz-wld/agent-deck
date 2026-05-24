@@ -77,6 +77,15 @@ function makeCtx(opts?: {
       opts?.createSession ??
       (async () =>
         ({ sessionId: 'no-fork-default', cwd: '/tmp/test' }) as unknown as SdkSessionHandle),
+    // **plan restart-controller-jsonl-precheck-20260521 §Step 3c + 3g 修法**:
+    // 测试不验证 helper fallback 行为(本 test 只测 fork rename race fix),stub 3 字段让 ctx
+    // typecheck 过。jsonlExistsThunk 返 true → maybeJsonlFallback 走正常 resume 路径(fellBack=false
+    // 不调 createSession / 不 emit),fall through 到原有 line 198+ resume 路径不影响 fork rename
+    // race 行为验证。summariseFn / listEventsFn 走 stub return null / 空数组,fellBack=true 不会
+    // 触发(jsonl 假装在),不调用。
+    jsonlExistsThunk: () => true, // jsonl 假装在 → maybeJsonlFallback fellBack=false 走原路径
+    summariseFn: async () => null,
+    listEventsFn: () => [],
   };
   return { ctx, recovering };
 }

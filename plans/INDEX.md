@@ -53,3 +53,5 @@
 | [reverse-rename-sid-stability-20260520.md](reverse-rename-sid-stability-20260520.md) | completed | [136](../changelog/CHANGELOG_136.md) | reverse-rename-sid-stability-20260520 |
 | [codex-stream-error-classify-20260521.md](codex-stream-error-classify-20260521.md) | completed | [140](../changelog/CHANGELOG_140.md) | codex CLI 5 次内置重连中间态识别 — translate.ts 三态分类(白名单 + 启发式双层 + fatal 优先)|
 | [assets-codex-user-and-ui-unify-20260521.md](assets-codex-user-and-ui-unify-20260521.md) | completed | [141](../changelog/CHANGELOG_141.md) | assets-codex-user-and-ui-unify-20260521 |
+| [restart-controller-jsonl-precheck-20260521.md](restart-controller-jsonl-precheck-20260521.md) | completed | [143](../changelog/CHANGELOG_143.md) | restart-controller-jsonl-precheck-20260521 |
+| [task-mcp-owner-session-id-rewrite-20260521.md](task-mcp-owner-session-id-rewrite-20260521.md) | completed | [144](../changelog/CHANGELOG_144.md) | task-mcp-owner-session-id-rewrite-20260521 |

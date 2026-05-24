@@ -25,6 +25,12 @@ import v014 from '../../migrations/v014_drop_sessions_team_name.sql?raw';
 import v015 from '../../migrations/v015_agent_deck_messages_reply_to.sql?raw';
 import v016 from '../../migrations/v016_agent_deck_teams_archive_reason.sql?raw';
 import v017 from '../../migrations/v017_agent_deck_team_members_cascade.sql?raw';
+import v018 from '../../migrations/v018_sessions_model.sql?raw';
+import v019 from '../../migrations/v019_sessions_extra_allow_write.sql?raw';
+import v020 from '../../migrations/v020_sessions_cwd_release_marker.sql?raw';
+import v021 from '../../migrations/v021_sessions_cli_session_id.sql?raw';
+import v022 from '../../migrations/v022_events_tool_use_dedup.sql?raw';
+import v023 from '../../migrations/v023_tasks_owner_session_id_rewrite.sql?raw';
 
 function probeBetterSqliteBinding(): boolean {
   try {
@@ -42,11 +48,11 @@ function probeBetterSqliteBinding(): boolean {
 
 export const bindingAvailable = probeBetterSqliteBinding();
 
-export function makeMemoryDb(): Database.Database {
-  const db = new Database(':memory:');
+export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
+  const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012, v013, v014, v015, v016, v017]) {
+  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012, v013, v014, v015, v016, v017, v018, v019, v020, v021, v022, v023]) {
     db.exec(sql);
   }
   return db;

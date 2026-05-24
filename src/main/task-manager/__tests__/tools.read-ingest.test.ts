@@ -1,13 +1,14 @@
 /**
- * Task Manager tools.ts 读操作 + A3 ingest 单测（CHANGELOG_43 — CHANGELOG_105 拆分自 tools.test.ts）。
+ * Task Manager tools.ts 读操作 + ingest 单测（plan task-mcp-owner-session-id-rewrite-20260521 v023 重写）。
  *
- * 范围：task_list / task_get 跨 team 读 + A3 sessionIdProvider → ingest team-task-* AgentEvent。
+ * 范围：task_list / task_get 行为 + sessionIdProvider → ingest team-task-* AgentEvent。
+ *
+ * v023 改：
+ * - task_list 默认拉 caller 同 team active member 的所有 task（不再支持 args.team_id 跨 team 查）
+ * - task_get 不限 team（按 task_id 直接 repo.get）
+ * - ingest payload.teamName = caller 当前 first active team name（不再绑死 task.teamName）
  *
  * 不依赖 better-sqlite3 binding，也不依赖真 SDK（mock 与 tools.crud.test.ts 同款）。
- *
- * 覆盖点：
- * - 跨 team 读：task_list 默认 closure / args 优先；task_get 不限 team
- * - A3 sessionIdProvider：写工具调 ingest 写 team-task-* AgentEvent 到 events 表
  *
  * 工具集合形状 + 写工具行为（task_create / task_update / task_delete）在同目录
  * tools.crud.test.ts。
@@ -19,10 +20,8 @@ import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeEventBusMock } from '@main/__tests__/_shared/mocks/event-bus';
 
 // ──────────────── module mocks ────────────────
-// R37 P2-F Step 3.1：sdk-loader / event-bus 走 _shared/mocks/ factory。
 vi.mock('@main/adapters/claude-code/sdk-loader', () => makeSdkLoaderMock());
 
-// event-bus: emit 变成 spy 函数
 const emitSpy = vi.fn();
 vi.mock('@main/event-bus', () => ({
   eventBus: makeEventBusMock({
@@ -32,8 +31,6 @@ vi.mock('@main/event-bus', () => ({
   }),
 }));
 
-// session/manager: ingest 变成 spy（CHANGELOG_<X> A3：tools.ts 写操作后调 ingest
-// 写 team-task-* AgentEvent 到 events 表，让 TeamDetail 事件流也显示 mcp 操作）
 const ingestSpy = vi.fn();
 vi.mock('@main/session/manager', () => ({
   sessionManager: {
@@ -42,7 +39,30 @@ vi.mock('@main/session/manager', () => ({
   setSessionCloseFn: vi.fn(),
 }));
 
-// 在 mock 完后才能 import 被测对象（hoisting safe pattern）
+const sessionGetSpy = vi.fn();
+vi.mock('@main/store/session-repo', () => ({
+  sessionRepo: {
+    get: (sid: string) => sessionGetSpy(sid),
+  },
+}));
+
+// team-repo: isCallerAuthorizedToWrite (findSharedActiveTeams) + visible scope helpers 全 spy
+const findActiveMembershipsBySessionSpy = vi.fn();
+const findActiveMembershipsBySessionIdsSpy = vi.fn();
+const listActiveMembersSpy = vi.fn();
+const findSharedActiveTeamsSpy = vi.fn();
+const teamGetSpy = vi.fn(); // F2 deep-review Round 1:getVisibleOwnerSessionIds 二查 team archived
+vi.mock('@main/store/agent-deck-team-repo', () => ({
+  agentDeckTeamRepo: {
+    findActiveMembershipsBySession: (sid: string) => findActiveMembershipsBySessionSpy(sid),
+    findActiveMembershipsBySessionIds: (sids: string[]) =>
+      findActiveMembershipsBySessionIdsSpy(sids),
+    listActiveMembers: (tid: string) => listActiveMembersSpy(tid),
+    findSharedActiveTeams: (a: string, b: string) => findSharedActiveTeamsSpy(a, b),
+    get: (tid: string) => teamGetSpy(tid),
+  },
+}));
+
 import { buildTaskTools } from '../tools';
 
 // ──────────────── helpers ────────────────
@@ -53,6 +73,7 @@ function makeMockRepo(): TaskRepo {
     list: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    reassignOwner: vi.fn(),
   };
 }
 
@@ -60,8 +81,7 @@ function makeTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
   const now = new Date().toISOString();
   return {
     id: overrides.id ?? 'task-1',
-    teamName: overrides.teamName ?? null,
-    teamId: overrides.teamId ?? null,
+    ownerSessionId: overrides.ownerSessionId ?? 'sess-caller',
     subject: overrides.subject ?? 'A',
     description: overrides.description ?? null,
     status: overrides.status ?? 'pending',
@@ -75,77 +95,246 @@ function makeTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
   };
 }
 
-/**
- * 把 tools 数组转成按 name 索引的 dict，测试里写 tools.task_create.handler(...) 更顺。
- *
- * CHANGELOG_46：buildTaskTools 第二参数从 `string | null` 改 `() => string | null` lazy
- * provider。测试包一层把 fixed teamName 包成工厂，行为不变。
- *
- * CHANGELOG_<X> A3：buildTaskTools 第三参数 sessionIdProvider（optional）。默认测试不
- * 传 → tools 内 ingest 调用 sid=null 跳过（与 lead 还没建 team 窗口同语义）。需要测
- * ingest 的 case 用 buildToolsWithSession helper（下方）。
- */
-async function buildToolsAsDict(repo: TaskRepo, teamName: string | null) {
-  const arr = await buildTaskTools(repo, () => teamName);
+async function buildToolsAsDict(repo: TaskRepo, callerSid: string | null) {
+  const arr = await buildTaskTools(repo, () => callerSid);
   const dict: Record<string, (typeof arr)[number]> = {};
   for (const t of arr) dict[t.name] = t;
   return dict;
 }
 
-/** 加固定 sid 的 buildTools helper（A3 ingest 路径专用）。 */
-async function buildToolsWithSession(
-  repo: TaskRepo,
-  teamName: string | null,
-  sessionId: string | null,
-) {
-  const arr = await buildTaskTools(repo, () => teamName, () => sessionId);
-  const dict: Record<string, (typeof arr)[number]> = {};
-  for (const t of arr) dict[t.name] = t;
-  return dict;
-}
+beforeEach(() => {
+  emitSpy.mockReset();
+  ingestSpy.mockReset();
+  sessionGetSpy.mockReset();
+  findActiveMembershipsBySessionSpy.mockReset();
+  findActiveMembershipsBySessionIdsSpy.mockReset();
+  listActiveMembersSpy.mockReset();
+  findSharedActiveTeamsSpy.mockReset();
+  teamGetSpy.mockReset();
+  // 默认 caller session 存在(让 task_create FK 兜底通过)
+  sessionGetSpy.mockReturnValue({ id: 'sess-caller' });
+  // 默认 caller 无 team
+  findActiveMembershipsBySessionSpy.mockReturnValue([]);
+  findActiveMembershipsBySessionIdsSpy.mockReturnValue(new Map());
+  // F2 默认:teamGet 返回 active team(archivedAt=null),让本来 active team 路径通过
+  teamGetSpy.mockImplementation((tid: string) => ({ id: tid, archivedAt: null, name: tid }));
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 // ──────────────── tests ────────────────
-describe('task_list / 跨 team 读', () => {
+describe('task_list / visible scope (v023 §D6 reverse join)', () => {
   let repo: TaskRepo;
   beforeEach(() => {
     repo = makeMockRepo();
     (repo.list as ReturnType<typeof vi.fn>).mockReturnValue([]);
-    emitSpy.mockReset();
   });
 
-  it('args 不传 team_name → opts.teamName = closure', async () => {
-    const tools = await buildToolsAsDict(repo, 'team-A');
+  it('caller 无 team → ownerSessionIds = [callerSid]', async () => {
+    findActiveMembershipsBySessionSpy.mockReturnValue([]);
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+
     await tools.task_list.handler({}, undefined);
-    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamId: 'team-A' }));
+
+    expect(repo.list).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerSessionIds: ['sess-caller'] }),
+    );
   });
 
-  it('args 显式传 string → opts.teamName = 该 string（跨 team 协调）', async () => {
-    const tools = await buildToolsAsDict(repo, 'team-A');
-    await tools.task_list.handler({ team_id: 'team-B' }, undefined);
-    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamId: 'team-B' }));
+  it('caller 在单 team → ownerSessionIds = caller + 同 team active members', async () => {
+    findActiveMembershipsBySessionSpy.mockReturnValue([
+      { teamId: 'team-1', teamName: 't1', sessionId: 'sess-caller', role: 'lead' },
+    ]);
+    listActiveMembersSpy.mockReturnValue([
+      { sessionId: 'sess-caller' },
+      { sessionId: 'sess-mate-A' },
+      { sessionId: 'sess-mate-B' },
+    ]);
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+
+    await tools.task_list.handler({}, undefined);
+
+    const callArgs = (repo.list as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      ownerSessionIds: string[];
+    };
+    expect(new Set(callArgs.ownerSessionIds)).toEqual(
+      new Set(['sess-caller', 'sess-mate-A', 'sess-mate-B']),
+    );
   });
 
-  it('args 显式传 null → opts.teamName = null（仅全局任务）', async () => {
-    const tools = await buildToolsAsDict(repo, 'team-A');
-    await tools.task_list.handler({ team_id: null }, undefined);
-    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamId: null }));
+  it('caller 在多 team → union 所有 team active members（去重）', async () => {
+    findActiveMembershipsBySessionSpy.mockReturnValue([
+      { teamId: 'team-1', teamName: 't1', sessionId: 'sess-caller', role: 'lead' },
+      { teamId: 'team-2', teamName: 't2', sessionId: 'sess-caller', role: 'teammate' },
+    ]);
+    listActiveMembersSpy.mockImplementation((teamId: string) => {
+      if (teamId === 'team-1') return [{ sessionId: 'sess-caller' }, { sessionId: 'sess-A' }];
+      if (teamId === 'team-2')
+        return [{ sessionId: 'sess-caller' }, { sessionId: 'sess-A' }, { sessionId: 'sess-B' }];
+      return [];
+    });
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+
+    await tools.task_list.handler({}, undefined);
+
+    const callArgs = (repo.list as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      ownerSessionIds: string[];
+    };
+    // sess-A 在两 team 都有 → 去重
+    expect(new Set(callArgs.ownerSessionIds)).toEqual(
+      new Set(['sess-caller', 'sess-A', 'sess-B']),
+    );
   });
 
-  it('closure=null（全局会话）默认查 opts.teamName = null', async () => {
+  it('F2 (deep-review Round 1 reviewer-codex MED-1):caller 在 archived team 的 ghost membership 不进 visible scope', async () => {
+    // 修前:findActiveMembershipsBySession 只过滤 left_at IS NULL 不过滤 team archived,
+    // caller 在 archived team 仍有 active membership → visible scope 包含该 team 所有
+    // active session 的 task → task_list 看得到但 task_update / task_delete 走
+    // isCallerAuthorizedToWrite → findSharedActiveTeams(强制 team archived 过滤)立即拒
+    // → 「读得到但写不进」UX 矛盾。修后用 teamGet 二查过滤 archivedAt !== null 的 team。
+    findActiveMembershipsBySessionSpy.mockReturnValue([
+      { teamId: 'team-active', teamName: 't-active', sessionId: 'sess-caller', role: 'lead' },
+      { teamId: 'team-archived', teamName: 't-archived', sessionId: 'sess-caller', role: 'lead' },
+    ]);
+    teamGetSpy.mockImplementation((tid: string) => {
+      if (tid === 'team-active') return { id: tid, archivedAt: null, name: tid };
+      if (tid === 'team-archived')
+        return { id: tid, archivedAt: Date.now() - 1000, name: tid }; // archived
+      return null;
+    });
+    listActiveMembersSpy.mockImplementation((teamId: string) => {
+      if (teamId === 'team-active') return [{ sessionId: 'sess-caller' }, { sessionId: 'sess-A' }];
+      if (teamId === 'team-archived')
+        return [{ sessionId: 'sess-caller' }, { sessionId: 'sess-archived-mate' }];
+      return [];
+    });
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+
+    await tools.task_list.handler({}, undefined);
+
+    const callArgs = (repo.list as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      ownerSessionIds: string[];
+    };
+    // 仅 active team 的 member 进 visible scope:caller + sess-A
+    // archived team 的 sess-archived-mate **不**进 visible scope(F2 修法防御)
+    expect(new Set(callArgs.ownerSessionIds)).toEqual(new Set(['sess-caller', 'sess-A']));
+    expect(callArgs.ownerSessionIds).not.toContain('sess-archived-mate');
+    // listActiveMembers 不应被 archived team 调到(短路前过滤)
+    expect(listActiveMembersSpy).not.toHaveBeenCalledWith('team-archived');
+  });
+
+  it('F2: caller 所在 team row missing(DB 不一致 corner case) → 跳过该 team(与 archived 同款守门)', async () => {
+    findActiveMembershipsBySessionSpy.mockReturnValue([
+      { teamId: 'team-1', teamName: 't1', sessionId: 'sess-caller', role: 'lead' },
+      { teamId: 'team-missing', teamName: 't?', sessionId: 'sess-caller', role: 'lead' },
+    ]);
+    teamGetSpy.mockImplementation((tid: string) => {
+      if (tid === 'team-1') return { id: tid, archivedAt: null, name: tid };
+      if (tid === 'team-missing') return null; // row missing
+      return null;
+    });
+    listActiveMembersSpy.mockImplementation((teamId: string) =>
+      teamId === 'team-1' ? [{ sessionId: 'sess-caller' }, { sessionId: 'sess-A' }] : [],
+    );
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+
+    await tools.task_list.handler({}, undefined);
+
+    const callArgs = (repo.list as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      ownerSessionIds: string[];
+    };
+    expect(new Set(callArgs.ownerSessionIds)).toEqual(new Set(['sess-caller', 'sess-A']));
+    expect(listActiveMembersSpy).not.toHaveBeenCalledWith('team-missing');
+  });
+
+  it('callerSid null → isError + 不调 repo.list', async () => {
     const tools = await buildToolsAsDict(repo, null);
-    await tools.task_list.handler({}, undefined);
-    expect(repo.list).toHaveBeenCalledWith(expect.objectContaining({ teamId: null }));
+
+    const result = await tools.task_list.handler({}, undefined);
+
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(repo.list).not.toHaveBeenCalled();
   });
 
-  it('list 不 emit（只读操作）', async () => {
-    const tools = await buildToolsAsDict(repo, 'team-A');
+  it('透传 status_filter / subject_filter / limit / offset 给 repo.list', async () => {
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+
+    await tools.task_list.handler(
+      { status_filter: 'active', subject_filter: 'foo', limit: 50, offset: 10 },
+      undefined,
+    );
+
+    expect(repo.list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'active',
+        subjectKeyword: 'foo',
+        limit: 50,
+        offset: 10,
+      }),
+    );
+  });
+
+  it('list 不 emit / 不 ingest（只读操作）', async () => {
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
     await tools.task_list.handler({}, undefined);
     expect(emitSpy).not.toHaveBeenCalled();
+    expect(ingestSpy).not.toHaveBeenCalled();
   });
 
   it('readOnlyHint annotation 已设', async () => {
-    const tools = await buildToolsAsDict(repo, 'team-A');
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
     expect(tools.task_list.annotations?.readOnlyHint).toBe(true);
+  });
+
+  it('F4 (deep-review Round 1 reviewer-claude MED-c2):返回 { total, hasMore, tasks }', async () => {
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    // 3 条 task,limit 默认 100 → hasMore=false
+    (repo.list as ReturnType<typeof vi.fn>).mockReturnValueOnce([
+      makeTask({ id: 't1' }),
+      makeTask({ id: 't2' }),
+      makeTask({ id: 't3' }),
+    ]);
+    const r1 = await tools.task_list.handler({}, undefined);
+    const json1 = JSON.parse((r1.content[0] as { text: string }).text);
+    expect(json1).toEqual(
+      expect.objectContaining({ total: 3, hasMore: false }),
+    );
+    expect(json1.tasks).toHaveLength(3);
+  });
+
+  it('F4: tasks.length === effectiveLimit → hasMore=true(提示 caller 翻页)', async () => {
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    // mock 返回 50 条恰好等于 limit=50 → hasMore=true(可能还有)
+    const tasks50 = Array.from({ length: 50 }, (_, i) => makeTask({ id: `t-${i}` }));
+    (repo.list as ReturnType<typeof vi.fn>).mockReturnValueOnce(tasks50);
+    const r = await tools.task_list.handler({ limit: 50 }, undefined);
+    const json = JSON.parse((r.content[0] as { text: string }).text);
+    expect(json).toEqual(
+      expect.objectContaining({ total: 50, hasMore: true }),
+    );
+  });
+
+  it('F4: tasks.length < effectiveLimit → hasMore=false(确认到底)', async () => {
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    const tasks5 = Array.from({ length: 5 }, (_, i) => makeTask({ id: `t-${i}` }));
+    (repo.list as ReturnType<typeof vi.fn>).mockReturnValueOnce(tasks5);
+    const r = await tools.task_list.handler({ limit: 10 }, undefined);
+    const json = JSON.parse((r.content[0] as { text: string }).text);
+    expect(json).toEqual(
+      expect.objectContaining({ total: 5, hasMore: false }),
+    );
+  });
+
+  it('F4: tasks.length === 0 → hasMore=false', async () => {
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    (repo.list as ReturnType<typeof vi.fn>).mockReturnValueOnce([]);
+    const r = await tools.task_list.handler({}, undefined);
+    const json = JSON.parse((r.content[0] as { text: string }).text);
+    expect(json).toEqual(
+      expect.objectContaining({ total: 0, hasMore: false, tasks: [] }),
+    );
   });
 });
 
@@ -153,22 +342,22 @@ describe('task_get / 跨 team 读', () => {
   let repo: TaskRepo;
   beforeEach(() => {
     repo = makeMockRepo();
-    emitSpy.mockReset();
   });
 
-  it('返回 task 不限 team（只读，跨 team visibility）', async () => {
-    const tools = await buildToolsAsDict(repo, 'team-A');
-    const task = makeTask({ id: 't-other', teamName: 'team-B', teamId: 'team-B' });
+  it('返回 task 不限 owner / team（只读，跨 owner visibility）', async () => {
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    const task = makeTask({ id: 't-other', ownerSessionId: 'sess-stranger' });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(task);
 
     const result = await tools.task_get.handler({ task_id: 't-other' }, undefined);
 
     expect((result as { isError?: boolean }).isError).toBeFalsy();
     expect(emitSpy).not.toHaveBeenCalled();
+    expect(ingestSpy).not.toHaveBeenCalled();
   });
 
   it('task 不存在 → isError', async () => {
-    const tools = await buildToolsAsDict(repo, 'team-A');
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(null);
 
     const result = await tools.task_get.handler({ task_id: 'nope' }, undefined);
@@ -178,27 +367,34 @@ describe('task_get / 跨 team 读', () => {
 });
 
 /**
- * CHANGELOG_<X> A3：sessionIdProvider 注入 → 写操作后 ingest team-task-* AgentEvent
- * 到 events 表，让 TeamDetail「hook 事件流」section 也能显示 mcp 操作。
+ * v023 改：ingest payload.teamName 从 task.teamName 改为「caller 当前 first active team name」。
+ * 通过 agentDeckTeamRepo.findActiveMembershipsBySessionIds(单 sid) 取第一个 teamName，无 team
+ * 时 null。这是 nice-to-have 展示信息（UI TeamDetail 用），不影响业务逻辑。
  *
- * 决策矩阵：
- * - task_create + sid 非空 → ingest 'team-task-created' 一次
- * - task_update status 变 completed + sid 非空 → ingest 'team-task-completed' 一次
- * - task_update 改其他属性（priority/labels）→ 不 ingest（避免 noise 污染事件流）
- * - task_delete → 不 ingest（kind 集没 deleted 语义；强行复用 created 会混淆）
- * - sid=null（lead 还没建 team / 测试场景）→ 任何写操作都不 ingest（不抛错）
+ * 决策矩阵（与旧 v007 行为对齐）：
+ * - task_create + caller 有 team → ingest 'team-task-created'，payload.teamName = first team
+ * - task_create + caller 无 team → ingest 'team-task-created'，payload.teamName = null
+ * - task_update status 变 completed + caller 有 team → ingest 'team-task-completed'
+ * - task_update 改其他属性（priority/labels）→ 不 ingest（避免噪声）
+ * - task_delete → 不 ingest（kind 集无 deleted 语义；强行复用 created 会混淆）
  */
-describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
+describe('sessionIdProvider → ingest team-task-* AgentEvent', () => {
   let repo: TaskRepo;
   beforeEach(() => {
     repo = makeMockRepo();
-    emitSpy.mockReset();
-    ingestSpy.mockReset();
   });
 
-  it('task_create + sid → ingest team-task-created 一次', async () => {
-    const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const created = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', subject: 'X', activeForm: 'agent-A' });
+  it('task_create + caller 有 team → ingest team-task-created (payload.teamName = first team)', async () => {
+    findActiveMembershipsBySessionIdsSpy.mockReturnValue(
+      new Map([['sess-caller', [{ teamId: 'team-1', teamName: 'team-A', role: 'lead' }]]]),
+    );
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    const created = makeTask({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      subject: 'X',
+      activeForm: 'agent-A',
+    });
     (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(created);
 
     await tools.task_create.handler({ subject: 'X' }, undefined);
@@ -206,7 +402,7 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
     expect(ingestSpy).toHaveBeenCalledTimes(1);
     expect(ingestSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId: 'sess-X',
+        sessionId: 'sess-caller',
         agentId: 'claude-code',
         source: 'sdk',
         kind: 'team-task-created',
@@ -220,29 +416,40 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
     );
   });
 
-  it('task_create + sid=null → 不 ingest（不抛错）', async () => {
-    const tools = await buildToolsWithSession(repo, 'team-A', null);
-    (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A', teamId: 'team-A' }));
+  it('task_create + caller 无 team → ingest 但 payload.teamName = null', async () => {
+    findActiveMembershipsBySessionIdsSpy.mockReturnValue(new Map());
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(
+      makeTask({ ownerSessionId: 'sess-caller' }),
+    );
 
     await tools.task_create.handler({ subject: 'X' }, undefined);
 
-    expect(ingestSpy).not.toHaveBeenCalled();
-    expect(emitSpy).toHaveBeenCalledTimes(1); // task-changed 仍发
+    expect(ingestSpy).toHaveBeenCalledTimes(1);
+    expect(ingestSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ teamName: null }),
+      }),
+    );
   });
 
-  it('task_create 不传 sessionIdProvider → 不 ingest（向后兼容）', async () => {
-    const tools = await buildToolsAsDict(repo, 'team-A');
-    (repo.create as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A', teamId: 'team-A' }));
-
-    await tools.task_create.handler({ subject: 'X' }, undefined);
-
-    expect(ingestSpy).not.toHaveBeenCalled();
-  });
-
-  it('task_update status pending → completed → ingest team-task-completed 一次', async () => {
-    const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const before = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'pending', subject: 'work' });
-    const after = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'completed', subject: 'work' });
+  it('task_update status pending → completed → ingest team-task-completed', async () => {
+    findActiveMembershipsBySessionIdsSpy.mockReturnValue(
+      new Map([['sess-caller', [{ teamId: 'team-1', teamName: 'team-A', role: 'lead' }]]]),
+    );
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    const before = makeTask({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      status: 'pending',
+      subject: 'work',
+    });
+    const after = makeTask({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      status: 'completed',
+      subject: 'work',
+    });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(before);
     (repo.update as ReturnType<typeof vi.fn>).mockReturnValue(after);
 
@@ -251,7 +458,7 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
     expect(ingestSpy).toHaveBeenCalledTimes(1);
     expect(ingestSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId: 'sess-X',
+        sessionId: 'sess-caller',
         agentId: 'claude-code',
         source: 'sdk',
         kind: 'team-task-completed',
@@ -265,9 +472,17 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
   });
 
   it('task_update status 已 completed → completed（不变）→ 不 ingest', async () => {
-    const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const before = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'completed' });
-    const after = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'completed' });
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    const before = makeTask({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      status: 'completed',
+    });
+    const after = makeTask({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      status: 'completed',
+    });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(before);
     (repo.update as ReturnType<typeof vi.fn>).mockReturnValue(after);
 
@@ -277,9 +492,19 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
   });
 
   it('task_update 改 priority（status 不变）→ 不 ingest', async () => {
-    const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const before = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'pending', priority: 5 });
-    const after = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'pending', priority: 8 });
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    const before = makeTask({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      status: 'pending',
+      priority: 5,
+    });
+    const after = makeTask({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      status: 'pending',
+      priority: 8,
+    });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(before);
     (repo.update as ReturnType<typeof vi.fn>).mockReturnValue(after);
 
@@ -290,9 +515,17 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
   });
 
   it('task_update status 变 active（不是 completed）→ 不 ingest', async () => {
-    const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    const before = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'pending' });
-    const after = makeTask({ id: 't1', teamName: 'team-A', teamId: 'team-A', status: 'active' });
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    const before = makeTask({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      status: 'pending',
+    });
+    const after = makeTask({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      status: 'active',
+    });
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(before);
     (repo.update as ReturnType<typeof vi.fn>).mockReturnValue(after);
 
@@ -302,8 +535,10 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
   });
 
   it('task_delete → 不 ingest（kind 集无 deleted 语义）', async () => {
-    const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
-    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(makeTask({ teamName: 'team-A', teamId: 'team-A' }));
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
+    (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(
+      makeTask({ ownerSessionId: 'sess-caller' }),
+    );
     (repo.delete as ReturnType<typeof vi.fn>).mockReturnValue(['t1']);
 
     await tools.task_delete.handler({ task_id: 't1' }, undefined);
@@ -312,19 +547,16 @@ describe('A3 sessionIdProvider → ingest team-task-* AgentEvent', () => {
     expect(emitSpy).toHaveBeenCalledTimes(1); // task-changed 仍发
   });
 
-  it('task_update 写权限拒（跨 team）→ 不 ingest（早返）', async () => {
-    const tools = await buildToolsWithSession(repo, 'team-A', 'sess-X');
+  it('task_update 写权限拒（cross team）→ 不 ingest（早返）', async () => {
+    const tools = await buildToolsAsDict(repo, 'sess-caller');
     (repo.get as ReturnType<typeof vi.fn>).mockReturnValue(
-      makeTask({ id: 't1', teamName: 'team-B', teamId: 'team-B' }),
+      makeTask({ id: 't1', ownerSessionId: 'sess-stranger' }),
     );
+    findSharedActiveTeamsSpy.mockReturnValue([]);
 
     await tools.task_update.handler({ task_id: 't1', status: 'completed' }, undefined);
 
     expect(ingestSpy).not.toHaveBeenCalled();
     expect(emitSpy).not.toHaveBeenCalled();
   });
-});
-
-afterEach(() => {
-  vi.clearAllMocks();
 });
