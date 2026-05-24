@@ -43,19 +43,51 @@ let store: (Store<AppSettings> & StoreApi<AppSettings>) | null = null;
 
 function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
   if (!store) {
+    // **F-R2-D 设计假设**（deep-review-changelog146-20260524 R2 claude LOW-4）：
+    // 本函数不包 try/catch，所有 migration step / token 生成 / REMOVED_KEYS delete loop
+    // 都依赖以下不变量：
+    //   1) probe Store / real Store 构造 (fs read) 由 conf v10.2.0 内部 swallow 大多数
+    //      ENOENT / 权限错（首次启动走 createPlainObject() fallback line 286）
+    //   2) store.set / store.delete 同步操作不抛（electron-store v8.2.0 内部 try/catch wrap）
+    //   3) Migration step 全部同步 + 纯 JS 逻辑判定，不撞 IO 抛错
+    // 一旦上述不变量被破坏（如 fs ENOSPC / 极罕 conf assert.deepEqual fail / 未来加 IO step），
+    // step (2) 之后任一 step throw → `store` 全局变量已是非 null real Store 但 migration 半残
+    // → 下次 ensure() `if (!store)` 短路返回半残 store → 用户偏好 / token 永久部分缺失。
+    // 当前不修因为 (a) 极罕见 + (b) 加 try/catch 后回滚语义复杂（reset store=null 重试可能
+    // 撞死循环）+ (c) bootstrap fail-fast 比半残 partial-recover 更明确。未来加 IO 类
+    // migration 步必须重审本假设。
+    //
+    // F1 fix (deep-review-changelog146-20260524 R1 codex MED):
+    // conf@10.2.0 (electron-store v10 父类) 构造时 line 131-138 在传入 defaults 后
+    // 把 `Object.assign({}, defaults, fileStore)` merged 结果 _write 回 fs（assert.deepEqual
+    // fails on any default key missing in fileStore）。后续 store.store getter (line 274) 走
+    // fs.readFileSync 拿到 merged 版本 — 所有 `!('newKey' in raw)` 形态的 migration 第二次启动
+    // 起永远短路（newKey 已被 defaults 写回 fs），老用户偏好静默丢失。
+    //
+    // 影响面（DEFAULT_SETTINGS 含的 key）：
+    // - transparentWhenPinned → windowTransparent migration（windowTransparent: true 默认）
+    // - enableTaskManager → enableAgentDeckMcp migration（enableAgentDeckMcp: false 默认）
+    //
+    // 修法：构造 real store 前先开一个无 defaults 的 probe Store，snapshot fs 上**真实持久化的
+    // raw**（probe 自己不传 defaults，conf 构造时 `if (options.defaults)` 跳过 → 不触发 merge
+    // 写回）。后续所有 migration 判定一律基于 persistedRaw 而非 store.store。
+    const probe = new Store<Record<string, unknown>>({
+      name: 'agent-deck-settings',
+    }) as { store: Record<string, unknown> };
+    const persistedRaw: Record<string, unknown> = { ...probe.store };
+
     store = new Store<AppSettings>({
       name: 'agent-deck-settings',
       defaults: DEFAULT_SETTINGS,
     }) as Store<AppSettings> & StoreApi<AppSettings>;
 
     // 清理已弃用字段（idempotent：再次启动时即便没有这些键也无副作用）
-    const raw = store.store as unknown as Record<string, unknown>;
     const looseDelete = store as unknown as { delete: (k: string) => void };
     // Phase 5 Step 5.6 一次性 migration：transparentWhenPinned → windowTransparent。
     // 必须在 REMOVED_KEYS delete 循环之前做（delete 后旧值就拿不到了）。仅在用户从未
     // 设置过新字段且持有旧字段值时迁移；否则用户已经主动设了 windowTransparent 不动。
-    if ('transparentWhenPinned' in raw && !('windowTransparent' in raw)) {
-      const legacy = raw['transparentWhenPinned'];
+    if ('transparentWhenPinned' in persistedRaw && !('windowTransparent' in persistedRaw)) {
+      const legacy = persistedRaw['transparentWhenPinned'];
       if (typeof legacy === 'boolean') {
         store.set('windowTransparent', legacy);
         console.log(`[settings] migrated transparentWhenPinned=${legacy} → windowTransparent`);
@@ -69,29 +101,29 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
     // Trade-off: 罕见 false positive — user 主动选与老 default 同值时被 migrate（覆盖 user
     // 显式选择）。但 deep-review 多 batch 场景下老 default 不够用 user 必须调高，migrate
     // 实际是 friendly action（与 README 描述对齐 + 设置面板 jsdoc "默认 10/20" 一致）。
-    if (raw['mcpMaxFanOutPerParent'] === 5) {
+    if (persistedRaw['mcpMaxFanOutPerParent'] === 5) {
       store.set('mcpMaxFanOutPerParent', 10);
       console.log('[settings] migrated mcpMaxFanOutPerParent 5 → 10 (default uplift, plan F2)');
     }
-    if (raw['mcpSpawnRatePerMinute'] === 10) {
+    if (persistedRaw['mcpSpawnRatePerMinute'] === 10) {
       store.set('mcpSpawnRatePerMinute', 20);
       console.log('[settings] migrated mcpSpawnRatePerMinute 10 → 20 (default uplift, plan F2)');
     }
     // plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 + R3-claude-MED-1:
     // smart migration 守护老用户 enableTaskManager:true 不丢失能力。在 REMOVED_KEYS
-    // delete loop 之前 (line 74) 读 raw.enableTaskManager 决定是否 carry 到 enableAgentDeckMcp。
+    // delete loop 之前 (line 74) 读 persistedRaw.enableTaskManager 决定是否 carry 到 enableAgentDeckMcp。
     //
     // 4 case 矩阵（详 plan §测试覆盖矩阵 settings-store migration 4 格断言）：
-    // - raw enableTaskManager:true + raw 不含 enableAgentDeckMcp → set enableAgentDeckMcp:true
+    // - persistedRaw enableTaskManager:true + persistedRaw 不含 enableAgentDeckMcp → set enableAgentDeckMcp:true
     //   + warn（保留老用户「task tools 可用」语义；5 个 task tool 已合入 agent-deck namespace）
-    // - raw enableTaskManager:false + raw 不含 enableAgentDeckMcp → 不动 enableAgentDeckMcp
+    // - persistedRaw enableTaskManager:false + persistedRaw 不含 enableAgentDeckMcp → 不动 enableAgentDeckMcp
     //   （保留默认 false；老用户主动 OFF 表达「不想用」尊重）
-    // - raw 含 explicit enableAgentDeckMcp 值 → migration skip（用户决策优先）
-    // - raw 全空（fresh install）→ migration no-op + 不打 warn（新用户路径不该看 warn 噪音）
+    // - persistedRaw 含 explicit enableAgentDeckMcp 值 → migration skip（用户决策优先）
+    // - persistedRaw 全空（fresh install）→ migration no-op + 不打 warn（新用户路径不该看 warn 噪音）
     if (
-      'enableTaskManager' in raw &&
-      raw['enableTaskManager'] === true &&
-      !('enableAgentDeckMcp' in raw)
+      'enableTaskManager' in persistedRaw &&
+      persistedRaw['enableTaskManager'] === true &&
+      !('enableAgentDeckMcp' in persistedRaw)
     ) {
       store.set('enableAgentDeckMcp', true);
       console.log(
@@ -99,7 +131,7 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       );
     }
     for (const key of REMOVED_KEYS) {
-      if (key in raw) {
+      if (key in persistedRaw) {
         looseDelete.delete(key);
         console.log(`[settings] removed legacy field "${key}"`);
       }

@@ -256,6 +256,20 @@ export function createTaskRepo(db: Database): TaskRepo {
       if (opts.ownerSessionIds.length === 0) {
         return [];
       }
+      // F2 fix (deep-review-changelog146-20260524 R1 claude MED):
+      // SQLite IN list 默认上限 999 variables。生产场景 caller 同 team visible sessionIds
+      // 通常 < 100；> 500 已视为病态（多 team 累积 + 大量历史 dormant 未清）。极端 case
+      // 走 Node 端 chunked SELECT + merge + sort + slice 实现复杂、收益边际低 →
+      // 加 length guard 提前防御，error path 走 console.warn + 返 [] graceful degrade
+      // 而非撞 999 抛 SQLITE_TOOBIG 整 list 崩。chunk threshold 500 < 999 留 buffer
+      // 与同 repo agent-deck-team-repo/member-query.ts:107 CHUNK_SIZE = 500 对齐。
+      if (opts.ownerSessionIds.length > 500) {
+        console.warn(
+          `[task-repo] listTasks: ownerSessionIds 长度 ${opts.ownerSessionIds.length} 超 SQLite IN 上限 500，` +
+            `返回空集 graceful degrade；caller 应清理历史 dormant session 或拆批查询。`,
+        );
+        return [];
+      }
       const placeholders = opts.ownerSessionIds.map(() => '?').join(',');
       wheres.push(`owner_session_id IN (${placeholders})`);
       params.push(...opts.ownerSessionIds);
@@ -324,9 +338,28 @@ export function createTaskRepo(db: Database): TaskRepo {
     }
 
     const tx = db.transaction(() => {
-      // 1. 删除目标 + cascade 下游
-      const placeholders = Array.from(toDelete).map(() => '?').join(',');
-      db.prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`).run(...toDelete);
+      // 1. 删除目标 + cascade 下游。
+      // F2 fix (deep-review-changelog146-20260524 R1 claude MED): toDelete 多分支宽度
+      // 极端场景（plan 链 blocks 树 500+ nodes）会撞 SQLite IN 默认 999 上限抛
+      // SQLITE_TOOBIG 整 transaction 回滚。chunked DELETE 仍在 db.transaction 内多次
+      // prepared statement run → 原子性保留；chunk threshold 500 与 listTasks F2 修法
+      // 一致 + 与 member-query.ts:107 CHUNK_SIZE = 500 对齐。
+      //
+      // **F-R2-B 原子性契约**（deep-review-changelog146-20260524 R2 双方独立提出）：
+      // 任一 chunk DELETE 抛错 → db.transaction() wrap 自动 ROLLBACK 整 tx → 保留原始
+      // 全集，不留 partial-delete 残骸。N+1 cleanup stage 同理（任一 UPDATE 抛错也回滚）。
+      // 当前未加 fault-injection regression test（task-repo.test.ts 整文件被 better-sqlite3
+      // binding NODE_MODULE_VERSION 不兼容 skip — 详 CHANGELOG_42 教训不本地 rebuild
+      // 污染 Electron binding）；未来本机 binding 兼容时建议补 1 case: seed 1000+ chained
+      // tasks → mock prepare.run 第 2 chunk fail → assert 原集 task count 不变 + 无
+      // partial delete。在此之前本契约由 better-sqlite3 transaction() 语义 + jsdoc 守护。
+      const toDeleteArr = Array.from(toDelete);
+      const CHUNK = 500;
+      for (let i = 0; i < toDeleteArr.length; i += CHUNK) {
+        const chunk = toDeleteArr.slice(i, i + CHUNK);
+        const placeholders = chunk.map(() => '?').join(',');
+        db.prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`).run(...chunk);
+      }
 
       // 2. 清理剩余 task 的 blocks / blocked_by 数组里指向已删 id 的引用。
       //    SQLite 的 JSON1 函数（json_each / json_remove）路径太绕，干脆 Node 端
