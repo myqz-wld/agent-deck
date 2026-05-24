@@ -370,7 +370,18 @@ export async function buildAgentDeckTools(
     `List tasks visible to the current session: caller-owned tasks + tasks owned by any session sharing an active team with caller (archived teams excluded). Returns { total, hasMore, tasks: [...] } where total = tasks.length on current page (post-LIMIT/OFFSET) and hasMore signals more results may exist (tasks.length === limit). Default limit=100, max 500.`,
     TASK_LIST_SCHEMA,
     async (args, extra) => taskListHandler(args, makeCtx(args, extra)),
-    { annotations: { readOnlyHint: true } },
+    {
+      // task_list: 只读，不破坏不与外部世界交互；幂等（多次相同 args 调用返同结果）。
+      // F4 fix (deep-review-changelog146-20260524 R1 claude LOW): 与 task_create / task_update /
+      // task_delete 三 write tool 4-tuple 对称，避免 MCP client（codex CLI approval gate /
+      // claude CLI 渲染）按 undefined 字段走默认兜底（部分 client 把 undefined 当 true）。
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
   );
 
   const taskGet = tool(
@@ -378,7 +389,15 @@ export async function buildAgentDeckTools(
     'Get a single task by id. Returns the task regardless of team scope (read-only cross-team visibility).',
     TASK_GET_SCHEMA,
     async (args, extra) => taskGetHandler(args, makeCtx(args, extra)),
-    { annotations: { readOnlyHint: true } },
+    {
+      // task_get: 只读 + 幂等，4-tuple 对称（F4 修法说明同 task_list）。
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
   );
 
   const taskUpdate = tool(

@@ -86,6 +86,18 @@ export function getVisibleOwnerSessionIds(callerSid: string): string[] {
  *
  * 复用 agentDeckTeamRepo.findSharedActiveTeams（单 SQL JOIN，已 archive filter
  * archived team + 双方 archived session）。
+ *
+ * **F-R2-C 防御边界说明**（deep-review-changelog146-20260524 R2 claude LOW-3）：
+ * `callerSid === ownerSid` 特例**不查 caller session archived/lifecycle 状态**，看似 gap
+ * 但**双重锁实际无利用面**：
+ *   - in-process transport: caller_session_id 由 sdk-bridge closure 强制覆盖为当前 active
+ *     SDK session sid（详 types.ts:EXTERNAL_CALLER_SENTINEL jsdoc）；archived session SDK
+ *     live query 已被 abort → 不会发 tool call → 不可达
+ *   - HTTP / stdio external transport: EXTERNAL_CALLER_ALLOWED.task_update/delete = false
+ *     (types.ts) + handler withMcpGuard denyExternalIfNotAllowed 拦截 → 不可达
+ * 未来 transport 演化（如 in-process closure 改 lazy 覆盖 / 加 read-only external task
+ * write tool）必须同步评估本特例是否仍安全；如安全边界不再成立，应加 `sessions.archived_at
+ * IS NULL` 一查或走 single-row team JOIN 验证显式 enforce。
  */
 export function isCallerAuthorizedToWrite(callerSid: string, ownerSid: string): boolean {
   if (callerSid === ownerSid) return true;
