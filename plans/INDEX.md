@@ -55,3 +55,4 @@
 | [assets-codex-user-and-ui-unify-20260521.md](assets-codex-user-and-ui-unify-20260521.md) | completed | [141](../changelog/CHANGELOG_141.md) | assets-codex-user-and-ui-unify-20260521 |
 | [restart-controller-jsonl-precheck-20260521.md](restart-controller-jsonl-precheck-20260521.md) | completed | [143](../changelog/CHANGELOG_143.md) | restart-controller-jsonl-precheck-20260521 |
 | [task-mcp-owner-session-id-rewrite-20260521.md](task-mcp-owner-session-id-rewrite-20260521.md) | completed | [144](../changelog/CHANGELOG_144.md) | task-mcp-owner-session-id-rewrite-20260521 |
+| [handoff-render-and-image-batch-20260521.md](handoff-render-and-image-batch-20260521.md) | completed | [145](../changelog/CHANGELOG_145.md) | handoff-render-and-image-batch-20260521 |
