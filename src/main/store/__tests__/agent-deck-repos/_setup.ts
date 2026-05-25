@@ -31,6 +31,7 @@ import v020 from '../../migrations/v020_sessions_cwd_release_marker.sql?raw';
 import v021 from '../../migrations/v021_sessions_cli_session_id.sql?raw';
 import v022 from '../../migrations/v022_events_tool_use_dedup.sql?raw';
 import v023 from '../../migrations/v023_tasks_owner_session_id_rewrite.sql?raw';
+import v024 from '../../migrations/v024_tasks_add_team_id.sql?raw';
 
 function probeBetterSqliteBinding(): boolean {
   try {
@@ -52,7 +53,7 @@ export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012, v013, v014, v015, v016, v017, v018, v019, v020, v021, v022, v023]) {
+  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012, v013, v014, v015, v016, v017, v018, v019, v020, v021, v022, v023, v024]) {
     db.exec(sql);
   }
   return db;

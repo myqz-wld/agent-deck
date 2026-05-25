@@ -316,11 +316,16 @@ describe.skipIf(!bindingAvailable)('task-repo / cascade delete', () => {
     insertSession(db, 'sess-Y');
     // chain: A(sess-X) → B(sess-Y) → C(sess-Y)。删 A 时 predicate 只让 sess-X 通过，
     // B 应被跳过（保留），C 也不应被删（链路在 B 处中断）。
+    // v024 plan §不变量 12 + Step B1 HIGH-2 修法:predicate 签名改 (id, child: Pick<TaskRecord,
+    // 'ownerSessionId' | 'teamId'>) — 拿 child 完整 task 让 isCallerAuthorizedToWrite 按 team_id 判。
     const c = repo.create({ subject: 'C', ownerSessionId: 'sess-Y' });
     const b = repo.create({ subject: 'B', ownerSessionId: 'sess-Y', blocks: [c.id] });
     const a = repo.create({ subject: 'A', ownerSessionId: 'sess-X', blocks: [b.id] });
     expect(
-      repo.delete(a.id, { cascade: true, predicate: (_, owner) => owner === 'sess-X' }),
+      repo.delete(a.id, {
+        cascade: true,
+        predicate: (_, child) => child.ownerSessionId === 'sess-X',
+      }),
     ).toEqual([a.id]);
     expect(repo.get(a.id)).toBeNull(); // self 总会被删（predicate 不挡 root）
     expect(repo.get(b.id)).not.toBeNull(); // cross-owner 跳过
@@ -332,11 +337,15 @@ describe.skipIf(!bindingAvailable)('task-repo / cascade delete', () => {
     insertSession(db, 'sess-Y');
     // chain: A(sess-X) → B(sess-X) → C(sess-Y) → D(sess-X)。删 A，predicate 只让 sess-X 通过。
     // 期望：A 删 + B 删，C 跳过（不删），D 因链路在 C 处断也保留。
+    // v024 HIGH-2 修法:同款 (id, child) predicate 签名。
     const d = repo.create({ subject: 'D', ownerSessionId: 'sess-X' });
     const c = repo.create({ subject: 'C', ownerSessionId: 'sess-Y', blocks: [d.id] });
     const b = repo.create({ subject: 'B', ownerSessionId: 'sess-X', blocks: [c.id] });
     const a = repo.create({ subject: 'A', ownerSessionId: 'sess-X', blocks: [b.id] });
-    repo.delete(a.id, { cascade: true, predicate: (_, owner) => owner === 'sess-X' });
+    repo.delete(a.id, {
+      cascade: true,
+      predicate: (_, child) => child.ownerSessionId === 'sess-X',
+    });
     expect(repo.get(a.id)).toBeNull();
     expect(repo.get(b.id)).toBeNull();
     expect(repo.get(c.id)).not.toBeNull();
@@ -344,7 +353,7 @@ describe.skipIf(!bindingAvailable)('task-repo / cascade delete', () => {
   });
 });
 
-describe.skipIf(!bindingAvailable)('task-repo / reassignOwner (v023 §D3 hand_off 过继)', () => {
+describe.skipIf(!bindingAvailable)('task-repo / reassignOwner (v023 §D3 hand_off 过继 + v024 §D4 policy 两态)', () => {
   let db: Database.Database;
   let repo: TaskRepo;
   let sid: string;
@@ -353,13 +362,13 @@ describe.skipIf(!bindingAvailable)('task-repo / reassignOwner (v023 §D3 hand_of
   });
   afterEach(() => db.close());
 
-  it('单 SQL 改 owner_session_id 把 oldSid 拥有的所有 task 转给 newSid', () => {
+  it('单 SQL 改 owner_session_id 把 oldSid 拥有的所有 task 转给 newSid（policy clear-team）', () => {
     insertSession(db, 'sess-new');
     const t1 = repo.create({ subject: 'T1', ownerSessionId: sid });
     const t2 = repo.create({ subject: 'T2', ownerSessionId: sid });
     const t3 = repo.create({ subject: 'T3', ownerSessionId: sid });
 
-    const changed = repo.reassignOwner(sid, 'sess-new');
+    const changed = repo.reassignOwner(sid, 'sess-new', { policy: 'clear-team' });
 
     expect(changed).toBe(3);
     expect(repo.get(t1.id)?.ownerSessionId).toBe('sess-new');
@@ -370,7 +379,7 @@ describe.skipIf(!bindingAvailable)('task-repo / reassignOwner (v023 §D3 hand_of
   it('oldSid 没拥有任何 task → 返回 0', () => {
     insertSession(db, 'sess-new');
     insertSession(db, 'sess-empty');
-    expect(repo.reassignOwner('sess-empty', 'sess-new')).toBe(0);
+    expect(repo.reassignOwner('sess-empty', 'sess-new', { policy: 'clear-team' })).toBe(0);
   });
 
   it('只过继 oldSid 拥有的 task，其他 owner 的 task 不动', () => {
@@ -379,7 +388,7 @@ describe.skipIf(!bindingAvailable)('task-repo / reassignOwner (v023 §D3 hand_of
     const own = repo.create({ subject: 'mine', ownerSessionId: sid });
     const other = repo.create({ subject: 'other', ownerSessionId: 'sess-other' });
 
-    const changed = repo.reassignOwner(sid, 'sess-new');
+    const changed = repo.reassignOwner(sid, 'sess-new', { policy: 'clear-team' });
 
     expect(changed).toBe(1);
     expect(repo.get(own.id)?.ownerSessionId).toBe('sess-new');
@@ -392,7 +401,7 @@ describe.skipIf(!bindingAvailable)('task-repo / reassignOwner (v023 §D3 hand_of
     const before = t.updatedAt;
     await new Promise((r) => setTimeout(r, 5));
 
-    repo.reassignOwner(sid, 'sess-new');
+    repo.reassignOwner(sid, 'sess-new', { policy: 'clear-team' });
 
     const after = repo.get(t.id);
     // F5 修法:reassignOwner 不刷新 updated_at(详 task-repo.ts reassignOwner 注释)。
@@ -405,7 +414,7 @@ describe.skipIf(!bindingAvailable)('task-repo / reassignOwner (v023 §D3 hand_of
 
   it('newSid 不存在 → FK 抛错（caller 保证 newSid 已落 DB；plan §已知踩坑 2）', () => {
     repo.create({ subject: 'T', ownerSessionId: sid });
-    expect(() => repo.reassignOwner(sid, 'sess-not-exist')).toThrow();
+    expect(() => repo.reassignOwner(sid, 'sess-not-exist', { policy: 'clear-team' })).toThrow();
   });
 });
 
@@ -510,5 +519,470 @@ describe.skipIf(!bindingAvailable)('task-repo / 损坏数据容错', () => {
       warnSpy.mockRestore();
       db.close();
     }
+  });
+});
+
+// ===================================================================
+// v024 plan task-team-id-restore-20260525 §Phase G2 新 case 块
+// ===================================================================
+
+/**
+ * insertTeam helper（v024 测试用 — _setup.ts 默认只有 insertSession）。
+ * agent_deck_teams 表 schema 见 v010_agent_deck_teams.sql。
+ */
+function insertTeam(db: Database.Database, id: string, name = `team-${id}`): void {
+  db.prepare(
+    `INSERT INTO agent_deck_teams (id, name, created_at, archived_at)
+     VALUES (?, ?, ?, NULL)`,
+  ).run(id, name, 1000);
+}
+
+describe.skipIf(!bindingAvailable)('task-repo v024 / create with teamId', () => {
+  let db: Database.Database;
+  let repo: TaskRepo;
+  let sid: string;
+  beforeEach(() => {
+    ({ db, repo, sid } = makeMemoryRepo());
+  });
+  afterEach(() => db.close());
+
+  it('create 不传 teamId → personal task (teamId === null) — plan §D1+D2', () => {
+    const t = repo.create({ subject: 'P1', ownerSessionId: sid });
+    expect(t.teamId).toBeNull();
+    expect(repo.get(t.id)?.teamId).toBeNull();
+  });
+
+  it('create teamId === null 显式 → personal task', () => {
+    const t = repo.create({ subject: 'P2', ownerSessionId: sid, teamId: null });
+    expect(t.teamId).toBeNull();
+  });
+
+  it('create teamId = "<uuid>" → team-bound task — plan §D1', () => {
+    insertTeam(db, 'team-A');
+    const t = repo.create({ subject: 'T1', ownerSessionId: sid, teamId: 'team-A' });
+    expect(t.teamId).toBe('team-A');
+    expect(repo.get(t.id)?.teamId).toBe('team-A');
+  });
+
+  it('create teamId 指向不存在的 team → FK 抛错', () => {
+    expect(() =>
+      repo.create({ subject: 'T1', ownerSessionId: sid, teamId: 'team-not-exist' }),
+    ).toThrow();
+  });
+});
+
+describe.skipIf(!bindingAvailable)('task-repo v024 / update teamId 字段', () => {
+  let db: Database.Database;
+  let repo: TaskRepo;
+  let sid: string;
+  beforeEach(() => {
+    ({ db, repo, sid } = makeMemoryRepo());
+  });
+  afterEach(() => db.close());
+
+  it('update teamId = null → 改 team-bound 为 personal', () => {
+    insertTeam(db, 'team-A');
+    const t = repo.create({ subject: 'T', ownerSessionId: sid, teamId: 'team-A' });
+    expect(t.teamId).toBe('team-A');
+
+    const updated = repo.update(t.id, { teamId: null });
+    expect(updated?.teamId).toBeNull();
+  });
+
+  it('update teamId = "<uuid>" → 改 personal 为 team-bound', () => {
+    insertTeam(db, 'team-A');
+    const t = repo.create({ subject: 'P', ownerSessionId: sid }); // 默认 personal
+    expect(t.teamId).toBeNull();
+
+    const updated = repo.update(t.id, { teamId: 'team-A' });
+    expect(updated?.teamId).toBe('team-A');
+  });
+
+  it('update teamId 不传 → 不动 teamId', () => {
+    insertTeam(db, 'team-A');
+    const t = repo.create({ subject: 'T', ownerSessionId: sid, teamId: 'team-A' });
+
+    const updated = repo.update(t.id, { status: 'completed' });
+    expect(updated?.teamId).toBe('team-A');
+  });
+
+  it('update teamId 指向不存在的 team → FK 抛错', () => {
+    insertTeam(db, 'team-A');
+    const t = repo.create({ subject: 'T', ownerSessionId: sid, teamId: 'team-A' });
+    expect(() => repo.update(t.id, { teamId: 'team-bogus' })).toThrow();
+  });
+});
+
+describe.skipIf(!bindingAvailable)('task-repo v024 / list 三态 filter (D5)', () => {
+  let db: Database.Database;
+  let repo: TaskRepo;
+  let sid: string;
+  beforeEach(() => {
+    ({ db, repo, sid } = makeMemoryRepo());
+  });
+  afterEach(() => db.close());
+
+  function seedThree(): { p: ReturnType<TaskRepo['create']>; ta: ReturnType<TaskRepo['create']>; tb: ReturnType<TaskRepo['create']> } {
+    insertTeam(db, 'team-A');
+    insertTeam(db, 'team-B');
+    const p = repo.create({ subject: 'P', ownerSessionId: sid }); // personal
+    const ta = repo.create({ subject: 'TA', ownerSessionId: sid, teamId: 'team-A' });
+    const tb = repo.create({ subject: 'TB', ownerSessionId: sid, teamId: 'team-B' });
+    return { p, ta, tb };
+  }
+
+  it('teamIdFilter === undefined + 无 visibleScope + 无 ownerSessionIds → 不过滤 team_id（拿全部）', () => {
+    const { p, ta, tb } = seedThree();
+    const list = repo.list();
+    expect(new Set(list.map((x) => x.id))).toEqual(new Set([p.id, ta.id, tb.id]));
+  });
+
+  it('teamIdFilter === "<team-A uuid>" → 仅返 team_id = "team-A"', () => {
+    const { ta } = seedThree();
+    const list = repo.list({ teamIdFilter: 'team-A' });
+    expect(list.map((x) => x.id)).toEqual([ta.id]);
+  });
+
+  it('teamIdFilter === "null-personal" 字面量 → 仅返 team_id IS NULL（personal）', () => {
+    const { p } = seedThree();
+    const list = repo.list({ teamIdFilter: 'null-personal' });
+    expect(list.map((x) => x.id)).toEqual([p.id]);
+  });
+
+  it('teamIdFilter + ownerSessionIds 组合 AND（personal owner=caller）', () => {
+    insertSession(db, 'sess-other');
+    insertTeam(db, 'team-A');
+    const ownPersonal = repo.create({ subject: 'P-mine', ownerSessionId: sid });
+    repo.create({ subject: 'P-other', ownerSessionId: 'sess-other' });
+    repo.create({ subject: 'T-mine', ownerSessionId: sid, teamId: 'team-A' });
+
+    // 拉「caller 自己 personal」
+    const list = repo.list({
+      teamIdFilter: 'null-personal',
+      ownerSessionIds: [sid],
+    });
+    expect(list.map((x) => x.id)).toEqual([ownPersonal.id]);
+  });
+
+  it('visibleScope OR 模式: teamIds=[A,B] + callerSid → 拿 (team A ∪ team B) ∪ caller-own-personal', () => {
+    insertSession(db, 'sess-mate');
+    insertTeam(db, 'team-A');
+    insertTeam(db, 'team-B');
+    insertTeam(db, 'team-C');
+    const callerPersonal = repo.create({ subject: 'P-mine', ownerSessionId: sid });
+    repo.create({ subject: 'P-mate', ownerSessionId: 'sess-mate' }); // 别人 personal 不进
+    const teamA = repo.create({ subject: 'TA-mate', ownerSessionId: 'sess-mate', teamId: 'team-A' });
+    const teamB = repo.create({ subject: 'TB-mine', ownerSessionId: sid, teamId: 'team-B' });
+    repo.create({ subject: 'TC-mate', ownerSessionId: 'sess-mate', teamId: 'team-C' }); // 不在 scope
+
+    const list = repo.list({
+      visibleScope: { teamIds: ['team-A', 'team-B'], callerSid: sid },
+    });
+    expect(new Set(list.map((x) => x.id))).toEqual(
+      new Set([callerPersonal.id, teamA.id, teamB.id]),
+    );
+  });
+
+  it('visibleScope teamIds=[] → 退化为仅 caller own personal（OR 退化分支）', () => {
+    insertSession(db, 'sess-mate');
+    insertTeam(db, 'team-A');
+    const callerPersonal = repo.create({ subject: 'P-mine', ownerSessionId: sid });
+    repo.create({ subject: 'P-mate', ownerSessionId: 'sess-mate' });
+    repo.create({ subject: 'T', ownerSessionId: sid, teamId: 'team-A' }); // team task 不进退化分支
+
+    const list = repo.list({
+      visibleScope: { teamIds: [], callerSid: sid },
+    });
+    expect(list.map((x) => x.id)).toEqual([callerPersonal.id]);
+  });
+});
+
+describe.skipIf(!bindingAvailable)('task-repo v024 / reassignOwner policy 两态 (D4)', () => {
+  let db: Database.Database;
+  let repo: TaskRepo;
+  let sid: string;
+  beforeEach(() => {
+    ({ db, repo, sid } = makeMemoryRepo());
+  });
+  afterEach(() => db.close());
+
+  it("'clear-team' → UPDATE owner + team_id = NULL（team-bound 变 personal）", () => {
+    insertSession(db, 'sess-new');
+    insertTeam(db, 'team-A');
+    const tTeam = repo.create({ subject: 'T-team', ownerSessionId: sid, teamId: 'team-A' });
+    const tPersonal = repo.create({ subject: 'T-personal', ownerSessionId: sid });
+
+    const changed = repo.reassignOwner(sid, 'sess-new', { policy: 'clear-team' });
+
+    expect(changed).toBe(2);
+    const aTeam = repo.get(tTeam.id);
+    const aPersonal = repo.get(tPersonal.id);
+    expect(aTeam?.ownerSessionId).toBe('sess-new');
+    expect(aTeam?.teamId).toBeNull(); // 关键：team_id 被清成 NULL
+    expect(aPersonal?.ownerSessionId).toBe('sess-new');
+    expect(aPersonal?.teamId).toBeNull(); // 本来就是 null
+  });
+
+  it("'preserve-team' → UPDATE owner 不动 team_id（team-bound 保留）", () => {
+    insertSession(db, 'sess-new');
+    insertTeam(db, 'team-A');
+    const tTeam = repo.create({ subject: 'T-team', ownerSessionId: sid, teamId: 'team-A' });
+    const tPersonal = repo.create({ subject: 'T-personal', ownerSessionId: sid });
+
+    const changed = repo.reassignOwner(sid, 'sess-new', { policy: 'preserve-team' });
+
+    expect(changed).toBe(2);
+    const aTeam = repo.get(tTeam.id);
+    const aPersonal = repo.get(tPersonal.id);
+    expect(aTeam?.ownerSessionId).toBe('sess-new');
+    expect(aTeam?.teamId).toBe('team-A'); // 关键：team_id 保留
+    expect(aPersonal?.ownerSessionId).toBe('sess-new');
+    expect(aPersonal?.teamId).toBeNull(); // 还是 null
+  });
+});
+
+describe.skipIf(!bindingAvailable)('task-repo v024 / applyHandOffSkipPolicy 三 case (B1 + D4)', () => {
+  let db: Database.Database;
+  let repo: TaskRepo;
+  let sid: string;
+  beforeEach(() => {
+    ({ db, repo, sid } = makeMemoryRepo());
+  });
+  afterEach(() => db.close());
+
+  it('case A 正常 commit: 删 caller team task + 过继 personal + 其他 owner 不动', () => {
+    insertSession(db, 'sess-new');
+    insertSession(db, 'sess-other');
+    insertTeam(db, 'team-A');
+    insertTeam(db, 'team-B');
+
+    const callerTeamA = repo.create({ subject: 'CA', ownerSessionId: sid, teamId: 'team-A' });
+    const callerTeamB = repo.create({ subject: 'CB', ownerSessionId: sid, teamId: 'team-B' });
+    const callerPersonal = repo.create({ subject: 'CP', ownerSessionId: sid });
+    const otherTeam = repo.create({ subject: 'OT', ownerSessionId: 'sess-other', teamId: 'team-A' });
+    const otherPersonal = repo.create({ subject: 'OP', ownerSessionId: 'sess-other' });
+
+    const result = repo.applyHandOffSkipPolicy(sid, 'sess-new');
+
+    expect(new Set(result.deletedTeamTaskIds)).toEqual(new Set([callerTeamA.id, callerTeamB.id]));
+    expect(result.reassignedPersonalCount).toBe(1);
+
+    // caller team task 都被删
+    expect(repo.get(callerTeamA.id)).toBeNull();
+    expect(repo.get(callerTeamB.id)).toBeNull();
+    // caller personal task 过继 owner
+    expect(repo.get(callerPersonal.id)?.ownerSessionId).toBe('sess-new');
+    expect(repo.get(callerPersonal.id)?.teamId).toBeNull();
+    // other owner 完全不动
+    expect(repo.get(otherTeam.id)?.ownerSessionId).toBe('sess-other');
+    expect(repo.get(otherTeam.id)?.teamId).toBe('team-A');
+    expect(repo.get(otherPersonal.id)?.ownerSessionId).toBe('sess-other');
+  });
+
+  it('case A 边界: caller 没拥有任何 team task → deletedTeamTaskIds=[]; 仅 personal 过继', () => {
+    insertSession(db, 'sess-new');
+    const callerPersonal = repo.create({ subject: 'CP', ownerSessionId: sid });
+
+    const result = repo.applyHandOffSkipPolicy(sid, 'sess-new');
+
+    expect(result.deletedTeamTaskIds).toEqual([]);
+    expect(result.reassignedPersonalCount).toBe(1);
+    expect(repo.get(callerPersonal.id)?.ownerSessionId).toBe('sess-new');
+  });
+
+  it('case A 空: caller 啥都没 → 全 0', () => {
+    insertSession(db, 'sess-new');
+    insertSession(db, 'sess-empty');
+
+    const result = repo.applyHandOffSkipPolicy('sess-empty', 'sess-new');
+    expect(result.deletedTeamTaskIds).toEqual([]);
+    expect(result.reassignedPersonalCount).toBe(0);
+  });
+
+  it('case C blocks/blocked_by cleanup: 删 caller team task 后 survivor 引用清', () => {
+    insertSession(db, 'sess-new');
+    insertSession(db, 'sess-other');
+    insertTeam(db, 'team-A');
+
+    // caller team task 被 other survivor 引用
+    const callerTeam = repo.create({ subject: 'CT', ownerSessionId: sid, teamId: 'team-A' });
+    const survivorOther = repo.create({
+      subject: 'SO',
+      ownerSessionId: 'sess-other',
+      blocks: [callerTeam.id],
+      blockedBy: [callerTeam.id],
+    });
+    // caller personal task 也引用 caller team task — 它会被过继到 newSid 但 blocks 该被清
+    const callerPersonal = repo.create({
+      subject: 'CP',
+      ownerSessionId: sid,
+      blocks: [callerTeam.id],
+    });
+
+    const result = repo.applyHandOffSkipPolicy(sid, 'sess-new');
+
+    expect(result.deletedTeamTaskIds).toEqual([callerTeam.id]);
+    expect(result.reassignedPersonalCount).toBe(1);
+
+    // survivor 引用 callerTeam 被清
+    const so = repo.get(survivorOther.id);
+    expect(so?.blocks).toEqual([]);
+    expect(so?.blockedBy).toEqual([]);
+
+    // caller personal 过继 + 自己 blocks 引用也清
+    const cp = repo.get(callerPersonal.id);
+    expect(cp?.ownerSessionId).toBe('sess-new');
+    expect(cp?.blocks).toEqual([]);
+  });
+
+  it('case B 事务中段 throw → 整个 transaction ROLLBACK，team task / personal task 全保留', () => {
+    insertSession(db, 'sess-new');
+    insertTeam(db, 'team-A');
+
+    const callerTeam = repo.create({ subject: 'CT', ownerSessionId: sid, teamId: 'team-A' });
+    const callerPersonal = repo.create({ subject: 'CP', ownerSessionId: sid });
+
+    // 触发 throw：close db 之前先 prepare 一个 mock 让 SELECT/DELETE 抛错。
+    // 最直接的办法：把 newSid 指向 sessions 表中不存在的 sid → step 4 UPDATE 改 FK 触发抛
+    // 但 step 4 不是 FK 改动（不会撞 FK 错），所以改用另一种触发：把 sess-new 不 insertSession
+    // → step 4 UPDATE owner_session_id 撞 FK → 整个 tx ROLLBACK
+    // （不调 insertSession(db, 'sess-new') 故意触发）
+    // 注意：上面 insertSession(db, 'sess-new') 实际已 insert，所以删 sessions row 让 FK fail
+    db.prepare(`DELETE FROM sessions WHERE id = ?`).run('sess-new');
+
+    expect(() => repo.applyHandOffSkipPolicy(sid, 'sess-new')).toThrow();
+
+    // ROLLBACK 验证：team task 与 personal 都还在，owner 仍是 caller
+    expect(repo.get(callerTeam.id)?.ownerSessionId).toBe(sid);
+    expect(repo.get(callerTeam.id)?.teamId).toBe('team-A');
+    expect(repo.get(callerPersonal.id)?.ownerSessionId).toBe(sid);
+  });
+});
+
+describe.skipIf(!bindingAvailable)('task-repo v024 / findOwnedDistinctTeamIds (D2 preserve-team safety)', () => {
+  let db: Database.Database;
+  let repo: TaskRepo;
+  let sid: string;
+  beforeEach(() => {
+    ({ db, repo, sid } = makeMemoryRepo());
+  });
+  afterEach(() => db.close());
+
+  it('返 caller owned distinct non-null team_id 列表（personal 排除）', () => {
+    insertSession(db, 'sess-other');
+    insertTeam(db, 'team-A');
+    insertTeam(db, 'team-B');
+    insertTeam(db, 'team-C');
+
+    // caller 拥有：2 个 team-A + 1 个 team-B + 1 personal + 0 team-C
+    repo.create({ subject: 'T1', ownerSessionId: sid, teamId: 'team-A' });
+    repo.create({ subject: 'T2', ownerSessionId: sid, teamId: 'team-A' }); // 重复 team
+    repo.create({ subject: 'T3', ownerSessionId: sid, teamId: 'team-B' });
+    repo.create({ subject: 'P1', ownerSessionId: sid }); // personal 排除
+    // other owner 在 team-C — 不算 caller 的
+    repo.create({ subject: 'O1', ownerSessionId: 'sess-other', teamId: 'team-C' });
+
+    const result = repo.findOwnedDistinctTeamIds(sid);
+    expect(new Set(result)).toEqual(new Set(['team-A', 'team-B']));
+    expect(result.length).toBe(2); // distinct, team-A 不重复
+  });
+
+  it('caller 仅有 personal task → 返空', () => {
+    repo.create({ subject: 'P1', ownerSessionId: sid });
+    repo.create({ subject: 'P2', ownerSessionId: sid });
+    expect(repo.findOwnedDistinctTeamIds(sid)).toEqual([]);
+  });
+
+  it('caller 啥都没 → 返空', () => {
+    insertSession(db, 'sess-empty');
+    expect(repo.findOwnedDistinctTeamIds('sess-empty')).toEqual([]);
+  });
+});
+
+describe.skipIf(!bindingAvailable)('task-repo v024 / team hard delete → tasks.team_id ON DELETE SET NULL', () => {
+  let db: Database.Database;
+  let repo: TaskRepo;
+  let sid: string;
+  beforeEach(() => {
+    ({ db, repo, sid } = makeMemoryRepo());
+  });
+  afterEach(() => db.close());
+
+  it('hard delete agent_deck_teams row → tasks.team_id 自动 SET NULL（不级联删 task — plan §不变量 4 GC 兜底）', () => {
+    insertTeam(db, 'team-A');
+    const tTeam = repo.create({ subject: 'T-team', ownerSessionId: sid, teamId: 'team-A' });
+    const tPersonal = repo.create({ subject: 'T-personal', ownerSessionId: sid });
+
+    db.prepare(`DELETE FROM agent_deck_teams WHERE id = ?`).run('team-A');
+
+    // task 都还在
+    expect(repo.get(tTeam.id)).not.toBeNull();
+    expect(repo.get(tTeam.id)?.teamId).toBeNull(); // team-A 删后退化 personal
+    expect(repo.get(tTeam.id)?.ownerSessionId).toBe(sid);
+    expect(repo.get(tPersonal.id)?.teamId).toBeNull(); // 本来就是 null
+  });
+});
+
+describe.skipIf(!bindingAvailable)('task-repo v024 / cascade delete cross-team scenarios (HIGH-2)', () => {
+  let db: Database.Database;
+  let repo: TaskRepo;
+  let sid: string;
+  beforeEach(() => {
+    ({ db, repo, sid } = makeMemoryRepo());
+  });
+  afterEach(() => db.close());
+
+  it('root team A → child team A（同 team）+ predicate 允许 team A → child 一并删', () => {
+    insertTeam(db, 'team-A');
+    const child = repo.create({ subject: 'C', ownerSessionId: sid, teamId: 'team-A' });
+    const root = repo.create({ subject: 'R', ownerSessionId: sid, teamId: 'team-A', blocks: [child.id] });
+
+    const deleted = repo.delete(root.id, {
+      cascade: true,
+      predicate: (_, c) => c.teamId === 'team-A',
+    });
+    expect(new Set(deleted)).toEqual(new Set([root.id, child.id]));
+    expect(repo.get(root.id)).toBeNull();
+    expect(repo.get(child.id)).toBeNull();
+  });
+
+  it('root team A → child team B + predicate 仅允许 team A → child 跳过 + 链路断', () => {
+    insertTeam(db, 'team-A');
+    insertTeam(db, 'team-B');
+    const grandChild = repo.create({ subject: 'GC', ownerSessionId: sid, teamId: 'team-A' });
+    const child = repo.create({ subject: 'C', ownerSessionId: sid, teamId: 'team-B', blocks: [grandChild.id] });
+    const root = repo.create({ subject: 'R', ownerSessionId: sid, teamId: 'team-A', blocks: [child.id] });
+
+    const deleted = repo.delete(root.id, {
+      cascade: true,
+      predicate: (_, c) => c.teamId === 'team-A', // 仅 team A 通过
+    });
+    expect(deleted).toEqual([root.id]); // root 总会被删（predicate 不挡 root）
+    expect(repo.get(child.id)).not.toBeNull(); // team B 跳过保留
+    expect(repo.get(grandChild.id)).not.toBeNull(); // 链路断，下游也保留
+  });
+
+  it('root personal → child personal（同 owner）+ predicate caller == owner → child 一并删', () => {
+    const child = repo.create({ subject: 'C', ownerSessionId: sid });
+    const root = repo.create({ subject: 'R', ownerSessionId: sid, blocks: [child.id] });
+
+    const deleted = repo.delete(root.id, {
+      cascade: true,
+      predicate: (_, c) => c.teamId === null && c.ownerSessionId === sid,
+    });
+    expect(new Set(deleted)).toEqual(new Set([root.id, child.id]));
+  });
+
+  it('root personal → child team A + predicate 仅允许 personal → child 跳过', () => {
+    insertTeam(db, 'team-A');
+    const child = repo.create({ subject: 'C', ownerSessionId: sid, teamId: 'team-A' });
+    const root = repo.create({ subject: 'R', ownerSessionId: sid, blocks: [child.id] });
+
+    const deleted = repo.delete(root.id, {
+      cascade: true,
+      predicate: (_, c) => c.teamId === null && c.ownerSessionId === sid,
+    });
+    expect(deleted).toEqual([root.id]);
+    expect(repo.get(child.id)).not.toBeNull();
   });
 });
