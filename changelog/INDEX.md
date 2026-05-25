@@ -5,6 +5,7 @@
 
 | 文件 | 概要（≤80 字） |
 |------|------|
+| [CHANGELOG_147.md](CHANGELOG_147.md) | 实时 / 历史面板空态布局加 `h-full` + flex 居中，对齐待处理 / 团队同款视觉 |
 | [CHANGELOG_1.md](CHANGELOG_1.md) | 项目初始化 M1-M9（Electron+React+TS+Tailwind 半透明窗 / Adapter+Diff 双插件 / SDK+Hook 双通道 / DB v3）+ 应用图标 |
 | [CHANGELOG_2.md](CHANGELOG_2.md) | 工具适配 AskUserQuestion + ExitPlanMode：独立类型 + 独立 IPC + 专用 UI（option 按钮 / 批准计划 + markdown 反馈） |
 | [CHANGELOG_3.md](CHANGELOG_3.md) | 对话气泡 + Markdown 渲染（user message + MD/TXT 切换从全局级联翻为单条独立）+ AskRow 实色提交 + 毛玻璃底色加深 + header 计数对齐 |

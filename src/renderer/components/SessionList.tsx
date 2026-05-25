@@ -79,7 +79,7 @@ export function SessionList(): JSX.Element {
 
   if (grouped.active.length === 0 && grouped.dormant.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center text-deck-muted">
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center text-deck-muted">
         <div className="text-[12px]">暂无活跃会话</div>
         <div className="text-[10px] leading-relaxed">
           点 ＋ 新建会话（可选 Claude / Codex），或：
