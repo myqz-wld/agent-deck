@@ -122,7 +122,7 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 `archive_plan` 在 plan 完成后**原子执行** user CLAUDE §Step 4「完成」5 步：ff merge worktree branch → `base_branch` / 更新 frontmatter (`status=completed` + `final_commit` + `completed_at`) / mv plan → `<main-repo>/plans/<plan_id>.md` / **如 plan 有 spike-reports/ → mv `<plan-artifact-dir>/spike-reports/` → `<main-repo>/plans/<plan_id>/spike-reports/`** / 同步 `<main-repo>/plans/INDEX.md` / `git add` + commit / `git worktree remove` + `git branch -D`。caller 调用前必须先 `ExitWorktree(action: "keep")`。
 
 **调用**：`mcp__agent-deck__archive_plan({ plan_id, worktree_path, base_branch?: <plan frontmatter.base_branch ?? "main">, plan_file_path?, changelog_id? })`(`base_branch` 默认值:schema 优先读 plan frontmatter.base_branch,缺失才 fallback "main")
-**返回**：`{ archived_path, commit_hash, branch_deleted, worktree_removed, plans_index_action: 'created'|'appended'|'updated'|'unchanged', final_status, warnings: string[], spike_reports_archived: { src_path, dst_path } | null, archived: 'ok'|'failed'|'skipped', teammatesShutdown: { closed, failed, skipped } }`
+**返回**：`{ archivedPath, commitHash, branchDeleted, worktreeRemoved, plansIndexAction: 'created'|'appended'|'updated'|'unchanged', finalStatus, warnings: string[], spikeReportsArchived: { srcPath, dstPath } | null, archived: 'ok'|'failed'|'skipped', teammatesShutdown: { closed, failed, skipped } }`
 
 **app-only 差异**：
 
@@ -131,13 +131,13 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 - **自动归档 caller session**：plan 收口后默认归档 caller（baton 同款语义），返回 `archived` 三态字段；归档失败仅 warn 不阻塞 ok return
 - **abandoned plan 不走本 tool**：tool 强制 `status=completed` 且入项目 git 归档；abandoned 走 user CLAUDE §Step 4 §中止 手工流程
 - **changelog 引用归档** agent 自己写（tool 不做）
-- **spike-reports/ 自动归档**：detect `<plan-artifact-dir>/spike-reports/` 存在（`<plan-artifact-dir>` = `<plan-file-dir>/<plan-id>/`，即 plan 文件父目录下的同名 artifacts 目录）→ mv 到 `<main-repo>/plans/<plan_id>/spike-reports/`（plan .md 同名子目录与 plan .md 平级，约定 plan .md 是主体 + 同名目录是 artifacts），spike-reports/ 子目录递归入 git 归档 commit。不存在 → skip 不报错（trivial plan 无 spike 是合法场景）。mv 失败（EXDEV 跨 fs / perm）→ warnings 落 hint「spike-reports archive failed: ... Manually run \`mkdir -p && mv && git add+commit --amend\`」+ 不阻塞 ok return。`spike_reports_archived` 字段告诉 caller 实际归档结果（null = skip / `{src_path, dst_path}` = 成功）
+- **spike-reports/ 自动归档**：detect `<plan-artifact-dir>/spike-reports/` 存在（`<plan-artifact-dir>` = `<plan-file-dir>/<plan-id>/`，即 plan 文件父目录下的同名 artifacts 目录）→ mv 到 `<main-repo>/plans/<plan_id>/spike-reports/`（plan .md 同名子目录与 plan .md 平级，约定 plan .md 是主体 + 同名目录是 artifacts），spike-reports/ 子目录递归入 git 归档 commit。不存在 → skip 不报错（trivial plan 无 spike 是合法场景）。mv 失败（EXDEV 跨 fs / perm）→ warnings 落 hint「spike-reports archive failed: ... Manually run \`mkdir -p && mv && git add+commit --amend\`」+ 不阻塞 ok return。`spikeReportsArchived` 字段告诉 caller 实际归档结果（null = skip / `{srcPath, dstPath}` = 成功）
 - **followup 20260515 (a)+(b)+(c)+(d) UX 完善**：
   - fallback 链 `<main-repo>/.claude/plans/` > `<main-repo>/plans/` > `~/.claude/plans/`(加中间档兜底本项目实际惯例)
   - `plan_file_path` 文件名 stem 必须 == `plan_id`(impl 层 reject 防 silent unlink)
   - INDEX 4 列 canonical `| 文件 | 状态 | 关联 changelog | 概要 |` + smart update existing 行(替换 status / changelog / description)
   - `changelog_id` optional string + csv(单值 `"122"` / 多值 `"121,122"`),拼成 markdown link 写入 INDEX 第 3 列;不传时 smart update 保留老 4 列 changelog 列 / 旧 2 列或新 append 用 `—` placeholder
-  - `plans_index_action` 四态 enum 替代旧 boolean,让 caller 区分 INDEX 行真正发生的事情
+  - `plansIndexAction` 四态 enum 替代旧 boolean,让 caller 区分 INDEX 行真正发生的事情
   - `warnings` non-fatal warning 数组(如 `.claude/plans/<id>.md` 与 `plans/<id>.md` 同 id 双存覆盖警告 — 走 warn 而非 reject)
   - 7 phase post-ff-merge 失败专用 phaseHint 给具体 manual recovery 决策树(替代旧通用 hint)
 - **mainRepo dirty precheck 精确化（plan deep-review-batch-a1-b-followup-r3-20260519 §不变量 5）**：旧版 mainRepo 任意 dirty 全场 fail-fast；新版仅 reject 三具体路径 `{archivedPath, indexPath, planFilePath}` 命中 dirty / staged / untracked / R rename / C copy（含 old/new path 任一命中）— 其他无关 dirty 文件降 warning + commit message 注脚（commit pathspec 隔离不吞）。precheck 失败时 hint 软引导 caller fix 撞 critical paths 后重 invoke archive_plan，**或** 走 §escape hatch: shutdown_baton_teammates 补跑 baton-cleanup phase 1（如 caller 必须手工归档场景）— 不硬技术阻断手工归档（user CLAUDE.md §Step 4 5 步手工归档仍是合法 fallback）

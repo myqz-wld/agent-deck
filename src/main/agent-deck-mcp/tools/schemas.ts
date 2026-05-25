@@ -712,17 +712,18 @@ export interface SpawnSessionResult {
 }
 
 /**
- * archive_plan ok return shape（archive-plan.ts handler；snake_case 字段保持 mcp tool 协议向后兼容）。
+ * archive_plan ok return shape（archive-plan.ts handler）。
  *
- * 字段类型与 archive-plan-impl.ts ArchivePlanImplResult 对齐：
- * - branch_deleted / worktree_removed: string（git 命令 stdout，非 boolean）
- * - final_status: 'completed' literal 由 impl 强制写入 frontmatter status 字段
+ * 字段类型与 archive-plan-impl.ts ArchivePlanResult 对齐（impl 内部已 camelCase；
+ * handler 直接透传不再做命名转换）。
+ * - branchDeleted / worktreeRemoved: string（git 命令 stdout，非 boolean）
+ * - finalStatus: 'completed' literal 由 impl 强制写入 frontmatter status 字段
  */
 export interface ArchivePlanResult {
-  archived_path: string;
-  commit_hash: string;
-  branch_deleted: string;
-  worktree_removed: string;
+  archivedPath: string;
+  commitHash: string;
+  branchDeleted: string;
+  worktreeRemoved: string;
   /**
    * archive-plan-tool-ux-followup-20260515 (b)+(c):plansIndexAppended boolean → plansIndexAction
    * 四态 enum,让 caller 区分 INDEX 行真正发生的事情:
@@ -732,8 +733,8 @@ export interface ArchivePlanResult {
    *   (status=completed + changelog 列 + description 列)
    * - 'unchanged':smart update 后内容与原行完全相同(罕见 idempotent)
    */
-  plans_index_action: 'created' | 'appended' | 'updated' | 'unchanged';
-  final_status: 'completed';
+  plansIndexAction: 'created' | 'appended' | 'updated' | 'unchanged';
+  finalStatus: 'completed';
   /**
    * archive-plan-tool-ux-followup-20260515 HIGH-2 (双方独立 HIGH 共识 — silent override 防覆盖
    * 走 warn 而非 reject):non-fatal warning 列表。典型场景:
@@ -746,13 +747,13 @@ export interface ArchivePlanResult {
    * **R3 follow-up (spike-reports/ 归档流程缺口)**: spike artifacts 自动归档结果。
    *
    * - `null`: plan 无 spike (`<plan-artifact-dir>/spike-reports/` 不存在),skip
-   * - `{ src_path, dst_path }`: spike-reports/ 成功 mv 到 `<main-repo>/plans/<plan-id>/spike-reports/`
+   * - `{ srcPath, dstPath }`: spike-reports/ 成功 mv 到 `<main-repo>/plans/<plan-id>/spike-reports/`
    *   (plan .md 同名子目录,与 plan .md 平级),入 git 归档 commit
    *
    * mv 失败 (EXDEV 跨 fs / perm) 时不阻塞 ok return,落 warnings 数组让 caller 手工
    * `mkdir -p && mv && git add+commit --amend` 补归档。
    */
-  spike_reports_archived: { src_path: string; dst_path: string } | null;
+  spikeReportsArchived: { srcPath: string; dstPath: string } | null;
   archived: 'ok' | 'failed' | 'skipped';
   teammatesShutdown: TeammatesShutdownInfo;
 }
@@ -1090,12 +1091,12 @@ export type TaskUpdateResult = TaskRecord;
 
 /**
  * task_delete ok return shape (handlers/task-delete.ts)。
- * - success: deleted_ids.length > 0 即视为成功（cascade=false 至少删 target；cascade=true 含下游）
- * - task_id: 透传 args.task_id（root 删除目标）
- * - deleted_ids: 实际被删的所有 task id（root + cascade 下游）
+ * - success: deletedIds.length > 0 即视为成功（cascade=false 至少删 target；cascade=true 含下游）
+ * - taskId: 透传 args.task_id（root 删除目标）
+ * - deletedIds: 实际被删的所有 task id（root + cascade 下游）
  */
 export interface TaskDeleteResult {
   success: boolean;
-  task_id: string;
-  deleted_ids: string[];
+  taskId: string;
+  deletedIds: string[];
 }
