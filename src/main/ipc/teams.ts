@@ -110,23 +110,17 @@ export function registerTeamsIpc(): void {
       const team = agentDeckTeamRepo.getWithMembers(teamId);
       if (!team) return null;
       const recentEvents = eventRepo.findTeamEvents(teamId, 50);
-      // plan task-mcp-owner-session-id-rewrite-20260521 v023：task 表无 team_id 列，
-      // team scope 改成 owner_session_id IN (team active member sids) reverse join。
+      // **plan task-team-id-restore-20260525 v024 §D7 Phase E Step E2 修法**(IPC 严格 team_id 过滤):
+      // tasks 表 v024 加回 team_id 列后,team scope 改回 stored — 走 `taskRepo.list({teamIdFilter:
+      // teamId, limit: 200})` 严格按 team_id 过滤,不再 reverse join member sids。这消灭了 v023
+      // 「lead 多 team task 串流到团队面板」的根因(plan §起源);与 TaskListByTeam 同款边界。
       //
-      // **F9 修法**(deep-review Round 2 reviewer-codex LOW-2-2):archived team
-      // detail 不该显示成员当前在其他 active team / 个人上下文里的 live task。v023
-      // owner-only 模型下 task 不再 own by team,team detail tasks 仅展示「team 成员
-      // 当前 task」是辅助信息;archived team 已不再使用,显示成员 live task 反而误
-      // 导用户。team archived → 返 [] 与 task_list 的 archived team filter 纪律对齐
-      // (tools.ts:114 getVisibleOwnerSessionIds 同款)。
-      const memberSids =
+      // **archived team filter 纪律**(plan §不变量 7,v023 F9 沿用):team archivedAt !== null
+      // 时返 []。task_list mcp tool / task-helpers.getVisibleTaskScope 全用同款 filter 边界。
+      const tasks =
         team.archivedAt !== null
           ? []
-          : agentDeckTeamRepo.listActiveMembers(teamId).map((m) => m.sessionId);
-      const tasks =
-        memberSids.length === 0
-          ? []
-          : taskRepo.list({ ownerSessionIds: memberSids, limit: 200 });
+          : taskRepo.list({ teamIdFilter: teamId, limit: 200 });
       const recentMessages = agentDeckMessageRepo.listByTeam(teamId, { limit: 100 });
       return { ...team, recentEvents, tasks, recentMessages };
     },
@@ -339,12 +333,17 @@ export function registerTeamsIpc(): void {
     },
   );
 
-  // TaskListByTeam: 按 team 拉 task（plan task-mcp-owner-session-id-rewrite-20260521
-  // v023 重设计后，team scope 改成 owner_session_id IN (team active member sids)
-  // reverse join；task 表不再有 team_id 列）。
+  // TaskListByTeam: 按 team 拉 task。
   //
-  // **F9 修法**(deep-review Round 2 reviewer-codex LOW-2-2):archived team detail
-  // 不该返成员当前 live task（同 AgentDeckTeamGetFull）— 与 task_list filter 对齐。
+  // **plan task-team-id-restore-20260525 v024 §D7 Phase E Step E1 修法**(IPC 严格 team_id 过滤):
+  // tasks 表 v024 加回 team_id 列后,team scope 改回 stored — 走 `taskRepo.list({teamIdFilter:
+  // teamId, limit: 200})` 严格按 team_id 过滤,不再 reverse join member sids。这消灭了 v023
+  // 「lead 多 team task 串流到团队面板」的根因(plan §起源):lead L 同时在 team A、team B,
+  // L 在 A 上下文 task_create 落 owner=L 无 team 标签 → team B 反查 ownerSessionIds 含 L
+  // → list 拿到 owner=L 全部 task 包括 A 专属那条。v024 改成 team_id 标签判定,严格隔离。
+  //
+  // **archived team filter 纪律**(plan §不变量 7,v023 F9 沿用):team archivedAt !== null
+  // 时返 []。task_list mcp tool / task-helpers.getVisibleTaskScope 全用同款 filter 边界。
   on(
     IpcInvoke.TaskListByTeam,
     async (_e, teamIdRaw): Promise<{ tasks: TaskRecord[] }> => {
@@ -353,9 +352,7 @@ export function registerTeamsIpc(): void {
       if (!team || team.archivedAt !== null) {
         return { tasks: [] };
       }
-      const memberSids = agentDeckTeamRepo.listActiveMembers(teamId).map((m) => m.sessionId);
-      if (memberSids.length === 0) return { tasks: [] };
-      return { tasks: taskRepo.list({ ownerSessionIds: memberSids, limit: 200 }) };
+      return { tasks: taskRepo.list({ teamIdFilter: teamId, limit: 200 }) };
     },
   );
 
