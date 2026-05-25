@@ -152,9 +152,9 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
         {loading ? (
-          <div className="text-[11px] text-deck-muted">加载中…</div>
+          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载中…</div>
         ) : rows.length === 0 ? (
-          <div className="text-[11px] text-deck-muted">无匹配的历史会话</div>
+          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">无匹配的历史会话</div>
         ) : (
           <ol className="flex flex-col gap-1.5">
             {rows.map((s) => (
