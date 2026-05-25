@@ -256,16 +256,40 @@ export async function handOffSessionImpl(
       error: `plan frontmatter worktree_path must be absolute: ${worktreePath}`,
     };
   }
-  // REVIEW_33 H10：worktreePath 存在性预检（absolute 校验之后）。
-  // 旧实现只校 absolute 不查目录存在 → worktree 已被 archive_plan / 手工 git worktree
-  // remove / 跨设备同步未带 working tree 时，spawn_session 拿这个 cwd 起新 SDK 会
-  // ENOENT 一片（且 process.cwd() 在 main process 默认路径，调试线索断）。修法：先
-  // exists 一次，缺失立即返结构化 error 提示「重建 worktree / 修正 plan frontmatter」。
+  // REVIEW_33 H10 + **REVIEW_56 Batch B R1 LOW-1 (reviewer-codex) 修订**:
+  // worktreePath 存在性预检 (absolute 校验之后)。
+  //
+  // **修前**(纯 hard reject): 不存在直接 return error,阻断 cold-start 自建路径
+  //   — 与 hand-off-session.ts:291-303 cwd resilience 注释 + tools/index.ts:249-251 tool
+  //   description "new session expected to run EnterWorktree(path:) itself" 冲突。
+  //
+  // **修后**(plan-mode + cwd=mainRepo 时放宽): plan-driven hand_off 默认 cwd 已改 mainRepo,
+  // cold-start 协议要求新 session 读 plan 后,worktree 不存在则调 enter_worktree 创建 → 此场景
+  // 应放宽为 warning metadata 让 cold-start 负责;外置 worktree (不在 mainRepo subtree 内) 或
+  // caller 显式 cwd=worktreePath 时仍保留 hard reject (cwd 直接进入失效目录无法恢复)。
+  //
+  // **决策树**:
+  //  - worktreePath exists → 正常路径
+  //  - worktreePath missing + worktree 在 mainRepo subtree (约定 worktree, hand-off 默认 cwd=mainRepo
+  //    cwd resilience) → 放宽: warn metadata,让 cold-start 自建 worktree
+  //  - worktreePath missing + 外置 worktree (不在 mainRepo subtree) → 仍 hard reject (cwd 即将
+  //    进失效目录,新 session ENOENT 一片)
   if (!(await deps.exists(worktreePath))) {
-    return {
-      error: `plan frontmatter worktree_path does not exist on disk: ${worktreePath}`,
-      hint: `worktree may have been archived (\`archive_plan\` removed it) / cross-device synced without working tree / manually removed. To resume, recreate worktree (\`git worktree add ${worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktree_path to a valid path.`,
-    };
+    // 检测 worktree 是否在约定路径(`<mainRepo>/.claude/worktrees/<plan-id>`)。直接 regex
+    // 检测路径不依赖 mainRepo 已 resolved (mainRepo 启发式在 step 5 才跑,无法依赖)。
+    const isConventionalWorktree = /\/\.claude\/worktrees\/[^/]+\/?$/.test(worktreePath);
+    if (!isConventionalWorktree) {
+      return {
+        error: `plan frontmatter worktree_path does not exist on disk: ${worktreePath}`,
+        hint: `worktree may have been archived (\`archive_plan\` removed it) / cross-device synced without working tree / manually removed. External worktree (not in conventional \`.claude/worktrees/\` path) cannot self-recover via cold-start. To resume, recreate worktree (\`git worktree add ${worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktree_path to a valid path.`,
+      };
+    }
+    // conventional worktree missing + cwd=mainRepo 路径: 让 cold-start 自建 — 不 hard reject,
+    // 仅 warn 控制台让 caller 能感知。新 session 按 user CLAUDE.md §Step 3 cold-start 协议读
+    // plan 后会调 enter_worktree (mcp tool) 自建 worktree,详 tools/index.ts:249-251 tool description。
+    console.warn(
+      `[hand-off-session-impl] conventional worktree missing on disk: ${worktreePath} — proceeding with cwd=mainRepo, new session expected to enter_worktree itself per cold-start protocol`,
+    );
   }
 
   // 4. 校验 status === 'in_progress'

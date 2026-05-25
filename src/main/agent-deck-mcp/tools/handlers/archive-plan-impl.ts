@@ -1160,6 +1160,30 @@ export async function archivePlanImpl(
     );
   }
 
+  // **REVIEW_56 Batch B R1 MED-1 修法 (reviewer-codex)**: archive commit 之后重新拿 HEAD 作
+  // archiveCommit return 给 caller。
+  // 修前 commitHash = finalCommit(line 807 ff-merge HEAD = worktree branch tip)— caller 拿到的
+  // hash 不能定位包含 status=completed / INDEX 更新 / spike-reports 归档的 archive commit。
+  // 修后:
+  //  - finalCommit (worktree merge tip) 仍写 plan frontmatter `final_commit` 字段(语义: caller
+  //    实际工作的最后 commit,反向追溯 worktree 进度合理)
+  //  - archiveCommit (archive commit) return 给 caller 的 commitHash(语义: 归档操作 commit,
+  //    含 status=completed / INDEX / spike-reports / changelog 引用)
+  // 两个 hash 分别承载不同语义,caller 拿 commitHash 能定位归档 commit;archived plan frontmatter
+  // 内 final_commit 仍指向 caller 工作终态。
+  let archiveCommit: string;
+  try {
+    archiveCommit = await deps.runGit(['rev-parse', 'HEAD'], mainRepo);
+  } catch (e) {
+    return postFfMergeErr(
+      'archive-rev-parse-HEAD',
+      e as Error,
+      `git rev-parse HEAD failed in main repo after archive commit (rare — git internal state). ` +
+        `Manually run \`git -C ${mainRepo} rev-parse HEAD\` to get archive commit hash. Archive commit succeeded; ` +
+        `step 14 (worktree remove / branch -D) still needs running.`,
+    );
+  }
+
   // 14. git worktree remove + branch -D
   try {
     await deps.runGit(['worktree', 'remove', input.worktreePath], mainRepo);
@@ -1196,7 +1220,7 @@ export async function archivePlanImpl(
 
   return {
     archivedPath,
-    commitHash: finalCommit,
+    commitHash: archiveCommit,
     branchDeleted: worktreeBranch,
     worktreeRemoved: input.worktreePath,
     plansIndexAction,
@@ -1414,6 +1438,7 @@ export type PostFfMergePhase =
   | 'unlink-original-plan' // step 12
   | 'git-add' // step 13a
   | 'git-commit' // step 13b
+  | 'archive-rev-parse-HEAD' // step 13c (REVIEW_56 Batch B R1 MED-1: 拿 archive commit hash)
   | 'git-worktree-remove' // step 14a
   | 'git-branch-D'; // step 14b
 
