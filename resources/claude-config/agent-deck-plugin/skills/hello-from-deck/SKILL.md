@@ -16,3 +16,11 @@ description: Agent Deck 内置 skill 自检。当用户调用 /agent-deck:hello-
 
 1. 回复一句确认消息：`Agent Deck 自带 skill 已就绪：hello-from-deck`
 2. 同时附上当前会话 cwd 与时间戳，方便用户核对（Claude 侧用 Bash `pwd` + `date`；Codex 侧用 shell `pwd` + `date`；也可直接复用上下文里的信息）
+
+## 验证通过
+
+输出含固定确认语 + 当前 cwd + ISO 时间戳 = 加载链路正常。
+
+## 失败兜底
+
+`pwd` / `date` 工具调用失败 → 输出「cwd unavailable」/「time unavailable」并标注 tool 失败原因（典型：plugin agent body 注入但 Bash / shell tool 未授权 / sandbox 拦截）。仍输出固定确认语，让用户至少知道 plugin body 加载到位。
