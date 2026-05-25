@@ -262,6 +262,20 @@ export interface TaskRepo {
    *          deletedTeamTaskIds.length + reassignedPersonalCount。
    */
   applyHandOffSkipPolicy(callerSid: string, newSid: string): ApplyHandOffSkipResult;
+  /**
+   * v024 plan §Step D2 preserve-team safety 算法 helper（Round 4 HIGH-1 修法支撑）:
+   * 返 caller (owner_session_id == callerSid) 拥有的 distinct non-null team_id 列表。
+   *
+   * hand_off `team_task_policy='preserve-team'` 路径用此 helper 拿 callerOwnedTeamIds
+   * 与新 sid handoff 后 active teams (adoptedTeamIds ∪ spawnData.teamId) 比对差集，
+   * 差集非空 → ok return.taskReassignment.policyWarning='preserve-team-unadopted-teams'
+   * + unadoptedTeamIds 字段暴露根因（plan §不变量 5 + Step D2）。
+   *
+   * 单 SQL DISTINCT 一次拿到（避免 list 拉全部 task 然后 caller 端 map distinct）。
+   *
+   * @returns caller 拥有 task 的 distinct non-null team_id 列表（personal task team_id IS NULL 被排除）
+   */
+  findOwnedDistinctTeamIds(callerSid: string): string[];
 }
 
 const UPDATABLE_KEYS: ReadonlyArray<keyof TaskCreateInput> = [
@@ -649,7 +663,30 @@ export function createTaskRepo(db: Database): TaskRepo {
     return { deletedTeamTaskIds, reassignedPersonalCount };
   }
 
-  return { create, get, list, update, delete: del, reassignOwner, applyHandOffSkipPolicy };
+  function findOwnedDistinctTeamIds(callerSid: string): string[] {
+    // v024 plan §Step D2 preserve-team safety 算法 helper（Round 4 HIGH-1 修法支撑）:
+    // 单 SQL DISTINCT 拿 caller 拥有 task 的 distinct non-null team_id 列表（personal
+    // task team_id IS NULL 被排除）。hand_off preserve-team 路径用此与 newSid handoff
+    // 后 active teams 比对差集 → policyWarning='preserve-team-unadopted-teams' +
+    // unadoptedTeamIds 字段暴露根因。
+    const rows = db
+      .prepare(
+        `SELECT DISTINCT team_id FROM tasks WHERE owner_session_id = ? AND team_id IS NOT NULL`,
+      )
+      .all(callerSid) as Array<{ team_id: string }>;
+    return rows.map((r) => r.team_id);
+  }
+
+  return {
+    create,
+    get,
+    list,
+    update,
+    delete: del,
+    reassignOwner,
+    applyHandOffSkipPolicy,
+    findOwnedDistinctTeamIds,
+  };
 }
 
 /**
@@ -671,4 +708,5 @@ export const taskRepo: TaskRepo = {
   reassignOwner: (oldSid, newSid, opts) => defaultRepo().reassignOwner(oldSid, newSid, opts),
   applyHandOffSkipPolicy: (callerSid, newSid) =>
     defaultRepo().applyHandOffSkipPolicy(callerSid, newSid),
+  findOwnedDistinctTeamIds: (callerSid) => defaultRepo().findOwnedDistinctTeamIds(callerSid),
 };
