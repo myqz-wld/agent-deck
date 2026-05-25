@@ -52,9 +52,10 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
           'mainhash', // REVIEW_33 H1: rev-parse --verify <baseBranch>
           '', // REVIEW_33 H1: checkout <baseBranch>
           '', // merge --ff-only
-          'deadbeef123', // rev-parse HEAD
+          'deadbeef123', // rev-parse HEAD (finalCommit)
           '', // add
           '', // commit
+          'archivehash', // rev-parse HEAD (archiveCommit, REVIEW_56 Batch B R1 MED-1)
           '', // worktree remove
           '', // branch -D
         ]
@@ -285,6 +286,7 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
       'deadbeef123',
       '',
       '',
+      'archivehash',
       '',
       '',
     ];

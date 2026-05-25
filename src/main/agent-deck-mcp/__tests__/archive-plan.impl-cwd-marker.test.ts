@@ -75,9 +75,10 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
         'mainhash',               // rev-parse --verify baseBranch
         '',                       // checkout baseBranch
         '',                       // merge --ff-only
-        'finalhash',              // rev-parse HEAD
+        'finalhash',              // rev-parse HEAD (finalCommit, 落 frontmatter final_commit)
         '',                       // add
         '',                       // commit
+        'archivehash',            // rev-parse HEAD (archiveCommit, 即 ok.commitHash, REVIEW_56 Batch B R1 MED-1)
         '',                       // worktree remove
         '',                       // branch -D
       ],
@@ -86,7 +87,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
 
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(false);
-    expect((result as ArchivePlanResult).commitHash).toBe('finalhash');
+    expect((result as ArchivePlanResult).commitHash).toBe('archivehash');
   });
 
   // ─── TC7: 状态 2 ─ caller 在 worktree + marker == worktreePath → 放过 ─────────
@@ -102,9 +103,10 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
         'mainhash',               // rev-parse --verify baseBranch
         '',                       // checkout baseBranch
         '',                       // merge --ff-only
-        'finalhash',              // rev-parse HEAD
+        'finalhash',              // rev-parse HEAD (finalCommit)
         '',                       // add
         '',                       // commit
+        'archivehash',            // rev-parse HEAD (archiveCommit, REVIEW_56 Batch B R1 MED-1)
         '',                       // worktree remove
         '',                       // branch -D
       ],
@@ -113,7 +115,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
 
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(false);
-    expect((result as ArchivePlanResult).commitHash).toBe('finalhash');
+    expect((result as ArchivePlanResult).commitHash).toBe('archivehash');
   });
 
   // ─── TC8: 状态 3 ─ caller 在 worktree + marker=null → reject ──────────────────
@@ -189,6 +191,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
         'finalhash',
         '',
         '',
+        'archivehash',
         '',
         '',
       ],
@@ -197,7 +200,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
 
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(false);
-    expect((result as ArchivePlanResult).commitHash).toBe('finalhash');
+    expect((result as ArchivePlanResult).commitHash).toBe('archivehash');
     // P5 Round 1 reviewer-codex HIGH-1 修法 (release marker seam):状态 2 (持 marker) 必 release
     expect(deps.clearMarkerCalled.count).toBe(1);
   });
@@ -230,6 +233,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
         'finalhash',
         '',
         '',
+        'archivehash',
         '',
         '',
       ],
@@ -239,7 +243,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
 
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(false);
-    expect((result as ArchivePlanResult).commitHash).toBe('finalhash');
+    expect((result as ArchivePlanResult).commitHash).toBe('archivehash');
     // 必 release marker (cwd invalid + marker valid 兜底)
     expect(deps.clearMarkerCalled.count).toBe(1);
   });
@@ -332,6 +336,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
         'finalhash',
         '',
         '',
+        'archivehash',
         '',
         '',
       ],
@@ -341,7 +346,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(false);
     const ok = result as ArchivePlanResult;
-    expect(ok.commitHash).toBe('finalhash');
+    expect(ok.commitHash).toBe('archivehash');
     // warning 应记录 stale marker 提示
     expect(ok.warnings.some((w) => w.includes('outside worktree') && w.includes('marker'))).toBe(
       true,
@@ -370,6 +375,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
         'finalhash',
         '',
         '',
+        'archivehash',
         '',
         '',
       ],
@@ -379,7 +385,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(false);
     const ok = result as ArchivePlanResult;
-    expect(ok.commitHash).toBe('finalhash');
+    expect(ok.commitHash).toBe('archivehash');
     // warning 应提示 marker 指向另一 worktree + 不 release
     expect(
       ok.warnings.some(

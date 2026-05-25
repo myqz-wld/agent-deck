@@ -70,7 +70,8 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
       '- ✅ Phase 1 完成,所有 step 已 commit',
     ].join('\n');
 
-    // 标准 git stdouts 队列(与 happy path 同款 11 次调用)
+    // 标准 git stdouts 队列(REVIEW_56 Batch B R1 MED-1 后 12 次调用,commit 之后插入
+    // archive-rev-parse-HEAD 拿 archiveCommit)
     const baseDeps = makeDeps(state, [
       `${expectedMainRepo}/.git`, // 1. rev-parse --git-common-dir
       'worktree-mcp-bug-fix', // 2. rev-parse --abbrev-ref HEAD
@@ -78,11 +79,12 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
       'mainhash', // 4. rev-parse --verify main (REVIEW_33 H1)
       '', // 5. checkout main (REVIEW_33 H1)
       '', // 6. merge --ff-only worktree-mcp-bug-fix
-      'finalhash123', // 7. rev-parse HEAD (post-ff-merge)
+      'finalhash123', // 7. rev-parse HEAD (post-ff-merge, finalCommit)
       '', // 8. add
       '', // 9. commit
-      '', // 10. worktree remove
-      '', // 11. branch -D
+      'archivehash', // 10. rev-parse HEAD (archiveCommit, REVIEW_56 Batch B R1 MED-1)
+      '', // 11. worktree remove
+      '', // 12. branch -D
     ]);
 
     // **关键 hijack**:在 `git merge --ff-only` 调用时 mutate state.files →
@@ -108,7 +110,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
 
     const ok = result as ArchivePlanResult;
     expect(ok.archivedPath).toBe(expectedArchivedPath);
-    expect(ok.commitHash).toBe('finalhash123');
+    expect(ok.commitHash).toBe('archivehash');
 
     // **关键 assertion**:归档 plan body 必须含 fresh checklist [x]
     // (post-ff-merge body),不能用 step 6 读的 stub body 覆盖。
@@ -147,6 +149,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
       'finalhash456',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -278,6 +281,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
       'finalhashdesc',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
