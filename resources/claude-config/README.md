@@ -12,7 +12,7 @@
 - 当前文件只含两节：
   - `§应用环境差异（Δ user CLAUDE.md）` —— 协议覆盖 / SKILL 失败兜底分支等仅在 agent-deck 应用环境生效的差异
   - `§Agent Deck Universal Team Backend` —— 应用专属的 mcp 15 tool 协议（spawn / send / session 查询 / plan archive / handoff / worktree / baton cleanup / 5 task tool）
-- 历史的「除本打包文件专属节外，其余通用约定需与 ~/.claude/CLAUDE.md 保持一致；改一处必须同步另一处」**人工同步约定已废弃**（机器无法执行已发生漂移，详 REVIEW_30 H1）
+- 不要维护人工同步约定；通用约定只改 user CLAUDE.md，应用文件只放 agent-deck 差异（REVIEW_30 H1）
 
 ### 改动维护
 
@@ -35,4 +35,4 @@
 - `agent-deck-plugin/skills/deep-review/SKILL.md` 定义「多轮深度 review」走 teammate 模式
 - `agent-deck-plugin/agents/reviewer-{claude,codex}.md` 是两 reviewer teammate 行为契约
 
-reviewer agent body 引用上述 SSOT，**不复述协议细节**（避免维护漂移）。
+reviewer agent body inline reviewer **角色专属规约**（核心纪律 / 输入识别 / 输出格式 / 重点维度 / 反模式 / 失败兜底）满足 plugin self-contained；**协议层 SSOT**（wire format / send_message / fresh session 自检 / scope 路径前缀 / NO MSG ANCHOR fallback）在 `~/.claude/CLAUDE.md` + 应用打包 CLAUDE.md（claude 侧）/ CODEX_AGENTS.md（codex 侧）。
