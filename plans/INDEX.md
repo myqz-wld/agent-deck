@@ -57,3 +57,4 @@
 | [task-mcp-owner-session-id-rewrite-20260521.md](task-mcp-owner-session-id-rewrite-20260521.md) | completed | [144](../changelog/CHANGELOG_144.md) | task-mcp-owner-session-id-rewrite-20260521 |
 | [handoff-render-and-image-batch-20260521.md](handoff-render-and-image-batch-20260521.md) | completed | [145](../changelog/CHANGELOG_145.md) | handoff-render-and-image-batch-20260521 |
 | [task-mcp-merge-into-agent-deck-mcp-20260521.md](task-mcp-merge-into-agent-deck-mcp-20260521.md) | completed | [146](../changelog/CHANGELOG_146.md) | task-mcp-merge-into-agent-deck-mcp-20260521 |
+| [task-team-id-restore-20260525.md](task-team-id-restore-20260525.md) | completed | [149](../changelog/CHANGELOG_149.md) | task-team-id-restore-20260525 |
