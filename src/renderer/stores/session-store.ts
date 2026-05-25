@@ -79,29 +79,35 @@ export const EMPTY_EXIT_PLAN_MODES: ExitPlanModeRequest[] = [];
 // 8 个 isXxx type guards 已迁出到 ./event-type-guards.ts（CHANGELOG_52 Step 2，纯 type guard 无副作用）
 
 /**
- * 把新事件插入 recentEvents 数组。**仅 tool-use-start 同 toolUseId 走 in-place 替换**，
- * 其它 kind 都按 unshift 倒序追加（与原行为字节级一致）。
+ * 把新事件插入 recentEvents 数组。**tool-use-start / tool-use-end 同 toolUseId 走
+ * in-place 替换**，其它 kind 都按 unshift 倒序追加（与原行为字节级一致）。
  *
- * 替换语义（CHANGELOG_<X> A1）：codex item.updated 增量重发同 toolUseId 的 tool-use-start，
- * 让 UI 实时显示 aggregated_output 增长。如果不替换：
- *   1. 30 秒长 command 推几十条 tool-use-start 撑爆 RECENT_LIMIT 把上下文挤掉
- *   2. React eventKey 虽然 dedup（相同 key 视作同 row），但 store 内存仍多份冗余
- * 替换后：tool-use-start 在数组里就一份，位置不变（保时间线），payload 更新到最新。
+ * 替换语义：
+ * - tool-use-start（CHANGELOG_<X> A1）：codex item.updated 增量重发同 toolUseId 的
+ *   tool-use-start，让 UI 实时显示 aggregated_output 增长。如果不替换：
+ *     1. 30 秒长 command 推几十条 tool-use-start 撑爆 RECENT_LIMIT 把上下文挤掉
+ *     2. React eventKey 虽然 dedup（相同 key 视作同 row），但 store 内存仍多份冗余
+ * - tool-use-end（REVIEW_54）：codex thread restart/resume/重连路径下同 item.id 的
+ *   item.completed 会被重发多次（DB 实测 19 组同 toolUseId 重复行）。不替换会让多个
+ *   <ActivityRow> 共享同 React key `tool-use-end:<toolUseId>` → reconciliation 错乱
+ *   → ToolEndRow 的 button onClick 点了无反应（"点不开"症状）。
  *
- * 替换边界：仅 `kind === 'tool-use-start'` + payload.toolUseId 是非空 string 时生效。
- *   - claude SDK 的 tool-use-start 有 toolUseId（hook 通道也透传）→ 同样受益
- *   - tool-use-end 不替换：终态事件，每对 start/end 独立行
- *   - 其它 kind（message / thinking / file-changed 等）多次 push 是不同事件，按时间排
+ * 替换后：每个 toolUseId 在数组里至多两条（start 一份 + end 一份），位置不变（保时间线），
+ * payload 更新到最新。
+ *
+ * 替换边界：仅 `kind === 'tool-use-start' | 'tool-use-end'` + payload.toolUseId 是非空
+ * string 时生效。claude SDK 的 tool-use-* 也有 toolUseId（hook 通道也透传）→ 同样受益。
+ * 其它 kind（message / thinking / file-changed 等）多次 push 是不同事件，按时间排。
  *
  * 不动 hookOrigin / source 字段；ts 也用新事件的 ts（替换为最新一次更新时间）。
  */
 function upsertEvent(arr: AgentEvent[], event: AgentEvent): AgentEvent[] {
-  if (event.kind === 'tool-use-start') {
+  if (event.kind === 'tool-use-start' || event.kind === 'tool-use-end') {
     const tid = (event.payload as { toolUseId?: unknown })?.toolUseId;
     if (typeof tid === 'string' && tid) {
       const idx = arr.findIndex(
         (e) =>
-          e.kind === 'tool-use-start' &&
+          e.kind === event.kind &&
           (e.payload as { toolUseId?: unknown })?.toolUseId === tid,
       );
       if (idx >= 0) {
@@ -320,18 +326,25 @@ export const useSessionStore = create<State>((set) => ({
       // REVIEW_4 H4：与 pushEvent 同样切到 RECENT_LIMIT —— listEvents 调用方传 200，
       // 这里再切一刀防止 push 后立刻 slice(0,30) 让 70 条历史秒蒸发。
       //
-      // REVIEW_52 A1：dedup tool-use-start by toolUseId（与 upsertEvent line 98-115
-      // 同款语义）。listForSession SQL `ORDER BY ts DESC, id DESC`（event-repo.ts F3 修），
-      // 第一次出现即最新。codex item.updated 重发同 toolUseId 历史路径在 DB 已有 N 条
-      // 冗余 tool-use-start（A2 + v022 migration 落地后这些会被 cleanup 但 A1 仍兜底
-      // 拉历史路径）。tool-use-end 不 dedup（每对独立终态）；toolUseId 缺失/非 string/
-      // 空字符串时不 dedup（fallback 不漏渲染，与 upsertEvent line 100-101 守门一致）。
-      const seen = new Set<string>();
+      // REVIEW_52 A1 + REVIEW_54：dedup tool-use-start / tool-use-end by toolUseId
+      // （与 upsertEvent 同款语义）。listForSession SQL `ORDER BY ts DESC, id DESC`
+      // （event-repo.ts F3 修），第一次出现即最新。
+      // - tool-use-start：codex item.updated 历史路径在 DB 已有 N 条冗余（v022 + A2
+      //   migration 落地后这些会被 cleanup 但 A1 仍兜底拉历史路径）
+      // - tool-use-end：codex thread restart/resume/重连同 item.id 重发 item.completed
+      //   导致 DB 同 toolUseId 多行（v025 + B2 migration 落地后写入侧 dedup 兜住，本
+      //   read-side dedup 仍兜历史已写入的 N 行 + 防 React key collision 点不开 bug）
+      // toolUseId 缺失/非 string/空字符串时不 dedup（fallback 不漏渲染，与 upsertEvent
+      // 守门一致）。tool-use-start 与 tool-use-end 各自独立 seen set（同 toolUseId 的
+      // start + end 是不同 kind 不能互相挤掉，每对仍独立两行）。
+      const seenStart = new Set<string>();
+      const seenEnd = new Set<string>();
       const deduped: AgentEvent[] = [];
       for (const e of events) {
-        if (e.kind === 'tool-use-start') {
+        if (e.kind === 'tool-use-start' || e.kind === 'tool-use-end') {
           const tid = (e.payload as { toolUseId?: unknown })?.toolUseId;
           if (typeof tid === 'string' && tid) {
+            const seen = e.kind === 'tool-use-start' ? seenStart : seenEnd;
             if (seen.has(tid)) continue;
             seen.add(tid);
           }

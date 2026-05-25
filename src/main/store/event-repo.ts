@@ -39,16 +39,22 @@ function extractToolUseId(event: AgentEvent): string | null {
 
 export const eventRepo = {
   /**
-   * INSERT or UPSERT depending on dedup eligibility（REVIEW_52 A2）。
+   * INSERT or UPSERT depending on dedup eligibility（REVIEW_52 A2 + REVIEW_54）。
    *
    * `tool-use-start` + 有 toolUseId → ON CONFLICT DO UPDATE 替 payload+ts，row id 不变。
+   * `tool-use-end` + 有 toolUseId → 同款 UPSERT（REVIEW_54）。codex thread restart/resume/
+   * 重连路径下同 item.id 的 item.completed 会重发多次，每次都新行 → DB 累积 N 行同
+   * toolUseId tool-use-end → ActivityFeed key collision 让 ToolEndRow 点不开。修法与
+   * tool-use-start UPSERT 对称，保最新一份。
+   *
    * 其他 kind / 缺 toolUseId → 普通 INSERT 新行。
    *
    * **partial conflict target 必须重复 partial UNIQUE INDEX 的 WHERE 子句**（双 reviewer
    * F1 共识 + SQLite 3.49.2 lang_upsert.html 文档明定 + reviewer-codex sqlite3 :memory:
    * 实测：缺 WHERE 直接 parser error `ON CONFLICT clause does not match any PRIMARY KEY
-   * or UNIQUE constraint`）。WHERE 子句与 v022_events_tool_use_dedup.sql 步骤 4 创建
-   * partial UNIQUE INDEX 的 WHERE 字节级一致。
+   * or UNIQUE constraint`）。WHERE 子句与对应 partial UNIQUE INDEX 的 WHERE 字节级一致：
+   *   - tool-use-start：v022_events_tool_use_dedup.sql step 4
+   *   - tool-use-end：v025_events_tool_use_end_dedup.sql step 3
    *
    * RETURNING id 而非 lastInsertRowid（INFO-1 reviewer-codex 实证）：UPSERT DO UPDATE
    * 命中 conflict 时 lastInsertRowid 仍是 attempt rowid（不是 victim）→ 取 victim id
@@ -57,13 +63,22 @@ export const eventRepo = {
   insert(event: AgentEvent): number {
     const toolUseId = extractToolUseId(event);
 
-    if (event.kind === 'tool-use-start' && toolUseId) {
+    if (
+      (event.kind === 'tool-use-start' || event.kind === 'tool-use-end') &&
+      toolUseId
+    ) {
+      // partial UNIQUE INDEX 的 WHERE 子句必须重复到 ON CONFLICT target，且 SQLite
+      // 不允许参数化字面（必须出现在 SQL 文本里）。event.kind 是 schema-constrained
+      // literal union，narrow 后只剩两个 hardcoded 值，ternary 显式选字面零 SQL injection
+      // 风险（不接受任何外部输入字符串拼进 WHERE）。
+      const kindLiteral =
+        event.kind === 'tool-use-start' ? "'tool-use-start'" : "'tool-use-end'";
       const row = getDb()
         .prepare(
           `INSERT INTO events (session_id, kind, payload_json, ts, tool_use_id)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(session_id, kind, tool_use_id)
-             WHERE kind = 'tool-use-start' AND tool_use_id IS NOT NULL
+             WHERE kind = ${kindLiteral} AND tool_use_id IS NOT NULL
              DO UPDATE SET payload_json = excluded.payload_json, ts = excluded.ts
            RETURNING id`,
         )
