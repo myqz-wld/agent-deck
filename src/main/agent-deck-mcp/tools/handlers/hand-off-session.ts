@@ -345,6 +345,42 @@ export const handOffSessionHandler = withMcpGuard(
         : callerSessionCwd ?? resolved.mainRepo ?? undefined;
     const finalCwd = args.cwd ?? defaultCwd;
 
+    // **REVIEW_56 Batch B R2 MED-1 修法 (reviewer-codex + reviewer-claude L1)**:
+    // plan-driven 模式下 worktreeExists=false 时按 finalCwd 4 case 决策(详
+    // hand-off-session-impl.ts HandOffSessionResolved.worktreeExists jsdoc):
+    //  - finalCwd === resolved.worktreePath → hard reject (cwd 即将进失效目录,spawn 必 ENOENT)
+    //    caller 显式 args.cwd=worktreePath OR 外置 worktree 自动 default 到 worktreePath 两条
+    //    路径都走这条 reject
+    //  - finalCwd === resolved.mainRepo + 约定 worktree (mainRepo subtree) → graceful warn
+    //    让 cold-start 调 enter_worktree 自建 worktree (cwd resilience)
+    //  - finalCwd === resolved.mainRepo + 外置 worktree → hard reject
+    //    (外置 cold-start enter_worktree 同样会撞父目录不存在 — caller 必须先重建 worktree)
+    //
+    // 修前 R1 用 regex 在 impl 层判约定/外置直接 reject 或 graceful warn,但 regex 只看后缀
+    // (`.claude/worktrees/<id>`),外置 conventional path 也匹配放行 → spawn ENOENT。
+    if (resolved.mode === 'plan' && !resolved.worktreeExists) {
+      const isInternalWorktree =
+        resolved.mainRepo !== null &&
+        resolved.worktreePath !== null &&
+        resolved.worktreePath.startsWith(
+          resolved.mainRepo.endsWith('/') ? resolved.mainRepo : resolved.mainRepo + '/',
+        );
+      if (finalCwd === resolved.worktreePath || !isInternalWorktree) {
+        return err(
+          `plan frontmatter worktree_path does not exist on disk: ${resolved.worktreePath}`,
+          `worktree may have been archived (\`archive_plan\` removed it) / cross-device synced without working tree / manually removed. ` +
+            `${finalCwd === resolved.worktreePath ? 'Caller explicit cwd or external worktree default puts new session in this missing path → ENOENT inevitable.' : 'External worktree (not in mainRepo subtree) cannot self-recover via cold-start enter_worktree (parent dir also missing).'} ` +
+            `To resume, recreate worktree (\`git worktree add ${resolved.worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktree_path to a valid path.`,
+        );
+      }
+      // 此处: 约定 worktree (mainRepo subtree) + finalCwd === mainRepo 路径 → 让 cold-start 自建。
+      // 新 session 按 user CLAUDE.md §Step 3 cold-start 协议读 plan 后会调 enter_worktree
+      // (mcp tool) 自建 worktree, 详 tools/index.ts:249-251 tool description。
+      console.warn(
+        `[hand-off-session] conventional worktree missing on disk: ${resolved.worktreePath} — proceeding with cwd=${finalCwd}, new session expected to enter_worktree itself per cold-start protocol`,
+      );
+    }
+
     // REVIEW_36 R2 MED-C：外置 worktree 场景下 finalCwd=worktreePath，
     // sandbox.allowWrite=[worktreePath, /tmp, cache] 不含 mainRepo → 接力 session
     // 写 mainRepo plan 文件被沙盒拦下（user CLAUDE.md §Step 4 完成时更新 frontmatter

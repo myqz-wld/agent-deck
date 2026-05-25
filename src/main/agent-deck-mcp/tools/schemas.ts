@@ -674,7 +674,13 @@ export interface ProjectedSession {
 type TeammatesShutdownInfo = {
   closed: string[];
   failed: Array<{ sessionId: string; reason: string }>;
-  skipped: 'caller-not-lead' | 'adopt-keep-implicit' | null;
+  // REVIEW_56 Batch B R2 reviewer-claude M2 修法: skipped 加 'all-lead-teams-archived' 第四态
+  // 区分 caller 不是 lead vs caller 是 lead 但所有相关 team 已 archived (UX 精度)。
+  skipped:
+    | 'caller-not-lead'
+    | 'all-lead-teams-archived'
+    | 'adopt-keep-implicit'
+    | null;
 };
 
 /** list_sessions ok return shape（list.ts handler）。 */
