@@ -132,6 +132,20 @@ export interface FindEligibleOptions {
   limit?: number;
 }
 
+/**
+ * REVIEW_56 Batch C R1 codex MED-2 修法专用 options。
+ *
+ * 用途:解决 universal-message-watcher process() 撞 cross-target starvation 时的公平兜底
+ * (单 target 17+ candidates 撑爆 BATCH_LIMIT=16 + starvation guard 只 deliver candidates[0]
+ * 仍属同 target → 跨 target 饿死)。tick 内 detect starvation → 调本 helper 拉一条**不在
+ * batch 内** target 的最早 pending,跨 target 公平投递破开闸门。
+ */
+export interface FindEligibleExcludingTargetsOptions {
+  now: number;
+  /** 排除的 target sessionId 列表(已在当前 batch 的 candidates) */
+  excludeTargets: readonly string[];
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Repo
 // ────────────────────────────────────────────────────────────────────────────
@@ -171,6 +185,15 @@ export interface AgentDeckMessageRepo {
    * 注：本方法只查不改；调用方逐个 row 用 claim() 原子化抢占。
    */
   findEligible(opts: FindEligibleOptions): AgentDeckMessage[];
+  /**
+   * REVIEW_56 Batch C R1 codex MED-2 修法专用:取一条**不在 excludeTargets** 的最早 pending
+   * eligible message。watcher process() detect cross-target starvation 时调,公平兜底投递。
+   * 排序与 findEligible 一致(sent_at ASC),LIMIT 1。
+   *
+   * - excludeTargets 空数组 → 等价 `findEligible({now, limit: 1})`
+   * - 无符合返 null
+   */
+  findEligibleExcludingTargets(opts: FindEligibleExcludingTargetsOptions): AgentDeckMessage | null;
   /**
    * 原子化抢占：UPDATE ... WHERE id=? AND status='pending' RETURNING *。
    * 多个 watcher 实例 / 多 tick 并发不会重复 claim 同一行。
@@ -316,6 +339,37 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
     return rows.map(rowToRecord);
   }
 
+  function findEligibleExcludingTargets(
+    opts: FindEligibleExcludingTargetsOptions,
+  ): AgentDeckMessage | null {
+    // REVIEW_56 Batch C R1 codex MED-2 修法:与 findEligible 同款 backoff WHERE 子句,
+    // 额外加 `to_session_id NOT IN (?, ?, ?)` 排除当前 batch 已选 targets,LIMIT 1 取最早。
+    // excludeTargets 空数组 → NOT IN () SQL 语法非法,fallback 走纯 findEligible LIMIT 1
+    // 等价路径(本 helper 仍要返单条而非数组,所以 take rows[0] ?? null)。
+    const { whereSql, backoffPlaceholderCount } = buildFindEligibleWhereSql();
+    const params: (number | string)[] = [];
+    for (let i = 0; i < backoffPlaceholderCount; i++) params.push(opts.now);
+
+    let excludeClause = '';
+    if (opts.excludeTargets.length > 0) {
+      const placeholders = opts.excludeTargets.map(() => '?').join(', ');
+      excludeClause = `AND to_session_id NOT IN (${placeholders})`;
+      for (const t of opts.excludeTargets) params.push(t);
+    }
+
+    const sql = `
+      SELECT * FROM agent_deck_messages
+      WHERE status = 'pending'
+        AND (
+          ${whereSql}
+        )
+        ${excludeClause}
+      ORDER BY sent_at ASC
+      LIMIT 1`;
+    const rows = db.prepare(sql).all(...params) as MessageRow[];
+    return rows.length > 0 ? rowToRecord(rows[0]) : null;
+  }
+
   function claim(messageId: string, now: number): AgentDeckMessage | null {
     // RETURNING 在 better-sqlite3 + sqlite 3.35+ 支持
     const updated = db
@@ -427,6 +481,7 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
     listByTeam,
     listBySession,
     findEligible,
+    findEligibleExcludingTargets,
     claim,
     markDelivered,
     markFailed,
@@ -450,6 +505,7 @@ export const agentDeckMessageRepo: AgentDeckMessageRepo = {
   listByTeam: (teamId, opts) => defaultRepo().listByTeam(teamId, opts),
   listBySession: (sessionId, opts) => defaultRepo().listBySession(sessionId, opts),
   findEligible: (opts) => defaultRepo().findEligible(opts),
+  findEligibleExcludingTargets: (opts) => defaultRepo().findEligibleExcludingTargets(opts),
   claim: (messageId, now) => defaultRepo().claim(messageId, now),
   markDelivered: (messageId, now) => defaultRepo().markDelivered(messageId, now),
   markFailed: (messageId, reason) => defaultRepo().markFailed(messageId, reason),

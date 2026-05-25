@@ -1,5 +1,6 @@
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
+import { leaveTeamsAndAutoArchive } from '@main/session/manager-team-coordinator';
 
 interface SchedulerOptions {
   /** 多久没事件就推到 dormant，毫秒 */
@@ -73,7 +74,26 @@ export class LifecycleScheduler {
         'closed',
         now,
       );
-      for (const rec of updated) eventBus.emit('session-upserted', rec);
+      // REVIEW_56 Batch C R1 codex HIGH-1 + reviewer-claude 反驳轮验证修法(方案 B):
+      // 补齐 sessionManager.markClosed 三入口副作用(`manager.ts:329-347` 注释:
+      // "三入口 markClosed / close / archive 统一" 清 cwd_release_marker + "被动清理
+      // closed session 自动 leave 所有 active team membership" — 两条 invariant 显式声明)。
+      // 旧实现 scheduler 只调 batchSetLifecycle (只 UPDATE sessions.lifecycle/ended_at),
+      // 是绕过两条 invariant 的"第四入口" → (1) UI 幽灵成员 user-visible(closed session
+      // 仍 active member); (2) cwd_release_marker 残留 latent risk; (3) 0-lead
+      // auto-archive 联动缺失。修法:保留 batch SQL 性能 + 对 updated rows 逐条补齐两个副作用
+      // (leaveTeamsAndAutoArchive 与 markClosed L344 同款 fire-and-forget 不阻塞 scheduler
+      // tick;clearCwdReleaseMarker 同步轻量 SQL 不会拖慢 tick)。
+      for (const rec of updated) {
+        sessionRepo.clearCwdReleaseMarker(rec.id);
+        void leaveTeamsAndAutoArchive(rec.id, 'closed').catch((err) => {
+          console.warn(
+            `[lifecycle-scheduler] leaveTeamsAndAutoArchive failed during dormant→closed(${rec.id}):`,
+            err,
+          );
+        });
+        eventBus.emit('session-upserted', rec);
+      }
     }
 
     // 3. 历史超期清理：lastEventAt 早于 (now - retention) 且属于历史面板范围
