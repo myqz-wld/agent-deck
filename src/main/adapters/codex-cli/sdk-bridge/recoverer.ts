@@ -309,7 +309,15 @@ export class SessionRecoverer {
         // codex resumeThread + workingDirectory:effectiveCwd 让 SDK 在 fallback cwd 下 chdir 但仍
         // 拿到原 thread 历史 → 与 claude 行为对称(claude 同款场景下 force fallback 是因为 jsonl
         // 真在 cwd 下,codex 没这个限制)。仅 jsonl 真不在时才走 fresh thread fallback。
-        if (!this.jsonlExistsThunk(sessionId, rec.startedAt)) {
+        // codex jsonl 文件命名规则:`rollout-<TIMESTAMP>-<thread_id>.jsonl`(见
+        // defaultCodexResumeJsonlExists 算法 line 472 `endsWith(\`-${threadId}.jsonl\`)`)
+        // → 预检参数必须用 thread_id 维度(= sessions.cli_session_id 列值,反向 rename 后
+        // 与 applicationSid 解耦)。同文件 line 370 正常 resume 路径已显式 future-proof
+        // 防御 (`rec.cliSessionId ?? sessionId`),本预检入口与之对称。
+        // 修前用 `sessionId`(applicationSid 维度) → 反向 rename 后 cliSessionId !== sessionId
+        // 时预检永远 miss → falsely trigger fresh thread fallback → 用户失对话历史 + 误导
+        // warning。详 reviews/REVIEW_56.md HIGH-1。
+        if (!this.jsonlExistsThunk(rec.cliSessionId ?? sessionId, rec.startedAt)) {
           console.warn(
             `[codex-bridge] resume jsonl missing for ${sessionId} (startedAt ${new Date(rec.startedAt).toISOString()}), ` +
               `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
