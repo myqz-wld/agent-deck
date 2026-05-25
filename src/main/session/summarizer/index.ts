@@ -265,11 +265,25 @@ export class Summarizer {
     } catch (err) {
       // REVIEW_35 MED-B1：LLM 失败时立即 set 错误诊断（不仅 console.warn）。caller .then 不再
       // 删除（已修），所以「fallback 成功」不会洗掉本错误。下次 LLM 真成功时 delete（line 上方）。
-      this.lastErrorBySession.set(sessionId, {
-        message: (err as Error)?.message ?? String(err),
-        ts: Date.now(),
-      });
-      console.warn(`[summarizer] LLM failed for ${sessionId} (${session.agentId}), fallback to last-message`, err);
+      //
+      // **REVIEW_56 R2 LOW-1 修法 (reviewer-codex)**: rename 期间(class-level rename handler 已
+      // fire 在 catch 之前迁了 OLD→NEW 已有 entry) inner catch 再 set OLD 创建第二个孤儿
+      // diagnostics(UI 设置面板永远显示 OLD_ID 错)。预检 sessionRepo.get(sessionId) 短路:
+      // OLD 不存在 → 不写 OLD lastErrorBySession 防孤儿(NEW 在 next scanAll 仍失败时会重 set,
+      // trade-off: 单次失败 NEW 端诊断丢失,可接受)。
+      if (!sessionRepo.get(sessionId)) {
+        console.warn(
+          `[summarizer] LLM failed for ${sessionId} but session renamed/deleted, ` +
+            `skipping orphan diagnostics`,
+          err,
+        );
+      } else {
+        this.lastErrorBySession.set(sessionId, {
+          message: (err as Error)?.message ?? String(err),
+          ts: Date.now(),
+        });
+        console.warn(`[summarizer] LLM failed for ${sessionId} (${session.agentId}), fallback to last-message`, err);
+      }
     }
 
     // 2) 退化：取最近一条「assistant 自己说的话」（任何 adapter 都走这条）。

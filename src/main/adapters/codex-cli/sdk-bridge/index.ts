@@ -439,7 +439,11 @@ export class CodexSdkBridge {
     //     resumeThread → 找不到正确 jsonl → 历史失。
     // 修后:
     //  - effectiveResumeThreadId = opts.resume && resumeMode !== 'fresh-cli-reuse-app'
-    //      ? (opts.resumeCliSid ?? opts.resume)  // cli sid 维度 (反向 rename 安全)
+    //      ? (opts.resumeCliSid ?? sessionRepo.cliSessionId ?? opts.resume)  // 与 claude
+    //         facade index.ts:332-335 同款 3 层兜底:caller 显式 > sessionRepo 中间层 >
+    //         applicationSid 末层(REVIEW_56 R2 reviewer-claude MED-Cross-Adapter-Parity 修法,
+    //         保 cross-adapter 设计对称 + 防 future caller 漏传 silently fall back 到
+    //         applicationSid 在反向 rename 后 != cliSessionId 时撞错 thread)
     //      : null                                  // fresh thread / spawn 主路径
     //  - effectiveResumeThreadId 非空 → resumeThread, 否则 startThread (jsonl-missing fallback
     //    自然走 startThread + applicationSid 不变,first thread.started 进 thread-loop case 3
@@ -449,7 +453,7 @@ export class CodexSdkBridge {
     // cli_session_id 列改成 SDK 真 thread_id;applicationSid (sessions.id) 不动 (不变量 1)。
     const effectiveResumeThreadId =
       opts.resume && opts.resumeMode !== 'fresh-cli-reuse-app'
-        ? (opts.resumeCliSid ?? opts.resume)
+        ? (opts.resumeCliSid ?? sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume)
         : null;
     if (effectiveResumeThreadId) {
       // CHANGELOG_<X> A2a：resume 路径必须透传 sandboxMode / workingDirectory / approvalPolicy，
@@ -686,7 +690,16 @@ export class CodexSdkBridge {
           },
         );
       });
-      return { sessionId: resumedId };
+      // **REVIEW_56 R2 MED-2 修法 (reviewer-codex)**: facade resume 路径必须返
+      // applicationSid 而非 resumedId(后者可能是 case 3 fork 后的新 cli sid 维度,与
+      // sessions Map key + DB sessions.id 不一致 — facade contract 错;当前 recoverer
+      // fallback 立即丢弃 handle 没炸,但 future caller 拿 handle.sessionId 调 sendMessage
+      // 会撞 sessions Map miss 触发 recoverer 自愈循环)。
+      // 与 spawn 主路径 line 726 `return { sessionId: internal.applicationSid }` 对偶。
+      // resumedId 仍可在 outer Promise 内部用作 30s timeout 早期错误处理,这里只是
+      // public handle 的边界返 applicationSid。
+      void resumedId; // 保留 await 形式让 timeout / earlyErr / firstIdCb 流程仍跑
+      return { sessionId: internal.applicationSid };
     }
 
     // 新建路径：用 initialSid（顶部 allocate 出的 tempKey）占位，等 thread.started 事件拿到

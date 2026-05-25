@@ -290,7 +290,13 @@ export class ThreadLoop {
                   earlyErrCb = undefined;
                 }
               } else if (internal.threadId !== ev.thread_id) {
-                // case 3: 恢复路径但 SDK 返回不同 id（罕见 + future-proof）— codex resume fork
+                // case 3: SDK 真 thread_id 与 internal.threadId 不一致
+                // **两个触发路径**(REVIEW_56 R2 LOW-Cosmetic reviewer-claude 修订):
+                //  - resumeThread fork: facade 走 resumeThread,SDK 真 fork 返新 thread_id(罕见
+                //    + future-proof,codex spike-A2 实测当前 codex CLI 不会发生)
+                //  - fresh-cli-reuse-app: facade 走 startThread(opts.resumeMode='fresh-cli-reuse-app'),
+                //    SDK 起 fresh thread 返新 thread_id;internal.threadId = opts.resume = applicationSid
+                //    (line 502),与 startThread 的 fresh thread_id 不一致 → 命中本 case 3
                 // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6 R5 HIGH-R5-1 + R6 MED-R6-1 修订**:
                 // 走 sessionManager.updateCliSessionId (反向 rename 不动 sessions.id);
                 // sessions Map key 不再切换 (S3 修订让 sessions Map key = applicationSid 不变);
@@ -298,7 +304,8 @@ export class ThreadLoop {
                 const oldId = internal.threadId;
                 const newId = ev.thread_id;
                 console.warn(
-                  `[codex-bridge] resumeThread returned different thread_id ${oldId} → ${newId}; ` +
+                  `[codex-bridge] SDK returned thread_id ${newId} != tracked ${oldId} ` +
+                    `(resumeThread-fork or fresh-cli-reuse-app startThread); ` +
                     `updating cli_session_id column on application sid ${internal.applicationSid} (走 manager 黑名单链)`,
                 );
                 internal.threadId = newId;
