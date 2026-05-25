@@ -386,7 +386,7 @@ export async function buildAgentDeckTools(
 
   const taskGet = tool(
     AGENT_DECK_TOOL_NAMES.taskGet,
-    'Get a single task by id. Returns the task regardless of team scope (read-only cross-team visibility).',
+    'Get a single task by id, scoped to caller team membership (team-bound task: caller must be active member; personal task: caller must be owner). Deny external caller (EXTERNAL_CALLER_ALLOWED.task_get=false).',
     TASK_GET_SCHEMA,
     async (args, extra) => taskGetHandler(args, makeCtx(args, extra)),
     {

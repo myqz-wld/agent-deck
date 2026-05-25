@@ -1,14 +1,22 @@
 /**
- * task_update handler — 增量更新 task，caller 与 owner 必须共享 active team（含 caller==owner 特例）。
+ * task_update handler — 增量更新 task（v024 plan task-team-id-restore-20260525 §D3 改造）。
  *
- * plan task-mcp-merge-into-agent-deck-mcp-20260521：从 src/main/task-manager/tools.ts
- * 抽出，转 makeCtx + HandlerContext.caller 模式。
+ * v024 plan §D3 + Step C4 修法（HIGH-2 + Round 6 MED-2 修法）:
+ * - isCallerAuthorizedToWrite 改签名传整个 task（按 task.team_id 判权限边界,Round 1 HIGH-2）
+ * - 团 team_id != null 时校验 caller 在该 team active member（双条件 §不变量 13）
+ * - team_id IS NULL 时 caller == owner 才能写（personal task 不开放同 team 共享）
+ * - team_id 改为 update 字段（patch.team_id 显式传 string 或 null;传时校验 caller 在新 team
+ *   active member,从 team-bound 改 personal 不需校验）
+ *
+ * **ingest payload.teamName 改 v024 修法**(Round 1 MED-2 + Round 3 MED-3 +
+ * Step C2 同款延续):取 updated.teamId lookup（不走 getCallerFirstTeamName）— 同 task-create 修法。
  *
  * **D6**: EXTERNAL_CALLER_ALLOWED.task_update = false（write deny external）
  * **D7**: ingest 仅在 in-process transport（同 task_create 同款分流）
  */
 
 import { sessionManager } from '@main/session/manager';
+import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { taskRepo } from '@main/store/task-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from '@main/adapters/claude-code/sdk-bridge/constants';
@@ -22,8 +30,8 @@ import {
 import type { TaskUpdateArgs, TaskUpdateResult } from '../schemas';
 import {
   argsToInputWithoutOwner,
-  getCallerFirstTeamName,
   isCallerAuthorizedToWrite,
+  isCallerInTeam,
 } from './task-helpers';
 
 export const taskUpdateHandler = withMcpGuard(
@@ -34,14 +42,28 @@ export const taskUpdateHandler = withMcpGuard(
       const { task_id, ...rest } = args;
       const existing = taskRepo.get(task_id);
       if (!existing) return err(`task ${task_id} not found`);
-      // v023 plan §D2：写权限校验 — caller 与 owner 必须共享 active team（含
-      // caller == owner 特例）。
-      if (!isCallerAuthorizedToWrite(callerSid, existing.ownerSessionId)) {
+      // v024 plan §D3 + Step C4:写权限校验 — 改签名传整个 task（按 task.team_id 判）。
+      //（HIGH-2 修法,§不变量 12）
+      if (!isCallerAuthorizedToWrite(callerSid, existing)) {
         return err(
-          `permission denied: task ${task_id} owner "${existing.ownerSessionId}" does not share any active team with caller "${callerSid}"`,
+          `permission denied: caller "${callerSid}" cannot write task ${task_id} (team_id=${existing.teamId ?? 'personal'}, owner=${existing.ownerSessionId})`,
+          'team-bound task 要求 caller 在该 team 是 active member（agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL 双条件）;personal task 仅 owner 可写。Use task_create / task_get to verify your scope.',
         );
       }
-      // argsToInputWithoutOwner 已不放 ownerSessionId，patch 不会有 ownerSessionId 键
+      // v024 plan §D1 + Step C4:patch.team_id 显式传 string 时校验 caller 在新 team active member
+      //（不论 args.team_id 是 update 改 team 还是初始 set,都要 caller 当前在该 team 才能放 task 进去）。
+      // 显式传 null（改 personal）不需校验,任何 owner 都可把自己 task 转 personal。
+      // undefined（不传）→ 不动 team_id,跳过校验。
+      if (args.team_id !== undefined && args.team_id !== null) {
+        if (!isCallerInTeam(callerSid, args.team_id)) {
+          return err(
+            `caller "${callerSid}" is not an active member of team_id "${args.team_id}" — task_update rejected (v024 plan §D3)`,
+            'team-bound task 要求 caller 在该 team 是 active member。Use task_update with team_id=null to convert task to personal, or join the team first.',
+          );
+        }
+      }
+      // argsToInputWithoutOwner 已不放 ownerSessionId,patch 不会有 ownerSessionId 键。
+      // v024:argsToInputWithoutOwner 已支持 args.team_id 透传到 patch.teamId。
       const patch = argsToInputWithoutOwner(rest);
       const updated = taskRepo.update(task_id, patch);
       if (!updated) return err(`task ${task_id} not found`);
@@ -57,6 +79,10 @@ export const taskUpdateHandler = withMcpGuard(
       const becameCompleted =
         patch.status === 'completed' && existing.status !== 'completed';
       if (becameCompleted && ctx.caller.transport === 'in-process') {
+        // v024 Round 1 MED-2 修法:teamName 取 updated.teamId lookup（不走 getCallerFirstTeamName）
+        const teamName = updated.teamId
+          ? (agentDeckTeamRepo.get(updated.teamId)?.name ?? null)
+          : null;
         sessionManager.ingest({
           sessionId: callerSid,
           agentId: AGENT_ID,
@@ -64,7 +90,7 @@ export const taskUpdateHandler = withMcpGuard(
           kind: 'team-task-completed',
           ts: Date.now(),
           payload: {
-            teamName: getCallerFirstTeamName(callerSid),
+            teamName,
             taskId: updated.id,
             description: updated.subject,
           },

@@ -1,5 +1,5 @@
 /**
- * Task Manager 持久层（plan task-mcp-owner-session-id-rewrite-20260521 v023 重设计）。
+ * Task Manager 持久层（plan task-team-id-restore-20260525 v024 重设计 — v023 follow-up）。
  *
  * 为「Claude Agent SDK 没有原生任务管理工具」补一套结构化 task store，让 5 个
  * in-process MCP tools（task_create / task_list / task_get / task_update /
@@ -11,14 +11,17 @@
  * - 通过 `createTaskRepo(db)` 工厂注入 db，让测试用 in-memory 数据库独立跑
  * - 默认导出 `taskRepo` 懒拿 getDb()，运行时调用方无感
  *
- * v023 重设计（plan §D1-D6）：
- * - tasks 表唯一 owner 字段 owner_session_id NOT NULL REFERENCES sessions(id)
- *   ON DELETE CASCADE，task 必有 owner，无 global task 概念
- * - team scope 由 query 层 reverse join sessions 表 → agent_deck_team_members 算出来；
- *   task-repo 不直接 join team_members 表 —— team-aware list 留在 tool 层用
- *   agent_deck_team_repo helper 先算「caller 同 team active member sids」再调
- *   task-repo.list({ownerSessionIds: ids[]}) IN 过滤
- * - hand_off 过继：上层 tool 调 reassignOwner(oldSid, newSid) 单 SQL 改 owner
+ * v024 重设计（plan §D1-D8）— v023 follow-up 加回 team_id NULLABLE 字段:
+ * - tasks 表 owner_session_id NOT NULL（v023 沿用）+ team_id TEXT NULL（v024 新增）
+ * - team_id != null = team-bound task,可见性 / 写权限按 team 严格隔离（D3）
+ * - team_id IS NULL = personal task（first-class 用例,无 team caller 也能用 task — RFC R1.Q1）
+ * - team scope 从 derived 改回 stored（消灭 v023 lead 多 team task 串流根因 — plan §起源）
+ * - 不复活 global task 累积:owner_session_id NOT NULL 兜底 GC 不变,team 硬删时
+ *   tasks.team_id ON DELETE SET NULL 退化为 personal task,owner archive 后 CASCADE 删
+ * - hand_off team_task_policy 三态（D4）:clear-team（默认） / preserve-team / skip
+ *   - clear-team: reassignOwner({policy:'clear-team'}) UPDATE owner + team_id=NULL
+ *   - preserve-team: reassignOwner({policy:'preserve-team'}) UPDATE owner 不动 team_id
+ *   - skip: applyHandOffSkipPolicy 单 transaction 4 步原子化(SELECT 团 task → DELETE → cleanup → reassign personal)
  *
  * 已知限制（与 spec §5 / §7 一致）：
  * - 不做 blocks / blockedBy 循环依赖检测
@@ -32,6 +35,8 @@ import { getDb } from './db';
 interface Row {
   id: string;
   owner_session_id: string;
+  /** v024:team-bound task = uuid;personal task = null（plan §D1） */
+  team_id: string | null;
   subject: string;
   description: string | null;
   status: string;
@@ -66,6 +71,7 @@ function rowToRecord(r: Row): TaskRecord {
   return {
     id: r.id,
     ownerSessionId: r.owner_session_id,
+    teamId: r.team_id,
     subject: r.subject,
     description: r.description,
     status: r.status as TaskStatus,
@@ -82,6 +88,12 @@ function rowToRecord(r: Row): TaskRecord {
 export interface TaskCreateInput {
   /** v023：必填，绑 caller session（tool 层从 caller_session_id 闭包注入）。 */
   ownerSessionId: string;
+  /**
+   * v024（plan §D1）:可选 team 归属。
+   * - 不传 / undefined / null = personal task（仅 owner 可见可写）
+   * - 传 string（team uuid） = team-bound task，caller 必须在该 team 是 active member（D3 由 tool 层校验）
+   */
+  teamId?: string | null;
   subject: string;
   description?: string | null;
   status?: TaskStatus;
@@ -91,6 +103,17 @@ export interface TaskCreateInput {
   blockedBy?: string[];
   labels?: string[];
 }
+
+/**
+ * v024 plan §D5：list team_id filter 三态字面量类型。
+ * - `undefined` = 不过滤（caller 视角 visible scope 由 tool 层 ownerSessionIds 控）
+ * - `string` (team uuid) = 仅返该 team 绑定 task（team_id == X）
+ * - `'null-personal'` 字面量 = 仅返 personal task（team_id IS NULL）
+ *
+ * Frozen by Round 1 LOW-1（plan §已知踩坑 4）— 用 zod literal `z.union([z.string().uuid(),
+ * z.literal('null-personal')])`,literal 比 nullable 更显式 + caller call site 一眼看出语义。
+ */
+export type TaskListTeamIdFilter = string | 'null-personal' | undefined;
 
 export interface TaskListOptions {
   /** 仅返回该状态。不传 = 不过滤 */
@@ -102,15 +125,51 @@ export interface TaskListOptions {
    * - 不传 / undefined = 全部 task（管理员级别，慎用）
    * - 传 string[] = 仅返回 owner 在数组里的 task（含空数组 = 0 行）
    *
-   * tool 层 task_list 主路径：caller 视角 visible task = caller 自己 + 同 team
-   * active member 的 task。tool 层先用 agent_deck_team_repo 算 active member sids
-   * union {callerSid}，再调本接口 IN 过滤。
+   * v024:tool 层 task_list 主路径走 visibleScope（一次 SQL OR 模式拿 caller 可见全部）
+   * 或 teamIdFilter（单 team / personal-only）;ownerSessionIds 仍保留供「caller 自己 personal task」
+   * 路径 + visibleScope 内部使用。
    */
   ownerSessionIds?: string[];
+  /**
+   * v024 plan §D5:team_id 三态 filter（详 TaskListTeamIdFilter type）。
+   * - 不传 / undefined = 不过滤 team_id
+   * - string (team uuid) = 仅返 team_id == X 的 task
+   * - 'null-personal' = 仅返 team_id IS NULL 的 task（personal）
+   */
+  teamIdFilter?: TaskListTeamIdFilter;
+  /**
+   * v024 plan §D5 + Step C5:caller 视角 visible scope OR 模式（替代 v023 ownerSessionIds 主路径）。
+   *
+   * 传时走单 SQL OR query:`(team_id IN teamIds) OR (team_id IS NULL AND owner_session_id == callerSid)`,
+   * 拿 caller 可见 team-bound task + 自己 personal task 一次完成。
+   *
+   * **优先级**:visibleScope 与 ownerSessionIds / teamIdFilter 互斥（visibleScope 传时其他两个忽略,
+   * 由 task-list handler 三态分流时显式只传一个）。
+   *
+   * 失败兜底:visibleScope.teamIds === [] 时 OR 退化为 `team_id IS NULL AND owner_session_id = ?`,
+   * 仅返 caller 自己 personal task。
+   */
+  visibleScope?: { teamIds: string[]; callerSid: string };
   /** 默认 100 */
   limit?: number;
   /** 默认 0 */
   offset?: number;
+}
+
+/**
+ * v024 plan §D4 + Step B1:hand_off team_task_policy 'clear-team' / 'preserve-team' 两态
+ * 走 reassignOwner 接口;'skip' 走独立 applyHandOffSkipPolicy helper（plan §不变量 11/12）。
+ */
+export type ReassignOwnerPolicy = 'clear-team' | 'preserve-team';
+
+/**
+ * v024 plan §D4 + Step B1:applyHandOffSkipPolicy helper return shape。
+ * handler 端用 deletedTeamTaskIds 做后续 safeEmit task-changed deleted events;
+ * count = deletedTeamTaskIds.length + reassignedPersonalCount 用于 ok return。
+ */
+export interface ApplyHandOffSkipResult {
+  deletedTeamTaskIds: string[];
+  reassignedPersonalCount: number;
 }
 
 export interface TaskRepo {
@@ -119,35 +178,90 @@ export interface TaskRepo {
   list(opts?: TaskListOptions): TaskRecord[];
   /**
    * 增量更新。patch 中**显式传 undefined** 的字段会被忽略（视为「不动」），
-   * 显式传 null 会被写入（用于把 description / activeForm 重置）。
+   * 显式传 null 会被写入（用于把 description / activeForm / teamId 重置）。
+   *
+   * v024 新增:teamId 可通过 update 改（用于 hand_off clear-team SET team_id=NULL
+   * 但单条 task 路径,主路径走 reassignOwner({policy:'clear-team'}) 批量改）。
    *
    * **ownerSessionId 不能通过 update 改**：tool 层闭包锁设计上禁止跨 session 改
-   * owner（hand_off 走专用 reassignOwner 接口）。repo 层在 patch 里出现
-   * ownerSessionId key 时主动忽略（不抛错，避免破坏「Partial 接口宽容」）。
+   * owner（hand_off 走专用 reassignOwner / applyHandOffSkipPolicy 接口）。repo 层
+   * 在 patch 里出现 ownerSessionId key 时主动忽略（不抛错，避免破坏「Partial 接口宽容」）。
    */
   update(id: string, patch: Partial<TaskCreateInput>): TaskRecord | null;
   /**
    * 删除一条 task，cascade=true 时按 blocks 链路 BFS 级联下游。
    *
+   * v024 plan §不变量 12 + Step B1:predicate 签名同步改造（HIGH-2 修法）。
+   *
    * @param predicate 可选 cascade 路径过滤器：cascade BFS 入队前调
-   *                  predicate(childId, childOwnerSessionId)，返回 false 则该
-   *                  child 及其下游都不进 toDelete 集合。tool 层用此挡跨 team
-   *                  cascade 删除（写权限校验）。
+   *                  predicate(childId, child)，返回 false 则该 child 及其下游
+   *                  都不进 toDelete 集合。tool 层用此挡跨 team cascade 删除
+   *                  （写权限校验,按 task.team_id 决定权限边界 — plan §D3）。
+   *                  child 是 Pick<TaskRecord, 'ownerSessionId' | 'teamId'>。
    * @returns 实际被删除的所有 task id 列表（含 root + cascade 下游）。
    */
   delete(
     id: string,
-    opts?: { cascade?: boolean; predicate?: (id: string, ownerSessionId: string) => boolean },
+    opts?: {
+      cascade?: boolean;
+      predicate?: (
+        id: string,
+        child: Pick<TaskRecord, 'ownerSessionId' | 'teamId'>,
+      ) => boolean;
+    },
   ): string[];
   /**
-   * v023 plan §D3 hand_off 过继：把 oldSessionId 拥有的所有 task 原子改成
+   * v023/v024 plan §D3 + D4 hand_off 过继：把 oldSessionId 拥有的所有 task 原子改成
    * newSessionId 拥有。单 SQL UPDATE，对应 hand_off_session tool 在 spawn 新
    * session 之后、archive caller 之前调（不可有窗口让 caller 被 archive 后 task
-   * CASCADE 删但新 session 还没接管 —— plan §不变量 4）。
+   * CASCADE 删但新 session 还没接管 — plan §不变量 4）。
+   *
+   * v024 plan §D4 加 policy 参数（HIGH-2 修法 + 不变量 12）:
+   * - `'clear-team'`（default semantic）:UPDATE owner + team_id=NULL（过继 ownership
+   *   同时清 team_id 变 personal,保最大兼容性 newSid 拿到的 task 都可写）
+   * - `'preserve-team'`:UPDATE owner 不动 team_id（caller 自负保证 adopt_teammates=true
+   *   让 newSid 接管 team 当 lead,否则撞 D3 写权限 reject — handler 加 policyWarning
+   *   暴露根因 plan §不变量 5）
+   * - **不含** `'skip'` — skip 走独立 applyHandOffSkipPolicy helper（不能放同 transaction:
+   *   skip 真删 + cleanup blocks/blocked_by + reassign personal 三件事原子性需 helper 单
+   *   transaction 收口）
+   *
+   * **不刷 updated_at**（v023 F5 修法,§不变量 11 沿用）:reassign 是 owner 换不是 task
+   * content 改,语义上不算用户「修改」task,保留原 updated_at 让 list 默认排序稳定。
    *
    * @returns 被改写的行数。0 = caller 没拥有任何 task。
    */
-  reassignOwner(oldSessionId: string, newSessionId: string): number;
+  reassignOwner(
+    oldSessionId: string,
+    newSessionId: string,
+    opts: { policy: ReassignOwnerPolicy },
+  ): number;
+  /**
+   * v024 plan §D4 + Step B1（Round 3 MED-1 + Round 4 MED-2/3 + Round 6 MED-1 收口）:
+   * hand_off team_task_policy='skip' 路径专用 helper — 单 db.transaction() 内原子化 4 步:
+   *   1. SELECT id FROM tasks WHERE owner_session_id=callerSid AND team_id IS NOT NULL
+   *      → 拿 deletedTeamTaskIds snapshot（handler 后续 safeEmit 用）
+   *   2. chunked DELETE FROM tasks WHERE id IN (?)（CHUNK=500 防 IN 999 上限,与现有
+   *      delete cascade 模式同款）
+   *   3. blocks/blocked_by 引用 cleanup（同 transaction 内 SELECT survivors → 过滤
+   *      引用 deletedTeamTaskIds 的项 → UPDATE 写回,与 delete cascade=false cleanup 同款）
+   *   4. UPDATE tasks SET owner_session_id=newSid WHERE owner_session_id=callerSid
+   *      AND team_id IS NULL → reassign 剩余 personal task
+   *
+   * 4 步在单个 db.transaction() 内,任一步 throw 整 tx 自动 ROLLBACK 保留原集（plan
+   * §不变量 4 + Step B2 case B 测试锁定）。
+   *
+   * Handler 端 commit 后须按 returned deletedTeamTaskIds 显式 safeEmit task-changed
+   * deleted events（per-id try/catch + console.warn + continue,沿用 hand-off-session.ts
+   * :754-763 现有 safeEmit pattern — plan §不变量 11 + Step D2 单一伪代码块 outer try）。
+   *
+   * **不**走 reassignOwner({policy:'skip'})（reassignOwner 不含 'skip',skip 是 helper 唯一入口）。
+   *
+   * @returns deletedTeamTaskIds（被删的 team task id 列表）+ reassignedPersonalCount
+   *          （被过继的 personal task 行数）;handler 拼 ok return.taskReassignment.count =
+   *          deletedTeamTaskIds.length + reassignedPersonalCount。
+   */
+  applyHandOffSkipPolicy(callerSid: string, newSid: string): ApplyHandOffSkipResult;
 }
 
 const UPDATABLE_KEYS: ReadonlyArray<keyof TaskCreateInput> = [
@@ -159,12 +273,14 @@ const UPDATABLE_KEYS: ReadonlyArray<keyof TaskCreateInput> = [
   'blocks',
   'blockedBy',
   'labels',
+  'teamId', // v024:允许 update 单条 task 改 teamId（hand_off 主路径走 reassignOwner 批量改）
   // ownerSessionId 故意不在 UPDATABLE_KEYS：tool 层闭包锁禁止跨 session 改 owner
-  // （hand_off 走专用 reassignOwner 接口），repo 层主动忽略 patch.ownerSessionId。
+  // （hand_off 走专用 reassignOwner / applyHandOffSkipPolicy 接口），repo 层主动忽略 patch.ownerSessionId。
 ];
 
 const COL_MAP: Record<keyof TaskCreateInput, string> = {
   ownerSessionId: 'owner_session_id',
+  teamId: 'team_id', // v024
   subject: 'subject',
   description: 'description',
   status: 'status',
@@ -206,6 +322,7 @@ export function createTaskRepo(db: Database): TaskRepo {
     const rec: TaskRecord = {
       id: crypto.randomUUID(),
       ownerSessionId,
+      teamId: input.teamId ?? null, // v024 plan §D1 + D2:不传 = personal task
       subject,
       description: input.description ?? null,
       status: input.status ?? 'pending',
@@ -219,12 +336,13 @@ export function createTaskRepo(db: Database): TaskRepo {
     };
     db.prepare(
       `INSERT INTO tasks
-       (id, owner_session_id, subject, description, status, active_form, priority,
+       (id, owner_session_id, team_id, subject, description, status, active_form, priority,
         blocks, blocked_by, labels, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       rec.id,
       rec.ownerSessionId,
+      rec.teamId,
       rec.subject,
       rec.description,
       rec.status,
@@ -250,29 +368,59 @@ export function createTaskRepo(db: Database): TaskRepo {
       wheres.push('LOWER(subject) LIKE ?');
       params.push(`%${opts.subjectKeyword.toLowerCase()}%`);
     }
-    // v023 plan §D6：owner_session_id IN 过滤。空数组直接短路返 0 行
-    // （SQL IN () 在 SQLite 里语法错，且语义上空集合本就 0 命中）。
-    if (Array.isArray(opts.ownerSessionIds)) {
-      if (opts.ownerSessionIds.length === 0) {
-        return [];
-      }
-      // F2 fix (deep-review-changelog146-20260524 R1 claude MED):
-      // SQLite IN list 默认上限 999 variables。生产场景 caller 同 team visible sessionIds
-      // 通常 < 100；> 500 已视为病态（多 team 累积 + 大量历史 dormant 未清）。极端 case
-      // 走 Node 端 chunked SELECT + merge + sort + slice 实现复杂、收益边际低 →
-      // 加 length guard 提前防御，error path 走 console.warn + 返 [] graceful degrade
-      // 而非撞 999 抛 SQLITE_TOOBIG 整 list 崩。chunk threshold 500 < 999 留 buffer
-      // 与同 repo agent-deck-team-repo/member-query.ts:107 CHUNK_SIZE = 500 对齐。
-      if (opts.ownerSessionIds.length > 500) {
+    // v024 plan §D5 + Step C5:visibleScope OR 模式优先于 ownerSessionIds + teamIdFilter
+    //（task-list handler 三态分流时显式只传一个,visibleScope 与其他两个互斥）。
+    if (opts.visibleScope !== undefined) {
+      const { teamIds, callerSid } = opts.visibleScope;
+      if (teamIds.length === 0) {
+        // 空 teamIds → OR 退化为仅 personal task 分支:`team_id IS NULL AND owner_session_id = ?`
+        wheres.push('(team_id IS NULL AND owner_session_id = ?)');
+        params.push(callerSid);
+      } else if (teamIds.length > 500) {
+        // F2 同款 SQLite IN 999 上限防御 — caller 同 active team 数 > 500 极端病态场景
         console.warn(
-          `[task-repo] listTasks: ownerSessionIds 长度 ${opts.ownerSessionIds.length} 超 SQLite IN 上限 500，` +
-            `返回空集 graceful degrade；caller 应清理历史 dormant session 或拆批查询。`,
+          `[task-repo] listTasks: visibleScope.teamIds 长度 ${teamIds.length} 超 SQLite IN 上限 500,` +
+            `返回空集 graceful degrade;caller 应清理历史 dormant teams 或 task-list handler 拆批。`,
         );
         return [];
+      } else {
+        const placeholders = teamIds.map(() => '?').join(',');
+        // 完整 OR 模式:`(team_id IN teamIds) OR (team_id IS NULL AND owner_session_id = callerSid)`
+        // 拿 caller 可见 team-bound task + 自己 personal task 一次 SQL 完成。
+        wheres.push(`(team_id IN (${placeholders}) OR (team_id IS NULL AND owner_session_id = ?))`);
+        params.push(...teamIds, callerSid);
       }
-      const placeholders = opts.ownerSessionIds.map(() => '?').join(',');
-      wheres.push(`owner_session_id IN (${placeholders})`);
-      params.push(...opts.ownerSessionIds);
+    } else {
+      // 不走 visibleScope → 走 ownerSessionIds + teamIdFilter 组合 AND 过滤（v023 兼容路径）
+      //
+      // v023 plan §D6:owner_session_id IN 过滤。空数组直接短路返 0 行
+      //（SQL IN () 在 SQLite 里语法错，且语义上空集合本就 0 命中）。
+      if (Array.isArray(opts.ownerSessionIds)) {
+        if (opts.ownerSessionIds.length === 0) {
+          return [];
+        }
+        // F2 fix (deep-review-changelog146-20260524 R1 claude MED) — 详见原版本注释,沿用
+        if (opts.ownerSessionIds.length > 500) {
+          console.warn(
+            `[task-repo] listTasks: ownerSessionIds 长度 ${opts.ownerSessionIds.length} 超 SQLite IN 上限 500,` +
+              `返回空集 graceful degrade;caller 应清理历史 dormant session 或拆批查询。`,
+          );
+          return [];
+        }
+        const placeholders = opts.ownerSessionIds.map(() => '?').join(',');
+        wheres.push(`owner_session_id IN (${placeholders})`);
+        params.push(...opts.ownerSessionIds);
+      }
+      // v024 plan §D5:team_id 三态 filter（visibleScope 模式下忽略 teamIdFilter,仅这里生效）
+      if (opts.teamIdFilter !== undefined) {
+        if (opts.teamIdFilter === 'null-personal') {
+          wheres.push('team_id IS NULL');
+        } else {
+          // string (team uuid)
+          wheres.push('team_id = ?');
+          params.push(opts.teamIdFilter);
+        }
+      }
     }
     const where = wheres.length ? `WHERE ${wheres.join(' AND ')}` : '';
     const limit = opts.limit ?? 100;
@@ -316,7 +464,13 @@ export function createTaskRepo(db: Database): TaskRepo {
 
   function del(
     id: string,
-    opts: { cascade?: boolean; predicate?: (id: string, ownerSessionId: string) => boolean } = {},
+    opts: {
+      cascade?: boolean;
+      predicate?: (
+        id: string,
+        child: Pick<TaskRecord, 'ownerSessionId' | 'teamId'>,
+      ) => boolean;
+    } = {},
   ): string[] {
     const target = get(id);
     if (!target) return [];
@@ -329,7 +483,12 @@ export function createTaskRepo(db: Database): TaskRepo {
         if (toDelete.has(next)) continue;
         const child = get(next);
         if (!child) continue;
-        if (opts.predicate && !opts.predicate(child.id, child.ownerSessionId)) {
+        // v024 plan §不变量 12 + Step B1:predicate 签名传 child 完整 task（至少
+        // ownerSessionId + teamId）让 D3 按 task.team_id 判权限边界。
+        if (
+          opts.predicate &&
+          !opts.predicate(child.id, { ownerSessionId: child.ownerSessionId, teamId: child.teamId })
+        ) {
           continue;
         }
         toDelete.add(next);
@@ -338,21 +497,7 @@ export function createTaskRepo(db: Database): TaskRepo {
     }
 
     const tx = db.transaction(() => {
-      // 1. 删除目标 + cascade 下游。
-      // F2 fix (deep-review-changelog146-20260524 R1 claude MED): toDelete 多分支宽度
-      // 极端场景（plan 链 blocks 树 500+ nodes）会撞 SQLite IN 默认 999 上限抛
-      // SQLITE_TOOBIG 整 transaction 回滚。chunked DELETE 仍在 db.transaction 内多次
-      // prepared statement run → 原子性保留；chunk threshold 500 与 listTasks F2 修法
-      // 一致 + 与 member-query.ts:107 CHUNK_SIZE = 500 对齐。
-      //
-      // **F-R2-B 原子性契约**（deep-review-changelog146-20260524 R2 双方独立提出）：
-      // 任一 chunk DELETE 抛错 → db.transaction() wrap 自动 ROLLBACK 整 tx → 保留原始
-      // 全集，不留 partial-delete 残骸。N+1 cleanup stage 同理（任一 UPDATE 抛错也回滚）。
-      // 当前未加 fault-injection regression test（task-repo.test.ts 整文件被 better-sqlite3
-      // binding NODE_MODULE_VERSION 不兼容 skip — 详 CHANGELOG_42 教训不本地 rebuild
-      // 污染 Electron binding）；未来本机 binding 兼容时建议补 1 case: seed 1000+ chained
-      // tasks → mock prepare.run 第 2 chunk fail → assert 原集 task count 不变 + 无
-      // partial delete。在此之前本契约由 better-sqlite3 transaction() 语义 + jsdoc 守护。
+      // 1. 删除目标 + cascade 下游 — 详 v023 F2/F-R2-B 原子性契约（沿用）
       const toDeleteArr = Array.from(toDelete);
       const CHUNK = 500;
       for (let i = 0; i < toDeleteArr.length; i += CHUNK) {
@@ -361,57 +506,67 @@ export function createTaskRepo(db: Database): TaskRepo {
         db.prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`).run(...chunk);
       }
 
-      // 2. 清理剩余 task 的 blocks / blocked_by 数组里指向已删 id 的引用。
-      //    SQLite 的 JSON1 函数（json_each / json_remove）路径太绕，干脆 Node 端
-      //    SELECT → 过滤 → UPDATE 写回。tasks 表通常规模不大（几百到几千），单次
-      //    cascade 全表扫一遍可接受。如未来量大改 JSON1 函数也可以。
-      const survivors = db.prepare(`SELECT id, blocks, blocked_by FROM tasks`).all() as Array<
-        Pick<Row, 'id' | 'blocks' | 'blocked_by'>
-      >;
-      const cleanStmt = db.prepare(`UPDATE tasks SET blocks = ?, blocked_by = ? WHERE id = ?`);
-      for (const s of survivors) {
-        const blocks = safeJsonArray(s.blocks, 'blocks', s.id).filter((x) => !toDelete.has(x));
-        const blockedBy = safeJsonArray(s.blocked_by, 'blocked_by', s.id).filter(
-          (x) => !toDelete.has(x),
-        );
-        // 仅当真发生变化才 UPDATE,避免 N+1 写放大。
-        //
-        // **F6 修法**(deep-review Round 1 reviewer-codex LOW-1):裸 JSON.parse 包 try/catch,
-        // 避免脏 JSON survivor 让删除一条无关 task 在 cleanup 阶段抛错并整个 tx 回滚。
-        // safeJsonArray 已设计成「损坏退化空数组 + warn」保护 list / get 路径,但裸 parse
-        // 破坏该容错。修后:裸 parse 失败 → 认为发生变化(原列损坏需要写回 clean JSON),
-        // 与 safeJsonArray 容错语义对齐。
-        let origBlocks: unknown;
-        let origBlockedBy: unknown;
-        try {
-          origBlocks = JSON.parse(s.blocks);
-        } catch {
-          origBlocks = null; // 标 invalid → changedBlocks=true 写回 clean
-        }
-        try {
-          origBlockedBy = JSON.parse(s.blocked_by);
-        } catch {
-          origBlockedBy = null;
-        }
-        const changedBlocks =
-          !Array.isArray(origBlocks) || origBlocks.length !== blocks.length;
-        const changedBlockedBy =
-          !Array.isArray(origBlockedBy) || origBlockedBy.length !== blockedBy.length;
-        if (changedBlocks || changedBlockedBy) {
-          cleanStmt.run(JSON.stringify(blocks), JSON.stringify(blockedBy), s.id);
-        }
-      }
+      // 2. 清理剩余 task 的 blocks / blocked_by 数组里指向已删 id 的引用 — 详 v023
+      //    F6 修法（裸 JSON.parse 包 try/catch）沿用,加 cleanup BFS 模式。
+      cleanupBlocksReferences(toDelete);
     });
     tx();
-    // 返回所有被删的 id（含 root + cascade 下游），让 tools.ts task_delete 按 id
-    // 逐个 emit task-changed，未来 Tasks tab 不会因为只 emit root 一次而 N-1 个
+    // 返回所有被删的 id（含 root + cascade 下游）,让 tools.ts task_delete 按 id
+    // 逐个 emit task-changed,未来 Tasks tab 不会因为只 emit root 一次而 N-1 个
     // 下游 task UI stale。
     return Array.from(toDelete);
   }
 
-  function reassignOwner(oldSessionId: string, newSessionId: string): number {
-    // v023 plan §D3:hand_off_session tool 在 spawn 新 session 之后、archive
-    // caller 之前调,原子把 caller 拥有的所有 task 转给新 session。
+  /**
+   * v024 plan §D4 + Step B1 — 提取 cleanup blocks/blocked_by 引用为 helper,让 del()
+   * 与 applyHandOffSkipPolicy() 共享同款 cleanup 逻辑。
+   *
+   * **必须在 db.transaction() 内调**（不自开 tx,由 caller 保证原子性）。
+   * SELECT survivors → 过滤 blocks/blocked_by 引用 deletedIds 的项 → UPDATE 写回。
+   *
+   * **F6 修法**(deep-review Round 1 reviewer-codex LOW-1):裸 JSON.parse 包 try/catch,
+   * 避免脏 JSON survivor 让 cleanup 阶段抛错并整 tx 回滚。
+   */
+  function cleanupBlocksReferences(deletedIds: Set<string>): void {
+    const survivors = db.prepare(`SELECT id, blocks, blocked_by FROM tasks`).all() as Array<
+      Pick<Row, 'id' | 'blocks' | 'blocked_by'>
+    >;
+    const cleanStmt = db.prepare(`UPDATE tasks SET blocks = ?, blocked_by = ? WHERE id = ?`);
+    for (const s of survivors) {
+      const blocks = safeJsonArray(s.blocks, 'blocks', s.id).filter((x) => !deletedIds.has(x));
+      const blockedBy = safeJsonArray(s.blocked_by, 'blocked_by', s.id).filter(
+        (x) => !deletedIds.has(x),
+      );
+      // 仅当真发生变化才 UPDATE,避免 N+1 写放大。
+      let origBlocks: unknown;
+      let origBlockedBy: unknown;
+      try {
+        origBlocks = JSON.parse(s.blocks);
+      } catch {
+        origBlocks = null; // 标 invalid → changedBlocks=true 写回 clean
+      }
+      try {
+        origBlockedBy = JSON.parse(s.blocked_by);
+      } catch {
+        origBlockedBy = null;
+      }
+      const changedBlocks =
+        !Array.isArray(origBlocks) || origBlocks.length !== blocks.length;
+      const changedBlockedBy =
+        !Array.isArray(origBlockedBy) || origBlockedBy.length !== blockedBy.length;
+      if (changedBlocks || changedBlockedBy) {
+        cleanStmt.run(JSON.stringify(blocks), JSON.stringify(blockedBy), s.id);
+      }
+    }
+  }
+
+  function reassignOwner(
+    oldSessionId: string,
+    newSessionId: string,
+    opts: { policy: ReassignOwnerPolicy },
+  ): number {
+    // v023/v024 plan §D3 + D4:hand_off_session tool 在 spawn 新 session 之后、
+    // archive caller 之前调,原子把 caller 拥有的所有 task 转给新 session。
     //
     // FK 约束:newSessionId 必须在 sessions 表存在(不存在 → SQLite throw FK 错)。
     // 调用方(hand_off-session handler)保证新 session 已 spawn 落 DB 才调本接口。
@@ -420,19 +575,81 @@ export function createTaskRepo(db: Database): TaskRepo {
     // 改值,新值合法即可),SQLite 不会触发 CASCADE 副作用。
     //
     // **F5 修法**(deep-review Round 1 reviewer-claude MED-c3):**不刷 updated_at**。
-    // reassign 是 owner 换不是 task content 改,语义上不算用户「修改」task。修前刷
-    // updated_at 让 hand_off baton 时 caller N 条 task 全部 updated_at 刷成同一毫秒
-    // → list 默认 ORDER BY updated_at DESC 排序退化为 SQLite tie-break 顺序,大批量
-    // reassign 后所有过继 task 浮到列表顶端,把新 session 真正最近改的 task 顶下去 →
-    // UI stale。修后 reassignOwner 只改 owner_session_id,task 原 updated_at 保留 →
-    // list 排序仍按 task 真实修改时间。
-    const info = db
-      .prepare(`UPDATE tasks SET owner_session_id = ? WHERE owner_session_id = ?`)
-      .run(newSessionId, oldSessionId);
+    // reassign 是 owner 换不是 task content 改,保留原 updated_at 让 list 排序稳定。
+    //
+    // v024 plan §D4 policy 两态:
+    // - 'clear-team':SET owner + team_id=NULL（过继 + 清 team 标签变 personal）
+    // - 'preserve-team':SET owner 不动 team_id（caller 自负保证 adopt teammates）
+    //
+    // 'skip' 不在本接口走（plan §不变量 12）— skip 走 applyHandOffSkipPolicy 单 tx 4 步。
+    let sql: string;
+    if (opts.policy === 'clear-team') {
+      sql = `UPDATE tasks SET owner_session_id = ?, team_id = NULL WHERE owner_session_id = ?`;
+    } else {
+      // 'preserve-team'
+      sql = `UPDATE tasks SET owner_session_id = ? WHERE owner_session_id = ?`;
+    }
+    const info = db.prepare(sql).run(newSessionId, oldSessionId);
     return Number(info.changes ?? 0);
   }
 
-  return { create, get, list, update, delete: del, reassignOwner };
+  function applyHandOffSkipPolicy(
+    callerSid: string,
+    newSid: string,
+  ): ApplyHandOffSkipResult {
+    // v024 plan §D4 + Step B1（Round 3 MED-1 + Round 4 MED-2/3 + Round 6 MED-1 收口）:
+    // 'skip' policy 真删 helper — 单 db.transaction() 4 步原子化（plan §不变量 4）。
+    //
+    // 与 del() 不同的是,本 helper 是 hand_off 专用 batch:删 caller 拥有的全部 team task
+    // + 一次性 cleanup blocks/blocked_by + reassign 剩余 personal task,原子化避免中间状态。
+    let deletedTeamTaskIds: string[] = [];
+    let reassignedPersonalCount = 0;
+    const tx = db.transaction(() => {
+      // Step 1: SELECT caller team task ids snapshot（handler 后续 safeEmit 用）
+      const teamTaskRows = db
+        .prepare(
+          `SELECT id FROM tasks WHERE owner_session_id = ? AND team_id IS NOT NULL`,
+        )
+        .all(callerSid) as Array<Pick<Row, 'id'>>;
+      deletedTeamTaskIds = teamTaskRows.map((r) => r.id);
+
+      // Step 2: chunked DELETE FROM tasks WHERE id IN (?)（CHUNK=500 防 IN 999 上限,
+      // 与 del() cascade DELETE 同款）。一次性 batch 删除全部 caller team task。
+      if (deletedTeamTaskIds.length > 0) {
+        const CHUNK = 500;
+        for (let i = 0; i < deletedTeamTaskIds.length; i += CHUNK) {
+          const chunk = deletedTeamTaskIds.slice(i, i + CHUNK);
+          const placeholders = chunk.map(() => '?').join(',');
+          db.prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`).run(...chunk);
+        }
+      }
+
+      // Step 3: blocks/blocked_by 引用 cleanup（与 del() cleanupBlocksReferences 同款,
+      // 同 transaction 内 SELECT survivors → 过滤 → UPDATE 写回）。
+      // deletedTeamTaskIds 全 batch 一次性 cleanup,不 BFS 逐个。
+      if (deletedTeamTaskIds.length > 0) {
+        cleanupBlocksReferences(new Set(deletedTeamTaskIds));
+      }
+
+      // Step 4: UPDATE tasks SET owner_session_id=newSid WHERE owner_session_id=callerSid
+      //         AND team_id IS NULL → reassign 剩余 personal task（personal 仍正常过继,
+      //         只是 team task 已被 step 2 删走,这里只过继剩余 personal）。
+      const personalInfo = db
+        .prepare(
+          `UPDATE tasks SET owner_session_id = ? WHERE owner_session_id = ? AND team_id IS NULL`,
+        )
+        .run(newSid, callerSid);
+      reassignedPersonalCount = Number(personalInfo.changes ?? 0);
+    });
+    // tx() 抛错时整 transaction ROLLBACK 保留原集（plan §Step B2 case B 测试锁定）。
+    // 任一 step 抛错 → ROLLBACK → deletedTeamTaskIds / reassignedPersonalCount 仍是
+    // 闭包内中间值,但调用方应在 try/catch 内 catch 这个 throw（详 hand-off-session.ts
+    // Step D2 单一伪代码块 outer try/catch fallback）。
+    tx();
+    return { deletedTeamTaskIds, reassignedPersonalCount };
+  }
+
+  return { create, get, list, update, delete: del, reassignOwner, applyHandOffSkipPolicy };
 }
 
 /**
@@ -451,5 +668,7 @@ export const taskRepo: TaskRepo = {
   list: (opts) => defaultRepo().list(opts),
   update: (id, patch) => defaultRepo().update(id, patch),
   delete: (id, opts) => defaultRepo().delete(id, opts),
-  reassignOwner: (oldSid, newSid) => defaultRepo().reassignOwner(oldSid, newSid),
+  reassignOwner: (oldSid, newSid, opts) => defaultRepo().reassignOwner(oldSid, newSid, opts),
+  applyHandOffSkipPolicy: (callerSid, newSid) =>
+    defaultRepo().applyHandOffSkipPolicy(callerSid, newSid),
 };

@@ -1,5 +1,6 @@
 /**
- * 跨进程共享：Task Manager 类型（plan task-mcp-owner-session-id-rewrite-20260521 重设计 v023）。
+ * 跨进程共享：Task Manager 类型（plan task-team-id-restore-20260525 v024 重设计 — v023
+ * follow-up 加回 team_id NULLABLE 字段消灭 lead 多 team task 串流 + hand_off ownership 边界）。
  */
 
 /**
@@ -13,20 +14,30 @@ export type TaskStatus = 'pending' | 'active' | 'completed' | 'blocked' | 'aband
  * Task Manager 持久化记录。in-process MCP server 5 个工具（task_create / task_list /
  * task_get / task_update / task_delete）的统一返回形状。
  *
- * 字段语义（plan task-mcp-owner-session-id-rewrite-20260521 v023 schema）：
+ * 字段语义（plan task-team-id-restore-20260525 v024 schema）：
  * - id：UUID v4，create 时由 repo 自动生成
  * - ownerSessionId：必填，绑当前 session（v023 起 task 必有 owner，无 global task 概念）。
- *   session 被 sessionRepo.delete 时 ON DELETE CASCADE 自动删 task（plan §不变量 2）。
- *   team scope 由 query 层 reverse join sessions 表 → agent_deck_team_members 算出来
- *   （plan §D6）。
+ *   session 被 sessionRepo.delete 时 ON DELETE CASCADE 自动删 task（plan §不变量 1）。
+ * - teamId：v024 新增，NULL = personal task（仅 owner 可见可写，first-class 用例）/
+ *   非 NULL = team-bound task（caller 必须在该 team 是 active member 才能可见可写,
+ *   plan §设计决策 D1-D3 / §不变量 2-3）。team 硬删 ON DELETE SET NULL 让 task 退化为
+ *   personal task（仍挂 owner_session_id 名下不丢，§不变量 4）。
  * - blocks / blockedBy：任务 ID 数组，构成依赖图。当前实现**不**做循环检测
  *   （sdk-task-manager-spec §5 known limitation）。
- * - createdAt / updatedAt：ISO8601 字符串。每次 update 强制刷新 updatedAt。
+ * - createdAt / updatedAt：ISO8601 字符串。每次 update 强制刷新 updatedAt（reassignOwner
+ *   操作不刷 updatedAt 让 list 默认排序保持稳定 — §不变量 11）。
  */
 export interface TaskRecord {
   id: string;
   /** v023：必填 owner session id。FK → sessions(id) ON DELETE CASCADE。 */
   ownerSessionId: string;
+  /**
+   * v024：team 归属字段（plan task-team-id-restore-20260525 D1）。
+   * - `null` = personal task（仅 owner 可见可写,first-class 用例 — RFC R1.Q1 用户强调「没有加入 team 也能起 task」）
+   * - `string` (team uuid) = team-bound task,caller 必须在该 team 是 active member（D3）
+   * FK → agent_deck_teams(id) ON DELETE SET NULL（team 硬删时退化为 personal,不丢,§不变量 4）。
+   */
+  teamId: string | null;
   subject: string;
   description: string | null;
   status: TaskStatus;

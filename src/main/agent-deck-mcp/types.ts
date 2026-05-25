@@ -121,10 +121,11 @@ export type AgentDeckToolName =
  * **plan task-mcp-merge-into-agent-deck-mcp-20260521 §D6 + R1 F1**：5 个 task tool 严格类型 +
  * 显式赋值（不存在「不加 = allow」语义 — Record 严格类型 + denyExternalIfNotAllowed 把
  * undefined 当 deny）：
- * - task_create / task_update / task_delete deny external（防 UUID 不可恢复 / blocks 链路混乱 /
- *   owner_session_id 跨 session FK 误改 — 与现有 8 个 write tool 防御一致）
- * - task_list / task_get allow external（只读没 spoofing 风险；合法 read-only mcp client
- *   查询自己已知 task_id 是合法 use case）
+ * - task_create / task_update / task_delete / **task_get** deny external（v024 plan §D8 把
+ *   task_get 改严格 team-scoped read,与 write 对称 deny external — v023 cross-team 可读 use
+ *   case 推翻;详 plan task-team-id-restore-20260525 §D8 + Step C7）
+ * - task_list allow external（返空 visible scope 对未在 caller team 的 external client 是合理；
+ *   read-only 可见性 scope allow external 不破坏 active member 边界）
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,
@@ -137,10 +138,11 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   enter_worktree: false,
   exit_worktree: false,
   shutdown_baton_teammates: false,
-  // task tools (plan task-mcp-merge-into-agent-deck-mcp-20260521 §D6 R1 F1)
+  // task tools (plan task-mcp-merge-into-agent-deck-mcp-20260521 §D6 R1 F1 + v024 §D8)
   task_create: false,
   task_update: false,
   task_delete: false,
   task_list: true,
-  task_get: true,
+  // v024 plan §D8 修法:flip true → false（严格 team-scoped read + deny external 对称）
+  task_get: false,
 };
