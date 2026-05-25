@@ -82,8 +82,8 @@ export const taskDeleteHandler = withMcpGuard(
       }
       return ok({
         success: deletedIds.length > 0,
-        task_id: args.task_id,
-        deleted_ids: deletedIds,
+        taskId: args.task_id,
+        deletedIds: deletedIds,
       } satisfies TaskDeleteResult);
     } catch (e) {
       return err(e instanceof Error ? e.message : String(e));

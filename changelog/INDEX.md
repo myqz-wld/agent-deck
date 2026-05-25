@@ -6,6 +6,7 @@
 | 文件 | 概要（≤80 字） |
 |------|------|
 | [CHANGELOG_147.md](CHANGELOG_147.md) | 实时 / 历史面板空态布局加 `h-full` + flex 居中，对齐待处理 / 团队同款视觉 |
+| [CHANGELOG_148.md](CHANGELOG_148.md) | agent-deck-mcp 15 tool 中 `archive_plan` + `task_delete` ok return 字段统一 camelCase（消灭历史遗留 snake_case 不一致 — `archived_path/commit_hash/.../plans_index_action/spike_reports_archived{src_path,dst_path}` + `task_id/deleted_ids` 共 10 字段），handler 删 snake_case 转换层直接透传 impl camelCase，同步双端 CLAUDE.md。args 字段（snake_case 约定）不动。**MCP 协议 breaking**。 |
 | [CHANGELOG_1.md](CHANGELOG_1.md) | 项目初始化 M1-M9（Electron+React+TS+Tailwind 半透明窗 / Adapter+Diff 双插件 / SDK+Hook 双通道 / DB v3）+ 应用图标 |
 | [CHANGELOG_2.md](CHANGELOG_2.md) | 工具适配 AskUserQuestion + ExitPlanMode：独立类型 + 独立 IPC + 专用 UI（option 按钮 / 批准计划 + markdown 反馈） |
 | [CHANGELOG_3.md](CHANGELOG_3.md) | 对话气泡 + Markdown 渲染（user message + MD/TXT 切换从全局级联翻为单条独立）+ AskRow 实色提交 + 毛玻璃底色加深 + header 计数对齐 |
