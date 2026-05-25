@@ -84,11 +84,22 @@ export async function shutdownTeammatesOnBaton(
   const excludeSet = deps?.excludeSessionIds ?? new Set<string>();
 
   // 反查 caller 在哪些 team 里是 lead
+  // **REVIEW_56 Batch B R1 MED-2 修法 (reviewer-codex)**: findActiveMembershipsBySession SQL
+  // 只过滤 `m.left_at IS NULL`,不 JOIN `agent_deck_teams.archived_at IS NULL`(详
+  // member-query.ts:84-92 对比 findSharedActiveTeams 已过滤 archived_at)。导致 archived team
+  // 里的 ghost lead membership 仍命中 leadTeamIds → listMembers 走 archived team 关闭其他未
+  // 归档 session,违反 §错误契约 "all caller's lead teams already archived → caller-not-lead error"。
+  // 修法: 在 caller 侧用 agentDeckTeamRepo.get 二次过滤 archivedAt(避免改 member-query.ts SQL
+  // 影响其他 caller — findActiveMembershipsBySession 本身只查 member 行,JOIN team 增加默认开销)。
   const memberships = findMemberships(callerSessionId);
-  const leadTeamIds = memberships.filter((m) => m.role === 'lead').map((m) => m.teamId);
+  const leadTeamIds = memberships
+    .filter((m) => m.role === 'lead')
+    .map((m) => m.teamId)
+    .filter((teamId) => agentDeckTeamRepo.get(teamId)?.archivedAt == null);
 
   if (leadTeamIds.length === 0) {
-    // caller 在任何 team 都不是 lead（典型：caller 是 teammate / 无 team 关系）→ 不牵连
+    // caller 在任何 active team 都不是 lead(典型: caller 是 teammate / 无 team 关系 / 所有
+    // lead team 都已 archived)→ 不牵连
     return { closed: [], failed: [], skipped: 'caller-not-lead' };
   }
 
