@@ -33,10 +33,15 @@ const receiveTeammateMessageCalls: Array<{ to: string; from: string; body: strin
 const emitStatusCalls: Array<{ id: string; status: string }> = [];
 
 let nextClaimResult: AgentDeckMessage | null = null;
-let nextSessionResult: { id: string; lifecycle: 'active' | 'dormant' | 'closed'; agentId: string } | null = null;
+let nextSessionResult: { id: string; lifecycle: 'active' | 'dormant' | 'closed'; agentId: string; archivedAt?: number | null } | null = null;
 let nextAdapterResult:
   | { capabilities: { canCollaborate: boolean }; receiveTeammateMessage?: typeof receiveTeammateMessageStub }
   | undefined = undefined;
+// REVIEW_56 Batch C R1 codex MED-1 修法测试 fixture: watcher deliver() 重验 5 项 invariant
+// (team archived / from archived / to archived / from membership / to membership) 需 mock 返
+// 默认 active team + active membership 才能让 dispatch 走通。
+let nextTeamResult: { id: string; archivedAt: number | null } | null = null;
+let nextMembershipResult: { sessionId: string; teamId: string; role: 'lead' | 'teammate'; leftAt: number | null } | null = null;
 
 // REVIEW_35 follow-up A1 R2: stateful pending Map 让 process() 集成 test 可跑
 // findEligible / countPendingForTarget / claim / markDelivered / markFailed 5 个 fn
@@ -96,6 +101,19 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
           .slice(0, opts.limit);
       }
       return [];
+    },
+    // REVIEW_56 Batch C R1 codex MED-2 修法 stub: watcher process() 二阶段 cross-target 公平
+    // 兜底用。测试默认无 starvation 场景,返 null;若 stateful pending map 模拟 cross-target
+    // starve 可走 same FIFO 逻辑 + 排除 excludeTargets 取一条。
+    findEligibleExcludingTargets: (opts: { now: number; excludeTargets: readonly string[] }) => {
+      if (statefulPendingMap) {
+        const excludeSet = new Set(opts.excludeTargets);
+        const candidates = Array.from(statefulPendingMap.values())
+          .filter((m) => m.status === 'pending' && !excludeSet.has(m.toSessionId))
+          .sort((a, b) => a.sentAt - b.sentAt);
+        return candidates[0] ?? null;
+      }
+      return null;
     },
     countPendingForTarget: (sid: string) => {
       if (statefulPendingMap) {
@@ -159,6 +177,10 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
         teamRepoListCalls.push(opts ?? {});
         return teamRepoListResults;
       }) as AgentDeckTeamRepo['list'],
+      // REVIEW_56 Batch C R1 codex MED-1 修法 stub: watcher deliver() 重验 team 是否 archived
+      // / 双方仍是 active member。返 nextTeamResult / nextMembershipResult 让 test 显式控制。
+      get: ((_teamId: string) => nextTeamResult) as AgentDeckTeamRepo['get'],
+      findActiveMembershipIn: ((_teamId: string, _sessionId: string) => nextMembershipResult) as AgentDeckTeamRepo['findActiveMembershipIn'],
     },
   }),
 }));
@@ -207,6 +229,10 @@ beforeEach(() => {
   // REVIEW_35 follow-up A1 R2: 默认关 stateful 模式
   statefulPendingMap = null;
   statefulMaxInflight = 10;
+  // REVIEW_56 Batch C R1 codex MED-1 修法 fixture: 默认 active team + active membership
+  // 让 deliver 走 dispatch 路径(test 想测 archive race 时显式 override 这两个全局)
+  nextTeamResult = { id: 'team-1', archivedAt: null };
+  nextMembershipResult = { sessionId: 'mock-sid', teamId: 'team-1', role: 'teammate', leftAt: null };
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────

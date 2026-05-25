@@ -227,6 +227,24 @@ export class UniversalMessageWatcher {
       if (!deliveredAny && candidates.length > 0) {
         await this.deliver(candidates[0]);
       }
+      // REVIEW_56 Batch C R1 codex MED-2 修法:cross-target starvation 二阶段公平兜底。
+      // 上面 starvation guard 只 deliver candidates[0] = batch 内 FIFO 最早,但 batch 全是
+      // target-X 时 (single target 撑爆 BATCH_LIMIT) candidates[0] 仍属 target-X → 跨 target
+      // target-Y 仍 starve 数分钟(target-X queue 降到 < BATCH_LIMIT 前 Y 才进 batch)。
+      // 修法:batch 撑爆 BATCH_LIMIT 时 (candidates.length >= BATCH_LIMIT) 跑 secondary
+      // query 拉一条**不在 batch targets** 的最早 pending,公平投递破开闸门。
+      // 触发条件: candidates.length >= BATCH_LIMIT 精确捕捉 batch 撑爆场景 — 不撑爆时
+      // candidates 已含所有 eligible(无饿死),不必跑额外 SQL(避免 perf overhead)。
+      if (candidates.length >= BATCH_LIMIT) {
+        const batchTargets = Array.from(new Set(candidates.map((c) => c.toSessionId)));
+        const fairCandidate = agentDeckMessageRepo.findEligibleExcludingTargets({
+          now,
+          excludeTargets: batchTargets,
+        });
+        if (fairCandidate) {
+          await this.deliver(fairCandidate);
+        }
+      }
     } catch (err) {
       console.warn('[universal-message-watcher] process tick failed:', err);
     } finally {
@@ -278,6 +296,88 @@ export class UniversalMessageWatcher {
       const failed = agentDeckMessageRepo.markFailed(
         claimed.id,
         'target session is closed',
+      );
+      if (failed) this.emitStatus(failed);
+      return;
+    }
+
+    // REVIEW_56 Batch C R1 codex MED-1 修法: enqueue 时 send.ts:53 校验 caller/target 共享 active
+    // team(+ archived check),但 enqueue 与 deliver 之间发生 team archive / from leave team /
+    // to leave team / from archived / target archived 任一种 → claim 后 dispatch 已 stale。
+    // ipc/teams.ts:155 AgentDeckTeamArchive handler 只 emit event 不 cancel pending message
+    // (ipc 路径不知 message-repo);watcher 是 dispatch 路径最后一道闸门 → claim 后重验 5 项
+    // invariant 失败 markFailed 不 dispatch,防止向已 archive / leave 的 receiver 投递。
+    // (cancel pending 主动清理是 follow-up optimization;watcher 重验是充分的正确性 invariant。)
+    if (target.archivedAt != null) {
+      const failed = agentDeckMessageRepo.markFailed(
+        claimed.id,
+        'target session archived',
+      );
+      if (failed) this.emitStatus(failed);
+      return;
+    }
+    const fromSession = sessionRepo.get(claimed.fromSessionId);
+    if (!fromSession) {
+      const failed = agentDeckMessageRepo.markFailed(
+        claimed.id,
+        'from session not found',
+      );
+      if (failed) this.emitStatus(failed);
+      return;
+    }
+    if (fromSession.archivedAt != null) {
+      const failed = agentDeckMessageRepo.markFailed(
+        claimed.id,
+        'from session archived',
+      );
+      if (failed) this.emitStatus(failed);
+      return;
+    }
+    const team = agentDeckTeamRepo.get(claimed.teamId);
+    if (!team) {
+      const failed = agentDeckMessageRepo.markFailed(
+        claimed.id,
+        'team not found',
+      );
+      if (failed) this.emitStatus(failed);
+      return;
+    }
+    if (team.archivedAt != null) {
+      const failed = agentDeckMessageRepo.markFailed(
+        claimed.id,
+        'team archived',
+      );
+      if (failed) this.emitStatus(failed);
+      return;
+    }
+    const fromMembership = agentDeckTeamRepo.findActiveMembershipIn(
+      claimed.teamId,
+      claimed.fromSessionId,
+    );
+    const toMembership = agentDeckTeamRepo.findActiveMembershipIn(
+      claimed.teamId,
+      claimed.toSessionId,
+    );
+    if (!fromMembership && !toMembership) {
+      const failed = agentDeckMessageRepo.markFailed(
+        claimed.id,
+        'from and to no longer active members of team',
+      );
+      if (failed) this.emitStatus(failed);
+      return;
+    }
+    if (!fromMembership) {
+      const failed = agentDeckMessageRepo.markFailed(
+        claimed.id,
+        'from no longer active member of team',
+      );
+      if (failed) this.emitStatus(failed);
+      return;
+    }
+    if (!toMembership) {
+      const failed = agentDeckMessageRepo.markFailed(
+        claimed.id,
+        'to no longer active member of team',
       );
       if (failed) this.emitStatus(failed);
       return;

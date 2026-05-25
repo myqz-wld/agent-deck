@@ -186,7 +186,15 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
     if (toExists && fromRow.spawned_by) {
       db.prepare(`UPDATE sessions SET spawned_by = ? WHERE id = ?`).run(fromRow.spawned_by, toId);
     }
-    if (toExists && fromRow.spawn_depth > 0) {
+    if (toExists) {
+      // REVIEW_56 Batch C R1 claude M-2 修法:spawn_depth 是 INTEGER NOT NULL,0 是合法值
+      // (root session;与 spawn_link.parent_depth=-1 协同标记无 parent)。旧实现 truthy check
+      // `> 0` 把 OLD 是 root session 的事实丢失,与同段其他 string|null 字段语义不一致 — 那些
+      // truthy 跳过对(null 跳过保留 NEW user preference 默认值);spawn_depth 是 INTEGER NOT
+      // NULL 会话身份相关字段,应与 cwd_release_marker L220 / toExists=false INSERT 分支同款
+      // 无条件 OLD 覆盖。当前 NEW createSession 默认 spawn_depth=0 巧合下无 user-visible
+      // 问题,但 latent risk:若未来 createSession 改默认或 schema 调 spawn_depth 默认,会被
+      // truthy 跳过吞掉 OLD root session 身份。修法对齐"会话身份相关字段无条件覆盖"语义。
       db.prepare(`UPDATE sessions SET spawn_depth = ? WHERE id = ?`).run(fromRow.spawn_depth, toId);
     }
     if (toExists && fromRow.generic_pty_config) {

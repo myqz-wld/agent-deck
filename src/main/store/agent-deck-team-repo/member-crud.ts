@@ -238,10 +238,12 @@ export function createMemberCrudHelpers(
    *    - 不在 team / 软失败 'caller-not-in-team'
    *    - 在但非 lead → 软失败 'caller-not-lead'
    * 2. Phase A demote:UPDATE oldLeadSid 设 left_at=now(等价 leaveTeam 但 transaction 内一致)
-   * 3. Phase B promote:SELECT newLeadSid 现有 row 决策三 case
+   * 3. Phase B promote:SELECT newLeadSid 现有 row 决策四 case
    *    - case 1 (无 row): INSERT 新 lead row
    *    - case 2 (left_at 非 null): UPDATE 设 role='lead' + left_at=NULL + joined_at=now [+ display_name]
    *    - case 3 (active+lead): no-op 或仅刷 display_name(防御 — N2.c 互斥防 adopt 路径触发)
+   *    - case 4 (active+teammate): UPDATE 设 role='lead' [+ display_name 若传](N2.c 互斥防 adopt
+   *      路径触发,别 caller 路径手工 swapLead with existing teammate sid 走此分支)
    *
    * **db.transaction(callback)** 自动 BEGIN/COMMIT/ROLLBACK(better-sqlite3 同款 spike2 v2 archive
    * 联动隔离 attestation 路径)。callback 内 throw 自动 ROLLBACK,return value 透传(precheck
@@ -315,14 +317,28 @@ export function createMemberCrudHelpers(
             ).run(newDisplayName, teamId, newLeadSid);
           }
         } else {
-          // case 边角:newLeadSid 已 active 但是 teammate(非 lead)。adopt 路径 N2.c 互斥防
-          // 此 case;别 caller 路径手工 swapLead with existing teammate sid 时走此分支 —
-          // promote teammate 为 lead(等价 setRole 但 raw SQL bypass MAX_LEADS_PER_TEAM)。
-          db.prepare(
-            `UPDATE agent_deck_team_members
-             SET role = 'lead', display_name = ?
-             WHERE team_id = ? AND session_id = ? AND left_at IS NULL`,
-          ).run(newDisplayName, teamId, newLeadSid);
+          // case 4 边角(active+teammate promote): newLeadSid 已 active 但是 teammate(非 lead)。
+          // adopt 路径 N2.c 互斥防此 case;别 caller 路径手工 swapLead with existing teammate
+          // sid 时走此分支 — promote teammate 为 lead(等价 setRole 但 raw SQL bypass MAX_LEADS_PER_TEAM)。
+          //
+          // REVIEW_56 Batch C R1 claude M-1 修法:与 case 3 (L307-316) 同款 newDisplayName !== null
+          // 防御。旧实现 SQL `display_name = ?` 无防御,L256 `?? null` 在 caller 未传 / 显式传 null
+          // 时落 null → SQL 把 NEW 行已有 displayName 无声清空。修法:newDisplayName 非 null 时
+          // 走两列 UPDATE(role + display_name);为 null 时仅 SET role 不动 display_name,保留
+          // NEW 行原 displayName 与 case 3 防御对齐。
+          if (newDisplayName !== null) {
+            db.prepare(
+              `UPDATE agent_deck_team_members
+               SET role = 'lead', display_name = ?
+               WHERE team_id = ? AND session_id = ? AND left_at IS NULL`,
+            ).run(newDisplayName, teamId, newLeadSid);
+          } else {
+            db.prepare(
+              `UPDATE agent_deck_team_members
+               SET role = 'lead'
+               WHERE team_id = ? AND session_id = ? AND left_at IS NULL`,
+            ).run(teamId, newLeadSid);
+          }
         }
 
         return { swapped: true as const };
