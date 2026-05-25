@@ -430,7 +430,28 @@ export class CodexSdkBridge {
     const sandboxMode = opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
 
     let thread: Thread;
-    if (opts.resume) {
+    // **REVIEW_56 HIGH-1 修法 — facade 必须消费 opts.resumeMode + opts.resumeCliSid**:
+    // recoverer (recoverer.ts:344 + 370) / restart-controller (line 132) 已显式传出这两个字段,
+    // 但本 facade 修前漏接(只看 opts.resume),导致:
+    //  1) jsonl-missing fallback 路径(resumeMode='fresh-cli-reuse-app') 仍 resumeThread →
+    //     SDK 抛 jsonl 不存在错(预检漏判时进一步死链)
+    //  2) 反向 rename 后 cliSessionId !== applicationSid 时 SDK 拿 applicationSid 调
+    //     resumeThread → 找不到正确 jsonl → 历史失。
+    // 修后:
+    //  - effectiveResumeThreadId = opts.resume && resumeMode !== 'fresh-cli-reuse-app'
+    //      ? (opts.resumeCliSid ?? opts.resume)  // cli sid 维度 (反向 rename 安全)
+    //      : null                                  // fresh thread / spawn 主路径
+    //  - effectiveResumeThreadId 非空 → resumeThread, 否则 startThread (jsonl-missing fallback
+    //    自然走 startThread + applicationSid 不变,first thread.started 进 thread-loop case 3
+    //    fork-detect 路径 updateCliSessionId 完成反向 rename)。
+    // internal.threadId 仍存 opts.resume(applicationSid),thread-loop case 3 (line 292)
+    // 通过 ev.thread_id !== internal.threadId 触发 fork-detect → updateCliSessionId 把
+    // cli_session_id 列改成 SDK 真 thread_id;applicationSid (sessions.id) 不动 (不变量 1)。
+    const effectiveResumeThreadId =
+      opts.resume && opts.resumeMode !== 'fresh-cli-reuse-app'
+        ? (opts.resumeCliSid ?? opts.resume)
+        : null;
+    if (effectiveResumeThreadId) {
       // CHANGELOG_<X> A2a：resume 路径必须透传 sandboxMode / workingDirectory / approvalPolicy，
       // 否则 codex SDK 默认行为 = 不传 --sandbox flag，让 codex CLI 用 ~/.codex/config.toml 全局
       // 默认 / read-only 兜底，丢失用户上次该会话选过的档位（spike-A2 实测验证 SDK
@@ -441,7 +462,7 @@ export class CodexSdkBridge {
       // approvalPolicy 沿用 'never'（现状）；networkAccessEnabled / additionalDirectories
       // 不写字段（codex SDK 走 ThreadOptions 默认）。options-builder 在 reviewer-* 路径下
       // 已 spread 4 字段 unsafe default,这里直接透传不影响普通 codex session lead 路径。
-      thread = codex.resumeThread(opts.resume, {
+      thread = codex.resumeThread(effectiveResumeThreadId, {
         workingDirectory: cwd,
         sandboxMode,
         approvalPolicy: opts.approvalPolicy ?? 'never',

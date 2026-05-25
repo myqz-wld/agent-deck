@@ -140,6 +140,24 @@ export class Summarizer {
 
       // 不阻塞循环：每个会话独立 await，避免一个慢的 LLM 总结拖慢其余会话
       this.inFlight.add(s.id);
+      // **REVIEW_56 MED-2 修法**: rename handler 必须迁 inFlight + finally 用最终 sid。
+      // 修前 class-level offSessionRenamed handler 只迁 lastSummarizedAt + lastErrorBySession,
+      // **漏迁 inFlight**;rename 期间(典型: CLI 软 fork / SDK fallback tempKey→realId 触发
+      // renameSdkSession) 同会话场景:
+      //  1) scanAll 看到 NEW 不在 inFlight 守门(line 131 has(NEW) miss) → 启第二条 LLM
+      //  2) finally 用 closure s.id=OLD delete → no-op,inFlight 仍含 NEW entry,LLM slot 滞留
+      //     → scanAll 看到 inFlight.has(NEW) hit 永久跳过 NEW 不再 summarize
+      // 修后: per-promise rename listener 跟随 closure s.id,rename 时同步 inFlight 迁移 +
+      // 更新 currentSid ref;finally 用 currentSid (最终 sid) delete + 卸 listener。
+      let currentSid = s.id;
+      const renameInflightHandler = (payload: { from: string; to: string }): void => {
+        if (payload.from === currentSid) {
+          this.inFlight.delete(currentSid);
+          this.inFlight.add(payload.to);
+          currentSid = payload.to;
+        }
+      };
+      eventBus.on('session-renamed', renameInflightHandler);
       void this.summarize(s.id)
         .then((content) => {
           if (!content) return;
@@ -178,7 +196,12 @@ export class Summarizer {
           });
           console.warn(`[summarizer] session ${s.id} failed:`, err);
         })
-        .finally(() => this.inFlight.delete(s.id));
+        .finally(() => {
+          // REVIEW_56 MED-2 修法: 用 currentSid (rename 后已切到 NEW) delete + 卸 listener,
+          // 防 listener 永久滞留(每 scanAll 一次 add 一个,session-renamed emit 时 fire 全部)。
+          this.inFlight.delete(currentSid);
+          eventBus.off('session-renamed', renameInflightHandler);
+        });
     }
   }
 

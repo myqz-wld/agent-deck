@@ -82,13 +82,21 @@ export class RestartController {
     // symmetry-plan P2 HIGH-A：单飞 — 等同 sessionId 的 in-flight restart 完成
     // （与 claude restart-controller REVIEW_36 R2 MED-B 修法同款）。先等再起,避免并发
     // restart 同时进 close → DB write → createSession 阶段交错。
-    const inflight = this.ctx.recovering.get(sessionId);
-    if (inflight) {
+    //
+    // **REVIEW_56 MED-1 修法**(与 claude restart-controller.ts:153-163 同款 while 循环):
+    // 修前 单 if 仅 wait 一次 → 3 并发 waiter race(A inflight 中 B/C 都 await A;A done 后
+    // B/C **同时**进入下面 close → DB → createSession 阶段,既越过单飞又重复执行)。修后
+    // while 循环 re-check `recovering Map`,若期间 B 已注册新 inflight,C 继续等。
+    // codex 这边不需 listener transfer Map entry(claude 那边因 SDK 软 fork rename + Map
+    // key 切换才需要 transfer;codex spike-A2 实测 codex resume 不 fork,sessionId 全程稳定)。
+    let inflight = this.ctx.recovering.get(sessionId);
+    while (inflight) {
       try {
         await inflight;
       } catch {
         // 上一个 restart 失败不影响本次重启尝试
       }
+      inflight = this.ctx.recovering.get(sessionId);
     }
 
     const rec = sessionRepo.get(sessionId);
