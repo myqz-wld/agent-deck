@@ -12,7 +12,7 @@
 
 | 文件 | 主题（≤ 80 字） | 升级日期 | 关联 changelog | 关联 review |
 |------|---------------|---------|--------------|------------|
-| <第一条升级后填> | | | | |
+| [01-reviewer-claude-oneshot-disallow-exitplanmode.md](01-reviewer-claude-oneshot-disallow-exitplanmode.md) | 决策对抗 reviewer-claude oneshot (claude -p) 必须 `--permission-mode default` + `--disallowedTools` 含 `ExitPlanMode`；plan mode 撞 -p 非交互拒绝路径吞 finding | 2026-05-25 | — | [REVIEW_52](../reviews/REVIEW_52.md) 首踩 + [REVIEW_54](../reviews/REVIEW_54.md) 再踩 |
 
 ## 候选状态
 
