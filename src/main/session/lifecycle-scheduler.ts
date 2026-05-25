@@ -92,7 +92,18 @@ export class LifecycleScheduler {
       // 之前;clear 后 emit 旧 rec → renderer store 仍带 stale marker 直到下次 upsert)。
       for (const rec of updated) {
         updatedClosedIds.add(rec.id);
-        sessionRepo.clearCwdReleaseMarker(rec.id);
+        // REVIEW_56 Batch C R3 reviewer-claude LOW-1 修法: clearCwdReleaseMarker 加错误隔离
+        // try/catch — batch for loop 内一条 rec 抛错(disk full / WAL lock 极端 case)
+        // 不能传染 N-1 剩余 rec (跳过 leave / emit upserted / 后续 marker clear 副作用),
+        // 与 markClosed 单 sid blast radius 局限不对称 — batch 场景必须每条独立兜底。
+        try {
+          sessionRepo.clearCwdReleaseMarker(rec.id);
+        } catch (err) {
+          console.warn(
+            `[lifecycle-scheduler] clearCwdReleaseMarker failed during dormant→closed(${rec.id}):`,
+            err,
+          );
+        }
         void leaveTeamsAndAutoArchive(rec.id, 'closed').catch((err) => {
           console.warn(
             `[lifecycle-scheduler] leaveTeamsAndAutoArchive failed during dormant→closed(${rec.id}):`,
