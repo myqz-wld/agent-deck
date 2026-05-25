@@ -85,10 +85,25 @@ export const shutdownBatonTeammatesHandler = withMcpGuard(
       return err(
         `caller ${caller.callerSessionId} is not a lead in any active team`,
         `shutdown_baton_teammates only operates on teams where caller is the lead. Caller currently has no `
-          + `active membership with role=lead (either caller is a teammate / was never added to any team, `
-          + `or all caller's lead teams were already archived). To clean up dormant teammates of a specific `
-          + `team without requiring caller to be that team's lead, use the IPC TeamShutdownAllTeammates `
-          + `handler (with team_id) or the UI Team panel's "Shutdown all teammates" button.`,
+          + `active membership with role=lead (either caller is a teammate / was never added to any team). `
+          + `To clean up dormant teammates of a specific team without requiring caller to be that team's lead, `
+          + `use the IPC TeamShutdownAllTeammates handler (with team_id) or the UI Team panel's "Shutdown all teammates" button.`,
+      );
+    }
+
+    // **REVIEW_56 Batch B R3 reviewer-codex blocker 修法**: 第四态 'all-lead-teams-archived'
+    // 必须在 wrapper 转 error (helper 已加新 union 值,但 wrapper 修前只处理 'caller-not-lead'
+    // 让其他 skipped 值落到 happy path → ok return.skipped 固定 null 误报成功,违反 escape
+    // hatch "no-op 不能误导 caller" 契约)。给"caller 是 lead 但相关 team 已归档"专门 hint —
+    // 区别于 'caller-not-lead' 的「caller 完全无 lead 角色」语义。
+    if (result.skipped === 'all-lead-teams-archived') {
+      return err(
+        `caller ${caller.callerSessionId} is lead in some team(s) but all of them are already archived`,
+        `shutdown_baton_teammates found caller=lead memberships but all relevant teams have archived_at != null. `
+          + `No active lead team → no teammate to clean up via this escape hatch (already-archived teams' members were `
+          + `cleaned during team archive cascade). If you need to shut down sessions in an archived team specifically, `
+          + `use IPC TeamShutdownAllTeammates handler (with team_id) which doesn't require caller=lead, or shutdown each `
+          + `session individually via shutdown_session.`,
       );
     }
 
