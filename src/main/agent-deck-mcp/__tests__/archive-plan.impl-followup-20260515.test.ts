@@ -71,6 +71,7 @@ describe('archive-plan-tool-ux-followup-20260515 (a) fallback 链', () => {
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -110,6 +111,7 @@ describe('archive-plan-tool-ux-followup-20260515 (a) fallback 链', () => {
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -196,6 +198,7 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-1 plan_file_path stem refi
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -242,6 +245,7 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-2 silent override warn', (
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -281,6 +285,7 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-2 silent override warn', (
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -317,6 +322,7 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelog_id + INDEX 4 
       'h',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -342,6 +348,7 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelog_id + INDEX 4 
       'h',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -375,6 +382,7 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelog_id + INDEX 4 
       'h',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -409,6 +417,7 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelog_id + INDEX 4 
       'h',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);

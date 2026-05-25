@@ -33,18 +33,22 @@ describe('archivePlanImpl — happy path', () => {
 
   it('完整 happy path：git/fs 调用顺序 + frontmatter 更新 + INDEX 创建 + 返回结构', async () => {
     const { state, input, expectedMainRepo, expectedArchivedPath } = fixtureHappyPath();
-    // git 调用顺序（按 impl 内 runGit 调用顺序，REVIEW_33 H1 在 step 7 前加 verify + checkout）：
+    // git 调用顺序（按 impl 内 runGit 调用顺序，REVIEW_33 H1 在 step 7 前加 verify + checkout，
+    // REVIEW_56 Batch B R1 MED-1 在 commit 后插入 archive-rev-parse-HEAD 拿 archiveCommit）：
     //   1. rev-parse --git-common-dir → /Users/test/repo/.git
     //   2. rev-parse --abbrev-ref HEAD → "worktree-mcp-bug-fix"
     //   3. status --porcelain → "" (clean)
     //   4. rev-parse --verify <baseBranch> → "<hash>" (verify exists, REVIEW_33 H1)
     //   5. checkout <baseBranch> → "" (REVIEW_33 H1)
     //   6. merge --ff-only worktree-mcp-bug-fix → "" (or any stdout)
-    //   7. rev-parse HEAD → "deadbeef123"
+    //   7. rev-parse HEAD → "deadbeef123" (finalCommit = worktree merge tip,落 frontmatter
+    //      final_commit;**不**作 ok.commitHash return)
     //   8. add <files...> → ""
     //   9. commit -m ... → ""
-    //  10. worktree remove ... → ""
-    //  11. branch -D worktree-mcp-bug-fix → ""
+    //  10. rev-parse HEAD → "archivehash" (archiveCommit = archive commit,return 给 caller
+    //      作 ok.commitHash;REVIEW_56 Batch B R1 MED-1 新增,与 finalCommit 双 hash 分离语义)
+    //  11. worktree remove ... → ""
+    //  12. branch -D worktree-mcp-bug-fix → ""
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
       'worktree-mcp-bug-fix',
@@ -55,6 +59,7 @@ describe('archivePlanImpl — happy path', () => {
       'deadbeef123',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -64,7 +69,9 @@ describe('archivePlanImpl — happy path', () => {
     expect(_isArchivePlanError(result)).toBe(false);
     const ok = result as ArchivePlanResult;
     expect(ok.archivedPath).toBe(expectedArchivedPath);
-    expect(ok.commitHash).toBe('deadbeef123');
+    // REVIEW_56 Batch B R1 MED-1: commitHash 现在是 archive commit (含 status=completed /
+    // INDEX 更新 / spike-reports 归档),与 worktree merge tip "deadbeef123" 是双 hash。
+    expect(ok.commitHash).toBe('archivehash');
     expect(ok.branchDeleted).toBe('worktree-mcp-bug-fix');
     expect(ok.worktreeRemoved).toBe(input.worktreePath);
     // archive-plan-tool-ux-followup-20260515 (b)+(c): plansIndexAppended boolean → plansIndexAction
@@ -74,8 +81,9 @@ describe('archivePlanImpl — happy path', () => {
     expect(ok.warnings).toEqual([]);
     expect(ok.finalStatus).toBe('completed');
 
-    // git 调用次数严格 11 次（happy path 完整，REVIEW_33 H1 加了 verify + checkout）
-    expect(state.gitCalls.length).toBe(11);
+    // git 调用次数严格 12 次（REVIEW_33 H1 加了 verify + checkout，REVIEW_56 Batch B R1 MED-1
+    // 加了 archive-rev-parse-HEAD 拿 archiveCommit）
+    expect(state.gitCalls.length).toBe(12);
     expect(state.gitCalls[0]?.args).toEqual(['rev-parse', '--git-common-dir']);
     expect(state.gitCalls[0]?.cwd).toBe(input.worktreePath);
     // REVIEW_33 H1：verify base_branch 存在 + checkout 到 base_branch
@@ -95,10 +103,16 @@ describe('archivePlanImpl — happy path', () => {
     expect(state.gitCalls[5]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix']);
     expect(state.gitCalls[5]?.cwd).toBe(expectedMainRepo);
     expect(state.gitCalls[8]?.args[0]).toBe('commit');
-    expect(state.gitCalls[9]?.args).toEqual(['worktree', 'remove', input.worktreePath]);
-    expect(state.gitCalls[10]?.args).toEqual(['branch', '-D', 'worktree-mcp-bug-fix']);
+    // REVIEW_56 Batch B R1 MED-1: [9] 新增 archive-rev-parse-HEAD,worktree remove / branch -D 各 +1
+    expect(state.gitCalls[9]?.args).toEqual(['rev-parse', 'HEAD']);
+    expect(state.gitCalls[9]?.cwd).toBe(expectedMainRepo);
+    expect(state.gitCalls[10]?.args).toEqual(['worktree', 'remove', input.worktreePath]);
+    expect(state.gitCalls[11]?.args).toEqual(['branch', '-D', 'worktree-mcp-bug-fix']);
 
-    // 写归档 plan：含新 frontmatter + body 保留
+    // 写归档 plan：含新 frontmatter + body 保留。
+    // REVIEW_56 Batch B R1 MED-1: frontmatter final_commit 仍是 worktree merge tip "deadbeef123"
+    // (语义: caller 实际工作的最后 commit),与 ok.commitHash="archivehash" (语义: 归档 commit) 双
+    // hash 分离。
     const archivedWrite = state.writes.find((w) => w.path === expectedArchivedPath);
     expect(archivedWrite).toBeTruthy();
     expect(archivedWrite!.content).toContain('status: "completed"');
@@ -136,6 +150,7 @@ describe('archivePlanImpl — happy path', () => {
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -176,6 +191,7 @@ describe('archivePlanImpl — happy path', () => {
       'h',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -223,6 +239,7 @@ describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -254,6 +271,7 @@ describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -299,6 +317,7 @@ describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -497,6 +516,7 @@ describe('archivePlanImpl — REVIEW_33 H10 worktreePath 存在性预检', () =>
       'finalhash',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);

@@ -53,6 +53,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
       'h',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -90,6 +91,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
       'h',
       '',
       '',
+      'archivehash',
       '',
       '',
     ]);
@@ -142,6 +144,7 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
       'h',
       '',
       '',
+      'archivehash', // REVIEW_56 Batch B R1 MED-1: archive-rev-parse-HEAD
       '',
       '',
     ]);
@@ -369,6 +372,7 @@ describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
       'finalhash',
       '',
       '', // git commit ✅
+      'archivehash', // REVIEW_56 Batch B R1 MED-1: archive-rev-parse-HEAD ✅
       new Error('fatal: validation failed, cannot remove working tree'), // worktree remove ❌
     ]);
 
@@ -394,6 +398,7 @@ describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
       'finalhash',
       '',
       '',
+      'archivehash', // REVIEW_56 Batch B R1 MED-1: archive-rev-parse-HEAD ✅
       '', // worktree remove ✅
       new Error('error: branch not found'), // branch -D ❌
     ]);
