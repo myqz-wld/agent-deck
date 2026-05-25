@@ -67,6 +67,7 @@ export class LifecycleScheduler {
     }
 
     // 2. dormant → closed
+    const updatedClosedIds = new Set<string>();
     const dormantRows = sessionRepo.findDormantExpiring(closedThreshold);
     if (dormantRows.length > 0) {
       const updated = sessionRepo.batchSetLifecycle(
@@ -84,7 +85,13 @@ export class LifecycleScheduler {
       // auto-archive 联动缺失。修法:保留 batch SQL 性能 + 对 updated rows 逐条补齐两个副作用
       // (leaveTeamsAndAutoArchive 与 markClosed L344 同款 fire-and-forget 不阻塞 scheduler
       // tick;clearCwdReleaseMarker 同步轻量 SQL 不会拖慢 tick)。
+      //
+      // REVIEW_56 Batch C R2 codex LOW-1 修法:scheduler emit 'session-upserted' 前,
+      // sessionRepo.get(rec.id) re-fetch 拿 fresh record(含 cwd_release_marker=NULL),
+      // 避免 renderer 收到 stale marker(batchSetLifecycle 内 SELECT 拿的 rec 在 clear
+      // 之前;clear 后 emit 旧 rec → renderer store 仍带 stale marker 直到下次 upsert)。
       for (const rec of updated) {
+        updatedClosedIds.add(rec.id);
         sessionRepo.clearCwdReleaseMarker(rec.id);
         void leaveTeamsAndAutoArchive(rec.id, 'closed').catch((err) => {
           console.warn(
@@ -92,19 +99,32 @@ export class LifecycleScheduler {
             err,
           );
         });
-        eventBus.emit('session-upserted', rec);
+        const refreshed = sessionRepo.get(rec.id) ?? rec;
+        eventBus.emit('session-upserted', refreshed);
       }
     }
 
     // 3. 历史超期清理：lastEventAt 早于 (now - retention) 且属于历史面板范围
     //    （lifecycle = closed 或 archived_at IS NOT NULL）。
     //    每轮最多清 500 条，剩余的下轮继续。事件 / 文件改动 / 总结由外键 CASCADE 一并删除。
+    //
+    // REVIEW_56 Batch C R2 codex MED-1 修法(选项 b):排除本轮刚被 dormant→closed 的 ids
+    // 避免「同 tick fire-and-forget leaveTeamsAndAutoArchive 让出 microtask + purge 抢先
+    // batchDelete sessions → CASCADE 删 agent_deck_team_members → helper 恢复时 leave 空跑
+    // → 0-lead auto-archive 漏触发 + agent-deck-team-member-changed 漏 emit」fix-to-fix
+    // regression。触发条件:historyRetentionDays=1 + closeAfterMs=24h 阈值重合(典型默认配置 —
+    // 同 last_event_at < now - 24h 既符合 dormant→closed 又符合 purge 阈值)。
+    // 修法选项(b)最低侵入:本轮 purge 排除 updatedClosedIds,刚 closed 的 rows 等下一 tick
+    // (默认 60s 后)再考虑 purge — 给 leaveTeamsAndAutoArchive 充分时间 await import + 跑完整
+    // leave + auto-archive 链。
     if (this.opts.historyRetentionDays > 0) {
       const retentionMs = this.opts.historyRetentionDays * 24 * 60 * 60 * 1000;
       const purgeThreshold = now - retentionMs;
       const ids = sessionRepo.findHistoryOlderThan(purgeThreshold);
-      if (ids.length > 0) {
-        const removed = sessionRepo.batchDelete(ids);
+      const idsToPurge =
+        updatedClosedIds.size > 0 ? ids.filter((id) => !updatedClosedIds.has(id)) : ids;
+      if (idsToPurge.length > 0) {
+        const removed = sessionRepo.batchDelete(idsToPurge);
         for (const id of removed) eventBus.emit('session-removed', id);
         console.log(
           `[lifecycle] purged ${removed.length} history sessions older than ${this.opts.historyRetentionDays}d`,
