@@ -350,7 +350,7 @@ export async function buildAgentDeckTools(
   // contract 对齐（not-found 返 isError 不是 noop）。
   const taskCreate = tool(
     AGENT_DECK_TOOL_NAMES.taskCreate,
-    `Create a structured task in the agent-deck task store. The task is automatically owned by the current session (owner_session_id = caller_session_id). Visible to all sessions sharing any active team with the caller. Returns the created task with auto-generated id.`,
+    `Create a structured task in the agent-deck task store. owner_session_id is auto-closed from caller_session_id. Personal task by default (team_id omitted/null) — visible & writable only to owner. Pass team_id to bind task to a team — caller must be active member of that team (agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL). Returns the created task with auto-generated id.`,
     TASK_CREATE_SCHEMA,
     async (args, extra) => taskCreateHandler(args, makeCtx(args, extra)),
     {
@@ -367,7 +367,7 @@ export async function buildAgentDeckTools(
 
   const taskList = tool(
     AGENT_DECK_TOOL_NAMES.taskList,
-    `List tasks visible to the current session: caller-owned tasks + tasks owned by any session sharing an active team with caller (archived teams excluded). Returns { total, hasMore, tasks: [...] } where total = tasks.length on current page (post-LIMIT/OFFSET) and hasMore signals more results may exist (tasks.length === limit). Default limit=100, max 500.`,
+    `List tasks visible to the current session. Default scope (team_id_filter omitted): caller-owned personal tasks ∪ team-bound tasks where caller is active member of task.team_id (archived teams excluded). Pass team_id_filter='<uuid>' to restrict to one team (caller must be active member). Pass team_id_filter='null-personal' to restrict to caller's own personal tasks. Returns { total, hasMore, tasks: [...] } where total = tasks.length on current page (post-LIMIT/OFFSET) and hasMore signals more results may exist (tasks.length === limit). Default limit=100, max 500.`,
     TASK_LIST_SCHEMA,
     async (args, extra) => taskListHandler(args, makeCtx(args, extra)),
     {
@@ -402,7 +402,7 @@ export async function buildAgentDeckTools(
 
   const taskUpdate = tool(
     AGENT_DECK_TOOL_NAMES.taskUpdate,
-    `Incrementally update a task. Caller must share an active team with the task owner (or be the owner). Omitted fields are left unchanged. Pass null to clear nullable fields (description, active_form). updated_at is auto-refreshed.`,
+    `Incrementally update a task, scoped to caller team membership. Team-bound task (team_id != null): caller must be active member of task.team_id (regardless of owner). Personal task (team_id IS NULL): caller must be owner. Omitted fields are left unchanged. Pass null to clear nullable fields (description, active_form). Pass team_id=null to convert to personal; pass team_id='<uuid>' to bind to a team (caller must be active member of new team). updated_at is auto-refreshed.`,
     TASK_UPDATE_SCHEMA,
     async (args, extra) => taskUpdateHandler(args, makeCtx(args, extra)),
     {
@@ -419,7 +419,7 @@ export async function buildAgentDeckTools(
 
   const taskDelete = tool(
     AGENT_DECK_TOOL_NAMES.taskDelete,
-    `Delete a task by id. Caller must share an active team with the task owner (or be the owner). With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also write-permission-checked: cross-team children are skipped, not deleted). Without force, surviving tasks have their blocks/blocked_by references to it cleaned up.`,
+    `Delete a task by id, scoped to caller team membership. Team-bound task (team_id != null): caller must be active member of task.team_id. Personal task (team_id IS NULL): caller must be owner. With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also write-permission-checked by team_id: tasks the caller cannot write are skipped, not deleted). Without force, surviving tasks have their blocks/blocked_by references to it cleaned up.`,
     TASK_DELETE_SCHEMA,
     async (args, extra) => taskDeleteHandler(args, makeCtx(args, extra)),
     {

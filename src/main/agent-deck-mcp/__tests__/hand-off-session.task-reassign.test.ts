@@ -20,12 +20,14 @@
  * **policy field required (R6 MED-2)**: 所有 5 个 assignment 路径
  * (skip ok / skip failed / clear-team / preserve-team / archive_caller=false) 都带 policy
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
 import type { HandOffSessionArgs, SpawnSessionArgs } from '../tools/schemas';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
+import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import type { AgentDeckTeam, AgentDeckTeamMember } from '@shared/types';
 import { makeState, makeDeps, planContent } from './hand-off-session/_setup';
 
 // 共享 noop shutdown teammates seam（防 helper 调真 agentDeckTeamRepo 撞 DB 未 init）
@@ -689,6 +691,184 @@ describe('hand_off_session v024 / 0 task 边界', () => {
       count: 0,
       policy: 'clear-team',
     });
+
+    sessionRepoGetSpy.mockRestore();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Phase H Round 1 reviewer-codex MED-2 修法:补 preserve-team + adopt_teammates=true 真实
+// adopt 路径覆盖 — case b 锁住 firstTeam push 完整性 + case d 锁住 firstTeam+rest 双 push +
+// adopted.adoptedTeamIds surface 断言。
+//
+// **mock 模式**:vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipsBySession') + 'get' + 'swapLead'
+// 等触发 adopt 路径(adoptedSnapshot 内部装配依赖真 agentDeckTeamRepo,无 test seam);其他 seam
+// 走 handlerDeps inject — 与 hand-off-session.adopt-teammates.test.ts 同款 pattern。
+// ────────────────────────────────────────────────────────────────────
+
+function fakeTeam(id: string, name: string): AgentDeckTeam {
+  return {
+    id,
+    name,
+    archivedAt: null,
+    archiveReason: null,
+    createdAt: 0,
+    metadata: {},
+  };
+}
+
+function fakeMember(opts: {
+  teamId: string;
+  sessionId: string;
+  role: 'lead' | 'teammate';
+  leftAt?: number | null;
+}): AgentDeckTeamMember {
+  return {
+    teamId: opts.teamId,
+    sessionId: opts.sessionId,
+    role: opts.role,
+    displayName: null,
+    joinedAt: 1_000,
+    leftAt: opts.leftAt ?? null,
+  };
+}
+
+const okSwapLeadDefault = (
+  _teamId: string,
+  _oldSid: string,
+  _newSid: string,
+  _opts?: { newDisplayName?: string | null },
+) => ({ swapped: true as const });
+
+const activeLifecycleGetDefault = (sid: string) =>
+  ({
+    id: sid,
+    agentId: 'claude-code',
+    cwd: '/Users/test/repo',
+    title: 'fake',
+    source: 'sdk',
+    lifecycle: 'active',
+    activity: 'idle',
+    startedAt: 0,
+    lastEventAt: 0,
+    endedAt: null,
+    archivedAt: null,
+    spawnedBy: null,
+    spawnDepth: 0,
+    cwdReleaseMarker: null,
+  }) as never;
+
+describe('hand_off_session v024 / preserve-team + adopt_teammates=true full surface (R1 codex MED-2 修法)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('case b (R4 HIGH-1 firstTeam push 完整性 锁住): caller lead-A + task team_id=A + preserve-team + adopt=true → swapLead 成功 → no policyWarning + adopted.adoptedTeamIds=["team-A"]', async () => {
+    const state = makeBaseState('preserve-team-case-b-adopt');
+    const mockSpawn = makeMockSpawn('new-sid');
+    const mockReassign = vi.fn((_old: string, _new: string, _opts) => 1);
+    const mockFindOwnedTeamIds = vi.fn((_sid: string) => ['team-A']);
+
+    // caller 在 team-A 是 lead (callerLeadTeamIds=['team-A'])
+    vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipsBySession').mockReturnValue([
+      fakeMember({ teamId: 'team-A', sessionId: 'caller-sid', role: 'lead' }),
+    ]);
+    vi.spyOn(agentDeckTeamRepo, 'get').mockImplementation((tid: string) => {
+      if (tid === 'team-A') return fakeTeam(tid, 'Team A');
+      return null;
+    });
+    vi.spyOn(agentDeckTeamRepo, 'swapLead').mockImplementation(okSwapLeadDefault);
+    vi.spyOn(agentDeckTeamRepo, 'listAllMembers').mockReturnValue([]);
+
+    const sessionRepoGetSpy = spyCallerRow();
+
+    const args: HandOffSessionArgs = {
+      ...makeBaseArgs('preserve-team-case-b-adopt'),
+      team_task_policy: 'preserve-team',
+      adopt_teammates: true,
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: vi.fn(),
+      shutdownTeammates: noopShutdown,
+      reassignTaskOwner: mockReassign,
+      findCallerOwnedTeamIds: mockFindOwnedTeamIds,
+      // adopt 路径相关 seam（与 hand-off-session.adopt-teammates.test.ts 同款 default ok）
+      swapLead: okSwapLeadDefault,
+      getSessionForLifecycle: activeLifecycleGetDefault,
+      listAllMembersForAdopt: (_teamId: string) => [],
+      closeSession: vi.fn(async (_sid: string) => undefined),
+      implDeps: makeDeps(state),
+    });
+
+    expect(result.isError).toBeFalsy();
+    const json = parseResult(result);
+    expect(json.taskReassignment.status).toBe('ok');
+    expect(json.taskReassignment.policy).toBe('preserve-team');
+    // 关键 case b 锁住:firstTeam adopted 后 newSidActiveTeamIds 含 team-A → 与 caller owned team-A 无差集 → no warning
+    expect(json.taskReassignment.policyWarning).toBeUndefined();
+    expect(json.taskReassignment.unadoptedTeamIds).toBeUndefined();
+    // 关键 R4 MED-1: adopted.adoptedTeamIds surface 顺序与 swap 序一致
+    const adopted = json.adopted as { adoptedTeamIds?: string[] } | null;
+    expect(adopted).not.toBeNull();
+    expect(adopted?.adoptedTeamIds).toEqual(['team-A']);
+
+    sessionRepoGetSpy.mockRestore();
+  });
+
+  it('case d (R4 HIGH-1 firstTeam+rest 双 push 完整性 锁住): caller lead-A+B + task A/B + preserve-team + adopt=true → swap 2 个都成功 → no policyWarning + adopted.adoptedTeamIds=["team-A","team-B"] 顺序', async () => {
+    const state = makeBaseState('preserve-team-case-d-adopt');
+    const mockSpawn = makeMockSpawn('new-sid');
+    const mockReassign = vi.fn((_old: string, _new: string, _opts) => 2);
+    const mockFindOwnedTeamIds = vi.fn((_sid: string) => ['team-A', 'team-B']);
+
+    // caller 在 team-A + team-B 都是 lead (callerLeadTeamIds=['team-A','team-B'])
+    vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipsBySession').mockReturnValue([
+      fakeMember({ teamId: 'team-A', sessionId: 'caller-sid', role: 'lead' }),
+      fakeMember({ teamId: 'team-B', sessionId: 'caller-sid', role: 'lead' }),
+    ]);
+    vi.spyOn(agentDeckTeamRepo, 'get').mockImplementation((tid: string) => {
+      if (tid === 'team-A') return fakeTeam(tid, 'Team A');
+      if (tid === 'team-B') return fakeTeam(tid, 'Team B');
+      return null;
+    });
+    vi.spyOn(agentDeckTeamRepo, 'swapLead').mockImplementation(okSwapLeadDefault);
+    vi.spyOn(agentDeckTeamRepo, 'listAllMembers').mockReturnValue([]);
+
+    const sessionRepoGetSpy = spyCallerRow();
+
+    const args: HandOffSessionArgs = {
+      ...makeBaseArgs('preserve-team-case-d-adopt'),
+      team_task_policy: 'preserve-team',
+      adopt_teammates: true,
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: vi.fn(),
+      shutdownTeammates: noopShutdown,
+      reassignTaskOwner: mockReassign,
+      findCallerOwnedTeamIds: mockFindOwnedTeamIds,
+      swapLead: okSwapLeadDefault,
+      getSessionForLifecycle: activeLifecycleGetDefault,
+      listAllMembersForAdopt: (_teamId: string) => [],
+      closeSession: vi.fn(async (_sid: string) => undefined),
+      implDeps: makeDeps(state),
+    });
+
+    expect(result.isError).toBeFalsy();
+    const json = parseResult(result);
+    expect(json.taskReassignment.status).toBe('ok');
+    expect(json.taskReassignment.policy).toBe('preserve-team');
+    // 关键 case d 锁住:firstTeam(team-A path L832) + rest loop(team-B path L862) 两处都 push → newSid
+    // active teams = {team-A, team-B} = caller owned {team-A, team-B} → 差集为空 → no warning
+    expect(json.taskReassignment.policyWarning).toBeUndefined();
+    expect(json.taskReassignment.unadoptedTeamIds).toBeUndefined();
+    // 关键 R4 HIGH-1: adoptedTeamIds 必须含 firstTeam (team-A) + rest (team-B) — 缺一处 implementer 漏改某 path 该 case 触发 false positive warning
+    const adopted = json.adopted as { adoptedTeamIds?: string[] } | null;
+    expect(adopted).not.toBeNull();
+    expect(adopted?.adoptedTeamIds).toEqual(['team-A', 'team-B']); // 顺序与 swap 序一致
 
     sessionRepoGetSpy.mockRestore();
   });
