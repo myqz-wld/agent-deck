@@ -39,13 +39,16 @@ export interface ShutdownTeammatesResult {
   failed: Array<{ sessionId: string; reason: string }>;
   /**
    * - 'caller-not-lead': caller 在所有 team 都不是 lead（含 external sentinel / 无 membership）
+   * - 'all-lead-teams-archived': **REVIEW_56 Batch B R2 reviewer-claude M2 修法**: caller 是
+   *   某 team(s) 的 lead 但所有相关 team 都已 archived → UX 精度区分(原 'caller-not-lead'
+   *   覆盖此场景 misleading,caller 看到 "你不是 lead" 但其实只是 team archived)
    * - 'adopt-keep-implicit': plan hand-off-session-adopt-teammates-20260520 Phase 4 引入,
    *   hand_off_session adopt_teammates: true 时 baton-cleanup helper 跳过本 helper(由
    *   handler 层 baton-cleanup 入参 adoptTeammates: true 标定)— Phase 3 完成时仅类型预留
    *   不会出现
    * - null: helper 正常处理完（含「caller 是 lead 但 team 内无其他 active teammate」的 closed=[] case）
    */
-  skipped: 'caller-not-lead' | 'adopt-keep-implicit' | null;
+  skipped: 'caller-not-lead' | 'all-lead-teams-archived' | 'adopt-keep-implicit' | null;
 }
 
 export interface ShutdownTeammatesDeps {
@@ -54,6 +57,13 @@ export interface ShutdownTeammatesDeps {
   /** test seam：默认走真 agentDeckTeamRepo */
   findActiveMembershipsBySession?: (sid: string) => AgentDeckTeamMember[];
   listActiveMembers?: (teamId: string) => AgentDeckTeamMember[];
+  /**
+   * **REVIEW_56 Batch B R2 MED-2 修法 (reviewer-codex)**: 加 getTeam seam。
+   * 修前 R2-MED-2 fix 直接调 agentDeckTeamRepo.get(teamId) 没用 deps inject seam,helper 单
+   * 测和 mock 路径会碰真 DB(testing env 未 init DB throw "Database not initialized")。
+   * default 走真 repo;test 可显式 mock 注入返 active/archived team。
+   */
+  getTeam?: (teamId: string) => { archivedAt: number | null } | null;
   /**
    * REVIEW_36 R2 HIGH-A：caller 端可显式排除某些 sessionId 不被 shutdown。
    * 典型场景：hand_off_session(team_name=x) 显式 spawn 新 session 后立即调本 helper —
@@ -82,25 +92,43 @@ export async function shutdownTeammatesOnBaton(
     deps?.listActiveMembers ?? ((teamId: string) => agentDeckTeamRepo.listActiveMembers(teamId));
   const closeFn = deps?.closeFn ?? ((sid: string) => sessionManager.close(sid));
   const excludeSet = deps?.excludeSessionIds ?? new Set<string>();
+  // **REVIEW_56 Batch B R2 MED-2 修法 (reviewer-codex)**: default getTeam 加 try/catch fail-open
+  // (与 archive-plan.ts:107-112 sessionRepo.get fail-open 同款模式),让 helper 在 testing env
+  // 未 init DB 时退化不过滤 archived team(等价原 R1 之前行为),生产环境正常过滤。
+  // test 可显式注入 mock 覆盖 active/archived team 决策路径。
+  const getTeamFn: (teamId: string) => { archivedAt: number | null } | null =
+    deps?.getTeam ??
+    ((teamId: string) => {
+      try {
+        return agentDeckTeamRepo.get(teamId) as { archivedAt: number | null } | null;
+      } catch (err) {
+        console.warn(
+          `[shutdown-teammates-on-baton] agentDeckTeamRepo.get(${teamId}) threw — fail-open (treating team as active, may close session in archived team)`,
+          err,
+        );
+        return null;
+      }
+    });
 
   // 反查 caller 在哪些 team 里是 lead
-  // **REVIEW_56 Batch B R1 MED-2 修法 (reviewer-codex)**: findActiveMembershipsBySession SQL
-  // 只过滤 `m.left_at IS NULL`,不 JOIN `agent_deck_teams.archived_at IS NULL`(详
-  // member-query.ts:84-92 对比 findSharedActiveTeams 已过滤 archived_at)。导致 archived team
-  // 里的 ghost lead membership 仍命中 leadTeamIds → listMembers 走 archived team 关闭其他未
-  // 归档 session,违反 §错误契约 "all caller's lead teams already archived → caller-not-lead error"。
-  // 修法: 在 caller 侧用 agentDeckTeamRepo.get 二次过滤 archivedAt(避免改 member-query.ts SQL
-  // 影响其他 caller — findActiveMembershipsBySession 本身只查 member 行,JOIN team 增加默认开销)。
+  // **REVIEW_56 Batch B R1 MED-2 + R2 MED-2 修法 (reviewer-codex)**:
+  // - R1: findActiveMembershipsBySession SQL 只过滤 m.left_at IS NULL,不 JOIN archived_at
+  //   IS NULL → archived team ghost lead → caller 二次过滤 archivedAt
+  // - R2: 走 getTeamFn deps seam(default fail-open)避免 testing env DB 未 init throw
   const memberships = findMemberships(callerSessionId);
-  const leadTeamIds = memberships
-    .filter((m) => m.role === 'lead')
+  const leadMemberships = memberships.filter((m) => m.role === 'lead');
+  const leadTeamIds = leadMemberships
     .map((m) => m.teamId)
-    .filter((teamId) => agentDeckTeamRepo.get(teamId)?.archivedAt == null);
+    .filter((teamId) => getTeamFn(teamId)?.archivedAt == null);
 
   if (leadTeamIds.length === 0) {
-    // caller 在任何 active team 都不是 lead(典型: caller 是 teammate / 无 team 关系 / 所有
-    // lead team 都已 archived)→ 不牵连
-    return { closed: [], failed: [], skipped: 'caller-not-lead' };
+    // **REVIEW_56 Batch B R2 reviewer-claude M2 修法**: skipped 加第四态区分 caller 真不是 lead
+    // vs caller 是 lead 但所有 team archived。caller 端可按 skipped 值给针对性 hint。
+    return {
+      closed: [],
+      failed: [],
+      skipped: leadMemberships.length > 0 ? 'all-lead-teams-archived' : 'caller-not-lead',
+    };
   }
 
   // 收集所有 caller=lead 的 team 内其他 active teammate（多 team 共享同 sid 时 dedup）

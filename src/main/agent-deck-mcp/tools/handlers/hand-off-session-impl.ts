@@ -104,6 +104,24 @@ export interface HandOffSessionResolved {
    * handler 透传到 ok return.ignoredFields,caller 可见。plan-driven 模式始终空数组。
    */
   ignoredFields: string[];
+  /**
+   * **REVIEW_56 Batch B R2 MED-1 修法 (reviewer-codex + reviewer-claude L1)**:
+   * plan-driven 模式下 worktreePath 是否在磁盘存在(generic 模式恒 true,handler 不消费此字段)。
+   *
+   * 修前: impl 层用 regex 判约定/外置直接 reject 或 graceful warn,但 regex 只看路径后缀
+   * (`.claude/worktrees/<id>`),外置 conventional path(如 `/other/repo/.claude/worktrees/p`)也匹配 →
+   * 放行 → handler 后续把 finalCwd 设成 worktreePath(外置场景 default) → spawn ENOENT;且 caller
+   * 显式 args.cwd=worktreePath 时也绕过 reject。
+   *
+   * 修后: impl 返结构化 worktreeExists flag,handler 拿到 + finalCwd 计算完后做决策:
+   * - worktreeExists=true → 正常
+   * - worktreeExists=false + finalCwd === resolved.worktreePath → hard reject (cwd 即将进失效目录)
+   * - worktreeExists=false + finalCwd === resolved.mainRepo + 约定 worktree (mainRepo subtree)
+   *   → graceful warn 让 cold-start 自建 worktree
+   * - worktreeExists=false + finalCwd === resolved.mainRepo + 外置 worktree → hard reject
+   *   (外置 cold-start enter_worktree 同样会撞父目录不存在)
+   */
+  worktreeExists: boolean;
 }
 
 export type HandOffSessionError = { error: string; hint?: string };
@@ -183,6 +201,8 @@ export async function handOffSessionImpl(
       baseBranch: null,
       mainRepo,
       ignoredFields,
+      // generic 模式恒 true (no worktree, handler 不消费此 field)
+      worktreeExists: true,
     };
   }
 
@@ -274,23 +294,14 @@ export async function handOffSessionImpl(
   //    cwd resilience) → 放宽: warn metadata,让 cold-start 自建 worktree
   //  - worktreePath missing + 外置 worktree (不在 mainRepo subtree) → 仍 hard reject (cwd 即将
   //    进失效目录,新 session ENOENT 一片)
-  if (!(await deps.exists(worktreePath))) {
-    // 检测 worktree 是否在约定路径(`<mainRepo>/.claude/worktrees/<plan-id>`)。直接 regex
-    // 检测路径不依赖 mainRepo 已 resolved (mainRepo 启发式在 step 5 才跑,无法依赖)。
-    const isConventionalWorktree = /\/\.claude\/worktrees\/[^/]+\/?$/.test(worktreePath);
-    if (!isConventionalWorktree) {
-      return {
-        error: `plan frontmatter worktree_path does not exist on disk: ${worktreePath}`,
-        hint: `worktree may have been archived (\`archive_plan\` removed it) / cross-device synced without working tree / manually removed. External worktree (not in conventional \`.claude/worktrees/\` path) cannot self-recover via cold-start. To resume, recreate worktree (\`git worktree add ${worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktree_path to a valid path.`,
-      };
-    }
-    // conventional worktree missing + cwd=mainRepo 路径: 让 cold-start 自建 — 不 hard reject,
-    // 仅 warn 控制台让 caller 能感知。新 session 按 user CLAUDE.md §Step 3 cold-start 协议读
-    // plan 后会调 enter_worktree (mcp tool) 自建 worktree,详 tools/index.ts:249-251 tool description。
-    console.warn(
-      `[hand-off-session-impl] conventional worktree missing on disk: ${worktreePath} — proceeding with cwd=mainRepo, new session expected to enter_worktree itself per cold-start protocol`,
-    );
-  }
+  // REVIEW_33 H10 + **REVIEW_56 Batch B R1 LOW-1 + R2 MED-1 修订 (reviewer-codex + reviewer-claude L1)**:
+  // worktreePath 存在性预检 (absolute 校验之后)。
+  //
+  // **R2 修法**: 不再在 impl 层 reject 或 graceful warn,改返结构化 `worktreeExists` flag 让
+  // handler 拿到 + finalCwd 计算完后做完整决策(详 worktreeExists field jsdoc 4 case 决策树)。
+  // 修前 R1 用 regex 检测约定路径有 false positive(外置 conventional path 也匹配放行 → spawn ENOENT),
+  // 且不防 caller 显式 args.cwd=worktreePath 绕过 reject。
+  const worktreeExists = await deps.exists(worktreePath);
 
   // 4. 校验 status === 'in_progress'
   const status = fm.status;
@@ -338,6 +349,7 @@ export async function handOffSessionImpl(
     baseBranch,
     mainRepo,
     ignoredFields: [], // plan 模式不会忽略字段
+    worktreeExists, // REVIEW_56 Batch B R2 MED-1: handler 拿到 + finalCwd 计算后决策 4 case
   };
 }
 
