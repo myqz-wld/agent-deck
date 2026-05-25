@@ -872,4 +872,76 @@ describe('hand_off_session v024 / preserve-team + adopt_teammates=true full surf
 
     sessionRepoGetSpy.mockRestore();
   });
+
+  it('case e (R1 claude MED-1 修法 锁住 spawnData.teamId 非空 ∪ surface): args.team_name="team-shared" → spawnData.teamId="team-shared" → newSidActiveTeamIds = adoptedTeamIds ∪ {"team-shared"} → caller owned 包含 team-shared 不再差集', async () => {
+    const state = makeBaseState('preserve-team-case-e-spawn-teamid');
+    // 关键:mockSpawn 返 teamId="team-shared" 非 null,触发 spawnData.teamId 进 newSidActiveTeamIds
+    const mockSpawn = vi.fn(
+      async (
+        _args: SpawnSessionArgs,
+        _ctx: HandlerContext,
+        _opts?: { batonMode?: boolean; batonRole?: 'lead' | 'teammate' },
+      ): Promise<HandlerResult> => ({
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId: 'new-sid',
+              adapter: 'claude-code',
+              cwd: '/Users/test/repo',
+              teamId: 'team-shared', // 关键:spawnData.teamId 非 null
+              teamName: 'team-shared-name',
+              spawnDepth: 1,
+              sentAt: 1234567890,
+              spawnPromptMessageId: null,
+            }),
+          },
+        ],
+      }),
+    );
+    const mockReassign = vi.fn((_old: string, _new: string, _opts) => 2);
+    // caller owned distinct teams = {team-shared, team-unadopted}
+    const mockFindOwnedTeamIds = vi.fn((_sid: string) => ['team-shared', 'team-unadopted']);
+
+    // caller 不在任何 lead team(adopt_teammates 不开,phase15Detail.adoptedTeamIds=[]),
+    // 仅靠 spawnData.teamId 注入到 newSidActiveTeamIds
+    vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipsBySession').mockReturnValue([]);
+    vi.spyOn(agentDeckTeamRepo, 'get').mockImplementation((tid: string) => {
+      if (tid === 'team-shared') return fakeTeam(tid, 'Team Shared');
+      if (tid === 'team-unadopted') return fakeTeam(tid, 'Team Unadopted');
+      return null;
+    });
+
+    const sessionRepoGetSpy = spyCallerRow();
+
+    const args: HandOffSessionArgs = {
+      ...makeBaseArgs('preserve-team-case-e-spawn-teamid'),
+      team_task_policy: 'preserve-team',
+      team_name: 'team-shared-name', // 触发 spawn handler 把 spawnData.teamId 设为 team-shared
+      // 不开 adopt_teammates → phase15Detail.adoptedTeamIds=[]
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: vi.fn(),
+      shutdownTeammates: noopShutdown,
+      reassignTaskOwner: mockReassign,
+      findCallerOwnedTeamIds: mockFindOwnedTeamIds,
+      implDeps: makeDeps(state),
+    });
+
+    expect(result.isError).toBeFalsy();
+    const json = parseResult(result);
+    expect(json.taskReassignment.status).toBe('ok');
+    expect(json.taskReassignment.policy).toBe('preserve-team');
+    // 关键 case e 锁住:adoptedTeamIds=[] ∪ spawnData.teamId={team-shared} = {team-shared}
+    // → caller owned {team-shared, team-unadopted} 差集 {team-unadopted} → 仅 team-unadopted 触发 warning
+    // (若 implementer 漏拼 spawnData.teamId 这一支,差集会变成 {team-shared, team-unadopted} → 触发 false positive)
+    expect(json.taskReassignment.policyWarning).toBe('preserve-team-unadopted-teams');
+    expect(json.taskReassignment.unadoptedTeamIds).toEqual(['team-unadopted']);
+    // 关键 ∪ spawnData.teamId 路径锁住:team-shared 不在 unadoptedTeamIds 里(被 ∪ 合并入 newSidActiveTeamIds)
+    expect(json.taskReassignment.unadoptedTeamIds).not.toContain('team-shared');
+
+    sessionRepoGetSpy.mockRestore();
+  });
 });
