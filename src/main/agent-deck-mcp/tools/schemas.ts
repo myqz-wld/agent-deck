@@ -441,7 +441,14 @@ export const HAND_OFF_SESSION_SHAPE = {
     .boolean()
     .optional()
     .describe(
-      'Default false (baton 默认行为)。**true 时**: caller 同 team 其他 active+dormant teammate **原地保留**(swapLead 把 lead role 从 caller 转给新 session,teammate 与新 session 共享 active team 可继续 send_message 沟通)。**仅当 caller 是 lead 的 team 走 adopt**(caller 是 teammate 的 team 跳过 + 进 failed.reason="caller-not-lead-in-team")。**N5 ≥1 lead 硬约束**: caller 在所有 team 都不是 lead(全 teammate / 无 active membership)→ handler spawn 之前 fail-fast 返 error,不 spawn / 不 archive caller。**N2.c 互斥**: 不可与 args.team_name 同传(zod refine reject — adopt 路径自动过继 caller 自己 team,与显式指定额外 team 语义冲突)。Detail 见 ok return.adopted 字段:{ preserved: string[], failed: Array<{sid,reason,teamId}>, teamsTotal: number, teamsAdopted: number, firstTeamId: string | null }。',
+      'Default false (baton 默认行为)。**true 时**: caller 同 team 其他 active+dormant teammate **原地保留**(swapLead 把 lead role 从 caller 转给新 session,teammate 与新 session 共享 active team 可继续 send_message 沟通)。**仅当 caller 是 lead 的 team 走 adopt**(caller 是 teammate 的 team 跳过 + 进 failed.reason="caller-not-lead-in-team")。**N5 ≥1 lead 硬约束**: caller 在所有 team 都不是 lead(全 teammate / 无 active membership)→ handler spawn 之前 fail-fast 返 error,不 spawn / 不 archive caller。**N2.c 互斥**: 不可与 args.team_name 同传(zod refine reject — adopt 路径自动过继 caller 自己 team,与显式指定额外 team 语义冲突)。Detail 见 ok return.adopted 字段:{ preserved: string[], failed: Array<{sid,reason,teamId}>, teamsTotal: number, teamsAdopted: number, firstTeamId: string | null, adoptedTeamIds: string[] }。',
+    ),
+  // v024 plan task-team-id-restore-20260525 §D4:hand_off 跨 team task 过继策略
+  team_task_policy: z
+    .enum(['clear-team', 'preserve-team', 'skip'])
+    .optional()
+    .describe(
+      "team_task_policy?: 'clear-team' (default) | 'preserve-team' | 'skip' — archive_caller=false 时 policy 不执行(taskReassignment.status='skipped' reason='archive-caller-false' policy advisory 透传)(详 convention docs §hand_off)",
     ),
 };
 
@@ -826,11 +833,32 @@ export interface HandOffSessionResult extends SpawnSessionResult {
     teamsTotal: number;
     teamsAdopted: number;
     firstTeamId: string | null;
+    /**
+     * v024 plan task-team-id-restore-20260525 Round 4 MED-1 + Round 5 LOW-2 修法:
+     * 与 `preserved: string[]`(teammate sessionIds)对称暴露 caller `adoptedTeamIds`(team uuids
+     * 由 swapLead 成功 push)便于 caller diag preserve-team policyWarning('preserve-team-unadopted-teams')
+     * 来源。L814 firstTeam path + L839 rest loop 两处 swapLead 成功都 push(详 Round 4 HIGH-1
+     * 修法 + Step D2 实施 hint:processSwappedTeam helper 集中 push)。Spread mapping
+     * `adoptedTeamIds: phase15Detail.adoptedTeamIds`(handler return 段必显式 wire,plan §Step D2)。
+     * adopt_teammates=false / undefined 路径 adopted=null 不出现该字段。
+     */
+    adoptedTeamIds: string[];
   } | null;
   /**
    * plan task-mcp-owner-session-id-rewrite-20260521 v023 §D3 + deep-review Round 1 F3 修法:
    * hand_off 内部 reassignTaskOwner(caller→newSpawnedSid)三态结果 + count / error。
    * 让 caller 通过 ok return 看到 task ownership 转移是否成功(修前仅 console.warn 静默吞错)。
+   *
+   * v024 plan task-team-id-restore-20260525 §D4 + Round 6 MED-2 修法:**`policy` field required**
+   * — 所有 5 个 assignment 路径(skip ok / skip failed / clear-team / preserve-team /
+   * archive_caller=false)都必带 `policy: taskPolicy` 满足 schema 契约。`taskPolicy` 取
+   * `args.team_task_policy ?? 'clear-team'` advisory(archive_caller=false 时 policy 不执行但
+   * 仍透传告诉 caller 传了什么)。
+   *
+   * v024 plan §不变量 5 + Round 4 MED-1 + Round 5 MED-2 升级:**preserve-team 错配 soft warning** —
+   * `policyWarning?: 'preserve-team-unadopted-teams'` + `unadoptedTeamIds: string[]` 字段
+   * 暴露 caller owned distinct team_id 与 newSid handoff 后 active teams 的差集(详
+   * adopted.adoptedTeamIds + spawnData.teamId 算法,plan §Step D2 preserve-team safety 升级)。
    *
    * 三态语义:
    * - `'ok'`: reassign 成功,count 字段是被改 owner 的 task 行数(0 = caller 没拥有任何
@@ -839,17 +867,33 @@ export interface HandOffSessionResult extends SpawnSessionResult {
    *   caller 仍会被 archive(若 archive_caller=true),其 task 触发 ON DELETE CASCADE 物理删
    *   (best-effort 兜底 by LifecycleScheduler.historyRetentionDays TTL GC 不适用 — 已被
    *   即时 CASCADE 删,只是 baton 仍 ok return 不阻塞 — 失败概率低)。caller 通过此字段看
-   *   到失败原因决定后续动作(重试 / 手工恢复 task)
+   *   到失败原因决定后续动作(重试 / 手工恢复 task)。**Round 4 MED-2 修法**: applyHandOffSkipPolicy
+   *   DB throw 时同样走此 status='failed' 路径,error 透传(不抛错给 caller,sane fallback
+   *   spawn/adopt 已成功不回滚 v023 §不变量 12 同款)
    * - `'skipped'`: 跳过 reassign 的两种情况:
    *   - `reason: 'archive-caller-false'`: caller 显式传 archive_caller=false(F1 修法),
-   *     caller 仍 active 继续 own 自己的 task
+   *     caller 仍 active 继续 own 自己的 task。Round 7 LOW-1 修法:仍透传 `policy` advisory。
    *   - `reason: 'spawn-no-sid'`: spawn handler ok return 未带 sessionId(不应发生,type-safe
    *     兜底);type 上 newSpawnedSid 是 string | null,null 时跳过
    */
   taskReassignment:
-    | { status: 'ok'; count: number }
-    | { status: 'failed'; error: string }
-    | { status: 'skipped'; reason: 'archive-caller-false' | 'spawn-no-sid' };
+    | {
+        status: 'ok';
+        count: number;
+        policy: 'clear-team' | 'preserve-team' | 'skip';
+        policyWarning?: 'preserve-team-unadopted-teams';
+        unadoptedTeamIds?: string[];
+      }
+    | {
+        status: 'failed';
+        error: string;
+        policy: 'clear-team' | 'preserve-team' | 'skip';
+      }
+    | {
+        status: 'skipped';
+        reason: 'archive-caller-false' | 'spawn-no-sid';
+        policy: 'clear-team' | 'preserve-team' | 'skip';
+      };
 }
 
 /**
@@ -968,6 +1012,15 @@ export const TASK_CREATE_SCHEMA = {
     .optional()
     .describe('IDs of upstream tasks that block this task'),
   labels: z.array(z.string()).optional().describe('Free-form tags'),
+  // v024 plan task-team-id-restore-20260525 §D1+D2:team_id 字段
+  team_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'team_id?: string — 不传 = personal task(仅 owner 可见可写,first-class 用例); 传 string = team-bound task,caller 必须在该 team 是 active member(handler 校验 D3, 详 convention docs §task)',
+    ),
   caller_session_id: z
     .string()
     .min(1)
@@ -987,6 +1040,16 @@ export const TASK_LIST_SCHEMA = {
     .string()
     .optional()
     .describe('Case-insensitive substring match on subject'),
+  // v024 plan task-team-id-restore-20260525 §D5:team_id_filter 三态 — FROZEN by Round 1 LOW-1
+  // 用 zod literal `z.union([z.string().uuid(), z.literal('null-personal')])` 让 caller 显式表达。
+  // 实际改用 z.union([z.string().min(1).max(128), z.literal('null-personal')]) 不强制 UUID 格式
+  // (team_id 现实是 uuid 但 schema 层不绑死格式,与 task_create.team_id 字段一致).
+  team_id_filter: z
+    .union([z.string().min(1).max(128), z.literal('null-personal')])
+    .optional()
+    .describe(
+      "team_id_filter?: string | 'null-personal' — undefined=caller 可见 scope(caller-owned + caller 所在 team 的 team task);string=该 team 绑定 task(caller 必须在该 team 是 active member);'null-personal'=caller 自己 personal task(owner==caller AND team_id IS NULL)(详 convention docs §task)",
+    ),
   limit: z
     .number()
     .int()
@@ -1018,7 +1081,7 @@ export const TASK_GET_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__；task_get 允许 external (read-only cross-team visibility)。',
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny — v024 plan task-team-id-restore-20260525 §D8 修法把 task_get 改严格 team-scoped read + deny external(EXTERNAL_CALLER_ALLOWED.task_get=false),v023 cross-team 可读 use case 已推翻(详 convention docs §task)。in-process caller 必须与 task team_id 共享 active membership(team-bound task)或为 owner(personal task)才能 read,详 D3 镜像 read 权限。',
     ),
 };
 
@@ -1032,6 +1095,17 @@ export const TASK_UPDATE_SCHEMA = {
   blocks: z.array(z.string()).optional(),
   blocked_by: z.array(z.string()).optional(),
   labels: z.array(z.string()).optional(),
+  // v024 plan task-team-id-restore-20260525 §D1:允许 update 改 teamId(传 null 转 personal;
+  // 传 string 转 team-bound)。caller 必须在新 team_id 是 active member(D3 由 tool 层校验)。
+  team_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .nullable()
+    .optional()
+    .describe(
+      'team_id?: string | null — 不传 = 不动;传 string = 改为 team-bound(caller 必在该 active team);传 null = 改为 personal task(详 convention docs §task)',
+    ),
   caller_session_id: z
     .string()
     .min(1)
