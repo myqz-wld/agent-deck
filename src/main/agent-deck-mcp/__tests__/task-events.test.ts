@@ -1,11 +1,17 @@
 /**
- * task tool ingest D7 分流测试（plan task-mcp-merge-into-agent-deck-mcp-20260521 Step 19 + §测试矩阵）。
+ * task tool ingest D7 分流测试（plan task-mcp-merge-into-agent-deck-mcp-20260521 Step 19 + §测试矩阵
+ * + plan task-team-id-restore-20260525 §Phase G3 v024 重写 D2 + MED-2 修法）。
  *
  * D7 决策：ingest team-task-* AgentEvent **仅在 in-process transport**；
  * HTTP / stdio external transport skip ingest（避免 codex SDK 子进程 SessionDetail
  * 渲染 team-task-* event 未实证风险）。
  *
- * 本测试聚焦 ctx.caller.transport 分流 + payload.teamName 取 caller first active team。
+ * v024 plan §D2 + MED-2 修法（Round 1+3）:teamName 改取 args.team_id lookup
+ * （`agentDeckTeamRepo.get(args.team_id)?.name`），不再走 first active team —
+ * 多 team caller 显式传 team_id=B（first=A）→ teamName=B。caller 不传 team_id
+ * → personal task → teamName=null。
+ *
+ * 本测试聚焦 ctx.caller.transport 分流 + payload.teamName 取 args.team_id lookup。
  * CRUD 行为 / visible scope / write permission 在 task-crud.test.ts 已覆盖。
  */
 
@@ -94,16 +100,21 @@ beforeEach(() => {
   mockSessions.set('sess-caller', { id: 'sess-caller', lifecycle: 'active' });
 });
 
-describe('task_create — D7 ingest 分流', () => {
-  it('in-process + caller 有 team → ingest team-task-created (payload.teamName = first team)', async () => {
-    mockTeamRepo.findActiveMembershipsBySessionIds.mockReturnValue(
-      new Map([['sess-caller', [{ teamId: 'team-1', teamName: 'team-A', role: 'lead' }]]]),
-    );
+describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.team_id lookup', () => {
+  it('in-process + 传 team_id="team-1" + caller 在 team → ingest team-task-created (payload.teamName = lookup(team-1).name)', async () => {
+    // v024 D2: caller 必须在 args.team_id active member（isCallerInTeam check）
+    mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([
+      { teamId: 'team-1', teamName: 'team-A', sessionId: 'sess-caller', role: 'lead' },
+    ]);
+    mockTeamRepo.get.mockImplementation((tid: string) => {
+      if (tid === 'team-1') return { id: tid, name: 'team-A', archivedAt: null };
+      return null;
+    });
     mockTaskRepo.create.mockReturnValue(
-      makeTask({ id: 't1', subject: 'X', ownerSessionId: 'sess-caller', activeForm: 'agent-A' }),
+      makeTask({ id: 't1', subject: 'X', ownerSessionId: 'sess-caller', teamId: 'team-1', activeForm: 'agent-A' }),
     );
 
-    await taskCreateHandler({ subject: 'X' }, makeCtx('sess-caller', 'in-process'));
+    await taskCreateHandler({ subject: 'X', team_id: 'team-1' }, makeCtx('sess-caller', 'in-process'));
 
     expect(mockSessionManager.ingest).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -111,7 +122,7 @@ describe('task_create — D7 ingest 分流', () => {
         source: 'sdk',
         kind: 'team-task-created',
         payload: expect.objectContaining({
-          teamName: 'team-A',
+          teamName: 'team-A', // v024 D2: 取 args.team_id lookup
           taskId: 't1',
           description: 'X',
           assignee: 'agent-A',
@@ -120,9 +131,9 @@ describe('task_create — D7 ingest 分流', () => {
     );
   });
 
-  it('in-process + caller 无 team → ingest 但 payload.teamName = null', async () => {
-    mockTeamRepo.findActiveMembershipsBySessionIds.mockReturnValue(new Map());
-    mockTaskRepo.create.mockReturnValue(makeTask({ ownerSessionId: 'sess-caller' }));
+  it('in-process + 不传 team_id（personal task）→ ingest 但 payload.teamName = null', async () => {
+    // v024 D2: 不传 team_id → personal task → teamName=null（不再走 first active team）
+    mockTaskRepo.create.mockReturnValue(makeTask({ ownerSessionId: 'sess-caller', teamId: null }));
 
     await taskCreateHandler({ subject: 'X' }, makeCtx('sess-caller', 'in-process'));
 
@@ -130,8 +141,27 @@ describe('task_create — D7 ingest 分流', () => {
     expect(mockSessionManager.ingest.mock.calls[0][0].payload.teamName).toBeNull();
   });
 
+  it('v024 MED-2: multi-team caller 显式 team_id=B（first=A）→ teamName=B（不漂移到 first）', async () => {
+    mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([
+      { teamId: 'team-A-id', teamName: 'team-A', sessionId: 'sess-caller', role: 'lead' },
+      { teamId: 'team-B-id', teamName: 'team-B', sessionId: 'sess-caller', role: 'teammate' },
+    ]);
+    mockTeamRepo.get.mockImplementation((tid: string) => {
+      if (tid === 'team-A-id') return { id: tid, name: 'team-A', archivedAt: null };
+      if (tid === 'team-B-id') return { id: tid, name: 'team-B', archivedAt: null };
+      return null;
+    });
+    mockTaskRepo.create.mockReturnValue(
+      makeTask({ ownerSessionId: 'sess-caller', teamId: 'team-B-id' }),
+    );
+
+    await taskCreateHandler({ subject: 'X', team_id: 'team-B-id' }, makeCtx('sess-caller', 'in-process'));
+
+    expect(mockSessionManager.ingest.mock.calls[0][0].payload.teamName).toBe('team-B');
+  });
+
   it('HTTP transport (per-session authn real sid) → skip ingest（D7 分流，与 in-process 对比）', async () => {
-    mockTaskRepo.create.mockReturnValue(makeTask({ ownerSessionId: 'sess-caller' }));
+    mockTaskRepo.create.mockReturnValue(makeTask({ ownerSessionId: 'sess-caller', teamId: null }));
 
     await taskCreateHandler({ subject: 'X' }, makeCtx('sess-caller', 'http'));
 
@@ -143,16 +173,14 @@ describe('task_create — D7 ingest 分流', () => {
   // stdio transport 不存在合法调 write tool 路径；D7 ingest 分流仅在 in-process vs HTTP 之间区分。
 });
 
-describe('task_update — D7 ingest 分流（仅 pending→completed 触发）', () => {
-  it('in-process + status pending→completed → ingest team-task-completed', async () => {
-    mockTeamRepo.findActiveMembershipsBySessionIds.mockReturnValue(
-      new Map([['sess-caller', [{ teamId: 'team-1', teamName: 'team-A', role: 'lead' }]]]),
-    );
+describe('task_update — D7 ingest 分流（仅 pending→completed 触发）+ v024 D3 写权限校验前置', () => {
+  it('in-process + status pending→completed (caller==owner personal) → ingest team-task-completed (teamName=null)', async () => {
+    // v024 D3: caller==owner personal task 才能写 — 简单路径
     mockTaskRepo.get.mockReturnValue(
-      makeTask({ id: 't1', ownerSessionId: 'sess-caller', status: 'pending', subject: 'work' }),
+      makeTask({ id: 't1', ownerSessionId: 'sess-caller', teamId: null, status: 'pending', subject: 'work' }),
     );
     mockTaskRepo.update.mockReturnValue(
-      makeTask({ id: 't1', ownerSessionId: 'sess-caller', status: 'completed', subject: 'work' }),
+      makeTask({ id: 't1', ownerSessionId: 'sess-caller', teamId: null, status: 'completed', subject: 'work' }),
     );
 
     await taskUpdateHandler(
@@ -164,7 +192,7 @@ describe('task_update — D7 ingest 分流（仅 pending→completed 触发）',
       expect.objectContaining({
         kind: 'team-task-completed',
         payload: expect.objectContaining({
-          teamName: 'team-A',
+          teamName: null, // v024: personal task → teamName null
           taskId: 't1',
           description: 'work',
         }),
@@ -172,12 +200,43 @@ describe('task_update — D7 ingest 分流（仅 pending→completed 触发）',
     );
   });
 
-  it('in-process + status 改非 completed → 不 ingest', async () => {
+  it('in-process + team task pending→completed → ingest team-task-completed (teamName=lookup(updated.teamId))', async () => {
+    // v024 D3: caller 在 team-1 active member 才能写 team task
+    mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([
+      { teamId: 'team-1', teamName: 'team-A', sessionId: 'sess-caller', role: 'lead' },
+    ]);
+    mockTeamRepo.get.mockImplementation((tid: string) => {
+      if (tid === 'team-1') return { id: tid, name: 'team-A', archivedAt: null };
+      return null;
+    });
     mockTaskRepo.get.mockReturnValue(
-      makeTask({ id: 't1', ownerSessionId: 'sess-caller', status: 'pending' }),
+      makeTask({ id: 't1', ownerSessionId: 'sess-caller', teamId: 'team-1', status: 'pending', subject: 'work' }),
     );
     mockTaskRepo.update.mockReturnValue(
-      makeTask({ id: 't1', ownerSessionId: 'sess-caller', status: 'active' }),
+      makeTask({ id: 't1', ownerSessionId: 'sess-caller', teamId: 'team-1', status: 'completed', subject: 'work' }),
+    );
+
+    await taskUpdateHandler(
+      { task_id: 't1', status: 'completed' },
+      makeCtx('sess-caller', 'in-process'),
+    );
+
+    expect(mockSessionManager.ingest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'team-task-completed',
+        payload: expect.objectContaining({
+          teamName: 'team-A', // v024: team task → teamName=lookup(updated.teamId).name
+        }),
+      }),
+    );
+  });
+
+  it('in-process + status 改非 completed (personal owner) → 不 ingest', async () => {
+    mockTaskRepo.get.mockReturnValue(
+      makeTask({ id: 't1', ownerSessionId: 'sess-caller', teamId: null, status: 'pending' }),
+    );
+    mockTaskRepo.update.mockReturnValue(
+      makeTask({ id: 't1', ownerSessionId: 'sess-caller', teamId: null, status: 'active' }),
     );
 
     await taskUpdateHandler(
@@ -189,12 +248,12 @@ describe('task_update — D7 ingest 分流（仅 pending→completed 触发）',
     expect(mockEventBus.emit).toHaveBeenCalledTimes(1); // task-changed 仍发
   });
 
-  it('HTTP transport + pending→completed → emit task-changed 但 skip ingest', async () => {
+  it('HTTP transport + personal pending→completed → emit task-changed 但 skip ingest', async () => {
     mockTaskRepo.get.mockReturnValue(
-      makeTask({ id: 't1', ownerSessionId: 'sess-caller', status: 'pending' }),
+      makeTask({ id: 't1', ownerSessionId: 'sess-caller', teamId: null, status: 'pending' }),
     );
     mockTaskRepo.update.mockReturnValue(
-      makeTask({ id: 't1', ownerSessionId: 'sess-caller', status: 'completed' }),
+      makeTask({ id: 't1', ownerSessionId: 'sess-caller', teamId: null, status: 'completed' }),
     );
 
     await taskUpdateHandler(

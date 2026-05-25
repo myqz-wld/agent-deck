@@ -271,7 +271,7 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
   });
 });
 
-describe('B-HIGH-1 防御链组合：read-only tool 例外（list_sessions / get_session / task_list / task_get）', () => {
+describe('B-HIGH-1 防御链组合：read-only tool 例外（list_sessions / get_session / task_list）', () => {
   it('(A) stdio + spoofed sid + list_sessions（read-only） → ALLOW（external 允许只读）', () => {
     // EXTERNAL_CALLER_ALLOWED.list_sessions=true（read-only 允许 external）
     // stdio sentinel callerSid + read-only tool → 不 DENY
@@ -304,8 +304,11 @@ describe('B-HIGH-1 防御链组合：read-only tool 例外（list_sessions / get
   });
 
   // plan task-mcp-merge-into-agent-deck-mcp-20260521 §D6 R1 F1：5 task tool 合并后
-  // task_list / task_get 加入 read-only 例外（EXTERNAL_CALLER_ALLOWED.task_list=true / task_get=true）
-  it('(A) stdio + spoofed sid + task_list / task_get（read-only） → 全部 ALLOW', () => {
+  // task_list 加入 read-only 例外（EXTERNAL_CALLER_ALLOWED.task_list=true）
+  // plan task-team-id-restore-20260525 §D8（user 拍板方案 A flip false）:task_get 改 DENY
+  // — 与 task_create/update/delete 同款 deny external 对称;v023 「lead 跨 team 看 teammate task /
+  // external mcp client 凭已知 id 查 task」两类 use case 推翻
+  it('(A) stdio + spoofed sid + task_list（read-only） → ALLOW', () => {
     const ctx = simulateMakeCtx({
       override: stdioOverride,
       argsCallerSid: 'victim-active-sid',
@@ -313,13 +316,27 @@ describe('B-HIGH-1 防御链组合：read-only tool 例外（list_sessions / get
     });
     expect(ctx.callerSessionId).toBe(EXTERNAL_CALLER_SENTINEL);
 
-    for (const tool of ['task_list', 'task_get'] as const) {
-      const denial = denyExternalIfNotAllowed(tool, ctx);
-      expect(denial, `tool=${tool}`).toBeNull();
-    }
+    const denial = denyExternalIfNotAllowed('task_list', ctx);
+    expect(denial).toBeNull();
   });
 
-  it('(B) HTTP global token + task_list / task_get（read-only） → 全部 ALLOW', () => {
+  it('(A) stdio + spoofed sid + task_get（D8 flip false） → DENY', () => {
+    const ctx = simulateMakeCtx({
+      override: stdioOverride,
+      argsCallerSid: 'victim-active-sid',
+      transport: 'stdio',
+    });
+    expect(ctx.callerSessionId).toBe(EXTERNAL_CALLER_SENTINEL);
+
+    const denial = denyExternalIfNotAllowed('task_get', ctx);
+    expect(denial).not.toBeNull();
+    expect(denial?.isError).toBe(true);
+    expect(JSON.parse(denial!.content[0].text).error).toMatch(
+      /task_get not allowed for external caller/,
+    );
+  });
+
+  it('(B) HTTP global token + task_list（read-only） → ALLOW', () => {
     const extra = {
       authInfo: { resolvedSid: null, fallbackToGlobal: true } satisfies McpAuthInfo,
     };
@@ -330,10 +347,27 @@ describe('B-HIGH-1 防御链组合：read-only tool 例外（list_sessions / get
     });
     expect(ctx.callerSessionId).toBe(EXTERNAL_CALLER_SENTINEL);
 
-    for (const tool of ['task_list', 'task_get'] as const) {
-      const denial = denyExternalIfNotAllowed(tool, ctx);
-      expect(denial, `tool=${tool}`).toBeNull();
-    }
+    const denial = denyExternalIfNotAllowed('task_list', ctx);
+    expect(denial).toBeNull();
+  });
+
+  it('(B) HTTP global token + task_get（D8 flip false） → DENY', () => {
+    const extra = {
+      authInfo: { resolvedSid: null, fallbackToGlobal: true } satisfies McpAuthInfo,
+    };
+    const ctx = simulateMakeCtx({
+      override: resolveCallerSidForReadOnly,
+      extra,
+      transport: 'http',
+    });
+    expect(ctx.callerSessionId).toBe(EXTERNAL_CALLER_SENTINEL);
+
+    const denial = denyExternalIfNotAllowed('task_get', ctx);
+    expect(denial).not.toBeNull();
+    expect(denial?.isError).toBe(true);
+    expect(JSON.parse(denial!.content[0].text).error).toMatch(
+      /task_get not allowed for external caller/,
+    );
   });
 });
 
