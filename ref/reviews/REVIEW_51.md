@@ -133,4 +133,4 @@ resources/codex-config/agent-deck-plugin/agents/reviewer-codex.md               
 
 ## 关联 changelog
 
-[CHANGELOG_142.md](../changelog/CHANGELOG_142.md)
+[CHANGELOG_142.md](../changelogs/CHANGELOG_142.md)

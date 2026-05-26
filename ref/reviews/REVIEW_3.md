@@ -126,7 +126,7 @@ All FTS5 integration checks passed (sqlite3 3.43.2).
 
 ## 关联 changelog
 
-- [CHANGELOG_22.md](../changelog/CHANGELOG_22.md)：本次修复落地
+- [CHANGELOG_22.md](../changelogs/CHANGELOG_22.md)：本次修复落地
 
 ## Agent 踩坑沉淀
 

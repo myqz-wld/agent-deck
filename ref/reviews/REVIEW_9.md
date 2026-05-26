@@ -71,7 +71,7 @@ src/main/session/manager.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_34.md](../changelog/CHANGELOG_34.md)：本次修复落地
+- [CHANGELOG_34.md](../changelogs/CHANGELOG_34.md)：本次修复落地
 
 ## Agent 踩坑沉淀
 

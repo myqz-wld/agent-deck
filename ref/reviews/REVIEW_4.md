@@ -215,7 +215,7 @@ L1-L9 大多归档跟踪，单独看 ROI 较低；建议至少修：
 
 ## 关联 changelog
 
-- [CHANGELOG_23.md](../changelog/CHANGELOG_23.md)：本份 review 修复落地（H1-H4 全 + M1-M19 全 + L4/L7/L8/L9 选改）
+- [CHANGELOG_23.md](../changelogs/CHANGELOG_23.md)：本份 review 修复落地（H1-H4 全 + M1-M19 全 + L4/L7/L8/L9 选改）
 
 ## Agent 踩坑沉淀
 

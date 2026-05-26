@@ -108,7 +108,7 @@ src/main/window.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_16.md](../changelog/CHANGELOG_16.md)：本次 8 处修复 + 文档机制重构（reviews 引入 / 反馈升级加 agent-pitfall / 三份 CLAUDE.md 简化与对齐）
+- [CHANGELOG_16.md](../changelogs/CHANGELOG_16.md)：本次 8 处修复 + 文档机制重构（reviews 引入 / 反馈升级加 agent-pitfall / 三份 CLAUDE.md 简化与对齐）
 
 ## Agent 踩坑沉淀
 

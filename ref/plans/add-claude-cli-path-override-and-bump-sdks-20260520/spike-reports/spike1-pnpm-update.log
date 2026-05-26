@@ -1,0 +1,29 @@
+Progress: resolved 0, reused 1, downloaded 0, added 0
+Progress: resolved 736, reused 665, downloaded 0, added 0
+Progress: resolved 784, reused 703, downloaded 0, added 0
+Progress: resolved 796, reused 715, downloaded 0, added 0
+Progress: resolved 807, reused 726, downloaded 0, added 0
+ WARN  12 deprecated subdependencies found: @npmcli/move-file@2.0.1, are-we-there-yet@3.0.1, boolean@3.2.0, gauge@4.0.4, glob@10.5.0, glob@7.2.3, glob@8.1.0, inflight@1.0.6, npmlog@6.0.2, prebuild-install@7.1.3, rimraf@3.0.2, tar@6.2.1
+Packages: +2 -2
+++--
+Progress: resolved 808, reused 727, downloaded 1, added 1
+Progress: resolved 808, reused 727, downloaded 2, added 1
+Progress: resolved 808, reused 727, downloaded 2, added 2, done
+ WARN  Issues with peer dependencies found
+.
+└─┬ @anthropic-ai/claude-agent-sdk 0.3.144
+  └── ✕ unmet peer @anthropic-ai/sdk@>=0.93.0: found 0.81.0
+
+dependencies:
+- @anthropic-ai/claude-agent-sdk 0.2.118
++ @anthropic-ai/claude-agent-sdk 0.3.144 (0.3.145 is available)
+
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Ignored build scripts: better-sqlite3@11.10.0, electron@33.4.11,           │
+│   esbuild@0.21.5.                                                            │
+│   Run "pnpm approve-builds" to pick which dependencies should be allowed     │
+│   to run scripts.                                                            │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Done in 1m 57s using pnpm v10.33.0

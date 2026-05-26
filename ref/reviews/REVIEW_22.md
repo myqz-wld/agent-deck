@@ -188,7 +188,7 @@ src/shared/types/assets.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_57.md](../changelog/CHANGELOG_57.md)：本次 fix 落地的功能变更（设置面板文案统一 + 平台分流 + 资产库）
+- [CHANGELOG_57.md](../changelogs/CHANGELOG_57.md)：本次 fix 落地的功能变更（设置面板文案统一 + 平台分流 + 资产库）
 - 「备注」段补一行 `reviewer 双对抗 3 轮 review 闭环：见 reviews/REVIEW_22.md`
 
 ## Agent 踩坑沉淀（追加 `.claude/conventions-tally.md`）

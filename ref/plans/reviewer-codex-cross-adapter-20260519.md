@@ -451,7 +451,7 @@ cold-start 后发现 user 已重启 — main process PID 5233 dev mode 跑在 wo
 - frontmatter base_branch: main → ff-merge worktree-reviewer-codex-cross-adapter-20260519 → main
 - plan archived path: `<main-repo>/plans/reviewer-codex-cross-adapter-20260519.md`
 - spike-reports/ 子目录自动归档到 `<main-repo>/plans/reviewer-codex-cross-adapter-20260519/spike-reports/`
-- changelog_id="130" → INDEX 4 列写入 `[130](../changelog/CHANGELOG_130.md)`
+- changelog_id="130" → INDEX 4 列写入 `[130](../changelogs/CHANGELOG_130.md)`
 - 主 repo `package.json` + `pnpm-lock.yaml` 仍 dirty(mcp-sdk add)— 与 plan 归档无关 critical paths(archivedPath/indexPath/planFilePath),按 plan v6 archive_plan precheck 行为,unrelated dirty 降 warning + commit message 注脚不阻塞 fail-fast
 
 

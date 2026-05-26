@@ -188,4 +188,4 @@ scope: Phase 2 实施 commit `3c27b98` 11 文件 diff(reviewer-claude 单方 1 M
 
 ## 关联 changelog
 
-[CHANGELOG_119.md](../changelog/CHANGELOG_119.md)
+[CHANGELOG_119.md](../changelogs/CHANGELOG_119.md)

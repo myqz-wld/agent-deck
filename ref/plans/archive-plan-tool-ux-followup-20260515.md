@@ -108,7 +108,7 @@ REVIEW_44(plan archive-plan-content-overwritten-fix-20260515 收口)留 4 条同
 - 11 项主 fix(Phase 2)+ R1 fix 6 项 + R2 polish 2 项 = **总 19 项落地**
 - 测试守门 92 case(原 42 + 新 50)+ 全套 vitest 652 pass + typecheck 双端 clean
 - 改动 8 文件 / +410/-61 LOC
-- 详 [`changelog/CHANGELOG_123.md`](../changelog/CHANGELOG_123.md)
+- 详 [`changelog/CHANGELOG_123.md`](../changelogs/CHANGELOG_123.md)
 
 **双异构对抗 review 收敛**:R1 双方共识 5 真 MED 全修 + R2 双方 ack 0 HIGH/MED + 共识 LOW 全 polish 不阻塞 + codex R2 明确「ack 收口推荐 Phase 4」。
 

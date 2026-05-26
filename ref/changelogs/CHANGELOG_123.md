@@ -24,7 +24,7 @@ REVIEW_44(plan archive-plan-content-overwritten-fix-20260515 收口)留 4 条同
 
 - **4 列 header**:`| 文件 | 状态 | 关联 changelog | 概要 |` + 4 列 row `| [X.md](X.md) | completed | <changelog ref or "—"> | <description> |`
 - **`escapeTableCell` helper**:description / changelog 列 escape `\|` + 换行(`replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')`)防 frontmatter 破表
-- **`formatChangelogCell` helper**:caller 传 `"122"` → `[122](../changelog/CHANGELOG_122.md)`;`"121,122"` → 两个 link 用 ` / ` 分隔
+- **`formatChangelogCell` helper**:caller 传 `"122"` → `[122](../changelogs/CHANGELOG_122.md)`;`"121,122"` → 两个 link 用 ` / ` 分隔
 
 ### (d) 7 phase 专用 phaseHint 措辞
 

@@ -118,8 +118,8 @@ src/shared/types/session.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_66.md](../changelog/CHANGELOG_66.md)：R4 7 commit 实装记录
-- [CHANGELOG_67.md](../changelog/CHANGELOG_67.md)：本轮 review 落地修复（HIGH-1 + HIGH-2 + 8 MED + 2 LOW，共 4 commit）
+- [CHANGELOG_66.md](../changelogs/CHANGELOG_66.md)：R4 7 commit 实装记录
+- [CHANGELOG_67.md](../changelogs/CHANGELOG_67.md)：本轮 review 落地修复（HIGH-1 + HIGH-2 + 8 MED + 2 LOW，共 4 commit）
 
 ## 异构对抗失败兜底记录
 

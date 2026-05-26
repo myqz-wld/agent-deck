@@ -112,7 +112,7 @@ teams / session / task-manager / notify 模块 0 命中。
 
 ## 关联 changelog
 
-- [CHANGELOG_70.md](../changelog/CHANGELOG_70.md)：本次修复落地
+- [CHANGELOG_70.md](../changelogs/CHANGELOG_70.md)：本次修复落地
 
 ## Agent 踩坑沉淀
 

@@ -103,7 +103,7 @@ for await (const msg of q) {
 
 ## 关联 changelog
 
-- [CHANGELOG_27.md](../changelog/CHANGELOG_27.md)：本次修复落地
+- [CHANGELOG_27.md](../changelogs/CHANGELOG_27.md)：本次修复落地
 
 ## Agent 踩坑沉淀
 

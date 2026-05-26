@@ -234,4 +234,4 @@ scope: R2 fix commit `ccd6d93` 5 文件 diff。
 
 ## 关联 changelog
 
-[CHANGELOG_118.md](../changelog/CHANGELOG_118.md)
+[CHANGELOG_118.md](../changelogs/CHANGELOG_118.md)

@@ -152,4 +152,4 @@ R3 重 spawn 4 reviewer fresh review,**未识别 fix 引入 regression**(plan §
 
 ## 关联归档
 
-详 [CHANGELOG_128](../changelog/CHANGELOG_128.md);plan archive 路径 `<main-repo>/plans/deep-review-batch-a1-b-fixes-20260519.md`(Phase 5 archive_plan 完成后)。
+详 [CHANGELOG_128](../changelogs/CHANGELOG_128.md);plan archive 路径 `<main-repo>/plans/deep-review-batch-a1-b-fixes-20260519.md`(Phase 5 archive_plan 完成后)。

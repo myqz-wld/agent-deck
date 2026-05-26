@@ -1,0 +1,12 @@
+[t=     0ms] SPIKE START case=ping
+[t=     7ms] query() returned q type=object
+[t=  4446ms] frame #1 type=system subtype=hook_started sid=64481905
+[t=  4446ms] ==> first session_id seen sid=64481905
+[t=  4446ms] frame #2 type=system subtype=hook_started sid=64481905
+[t=  4446ms] frame #3 type=system subtype=hook_response sid=64481905
+[t=  4446ms] frame #4 type=system subtype=hook_response sid=64481905
+[t=  4466ms] frame #5 type=system subtype=init sid=64481905
+[t=  8237ms] frame #6 type=assistant sid=64481905
+[t=  8321ms] frame #7 type=assistant sid=64481905
+[t=  8396ms] frame #8 type=result subtype=success sid=64481905
+[t= 90001ms] HARD TIMEOUT @ 90s — exit 2

@@ -74,7 +74,7 @@ expired: false
 
 ## 关联 changelog
 
-- [CHANGELOG_33.md](../changelog/CHANGELOG_33.md)：本次修复落地
+- [CHANGELOG_33.md](../changelogs/CHANGELOG_33.md)：本次修复落地
 
 ## Agent 踩坑沉淀
 

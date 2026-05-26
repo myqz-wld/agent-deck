@@ -4,7 +4,7 @@ release
 dist
 .DS_Store
 *.log
-!plans/**/spike-reports/*.log
+!ref/plans/**/spike-reports/*.log
 # ↑ spike artifacts exception:plan-driven spike reports 内的 .log 是 spike 实测命令输出 trace
 # (case-A.log / case-B.log 等),与 spike1-<topic>.md 结论同等重要(实测 evidence 历史可追溯),
 # 必须入 git 归档(详 user CLAUDE.md §Step 0.5 spike 节 + 本仓库 plan archive 流程)。
@@ -27,7 +27,7 @@ resources/codex-config/agent-deck-plugin/skills/
 .claude/settings.local*
 # ↑ Claude Code 工具运行时产物：worktree 临时目录 / cron 任务持久化与锁文件 / plan local 工作目录 / per-user permissions allow list。
 # 不应入 git（per-user / per-machine state — settings.local.json 含 user 路径 hardcode + 命令授权白名单仅本机本用户有效）。
-# 注：plan completed 后归档到顶级 `plans/<plan-id>.md` 入 git（详 ~/.claude/CLAUDE.md「§Step 2 Plan 文件 hand off」节）。
+# 注：plan completed 后归档到顶级 `ref/plans/<plan-id>.md` 入 git（详 ~/.claude/CLAUDE.md「§Step 2 Plan 文件 hand off」节）。
 
 # ↓ Appended by plan personal-projects-cleanup-20260520 (2026-05-20) — D2 小众系统垃圾兜底
 Thumbs.db

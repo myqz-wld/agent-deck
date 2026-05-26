@@ -147,4 +147,4 @@ reviewer-claude R2 主题 C 明确 ack: 所有 6 commit 修法**字面镜像 cla
 - 本 review 配套 plan: [`plans/codex-claude-adapter-symmetry-20260515.md`](../plans/codex-claude-adapter-symmetry-20260515.md)
 - 父 review: [REVIEW_37.md](REVIEW_37.md) — 触发本 plan 的 R37 R2 ❌ pre-existing 不归 R37 finding
 - 父 plan: [`plans/deep-review-and-refactor-r37-20260515.md`](../plans/deep-review-and-refactor-r37-20260515.md) — R37 R2 reviewer-codex 3 处 codex/claude 架构对称性发现
-- 同期 changelog: [CHANGELOG_113.md](../changelog/CHANGELOG_113.md) — 本 plan 8 commit 归档
+- 同期 changelog: [CHANGELOG_113.md](../changelogs/CHANGELOG_113.md) — 本 plan 8 commit 归档

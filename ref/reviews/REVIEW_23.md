@@ -114,7 +114,7 @@ PR-B 同 PR 落地（详见 CHANGELOG_65）：E5 universal-message-watcher / E6 
 
 ## 关联 changelog
 
-- [CHANGELOG_65.md](../changelog/CHANGELOG_65.md)：R3 PR-A + PR-B 整体落地
+- [CHANGELOG_65.md](../changelogs/CHANGELOG_65.md)：R3 PR-A + PR-B 整体落地
 
 ## Agent 踩坑沉淀（如有）
 

@@ -153,7 +153,7 @@ M1 wire/regex/DB invariant 协议 housekeeping (codex H1 单方+现场验证) / 
 
 ## 关联 changelog
 
-- [CHANGELOG_79.md](../changelog/CHANGELOG_79.md)：本次落地
+- [CHANGELOG_79.md](../changelogs/CHANGELOG_79.md)：本次落地
 
 ## Agent 踩坑沉淀（如有）
 

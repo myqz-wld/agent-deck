@@ -1,0 +1,40 @@
+[spike4.1] recentlyDeleted Map 声明 (manager.ts):
+  L103: private recentlyDeleted = new Map<string, number>(); // sessionId → deletedAt
+
+[spike4.1] recentlyDeleted.set 调用点 (3 个):
+  L255: this.recentlyDeleted.set(sessionId, Date.now());
+  L452: this.recentlyDeleted.set(sessionId, Date.now());
+  L480: this.recentlyDeleted.set(fromId, Date.now());
+
+[spike4.2] ingest 入口 isRecentlyDeleted 早返:
+  L224: if (this.isRecentlyDeleted(event.sessionId)) return;
+
+[spike4.3] sessionRepo 现有 export 接口 (新增 findByCliSessionId 路径):
+  L31: export const sessionRepo = {
+
+[spike4.4] v020 migration 模板 (类比 v021 cli_session_id 加列模式):
+  -- user_version < 20 时执行一次,执行后 user_version 写为 20,后续启动跳过。**生产场景幂等**。
+-- 测试 fixture 重复 init memory DB 时显式重置 user_version 才会重跑此 SQL — 这是测试机制
+-- 而非生产路径。详 cwd-release-marker.test.ts §setup 注释。
+ALTER TABLE sessions ADD COLUMN cwd_release_marker TEXT DEFAULT NULL;
+
+
+[spike4.5] renameSdkSession 内 recentlyDeleted.set(fromId) 调用:
+  L480: this.recentlyDeleted.set(fromId, Date.now());
+
+[spike4.6] hook event sid 来源链:
+  - CLI 子进程 hook curl POST body.session_id (CLI 内部 thread sid)
+  - hook-routes.ts:28 校验 body.session_id
+  - translate.ts:31 sessionId: p.session_id (hook event AgentEvent.sessionId)
+  - manager.ts:224 isRecentlyDeleted(event.sessionId) 早返
+  - 反向 rename 后 event.sessionId 是 NEW_CLI_ID,findByCliSessionId 反查 → application sid
+
+[spike4.7] D7 修法推论 (反向 rename 后 ingest 流程):
+  Step 1: ingest(event) 入口拿到 event.sessionId = NEW_CLI_ID
+  Step 2: appSid = sessionRepo.findByCliSessionId(event.sessionId)
+  Step 3a: 找到 → event.sessionId = appSid (覆写为 application sid),走正常 dedupOrClaim → ensureRecord
+  Step 3b: 找不到 + isRecentlyDeleted(event.sessionId) 命中 → 丢弃迟到 event
+  Step 3c: 找不到 + 不在黑名单 + cwd 命中 pendingSdkCwds → 时序兜底 claim
+  Step 3d: 全没命中 → ensureRecord 新建外部 CLI 会话 (现状 fallback,不变)
+
+[spike4] 完成。结论 inline 进 spike4-late-hook-event.md
