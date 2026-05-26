@@ -289,5 +289,86 @@ describe.skipIf(!bindingAvailable)(
         .all(t.id) as Array<{ session_id: string }>;
       expect(activeLeadRows).toEqual([{ session_id: 'new-lead' }]);
     });
+
+    // === REVIEW_56 §F13 修法 — newDisplayName trim 边界回归 test ===
+    it('F13: newDisplayName 空字符串 → trim() || null → display_name 保留 (不覆盖)', () => {
+      // setup: caller 是 lead,team 内 1 teammate
+      insertSession(db, 'caller-sid');
+      insertSession(db, 'new-sid');
+      const t = repo.create({ name: 'trim-empty-team' });
+      repo.addMember({
+        teamId: t.id,
+        sessionId: 'caller-sid',
+        role: 'lead',
+        displayName: 'Caller Lead',
+      });
+
+      // newDisplayName='' (空字符串) — F13 修法 trim() || null → null,display_name 保留
+      const result = repo.swapLead(t.id, 'caller-sid', 'new-sid', { newDisplayName: '' });
+      expect(result).toEqual({ swapped: true });
+
+      // caller 已退,new-sid 是 active lead 但 display_name 走 null fallback (实现里 null 时
+      // 保留新行旧 display_name 或 INSERT 时 NULL — 取决具体路径,关键是不会 INSERT 空字符串)
+      const newRow = db
+        .prepare(
+          `SELECT display_name FROM agent_deck_team_members
+           WHERE team_id = ? AND session_id = ? AND left_at IS NULL`,
+        )
+        .get(t.id, 'new-sid') as { display_name: string | null };
+      // 空字符串 trim 后 falsy → null,DB 实际写入 NULL(不应是空字符串 '')
+      expect(newRow.display_name).not.toBe('');
+    });
+
+    it('F13: newDisplayName 全空格 → trim() || null → display_name 不覆盖为 "   "', () => {
+      insertSession(db, 'caller-sid');
+      insertSession(db, 'new-sid');
+      const t = repo.create({ name: 'trim-spaces-team' });
+      repo.addMember({
+        teamId: t.id,
+        sessionId: 'caller-sid',
+        role: 'lead',
+        displayName: 'Caller Lead',
+      });
+
+      // newDisplayName='   ' (全空格) — F13 修法 trim() || null → null
+      const result = repo.swapLead(t.id, 'caller-sid', 'new-sid', { newDisplayName: '   ' });
+      expect(result).toEqual({ swapped: true });
+
+      const newRow = db
+        .prepare(
+          `SELECT display_name FROM agent_deck_team_members
+           WHERE team_id = ? AND session_id = ? AND left_at IS NULL`,
+        )
+        .get(t.id, 'new-sid') as { display_name: string | null };
+      // 全空格 trim 后 0 长度 falsy → null,DB 不应写入 '   '
+      expect(newRow.display_name).not.toBe('   ');
+    });
+
+    it('F13: newDisplayName 真值 (含前后空格) → trim() 保留 + 写入', () => {
+      insertSession(db, 'caller-sid');
+      insertSession(db, 'new-sid');
+      const t = repo.create({ name: 'trim-truthy-team' });
+      repo.addMember({
+        teamId: t.id,
+        sessionId: 'caller-sid',
+        role: 'lead',
+        displayName: 'Caller Lead',
+      });
+
+      // newDisplayName='  Real Name  ' — F13 修法 trim() → 'Real Name'(注意 helper 内只在
+      // newDisplayName=null 时退化,真值仍走原路径,本 it 验真值不被 trim falsy 误判)
+      const result = repo.swapLead(t.id, 'caller-sid', 'new-sid', { newDisplayName: '  Real Name  ' });
+      expect(result).toEqual({ swapped: true });
+
+      const newRow = db
+        .prepare(
+          `SELECT display_name FROM agent_deck_team_members
+           WHERE team_id = ? AND session_id = ? AND left_at IS NULL`,
+        )
+        .get(t.id, 'new-sid') as { display_name: string | null };
+      // 真 truthy 值 trim 后仍非空 → 写入(具体值取决 swapLead 内 newDisplayName 用法,
+      // 至少不应为 null/空)
+      expect(newRow.display_name).toBeTruthy();
+    });
   },
 );

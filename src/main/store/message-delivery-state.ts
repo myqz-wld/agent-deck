@@ -196,9 +196,14 @@ export function buildFindEligibleWhereSql(): {
  * 区分，加 `coerceResult: 'valid' | 'fallback'` 字段返回。
  */
 export function coerceMessageStatus(raw: string): AgentDeckMessageStatus {
-  return (VALID_MESSAGE_STATUSES as readonly string[]).includes(raw)
-    ? (raw as AgentDeckMessageStatus)
-    : 'failed';
+  if ((VALID_MESSAGE_STATUSES as readonly string[]).includes(raw)) {
+    return raw as AgentDeckMessageStatus;
+  }
+  // REVIEW_56 §F14 修法 (Plan-Review Round 1 + spike 决策): 加 console.warn 让运维感知脏数据。
+  // 函数签名只接 `raw` 不接 `id`,加 id 需链上多 caller refactor 成本高,prefix `[message-delivery-state]`
+  // + raw value 足够 ops 通过 grep 定位。
+  console.warn(`[message-delivery-state] unknown status "${raw}" coerced to 'failed'`);
+  return 'failed';
 }
 
 /**

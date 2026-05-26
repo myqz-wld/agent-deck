@@ -676,10 +676,14 @@ type TeammatesShutdownInfo = {
   failed: Array<{ sessionId: string; reason: string }>;
   // REVIEW_56 Batch B R2 reviewer-claude M2 修法: skipped 加 'all-lead-teams-archived' 第四态
   // 区分 caller 不是 lead vs caller 是 lead 但所有相关 team 已 archived (UX 精度)。
+  // REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3): 加 'phase-1-error' 第五态,
+  // 区分 caller layer `runBatonCleanup` 内 helper 自身抛错的兜底(罕见 DB 异常 / mock 失败) vs
+  // 正常处理 null(caller=lead 但无其他 active teammate)。
   skipped:
     | 'caller-not-lead'
     | 'all-lead-teams-archived'
     | 'adopt-keep-implicit'
+    | 'phase-1-error'
     | null;
 };
 
@@ -734,6 +738,17 @@ export interface SpawnSessionResult {
  */
 export interface ArchivePlanResult {
   archivedPath: string;
+  /**
+   * **REVIEW_56 §F4 修法**: 区分 archive commit vs worktree merge tip。
+   * - **此 `commitHash`** = `git add plans/<id>.md + INDEX.md + plans/<id>/spike-reports/` 后 archive
+   *   commit 在 base_branch 上的 SHA(handler 内部 `git commit` 后 `git rev-parse HEAD` 拿到)
+   * - **frontmatter `final_commit`** = ff-merge worktree branch 到 base_branch 之后 base_branch HEAD
+   *   SHA(merge 后 worktree branch tip,plan 写入 frontmatter 字段持久化)
+   *
+   * 两个 commit 关系:archive commit (本字段) 是 base_branch 上 ff-merge 之后的额外 commit,
+   * 包含 plan archive 文件移动 + INDEX 更新;final_commit 是 ff-merge 那一刻的 base tip(即
+   * worktree branch tip)。
+   */
   commitHash: string;
   branchDeleted: string;
   worktreeRemoved: string;
