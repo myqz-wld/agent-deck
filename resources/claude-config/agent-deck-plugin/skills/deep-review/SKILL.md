@@ -55,7 +55,7 @@ caller invoke SKILL 时显式传 typed scope，**不依赖 path 后缀启发**�
      "invocationId": "<invocationId>",
      "createdAt": "<ISO>",
      "files": [
-       { "origAbspath": "/Users/.../plans/foo.md", "cachePath": "<reviewRoot>/.deep-review-cache/<invocationId>/<fileSha8>-foo.md" },
+       { "origAbspath": "/Users/.../ref/plans/foo.md", "cachePath": "<reviewRoot>/.deep-review-cache/<invocationId>/<fileSha8>-foo.md" },
        ...
      ]
    }

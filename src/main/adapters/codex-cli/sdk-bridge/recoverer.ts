@@ -316,7 +316,7 @@ export class SessionRecoverer {
         // 防御 (`rec.cliSessionId ?? sessionId`),本预检入口与之对称。
         // 修前用 `sessionId`(applicationSid 维度) → 反向 rename 后 cliSessionId !== sessionId
         // 时预检永远 miss → falsely trigger fresh thread fallback → 用户失对话历史 + 误导
-        // warning。详 reviews/REVIEW_56.md HIGH-1。
+        // warning。详 ref/reviews/REVIEW_56.md HIGH-1。
         if (!this.jsonlExistsThunk(rec.cliSessionId ?? sessionId, rec.startedAt)) {
           console.warn(
             `[codex-bridge] resume jsonl missing for ${sessionId} (startedAt ${new Date(rec.startedAt).toISOString()}), ` +

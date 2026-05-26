@@ -281,7 +281,7 @@ export class ThreadLoop {
                 // changes=0 静默失败,spawned_by 永远 NULL;后续 runTurnLoop 用 internal.applicationSid=
                 // tempKey emit message → ingest 兜底 ensureRecord 建 tempKey row,cwd=''/title=sid 自身,
                 // 与 firstIdCb emit session-start 写的 realId row 形成 split-brain 双 row。
-                // 现场 SQL 实测 6 项指标 100% 命中预测(详 reviews/REVIEW_50.md HIGH-1)。
+                // 现场 SQL 实测 6 项指标 100% 命中预测(详 ref/reviews/REVIEW_50.md HIGH-1)。
                 internal.applicationSid = ev.thread_id;
                 internal.threadId = ev.thread_id;
                 if (firstIdCb) {

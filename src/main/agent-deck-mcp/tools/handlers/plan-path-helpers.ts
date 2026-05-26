@@ -5,10 +5,10 @@
  *
  * **修前差异**:
  * - archive-plan-impl.ts L394-415 已实现 3 档 fallback(projectLocal > projectArchived >
- *   userGlobal),包含本项目实际惯例的中间档 `<main-repo>/plans/<id>.md`
+ *   userGlobal),包含本项目实际惯例的中间档 `<main-repo>/ref/plans/<id>.md`
  * - hand-off-session-impl.ts L201-218 仅 2 档(projectLocal > userGlobal),漏中间档
- *   → caller 不传 plan_file_path 且 plan 文件在 `<main-repo>/plans/`(本项目实际惯例 30+
- *   stub plan 都直接创在 plans/)时全失败,hand-off 无法 cold-start 已归档 plan
+ *   → caller 不传 plan_file_path 且 plan 文件在 `<main-repo>/ref/plans/`(本项目实际惯例 30+
+ *   stub plan 都直接创在 ref/plans/)时全失败,hand-off 无法 cold-start 已归档 plan
  *
  * **修法**:抽 helper 让两个 caller 共享同一 fallback 链 + INDEX message + Tried path 列表。
  *
@@ -32,7 +32,7 @@ export type ResolvePlanPathResult =
  * 按 fallback 链解析 plan 文件路径:
  * 1. `<main-repo>/.claude/plans/<id>.md` — project-specific in_progress local 工作目录
  *    (user CLAUDE.md §Step 2 优先)
- * 2. `<main-repo>/plans/<id>.md` — project-internal git 归档目录(本项目实际惯例,
+ * 2. `<main-repo>/ref/plans/<id>.md` — project-internal git 归档目录(本项目实际惯例,
  *    archive_plan 完成后 mv 目标位置;30+ stub plan 直接创在此)
  * 3. `~/.claude/plans/<id>.md` — cross-project plan / CLI `/plan` slash command 默认位置
  *
@@ -49,7 +49,7 @@ export async function resolvePlanFilePath(
     ? path.join(mainRepo, '.claude', 'plans', `${planId}.md`)
     : null;
   const projectArchived = mainRepo
-    ? path.join(mainRepo, 'plans', `${planId}.md`)
+    ? path.join(mainRepo, 'ref', 'plans', `${planId}.md`)
     : null;
   const userGlobal = path.join(deps.homedir(), '.claude', 'plans', `${planId}.md`);
 

@@ -21,33 +21,33 @@
 2. 改动了**文件结构 / 新建模块**？→ 改「项目结构」节
 3. 改动了**启动方式 / 端口 / 依赖 / 验证步骤**？→ 改「开发与运行」节
 
-纯 bug 修复 / 内部重构（不改用户感知）→ 不动 README.md，写到 `reviews/` 或 `changelog/`。
+纯 bug 修复 / 内部重构（不改用户感知）→ 不动 README.md，写到 `ref/reviews/` 或 `ref/changelogs/`。
 
 ### 2. 写 changelog 或 review（**必做，二选一**）
 
 | 类型 | 写到 | 例子 |
 |---|---|---|
-| **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `changelog/` | 新建 PendingTab、升 SDK、加 `agent-deck new` 子命令 |
-| **Debug / 性能 / 安全 review**（不引入新功能，只修问题或加固） | `reviews/` | TOCTOU 收口、内存泄漏、批量缺陷扫描 |
+| **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `ref/changelogs/` | 新建 PendingTab、升 SDK、加 `agent-deck new` 子命令 |
+| **Debug / 性能 / 安全 review**（不引入新功能，只修问题或加固） | `ref/reviews/` | TOCTOU 收口、内存泄漏、批量缺陷扫描 |
 
-#### `changelog/` 规则
+#### `ref/changelogs/` 规则
 
-- 文件名 `CHANGELOG_X.md`，X 递增整数。新建前 `ls changelog/` 找最大 X
+- 文件名 `CHANGELOG_X.md`，X 递增整数。新建前 `ls ref/changelogs/` 找最大 X
 - **小改动**（一两个文件、几十行同主题）→ 追加到最新 `CHANGELOG_X.md`
 - **大改动**（多模块 / 上百行 / 新功能）→ 新建 `CHANGELOG_X+1.md`
-- 每次改 `changelog/` 都要同步 `changelog/INDEX.md`（简表：`[CHANGELOG_X.md](CHANGELOG_X.md) | 一句话概要`）
-- 单文件结构：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）。**不要写「踩坑细节 / 推演过程」**——那些去 `reviews/`
+- 每次改 `ref/changelogs/` 都要同步 `ref/changelogs/INDEX.md`（简表：`[CHANGELOG_X.md](CHANGELOG_X.md) | 一句话概要`）
+- 单文件结构：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）。**不要写「踩坑细节 / 推演过程」**——那些去 `ref/reviews/`
 
-#### `reviews/` 规则（命名跟 changelog 对齐）
+#### `ref/reviews/` 规则（命名跟 changelog 对齐）
 
-- 文件名 `REVIEW_X.md`，X 递增整数。新建前 `ls reviews/` 找最大 X
+- 文件名 `REVIEW_X.md`，X 递增整数。新建前 `ls ref/reviews/` 找最大 X
 - 每份 review 单文件结构：触发场景 + 方法（双对抗 Agent / 范围 / 工具）+ 三态裁决清单 + 修复条目
-- 同步更新 `reviews/INDEX.md`（简表：`[REVIEW_X.md] | 主题 | 严重度分布 | 修复数`）
+- 同步更新 `ref/reviews/INDEX.md`（简表：`[REVIEW_X.md] | 主题 | 严重度分布 | 修复数`）
 - 触发：周期性 debug / code review / 性能 audit / 安全审查 / 大重构前的健康检查
 
 ### 3. 改功能前先读 changelog + reviews
 
-修改任何模块前，**先 `ls changelog/ reviews/` + 浏览相关条目**，了解历史决策、避免推翻已有约定 / 重复踩坑。设计取舍（如「为什么 lifecycle 与 archived 正交」）通常在 changelog；过往 bug 与加固方案在 reviews。
+修改任何模块前，**先 `ls ref/changelogs/ ref/reviews/` + 浏览相关条目**，了解历史决策、避免推翻已有约定 / 重复踩坑。设计取舍（如「为什么 lifecycle 与 archived 正交」）通常在 changelog；过往 bug 与加固方案在 reviews。
 
 ### 4. 单文件 ≤ 500 行 — 超了必须试拆
 
@@ -61,7 +61,7 @@
 
 **真不能拆**（race / state ownership 极复杂、强行拆收益<风险）→ 写到对应 CHANGELOG 的「不动文件保护清单」+ 注明理由（class 性质 / 单飞 / cross-cutting state 等），下次拆分轮跳过。**不能默认沉默忽略**。
 
-参考 `changelog/CHANGELOG_50.md` (S1+S2+S3) / `CHANGELOG_51.md` (P1+P2+P3+P4) / `CHANGELOG_52.md` (Step 1-4 拆 class) 三轮拆分实例。
+参考 `ref/changelogs/CHANGELOG_50.md` (S1+S2+S3) / `CHANGELOG_51.md` (P1+P2+P3+P4) / `CHANGELOG_52.md` (Step 1-4 拆 class) 三轮拆分实例。
 
 ---
 
@@ -143,21 +143,21 @@ Agent Teams 实验特性的 in-process backend：teammate 调工具走 inbox 协
 
 ## 反复反馈 / 反复踩坑 → 升级约定（自维护机制）
 
-避免用户重复给同样反馈、避免 agent 重复栽相同坑：候选放 `conventions/tally.md`（项目根 `conventions/` 目录，与 README / changelog/ / reviews/ 同级，git 管理；不再绑 `.claude/` 工具目录）。count ≥ 3 升级**不再**写到本文件「项目特定约定」节，改为新建 `conventions/<X>-<topic>.md` + 同步 `conventions/INDEX.md`，让本文件保持静态。
+避免用户重复给同样反馈、避免 agent 重复栽相同坑：候选放 `ref/conventions/tally.md`（项目根 `ref/conventions/` 目录，与 README / `ref/changelogs/` / `ref/reviews/` 同级，git 管理；不再绑 `.claude/` 工具目录）。count ≥ 3 升级**不再**写到本文件「项目特定约定」节，改为新建 `ref/conventions/<X>-<topic>.md` + 同步 `ref/conventions/INDEX.md`，让本文件保持静态。
 
 ### 两类候选（同一文件，分 section）
 
 | 类型 | 触发条件 | 升级目的地 |
 |---|---|---|
-| **用户反馈** (`# 用户反馈候选`) | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 | 新建 `conventions/<X>-<topic>.md` + 同步 `conventions/INDEX.md` |
-| **Agent 踩坑** (`# Agent 踩坑候选`) | Coding Agent 在 review / 修 bug / 排查时**自己**发现踩了同类坑，或 review 报告里反复出现同类问题（典型：try/finally 漏 cleanup、TOCTOU、N+1 查询、async listener 不被 await） | 新建 `conventions/<X>-<topic>.md` + 同步 `conventions/INDEX.md` |
+| **用户反馈** (`# 用户反馈候选`) | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 | 新建 `ref/conventions/<X>-<topic>.md` + 同步 `ref/conventions/INDEX.md` |
+| **Agent 踩坑** (`# Agent 踩坑候选`) | Coding Agent 在 review / 修 bug / 排查时**自己**发现踩了同类坑，或 review 报告里反复出现同类问题（典型：try/finally 漏 cleanup、TOCTOU、N+1 查询、async listener 不被 await） | 新建 `ref/conventions/<X>-<topic>.md` + 同步 `ref/conventions/INDEX.md` |
 
 ### 操作流程
 
-1. 读项目根 `conventions/tally.md`，找语义相近的已有条目
+1. 读项目根 `ref/conventions/tally.md`，找语义相近的已有条目
    - 找到 → `count` +1，更新 `last_at` 为今天日期
    - 没找到 → 新增条目（`count: 1`），写在对应 section
-2. **count 到 3** → 这是「约定升级」决策，按通用「双对抗三态裁决」流程评审升级提案：措辞是否准确 / 边界是否清晰 / 与已有约定有无冲突 / topic 命名是否合适。结论汇总后告诉用户「这条 [反馈 / 踩坑] 累计 3 次，对抗审视结论 ✅/❌/⚠️ 如下，要升级吗？」用户确认后**新建 `conventions/<X>-<topic>.md`**（X 递增整数）+ 同步 `conventions/INDEX.md` 加行，从 tally 删除该条目（**不再**写项目 CLAUDE.md「项目特定约定」节，让本文件保持静态）
+2. **count 到 3** → 这是「约定升级」决策，按通用「双对抗三态裁决」流程评审升级提案：措辞是否准确 / 边界是否清晰 / 与已有约定有无冲突 / topic 命名是否合适。结论汇总后告诉用户「这条 [反馈 / 踩坑] 累计 3 次，对抗审视结论 ✅/❌/⚠️ 如下，要升级吗？」用户确认后**新建 `ref/conventions/<X>-<topic>.md`**（X 递增整数）+ 同步 `ref/conventions/INDEX.md` 加行，从 tally 删除该条目（**不再**写项目 CLAUDE.md「项目特定约定」节，让本文件保持静态）
 3. count < 3 → 静默更新 tally，不打扰用户
 
 ### 边界

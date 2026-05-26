@@ -23,11 +23,11 @@
  *
  * **critical paths repo-relative 比对铁证**（R3 codex MED-1 修订）：
  * - mainRepoAbsPath = `/Users/test/repo`
- * - archivedPath（绝对）= `/Users/test/repo/plans/<id>.md`
- * - 转 repo-relative = `plans/<id>.md` ← 与 git status --porcelain 输出对齐
+ * - archivedPath（绝对）= `/Users/test/repo/ref/plans/<id>.md`
+ * - 转 repo-relative = `ref/plans/<id>.md` ← 与 git status --porcelain 输出对齐
  *
  * **NUL 分隔 parser 铁证**（R2 MED-C 修订）：
- * - git status --porcelain=v1 -z 输出 `M  plans/<id>.md\0` 含 NUL trailer
+ * - git status --porcelain=v1 -z 输出 `M  ref/plans/<id>.md\0` 含 NUL trailer
  * - 含空格 / 中文 / quoted path 都用 NUL 分隔（newline parser 漏 rename/copy 类型）
  */
 
@@ -38,13 +38,13 @@ import { assertMainRepoCleanForArchive } from '../tools/handlers/archive-plan-im
 // fixture：mainRepo 路径常量 + 三具体 critical 绝对路径
 // ============================================================================
 const MAIN_REPO = '/Users/test/repo';
-const ARCHIVED_PATH = '/Users/test/repo/plans/plan-xyz-20260519.md'; // = mainRepo/plans/<id>.md
-const INDEX_PATH = '/Users/test/repo/plans/INDEX.md';
+const ARCHIVED_PATH = '/Users/test/repo/ref/plans/plan-xyz-20260519.md'; // = mainRepo/ref/plans/<id>.md
+const INDEX_PATH = '/Users/test/repo/ref/plans/INDEX.md';
 const PLAN_FILE_PATH = '/Users/test/repo/.claude/plans/plan-xyz-20260519.md';
 
 // 三具体 critical 转 repo-relative（与 lambda 内部 path.relative 推导一致）：
-//   archivedPath rel = 'plans/plan-xyz-20260519.md'
-//   indexPath rel = 'plans/INDEX.md'
+//   archivedPath rel = 'ref/plans/plan-xyz-20260519.md'
+//   indexPath rel = 'ref/plans/INDEX.md'
 //   planFilePath rel = '.claude/plans/plan-xyz-20260519.md'
 
 // ============================================================================
@@ -84,13 +84,13 @@ describe('assertMainRepoCleanForArchive — clean baseline', () => {
 describe('assertMainRepoCleanForArchive — 5 status × 命中 critical → conflicts (reject)', () => {
   // (1) staged-only M
   it('staged M 命中 archivedPath → conflict + ok=false', async () => {
-    const stdout = nulEntry('M ', 'plans/plan-xyz-20260519.md');
+    const stdout = nulEntry('M ', 'ref/plans/plan-xyz-20260519.md');
     const runGit = vi.fn().mockResolvedValue(stdout);
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
     expect(result.ok).toBe(false);
     expect(result.conflicts).toHaveLength(1);
     expect(result.conflicts[0]).toEqual({
-      path: 'plans/plan-xyz-20260519.md',
+      path: 'ref/plans/plan-xyz-20260519.md',
       status: 'M ',
     });
     expect(result.warnings).toEqual([]);
@@ -98,13 +98,13 @@ describe('assertMainRepoCleanForArchive — 5 status × 命中 critical → conf
 
   // (2) unstaged-only M
   it('unstaged M 命中 indexPath → conflict + ok=false', async () => {
-    const stdout = nulEntry(' M', 'plans/INDEX.md');
+    const stdout = nulEntry(' M', 'ref/plans/INDEX.md');
     const runGit = vi.fn().mockResolvedValue(stdout);
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
     expect(result.ok).toBe(false);
     expect(result.conflicts).toHaveLength(1);
     expect(result.conflicts[0]).toEqual({
-      path: 'plans/INDEX.md',
+      path: 'ref/plans/INDEX.md',
       status: ' M',
     });
   });
@@ -123,25 +123,25 @@ describe('assertMainRepoCleanForArchive — 5 status × 命中 critical → conf
   });
 
   // (4) untracked
-  it('?? untracked 命中 archivedPath（caller 在 plans/ 提前手写归档目标）→ conflict + ok=false', async () => {
-    const stdout = nulEntry('??', 'plans/plan-xyz-20260519.md');
+  it('?? untracked 命中 archivedPath（caller 在 ref/plans/ 提前手写归档目标）→ conflict + ok=false', async () => {
+    const stdout = nulEntry('??', 'ref/plans/plan-xyz-20260519.md');
     const runGit = vi.fn().mockResolvedValue(stdout);
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
     expect(result.ok).toBe(false);
     expect(result.conflicts).toHaveLength(1);
     expect(result.conflicts[0]).toEqual({
-      path: 'plans/plan-xyz-20260519.md',
+      path: 'ref/plans/plan-xyz-20260519.md',
       status: '??',
     });
   });
 
   // (5) Rename — new path 命中
   it('R rename 新路径命中 archivedPath → conflict + ok=false (R3 codex MED-3)', async () => {
-    // RY 格式：newname\0oldname\0 — caller 把 plans/old-id.md 重命名到 plans/<本 id>.md
+    // RY 格式：newname\0oldname\0 — caller 把 ref/plans/old-id.md 重命名到 ref/plans/<本 id>.md
     const stdout = nulRenameEntry(
       'R ',
-      'plans/plan-xyz-20260519.md', // newname (命中 critical)
-      'plans/old-plan.md', // oldname (不命中)
+      'ref/plans/plan-xyz-20260519.md', // newname (命中 critical)
+      'ref/plans/old-plan.md', // oldname (不命中)
     );
     const runGit = vi.fn().mockResolvedValue(stdout);
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
@@ -149,25 +149,25 @@ describe('assertMainRepoCleanForArchive — 5 status × 命中 critical → conf
     expect(result.conflicts).toHaveLength(1);
     // displayPath = "newname -> oldname"（plan §Phase 4.2 设计）
     expect(result.conflicts[0]).toEqual({
-      path: 'plans/plan-xyz-20260519.md -> plans/old-plan.md',
+      path: 'ref/plans/plan-xyz-20260519.md -> ref/plans/old-plan.md',
       status: 'R ',
     });
   });
 
-  // (6) Rename — old path 命中（攻击向量：caller 把 plans/<本 id>.md 改名到别处）
+  // (6) Rename — old path 命中（攻击向量：caller 把 ref/plans/<本 id>.md 改名到别处）
   it('R rename 旧路径命中 indexPath → conflict + ok=false (R3 codex MED-3 双 path 检查)', async () => {
-    // caller 把 plans/INDEX.md 重命名到别的位置 → oldname='plans/INDEX.md' 命中
+    // caller 把 plans/INDEX.md 重命名到别的位置 → oldname='ref/plans/INDEX.md' 命中
     const stdout = nulRenameEntry(
       'R ',
-      'plans/old-INDEX.md', // newname (不命中)
-      'plans/INDEX.md', // oldname (命中 critical — INDEX 改名风险高)
+      'ref/plans/old-INDEX.md', // newname (不命中)
+      'ref/plans/INDEX.md', // oldname (命中 critical — INDEX 改名风险高)
     );
     const runGit = vi.fn().mockResolvedValue(stdout);
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
     expect(result.ok).toBe(false);
     expect(result.conflicts).toHaveLength(1);
     expect(result.conflicts[0]).toEqual({
-      path: 'plans/old-INDEX.md -> plans/INDEX.md',
+      path: 'ref/plans/old-INDEX.md -> ref/plans/INDEX.md',
       status: 'R ',
     });
   });
@@ -250,17 +250,17 @@ describe('assertMainRepoCleanForArchive — 多 entry 混合：critical + non-cr
   it('多 entry 含命中 + 不命中 → conflicts 仅 critical / warnings 收 non-critical', async () => {
     // 4 entries: 2 critical + 2 non-critical
     const stdout =
-      nulEntry('M ', 'plans/plan-xyz-20260519.md') + // critical (archivedPath)
+      nulEntry('M ', 'ref/plans/plan-xyz-20260519.md') + // critical (archivedPath)
       nulEntry(' M', 'src/main/index.ts') + // non-critical
-      nulEntry('??', 'plans/INDEX.md') + // critical (indexPath untracked)
+      nulEntry('??', 'ref/plans/INDEX.md') + // critical (indexPath untracked)
       nulRenameEntry('R ', 'src/copy.ts', 'src/origin.ts'); // non-critical rename
     const runGit = vi.fn().mockResolvedValue(stdout);
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
     expect(result.ok).toBe(false);
     expect(result.conflicts).toHaveLength(2);
     expect(result.conflicts.map((c) => c.path).sort()).toEqual([
-      'plans/INDEX.md',
-      'plans/plan-xyz-20260519.md',
+      'ref/plans/INDEX.md',
+      'ref/plans/plan-xyz-20260519.md',
     ]);
     expect(result.warnings).toHaveLength(2);
     expect(result.warnings.map((w) => w.path).sort()).toEqual([
@@ -284,10 +284,10 @@ describe('assertMainRepoCleanForArchive — git status 失败兜底', () => {
 
 describe('assertMainRepoCleanForArchive — repo-relative 转换 (R3 codex MED-1)', () => {
   it('critical 路径用 path.relative(mainRepo, ...) 转换 — 绝对 vs relative 比对正确命中', async () => {
-    // 关键铁证：input archivedPath 是绝对路径 '/Users/test/repo/plans/<id>.md'，但
-    // git status 输出 repo-relative 'plans/<id>.md'。lambda 内部 path.relative 转换确保
+    // 关键铁证：input archivedPath 是绝对路径 '/Users/test/repo/ref/plans/<id>.md'，但
+    // git status 输出 repo-relative 'ref/plans/<id>.md'。lambda 内部 path.relative 转换确保
     // criticalSet 含 repo-relative 与 git 输出对齐 → 命中 conflict。
-    const stdout = nulEntry('M ', 'plans/plan-xyz-20260519.md');
+    const stdout = nulEntry('M ', 'ref/plans/plan-xyz-20260519.md');
     const runGit = vi.fn().mockResolvedValue(stdout);
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
     expect(result.ok).toBe(false);
@@ -297,17 +297,17 @@ describe('assertMainRepoCleanForArchive — repo-relative 转换 (R3 codex MED-1
   it('mainRepo 嵌套深 path 也正确转换（防 startsWith 半匹配 bug）', async () => {
     const deepInput = {
       mainRepoAbsPath: '/Users/test/repo',
-      archivedPath: '/Users/test/repo/plans/deep-id.md',
-      indexPath: '/Users/test/repo/plans/INDEX.md',
+      archivedPath: '/Users/test/repo/ref/plans/deep-id.md',
+      indexPath: '/Users/test/repo/ref/plans/INDEX.md',
       planFilePath: '/Users/test/repo/.claude/plans/deep-id.md',
     };
-    // git 输出含 'plans/' 前缀但 path 不同 — 不应误命中 critical 'plans/deep-id.md'
-    const stdout = nulEntry('M ', 'plans/other-id.md');
+    // git 输出含 'plans/' 前缀但 path 不同 — 不应误命中 critical 'ref/plans/deep-id.md'
+    const stdout = nulEntry('M ', 'ref/plans/other-id.md');
     const runGit = vi.fn().mockResolvedValue(stdout);
     const result = await assertMainRepoCleanForArchive({ runGit }, deepInput);
     expect(result.ok).toBe(true); // 不命中
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0].path).toBe('plans/other-id.md');
+    expect(result.warnings[0].path).toBe('ref/plans/other-id.md');
   });
 });
 
