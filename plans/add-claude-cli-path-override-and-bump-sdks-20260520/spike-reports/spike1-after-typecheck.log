@@ -1,4 +1,0 @@
-
-> agent-deck@0.1.0 typecheck /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
-> tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json
-
