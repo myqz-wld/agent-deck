@@ -210,6 +210,39 @@ describe.skipIf(!bindingAvailable)(
       expect(repo.countActiveLeads(t.id)).toBe(1);
     });
 
+    // REVIEW_56 §Test-MemberCrud 修法 (Plan-Review Round 1+2): 补 case 4 newDisplayName=null
+    // verify display_name 保留 (T5.4 已 cover newDisplayName='X' verify display_name='X')
+    it('T5.4b case 4 newDisplayName=null → display_name 保留原值 (REVIEW_56 §Test-MemberCrud)', () => {
+      insertSession(db, 'caller-sid');
+      insertSession(db, 'teammate-Y');
+      const t = repo.create({ name: 'promote-keep-name-team' });
+      repo.addMember({ teamId: t.id, sessionId: 'caller-sid', role: 'lead' });
+      repo.addMember({
+        teamId: t.id,
+        sessionId: 'teammate-Y',
+        role: 'teammate',
+        displayName: 'Original Teammate Y',
+      });
+
+      // newDisplayName=null → swapLead 内 ?.trim()||null 退化 null,display_name 应保留原值
+      const result = repo.swapLead(t.id, 'caller-sid', 'teammate-Y', { newDisplayName: null });
+
+      expect(result).toEqual({ swapped: true });
+
+      const promotedRow = db
+        .prepare(
+          `SELECT role, left_at, display_name FROM agent_deck_team_members
+           WHERE team_id = ? AND session_id = ?`,
+        )
+        .get(t.id, 'teammate-Y') as { role: string; left_at: number | null; display_name: string };
+      expect(promotedRow.role).toBe('lead');
+      expect(promotedRow.left_at).toBeNull();
+      // newDisplayName=null → 不覆盖,保留 'Original Teammate Y'
+      expect(promotedRow.display_name).toBe('Original Teammate Y');
+
+      expect(repo.countActiveLeads(t.id)).toBe(1);
+    });
+
     it('T5.5 软失败: oldLeadSid 不在 team → swapped:false reason="caller-not-in-team" + caller 状态零变化', () => {
       insertSession(db, 'real-lead');
       insertSession(db, 'ghost-caller'); // 不在 team
