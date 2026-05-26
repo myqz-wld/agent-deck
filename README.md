@@ -100,11 +100,11 @@ pkill -f "Agent Deck.app/Contents/MacOS/Agent Deck" 2>/dev/null
 pkill -f "Agent Deck Helper" 2>/dev/null
 
 # 1. 出 dmg + .app
-rm -rf release && pnpm dist:mac
+rm -rf build/dist && pnpm dist:mac
 
 # 2. 装到 /Applications（旧版要先 rm，cp -R 不会清残留）
 rm -rf "/Applications/Agent Deck.app"
-cp -R "release/mac-arm64/Agent Deck.app" /Applications/
+cp -R "build/dist/mac-arm64/Agent Deck.app" /Applications/
 
 # 3. ad-hoc 重签（让签名 Identifier 与 com.agentdeck.app 一致）+ 清 quarantine
 codesign --force --deep --sign - "/Applications/Agent Deck.app"
