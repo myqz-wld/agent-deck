@@ -1,0 +1,59 @@
+=== spike2: baton race spawn-guards fan-out 实测 ===
+
+--- case 1: serial baton sequence (caller release 立即 dec) ---
+baton 1: ✅ OK (inFlight=1)
+baton 2: ✅ OK (inFlight=1)
+baton 3: ✅ OK (inFlight=1)
+baton 4: ✅ OK (inFlight=1)
+baton 5: ✅ OK (inFlight=1)
+baton 6: ✅ OK (inFlight=1)
+baton 7: ✅ OK (inFlight=1)
+final inFlight=0 (should be 0)
+
+--- case 2: N=7 parallel applySpawnGuards (no release, simulate concurrent baton 全部在 await createSession 中) ---
+spawn 1: ✅ OK (inFlight=1)
+spawn 2: ✅ OK (inFlight=2)
+spawn 3: ✅ OK (inFlight=3)
+spawn 4: ✅ OK (inFlight=4)
+spawn 5: ✅ OK (inFlight=5)
+spawn 6: ❌ DENY (fan-out 5 reached max 5) (inFlight=5)
+spawn 7: ❌ DENY (fan-out 5 reached max 5) (inFlight=5)
+stat: 5 OK / 2 DENY (期望 5 OK + 2 DENY,maxFanOut=5)
+
+--- case 3: 边界 DB=4 + inFlight 累积 ---
+spawn 1 (DB=4 + inFlight=0 = 4 → +1 = 5 ≤ 5): ✅ OK
+spawn 2 (DB=4 + inFlight=1 = 5 → +1 = 6 > 5): ❌ DENY
+
+--- case 4: Promise.all N=12 并发 + await microtask gap (验 sync 段不让出) ---
+baton 1: ✅ OK
+baton 2: ✅ OK
+baton 3: ✅ OK
+baton 4: ✅ OK
+baton 5: ✅ OK
+baton 6: ❌ DENY (fan-out 5 reached max 5)
+baton 7: ❌ DENY (fan-out 5 reached max 5)
+baton 8: ❌ DENY (fan-out 5 reached max 5)
+baton 9: ❌ DENY (fan-out 5 reached max 5)
+baton 10: ❌ DENY (fan-out 5 reached max 5)
+baton 11: ❌ DENY (fan-out 5 reached max 5)
+baton 12: ❌ DENY (fan-out 5 reached max 5)
+stat: 5 OK / 7 DENY (期望 5 OK + 7 DENY,因 sync 段 race-free → 前 5 全 inc 占满,后 7 deny)
+final inFlight=0 (should be 0 — 5 个 OK 都 release 后)
+
+--- case 5: theoretical bug — handler exception 不 release (phantom inFlight 累积) ---
+5 个 spawn 不 release → phantom inFlight=5
+spawn 6: ❌ DENY (fan-out 5 reached max 5) — phantom 阻塞后续合法 spawn
+(实际生产 spawn handler L101/109/329/351 多处 fanOutSlot.release() 兜底,本 case 仅证理论 risk)
+
+--- case 6: baton chain — caller archive 之前另一 baton 是否撞 fan-out ---
+baton 1 (caller-F → spawn child-1): ✅ OK (inFlight=1)
+baton 2 (concurrent on caller-F): ✅ OK (inFlight=2)
+baton 3: ✅ OK (inFlight=3)
+baton 4: ✅ OK (inFlight=4)
+baton 5: ✅ OK (inFlight=5)
+baton 6: ❌ DENY (inFlight=5)
+
+=== sync 段 latency (10000 calls) ===
+avg 0.114μs/call (sync segment is fast — Map ops only)
+
+spike2 done

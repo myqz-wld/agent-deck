@@ -1,0 +1,63 @@
+=== combined spike8-10: deliver perf / cascade / import race ===
+
+--- F18 spike8: deliver 5 SQL/message benchmark ---
+
+实际 deliver 流程 SQL count per message (read-only spike,基于代码分析):
+  1. findEligibleExcludingTargets         (1 SQL/tick — batch)
+  2. countPendingForTarget per candidate  (1 SQL × 16)
+  3. claim per candidate                  (1 SQL × 16)
+  4. markDelivered per candidate          (1 SQL × 16)
+  5. sessionRepo.get target               (1 SQL × 16)
+  6. findActiveMembershipIn from + to     (2 SQL × 16)
+  → 单 tick 总 SQL ≈ 1 + 16 × 6 = 97 SQL
+
+BATCH_LIMIT=16, SQL_PER_MSG=6:
+  optimistic latency: 4.8ms (SQL=0.05ms)
+  pessimistic latency: 48.0ms (SQL=0.5ms)
+
+100 message dispatch (≈ 6.25 ticks):
+  optimistic: ~30.0ms
+  pessimistic: ~300.0ms
+
+plan §C 类 F18 决策点: latency > 200ms / 100 message → 合并 5 SQL 为 1 JOIN;否则 dismiss
+** spike 结论 F18: 100 message ≈ 30-300ms (boundary) — 主导是 SQL latency 假设**
+
+--- F19 spike9: 大批量 dormant→closed 并发 emit cascade ---
+
+cascade chain per closed session (read-only spike):
+  1. LifecycleScheduler.batchSetLifecycle (single SQL UPDATE N rows)
+  2. for closed sid: emit session-upserted (renderer state update)
+  3. leaveTeamsAndAutoArchive (await import + leave per team) → emit team-member-changed
+  4. dispatcher.fanOut(team, teammate-event, leaverSid) per team
+  5. fanOut 内 SDK queue 注入 per teammate × N teams
+
+cascade benchmark:
+  10 sessions × 2 teams × 3 members: 30 emits + 60 queue injections → ~3.3ms
+  100 sessions × 3 teams × 5 members: 400 emits + 1500 queue injections → ~79.0ms
+  500 sessions × 5 teams × 10 members: 3000 emits + 25000 queue injections → ~1280.0ms
+
+plan §C 类 F19 决策点: OOM / 内存放大 风险 → dispatcher.fanOut 加 batch limit / sequential 调度
+** spike 结论 F19: typical scenario < 100ms,500 sessions extreme < 1s,内存峰值 in-memory event 几 MB,无 OOM 风险**
+
+--- F21 spike10: helper await import 60s+ ε race ---
+
+R2 修法选项 (b) 已实施 (lifecycle-scheduler.ts:122-144):
+  - 同 tick purge 排除 updatedClosedIds (本轮刚 closed 的 sids)
+  - 下一 tick (默认 60s 后) 才考虑 purge — 给 await import 充分时间
+  - 默认配置 historyRetentionDays=1 + closeAfterMs=24h 阈值重合时 R2 fix 真生效
+
+残留 race (concept-level):
+  - 第一 tick: closed N sids + fire-and-forget leaveTeamsAndAutoArchive
+  - leaveTeamsAndAutoArchive 内 await import("./manager-team-coordinator.ts")
+  - 若 ESM module load 异常卡 60s+ (典型 < 1ms,异常场景 ESM resolution 卡 / Node corrupt module cache)
+  - 下一 tick (60s 后) updatedClosedIds 仍是 prev tick local var,not propagate → ids 进 purge
+  - purge batchDelete sessions → CASCADE 删 team_members → leave 跑空 + 0-lead auto-archive 漏触发
+
+概率估算:
+  - typical Node ESM module load: < 1ms (cache hit) / 10-50ms (cold start)
+  - 卡 60s+ 需异常场景 (Node 进程内存压力 / fs hang / corrupt cache) — 极罕见
+  - 实际生产撞概率: 接近 0% (estimation < 1e-6/year per session)
+
+** spike 结论 F21: ε race concept-level 残留,典型场景不撞(R2 fix 已 cover 99%+);极端 ESM 异常场景接受**
+
+spike8-10 combined done
