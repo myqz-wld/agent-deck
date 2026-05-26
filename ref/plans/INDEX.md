@@ -63,3 +63,4 @@
 | [handoff-no-spawn-guards-20260526.md](handoff-no-spawn-guards-20260526.md) | completed | [151](../changelogs/CHANGELOG_151.md) | handoff-no-spawn-guards-20260526 |
 | [session-list-handoff-role-badge-20260526.md](session-list-handoff-role-badge-20260526.md) | completed | [152](../changelogs/CHANGELOG_152.md) | session-list-handoff-role-badge-20260526 |
 | [ref-layout-full-migration-20260526.md](ref-layout-full-migration-20260526.md) | completed | [153](../changelogs/CHANGELOG_153.md) | ref-layout-full-migration-20260526 |
+| [build-dir-migration-20260526.md](build-dir-migration-20260526.md) | completed | [154](../changelogs/CHANGELOG_154.md) | build-dir-migration-20260526 — build 产物全面迁移到 build/ 统一根出口(electron-vite outDir 3 入口 + electron-builder output → build/dist) |
