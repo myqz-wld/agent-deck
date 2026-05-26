@@ -51,6 +51,53 @@
 
 ---
 
+## 核心流程 / 架构变更必走 plantUML
+
+涉及核心流程 / 架构变更时必须用 plantUML 画图并落到 `ref/` 对应子目录。**「怎么画」(plantUML syntax / 图类型 / workflow)由 `agent-deck:flow-arch-plantuml` SKILL 规定;「画在哪 / INDEX 怎么维护」由本节规定**(关注点分离 — SKILL 与位置约定独立维护)。
+
+### 触发条件
+
+详 SKILL.md §何时用 节;速查:
+- **user 明示** 「画架构图」/「画流程图」/「画 plantUML」/「核心流程图改一下」等
+- **LLM 自检** 本次改动涉及核心 src/main 模块流程 / 架构 / 跨进程协议 / 跨 adapter 编排 / session lifecycle / event-bus 路由 / spawn-link 树 / sandbox / permission / 数据库 schema / wire format 协议 / sdk-bridge 状态机 / archive_plan / hand_off_session / spawn_session / send_message dispatch / canUseTool / lifecycle scheduler / context resume 等关键流程
+- **trivial 改动** (typo / 单点 rename / UI 微调 / 业务模块内部不动协议) **不触发**
+
+invoke 前必须与 user 显式确认是核心变更(SKILL 入口 AskUserQuestion enforce);否则 skill no-op exit。
+
+### 文件位置约定
+
+- **流程图**(sequence diagram / activity diagram)落 `<main-repo>/ref/flows/<topic>.puml`
+- **架构图**(component diagram / 模块依赖 / 跨进程边界)落 `<main-repo>/ref/architecture/<topic>.puml`
+- **文件命名** `<topic>.puml`,topic 用 kebab-case(`archive-plan-flow.puml` / `mcp-server-architecture.puml`)
+- **同主题需要双图**(流程图 + 架构图)→ 拆两份分别落各自目录,topic 名可一致(`archive-plan-flow.puml` vs `archive-plan-architecture.puml`)
+- **目录不存在**(典型新项目 / 本 plan 实施前):SKILL 主动 `mkdir -p ref/flows ref/architecture` + 建空 INDEX.md(下节 4 列模板)
+
+### INDEX.md 格式
+
+`ref/flows/INDEX.md` 与 `ref/architecture/INDEX.md` 都用 4 列表:
+
+```markdown
+| 文件 | 状态 | 关联 plan / commit | 概要 |
+|---|---|---|---|
+| [archive-plan-flow.puml](archive-plan-flow.puml) | active | [ref-layout-full-migration-20260526](../plans/ref-layout-full-migration-20260526.md) | archive_plan 5 步收口 sequence 图 |
+| [mcp-server-architecture.puml](mcp-server-architecture.puml) | active | commit ef1679 | 主进程 mcp server 内部模块依赖 |
+```
+
+- **状态**:`active`(当前 SSOT)/ `deprecated`(图过时但保留作历史 reference;.puml 内同步加注释 `' DEPRECATED: ...`)/ `draft`(未确认)
+- **关联 plan / commit**:链接到 `ref/plans/<plan-id>.md` 或 commit hash 让读者溯源(commit hash 用 7 字符 short hash 即可)
+- **概要**:≤80 字描述本图主题
+
+### 与 user 确认机制
+
+SKILL 入口必须先 AskUserQuestion(2-3 题)对齐 — **是否核心变更 / 图类型选择 / 新建 vs 修改 vs deprecated 已有**(详 SKILL.md §与 user 确认机制)。本应用工程实践**严禁** agent 默认静默生成图;每次画图前都要与 user 确认。
+
+### 与其他规则关系
+
+- 与 `agent-deck:deep-review` SKILL 互斥并行(同会话不并行,避免 .puml SSOT 写竞争);deep-review 中发现需画图 → 完成 review 后 invoke `flow-arch-plantuml`
+- 与本应用 `agent-deck:flow-arch-plantuml` SKILL **关注点分离**:本节定位置/INDEX 规则,SKILL 定画图技术 — 两边修改时**不要复制 SSOT**,只保留 cross-ref(详 user CLAUDE.md §提示词资产维护 约束 1 SSOT)
+
+---
+
 ## Agent Deck Universal Team Backend
 
 跨 adapter 协作通过 Agent Deck MCP 15 tool（10 现有：`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`；+ 5 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`）编排 + 管理结构化任务。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
@@ -127,7 +174,7 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 
 ### plan hand-off 自动化：archive_plan
 
-`archive_plan` 在 plan 完成后**原子执行** user CLAUDE §Step 4「完成」5 步：ff merge worktree branch → `base_branch` / 更新 frontmatter (`status=completed` + `final_commit` + `completed_at`) / mv plan → `<main-repo>/plans/<plan_id>.md` / **如 plan 有 spike-reports/ → mv `<plan-artifact-dir>/spike-reports/` → `<main-repo>/plans/<plan_id>/spike-reports/`** / 同步 `<main-repo>/plans/INDEX.md` / `git add` + commit / `git worktree remove` + `git branch -D`。caller 调用前必须先 `ExitWorktree(action: "keep")`。
+`archive_plan` 在 plan 完成后**原子执行** user CLAUDE §Step 4「完成」5 步：ff merge worktree branch → `base_branch` / 更新 frontmatter (`status=completed` + `final_commit` + `completed_at`) / mv plan → `<main-repo>/ref/plans/<plan_id>.md` / **如 plan 有 spike-reports/ → mv `<plan-artifact-dir>/spike-reports/` → `<main-repo>/ref/plans/<plan_id>/spike-reports/`** / 同步 `<main-repo>/ref/plans/INDEX.md` / `git add` + commit / `git worktree remove` + `git branch -D`。caller 调用前必须先 `ExitWorktree(action: "keep")`。
 
 **调用**：`mcp__agent-deck__archive_plan({ plan_id, worktree_path, base_branch?: <plan frontmatter.base_branch ?? "main">, plan_file_path?, changelog_id? })`(`base_branch` 默认值:schema 优先读 plan frontmatter.base_branch,缺失才 fallback "main")
 **返回**：`{ archivedPath, commitHash, branchDeleted, worktreeRemoved, plansIndexAction: 'created'|'appended'|'updated'|'unchanged', finalStatus, warnings: string[], spikeReportsArchived: { srcPath, dstPath } | null, archived: 'ok'|'failed'|'skipped', teammatesShutdown: { closed, failed, skipped } }`
@@ -139,14 +186,14 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 - **自动归档 caller session**：plan 收口后默认归档 caller（baton 同款语义），返回 `archived` 三态字段；归档失败仅 warn 不阻塞 ok return
 - **abandoned plan 不走本 tool**：tool 强制 `status=completed` 且入项目 git 归档；abandoned 走 user CLAUDE §Step 4 §中止 手工流程
 - **changelog 引用归档** agent 自己写（tool 不做）
-- **spike-reports/ 自动归档**：detect `<plan-artifact-dir>/spike-reports/` 存在（`<plan-artifact-dir>` = `<plan-file-dir>/<plan-id>/`，即 plan 文件父目录下的同名 artifacts 目录）→ mv 到 `<main-repo>/plans/<plan_id>/spike-reports/`（plan .md 同名子目录与 plan .md 平级，约定 plan .md 是主体 + 同名目录是 artifacts），spike-reports/ 子目录递归入 git 归档 commit。不存在 → skip 不报错（trivial plan 无 spike 是合法场景）。mv 失败（EXDEV 跨 fs / perm）→ warnings 落 hint「spike-reports archive failed: ... Manually run \`mkdir -p && mv && git add+commit --amend\`」+ 不阻塞 ok return。`spikeReportsArchived` 字段告诉 caller 实际归档结果（null = skip / `{srcPath, dstPath}` = 成功）
+- **spike-reports/ 自动归档**：detect `<plan-artifact-dir>/spike-reports/` 存在（`<plan-artifact-dir>` = `<plan-file-dir>/<plan-id>/`，即 plan 文件父目录下的同名 artifacts 目录）→ mv 到 `<main-repo>/ref/plans/<plan_id>/spike-reports/`（plan .md 同名子目录与 plan .md 平级，约定 plan .md 是主体 + 同名目录是 artifacts），spike-reports/ 子目录递归入 git 归档 commit。不存在 → skip 不报错（trivial plan 无 spike 是合法场景）。mv 失败（EXDEV 跨 fs / perm）→ warnings 落 hint「spike-reports archive failed: ... Manually run \`mkdir -p && mv && git add+commit --amend\`」+ 不阻塞 ok return。`spikeReportsArchived` 字段告诉 caller 实际归档结果（null = skip / `{srcPath, dstPath}` = 成功）
 - **followup 20260515 (a)+(b)+(c)+(d) UX 完善**：
-  - fallback 链 `<main-repo>/.claude/plans/` > `<main-repo>/plans/` > `~/.claude/plans/`(加中间档兜底本项目实际惯例)
+  - fallback 链 `<main-repo>/.claude/plans/` > `<main-repo>/ref/plans/` > `~/.claude/plans/`(加中间档兜底本项目实际惯例)
   - `plan_file_path` 文件名 stem 必须 == `plan_id`(impl 层 reject 防 silent unlink)
   - INDEX 4 列 canonical `| 文件 | 状态 | 关联 changelog | 概要 |` + smart update existing 行(替换 status / changelog / description)
   - `changelog_id` optional string + csv(单值 `"122"` / 多值 `"121,122"`),拼成 markdown link 写入 INDEX 第 3 列;不传时 smart update 保留老 4 列 changelog 列 / 旧 2 列或新 append 用 `—` placeholder
   - `plansIndexAction` 四态 enum 替代旧 boolean,让 caller 区分 INDEX 行真正发生的事情
-  - `warnings` non-fatal warning 数组(如 `.claude/plans/<id>.md` 与 `plans/<id>.md` 同 id 双存覆盖警告 — 走 warn 而非 reject)
+  - `warnings` non-fatal warning 数组(如 `.claude/plans/<id>.md` 与 `ref/plans/<id>.md` 同 id 双存覆盖警告 — 走 warn 而非 reject)
   - 7 phase post-ff-merge 失败专用 phaseHint 给具体 manual recovery 决策树(替代旧通用 hint)
 - **mainRepo dirty precheck 精确化（plan deep-review-batch-a1-b-followup-r3-20260519 §不变量 5）**：旧版 mainRepo 任意 dirty 全场 fail-fast；新版仅 reject 三具体路径 `{archivedPath, indexPath, planFilePath}` 命中 dirty / staged / untracked / R rename / C copy（含 old/new path 任一命中）— 其他无关 dirty 文件降 warning + commit message 注脚（commit pathspec 隔离不吞）。precheck 失败时 hint 软引导 caller fix 撞 critical paths 后重 invoke archive_plan，**或** 走 §escape hatch: shutdown_baton_teammates 补跑 baton-cleanup phase 1（如 caller 必须手工归档场景）— 不硬技术阻断手工归档（user CLAUDE.md §Step 4 5 步手工归档仍是合法 fallback）
 
