@@ -294,8 +294,10 @@ export const ARCHIVE_PLAN_SHAPE = {
 //   generic 模式 (不传 plan_id):无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller
 //     cwd（让任意会话都能 baton 交给一个新 session）。CHANGELOG_97 baton 语义:default
 //     不加 team（caller 显式传 team_name 才启用 lead/teammate 关系）+ default 自动归档 caller。
-// CHANGELOG_98 / R2 deep review HIGH-1：spawn 路径走 batonMode 跳 spawn-guards depth check
-// + setSpawnLink lateral parentDepth（不 +1），让 N-phase baton 链不撞 maxDepth=3。
+// plan handoff-no-spawn-guards-20260526 §D4/§D6:spawn 路径 handOffMode=true(原 batonMode 升级)
+// 完全跳过 spawn-guards 三道防御(depth + fan-out + spawn-rate) + 永不写 spawn-link,
+// 无论 archive_caller 值。hand-off 是平级接力,power-user 自负责任 — 故意推翻 REVIEW_46/47
+// 「archive_caller=false 退化 normal spawn」分流(详 spawn-guards.ts + spawn-link-guard.ts)。
 // CHANGELOG_99 cwd 失效根治：default cwd 改为 mainRepo（不再是 worktree_path）让新 session
 // 行为与 EnterWorktree 模式对齐，避免 archive_plan / git worktree remove 删 worktree 后
 // sessionRepo.cwd 失效弯绕。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己

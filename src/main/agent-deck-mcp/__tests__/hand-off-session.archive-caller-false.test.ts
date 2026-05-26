@@ -1,24 +1,22 @@
 /**
- * Phase 1.3b (plan deep-review-batch-a1-b-followup-r3-20260519)：
+ * plan handoff-no-spawn-guards-20260526 §D5/§D6/§D7/§D8 收口测试 —
  * `resolveBatonRoleForSpawn` lambda + hand-off-session handler 集成 test。
  *
- * 覆盖两个 follow-up finding：
+ * **故意推翻 REVIEW_46/47 修法**(本文件原为 Phase 1.3b deep-review-batch-a1-b-followup-r3-20260519
+ * 的「验 REVIEW_46/47 修法」测试,plan §D5/§D6 故意推翻这两个修法 → 整文件反转):
  *
- * **B-HIGH-2**（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）：旧 impl 无条件
- * `batonMode=true` 让 `archive_caller=false` 也跳 spawn-guards depth check + 不写 spawn-link
- * → caller 持 `archive_caller=false` × N 次调 hand_off 形成无限 spawn 路径绕过 fan-out=5/parent
- * + depth=3 双护栏。修法 = 条件化 `batonMode`：`archive_caller !== false` 时才跳 depth。
+ * - 旧 REVIEW_46 B-HIGH-2: `archive_caller=false` 退化 normal spawn 走完整 spawn-guards;
+ *   plan §D4 推翻 — `archive_caller=false` 也走 hand-off 路径(handOffMode=true)完全跳过
+ *   三道防御,power-user 自负责任(§D3 + §D4)
+ * - 旧 REVIEW_47 M12: `archive_caller=false` 时 batonRole=undefined 让 spawn 走默认 'teammate';
+ *   plan §D5 推翻 — hand-off 两路径都用 batonRole='lead'(无 archive_caller 分流)
  *
- * **M12**（REVIEW_47 codex·B MED-4）：旧 impl 无条件 `batonRole='lead'`，即使
- * `archive_caller=false` 退化 normal spawn 也无脑传 'lead' 让 spawn.ts:408 addMember 分支拿到
- * 错误 role（如果同时有 team_name 启用 team 通信）。修法 = 条件化 batonRole：仅 `batonMode=true`
- * 真 baton 行为时传 'lead'，否则 undefined（让 spawn 走默认 'teammate'）。
- *
- * 测试策略（不变量 3：端到端断言真实生产代码）：
- * - **lambda unit test**：直接 import `resolveBatonRoleForSpawn` 调真实 production lambda 断言
- *   { batonMode, batonRole } 返回值，避免 inline 复制合约
- * - **handler 集成 test**：mock spawn handler 断言 `opts.batonMode` / `opts.batonRole` 真实传入值
- *   （hand-off-session.ts:345-356 调 lambda → spawn 路径完整覆盖）
+ * **测试策略**(不变量 3:端到端断言真实生产代码):
+ * - **lambda unit test**:直接 import `resolveBatonRoleForSpawn` 调真实 production lambda
+ *   断言常量返回值 `{ handOffMode: true, batonRole: 'lead' }`(plan §D8 lambda 退化常量,
+ *   入参签名简化为无参 + 无 archive_caller 分流)
+ * - **handler 集成 test**:mock spawn handler 断言 `opts.handOffMode` / `opts.batonRole`
+ *   真实传入值 = `{ handOffMode: true, batonRole: 'lead' }`,不论 archive_caller 值
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -30,44 +28,36 @@ import type { HandlerContext, HandlerResult } from '../tools/helpers';
 import { sessionRepo } from '@main/store/session-repo';
 import { makeState, makeDeps, planContent } from './hand-off-session/_setup';
 
-describe('resolveBatonRoleForSpawn lambda', () => {
-  it('archive_caller undefined (default true 语义) → batonMode=true, batonRole=lead', () => {
-    const result = resolveBatonRoleForSpawn({});
-    expect(result.batonMode).toBe(true);
+describe('resolveBatonRoleForSpawn lambda (plan §D8 退化常量)', () => {
+  it('无入参 → 返常量 { handOffMode: true, batonRole: "lead" } (§D5 + §D8)', () => {
+    const result = resolveBatonRoleForSpawn();
+    expect(result.handOffMode).toBe(true);
     expect(result.batonRole).toBe('lead');
   });
 
-  it('archive_caller=true 显式 → batonMode=true, batonRole=lead', () => {
-    const result = resolveBatonRoleForSpawn({ archive_caller: true });
-    expect(result.batonMode).toBe(true);
-    expect(result.batonRole).toBe('lead');
+  it('每次调用返同款常量(idempotent invariant)', () => {
+    const r1 = resolveBatonRoleForSpawn();
+    const r2 = resolveBatonRoleForSpawn();
+    expect(r1).toEqual(r2);
+    expect(r1.handOffMode).toBe(true);
+    expect(r1.batonRole).toBe('lead');
+    expect(r2.handOffMode).toBe(true);
+    expect(r2.batonRole).toBe('lead');
   });
 
-  it('B-HIGH-2 + M12: archive_caller=false 退化 normal spawn → batonMode=false, batonRole=undefined', () => {
-    const result = resolveBatonRoleForSpawn({ archive_caller: false });
-    // B-HIGH-2: batonMode=false 让 spawn 走完整 depth/fan-out/setSpawnLink 与 spawn_session 同款
-    expect(result.batonMode).toBe(false);
-    // M12: batonRole=undefined 让 spawn 走默认 'teammate'（不传 'lead' 误标 normal spawn）
-    expect(result.batonRole).toBeUndefined();
-  });
-
-  it('team_name 预留签名位不影响 batonRole 决策（仅 archive_caller 决定）', () => {
-    // 带 team_name + archive_caller=true → 与不带 team_name 同结果
-    const withTeam = resolveBatonRoleForSpawn({ archive_caller: true, team_name: 'foo-team' });
-    const withoutTeam = resolveBatonRoleForSpawn({ archive_caller: true });
-    expect(withTeam).toEqual(withoutTeam);
-    expect(withTeam.batonMode).toBe(true);
-    expect(withTeam.batonRole).toBe('lead');
-
-    // 带 team_name + archive_caller=false → batonMode=false + batonRole=undefined
-    // （即使 team_name 启用 team 通信，archive_caller=false 仍退化 normal spawn）
-    const withTeamFalse = resolveBatonRoleForSpawn({ archive_caller: false, team_name: 'foo-team' });
-    expect(withTeamFalse.batonMode).toBe(false);
-    expect(withTeamFalse.batonRole).toBeUndefined();
+  // plan §D5 推翻 REVIEW_47 M12 修法语义验证:hand-off 两路径(archive_caller true/false)都用
+  // batonRole='lead',不再有 archive_caller=false → batonRole=undefined 分流
+  it('§D5 推翻 REVIEW_47 M12: 无 archive_caller 分流 — lambda 不接受任何入参', () => {
+    // TypeScript 静态校验:lambda 签名是 () => { handOffMode: true; batonRole: 'lead' }
+    // 任意 inline arg 在 typecheck 阶段被 TS2554 拦下(Expected 0 arguments)。
+    // 运行时本 case 单纯调无参版本验返值常量。
+    const result = resolveBatonRoleForSpawn();
+    expect(result.batonRole).toBe('lead'); // 不是 undefined(M12 推翻)
+    expect(result.handOffMode).toBe(true); // 不是 false(B-HIGH-2 推翻)
   });
 });
 
-describe('handOffSessionHandler — archive_caller=false 退化 normal spawn (B-HIGH-2 + M12 端到端)', () => {
+describe('handOffSessionHandler — hand-off 路径完全跳过 spawn-guards / 永不写 spawn-link (§D1/§D4/§D5/§D6 端到端)', () => {
   // noop shutdownTeammates seam 防 helper 调真 agentDeckTeamRepo 撞 DB 未 init 噪音
   const noopShutdown = vi.fn(async (_callerSid: string) => ({
     closed: [],
@@ -105,8 +95,8 @@ describe('handOffSessionHandler — archive_caller=false 退化 normal spawn (B-
       async (
         _args: SpawnSessionArgs,
         _ctx: HandlerContext,
-        // 第三参显式声明让类型友好，body 不消费但 mock.calls[i][2] 仍记录真实传入值
-        _opts?: { batonMode?: boolean; batonRole?: 'lead' | 'teammate' },
+        // 第三参显式声明让类型友好,plan §D6 改名 batonMode → handOffMode 后签名同步
+        _opts?: { handOffMode?: boolean; batonRole?: 'lead' | 'teammate' },
       ): Promise<HandlerResult> => ({
         content: [
           {
@@ -127,7 +117,8 @@ describe('handOffSessionHandler — archive_caller=false 退化 normal spawn (B-
     );
   }
 
-  it('archive_caller=false → spawn opts.batonMode === false + opts.batonRole 省略 (M12 omitUndefined)', async () => {
+  // 推翻 REVIEW_46 B-HIGH-2:archive_caller=false 不再退化 normal spawn,仍走 hand-off 路径
+  it('archive_caller=false → spawn opts.handOffMode === true + opts.batonRole === lead (§D1/§D4 推翻 B-HIGH-2)', async () => {
     const state = makeState();
     const planId = 'archive-caller-false-plan';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -146,7 +137,7 @@ describe('handOffSessionHandler — archive_caller=false 退化 normal spawn (B-
     const args: HandOffSessionArgs = {
       plan_id: planId,
       adapter: 'claude-code',
-      archive_caller: false, // ← 核心 test 输入
+      archive_caller: false, // ← 推翻 B-HIGH-2:archive_caller=false 不再退化 normal spawn
     };
     const ctx: HandlerContext = {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
@@ -161,20 +152,18 @@ describe('handOffSessionHandler — archive_caller=false 退化 normal spawn (B-
 
     expect(result.isError).toBeFalsy();
 
-    // 核心断言：spawn handler 拿到的 opts.batonMode === false（B-HIGH-2 修法）
+    // 核心断言:spawn handler 拿到的 opts.handOffMode === true(§D1/§D4 hand-off 路径完全跳 spawn-guards)
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const opts = mockSpawn.mock.calls[0]![2];
-    expect(opts?.batonMode).toBe(false);
+    expect(opts?.handOffMode).toBe(true);
 
-    // M12 修法：batonRole 应被 omitUndefined 滤掉（不出现在 opts 对象），让 spawn 走默认 'teammate'
-    // 不能用 expect(opts?.batonRole).toBeUndefined() — 那个对 `opts={batonMode:false}` 与
-    // `opts={batonMode:false, batonRole: undefined}` 同样 pass。改用 'in' 操作符 narrow
-    expect(opts && 'batonRole' in opts).toBe(false);
+    // §D5 推翻 M12:batonRole='lead'(不是 undefined),hand-off 两路径行为统一
+    expect(opts?.batonRole).toBe('lead');
 
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('archive_caller=true 显式 → spawn opts.batonMode === true + opts.batonRole === lead', async () => {
+  it('archive_caller=true 显式 → spawn opts.handOffMode === true + opts.batonRole === lead', async () => {
     const state = makeState();
     const planId = 'archive-caller-true-plan';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -207,13 +196,13 @@ describe('handOffSessionHandler — archive_caller=false 退化 normal spawn (B-
     expect(result.isError).toBeFalsy();
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const opts = mockSpawn.mock.calls[0]![2];
-    expect(opts?.batonMode).toBe(true);
+    expect(opts?.handOffMode).toBe(true);
     expect(opts?.batonRole).toBe('lead');
 
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('archive_caller 不传 (default) → spawn opts.batonMode === true + opts.batonRole === lead', async () => {
+  it('archive_caller 不传 (default) → spawn opts.handOffMode === true + opts.batonRole === lead', async () => {
     const state = makeState();
     const planId = 'archive-caller-default-plan';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -230,7 +219,7 @@ describe('handOffSessionHandler — archive_caller=false 退化 normal spawn (B-
     const args: HandOffSessionArgs = {
       plan_id: planId,
       adapter: 'claude-code',
-      // archive_caller 不传 — default 走 baton 语义
+      // archive_caller 不传 — default 走 hand-off 路径
     };
     const ctx: HandlerContext = {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
@@ -246,13 +235,14 @@ describe('handOffSessionHandler — archive_caller=false 退化 normal spawn (B-
     expect(result.isError).toBeFalsy();
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const opts = mockSpawn.mock.calls[0]![2];
-    expect(opts?.batonMode).toBe(true);
+    expect(opts?.handOffMode).toBe(true);
     expect(opts?.batonRole).toBe('lead');
 
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('archive_caller=false + team_name 显式 → spawn opts 仍走退化路径 (B-HIGH-2 不被 team_name 反转)', async () => {
+  // §D6 + §D7 守门:archive_caller=false + team_name 显式组合下也走 hand-off 路径(不被 team_name 反转)
+  it('archive_caller=false + team_name 显式 → spawn opts 仍走 hand-off 路径 (§D6 守门)', async () => {
     const state = makeState();
     const planId = 'archive-caller-false-with-team';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -288,12 +278,12 @@ describe('handOffSessionHandler — archive_caller=false 退化 normal spawn (B-
     const spawnArgs = mockSpawn.mock.calls[0]![0];
     const opts = mockSpawn.mock.calls[0]![2];
 
-    // team_name 透传给 spawn args（独立于 batonMode 决策）
+    // team_name 透传给 spawn args（独立于 handOffMode 决策）
     expect(spawnArgs.team_name).toBe('foo-team');
 
-    // 但 archive_caller=false → batonMode/batonRole 仍走退化路径（M12 修法核心 — team_name 不反转决策）
-    expect(opts?.batonMode).toBe(false);
-    expect(opts && 'batonRole' in opts).toBe(false);
+    // §D6 守门:archive_caller=false + team_name 仍走 hand-off 路径,不被 team_name 反转
+    expect(opts?.handOffMode).toBe(true);
+    expect(opts?.batonRole).toBe('lead');
 
     sessionRepoGetSpy.mockRestore();
   });

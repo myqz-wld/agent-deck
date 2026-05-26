@@ -119,7 +119,7 @@ export function denyExternalIfNotAllowed(
  * 抽出前每个 handler 起手都是 5 行模板（4 处独立维护 → 一处漏 denyExternalIfNotAllowed
  * 即 security risk: external caller 能调禁用 tool）。抽出后 handler 业务直接写 wrapper body。
  *
- * 透传 spawnSessionHandler 的第三参数 `opts?: { batonMode?: boolean; batonRole?: 'lead' | 'teammate' }`
+ * 透传 spawnSessionHandler 的第三参数 `opts?: { handOffMode?: boolean; batonRole?: 'lead' | 'teammate' }`
  * + archive-plan / hand-off-session 的 `handlerDeps?` 用 rest param `...extra` 实现 — wrapper
  * 对 handler 任意签名都透明。
  */

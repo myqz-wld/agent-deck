@@ -442,12 +442,13 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     expect(mockArchive).not.toHaveBeenCalled();
   });
 
-  // REVIEW_37 R2 HIGH-1 修法（双方一致 ✅ 真 HIGH）：hand-off-session 必须在 spawn opts 透传
+  // REVIEW_37 R2 HIGH-1 修法（双方一致 ✅ 真 HIGH）+ plan handoff-no-spawn-guards-20260526
+  // §D5/§D6 (改名 batonMode → handOffMode):hand-off-session 必须在 spawn opts 透传
   // batonRole='lead'，让新 session 在 team 内以 lead 角色加入。修前 spawn 把新 session 加成
   // 'teammate' → caller archive 触发 archiveTeamsIfOrphaned → countActiveLeads=0 → team
   // auto-archive → 残留 reviewer + 新 session 失去 active shared team → 后续 send_message
   // 走 no-shared-team reject。本 case 防 regression：保护「baton 接管 lead」语义不丢。
-  it('REVIEW_37 R2 HIGH-1: spawn opts 第三参数必带 batonMode+batonRole=lead（让新 session 接管 lead 角色）', async () => {
+  it('REVIEW_37 R2 HIGH-1 + plan §D5/§D6: spawn opts 第三参数必带 handOffMode+batonRole=lead（让新 session 接管 lead 角色）', async () => {
     const state = makeState();
     const planId = 'baton-role-test';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -461,7 +462,7 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
       async (
         _args: SpawnSessionArgs,
         _ctx: HandlerContext,
-        _opts?: { batonMode?: boolean; batonRole?: 'lead' | 'teammate' },
+        _opts?: { handOffMode?: boolean; batonRole?: 'lead' | 'teammate' },
       ): Promise<HandlerResult> => ({
         content: [
           {
@@ -521,11 +522,11 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // 关键断言：spawn 调用第三参数含 batonMode=true + batonRole='lead'
+    // 关键断言：spawn 调用第三参数含 handOffMode=true + batonRole='lead' (plan §D5/§D6 改名后)
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const spawnOpts = mockSpawn.mock.calls[0]![2];
     expect(spawnOpts).toBeDefined();
-    expect(spawnOpts?.batonMode).toBe(true);
+    expect(spawnOpts?.handOffMode).toBe(true);
     expect(spawnOpts?.batonRole).toBe('lead');
 
     // archive caller 仍被调（baton 完整 — spawn + archive caller）

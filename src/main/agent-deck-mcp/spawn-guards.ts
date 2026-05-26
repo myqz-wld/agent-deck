@@ -49,31 +49,32 @@ function deny(error: string, hint?: string): GuardDenial {
 /**
  * 应用 3 条防递归规则。**必须**在 spawn_session handler 调 createSession 前同步段内调用。
  *
- * **CHANGELOG_98 / R2 deep review HIGH-1**：`opts.batonMode = true` 时跳过 depth check。
- * baton 单向交接（K2 `hand_off_session` 默认行为,CHANGELOG_99 改名前 `start_next_session`：
- * spawn 后立即 archive caller）不构成
- * fork-bomb 风险——任意时刻只有 1 个 active session，与「lead spawn 多 sub-agent fan-out
- * 爆炸」无关。仅 depth check 跳过，**fan-out + rate-limit 保留**：
- * - fan-out：baton 在 spawn 时刻 caller 还未 archive（archive 在 K2 step 5 spawn 之后），
- *   listChildren('active') 仍把新 sid 加进 fan-out 计数，但每 baton 只 +1 child，撞 max=5
- *   极罕见；保留 guard 可挡「baton race 同时多次接力」
- * - rate-limit：保留挡「spam K2 接力」（连发 10 次 K2/min 是异常用法）
+ * **plan handoff-no-spawn-guards-20260526 §D4 / §D6 (handOffMode 升级 batonMode)**：
+ * `opts.handOffMode = true` 时**三道全跳**(depth + fan-out + spawn-rate)+ **不进 in-flight
+ * 计数表**(inFlightChildren.inc 也跳)。hand-off 是平级接力(用户原话「都是平级的」+
+ * 「不进行任何和 spawn session 有关的检查」),`archive_caller=false × N` 滥用风险由
+ * power-user 自负责任(详 §D3 + §D4)。故意推翻 REVIEW_46/47 当年的「archive_caller=false
+ * 退化 normal spawn」修法。
+ *
+ * **historical 名词**: `handOffMode` 历史上叫 `batonMode`(CHANGELOG_98 / REVIEW_39/46/47/48);
+ * 改名同款语义升级(原仅跳 depth → 现跳三道 + 不进 in-flight 计数表)。
  *
  * 参数：
  * - caller: 调用上下文（含 callerSessionId）
  * - _newCwd / _newAdapter: 兼容老签名，目前内部无引用（§6.2 移除后）
- * - opts.batonMode: 是否走 K2 baton 跳 depth check 路径（默认 false = 普通 spawn）
+ * - opts.handOffMode: 是否走 hand-off 路径(完全独立于 spawn-guards;默认 false = 普通 spawn)
  *
  * 返回值：
  * - GuardDenial：拒绝，handler 直接返回该值（带 isError:true）
  * - { ok: true, parentDepth, fanOutSlot }：通过，handler 继续；fanOutSlot 必须在
  *   handler 末尾（无论 createSession 成功 / 失败）调 .release() 释放 in-flight 计数
+ *   (handOffMode=true 路径 release 是 no-op,因没 inc 过)
  */
 export function applySpawnGuards(
   caller: CallerContext,
   _newCwd: string,
   _newAdapter: string,
-  opts?: { batonMode?: boolean },
+  opts?: { handOffMode?: boolean },
 ): GuardDenial | { ok: true; parentDepth: number; fanOutSlot: { release: () => void } } {
   const settings = settingsStore.getAll();
   const maxDepth = settings.mcpMaxSpawnDepth ?? 3;
@@ -83,10 +84,12 @@ export function applySpawnGuards(
   // 0. 同步刷新 RateLimiter 配置（hot-toggle 用户 Settings 立即生效）
   spawnRateLimiter.setLimits(ratePerMin, 60_000);
 
-  // 1. depth 上限（不消耗资源，最先）
-  // CHANGELOG_98：batonMode=true 时跳过本检查（baton 单向交接不构成 fork-bomb 风险）
+  // parentDepth 始终算(返给 caller 即使 handOffMode 路径下游不消费;O(1) DB 单查不增成本)
   const parentDepth = sessionRepo.getSpawnDepth(caller.callerSessionId);
-  if (!opts?.batonMode && parentDepth >= maxDepth) {
+
+  // 1. depth 上限（不消耗资源，最先）
+  // §D4 plan handoff-no-spawn-guards-20260526:handOffMode=true 时跳过本检查
+  if (!opts?.handOffMode && parentDepth >= maxDepth) {
     return deny(
       `spawn depth ${parentDepth} >= max ${maxDepth}`,
       `Increase Settings → MCP Server → mcpMaxSpawnDepth (current: ${maxDepth}) if you really need a deeper chain. Default 3 covers lead → teammate → sub-teammate.`,
@@ -94,18 +97,24 @@ export function applySpawnGuards(
   }
 
   // 2. fan-out（同步段内 check + inc 防穿透；不消耗 rate token）
-  const dbChildren = sessionRepo.listChildren(caller.callerSessionId, 'active').length;
-  const inFlight = inFlightChildren.get(caller.callerSessionId);
-  const effective = dbChildren + inFlight;
-  if (effective + 1 > maxFanOut) {
-    return deny(
-      `fan-out ${effective} reached for parent ${caller.callerSessionId} (max ${maxFanOut})`,
-      'Wait for in-flight children to settle, or shutdown some before spawning more. Increase Settings → MCP Server → mcpMaxFanOutPerParent if you genuinely need more.',
-    );
+  // §D4:handOffMode=true 时整段 fan-out check 跳过(hand-off 平级接力不构成 fork-bomb 风险)
+  if (!opts?.handOffMode) {
+    const dbChildren = sessionRepo.listChildren(caller.callerSessionId, 'active').length;
+    const inFlight = inFlightChildren.get(caller.callerSessionId);
+    const effective = dbChildren + inFlight;
+    if (effective + 1 > maxFanOut) {
+      return deny(
+        `fan-out ${effective} reached for parent ${caller.callerSessionId} (max ${maxFanOut})`,
+        'Wait for in-flight children to settle, or shutdown some before spawning more. Increase Settings → MCP Server → mcpMaxFanOutPerParent if you genuinely need more.',
+      );
+    }
   }
 
   // 3. spawn-rate 滑动窗口（**消耗 token**，必须最后；fan-out 通过才扣）
-  if (!spawnRateLimiter.tryConsume()) {
+  // §D4 + R2 LOW-3 修法:JS && 短路求值 — handOffMode=true 时 !opts?.handOffMode 为 false,
+  // 整个表达式短路不执行 !spawnRateLimiter.tryConsume(),token 不消耗
+  // (SlidingWindowRateLimiter.tryConsume 实现内 push to requests array 副作用也跳)
+  if (!opts?.handOffMode && !spawnRateLimiter.tryConsume()) {
     const retry = spawnRateLimiter.retryAfterMs();
     return deny(
       `app-wide spawn rate exceeded: ${ratePerMin}/min (retry after ${Math.ceil(retry)}ms)`,
@@ -113,8 +122,12 @@ export function applySpawnGuards(
     );
   }
 
-  // 三条全过 → 占 in-flight slot；handler 末尾 release
-  inFlightChildren.inc(caller.callerSessionId);
+  // §D4 + R1 MED-6 修法:handOffMode=true 时**完全不进 in-flight 计数表** —
+  // 不调 inFlightChildren.inc,fanOutSlot.release 退化 no-op(因没 inc 过 dec 也不必要,
+  // released=false 短路保护已 by design)
+  if (!opts?.handOffMode) {
+    inFlightChildren.inc(caller.callerSessionId);
+  }
   let released = false;
   return {
     ok: true,
@@ -123,7 +136,10 @@ export function applySpawnGuards(
       release: () => {
         if (released) return;
         released = true;
-        inFlightChildren.dec(caller.callerSessionId);
+        // handOffMode 路径没 inc 过,这里也不调 dec(对称);非 handOffMode 路径正常 dec
+        if (!opts?.handOffMode) {
+          inFlightChildren.dec(caller.callerSessionId);
+        }
       },
     },
   };
