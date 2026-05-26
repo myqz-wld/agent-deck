@@ -246,6 +246,6 @@ export function fixtureHappyPath(): {
     state,
     input: { planId, worktreePath, baseBranch: 'main' },
     expectedMainRepo: mainRepo,
-    expectedArchivedPath: path.join(mainRepo, 'plans', `${planId}.md`),
+    expectedArchivedPath: path.join(mainRepo, 'ref', 'plans', `${planId}.md`),
   };
 }
