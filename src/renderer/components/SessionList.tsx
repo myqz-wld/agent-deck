@@ -2,22 +2,37 @@ import { useMemo, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { selectLiveSessions } from '@renderer/lib/session-selectors';
+import { deriveTeamRole } from '@renderer/lib/derive-team-role';
+import { computeChildrenByOwner, isPureSpawnChain } from './session-list-tree';
 import { SessionCard } from './SessionCard';
 
 /**
- * Phase C (CHANGELOG_77 / plan deep-review-flow-fix): 按 spawnedBy 树形分组。
- * - lead = root + has visible children
- * - teammate = spawnedBy 命中 visible owner（缩进显示在 owner 下）
- * - 孤儿 teammate（owner 不可见 / 已归档 / 已 closed 不在本 group）→ 平铺为 root，无 badge（D8 决策不绑死 owner）
+ * Phase C (CHANGELOG_77 / plan deep-review-flow-fix) + plan session-list-handoff-role-badge-20260526
+ * (v4 D1/D2): 按 spawn-link + universal team backend 双源分组,SSOT 走 deriveTeamRole shared util。
  *
- * 单飞同 group 内分组（active / dormant 各自分组），不跨 group 关联（避免「lead active 但 teammate dormant」
- * 的 cross-group 视觉跳跃 + 简化数据结构）。
+ * **Phase 1: spawn-link primary (有条件收编)** — 老 spawn 子任务 (SDK 派遣链) 行为不变;对有
+ * universal team teammate membership 的 child, 必须验证 spawn owner 仍是 child 某 team 的 active
+ * visible lead, 否则不锁 claimedBySpawn, 让 Phase 2 走 universal team SSOT 收编 (HIGH-A 修法:
+ * 避免 archive_caller:false adopt 后 caller 已 left_at 但 child spawnedBy 仍指向 stale caller,
+ * Phase 1 把 child 错锁在 stale caller 下)。
  *
- * **视觉缩进上限 3 层**：spawn-guards.ts default `mcpMaxSpawnDepth=3` 允许 4 层 spawn 链
- * (L1→L2→L3→L4)，但 SessionList 视觉缩进 cap 在 `MAX_VISUAL_DEPTH=2`（L1/L2/L3 三层 ml-3）
- * 防深嵌套塞爆侧栏。L4+ 仍渲染但平铺在 L3 同级（无额外缩进 div），保留 `teammate` badge 让 owner
- * 关系仍可见。修前 `renderTreeGroup` 是非递归只画 L1+L2，L3 既不进 roots（spawnedBy 命中
- * visible owner）又拿不到 root.children（root 仅含 L2）→ 整层消失。
+ * **Phase 2: universal team 收编 fallback** — 仅 Phase 1 未收编的 teammate 走此分支, teammate
+ * 找同 team 的 visible lead 缩进进去 (first-match-wins 单 parent — plan §不变量 5)。让 hand_off
+ * adopt_teammates=true 后 newSid + 原 teammate 视觉缩进层级回归 (D4 反转)。
+ *
+ * **mid-tier dual-role 注**: mid-tier 节点 (既有 owner 又有 children) badge 走 deriveTeamRole,
+ * 优先看 universal team membership (任一 lead → lead), 退化才用「对 owner 是 teammate」(纯 spawn
+ * 链场景)。与原 v1「始终 teammate」承诺改写, mixed lead+teammate 节点显 lead badge (任一 lead
+ * 优先) — D7 mixed role nested spawn 当前可达。
+ *
+ * **视觉缩进上限 3 层**: spawn-guards.ts default `mcpMaxSpawnDepth=3` 允许 4 层 spawn 链
+ * (L1→L2→L3→L4),但 SessionList 视觉缩进 cap 在 `MAX_VISUAL_DEPTH=2`(L1/L2/L3 三层 ml-3)防
+ * 深嵌套塞爆侧栏。L4+ 仍渲染但平铺在 L3 同级(无额外缩进 div),保留 `teammate` badge 让 owner
+ * 关系仍可见。
+ *
+ * **跨 group 不关联**: SessionList 按 grouped.active / grouped.dormant 双 section 分别调
+ * renderTreeGroup, Phase 1 / Phase 2 收编都只在单 section 内, 跨 lifecycle group 不缩进
+ * (caller dormant + teammate active 视觉脱节是设计预期, 详 plan §已知踩坑)。
  */
 const MAX_VISUAL_DEPTH = 2; // L1=0, L2=1, L3=2 → 视觉 3 层缩进上限
 
@@ -26,18 +41,7 @@ function renderTreeGroup(
   selectedId: string | null,
   onSelect: (sid: string) => void,
 ): JSX.Element[] {
-  const visibleIds = new Set(sessions.map((s) => s.id));
-  const childrenByOwner = new Map<string, SessionRecord[]>();
-  const roots: SessionRecord[] = [];
-  for (const s of sessions) {
-    if (s.spawnedBy && visibleIds.has(s.spawnedBy)) {
-      const arr = childrenByOwner.get(s.spawnedBy) ?? [];
-      arr.push(s);
-      childrenByOwner.set(s.spawnedBy, arr);
-    } else {
-      roots.push(s);
-    }
-  }
+  const { childrenByOwner, roots } = computeChildrenByOwner(sessions);
 
   function renderNode(
     session: SessionRecord,
@@ -45,14 +49,8 @@ function renderTreeGroup(
     hasOwner: boolean,
   ): JSX.Element[] {
     const children = childrenByOwner.get(session.id) ?? [];
-    // hasOwner 优先 teammate（即使本节点也有 children — 一个 mid-tier 节点对 owner 是 teammate，
-    // 对自己 children 是 lead；SessionCard 单 role prop 只能选一个，按"对 owner 是 teammate"显示
-    // 与原 2 层实现 L2 始终 teammate 行为一致）。
-    const teamRole: 'lead' | 'teammate' | undefined = hasOwner
-      ? 'teammate'
-      : children.length > 0
-        ? 'lead'
-        : undefined;
+    const pureSpawnChain = isPureSpawnChain(session, children, sessions);
+    const teamRole = deriveTeamRole(session, hasOwner, children.length, pureSpawnChain);
     const out: JSX.Element[] = [
       <SessionCard
         key={session.id}
@@ -76,7 +74,7 @@ function renderTreeGroup(
           </div>,
         );
       } else {
-        // 触视觉缩进上限 → 平铺在当前节点同级（仍保留 teammate badge）
+        // 触视觉缩进上限 → 平铺在当前节点同级(仍保留 teammate badge)
         out.push(...childNodes);
       }
     }
