@@ -42,7 +42,7 @@ export const spawnSessionHandler = withMcpGuard(
   async (
     args: SpawnSessionArgs,
     ctx: HandlerContext,
-    opts?: { batonMode?: boolean; batonRole?: 'lead' | 'teammate' },
+    opts?: { handOffMode?: boolean; batonRole?: 'lead' | 'teammate' },
   ) => {
     const { caller } = ctx;
 
@@ -64,9 +64,10 @@ export const spawnSessionHandler = withMcpGuard(
     // fan-out / spawn-rate（顺序：不消耗资源的检查前置，详 spawn-guards.ts 头注释）。
     // 任一 deny 立即返回；通过 → 拿到 fanOutSlot，必须在 createSession 完成后（无论成功
     // 失败）调 release()。
-    // CHANGELOG_98：透传 opts.batonMode，K2 baton 路径跳过 depth check（其他 guard 保留）
+    // plan handoff-no-spawn-guards-20260526 §D4 / §D6:透传 opts.handOffMode,hand-off 路径
+    // 完全跳过三道防御 + 不进 in-flight 计数(详 applySpawnGuards jsdoc + spawn-link-guard.ts)
     const guard = applySpawnGuards(caller, args.cwd, args.adapter, {
-      batonMode: opts?.batonMode ?? false,
+      handOffMode: opts?.handOffMode ?? false,
     });
     if ('isError' in guard) return guard;
     const { parentDepth, fanOutSlot } = guard;
@@ -147,7 +148,7 @@ export const spawnSessionHandler = withMcpGuard(
     //
     // **REVIEW_49 R1 follow-up LOW**: `callerExists` 控制 caller-scoped side effects 散落 4 处
     // (grep `[caller-scoped]` anchor 可定位):
-    //   1. L307 spawn-link 写入 (`callerExists && shouldWriteSpawnLink({batonMode})`)
+    //   1. L307 spawn-link 写入 (`callerExists && shouldWriteSpawnLink({handOffMode})`)
     //   2. L367 team addMember (caller 加入新 team 当 lead)
     //   3. L442 placeholder message (lead context 注入消息表)
     //   4. L473 spawnDepth fallback (created?.spawnDepth ?? 0)
@@ -292,36 +293,31 @@ export const spawnSessionHandler = withMcpGuard(
       // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）。
       // setSpawnLink 在 release 之前完成，关闭 fan-out race window（详上方 MED-1 注释）。
       //
-      // **REVIEW_39 方案 1（双对抗 R1+R1.5 反驳轮共识，hand-off-mcp-teammate-bug-20260515）**：
-      // batonMode=true 路径**不写 spawn-link**(spawnedBy=null + spawnDepth=0 默认值)。
+      // **REVIEW_39 方案 1 + plan handoff-no-spawn-guards-20260526 §D1/§D6 (handOffMode 升级 batonMode)**:
+      // handOffMode=true 路径**永不写 spawn-link**(spawnedBy=null + spawnDepth=0 默认值),
+      // 无论 archive_caller / adopt_teammates 值(plan §D1 + §D4 + §D6 — 故意推翻 REVIEW_46/47
+      // 当年「archive_caller=false 退化 normal spawn」修法,power-user 自负责任详 §D3)。
       //
-      // 修前 bug：hand_off_session 不传 team_name 时 setSpawnLink 仍写新 session.spawnedBy=
+      // 修前 bug:hand_off_session archive_caller=false 路径走 normal spawn 写新 session.spawnedBy=
       // callerSid,SessionList Phase C(CHANGELOG_77)按 spawnedBy 树形分组渲染 ↳ teammate badge。
-      // 真实窗口来自 spawn 后续 child upsert(典型 recordCreatedPermissionMode → manager
-      // notifyTeamMembershipChanged emit session-upserted)早于 runBatonCleanup archive caller
-      // 完成 — 即使 archive 100% 成功也触发(异步 await 几十-几百 ms),不依赖 archive 失败子集。
+      // 数据层不应记录 spawn-link 假装是 spawn 派遣关系(hand-off-session.ts:21-39 jsdoc 设计
+      // 意图明文「不是派出小弟干活」)。
       //
-      // 修法理由(R1+R1.5 反驳轮 codex 最终立场,claude grep 验证 7 处 spawned_by_filter 全
-      // reviewer 派活路径无 production 消费方,无副作用):baton 是 caller 单向交出 + 新 session
-      // 独立接手(hand-off-session.ts:21-39 jsdoc 设计意图明文「不是派出小弟干活」),不是 spawn
-      // parent-child 关系。数据层不应记录 spawn-link 假装是 spawn 派遣关系。
-      //
-      // 历史 CHANGELOG_98 batonMode lateral spawnDepth 写入意图是给 spawn-guards 跳 depth check
-      // 用,**不是** UI 区分 baton vs spawn 显示;方案 5(改 SessionList 用 spawnDepth 区分)是用
-      // depth 字段编码 type 的 ad-hoc encoding(若未来真需要 baton chain audit,应引入显式
-      // `spawn_link_kind: 'spawn' | 'baton'` 枚举字段或独立 baton-link 表)。
+      // 历史名词 `batonMode` 已 rename `handOffMode`(plan §D6)+ 语义升级(原仅跳 depth →
+      // 现跳三道 + 永不写 spawn-link)。历史 REVIEW_39/46/47/48 出现的 batonMode 同义于现
+      // handOffMode。
       //
       // 副作用范围(已逐一验证无影响):
-      // - LineageSection.tsx 仅画 active team members(leftAt === null);baton default 不传
+      // - LineageSection.tsx 仅画 active team members(leftAt === null);hand-off default 不传
       //   team_name → 新 session 不入 team → LineageSection 不渲染 → 无影响
-      // - list_sessions(spawned_by_filter) 救火针对 reviewer 派活路径,不针对 baton 路径
-      //   (baton 后 caller 已 archive 退出,无人捡 baton child)
+      // - list_sessions(spawned_by_filter) 救火针对 reviewer 派活路径,不针对 hand-off 路径
+      //   (default archive_caller=true 后 caller 已 archive 退出,无人捡 hand-off child)
       // - PendingTab 用 session.teams[] 不用 spawnedBy → 无影响
       // - SessionDetail / TeamDetail 不引用 spawnedBy → 无影响
       // - spawn-guards.ts depth check 用 callerSession.spawnDepth 不用新 session.spawnDepth
       //   → 无影响
       // **[caller-scoped #1/4]** spawn-link 写入(grep anchor 详 L148-160 callerExists 定义)
-      if (callerExists && shouldWriteSpawnLink({ batonMode: opts?.batonMode })) {
+      if (callerExists && shouldWriteSpawnLink({ handOffMode: opts?.handOffMode })) {
         const newDepth = parentDepth + 1;
         sessionRepo.setSpawnLink(sid, caller.callerSessionId, newDepth);
       }
@@ -490,7 +486,7 @@ export const spawnSessionHandler = withMcpGuard(
       agentName: args.agent_name ?? null,
       displayName: teammateDisplayName,
       // **[caller-scoped #4/4]** spawnDepth fallback (grep anchor 详 L148-160 callerExists 定义)
-      spawnDepth: created?.spawnDepth ?? (callerExists && shouldWriteSpawnLink({ batonMode: opts?.batonMode }) ? parentDepth + 1 : 0),
+      spawnDepth: created?.spawnDepth ?? (callerExists && shouldWriteSpawnLink({ handOffMode: opts?.handOffMode }) ? parentDepth + 1 : 0),
       sentAt: Date.now(),
       // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 作为 teammate first reply anchor
       spawnPromptMessageId,

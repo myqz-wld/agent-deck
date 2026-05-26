@@ -86,14 +86,26 @@ function fakeMember(opts: {
   };
 }
 
-/** 构造一个返回 ok JSON 的 mock spawnSessionHandler */
-function makeOkSpawn(seenSpawnArgs: { ref: SpawnSessionArgs | null }) {
+/**
+ * 构造一个返回 ok JSON 的 mock spawnSessionHandler。
+ *
+ * **R2 codex LOW-2 修法**(plan handoff-no-spawn-guards-20260526 §D7):捕 spawnArgs 同时
+ * 也捕 opts(第三参),让 adopt_teammates:true 测试 case 可断言 opts.handOffMode === true
+ * + opts.batonRole === 'lead'(§不变量 7 hand-off 与 adopt 路径正交,§D1/§D6 hand-off 永
+ * 不写 spawn-link 不论 adopt_teammates 值)。
+ */
+function makeOkSpawn(
+  seenSpawnArgs: { ref: SpawnSessionArgs | null },
+  seenOpts?: { ref: { handOffMode?: boolean; batonRole?: 'lead' | 'teammate' } | null },
+) {
   return vi.fn(
     async (
       spawnArgs: SpawnSessionArgs,
       _ctx: HandlerContext,
+      opts?: { handOffMode?: boolean; batonRole?: 'lead' | 'teammate' },
     ): Promise<HandlerResult> => {
       seenSpawnArgs.ref = spawnArgs;
+      if (seenOpts) seenOpts.ref = opts ?? null;
       return {
         content: [
           {
@@ -1664,5 +1676,103 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
       teamId: 'team-MISSING',
       reason: 'team-archived',
     });
+  });
+});
+
+// plan handoff-no-spawn-guards-20260526 §D7 R2 codex LOW-2 修法:adopt_teammates: true 路径
+// 锁住 §不变量 7「adopt_teammates: true 路径不受影响 — adopt 是 swapLead 接管 lead 角色与
+// spawn-link / spawn-guards 正交」。原 makeOkSpawn 只捕 spawnArgs 不捕 opts → 改造让 mock spawn
+// 捕第三参 opts 后断言 opts.handOffMode === true + opts.batonRole === 'lead'(adopt 路径仍走
+// hand-off 路径完全跳 spawn-guards / 永不写 spawn-link)。
+describe('handOffSessionHandler — adopt_teammates 路径 opts 第三参覆盖 (R3 codex LOW-2 修法 §D7)', () => {
+  it('adopt_teammates: true → spawn opts.handOffMode === true + opts.batonRole === lead (§不变量 7 正交守门)', async () => {
+    const state = makeState();
+    state.files.set(
+      '/Users/test/repo/.claude/plans/adopt-opts-cover.md',
+      planContent({
+        planId: 'adopt-opts-cover',
+        worktreePath: '/Users/test/repo/.claude/worktrees/adopt-opts-cover',
+        status: 'in_progress',
+      }),
+    );
+
+    // caller 在 1 个 active team 是 lead(满足 N5 ≥1 lead 硬约束让 spawn 实际跑到)
+    vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipsBySession').mockReturnValue([
+      { teamId: 'team-A', sessionId: 'caller-sid', role: 'lead', joinedAt: 0, leftAt: null, displayName: null },
+    ]);
+    vi.spyOn(agentDeckTeamRepo, 'get').mockImplementation((teamId: string) => {
+      if (teamId === 'team-A') {
+        return {
+          id: 'team-A',
+          name: 'team-A',
+          createdBy: 'caller-sid',
+          createdAt: 0,
+          archivedAt: null,
+        } as never;
+      }
+      return null;
+    });
+    vi.spyOn(agentDeckTeamRepo, 'listAllMembers').mockReturnValue([]);
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+    const seenOpts = {
+      ref: null as { handOffMode?: boolean; batonRole?: 'lead' | 'teammate' } | null,
+    };
+    const mockSpawn = makeOkSpawn(seenSpawn, seenOpts);
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockSwapLead = vi.fn(
+      (_teamId: string, _oldSid: string, _newSid: string) => ({ swapped: true as const }),
+    );
+    const activeLifecycleGet = vi.fn(
+      (sid: string) =>
+        ({
+          id: sid,
+          agentId: 'claude-code',
+          cwd: '/Users/test/repo',
+          title: 'fake',
+          source: 'sdk',
+          lifecycle: 'active',
+          activity: 'idle',
+          startedAt: 0,
+          lastEventAt: 0,
+          endedAt: null,
+          archivedAt: null,
+          spawnedBy: null,
+          spawnDepth: 0,
+        }) as never,
+    );
+
+    const args: HandOffSessionArgs = {
+      plan_id: 'adopt-opts-cover',
+      adapter: 'claude-code',
+      adopt_teammates: true,
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      shutdownTeammates: noopShutdown,
+      implDeps: makeDeps(state),
+      swapLead: mockSwapLead,
+      getSessionForLifecycle: activeLifecycleGet,
+      listAllMembersForAdopt: agentDeckTeamRepo.listAllMembers,
+      closeSession: noopCloseSession,
+    });
+
+    expect(result.isError).toBeFalsy();
+
+    // 核心断言(§D7 R2 codex LOW-2 修法):mock spawn 第三参 opts 捕到的值
+    // adopt 路径走 hand-off 路径 — handOffMode=true + batonRole='lead'(与 §不变量 7 正交)
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    expect(seenOpts.ref?.handOffMode).toBe(true);
+    expect(seenOpts.ref?.batonRole).toBe('lead');
+
+    // 守门 §D7 第 3 条新增 case:hand-off + caller spawnDepth>0 路径下 spawnArgs.team_name
+    // 由 N2.c 互斥(args.team_name + adopt_teammates: true 不可同传)保证省略,本 case 验
+    // adopt 路径不传 team_name 透传给 spawn(adopt 自己装 cold-start prompt 含 adopted block)
+    expect(seenSpawn.ref?.team_name).toBeUndefined();
   });
 });

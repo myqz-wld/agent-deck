@@ -90,48 +90,57 @@ describe('applySpawnGuards — depth 上限', () => {
     expect('ok' in r).toBe(true);
   });
 
-  // CHANGELOG_98 / R2 deep review HIGH-1：K2 baton 接力跳 depth check（baton 单向交接
-  // 不构成 fork-bomb 风险）。仅 depth check 跳，fan-out + rate 仍 enforce（防 spam baton）。
-  it('batonMode=true → caller depth >= max 仍通过（跳过 depth check）', () => {
+  // plan handoff-no-spawn-guards-20260526 §D4/§D6: hand-off 路径完全跳过三道防御
+  // (depth + fan-out + spawn-rate)+ 不进 in-flight 计数表(原 batonMode 仅跳 depth,
+  // 现 handOffMode 跳全部)。故意推翻 REVIEW_46/47 「archive_caller=false 退化 normal spawn」修法。
+  it('handOffMode=true → caller depth >= max 仍通过(跳过 depth check,§D4 修法)', () => {
     seedSession('lead', { spawnDepth: 3 });
-    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { batonMode: true });
+    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { handOffMode: true });
     expect('ok' in r).toBe(true);
     if ('ok' in r) {
-      // parentDepth 字段仍返回真实值（spawn handler 用它决定 setSpawnLink 是否 +1）
+      // parentDepth 字段仍返回真实值(下游 spawn handler 在 handOffMode 路径不消费 +1 但显式返不增成本)
       expect(r.parentDepth).toBe(3);
       r.fanOutSlot.release();
     }
   });
 
-  it('batonMode=true 但 fan-out 上限仍 enforce（防 baton race 多次接力）', () => {
+  it('handOffMode=true 三道全跳 — fan-out 上限 + rate-limit 都不 enforce(§D4 推翻 REVIEW_46/47)', () => {
     settingsState.mcpMaxFanOutPerParent = 1;
+    settingsState.mcpSpawnRatePerMinute = 1;
     seedSession('lead', { spawnDepth: 3 });
     seedSession('c1', { spawnedBy: 'lead', lifecycle: 'active' });
-    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { batonMode: true });
-    expect('isError' in r).toBe(true);
-    if ('isError' in r) {
-      const data = JSON.parse(r.content[0].text);
-      expect(data.error).toMatch(/fan-out 1 reached/);
-    }
-  });
-
-  it('batonMode=true 但 rate-limit 仍 enforce（防 spam K2 接力）', () => {
-    settingsState.mcpSpawnRatePerMinute = 1;
-    seedSession('lead', { spawnDepth: 5 });
-    const r1 = applySpawnGuards(caller('lead'), '/p1', 'codex-cli', { batonMode: true });
+    // 即使 caller depth 撞顶 + DB 已有 1 child(fan-out=1) + 已起 1 次(rate=1),
+    // handOffMode=true 路径都无脑通过 — hand-off 是平级接力,完全不进 spawn-guards 防御
+    const r1 = applySpawnGuards(caller('lead'), '/p1', 'codex-cli', { handOffMode: true });
     expect('ok' in r1).toBe(true);
     if ('ok' in r1) r1.fanOutSlot.release();
-    const r2 = applySpawnGuards(caller('lead'), '/p2', 'codex-cli', { batonMode: true });
-    expect('isError' in r2).toBe(true);
-    if ('isError' in r2) {
-      const data = JSON.parse(r2.content[0].text);
-      expect(data.error).toMatch(/spawn rate exceeded: 1\/min/);
+    const r2 = applySpawnGuards(caller('lead'), '/p2', 'codex-cli', { handOffMode: true });
+    expect('ok' in r2).toBe(true);
+    if ('ok' in r2) r2.fanOutSlot.release();
+  });
+
+  it('handOffMode=true → 不进 in-flight 计数表 + token 不消耗(§D4 + R1 MED-6 + R2 LOW-3)', () => {
+    settingsState.mcpMaxFanOutPerParent = 5;
+    settingsState.mcpSpawnRatePerMinute = 5;
+    seedSession('lead');
+    const initialInflight = inFlightChildren.get('lead');
+    const initialTokenCount = spawnRateLimiter.currentCount;
+    const r = applySpawnGuards(caller('lead'), '/p1', 'codex-cli', { handOffMode: true });
+    expect('ok' in r).toBe(true);
+    if ('ok' in r) {
+      // hand-off 路径不调 inFlightChildren.inc(没进计数表)
+      expect(inFlightChildren.get('lead')).toBe(initialInflight);
+      // hand-off 路径 && 短路 → tryConsume 不调 → token 不消耗
+      expect(spawnRateLimiter.currentCount).toBe(initialTokenCount);
+      r.fanOutSlot.release();
+      // release 后仍是 0(因没 inc 过 dec 也是 no-op)
+      expect(inFlightChildren.get('lead')).toBe(initialInflight);
     }
   });
 
-  it('batonMode=false（默认）→ depth check 仍 enforce（普通 spawn 不受 batonMode 影响）', () => {
+  it('handOffMode=false(默认)→ depth check 仍 enforce(普通 spawn 不受 handOffMode 影响)', () => {
     seedSession('lead', { spawnDepth: 3 });
-    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { batonMode: false });
+    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { handOffMode: false });
     expect('isError' in r).toBe(true);
     if ('isError' in r) {
       const data = JSON.parse(r.content[0].text);
