@@ -143,7 +143,7 @@ Agent Teams 实验特性的 in-process backend：teammate 调工具走 inbox 协
 
 ## 反复反馈 / 反复踩坑 → 升级约定（自维护机制）
 
-避免用户重复给同样反馈、避免 agent 重复栽相同坑：候选放 `ref/conventions/tally.md`（项目根 `ref/conventions/` 目录，与 README / changelog/ / reviews/ 同级，git 管理；不再绑 `.claude/` 工具目录）。count ≥ 3 升级**不再**写到本文件「项目特定约定」节，改为新建 `ref/conventions/<X>-<topic>.md` + 同步 `ref/conventions/INDEX.md`，让本文件保持静态。
+避免用户重复给同样反馈、避免 agent 重复栽相同坑：候选放 `ref/conventions/tally.md`（项目根 `ref/conventions/` 目录，与 README / `ref/changelogs/` / `ref/reviews/` 同级，git 管理；不再绑 `.claude/` 工具目录）。count ≥ 3 升级**不再**写到本文件「项目特定约定」节，改为新建 `ref/conventions/<X>-<topic>.md` + 同步 `ref/conventions/INDEX.md`，让本文件保持静态。
 
 ### 两类候选（同一文件，分 section）
 
