@@ -411,11 +411,13 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
     // 关键: ok return 不阻塞(plan 收口已成功不该被 helper 故障带崩)
     expect(result.isError).toBeFalsy();
     const data = JSON.parse(result.content[0]!.text);
-    // 兜底状态: closed=[] + failed=[] + skipped=null(区别于 'caller-not-lead' 表示「helper 处理过,但无 result」)
+    // REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3): 兜底状态 closed=[] + failed=[] +
+    // skipped='phase-1-error' 第五态 (原 null 与「正常无 teammate」混淆,改 'phase-1-error'
+    // 显式区分 helper 真错 vs 正常路径)。
     expect(data.teammatesShutdown).toEqual({
       closed: [],
       failed: [],
-      skipped: null,
+      skipped: 'phase-1-error',
     });
     // archive caller 仍走(兜底关键: helper 故障不阻塞 archive)
     expect(mockArchive).toHaveBeenCalledTimes(1);
