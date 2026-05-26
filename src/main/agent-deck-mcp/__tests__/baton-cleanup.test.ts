@@ -132,7 +132,7 @@ describe('runBatonCleanup', () => {
     expect(result.archived).toBe('ok');
   });
 
-  it('case 5: shutdown 抛错 → 兜底 closed=[] + skipped=null + warn + archive 仍走', async () => {
+  it('case 5: shutdown 抛错 → 兜底 closed=[] + skipped=phase-1-error + warn + archive 仍走 (REVIEW_56 §F6 修法)', async () => {
     const shutdownFn = vi.fn(async (_sid: string) => {
       throw new Error('simulated DB exception in helper');
     });
@@ -148,7 +148,10 @@ describe('runBatonCleanup', () => {
       { shutdownTeammates: shutdownFn, archiveSession: archiveFn, getSession: getFn },
     );
 
-    expect(result.teammatesShutdown).toEqual({ closed: [], failed: [], skipped: null });
+    // REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3): helper 抛错改标 'phase-1-error'
+    // 第五态(原 null 与「正常无 teammate」混淆),便于 UX / 监控分辨「helper 真错」vs
+    // 「正常 caller=lead 但无其他 active teammate」。
+    expect(result.teammatesShutdown).toEqual({ closed: [], failed: [], skipped: 'phase-1-error' });
     // 关键: helper 故障不阻塞 archive caller(plan 收口已成功)
     expect(result.archived).toBe('ok');
     expect(archiveFn).toHaveBeenCalledTimes(1);

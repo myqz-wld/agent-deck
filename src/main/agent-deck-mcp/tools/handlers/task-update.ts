@@ -76,8 +76,13 @@ export const taskUpdateHandler = withMcpGuard(
       });
       // 仅当 status 变成 'completed' 时 ingest team-task-completed AgentEvent ——
       // 避免每次属性 update 都污染事件流。D7：仅 in-process transport ingest。
+      // REVIEW_56 §F7 修法 (Plan-Review Round 1 + spike 决策): 加 `updated.status === 'completed'`
+      // 第三条件防御 — 若 `taskRepo.update` 因 v024 team_id check 拒掉 status patch,
+      // `patch.status='completed'` 但 `updated.status='pending'` 漂移时不应误触 becameCompleted。
       const becameCompleted =
-        patch.status === 'completed' && existing.status !== 'completed';
+        patch.status === 'completed' &&
+        existing.status !== 'completed' &&
+        updated.status === 'completed';
       if (becameCompleted && ctx.caller.transport === 'in-process') {
         // v024 Round 1 MED-2 修法:teamName 取 updated.teamId lookup（不走 getCallerFirstTeamName）
         const teamName = updated.teamId

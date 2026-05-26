@@ -255,7 +255,7 @@ export function createMemberCrudHelpers(
     newLeadSid: string,
     opts?: { newDisplayName?: string | null },
   ): { swapped: true } | { swapped: false; reason: string } {
-    const newDisplayName = opts?.newDisplayName ?? null;
+    const newDisplayName = opts?.newDisplayName?.trim() || null;
     try {
       const result = db.transaction(() => {
         // Phase A.0: precheck oldLeadSid 是 active lead

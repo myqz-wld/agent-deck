@@ -46,9 +46,19 @@ export interface ShutdownTeammatesResult {
    *   hand_off_session adopt_teammates: true 时 baton-cleanup helper 跳过本 helper(由
    *   handler 层 baton-cleanup 入参 adoptTeammates: true 标定)— Phase 3 完成时仅类型预留
    *   不会出现
+   * - 'phase-1-error': **REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3)**: caller layer
+   *   `runBatonCleanup` 内本 helper 抛错(罕见 DB 异常 / mock 失败) 时由 caller layer 兜底标 —
+   *   与 caller layer `null` (正常处理含 closed=[] caller=lead 但无其他 active teammate) 显式
+   *   区分,便于 UX 与监控分辨「helper 真错」vs「正常无 teammate」。注意本 helper 自身**不会**
+   *   返 'phase-1-error' (此值由 baton-cleanup.ts caller layer catch block 写入兜底 result)
    * - null: helper 正常处理完（含「caller 是 lead 但 team 内无其他 active teammate」的 closed=[] case）
    */
-  skipped: 'caller-not-lead' | 'all-lead-teams-archived' | 'adopt-keep-implicit' | null;
+  skipped:
+    | 'caller-not-lead'
+    | 'all-lead-teams-archived'
+    | 'adopt-keep-implicit'
+    | 'phase-1-error'
+    | null;
 }
 
 export interface ShutdownTeammatesDeps {

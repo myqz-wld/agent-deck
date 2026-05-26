@@ -160,10 +160,15 @@ export interface RunBatonCleanupResult {
    * Phase 1 结果(直接来自 shutdownTeammatesOnBaton 或兜底默认值):
    * - closed: 成功 close 的 teammate sid 列表(已 dedup 跨 team 共享同 sid)
    * - failed: close 失败的 teammate(含 reason),warn 不阻塞
-   * - skipped: 'caller-not-lead'(caller 不是 lead) /
-   *   'adopt-keep-implicit'(plan hand-off-session-adopt-teammates-20260520 Phase 4 引入,
-   *   adopt_teammates: true 时 teammate 由 swapLead 接管不 shutdown — Phase 3 完成时未启用) /
-   *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate / helper 抛错兜底)
+   * - skipped 五态(REVIEW_56 §F6 + 历史 R2 + Phase 4 累积):
+   *   - 'caller-not-lead': caller 不是 lead(含 external sentinel)
+   *   - 'all-lead-teams-archived': caller 是 lead 但所有相关 team 已 archived(R2 修法 UX 精度)
+   *   - 'adopt-keep-implicit': hand_off_session adopt_teammates: true 时 teammate 由 swapLead
+   *      接管不 shutdown — Phase 4 引入,Phase 3 阶段类型预留不出现
+   *   - 'phase-1-error': **REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3)**: 本 caller layer
+   *      catch block 兜底标 — `shutdownTeammatesOnBaton` helper 抛错(DB 异常 / mock 失败)时区分
+   *      于 null 「正常无 teammate」
+   *   - null: 正常处理含 closed=[] 的 caller=lead 但 team 内无其他 active teammate
    */
   teammatesShutdown: ShutdownTeammatesResult;
   /**
@@ -230,7 +235,10 @@ export async function runBatonCleanup(
         `[mcp ${input.toolName}] shutdownTeammatesOnBaton helper failed for caller ${input.callerSessionId}:`,
         e,
       );
-      teammatesShutdown = { closed: [], failed: [], skipped: null };
+      // REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3): helper 抛错兜底改标 'phase-1-error'
+      // 第五态(原 null 与「正常无 teammate」混淆),便于 UX / 监控分辨「helper 真错」vs
+      // 「正常 caller=lead 但无其他 active teammate」。
+      teammatesShutdown = { closed: [], failed: [], skipped: 'phase-1-error' };
     }
   }
 
