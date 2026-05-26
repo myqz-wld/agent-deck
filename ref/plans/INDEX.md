@@ -62,3 +62,4 @@
 | [review-56-followups-20260526.md](review-56-followups-20260526.md) | completed | — | review-56-followups-20260526 |
 | [handoff-no-spawn-guards-20260526.md](handoff-no-spawn-guards-20260526.md) | completed | [151](../changelogs/CHANGELOG_151.md) | handoff-no-spawn-guards-20260526 |
 | [session-list-handoff-role-badge-20260526.md](session-list-handoff-role-badge-20260526.md) | completed | [152](../changelogs/CHANGELOG_152.md) | session-list-handoff-role-badge-20260526 |
+| [ref-layout-full-migration-20260526.md](ref-layout-full-migration-20260526.md) | completed | [153](../changelogs/CHANGELOG_153.md) | ref-layout-full-migration-20260526 |
