@@ -37,9 +37,12 @@ export function makeCallerContext(
   transport: CallerContext['transport'],
 ): CallerContext {
   // REVIEW_32 HIGH-9：caller_session_id 改 optional 后，in-process 走 override 注入真实 sid；
-  // external (HTTP/stdio) 没 override → 用占位 '__external__'，下游 denyExternalIfNotAllowed
+  // external (HTTP/stdio) 没 override → 用占位 EXTERNAL_CALLER_SENTINEL，下游 denyExternalIfNotAllowed
   // 兜底拒绝需要真实 session 上下文的 tool。空字符串 / null 都视为缺省。
-  const callerSid = rawCallerSid && rawCallerSid.length > 0 ? rawCallerSid : '__external__';
+  // REVIEW_56 §F8 修法 (Plan-Review Round 1 + spike 决策): raw '__external__' literal 替换为
+  // EXTERNAL_CALLER_SENTINEL const (types.ts:16 已 SSOT);其他 user-facing error / hint message
+  // text (L81/L96/L104/L190) 故意保留字面值方便用户 grep 定位,不替换。
+  const callerSid = rawCallerSid && rawCallerSid.length > 0 ? rawCallerSid : EXTERNAL_CALLER_SENTINEL;
   return {
     callerSessionId: callerSid,
     parentSessionId: rawParentSid ?? callerSid,
