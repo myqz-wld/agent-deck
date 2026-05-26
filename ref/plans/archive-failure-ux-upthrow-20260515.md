@@ -140,7 +140,7 @@ jsdoc 明示**仅 IPC AdapterSendMessage 触发(用户从 UI/CLI 显式 sendMess
 
 - 来源 plan: [`plans/hand-off-mcp-teammate-bug-20260515.md`](hand-off-mcp-teammate-bug-20260515.md)(收口时挖出本独立 root cause)
 - 来源 review: [`reviews/REVIEW_39.md`](../reviews/REVIEW_39.md) HIGH-3 R37 caller 仍 active 独立正交 root cause
-- 来源 changelog: [`changelog/CHANGELOG_112.md`](../changelog/CHANGELOG_112.md) 「不修 §与本 bug 正交的独立 root cause」节
+- 来源 changelog: [`changelog/CHANGELOG_112.md`](../changelogs/CHANGELOG_112.md) 「不修 §与本 bug 正交的独立 root cause」节
 
 ## 已知踩坑
 

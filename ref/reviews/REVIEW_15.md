@@ -109,7 +109,7 @@ src/shared/types.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_41.md](../changelog/CHANGELOG_41.md)：本次实施变更落地
+- [CHANGELOG_41.md](../changelogs/CHANGELOG_41.md)：本次实施变更落地
 
 ## Agent 踩坑沉淀
 

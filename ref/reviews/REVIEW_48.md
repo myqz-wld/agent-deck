@@ -93,6 +93,6 @@ heterogeneous_dual_completed: true
 
 ## 关联归档
 
-- [CHANGELOG_129](../changelog/CHANGELOG_129.md)：本 plan 22 commit chain 完整变更
+- [CHANGELOG_129](../changelogs/CHANGELOG_129.md)：本 plan 22 commit chain 完整变更
 - plan archive 路径：`<main-repo>/plans/deep-review-batch-a1-b-followup-r3-20260519.md`（C6 archive_plan tool 完成后）
-- 上轮 plan 引用：[REVIEW_47](REVIEW_47.md) + [CHANGELOG_128](../changelog/CHANGELOG_128.md) (deep-review-batch-a1-b-fixes-20260519)
+- 上轮 plan 引用：[REVIEW_47](REVIEW_47.md) + [CHANGELOG_128](../changelogs/CHANGELOG_128.md) (deep-review-batch-a1-b-fixes-20260519)

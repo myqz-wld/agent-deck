@@ -117,8 +117,8 @@ src/renderer/stores/session-store.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_29.md](../changelog/CHANGELOG_29.md)：补描述 4 个微调 commits（c182377 + 93dac34 + e34cb3e + 9dd4698）—— 本 review 触发「为这 4 个 commit 补 changelog」
-- [CHANGELOG_30.md](../changelog/CHANGELOG_30.md)：本次 REVIEW_7 修复落地（H1 + M1-M4 + L1-L4）
+- [CHANGELOG_29.md](../changelogs/CHANGELOG_29.md)：补描述 4 个微调 commits（c182377 + 93dac34 + e34cb3e + 9dd4698）—— 本 review 触发「为这 4 个 commit 补 changelog」
+- [CHANGELOG_30.md](../changelogs/CHANGELOG_30.md)：本次 REVIEW_7 修复落地（H1 + M1-M4 + L1-L4）
 
 ## Agent 踩坑沉淀
 

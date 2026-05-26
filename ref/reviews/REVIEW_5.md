@@ -119,7 +119,7 @@ src/renderer/stores/session-store.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_24.md](../changelog/CHANGELOG_24.md)：本次修复落地
+- [CHANGELOG_24.md](../changelogs/CHANGELOG_24.md)：本次修复落地
 
 ## Agent 踩坑沉淀（如有）
 

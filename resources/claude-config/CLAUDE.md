@@ -97,6 +97,403 @@ SKILL 入口必须先 AskUserQuestion(2-3 题)对齐 — **是否核心变更 / 
 - 与本应用 `agent-deck:flow-arch-plantuml` SKILL **关注点分离**:本节定位置/INDEX 规则,SKILL 定画图技术 — 两边修改时**不要复制 SSOT**,只保留 cross-ref(详 user CLAUDE.md §提示词资产维护 约束 1 SSOT)
 
 ---
+## 复杂 plan：worktree 隔离 + 跨会话 hand off + RFC / spike / Deep-Review 前置
+
+单会话上下文容量有限（200K-1M token，溢出触发 compaction 把旧信息压缩丢失）。**预计跨多会话**的 plan 必须在动手**前**就设计成两层隔离：
+
+- **空间**：git worktree 锁**代码改动**在 `.claude/worktrees/<plan-id>/`，主分支代码区零污染
+- **时间**：plan 文件保留跨会话进度 / 决策 / 下一步，新会话 cold start 直接接力
+
+不要等 context 70%+ 才临时抢救。
+
+### 触发（任一即走）
+
+- **预计跨 ≥ 2 个会话才能收口**（≥ 5 个非 trivial step / 跨多模块 / ≥ 数百行代码 / 当前会话已吃 ≥ 40-50% 上下文 / **OR 含不确定 design / SDK 行为未知 / 需 spike 才能完成设计**）
+- **破坏性 / 实验性改动，希望失败时整片回退**
+- **跨 adapter / 跨 schema / 跨进程边界改造**（独立代码量不大但牵动多底层组件）
+
+### 新流程总览（v2，触发后执行序）
+
+```
+Step 0    §RFC 前置        (agent 主动 AskUserQuestion 多轮对齐 design 大方向 / 不变量 / 边界)
+Step 0.5  §spike 前置      (agent 写 mini-runner 实测 SDK / lib 行为, 输出 spike-reports/)
+Step 1    §Plan 文件 hand off (agent Write plan 文件 inline RFC + spike 结论 / 设计决策 / 步骤 checklist)
+Step 1.5  §Deep-Review     (agent invoke 应用环境提供的 deep-review SKILL,reviewer 出 finding fix 直到通过)
+Step 2    §EnterWorktree   (user confirm 后, agent 进 worktree; 不再是 plan 写作前置)
+Step 2.5  §何时主动 hand off (lead 自检触发跨会话接力)
+Step 3    §接力姿势        (会话末必做 + 选项 A/B 起新会话)
+Step 4    §plan 完成 / 中止 cleanup
+```
+
+### Step 0. RFC 前置（agent 主动起 AskUserQuestion 对齐 design）
+
+**触发**（任一即走）：
+- §触发 命中 + 含不确定 design / SDK 行为未知 / 选型问题
+- 重要 design 决策（架构 / 选型 / 重构方向 / breaking change 接口设计）
+- 用户明示「商讨」「rfc」「先讨论再动手」
+
+**形式**：
+- agent 主动用 `AskUserQuestion` 多轮（每轮 3-4 个问题，2-3 轮内对齐）
+- 每轮聚焦一个 design 维度（如 schema 选型 / 边界条件 / 不变量定义 / fallback 策略）
+- 用户回答 → agent 综合到下一轮 / 收敛结论
+- **不要等用户先发起**：agent 识别「这步前我不确定该怎么 design」即起 RFC
+
+**输出**：
+- design 结论 inline 到 plan §设计决策节（每条决策含 RFC 来源 reference，如 `(RFC 第 N 轮 Q2)`）
+- 不变量 / 边界条件 inline 到 plan §不变量节
+- 不确定项标注 *待 spike 验证* 留 Step 0.5
+
+**与 §决策对抗 主路径关系**：正交。RFC 是「design 大方向对齐」（与用户讨论），决策对抗是「结论评审」（双 Bash 起异构 CLI 单次 review）。RFC 后仍可叠加决策对抗。
+
+### Step 0.5. Spike 前置（实测 SDK / lib 行为验证假设）
+
+**触发**：
+- RFC 阶段发现 SDK / 三方 lib / 系统 API 行为未知（"我想这样 design 但不知 SDK 是否支持"）
+- 关键假设未实证（性能 / 边界 / 错误处理 / sandbox 等）
+- plan §设计决策内含 *待 spike 验证* 标注
+
+**形式**：
+- **路径术语**：`<plan-file-dir>` = plan 文件所在目录；`<plan-artifact-dir>` = `<plan-file-dir>/<plan-id>/`（与 `<plan-id>.md` 平级的 artifacts 目录）
+- 写 mini-runner（Bash `run_in_background` 起外部 CLI / Python script / Node script）
+- 输出落盘到 `<plan-artifact-dir>/spike-reports/spike<N>-<topic>.md`（每个 spike 独立 md + 可选 .mjs / .py runner 源码）
+- spike md 含：动机 / 假设 / 实测命令 / 实测结果 / 结论 / 残留风险
+
+**输出**：
+- spike 结论 inline 到 plan §设计决策（含实测铁证 + 残留风险）
+- plan §设计决策内 *待 spike 验证* 标注改为 *已 spike：实证 X / 假设 Y 推翻*
+- 残留风险列表入 plan §已知踩坑
+- **归档**：spike 产物（spike md + runner + .log trace）写作期落在 `<plan-artifact-dir>/spike-reports/`；plan 完成时按 §Step 4 完成节 step 3 一起 mv 到 `<main-repo>/ref/plans/<plan-id>/spike-reports/`，成为归档 plan .md 的同名 artifacts 目录并入 git（design 决策溯源 evidence 永久保留）
+
+**与 §决策对抗 主路径关系**：正交。spike = 实测假设（单 runner 跑 SDK），决策对抗 = 评审结论。两者可叠加（spike 实证后仍走对抗 review 评审 design 是否合理）。
+
+### Step 1. Plan 文件 hand off（时间隔离）
+
+新建 plan 文件，**用绝对路径写入**（不要写到 worktree working tree——worktree 是独立 branch，跨会话主 repo 看不到该 branch 的文件）。三个合法位置：
+
+- `<main-repo-abs-path>/ref/plans/<plan-id>.md` —— **项目内 git 归档版（completed 落此）**。在统一参考资产根 `ref/` 下，与 `ref/changelogs/` `ref/reviews/` `ref/conventions/` 同级，跟项目一起入 git。同步建 `ref/plans/INDEX.md` 一行表索引
+- `<main-repo-abs-path>/.claude/plans/<plan-id>.md` —— project-specific local 工作目录（`.gitignore` 必加 `.claude/plans/`）。适合 in_progress 短临时草稿；完成后挪到 `<main-repo>/ref/plans/`
+- `~/.claude/plans/<plan-id>.md` —— 跨项目 plan 或 CLI `/plan` slash command 默认位置；不入任何项目 git
+
+不论哪种位置，§Step 3 cold start prompt 必须写明绝对路径，让新会话能直接 `Bash: cat`（详 §Step 3 末尾 callout 关于跨会话第一次读「长期存在 + 其他会话动过的文件」必须走 cat 而非 Read 的原因）。
+
+`<plan-id>` 命名 `<topic>-<YYYYMMDD>`（如 `mcp-server-rollout-20260511`），与 §Step 2 worktree branch / 目录名严格一致。**字符集限 `[A-Za-z0-9._-]`、单 segment ≤ 64 字符**（EnterWorktree 工具校验）。
+
+**plan 内容**：
+- frontmatter: `plan_id` / `created_at` / `worktree_path`（绝对路径）/ `status: in_progress|completed|abandoned` / `base_commit` / `base_branch`（切 worktree 时所在的分支名 —— §Step 4「完成」ff-merge 目标，**默认不是 main**，是创 plan 时主仓库当前 HEAD 所在分支；feature branch 上跑 plan 时这个值就是 feature branch 名，让 worktree 改动合回 feature branch 而非 main 误污染主线）
+- **总目标 & 不变量**（含 Step 0 RFC 决策 + Step 0.5 spike 实证）
+- **设计决策（不再争论）**：每条带简短理由（含 RFC 来源 reference / spike 实证 reference）
+- **步骤 checklist**：`- [x] Step N — done by <session> on <date>，commit <hash|uncommitted>`
+- **当前进度**：卡在哪 / 已验什么 / 未验什么
+- **下一会话第一步**：cold start 的**完整指令载体**，具体到「先 `Bash: cat X` / 跑 `pnpm Y` / 改 `Z:line`」级别（**不要写 `Read X`**——cold start 跨会话第一次读文件强制走 `Bash: cat`，详 §Step 3 末尾 callout）。**所有指向代码资产的路径用 worktree 内绝对路径**（路径规则见 §Step 2 末 callout）
+- **已知踩坑**（可选）
+
+### Step 1.5. Deep-Review（plan 写完先评审 design / 流程一致性 / 不变量）
+
+**触发**：Step 1 plan 文件写完，进 Step 2 EnterWorktree **之前**必走（确保 design 经评审才进 worktree 实施，避免后期发现 design 错误整片返工）。
+
+**形式**：
+- agent 主动 invoke 应用环境提供的 deep-review SKILL（如 agent-deck 应用环境的 `/agent-deck:deep-review`）
+- args（typed scope）：`{kind: 'plan', paths: ['<plan-abs-path>']}`（plan 评审走 kind='plan' 模板）；如同时含 code 实施一致性需 review → kind='mixed'
+- SKILL 内部走多轮异构对抗（reviewer-claude / reviewer-codex teammate）+ 反驳轮 + 三态裁决
+- finding HIGH 必修 / MED 现场验证 → fix 直到 reviewer 共识可合
+
+**输出**：
+- 修订后的 plan 文件（design 经过双对抗评审，不变量明确，步骤 checklist 行级精确）
+- 若 review 出 HIGH design 缺陷 → 回到 Step 0 RFC / Step 0.5 spike 重新对齐
+- 若 0 HIGH 0 真 MED → 进 Step 2 EnterWorktree
+
+**与 §决策对抗 关系**：本 Step 1.5 = 复杂 plan 内嵌的多轮深度 review；§决策对抗 主路径是单次决策对抗（双 Bash 起外部 CLI）。复杂 plan 走多轮 SKILL 编排，单次决策走主路径。
+
+> ⚠️ **没有应用环境提供 deep-review SKILL 时**：降级为 §决策对抗 主路径单次 review（双 Bash 起外部 CLI，模板 `~/.claude/templates/reviewer-{claude,codex}.sh.tmpl`），仅评审 plan 文件本身（不含多轮 fix loop）。这是 fallback 不是替代,有应用 SKILL 优先用 SKILL。
+
+### Step 2. EnterWorktree（空间隔离 — user confirm 后才进）
+
+**前置**：Step 1 plan 写完 + Step 1.5 Deep-Review 通过 + **user 明确 confirm 进 worktree 实施**（agent 不能在 user 没看完 plan + review finding 前自动进 worktree）。
+
+**进 worktree 操作**（避开 §EnterWorktree CLI stale base bug 必须走主路径 (b) Bash 显式建 worktree + EnterWorktree(path:) 进入，详 §EnterWorktree CLI stale base bug callout）：
+
+```bash
+# 1. 在 main repo 跑（cwd 在 main repo 或任何子目录都可）
+git -C <main-repo-abs-path> worktree add -b worktree-<plan-id> <main-repo-abs-path>/.claude/worktrees/<plan-id>
+# 2. 用 EnterWorktree(path: ...) 进入已建好的 worktree（注意是 path 不是 name）
+```
+```
+EnterWorktree(path: "<main-repo-abs-path>/.claude/worktrees/<plan-id>")
+```
+
+所有代码改动 / 测试 / 验证全在 worktree 里跑。
+
+> `EnterWorktree` 工具默认禁用（仅当用户或 CLAUDE.md 显式要求才用）。**只有触发条件 + Step 1 + Step 1.5 全过且 user 显式 confirm 进 worktree 后**，本节才授权直接走上面 Bash + EnterWorktree(path:) 进 worktree。
+> **不要用 `EnterWorktree(name: "<plan-id>")` 一步创+进**：撞 CLI v2.1.112 stale base bug（详下方 callout），必须走 Bash + path 两步形式。仅当 §何时仍可用 `EnterWorktree(name: ...)` callout 三种例外场景才可用 name 单步形式。
+
+`<plan-id>` 命名遵守 §Step 1 plan 文件 stem 一致性约束。
+
+#### ⚠️ EnterWorktree CLI **stale base bug**（v2.1.112 实测，必看）
+
+**Claude Code CLI v2.1.112 builtin EnterWorktree 工具默认 base 用 `origin/<default-branch>` 而非本地 HEAD**（CLI tool description 明文承诺 `based on HEAD` 与实现严重不符 = contract vs implementation 矛盾 bug）。
+
+**触发条件**：本地 `HEAD != refs/remotes/origin/<default>`（即本地 ahead / behind / divergent origin） + 有 origin remote 配置 + `refs/remotes/origin/<default>` ref 存在 → **必中**。典型场景：
+- `commit` 但未 `push`（本地 ahead origin 1+ commits） — **R37 archive_plan 完成后立即 EnterWorktree 是教科书级触发**
+- `git pull` 完后立即 commit
+- feature branch 上 commit 未 push
+- 任何长会话中本地有未同步 commit
+
+**症状**：新 worktree HEAD = `origin/<default>`（last fetch 状态）落后本地 HEAD 二十甚至更多 commit。改动基于 stale base → ff-merge 失败 / 与 main 已有改动冲突 / 测试基于 stale 验证不可信。**Edit / Read 在 worktree 里报「成功」时根本看不出**，直到收口阶段才暴露。
+
+**主路径 (b)**：**禁用** `EnterWorktree(name: ...)` 创新 worktree，改用 §Step 2 EnterWorktree 节开头的 Bash + `EnterWorktree(path: ...)` 两步形式（隐式用 HEAD 作 base）。`git worktree add -b <branch> <path>`（省略 `<commit-ish>`） git 默认用 HEAD 作 start-point（man page 保证），**实测铁证 worktree HEAD == main HEAD**。
+
+**兜底自检 (a)**：万一已经用 `EnterWorktree(name: ...)` 创了 worktree（如老 plan / 历史代码 / 临时探索），进 worktree 后**立即**自检 + 修正：
+
+```bash
+# 自检：worktree HEAD 应等于 main repo HEAD
+git -C <worktree-abs-path> rev-parse HEAD              # 新 worktree HEAD
+git -C <main-repo-abs-path> rev-parse HEAD              # main repo HEAD（cwd 在 worktree 时显式 -C 主仓库）
+# 不等 → reset 修正（destructive，请确认 worktree 内无未保存改动；submodule 加 --recurse-submodules）
+git -C <worktree-abs-path> reset --hard <main-HEAD>
+```
+
+**何时仍可用 `EnterWorktree(name: ...)`**：
+- 本地 HEAD 已经等于 origin/<default>（最近 push 完且 fetch 同步） — 此时 stale 退化为 0 commit
+- 没有 origin remote 配置（local-only repo） — CLI 走 `$ = "HEAD"` fallback 路径正确
+- 你**明确**想从 origin/<default> 起手（非 plan 工作流场景）
+
+**追溯**：上游 bug 跟踪走 anthropics/claude-code GitHub issue（complete reproduction recipe 详细分析见 agent-deck 项目 [`reviews/REVIEW_38.md`](https://github.com) 与 plan `worktree-stale-base-bug-20260515`，包含 cli.js byte offset / minified code 反编译 / git man page 实证 / reflog 加强证据）。
+
+#### ⚠️ worktree 路径陷阱（**唯一**一处约束，§Step 1 / §Step 3 引用此处）
+
+进 worktree 后，凡指向**代码资产**的路径都必须含 `.claude/worktrees/<plan-id>/` 前缀。`cwd` 切了不代表绝对路径自动重映射 —— 不带前缀 + worktree cwd = 操作主仓库文件、worktree 内岿然不动，Edit / Read 都报「成功」实际上主仓库被悄悄污染。
+
+**必须落 worktree**：Edit / Read / Write / Grep / Glob 的 path；Bash 命令体内绝对路径；`git -C`；外部 CLI 的 `-C` / `--cwd` / `--workdir`。**例外**（非代码资产）：plan 文件本身、`~/.claude/...` 配置、worktree 之外其他独立项目。
+
+**防再踩**：(1) 进 worktree 第一件事 `Bash: pwd` 自检；(2) 路径快速取法 `echo "$(pwd)/<rel>"`；(3) 大批量编辑后双向 `git status` 验证（worktree 应 dirty / 主仓库应 clean），改错只 `git -C <main> checkout -- <污染文件>`，**严禁** `git reset --hard`；(4) plan「§下一会话第一步」直接写 worktree 内绝对路径。
+
+### Step 2.5 何时主动 hand off（lead 自检触发）
+
+§Step 1 + §Step 2 决定要不要进 worktree + 写 plan；本节决定**当前会话**要不要现在 hand off。lead 周期性自检，触发信号 + 前置全满足 → 主动走 §选项 B（环境提供自动 tool 时）或 §选项 A（兜底）；不要等 context 烧到 80%+ 才被动 compaction。
+
+**触发信号**（任一即考虑）：完成一个独立 phase（与下一 phase mental model 重叠度低）/ 用户语义信号（「告一段落」/「换个会话继续」/「context 太满了」类）/ 可选 context ≥ 60%（仅当 host 通过 system reminder 明示 token usage 时启用 — agent 端无 self-introspection API，多数 turn 用不到）
+
+**前置条件**（必须全满足）：worktree clean（`git status` 空）+ plan「下一会话第一步」+「当前进度」节已写好
+
+**默认动作**：环境提供自动接力 tool → §选项 B 一行完成 baton + 归档；否则 → §选项 A 把 cold start prompt 给用户
+
+**前置不满足时**：worktree dirty → 先 commit；plan 节空 / 偏离 → 先写。**例外**（暂不 hand off）：正在跑不可分割事务（typecheck / build / 测试）等收尾；用户明示「先做完 X 再说」听用户。
+
+> ⚠️ 环境未提供自动接力 tool / tool 不可用（如 plan_id 已 status=completed）→ 退化到 §选项 A。
+
+### Step 3. 接力姿势
+
+#### 会话结束前必做
+
+1. 更新 plan：打勾完成步骤 + 写「当前进度」+ 写「下一会话第一步」
+2. **退出 worktree** 一律用 `ExitWorktree(action: "keep")`（详 §Step 4）
+3. 起新会话（两种选项 §A / §B 二选一，看应用环境）
+
+#### 选项 A：把 cold start prompt 给用户（默认；任何应用环境都适用）
+
+```
+按 <plan-abs-path> 接力
+```
+
+例：`按 /Users/<user>/Repository/<your-project>/.claude/plans/<plan-id>.md 接力`
+
+新会话 agent 看到这一句**必做**：
+
+1. `Bash: cat <plan-abs-path>` 全文（详下方 callout 关于强制 cat 的范围）
+2. 从 frontmatter 拿 `worktree_path` → `EnterWorktree(path: <worktree_path>)` 进同一 worktree（用 `path`，不是 `name`）
+3. （可选自检）`git log --oneline -3` 确认 HEAD = frontmatter `base_commit` 或之后
+4. 按 plan **§下一会话第一步** 节直接动手；**不重新讨论已记录的 §设计决策**；**所有指向代码资产的路径换 worktree 前缀**（路径规则见 §Step 2 末 callout）
+5. 进度 / 决策变更必须先告诉用户征得确认
+
+> ⚠️ **跨会话第一次读「长期存在 + 其他会话动过的文件」（含 hand off plan 本身 / 本节 §下一会话第一步指向的代码资产文件）必须走 `Bash: cat`，严禁用 `Read` 工具** —— Claude Code CLI 在「新会话 + 同 cwd + 同 system prompt」组合下会复用前会话 jsonl 里同 file_path 的 cached Read tool_result（不真去读 fs），导致拿到旧版本内容。`Bash: cat` 走 shell 通道每次真跑 fs。**作用范围**：仅跨会话第一次 + 长期存在 + 其他会话动过的文件；本会话内自己刚改 / 刚 Read 过的文件不约束。
+
+#### 选项 B：用环境提供的自动接力 tool 起新会话（如挂载了 mcp 编排能力）
+
+如果当前会话所在的应用环境提供了接力自动化 tool（如 Agent Deck MCP 的 `hand_off_session`），调它一行完成：起新 SDK session（cold start prompt = `按 <plan-abs-path> 接力`）+ 自动归档当前 caller。
+
+具体调用方式 / args / 返回值 / cwd resilience / baton 语义 / 双模式（plan-driven vs generic）/ default team 行为等细节由各应用 CLAUDE.md / SKILL 定义（应用 build 时把工具 description 注入 SDK system prompt 的 tool definitions），本节不重复 SSOT。
+
+> ⚠️ 走自动 tool 起的新 session 同样按 §选项 A cold start 流程跑（cat plan + EnterWorktree + 自检 + 动手）。新 session 必须能加载 user CLAUDE.md（即本节）才知道 cold start prompt 是什么意思 —— 应用 SDK 会话通过 `settingSources: ['user', ...]` 自动满足；oneshot SDK 会话需调用方手动注入。
+
+### Step 4. plan 完成 / 中止 cleanup
+
+> ⚠️ `ExitWorktree(action: "remove")` **只对当前会话自己创建的 worktree 有效**；用 `path` 参数进入的现有 worktree 上 CLI validateInput 直接拒（errorCode 4，强制 `keep`）。跨会话场景**统一**走 `keep` + Bash 手动 `git worktree remove` 或下文的 mcp tool 自动化。
+
+#### 完成
+
+> 💡 如环境提供 plan 归档自动化 tool（如 mcp 形式），优先调它**一行原子完成**替代下方手工序列；具体 schema / 自动做的事情 / 预检规则 / 返回值由各应用 CLAUDE.md / SKILL 定义，本节不重复。
+
+通用 5 步收尾（手工或被自动 tool 等价执行）：
+
+1. `ExitWorktree(action: "keep")` —— 先把 cwd 切出 worktree（自动 tool 也不能调 ExitWorktree CLI 内部 tool，caller 必须先做这步）
+2. worktree branch 合回**切 worktree 时所在的原分支**（plan frontmatter 里的 `base_branch`，不是直接 main）：
+   ```bash
+   git -C <main-repo-abs-path> checkout <base-branch>
+   git -C <main-repo-abs-path> merge --ff-only worktree-<plan-id>
+   ```
+   **关键 ⚠️**：`<base-branch>` 必须是切 worktree 时主仓库 HEAD 所在分支（feature branch 上开 plan 就是 feature branch，main 上开 plan 就是 main），**不是无脑用 main**。否则会把 worktree 改动合进 main 而非原 feature branch，污染主线 + 丢 feature branch 上的工作。caller 当前 HEAD 不在 base-branch 时手工 checkout 切过去。
+3. plan 归档到项目内 git：
+   - 更新 frontmatter：`status: completed` + `final_commit: <hash>` + `completed_at: <ISO ts>`
+   - `mv` plan 文件到 `<main-repo>/ref/plans/<plan-id>.md`（在 `ref/` 统一参考资产根下，与 `ref/changelogs/` `ref/reviews/` `ref/conventions/` 同级）
+   - **如 plan 有 spike**（`<plan-artifact-dir>/spike-reports/` 存在 → §Step 0.5 产物；`<plan-artifact-dir>` = `<plan-file-dir>/<plan-id>/`）：`mv <plan-artifact-dir>/spike-reports/ <main-repo>/ref/plans/<plan-id>/spike-reports/`（plan .md 同名子目录与 plan .md 平级；约定 plan .md 是主体 + 同名目录是 artifacts），保留 spike md + runner + .log trace 永久入 git（design 决策溯源 evidence）。`.gitignore` 必备条目已含 `!ref/plans/**/spike-reports/**/*.log` exception 让 .log 跳过全局 `*.log` 过滤（详 §新项目工程地基 §.gitignore 必备条目）。
+   - 同步 `<main-repo>/ref/plans/INDEX.md`（不存在则建，存在则 append 一行）
+   - `git add <main-repo>/ref/plans/<plan-id>.md <main-repo>/ref/plans/INDEX.md <main-repo>/ref/plans/<plan-id>/`（含 spike-reports/ 子目录如有）+ `git commit -m "chore(plans): archive <plan-id>"`
+4. `<main-repo>/ref/changelogs/CHANGELOG_X.md` 引用归档（不抄全 plan）—— agent 自己写
+5. 删 worktree + branch：`git worktree remove <worktree_path>` + `git branch -D worktree-<plan-id>`
+
+> ⚠️ 步骤 1、2、3、5 属于同一收口事务，必须**原子完成**（步骤间任一失败应整片回滚或 abort，不要做部分回滚 — git 操作不可逆；步骤 4 是 changelog 引用补写，不计入归档事务）。手工执行时遇预检条件（plan status ≠ in_progress / worktree dirty / cwd 在 worktree 内 / detached HEAD 任一命中）应立即 abort，不要硬上。
+
+#### 中止
+
+frontmatter 置 `status: abandoned` + 中止理由 → `ExitWorktree(action: "keep")` → Bash `git worktree remove --force <worktree_path>` + `git branch -D worktree-<plan-id>`
+
+> abandoned plan 不入项目 git 归档（不 mv 到 `<main-repo>/ref/plans/`），故**不走自动化归档 tool**（tool 强制把 frontmatter 改 status=completed + 入项目 git）；手工走上面流程即可。
+
+### 与其他机制的关系
+
+- **载体分工**：本节 plan 文件 = 跨会话设计文档（滚动）；`ref/changelogs/` = 实施完成存档（plan 完成后引用归档）；mcp 结构化 task store（应用提供，如 agent-deck 的 `mcp__agent-deck__task_*`）= 单会话 / 跨会话 task 进度可见性通道
+- **决策流程分工**：本节进 plan + worktree 双隔离是「机械触发」**不**走对抗；plan 内的设计决策（架构 / 选型）该走还得走，结论记入 plan「设计决策」节。`ExitPlanMode` 是「单次实施前与用户对齐」工具，输出**设计内容**进 plan「设计决策」节
+
+---
+
+## 新项目工程地基
+
+新建任何长期维护工程时，第一次提交就把这套结构建好。
+
+### 目录骨架
+
+```
+project-root/
+├── CLAUDE.md                     # 项目专属（与 ~/.claude/CLAUDE.md 互补）
+├── README.md                     # 功能总览（用户视角）
+├── src/                          # 源码（统一根入口，详 §src/build 标准目录结构 节）
+├── build/                        # build 产物（统一根出口，详 §src/build 标准目录结构 节）
+└── ref/                          # AI Coding 参考资产（changelogs / reviews / plans / conventions 统一收纳）
+    ├── changelogs/INDEX.md       # 一行表索引；CHANGELOG_X.md 第一次有变更时再建
+    ├── reviews/INDEX.md          # 一行表索引；REVIEW_X.md 第一次 review 时再建
+    ├── plans/                    # 项目内 git 归档版 completed plan（in_progress 草稿在 .claude/plans/）
+    │   └── INDEX.md              # 第一次有 completed plan 时再建
+    └── conventions/              # 项目特定约定（与 ref/changelogs/ ref/reviews/ ref/plans/ 同级）
+        ├── INDEX.md              # 已升级约定一行表索引 + 候选概览
+        ├── tally.md              # 反馈 / 踩坑候选状态机（自维护，不要手工删条目）
+        └── <X>-<topic>.md        # 单条已升级约定，X 递增整数
+```
+
+模板见 `~/.claude/templates/`：
+- `project-claude.template.md` / `changelog-index.template.md` / `reviews-index.template.md` / `conventions-tally.template.md` / `conventions-index.template.md` / `convention-single.template.md` / `changelog.template.md` / `review.template.md`
+
+### src/build 标准目录结构
+
+> 源码与 build 产物的统一根入口/出口约定，避免后续大重构。
+
+- **源码** 落 `<project-root>/src/`。first-party 源代码（业务 / 工具脚本 / first-party test 源；**不含**测试 fixture / 自动生成产物 / 第三方依赖）落本目录
+- **build 产物** 落 `<project-root>/build/`。任何工具链输出（`dist/` `out/` `target/` `.next/` `.turbo/` `node_modules/.cache/` 等历史命名）一律统一到 `build/<sub>/`
+- **多入口项目**（Electron / monorepo / 多语言混合）按子目录分流：`src/<entry>/` ↔ `build/<entry>/`（典型 Electron：`src/main/` `src/preload/` `src/renderer/` `src/shared/` 对应 `build/main/` `build/preload/` `build/renderer/`）
+- **顶层非 src/ 非 build/ 资产**按用途归位，**不归 src/ 也不归 build/**：
+  - 项目元数据 / 顶层配置 / 锁定文件：`README.md` `CLAUDE.md` `LICENSE` `package.json` `tsconfig*.json` `*.config.*`（`vite.config.ts` `vitest.config.ts` `postcss.config.mjs` 等）`pnpm-lock.yaml` `Cargo.toml` `Cargo.lock` `go.mod` `go.sum` 等放 `<project-root>/` 根
+  - 静态资产：`public/` / `static/` / `assets/`（按框架惯例：Next.js / Vite / 11ty / Hugo 等）
+  - CI / IDE / Git：`.github/` `.gitlab-ci.yml` `.vscode/` `.idea/` `.editorconfig` `.gitignore` `.npmrc`
+  - 第三方依赖：`node_modules/` `vendor/`（包管理器自治位置）
+  - 本约定专属顶层目录：`ref/`（详 §目录骨架 节）/ `.claude/`（per-session state）
+- **.gitignore 必备**：`build/` 整目录忽略（详 §.gitignore 必备条目 节）
+
+**落地姿势**：配工具链时显式声明 outDir / distDir 指向 `build/`：
+- TypeScript：`tsconfig.json` `"outDir": "build/"`
+- Vite / Webpack：`build.outDir: 'build/'`
+- electron-vite：`main.build.outDir: 'build/main'` / `preload.build.outDir: 'build/preload'` / `renderer.build.outDir: 'build/renderer'`
+- electron-builder：`directories.output: 'build/dist'`
+- Go：`go build -o build/<binary>`
+- Cargo：`CARGO_TARGET_DIR=build/target`
+
+**例外**：本约定**只约束新项目**第一次落地时按此布局；已有项目按工具链默认惯例（如 Electron 老项目 electron-vite 默认 `out/` + electron-builder 默认 `release/`）保留原状，**不要 retro 改造**（改 outDir 牵动 dev / build / dist / 打包链路多处，易回退稳定性）。**如需迁移已有项目**，走 §复杂 plan 完整流程（RFC + spike 验证工具链 outDir 行为 + plan 文件跟踪逐项验证 dev / build / dist / 打包链路）。
+
+### .gitignore 必备条目
+
+`.gitignore` 必含以下条目（按用途分组）：
+
+```gitignore
+# Claude Code 运行时产物
+.claude/worktrees/        # plan 隔离 worktree（per-session state）
+.claude/scheduled_tasks*  # cron 任务持久化与锁文件
+.claude/plans/            # plan local 工作目录（in_progress 短临时草稿；
+                          # completed 后归档到顶级 ref/plans/<plan-id>.md / 同名子目录入 git）
+
+# build 产物（详 §src/build 标准目录结构 节）
+build/
+
+# 全局 *.log 过滤 + spike artifacts exception
+*.log
+!ref/plans/**/spike-reports/**/*.log
+# ↑ spike artifacts exception：plan-driven spike reports 内的 .log 是 spike 实测命令输出
+# trace（case-A.log / case-B.log 等），与 spike1-<topic>.md 结论同等重要（实测 evidence
+# 历史可追溯），必须入 git 归档（详 §Step 0.5 spike 节 + §Step 4 完成节 spike-reports 归档）。
+```
+
+`ref/` 顶级目录及其子目录（含 `ref/plans/` 与 `ref/plans/<plan-id>/spike-reports/`）**不在 .gitignore**（completed plan + changelog + reviews + conventions + spike-reports/ 子目录都要入 git 归档）。仅 `.claude/plans/` 临时草稿位置忽略。
+
+### README.md = 功能总览（用户视角）
+
+改完功能 3 问：
+
+1. 改了**用户可见行为**？（UI / CLI / API / 设置项 / 快捷键 / 状态显示）→ 改对应章节
+2. 改了**文件结构 / 新建模块**？→ 改「项目结构」节
+3. 改了**启动方式 / 端口 / 依赖 / 验证步骤**？→ 改「开发与运行」节
+
+纯 bug 修复 / 内部重构（不改用户感知）→ 不动 README，写 changelog 或 review。
+
+### ref/changelogs/ + ref/reviews/ 双轨
+
+| 类型 | 写到 | 例子 |
+|---|---|---|
+| **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `ref/changelogs/` | 新建 XXX、升级 SDK、加 CLI 命令 |
+| **Debug / 性能 / 安全 review**（不引新功能，修问题或加固） | `ref/reviews/` | code review 修复、TOCTOU、内存泄漏 |
+
+**通用规则**：
+- 文件名 `CHANGELOG_X.md` / `REVIEW_X.md`，X 递增整数。新建前 `ls` 找最大 X
+- 小改动追加最新一条；大改动新建一条
+- 同步更新对应 `INDEX.md`（一行表概要 ≤80 字）
+- changelog 单文件：标题 + 概要 + 变更内容（按模块 bullet）；**不要写「踩坑细节」**——那些去 reviews
+- reviews 单文件结构见 `~/.claude/templates/review.template.md`
+
+**改功能前**：先 `ls ref/conventions/ ref/changelogs/ ref/reviews/` + 浏览相关条目（含 `ref/conventions/INDEX.md` 已升级约定 + 相关 changelog/review），了解历史决策、避免推翻已有约定 / 重复踩坑。
+
+### 已审文件过期（File-level Review Expiry）
+
+`ref/reviews/` 不是「审过即终身豁免」。下一轮 review 强制最小范围 = 未审 ∪ 已审过期 ∪ scope_unknown。
+
+**过期判定**（任一命中即过期，自上次 REVIEW 覆盖基线起）：
+- 净 churn ≥ min(200 行, 当前文件 LOC 的 30%)
+- distinct commit 数 ≥ 3
+- 距覆盖 ≥ 90 天且期间该文件至少有 1 次代码变更
+- frontmatter `expired: true`（人工兜底）
+
+`<BASE>` = REVIEW.md 文件首次加入 git 的 commit（自动取，不写 frontmatter）。**rename / move / split 出来的新路径不继承旧路径已审状态**，按未审处理。
+
+**默认硬合并**——这正是机制存在的意义。仅当合并后 > 20 文件 / > 6000 行时问「拆批 / 先审哪批」（不是问跳过）。用户主动跳过某过期文件需写入本份 REVIEW frontmatter 的 `skipped_expired` 备注。
+
+阈值（200 / 3 / 90）调整属约定升级；过期检查本身不走对抗。
+
+**自检脚本**（agent 在「下一轮 review」第一步必跑）：`bash ~/.claude/SOPs/file-level-review-expiry.sh`
+
+### 单文件大小护栏（≤ 500 行）
+
+任何代码源文件 LOC > 500 行触发拆分尝试（commit 前必做一次）。3 档风险升序选择 + 真不能拆的登记机制详 `~/.claude/SOPs/file-size-guardrail.md`。阈值 500 调整属约定升级。
+
+### 反复反馈 / 反复踩坑 → 升级约定
+
+候选放 `ref/conventions/tally.md`（统一参考资产根 `ref/` 下与 `ref/changelogs/` `ref/reviews/` `ref/plans/` 同级，git 管理；**不**绑 `.claude/` 工具目录）。count ≥ 3 升级**不再**写到项目 `CLAUDE.md` —— 改为新建 `ref/conventions/<X>-<topic>.md`（X 递增整数，单约定单文件）+ 同步 `ref/conventions/INDEX.md` 加行 + 从 tally 删该条。让项目 CLAUDE.md **保持静态**（只放设计原则 + 流程性约定），动态累积沉淀到 ref/conventions/ 解耦。
+
+两类候选同一文件分 section：
+
+| 类型 | 触发条件 |
+|---|---|
+| **用户反馈**（`# 用户反馈候选`） | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 |
+| **Agent 踩坑**（`# Agent 踩坑候选`） | Coding Agent 在 review / 修 bug 时**自己**发现踩了同类坑（典型：try/finally 漏 cleanup / TOCTOU / N+1 查询 / async listener 不被 await） |
+
+**流程**：找语义相近条目 → `count` +1 + 更新 `last_at`；没找到 → 新增（`count: 1`）。**count = 3** → 走「决策对抗」三态裁决，结论告诉用户后**新建** `ref/conventions/<X>-<topic>.md`（X 递增）+ 同步 `ref/conventions/INDEX.md` 加行 + 从 tally 删该条。count < 3 → 静默更新。
+
+**边界**：不计一次性请求 / trivial 反馈；用户反馈必须是工程偏好 / 设计取舍 / 工作流偏好；Agent 踩坑必须是模式化问题。30 天未更新且 count < 3 → 下次扫描可清理。
+
 
 ## Agent Deck Universal Team Backend
 

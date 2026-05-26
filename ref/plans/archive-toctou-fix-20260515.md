@@ -195,7 +195,7 @@ R1 review 决策修法 A vs B,然后实施 Phase 2 一并 reasonKind + union nar
 ## 关联
 
 - 来源 review: [`reviews/REVIEW_42.md`](../../reviews/REVIEW_42.md) §已知 follow-up MED race + LOW probe-throw + INFO TOOL_DISPLAY_NAME union
-- 来源 changelog: [`changelog/CHANGELOG_118.md`](../../changelog/CHANGELOG_118.md) §❓ 不修留 follow-up plan
+- 来源 changelog: [`changelog/CHANGELOG_118.md`](../../changelogs/CHANGELOG_118.md) §❓ 不修留 follow-up plan
 - 上游 plan: [`plans/archive-failure-ux-upthrow-20260515.md`](../../plans/archive-failure-ux-upthrow-20260515.md) (已 archived,本 plan 是其 follow-up)
 
 ## 已知踩坑

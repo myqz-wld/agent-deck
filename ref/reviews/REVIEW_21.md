@@ -86,7 +86,7 @@ skipped_expired:
 
 ## 关联 changelog
 
-- [CHANGELOG_55.md](../changelog/CHANGELOG_55.md)：本轮修复落地
+- [CHANGELOG_55.md](../changelogs/CHANGELOG_55.md)：本轮修复落地
 
 ## 风险与已知限制
 

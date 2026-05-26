@@ -154,7 +154,7 @@ src/renderer/components/pending-rows/tool-input-diff.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_51.md](../changelog/CHANGELOG_51.md)：本次重构 P1+P2+P3+P4 全部内容
+- [CHANGELOG_51.md](../changelogs/CHANGELOG_51.md)：本次重构 P1+P2+P3+P4 全部内容
 
 ## Agent 踩坑沉淀
 

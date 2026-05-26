@@ -196,7 +196,7 @@ src/shared/types.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_18.md](../changelog/CHANGELOG_18.md)：本次 20 处修复落地
+- [CHANGELOG_18.md](../changelogs/CHANGELOG_18.md)：本次 20 处修复落地
 
 ## Agent 踩坑沉淀
 

@@ -174,4 +174,4 @@ if (s.spawnedBy && visibleIds.has(s.spawnedBy)) {
 
 ## 关联 changelog
 
-[CHANGELOG_112.md](../changelog/CHANGELOG_112.md)
+[CHANGELOG_112.md](../changelogs/CHANGELOG_112.md)

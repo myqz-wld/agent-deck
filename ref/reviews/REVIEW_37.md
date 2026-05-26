@@ -192,7 +192,7 @@ R37 完整 commit chain（13 commit + 1 R2 + 1 R2 + 4 P3 + 0 R3 = 16 commit，ba
 
 ## 关联 changelog
 
-- [CHANGELOG_110.md](../changelog/CHANGELOG_110.md) — R37 落地全 phase 详细记录
+- [CHANGELOG_110.md](../changelogs/CHANGELOG_110.md) — R37 落地全 phase 详细记录
 
 ## 关联 plan
 

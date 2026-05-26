@@ -52,7 +52,7 @@ heterogeneous_dual_completed: true
 
 | ID | 严重度 | 内容 | 异构强证据 | fix |
 |---|---|---|---|---|
-| **M1** | MED | `resources/codex-config/CODEX_AGENTS.md:28` 仍引用已物理删的旧 SKILL 名 `deep-code-review` — 协议层运行链失效（codex-config plugin 自身没有 skills/ 目录，实际 deep-review SKILL 由 claude-config 提供给 codex 视角 lead 复用，老名引用在 plugin 加载链路里指向不存在 SKILL） | reviewer-claude 提 MED + 实测 grep 命中 + `ls resources/codex-config/` 验证 plugin 无 skills/ 子目录 + reviewer body 头部强制引用 CODEX_AGENTS.md 协议层 / reviewer-codex 提 MED + 实测 `git diff --cached --name-status` 确认 stub 已删 + `rg --files resources/claude-config/.../skills` 只剩 `deep-review/` 与 `hello-from-deck/` — 双方独立从「协议层 vs 实际 SKILL 物理名」角度提出 | 同 commit fix：`resources/codex-config/CODEX_AGENTS.md:28` `deep-code-review` → `deep-review`（已落地，详 [CHANGELOG_127.md §F](../changelog/CHANGELOG_127.md)） |
+| **M1** | MED | `resources/codex-config/CODEX_AGENTS.md:28` 仍引用已物理删的旧 SKILL 名 `deep-code-review` — 协议层运行链失效（codex-config plugin 自身没有 skills/ 目录，实际 deep-review SKILL 由 claude-config 提供给 codex 视角 lead 复用，老名引用在 plugin 加载链路里指向不存在 SKILL） | reviewer-claude 提 MED + 实测 grep 命中 + `ls resources/codex-config/` 验证 plugin 无 skills/ 子目录 + reviewer body 头部强制引用 CODEX_AGENTS.md 协议层 / reviewer-codex 提 MED + 实测 `git diff --cached --name-status` 确认 stub 已删 + `rg --files resources/claude-config/.../skills` 只剩 `deep-review/` 与 `hello-from-deck/` — 双方独立从「协议层 vs 实际 SKILL 物理名」角度提出 | 同 commit fix：`resources/codex-config/CODEX_AGENTS.md:28` `deep-code-review` → `deep-review`（已落地，详 [CHANGELOG_127.md §F](../changelogs/CHANGELOG_127.md)） |
 
 ### ❌ 反驳（reviewer-codex 单方提 MED，reviewer-claude 反驳成立 → 不修）
 
@@ -91,6 +91,6 @@ heterogeneous_dual_completed: true
 ## 与 CHANGELOG_127 关系
 
 - 本 REVIEW 记录三态裁决 / 反驳轮 / 验证铁证（推演过程）
-- [CHANGELOG_127](../changelog/CHANGELOG_127.md) 记录变更内容（按模块 bullet 落地清单）
+- [CHANGELOG_127](../changelogs/CHANGELOG_127.md) 记录变更内容（按模块 bullet 落地清单）
 
 按 project CLAUDE.md「双轨」分工：本次 = 流程性资产升级 + 1 stub 行为变更（老 slash 命令失效）→ 主线归 changelog；对抗 review 三态裁决 / 反驳轮细节归 reviews。

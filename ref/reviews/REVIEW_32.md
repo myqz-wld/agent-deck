@@ -54,7 +54,7 @@ fix_landed_in: changelog/CHANGELOG_80.md
 
 ## 修复条目（按 fix 顺序）
 
-详 [`changelog/CHANGELOG_80.md`](../changelog/CHANGELOG_80.md) §变更内容 节。9 条 fix 全程跑过中间 typecheck，最终 typecheck 双端通过。
+详 [`changelog/CHANGELOG_80.md`](../changelogs/CHANGELOG_80.md) §变更内容 节。9 条 fix 全程跑过中间 typecheck，最终 typecheck 双端通过。
 
 ## Follow-up（本会话未修，留 H1.5 / Phase 2 / 后续）
 

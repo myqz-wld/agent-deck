@@ -175,7 +175,7 @@ build 与 dev 启动验证 plan 完成后用户在 e2e SKILL 调用时进行（s
 
 ## 关联 changelog
 
-- [CHANGELOG_71.md](../changelog/CHANGELOG_71.md)：本次修复落地
+- [CHANGELOG_71.md](../changelogs/CHANGELOG_71.md)：本次修复落地
 
 ## Agent 踩坑沉淀（如有）
 
