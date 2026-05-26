@@ -1,4 +1,5 @@
 import { eventBus } from '@main/event-bus';
+import { sessionRepo } from '@main/store/session-repo';
 import type { AgentDeckTeamArchiveReason } from '@shared/types/agent-deck-team';
 
 /**
@@ -158,5 +159,72 @@ export async function unarchiveTeamsForRevivedLead(sessionId: string): Promise<v
       `[session-mgr] unarchiveTeamsForRevivedLead skipped (import failed): ${sessionId}`,
       err,
     );
+  }
+}
+
+/**
+ * **REVIEW_56 §F20 修法 (Plan-Review Round 1 + spike 决策, DRY)**: 抽出 session "becomes closed"
+ * 副作用收口 helper,三入口(manager.markClosed / manager.close / lifecycle-scheduler purge)
+ * 统一调用。
+ *
+ * **副作用顺序** (与历史 manager.ts L337-345 / L377-389 + lifecycle-scheduler.ts L93-115 等价):
+ * 1. `sessionRepo.clearCwdReleaseMarker(sessionId)` (sync,错误隔离不阻塞下游)
+ * 2. **caller-provided sync callback** `onClearedBeforeLeave` (各 caller 自己的 emit upserted /
+ *    token release 等,在 leave 启动之前 sync 跑)
+ * 3. `leaveTeamsAndAutoArchive(sessionId, 'closed')` (async)
+ *
+ * **awaitLeave 双模式** (历史三入口语义差异保留):
+ * - **awaitLeave=false (default)**: fire-and-forget `void leave().catch(warn)` —
+ *   sync caller (`manager.markClosed` / `lifecycle-scheduler` tick) 用 (不阻塞同步路径)
+ * - **awaitLeave=true**: `await leave()` — async caller (`manager.close`) 用,让 caller 拿
+ *   稳定状态返回 (UX 正确性:UI 反映 team-member-changed + 0-lead auto-archive 后再返)
+ *
+ * **logPrefix 可选** (保留各入口 console.warn 特异性,方便 ops grep):
+ * - `'[session-mgr] markClosed'` / `'[session-mgr] close'` / `'[lifecycle-scheduler]'`
+ * - default `'[applyClosedSideEffects]'` (helper 自身 fallback)
+ *
+ * **clearCwdReleaseMarker 错误隔离** (REVIEW_56 Batch C R3 reviewer-claude LOW-1 修法沿用):
+ * 包 try/catch 防止 clearCwdReleaseMarker 抛错 (DB 异常 / row missing) 阻塞 leave + 0-lead
+ * auto-archive 触发链。Leave 路径独立 try/catch (在 leaveTeamsAndAutoArchive 内本身)。
+ *
+ * **onClearedBeforeLeave callback** (sync only, 在 leave 启动之前同步段调) 让 caller 自己做:
+ * - `manager.markClosed`: `eventBus.emit('session-upserted', sessionRepo.get(sid))` 让 renderer
+ *   立即看到 cleared marker 的 fresh state
+ * - `manager.close`: 同上 + `mcpSessionTokenMap.release(sid)` token 清理
+ * - `lifecycle-scheduler`: 同 markClosed (refreshed = sessionRepo.get + emit)
+ */
+export async function applyClosedSideEffects(
+  sessionId: string,
+  opts: {
+    awaitLeave?: boolean;
+    logPrefix?: string;
+    onClearedBeforeLeave?: () => void;
+  } = {},
+): Promise<void> {
+  const prefix = opts.logPrefix ?? '[applyClosedSideEffects]';
+
+  // 1. clear cwd_release_marker (sync, error isolated)
+  try {
+    sessionRepo.clearCwdReleaseMarker(sessionId);
+  } catch (err) {
+    console.warn(`${prefix} clearCwdReleaseMarker failed for ${sessionId}:`, err);
+  }
+
+  // 2. caller-provided sync callback (sync 段, between clear 和 leave)
+  if (opts.onClearedBeforeLeave) {
+    try {
+      opts.onClearedBeforeLeave();
+    } catch (err) {
+      console.warn(`${prefix} onClearedBeforeLeave callback threw for ${sessionId}:`, err);
+    }
+  }
+
+  // 3. leave teams + auto-archive (async, dual-mode)
+  if (opts.awaitLeave) {
+    await leaveTeamsAndAutoArchive(sessionId, 'closed');
+  } else {
+    void leaveTeamsAndAutoArchive(sessionId, 'closed').catch((err) => {
+      console.warn(`${prefix} leaveTeamsAndAutoArchive failed for ${sessionId}:`, err);
+    });
   }
 }
