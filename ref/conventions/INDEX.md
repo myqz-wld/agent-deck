@@ -1,6 +1,6 @@
 # Conventions 索引
 
-> **目录定位**：项目特定约定的累积载体，与 `ref/changelogs/` `reviews/` `plans/` 同级。
+> **目录定位**：项目特定约定的累积载体，与 `ref/changelogs/` `ref/reviews/` `ref/plans/` 同级。
 >
 > **目的**：让项目 CLAUDE.md 保持**静态**（只放设计原则 + 流程性约定），动态累积的「反复出现过的设计决定」沉淀到本目录单独维护。
 >

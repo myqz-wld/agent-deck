@@ -1,6 +1,6 @@
 # Plans 索引
 
-> **范围**：跨多会话的复杂工程 plan（按全局 `~/.claude/CLAUDE.md`「复杂 plan：worktree 隔离 + 跨会话 hand off」节流程产出）。本目录是 plan 的 **git 归档目的地**（与 `ref/changelogs/` `reviews/` 平级）—— in_progress 工作中可放此或 `.claude/plans/`（local 临时草稿）；completed 必须归档到此入 git。
+> **范围**：跨多会话的复杂工程 plan（按全局 `~/.claude/CLAUDE.md`「复杂 plan：worktree 隔离 + 跨会话 hand off」节流程产出）。本目录是 plan 的 **git 归档目的地**（与 `ref/changelogs/` `ref/reviews/` 平级）—— in_progress 工作中可放此或 `.claude/plans/`（local 临时草稿）；completed 必须归档到此入 git。
 
 ## 命名
 

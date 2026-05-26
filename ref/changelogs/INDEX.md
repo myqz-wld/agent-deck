@@ -1,7 +1,7 @@
 # Changelog 索引
 
 > **范围**：功能变更（新功能 / 行为修改 / API / 依赖升级）。
-> Debug / 性能 / 安全 review 见 [`reviews/`](../reviews/INDEX.md)（CHANGELOG_16 起划分）。
+> Debug / 性能 / 安全 review 见 [`ref/reviews/`](../reviews/INDEX.md)（CHANGELOG_16 起划分）。
 
 | 文件 | 概要（≤80 字） |
 |------|------|

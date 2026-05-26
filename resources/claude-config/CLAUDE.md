@@ -257,7 +257,7 @@ git -C <worktree-abs-path> reset --hard <main-HEAD>
 - 没有 origin remote 配置（local-only repo） — CLI 走 `$ = "HEAD"` fallback 路径正确
 - 你**明确**想从 origin/<default> 起手（非 plan 工作流场景）
 
-**追溯**：上游 bug 跟踪走 anthropics/claude-code GitHub issue（complete reproduction recipe 详细分析见 agent-deck 项目 [`ref/reviews/REVIEW_38.md`](../reviews/REVIEW_38.md) 与 plan `worktree-stale-base-bug-20260515`，包含 cli.js byte offset / minified code 反编译 / git man page 实证 / reflog 加强证据）。
+**追溯**：上游 bug 跟踪走 anthropics/claude-code GitHub issue（complete reproduction recipe 详细分析见 agent-deck 项目 [`ref/reviews/REVIEW_38.md`](../../ref/reviews/REVIEW_38.md) 与 plan `worktree-stale-base-bug-20260515`，包含 cli.js byte offset / minified code 反编译 / git man page 实证 / reflog 加强证据）。
 
 #### ⚠️ worktree 路径陷阱（**唯一**一处约束，§Step 1 / §Step 3 引用此处）
 
