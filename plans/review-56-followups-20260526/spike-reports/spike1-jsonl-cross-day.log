@@ -1,0 +1,20 @@
+=== spike1: jsonl 跨日 false miss 实测 ===
+
+case 0 (startedAt same day as jsonl): ✅ true MATCH
+case 1 (startedAt D-1, jsonl D): ✅ true MATCH (±1 day fallback caught)
+case 2 (startedAt D+1, jsonl D): ✅ true MATCH (±1 day fallback caught)
+case 3 (startedAt D-2, jsonl D): ❌ false MISS — algo only covers ±1 day
+case 4 (startedAt D+2, jsonl D): ❌ false MISS — algo only covers ±1 day
+case 5 (startedAt local 23:59:50 D, jsonl D+1 — UTC tz edge): ✅ true MATCH (±1 day caught)
+
+=== fs.readdir latency benchmark (3 day scan = 3x readdir) ===
+small day (10 files/day): 0.020ms/call
+medium day (100 files/day): 0.062ms/call
+busy day (1000 files/day): 0.523ms/call
+
+=== recursive fs scan alternative (plan F2 修法 b 候选) ===
+Planted tree: 2y × 6m × 30d × 5f/day = 1800 total files
+recursive scan (1800 files): 0.052ms/call
+±1 day algo (wrong startedAt, returns false): 0.007ms/call
+
+spike1 done.
