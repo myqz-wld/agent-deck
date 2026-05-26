@@ -47,7 +47,7 @@ export interface EnterWorktreeInput {
   baseCommitOverride?: string;
   /** plan D2 优先级链次位：caller args.base_branch（resolve to branch HEAD）。 */
   baseBranchOverride?: string;
-  /** plan 文件 abs path（用于 frontmatter base fallback）；不传走 fallback 链 .claude/plans/ → plans/ → ~/.claude/plans/。 */
+  /** plan 文件 abs path（用于 frontmatter base fallback）；不传走 fallback 链 .claude/plans/ → ref/plans/ → ~/.claude/plans/。 */
   planFilePathOverride?: string;
 }
 
@@ -125,7 +125,7 @@ function isError(x: unknown): x is EnterWorktreeError {
 
 /**
  * fallback 链解 plan 文件路径（与 archive-plan-impl 同款）：
- * 显式 override > <main-repo>/.claude/plans/<id>.md > <main-repo>/plans/<id>.md > ~/.claude/plans/<id>.md
+ * 显式 override > <main-repo>/.claude/plans/<id>.md > <main-repo>/ref/plans/<id>.md > ~/.claude/plans/<id>.md
  * 返回首个存在的路径；都不存在返 null（frontmatter base fallback 跳过走 HEAD）。
  */
 async function resolvePlanFilePath(
@@ -136,7 +136,7 @@ async function resolvePlanFilePath(
   const candidates: string[] = [];
   if (input.planFilePathOverride) candidates.push(input.planFilePathOverride);
   candidates.push(path.join(mainRepo, '.claude', 'plans', `${input.planId}.md`));
-  candidates.push(path.join(mainRepo, 'plans', `${input.planId}.md`));
+  candidates.push(path.join(mainRepo, 'ref', 'plans', `${input.planId}.md`));
   candidates.push(path.join(deps.homedir(), '.claude', 'plans', `${input.planId}.md`));
   for (const c of candidates) {
     if (await deps.exists(c)) return c;
