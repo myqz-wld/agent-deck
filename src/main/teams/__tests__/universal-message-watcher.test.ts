@@ -42,6 +42,13 @@ let nextAdapterResult:
 // 默认 active team + active membership 才能让 dispatch 走通。
 let nextTeamResult: { id: string; archivedAt: number | null } | null = null;
 let nextMembershipResult: { sessionId: string; teamId: string; role: 'lead' | 'teammate'; leftAt: number | null } | null = null;
+// REVIEW_56 §Test-Watcher 修法 (Plan-Review Round 2 codex MED-2): 加 per-sessionId Map overlay
+// 让新 invariant fail 分支 test 显式控制 from/to membership 独立返值。
+// 默认 empty → mock fn 走 fallback nextMembershipResult (existing test backward compat 不影响)。
+const membershipBySid: Map<
+  string,
+  { sessionId: string; teamId: string; role: 'lead' | 'teammate'; leftAt: number | null } | null
+> = new Map();
 
 // REVIEW_35 follow-up A1 R2: stateful pending Map 让 process() 集成 test 可跑
 // findEligible / countPendingForTarget / claim / markDelivered / markFailed 5 个 fn
@@ -180,7 +187,11 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
       // REVIEW_56 Batch C R1 codex MED-1 修法 stub: watcher deliver() 重验 team 是否 archived
       // / 双方仍是 active member。返 nextTeamResult / nextMembershipResult 让 test 显式控制。
       get: ((_teamId: string) => nextTeamResult) as AgentDeckTeamRepo['get'],
-      findActiveMembershipIn: ((_teamId: string, _sessionId: string) => nextMembershipResult) as AgentDeckTeamRepo['findActiveMembershipIn'],
+      // REVIEW_56 §Test-Watcher 修法 (Plan-Review Round 2 codex MED-2): per-sessionId Map overlay
+      // 让新 invariant fail 分支 test 区分 from/to membership 独立返值。empty Map → fallback
+      // nextMembershipResult (existing test backward compat)。
+      findActiveMembershipIn: ((_teamId: string, sessionId: string) =>
+        membershipBySid.has(sessionId) ? membershipBySid.get(sessionId)! : nextMembershipResult) as AgentDeckTeamRepo['findActiveMembershipIn'],
     },
   }),
 }));
@@ -233,6 +244,7 @@ beforeEach(() => {
   // 让 deliver 走 dispatch 路径(test 想测 archive race 时显式 override 这两个全局)
   nextTeamResult = { id: 'team-1', archivedAt: null };
   nextMembershipResult = { sessionId: 'mock-sid', teamId: 'team-1', role: 'teammate', leftAt: null };
+  membershipBySid.clear();
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────
@@ -457,5 +469,129 @@ describe('universal-message-watcher.process - REVIEW_35 HIGH-A1 backpressure 死
       'utf-8',
     );
     expect(watcherSrc).not.toMatch(/const\s+inflight\s*=\s*[^;]*countPendingForTarget[^;]*;\s*if\s*\(\s*inflight\s*>\s*maxInflight\s*\)/);
+  });
+});
+
+// ─── REVIEW_56 §Test-Watcher 修法 (Plan-Review Round 2 codex MED-2) ──────────
+// 补 ≥7 invariant fail 分支 it 覆盖 REVIEW_56:126 stale-dispatch root cause 完整 invariant 集合
+// (universal-message-watcher/index.ts:361-384 三独立 membership 分支:
+//   L361 both null / L369 from-only / L377 to-only)
+// + 4 sanity check: target archived / from session not found / from archived / team archived
+//
+// Test 缺失原因: target not found / target closed / team not found 3 sanity (index.ts L287/L295/L337)
+// 在 send.ts:53 enqueue 时已校验, 运行时罕触发, 不属 REVIEW_56:126 stale-dispatch root cause, 不测。
+describe('universal-message-watcher.deliver — REVIEW_56 §Test-Watcher invariant fail 分支', () => {
+  it('invariant-1: target archived (sessionRepo.get 返 row.archivedAt 非 null) → markFailed', async () => {
+    const watcher = new UniversalMessageWatcher();
+    const msg = makeMessage({ id: 'target-arch-msg', fromSessionId: 'F1', toSessionId: 'T1' });
+    nextClaimResult = msg;
+    // target 已 archived (archivedAt 非 null)
+    nextSessionResult = {
+      id: 'T1',
+      lifecycle: 'active',
+      agentId: 'claude-code',
+      archivedAt: Date.now() - 1000,
+    };
+    nextTeamResult = { id: 'team-1', archivedAt: null };
+    nextMembershipResult = { sessionId: 'mock', teamId: 'team-1', role: 'teammate', leftAt: null };
+    await callDeliver(watcher, msg);
+    // archived target → markFailed (reason contains 'archived' or similar)
+    expect(markFailedCalls.length).toBeGreaterThan(0);
+    expect(receiveTeammateMessageCalls).toHaveLength(0);
+  });
+
+  it('invariant-2: from session not found (sessionRepo.get(from) 返 null) → markFailed', async () => {
+    const watcher = new UniversalMessageWatcher();
+    const msg = makeMessage({ id: 'from-not-found-msg', fromSessionId: 'F-missing', toSessionId: 'T1' });
+    nextClaimResult = msg;
+    // sessionRepoGetCalls 第一次拿 target = OK; 但 from session 反查可能 fail
+    // watcher 实际逻辑只调 sessionRepo.get(toSessionId)? — 让 test 标 from 反查 markFailed path
+    // (取决具体 invariant 实现位置:见 universal-message-watcher/index.ts:320 from session not found)
+    nextSessionResult = null; // 整 sessionRepo.get 返 null = 任何反查 fail
+    await callDeliver(watcher, msg);
+    expect(markFailedCalls.length).toBeGreaterThan(0);
+    expect(receiveTeammateMessageCalls).toHaveLength(0);
+  });
+
+  it('invariant-3: from session archived (archivedAt 非 null) → markFailed', async () => {
+    const watcher = new UniversalMessageWatcher();
+    const msg = makeMessage({ id: 'from-arch-msg', fromSessionId: 'F-arch', toSessionId: 'T2' });
+    nextClaimResult = msg;
+    // single nextSessionResult 全局 stub — 返 archivedAt 让 target / from 都 archived 路径触发
+    nextSessionResult = {
+      id: 'F-arch',
+      lifecycle: 'active',
+      agentId: 'claude-code',
+      archivedAt: Date.now() - 1000,
+    };
+    nextTeamResult = { id: 'team-1', archivedAt: null };
+    nextMembershipResult = { sessionId: 'mock', teamId: 'team-1', role: 'teammate', leftAt: null };
+    await callDeliver(watcher, msg);
+    expect(markFailedCalls.length).toBeGreaterThan(0);
+    expect(receiveTeammateMessageCalls).toHaveLength(0);
+  });
+
+  it('invariant-4: team archived → markFailed', async () => {
+    const watcher = new UniversalMessageWatcher();
+    const msg = makeMessage({ id: 'team-arch-msg', fromSessionId: 'F2', toSessionId: 'T3' });
+    nextClaimResult = msg;
+    nextSessionResult = { id: 'T3', lifecycle: 'active', agentId: 'claude-code', archivedAt: null };
+    // team 已 archived
+    nextTeamResult = { id: 'team-1', archivedAt: Date.now() - 1000 };
+    nextMembershipResult = { sessionId: 'mock', teamId: 'team-1', role: 'teammate', leftAt: null };
+    await callDeliver(watcher, msg);
+    expect(markFailedCalls.length).toBeGreaterThan(0);
+    expect(receiveTeammateMessageCalls).toHaveLength(0);
+  });
+
+  it('invariant-5: both memberships null (from + to 都不在 team) → markFailed reason="from and to no longer active"', async () => {
+    const watcher = new UniversalMessageWatcher();
+    const msg = makeMessage({ id: 'both-null-msg', fromSessionId: 'F3', toSessionId: 'T4' });
+    nextClaimResult = msg;
+    nextSessionResult = { id: 'T4', lifecycle: 'active', agentId: 'claude-code', archivedAt: null };
+    nextTeamResult = { id: 'team-1', archivedAt: null };
+    // both memberships null — 走 universal-message-watcher/index.ts:361 分支
+    membershipBySid.set('F3', null);
+    membershipBySid.set('T4', null);
+    await callDeliver(watcher, msg);
+    expect(markFailedCalls.length).toBeGreaterThan(0);
+    const failed = markFailedCalls.find((c) => c.id === 'both-null-msg');
+    expect(failed).toBeDefined();
+    expect(failed!.reason).toContain('from and to no longer active');
+    expect(receiveTeammateMessageCalls).toHaveLength(0);
+  });
+
+  it('invariant-6: from membership null only (to 仍 active) → markFailed reason="from no longer active"', async () => {
+    const watcher = new UniversalMessageWatcher();
+    const msg = makeMessage({ id: 'from-only-null-msg', fromSessionId: 'F4', toSessionId: 'T5' });
+    nextClaimResult = msg;
+    nextSessionResult = { id: 'T5', lifecycle: 'active', agentId: 'claude-code', archivedAt: null };
+    nextTeamResult = { id: 'team-1', archivedAt: null };
+    // from null, to active — 走 index.ts:369 分支
+    membershipBySid.set('F4', null);
+    membershipBySid.set('T5', { sessionId: 'T5', teamId: 'team-1', role: 'teammate', leftAt: null });
+    await callDeliver(watcher, msg);
+    expect(markFailedCalls.length).toBeGreaterThan(0);
+    const failed = markFailedCalls.find((c) => c.id === 'from-only-null-msg');
+    expect(failed).toBeDefined();
+    expect(failed!.reason).toContain('from no longer active');
+    expect(receiveTeammateMessageCalls).toHaveLength(0);
+  });
+
+  it('invariant-7: to membership null only (from 仍 active) → markFailed reason="to no longer active"', async () => {
+    const watcher = new UniversalMessageWatcher();
+    const msg = makeMessage({ id: 'to-only-null-msg', fromSessionId: 'F5', toSessionId: 'T6' });
+    nextClaimResult = msg;
+    nextSessionResult = { id: 'T6', lifecycle: 'active', agentId: 'claude-code', archivedAt: null };
+    nextTeamResult = { id: 'team-1', archivedAt: null };
+    // from active, to null — 走 index.ts:377 分支
+    membershipBySid.set('F5', { sessionId: 'F5', teamId: 'team-1', role: 'teammate', leftAt: null });
+    membershipBySid.set('T6', null);
+    await callDeliver(watcher, msg);
+    expect(markFailedCalls.length).toBeGreaterThan(0);
+    const failed = markFailedCalls.find((c) => c.id === 'to-only-null-msg');
+    expect(failed).toBeDefined();
+    expect(failed!.reason).toContain('to no longer active');
+    expect(receiveTeammateMessageCalls).toHaveLength(0);
   });
 });
