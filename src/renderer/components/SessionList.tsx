@@ -12,7 +12,15 @@ import { SessionCard } from './SessionCard';
  *
  * 单飞同 group 内分组（active / dormant 各自分组），不跨 group 关联（避免「lead active 但 teammate dormant」
  * 的 cross-group 视觉跳跃 + 简化数据结构）。
+ *
+ * **视觉缩进上限 3 层**：spawn-guards.ts default `mcpMaxSpawnDepth=3` 允许 4 层 spawn 链
+ * (L1→L2→L3→L4)，但 SessionList 视觉缩进 cap 在 `MAX_VISUAL_DEPTH=2`（L1/L2/L3 三层 ml-3）
+ * 防深嵌套塞爆侧栏。L4+ 仍渲染但平铺在 L3 同级（无额外缩进 div），保留 `teammate` badge 让 owner
+ * 关系仍可见。修前 `renderTreeGroup` 是非递归只画 L1+L2，L3 既不进 roots（spawnedBy 命中
+ * visible owner）又拿不到 root.children（root 仅含 L2）→ 整层消失。
  */
+const MAX_VISUAL_DEPTH = 2; // L1=0, L2=1, L3=2 → 视觉 3 层缩进上限
+
 function renderTreeGroup(
   sessions: SessionRecord[],
   selectedId: string | null,
@@ -30,34 +38,52 @@ function renderTreeGroup(
       roots.push(s);
     }
   }
-  return roots.flatMap((root) => {
-    const children = childrenByOwner.get(root.id) ?? [];
-    const elements: JSX.Element[] = [
+
+  function renderNode(
+    session: SessionRecord,
+    visualDepth: number,
+    hasOwner: boolean,
+  ): JSX.Element[] {
+    const children = childrenByOwner.get(session.id) ?? [];
+    // hasOwner 优先 teammate（即使本节点也有 children — 一个 mid-tier 节点对 owner 是 teammate，
+    // 对自己 children 是 lead；SessionCard 单 role prop 只能选一个，按"对 owner 是 teammate"显示
+    // 与原 2 层实现 L2 始终 teammate 行为一致）。
+    const teamRole: 'lead' | 'teammate' | undefined = hasOwner
+      ? 'teammate'
+      : children.length > 0
+        ? 'lead'
+        : undefined;
+    const out: JSX.Element[] = [
       <SessionCard
-        key={root.id}
-        session={root}
-        selected={selectedId === root.id}
-        onSelect={() => onSelect(root.id)}
-        teamRole={children.length > 0 ? 'lead' : undefined}
+        key={session.id}
+        session={session}
+        selected={selectedId === session.id}
+        onSelect={() => onSelect(session.id)}
+        teamRole={teamRole}
       />,
     ];
     if (children.length > 0) {
-      elements.push(
-        <div key={`${root.id}-children`} className="ml-3 flex flex-col gap-1.5 border-l border-blue-400/20 pl-2.5">
-          {children.map((child) => (
-            <SessionCard
-              key={child.id}
-              session={child}
-              selected={selectedId === child.id}
-              onSelect={() => onSelect(child.id)}
-              teamRole="teammate"
-            />
-          ))}
-        </div>,
-      );
+      const nextVisualDepth = Math.min(visualDepth + 1, MAX_VISUAL_DEPTH);
+      const childNodes = children.flatMap((c) => renderNode(c, nextVisualDepth, true));
+      if (nextVisualDepth > visualDepth) {
+        // 还能再缩进一层 → wrap 在 ml-3 + border-l 缩进容器内
+        out.push(
+          <div
+            key={`${session.id}-children`}
+            className="ml-3 flex flex-col gap-1.5 border-l border-blue-400/20 pl-2.5"
+          >
+            {childNodes}
+          </div>,
+        );
+      } else {
+        // 触视觉缩进上限 → 平铺在当前节点同级（仍保留 teammate badge）
+        out.push(...childNodes);
+      }
     }
-    return elements;
-  });
+    return out;
+  }
+
+  return roots.flatMap((root) => renderNode(root, 0, false));
 }
 
 export function SessionList(): JSX.Element {
