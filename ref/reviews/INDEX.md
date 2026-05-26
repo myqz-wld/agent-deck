@@ -1,10 +1,10 @@
 # Reviews 索引
 
-> 周期性 / 触发性的 debug、code review、性能 audit、安全审查报告。功能变更去 [`changelog/`](../changelog/INDEX.md)，本目录专注**修问题与加固**。
+> 周期性 / 触发性的 debug、code review、性能 audit、安全审查报告。功能变更去 [`ref/changelogs/`](../changelogs/INDEX.md)，本目录专注**修问题与加固**。
 
 ## 命名
 
-`REVIEW_X.md`（X 递增整数，跟 `CHANGELOG_X.md` 对齐）。新建前 `ls reviews/` 找最大 X。
+`REVIEW_X.md`（X 递增整数，跟 `CHANGELOG_X.md` 对齐）。新建前 `ls ref/reviews/` 找最大 X。
 
 ## 单文件结构
 

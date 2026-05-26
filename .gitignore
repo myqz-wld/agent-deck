@@ -4,7 +4,7 @@ release
 dist
 .DS_Store
 *.log
-!ref/plans/**/spike-reports/*.log
+!ref/plans/**/spike-reports/**/*.log
 # ↑ spike artifacts exception:plan-driven spike reports 内的 .log 是 spike 实测命令输出 trace
 # (case-A.log / case-B.log 等),与 spike1-<topic>.md 结论同等重要(实测 evidence 历史可追溯),
 # 必须入 git 归档(详 user CLAUDE.md §Step 0.5 spike 节 + 本仓库 plan archive 流程)。
