@@ -11,6 +11,9 @@ export default defineConfig({
         '@main': resolve(__dirname, 'src/main'),
       },
     },
+    build: {
+      outDir: 'build/main',
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
@@ -18,6 +21,9 @@ export default defineConfig({
       alias: {
         '@shared': resolve(__dirname, 'src/shared'),
       },
+    },
+    build: {
+      outDir: 'build/preload',
     },
   },
   renderer: {
@@ -30,6 +36,7 @@ export default defineConfig({
     },
     plugins: [react()],
     build: {
+      outDir: 'build/renderer',
       rollupOptions: {
         input: resolve(__dirname, 'src/renderer/index.html'),
       },

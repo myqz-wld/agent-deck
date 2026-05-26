@@ -2,7 +2,7 @@
   "name": "agent-deck",
   "version": "0.1.0",
   "description": "通用 Coding Agent 驾驶舱",
-  "main": "out/main/index.js",
+  "main": "build/main/index.js",
   "private": true,
   "scripts": {
     "predev": "node scripts/sync-codex-skills.mjs",
@@ -67,11 +67,12 @@
     "appId": "com.agentdeck.app",
     "productName": "Agent Deck",
     "directories": {
-      "output": "release",
+      "output": "build/dist",
       "buildResources": "resources"
     },
     "files": [
-      "out/**/*",
+      "build/**/*",
+      "!build/dist/**",
       "resources/**/*"
     ],
     "extraResources": [
