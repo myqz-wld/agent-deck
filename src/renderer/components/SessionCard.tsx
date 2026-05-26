@@ -10,13 +10,20 @@ interface Props {
   selected: boolean;
   onSelect: () => void;
   /**
-   * Phase C (CHANGELOG_77 / plan deep-review-flow-fix): 在 team 中的角色 badge。
-   * - 'lead'：本 session 是某 team 的 lead（spawn 出 ≥1 个仍可见 teammate）
-   * - 'teammate'：本 session 是 owner 在可见列表里的子 session（spawnedBy ↦ visible owner）
-   * - undefined：普通 session（无 spawnedBy，或 owner 已不可见的孤儿 teammate）
+   * Phase C (CHANGELOG_77) + plan session-list-handoff-role-badge-20260526 (v4 §D1/D3):
+   * 在 team 中的角色 badge,数据来源走 `deriveTeamRole` shared util (SessionList / PendingTab 共用):
+   * - 'lead': 优先看 session.teams[*].role==='lead' (任一 lead);退化看是否为纯 spawn 链
+   *   的 owner (visible children > 0 且全无 universal team)
+   * - 'teammate': 优先看 session.teams[*].role==='teammate';退化看是否在纯 spawn 链
+   *   的子位置 (hasOwner=true 且 self / owner 全无 universal team)
+   * - undefined: 既无 universal team membership,也不是纯 spawn 链相关节点
    *
-   * SessionList 在树形分组时计算 owner→children Map 后传入。
-   * lead 走「蓝边」(border 颜色)；teammate 走「浅蓝小 chip」(bg+text)，与现有 🛡 teamName chip 风格一致。
+   * SessionList 在树形分组时计算 owner→children Map (spawn-link 优先 + universal team
+   * 收编 fallback,详 plan §D2) 后传入。SessionList / PendingTab 共用同一份 deriveTeamRole
+   * util 保持行为一致 (plan §HIGH-1)。
+   *
+   * lead 走「蓝边」(border 颜色);teammate 走「浅蓝小 chip」(bg+text),与现有 🛡 teamName
+   * chip 风格一致。
    */
   teamRole?: 'lead' | 'teammate';
 }
@@ -119,7 +126,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
         {teamRole === 'lead' && (
           <span
             className="rounded bg-blue-400/15 px-1 py-0.5 text-[9px] font-medium text-blue-200"
-            title="本会话是某 team 的 lead（spawn 出 ≥1 个仍可见 teammate）"
+            title={teamHoverTitle || '本会话是某 team 的 lead'}
           >
             👑 lead
           </span>
@@ -127,7 +134,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
         {teamRole === 'teammate' && (
           <span
             className="rounded bg-blue-400/10 px-1 py-0.5 text-[9px] font-medium text-blue-200/85"
-            title="本会话是某 team 的 teammate（spawnedBy 指向可见 owner）"
+            title={teamHoverTitle || '本会话是某 team 的 teammate'}
           >
             ↳ teammate
           </span>

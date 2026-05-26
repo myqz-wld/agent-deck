@@ -2,6 +2,7 @@ import { useMemo, useState, type JSX, type MouseEvent } from 'react';
 import type { AgentEvent } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { selectPendingBuckets, type PendingBucket } from '@renderer/lib/session-selectors';
+import { deriveTeamRole } from '@renderer/lib/derive-team-role';
 import { StatusBadge } from './StatusBadge';
 import { AskRow, ExitPlanRow, PermissionRow } from './pending-rows';
 
@@ -109,10 +110,15 @@ function PendingSection({
   // teammate / lead role 直接来自 universal team backend membership 表 — 不依赖 SessionList 的
   // spawnedBy visibility 判定（PendingTab 平铺无 tree context）。multi-team 共享时 chip 显
   // teams[0]，hover title 列完整 team 列表。
+  //
+  // plan session-list-handoff-role-badge-20260526 (v4 §D4): teamRole 改走 deriveTeamRole shared
+  // util 与 SessionList 对齐「任一 lead 优先」语义 (单 team 行为与原 primaryTeam?.role 一致;
+  // mixed lead+teammate 升级显 lead 是 plan §HIGH-1 设计意图)。chip / hover title 文案保持
+  // 原样 (teamRole 改 source 不改 visual)。
   const primaryTeam = session.teams?.[0];
   const displayTeamName = primaryTeam?.teamName ?? null;
   const teamCount = session.teams?.length ?? 0;
-  const teamRole = primaryTeam?.role ?? null;
+  const teamRole = deriveTeamRole(session, false, 0, true);
   const teamHoverTitle =
     teamCount > 1
       ? `Agent Teams (${teamCount}):\n${session.teams!.map((t) => `· ${t.teamName} [${t.role}]`).join('\n')}`
