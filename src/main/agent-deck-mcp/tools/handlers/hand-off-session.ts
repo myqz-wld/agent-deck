@@ -161,21 +161,43 @@ export interface HandOffSessionHandlerDeps {
  * 进程 cwd，通常 `/`），与真正的 caller SDK session cwd 无关，所以反查 main-repo /
  * 判定 worktree 都失败。handler 层必须从 sessionRepo 反查 caller session 的真实 cwd
  * 注入。external sentinel / 反查不到时返回空对象，impl 仍走 DEFAULT_DEPS.cwd 兜底。
+ *
+ * **REVIEW_56 §F9 修法 (Plan-Review Round 1 + spike3 实证决策 A) — 对称改 archive-plan.ts**:
+ * 签名重构 `(sid): { deps: HandOffSessionDeps; warnings: string[] }` — fail-open 退化时
+ * warnings 收集。handler 端拿 warnings 后只 console.warn 输出 (hand-off-session ok return
+ * 没 warnings 字段不 surface,与 archive-plan.ts 不对称是设计取舍:hand_off 单 baton 退化风险
+ * 低于 archive_plan 收口,加 ok return.warnings schema 是 breaking change 不值)。**signature 仍
+ * 与 archive-plan 同款保持对称易维护**。同时顺手补 archive-plan P5 R1 同款 console.warn
+ * (对称缺口 — 原 hand-off-session catch silent return {} 无 warn,运维 grep 不到 fail-open 退化)。
  */
-function resolveCallerCwdDeps(callerSessionId: string): HandOffSessionDeps {
-  if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return {};
+function resolveCallerCwdDeps(callerSessionId: string): {
+  deps: HandOffSessionDeps;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return { deps: {}, warnings };
   // CHANGELOG_99 R1 fix MED-1:sessionRepo.get 包 try/catch fail-safe (与 L143 段对称)。
   // DB 异常 (test 未 init / 生产 SQLite locked / FK conflict) 时返回空 deps,让 impl 退化到
   // DEFAULT_DEPS.cwd = process.cwd() 兜底,而非 handler 直接 crash。
+  // REVIEW_56 §F9 修法: 加 console.warn (对称 archive-plan.ts P5 R1 修法) + warnings 收集。
   let row: ReturnType<typeof sessionRepo.get> = null;
   try {
     row = sessionRepo.get(callerSessionId);
-  } catch {
-    return {};
+  } catch (err) {
+    const msg = `[hand-off-session] sessionRepo.get(${callerSessionId}) threw — falling back to DEFAULT_DEPS (cwd=process.cwd). Hand off proceeds without caller cwd injection. err=${err instanceof Error ? err.message : String(err)}`;
+    console.warn(msg);
+    warnings.push(msg);
+    return { deps: {}, warnings };
   }
-  if (!row?.cwd) return {};
+  if (!row?.cwd) {
+    if (!row) {
+      const msg = `[hand-off-session] sessionRepo.get(${callerSessionId}) returned null — caller session not found, falling back to DEFAULT_DEPS`;
+      warnings.push(msg);
+    }
+    return { deps: {}, warnings };
+  }
   const cwd = row.cwd;
-  return { cwd: () => cwd };
+  return { deps: { cwd: () => cwd }, warnings };
 }
 
 /**
@@ -188,15 +210,17 @@ function resolveCallerCwdDeps(callerSessionId: string): HandOffSessionDeps {
  *
  * 实现策略：caller 显式 cwd 时直接返回 caller 原 implDeps；否则把 callerCwdInjection 放
  * **后面** spread 覆盖任何 caller implDeps 里 cwd: undefined 的边界 case。
+ *
+ * **REVIEW_56 §F9 修法**: 签名同 resolveCallerCwdDeps,返 `{deps, warnings}` 对称 archive-plan.ts。
  */
 function mergeCallerCwd(
   callerImplDeps: HandOffSessionDeps | undefined,
   callerSessionId: string,
-): HandOffSessionDeps | undefined {
-  if (callerImplDeps?.cwd) return callerImplDeps;
-  const callerCwdInjection = resolveCallerCwdDeps(callerSessionId);
-  if (!callerCwdInjection.cwd) return callerImplDeps;
-  return { ...callerImplDeps, ...callerCwdInjection };
+): { deps: HandOffSessionDeps | undefined; warnings: string[] } {
+  if (callerImplDeps?.cwd) return { deps: callerImplDeps, warnings: [] };
+  const { deps: callerCwdInjection, warnings } = resolveCallerCwdDeps(callerSessionId);
+  if (!callerCwdInjection.cwd) return { deps: callerImplDeps, warnings };
+  return { deps: { ...callerImplDeps, ...callerCwdInjection }, warnings };
 }
 
 /**
@@ -247,7 +271,15 @@ export const handOffSessionHandler = withMcpGuard(
     // 不传 → impl 默认 process.cwd() → main-repo 反查永远失败 → 报「caller cwd is not a
     // git repo」（即使 caller 实际在 worktree / git repo 内）。
     // 优先级：caller 显式 implDeps.cwd > sessionRepo 反查 > impl DEFAULT_DEPS（process.cwd）
-    const mergedImplDeps = mergeCallerCwd(handlerDeps?.implDeps, caller.callerSessionId);
+    // REVIEW_56 §F9 修法: mergeCallerCwd 返 {deps, warnings} (对称 archive-plan.ts)。
+    // hand-off-session ok return 没 warnings 字段不 surface,只 console.warn 输出 (caller 通过
+    // operator log grep `[hand-off-session]` 可见 fail-open 退化)。signature 重构与
+    // archive-plan 同款保持对称易维护。
+    const { deps: mergedImplDeps, warnings: callerCwdWarnings } = mergeCallerCwd(
+      handlerDeps?.implDeps,
+      caller.callerSessionId,
+    );
+    for (const w of callerCwdWarnings) console.warn(w);
     const resolved = await handOffSessionImpl(
       {
         planId: args.plan_id,

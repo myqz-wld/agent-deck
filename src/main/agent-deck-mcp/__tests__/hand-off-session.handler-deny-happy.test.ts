@@ -973,10 +973,12 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
 
     expect(result.isError).toBeFalsy();
     const data = JSON.parse(result.content[0]!.text);
+    // REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3): 兜底状态 closed=[] + failed=[] +
+    // skipped='phase-1-error' 第五态。
     expect(data.teammatesShutdown).toEqual({
       closed: [],
       failed: [],
-      skipped: null,
+      skipped: 'phase-1-error',
     });
     // 关键: archive caller 仍走(helper 故障不阻塞 baton 收口)
     expect(mockArchive).toHaveBeenCalledTimes(1);

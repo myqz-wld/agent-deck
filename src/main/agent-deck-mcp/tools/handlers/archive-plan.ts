@@ -91,9 +91,18 @@ export interface ArchivePlanHandlerDeps {
  * plan codex-handoff-team-alignment-20260518 P1 Step 1.4 扩展：除注入 cwd 外，同时注入
  * cwdReleaseMarker fetcher 让 impl 走 4 态分流（详 archive-plan-impl §step 4）。两个字段都
  * 从同一个 sessionRepo.get(callerSid) row 派生（一次 DB read 复用，避免 N+1）。
+ *
+ * **REVIEW_56 §F9 修法 (Plan-Review Round 1 + spike3 实证决策 A)**: 签名重构 `(sid):
+ * { deps: ArchivePlanDeps; warnings: string[] }` — fail-open 退化时 warnings 数组收集让 caller
+ * (handler) merge 进 ok return.warnings 让 caller (lead / agent) 通过 ok return 看到 fail-open
+ * 退化(原 P5 R1 修法只 console.warn 到 operator log,caller silent 不知)。
  */
-function resolveCallerCwdDeps(callerSessionId: string): ArchivePlanDeps {
-  if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return {};
+function resolveCallerCwdDeps(callerSessionId: string): {
+  deps: ArchivePlanDeps;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return { deps: {}, warnings };
   // CHANGELOG_99 R1 fix MED-1:sessionRepo.get 包 try/catch fail-safe (与 archive 段 try/catch
   // 对称)。DB 异常 (test 未 init / 生产 SQLite locked / FK conflict) 时返回空 deps,让 impl
   // 退化到 DEFAULT_DEPS.cwd = process.cwd() + cwdReleaseMarker = () => null 兜底,而非 handler
@@ -101,17 +110,22 @@ function resolveCallerCwdDeps(callerSessionId: string): ArchivePlanDeps {
   // P5 Round 1 reviewer-codex HIGH-2 (downgraded MED) 修法:DB 异常时 console.warn 让 operator
   // 看到 fail-open 退化(原静默 return {} 看不到 DB 问题)。fail-open 设计取舍保留(handler 稳定
   // > 严格安全),archive git 操作走 mainRepo 不依赖 callerCwd 限定 blast radius。
+  // REVIEW_56 §F9 修法: 同时把 warning push 到 warnings 数组让 handler 后续 merge 进 ok return.warnings。
   let row: ReturnType<typeof sessionRepo.get> = null;
   try {
     row = sessionRepo.get(callerSessionId);
   } catch (err) {
-    console.warn(
-      `[archive-plan] sessionRepo.get(${callerSessionId}) threw — falling back to DEFAULT_DEPS (cwd=process.cwd, marker=null). Archive proceeds via mainRepo git ops; cwd precheck degrades to "no marker" branch.`,
-      err,
-    );
-    return {};
+    const msg = `[archive-plan] sessionRepo.get(${callerSessionId}) threw — falling back to DEFAULT_DEPS (cwd=process.cwd, marker=null). Archive proceeds via mainRepo git ops; cwd precheck degrades to "no marker" branch. err=${err instanceof Error ? err.message : String(err)}`;
+    console.warn(msg);
+    warnings.push(msg);
+    return { deps: {}, warnings };
   }
-  if (!row) return {};
+  if (!row) {
+    // REVIEW_56 §F9 修法: row null (caller session 不在 sessions 表) 也加 warning 让 caller 知道
+    const msg = `[archive-plan] sessionRepo.get(${callerSessionId}) returned null — caller session not found, falling back to DEFAULT_DEPS`;
+    warnings.push(msg);
+    return { deps: {}, warnings };
+  }
   // P5 Round 1 reviewer-claude LOW-5 修法 (cwd / marker 独立 fallback):
   // 旧实现 `if (!row?.cwd) return {};` 一刀切丢弃 marker,即使 row.cwdReleaseMarker 有值也整体退化
   // 到 DEFAULT_DEPS。改为各自独立条件 — cwd null 仍 inject marker 让 impl 4 态认得 cwd invalid
@@ -138,7 +152,7 @@ function resolveCallerCwdDeps(callerSessionId: string): ArchivePlanDeps {
   if (cwd) {
     deps.cwd = () => cwd;
   }
-  return deps;
+  return { deps, warnings };
 }
 
 /**
@@ -148,19 +162,29 @@ function resolveCallerCwdDeps(callerSessionId: string): ArchivePlanDeps {
  * plan codex-handoff-team-alignment-20260518 P1 Step 1.4：merge 同时处理 cwd 和 cwdReleaseMarker
  * 两个字段独立优先级 — caller 可只覆盖其中一个（如 unit test mock cwd 不 mock marker → marker
  * 从 sessionRepo 反查；mock marker 不 mock cwd → cwd 从 sessionRepo 反查），互不耦合。
+ *
+ * **REVIEW_56 §F9 修法**: 签名同 resolveCallerCwdDeps,返 `{deps, warnings}` 让 handler 把
+ * fail-open 退化 warnings 透传到 ok return.warnings。
  */
 function mergeCallerCwd(
   callerImplDeps: ArchivePlanDeps | undefined,
   callerSessionId: string,
-): ArchivePlanDeps | undefined {
+): { deps: ArchivePlanDeps | undefined; warnings: string[] } {
   // 如 caller 同时显式传 cwd + cwdReleaseMarker → 直接用，不再反查
-  if (callerImplDeps?.cwd && callerImplDeps?.cwdReleaseMarker) return callerImplDeps;
-  const sessionInjection = resolveCallerCwdDeps(callerSessionId);
-  if (!sessionInjection.cwd && !sessionInjection.cwdReleaseMarker) return callerImplDeps;
+  if (callerImplDeps?.cwd && callerImplDeps?.cwdReleaseMarker) {
+    return { deps: callerImplDeps, warnings: [] };
+  }
+  const { deps: sessionInjection, warnings } = resolveCallerCwdDeps(callerSessionId);
+  if (!sessionInjection.cwd && !sessionInjection.cwdReleaseMarker) {
+    return { deps: callerImplDeps, warnings };
+  }
   // caller 显式字段优先（cwd / cwdReleaseMarker 各自独立），sessionRepo 反查仅填缺位
   return {
-    ...sessionInjection,
-    ...callerImplDeps,
+    deps: {
+      ...sessionInjection,
+      ...callerImplDeps,
+    },
+    warnings,
   };
 }
 
@@ -173,8 +197,13 @@ export const archivePlanHandler = withMcpGuard(
   ) => {
     const { caller } = ctx;
 
-    // caller cwd 注入（H5 修复）：详 mergeCallerCwd / hand-off-session 同款实现
-    const mergedImplDeps = mergeCallerCwd(handlerDeps?.implDeps, caller.callerSessionId);
+    // caller cwd 注入（H5 修复）：详 mergeCallerCwd / hand-off-session 同款实现。
+    // REVIEW_56 §F9 修法: mergeCallerCwd 返 {deps, warnings} 让 handler 把 fail-open 退化
+    // warnings 透传到 ok return.warnings (caller-visible)。
+    const { deps: mergedImplDeps, warnings: callerCwdWarnings } = mergeCallerCwd(
+      handlerDeps?.implDeps,
+      caller.callerSessionId,
+    );
 
     const result = await archivePlanImpl(
       {
@@ -219,7 +248,10 @@ export const archivePlanHandler = withMcpGuard(
       worktreeRemoved: result.worktreeRemoved,
       plansIndexAction: result.plansIndexAction,
       finalStatus: result.finalStatus,
-      warnings: result.warnings,
+      // REVIEW_56 §F9 修法: handler 端 mergeCallerCwd fail-open warnings prepend 到 impl warnings,
+      // 让 caller 看到 sessionRepo.get throw / row missing / cwd invalid 等 fail-open 退化
+      // (修前 P5 R1 只 console.warn 到 operator log,caller silent 不知)。
+      warnings: [...callerCwdWarnings, ...result.warnings],
       /**
        * R3 follow-up (spike-reports/ 归档): spike artifacts 自动归档结果。
        * - `null`: plan 无 spike (`<plan-artifact-dir>/spike-reports/` 不存在), skip
