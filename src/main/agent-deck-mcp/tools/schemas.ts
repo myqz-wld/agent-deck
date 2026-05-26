@@ -255,7 +255,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     .max(4096)
     .optional()
     .describe(
-      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then <main-repo>/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md. **stem 约束**(impl-level refine,follow-up 20260515): plan_file_path 文件名 stem(去 .md 后缀)必须等于 plan_id — 否则 archive_plan reject(防 archived path / INDEX key 派生与 caller 给的文件 stem 脱节导致 silent unlink 风险)。',
+      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then <main-repo>/ref/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md. **stem 约束**(impl-level refine,follow-up 20260515): plan_file_path 文件名 stem(去 .md 后缀)必须等于 plan_id — 否则 archive_plan reject(防 archived path / INDEX key 派生与 caller 给的文件 stem 脱节导致 silent unlink 风险)。',
     ),
   changelog_id: z
     .string()
@@ -265,7 +265,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     )
     .optional()
     .describe(
-      'Optional changelog reference(s) for plans/INDEX.md smart update (followup 20260515 (b)+(c))。caller 在 archive_plan 之前已经写完 CHANGELOG_X.md 并 commit,此处显式传 X 数字(如 "122")或多个逗号分隔(如 "121,122" 或 "121, 122" — R1 fix MED-3 放松 regex 容空格,与 helper trim 行为对齐)。impl 拼成 markdown link `[X](../changelog/CHANGELOG_X.md)` 写入 INDEX 第 3 列「关联 changelog」。**caller 不传时**:smart update existing 4-列 row 保留原 changelog 列;旧 2 列 row 或新 append 行用 `—` placeholder(不强制清空已有,避免数据丢失)。',
+      'Optional changelog reference(s) for ref/plans/INDEX.md smart update (followup 20260515 (b)+(c))。caller 在 archive_plan 之前已经写完 CHANGELOG_X.md 并 commit,此处显式传 X 数字(如 "122")或多个逗号分隔(如 "121,122" 或 "121, 122" — R1 fix MED-3 放松 regex 容空格,与 helper trim 行为对齐)。impl 拼成 markdown link `[X](../changelogs/CHANGELOG_X.md)` 写入 INDEX 第 3 列「关联 changelog」。**caller 不传时**:smart update existing 4-列 row 保留原 changelog 列;旧 2 列 row 或新 append 行用 `—` placeholder(不强制清空已有,避免数据丢失)。',
     ),
   caller_session_id: z
     .string()
@@ -408,7 +408,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(4096)
     .optional()
     .describe(
-      'Override plan file path. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md (where main-repo is derived from cwd or plan frontmatter), then ~/.claude/plans/<plan_id>.md.',
+      'Override plan file path. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md (where main-repo is derived from cwd or plan frontmatter), then <main-repo>/ref/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md.',
     ),
   caller_session_id: z
     .string()
@@ -508,7 +508,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .max(4096)
     .optional()
     .describe(
-      'Optional plan file absolute path (for frontmatter base_commit / base_branch fallback chain when caller args do not specify base). When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then <main-repo>/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md (same fallback chain as archive_plan).',
+      'Optional plan file absolute path (for frontmatter base_commit / base_branch fallback chain when caller args do not specify base). When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then <main-repo>/ref/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md (same fallback chain as archive_plan).',
     ),
   caller_session_id: z
     .string()
@@ -742,7 +742,7 @@ export interface ArchivePlanResult {
   archivedPath: string;
   /**
    * **REVIEW_56 §F4 修法**: 区分 archive commit vs worktree merge tip。
-   * - **此 `commitHash`** = `git add plans/<id>.md + INDEX.md + plans/<id>/spike-reports/` 后 archive
+   * - **此 `commitHash`** = `git add ref/plans/<id>.md + INDEX.md + ref/plans/<id>/spike-reports/` 后 archive
    *   commit 在 base_branch 上的 SHA(handler 内部 `git commit` 后 `git rev-parse HEAD` 拿到)
    * - **frontmatter `final_commit`** = ff-merge worktree branch 到 base_branch 之后 base_branch HEAD
    *   SHA(merge 后 worktree branch tip,plan 写入 frontmatter 字段持久化)
@@ -768,8 +768,8 @@ export interface ArchivePlanResult {
   /**
    * archive-plan-tool-ux-followup-20260515 HIGH-2 (双方独立 HIGH 共识 — silent override 防覆盖
    * 走 warn 而非 reject):non-fatal warning 列表。典型场景:
-   * - `.claude/plans/<id>.md` 与 `<main-repo>/plans/<id>.md` 同 id 双存,fallback 选 .claude/
-   *   plans/ 后会覆盖 plans/ 历史 completed archive → 加 warning 让 caller 看到
+   * - `.claude/plans/<id>.md` 与 `<main-repo>/ref/plans/<id>.md` 同 id 双存,fallback 选 .claude/
+   *   plans/ 后会覆盖 ref/plans/ 历史 completed archive → 加 warning 让 caller 看到
    * 调用方应在 ok return display 时把 warnings 列出来,而非吞掉。空数组表示无 warning。
    */
   warnings: string[];
@@ -777,7 +777,7 @@ export interface ArchivePlanResult {
    * **R3 follow-up (spike-reports/ 归档流程缺口)**: spike artifacts 自动归档结果。
    *
    * - `null`: plan 无 spike (`<plan-artifact-dir>/spike-reports/` 不存在),skip
-   * - `{ srcPath, dstPath }`: spike-reports/ 成功 mv 到 `<main-repo>/plans/<plan-id>/spike-reports/`
+   * - `{ srcPath, dstPath }`: spike-reports/ 成功 mv 到 `<main-repo>/ref/plans/<plan-id>/spike-reports/`
    *   (plan .md 同名子目录,与 plan .md 平级),入 git 归档 commit
    *
    * mv 失败 (EXDEV 跨 fs / perm) 时不阻塞 ok return,落 warnings 数组让 caller 手工

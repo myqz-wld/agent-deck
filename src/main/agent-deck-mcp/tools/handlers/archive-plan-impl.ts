@@ -15,7 +15,7 @@
  * 4. 预检 process.cwd() **不在** worktree 内（用 realpath 解 symlink + startsWith
  *    主从关系判定）—— mcp tool 不能调 ExitWorktree（CLI 内部 tool），caller 必须先 ExitWorktree
  *    再调 archive_plan
- * 5. 解析 plan 文件路径（显式给 > <main-repo>/.claude/plans/<id>.md > ~/.claude/plans/<id>.md）
+ * 5. 解析 plan 文件路径（显式给 > <main-repo>/.claude/plans/<id>.md > <main-repo>/ref/plans/<id>.md > ~/.claude/plans/<id>.md）
  * 6. 读 plan + parseFrontmatter，预检 status：仅 in_progress 放行；completed 拒绝防误调；
  *    abandoned 拒绝并指向 user CLAUDE.md §Step 4 「中止」流程（REVIEW_33 H2）
  * 7. fast-forward merge：在 main repo 跑 `git merge --ff-only <worktree-branch>`
@@ -30,8 +30,8 @@
  *     step 9 spread 后 `status: 'completed'` 强制覆盖会静默归档 abandoned plan 为 completed,
  *     违反 user CLAUDE.md §Step 4 「中止」契约 + 回归 REVIEW_33 H2 已修过的 abandoned 防线。
  * 9. 更新 frontmatter：status=completed / final_commit / completed_at（YYYY-MM-DD 本地时区）
- * 10. 写新 plan 到 `<main-repo>/plans/<plan_id>.md`（recursive mkdir <main>/plans/）
- * 11. 同步 `<main-repo>/plans/INDEX.md`：append 一行 `| [<id>.md](<id>.md) | <一句话> |`
+ * 10. 写新 plan 到 `<main-repo>/ref/plans/<plan_id>.md`（recursive mkdir <main>/ref/plans/）
+ * 11. 同步 `<main-repo>/ref/plans/INDEX.md`：append 一行 `| [<id>.md](<id>.md) | <一句话> |`
  *     —— 不存在则创建带 header table 的初始文件
  * 12. 删除原 plan 文件（如果原位置不在新位置即 mv 完成）
  * 13. git add + commit（commit msg 含 plan_id）
@@ -69,7 +69,7 @@ export interface ArchivePlanInput {
   planFilePathOverride?: string;
   /**
    * archive-plan-tool-ux-followup-20260515 (b)+(c)：caller 显式传 changelog X 数字（如 "122"
-   * 单值 / "121,122" 多值 csv）让 impl 把它格式化成 markdown link 写入 plans/INDEX.md
+   * 单值 / "121,122" 多值 csv）让 impl 把它格式化成 markdown link 写入 ref/plans/INDEX.md
    * 第 3 列「关联 changelog」。caller 不传时 smart update 保留 existing 4 列 row 的原 changelog
    * 列；旧 2 列 row 或新 append 行用 `—` placeholder（不强制清空已有，避免数据丢失）。
    */
@@ -95,8 +95,8 @@ export interface ArchivePlanResult {
   /**
    * archive-plan-tool-ux-followup-20260515 HIGH-2:non-fatal warning 列表(双方独立 HIGH 共识 — silent
    * override 防覆盖走 warn 而非 reject 模式,见 plan §设计决策 Q1 用户决策)。典型场景:
-   * - `.claude/plans/<id>.md` 与 `<main-repo>/plans/<id>.md` 同 id 双存,fallback 选 .claude/plans/
-   *   后会覆盖 plans/ 历史 completed archive → 加 warning 让 caller 看到
+   * - `.claude/plans/<id>.md` 与 `<main-repo>/ref/plans/<id>.md` 同 id 双存,fallback 选 .claude/plans/
+   *   后会覆盖 ref/plans/ 历史 completed archive → 加 warning 让 caller 看到
    * 调用方应在 ok return display 时把 warnings 列出来,而非吞掉。空数组表示无 warning。
    */
   warnings: string[];
@@ -105,7 +105,7 @@ export interface ArchivePlanResult {
    * spike artifacts 自动归档结果。
    *
    * - `null`: plan 无 spike (`<plan-artifact-dir>/spike-reports/` 不存在),skip
-   * - `{ srcPath, dstPath }`: spike-reports/ 成功 mv 到 `<main-repo>/plans/<plan-id>/spike-reports/`
+   * - `{ srcPath, dstPath }`: spike-reports/ 成功 mv 到 `<main-repo>/ref/plans/<plan-id>/spike-reports/`
    *   并入 git 归档 commit
    *
    * mv 失败 (EXDEV 跨 fs / perm) 时不阻塞 ok return,落 warnings 数组让 caller 手工 mv。
@@ -125,8 +125,8 @@ export interface ArchivePlanDeps {
    * whitespace + NUL，适合 rev-parse / commit / status --porcelain 等单行 trim 安全场景）。
    * 仅在 `git status --porcelain=v1 -z` NUL 分隔输出场景必须传 `{ raw: true }`，否则 trim 会
    * 把首列 space（Y 列 unstaged status）也吃掉 → status 错位 → criticalSet 永不命中 → Y 列
-   * unstaged critical path 全漏判（H2 现场实测铁证：`' M plans/INDEX.md\0'.trim()` →
-   * `'M plans/INDEX.md\0'` → parser status=`'M '` filename=`'lans/INDEX.md\0'`）。
+   * unstaged critical path 全漏判（H2 现场实测铁证 HISTORICAL bug repro literal,不迁 ref/plans/：`' M plans/INDEX.md\0'.trim()` →
+   * `'M plans/INDEX.md\0'` → parser status=`'M '` filename=`'lans/INDEX.md\0'`）。HISTORICAL: bug repro literal block
    */
   runGit?: (args: string[], cwd: string, opts?: { raw?: boolean }) => Promise<string>;
   /** 读文件 utf8。失败抛（典型 ENOENT）。 */
@@ -144,7 +144,7 @@ export interface ArchivePlanDeps {
    * 旧实现 archive_plan tool 只 mv plan .md 不动 spike-reports/，导致 spike artifacts 留在
    * `.claude/plans/<plan-id>/spike-reports/` (.gitignore 不入 git 临时位置) → 永久丢失风险。
    * 修法: 加 mvDir deps 让 step 12.5 detect + mv `<plan-artifact-dir>/spike-reports/` 到
-   * `<main-repo>/plans/<plan-id>/spike-reports/` 入 git 归档。
+   * `<main-repo>/ref/plans/<plan-id>/spike-reports/` 入 git 归档。
    *
    * 默认实现走 `fs.rename`(同 fs 原子 mv);跨 fs 失败 (EXDEV) 抛错让 caller decide:
    * step 12.5 catch EXDEV → warning + 不阻塞 ok return(caller 看 hint 手工 mv)。test 可
@@ -287,13 +287,13 @@ export async function assertMainRepoCleanForArchive(
   let stdout: string;
   try {
     // **R3 fix-2 (H2 codex Batch B HIGH-1)**：传 `{ raw: true }` 跳 trim 防破坏 -z NUL 输出
-    // （`' M plans/INDEX.md\0'.trim()` → `'M plans/INDEX.md\0'` 首列 space 被吃 → status 错位
+    // （HISTORICAL bug repro literal,不迁 ref/plans/：`' M plans/INDEX.md\0'.trim()` → `'M plans/INDEX.md\0'` 首列 space 被吃 → status 错位
     // → criticalSet 永不命中 → Y 列 unstaged critical path 全漏判）。
     //
     // **R3 fix-2 (H4 codex Batch C+D 未验证升级)**：加 `--untracked-files=all` flag 让 untracked
-    // 文件展开到完整路径而非目录级（default mode 输出 `?? plans/\0` → criticalSet.has('plans/
+    // 文件展开到完整路径而非目录级（HISTORICAL bug repro literal,不迁 ref/plans/：default mode 输出 `?? plans/\0` → criticalSet.has('plans/
     // INDEX.md') 不命中 → untracked critical 文件全漏判；`--untracked-files=all` 输出
-    // `?? plans/INDEX.md\0?? plans/myplan.md\0` 才能命中）。
+    // `?? plans/INDEX.md\0?? plans/myplan.md\0` 才能命中）。HISTORICAL: bug repro literal block
     stdout = await deps.runGit(
       ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
       input.mainRepoAbsPath,
@@ -512,14 +512,14 @@ export async function archivePlanImpl(
     }
     // archive-plan-tool-ux-followup-20260515 HIGH-1 (claude 单方 + 现场验证): plan_file_path
     // 文件名 stem 必须等于 plan_id。否则 step 10 archivedPath 用 plan_id 派生 = `<main-repo>
-    // /plans/<plan_id>.md` 与 caller 给的 plan_file_path 文件完全脱节,step 12 因 path !==
+    // /ref/plans/<plan_id>.md` 与 caller 给的 plan_file_path 文件完全脱节,step 12 因 path !==
     // archivedPath 删 caller 文件,silent unlink 风险。impl 层校验给清晰 hint(schema 是 record
     // shape 不支持 cross-field refine,故落 impl 而非 schema)。
     const overrideStem = path.basename(input.planFilePathOverride, '.md');
     if (overrideStem !== input.planId) {
       return {
         error: `plan_file_path stem "${overrideStem}" does not match plan_id "${input.planId}"`,
-        hint: `archived path / INDEX key are derived from plan_id (\`<main-repo>/plans/${input.planId}.md\`); step 12 unlink would silently move the plan_file_path file. Either rename plan_file_path to \`${input.planId}.md\` or change plan_id to "${overrideStem}". 修法 followup 20260515 HIGH-1.`,
+        hint: `archived path / INDEX key are derived from plan_id (\`<main-repo>/ref/plans/${input.planId}.md\`); step 12 unlink would silently move the plan_file_path file. Either rename plan_file_path to \`${input.planId}.md\` or change plan_id to "${overrideStem}". 修法 followup 20260515 HIGH-1.`,
       };
     }
     planFilePath = input.planFilePathOverride;
@@ -527,7 +527,7 @@ export async function archivePlanImpl(
     // archive-plan-tool-ux-followup-20260515 (a) + plan deep-review-batch-a1-b-fixes-20260519
     // §Phase 3 Step 3.9 修法 (B-MED-3 双方独立强冗余):抽 resolvePlanFilePath helper 共享
     // hand-off-session-impl.ts 同款 3 档 fallback (projectLocal > projectArchived > userGlobal),
-    // 顺序贴 user CLAUDE.md §Step 2 文档约定 .claude/plans/ in_progress 优先,但 plans/ 中间
+    // 顺序贴 user CLAUDE.md §Step 2 文档约定 .claude/plans/ in_progress 优先,但 ref/plans/ 中间
     // 档兜底本项目实际惯例(archive_plan 完成后 mv 目标位置)。
     const resolved = await resolvePlanFilePath(mainRepo, input.planId, {
       exists: deps.exists,
@@ -541,7 +541,7 @@ export async function archivePlanImpl(
   // archivedPath / indexPath：纯路径推导（不依赖 frontmatter / git 状态），与 step 10/11
   // 计算公式 1:1 一致（archive-plan-impl.ts:648 / :694）— precheck 与 step 10/11 共享同款
   // 路径，否则会出现「precheck 检的与 step 11 实际写的不是同一文件」silent bug。
-  const archivedDir = path.join(mainRepo, 'plans');
+  const archivedDir = path.join(mainRepo, 'ref', 'plans');
   const archivedPath = path.join(archivedDir, `${input.planId}.md`);
   const indexPath = path.join(archivedDir, 'INDEX.md');
 
@@ -729,7 +729,7 @@ export async function archivePlanImpl(
     };
   }
   // REVIEW_33 H2：旧实现只 reject `completed`，让 `abandoned` / unknown 走完归档流程。
-  // 后果：abandoned plan 会被 ff-merge 到 main + 写入 plans/ git 历史（违反 user CLAUDE.md
+  // 后果：abandoned plan 会被 ff-merge 到 main + 写入 ref/plans/ git 历史（违反 user CLAUDE.md
   // §Step 4 abandoned cleanup —— abandoned 应走 `git worktree remove --force` 静默销毁
   // 而非入项目 git）。修法：三档 status 显式分流，仅 in_progress 放行。
   if (fm.status === 'completed') {
@@ -744,7 +744,7 @@ export async function archivePlanImpl(
   if (fm.status === 'abandoned') {
     return {
       error: `plan status is "abandoned" — abandoned plans must not be archived as completed`,
-      hint: `archive_plan only handles in_progress → completed transitions. For abandoned plans follow user CLAUDE.md §Step 4 \"中止\" path: keep frontmatter status=abandoned, ExitWorktree(action: keep), then manual \`git worktree remove --force\` + \`git branch -D\`. Don't move plan into <main-repo>/plans/.`,
+      hint: `archive_plan only handles in_progress → completed transitions. For abandoned plans follow user CLAUDE.md §Step 4 \"中止\" path: keep frontmatter status=abandoned, ExitWorktree(action: keep), then manual \`git worktree remove --force\` + \`git branch -D\`. Don't move plan into <main-repo>/ref/plans/.`,
     };
   }
   if (fm.status !== 'in_progress') {
@@ -811,7 +811,7 @@ export async function archivePlanImpl(
       e as Error,
       `git rev-parse HEAD failed in main repo (rare — git internal state / perm). ` +
         `Manually run \`git -C ${mainRepo} rev-parse HEAD\` to get current hash; ` +
-        `complete steps 9-14 manually (update plan frontmatter with status=completed + final_commit + completed_at, write to ${path.join(mainRepo, 'plans', `${input.planId}.md`)}, sync plans/INDEX.md, unlink original plan, git add+commit, worktree remove, branch -D).`,
+        `complete steps 9-14 manually (update plan frontmatter with status=completed + final_commit + completed_at, write to ${path.join(mainRepo, 'ref', 'plans', `${input.planId}.md`)}, sync ref/plans/INDEX.md, unlink original plan, git add+commit, worktree remove, branch -D).`,
     );
   }
 
@@ -932,8 +932,8 @@ export async function archivePlanImpl(
   // / 跳过理由 / 当前进度 等收尾回写)
   // archivedDir / archivedPath 已在 step 3.5a 计算（Phase 1.2a 提前路径算法）— 此处复用。
   // archive-plan-tool-ux-followup-20260515 HIGH-2 (双方独立 HIGH 共识) silent override warn:
-  // 同 plan_id 同时存在 `.claude/plans/<id>.md` AND `<main-repo>/plans/<id>.md`(caller 误操作 /
-  // 历史遗留)→ fallback 链选 .claude/plans/ 后 step 10 静默覆盖 plans/ 历史 completed archive。
+  // 同 plan_id 同时存在 `.claude/plans/<id>.md` AND `<main-repo>/ref/plans/<id>.md`(caller 误操作 /
+  // 历史遗留)→ fallback 链选 .claude/plans/ 后 step 10 静默覆盖 ref/plans/ 历史 completed archive。
   // 用户决策(Q1):走 warn 而非 reject(不阻断 archive,只让 caller 看到风险)。
   if (path.resolve(planFilePath) !== path.resolve(archivedPath)) {
     if (await deps.exists(archivedPath)) {
@@ -972,7 +972,7 @@ export async function archivePlanImpl(
     );
   }
 
-  // 11. 同步 plans/INDEX.md(archive-plan-tool-ux-followup-20260515 (b)+(c) syncPlansIndex helper
+  // 11. 同步 ref/plans/INDEX.md(archive-plan-tool-ux-followup-20260515 (b)+(c) syncPlansIndex helper
   // 重写):4 列 canonical 格式 `| 文件 | 状态 | 关联 changelog | 概要 |`,smart update existing
   // 行(替换 status / changelog / description 列),caller 不传 changelog_id 时保留老 4 列 changelog
   // 列 / 旧 2 列 row 或新 append 用 `—` placeholder。description / changelog 列 escape `|` + 换行。
@@ -1026,16 +1026,16 @@ export async function archivePlanImpl(
   // .md 不动 spike-reports/ 导致 artifacts 留 .claude/plans/ (.gitignore 不入 git) → 永久丢失。
   //
   // **修法**: detect `<plan-artifact-dir>/spike-reports/` 存在 → mv 到
-  // `<main-repo>/plans/<plan-id>/spike-reports/` (plan .md 同名子目录,与 plan .md 平级),
+  // `<main-repo>/ref/plans/<plan-id>/spike-reports/` (plan .md 同名子目录,与 plan .md 平级),
   // push 路径到 filesToAdd 入归档 commit。失败 (EXDEV 跨 fs / perm) → warning + 不阻塞 ok return。
   //
   // **不存在时**: skip 不报错 (plan 没 spike 是合法场景,如 trivial plan / spike 阶段被跳过)。
   const srcSpikeDir = path.join(path.dirname(planFilePath), input.planId, 'spike-reports');
-  const dstSpikeDir = path.join(mainRepo, 'plans', input.planId, 'spike-reports');
+  const dstSpikeDir = path.join(mainRepo, 'ref', 'plans', input.planId, 'spike-reports');
   let spikeReportsArchived: { srcPath: string; dstPath: string } | null = null;
   if (await deps.exists(srcSpikeDir)) {
     try {
-      // mkdir parent dir (`<main-repo>/plans/<plan-id>/`) for dstSpikeDir
+      // mkdir parent dir (`<main-repo>/ref/plans/<plan-id>/`) for dstSpikeDir
       await deps.mkdir(path.dirname(dstSpikeDir));
       await deps.mvDir(srcSpikeDir, dstSpikeDir);
       spikeReportsArchived = { srcPath: srcSpikeDir, dstPath: dstSpikeDir };
@@ -1257,8 +1257,8 @@ export function escapeTableCell(s: string): string {
 /**
  * archive-plan-tool-ux-followup-20260515 (b) LOW-1 (codex) / claude MED-5: caller 传 changelog_id
  * (string + csv 解析,schema 已 regex 守门 `^\d+(,\d+)*$`) → 拼成 markdown link 单值或 ` / ` 分隔多值。
- * - "122" → "[122](../changelog/CHANGELOG_122.md)"
- * - "121,122" → "[121](../changelog/CHANGELOG_121.md) / [122](../changelog/CHANGELOG_122.md)"
+ * - "122" → "[122](../changelogs/CHANGELOG_122.md)"
+ * - "121,122" → "[121](../changelogs/CHANGELOG_121.md) / [122](../changelogs/CHANGELOG_122.md)"
  * - undefined / 空串 → null (caller 不传,smart update 时按 fallback 处理)
  *
  * markdown link 不需 escape (`(` `)` `[` `]` 是 markdown link 语法本身,但 `|` 会破表 — link
@@ -1271,7 +1271,7 @@ export function formatChangelogCell(changelogId: string | undefined): string | n
     .map((s) => s.trim())
     .filter(Boolean);
   if (ids.length === 0) return null;
-  return ids.map((id) => `[${id}](../changelog/CHANGELOG_${id}.md)`).join(' / ');
+  return ids.map((id) => `[${id}](../changelogs/CHANGELOG_${id}.md)`).join(' / ');
 }
 
 /**
@@ -1392,7 +1392,7 @@ export function syncPlansIndex(
  *
  * 仅扫描首个匹配的 header(避免一份 INDEX 含多个 table 的极端 case 全部被改 — 不太合理)。
  *
- * **invariant(R2 codex LOW-1)**:本 helper 假设 INDEX **单 table**(本应用约定 plans/INDEX.md
+ * **invariant(R2 codex LOW-1)**:本 helper 假设 INDEX **单 table**(本应用约定 ref/plans/INDEX.md
  * 单一表格);多 table INDEX 边角下 target row 可能在第 2+ table,而本 helper 只升级首 table
  * header → 出现 4 列 row 挂 2 列 header。本应用不建议多 table INDEX 模式;后续如要支持需要
  * 「按 target row 找最近上方 table header」精细化升级。

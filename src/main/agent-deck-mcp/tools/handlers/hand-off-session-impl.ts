@@ -14,7 +14,7 @@
  *
  * **plan-driven 模式**(input.planId 传):
  * 1. 解析 plan 文件路径：显式 planFilePathOverride > caller cwd 反查 main-repo →
- *    `<main-repo>/.claude/plans/<plan_id>.md` > `~/.claude/plans/<plan_id>.md`
+ *    `<main-repo>/.claude/plans/<plan_id>.md` > `<main-repo>/ref/plans/<plan_id>.md` > `~/.claude/plans/<plan_id>.md`
  * 2. 读 plan + parseFrontmatter，校验 frontmatter 含 `worktree_path`
  * 3. 校验 plan status === 'in_progress'（拒 completed / abandoned / 缺 status）
  * 4. mainRepo 启发式 fallback(caller cwd 反查失败时从 worktreePath 反推)
@@ -212,7 +212,7 @@ export async function handOffSessionImpl(
   // 1. 解析 plan 文件路径：显式 > main-repo 反查 > user-global
   // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.9 修法 (B-MED-3 双方独立强冗余):
   // 抽 resolvePlanFilePath helper 共享 archive-plan-impl 同款 3 档 fallback (projectLocal >
-  // projectArchived > userGlobal),修前漏中间档 `<main-repo>/plans/<id>.md` 导致已归档
+  // projectArchived > userGlobal),修前漏中间档 `<main-repo>/ref/plans/<id>.md` 导致已归档
   // plan 无法 hand-off。
   let planFilePath: string;
   if (input.planFilePathOverride) {

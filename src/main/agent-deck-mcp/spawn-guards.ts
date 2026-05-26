@@ -21,7 +21,7 @@
  * **2026-05 移除 §6.2 cwd realpath 整链回溯**（REVIEW_28）：原 §6.2 同 cwd 同 adapter 拒绝
  * 拦掉了 deep-code-review SKILL 的合法用例（lead 在 repo 起两 reviewer teammate 同 cwd 同
  * adapter）。残留语义自递归（lead 同 cwd 同 adapter 反复 spawn）由 §6.1 depth=3 截断接受
- * （fan-out=1 时最多 3 层 spawn 即停），不再阻断；详 ADR §6.2 与 reviews/REVIEW_28.md。
+ * （fan-out=1 时最多 3 层 spawn 即停），不再阻断；详 ADR §6.2 与 ref/reviews/REVIEW_28.md。
  */
 
 import type { CallerContext } from './types';
