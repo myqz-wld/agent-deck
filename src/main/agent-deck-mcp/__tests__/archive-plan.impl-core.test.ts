@@ -76,7 +76,7 @@ describe('archivePlanImpl — happy path', () => {
     expect(ok.worktreeRemoved).toBe(input.worktreePath);
     // archive-plan-tool-ux-followup-20260515 (b)+(c): plansIndexAppended boolean → plansIndexAction
     // 四态 enum。fixture INDEX 不存在 → action='created'。warnings 数组(HIGH-2 silent override warn)
-    // happy path 应为空(plan 仅在 .claude/plans/ 不在 plans/,无双存)。
+    // happy path 应为空(plan 仅在 .claude/plans/ 不在 ref/plans/,无双存)。
     expect(ok.plansIndexAction).toBe('created');
     expect(ok.warnings).toEqual([]);
     expect(ok.finalStatus).toBe('completed');
@@ -122,7 +122,7 @@ describe('archivePlanImpl — happy path', () => {
 
     // INDEX 创建（首次）
     const indexWrite = state.writes.find(
-      (w) => w.path === path.join(expectedMainRepo, 'plans', 'INDEX.md'),
+      (w) => w.path === path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md'),
     );
     expect(indexWrite).toBeTruthy();
     expect(indexWrite!.content).toContain('# Plans 索引');
@@ -134,7 +134,7 @@ describe('archivePlanImpl — happy path', () => {
 
   it('INDEX 已存在 + 不含本 plan_id → append 一行 4 列 row(plansIndexAction=appended)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
-    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     state.files.set(
       indexPath,
       '# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [old-plan.md](old-plan.md) | completed | — | older |\n',
@@ -174,7 +174,7 @@ describe('archivePlanImpl — happy path', () => {
 
   it('archive-plan-tool-ux-followup-20260515 (b)+(c): plan_id 已在 INDEX → smart update 4 列(plansIndexAction=updated,不再跳过)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
-    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     // caller 在 in_progress 阶段已经手工把 plan_id 行写进 INDEX(典型 stub 创建惯例)
     state.files.set(
       indexPath,
@@ -251,11 +251,11 @@ describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
     expect(ok.warnings).toEqual([]); // 无 warning(skip 不算异常)
   });
 
-  it('plan 有 spike-reports/ → 自动 mv 到 plans/<plan-id>/spike-reports/ + filesToAdd 含路径 + spikeReportsArchived 填充', async () => {
+  it('plan 有 spike-reports/ → 自动 mv 到 ref/plans/<plan-id>/spike-reports/ + filesToAdd 含路径 + spikeReportsArchived 填充', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     // 在 fixture 上加 spike-reports/ 文件 (src = `<plan-dir-parent>/<plan-id>/spike-reports/`)
     const srcSpikeDir = `${expectedMainRepo}/.claude/plans/${input.planId}/spike-reports`;
-    const dstSpikeDir = `${expectedMainRepo}/plans/${input.planId}/spike-reports`;
+    const dstSpikeDir = `${expectedMainRepo}/ref/plans/${input.planId}/spike-reports`;
     state.files.set(srcSpikeDir, '__dir_placeholder__');
     state.files.set(`${srcSpikeDir}/spike1-sdk-interrupt.md`, '# spike1 结论\n...');
     state.files.set(`${srcSpikeDir}/spike1-sdk-interrupt-runner.mjs`, '#!/usr/bin/env node\n...');
@@ -292,13 +292,13 @@ describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
     expect(state.files.has(`${dstSpikeDir}/spike1-sdk-interrupt-runner.mjs`)).toBe(true);
     expect(state.files.has(`${dstSpikeDir}/case-A.log`)).toBe(true);
 
-    // mkdir parent dir `<main-repo>/plans/<plan-id>/` 被调用
-    expect(state.mkdirs).toContain(`${expectedMainRepo}/plans/${input.planId}`);
+    // mkdir parent dir `<main-repo>/ref/plans/<plan-id>/` 被调用
+    expect(state.mkdirs).toContain(`${expectedMainRepo}/ref/plans/${input.planId}`);
 
     // git add 调用 args 含 spike-reports/ 相对路径
     const gitAddCall = state.gitCalls.find((c) => c.args[0] === 'add');
     expect(gitAddCall).toBeTruthy();
-    expect(gitAddCall!.args).toContain(`plans/${input.planId}/spike-reports`);
+    expect(gitAddCall!.args).toContain(`ref/plans/${input.planId}/spike-reports`);
   });
 
   it('spike-reports/ mv 失败 (mock mvDir throw) → warnings 含 spike-reports archive failed hint + ok return 不阻塞', async () => {
@@ -346,7 +346,7 @@ describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
 
     // git add 调用 args 不含 spike-reports/ (mv 失败 → 不入 filesToAdd)
     const gitAddCall = state.gitCalls.find((c) => c.args[0] === 'add');
-    expect(gitAddCall!.args).not.toContain(`plans/${input.planId}/spike-reports`);
+    expect(gitAddCall!.args).not.toContain(`ref/plans/${input.planId}/spike-reports`);
   });
 });
 
@@ -474,9 +474,9 @@ describe('archivePlanImpl — 预检失败分支', () => {
     expect(_isArchivePlanError(result)).toBe(true);
     expect((result as ArchivePlanError).error).toContain('plan file not found');
     // archive-plan-tool-ux-followup-20260515 (a) fallback 链 3 档:
-    // .claude/plans/ → plans/ → ~/.claude/plans/
+    // .claude/plans/ → ref/plans/ → ~/.claude/plans/
     expect((result as ArchivePlanError).hint).toContain('/Users/test/repo/.claude/plans');
-    expect((result as ArchivePlanError).hint).toContain('/Users/test/repo/plans');
+    expect((result as ArchivePlanError).hint).toContain('/Users/test/repo/ref/plans');
     expect((result as ArchivePlanError).hint).toContain('/Users/test/.claude/plans');
   });
 });

@@ -4,7 +4,7 @@
  *
  * 范围:11 项 fix(双异构 reviewer 对抗 + 用户 sign-off 后实施)的守门 case + 三个 helper
  * 单测(escapeTableCell / formatChangelogCell / syncPlansIndex):
- * - (a) fallback 链加 plans/ 中间档 → caller 不传 plan_file_path 时 plan 在 plans/ 能被找到
+ * - (a) fallback 链加 ref/plans/ 中间档 → caller 不传 plan_file_path 时 plan 在 ref/plans/ 能被找到
  * - (b) changelog_id 单值 / csv 多值 → INDEX 第 3 列 markdown link 拼接
  * - (b) caller 不传 changelog_id + 老 4 列 / 旧 2 列 / 新 append 三种降级行为(α + β fallback)
  * - (b) plansIndexAction 四态 enum(created / appended / updated / unchanged)
@@ -30,7 +30,7 @@ import {
 import type { ArchivePlanResult, ArchivePlanError } from '../tools/handlers/archive-plan-impl';
 import { makeState, makeDeps, fixtureHappyPath } from './archive-plan/_setup';
 
-// ─── (a) fallback 链 plans/ 中间档 ───────────────────────────────────────
+// ─── (a) fallback 链 ref/plans/ 中间档 ───────────────────────────────────────
 
 describe('archive-plan-tool-ux-followup-20260515 (a) fallback 链', () => {
   beforeEach(() => {
@@ -41,14 +41,14 @@ describe('archive-plan-tool-ux-followup-20260515 (a) fallback 链', () => {
     vi.useRealTimers();
   });
 
-  it('plan 在 <main-repo>/plans/<id>.md (中间档) → fallback 命中,不再因找不到 reject', async () => {
+  it('plan 在 <main-repo>/ref/plans/<id>.md (中间档) → fallback 命中,不再因找不到 reject', async () => {
     const state = makeState();
     const planId = 'in-plans-dir-stub';
     const worktreePath = '/Users/test/repo/.claude/worktrees/in-plans-dir-stub';
     const mainRepo = '/Users/test/repo';
     state.files.set(worktreePath, '__dir__');
     // **关键 case**:plan 直接放在 mainRepo/plans/(本项目实际惯例),.claude/plans/ 不存在
-    const planArchivedPath = `${mainRepo}/plans/${planId}.md`;
+    const planArchivedPath = `${mainRepo}/ref/plans/${planId}.md`;
     state.files.set(
       planArchivedPath,
       [
@@ -84,14 +84,14 @@ describe('archive-plan-tool-ux-followup-20260515 (a) fallback 链', () => {
     expect(state.unlinks).not.toContain(planArchivedPath);
   });
 
-  it('plan 在 .claude/plans/ AND plans/ 双存 → fallback 链选 .claude/plans/(优先档)', async () => {
+  it('plan 在 .claude/plans/ AND ref/plans/ 双存 → fallback 链选 .claude/plans/(优先档)', async () => {
     const state = makeState();
     const planId = 'double-exist-plan';
     const worktreePath = '/Users/test/repo/.claude/worktrees/double-exist-plan';
     const mainRepo = '/Users/test/repo';
     state.files.set(worktreePath, '__dir__');
     const projectLocalPath = `${mainRepo}/.claude/plans/${planId}.md`;
-    const projectArchivedPath = `${mainRepo}/plans/${planId}.md`;
+    const projectArchivedPath = `${mainRepo}/ref/plans/${planId}.md`;
     state.files.set(
       projectLocalPath,
       ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'localBody'].join('\n'),
@@ -138,7 +138,7 @@ describe('archive-plan-tool-ux-followup-20260515 (a) fallback 链', () => {
     expect(_isArchivePlanError(result)).toBe(true);
     const hint = (result as ArchivePlanError).hint!;
     expect(hint).toContain('/Users/test/repo/.claude/plans');
-    expect(hint).toContain('/Users/test/repo/plans');
+    expect(hint).toContain('/Users/test/repo/ref/plans');
     expect(hint).toContain('/Users/test/.claude/plans');
   });
 });
@@ -171,7 +171,7 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-1 plan_file_path stem refi
     const err = result as ArchivePlanError;
     expect(err.error).toContain('plan_file_path stem "wrong-stem"');
     expect(err.error).toContain(`plan_id "${planId}"`);
-    expect(err.hint).toContain(`<main-repo>/plans/${planId}.md`);
+    expect(err.hint).toContain(`<main-repo>/ref/plans/${planId}.md`);
     expect(err.hint).toContain('silently move');
     // 防 silent unlink:caller 文件 wrong-stem.md 不应被删
     expect(state.unlinks).not.toContain(customPath);
@@ -218,14 +218,14 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-1 plan_file_path stem refi
 // ─── HIGH-2 silent override warn ─────────────────────────────────────────
 
 describe('archive-plan-tool-ux-followup-20260515 HIGH-2 silent override warn', () => {
-  it('plan 在 .claude/plans/ + plans/ 已有同 id 历史归档 → warnings 含 silent-override', async () => {
+  it('plan 在 .claude/plans/ + ref/plans/ 已有同 id 历史归档 → warnings 含 silent-override', async () => {
     const state = makeState();
     const planId = 'overwrite-target-plan';
     const worktreePath = '/Users/test/repo/.claude/worktrees/overwrite-target-plan';
     const mainRepo = '/Users/test/repo';
     state.files.set(worktreePath, '__dir__');
     const projectLocalPath = `${mainRepo}/.claude/plans/${planId}.md`;
-    const projectArchivedPath = `${mainRepo}/plans/${planId}.md`;
+    const projectArchivedPath = `${mainRepo}/ref/plans/${planId}.md`;
     state.files.set(
       projectLocalPath,
       ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'newBody'].join('\n'),
@@ -269,7 +269,7 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-2 silent override warn', (
     const worktreePath = '/Users/test/repo/.claude/worktrees/self-archive-plan';
     const mainRepo = '/Users/test/repo';
     state.files.set(worktreePath, '__dir__');
-    const planArchivedPath = `${mainRepo}/plans/${planId}.md`;
+    const planArchivedPath = `${mainRepo}/ref/plans/${planId}.md`;
     state.files.set(
       planArchivedPath,
       ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
@@ -310,7 +310,7 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelog_id + INDEX 4 
     vi.useRealTimers();
   });
 
-  it('caller 传 changelog_id 单值 "122" → INDEX 4 列 row 第 3 列含 [122](../changelog/CHANGELOG_122.md)', async () => {
+  it('caller 传 changelog_id 单值 "122" → INDEX 4 列 row 第 3 列含 [122](../changelogs/CHANGELOG_122.md)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
@@ -331,9 +331,9 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelog_id + INDEX 4 
       deps,
     );
     expect(_isArchivePlanError(result)).toBe(false);
-    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     const indexWrite = state.writes.find((w) => w.path === indexPath);
-    expect(indexWrite!.content).toContain('[122](../changelog/CHANGELOG_122.md)');
+    expect(indexWrite!.content).toContain('[122](../changelogs/CHANGELOG_122.md)');
   });
 
   it('caller 传 changelog_id csv "121,122" → INDEX 第 3 列含两个 link 用 ` / ` 分隔', async () => {
@@ -357,19 +357,19 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelog_id + INDEX 4 
       deps,
     );
     expect(_isArchivePlanError(result)).toBe(false);
-    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     const indexWrite = state.writes.find((w) => w.path === indexPath);
     expect(indexWrite!.content).toContain(
-      '[121](../changelog/CHANGELOG_121.md) / [122](../changelog/CHANGELOG_122.md)',
+      '[121](../changelogs/CHANGELOG_121.md) / [122](../changelogs/CHANGELOG_122.md)',
     );
   });
 
   it('caller 不传 changelog_id + INDEX 已有 4 列 row 含 changelog 链接 → smart update 保留原 changelog 列(α fallback)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
-    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     state.files.set(
       indexPath,
-      `# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [${input.planId}.md](${input.planId}.md) | in_progress | [99](../changelog/CHANGELOG_99.md) | stub desc |\n`,
+      `# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [${input.planId}.md](${input.planId}.md) | in_progress | [99](../changelogs/CHANGELOG_99.md) | stub desc |\n`,
     );
 
     const deps = makeDeps(state, [
@@ -391,7 +391,7 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelog_id + INDEX 4 
     expect((result as ArchivePlanResult).plansIndexAction).toBe('updated');
     const indexWrite = state.writes.find((w) => w.path === indexPath);
     // 原 changelog 列 [99] 应保留,而非清空成 `—`
-    expect(indexWrite!.content).toContain('[99](../changelog/CHANGELOG_99.md)');
+    expect(indexWrite!.content).toContain('[99](../changelogs/CHANGELOG_99.md)');
     // status 列改成 completed
     expect(indexWrite!.content).toMatch(
       new RegExp(`\\| \\[${input.planId}\\.md\\]\\(${input.planId}\\.md\\) \\| completed \\|`),
@@ -400,7 +400,7 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelog_id + INDEX 4 
 
   it('caller 不传 changelog_id + INDEX 已有旧 2 列 row → smart update 升级为 4 列 + changelog 列用 `—` placeholder(β fallback)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
-    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     // 老 2 列 row(archive_plan 老版本生成的格式)
     state.files.set(
       indexPath,
@@ -472,18 +472,18 @@ describe('formatChangelogCell helper', () => {
   });
 
   it('单值 "122" → markdown link', () => {
-    expect(formatChangelogCell('122')).toBe('[122](../changelog/CHANGELOG_122.md)');
+    expect(formatChangelogCell('122')).toBe('[122](../changelogs/CHANGELOG_122.md)');
   });
 
   it('csv 多值 "121,122" → 两个 link 用 ` / ` 分隔', () => {
     expect(formatChangelogCell('121,122')).toBe(
-      '[121](../changelog/CHANGELOG_121.md) / [122](../changelog/CHANGELOG_122.md)',
+      '[121](../changelogs/CHANGELOG_121.md) / [122](../changelogs/CHANGELOG_122.md)',
     );
   });
 
   it('csv 含空白 " 121 , 122 " → trim 后正常拼接', () => {
     expect(formatChangelogCell(' 121 , 122 ')).toBe(
-      '[121](../changelog/CHANGELOG_121.md) / [122](../changelog/CHANGELOG_122.md)',
+      '[121](../changelogs/CHANGELOG_121.md) / [122](../changelogs/CHANGELOG_122.md)',
     );
   });
 
@@ -497,12 +497,12 @@ describe('syncPlansIndex helper', () => {
     const result = syncPlansIndex(null, {
       planId: 'foo',
       description: 'hello',
-      changelogCell: '[1](../changelog/CHANGELOG_1.md)',
+      changelogCell: '[1](../changelogs/CHANGELOG_1.md)',
     });
     expect(result.action).toBe('created');
     expect(result.newContent).toContain('| 文件 | 状态 | 关联 changelog | 概要 |');
     expect(result.newContent).toContain(
-      '| [foo.md](foo.md) | completed | [1](../changelog/CHANGELOG_1.md) | hello |',
+      '| [foo.md](foo.md) | completed | [1](../changelogs/CHANGELOG_1.md) | hello |',
     );
   });
 
@@ -534,28 +534,28 @@ describe('syncPlansIndex helper', () => {
 
   it('existing 含 plan_id 老 4 列 + caller 不传 changelog → 保留原 changelog 列', () => {
     const existing =
-      '# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [foo.md](foo.md) | in_progress | [99](../changelog/CHANGELOG_99.md) | old desc |\n';
+      '# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [foo.md](foo.md) | in_progress | [99](../changelogs/CHANGELOG_99.md) | old desc |\n';
     const result = syncPlansIndex(existing, {
       planId: 'foo',
       description: 'new desc',
       changelogCell: null,
     });
     expect(result.action).toBe('updated');
-    expect(result.newContent).toContain('[99](../changelog/CHANGELOG_99.md)'); // 保留
+    expect(result.newContent).toContain('[99](../changelogs/CHANGELOG_99.md)'); // 保留
     expect(result.newContent).toContain('completed'); // status 改
     expect(result.newContent).toContain('new desc'); // description 改
   });
 
   it('existing 含 plan_id + caller 传新 changelog → 覆盖原 changelog', () => {
     const existing =
-      '# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [foo.md](foo.md) | in_progress | [99](../changelog/CHANGELOG_99.md) | old |\n';
+      '# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [foo.md](foo.md) | in_progress | [99](../changelogs/CHANGELOG_99.md) | old |\n';
     const result = syncPlansIndex(existing, {
       planId: 'foo',
       description: 'new',
-      changelogCell: '[122](../changelog/CHANGELOG_122.md)',
+      changelogCell: '[122](../changelogs/CHANGELOG_122.md)',
     });
     expect(result.action).toBe('updated');
-    expect(result.newContent).toContain('[122](../changelog/CHANGELOG_122.md)');
+    expect(result.newContent).toContain('[122](../changelogs/CHANGELOG_122.md)');
     expect(result.newContent).not.toContain('[99]');
   });
 
@@ -920,7 +920,7 @@ describe('archive-plan-tool-ux-followup-20260515 R1 fix codex MED-1: 旧 2 列 I
     // fallback 路径。该 case 守门确认行为 + 警示后续扩展前必须先实现 escape-aware splitter。
     const existing =
       '# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n' +
-      '| [foo.md](foo.md) | in_progress | [99](../changelog/CHANGELOG_99.md) | desc with a\\|b escaped pipe |\n';
+      '| [foo.md](foo.md) | in_progress | [99](../changelogs/CHANGELOG_99.md) | desc with a\\|b escaped pipe |\n';
     const result = syncPlansIndex(existing, {
       planId: 'foo',
       description: 'new clean desc',
@@ -929,7 +929,7 @@ describe('archive-plan-tool-ux-followup-20260515 R1 fix codex MED-1: 旧 2 列 I
     expect(result.action).toBe('updated');
     // **关键**:即使老 description 列含 escaped `\|` 让 naive split 误切多段,
     // changelog 列(oldCols[2])仍正确保留为 [99](...)(因为 split 误切只影响 description 之后的列)
-    expect(result.newContent).toContain('[99](../changelog/CHANGELOG_99.md)');
+    expect(result.newContent).toContain('[99](../changelogs/CHANGELOG_99.md)');
     // 新 description 替换老的(不会因 escape 失败回退)
     expect(result.newContent).toContain('new clean desc');
     expect(result.newContent).not.toContain('escaped pipe'); // 老 desc 已被覆盖

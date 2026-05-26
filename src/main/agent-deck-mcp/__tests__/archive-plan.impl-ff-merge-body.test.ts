@@ -208,7 +208,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(err.hint).toContain('ff-merge 已完成');
     expect(err.hint).toContain('phase 标识手工补完');
     // archive 写不应该发生(短路 in step 8b)
-    expect(state.writes.find((w) => w.path.includes('plans/'))).toBeUndefined();
+    expect(state.writes.find((w) => w.path.includes('ref/plans/'))).toBeUndefined();
   });
 
   it('post-ff-merge fresh re-read frontmatter 缺失(caller 误删 frontmatter block)→ postFfMergeErr 提示 caller 修后再调', async () => {
@@ -304,10 +304,10 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(archivedWrite).toBeTruthy();
     expect(archivedWrite!.content).toContain(`description: "${freshDescription}"`);
 
-    // 2. **关键 assertion**:plans/INDEX.md 必须用 freshFm.description(不能 fallback 到
+    // 2. **关键 assertion**:ref/plans/INDEX.md 必须用 freshFm.description(不能 fallback 到
     // freshFm.plan_id 或 input.planId,这是 fix 前的 buggy 行为 — fm.description undefined
     // 时 fallback 链落到 fm.plan_id == input.planId)
-    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     const indexWrites = state.writes.filter((w) => w.path === indexPath);
     expect(indexWrites.length).toBeGreaterThan(0);
     const lastIndexWrite = indexWrites[indexWrites.length - 1];
@@ -392,7 +392,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     // 3. archive 写不应该发生(短路 in step 8c,不到 step 10 写 archived plan / step 11 INDEX)
     const archivedWrite = state.writes.find((w) => w.path === expectedArchivedPath);
     expect(archivedWrite).toBeUndefined();
-    const indexPath = path.join(expectedMainRepo, 'plans', 'INDEX.md');
+    const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     const indexWrite = state.writes.find((w) => w.path === indexPath);
     expect(indexWrite).toBeUndefined();
     // 4. 原 plan 文件没被 unlink(短路在 step 8c,step 12 unlink 不会跑)
