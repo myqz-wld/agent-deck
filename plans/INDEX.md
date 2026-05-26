@@ -60,3 +60,4 @@
 | [task-team-id-restore-20260525.md](task-team-id-restore-20260525.md) | completed | [149](../changelog/CHANGELOG_149.md) | task-team-id-restore-20260525 |
 | [deep-code-review-main-3m-20260525.md](deep-code-review-main-3m-20260525.md) | completed | — | deep-code-review-main-3m-20260525 |
 | [review-56-followups-20260526.md](review-56-followups-20260526.md) | completed | — | review-56-followups-20260526 |
+| [handoff-no-spawn-guards-20260526.md](handoff-no-spawn-guards-20260526.md) | completed | [151](../changelog/CHANGELOG_151.md) | handoff-no-spawn-guards-20260526 |
