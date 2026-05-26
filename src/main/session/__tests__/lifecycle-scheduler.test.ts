@@ -86,6 +86,30 @@ vi.mock('@main/session/manager-team-coordinator', () => ({
   leaveTeamsAndAutoArchive: async (sessionId: string, reason: string) => {
     leaveTeamsAndAutoArchiveCalls.push({ sessionId, reason });
   },
+  // REVIEW_56 §F20 修法 mock: applyClosedSideEffects helper 三入口 DRY 抽出。
+  // mock impl mirror real helper 行为: sync clearMarker → onClearedBeforeLeave callback → leave。
+  // 用于 lifecycle-scheduler scan() 的 dormant→closed 分支(callsite L100)。
+  applyClosedSideEffects: async (
+    sessionId: string,
+    opts: { awaitLeave?: boolean; logPrefix?: string; onClearedBeforeLeave?: () => void } = {},
+  ) => {
+    // 1. sync clearMarker (push 调用历史与原 sessionRepo.clearCwdReleaseMarker mock 同款)
+    try {
+      clearCwdReleaseMarkerCalls.push(sessionId);
+    } catch {
+      /* simulate try/catch error isolation */
+    }
+    // 2. sync callback (between clear 和 leave)
+    if (opts.onClearedBeforeLeave) {
+      try {
+        opts.onClearedBeforeLeave();
+      } catch {
+        /* swallow callback errors per real helper */
+      }
+    }
+    // 3. leave (dual-mode awaitLeave)
+    leaveTeamsAndAutoArchiveCalls.push({ sessionId, reason: 'closed' });
+  },
 }));
 
 // import after mocks

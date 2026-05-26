@@ -12,6 +12,7 @@ import {
   leaveTeamsAndAutoArchive,
   archiveTeamsIfOrphaned,
   unarchiveTeamsForRevivedLead,
+  applyClosedSideEffects,
 } from './manager-team-coordinator';
 import {
   type IngestContext,
@@ -330,19 +331,18 @@ class SessionManagerClass {
     const r = sessionRepo.get(sessionId);
     if (!r || (r.lifecycle !== 'dormant' && r.lifecycle !== 'active')) return;
     sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
-    // plan codex-handoff-team-alignment-20260518 P5 Round 1 reviewer-claude MED-4 修法:
-    // 联动清 cwd_release_marker (worktree 持有标记是 transient session state,close 后必清避免
-    // 被 SDK 隐式 fork rename 路径复制到新 sid 触发 archive_plan 状态 4 误 reject)。
-    // 三入口 (markClosed / close / archive) 统一 — 详 v020 SQL 注释。
-    sessionRepo.clearCwdReleaseMarker(sessionId);
-    const updated = sessionRepo.get(sessionId);
-    if (updated) eventBus.emit('session-upserted', updated);
-    // plan team-cohesion-fix-20260513 Phase F D6：被动清理 — closed session 自动 leave
-    // 所有 active team membership（否则 universal team backend 仍把 closed session 算
-    // active member，UI 看到一堆「已 closed 但仍在 team」的幽灵成员）。fire-and-forget
-    // 异步跑，不阻塞 markClosed 的同步语义。helper 实现见 manager-team-coordinator.ts。
-    void leaveTeamsAndAutoArchive(sessionId, 'closed').catch((err) => {
-      console.warn(`[session-mgr] leaveTeamsAndAutoArchive failed during markClosed(${sessionId}):`, err);
+    // REVIEW_56 §F20 修法 (Plan-Review Round 1 + spike 决策, DRY): 三入口 (markClosed / close /
+    // lifecycle-scheduler purge) 副作用统一抽 applyClosedSideEffects helper。
+    // 顺序: sync clearMarker → sync onClearedBeforeLeave callback (emit upserted) → async
+    // fire-and-forget leave。三入口 invariant 显式声明 ("clear marker + leave + auto-archive
+    // 三联动") — 详 manager-team-coordinator.ts §applyClosedSideEffects jsdoc。
+    void applyClosedSideEffects(sessionId, {
+      awaitLeave: false,
+      logPrefix: '[session-mgr] markClosed',
+      onClearedBeforeLeave: () => {
+        const updated = sessionRepo.get(sessionId);
+        if (updated) eventBus.emit('session-upserted', updated);
+      },
     });
   }
 
@@ -372,21 +372,23 @@ class SessionManagerClass {
       }
     }
     sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
-    // plan codex-handoff-team-alignment-20260518 P5 Round 1 reviewer-claude MED-4 修法:
-    // 联动清 cwd_release_marker (与 markClosed 同款,详 markClosed 处注释)。
-    sessionRepo.clearCwdReleaseMarker(sessionId);
-    const updated = sessionRepo.get(sessionId);
-    if (updated) eventBus.emit('session-upserted', updated);
-    // plan codex-handoff-team-alignment-20260518 P2 Step 2.9：释放 per-session mcp token map
-    // entry(双向 map 双 entry 同步清)。codex bridge.closeSession 已经在 sub-step 2.5d 内做过
-    // mcpSessionTokenMap.release 一次,这里再做一次走 noop fast-path(token map 不在则静默退出),
-    // 不影响幂等。手动 close (从 IPC / Detail UI 触发) 而非 codex bridge.closeSession 走的路径
-    // 也保证 token map 清干净 (若 close 没经 adapter.closeSession ⇒ token leak)。
-    mcpSessionTokenMap.release(sessionId);
-    // plan team-cohesion-fix-20260513 Phase F D6：与 markClosed 同款被动清理。await 而非
-    // fire-and-forget（close 已 async，等 leaveTeam 完成再返回让 caller 拿到稳定状态：
-    // 比如 IPC TeamShutdownAllTeammates 串行调多个 close 期望每个 close 完后该 sid 已离 team）。
-    await leaveTeamsAndAutoArchive(sessionId, 'closed');
+    // REVIEW_56 §F20 修法 (Plan-Review Round 1 + spike 决策, DRY): 三入口副作用统一抽 helper。
+    // 顺序: sync clearMarker → sync onClearedBeforeLeave callback (emit upserted + token release)
+    // → await leave (close 是 async,等 leave 完让 caller 拿稳定状态)。
+    // 历史顺序与 helper 完全等价: clearMarker → emit upserted → token release → await leave。
+    // 详 manager-team-coordinator.ts §applyClosedSideEffects jsdoc。
+    await applyClosedSideEffects(sessionId, {
+      awaitLeave: true,
+      logPrefix: '[session-mgr] close',
+      onClearedBeforeLeave: () => {
+        const updated = sessionRepo.get(sessionId);
+        if (updated) eventBus.emit('session-upserted', updated);
+        // plan codex-handoff-team-alignment-20260518 P2 Step 2.9：释放 per-session mcp token map
+        // entry。codex bridge.closeSession 已经做过一次走 noop fast-path,这里再做一次双保护
+        // (手动 close 没经 adapter.closeSession 路径也保证 token map 清干净 → 避免 token leak)。
+        mcpSessionTokenMap.release(sessionId);
+      },
+    });
   }
 
   async archive(sessionId: string): Promise<void> {
