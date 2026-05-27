@@ -94,16 +94,28 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
         onChange={(v) => void update({ summaryMaxConcurrent: v })}
       />
       <ModelInput
-        label="周期性总结模型"
-        hint="留空 = 沿用 ANTHROPIC_DEFAULT_HAIKU_MODEL → ANTHROPIC_MODEL → 'haiku' alias 兜底。仅对 claude-code session 生效；codex session 用 ~/.codex/config.toml 顶层 model。"
+        label="claude 周期性总结模型"
+        hint="留空 = 沿用 ANTHROPIC_DEFAULT_HAIKU_MODEL → ANTHROPIC_MODEL → 'haiku' alias 兜底。仅对 claude-code session 生效；codex session 走下方 codex 字段。"
         value={settings.summaryModel}
         onChange={(v) => void update({ summaryModel: v })}
       />
       <ModelInput
-        label="hand-off 简报模型"
-        hint="留空 = 沿用 ANTHROPIC_DEFAULT_SONNET_MODEL → ANTHROPIC_MODEL → 'sonnet' alias 兜底。仅对 claude-code session 生效；codex session hand-off 走 codex SDK 自身（model 由 ~/.codex/config.toml 决定）。"
+        label="claude hand-off 简报模型"
+        hint="留空 = 沿用 ANTHROPIC_DEFAULT_SONNET_MODEL → ANTHROPIC_MODEL → 'sonnet' alias 兜底。仅对 claude-code session 生效；codex session 走下方 codex 字段。"
         value={settings.handOffModel}
         onChange={(v) => void update({ handOffModel: v })}
+      />
+      <ModelInput
+        label="codex 周期性总结模型"
+        hint="留空 = 沿用 CODEX_SUMMARY_MODEL env → ~/.codex/config.toml 顶层 model 兜底。仅对 codex-cli session 生效；典型对标 claude haiku 用轻量 model (codex CLI 支持的具体 model id 由 user 确认)。"
+        value={settings.codexSummaryModel}
+        onChange={(v) => void update({ codexSummaryModel: v })}
+      />
+      <ModelInput
+        label="codex hand-off 简报模型"
+        hint="留空 = 沿用 CODEX_HANDOFF_MODEL env → ~/.codex/config.toml 顶层 model 兜底。仅对 codex-cli session 生效；典型对标 claude sonnet 用 mid model。"
+        value={settings.codexHandOffModel}
+        onChange={(v) => void update({ codexHandOffModel: v })}
       />
       <SummarizerErrorsDiagnostic />
     </Section>
