@@ -7,6 +7,7 @@ import { sessionRepo, SessionRowMissingError } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
 import { summaryRepo } from '@main/store/summary-repo';
+import { settingsStore } from '@main/store/settings-store';
 import { summariseSessionForHandOff } from '@main/session/summarizer';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
@@ -103,16 +104,21 @@ export function registerSessionsIpc(): void {
       throw new IpcInputError('sessionId', `session not found: ${sid}`);
     }
     const events = eventRepo.listForSession(sid, 200);
-    // R37 P2-I Step 3.3：dispatch 已下放到 adapter.summariseEvents（kind: 'handoff'）。
-    // - claude-code → claude SDK + sonnet（4 节简报，60s timeout）
-    // - codex-cli   → codex SDK + 'medium' effort（reasoning，60s timeout，runner 走
-    //   settings.codexHandOffModel > CODEX_HANDOFF_MODEL env > undefined fallback config.toml
-    //   优先级链 — prompt-asset-review-optimize-20260527 修订:codex-sdk v0.131.0+ 已支持
-    //   per-thread model override,handoff-runner 显式传 model 给 codex SDK 真生效)
-    // - 未实装 summariseEvents 的 adapter → fallback 兜底走 claude path 的
-    //   `summariseSessionForHandOff`（future-proof：未来加新 adapter 没实装时仍可用，
-    //   防止 hand-off 入口意外暴露时静默炸）
-    const adapter = adapterRegistry.get(session.agentId);
+    // plan prancy-forging-penguin 改造:dispatch 改成按 **settings.handOffProvider** 选 adapter
+    // 出简报(与被 hand-off 的目标会话原 adapter 解耦)。原 R37 P2-I 是按 session.agentId 走,
+    // 现在变成 user 在 settings 选 'claude' 还是 'codex' 出简报 — claude session 也可能由
+    // codex SDK 出简报,反之亦然。user 责任:settings.handOffModel 填的 model id 必须对当前
+    // provider 可用。
+    //
+    // 关键边界:**两个 adapter 变量分开取**:
+    // - summaryAdapter (provider-driven):仅用于出简报 LLM 调用 (line summary = ...)
+    // - sessionAdapter (session.agentId driven):用于 Stage 2 fail-fast 校验 createSession,
+    //   因为 Stage 2 起新会话用的是被 hand-off 目标会话**自己的** adapter (新 session 沿用原
+    //   adapter,与 user 选的 simulate provider 无关)
+    const provider = settingsStore.get('handOffProvider');
+    const summaryProviderAgentId = provider === 'codex' ? 'codex-cli' : 'claude-code';
+    const summaryAdapter = adapterRegistry.get(summaryProviderAgentId);
+    const sessionAdapter = adapterRegistry.get(session.agentId);
     // plan remove-aider-generic-pty-adapters-20260520 P9 R2 reviewer-codex MED 修法：
     // hand-off 是 2 stage 流程(Stage 1 paid LLM summary + Stage 2 SessionHandOffSpawn)。
     // Stage 2 (line 156+) 对 `!adapter?.createSession` 硬性 throw；Stage 1 必须 fail-fast
@@ -120,13 +126,15 @@ export function registerSessionsIpc(): void {
     // 返 undefined)走 fallback `summariseSessionForHandOff` 跑 paid Claude oneshot 后
     // Stage 2 必然 throw,浪费 LLM API quota + 用户钱。defense-in-depth 不依赖 plan D1
     // "用户无历史数据" 假设。
-    if (!adapter?.createSession) {
+    // **plan prancy-forging-penguin 修订**:check 必须用 sessionAdapter (Stage 2 用此 adapter
+    // createSession),不是 summaryAdapter。
+    if (!sessionAdapter?.createSession) {
       throw new Error(
         `adapter cannot create session: ${session.agentId} (hand-off Stage 1 fail-fast)`,
       );
     }
-    const summary = adapter.summariseEvents
-      ? await adapter.summariseEvents(session.cwd, events, 'handoff')
+    const summary = summaryAdapter?.summariseEvents
+      ? await summaryAdapter.summariseEvents(session.cwd, events, 'handoff')
       : await summariseSessionForHandOff(session.cwd, events);
     if (!summary) {
       // events 为空（新会话）/ LLM 返回空串都视为「没东西可总结」—— 让 renderer

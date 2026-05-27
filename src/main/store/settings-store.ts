@@ -37,6 +37,12 @@ const REMOVED_KEYS: readonly string[] = [
   // 失能力 — raw enableTaskManager:true + raw 不含 enableAgentDeckMcp → 自动 set
   // enableAgentDeckMcp:true 后再 delete legacy（详 plan §D2 R1 F11 + R3-claude-MED-1）。
   'enableTaskManager',
+  // plan prancy-forging-penguin：原 codexSummaryModel / codexHandOffModel 两个 codex 端独立
+  // 字段下线,合并入统一的 summaryModel / handOffModel + 新增 summaryProvider / handOffProvider
+  // 选择器(走 claude SDK 还是 codex SDK)。老用户如有填过 codex 字段值不自动迁移到新统一字段
+  // — 简洁 design,user 在新 UI 重选 provider=codex 后再填 model id。
+  'codexSummaryModel',
+  'codexHandOffModel',
 ];
 
 let store: (Store<AppSettings> & StoreApi<AppSettings>) | null = null;

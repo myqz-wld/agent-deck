@@ -88,18 +88,18 @@ export async function summariseSessionForHandOff(
   const result = await runClaudeOneshot({
     cwd,
     prompt: buildHandoffPrompt({ cwd, activity, agentName: 'Claude' }),
-    // K3 用 sonnet：hand-off 是低频操作（用户主动点按钮）+ 结构化输出对模型理解力
-    // 要求高（4 节模板）。优先级与 summariseViaLlm haiku 同模式（plan
-    // model-wiring-and-handoff-20260514 Step 4.4）：
-    //   1. settings.handOffModel（UI 暴露的字符串字段，'' 表示沿用下面 env / alias 链）
-    //   2. ANTHROPIC_DEFAULT_SONNET_MODEL（settings.json 显式配的 sonnet id）
-    //   3. ANTHROPIC_MODEL（用户主模型）
-    //   4. 'sonnet' alias 兜底
+    // plan prancy-forging-penguin: hand-off default 从 sonnet → haiku 与 summaryModel 对齐。
+    // user 想升 sonnet/opus/thinking-max 自己在 settings.handOffModel 填 model id 即可。
+    // 优先级链:
+    //   1. settings.handOffModel(UI 暴露的字符串字段,'' 表示沿用下面 env / alias 链)
+    //   2. ANTHROPIC_DEFAULT_HAIKU_MODEL(settings.json 显式配的 haiku id)
+    //   3. ANTHROPIC_MODEL(用户主模型)
+    //   4. 'haiku' alias 兜底(改自原 'sonnet')
     model:
       settingsStore.get('handOffModel') ||
-      process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+      process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
       process.env.ANTHROPIC_MODEL ||
-      'sonnet',
+      'haiku',
     systemPrompt: CLAUDE_HANDOFF_SYSTEM_PROMPT,
     // K3 单独的超时（不复用 summaryTimeoutMs—— hand-off 用 sonnet 慢，需要更长 budget）。
     // 60s 上限：sonnet + 200 events 通常 10-30s，60s 给 outliers 留余量。
