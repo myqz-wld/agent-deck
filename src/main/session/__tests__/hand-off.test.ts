@@ -116,9 +116,9 @@ const sampleEvents = (): AgentEvent[] => [
 
 describe('summariseSessionForHandOff', () => {
   it('happy path: returns trimmed structured summary when SDK yields assistant text', async () => {
-    const oldDefault = process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+    const oldDefault = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
     const oldModel = process.env.ANTHROPIC_MODEL;
-    delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+    delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
     delete process.env.ANTHROPIC_MODEL;
     try {
       const sdk = makeMockSdk({ mode: 'ok' });
@@ -134,12 +134,12 @@ describe('summariseSessionForHandOff', () => {
       expect(call.prompt).toContain('【目标】');
       expect(call.options.permissionMode).toBe('plan');
       expect(call.options.settingSources).toEqual([]);
-      // plan prancy-forging-penguin: handOff fallback alias 改 sonnet → haiku 与 summary 对齐
-      // (已临时清 HAIKU/ANTHROPIC env,避免本机 settings.json 污染)
-      expect(call.options.model).toBe('haiku');
+      // hand-off default sonnet(推翻 CHANGELOG_161 与 summary 对齐 haiku 决策,简报结构精度敏感)
+      // (已临时清 SONNET/ANTHROPIC env,避免本机 settings.json 污染)
+      expect(call.options.model).toBe('sonnet');
     } finally {
-      if (oldDefault === undefined) delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
-      else process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = oldDefault;
+      if (oldDefault === undefined) delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+      else process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = oldDefault;
       if (oldModel === undefined) delete process.env.ANTHROPIC_MODEL;
       else process.env.ANTHROPIC_MODEL = oldModel;
     }
@@ -170,19 +170,18 @@ describe('summariseSessionForHandOff', () => {
     expect(true).toBe(true);
   });
 
-  it('uses ANTHROPIC_DEFAULT_HAIKU_MODEL env when set', async () => {
-    // plan prancy-forging-penguin: handOff fallback 改 sonnet → haiku,test 同步验
-    // ANTHROPIC_DEFAULT_HAIKU_MODEL env(不再是 SONNET)。
-    const old = process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
-    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+  it('uses ANTHROPIC_DEFAULT_SONNET_MODEL env when set', async () => {
+    // hand-off default 改回 sonnet,test 同步验 ANTHROPIC_DEFAULT_SONNET_MODEL env。
+    const old = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'claude-sonnet-4-6';
     try {
       const sdk = makeMockSdk({ mode: 'ok' });
       loadSdkMock.mockResolvedValue(sdk as unknown as Awaited<ReturnType<typeof loadSdk>>);
       await summariseSessionForHandOff('/tmp/cwd', sampleEvents());
-      expect(sdk.__calls[0].options.model).toBe('claude-haiku-4-5-20251001');
+      expect(sdk.__calls[0].options.model).toBe('claude-sonnet-4-6');
     } finally {
-      if (old === undefined) delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
-      else process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = old;
+      if (old === undefined) delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+      else process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = old;
     }
   });
 
@@ -190,19 +189,17 @@ describe('summariseSessionForHandOff', () => {
    * plan model-wiring-and-handoff-20260514 Step 6.4：settings.handOffModel 优先级最高。
    *
    * 验证 llm-runners.ts:summariseSessionForHandOff fallback 链
-   *   `settings.handOffModel ＞ ANTHROPIC_DEFAULT_HAIKU_MODEL ＞ ANTHROPIC_MODEL ＞ 'haiku'`
+   *   `settings.handOffModel ＞ ANTHROPIC_DEFAULT_SONNET_MODEL ＞ ANTHROPIC_MODEL ＞ 'sonnet'`
    * 第一档：settings 显式值即使 env 都已设也优先采用。
-   *
-   * **plan prancy-forging-penguin 修订**:fallback alias / env 从 SONNET 改成 HAIKU(默认 haiku 化)。
    *
    * Mock 策略：用 settingsStore.set 直接写真实 store（test 环境共享 hookServerToken 已生成
    * 的 store，set 是 idempotent），跑后立即清空恢复，避免污染下一 test。
    */
   it('uses settings.handOffModel when set, overriding both env vars', async () => {
     const { settingsStore } = await import('@main/store/settings-store');
-    const oldDefault = process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+    const oldDefault = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
     const oldModel = process.env.ANTHROPIC_MODEL;
-    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'claude-sonnet-4-6';
     process.env.ANTHROPIC_MODEL = 'claude-opus-4-7';
     settingsStore.set('handOffModel', 'claude-opus-4-7-thinking-max');
     try {
@@ -213,8 +210,8 @@ describe('summariseSessionForHandOff', () => {
     } finally {
       // 恢复 settings + env，下一 test 不被污染
       settingsStore.set('handOffModel', '');
-      if (oldDefault === undefined) delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
-      else process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = oldDefault;
+      if (oldDefault === undefined) delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+      else process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = oldDefault;
       if (oldModel === undefined) delete process.env.ANTHROPIC_MODEL;
       else process.env.ANTHROPIC_MODEL = oldModel;
     }

@@ -67,7 +67,15 @@ type Provider = 'claude' | 'codex';
 type Reasoning = 'minimal' | 'low' | 'medium' | 'high';
 
 /**
- * plan prancy-forging-penguin: provider × model × reasoning 三联控件(一行布局)。
+ * plan prancy-forging-penguin: provider × model × reasoning 三联控件。
+ *
+ * 布局(3 行,follow-up CHANGELOG_162 重排):SettingsDialog 容器 340px - p-4 = 308px,
+ * 单行塞 label + 3 控件 + 3 gap 会把 input 压成 0 宽(CHANGELOG_161 follow-up 已经修过一次
+ * 让 reasoning select 不被推出容器,代价是 input 完全没空间)。重排成:
+ *   1. label 单独一行
+ *   2. provider select + model input(flex-1) + reasoning select 全宽一行(input 拿 ~140px 够显示 "claude-sonnet-4-6")
+ *   3. hint 单独一行
+ *
  * - Provider select: claude / codex,决定走哪个 LLM SDK
  * - Model input: free-form model id,空 = 沿用 provider 各自 env / alias / config.toml 兜底
  * - Reasoning select: minimal/low/medium/high,**仅 provider='codex' 启用**
@@ -97,8 +105,8 @@ function ModelRow({
   const reasoningDisabled = provider === 'claude';
   return (
     <div className="flex flex-col gap-1 text-[11px]">
+      <div>{label}</div>
       <div className="flex items-center gap-2">
-        <span className="w-32 shrink-0">{label}</span>
         <select
           value={provider}
           onChange={(e) => onProviderChange(e.target.value as Provider)}
@@ -117,7 +125,7 @@ function ModelRow({
               ? "claude 端 thinking 走 model id 后缀(如 'claude-opus-4-7-thinking-max[1m]'),无独立 reasoning 字段"
               : 'codex SDK ThreadOptions.modelReasoningEffort 4 档枚举'
           }
-          className="no-drag w-24 shrink-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
+          className="no-drag w-20 shrink-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
         >
           <option value="minimal">minimal</option>
           <option value="low">low</option>
@@ -125,7 +133,7 @@ function ModelRow({
           <option value="high">high</option>
         </select>
       </div>
-      <div className="pl-32 text-[10px] text-deck-muted/60 leading-snug">{hint}</div>
+      <div className="text-[10px] text-deck-muted/60 leading-snug">{hint}</div>
     </div>
   );
 }
@@ -165,11 +173,11 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
       />
       <ModelRow
         label="Hand-off 简报"
-        hint="4 节结构化简报(目标/已做/在做/下一步)。default 同 haiku；想升 sonnet/opus 自己填 model id。reasoning 仅 codex 生效，default medium 保结构精度。"
+        hint="4 节结构化简报(目标/已做/在做/下一步)。default sonnet 保结构精度；想降 haiku 或升 opus/thinking-max 自己填 model id。reasoning 仅 codex 生效，default medium 保结构精度。"
         provider={settings.handOffProvider}
         model={settings.handOffModel}
         reasoning={settings.handOffReasoning}
-        modelPlaceholder="haiku（沿用 env / alias）"
+        modelPlaceholder="sonnet（沿用 env / alias）"
         onProviderChange={(v) => void update({ handOffProvider: v })}
         onModelChange={(v) => void update({ handOffModel: v })}
         onReasoningChange={(v) => void update({ handOffReasoning: v })}
