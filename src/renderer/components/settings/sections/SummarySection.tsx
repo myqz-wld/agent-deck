@@ -58,7 +58,7 @@ function ModelInput({
           e.currentTarget.blur();
         }
       }}
-      className="no-drag flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] outline-none focus:border-white/20"
+      className="no-drag min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] outline-none focus:border-white/20"
     />
   );
 }
@@ -102,7 +102,7 @@ function ModelRow({
         <select
           value={provider}
           onChange={(e) => onProviderChange(e.target.value as Provider)}
-          className="no-drag rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
+          className="no-drag shrink-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
         >
           <option value="claude">claude</option>
           <option value="codex">codex</option>
@@ -117,7 +117,7 @@ function ModelRow({
               ? "claude 端 thinking 走 model id 后缀(如 'claude-opus-4-7-thinking-max[1m]'),无独立 reasoning 字段"
               : 'codex SDK ThreadOptions.modelReasoningEffort 4 档枚举'
           }
-          className="no-drag w-24 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
+          className="no-drag w-24 shrink-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
         >
           <option value="minimal">minimal</option>
           <option value="low">low</option>
