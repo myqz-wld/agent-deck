@@ -105,11 +105,11 @@ export interface AppSettings {
    */
   handOffProvider: 'claude' | 'codex';
   /**
-   * Hand-off 接力简报用的 LLM model id(覆盖 env / alias 兜底,plan prancy-forging-penguin)。
+   * Hand-off 接力简报用的 LLM model id(覆盖 env / alias 兜底)。
    *
    * 优先级链(provider='claude' 时由 summariseSessionForHandOff 实施):
-   *   `settings.handOffModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ `ANTHROPIC_MODEL` env
-   *   ＞ 'haiku' alias 兜底
+   *   `settings.handOffModel` ＞ `ANTHROPIC_DEFAULT_SONNET_MODEL` env ＞ `ANTHROPIC_MODEL` env
+   *   ＞ 'sonnet' alias 兜底
    *
    * 优先级链(provider='codex' 时由 summariseCodexSessionForHandOff 实施):
    *   `settings.handOffModel` ＞ `CODEX_HANDOFF_MODEL` env ＞ undefined (fallback config.toml)
@@ -117,8 +117,8 @@ export interface AppSettings {
    * - `''`(默认空) = 沿用各 provider env / alias / config.toml 链
    * - 非空 = 覆盖
    *
-   * **plan prancy-forging-penguin 改动**:claude 端 fallback alias 从 'sonnet' → 'haiku' 与
-   * summaryModel 对齐(默认 haiku 让简报与周期总结同价位;user 想升 sonnet 自己填)。
+   * **default sonnet**(与 summaryModel 默认 haiku 不同):4 节结构化简报对压缩质量 /
+   * 结构精度敏感,sonnet 显著更稳;summary 短 tag-line 容错高量大走 haiku 省成本。
    */
   handOffModel: string;
   /**

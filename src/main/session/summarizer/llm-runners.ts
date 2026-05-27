@@ -88,18 +88,20 @@ export async function summariseSessionForHandOff(
   const result = await runClaudeOneshot({
     cwd,
     prompt: buildHandoffPrompt({ cwd, activity, agentName: 'Claude' }),
-    // plan prancy-forging-penguin: hand-off default 从 sonnet → haiku 与 summaryModel 对齐。
-    // user 想升 sonnet/opus/thinking-max 自己在 settings.handOffModel 填 model id 即可。
+    // hand-off 简报默认 sonnet(推翻 CHANGELOG_161 与 summary 对齐 haiku 的决策):
+    // 4 节结构化简报对结构精度 / 上下文压缩质量敏感,sonnet 比 haiku 显著更稳。summary 仍 haiku
+    // (短 tag-line 容错高、量大成本敏感),hand-off 不在该约束。user 想降 haiku 或升 opus/
+    // thinking-max 自己在 settings.handOffModel 填 model id 即可。
     // 优先级链:
     //   1. settings.handOffModel(UI 暴露的字符串字段,'' 表示沿用下面 env / alias 链)
-    //   2. ANTHROPIC_DEFAULT_HAIKU_MODEL(settings.json 显式配的 haiku id)
+    //   2. ANTHROPIC_DEFAULT_SONNET_MODEL(settings.json 显式配的 sonnet id)
     //   3. ANTHROPIC_MODEL(用户主模型)
-    //   4. 'haiku' alias 兜底(改自原 'sonnet')
+    //   4. 'sonnet' alias 兜底
     model:
       settingsStore.get('handOffModel') ||
-      process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
+      process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
       process.env.ANTHROPIC_MODEL ||
-      'haiku',
+      'sonnet',
     systemPrompt: CLAUDE_HANDOFF_SYSTEM_PROMPT,
     // K3 单独的超时（不复用 summaryTimeoutMs—— hand-off 用 sonnet 慢，需要更长 budget）。
     // 60s 上限：sonnet + 200 events 通常 10-30s，60s 给 outliers 留余量。
