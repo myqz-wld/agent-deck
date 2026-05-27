@@ -8,27 +8,21 @@ interface Props {
 }
 
 /**
- * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6）。
+ * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6,CHANGELOG_160 简化）。
  *
- * 功能：让 claude / codex / 第三方 MCP client 通过 15 个 tool（10 现有：spawn_session /
- * send_message / list_sessions / get_session / shutdown_session / archive_plan /
- * hand_off_session / enter_worktree / exit_worktree / shutdown_baton_teammates；+
- * 5 task：task_create / task_list / task_get / task_update / task_delete）跨 adapter 编排
- * 其他 coding agent session + 管理结构化任务。
+ * 功能：让 claude / codex / 第三方 MCP client 通过 15 个 tool 跨 adapter 编排其他 coding
+ * agent session + 管理结构化任务。
  *
  * UI 布局（自顶向下）：
  * 1. 总开关 enableAgentDeckMcp + 描述
- * 2. transport 子开关：mcpHttpEnabled（codex / 外部 client 用）/ mcpStdioEnabled（外部 stdio 用）
+ * 2. 三 transport 简介（CHANGELOG_160:transport 子开关 toggle 已删,默认三 transport 都
+ *    enable;字段 mcpHttpEnabled / mcpStdioEnabled 仍持久化但 UI 不暴露,user 想关单独
+ *    transport 编辑 settings.json)
  * 3. 防递归 3 条规则的可调阈值（depth / spawn-rate / fan-out）
  * 4. mcpServerToken 显示（只读 + 复制按钮，自动生成不允许改）
  *
  * 与 ExperimentalSection 区分：那边是「实验功能」（sandbox / autoSummariseOnFallback），
- * 这边是「跨 runtime 编排 + 结构化任务管理」独立 section（plan task-mcp-merge-into-agent-deck-mcp-20260521：
- * task tools 合并入此 namespace 后 ExperimentalSection 删 enableTaskManager 独立 toggle）。
- *
- * 改 mcpHttpEnabled / mcpStdioEnabled 提示：HTTP transport 需要重启应用生效（fastify 不支持
- * 运行时 deregister 路由）；mcpHttpEnabled / mcpStdioEnabled / enableAgentDeckMcp 任一从 OFF
- * → ON 都需重启。spawnRatePerMinute / fanOutPerParent 是热生效。
+ * 这边是「跨 runtime 编排 + 结构化任务管理」独立 section。
  */
 export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
   return (
@@ -62,46 +56,40 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         只读（list / get）允许跨 team visibility 协调。external caller（HTTP/stdio sentinel）
         仅允许只读（task_list / task_get），写默认 deny。
         <br />
-        <strong className="text-deck-text/85">三 transport 并存</strong>：
-        in-process（claude SDK 会话自动挂）/ HTTP（codex 自动挂 + 外部 MCP client） /
-        stdio（外部 client 子命令）。
-        <br />
         <strong className="text-amber-300/90">⚠ 关掉只影响下次新建会话</strong>——已 spawn
-        的 SDK 会话已固化 mcpServers 列表；HTTP / stdio transport 改 toggle 后需要重启应用
-        （fastify 不支持运行时 deregister 路由）。
+        的 SDK 会话已固化 mcpServers 列表;改总开关后需要重启应用。
       </div>
 
       <div className="mt-3 border-t border-deck-border/50 pt-3">
-        <div className="text-[11px] font-medium text-deck-text/85">Transport 子开关</div>
-        <div className="mt-1.5">
-          <Toggle
-            label="HTTP transport（/mcp 路由 + codex 自动注入）"
-            value={settings.mcpHttpEnabled}
-            onChange={(v) => void update({ mcpHttpEnabled: v })}
-          />
-        </div>
-        <div className="text-[10px] leading-snug text-deck-muted/70">
-          开启后 HookServer 挂 <code className="rounded bg-white/5 px-1">/mcp</code> 路由
-          （Bearer token 鉴权独立于 hook token），codex 启动时通过 SDK config 自动注入
-          <code className="rounded bg-white/5 px-1">mcp_servers.agent-deck</code> 段连接到本应用。
-          关闭 → codex 不挂 agent-deck server，外部 MCP client 也无法连。
-        </div>
-        <div className="mt-2">
-          <Toggle
-            label="stdio transport（外部 MCP client 子命令）"
-            value={settings.mcpStdioEnabled}
-            onChange={(v) => void update({ mcpStdioEnabled: v })}
-          />
-        </div>
-        <div className="text-[10px] leading-snug text-deck-muted/70">
-          开启后允许外部 MCP client（Cursor / Continue / Claude Desktop）通过
-          <code className="rounded bg-white/5 px-1">agent-deck mcp</code> 子命令以 stdio 方式连接。
-          外部 caller（<code className="rounded bg-white/5 px-1">caller_session_id=__external__</code>）
-          仅允许只读 tool（<code className="rounded bg-white/5 px-1">list_sessions</code> /
-          <code className="rounded bg-white/5 px-1">get_session</code>），spawn / send / shutdown 默认 deny。
-          <br />
-          默认关 —— 仅在你确实需要外部工具调用 agent-deck 时打开。
-        </div>
+        <div className="text-[11px] font-medium text-deck-text/85">三 transport 并存（默认全启）</div>
+        <table className="mt-1.5 w-full border-collapse text-[10px] leading-snug">
+          <tbody>
+            <tr className="border-b border-deck-border/40">
+              <td className="py-1 pr-2 align-top font-medium text-deck-text/85">in-process</td>
+              <td className="py-1 text-deck-muted/80">
+                claude-code SDK 会话自动挂(应用 build SDK options.mcpServers 注入,无 endpoint /
+                无 token 鉴权);进程内通信,延迟最低
+              </td>
+            </tr>
+            <tr className="border-b border-deck-border/40">
+              <td className="py-1 pr-2 align-top font-medium text-deck-text/85">HTTP</td>
+              <td className="py-1 text-deck-muted/80">
+                HookServer 挂 <code className="rounded bg-white/5 px-1">/mcp</code> 路由,
+                Bearer token 鉴权(下方 mcpServerToken);codex SDK 启动时自动注入
+                <code className="rounded bg-white/5 px-1">mcp_servers.agent-deck</code> 段连接;
+                外部 MCP client (Cursor / Continue / Claude Desktop) 也可用此 endpoint
+              </td>
+            </tr>
+            <tr>
+              <td className="py-1 pr-2 align-top font-medium text-deck-text/85">stdio</td>
+              <td className="py-1 text-deck-muted/80">
+                外部 MCP client 通过 <code className="rounded bg-white/5 px-1">agent-deck mcp</code>
+                子命令以 stdio 方式连接;sentinel <code className="rounded bg-white/5 px-1">caller_session_id=__external__</code>
+                仅允许只读(list_sessions / get_session / task_list / task_get),写 deny
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div className="mt-3 border-t border-deck-border/50 pt-3">
