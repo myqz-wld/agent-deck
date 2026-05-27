@@ -114,6 +114,20 @@ export type CreateSessionThunk = (opts: {
    * 详 ClaudeCreateOpts.resumeMode jsdoc 7 种合法/非法组合。
    */
   resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+  /**
+   * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法):跳过 finalizeSessionStart 内 emit
+   * 首条 user message — 让 caller 收口 emit 责任避免双气泡。
+   *
+   * **触发场景**:recoverer.recoverAndSend 入口已 emit user message(与 live 主路径
+   * `index.ts:520-535` 时机对称),调 createThunk 时显式传 true 让下游 finalize 跳过重复 emit。
+   *
+   * **不传 / false** = 默认 emit user message(spawn 主路径 / IPC AdapterCreateSession 走此路径,
+   * 首条 prompt 没经过 sendMessage emit user message 路径,必须由 finalize 补 emit)。
+   *
+   * **不影响 attachments / handOff / model / sandbox 持久化等其他 finalize 副作用** —
+   * 仅控制 emit user message 这一动作。
+   */
+  skipFirstUserEmit?: boolean;
 }) => Promise<SdkSessionHandle>;
 
 /**
@@ -260,6 +274,51 @@ export class SessionRecoverer {
       throw new Error(`session ${sessionId} not found`);
     }
 
+    // REVIEW_24 HIGH-2 follow-up：字符长度上限（与 messageRepo cap 全局对齐）。
+    // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
+    //
+    // R2 MED-1 修法 (reviewer-codex + reviewer-claude 双方独立提出真问题):
+    // 提前到 sessionRepo.get 后 + cwd precheck 之前 — 让下面 emit user message 也能提前到
+    // cwd precheck 之前覆盖 cwd 全 miss throw 路径(防 user message 在 throw 后才 emit 永不入库)。
+    const len = text.length;
+    if (len > MAX_MESSAGE_LENGTH) {
+      throw new Error(
+        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
+      );
+    }
+
+    // REVIEW_58 HIGH ✅ + R2 MED-1 收口修法 (deep-review 双方共识真问题):立即 emit user message,
+    // 与 live 主路径 `index.ts:520-535` sendMessage emit 时机对称。修前 sendMessage `if (!s)` 分支
+    // 只委托 recoverAndSend → emit user message 责任全下放下游 `finalizeSessionStart` (在 await
+    // waitForRealSessionId 之后才 emit) / `maybeJsonlFallback` (在 await ctx.createSession
+    // 之后才 emit) / setTimeout 30s fallback / createSession catch 路径完全不 emit → 用户
+    // 截图实测「⚠ SDK 通道已断开...」+ assistant「✅ 一轮完成」但用户的 message bubble 消失。
+    //
+    // **R2 MED-1 修订**:emit 位置在 cwd precheck **之前**(替代 R1 在 cwd precheck 之后),
+    // 让 cwd missing fallback 全 miss throw 路径(目录被删 / 跨设备同步丢失 / 启发式全 miss)
+    // 也保留 events 入库 — 用户体感:看到 cwd missing error 红字 + 自己的 message bubble 仍在,
+    // 帮助决策(如归档 + 新建会话)。否则修了用户截图 bug 但 cwd 全 miss 边角 case 仍漏。
+    //
+    // 现把 emit 责任收口到 recovery 入口:
+    // ① 用户体感与 live 主路径一致(先看到自己的 message,再看 placeholder「在恢复」)
+    // ② 失败/边界路径(createSession catch / setTimeout fallback / cwd-missing 全 miss)
+    //    都不会丢 user message — events 表保留完整对话历史
+    // ③ 下游 createThunk / maybeJsonlFallback 显式传 skipFirstUserEmit:true 让 finalize /
+    //    fallback helper 跳过重复 emit,避免双气泡
+    // 等待者 inflight path(L234-254)无需改 — sendThunk 内部走 sendMessage live 主路径自己 emit。
+    this.ctx.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: {
+        text,
+        role: 'user',
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+
     // CHANGELOG_99 cwd 失效根治:启发式 fallback (R1 fix MED-2:**移到 unarchive 之前**,
     // 避免 archived session 在 cwd fallback 失败前被 unarchive 成 active 但实际死路一条 —
     // 用户体感"刚归档的会话被自动恢复又死路")。
@@ -330,15 +389,6 @@ export class SessionRecoverer {
       await sessionManager.unarchive(sessionId);
     }
 
-    // REVIEW_24 HIGH-2 follow-up：字符长度上限（与 messageRepo cap 全局对齐）。
-    // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
-    const len = text.length;
-    if (len > MAX_MESSAGE_LENGTH) {
-      throw new Error(
-        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
-      );
-    }
-
     // 占位 message：30s fallback 期间用户至少看到「在恢复」而不是哑巴 busy。
     // 不打 error: true（不是错误，是状态提示）；resume 成功后正常 message 流接续，
     // 占位 message 留在活动流上一行轻量「断开过」痕迹，对回看 / 调试反而有用。
@@ -402,6 +452,9 @@ export class SessionRecoverer {
             attachments,
             cwdFellBack,
             emitContext: 'recover',
+            // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
+            // helper 跳过重复 emit 避免双气泡(详 recoverer.recoverAndSend emit user message 段注释)
+            skipFirstUserEmit: true,
           },
         );
         if (fbResult.fellBack) {
@@ -446,6 +499,9 @@ export class SessionRecoverer {
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
           // HIGH-1 修法：attachments 透传，正常 resume 路径下首条恢复消息带图
           attachments,
+          // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
+          // finalizeSessionStart 跳过重复 emit 避免双气泡(详 recoverer.recoverAndSend emit user message 段注释)
+          skipFirstUserEmit: true,
         });
         // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix: 返
         // handle.sessionId 反映真实 finalId(implicit fork 时是 newRealId,正常 resume 时

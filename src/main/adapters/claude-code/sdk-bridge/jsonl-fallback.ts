@@ -135,6 +135,18 @@ type JsonlFallbackOptsBase = {
   model?: string;
   extraAllowWrite?: readonly string[];
   attachments?: UploadedAttachmentRef[];
+  /**
+   * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法):跳过 helper 内 emit 首条 user
+   * message — 让 caller 收口 emit 责任避免双气泡。
+   *
+   * **触发场景**:recoverer.recoverAndSend 入口已 emit user message(与 live 主路径
+   * `sdk-bridge/index.ts:520-535` 时机对称),调 maybeJsonlFallback 时显式传 true 让 helper
+   * 跳过重复 emit。详 sdk-bridge/index.ts createSession opts.skipFirstUserEmit jsdoc。
+   *
+   * **不影响 fallback info message emit**(emit 顺序契约 §3 仍 emit 详 helper jsdoc) —
+   * 仅控制 §4 emit role='user' message 这一动作。
+   */
+  skipFirstUserEmit?: boolean;
 };
 
 export type JsonlFallbackOpts =
@@ -275,18 +287,22 @@ export async function maybeJsonlFallback(
   //   (fresh fallback 路径 createSession 内 Step 3a.5 finalize guard 跳过整个 finalizeSessionStart →
   //    session-finalize.ts:145-155 现行 emit role='user' 这一动作需由 helper 在此处补回;
   //    字段对齐 index.ts:477-488 sendMessage live session 分支 emit 含 attachments 透传 5 字段 payload)
-  ctx.emit({
-    sessionId: opts.sessionId,
-    agentId: AGENT_ID,
-    kind: 'message',
-    payload: {
-      text: opts.prompt, // 用户原 prompt (不是 prepend 后 summary prompt — UI 显示用户实际发的那条)
-      role: 'user',
-      ...(opts.attachments && opts.attachments.length > 0 ? { attachments: opts.attachments } : {}),
-    },
-    ts: Date.now(),
-    source: 'sdk',
-  });
+  // REVIEW_58 HIGH ✅ 收口修法:caller 显式 skipFirstUserEmit=true 时跳过
+  // (recoverer.recoverAndSend 入口已 emit,避免双气泡;详 opts.skipFirstUserEmit jsdoc)
+  if (!opts.skipFirstUserEmit) {
+    ctx.emit({
+      sessionId: opts.sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: {
+        text: opts.prompt, // 用户原 prompt (不是 prepend 后 summary prompt — UI 显示用户实际发的那条)
+        role: 'user',
+        ...(opts.attachments && opts.attachments.length > 0 ? { attachments: opts.attachments } : {}),
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+  }
 
   // applicationSid 全程不变 (不变量 3) → finalSessionId === opts.sessionId
   return { finalSessionId: opts.sessionId, fellBack: true };

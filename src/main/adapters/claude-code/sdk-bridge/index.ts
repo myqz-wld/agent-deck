@@ -207,6 +207,18 @@ export class ClaudeSdkBridge {
      * caller 不该传(typical caller 走 spawn handler / hand_off handler 注入)。
      */
     handOff?: HandOffMetadata;
+    /**
+     * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法):跳过 finalizeSessionStart 内 emit
+     * 首条 user message。详 recoverer.ts CreateSessionThunk.skipFirstUserEmit jsdoc。
+     *
+     * **触发场景**:recoverer.recoverAndSend 调本路径时显式传 true(emit 责任已在
+     * recoverAndSend 入口收口与 live 主路径 sendMessage `if (s)` 路径对称,避免双气泡)。
+     *
+     * **caller 不该传**(默认 false / undefined):spawn 主路径 / IPC AdapterCreateSession
+     * 走此路径,首条 prompt 没经过 sendMessage emit user message,必须由 finalize 补 emit
+     * 让 UI 活动流看到「你」发的第一条话。
+     */
+    skipFirstUserEmit?: boolean;
   }): Promise<SdkSessionHandle> {
     // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
     // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
@@ -466,6 +478,9 @@ export class ClaudeSdkBridge {
         extraAllowWrite: opts.extraAllowWrite,
         attachments: opts.attachments,
         handOff: opts.handOff,
+        // REVIEW_58 HIGH ✅ 收口修法:recoverer.recoverAndSend 入口已 emit user message 时
+        // 显式传 true,finalize 跳过重复 emit(详 createSession opts.skipFirstUserEmit jsdoc)。
+        skipFirstUserEmit: opts.skipFirstUserEmit,
         emit: this.opts.emit,
       });
     }

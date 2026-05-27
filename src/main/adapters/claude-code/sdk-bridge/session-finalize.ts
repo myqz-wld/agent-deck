@@ -73,6 +73,17 @@ export interface FinalizeSessionStartArgs {
    * (sendMessage 后续 user message / fallback fresh CLI 路径)不携带。
    */
   handOff?: HandOffMetadata;
+  /**
+   * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法):跳过本 finalize 内 emit 首条 user
+   * message。详 sdk-bridge/index.ts createSession opts.skipFirstUserEmit jsdoc。
+   *
+   * **触发场景**:recoverer.recoverAndSend 入口已 emit user message 与 live 主路径
+   * `sendMessage if(s)` 路径对称(避免双气泡),调 createThunk 时显式传 true 让 finalize 跳过 emit。
+   *
+   * **不影响其他 finalize 副作用** — 仅控制 emit user message 这一动作。emit session-start /
+   * updateCliSessionId / setClaudeCodeSandbox / setModel / setExtraAllowWrite 都不动。
+   */
+  skipFirstUserEmit?: boolean;
   emit: (e: AgentEvent) => void;
 }
 
@@ -91,7 +102,7 @@ export interface FinalizeSessionStartArgs {
  *   (manager 黑名单链),不创建新 sessions row 不 emit session-start (避免撞唯一索引)
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
-  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, extraAllowWrite, attachments, handOff, emit } = args;
+  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, extraAllowWrite, attachments, handOff, skipFirstUserEmit, emit } = args;
 
   // 1. 主动 emit session-start
   emit({
@@ -158,7 +169,9 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
   }
 
   // 3. 补 emit 首条 user message（覆盖新建会话 + 恢复会话两条路径）
-  if (prompt) {
+  // REVIEW_58 HIGH ✅ 收口修法:caller 显式 skipFirstUserEmit=true 时跳过
+  // (recoverer.recoverAndSend 入口已 emit,避免双气泡;详 args.skipFirstUserEmit jsdoc)
+  if (prompt && !skipFirstUserEmit) {
     emit({
       sessionId: applicationSid,
       agentId: AGENT_ID,

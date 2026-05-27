@@ -385,6 +385,20 @@ export class CodexSdkBridge {
      * 详 HandOffMetadata jsdoc + plan §不变量 5。caller 不该传。
      */
     handOff?: HandOffMetadata;
+    /**
+     * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法 — 对称 claude createSession opts):
+     * 跳过本 createSession resume path 内 emit 首条 user message。
+     *
+     * **触发场景**:recoverer.recoverAndSend 入口已 emit user message(与 live 主路径
+     * `sendMessage if(s)` 时机对称),调 createThunk 时显式传 true 让 resume path 跳过 emit。
+     *
+     * **caller 不该传**(默认 false / undefined):spawn 主路径 / IPC AdapterCreateSession
+     * 走此路径,resume path emit user message 让 UI 活动流看到「你」发的第一条话。
+     *
+     * **不影响 new path emit user message**(由 thread-loop 内 fallback / success 2 处自己 emit) —
+     * 仅控制本 createSession resume path emit user message 这一动作。
+     */
+    skipFirstUserEmit?: boolean;
   }): Promise<CodexSessionHandle> {
     if (!opts.prompt || !opts.prompt.trim()) {
       throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
@@ -536,24 +550,28 @@ export class CodexSdkBridge {
         model: opts.model,
         extraAllowWrite: opts.extraAllowWrite,
       });
-      this.opts.emit({
-        sessionId: opts.resume,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: {
-          text: opts.prompt,
-          role: 'user',
-          ...(opts.attachments && opts.attachments.length > 0
-            ? { attachments: opts.attachments }
-            : {}),
-          // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 (resume 路径
-          // first-user-message emit 3 处之一,详 plan §不变量 5):spread handOff metadata 让
-          // renderer 端 message-row 识别 hand-off cold-start prompt + 渲染 Hand-off badge。
-          ...(opts.handOff ? { handOff: opts.handOff } : {}),
-        },
-        ts: Date.now(),
-        source: 'sdk',
-      });
+      // REVIEW_58 HIGH ✅ 收口修法:caller 显式 skipFirstUserEmit=true 时跳过
+      // (recoverer.recoverAndSend 入口已 emit,避免双气泡;详 opts.skipFirstUserEmit jsdoc)
+      if (!opts.skipFirstUserEmit) {
+        this.opts.emit({
+          sessionId: opts.resume,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text: opts.prompt,
+            role: 'user',
+            ...(opts.attachments && opts.attachments.length > 0
+              ? { attachments: opts.attachments }
+              : {}),
+            // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 (resume 路径
+            // first-user-message emit 3 处之一,详 plan §不变量 5):spread handOff metadata 让
+            // renderer 端 message-row 识别 hand-off cold-start prompt + 渲染 Hand-off badge。
+            ...(opts.handOff ? { handOff: opts.handOff } : {}),
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+      }
       // symmetry-plan P2 MED-D：await 首条 thread.started OR earlyError OR 30s timeout 才 return,
       // 让外层 createSession await 真的等待 SDK 实际状态(与 claude waitForRealSessionId 同款语义)。
       //
