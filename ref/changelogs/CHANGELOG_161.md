@@ -109,3 +109,20 @@ append 两条:
 - `adapter` 变量复用陷阱:hand-off handler 必须区分 `summaryAdapter`(出简报)与 `sessionAdapter`(Stage 2 createSession),前者按 settings 选 / 后者按 session 自身 — 不要图省事用一个变量
 - `adapter.summariseEvents` 接口语义变化:从前是「session 自己的 adapter 出简报」,现在是「任意 adapter 给任意 session 出简报」— 实施时全文 grep 看是否 adapter 内部有 cwd / agentId 自检假设(本次已确认无)
 - Provider × Model 匹配是 user 责任:`summaryModel='haiku' + summaryProvider='codex'` 会撞 codex SDK 不识别报错并走 caller fallback(assistant 文字 / 事件统计)— 日志清楚
+
+## Follow-up: ModelRow 布局溢出修复
+
+**症状**:user 截图反馈 SummarySection 的 reasoning select 完全看不见,被推到容器外裁掉。
+
+**根因**:`<ModelInput>` 用 `flex-1`,但 `<input>` 元素默认 `min-width: auto`(由 size 属性决定,约 20em),撑爆了 flex 容器把后面的 `w-24` reasoning select 推到右侧 overflow。
+
+**修法**(`src/renderer/components/settings/sections/SummarySection.tsx` 3 处 className):
+
+| 控件 | 加的 class | 理由 |
+|---|---|---|
+| ModelInput input | `min-w-0` | 允许 flex-1 shrink 突破 input 默认 `min-width: auto` |
+| reasoning select | `shrink-0` | 锁定 `w-24` 96px 不被前面的 flex-1 input 压缩 |
+| provider select | `shrink-0` | 防御性,未来增 option 也不会被压 |
+
+布局现在应正确呈现为:`label(32) + provider(auto) + model(flex-1) + reasoning(24)`。typecheck GREEN,renderer HMR 自动推送。
+
