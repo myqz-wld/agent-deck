@@ -367,7 +367,7 @@ project-root/
 ├── CLAUDE.md                     # 项目专属（与 ~/.claude/CLAUDE.md 互补）
 ├── README.md                     # 功能总览（用户视角）
 ├── src/                          # 源码（统一根入口，详 §src/build 标准目录结构 节）
-├── build/                        # build 产物（统一根出口，详 §src/build 标准目录结构 节）
+├── build/ 或 dist/               # build 产物（统一根出口二选一，详 §src/build 标准目录结构 节）
 └── ref/                          # AI Coding 参考资产（changelogs / reviews / plans / conventions 统一收纳）
     ├── changelogs/INDEX.md       # 一行表索引；CHANGELOG_X.md 第一次有变更时再建
     ├── reviews/INDEX.md          # 一行表索引；REVIEW_X.md 第一次 review 时再建
@@ -387,25 +387,26 @@ project-root/
 > 源码与 build 产物的统一根入口/出口约定，避免后续大重构。
 
 - **源码** 落 `<project-root>/src/`。first-party 源代码（业务 / 工具脚本 / first-party test 源；**不含**测试 fixture / 自动生成产物 / 第三方依赖）落本目录
-- **build 产物** 落 `<project-root>/build/`。任何工具链输出（`dist/` `out/` `target/` `.next/` `.turbo/` `node_modules/.cache/` 等历史命名）一律统一到 `build/<sub>/`
-- **多入口项目**（Electron / monorepo / 多语言混合）按子目录分流：`src/<entry>/` ↔ `build/<entry>/`（典型 Electron：`src/main/` `src/preload/` `src/renderer/` `src/shared/` 对应 `build/main/` `build/preload/` `build/renderer/`）
-- **顶层非 src/ 非 build/ 资产**按用途归位，**不归 src/ 也不归 build/**：
+- **build 产物** 落 `<project-root>/build/` 或 `<project-root>/dist/` 二选一（项目内统一用一个；本节后续表述 `build/` 处泛指你选定的那一个）。任何工具链输出（`out/` `release/` `target/` `.next/` `.turbo/` `node_modules/.cache/` 等历史命名）一律收敛到所选根出口的子目录
+- **选 build/ 还是 dist/**：跟工具链默认走（Vite / Webpack / Cargo / tsup / TypeScript 默认 `dist/` → 用 `dist/`；Go / electron-builder / make 默认 `build/` → 用 `build/`），减少配置摩擦。**同项目内不混用**（典型陷阱：Vite 默认 `dist/` + electron-builder 默认 `build/dist` → 选一个 root 把另一类产物拍到子目录，如 `dist/renderer/` + `dist/electron/` 或 `build/renderer/` + `build/electron/`）
+- **多入口项目**（Electron / monorepo / 多语言混合）按子目录分流：`src/<entry>/` ↔ `build/<entry>/` 或 `dist/<entry>/`（典型 Electron：`src/main/` `src/preload/` `src/renderer/` `src/shared/` 对应 `build/main/` `build/preload/` `build/renderer/`，或同款用 `dist/`）
+- **顶层非 src/ 非 build/dist/ 资产**按用途归位，**不归 src/ 也不归所选根出口**：
   - 项目元数据 / 顶层配置 / 锁定文件：`README.md` `CLAUDE.md` `LICENSE` `package.json` `tsconfig*.json` `*.config.*`（`vite.config.ts` `vitest.config.ts` `postcss.config.mjs` 等）`pnpm-lock.yaml` `Cargo.toml` `Cargo.lock` `go.mod` `go.sum` 等放 `<project-root>/` 根
   - 静态资产：`public/` / `static/` / `assets/`（按框架惯例：Next.js / Vite / 11ty / Hugo 等）
   - CI / IDE / Git：`.github/` `.gitlab-ci.yml` `.vscode/` `.idea/` `.editorconfig` `.gitignore` `.npmrc`
   - 第三方依赖：`node_modules/` `vendor/`（包管理器自治位置）
   - 本约定专属顶层目录：`ref/`（详 §目录骨架 节）/ `.claude/`（per-session state）
-- **.gitignore 必备**：`build/` 整目录忽略（详 §.gitignore 必备条目 节）
+- **.gitignore 必备**：`build/` 与 `dist/` **都加**（详 §.gitignore 必备条目 节；项目实际用其一，另一个无害保留为防御性条目，避免临时工具链产生未追踪产物意外入 git）
 
-**落地姿势**：配工具链时显式声明 outDir / distDir 指向 `build/`：
-- TypeScript：`tsconfig.json` `"outDir": "build/"`
-- Vite / Webpack：`build.outDir: 'build/'`
-- electron-vite：`main.build.outDir: 'build/main'` / `preload.build.outDir: 'build/preload'` / `renderer.build.outDir: 'build/renderer'`
-- electron-builder：`directories.output: 'build/dist'`
-- Go：`go build -o build/<binary>`
-- Cargo：`CARGO_TARGET_DIR=build/target`
+**落地姿势**：配工具链时显式声明 outDir / distDir 指向所选根目录：
+- TypeScript：`tsconfig.json` `"outDir": "build/"` 或 `"dist/"`
+- Vite / Webpack：`build.outDir: 'build/'` 或 `'dist/'`（Vite 默认 `dist/`）
+- electron-vite：`main.build.outDir: 'build/main'` / `preload.build.outDir: 'build/preload'` / `renderer.build.outDir: 'build/renderer'`（或同款用 `dist/`）
+- electron-builder：`directories.output: 'build/dist'` 或 `'dist/'`
+- Go：`go build -o build/<binary>` 或 `dist/<binary>`
+- Cargo：`CARGO_TARGET_DIR=build/target` 或 `dist/target`
 
-**例外**：本约定**只约束新项目**第一次落地时按此布局；已有项目按工具链默认惯例（如 Electron 老项目 electron-vite 默认 `out/` + electron-builder 默认 `release/`）保留原状，**不要 retro 改造**（改 outDir 牵动 dev / build / dist / 打包链路多处，易回退稳定性）。**如需迁移已有项目**，走 §复杂 plan 完整流程（RFC + spike 验证工具链 outDir 行为 + plan 文件跟踪逐项验证 dev / build / dist / 打包链路）。
+**例外**：本约定**只约束新项目**第一次落地时按此布局；已有项目按工具链默认惯例（含 `out/` `release/` `target/` 等历史命名）保留原状，**不要 retro 改造**（改 outDir 牵动 dev / build / dist / 打包链路多处，易回退稳定性）。**如需迁移已有项目**，走 §复杂 plan 完整流程（RFC + spike 验证工具链 outDir 行为 + plan 文件跟踪逐项验证 dev / build / dist / 打包链路）。
 
 ### .gitignore 必备条目
 
@@ -418,8 +419,9 @@ project-root/
 .claude/plans/            # plan local 工作目录（in_progress 短临时草稿；
                           # completed 后归档到顶级 ref/plans/<plan-id>.md / 同名子目录入 git）
 
-# build 产物（详 §src/build 标准目录结构 节）
+# build 产物（详 §src/build 标准目录结构 节；build/ 与 dist/ 都加，项目实际用其一，另一个无害保留为防御性条目）
 build/
+dist/
 
 # 全局 *.log 过滤 + spike artifacts exception
 *.log
