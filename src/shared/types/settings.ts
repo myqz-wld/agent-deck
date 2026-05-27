@@ -54,70 +54,84 @@ export interface AppSettings {
    */
   summaryTimeoutMs: number;
   /**
-   * plan model-wiring-and-handoff-20260514 Step 4.1：周期性 summarize 用的 SDK model（覆盖
-   * env / alias 兜底）。
+   * 周期性 summarize 走哪个 LLM provider(plan prancy-forging-penguin)。决定 summarizer 在
+   * `adapterRegistry.get(...)` 选 claude-code adapter 还是 codex-cli adapter 出 summary,
+   * **与被总结 session 自身的 adapter 无关**(claude session 也可能由 codex SDK 总结,反之亦然
+   * — 由 user 在 settings 决定)。
    *
-   * 优先级链（summariseViaLlm 实施）：
+   * - `'claude'`(默认): 走 claude SDK + settings.summaryModel 字段
+   * - `'codex'`: 走 codex SDK + settings.summaryModel 字段 + settings.summaryReasoning 档位
+   *
+   * 切档即时生效:summarizer 每次 scanAll() 重读本字段,无 cache。已在跑的 in-flight LLM
+   * 调用不撤回(也不会回收 — 完成的 summary 落到 summaryRepo 不影响下次 provider 决策)。
+   */
+  summaryProvider: 'claude' | 'codex';
+  /**
+   * 周期性 summarize 用的 LLM model id(覆盖 env / alias 兜底,plan prancy-forging-penguin)。
+   *
+   * 优先级链(provider='claude' 时由 summariseViaLlm 实施):
    *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ `ANTHROPIC_MODEL` env
    *   ＞ 'haiku' alias 兜底
    *
-   * - `''`（默认空）= 沿用现有 env / alias 链（老用户无感，零迁移成本）
-   * - 非空 = 完全覆盖 env，传给 SDK options.model（'haiku' / 'sonnet' / 'opus' alias 或具体
-   *   model id 如 `claude-haiku-4-5-20251001`）
+   * 优先级链(provider='codex' 时由 summariseCodexSessionViaOneshot 实施):
+   *   `settings.summaryModel` ＞ `CODEX_SUMMARY_MODEL` env ＞ undefined (fallback
+   *   `~/.codex/config.toml` 顶层 `model` 配置)
    *
-   * 仅对 claude-code session 周期性 summarize 生效。codex session 端有对偶字段
-   * `codexSummaryModel`(下方),走 codex SDK ThreadOptions.model 真生效(codex-sdk v0.131.0+
-   * 已支持 per-thread override — prompt-asset-review-optimize-20260527 修订)。
+   * - `''`(默认空) = 沿用各 provider 自己的 env / alias / config.toml 链
+   * - 非空 = 覆盖,直接传给对应 SDK 的 options.model;**填的 model id 必须对当前 provider 可用**
+   *   (claude 端 'haiku'/'sonnet' alias OK, codex 端典型用 'gpt-5.5-mini')
+   *
+   * **provider × model 匹配是 user 责任**:settings.summaryProvider='codex' + summaryModel='haiku'
+   * 会撞 codex SDK 不识别报错,日志会清楚。
    */
   summaryModel: string;
   /**
-   * plan model-wiring-and-handoff-20260514 Step 4.1：hand-off 接力简报用的 SDK model（覆盖
-   * env / alias 兜底）。
+   * 周期性 summarize 的 reasoning effort 档位(plan prancy-forging-penguin)。
    *
-   * 优先级链（summariseSessionForHandOff 实施）：
-   *   `settings.handOffModel` ＞ `ANTHROPIC_DEFAULT_SONNET_MODEL` env ＞ `ANTHROPIC_MODEL`
-   *   env ＞ 'sonnet' alias 兜底
+   * **仅 summaryProvider='codex' 时生效**:codex SDK 原生支持 ThreadOptions.modelReasoningEffort
+   * 4 档枚举。claude SDK 端无独立 reasoning 字段,thinking 走 model id 后缀(如
+   * `claude-opus-4-7-thinking-max[1m]`),本字段被 claude provider 忽略。
    *
-   * - `''`（默认空）= 沿用现有 env / alias 链
+   * - default `'low'`: 与原 hardcoded summarize='low' 行为对齐,省 token + 出字快
+   * - `'medium'/'high'`: 用户需精度时升档(注意成本与延迟)
+   * - `'minimal'`: codex 最轻档,极短输出
+   */
+  summaryReasoning: 'minimal' | 'low' | 'medium' | 'high';
+  /**
+   * Hand-off 接力简报走哪个 LLM provider(plan prancy-forging-penguin)。语义同 summaryProvider
+   * 但作用于 IPC `SessionHandOffSummarize` handler(手动 UI 按钮触发的 4 节结构化简报):
+   * **决定出简报的 adapter,与被 hand-off 的目标会话原 adapter 无关**(目标会话保持自己 adapter 不变,
+   * 仅是简报这一段由 user 选的 provider 出)。
+   */
+  handOffProvider: 'claude' | 'codex';
+  /**
+   * Hand-off 接力简报用的 LLM model id(覆盖 env / alias 兜底,plan prancy-forging-penguin)。
+   *
+   * 优先级链(provider='claude' 时由 summariseSessionForHandOff 实施):
+   *   `settings.handOffModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ `ANTHROPIC_MODEL` env
+   *   ＞ 'haiku' alias 兜底
+   *
+   * 优先级链(provider='codex' 时由 summariseCodexSessionForHandOff 实施):
+   *   `settings.handOffModel` ＞ `CODEX_HANDOFF_MODEL` env ＞ undefined (fallback config.toml)
+   *
+   * - `''`(默认空) = 沿用各 provider env / alias / config.toml 链
    * - 非空 = 覆盖
    *
-   * 仅对 claude-code session hand-off 生效。codex session 端有对偶字段 `codexHandOffModel`
-   * (下方),走 codex SDK ThreadOptions.model 真生效(codex-sdk v0.131.0+ 已支持 per-thread
-   * override — prompt-asset-review-optimize-20260527 修订)。
+   * **plan prancy-forging-penguin 改动**:claude 端 fallback alias 从 'sonnet' → 'haiku' 与
+   * summaryModel 对齐(默认 haiku 让简报与周期总结同价位;user 想升 sonnet 自己填)。
    */
   handOffModel: string;
   /**
-   * prompt-asset-review-optimize-20260527 跟进 reviewer 与 user follow-up:codex 端 frontmatter
-   * `model` 已在 sdk-bridge transparent 透传到 ThreadOptions(codex-sdk v0.131.0+ 支持
-   * per-thread override),周期性 summarize / hand-off 模型对标 claude 端 settings.summaryModel /
-   * handOffModel 优先级链。
+   * Hand-off 接力简报的 reasoning effort 档位(plan prancy-forging-penguin)。
    *
-   * 优先级链(summariseCodexSessionViaOneshot 实施):
-   *   `settings.codexSummaryModel` ＞ `CODEX_SUMMARY_MODEL` env ＞ undefined (fallback
-   *   `~/.codex/config.toml` 顶层 `model` 配置)
+   * **仅 handOffProvider='codex' 时生效**(claude provider 忽略,thinking 走 model id 后缀)。
    *
-   * - `''`(默认空) = 沿用 env / config.toml 链(零迁移成本,与 codex CLI 原生默认一致)
-   * - 非空 = 覆盖,传给 codex SDK ThreadOptions.model(典型对标 claude haiku 用 'gpt-5.5-mini'
-   *   或类似轻量模型,user 需确认 codex CLI 该 model id 可用)
-   *
-   * 仅对 codex-cli session 周期性 summarize 生效。claude session 用上方 settings.summaryModel。
+   * - default `'medium'`: 与原 hardcoded handoff='medium' 行为对齐 — hand-off 4 节结构化输出
+   *   对模型理解力要求高,medium 是 spike 实测下的最佳折中(high 太慢、low 输出结构常常错位)
+   * - `'low'`/`'minimal'`: user 想省 token / 出字快时降档
+   * - `'high'`: 极端结构精度需求(注意 spike 实测 30s+)
    */
-  codexSummaryModel: string;
-  /**
-   * prompt-asset-review-optimize-20260527 跟进:codex 端 hand-off 接力简报 model,对偶
-   * `handOffModel`(claude 端 sonnet 级别)。
-   *
-   * 优先级链(summariseCodexSessionForHandOff 实施):
-   *   `settings.codexHandOffModel` ＞ `CODEX_HANDOFF_MODEL` env ＞ undefined (fallback
-   *   `~/.codex/config.toml`)
-   *
-   * - `''`(默认空) = 沿用 env / config.toml 链
-   * - 非空 = 覆盖,传给 codex SDK ThreadOptions.model(典型对标 claude sonnet 用 'gpt-5.5'
-   *   或类似 mid 模型,user 需确认可用)
-   *
-   * 仅对 codex-cli session hand-off 生效。claude session 走上方 handOffModel。
-   */
-  codexHandOffModel: string;
+  handOffReasoning: 'minimal' | 'low' | 'medium' | 'high';
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。 */
   permissionTimeoutMs: number;
   alwaysOnTop: boolean;
@@ -408,14 +422,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryEventCount: 10,
   summaryMaxConcurrent: 2,
   summaryTimeoutMs: 60 * 1000,
-  // plan model-wiring-and-handoff-20260514 Step 4.1：默认空字符串 = 沿用 env / alias 兜底
-  // 不强制改任何老用户的现状（兜底链 → env → SDK alias 链路完全保留）
+  // plan prancy-forging-penguin: provider × model × reasoning 三联字段(summary / handoff 两组)
+  // - summaryModel/handOffModel: 默认空 = 沿用各 provider env / alias / config.toml 链
+  // - summaryProvider/handOffProvider: 默认 'claude'(走 claude SDK + OAuth 凭证)
+  // - summaryReasoning/handOffReasoning: 默认 low/medium 与原 hardcoded 行为对齐(仅 codex provider 生效)
+  summaryProvider: 'claude',
   summaryModel: '',
+  summaryReasoning: 'low',
+  handOffProvider: 'claude',
   handOffModel: '',
-  // prompt-asset-review-optimize-20260527 跟进:codex 端对偶字段,默认空 = fallback `~/.codex/config.toml`
-  // 顶层 model(零行为变化,与 codex CLI 原生默认一致;user 想对标 claude haiku/sonnet 自己配 model id)
-  codexSummaryModel: '',
-  codexHandOffModel: '',
+  handOffReasoning: 'medium',
   permissionTimeoutMs: 5 * 60 * 1000,
   alwaysOnTop: true,
   windowTransparent: true,

@@ -1,6 +1,6 @@
 import { type JSX } from 'react';
 import type { AppSettings } from '@shared/types';
-import { Section, Toggle } from '../controls';
+import { Section } from '../controls';
 import { IS_DARWIN, IS_LINUX } from '@renderer/lib/platform';
 
 interface Props {
@@ -12,7 +12,6 @@ interface Props {
  * 「实验功能」section。包含：
  * - Claude Code 沙盒档位
  * - Codex 沙盒档位
- * - Fallback 路径自动 LLM 摘要 toggle
  *
  * R3.E7：删 Agent Teams toggle + Teammate 权限自动放行档位（老 inbox 协议下线）。
  * 新 universal team backend 不需要这两个开关 —— 默认开启，跨 adapter team UI 直接进入。
@@ -20,6 +19,10 @@ interface Props {
  * plan task-mcp-merge-into-agent-deck-mcp-20260521：删 enableTaskManager toggle —
  * 5 个 task tool 合并入 agent-deck-mcp namespace 后跟随 enableAgentDeckMcp 开关（详
  * AgentDeckMcpSection），settings-store smart migration 自动 carry 老用户 ON 值。
+ *
+ * plan prancy-forging-penguin：删 autoSummariseOnFallback toggle — 字段保留默认 true
+ * 不可配，让 fallback 路径(jsonl missing / cwdFellBack=true)永远自动 LLM 摘要(成本
+ * 敏感时改 settings.json 手动 set false 仍生效;UI 不再暴露避免新用户误关错过续聊体感)。
  */
 export function ExperimentalSection({ settings, update }: Props): JSX.Element {
   const sandboxNativeAvailable = IS_DARWIN || IS_LINUX;
@@ -86,23 +89,6 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
         Codex CLI 子进程的沙盒档位（codex SDK 原生三档，由 codex 自身 OS 隔离实现，跨平台一致）。
         默认 <code className="rounded bg-white/5 px-1">workspace-write</code> 与 Claude 默认对齐；
         切档仅下次新建会话生效。
-      </div>
-      <div className="mt-3">
-        <Toggle
-          label="Fallback 路径自动用 LLM 生成历史摘要"
-          value={settings.autoSummariseOnFallback}
-          onChange={(v) => void update({ autoSummariseOnFallback: v })}
-        />
-        <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">
-          会话 cwd 失效 / CLI 内部 jsonl 历史丢失时,fresh CLI 起来前自动调 LLM(sonnet)生成
-          历史摘要 prepend 到首条 prompt,让 Claude 知道前情。<strong>开(默认)</strong> →
-          用户体感「能续聊」;<strong>关</strong> → 静默退回旧版 fallback(emit「请补背景」让用户手动补)。
-          <br />
-          <strong className="text-amber-300/90">⚠ 摘要按 sonnet 调用计费</strong>
-          (~10-30s / 4000 字),fallback 频繁的长历史会话有可观成本时可关。
-          <br />
-          LLM 失败 / DB 没历史 / 摘要超长 → 静默退回旧版 fallback 路径,本开关只控制是否尝试。
-        </div>
       </div>
     </Section>
   );

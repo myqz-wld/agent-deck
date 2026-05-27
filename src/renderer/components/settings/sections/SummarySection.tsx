@@ -17,14 +17,12 @@ interface Props {
  * string input，再迁到 controls.tsx 抽 TextInput / FreeFormStringInput helper。
  */
 function ModelInput({
-  label,
-  hint,
   value,
+  placeholder,
   onChange,
 }: {
-  label: string;
-  hint: string;
   value: string;
+  placeholder: string;
   onChange: (v: string) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState<string>(value);
@@ -44,29 +42,90 @@ function ModelInput({
   };
 
   return (
+    <input
+      type="text"
+      value={draft}
+      placeholder={placeholder}
+      onFocus={() => setEditing(true)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          setDraft(value);
+          setEditing(false);
+          e.currentTarget.blur();
+        }
+      }}
+      className="no-drag flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] outline-none focus:border-white/20"
+    />
+  );
+}
+
+type Provider = 'claude' | 'codex';
+type Reasoning = 'minimal' | 'low' | 'medium' | 'high';
+
+/**
+ * plan prancy-forging-penguin: provider × model × reasoning 三联控件(一行布局)。
+ * - Provider select: claude / codex,决定走哪个 LLM SDK
+ * - Model input: free-form model id,空 = 沿用 provider 各自 env / alias / config.toml 兜底
+ * - Reasoning select: minimal/low/medium/high,**仅 provider='codex' 启用**
+ *   (claude SDK 无独立 reasoning 字段,thinking 走 model id 后缀)
+ */
+function ModelRow({
+  label,
+  hint,
+  provider,
+  model,
+  reasoning,
+  modelPlaceholder,
+  onProviderChange,
+  onModelChange,
+  onReasoningChange,
+}: {
+  label: string;
+  hint: string;
+  provider: Provider;
+  model: string;
+  reasoning: Reasoning;
+  modelPlaceholder: string;
+  onProviderChange: (v: Provider) => void;
+  onModelChange: (v: string) => void;
+  onReasoningChange: (v: Reasoning) => void;
+}): JSX.Element {
+  const reasoningDisabled = provider === 'claude';
+  return (
     <div className="flex flex-col gap-1 text-[11px]">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex-1">{label}</span>
-        <input
-          type="text"
-          value={draft}
-          placeholder="（沿用 env / alias）"
-          onFocus={() => setEditing(true)}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.currentTarget.blur();
-            } else if (e.key === 'Escape') {
-              setDraft(value);
-              setEditing(false);
-              e.currentTarget.blur();
-            }
-          }}
-          className="no-drag w-44 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] outline-none focus:border-white/20"
-        />
+      <div className="flex items-center gap-2">
+        <span className="w-32 shrink-0">{label}</span>
+        <select
+          value={provider}
+          onChange={(e) => onProviderChange(e.target.value as Provider)}
+          className="no-drag rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
+        >
+          <option value="claude">claude</option>
+          <option value="codex">codex</option>
+        </select>
+        <ModelInput value={model} placeholder={modelPlaceholder} onChange={onModelChange} />
+        <select
+          value={reasoning}
+          disabled={reasoningDisabled}
+          onChange={(e) => onReasoningChange(e.target.value as Reasoning)}
+          title={
+            reasoningDisabled
+              ? "claude 端 thinking 走 model id 后缀(如 'claude-opus-4-7-thinking-max[1m]'),无独立 reasoning 字段"
+              : 'codex SDK ThreadOptions.modelReasoningEffort 4 档枚举'
+          }
+          className="no-drag w-24 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
+        >
+          <option value="minimal">minimal</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+        </select>
       </div>
-      <div className="text-[10px] text-deck-muted/60 leading-snug">{hint}</div>
+      <div className="pl-32 text-[10px] text-deck-muted/60 leading-snug">{hint}</div>
     </div>
   );
 }
@@ -93,29 +152,27 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
         max={10}
         onChange={(v) => void update({ summaryMaxConcurrent: v })}
       />
-      <ModelInput
-        label="claude 周期性总结模型"
-        hint="留空 = 沿用 ANTHROPIC_DEFAULT_HAIKU_MODEL → ANTHROPIC_MODEL → 'haiku' alias 兜底。仅对 claude-code session 生效；codex session 走下方 codex 字段。"
-        value={settings.summaryModel}
-        onChange={(v) => void update({ summaryModel: v })}
+      <ModelRow
+        label="周期性总结"
+        hint="claude provider 留空走 'haiku' alias；codex provider 留空 fallback ~/.codex/config.toml。reasoning 仅 codex 生效。"
+        provider={settings.summaryProvider}
+        model={settings.summaryModel}
+        reasoning={settings.summaryReasoning}
+        modelPlaceholder="haiku（沿用 env / alias）"
+        onProviderChange={(v) => void update({ summaryProvider: v })}
+        onModelChange={(v) => void update({ summaryModel: v })}
+        onReasoningChange={(v) => void update({ summaryReasoning: v })}
       />
-      <ModelInput
-        label="claude hand-off 简报模型"
-        hint="留空 = 沿用 ANTHROPIC_DEFAULT_SONNET_MODEL → ANTHROPIC_MODEL → 'sonnet' alias 兜底。仅对 claude-code session 生效；codex session 走下方 codex 字段。"
-        value={settings.handOffModel}
-        onChange={(v) => void update({ handOffModel: v })}
-      />
-      <ModelInput
-        label="codex 周期性总结模型"
-        hint="留空 = 沿用 CODEX_SUMMARY_MODEL env → ~/.codex/config.toml 顶层 model 兜底。仅对 codex-cli session 生效；典型对标 claude haiku 用轻量 model (codex CLI 支持的具体 model id 由 user 确认)。"
-        value={settings.codexSummaryModel}
-        onChange={(v) => void update({ codexSummaryModel: v })}
-      />
-      <ModelInput
-        label="codex hand-off 简报模型"
-        hint="留空 = 沿用 CODEX_HANDOFF_MODEL env → ~/.codex/config.toml 顶层 model 兜底。仅对 codex-cli session 生效；典型对标 claude sonnet 用 mid model。"
-        value={settings.codexHandOffModel}
-        onChange={(v) => void update({ codexHandOffModel: v })}
+      <ModelRow
+        label="Hand-off 简报"
+        hint="4 节结构化简报(目标/已做/在做/下一步)。default 同 haiku；想升 sonnet/opus 自己填 model id。reasoning 仅 codex 生效，default medium 保结构精度。"
+        provider={settings.handOffProvider}
+        model={settings.handOffModel}
+        reasoning={settings.handOffReasoning}
+        modelPlaceholder="haiku（沿用 env / alias）"
+        onProviderChange={(v) => void update({ handOffProvider: v })}
+        onModelChange={(v) => void update({ handOffModel: v })}
+        onReasoningChange={(v) => void update({ handOffReasoning: v })}
       />
       <SummarizerErrorsDiagnostic />
     </Section>

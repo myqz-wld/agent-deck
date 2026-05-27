@@ -58,16 +58,18 @@ export async function summariseCodexSessionForHandOff(
     // agentName='Agent' — codex 不是 Claude；marker `[Claude 说]` 等保留是 formatEventsForPrompt
     // 固定 label，不本地化（与 summarizer-runner.ts 同款约定）。
     prompt: buildHandoffPrompt({ cwd, activity, agentName: 'Agent' }),
-    // **modelReasoningEffort 提到 'medium'**：hand-off 4 节结构化输出对 codex 理解力要求比
-    // 30 字 summarize 高；high 太慢（spike 实测 30s+），low 输出结构常常错位（漏节 / 节标题
-    // 写错），medium 是 spike-A3 实测下的最佳折中。
-    modelReasoningEffort: 'medium',
-    // prompt-asset-review-optimize-20260527 跟进:codex SDK ThreadOptions.model 已支持 per-thread
-    // override。优先级链对标 claude summariseSessionForHandOff 的 settings.handOffModel:
-    //   settings.codexHandOffModel > CODEX_HANDOFF_MODEL env > undefined (fallback config.toml)
-    // 典型期望 user 配 'gpt-5.5' 或 mid 级 model 对标 claude sonnet 用于 4 节结构化简报。
+    // plan prancy-forging-penguin:reasoning 改读 settings.handOffReasoning(原 hardcoded
+    // 'medium' 已下线)。default 'medium' 与原行为对齐 — hand-off 4 节结构化输出对 codex 理解力
+    // 要求比 30 字 summarize 高;high 太慢(spike 实测 30s+),low 输出结构常常错位(漏节 / 节标题
+    // 写错),medium 是 spike-A3 实测下的最佳折中。
+    modelReasoningEffort: settingsStore.get('handOffReasoning') ?? 'medium',
+    // plan prancy-forging-penguin:codex handoff model 改读统一字段 settings.handOffModel
+    // (不再是 codexHandOffModel — 已下线 + REMOVED_KEYS 清孤儿)。优先级链:
+    //   settings.handOffModel > CODEX_HANDOFF_MODEL env > undefined (fallback config.toml)
+    // user 责任:provider=codex 时 settings.handOffModel 填的 model id 必须 codex SDK 可用
+    // (典型 'gpt-5.5' 或 mid 级 model 对标 claude haiku 升档场景)。
     model:
-      settingsStore.get('codexHandOffModel') ||
+      settingsStore.get('handOffModel') ||
       process.env.CODEX_HANDOFF_MODEL ||
       undefined,
     // 60s timeout：与 claude hand-off 平齐（llm-runners.ts:summariseSessionForHandOff），不读

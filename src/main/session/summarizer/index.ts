@@ -235,22 +235,23 @@ export class Summarizer {
     const events = eventRepo.listForSession(sessionId, 40);
     if (events.length === 0) return null;
 
-    // 1) 优先：跑一次 LLM oneshot，**dispatch 已下放到 adapter.summariseEvents**
-    //    （R37 P2-I Step 3.3）。caller 不再 if (agentId === '...') 派发：
-    //    - claude-code adapter → claude SDK oneshot（haiku，~/.claude OAuth）
-    //    - codex-cli adapter   → codex SDK oneshot（read-only sandbox + 'low' reasoning effort）
-    //    - 其他 adapter 未实装 summariseEvents → adapter?.summariseEvents
-    //      返 undefined → llm 保持 null → 跳过 LLM 直接走下方 fallback（assistant 文字 / 事件统计）
+    // 1) 优先：跑一次 LLM oneshot,**dispatch 由 settings.summaryProvider 决定**
+    //    (plan prancy-forging-penguin 改造):
+    //    - settings.summaryProvider='claude' (默认) → claude SDK oneshot(haiku 默认,~/.claude OAuth)
+    //    - settings.summaryProvider='codex' → codex SDK oneshot(read-only sandbox + reasoning 档位
+    //      由 settings.summaryReasoning 决定,默认 'low')
     //
-    //    spike-A3 实测 5 codex 并发 oneshot 复用 app-server 单例，资源温和（10s / ~44MB），
+    //    **关键 design 决策**:adapter 不再按 session.agentId 选(原 R37 P2-I 路径),改成按
+    //    settings.summaryProvider 选 — claude session 也可能走 codex SDK 总结,反之亦然。
+    //    user 责任:settings.summaryModel 填的 model id 必须对当前 provider 可用(claude 端
+    //    'haiku' OK,codex 端 'haiku' 撞 SDK 不识别会报错并走 fallback 路径)。
+    //
+    //    spike-A3 实测 5 codex 并发 oneshot 复用 app-server 单例,资源温和(10s / ~44MB),
     //    与 claude 共用全局 summaryMaxConcurrent 不需分桶。
-    //
-    //    R37 P2-H Step 3.2：原本 caller 这里为 codex 路径起 Promise.race 兜底防卡死（codex
-    //    SDK 没 q.interrupt 等价物，runner 当时不内置 timeout）。重构后 timeout 已下沉到
-    //    `summariseCodexSessionViaOneshot` 内部（走 settings.summaryTimeoutMs，与 claude path
-    //    统一），caller 直接 await 即可。
     try {
-      const adapter = adapterRegistry.get(session.agentId);
+      const provider = settingsStore.get('summaryProvider');
+      const providerAgentId = provider === 'codex' ? 'codex-cli' : 'claude-code';
+      const adapter = adapterRegistry.get(providerAgentId);
       let llm: string | null = null;
       if (adapter?.summariseEvents) {
         llm = await adapter.summariseEvents(session.cwd, events, 'summary');

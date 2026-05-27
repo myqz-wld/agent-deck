@@ -54,13 +54,16 @@ export async function summariseCodexSessionViaOneshot(
     // agentName='Agent'：codex 不是 Claude，build-prompt.ts 把主体 `Claude` 改 `Agent`，但
     // 保留 [Claude 说] marker 不变（marker 是 formatEventsForPrompt 固定 label，不本地化）。
     prompt: buildSummarizePrompt({ cwd, activity, agentName: 'Agent' }),
-    modelReasoningEffort: 'low',
-    // prompt-asset-review-optimize-20260527 跟进:codex SDK ThreadOptions.model 已支持 per-thread
-    // override。优先级链对标 claude summariseViaLlm 的 settings.summaryModel:
-    //   settings.codexSummaryModel > CODEX_SUMMARY_MODEL env > undefined (fallback config.toml)
-    // 典型期望 user 配 'gpt-5.5-mini' 或类似轻量 model 对标 claude haiku。
+    // plan prancy-forging-penguin:reasoning 改读 settings.summaryReasoning(原 hardcoded 'low'
+    // 已下线)。default 'low' 与原行为对齐 — oneshot 简单任务不需深思,省 token + 出字快。
+    modelReasoningEffort: settingsStore.get('summaryReasoning') ?? 'low',
+    // plan prancy-forging-penguin:codex summary model 改读统一字段 settings.summaryModel
+    // (不再是 codexSummaryModel — 已下线 + REMOVED_KEYS 清孤儿)。优先级链:
+    //   settings.summaryModel > CODEX_SUMMARY_MODEL env > undefined (fallback config.toml)
+    // user 责任:provider=codex 时 settings.summaryModel 填的 model id 必须 codex SDK 可用
+    // (典型 'gpt-5.5-mini' 等)。填 'haiku' 会撞 codex SDK 不识别报错并走 caller fallback。
     model:
-      settingsStore.get('codexSummaryModel') ||
+      settingsStore.get('summaryModel') ||
       process.env.CODEX_SUMMARY_MODEL ||
       undefined,
     // R37 P2-H：runner 自己内置 timeout（同 claude path 走 settings.summaryTimeoutMs；

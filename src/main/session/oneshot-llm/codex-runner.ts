@@ -49,10 +49,14 @@ export async function runCodexOneshot(opts: {
   /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt / buildHandoffPrompt 组装。 */
   prompt: string;
   /**
-   * Reasoning effort：summarize 用 'low'（30 字 tag-line 不需深思 + 出字快），handoff 用
+   * Reasoning effort：summarize 默认 'low'（30 字 tag-line 不需深思 + 出字快），handoff 默认
    * 'medium'（4 节结构化输出对理解力要求高，'low' 输出常常错位漏节，'high' 太慢 ~30s+）。
+   *
+   * plan prancy-forging-penguin: 扩到 4 档(minimal/low/medium/high)与 settings UI dropdown 对齐
+   * (settings.summaryReasoning / handOffReasoning user 可选)。codex SDK 真支持 5 档含 'xhigh',
+   * 未来如需暴露最高档再扩;当前 UI 4 档够用。
    */
-  modelReasoningEffort: 'low' | 'medium' | 'high';
+  modelReasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
   /**
    * prompt-asset-review-optimize-20260527 跟进:可选 model override 透传给 codex SDK
    * ThreadOptions.model(v0.131.0+ 支持 per-thread override)。caller 走 settings/env
