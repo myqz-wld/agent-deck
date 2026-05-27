@@ -6,6 +6,7 @@ import { NotifySection } from './settings/sections/NotifySection';
 import { LifecycleSection } from './settings/sections/LifecycleSection';
 import { SummarySection } from './settings/sections/SummarySection';
 import { WindowSection } from './settings/sections/WindowSection';
+import { KeyboardShortcutsSection } from './settings/sections/KeyboardShortcutsSection';
 import { HookServerSection } from './settings/sections/HookServerSection';
 import { ExternalToolsSection } from './settings/sections/ExternalToolsSection';
 import { CodexMcpServersSection } from './settings/sections/CodexMcpServersSection';
@@ -165,6 +166,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
             <SectionGroup title="提醒与外观">
               <NotifySection settings={settings} update={update} />
               <WindowSection settings={settings} update={update} />
+              <KeyboardShortcutsSection />
             </SectionGroup>
 
             <SectionGroup title="集成与运行环境">
