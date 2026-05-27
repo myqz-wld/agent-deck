@@ -14,6 +14,7 @@
  *     避免本机 vitest 跑测试时 spawn 真 claude binary
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { UploadedAttachmentRef } from '@shared/types';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
@@ -954,5 +955,186 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     expect(bridge.sendMessageCalls).toHaveLength(1);
     expect(bridge.sendMessageCalls[0].sessionId).toBe('forked-id');
     expect(bridge.sendMessageCalls[0].text).toBe('second');
+  });
+
+  // ─── REVIEW_58 HIGH ✅ regression: recoverAndSend 入口 emit user message 收口 ──────────
+  // bug 截图证据: 用户发消息 → 看「⚠ SDK 通道已断开,正在自动恢复…」+ 后续 assistant「✅ 一轮完成」
+  // 但**自己发的那条 user message 不显示**(emit 责任全下放 createSession 内 finalize / fallback
+  // 跨 SDK 实际 spawn 时序)。修法:recoverAndSend 入口与 live 主路径 sendMessage `if(s)` 路径
+  // emit 时机对称 + 下游 createThunk 显式 skipFirstUserEmit:true 让 finalize 跳过避免双气泡。
+
+  it('REVIEW_58 HIGH ✅: recoverAndSend 入口立即 emit user message (normal resume 路径仅 1 条 + user before placeholder)', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-user-msg',
+      agentId: 'claude-code',
+      cwd: '/tmp/work',
+      title: 'work',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    await bridge.sendMessage('sess-user-msg', 'hello world');
+
+    // role='user' message 恰好 1 条 (recoverAndSend 入口收口 + TestBridge mock createSession
+    // 不调真 finalize,实战中 finalize 走 skipFirstUserEmit 守门跳过避免双气泡)
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].sessionId).toBe('sess-user-msg');
+    expect((userMsgs[0].payload as { text: string }).text).toBe('hello world');
+
+    // 顺序: user message 在 placeholder「⚠ SDK 通道已断开」之前 emit
+    // (用户体感: 先看到自己发的内容,再看占位)
+    const userMsgIdx = emits.indexOf(userMsgs[0]);
+    const placeholderIdx = emits.findIndex(
+      (e) =>
+        e.kind === 'message' &&
+        ((e.payload as { text?: string }).text ?? '').includes('正在自动恢复'),
+    );
+    expect(placeholderIdx).toBeGreaterThan(-1);
+    expect(userMsgIdx).toBeLessThan(placeholderIdx);
+  });
+
+  it('REVIEW_58 HIGH ✅: jsonl 不存在 fallback 路径同样仅 emit 1 条 user message (caller + helper 不双气泡)', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false; // jsonl 缺失 → maybeJsonlFallback
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-fallback-user',
+      agentId: 'claude-code',
+      cwd: '/tmp/abandoned',
+      title: 'abandoned',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    await bridge.sendMessage('sess-fallback-user', 'hi');
+
+    // role='user' message 仅 1 条: recoverAndSend 入口 emit + maybeJsonlFallback 守门跳过
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].sessionId).toBe('sess-fallback-user');
+    expect((userMsgs[0].payload as { text: string }).text).toBe('hi');
+  });
+
+  it('REVIEW_58 HIGH ✅: createSession 失败 → user message 仍保留 events (失败路径不丢用户输入)', async () => {
+    const bridge = makeBridge();
+    bridge.createBehavior = 'reject';
+    bridge.rejectWith = new Error('CLI auth expired');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-fail-user',
+      agentId: 'claude-code',
+      cwd: '/tmp/y',
+      title: 'y',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    await expect(bridge.sendMessage('sess-fail-user', 'failed prompt')).rejects.toThrow(/CLI auth expired/);
+
+    // createSession throw 之前 user message 已 emit (入口收口) → events 表保留用户输入
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect((userMsgs[0].payload as { text: string }).text).toBe('failed prompt');
+  });
+
+  it('REVIEW_58 HIGH ✅: attachments 透传 — recoverAndSend 入口 emit user message 含 attachments 字段', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-img',
+      agentId: 'claude-code',
+      cwd: '/tmp/work',
+      title: 'work',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    const attachments: UploadedAttachmentRef[] = [
+      { kind: 'uploaded', path: '/tmp/img.png', mime: 'image/png', bytes: 100 },
+    ];
+
+    await bridge.sendMessage('sess-img', 'with image', attachments);
+
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect((userMsgs[0].payload as { attachments?: UploadedAttachmentRef[] }).attachments).toEqual(
+      attachments,
+    );
+  });
+
+  it('REVIEW_58 R2 MED-1 ✅: cwd 全 miss throw 路径下 user message 仍 emit 入 events (双方 R2 共识真问题修法)', async () => {
+    // bug:R1 修法把 emit user message 放在 cwd precheck 之后,cwd 全 miss `emit error + throw`
+    // 路径下 user emit 永不执行 — 用户体感:看到 cwd missing error 红字 + 自己的 message bubble
+    // 消失(与 R1 治的截图 bug 同款症状)。R2 MED-1 修法把 emit 提前到 cwd precheck 之前覆盖此 case。
+    const bridge = makeBridge();
+    // cwd 全部不存在 (启发式 1 worktrees regex 不命中 + 启发式 2 parent walk 也全 miss)
+    bridge.cwdExistsOverride = false;
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-cwd-throw',
+      agentId: 'claude-code',
+      cwd: '/totally/dead/path',
+      title: 'dead',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    await expect(bridge.sendMessage('sess-cwd-throw', 'lost prompt')).rejects.toThrow(
+      /cwd does not exist/,
+    );
+
+    // R2 MED-1 关键断言:cwd 全 miss throw 之前 user message 已 emit 进 events 表 (不丢用户输入)
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].sessionId).toBe('sess-cwd-throw');
+    expect((userMsgs[0].payload as { text: string }).text).toBe('lost prompt');
+
+    // 顺序: user message 在 cwd missing error message 之前 (用户体感:先看到自己发的,再看错误说明)
+    const userMsgIdx = emits.indexOf(userMsgs[0]);
+    const cwdErrorIdx = emits.findIndex(
+      (e) =>
+        e.kind === 'message' &&
+        ((e.payload as { text?: string }).text ?? '').includes('cwd 已不存在'),
+    );
+    expect(cwdErrorIdx).toBeGreaterThan(-1);
+    expect(userMsgIdx).toBeLessThan(cwdErrorIdx);
   });
 });

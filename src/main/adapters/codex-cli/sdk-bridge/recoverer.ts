@@ -108,6 +108,18 @@ export type CreateSessionThunk = (opts: {
    * 'fresh-cli-reuse-app' 让 jsonl-missing fallback 路径显式触发 SDK fresh thread + 复用 applicationSid。
    */
   resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+  /**
+   * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法 — 对称 claude recoverer.ts):
+   * 跳过 createSession 内 emit 首条 user message — 让 caller 收口 emit 责任避免双气泡。
+   *
+   * **触发场景**:recoverer.recoverAndSend 入口已 emit user message(与 live 主路径
+   * `index.ts:778-793` sendMessage `if (s)` 路径对称),调 createThunk 时显式传 true 让
+   * createSession resume path (`index.ts:539-556`) 跳过重复 emit。
+   *
+   * **不传 / false** = 默认 emit user message(spawn 主路径 / IPC AdapterCreateSession
+   * 走此路径,resume path 必须 emit user message 让 UI 活动流看到「你」发的第一条话)。
+   */
+  skipFirstUserEmit?: boolean;
 }) => Promise<CodexSessionHandle>;
 
 export type SendMessageThunk = (
@@ -197,6 +209,46 @@ export class SessionRecoverer {
       throw new Error(`session ${sessionId} not found`);
     }
 
+    // MAX_MESSAGE_LENGTH 字符长度上限（与 messageRepo cap 全局对齐）。
+    // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
+    //
+    // R2 MED-1 修法 (reviewer-codex + reviewer-claude 双方独立提出真问题 — 对称 claude):
+    // 提前到 sessionRepo.get 后 + cwd precheck 之前 — 让下面 emit user message 也能提前到
+    // cwd precheck 之前覆盖 cwd 全 miss throw 路径(防 user message 在 throw 后才 emit 永不入库)。
+    const len = text.length;
+    if (len > MAX_MESSAGE_LENGTH) {
+      throw new Error(
+        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
+      );
+    }
+
+    // REVIEW_58 HIGH ✅ + R2 MED-1 收口修法 (deep-review 双方共识真问题 — 对称 claude recoverer.ts):
+    // 立即 emit user message 与 live 主路径 sendMessage `index.ts:778-793` 时机对称。
+    // 修前 codex-cli sendMessage `if (!s)` 分支只委托 recoverAndSend → emit user message
+    // 责任全下放下游 createSession resume path (index.ts:539-556) / new path (thread-loop)
+    // 跨 SDK 实际 spawn 时序 → 用户截图实测 user message bubble 消失。
+    //
+    // **R2 MED-1 修订**:emit 位置在 cwd precheck **之前**(替代 R1 在 cwd precheck 之后),
+    // 让 cwd missing fallback 全 miss throw 路径也保留 events 入库 — 用户看到 cwd missing
+    // error 红字 + 自己的 message bubble 仍在,帮助决策。否则修了用户截图 bug 但 cwd 全 miss
+    // 边角 case 仍漏。
+    //
+    // 收口到 recovery 入口让用户体感与 live 主路径一致 + 失败/边界路径保留 events。
+    // 下游 createThunk 显式传 skipFirstUserEmit:true 让 createSession resume path 跳过重复 emit。
+    // 等待者 inflight path 无需改 — sendThunk 内部走 sendMessage live 主路径自己 emit。
+    this.ctx.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: {
+        text,
+        role: 'user',
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+
     // CHANGELOG_99 cwd 失效根治（与 claude 同款 R1 fix MED-2 顺序：cwd 校验 → unarchive,
     // 避免 archived session cwd fallback 失败前被 unarchive 成 active 但实际死路一条）。
     //
@@ -263,15 +315,6 @@ export class SessionRecoverer {
         `[codex-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
       );
       await sessionManager.unarchive(sessionId);
-    }
-
-    // MAX_MESSAGE_LENGTH 字符长度上限（与 messageRepo cap 全局对齐）。
-    // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
-    const len = text.length;
-    if (len > MAX_MESSAGE_LENGTH) {
-      throw new Error(
-        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
-      );
     }
 
     // 占位 message：起 codex 子进程期间用户至少看到「在恢复」而不是哑巴 busy（与 claude 同款）。
@@ -354,6 +397,9 @@ export class SessionRecoverer {
             model: rec.model ?? undefined,
             extraAllowWrite: rec.extraAllowWrite ?? undefined,
             attachments,
+            // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
+            // createSession resume path 跳过重复 emit(详 recoverer.recoverAndSend emit user message 段注释)
+            skipFirstUserEmit: true,
           });
           // plan cross-adapter-parity-20260515 Phase B Step B.2: 返 sessionId (== applicationSid 不变,
           // 不再调 sessionManager.renameSdkSession — 反向 rename 不动 sessions.id)
@@ -383,6 +429,9 @@ export class SessionRecoverer {
           model: rec.model ?? undefined,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
           attachments,
+          // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
+          // createSession resume path 跳过重复 emit(详 recoverer.recoverAndSend emit user message 段注释)
+          skipFirstUserEmit: true,
         });
         // plan cross-adapter-parity-20260515 Phase B Step B.2 + REVIEW_41 MED-2 fix: 与 claude
         // resume path 对称返 handle.sessionId(codex 现实测不 fork 但写法 future-proof)。

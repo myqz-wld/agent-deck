@@ -21,6 +21,7 @@
  *   - 子类化 CodexSdkBridge 覆盖 createSession 不真起 codex CLI 子进程，避免本机 vitest spawn 真 codex binary
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { UploadedAttachmentRef } from '@shared/types';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
@@ -627,5 +628,175 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     // 关键断言：fallback 路径必须把 record.codexSandbox + model 透传给 createThunk
     expect(bridge.createCalls[0].codexSandbox).toBe('danger-full-access');
     expect(bridge.createCalls[0].model).toBe('gpt-5-pro');
+  });
+
+  // ─── REVIEW_58 HIGH ✅ regression: recoverAndSend 入口 emit user message 收口 (对称 claude) ──
+  // bug 截图证据 + 对称 claude recoverer: 修法把 emit user message 责任从下游 createSession
+  // resume path 提前到 recoverAndSend 入口与 live 主路径 sendMessage `if(s)` 时机对称,
+  // 下游 createThunk 显式 skipFirstUserEmit:true 让 createSession resume path 跳过避免双气泡。
+
+  it('REVIEW_58 HIGH ✅: codex recoverAndSend 入口立即 emit user message (normal resume 路径仅 1 条 + user before placeholder)', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-user-msg',
+      agentId: 'codex-cli',
+      cwd: '/tmp/work',
+      title: 'work',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    await bridge.sendMessage('sess-user-msg', 'hello codex');
+
+    // role='user' message 恰好 1 条 (recoverAndSend 入口收口;实战 createSession resume path
+    // 走 skipFirstUserEmit:true 守门跳过避免双气泡;TestBridge mock createSession 不走真路径)
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].sessionId).toBe('sess-user-msg');
+    expect((userMsgs[0].payload as { text: string }).text).toBe('hello codex');
+
+    // 顺序: user message 在 placeholder「⚠ Codex 通道已断开」之前 emit
+    const userMsgIdx = emits.indexOf(userMsgs[0]);
+    const placeholderIdx = emits.findIndex(
+      (e) =>
+        e.kind === 'message' &&
+        ((e.payload as { text?: string }).text ?? '').includes('正在自动恢复'),
+    );
+    expect(placeholderIdx).toBeGreaterThan(-1);
+    expect(userMsgIdx).toBeLessThan(placeholderIdx);
+  });
+
+  it('REVIEW_58 HIGH ✅: codex jsonl 不存在 fallback 路径同样仅 emit 1 条 user message', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false; // jsonl 缺失 → fresh thread fallback
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-fallback-user',
+      agentId: 'codex-cli',
+      cwd: '/tmp/abandoned',
+      title: 'abandoned',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    await bridge.sendMessage('sess-fallback-user', 'hi');
+
+    // role='user' message 仅 1 条: recoverAndSend 入口 emit + 下游 createSession resume path
+    // 走 skipFirstUserEmit:true 守门跳过(jsonl-missing fallback 也走 createThunk 同款守门)
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].sessionId).toBe('sess-fallback-user');
+    expect((userMsgs[0].payload as { text: string }).text).toBe('hi');
+  });
+
+  it('REVIEW_58 HIGH ✅: codex createSession 失败 → user message 仍保留 events', async () => {
+    const bridge = makeBridge();
+    bridge.createBehavior = 'reject';
+    bridge.rejectWith = new Error('Codex SDK auth expired');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-fail-user',
+      agentId: 'codex-cli',
+      cwd: '/tmp/y',
+      title: 'y',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    await expect(bridge.sendMessage('sess-fail-user', 'failed prompt')).rejects.toThrow(
+      /Codex SDK auth expired/,
+    );
+
+    // createSession throw 之前 user message 已 emit (入口收口) → events 表保留用户输入
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect((userMsgs[0].payload as { text: string }).text).toBe('failed prompt');
+  });
+
+  it('REVIEW_58 HIGH ✅: codex attachments 透传 — recoverAndSend 入口 emit user message 含 attachments', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-img',
+      agentId: 'codex-cli',
+      cwd: '/tmp/work',
+      title: 'work',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    const attachments: UploadedAttachmentRef[] = [
+      { kind: 'uploaded', path: '/tmp/img.png', mime: 'image/png', bytes: 100 },
+    ];
+
+    await bridge.sendMessage('sess-img', 'with image', attachments);
+
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect((userMsgs[0].payload as { attachments?: UploadedAttachmentRef[] }).attachments).toEqual(
+      attachments,
+    );
+  });
+
+  it('REVIEW_58 R2 MED-1 ✅: codex cwd 全 miss throw 路径下 user message 仍 emit 入 events (对称 claude)', async () => {
+    // bug 对称 claude:R1 修法 emit user message 放在 cwd precheck 之后,cwd 全 miss throw 路径
+    // user emit 永不执行 → user message 丢。R2 MED-1 修法 emit 提前到 cwd precheck 之前覆盖此 case。
+    const bridge = makeBridge();
+    bridge.cwdExistsOverride = false;
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-cwd-throw',
+      agentId: 'codex-cli',
+      cwd: '/totally/dead/path',
+      title: 'dead',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    await expect(bridge.sendMessage('sess-cwd-throw', 'lost prompt')).rejects.toThrow(
+      /cwd does not exist/,
+    );
+
+    // R2 MED-1 关键断言:cwd 全 miss throw 之前 user message 已 emit 进 events 表 (不丢用户输入)
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].sessionId).toBe('sess-cwd-throw');
+    expect((userMsgs[0].payload as { text: string }).text).toBe('lost prompt');
   });
 });
