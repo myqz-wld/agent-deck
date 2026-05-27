@@ -126,16 +126,9 @@ export const spawnSessionHandler = withMcpGuard(
       const fm = parseFrontmatter(bodyResult.content);
       if (typeof fm.model === 'string' && fm.model.trim().length > 0) {
         modelFromFrontmatter = fm.model.trim();
-        // plan Step 3.2 / D5：codex-cli adapter SDK startThread 不接受 per-thread model
-        // override（runtime model 由 ~/.codex/config.toml 决定）—— 配 frontmatter model
-        // 仅持久化 + UI 显示，不会真正切 model。warn 一次让维护者知道（spawn 不阻断）。
-        if (args.adapter === 'codex-cli') {
-          console.warn(
-            `[mcp spawn_session] agent_name="${args.agent_name}" frontmatter model="${modelFromFrontmatter}"` +
-              ` 对 codex-cli adapter 仅持久化未生效：codex SDK 不接受 per-thread model override，` +
-              `runtime model 由 ~/.codex/config.toml 顶层 \`model\` 字段决定。`,
-          );
-        }
+        // prompt-asset-review-optimize-20260527 跟进 reviewer-claude HIGH 修法:
+        // 删除原 codex-cli adapter warn — codex-sdk v0.131.0 ThreadOptions.model
+        // 已支持 per-thread override,frontmatter model 在 codex 端 runtime 真生效。
       }
     }
 
@@ -282,10 +275,10 @@ export const spawnSessionHandler = withMcpGuard(
           ...(args.extra_allow_write !== undefined && args.extra_allow_write.length > 0
             ? { extraAllowWrite: args.extra_allow_write }
             : {}),
-          // plan model-wiring-and-handoff-20260514 Step 3.1：透传 frontmatter `model` 给 createSession。
-          // claude-code adapter → bridge.createSession → buildClaudeQueryOptions → SDK options.model
-          // （runtime 切 model）+ setModel 持久化 resume 一致。
-          // codex-cli adapter → bridge 仅 setModel 持久化 + warn（D5：runtime 不生效）。
+          // plan model-wiring-and-handoff-20260514 Step 3.1 + prompt-asset-review-optimize-20260527 修订：
+          // 透传 frontmatter `model` 给 createSession。两 adapter runtime 都真生效:
+          // - claude-code → bridge.createSession → buildClaudeQueryOptions → SDK options.model 切 runtime model + setModel 持久化 resume 一致
+          // - codex-cli (codex-sdk v0.131.0+) → bridge.createSession → ThreadOptions.model 透传 codex CLI runtime + setModel 持久化(原 D5 "runtime 不生效" 判断已过期)
           // 留 inline 因 falsy 语义（空字符串视作未设，omitUndefined 仅过滤 undefined）。
           ...(modelFromFrontmatter ? { model: modelFromFrontmatter } : {}),
         }),

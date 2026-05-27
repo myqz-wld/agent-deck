@@ -167,11 +167,13 @@ export interface CodexCreateOpts {
    */
   attachments?: UploadedAttachmentRef[];
   /**
-   * SDK / agent model 透传（plan model-wiring-and-handoff-20260514 Step 2.5）。
+   * SDK / agent model 透传（plan model-wiring-and-handoff-20260514 Step 2.5 + prompt-asset-review-optimize-20260527 修订）。
    *
-   * adapter 行为：仅 setModel 持久化（让 UI 看到 frontmatter 设的 model），runtime 仍由
-   * ~/.codex/config.toml 顶层 `model` 决定（codex SDK startThread 不接受 per-thread model
-   * override，详 plan D5 与 bridge createSession 注释）。
+   * adapter 行为:
+   * - claude-code:setModel 持久化 + bridge.createSession 透传给 SDK options.model 真切 runtime
+   * - codex-cli (codex-sdk v0.131.0+):setModel 持久化 + bridge.createSession 透传给 codex SDK
+   *   ThreadOptions.model 真生效;runtime 由 codex CLI 按入参 model id 跑(user 端实际可用 model
+   *   由 `~/.codex/config.toml` 决定);未传值时 codex CLI fallback config.toml 顶层 model
    */
   model?: string;
   /**
@@ -183,8 +185,9 @@ export interface CodexCreateOpts {
   /**
    * 字段持久化保 parity 对称（与 ClaudeCreateOpts.extraAllowWrite 字面镜像）。
    * **codex SDK runtime 不消费**（SDK 不支持 extra writable roots, sandboxMode 三档无 allowWrite
-   * 字段）；bridge 内 setExtraAllowWrite 写库保跨 adapter parity 对称（与 model 字段同款语义 —
-   * runtime 不生效 / DB 写库保 SessionRecord 形态一致）。future codex SDK 加支持时零迁移成本。
+   * 字段）；bridge 内 setExtraAllowWrite 写库保跨 adapter parity 对称（与 model 字段已不同款 —
+   * model 字段 codex-sdk v0.131.0+ ThreadOptions.model 已支持 runtime 真生效,extraAllowWrite
+   * 仍未生效,本字段仅 DB 写库保 SessionRecord 形态一致）。future codex SDK 加支持时零迁移成本。
    *
    * 详细持久化路径见 ClaudeCreateOpts.extraAllowWrite jsdoc。
    */

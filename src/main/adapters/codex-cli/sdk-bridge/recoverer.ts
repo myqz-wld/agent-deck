@@ -79,23 +79,25 @@ export type CreateSessionThunk = (opts: {
    * `recoverer.ts` HIGH-1 同款修法 — fallback 路径不走 resume 时若不显式透传，
    * 已 spawn 的 codex 实际跑默认 model 而 DB record 仍显示原 model）。
    *
-   * 注意：codex SDK 不接受 per-thread model override（runtime 由 ~/.codex/config.toml 决定，
-   * 详 plan model-wiring-and-handoff-20260514 D5），但 createSession 内部仍 setModel 持久化
-   * 让 UI 显示一致 — 保留入参字段对齐 claude 接口形态。
+   * codex-sdk v0.131.0+ ThreadOptions.model 已支持 per-thread override(prompt-asset-review-optimize-20260527
+   * 修订:原"codex SDK 不接受 per-thread model override"判断已过期), createSession spread
+   * 进 ThreadOptions runtime 真切 model + setModel 持久化让 UI / resume / dormant 唤醒一致。
    */
   model?: string;
   /**
    * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
    * recoverer fallback / resume 路径显式透传 spawn 时持久化的 SDK sandbox 额外可写根。
    *
-   * 与 model 字段同款语义:codex SDK 不消费 extra writable roots(sandboxMode 三档无 allowWrite
-   * 字段),但 createSession 内部仍 setExtraAllowWrite 持久化保 parity 对称 — 保留入参字段对齐
-   * claude 接口形态。**透传到当前不消费的 opts 无副作用**(persistSessionFields 内 if 卫语句
-   * skip 空数组,setExtraAllowWrite null 也是合法值)。
+   * 与 model 字段已不同款(prompt-asset-review-optimize-20260527 修订:codex-sdk v0.131.0+
+   * ThreadOptions.model 已 runtime 真生效,extraAllowWrite 仍未生效):codex SDK 不消费 extra
+   * writable roots(sandboxMode 三档无 allowWrite 字段),但 createSession 内部仍 setExtraAllowWrite
+   * 持久化保 parity 对称 — 保留入参字段对齐 claude 接口形态。**透传到当前不消费的 opts 无副作用**
+   * (persistSessionFields 内 if 卫语句 skip 空数组,setExtraAllowWrite null 也是合法值)。
    *
    * 修法理由(plan §4 推荐 ✅ 做):即使 codex bridge 当前不消费,持久化字段 + 读回保 parity 完整,
-   * future codex SDK 加支持时零迁移成本 + 减跨 adapter 漂移。与 claudeCodeSandbox / model 同款
-   * 显式透传 + ?? undefined 兜底(rec.extraAllowWrite 历史 NULL 时 undefined 跳过 setter)。
+   * future codex SDK 加支持时零迁移成本 + 减跨 adapter 漂移。与 codexSandbox / claudeCodeSandbox
+   * 同样走显式透传 + ?? undefined 兜底(rec.extraAllowWrite 历史 NULL 时 undefined 跳过 setter)
+   * — 不同于 model 字段(codex-sdk v0.131.0+ 真生效),本字段 runtime 不消费仅持久化。
    */
   extraAllowWrite?: readonly string[];
   /**
@@ -379,8 +381,9 @@ export class SessionRecoverer {
           });
           // fallback 路径：不带 resume + 显式透传 sandbox/model 否则静默降到全局默认（与 claude
           // REVIEW_36 HIGH-1 同款教训）。attachments 透传让首条恢复消息带图。
-          // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 同 model 同款显式
-          // 透传(codex 不消费但 createSession 内部仍 setExtraAllowWrite 持久化保 parity 对称)。
+          // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 与 codexSandbox
+          // 同样显式透传(codex 不消费但 createSession 内部仍 setExtraAllowWrite 持久化保 parity
+          // 对称) — 不同于 model 字段(codex-sdk v0.131.0+ 真生效),本字段 runtime 仅持久化未消费。
           // **plan reverse-rename-sid-stability-20260520 §A.4-pre S8 R3 HIGH-G + R5 HIGH-R5-1 +
           // R6 MED-R6-1 + R7 HIGH-R7-1 修订 (codex 对称 claude recoverer.ts:466)**:
           // jsonl-missing fallback 不再创建新 sessions row,改用 resumeMode='fresh-cli-reuse-app'
@@ -408,7 +411,8 @@ export class SessionRecoverer {
 
         // 正常 resume 路径：jsonl 在 + cwd 有 → 走 createSession({resume, prompt, codexSandbox, model, attachments})
         // 复用 createSession 内部全套 protocol。
-        // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 同 model 同款显式透传。
+        // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 与 codexSandbox 同样
+        // 显式透传(不同于 model 字段:codex-sdk v0.131.0+ 已 runtime 真生效;本字段仍仅持久化未消费)。
         // plan cross-adapter-parity-20260515 Phase B Step B.2 + REVIEW_41 MED-2 fix: 拿 handle
         // 反映真实 finalId(codex spike-A2 实测 resume 不 fork → handle.sessionId === sessionId,
         // 但保 future-proof 防 codex SDK 升级 / 行为变更,且与 claude resume path 对称)。

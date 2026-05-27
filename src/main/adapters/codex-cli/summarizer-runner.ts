@@ -55,6 +55,14 @@ export async function summariseCodexSessionViaOneshot(
     // 保留 [Claude 说] marker 不变（marker 是 formatEventsForPrompt 固定 label，不本地化）。
     prompt: buildSummarizePrompt({ cwd, activity, agentName: 'Agent' }),
     modelReasoningEffort: 'low',
+    // prompt-asset-review-optimize-20260527 跟进:codex SDK ThreadOptions.model 已支持 per-thread
+    // override。优先级链对标 claude summariseViaLlm 的 settings.summaryModel:
+    //   settings.codexSummaryModel > CODEX_SUMMARY_MODEL env > undefined (fallback config.toml)
+    // 典型期望 user 配 'gpt-5.5-mini' 或类似轻量 model 对标 claude haiku。
+    model:
+      settingsStore.get('codexSummaryModel') ||
+      process.env.CODEX_SUMMARY_MODEL ||
+      undefined,
     // R37 P2-H：runner 自己内置 timeout（同 claude path 走 settings.summaryTimeoutMs；
     // 原 caller summarizer/index.ts 起 Promise.race 已删除）。timer 先赢 → 抛
     // `__codex_summarizer_timeout__` 让 caller catch 走 fallback 路径。

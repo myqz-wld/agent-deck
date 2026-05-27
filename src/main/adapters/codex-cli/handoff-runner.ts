@@ -21,14 +21,16 @@
  *   （REVIEW_37 R2 MED-1 修法：恢复 a748af1 旧版「不限长度」的有意 trade-off — codex
  *   handoff 4 节通常 800-2000 字但 outliers 可超 4K，slice 会切断结构节）
  *
- * **model 不显式传** — codex SDK startThread API 不接受 per-thread model override（runtime
- * model 由 ~/.codex/config.toml 顶层 `model` 决定）；plan D4 已说明，settings.handOffModel
- * 对 codex 路径无影响（仅对 claude session 生效）。
+ * **model**:prompt-asset-review-optimize-20260527 跟进 — codex SDK ThreadOptions.model 已支持
+ * per-thread override(v0.131.0+),summariseCodexSessionForHandOff 走 settings.codexHandOffModel
+ * 优先级链覆盖 codex CLI runtime model(对标 claude summariseSessionForHandOff 的
+ * settings.handOffModel 优先级链)。
  *
  * **失败处理**与 claude 同：caller (IPC handler) 接到 throw 后透传 → renderer modal inline error
  * 让用户重试或手动编辑兜底 prompt。本 runner 内只做 timeout race + result 收集，不做 fallback。
  */
 import type { AgentEvent } from '@shared/types';
+import { settingsStore } from '@main/store/settings-store';
 import {
   buildHandoffPrompt,
   cleanStructuredResult,
@@ -60,6 +62,14 @@ export async function summariseCodexSessionForHandOff(
     // 30 字 summarize 高；high 太慢（spike 实测 30s+），low 输出结构常常错位（漏节 / 节标题
     // 写错），medium 是 spike-A3 实测下的最佳折中。
     modelReasoningEffort: 'medium',
+    // prompt-asset-review-optimize-20260527 跟进:codex SDK ThreadOptions.model 已支持 per-thread
+    // override。优先级链对标 claude summariseSessionForHandOff 的 settings.handOffModel:
+    //   settings.codexHandOffModel > CODEX_HANDOFF_MODEL env > undefined (fallback config.toml)
+    // 典型期望 user 配 'gpt-5.5' 或 mid 级 model 对标 claude sonnet 用于 4 节结构化简报。
+    model:
+      settingsStore.get('codexHandOffModel') ||
+      process.env.CODEX_HANDOFF_MODEL ||
+      undefined,
     // 60s timeout：与 claude hand-off 平齐（llm-runners.ts:summariseSessionForHandOff），不读
     // settings.summaryTimeoutMs（hand-off 与周期 summarize timeout 语义不同）。timer 先赢 →
     // 抛 `__codex_handoff_summary_timeout__` 让 caller (ipc/sessions.ts) catch 透传到 renderer。

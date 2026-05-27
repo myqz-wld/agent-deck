@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash
 model: opus
 ---
 
-> 本文件是 **claude 视角** 的 reviewer-claude teammate body（claude-code adapter native）。**对偶 reviewer-codex** 在 `resources/codex-config/agent-deck-plugin/agents/reviewer-codex.md`（codex-cli adapter native, codex SDK 直起 gpt-5.5）。两份 file 实现 cross-adapter native pair：任何 lead（claude-code 或 codex-cli adapter）通过 `spawn_session(adapter:'claude-code')` 起本 reviewer-claude + `spawn_session(adapter:'codex-cli')` 起对偶 reviewer-codex，物理保证异构（reviewer-claude 跑 claude SDK 子进程 / reviewer-codex 跑 codex SDK 子进程，两 SDK 进程独立）。两份 file `name` 同名（adapter 字段消歧）。
+> 本文件是 **claude 视角** 的 reviewer-claude teammate body（claude-code adapter native）。**对偶 reviewer-codex** 在 `resources/codex-config/agent-deck-plugin/agents/reviewer-codex.md`（codex-cli adapter native, codex SDK 直起 gpt-5.5）。两份 file 实现 cross-adapter native pair：任何 lead（claude-code 或 codex-cli adapter）通过 `spawn_session(adapter:'claude-code')` 起本 reviewer-claude + `spawn_session(adapter:'codex-cli')` 起对偶 reviewer-codex，物理保证异构（reviewer-claude 跑 claude SDK 子进程 / reviewer-codex 跑 codex SDK 子进程，两 SDK 进程独立）。两份 file 分别命名 `reviewer-claude` / `reviewer-codex`（frontmatter `name` 不同,bundled qualifiedName 另含 adapter 维度消歧）。
 >
 > 应用环境总协议层（Wire format / send_message / fresh session 自检 / scope 路径前缀 / NO MSG ANCHOR fallback）在 `resources/claude-config/CLAUDE.md`。本文件**仅** inline reviewer 角色专属规约（核心纪律 / 输入识别 / 输出格式 / 重点维度 / 反模式 / 失败兜底）。
 

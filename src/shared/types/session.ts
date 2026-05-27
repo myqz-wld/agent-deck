@@ -76,9 +76,10 @@ export interface SessionRecord {
    * - claude-code adapter：值会通过 buildClaudeQueryOptions → SDK `query({ options.model })`
    *   真正传给 cli.js；接受 'opus' / 'sonnet' / 'haiku' alias 或具体 model id 如
    *   'claude-opus-4-7-thinking-max[1m]'
-   * - codex-cli adapter：值仅写入持久化（让 UI 看到 frontmatter 设的 model），runtime
-   *   仍由 ~/.codex/config.toml 顶层 `model` 字段决定（codex SDK startThread 不接受 per-thread
-   *   model override，详 plan D5）
+   * - codex-cli adapter（codex-sdk v0.131.0+）：值通过 sdk-bridge spread 到 ThreadOptions.model
+   *   真正传给 codex CLI runtime + setModel 持久化让 resume / dormant 唤醒一致；user 端
+   *   codex CLI 实际可用 model id 由 `~/.codex/config.toml` 配置决定（user 须自行 preflight
+   *   model id 在自身 codex CLI 可用,非法 model 会触发 codex SDK ThreadErrorEvent fatal 路径)
    *
    * null/undefined：不指定，SDK 自己读 ANTHROPIC_MODEL env / 自己默认值（与 settings 全局
    * model 设置无关 — settings.summaryModel/handOffModel 只在 oneshot summary/hand-off 路径用，

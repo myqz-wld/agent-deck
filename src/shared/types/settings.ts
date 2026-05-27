@@ -65,8 +65,9 @@ export interface AppSettings {
    * - 非空 = 完全覆盖 env，传给 SDK options.model（'haiku' / 'sonnet' / 'opus' alias 或具体
    *   model id 如 `claude-haiku-4-5-20251001`）
    *
-   * 仅对 claude-code session 周期性 summarize 生效。codex session 用 codex CLI 自身的
-   * `~/.codex/config.toml` 顶层 `model` 字段决定（codex SDK 不接受 per-thread model override）。
+   * 仅对 claude-code session 周期性 summarize 生效。codex session 端有对偶字段
+   * `codexSummaryModel`(下方),走 codex SDK ThreadOptions.model 真生效(codex-sdk v0.131.0+
+   * 已支持 per-thread override — prompt-asset-review-optimize-20260527 修订)。
    */
   summaryModel: string;
   /**
@@ -80,10 +81,43 @@ export interface AppSettings {
    * - `''`（默认空）= 沿用现有 env / alias 链
    * - 非空 = 覆盖
    *
-   * 仅对 claude-code session hand-off 生效。codex session hand-off 已切到走 codex SDK 自身
-   * （Step 5），其 model 同样由 ~/.codex/config.toml 决定，不受本字段影响。
+   * 仅对 claude-code session hand-off 生效。codex session 端有对偶字段 `codexHandOffModel`
+   * (下方),走 codex SDK ThreadOptions.model 真生效(codex-sdk v0.131.0+ 已支持 per-thread
+   * override — prompt-asset-review-optimize-20260527 修订)。
    */
   handOffModel: string;
+  /**
+   * prompt-asset-review-optimize-20260527 跟进 reviewer 与 user follow-up:codex 端 frontmatter
+   * `model` 已在 sdk-bridge transparent 透传到 ThreadOptions(codex-sdk v0.131.0+ 支持
+   * per-thread override),周期性 summarize / hand-off 模型对标 claude 端 settings.summaryModel /
+   * handOffModel 优先级链。
+   *
+   * 优先级链(summariseCodexSessionViaOneshot 实施):
+   *   `settings.codexSummaryModel` ＞ `CODEX_SUMMARY_MODEL` env ＞ undefined (fallback
+   *   `~/.codex/config.toml` 顶层 `model` 配置)
+   *
+   * - `''`(默认空) = 沿用 env / config.toml 链(零迁移成本,与 codex CLI 原生默认一致)
+   * - 非空 = 覆盖,传给 codex SDK ThreadOptions.model(典型对标 claude haiku 用 'gpt-5.5-mini'
+   *   或类似轻量模型,user 需确认 codex CLI 该 model id 可用)
+   *
+   * 仅对 codex-cli session 周期性 summarize 生效。claude session 用上方 settings.summaryModel。
+   */
+  codexSummaryModel: string;
+  /**
+   * prompt-asset-review-optimize-20260527 跟进:codex 端 hand-off 接力简报 model,对偶
+   * `handOffModel`(claude 端 sonnet 级别)。
+   *
+   * 优先级链(summariseCodexSessionForHandOff 实施):
+   *   `settings.codexHandOffModel` ＞ `CODEX_HANDOFF_MODEL` env ＞ undefined (fallback
+   *   `~/.codex/config.toml`)
+   *
+   * - `''`(默认空) = 沿用 env / config.toml 链
+   * - 非空 = 覆盖,传给 codex SDK ThreadOptions.model(典型对标 claude sonnet 用 'gpt-5.5'
+   *   或类似 mid 模型,user 需确认可用)
+   *
+   * 仅对 codex-cli session hand-off 生效。claude session 走上方 handOffModel。
+   */
+  codexHandOffModel: string;
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。 */
   permissionTimeoutMs: number;
   alwaysOnTop: boolean;
@@ -378,6 +412,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // 不强制改任何老用户的现状（兜底链 → env → SDK alias 链路完全保留）
   summaryModel: '',
   handOffModel: '',
+  // prompt-asset-review-optimize-20260527 跟进:codex 端对偶字段,默认空 = fallback `~/.codex/config.toml`
+  // 顶层 model(零行为变化,与 codex CLI 原生默认一致;user 想对标 claude haiku/sonnet 自己配 model id)
+  codexSummaryModel: '',
+  codexHandOffModel: '',
   permissionTimeoutMs: 5 * 60 * 1000,
   alwaysOnTop: true,
   windowTransparent: true,
