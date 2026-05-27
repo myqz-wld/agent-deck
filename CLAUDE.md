@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-> 给 Claude Code 在本仓库工作时的硬性约定。本文件聚焦 **Agent Deck 专属** 的设计要点与改动流程；通用工程约定（输出语言、外部 CLI 调用、双 Agent 对抗审视等）由调用方自行约束，不在此重复。
+> 本文件保留 **agent-deck 项目专属 design invariant**（§项目特定约定 / §仓库基础 / §验证流程 / §打包与本地安装）+ **通用工程约定的最低操作指南**（§改动后必做 / §反复反馈升级 — 这两节在 user CLAUDE.md / SOPs 无等价 SSOT，本文件保留最低指南给普通终端 claude）。
 >
-> 仓库内还有一份 `resources/claude-config/CLAUDE.md`，用途完全不同：那是应用打包后注入到「应用内 SDK 会话」system prompt 末尾的「应用级约定」，是给运行时 SDK 看的，与本文件独立维护。
+> **应用 SDK 会话内**额外加载 `resources/claude-config/CLAUDE.md` §新项目工程地基 获取详细约定（应用打包注入到 SDK system prompt 末尾，与本文件独立维护）。**单文件 ≤ 500 行护栏** 详见 `~/.claude/SOPs/file-size-guardrail.md`。
 
 ## 仓库基础
 
@@ -11,57 +11,17 @@
 
 ---
 
-## 改动后必做
+## 改动后必做（最低操作指南）
 
-### 1. 判断是否要更新 README.md
+> 详细约定见应用 CLAUDE.md §新项目工程地基（应用 SDK 会话内自动加载）。本节保留最低操作指南供普通终端 claude 跑 agent-deck 项目时参照。
 
-**README.md 是「功能总览」**：用户视角的能力清单。三问：
-
-1. 新增 / 修改了**用户可见行为**？（UI 控件、设置项、快捷键、状态显示、提醒方式）→ 改对应章节
-2. 改动了**文件结构 / 新建模块**？→ 改「项目结构」节
-3. 改动了**启动方式 / 端口 / 依赖 / 验证步骤**？→ 改「开发与运行」节
-
-纯 bug 修复 / 内部重构（不改用户感知）→ 不动 README.md，写到 `ref/reviews/` 或 `ref/changelogs/`。
-
-### 2. 写 changelog 或 review（**必做，二选一**）
-
-| 类型 | 写到 | 例子 |
-|---|---|---|
-| **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `ref/changelogs/` | 新建 PendingTab、升 SDK、加 `agent-deck new` 子命令 |
-| **Debug / 性能 / 安全 review**（不引入新功能，只修问题或加固） | `ref/reviews/` | TOCTOU 收口、内存泄漏、批量缺陷扫描 |
-
-#### `ref/changelogs/` 规则
-
-- 文件名 `CHANGELOG_X.md`，X 递增整数。新建前 `ls ref/changelogs/` 找最大 X
-- **小改动**（一两个文件、几十行同主题）→ 追加到最新 `CHANGELOG_X.md`
-- **大改动**（多模块 / 上百行 / 新功能）→ 新建 `CHANGELOG_X+1.md`
-- 每次改 `ref/changelogs/` 都要同步 `ref/changelogs/INDEX.md`（简表：`[CHANGELOG_X.md](CHANGELOG_X.md) | 一句话概要`）
-- 单文件结构：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）。**不要写「踩坑细节 / 推演过程」**——那些去 `ref/reviews/`
-
-#### `ref/reviews/` 规则（命名跟 changelog 对齐）
-
-- 文件名 `REVIEW_X.md`，X 递增整数。新建前 `ls ref/reviews/` 找最大 X
-- 每份 review 单文件结构：触发场景 + 方法（双对抗 Agent / 范围 / 工具）+ 三态裁决清单 + 修复条目
-- 同步更新 `ref/reviews/INDEX.md`（简表：`[REVIEW_X.md] | 主题 | 严重度分布 | 修复数`）
-- 触发：周期性 debug / code review / 性能 audit / 安全审查 / 大重构前的健康检查
-
-### 3. 改功能前先读 changelog + reviews
-
-修改任何模块前，**先 `ls ref/changelogs/ ref/reviews/` + 浏览相关条目**，了解历史决策、避免推翻已有约定 / 重复踩坑。设计取舍（如「为什么 lifecycle 与 archived 正交」）通常在 changelog；过往 bug 与加固方案在 reviews。
-
-### 4. 单文件 ≤ 500 行 — 超了必须试拆
-
-**触发**：任何 `*.ts` / `*.tsx` 代码文件 LOC > 500 行（不含测试 fixture / 自动生成的迁移 SQL）。
-
-**做法**：每次改完功能 / commit 前，对触发文件做一次拆分尝试，按"风险升序"逐档选：
-
-1. **抽 module-level 纯函数 / 类型 / 常量** —— 风险最低，先做（CHANGELOG_50/51/52 Step 3a 模式）
-2. **目录化 + 同目录 sub-component / sub-class** —— `foo.tsx → foo/index.tsx + foo/bar.tsx`，TS module resolution 自动透传 import（CHANGELOG_51 SessionDetail/TeamDetail 模式）
-3. **拆 class（合作 class + facade 委托 + ctx 共享 ref）** —— 最重风险，class state ownership 重组要走 plan + 异构对抗 review（CHANGELOG_52 Step 3 模式）
-
-**真不能拆**（race / state ownership 极复杂、强行拆收益<风险）→ 写到对应 CHANGELOG 的「不动文件保护清单」+ 注明理由（class 性质 / 单飞 / cross-cutting state 等），下次拆分轮跳过。**不能默认沉默忽略**。
-
-参考 `ref/changelogs/CHANGELOG_50.md` (S1+S2+S3) / `CHANGELOG_51.md` (P1+P2+P3+P4) / `CHANGELOG_52.md` (Step 1-4 拆 class) 三轮拆分实例。
+1. **改用户可见行为 / 文件结构 / 启动方式**（UI / 设置项 / 快捷键 / 项目结构 / 端口 / 依赖 / 验证步骤）→ 改对应章节 `README.md`；纯 bug 修复 / 内部重构不动 README
+2. **写 changelog 或 review 二选一**（必做）：
+   - 功能变更 / 行为修改 / API / 依赖升级 → `ref/changelogs/CHANGELOG_X.md`（X 递增）+ 同步 `ref/changelogs/INDEX.md`
+   - Debug / 性能 / 安全 review → `ref/reviews/REVIEW_X.md`（X 递增）+ 同步 `ref/reviews/INDEX.md`
+   - 新建前 `ls ref/changelogs/` / `ls ref/reviews/` 找最大 X
+3. **改功能前先读** `ls ref/conventions/ ref/changelogs/ ref/reviews/` + 浏览相关条目（避免推翻已有约定 / 重复踩坑）
+4. **单文件 ≤ 500 行护栏**：触发拆分尝试，详 `~/.claude/SOPs/file-size-guardrail.md` + 应用 CLAUDE.md §单文件大小护栏。参考 agent-deck 项目 3 轮拆分实例：`ref/changelogs/CHANGELOG_50.md` / `CHANGELOG_51.md` / `CHANGELOG_52.md`
 
 ---
 
@@ -141,34 +101,20 @@ Agent Teams 实验特性的 in-process backend：teammate 调工具走 inbox 协
 
 ---
 
-## 反复反馈 / 反复踩坑 → 升级约定（自维护机制）
+## 反复反馈 / 反复踩坑 → 升级约定（最低操作指南）
 
-避免用户重复给同样反馈、避免 agent 重复栽相同坑：候选放 `ref/conventions/tally.md`（项目根 `ref/conventions/` 目录，与 README / `ref/changelogs/` / `ref/reviews/` 同级，git 管理；不再绑 `.claude/` 工具目录）。count ≥ 3 升级**不再**写到本文件「项目特定约定」节，改为新建 `ref/conventions/<X>-<topic>.md` + 同步 `ref/conventions/INDEX.md`，让本文件保持静态。
+> 详细约定见应用 CLAUDE.md §反复反馈 / 反复踩坑 → 升级约定（应用 SDK 会话内自动加载）。本节保留最低操作指南。
 
-### 两类候选（同一文件，分 section）
+候选放 `ref/conventions/tally.md`（git 管理，不绑 `.claude/` 工具目录）。两类候选同一文件分 section：
 
-| 类型 | 触发条件 | 升级目的地 |
-|---|---|---|
-| **用户反馈** (`# 用户反馈候选`) | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 | 新建 `ref/conventions/<X>-<topic>.md` + 同步 `ref/conventions/INDEX.md` |
-| **Agent 踩坑** (`# Agent 踩坑候选`) | Coding Agent 在 review / 修 bug / 排查时**自己**发现踩了同类坑，或 review 报告里反复出现同类问题（典型：try/finally 漏 cleanup、TOCTOU、N+1 查询、async listener 不被 await） | 新建 `ref/conventions/<X>-<topic>.md` + 同步 `ref/conventions/INDEX.md` |
+| 类型 | 触发 |
+|---|---|
+| **用户反馈**（`# 用户反馈候选`） | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 |
+| **Agent 踩坑**（`# Agent 踩坑候选`） | Coding Agent 在 review / 修 bug 时**自己**发现踩了同类坑（典型：try/finally 漏 cleanup / TOCTOU / N+1 查询 / async listener 不被 await） |
 
-### 操作流程
+**流程**：找语义相近条目 → `count` +1 + 更新 `last_at`；没找到 → 新增（`count: 1`）。**count = 3** → 走「双对抗三态裁决」评审升级提案 → user 确认后**新建** `ref/conventions/<X>-<topic>.md`（X 递增）+ 同步 `ref/conventions/INDEX.md` 加行 + 从 tally 删该条。count < 3 → 静默更新。
 
-1. 读项目根 `ref/conventions/tally.md`，找语义相近的已有条目
-   - 找到 → `count` +1，更新 `last_at` 为今天日期
-   - 没找到 → 新增条目（`count: 1`），写在对应 section
-2. **count 到 3** → 这是「约定升级」决策，按通用「双对抗三态裁决」流程评审升级提案：措辞是否准确 / 边界是否清晰 / 与已有约定有无冲突 / topic 命名是否合适。结论汇总后告诉用户「这条 [反馈 / 踩坑] 累计 3 次，对抗审视结论 ✅/❌/⚠️ 如下，要升级吗？」用户确认后**新建 `ref/conventions/<X>-<topic>.md`**（X 递增整数）+ 同步 `ref/conventions/INDEX.md` 加行，从 tally 删除该条目（**不再**写项目 CLAUDE.md「项目特定约定」节，让本文件保持静态）
-3. count < 3 → 静默更新 tally，不打扰用户
-
-### 边界
-
-- **不计**一次性请求（「帮我改这个 bug」）
-- **不计** trivial 反馈（「这里改个名字」）
-- 用户反馈：必须是**工程偏好 / 设计取舍 / 工作流偏好**
-- Agent 踩坑：必须是**模式化问题**（一类问题反复出现），不是单点 bug
-- 30 天未更新且 count < 3 → 下次扫描可主动清理
-
-> tally 是 Claude Code 的内部状态，**不要手工管理**。
+**边界**：不计一次性请求 / trivial 反馈；用户反馈必须是工程偏好 / 设计取舍 / 工作流偏好；Agent 踩坑必须是模式化问题。30 天未更新且 count < 3 → 下次扫描可清理。tally 是 Claude Code 内部状态，**不要手工管理**。
 
 ---
 

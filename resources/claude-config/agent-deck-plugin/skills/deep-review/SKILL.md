@@ -14,7 +14,7 @@ description: 深度 code / plan / mixed review — 多轮异构 reviewer 对抗 
 ## 何时用
 
 - **kind='code'**: 关键路径 / 核心抽象的代码变更（multi-client / 并发 / lifecycle / 资源管理）；跨多模块、影响主链路（≥ 200 行 / ≥ 5 文件）；MR 提交前最后一道闸门
-- **kind='plan'**: 复杂 plan 写完先评审（user CLAUDE.md §Step 1.5 Deep-Review 调用入口）— 评审 plan design / 流程一致性 / 不变量定义 / step 行级 reference / 测试矩阵覆盖度
+- **kind='plan'**: 复杂 plan 写完先评审（应用 CLAUDE.md §复杂 plan workflow §Step 1.5 Deep-Review 调用入口）— 评审 plan design / 流程一致性 / 不变量定义 / step 行级 reference / 测试矩阵覆盖度
 - **kind='mixed'**: 复杂 refactor 同时含 plan 设计 + code 实施一致性需双向评审；多 phase plan 完成后 meta-review 收尾
 - **不适合**：trivial 改动（typo / 单点 rename / 显然措辞修订）— 一轮人审就够
 

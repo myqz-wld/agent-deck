@@ -32,7 +32,7 @@ description: 核心流程 / 架构变更必走 plantUML — 用 plantUML 画 seq
 skill 入口必须先 AskUserQuestion(2-3 题)对齐:
 
 1. **是否核心变更**:本次改动 / 设计是否真涉及核心流程或架构?(若 user 否 → skill no-op exit,提示「按 user 判断本次不属核心变更,跳过 plantUML 维护;直接编辑代码不必画图」)
-2. **图类型**:**流程**(sequence / activity)还是**架构**(component)?或者同主题同时需两张?(影响最终文件落在 `ref/flows/` 还是 `ref/architecture/` — 具体路径见应用打包 CLAUDE.md)
+2. **图类型**:**流程**(sequence / activity)还是**架构**(component)?或者同主题同时需两张?(影响最终文件落在 `ref/flows/` 还是 `ref/architecture/` — 具体路径见应用 CLAUDE.md)
 3. **新建 / 修改 / 删除**:列出现有 .puml 让 user 选 — 新建 / 修改已有(指定文件名)/ 标记 deprecated
 
 ## 执行流程(7 步)
@@ -40,7 +40,7 @@ skill 入口必须先 AskUserQuestion(2-3 题)对齐:
 | Step | 动作 | 关键产出 |
 |---|---|---|
 | 0 | 与 user 对齐(上节)— 确认核心变更 + 图类型 + 新建/修改 | 确认 scope |
-| 1 | 按应用打包 CLAUDE.md §核心流程 / 架构变更必走 plantUML 节定的路径,`ls` 现有 .puml 清单 + Read 现有 INDEX.md | 上下文 |
+| 1 | 按应用 CLAUDE.md §核心流程 / 架构变更必走 plantUML 节定的路径,`ls` 现有 .puml 清单 + Read 现有 INDEX.md | 上下文 |
 | 2 | 读相关 src/main 改动代码(grep / Read 核心文件)— 对齐 plantUML 描述与代码现状 | 准确 SSOT |
 | 3 | 生成 / 修改 `.puml` 文件(详 §plantUML 规约 节) | .puml SSOT |
 | 4 | 同步 INDEX.md(格式见 CLAUDE.md;append 新建行 / 更新已有行的 description / 标 deprecated) | INDEX 同步 |
@@ -145,7 +145,7 @@ end note
 | 场景 | 处理 |
 |---|---|
 | user 否决「核心变更」judgement → skill no-op exit | 提示「按 user 判断本次不属核心变更,跳过 plantUML 维护;直接编辑代码不必画图」 |
-| 目标目录(`ref/flows/` 等)不存在 | 按应用打包 CLAUDE.md 规定的位置 `mkdir -p` + 建空 INDEX.md(INDEX 格式见 CLAUDE.md);**不**自行决定路径或 INDEX 列定义 |
+| 目标目录(`ref/flows/` 等)不存在 | 按应用 CLAUDE.md 规定的位置 `mkdir -p` + 建空 INDEX.md(INDEX 格式见应用 CLAUDE.md);**不**自行决定路径或 INDEX 列定义 |
 | .puml 语法错误 | 若有 plantuml CLI → 跑 `plantuml -syntax <file>.puml` 报错;若无 → grep `@startuml.*@enduml` 配对验证;无法严格 verify 时 warn user 自跑 plantuml CLI 渲染验证 |
 | 多个 .puml 文件描述同款流程 → 命名冲突 | 用更具体 topic 区分(`archive-plan-tool-flow.puml` vs `archive-plan-manual-flow.puml`)+ INDEX 写明区别 |
 
