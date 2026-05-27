@@ -9,7 +9,6 @@ import { WindowSection } from './settings/sections/WindowSection';
 import { KeyboardShortcutsSection } from './settings/sections/KeyboardShortcutsSection';
 import { HookServerSection } from './settings/sections/HookServerSection';
 import { ExternalToolsSection } from './settings/sections/ExternalToolsSection';
-import { CodexMcpServersSection } from './settings/sections/CodexMcpServersSection';
 import { ExperimentalSection } from './settings/sections/ExperimentalSection';
 import { AgentDeckMcpSection } from './settings/sections/AgentDeckMcpSection';
 
@@ -36,6 +35,9 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
   const [hookStatus, setHookStatus] = useState<HookInstallStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** CHANGELOG_160:三 tab 分组(通用 / claude code / codex cli)。tab state per-open 重置
+   *  到 'general' 让用户每次打开 settings 从总览开始。 */
+  const [activeTab, setActiveTab] = useState<'general' | 'claude' | 'codex'>('general');
   /** 写设置 / 安装 hook 的异步错误（CHANGELOG_20 / N7：原本 try/finally 无 catch，IPC 失败用户看不到原因）。
    *  与 loadError 分两个 slot 避免互相覆盖；写错误一段时间后会被下一次成功操作清掉。 */
   const [actionError, setActionError] = useState<string | null>(null);
@@ -50,6 +52,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
     const seq = ++openSeqRef.current;
     setLoadError(null);
     setActionError(null);
+    setActiveTab('general');
     void window.api
       .getSettings()
       .then((s) => {
@@ -158,33 +161,103 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
           <div className="py-6 text-center text-[11px] text-deck-muted">读取设置中…</div>
         ) : (
           <>
-            <SectionGroup title="会话">
-              <LifecycleSection settings={settings} update={update} />
-              <SummarySection settings={settings} update={update} />
-            </SectionGroup>
+            <nav
+              role="tablist"
+              aria-label="设置 tab 切换"
+              className="mb-3 flex gap-0.5 rounded-md border border-deck-border bg-white/[0.02] p-0.5"
+            >
+              {(
+                [
+                  { id: 'general', label: '通用' },
+                  { id: 'claude', label: 'claude code' },
+                  { id: 'codex', label: 'codex cli' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`no-drag flex-1 rounded px-2 py-1 text-[11px] transition-colors ${
+                    activeTab === tab.id
+                      ? 'bg-white/15 text-deck-text'
+                      : 'text-deck-muted hover:bg-white/5 hover:text-deck-text'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
 
-            <SectionGroup title="提醒与外观">
-              <NotifySection settings={settings} update={update} />
-              <WindowSection settings={settings} update={update} />
-              <KeyboardShortcutsSection />
-            </SectionGroup>
+            {activeTab === 'general' && (
+              <>
+                <SectionGroup title="会话">
+                  <LifecycleSection settings={settings} update={update} />
+                  <SummarySection settings={settings} update={update} />
+                </SectionGroup>
 
-            <SectionGroup title="集成与运行环境">
-              <HookSection
-                hookStatus={hookStatus}
-                busy={busy}
-                installHook={installHook}
-                uninstallHook={uninstallHook}
-              />
-              <HookServerSection settings={settings} update={update} />
-              <ExternalToolsSection settings={settings} update={update} />
-              <ExperimentalSection settings={settings} update={update} />
-            </SectionGroup>
+                <SectionGroup title="提醒与外观">
+                  <NotifySection settings={settings} update={update} />
+                  <WindowSection settings={settings} update={update} />
+                  <KeyboardShortcutsSection />
+                </SectionGroup>
 
-            <SectionGroup title="跨工具协作（MCP）">
-              <AgentDeckMcpSection settings={settings} update={update} />
-              <CodexMcpServersSection settings={settings} update={update} />
-            </SectionGroup>
+                <SectionGroup title="集成与运行环境">
+                  <HookServerSection settings={settings} update={update} />
+                  <ExternalToolsSection settings={settings} update={update} />
+                  <ExperimentalSection settings={settings} update={update} />
+                </SectionGroup>
+
+                <SectionGroup title="跨工具协作（MCP）">
+                  <AgentDeckMcpSection settings={settings} update={update} />
+                </SectionGroup>
+              </>
+            )}
+
+            {activeTab === 'claude' && (
+              <SectionGroup title="Claude Code 专属配置">
+                <HookSection
+                  hookStatus={hookStatus}
+                  busy={busy}
+                  installHook={installHook}
+                  uninstallHook={uninstallHook}
+                />
+                <div className="text-[10px] leading-snug text-deck-muted/70">
+                  Claude 端 MCP servers 由 user 直接编辑
+                  <code className="ml-1 rounded bg-white/5 px-1">~/.claude/settings.json</code>
+                  (或 project-level
+                  <code className="ml-1 rounded bg-white/5 px-1">.mcp.json</code>
+                  ),应用层不代写避免与 CLI 外部改动冲突。Agent Deck 自身 MCP server 走通用
+                  tab「跨工具协作」段配置。
+                </div>
+              </SectionGroup>
+            )}
+
+            {activeTab === 'codex' && (
+              <SectionGroup title="Codex CLI 专属配置">
+                <div className="text-[10px] leading-snug text-deck-muted/70">
+                  Codex 端配置(model / sandbox / approval / MCP servers / agents
+                  registry 等)由 user 直接编辑
+                  <code className="ml-1 rounded bg-white/5 px-1">~/.codex/config.toml</code>
+                  +
+                  <code className="ml-1 rounded bg-white/5 px-1">~/.codex/AGENTS.md</code>
+                  (应用 build-time installer 把
+                  <code className="ml-1 rounded bg-white/5 px-1">resources/codex-config/CODEX_AGENTS.md</code>
+                  marker 包裹段同步进 AGENTS.md)。应用层目前无 codex 专属 settings 字段
+                  —— summary / hand-off model 等通用 codex 字段(
+                  <code className="rounded bg-white/5 px-1">codexSummaryModel</code> /
+                  <code className="rounded bg-white/5 px-1">codexHandOffModel</code>)
+                  在通用 tab「会话」段「间歇总结」section 一起设。
+                  <br />
+                  <br />
+                  Agent Deck 自身 MCP server 走通用 tab「跨工具协作」段配置(codex SDK 启动时
+                  自动通过 HTTP transport + Bearer token 注入
+                  <code className="ml-1 rounded bg-white/5 px-1">mcp_servers.agent-deck</code>
+                  段)。
+                </div>
+              </SectionGroup>
+            )}
           </>
         )}
       </div>
