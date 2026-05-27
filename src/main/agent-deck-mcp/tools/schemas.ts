@@ -60,7 +60,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .regex(/^[a-zA-Z0-9._-]+$/, 'agent_name only allows [a-zA-Z0-9._-]')
     .optional()
     .describe(
-      'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the agent body is auto-prepended to `prompt` from bundled-assets registry, so callers do not need to cat & embed the body themselves. Errors when name does not resolve to a known plugin agent. **Frontmatter `model` field auto-extracted and forwarded to SDK** (only effective for claude-code adapter — codex-cli SDK ignores per-thread model override; runtime model decided by ~/.codex/config.toml).',
+      'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the agent body is auto-prepended to `prompt` from bundled-assets registry, so callers do not need to cat & embed the body themselves. Errors when name does not resolve to a known plugin agent. **Frontmatter `model` field auto-extracted and forwarded to SDK** (effective on both adapters — claude-code: SDK options.model; codex-cli: ThreadOptions.model via codex-sdk v0.131.0+ per-thread override; frontmatter `model` 未设时 codex 端 fallback 到 user `~/.codex/config.toml` 顶层 model 配置).',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。
@@ -315,6 +315,22 @@ export const ARCHIVE_PLAN_SHAPE = {
 // - `HAND_OFF_SESSION_ARGS_SCHEMA = z.object(SHAPE).strict()` 给 handler / type / test 用,
 //   strict 模式让 unknown keys (如已废弃的 opt-out 字段) 在 parse 时直接 throw `unrecognized_keys`
 // - N2.c invariant (adopt_teammates: true 与 args.team_name 互斥) 在 Phase 4 加 .refine()
+//
+// **HAND_OFF_SESSION_CWD_CONTRACT** (prompt-asset-review-optimize-20260527 MED-R2-1 修法 — 抽 callout 减 cwd describe 膨胀):
+// hand_off_session.cwd 字段语义详细文案抽到此 callout,字段 describe 只保留 3 件事(override
+// cwd / plan vs generic 默认值 / external worktree 自动降级)。完整 cold-start protocol 见对应
+// 资产 SSOT:
+// - **claude 端 cold-start 协议**:`resources/claude-config/CLAUDE.md` §复杂 plan workflow §Step 3
+//   §选项 A (新 session 走 builtin `EnterWorktree(path: worktreePath)` 自己进 worktree)
+// - **codex 端 cold-start 协议**:`resources/codex-config/CODEX_AGENTS.md` §plan cold-start protocol
+//   (codex 端 5 步) (codex 无 native EnterWorktree,走 `shell: cat plan` + 从 frontmatter 拿
+//   worktree_path 后用绝对路径 `git -C <worktree_path> ...` 推进,worktree 不存在时调
+//   `mcp__agent-deck__enter_worktree({plan_id, base_commit})` 创建)
+// - **cwd resilience 设计**:CHANGELOG_99 — default cwd 改为 mainRepo(原 worktree_path)让
+//   sessionRepo.cwd 在 worktree 被 `archive_plan` / `git worktree remove` 删后仍 valid
+// - **external worktree 降级**:REVIEW_36 R2 HIGH-3 — 约定 worktree (在 mainRepo subtree 内)
+//   走 mainRepo 享 cwd resilience;外置 worktree (如 /tmp/wt) 自动降级走 worktreePath +
+//   handler 自动加 mainRepo 进 extra_allow_write 让 plan 文件可写
 export const HAND_OFF_SESSION_SHAPE = {
   // CHANGELOG_99 双模式改造:plan_id 变 optional。
   // - 传 plan_id → plan-driven 模式（现有行为）：读 plan 文件 + 校验 frontmatter status=in_progress
@@ -356,7 +372,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     )
     .optional()
     .describe(
-      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience: previously defaulted to plan worktree_path; changed so new session sessionRepo.cwd survives `archive_plan` / `git worktree remove` deletion of the worktree). New session is expected to run `EnterWorktree(path: worktreePath)` itself per user CLAUDE.md §Step 3 cold-start flow. Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. **REVIEW_36 R2 user feedback / HIGH-3 follow-up**: 约定 worktree (在 mainRepo subtree 内,如 `<main-repo>/.claude/worktrees/<plan-id>`) 走 mainRepo 享 cwd resilience；**外置 worktree** (如 `/tmp/wt` / `/Users/me/elsewhere/wt`) 自动降级走 worktreePath，让 sandbox.allowWrite 自然覆盖外置路径 + handler 自动加 mainRepo 进 extra_allow_write 让 plan 文件可写。**Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing.',
+      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience). **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing. **External worktree auto-降级**: 约定 worktree 走 mainRepo,外置 worktree 自动降级走 worktreePath + handler 加 mainRepo 进 extra_allow_write。Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath。**Cold-start protocol 详 HAND_OFF_SESSION_CWD_CONTRACT callout (schemas.ts 顶部) + resources/claude-config/CLAUDE.md §Step 3 §选项 A (claude 端) / resources/codex-config/CODEX_AGENTS.md §plan cold-start protocol (codex 端)**',
     ),
   adapter: z
     .enum(['claude-code', 'codex-cli'])

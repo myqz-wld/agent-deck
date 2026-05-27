@@ -39,9 +39,9 @@ export interface CreateSessionCall {
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
-   * codex SDK 不接受 per-thread model override（runtime 由 ~/.codex/config.toml 决定），
-   * 但 createSession 仍 setModel 持久化让 UI 一致；fallback 路径必须显式透传 record.model
-   * 否则 DB record / 实际 spawn 不一致。
+   * codex SDK ThreadOptions.model（v0.131.0+ 支持 per-thread override）— sdk-bridge 已
+   * spread 进 ThreadOptions runtime 真切 model；fallback / resume 路径必须显式透传
+   * record.model 否则已 spawn 的 codex 实际跑默认 model 而 DB record 显示原 model 不一致。
    */
   model?: string;
   attachments?: UploadedAttachmentRef[];

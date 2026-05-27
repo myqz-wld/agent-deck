@@ -53,6 +53,12 @@ export async function runCodexOneshot(opts: {
    * 'medium'（4 节结构化输出对理解力要求高，'low' 输出常常错位漏节，'high' 太慢 ~30s+）。
    */
   modelReasoningEffort: 'low' | 'medium' | 'high';
+  /**
+   * prompt-asset-review-optimize-20260527 跟进:可选 model override 透传给 codex SDK
+   * ThreadOptions.model(v0.131.0+ 支持 per-thread override)。caller 走 settings/env
+   * 优先级链解析后传入;undefined → fallback `~/.codex/config.toml` 顶层 model 配置。
+   */
+  model?: string;
   /** Timeout 毫秒；<= 0 不起 timer。 */
   timeoutMs: number;
   /** Timer 触发 reject 的 errorMessage（caller 区分 summarize / handoff）。 */
@@ -75,6 +81,9 @@ export async function runCodexOneshot(opts: {
       approvalPolicy: 'never',
       skipGitRepoCheck: true,
       modelReasoningEffort: opts.modelReasoningEffort,
+      ...(opts.model !== undefined && opts.model.trim().length > 0
+        ? { model: opts.model.trim() }
+        : {}),
     });
 
     return thread.run(opts.prompt);

@@ -226,7 +226,9 @@ export function setClaudeCodeSandbox(
  * 调用方：
  * - claude-code adapter createSession：opts.model 非空时调，让 SDK resume / dormant 唤醒后
  *   保持模型一致（与 setPermissionMode / setClaudeCodeSandbox 同款 per-session 持久化）
- * - codex-cli adapter createSession：opts.model 非空时也调（runtime 不生效但写库便于 UI 显示）
+ * - codex-cli adapter createSession（codex-sdk v0.131.0+）：opts.model 非空时也调,持久化 +
+ *   bridge spread 到 ThreadOptions.model 真生效,resume / dormant 唤醒一致(prompt-asset-review-optimize-20260527
+ *   修订:原 "runtime 不生效但写库便于 UI 显示" 判断已过期)
  *
  * model=null → 清空（恢复"不指定，跟 SDK 默认 / ANTHROPIC_MODEL env"语义）。
  * 与 setCodexSandbox / setClaudeCodeSandbox 完全对称的字面镜像。

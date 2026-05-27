@@ -303,12 +303,14 @@ export class CodexSdkBridge {
     codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
     /**
      * plan model-wiring-and-handoff-20260514 Step 2.5：spawn handler 解 agent body frontmatter
-     * `model` 字段后传入。codex SDK startThread / resumeThread **不接受 per-thread model
-     * override**（model 由 ~/.codex/config.toml 顶层 `model` 字段决定），所以本字段：
-     * - 仅 setModel 持久化（让 UI / sessions detail 看到 frontmatter 设的 model）
-     * - 配合 console.warn 提示用户改 toml 才能真正生效
+     * `model` 字段后传入。**codex-sdk v0.131.0 ThreadOptions.model 已支持 per-thread override**
+     * (prompt-asset-review-optimize-20260527 跟进 reviewer-claude HIGH 修法 — 原注释基于
+     * codex-sdk 旧版判断为 "不接受 per-thread model override" 已过期):
+     * - createSession 透传 model 给 codex SDK `startThread/resumeThread` 的 ThreadOptions.model
+     *   字段 → runtime 真正按 frontmatter 标的 model 跑
+     * - 同时 setModel 持久化到 sessions 表(UI / resume 一致 + DB 记账)
      *
-     * runtime 不影响 codex 实际跑的 model（详 plan D5 / 上方 import comments）。
+     * model 字段未传 → codex SDK fallback 到 user `~/.codex/config.toml` 顶层 `model` 配置。
      */
     model?: string;
     /**
@@ -319,7 +321,7 @@ export class CodexSdkBridge {
      * adapter parity 对称(让 SessionRecord 字段在 claude / codex 之间形态一致 + future codex
      * SDK 加支持时零迁移成本)。
      *
-     * 与 model 字段同款语义(持久化 + warn,runtime 不消费)。
+     * 与 model 字段语义已差异: model 字段 codex SDK runtime 真生效,extraAllowWrite 仅持久化未生效。
      */
     extraAllowWrite?: readonly string[];
     /**
@@ -485,6 +487,7 @@ export class CodexSdkBridge {
         sandboxMode,
         approvalPolicy: opts.approvalPolicy ?? 'never',
         skipGitRepoCheck: true,
+        ...(opts.model !== undefined ? { model: opts.model } : {}),
         ...(opts.networkAccessEnabled !== undefined
           ? { networkAccessEnabled: opts.networkAccessEnabled }
           : {}),
@@ -498,6 +501,7 @@ export class CodexSdkBridge {
         sandboxMode,
         approvalPolicy: opts.approvalPolicy ?? 'never',
         skipGitRepoCheck: true,
+        ...(opts.model !== undefined ? { model: opts.model } : {}),
         ...(opts.networkAccessEnabled !== undefined
           ? { networkAccessEnabled: opts.networkAccessEnabled }
           : {}),
@@ -541,9 +545,10 @@ export class CodexSdkBridge {
       // CHANGELOG_<X> A2a：emit session-start 是同步派发到 sessionManager.ingest →
       // sessionRepo.upsert 创建 record（如果不存在）；之后调 setCodexSandbox UPDATE 字段。
       // 后续 advanceState 内 spread record 时会带上最新 codex_sandbox 不会被静默重置。
-      // R37 P2-E Step 3.4b：setSandbox + setModel + warn 收口到 persistSessionFields helper。
-      // plan cross-adapter-parity-20260515 Phase A Step A.7：extraAllowWrite 同 model 同款持久化
-      // (parity 对称写库,codex runtime 不消费,helper 内 warn 提示)。
+      // R37 P2-E Step 3.4b：setSandbox + setModel 收口到 persistSessionFields helper(model 真生效;
+      // extraAllowWrite warn 提示仍 codex runtime 不消费,详 helper 内 try/catch + console.warn)。
+      // plan cross-adapter-parity-20260515 Phase A Step A.7：extraAllowWrite 与 codexSandbox 同样
+      // 持久化(parity 对称写库;不同于 model 字段 v0.131.0+ 真生效,本字段 codex runtime 不消费)。
       persistSessionFields({
         sessionId: opts.resume,
         sandboxMode,

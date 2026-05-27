@@ -105,8 +105,10 @@ export function registerSessionsIpc(): void {
     const events = eventRepo.listForSession(sid, 200);
     // R37 P2-I Step 3.3：dispatch 已下放到 adapter.summariseEvents（kind: 'handoff'）。
     // - claude-code → claude SDK + sonnet（4 节简报，60s timeout）
-    // - codex-cli   → codex SDK + 'medium' effort（reasoning，60s timeout，model 由
-    //   ~/.codex/config.toml 决定，settings.handOffModel 对 codex 路径无影响）
+    // - codex-cli   → codex SDK + 'medium' effort（reasoning，60s timeout，runner 走
+    //   settings.codexHandOffModel > CODEX_HANDOFF_MODEL env > undefined fallback config.toml
+    //   优先级链 — prompt-asset-review-optimize-20260527 修订:codex-sdk v0.131.0+ 已支持
+    //   per-thread model override,handoff-runner 显式传 model 给 codex SDK 真生效)
     // - 未实装 summariseEvents 的 adapter → fallback 兜底走 claude path 的
     //   `summariseSessionForHandOff`（future-proof：未来加新 adapter 没实装时仍可用，
     //   防止 hand-off 入口意外暴露时静默炸）
