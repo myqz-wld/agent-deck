@@ -54,6 +54,11 @@ import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { findFallbackCwd as findFallbackCwdShared } from '@main/adapters/shared/find-fallback-cwd';
 import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
+import {
+  buildCodexCwdMissingErrorText,
+  buildCodexCwdFallbackInfoText,
+} from './codex-recoverer-messages';
+import { maybeCodexJsonlFallback } from './codex-jsonl-fallback';
 import type { CodexBridgeOptions, CodexSessionHandle } from './types';
 
 /** 5s dedup 窗口防同 sessionId 短时间内多次 recover 重 emit「⚠ Codex 通道已断开」噪声。 */
@@ -268,9 +273,7 @@ export class SessionRecoverer {
           agentId: AGENT_ID,
           kind: 'message',
           payload: {
-            text:
-              `⚠ 会话 cwd 不存在且无可用 fallback：${rec.cwd}。` +
-              `请检查目录是否被删除 / 跨设备同步丢失，或新建会话。`,
+            text: buildCodexCwdMissingErrorText(rec.cwd),
             error: true,
           },
           ts: Date.now(),
@@ -294,10 +297,7 @@ export class SessionRecoverer {
         agentId: AGENT_ID,
         kind: 'message',
         payload: {
-          text:
-            `⚠ 会话原 cwd 不存在 (${rec.cwd}),已切到 fallback (${effectiveCwd}) 继续 ` +
-            `(对话历史保留)。注意:历史中对原 cwd 文件的相对引用 (如 "edit foo.ts at line 10") ` +
-            `可能不再指向同一文件,如需精确恢复请新建会话。`,
+          text: buildCodexCwdFallbackInfoText(rec.cwd, effectiveCwd),
         },
         ts: Date.now(),
         source: 'sdk',
@@ -370,52 +370,32 @@ export class SessionRecoverer {
         // 修前用 `sessionId`(applicationSid 维度) → 反向 rename 后 cliSessionId !== sessionId
         // 时预检永远 miss → falsely trigger fresh thread fallback → 用户失对话历史 + 误导
         // warning。详 ref/reviews/REVIEW_56.md HIGH-1。
-        if (!this.jsonlExistsThunk(rec.cliSessionId ?? sessionId, rec.startedAt)) {
-          console.warn(
-            `[codex-bridge] resume jsonl missing for ${sessionId} (startedAt ${new Date(rec.startedAt).toISOString()}), ` +
-              `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
-          );
-          this.ctx.emit({
+        // REVIEW_60 R4 §D 抽法 #1 修法: jsonl-missing fallback 整段抽到 codex-jsonl-fallback.ts
+        // helper (mirror claude jsonl-fallback.ts cross-adapter parity 维护单点),详 helper jsdoc。
+        // 行为字面等价于原 inline (REVIEW_60 R4 reviewer-claude PASS 验证),仅平移 + 抽接口。
+        const fbResult = await maybeCodexJsonlFallback(
+          {
+            jsonlExistsThunk: this.jsonlExistsThunk,
+            createSession: this.createThunk,
+            emit: this.ctx.emit,
+          },
+          {
             sessionId,
-            agentId: AGENT_ID,
-            kind: 'message',
-            payload: {
-              text:
-                `⚠ Codex 内部对话历史 (jsonl) 已不存在,本会话续聊从 fresh thread 开始 ` +
-                `(应用层 events 历史保留)。请下条消息把背景给 Codex 一次。`,
-            },
-            ts: Date.now(),
-            source: 'sdk',
-          });
-          // fallback 路径：不带 resume + 显式透传 sandbox/model 否则静默降到全局默认（与 claude
-          // REVIEW_36 HIGH-1 同款教训）。attachments 透传让首条恢复消息带图。
-          // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 与 codexSandbox
-          // 同样显式透传(codex 不消费但 createSession 内部仍 setExtraAllowWrite 持久化保 parity
-          // 对称) — 不同于 model 字段(codex-sdk v0.131.0+ 真生效),本字段 runtime 仅持久化未消费。
-          // **plan reverse-rename-sid-stability-20260520 §A.4-pre S8 R3 HIGH-G + R5 HIGH-R5-1 +
-          // R6 MED-R6-1 + R7 HIGH-R7-1 修订 (codex 对称 claude recoverer.ts:466)**:
-          // jsonl-missing fallback 不再创建新 sessions row,改用 resumeMode='fresh-cli-reuse-app'
-          // 显式语义 + 复用 applicationSid (sessionId);first realId 后通过 sessionManager.updateCliSessionId
-          // 走 manager 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订)。
-          await this.createThunk({
+            cliSessionId: rec.cliSessionId ?? null,
+            startedAt: rec.startedAt,
             cwd: effectiveCwd,
             prompt: text,
-            // **R6 MED-R6-1 修订**: resume = applicationSid (复用 caller 入参 sessionId)
-            resume: sessionId,
-            // **R3 HIGH-G + R7 HIGH-R7-1 修订**: 显式 mode 字段触发 fresh CLI thread + 复用 applicationSid
-            resumeMode: 'fresh-cli-reuse-app',
             codexSandbox: rec.codexSandbox ?? undefined,
             model: rec.model ?? undefined,
             extraAllowWrite: rec.extraAllowWrite ?? undefined,
             attachments,
-            // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
-            // createSession resume path 跳过重复 emit(详 recoverer.recoverAndSend emit user message 段注释)
-            skipFirstUserEmit: true,
-          });
-          // plan cross-adapter-parity-20260515 Phase B Step B.2: 返 sessionId (== applicationSid 不变,
-          // 不再调 sessionManager.renameSdkSession — 反向 rename 不动 sessions.id)
-          return sessionId;
+          },
+        );
+        if (fbResult.fellBack) {
+          // helper 已包办 emit + createSession,applicationSid 全程不变 (反向 rename §不变量)
+          return fbResult.finalSessionId; // == sessionId
         }
+        // fellBack=false → fall through 到下面正常 resume 路径 (jsonl 在,行为不变)
 
         // 正常 resume 路径：jsonl 在 + cwd 有 → 走 createSession({resume, prompt, codexSandbox, model, attachments})
         // 复用 createSession 内部全套 protocol。
