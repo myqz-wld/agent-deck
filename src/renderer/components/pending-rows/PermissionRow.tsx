@@ -62,9 +62,9 @@ export function PermissionRow({
       ? 'border-deck-border/40 bg-white/[0.015] opacity-50'
       : 'border-deck-border/60 bg-white/[0.02] opacity-70';
   const statusText = stillPending
-    ? '⚠ 等待授权'
+    ? '⚠️ 等待授权'
     : wasCancelled
-      ? '🚫 已被 SDK 取消'
+      ? '🚫 已取消'
       : '✅ 已响应';
   const statusColor = stillPending
     ? 'text-status-waiting'
@@ -119,11 +119,11 @@ export function PermissionRow({
         </pre>
       )}
       {!isSdk && (
-        <div className="mt-1 text-[10px] text-deck-muted">外部 CLI 会话无法在此回应</div>
+        <div className="mt-1 text-[10px] text-deck-muted">这是终端启动的只读会话，请回到原终端窗口授权</div>
       )}
       {settled && isSdk && wasCancelled && (
         <div className="mt-1 text-[10px] text-deck-muted/70">
-          Claude 主动放弃了这次请求（流终止 / interrupt / 超时）
+          这次请求已取消
         </div>
       )}
     </li>

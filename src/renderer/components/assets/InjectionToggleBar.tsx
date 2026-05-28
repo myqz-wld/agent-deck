@@ -44,47 +44,47 @@ export function InjectionToggleBar({
       {tab === 'skills' && (
         <div className="flex flex-col gap-1.5">
           <Toggle
-            label="注入到 Claude 会话（agent-deck plugin，含 skills + agents）"
+            label="注入到 Claude 会话(含 Skills 和 Agents)"
             value={settings.injectAgentDeckPlugin}
             onChange={(v) => void update({ injectAgentDeckPlugin: v })}
           />
           <Toggle
-            label="同步到 ~/.codex/skills/agent-deck/（Codex 会话）"
+            label="同步到 ~/.codex/skills/agent-deck/(Codex 会话)"
             value={settings.injectAgentDeckCodexSkills}
             onChange={(v) => void update({ injectAgentDeckCodexSkills: v })}
           />
           <div className="text-[10px] leading-snug text-deck-muted/60">
-            关闭后**下次新建会话**不再注入；已运行会话已固化注入列表，关掉不会撤销。
+            ⚠️ 仅对新建会话生效。已运行的会话不受影响。
           </div>
         </div>
       )}
       {tab === 'agents' && (
         <div className="flex flex-col gap-1.5">
           <Toggle
-            label="注入到 Claude 会话（agent-deck plugin，含 skills + agents）"
+            label="注入到 Claude 会话(含 Skills 和 Agents)"
             value={settings.injectAgentDeckPlugin}
             onChange={(v) => void update({ injectAgentDeckPlugin: v })}
           />
           <div className="text-[10px] leading-snug text-deck-muted/60">
-            agents 与 skills 共用同一个 plugin 注入开关（在「Skills」tab 切换效果一致）。
-            关闭后**下次新建会话**不再注入；已运行会话已固化注入列表。
+            Agents 与 Skills 共用同一个开关(在「Skills」标签切换效果一致)。
+            ⚠️ 仅对新建会话生效。已运行的会话不受影响。
           </div>
         </div>
       )}
       {tab === 'claude-md' && (
         <div className="flex flex-col gap-1.5">
           <Toggle
-            label="注入到 Claude 会话（system prompt 末尾）"
+            label="注入到 Claude 会话(系统提示末尾)"
             value={settings.injectAgentDeckClaudeMd}
             onChange={(v) => void update({ injectAgentDeckClaudeMd: v })}
           />
           <Toggle
-            label="同步到 ~/.codex/AGENTS.md（marker 段，保留用户其他段）"
+            label="同步到 ~/.codex/AGENTS.md(保留你写的其他内容)"
             value={settings.injectAgentDeckCodexAgentsMd}
             onChange={(v) => void update({ injectAgentDeckCodexAgentsMd: v })}
           />
           <div className="text-[10px] leading-snug text-deck-muted/60">
-            关闭后**下次新建会话**不再注入；已运行会话已固化进 LLM 上下文，关掉不会回收。
+            ⚠️ 仅对新建会话生效。已运行的会话已加载，不会回收。
           </div>
         </div>
       )}

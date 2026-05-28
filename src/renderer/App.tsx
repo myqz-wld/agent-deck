@@ -240,7 +240,7 @@ export function App(): JSX.Element {
                 title="打开待处理列表"
                 className="no-drag ml-2 rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/40"
               >
-                ⚠ {pending} 待处理
+                ⚠️ {pending} 待处理
               </button>
             )}
           </div>
@@ -293,7 +293,7 @@ export function App(): JSX.Element {
             >
               {compact ? '▢' : '─'}
             </IconButton>
-            <IconButton title="资产库（内置 + 用户自定义 agents/skills/CLAUDE.md）" onClick={() => setAssetsLibraryOpen(true)}>
+            <IconButton title="资产库" onClick={() => setAssetsLibraryOpen(true)}>
               📚
             </IconButton>
             <IconButton title="设置" onClick={() => setSettingsOpen(true)}>
@@ -409,6 +409,7 @@ function IconButton({
       type="button"
       onClick={onClick}
       title={title}
+      aria-label={title}
       className={`flex h-5 w-5 items-center justify-center rounded text-[10px] transition ${
         active
           ? 'bg-white/12 text-deck-text'

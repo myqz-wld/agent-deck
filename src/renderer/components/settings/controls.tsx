@@ -320,7 +320,7 @@ export function NotificationTestRow(): JSX.Element {
       };
       if (r.ok) {
         const name = r.appName || 'Agent Deck';
-        setResult(`已发送，没看到横幅请到 系统设置 → 通知 → ${name} 检查权限`);
+        setResult(`已发送。若未看到横幅，前往 系统设置 → 通知 → ${name} 检查权限。`);
       } else {
         setResult(`失败：${r.reason ?? '未知'}`);
       }

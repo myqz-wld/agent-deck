@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import type { AgentDeckTeamMember } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { Section, EmptyState } from './Header';
+import { lifecycleLabel, agentIdLabel } from './helpers';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：成员清单 section。
@@ -53,7 +54,7 @@ export function MembersSection({ members, onOpenSession }: Props): JSX.Element {
                 {isLeft && <span className="ml-1 text-deck-muted/60">已退出</span>}
               </span>
               <span className="ml-2 shrink-0 text-deck-muted/60">
-                {sess?.agentId ?? 'unknown'} · {sess?.lifecycle ?? '?'}
+                {agentIdLabel(sess?.agentId)} · {lifecycleLabel(sess?.lifecycle)}
               </span>
             </li>
           );
@@ -67,13 +68,13 @@ function RoleBadge({ role }: { role: 'lead' | 'teammate' }): JSX.Element {
   if (role === 'lead') {
     return (
       <span className="ml-0.5 rounded bg-blue-400/15 px-1 py-0.5 text-[9px] font-medium text-blue-200">
-        👑 lead
+        👑 负责人
       </span>
     );
   }
   return (
     <span className="ml-0.5 rounded bg-blue-400/10 px-1 py-0.5 text-[9px] font-medium text-blue-200/85">
-      ↳ teammate
+      ↳ 协作者
     </span>
   );
 }

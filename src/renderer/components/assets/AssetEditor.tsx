@@ -91,46 +91,46 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
   // - 长度上限来自共享 ASSET_LIMITS
   const nameError = !isEdit
     ? name.length === 0
-      ? 'name 必填'
+      ? '名称不能为空'
       : name.length > ASSET_LIMITS.name
-        ? `name 长度需 ≤ ${ASSET_LIMITS.name}`
+        ? `名称太长（最多 ${ASSET_LIMITS.name} 字）`
         : !ASSET_NAME_REGEX.test(name)
-          ? `name 必须匹配 ${ASSET_NAME_REGEX}（首字符 a-z/0-9，后续 a-z/0-9/-）`
+          ? '名称只能用小写字母、数字和短横线，首字符必须是字母或数字'
           : null
     : null;
   const descError = description.trim().length === 0
-    ? 'description 必填'
+    ? '说明不能为空'
     : description.length > ASSET_LIMITS.description
-      ? `description 长度需 ≤ ${ASSET_LIMITS.description}`
+      ? `说明太长（最多 ${ASSET_LIMITS.description} 字）`
       : /[\r\n]/.test(description)
-        ? 'description 必须单行（不能含换行）'
+        ? '说明必须写在一行内'
         : description.includes('---')
-          ? 'description 不能含 "---"（防 frontmatter 注入）'
+          ? '说明不能包含「---」字符'
           : null;
   const modelError = kind === 'agent'
     ? model.trim().length === 0
-      ? 'model 必填'
+      ? '模型不能为空'
       : model.length > ASSET_LIMITS.model
-        ? `model 长度需 ≤ ${ASSET_LIMITS.model}`
+        ? `模型名太长（最多 ${ASSET_LIMITS.model} 字）`
         : /[\r\n]/.test(model)
-          ? 'model 必须单行'
+          ? '模型名必须写在一行内'
           : model.includes('---')
-            ? 'model 不能含 "---"'
+            ? '模型名不能包含「---」字符'
             : null
     : null;
   const toolsError = kind === 'agent' && tools.length > 0
     ? tools.length > ASSET_LIMITS.tools
-      ? `tools 长度需 ≤ ${ASSET_LIMITS.tools}`
+      ? `工具列表太长（最多 ${ASSET_LIMITS.tools} 字）`
       : /[\r\n]/.test(tools)
-        ? 'tools 必须单行（逗号分隔）'
+        ? '工具列表必须写在一行内（逗号分隔）'
         : tools.includes('---')
-          ? 'tools 不能含 "---"'
+          ? '工具列表不能包含「---」字符'
           : null
     : null;
   const bodyError = body.length > ASSET_LIMITS.body
-    ? `body 长度需 ≤ ${ASSET_LIMITS.body}（≈ 256KB）`
+    ? `正文太长（最多 ${ASSET_LIMITS.body} 字，约 256KB）`
     : body.split('\n', 1)[0].trim() === '---'
-      ? 'body 起首不能是 "---"（防 frontmatter 嵌套）'
+      ? '正文首行不能是「---」'
       : null;
   const hasError = !!(nameError || descError || modelError || toolsError || bodyError);
 
@@ -172,13 +172,13 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
     // （删除后 codex CLI in-memory cache 残留场景，让用户在确认前就知道）。claude skill 不需提示。
     const codexSkillHint =
       asset.kind === 'skill' && asset.adapter === 'codex-cli'
-        ? '\n注意：运行中的 codex CLI 需重启（pkill -f codex 后重启）才看到生效（codex CLI in-memory skills cache 残留）。'
+        ? '\n注意：已经在跑的 Codex 会话需重启后才能加载新内容。'
         : '';
     const ok = await window.api.confirmDialog({
       title: `删除${kind === 'agent' ? ' Agent' : ' Skill'}`,
       message: `确定要删除「${asset.name}」吗？`,
       detail: (kind === 'skill'
-        ? `将递归删除目录 ${asset.absPath} 所在的 skill 子目录。`
+        ? `将递归删除目录 ${asset.absPath} 所在的 Skill 子目录。`
         : `将删除文件 ${asset.absPath}。`) + codexSkillHint,
       okLabel: '删除',
       cancelLabel: '取消',
@@ -227,12 +227,12 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
   // placeholder 文案 sub-tab 切换：claude → ~/.claude/{agents,skills}/ / codex → ~/.codex/skills/
   const pathHint = !isEdit
     ? adapter === 'claude-code'
-      ? `slug 格式 [a-z0-9-]+；保存后即文件名（agent: ~/.claude/agents/${name || '<name>'}.md；skill: ~/.claude/skills/${name || '<name>'}/SKILL.md）`
-      : `slug 格式 [a-z0-9-]+；保存后即文件名（skill: ~/.codex/skills/${name || '<name>'}/SKILL.md;codex 不支持 user agent）`
+      ? `保存后即文件名(Agent → ~/.claude/agents/${name || '<名称>'}.md;Skill → ~/.claude/skills/${name || '<名称>'}/SKILL.md)`
+      : `保存后即文件名(Skill → ~/.codex/skills/${name || '<名称>'}/SKILL.md;Codex 不支持自定义 Agent)`
     : '';
 
   const title = isEdit
-    ? `编辑${kind === 'agent' ? ' Agent' : ' Skill'}：${asset?.name}`
+    ? `编辑${kind === 'agent' ? ' Agent' : ' Skill'}:${asset?.name}`
     : `新建${kind === 'agent' ? ' Agent' : ' Skill'}`;
 
   return (
@@ -259,7 +259,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
         )}
 
         <div className="flex-1 overflow-y-auto scrollbar-deck flex flex-col gap-2 pr-1">
-          <Field label="name" error={nameError}>
+          <Field label="名称" error={nameError}>
             <input
               type="text"
               value={name}
@@ -271,20 +271,20 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
             {!isEdit && <div className="text-[10px] text-deck-muted/60">{pathHint}</div>}
           </Field>
 
-          <Field label="description" error={descError}>
+          <Field label="说明" error={descError}>
             <textarea
               value={description}
               onChange={(e) => handleChange(setDescription)(e.target.value)}
               disabled={busy}
               rows={3}
-              placeholder="这个 skill / agent 是干啥的，何时触发..."
+              placeholder="说明这个 Skill / Agent 的用途和触发场景…"
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] leading-relaxed outline-none focus:border-white/20 disabled:opacity-50"
             />
           </Field>
 
           {kind === 'agent' && (
             <>
-              <Field label="model" error={modelError}>
+              <Field label="模型" error={modelError}>
                 <select
                   value={model}
                   onChange={(e) => handleChange(setModel)(e.target.value)}
@@ -296,7 +296,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
                   ))}
                 </select>
               </Field>
-              <Field label="tools（逗号分隔，可空）" error={toolsError}>
+              <Field label="工具（逗号分隔，可留空）" error={toolsError}>
                 <input
                   type="text"
                   value={tools}
@@ -309,7 +309,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
             </>
           )}
 
-          <Field label="body（markdown 正文）" error={bodyError}>
+          <Field label="正文（Markdown）" error={bodyError}>
             <textarea
               value={body}
               onChange={(e) => handleChange(setBody)(e.target.value)}
@@ -317,7 +317,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
               spellCheck={false}
               className="h-48 w-full resize-y rounded border border-deck-border bg-white/[0.04] p-2 font-mono text-[11px] leading-relaxed outline-none focus:border-white/20 disabled:opacity-50"
               style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
-              placeholder="# My Skill\n\n说明触发条件 / 步骤 / 约束..."
+              placeholder="# My Skill\n\n写清触发条件、执行步骤和约束…"
             />
           </Field>
         </div>

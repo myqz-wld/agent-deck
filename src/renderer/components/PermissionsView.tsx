@@ -11,25 +11,25 @@ interface Props {
 }
 
 const SOURCE_LABEL: Record<SettingsSource, string> = {
-  user: 'User',
-  'user-local': 'User Local',
-  project: 'Project',
-  local: 'Local',
+  user: '全局设置',
+  'user-local': '本机设置',
+  project: '项目设置',
+  local: '当前目录设置',
 };
 
 /** 短标记，用在「来源 chip」 */
 const SOURCE_BADGE: Record<SettingsSource, string> = {
-  user: 'U',
-  'user-local': 'UL',
-  project: 'P',
-  local: 'L',
+  user: '全局',
+  'user-local': '本机',
+  project: '项目',
+  local: '目录',
 };
 
 const SOURCE_HINT: Record<SettingsSource, string> = {
   user: '~/.claude/settings.json',
   'user-local': '~/.claude/settings.local.json',
-  project: '<cwd>/.claude/settings.json',
-  local: '<cwd>/.claude/settings.local.json',
+  project: '<当前目录>/.claude/settings.json',
+  local: '<当前目录>/.claude/settings.local.json',
 };
 
 /**
@@ -82,7 +82,7 @@ export function PermissionsView({ cwd }: Props): JSX.Element {
       {/* 顶部：刷新 + cwd 信息 */}
       <div className="flex items-center justify-between gap-2 text-[10px] text-deck-muted">
         <div className="truncate">
-          cwd：<span className="font-mono text-deck-text/80">{data.cwdResolved}</span>
+          当前目录：<span className="font-mono text-deck-text/80">{data.cwdResolved}</span>
         </div>
         <button
           type="button"
@@ -101,12 +101,12 @@ export function PermissionsView({ cwd }: Props): JSX.Element {
       <LayerPanel
         layer={data.project}
         cwd={cwd}
-        notice={projectIsUser ? '会话 cwd 等于 home 目录，与 User 是同一文件' : undefined}
+        notice={projectIsUser ? '会话工作目录等于主目录，与全局设置是同一文件' : undefined}
       />
       <LayerPanel
         layer={data.local}
         cwd={cwd}
-        notice={localIsUserLocal ? '会话 cwd 等于 home 目录，与 User Local 是同一文件' : undefined}
+        notice={localIsUserLocal ? '会话工作目录等于主目录，与本机设置是同一文件' : undefined}
       />
     </div>
   );
@@ -125,22 +125,22 @@ function MergedPanel({ merged }: { merged: MergedPermissions }): JSX.Element {
   return (
     <section className="rounded-md border border-deck-border/60 bg-white/[0.03] p-2">
       <header className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wider text-deck-muted">
-        <span>生效合并 · user → user-local → project → local</span>
+        <span>当前生效规则（按 全局 → 本机 → 项目 → 当前目录 顺序合并）</span>
         {merged.defaultMode && (
           <span className="text-deck-text/80">
-            defaultMode:{' '}
+            默认权限模式：{' '}
             <span className="font-mono text-status-working">{merged.defaultMode.value}</span>{' '}
             <SourceBadge source={merged.defaultMode.source} />
           </span>
         )}
       </header>
       {empty ? (
-        <div className="text-[11px] text-deck-muted">三层均未配置任何 permissions</div>
+        <div className="text-[11px] text-deck-muted">尚未配置任何权限规则</div>
       ) : (
         <div className="grid gap-1.5">
-          <RuleRow label="allow" tone="allow" rules={merged.allow} />
-          <RuleRow label="deny" tone="deny" rules={merged.deny} />
-          <RuleRow label="ask" tone="ask" rules={merged.ask} />
+          <RuleRow label="允许" tone="allow" rules={merged.allow} />
+          <RuleRow label="拒绝" tone="deny" rules={merged.deny} />
+          <RuleRow label="每次询问" tone="ask" rules={merged.ask} />
           {merged.additionalDirectories.length > 0 && (
             <DirRow dirs={merged.additionalDirectories} />
           )}
@@ -194,7 +194,7 @@ function DirRow({ dirs }: { dirs: MergedPermissions['additionalDirectories'] }):
   return (
     <div className="text-[11px]">
       <div className="mb-0.5 text-[10px] text-deck-muted">
-        additionalDirectories ({dirs.length})
+        额外可访问目录（{dirs.length}）
       </div>
       <ul className="flex flex-col gap-0.5 pl-2">
         {dirs.map((d) => (

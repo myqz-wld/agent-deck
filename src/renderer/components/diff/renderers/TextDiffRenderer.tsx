@@ -56,13 +56,12 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
         <div className="rounded-md border border-deck-border bg-white/[0.02] p-3 text-[11px] text-deck-muted/85">
           {isCodex ? (
             <>
-              Codex 仅记录文件改动路径与类型，不提供 diff 文本内容。
-              如需查看实际差异，请直接打开文件或在终端跑 <code className="font-mono">git diff</code>。
+              Codex 仅记录改动路径，不提供差异内容。
+              如需查看实际差异，请直接打开文件，或在终端运行 <code className="font-mono">git diff</code>。
             </>
           ) : (
             <>
-              文件信息缺失（source: <code className="font-mono">{String(md.source ?? 'unknown')}</code>）。
-              before/after 均为 null，无法渲染 diff。
+              这次改动缺少可显示的差异内容，请直接打开文件查看。
             </>
           )}
         </div>
@@ -79,7 +78,7 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
         <span className="truncate font-mono text-[11px]">{payload.filePath}</span>
         {isNewFile && (
           <span className="rounded bg-status-working/20 px-1.5 py-0.5 text-[9px] text-status-working">
-            NEW
+            新增
           </span>
         )}
       </div>
@@ -87,7 +86,7 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
         <Suspense
           fallback={
             <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
-              加载 Monaco…
+              加载差异视图…
             </div>
           }
         >

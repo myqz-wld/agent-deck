@@ -103,7 +103,7 @@ export function ComposerSdk({
     // 静默丢图 + 失去 retry 能力的旧版本回归不可接受
     if (!canAcceptAttachments && hasAttachments) {
       setSendError(
-        `当前 adapter (${agentId}) 不支持图片附件，请先移除附件再发送，或切换到 Claude / Codex adapter`,
+        '当前会话类型不支持图片附件，请移除图片后再发送，或切换到支持图片的 Claude / Codex 会话',
       );
       return;
     }
@@ -160,13 +160,12 @@ export function ComposerSdk({
     // 销毁旧 SDK 子进程 + 用 flag=true 重建（5-10s busy）。失败会回滚到原 mode + emit error msg。
     if (next === 'bypassPermissions' && permissionMode !== 'bypassPermissions') {
       const ok = await window.api.confirmDialog({
-        title: '切换到完全免询问模式',
-        message: '将重启 SDK 子进程切到 bypassPermissions 模式',
+        title: '切换到完全免询问',
+        message: '需要重启当前会话',
         detail:
-          '会销毁当前 SDK 子进程并以「allowDangerouslySkipPermissions=true」flag 重启（约 5-10s busy），\n' +
-          '重启后 Claude **全过程不再询问任何工具调用**，按需要小心使用。\n\n' +
-          '如果失败将自动回滚到原模式。继续？',
-        okLabel: '重启并切到 bypass',
+          '重启后,Claude 执行工具时不再向你确认 —— 包括文件修改、Bash 命令等所有操作。重启约需 5-10 秒。\n\n' +
+          '失败时会自动回到当前模式。继续?',
+        okLabel: '重启并启用',
         cancelLabel: '取消',
         destructive: true,
       });
@@ -196,13 +195,12 @@ export function ComposerSdk({
     if (next === codexSandbox || csBusy) return;
     if (next === 'danger-full-access' && codexSandbox !== 'danger-full-access') {
       const ok = await window.api.confirmDialog({
-        title: '切换到完全免沙箱模式',
-        message: '将重启 Codex thread 切到 danger-full-access',
+        title: '关闭沙盒(完全开放)',
+        message: '需要重启当前会话',
         detail:
-          '会销毁当前 Codex thread 并以 sandbox=danger-full-access resume 重建（约 5-10s busy）。\n' +
-          '重启后 Codex **可读写任意文件、跑任意命令**，按需要小心使用。\n\n' +
-          '如果失败将自动回退到原档位。继续？',
-        okLabel: '重启并切到 danger-full-access',
+          '重启后,Codex 可以读写任意文件、执行任意命令。重启约需 5-10 秒。\n\n' +
+          '失败时会自动回到当前沙盒设置。继续?',
+        okLabel: '重启并关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
       });
@@ -235,12 +233,11 @@ export function ComposerSdk({
     if (next === claudeCodeSandbox || csClaudeBusy) return;
     if (next === 'off' && claudeCodeSandbox !== 'off') {
       const ok = await window.api.confirmDialog({
-        title: '关闭 OS 沙盒',
-        message: '将重启 Claude SDK 切到 sandbox=off',
+        title: '关闭系统沙盒',
+        message: '需要重启当前会话',
         detail:
-          '会销毁当前 SDK 子进程并以 sandbox=off resume 重建（约 5-10s busy）。\n' +
-          '重启后 Claude SDK **完全不受 OS 沙盒约束**（仅应用层 canUseTool 弹框决策），按需要小心使用。\n\n' +
-          '如果失败将自动回退到原档位。继续？',
+          '重启后,Claude 不再受系统沙盒约束(仅靠应用内授权弹窗管控)。重启约需 5-10 秒。\n\n' +
+          '失败时会自动回到当前沙盒设置。继续?',
         okLabel: '重启并关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
@@ -292,10 +289,10 @@ export function ComposerSdk({
         />
       )}
       <ErrorBanner message={pmError} prefix="权限模式切换失败" onDismiss={() => setPmError(null)} />
-      <ErrorBanner message={csError} prefix="Codex sandbox 切换失败" onDismiss={() => setCsError(null)} />
+      <ErrorBanner message={csError} prefix="Codex 沙盒切换失败" onDismiss={() => setCsError(null)} />
       <ErrorBanner
         message={csClaudeError}
-        prefix="Claude OS 沙盒切换失败"
+        prefix="Claude 沙盒切换失败"
         onDismiss={() => setCsClaudeError(null)}
       />
       <ErrorBanner message={sendError} onDismiss={() => setSendError(null)} />
@@ -321,7 +318,7 @@ export function ComposerSdk({
             if (canSend) void send();
           }
         }}
-        placeholder={`给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行 / 粘贴/拖放图片)`}
+        placeholder={`给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行 / 可粘贴或拖放图片)`}
         rows={2}
         className="block w-full resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
       />
@@ -361,7 +358,7 @@ export function ComposerSdk({
               <div key={a.id} className="relative shrink-0">
                 <img
                   src={a.thumbnailDataUrl}
-                  alt={a.name ?? 'attachment'}
+                  alt={a.name ?? '附件图片'}
                   title={`${a.name ?? ''}\n${(a.bytes / 1024).toFixed(1)}KB · ${a.mime}`}
                   className="h-9 w-9 rounded border border-deck-border object-cover"
                 />
@@ -369,7 +366,7 @@ export function ComposerSdk({
                   type="button"
                   onClick={() => imgs.remove(a.id)}
                   className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-deck-bg text-[10px] text-deck-muted shadow hover:text-status-waiting"
-                  aria-label="remove attachment"
+                  aria-label="移除附件"
                   title="移除"
                 >
                   ✕
@@ -384,7 +381,7 @@ export function ComposerSdk({
             type="button"
             onClick={onHandOff}
             className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10"
-            title="📤 接力到新会话：LLM 总结当前会话历史 → 起新 session（cwd / agent / 权限模式沿用）+ 自动归档原会话"
+            title="接力到新会话:让 AI 总结当前会话历史,然后打开新会话继续(沿用工作目录和权限设置,自动归档当前会话)"
           >
             📤 接力
           </button>

@@ -23,12 +23,12 @@ export function ErrorBanner({
   if (!message) return null;
   return (
     <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
-      <span className="flex-1">⚠ {prefix ? `${prefix}：` : ''}{message}</span>
+      <span className="flex-1">⚠️ {prefix ? `${prefix}：` : ''}{message}</span>
       <button
         type="button"
         onClick={onDismiss}
         className="text-status-waiting/70 hover:text-status-waiting"
-        aria-label="dismiss"
+        aria-label="关闭"
       >
         ✕
       </button>

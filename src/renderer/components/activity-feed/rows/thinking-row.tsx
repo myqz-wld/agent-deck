@@ -39,7 +39,7 @@ export function ThinkingBubble({
         <div className="mb-0.5 flex items-center gap-1 text-[9px] text-deck-muted/60">
           <span>{otherName}</span>
           <span className="text-deck-muted/40">·</span>
-          <span className="font-mono uppercase tracking-wider">thinking</span>
+          <span className="font-mono uppercase tracking-wider">思考中</span>
           <span className="text-deck-muted/40">·</span>
           <span className="font-mono tabular-nums text-deck-muted/40">{ts}</span>
           {text.length > 0 && (
@@ -59,7 +59,7 @@ export function ThinkingBubble({
               aria-expanded={expanded}
               className="ml-1 rounded px-1 font-mono text-[9px] tracking-tight text-deck-muted/60 opacity-60 hover:bg-white/10 hover:text-deck-text hover:opacity-100"
             >
-              {expanded ? '收起' : `展开 (${text.length}字)`}
+              {expanded ? '收起' : `展开（${text.length} 字）`}
             </button>
           )}
         </div>
@@ -75,7 +75,7 @@ export function ThinkingBubble({
               text
             )
           ) : (
-            <span className="text-deck-muted/60">（空 thinking）</span>
+            <span className="text-deck-muted/60">（暂无思考内容）</span>
           )}
         </div>
       </div>

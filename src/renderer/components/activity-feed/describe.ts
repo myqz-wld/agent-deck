@@ -60,8 +60,9 @@ export function describe(e: AgentEvent): string {
   }
 }
 
-/** session-end reason 英文枚举 → 中文(active/dormant/closed 等 SDK 内部枚举值统一翻译)。 */
-function translateSessionEndReason(reason: string): string {
+/** session-end reason 英文枚举 → 中文(active/dormant/closed 等 SDK 内部枚举值统一翻译)。
+ *  exported 让 TeamDetail/EventsSection 复用同一份翻译,避免双处维护漂移。 */
+export function translateSessionEndReason(reason: string): string {
   switch (reason) {
     case 'completed':
       return '正常结束';
@@ -117,7 +118,7 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
         inProgress && typeof inProgress.activeForm === 'string'
           ? ` · ${inProgress.activeForm.slice(0, 40)}${inProgress.activeForm.length > 40 ? '…' : ''}`
           : '';
-      return `[${done}/${todos.length} done]${inProgressLabel}`;
+      return `已完成 ${done}/${todos.length}${inProgressLabel}`;
     }
     case 'WebSearch': {
       // CHANGELOG_95: 显示 query 摘要让用户知道在搜什么

@@ -57,16 +57,18 @@ export function CodexMcpServersSection({ settings, update }: Props): JSX.Element
   };
 
   return (
-    <Section title="Codex MCP Servers" storageKey="codex-mcp" defaultOpen={false}>
+    <Section title="Codex 外部工具服务" storageKey="codex-mcp" defaultOpen={false}>
       <div className="text-[10px] text-deck-muted leading-snug">
-        配置 Codex CLI 接入的外部 MCP server。Agent Deck 把这段配置写到{' '}
-        <code className="rounded bg-white/5 px-1">~/.codex/config.toml</code> 的{' '}
-        <code className="rounded bg-white/5 px-1">[mcp_servers.X]</code> 段（用 marker
-        包裹，**不破坏**用户手写的其他段）。
+        在这里配置 Codex 可调用的外部 MCP 服务。保存后会写入{' '}
+        <code className="rounded bg-white/5 px-1">~/.codex/config.toml</code>，保留你手写的其他内容。
         <span className="block mt-1 text-deck-muted/70">
-          字段：<code>name</code>（必填）+ stdio (<code>command</code>,{' '}
-          <code>args</code>, <code>env</code>) 或 http (<code>url</code>,{' '}
-          <code>bearerTokenEnvVar</code>)。改后**下次新建 codex 会话**生效。
+          <strong className="text-amber-300/90">⚠️ 仅对新建 Codex 会话生效</strong>。
+          <details className="mt-1 inline-block align-baseline">
+            <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">JSON 字段说明</summary>
+            <div className="mt-1 pl-2">
+              <code>name</code>（必填，名称）+ <code>command</code> / <code>args</code> / <code>env</code>（本地命令）或 <code>url</code> / <code>bearerTokenEnvVar</code>（HTTP 端点）二选一。
+            </div>
+          </details>
         </span>
       </div>
       <textarea
@@ -102,13 +104,13 @@ export function CodexMcpServersSection({ settings, update }: Props): JSX.Element
         )}
         {saved && !dirty && (
           <span className="text-[9px] text-status-ok/80">
-            ✓ 已写入 ~/.codex/config.toml（marker 段）
+            ✓ 已保存到 ~/.codex/config.toml
           </span>
         )}
       </div>
       {error && (
         <div className="mt-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
-          ⚠ {error}
+          ⚠️ {error}
         </div>
       )}
     </Section>
@@ -136,10 +138,10 @@ function parseAndValidate(text: string): CodexMcpServerConfigShared[] {
   try {
     parsed = JSON.parse(text);
   } catch (err) {
-    throw new Error(`JSON 解析失败：${(err as Error).message}`);
+    throw new Error(`JSON 格式错误：${(err as Error).message}`);
   }
   if (!Array.isArray(parsed)) {
-    throw new Error('顶层必须是数组（即便只有一条 server，也要 [{...}] 包起来）');
+    throw new Error('顶层必须是数组（即使只有一条配置，也要用 [{...}] 包起来）');
   }
   const out: CodexMcpServerConfigShared[] = [];
   for (let i = 0; i < parsed.length; i++) {
@@ -149,15 +151,15 @@ function parseAndValidate(text: string): CodexMcpServerConfigShared[] {
     }
     const o = item as Record<string, unknown>;
     if (typeof o.name !== 'string' || !o.name.trim()) {
-      throw new Error(`第 ${i + 1} 条缺 name`);
+      throw new Error(`第 ${i + 1} 条缺少名称（name 字段）`);
     }
     if (!/^[\w\-/]+$/.test(o.name)) {
-      throw new Error(`第 ${i + 1} 条 name "${o.name}" 含非法字符（仅允许 [\\w-/]）`);
+      throw new Error(`第 ${i + 1} 条名称「${o.name}」含非法字符，只能用字母、数字、下划线、横线、斜杠`);
     }
     const hasStdio = typeof o.command === 'string';
     const hasHttp = typeof o.url === 'string';
     if (!hasStdio && !hasHttp) {
-      throw new Error(`第 ${i + 1} 条 (${o.name}) 必须提供 command (stdio) 或 url (http)`);
+      throw new Error(`第 ${i + 1} 条「${o.name}」必须填本地命令（command）或 HTTP 端点（url）`);
     }
     out.push({
       name: o.name,

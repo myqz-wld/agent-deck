@@ -22,7 +22,7 @@ export function PdfDiffRenderer({ payload }: Props): JSX.Element {
       <div className="font-medium text-deck-text">PDF diff 暂不支持</div>
       <div className="mt-1">文件：{payload.filePath}</div>
       <div className="mt-1 text-[10px] text-deck-muted/80">
-        agent-deck 还未接入 PDF diff 渲染。改动已记录在 file_changes 表里，未来支持后会自动展示。
+        Agent Deck 暂未接入 PDF 差异渲染。改动已记录在历史里，未来支持后会自动展示。
       </div>
     </div>
   );

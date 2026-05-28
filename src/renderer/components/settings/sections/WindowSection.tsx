@@ -25,6 +25,12 @@ export function WindowSection({ settings, update }: Props): JSX.Element {
         value={settings.startOnLogin}
         onChange={(v) => void update({ startOnLogin: v })}
       />
+      <div className="mt-2 text-[10px] leading-snug text-deck-muted/70">
+        其他窗口操作走快捷键（详见「快捷键」section）：
+        <br />· 始终置顶：点顶栏 📌 按钮 或 Cmd+Alt+P
+        <br />· 窗口透明：Cmd+Alt+T
+        <br />· 放大 / 缩小窗口：Cmd+Alt+= / Cmd+Alt+-
+      </div>
     </Section>
   );
 }

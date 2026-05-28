@@ -24,7 +24,7 @@ export function TasksSection({ tasks }: Props): JSX.Element {
   if (tasks.length === 0) {
     return (
       <Section title="任务" count={0}>
-        <EmptyState>团队内尚无 task</EmptyState>
+        <EmptyState>团队内暂无任务</EmptyState>
       </Section>
     );
   }
@@ -67,12 +67,12 @@ function TaskRow({ task }: { task: TaskRecord }): JSX.Element {
       {(task.activeForm || task.priority !== 5) && (
         <div className="mt-0.5 flex items-center gap-2 text-[9px] text-deck-muted">
           {task.activeForm && (
-            <span title="当前活动描述（present continuous）">
+            <span title="当前进度描述">
               🔧 {task.activeForm}
             </span>
           )}
           {task.priority !== 5 && (
-            <span title={`priority ${task.priority}`}>
+            <span title={`优先级 ${task.priority}`}>
               {task.priority < 5 ? '⬆' : '⬇'} P{task.priority}
             </span>
           )}

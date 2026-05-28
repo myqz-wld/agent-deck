@@ -32,9 +32,9 @@ export function KeyboardShortcutsSection(): JSX.Element {
               <td className="py-1 text-deck-muted/80">
                 切换 <strong>窗口透明</strong>
                 {IS_DARWIN ? (
-                  <>(macOS:vibrancy on/off + CSS frosted-frame 主导通透感,看到下层桌面)</>
+                  <>（macOS 下切换半透明毛玻璃效果，可看到下方桌面）</>
                 ) : (
-                  <>(非 macOS:仅影响 CSS 背景透明度,无 vibrancy 效果)</>
+                  <>（非 macOS 下只调整窗口背景透明度）</>
                 )}
               </td>
             </tr>

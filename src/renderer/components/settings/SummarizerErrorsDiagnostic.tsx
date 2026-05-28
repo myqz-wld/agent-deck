@@ -32,13 +32,13 @@ export function SummarizerErrorsDiagnostic(): JSX.Element {
   const entries = Object.entries(errors).sort((a, b) => b[1].ts - a[1].ts);
   if (entries.length === 0) {
     return (
-      <div className="text-[10px] text-deck-muted/70 leading-snug">最近无 LLM 总结错误</div>
+      <div className="text-[10px] text-deck-muted/70 leading-snug">最近无总结失败记录</div>
     );
   }
 
   return (
     <div className="flex flex-col gap-1 text-[10px] leading-snug">
-      <div className="text-deck-muted/70">最近 LLM 总结错误（前 5 条）</div>
+      <div className="text-deck-muted/70">最近总结失败记录（前 5 条）</div>
       <ul className="flex flex-col gap-0.5">
         {entries.slice(0, 5).map(([sid, info]) => (
           <li
@@ -46,10 +46,13 @@ export function SummarizerErrorsDiagnostic(): JSX.Element {
             className="flex flex-col gap-0.5 rounded border border-status-waiting/30 bg-status-waiting/10 p-1.5"
           >
             <div className="text-[9px] text-status-waiting/80">
-              {new Date(info.ts).toLocaleTimeString()} · {sid.slice(0, 12)}…
+              {new Date(info.ts).toLocaleTimeString()} · 会话 {sid.slice(0, 8)}…
             </div>
             <div className="break-all text-status-waiting/90" title={info.message}>
               {info.message.slice(0, 200)}
+            </div>
+            <div className="text-[9px] text-status-waiting/60">
+              可检查模型名称、网络或账号权限后重试。
             </div>
           </li>
         ))}

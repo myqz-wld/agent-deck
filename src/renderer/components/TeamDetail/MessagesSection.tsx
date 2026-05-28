@@ -30,7 +30,7 @@ export function MessagesSection({ messages }: Props): JSX.Element {
   if (messages.length === 0) {
     return (
       <Section title="消息" count={0}>
-        <EmptyState>团队内暂无 cross-adapter 消息</EmptyState>
+        <EmptyState>团队内暂无消息</EmptyState>
       </Section>
     );
   }
@@ -53,9 +53,9 @@ export function MessagesSection({ messages }: Props): JSX.Element {
                   {msg.replyToMessageId && (
                     <span
                       className="ml-1 text-blue-300/70"
-                      title={`回复 message id: ${msg.replyToMessageId}`}
+                      title="回复上一条消息"
                     >
-                      ↩ #{msg.replyToMessageId.slice(0, 8)}
+                      ↩ 回复
                     </span>
                   )}
                 </span>

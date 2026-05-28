@@ -84,7 +84,7 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
   if (messages.length === 0) {
     return (
       <div className="px-2 py-3 text-[11px] text-deck-muted">
-        本会话暂无跨会话消息（send_message）
+        本会话暂无跨会话消息
       </div>
     );
   }
@@ -110,9 +110,9 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
                 {msg.replyToMessageId && (
                   <span
                     className="ml-1 text-blue-300/70"
-                    title={`回复 message id: ${msg.replyToMessageId}`}
+                    title="回复上一条消息"
                   >
-                    ↩ #{msg.replyToMessageId.slice(0, 8)}
+                    ↩ 回复
                   </span>
                 )}
               </span>

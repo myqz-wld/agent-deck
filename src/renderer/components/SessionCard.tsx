@@ -4,6 +4,7 @@ import { isImageTool } from '@shared/mcp-tools';
 import { StatusBadge } from './StatusBadge';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { toolIcon } from './activity-feed/tool-icons';
+import { agentIdLabel } from './TeamDetail/helpers';
 
 interface Props {
   session: SessionRecord;
@@ -53,8 +54,8 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
   const remove = async (): Promise<void> => {
     const ok = await window.api.confirmDialog({
       title: '删除会话',
-      message: `确定要删除会话「${session.title}」？`,
-      detail: '该操作不可恢复，将连同所有事件、文件改动、总结一并删除。',
+      message: `确定要删除会话「${session.title}」吗？`,
+      detail: '此操作不可恢复，会话的所有事件、文件改动和总结都会一并删除。',
       okLabel: '删除',
       cancelLabel: '取消',
       destructive: true,
@@ -70,7 +71,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
   // 稳定时不重算（已知踩坑：L SessionCard 大改影响 SessionList 滚动性能）。
   // 第 4 行是较稳定的总结（5min/10events 才更新一次），缺失时回退到 cwd。
   const liveLines = useMemo(() => describeLiveActivity(session, recent), [session, recent]);
-  const summaryLine = latestSummary?.content?.split('\n')[0]?.trim() || session.cwd || '无 cwd';
+  const summaryLine = latestSummary?.content?.split('\n')[0]?.trim() || session.cwd || '无工作目录';
 
   // plan team-cohesion-fix-20260513 Phase A：teams[] 是 universal team backend 投影
   // （sessionManager.enrichWithTeams 在 IPC 桥点统一注入）。v014 drop sessions.team_name
@@ -80,9 +81,9 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
   const teamCount = session.teams?.length ?? 0;
   const teamHoverTitle =
     teamCount > 1
-      ? `Agent Teams (${teamCount}):\n${session.teams!.map((t) => `· ${t.teamName} [${t.role}]`).join('\n')}`
+      ? `所在团队 (${teamCount}):\n${session.teams!.map((t) => `· ${t.teamName} [${t.role === 'lead' ? '负责人' : '协作者'}]`).join('\n')}`
       : displayTeamName
-        ? `Agent Team: ${displayTeamName}`
+        ? `团队: ${displayTeamName}`
         : '';
 
   return (
@@ -110,7 +111,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
               ? 'bg-status-working/20 text-status-working'
               : 'bg-white/8 text-deck-muted'
           }`}
-          title={session.source === 'sdk' ? '应用内创建（SDK 通道）' : '外部终端 CLI 会话'}
+          title={session.source === 'sdk' ? '应用内创建的会话' : '终端启动的会话'}
         >
           {session.source === 'sdk' ? '内' : '外'}
         </span>
@@ -126,20 +127,20 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
         {teamRole === 'lead' && (
           <span
             className="rounded bg-blue-400/15 px-1 py-0.5 text-[9px] font-medium text-blue-200"
-            title={teamHoverTitle || '本会话是某 team 的 lead'}
+            title={teamHoverTitle || '本会话是某团队的负责人'}
           >
-            👑 lead
+            👑 负责人
           </span>
         )}
         {teamRole === 'teammate' && (
           <span
             className="rounded bg-blue-400/10 px-1 py-0.5 text-[9px] font-medium text-blue-200/85"
-            title={teamHoverTitle || '本会话是某 team 的 teammate'}
+            title={teamHoverTitle || '本会话是某团队的协作者'}
           >
-            ↳ teammate
+            ↳ 协作者
           </span>
         )}
-        <span className="text-[9px] text-deck-muted/60">{session.agentId}</span>
+        <span className="text-[9px] text-deck-muted/60">{agentIdLabel(session.agentId)}</span>
       </div>
       {liveLines.length > 0 && (
         <div className="mt-1 flex flex-col gap-0.5">
@@ -221,7 +222,7 @@ function describeLiveActivity(
   session: SessionRecord,
   recent: AgentEvent[],
 ): string[] {
-  if (session.activity === 'waiting') return ['⚠ 等待你的输入'];
+  if (session.activity === 'waiting') return ['⚠️ 等待你的输入'];
   if (session.activity === 'finished' && recent[0]?.kind !== 'tool-use-start') {
     return ['✅ 一轮完成'];
   }
@@ -300,7 +301,7 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
               (inProgress as { activeForm: string }).activeForm.length > 40 ? '…' : ''
             }`
           : '';
-      return `[${done}/${todos.length} done]${inProgressLabel}`;
+      return `已完成 ${done}/${todos.length}${inProgressLabel}`;
     }
     case 'WebSearch': {
       // Phase 5 Step 5.3（plan §决策 4 L2）：显示 query 摘要让用户知道在搜什么

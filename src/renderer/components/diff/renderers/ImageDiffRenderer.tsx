@@ -39,7 +39,7 @@ export function ImageDiffRenderer({ payload }: Props): JSX.Element {
         <span className="truncate font-mono text-[11px]">{payload.filePath}</span>
         {isWrite && (
           <span className="rounded bg-status-working/20 px-1.5 py-0.5 text-[9px] text-status-working">
-            NEW
+            新增
           </span>
         )}
         {editIndex != null && total != null && total > 1 && (
@@ -76,10 +76,10 @@ export function ImageDiffRenderer({ payload }: Props): JSX.Element {
       <div className="min-h-[260px] flex-1 overflow-hidden rounded-md border border-deck-border p-1">
         {mode === 'side' && (
           <div className="grid h-full grid-cols-2 gap-2">
-            <Pane title="before" empty="(无)">
+            <Pane title="修改前" empty="（无图）">
               {before ? <BlobImg sid={sessionId} src={before} /> : null}
             </Pane>
-            <Pane title="after" empty="(无)">
+            <Pane title="修改后" empty="（无图）">
               {after ? <BlobImg sid={sessionId} src={after} /> : null}
             </Pane>
           </div>
@@ -89,14 +89,14 @@ export function ImageDiffRenderer({ payload }: Props): JSX.Element {
             {after ? (
               <BlobImg sid={sessionId} src={after} />
             ) : (
-              <span className="text-[10px] text-deck-muted">(无 after 图)</span>
+              <span className="text-[10px] text-deck-muted">（暂无修改后图片）</span>
             )}
           </div>
         )}
         {mode === 'slide' && (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-[11px] text-deck-muted">
-            <div>滑动对比模式待实现（二期接 react-compare-slider）</div>
-            <div className="text-[10px] opacity-70">先回退到「并排」查看 before / after</div>
+            <div>滑动对比暂不可用</div>
+            <div className="text-[10px] opacity-70">请先用「并排」查看修改前 / 修改后</div>
           </div>
         )}
       </div>
@@ -115,7 +115,7 @@ function BlobImg({ sid, src }: { sid: string; src: ImageSource }): JSX.Element {
         if (!result.ok) {
           return (
             <div className="flex h-full w-full items-center justify-center text-[10px] text-deck-muted">
-              图片不可读：{result.reason}
+              图片无法显示：{result.reason}
               {result.detail ? ` · ${result.detail}` : ''}
             </div>
           );
@@ -123,7 +123,7 @@ function BlobImg({ sid, src }: { sid: string; src: ImageSource }): JSX.Element {
         return (
           <img
             src={result.dataUrl}
-            alt={src.kind === 'path' ? src.path : 'image'}
+            alt={src.kind === 'path' ? src.path : '差异图片'}
             className="max-h-full max-w-full object-contain"
           />
         );
