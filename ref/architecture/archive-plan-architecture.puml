@@ -1,0 +1,129 @@
+' commit: d5549c6 (deep-review 批 C 收口) / handler+impl+helpers 结构 (批 A R1 F1 拆分)
+' description: archive_plan tool 主进程模块依赖架构 — handler facade / impl 主体 / 2 helpers / runBatonCleanup / sessionRepo + agentDeckTeamRepo / fs / git 跨边界
+' last_updated: 2026-05-28
+@startuml archive-plan-architecture
+
+title archive_plan — 主进程模块依赖架构 (批 A R1 F1 拆分后)
+
+package "agent-deck-mcp transport" {
+  [stdio / HTTP /mcp endpoint] as Transport
+  [withMcpGuard wrapper] as Guard
+}
+
+package "tool handler facade (archive-plan.ts 285 LOC)" {
+  [archivePlanHandler] as Handler
+  [resolveCallerCwdDeps] as ResolveCwd
+  [mergeCallerCwd] as MergeCwd
+}
+
+package "tool impl 主体 (archive-plan-impl.ts 1281 LOC)" {
+  [archivePlanImpl] as Impl
+  [DEFAULT_DEPS] as DefDeps
+  note bottom of Impl
+    批 A R1 F1 拆分:
+    1488 → 1281 LOC (-14%)
+    抽 207 LOC 到 2 helpers
+  end note
+}
+
+package "tool helpers (handlers/archive-plan/)" {
+  [precheck-helpers.ts] as Precheck
+  [index-sync-helpers.ts] as IndexSync
+  note bottom of Precheck
+    4 态预检 + plan_id ↔ worktree_path
+    cross-check + mainRepo critical paths
+    dirty (F2/F1b/F3 helpers)
+  end note
+  note bottom of IndexSync
+    INDEX smart update 4-column +
+    escapeTableCell + formatChangelogCell +
+    upgradeIndexHeader (F6 RMW 单飞锁)
+  end note
+}
+
+package "baton cleanup (CHANGELOG_109 抽 helper)" {
+  [runBatonCleanup] as Baton
+  [shutdownTeammatesOnBaton] as Shutdown
+  [archiveSourceSessionWithEmit] as ArchiveCaller
+}
+
+package "_shared 注入模式 (F9 修法)" {
+  [default-impl-deps.ts] as SharedDeps
+  note bottom of SharedDeps
+    F9 修法 (REVIEW_59 批 A):
+    runGit / readFile / writeFile / unlink /
+    mkdir / mvDir / exists / realpath /
+    cwd / homedir 10 个 fs/git helper
+    4 个 impl 共用 (archive-plan / hand-off /
+    enter-worktree / exit-worktree)
+  end note
+}
+
+package "store (better-sqlite3 同步 SQL)" {
+  [sessionRepo] as SessionRepo
+  [agentDeckTeamRepo] as TeamRepo
+  database "agent-deck.sqlite\n(WAL 单进程)" as DB
+}
+
+package "session manager singleton" {
+  [sessionManager] as SM
+}
+
+package "event bus (跨进程 IPC)" {
+  [eventBus.emit] as EventBus
+}
+
+package "fs (主仓库 + worktree + ref/plans/)" {
+  folder "<main-repo>" as MainRepo
+  folder "<main-repo>/.claude/worktrees/<plan-id>/" as Worktree
+  folder "<main-repo>/ref/plans/" as RefPlans
+  folder "<main-repo>/ref/plans/<plan-id>/spike-reports/" as SpikeReports
+}
+
+package "git CLI (子进程)" {
+  [git checkout / merge / add / commit / worktree remove / branch -D] as Git
+}
+
+' ─── 调用链 ───
+
+Transport --> Guard : deny external check\n(EXTERNAL_CALLER_ALLOWED.archive_plan = false)
+Guard --> Handler : ArchivePlanArgs
+
+Handler --> ResolveCwd : callerSid
+ResolveCwd --> SessionRepo : sessionRepo.get(callerSid)
+SessionRepo --> DB : SELECT cwd, cwdReleaseMarker
+
+Handler --> MergeCwd : merge caller deps + sessionRepo 反查
+MergeCwd --> Impl : ArchivePlanArgs + mergedImplDeps
+
+' impl 内部依赖
+Impl ..> DefDeps : fallback 兜底
+DefDeps --> SharedDeps : reuse 10 helpers
+Impl --> Precheck : 4 态 + cross-check
+Impl --> IndexSync : Step 5 INDEX sync
+
+' impl → fs / git 路径 (走 SharedDeps fs/git default impl)
+Impl --> Worktree : Step 2 ff-merge source
+Impl --> MainRepo : Step 1 checkout base_branch + Step 6 commit
+Impl --> RefPlans : Step 3-4 mv plan + frontmatter write
+Impl --> SpikeReports : Step 4.5 mv spike-reports/ (optional)
+Impl --> Git : Step 7a-c worktree remove + branch -D
+Impl --> SessionRepo : Step 7 clearCwdReleaseMarker(callerSid) (F10 提前到 commit 后)
+
+' impl 完成后 → handler → runBatonCleanup
+Impl --> Handler : ArchivePlanResult
+Handler --> Baton : runBatonCleanup({callerSid, toolName})
+
+Baton --> Shutdown : phase 1
+Shutdown --> TeamRepo : agentDeckTeamRepo.listActiveMembersByTeam (caller 同 team)
+Shutdown --> SM : sessionManager.close(teammateSid) per-sid try/catch
+SM --> EventBus : emit 'session-status-changed'
+
+Baton --> ArchiveCaller : phase 2
+ArchiveCaller --> SessionRepo : sessionRepo.archive(callerSid) ← failed warn-only
+ArchiveCaller --> EventBus : emit 'session-status-changed' (caller archived)
+
+Baton --> Handler : { teammatesShutdown, archived }
+Handler --> Transport : ok({archivedPath, plansIndexAction, archived, ...})
+
+@enduml

@@ -1,0 +1,154 @@
+' commit: d5549c6 (deep-review 批 C 收口) / impl: archive-plan-impl.ts (1281 LOC) + precheck-helpers.ts
+' description: archive_plan 4 态预检笛卡尔 + 原子 7 步收口失败 phaseHint 决策树 — 任一 reject endpoint 含具体 hint 内容
+' last_updated: 2026-05-28
+@startuml archive-plan-precheck-decision
+
+title archive_plan — 4 态预检 + 原子 7 步收口决策树
+
+start
+
+:Caller invoke archive_plan({plan_id, worktree_path, ...});
+
+if (EXTERNAL_CALLER_ALLOWED.archive_plan?) then (false — deny)
+  :reject: external caller deny;
+  note right
+    写 git + 删 worktree 高风险
+    EXTERNAL_CALLER_SENTINEL 拦截
+  end note
+  end
+endif
+
+:Handler sessionRepo.get(callerSid) 反查;
+if (DB throw / row null?) then (yes — fail-open)
+  :callerCwdWarnings.push hint;
+  note right
+    REVIEW_56 §F9: warnings 透传 ok return
+    退化 DEFAULT_DEPS.cwd = process.cwd()
+    + cwdReleaseMarker = null
+  end note
+endif
+
+partition "4 态笛卡尔预检 (cwdReleaseMarker × cwd 在 worktree 内)" {
+  if (cwdReleaseMarker == worktreePath?) then (yes)
+    if (cwd 在 worktree 内?) then (yes)
+      :状态 1 pass — 跨 adapter (codex 端);
+    else (no)
+      :状态 2 pass — 默认 (caller 已 ExitWorktree keep);
+    endif
+  else (null)
+    if (cwd 在 worktree 内?) then (yes)
+      :状态 4 REJECT — cwd-resilience guard;
+      note right
+        caller 必须先 ExitWorktree(action: 'keep')
+        cwd 仍在 worktree 内 → mcp 无法调
+        ExitWorktree CLI 内部 tool
+      end note
+      end
+    else (no)
+      :状态 3 pass — 无 marker (历史 plan / 手工建);
+    endif
+  endif
+}
+
+partition "其他预检短路" {
+  if (plan frontmatter status == in_progress?) then (no)
+    :REJECT — plan 已 completed/abandoned;
+    end
+  endif
+  if (worktree dirty? git status -uno --porcelain) then (yes)
+    :REJECT — worktree 未 commit 改动;
+    end
+  endif
+  if (detached HEAD?) then (yes)
+    :REJECT — base_branch checkout 不安全;
+    end
+  endif
+  if (mainRepo 3 critical paths dirty? archivedPath/indexPath/planFilePath) then (yes)
+    :REJECT — soft hint 引导;
+    note right
+      F1b 软引导 (REVIEW_59 批 A):
+      caller fix critical paths 后重 invoke
+      或走 §Step 4 5 步手工归档 +
+      shutdown_baton_teammates 补跑 phase 1
+    end note
+    end
+  endif
+  if (plan_id ↔ worktree_path frontmatter cross-check OK?) then (no)
+    :REJECT — F2 HIGH 防 silent corruption;
+    note right
+      F2 HIGH (REVIEW_59 批 A R2 反驳轮升):
+      plan frontmatter.worktree_path !=
+      args.worktree_path → 双 plan 一起死
+    end note
+    end
+  endif
+}
+
+partition "原子 7 步收口 (任一失败立即 abort + phaseHint)" {
+  :Step 1: git checkout base_branch;
+  note left
+    base_branch 默认 = plan frontmatter.base_branch
+    caller 未传时不再 fallback "main"
+    (REVIEW_36 R2 user feedback)
+  end note
+  :Step 2: git merge --ff-only worktree-<plan_id>;
+  if (ff-merge 失败?) then (yes)
+    :return error + phaseHint;
+    note right
+      post-ff-merge 失败专用 7 phase phaseHint
+      给具体 manual recovery 决策树
+    end note
+    end
+  endif
+  :Step 3: write plan frontmatter\n(status=completed + final_commit + completed_at);
+  :Step 4: mv plan → ref/plans/<plan_id>.md;
+
+  if (<plan-artifact-dir>/spike-reports/ 存在?) then (yes)
+    :Step 4.5: mv spike-reports/ → ref/plans/<plan_id>/;
+    if (mv 失败 (EXDEV / perm)?) then (yes)
+      :warnings.push hint (不阻塞 ok);
+      :spikeReportsArchived = null;
+    else (no)
+      :spikeReportsArchived = {srcPath, dstPath};
+    endif
+  else (no)
+    :spikeReportsArchived = null (skip);
+  endif
+
+  :Step 5: sync INDEX.md\n(F6 RMW 单飞锁 + 4 态 created/appended/updated/unchanged);
+  :Step 6: git add + commit\n(pathspec 隔离 3 critical paths + spike-reports/);
+  :Step 7a: clearCwdReleaseMarker(callerSid);
+  note left
+    F10 修法 (REVIEW_59 批 A):
+    提前到 commit 后,Step 7b/c 失败时
+    marker 已清 caller 跑别 plan 不撞 stale
+  end note
+  :Step 7b: git worktree remove <worktree_path>;
+  :Step 7c: git branch -D worktree-<plan_id>;
+}
+
+partition "runBatonCleanup phase 1+2 (CHANGELOG_109 抽 helper)" {
+  :phase 1: shutdownTeammatesOnBaton(callerSid);
+  if (caller 是任一 team 的 lead?) then (no)
+    :teammatesShutdown.skipped = 'caller-not-lead';
+  else (yes)
+    :close 同 team 全部 active+dormant teammate;
+    note right
+      dedup 跨 team 共享 sid
+      per-sid try/catch (单个 close failed 仅 warn)
+    end note
+  endif
+
+  :phase 2: archiveCaller(callerSid);
+  if (archive throw / row missing?) then (yes)
+    :archived = 'failed' (warn-only 不阻塞);
+  else (no)
+    :archived = 'ok';
+  endif
+}
+
+:return ok({archivedPath, commitHash, plansIndexAction, archived,\n  teammatesShutdown, warnings: [...callerCwdWarnings, ...implWarnings],\n  spikeReportsArchived, ...});
+
+stop
+
+@enduml
