@@ -28,15 +28,15 @@
  * os.homedir + sessionRepo.setCwdReleaseMarker），test 通过传 `deps` 完全替换为 in-memory mock。
  */
 
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { promises as fs, type Stats } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 
 import { parseFrontmatter } from '@main/utils/frontmatter';
-
-const execFileAsync = promisify(execFile);
+import {
+  runGitDefault,
+  readFileDefault,
+  existsDefault,
+  homedirDefault,
+} from './_shared/default-impl-deps';
 
 export interface EnterWorktreeInput {
   planId: string;
@@ -84,21 +84,10 @@ export interface EnterWorktreeDeps {
 }
 
 const DEFAULT_DEPS: Required<EnterWorktreeDeps> = {
-  runGit: async (args, cwd) => {
-    const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: 1024 * 1024 });
-    return stdout.toString().trim();
-  },
-  readFile: async (p) => fs.readFile(p, 'utf8'),
-  exists: async (p) => {
-    try {
-      const _: Stats = await fs.stat(p);
-      void _;
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  homedir: () => os.homedir(),
+  runGit: runGitDefault,
+  readFile: readFileDefault,
+  exists: existsDefault,
+  homedir: homedirDefault,
   // callerCwd / setCwdReleaseMarker 由 handler 显式注入(handler 端 import sessionRepo,
   // 避免 impl import 触发 electron.app load — 让本 impl test 走 deps inject 时不撞 electron)。
   // DEFAULT_DEPS 这两项故意抛 hint error,提示 caller 必须注入(silently no-op 会让 marker 不写

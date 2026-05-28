@@ -36,7 +36,7 @@ describe('archivePlanImpl — happy path', () => {
     // git 调用顺序（按 impl 内 runGit 调用顺序，REVIEW_33 H1 在 step 7 前加 verify + checkout，
     // REVIEW_56 Batch B R1 MED-1 在 commit 后插入 archive-rev-parse-HEAD 拿 archiveCommit）：
     //   1. rev-parse --git-common-dir → /Users/test/repo/.git
-    //   2. rev-parse --abbrev-ref HEAD → "worktree-mcp-bug-fix"
+    //   2. rev-parse --abbrev-ref HEAD → "worktree-mcp-bug-fix-20260513"
     //   3. status --porcelain → "" (clean)
     //   4. rev-parse --verify <baseBranch> → "<hash>" (verify exists, REVIEW_33 H1)
     //   5. checkout <baseBranch> → "" (REVIEW_33 H1)
@@ -51,7 +51,7 @@ describe('archivePlanImpl — happy path', () => {
     //  12. branch -D worktree-mcp-bug-fix → ""
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',
@@ -72,7 +72,7 @@ describe('archivePlanImpl — happy path', () => {
     // REVIEW_56 Batch B R1 MED-1: commitHash 现在是 archive commit (含 status=completed /
     // INDEX 更新 / spike-reports 归档),与 worktree merge tip "deadbeef123" 是双 hash。
     expect(ok.commitHash).toBe('archivehash');
-    expect(ok.branchDeleted).toBe('worktree-mcp-bug-fix');
+    expect(ok.branchDeleted).toBe('worktree-mcp-bug-fix-20260513');
     expect(ok.worktreeRemoved).toBe(input.worktreePath);
     // archive-plan-tool-ux-followup-20260515 (b)+(c): plansIndexAppended boolean → plansIndexAction
     // 四态 enum。fixture INDEX 不存在 → action='created'。warnings 数组(HIGH-2 silent override warn)
@@ -100,14 +100,14 @@ describe('archivePlanImpl — happy path', () => {
     expect(state.gitCalls[4]?.args).toEqual(['checkout', 'main']);
     expect(state.gitCalls[4]?.cwd).toBe(expectedMainRepo);
     // ff-merge 从 [3] 移到 [5]
-    expect(state.gitCalls[5]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix']);
+    expect(state.gitCalls[5]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix-20260513']);
     expect(state.gitCalls[5]?.cwd).toBe(expectedMainRepo);
     expect(state.gitCalls[8]?.args[0]).toBe('commit');
     // REVIEW_56 Batch B R1 MED-1: [9] 新增 archive-rev-parse-HEAD,worktree remove / branch -D 各 +1
     expect(state.gitCalls[9]?.args).toEqual(['rev-parse', 'HEAD']);
     expect(state.gitCalls[9]?.cwd).toBe(expectedMainRepo);
     expect(state.gitCalls[10]?.args).toEqual(['worktree', 'remove', input.worktreePath]);
-    expect(state.gitCalls[11]?.args).toEqual(['branch', '-D', 'worktree-mcp-bug-fix']);
+    expect(state.gitCalls[11]?.args).toEqual(['branch', '-D', 'worktree-mcp-bug-fix-20260513']);
 
     // 写归档 plan：含新 frontmatter + body 保留。
     // REVIEW_56 Batch B R1 MED-1: frontmatter final_commit 仍是 worktree merge tip "deadbeef123"
@@ -231,7 +231,7 @@ describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
     // fixture 默认不 set spike-reports 文件 → exists 反查 false → skip
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',
@@ -263,7 +263,7 @@ describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
 
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',
@@ -309,7 +309,7 @@ describe('archivePlanImpl — spike-reports/ 归档 (R3 follow-up)', () => {
 
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',
@@ -508,7 +508,7 @@ describe('archivePlanImpl — REVIEW_33 H10 worktreePath 存在性预检', () =>
     // fixtureHappyPath 已设了 worktreePath 占位 → step 0 应放行
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',

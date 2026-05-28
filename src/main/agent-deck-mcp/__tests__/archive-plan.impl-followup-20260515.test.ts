@@ -295,7 +295,10 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-2 silent override warn', (
     );
     expect(_isArchivePlanError(result)).toBe(false);
     const ok = result as ArchivePlanResult;
-    expect(ok.warnings).toEqual([]);
+    // CHANGELOG_169 F2/F7: fixture frontmatter 无 worktree_path → soft warn push;branch 名不
+    // 符 enter_worktree 约定 → soft warn push。核心契约 silent-override warn 不应出现即可。
+    const silentOverrideWarn = ok.warnings.find((w) => w.includes('silent override'));
+    expect(silentOverrideWarn).toBeUndefined();
   });
 });
 
