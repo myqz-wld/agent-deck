@@ -21,7 +21,7 @@ import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map'
 // R37 P2-E Step 3.4a：抽 input-pack.ts (packCodexInput + extractAttachmentPaths 模块级纯函数)。
 // R37 P2-E Step 3.4b：抽 session-finalize.ts (persistSessionFields 收口 setCodexSandbox + setModel + warn)。
 // R37 P2-E Step 3.4c：抽 restart-controller.ts (RestartController sub-class 持冷切 sandbox method)。
-import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES, THREAD_STARTED_FALLBACK_MS } from './constants';
+import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES } from './constants';
 import type {
   CodexBridgeOptions,
   CodexSessionHandle,
@@ -32,6 +32,9 @@ import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { packCodexInput, extractAttachmentPaths } from './input-pack';
 import { persistSessionFields } from './session-finalize';
 import { RestartController, type RestartCtx } from './restart-controller';
+import { buildCodexThreadOptions } from './thread-options-builder';
+import { runCreateSessionRollback } from './create-session-rollback';
+import { awaitResumedThreadStart } from './resume-path-await';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import type { HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
@@ -496,33 +499,28 @@ export class CodexSdkBridge {
       // approvalPolicy 沿用 'never'（现状）；networkAccessEnabled / additionalDirectories
       // 不写字段（codex SDK 走 ThreadOptions 默认）。options-builder 在 reviewer-* 路径下
       // 已 spread 4 字段 unsafe default,这里直接透传不影响普通 codex session lead 路径。
-      thread = codex.resumeThread(effectiveResumeThreadId, {
-        workingDirectory: cwd,
-        sandboxMode,
-        approvalPolicy: opts.approvalPolicy ?? 'never',
-        skipGitRepoCheck: true,
-        ...(opts.model !== undefined ? { model: opts.model } : {}),
-        ...(opts.networkAccessEnabled !== undefined
-          ? { networkAccessEnabled: opts.networkAccessEnabled }
-          : {}),
-        ...(opts.additionalDirectories !== undefined
-          ? { additionalDirectories: [...opts.additionalDirectories] }
-          : {}),
-      });
+      thread = codex.resumeThread(
+        effectiveResumeThreadId,
+        buildCodexThreadOptions({
+          workingDirectory: cwd,
+          sandboxMode,
+          approvalPolicy: opts.approvalPolicy,
+          model: opts.model,
+          networkAccessEnabled: opts.networkAccessEnabled,
+          additionalDirectories: opts.additionalDirectories,
+        }),
+      );
     } else {
-      thread = codex.startThread({
-        workingDirectory: cwd,
-        sandboxMode,
-        approvalPolicy: opts.approvalPolicy ?? 'never',
-        skipGitRepoCheck: true,
-        ...(opts.model !== undefined ? { model: opts.model } : {}),
-        ...(opts.networkAccessEnabled !== undefined
-          ? { networkAccessEnabled: opts.networkAccessEnabled }
-          : {}),
-        ...(opts.additionalDirectories !== undefined
-          ? { additionalDirectories: [...opts.additionalDirectories] }
-          : {}),
-      });
+      thread = codex.startThread(
+        buildCodexThreadOptions({
+          workingDirectory: cwd,
+          sandboxMode,
+          approvalPolicy: opts.approvalPolicy,
+          model: opts.model,
+          networkAccessEnabled: opts.networkAccessEnabled,
+          additionalDirectories: opts.additionalDirectories,
+        }),
+      );
     }
 
     const firstInput = packCodexInput(opts.prompt, opts.attachments);
@@ -609,123 +607,17 @@ export class CodexSdkBridge {
       // - 30s timeout → 退化 resolve(opts.resume) 假定 SDK 慢但能起,与新路径 resolveWithFallback
       //   不同（new 路径需 emit error + finished 完整序列；resume 已 emit session-start + user msg
       //   只缺 thread.started 后续事件,不应武断标 finished:error）
-      const resumedId = await new Promise<string>((resolve, reject) => {
-        let resolved = false;
-        const fallback = setTimeout(() => {
-          if (resolved) return;
-          resolved = true;
-          console.warn(
-            `[codex-bridge] resume ${opts.resume} no thread.started in ${THREAD_STARTED_FALLBACK_MS}ms, ` +
-              `returning original id (turn loop may still recover)`,
-          );
-          // symmetry-plan P3 R2-3 (reviewer-claude LOW-B):补 emit info message 让用户在
-          // SessionDetail 知道 30s 没拿到 thread.started — 不 `error: true`(commit c9c94d7
-          // 注释明示 resume 已 emit session-start + user msg 不应武断标 finished:error,
-          // 仅 turn loop 慢启动场景信息提示)。修前 silent resolve 用户等 30s 啥反馈没有。
-          this.opts.emit({
-            sessionId: opts.resume!,
-            agentId: AGENT_ID,
-            kind: 'message',
-            payload: {
-              text:
-                `⚠ Codex 30 秒内未发出 thread.started 事件,可能 SDK 慢启动 — 后续 turn 可能仍能` +
-                `恢复,请等待或检查 codex 鉴权 / 二进制路径(终端 \`codex auth\` 或设置面板「Codex 二进制路径」)。`,
-            },
-            ts: Date.now(),
-            source: 'sdk',
-          });
-          resolve(opts.resume!);
-        }, THREAD_STARTED_FALLBACK_MS);
-
-        void this.threadLoop.runTurnLoop(
-          internal,
-          opts.resume!,
-          (realId) => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(fallback);
-            // realId 可能 = opts.resume(common case)或新 id(thread-loop 已 rename Map key + 调
-            // renameSdkSession + update internal.threadId,outer 仅取最终 id 即可)
-            resolve(realId);
-          },
-          (earlyErr) => {
-            // symmetry-plan P3 R3 (reviewer-codex MED):cleanup + emit finished **永远做**(不管
-            // resolved 不 resolved),覆盖两条路径:
-            // 1. 30s 内 earlyErr (resolved=false):cleanup → emit finished → reject(让 outer caller
-            //    catch 触发上下文相关错误处理 / DB rollback)
-            // 2. 30s timeout 后 late earlyErr (resolved=true):cleanup → emit finished + emit error
-            //    message(outer caller 已 resolve 不会 catch,补 emit error 让用户在 SessionDetail 看到失败)
-            //
-            // 修前 R2-1 仅修了路径 1,路径 2 (timeout resolve → late earlyErr → `if (resolved) return`
-            // 短路) 仍残留 stale internal.thread + 后续 sendMessage `if (!s)` 命中绕过 recoverer。
-            //
-            // symmetry-plan P3 R2-1 (reviewer-codex HIGH):cleanup 半初始化 sessions Map + sdkClaim,
-            // 让后续 sendMessage 走 sessions Map miss → recoverer 自愈正常路径。
-            //
-            // **P5 Round 1 reviewer-claude+codex 双方独立 HIGH-2 修法**：earlyErrCb cleanup 必须
-            // 同步清 codexBySession + mcpSessionTokenMap (旧实现仅清 sessions Map + releaseSdkClaim,
-            // 漏清两个 Map → recoverer 重试 createSession({resume}) 顶部 allocate(opts.resume) 走
-            // re-allocate 路径 (mcp-session-token-map.ts:52 清旧反向 entry + 生成新 tokenB),
-            // ensureCodex(opts.resume, tokenB) 命中 codexBySession.get cache 返 leaked Codex-A
-            // (env 仍 frozen tokenA),resumeThread 在 Codex-A spawn 子进程读 frozen tokenA
-            // → HookServer.checkMcpAuth 反查 tokenA = null + 全局 token mismatch → 401,
-            // codex teammate mcp send_message 全失败,reply chain 断)。closeSession line 730-744
-            // 标准 cleanup 模板已含双轨 (codexBySession.delete + mcpSessionTokenMap.release),
-            // 这里同款。delete / release 失败仅 console.warn 不阻塞 cleanup 后续 emit。
-            this.sessions.delete(opts.resume!);
-            sessionManager.releaseSdkClaim(opts.resume!);
-            try {
-              this.codexBySession.delete(opts.resume!);
-            } catch (cleanupErr) {
-              console.warn(
-                `[codex-bridge] codexBySession.delete failed during earlyErr cleanup for ${opts.resume}:`,
-                cleanupErr,
-              );
-            }
-            try {
-              mcpSessionTokenMap.release(opts.resume!);
-            } catch (cleanupErr) {
-              console.warn(
-                `[codex-bridge] mcpSessionTokenMap.release failed during earlyErr cleanup for ${opts.resume}:`,
-                cleanupErr,
-              );
-            }
-            // resume 路径已 emit session-start + user msg,补 finished 完成 UI 序列。
-            this.opts.emit({
-              sessionId: opts.resume!,
-              agentId: AGENT_ID,
-              kind: 'finished',
-              payload: { ok: false, subtype: 'error' },
-              ts: Date.now(),
-              source: 'sdk',
-            });
-
-            if (resolved) {
-              // 路径 2 (late earlyErr after 30s timeout):outer caller 已 resolve 不会 catch,
-              // 补 emit error message 让用户看到失败原因 + 知道下条消息会自愈。
-              this.opts.emit({
-                sessionId: opts.resume!,
-                agentId: AGENT_ID,
-                kind: 'message',
-                payload: {
-                  text:
-                    `⚠ Codex 启动失败 (30s timeout 后 late error):${earlyErr}。` +
-                    `会话已清理,下条消息将走自愈路径重新尝试 resume。`,
-                  error: true,
-                },
-                ts: Date.now(),
-                source: 'sdk',
-              });
-              return;
-            }
-
-            // 路径 1 (30s 内 earlyErr):reject 让 outer caller 自己 emit 上下文相关错误消息
-            // (避免双错误消息)。
-            resolved = true;
-            clearTimeout(fallback);
-            reject(new Error(`Codex resume early error: ${earlyErr}`));
-          },
-        );
+      // REVIEW_60 R4 §B 抽法 #1 修法:resume path inner Promise 三态状态机 (30s timeout +
+      // onFirstId + earlyErrCb 4 资源 cleanup) 抽到 resume-path-await.ts helper。详 helper jsdoc。
+      const resumedId = await awaitResumedThreadStart({
+        applicationSid: opts.resume,
+        internal,
+        deps: {
+          threadLoop: this.threadLoop,
+          sessions: this.sessions,
+          codexBySession: this.codexBySession,
+          emit: this.opts.emit,
+        },
       });
       // **REVIEW_56 R2 MED-2 修法 (reviewer-codex)**: facade resume 路径必须返
       // applicationSid 而非 resumedId(后者可能是 case 3 fork 后的新 cli sid 维度,与
@@ -775,45 +667,17 @@ export class CodexSdkBridge {
 
     return { sessionId: internal.applicationSid };
     } catch (err) {
-      // REVIEW_60 MED-codex-2 修法 catch 块 (与 try L442 配对):
-      // best-effort cleanup 4 个资源,每个独立 try/catch warn 不抛(let 其余 cleanup 仍跑) +
-      // 最终 rethrow err 让 caller (recoverer.recoverAndSend / restart-controller / ipc) 看到
-      // 真错。所有 cleanup 操作都是 idempotent (Map.delete / Set.delete / token map.release —
-      // sid 不在 → 静默 no-op),thread-loop earlyErrCb 已 cleanup 的资源重复调用安全。
-      try {
-        this.codexBySession.delete(initialSid);
-      } catch (cleanupErr) {
-        console.warn(
-          `[codex-bridge] codexBySession.delete failed during createSession early-err cleanup for ${initialSid}:`,
-          cleanupErr,
-        );
-      }
-      try {
-        mcpSessionTokenMap.release(initialSid);
-      } catch (cleanupErr) {
-        console.warn(
-          `[codex-bridge] mcpSessionTokenMap.release failed during createSession early-err cleanup for ${initialSid}:`,
-          cleanupErr,
-        );
-      }
-      try {
-        this.sessions.delete(initialSid);
-      } catch (cleanupErr) {
-        console.warn(
-          `[codex-bridge] sessions.delete failed during createSession early-err cleanup for ${initialSid}:`,
-          cleanupErr,
-        );
-      }
-      if (opts.resume) {
-        try {
-          sessionManager.releaseSdkClaim(opts.resume);
-        } catch (cleanupErr) {
-          console.warn(
-            `[codex-bridge] releaseSdkClaim failed during createSession early-err cleanup for ${opts.resume}:`,
-            cleanupErr,
-          );
-        }
-      }
+      // REVIEW_60 MED-codex-2 + R4 §B 抽法 #3 修法 (与 try L442 配对):
+      // 4 资源 best-effort cleanup 抽到 create-session-rollback.ts helper (REVIEW_60 R4 reviewer-claude
+      // 抽法清单),caller 调完后 throw err。详 helper jsdoc。
+      runCreateSessionRollback({
+        sessionId: initialSid,
+        resumeSessionId: opts.resume,
+        deps: {
+          codexBySession: this.codexBySession,
+          sessions: this.sessions,
+        },
+      });
       throw err;
     }
   }

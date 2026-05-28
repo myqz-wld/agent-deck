@@ -67,6 +67,40 @@ export type { SdkSessionHandle, SdkBridgeOptions } from './types';
  *    会等第一条 SDKMessage 拿到 session_id 后再返回，并把它登记到
  *    sessionManager 的 sdk-owned 集合，让来自 hook 回环的同 id 事件被去重。
  * 3. 所有 emit 都打 source: 'sdk'。
+ *
+ * **REVIEW_60 R4 §保护清单（不动文件 / file-size-guardrail.md SOP §3 档 3）**：
+ * 本文件 806 LOC（>500 行护栏）但故意不进一步拆,理由（reviewer-claude R4 档 3 主张
+ * + lead 现场补强论据「整段搬出 helper 实测仍 ~500+ LOC,只换文件不减真复杂度」）:
+ *
+ * 1. createSession 主体已抽 12+ helpers (CHANGELOG_52 Step 3a-3g):
+ *    PermissionResponder / makeCanUseTool / SessionRecoverer / StreamProcessor /
+ *    RestartController / runCloseSessionCleanup / buildMcpServersForSession /
+ *    buildClaudeQueryOptions / validateSendMessageOrThrow / finalizeSessionStart /
+ *    resolveClaudeSandboxMode / resolveClaudeModel。
+ *
+ * 2. createSession 主体闭包持 ~10 个跨段共享 ref (tempKey / internal / claudeSandboxMode /
+ *    claudeModel / realId / opts / releasePending / mcpServers / effectiveResumeCliSid /
+ *    q / query / runtime / claudeBinary / sandboxOpts)。tier-2 抽 sub-method 需打包
+ *    args dict 反降可读性。
+ *
+ * 3. canUseTool 闭包注入 6 个 deps (internal / sid getter / mode getter / emit /
+ *    timeout / responder),与 PermissionResponder 双向强耦合不可独立抽。
+ *
+ * 4. sessions Map / sdkOwned 集合 / pendingMessages 三状态强耦合,createSession
+ *    内 try/catch cleanup 必须能同时见到 internal / tempKey / opts.resume。
+ *
+ * 5. 4 protected wrappers (resumeJsonlExists / cwdExists / summariseForHandOff /
+ *    listEventsForSession) 作 test seam 必须挂 facade class 上,不能下沉。
+ *
+ * 6. Plan reverse-rename-sid-stability-20260520 §A.4-pre S2-S9 多 step 注释绑定
+ *    本文件具体行号 + 字段 mutation 顺序,跨 sub-module 化会让 plan 注释 reference rot。
+ *
+ * 7. (mild 候选 P1 — 不入档 2 阈值) catch block ~38 LOC 可抽 `runCreateSessionRollback`
+ *    helper (与 codex/sdk-bridge/create-session-rollback.ts 同款),但减幅 < 5%,不入档 2
+ *    阈值「30%+ 减幅」。保留 inline。
+ *
+ * 下次拆分轮直接跳过本文件;若有 design 重大变更必须重新评估再拆。阈值调整属约定升级
+ * 走「决策对抗」三态裁决,不在本批 fix 范围。
  */
 export class ClaudeSdkBridge {
   /** key 是真实 session_id（拿到之前用临时 id） */

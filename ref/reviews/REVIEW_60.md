@@ -109,3 +109,59 @@ R2 fix 后发 R3 prompt 让 reviewer 收口判定（不再扩 scope）。
 2. **F6 [MED test]** 补 sdk-bridge.recovery.test.ts archived 并发 unarchive race 用例（双端各加一个 test：mock unarchive 返回可控 Promise，先发 'first' message，在 unarchive 未 resolve 时发 'second'，断言 createSession 仍只调用一次 + unarchive 只调用一次 + 第二条等待 first recovery 后走 sendThunk(finalId, ...))。
 3. **F7 [LOW test]** 补 codex early-err-cleanup.test.ts 3 个用例：loadCodexSdk reject / resumeThread sync throw / startThread sync throw，分别断言 mcpSessionTokenMap.get(token) === null + codexBySession.has(initialSid) === false + sessions.has(initialSid) === false，resume 场景再断言 releaseSdkClaim(resumeSid) 被调用。
 4. **F8 [INFO *未验证*]** 其他 codex CLI 启动期间高频 loader warning pattern（profile.toml / config.toml schema 错等）扩展 LOADER_WARNING_PATTERNS：等用户后续报项再补；codex-rs 源码 grep 确证 pattern 后再扩。
+
+---
+
+## R4 R5 补 split-feasibility 专项 review（单文件大小护栏维度）
+
+R1-R3 focus 漏 cover 单文件大小护栏维度（4 文件 3018 LOC 全部超 500 行 SOP file-size-guardrail 护栏却未触及拆分）。R4 spawn 新一对 reviewer pair（reviewer-claude `572ae891` Opus 4.7 + reviewer-codex `019e6e2c` gpt-5.5 xhigh，新 team `dcr-batch-b-split-20260528`）专项补这一漏。
+
+### R4 三档裁定（双方独立提出 + 分歧合议）
+
+| 文件 | reviewer-codex R4 | reviewer-claude R4 | R5 共识 |
+|---|---|---|---|
+| A claude index.ts (806) | 档 1 必拆（5 deps 估算） | **档 3 真不能拆**（已抽 12+ helpers + 闭包 ~10 跨段 + jsdoc 占大头） | ✅ R5 双方接受档 3：lead 现场补强论据「整段搬出 helper 实测仍 ~500+ LOC 只换文件不减真复杂度」（reviewer-codex R5 主动接受推翻 R4 档 1 主张） |
+| B codex index.ts (1010) | 档 1 必拆（整段搬 createCodexSession） | **档 2 强**（3 处独立 sub-module: resume-path-await + thread-options-builder + create-session-rollback ~188 LOC ~36% 减幅） | ✅ R5 双方接受 reviewer-claude 细粒度 3 helper 优于整段搬出（reviewer-codex R5 接受「每个 helper 单一职责 ≤200 LOC + facade 保留 lifecycle 编排视图」） |
+| C claude recoverer.ts (670) | 档 2 抽 4 helper（types + cwd + placeholder + jsonl-exists） | **档 2 弱 borderline**（IIFE 紧凑 + jsdoc 撑大 + 减幅 ~10%） | ✅ R5 共识 polish 候选 follow-up，本轮不做 |
+| D codex recoverer.ts (617) | 档 2 抽 4 helper（mirror C + codex-jsonl-exists） | **档 2 强 mirror**（codex-jsonl-fallback + codex-recoverer-messages 镜像 claude，cross-adapter parity 维护漂移成本驱动） | ✅ R5 双方接受 mirror 2 helper trade-off（reviewer-codex R5 接受「跨 adapter 漂移风险最高的文案与 jsonl fallback 收口；剩余抽法属后续体积治理不阻塞」） |
+
+### R4 fix loop（5 helper 抽出）
+
+**A**（claude sdk-bridge/index.ts）：加 §保护清单 jsdoc 60 LOC（7 条不动文件理由，与 hand-off-session.ts L8-22 样板对齐）。
+
+**B**（codex sdk-bridge/index.ts 1010 → 874 LOC -13.5%）：
+- `thread-options-builder.ts` (49 LOC): `buildCodexThreadOptions` pure builder 替代 resumeThread/startThread 双分支 spread
+- `create-session-rollback.ts` (96 LOC): `runCreateSessionRollback` 4 资源 best-effort idempotent cleanup（与 closeSession L730-L744 模板对齐）
+- `resume-path-await.ts` (191 LOC): `awaitResumedThreadStart` Promise 三态状态机（30s timeout + onFirstId + earlyErrCb 4 资源 cleanup）
+
+**D**（codex sdk-bridge/recoverer.ts 617 → 597 LOC）：
+- `codex-recoverer-messages.ts` (88 LOC) mirror claude `recoverer-messages.ts`: 3 builder（cwdMissingError / cwdFallbackInfo / jsonlMissingNoSummary）
+- `codex-jsonl-fallback.ts` (142 LOC) mirror claude `jsonl-fallback.ts maybeJsonlFallback`: 替代 jsonl-missing fallback 整段（精简版无 LLM 摘要 prepend）
+
+### R5 收口（双方共识 ✅ 可合）
+
+- **reviewer-claude R5**: 7 条 jsdoc 覆盖档 3 全部论据 + 与 hand-off-session.ts 样板对齐 / 5 helper 字面等价于原 inline 详细对比 / 4 路径状态机字面对比 / 4 资源 cleanup 顺序验证 / 0 处 *未验证* 条目
+- **reviewer-codex R5**: 0 HIGH/MED/LOW/INFO finding / 接受档 3 立场 / 接受细粒度 3 helper 优于整段搬出 / 接受 mirror 2 helper trade-off / 1 INFO 非阻塞 nit（jsdoc 硬行号偏移，后 polish 修弱化）
+
+### R4 R5 异构互补
+
+- **reviewer-codex R4** 倾向「整段搬出 helper 5 deps 收敛」激进抽法，R5 实测后主动接受推翻
+- **reviewer-claude R4** 倾向「档 3 保护清单 + 细粒度抽法」保守，引「整段搬出只换文件不减复杂度」论据驳倒 reviewer-codex 档 1 方案
+- **lead 现场实测铁证**：codex 端抽 3 helper facade 仅减 13.5%（不到 reviewer-claude R4 估算 36% 一半），印证 reviewer-claude「整段搬出 ROI 低」判断；同时印证细粒度抽法（3 helper 各单一职责 ≤200 LOC）真减复杂度
+- **SKILL 学习点**：R5 reviewer 主动接受推翻自己 R4 立场是良性现象 — 异构对抗的目的不是固守立场而是收敛真知，reviewer 应该被实测数据说服而非教条坚持
+
+### R4 R5 测试覆盖
+
+- typecheck 0 error
+- 16 sdk-bridge 文件 / 170 tests pass / 0 fail / 0 error
+- 5 helper 字面等价于原 inline（R5 详细对比验证零行为变化）
+
+### R4 R5 修法关联 fix
+
+所有 R4 修法见 [CHANGELOG_171.md](../changelogs/CHANGELOG_171.md)。
+
+### R4 R5 Follow-up（独立 plan / 体积治理后续）
+
+1. **C [档 2 弱 borderline]** claude recoverer.ts 抽 runRecoverySingleFlight（减幅 ~10%，优先级低）
+2. **A mild 候选 P1** catch block ~38 LOC 抽 runCreateSessionRollback（减幅 < 5%，不入档 2 阈值）
+3. **R4 §C/§D 4 helper 细粒度方案**（recoverer-types / recovery-cwd / recovery-placeholder / codex-jsonl-exists）— reviewer-codex R4 推荐但本轮取 reviewer-claude mirror 2 helper trade-off；4 helper 细粒度方案留作体积治理 follow-up
