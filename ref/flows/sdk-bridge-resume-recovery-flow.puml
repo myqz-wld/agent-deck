@@ -1,0 +1,117 @@
+' commit: 627a0c2 (批 B R1-R3 functional fix) + 5b66cd8 (批 B R4 split refactor) / sdk-bridge 双端 4 文件
+' description: sdk-bridge sendMessage 主路径 + recoverAndSend 断连自愈 + jsonl-missing fallback + tempKey→realId rename sequence (claude / codex 双端 cross-adapter parity)
+' last_updated: 2026-05-28
+@startuml sdk-bridge-resume-recovery-flow
+
+title sdk-bridge resume / recovery — sendMessage 主路径 + recoverAndSend 单飞 + jsonl-missing fallback (双端)
+
+actor Caller as C
+participant "sdk-bridge\n(index.ts)" as SB
+participant "sessions Map\n(in-memory)" as SMap
+participant "recoverer.ts\nrecoverAndSend" as Rec
+participant "sessionRepo (DB)" as DB
+participant "sessionManager" as SM
+participant "SDK subprocess\n(claude-code / codex-cli)" as SDK
+participant "stream-processor (claude)\nthread-loop (codex)" as Stream
+participant "fs (~/.claude/projects)" as Fs
+
+== 主路径: sendMessage in-memory active ==
+
+C -> SB: sendMessage(sessionId, text)
+SB -> SMap: sessions.has(sessionId)?
+
+alt sessions.has === true (主路径)
+  SMap --> SB: internal { permissionResponder, inputStream, ... }
+  SB -> Stream: pushUserMessage(text)
+  Stream -> SDK: stdin write 'user' input
+  SDK -> Stream: 'assistant' / 'user' / 'result' messages
+  Stream -> SMap: parseAndEmit (advance state)
+  SMap --> C: emit AgentEvent (kind: 'message' / 'status' / 'file-changed')
+else sessions.has === false (断连)
+  SMap --> SB: undefined
+  SB -> Rec: recoverAndSend(sessionId, text)
+end
+
+== 断连自愈: recoverAndSend (single-flight 锁) ==
+
+Rec -> Rec: recovering.set(sessionId, promise)\n(防同 sessionId 并发 sendMessage 双 createSession)
+note right of Rec
+  REVIEW_60 R1 codex MED-1 修法:
+  unarchive + 占位 message dedup 从 IIFE 外移到 IIFE 内
+  recovering.set 同步注册防 archived session 并发
+  sendMessage 双 createSession 破坏不变量
+end note
+
+Rec -> DB: sessionRepo.get(sessionId) → cwd / permissionMode / lifecycle / archived_at
+alt row null → reject
+  Rec --> C: error "session-not-found"
+end
+
+Rec -> DB: sessionRepo.unarchive (archived_at = null)
+note right of DB
+  R1 fix: archived session 自愈 unarchive
+  恢复对话身份连续性
+end note
+
+Rec -> SMap: emit 占位 message '⚠ SDK 通道已断开,正在自动恢复…'\n(非 error 占位,UI 不显示哑巴 busy)
+
+== cwd 启发式 fallback (recoverer.ts:103-220) ==
+
+Rec -> Fs: cwdExists(row.cwd)?
+alt cwd 已失效 (worktree 被 archive_plan 删 / 跨设备同步丢)
+  Rec -> Rec: 启发式找仍存在的祖先目录\n(走 worktree path 取段之前 / 父目录 walk 不超过 home)
+  alt 找到 fallback cwd
+    Rec -> SMap: emit info '⚠ cwd 失效,自动回退到 <fallback-cwd>'
+  else 找不到
+    Rec -> SMap: emit error '⚠ cwd 失效且无法回退'
+    Rec --> C: reject
+  end
+end
+
+== jsonl-missing fallback (CLI 隐式 fork 第二种边界) ==
+
+Rec -> Fs: jsonl 路径 exists? (~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl)
+alt jsonl 不存在 (CLI --resume <sid> 撞 "No conversation found")
+  note right of Rec
+    REVIEW_60 R2 reviewer-claude HIGH 修法:
+    claude createSession catch 双 key 清理 sessions Map
+    (sessions.delete(applicationSid) + sessions.delete(tempKey))
+    防 sessions.set 切 applicationSid 后 catch 残留 leak
+  end note
+  Rec -> SB: maybeJsonlFallback (不带 resume 走新建 createSession)
+  SB -> SDK: createSession(opts) 无 resume
+  SDK --> SB: newRealSessionId (fresh thread)
+  SB -> SM: renameSdkSession(OLD_SID, newRealSessionId)\n(应用层 events/file_changes/summaries 子表整体迁移)
+  SB -> SMap: sessions.set(newRealSessionId, internal)
+  alt claude jsonl-fallback prepend LLM 摘要
+    Rec -> Rec: 拼接 history 摘要 prepend 到首条 prompt
+  end
+end
+
+== 正常 resume (jsonl 存在 + cwd valid) ==
+
+alt jsonl exists + cwd valid
+  Rec -> SB: createSession({resume: sessionId, prompt: text, cwd, permissionMode})
+  SB -> SDK: createSession(opts) 带 --resume
+  SDK -> Fs: read jsonl 复原历史
+  SDK --> SB: realSessionId (first realId 拿到)
+
+  alt realId !== opts.resume (CLI 软 fork)
+    SB -> SM: releaseSdkClaim(OLD_ID)
+    SB -> SM: renameSdkSession(OLD_ID, realId)\n(DB record + 子表整体迁移)
+  end
+
+  SB -> SMap: sessions.set(realId, internal)
+end
+
+== 收尾: 把 text 通过主路径 push ==
+
+Rec -> SB: 回到主路径 sendMessage(text)\n(后续等待者通过 inflight Promise 完成后重新走完整 sendMessage)
+SB -> Stream: pushUserMessage(text)
+Stream -> SDK: stdin write
+SDK -> Stream: response messages
+Stream -> SMap: emit AgentEvent
+
+Rec -> Rec: recovering.delete(sessionId) finally\n(REVIEW_60 R3 修法: await 前窗口 finally 单飞锁)
+
+@enduml
