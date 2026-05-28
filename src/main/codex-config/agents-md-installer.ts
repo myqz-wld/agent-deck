@@ -54,6 +54,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { settingsStore } from '@main/store/settings-store';
+import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
 
 const MARKER_START = '<!-- === Agent Deck START - DO NOT EDIT THIS BLOCK === -->';
 const MARKER_END = '<!-- === Agent Deck END === -->';
@@ -180,7 +181,12 @@ export function syncAgentDeckSection(
     return null;
   }
   if (!content.trim()) return null;
-  const newSection = buildSection(content);
+  // CHANGELOG_169 / REVIEW_<X>: substitute {{AGENT_DECK_RESOURCES}} placeholder with absolute
+  // path right before writing to ~/.codex/AGENTS.md so the codex agent in user-project cwd can
+  // directly `bash` / `cat` SOPs/templates. Mirrors sdk-injection.ts (claude end) substitution
+  // in getAgentDeckSystemPromptAppend.
+  const substituted = substituteResourcesPlaceholder(content);
+  const newSection = buildSection(substituted);
   const next = replaceOrAppendMarkerSection(existing, newSection);
   if (next === existing) return existing;
   atomicWrite(configPath, next);

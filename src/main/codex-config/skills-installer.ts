@@ -15,7 +15,11 @@
  *
  * **同步策略**：
  * - 启动时 / settings 改 toggle 时调一次 syncSkills()
- * - 文件 mtime 对比：仅源文件 mtime > 目标 mtime 才覆盖（避免每次启动写一遍）
+ * - **每次启动覆盖写入**（不依赖 mtime 对比；CHANGELOG_169 / REVIEW R3 deep-review fix 后,
+ *   syncSkills() 内部对每个 SKILL.md 先 raw → substituteResourcesPlaceholder → write,因为
+ *   substitute 输出依赖 runtime constants（app.isPackaged）,source mtime 不是权威 staleness 判据;
+ *   raw placeholder / 旧绝对路径残留会让 codex agent invoke skill 时 ENOENT。plugin 总量 ~10 KB
+ *   IO 成本忽略不计）
  * - 删除规则：源里删了的 skill 在目标也删（保持镜像一致）
  * - **不**同步 user 副本（resources/ 本身就是只读快照，不需要副本机制）
  *
@@ -38,6 +42,7 @@ import {
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { settingsStore } from '@main/store/settings-store';
+import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
 
 /** ~/.codex/skills/agent-deck 绝对路径（与 toml-writer / agents-md-installer 同模式不依赖 app.getPath）。 */
 export function getCodexSkillsAgentDeckDir(): string {
@@ -114,15 +119,14 @@ export function syncSkills(): string[] | null {
     const dstSkillMd = join(dstSkillDir, 'SKILL.md');
 
     try {
-      const srcMtime = statSync(srcSkillMd).mtimeMs;
-      const dstMtime = existsSync(dstSkillMd) ? statSync(dstSkillMd).mtimeMs : 0;
-      if (srcMtime <= dstMtime) {
-        written.push(name);
-        continue; // 已是最新，跳
-      }
-
+      // CHANGELOG_169 / REVIEW R2 codex HIGH: substitute {{AGENT_DECK_RESOURCES}} before write.
+      // **No mtime skip optimization** — substitute output depends on runtime constants
+      // (app.isPackaged), so source mtime is NOT authoritative for target staleness. After
+      // upgrading from raw → substituted SKILL, source mtime might still be older than target
+      // (which has stale raw cp), and mtime check would falsely skip. Always overwrite.
       mkdirSync(dstSkillDir, { recursive: true });
-      const content = readFileSync(srcSkillMd, 'utf8');
+      const raw = readFileSync(srcSkillMd, 'utf8');
+      const content = substituteResourcesPlaceholder(raw);
       writeFileSync(dstSkillMd, content, 'utf8');
       written.push(name);
     } catch (err) {

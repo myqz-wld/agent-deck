@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# reviewer-codex 模板 — 单次决策对抗 / 双 Bash 并发起外部 CLI 用
+# 默认走 ~/.codex 配置（模型 / approval / OAuth）
+# 用法：sed 替换 <REPO_ABS_PATH> + 占位后 cp 出去跑
+# Bash 工具调用必须 run_in_background: true + timeout: 600000
+#
+# mktemp 必走 $TMPDIR：macOS Claude Code sandbox 默认 deny 写 /var/folders/...
+# （mktemp 系统默认 TMPDIR），第一个 Bash 调用会卡审批 1200s 后被 SDK 自动拒。
+# 强制写到 sandbox 允许的 $TMPDIR（claude-code 已注入 = /tmp/claude-<uid>/）；
+# TMPDIR 未设置时落 /tmp，覆盖用户终端直跑场景。
+
+OUT=$(mktemp "${TMPDIR:-/tmp}/reviewer_codex_out.XXXXXX")
+PROMPT=$(mktemp "${TMPDIR:-/tmp}/reviewer_codex_prompt.XXXXXX")
+cat > "$PROMPT" <<'EOF'
+你是对抗 reviewer（Codex SDK，reasoning effort = xhigh；model 由 ~/.codex 配置决定）。独立审视下面 scope + focus，给结构化 finding。
+
+scope:
+<文件清单（绝对路径）/ diff range / 决策面描述>
+
+focus（可选）:
+<race / leak / 安全 / 架构 / 测试盲区 / 修复正确性 / ...>
+
+skip（可选）:
+<已审过 / 已修过的项 / 历史 review 结论>
+
+约束：
+- 只读、不要写文件、不要 commit、用中文输出
+- 能验证的优先实践验证：grep 调用点 / 读真实文件 / 跑只读命令（read-only sandbox 允许 cat / head / wc / git diff / 只读测试等；写操作均拒）
+- 纯文本推理结论必须自标 *未验证*，并自降级为弱断言（❓ + 非 HIGH）
+- 弱断言关键词（"可能 / 也许 / 看起来 / 应该 / 大概"）只允许出现在 *未验证* 条目里
+- 输出按严重度分组（HIGH / MED / LOW / INFO / *未验证*），每条带 文件:行号 + 代码片段（≤6 行）+ 验证手段
+EOF
+zsh -i -l -c "codex exec --sandbox read-only --skip-git-repo-check \
+  -c model_reasoning_effort=\"xhigh\" \
+  -C '<REPO_ABS_PATH>' -o '$OUT' - < '$PROMPT'"
+cat "$OUT"; rm -f "$OUT" "$PROMPT"

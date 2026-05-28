@@ -37,6 +37,7 @@ import { ASSET_NAME_REGEX } from '@shared/types';
 import { getClaudeAgentDeckPluginPath } from './adapters/claude-code/sdk-injection';
 import { getCodexAgentDeckPluginPath } from './adapters/codex-cli/codex-config-paths';
 import { parseFrontmatter } from './utils/frontmatter';
+import { substituteResourcesPlaceholder } from './utils/resources-placeholder';
 
 /** plan §P3 Step 3.3：bundled 资产 adapter narrowing key。user 资产此字段为 null。 */
 export type BundledAdapter = 'claude-code' | 'codex-cli';
@@ -84,6 +85,13 @@ export function getBundledAssets(): BundledAssetsSnapshot {
  * **plan §P3 Step 3.3 breaking change**：必传 `adapter`。同 kind/name 跨 adapter 内容
  * 完全不同（如 reviewer-claude wrapper），无 fallback —— 不传 adapter 没法定位 fs 路径。
  * caller 通过 `AssetMeta.adapter` 字段或 args.adapter 拿到。
+ *
+ * **CHANGELOG_169 / REVIEW R3 reviewer-claude MED-1 修法**: codex 侧通过 `getCodexAgentDeckPluginPath()`
+ * 直接返 SOURCE 路径（无 mirror / 无 substitute），与 claude 侧 plugin-mirror-install 不对称。caller
+ * `spawn.ts:108` 拿到的 content 直接拼到 codex SDK session prompt prefix；如果未来 codex agent body
+ * 内含 `{{AGENT_DECK_RESOURCES}}` placeholder（即使现在干净），agent 看到字面占位符 → ENOENT。
+ * 在 read 出口集中防御 substitute（adapter agnostic + idempotent — claude 侧已 substituted 文本走
+ * `text.includes` guard 直接返原 string，无重复替换）。
  */
 export function getBundledAssetContent(
   kind: 'agent' | 'skill',
@@ -93,7 +101,8 @@ export function getBundledAssetContent(
   const path = getBundledAssetPath(kind, name, adapter);
   if (!path) return { ok: false, reason: `not found: ${adapter}/${kind}/${name}` };
   try {
-    return { ok: true, content: readFileSync(path, 'utf8') };
+    const raw = readFileSync(path, 'utf8');
+    return { ok: true, content: substituteResourcesPlaceholder(raw) };
   } catch (err) {
     return { ok: false, reason: (err as Error).message };
   }

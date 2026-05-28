@@ -29,15 +29,19 @@
  */
 import { app } from 'electron';
 import {
+  cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { settingsStore } from '@main/store/settings-store';
+import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
 
 const USER_CLAUDE_MD_FILENAME = 'agent-deck-claude.md';
 const APPEND_HEADER =
@@ -54,12 +58,98 @@ let cachedClaudeMdAppend: string | null = null;
  * 双 root scan 各自直接 import 在 `src/main/bundled-assets.ts`（P5 Round 1 reviewer-claude MED
  * 修法删除原 agent-deck-plugin-paths.ts 死代码 dispatcher — 0 production caller，违反 §提示词
  * 资产维护 约束 2）。
+ *
+ * **CHANGELOG_169 plugin mirror（REVIEW deep-review R2 reviewer-codex HIGH 修法）**：
+ * SDK 直接读 plugin root 下 SKILL.md / agent body 等文件，**绕过** `getAgentDeckSystemPromptAppend`
+ * 的 placeholder substitute。所以 plugin 内文档里写的 `{{AGENT_DECK_RESOURCES}}/...` 占位符
+ * 不会被替换 → agent 看到字面占位 → 跑 `bash {{X}}/templates/...` 必 ENOENT。
+ *
+ * Fix：用户每次 spawn 时 lazy 跑 `ensurePluginMirrorInstalled()` —— cp source plugin 到
+ * `<userData>/agent-deck-plugin/`，并对所有 .md 文件做 placeholder substitute（in-place）。
+ * 返回的 plugin path 指向 mirror 而非原 source。SDK 扫 mirror 拿到 substituted 内容。
+ *
+ * 每次启动只 install 一次（pluginMirrorInstalled 标志），但每次都 rm + cp + substitute
+ * 全量覆盖（substitute 输出依赖 runtime constants `app.isPackaged`，source mtime 不是
+ * 权威 staleness 判据；plugin 文件总量 ~10 KB IO 成本忽略不计）。
  */
 export function getClaudeAgentDeckPluginPath(): string {
+  ensurePluginMirrorInstalled();
+  return getPluginMirrorDir();
+}
+
+/** 返回 plugin source dir（dev=<repo>/resources/.../agent-deck-plugin, prod=<.app>/Contents/Resources/...） */
+function getPluginSourceDir(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, 'claude-config', 'agent-deck-plugin');
   }
   return join(app.getAppPath(), 'resources', 'claude-config', 'agent-deck-plugin');
+}
+
+/** 返回 plugin mirror dir（<userData>/agent-deck-plugin），含 substitute 后的 .md 文件。 */
+function getPluginMirrorDir(): string {
+  return join(app.getPath('userData'), 'agent-deck-plugin');
+}
+
+let pluginMirrorInstalled = false;
+
+/**
+ * 启动后第一次调 `getClaudeAgentDeckPluginPath` 时跑：
+ * 1. rm 旧 mirror（避免 stale 文件 / 删除的 skill 残留）
+ * 2. cp source → mirror（递归整个 plugin 目录树）
+ * 3. walk mirror，对每个 .md 文件做 placeholder substitute（in-place 改写）
+ *
+ * 失败 warn 不抛错（让 SDK 仍能起来，避免一处 plugin 错误阻塞整个 spawn）。
+ */
+function ensurePluginMirrorInstalled(): void {
+  if (pluginMirrorInstalled) return;
+  const src = getPluginSourceDir();
+  const dst = getPluginMirrorDir();
+  if (!existsSync(src)) {
+    console.warn(`[sdk-injection] plugin source dir missing, skip mirror install: ${src}`);
+    pluginMirrorInstalled = true; // 标记，避免每次 spawn 都 warn
+    return;
+  }
+  try {
+    if (existsSync(dst)) {
+      rmSync(dst, { recursive: true, force: true });
+    }
+    cpSync(src, dst, { recursive: true });
+    substituteMdFilesInPlace(dst);
+    pluginMirrorInstalled = true;
+  } catch (err) {
+    console.warn(`[sdk-injection] plugin mirror install failed: ${dst}`, err);
+    pluginMirrorInstalled = true; // 标记，避免无限重试 — 用户重启应用才会重试
+  }
+}
+
+/** Walk 目录递归找 .md 文件，对每个做 placeholder substitute（如有占位符）。 */
+function substituteMdFilesInPlace(dir: string): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      substituteMdFilesInPlace(path);
+      continue;
+    }
+    if (!entry.isFile() || !path.endsWith('.md')) continue;
+    try {
+      const raw = readFileSync(path, 'utf8');
+      const substituted = substituteResourcesPlaceholder(raw);
+      if (substituted !== raw) {
+        writeFileSync(path, substituted, 'utf8');
+      }
+    } catch (err) {
+      console.warn(`[sdk-injection] substitute .md failed: ${path}`, err);
+    }
+  }
+}
+
+/**
+ * 让 settings 切换 / 用户副本变更 / 升级后强制重新生成 plugin mirror。
+ * 当前实现：清标志，下次 `getClaudeAgentDeckPluginPath` 调用时重新跑 install。
+ * 已运行的 SDK 会话已经把 plugin path 固化进 spawn args，invalidate 只影响**下次新建**会话。
+ */
+export function invalidatePluginMirror(): void {
+  pluginMirrorInstalled = false;
 }
 
 /**
@@ -111,7 +201,8 @@ export function getAgentDeckSystemPromptAppend(): string {
     return cachedClaudeMdAppend;
   }
   const raw = readActiveClaudeMdRaw();
-  cachedClaudeMdAppend = raw ? `${APPEND_HEADER}${raw}` : '';
+  const substituted = substituteResourcesPlaceholder(raw);
+  cachedClaudeMdAppend = substituted ? `${APPEND_HEADER}${substituted}` : '';
   return cachedClaudeMdAppend;
 }
 

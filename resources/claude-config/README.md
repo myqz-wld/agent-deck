@@ -30,7 +30,7 @@
 
 设计 SSOT：
 
-- 单次决策对抗（双 Bash 起外部 CLI）走 user 全局 `~/.claude/CLAUDE.md` §决策对抗 主路径定义
+- 单次决策对抗（双 Bash 起外部 CLI）走 `resources/claude-config/CLAUDE.md` §决策对抗 主路径定义
 - 多轮深度 review 走 `agent-deck-plugin/skills/deep-review/SKILL.md` teammate 模式定义
 - mcp 15 tool 协议 + Universal Team Backend 在 `resources/claude-config/CLAUDE.md` §Agent Deck Universal Team Backend 节定义
 - reviewer body 行为契约在 `agent-deck-plugin/agents/reviewer-{claude,codex}.md`
