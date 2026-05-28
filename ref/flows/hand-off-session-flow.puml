@@ -1,166 +1,78 @@
-' commit: d5549c6 (deep-review 批 C 收口) / handler: hand-off-session.ts 1249 LOC / impl: hand-off-session-impl.ts 357 LOC
-' description: hand_off_session mcp tool baton 接力 sequence (plan-driven / generic 双模式 + spawn 新 SDK session + phase 1.5 adopt_teammates + task 三态 reassign + runBatonCleanup phase 1+2)
-' last_updated: 2026-05-28
+' description: hand_off_session baton 接力 sequence — 4 主路径 (cwd 反查 / 双模式分流 / spawn + adopt + task / cleanup)
+' last_updated: 2026-05-29
 @startuml hand-off-session-flow
 
-title hand_off_session mcp tool — baton 接力全链路 (plan-driven / generic 双模式 + adopt + task + cleanup)
+title hand_off_session — baton 接力 sequence (4 主路径)
 
 actor Caller as C
-participant "hand_off_session handler\n(hand-off-session.ts 1249 LOC)" as H
-participant "handOffSessionImpl\n(hand-off-session-impl.ts 357 LOC)" as I
-participant "spawn_session handler\n(spawn.ts)" as SP
-participant "agentDeckTeamRepo" as TR
-participant "taskRepo" as Tk
-participant "runBatonCleanup\n(baton-cleanup.ts)" as BC
-participant "sessionManager" as SM
-participant "sessionRepo (DB)" as DB
-participant "SDK adapter\n(claude-code / codex-cli)" as SDK
-participant "fs" as Fs
+participant "hand_off facade" as H
+participant "plan resolve\n(plan-driven 才用)" as I
+participant "spawn 控制器" as SP
+participant "数据表\n(会话 / 团队 / 任务)" as DB
+participant "baton 收尾\n(关 teammate + 归档 caller)" as BC
+participant "会话管理器 + SDK" as SM
 
-== 入口:deny external + cwd 反查 (与 archive_plan 同款) ==
+== 入口: 白名单 + cwd 反查 ==
 
-C -> H: invoke({plan_id?, prompt?, cwd?, adapter?, team_name?,\n  adopt_teammates?, archive_caller?, team_task_policy?, ...})
+C -> H: invoke(plan_id?, prompt?, cwd?, adapter?, team_name?,\n  adopt_teammates?, archive_caller?, team_task_policy?, ...)
+H -> DB: 反查 caller cwd / cwdReleaseMarker
 note right of H
-  EXTERNAL_CALLER_ALLOWED.hand_off_session = false
-  起 SDK session fork bomb 风险 (同 spawn_session / archive_plan)
+  入口拦截器: 白名单 deny external (起 SDK 子进程 fork bomb 风险)
+  DB throw / row null → fail-open 退化 + console.warn
 end note
 
-H -> DB: sessionRepo.get(callerSid) 反查 cwd
-note right of DB
-  REVIEW_56 §F9: fail-open 退化
-  console.warn (与 archive-plan 对称)
-  ok return 无 warnings 字段不 surface (设计取舍)
-end note
+== 段 1: 双模式分流 ==
 
-== 双模式分流: plan-driven vs generic ==
+alt plan-driven (plan_id 传)
+  H -> I: 解析 plan
+  I -> I: 按 fallback 链找 plan 文件 + 校验 + 构造 cold start prompt
+  I --> H: { planFilePath, worktreePath, mainRepo, coldStartPrompt }
+  H -> H: cwd 默认 = mainRepo (cwd resilience)
+else generic (无 plan_id)
+  H -> H: 直接组装 generic 上下文 (cold start prompt = args.prompt 或默认)
+  H -> H: cwd 默认 = caller cwd (与 plan-driven 不同)
+end
 
-alt plan_id 传 (plan-driven 模式)
-  H -> I: handOffSessionImpl({planId, planFilePathOverride?, phaseLabel?})
-  I -> Fs: resolve plan file path\n(fallback chain: .claude/plans/ → ref/plans/ → ~/.claude/plans/)
-  I -> Fs: read plan frontmatter\n(parse YAML)
-  I -> I: 校验 status == in_progress\n(不在 → reject)
-  I -> I: 校验 worktree_path 字段非空
-  I -> I: 构造 coldStartPrompt = "按 <plan-file-path> 接力\n(Phase: <phaseLabel>)?"
-  I --> H: { planFilePath, worktreePath, mainRepo,\n  coldStartPrompt, isExternalWorktree }
-  note right of I
-    REVIEW_36 R2 HIGH-B + MED-C: external worktree
-    (worktree 不在 mainRepo subtree) → handler 自动加
-    mainRepo 进 spawn args.extra_allow_write (claude-code
-    workspace-write 沙盒额外 writable roots)
-  end note
-else 无 plan_id (generic 模式 — CHANGELOG_99 新增)
-  H -> H: 不调 impl,直接组装 generic 上下文\n(coldStartPrompt = args.prompt ?? "从上一个会话接力继续工作")
-  note right of H
-    cwd 默认 = caller cwd (与 plan-driven 默认 mainRepo 不同)
-    适合: cwd 已失效 / 跨 repo 任务 / 任意 baton 接力场景
-    phaseLabel / plan_file_path 字段 silently ignored
+H -> H: cwd 兜底链 + 失效自动回退
+
+== 段 2: spawn 新 SDK session + adopt + task 三态 ==
+
+H -> SP: spawn (handOffMode=true → 跳防御 + 不写 spawn-link)
+SP -> SM: 起 SDK 子进程
+SP --> H: { newSid, teamId?, spawnPromptMessageId? }
+
+opt adopt_teammates=true
+  H -> DB: ≥1 lead 硬约束: caller 至少在 1 个 team 是 lead
+  H -> DB: 转交 lead 角色 (per team loop, firstTeam 优先)
+  note right of DB
+    firstTeam swap 失败 → 回滚 newSid + reject
+    非 firstTeam 失败 → 软失败继续
   end note
 end
 
-== Phase 1: spawn 新 SDK session (复用 spawn_session handler) ==
-
-H -> H: cwd 兜底链\n(args.cwd > resolved.mainRepo > resolved.worktreePath / args.cwd > caller.cwd)
-H -> H: cwdExists(cwd) precheck\n(CHANGELOG_99 R1 fix MED-4: 失效自动 fallback)
-
-H -> SP: spawnSessionHandler({adapter, cwd, prompt: coldStartPrompt,\n  team_name?, permission_mode?, sandbox?, ..., handOffMode: true})
-note right of SP
-  handOffMode: true → spawn handler 完全跳过 spawn-guards
-  三道防御 (depth check + fan-out + spawn-rate) + 永不写
-  spawn-link (sessions.spawned_by / spawn_depth 保持 null/0)
-  hand-off 是平级接力非派遣关系
-end note
-
-SP -> SDK: createSession(opts) → 子进程起 SDK
-SDK --> SP: realSessionId
-SP -> DB: sessionRepo.upsert(newSid, ...)
-SP --> H: { sessionId: newSid, teamId?, teamName?, spawnPromptMessageId? }
-
-== Phase 1.5: adopt_teammates 路径 (plan hand-off-session-adopt-teammates-20260520) ==
-
-alt adopt_teammates == true
-  H -> H: N5 ≥1 lead 硬约束: caller 必须至少在 1 个 team 是 lead
-  alt caller 不在任一 team 是 lead
-    H -> SM: closeSession(newSid) 回滚
-    H --> C: err "caller-not-lead-in-any-team"
-  end
-
-  loop 每个 caller-lead team (firstTeam 优先)
-    H -> TR: swapLead(teamId, callerSid, newSid, {newDisplayName})
-    note right of TR
-      swap lead role 从 caller 转给 newSid
-      teammate 与 newSid 共享 active team
-      可继续 send_message 沟通
-    end note
-
-    alt swap 失败
-      alt firstTeam (lead 角色起源)
-        H -> SM: closeSession(newSid) firstTeam fatal abort
-        H --> C: err "first-team-swap-failed"
-      else 非 firstTeam (软失败)
-        H -> H: adopted.failed.push({sid, reason})\n非 firstTeam 软失败继续 loop
-      end
-    end
-
-    H -> DB: lifecycle precheck swap 后 team teammate\n(closed teammate fail-fast filter)
-    H -> H: adopted.preserved.push(swappedTeamId)
-  end
-else adopt_teammates == false (default 纯 baton)
-  H -> H: skip phase 1.5,走 phase 1+2 cleanup\n(原 teammate 与 newSid 无 shared team,send_message 撞 no-shared-team)
-end
-
-== Phase 1.6: task 三态分流 (v024 plan task-team-id-restore-20260525) ==
-
-alt archive_caller == false
-  H -> H: skip task reassign\n(caller 仍 active 继续 own 自己 task)
-  H -> H: taskReassignment = {status:'skipped', reason:'archive-caller-false', policy}
-else team_task_policy == 'clear-team' (default)
-  H -> Tk: reassignTaskOwner(callerSid, newSid, {policy:'clear-team'})
-  Tk -> DB: UPDATE tasks SET owner_session_id=newSid, team_id=NULL\n  WHERE owner_session_id=callerSid
-  note right of Tk
-    过继 ownership 同时清 team_id 变 personal task
-    newSid 拿到的 task 都可写,适用面最广
+opt archive_caller=true (默认)
+  H -> DB: 按 team_task_policy 三态过继 task\n(clear-team / preserve-team / skip)
+  note right of DB
+    reassign throw 仅 warn 不阻塞
   end note
-  Tk --> H: rowCount
-else team_task_policy == 'preserve-team' (caller 自负责任)
-  H -> Tk: reassignTaskOwner(callerSid, newSid, {policy:'preserve-team'})
-  Tk -> DB: UPDATE tasks SET owner_session_id=newSid (不动 team_id)
-  H -> Tk: findCallerOwnedTeamIds(callerSid)
-  Tk -> DB: SELECT DISTINCT team_id WHERE owner=caller AND team_id NOT NULL
-  H -> H: 比对 adoptedTeamIds ∪ spawnData.teamId 差集\n→ unadoptedTeamIds (policyWarning='preserve-team-unadopted-teams')
-else team_task_policy == 'skip' (清理场景)
-  H -> Tk: applyHandOffSkipPolicy(callerSid, newSid)
-  Tk -> DB: 单 transaction 4 步原子:\n  1. SELECT caller team task ids snapshot\n  2. DELETE chunked (CHUNK=500)\n  3. blocks/blocked_by 引用 cleanup\n  4. UPDATE owner SET newSid WHERE team_id IS NULL
-  Tk --> H: { deletedTeamTaskIds, reassignedPersonalCount }
 end
 
-H -> H: 失败兜底: reassign throw 仅 warn 不阻塞\nok return.taskReassignment 字段透传结果
+== 段 3: baton cleanup (与 archive_plan 共享 helper) ==
 
-== Phase 2: runBatonCleanup (与 archive_plan 共享 helper) ==
-
-H -> BC: runBatonCleanup({callerSid, toolName: 'hand_off_session'},\n  {shutdownTeammates: (sid, exclude) => helper(sid, {excludeSessionIds: exclude → newSid})})
-note right of BC
-  REVIEW_36 R2 HIGH-A: shutdownTeammates seam
-  加 excludeSessionIds 参数显式排除新 spawn 的 newSid
-  防 team_name=x baton 路径下新 session 被 spawn 加为 teammate
-  然后被 helper 一并 close
-end note
-
-alt adopt_teammates == true
-  BC -> BC: phase 1 skip (skipped='adopt-keep-implicit')
-else
-  BC -> SM: phase 1: shutdownTeammatesOnBaton(callerSid, {exclude: {newSid}})\n  → close 同 team 全部 active+dormant teammate
+H -> BC: runBatonCleanup({callerSid})
+opt adopt_teammates=false (默认)
+  BC -> SM: phase 1: 关 caller 同 team 全部 teammate\n(excludeSessionIds={newSid} 防 spawn 加入的 newSid 被一并关)
 end
-
-alt archive_caller == false
-  BC -> BC: phase 2 skip (skipped='archive-caller-false')
-else
-  BC -> SM: phase 2: archiveSourceSessionWithEmit(callerSid)\n  → callerRow.archived_at = ISO + eventBus emit
+opt archive_caller=true (默认)
+  BC -> SM: phase 2: 归档 caller session
+  note right of SM
+    archive throw → archived='failed' warn-only
+  end note
 end
-
 BC --> H: { teammatesShutdown, archived }
 
-== Handler 收口 ok return ==
+== 段 4: 收口 ok return ==
 
-H --> C: ok({\n  mode: 'plan' | 'generic',\n  planId, planFilePath, worktreePath, initialPrompt, phaseLabel,\n  sessionId, cwd, teamId, teamName, spawnPromptMessageId,\n  archived, teammatesShutdown,\n  adopted?: {preserved, failed, teamsTotal, teamsAdopted, firstTeamId},\n  taskReassignment: {status, count, policy, policyWarning?, unadoptedTeamIds?}\n})
+H --> C: ok({ mode, sessionId, cwd, teamId?, archived, teammatesShutdown,\n  adopted? (preserved/failed/teamsTotal), taskReassignment (status/count/policy) })
 
 @enduml

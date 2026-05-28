@@ -1,112 +1,81 @@
-' commit: d5549c6 (批 C R1 LOW-α attempt_count fix) / universal-message-watcher 250ms poll
-' description: send_message → universal-message-watcher dispatch → adapter.receiveTeammateMessage → SDK emit user-role event sequence (跨 adapter wire prefix 注入)
-' last_updated: 2026-05-28
+' description: send_message → 轮询器 → adapter → SDK 派发 sequence — 4 段 (入队 / poll+claim / 派发 / 失败处理)
+' last_updated: 2026-05-29
 @startuml universal-message-dispatch-flow
 
-title universal-message-watcher — send_message dispatch 全链路 (跨 adapter wire prefix 注入)
+title 消息派发 — send_message → 轮询器 → adapter → SDK (4 段)
 
-actor "Sender (caller)" as S
+actor "Sender" as S
 participant "send_message handler" as SendH
-participant "agentDeckMessageRepo (DB)" as MsgRepo
-participant "universal-message-\nwatcher (250ms poll)" as Watcher
-participant "adapterRegistry" as AReg
+participant "消息表 (DB)" as MsgRepo
+participant "消息派发轮询器\n(250ms poll)" as Watcher
 participant "receiver adapter\n(claude / codex)" as RAdapter
-participant "Receiver SDK\n(in-memory live)" as RSDK
-actor "Receiver (teammate)" as R
+participant "Receiver SDK" as RSDK
+actor "Receiver" as R
 
-== 入队: send_message tool ==
+== 段 1: 入队 ==
 
-S -> SendH: invoke({session_id (target), text, team_id?, reply_to_message_id?})
-SendH -> SendH: 校验 caller / target shared active team\n(no-shared-team reject if 0 share)
-SendH -> SendH: 校验 reply_to_message_id 同 team scope\n(cross-team chain reject)
-
-SendH -> MsgRepo: insert({teamId, fromSid, toSid, body, replyToMessageId?})
+S -> SendH: invoke({session_id, text, team_id?, reply_to_message_id?})
+SendH -> SendH: 校验 caller / target shared active team\n(no-shared-team reject;reply chain 同 team scope)
+SendH -> MsgRepo: insert (status='pending', sent_at=now)
 note right of MsgRepo
-  status='pending', sent_at=now,
-  attempt_count=0, last_attempt_at=null
   body 1-100KB caller validation + SQL CHECK 兜底
   from != to (self-message reject)
 end note
 MsgRepo --> SendH: AgentDeckMessage { id, ... }
 SendH --> S: ok({sessionId, teamId, messageId, replyToMessageId, sentAt, queued: true})
 
-== Watcher 250ms tick: poll → claim → deliver ==
+== 段 2: 轮询器 250ms tick poll + claim ==
 
 loop 每 250ms tick
-  Watcher -> MsgRepo: findEligible({now})
+  Watcher -> MsgRepo: findEligible (pending + backoff 已到时, ≤ 16 条)
   note right of Watcher
-    backoff WHERE 子句:
-    status='pending' AND
-    (last_attempt_at IS NULL OR
-     last_attempt_at + backoff(attempt_count) <= now)
-    ORDER BY sent_at ASC LIMIT 16
+    backoff schedule: attempt 1=250ms / 2=1s / 3=3s
+    跨 target starvation: 全部同 target → 加 1 跨 target 公平兜底
   end note
-  MsgRepo --> Watcher: candidates[] (≤ BATCH_LIMIT=16)
+  MsgRepo --> Watcher: candidates[]
 
-  alt cross-target starvation 检测 (REVIEW_56 codex MED-2)
-    Watcher -> MsgRepo: findEligibleExcludingTargets({excludeTargets})\nLIMIT 1 公平兜底
-    note right of MsgRepo
-      单 target 17+ candidates 撑爆 BATCH_LIMIT 时
-      跨 target 公平投递破开闸门
-    end note
-  end
-
-  loop per candidate (并行 dispatch)
-    Watcher -> MsgRepo: claim(messageId, now)\n(原子 UPDATE WHERE status='pending' RETURNING *)
-    alt claim 失败 (已被别人 claim)
+  loop per candidate
+    Watcher -> MsgRepo: claim (原子 UPDATE WHERE status='pending' RETURNING *)
+    alt claim 成功
+      MsgRepo --> Watcher: { status='delivering', delivering_since, last_attempt_at }
+    else 已被别人 claim
       MsgRepo --> Watcher: null (skip)
     end
-    MsgRepo --> Watcher: { status='delivering', delivering_since, last_attempt_at }
 
-    Watcher -> AReg: 拿 receiver adapter (按 toSid lookup)
-    Watcher -> RAdapter: receiveTeammateMessage({fromSid, toSid, body, messageId, replyToMessageId?})
-
-    RAdapter -> RAdapter: 拼 wire prefix\n[from <senderName> @ <adapter>][msg <id>][sid <senderSid>]\\n + body
-    RAdapter -> RAdapter: lookup receiver SDK instance
-    alt SDK in-memory active (sessions.has)
-      RAdapter -> RSDK: sendMessage (主路径)
-      RSDK -> R: emit 'user' role event (auto-inject conversation flow)
+    ' 段 3: 派发
+    Watcher -> RAdapter: receiveTeammateMessage(fromSid, toSid, body, messageId, replyToMessageId?)
+    RAdapter -> RAdapter: 拼 wire prefix\n[from name @ adapter][msg id][sid sid] + body
+    alt SDK 内存活 (主路径)
+      RAdapter -> RSDK: sendMessage
+      RSDK -> R: emit 'user' role event (auto-inject 对话流)
       note right of R
-        Receiver (teammate) 直接看到 user-role message
-        无需主动 poll;wire prefix 让 receiver 知道
-        senderSid + messageId 后续 reply 链
+        Receiver 直接看到 user-role message 无需主动 poll
+        wire prefix 让 receiver 知道 senderSid + messageId 后续 reply 链
       end note
-    else SDK 断连 (sessions.has === false)
-      RAdapter -> RSDK: recoverAndSend (single-flight 锁)
+    else SDK 断连
+      RAdapter -> RSDK: recoverAndSend (单飞自愈)
       note right of RSDK
-        recoverer.ts 自愈链:
-        sessionRepo.unarchive + cwd 启发式 fallback
-        + jsonl-missing fresh-session
+        详 sdk-bridge-resume-recovery-flow 图
       end note
       RSDK -> R: emit 'user' role event
     end
-
     RAdapter --> Watcher: success
-    Watcher -> MsgRepo: markDelivered(messageId, now)
-    note right of MsgRepo
-      REVIEW_32 HIGH-1: status='pending' OR 'delivering' 都接纳
-      spawn_session 路径捷径 mark 防 watcher 二次投递
-    end note
+    Watcher -> MsgRepo: markDelivered (status='delivered' terminal)
   end
 end
 
-== 失败兜底: retry / fail / cancel ==
+== 段 4: 失败处理 (retry / fail / cancel) ==
 
-alt receiver adapter throw (SDK 起不来 / OAuth 过期 / sandbox 拒)
-  Watcher -> MsgRepo: retryAfterFail(messageId, reason, now)
+opt receiver adapter throw (SDK 起不来 / OAuth 过期 / sandbox 拒)
+  Watcher -> MsgRepo: retryAfterFail
   note right of MsgRepo
-    attempt_count++ + last_attempt_at=now + status='pending'
-    达 MAX_RETRY=3 → 单条 UPDATE 同时写 attempt_count + status='failed'
-    (REVIEW_61 R1 LOW-α 修法,旧实现 attempt_count 与 reason 字符串分裂)
+    attempt < 3 → status='pending' + 退避;达 3 → 单条 UPDATE 同时写
+    status='failed' + status_reason 防 attempt_count 与 reason 字符串分裂
   end note
 end
 
-alt caller 显式 cancel (lead 撤回 / team archive 兜底)
-  S -> MsgRepo: cancel(messageId, reason)
-  note right of MsgRepo
-    仅可从 pending / delivering 进 cancelled
-    terminal (delivered/failed) 拒
-  end note
+opt caller 显式 cancel (lead 撤回 / team archive 兜底)
+  S -> MsgRepo: cancel (仅 pending / delivering 可进 cancelled,terminal 拒)
 end
 
 @enduml

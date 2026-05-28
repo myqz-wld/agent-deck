@@ -1,85 +1,73 @@
-' commit: 7475b75 (批 A) + d5549c6 (批 C) / mcp 服务器 tool 调用通用流程
-' description: agent-deck-mcp 典型 tool 调用全链路 (transport → withMcpGuard → handler → impl → repos / fs / git → ok return)
-' last_updated: 2026-05-28
+' description: MCP 服务器典型 tool 调用 sequence — 4 段 (入口 / 入口拦截 / 业务路由 / 收口)
+' last_updated: 2026-05-29
 @startuml agent-deck-mcp-tool-call-flow
 
-title agent-deck-mcp — 典型 tool 调用全链路 (跨 transport / middleware / handler / impl / repos)
+title MCP 服务器 — 典型 tool 调用 sequence (4 段)
 
-actor "External MCP Client\n(Claude CLI / Codex CLI / Cursor)" as Ext
-actor "In-process Caller\n(应用 SDK session 内部)" as InProc
-participant "Transport\n(stdio / HTTP /mcp endpoint)" as Trans
-participant "withMcpGuard\nwrapper" as Guard
-participant "EXTERNAL_CALLER_\nALLOWED config" as Cfg
+actor "外部 MCP Client\n(Claude / Codex CLI / Cursor)" as Ext
+actor "应用内 caller\n(SDK session 内部)" as InProc
+participant "tool 入口\n(stdio / HTTP /mcp)" as Trans
+participant "入口拦截器\n(withMcpGuard + 白名单)" as Guard
 participant "Tool Handler" as Handler
-participant "Tool Impl" as Impl
-participant "shared helpers\n(default-impl-deps / baton-cleanup)" as Helpers
-participant "Repo / sessionManager" as Store
-participant "fs / git / SDK" as IO
+participant "Tool Impl\n(业务实现层)" as Impl
+participant "数据表 / 会话管理器\n/ 公共助手" as Store
+participant "外部 IO\n(fs / git / SDK)" as IO
 
-== Transport 层入口 ==
+== 段 1: 入口分流 (external vs in-process) ==
 
-alt External MCP Client (stdio / HTTP)
+alt 外部 MCP Client (stdio / HTTP)
   Ext -> Trans: tool call (JSON-RPC)
-  Trans -> Trans: parse + validate JSON schema
-  Trans -> Guard: invoke handler with HandlerContext\n(caller = EXTERNAL_CALLER_SENTINEL)
-else In-process Caller
-  InProc -> Guard: invoke handler with HandlerContext\n(caller_session_id = real sid)
+  Trans -> Guard: invoke (caller = EXTERNAL_CALLER_SENTINEL)
+else 应用内 caller
+  InProc -> Guard: invoke (caller_session_id = real sid)
   note right of InProc
     in-process transport 自动 override caller_session_id
     HTTP / stdio external transport 视为 __external__
   end note
 end
 
-== Middleware: withMcpGuard ==
+== 段 2: 入口拦截器 (白名单 deny 高风险 tool) ==
 
-Guard -> Cfg: check EXTERNAL_CALLER_ALLOWED[tool_name]?
-alt tool 在 deny list (spawn / send / shutdown / archive / handoff / write task / enter/exit_worktree)
-  alt caller == EXTERNAL_CALLER_SENTINEL
-    Guard --> Trans: error "EXTERNAL_CALLER_DENY"
-    Trans --> Ext: error response
-  end
+Guard -> Guard: check 外部调用白名单[tool_name]?
+note right of Guard
+  deny list: spawn / send / shutdown / archive / hand_off / worktree / task write
+  原因: 写 git + 起 SDK + DB 高风险
+end note
+alt 在 deny list + external caller
+  Guard --> Trans: error "EXTERNAL_CALLER_DENY"
+  Trans --> Ext: error response
 end
-
-Guard -> Guard: validateExternalCaller\n(若 allowed list 中,放行 external)
 Guard -> Handler: handler(args, ctx, depsOverride?)
 
-== Handler 业务路由 ==
+== 段 3: Handler 业务路由 (4 类典型路径) ==
 
-Handler -> Handler: 解析 args + reverse-look caller cwd / lifecycle (如需要)
-Handler -> Handler: ctx 反查 sessionRepo / teamRepo (resolve teamId / sharedActiveTeams)
+Handler -> Handler: 解析 args + 反查 caller cwd / 共享 team (如需)
 
-alt handler 直接走 impl (archive_plan / hand_off / enter/exit worktree)
+alt 走 impl (archive_plan / hand_off / 进退 worktree)
   Handler -> Impl: implFn(args, mergedDeps)
-  Impl -> Helpers: 调用 SharedDeps 10 fs/git helpers
+  Impl -> Store: 调公共助手 + 4 张数据表
   Impl -> IO: 真 fs / git / SDK 调用
   Impl --> Handler: result 或 error
-else handler 直接走 repos (list_sessions / get_session / task_*)
-  Handler -> Store: repo.method(args)
-  Store -> IO: SQLite SELECT / UPDATE / DELETE
-  Store --> Handler: rows / status
-else handler 走 spawn-controller (spawn / hand_off 内 spawn)
-  Handler -> Helpers: spawnHandler / spawn-guards (depth/fan-out/rate)
-  Helpers -> IO: createSession SDK subprocess
-  IO --> Helpers: realSessionId
-  Helpers --> Handler: ok
-else handler 走 send_message (universal team backend)
-  Handler -> Store: agentDeckMessageRepo.insert
+else 走 repos (list_sessions / get / task_*)
+  Handler -> Store: repo.method(args) → SQLite SELECT/UPDATE/DELETE
+else 走 spawn 控制器 (spawn / hand_off 内 spawn)
+  Handler -> Store: spawn handler + 三道防御 (depth/fan-out/rate)
+  Store -> IO: createSession SDK 子进程
+else 走 send_message (universal team backend)
+  Handler -> Store: 消息表 insert
   note right of Store
-    insert 后 universal-message-watcher 250ms poll
-    自动 dispatch 给 receiver adapter
+    insert 后消息派发轮询器 250ms poll 自动 dispatch 给 receiver adapter
   end note
 end
 
-== Handler 包 ok return ==
+== 段 4: 收口 ok return ==
 
-Handler --> Guard: HandlerResult { ok: true, data: { ... } }\n或 { ok: false, error, hint }
-Guard --> Trans: JSON-RPC response (text content array)
+Handler --> Guard: HandlerResult { ok: true, data: {...} } 或 { ok: false, error, hint }
+Guard --> Trans: JSON-RPC response
 
-== 返回 caller ==
-
-alt External MCP Client
+alt 外部 MCP Client
   Trans --> Ext: JSON response
-else In-process Caller
+else 应用内 caller
   Guard --> InProc: parsed object
 end
 
