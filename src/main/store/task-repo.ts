@@ -379,8 +379,17 @@ export function createTaskRepo(db: Database): TaskRepo {
       params.push(opts.status);
     }
     if (opts.subjectKeyword) {
-      wheres.push('LOWER(subject) LIKE ?');
-      params.push(`%${opts.subjectKeyword.toLowerCase()}%`);
+      // REVIEW_61 LOW-β (codex) fix: subject LIKE 把用户输入直接包进 pattern,`%` 与 `_`
+      // 会被当 SQL wildcard 解释让搜索语义错误(用户输入 `100%` 实际意图是搜「100%」字符,
+      // 旧实现等价 `任意以 100 开头`)。escape `%` `_` `\` 三个 wildcard 字符 + 加 ESCAPE '\'。
+      // 不是 SQL injection (param 绑定挡住),只是搜索语义对齐用户预期。
+      const escaped = opts.subjectKeyword
+        .toLowerCase()
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_');
+      wheres.push("LOWER(subject) LIKE ? ESCAPE '\\'");
+      params.push(`%${escaped}%`);
     }
     // v024 plan §D5 + Step C5:visibleScope OR 模式优先于 ownerSessionIds + teamIdFilter
     //（task-list handler 三态分流时显式只传一个,visibleScope 与其他两个互斥）。

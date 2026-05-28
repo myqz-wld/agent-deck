@@ -211,6 +211,16 @@ async function bootstrap(): Promise<void> {
     } catch (dialogErr) {
       console.error('showErrorBox failed during hook-server EADDRINUSE:', dialogErr);
     }
+    // REVIEW_61 MED-B (codex) fix: app.exit(1) 不发 before-quit/will-quit (Electron 文档),
+    // before-quit handler line 519 不会跑 → closeDb() 不会执行 → SQLite WAL 不 checkpoint。
+    // initDb 已在 line 99 跑过,WAL 可能有未 checkpoint 的写入(applyClaudeSettingsEnv /
+    // settings 读 / adapter init 都可能触发 SELECT/UPDATE)。fatal exit 前同步 best-effort
+    // 跑 closeDb,失败仅 warn 不阻塞 exit(本来就是 fatal 路径,WAL 丢一点比 hang 住强)。
+    try {
+      closeDb();
+    } catch (err) {
+      console.warn('[hook-server fatal] closeDb error', err);
+    }
     app.exit(1);
     return;
   }
@@ -490,6 +500,13 @@ if (gotLock) {
       );
     } catch (dialogErr) {
       console.error('showErrorBox failed during bootstrap fatal:', dialogErr);
+    }
+    // REVIEW_61 MED-B (codex) fix: 同 hook-server fatal 路径,fatal exit 前 best-effort closeDb
+    // 保证 SQLite WAL checkpoint(initDb 已跑,bootstrap 中段抛错时 WAL 可能有写入)。
+    try {
+      closeDb();
+    } catch (closeErr) {
+      console.warn('[bootstrap fatal] closeDb error', closeErr);
     }
     app.exit(1);
   });
