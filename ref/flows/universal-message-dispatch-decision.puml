@@ -1,109 +1,67 @@
-' commit: d5549c6 (批 C R1 LOW-α attempt_count fix) / universal-message-watcher
-' description: universal-message-watcher tick 决策树 — findEligible / starvation 检测 / claim race / deliver / retry/fail/cancel
-' last_updated: 2026-05-28
+' description: 消息派发轮询器 tick 决策树 — 4 段 (取候选 / 公平兜底 / claim+派发 / 失败处理)
+' last_updated: 2026-05-29
 @startuml universal-message-dispatch-decision
 
-title universal-message-watcher — tick 决策树 (findEligible + starvation + claim + deliver + retry/fail)
+title 消息派发轮询器 — tick 决策树 (4 段)
 
 start
-:Watcher 250ms tick 触发 process();
+:每 250ms tick 触发 process();
 
-partition "findEligible: backoff WHERE 子句" {
-  :findEligible({now, limit: BATCH_LIMIT=16});
+' ─── 段 1: 取候选 ───
+partition "段 1: 取候选 (backoff WHERE 子句)" {
+  :findEligible (取 ≤ 16 条 pending + backoff 已到时);
   note right
-    SQL: status='pending' AND
-    (last_attempt_at IS NULL OR
-     last_attempt_at + backoff(attempt_count) <= now)
-    ORDER BY sent_at ASC LIMIT 16
-    (BACKOFF_TIERS SSOT: 0/250ms/1s/3s)
+    backoff schedule: attempt 1=250ms / 2=1s / 3=3s
+    详细 SQL 子句 + RETURNING 行为见 INDEX 第 3 列 link
   end note
-
-  if (candidates 空?) then (yes)
-    :tick 结束 skip 本轮;
+  if (候选空?) then (yes)
+    :tick 结束;
     stop
   endif
 }
 
-partition "cross-target starvation 检测 (REVIEW_56 codex MED-2)" {
-  if (candidates 全部同 target?) then (yes)
-    :findEligibleExcludingTargets({excludeTargets: [thisTarget]})\nLIMIT 1 公平兜底;
-    if (其他 target eligible?) then (yes)
-      :加 1 跨 target candidate;
-      note right
-        单 target 17+ candidates 撑爆 BATCH_LIMIT 时
-        跨 target 公平投递破开闸门
-        (REVIEW_56 Batch C R1 codex MED-2 修法)
-      end note
-    endif
+' ─── 段 2: 跨 target 公平兜底 ───
+partition "段 2: 跨 target starvation 公平兜底" {
+  if (候选全部同 target?) then (yes)
+    :findEligibleExcludingTargets LIMIT 1 加 1 跨 target;
+    note right
+      单 target 17+ 候选撑爆批量上限时
+      跨 target 公平投递破开闸门
+    end note
   endif
 }
 
-partition "per candidate 并行 dispatch" {
-  while (candidates 还有未处理?)
-    :下一 candidate;
-    :MsgRepo.claim(messageId, now)\n(原子 UPDATE WHERE status='pending' RETURNING *);
+' ─── 段 3: per candidate claim + 派发 ───
+partition "段 3: per candidate claim + 派发" {
+  while (候选还有未处理?)
+    :下一候选;
+    :claim (原子 UPDATE WHERE status='pending' RETURNING *);
 
     if (claim 成功?) then (no — 已被别人 claim)
-      :skip 该 candidate;
-      note right
-        多个 watcher 实例 / 多 tick 并发不会重复 claim
-        (RETURNING 在 better-sqlite3 + sqlite 3.35+ 支持)
-      end note
+      :skip 该候选;
     else (yes)
-      :status='delivering' + delivering_since=now\n+ last_attempt_at=now;
+      :status='delivering' + 时间戳更新;
+      :adapter.receiveTeammateMessage 拼 wire prefix\n[from name @ adapter][msg id][sid sid] + body;
 
-      :adapter.receiveTeammateMessage({...});
+      if (receiver SDK 内存活?) then (yes — 主路径)
+        :SDK pushUserMessage → emit user-role event\n(receiver 自动看到无需 poll);
+      else (no — 断连)
+        :recoverAndSend 单飞自愈\n(详 sdk-bridge-recovery-decision 图);
+      endif
 
-      partition "wire prefix 注入" {
-        :拼 prefix [from <name> @ <adapter>][msg <id>][sid <senderSid>]\\n + body;
-        note right
-          messageId / senderSid 都是 v4 UUID lowercase hex+hyphen
-          regex /\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]/
-        end note
-      }
-
-      partition "receiver SDK 投递 (主路径 vs 自愈)" {
-        if (receiver SDK in-memory active? sessions.has) then (yes — 主路径)
-          :SDK pushUserMessage → emit 'user' event;
-          :auto-inject receiver conversation flow;
-        else (no — 断连)
-          :recoverAndSend (single-flight 锁);
-          note right
-            recoverer.ts 自愈链:
-            unarchive + cwd 启发式 + jsonl-missing fresh-session
-            (详 sdk-bridge-resume-recovery-flow.puml)
-          end note
-        endif
-      }
-
+      ' 段 4: 失败处理 (deliver 完成 → markDelivered / 失败 → retry/fail)
       if (deliver 成功?) then (yes)
-        :MsgRepo.markDelivered(messageId, now);
-        note right
-          status='delivered' + delivered_at=now
-          delivering_since=NULL terminal
-          REVIEW_32 HIGH-1: 接纳 'pending' OR 'delivering'
-          (spawn 路径捷径 mark 防 watcher 二次投递)
-        end note
+        :markDelivered (status='delivered' terminal);
       else (no — adapter throw)
-        :MsgRepo.retryAfterFail(messageId, reason, now);
-        if (newAttemptCount >= MAX_RETRY=3?) then (yes)
-          :final retry 单条 UPDATE\nstatus='failed' + attempt_count=3 + status_reason 含 'attempt=3';
-          note right
-            REVIEW_61 R1 LOW-α 修法:
-            旧实现 markFailed 不更新 attempt_count
-            DB 列停在 2 与 reason 字符串分裂
-          end note
+        :retryAfterFail;
+        if (attempt < 3?) then (yes)
+          :status='pending' + attempt++ + 退避到下次 backoff window;
         else (no)
-          :status='pending' + attempt_count++ + last_attempt_at=now;
-          note right
-            退避 backoff schedule (BACKOFF_TIERS):
-            attempt 1: 250ms / attempt 2: 1s / attempt 3: 3s
-            backoff WHERE 子句过滤未到时
-          end note
+          :status='failed' (单条 UPDATE 同时写 attempt=3 + status_reason 防分裂);
         endif
       endif
     endif
-  endwhile (candidates 处理完)
+  endwhile (候选处理完)
 }
 
 :tick 结束 等下一 250ms;

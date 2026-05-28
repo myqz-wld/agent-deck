@@ -1,173 +1,84 @@
-' commit: d5549c6 (deep-review 批 C 收口) / handler 1249 LOC (CHANGELOG_169 §保护清单不动文件)
-' description: hand_off_session 双模式分流 + cwd resilience + adopt_teammates ≥1 lead 硬约束 + task 三态 + cleanup 决策树
-' last_updated: 2026-05-28
+' description: hand_off_session 双模式分流 + adopt + task + cleanup 决策树
+' last_updated: 2026-05-29
 @startuml hand-off-session-decision
 
-title hand_off_session — 双模式分流 + adopt + task 三态 + cleanup 决策树
+title hand_off_session — 决策树 (3 段: 分流 / spawn+adopt / cleanup)
 
 start
 
-:Caller invoke hand_off_session({plan_id?, prompt?, cwd?,\n  adapter?, team_name?, adopt_teammates?, archive_caller?,\n  team_task_policy?, phase_label?, extra_allow_write?, ...});
+:Caller invoke hand_off_session(args);
 
-if (EXTERNAL_CALLER_ALLOWED.hand_off_session?) then (false — deny)
-  :reject: external caller deny (fork bomb 风险);
+if (入口拦截器: 白名单允许?) then (no)
+  :reject (deny external);
   end
 endif
 
-:Handler sessionRepo.get(callerSid) 反查 cwd;
-if (DB throw / row null?) then (yes — fail-open)
-  :console.warn (REVIEW_56 §F9);
-  :退化 DEFAULT_DEPS.cwd = process.cwd();
-endif
+:反查 caller cwd (DB);
 
-partition "双模式分流 (CHANGELOG_99)" {
+' ─── 段 1: 双模式分流 ───
+partition "段 1: 双模式分流 (plan-driven vs generic)" {
   if (plan_id 传?) then (yes — plan-driven)
-    :handOffSessionImpl 解析 plan;
-    :resolve plan file path\n(fallback: .claude/plans/ → ref/plans/ → ~/.claude/plans/);
-    if (plan 文件存在?) then (no)
-      :REJECT "plan-not-found";
+    :按 fallback 链找 plan 文件;
+    if (plan 文件存在 + status=in_progress + worktree_path 非空?) then (no)
+      :reject;
       end
     endif
-    :parse YAML frontmatter;
-    if (status == in_progress?) then (no)
-      :REJECT "plan-not-in-progress" (completed/abandoned);
-      end
-    endif
-    if (worktree_path 字段非空?) then (no)
-      :REJECT "missing-worktree-path";
-      end
-    endif
-    :构造 coldStartPrompt = "按 <plan-abs-path> 接力\n(Phase: <phaseLabel>)?";
-    note right
-      REVIEW_36 R2 HIGH-B + MED-C:
-      external worktree (不在 mainRepo subtree)
-      → 自动加 mainRepo 进 extra_allow_write
-      (claude-code workspace-write 沙盒)
-    end note
-    :cwd 默认 = mainRepo (CHANGELOG_99 cwd resilience);
-  else (no — generic 模式)
-    :不调 impl 直接组装上下文;
-    :coldStartPrompt = args.prompt ?? "从上一个会话接力继续工作";
-    :cwd 默认 = caller cwd (与 plan-driven 不同);
-    :phaseLabel / plan_file_path silently ignored;
+    :构造 cold start prompt "按 <plan-abs-path> 接力";
+    :cwd 默认 = mainRepo (cwd resilience);
+  else (no — generic)
+    :不调 plan resolve;
+    :cold start prompt = args.prompt 或默认;
+    :cwd 默认 = caller cwd;
   endif
+  :cwd 兜底链 + 失效自动回退;
 }
 
-partition "cwd 兜底链 + precheck" {
-  :final cwd = args.cwd > resolved.mainRepo > resolved.worktreePath\n  (plan-driven) | args.cwd > caller.cwd (generic);
-  if (cwdExists(final cwd)?) then (no — CHANGELOG_99 R1 fix MED-4)
-    if (plan-driven?) then (yes)
-      :fallback cwd = mainRepo\n(caller cwd=worktree 已被 archive_plan 删);
-    else (no)
-      :REJECT "caller-cwd-invalid"\n(generic 模式必须 caller 自传新 cwd);
-      end
-    endif
-  endif
-}
-
-partition "Phase 1: spawn 新 SDK session" {
-  :spawnSessionHandler({adapter, cwd, prompt: coldStartPrompt, ...,\n  handOffMode: true});
-  note right
-    handOffMode: true → spawn handler 完全跳过
-    spawn-guards 三道防御 (depth/fan-out/rate)
-    + 永不写 spawn-link (caller→newSid 关系不记录)
-    hand-off 是平级接力非派遣关系
-  end note
+' ─── 段 2: spawn + adopt + task ───
+partition "段 2: spawn 新 SDK session + adopt + task 三态" {
+  :spawn 新 session (handOffMode=true → 跳防御 + 不写 spawn-link);
   if (spawn 失败?) then (yes)
-    :REJECT "spawn-failed: <reason>";
+    :reject;
     end
   endif
-  :newSid 落 DB + spawnPromptMessageId 拿到;
-}
 
-partition "Phase 1.5: adopt_teammates (plan hand-off-session-adopt-teammates-20260520)" {
-  if (adopt_teammates == true?) then (yes)
-    if (caller 在任一 team 是 lead?) then (no)
-      :closeSession(newSid) 回滚;
-      :REJECT "caller-not-lead-in-any-team" (N5 硬约束);
-      end
-    endif
-
-    while (每个 caller-lead team / firstTeam 优先?)
-      :agentDeckTeamRepo.swapLead(teamId, callerSid, newSid);
-
-      if (swap 失败?) then (yes)
-        if (firstTeam?) then (yes)
-          :closeSession(newSid) firstTeam fatal abort;
-          :REJECT "first-team-swap-failed";
-          end
-        else (no)
-          :adopted.failed.push({sid, reason}) 软失败;
-          :继续 loop;
-        endif
-      else (no)
-        :lifecycle precheck swap 后 teammate\n(closed 显式 fail-fast);
-        :adopted.preserved.push(teamId);
-      endif
-    endwhile (loop end)
-  else (no — default 纯 baton)
-    :skip phase 1.5;
+  if (adopt_teammates=true?) then (yes)
+    :≥1 lead 硬约束: caller 必须至少在 1 个 team 是 lead;
+    :转交 lead 角色 (per team loop, firstTeam 优先);
     note right
-      原 teammate 与 newSid 无 shared active team
-      send_message 撞 no-shared-team reject
+      firstTeam swap 失败 → 回滚 newSid + reject
+      非 firstTeam 失败 → 软失败继续
+    end note
+  endif
+
+  if (archive_caller=false?) then (yes)
+    :task 过继 skip (caller 仍 own);
+  else (no)
+    :按 team_task_policy 三态过继 task\n(clear-team / preserve-team / skip);
+    note right
+      reassign throw 仅 warn 不阻塞
     end note
   endif
 }
 
-partition "Phase 1.6: task 三态分流 (v024 §D4)" {
-  if (archive_caller == false?) then (yes)
-    :taskReassignment = {status:'skipped',\n  reason:'archive-caller-false', policy};
+' ─── 段 3: cleanup ───
+partition "段 3: baton cleanup (与 archive_plan 共享 helper)" {
+  if (adopt_teammates=true?) then (yes)
+    :skip phase 1 (teammate 已转给 newSid);
   else (no)
-    if (team_task_policy?) then ('clear-team' default)
-      :reassignTaskOwner(callerSid, newSid, 'clear-team');
-      :UPDATE owner + team_id = NULL\n(过继同时清 team 变 personal);
-    elseif (team_task_policy?) then ('preserve-team')
-      :reassignTaskOwner 不动 team_id;
-      :findCallerOwnedTeamIds 比对差集 → unadoptedTeamIds;
-      if (差集非空?) then (yes)
-        :policyWarning = 'preserve-team-unadopted-teams';
-        note right
-          caller 自负责任: newSid 没成为对应 team active member
-          → newSid 撞写权限 reject
-          handler 不 hard reject 但 ok return 暴露根因
-        end note
-      endif
-    else ('skip' 清理场景)
-      :applyHandOffSkipPolicy 单 transaction 4 步原子;
-      :① SELECT caller team task ids → ② chunked DELETE\n③ blocks cleanup → ④ UPDATE personal owner;
-    endif
+    :phase 1: 关 caller 同 team 全部 teammate\n(excludeSessionIds={newSid} 防新 session 被一并关);
   endif
 
-  if (reassign throw?) then (yes)
-    :仅 warn 不阻塞 ok return.taskReassignment.status='failed';
-  endif
-}
-
-partition "Phase 2: runBatonCleanup (与 archive_plan 共享 helper)" {
-  if (adopt_teammates == true?) then (yes)
-    :phase 1 skip (skipped='adopt-keep-implicit');
+  if (archive_caller=false?) then (yes)
+    :skip phase 2 (caller 仍 active);
   else (no)
-    :phase 1: shutdownTeammatesOnBaton({exclude: {newSid}});
+    :phase 2: 归档 caller session;
     note right
-      REVIEW_36 R2 HIGH-A: excludeSessionIds 参数
-      显式排除 newSid 防 team_name=x baton 路径下
-      新 session 被 spawn 加为 teammate 然后一并 close
+      archive throw → archived='failed' warn-only
     end note
   endif
-
-  if (archive_caller == false?) then (yes)
-    :phase 2 skip (skipped='archive-caller-false');
-  else (no)
-    :phase 2: archiveSourceSessionWithEmit(callerSid);
-    if (archive throw / row missing?) then (yes)
-      :archived = 'failed' warn-only;
-    else (no)
-      :archived = 'ok';
-    endif
-  endif
 }
 
-:return ok({mode, planId?, sessionId, cwd, teamId?, archived,\n  teammatesShutdown, adopted?, taskReassignment, ...});
+:return ok(mode, sessionId, archived, adopted?, taskReassignment, ...);
 
 stop
 
