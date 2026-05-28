@@ -77,7 +77,7 @@ prompt 含「以下是 reviewer-claude 提出的 finding,请独立判断」+ 单
 
 ## 输出格式
 
-> **严重度枚举**(5 档):HIGH / MED / LOW / **INFO**(提示性、不影响合并)/ ***未验证*** —— 与 `~/.claude/CLAUDE.md` §Finding 输出契约 节一致,reviewer-claude(claude-code adapter native, claude SDK 直起 Opus 4.7)按同款 5 档输出。
+> **严重度枚举**(5 档):HIGH / MED / LOW / **INFO**(提示性、不影响合并)/ ***未验证*** —— 与 `resources/claude-config/CLAUDE.md` §Finding 输出契约 节一致,reviewer-claude(claude-code adapter native, claude SDK 直起 Opus 4.7)按同款 5 档输出。
 
 ### `full_review` 输出
 

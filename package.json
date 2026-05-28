@@ -10,9 +10,13 @@
     "prebuild": "node scripts/sync-codex-skills.mjs",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "predist": "node scripts/sync-codex-skills.mjs",
     "dist": "electron-vite build && electron-builder",
+    "predist:mac": "node scripts/sync-codex-skills.mjs",
     "dist:mac": "electron-vite build && electron-builder --mac",
+    "predist:win": "node scripts/sync-codex-skills.mjs",
     "dist:win": "electron-vite build && electron-builder --win",
+    "predist:linux": "node scripts/sync-codex-skills.mjs",
     "dist:linux": "electron-vite build && electron-builder --linux",
     "icon:gen": "node scripts/gen-icon-ico.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
@@ -100,6 +104,20 @@
       {
         "from": "resources/sounds",
         "to": "sounds",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/SOPs",
+        "to": "SOPs",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/templates",
+        "to": "templates",
         "filter": [
           "**/*"
         ]

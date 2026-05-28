@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# reviewer-claude 模板 — 单次决策对抗 / 双 Bash 并发起外部 CLI 用
+# 用法：sed 替换 <REPO_ABS_PATH> + <ADDITIONAL_READ_DIRS> + prompt 内 <文件清单 / focus / skip> 占位后 cp 出去跑
+# PROMPT / OUT 由 mktemp 自动创建，无需替换。
+# Bash 工具调用必须 run_in_background: true + timeout: 600000
+#
+# ⚠️ permission-mode 与 ExitPlanMode 必备组合（REVIEW_52 + REVIEW_54 双次踩坑后定 → 升级到
+#   项目 ref/conventions/ 单文件约定永久生效,见 agent-deck 项目实例
+#   `ref/conventions/01-reviewer-claude-oneshot-disallow-exitplanmode.md`）：
+#   - `--permission-mode default`（不要 plan）+ `--disallowedTools` 必含 `ExitPlanMode`。
+#   - 不能用 `--permission-mode plan`：plan mode 下 Claude 输出 final answer 前会强制
+#     调 ExitPlanMode 工具要求人工批准；`-p` 非交互模式无人可批 → CLI 拒该工具调用 →
+#     finding 正文被吞，stdout 0 byte 或仅一行 stub。即使把 ExitPlanMode 加进
+#     allowedTools 也无用（plan mode 的批准面板是 UI 弹层，非工具 allow 字段控制）。
+#   - 写文件 / 改代码 / commit 的防护由 `Edit,MultiEdit,Write,NotebookEdit` 一并 disallow
+#     物理保证，不依赖 plan mode 的「先 plan 后批准才能写」语义。
+#
+# mktemp 必走 $TMPDIR：macOS Claude Code sandbox 默认 deny 写 /var/folders/...
+# （mktemp 系统默认 TMPDIR），第一个 Bash 调用会卡审批 1200s 后被 SDK 自动拒。
+# 强制写到 sandbox 允许的 $TMPDIR（claude-code 已注入 = /tmp/claude-<uid>/）；
+# TMPDIR 未设置时落 /tmp，覆盖用户终端直跑场景。
+#
+# <ADDITIONAL_READ_DIRS> 占位符（spike 实证：reviewer-claude bug fix 20260521）：
+#   claude CLI Tool 工具层有 application-level cwd 白名单（不是 OS sandbox），
+#   只允许「allowed working directories」内文件读取。lead 通过 zsh `cd '<REPO>'` 后
+#   reviewer-claude cwd=项目根 → 默认无法 cat /tmp 等 cwd 外路径（实测铁证：
+#   `cat /tmp/<plan>.md` 报「For security, Claude Code may only concatenate files
+#   from the allowed working directories」）。
+#
+#   `--add-dir <directories...>` 是 claude CLI 官方 flag（claude --help 暴露），
+#   "Additional directories to allow tool access to"。spike 实证 `--add-dir /tmp` 让
+#   reviewer-claude 能读 /tmp 文件（reviewer-codex 不需此 flag — `--sandbox read-only`
+#   只禁写不限读）。
+#
+#   lead 端 sed 替换姿势：
+#   - 典型粗粒度：`/tmp` —— 让 reviewer 能读所有 /tmp 文件（plan / prompt / mktemp 临时文件）
+#   - 精确粒度：plan/prompt 父目录（如 `/tmp/claude-503` 或具体路径），权限更窄
+#   - 多目录：空格分隔（如 `/tmp /Users/foo/external-project`）
+#
+#   占位符必须替换；不替换字面 <ADDITIONAL_READ_DIRS> 会让 claude CLI 报 invalid path。
+
+PROMPT=$(mktemp "${TMPDIR:-/tmp}/reviewer_claude_prompt.XXXXXX")
+OUT=$(mktemp "${TMPDIR:-/tmp}/reviewer_claude_out.XXXXXX")
+cat > "$PROMPT" <<'EOF'
+你是对抗 reviewer（Claude Opus 4.7 xhigh）。独立审视下面 scope + focus，给结构化 finding。
+
+scope:
+<文件清单（绝对路径）/ diff range / 决策面描述>
+
+focus（可选）:
+<race / leak / 安全 / 架构 / 测试盲区 / 修复正确性 / ...>
+
+skip（可选）:
+<已审过 / 已修过的项 / 历史 review 结论>
+
+约束：
+- 只读、不要写文件、不要 commit、用中文输出
+- 能验证的优先实践验证：grep 调用点 / 读真实文件 / 跑只读命令（git status / git log / git diff / cat / head / tail / wc 等，详 --allowedTools 白名单）
+- 纯文本推理结论必须自标 *未验证*，并自降级为弱断言（❓ + 非 HIGH）
+- 弱断言关键词（"可能 / 也许 / 看起来 / 应该 / 大概"）只允许出现在 *未验证* 条目里
+- 输出按严重度分组（HIGH / MED / LOW / INFO / *未验证*），每条带 文件:行号 + 代码片段（≤6 行）+ 验证手段
+EOF
+zsh -i -l -c "cd '<REPO_ABS_PATH>' && claude \
+  --model opus \
+  --effort xhigh \
+  --permission-mode default \
+  --add-dir <ADDITIONAL_READ_DIRS> \
+  --allowedTools 'Read,Grep,Glob,Bash(git status *),Bash(git log *),Bash(git show *),Bash(git diff *),Bash(grep *),Bash(rg *),Bash(cat *),Bash(head *),Bash(tail *),Bash(sed *),Bash(wc *)' \
+  --disallowedTools 'Edit,MultiEdit,Write,NotebookEdit,ExitPlanMode' \
+  -p < '$PROMPT'" > "$OUT" 2>&1
+cat "$OUT"; rm -f "$OUT" "$PROMPT"

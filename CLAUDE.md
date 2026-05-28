@@ -2,7 +2,7 @@
 
 > 本文件保留 **agent-deck 项目专属 design invariant**（§项目特定约定 / §仓库基础 / §验证流程 / §打包与本地安装）+ **通用工程约定的最低操作指南**（§改动后必做 / §反复反馈升级 — 这两节在 user CLAUDE.md / SOPs 无等价 SSOT，本文件保留最低指南给普通终端 claude）。
 >
-> **应用 SDK 会话内**额外加载 `resources/claude-config/CLAUDE.md` §新项目工程地基 获取详细约定（应用打包注入到 SDK system prompt 末尾，与本文件独立维护）。**单文件 ≤ 500 行护栏** 详见 `~/.claude/SOPs/file-size-guardrail.md`。
+> **应用 SDK 会话内**额外加载 `resources/claude-config/CLAUDE.md` §新项目工程地基 获取详细约定（应用打包注入到 SDK system prompt 末尾，与本文件独立维护）。**单文件 ≤ 500 行护栏** 详见 `resources/SOPs/file-size-guardrail.md`。
 
 ## 仓库基础
 
@@ -21,7 +21,7 @@
    - Debug / 性能 / 安全 review → `ref/reviews/REVIEW_X.md`（X 递增）+ 同步 `ref/reviews/INDEX.md`
    - 新建前 `ls ref/changelogs/` / `ls ref/reviews/` 找最大 X
 3. **改功能前先读** `ls ref/conventions/ ref/changelogs/ ref/reviews/` + 浏览相关条目（避免推翻已有约定 / 重复踩坑）
-4. **单文件 ≤ 500 行护栏**：触发拆分尝试，详 `~/.claude/SOPs/file-size-guardrail.md` + 应用 CLAUDE.md §单文件大小护栏。参考 agent-deck 项目 3 轮拆分实例：`ref/changelogs/CHANGELOG_50.md` / `CHANGELOG_51.md` / `CHANGELOG_52.md`
+4. **单文件 ≤ 500 行护栏**：触发拆分尝试，详 `resources/SOPs/file-size-guardrail.md` + 应用 CLAUDE.md §单文件大小护栏。参考 agent-deck 项目 3 轮拆分实例：`ref/changelogs/CHANGELOG_50.md` / `CHANGELOG_51.md` / `CHANGELOG_52.md`
 
 ---
 

@@ -11,7 +11,7 @@
 - user CLAUDE.md（`~/.claude/CLAUDE.md`）通用约定**优先于**本文件;与本文件冲突时**以 user CLAUDE.md 为准**
 - 本文件提供 agent-deck 应用专属补充能力（mcp tool / plugin SKILL / cold-start 协议等）,不替换 user 通用约定
 
-**加载范围**:本文件总是随应用打包注入到 SDK system prompt 末尾。`settingSources: ['user','project','local']` 的交互式 SDK 会话同时加载 user CLAUDE.md;`settingSources: []` 的内部 oneshot（如间歇总结）不加载 user CLAUDE.md,**本文件 self-contained 包含所需工程实践 inline**(§复杂 plan workflow / §新项目工程地基 / §核心流程架构变更必走 plantUML)。
+**加载范围**:本文件总是随应用打包注入到 SDK system prompt 末尾。`settingSources: ['user','project','local']` 的交互式 SDK 会话同时加载 user CLAUDE.md;`settingSources: []` 的内部 oneshot（如间歇总结）不加载 user CLAUDE.md,**本文件 self-contained 包含所需工程实践 inline**(§决策对抗 / §核心流程架构变更必走 plantUML / §复杂 plan workflow / §新项目工程地基)。
 
 ## 应用环境特有能力（不依赖 user CLAUDE.md）
 
@@ -47,7 +47,82 @@
 
 ### reviewer-codex 失败 → SKILL 内合规兜底分支
 
-`deep-review` SKILL 内若 reviewer-codex teammate 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort），lead 走 Bash `~/.claude/templates/reviewer-codex.sh.tmpl` 起外部 codex CLI 仍构成异构对（详 SKILL.md §失败兜底 表第 1 行）。**严禁**自动降级到同源双 Claude（破坏异构对抗原则）。
+`deep-review` SKILL 内若 reviewer-codex teammate 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort），lead 走 Bash `{{AGENT_DECK_RESOURCES}}/templates/reviewer-codex.sh.tmpl` 起外部 codex CLI 仍构成异构对（详 SKILL.md §失败兜底 表第 1 行）。**严禁**自动降级到同源双 Claude（破坏异构对抗原则）。
+
+---
+
+## 决策对抗
+
+下结论 / 出 plan 前必做。
+
+**适用范围**（任一即触发）：
+- 给代码下定性判断：bug / 优化 / code review / 安全 / 架构 / 根因
+- 出执行计划（plan）
+- 重要技术选型 / 重构方向决策
+- **例外**：trivial 改动（typo / 样式数值 / 单点 rename / 显然措辞修订）
+
+**场景分流**：
+
+| 场景 | 走哪条 | 不能反过来 |
+|---|---|---|
+| **单次决策对抗**（1-2 个问题就够：单点判定 / plan 评审）| 本节 §主路径 双 Bash 起外部 CLI —— 同 message 并发起两个外部 CLI 进程 | 多轮 review 别走本路：fresh per turn 丢 in-memory state，反驳轮没自己上轮推理链反驳质量崩 |
+| **多轮深度 review**（多轮 review × fix 循环 + 反驳轮 + focus 切片）| 应用环境若提供多轮 review 编排能力（teammate / SKILL 模式）则走之；否则降级为多次单点对抗（每次跑双 Bash），跨轮 mental model 丢失，反驳轮无法引用自己 R_N 推理链 | 单次决策对抗别走多轮编排：teammate 编排开销大无收益 |
+
+### 主路径：双 Bash 起异构外部 CLI
+
+**操作**：在同一 message 里并发起两个 Bash 调用，分别拿独立 stdout：
+
+1. reviewer-claude 走 `zsh -i -l -c "claude -p ..."`（外部 Claude Code 进程，oneshot print mode）—— 模板：`{{AGENT_DECK_RESOURCES}}/templates/reviewer-claude.sh.tmpl`
+2. reviewer-codex 走 `zsh -i -l -c "codex exec ..."`（外部 codex CLI 进程，oneshot exec mode）—— 模板：`{{AGENT_DECK_RESOURCES}}/templates/reviewer-codex.sh.tmpl`
+
+> ⚠️ 这两份 `.sh.tmpl` 是 **Bash oneshot 起外部 CLI 用**（本节 §主路径单次决策对抗）；与 SDK 内可能挂载的同名 `reviewer-{claude,codex}` agent body（teammate 模式，跨轮 context 持久化、属环境专属编排）是**两套独立物件**，不要混用：单次决策对抗用本节 .sh.tmpl，多轮深度 review 走环境提供的 SKILL teammate 模式（如有）。
+
+两个进程完全独立（互不知道对方存在 / 不沟通）→ 各自 stdout 回到主 agent → 主 agent 做三态裁决。
+
+#### 外部 CLI 对抗 Agent 通用姿势
+
+任何外部 CLI 当对抗 Agent 都遵循：
+
+- **登录式 shell 包外层**（macOS：`zsh -i -l -c "..."`），否则缺 brew / nvm / path_helper PATH
+- **强制非交互模式**（`-p` / `exec` / `--non-interactive` / `--batch`）
+- **进程级只读约束**（codex 用 `--sandbox read-only --skip-git-repo-check`；claude 用 `--permission-mode plan` + `--allowedTools` 只读白名单）
+- **显式传项目绝对路径**（`-C` / `--cwd` / `--workdir`）
+- **分离最终答案与日志**：codex 用 `-o <FILE>`；claude 用 stdout 重定向 `> <FILE>`
+- **reasoning effort 取最高档**（review / plan / 探索类用最高档；简单 yes/no 核查可临时降档省时间，但**宁可慢别错**）
+- **长 prompt 走 stdin**（避免 argv 长度 / shell 转义陷阱），prompt 里**写死要读的文件绝对路径**，不让 CLI 自由 grep / explore
+- **后台并发 + 等 task-notification**：Bash 工具用 `run_in_background: true`，让两个 CLI 真并发跑
+- **超时只走 Bash 工具的 `timeout` 参数**（命令体内绝不写 `timeout` / `gtimeout`）。重 review 给 5-10 分钟（300000-600000 ms）
+- **大 scope 拆批**：单批 ≤ 10 文件 / prompt ≤ 30 行；超出按主题拆批 + `run_in_background` 并发；卡住 `TaskStop` 后再拆更小批，不要傻等（详 `{{AGENT_DECK_RESOURCES}}/SOPs/codex-cli-stuck-lessons.md`）
+
+### 反驳轮 + 三态裁决
+
+**反驳轮**：单方独有 + HIGH 候选 → spawn 对方 reviewer 反驳一次（保持异构），反驳 prompt 明禁「借机提其他 finding」专注单点。反驳后主 agent 推到 ✅ / ❌ / 仍 ❓ → 必要时主 agent 自己现场验证（**单 finding ≤ 5min / ≤ 5 次 grep / ≤ 1 个 test，超就降级非 HIGH 不再纠缠**）。
+
+**三态裁决**（每条 finding）：
+- ✅ **真问题**（HIGH 必须满足 ≥1 个验证条件）：「**双方独立提出**」（异构强冗余即算验证）**或**「**一方提出且现场实践验证成立**」（grep 出 N 处证据 / 写小 test 复现挂掉 / 跑命令确认）→ 必修
+- ❌ **反驳**：被对抗或现场核实证伪 → 不修，记反驳依据
+- ❓ **部分 / 未验证**：双方角度不同 / 一方提出但纯文本推理（含弱断言）尚未实践验证 → 综合后决定
+
+**单方独有分流**：HIGH → 反驳轮；MED → 主 agent 自己验证；LOW/INFO → 直接 ❓。双方都说没问题 → ✅ 可合。
+
+### Finding 输出契约（reviewer prompt + 三态裁决 + REVIEW.md 共用）
+
+每条 finding 必须带：
+- `文件:行号` + 代码 / 原文片段（≤ 6 行）
+- **验证手段**（如 "grep 出 3 处全无 null check" / "写 stateful mock 模拟双 disconnect 实测 abort 0 次"）
+- 严重度分组：HIGH / MED / LOW / INFO（提示性、不影响合并）/ *未验证*
+
+**强制约束**：
+- 空泛 finding + 没验证 = 直接降 ❓ 或 ❌
+- **任何 ✅ HIGH 都必须落到上述两个验证条件之一**（双方独立 / 单方 + 现场验证）
+- 弱断言关键词（"可能 / 也许 / 看起来 / 应该 / 大概"）**只允许**出现在标注 *未验证* 的条目里
+- 未验证强制降级为非 HIGH
+
+### reviewer-codex 失败兜底
+
+reviewer-codex agent / CLI 失败（二进制缺失 / OAuth 过期 / 超时 / `$OUT` 空）→ **严禁**自动降级到同源双 Claude（同源化破坏异构原则），必须**提示用户决策**：等恢复 / 单方 reviewer-claude 出结论 / 稍后重试 / abort。
+
+> 环境若提供多轮 review 编排能力（teammate / SKILL 模式），可能在该环境内 SKILL 定义「合规兜底」分支（lead 自己 Bash 起外部 codex CLI 仍异构）；通用决策对抗节不走那条。本应用环境的合规兜底分支详 §应用环境特有能力 §reviewer-codex 失败 → SKILL 内合规兜底分支 节。
 
 ---
 
@@ -204,7 +279,7 @@ Step 4    §plan 完成 / 中止 cleanup
 
 **与 §决策对抗 关系**：本 Step 1.5 = 复杂 plan 内嵌的多轮深度 review；§决策对抗 主路径是单次决策对抗（双 Bash 起外部 CLI）。复杂 plan 走多轮 SKILL 编排，单次决策走主路径。
 
-> ⚠️ **没有应用环境提供 deep-review SKILL 时**：降级为 §决策对抗 主路径单次 review（双 Bash 起外部 CLI，模板 `~/.claude/templates/reviewer-{claude,codex}.sh.tmpl`），仅评审 plan 文件本身（不含多轮 fix loop）。这是 fallback 不是替代,有应用 SKILL 优先用 SKILL。
+> ⚠️ **没有应用环境提供 deep-review SKILL 时**：降级为 §决策对抗 主路径单次 review（双 Bash 起外部 CLI，模板 `{{AGENT_DECK_RESOURCES}}/templates/reviewer-{claude,codex}.sh.tmpl`），仅评审 plan 文件本身（不含多轮 fix loop）。这是 fallback 不是替代,有应用 SKILL 优先用 SKILL。
 
 ### Step 2. EnterWorktree（空间隔离 — user confirm 后才进）
 
@@ -379,7 +454,7 @@ project-root/
         └── <X>-<topic>.md        # 单条已升级约定，X 递增整数
 ```
 
-模板见 `~/.claude/templates/`：
+模板见 `{{AGENT_DECK_RESOURCES}}/templates/`：
 - `project-claude.template.md` / `changelog-index.template.md` / `reviews-index.template.md` / `conventions-tally.template.md` / `conventions-index.template.md` / `convention-single.template.md` / `changelog.template.md` / `review.template.md`
 
 ### src/build 标准目录结构
@@ -455,7 +530,7 @@ dist/
 - 小改动追加最新一条；大改动新建一条
 - 同步更新对应 `INDEX.md`（一行表概要 ≤80 字）
 - changelog 单文件：标题 + 概要 + 变更内容（按模块 bullet）；**不要写「踩坑细节」**——那些去 reviews
-- reviews 单文件结构见 `~/.claude/templates/review.template.md`
+- reviews 单文件结构见 `{{AGENT_DECK_RESOURCES}}/templates/review.template.md`
 
 **改功能前**：先 `ls ref/conventions/ ref/changelogs/ ref/reviews/` + 浏览相关条目（含 `ref/conventions/INDEX.md` 已升级约定 + 相关 changelog/review），了解历史决策、避免推翻已有约定 / 重复踩坑。
 
@@ -475,11 +550,11 @@ dist/
 
 阈值（200 / 3 / 90）调整属约定升级；过期检查本身不走对抗。
 
-**自检脚本**（agent 在「下一轮 review」第一步必跑）：`bash ~/.claude/SOPs/file-level-review-expiry.sh`
+**自检脚本**（agent 在「下一轮 review」第一步必跑）：`bash {{AGENT_DECK_RESOURCES}}/SOPs/file-level-review-expiry.sh`
 
 ### 单文件大小护栏（≤ 500 行）
 
-任何代码源文件 LOC > 500 行触发拆分尝试（commit 前必做一次）。3 档风险升序选择 + 真不能拆的登记机制详 `~/.claude/SOPs/file-size-guardrail.md`。阈值 500 调整属约定升级。
+任何代码源文件 LOC > 500 行触发拆分尝试（commit 前必做一次）。3 档风险升序选择 + 真不能拆的登记机制详 `{{AGENT_DECK_RESOURCES}}/SOPs/file-size-guardrail.md`。阈值 500 调整属约定升级。
 
 ### 反复反馈 / 反复踩坑 → 升级约定
 
