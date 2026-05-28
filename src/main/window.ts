@@ -107,11 +107,22 @@ export class FloatingWindow {
     this.win.setAlwaysOnTop(true, 'floating');
     this.win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
+    // REVIEW_61 MED-A (codex) fix: BrowserWindow 销毁后 this.win 仍指 stale 对象 — 用户用
+    // Cmd+W / OS close / 系统强杀关窗后 BrowserWindow.isDestroyed()=true,但本类的 this.win
+    // 字段只在显式 close() 方法置 null,期间任何 .show() / .focus() / .getOpacity() 调用都
+    // 会撞 destroyed。create() 里注册 'closed' listener 自动清:置 null + stop invalidate
+    // loop。dock activate → ensureFocusableOnActivate → create() 重建会重新设 this.win
+    // 到新 BrowserWindow,所以 'closed' 清 null 不破坏重建路径。
+    this.win.once('closed', () => {
+      this.stopInvalidateLoop();
+      this.win = null;
+    });
+
     // 显示策略：优先等 ready-to-show（首屏渲染完，避免白闪）；
     // 但 transparent + vibrancy + 重 backdrop-filter 偶发不触发，加 1.5s 兜底强制 show。
     let shown = false;
     const showOnce = (reason: string): void => {
-      if (shown || !this.win) return;
+      if (shown || !this.win || this.win.isDestroyed()) return;
       shown = true;
       this.win.show();
       console.log(`[window] shown via ${reason}`);
@@ -504,24 +515,44 @@ export class FloatingWindow {
     this.win?.setIgnoreMouseEvents(ignore, { forward: true });
   }
 
+  /** REVIEW_61 LOW-1 (claude) fix: flash 重入保护。第二次调用必先 clearInterval 旧 timer +
+   *  setOpacity(savedOriginal) 复位 baseline,再起新轮。避免「A 进行中 setOpacity(0.5) → B 进入
+   *  getOpacity() 取到 0.5 当 baseline → B 结束 setOpacity(0.5) 永久半透明」。 */
+  private flashTimer: NodeJS.Timeout | null = null;
+  private flashOriginalOpacity = 1;
+
   flash(): void {
     // macOS 没有任务栏闪烁的标准 API；此处先实现窗口短促置顶动画作为视觉提示。
-    if (!this.win) return;
-    const original = this.win.getOpacity();
+    if (!this.win || this.win.isDestroyed()) return;
+    // 重入: 旧 timer 仍在 → 先 clear + 复位 opacity 再起新轮(保 savedOriginal 一致性)
+    if (this.flashTimer) {
+      clearInterval(this.flashTimer);
+      this.flashTimer = null;
+      this.win.setOpacity(this.flashOriginalOpacity);
+    }
+    this.flashOriginalOpacity = this.win.getOpacity();
     let count = 0;
-    const t = setInterval(() => {
-      if (!this.win || count >= 6) {
-        this.win?.setOpacity(original);
-        clearInterval(t);
+    this.flashTimer = setInterval(() => {
+      const w = this.win;
+      if (!w || w.isDestroyed() || count >= 6) {
+        w?.setOpacity(this.flashOriginalOpacity);
+        if (this.flashTimer) clearInterval(this.flashTimer);
+        this.flashTimer = null;
         return;
       }
-      this.win.setOpacity(count % 2 === 0 ? 0.5 : original);
+      w.setOpacity(count % 2 === 0 ? 0.5 : this.flashOriginalOpacity);
       count += 1;
     }, 120);
   }
 
   close(): void {
     this.stopInvalidateLoop();
+    // REVIEW_61 LOW-1 (claude) fix: 显式 close 路径也清 flash timer + 复位 opacity,
+    // 避免「flash 跑到一半时显式 close 把窗口关掉,但 setInterval timer 句柄仍在 event loop 里」。
+    if (this.flashTimer) {
+      clearInterval(this.flashTimer);
+      this.flashTimer = null;
+    }
     this.win?.close();
     this.win = null;
     // R2 fix REVIEW_45 LOW (claude)：close 收尾彻底化 — 清 emitCompactChanged 引用防 closure

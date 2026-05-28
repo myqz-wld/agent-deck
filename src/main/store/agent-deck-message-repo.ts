@@ -425,10 +425,21 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
 
     const newAttemptCount = cur.attempt_count + 1;
     if (newAttemptCount >= MAX_RETRY) {
-      return markFailed(
-        messageId,
-        `retry-exhausted (attempt=${newAttemptCount}): ${reason}`,
-      );
+      // REVIEW_61 LOW-α (codex) fix: final retry 真到 MAX_RETRY 时,markFailed 旧实现只更新
+      // status/status_reason/delivering_since 不更新 attempt_count → DB 列停在 cur.attempt_count
+      // (typically 2),与 status_reason 字符串里写的 `attempt=3` 不一致。失败消息的结构化
+      // attemptCount 字段和可读 reason 分裂,UI / 诊断 / 后续审计低报一次尝试。
+      // 改成单条 UPDATE 同时写 attempt_count + status + status_reason + delivering_since。
+      const result = db
+        .prepare(
+          `UPDATE agent_deck_messages
+           SET status = 'failed', status_reason = ?,
+               attempt_count = ?, delivering_since = NULL
+           WHERE id = ? AND status IN ('pending', 'delivering')`,
+        )
+        .run(`retry-exhausted (attempt=${newAttemptCount}): ${reason}`, newAttemptCount, messageId);
+      if (result.changes === 0) return null;
+      return get(messageId);
     }
     db.prepare(
       `UPDATE agent_deck_messages
