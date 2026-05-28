@@ -1,129 +1,74 @@
-' commit: d5549c6 (deep-review 批 C 收口) / handler+impl+helpers 结构 (批 A R1 F1 拆分)
-' description: archive_plan tool 主进程模块依赖架构 — handler facade / impl 主体 / 2 helpers / runBatonCleanup / sessionRepo + agentDeckTeamRepo / fs / git 跨边界
-' last_updated: 2026-05-28
+' description: archive_plan tool 模块架构 — 5 大块,plan 收口 7 步主链路
+' last_updated: 2026-05-29
 @startuml archive-plan-architecture
 
-title archive_plan — 主进程模块依赖架构 (批 A R1 F1 拆分后)
+title archive_plan — 模块架构 (plan 收口 5 大块)
 
-package "agent-deck-mcp transport" {
-  [stdio / HTTP /mcp endpoint] as Transport
-  [withMcpGuard wrapper] as Guard
+' 节点名用日常术语优先,内部 module 名 / 函数名 / LOC / commit / REVIEW 引用见 INDEX
+
+package "入口" as L1 {
+  [MCP 入口 + 入口拦截\n(deny external)] as Entry
 }
 
-package "tool handler facade (archive-plan.ts 285 LOC)" {
-  [archivePlanHandler] as Handler
-  [resolveCallerCwdDeps] as ResolveCwd
-  [mergeCallerCwd] as MergeCwd
+package "tool 实现" as L2 {
+  [archive_plan facade\n(参数解析 + cwd 反查)] as Handler
+  [收口业务层\n(7 步原子时序 + 失败兜底)] as Impl
+  [预检助手 + INDEX 同步助手] as Helpers
 }
 
-package "tool impl 主体 (archive-plan-impl.ts 1281 LOC)" {
-  [archivePlanImpl] as Impl
-  [DEFAULT_DEPS] as DefDeps
-  note bottom of Impl
-    批 A R1 F1 拆分:
-    1488 → 1281 LOC (-14%)
-    抽 207 LOC 到 2 helpers
-  end note
+package "公共助手" as L3 {
+  [fs/git 公共助手\n(4 个 tool 共享)] as SharedDeps
+  [baton 收尾流程\n(关 teammate + 归档 caller)] as Baton
 }
 
-package "tool helpers (handlers/archive-plan/)" {
-  [precheck-helpers.ts] as Precheck
-  [index-sync-helpers.ts] as IndexSync
-  note bottom of Precheck
-    4 态预检 + plan_id ↔ worktree_path
-    cross-check + mainRepo critical paths
-    dirty (F2/F1b/F3 helpers)
-  end note
-  note bottom of IndexSync
-    INDEX smart update 4-column +
-    escapeTableCell + formatChangelogCell +
-    upgradeIndexHeader (F6 RMW 单飞锁)
-  end note
+package "持久层" as L4 {
+  [4 张数据表\n(会话 + 团队)] as Repos
+  [会话管理器 + 事件总线] as SM
 }
 
-package "baton cleanup (CHANGELOG_109 抽 helper)" {
-  [runBatonCleanup] as Baton
-  [shutdownTeammatesOnBaton] as Shutdown
-  [archiveSourceSessionWithEmit] as ArchiveCaller
-}
-
-package "_shared 注入模式 (F9 修法)" {
-  [default-impl-deps.ts] as SharedDeps
-  note bottom of SharedDeps
-    F9 修法 (REVIEW_59 批 A):
-    runGit / readFile / writeFile / unlink /
-    mkdir / mvDir / exists / realpath /
-    cwd / homedir 10 个 fs/git helper
-    4 个 impl 共用 (archive-plan / hand-off /
-    enter-worktree / exit-worktree)
-  end note
-}
-
-package "store (better-sqlite3 同步 SQL)" {
-  [sessionRepo] as SessionRepo
-  [agentDeckTeamRepo] as TeamRepo
-  database "agent-deck.sqlite\n(WAL 单进程)" as DB
-}
-
-package "session manager singleton" {
-  [sessionManager] as SM
-}
-
-package "event bus (跨进程 IPC)" {
-  [eventBus.emit] as EventBus
-}
-
-package "fs (主仓库 + worktree + ref/plans/)" {
-  folder "<main-repo>" as MainRepo
-  folder "<main-repo>/.claude/worktrees/<plan-id>/" as Worktree
-  folder "<main-repo>/ref/plans/" as RefPlans
-  folder "<main-repo>/ref/plans/<plan-id>/spike-reports/" as SpikeReports
-}
-
-package "git CLI (子进程)" {
-  [git checkout / merge / add / commit / worktree remove / branch -D] as Git
+package "外部边界" as L5 {
+  folder "主仓库 + worktree + ref/plans/\n+ ref/plans/<id>/spike-reports/" as Fs
+  [git CLI 子进程] as Git
 }
 
 ' ─── 调用链 ───
 
-Transport --> Guard : deny external check\n(EXTERNAL_CALLER_ALLOWED.archive_plan = false)
-Guard --> Handler : ArchivePlanArgs
+Entry --> Handler : 通过白名单后进 facade
+Handler --> Repos : 反查 caller cwd + cwdReleaseMarker
+Handler --> Impl : 进 7 步收口
 
-Handler --> ResolveCwd : callerSid
-ResolveCwd --> SessionRepo : sessionRepo.get(callerSid)
-SessionRepo --> DB : SELECT cwd, cwdReleaseMarker
+Impl --> Helpers : 4 态预检 (plan/worktree/cwd/ff-merge)
+Impl --> SharedDeps : 调 fs/git 公共助手
 
-Handler --> MergeCwd : merge caller deps + sessionRepo 反查
-MergeCwd --> Impl : ArchivePlanArgs + mergedImplDeps
+' 7 步原子时序 (任一失败 abort 无部分回滚)
+Impl --> Git : Step 1-2 checkout base_branch + ff-merge
+Impl --> Fs : Step 3-4 改 plan frontmatter + mv 到 ref/plans/
+Impl --> Fs : Step 4.5 mv spike-reports (有则迁,无则 skip)
+Impl --> Helpers : Step 5 INDEX smart update (4 列)
+Impl --> Git : Step 6 git add + commit
+Impl --> Repos : Step 7a 清 cwdReleaseMarker (commit 后提前清)
+Impl --> Git : Step 7b-c worktree remove + branch -D
 
-' impl 内部依赖
-Impl ..> DefDeps : fallback 兜底
-DefDeps --> SharedDeps : reuse 10 helpers
-Impl --> Precheck : 4 态 + cross-check
-Impl --> IndexSync : Step 5 INDEX sync
+Impl --> Handler : 返收口结果
+Handler --> Baton : runBatonCleanup
+Baton --> SM : phase 1 关 caller 同 team teammate
+Baton --> Repos : phase 2 归档 caller session
+Baton --> Handler : 返 cleanup 结果
+Handler --> Entry : ok({archivedPath, plansIndexAction, archived, ...})
 
-' impl → fs / git 路径 (走 SharedDeps fs/git default impl)
-Impl --> Worktree : Step 2 ff-merge source
-Impl --> MainRepo : Step 1 checkout base_branch + Step 6 commit
-Impl --> RefPlans : Step 3-4 mv plan + frontmatter write
-Impl --> SpikeReports : Step 4.5 mv spike-reports/ (optional)
-Impl --> Git : Step 7a-c worktree remove + branch -D
-Impl --> SessionRepo : Step 7 clearCwdReleaseMarker(callerSid) (F10 提前到 commit 后)
+' ─── 关键不变量 ───
 
-' impl 完成后 → handler → runBatonCleanup
-Impl --> Handler : ArchivePlanResult
-Handler --> Baton : runBatonCleanup({callerSid, toolName})
+note bottom of Impl
+  关键不变量:
+  - 7 步原子: 任一失败立即 abort,无部分回滚 (git 不可逆)
+  - Step 7a 清 marker 提前到 commit 后 → 7b/c 失败时 marker 已清,
+    caller 跑别 plan 不撞 stale marker reject
+  失败兜底见 archive-plan-state-machine 图
+end note
 
-Baton --> Shutdown : phase 1
-Shutdown --> TeamRepo : agentDeckTeamRepo.listActiveMembersByTeam (caller 同 team)
-Shutdown --> SM : sessionManager.close(teammateSid) per-sid try/catch
-SM --> EventBus : emit 'session-status-changed'
-
-Baton --> ArchiveCaller : phase 2
-ArchiveCaller --> SessionRepo : sessionRepo.archive(callerSid) ← failed warn-only
-ArchiveCaller --> EventBus : emit 'session-status-changed' (caller archived)
-
-Baton --> Handler : { teammatesShutdown, archived }
-Handler --> Transport : ok({archivedPath, plansIndexAction, archived, ...})
+note bottom of SharedDeps
+  fs/git 公共助手 (10 个)被 4 个 tool 共享
+  (archive_plan / hand_off_session / enter_worktree / exit_worktree)
+end note
 
 @enduml

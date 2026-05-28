@@ -1,121 +1,95 @@
-' commit: 627a0c2 + 5b66cd8 (批 B) / sdk-bridge 双端 internal state machine
-' description: sdk-bridge sessions Map state machine — claim → active → fork detect → tempKey/realId 切换 → dormant → closed
-' last_updated: 2026-05-28
+' description: sdk-bridge 5 entity 跨层 state 联动 — sessions Map + sdkOwned + DB lifecycle + 单飞锁 + CLI rename
+' last_updated: 2026-05-29
 @startuml sdk-bridge-state-machine
 
-title sdk-bridge — sessions Map + sdkOwned + DB lifecycle 跨层 state 联动
+title sdk-bridge — 5 entity 跨层 state 联动 (双端共用结构)
 
-' ─── entity 1: sessions Map entry (in-memory SDK live query) ───
-state "sessions Map entry\n(in-memory)" as SessionsMap {
-  state "absent\n(sessions.has === false)" as MapAbsent
-  state "tempKey claimed\n(applicationSid 未拿到)" as MapTempKey
-  state "active by realId\n(internal { stream, responder, ... })" as MapActiveRealId
-  state "active by applicationSid\n(applicationSid != cliSessionId)" as MapActiveApp
+' 内部 module 名 / 函数名 / REVIEW 引用见 INDEX 第 3 列
+
+' ─── entity 1: 内存 sessions Map ───
+state "内存 sessions Map" as SessionsMap {
+  state "absent" as MapAbsent
+  state "tempKey claimed" as MapTempKey
+  state "active by realId" as MapActiveRealId
+  state "active by applicationSid" as MapActiveApp
 
   [*] --> MapAbsent
-  MapAbsent --> MapTempKey : createSession 入口\nclaimAsSdk(tempKey)
-  MapTempKey --> MapActiveRealId : first realSessionId 拿到\nresume 主路径 / spawn 拿 realId
-  MapTempKey --> MapActiveApp : plan reverse-rename §A.4-pre §S2\n(sessions.set 切 applicationSid)
-  MapActiveRealId --> MapActiveRealId : pushUserMessage 持续主路径
-  MapActiveApp --> MapActiveApp : pushUserMessage 持续主路径
-  MapActiveRealId --> MapAbsent : lifecycle scheduler abort\n(active → dormant)
+  MapAbsent --> MapTempKey : createSession (claimAsSdk tempKey)
+  MapTempKey --> MapActiveRealId : 拿到第一个 realSessionId
+  MapTempKey --> MapActiveApp : plan reverse-rename 路径
+  MapActiveRealId --> MapAbsent : lifecycle 调度器转 dormant (abort)
   MapActiveApp --> MapAbsent : 同上
-  MapAbsent --> MapTempKey : recoverAndSend 重新 createSession
+  MapAbsent --> MapTempKey : sendMessage 自愈重建
 }
 
-' ─── entity 2: sdkOwned Set + cli_session_id (DB column) ───
-state "sdkOwned Set + cli_session_id" as SdkOwned {
-  state "未 claim\n(sdkOwned.has === false)" as NotClaimed
-  state "claimed (tempKey)\n+ cli_session_id 未写" as ClaimedTemp
-  state "claimed (realId)\n+ cli_session_id 写入" as ClaimedReal
-  state "released\n(sessionManager.releaseSdkClaim)" as Released
+' ─── entity 2: sdkOwned + cli_session_id ───
+state "sdkOwned + cli_session_id" as SdkOwned {
+  state "未 claim" as NotClaimed
+  state "claimed (tempKey)" as ClaimedTemp
+  state "claimed (realId) + cli_session_id 写入" as ClaimedReal
+  state "released" as Released
 
   [*] --> NotClaimed
   NotClaimed --> ClaimedTemp : claimAsSdk(tempKey)
-  ClaimedTemp --> ClaimedReal : sessionManager.renameSdkSession(temp, real)\n+ updateCliSessionId(applicationSid, cliSid)
-  ClaimedReal --> Released : sessionManager.releaseSdkClaim\n(close / fork detect / fallback)
+  ClaimedTemp --> ClaimedReal : session id 重命名 (temp → real)
+  ClaimedReal --> Released : close / fork detect / fallback
   Released --> [*]
 }
 
-' ─── entity 3: DB lifecycle + archived_at ───
-state "DB sessions.lifecycle + archived_at" as DbLifecycle {
-  state "active\n(lifecycle='active' + archived_at=null)" as DbActive
-  state "dormant\n(lifecycle='dormant')" as DbDormant
-  state "closed\n(lifecycle='closed')" as DbClosed
-  state "archived\n(archived_at != null)" as DbArchived
+' ─── entity 3: DB lifecycle + 归档 ───
+state "DB lifecycle + 归档\n(正交两维)" as DbLifecycle {
+  state "active" as DbActive
+  state "dormant" as DbDormant
+  state "closed" as DbClosed
+  state "archived" as DbArchived
 
-  [*] --> DbActive : sessionRepo.upsert (新 session)
-  DbActive --> DbDormant : LifecycleScheduler\nlastEventAt > dormantThreshold
-  DbDormant --> DbActive : sendMessage (recoverAndSend 自愈)
-  DbDormant --> DbClosed : LifecycleScheduler\nlastEventAt > closedThreshold
-  DbActive --> DbClosed : sessionManager.close (显式 shutdown)
-  DbClosed --> [*] : LifecycleScheduler.historyRetentionDays\n→ sessionRepo.delete (CASCADE 删子表)
+  [*] --> DbActive : 新 session upsert
+  DbActive --> DbDormant : 调度器空闲超阈值
+  DbDormant --> DbActive : sendMessage 自愈
+  DbDormant --> DbClosed : 空闲超关闭阈值
+  DbActive --> DbClosed : 显式 shutdown
+  DbClosed --> [*] : TTL GC (CASCADE 删子表)
 
-  DbActive --> DbArchived : sessionRepo.archive\n(archive_plan / hand_off baton)
-  DbArchived --> DbActive : sessionRepo.unarchive\n(recoverAndSend 自愈 archived session)
+  DbActive --> DbArchived : baton (archive_plan / hand_off)
+  DbArchived --> DbActive : 自愈触发取消归档
 }
 
-' ─── entity 4: recovering Map (recoverer single-flight 锁) ───
-state "recovering Map (single-flight 锁)" as RecoverLock {
-  state "未持锁\n(recovering.has === false)" as LockFree
+' ─── entity 4: 单飞锁 (recovering Map) ───
+state "单飞锁\n(防并发自愈)" as RecoverLock {
+  state "无锁" as LockFree
   state "持锁 (inflight Promise)" as LockHeld
 
   [*] --> LockFree
-  LockFree --> LockHeld : recoverer 入口\nrecovering.set(sid, promise)
-  note right of LockHeld
-    REVIEW_60 R1 codex MED-1 修法:
-    set 同步注册防 archived session 并发
-    sendMessage 双 createSession
-    REVIEW_60 R3 修法: await 前窗口 finally 收口
-  end note
-  LockHeld --> LockFree : recovering.delete(sid) finally\n(成功 / 失败都释放)
+  LockFree --> LockHeld : 自愈入口同步 set
+  LockHeld --> LockFree : finally 释放 (成功 / 失败都释)
 }
 
-' ─── entity 5: CLI cli_session_id rename 路径 (claude vs codex 不变量差异) ───
-state "CLI cli_session_id rename" as RenameState {
-  state "spawn 路径 first realId\n= applicationSid" as SpawnFirst
-  state "CLI 软 fork (realId !== opts.resume)\n→ rename 触发" as ForkDetect
-  state "renameSdkSession 完成\n(DB record + 子表整体迁移)" as RenamedDone
+' ─── entity 5: CLI 软 fork rename ───
+state "CLI 软 fork rename" as RenameState {
+  state "spawn 第一个 realId" as SpawnFirst
+  state "fork 检测\n(realId != opts.resume)" as ForkDetect
+  state "rename 完成\n(DB record + 子表迁移)" as RenamedDone
 
-  [*] --> SpawnFirst : spawn 主路径\nfirst realId 拿到
-  SpawnFirst --> ForkDetect : sdk-bridge.consume first realId 拿到时\nrealId !== opts.resume → 检测 fork
-  ForkDetect --> RenamedDone : releaseSdkClaim(OLD_ID)\n+ renameSdkSession(OLD_ID, realId)
+  [*] --> SpawnFirst
+  SpawnFirst --> ForkDetect : streaming input + resume + 新 prompt 下\nCLI 可能给新 session_id (实测铁证)
+  ForkDetect --> RenamedDone : releaseSdkClaim(OLD) + renameSdkSession(OLD, NEW)
   RenamedDone --> [*]
-  note right of ForkDetect
-    Claude Code CLI streaming input + resume + 新 prompt 下
-    可能给一个新 session_id (与官方 SDK 文档不符,实测铁证)
-    应用层兜底: forkSession=false 假设不依赖,实测 rename
-  end note
 }
 
-' ─── 跨 entity 时序串联 ───
+' ─── 跨 entity 联动 + 关键不变量 ───
 
 note as N1
   sdk-bridge **5 entity 联动**:
-
-  ① sessions Map: 跨 lifecycle 切换 (absent → tempKey → activeRealId | activeApp → absent)
+  ① sessions Map: absent → tempKey → activeRealId | activeApp → absent
   ② sdkOwned + cli_session_id: NotClaimed → ClaimedTemp → ClaimedReal → Released
-  ③ DB lifecycle + archived_at: active ↔ dormant + closed | archived (正交两维)
-  ④ recovering Map (single-flight 锁): LockFree ↔ LockHeld (set/delete finally 收口)
-  ⑤ CLI rename: spawn first → fork detect → renamed (软 fork CLI 行为)
+  ③ DB lifecycle: active ↔ dormant + closed | archived (正交两维)
+  ④ 单飞锁: LockFree ↔ LockHeld (finally 收口)
+  ⑤ CLI rename: spawn first → fork detect → renamed
 
-  **关键不变量** (REVIEW_60 R4 §保护清单 7 条):
-  - sessions Map / sdkOwned / pendingMessages 三状态强耦合 (闭包 ~10 跨段共享 ref)
-  - canUseTool 闭包 6 deps 双向强耦合 PermissionResponder
-  - 4 protected wrappers test seam 挂 facade class 上
-  - plan reverse-rename §A.4-pre §S2 sessions.set 切 applicationSid
-
-  **cross-adapter parity** (REVIEW_60 R4 cross-adapter 镜像):
-  - claude / codex 双端各自 sdk-bridge/index.ts + recoverer.ts (5+ helper 镜像)
-  - codex 端无 LLM 摘要 prepend (jsonl-fallback 精简版)
-  - claude 端 in-process MCP transport (codex 端 per-session token map)
-
-  **失败兜底**:
-  - sendMessage 撞 sessions.has=false → recoverAndSend (single-flight 锁防双 createSession)
-  - cwd 失效 → 启发式祖先目录 fallback (找不到 reject)
-  - jsonl missing → maybeJsonlFallback fresh-session (renameSdkSession 子表迁移)
-  - createSession throw → catch 双 key 清理 sessions Map (REVIEW_60 R2 HIGH 修法)
-  - codex createSession 顶层 catch 4 资源 cleanup (codexBySession.delete + tokenMap.release + sessions.delete + releaseSdkClaim)
+  关键不变量: 三状态强耦合 (sessions/sdkOwned/pendingMessages)
+  + canUseTool 闭包 6 deps + 4 protected wrapper test seam (详 INDEX REVIEW link)
+  双端 parity: claude / codex 双端结构镜像,差异仅 jsonl 摘要 + transport
+  失败兜底: sendMessage 撞 absent → 单飞自愈;cwd / jsonl 失效走启发式 fallback
 end note
 
 @enduml
