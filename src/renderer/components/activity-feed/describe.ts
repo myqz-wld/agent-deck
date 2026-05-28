@@ -10,7 +10,7 @@ export function describe(e: AgentEvent): string {
       return `会话开始 · ${(p.cwd as string) ?? ''}`;
     case 'tool-use-start': {
       const tool = (p.toolName as string) ?? '工具';
-      if (tool === 'ExitPlanMode') return '📋 Claude 提议了一个执行计划';
+      if (tool === 'ExitPlanMode') return '📋 收到一个执行计划';
       const detail = describeToolInput(tool, p.toolInput);
       return detail ? `${toolIcon(tool)} ${tool} · ${detail}` : `${toolIcon(tool)} ${tool}`;
     }
@@ -22,20 +22,59 @@ export function describe(e: AgentEvent): string {
       return `📝 ${(p.filePath as string) ?? ''}`;
     case 'waiting-for-user': {
       const type = (p.type as string) ?? '';
-      if (type === 'permission-request') return `⚠ 等待你授权 ${(p.toolName as string) ?? ''}`;
-      if (type === 'ask-user-question') return '❓ Claude 在询问你';
-      if (type === 'exit-plan-mode') return '📋 Claude 提议了一个执行计划';
-      if (type === 'permission-cancelled') return '⚪ 权限请求已被 SDK 取消';
-      if (type === 'ask-question-cancelled') return '⚪ 提问已被 SDK 取消';
-      if (type === 'exit-plan-cancelled') return '⚪ 计划批准请求已被 SDK 取消';
-      return `⚠ 等待你的输入${p.message ? ` · ${p.message as string}` : ''}`;
+      if (type === 'permission-request') return `⚠️ 等待你授权 ${(p.toolName as string) ?? ''}`;
+      if (type === 'ask-user-question') return '❓ 收到一个问题';
+      if (type === 'exit-plan-mode') return '📋 收到一个执行计划';
+      if (type === 'permission-cancelled') return '⚪ 权限请求已取消';
+      if (type === 'ask-question-cancelled') return '⚪ 提问已取消';
+      if (type === 'exit-plan-cancelled') return '⚪ 计划批准请求已取消';
+      return `⚠️ 等待你的输入${p.message ? ` · ${p.message as string}` : ''}`;
     }
     case 'finished':
       return '✅ 一轮完成';
     case 'session-end':
-      return `⏹ 会话结束${p.reason ? ` · ${p.reason as string}` : ''}`;
+      return `⏹ 会话结束${p.reason ? ` · ${translateSessionEndReason(p.reason as string)}` : ''}`;
+    // CHANGELOG_165: M3 Agent Teams 事件家族 SimpleRow 渲染(原走 default 只显 e.kind 字符串)。
+    // payload schema 见 CHANGELOG_40 §共享类型 TeamTaskPayload / TeamTeammateIdlePayload。
+    // handler ingest 时仅含 schema 子集({teamName, taskId, description}+task_create 的 assignee);
+    // 兼容写时 teammateName / reason 缺失时 graceful degrade。
+    case 'team-task-created': {
+      const desc = (p.description as string) ?? (p.taskId as string) ?? '';
+      const teammate = (p.teammateName as string) ?? '';
+      const team = (p.teamName as string) ?? '';
+      return `📌 新 task · ${desc}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
+    }
+    case 'team-task-completed': {
+      const desc = (p.description as string) ?? (p.taskId as string) ?? '';
+      const teammate = (p.teammateName as string) ?? '';
+      const team = (p.teamName as string) ?? '';
+      return `✓ task 完成 · ${desc}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
+    }
+    case 'team-teammate-idle': {
+      const teammate = (p.teammateName as string) ?? '';
+      const reason = (p.reason as string) ?? '';
+      return `💤 队友空闲${teammate ? ` · ${teammate}` : ''}${reason ? ` (${reason})` : ''}`;
+    }
     default:
       return e.kind;
+  }
+}
+
+/** session-end reason 英文枚举 → 中文(active/dormant/closed 等 SDK 内部枚举值统一翻译)。 */
+function translateSessionEndReason(reason: string): string {
+  switch (reason) {
+    case 'completed':
+      return '正常结束';
+    case 'aborted':
+      return '已中止';
+    case 'error':
+      return '出错';
+    case 'max_turns':
+      return '达到对话上限';
+    case 'stop':
+      return '已停止';
+    default:
+      return reason;
   }
 }
 

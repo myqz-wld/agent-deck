@@ -81,15 +81,22 @@ export interface IngestContext {
  * 5. 时序兜底 C（hookOrigin='sdk' 孤儿 → skip，REVIEW_12 Bug 5）
  */
 export function dedupOrClaim(ctx: IngestContext, event: AgentEvent): { skip: boolean } {
-  // M3 Agent Teams hook（team-task-created / team-task-completed / team-teammate-idle）
-  // 只来自 hook 通道（SDK 通道不 emit 这些 kind），即便 sessionId 已 sdkOwned 也**不要 dedup**
-  // ——否则 lead session 是 SDK 接管的，所有 team-* event 都会被这里第二条 hook+sdkOwned 守卫吞掉，
-  // M3 整套数据流失效。早返让 team-* event 直接进 ensureRecord / persistEventRow。
+  // M3 Agent Teams 事件家族（team-task-created / team-task-completed / team-teammate-idle）
+  // 双源:
+  // - hook 通道:CLI builtin TaskCreated/TaskCompleted/TeammateIdle hook 上报(CHANGELOG_40 设计)。
+  //   实际接入路径在当前代码里未真实使用(grep 0 处 source='hook' 的 team-task-* ingest 来源),
+  //   保留兜底以备未来恢复。
+  // - sdk 通道:agent-deck-mcp `task_create` / `task_update`(status→completed) handler 主动 ingest
+  //   (CHANGELOG_56 §A 落地)。
+  // 两源都不走任何 dedup —— sdkOwned 的 lead session 是 SDK 接管的,若按 hook+sdkOwned 守卫吞掉
+  // hook 源会让 M3 hook 路径整片失效;sdk 源本来就由 handler 主动 ingest,更不应被任何分支误吞。
+  // 早返让 team-* event 直接进 ensureRecord / persistEventRow。
+  // CHANGELOG_165 修法:去掉 `event.source === 'hook'` 限定(原 CHANGELOG_40 注释「SDK 通道不
+  // emit 这些 kind」已与现实漂移 — CHANGELOG_56 §A 让 sdk 源也 ingest),让两源都走早返。
   if (
-    event.source === 'hook' &&
-    (event.kind === 'team-task-created' ||
-      event.kind === 'team-task-completed' ||
-      event.kind === 'team-teammate-idle')
+    event.kind === 'team-task-created' ||
+    event.kind === 'team-task-completed' ||
+    event.kind === 'team-teammate-idle'
   ) {
     return { skip: false };
   }

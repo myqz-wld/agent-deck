@@ -71,14 +71,17 @@ export const taskCreateHandler = withMcpGuard(
       });
       // D7：in-process 路径 ingest team-task-created；HTTP/stdio transport skip
       // （codex SDK 子进程 SessionDetail 渲染 team-task-* event 未实证）
-      if (ctx.caller.transport === 'in-process') {
+      // CHANGELOG_165 修法: 加 `args.team_id` 第二守卫 (truthy check 也覆盖 null/undefined),
+      // personal task skip ingest — kind 名 `team-task-created` 与 personal task 语义不符,
+      // 且 v024 plan 把 personal task 升为 first-class default 后这条 event 在 ActivityFeed /
+      // TeamDetail EventsSection 里全是噪声(尤其 task_create 比 task_update 触发频繁,泛滥更严重)。
+      // eventBus.emit('task-changed') 不受影响仍发,UI TasksSection / task_list 实时性不丢。
+      if (ctx.caller.transport === 'in-process' && args.team_id) {
         // v024 plan Round 1 MED-2 + Round 3 MED-3 修法:teamName 取自 args.team_id lookup
         //（不走 getCallerFirstTeamName 避免多 team caller 显式 team_id=B 但 first active team=A
-        // 漂移到 A）。args.team_id 为空 → null personal task,teamName 也为 null。
+        // 漂移到 A）。守卫保证 args.team_id 必非空,直接 lookup。
         // 实际接口 agentDeckTeamRepo.get(teamId)?.name（Round 3 MED-3:`findById` 不存在）。
-        const teamName = args.team_id
-          ? (agentDeckTeamRepo.get(args.team_id)?.name ?? null)
-          : null;
+        const teamName = agentDeckTeamRepo.get(args.team_id)?.name ?? null;
         sessionManager.ingest({
           sessionId: callerSid,
           agentId: AGENT_ID,

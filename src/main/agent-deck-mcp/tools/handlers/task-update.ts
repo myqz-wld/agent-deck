@@ -79,15 +79,18 @@ export const taskUpdateHandler = withMcpGuard(
       // REVIEW_56 §F7 修法 (Plan-Review Round 1 + spike 决策): 加 `updated.status === 'completed'`
       // 第三条件防御 — 若 `taskRepo.update` 因 v024 team_id check 拒掉 status patch,
       // `patch.status='completed'` 但 `updated.status='pending'` 漂移时不应误触 becameCompleted。
+      // CHANGELOG_165 修法: 加 `updated.teamId` 第四守卫,personal task (teamId IS NULL) skip
+      // ingest — kind 名 `team-task-completed` 与 personal task 语义不符,且 v024 plan 把
+      // personal task 升为 first-class default 后这条 event 在 ActivityFeed / TeamDetail
+      // EventsSection 里全是噪声(用户 caller 跑自己 todo 与 team 无关却喷一条进事件流)。
+      // eventBus.emit('task-changed') 不受影响仍发,UI TasksSection / task_list 实时性不丢。
       const becameCompleted =
         patch.status === 'completed' &&
         existing.status !== 'completed' &&
         updated.status === 'completed';
-      if (becameCompleted && ctx.caller.transport === 'in-process') {
+      if (becameCompleted && ctx.caller.transport === 'in-process' && updated.teamId) {
         // v024 Round 1 MED-2 修法:teamName 取 updated.teamId lookup（不走 getCallerFirstTeamName）
-        const teamName = updated.teamId
-          ? (agentDeckTeamRepo.get(updated.teamId)?.name ?? null)
-          : null;
+        const teamName = agentDeckTeamRepo.get(updated.teamId)?.name ?? null;
         sessionManager.ingest({
           sessionId: callerSid,
           agentId: AGENT_ID,

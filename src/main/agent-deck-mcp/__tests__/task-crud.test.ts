@@ -139,7 +139,7 @@ beforeEach(() => {
 });
 
 describe('task_create — v024 D1+D2 personal default + D3 team_id 校验', () => {
-  it('不传 team_id → 闭包注入 ownerSessionId + teamId=null personal + emit task-changed + ingest team-task-created(teamName=null)', async () => {
+  it('不传 team_id → 闭包注入 ownerSessionId + teamId=null personal + emit task-changed + CHANGELOG_165 skip ingest team-task-created', async () => {
     const created = makeTaskRecord({ id: 't1', subject: 'X', ownerSessionId: 'sess-caller', teamId: null });
     mockTaskRepo.create.mockReturnValue(created);
 
@@ -156,14 +156,9 @@ describe('task_create — v024 D1+D2 personal default + D3 team_id 校验', () =
       'task-changed',
       expect.objectContaining({ kind: 'created', taskId: 't1', ownerSessionId: 'sess-caller' }),
     );
-    // D7 in-process + v024: teamName=null（personal task）
-    expect(mockSessionManager.ingest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 'sess-caller',
-        kind: 'team-task-created',
-        payload: expect.objectContaining({ teamName: null }),
-      }),
-    );
+    // CHANGELOG_165: personal task (teamId=null) 不再 ingest team-task-created
+    // (kind 名与 personal 语义不符;eventBus.emit 仍发保 UI 实时性)
+    expect(mockSessionManager.ingest).not.toHaveBeenCalled();
     expect(result.isError).toBeFalsy();
   });
 
@@ -239,15 +234,24 @@ describe('task_create — v024 D1+D2 personal default + D3 team_id 校验', () =
     expect(mockTaskRepo.create).not.toHaveBeenCalled();
   });
 
-  it('D7：HTTP transport (per-session authn real sid) → emit task-changed 但 skip ingest', async () => {
+  it('D7：HTTP transport + team task → emit task-changed 但 skip ingest（与 CHANGELOG_165 personal 守卫独立）', async () => {
+    // CHANGELOG_165 fixture 改 team task: personal 在 in-process 都被 CHANGELOG_165 守卫吞,
+    // 此 testcase 用 team task 才能纯证 D7 transport 守卫(HTTP transport 即便 team task 也 skip)
+    mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([
+      { teamId: 'team-A', teamName: 'Team Alpha', sessionId: 'sess-caller', role: 'lead' },
+    ]);
+    mockTeamRepo.get.mockImplementation((tid: string) => {
+      if (tid === 'team-A') return { id: tid, name: 'Team Alpha', archivedAt: null };
+      return null;
+    });
     mockTaskRepo.create.mockReturnValue(
-      makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: null }),
+      makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: 'team-A' }),
     );
     const ctx: HandlerContext = {
       caller: { callerSessionId: 'sess-caller', transport: 'http' },
     };
 
-    await taskCreateHandler({ subject: 'X' }, ctx);
+    await taskCreateHandler({ subject: 'X', team_id: 'team-A' }, ctx);
 
     expect(mockEventBus.emit).toHaveBeenCalledTimes(1);
     expect(mockSessionManager.ingest).not.toHaveBeenCalled();
