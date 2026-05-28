@@ -134,6 +134,11 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     r = msgRepo.retryAfterFail(m.id, 'err3', now + 100);
     expect(r?.status).toBe('failed');
     expect(r?.statusReason).toContain('retry-exhausted');
+    // REVIEW_61 R2 INFO (codex) regression: final retry 必须把 attempt_count 持久化到 DB
+    // (旧实现只更新 status/status_reason 不更新 attempt_count → DB 列停在 2 与 reason
+    // 字符串 attempt=3 分裂)。R1 fix LOW-α 改成单条 UPDATE 同时写两列,本 test 锁契约。
+    expect(r?.attemptCount).toBe(3);
+    expect(r?.statusReason).toContain('attempt=3');
   });
 
   it('findEligible 按 last_attempt_at + backoff 退避（reviewer HIGH-1 修法）', () => {

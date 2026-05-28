@@ -184,6 +184,29 @@ describe.skipIf(!bindingAvailable)('task-repo / list 排序与过滤', () => {
     expect(repo.list({ subjectKeyword: 'cache' })).toHaveLength(1);
   });
 
+  it('subjectKeyword LIKE wildcard 字面匹配（REVIEW_61 R1 LOW-β + R2 INFO codex regression）', () => {
+    // R1 LOW-β fix: 用户输入 `%` `_` `\` 必须按字面匹配,不再被 SQL LIKE 当 wildcard 解释。
+    // 旧实现 `%${keyword}%` 直接拼让 `100%` 等价「任意以 100 开头」;新实现 escape `% _ \\`
+    // + ESCAPE '\\' 让 SQL LIKE 把它们当字面字符。
+    repo.create({ subject: 'price 100%', ownerSessionId: sid });
+    repo.create({ subject: 'price 1000', ownerSessionId: sid });
+    repo.create({ subject: 'foo_bar', ownerSessionId: sid });
+    repo.create({ subject: 'fooXbar', ownerSessionId: sid });
+    repo.create({ subject: 'c:\\path\\foo', ownerSessionId: sid });
+
+    // `%` 字面: 只匹配 `price 100%`,不匹配 `price 1000`
+    expect(repo.list({ subjectKeyword: '100%' })).toHaveLength(1);
+    expect(repo.list({ subjectKeyword: '100%' })[0].subject).toBe('price 100%');
+
+    // `_` 字面: 只匹配 `foo_bar`,不匹配 `fooXbar`(`_` 旧实现是 SQL 单字符 wildcard)
+    expect(repo.list({ subjectKeyword: 'foo_bar' })).toHaveLength(1);
+    expect(repo.list({ subjectKeyword: 'foo_bar' })[0].subject).toBe('foo_bar');
+
+    // `\\` 字面: 匹配 Windows 路径
+    expect(repo.list({ subjectKeyword: 'c:\\path' })).toHaveLength(1);
+    expect(repo.list({ subjectKeyword: 'c:\\path' })[0].subject).toBe('c:\\path\\foo');
+  });
+
   it('ownerSessionIds 三态：不传=全部 / 空数组=0 行 / 非空=IN 过滤', () => {
     insertSession(db, 'sess-X');
     insertSession(db, 'sess-Y');

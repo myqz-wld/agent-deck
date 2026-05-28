@@ -107,14 +107,35 @@ export class FloatingWindow {
     this.win.setAlwaysOnTop(true, 'floating');
     this.win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
-    // REVIEW_61 MED-A (codex) fix: BrowserWindow 销毁后 this.win 仍指 stale 对象 — 用户用
-    // Cmd+W / OS close / 系统强杀关窗后 BrowserWindow.isDestroyed()=true,但本类的 this.win
-    // 字段只在显式 close() 方法置 null,期间任何 .show() / .focus() / .getOpacity() 调用都
-    // 会撞 destroyed。create() 里注册 'closed' listener 自动清:置 null + stop invalidate
-    // loop。dock activate → ensureFocusableOnActivate → create() 重建会重新设 this.win
-    // 到新 BrowserWindow,所以 'closed' 清 null 不破坏重建路径。
-    this.win.once('closed', () => {
+    // REVIEW_61 R2 LOW (codex) + R1 MED-A (codex) fix: BrowserWindow generation guard +
+    // 销毁后 stale this.win 自动清。
+    //
+    // **Generation guard 必要性** (R2 codex 抓):本类是 singleton,Cmd+W close winA → dock activate
+    // 重建 winB 期间,winA 注册的 async callback (1.5s fallback show / setInterval flash cb /
+    // 'closed' listener 自身)若读 mutable `this.win` 会拿到 winB 误操作。**create() 入口捕获
+    // capturedWin = this.win**,所有 callback 用 capturedWin + 加 `this.win !== capturedWin`
+    // generation guard,确保跨 close+recreate 不污染新窗口。
+    //
+    // **'closed' listener** (R1 MED-A):BrowserWindow 销毁(Cmd+W / OS close / 系统强杀)时
+    // this.win 字段未清 → 多处 .show() / .focus() / .getOpacity() 撞 destroyed。listener 自动:
+    // 1. generation guard `this.win === capturedWin` 防已 recreate 把新 winB 误清
+    // 2. stopInvalidateLoop 清 100ms invalidate 计时器
+    // 3. clearInterval flashTimer 防 flash cb 跨 generation 改新 winB opacity (R2 codex)
+    // 4. clearTimeout fallbackShowTimer 防 1.5s 兜底跨 generation show 新 winB (R2 codex)
+    // 5. this.win = null 让 dock activate 重建路径正确触发
+    const capturedWin = this.win;
+    capturedWin.once('closed', () => {
+      // 已被 dock activate → ensureFocusableOnActivate → create() 重建替换 → 不动新 winB
+      if (this.win !== capturedWin) return;
       this.stopInvalidateLoop();
+      if (this.flashTimer) {
+        clearInterval(this.flashTimer);
+        this.flashTimer = null;
+      }
+      if (this.fallbackShowTimer) {
+        clearTimeout(this.fallbackShowTimer);
+        this.fallbackShowTimer = null;
+      }
       this.win = null;
     });
 
@@ -122,14 +143,20 @@ export class FloatingWindow {
     // 但 transparent + vibrancy + 重 backdrop-filter 偶发不触发，加 1.5s 兜底强制 show。
     let shown = false;
     const showOnce = (reason: string): void => {
-      if (shown || !this.win || this.win.isDestroyed()) return;
+      // generation guard: 旧 generation callback 跨 close+recreate 到点时 this.win 已是 winB,
+      // 严格守门只操作 capturedWin (本 generation 自己的 win),且 capturedWin 已 destroyed 时 skip。
+      if (shown || this.win !== capturedWin || capturedWin.isDestroyed()) return;
       shown = true;
-      this.win.show();
+      capturedWin.show();
       console.log(`[window] shown via ${reason}`);
     };
-    this.win.once('ready-to-show', () => showOnce('ready-to-show'));
-    this.win.webContents.once('did-finish-load', () => showOnce('did-finish-load'));
-    setTimeout(() => showOnce('fallback-timeout'), 1500);
+    capturedWin.once('ready-to-show', () => showOnce('ready-to-show'));
+    capturedWin.webContents.once('did-finish-load', () => showOnce('did-finish-load'));
+    // 1.5s 兜底句柄存 instance state,'closed' listener 同步 clearTimeout(R2 LOW codex)
+    this.fallbackShowTimer = setTimeout(() => {
+      showOnce('fallback-timeout');
+      this.fallbackShowTimer = null;
+    }, 1500);
 
     this.win.webContents.on('did-fail-load', (_e, code, desc, url) => {
       console.error(`[window] did-fail-load ${code} ${desc} url=${url}`);
@@ -520,6 +547,10 @@ export class FloatingWindow {
    *  getOpacity() 取到 0.5 当 baseline → B 结束 setOpacity(0.5) 永久半透明」。 */
   private flashTimer: NodeJS.Timeout | null = null;
   private flashOriginalOpacity = 1;
+  /** REVIEW_61 R2 LOW (codex) fix: 1.5s 兜底 show 计时器句柄存到 instance state,'closed' listener
+   *  同步 clearTimeout 防「winA close + dock activate 重建 winB → 旧 1.5s fallback 到点 showOnce
+   *  看到 winB 非 destroyed 调 winB.show() 干扰新窗口生命周期」。 */
+  private fallbackShowTimer: NodeJS.Timeout | null = null;
 
   flash(): void {
     // macOS 没有任务栏闪烁的标准 API；此处先实现窗口短促置顶动画作为视觉提示。
@@ -530,17 +561,25 @@ export class FloatingWindow {
       this.flashTimer = null;
       this.win.setOpacity(this.flashOriginalOpacity);
     }
-    this.flashOriginalOpacity = this.win.getOpacity();
+    // REVIEW_61 R2 LOW (codex) fix: capture generation,setInterval cb 跨 close+recreate
+    // 不污染新 winB opacity('closed' listener 已加 clearInterval flashTimer 兜底,这里 generation
+    // guard 是双保险:如有 close → recreate 极快导致 'closed' clearInterval 与新 setInterval 注册
+    // 时序错开的极端边界,仍能 skip 不操作新 winB)。
+    const capturedWin = this.win;
+    this.flashOriginalOpacity = capturedWin.getOpacity();
     let count = 0;
     this.flashTimer = setInterval(() => {
-      const w = this.win;
-      if (!w || w.isDestroyed() || count >= 6) {
-        w?.setOpacity(this.flashOriginalOpacity);
+      // generation guard: this.win 已切到 winB / capturedWin 已 destroyed → 退出不复位 opacity
+      // (复位是为本 generation 自己 baseline,跨 generation 复位会污染 winB 真实 opacity)
+      if (this.win !== capturedWin || capturedWin.isDestroyed() || count >= 6) {
+        if (this.win === capturedWin && !capturedWin.isDestroyed()) {
+          capturedWin.setOpacity(this.flashOriginalOpacity);
+        }
         if (this.flashTimer) clearInterval(this.flashTimer);
         this.flashTimer = null;
         return;
       }
-      w.setOpacity(count % 2 === 0 ? 0.5 : this.flashOriginalOpacity);
+      capturedWin.setOpacity(count % 2 === 0 ? 0.5 : this.flashOriginalOpacity);
       count += 1;
     }, 120);
   }
@@ -552,6 +591,12 @@ export class FloatingWindow {
     if (this.flashTimer) {
       clearInterval(this.flashTimer);
       this.flashTimer = null;
+    }
+    // REVIEW_61 R2 LOW (codex) fix: 显式 close 同样清 1.5s 兜底 show 计时器
+    // ('closed' listener 也会清,这里是双保险:close() 显式调用早于 'closed' event 时同步生效)
+    if (this.fallbackShowTimer) {
+      clearTimeout(this.fallbackShowTimer);
+      this.fallbackShowTimer = null;
     }
     this.win?.close();
     this.win = null;
