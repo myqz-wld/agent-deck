@@ -1,0 +1,121 @@
+' commit: 627a0c2 + 5b66cd8 (批 B) / recoverer.ts:103-220 cwd 启发式
+' description: sdk-bridge sendMessage 入口 5 路径决策树 (sessions.has? + opts.resume? + jsonl exists? + cwd valid? + single-flight 锁)
+' last_updated: 2026-05-28
+@startuml sdk-bridge-recovery-decision
+
+title sdk-bridge sendMessage — 5 路径决策树 (主路径 vs recoverAndSend 4 fallback 分支)
+
+start
+
+:Caller invoke sdk-bridge.sendMessage(sessionId, text);
+
+if (sessions.has(sessionId)?) then (yes — 主路径)
+  :pushUserMessage(text) → SDK stdin write;
+  :Stream emit AgentEvent (kind: 'message'/'status'/'file-changed');
+  stop
+endif
+
+note right
+  sessions.has === false 触发自愈 (典型场景):
+  - lifecycle scheduler 把 active → dormant 后 abort live query
+  - 应用重启后未恢复 SDK 实例
+  - archived session 被 unarchive 重新对话
+end note
+
+partition "recoverAndSend single-flight 单飞锁" {
+  if (recovering.has(sessionId)?) then (yes — 已有 inflight)
+    :await inflight Promise;
+    :inflight 完成后重新走完整 sendMessage(text);
+    note right
+      REVIEW_60 R3 修法: await 前窗口 finally 收口单飞锁
+      防同 sessionId 并发 sendMessage 双 createSession
+    end note
+    stop
+  endif
+  :recovering.set(sessionId, promise);
+  note right
+    REVIEW_60 R1 codex MED-1 修法:
+    unarchive + 占位 message dedup 从 IIFE 外移到 IIFE 内
+    recovering.set 同步注册防 archived session
+    并发 sendMessage 双 createSession 破坏不变量
+  end note
+}
+
+partition "sessionRepo 反查 + unarchive + 占位 message" {
+  :sessionRepo.get(sessionId);
+  if (row == null?) then (yes)
+    :reject "session-not-found";
+    end
+  endif
+  if (row.archived_at != null?) then (yes — archived session 自愈)
+    :sessionRepo.unarchive (archived_at = null);
+  endif
+  :emit '⚠ SDK 通道已断开,正在自动恢复…' 占位 message\n(非 error 占位让用户在 fallback 期间不哑巴 busy);
+}
+
+partition "Fallback 1: cwd 启发式 fallback (recoverer.ts:103-220)" {
+  if (cwdExists(row.cwd)?) then (no — cwd 已失效)
+    :启发式找祖先目录\n(worktree path 取段之前 / 父目录 walk 不超过 home);
+    if (找到 fallback cwd?) then (no)
+      :emit error '⚠ cwd 失效且无法回退';
+      :reject;
+      end
+    endif
+    :emit info '⚠ cwd 失效,自动回退到 <fallback-cwd>';
+    note right
+      典型触发: caller 取消归档继续给已收口 plan-driven session
+      发消息 (撞 cwd 失效) / 用户手动 git worktree remove 不走 archive_plan
+      / 跨设备同步丢目录
+    end note
+    :强制走 jsonl missing fallback 同款下游;
+  endif
+}
+
+partition "Fallback 2: jsonl-missing fallback (CLI 隐式 fork 第二种边界)" {
+  if (jsonl 路径 exists? (~/.claude/projects/<cwd>/<sid>.jsonl)) then (no — CLI --resume 撞 'No conversation found')
+    :maybeJsonlFallback (不带 resume 走新建 createSession);
+    if (claude jsonl-fallback?) then (yes)
+      :拼接 history 摘要 prepend 到首条 prompt;
+    else (codex)
+      :精简版无 LLM 摘要 prepend\n(CHANGELOG_171 D follow-up);
+    endif
+    :createSession(opts) 无 resume → newRealSessionId (fresh thread);
+    :sessionManager.renameSdkSession(OLD_SID, newRealSessionId);
+    note right
+      REVIEW_60 R2 reviewer-claude HIGH 修法:
+      claude createSession catch 双 key 清理 sessions Map
+      sessions.delete(applicationSid) + sessions.delete(tempKey)
+      防 sessions.set 切 applicationSid 后 catch 残留 leak
+    end note
+    :sessions.set(newRealSessionId, internal);
+    :跳到 §收尾;
+  endif
+}
+
+partition "正常 resume 路径 (jsonl exists + cwd valid)" {
+  :createSession({resume: sessionId, prompt: text, cwd, permissionMode});
+  :SDK 子进程 read jsonl 复原历史;
+  :SDK 返 first realSessionId;
+
+  if (realId !== opts.resume?) then (yes — CLI 软 fork)
+    :sessionManager.releaseSdkClaim(OLD_ID);
+    :sessionManager.renameSdkSession(OLD_ID, realId)\n(DB record + 子表整体迁移);
+    note right
+      Claude Code CLI streaming input + resume + 新 prompt 下
+      行为不可控,可能给一个新 session_id (与官方 SDK 文档
+      'forkSession=false 默认续同 ID' 不符,实测铁证)
+    end note
+  endif
+  :sessions.set(realId, internal);
+}
+
+partition "收尾: 通过主路径 push text" {
+  :回到主路径 sendMessage(text);
+  :pushUserMessage → SDK stdin write;
+  :Stream emit AgentEvent;
+  :recovering.delete(sessionId) finally\n(单飞锁释放);
+}
+
+stop
+
+@enduml
