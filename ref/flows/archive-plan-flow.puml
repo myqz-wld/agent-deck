@@ -41,7 +41,10 @@ I -> IO: realpath + plan frontmatter parse (plan_id ↔ worktree_path cross-chec
 
 I -> IO: Step 1-2: git checkout base_branch + ff-merge worktree-<plan_id>
 note right of IO
-  base_branch 默认 = plan frontmatter.base_branch (不再 fallback main)
+  base_branch resolution chain:
+  caller args.base_branch > plan frontmatter.base_branch > "main" fallback
+  强烈建议 plan frontmatter 显式写 base_branch
+  (避免 ff-merge 错合主线污染)
 end note
 I -> IO: Step 3: 写 plan frontmatter (status=completed + final_commit + completed_at)
 I -> IO: Step 4: mv plan → ref/plans/<plan_id>.md

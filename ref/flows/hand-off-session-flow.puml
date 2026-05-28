@@ -26,8 +26,14 @@ end note
 alt plan-driven (plan_id 传)
   H -> I: 解析 plan
   I -> I: 按 fallback 链找 plan 文件 + 校验 + 构造 cold start prompt
-  I --> H: { planFilePath, worktreePath, mainRepo, coldStartPrompt }
+  I --> H: { planFilePath, worktreePath, mainRepo, coldStartPrompt, isExternalWorktree }
   H -> H: cwd 默认 = mainRepo (cwd resilience)
+  note right of H
+    external worktree (worktree 不在 mainRepo 子树) →
+    handler 自动把 mainRepo 加进 spawn args.extra_allow_write
+    (claude-code workspace-write 沙盒额外 writable roots,
+     让新 SDK session 能写 plan 文件)
+  end note
 else generic (无 plan_id)
   H -> H: 直接组装 generic 上下文 (cold start prompt = args.prompt 或默认)
   H -> H: cwd 默认 = caller cwd (与 plan-driven 不同)
@@ -35,18 +41,27 @@ end
 
 H -> H: cwd 兜底链 + 失效自动回退
 
-== 段 2: spawn 新 SDK session + adopt + task 三态 ==
+== 段 2: adopt 预检 + prompt 装配 + spawn + task 三态 ==
+
+opt adopt_teammates=true (spawn 前必先做 N5 fail-fast + 装 adopt block)
+  H -> DB: ≥1 lead 硬约束: caller 至少在 1 个 team 是 lead
+  note right of DB
+    无 active lead membership → spawn 之前直接 reject
+    (不 spawn / 不 archive caller, fail-fast 不变量)
+  end note
+  H -> DB: 收集 archived team / archived teammate filter (排除 ghost)
+  H -> H: 装 adopt context block → 注入 coldStartPromptForSDK
+end
 
 H -> SP: spawn (handOffMode=true → 跳防御 + 不写 spawn-link)
-SP -> SM: 起 SDK 子进程
+SP -> SM: 起 SDK 子进程 (prompt 已含 adopt block 如有)
 SP --> H: { newSid, teamId?, spawnPromptMessageId? }
 
-opt adopt_teammates=true
-  H -> DB: ≥1 lead 硬约束: caller 至少在 1 个 team 是 lead
-  H -> DB: 转交 lead 角色 (per team loop, firstTeam 优先)
+opt adopt_teammates=true (spawn 后)
+  H -> DB: swapLead 转交 lead 角色 (per team loop, firstTeam 优先)
   note right of DB
     firstTeam swap 失败 → 回滚 newSid + reject
-    非 firstTeam 失败 → 软失败继续
+    非 firstTeam 失败 → 软失败继续 (failed.reason 透传)
   end note
 end
 
@@ -54,15 +69,21 @@ opt archive_caller=true (默认)
   H -> DB: 按 team_task_policy 三态过继 task\n(clear-team / preserve-team / skip)
   note right of DB
     reassign throw 仅 warn 不阻塞
+    preserve-team + newSid 未 adopt 该 team → policyWarning=\n  'preserve-team-unadopted-teams' + unadoptedTeamIds 透传
   end note
 end
 
 == 段 3: baton cleanup (与 archive_plan 共享 helper) ==
 
-H -> BC: runBatonCleanup({callerSid})
-opt adopt_teammates=false (默认)
+H -> BC: runBatonCleanup({callerSid, adoptTeammates, archiveCaller})
+opt adopt_teammates=false AND archive_caller=true
   BC -> SM: phase 1: 关 caller 同 team 全部 teammate\n(excludeSessionIds={newSid} 防 spawn 加入的 newSid 被一并关)
 end
+note right of BC
+  phase 1 跳过条件 (任一即跳):
+  - adopt_teammates=true (teammate 已转给 newSid)
+  - archive_caller=false (caller 保活 → skipped='archive-caller-false-keep')
+end note
 opt archive_caller=true (默认)
   BC -> SM: phase 2: 归档 caller session
   note right of SM
