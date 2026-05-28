@@ -29,8 +29,8 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
 
   return (
     <Section title="实验功能" storageKey="experimental" defaultOpen={false}>
-      <div className="flex items-center justify-between text-[11px]">
-        <span>Claude Code 沙盒(系统级隔离)</span>
+      <div className="flex flex-col gap-1 text-[11px]">
+        <div>Claude Code 沙盒(系统级隔离)</div>
         <select
           value={settings.claudeCodeSandbox}
           onChange={(e) =>
@@ -38,7 +38,7 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
               claudeCodeSandbox: e.target.value as AppSettings['claudeCodeSandbox'],
             })
           }
-          className="no-drag rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
+          className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
         >
           <option value="off" title="系统不会限制 Claude；仅靠应用内授权弹窗管控">⚠️ 关闭（无系统沙盒）</option>
           <option value="workspace-write" title="工作目录可写；敏感目录禁读；网络默认禁">工作目录可写</option>
@@ -67,8 +67,8 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
           </>
         )}
       </div>
-      <div className="mt-3 flex items-center justify-between text-[11px]">
-        <span>Codex 沙盒(系统级隔离)</span>
+      <div className="mt-3 flex flex-col gap-1 text-[11px]">
+        <div>Codex 沙盒(系统级隔离)</div>
         <select
           value={settings.codexSandbox}
           onChange={(e) =>
@@ -76,16 +76,19 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
               codexSandbox: e.target.value as AppSettings['codexSandbox'],
             })
           }
-          className="no-drag rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
+          className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
         >
           <option value="workspace-write" title="工作目录可写；网络默认禁；其他目录只读">工作目录可写（默认）</option>
           <option value="read-only" title="所有文件只读，包括工作目录">完全只读</option>
-          <option value="danger-full-access" title="没有任何限制：可以读写任意文件、访问网络、运行任意命令">⚠️ 完全开放（可改任意文件 / 联网 / 运行任意命令）</option>
+          <option value="danger-full-access" title="没有任何限制：可以读写任意文件、访问网络、运行任意命令">⚠️ 完全开放（无限制）</option>
         </select>
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        Codex 的沙盒档位(Codex 原生三档,跨平台一致)。
-        默认<strong>工作目录可写</strong>与 Claude 默认对齐;
+        Codex 的沙盒档位(Codex 原生三档,跨平台一致)。默认<strong>工作目录可写</strong>与 Claude 默认对齐。
+        <br />· <strong>工作目录可写</strong>:工作目录可写,网络默认禁,其他目录只读
+        <br />· <strong>完全只读</strong>:所有文件只读,包括工作目录
+        <br />· <strong>完全开放</strong>:无任何限制(读写任意文件 / 联网 / 运行任意命令)
+        <br />
         <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。
       </div>
     </Section>
