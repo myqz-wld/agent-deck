@@ -124,7 +124,7 @@
 
 reviewer-codex agent / CLI 失败（二进制缺失 / OAuth 过期 / 超时 / `$OUT` 空）→ **严禁**自动降级到同源双 Claude（同源化破坏异构原则），必须**提示用户决策**：等恢复 / 单方 reviewer-claude 出结论 / 稍后重试 / abort。
 
-> 环境若提供多轮 review 编排能力（teammate / SKILL 模式），可能在该环境内 SKILL 定义「合规兜底」分支（lead 自己 Bash 起外部 codex CLI 仍异构）；通用决策对抗节不走那条。本应用环境的合规兜底分支详 §应用环境特有能力 §reviewer-codex 失败 → SKILL 内合规兜底分支 节。
+> Agent Deck 应用环境的合规兜底分支详 §应用环境特有能力 §reviewer-codex 失败 → SKILL 内合规兜底分支 节;§决策对抗 主路径(双 Bash 单次决策对抗起外部 CLI)不走 SKILL 编排路径。
 
 ---
 
@@ -148,7 +148,7 @@ invoke 前必须与 user 显式确认是核心变更(SKILL 入口 AskUserQuestio
 - **文件命名** `<topic>.puml`,topic 用 kebab-case(`archive-plan-flow.puml` / `mcp-server-architecture.puml`)
 - **同主题需要双图**(流程图 + 架构图)→ 拆两份分别落各自目录,topic 名可一致(`archive-plan-flow.puml` vs `archive-plan-architecture.puml`)
 - **目录不存在**(典型新项目 / 本 plan 实施前):SKILL 主动 `mkdir -p ref/flows ref/architecture` + 建空 INDEX.md(下节 4 列模板)
-- **codex 端走法**: codex SDK session 无 `flow-arch-plantuml` SKILL 入口(本 SKILL 仅 claude-config 端打包,详 README.md §设计 SSOT)。codex lead 需画 plantUML 时直接调 `shell: plantuml -tpng <file>.puml` (codex sandbox `additionalDirectories` 默认含 `/tmp` 可写中间产物;读 `<reviewRoot>/ref/flows/` `ref/architecture/` 走 worktree/cwd 内默认放行) 或调用应用环境提供的等价 IPC tool(应用层添加时再加 SSOT cross-ref)。文件位置 / INDEX 格式约定与 claude 端一致。
+- **codex 端走法**: codex SDK session 无 `flow-arch-plantuml` SKILL 入口(本 SKILL 仅 claude-config 端打包,详 README.md §设计 SSOT)。codex lead 需画 plantUML 时按本节文件位置 / INDEX 规则手工编辑 `.puml` + INDEX.md(与 claude 端 SKILL 编辑动作等价 — 本约定纯生成/修改 .puml SSOT 不渲染);可选跑 `shell: plantuml -syntax <file>.puml` 做语法检查。**严禁** codex 端调 `plantuml -tpng / -tsvg` 渲染产 PNG/SVG(违反 flow-arch SKILL §不渲染 SSOT — user 想看渲染产物自跑 plantuml CLI)。
 
 ### INDEX.md 格式
 
@@ -161,13 +161,13 @@ invoke 前必须与 user 显式确认是核心变更(SKILL 入口 AskUserQuestio
 | [mcp-server-architecture.puml](mcp-server-architecture.puml) | active | commit ef1679 | 主进程 mcp server 内部模块依赖 |
 ```
 
-- **状态**:`active`(当前 SSOT)/ `deprecated`(图过时但保留作历史 reference;.puml 内同步加注释 `' DEPRECATED: ...`)/ `draft`(未确认)
+- **状态**:`active`(当前 SSOT)/ `archived`(图过时但保留作历史 reference;.puml 内同步加注释 `' ARCHIVED: ...`)/ `draft`(未确认)
 - **关联 plan / commit**:链接到 `ref/plans/<plan-id>.md` 或 commit hash 让读者溯源(commit hash 用 7 字符 short hash 即可)
 - **概要**:≤80 字描述本图主题
 
 ### 与 user 确认机制
 
-SKILL 入口必须先 AskUserQuestion(2-3 题)对齐 — **是否核心变更 / 图类型选择 / 新建 vs 修改 vs deprecated 已有**(详 SKILL.md §与 user 确认机制)。本应用工程实践**严禁** agent 默认静默生成图;每次画图前都要与 user 确认。
+SKILL 入口必须先 AskUserQuestion(2-3 题)对齐 — **是否核心变更 / 图类型选择 / 新建 vs 修改 vs archived 已有**(详 SKILL.md §与 user 确认机制)。本应用工程实践**严禁** agent 默认静默生成图;每次画图前都要与 user 确认。
 
 ### 与其他规则关系
 

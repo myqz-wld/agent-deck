@@ -33,7 +33,7 @@ skill 入口必须先 AskUserQuestion(2-3 题)对齐:
 
 1. **是否核心变更**:本次改动 / 设计是否真涉及核心流程或架构?(若 user 否 → skill no-op exit,提示「按 user 判断本次不属核心变更,跳过 plantUML 维护;直接编辑代码不必画图」)
 2. **图类型**:**流程**(sequence / activity)还是**架构**(component)?或者同主题同时需两张?(影响最终文件落在 `ref/flows/` 还是 `ref/architecture/` — 具体路径见应用 CLAUDE.md)
-3. **新建 / 修改 / 删除**:列出现有 .puml 让 user 选 — 新建 / 修改已有(指定文件名)/ 标记 deprecated
+3. **新建 / 修改 / archive**:列出现有 .puml 让 user 选 — 新建 / 修改已有(指定文件名)/ 标记 archived
 
 ## 执行流程(7 步)
 
@@ -43,7 +43,7 @@ skill 入口必须先 AskUserQuestion(2-3 题)对齐:
 | 1 | 按应用 CLAUDE.md §核心流程 / 架构变更必走 plantUML 节定的路径,`ls` 现有 .puml 清单 + Read 现有 INDEX.md | 上下文 |
 | 2 | 读相关 src/main 改动代码(grep / Read 核心文件)— 对齐 plantUML 描述与代码现状 | 准确 SSOT |
 | 3 | 生成 / 修改 `.puml` 文件(详 §plantUML 规约 节) | .puml SSOT |
-| 4 | 同步 INDEX.md(格式见 CLAUDE.md;append 新建行 / 更新已有行的 description / 标 deprecated) | INDEX 同步 |
+| 4 | 同步 INDEX.md(格式见 CLAUDE.md;append 新建行 / 更新已有行的 description / 标 archived) | INDEX 同步 |
 | 5 | spot-check:grep `@startuml.*@enduml` 配对验证 + 若 user 本机有 plantuml CLI 跑 `plantuml -syntax <file>.puml` 严格语法验证(可选) | 语法 OK |
 | 6 | 报告 user diff:列出新建 / 修改的 .puml + INDEX.md 改动 | user 验收 |
 
