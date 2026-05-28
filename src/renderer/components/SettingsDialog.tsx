@@ -169,8 +169,8 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
               {(
                 [
                   { id: 'general', label: '通用' },
-                  { id: 'claude', label: 'claude code' },
-                  { id: 'codex', label: 'codex cli' },
+                  { id: 'claude', label: 'Claude Code' },
+                  { id: 'codex', label: 'Codex CLI' },
                 ] as const
               ).map((tab) => (
                 <button
@@ -209,7 +209,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   <ExperimentalSection settings={settings} update={update} />
                 </SectionGroup>
 
-                <SectionGroup title="跨工具协作（MCP）">
+                <SectionGroup title="跨工具协作(MCP)">
                   <AgentDeckMcpSection settings={settings} update={update} />
                 </SectionGroup>
               </>
@@ -224,12 +224,11 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   uninstallHook={uninstallHook}
                 />
                 <div className="text-[10px] leading-snug text-deck-muted/70">
-                  Claude 端 MCP servers 由 user 直接编辑
+                  Claude Code 的 MCP 服务在
                   <code className="ml-1 rounded bg-white/5 px-1">~/.claude/settings.json</code>
-                  (或 project-level
+                  或项目根目录的
                   <code className="ml-1 rounded bg-white/5 px-1">.mcp.json</code>
-                  ),应用层不代写避免与 CLI 外部改动冲突。Agent Deck 自身 MCP server 走通用
-                  tab「跨工具协作」段配置。
+                  里直接编辑,应用不代写以免和 CLI 改动冲突。Agent Deck 自带的 MCP 服务在「通用 → 跨工具协作」中配置。
                 </div>
               </SectionGroup>
             )}
@@ -237,24 +236,15 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
             {activeTab === 'codex' && (
               <SectionGroup title="Codex CLI 专属配置">
                 <div className="text-[10px] leading-snug text-deck-muted/70">
-                  Codex 端配置(model / sandbox / approval / MCP servers / agents
-                  registry 等)由 user 直接编辑
+                  Codex 配置(模型 / 沙盒 / 审批 / MCP 等)在
                   <code className="ml-1 rounded bg-white/5 px-1">~/.codex/config.toml</code>
-                  +
+                  中编辑;应用安装时会把内置 Agent 配置同步进
                   <code className="ml-1 rounded bg-white/5 px-1">~/.codex/AGENTS.md</code>
-                  (应用 build-time installer 把
-                  <code className="ml-1 rounded bg-white/5 px-1">resources/codex-config/CODEX_AGENTS.md</code>
-                  marker 包裹段同步进 AGENTS.md)。应用层目前无 codex 专属 settings 字段
-                  —— summary / hand-off model 等通用 codex 字段(
-                  <code className="rounded bg-white/5 px-1">codexSummaryModel</code> /
-                  <code className="rounded bg-white/5 px-1">codexHandOffModel</code>)
-                  在通用 tab「会话」段「间歇总结」section 一起设。
+                  的 Agent Deck 区段,保留你写的其他内容。
                   <br />
                   <br />
-                  Agent Deck 自身 MCP server 走通用 tab「跨工具协作」段配置(codex SDK 启动时
-                  自动通过 HTTP transport + Bearer token 注入
-                  <code className="ml-1 rounded bg-white/5 px-1">mcp_servers.agent-deck</code>
-                  段)。
+                  Codex 用的总结 / 接力模型在「通用 → 会话 → 间歇总结」中设置;
+                  Agent Deck 自带的 MCP 服务在「通用 → 跨工具协作」中配置(Codex 启动时会自动连接)。
                 </div>
               </SectionGroup>
             )}

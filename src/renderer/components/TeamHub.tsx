@@ -67,8 +67,7 @@ export function TeamHub({
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
         <div className="text-[12px]">暂无团队</div>
         <div className="text-[10px] leading-relaxed text-deck-muted/70">
-          通过 <code className="rounded bg-white/5 px-1">mcp__agent-deck__spawn_session</code> 在
-          会话内调用以创建 team。
+          让 AI 在会话中创建团队后，会显示在这里。
         </div>
       </div>
     );
@@ -96,7 +95,7 @@ export function TeamHub({
                 <div className="flex-1 min-w-0">
                   <div className="text-[12px] text-deck-text truncate">{t.name}</div>
                   <div className="text-[10px] text-deck-muted">
-                    {memberCount} member{memberCount === 1 ? '' : 's'} · 最近活跃{' '}
+                    {memberCount} 名成员 · 最近活跃{' '}
                     {new Date(lastEventAt).toLocaleString()}
                   </div>
                 </div>

@@ -74,12 +74,13 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
       return undefined;
     }
     const id = `${e.ts}-${p.requestId ?? ''}`;
-    const text =
+    const kindLabel =
       p.type === 'permission-cancelled'
-        ? 'Claude 自动取消了一条权限请求'
+        ? '权限请求'
         : p.type === 'ask-question-cancelled'
-          ? 'Claude 自动取消了一条提问'
-          : 'Claude 自动取消了一次计划批准请求';
+          ? '提问'
+          : '计划批准请求';
+    const text = `已取消一条${kindLabel}`;
     setCancelToasts((prev) => {
       if (prev.some((t) => t.id === id)) return prev;
       return [...prev, { id, text, ts: e.ts }];
@@ -230,7 +231,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
                     setCancelToasts((prev) => prev.filter((x) => x.id !== t.id))
                   }
                   className="text-deck-muted/60 hover:text-deck-text"
-                  aria-label="dismiss"
+                  aria-label="关闭"
                 >
                   ✕
                 </button>

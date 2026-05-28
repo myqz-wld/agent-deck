@@ -76,5 +76,5 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
 }
 
 function formatTrigger(t: SummaryRecord['trigger']): string {
-  return t === 'time' ? '⏱ 周期' : t === 'event-count' ? '📊 事件' : '✋ 手动';
+  return t === 'time' ? '⏱ 定时' : t === 'event-count' ? '📊 事件触发' : '✋ 手动';
 }

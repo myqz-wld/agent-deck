@@ -49,8 +49,8 @@ export function AssetCard({
       </div>
       {asset.kind === 'agent' && (asset.model || asset.tools) && (
         <div className="mt-0.5 text-[10px] text-deck-muted/70">
-          {asset.model && <span>model: <code className="rounded bg-white/5 px-1">{asset.model}</code> </span>}
-          {asset.tools && <span>tools: <code className="rounded bg-white/5 px-1">{asset.tools}</code></span>}
+          {asset.model && <span>模型: <code className="rounded bg-white/5 px-1">{asset.model}</code> </span>}
+          {asset.tools && <span>工具: <code className="rounded bg-white/5 px-1">{asset.tools}</code></span>}
         </div>
       )}
       {asset.description && (

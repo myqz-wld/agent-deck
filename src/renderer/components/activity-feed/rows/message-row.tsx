@@ -116,23 +116,31 @@ export function MessageBubble({
   //    fallback `Hand-off · {kind}`(kind = 'spawn' | 'adopt')
   // 3. metadata 与 marker 都没命中 → 不显示 badge
   const handOffMeta = isUser ? p.handOff : undefined;
+  const modeLabel = (m: string): string => (m === 'plan' ? '计划' : m === 'generic' ? '普通' : m);
+  // handOffMeta 是真正的 hand_off_session metadata(plan/generic 模式) — 标「接力」。
+  // handOffKind 是 parseHandOffContext 识别的 marker(spawn = spawn_session 给 teammate 注入 lead context;
+  // adopt = hand_off_session adopt_teammates: true 接管 team 上下文)。
+  // spawn 不是 hand_off,标「上下文」避免与「接力」语义混淆;adopt 仍属 hand_off 路径。
   const handOffBadgeLabel = handOffMeta
-    ? `Hand-off · ${handOffMeta.mode}`
+    ? `接力 · ${modeLabel(handOffMeta.mode)}`
     : handOffContext && handOffKind
-      ? `Hand-off · ${handOffKind}`
+      ? handOffKind === 'spawn'
+        ? '上下文 · 派遣'
+        : '接力 · 接管'
       : null;
   const handOffBadgeTooltip = handOffMeta
-    ? `mode: ${handOffMeta.mode}${handOffMeta.planId ? ` · plan: ${handOffMeta.planId}` : ''}${
-        handOffMeta.phaseLabel ? ` · phase: ${handOffMeta.phaseLabel}` : ''
-      } · from: ${handOffMeta.fromCallerSid.slice(0, 8)}${
-        handOffMeta.hasAdoptedBlock ? ' · adopt' : ''
+    ? `模式：${modeLabel(handOffMeta.mode)}${handOffMeta.planId ? ` · 计划：${handOffMeta.planId}` : ''}${
+        handOffMeta.phaseLabel ? ` · 阶段：${handOffMeta.phaseLabel}` : ''
+      } · 来源会话：${handOffMeta.fromCallerSid.slice(0, 8)}${
+        handOffMeta.hasAdoptedBlock ? ' · 已接管团队' : ''
       }`
     : null;
-  // adoptedBlock summary 文案区分(plan §Phase 2 Step 2.3):
+  // adoptedBlock summary 文案区分(plan §Phase 2 Step 2.3):spawn 是 spawn_session 注入
+  // lead context(非 hand-off),adopt 是 hand_off_session.adopt_teammates:true 真接力。
   const handOffDisclosureSummary =
     handOffKind === 'adopt'
-      ? 'Adopted teams context（adopt 路径注入，点开查看新 lead 接管的 team / teammate）'
-      : 'Hand-off context（lead 注入，点开查看 lead session_id / team_id / send_message 用法）';
+      ? '会话接力：接管的团队和协作者（点开查看详情）'
+      : '上下文：负责人提供的说明（点开查看详情）';
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const otherName = getAgentShortName(agentId);
 
@@ -175,9 +183,7 @@ export function MessageBubble({
             // sid 8-char short hash 节省横向空间（CHANGELOG_100 B5 加 sid hash）。
             <span
               className="ml-0.5 inline-flex max-w-[16rem] items-center gap-0.5 truncate rounded bg-cyan-500/15 px-1 py-0.5 text-[9px] font-medium text-cyan-300"
-              title={`来自 ${wirePrefix.from} @ ${wirePrefix.adapter}${
-                wirePrefix.senderSessionId ? ` (sid:${wirePrefix.senderSessionId})` : ''
-              }${wirePrefix.msgId ? ` · msg ${wirePrefix.msgId}` : ''}`}
+              title={`来自 ${wirePrefix.from}（${wirePrefix.adapter}）`}
             >
               ↩ {wirePrefix.from}
               {wirePrefix.senderSessionId && (
@@ -220,7 +226,7 @@ export function MessageBubble({
               aria-expanded={expanded}
               className="ml-1 rounded px-1 font-mono text-[9px] tracking-tight text-deck-muted/70 opacity-60 hover:bg-white/10 hover:text-deck-text hover:opacity-100"
             >
-              {expanded ? '收起' : `展开 (${text.length}字)`}
+              {expanded ? '收起' : `展开（${text.length} 字）`}
             </button>
           )}
         </div>
@@ -268,7 +274,7 @@ export function MessageBubble({
                   key={`${a.path}-${i}`}
                   path={a.path}
                   size={64}
-                  alt={`attachment ${i + 1}`}
+                  alt={`附件图片 ${i + 1}`}
                   onClick={() => setLightboxPath(a.path)}
                 />
               ))}
@@ -284,7 +290,7 @@ export function MessageBubble({
         <ImageLightbox
           onClose={() => setLightboxPath(null)}
           path={lightboxPath}
-          alt="attachment large"
+          alt="放大的附件图片"
         />
       )}
     </li>

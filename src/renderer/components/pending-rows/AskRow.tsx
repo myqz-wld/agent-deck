@@ -99,14 +99,14 @@ export function AskRow({
           }
         >
           {stillPending
-            ? '❓ Claude 在询问你'
+            ? '❓ 收到一个问题'
             : wasCancelled
               ? '🚫 提问已被取消'
               : '✅ 已回答'}
         </span>
         {stillPending && (
           <span className="text-deck-muted/80">
-            已选 {answeredCount}/{totalQuestions}
+            已回答 {answeredCount}/{totalQuestions} 题
           </span>
         )}
         <span className="font-mono tabular-nums text-deck-muted/60">{ts}</span>
@@ -115,7 +115,7 @@ export function AskRow({
             type="button"
             disabled={busy || answeredCount === 0}
             onClick={() => void submit()}
-            title={canSubmit ? '提交回答' : '尚有题目未选，仍可提交（未选项保持空答）'}
+            title={canSubmit ? '提交回答' : '未答题目将留空提交'}
             className="ml-auto rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
           >
             提交回答
@@ -165,7 +165,7 @@ export function AskRow({
       {stillPending && isSdk && (
         <div className="mt-2 flex items-center justify-end gap-2">
           <span className="text-[10px] text-deck-muted">
-            {canSubmit ? '已选满，可提交' : `还有 ${totalQuestions - answeredCount} 题未选`}
+            {canSubmit ? '已答完,可提交' : `还有 ${totalQuestions - answeredCount} 题未答`}
           </span>
           <button
             type="button"
@@ -178,11 +178,11 @@ export function AskRow({
         </div>
       )}
       {!isSdk && (
-        <div className="mt-1 text-[10px] text-deck-muted">外部 CLI 会话无法在此回应</div>
+        <div className="mt-1 text-[10px] text-deck-muted">这是终端启动的只读会话，请回到原终端窗口回答</div>
       )}
       {!stillPending && isSdk && wasCancelled && (
         <div className="mt-1 text-[10px] text-deck-muted/70">
-          Claude 主动取消了这次提问（流终止 / interrupt / 超时）
+          这次提问已取消
         </div>
       )}
     </li>

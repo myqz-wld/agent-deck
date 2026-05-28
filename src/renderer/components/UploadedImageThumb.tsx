@@ -46,7 +46,7 @@ export function UploadedImageThumb({
       <div
         style={{ width: dim, height: dim }}
         className="flex items-center justify-center rounded border border-deck-border bg-white/[0.03] text-[9px] text-deck-muted/60"
-        aria-label="loading image"
+        aria-label="加载图片中"
       >
         …
       </div>
@@ -81,7 +81,7 @@ export function UploadedImageThumb({
   return (
     <img
       src={state.result.dataUrl}
-      alt={alt ?? 'attachment'}
+      alt={alt ?? '附件图片'}
       title={title ?? `${(state.result.bytes / 1024).toFixed(1)}KB · ${state.result.mime}`}
       style={{ width: dim, height: dim }}
       className={`rounded border border-deck-border object-cover ${onClick ? 'cursor-pointer' : ''}`}

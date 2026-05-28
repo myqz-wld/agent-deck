@@ -100,9 +100,9 @@ function PendingSection({
   const batchDisabled = batchableCount === 0 || !isSdk || batchBusy;
 
   const targetModeLabel: Record<typeof batchTargetMode, string> = {
-    default: '默认',
-    acceptEdits: '自动接受',
-    plan: '保持 Plan',
+    default: '每次询问',
+    acceptEdits: '自动接受编辑',
+    plan: '继续计划模式',
   };
 
   // plan team-cohesion-fix-20260513 Phase D：team chip + role badge（与 SessionCard 同款风格）。
@@ -121,18 +121,18 @@ function PendingSection({
   const teamRole = deriveTeamRole(session, false, 0, true);
   const teamHoverTitle =
     teamCount > 1
-      ? `Agent Teams (${teamCount}):\n${session.teams!.map((t) => `· ${t.teamName} [${t.role}]`).join('\n')}`
+      ? `所在团队 (${teamCount}):\n${session.teams!.map((t) => `· ${t.teamName} [${t.role === 'lead' ? '负责人' : '协作者'}]`).join('\n')}`
       : displayTeamName
-        ? `Agent Team: ${displayTeamName} [${teamRole}]`
+        ? `团队: ${displayTeamName} [${teamRole === 'lead' ? '负责人' : teamRole === 'teammate' ? '协作者' : '未知'}]`
         : '';
 
   const batchTooltip = !isSdk
-    ? '外部 CLI 会话无法在此响应'
+    ? '这是终端启动的只读会话，请回到原终端窗口操作'
     : batchableCount === 0
-      ? '仅剩 AskUserQuestion，请逐条作答'
+      ? '仅剩需要你回答的问题，请逐条作答'
       : `批量响应 ${permissions.length} 项权限请求 + ${exitPlanModes.length} 项计划批准（切到「${targetModeLabel[batchTargetMode]}」）${
           askCount > 0
-            ? `；${askCount} 项 AskUserQuestion 不会被批量，请逐条选择`
+            ? `；${askCount} 个问题不会被批量处理，请逐条回答`
             : ''
         }`;
 
@@ -208,7 +208,7 @@ function PendingSection({
                   ? 'bg-status-working/20 text-status-working'
                   : 'bg-white/8 text-deck-muted'
               }`}
-              title={isSdk ? '应用内创建（SDK 通道，可在此回应）' : '外部终端 CLI 会话（只读）'}
+              title={isSdk ? '应用内创建的会话，可在这里回应' : '终端启动 · 只读'}
             >
               {isSdk ? '内' : '外'}
             </span>
@@ -224,17 +224,17 @@ function PendingSection({
             {teamRole === 'lead' && (
               <span
                 className="shrink-0 rounded bg-blue-400/15 px-1 py-0.5 text-[9px] font-medium text-blue-200"
-                title={`本会话在 team「${displayTeamName}」是 lead`}
+                title={`本会话在团队「${displayTeamName}」中是负责人`}
               >
-                👑 lead
+                👑 负责人
               </span>
             )}
             {teamRole === 'teammate' && (
               <span
                 className="shrink-0 rounded bg-blue-400/10 px-1 py-0.5 text-[9px] font-medium text-blue-200/85"
-                title={`本会话在 team「${displayTeamName}」是 teammate`}
+                title={`本会话在团队「${displayTeamName}」中是协作者`}
               >
-                ↳ teammate
+                ↳ 协作者
               </span>
             )}
             <span className="shrink-0 rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] font-medium text-status-waiting">
@@ -251,12 +251,12 @@ function PendingSection({
                   onChange={(e) =>
                     setBatchTargetMode(e.target.value as typeof batchTargetMode)
                   }
-                  title="「全部允许」批准 plan 时切到此档；bypass 必须在 plan 行内单条触发（避免批量重启 SDK 子进程）"
+                  title="批量批准计划时使用此权限模式。完全免询问需要在单条计划里确认（避免一次重启多个会话）。"
                   className="rounded border border-deck-border bg-white/[0.06] px-1 py-0.5 text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
                 >
-                  <option value="default">默认</option>
-                  <option value="acceptEdits">自动接受</option>
-                  <option value="plan">保持 Plan</option>
+                  <option value="default">每次询问</option>
+                  <option value="acceptEdits">自动接受编辑</option>
+                  <option value="plan">继续计划模式</option>
                 </select>
               )}
               <button

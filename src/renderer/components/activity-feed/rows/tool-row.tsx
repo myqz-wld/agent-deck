@@ -43,14 +43,14 @@ export function ToolStartRow({
         <div className="mb-1 flex items-center gap-1.5 text-[10px]">
           <span>{toolIcon('ExitPlanMode')}</span>
           <span className="font-mono">ExitPlanMode</span>
-          <span className="text-deck-muted/80">外部 CLI 提议执行计划</span>
+          <span className="text-deck-muted/80">收到一个执行计划</span>
           <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
         </div>
         <div className="rounded border border-deck-border/40 bg-black/20 p-2">
-          <MarkdownText text={plan || '(plan 内容为空)'} />
+          <MarkdownText text={plan || '（计划内容为空）'} />
         </div>
         <div className="mt-1.5 text-[10px] text-deck-muted">
-          外部 CLI 会话无法在此批准，请回到对应终端窗口操作
+          这是终端启动的只读会话，请回到原终端窗口批准
         </div>
       </li>
     );
@@ -221,7 +221,7 @@ export function ToolEndRow({
           )}
           {isFailed && typeof p.exitCode === 'number' && (
             <span className="ml-1.5 rounded bg-status-error/20 px-1 py-0.5 font-mono text-[9px] text-status-error/90">
-              exit {String(p.exitCode)}
+              退出码 {String(p.exitCode)}
             </span>
           )}
         </span>
@@ -252,10 +252,10 @@ export function ToolEndRow({
         </pre>
       ) : (
         <div className="mt-1 px-1.5 py-1 text-[10px] italic text-deck-muted/70">
-          (无输出
-          {typeof p.status === 'string' && p.status !== 'completed' && ` · status: ${p.status}`}
-          {typeof p.exitCode === 'number' && ` · exit ${p.exitCode}`}
-          )
+          （无输出
+          {typeof p.status === 'string' && p.status !== 'completed' && ` · 状态: ${p.status}`}
+          {typeof p.exitCode === 'number' && ` · 退出码: ${p.exitCode}`}
+          ）
         </div>
       ))}
     </li>

@@ -57,13 +57,12 @@ export function ExitPlanRow({
     if (targetMode === 'bypassPermissions') {
       // bypass 冷切：会重启 SDK 子进程（5-10s busy）+ 后续完全免询问，强制弹 confirm
       const ok = await window.api.confirmDialog({
-        title: '批准并切到完全免询问模式',
-        message: '将重启 SDK 子进程切到 bypassPermissions 模式',
+        title: '批准并切换到完全免询问',
+        message: '需要重启当前会话',
         detail:
-          '会销毁旧 SDK 子进程并以「allowDangerouslySkipPermissions=true」flag 重启（约 5-10s busy），\n' +
-          '重启后 Claude 直接按 plan 执行，**全过程不再询问任何工具调用**。\n\n' +
-          '如果失败将自动回滚到原模式（plan）。继续？',
-        okLabel: '批准并切到 bypass',
+          '重启后,Claude 直接按计划执行 —— 全过程不再向你确认任何工具调用。重启约需 5-10 秒。\n\n' +
+          '失败时会自动回到计划模式。继续?',
+        okLabel: '重启并启用',
         cancelLabel: '取消',
         destructive: true,
       });
@@ -87,10 +86,10 @@ export function ExitPlanRow({
 
   // 按钮文案：根据 targetMode 显示「批准并切到 X」，bypass 加 ⚠️ 标识
   const targetModeLabel: Record<typeof targetMode, string> = {
-    default: '默认',
+    default: '每次询问',
     acceptEdits: '自动接受编辑',
-    plan: '保持 Plan',
-    bypassPermissions: '完全免询问 ⚠️',
+    plan: '继续计划模式',
+    bypassPermissions: '⚠️ 不再询问',
   };
 
   return (
@@ -114,7 +113,7 @@ export function ExitPlanRow({
           }
         >
           {stillPending
-            ? '📋 Claude 提议了一个执行计划'
+            ? '📋 收到一个执行计划'
             : wasCancelled
               ? '🚫 计划批准已被取消'
               : '✅ 已处理'}
@@ -129,13 +128,13 @@ export function ExitPlanRow({
               onChange={(e) =>
                 setTargetMode(e.target.value as typeof targetMode)
               }
-              title="批准后切到的权限模式（plan/acceptEdits/default 热切；bypass 冷切重启 SDK）"
+              title="批准计划后切换到的权限模式(完全免询问需要重启会话)"
               className="rounded border border-deck-border bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
             >
-              <option value="default">默认（每次询问）</option>
-              <option value="acceptEdits">自动接受编辑</option>
-              <option value="plan">保持 Plan 模式</option>
-              <option value="bypassPermissions">完全免询问 ⚠️</option>
+              <option value="default" title="每次工具调用前都询问">每次询问</option>
+              <option value="acceptEdits" title="自动允许文件编辑；其他工具仍需询问">自动接受编辑</option>
+              <option value="plan" title="保持计划模式，不执行任何工具">继续计划模式</option>
+              <option value="bypassPermissions" title="不再询问任何工具调用；需要重启会话">⚠️ 不再询问</option>
             </select>
             <button
               type="button"
@@ -143,8 +142,8 @@ export function ExitPlanRow({
               onClick={() => void onClickApprove()}
               title={
                 targetMode === 'bypassPermissions'
-                  ? '批准 plan 并冷切到完全免询问模式（会重启 SDK 子进程，5-10s busy）'
-                  : `批准 plan 并热切到「${targetModeLabel[targetMode]}」模式`
+                  ? '批准计划并切到完全免询问模式(需重启会话,5-10 秒)'
+                  : `批准计划并切到「${targetModeLabel[targetMode]}」`
               }
               className="rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -169,17 +168,17 @@ export function ExitPlanRow({
         )}
       </div>
       <div className="rounded border border-deck-border/40 bg-black/20 p-2">
-        <MarkdownText text={plan || '(plan 内容为空)'} />
+        <MarkdownText text={plan || '(计划内容为空)'} />
       </div>
       {stillPending && isSdk && showFeedback && (
         <div className="mt-2 flex flex-col gap-1">
           <label className="text-[10px] text-deck-muted">
-            可选：告诉 Claude 哪里需要调整（留空也能提交）
+            可选:告诉 Claude 哪里需要调整(留空也能提交)
           </label>
           <textarea
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
-            placeholder="比如：步骤 3 不要改 main 进程；先做 UI 验证再写 SDK..."
+            placeholder="比如:步骤 3 不要改 main 进程;先做 UI 验证再写 SDK..."
             rows={2}
             disabled={busy}
             className="w-full resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
@@ -202,17 +201,17 @@ export function ExitPlanRow({
               onClick={() => void respond({ decision: 'keep-planning', feedback: feedback.trim() || undefined })}
               className="rounded bg-deck-text/80 px-2.5 py-0.5 text-[10px] font-semibold text-deck-bg-strong hover:brightness-110 disabled:opacity-40"
             >
-              发送反馈，继续规划
+              发送反馈,继续规划
             </button>
           </div>
         </div>
       )}
       {!isSdk && (
-        <div className="mt-1.5 text-[10px] text-deck-muted">外部 CLI 会话无法在此批准，请回到对应终端窗口操作</div>
+        <div className="mt-1.5 text-[10px] text-deck-muted">这是终端启动的只读会话，请回到原终端窗口批准</div>
       )}
       {!stillPending && isSdk && wasCancelled && (
         <div className="mt-1.5 text-[10px] text-deck-muted/70">
-          Claude 主动放弃了这次计划批准请求（流终止 / interrupt / 超时）
+          这次计划批准请求已取消
         </div>
       )}
     </li>

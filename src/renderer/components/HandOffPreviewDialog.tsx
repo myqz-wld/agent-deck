@@ -103,7 +103,7 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
     if (submitInFlightRef.current) return;
     setError(null);
     if (!summary.trim()) {
-      setError('请填写接力简报（textarea 不能为空）');
+      setError('请先填写接力简报');
       return;
     }
     submitInFlightRef.current = true;
@@ -132,7 +132,7 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
       <div className="no-drag flex w-[480px] max-h-[85%] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl">
         <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
           <h2 className="text-[13px] font-medium">
-            📤 接力到新会话{summarizing ? '（总结中…）' : spawning ? '（起新会话中…）' : ''}
+            📤 接力到新会话{summarizing ? '(总结中…)' : spawning ? '(打开新会话中…)' : ''}
           </h2>
           <button
             type="button"
@@ -147,11 +147,8 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
 
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-deck p-4">
           <p className="shrink-0 text-[10px] leading-relaxed text-deck-muted">
-            点「开始总结」后，LLM 会基于本会话最近 200 条活动生成
-            「目标 / 已做 / 下一步 / 相关文件」结构化简报（约 10-30 秒，单次会调用
-            <span className="text-deck-text"> sonnet API</span>，按 token 计费）。
-            你可以编辑后再确认起新 session（cwd / agent / 权限模式沿用 +
-            <span className="text-deck-text">自动归档原会话</span>）。
+            生成一份接力简报(目标、已完成、下一步、相关文件),约 10-30 秒,会消耗一次模型调用额度。
+            你可以编辑简报,确认后会打开新会话(沿用工作目录和权限设置),并自动归档当前会话。
           </p>
 
           {idle && (
@@ -166,7 +163,7 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
 
           {summarizing && summary === '' && (
             <div className="shrink-0 rounded bg-white/[0.03] px-3 py-2 text-[11px] text-deck-muted">
-              🔄 正在用 sonnet 总结会话历史，通常 10-30 秒…
+              🔄 正在总结会话历史,通常 10-30 秒…
             </div>
           )}
 
@@ -179,7 +176,7 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
               placeholder={
                 summarizing
                   ? '正在总结…'
-                  : '总结将出现在这里，你可以编辑后再确认。\n\n如果总结失败，可在此手动写兜底接力简报，然后直接「起新 session」。'
+                  : '简报会显示在这里,你可以编辑后再确认。\n\n生成失败时,也可以手动填写后继续接力。'
               }
               className="min-h-[280px] flex-1 resize-y rounded border border-deck-border bg-white/[0.04] px-3 py-2 font-mono text-[11px] leading-relaxed outline-none focus:border-white/20 disabled:opacity-50"
             />
@@ -187,7 +184,7 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
 
           {error && (
             <div className="shrink-0 rounded bg-status-waiting/10 px-3 py-2 text-[11px] text-status-waiting">
-              <div>⚠ {error}</div>
+              <div>⚠️ {error}</div>
               {error.startsWith('总结失败') && !summarizing && (
                 <button
                   type="button"
@@ -216,7 +213,7 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
             disabled={busy || !summary.trim()}
             className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {spawning ? '起新会话中…' : '起新会话接力 →'}
+            {spawning ? '打开新会话中…' : '打开新会话接力'}
           </button>
         </footer>
       </div>

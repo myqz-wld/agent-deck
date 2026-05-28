@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { StatusBadge } from './StatusBadge';
+import { lifecycleLabel, agentIdLabel } from './TeamDetail/helpers';
 
 interface Filters {
   agentId?: string;
@@ -113,8 +114,8 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
   const remove = async (id: string): Promise<void> => {
     const ok = await window.api.confirmDialog({
       title: '删除会话',
-      message: '确定要删除该会话？',
-      detail: '该操作不可恢复，将连同所有事件、文件改动、总结一并删除。',
+      message: '确定要删除该会话吗？',
+      detail: '此操作不可恢复，会话的所有事件、文件改动和总结都会一并删除。',
       okLabel: '删除',
       cancelLabel: '取消',
       destructive: true,
@@ -130,7 +131,7 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
         <div className="flex gap-1.5">
           <input
             type="text"
-            placeholder="关键字搜索 cwd / 标题 / 事件 / 总结…"
+            placeholder="搜索会话(目录 / 标题 / 事件 / 总结)…"
             className="no-drag flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
             value={keywordInput}
             onChange={(e) => setKeywordInput(e.target.value)}
@@ -182,8 +183,8 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                     }`}
                     title={
                       s.source === 'sdk'
-                        ? '应用内创建（SDK 通道，可在 detail 里继续聊）'
-                        : `外部 ${s.source ?? 'cli'} 通道（只读，detail 不可发消息）`
+                        ? '应用内创建的会话（可继续对话）'
+                        : '终端启动的会话（只读，不可继续对话）'
                     }
                   >
                     {s.source === 'sdk' ? '内' : '外'}
@@ -191,13 +192,13 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                   <div className="flex-1 truncate text-[12px] font-medium hover:text-white">
                     {s.title}
                   </div>
-                  <span className="text-[9px] text-deck-muted/60">{s.agentId}</span>
+                  <span className="text-[9px] text-deck-muted/60">{agentIdLabel(s.agentId)}</span>
                 </div>
                 <div className="mt-0.5 truncate text-[10px] text-deck-muted">{s.cwd}</div>
                 <div className="mt-0.5 flex items-center justify-between text-[10px] text-deck-muted/70">
                   <span>
                     {new Date(s.lastEventAt).toLocaleString('zh-CN', { hour12: false })} ·{' '}
-                    {s.archivedAt !== null ? `已归档 (${s.lifecycle})` : s.lifecycle}
+                    {s.archivedAt !== null ? `已归档（${lifecycleLabel(s.lifecycle)}）` : lifecycleLabel(s.lifecycle)}
                   </span>
                   <span className="flex gap-2">
                     {s.archivedAt !== null ? (

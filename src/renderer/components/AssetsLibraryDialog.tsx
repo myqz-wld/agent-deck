@@ -140,7 +140,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
         setViewer({
           asset,
           content: null,
-          error: `IPC 调用失败：${(err as Error).message ?? String(err)}`,
+          error: `加载失败：${(err as Error).message ?? String(err)}`,
         });
       });
   };
@@ -184,7 +184,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
         <header className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-1">
             <h2 className="text-[13px] font-medium">📚 资产库</h2>
-            <span className="text-[10px] text-deck-muted/70">（内置 + 用户自定义 agents/skills/CLAUDE.md）</span>
+            <span className="text-[10px] text-deck-muted/70">(Skills / Agents / 应用约定)</span>
           </div>
           <button
             type="button"
@@ -339,7 +339,7 @@ function AssetsTab({
     <div className="flex flex-col gap-3">
       <section>
         <div className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-          内置（agent-deck plugin，只读）
+          内置（只读）
         </div>
         {filteredBundled.length === 0 ? (
           <div className="text-[10px] text-deck-muted/60">（无）</div>
@@ -369,12 +369,12 @@ function AssetsTab({
         </div>
         {codexAgentBanner ? (
           <div className="rounded border border-deck-border/60 bg-white/[0.03] p-2 text-[10px] leading-relaxed text-deck-muted/80">
-            codex CLI 不原生支持 user 自定义 agent（OpenAI 官方文档明确「Codex CLI has skills concept only」）。
-            如需 codex 自定义能力，请改建 codex skill（切到 Skills tab → Codex sub-tab），或在 spawn 时直接传完整 prompt。
+            Codex CLI 不支持自定义 Agent,只支持 Skill。如需扩展 Codex 能力,请切到「Skills → Codex」新建 Skill;
+            或在新建会话时直接写入完整提示词。
           </div>
         ) : filteredUser.length === 0 ? (
           <div className="text-[10px] text-deck-muted/60">
-            暂无；点右上「新建」可创建第一个用户自定义{kind === 'agent' ? ' agent' : ' skill'}（落盘到 {userPathHint}）
+            暂无。点右上「新建」可创建第一个{kind === 'agent' ? ' Agent' : ' Skill'},文件会保存到 {userPathHint}
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
@@ -420,8 +420,8 @@ function ClaudeMdTab({
     if (!subDirtyRef.current) return true;
     return window.api.confirmDialog({
       title: '切换视角',
-      message: '应用约定有未保存的草稿,确定要丢弃吗?',
-      detail: '切换后改动将丢失,无法恢复。',
+      message: '应用约定有未保存的草稿，确定要丢弃吗？',
+      detail: '切换后改动将丢失，无法恢复。',
       okLabel: '丢弃并切换',
       cancelLabel: '继续编辑',
       destructive: true,
@@ -434,16 +434,14 @@ function ClaudeMdTab({
       {adapter === 'claude-code' ? (
         <>
           <div className="text-[10px] leading-snug text-deck-muted/70">
-            应用内置 CLAUDE.md，独立于 user / project / local CLAUDE.md，
-            拼到每个 claude SDK 会话 system prompt 末尾。改动只对「下次新建会话」生效。
+            应用内置的 CLAUDE.md,会拼接到每个 Claude 会话的系统提示末尾。改动只对新建会话生效。
           </div>
           <ClaudeMdEditor onDirtyChange={onSubDirty} />
         </>
       ) : (
         <>
           <div className="text-[10px] leading-snug text-deck-muted/70">
-            应用内置 CODEX_AGENTS.md，同步到 ~/.codex/AGENTS.md 内 Agent Deck marker 段
-            (用户其他 marker 外内容严格保留)。改动只对「下次新建 codex 会话」生效。
+            应用内置的 CODEX_AGENTS.md,会同步到 ~/.codex/AGENTS.md 的 Agent Deck 区段(你写的其他内容保留)。改动只对新建 Codex 会话生效。
           </div>
           <CodexAgentsMdEditor onDirtyChange={onSubDirty} />
         </>

@@ -61,7 +61,7 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
         .then((row) => {
           if (aborted) return;
           if (!row) {
-            setError('Team 不存在或已删除');
+            setError('团队不存在或已删除');
           } else {
             setSnap(row);
             setError(null);
@@ -92,9 +92,9 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
     const teammates = snap.members.filter((m) => m.role === 'teammate' && m.leftAt === null);
     if (teammates.length === 0) return;
     const ok = await window.api.confirmDialog({
-      title: `关闭团队「${snap.name}」的所有 teammate`,
-      message: `确定要关闭 ${teammates.length} 个 teammate session？`,
-      detail: 'lead 不会被关闭。teammate 关闭后会自动从 team 离开（leftAt = now），但其历史 events / messages / file_changes 全部保留。这一步**不可恢复**（reactivate 不会自动 rejoin team）。',
+      title: `关闭团队「${snap.name}」的所有协作者`,
+      message: `将关闭 ${teammates.length} 个协作者会话，确定继续？`,
+      detail: '负责人不会关闭。协作者关闭后会自动退出团队，但消息、事件和文件变更等历史记录都保留。关闭不可恢复，需要重新邀请才能再次协作。',
       okLabel: '全部关闭',
       cancelLabel: '取消',
       destructive: true,
@@ -119,8 +119,8 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
     if (snap.archivedAt !== null) return;
     const ok = await window.api.confirmDialog({
       title: `归档团队「${snap.name}」`,
-      message: `确定要归档 team「${snap.name}」？`,
-      detail: '归档只标 archived_at；不删 team / 不关 member session / 不删 messages。可在 TeamHub 看 archived 时取消归档恢复。',
+      message: `确定要归档团队「${snap.name}」吗？`,
+      detail: '归档后团队会从列表中隐藏；不删除团队、不关闭成员会话、不删除消息。可在归档列表中恢复。',
       okLabel: '归档',
       cancelLabel: '取消',
       destructive: false,
@@ -167,10 +167,10 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
                 type="button"
                 disabled={actionBusy !== null}
                 onClick={() => void onShutdownAllTeammates()}
-                title={`关闭本 team 内全部 ${activeTeammateCount} 个 teammate session（lead 不动）`}
+                title={`关闭团队内全部 ${activeTeammateCount} 个协作者(负责人不动)`}
                 className="rounded bg-status-waiting/25 px-2 py-0.5 text-[10px] text-status-waiting transition hover:bg-status-waiting/35 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {actionBusy === 'shutdown' ? '关闭中…' : `关闭 ${activeTeammateCount} 个 teammate`}
+                {actionBusy === 'shutdown' ? '关闭中…' : `关闭 ${activeTeammateCount} 个协作者`}
               </button>
             )}
             {!snap.archivedAt && (
@@ -178,7 +178,7 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
                 type="button"
                 disabled={actionBusy !== null}
                 onClick={() => void onArchiveTeam()}
-                title="归档 team（不关 member、不删数据，仅标 archived_at）"
+                title="归档团队(不关成员、不删数据)"
                 className="rounded bg-deck-muted/20 px-2 py-0.5 text-[10px] text-deck-muted transition hover:bg-deck-muted/30 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {actionBusy === 'archive' ? '归档中…' : '归档'}
@@ -190,7 +190,7 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
         <span className="text-deck-text">{snap.name}</span>
         {snap.archivedAt && (
           <span className="ml-2 rounded bg-deck-muted/20 px-1 py-0.5 text-[9px] uppercase tracking-wider text-deck-muted">
-            archived
+            已归档
           </span>
         )}
       </Header>

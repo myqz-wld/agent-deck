@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import type { AgentDeckTeamMember } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { Section, EmptyState } from './Header';
+import { roleLabel, agentIdLabel } from './helpers';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：spawn 血缘 section。
@@ -35,8 +36,8 @@ export function LineageSection({ members, onOpenSession }: Props): JSX.Element {
 
   if (activeMembers.length === 0) {
     return (
-      <Section title="血缘 (Spawn Lineage)" count={0}>
-        <EmptyState>尚无 active 成员，无血缘可绘制</EmptyState>
+      <Section title="会话关系" count={0}>
+        <EmptyState>暂无活跃成员</EmptyState>
       </Section>
     );
   }
@@ -63,7 +64,7 @@ export function LineageSection({ members, onOpenSession }: Props): JSX.Element {
   const tree = roots.map(buildNode);
 
   return (
-    <Section title="血缘 (Spawn Lineage)" count={activeMembers.length}>
+    <Section title="会话关系" count={activeMembers.length}>
       <ul className="flex flex-col gap-1">
         {tree.map((node) => (
           <TreeNodeRow
@@ -97,12 +98,12 @@ function TreeNodeRow({
         className="flex items-center justify-between rounded border border-deck-border/40 px-2 py-1 text-[11px] hover:bg-white/[0.04] cursor-pointer"
         style={{ marginLeft: depth * 12 }}
         onClick={() => onOpenSession(m.sessionId)}
-        title={`点击打开 ${label} 详情（${m.role}）`}
+        title={`点击打开 ${label} 详情(${roleLabel(m.role)})`}
       >
         <span className="truncate">
           {depth > 0 && <span className="mr-1 text-blue-400/40">└─</span>}
           <strong className="text-deck-text">{label}</strong>{' '}
-          <span className="text-[9px] text-deck-muted">[{m.role}]</span>
+          <span className="text-[9px] text-deck-muted">[{roleLabel(m.role)}]</span>
           {node.children.length > 0 && (
             <span className="ml-1 text-[9px] text-deck-muted/60">
               ↳ {node.children.length}
@@ -110,7 +111,7 @@ function TreeNodeRow({
           )}
         </span>
         <span className="ml-2 shrink-0 text-[9px] text-deck-muted/60">
-          {sess?.agentId ?? 'unknown'}
+          {agentIdLabel(sess?.agentId)}
         </span>
       </li>
       {node.children.map((child) => (

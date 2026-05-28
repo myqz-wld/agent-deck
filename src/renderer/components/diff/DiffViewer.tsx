@@ -15,9 +15,13 @@ interface Props {
 export function DiffViewer({ payload, sessionId }: Props): JSX.Element {
   const plugin = diffRegistry.resolve(payload);
   if (!plugin) {
+    // 内部 kind 字段不暴露给用户;开发者要排查时看 console.warn
+    if (typeof console !== 'undefined') {
+      console.warn('[DiffViewer] no renderer for diff kind:', payload.kind);
+    }
     return (
       <div className="px-2 py-3 text-[11px] text-deck-muted">
-        没有可用的 diff 渲染器（kind: <code>{payload.kind}</code>）
+        无法显示此类型的差异
       </div>
     );
   }

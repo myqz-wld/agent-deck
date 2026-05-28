@@ -45,14 +45,14 @@ export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
 
   if (rows.length === 0) {
     return (
-      <Section title="待处理 (Pending)" count={0}>
-        <EmptyState>团队内所有成员都没有等待用户响应的请求</EmptyState>
+      <Section title="待处理" count={0}>
+        <EmptyState>团队内所有成员都没有等待响应的请求</EmptyState>
       </Section>
     );
   }
 
   return (
-    <Section title="待处理 (Pending)" count={totalPending}>
+    <Section title="待处理" count={totalPending}>
       <ul className="flex flex-col gap-1">
         {rows.map((r) => {
           const sess = sessions.get(r.sid);
@@ -63,7 +63,7 @@ export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
               key={r.sid}
               className="flex items-center justify-between rounded border border-status-waiting/30 bg-status-waiting/5 px-2 py-1 text-[11px] hover:bg-status-waiting/10 cursor-pointer"
               onClick={() => onOpenSession(r.sid)}
-              title={`打开 ${label} 处理 ${total} 个 pending`}
+              title={`打开 ${label} 处理 ${total} 项待办`}
             >
               <span className="truncate">
                 <strong className="text-deck-text">{label}</strong>{' '}

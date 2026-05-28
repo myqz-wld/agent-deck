@@ -17,27 +17,27 @@ interface Props {
   onCreated: (sessionId: string) => void;
 }
 
-const PERMISSION_OPTIONS: { value: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'; label: string }[] = [
-  { value: 'default', label: '默认（每次工具调用询问）' },
-  { value: 'acceptEdits', label: '自动接受文件编辑' },
-  { value: 'plan', label: 'Plan 模式（只规划不动手）' },
-  { value: 'bypassPermissions', label: '完全免询问 ⚠️' },
+const PERMISSION_OPTIONS: { value: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'; label: string; title?: string }[] = [
+  { value: 'default', label: '每次询问（默认）', title: '每次工具调用前都询问你是否允许' },
+  { value: 'acceptEdits', label: '自动接受文件编辑', title: '自动允许文件编辑；其他工具仍需询问' },
+  { value: 'plan', label: '计划模式（只规划）', title: '只生成计划，不执行任何工具调用' },
+  { value: 'bypassPermissions', label: '⚠️ 不再询问（仍在系统沙盒内）', title: 'Claude 全程不再询问任何工具调用；系统沙盒（若启用）仍生效' },
 ];
 
 type CodexSandboxChoice = '' | 'workspace-write' | 'read-only' | 'danger-full-access';
-const CODEX_SANDBOX_OPTIONS: { value: CodexSandboxChoice; label: string }[] = [
-  { value: '', label: '跟随设置（默认）' },
-  { value: 'workspace-write', label: 'workspace-write（cwd 可写、网络 deny）' },
-  { value: 'read-only', label: 'read-only（全只读）' },
-  { value: 'danger-full-access', label: 'danger-full-access（完全免审 ⚠️）' },
+const CODEX_SANDBOX_OPTIONS: { value: CodexSandboxChoice; label: string; title?: string }[] = [
+  { value: '', label: '跟随设置（默认）', title: '使用「实验功能」中的全局设置' },
+  { value: 'workspace-write', label: '工作目录可写', title: '工作目录可写；网络默认禁；其他目录只读' },
+  { value: 'read-only', label: '完全只读', title: '所有文件只读，包括工作目录' },
+  { value: 'danger-full-access', label: '⚠️ 完全开放（可改任意文件 / 联网 / 运行任意命令）', title: '没有任何限制：可以读写任意文件、访问网络、运行任意命令' },
 ];
 
 type ClaudeSandboxChoice = '' | 'off' | 'workspace-write' | 'strict';
-const CLAUDE_SANDBOX_OPTIONS: { value: ClaudeSandboxChoice; label: string }[] = [
-  { value: '', label: '跟随设置（默认）' },
-  { value: 'off', label: 'off（不启 OS 沙盒，仅 canUseTool 弹框）' },
-  { value: 'workspace-write', label: 'workspace-write（cwd 可写、敏感目录禁读）' },
-  { value: 'strict', label: 'strict（cwd 也只读 + 封死逃逸）' },
+const CLAUDE_SANDBOX_OPTIONS: { value: ClaudeSandboxChoice; label: string; title?: string }[] = [
+  { value: '', label: '跟随设置（默认）', title: '使用「实验功能」中的全局设置' },
+  { value: 'off', label: '⚠️ 关闭（无系统沙盒）', title: '系统不会限制 Claude；仅靠应用内授权弹窗管控' },
+  { value: 'workspace-write', label: '工作目录可写', title: '工作目录可写；敏感目录禁读；网络默认禁' },
+  { value: 'strict', label: '严格只读', title: '工作目录也只读，最严格' },
 ];
 
 export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Element | null {
@@ -89,7 +89,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const submit = async (): Promise<void> => {
     setError(null);
     if (!prompt.trim()) {
-      setError('请填写首条消息（SDK 必须有首条消息才能启动 CLI 子进程）');
+      setError('请输入第一条消息(留空无法启动会话)');
       return;
     }
     setBusy(true);
@@ -157,7 +157,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               </select>
             </Field>
 
-            <Field label="工作目录 cwd">
+            <Field label="工作目录">
               <div className="flex gap-1">
                 <input
                   type="text"
@@ -176,14 +176,14 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               </div>
             </Field>
 
-            <Field label="首条消息 *">
+            <Field label="第一条消息 *">
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onPaste={imgs.onPaste}
                 onDrop={imgs.onDrop}
                 onDragOver={imgs.onDragOver}
-                placeholder="必填 —— SDK 需要首条消息才能启动 CLI 子进程（可粘贴 / 拖放图片）"
+                placeholder="必填,启动会话需要第一条消息(可粘贴或拖放图片)"
                 rows={3}
                 className="w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
               />
@@ -191,7 +191,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
             {imgs.error && (
               <div className="rounded bg-status-waiting/10 px-2 py-1 text-[11px] text-status-waiting">
-                ⚠ {imgs.error}{' '}
+                ⚠️ {imgs.error}{' '}
                 <button
                   type="button"
                   onClick={imgs.dismissError}
@@ -227,7 +227,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                 <div key={a.id} className="relative">
                   <img
                     src={a.thumbnailDataUrl}
-                    alt={a.name ?? 'attachment'}
+                    alt={a.name ?? '附件图片'}
                     title={`${a.name ?? ''}\n${(a.bytes / 1024).toFixed(1)}KB · ${a.mime}`}
                     className="h-10 w-10 rounded border border-deck-border object-cover"
                   />
@@ -235,7 +235,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                     type="button"
                     onClick={() => imgs.remove(a.id)}
                     className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-deck-bg text-[10px] text-deck-muted shadow hover:text-status-waiting"
-                    aria-label="remove attachment"
+                    aria-label="移除附件"
                     title="移除"
                   >
                     ✕
@@ -254,7 +254,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                   className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 >
                   {PERMISSION_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value}>
+                    <option key={p.value} value={p.value} title={p.title}>
                       {p.label}
                     </option>
                   ))}
@@ -263,14 +263,14 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
             )}
 
             {showCodexSandbox && (
-              <Field label="权限模式 (sandbox)">
+              <Field label="沙盒">
                 <select
                   value={codexSandbox}
                   onChange={(e) => setCodexSandbox(e.target.value as CodexSandboxChoice)}
                   className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 >
                   {CODEX_SANDBOX_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value}>
+                    <option key={p.value} value={p.value} title={p.title}>
                       {p.label}
                     </option>
                   ))}
@@ -279,14 +279,14 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
             )}
 
             {showClaudeCodeSandbox && (
-              <Field label="OS 沙盒（macOS Seatbelt / Linux bubblewrap）">
+              <Field label="系统沙盒">
                 <select
                   value={claudeCodeSandbox}
                   onChange={(e) => setClaudeCodeSandbox(e.target.value as ClaudeSandboxChoice)}
                   className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 >
                   {CLAUDE_SANDBOX_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value}>
+                    <option key={p.value} value={p.value} title={p.title}>
                       {p.label}
                     </option>
                   ))}

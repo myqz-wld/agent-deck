@@ -1,5 +1,6 @@
 import { type JSX } from 'react';
 import type { FileChangeRecord } from '@shared/types';
+import { fileKindLabel } from './helpers';
 
 export function ChangeTimeline({
   items,
@@ -40,7 +41,7 @@ export function ChangeTimeline({
                 <span className="font-mono tabular-nums">
                   {new Date(c.ts).toLocaleTimeString('zh-CN', { hour12: false })}
                 </span>
-                <span className="rounded bg-white/10 px-1 text-[9px] uppercase">{c.kind}</span>
+                <span className="rounded bg-white/10 px-1 text-[9px]">{fileKindLabel(c.kind)}</span>
                 {isLast && (
                   <span className="ml-auto text-[9px] text-status-working/70">最新</span>
                 )}

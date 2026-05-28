@@ -122,8 +122,8 @@ function ModelRow({
           onChange={(e) => onReasoningChange(e.target.value as Reasoning)}
           title={
             reasoningDisabled
-              ? "claude 端 thinking 走 model id 后缀(如 'claude-opus-4-7-thinking-max[1m]'),无独立 reasoning 字段"
-              : 'codex SDK ThreadOptions.modelReasoningEffort 4 档枚举'
+              ? 'Claude 端通过模型名后缀控制推理强度（如 claude-opus-4-7-thinking-max），不需要单独设置'
+              : '选择 Codex 总结时使用的推理强度'
           }
           className="no-drag w-20 shrink-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
         >
@@ -162,18 +162,18 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
       />
       <ModelRow
         label="周期性总结"
-        hint="claude provider 留空走 'haiku' alias；codex provider 留空 fallback ~/.codex/config.toml。reasoning 仅 codex 生效。"
+        hint="Claude 留空使用默认快速模型；Codex 留空使用 Codex 配置里的默认模型。推理强度只影响 Codex。"
         provider={settings.summaryProvider}
         model={settings.summaryModel}
         reasoning={settings.summaryReasoning}
-        modelPlaceholder="haiku（沿用 env / alias）"
+        modelPlaceholder="留空使用默认（haiku）"
         onProviderChange={(v) => void update({ summaryProvider: v })}
         onModelChange={(v) => void update({ summaryModel: v })}
         onReasoningChange={(v) => void update({ summaryReasoning: v })}
       />
       <ModelRow
         label="Hand-off 简报"
-        hint="4 节结构化简报(目标/已做/在做/下一步)。default sonnet 保结构精度；想降 haiku 或升 opus/thinking-max 自己填 model id。reasoning 仅 codex 生效，default medium 保结构精度。"
+        hint="生成 4 节结构化简报（目标 / 已做 / 在做 / 下一步）。默认 sonnet 保证结构精度；可改 haiku 省成本或改 opus 提升质量。推理强度只影响 Codex。"
         provider={settings.handOffProvider}
         model={settings.handOffModel}
         reasoning={settings.handOffReasoning}

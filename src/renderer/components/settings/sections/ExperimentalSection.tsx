@@ -30,7 +30,7 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
   return (
     <Section title="实验功能" storageKey="experimental" defaultOpen={false}>
       <div className="flex items-center justify-between text-[11px]">
-        <span>Claude Code 沙盒（OS 级隔离）</span>
+        <span>Claude Code 沙盒(系统级隔离)</span>
         <select
           value={settings.claudeCodeSandbox}
           onChange={(e) =>
@@ -40,37 +40,35 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
           }
           className="no-drag rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
         >
-          <option value="off">关闭（默认）</option>
-          <option value="workspace-write">Workspace Write</option>
-          <option value="strict">Strict</option>
+          <option value="off" title="系统不会限制 Claude；仅靠应用内授权弹窗管控">⚠️ 关闭（无系统沙盒）</option>
+          <option value="workspace-write" title="工作目录可写；敏感目录禁读；网络默认禁">工作目录可写</option>
+          <option value="strict" title="工作目录也只读，最严格">严格只读</option>
         </select>
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
         {sandboxNativeAvailable ? (
           <>
-            开启后 Claude SDK 子进程走 OS 级沙盒（{IS_DARWIN ? 'macOS Seatbelt' : 'Linux bubblewrap'}）。
-            Codex 子进程已默认 <code className="rounded bg-white/5 px-1">workspace-write</code>，本设置补齐 Claude
-            这一侧。
-            <br />· <strong>关闭</strong>：仅应用层 canUseTool 弹框决策（与现状一致）
-            <br />· <strong>Workspace Write</strong>：cwd 可写；
+            开启后会限制 Claude 访问敏感目录、降低误操作风险。
+            Codex 默认已启用<strong>工作目录可写</strong>,本设置补齐 Claude 这一侧。
+            <br />· <strong>关闭</strong>:仅用应用内授权弹窗管控(默认行为)
+            <br />· <strong>工作目录可写</strong>:工作目录可写,网络默认禁止;
             <code className="rounded bg-white/5 px-1">~/.ssh</code> /
             <code className="rounded bg-white/5 px-1">~/.aws</code> /
             <code className="rounded bg-white/5 px-1">~/.config</code> /
             <code className="rounded bg-white/5 px-1">~/.kube</code> /
-            <code className="rounded bg-white/5 px-1">~/.gnupg</code> 等敏感目录禁读；
-            网络默认禁
-            <br />· <strong>Strict</strong>：cwd 也只读 + 完全封死逃逸路径
+            <code className="rounded bg-white/5 px-1">~/.gnupg</code> 等敏感目录禁读
+            <br />· <strong>严格只读</strong>:工作目录也只读,彻底防越权
             <br />
-            <strong className="text-amber-300/90">⚠ 切档仅下次新建会话生效</strong>。
+            <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。
           </>
         ) : (
           <>
-            Windows 当前不支持 OS 级沙盒。本档位仅在 macOS / Linux 生效。
+            Windows 当前不支持系统级沙盒,本设置仅在 macOS / Linux 生效。
           </>
         )}
       </div>
       <div className="mt-3 flex items-center justify-between text-[11px]">
-        <span>Codex 沙盒（OS 级隔离）</span>
+        <span>Codex 沙盒(系统级隔离)</span>
         <select
           value={settings.codexSandbox}
           onChange={(e) =>
@@ -80,15 +78,15 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
           }
           className="no-drag rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
         >
-          <option value="workspace-write">Workspace Write（默认）</option>
-          <option value="read-only">Read Only</option>
-          <option value="danger-full-access">⚠ Danger Full Access</option>
+          <option value="workspace-write" title="工作目录可写；网络默认禁；其他目录只读">工作目录可写（默认）</option>
+          <option value="read-only" title="所有文件只读，包括工作目录">完全只读</option>
+          <option value="danger-full-access" title="没有任何限制：可以读写任意文件、访问网络、运行任意命令">⚠️ 完全开放（可改任意文件 / 联网 / 运行任意命令）</option>
         </select>
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        Codex CLI 子进程的沙盒档位（codex SDK 原生三档，由 codex 自身 OS 隔离实现，跨平台一致）。
-        默认 <code className="rounded bg-white/5 px-1">workspace-write</code> 与 Claude 默认对齐；
-        切档仅下次新建会话生效。
+        Codex 的沙盒档位(Codex 原生三档,跨平台一致)。
+        默认<strong>工作目录可写</strong>与 Claude 默认对齐;
+        <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。
       </div>
     </Section>
   );

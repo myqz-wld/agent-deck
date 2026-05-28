@@ -54,7 +54,7 @@ export function ImageLightbox({
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="image lightbox"
+      aria-label="图片预览"
     >
       <div
         className="relative flex max-h-[90vh] max-w-[90vw] items-center justify-center"
@@ -73,14 +73,14 @@ export function ImageLightbox({
         {!state.loading && state.result?.ok && (
           <img
             src={state.result.dataUrl}
-            alt={alt ?? 'image'}
+            alt={alt ?? '图片预览'}
             className="max-h-[90vh] max-w-[90vw] rounded border border-deck-border object-contain"
           />
         )}
         <button
           type="button"
           onClick={onClose}
-          aria-label="close lightbox"
+          aria-label="关闭预览"
           className="absolute -top-3 -right-3 flex h-7 w-7 items-center justify-center rounded-full border border-deck-border bg-deck-bg/90 text-deck-text hover:bg-white/10"
         >
           ✕

@@ -56,7 +56,7 @@ export function ImageThumb({
         return (
           <img
             src={result.dataUrl}
-            alt={alt ?? (source.kind === 'path' ? source.path : 'image')}
+            alt={alt ?? (source.kind === 'path' ? source.path : '图片')}
             onClick={onClick}
             className={`${baseCls} ${onClick ? 'cursor-zoom-in' : ''}`}
           />
