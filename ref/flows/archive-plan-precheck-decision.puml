@@ -53,7 +53,9 @@ partition "段 1: 4 态预检 (cwdReleaseMarker × cwd 在 worktree 内)" {
 partition "段 2: 原子 7 步收口 (任一失败立即 abort 无部分回滚)" {
   :Step 1-2: git checkout base_branch + ff-merge worktree-<plan_id>;
   note left
-    base_branch 默认 = plan frontmatter.base_branch (不再 fallback main)
+    base_branch resolution chain:
+    caller args.base_branch > plan frontmatter.base_branch > "main" fallback
+    强烈建议 plan frontmatter 显式写 base_branch (避免 ff-merge 错合主线污染)
     ff-merge 失败 → return error + phaseHint 给具体 manual recovery 决策树
   end note
   :Step 3: 写 plan frontmatter (status=completed + final_commit + completed_at);

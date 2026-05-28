@@ -36,13 +36,13 @@ package "持久层 + 联动" as L5 {
 Entry --> Handler : 通过白名单后进 facade
 Handler --> Repos : 反查 caller cwd
 Handler --> Impl : plan-driven 模式调 plan resolve
+Impl --> Fs : 按 fallback 链找 plan 文件
+Impl --> Handler : 返 plan 元数据 + cold start prompt
 
-alt plan-driven (传 plan_id)
-  Impl --> Fs : 按 fallback 链找 plan 文件
-  Impl --> Handler : 返 plan 元数据 + cold start prompt
-else generic (无 plan_id)
-  Handler --> Handler : 直接构造 generic 上下文
-end
+note right of Handler
+  双模式分流 (plan-driven vs generic) 细节
+  详 hand-off-session-flow / decision 图
+end note
 
 Handler --> Spawn : 起新 SDK session
 Spawn --> Adapter : claude / codex adapter
@@ -50,10 +50,8 @@ Adapter --> SM : upsert 新 session + emit event
 
 Handler --> Repos : 改 task ownership (clear / preserve / skip 三态)
 
-opt adopt_teammates=true (接管 caller 同 team)
-  Handler --> Repos : 转交 lead 角色 (swapLead 逐 team)
-  Handler --> AdoptCtx : 构造 adopt block 注入 spawn prompt
-end
+Handler --> AdoptCtx : adopt_teammates=true → 装 adopt block 注入 spawn prompt
+Handler --> Repos : adopt_teammates=true → swapLead 转交 lead 角色
 
 Handler --> Baton : runBatonCleanup
 Baton --> SM : phase 1 关 teammate (excludeSessionIds={newSid})
@@ -67,10 +65,16 @@ note bottom of Spawn
   关键不变量:
   - handOffMode=true → 跳 spawn-guards 三道防御 + 永不写 spawn-link
   - hand-off 是平级接力 (不是派遣关系),SessionList 不挂 teammate badge
+  - plan-driven + external worktree (worktree 不在 mainRepo 子树) →
+    handler 自动把 mainRepo 加进 spawn args.extra_allow_write
+    (claude-code workspace-write 沙盒额外 writable roots,新 session 能写 plan 文件)
 end note
 
 note bottom of Baton
   与 archive_plan 共享 baton 流程(同 helper)
+  phase 1 跳过条件 (任一即跳):
+  - adopt_teammates=true (teammate 已转给 newSid)
+  - archive_caller=false (caller 保活,skipped='archive-caller-false-keep')
   失败兜底见 hand-off-session-state-machine 图
 end note
 
