@@ -1,0 +1,144 @@
+' commit: d5549c6 (deep-review 批 C 收口) / handler 1249 LOC + impl 357 LOC
+' description: hand_off_session 主进程模块依赖架构 (component) — handler facade / impl / spawn 复用 / runBatonCleanup 复用 / adopted-teams-context-block / repos / SDK adapter / fs
+' last_updated: 2026-05-28
+@startuml hand-off-session-architecture
+
+title hand_off_session — 主进程模块依赖架构 (1249 LOC §保护清单不动文件)
+
+package "agent-deck-mcp transport" {
+  [stdio / HTTP /mcp endpoint] as Transport
+  [withMcpGuard wrapper] as Guard
+}
+
+package "tool handler facade (hand-off-session.ts 1249 LOC)" {
+  [handOffSessionHandler] as Handler
+  [resolveCallerCwdDeps] as ResolveCwd
+  [mergeCallerCwd] as MergeCwd
+  note bottom of Handler
+    §保护清单 (CHANGELOG_169 F1):
+    handler 主体 1 大 function (line 270-1249)
+    含 phase 1.5 adopt loop + task 三态分流块
+    闭包共享 10+ 跨 phase 变量
+    tier-2 抽 sub-module 需打包 args dict 反降可读性
+    test 文件直接 mock handler 而非 sub-module
+    tier-3 拆 class 不适用 (零 class state)
+  end note
+}
+
+package "tool impl 主体 (hand-off-session-impl.ts 357 LOC)" {
+  [handOffSessionImpl] as Impl
+  note bottom of Impl
+    plan resolve + frontmatter parse +
+    status 校验 + coldStartPrompt 构造
+    generic 模式不调本 impl,直接 handler 内构造
+  end note
+}
+
+package "tool helpers (handlers/)" {
+  [adopted-teams-context-block.ts] as AdoptCtx
+  note bottom of AdoptCtx
+    构造 adoptedBlock 注入 spawn prompt
+    让新 session 知道接管的 team 列表
+  end note
+}
+
+package "baton cleanup (CHANGELOG_109 抽 helper / archive_plan 共享)" {
+  [runBatonCleanup] as Baton
+  [shutdownTeammatesOnBaton] as Shutdown
+  [archiveSourceSessionWithEmit] as ArchiveCaller
+}
+
+package "spawn 复用 (与 spawn_session tool 同款防御链)" {
+  [spawnSessionHandler] as Spawn
+  note bottom of Spawn
+    spawnHandler 走 handOffMode: true
+    跳过 spawn-guards 三道防御
+    + 永不写 spawn-link
+    permission_mode / sandbox 继承
+  end note
+}
+
+package "store (better-sqlite3 同步 SQL)" {
+  [sessionRepo] as SessionRepo
+  [agentDeckTeamRepo] as TeamRepo
+  [taskRepo] as TaskRepo
+  database "agent-deck.sqlite\n(WAL 单进程)" as DB
+}
+
+package "session manager singleton" {
+  [sessionManager] as SM
+}
+
+package "event bus (跨进程 IPC)" {
+  [eventBus.emit] as EventBus
+}
+
+package "SDK adapter (跨 adapter 起 SDK session)" {
+  [claudeCodeAdapter] as ClaudeAdapter
+  [codexCliAdapter] as CodexAdapter
+  [SDK subprocess\n(子进程 SDK CLI)] as SDKProc
+}
+
+package "fs (plan files + worktree)" {
+  folder "<main-repo>/.claude/plans/" as PlansLocal
+  folder "<main-repo>/ref/plans/" as PlansRef
+  folder "~/.claude/plans/" as PlansHome
+  folder "<main-repo>/.claude/worktrees/<plan-id>/" as Worktree
+}
+
+' ─── 调用链 ───
+
+Transport --> Guard : deny external check\n(EXTERNAL_CALLER_ALLOWED.hand_off_session = false)
+Guard --> Handler : HandOffSessionArgs
+
+' caller cwd 反查
+Handler --> ResolveCwd : callerSid
+ResolveCwd --> SessionRepo : sessionRepo.get(callerSid)
+SessionRepo --> DB : SELECT cwd, cwdReleaseMarker
+Handler --> MergeCwd : merge implDeps
+
+' 双模式分流
+alt plan-driven (plan_id 传)
+  Handler --> Impl : handOffSessionImpl({planId, planFilePathOverride?, phaseLabel?})
+  Impl --> PlansLocal : fallback chain step 1
+  Impl --> PlansRef : fallback chain step 2
+  Impl --> PlansHome : fallback chain step 3
+  Impl ..> Worktree : 校验 worktree_path 字段存在
+  Impl --> Handler : { planFilePath, worktreePath, mainRepo, coldStartPrompt }
+else generic (无 plan_id)
+  Handler --> Handler : 直接组装 generic 上下文\n(不调 impl)
+end
+
+' spawn 新 SDK session
+Handler --> Spawn : spawnSessionHandler({adapter, cwd, prompt, handOffMode: true, extra_allow_write?})
+Spawn --> ClaudeAdapter : createSession (adapter='claude-code')
+Spawn --> CodexAdapter : createSession (adapter='codex-cli')
+ClaudeAdapter --> SDKProc : claude SDK subprocess
+CodexAdapter --> SDKProc : codex SDK subprocess
+SDKProc --> SessionRepo : sessionRepo.upsert(newSid, ...)
+Spawn --> Handler : { sessionId: newSid, teamId?, spawnPromptMessageId? }
+
+' phase 1.5 adopt (optional)
+Handler --> TeamRepo : agentDeckTeamRepo.swapLead(teamId, callerSid, newSid) (per team loop)
+TeamRepo --> DB : UPDATE team_members SET role='lead' WHERE session_id=newSid
+Handler --> AdoptCtx : buildAdoptedTeamsContextBlock(adopted) → 注入 spawn prompt 顶部
+
+' phase 1.6 task reassign (三态)
+Handler --> TaskRepo : reassignTaskOwner / applyHandOffSkipPolicy (按 team_task_policy)
+TaskRepo --> DB : UPDATE / DELETE tasks (per policy)
+
+' phase 2 cleanup
+Handler --> Baton : runBatonCleanup({callerSid, toolName})
+Baton --> Shutdown : phase 1 (adopt=true 时 skip)
+Shutdown --> TeamRepo : listActiveMembersByTeam
+Shutdown --> SM : sessionManager.close(teammateSid) excludeSessionIds={newSid}
+SM --> EventBus : emit 'session-status-changed'
+
+Baton --> ArchiveCaller : phase 2 (archive_caller=false 时 skip)
+ArchiveCaller --> SessionRepo : sessionRepo.archive(callerSid)
+ArchiveCaller --> EventBus : emit 'session-status-changed' (caller archived)
+
+Baton --> Handler : { teammatesShutdown, archived }
+Handler --> Transport : ok({mode, sessionId, archived, taskReassignment, adopted?, ...})
+
+@enduml
