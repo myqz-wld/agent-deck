@@ -1,105 +1,87 @@
-' commit: d5549c6 (deep-review 批 C 收口)
-' description: archive_plan tool 改变的 5 个 entity 并行 state machine (plan / worktree / git branch / cwdReleaseMarker / callerSession + teammate)
-' last_updated: 2026-05-28
+' description: archive_plan 5 entity 并行 state 联动 — plan / worktree / branch / marker / sessions
+' last_updated: 2026-05-29
 @startuml archive-plan-state-machine
 
-title archive_plan — 5 entity 并行 state 联动 (Step 1-7 + runBatonCleanup phase 1+2)
+title archive_plan — 5 entity 并行 state 联动 (plan 收口原子时序)
 
-' ─── entity 1: plan frontmatter (file content) ───
-state "Plan Frontmatter\n(<plan-file-path>)" as PlanState {
-  state "status: in_progress" as InProgress
-  state "status: completed\n+ final_commit\n+ completed_at" as Completed
-  state "status: abandoned\n(手工 §Step 4 §中止)" as Abandoned
+' 内部 module 名 / 函数名 / REVIEW 引用见 INDEX 第 3 列
 
-  [*] --> InProgress : enter_worktree\n(plan 创建时写 frontmatter)
-  InProgress --> Completed : archive_plan Step 3\n(writeFrontmatter)
-  InProgress --> Abandoned : 手工 §Step 4 §中止\n(不入 git 归档)
+' ─── entity 1: plan frontmatter ───
+state "Plan frontmatter\n(plan 文件)" as PlanState {
+  state "in_progress" as InProgress
+  state "completed" as Completed
+  state "abandoned (手工)" as Abandoned
+
+  [*] --> InProgress
+  InProgress --> Completed : Step 3 改 frontmatter\n(+ final_commit + completed_at)
+  InProgress --> Abandoned : 手工 §中止 (不入 git 归档)
   Completed --> [*]
   Abandoned --> [*]
 }
 
-' ─── entity 2: worktree (filesystem + git) ───
-state "Worktree dir\n(.claude/worktrees/<plan-id>/)" as WorktreeState {
-  state "exists\n(创建后 in-use)" as WorktreeExists
-  state "removed\n(git worktree remove)" as WorktreeRemoved
+' ─── entity 2: worktree 目录 ───
+state "Worktree 目录" as WorktreeState {
+  state "exists" as WorktreeExists
+  state "removed" as WorktreeRemoved
 
-  [*] --> WorktreeExists : enter_worktree Step 2
-  WorktreeExists --> WorktreeRemoved : archive_plan Step 7b\n(precondition: clean + Step 2 ff-merge OK)
+  [*] --> WorktreeExists : enter_worktree 创建
+  WorktreeExists --> WorktreeRemoved : Step 7b git worktree remove
   WorktreeRemoved --> [*]
 }
 
-' ─── entity 3: git branch (worktree-<plan-id>) ───
-state "Git branch\nworktree-<plan-id>" as BranchState {
-  state "exists\n(enter_worktree -b)" as BranchExists
-  state "merged to base_branch\n(--ff-only)" as BranchMerged
-  state "deleted\n(git branch -D)" as BranchDeleted
+' ─── entity 3: git branch ───
+state "Git branch" as BranchState {
+  state "exists" as BranchExists
+  state "merged to base_branch" as BranchMerged
+  state "deleted" as BranchDeleted
 
-  [*] --> BranchExists : enter_worktree Step 1
-  BranchExists --> BranchMerged : archive_plan Step 2\n(merge --ff-only worktree-<id>)
-  BranchMerged --> BranchDeleted : archive_plan Step 7c\n(branch -D worktree-<id>)
+  [*] --> BranchExists : enter_worktree -b
+  BranchExists --> BranchMerged : Step 2 ff-merge
+  BranchMerged --> BranchDeleted : Step 7c branch -D
   BranchDeleted --> [*]
 }
 
-' ─── entity 4: sessionRepo.cwdReleaseMarker (DB column) ───
-state "callerSession.cwdReleaseMarker\n(DB column)" as MarkerState {
-  state "null\n(plan/worktree 未关联)" as MarkerNull
-  state "set = <worktreePath>\n(enter_worktree marker)" as MarkerSet
+' ─── entity 4: cwdReleaseMarker ───
+state "cwdReleaseMarker" as MarkerState {
+  state "null" as MarkerNull
+  state "set = <worktreePath>" as MarkerSet
 
   [*] --> MarkerNull
-  MarkerNull --> MarkerSet : enter_worktree(plan-driven)\nsessionRepo.setCwdReleaseMarker
-  MarkerSet --> MarkerNull : archive_plan Step 7a\nclearCwdReleaseMarker
-  note right of MarkerSet
-    F10 修法 (REVIEW_59 批 A):
-    Step 7a 提前到 commit 后,
-    Step 7b/c 失败时 marker 已清
-    caller 跑别 plan 不撞 stale marker reject
-  end note
+  MarkerNull --> MarkerSet : enter_worktree (plan-driven)
+  MarkerSet --> MarkerNull : Step 7a 清 marker (commit 后提前清)
 }
 
-' ─── entity 5: caller + teammate sessions (DB + in-memory) ───
-state "Caller + Teammate sessions" as SessionState {
-  state "caller: active\n+ teammate: active/dormant" as SessionsActive
-  state "teammate: closed\n+ caller: active" as TeammateClosed
-  state "teammate: closed\n+ caller: archived" as AllArchived
+' ─── entity 5: caller + teammate sessions ───
+state "Caller + teammate sessions" as SessionState {
+  state "caller active + teammate active/dormant" as SessionsActive
+  state "teammate closed + caller active" as TeammateClosed
+  state "全部归档" as AllArchived
 
   [*] --> SessionsActive
-  SessionsActive --> TeammateClosed : runBatonCleanup phase 1\nshutdownTeammatesOnBaton
-  note right of TeammateClosed
-    plan hand-off-session-adopt-teammates-20260520 P3:
-    archive_plan 永远跑 phase 1 (不再支持 opt-out)
-    plan 收口 = team 整片收口
-    teammate.cwdReleaseMarker 不动 (per-session)
-  end note
-  TeammateClosed --> AllArchived : runBatonCleanup phase 2\narchiveSourceSessionWithEmit(callerSid)
-  note right of AllArchived
-    phase 2 失败 → archived='failed' warn-only
-    不阻塞 ok return
-    eventBus.emit 'session-status-changed' 让 UI sync
-  end note
+  SessionsActive --> TeammateClosed : runBatonCleanup phase 1
+  TeammateClosed --> AllArchived : runBatonCleanup phase 2
   AllArchived --> [*]
 }
 
-' ─── 跨 entity 时序串联 (5 entity Step 1-7 + phase 1+2 同步切换) ───
+' ─── 跨 entity 联动 + 失败兜底 ───
 
 note as N1
-  archive_plan tool **原子时序**(任一失败立即 abort 无部分回滚):
-
-  ① Plan: InProgress → 走 Step 3 writeFrontmatter → Completed
-  ② Worktree: WorktreeExists → 走 Step 7b git worktree remove → WorktreeRemoved
-  ③ Branch: BranchExists → Step 2 ff-merge → BranchMerged → Step 7c branch -D → BranchDeleted
-  ④ Marker: MarkerSet → Step 7a clearCwdReleaseMarker → MarkerNull (F10 提前)
-  ⑤ Sessions: SessionsActive → phase 1 → TeammateClosed → phase 2 → AllArchived
+  archive_plan **原子时序**(任一失败立即 abort 无部分回滚):
+  ① Plan: InProgress → Completed (Step 3)
+  ② Worktree: exists → removed (Step 7b)
+  ③ Branch: exists → merged → deleted (Step 2 + 7c)
+  ④ Marker: set → null (Step 7a 提前到 commit 后)
+  ⑤ Sessions: active → teammate closed → 全部归档 (phase 1+2)
 
   失败兜底:
-  - Step 1-6 任一失败 → 4 entity 全停在「未变」状态(plan/worktree/branch/marker 未变)+ 5 entity SessionsActive 不动
-  - Step 7a 失败 (marker clear) → 仅 archive 错(marker stale 不会污染后续 plan)
-  - Step 7b/c 失败 → marker 已清(F10 修法)+ worktree/branch 状态由 caller 手工 cleanup
-  - phase 1 单 teammate close fail → 仅该 teammate warn,其他继续 close
-  - phase 2 archive caller fail → archived='failed' warn-only,5 entity 中 caller 仍 active
+  - Step 1-6 任一失败 → 4 entity 全停未变 + sessions 不动
+  - Step 7a 失败 → 仅 archive 错 (marker stale 不污染后续 plan)
+  - Step 7b/c 失败 → marker 已清 + worktree/branch 由 caller 手工 cleanup
+  - phase 1 单 teammate close 失败 → 仅该 teammate warn,其他继续
+  - phase 2 archive caller 失败 → archived='failed' warn-only,caller 仍 active
 
-  与 K2 hand_off_session baton 时序对比:
-  - hand_off: spawn 新 session → reassignTaskOwner → phase 1+2 (与 archive_plan 同款)
-  - archive_plan: 不 spawn 新 session,Step 1-7 + phase 1+2 = plan/worktree/team 整片收口
+  与 hand_off baton 对比: archive_plan 不 spawn 新 session,
+  Step 1-7 + phase 1+2 = plan/worktree/team 整片收口
 end note
 
 @enduml

@@ -1,109 +1,81 @@
-' commit: 627a0c2 + 5b66cd8 (批 B) / 双端 sdk-bridge/{index.ts, recoverer.ts}
-' description: sdk-bridge 双端模块架构 — claude / codex sdk-bridge facade + helpers + recoverer + restart-controller + thread-loop/stream-processor + translate
-' last_updated: 2026-05-28
+' description: sdk-bridge 双端 (claude-code + codex-cli) 模块架构 — 5 大块,双端结构镜像
+' last_updated: 2026-05-29
 @startuml sdk-bridge-architecture
 
-title sdk-bridge — 双端 (claude-code + codex-cli) 模块架构 (批 B R4 split refactor 后)
+title sdk-bridge — 双端 (claude / codex) 模块架构 (5 大块对偶)
 
-package "common (跨 adapter)" {
-  [adapter interface\n(adapters/types.ts 558 LOC)] as AdapterIf
-  [sessionManager singleton] as SM
-  [sessionRepo (DB)] as SRepo
-  [eventBus] as Bus
+' 内部 module 名 / 函数名 / LOC / commit / REVIEW 引用见 INDEX
+
+package "公共抽象 (跨 adapter)" as L1 {
+  [adapter 接口\n(两端共同实现)] as AdapterIf
+  [会话管理器 + 4 张数据表 + 事件总线] as Common
 }
 
-package "claude-code sdk-bridge" {
-  [ClaudeSdkBridge\n(index.ts 793 LOC §保护清单)] as ClaudeFacade
-  [sdk-bridge/createSession 主路径\n(12+ helpers 抽完)] as ClaudeCreate
-  [recoverer.ts (662 LOC)\nrecoverAndSend + jsonl-fallback.ts + cwd 启发式] as ClaudeRec
-  [stream-processor.ts\n(主路径 advance + S6 fork detect)] as StreamProc
-  [restart-controller.ts\n(restartWithPermissionMode / restartWithClaudeCodeSandbox)] as RestartCtrl
-  [session-finalize.ts\n(spawn 主路径 cli_session_id 写入)] as Finalize
-  [canUseTool 闭包\n(6 deps 双向耦合 PermissionResponder)] as CanUse
-  note bottom of ClaudeFacade
-    §保护清单 (REVIEW_60 R4 §档 3):
-    12+ helpers 已抽 / 闭包 ~10 跨段共享 ref
-    canUseTool 6 deps 双向强耦合 / 三状态 (sessions/sdkOwned/pendingMessages) 强耦合
-    4 protected wrappers test seam 必须挂 facade
-    plan reverse-rename 行号 reference
-    catch block mild 候选 P1 减幅 <5% 不入档 2 阈值
-  end note
+package "claude-code 端" as L2 {
+  [claude facade\n(创建 + 消息主路径)] as ClaudeFacade
+  [claude 自愈层\n(recoverer + jsonl 兜底)] as ClaudeRec
+  [stream-processor + restart-controller\n+ canUseTool 闭包] as ClaudeAux
 }
 
-package "codex-cli sdk-bridge" {
-  [CodexCliBridge\n(index.ts 874 LOC,R4 抽 3 helper -13.5%)] as CodexFacade
-  [thread-options-builder.ts (49 LOC)\nbuildCodexThreadOptions] as CodexBuilder
-  [create-session-rollback.ts (96 LOC)\nrunCreateSessionRollback (4 资源 cleanup)] as CodexRollback
-  [resume-path-await.ts (191 LOC)\nawaitResumedThreadStart (30s timeout state machine)] as CodexAwait
-  [recoverer.ts (597 LOC,R4 mirror claude)\nrecoverAndSend + codex-jsonl-fallback.ts] as CodexRec
-  [codex-recoverer-messages.ts\n(3 builder mirror claude messages)] as CodexMsg
-  [codex-jsonl-fallback.ts\nmaybeCodexJsonlFallback (精简版无 LLM 摘要)] as CodexJsonlFb
-  [thread-loop.ts\n(主路径 advance + case 3 post-resume fork)] as ThreadLoop
-  [restart-controller.ts\n(restart 模板与 claude 端 mirror)] as CodexRestartCtrl
-  [translate.ts\n(ErrorItem LOADER_WARNING_PATTERNS filter)] as Translate
-  [mcp-session-token-map.ts\n(per-session token allocate/release)] as TokenMap
-  [codexBySession Map\n(per-session SDK instance)] as CodexMap
-  note bottom of CodexFacade
-    R4 B [MED] 1010→874 LOC -13.5% 抽 3 helper:
-    thread-options-builder + create-session-rollback + resume-path-await
-    R4 D [MED] 617→597 LOC mirror claude 抽 2 helper
-    (cross-adapter parity 维护漂移成本驱动)
-  end note
+package "codex-cli 端 (镜像)" as L3 {
+  [codex facade\n(创建 + 消息主路径)] as CodexFacade
+  [codex 自愈层\n(recoverer + jsonl 兜底)] as CodexRec
+  [thread-loop + thread-options-builder\n+ rollback + resume-await + token-map\n+ ErrorItem filter] as CodexAux
 }
 
-package "SDK subprocess (子进程)" {
-  [claude SDK CLI subprocess] as ClaudeSDK
-  [codex SDK CLI subprocess] as CodexSDK
+package "SDK 子进程" as L4 {
+  [claude SDK 子进程] as ClaudeSDK
+  [codex SDK 子进程] as CodexSDK
 }
 
-package "fs" {
+package "外部边界 (jsonl)" as L5 {
   folder "~/.claude/projects/<encoded-cwd>/<sid>.jsonl" as ClaudeJsonl
   folder "~/.codex/projects/<encoded-cwd>/<sid>.jsonl" as CodexJsonl
 }
 
-' ─── 调用链 ───
+' ─── 接口实现 ───
 
 AdapterIf <|.. ClaudeFacade
 AdapterIf <|.. CodexFacade
 
-' claude 端
-ClaudeFacade --> ClaudeCreate : createSession 12+ helpers
-ClaudeCreate --> ClaudeSDK : spawn 子进程
-ClaudeCreate --> StreamProc : consume stream
-StreamProc --> SM : emit AgentEvent / rename
-ClaudeFacade --> ClaudeRec : sendMessage 断连自愈
-ClaudeRec --> SRepo : sessionRepo.get/unarchive
-ClaudeRec --> ClaudeJsonl : exists 预检
-ClaudeRec --> ClaudeFacade : 回主路径 sendMessage
-ClaudeFacade --> RestartCtrl : restartWithPermissionMode / Sandbox
-RestartCtrl --> SM : updateCliSessionId
-ClaudeFacade --> Finalize : 写 cli_session_id
-ClaudeFacade --> CanUse : canUseTool closure
+' ─── claude 端调用链 ───
 
-' codex 端
-CodexFacade --> CodexBuilder : buildCodexThreadOptions
-CodexFacade --> CodexAwait : awaitResumedThreadStart (4 资源)
-CodexFacade --> CodexRollback : runCreateSessionRollback (失败兜底)
-CodexFacade --> CodexSDK : spawn 子进程
-CodexFacade --> ThreadLoop : 主路径 advance + S6 fork
-ThreadLoop --> SM : emit AgentEvent / rename
-CodexFacade --> CodexRec : sendMessage 断连自愈
-CodexRec --> SRepo : sessionRepo.get/unarchive
-CodexRec --> CodexJsonl : exists 预检
-CodexRec --> CodexMsg : 3 builder errors
-CodexRec --> CodexJsonlFb : maybeCodexJsonlFallback
-CodexRec --> CodexFacade : 回主路径 sendMessage
-CodexFacade --> CodexRestartCtrl : restart 模板
-CodexFacade --> Translate : ErrorItem filter
-CodexFacade --> TokenMap : per-session token
-CodexFacade --> CodexMap : per-session SDK instance
-
-' 共享
-SM --> SRepo : sessionRepo upsert/archive
-SM --> Bus : emit 'session-status-changed' / 'session-renamed'
-
-' jsonl 文件路径
+ClaudeFacade --> ClaudeAux : helpers
+ClaudeFacade --> ClaudeSDK : spawn 子进程 + 消息主路径
+ClaudeFacade --> ClaudeRec : sendMessage 撞 absent → 自愈
+ClaudeRec --> Common : 反查 cwd / 取消归档
+ClaudeRec --> ClaudeJsonl : jsonl 文件兜底预检
+ClaudeRec --> ClaudeFacade : 自愈完回主路径
 ClaudeSDK --> ClaudeJsonl : 写 conversation history
+
+' ─── codex 端调用链 (镜像 claude) ───
+
+CodexFacade --> CodexAux : helpers
+CodexFacade --> CodexSDK : spawn 子进程 + 消息主路径
+CodexFacade --> CodexRec : sendMessage 撞 absent → 自愈
+CodexRec --> Common : 反查 cwd / 取消归档
+CodexRec --> CodexJsonl : jsonl 文件兜底预检
+CodexRec --> CodexFacade : 自愈完回主路径
 CodexSDK --> CodexJsonl : 写 conversation history
+
+' ─── 关键不变量 ───
+
+note bottom of ClaudeFacade
+  claude 端独有:
+  - canUseTool 闭包 (lead 端权限审批回调)
+  - in-process MCP transport
+end note
+
+note bottom of CodexFacade
+  codex 端独有:
+  - per-session token map (允许并发)
+  - jsonl 兜底无 LLM 摘要 (精简版)
+  - ErrorItem filter (LOADER_WARNING 过滤)
+end note
+
+note bottom of Common
+  双端 parity 维护成本驱动镜像 helper 抽出
+  详细不变量见 sdk-bridge-state-machine 图
+end note
 
 @enduml
