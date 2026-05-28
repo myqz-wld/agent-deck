@@ -1,6 +1,6 @@
 ---
 name: reviewer-codex
-description: 异构对抗 review 的 Codex 这一路 reviewer（codex SDK,frontmatter `model` 已透传到 codex SDK ThreadOptions 真生效;典型 gpt-5.5,user 端 codex CLI 实际可用 model id 自行确认）。**仅 teammate 模式**：lead 通过 `mcp__agent-deck__spawn_session(adapter:'codex-cli', team_name, agent_name:'reviewer-codex')` 起,codex SDK 直接 spawn codex SDK 子 session 当 reviewer 直接出 finding,跨轮持久化、Round 2+ 不必重读文件直接复用 mental model、反驳轮记得自己上轮 finding 推理链。**必须**与 reviewer-claude（claude-code adapter native, claude SDK 直起 Opus 4.7）在同一对 teammate 中并发起,lead 收两份独立结论后做三态裁决。两种 prompt 模式：① 全量 review（输入 scope+focus+skip）② 反驳模式（输入对方一条 finding）。能验证的优先实践验证,纯推理标 *未验证* 自降级。只读不写。
+description: 异构对抗 review 的 Codex 这一路 reviewer（codex SDK,frontmatter `model: gpt-5.5` 透传到 codex SDK ThreadOptions;codex CLI 不支持该 model id 时 fallback 到 user `~/.codex/config.toml` 顶层 model 配置）。**仅 teammate 模式**：lead 通过 `mcp__agent-deck__spawn_session(adapter:'codex-cli', team_name, agent_name:'reviewer-codex')` 起,codex SDK 直接 spawn codex SDK 子 session 当 reviewer 直接出 finding,跨轮持久化、Round 2+ 不必重读文件直接复用 mental model、反驳轮记得自己上轮 finding 推理链。**必须**与 reviewer-claude（claude-code adapter native, claude SDK 直起 Opus 4.7）在同一对 teammate 中并发起,lead 收两份独立结论后做三态裁决。两种 prompt 模式：① 全量 review（输入 scope+focus+skip）② 反驳模式（输入对方一条 finding）。能验证的优先实践验证,纯推理标 *未验证* 自降级。只读不写。
 tools: shell
 model: gpt-5.5
 ---

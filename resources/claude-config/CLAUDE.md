@@ -11,6 +11,8 @@
 - user CLAUDE.md（`~/.claude/CLAUDE.md`）通用约定**优先于**本文件;与本文件冲突时**以 user CLAUDE.md 为准**
 - 本文件提供 agent-deck 应用专属补充能力（mcp tool / plugin SKILL / cold-start 协议等）,不替换 user 通用约定
 
+> **注:** 优先级链 in scope 是 claude SDK system prompt 注入的 baseline 文件之间(`settingSources: ['user',...]` 自动加载 user CLAUDE.md 作 baseline)。per-turn user message / developer message 等 SDK API 内置 prompt 类型的优先级在 SDK preset 内规定,与本节正交。**codex 视角等价 `CODEX_AGENTS.md` 因 codex SDK 加载机制不同(`~/.codex/AGENTS.md` marker 注入,无 user 通用约定全局加载机制)措辞不同是 adapter 差异不是 SSOT drift,维护时不要强行对齐两端**。
+
 **加载范围**:本文件总是随应用打包注入到 SDK system prompt 末尾。`settingSources: ['user','project','local']` 的交互式 SDK 会话同时加载 user CLAUDE.md;`settingSources: []` 的内部 oneshot（如间歇总结）不加载 user CLAUDE.md,**本文件 self-contained 包含所需工程实践 inline**(§决策对抗 / §核心流程架构变更必走 plantUML / §复杂 plan workflow / §新项目工程地基)。
 
 ## 应用环境特有能力（不依赖 user CLAUDE.md）
@@ -115,7 +117,7 @@
 **强制约束**：
 - 空泛 finding + 没验证 = 直接降 ❓ 或 ❌
 - **任何 ✅ HIGH 都必须落到上述两个验证条件之一**（双方独立 / 单方 + 现场验证）
-- 弱断言关键词（"可能 / 也许 / 看起来 / 应该 / 大概"）**只允许**出现在标注 *未验证* 的条目里
+- 弱断言关键词（"可能 / 也许 / 看起来 / 应该 / 大概"）**只允许**出现在标注 *未验证* 的条目里 (注:reviewer-{claude,codex}.md §核心纪律 inline 重复此列表是设计意图 — reviewer agent body 独立注入 SDK,不依赖本文件 baseline 加载顺序,维护时不要按「冗余必合并」规则去抽 SSOT)
 - 未验证强制降级为非 HIGH
 
 ### reviewer-codex 失败兜底
@@ -146,6 +148,7 @@ invoke 前必须与 user 显式确认是核心变更(SKILL 入口 AskUserQuestio
 - **文件命名** `<topic>.puml`,topic 用 kebab-case(`archive-plan-flow.puml` / `mcp-server-architecture.puml`)
 - **同主题需要双图**(流程图 + 架构图)→ 拆两份分别落各自目录,topic 名可一致(`archive-plan-flow.puml` vs `archive-plan-architecture.puml`)
 - **目录不存在**(典型新项目 / 本 plan 实施前):SKILL 主动 `mkdir -p ref/flows ref/architecture` + 建空 INDEX.md(下节 4 列模板)
+- **codex 端走法**: codex SDK session 无 `flow-arch-plantuml` SKILL 入口(本 SKILL 仅 claude-config 端打包,详 README.md §设计 SSOT)。codex lead 需画 plantUML 时直接调 `shell: plantuml -tpng <file>.puml` (codex sandbox `additionalDirectories` 默认含 `/tmp` 可写中间产物;读 `<reviewRoot>/ref/flows/` `ref/architecture/` 走 worktree/cwd 内默认放行) 或调用应用环境提供的等价 IPC tool(应用层添加时再加 SSOT cross-ref)。文件位置 / INDEX 格式约定与 claude 端一致。
 
 ### INDEX.md 格式
 
@@ -661,7 +664,7 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 - **abandoned plan 不走本 tool**：tool 强制 `status=completed` 且入项目 git 归档；abandoned 走 **本文件** §Step 4 §中止 手工流程
 - **changelog 引用归档** agent 自己写（tool 不做）
 - **spike-reports/ 自动归档**：detect `<plan-artifact-dir>/spike-reports/` 存在（`<plan-artifact-dir>` = `<plan-file-dir>/<plan-id>/`，即 plan 文件父目录下的同名 artifacts 目录）→ mv 到 `<main-repo>/ref/plans/<plan_id>/spike-reports/`（plan .md 同名子目录与 plan .md 平级，约定 plan .md 是主体 + 同名目录是 artifacts），spike-reports/ 子目录递归入 git 归档 commit。不存在 → skip 不报错（trivial plan 无 spike 是合法场景）。mv 失败（EXDEV 跨 fs / perm）→ warnings 落 hint「spike-reports archive failed: ... Manually run \`mkdir -p && mv && git add+commit --amend\`」+ 不阻塞 ok return。`spikeReportsArchived` 字段告诉 caller 实际归档结果（null = skip / `{srcPath, dstPath}` = 成功）
-- **followup UX 完善**：
+- **UX 完善**：
   - fallback 链 `<main-repo>/.claude/plans/` > `<main-repo>/ref/plans/` > `~/.claude/plans/`(加中间档兜底本项目实际惯例)
   - `plan_file_path` 文件名 stem 必须 == `plan_id`(impl 层 reject 防 silent unlink)
   - INDEX 4 列 canonical `| 文件 | 状态 | 关联 changelog | 概要 |` + smart update existing 行(替换 status / changelog / description)
