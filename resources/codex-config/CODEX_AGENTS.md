@@ -29,7 +29,7 @@
 本应用环境跑 plan / 多 Agent 协作 / 多步骤工作时,**task 进度跟踪必须走** `mcp__agent-deck__task_create` / `task_update` / `task_list` / `task_get` / `task_delete`(codex CLI 本身无内置原生 task 工具,所以不存在"替代"问题,直接用本组)。
 
 **Why**:
-- task 必有归属 session（创建时自动绑当前 codex SDK caller，不存在「无归属 task」）— 归属 session 死了 task 自动跟着删（DB FK ON DELETE CASCADE），无 backlog 累积
+- task 必有归属 session（创建时自动绑当前 codex SDK caller，不存在「无归属 task」）— 归属 session row 被 `historyRetentionDays` GC 或显式 `sessionRepo.delete` 物理删除时，DB FK ON DELETE CASCADE 自动删 owner task（**注意**：`closed` / `archived_at` 仅打 lifecycle 标记不删 row 不触发 CASCADE），无 backlog 累积
 - task 可绑 team 也可不绑 — 绑了 = team 共享（同 team teammate 可见可写），没绑 = 私人（仅 owner 可见可写），类比群聊 vs 私聊。team 之间严格隔离避免 lead 跨 team 时 task 串流
 - **权限**按 team_id 决定：team-bound → caller 必须是该 team active member 才能 read/write；personal → 仅 owner 可见可写（不开放同 team 共享，避免 lead 私人 task 被 teammate 偷看 / 偷改）
 - **task_get 严格 team-scoped 不再「跨 team 可读」**:in-process lead 跨 team 看 teammate task / external mcp client 凭已知 task_id 查 task 两类 use case 都被推翻 — task_get 走与 task_update/delete 同款 deny external 对称语义。lead 想看跨 team teammate task 应走「让 lead 加入对方 team 作为 active member」或显式 IPC TaskListByTeam(若 lead 在该 team active)

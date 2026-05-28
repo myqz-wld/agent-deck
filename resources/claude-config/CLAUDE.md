@@ -26,7 +26,7 @@
 本应用环境跑 plan / 多 Agent 协作 / 多步骤工作时,**task 进度跟踪必须走** `mcp__agent-deck__task_create` / `task_update` / `task_list` / `task_get` / `task_delete`,**不走** Claude Code CLI 内置的 `TaskCreate` / `TaskUpdate` / `TaskList`。
 
 **Why**:
-- task 必有归属 session（创建时自动绑当前 caller，不存在「无归属 task」）— 归属 session 死了 task 自动跟着删（DB FK ON DELETE CASCADE），无 backlog 累积
+- task 必有归属 session（创建时自动绑当前 caller，不存在「无归属 task」）— 归属 session row 被 `historyRetentionDays` GC 或显式 `sessionRepo.delete` 物理删除时，DB FK ON DELETE CASCADE 自动删 owner task（**注意**：`closed` / `archived_at` 仅打 lifecycle 标记不删 row 不触发 CASCADE），无 backlog 累积
 - task 可绑 team 也可不绑 — 绑了 = team 共享（同 team teammate 可见可写），没绑 = 私人（仅 owner 可见可写），类比群聊 vs 私聊。team 之间严格隔离避免 lead 跨 team 时 task 串流
 - **权限**按 team_id 决定：team-bound → caller 必须是该 team active member 才能 read/write；personal → 仅 owner 可见可写（不开放同 team 共享，避免 lead 私人 task 被 teammate 偷看 / 偷改）
 - **personal task 是 first-class**：用户不在任何 team 时仍能用 task（典型场景：lead 起 reviewer pair 不必加 team 也想用 task 跟踪）。不传 `team_id` = personal default
