@@ -1,0 +1,192 @@
+' commit: 7475b75 (批 A) + d5549c6 + 5d389cf (批 C) + 8a41517 (hand-off plantUML) / mcp 服务器主进程模块
+' description: agent-deck-mcp 主进程模块依赖架构 — transport (stdio + HTTP /mcp) + withMcpGuard + 15 tool handlers (按功能分组) + impl + helpers + repos + sessionManager + spawn-guards + universal-message-watcher + adapter + SDK
+' last_updated: 2026-05-28
+@startuml agent-deck-mcp-architecture
+
+title agent-deck-mcp — 主进程整体模块依赖架构 (15 tools + helpers + repos + watcher)
+
+package "transport layer" {
+  [stdio (built-in MCP transport)] as Stdio
+  [HTTP /mcp endpoint\n(StreamableHTTPServerTransport)] as Http
+  [routes (HookServer fastify)\nPRE_LISTEN registered] as Routes
+}
+
+package "middleware" {
+  [withMcpGuard wrapper\n(deny external + validateExternalCaller)] as Guard
+  [EXTERNAL_CALLER_ALLOWED config\n(types.ts: list/get allowed,\nspawn/send/shutdown/archive/handoff DENY)] as ExternalCfg
+  [HandlerContext\n(caller, transport)] as Ctx
+}
+
+package "tool handlers (15 tools 按功能分组)" {
+  package "session lifecycle (4 tools)" {
+    [spawn / list_sessions / get_session / shutdown_session] as SessLifecycle
+  }
+  package "messaging (1 tool)" {
+    [send_message] as SendMsg
+  }
+  package "baton (3 tools)" {
+    [archive_plan handler] as ArchPlan
+    [hand_off_session handler] as HandOff
+    [shutdown_baton_teammates handler] as ShutdownBaton
+  }
+  package "worktree (2 tools)" {
+    [enter_worktree handler] as EnterWt
+    [exit_worktree handler] as ExitWt
+  }
+  package "task (5 tools)" {
+    [task_create / task_list / task_get / task_update / task_delete] as TaskTools
+  }
+}
+
+package "impl 层 (业务逻辑)" {
+  [archive-plan-impl.ts (1281 LOC)] as ArchPlanImpl
+  [hand-off-session-impl.ts (357 LOC)] as HandOffImpl
+  [enter-worktree-impl.ts / exit-worktree-impl.ts] as WtImpl
+}
+
+package "shared helpers" {
+  [_shared/default-impl-deps.ts\n(10 fs/git helpers 4 impl 共用)] as SharedDeps
+  [baton-cleanup.ts\n(runBatonCleanup phase 1+2)] as BatonHelper
+  [shutdown-teammates-on-baton.ts\nshutdownTeammatesOnBaton] as ShutdownHelper
+  [archiveSourceSessionWithEmit] as ArchiveCallerHelper
+  [archive-plan/precheck-helpers.ts\n+ index-sync-helpers.ts (批 A R1 F1 抽出)] as ArchPlanHelpers
+  [adopted-teams-context-block.ts\n(hand_off adopt 路径)] as AdoptCtx
+}
+
+package "store (better-sqlite3 同步 SQL)" {
+  [sessionRepo] as SessRepo
+  [agentDeckTeamRepo] as TeamRepo
+  [agentDeckMessageRepo] as MsgRepo
+  [taskRepo] as TaskRepo
+  database "agent-deck.sqlite\n(WAL 单进程)" as DB
+}
+
+package "session manager singleton" {
+  [sessionManager] as SM
+  [LifecycleScheduler\n(active→dormant→closed)] as LifeSched
+  [TeamLifecycleScheduler\n(30min grace 自动 archive team)] as TeamSched
+}
+
+package "spawn controller + 3 防御" {
+  [spawn-controller / Spawn handler] as SpawnCtrl
+  [spawn-guards: depth check\n+ fan-out + spawn-rate] as SpawnGuards
+  note bottom of SpawnGuards
+    handOffMode=true 时跳过 3 防御
+    + 永不写 spawn-link
+  end note
+}
+
+package "universal team backend" {
+  [universal-message-watcher\n(250ms poll claim + dispatch)] as Watcher
+  [adapter.receiveTeammateMessage\n(wire prefix 注入)] as AdapterRecv
+  [adapter.sendMessage\n(SDK emit user-role event)] as AdapterSend
+}
+
+package "event bus (跨进程 IPC)" {
+  [eventBus.emit / on] as Bus
+}
+
+package "adapters layer" {
+  [adapterRegistry] as AdapterReg
+  [claudeCodeAdapter] as ClaudeAdapter
+  [codexCliAdapter] as CodexAdapter
+}
+
+package "SDK subprocess (per-session)" {
+  [claude SDK CLI subprocess] as ClaudeSDK
+  [codex SDK CLI subprocess] as CodexSDK
+}
+
+package "fs + git (跨进程边界)" {
+  folder "<main-repo>/" as MainRepo
+  folder "<main-repo>/.claude/worktrees/<plan-id>/" as Worktree
+  folder "<main-repo>/ref/plans/" as RefPlans
+  folder "~/.claude/projects/<encoded-cwd>/<sid>.jsonl" as ClaudeJsonl
+  folder "~/.codex/projects/<encoded-cwd>/<sid>.jsonl" as CodexJsonl
+  [git CLI subprocess] as Git
+}
+
+' ─── transport → middleware → handler ───
+Stdio --> Guard
+Http --> Routes
+Routes --> Guard
+Guard --> ExternalCfg : check tool name allow
+Guard --> Ctx : build caller / transport
+Guard --> SessLifecycle
+Guard --> SendMsg
+Guard --> ArchPlan
+Guard --> HandOff
+Guard --> ShutdownBaton
+Guard --> EnterWt
+Guard --> ExitWt
+Guard --> TaskTools
+
+' ─── handler → impl / spawn / helpers ───
+ArchPlan --> ArchPlanImpl
+ArchPlan --> BatonHelper
+HandOff --> HandOffImpl
+HandOff --> SpawnCtrl
+HandOff --> BatonHelper
+HandOff --> AdoptCtx
+HandOff --> TaskRepo
+ShutdownBaton --> ShutdownHelper
+EnterWt --> WtImpl
+ExitWt --> WtImpl
+SessLifecycle --> SpawnCtrl
+SessLifecycle --> SessRepo
+SessLifecycle --> SM
+SendMsg --> MsgRepo
+SendMsg --> Watcher
+TaskTools --> TaskRepo
+
+' ─── impl → SharedDeps / helpers / fs / git ───
+ArchPlanImpl --> SharedDeps
+ArchPlanImpl --> ArchPlanHelpers
+ArchPlanImpl --> MainRepo
+ArchPlanImpl --> Worktree
+ArchPlanImpl --> RefPlans
+ArchPlanImpl --> Git
+HandOffImpl --> SharedDeps
+WtImpl --> SharedDeps
+WtImpl --> Git
+
+' ─── spawn → guards + adapters → SDK ───
+SpawnCtrl --> SpawnGuards
+SpawnCtrl --> AdapterReg
+AdapterReg --> ClaudeAdapter
+AdapterReg --> CodexAdapter
+ClaudeAdapter --> ClaudeSDK
+CodexAdapter --> CodexSDK
+ClaudeSDK --> ClaudeJsonl
+CodexSDK --> CodexJsonl
+SpawnCtrl --> SessRepo
+
+' ─── helpers → repos / sessionManager / eventBus ───
+BatonHelper --> ShutdownHelper
+BatonHelper --> ArchiveCallerHelper
+ShutdownHelper --> TeamRepo
+ShutdownHelper --> SM
+ArchiveCallerHelper --> SessRepo
+ArchiveCallerHelper --> Bus
+
+' ─── store layer 共享 DB ───
+SessRepo --> DB
+TeamRepo --> DB
+MsgRepo --> DB
+TaskRepo --> DB
+
+' ─── sessionManager 联动 ───
+SM --> LifeSched
+SM --> TeamSched
+SM --> Bus
+LifeSched --> SessRepo : 转 dormant / closed / 删 closed (TTL GC)
+TeamSched --> TeamRepo : 30min grace archive team
+
+' ─── watcher → adapter dispatch ───
+Watcher --> MsgRepo : findEligible + claim + markDelivered
+Watcher --> AdapterRecv : dispatch 给 receiver
+AdapterRecv --> AdapterSend : wire prefix 注入 + SDK emit user-role
+AdapterSend --> ClaudeSDK : claude receiver SDK
+AdapterSend --> CodexSDK : codex receiver SDK
+
+@enduml
