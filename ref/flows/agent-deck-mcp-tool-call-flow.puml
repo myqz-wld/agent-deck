@@ -1,0 +1,86 @@
+' commit: 7475b75 (批 A) + d5549c6 (批 C) / mcp 服务器 tool 调用通用流程
+' description: agent-deck-mcp 典型 tool 调用全链路 (transport → withMcpGuard → handler → impl → repos / fs / git → ok return)
+' last_updated: 2026-05-28
+@startuml agent-deck-mcp-tool-call-flow
+
+title agent-deck-mcp — 典型 tool 调用全链路 (跨 transport / middleware / handler / impl / repos)
+
+actor "External MCP Client\n(Claude CLI / Codex CLI / Cursor)" as Ext
+actor "In-process Caller\n(应用 SDK session 内部)" as InProc
+participant "Transport\n(stdio / HTTP /mcp endpoint)" as Trans
+participant "withMcpGuard\nwrapper" as Guard
+participant "EXTERNAL_CALLER_\nALLOWED config" as Cfg
+participant "Tool Handler" as Handler
+participant "Tool Impl" as Impl
+participant "shared helpers\n(default-impl-deps / baton-cleanup)" as Helpers
+participant "Repo / sessionManager" as Store
+participant "fs / git / SDK" as IO
+
+== Transport 层入口 ==
+
+alt External MCP Client (stdio / HTTP)
+  Ext -> Trans: tool call (JSON-RPC)
+  Trans -> Trans: parse + validate JSON schema
+  Trans -> Guard: invoke handler with HandlerContext\n(caller = EXTERNAL_CALLER_SENTINEL)
+else In-process Caller
+  InProc -> Guard: invoke handler with HandlerContext\n(caller_session_id = real sid)
+  note right of InProc
+    in-process transport 自动 override caller_session_id
+    HTTP / stdio external transport 视为 __external__
+  end note
+end
+
+== Middleware: withMcpGuard ==
+
+Guard -> Cfg: check EXTERNAL_CALLER_ALLOWED[tool_name]?
+alt tool 在 deny list (spawn / send / shutdown / archive / handoff / write task / enter/exit_worktree)
+  alt caller == EXTERNAL_CALLER_SENTINEL
+    Guard --> Trans: error "EXTERNAL_CALLER_DENY"
+    Trans --> Ext: error response
+  end
+end
+
+Guard -> Guard: validateExternalCaller\n(若 allowed list 中,放行 external)
+Guard -> Handler: handler(args, ctx, depsOverride?)
+
+== Handler 业务路由 ==
+
+Handler -> Handler: 解析 args + reverse-look caller cwd / lifecycle (如需要)
+Handler -> Handler: ctx 反查 sessionRepo / teamRepo (resolve teamId / sharedActiveTeams)
+
+alt handler 直接走 impl (archive_plan / hand_off / enter/exit worktree)
+  Handler -> Impl: implFn(args, mergedDeps)
+  Impl -> Helpers: 调用 SharedDeps 10 fs/git helpers
+  Impl -> IO: 真 fs / git / SDK 调用
+  Impl --> Handler: result 或 error
+else handler 直接走 repos (list_sessions / get_session / task_*)
+  Handler -> Store: repo.method(args)
+  Store -> IO: SQLite SELECT / UPDATE / DELETE
+  Store --> Handler: rows / status
+else handler 走 spawn-controller (spawn / hand_off 内 spawn)
+  Handler -> Helpers: spawnHandler / spawn-guards (depth/fan-out/rate)
+  Helpers -> IO: createSession SDK subprocess
+  IO --> Helpers: realSessionId
+  Helpers --> Handler: ok
+else handler 走 send_message (universal team backend)
+  Handler -> Store: agentDeckMessageRepo.insert
+  note right of Store
+    insert 后 universal-message-watcher 250ms poll
+    自动 dispatch 给 receiver adapter
+  end note
+end
+
+== Handler 包 ok return ==
+
+Handler --> Guard: HandlerResult { ok: true, data: { ... } }\n或 { ok: false, error, hint }
+Guard --> Trans: JSON-RPC response (text content array)
+
+== 返回 caller ==
+
+alt External MCP Client
+  Trans --> Ext: JSON response
+else In-process Caller
+  Guard --> InProc: parsed object
+end
+
+@enduml

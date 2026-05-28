@@ -1,0 +1,87 @@
+' commit: d5549c6 (批 C R1 LOW-α attempt_count fix) / agentDeckMessageRepo 状态机 ADR §4.3
+' description: agentDeckMessage status state machine — pending → claim → delivering → delivered / failed / cancelled + crash recovery
+' last_updated: 2026-05-28
+@startuml universal-message-status-state-machine
+
+title agentDeckMessage — 状态机 (ADR §4.3 + REVIEW_61 R1 LOW-α attempt_count fix)
+
+state "pending\n(可被 watcher findEligible 投递)" as Pending
+state "delivering\n(已被 claim 准备投递)" as Delivering
+state "delivered\n(terminal: 投递成功)" as Delivered
+state "failed\n(terminal: MAX_RETRY 用尽 / caller 主动放弃)" as Failed
+state "cancelled\n(terminal: caller 显式撤回)" as Cancelled
+
+[*] --> Pending : insert\n(send_message 入队\n+ from != to + body 1-100KB validation)
+
+Pending --> Delivering : claim(messageId, now)\n(原子 UPDATE WHERE status='pending' RETURNING *)
+note right of Delivering
+  delivering_since=now + last_attempt_at=now
+  多个 watcher / 多 tick 并发不会重复 claim
+  失败 (已被别人 claim) → 返 null skip
+end note
+
+Delivering --> Delivered : markDelivered(messageId, now)\n(REVIEW_32 HIGH-1 接纳 'pending' OR 'delivering')
+note right of Delivered
+  status='delivered' + delivered_at=now
+  delivering_since=NULL
+  spawn_session 路径捷径 mark 防 watcher 二次投递
+end note
+
+Delivering --> Pending : retryAfterFail(messageId, reason, now)\n[newAttemptCount < MAX_RETRY=3]
+note left of Pending
+  status='pending' + attempt_count++
+  + last_attempt_at=now + status_reason=reason
+  退避 backoff schedule (BACKOFF_TIERS):
+  attempt 1: 250ms / attempt 2: 1s / attempt 3: 3s
+end note
+
+Delivering --> Failed : retryAfterFail 单条 UPDATE\n[newAttemptCount >= MAX_RETRY=3]
+note right of Failed
+  REVIEW_61 R1 LOW-α 修法:
+  单条 UPDATE 同时写 attempt_count + status='failed'
+  + status_reason 含 'attempt=3' (修前 attempt_count 停 2 分裂)
+end note
+
+Pending --> Cancelled : cancel(messageId, reason)
+Delivering --> Cancelled : cancel(messageId, reason)
+note bottom of Cancelled
+  caller 主动撤回 / team archive 兜底
+  仅可从 pending / delivering 进 cancelled
+  terminal (delivered/failed) 拒
+end note
+
+' ─── crash recovery 路径 (process restart) ───
+Delivering --> Pending : resetDeliveringOnStartup\n(进程 crash recovery §4.6)
+note left
+  上次进程崩溃时卡在 delivering 的行重置为 pending
+  **不** ++attempt_count (避免 crash 把还有重试余量的行直接拍 failed)
+  status_reason='recovered-from-delivering (process restart)'
+end note
+
+Delivered --> [*]
+Failed --> [*]
+Cancelled --> [*]
+
+' ─── 状态机不变量 ───
+
+note as N1
+  agentDeckMessage **状态机不变量** (ADR §4.3):
+
+  - **唯一入口**: insert (status='pending', attempt_count=0, last_attempt_at=null)
+  - **唯一活跃路径**: pending → claim → delivering
+  - **3 terminal**: delivered / failed / cancelled (不可再变)
+  - **重试边界**: MAX_RETRY=3 (attempt_count 取值 {0,1,2,3}, 3 直接 failed)
+  - **crash recovery**: delivering → pending (不 ++attempt_count §4.6)
+  - **退避基准**: last_attempt_at 而非 sent_at (HIGH-1 修法 reviewer 双对抗)
+  - **原子性**: 所有 UPDATE WHERE status IN (...) 守门防并发态切换
+
+  **WHERE 子句严格守门** (避免 race):
+  - claim: WHERE id=? AND status='pending'
+  - markDelivered: WHERE id=? AND status IN ('pending', 'delivering')
+  - markFailed: WHERE id=? AND status IN ('pending', 'delivering')
+  - retryAfterFail final: WHERE id=? AND status IN ('pending', 'delivering')
+  - cancel: WHERE id=? AND status IN ('pending', 'delivering')
+  - resetDeliveringOnStartup: WHERE status='delivering'
+end note
+
+@enduml
