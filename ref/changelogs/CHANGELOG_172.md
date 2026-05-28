@@ -1,12 +1,14 @@
-# CHANGELOG_172 — Deep-Review 批 C R1 必修 fix (5 处 / 5 文件)
+# CHANGELOG_172 — Deep-Review 批 C R1+R2+R3 收口 (6 处必修 fix + 2 regression test)
 
 ## 概要
 
-[REVIEW_61.md](../reviews/REVIEW_61.md) 批 C R1 双对抗 + lead 现场验证后,5 处必修 finding 一次性收口(2 MED + 3 LOW)。维度 5 ≤500 LOC 护栏 7/7 全超,登记保护清单 + 候选单独 plan 走分批拆分,本 commit 不拆。
+[REVIEW_61.md](../reviews/REVIEW_61.md) 批 C R1+R2+R3 三轮异构对抗 + lead 现场验证后,**6 处必修 finding** + **2 regression test 配套** 一次性收口。R1 5 处 fix(2 MED + 3 LOW)+ R2 LOW 1 处(window generation guard 三层防御)+ R2 INFO 2 test 配套。维度 5 ≤500 LOC 护栏 7/7 全超,登记保护清单 + 候选单独 plan 走分批拆分。
 
-## 修法
+## 修法 (按 Round 顺序)
 
-### MED-A [window.ts] BrowserWindow 销毁后 stale this.win 引用 (codex 验证铁证)
+### R1 5 处必修 fix (commit d5549c6)
+
+#### MED-A [window.ts] BrowserWindow 销毁后 stale this.win 引用 (codex 验证铁证)
 
 `create()` 没注册 `'closed'` event listener — 用户 Cmd+W / OS close 关窗后 BrowserWindow.isDestroyed()=true 但 `this.win` 字段只在显式 `close()` 方法置 null,期间任何 .show() / .focus() / .getOpacity() 撞 destroyed。
 
@@ -62,6 +64,25 @@ params.push(`%${escaped}%`);
 ```
 escape `\` 必须放第一个(replace 链顺序敏感),否则后续 `\%` 会被 `\\` 替换破坏。
 
+### R2 LOW [window.ts] BrowserWindow generation guard 三层防御 (codex 验证序列 + claude FIX-2 自身漏点补全)
+
+R2 reviewer-codex 抓到 reviewer-claude FIX-2 小补充漏掉的「卸 winA + 又新建 winB」双步: 旧 1.5s fallback setTimeout / flash setInterval cb / 'closed' listener 自身读 mutable `this.win` 跨 close+recreate 时拿到新 winB 误操作(showOnce winB.show() / flash 改新 winB opacity)。
+
+**修法 (commit 5d389cf)**:
+- `create()` 入口 `const capturedWin = this.win` 捕获本 generation,所有 callback 用 capturedWin 而非 mutable this.win + 加 `this.win !== capturedWin` generation guard
+- `'closed'` listener 加 generation guard + 同步清 flashTimer + clearTimeout fallbackShowTimer + this.win = null (4 资源 best-effort cleanup,任一资源失败不互相阻塞)
+- 1.5s 兜底 setTimeout 句柄存 instance state `this.fallbackShowTimer`,'closed' / `close()` 同步 clearTimeout
+- `flash()` setInterval cb 同款 generation guard (跨 generation 不复位 winB opacity,避免污染新窗口真实 opacity)
+- `close()` 同步清 flashTimer + fallbackShowTimer (双保险,close() 早于 'closed' event 时立即生效)
+
+### R2 INFO [test] 2 regression test 配套 (codex 良性补缺)
+
+R2 reviewer-codex 抓到 d5549c6 未改 test,R1 LOW-α + LOW-β 修法缺锁契约的回归 test。
+
+**配套 (commit 5d389cf)**:
+- `agent-deck-message-repo.test.ts` retryAfterFail final case 加 `expect(r?.attemptCount).toBe(3)` + `expect(r?.statusReason).toContain('attempt=3')` 锁 R1 LOW-α 契约 (旧实现 DB 列停在 2 与 reason 字符串 attempt=3 分裂,新 expect 会挂)
+- `task-repo.test.ts` 新增 `subjectKeyword LIKE wildcard 字面匹配` test 23 行 (覆盖 `%` 字面排除 `1000` 误命中 / `_` 字面排除 `fooXbar` 误命中 / `\` 字面 Windows path 匹配,锁 R1 LOW-β 契约)
+
 ## 降级 INFO 不修 (5 条)
 
 详 REVIEW_61 §❌ 降级 INFO 不修 finding 节:
@@ -79,10 +100,16 @@ escape `\` 必须放第一个(replace 链顺序敏感),否则后续 `\%` 会被 
 
 ## 验证
 
-`pnpm typecheck` PASS。本 commit 零功能变更涉及的现有单测:
-- `agent-deck-message-repo.test.ts` 现有 case 全 pass (final retry attempt_count 持久化新断言待 R2 配套加)
-- `task-repo.test.ts` 现有 case 全 pass (LIKE wildcard escape 回归 test 待 R2 配套加)
+`pnpm typecheck` PASS。本 commit 涉及的现有单测:
+- `agent-deck-message-repo.test.ts` 现有 case 全 pass + R3 新加 final retry attemptCount === 3 + statusReason 含 'attempt=3' 锁 R1 LOW-α 契约
+- `task-repo.test.ts` 现有 case 全 pass + R3 新加 subjectKeyword LIKE wildcard 字面匹配 4 case(`%`/`_`/`\` 三 wildcard)锁 R1 LOW-β 契约
+- SQLite test binding ABI 默认 skip(CLAUDE.md §打包踩坑清单明示守门,不主动跑 SQLite 真测避免 prebuild-install 覆盖 Electron binding 破坏 dev/.app 环境;binding 修好时 user 启动 .app 场景自动跑)
 
-## 下一步
+## Commit 序列
 
-R2 prompt 准备发送给 reviewer pair `dcr-batch-c-20260528`(skip 字段含本 commit 5 处 fix 摘要),focus 验证 fix 正确性 + 是否引新问题 + 维度 5 拆分候选审议(预计 R2 无新真 finding 即可收口)。
+- **commit d5549c6**: R1 5 处必修 fix(MED-A / MED-B / LOW-1 / LOW-α / LOW-β)+ REVIEW_61 / CHANGELOG_172 / 双 INDEX
+- **commit 5d389cf**: R2 LOW(window generation guard 三层防御)+ R2 INFO 2 regression test 配套
+
+## 收口
+
+R3 双 reviewer 共识 ✅ 可合本 R3 收口(reviewer-claude FIX-A/B/C/D 全 verify + reviewer-codex 0 finding 双方共识)。R1+R2+R3 三轮异构对抗整体结束。**SKILL 学习点**:R2 reviewer 互相补全 R1 自身漏点价值教科书级 case(reviewer-claude R2 FIX-2 小补充自身漏「卸 winA + 又新建 winB」双步,reviewer-codex R2 抓到完整序列),异构对偶价值再次实证 — 同源化双 Claude 会同时漏这个 R2 LOW。详见 REVIEW_61.md §最终收口总结 + §SKILL 学习点。

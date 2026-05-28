@@ -219,10 +219,92 @@ before-quit 整片 process exit 进程销毁 listener 自然清,**安全**。rac
 ## R2 准备 (待发送)
 
 `skip` 字段含本 commit 5 处 fix:
-- 已修: src/main/window.ts:107 register `closed` listener 清 this.win + showOnce 加 destroyed 防护 (commit <hash>) [MED-A]
-- 已修: src/main/window.ts:507-540 flash 重入保护 + close 清 timer (commit <hash>) [LOW-1]
-- 已修: src/main/index.ts:214 + index.ts:494 两处 app.exit(1) 前 best-effort closeDb (commit <hash>) [MED-B]
-- 已修: src/main/store/agent-deck-message-repo.ts:426-440 final retry 单条 UPDATE 同时写 attempt_count + status (commit <hash>) [LOW-α]
-- 已修: src/main/store/task-repo.ts:381-394 subject LIKE wildcard escape `%` `_` `\` + ESCAPE '\' (commit <hash>) [LOW-β]
+- 已修: src/main/window.ts:107 register `closed` listener 清 this.win + showOnce 加 destroyed 防护 (commit d5549c6) [MED-A]
+- 已修: src/main/window.ts:507-540 flash 重入保护 + close 清 timer (commit d5549c6) [LOW-1]
+- 已修: src/main/index.ts:214 + index.ts:494 两处 app.exit(1) 前 best-effort closeDb (commit d5549c6) [MED-B]
+- 已修: src/main/store/agent-deck-message-repo.ts:426-440 final retry 单条 UPDATE 同时写 attempt_count + status (commit d5549c6) [LOW-α]
+- 已修: src/main/store/task-repo.ts:381-394 subject LIKE wildcard escape `%` `_` `\` + ESCAPE '\' (commit d5549c6) [LOW-β]
 
 R2 focus: 验证 fix 正确性 + 是否引新问题 + 维度 5 拆分候选审议(预计 R2 无新真 finding 即可收口)。
+
+## R2 收口实况
+
+### reviewer-claude R2 reply (msg 6384bdbc)
+
+✅ R1 5 处 fix 全部 single-sided verify 通过(现场 grep + 读 closeDb impl + LIKE escape 顺序 dry-run 三 case `100%` / `c:\path` / `100\%_` 实测通过)。残留 deep dive 4 文件 R1 fix 之外区域无新真问题。跨模块设计一致性无新漂移。
+
+❓ INFO 级 2 项提示(不影响合并): showOnce setTimeout 1500ms 句柄不存(timer leak 但 callback safe no-op);'closed' listener 与 startInvalidateLoop cb 自身 destroy 侦测冗余(无害保险)。建议加 LOW-α/β 配套 unit test 覆盖。**明确 ✅ 可合,本 R2 收口**(reviewer-codex 如同意则双方共识)。
+
+### reviewer-codex R2 reply (msg d2425cae)
+
+R1 fix 大部分 verify 通过(closeDb / final retry attempt_count / LIKE escape 现场 sqlite3 实测字面字符匹配通过)。**❗ 新 LOW finding**(reviewer-claude FIX-2 小补充自己提到 setTimeout 句柄不存但**漏掉**「卸 winA + 又新建 winB」双步): window.ts 旧窗口 generation 异步回调跨 close+recreate 操作新 winB — 1.5s fallback / showOnce / flash setInterval cb / 'closed' listener 自身读 mutable `this.win` 会拿到 winB 误操作。**❗ 新 INFO**: d5549c6 未改 test,LOW-α attempt_count 持久化 + LOW-β LIKE escape 字面匹配 2 处 regression test 缺失。
+
+**lead 裁决**:
+- LOW 走单方独有 + lead 现场验证(reviewer-codex 已现场验证序列 + LIKE escape sqlite3 实测;reviewer-claude R2 FIX-2 小补充同款风险支撑) → ✅ 真问题 + 修法低成本 → 必修
+- INFO test 缺失走良性补缺 → ✅ 配套补 2 test
+
+### R2 LOW fix 实施 (commit 5d389cf)
+
+**window.ts generation guard 三层防御**:
+
+1. `create()` 入口 `const capturedWin = this.win` 捕获本 generation,所有 callback 用 capturedWin 而非 mutable this.win
+2. `'closed'` listener 加 `if (this.win !== capturedWin) return` generation guard + 同步清 flashTimer + clearTimeout fallbackShowTimer + this.win = null(4 资源 best-effort cleanup,任一资源失败不互相阻塞)
+3. 1.5s 兜底 setTimeout 句柄存 instance state `this.fallbackShowTimer`,'closed' / `close()` 同步 clearTimeout
+4. `flash()` setInterval cb 同款 generation guard(跨 generation 不复位 winB opacity,避免污染新窗口真实 opacity)
+5. `close()` 显式调用同步清 flashTimer + fallbackShowTimer(双保险,close() 早于 'closed' event 时立即生效)
+
+**2 regression test 配套**:
+
+- `agent-deck-message-repo.test.ts` retryAfterFail final case 加 `expect(r?.attemptCount).toBe(3)` + `expect(r?.statusReason).toContain('attempt=3')`(锁 R1 LOW-α 契约,旧实现 DB 列停在 2 与 reason 分裂)
+- `task-repo.test.ts` 新增 `subjectKeyword LIKE wildcard 字面匹配` test(覆盖 `%` 字面排除 `1000` 误命中 / `_` 字面排除 `fooXbar` 误命中 / `\` 字面 Windows path 匹配,锁 R1 LOW-β 契约)
+
+## R3 收口实况
+
+### reviewer-claude R3 reply (msg fec98c9a)
+
+✅ R2 LOW generation guard 三层防御 FIX-A/B/C/D 4 处全部 single-sided verify 通过:
+
+- **FIX-A 'closed' listener generation guard**: capturedWin 捕获时机正确(line 80+ new BrowserWindow 之后 / setAlwaysOnTop 之后 / callback 注册之前);跨 close+recreate 路径 verify winA close → cb 跑(this.win=winB ≠ capturedWin=winA)→ skip 不动 winB;4 资源 best-effort 顺序正确(stopInvalidateLoop / clearInterval flashTimer / clearTimeout fallbackShowTimer / this.win = null 最后);listener 注册时绑定 winA event emitter,winB 自有 own listener 不会误触
+- **FIX-B showOnce + fallbackShowTimer 双 guard**: 三 guard 短路求值正确(shown / this.win !== capturedWin / capturedWin.isDestroyed());capturedWin.show() 强制双保险即使 generation guard 出 bug 也只会 show winA(可能已 destroyed → no-op);三处清理路径(自然到点 / 'closed' / close)无遗漏。R2 setTimeout 句柄不存 INFO 已被一次性彻底修(比 R2 提议范围还广,加 generation guard 防新 winB 误 show)
+- **FIX-C flash setInterval cb generation guard**: 跨 generation 不复位 opacity 关键设计正确(`this.flashOriginalOpacity` 是 winA baseline,跨 generation 把它 set 到 winB 会污染 winB 真实 opacity);极端 race verify(winA close 'closed' listener 同步 clearInterval flashTimer + this.win=null → 下个 120ms 周期 cb 不会触发);flash 重入 line 562 仍用 this.win 但 JS single-thread 顺序保证安全
+- **FIX-D close() 双保险同步清**: close() 显式调用早于 'closed' event 触发(close 是 sync 触发,'closed' event 是 async emit) → 同步生效,'closed' listener 跑时 timer 已 null → if 守门 skip 无双 clear 副作用
+
+✅ TEST-1 retryAfterFail final assertion 真锁契约(旧实现 attemptCount 停在 2 → expect(3) 会挂);✅ TEST-2 subjectKeyword LIKE 字面 4 case 真覆盖 `%`/`_`/`\\` 三 wildcard。
+
+**明确 ✅ 可合,本 R3 收口**。判定依据: 0 新真问题 + R2 LOW 修法范围实际**比 R2 提议的还广**(reviewer-codex 抓到完整「卸 winA + 又新建 winB」双步污染面,本 R3 三层 generation guard 一次性彻底修) + test 配套真锁 R1 LOW-α/β 契约 + typecheck 0 error。
+
+### reviewer-codex R3 reply (msg a5f5ccd1)
+
+✅ 双方共识可合,本 R3 收口。0 finding。验证结论:
+
+- window.ts:126-159 capturedWin 捕获时机 + showOnce 三 guard 短路求值正确
+- window.ts:127-140 'closed' listener generation guard 防破坏新 winB 重建 + 4 资源同步清不破坏 ensureFocusableOnActivate() 重建路径
+- window.ts:156-159 + 587-602 fallback timer 句柄进 instance state + 三处清理路径覆盖 R2 指出的旧 fallback 跨 close+recreate show 新窗口路径
+- window.ts:568-584 flash interval generation guard + 只有同 generation 才复位 opacity 避免旧 generation 污染 winB opacity
+- agent-deck-message-repo.test.ts:134-141 final retry case 新增 attemptCount === 3 + statusReason 含 attempt=3 锁住 R1 LOW-α 结构化字段与 reason 一致性
+- task-repo.test.ts:187-207 `%` 字面 / `_` 字面 / `\` 路径 under `ESCAPE '\'` 回归测试: 100% 排除旧 wildcard 误命中 1000,foo_bar 排除旧 `_` wildcard 误命中 fooXbar,反斜杠 case 锁新 ESCAPE 语义下 Windows path 字面匹配
+
+## 最终收口总结
+
+**R1+R2+R3 三轮异构对抗收口** = 共 **6 处必修 fix**(R1 5 + R2 LOW 1)+ **2 regression test**:
+
+| Round | Fix | Commit | 来源 |
+|---|---|---|---|
+| R1 MED-A | window.ts 'closed' listener + showOnce destroyed 防护 | d5549c6 | reviewer-codex 验证铁证 |
+| R1 MED-B | index.ts 两处 fatal app.exit(1) 前 best-effort closeDb | d5549c6 | reviewer-codex Electron 文档铁证 |
+| R1 LOW-α | agent-deck-message-repo retryAfterFail final 单条 UPDATE | d5549c6 | reviewer-codex 验证铁证 |
+| R1 LOW-1 | window.ts flash() 重入保护 + close() 清 timer | d5549c6 | reviewer-claude 验证 |
+| R1 LOW-β | task-repo subject LIKE wildcard escape `%` `_` `\` + ESCAPE '\' | d5549c6 | reviewer-codex 验证铁证 |
+| **R2 LOW** | **window.ts generation guard 三层防御(capturedWin + 'closed' listener generation guard + fallbackShowTimer instance state + flash cb generation guard)** | **5d389cf** | **reviewer-codex 验证(reviewer-claude R2 FIX-2 小补充自身漏点)** |
+| R2 INFO Test | agent-deck-message-repo + task-repo 2 regression test 配套 | 5d389cf | reviewer-codex 良性补缺 |
+
+**降级 INFO 不修** (5 条 R1 + 0 R2 + 0 R3): 见 §❌ 降级 INFO 不修 finding 节。
+
+**维度 5 ≤500 LOC 拆分** (双方共识): 7 文件全超(4140 LOC),登记保护清单 + 候选**单独 plan 走分批拆分**(本批 R1-R3 不拆,避免与 fix 混 commit blame radius 难拉)。
+
+**SKILL 学习点**:
+1. **R2 reviewer 互相补全 R1 自身漏点价值教科书级 case**: reviewer-claude R2 FIX-2 小补充提到「setTimeout 1500ms 句柄不存」但漏掉「卸 winA + 又新建 winB」双步污染面;reviewer-codex R2 抓到完整序列(同源化双 Claude 会同时漏这个 LOW);本 R2 三层 generation guard 一次性彻底修法范围比双方原始建议都广。**异构对偶价值再次实证**
+2. **单方独有 LOW + lead 现场验证 + 双 reviewer 同款风险支撑可不走反驳轮**: 按 SKILL 规则反驳轮仅 HIGH 强制,LOW/MED 走 lead 自己 Grep/Read 验证更高效;本 R2 LOW reviewer-codex 已现场实测序列 + reviewer-claude R2 FIX-2 小补充自身提到同款风险 → lead 直接接裁决无需反驳
+3. **R3 严格只看 R2 fix-to-fix 范围快速 PASS**: R3 prompt 明示「严格只看本轮 fix-to-fix 范围不溢」,避免 R3 deep dive 又挖新区域无限拖;双 reviewer R3 都按 prompt 限定范围 verify,0 finding 快速收口
+4. **regression test 配套 = R1-R2 fix 契约锚点**: 2 test 锁 R1 LOW-α 结构化字段一致性 + R1 LOW-β SQL wildcard escape 语义,binding 修好后自动跑(默认 skip 守门符合 CLAUDE.md §打包踩坑清单契约)
+
