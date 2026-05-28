@@ -135,7 +135,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             type="text"
             readOnly
             value={settings.mcpServerToken ?? '（未生成，请重启应用）'}
-            className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] text-deck-muted/80 outline-none"
+            className="no-drag min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] text-deck-muted/80 outline-none"
           />
           <button
             type="button"
@@ -145,7 +145,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
               }
             }}
             disabled={!settings.mcpServerToken}
-            className="no-drag rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20 disabled:opacity-40"
+            className="no-drag shrink-0 rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20 disabled:opacity-40"
           >
             复制
           </button>
