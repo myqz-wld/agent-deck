@@ -1,0 +1,143 @@
+' commit: d5549c6 (deep-review 批 C 收口) / handler facade: archive-plan.ts:191-285 / impl: archive-plan-impl.ts (1281 LOC)
+' description: archive_plan mcp tool 7 步原子收口 sequence (caller → handler → impl → runBatonCleanup) 含 spike-reports mv + INDEX smart update + teammate shutdown + caller archive
+' last_updated: 2026-05-28
+@startuml archive-plan-flow
+
+title archive_plan mcp tool — 7 步原子收口 + baton cleanup 2 phase
+
+actor Caller as C
+participant "archive_plan handler\n(archive-plan.ts)" as H
+participant "archivePlanImpl\n(archive-plan-impl.ts)" as I
+participant "precheck-helpers" as PC
+participant "index-sync-helpers" as IS
+participant "sessionRepo (DB)" as DB
+participant "runBatonCleanup\n(baton-cleanup.ts)" as BC
+participant "sessionManager" as SM
+participant "git" as Git
+participant "fs" as Fs
+
+== 入口:deny external + caller cwd 注入 ==
+
+C -> H: invoke({plan_id, worktree_path, base_branch?, plan_file_path?, changelog_id?})
+note right of H
+  EXTERNAL_CALLER_ALLOWED.archive_plan = false
+  stdio external client 直接 deny
+  (写 git + 删 worktree 高风险)
+end note
+
+H -> DB: sessionRepo.get(callerSid)
+note right of DB
+  H5 修法: 反查 callerCwd + cwdReleaseMarker 注入到 implDeps
+  fail-open: DB throw / row null → 退化 DEFAULT_DEPS + warnings.push
+  (P5 R1 reviewer-codex HIGH-2 / REVIEW_56 §F9)
+end note
+DB --> H: { cwd, cwdReleaseMarker }
+H -> H: mergeCallerCwd(callerImplDeps, sessionInjection)\n→ { deps, warnings: callerCwdWarnings }
+
+== archivePlanImpl 入口 + 4 态预检 ==
+
+H -> I: archivePlanImpl({planId, worktreePath, baseBranch, planFilePathOverride, changelogId}, mergedImplDeps)
+
+I -> PC: precheck (4 态短路)
+note right of PC
+  4 态分流 (cwdReleaseMarker × cwd 在 worktree 内 笛卡尔):
+  ① marker == worktreePath + cwd 在 worktree → pass (跨 adapter)
+  ② marker == worktreePath + cwd 不在 worktree → pass (默认)
+  ③ marker == null + cwd 不在 worktree → pass (无 marker)
+  ④ marker == null + cwd 在 worktree → REJECT (cwd-resilience guard)
+  + plan status != in_progress / worktree dirty / detached HEAD
+  任一命中立即 return error (无部分回滚)
+end note
+PC --> I: precheck OK
+I -> Fs: realpath + plan frontmatter parse\n(plan_id ↔ worktree_path cross-check, F2 fix HIGH)
+note right of Fs
+  F2 HIGH (REVIEW_59 批 A R2 反驳轮升):
+  plan frontmatter.worktree_path != args.worktree_path
+  → reject 防 silent corruption 双 plan 一起死
+end note
+
+== Step 1-5: 原子 7 步收口 (任一失败立即 abort 无部分回滚) ==
+
+I -> Git: Step 1: git -C mainRepo checkout <base_branch>
+note right of I
+  base_branch 默认 = plan frontmatter.base_branch
+  caller 未传时不再 fallback "main"
+  (REVIEW_36 R2 user feedback 修法)
+end note
+I -> Git: Step 2: git merge --ff-only worktree-<plan_id>
+Git --> I: ff-merge OK
+
+I -> Fs: Step 3: write plan frontmatter\n(status=completed + final_commit + completed_at)
+I -> Fs: Step 4: mv plan → <main-repo>/ref/plans/<plan_id>.md
+
+alt spike-reports/ 存在 (Step 4.5)
+  I -> Fs: detect <plan-artifact-dir>/spike-reports/
+  I -> Fs: mv spike-reports/ → ref/plans/<plan_id>/spike-reports/
+  note right of Fs
+    F7 / F8 修法 (REVIEW_59 批 A):
+    srcSpikeDir == dstSpikeDir guard (plan 已在 ref/plans/)
+    EXDEV / perm 失败 → warnings.push hint (不阻塞 ok)
+  end note
+end
+
+I -> IS: Step 5: sync INDEX.md (smart update 4 column)
+note right of IS
+  F6 修法 (REVIEW_59 批 A): RMW 单飞锁
+  IIFE 包 async + .then(_,_) swallow + finally delete
+  防 INDEX TOCTOU 并发写丢
+  4 态: created / appended / updated / unchanged
+end note
+IS --> I: plansIndexAction
+
+I -> Git: Step 6: git add + commit (pathspec 隔离: archivedPath + indexPath + planFilePath + spike-reports/)
+note right of Git
+  precheck mainRepo dirty 精确化:
+  仅 reject 三 critical paths 命中 dirty
+  其他无关 dirty 降 warning + commit message 注脚
+  (F1b 修法)
+end note
+
+I -> Git: Step 7a: git worktree remove <worktree_path>
+I -> Git: Step 7b: git branch -D worktree-<plan_id>
+
+I -> DB: F10 修法: clearCwdReleaseMarker(callerSid) [提前到 Step 7 commit 后]
+note right of DB
+  F10 修法 (REVIEW_59 批 A):
+  Step 7 (clearCwdReleaseMarker) 提前到 commit 后
+  Step 8+ 失败时 marker 已清,caller 跑别 plan 不撞 stale marker reject
+end note
+
+I --> H: { archivedPath, commitHash, plansIndexAction, finalStatus, warnings, spikeReportsArchived }
+
+== runBatonCleanup phase 1+2 (CHANGELOG_109 抽 helper) ==
+
+H -> BC: runBatonCleanup({callerSessionId, toolName: 'archive_plan'}, {shutdownTeammates, archiveSession})
+note right of BC
+  phase 1 → phase 2 串行 await,helper 内部时序保证
+  archive_plan 永远跑 phase 1 (plan 收口 = team 整片收口)
+  (plan hand-off-session-adopt-teammates-20260520 P3 删 opt-out)
+end note
+
+BC -> SM: phase 1: shutdownTeammatesOnBaton(callerSid)
+note right of SM
+  caller 同 team 内所有 active + dormant teammate
+  → sessionManager.close (dedup 跨 team 共享 sid)
+  per-sid try/catch (单个 close failed 仅 warn 继续)
+end note
+SM --> BC: { closed: string[], failed: Array<{sid,reason}>, skipped: null | 'caller-not-lead' }
+
+BC -> SM: phase 2: archiveCaller(callerSid)
+note right of SM
+  callerRow.archived_at 写 ISO ts
+  failed: warn-only 不阻塞 ok return
+  三态: 'ok' / 'failed' / 'skipped' (external)
+end note
+SM --> BC: archived: 'ok' | 'failed' | 'skipped'
+
+BC --> H: { teammatesShutdown, archived }
+
+== Handler 收口 ok return ==
+
+H --> C: ok({\n  archivedPath, commitHash, branchDeleted, worktreeRemoved,\n  plansIndexAction, finalStatus,\n  warnings: [...callerCwdWarnings, ...result.warnings],\n  spikeReportsArchived,\n  archived,\n  teammatesShutdown\n})
+
+@enduml
