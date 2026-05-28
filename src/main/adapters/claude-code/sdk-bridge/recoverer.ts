@@ -372,51 +372,59 @@ export class SessionRecoverer {
       );
     }
 
-    // CHANGELOG_31：用户在 detail 里主动发消息触发 recoverAndSend = 显式表达「我又要聊它了」，
-    // 自动取消归档。manager.ts:118-121 立的「归档与 lifecycle 正交，不能因事件流自动 unarchive」
-    // 约束针对的是 hook 触发的事件流（避免外部 CLI 在同 cwd 跑导致用户刚归档的会话被自动恢复），
-    // 本路径是用户显式 UI 动作不冲突。不 unarchive 的话，jsonl 在 + 不 fork 路径（realId === OLD_ID）
-    // 下 OLD_ID record 不动，archived_at 还在 → listHistory 仍返回这条 → 用户体感「我都在跟它聊了
-    // 但它还在历史列表里」与 CLAUDE.md「凡让用户感觉像新开会话 / 跳回列表都是 bug」总纲冲突。
-    // unarchive 内部 emit session-upserted，HistoryPanel 监听后自动 reload 把这条从历史列表移除。
-    //
-    // CHANGELOG_99 R1 fix MED-2:本段移到 cwd precheck **之后** — 确认 cwd 能恢复(原 cwd 在 OR
-    // fallback cwd 找到)再 unarchive,避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
-    if (rec.archivedAt !== null) {
-      console.warn(
-        `[sdk-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
-      );
-      await sessionManager.unarchive(sessionId);
-    }
-
-    // 占位 message：30s fallback 期间用户至少看到「在恢复」而不是哑巴 busy。
-    // 不打 error: true（不是错误，是状态提示）；resume 成功后正常 message 流接续，
-    // 占位 message 留在活动流上一行轻量「断开过」痕迹，对回看 / 调试反而有用。
-    //
-    // REVIEW_17 R3 / M3-R3：5s dedup 窗口防同 sessionId 短时间内反复 recover 重 emit
-    // 多条「⚠ SDK 通道已断开」噪声（场景：首次 recover 失败 swallow + 再次 sendMessage
-    // 又进 recoverAndSend，inflight 已删，第二条进来无条件 emit，用户在 detail 看到
-    // 多条同款占位）。
-    const lastPlaceholderAt = this.placeholderEmittedAt.get(sessionId);
-    const nowTs = Date.now();
-    if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > PLACEHOLDER_DEDUP_MS) {
-      this.placeholderEmittedAt.set(sessionId, nowTs);
-      // 顺手清掉过期 entry（避免 Map 无限涨）
-      for (const [k, ts] of this.placeholderEmittedAt) {
-        if (nowTs - ts > PLACEHOLDER_DEDUP_MS) this.placeholderEmittedAt.delete(k);
-      }
-      this.ctx.emit({
-        sessionId,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: { text: '⚠ SDK 通道已断开，正在自动恢复…' },
-        ts: nowTs,
-        source: 'sdk',
-      });
-    }
-
+    // REVIEW_60 MED-codex-1 修法(reviewer-codex R1 MED 单方 finding + lead 验证):
+    // recovering Map 单飞锁必须在 cwd precheck 之后、任何 await 之前同步 set,
+    // 把 archived session unarchive + 占位 message dedup 整段移进 IIFE 让锁覆盖整链。
+    // 旧 bug: inflight check L248 与 set L515 之间存在 `await sessionManager.unarchive(L389)`
+    // 窗口,两个并发 sendMessage 打到同 archived session 时双方都通过 inflight check → 各自
+    // 创建 IIFE → 双 createSession → 破坏「同 session 只允许一条 recovery in-flight」不变量。
     const p = (async (): Promise<string> => {
       try {
+        // CHANGELOG_31：用户在 detail 里主动发消息触发 recoverAndSend = 显式表达「我又要聊它了」，
+        // 自动取消归档。manager.ts:118-121 立的「归档与 lifecycle 正交，不能因事件流自动 unarchive」
+        // 约束针对的是 hook 触发的事件流（避免外部 CLI 在同 cwd 跑导致用户刚归档的会话被自动恢复），
+        // 本路径是用户显式 UI 动作不冲突。不 unarchive 的话，jsonl 在 + 不 fork 路径（realId === OLD_ID）
+        // 下 OLD_ID record 不动，archived_at 还在 → listHistory 仍返回这条 → 用户体感「我都在跟它聊了
+        // 但它还在历史列表里」与 CLAUDE.md「凡让用户感觉像新开会话 / 跳回列表都是 bug」总纲冲突。
+        // unarchive 内部 emit session-upserted，HistoryPanel 监听后自动 reload 把这条从历史列表移除。
+        //
+        // CHANGELOG_99 R1 fix MED-2:本段必须在 cwd precheck **之后** — 确认 cwd 能恢复(原 cwd 在 OR
+        // fallback cwd 找到)再 unarchive,避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
+        // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,让 single-flight 锁覆盖此 await。
+        if (rec.archivedAt !== null) {
+          console.warn(
+            `[sdk-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
+          );
+          await sessionManager.unarchive(sessionId);
+        }
+
+        // 占位 message：30s fallback 期间用户至少看到「在恢复」而不是哑巴 busy。
+        // 不打 error: true（不是错误，是状态提示）；resume 成功后正常 message 流接续，
+        // 占位 message 留在活动流上一行轻量「断开过」痕迹，对回看 / 调试反而有用。
+        //
+        // REVIEW_17 R3 / M3-R3：5s dedup 窗口防同 sessionId 短时间内反复 recover 重 emit
+        // 多条「⚠ SDK 通道已断开」噪声（场景：首次 recover 失败 swallow + 再次 sendMessage
+        // 又进 recoverAndSend，inflight 已删，第二条进来无条件 emit，用户在 detail 看到
+        // 多条同款占位）。
+        // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,与 unarchive 同款 single-flight 锁覆盖。
+        const lastPlaceholderAt = this.placeholderEmittedAt.get(sessionId);
+        const nowTs = Date.now();
+        if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > PLACEHOLDER_DEDUP_MS) {
+          this.placeholderEmittedAt.set(sessionId, nowTs);
+          // 顺手清掉过期 entry（避免 Map 无限涨）
+          for (const [k, ts] of this.placeholderEmittedAt) {
+            if (nowTs - ts > PLACEHOLDER_DEDUP_MS) this.placeholderEmittedAt.delete(k);
+          }
+          this.ctx.emit({
+            sessionId,
+            agentId: AGENT_ID,
+            kind: 'message',
+            payload: { text: '⚠ SDK 通道已断开，正在自动恢复…' },
+            ts: nowTs,
+            source: 'sdk',
+          });
+        }
+
         // **plan restart-controller-jsonl-precheck-20260521 §Step 3f 修法**:
         // jsonl 预检 + fallback 整段 inline 实施 (原 recoverer.ts:378-491 ~113 LOC) 抽到
         // jsonl-fallback.ts helper `maybeJsonlFallback`,与 restart-controller 两条路径共享。

@@ -427,9 +427,23 @@ export class CodexSdkBridge {
     //   函数体(Step 2.8)统一 rename codexBySession Map + token map(不变量 7)
     const initialSid = opts.resume ?? randomUUID();
     const sessionToken = mcpSessionTokenMap.allocate(initialSid);
-    // plan §P3 Step 3.5: 透传 envOverrideExtra（generic 透传机制,目前无 hot caller）到
-    // ensureCodex,让 codex 子进程 env merge extra 字段。
-    const codex = await this.ensureCodex(initialSid, sessionToken, opts.envOverrideExtra);
+    // REVIEW_60 MED-codex-2 修法(reviewer-codex R1 MED 单方 finding + lead 验证):
+    // 旧 bug: createSession 整个函数体无顶层 try/catch,allocate (L429) 之后任何 throw 都让
+    // token + (可能已 set 的) codex 实例 + (可能已 set 的) sessions Map entry + sdkClaim 全
+    // 泄漏。具体路径:
+    //   1. ensureCodex (L432) throw (loadCodexSdk fail / new sdk.Codex throw 等)
+    //   2. resumeThread/startThread (L484/498) sync throw (codex SDK 内部参数校验失败 / 拿不到 thread id 等)
+    //   3. await thread-loop.runTurnLoop (resume L598 inner Promise) 在 thread-loop earlyErrCb
+    //      cleanup 已含双轨,但本 catch 走 best-effort 重复 cleanup (idempotent: tokenMap.release
+    //      / codexBySession.delete / sessions.delete / releaseSdkClaim 全是 no-op 安全) 加固
+    //   4. new path: startNewThreadAndAwaitId (L735) await throw — thread-loop 内部 fallback 已
+    //      cleanup,本 catch 同款 best-effort 加固
+    // 对称 claude createSession (sdk-bridge/index.ts:31-165) try/catch 收口模板。
+    // 实施: 把后续主体 try 包起来 (catch 在最末 return 之后,不动主体缩进保 git diff 干净)。
+    try {
+      // plan §P3 Step 3.5: 透传 envOverrideExtra（generic 透传机制,目前无 hot caller）到
+      // ensureCodex,让 codex 子进程 env merge extra 字段。
+      const codex = await this.ensureCodex(initialSid, sessionToken, opts.envOverrideExtra);
     const cwd = resolveSpawnCwd(opts);
     // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
     // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
@@ -760,6 +774,48 @@ export class CodexSdkBridge {
     });
 
     return { sessionId: internal.applicationSid };
+    } catch (err) {
+      // REVIEW_60 MED-codex-2 修法 catch 块 (与 try L442 配对):
+      // best-effort cleanup 4 个资源,每个独立 try/catch warn 不抛(let 其余 cleanup 仍跑) +
+      // 最终 rethrow err 让 caller (recoverer.recoverAndSend / restart-controller / ipc) 看到
+      // 真错。所有 cleanup 操作都是 idempotent (Map.delete / Set.delete / token map.release —
+      // sid 不在 → 静默 no-op),thread-loop earlyErrCb 已 cleanup 的资源重复调用安全。
+      try {
+        this.codexBySession.delete(initialSid);
+      } catch (cleanupErr) {
+        console.warn(
+          `[codex-bridge] codexBySession.delete failed during createSession early-err cleanup for ${initialSid}:`,
+          cleanupErr,
+        );
+      }
+      try {
+        mcpSessionTokenMap.release(initialSid);
+      } catch (cleanupErr) {
+        console.warn(
+          `[codex-bridge] mcpSessionTokenMap.release failed during createSession early-err cleanup for ${initialSid}:`,
+          cleanupErr,
+        );
+      }
+      try {
+        this.sessions.delete(initialSid);
+      } catch (cleanupErr) {
+        console.warn(
+          `[codex-bridge] sessions.delete failed during createSession early-err cleanup for ${initialSid}:`,
+          cleanupErr,
+        );
+      }
+      if (opts.resume) {
+        try {
+          sessionManager.releaseSdkClaim(opts.resume);
+        } catch (cleanupErr) {
+          console.warn(
+            `[codex-bridge] releaseSdkClaim failed during createSession early-err cleanup for ${opts.resume}:`,
+            cleanupErr,
+          );
+        }
+      }
+      throw err;
+    }
   }
 
   async sendMessage(

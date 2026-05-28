@@ -383,7 +383,35 @@ function translateItemCompleted(item: ThreadItem, emit: EmitFn): void {
     }
 
     case 'error': {
-      // 非致命的 ErrorItem（codex CLI 内部捕获到的错误，但 turn 仍能继续）
+      // REVIEW_60 R2 MED-Lead-1 修法 (lead 现场发现 + codex SDK ErrorItem 类型铁证):
+      // codex SDK 0.131 ErrorItem (index.d.ts:83-87 "Describes a non-fatal error surfaced as an item")
+      // 包含两类:
+      //   ① codex CLI 启动期间 loader warning (典型: 用户 ~/.codex/agents/*.toml schema 不对
+      //      "Ignoring malformed agent role definition: failed to deserialize ... invalid type:
+      //      map, expected a string" — 完全是用户配置问题,与应用层 / sdk-bridge / 当前 review
+      //      scope 无关,且 codex CLI 每次 turn 可能反复扫 agents dir 重 emit 同款噪声)
+      //   ② 真 turn-level error (codex CLI 跑工具 / agent 时捕获的中间错误,turn 仍能继续)
+      // 旧实现把两类无差别 emit `error: true` 红 bubble: 用户实测截图 spawn reviewer-codex 时
+      // codex CLI 反复扫 .codex/agents/ 目录 emit 15 条 loader warning 红 bubble (5 文件 × 3 turn),
+      // 严重污染 SessionDetail UI + 误导用户以为 reviewer / 应用出问题。
+      // 修法: 关键词 filter 类 ① 走 console.warn 应用日志保留诊断 + 不污染 UI;类 ② 维持原 emit
+      // 行为给用户看到真 turn-level 错误。pattern 取代表性短语 — 与 codex CLI loader 错误前缀对齐
+      // (源自 codex-rs core/src/agent_role/ 加载逻辑实测前缀)。
+      const LOADER_WARNING_PATTERNS = [
+        'Ignoring malformed',
+        'failed to deserialize',
+      ];
+      const isLoaderWarning = LOADER_WARNING_PATTERNS.some((pat) =>
+        item.message.includes(pat),
+      );
+      if (isLoaderWarning) {
+        console.warn(
+          '[codex-translate] codex CLI loader warning skipped UI emit:',
+          item.message,
+        );
+        return;
+      }
+      // 真 turn-level 非致命 ErrorItem (codex CLI 内部捕获到的错误,但 turn 仍能继续)
       emit('message', { text: `⚠ ${item.message}`, error: true });
       return;
     }
