@@ -1,0 +1,134 @@
+' commit: d5549c6 (deep-review 批 C 收口)
+' description: hand_off_session 改变的 6 entity 并行 state 联动 — caller session / new session / teammate sessions / team_members.role / task ownership / spawn-link 缺席
+' last_updated: 2026-05-28
+@startuml hand-off-session-state-machine
+
+title hand_off_session — 6 entity 并行 state 联动 (双模式 / adopt / task 三态 / cleanup)
+
+' ─── entity 1: caller session (DB) ───
+state "Caller session\n(callerSid in sessions table)" as CallerState {
+  state "active (lifecycle)" as CallerActive
+  state "archived\n(archived_at = ISO ts)" as CallerArchived
+
+  [*] --> CallerActive
+  CallerActive --> CallerArchived : phase 2 archiveSourceSessionWithEmit\n(default archive_caller=true)
+  CallerActive --> CallerActive : archive_caller=false (skip)\nphase 2.archived='skipped'
+  CallerArchived --> [*]
+}
+
+' ─── entity 2: new session (DB + in-memory SDK) ───
+state "New session (newSid)" as NewState {
+  state "spawned\n(spawnSessionHandler 起 SDK subprocess)" as NewSpawned
+  state "active + own caller tasks\n(post task reassign 三态)" as NewActive
+
+  [*] --> NewSpawned : spawn (handOffMode=true)\n跳过 spawn-guards / 不写 spawn-link
+  NewSpawned --> NewActive : phase 1.6 task reassign\n(clear-team / preserve-team / skip)
+  NewActive --> [*]
+}
+
+' ─── entity 3: teammate sessions (DB + in-memory SDK) ───
+state "Teammate sessions\n(caller 同 team 内 active+dormant)" as TeammateState {
+  state "active / dormant" as TeammateAlive
+  state "swapped (adopt path)\n与 newSid 共享 active team" as TeammateAdopted
+  state "closed\n(baton cleanup phase 1)" as TeammateClosed
+
+  [*] --> TeammateAlive
+  TeammateAlive --> TeammateAdopted : adopt_teammates=true\nphase 1.5 swapLead 完成
+  note left of TeammateAdopted
+    与 newSid 共享 active team
+    可继续 send_message 沟通
+    phase 1 skip (skipped='adopt-keep-implicit')
+  end note
+  TeammateAlive --> TeammateClosed : adopt_teammates=false (default)\nphase 1 shutdownTeammatesOnBaton
+  note right of TeammateClosed
+    REVIEW_36 R2 HIGH-A:
+    excludeSessionIds 显式排除 newSid
+    防 team_name=x baton 路径下新 session
+    被 spawn 加为 teammate 然后一并 close
+  end note
+  TeammateAdopted --> [*]
+  TeammateClosed --> [*]
+}
+
+' ─── entity 4: team_members.role (DB) ───
+state "team_members.role\n(per team)" as RoleState {
+  state "caller: lead\n+ teammate: teammate" as RoleOrig
+  state "newSid: lead\n+ teammate: teammate\n(caller role 移除)" as RoleSwapped
+  state "team archived\n(无 lead role)" as RoleArchived
+
+  [*] --> RoleOrig
+  RoleOrig --> RoleSwapped : adopt_teammates=true\nphase 1.5 swapLead per team
+  RoleOrig --> RoleArchived : adopt_teammates=false\n(default 纯 baton: caller archive 后\nteam 无 lead → 走 TeamLifecycleScheduler\n30min grace 自动 archive)
+  RoleSwapped --> [*]
+  RoleArchived --> [*]
+}
+
+' ─── entity 5: task ownership (DB tasks.owner_session_id + tasks.team_id) ───
+state "Task ownership\n(per caller-owned task)" as TaskState {
+  state "owner=caller\n+ team_id=<original> | NULL" as TaskOrig
+  state "owner=newSid\n+ team_id=NULL\n(clear-team default)" as TaskClearedTeam
+  state "owner=newSid\n+ team_id 不动\n(preserve-team)" as TaskPreservedTeam
+  state "deleted (team task)\n+ owner=newSid (personal task)\n(skip policy)" as TaskSkip
+
+  [*] --> TaskOrig
+  TaskOrig --> TaskClearedTeam : team_task_policy='clear-team' (default)\nUPDATE owner + team_id=NULL
+  TaskOrig --> TaskPreservedTeam : team_task_policy='preserve-team'\nUPDATE owner 不动 team_id
+  note right of TaskPreservedTeam
+    caller 自负责任:
+    如 newSid 没成为对应 team active member
+    → newSid 撞写权限 reject
+    handler ok return.taskReassignment.policyWarning
+    = 'preserve-team-unadopted-teams' + unadoptedTeamIds
+  end note
+  TaskOrig --> TaskSkip : team_task_policy='skip'\n单 transaction 4 步原子\n(SELECT → DELETE team task → cleanup blocks → reassign personal)
+  TaskOrig --> TaskOrig : archive_caller=false\n(task 仍 owner=caller,后续 CASCADE GC 删)
+
+  TaskClearedTeam --> [*]
+  TaskPreservedTeam --> [*]
+  TaskSkip --> [*]
+}
+
+' ─── entity 6: spawn-link (DB sessions.spawned_by / spawn_depth) ───
+state "spawn-link 关系\n(caller → newSid)" as SpawnLinkState {
+  state "未记录\n(newSid.spawned_by = null)" as NoLink
+  note right of NoLink
+    hand_off 是平级接力非派遣关系
+    handOffMode=true → spawn handler 永不写 spawn-link
+    SessionList Phase C 树形分组不挂 teammate badge
+    与普通 spawn_session 行为不同(后者写 spawn-link)
+  end note
+
+  [*] --> NoLink
+  NoLink --> [*]
+}
+
+' ─── 跨 entity 时序串联 (CHANGELOG_99 双模式 + Phase 6 adopt 路径) ───
+
+note as N1
+  hand_off_session tool **6 entity 联动**:
+
+  ① Caller: CallerActive → (archive_caller=true) → CallerArchived
+  ② New session: [*] → NewSpawned → NewActive (post task reassign)
+  ③ Teammate: TeammateAlive → (adopt=true) → TeammateAdopted | (default) → TeammateClosed
+  ④ team_members.role: RoleOrig → (adopt=true) → RoleSwapped | (default) → RoleArchived (scheduler 30min grace)
+  ⑤ Task: TaskOrig → (policy 三态) → TaskClearedTeam | TaskPreservedTeam | TaskSkip
+  ⑥ spawn-link: 永不写 (handOffMode=true 与 spawn_session 普通路径区别)
+
+  **双模式差异** (CHANGELOG_99):
+  - plan-driven: 5 entity 全联动 + cwd resilience (默认 mainRepo)
+  - generic: 同 5 entity 联动 + cwd 默认 caller cwd + phaseLabel/plan_file_path silently ignored
+
+  **失败兜底**:
+  - spawn 失败 → 6 entity 全停在 [*] / TaskOrig / TeammateAlive (无变更)
+  - phase 1.5 firstTeam swap 失败 → closeSession(newSid) 回滚 + REJECT (新 session 也撤回)
+  - phase 1.5 非 firstTeam swap 失败 → adopted.failed 软失败 + 其他 team 继续
+  - phase 1.6 task reassign throw → warn 不阻塞 + taskReassignment.status='failed'
+  - phase 2 archive caller throw → archived='failed' warn-only,5 entity 中 caller 仍 active
+
+  **与 archive_plan baton 时序对比**:
+  - hand_off: spawn newSid → reassignTaskOwner → phase 1 (teammate close) → phase 2 (archive caller)
+  - archive_plan: Step 1-7 (plan/worktree/branch 收口) → phase 1 (teammate close) → phase 2 (archive caller)
+  - 共享 runBatonCleanup helper (phase 1+2),核心差异: hand_off 有 spawn + task reassign,archive_plan 无
+end note
+
+@enduml
