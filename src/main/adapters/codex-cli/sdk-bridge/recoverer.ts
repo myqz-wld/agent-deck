@@ -307,40 +307,48 @@ export class SessionRecoverer {
       );
     }
 
-    // CHANGELOG_31：用户在 detail 里主动发消息触发 recoverAndSend = 显式表达「我又要聊它了」，
-    // 自动取消归档（与 claude 同款）。manager.ts 立的「归档与 lifecycle 正交，不能因事件流自动
-    // unarchive」约束针对的是 hook 触发路径，本路径是用户显式 UI 动作不冲突。
-    // CHANGELOG_99 R1 fix MED-2 顺序：本段必须在 cwd precheck 之后 — 确认 cwd 能恢复再 unarchive,
-    // 避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
-    if (rec.archivedAt !== null) {
-      console.warn(
-        `[codex-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
-      );
-      await sessionManager.unarchive(sessionId);
-    }
-
-    // 占位 message：起 codex 子进程期间用户至少看到「在恢复」而不是哑巴 busy（与 claude 同款）。
-    // 5s dedup 窗口防同 sessionId 短时间内反复 recover 重 emit 多条「⚠ Codex 通道已断开」噪声。
-    const lastPlaceholderAt = this.placeholderEmittedAt.get(sessionId);
-    const nowTs = Date.now();
-    if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > PLACEHOLDER_DEDUP_MS) {
-      this.placeholderEmittedAt.set(sessionId, nowTs);
-      // 顺手清掉过期 entry（避免 Map 无限涨）
-      for (const [k, ts] of this.placeholderEmittedAt) {
-        if (nowTs - ts > PLACEHOLDER_DEDUP_MS) this.placeholderEmittedAt.delete(k);
-      }
-      this.ctx.emit({
-        sessionId,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: { text: '⚠ Codex 通道已断开，正在自动恢复…' },
-        ts: nowTs,
-        source: 'sdk',
-      });
-    }
-
+    // REVIEW_60 MED-codex-1 修法(reviewer-codex R1 MED 单方 finding + lead 验证 — 对称 claude recoverer.ts):
+    // recovering Map 单飞锁必须在 cwd precheck 之后、任何 await 之前同步 set,
+    // 把 archived session unarchive + 占位 message dedup 整段移进 IIFE 让锁覆盖整链。
+    // 旧 bug: inflight check L186 与 set L447 之间存在 `await sessionManager.unarchive(L319)`
+    // 窗口,两个并发 sendMessage 打到同 archived session 时双方都通过 inflight check → 各自
+    // 创建 IIFE → 双 createSession → 破坏「同 session 只允许一条 recovery in-flight」不变量。
     const p = (async (): Promise<string> => {
       try {
+        // CHANGELOG_31：用户在 detail 里主动发消息触发 recoverAndSend = 显式表达「我又要聊它了」，
+        // 自动取消归档（与 claude 同款）。manager.ts 立的「归档与 lifecycle 正交，不能因事件流自动
+        // unarchive」约束针对的是 hook 触发路径，本路径是用户显式 UI 动作不冲突。
+        // CHANGELOG_99 R1 fix MED-2 顺序：本段必须在 cwd precheck 之后 — 确认 cwd 能恢复再 unarchive,
+        // 避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
+        // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,让 single-flight 锁覆盖此 await。
+        if (rec.archivedAt !== null) {
+          console.warn(
+            `[codex-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
+          );
+          await sessionManager.unarchive(sessionId);
+        }
+
+        // 占位 message：起 codex 子进程期间用户至少看到「在恢复」而不是哑巴 busy（与 claude 同款）。
+        // 5s dedup 窗口防同 sessionId 短时间内反复 recover 重 emit 多条「⚠ Codex 通道已断开」噪声。
+        // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,与 unarchive 同款 single-flight 锁覆盖。
+        const lastPlaceholderAt = this.placeholderEmittedAt.get(sessionId);
+        const nowTs = Date.now();
+        if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > PLACEHOLDER_DEDUP_MS) {
+          this.placeholderEmittedAt.set(sessionId, nowTs);
+          // 顺手清掉过期 entry（避免 Map 无限涨）
+          for (const [k, ts] of this.placeholderEmittedAt) {
+            if (nowTs - ts > PLACEHOLDER_DEDUP_MS) this.placeholderEmittedAt.delete(k);
+          }
+          this.ctx.emit({
+            sessionId,
+            agentId: AGENT_ID,
+            kind: 'message',
+            payload: { text: '⚠ Codex 通道已断开，正在自动恢复…' },
+            ts: nowTs,
+            source: 'sdk',
+          });
+        }
+
         // CHANGELOG_28 同款：预检 jsonl 是否存在 — codex CLI resume 时找不到 jsonl 会失败，
         // SDK 抛 "Codex Exec exited with ..." 错误，比 try/catch 后字符串匹配 fallback 更可靠。
         //

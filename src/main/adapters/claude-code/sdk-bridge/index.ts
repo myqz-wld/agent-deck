@@ -433,6 +433,19 @@ export class ClaudeSdkBridge {
           console.warn('[sdk-bridge] interrupt during createSession throw failed:', err);
         });
       }
+      // REVIEW_60 R2 HIGH-1 修法 (reviewer-claude R2 单方 finding + lead 现场验证 + 与 codex catch 对照 parity gap):
+      // 旧 bug: catch 块只 `sessions.delete(tempKey)` 但 plan reverse-rename-sid-stability-20260520
+      // §A.4-pre S2 已把 sessions.set 切到 applicationSid (L380),resume 路径下 applicationSid =
+      // opts.resume ≠ tempKey,catch sessions.delete(tempKey) 是 no-op → opts.resume entry 永远
+      // 留在 Map 里。后续 sendMessage(opts.resume) → sessions.get 命中 stale internal → 跳过
+      // recoverer 自愈主路径 → push pendingUserMessages 进 stale internal → SDK 已 abort → 静默卡死。
+      // 触发条件: opts.resume 路径 + try 内 sessions.set 之后 throw (waitForRealSessionId 30s
+      // timeout / A1-HIGH-1 realId === tempKey throw / 其他 try 内 throw)。
+      // 修法: 两个 key 同时清 — applicationSid 覆盖 spawn 主 / resume / 反向 rename 后场景;
+      // tempKey 兼容 stream-processor.ts first realId 切 key 在 catch 之前完成的边角 (spawn
+      // 主路径 isNewSpawn 三分支保护已 delete tempKey + set realId,本句 no-op safety net)。
+      // 与 codex/sdk-bridge/index.ts:799 同款 parity 收口 (codex 端正确用 initialSid)。
+      this.sessions.delete(internal.applicationSid);
       this.sessions.delete(tempKey);
       releasePending();
       // REVIEW_5 H4：构造期就 claim 了 opts.resume，失败路径必须释放，
