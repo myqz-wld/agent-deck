@@ -904,13 +904,24 @@ describe('hand_off_session v024 / preserve-team + adopt_teammates=true full surf
     const mockFindOwnedTeamIds = vi.fn((_sid: string) => ['team-shared', 'team-unadopted']);
 
     // caller 不在任何 lead team(adopt_teammates 不开,phase15Detail.adoptedTeamIds=[]),
-    // 仅靠 spawnData.teamId 注入到 newSidActiveTeamIds
+    // **CHANGELOG_169 F5 修法**: 不再用 spawnData.teamId 信任注入,改用 findActiveMembershipIn
+    // 实测 newSpawnedSid 对每个 caller-owned team 的真 active membership。case e mock 让
+    // team-shared 返 non-null member(spawn handler 已 addMember 成功),team-unadopted 返
+    // null(newSid 不是该 team active member)。
     vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipsBySession').mockReturnValue([]);
     vi.spyOn(agentDeckTeamRepo, 'get').mockImplementation((tid: string) => {
       if (tid === 'team-shared') return fakeTeam(tid, 'Team Shared');
       if (tid === 'team-unadopted') return fakeTeam(tid, 'Team Unadopted');
       return null;
     });
+    vi.spyOn(agentDeckTeamRepo, 'findActiveMembershipIn').mockImplementation(
+      (tid: string, sid: string) => {
+        if (sid === 'new-sid' && tid === 'team-shared') {
+          return fakeMember({ teamId: tid, sessionId: sid, role: 'teammate' });
+        }
+        return null;
+      },
+    );
 
     const sessionRepoGetSpy = spyCallerRow();
 

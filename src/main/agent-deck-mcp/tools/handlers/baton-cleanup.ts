@@ -107,8 +107,11 @@ export interface RunBatonCleanupInput {
    * **archive_plan 不传**(plan 收口 = caller 使命终结,teammate 一并 shutdown,语义上不应
    * opt-out 接管)— optional + default 行为对 archive_plan 调用方零改动向后兼容。
    *
-   * **与 archiveCaller 互相独立**:adopt_teammates=true + archive_caller=false 同传合法
-   * (caller 自己仍 active,新 session 接管 lead role,两个 lead 共存)— 罕见 但 schema 不阻拦。
+   * **与 archiveCaller 配合**(CHANGELOG_169 F4 修法):**archive_caller=false 也跳过 phase 1**
+   * (标 skipped='archive-caller-false-keep')— caller 仍 active 当 lead 时 teammates 也保留
+   * alive 让 caller 继续观察 reviewer reply(对应 schema 文案承诺)。adopt_teammates=true +
+   * archive_caller=false 同传时优先 adopt 分支(同款效果都是 teammates 留 alive 但 skipped
+   * 标识不同来源)。
    */
   adoptTeammates?: boolean;
   /**
@@ -215,12 +218,20 @@ export async function runBatonCleanup(
   // — teammate 由 hand-off-session.ts handler phase 1.5 adopt 路径调 swapLead 接管(Phase 4
   // 阶段 phase 1.5 在 hand-off-session.ts handler 内;Phase 6 移到 baton-cleanup helper 内
   // 完整化 phase 1.5 流程含 swapLead + listAllMembers + emit + collect preserved/failed)。
+  //
+  // **CHANGELOG_169 F4 修法**(reviewer-codex MED finding): archiveCaller=false 时也跳过 phase 1
+  // 标 skipped='archive-caller-false-keep'。schema 文案承诺「caller 仍可看 reviewer reply」
+  // 的隐含语义要求 teammates 也保留 alive,不然 caller 看到的是已关闭的 reviewer。
   let teammatesShutdown: ShutdownTeammatesResult;
   if (input.adoptTeammates === true) {
     // Phase 4: adopt 路径下不调 shutdownTeammatesOnBaton,标 skipped='adopt-keep-implicit'
     // (与 'caller-not-lead' 三态 union 对齐)。caller 仍是 lead 但 teammate 由新 session
     // 接管 — 详 hand-off-session.ts handler adopt 分支。
     teammatesShutdown = { closed: [], failed: [], skipped: 'adopt-keep-implicit' };
+  } else if (input.archiveCaller === false) {
+    // CHANGELOG_169 F4: caller 显式 archive_caller=false 也跳过 phase 1。caller 仍 active 当
+    // lead,teammates 留 alive 让 caller 继续观察 reviewer reply(schema 文案承诺)。
+    teammatesShutdown = { closed: [], failed: [], skipped: 'archive-caller-false-keep' };
   } else {
     const shutdownFn =
       deps?.shutdownTeammates ??

@@ -136,7 +136,7 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
     const customInput = { ...input, baseBranch: 'develop' };
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'develophash', // rev-parse --verify develop 真返 hash
       '', // checkout develop
@@ -162,7 +162,7 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
     ]);
     expect(state.gitCalls[4]?.args).toEqual(['checkout', 'develop']);
     expect(state.gitCalls[4]?.cwd).toBe(expectedMainRepo);
-    expect(state.gitCalls[5]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix']);
+    expect(state.gitCalls[5]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix-20260513']);
   });
 
   it('base_branch 不存在 → rev-parse --verify refs/heads/<branch> throw → reject 提示 base_branch 不是 named branch', async () => {

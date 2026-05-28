@@ -36,16 +36,17 @@
  * 与 archive-plan-impl 完全同款。
  */
 
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { promises as fs, type Stats } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import { resolvePlanFilePath } from './plan-path-helpers';
-
-const execFileAsync = promisify(execFile);
+import {
+  runGitDefault,
+  readFileDefault,
+  existsDefault,
+  cwdDefault,
+  homedirDefault,
+} from './_shared/default-impl-deps';
 
 /** CHANGELOG_99：generic 模式默认 cold-start prompt(caller 不传 args.prompt 时用) */
 export const DEFAULT_GENERIC_COLD_START_PROMPT = '从上一个会话接力继续工作';
@@ -140,22 +141,11 @@ export interface HandOffSessionDeps {
 }
 
 const DEFAULT_DEPS: Required<HandOffSessionDeps> = {
-  runGit: async (args, cwd) => {
-    const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: 1024 * 1024 });
-    return stdout.toString().trim();
-  },
-  readFile: async (p) => fs.readFile(p, 'utf8'),
-  exists: async (p) => {
-    try {
-      const _: Stats = await fs.stat(p);
-      void _;
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  cwd: () => process.cwd(),
-  homedir: () => os.homedir(),
+  runGit: runGitDefault,
+  readFile: readFileDefault,
+  exists: existsDefault,
+  cwd: cwdDefault,
+  homedir: homedirDefault,
 };
 
 function isError(x: HandOffSessionResolved | HandOffSessionError): x is HandOffSessionError {

@@ -43,16 +43,22 @@
  * os.homedir + process.cwd），test 通过传 `deps` 参数完全替换为 in-memory mock。
  */
 
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { promises as fs, type Stats } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 
 import { parseFrontmatter, stringifyFrontmatter } from '@main/utils/frontmatter';
 import { resolvePlanFilePath } from './plan-path-helpers';
-
-const execFileAsync = promisify(execFile);
+import {
+  runGitDefault,
+  readFileDefault,
+  writeFileDefault,
+  unlinkDefault,
+  mkdirDefault,
+  mvDirDefault,
+  existsDefault,
+  realpathDefault,
+  cwdDefault,
+  homedirDefault,
+} from './_shared/default-impl-deps';
 
 export interface ArchivePlanInput {
   planId: string;
@@ -151,6 +157,15 @@ export interface ArchivePlanDeps {
    * inject mock 实现非 fs 路径(in-memory state set/del)。
    */
   mvDir?: (src: string, dst: string) => Promise<void>;
+  /**
+   * rmdir 空目录(spike-reports/ mv 后清父目录用)。失败抛(典型 ENOTEMPTY 父目录非空 / ENOENT
+   * 已不存在),caller catch 决定是否 push warning(F7 修法 — 不再 swallow,让 caller 看到
+   * sibling artifacts 残留)。
+   *
+   * **CHANGELOG_169 F7 修法**:之前直接 dynamic import 'node:fs/promises' 调 fs.rmdir,
+   * 让 mock test 撞真 fs ENOENT。改 deps 注入后 test 可在 mock 环境注入 no-op 或可控失败。
+   */
+  rmdir?: (dirPath: string) => Promise<void>;
   /** 文件 / 目录是否存在（true / false，不抛）。 */
   exists?: (p: string) => Promise<boolean>;
   /** realpath 解 symlink，失败抛（caller 决定是否兜底）。 */
@@ -178,256 +193,66 @@ export interface ArchivePlanDeps {
 }
 
 const DEFAULT_DEPS: Required<ArchivePlanDeps> = {
-  runGit: async (args, cwd, opts) => {
-    const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: 1024 * 1024 });
-    // R3 fix-2 (H2): raw=true 时不 trim，保留首列 space 与尾部 NUL 让 NUL parser 正确处理。
-    // 默认 raw=false 保持旧 caller 行为（rev-parse / commit 单行 trim 安全）。
-    if (opts?.raw) return stdout.toString();
-    return stdout.toString().trim();
+  runGit: runGitDefault,
+  readFile: readFileDefault,
+  writeFile: writeFileDefault,
+  unlink: unlinkDefault,
+  mkdir: mkdirDefault,
+  mvDir: mvDirDefault,
+  rmdir: async (p: string) => {
+    const fs2 = await import('node:fs/promises');
+    await fs2.rmdir(p);
   },
-  readFile: async (p) => fs.readFile(p, 'utf8'),
-  writeFile: async (p, c) => fs.writeFile(p, c, 'utf8'),
-  unlink: async (p) => fs.unlink(p),
-  mkdir: async (p) => {
-    await fs.mkdir(p, { recursive: true });
-  },
-  mvDir: async (src, dst) => fs.rename(src, dst),
-  exists: async (p) => {
-    try {
-      const _: Stats = await fs.stat(p);
-      void _;
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  realpath: async (p) => fs.realpath(p),
-  cwd: () => process.cwd(),
+  exists: existsDefault,
+  realpath: realpathDefault,
+  cwd: cwdDefault,
   cwdReleaseMarker: () => null,
   clearCwdReleaseMarker: async () => {
     /* P5 Round 1 reviewer-codex HIGH-1 修法 default fallback: no-op (无 marker 可清) */
   },
-  homedir: () => os.homedir(),
+  homedir: homedirDefault,
 };
 
 function isError(x: ArchivePlanResult | ArchivePlanError): x is ArchivePlanError {
   return (x as ArchivePlanError).error !== undefined;
 }
 
-// ===========================================================================
-// Internal-only test seams (plan deep-review-batch-a1-b-followup-r3-20260519
-// §Phase 1.2a + 1.2b / D6 export production lambda)
-//
-// 抽 archivePlanImpl 内 mainRepo precheck (step 3.5) + base_branch 校验 (step 7)
-// 两段逻辑为 module-level export,让 __tests__/ 调真实代码而非 inline 复制合约
-// (H4 教训 — REVIEW_47 §A1-HIGH-1)。
-//
-// 严禁外部 production 文件 import 这两个 lambda — 业务路径仍走 archivePlanImpl
-// 内部 step 3.5 / step 7 调用 (`hasError` 不变, handler 不知 lambda 存在)。
-// ===========================================================================
-
 /**
- * @internal Only for `__tests__/`. Do NOT import from other production files.
+ * CHANGELOG_169 F6 [MED]: INDEX TOCTOU 单飞锁(reviewer-claude finding,reviewer-codex 反驳后
+ * 部分成立降级 MED)。
  *
- * mainRepo dirty precheck 精确化（plan deep-review-batch-a1-b-followup-r3-20260519
- * §不变量 5 / D3）：
+ * 防 caller A 与 B 并发 archive 不同 plan_id 时 INDEX read-modify-write 撞 race:
+ * - 都 readFile 拿 INDEX 旧版 N 行 → 各自 syncPlansIndex 算 N+1 行 → A writeFile(commit pending)
+ *   → B writeFile(commit 覆盖 A 的 row)→ B 的 git commit pathspec 包含 indexPath → A 的
+ *   INDEX row 永久丢失(silent corruption)。
  *
- * 不再全场 fail-fast（旧 B-HIGH-4 修法把任意 mainRepo dirty 都 reject）— 只 reject
- * 三个具体路径 {archivedPath, indexPath, planFilePath} 的 modified（X 列或 Y 列任一非空 /
- * status `??` untracked 命中）+ rename R/C 类型同时检查 old/new path，其他 dirty 降
- * warning（commit message 后续可加注脚）。这样 caller 在 mainRepo 有无关 dirty 文件
- * （如别 plan 的草稿）时也能正常归档，只挡真冲突路径。
- *
- * **R2 plan-review MED-C 修订**：用 `git status --porcelain=v1 -z` NUL 分隔（可靠处理
- * rename / 含空格 path / quoted path，避免 newline-split parser 漏 rename 类型）。
- *
- * **R3 plan-review codex MED-1 修订**：三具体路径必须转 repo-relative 才能与 git status
- * 输出比对（archive-plan-impl.ts:648 实证 archivedPath 是绝对路径 `path.join(mainRepo, ...)`；
- * git status --porcelain 输出 repo-relative 如 ` M README.md\0`；绝对 vs relative 比对
- * **永不命中**）。
- *
- * **R3 plan-review codex MED-3 修订**：rename/copy 类型（status[0]='R'|'C'）格式
- * `"RY newname\0oldname\0"` 两段 NUL 分隔，parser 必须读两段；同时检查 old/new path 是否
- * 命中 critical（任一命中即 reject）。
+ * 单飞锁 pattern 参考 sdk-bridge/recoverer.ts:50,232-245(同款 try/catch/finally delete)。
+ * 同进程内 keyed by indexPath: 并发 archive 不同 indexPath(罕见 — 仅多 repo 场景)互不影响,
+ * 同 indexPath 并发严格串行。**仅 in-process 防御**(mcp tool deny external caller,无跨进程
+ * 调用);未来若 mcp transport 切到 HTTP 多 caller 跨进程,本 Map 失效需补 file-level lock。
  */
-export interface AssertMainRepoCleanInput {
-  mainRepoAbsPath: string;
-  archivedPath: string;
-  indexPath: string;
-  planFilePath: string;
-}
+const indexSyncFlight: Map<string, Promise<void>> = new Map();
 
-/** porcelain entry: status XY + 1-2 paths（普通 1 段 / rename-copy 2 段 new->old）。 */
-export interface MainRepoStatusEntry {
-  /** 显示用 path 字符串（rename/copy 类型 = "newname -> oldname"）。 */
-  path: string;
-  /** git status --porcelain XY 二字符状态码（如 "M ", " M", "MM", "??", "R ", "C "）。 */
-  status: string;
-}
-
-export interface AssertMainRepoCleanResult {
-  ok: boolean;
-  /** 命中三具体路径的 dirty entries（reject 归档）。 */
-  conflicts: MainRepoStatusEntry[];
-  /** 不命中三具体路径的 dirty entries（warn pass，commit message 加注脚）。 */
-  warnings: MainRepoStatusEntry[];
-}
-
-export async function assertMainRepoCleanForArchive(
-  deps: { runGit: (args: string[], cwd: string, opts?: { raw?: boolean }) => Promise<string> },
-  input: AssertMainRepoCleanInput,
-): Promise<AssertMainRepoCleanResult> {
-  // critical paths 转 repo-relative 与 git status 输出对齐（R3 codex MED-1）
-  const criticalSet = new Set([
-    path.relative(input.mainRepoAbsPath, input.archivedPath),
-    path.relative(input.mainRepoAbsPath, input.indexPath),
-    path.relative(input.mainRepoAbsPath, input.planFilePath),
-  ]);
-
-  let stdout: string;
-  try {
-    // **R3 fix-2 (H2 codex Batch B HIGH-1)**：传 `{ raw: true }` 跳 trim 防破坏 -z NUL 输出
-    // （HISTORICAL bug repro literal,不迁 ref/plans/：`' M plans/INDEX.md\0'.trim()` → `'M plans/INDEX.md\0'` 首列 space 被吃 → status 错位
-    // → criticalSet 永不命中 → Y 列 unstaged critical path 全漏判）。
-    //
-    // **R3 fix-2 (H4 codex Batch C+D 未验证升级)**：加 `--untracked-files=all` flag 让 untracked
-    // 文件展开到完整路径而非目录级（HISTORICAL bug repro literal,不迁 ref/plans/：default mode 输出 `?? plans/\0` → criticalSet.has('plans/
-    // INDEX.md') 不命中 → untracked critical 文件全漏判；`--untracked-files=all` 输出
-    // `?? plans/INDEX.md\0?? plans/myplan.md\0` 才能命中）。HISTORICAL: bug repro literal block
-    stdout = await deps.runGit(
-      ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
-      input.mainRepoAbsPath,
-      { raw: true },
-    );
-  } catch (e) {
-    // git 失败 → fail-safe ok=false 让 caller decide，不静默 ok（防 mainRepo git 异常时
-    // ghost-archive）。但也不抛 — caller 收到结构化结果在 step 3.5 调用方包成 error 返回。
-    return {
-      ok: false,
-      conflicts: [{ path: '<git-status-failed>', status: (e as Error).message }],
-      warnings: [],
-    };
-  }
-
-  if (!stdout) {
-    // mainRepo clean
-    return { ok: true, conflicts: [], warnings: [] };
-  }
-
-  const conflicts: MainRepoStatusEntry[] = [];
-  const warnings: MainRepoStatusEntry[] = [];
-
-  // parse NUL-separated entries:
-  // - 普通:  "XY filename\0"           (X = staged status, Y = unstaged status)
-  // - rename/copy: "RY newname\0oldname\0"  (X='R' or 'C', 两段 NUL)
-  let i = 0;
-  while (i < stdout.length) {
-    const firstNul = stdout.indexOf('\0', i);
-    if (firstNul < 0) break;
-    const entry = stdout.substring(i, firstNul); // "XY filename"
-    if (entry.length < 3) {
-      // malformed, skip
-      i = firstNul + 1;
-      continue;
-    }
-    const status = entry.substring(0, 2);
-    const filename = entry.substring(3);
-    i = firstNul + 1;
-
-    const paths = [filename];
-    if (status[0] === 'R' || status[0] === 'C') {
-      // rename/copy 第二段：oldname
-      const secondNul = stdout.indexOf('\0', i);
-      if (secondNul >= 0) {
-        const oldname = stdout.substring(i, secondNul);
-        paths.push(oldname);
-        i = secondNul + 1;
-      }
-    }
-
-    // 任一 path 命中 critical 即 conflict（rename 把 plan/INDEX/archived 重命名风险高）
-    const hitCritical = paths.some((p) => criticalSet.has(p));
-    const displayPath = paths.length > 1 ? paths.join(' -> ') : paths[0];
-    if (hitCritical) {
-      conflicts.push({ path: displayPath, status });
-    } else {
-      warnings.push({ path: displayPath, status });
-    }
-  }
-
-  return { ok: conflicts.length === 0, conflicts, warnings };
-}
-
-/**
- * @internal Only for `__tests__/`. Do NOT import from other production files.
- *
- * base_branch refs/heads namespace 校验（plan deep-review-batch-a1-b-fixes-20260519
- * §Phase 1 Step 1.2 / B-HIGH-3 修法）。
- *
- * 旧 impl `rev-parse --verify <branch>` 接受 SHA / tag / detached HEAD（git man 默认
- * namespace 含 refs/heads/ refs/tags/ refs/remotes/ raw SHA 等），caller 误传 tag 名当
- * base_branch（典型: plan frontmatter `base_branch: v1.2.0`）→ checkout tag 后 detached
- * HEAD → ff-merge 推 HEAD → commit 落 detached → branch -D worktreeBranch 删工作分支 ref
- * → 归档 commit 仅 reflog 可达，gc 30 天后丢失（B-HIGH-3 reviewer-claude 反驳轮 git
- * 端到端实测复现）。修法：显式 verify `refs/heads/<branch>` namespace，强制 named branch
- * （plan-review MED-1 claude 修订：rev-parse --verify --quiet refs/heads/ 比 symbolic-ref
- * 语义更直观）。
- */
-export interface AssertBaseBranchInput {
-  mainRepoAbsPath: string;
-  baseBranch: string;
-}
-
-export interface AssertBaseBranchResult {
-  ok: boolean;
-  /** 失败时给 caller 的人类可读错误（含具体 base_branch 名 + git stderr 摘录）。 */
-  error?: string;
-  /** 失败时给 caller 的修复建议（指向 plan frontmatter 修订 / git branch --list）。 */
-  hint?: string;
-}
-
-export async function assertBaseBranchIsNamedBranch(
-  deps: { runGit: (args: string[], cwd: string, opts?: { raw?: boolean }) => Promise<string> },
-  input: AssertBaseBranchInput,
-): Promise<AssertBaseBranchResult> {
-  // **R3 fix-2 (H3 codex Batch C+D HIGH-1)**：先 `git check-ref-format --branch <name>` reject
-  // rev suffix（`main~1` / `main^{commit}` 等）。仅 `git rev-parse --verify --quiet refs/heads/X`
-  // 不够 — 实测 `git rev-parse --verify --quiet refs/heads/main~1` 返回 commit hash exit 0
-  // （rev-parse 接受 `refs/heads/main~1` 作为 valid rev expression：从 main 倒退一个 commit）。
-  // 后续 ff-merge `git checkout main~1` 会进入 detached HEAD → 归档 commit 落 detached HEAD
-  // → B-HIGH-3 同款数据丢失风险。`git check-ref-format --branch main~1` exit 128 实测铁证拦下。
-  try {
-    await deps.runGit(['check-ref-format', '--branch', input.baseBranch], input.mainRepoAbsPath);
-  } catch (e) {
-    return {
-      ok: false,
-      error: `base_branch "${input.baseBranch}" is not a valid branch name (contains rev syntax like '~' / '^{commit}' or other illegal chars).`,
-      hint:
-        `archive_plan ff-merge requires a plain branch name (no rev suffix); names containing '~' / '^' / '@{' are rev expressions ` +
-        `that would resolve to a commit + ` +
-        `git checkout <name> → detached HEAD → archive commit lost after branch -D + gc. ` +
-        `Edit plan frontmatter base_branch to a plain branch name (e.g. "main" / "feature-x"). ` +
-        `Verify with \`git -C ${input.mainRepoAbsPath} check-ref-format --branch <name>\`. ${(e as Error).message}`,
-    };
-  }
-  try {
-    await deps.runGit(
-      ['rev-parse', '--verify', '--quiet', `refs/heads/${input.baseBranch}`],
-      input.mainRepoAbsPath,
-    );
-    return { ok: true };
-  } catch (e) {
-    return {
-      ok: false,
-      error: `base_branch "${input.baseBranch}" is not a named branch (refs/heads/<name>); SHA / tag / detached HEAD refs are not allowed.`,
-      hint:
-        `archive_plan ff-merge requires a named branch to commit onto. If "${input.baseBranch}" is a tag or SHA, ` +
-        `plan cannot be archived (commits would land on detached HEAD and be lost after branch -D + gc). ` +
-        `Edit plan frontmatter base_branch to a named branch (e.g. "main" / "feature-x"), or pass base_branch arg explicitly. ` +
-        `Verify with \`git -C ${input.mainRepoAbsPath} branch --list\`. ${(e as Error).message}`,
-    };
-  }
-}
+// ===========================================================================
+// CHANGELOG_169 F1 Step 1.2: precheck helpers 抽到 archive-plan/precheck-helpers.ts。
+// 本文件保持 re-export 让 4 个 test 文件（archive-plan.mainrepo-clean.test.ts /
+// archive-plan.base-branch-named-only.test.ts 等）直接 import 这些函数的 path 零改动。
+// ===========================================================================
+export {
+  assertMainRepoCleanForArchive,
+  assertBaseBranchIsNamedBranch,
+} from './archive-plan/precheck-helpers';
+export type {
+  AssertMainRepoCleanInput,
+  AssertMainRepoCleanResult,
+  AssertBaseBranchInput,
+  AssertBaseBranchResult,
+  MainRepoStatusEntry,
+} from './archive-plan/precheck-helpers';
+import {
+  assertMainRepoCleanForArchive,
+  assertBaseBranchIsNamedBranch,
+} from './archive-plan/precheck-helpers';
 
 export async function archivePlanImpl(
   input: ArchivePlanInput,
@@ -754,6 +579,60 @@ export async function archivePlanImpl(
     };
   }
 
+  // 6.5. CHANGELOG_169 F2 [HIGH]: frontmatter ↔ input cross-check (plan_id / worktree_path binding)
+  //
+  // reviewer-codex finding（双方反驳轮裁决 HIGH 真问题）：caller 误传另一 plan 的 worktree_path 时，
+  // 之前的代码不校验 fm.worktree_path / fm.plan_id 与输入一致 → silent corruption（plan-A 错标
+  // completed + plan-B worktree 被删 + ff-merge 合错 commit + plan-B 工作整片丢失）。典型触发：
+  // user 跑 2-3 plan 收尾时 tab-complete 撞同名 dir / 复制粘贴撞错路径。
+  //
+  // **D7 决策**（向后兼容老 plan）：字段存在严格校验,字段缺失 soft warn 不 reject。新 plan 模板
+  // 已含 plan_id / worktree_path frontmatter（详 resources/claude-config/CLAUDE.md §Step 1
+  // plan 内容文档），老 plan 没字段时不破坏归档。
+  if (typeof fm.plan_id === 'string' && fm.plan_id !== input.planId) {
+    return {
+      error: `plan_id mismatch: frontmatter plan_id="${fm.plan_id}" but archive_plan called with planId="${input.planId}"`,
+      hint: `Caller likely passed wrong worktree_path for this plan_id (or vice versa). Refusing to ff-merge / write / unlink to avoid silent corruption (the wrong-binding case would merge another worktree's branch + delete another worktree + mark this plan completed). Verify with \`head -10 ${planFilePath}\` then call archive_plan with matching planId + worktreePath pair.`,
+    };
+  } else if (typeof fm.plan_id !== 'string') {
+    warnings.push(
+      `plan frontmatter has no plan_id field — skipping plan_id cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
+    );
+  }
+
+  if (typeof fm.worktree_path === 'string' && fm.worktree_path) {
+    let fmWtReal: string;
+    let inputWtReal: string;
+    try {
+      fmWtReal = await deps.realpath(fm.worktree_path);
+      inputWtReal = await deps.realpath(input.worktreePath);
+    } catch (e) {
+      return {
+        error: `realpath check failed during worktree_path cross-check: ${(e as Error).message}`,
+        hint: `Either fm.worktree_path="${fm.worktree_path}" or input.worktreePath="${input.worktreePath}" cannot be realpath-resolved (likely a broken symlink or already removed). Fix fs state before retrying.`,
+      };
+    }
+    if (fmWtReal !== inputWtReal) {
+      return {
+        error: `worktree_path mismatch: frontmatter worktree_path="${fm.worktree_path}" (realpath="${fmWtReal}") but archive_plan called with worktreePath="${input.worktreePath}" (realpath="${inputWtReal}")`,
+        hint: `Caller likely passed wrong worktree_path for this plan_id. Refusing to ff-merge / write / unlink to avoid silent corruption (the wrong-binding case would merge another worktree's branch + delete another worktree + mark this plan completed). Verify plan frontmatter or correct args.worktree_path.`,
+      };
+    }
+  } else {
+    warnings.push(
+      `plan frontmatter has no worktree_path field — skipping worktree_path cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
+    );
+  }
+
+  // 可选第三道防御:branch 命名约束(soft warn 而非硬 reject — 老 plan 用户自建 worktree
+  // 时 branch 名可能不符 enter_worktree 约定 `worktree-<planId>`,允许通过但提示不一致)。
+  const expectedBranch = `worktree-${input.planId}`;
+  if (worktreeBranch !== expectedBranch) {
+    warnings.push(
+      `worktree branch name "${worktreeBranch}" does not match enter_worktree convention "${expectedBranch}" — accepting (caller manually created worktree), but cross-plan binding errors won't be caught by branch naming alone`,
+    );
+  }
+
   // 7. fast-forward merge worktree branch → base_branch
   // REVIEW_33 H1：旧实现直接 `git merge --ff-only worktreeBranch` 在 mainRepo 当前 HEAD 上 ff，
   // 与「ff merge into base_branch」契约不符——caller 当前 checkout 在 feature-x 时把 worktree
@@ -983,17 +862,50 @@ export async function archivePlanImpl(
   const changelogCell = formatChangelogCell(input.changelogId);
   let plansIndexAction: ArchivePlanResult['plansIndexAction'];
   try {
-    const indexExists = await deps.exists(indexPath);
-    const existingContent = indexExists ? await deps.readFile(indexPath) : null;
-    const syncResult = syncPlansIndex(existingContent, {
-      planId: input.planId,
-      description: summary,
-      changelogCell,
-    });
-    if (syncResult.action !== 'unchanged') {
-      await deps.writeFile(indexPath, syncResult.newContent);
+    // CHANGELOG_169 F6: 单飞锁包 INDEX RMW。同 indexPath 并发 archive 严格串行,先到先得。
+    // try/catch/finally delete Map 保证异常路径也释放(参考 recoverer.ts 同款 pattern)。
+    // 用 IIFE 把 RMW 包成 async function 让 promise 自身有 await 路径,避免 unhandled rejection。
+    const previousFlight = indexSyncFlight.get(indexPath);
+    if (previousFlight) {
+      try {
+        await previousFlight;
+      } catch {
+        /* 上一轮 archive 的 INDEX RMW 失败不影响本轮 — 本轮按 fresh state RMW */
+      }
     }
-    plansIndexAction = syncResult.action;
+    const flightPromise: Promise<ArchivePlanResult['plansIndexAction']> = (async () => {
+      const indexExists = await deps.exists(indexPath);
+      const existingContent = indexExists ? await deps.readFile(indexPath) : null;
+      const syncResult = syncPlansIndex(existingContent, {
+        planId: input.planId,
+        description: summary,
+        changelogCell,
+      });
+      if (syncResult.action !== 'unchanged') {
+        await deps.writeFile(indexPath, syncResult.newContent);
+      }
+      return syncResult.action;
+    })();
+    indexSyncFlight.set(
+      indexPath,
+      // .then(success, failure) 让 Map 里的 promise 自身永远 resolve(不抛 unhandled rejection),
+      // 同时实际的 rejection 由 await flightPromise 路径处理(下面 try/catch)。
+      flightPromise.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    try {
+      plansIndexAction = await flightPromise;
+    } finally {
+      // delete Map 让下个 caller 可以拿新锁,即使本 caller throw 也清干净
+      const stored = indexSyncFlight.get(indexPath);
+      if (stored !== undefined) {
+        // best-effort:仅删自己设的那把锁(防多 caller 交错下误删别人的锁)。
+        // 由于 await 完成后必定释放本次 IIFE 衍生的 .then() promise,直接 delete 即可。
+        indexSyncFlight.delete(indexPath);
+      }
+    }
   } catch (e) {
     return postFfMergeErr(
       'sync-plans-INDEX',
@@ -1033,19 +945,36 @@ export async function archivePlanImpl(
   const srcSpikeDir = path.join(path.dirname(planFilePath), input.planId, 'spike-reports');
   const dstSpikeDir = path.join(mainRepo, 'ref', 'plans', input.planId, 'spike-reports');
   let spikeReportsArchived: { srcPath: string; dstPath: string } | null = null;
-  if (await deps.exists(srcSpikeDir)) {
+  // CHANGELOG_169 F8 [MED]: srcSpikeDir == dstSpikeDir 边界 guard(reviewer-claude finding)。
+  // plan_file_path 已在 `<main-repo>/ref/plans/<plan-id>.md` 时(典型本项目 30+ stub plan 场景),
+  // path.dirname(planFilePath) === `<main-repo>/ref/plans` → srcSpikeDir 与 dstSpikeDir 完全相等。
+  // 老 impl 走 mv same → no-op + rmdir parent 非空 fail swallow,但 spikeReportsArchived 仍设
+  // non-null 误导 caller 以为归档了。修法:加 path.resolve 比较 guard,相等 skip + 保 null 语义。
+  // 复用 step 12 (line 902) 同款 path.resolve guard 模式。
+  if (
+    (await deps.exists(srcSpikeDir)) &&
+    path.resolve(srcSpikeDir) !== path.resolve(dstSpikeDir)
+  ) {
     try {
       // mkdir parent dir (`<main-repo>/ref/plans/<plan-id>/`) for dstSpikeDir
       await deps.mkdir(path.dirname(dstSpikeDir));
       await deps.mvDir(srcSpikeDir, dstSpikeDir);
       spikeReportsArchived = { srcPath: srcSpikeDir, dstPath: dstSpikeDir };
       // 顺手清空 `<plan-artifact-dir>/` 空目录 (mv 后空目录残留)
-      // 用 try/catch 防止其他子目录残留时 rmdir fail (best-effort,不阻塞)
+      //
+      // CHANGELOG_169 F7 [MED] 修法 (reviewer-claude finding): rmdir 失败时 push 到 warnings
+      // 让 caller 知情(不再 swallow)。典型场景:plan-artifact-dir 含 sibling artifacts(runner.mjs /
+      // case-A.log 等不在 spike-reports/ 子目录的 plan-side 文件) → rmdir 因目录非空 fail →
+      // 老 impl 静默 swallow 让 caller 误以为归档完整,实际 sibling 残留在原 worktree 父目录。
+      const planArtifactDir = path.join(path.dirname(planFilePath), input.planId);
       try {
-        const fs2 = await import('node:fs/promises');
-        await fs2.rmdir(path.join(path.dirname(planFilePath), input.planId));
-      } catch {
-        /* 父目录非空或不存在,best-effort no-op */
+        await deps.rmdir(planArtifactDir);
+      } catch (e) {
+        warnings.push(
+          `spike-reports parent dir not empty after mv: rmdir "${planArtifactDir}" failed (${(e as Error).message}). ` +
+            `Sibling artifacts (e.g. runner.mjs / case-A.log not in spike-reports/) remain in source dir, NOT included in archive commit. ` +
+            `Manually inspect with \`ls "${planArtifactDir}"\` and either move siblings into ref/plans/<plan-id>/ to include in archive, or delete them.`,
+        );
       }
     } catch (e) {
       // mv 失败 (典型 EXDEV 跨 fs / perm denied) → warning + 不阻塞 ok return
@@ -1184,6 +1113,29 @@ export async function archivePlanImpl(
     );
   }
 
+  // CHANGELOG_169 F10 [MED] 修法 (reviewer-claude finding): marker release 从 step 14b 后挪到
+  // step 13 commit + step 13c rev-parse 都成功之后(即 archive 本质完成后,step 14 worktree
+  // remove / branch -D 仅是 git artifacts 清理)。
+  //
+  // 修前 marker release 排在 step 14b branch -D 之后,step 14a/14b 失败时 marker 残留;但 plan
+  // 已 commit + INDEX 更新 + frontmatter status=completed → caller 不能重试 archive_plan
+  // (step 5 plan status check 撞 already completed reject),marker 残留对**本 plan_id** 无
+  // 功能影响,但若 caller session 后续再调 archive_plan 跑别的 plan_id,step 4 4-state cwd
+  // dispatch 时这个 stale marker 会指向已不存在的 worktree → 走 4-state 分流 (d) 路径 reject。
+  //
+  // 修后:archive 本质完成 → 立即 release marker;step 14 worktree remove/branch -D 失败时
+  // marker 已清,caller 重新跑别 plan 不撞 stale marker bug。release 失败仅 warn 不阻塞 ok
+  // return(archive 已成功,marker 残留属轻微 leak)。
+  if (releaseMarkerOnSuccess) {
+    try {
+      await deps.clearCwdReleaseMarker();
+    } catch (e) {
+      warnings.push(
+        `archive succeeded but clearCwdReleaseMarker failed: ${(e as Error).message}. Caller may need to manually clear via exit_worktree or session close.`,
+      );
+    }
+  }
+
   // 14. git worktree remove + branch -D
   try {
     await deps.runGit(['worktree', 'remove', input.worktreePath], mainRepo);
@@ -1202,20 +1154,6 @@ export async function archivePlanImpl(
       e as Error,
       'Branch may already be deleted. Worktree was already removed; commit + merge already done.',
     );
-  }
-
-  // P5 Round 1 reviewer-codex HIGH-1 修法 (release marker on archive success):
-  // 4 态分流 step 4 决定 releaseMarkerOnSuccess flag 后,archive 完整跑完所有 git/fs 步骤再 release。
-  // archive 中途任一步失败 (postFfMergeErr / runGit throw) 都已通过 return 短路,marker 保留让 caller
-  // 修复后可重试。release 失败仅 warn 不阻塞 ok return（archive 已成功,marker 残留属轻微 leak）。
-  if (releaseMarkerOnSuccess) {
-    try {
-      await deps.clearCwdReleaseMarker();
-    } catch (e) {
-      warnings.push(
-        `archive succeeded but clearCwdReleaseMarker failed: ${(e as Error).message}. Caller may need to manually clear via exit_worktree or session close.`,
-      );
-    }
   }
 
   return {
@@ -1245,171 +1183,26 @@ function stripFrontmatter(text: string): string {
   return text.slice(m[0].length);
 }
 
-/**
- * archive-plan-tool-ux-followup-20260515 (c) HIGH-5 (claude HIGH-5 / codex LOW-2 共识):
- * markdown table cell escape — frontmatter description / changelog 列含 `|` 或换行会破表 (列被切错
- * / 多行 row)。写入 INDEX 表前必经此 escape。
- */
-export function escapeTableCell(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
-}
+// ===========================================================================
+// CHANGELOG_169 F1 Step 1.3: INDEX sync helpers 抽到 archive-plan/index-sync-helpers.ts。
+// 本文件保持 re-export 让 test 文件直接 import 这些函数的 path 零改动。
+// ===========================================================================
+export {
+  escapeTableCell,
+  formatChangelogCell,
+  syncPlansIndex,
+} from './archive-plan/index-sync-helpers';
+export type {
+  PlansIndexAction,
+  SyncPlansIndexOptions,
+  SyncPlansIndexResult,
+} from './archive-plan/index-sync-helpers';
+import {
+  escapeTableCell,
+  formatChangelogCell,
+  syncPlansIndex,
+} from './archive-plan/index-sync-helpers';
 
-/**
- * archive-plan-tool-ux-followup-20260515 (b) LOW-1 (codex) / claude MED-5: caller 传 changelog_id
- * (string + csv 解析,schema 已 regex 守门 `^\d+(,\d+)*$`) → 拼成 markdown link 单值或 ` / ` 分隔多值。
- * - "122" → "[122](../changelogs/CHANGELOG_122.md)"
- * - "121,122" → "[121](../changelogs/CHANGELOG_121.md) / [122](../changelogs/CHANGELOG_122.md)"
- * - undefined / 空串 → null (caller 不传,smart update 时按 fallback 处理)
- *
- * markdown link 不需 escape (`(` `)` `[` `]` 是 markdown link 语法本身,但 `|` 会破表 — link
- * url/text 都是纯数字 + 斜杠 + 下划线无 pipe,安全)。
- */
-export function formatChangelogCell(changelogId: string | undefined): string | null {
-  if (!changelogId) return null;
-  const ids = changelogId
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (ids.length === 0) return null;
-  return ids.map((id) => `[${id}](../changelogs/CHANGELOG_${id}.md)`).join(' / ');
-}
-
-/**
- * archive-plan-tool-ux-followup-20260515 (b)+(c) syncPlansIndex helper(双方 reviewer 共识 HIGH:
- * INDEX 行 smart update 不能 naive split,必须行级匹配锚定行首)。
- *
- * **行为契约**:
- * - existingContent === null → action='created':写带 4 列 header 的初始 INDEX(`| 文件 | 状态 |
- *   关联 changelog | 概要 |`) + 第一行 4 列 row
- * - existingContent 已含 plan_id 行(行首 `^| [<plan_id>.md](`)→ action='updated':canonical
- *   rewrite 该行为 4 列(status='completed' / changelog 列按规则 / description 列覆盖);完全相同 →
- *   action='unchanged'(caller 端可跳过 writeFile)
- * - existingContent 不含 plan_id 行 → action='appended':append 一行 4 列 row 到 INDEX 末尾
- *
- * **caller 不传 changelog_id 时(opts.changelogCell === null)**:smart update 已存在 4 列 row 时
- * 保留原 changelog 列(避免清空已有);旧 2 列 row 或新 append 用 `—` placeholder。
- *
- * **行级 regex 锚定行首 `^| [<plan_id>.md](`** 而非 `indexContent.includes('(${planId}.md)')` —
- * 后者会撞 description / changelog 列含同款 substring 误命中(罕见但可能,如 description 引用其他
- * plan link)。锚定行首 + 文件链接前缀语法保证只匹配 row 第一列。
- */
-export type PlansIndexAction = 'created' | 'appended' | 'updated' | 'unchanged';
-export interface SyncPlansIndexOptions {
-  planId: string;
-  /** 已 escape + slice 200 char 的 description,直接写 INDEX 第 4 列。 */
-  description: string;
-  /**
-   * caller 传 changelog_id 时拼成的 markdown link string (formatChangelogCell 输出);
-   * caller 不传时 null,smart update 时保留老 4 列 changelog 列 / append 时用 `—` placeholder。
-   */
-  changelogCell: string | null;
-}
-export interface SyncPlansIndexResult {
-  newContent: string;
-  action: PlansIndexAction;
-}
-
-export function syncPlansIndex(
-  existingContent: string | null,
-  opts: SyncPlansIndexOptions,
-): SyncPlansIndexResult {
-  const { planId, description, changelogCell } = opts;
-  const fileLink = `[${planId}.md](${planId}.md)`;
-  // regex 锚定行首 + 文件链接前缀:`^| [<plan_id>.md](` 转义 plan_id 中 regex 特殊字符
-  // (按 schema plan_id charset `[A-Za-z0-9._-]` 含 `.`)
-  const escapedPlanId = planId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const planLineRegex = new RegExp(`^\\| \\[${escapedPlanId}\\.md\\]\\(`);
-
-  // case 1: 不存在 INDEX → 创建 4 列 header + 4 列 row
-  if (existingContent === null) {
-    const initial =
-      '# Plans 索引\n\n' +
-      '> 已归档 plan 一行表（archive_plan tool 自动维护)。\n\n' +
-      '| 文件 | 状态 | 关联 changelog | 概要 |\n' +
-      '|------|------|---------------|------|\n' +
-      `| ${fileLink} | completed | ${changelogCell ?? '—'} | ${description} |\n`;
-    return { newContent: initial, action: 'created' };
-  }
-
-  // archive-plan-tool-ux-followup-20260515 R1 fix codex MED-1:旧 2 列 header
-  // (`| 文件 | 概要 |` + `|---|---|`)在 (b)+(c) 升级为 4 列 row 后会与 row 错位
-  // (4 列 row 挂 2 列 header 下,markdown 渲染破损)。修法:syncPlansIndex 在 case 2 /
-  // case 3 路径前先 detect + canonicalize 升级 header,让 archive_plan 自动平滑迁移
-  // 老 INDEX 而非要求 caller 手工 fix。upgrade 自身 idempotent(第二次跑无 2 列
-  // header 检测不到即 no-op)。
-  const headerUpgrade = upgradeIndexHeader(existingContent);
-  const workingContent = headerUpgrade.content;
-
-  const lines = workingContent.split('\n');
-  const targetIdx = lines.findIndex((line) => planLineRegex.test(line));
-
-  // case 2: 已含 plan_id 行 → smart update canonical rewrite 4 列
-  if (targetIdx >= 0) {
-    // parse 老行用 split('|') 拿 cells;`split('|')` 第一段空(行首 `|`)+ 中间 cells + 末尾空
-    // (行尾 `|`)。slice(1, -1) 拿 cells 部分,trim 去 padding。caller 不传 changelog_id 时
-    // 用老 4 列的第 3 列(index 2)作 fallback。
-    //
-    // **invariant**(R1 fix codex MED-3 / claude MED-4):**只用 oldCols[2] 作 changelog
-    // fallback,严禁扩展用 oldCols[3+]**(后续列若含 escaped `\|` 会被 naive split 误切;
-    // 当前 impl 仅读 oldCols[2]=changelog 列在 description 之前,不受 description escape
-    // 影响,故安全)。任何未来扩展涉及 oldCols[3+] 必须先实现 escape-aware splitter。
-    const oldCols = lines[targetIdx]
-      .split('|')
-      .slice(1, -1)
-      .map((c) => c.trim());
-    let newChangelog: string;
-    if (changelogCell !== null) {
-      newChangelog = changelogCell;
-    } else if (oldCols.length >= 3 && oldCols[2]) {
-      // 老 4 列 row: oldCols = [fileLink, status, changelog, description, ...]
-      newChangelog = oldCols[2];
-    } else {
-      newChangelog = '—';
-    }
-    const newLine = `| ${fileLink} | completed | ${newChangelog} | ${description} |`;
-    if (lines[targetIdx] === newLine && !headerUpgrade.upgraded) {
-      // unchanged 仅当 row 自身相同 AND header 未升级两者都满足
-      return { newContent: existingContent, action: 'unchanged' };
-    }
-    lines[targetIdx] = newLine;
-    return { newContent: lines.join('\n'), action: 'updated' };
-  }
-
-  // case 3: 不含 plan_id 行 → append 4 列 row(若 header 已升级,workingContent 反映新 header)
-  const appendLine = `| ${fileLink} | completed | ${changelogCell ?? '—'} | ${description} |`;
-  const sep = workingContent.endsWith('\n') ? '' : '\n';
-  return { newContent: workingContent + sep + appendLine + '\n', action: 'appended' };
-}
-
-/**
- * archive-plan-tool-ux-followup-20260515 R1 fix codex MED-1:detect 老 2 列 header
- * `| 文件 | 概要 |` + 紧接 separator `|---|---|`(或类似 2 列 separator)→ 替换为 4 列
- * canonical header `| 文件 | 状态 | 关联 changelog | 概要 |` + `|------|------|---------------|------|`。
- *
- * 保守 detect:必须 header 行只含「文件 / 概要」两列(允许 padding)+ 紧跟 2 列 separator
- * (避免误改用户自定义 header / 多列 header)。idempotent:已是 4 列 header 时 detect 不到 2 列
- * 模式即 no-op。
- *
- * 仅扫描首个匹配的 header(避免一份 INDEX 含多个 table 的极端 case 全部被改 — 不太合理)。
- *
- * **invariant(R2 codex LOW-1)**:本 helper 假设 INDEX **单 table**(本应用约定 ref/plans/INDEX.md
- * 单一表格);多 table INDEX 边角下 target row 可能在第 2+ table,而本 helper 只升级首 table
- * header → 出现 4 列 row 挂 2 列 header。本应用不建议多 table INDEX 模式;后续如要支持需要
- * 「按 target row 找最近上方 table header」精细化升级。
- */
-function upgradeIndexHeader(content: string): { content: string; upgraded: boolean } {
-  const lines = content.split('\n');
-  for (let i = 0; i < lines.length - 1; i++) {
-    const headerMatch = lines[i].match(/^\|\s*文件\s*\|\s*概要\s*\|\s*$/);
-    const sepMatch = lines[i + 1].match(/^\|[-:\s]+\|[-:\s]+\|\s*$/);
-    if (headerMatch && sepMatch) {
-      lines[i] = '| 文件 | 状态 | 关联 changelog | 概要 |';
-      lines[i + 1] = '|------|------|---------------|------|';
-      return { content: lines.join('\n'), upgraded: true };
-    }
-  }
-  return { content, upgraded: false };
-}
 
 /**
  * REVIEW_33 H9：post-ff-merge 阶段标识。一旦 ff-merge 成功（step 7 后），main HEAD

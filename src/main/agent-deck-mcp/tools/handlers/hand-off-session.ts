@@ -5,6 +5,21 @@
  * CHANGELOG_99 双模式改造：plan_id 变 optional，无 plan_id 时走 generic 模式;
  * CHANGELOG_109 R37 P2-M Step 3.5 抽 baton-cleanup.ts 共享 ~80 行模板）。
  *
+ * **CHANGELOG_169 F1 §保护清单（不动文件 / file-size-guardrail.md SOP §3）**：
+ * 本文件 1249 LOC（>500 行护栏）但故意不拆,理由:
+ * - handler 主体是 1 大 function（line 270-1249）含 phase 1.5 adopt loop（740-949 / 闭包
+ *   10+ 变量）+ task 三态分流块（1000-1164 / 闭包 7+ 变量），抽 sub-module 需打包 10+ args
+ *   dict 反而降可读性；test 文件直接 mock handler 而非 sub-module，tier-2 directorize 会让
+ *   test seam 重写成本巨大
+ * - tier-1 抽法已尽：业务逻辑已抽到 hand-off-session-impl.ts（357 行 / plan resolve +
+ *   frontmatter parse + status 校验 + cold-start prompt 构造）+ baton-cleanup.ts（~80 行 /
+ *   cleanup 模板）。本 handler 是 spawn + adopt + task reassign + archive 编排层,跨 phase
+ *   闭包共享 spawnData / phase15Detail / callerOwnedTeamIdsBeforeReassign 等核心状态
+ * - tier-3 拆 class 不适用（本文件零 class state）
+ * - 阈值调整属约定升级走「决策对抗」三态裁决,不在本批 fix 范围
+ *
+ * 下次拆分轮直接跳过本文件;若有 design 重大变更必须重新评估再拆。
+ *
  * 薄 wrapper：deny external caller + validateExternalCaller + 调 handOffSessionImpl
  * 拿 resolved 上下文（planFilePath / worktreePath / coldStartPrompt） + 组装 spawn_session
  * args + 调 spawnSessionHandler 完成实际 spawn + **归档 caller** + 包 K2 metadata + spawn 字段透传。
@@ -392,15 +407,34 @@ export const handOffSessionHandler = withMcpGuard(
         resolved.worktreePath.startsWith(
           resolved.mainRepo.endsWith('/') ? resolved.mainRepo : resolved.mainRepo + '/',
         );
-      if (finalCwd === resolved.worktreePath || !isInternalWorktree) {
+      // CHANGELOG_169 F3 [MED]: finalCwd 必须在 mainRepo subtree 才走 graceful warn 路径。
+      // reviewer-codex finding: 之前条件只 reject `finalCwd === worktreePath || !isInternalWorktree`,
+      // caller 显式传 args.cwd=/tmp / cwd=other-repo 但 isInternalWorktree=true 时被静默放行,
+      // 新 session 落到错 cwd 后 cold-start enter_worktree 会撞 ENOENT 或落错 repo。修法:加
+      // finalCwdInMainRepo 校验 — finalCwd === mainRepo 或 finalCwd 在 mainRepo subtree 内才走 warn,
+      // 否则 hard reject。
+      const finalCwdInMainRepo =
+        resolved.mainRepo !== null &&
+        finalCwd !== undefined &&
+        (finalCwd === resolved.mainRepo ||
+          finalCwd.startsWith(
+            resolved.mainRepo.endsWith('/') ? resolved.mainRepo : resolved.mainRepo + '/',
+          ));
+      if (finalCwd === resolved.worktreePath || !isInternalWorktree || !finalCwdInMainRepo) {
+        const reason =
+          finalCwd === resolved.worktreePath
+            ? 'Caller explicit cwd or external worktree default puts new session in this missing path → ENOENT inevitable.'
+            : !isInternalWorktree
+              ? 'External worktree (not in mainRepo subtree) cannot self-recover via cold-start enter_worktree (parent dir also missing).'
+              : `Caller cwd "${finalCwd}" is not in mainRepo "${resolved.mainRepo}" subtree → cold-start enter_worktree cannot resolve mainRepo from caller cwd, will fail.`;
         return err(
           `plan frontmatter worktree_path does not exist on disk: ${resolved.worktreePath}`,
           `worktree may have been archived (\`archive_plan\` removed it) / cross-device synced without working tree / manually removed. ` +
-            `${finalCwd === resolved.worktreePath ? 'Caller explicit cwd or external worktree default puts new session in this missing path → ENOENT inevitable.' : 'External worktree (not in mainRepo subtree) cannot self-recover via cold-start enter_worktree (parent dir also missing).'} ` +
+            `${reason} ` +
             `To resume, recreate worktree (\`git worktree add ${resolved.worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktree_path to a valid path.`,
         );
       }
-      // 此处: 约定 worktree (mainRepo subtree) + finalCwd === mainRepo 路径 → 让 cold-start 自建。
+      // 此处: 约定 worktree (mainRepo subtree) + finalCwd 在 mainRepo subtree → 让 cold-start 自建。
       // 新 session 按 user CLAUDE.md §Step 3 cold-start 协议读 plan 后会调 enter_worktree
       // (mcp tool) 自建 worktree, 详 tools/index.ts:249-251 tool description。
       console.warn(
@@ -1120,17 +1154,40 @@ export const handOffSessionHandler = withMcpGuard(
 
         // **preserve-team safety 比对差集**(reassign 成功后,用之前 snapshot 的 callerOwnedTeamIds
         // 与 newSidActiveTeamIds 算差集)。
+        //
+        // **CHANGELOG_169 F5 修法**(reviewer-codex MED finding):用 repo 查询验证 newSpawnedSid
+        // 对每个 callerOwnedTeamId 是否真 active member,替代信任 spawnData.teamId 字段。spawn
+        // handler addMember 失败时(罕见 TeamInvariantError / DB 异常)只 console.warn 不置 null
+        // teamId,导致 spawnData.teamId 仍非 null 但 newSid 实际不是 active member → 老 impl 会
+        // 把这种「ghost 字段」当作已入队事实压掉 warning,task 已转给 newSid 但写权限 reject。
         let policyWarning: 'preserve-team-unadopted-teams' | undefined;
         let unadoptedTeamIds: string[] | undefined;
         if (taskPolicy === 'preserve-team' && callerOwnedTeamIdsBeforeReassign.length > 0) {
-          // newSidActiveTeamIds:
+          // newSidActiveTeamIds 双源:
           // - phase15Detail.adoptedTeamIds: swapLead 成功接管 caller-as-lead teams（Round 4 HIGH-1
-          //   集中 push 自 processSwappedTeam helper,L727 + firstTeam/rest loop 全覆盖）
-          // - spawnData.teamId: args.team_name 显式让 newSid 进的 team uuid（无 args.team_name 时为 null）
-          const newSidActiveTeamIds = new Set<string>([
-            ...phase15Detail.adoptedTeamIds,
-            ...(spawnData.teamId ? [spawnData.teamId] : []),
-          ]);
+          //   集中 push 自 processSwappedTeam helper,L727 + firstTeam/rest loop 全覆盖)
+          // - **CHANGELOG_169 F5**: 不再信任 spawnData.teamId;改用 findActiveMembershipIn 实测
+          //   newSpawnedSid 对每个 caller-owned team 的真 active membership(spawn addMember 失败
+          //   不算 active member,自然不进 set)
+          const newSidActiveTeamIds = new Set<string>(phase15Detail.adoptedTeamIds);
+          for (const teamId of callerOwnedTeamIdsBeforeReassign) {
+            if (newSidActiveTeamIds.has(teamId)) continue;
+            try {
+              const membership = agentDeckTeamRepo.findActiveMembershipIn(
+                teamId,
+                newSpawnedSid,
+              );
+              if (membership !== null) {
+                newSidActiveTeamIds.add(teamId);
+              }
+            } catch (e) {
+              // DB 异常 fail-safe:不加进 active set 让差集把该 teamId push 进 unadopted warning
+              console.warn(
+                `[mcp hand_off_session] preserve-team safety: findActiveMembershipIn(${teamId}, ${newSpawnedSid}) threw — treating as not-active-member`,
+                e,
+              );
+            }
+          }
           const diff = callerOwnedTeamIdsBeforeReassign.filter(
             (t) => !newSidActiveTeamIds.has(t),
           );

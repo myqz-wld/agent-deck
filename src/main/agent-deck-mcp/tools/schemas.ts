@@ -11,6 +11,16 @@
  *
  * 字段命名约定：tool args **snake_case**（与 task-manager 既有约定一致），
  * handler 内部消费时再映射 camelCase（不在 schema 层映射，避免 zod 推导出错）。
+ *
+ * **CHANGELOG_169 F1 §保护清单（不动文件 / file-size-guardrail.md SOP §3）**：
+ * 本文件 1215 LOC（>500 行护栏）但故意不拆,理由:
+ * - 70%+ 是 tool description 字符串(SDK system prompt 注入的契约文档),tier-2 directorize
+ *   拆 15 个文件会让 tool description 散在 15 文件难统一对齐 handler + import 复杂度大幅增
+ * - tier-1 抽法收益小:zod SHAPE / ARGS_SCHEMA 是配对定义,抽 result types 只能省 ~70 行
+ * - tier-3 拆 class 不适用(本文件零 class state)
+ * - 阈值调整属约定升级走「决策对抗」三态裁决,不在本批 fix 范围
+ *
+ * 下次拆分轮直接跳过本文件;若有 design 重大变更必须重新评估再拆。
  */
 
 import { z } from 'zod';
@@ -444,7 +454,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .boolean()
     .optional()
     .describe(
-      'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archive_caller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。`archive_caller: false` 与其他 opt-out 字段(若未来新增)互相独立。',
+      'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archive_caller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。**CHANGELOG_169 F4 修法 (reviewer-codex MED finding)**:`archive_caller: false` 时 phase 1 也跳过 shutdown teammates(标 skipped="archive-caller-false-keep")— caller 仍 active 当 lead 时 teammates 也保留 alive,与「caller 仍可看 reviewer reply」语义一致。`archive_caller: false` 与其他 opt-out 字段(若未来新增)互相独立。',
     ),
   // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D1 + D11 v8 + N2.b + N2.c):
   // baton 单向交接默认会让原 teammate 与新 session 失去共享 active team(send_message 撞
@@ -697,11 +707,15 @@ type TeammatesShutdownInfo = {
   // REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3): 加 'phase-1-error' 第五态,
   // 区分 caller layer `runBatonCleanup` 内 helper 自身抛错的兜底(罕见 DB 异常 / mock 失败) vs
   // 正常处理 null(caller=lead 但无其他 active teammate)。
+  // CHANGELOG_169 F4 修法 (reviewer-codex MED finding): 加 'archive-caller-false-keep' 第六态,
+  // hand_off_session caller 显式 archive_caller=false 时 phase 1 也跳过 shutdown teammates
+  // 让 caller 继续观察 reviewer reply(对应 schema 文案承诺)。
   skipped:
     | 'caller-not-lead'
     | 'all-lead-teams-archived'
     | 'adopt-keep-implicit'
     | 'phase-1-error'
+    | 'archive-caller-false-keep'
     | null;
 };
 

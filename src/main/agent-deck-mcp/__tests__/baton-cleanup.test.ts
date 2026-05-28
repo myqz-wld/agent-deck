@@ -385,9 +385,10 @@ describe('runBatonCleanup', () => {
   });
 
   // hand-off-mcp-archive-opt-20260515: caller 显式传 archive_caller=false → phase 2 跳过 + archived='skipped'。
-  // 与 case 1 external sentinel 同款 'skipped' 值,但来源不同(case 1 = 防御短路,本 case = 显式 caller 意图);
-  // 关键差异:case 1 phase 1 也短路(skipped='caller-not-lead'),本 case phase 1 仍正常跑。
-  it('case 11: archiveCaller=false → phase 2 跳过 + archived=skipped + 不调 getFn/archiveFn(phase 1 仍跑)', async () => {
+  // CHANGELOG_169 F4 修法 (reviewer-codex MED finding): archive_caller=false 时 phase 1 也跳过
+  // shutdown teammates 让 caller 继续观察 reviewer reply。skipped='archive-caller-false-keep' 第六态
+  // 与 'caller-not-lead' / 'adopt-keep-implicit' 区分语义来源。
+  it('case 11: archiveCaller=false → phase 2 跳过 + phase 1 也跳过(F4 修法) + archived=skipped + skipped=archive-caller-false-keep', async () => {
     const shutdownFn = vi.fn(async (_sid: string) =>
       ({ closed: ['team-A'], failed: [], skipped: null } as ShutdownTeammatesResult),
     );
@@ -404,12 +405,11 @@ describe('runBatonCleanup', () => {
     );
 
     expect(result).toEqual({
-      teammatesShutdown: { closed: ['team-A'], failed: [], skipped: null },
+      teammatesShutdown: { closed: [], failed: [], skipped: 'archive-caller-false-keep' },
       archived: 'skipped',
     });
-    // phase 1 仍正常跑(phase 1 已不支持 opt-out — plan hand-off-session-adopt-teammates-20260520
-    // Phase 3 删 baton-cleanup teammate-shutdown 入参字段)
-    expect(shutdownFn).toHaveBeenCalledTimes(1);
+    // F4: phase 1 跳过 — shutdownFn 不调
+    expect(shutdownFn).not.toHaveBeenCalled();
     // 关键:phase 2 完全短路 — getFn / archiveFn 都不调
     expect(getFn).not.toHaveBeenCalled();
     expect(archiveFn).not.toHaveBeenCalled();

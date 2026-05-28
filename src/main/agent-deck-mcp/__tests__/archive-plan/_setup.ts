@@ -196,6 +196,19 @@ export function makeDeps(
         throw new Error(`ENOENT: mock mvDir src "${src}" empty (no files matched)`);
       }
     },
+    /**
+     * CHANGELOG_169 F7: rmdir 走 deps,test 注入 in-memory 实现。检查 state.files Map 内有
+     * 没有任何以 `${dirPath}/` 为前缀的 entry（即父目录非空)；非空抛 ENOTEMPTY；空则 no-op
+     * (默认 happy path 测试父目录在 mv 完后真就空了)。
+     */
+    rmdir: async (dirPath: string) => {
+      for (const k of state.files.keys()) {
+        if (k.startsWith(`${dirPath}/`)) {
+          throw new Error(`ENOTEMPTY: mock rmdir "${dirPath}" non-empty (sibling: ${k})`);
+        }
+      }
+      // 空目录 mock no-op(真 fs 会真删,但 mock 内 state.files 不存「空目录条目」,无需操作)
+    },
     exists: async (p) => state.files.has(p),
     realpath: async (p) => state.realpathMap.get(p) ?? p,
     cwd: () => state.fakeCwd,

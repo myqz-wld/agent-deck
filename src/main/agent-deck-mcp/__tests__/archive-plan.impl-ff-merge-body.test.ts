@@ -74,7 +74,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     // archive-rev-parse-HEAD 拿 archiveCommit)
     const baseDeps = makeDeps(state, [
       `${expectedMainRepo}/.git`, // 1. rev-parse --git-common-dir
-      'worktree-mcp-bug-fix', // 2. rev-parse --abbrev-ref HEAD
+      'worktree-mcp-bug-fix-20260513', // 2. rev-parse --abbrev-ref HEAD
       '', // 3. status --porcelain (clean)
       'mainhash', // 4. rev-parse --verify main (REVIEW_33 H1)
       '', // 5. checkout main (REVIEW_33 H1)
@@ -141,7 +141,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     // ff-merge 对 plan 文件是 no-op → fresh re-read 拿到的还是 stub)
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',
@@ -179,7 +179,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
 
     const baseDeps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',
@@ -217,7 +217,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
 
     const baseDeps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',
@@ -273,7 +273,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
 
     const baseDeps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',
@@ -347,7 +347,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
 
     const baseDeps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
-      'worktree-mcp-bug-fix',
+      'worktree-mcp-bug-fix-20260513',
       '',
       'mainhash',
       '',

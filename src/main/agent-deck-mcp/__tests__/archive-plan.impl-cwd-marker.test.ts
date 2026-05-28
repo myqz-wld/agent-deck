@@ -70,7 +70,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git', // rev-parse --git-common-dir
-        'worktree-mcp-bug-fix',  // rev-parse --abbrev-ref HEAD
+        'worktree-mcp-bug-fix-20260513',  // rev-parse --abbrev-ref HEAD
         '',                       // status --porcelain clean
         'mainhash',               // rev-parse --verify baseBranch
         '',                       // checkout baseBranch
@@ -98,7 +98,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git', // rev-parse --git-common-dir
-        'worktree-mcp-bug-fix',  // rev-parse --abbrev-ref HEAD
+        'worktree-mcp-bug-fix-20260513',  // rev-parse --abbrev-ref HEAD
         '',                       // status --porcelain clean
         'mainhash',               // rev-parse --verify baseBranch
         '',                       // checkout baseBranch
@@ -126,7 +126,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git', // rev-parse --git-common-dir
-        'worktree-mcp-bug-fix',  // rev-parse --abbrev-ref HEAD
+        'worktree-mcp-bug-fix-20260513',  // rev-parse --abbrev-ref HEAD
         '',                       // status --porcelain clean，预检通过到 cwd 检查
       ],
       null, // marker=null
@@ -150,7 +150,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git', // rev-parse --git-common-dir
-        'worktree-mcp-bug-fix',  // rev-parse --abbrev-ref HEAD
+        'worktree-mcp-bug-fix-20260513',  // rev-parse --abbrev-ref HEAD
         '',                       // status --porcelain clean，预检通过到 cwd 检查
       ],
       wrongMarker, // marker != worktreePath
@@ -183,7 +183,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git',
-        'worktree-mcp-bug-fix',
+        'worktree-mcp-bug-fix-20260513',
         '',
         'mainhash',
         '',
@@ -225,7 +225,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git',
-        'worktree-mcp-bug-fix',
+        'worktree-mcp-bug-fix-20260513',
         '',
         'mainhash',
         '',
@@ -263,7 +263,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git',
-        'worktree-mcp-bug-fix',
+        'worktree-mcp-bug-fix-20260513',
         '',
       ],
       null,
@@ -299,7 +299,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git',
-        'worktree-mcp-bug-fix',
+        'worktree-mcp-bug-fix-20260513',
         '',
       ],
       wrongMarker,
@@ -328,7 +328,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git',
-        'worktree-mcp-bug-fix',
+        'worktree-mcp-bug-fix-20260513',
         '',
         'mainhash',
         '',
@@ -367,7 +367,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
       state,
       [
         '/Users/test/repo/.git',
-        'worktree-mcp-bug-fix',
+        'worktree-mcp-bug-fix-20260513',
         '',
         'mainhash',
         '',

@@ -1123,10 +1123,12 @@ describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_ca
     expect(data.archived).toBe('skipped');
     // 关键: archive 未被调 (archive_caller=false 短路 phase 2)
     expect(mockArchive).not.toHaveBeenCalled();
-    // phase 1 仍正常跑 (plan hand-off-session-adopt-teammates-20260520 Phase 3 删 phase 1
-    // opt-out 字段,archive_caller=false 不再影响 phase 1)
-    expect(mockShutdown).toHaveBeenCalledTimes(1);
-    expect(data.teammatesShutdown.closed).toEqual(['teammate-X']);
+    // **CHANGELOG_169 F4 修法**(reviewer-codex MED finding): archive_caller=false 时 phase 1 也跳过
+    // shutdown teammates 让 caller 继续观察 reviewer reply。修前 phase 1 仍跑(shutdown teammates),
+    // 修后 phase 1 跳过(teammates 保留 alive),反映 schema 文案承诺。
+    expect(mockShutdown).not.toHaveBeenCalled();
+    expect(data.teammatesShutdown.closed).toEqual([]);
+    expect(data.teammatesShutdown.skipped).toBe('archive-caller-false-keep');
     // K2 metadata 仍齐全(spawn 成功,baton 成功 — 仅 caller 没 archive)
     expect(data.sessionId).toBe('new-sid');
     expect(data.planId).toBe('archive-opt-out');

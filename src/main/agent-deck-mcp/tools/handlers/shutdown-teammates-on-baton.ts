@@ -51,12 +51,19 @@ export interface ShutdownTeammatesResult {
    *   与 caller layer `null` (正常处理含 closed=[] caller=lead 但无其他 active teammate) 显式
    *   区分,便于 UX 与监控分辨「helper 真错」vs「正常无 teammate」。注意本 helper 自身**不会**
    *   返 'phase-1-error' (此值由 baton-cleanup.ts caller layer catch block 写入兜底 result)
+   * - 'archive-caller-false-keep': **CHANGELOG_169 F4 修法**(reviewer-codex MED finding):
+   *   hand_off_session caller 显式传 archive_caller=false 时 phase 1 也跳过 shutdown
+   *   teammates(schema 文案承诺「caller 仍可看 reviewer reply」的隐含语义要求 teammates
+   *   也保留 alive,不然 caller 看到的是已关闭的 reviewer)。**与 'adopt-keep-implicit' 区分**:
+   *   adopt-keep-implicit 是新 session 接管 teammate 当 lead;archive-caller-false-keep 是
+   *   原 caller 仍是 lead 继续观察 teammate reply。
    * - null: helper 正常处理完（含「caller 是 lead 但 team 内无其他 active teammate」的 closed=[] case）
    */
   skipped:
     | 'caller-not-lead'
     | 'all-lead-teams-archived'
     | 'adopt-keep-implicit'
+    | 'archive-caller-false-keep'
     | 'phase-1-error'
     | null;
 }
