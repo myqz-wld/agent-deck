@@ -56,6 +56,15 @@ export const appendIssueContextHandler = withMcpGuard(
           'issue 已 resolved，新现场请 create 新 issue（resolved issue 不接受 append — UI 端可手工改 status 回 in-progress 让 issue 重新可 append）。',
         );
       }
+      // 与 resolved-reject 对称：软删（用户已在 UI 隐藏）的 issue 也不接受 append。继续 append
+      // 只会写进一条用户已删除、列表默认不可见的 issue，语义矛盾。恢复后再 append 或 report_issue
+      // 重新上报。
+      if (issue.deletedAt !== null) {
+        return err(
+          `append rejected: issue ${args.issueId} 已软删`,
+          'issue 已被用户删除（隐藏）。请用 report_issue 重新上报新 issue；或 UI 端先恢复该 issue 再 append。',
+        );
+      }
       // §D16 append 子表 + §D17 logsRef merge（当 args.logsRef 非 null/undefined 时）。
       // repo.appendContext 内部已实现 merge 算法 + 返回 getWithAppendices 含 appendices 子列表。
       const updated = issueRepo.appendContext({
