@@ -13,6 +13,7 @@
  * - images.ts            ImageLoadBlob + 双白名单 + TOCTOU 防护
  * - teams.ts             SummarizerLastErrors + Team* + TeamPermission*
  * - assets.ts            Assets* (bundled + user agents/skills 管理，CHANGELOG_57)
+ * - logs.ts              Logs* (Settings LogsSection 后端 — Plan runtime-logging §D9 §Step 3.2.5)
  */
 import { registerWindowAppIpc } from './window-app';
 import { registerSessionsIpc } from './sessions';
@@ -23,6 +24,7 @@ import { registerPermissionsIpc } from './permissions';
 import { registerImagesIpc } from './images';
 import { registerTeamsIpc } from './teams';
 import { registerAssetsIpc } from './assets';
+import { registerLogsIpc } from './logs';
 
 export function bootstrapIpc(): void {
   registerWindowAppIpc();
@@ -34,4 +36,5 @@ export function bootstrapIpc(): void {
   registerImagesIpc();
   registerTeamsIpc();
   registerAssetsIpc();
+  registerLogsIpc();
 }

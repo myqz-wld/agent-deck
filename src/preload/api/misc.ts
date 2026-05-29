@@ -180,4 +180,21 @@ export const miscApi = {
    */
   summarizerLastErrors: (): Promise<Record<string, { message: string; ts: number }>> =>
     ipcRenderer.invoke(IpcInvoke.SummarizerLastErrors),
+
+  // ─── Runtime Logging (Plan runtime-logging-electron-log-20260529 §D9 §Step 3.2.3) ───
+  /** Settings LogsSection 「打开日志目录」 — main 端调 shell.openPath(app.getPath('logs')). */
+  logsOpenDirectory: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IpcInvoke.LogsOpenDirectory),
+  /**
+   * Settings LogsSection 「在 Finder 中显示当前日志」 — main 端调 shell.showItemInFolder
+   * 选中今天 main-YYYY-MM-DD.log; 文件不存在 fallback 退化为 openPath LOG_DIR (UI 透明无感).
+   */
+  logsShowCurrentInFinder: (): Promise<{ ok: boolean; fallback?: boolean; error?: string }> =>
+    ipcRenderer.invoke(IpcInvoke.LogsShowCurrentInFinder),
+  /**
+   * Settings LogsSection 「清空今天日志」 — main 端 fs.truncate 当天 log 文件; 文件不存在返
+   * `{ ok: true, existed: false }` 让 UI 弹「今天还没有日志可清空」toast.
+   */
+  logsTruncateToday: (): Promise<{ ok: boolean; existed: boolean; error?: string }> =>
+    ipcRenderer.invoke(IpcInvoke.LogsTruncateToday),
 };
