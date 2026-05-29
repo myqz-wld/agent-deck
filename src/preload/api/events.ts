@@ -14,6 +14,7 @@
 import { IpcEvent } from '@shared/ipc-channels';
 import type {
   AgentEvent,
+  IssueChangedEvent,
   SessionRecord,
   SummaryRecord,
   TaskChangedEvent,
@@ -39,6 +40,14 @@ export const eventsApi = {
    */
   onTaskChanged: (cb: (e: TaskChangedEvent) => void): (() => void) =>
     subscribe<TaskChangedEvent>(IpcEvent.TaskChanged, cb),
+  /**
+   * Issue Tracker (plan issue-tracker-mcp-20260529 §Step 3.4.5)：订阅 issues 写操作
+   * (created/updated/appended/softDeleted/undeleted/hardDeleted) after-commit 推送。
+   * renderer use-event-bridge.ts 订阅推 issues-store reducer（Step 3.4.6 接 / store 在 Step 3.8.5
+   * 建）让 Issues tab list / detail 实时更新（与 onTaskChanged 同模式）。
+   */
+  onIssueChanged: (cb: (e: IssueChangedEvent) => void): (() => void) =>
+    subscribe<IssueChangedEvent>(IpcEvent.IssueChanged, cb),
   onPinToggled: (cb: (pinned: boolean) => void): (() => void) =>
     subscribe<boolean>(IpcEvent.PinToggled, cb),
   onTransparentToggled: (cb: (transparent: boolean) => void): (() => void) =>
