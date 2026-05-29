@@ -8,6 +8,7 @@ import { NewSessionDialog } from './components/NewSessionDialog';
 import { AssetsLibraryDialog } from './components/AssetsLibraryDialog';
 import { PendingTab } from './components/PendingTab';
 import { TeamHub } from './components/TeamHub';
+import { IssuesPanel } from './components/IssuesPanel';
 import { useSessionStore } from './stores/session-store';
 import { useEventBridge } from './hooks/use-event-bridge';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
@@ -16,7 +17,7 @@ import type { AppSettings, SessionRecord } from '@shared/types';
 
 registerBuiltinDiffRenderers();
 
-type View = 'live' | 'history' | 'pending' | 'teams';
+type View = 'live' | 'history' | 'pending' | 'teams' | 'issues';
 
 export function App(): JSX.Element {
   useEventBridge();
@@ -279,6 +280,16 @@ export function App(): JSX.Element {
             >
               团队
             </TabButton>
+            <TabButton
+              active={view === 'issues'}
+              onClick={() => {
+                setView('issues');
+                // 与 teams / pending 同模式：切到 issues tab 时清 selectedSessionId
+                select(null);
+              }}
+            >
+              问题
+            </TabButton>
             <Divider />
             <IconButton
               title={pinned ? '取消置顶' : '置顶'}
@@ -329,6 +340,8 @@ export function App(): JSX.Element {
                 select(sid);
               }}
             />
+          ) : view === 'issues' ? (
+            <IssuesPanel />
           ) : (
             <HistoryPanel onSelect={(id) => void onHistorySelect(id)} />
           )}
