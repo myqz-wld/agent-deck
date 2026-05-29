@@ -13,6 +13,7 @@
  * - images.ts            ImageLoadBlob + 双白名单 + TOCTOU 防护
  * - teams.ts             SummarizerLastErrors + Team* + TeamPermission*
  * - assets.ts            Assets* (bundled + user agents/skills 管理，CHANGELOG_57)
+ * - issues.ts            Issues* (plan issue-tracker-mcp-20260529 §Step 3.5)
  */
 import { registerWindowAppIpc } from './window-app';
 import { registerSessionsIpc } from './sessions';
@@ -23,6 +24,7 @@ import { registerPermissionsIpc } from './permissions';
 import { registerImagesIpc } from './images';
 import { registerTeamsIpc } from './teams';
 import { registerAssetsIpc } from './assets';
+import { registerIssuesIpc } from './issues';
 
 export function bootstrapIpc(): void {
   registerWindowAppIpc();
@@ -34,4 +36,5 @@ export function bootstrapIpc(): void {
   registerImagesIpc();
   registerTeamsIpc();
   registerAssetsIpc();
+  registerIssuesIpc();
 }

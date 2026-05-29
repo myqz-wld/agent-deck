@@ -18,6 +18,7 @@ import { adaptersApi } from './api/adapters';
 import { teamsApi } from './api/teams';
 import { miscApi } from './api/misc';
 import { eventsApi } from './api/events';
+import { issuesApi } from './api/issues';
 
 const api = {
   ...sessionsApi,
@@ -25,6 +26,7 @@ const api = {
   ...teamsApi,
   ...miscApi,
   ...eventsApi,
+  ...issuesApi,
 };
 
 if (process.contextIsolated) {
