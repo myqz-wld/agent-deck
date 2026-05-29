@@ -1,6 +1,9 @@
 import type { FileChangeRecord } from '@shared/types';
 import { getDb } from './db';
 import { safeStringifyPayload, safeTruncateBlob } from './payload-truncate';
+import log from '@main/utils/logger';
+
+const logger = log.scope('store-file-change-repo');
 
 interface Row {
   id: number;
@@ -22,7 +25,7 @@ function rowToRecord(r: Row): FileChangeRecord {
   try {
     metadata = JSON.parse(r.metadata_json) as Record<string, unknown>;
   } catch (err) {
-    console.warn(
+    logger.warn(
       `[file-change-repo] metadata_json parse failed for id=${r.id} session=${r.session_id}:`,
       err,
     );

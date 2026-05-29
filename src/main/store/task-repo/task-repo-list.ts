@@ -20,6 +20,9 @@
 import type { Database } from 'better-sqlite3';
 import type { TaskRecord } from '@shared/types';
 import { type Row, type TaskListOptions, rowToRecord } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('task-repo-list');
 
 export interface TaskListOps {
   list(opts?: TaskListOptions): TaskRecord[];
@@ -56,7 +59,7 @@ export function createList(db: Database): TaskListOps {
         params.push(callerSid);
       } else if (teamIds.length > 500) {
         // F2 同款 SQLite IN 999 上限防御 — caller 同 active team 数 > 500 极端病态场景
-        console.warn(
+        logger.warn(
           `[task-repo] listTasks: visibleScope.teamIds 长度 ${teamIds.length} 超 SQLite IN 上限 500,` +
             `返回空集 graceful degrade;caller 应清理历史 dormant teams 或 task-list handler 拆批。`,
         );
@@ -79,7 +82,7 @@ export function createList(db: Database): TaskListOps {
         }
         // F2 fix (deep-review-changelog146-20260524 R1 claude MED) — 详见原版本注释,沿用
         if (opts.ownerSessionIds.length > 500) {
-          console.warn(
+          logger.warn(
             `[task-repo] listTasks: ownerSessionIds 长度 ${opts.ownerSessionIds.length} 超 SQLite IN 上限 500,` +
               `返回空集 graceful degrade;caller 应清理历史 dormant session 或拆批查询。`,
           );

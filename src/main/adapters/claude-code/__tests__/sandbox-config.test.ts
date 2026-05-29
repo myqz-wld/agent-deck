@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import log from 'electron-log/main';
