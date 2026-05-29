@@ -4,7 +4,7 @@
 
 [plan `deep-project-review-comprehensive-20260528`](../plans/deep-project-review-comprehensive-20260528.md) Phase 3+4+5+6 总收口归档（Phase 2 单独归档详 [CHANGELOG_174.md](CHANGELOG_174.md)）。**C 维 plantUML 通俗化** 17 张图重写 + INDEX 概要列重写为 ≤ 80 字白话；**A 维 13 个 >500 行非测试源文件 facade pattern 拆分** 11 step 全过单文件 ≤ 500 LOC 护栏；**D 维架构合理性 review** ([REVIEW_63.md](../reviews/REVIEW_63.md)) 报告 spike1 §A1 候选 7 HIGH + 1 MED 全部 100% Phase 4 已落地（Step 5.2 重构 = 0 work）；**Phase 6 经验沉淀** Phase 4 facade pattern 6 项经验 + Phase 5 facade 自身 LOC 监控 + R2 INFO 修法「fix 后表格 / 描述文字必同步」+ deep-review SKILL 双方共识收口路径写入 `resources/claude-config/CLAUDE.md` 新增 2 节 + §单文件大小护栏 节补 facade 自身 LOC 监控。
 
-**净改动**：95 文件 +12131 / -9738 = +2393 LOC delta（含 Phase 3 puml 17 张重写 + Phase 4 11 大文件拆 ~50 子模块 + Phase 5 REVIEW_63 408 LOC + Phase 6 经验沉淀 +33 LOC）。Phase 4 LOC trade-off +27.8% 是 readability tax，0 runtime overhead（详 REVIEW_63 §E1）。
+**净改动**：90 文件 +12223 / -9734 = +2489 LOC delta（基线 Phase 2 收口 commit `9d55c64` 到 Phase 6 Step 6.1+6.3 baseline `a022a26`，含 Phase 3 puml 17 张重写 + Phase 4 11 大文件拆 ~50 子模块 + Phase 5 REVIEW_63 317 LOC + Phase 6 经验沉淀 +33 LOC）。Phase 4 内部 LOC trade-off +27.8% 是 readability tax（11 大文件 9821 → 12552 LOC），0 runtime overhead（详 REVIEW_63 §E1）。
 
 **不变量守约**：mcp tool description 注入 SDK system prompt 的文案 byte-identical（未触碰 `src/main/agent-deck-mcp/tools/schemas.ts`）/ 运行时行为不变（无 user-facing 行为变化）/ facade barrel re-export byte-identical 生产代码 caller import path 0 改动 / 测试 import path 0 改动 / 0 runtime circular dep ✓ / 0 ≥ 500 LOC 子模块 ✓。
 
@@ -51,13 +51,13 @@
 
 | Step | 文件 | baseline LOC | facade LOC | 子模块数 | commit |
 |---|---|---|---|---|---|
-| 4.1 | hand-off-session.ts | 1306 | 40 | 4 (_deps + cwd-resolver + team-adopt-coordinator + task-reassign-coordinator + handler-main) | `f152289` |
+| 4.1 | hand-off-session.ts | 1306 | 40 | 5 (_deps + cwd-resolver + handler-main + task-reassign-coordinator + team-adopt-coordinator) | `f152289` |
 | 4.2 | archive-plan-impl.ts | 1281 | 195 | 5 (_impl-shared + impl-precheck + impl-ff-merge + impl-archive-fs + impl-cleanup) | `8969654` |
 | 4.3 | codex sdk-bridge index.ts + recoverer.ts | 874+597 | 499+159 | index 5 + recoverer 3 | `23cb39b` |
 | 4.4 | claude sdk-bridge index.ts + recoverer.ts | 840+670 | 467+211 | index 3 + recoverer 3 | `a21f258` |
-| 4.5 | task-repo.ts | 721 | factory + 4 子模块 | 4 | `8d3589a` |
+| 4.5 | task-repo.ts | 721 | 116 | 5 (_deps + task-repo-crud + task-repo-delete + task-repo-handoff + task-repo-list) | `8d3589a` |
 | 4.6 | session/manager.ts | 686 | 443 | 3 (_deps + lifecycle + rename) | `7cbfbba` |
-| 4.7 | window.ts | 623 | facade + 4 子模块 + _deps | 5 | `223e59d` |
+| 4.7 | window.ts | 623 | 100 | 5 (_deps + lifecycle + pin-visual + polish + sizing) | `223e59d` |
 | 4.8 | main/index.ts | 594 | 74 | 3 (_deps + bootstrap-infra + bootstrap-wiring + lifecycle-hooks) | `4457a2d` |
 | 4.9 | adapters/types.ts | 558 | 21 | 4 (adapter-context + create-session-opts + capabilities + agent-adapter) | `e18da65` |
 | 4.10 | shared/types/settings.ts | 544 | 31 | 3 (app-settings + defaults + permission-scan) | `ee4cf3b` |
@@ -79,9 +79,9 @@
 
 #### Step 5.1: D 维架构合理性 review 报告（commit `156d2ed`）
 
-- 写 [`ref/reviews/REVIEW_63.md`](../reviews/REVIEW_63.md) 408 LOC + 同步 [`ref/reviews/INDEX.md`](../reviews/INDEX.md) 加 REVIEW_63 行
+- 写 [`ref/reviews/REVIEW_63.md`](../reviews/REVIEW_63.md) 317 LOC + 同步 [`ref/reviews/INDEX.md`](../reviews/INDEX.md) 加 REVIEW_63 行
 - **A 节**: spike1 §A1 列出的 **7 HIGH + 1 MED candidate 全部 ✅ 100% Phase 4 已落地**（manager / hand-off-session / archive-plan / 双 sdk-bridge createSession + recoverer / main/index bootstrap god-function 8 处）→ **Step 5.2 重构 = 0 work**
-- **B 节 Phase 5.1 新发现 finding**：HIGH = 0 / MED = 0 / LOW = 3 / INFO = 5 / 临界文件监控 4（无紧急行动），全留 follow-up plan
+- **B 节 Phase 5.1 新发现 finding**：HIGH = 0 / MED = 0 / LOW = 3 / INFO = 5 / 临界文件监控 7 (含 3 facade 自身 + 4 sub-module)，全留 follow-up plan
 - **Phase 4 实施经验 E1-E6** inform Phase 6 经验沉淀
 
 #### Step 5.2: HIGH 重构 = 0 work（spike1 §A1 候选已全 Phase 4 落地）
@@ -97,7 +97,7 @@
 #### Step 6.1: 通用工程经验沉淀到 `resources/claude-config/CLAUDE.md`
 
 - §单文件大小护栏 节补 **facade 自身 LOC 必计** 1 段
-- 新增 **§大文件拆分实战经验（facade pattern）** 节：facade pattern 定义 / 4 种 ROI 排序表（D pure type +52 / A factory +176 / B class +339 / C free fn +305）/ LOC trade-off 接受现实 / facade barrel re-export byte-identical invariant / mini-spike + user 1-min confirm 3 题 / 不预先抽 _shared/ 大坨
+- 新增 **§大文件拆分实战经验（facade pattern）** 节：facade pattern 定义 / 4 种 ROI 排序表（D pure type +52 / A factory +176 / C free fn +305 / B class +339，按 LOC 增量低增量=高 ROI）/ LOC trade-off 接受现实 / facade barrel re-export byte-identical invariant / mini-spike + user 1-min confirm 3 题 / 不预先抽 _shared/ 大坨
 - 新增 **§多轮 Deep-Review 收口经验** 节：双方共识收口判定 / 反驳轮自纠 mental model / fix 后表格 / 描述文字必同步
 - 净 +33 LOC (CLAUDE.md 726 → 759)
 - 强制按 user CLAUDE.md §提示词资产维护 5 条硬约束 + 5 步自检（约束 1-5 grep verify 全 0 命中违规）
