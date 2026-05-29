@@ -1,3 +1,9 @@
+// Plan runtime-logging-electron-log-20260529 §D5 + §D8 + §Step 3.0.4: 第一行 import
+// logger.ts, 让 Object.assign(console, log.functions) 守门生效 — renderer 端 console.*
+// 经 IPC bridge 落进同一份 main-YYYY-MM-DD.log。logger.ts §不变量 8 仅依赖 electron-log/
+// renderer + vite env, 不依赖业务模块, 安全可顶部第一行。
+import './utils/logger';
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
