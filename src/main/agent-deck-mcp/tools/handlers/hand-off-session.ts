@@ -9,7 +9,7 @@
  * - hand-off-session/_deps.ts：共享 HandOffSessionHandlerDeps 接口（避免 facade ↔ handler-main
  *   类型循环）
  * - hand-off-session/cwd-resolver.ts：caller cwd 反查 + mergeCallerCwd + planModeDefaultCwd /
- *   worktreeExists 决策 / extra_allow_write 推导
+ *   worktreeExists 决策 / extraAllowWrite 推导
  * - hand-off-session/team-adopt-coordinator.ts：N2.c 互斥校验 + N5 fail-fast + adoptedSnapshot
  *   装配 + cold-start prompt prepend + phase 1.5 swapLead loop + processSwappedTeam helper
  * - hand-off-session/task-reassign-coordinator.ts：task ownership 三态分流（skip /
@@ -25,10 +25,10 @@
  *
  * 2. **CHANGELOG_97 baton 语义**：plan 接力的本质是「caller 把 baton 单向交出，新 session
  *    独立接手，原 caller 退出」，**不是**「派出小弟干活，原 caller 当 lead 持续监督」。
- *    default 不传 team_name 给 spawn / default 自动归档 caller。adopt_teammates: true 时
+ *    default 不传 teamName 给 spawn / default 自动归档 caller。adoptTeammates: true 时
  *    走独立 phase 1.5 adopt 路径接管 teammate（详 team-adopt-coordinator.ts jsdoc）。
  *
- * 3. **CHANGELOG_99 双模式**：plan_id 可选 — 传则走 plan-driven 模式（读 plan frontmatter +
+ * 3. **CHANGELOG_99 双模式**：planId 可选 — 传则走 plan-driven 模式（读 plan frontmatter +
  *    cold-start prompt）；不传则走 generic 模式（caller 自行装配 prompt + cwd）。
  *
  * 4. **业务行为分层**：plan resolve / frontmatter parse / cold-start prompt 构造在

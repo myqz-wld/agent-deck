@@ -52,8 +52,8 @@ function deny(error: string, hint?: string): GuardDenial {
  * **plan handoff-no-spawn-guards-20260526 §D4 / §D6 (handOffMode 升级 batonMode)**：
  * `opts.handOffMode = true` 时**三道全跳**(depth + fan-out + spawn-rate)+ **不进 in-flight
  * 计数表**(inFlightChildren.inc 也跳)。hand-off 是平级接力(用户原话「都是平级的」+
- * 「不进行任何和 spawn session 有关的检查」),`archive_caller=false × N` 滥用风险由
- * power-user 自负责任(详 §D3 + §D4)。故意推翻 REVIEW_46/47 当年的「archive_caller=false
+ * 「不进行任何和 spawn session 有关的检查」),`archiveCaller=false × N` 滥用风险由
+ * power-user 自负责任(详 §D3 + §D4)。故意推翻 REVIEW_46/47 当年的「archiveCaller=false
  * 退化 normal spawn」修法。
  *
  * **historical 名词**: `handOffMode` 历史上叫 `batonMode`(CHANGELOG_98 / REVIEW_39/46/47/48);

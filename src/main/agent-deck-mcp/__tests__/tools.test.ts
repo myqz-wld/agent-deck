@@ -5,7 +5,7 @@
  * sessionManager / adapterRegistry 替换为内存 stub，验证：
  *
  * - external caller（__external__）对 spawn / send / shutdown 自动 deny
- * - in-process closure 强制覆盖 args.caller_session_id（验证防 prompt 注入）
+ * - in-process closure 强制覆盖 args.callerSessionId（验证防 prompt 注入）
  * - HTTP/stdio caller 反查 sessionManager 不存在 / 已 closed 时 deny
  * - shutdown_session(self) deny
  * - send_message 目标 session closed 时 deny
@@ -14,7 +14,7 @@
  *
  * 完整防递归 3 条规则（depth / fan-out / spawn-rate）的单测放 spawn-guards.test.ts。
  * CHANGELOG_100：删 wait_reply / reply_message / check_reply 三 tool 后，wait-reply-coordinator
- * 文件已删（无对应 backfill 测试）。所有 reply 现在走 send_message + reply_to_message_id。
+ * 文件已删（无对应 backfill 测试）。所有 reply 现在走 send_message + replyToMessageId。
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -115,7 +115,7 @@ const sendMessageCalls: Array<{ sid: string; text: string }> = [];
 
 // D1 (CHANGELOG_76): spy createSession opts 让 test 能断言 prompt 是否被 body 前缀注入。
 // R1 reviewer-codex INFO 修法 (handoff-render-and-image-batch-20260521):扩 spy 捕获
-// `handOff` 字段,让 hand_off plumbing 透传到 adapter.createSession opts.handOff 有回归断言守门
+// `handOff` 字段,让 handOff plumbing 透传到 adapter.createSession opts.handOff 有回归断言守门
 // (覆盖 R3 曾经漏掉的 adapter facade → bridge 链路)。
 const createSessionCalls: Array<{
   adapter: string;
@@ -370,7 +370,7 @@ vi.mock('@main/teams/universal-message-watcher', () => ({
   },
 }));
 
-// D1 (CHANGELOG_76 / plan deep-review-flow-fix): spawn_session 加 agent_name 时 handler
+// D1 (CHANGELOG_76 / plan deep-review-flow-fix): spawn_session 加 agentName 时 handler
 // 调 getBundledAssetContent 拼 body 到 prompt 头部。mock 提供 reviewer-claude 假 body，
 // 其他 name 返回失败（模拟「找不到」）。
 //
@@ -478,7 +478,7 @@ describe('agent-deck-mcp tools — external caller deny', () => {
       adapter: 'claude-code',
       cwd: '/tmp',
       prompt: 'hello',
-      caller_session_id: '__external__',
+      callerSessionId: '__external__',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -489,8 +489,8 @@ describe('agent-deck-mcp tools — external caller deny', () => {
     const tools = await getTools({ transport: 'stdio' });
     seedSession('lead-1');
     const r = await tools.get('list_sessions').handler({
-      caller_session_id: '__external__',
-      status_filter: 'active',
+      callerSessionId: '__external__',
+      statusFilter: 'active',
       limit: 50,
     }, {});
     const parsed = parseResult(r);
@@ -501,8 +501,8 @@ describe('agent-deck-mcp tools — external caller deny', () => {
   it('shutdown_session denies __external__ caller', async () => {
     const tools = await getTools({ transport: 'stdio' });
     const r = await tools.get('shutdown_session').handler({
-      session_id: 'target',
-      caller_session_id: '__external__',
+      sessionId: 'target',
+      callerSessionId: '__external__',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -510,32 +510,32 @@ describe('agent-deck-mcp tools — external caller deny', () => {
 });
 
 describe('agent-deck-mcp tools — caller validation (HTTP/stdio)', () => {
-  it('rejects unknown caller_session_id', async () => {
+  it('rejects unknown callerSessionId', async () => {
     const tools = await getTools({ transport: 'http' });
     const r = await tools.get('list_sessions').handler({
-      caller_session_id: 'nonexistent-sid',
-      status_filter: 'active',
+      callerSessionId: 'nonexistent-sid',
+      statusFilter: 'active',
       limit: 50,
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/unknown caller_session_id/);
+    expect(parsed.data.error).toMatch(/unknown callerSessionId/);
   });
 
-  it('rejects closed caller_session_id', async () => {
+  it('rejects closed callerSessionId', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('closed-lead', { lifecycle: 'closed' });
     const r = await tools.get('send_message').handler({
-      session_id: 'whatever',
+      sessionId: 'whatever',
       text: 'hi',
-      caller_session_id: 'closed-lead',
+      callerSessionId: 'closed-lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/is closed/);
   });
 
-  it('in-process closure overrides args.caller_session_id (anti-injection)', async () => {
+  it('in-process closure overrides args.callerSessionId (anti-injection)', async () => {
     const realCaller = 'real-lead';
     seedSession(realCaller);
     const tools = await getTools({
@@ -543,10 +543,10 @@ describe('agent-deck-mcp tools — caller validation (HTTP/stdio)', () => {
       callerSessionIdOverride: () => realCaller,
     });
     seedSession('target');
-    // LLM 试图伪造 caller_session_id 为 fake-id；in-process 应该静默用真实 closure id
+    // LLM 试图伪造 callerSessionId 为 fake-id；in-process 应该静默用真实 closure id
     const r = await tools.get('shutdown_session').handler({
-      session_id: 'target',
-      caller_session_id: 'fake-id',
+      sessionId: 'target',
+      callerSessionId: 'fake-id',
     }, {});
     const parsed = parseResult(r);
     // 不应该报「unknown caller」（因为 closure 注入了 real-lead），应该走完正常路径成功 close
@@ -567,7 +567,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'reviewer teammate prompt',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -584,7 +584,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo/sub',
       prompt: 'isolated task',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -601,21 +601,21 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli', // 不同 adapter
       cwd: '/repo',
       prompt: 'reviewer-codex agent body',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
   });
 
-  it('records team membership when team_name provided', async () => {
+  it('records team membership when teamName provided', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'codex-cli',
       cwd: '/repo',
       prompt: 'p',
-      team_name: 'review-team',
-      caller_session_id: 'lead',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -633,8 +633,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli',
       cwd: '/repo',
       prompt: 'review src/foo.ts',
-      team_name: 'review-team',
-      caller_session_id: 'lead',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -664,34 +664,34 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(markedDelivered).toEqual([spawnId]);
   });
 
-  it('Phase B7: spawn without team_name skips wire prefix injection (no placeholder)', async () => {
+  it('Phase B7: spawn without teamName skips wire prefix injection (no placeholder)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'codex-cli',
       cwd: '/repo',
       prompt: 'standalone task',
-      // 不传 team_name → 不创建 placeholder + 不注入 prefix
-      caller_session_id: 'lead',
+      // 不传 teamName → 不创建 placeholder + 不注入 prefix
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(parsed.data.spawnPromptMessageId).toBeNull();
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].prompt).toBe('standalone task');  // 原样，无 prefix
-    expect(insertedMessages).toEqual([]);  // 无 team_name 不入 placeholder
+    expect(insertedMessages).toEqual([]);  // 无 teamName 不入 placeholder
   });
 
-  it('Phase B7 / CHANGELOG_100: spawn with agent_name + team_name → wire prefix [from][msg][sid] on top of injected agent body', async () => {
+  it('Phase B7 / CHANGELOG_100: spawn with agentName + teamName → wire prefix [from][msg][sid] on top of injected agent body', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'task body: review src/foo.ts',
-      agent_name: 'reviewer-claude',
-      team_name: 'review-team',
-      caller_session_id: 'lead',
+      agentName: 'reviewer-claude',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -721,7 +721,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli',
       cwd: '/elsewhere',
       prompt: 'p',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -729,16 +729,16 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     getSpy.mockRestore();
   });
 
-  // D1 (CHANGELOG_76 / plan deep-review-flow-fix): agent_name 自动注入 plugin agent body
-  it('agent_name auto-prepends plugin agent body to prompt', async () => {
+  // D1 (CHANGELOG_76 / plan deep-review-flow-fix): agentName 自动注入 plugin agent body
+  it('agentName auto-prepends plugin agent body to prompt', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'task body: review src/foo.ts',
-      agent_name: 'reviewer-claude',
-      caller_session_id: 'lead',
+      agentName: 'reviewer-claude',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -751,15 +751,15 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(bodyIdx).toBeLessThan(idx);
   });
 
-  it('agent_name unresolved → returns err (no fallback to bare prompt)', async () => {
+  it('agentName unresolved → returns err (no fallback to bare prompt)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'task body',
-      agent_name: 'nonexistent-agent',
-      caller_session_id: 'lead',
+      agentName: 'nonexistent-agent',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -768,14 +768,14 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls).toHaveLength(0);
   });
 
-  it('agent_name omitted → prompt unchanged (backward compatible)', async () => {
+  it('agentName omitted → prompt unchanged (backward compatible)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'plain prompt without body',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -784,9 +784,9 @@ describe('agent-deck-mcp tools — spawn_session', () => {
   });
 
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 + R1 reviewer-codex INFO 修法:
-  // hand_off plumbing 透传到 adapter.createSession opts.handOff 的回归断言(覆盖 spawn handler →
+  // handOff plumbing 透传到 adapter.createSession opts.handOff 的回归断言(覆盖 spawn handler →
   // buildCreateSessionOptions → adapter narrow → facade → bridge 链路)。
-  it('hand_off plumbing: claude-code adapter receives handOff metadata via createSession opts', async () => {
+  it('handOff plumbing: claude-code adapter receives handOff metadata via createSession opts', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const handOffMeta: HandOffMetadata = {
@@ -800,8 +800,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'cold-start prompt',
-      caller_session_id: 'lead',
-      hand_off: handOffMeta,
+      callerSessionId: 'lead',
+      handOff: handOffMeta,
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -809,7 +809,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].handOff).toEqual(handOffMeta);
   });
 
-  it('hand_off plumbing: codex-cli adapter receives handOff metadata via createSession opts', async () => {
+  it('handOff plumbing: codex-cli adapter receives handOff metadata via createSession opts', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const handOffMeta: HandOffMetadata = {
@@ -823,8 +823,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli',
       cwd: '/repo',
       prompt: 'cold-start prompt',
-      caller_session_id: 'lead',
-      hand_off: handOffMeta,
+      callerSessionId: 'lead',
+      handOff: handOffMeta,
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -832,14 +832,14 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].handOff).toEqual(handOffMeta);
   });
 
-  it('hand_off plumbing: caller not passing hand_off → adapter receives handOff=undefined', async () => {
+  it('handOff plumbing: caller not passing handOff → adapter receives handOff=undefined', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/repo',
-      prompt: 'plain spawn without hand_off',
-      caller_session_id: 'lead',
+      prompt: 'plain spawn without handOff',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -859,9 +859,9 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'task body',
-      agent_name: 'reviewer-claude',
-      team_name: 'review-team',
-      caller_session_id: 'lead',
+      agentName: 'reviewer-claude',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -873,41 +873,41 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(insertedMessages[0].body).toContain('# REVIEWER-CLAUDE BODY (mocked)');
   });
 
-  // REVIEW_31 Bug 4：teammate display name fallback 链 = display_name > agent_name > 不动。
-  it('Bug 4: display_name overrides agent_name for both session.title and team_member.display_name', async () => {
+  // REVIEW_31 Bug 4：teammate display name fallback 链 = displayName > agentName > 不动。
+  it('Bug 4: displayName overrides agentName for both session.title and team_member.displayName', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'task body',
-      agent_name: 'reviewer-claude',
-      display_name: 'reviewer-claude · batch A',
-      team_name: 'review-team',
-      caller_session_id: 'lead',
+      agentName: 'reviewer-claude',
+      displayName: 'reviewer-claude · batch A',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     const newSid = parsed.data.sessionId;
-    // session.title 走 display_name（覆盖默认 cwd-basename）
+    // session.title 走 displayName（覆盖默认 cwd-basename）
     expect(setTitleCalls).toContainEqual({ id: newSid, title: 'reviewer-claude · batch A' });
-    // team_member.displayName 同步走 display_name；lead 仍 displayName=null（lead 无 fallback 链）
+    // team_member.displayName 同步走 displayName；lead 仍 displayName=null（lead 无 fallback 链）
     const teammateAdd = addMemberCalls.find((c) => c.sessionId === newSid && c.role === 'teammate');
     expect(teammateAdd?.displayName).toBe('reviewer-claude · batch A');
     const leadAdd = addMemberCalls.find((c) => c.sessionId === 'lead' && c.role === 'lead');
     expect(leadAdd?.displayName).toBeNull();
   });
 
-  it('Bug 4: agent_name fallback when display_name omitted', async () => {
+  it('Bug 4: agentName fallback when displayName omitted', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'task body',
-      agent_name: 'reviewer-claude',
-      team_name: 'review-team',
-      caller_session_id: 'lead',
+      agentName: 'reviewer-claude',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -917,20 +917,20 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(teammateAdd?.displayName).toBe('reviewer-claude');
   });
 
-  it('Bug 4: no display_name + no agent_name → setTitle skipped (default cwd-basename preserved)', async () => {
+  it('Bug 4: no displayName + no agentName → setTitle skipped (default cwd-basename preserved)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'naked spawn',
-      team_name: 'review-team',
-      caller_session_id: 'lead',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     const newSid = parsed.data.sessionId;
-    // 无 display_name / agent_name → 不调 setTitle，保留默认 title
+    // 无 displayName / agentName → 不调 setTitle，保留默认 title
     expect(setTitleCalls.find((c) => c.id === newSid)).toBeUndefined();
     const teammateAdd = addMemberCalls.find((c) => c.sessionId === newSid && c.role === 'teammate');
     expect(teammateAdd?.displayName).toBeNull();
@@ -954,8 +954,8 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         adapter: 'claude-code',
         cwd: '/repo',
         prompt: 'task body',
-        team_name: 'review-team',
-        caller_session_id: 'lead',
+        teamName: 'review-team',
+        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       // opts 缺省 → batonRole 默认 'teammate'
@@ -979,8 +979,8 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         adapter: 'claude-code',
         cwd: '/repo',
         prompt: 'baton task body',
-        team_name: 'review-team',
-        caller_session_id: 'lead',
+        teamName: 'review-team',
+        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       { handOffMode: true, batonRole: 'lead' },
@@ -995,9 +995,9 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
     const leadAdd = addMemberCalls.find((c) => c.sessionId === 'lead');
     expect(leadAdd?.role).toBe('lead');
     // plan handoff-no-spawn-guards-20260526 §D1/§D6 (改名 batonMode → handOffMode 后仍 valid):
-    // 守门 handOffMode=true + 显式 team_name 组合下也跳 setSpawnLink。防未来 refactor
-    // 误把 team_name 加进短路条件（如 `if (callerExists && !args.team_name && !opts?.handOffMode)`）
-    // 让显式 team_name hand-off 退化回 bug。
+    // 守门 handOffMode=true + 显式 teamName 组合下也跳 setSpawnLink。防未来 refactor
+    // 误把 teamName 加进短路条件（如 `if (callerExists && !args.teamName && !opts?.handOffMode)`）
+    // 让显式 teamName hand-off 退化回 bug。
     expect(setSpawnLinkCalls.find((c) => c.id === newSid)).toBeUndefined();
   });
 
@@ -1010,8 +1010,8 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         adapter: 'claude-code',
         cwd: '/repo',
         prompt: 'task body',
-        team_name: 'review-team',
-        caller_session_id: 'lead',
+        teamName: 'review-team',
+        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       { handOffMode: true, batonRole: 'teammate' },
@@ -1036,8 +1036,8 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         adapter: 'claude-code',
         cwd: '/repo',
         prompt: 'hand-off task body',
-        // 不传 team_name，模拟真实 hand_off_session default 路径
-        caller_session_id: 'lead',
+        // 不传 teamName，模拟真实 hand_off_session default 路径
+        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       { handOffMode: true, batonRole: 'lead' },
@@ -1064,7 +1064,7 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         adapter: 'claude-code',
         cwd: '/repo',
         prompt: 'hand-off from reviewer at spawnDepth=2',
-        caller_session_id: 'reviewer',
+        callerSessionId: 'reviewer',
       },
       { caller: { callerSessionId: 'reviewer', transport: 'in-process' } },
       { handOffMode: true, batonRole: 'lead' },
@@ -1090,8 +1090,8 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         adapter: 'claude-code',
         cwd: '/repo',
         prompt: 'reviewer task body',
-        team_name: 'review-team',
-        caller_session_id: 'lead',
+        teamName: 'review-team',
+        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       // opts 缺省 → handOffMode 默认 false，普通 spawn 路径不变
@@ -1113,9 +1113,9 @@ describe('agent-deck-mcp tools — send_message', () => {
     seedSession('teammate', { agentId: 'claude-code' });
     setSharedTeams('lead', 'teammate', ['team-X']);
     const r = await tools.get('send_message').handler({
-      session_id: 'teammate',
+      sessionId: 'teammate',
       text: 'work please',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1130,9 +1130,9 @@ describe('agent-deck-mcp tools — send_message', () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     const r = await tools.get('send_message').handler({
-      session_id: 'ghost',
+      sessionId: 'ghost',
       text: 'hi',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -1144,9 +1144,9 @@ describe('agent-deck-mcp tools — send_message', () => {
     seedSession('lead');
     seedSession('teammate', { lifecycle: 'closed' });
     const r = await tools.get('send_message').handler({
-      session_id: 'teammate',
+      sessionId: 'teammate',
       text: 'hi',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -1159,47 +1159,47 @@ describe('agent-deck-mcp tools — send_message', () => {
     seedSession('teammate', { agentId: 'claude-code' });
     // 不调 setSharedTeams → 默认 zero
     const r = await tools.get('send_message').handler({
-      session_id: 'teammate',
+      sessionId: 'teammate',
       text: 'hi',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/no-shared-team/);
   });
 
-  it('rejects ambiguous-team when sharing >=2 teams without team_id', async () => {
+  it('rejects ambiguous-team when sharing >=2 teams without teamId', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     seedSession('teammate', { agentId: 'claude-code' });
     setSharedTeams('lead', 'teammate', ['team-X', 'team-Y']);
     const r = await tools.get('send_message').handler({
-      session_id: 'teammate',
+      sessionId: 'teammate',
       text: 'hi',
-      caller_session_id: 'lead',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/ambiguous-team/);
   });
 
-  // CHANGELOG_100 R2 fix (claude MED-1 + codex LOW-2 双方共识)：reply_to_message_id 核心防御
-  // 测试覆盖。删 wait_reply describe (含 mockMessages.set 的 reply_to_message_id fixture) 后，
+  // CHANGELOG_100 R2 fix (claude MED-1 + codex LOW-2 双方共识)：replyToMessageId 核心防御
+  // 测试覆盖。删 wait_reply describe (含 mockMessages.set 的 replyToMessageId fixture) 后，
   // send.ts:91-105 的 reject path 必须由 send_message describe 自己覆盖。
-  it('rejects reply_to_message_id pointing to non-existent message', async () => {
+  it('rejects replyToMessageId pointing to non-existent message', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     seedSession('teammate', { agentId: 'claude-code' });
     setSharedTeams('lead', 'teammate', ['team-X']);
     const r = await tools.get('send_message').handler({
-      session_id: 'teammate',
+      sessionId: 'teammate',
       text: 'reply text',
-      reply_to_message_id: 'ghost-msg-id',
-      caller_session_id: 'lead',
+      replyToMessageId: 'ghost-msg-id',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/reply_to_message_id .* not found/);
+    expect(parsed.data.error).toMatch(/replyToMessageId .* not found/);
   });
 
   it('rejects cross-team reply (original.teamId !== resolved teamId)', async () => {
@@ -1220,17 +1220,17 @@ describe('agent-deck-mcp tools — send_message', () => {
       replyToMessageId: null,
     });
     const r = await tools.get('send_message').handler({
-      session_id: 'teammate',
+      sessionId: 'teammate',
       text: 'reply text',
-      reply_to_message_id: 'cross-team-original',
-      caller_session_id: 'lead',
+      replyToMessageId: 'cross-team-original',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/cross-team reply not allowed/);
   });
 
-  it('passes reply_to_message_id through to enqueue when same-team original exists', async () => {
+  it('passes replyToMessageId through to enqueue when same-team original exists', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     seedSession('teammate', { agentId: 'claude-code' });
@@ -1247,10 +1247,10 @@ describe('agent-deck-mcp tools — send_message', () => {
       replyToMessageId: null,
     });
     const r = await tools.get('send_message').handler({
-      session_id: 'teammate',
+      sessionId: 'teammate',
       text: 'my reply',
-      reply_to_message_id: 'same-team-original',
-      caller_session_id: 'lead',
+      replyToMessageId: 'same-team-original',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1272,8 +1272,8 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     const r = await tools.get('shutdown_session').handler({
-      session_id: 'lead', // 同 caller
-      caller_session_id: 'lead',
+      sessionId: 'lead', // 同 caller
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -1284,8 +1284,8 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     const r = await tools.get('shutdown_session').handler({
-      session_id: 'ghost',
-      caller_session_id: 'lead',
+      sessionId: 'ghost',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -1297,8 +1297,8 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     seedSession('lead');
     seedSession('teammate', { lifecycle: 'closed' });
     const r = await tools.get('shutdown_session').handler({
-      session_id: 'teammate',
-      caller_session_id: 'lead',
+      sessionId: 'teammate',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1311,8 +1311,8 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     seedSession('lead');
     seedSession('teammate', { lifecycle: 'active' });
     const r = await tools.get('shutdown_session').handler({
-      session_id: 'teammate',
-      caller_session_id: 'lead',
+      sessionId: 'teammate',
+      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1331,8 +1331,8 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     mockMembershipsBySession.set('teammate', [{ teamId: 'team-x' }]);
     mockTeamsById.set('team-x', { name: 'team-x' });
     const r = await tools.get('list_sessions').handler({
-      caller_session_id: 'lead',
-      status_filter: 'active',
+      callerSessionId: 'lead',
+      statusFilter: 'active',
       limit: 50,
     }, {});
     const parsed = parseResult(r);
@@ -1352,15 +1352,15 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     expect(teammate).not.toHaveProperty('source');
   });
 
-  it('respects adapter_filter', async () => {
+  it('respects adapterFilter', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('claude-1', { agentId: 'claude-code' });
     seedSession('codex-1', { agentId: 'codex-cli' });
     seedSession('caller', { agentId: 'claude-code' });
     const r = await tools.get('list_sessions').handler({
-      caller_session_id: 'caller',
-      status_filter: 'active',
-      adapter_filter: 'codex-cli',
+      callerSessionId: 'caller',
+      statusFilter: 'active',
+      adapterFilter: 'codex-cli',
       limit: 50,
     }, {});
     const parsed = parseResult(r);
@@ -1368,7 +1368,7 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     expect(parsed.data.sessions[0].sessionId).toBe('codex-1');
   });
 
-  it('respects spawned_by_filter (REVIEW_28 E 段)', async () => {
+  it('respects spawnedByFilter (REVIEW_28 E 段)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('leadA');
     seedSession('leadB');
@@ -1376,9 +1376,9 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     seedSession('a-c2', { spawnedBy: 'leadA' });
     seedSession('b-c1', { spawnedBy: 'leadB' });
     const r = await tools.get('list_sessions').handler({
-      caller_session_id: 'leadA',
-      status_filter: 'active',
-      spawned_by_filter: 'leadA',
+      callerSessionId: 'leadA',
+      statusFilter: 'active',
+      spawnedByFilter: 'leadA',
       limit: 50,
     }, {});
     const parsed = parseResult(r);
@@ -1387,17 +1387,17 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     expect(parsed.data.sessions.map((s: any) => s.sessionId).sort()).toEqual(['a-c1', 'a-c2']);
   });
 
-  it('combines spawned_by_filter + adapter_filter (REVIEW_28 E 段)', async () => {
+  it('combines spawnedByFilter + adapterFilter (REVIEW_28 E 段)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     seedSession('claude-child', { spawnedBy: 'lead', agentId: 'claude-code' });
     seedSession('codex-child', { spawnedBy: 'lead', agentId: 'codex-cli' });
     seedSession('orphan-claude', { spawnedBy: null, agentId: 'claude-code' });
     const r = await tools.get('list_sessions').handler({
-      caller_session_id: 'lead',
-      status_filter: 'active',
-      spawned_by_filter: 'lead',
-      adapter_filter: 'claude-code',
+      callerSessionId: 'lead',
+      statusFilter: 'active',
+      spawnedByFilter: 'lead',
+      adapterFilter: 'claude-code',
       limit: 50,
     }, {});
     const parsed = parseResult(r);
@@ -1416,8 +1416,8 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     mockMembershipsBySession.set('teammate', [{ teamId: 'team-x' }]);
     mockTeamsById.set('team-x', { name: 'team-x' });
     const r = await tools.get('get_session').handler({
-      caller_session_id: 'lead',
-      session_id: 'teammate',
+      callerSessionId: 'lead',
+      sessionId: 'teammate',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1438,8 +1438,8 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     const r = await tools.get('get_session').handler({
-      caller_session_id: 'lead',
-      session_id: 'ghost',
+      callerSessionId: 'lead',
+      sessionId: 'ghost',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -1447,9 +1447,9 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
   });
 
   // D3 (CHANGELOG_76 / plan deep-review-flow-fix): projectSession 反查 universal team backend
-  // 修「lead session teamName: null 不对称」bug。teammate 走老的 sessions.team_name 列已 OK；
+  // 修「lead session teamName: null 不对称」bug。teammate 走老的 sessions.teamName 列已 OK；
   // lead 没 recordCreatedTeamName，必须从 members 反查。
-  it('lead session teamName from universal team backend (not sessions.team_name)', async () => {
+  it('lead session teamName from universal team backend (not sessions.teamName)', async () => {
     const tools = await getTools({ transport: 'http' });
     // lead session 自身 sessionRecord.teamName = null（spawn_session handler addMember 但
     // 不调 recordCreatedTeamName），但 universal team backend members 表有它（active membership）
@@ -1458,8 +1458,8 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     mockTeamsById.set('team-review-team', { name: 'review-team' });
 
     const r = await tools.get('get_session').handler({
-      caller_session_id: 'lead',
-      session_id: 'lead',
+      callerSessionId: 'lead',
+      sessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1467,20 +1467,20 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     expect(parsed.data.teamName).toBe('review-team');
   });
 
-  it('falls back to empty teamName when no universal team membership (v014 后无 sessions.team_name 兜底)', async () => {
+  it('falls back to empty teamName when no universal team membership (v014 后无 sessions.teamName 兜底)', async () => {
     const tools = await getTools({ transport: 'http' });
     // 不注入 mock memberships，模拟「session 不在 universal team backend members 表」
-    // plan team-cohesion-fix-20260513 Phase A Step A9：v014 drop sessions.team_name 后老 fallback 已删，
+    // plan team-cohesion-fix-20260513 Phase A Step A9：v014 drop sessions.teamName 后老 fallback 已删，
     // teamName: null
     seedSession('legacy-session', { cwd: '/repo' });
 
     const r = await tools.get('get_session').handler({
-      caller_session_id: 'legacy-session',
-      session_id: 'legacy-session',
+      callerSessionId: 'legacy-session',
+      sessionId: 'legacy-session',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
-    // 反查空 → projectSession 投影 teamName: null（无老 sessions.team_name 兜底）
+    // 反查空 → projectSession 投影 teamName: null（无老 sessions.teamName 兜底）
     expect(parsed.data.teamName).toBeNull();
   });
 });
@@ -1506,8 +1506,8 @@ describe('plan hand-off-session-adopt-teammates-20260520 Phase 3: ARGS_SCHEMA st
   it('hard gate 2: ARCHIVE_PLAN_ARGS_SCHEMA reject keep_teammates (Phase 3 已删字段)', async () => {
     const { ARCHIVE_PLAN_ARGS_SCHEMA } = await import('../tools/schemas');
     const result = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse({
-      plan_id: 'foo',
-      worktree_path: '/abs/path',
+      planId: 'foo',
+      worktreePath: '/abs/path',
       keep_teammates: true,
     });
     expect(result.success).toBe(false);
@@ -1524,7 +1524,7 @@ describe('plan hand-off-session-adopt-teammates-20260520 Phase 3: ARGS_SCHEMA st
   it('hard gate 2: HAND_OFF_SESSION_ARGS_SCHEMA reject keep_teammates (Phase 3 已删字段)', async () => {
     const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
     const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
-      plan_id: 'foo',
+      planId: 'foo',
       adapter: 'claude-code',
       keep_teammates: true,
     });
@@ -1541,8 +1541,8 @@ describe('plan hand-off-session-adopt-teammates-20260520 Phase 3: ARGS_SCHEMA st
   it('strict generic: ARCHIVE_PLAN_ARGS_SCHEMA reject 任意 unknown 字段', async () => {
     const { ARCHIVE_PLAN_ARGS_SCHEMA } = await import('../tools/schemas');
     const result = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse({
-      plan_id: 'foo',
-      worktree_path: '/abs/path',
+      planId: 'foo',
+      worktreePath: '/abs/path',
       __random_typo_field__: 'should be rejected',
     });
     expect(result.success).toBe(false);
@@ -1559,10 +1559,10 @@ describe('plan hand-off-session-adopt-teammates-20260520 Phase 3: ARGS_SCHEMA st
   it('happy path 回归: ARCHIVE_PLAN_ARGS_SCHEMA accept 已知字段', async () => {
     const { ARCHIVE_PLAN_ARGS_SCHEMA } = await import('../tools/schemas');
     const result = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse({
-      plan_id: 'foo',
-      worktree_path: '/abs/path',
-      base_branch: 'main',
-      changelog_id: '99',
+      planId: 'foo',
+      worktreePath: '/abs/path',
+      baseBranch: 'main',
+      changelogId: '99',
     });
     expect(result.success).toBe(true);
   });
@@ -1571,52 +1571,52 @@ describe('plan hand-off-session-adopt-teammates-20260520 Phase 3: ARGS_SCHEMA st
 // ─── plan hand-off-session-adopt-teammates-20260520 Phase 4 N2.c invariant ─
 //
 // **范围**: 验证 HAND_OFF_SESSION_ARGS_SCHEMA.refine() 实现 N2.c 互斥不变量 —
-// args.adopt_teammates: true 与 args.team_name 不可同传(zod refine reject)。
+// args.adoptTeammates: true 与 args.teamName 不可同传(zod refine reject)。
 //
 // **理由**(plan §N2.c + §决策对抗 Round 3 MED-3 修法):
-// - caller 显式 args.team_name 通常表示「spawn 时让新 session 进这个 team(可能不在
+// - caller 显式 args.teamName 通常表示「spawn 时让新 session 进这个 team(可能不在
 //   caller 自己 team)」,与 adopt(过继 caller 自己 team)语义本来就有冲突
 // - 互斥简化语义 + 消除 silent prompt 数据丢失 bug
 //
 // **守门 case** (3 条):
-// T4.3a HAND_OFF_SESSION_ARGS_SCHEMA reject adopt_teammates: true + team_name 同传
-// T4.3b adopt_teammates: true 单传 (无 team_name) 通过
-// T4.3c team_name 单传 (无 adopt_teammates) 通过(回归保护)
+// T4.3a HAND_OFF_SESSION_ARGS_SCHEMA reject adoptTeammates: true + teamName 同传
+// T4.3b adoptTeammates: true 单传 (无 teamName) 通过
+// T4.3c teamName 单传 (无 adoptTeammates) 通过(回归保护)
 describe('plan hand-off-session-adopt-teammates-20260520 Phase 4: HAND_OFF_SESSION_ARGS_SCHEMA N2.c 互斥 invariant', () => {
-  it('T4.3a: reject adopt_teammates=true + team_name 同传 (N2.c 互斥)', async () => {
+  it('T4.3a: reject adoptTeammates=true + teamName 同传 (N2.c 互斥)', async () => {
     const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
     const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
-      plan_id: 'foo',
+      planId: 'foo',
       adapter: 'claude-code',
-      adopt_teammates: true,
-      team_name: 'some-team',
+      adoptTeammates: true,
+      teamName: 'some-team',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       // refine 失败时 zod 报 'custom' issue code + plan §N2.c 文案 message
       const hasRefineFail = result.error.issues.some(
-        (i) => i.code === 'custom' && /adopt_teammates 与 team_name 不可同传/.test(i.message),
+        (i) => i.code === 'custom' && /adoptTeammates 与 teamName 不可同传/.test(i.message),
       );
       expect(hasRefineFail).toBe(true);
     }
   });
 
-  it('T4.3b: accept adopt_teammates=true 单传 (无 team_name — adopt 主路径)', async () => {
+  it('T4.3b: accept adoptTeammates=true 单传 (无 teamName — adopt 主路径)', async () => {
     const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
     const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
-      plan_id: 'foo',
+      planId: 'foo',
       adapter: 'claude-code',
-      adopt_teammates: true,
+      adoptTeammates: true,
     });
     expect(result.success).toBe(true);
   });
 
-  it('T4.3c: accept team_name 单传 (无 adopt_teammates — 回归保护)', async () => {
+  it('T4.3c: accept teamName 单传 (无 adoptTeammates — 回归保护)', async () => {
     const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
     const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
-      plan_id: 'foo',
+      planId: 'foo',
       adapter: 'claude-code',
-      team_name: 'some-team',
+      teamName: 'some-team',
     });
     expect(result.success).toBe(true);
   });

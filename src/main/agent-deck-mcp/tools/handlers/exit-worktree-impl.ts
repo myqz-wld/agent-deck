@@ -10,15 +10,15 @@
  *
  * 1. 反查 caller sessionRepo.cwd_release_marker（external sentinel 已在 handler 层 deny；
  *    impl 调用前 caller 必有效）
- * 2. 解析 worktree_path：args.worktree_path > sessionRepo.cwd_release_marker
- * 3. 校验 args.worktree_path vs marker 一致性：如 caller 同时传 override 但 marker 指向另一
+ * 2. 解析 worktreePath：args.worktreePath > sessionRepo.cwd_release_marker
+ * 3. 校验 args.worktreePath vs marker 一致性：如 caller 同时传 override 但 marker 指向另一
  *    worktree → reject(stale state,不允许 caller 跨 worktree 操作)
- * 4. 解析 main_repo：`git -C <worktree_path> rev-parse --git-common-dir` → dirname
+ * 4. 解析 main_repo：`git -C <worktreePath> rev-parse --git-common-dir` → dirname
  *    (与 archive-plan-impl 同款)
  * 5. 如 action='remove':
- *    a. 预检 worktree 是 clean(或 args.discard_changes=true)：`git -C <worktree> status --porcelain` 输出空
+ *    a. 预检 worktree 是 clean(或 args.discardChanges=true)：`git -C <worktree> status --porcelain` 输出空
  *    b. 解析 branch：`git -C <worktree> branch --show-current`
- *    c. `git -C <main_repo> worktree remove [--force] <worktree_path>`
+ *    c. `git -C <main_repo> worktree remove [--force] <worktreePath>`
  *    d. `git -C <main_repo> branch -D <branch>` (如 branch 有解析到 + branch != 'main' 等保护分支)
  * 6. clearCwdReleaseMarker(callerSid)（不变量 5）
  *
@@ -82,9 +82,9 @@ export interface ExitWorktreeDeps {
   exists?: (p: string) => Promise<boolean>;
   /**
    * P5 Round 1 reviewer-claude MED-2 修法 (realpath alignment with archive-plan-impl):
-   * args.worktree_path 与 marker 字面比较前必须 realpath 解 symlink 才与 archive_plan 4 态对称。
+   * args.worktreePath 与 marker 字面比较前必须 realpath 解 symlink 才与 archive_plan 4 态对称。
    * macOS firmlink (/var → /private/var) / 用户软链 worktree 路径 / cross-device 同步走不同符号链
-   * 路径时 caller 显式传 args.worktree_path 解析后形与 marker literal 不字面相等会错报 cross-worktree
+   * 路径时 caller 显式传 args.worktreePath 解析后形与 marker literal 不字面相等会错报 cross-worktree
    * reject。realpath 失败 fallback 字面（与 archive-plan-impl §step 4 marker 处理同款,极端 edge case
    * 字面比较）。
    */
@@ -132,12 +132,12 @@ export async function exitWorktreeImpl(
   // 1. 反查 marker
   const marker = deps.callerMarker(input.callerSessionId);
 
-  // 2. resolve worktree_path
+  // 2. resolve worktreePath
   const worktreePath = input.worktreePathOverride ?? marker;
   if (!worktreePath) {
     return {
-      error: `cannot resolve worktree_path: caller has no cwd_release_marker and no args.worktree_path override`,
-      hint: `exit_worktree needs to know which worktree to operate on. Either pass args.worktree_path explicitly, or call enter_worktree first to set the marker.`,
+      error: `cannot resolve worktreePath: caller has no cwd_release_marker and no args.worktreePath override`,
+      hint: `exit_worktree needs to know which worktree to operate on. Either pass args.worktreePath explicitly, or call enter_worktree first to set the marker.`,
     };
   }
 
@@ -161,8 +161,8 @@ export async function exitWorktreeImpl(
     }
     if (argReal !== markerReal) {
       return {
-        error: `args.worktree_path (${input.worktreePathOverride}) does not match caller marker (${marker})`,
-        hint: `Cross-worktree exit is not allowed (caller holds marker for a different worktree). Resolve by: (a) call exit_worktree without args.worktree_path to operate on marker's worktree, or (b) clear marker by calling enter_worktree → exit_worktree on the marker's worktree first.`,
+        error: `args.worktreePath (${input.worktreePathOverride}) does not match caller marker (${marker})`,
+        hint: `Cross-worktree exit is not allowed (caller holds marker for a different worktree). Resolve by: (a) call exit_worktree without args.worktreePath to operate on marker's worktree, or (b) clear marker by calling enter_worktree → exit_worktree on the marker's worktree first.`,
       };
     }
   }
@@ -239,7 +239,7 @@ export async function exitWorktreeImpl(
     // caller 可能仍引用)。
     return {
       error: `git rev-parse --git-common-dir failed in worktree ${worktreePath}: ${errMsg}`,
-      hint: `worktree_path "${worktreePath}" is not a valid git worktree (or git not installed). action='remove' requires intact .git metadata for \`git worktree remove\` + \`git branch -D\`. Verify with \`git -C ${worktreePath} status\`. If .git is corrupt, manually clean up via \`rm -rf ${worktreePath}\` + \`git -C <main-repo> worktree prune\` then retry exit_worktree({ action: 'keep' }) to clear marker. Marker DB unchanged.`,
+      hint: `worktreePath "${worktreePath}" is not a valid git worktree (or git not installed). action='remove' requires intact .git metadata for \`git worktree remove\` + \`git branch -D\`. Verify with \`git -C ${worktreePath} status\`. If .git is corrupt, manually clean up via \`rm -rf ${worktreePath}\` + \`git -C <main-repo> worktree prune\` then retry exit_worktree({ action: 'keep' }) to clear marker. Marker DB unchanged.`,
       markerCleared: false,
     };
   }
@@ -249,14 +249,14 @@ export async function exitWorktreeImpl(
   let branchName: string | null = null;
 
   if (input.action === 'remove') {
-    // 5a. 预检 worktree clean（除非 discard_changes=true）
+    // 5a. 预检 worktree clean（除非 discardChanges=true）
     if (!input.discardChanges) {
       try {
         const statusOut = await deps.runGit(['status', '--porcelain'], worktreePath);
         if (statusOut.trim().length > 0) {
           return {
             error: `worktree has uncommitted changes: ${statusOut.split('\n').slice(0, 3).join(' / ')}${statusOut.split('\n').length > 3 ? ' ...' : ''}`,
-            hint: `exit_worktree refuses to remove worktree with uncommitted changes. Either commit / stash the changes first, or pass discard_changes=true to force (destructive, you will lose those changes).`,
+            hint: `exit_worktree refuses to remove worktree with uncommitted changes. Either commit / stash the changes first, or pass discardChanges=true to force (destructive, you will lose those changes).`,
           };
         }
       } catch (e) {
@@ -290,12 +290,12 @@ export async function exitWorktreeImpl(
     }
 
     // 5d. git branch -d / -D（保护清单 + branch == null 跳过）
-    // P5 Round 1 reviewer-codex MED-4 修法 (discard_changes 也保护未合并 commit):
-    // 旧实现无条件 `branch -D` 删未合并 commit,违反 schema "discard_changes=false 不丢 caller
+    // P5 Round 1 reviewer-codex MED-4 修法 (discardChanges 也保护未合并 commit):
+    // 旧实现无条件 `branch -D` 删未合并 commit,违反 schema "discardChanges=false 不丢 caller
     // 工作"契约(schema 描述含 "commits not on base branch")。
-    // - discard_changes=false: 用 `git branch -d` (lowercase)只删已合并 branch,未合并撞 git error
+    // - discardChanges=false: 用 `git branch -d` (lowercase)只删已合并 branch,未合并撞 git error
     //   "branch is not fully merged" → impl 转 partial-success error 让 caller 决定 (commit / merge / 显式 force)
-    // - discard_changes=true: 用 `git branch -D` 强制删 (caller 已显式接受 commit 丢失)
+    // - discardChanges=true: 用 `git branch -D` 强制删 (caller 已显式接受 commit 丢失)
     if (branchName && !PROTECTED_BRANCHES.has(branchName)) {
       const branchDeleteFlag = input.discardChanges ? '-D' : '-d';
       try {
@@ -326,7 +326,7 @@ export async function exitWorktreeImpl(
         return {
           error: `partial-success: worktree removed but git branch ${branchDeleteFlag} ${branchName} failed: ${errMsg}`,
           hint: isUnmerged
-            ? `branch ${branchName} has commits not yet merged into base — refusing to delete (discard_changes=false). Options: (a) merge / cherry-pick the unmerged commits into your base branch first, then retry exit_worktree; (b) call exit_worktree({ action: 'remove', worktree_path: '${worktreePath}', discard_changes: true }) to force delete (destructive, you will lose those commits); (c) manually clean up: \`git -C ${mainRepo} branch -D ${branchName}\`. Marker DB cleared (markerCleared=${markerCleared}) so caller no longer holds stale marker for ${worktreePath}.`
+            ? `branch ${branchName} has commits not yet merged into base — refusing to delete (discardChanges=false). Options: (a) merge / cherry-pick the unmerged commits into your base branch first, then retry exit_worktree; (b) call exit_worktree({ action: 'remove', worktreePath: '${worktreePath}', discardChanges: true }) to force delete (destructive, you will lose those commits); (c) manually clean up: \`git -C ${mainRepo} branch -D ${branchName}\`. Marker DB cleared (markerCleared=${markerCleared}) so caller no longer holds stale marker for ${worktreePath}.`
             : `worktree at ${worktreePath} was successfully removed, but the branch ${branchName} still exists (this is partial-success not full failure). Manual cleanup: \`git -C ${mainRepo} branch -D ${branchName}\`. Common causes: branch already deleted by another tool / branch checked out in another worktree. Marker DB cleared (markerCleared=${markerCleared}).`,
           markerCleared,
         };

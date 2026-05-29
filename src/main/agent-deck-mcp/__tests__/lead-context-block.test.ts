@@ -32,14 +32,14 @@ describe('buildLeadContextBlock — spawn 路径 wire prefix + lead context bloc
 
     // contextBlock 含核心字段
     expect(result.contextBlock).toContain('## Hand-off context (auto-injected by Agent Deck MCP)');
-    expect(result.contextBlock).toContain('Lead session_id: `lead-sid-12345678-90ab-cdef-1234-567890abcdef`');
+    expect(result.contextBlock).toContain('Lead sessionId: `lead-sid-12345678-90ab-cdef-1234-567890abcdef`');
     expect(result.contextBlock).toContain('Team id: `team-id-deadbeef`');
     expect(result.contextBlock).toContain('Lead displayName: Lead User');
     expect(result.contextBlock).toContain('回 lead 用：');
     expect(result.contextBlock).toContain('mcp__agent-deck__send_message({');
-    expect(result.contextBlock).toContain("session_id: 'lead-sid-12345678-90ab-cdef-1234-567890abcdef',");
-    expect(result.contextBlock).toContain("team_id: 'team-id-deadbeef',");
-    expect(result.contextBlock).toContain('reply_to_message_id:');
+    expect(result.contextBlock).toContain("sessionId: 'lead-sid-12345678-90ab-cdef-1234-567890abcdef',");
+    expect(result.contextBlock).toContain("teamId: 'team-id-deadbeef',");
+    expect(result.contextBlock).toContain('replyToMessageId:');
     expect(result.contextBlock).toContain(
       'wire prefix regex（双锚点）: `/\\[msg ([0-9a-f-]+)\\]\\[sid ([0-9a-f-]+)\\]/`',
     );
@@ -109,17 +109,17 @@ describe('buildLeadContextBlock — spawn 路径 wire prefix + lead context bloc
     expect(result.wirePrefix).toBe('[from Snapshot Lead @ claude-code][msg pid-cccc][sid sid-aaaa]\n');
     expect(result.contextBlock).toBe(
       `## Hand-off context (auto-injected by Agent Deck MCP)\n` +
-        `- Lead session_id: \`sid-aaaa\`\n` +
+        `- Lead sessionId: \`sid-aaaa\`\n` +
         `- Team id: \`tid-bbbb\`\n` +
         `- Lead displayName: Snapshot Lead\n` +
         `\n` +
         `回 lead 用：\n` +
         `\`\`\`\n` +
         `mcp__agent-deck__send_message({\n` +
-        `  session_id: 'sid-aaaa',  // lead session_id\n` +
-        `  team_id: 'tid-bbbb',  // 当前 team id\n` +
+        `  sessionId: 'sid-aaaa',  // lead sessionId\n` +
+        `  teamId: 'tid-bbbb',  // 当前 team id\n` +
         `  text: '<reply text>',\n` +
-        `  reply_to_message_id: '<msg-id from wire prefix>'  // 从顶部 [msg <id>] 提取\n` +
+        `  replyToMessageId: '<msg-id from wire prefix>'  // 从顶部 [msg <id>] 提取\n` +
         `})\n` +
         `\`\`\`\n` +
         `wire prefix regex（双锚点）: \`/\\[msg ([0-9a-f-]+)\\]\\[sid ([0-9a-f-]+)\\]/\`\n`,

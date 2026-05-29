@@ -1,7 +1,7 @@
 /**
  * archive_plan 预检 helpers（CHANGELOG_169 F1 Step 1.2 从 archive-plan-impl.ts 抽出）。
  *
- * 含 mainRepo dirty precheck + base_branch 命名 / namespace 校验两段独立逻辑，原文件 archive-plan-impl.ts
+ * 含 mainRepo dirty precheck + baseBranch 命名 / namespace 校验两段独立逻辑，原文件 archive-plan-impl.ts
  * 通过 `export { ... } from './archive-plan/precheck-helpers'` re-export 保 test seam（4 个
  * test 文件直接 import 这些函数做单元测试，import path 零改动）。
  *
@@ -9,7 +9,7 @@
  * Internal-only test seams (plan deep-review-batch-a1-b-followup-r3-20260519
  * §Phase 1.2a + 1.2b / D6 export production lambda)
  *
- * 抽 archivePlanImpl 内 mainRepo precheck (step 3.5) + base_branch 校验 (step 7)
+ * 抽 archivePlanImpl 内 mainRepo precheck (step 3.5) + baseBranch 校验 (step 7)
  * 两段逻辑为 module-level export,让 __tests__/ 调真实代码而非 inline 复制合约
  * (H4 教训 — REVIEW_47 §A1-HIGH-1)。
  *
@@ -149,12 +149,12 @@ export async function assertMainRepoCleanForArchive(
 /**
  * @internal Only for `__tests__/`. Do NOT import from other production files.
  *
- * base_branch refs/heads namespace 校验（plan deep-review-batch-a1-b-fixes-20260519
+ * baseBranch refs/heads namespace 校验（plan deep-review-batch-a1-b-fixes-20260519
  * §Phase 1 Step 1.2 / B-HIGH-3 修法）。
  *
  * 旧 impl `rev-parse --verify <branch>` 接受 SHA / tag / detached HEAD（git man 默认
  * namespace 含 refs/heads/ refs/tags/ refs/remotes/ raw SHA 等），caller 误传 tag 名当
- * base_branch（典型: plan frontmatter `base_branch: v1.2.0`）→ checkout tag 后 detached
+ * baseBranch（典型: plan frontmatter `baseBranch: v1.2.0`）→ checkout tag 后 detached
  * HEAD → ff-merge 推 HEAD → commit 落 detached → branch -D worktreeBranch 删工作分支 ref
  * → 归档 commit 仅 reflog 可达，gc 30 天后丢失（B-HIGH-3 reviewer-claude 反驳轮 git
  * 端到端实测复现）。修法：显式 verify `refs/heads/<branch>` namespace，强制 named branch
@@ -168,7 +168,7 @@ export interface AssertBaseBranchInput {
 
 export interface AssertBaseBranchResult {
   ok: boolean;
-  /** 失败时给 caller 的人类可读错误（含具体 base_branch 名 + git stderr 摘录）。 */
+  /** 失败时给 caller 的人类可读错误（含具体 baseBranch 名 + git stderr 摘录）。 */
   error?: string;
   /** 失败时给 caller 的修复建议（指向 plan frontmatter 修订 / git branch --list）。 */
   hint?: string;
@@ -189,12 +189,12 @@ export async function assertBaseBranchIsNamedBranch(
   } catch (e) {
     return {
       ok: false,
-      error: `base_branch "${input.baseBranch}" is not a valid branch name (contains rev syntax like '~' / '^{commit}' or other illegal chars).`,
+      error: `baseBranch "${input.baseBranch}" is not a valid branch name (contains rev syntax like '~' / '^{commit}' or other illegal chars).`,
       hint:
         `archive_plan ff-merge requires a plain branch name (no rev suffix); names containing '~' / '^' / '@{' are rev expressions ` +
         `that would resolve to a commit + ` +
         `git checkout <name> → detached HEAD → archive commit lost after branch -D + gc. ` +
-        `Edit plan frontmatter base_branch to a plain branch name (e.g. "main" / "feature-x"). ` +
+        `Edit plan frontmatter baseBranch to a plain branch name (e.g. "main" / "feature-x"). ` +
         `Verify with \`git -C ${input.mainRepoAbsPath} check-ref-format --branch <name>\`. ${(e as Error).message}`,
     };
   }
@@ -207,11 +207,11 @@ export async function assertBaseBranchIsNamedBranch(
   } catch (e) {
     return {
       ok: false,
-      error: `base_branch "${input.baseBranch}" is not a named branch (refs/heads/<name>); SHA / tag / detached HEAD refs are not allowed.`,
+      error: `baseBranch "${input.baseBranch}" is not a named branch (refs/heads/<name>); SHA / tag / detached HEAD refs are not allowed.`,
       hint:
         `archive_plan ff-merge requires a named branch to commit onto. If "${input.baseBranch}" is a tag or SHA, ` +
         `plan cannot be archived (commits would land on detached HEAD and be lost after branch -D + gc). ` +
-        `Edit plan frontmatter base_branch to a named branch (e.g. "main" / "feature-x"), or pass base_branch arg explicitly. ` +
+        `Edit plan frontmatter baseBranch to a named branch (e.g. "main" / "feature-x"), or pass baseBranch arg explicitly. ` +
         `Verify with \`git -C ${input.mainRepoAbsPath} branch --list\`. ${(e as Error).message}`,
     };
   }

@@ -30,7 +30,7 @@ export type HandlerResult = {
 };
 
 /**
- * Tool handler 共用：把 zod 解析后的 caller_session_id（args 字段）规范为
+ * Tool handler 共用：把 zod 解析后的 callerSessionId（args 字段）规范为
  * CallerContext。in-process transport 在外层 wrapper 内会**再次**用 closure
  * 覆盖 callerSessionId（强制语义防 prompt 注入伪造）。
  */
@@ -39,7 +39,7 @@ export function makeCallerContext(
   rawParentSid: string | undefined,
   transport: CallerContext['transport'],
 ): CallerContext {
-  // REVIEW_32 HIGH-9：caller_session_id 改 optional 后，in-process 走 override 注入真实 sid；
+  // REVIEW_32 HIGH-9：callerSessionId 改 optional 后，in-process 走 override 注入真实 sid；
   // external (HTTP/stdio) 没 override → 用占位 EXTERNAL_CALLER_SENTINEL，下游 denyExternalIfNotAllowed
   // 兜底拒绝需要真实 session 上下文的 tool。空字符串 / null 都视为缺省。
   // REVIEW_56 §F8 修法 (Plan-Review Round 1 + spike 决策): raw '__external__' literal 替换为
@@ -59,7 +59,7 @@ export function makeCallerContext(
  *
  * **B-HIGH-1 (C) 修法 (a) — stdio invariant assertion 兜底层**
  * （deep-review-batch-a1-b-fixes-20260519 plan / REVIEW_46）:
- * 旧版仅 sentinel 检测让 stdio caller 能传 `args.caller_session_id` 当任意 active sid 调写工具
+ * 旧版仅 sentinel 检测让 stdio caller 能传 `args.callerSessionId` 当任意 active sid 调写工具
  * （EXTERNAL_CALLER_ALLOWED[X]=false 但 callerSid != sentinel → bypass deny → 以 victim 身份执行）。
  * 修法 (b)/(c) 在 transport 层把 stdio / HTTP global token fallback 强制 force sentinel
  * 切断 spoofing 源头；本处 (a) 加 stdio transport invariant 兜底守门：transport=stdio 时
@@ -84,8 +84,8 @@ export function denyExternalIfNotAllowed(
         {
           type: 'text' as const,
           text: JSON.stringify({
-            error: `tool ${toolName} not allowed for external caller (caller_session_id=__external__)`,
-            hint: 'External MCP clients can only call read-only tools (list_sessions, get_session). To spawn / send / shutdown sessions, use the in-process or HTTP transport with a real caller_session_id.',
+            error: `tool ${toolName} not allowed for external caller (callerSessionId=__external__)`,
+            hint: 'External MCP clients can only call read-only tools (list_sessions, get_session). To spawn / send / shutdown sessions, use the in-process or HTTP transport with a real callerSessionId.',
           }),
         },
       ],
@@ -106,7 +106,7 @@ export function denyExternalIfNotAllowed(
         {
           type: 'text' as const,
           text: JSON.stringify({
-            error: `tool ${toolName} not allowed for stdio transport with non-sentinel caller_session_id (stdio invariant violation — transport layer should force sentinel).`,
+            error: `tool ${toolName} not allowed for stdio transport with non-sentinel callerSessionId (stdio invariant violation — transport layer should force sentinel).`,
             hint: 'stdio transport must use callerSessionId="__external__" sentinel for write tools (no per-session authn supported on stdio). If you see this error, transport-stdio.ts:77 callerSessionIdOverride was not properly set to () => EXTERNAL_CALLER_SENTINEL.',
           }),
         },
@@ -182,7 +182,7 @@ export function err(
  * caller 反查（HTTP/stdio transport 用；in-process 已通过 closure 强制覆盖跳过）：
  * - external caller（__external__）已被 denyExternalIfNotAllowed 拦下，不到这里
  * - in-process closure 覆盖后的 caller 也直接信任
- * - HTTP/stdio：args.caller_session_id 必须能反查到 sessionRepo 且未 closed
+ * - HTTP/stdio：args.callerSessionId 必须能反查到 sessionRepo 且未 closed
  *
  * 返回 null 表示通过；返回错误对象表示 deny。
  */
@@ -192,13 +192,13 @@ export function validateExternalCaller(caller: CallerContext): HandlerResult | n
   const session = sessionRepo.get(caller.callerSessionId);
   if (!session) {
     return err(
-      `unknown caller_session_id: ${caller.callerSessionId}`,
-      'caller_session_id must reference a session managed by Agent Deck. Use list_sessions to find valid session ids, or use the literal "__external__" for read-only access from non-Agent-Deck MCP clients.',
+      `unknown callerSessionId: ${caller.callerSessionId}`,
+      'callerSessionId must reference a session managed by Agent Deck. Use list_sessions to find valid session ids, or use the literal "__external__" for read-only access from non-Agent-Deck MCP clients.',
     );
   }
   if (session.lifecycle === 'closed') {
     return err(
-      `caller_session_id ${caller.callerSessionId} is closed`,
+      `callerSessionId ${caller.callerSessionId} is closed`,
       'Closed sessions cannot initiate new MCP tool calls. Open a new session via the application.',
     );
   }
@@ -216,7 +216,7 @@ export function validateExternalCaller(caller: CallerContext): HandlerResult | n
  * sessionManager facade 路径保证 enriched）。teamName 取 teams[0]?.teamName 与 SessionCard 一致。
  *
  * 多 team 共享时取第一个（teamName 字段语义是「展示用」非路由标识；路由用 spawn 时
- * 显式 args.team_name / send_message 显式 team_id）。新增 teams 完整数组字段方便
+ * 显式 args.teamName / send_message 显式 teamId）。新增 teams 完整数组字段方便
  * caller 自行查多 team 共享场景。
  */
 export function projectSession(s: SessionRecord) {

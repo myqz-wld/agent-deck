@@ -210,8 +210,8 @@ export async function runCleanup(
   //
   // 修前 marker release 排在 step 14b branch -D 之后,step 14a/14b 失败时 marker 残留;但 plan
   // 已 commit + INDEX 更新 + frontmatter status=completed → caller 不能重试 archive_plan
-  // (step 5 plan status check 撞 already completed reject),marker 残留对**本 plan_id** 无
-  // 功能影响,但若 caller session 后续再调 archive_plan 跑别的 plan_id,step 4 4-state cwd
+  // (step 5 plan status check 撞 already completed reject),marker 残留对**本 planId** 无
+  // 功能影响,但若 caller session 后续再调 archive_plan 跑别的 planId,step 4 4-state cwd
   // dispatch 时这个 stale marker 会指向已不存在的 worktree → 走 4-state 分流 (d) 路径 reject。
   //
   // 修后:archive 本质完成 → 立即 release marker;step 14 worktree remove/branch -D 失败时

@@ -79,7 +79,7 @@ function makeEnterDeps(
 
 describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () => {
   // ─── TC3 happy path ────────────────────────────────────────────────────
-  it('TC3 happy path: caller cwd 在 git repo 内 → 派生 worktree_path + branch + base=HEAD + setMarker', async () => {
+  it('TC3 happy path: caller cwd 在 git repo 内 → 派生 worktreePath + branch + base=HEAD + setMarker', async () => {
     const state = makeEnterState();
     const deps = makeEnterDeps(state, [
       '/Users/test/repo',         // git rev-parse --show-toplevel
@@ -117,7 +117,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
   });
 
   // ─── TC4 路径冲突 ──────────────────────────────────────────────────────
-  it('TC4 路径冲突: worktree_path 已存在 → reject + marker 不写', async () => {
+  it('TC4 路径冲突: worktreePath 已存在 → reject + marker 不写', async () => {
     const state = makeEnterState();
     state.existingPaths.add('/Users/test/repo/.claude/worktrees/plan1'); // worktree 路径已存在
     const deps = makeEnterDeps(state, [
@@ -133,7 +133,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     expect(enterIsError(result)).toBe(true);
     if (!enterIsError(result)) return;
     expect(result.error).toContain('worktree path already exists');
-    expect(result.hint).toContain('different worktree_path');
+    expect(result.hint).toContain('different worktreePath');
     // marker 没被写
     expect(state.markerWrites).toEqual([]);
   });
@@ -162,7 +162,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     const deps = makeEnterDeps(state, [
       '/Users/test/repo',
       '',                      // for-each-ref branch 不存在
-      // 不调 rev-parse HEAD/branch,因为有 base_commit
+      // 不调 rev-parse HEAD/branch,因为有 baseCommit
       '',                      // git worktree add
     ]);
     const result = await enterWorktreeImpl(
@@ -201,20 +201,20 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     expect(result.baseSource).toBe('arg-base-branch');
   });
 
-  it('TC5c base=frontmatter-base-commit (plan file 有 base_commit)', async () => {
+  it('TC5c base=frontmatter-base-commit (plan file 有 baseCommit)', async () => {
     const state = makeEnterState();
     state.files.set('/Users/test/repo/.claude/plans/plan1.md', [
       '---',
-      'plan_id: plan1',
-      'base_commit: feedbeef',
-      'base_branch: feature-x',
+      'planId: plan1',
+      'baseCommit: feedbeef',
+      'baseBranch: feature-x',
       '---',
       'body',
     ].join('\n'));
     const deps = makeEnterDeps(state, [
       '/Users/test/repo',
       '',                      // for-each-ref branch 不存在
-      // 不调 rev-parse HEAD,因为 frontmatter.base_commit 命中
+      // 不调 rev-parse HEAD,因为 frontmatter.baseCommit 命中
       '',                      // git worktree add
     ]);
     const result = await enterWorktreeImpl(
@@ -227,12 +227,12 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     expect(result.baseSource).toBe('frontmatter-base-commit');
   });
 
-  it('TC5d base=frontmatter-base-branch (plan 仅有 base_branch)', async () => {
+  it('TC5d base=frontmatter-base-branch (plan 仅有 baseBranch)', async () => {
     const state = makeEnterState();
     state.files.set('/Users/test/repo/.claude/plans/plan1.md', [
       '---',
-      'plan_id: plan1',
-      'base_branch: feature-y',
+      'planId: plan1',
+      'baseBranch: feature-y',
       '---',
       'body',
     ].join('\n'));
@@ -253,7 +253,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
   });
 
   // ─── TC5e arg-base-branch fail-fast(args 是 caller 显式传必须 valid) ─────
-  it('TC5e args.base_branch resolve 失败 → reject (不 fallback HEAD)', async () => {
+  it('TC5e args.baseBranch resolve 失败 → reject (不 fallback HEAD)', async () => {
     const state = makeEnterState();
     const deps = makeEnterDeps(state, [
       '/Users/test/repo',
@@ -388,13 +388,13 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
       'rev-parse', 'status', 'branch', 'worktree', 'branch',
     ]);
     expect(state.gitCalls[3].args).toEqual(['worktree', 'remove', WT]);
-    // P5 Round 1 reviewer-codex M4 修法 (discard_changes 也保护未合并 commit):
-    // 默认 discard_changes=false → 用 `branch -d` (lowercase) 只删已合并 branch (不丢未合并 commit);
+    // P5 Round 1 reviewer-codex M4 修法 (discardChanges 也保护未合并 commit):
+    // 默认 discardChanges=false → 用 `branch -d` (lowercase) 只删已合并 branch (不丢未合并 commit);
     // 测试场景 mock branch 已合并(runGit mock 默认成功),`-d` 删除成功,branchDeleted=true。
     expect(state.gitCalls[4].args).toEqual(['branch', '-d', 'worktree-plan1']);
   });
 
-  it('action=remove + worktree dirty + !discard_changes → reject + marker 不清', async () => {
+  it('action=remove + worktree dirty + !discardChanges → reject + marker 不清', async () => {
     const state = makeExitState();
     state.existingPaths.add(WT);
     state.markerStore.set('caller-sid', WT);
@@ -411,20 +411,20 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
     expect(exitIsError(result)).toBe(true);
     if (!exitIsError(result)) return;
     expect(result.error).toContain('uncommitted changes');
-    expect(result.hint).toContain('discard_changes=true');
+    expect(result.hint).toContain('discardChanges=true');
     // marker 没清
     expect(state.markerClears).toEqual([]);
     // 仅 git-common-dir + status 调用,无 worktree remove
     expect(state.gitCalls.length).toBe(2);
   });
 
-  it('action=remove + dirty + discard_changes=true → --force + 通过', async () => {
+  it('action=remove + dirty + discardChanges=true → --force + 通过', async () => {
     const state = makeExitState();
     state.existingPaths.add(WT);
     state.markerStore.set('caller-sid', WT);
     const deps = makeExitDeps(state, [
       `/Users/test/repo/.git`,
-      // status 不被调用(discard_changes=true 跳过 clean 预检)
+      // status 不被调用(discardChanges=true 跳过 clean 预检)
       'worktree-plan1',         // branch --show-current
       '',                       // worktree remove --force
       '',                       // branch -D
@@ -518,7 +518,7 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
     expect(result.hint).toContain('Manual recovery');
   });
 
-  it('caller marker 与 args.worktree_path 不一致 → reject 跨 worktree 操作', async () => {
+  it('caller marker 与 args.worktreePath 不一致 → reject 跨 worktree 操作', async () => {
     const state = makeExitState();
     const otherWt = '/Users/test/repo/.claude/worktrees/other-plan';
     state.markerStore.set('caller-sid', otherWt); // marker 指向 other-plan
@@ -539,7 +539,7 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
     expect(state.markerClears).toEqual([]); // 没清 marker
   });
 
-  it('caller 既无 marker 又无 args.worktree_path → reject 无法解析', async () => {
+  it('caller 既无 marker 又无 args.worktreePath → reject 无法解析', async () => {
     const state = makeExitState();
     const deps = makeExitDeps(state, []);
 
@@ -550,7 +550,7 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
 
     expect(exitIsError(result)).toBe(true);
     if (!exitIsError(result)) return;
-    expect(result.error).toContain('cannot resolve worktree_path');
+    expect(result.error).toContain('cannot resolve worktreePath');
     expect(result.hint).toContain('enter_worktree first to set the marker');
   });
 });

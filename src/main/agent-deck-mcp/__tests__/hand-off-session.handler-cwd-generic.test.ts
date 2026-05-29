@@ -89,7 +89,7 @@ describe('handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and
     );
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
-    const args: HandOffSessionArgs = { plan_id: planId, adapter: 'claude-code' };
+    const args: HandOffSessionArgs = { planId: planId, adapter: 'claude-code' };
     const ctx: HandlerContext = {
       caller: { callerSessionId: callerSid, transport: 'in-process' },
     };
@@ -171,7 +171,7 @@ describe('handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and
     );
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
-    const args: HandOffSessionArgs = { plan_id: planId, adapter: 'claude-code' };
+    const args: HandOffSessionArgs = { planId: planId, adapter: 'claude-code' };
     const ctx: HandlerContext = {
       caller: { callerSessionId: callerSid, transport: 'in-process' },
     };
@@ -191,10 +191,10 @@ describe('handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and
   });
 });
 
-// ─── CHANGELOG_99 generic 模式（无 plan_id 通用 hand-off） ──────────────────
+// ─── CHANGELOG_99 generic 模式（无 planId 通用 hand-off） ──────────────────
 
 describe('handOffSessionHandler — generic mode (CHANGELOG_99)', () => {
-  it('generic happy path: 不传 plan_id + 显式 prompt → spawn cwd = caller session cwd + ok return mode=generic', async () => {
+  it('generic happy path: 不传 planId + 显式 prompt → spawn cwd = caller session cwd + ok return mode=generic', async () => {
     const state = makeState();
 
     const mockSpawn = vi.fn(
@@ -274,7 +274,7 @@ describe('handOffSessionHandler — generic mode (CHANGELOG_99)', () => {
     const spawnArgs = mockSpawn.mock.calls[0]![0];
     expect(spawnArgs.cwd).toBe('/Users/test/some-caller-cwd');
     expect(spawnArgs.prompt).toBe('继续上一会话的 fix');
-    expect(spawnArgs.team_name).toBeUndefined(); // baton 默认无 team
+    expect(spawnArgs.teamName).toBeUndefined(); // baton 默认无 team
 
     sessionRepoGetSpy.mockRestore();
   });
@@ -331,7 +331,7 @@ describe('handOffSessionHandler — generic mode (CHANGELOG_99)', () => {
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('generic + 传 phase_label → ok return ignoredFields 含 phase_label', async () => {
+  it('generic + 传 phaseLabel → ok return ignoredFields 含 phaseLabel', async () => {
     const state = makeState();
 
     const mockSpawn = vi.fn(
@@ -379,7 +379,7 @@ describe('handOffSessionHandler — generic mode (CHANGELOG_99)', () => {
     const args: HandOffSessionArgs = {
       adapter: 'claude-code',
       prompt: 'gen with ignored',
-      phase_label: 'wrong-mode-label', // 在 generic 模式下被忽略
+      phaseLabel: 'wrong-mode-label', // 在 generic 模式下被忽略
     };
     const ctx: HandlerContext = {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
@@ -394,18 +394,18 @@ describe('handOffSessionHandler — generic mode (CHANGELOG_99)', () => {
     expect(result.isError).toBeFalsy();
     const data = JSON.parse(result.content[0]!.text);
     expect(data.mode).toBe('generic');
-    expect(data.ignoredFields).toEqual(['phase_label']);
-    // phase_label 不影响 cold-start prompt
+    expect(data.ignoredFields).toEqual(['phaseLabel']);
+    // phaseLabel 不影响 cold-start prompt
     expect(data.initialPrompt).toBe('gen with ignored');
     expect(data.phaseLabel).toBeNull();
 
     // plan handoff-render-and-image-batch-20260521 R1 reviewer-codex LOW 修法配套断言:
-    // generic mode 时 spawnArgs.hand_off.phaseLabel 必须为 null(契约一致性 — 与 ok return
-    // phaseLabel + ignoredFields 同步标 phase_label 被忽略)。修前 spawnArgs.hand_off.phaseLabel
-    // 直接用 args.phase_label ?? null → events.payload / UI tooltip 显示 phase 但 ok return
+    // generic mode 时 spawnArgs.handOff.phaseLabel 必须为 null(契约一致性 — 与 ok return
+    // phaseLabel + ignoredFields 同步标 phaseLabel 被忽略)。修前 spawnArgs.handOff.phaseLabel
+    // 直接用 args.phaseLabel ?? null → events.payload / UI tooltip 显示 phase 但 ok return
     // 说被忽略,silent UI/metadata 漂移。
     const spawnArgsCaught = mockSpawn.mock.calls[0]![0];
-    expect(spawnArgsCaught.hand_off).toEqual({
+    expect(spawnArgsCaught.handOff).toEqual({
       mode: 'generic',
       planId: null,
       phaseLabel: null,

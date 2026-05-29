@@ -48,7 +48,7 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
   // 共 2 次 git 调用 → 11 次（原 9 次）。
   function makeHandlerStub(implWillSucceed: boolean): {
     implDeps: ArchivePlanDeps;
-    workArgs: { plan_id: string; worktree_path: string; base_branch: string };
+    workArgs: { planId: string; worktreePath: string; baseBranch: string };
   } {
     const { state, input } = fixtureHappyPath();
     const gitStdouts = implWillSucceed
@@ -75,9 +75,9 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
     return {
       implDeps: deps,
       workArgs: {
-        plan_id: input.planId,
-        worktree_path: input.worktreePath,
-        base_branch: input.baseBranch,
+        planId: input.planId,
+        worktreePath: input.worktreePath,
+        baseBranch: input.baseBranch,
       },
     };
   }
@@ -280,7 +280,7 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
   // 与 CHANGELOG_99 段同款,wrapping fixture 让 impl 真跑过
   function makeHandlerStub(): {
     implDeps: ArchivePlanDeps;
-    workArgs: { plan_id: string; worktree_path: string; base_branch: string };
+    workArgs: { planId: string; worktreePath: string; baseBranch: string };
   } {
     const { state, input } = fixtureHappyPath();
     const gitStdouts = [
@@ -301,9 +301,9 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
     return {
       implDeps: deps,
       workArgs: {
-        plan_id: input.planId,
-        worktree_path: input.worktreePath,
-        base_branch: input.baseBranch,
+        planId: input.planId,
+        worktreePath: input.worktreePath,
+        baseBranch: input.baseBranch,
       },
     };
   }
@@ -458,9 +458,9 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
 
     const result = await archivePlanHandler(
       {
-        plan_id: input.planId,
-        worktree_path: input.worktreePath,
-        base_branch: input.baseBranch,
+        planId: input.planId,
+        worktreePath: input.worktreePath,
+        baseBranch: input.baseBranch,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       { implDeps: dirtyDeps, archiveSession: mockArchive, shutdownTeammates: mockShutdown },

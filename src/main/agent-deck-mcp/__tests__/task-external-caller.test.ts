@@ -7,7 +7,7 @@
  * - task_list：external caller (sentinel) 读 → ALLOW（只 list 是 read-only cross-team scope）
  *
  * **v024 plan §D8 修法**(user 拍板方案 A): task_get 从 ALLOW → DENY,与 task_create/update/delete
- * 同款 deny external 对称。v023 「external mcp client 凭已知 task_id 查 task」use case 被推翻 —
+ * 同款 deny external 对称。v023 「external mcp client 凭已知 taskId 查 task」use case 被推翻 —
  * external client 仅能走 task_list 拉自己可见 scope（对未 join team 的 external client 返空）。
  *
  * 与 spoofing-attack-paths.test.ts 角色边界：

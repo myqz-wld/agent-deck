@@ -10,7 +10,7 @@
  * 4. helper 自身抛错 → error + console.warn + hint（与 archive_plan / hand_off_session
  *    runBatonCleanup 兜底 warn 不阻塞行为不同 — 本 tool 是 escape hatch,helper 失败就是「补跑
  *    没成功」需让 caller 显式知道）
- * 5. planId 透传 — ok return 含 args.plan_id
+ * 5. planId 透传 — ok return 含 args.planId
  *
  * 用 deps inject 模式 mock shutdownTeammates seam。不依赖真 sessionManager / agentDeckTeamRepo。
  */
@@ -27,7 +27,7 @@ import type { ShutdownTeammatesResult } from '../tools/handlers/shutdown-teammat
 const shutdownBatonLogger = log.scope('mcp-shutdown-baton');
 
 describe('shutdownBatonTeammatesHandler — deny external caller', () => {
-  it('caller_session_id = __external__ + transport=stdio → 拒绝（withMcpGuard 拦截）', async () => {
+  it('callerSessionId = __external__ + transport=stdio → 拒绝（withMcpGuard 拦截）', async () => {
     const args: ShutdownBatonTeammatesArgs = {};
     const ctx: HandlerContext = {
       caller: {
@@ -41,7 +41,7 @@ describe('shutdownBatonTeammatesHandler — deny external caller', () => {
     expect(result.content[0]?.text).toContain('not allowed for external caller');
   });
 
-  it('caller_session_id = __external__ + transport=in-process → 拒绝（双保险）', async () => {
+  it('callerSessionId = __external__ + transport=in-process → 拒绝（双保险）', async () => {
     // in-process closure override 应该把 caller 改成真 sid，不会到这里 sentinel；但本 case
     // 模拟 closure 没设置 / 异常分支 — 仍要 deny external（types.ts EXTERNAL_CALLER_ALLOWED
     // 表语义：sentinel 即 deny，与 transport 无关）
@@ -69,7 +69,7 @@ describe('shutdownBatonTeammatesHandler — caller-not-lead error 契约', () =>
       }),
     );
 
-    const args: ShutdownBatonTeammatesArgs = { plan_id: 'some-plan' };
+    const args: ShutdownBatonTeammatesArgs = { planId: 'some-plan' };
     const ctx: HandlerContext = {
       caller: {
         callerSessionId: 'caller-sid',
@@ -107,7 +107,7 @@ describe('shutdownBatonTeammatesHandler — happy path', () => {
     );
 
     const args: ShutdownBatonTeammatesArgs = {
-      plan_id: 'deep-review-batch-a1-b-followup-r3-20260519',
+      planId: 'deep-review-batch-a1-b-followup-r3-20260519',
     };
     const ctx: HandlerContext = {
       caller: {
@@ -162,7 +162,7 @@ describe('shutdownBatonTeammatesHandler — happy path', () => {
       { sessionId: 'teammate-fail', reason: 'simulated FK constraint' },
     ]);
     expect(data.skipped).toBeNull();
-    expect(data.planId).toBeNull(); // args.plan_id 不传 → null
+    expect(data.planId).toBeNull(); // args.planId 不传 → null
   });
 });
 
@@ -175,7 +175,7 @@ describe('shutdownBatonTeammatesHandler — helper 抛错 → error + warn', () 
     warnMock.mockClear();
 
     const args: ShutdownBatonTeammatesArgs = {
-      plan_id: 'some-plan',
+      planId: 'some-plan',
     };
     const ctx: HandlerContext = {
       caller: {
@@ -195,15 +195,15 @@ describe('shutdownBatonTeammatesHandler — helper 抛错 → error + warn', () 
     expect(payload.error).toContain('shutdownTeammatesOnBaton helper failed');
     expect(payload.error).toContain('simulated agentDeckTeamRepo SQLite locked');
     expect(payload.hint).toContain('Internal helper error');
-    expect(payload.hint).toContain('plan_id=some-plan');
+    expect(payload.hint).toContain('planId=some-plan');
 
-    // warn 含 plan_id 前缀方便排查
+    // warn 含 planId 前缀方便排查
     expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('shutdownTeammatesOnBaton helper threw'),
       expect.any(Error),
     );
     expect(warnMock).toHaveBeenCalledWith(
-      expect.stringContaining('plan_id=some-plan'),
+      expect.stringContaining('planId=some-plan'),
       expect.any(Error),
     );
   });
