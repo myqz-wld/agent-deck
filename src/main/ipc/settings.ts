@@ -15,6 +15,7 @@ import { getFloatingWindow } from '@main/window';
 import { settingsStore } from '@main/store/settings-store';
 import { adapterRegistry } from '@main/adapters/registry';
 import { getLifecycleScheduler } from '@main/session/lifecycle-scheduler';
+import { getIssueLifecycleScheduler } from '@main/store/issue-lifecycle-scheduler';
 import { summarizer } from '@main/session/summarizer';
 import {
   getActiveAgentDeckClaudeMd,
@@ -52,6 +53,22 @@ function applyLifecycleThresholds(p: Partial<AppSettings>, next: AppSettings): v
       activeWindowMs: next.activeWindowMs,
       closeAfterMs: next.closeAfterMs,
       historyRetentionDays: next.historyRetentionDays,
+    });
+  }
+}
+
+/**
+ * plan issue-tracker-mcp-20260529 §Step 3.6.3 + §3.7.3: Issue Tracker GC 阈值热更新。
+ *
+ * 与 applyLifecycleThresholds 同款 in-key check + scheduler updateThresholds 调用。
+ * caller 改 issueResolvedRetentionDays / issueSoftDeletedRetentionDays 后立即生效（无需重启）。
+ * scheduler null（bootstrap 中尚未起 / before-quit 已 stop）→ optional chain 跳过。
+ */
+function applyIssueGcThresholds(p: Partial<AppSettings>, next: AppSettings): void {
+  if ('issueResolvedRetentionDays' in p || 'issueSoftDeletedRetentionDays' in p) {
+    getIssueLifecycleScheduler()?.updateThresholds({
+      resolvedRetentionDays: next.issueResolvedRetentionDays,
+      softDeletedRetentionDays: next.issueSoftDeletedRetentionDays,
     });
   }
 }
@@ -233,6 +250,7 @@ export function registerSettingsIpc(): void {
     // 不进 rollback，单独跑。
     const APPLY_FNS = [
       applyLifecycleThresholds,
+      applyIssueGcThresholds,
       applyLoginItem,
       applyAlwaysOnTop,
       applyWindowTransparent,

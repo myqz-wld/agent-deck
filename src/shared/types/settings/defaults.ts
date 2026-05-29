@@ -36,6 +36,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   windowTransparent: true,
   startOnLogin: false,
   historyRetentionDays: 30,
+  // Issue Tracker §D13 GC 阈值（plan issue-tracker-mcp-20260529）：
+  // - resolvedRetentionDays 默认 90d (resolved issue 三月后硬删,留充分窗口给用户复盘)
+  // - softDeletedRetentionDays 默认 7d (软删一周后硬删,与 history 30d 不同 — 软删本就 implicit 已完成 triage)
+  issueResolvedRetentionDays: 90,
+  issueSoftDeletedRetentionDays: 7,
   codexCliPath: null,
   claudeCliPath: null,
   injectAgentDeckClaudeMd: true,

@@ -169,6 +169,21 @@ export interface AppSettings {
    */
   historyRetentionDays: number;
   /**
+   * Issue Tracker §D13 GC 阈值（plan issue-tracker-mcp-20260529）：resolved issue 保留天数。
+   * - 正数：超过该天数的 resolved issue（resolved_at < now - days * 86400_000）将被
+   *   IssueLifecycleScheduler 6h tick 一并 hardDelete（appendices ON DELETE CASCADE 一起删）。
+   * - 0：禁用 resolved issue 自动 GC（用户手工管理）。
+   * 与 historyRetentionDays / softDeletedRetentionDays 正交独立。
+   */
+  issueResolvedRetentionDays: number;
+  /**
+   * Issue Tracker §D13 GC 阈值：UI 软删 issue（deleted_at IS NOT NULL）保留天数。
+   * - 正数：deleted_at < now - days * 86400_000 的软删 issue 将被 IssueLifecycleScheduler
+   *   6h tick hardDelete。默认 7 天 — 给用户「已删除」过滤器一个窗口期反悔。
+   * - 0：禁用软删 issue 自动 GC（永远保留软删 record）。
+   */
+  issueSoftDeletedRetentionDays: number;
+  /**
    * Codex CLI 二进制绝对路径（@openai/codex-sdk 的 codexPathOverride）。
    * - null：用 SDK 自带的 vendored 二进制（@openai/codex 跟随 npm 装上，已打包进 .app）
    * - 绝对路径：覆盖为外部 codex（例如用户自装的更新版 `which codex` 给的路径）
