@@ -82,6 +82,11 @@ export interface CallerContext {
  * plan task-mcp-merge-into-agent-deck-mcp-20260521：合并 task-manager/ 的 5 个 task tool
  * 进 agent-deck-mcp namespace — 10 → 15 tool（含 task_create/list/get/update/delete）。
  * 让 codex SDK 子进程通过现有 mcp_servers.agent-deck HTTP transport 自动拿到 task tool。
+ *
+ * plan issue-tracker-mcp-20260529 §Step 3.3.4：加 report_issue + append_issue_context 两个
+ * issue tracker write tool — 15 → 17 tool。**§不变量 1 agent 只写不查**：仅挂 write tool,
+ * **不**挂 issue_list / issue_get / issue_update / issue_delete 任何 read/admin tool
+ * （由「根本不存在」保证而非「deny external」）。
  */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
@@ -105,6 +110,10 @@ export const AGENT_DECK_TOOL_NAMES = {
   taskGet: 'task_get',
   taskUpdate: 'task_update',
   taskDelete: 'task_delete',
+  // plan issue-tracker-mcp-20260529 §Step 3.3.4 + §不变量 1：仅 2 个 write tool,
+  // **不**挂 issue_list / issue_get / issue_update / issue_delete（agent 不能查 — UI 负责 read/admin）。
+  reportIssue: 'report_issue',
+  appendIssueContext: 'append_issue_context',
 } as const;
 
 export type AgentDeckToolName =
@@ -145,4 +154,10 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   task_list: true,
   // v024 plan §D8 修法:flip true → false（严格 team-scoped read + deny external 对称）
   task_get: false,
+  // plan issue-tracker-mcp-20260529 §不变量 7 + §Step 3.3.4：两个 issue write tool 都 deny external
+  // （写 issues 表 + sourceSessionId 闭包注入需真实 callerSessionId,external client 没法
+  // 提供 source-bound 校验需要的 in-process closure caller）。**没有** issue_list / issue_get
+  // 因为 §不变量 1 agent 只写不查 — UI 负责 read/admin（IPC channels 路径,与 mcp transport 隔离）。
+  report_issue: false,
+  append_issue_context: false,
 };
