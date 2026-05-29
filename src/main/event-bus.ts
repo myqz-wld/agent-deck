@@ -15,6 +15,7 @@ import type {
   AgentDeckTeam,
   AgentDeckTeamMemberChangedEvent,
   AgentEvent,
+  IssueChangedEvent,
   SessionRecord,
   SummaryRecord,
   TaskChangedEvent,
@@ -32,6 +33,17 @@ export interface EventMap {
   /** Task Manager (CHANGELOG_43)：tasks 表写操作（task_create/update/delete handler 内
    *  调用 repo 成功后 emit）。main bootstrap 桥接到 IPC IpcEvent.TaskChanged 推 renderer。 */
   'task-changed': [TaskChangedEvent];
+  /**
+   * Issue Tracker (plan issue-tracker-mcp-20260529 §Step 3.4.2 + §不变量)：issues 表写
+   * 操作（report_issue / append_issue_context mcp tool + IPC IssuesUpdate / IssuesSoftDelete /
+   * IssuesUndelete / IssuesResolveInNewSession handler + IssueLifecycleScheduler tick 内调用
+   * issueRepo 成功后 emit）。main bootstrap 桥接到 IPC IpcEvent.IssueChanged 推 renderer。
+   *
+   * kind 语义见 IssueChangedEvent.kind 注释（created / updated / appended / softDeleted /
+   * undeleted / hardDeleted）。hardDeleted 时 event.issue=null + sourceSessionId 取删前 snapshot
+   * 让 renderer 仍能精细 invalidate（§D7 R3 LOW F7 与 TaskChangedEvent.ownerSessionId 对称）。
+   */
+  'issue-changed': [IssueChangedEvent];
   /**
    * archive-failure-ux-upthrow-20260515 plan(P1 已落地)+ archive-toctou-fix-20260515 plan
    * (R1 双方共识 union narrow + 加 'probe-throw'): caller archive 失败 UX 上抛通道。

@@ -25,7 +25,7 @@
  */
 
 import { z } from 'zod';
-import type { TaskRecord } from '@shared/types';
+import type { IssueRecord, TaskRecord } from '@shared/types';
 
 /**
  * Task tool status 枚举（plan task-mcp-merge-into-agent-deck-mcp-20260521 Step 0.5 + R2 F-R2-4 修法）：
@@ -1228,3 +1228,159 @@ export interface TaskDeleteResult {
   taskId: string;
   deletedIds: string[];
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Issue Tracker (plan issue-tracker-mcp-20260529 §Step 3.3.1 / §D2 / §D17 / §D19)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * §D2 / §D17：logsRef 严格 schema SSOT。args 层 zod 校验，handler 不再二次校验
+ * 字段格式（仅做 merge / null 合并语义）。
+ *
+ * - `date` 必填 YYYY-MM-DD ISO 格式（regex 严格）
+ * - `tsRange?` 可选 { start, end } epoch ms; refine `start <= end` 反则 reject
+ * - `scopes?` 可选 string[] max 32 项 / 单项 max 64 char（数组层 max + 元素 max
+ *   两个 zod 约束;handler 不需要再 dedupe — repo merge 内 Set 化）
+ * - `note?` 可选 string max 2000 char
+ *
+ * **§D17 整 obj 全字段 null/undefined → reject**：用 `.refine` 检测至少 1 个字段非
+ * null/undefined（注：因 `date` 必填 schema 层已强制非空,refine 实际兜底场景是「caller
+ * 把 date 传成 undefined / 空字符串」,zod min(1) 已 reject。但保留 `.refine` 以防未来
+ * date 字段改 optional — 当前规则等价 reject empty `{date: ''}` / `{}`）。
+ */
+export const LOGS_REF_SCHEMA = z
+  .object({
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD ISO format'),
+    tsRange: z
+      .object({
+        start: z.number().int().min(0),
+        end: z.number().int().min(0),
+      })
+      .refine((v) => v.start <= v.end, {
+        message: 'tsRange.start must be <= tsRange.end',
+      })
+      .optional(),
+    scopes: z
+      .array(z.string().min(1).max(64))
+      .max(32, 'scopes max 32 items')
+      .optional(),
+    note: z.string().max(2000).optional(),
+  })
+  .refine(
+    (v) => v.date != null || v.tsRange != null || v.scopes != null || v.note != null,
+    { message: 'logsRef must have at least one non-null field; pass undefined to skip merge' },
+  );
+
+/**
+ * `report_issue` mcp tool — agent 上报新 issue。返回完整 IssueRecord（§D19 与
+ * task_create 对称）含 issueId 给 agent 同 session 后续 append_issue_context 调用使用。
+ */
+export const REPORT_ISSUE_SCHEMA = {
+  title: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe('Issue title (1-200 chars). Required'),
+  description: z
+    .string()
+    .min(1)
+    .max(2000)
+    .describe(
+      'Issue description (1-2000 chars). Required. Self-contained context so triagers can read without depending on logs.',
+    ),
+  repro: z
+    .string()
+    .min(1)
+    .max(2000)
+    .nullable()
+    .optional()
+    .describe('Optional reproduction steps (1-2000 chars). null/undefined = not provided'),
+  /**
+   * §D6：kind 软枚举 + free-form fallback —— **不**用 z.enum 严格校验（推荐 5 值原样落库;
+   * agent 可上报自定义 kind 如 'agent-deck-bug',UI 端 'other' 分组,**不**自动 normalize）。
+   * 1-32 字符限制由 DDL CHECK 兜底,zod 层做 length 守门避免 caller 传超长字符串。
+   */
+  kind: z
+    .string()
+    .min(1)
+    .max(32)
+    .optional()
+    .describe(
+      'Soft enum (default "follow-up"): "follow-up" / "app-bug" / "external-tooling-bug" / "convention-gap" / "enhancement" — non-enum values stored as-is (UI groups under "other").',
+    ),
+  severity: z
+    .enum(['low', 'medium', 'high'])
+    .optional()
+    .describe('Severity (default "medium"). Strict enum'),
+  logsRef: LOGS_REF_SCHEMA.optional().describe(
+    'Optional reference to runtime logs (NOT log content). Schema: {date: YYYY-MM-DD ISO, tsRange?: {start, end} epoch ms, scopes?: string[], note?: string}. UI renders this as a pointer to the runtime-logging plan log files.',
+  ),
+  cwd: z
+    .string()
+    .max(2048)
+    .nullable()
+    .optional()
+    .describe(
+      'Optional cwd snapshot (≤2048 chars). When omitted, handler falls back to caller session.cwd then null.',
+    ),
+  labels: z
+    .array(z.string().min(1).max(64))
+    .max(16)
+    .optional()
+    .describe('Optional free-form tags (max 16 items, each 1-64 chars)'),
+  callerSessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（report_issue 不允许 external caller — 写 issues 表 + sourceSessionId 闭包）。',
+    ),
+};
+
+/**
+ * `append_issue_context` mcp tool — agent 在**同一 session 内**为已上报的 issue 追加
+ * 现场。strict source-bound（§D10）：handler 校验 `issue.sourceSessionId === callerSid`，
+ * 跨 session / 跨 caller 一律 reject。append 不动 `issues.description`,新行写入
+ * `issue_appendices` 子表（§D16）;`logsRef` 走 §D17 merge 算法（merge 到 issues.logs_ref）。
+ *
+ * 返回完整 IssueRecord（含最新 appendices 列表）让 UI emit 'issue-changed' kind='appended'
+ * 时直接拿到 全 record + 子表（§D19 不必再 IPC fetch）。
+ */
+export const APPEND_ISSUE_CONTEXT_SCHEMA = {
+  issueId: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe('Issue UUID returned by report_issue. Strict source-bound: only the originating session can append'),
+  additionalContext: z
+    .string()
+    .min(1)
+    .max(2000)
+    .describe('New on-site context (1-2000 chars). Stored in issue_appendices subtable, NOT merged into issues.description'),
+  logsRef: LOGS_REF_SCHEMA.optional().describe(
+    'Optional new logsRef to merge into issues.logs_ref (D17: date 覆盖 / tsRange min-max 扩展 / scopes union dedup / note append-then-truncate-from-head). Schema same as report_issue.logsRef.',
+  ),
+  callerSessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（append_issue_context 不允许 external caller — 写 issues + issue_appendices 表 + source-bound 校验）。',
+    ),
+};
+
+// Args type infer
+export type ReportIssueArgs = z.infer<z.ZodObject<typeof REPORT_ISSUE_SCHEMA>>;
+export type AppendIssueContextArgs = z.infer<z.ZodObject<typeof APPEND_ISSUE_CONTEXT_SCHEMA>>;
+
+/**
+ * Result types（§D19）：handler 返回完整 IssueRecord — 与 task_create / task_update
+ * 对称，UI 端 emit 'issue-changed' 时直接拿到全 record（含 appendices 子列表 for created /
+ * appended kinds）。
+ */
+export type ReportIssueResult = IssueRecord;
+export type AppendIssueContextResult = IssueRecord;
