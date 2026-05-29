@@ -91,6 +91,10 @@ export function setFileLevel(level: LogLevel): void {
 // Settings UI 显示日志路径 + 「在 Finder 中显示」用
 export { LOG_DIR };
 
+// Plan §Step 3.5.1 testing API: cleanupOldLogs + todayStr export 让单测可直接调验证 D3 行为
+// (避免间接 mock LOG_DIR + 预创 fake 老文件复杂 setup). 业务模块不应调用这两个 export.
+export { cleanupOldLogs, todayStr };
+
 // D12: 业务模块 const logger = log.scope('<kebab-case-name>') 拿 scoped logger
 // 用法示例 (业务模块):
 //   import log from '@main/utils/logger';
