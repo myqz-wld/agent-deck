@@ -51,13 +51,13 @@ finding 验证维度:
 | spike1 §A1 candidate | 严重度 | 修复 step | 修复 commit | 验证手段 |
 |---|---|---|---|---|
 | manager.ts SessionManagerClass 606 LOC + 17 method | HIGH | 4.6 | `7cbfbba` | 当前 facade 443 LOC ≤ 500 ✓ + 3 子模块 (_deps 94 / lifecycle 334 / rename 154) |
-| hand-off-session.ts handOffSessionHandler 1040 LOC inline | HIGH | 4.1 | `f152289` | 当前 facade 40 LOC + 4 子模块 (_deps 102 / cwd-resolver 253 / team-adopt-coordinator 474 / task-reassign-coordinator 308 / handler-main 411) |
+| hand-off-session.ts handOffSessionHandler 1040 LOC inline | HIGH | 4.1 | `f152289` | 当前 facade 40 LOC + 5 子模块 (_deps 102 / cwd-resolver 253 / team-adopt-coordinator 474 / task-reassign-coordinator 308 / handler-main 411) |
 | archive-plan-impl.ts archivePlanImpl 1025 LOC inline | HIGH | 4.2 | `8969654` | 当前 facade 195 LOC + 5 子模块 (_impl-shared 346 / impl-precheck 439 / impl-ff-merge 232 / impl-archive-fs 280 / impl-cleanup 255) |
 | claude sdk-bridge createSession 357 LOC inline | HIGH | 4.4 | `a21f258` | 当前 facade 467 LOC + create-session/ 3 子模块 (_deps 167 / create-session-impl 205 / create-session-sdk-query 218) |
 | codex sdk-bridge createSession 386 LOC inline | HIGH | 4.3 | `23cb39b` | 当前 facade 499 LOC + create-session/ 5 子模块 (_deps 200 / create-session-impl 188 / create-session-validate 54 / create-session-resume 132 / create-session-new 76) |
 | claude sdk-bridge recoverer recoverAndSend 326 LOC inline | HIGH | 4.4 | `a21f258` | 当前 facade 211 LOC + recoverer/ 3 子模块 (_deps 226 / jsonl-discovery 63 / recover-and-send-impl 363) |
 | codex sdk-bridge recoverer recoverAndSend 325 LOC inline | HIGH | 4.3 | `23cb39b` | 当前 facade 159 LOC + recoverer/ 3 子模块 (_deps 119 / jsonl-discovery 126 / recover-and-send-impl 334) |
-| main/index.ts bootstrap 392 LOC god-function | MED | 4.8 | `4457a2d` | 当前 facade 74 LOC + 3 子模块 (_deps 89 / bootstrap-infra 262 / bootstrap-wiring 225 / lifecycle-hooks 118) |
+| main/index.ts bootstrap 392 LOC god-function | MED | 4.8 | `4457a2d` | 当前 facade 74 LOC + 4 子模块 (_deps 89 / bootstrap-infra 262 / bootstrap-wiring 225 / lifecycle-hooks 118) |
 
 **结论**: spike1 §A1 列出的 **7 HIGH + 1 MED = 8 candidate 全部 ✅ 100% Phase 4 已落地**。Step 5.2 关于 spike1 §A1 的 HIGH 需重构工作量 = **0 work**。
 

@@ -58,10 +58,10 @@
 | 4.5 | task-repo.ts | 721 | 116 | 5 (_deps + task-repo-crud + task-repo-delete + task-repo-handoff + task-repo-list) | `8d3589a` |
 | 4.6 | session/manager.ts | 686 | 443 | 3 (_deps + lifecycle + rename) | `7cbfbba` |
 | 4.7 | window.ts | 623 | 100 | 5 (_deps + lifecycle + pin-visual + polish + sizing) | `223e59d` |
-| 4.8 | main/index.ts | 594 | 74 | 3 (_deps + bootstrap-infra + bootstrap-wiring + lifecycle-hooks) | `4457a2d` |
+| 4.8 | main/index.ts | 594 | 74 | 4 (_deps + bootstrap-infra + bootstrap-wiring + lifecycle-hooks) | `4457a2d` |
 | 4.9 | adapters/types.ts | 558 | 21 | 4 (adapter-context + create-session-opts + capabilities + agent-adapter) | `e18da65` |
 | 4.10 | shared/types/settings.ts | 544 | 31 | 3 (app-settings + defaults + permission-scan) | `ee4cf3b` |
-| 4.11 | agent-deck-message-repo.ts | 527 | 111 | factory 3 + _deps | `4a573a4` |
+| 4.11 | agent-deck-message-repo.ts | 527 | 111 | 4 (_deps + crud + dispatch + state-machine) | `4a573a4` |
 
 - **总 LOC**: 9821 → 12552 (+27.8% readability tax)，**全 11 facade ≤ 500 LOC** 满足 §D1 护栏，**~50 个 ≥ 50 子模块全 ≤ 500 LOC** ✓
 - 每文件按 Step 4.x.0 mini-spike + user 1-min confirm 3 题模式拆（① 子模块名 ② 边界划法 ③ entity / 功能 / 行为域），不 confirm 实施细节
