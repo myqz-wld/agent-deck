@@ -1,6 +1,7 @@
 import { useRef, useState, type JSX } from 'react';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
+import log from '@renderer/utils/logger';
 import { ImageIcon } from './composer-sdk/ImageIcon';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import {
@@ -12,6 +13,8 @@ import {
   type CodexSandbox,
   type ClaudeCodeSandbox,
 } from './composer-sdk/SandboxSelects';
+
+const logger = log.scope('renderer-composer-sdk');
 
 /**
  * SDK 会话的输入区 + 权限模式下拉。
@@ -135,7 +138,7 @@ export function ComposerSdk({
         ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
       });
     } catch (err) {
-      console.error('sendAdapterMessage failed', err);
+      logger.error('sendAdapterMessage failed', err);
       setText(t);
       setSendError((err as Error).message);
     } finally {
@@ -148,7 +151,7 @@ export function ComposerSdk({
     try {
       await window.api.interruptAdapterSession(agentId, sessionId);
     } catch (err) {
-      console.error('interrupt failed', err);
+      logger.error('interrupt failed', err);
     }
   };
 

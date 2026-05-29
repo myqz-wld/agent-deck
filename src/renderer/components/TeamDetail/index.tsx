@@ -6,6 +6,7 @@ import type {
   AgentEvent,
   TaskRecord,
 } from '@shared/types';
+import log from '@renderer/utils/logger';
 import { Header } from './Header';
 import { MembersSection } from './MembersSection';
 import { LineageSection } from './LineageSection';
@@ -13,6 +14,8 @@ import { EventsSection } from './EventsSection';
 import { TasksSection } from './TasksSection';
 import { MessagesSection } from './MessagesSection';
 import { PendingSection } from './PendingSection';
+
+const logger = log.scope('renderer-team-detail');
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：TeamDetail 重写为「团队工作面板」。
@@ -104,11 +107,11 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
     try {
       const result = await window.api.shutdownAllTeammates(teamId);
       if (result.failed.length > 0) {
-        console.warn(`[TeamDetail] shutdown failed for ${result.failed.length} teammate:`, result.failed);
+        logger.warn(`[TeamDetail] shutdown failed for ${result.failed.length} teammate:`, result.failed);
         // 失败不弹错（confirmDialog 是 modal）；非阻塞 + console，下次 refetch 看到最新 snapshot
       }
     } catch (err) {
-      console.warn('[TeamDetail] shutdownAllTeammates threw:', err);
+      logger.warn('[TeamDetail] shutdownAllTeammates threw:', err);
     } finally {
       setActionBusy(null);
     }
@@ -130,7 +133,7 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
     try {
       await window.api.archiveAgentDeckTeam(teamId);
     } catch (err) {
-      console.warn('[TeamDetail] archiveAgentDeckTeam threw:', err);
+      logger.warn('[TeamDetail] archiveAgentDeckTeam threw:', err);
     } finally {
       setActionBusy(null);
     }

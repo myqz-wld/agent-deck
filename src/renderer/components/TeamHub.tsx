@@ -1,7 +1,10 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { AgentDeckTeam } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
+import log from '@renderer/utils/logger';
 import { TeamDetail } from './TeamDetail';
+
+const logger = log.scope('renderer-team-hub');
 
 /**
  * R3.E7 (PR-B) 重写 — Universal Team Backend TeamHub。
@@ -35,7 +38,7 @@ export function TeamHub({
           }
         })
         .catch((err: unknown) => {
-          console.warn('[team-hub] list failed:', err);
+          logger.warn('[team-hub] list failed:', err);
           if (!aborted) setLoading(false);
         });
     };
