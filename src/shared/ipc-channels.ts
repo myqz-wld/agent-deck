@@ -77,6 +77,24 @@ export const IpcInvoke = {
   CodexAgentsMdReset: 'codex-agents-md:reset',
   SummarizerLastErrors: 'summarizer:last-errors',
 
+  // ─────────── Issue Tracker (plan issue-tracker-mcp-20260529 §Step 3.5.4) ───────────
+  /**
+   * 6 个 IPC channel 给 UI Issues tab 用（agent 不消费这些 — 与 mcp tool 路径正交）。
+   *
+   * **§不变量 1**: agent 只走 mcp tool report_issue / append_issue_context（仅 2 个 write），
+   * read/admin 全部走本组 IPC channel 给 UI 用。两套通道完全隔离。
+   *
+   * `IssuesResolveInNewSession` 走 D14 选定路径 (b) — `adapter.createSession(buildCreateSessionOptions(...))`
+   * 绕过 mcp tool 层 spawn-guards 三道防御（UI 触发不是 agent spawn agent，不适用）；
+   * spawn 完后 `issueRepo.update(id, {resolutionSessionId: sid, status: 'in-progress'})`。
+   */
+  IssuesList: 'issues:list',
+  IssuesGet: 'issues:get',
+  IssuesUpdate: 'issues:update',
+  IssuesSoftDelete: 'issues:soft-delete',
+  IssuesUndelete: 'issues:undelete',
+  IssuesResolveInNewSession: 'issues:resolve-in-new-session',
+
   // ─────────── R3.E8 — Agent Deck universal team backend (替代老 team:* channel) ───────────
   /** 列出 active team（默认隐藏 archived）。返回 AgentDeckTeam[]（裸，不含 members）。 */
   AgentDeckTeamList: 'agent-deck-team:list',
