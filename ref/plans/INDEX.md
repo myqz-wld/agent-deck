@@ -66,3 +66,4 @@
 | [build-dir-migration-20260526.md](build-dir-migration-20260526.md) | completed | [154](../changelogs/CHANGELOG_154.md) | build-dir-migration-20260526 — build 产物全面迁移到 build/ 统一根出口(electron-vite outDir 3 入口 + electron-builder output → build/dist) |
 | [prompt-asset-review-optimize-20260527.md](prompt-asset-review-optimize-20260527.md) | completed | [155](../changelogs/CHANGELOG_155.md) | prompt-asset-review-optimize-20260527 — 提示词资产 SSOT 边界整理(应用 CLAUDE.md self-contained 不依赖 user / user 不绑 agent-deck / 优先级链显式声明 / 项目根 CLAUDE.md 压缩 -22%) |
 | [deep-project-review-comprehensive-20260528.md](deep-project-review-comprehensive-20260528.md) | completed | [174](../changelogs/CHANGELOG_174.md) / [175](../changelogs/CHANGELOG_175.md) | deep-project-review-comprehensive-20260528 |
+| [sdk-spawn-shell-path-20260529.md](sdk-spawn-shell-path-20260529.md) | completed | [176](../changelogs/CHANGELOG_176.md) | sdk-spawn-shell-path-20260529 |
