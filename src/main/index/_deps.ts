@@ -13,6 +13,7 @@ import type { HookServer } from '../hook-server/server';
 import type { RouteRegistry } from '../hook-server/route-registry';
 import type { LifecycleScheduler } from '../session/lifecycle-scheduler';
 import type { TeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
+import type { IssueLifecycleScheduler } from '../store/issue-lifecycle-scheduler';
 import type { EventMap } from '../event-bus';
 
 /**
@@ -30,6 +31,8 @@ export interface BootstrapState {
   routeRegistry: RouteRegistry | null;
   scheduler: LifecycleScheduler | null;
   teamScheduler: TeamLifecycleScheduler | null;
+  /** plan issue-tracker-mcp-20260529 §Step 3.7.2 / §D13 / §D20: Issue Tracker GC scheduler */
+  issueScheduler: IssueLifecycleScheduler | null;
   agentDeckMcpHttpShutdown: (() => Promise<void>) | null;
 }
 
@@ -39,6 +42,7 @@ export function createInitialBootstrapState(): BootstrapState {
     routeRegistry: null,
     scheduler: null,
     teamScheduler: null,
+    issueScheduler: null,
     agentDeckMcpHttpShutdown: null,
   };
 }

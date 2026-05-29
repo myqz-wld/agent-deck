@@ -19,6 +19,7 @@ import { closeDb } from '../store/db';
 import { adapterRegistry } from '../adapters/registry';
 import { setLifecycleScheduler } from '../session/lifecycle-scheduler';
 import { setTeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
+import { setIssueLifecycleScheduler } from '../store/issue-lifecycle-scheduler';
 import { summarizer } from '../session/summarizer';
 import { stopAllSounds } from '../notify/sound';
 import { universalMessageWatcher } from '../teams/universal-message-watcher';
@@ -68,6 +69,10 @@ export function registerLifecycleHooks(
         setLifecycleScheduler(null);
         state.teamScheduler?.stop();
         setTeamLifecycleScheduler(null);
+        // plan issue-tracker-mcp-20260529 §Step 3.7.2.5: stop IssueLifecycleScheduler 防 timer
+        // 在 quit 期间继续碰 DB（与现有 LifecycleScheduler / TeamLifecycleScheduler 同款 stop 模式）
+        state.issueScheduler?.stop();
+        setIssueLifecycleScheduler(null);
         summarizer.stop();
         stopAllSounds();
         // R3.E5:universal-message-watcher shutdown

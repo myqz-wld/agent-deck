@@ -40,6 +40,10 @@ import {
   TeamLifecycleScheduler,
   setTeamLifecycleScheduler,
 } from '../teams/team-lifecycle-scheduler';
+import {
+  IssueLifecycleScheduler,
+  setIssueLifecycleScheduler,
+} from '../store/issue-lifecycle-scheduler';
 import { summarizer } from '../session/summarizer';
 import { routeEventToNotification } from '../notify/event-router';
 import { bootstrapIpc } from '../ipc';
@@ -235,6 +239,14 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
   state.teamScheduler = new TeamLifecycleScheduler();
   state.teamScheduler.start();
   setTeamLifecycleScheduler(state.teamScheduler);
+  // plan issue-tracker-mcp-20260529 §Step 3.7.2 / §D13 / §D20: Issue Tracker GC scheduler。
+  // 默认 6h tick — retention 单位是 day,GC 漂移几小时无害。aretentionDays=0 跳过该路径 GC。
+  state.issueScheduler = new IssueLifecycleScheduler({
+    resolvedRetentionDays: settings.issueResolvedRetentionDays,
+    softDeletedRetentionDays: settings.issueSoftDeletedRetentionDays,
+  });
+  state.issueScheduler.start();
+  setIssueLifecycleScheduler(state.issueScheduler);
   summarizer.start();
 
   // 7.0 D1+D2:app ready 后同步 Agent Deck 段到 ~/.codex/AGENTS.md + skills
