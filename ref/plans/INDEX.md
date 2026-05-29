@@ -68,3 +68,4 @@
 | [deep-project-review-comprehensive-20260528.md](deep-project-review-comprehensive-20260528.md) | completed | [174](../changelogs/CHANGELOG_174.md) / [175](../changelogs/CHANGELOG_175.md) | deep-project-review-comprehensive-20260528 |
 | [sdk-spawn-shell-path-20260529.md](sdk-spawn-shell-path-20260529.md) | completed | [176](../changelogs/CHANGELOG_176.md) | sdk-spawn-shell-path-20260529 |
 | [mcp-tool-camelcase-migration-20260529.md](mcp-tool-camelcase-migration-20260529.md) | completed | [177](../changelogs/CHANGELOG_177.md) | mcp-tool-camelcase-migration-20260529 |
+| [runtime-logging-electron-log-20260529.md](runtime-logging-electron-log-20260529.md) | completed | [178](../changelogs/CHANGELOG_178.md) | runtime-logging-electron-log-20260529 |

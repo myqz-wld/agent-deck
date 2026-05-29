@@ -1,0 +1,57 @@
+
+=== 验证 1: resolvePathFn 是否落到不同文件 ===
+logs/ 目录内容: [ 'main-2026-05-29.log', 'main-2026-05-30.log', 'main-2026-05-31.log' ]
+
+--- main-2026-05-29.log ---
+[2026-05-29 18:05:26.775] [info]  day-1 message
+
+--- main-2026-05-30.log ---
+[2026-05-29 18:05:26.777] [info]  day-2 message
+
+--- main-2026-05-31.log ---
+[2026-05-29 18:05:26.777] [info]  day-3 message
+
+=== 验证 2: cleanup 函数删 14 天前的 ===
+cleanup 前: [
+  'main-2026-04-29.log',
+  'main-2026-05-19.log',
+  'main-2026-05-29.log',
+  'main-2026-05-30.log',
+  'main-2026-05-31.log'
+]
+cleanup 删了 1 个文件
+cleanup 后: [
+  'main-2026-05-19.log',
+  'main-2026-05-29.log',
+  'main-2026-05-30.log',
+  'main-2026-05-31.log'
+]
+
+=== 验证 3: resolvePathFn 抛错时 log.info 行为 ===
+Unhandled electron-log error Error: mocked resolvePathFn failure
+    at log.transports.file.resolvePathFn (file:///private/tmp/spike-electron-log-20260529/spike-a-rotate.mjs:71:9)
+    at getFile (/private/tmp/spike-electron-log-20260529/node_modules/electron-log/src/node/transports/file/index.js:126:32)
+    at transport (/private/tmp/spike-electron-log-20260529/node_modules/electron-log/src/node/transports/file/index.js:67:18)
+    at Logger.processMessage (/private/tmp/spike-electron-log-20260529/node_modules/electron-log/src/core/Logger.js:182:11)
+    at Logger.logData (/private/tmp/spike-electron-log-20260529/node_modules/electron-log/src/core/Logger.js:136:12)
+    at <computed> (/private/tmp/spike-electron-log-20260529/node_modules/electron-log/src/core/Logger.js:86:37)
+    at file:///private/tmp/spike-electron-log-20260529/spike-a-rotate.mjs:74:7
+    at ModuleJob.run (node:internal/modules/esm/module_job:377:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:691:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+log.info 不抛错（electron-log 内部 try/catch）
+
+=== 验证 4: scope 行为 ===
+
+--- /tmp/spike-electron-log-20260529/logs/main-2026-06-01.log ---
+[2026-05-29 18:05:26.779] [info]  (sdk-bridge)          hello from sdk-bridge
+[2026-05-29 18:05:26.779] [warn]  (lifecycle-scheduler) hello from lifecycle
+[2026-05-29 18:05:26.779] [info]                        hello from root logger (no scope)
+
+=== 验证 5: format 自定义 ===
+
+--- main-2026-06-02.log ---
+[info] [ (sdk-bridge)         ] 2026-05-29 18:05:26.779 custom format test
+[info] [                      ] 2026-05-29 18:05:26.779 no scope test
+
+=== Spike (a) 完成 ===
