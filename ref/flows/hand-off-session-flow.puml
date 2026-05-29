@@ -76,13 +76,17 @@ end
 == 段 3: baton cleanup (与 archive_plan 共享 helper) ==
 
 H -> BC: runBatonCleanup({callerSid, adoptTeammates, archiveCaller})
-opt adopt_teammates=false AND archive_caller=true
+opt adopt_teammates=false AND archive_caller=true AND caller 是 lead
   BC -> SM: phase 1: 关 caller 同 team 全部 teammate\n(excludeSessionIds={newSid} 防 spawn 加入的 newSid 被一并关)
 end
 note right of BC
-  phase 1 跳过条件 (任一即跳):
-  - adopt_teammates=true (teammate 已转给 newSid)
-  - archive_caller=false (caller 保活 → skipped='archive-caller-false-keep')
+  phase 1 跳过条件 (6 状态完整 enum, baton-cleanup.ts:166-174):
+  - **null** (成功路径含 closed=[] 的 caller=lead 但 team 内无其他 active teammate)
+  - **'adopt-keep-implicit'** (adopt_teammates=true → teammate 已转给 newSid; Phase 4 引入)
+  - **'archive-caller-false-keep'** (archive_caller=false → caller 保活; CHANGELOG_169 F4)
+  - **'caller-not-lead'** (caller 不是 lead 含 external sentinel)
+  - **'all-lead-teams-archived'** (caller 是 lead 但所有 team 已 archived; REVIEW_56 §F6 R2)
+  - **'phase-1-error'** (phase 1 内部 throw 兜底; REVIEW_56 §F6 codex MED-3)
 end note
 opt archive_caller=true (默认)
   BC -> SM: phase 2: 归档 caller session

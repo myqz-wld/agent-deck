@@ -22,7 +22,7 @@ note right
 end note
 
 ' ─── 段 1: 单飞锁 + 反查 + 占位 ───
-partition "段 1: 自愈入口 (单飞锁防并发)" {
+partition "段 1: 自愈入口 (单飞锁防并发 + 5s 占位 dedup)" {
   if (单飞锁已持锁?) then (yes)
     :await 同 sessionId 的 inflight Promise;
     :inflight 完成后重新走完整 sendMessage(text);
@@ -41,11 +41,17 @@ partition "段 1: 自愈入口 (单飞锁防并发)" {
   if (row.archived_at != null?) then (yes — archived session 自愈)
     :sessionRepo.unarchive (恢复对话身份连续性);
   endif
-  :emit '⚠ SDK 通道已断开,正在自动恢复…' 占位 message;
+
+  ' M6 段 1: 5s 占位 dedup
+  if (5s 内已 emit 过同 sid 占位?) then (yes — skip)
+    :skip emit (PLACEHOLDER_DEDUP_MS=5_000\nconstants.ts:58 + recover-and-send-impl.ts:229-235);
+  else (no)
+    :emit '⚠ SDK 通道已断开,正在自动恢复…' 占位 message + placeholderEmittedAt 记录;
+  endif
 }
 
 ' ─── 段 2: cwd + jsonl 兜底 ───
-partition "段 2: cwd + jsonl 兜底链" {
+partition "段 2: cwd + jsonl 兜底链 (按 adapter 分叉)" {
   if (cwd 仍存在?) then (no — cwd 失效)
     :启发式找祖先目录\n(走 worktree 路径取段之前 / 父目录 walk 不超过 home);
     if (找到 fallback cwd?) then (no)
@@ -58,23 +64,44 @@ partition "段 2: cwd + jsonl 兜底链" {
       / 用户手动 git worktree remove 不走 archive_plan
       / 跨设备同步丢目录
     end note
-    :强制走 jsonl-missing fallback 同款下游;
+
+    ' M6 段 1: 按 adapter 分叉 cwd fallback 下游
+    if (adapter == claude?) then (yes)
+      :Claude cwd fallback → 进 fresh-cli-reuse-app 下游;
+    else (no — codex)
+      :Codex cwd info emit + 继续检查 jsonl;
+      if (jsonl 存在?) then (yes)
+        :走正常 resumeThread 路径\n(codex recover-and-send-impl.ts:140-142,237-242,254-276\n删除 cwdFellBack 强制 fallback,仅 jsonl 真缺失才 fresh fallback);
+        :跳到 §收尾;
+      else (no)
+        :进 fresh fallback 下游;
+      endif
+    endif
   endif
 
   if (jsonl 文件存在?) then (no — CLI --resume 撞 No conversation found)
-    :maybeJsonlFallback (不带 resume 走新建 createSession\n+ session id 重命名 → 应用层 events/file_changes 子表迁移);
+    :maybeJsonlFallback (走 fresh-cli-reuse-app — applicationSid 不变);
+    :createSession resumeMode='fresh-cli-reuse-app' + resume=applicationSid;
+    :拿 newRealSessionId (fresh thread);
+    :updateCliSessionId(applicationSid, newRealSessionId)\n(applicationSid 不变 + 不迁子表, 仅 cli_session_id 替换);
+    :markRecentlyDeleted(OLD_CLI_ID) 60s blacklist (防 ghost session);
     note right
-      claude 端 prepend LLM history 摘要; codex 端精简版无摘要
+      claude 端 prependHistorySummary 5 失败状态 (CHANGELOG_107):
+      - api-error / oversized / parse-error / placeholder-only / empty-history
+      失败时降级仅 emit 占位,不阻塞 fresh fallback 主链路
+      codex 端精简版无 LLM 摘要 prepend
     end note
     :跳到 §收尾;
   else
     :createSession 带 --resume → SDK 复原历史;
-    :拿 first realSessionId;
-    if (realId != opts.resume?) then (yes — CLI 软 fork)
-      :releaseSdkClaim(OLD) + renameSdkSession(OLD, realId)\n(DB record + 子表整体迁移);
+    :拿 first realSessionId (spawn 路径 temp → real);
+    if (realId != opts.resume?) then (yes — CLI 软 fork,spawn 首次 createSession)
+      :releaseSdkClaim(OLD) + renameSdkSession(OLD, realId)\n(spawn temp rename: DB record + 子表整体迁移);
       note right
         Claude Code CLI streaming input + resume + 新 prompt 下
         可能给一个新 session_id (与官方 SDK 文档不符,实测铁证)
+        此路径为 spawn 首次 createSession 拿 first real id 时用,
+        与 fresh-cli-reuse-app + updateCliSessionId(applicationSid 稳定) 不同
       end note
     endif
     :sessions.set(realId, internal);

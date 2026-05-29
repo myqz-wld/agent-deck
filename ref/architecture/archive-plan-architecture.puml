@@ -1,8 +1,8 @@
-' description: archive_plan tool 模块架构 — 5 大块,plan 收口 7 步主链路
+' description: archive_plan tool 模块架构 — 5 大块,4 子模块原子收口(precheck + ff-merge + archive-fs + cleanup)
 ' last_updated: 2026-05-29
 @startuml archive-plan-architecture
 
-title archive_plan — 模块架构 (plan 收口 5 大块)
+title archive_plan — 模块架构 (4 子模块原子收口: precheck + ff-merge + archive-fs + cleanup)
 
 ' 节点名用日常术语优先,内部 module 名 / 函数名 / LOC / commit / REVIEW 引用见 INDEX
 
@@ -12,7 +12,7 @@ package "入口" as L1 {
 
 package "tool 实现" as L2 {
   [archive_plan facade\n(参数解析 + cwd 反查)] as Handler
-  [收口业务层\n(7 步原子时序 + 失败兜底)] as Impl
+  [收口业务层\n(4 子模块原子收口: precheck + ff-merge + archive-fs + cleanup\n+ post-ff-merge manual recovery)] as Impl
   [预检助手 + INDEX 同步助手] as Helpers
 }
 
@@ -35,19 +35,18 @@ package "外部边界" as L5 {
 
 Entry --> Handler : 通过白名单后进 facade
 Handler --> Repos : 反查 caller cwd + cwdReleaseMarker
-Handler --> Impl : 进 7 步收口
+Handler --> Impl : 进 4 子模块收口
 
-Impl --> Helpers : 4 态预检 (plan/worktree/cwd/ff-merge)
+Impl --> Helpers : runPrecheck 4 态笛卡尔 (plan/worktree/cwd/ff-merge)
 Impl --> SharedDeps : 调 fs/git 公共助手
 
-' 7 步原子时序 (任一失败 abort 无部分回滚)
-Impl --> Git : Step 1-2 checkout base_branch + ff-merge
-Impl --> Fs : Step 3-4 改 plan frontmatter + mv 到 ref/plans/
-Impl --> Fs : Step 4.5 mv spike-reports (有则迁,无则 skip)
-Impl --> Helpers : Step 5 INDEX smart update (4 列)
-Impl --> Git : Step 6 git add + commit
-Impl --> Repos : Step 7a 清 cwdReleaseMarker (commit 后提前清)
-Impl --> Git : Step 7b-c worktree remove + branch -D
+' 4 子模块原子收口 (facade 串联 runPrecheck → runFfMerge → runArchiveFs → runCleanup; 每阶段 error 短路)
+' precheck Step 1-6.5 / ff-merge Step 7-8c / archive-fs Step 9-12.5 / cleanup Step 13-14
+Impl --> Helpers : runPrecheck Step 1-6.5 (8 分支决策 + frontmatter parse + cross-check)
+Impl --> Git : runFfMerge Step 7-8c (checkout base_branch + ff-merge worktree-<plan_id>)
+Impl --> Fs : runArchiveFs Step 9-12.5 (改 plan frontmatter + mv plan + mv spike-reports/ + INDEX smart update + git add+commit)
+Impl --> Repos : runCleanup Step 13 清 cwdReleaseMarker (commit 后提前清)
+Impl --> Git : runCleanup Step 14 worktree remove + branch -D
 
 Impl --> Handler : 返收口结果
 Handler --> Baton : runBatonCleanup
@@ -60,8 +59,13 @@ Handler --> Entry : ok({archivedPath, plansIndexAction, archived, ...})
 
 note bottom of Impl
   关键不变量:
-  - 7 步原子: 任一失败立即 abort,无部分回滚 (git 不可逆)
-  - Step 7a 清 marker 提前到 commit 后 → 7b/c 失败时 marker 已清,
+  - 4 子模块原子收口: precheck → ff-merge → archive-fs → cleanup,每阶段 error 短路
+  - 失败语义双段:
+    · precheck / ff-merge 前失败 → 可 retry (4 entity 全停未变 + sessions 不动)
+    · post-ff-merge 失败 (archive-fs / cleanup) → 进入 manual recovery,**无自动 rollback**
+      (impl-archive-fs.ts:117-124 明文 "Cannot retry archive_plan as a whole",
+       impl-ff-merge.ts:93-108 / impl-cleanup.ts:230-247 走 postFfMergeErr 给手工 cleanup hint)
+  - cleanup Step 13 清 marker 提前到 commit 后 → Step 14 worktree remove/branch -D 失败时 marker 已清,
     caller 跑别 plan 不撞 stale marker reject
   失败兜底见 archive-plan-state-machine 图
 end note

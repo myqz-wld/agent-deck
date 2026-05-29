@@ -2,7 +2,7 @@
 ' last_updated: 2026-05-29
 @startuml archive-plan-state-machine
 
-title archive_plan — 5 entity 并行 state 联动 (plan 收口原子时序)
+title archive_plan — 5 entity 并行 state 联动 (4 子模块原子收口: precheck + ff-merge + archive-fs + cleanup)
 
 ' 内部 module 名 / 函数名 / REVIEW 引用见 INDEX 第 3 列
 
@@ -13,7 +13,7 @@ state "Plan frontmatter\n(plan 文件)" as PlanState {
   state "abandoned (手工)" as Abandoned
 
   [*] --> InProgress
-  InProgress --> Completed : Step 3 改 frontmatter\n(+ final_commit + completed_at)
+  InProgress --> Completed : archive-fs Step 9 改 frontmatter\n(+ final_commit + completed_at)
   InProgress --> Abandoned : 手工 §中止 (不入 git 归档)
   Completed --> [*]
   Abandoned --> [*]
@@ -25,7 +25,7 @@ state "Worktree 目录" as WorktreeState {
   state "removed" as WorktreeRemoved
 
   [*] --> WorktreeExists : enter_worktree 创建
-  WorktreeExists --> WorktreeRemoved : Step 7b git worktree remove
+  WorktreeExists --> WorktreeRemoved : cleanup Step 14 git worktree remove
   WorktreeRemoved --> [*]
 }
 
@@ -36,8 +36,8 @@ state "Git branch" as BranchState {
   state "deleted" as BranchDeleted
 
   [*] --> BranchExists : enter_worktree -b
-  BranchExists --> BranchMerged : Step 2 ff-merge
-  BranchMerged --> BranchDeleted : Step 7c branch -D
+  BranchExists --> BranchMerged : ff-merge Step 7-8c
+  BranchMerged --> BranchDeleted : cleanup Step 14 branch -D
   BranchDeleted --> [*]
 }
 
@@ -48,7 +48,7 @@ state "cwdReleaseMarker" as MarkerState {
 
   [*] --> MarkerNull
   MarkerNull --> MarkerSet : enter_worktree (plan-driven)
-  MarkerSet --> MarkerNull : Step 7a 清 marker (commit 后提前清)
+  MarkerSet --> MarkerNull : cleanup Step 13 清 marker (commit 后提前清)
 }
 
 ' ─── entity 5: caller + teammate sessions ───
@@ -66,24 +66,28 @@ state "Caller + teammate sessions" as SessionState {
 ' ─── 跨 entity 联动 + 失败兜底 ───
 
 note as N1
-  archive_plan **原子时序**(任一失败立即 abort 无部分回滚):
-  ① Plan: InProgress → Completed (Step 3)
-  ② Worktree: exists → removed (Step 7b)
-  ③ Branch: exists → merged → deleted (Step 2 + 7c)
-  ④ Marker: set → null (Step 7a 提前到 commit 后)
+  archive_plan **4 子模块原子收口**(facade 串联 precheck → ff-merge → archive-fs → cleanup; 每阶段 error 短路):
+  ① Plan: InProgress → Completed (archive-fs Step 9)
+  ② Worktree: exists → removed (cleanup Step 14)
+  ③ Branch: exists → merged → deleted (ff-merge Step 7-8c + cleanup Step 14)
+  ④ Marker: set → null (cleanup Step 13 提前到 commit 后)
   ⑤ Sessions: active → teammate closed → 全部归档 (phase 1+2)
 
-  失败兜底:
-  - Step 1-6 任一失败 → 4 entity 全停未变 + sessions 不动
-  - Step 7a clear marker 失败 → archive 已成功但 marker 可能残留;
-    warnings 提示 caller 用 exit_worktree / session close 手工清理
-    (stale marker 指向已不存在 worktree → 后续 archive_plan 4 态预检会 reject)
-  - Step 7b/c 失败 → marker 已清 + worktree/branch 由 caller 手工 cleanup
+  失败兜底 (双段语义):
+  - **precheck / ff-merge 前失败 → 可 retry**: 4 entity 全停未变 + sessions 不动,caller fix 后重 invoke
+  - **post-ff-merge 失败 (archive-fs / cleanup) → manual recovery 无自动 rollback**:
+    · impl-archive-fs.ts:117-124 明文 "Cannot retry archive_plan as a whole"
+    · impl-ff-merge.ts:93-108 / impl-cleanup.ts:230-247 走 postFfMergeErr 给手工 5 步 cleanup hint
+    · archive-fs 阶段失败 (mv plan / INDEX update / commit) → ff-merge 已成功不可逆,caller 走手工 mv+commit
+    · cleanup Step 13 clear marker 失败 → archive 已成功但 marker 可能残留;
+      warnings 提示 caller 用 exit_worktree / session close 手工清理
+      (stale marker 指向已不存在 worktree → 后续 archive_plan precheck 8 分支会 reject)
+    · cleanup Step 14 worktree remove / branch -D 失败 → marker 已清 + worktree/branch 由 caller 手工 cleanup
   - phase 1 单 teammate close 失败 → 仅该 teammate warn,其他继续
   - phase 2 archive caller 失败 → archived='failed' warn-only,caller 仍 active
 
   与 hand_off baton 对比: archive_plan 不 spawn 新 session,
-  Step 1-7 + phase 1+2 = plan/worktree/team 整片收口
+  4 子模块 (precheck/ff-merge/archive-fs/cleanup) + phase 1+2 = plan/worktree/team 整片收口
 end note
 
 @enduml

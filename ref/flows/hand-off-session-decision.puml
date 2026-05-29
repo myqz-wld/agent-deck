@@ -79,9 +79,10 @@ partition "段 2: adopt 预检 (spawn 前 fail-fast) + spawn + task 三态" {
 
 ' ─── 段 3: cleanup ───
 partition "段 3: baton cleanup (与 archive_plan 共享 helper)" {
-  if (adopt_teammates=true OR archive_caller=false?) then (yes)
-    :skip phase 1\n(adopt → teammate 已转给 newSid;\n archive_caller=false → caller 保活,\n skipped='archive-caller-false-keep');
-  else (no)
+  if (phase 1 跳过条件 (6 状态完整 enum):\n- adopt_teammates=true → 'adopt-keep-implicit'\n- archive_caller=false → 'archive-caller-false-keep'\n- caller 不是 lead (含 external sentinel) → 'caller-not-lead'\n- caller 是 lead 但所有 team 已 archived → 'all-lead-teams-archived'\n- phase 1 内部 throw → 'phase-1-error'\n- 成功路径 caller=lead + team 内无其他 active teammate → null
+?) then (yes)
+    :skip phase 1 (skipped=对应 6 状态之一);
+  else (no — 命中默认路径)
     :phase 1: 关 caller 同 team 全部 teammate\n(excludeSessionIds={newSid} 防新 session 被一并关);
   endif
 

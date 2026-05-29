@@ -50,13 +50,23 @@ alt 走 impl (archive_plan / hand_off / 进退 worktree)
   Impl --> Handler: result 或 error
 else 走 repos (list_sessions / get / task_*)
   Handler -> Store: repo.method(args) → SQLite SELECT/UPDATE/DELETE
-else 走 spawn 控制器 (spawn / hand_off 内 spawn)
-  Handler -> Store: spawn handler + 三道防御 (depth/fan-out/rate)
+else 走 spawn 控制器 (普通 spawn_session)
+  Handler -> Store: spawn handler + 三道防御 (depth/fan-out/rate) + 写 spawn-link
+  Store -> IO: createSession SDK 子进程
+else 走 spawn 控制器 (hand_off internal spawn)
+  Handler -> Store: spawn handler (handOffMode=true → 跳防御 + 不写 spawn-link)
+  note right of Store
+    handOffMode=true → skip 三道 spawn-guards (depth/fan-out/rate, spawn-guards.ts:52-60)
+    + 不写 sessions.spawned_by / spawn_depth (spawn.ts:289-313)
+    平级接力非派遣关系
+  end note
   Store -> IO: createSession SDK 子进程
 else 走 send_message (universal team backend)
   Handler -> Store: 消息表 insert
   note right of Store
-    insert 后消息派发轮询器 250ms poll 自动 dispatch 给 receiver adapter
+    insert 后 watcher 双路径派发:
+    eventBus enqueue (agent-deck-message-enqueued) → 50ms debounce process
+    + 250ms poll fallback (single-flight + reschedule)
   end note
 end
 
