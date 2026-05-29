@@ -21,6 +21,7 @@
  * (skip ok / skip failed / clear-team / preserve-team / archive_caller=false) 都带 policy
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
+import log from 'electron-log/main';
 import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
 import type { HandOffSessionArgs, SpawnSessionArgs } from '../tools/schemas';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
@@ -29,6 +30,12 @@ import { eventBus } from '@main/event-bus';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import type { AgentDeckTeam, AgentDeckTeamMember } from '@shared/types';
 import { makeState, makeDeps, planContent } from './hand-off-session/_setup';
+
+// Step 3.3.5 后 task-reassign-coordinator.ts 用 logger=log.scope('mcp-task-reassign').warn
+// 替代 console.warn。skip emit listener throw safeEmit fallback test (L432) 需 spy 此 scoped
+// logger 而非 console.warn 才能断言到 emit 失败 warn(vitest-setup.ts mock 已让 log.scope 返
+// vi.fn 化 logger)。其他 case 仅用于 mockClear 抑制噪音不做断言。
+const taskReassignLogger = log.scope('mcp-task-reassign');
 
 // 共享 noop shutdown teammates seam（防 helper 调真 agentDeckTeamRepo 撞 DB 未 init）
 const noopShutdown = vi.fn(async (_callerSid: string) => ({
@@ -184,7 +191,7 @@ describe('hand_off_session v024 / clear-team policy (default)', () => {
     const mockReassign = vi.fn((_old: string, _new: string, _opts) => {
       throw new Error('SQLite locked');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    (taskReassignLogger.warn as ReturnType<typeof vi.fn>).mockClear();
     const sessionRepoGetSpy = spyCallerRow();
 
     const result = await handOffSessionHandler(makeBaseArgs('task-reassign-clear-throws'), ctx, {
@@ -202,7 +209,6 @@ describe('hand_off_session v024 / clear-team policy (default)', () => {
       policy: 'clear-team',
     });
 
-    warnSpy.mockRestore();
     sessionRepoGetSpy.mockRestore();
   });
 });
@@ -319,7 +325,7 @@ describe('hand_off_session v024 / preserve-team policy + safety 4 cases (Round 4
     const mockFindOwnedTeamIds = vi.fn((_sid: string) => {
       throw new Error('DB unavailable');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    (taskReassignLogger.warn as ReturnType<typeof vi.fn>).mockClear();
     const sessionRepoGetSpy = spyCallerRow();
 
     const args: HandOffSessionArgs = {
@@ -342,7 +348,6 @@ describe('hand_off_session v024 / preserve-team policy + safety 4 cases (Round 4
     expect(json.taskReassignment.status).toBe('ok');
     expect(json.taskReassignment.policyWarning).toBeUndefined(); // safety 失败退化为不触发
 
-    warnSpy.mockRestore();
     sessionRepoGetSpy.mockRestore();
   });
 });
@@ -400,7 +405,7 @@ describe('hand_off_session v024 / skip policy 真删 (Round 2 MED-1 + Round 4 ME
     const mockApplySkip = vi.fn((_cs: string, _ns: string) => {
       throw new Error('DB locked');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    (taskReassignLogger.warn as ReturnType<typeof vi.fn>).mockClear();
     const sessionRepoGetSpy = spyCallerRow();
 
     const args: HandOffSessionArgs = {
@@ -425,7 +430,6 @@ describe('hand_off_session v024 / skip policy 真删 (Round 2 MED-1 + Round 4 ME
       policy: 'skip',
     });
 
-    warnSpy.mockRestore();
     sessionRepoGetSpy.mockRestore();
   });
 
@@ -444,7 +448,8 @@ describe('hand_off_session v024 / skip policy 真删 (Round 2 MED-1 + Round 4 ME
         if (emitCallIdx === 1) throw new Error('listener throws');
       }
     }) as never);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnMock = taskReassignLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
     const sessionRepoGetSpy = spyCallerRow();
 
     const args: HandOffSessionArgs = {
@@ -466,14 +471,13 @@ describe('hand_off_session v024 / skip policy 真删 (Round 2 MED-1 + Round 4 ME
       (c) => c[0] === 'task-changed' && (c[1] as { kind: string }).kind === 'deleted',
     );
     expect(taskDeletedAttempts).toHaveLength(3);
-    expect(warnSpy).toHaveBeenCalled();
+    expect(warnMock).toHaveBeenCalled();
 
     const json = parseResult(result);
     expect(json.taskReassignment.status).toBe('ok'); // emit failure 不影响 status
     expect(json.taskReassignment.count).toBe(3);
     expect(json.taskReassignment.policy).toBe('skip');
 
-    warnSpy.mockRestore();
     emitSpy.mockRestore();
     sessionRepoGetSpy.mockRestore();
   });
@@ -615,7 +619,7 @@ describe('hand_off_session v024 / seam 默认值（reassignTaskOwner / applyHand
     const state = makeBaseState('default-reassign-seam');
     const mockSpawn = makeMockSpawn('new-sid');
     const mockArchive = vi.fn(async () => undefined);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    (taskReassignLogger.warn as ReturnType<typeof vi.fn>).mockClear();
     const sessionRepoGetSpy = spyCallerRow();
 
     const result = await handOffSessionHandler(
@@ -636,14 +640,13 @@ describe('hand_off_session v024 / seam 默认值（reassignTaskOwner / applyHand
     expect(json.taskReassignment.policy).toBe('clear-team');
     expect(typeof json.taskReassignment.error).toBe('string');
 
-    warnSpy.mockRestore();
     sessionRepoGetSpy.mockRestore();
   });
 
   it('不传 applyHandOffSkipPolicy seam + team_task_policy="skip" → 走 taskRepo.applyHandOffSkipPolicy default,无 DB init 抛错 → status="failed" + policy="skip"', async () => {
     const state = makeBaseState('default-skip-seam');
     const mockSpawn = makeMockSpawn('new-sid');
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    (taskReassignLogger.warn as ReturnType<typeof vi.fn>).mockClear();
     const sessionRepoGetSpy = spyCallerRow();
 
     const args: HandOffSessionArgs = {
@@ -665,7 +668,6 @@ describe('hand_off_session v024 / seam 默认值（reassignTaskOwner / applyHand
     expect(json.taskReassignment.policy).toBe('skip');
     expect(typeof json.taskReassignment.error).toBe('string');
 
-    warnSpy.mockRestore();
     sessionRepoGetSpy.mockRestore();
   });
 });

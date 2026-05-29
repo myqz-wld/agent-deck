@@ -25,6 +25,7 @@
  */
 
 import { describe, expect, it, vi, afterEach } from 'vitest';
+import log from 'electron-log/main';
 import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
 import type { HandOffSessionArgs, SpawnSessionArgs } from '../tools/schemas';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
@@ -34,6 +35,11 @@ import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { eventBus } from '@main/event-bus';
 import type { AgentDeckTeam, AgentDeckTeamMember } from '@shared/types';
 import { makeState, makeDeps, planContent } from './hand-off-session/_setup';
+
+// Step 3.3.5 后 team-adopt-coordinator.ts 的 safeEmit wrapper 用 logger=log.scope('mcp-team-adopt').warn
+// 替代 console.warn。REVIEW_49 R1 follow-up test 需 spy 此 scoped logger 而非 console.warn
+// (vitest-setup.ts mock 已让 log.scope 返 vi.fn 化 logger)
+const teamAdoptLogger = log.scope('mcp-team-adopt');
 
 // ─── helpers ──────────────────────────────────────────────────────────
 
@@ -966,8 +972,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
       .mockImplementation(() => {
         throw new Error('simulated sqlite locked');
       });
-    // 抑制 safeEmit 的 console.warn 输出,test 输出干净
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // 抑制 safeEmit 的 logger.warn 输出,test 输出干净
+    const warnMock = teamAdoptLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const seenSpawn = { ref: null as SpawnSessionArgs | null };
     const mockSwapLead = vi.fn(() => ({ swapped: true as const }));
@@ -1017,18 +1024,17 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
     expect(data.adopted.preserved.sort()).toEqual(['tm-1', 'tm-2']);
     expect(data.adopted.failed).toEqual([]);
 
-    // safeEmit wrapper 调 console.warn (4 emit/notify × 2 team = 8 次,但 emit 调 4×2=8 都抛错)
+    // safeEmit wrapper 调 logger.warn (4 emit/notify × 2 team = 8 次,但 emit 调 4×2=8 都抛错)
     // 至少 emit 4 次 / notify 4 次 都被 wrapper catch 住没向上抛
-    expect(warnSpy).toHaveBeenCalled();
-    // 验证 wrapper 调 console.warn 含 processSwappedTeam 标识(safeEmit 实现内的 label)
-    const safeEmitWarns = warnSpy.mock.calls.filter((call) =>
+    expect(warnMock).toHaveBeenCalled();
+    // 验证 wrapper 调 logger.warn 含 processSwappedTeam 标识(safeEmit 实现内的 label)
+    const safeEmitWarns = warnMock.mock.calls.filter((call) =>
       String(call[0]).includes('processSwappedTeam'),
     );
     expect(safeEmitWarns.length).toBeGreaterThanOrEqual(4); // 至少 4 次(2 team × 2 类失败)
 
     emitSpy.mockRestore();
     notifySpy.mockRestore();
-    warnSpy.mockRestore();
   });
 
   it('T6.X1 caller-not-lead-in-team: caller 在 team-L 是 lead + team-T 是 teammate → team-T 进 failed', async () => {

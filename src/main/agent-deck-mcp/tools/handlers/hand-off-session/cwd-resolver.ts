@@ -23,6 +23,9 @@ import { sessionRepo } from '@main/store/session-repo';
 import type { HandOffSessionArgs } from '../../schemas';
 import type { HandOffSessionDeps } from '../hand-off-session-impl';
 import type { HandOffSessionHandlerDeps } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-handoff-cwd');
 
 /**
  * impl 调用结果对外契约的最小子集（避免引入 hand-off-session-impl 双向依赖）。
@@ -66,7 +69,7 @@ export function resolveCallerCwdDeps(callerSessionId: string): {
     row = sessionRepo.get(callerSessionId);
   } catch (e) {
     const msg = `[hand-off-session] sessionRepo.get(${callerSessionId}) threw — falling back to DEFAULT_DEPS (cwd=process.cwd). Hand off proceeds without caller cwd injection. err=${e instanceof Error ? e.message : String(e)}`;
-    console.warn(msg);
+    logger.warn(msg);
     warnings.push(msg);
     return { deps: {}, warnings };
   }
@@ -219,7 +222,7 @@ export function validatePlanModeWorktreeExists(
   // 此处: 约定 worktree (mainRepo subtree) + finalCwd 在 mainRepo subtree → 让 cold-start 自建。
   // 新 session 按 user CLAUDE.md §Step 3 cold-start 协议读 plan 后会调 enter_worktree
   // (mcp tool) 自建 worktree, 详 tools/index.ts:249-251 tool description。
-  console.warn(
+  logger.warn(
     `[hand-off-session] conventional worktree missing on disk: ${resolved.worktreePath} — proceeding with cwd=${finalCwd}, new session expected to enter_worktree itself per cold-start protocol`,
   );
   return null;

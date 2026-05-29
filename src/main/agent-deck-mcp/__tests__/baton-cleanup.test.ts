@@ -35,9 +35,14 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import log from 'electron-log/main';
 import { runBatonCleanup } from '../tools/handlers/baton-cleanup';
 import type { ShutdownTeammatesResult } from '../tools/handlers/shutdown-teammates-on-baton';
 import { SessionRowMissingError } from '@main/store/session-repo';
+
+// Step 3.3.5 后 baton-cleanup.ts 用 logger=log.scope('mcp-baton-cleanup').warn 替代 console.warn。
+// 测试需 spy 此 scoped logger 而非 console.warn(vitest-setup.ts mock 已让 log.scope 返 vi.fn 化 logger)
+const batonCleanupLogger = log.scope('mcp-baton-cleanup');
 
 /** 构造一个 fake sessionRepo.get row(测试不在乎字段细节,只在乎 truthy/null) */
 function fakeRow(id: string) {
@@ -138,7 +143,8 @@ describe('runBatonCleanup', () => {
     });
     const archiveFn = vi.fn(async (_sid: string) => undefined);
     const getFn = vi.fn(() => fakeRow('caller'));
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const result = await runBatonCleanup(
       {
@@ -155,17 +161,15 @@ describe('runBatonCleanup', () => {
     // 关键: helper 故障不阻塞 archive caller(plan 收口已成功)
     expect(result.archived).toBe('ok');
     expect(archiveFn).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('shutdownTeammatesOnBaton helper failed for caller caller'),
       expect.any(Error),
     );
     // 验证 toolName 拼进 warn 前缀
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('[mcp archive_plan]'),
       expect.any(Error),
     );
-
-    warnSpy.mockRestore();
   });
 
   it('case 6: getSession 返回 null (row missing) → archive=failed + warn + 不调 archiveFn + emit row-missing', async () => {
@@ -175,7 +179,8 @@ describe('runBatonCleanup', () => {
     const archiveFn = vi.fn(async (_sid: string) => undefined);
     const getFn = vi.fn(() => null);
     const emitFn = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const result = await runBatonCleanup(
       {
@@ -190,10 +195,10 @@ describe('runBatonCleanup', () => {
     expect(result.archived).toBe('failed');
     // 关键: archive 不被调(探针 row 缺失 → short-circuit)
     expect(archiveFn).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('cannot archive caller ghost-caller: not in sessions table'),
     );
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('[mcp hand_off_session]'),
     );
     // archive-failure-ux-upthrow-20260515 plan: 上抛 row-missing 让 main bootstrap 桥接 notifyUser
@@ -204,8 +209,6 @@ describe('runBatonCleanup', () => {
       reason: expect.stringContaining('cannot archive caller ghost-caller: not in sessions table'),
       reasonKind: 'row-missing',
     });
-
-    warnSpy.mockRestore();
   });
 
   it('case 7: getSession 抛错 (DB 异常) → 走 probe-throw 路径 archive=failed + emit probe-throw (archive-toctou-fix-20260515)', async () => {
@@ -217,7 +220,8 @@ describe('runBatonCleanup', () => {
       throw new Error('simulated SQLite locked');
     });
     const emitFn = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const result = await runBatonCleanup(
       {
@@ -242,11 +246,9 @@ describe('runBatonCleanup', () => {
       reasonKind: 'probe-throw',
     });
     // warn 也带「probe getSession threw」前缀方便排查
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('probe getSession threw for caller'),
     );
-
-    warnSpy.mockRestore();
   });
 
   it('case 8: archiveFn 抛 generic Error (非 SessionRowMissingError) → archive=failed + emit archive-throw (row 仍存在 archive 内部错)', async () => {
@@ -258,7 +260,8 @@ describe('runBatonCleanup', () => {
     });
     const getFn = vi.fn(() => fakeRow('caller'));
     const emitFn = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const result = await runBatonCleanup(
       {
@@ -270,7 +273,7 @@ describe('runBatonCleanup', () => {
 
     expect(result.archived).toBe('failed');
     expect(archiveFn).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('archive caller caller failed:'),
       expect.any(Error),
     );
@@ -285,8 +288,6 @@ describe('runBatonCleanup', () => {
       reason: expect.stringContaining('simulated FK constraint violation'),
       reasonKind: 'archive-throw',
     });
-
-    warnSpy.mockRestore();
   });
 
   it('case 8b: archiveFn 抛 SessionRowMissingError → race window → archive=failed + emit row-missing (archive-toctou-fix-20260515 R1 reviewer-codex MED-1)', async () => {
@@ -300,7 +301,8 @@ describe('runBatonCleanup', () => {
     });
     const getFn = vi.fn(() => fakeRow('caller'));
     const emitFn = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const result = await runBatonCleanup(
       {
@@ -322,12 +324,10 @@ describe('runBatonCleanup', () => {
       reasonKind: 'row-missing',
     });
     // warn 包含 race window 提示便于排查
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('setArchived no-op (race window)'),
       expect.any(SessionRowMissingError),
     );
-
-    warnSpy.mockRestore();
   });
 
   it('case 9: excludeSessionIds 透传给 shutdown helper(REVIEW_36 R2 HIGH-A)+ R2 INFO emit not called 守门', async () => {

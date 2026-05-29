@@ -33,6 +33,12 @@
  * / `cached` state + 重新生成 NONCE_MARKER) — 避免 test 间 memo state 互相污染。
  */
 import { describe, expect, it, beforeEach, vi, type Mock } from 'vitest';
+import log from 'electron-log/main';
+
+// Step 3.3.5 后业务源码用 logger = log.scope('utils-user-shell').warn 替代 console.warn;
+// 测试需 spy 此 scoped logger 而非 console.warn(vitest-setup.ts mock 已让 log.scope 返
+// vi.fn 化的 logger,直接用 mockClear / 断言)
+const userShellLogger = log.scope('utils-user-shell');
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
@@ -94,33 +100,36 @@ describe('captureUserShellPath', () => {
     expect(captureUserShellPath()).toBe('/opt/homebrew/bin:/usr/bin');
   });
 
-  it('returns null + console.warn when execFileSync throws (unsupported -ilc / shell missing)', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('returns null + logger.warn when execFileSync throws (unsupported -ilc / shell missing)', async () => {
+    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
     const { captureUserShellPath, execFileSync } = await freshImport();
     execFileSync.mockImplementation(() => {
       throw new Error('Unknown option: -lc');
     });
     expect(captureUserShellPath()).toBeNull();
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0][0]).toContain('[user-shell-path] failed to capture');
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(warnMock.mock.calls[0][0]).toContain('[user-shell-path] failed to capture');
   });
 
   // 取代旧「empty output」测试 — 现在依赖 nonce 不依赖空白
-  it('returns null + console.warn when stdout lacks nonce marker', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('returns null + logger.warn when stdout lacks nonce marker', async () => {
+    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
     const { captureUserShellPath, execFileSync } = await freshImport();
     execFileSync.mockReturnValue('only noise without any nonce\nanother line\n');
     expect(captureUserShellPath()).toBeNull();
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0][0]).toContain('[user-shell-path] no nonce-marked PATH line');
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(warnMock.mock.calls[0][0]).toContain('[user-shell-path] no nonce-marked PATH line');
   });
 
-  it('returns null + console.warn when stdout completely empty (no nonce)', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('returns null + logger.warn when stdout completely empty (no nonce)', async () => {
+    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
     const { captureUserShellPath, execFileSync } = await freshImport();
     execFileSync.mockReturnValue('');
     expect(captureUserShellPath()).toBeNull();
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnMock).toHaveBeenCalledTimes(1);
   });
 
   it('memoizes success result (2 calls only execFileSync 1 time)', async () => {
@@ -133,8 +142,9 @@ describe('captureUserShellPath', () => {
 
   // §不变量 6 sentinel 二分 — 失败路径也命中 memo
   // 旧 design (`_cached: string | null` 单变量, null 同时表示「未初始化」+「失败」) fail 此 test
-  it('memoizes failure result (2 calls only execFileSync 1 time + console.warn 1 time)', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('memoizes failure result (2 calls only execFileSync 1 time + logger.warn 1 time)', async () => {
+    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
     const { captureUserShellPath, execFileSync } = await freshImport();
     execFileSync.mockImplementation(() => {
       throw new Error('Unknown option: -lc');
@@ -142,18 +152,19 @@ describe('captureUserShellPath', () => {
     expect(captureUserShellPath()).toBeNull();
     expect(captureUserShellPath()).toBeNull();
     expect(execFileSync).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnMock).toHaveBeenCalledTimes(1);
   });
 
   // §不变量 6 sentinel 二分 — no-nonce 路径也命中 memo
-  it('memoizes no-nonce result (2 calls only execFileSync 1 time + console.warn 1 time)', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('memoizes no-nonce result (2 calls only execFileSync 1 time + logger.warn 1 time)', async () => {
+    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
     const { captureUserShellPath, execFileSync } = await freshImport();
     execFileSync.mockReturnValue('no nonce here\njust noise\n');
     expect(captureUserShellPath()).toBeNull();
     expect(captureUserShellPath()).toBeNull();
     expect(execFileSync).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnMock).toHaveBeenCalledTimes(1);
   });
 
   // Step 3.6 reviewer-claude INFO-3: $SHELL undefined → /bin/zsh fallback 显式 test
@@ -228,7 +239,7 @@ describe('unionUserShellPath', () => {
   });
 
   it('falls back to originalPath when captureUserShellPath fails (§不变量 2)', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    (userShellLogger.warn as ReturnType<typeof vi.fn>).mockClear();
     const { unionUserShellPath, execFileSync } = await freshImport();
     execFileSync.mockImplementation(() => {
       throw new Error('Unknown option: -lc');
@@ -251,7 +262,7 @@ describe('unionUserShellPath', () => {
   });
 
   it('returns empty string when both fail (capture fails + originalPath undefined)', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    (userShellLogger.warn as ReturnType<typeof vi.fn>).mockClear();
     const { unionUserShellPath, execFileSync } = await freshImport();
     execFileSync.mockImplementation(() => {
       throw new Error('Unknown option: -lc');

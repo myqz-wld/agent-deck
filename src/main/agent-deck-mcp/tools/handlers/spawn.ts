@@ -36,6 +36,9 @@ import {
 import type { SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 import { shouldWriteSpawnLink } from './spawn-link-guard';
 import { buildLeadContextBlock } from './lead-context-block';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-spawn');
 
 export const spawnSessionHandler = withMcpGuard(
   'spawn_session',
@@ -177,7 +180,7 @@ export const spawnSessionHandler = withMcpGuard(
         teamCreatedNow = agentDeckTeamRepo.listAllMembers(team.id).length === 0;
       } catch (e) {
         // ensure 失败时 lead context block + placeholder 都不注入；後續 addMember 也跳過。
-        console.warn(`[mcp spawn_session] team ensureByName failed for "${args.team_name}":`, e);
+        logger.warn(`[mcp spawn_session] team ensureByName failed for "${args.team_name}":`, e);
       }
     }
 
@@ -325,7 +328,7 @@ export const spawnSessionHandler = withMcpGuard(
             agentDeckTeamRepo.hardDelete(teamIdEarly);
           }
         } catch (cleanupErr) {
-          console.warn(
+          logger.warn(
             `[mcp spawn_session] team cleanup after createSession failure failed for ${teamIdEarly}:`,
             cleanupErr,
           );
@@ -358,7 +361,7 @@ export const spawnSessionHandler = withMcpGuard(
         sessionRepo.setTitle(sid, teammateDisplayName);
       } catch (e) {
         // 写 title 失败不阻塞 spawn 成功（最坏 fallback 默认 cwd-basename）
-        console.warn(`[mcp spawn_session] setTitle(${sid}, ${teammateDisplayName}) failed:`, e);
+        logger.warn(`[mcp spawn_session] setTitle(${sid}, ${teammateDisplayName}) failed:`, e);
       }
     }
 
@@ -426,7 +429,7 @@ export const spawnSessionHandler = withMcpGuard(
         // —— universal team backend addMember 已是 SSOT，不再写老 sessions.team_name 列；
         // v012 migration 后此列彻底 drop。
       } catch (e) {
-        console.warn(`[mcp spawn_session] addMember failed for "${args.team_name}":`, e);
+        logger.warn(`[mcp spawn_session] addMember failed for "${args.team_name}":`, e);
       }
     }
 
@@ -462,7 +465,7 @@ export const spawnSessionHandler = withMcpGuard(
         spawnPromptMessageId = placeholder.id;
       } catch (e) {
         // placeholder enqueue 失败不阻塞 spawn 成功（lead 可走老路径不 wait reply）
-        console.warn(`[mcp spawn_session] placeholder message enqueue failed:`, e);
+        logger.warn(`[mcp spawn_session] placeholder message enqueue failed:`, e);
       }
     }
 
