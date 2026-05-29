@@ -6,6 +6,12 @@
 // (5 module-level let 单例聚合)+ helpers 在 ./index/_deps.ts 单源。
 // ────────────────────────────────────────────────────────────────────────────
 
+// Plan runtime-logging-electron-log-20260529 §D7 + §Step 3.0.4: 第一行 import logger.ts,
+// 让 errorHandler.startCatching() 立即生效 + app.setName('Agent Deck') 让 dev/prod log
+// path 一致 + Object.assign(console, log.functions) 接管 console。logger.ts §不变量 8
+// 仅依赖 electron + electron-log/main + node:* (不依赖任何业务模块) 安全可第一行。
+import log from './utils/logger';
+
 import { app, dialog } from 'electron';
 import { closeDb } from './store/db';
 
@@ -13,6 +19,8 @@ import { createInitialBootstrapState } from './index/_deps';
 import { initInfra } from './index/bootstrap-infra';
 import { initWiring } from './index/bootstrap-wiring';
 import { registerLifecycleHooks } from './index/lifecycle-hooks';
+
+const logger = log.scope('main-index');
 
 // 防止 packaged GUI 模式下 stdout/stderr 管道被对端关闭时,console.log/error 抛出
 // EPIPE 升级为 uncaughtException 把 main 进程整个挂掉。
@@ -50,7 +58,7 @@ if (gotLock) {
     // 可见反馈 + 退出(否则单实例锁仍占着,二次启动也只走 rejected promise warn,用户看到
     // 应用「假启动」状态:窗口未现 / 后续功能全挂)。dialog.showErrorBox 是同步阻塞,确保
     // 用户看到错误才退出。app.exit(1) 释放单实例锁。
-    console.error('bootstrap failed', err);
+    logger.error('bootstrap failed', err);
     try {
       const msg = err instanceof Error ? `${err.message}\n\n${err.stack ?? ''}` : String(err);
       dialog.showErrorBox(
@@ -58,14 +66,14 @@ if (gotLock) {
         `应用初始化未完成,将退出。错误详情:\n\n${msg.slice(0, 2000)}`,
       );
     } catch (dialogErr) {
-      console.error('showErrorBox failed during bootstrap fatal:', dialogErr);
+      logger.error('showErrorBox failed during bootstrap fatal:', dialogErr);
     }
     // REVIEW_61 MED-B (codex) fix: 同 hook-server fatal 路径,fatal exit 前 best-effort closeDb
     // 保证 SQLite WAL checkpoint(initDb 已跑,bootstrap 中段抛错时 WAL 可能有写入)。
     try {
       closeDb();
     } catch (closeErr) {
-      console.warn('[bootstrap fatal] closeDb error', closeErr);
+      logger.warn('[bootstrap fatal] closeDb error', closeErr);
     }
     app.exit(1);
   });

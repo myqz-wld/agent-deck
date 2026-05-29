@@ -35,6 +35,9 @@ import {
   buildCwdMissingErrorText,
 } from '../recoverer-messages';
 import type { RecoverAndSendDeps } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-recoverer');
 
 /**
  * recoverAndSend 主入口实现 — free fn，无 facade class 内部 state。
@@ -185,7 +188,7 @@ export async function recoverAndSendImpl(
       }),
     );
     const needSandboxWarn = rec.claudeCodeSandbox === 'workspace-write';
-    console.warn(
+    logger.warn(
       `[sdk-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}` +
         (needSandboxWarn ? ' (workspace-write sandbox.allowWrite boundary changed)' : ''),
     );
@@ -211,7 +214,7 @@ export async function recoverAndSendImpl(
       // fallback cwd 找到)再 unarchive,避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
       // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,让 single-flight 锁覆盖此 await。
       if (rec.archivedAt !== null) {
-        console.warn(
+        logger.warn(
           `[sdk-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
         );
         await sessionManager.unarchive(sessionId);

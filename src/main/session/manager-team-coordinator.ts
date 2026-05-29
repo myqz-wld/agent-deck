@@ -1,6 +1,9 @@
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import type { AgentDeckTeamArchiveReason } from '@shared/types/agent-deck-team';
+import log from '@main/utils/logger';
+
+const logger = log.scope('session-team-coordinator');
 
 /**
  * Session × team 业务联动 helper（拆自 manager.ts，CHANGELOG_86 Step 4.3.2）。
@@ -74,14 +77,14 @@ export async function leaveTeamsAndAutoArchive(
           if (team) eventBus.emit('agent-deck-team-updated', team);
         }
       } catch (err) {
-        console.warn(
+        logger.warn(
           `[session-mgr] leaveTeam(${m.teamId}, ${sessionId}) failed during ${reason}:`,
           err,
         );
       }
     }
   } catch (err) {
-    console.warn(
+    logger.warn(
       `[session-mgr] leaveTeamsAndAutoArchive skipped (import failed): ${sessionId}`,
       err,
     );
@@ -108,14 +111,14 @@ export async function archiveTeamsIfOrphaned(sessionId: string): Promise<void> {
           if (team) eventBus.emit('agent-deck-team-updated', team);
         }
       } catch (err) {
-        console.warn(
+        logger.warn(
           `[session-mgr] archiveTeamsIfOrphaned(${m.teamId}, ${sessionId}) failed:`,
           err,
         );
       }
     }
   } catch (err) {
-    console.warn(
+    logger.warn(
       `[session-mgr] archiveTeamsIfOrphaned skipped (import failed): ${sessionId}`,
       err,
     );
@@ -148,14 +151,14 @@ export async function unarchiveTeamsForRevivedLead(sessionId: string): Promise<v
         const restored = agentDeckTeamRepo.unarchive(m.teamId);
         if (restored) eventBus.emit('agent-deck-team-updated', restored);
       } catch (err) {
-        console.warn(
+        logger.warn(
           `[session-mgr] unarchiveTeamsForRevivedLead(${m.teamId}, ${sessionId}) failed:`,
           err,
         );
       }
     }
   } catch (err) {
-    console.warn(
+    logger.warn(
       `[session-mgr] unarchiveTeamsForRevivedLead skipped (import failed): ${sessionId}`,
       err,
     );
@@ -207,7 +210,7 @@ export async function applyClosedSideEffects(
   try {
     sessionRepo.clearCwdReleaseMarker(sessionId);
   } catch (err) {
-    console.warn(`${prefix} clearCwdReleaseMarker failed for ${sessionId}:`, err);
+    logger.warn(`${prefix} clearCwdReleaseMarker failed for ${sessionId}:`, err);
   }
 
   // 2. caller-provided sync callback (sync 段, between clear 和 leave)
@@ -215,7 +218,7 @@ export async function applyClosedSideEffects(
     try {
       opts.onClearedBeforeLeave();
     } catch (err) {
-      console.warn(`${prefix} onClearedBeforeLeave callback threw for ${sessionId}:`, err);
+      logger.warn(`${prefix} onClearedBeforeLeave callback threw for ${sessionId}:`, err);
     }
   }
 
@@ -224,7 +227,7 @@ export async function applyClosedSideEffects(
     await leaveTeamsAndAutoArchive(sessionId, 'closed');
   } else {
     void leaveTeamsAndAutoArchive(sessionId, 'closed').catch((err) => {
-      console.warn(`${prefix} leaveTeamsAndAutoArchive failed for ${sessionId}:`, err);
+      logger.warn(`${prefix} leaveTeamsAndAutoArchive failed for ${sessionId}:`, err);
     });
   }
 }

@@ -24,6 +24,9 @@ import { AGENT_ID } from './constants';
 import type { InternalSession, PendingUserMessage, SdkBridgeOptions } from './types';
 import { translateSdkMessage } from './sdk-message-translate';
 import type { UploadedAttachmentRef } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-stream');
 
 export interface StreamProcessorCtx {
   /** 共享 sessions Map ref（facade 持有，sub-class 仅读写不重新赋值） */
@@ -176,7 +179,7 @@ export class StreamProcessor {
           // rejection（SDK interrupt 在 race 路径 reject 可能性 + spike1 实证 interrupt 多种边界
           // 行为含 reject 可能），console.warn 留痕。fire-and-forget 语义保持（不 await）。
           void internal.query?.interrupt?.().catch((err: unknown) => {
-            console.warn('[sdk-bridge] interrupt during setTimeout fallback failed:', err);
+            logger.warn('[sdk-bridge] interrupt during setTimeout fallback failed:', err);
           });
         }
         resolved = true;
@@ -188,7 +191,7 @@ export class StreamProcessor {
         // 已是 opts.resume 不需切)。这里 fallback 也走同款 isNewSpawn 三分支语义。
         const fallbackId = resumeId ?? tempKey;
         const isNewSpawnFallback = !resumeId;
-        console.warn(`[sdk-bridge] no SDKMessage in 30s, falling back to id ${fallbackId}`);
+        logger.warn(`[sdk-bridge] no SDKMessage in 30s, falling back to id ${fallbackId}`);
         internal.cliSessionId = fallbackId;
         if (isNewSpawnFallback) {
           // spawn 主路径 fallback (fallbackId === tempKey === applicationSid 初值): 切到 fallbackId 后冻结
@@ -297,7 +300,7 @@ export class StreamProcessor {
           // id frame 不能覆盖 fallback 已设的 fallbackId / 已 mutate 的 sessions Map。
           const incomingId = m.session_id;
           if (internal.cliSessionId !== null && internal.cliSessionId !== incomingId) {
-            console.warn(
+            logger.warn(
               `[sdk-bridge] late first-id arrived after fallback; ` +
                 `incoming=${incomingId} fallback=${internal.cliSessionId}; skipping mutation`,
             );
@@ -360,7 +363,7 @@ export class StreamProcessor {
           // 实测铁证：resume=OLD_ID, prompt='ping' → first session_id=NEW_ID (≠ OLD_ID),
           // CLI 内置 fork 与 SDK 文档「forkSession 默认 false 不 fork」不一致。
           if (resumeId && resumeId !== realId) {
-            console.warn(
+            logger.warn(
               `[sdk-bridge] CLI forked: requested cli sid=${resumeId} but got realId=${realId}; ` +
                 `updating cli_session_id column on application sid ${internal.applicationSid} (走 manager 黑名单链)`,
             );
@@ -383,7 +386,7 @@ export class StreamProcessor {
         translateSdkMessage(this.ctx.emit, sid, m, internal);
       }
     } catch (err) {
-      console.warn(`[sdk-bridge] query loop ended`, err);
+      logger.warn(`[sdk-bridge] query loop ended`, err);
       // 应用主动 close（含 approve-bypass 冷切 / SessionManager.delete / 应用退出清理）
       // 时 SDK 抛错（典型 [ede_diagnostic] 状态机不一致 / AbortError）属于设计内副产品，
       // 不弹「⚠ SDK 流中断」红字 message——避免 UI 时间线像系统出错。flag 在 closeSession

@@ -31,6 +31,9 @@ import {
   buildAdoptedTeamsContextBlock,
   type AdoptedTeam,
 } from '../adopted-teams-context-block';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-team-adopt');
 
 /**
  * adoptedSnapshot — adoptTeammates: true 路径下 cold-start prompt 装配 + phase 1.5
@@ -375,7 +378,7 @@ export async function runPhase15AdoptSwapLeadLoop(
       try {
         fn();
       } catch (e) {
-        console.warn(
+        logger.warn(
           `[mcp hand_off_session] processSwappedTeam(${teamId}) ${label} 失败 (continuing):`,
           e,
         );
@@ -421,7 +424,7 @@ export async function runPhase15AdoptSwapLeadLoop(
       await closeSessionFn(newSpawnedSid);
     } catch (closeErr) {
       // close 失败 warn 不阻塞 — 仍 return error 让 caller 知道 fatal abort
-      console.warn(
+      logger.warn(
         `[mcp hand_off_session] adopt firstTeam fatal abort: close newSid ${newSpawnedSid} failed (continuing return err):`,
         closeErr,
       );

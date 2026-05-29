@@ -1,6 +1,9 @@
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { applyClosedSideEffects } from '@main/session/manager-team-coordinator';
+import log from '@main/utils/logger';
+
+const logger = log.scope('lifecycle-scheduler');
 
 interface SchedulerOptions {
   /** 多久没事件就推到 dormant，毫秒 */
@@ -130,7 +133,7 @@ export class LifecycleScheduler {
       if (idsToPurge.length > 0) {
         const removed = sessionRepo.batchDelete(idsToPurge);
         for (const id of removed) eventBus.emit('session-removed', id);
-        console.log(
+        logger.info(
           `[lifecycle] purged ${removed.length} history sessions older than ${this.opts.historyRetentionDays}d`,
         );
       }

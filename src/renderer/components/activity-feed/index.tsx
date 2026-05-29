@@ -13,12 +13,15 @@ import {
   useSessionStore,
 } from '@renderer/stores/session-store';
 import { AskRow, ExitPlanRow, PermissionRow } from '@renderer/components/pending-rows';
+import log from '@renderer/utils/logger';
 import { EMPTY_EVENTS } from './shared';
 import { eventKey } from './format';
 import { MessageBubble } from './rows/message-row';
 import { ThinkingBubble } from './rows/thinking-row';
 import { ToolStartRow, ToolEndRow } from './rows/tool-row';
 import { SimpleRow } from './rows/simple-row';
+
+const logger = log.scope('renderer-activity-feed');
 
 interface Props {
   sessionId: string;
@@ -70,7 +73,7 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
           setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes);
         })
         .catch((err: unknown) => {
-          console.warn('[activity-feed] listAdapterPending failed:', err);
+          logger.warn('[activity-feed] listAdapterPending failed:', err);
         });
     }
     return () => {

@@ -38,6 +38,9 @@ import { getClaudeAgentDeckPluginPath } from './adapters/claude-code/sdk-injecti
 import { getCodexAgentDeckPluginPath } from './adapters/codex-cli/codex-config-paths';
 import { parseFrontmatter } from './utils/frontmatter';
 import { substituteResourcesPlaceholder } from './utils/resources-placeholder';
+import log from '@main/utils/logger';
+
+const logger = log.scope('main-bundled-assets');
 
 /** plan §P3 Step 3.3：bundled 资产 adapter narrowing key。user 资产此字段为 null。 */
 export type BundledAdapter = 'claude-code' | 'codex-cli';
@@ -137,7 +140,7 @@ function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
       const fm = parseFrontmatter(readFileSync(absPath, 'utf8'));
       out.push(buildAgentMeta(name, absPath, fm, 'bundled', adapter));
     } catch (err) {
-      console.warn(`[bundled-assets] skip agent ${adapter}/${name}:`, (err as Error).message);
+      logger.warn(`[bundled-assets] skip agent ${adapter}/${name}:`, (err as Error).message);
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -157,7 +160,7 @@ function scanSkills(root: string, adapter: BundledAdapter): AssetMeta[] {
       const fm = parseFrontmatter(readFileSync(skillFile, 'utf8'));
       out.push(buildSkillMeta(entry, skillFile, fm, 'bundled', adapter));
     } catch (err) {
-      console.warn(`[bundled-assets] skip skill ${adapter}/${entry}:`, (err as Error).message);
+      logger.warn(`[bundled-assets] skip skill ${adapter}/${entry}:`, (err as Error).message);
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));

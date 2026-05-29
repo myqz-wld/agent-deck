@@ -77,6 +77,9 @@
  */
 import { app } from 'electron';
 import { join } from 'node:path';
+import log from '@main/utils/logger';
+
+const logger = log.scope('utils-resources-placeholder');
 
 export const RESOURCES_PLACEHOLDER = '{{AGENT_DECK_RESOURCES}}';
 
@@ -121,7 +124,7 @@ function warnOnUnknownPlaceholders(text: string): void {
   if (!matches) return;
   const unknown = [...new Set(matches)].filter((m) => !KNOWN_PLACEHOLDERS.has(m));
   if (unknown.length === 0) return;
-  console.warn(
+  logger.warn(
     `[resources-placeholder] unknown placeholder(s) detected (won't be substituted, likely typo): ${unknown.join(', ')}. ` +
       `Known placeholder: ${RESOURCES_PLACEHOLDER}.`,
   );

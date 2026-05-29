@@ -17,6 +17,9 @@ import type {
   AgentDeckTeamMember,
   AgentDeckTeammateEvent,
 } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('team-event-dispatcher');
 
 /**
  * 监听 `agent-deck-team-member-changed` / `agent-deck-team-updated` 然后 fan-out 给同 team
@@ -57,7 +60,7 @@ class TeamEventDispatcher {
         offset += PAGE_SIZE;
       }
     } catch (err) {
-      console.warn('[team-event-dispatcher] preseed lastArchivedAt failed:', err);
+      logger.warn('[team-event-dispatcher] preseed lastArchivedAt failed:', err);
     }
 
     this.offMember = eventBus.on('agent-deck-team-member-changed', (ev) => {
@@ -124,7 +127,7 @@ class TeamEventDispatcher {
     try {
       members = agentDeckTeamRepo.listActiveMembers(teamId);
     } catch (err) {
-      console.warn(`[team-event-dispatcher] listActiveMembers failed for team ${teamId}:`, err);
+      logger.warn(`[team-event-dispatcher] listActiveMembers failed for team ${teamId}:`, err);
       return;
     }
     const targets = members.filter((m) => m.sessionId !== excludeSessionId);
@@ -142,7 +145,7 @@ class TeamEventDispatcher {
       await adapter.notifyTeammateEvent(sessionId, event);
     } catch (err) {
       // best-effort：不重试，仅 warn
-      console.warn(
+      logger.warn(
         `[team-event-dispatcher] notifyTeammateEvent failed for ${sessionId} (${session.agentId}):`,
         err,
       );

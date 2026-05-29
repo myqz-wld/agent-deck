@@ -25,6 +25,9 @@
 import { sessionRepo } from '@main/store/session-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { eventBus } from '@main/event-bus';
+import log from '@main/utils/logger';
+
+const logger = log.scope('team-lifecycle-scheduler');
 
 interface SchedulerOptions {
   /** 扫描间隔，毫秒；默认 5 分钟 */
@@ -55,7 +58,7 @@ export class TeamLifecycleScheduler {
       try {
         this.scan();
       } catch (err) {
-        console.warn('[team-lifecycle-scheduler] scan threw:', err);
+        logger.warn('[team-lifecycle-scheduler] scan threw:', err);
       }
     };
     tick();
@@ -140,7 +143,7 @@ export class TeamLifecycleScheduler {
     const team = agentDeckTeamRepo.archive(teamId, { reason: 'scheduler' });
     if (team) {
       eventBus.emit('agent-deck-team-updated', team);
-      console.log(`[team-lifecycle-scheduler] archived team ${teamId} (${team.name}) — ${detail}`);
+      logger.info(`[team-lifecycle-scheduler] archived team ${teamId} (${team.name}) — ${detail}`);
     }
   }
 }

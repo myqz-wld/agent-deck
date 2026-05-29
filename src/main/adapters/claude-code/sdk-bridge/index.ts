@@ -33,6 +33,9 @@ import { runCloseSessionCleanup } from './pending-cancellation';
 import { validateSendMessageOrThrow } from './send-validation';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-bridge');
 
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
@@ -333,7 +336,7 @@ export class ClaudeSdkBridge {
     try {
       await s.query.interrupt();
     } catch (err) {
-      console.warn(`[sdk-bridge] interrupt failed`, err);
+      logger.warn(`[sdk-bridge] interrupt failed`, err);
     }
   }
 
@@ -366,7 +369,7 @@ export class ClaudeSdkBridge {
     try {
       await internal.query?.interrupt?.();
     } catch (err) {
-      console.warn(`[sdk-bridge] interrupt during close failed: ${sessionId}`, err);
+      logger.warn(`[sdk-bridge] interrupt during close failed: ${sessionId}`, err);
     }
 
     // 2-5. cleanup 链 — pending cancel + sdkOwned release + zombie row 兜底 + notify wakeup。

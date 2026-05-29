@@ -6,6 +6,9 @@ import { eventBus } from '@main/event-bus';
 import { settingsStore } from '@main/store/settings-store';
 import { adapterRegistry } from '@main/adapters/registry';
 import { localStatsFallback } from './event-formatter';
+import log from '@main/utils/logger';
+
+const logger = log.scope('session-summarizer');
 
 // CHANGELOG_104 物理拆分：保持外部 import path `from '@main/session/summarizer'` 不变
 // （hand-off.test.ts caller 直接用），TS module resolution 自动 fallback
@@ -106,7 +109,7 @@ export class Summarizer {
     clearInterval(this.timer);
     this.timer = setInterval(() => void this.scanAll(), next);
     this.currentIntervalMs = next;
-    console.log(`[summarizer] interval updated to ${next}ms`);
+    logger.info(`[summarizer] interval updated to ${next}ms`);
   }
 
   private scheduleTimer(): void {
@@ -167,7 +170,7 @@ export class Summarizer {
           // 修法：insert 前预检 sessionRepo.get(s.id)，rename 后 OLD 已不存在则短路（让 next scanAll
           // 拿 NEW 重新跑 LLM，本次 LLM 工作白费但避免 FK 错 + 不写孤儿诊断）
           if (!sessionRepo.get(s.id)) {
-            console.warn(`[summarizer] session ${s.id} renamed/deleted during in-flight LLM, skipping insert`);
+            logger.warn(`[summarizer] session ${s.id} renamed/deleted during in-flight LLM, skipping insert`);
             return;
           }
           const rec = summaryRepo.insert({
@@ -194,7 +197,7 @@ export class Summarizer {
             message: (err as Error)?.message ?? String(err),
             ts: Date.now(),
           });
-          console.warn(`[summarizer] session ${s.id} failed:`, err);
+          logger.warn(`[summarizer] session ${s.id} failed:`, err);
         })
         .finally(() => {
           // REVIEW_56 MED-2 修法: 用 currentSid (rename 后已切到 NEW) delete + 卸 listener,
@@ -273,7 +276,7 @@ export class Summarizer {
       // OLD 不存在 → 不写 OLD lastErrorBySession 防孤儿(NEW 在 next scanAll 仍失败时会重 set,
       // trade-off: 单次失败 NEW 端诊断丢失,可接受)。
       if (!sessionRepo.get(sessionId)) {
-        console.warn(
+        logger.warn(
           `[summarizer] LLM failed for ${sessionId} but session renamed/deleted, ` +
             `skipping orphan diagnostics`,
           err,
@@ -283,7 +286,7 @@ export class Summarizer {
           message: (err as Error)?.message ?? String(err),
           ts: Date.now(),
         });
-        console.warn(`[summarizer] LLM failed for ${sessionId} (${session.agentId}), fallback to last-message`, err);
+        logger.warn(`[summarizer] LLM failed for ${sessionId} (${session.agentId}), fallback to last-message`, err);
       }
     }
 

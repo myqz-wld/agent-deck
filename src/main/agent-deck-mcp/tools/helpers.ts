@@ -14,6 +14,9 @@ import {
   EXTERNAL_CALLER_SENTINEL,
   type CallerContext,
 } from '../types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-helpers');
 
 /** Handler 共享上下文 —— 所有 handler 第二参数。 */
 export interface HandlerContext {
@@ -95,7 +98,7 @@ export function denyExternalIfNotAllowed(
     caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL &&
     !EXTERNAL_CALLER_ALLOWED[toolName]
   ) {
-    console.error(
+    logger.error(
       `[helpers] invariant violated: stdio transport callerSid="${caller.callerSessionId}" (should always be "__external__" sentinel — check transport-stdio.ts callerSessionIdOverride is set to () => EXTERNAL_CALLER_SENTINEL)`,
     );
     return {

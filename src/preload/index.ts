@@ -12,7 +12,8 @@
  * `typeof api` 类型推导走 spread 字面量合并，外部 `AgentDeckApi` 类型 zero-change。
  */
 
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+import { IpcInvoke } from '@shared/ipc-channels';
 import { sessionsApi } from './api/sessions';
 import { adaptersApi } from './api/adapters';
 import { teamsApi } from './api/teams';
@@ -37,7 +38,23 @@ if (process.contextIsolated) {
     // 是潜在反模式。HistoryPanel.tsx:56 注释也明确说「走 preload 强类型 facade 而非 ipcInvokeRaw」。
     // 真未来需要动态 channel 时显式重新 export，避免长期保留死代码。
   } catch (e) {
-    console.error(e);
+    // CHANGELOG_179 §Step 3.2.6 方案 2: 上报 main 端落盘 (生产 .app 双击启动场景下 console.error
+    // 写到 stdout 但 launchd 无终端 → silent failure → main 看不到 init signal 与 §不变量 1
+    // 冲突). 走 ipcRenderer.send(IpcInvoke.PreloadFatalError, payload) → main ipcMain.on
+    // (logs handler) → log.scope('preload-fatal').error(...) 落 ~/Library/Logs/Agent Deck/
+    // main-YYYY-MM-DD.log. 与 webContents.on('preload-error') 互补 (本 channel 拦加载成功后
+    // 内部 throw, preload-error 拦 script 本身加载失败).
+    const err = e as { message?: string; stack?: string } | null;
+    const message = err?.message ?? String(e);
+    const stack = err?.stack;
+    try {
+      ipcRenderer.send(IpcInvoke.PreloadFatalError, { message, stack });
+    } catch {
+      // ipcRenderer.send 也失败时连 main 都通讯不上, 走 console.error 兜底 (与原行为对齐, 至少
+      // 保留 dev 模式 stdout 可见性). 生产 .app 仍 silent — 但 ipcRenderer.send 失败极罕见
+      // (Electron preload 内 ipcRenderer 永远 available), 这分支主要给 type narrow.
+      console.error(e);
+    }
   }
 } else {
   (window as unknown as { api: typeof api }).api = api;

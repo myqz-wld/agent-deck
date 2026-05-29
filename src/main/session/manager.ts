@@ -60,6 +60,9 @@ import {
   deleteImpl,
 } from './manager/lifecycle';
 import { renameSdkSessionImpl, updateCliSessionIdImpl } from './manager/rename';
+import log from '@main/utils/logger';
+
+const logger = log.scope('session-manager');
 
 /**
  * SessionManager 不直接 import adapterRegistry(避免反向依赖 + 单职责),
@@ -212,7 +215,7 @@ class SessionManagerClass {
     const key = normalizeCwd(cwd);
     const expiresAt = Date.now() + ttlMs;
     this.pendingSdkCwds.set(key, expiresAt);
-    console.log(`[session-mgr] expect sdk session @ ${key} (ttl ${ttlMs}ms)`);
+    logger.info(`[session-mgr] expect sdk session @ ${key} (ttl ${ttlMs}ms)`);
     return () => {
       if (this.pendingSdkCwds.get(key) === expiresAt) {
         this.pendingSdkCwds.delete(key);

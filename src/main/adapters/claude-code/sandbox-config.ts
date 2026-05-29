@@ -42,6 +42,9 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SandboxSettings } from '@anthropic-ai/claude-agent-sdk';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-sandbox');
 
 export type SandboxMode = 'off' | 'workspace-write' | 'strict';
 
@@ -137,7 +140,7 @@ export function buildSandboxOptions(
   // 防御性兜底：未知 mode 字符串静默回 'off' 太隐蔽（settings store 入了脏数据 / 旧版本
   // 字段重命名后没清掉等），warn 一下让控制台有迹可循。三档语义见 SandboxMode union。
   if (mode !== 'workspace-write' && mode !== 'strict') {
-    console.warn(`[sandbox] unknown mode "${String(mode)}", falling back to 'off'`);
+    logger.warn(`[sandbox] unknown mode "${String(mode)}", falling back to 'off'`);
     return {};
   }
 

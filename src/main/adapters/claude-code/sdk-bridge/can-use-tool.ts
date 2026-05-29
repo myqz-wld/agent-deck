@@ -32,6 +32,9 @@ import type {
   SdkBridgeOptions,
 } from './types';
 import type { PermissionResponder } from './permission-responder';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-can-use-tool');
 
 export interface MakeCanUseToolDeps {
   /** Per-session state（pending Maps / toolUseNames / 等） */
@@ -105,7 +108,7 @@ export function makeCanUseTool(deps: MakeCanUseToolDeps): CanUseTool {
           : '<unknown>';
       // 保留此 log 一行：sandbox 启用时每次 host 拦截打一行，可见性高、噪声可控
       // （比每次 canUseTool 都打 log 强）。出问题时一目了然「sandbox 真在拦哪些 host」。
-      console.log(
+      logger.info(
         `[sandbox-canusetool] SandboxNetworkAccess intercept host=${host} → auto-deny + fallback hint`,
       );
       return {

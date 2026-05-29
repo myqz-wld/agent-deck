@@ -71,10 +71,36 @@ afterAll(() => {
 // ─── mock electron.app + 双 root path helper ───────────────────────────
 // electron 在 vitest node 环境会拉 native 模块爆「failed to install」，必须 mock；
 // app.isPackaged=false 让 loadBundledAssets 走 dev 分支每次重扫（避免 cache 影响）。
+//
+// **runtime-logging-electron-log-20260529 Step 3.3.5 后**:bundled-assets.ts 间接 import
+// resources-placeholder.ts → logger.ts → 调 `app.setName('Agent Deck')` + `app.getPath('logs')`,
+// local mock factory 必须返回这些 method,否则 import 时 TypeError。补全与 vitest-setup.ts
+// 全局 mock 同款的 stub set,getAppPath 仍指向 FIXTURE_ROOT 让 bundled-assets dev 分支 fixture
+// scan 行为不变。
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getAppPath: () => FIXTURE_ROOT, // 不被本测试直接消费（path helper 已 mock），保兜底
+    getAppPath: () => FIXTURE_ROOT, // 不被本测试直接消费(path helper 已 mock),保兜底
+    getPath: (_name: string) => tmpdir(), // logger.ts 调 app.getPath('logs')
+    getName: () => 'Agent Deck',
+    setName: () => undefined, // logger.ts top-level 调
+    getVersion: () => '0.0.0-test',
+    getLocale: () => 'en-US',
+    whenReady: () => Promise.resolve(),
+    requestSingleInstanceLock: () => true,
+    releaseSingleInstanceLock: () => undefined,
+    hasSingleInstanceLock: () => true,
+    quit: () => undefined,
+    exit: () => undefined,
+    focus: () => undefined,
+    on: () => undefined,
+    once: () => undefined,
+    off: () => undefined,
+    removeAllListeners: () => undefined,
+    setLoginItemSettings: () => undefined,
+    setAboutPanelOptions: () => undefined,
+    setAppUserModelId: () => undefined,
+    disableHardwareAcceleration: () => undefined,
   },
 }));
 

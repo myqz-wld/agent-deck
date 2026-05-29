@@ -37,6 +37,9 @@ import type {
   SendMessageThunk,
 } from './_deps';
 import { PLACEHOLDER_DEDUP_MS } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-recoverer');
 
 export interface RecoverAndSendDeps {
   readonly ctx: RecovererCtx;
@@ -180,7 +183,7 @@ export async function recoverAndSendImpl(
       ts: Date.now(),
       source: 'sdk',
     });
-    console.warn(
+    logger.warn(
       `[codex-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}`,
     );
   }
@@ -200,7 +203,7 @@ export async function recoverAndSendImpl(
       // 避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
       // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,让 single-flight 锁覆盖此 await。
       if (rec.archivedAt !== null) {
-        console.warn(
+        logger.warn(
           `[codex-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
         );
         await sessionManager.unarchive(sessionId);

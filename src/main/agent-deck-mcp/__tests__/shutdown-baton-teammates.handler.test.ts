@@ -15,10 +15,16 @@
  * 用 deps inject 模式 mock shutdownTeammates seam。不依赖真 sessionManager / agentDeckTeamRepo。
  */
 import { describe, expect, it, vi } from 'vitest';
+import log from 'electron-log/main';
 import { shutdownBatonTeammatesHandler } from '../tools/handlers/shutdown-baton-teammates';
 import type { ShutdownBatonTeammatesArgs } from '../tools/schemas';
 import type { HandlerContext } from '../tools/helpers';
 import type { ShutdownTeammatesResult } from '../tools/handlers/shutdown-teammates-on-baton';
+
+// Step 3.3.5 后 shutdown-baton-teammates.ts 用 logger=log.scope('mcp-shutdown-baton').warn
+// 替代 console.warn。helper 抛错路径 warn 需 spy 此 scoped logger 而非 console.warn
+// (vitest-setup.ts mock 已让 log.scope 返 vi.fn 化 logger)
+const shutdownBatonLogger = log.scope('mcp-shutdown-baton');
 
 describe('shutdownBatonTeammatesHandler — deny external caller', () => {
   it('callerSessionId = __external__ + transport=stdio → 拒绝（withMcpGuard 拦截）', async () => {
@@ -165,7 +171,8 @@ describe('shutdownBatonTeammatesHandler — helper 抛错 → error + warn', () 
     const mockShutdown = vi.fn(async (_callerSid: string): Promise<ShutdownTeammatesResult> => {
       throw new Error('simulated agentDeckTeamRepo SQLite locked');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = shutdownBatonLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const args: ShutdownBatonTeammatesArgs = {
       planId: 'some-plan',
@@ -191,15 +198,13 @@ describe('shutdownBatonTeammatesHandler — helper 抛错 → error + warn', () 
     expect(payload.hint).toContain('planId=some-plan');
 
     // warn 含 planId 前缀方便排查
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('shutdownTeammatesOnBaton helper threw'),
       expect.any(Error),
     );
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('planId=some-plan'),
       expect.any(Error),
     );
-
-    warnSpy.mockRestore();
   });
 });

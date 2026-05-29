@@ -27,6 +27,9 @@ import type {
   TaskRecord,
 } from '@shared/types';
 import { on, IpcInputError } from './_helpers';
+import log from '@main/utils/logger';
+
+const logger = log.scope('ipc-teams');
 
 function parseId(raw: unknown, field: string): string {
   if (typeof raw !== 'string' || !raw.trim()) {
@@ -376,7 +379,7 @@ export function registerTeamsIpc(): void {
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
           failed.push({ sessionId: m.sessionId, reason });
-          console.warn(
+          logger.warn(
             `[ipc:team-shutdown-all-teammates] close(${m.sessionId}) failed in team ${teamId}:`,
             err,
           );

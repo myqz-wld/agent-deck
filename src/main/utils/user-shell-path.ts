@@ -42,6 +42,9 @@
 
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import log from '@main/utils/logger';
+
+const logger = log.scope('utils-user-shell');
 
 /**
  * Per-startup nonce marker 包围 PATH 输出,模块加载时一次生成。
@@ -106,13 +109,13 @@ export function captureUserShellPath(): string | null {
 
     cached = pathValue;
     if (cached === null) {
-      console.warn(
+      logger.warn(
         `[user-shell-path] no nonce-marked PATH line in "${shell} -ilc" output; falling back to process.env.PATH`,
       );
     }
     return cached;
   } catch (err) {
-    console.warn(
+    logger.warn(
       `[user-shell-path] failed to capture user shell PATH via "${shell} -ilc": ${(err as Error).message}; falling back to process.env.PATH`,
     );
     cached = null;
