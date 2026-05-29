@@ -42,7 +42,7 @@ describe('buildAdoptedTeamsContextBlock — adopt 路径 cold-start prompt prepe
     expect(result).not.toMatch(/^\[from /);
     expect(result).not.toContain('## Hand-off context (auto-injected by Agent Deck MCP)'); // spawn 路径文案
     expect(result).not.toContain('回 lead 用'); // spawn 路径指令
-    // adopt prompt How to communicate 节会含 reply_to_message_id 字串(教新 session 怎么用),
+    // adopt prompt How to communicate 节会含 replyToMessageId 字串(教新 session 怎么用),
     // 但不含 spawn 路径式"回 lead"指令 — 上面 `回 lead 用` 已守门。这里关注的是不是教新 session
     // 反向给 caller 发 send_message(adopt 路径 caller 已 archive 走不通)。
 
@@ -150,8 +150,8 @@ describe('buildAdoptedTeamsContextBlock — adopt 路径 cold-start prompt prepe
         `Teammate sids: \`sid-1\`, \`sid-2\`\n` +
         `\n` +
         `### How to communicate with teammates\n` +
-        `Use \`send_message({ session_id: <teammate-sid>, team_id: <team-id>, text: ... })\` — for first-turn message omit \`reply_to_message_id\`.\n` +
-        `Teammates' first reply will auto-include wire prefix \`[from <name> @ <adapter>][msg <id>][sid <sid>]\` — use \`reply_to_message_id\` from that prefix on subsequent send_message to maintain reply chain.\n`,
+        `Use \`send_message({ sessionId: <teammate-sid>, teamId: <team-id>, text: ... })\` — for first-turn message omit \`replyToMessageId\`.\n` +
+        `Teammates' first reply will auto-include wire prefix \`[from <name> @ <adapter>][msg <id>][sid <sid>]\` — use \`replyToMessageId\` from that prefix on subsequent send_message to maintain reply chain.\n`,
     );
   });
 
@@ -181,8 +181,8 @@ describe('buildAdoptedTeamsContextBlock — adopt 路径 cold-start prompt prepe
         `- Team \`team-2\` (id: \`tid-2\`): teammate sids \`sid-2\`, \`sid-3\`\n` +
         `\n` +
         `### How to communicate with teammates\n` +
-        `Use \`send_message({ session_id: <teammate-sid>, team_id: <team-id>, text: ... })\` — for first-turn message omit \`reply_to_message_id\`.\n` +
-        `Teammates' first reply will auto-include wire prefix \`[from <name> @ <adapter>][msg <id>][sid <sid>]\` — use \`reply_to_message_id\` from that prefix on subsequent send_message to maintain reply chain.\n`,
+        `Use \`send_message({ sessionId: <teammate-sid>, teamId: <team-id>, text: ... })\` — for first-turn message omit \`replyToMessageId\`.\n` +
+        `Teammates' first reply will auto-include wire prefix \`[from <name> @ <adapter>][msg <id>][sid <sid>]\` — use \`replyToMessageId\` from that prefix on subsequent send_message to maintain reply chain.\n`,
     );
   });
 });

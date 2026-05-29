@@ -9,7 +9,7 @@
  * F1a 修法是 **confirm 而非新加 SQL 修法**。本文件 inline 实证现状（plan §D4）：
  *
  * 1. **listActiveMembers SQL 不过滤 lifecycle**（agent-deck-team-repo/member-query.ts:47-57）
- *    `WHERE m.team_id = ? AND m.left_at IS NULL AND s.archived_at IS NULL`
+ *    `WHERE m.teamId = ? AND m.left_at IS NULL AND s.archived_at IS NULL`
  *    没有 `AND s.lifecycle != 'dormant'`，dormant teammate 仍列在候选 — case A 实测验证
  *
  * 2. **shutdownTeammatesOnBaton helper 不区分 lifecycle**（shutdown-teammates-on-baton.ts）

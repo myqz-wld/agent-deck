@@ -17,7 +17,7 @@
  * ```
  *
  * 安全约束（ADR §4.3 / §11.7）：stdio 没有 caller-id 反查链路，client 只能传特殊
- * 值 `__external__` 作为 caller_session_id，仅允许 list_sessions / get_session 等只读 /
+ * 值 `__external__` 作为 callerSessionId，仅允许 list_sessions / get_session 等只读 /
  * 观察类 tool；spawn / send / shutdown 默认 deny（防 fork bomb）。
  *
  * 启用条件：`settings.enableAgentDeckMcp === true && settings.mcpStdioEnabled === true`。
@@ -39,7 +39,7 @@ import { EXTERNAL_CALLER_SENTINEL } from './types';
  * 回退会让 test 同步 fail。
  *
  * **行为不变**: 永返 `__external__` sentinel 切断 spoofing 路径（与 buildAgentDeckTools 内部
- * `overridden ?? args.caller_session_id` 短路逻辑配合，让任何 args.caller_session_id 被忽略）。
+ * `overridden ?? args.callerSessionId` 短路逻辑配合，让任何 args.callerSessionId 被忽略）。
  *
  * **禁止扩散**: 仅 transport-stdio.ts 内使用 + `__tests__/spoofing-attack-paths.test.ts` 校验
  * 用。其他 production 文件想用 sentinel 直接 `import { EXTERNAL_CALLER_SENTINEL } from './types'`
@@ -96,8 +96,8 @@ export async function runAgentDeckMcpStdio(): Promise<void> {
 
   // B-HIGH-1 (C) 修法 (b)（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
   // stdio transport 没 per-session authn 链路，client 只能传特殊值 `__external__` 当
-  // caller_session_id（ADR §4.3 / §11.7 文档约定）。旧版 callerSessionIdOverride: null 让
-  // tools/index.ts:108 的 `overridden ?? args.caller_session_id` fallback 到任意 args 字段，
+  // callerSessionId（ADR §4.3 / §11.7 文档约定）。旧版 callerSessionIdOverride: null 让
+  // tools/index.ts:108 的 `overridden ?? args.callerSessionId` fallback 到任意 args 字段，
   // client 能填已存在 active sid spoof 写工具（B-HIGH-1 reviewer-claude 反驳轮 mini-test 实证）。
   // 修法: force callerSessionIdOverride 永返 sentinel，让 stdio transport 在源头切断 spoofing
   // 路径（与 helpers.ts denyExternalIfNotAllowed (a) stdio invariant assertion 双层守门 = 修法 (C)）。

@@ -6,12 +6,12 @@
  * HTTP / stdio external transport skip ingest（避免 codex SDK 子进程 SessionDetail
  * 渲染 team-task-* event 未实证风险）。
  *
- * v024 plan §D2 + MED-2 修法（Round 1+3）:teamName 改取 args.team_id lookup
- * （`agentDeckTeamRepo.get(args.team_id)?.name`），不再走 first active team —
- * 多 team caller 显式传 team_id=B（first=A）→ teamName=B。caller 不传 team_id
+ * v024 plan §D2 + MED-2 修法（Round 1+3）:teamName 改取 args.teamId lookup
+ * （`agentDeckTeamRepo.get(args.teamId)?.name`），不再走 first active team —
+ * 多 team caller 显式传 teamId=B（first=A）→ teamName=B。caller 不传 teamId
  * → personal task → teamName=null。
  *
- * 本测试聚焦 ctx.caller.transport 分流 + payload.teamName 取 args.team_id lookup。
+ * 本测试聚焦 ctx.caller.transport 分流 + payload.teamName 取 args.teamId lookup。
  * CRUD 行为 / visible scope / write permission 在 task-crud.test.ts 已覆盖。
  */
 
@@ -100,9 +100,9 @@ beforeEach(() => {
   mockSessions.set('sess-caller', { id: 'sess-caller', lifecycle: 'active' });
 });
 
-describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.team_id lookup', () => {
-  it('in-process + 传 team_id="team-1" + caller 在 team → ingest team-task-created (payload.teamName = lookup(team-1).name)', async () => {
-    // v024 D2: caller 必须在 args.team_id active member（isCallerInTeam check）
+describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.teamId lookup', () => {
+  it('in-process + 传 teamId="team-1" + caller 在 team → ingest team-task-created (payload.teamName = lookup(team-1).name)', async () => {
+    // v024 D2: caller 必须在 args.teamId active member（isCallerInTeam check）
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-1', teamName: 'team-A', sessionId: 'sess-caller', role: 'lead' },
     ]);
@@ -114,7 +114,7 @@ describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.team_id l
       makeTask({ id: 't1', subject: 'X', ownerSessionId: 'sess-caller', teamId: 'team-1', activeForm: 'agent-A' }),
     );
 
-    await taskCreateHandler({ subject: 'X', team_id: 'team-1' }, makeCtx('sess-caller', 'in-process'));
+    await taskCreateHandler({ subject: 'X', teamId: 'team-1' }, makeCtx('sess-caller', 'in-process'));
 
     expect(mockSessionManager.ingest).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -122,7 +122,7 @@ describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.team_id l
         source: 'sdk',
         kind: 'team-task-created',
         payload: expect.objectContaining({
-          teamName: 'team-A', // v024 D2: 取 args.team_id lookup
+          teamName: 'team-A', // v024 D2: 取 args.teamId lookup
           taskId: 't1',
           description: 'X',
           assignee: 'agent-A',
@@ -131,8 +131,8 @@ describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.team_id l
     );
   });
 
-  it('in-process + 不传 team_id（personal task）→ CHANGELOG_165 skip ingest（emit task-changed 仍调）', async () => {
-    // v024 D2: 不传 team_id → personal task → teamName=null
+  it('in-process + 不传 teamId（personal task）→ CHANGELOG_165 skip ingest（emit task-changed 仍调）', async () => {
+    // v024 D2: 不传 teamId → personal task → teamName=null
     // CHANGELOG_165: personal task 不再 ingest team-task-* event(kind 名与 personal 语义不符
     // + ActivityFeed / TeamDetail EventsSection 噪声),仅 eventBus.emit('task-changed') 保 UI 实时性
     mockTaskRepo.create.mockReturnValue(makeTask({ ownerSessionId: 'sess-caller', teamId: null }));
@@ -143,7 +143,7 @@ describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.team_id l
     expect(mockSessionManager.ingest).not.toHaveBeenCalled(); // CHANGELOG_165: personal skip ingest
   });
 
-  it('v024 MED-2: multi-team caller 显式 team_id=B（first=A）→ teamName=B（不漂移到 first）', async () => {
+  it('v024 MED-2: multi-team caller 显式 teamId=B（first=A）→ teamName=B（不漂移到 first）', async () => {
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-A-id', teamName: 'team-A', sessionId: 'sess-caller', role: 'lead' },
       { teamId: 'team-B-id', teamName: 'team-B', sessionId: 'sess-caller', role: 'teammate' },
@@ -157,7 +157,7 @@ describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.team_id l
       makeTask({ ownerSessionId: 'sess-caller', teamId: 'team-B-id' }),
     );
 
-    await taskCreateHandler({ subject: 'X', team_id: 'team-B-id' }, makeCtx('sess-caller', 'in-process'));
+    await taskCreateHandler({ subject: 'X', teamId: 'team-B-id' }, makeCtx('sess-caller', 'in-process'));
 
     expect(mockSessionManager.ingest.mock.calls[0][0].payload.teamName).toBe('team-B');
   });
@@ -174,7 +174,7 @@ describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.team_id l
     });
     mockTaskRepo.create.mockReturnValue(makeTask({ ownerSessionId: 'sess-caller', teamId: 'team-1' }));
 
-    await taskCreateHandler({ subject: 'X', team_id: 'team-1' }, makeCtx('sess-caller', 'http'));
+    await taskCreateHandler({ subject: 'X', teamId: 'team-1' }, makeCtx('sess-caller', 'http'));
 
     expect(mockEventBus.emit).toHaveBeenCalledTimes(1); // task-changed 仍发（eventBus 不受 D7 影响）
     expect(mockSessionManager.ingest).not.toHaveBeenCalled(); // ingest skip
@@ -197,7 +197,7 @@ describe('task_update — D7 ingest 分流（仅 pending→completed 触发）+ 
     );
 
     await taskUpdateHandler(
-      { task_id: 't1', status: 'completed' },
+      { taskId: 't1', status: 'completed' },
       makeCtx('sess-caller', 'in-process'),
     );
 
@@ -222,7 +222,7 @@ describe('task_update — D7 ingest 分流（仅 pending→completed 触发）+ 
     );
 
     await taskUpdateHandler(
-      { task_id: 't1', status: 'completed' },
+      { taskId: 't1', status: 'completed' },
       makeCtx('sess-caller', 'in-process'),
     );
 
@@ -245,7 +245,7 @@ describe('task_update — D7 ingest 分流（仅 pending→completed 触发）+ 
     );
 
     await taskUpdateHandler(
-      { task_id: 't1', status: 'active' },
+      { taskId: 't1', status: 'active' },
       makeCtx('sess-caller', 'in-process'),
     );
 
@@ -271,7 +271,7 @@ describe('task_update — D7 ingest 分流（仅 pending→completed 触发）+ 
     );
 
     await taskUpdateHandler(
-      { task_id: 't1', status: 'completed' },
+      { taskId: 't1', status: 'completed' },
       makeCtx('sess-caller', 'http'),
     );
 

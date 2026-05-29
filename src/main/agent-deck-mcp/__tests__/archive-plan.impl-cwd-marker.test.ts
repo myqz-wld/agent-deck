@@ -311,7 +311,7 @@ describe('archivePlanImpl — cwd 4 态分流 (plan codex-handoff-team-alignment
     const err = result as ArchivePlanError;
     expect(err.error).toContain('caller cwd');
     expect(err.error).toContain('invalid');
-    expect(err.error).toContain('does not match worktree_path');
+    expect(err.error).toContain('does not match worktreePath');
     expect(err.hint).toContain('cwd resilience guard rail');
     expect(err.hint).toContain('exit_worktree');
     expect(err.hint).toContain(wrongMarker);

@@ -92,7 +92,7 @@ describe('applySpawnGuards — depth 上限', () => {
 
   // plan handoff-no-spawn-guards-20260526 §D4/§D6: hand-off 路径完全跳过三道防御
   // (depth + fan-out + spawn-rate)+ 不进 in-flight 计数表(原 batonMode 仅跳 depth,
-  // 现 handOffMode 跳全部)。故意推翻 REVIEW_46/47 「archive_caller=false 退化 normal spawn」修法。
+  // 现 handOffMode 跳全部)。故意推翻 REVIEW_46/47 「archiveCaller=false 退化 normal spawn」修法。
   it('handOffMode=true → caller depth >= max 仍通过(跳过 depth check,§D4 修法)', () => {
     seedSession('lead', { spawnDepth: 3 });
     const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { handOffMode: true });
