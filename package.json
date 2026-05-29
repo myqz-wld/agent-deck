@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:fts5": "scripts/verify-fts5.sh",
+    "logger:check": "bash scripts/logger-check.sh",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
