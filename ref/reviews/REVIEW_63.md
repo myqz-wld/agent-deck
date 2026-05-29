@@ -2,7 +2,7 @@
 
 > 触发: plan [deep-project-review-comprehensive-20260528](../../.claude/plans/deep-project-review-comprehensive-20260528.md) §Phase 5 Step 5.1 D 维架构合理性 review (Phase 4 收口后必走)。
 >
-> 准则: 验 spike1 §A1 列出的 candidate finding 在 Phase 4 实施后是否 100% 落地 + 实测 0 runtime circular dep / 0 caller drift / facade pattern 一致性 / 临界子模块监控 / 跨 step 重复 helper 评估。
+> 准则: 验 spike1 §A1 列出的 candidate finding 在 Phase 4 实施后是否 100% 落地 + 实测 0 runtime circular dep / 0 caller drift / facade pattern 一致性 / 临界文件监控 / 跨 step 重复 helper 评估。
 >
 > 工具链: lead 自评(基于 Phase 4.0 read-only architecture spike + Phase 4 Step 4.1-4.12 11 step 实施观察 + Step 4.12 R1+R2 deep-review SKILL kind='code' 输出 + 本次现场 grep / wc / find 实测)。Step 5.3 走 deep-review SKILL kind='mixed' 双对抗验本报告 + verify Step 5.2 重构(若有)。
 >
@@ -216,7 +216,7 @@ finding 验证维度:
 | `session/manager.ts` (facade) | 443 | 57 LOC ⚠ | sessionManager 35+ caller 跨模块 hub,新加 lifecycle 状态 / sdk-claim 分支前先 spike |
 | `archive-plan/impl-precheck.ts` (sub-module) | 439 | 61 LOC | precheck Step 1-6.5 全集中,future 加 step 触发 480 LOC 时拆 (precheck 子 step 之间独立) |
 | `shared/types/settings/app-settings.ts` (sub-module) | 424 | 76 LOC | `AppSettings` 30+ 字段 + 长 jsdoc 占大头,future 加 settings 字段时考虑按 domain 拆 (audio / notification / agent-deck-mcp 等子 interface) |
-| `hand-off-session/handler-main.ts` (sub-module) | 411 | 89 LOC | handler 主入口含 spawn 调用 + archive caller 路径,如新增 hand-off mode 阶段可能溢出 |
+| `hand-off-session/handler-main.ts` (sub-module) | 406 | 94 LOC | handler 主入口含 spawn 调用 + archive caller 路径,如新增 hand-off mode 阶段可能溢出 |
 
 **建议**: 监控,加 logic 时若 facade / 子模块 ≥ 480 触发 follow-up split plan (本 plan §D1「单文件 ≤ 500 LOC 护栏」长期约束)。**特别警示**: codex-cli sdk-bridge facade 距 500 仅 1 LOC margin,下一个 PR 改这文件几乎必触发再拆 — 任何新增 import / re-export / helper 都需要先把 facade 内已有 helper 抽到 sub-module 腾 LOC。
 
