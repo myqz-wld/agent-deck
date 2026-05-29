@@ -552,6 +552,39 @@ dist/
 
 任何代码源文件 LOC > 500 行触发拆分尝试（commit 前必做一次）。3 档风险升序选择 + 真不能拆的登记机制详 `{{AGENT_DECK_RESOURCES}}/SOPs/file-size-guardrail.md`。阈值 500 调整属约定升级。
 
+**facade 自身 LOC 必计**：facade pattern 拆分后 facade 自身**也**必须 ≤ 500 LOC（子模块 ≤ 500 不够）。≥ 400 LOC 进入临界监控，≥ 480 LOC 下次任意改动触发再拆 — 任何新加 import / re-export / helper 都需要先把 facade 内已有 helper 抽到 sub-module 腾 LOC。
+
+### 大文件拆分实战经验（facade pattern）
+
+**facade pattern**：原文件改 facade 仅 re-export 子模块 API（原 import path 全保留 byte-identical）；子模块按 entity / 功能 / 行为域拆；共性 helper 抽到 `_shared/` 子目录。
+
+**4 种 facade pattern ROI 排序**（按 LOC 增量，低增量 = 高 ROI）：
+
+| ROI | Pattern | 平均增量 | 适用场景 |
+|---|---|---|---|
+| 高 | D pure type re-export | +52 LOC | 纯 type / interface declaration 文件 |
+| 中高 | A factory + singleton | +176 LOC | DB repo / 跨 entity store 类 |
+| 中 | B class shell + thin method delegate | +339 LOC | adapter / manager / window 类 |
+| 中低 | C free fn entry + 子模块 named function | +305 LOC | god-function 拆出来的多 phase 流程 |
+
+**LOC trade-off**：拆分后总 LOC 升 +20-30% 是 readability tax，**0 runtime overhead**。增量来源 jsdoc 重复 + ctx interface signature 重复。**接受现实**：facade ≤ 500 LOC 让单文件 review 上下文成本可控，trade-off 合理。
+
+**核心 invariant**：facade barrel re-export **byte-identical**，生产代码 caller import path **0 改动**，测试 import path **0 改动**（test 文件直接 import 子模块属 unit test 覆盖合理，与 §不变量「测试不动」一致）。
+
+**mini-spike + user 1-min confirm 3 题**：每文件实拆前 5-15 min 输出 spike 与 user 确认 3 题：① 子模块名 ② 边界划法 ③ 是 entity / 功能 / 行为域。**不 confirm 实施细节**（function 命名 / import 顺序 lead 自决）。**失败兜底**：spike 时间 ≥ 30 min 或子模块边界含跨文件互依赖（典型 `index.ts` + `recoverer.ts` 对偶拆）→ 改走 full spike 落 `<plan-artifact-dir>/spike-reports/spikeN-<topic>.md`，不走 mini-spike。
+
+**不预先抽 _shared/ 大坨**：跨 facade 重复 helper（典型 `getById` / `rowToRecord` 2-3 处实现）实际重复成本 < 抽离收益（类型签名不同，抽 generic factory 让 TypeScript inference 变复杂）。**例外**：真实跨子模块共享算法 / 常量必抽（如 `_impl-shared/isError<T>` generic 化 5 种 result 共用）。
+
+### 多轮 Deep-Review 收口经验
+
+> 与 §决策对抗 §反驳轮 + 三态裁决 正交：那节定义 per-finding ✅/❌/❓ 三态裁决；本节定义**整 review session 何时 conclude** 的判定 + 反驳轮自纠机制 + fix 后同步纪律。适用任何走多轮异构对抗的 review session（典型应用环境 deep-review SKILL）。
+
+**双方共识收口判定**：收口条件 = **双方 reviewer 在最后一轮明示「同意 conclude」** + 0 HIGH/MED finding（LOW/INFO 留 follow-up plan）。**单方收口不算**（漏审风险，典型 R1 一方漏审某维度，另一方在 R2 抓出 HIGH-1 仍需 fix 才能合）。
+
+**反驳轮自纠 mental model**：reviewer 在 R_{N+1} 主动检查自己上轮漏审维度。**触发**：对方 reviewer 在自己未覆盖维度抓 finding 时，R_{N+1} 必须显式 acknowledge 漏审 + 升级 mental model（典型升级：「facade refactor sanity 必须穷举 baseline named export 列表 1:1 diff，不能只看形态」），否则下轮同款漏审重发。
+
+**fix 后表格 / 描述文字必同步**：数据 fix 后，所有引用了原数据的表格 + 描述都要同步更新。**Why**：反驳轮验证 fix 时会 grep 原数据找漂移，导致原本只是 R_N INFO 的下次评审变 R_{N+1} MED。**How to apply**：R_N fix 数据 X 后，`grep '<原数据>' ref/reviews ref/plans ref/conventions` 找命中处一并更新。典型样例：REVIEW.md §临界文件监控 fix LOC 411→406 后必须把 §B INFO 引用同步。
+
 ### 反复反馈 / 反复踩坑 → 升级约定
 
 候选放 `ref/conventions/tally.md`（统一参考资产根 `ref/` 下与 `ref/changelogs/` `ref/reviews/` `ref/plans/` 同级，git 管理；**不**绑 `.claude/` 工具目录）。count ≥ 3 升级**不再**写到项目 `CLAUDE.md` —— 改为新建 `ref/conventions/<X>-<topic>.md`（X 递增整数，单约定单文件）+ 同步 `ref/conventions/INDEX.md` 加行 + 从 tally 删该条。让项目 CLAUDE.md **保持静态**（只放设计原则 + 流程性约定），动态累积沉淀到 ref/conventions/ 解耦。
