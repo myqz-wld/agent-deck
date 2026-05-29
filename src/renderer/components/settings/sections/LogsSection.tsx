@@ -70,7 +70,7 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
   return (
     <Section title="日志" storageKey="logs" defaultOpen={false}>
       <div className="flex flex-col gap-1 text-[11px]">
-        <div>日志级别（仅控落盘文件，console 永远 silly 保 dev 终端全输出）</div>
+        <div>日志级别（仅影响写入文件的日志；终端始终完整输出）</div>
         <select
           value={settings.logLevel}
           onChange={(e) =>
@@ -86,25 +86,27 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
         </select>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          onClick={() => void handleOpenDirectory()}
-          className="no-drag rounded bg-white/10 px-2 py-0.5 text-[11px] text-deck-text hover:bg-white/20"
-        >
-          打开日志目录
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleShowCurrentInFinder()}
-          className="no-drag rounded bg-white/10 px-2 py-0.5 text-[11px] text-deck-text hover:bg-white/20"
-        >
-          在 Finder 中显示当前日志
-        </button>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex gap-1.5 no-drag">
+          <button
+            type="button"
+            onClick={() => void handleOpenDirectory()}
+            className="flex-1 rounded bg-white/10 px-2 py-1 text-[11px] text-deck-text hover:bg-white/20"
+          >
+            打开日志目录
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleShowCurrentInFinder()}
+            className="flex-1 rounded bg-white/10 px-2 py-1 text-[11px] text-deck-text hover:bg-white/20"
+          >
+            在 Finder 中显示
+          </button>
+        </div>
         <button
           type="button"
           onClick={() => void handleTruncateToday()}
-          className="no-drag rounded bg-status-waiting/15 px-2 py-0.5 text-[11px] text-status-waiting hover:bg-status-waiting/25"
+          className="no-drag self-start rounded bg-status-waiting/15 px-2 py-1 text-[11px] text-status-waiting hover:bg-status-waiting/25"
         >
           清空今天日志
         </button>
@@ -123,7 +125,7 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
       )}
 
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        日志按天拆 + 保留 14 天 (logger.ts §D3). 位置 <code className="rounded bg-white/5 px-1">~/Library/Logs/Agent Deck/main-YYYY-MM-DD.log</code> (macOS) /
+        按天分文件，保留 14 天。位置 <code className="rounded bg-white/5 px-1">~/Library/Logs/Agent Deck/main-YYYY-MM-DD.log</code> (macOS) /
         <code className="rounded bg-white/5 px-1">%APPDATA%/Agent Deck/logs/</code> (Win) /
         <code className="rounded bg-white/5 px-1">~/.config/Agent Deck/logs/</code> (Linux).
       </div>
