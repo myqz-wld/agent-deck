@@ -1,0 +1,113 @@
+/**
+ * 主进程启动时一次性实测用户真实终端 PATH 缓存,让所有后续 spawn(SDK 子进程 + 主进程
+ * git 等)在 zsh / bash / sh / dash / ksh(`-ilc` 标准兼容 shell)上自动 inherit 完整
+ * PATH。修复 macOS .app 走 launchd 启动时 PATH 只有 `/usr/bin:/bin:/usr/sbin:/sbin`
+ * 导致 SDK 子进程跑 `pnpm` / `cargo` / `brew` 等用户终端 CLI 撞 `command not found` 的
+ * 问题。
+ *
+ * 详细 design 决策见 plan `sdk-spawn-shell-path-20260529.md`(归档于 `ref/plans/`):
+ * - **execFileSync argv API**:用 `execFileSync(shell, ['-ilc', 'printf "%s\\n" "$PATH"'], ...)`
+ *   替代 spike1 §X1 helper 的字符串拼 cmd `execSync` 形式,避免 `$SHELL` 含 quote / space
+ *   时命令注入面(plan Round 1 reviewer-codex MED-3 hardening)
+ * - **sentinel 二分 memo**:用独立 `captured: boolean` + `cached: string | null` 区分
+ *   「未初始化」vs「已捕获含 null」,失败路径也命中 memo(避免每次调用都重跑 execFileSync
+ *   + 重复 console.warn + 重复 3s timeout 风险;plan Round 1 reviewer-codex MED-2)
+ * - **fallback 静默降级**:`$SHELL` 未设走 /bin/zsh 兜底跑成功;shell 跑挂 / 输出空 →
+ *   console.warn + 返 null,unionUserShellPath 用 originalPath 兜底(行为与原现状一致,
+ *   不退化)
+ * - **explicit shell 集合 = zsh/bash/sh/dash/ksh**:tcsh/csh/fish/nu 是 explicit non-goal
+ *   (codex Round 2 现场实测 `/bin/tcsh -ilc` 与 `/bin/csh -ilc` 返 `Unknown option: '-lc'`
+ *   失败;fish 不支持 `-i`)→ fallback 走 process.env.PATH。fish 等用户的 SDK 子进程
+ *   PATH 仍是 launchd minimal,留 follow-up plan
+ *   `sdk-spawn-shell-path-other-shells-<YYYYMMDD>` 修法
+ * - **dedupePath 保留优先序**:Set 保序去重避免 user PATH 末尾与 process.env.PATH 末尾
+ *   重复条目(典型 `agent-deck-plugin/bin`)
+ */
+
+import { execFileSync } from 'node:child_process';
+
+let captured = false;
+let cached: string | null = null;
+
+/**
+ * 主进程启动时调一次,缓存用户真实终端 PATH。
+ *
+ * 走用户实际 `$SHELL` 执行 `-ilc 'printf "%s\\n" "$PATH"'`,以便复现用户终端 PATH 配置
+ * (nvm/brew/cargo 等用户 shell rc 文件 sourced 加载的路径)。
+ *
+ * 失败兜底:
+ * - `$SHELL` 未设 → 走 `/bin/zsh` 兜底(macOS 默认 shell)
+ * - shell 跑挂 / `-ilc` 不支持(tcsh/csh/fish 等)/ 输出空 → 返 null + console.warn
+ *
+ * sentinel 二分 memo:用独立 `captured: boolean` + `cached: string | null` 区分
+ * 「未初始化」vs「已捕获含 null」— 失败路径也命中 memo(避免每次调用都重跑 execFileSync
+ * + 重复 console.warn + 重复 3s timeout 风险)。
+ */
+export function captureUserShellPath(): string | null {
+  if (captured) return cached;
+  captured = true;
+
+  const shell = process.env.SHELL || '/bin/zsh';
+
+  try {
+    const out = execFileSync(shell, ['-ilc', 'printf "%s\\n" "$PATH"'], {
+      encoding: 'utf8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    const lines = out.split('\n').filter((l) => l.trim());
+    cached = lines.length > 0 ? lines[lines.length - 1] : null;
+    if (cached === null) {
+      console.warn(
+        `[user-shell-path] empty output from "${shell} -ilc 'printf $PATH'"; falling back to process.env.PATH`,
+      );
+    }
+    return cached;
+  } catch (err) {
+    console.warn(
+      `[user-shell-path] failed to capture user shell PATH via "${shell} -ilc": ${(err as Error).message}; falling back to process.env.PATH`,
+    );
+    cached = null;
+    return null;
+  }
+}
+
+/**
+ * Set 保留优先序去重 PATH 字符串(`/a:/b:/a:/c` → `/a:/b:/c`)。
+ *
+ * 用于 unionUserShellPath 内拼接 user PATH + originalPath 后去重(典型 user PATH 末尾的
+ * `agent-deck-plugin/bin` 与 originalPath 末尾同款重复)。OS lookup 遇重复路径 in-order
+ * skip 不报错仅多 IO,但 echo $PATH 看起来不干净,dedupe 后更清晰。
+ *
+ * 输入空字符串 / undefined → 返空字符串(caller 容错)。
+ */
+export function dedupePath(path: string | undefined): string {
+  if (!path) return '';
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const seg of path.split(':')) {
+    if (!seen.has(seg)) {
+      seen.add(seg);
+      out.push(seg);
+    }
+  }
+  return out.join(':');
+}
+
+/**
+ * 用 user shell PATH union(用户 PATH 优先)原 PATH 后 dedupe 保序。
+ *
+ * 拼接顺序:`<user shell PATH>:<originalPath>` — user PATH 优先 lookup,brew/nvm/cargo
+ * 等用户 CLI 优先;originalPath 末尾保留(Electron bundle 路径 `.app/Contents/MacOS` /
+ * `Resources/bin` 等不丢)。最后 dedupe 去重。
+ *
+ * 失败兜底:captureUserShellPath 返 null(shell 跑挂 / 不支持 -ilc / 输出空)→ 直接返
+ * originalPath(行为与原现状一致,不退化);originalPath undefined → 返 user PATH 单端;
+ * 都为空 → 返 ''。
+ */
+export function unionUserShellPath(originalPath: string | undefined): string {
+  const userPath = captureUserShellPath();
+  if (!userPath) return originalPath ?? '';
+  if (!originalPath) return userPath;
+  return dedupePath(`${userPath}:${originalPath}`);
+}
