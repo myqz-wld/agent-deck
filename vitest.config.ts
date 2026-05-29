@@ -21,7 +21,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
-    // Electron 包不能在测试里被 import（会拉起 native 模块）；遇到再加 mock。
-    // 当前 payload-truncate 是纯函数，无依赖。
+    // 全局 mock electron + electron-log/main —— Plan runtime-logging-electron-log-20260529 §D15
+    // 让所有 main 测试 import 'electron' / 'electron-log/main' 时拿 mock 不撞 native 安装错;
+    // 详 vitest-setup.ts 头注 + plan §Step 3.0.2.5.
+    setupFiles: ['./vitest-setup.ts'],
   },
 });
