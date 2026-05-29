@@ -49,6 +49,7 @@ state "team_members.role\n(per team)" as RoleState {
 
   [*] --> RoleOrig
   RoleOrig --> RoleSwapped : adopt=true\n(转交 lead 角色)
+  RoleOrig --> RoleOrig : archive_caller=false\n(caller 仍 lead,team 不归档)
   RoleOrig --> RoleArchived : 默认路径\n(caller 归档后 team 无 lead\n→ 30min grace 自动归档)
   RoleSwapped --> [*]
   RoleArchived --> [*]
@@ -87,7 +88,7 @@ note as N1
   ① caller → archived (default) | active (opt-out)
   ② new session [*] → spawned → active (task 过继后)
   ③ teammate → adopted (adopt=true) | kept (archive_caller=false) | closed (default)
-  ④ role → swapped (adopt) | team 30min 自动归档
+  ④ role → swapped (adopt) | kept (archive_caller=false) | team 30min 自动归档
   ⑤ task → clear-team | preserve-team | skip 三态
   ⑥ spawn-link → 永不写 (hand-off 是平级接力非派遣)
 
