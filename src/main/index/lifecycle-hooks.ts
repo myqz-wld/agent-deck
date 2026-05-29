@@ -25,6 +25,9 @@ import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { handleCliArgv } from '../cli';
 
 import type { BootstrapState } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('lifecycle-hooks');
 
 /**
  * 注册 module-level app.on lifecycle hooks。仅当 single-instance lock 持有时由
@@ -46,7 +49,7 @@ export function registerLifecycleHooks(
     // 被当作 adapter 不可用处理。修法:把 bootstrap 完成 promise 抓回来,second-instance handler
     // 等 bootstrap 完成再投递 argv。
     void bootstrappedPromise.then(() => handleCliArgv(argv)).catch((err) =>
-      console.warn('[second-instance] handleCliArgv failed', err),
+      logger.warn('[second-instance] handleCliArgv failed', err),
     );
   });
 
@@ -84,7 +87,7 @@ export function registerLifecycleHooks(
             try {
               await state.agentDeckMcpHttpShutdown();
             } catch (err) {
-              console.warn('[agent-deck-mcp] HTTP shutdown failed during cleanup', err);
+              logger.warn('[agent-deck-mcp] HTTP shutdown failed during cleanup', err);
             }
             state.agentDeckMcpHttpShutdown = null;
           }
@@ -102,14 +105,14 @@ export function registerLifecycleHooks(
         try {
           closeDb();
         } catch (err) {
-          console.warn('[before-quit] closeDb error', err);
+          logger.warn('[before-quit] closeDb error', err);
         }
         if (result === '__timeout__') {
-          console.warn('[before-quit] cleanup timeout (10s), forcing exit (closeDb 已跑保证 WAL checkpoint)');
+          logger.warn('[before-quit] cleanup timeout (10s), forcing exit (closeDb 已跑保证 WAL checkpoint)');
           process.exit(1);
         }
       } catch (err) {
-        console.warn('[before-quit] cleanup error', err);
+        logger.warn('[before-quit] cleanup error', err);
       } finally {
         app.exit(0);
       }

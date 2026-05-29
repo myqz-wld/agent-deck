@@ -11,6 +11,9 @@ import {
   type FloatingWindowState,
 } from './_deps';
 import { stopInvalidateLoop } from './pin-visual';
+import log from '@main/utils/logger';
+
+const logger = log.scope('window-lifecycle');
 
 /**
  * 创建 BrowserWindow + 注册 ready-to-show / closed listener + dock icon + 状态复位。
@@ -116,7 +119,7 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
     if (shown || state.win !== capturedWin || capturedWin.isDestroyed()) return;
     shown = true;
     capturedWin.show();
-    console.log(`[window] shown via ${reason}`);
+    logger.info(`[window] shown via ${reason}`);
   };
   capturedWin.once('ready-to-show', () => showOnce('ready-to-show'));
   capturedWin.webContents.once('did-finish-load', () => showOnce('did-finish-load'));
@@ -127,7 +130,7 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
   }, 1500);
 
   state.win.webContents.on('did-fail-load', (_e, code, desc, url) => {
-    console.error(`[window] did-fail-load ${code} ${desc} url=${url}`);
+    logger.error(`[window] did-fail-load ${code} ${desc} url=${url}`);
   });
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {

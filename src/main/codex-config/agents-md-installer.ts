@@ -55,6 +55,9 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { settingsStore } from '@main/store/settings-store';
 import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-agents-md');
 
 const MARKER_START = '<!-- === Agent Deck START - DO NOT EDIT THIS BLOCK === -->';
 const MARKER_END = '<!-- === Agent Deck END === -->';
@@ -105,7 +108,7 @@ function readContentRaw(): string {
     try {
       return readFileSync(userPath, 'utf8');
     } catch (err) {
-      console.warn('[codex-agents-md] 读用户副本失败，回落内置:', err);
+      logger.warn('[codex-agents-md] 读用户副本失败，回落内置:', err);
     }
   }
   try {
@@ -153,7 +156,7 @@ export function syncAgentDeckSection(
     try {
       existing = readFileSync(configPath, 'utf8');
     } catch (err) {
-      console.warn(`[codex-agents-md] 读 ${configPath} 失败:`, err);
+      logger.warn(`[codex-agents-md] 读 ${configPath} 失败:`, err);
       return null;
     }
   }
@@ -172,7 +175,7 @@ export function syncAgentDeckSection(
   try {
     content = getContent();
   } catch (err) {
-    console.error(
+    logger.error(
       `[codex-agents-md] D5 fallback 策略触发: codex-config/CODEX_AGENTS.md 内置内容读取失败,跳过同步。` +
         ` 这通常意味着 build/dev config 错误(extraResources 漏配 codex-config / 文件被误删)。` +
         ` 详见 plan codex-handoff-team-alignment-20260518 §D5。详细错误:`,
@@ -228,7 +231,7 @@ export function getActiveCodexAgentsMd(): { content: string; isCustom: boolean }
     try {
       return { content: readFileSync(userPath, 'utf8'), isCustom: true };
     } catch (err) {
-      console.warn('[codex-agents-md] 读取用户副本失败,回落内置:', err);
+      logger.warn('[codex-agents-md] 读取用户副本失败,回落内置:', err);
     }
   }
   return { content: getBuiltinCodexAgentsMd(), isCustom: false };
@@ -239,7 +242,7 @@ export function getBuiltinCodexAgentsMd(): string {
   try {
     return readFileSync(getBuiltinAgentsMdContentPath(), 'utf8');
   } catch (err) {
-    console.warn('[codex-agents-md] 读取内置 CODEX_AGENTS.md 失败:', err);
+    logger.warn('[codex-agents-md] 读取内置 CODEX_AGENTS.md 失败:', err);
     return '';
   }
 }
@@ -263,7 +266,7 @@ export function saveUserCodexAgentsMd(content: string): { content: string; isCus
   try {
     syncAgentDeckSection();
   } catch (err) {
-    console.warn('[codex-agents-md] saveUser 后 syncAgentDeckSection 失败:', err);
+    logger.warn('[codex-agents-md] saveUser 后 syncAgentDeckSection 失败:', err);
   }
   return { content: readFileSync(path, 'utf8'), isCustom: true };
 }
@@ -275,7 +278,7 @@ export function resetUserCodexAgentsMd(): void {
     try {
       unlinkSync(path);
     } catch (err) {
-      console.warn('[codex-agents-md] 删除用户副本失败:', err);
+      logger.warn('[codex-agents-md] 删除用户副本失败:', err);
       throw err;
     }
   }
@@ -283,7 +286,7 @@ export function resetUserCodexAgentsMd(): void {
   try {
     syncAgentDeckSection();
   } catch (err) {
-    console.warn('[codex-agents-md] resetUser 后 syncAgentDeckSection 失败:', err);
+    logger.warn('[codex-agents-md] resetUser 后 syncAgentDeckSection 失败:', err);
   }
 }
 

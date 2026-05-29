@@ -43,6 +43,9 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { settingsStore } from '@main/store/settings-store';
 import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-skills-installer');
 
 /** ~/.codex/skills/agent-deck 绝对路径（与 toml-writer / agents-md-installer 同模式不依赖 app.getPath）。 */
 export function getCodexSkillsAgentDeckDir(): string {
@@ -79,7 +82,7 @@ export function syncSkills(): string[] | null {
       try {
         rmSync(targetDir, { recursive: true, force: true });
       } catch (err) {
-        console.warn(`[codex-skills] 移除 ${targetDir} 失败`, err);
+        logger.warn(`[codex-skills] 移除 ${targetDir} 失败`, err);
         return null;
       }
     }
@@ -88,7 +91,7 @@ export function syncSkills(): string[] | null {
 
   const sourceDir = getBuiltinSkillsSourceDir();
   if (!existsSync(sourceDir)) {
-    console.warn(`[codex-skills] 内置 skills 源目录不存在：${sourceDir}`);
+    logger.warn(`[codex-skills] 内置 skills 源目录不存在：${sourceDir}`);
     return null;
   }
 
@@ -103,7 +106,7 @@ export function syncSkills(): string[] | null {
       }
     });
   } catch (err) {
-    console.warn(`[codex-skills] 读源目录失败：${sourceDir}`, err);
+    logger.warn(`[codex-skills] 读源目录失败：${sourceDir}`, err);
     return null;
   }
 
@@ -130,7 +133,7 @@ export function syncSkills(): string[] | null {
       writeFileSync(dstSkillMd, content, 'utf8');
       written.push(name);
     } catch (err) {
-      console.warn(`[codex-skills] 同步 ${name} 失败`, err);
+      logger.warn(`[codex-skills] 同步 ${name} 失败`, err);
     }
   }
 
@@ -148,12 +151,12 @@ export function syncSkills(): string[] | null {
         try {
           rmSync(join(targetDir, name), { recursive: true, force: true });
         } catch (err) {
-          console.warn(`[codex-skills] 删除孤儿 ${name} 失败`, err);
+          logger.warn(`[codex-skills] 删除孤儿 ${name} 失败`, err);
         }
       }
     }
   } catch (err) {
-    console.warn('[codex-skills] 扫目标目录失败（孤儿清理跳过）', err);
+    logger.warn('[codex-skills] 扫目标目录失败（孤儿清理跳过）', err);
   }
 
   return written;

@@ -58,6 +58,9 @@ import { syncSkills } from '../codex-config/skills-installer';
 import type { AgentEvent } from '@shared/types';
 
 import type { BootstrapState } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('bootstrap-infra');
 
 /**
  * bootstrap god-function Phase 0-8.6 infrastructure init 段。
@@ -174,9 +177,9 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
       );
       const handle = await registerAgentDeckMcpHttpRoutes(state.routeRegistry);
       state.agentDeckMcpHttpShutdown = handle.shutdown;
-      console.log('[agent-deck-mcp] HTTP transport mounted at /mcp');
+      logger.info('[agent-deck-mcp] HTTP transport mounted at /mcp');
     } catch (err) {
-      console.error('[agent-deck-mcp] failed to mount HTTP transport', err);
+      logger.error('[agent-deck-mcp] failed to mount HTTP transport', err);
     }
   }
 
@@ -184,13 +187,13 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
   // registerRoute 调用都会被 HookServer.registerRoute 的 invariant 拒)
   try {
     await state.hookServer.start();
-    console.log(`[hook-server] listening on 127.0.0.1:${state.hookServer.listeningPort}`);
+    logger.info(`[hook-server] listening on 127.0.0.1:${state.hookServer.listeningPort}`);
   } catch (err) {
     // REVIEW_35 follow-up rH R2-M4: HookServer 是 hooks/MCP 通道的根基,启动失败不能让应用
     // 半启动(旧版只 console.error 后继续 → scheduler/IPC/window 正常起,hooks 通道全挂但
     // UI 无明确错误)。EADDRINUSE 典型场景:上次崩溃 / 另一实例残留 / 端口被占用。
     // fail-loud:dialog.showErrorBox 同步反馈用户 + app.exit(1) 释放单实例锁让用户能改端口重启。
-    console.error('[hook-server] failed to start', err);
+    logger.error('[hook-server] failed to start', err);
     const reason = err instanceof Error ? err.message : String(err);
     const isAddrInUse = /EADDRINUSE/i.test(reason);
     try {
@@ -205,7 +208,7 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
           : `Hook 服务启动失败:${reason.slice(0, 1000)}`,
       );
     } catch (dialogErr) {
-      console.error('showErrorBox failed during hook-server EADDRINUSE:', dialogErr);
+      logger.error('showErrorBox failed during hook-server EADDRINUSE:', dialogErr);
     }
     // REVIEW_61 MED-B (codex) fix: app.exit(1) 不发 before-quit/will-quit (Electron 文档),
     // ./lifecycle-hooks.ts before-quit handler 不会跑 → closeDb() 不会执行 → SQLite WAL 不 checkpoint。
@@ -215,7 +218,7 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
     try {
       closeDb();
     } catch (err) {
-      console.warn('[hook-server fatal] closeDb error', err);
+      logger.warn('[hook-server fatal] closeDb error', err);
     }
     app.exit(1);
     return false;
@@ -243,12 +246,12 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
   try {
     syncAgentDeckSection();
   } catch (err) {
-    console.warn('[bootstrap] syncAgentDeckSection 失败', err);
+    logger.warn('[bootstrap] syncAgentDeckSection 失败', err);
   }
   try {
     syncSkills();
   } catch (err) {
-    console.warn('[bootstrap] syncSkills 失败', err);
+    logger.warn('[bootstrap] syncSkills 失败', err);
   }
 
   // 7.05 R3.E5:universal-message-watcher 启动(cross-adapter team message 投递)
@@ -269,7 +272,7 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
   try {
     loadBundledAssets();
   } catch (err) {
-    console.warn('[main] loadBundledAssets failed:', err);
+    logger.warn('[main] loadBundledAssets failed:', err);
   }
 
   // 8.6 image-uploads reaper:清掉 14 天前的孤儿附件文件

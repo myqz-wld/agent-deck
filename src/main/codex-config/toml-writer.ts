@@ -35,6 +35,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { CodexMcpServerConfigShared } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-toml-writer');
 
 const MARKER_START = '# === Agent Deck MCP Servers START - DO NOT EDIT THIS BLOCK ===';
 const MARKER_END = '# === Agent Deck MCP Servers END ===';
@@ -127,7 +130,7 @@ export function writeMcpServersToCodexConfig(
     try {
       existing = readFileSync(configPath, 'utf8');
     } catch (err) {
-      console.warn(`[codex-config] 读 ${configPath} 失败，将从空文件重建`, err);
+      logger.warn(`[codex-config] 读 ${configPath} 失败，将从空文件重建`, err);
       existing = '';
     }
   }

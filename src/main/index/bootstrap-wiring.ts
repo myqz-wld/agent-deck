@@ -25,6 +25,9 @@ import { handleCliArgv } from '../cli';
 import { IpcEvent } from '@shared/ipc-channels';
 
 import { makeDebouncedTeamSender, TOOL_DISPLAY_NAME } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('bootstrap-wiring');
 
 /**
  * bootstrap god-function Phase 9-11 wiring 段。
@@ -113,17 +116,17 @@ export function initWiring(): void {
           level: 'info',
         });
       } catch (err) {
-        console.error('[caller-archive-failed listener] notifyUser 异常 (吞掉,继续走 IPC 通道):', err);
+        logger.error('[caller-archive-failed listener] notifyUser 异常 (吞掉,继续走 IPC 通道):', err);
       }
       try {
         safeSend(IpcEvent.CallerArchiveFailed, payload);
       } catch (err) {
-        console.error('[caller-archive-failed listener] safeSend 异常:', err);
+        logger.error('[caller-archive-failed listener] safeSend 异常:', err);
       }
     } catch (err) {
       // 兜底: body 构造或两通道 catch 自身异常,不能冒泡到 emit caller (会反向打崩 baton-cleanup /
       // archiveSourceSessionWithEmit 的 warn-only 不阻塞语义)。console.error 让排查不丢信息。
-      console.error('[caller-archive-failed listener] internal throw (吞掉防撞穿 emit caller):', err);
+      logger.error('[caller-archive-failed listener] internal throw (吞掉防撞穿 emit caller):', err);
     }
   });
 
@@ -173,7 +176,7 @@ export function initWiring(): void {
     safeSend(IpcEvent.PinToggled, next);
   });
   if (!registered) {
-    console.warn(`[shortcut] failed to register ${pinShortcut} (occupied by another app)`);
+    logger.warn(`[shortcut] failed to register ${pinShortcut} (occupied by another app)`);
   }
 
   // 10.5 全局快捷键:Cmd/Ctrl+Alt+T 切换「窗口透明」开关
@@ -189,7 +192,7 @@ export function initWiring(): void {
     safeSend(IpcEvent.TransparentToggled, next);
   });
   if (!transparentRegistered) {
-    console.warn(`[shortcut] failed to register ${transparentShortcut} (occupied by another app)`);
+    logger.warn(`[shortcut] failed to register ${transparentShortcut} (occupied by another app)`);
   }
 
   // 10.6 全局快捷键(CHANGELOG_124):Cmd/Ctrl+Alt+= 一键到屏幕最大、Cmd/Ctrl+Alt+- 一键回默认 520×680
@@ -207,7 +210,7 @@ export function initWiring(): void {
     floating.toggleMaximize();
   });
   if (!maximizeRegistered) {
-    console.warn(`[shortcut] failed to register ${maximizeShortcut} (occupied by another app)`);
+    logger.warn(`[shortcut] failed to register ${maximizeShortcut} (occupied by another app)`);
   }
 
   const defaultSizeShortcut = 'CommandOrControl+Alt+-';
@@ -215,7 +218,7 @@ export function initWiring(): void {
     floating.toggleDefault();
   });
   if (!defaultSizeRegistered) {
-    console.warn(`[shortcut] failed to register ${defaultSizeShortcut} (occupied by another app)`);
+    logger.warn(`[shortcut] failed to register ${defaultSizeShortcut} (occupied by another app)`);
   }
 
   // 11. 首启命令行
