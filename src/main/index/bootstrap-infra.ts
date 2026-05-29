@@ -79,8 +79,15 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
   // 让所有后续 spawn (SDK 子进程 + 主进程 git 等) 自动 inherit 完整 PATH
   // (修 macOS .app launchd 启动 PATH 只有 /usr/bin:/bin:/usr/sbin:/sbin 问题)。
   // 详 plan ref/plans/sdk-spawn-shell-path-20260529.md §设计决策 + §不变量 9。
+  //
+  // 守门 `newPath !== ''` 防 PATH 完全失效:极端 dev 情景下 process.env.PATH undefined +
+  // captureUserShellPath 失败时 unionUserShellPath 返 ''(`originalPath ?? ''` 分支),
+  // mutate '' 比 undefined 严格更差(`Object.entries(process.env)` skip undefined keys 让
+  // child 走 Node 默认查找;'' 是 string 进 entries 让 child 拿空 PATH 全部 lookup fail)。
+  // production .app 不触发(launchd 总设 minimal `/usr/bin:/bin:/usr/sbin:/sbin`)。
+  // Step 3.6 reviewer-claude Round 1 LOW-1 hardening。
   const newPath = unionUserShellPath(process.env.PATH);
-  if (newPath !== process.env.PATH) {
+  if (newPath !== process.env.PATH && newPath !== '') {
     process.env.PATH = newPath;
   }
 
