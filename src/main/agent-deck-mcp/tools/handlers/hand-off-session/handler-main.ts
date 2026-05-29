@@ -47,7 +47,6 @@ import {
   type Phase15Detail,
 } from './team-adopt-coordinator';
 import { runTaskReassignment } from './task-reassign-coordinator';
-import { sessionManager } from '@main/session/manager';
 import type { HandOffSessionHandlerDeps } from './_deps';
 
 /**
@@ -341,10 +340,6 @@ export const handOffSessionHandler = withMcpGuard(
         archiveSession: handlerDeps?.archiveSession,
       },
     );
-    // sessionManager 静态使用占位（避免 unused import；team-adopt-coordinator / cleanup helper
-    // 内部已直接调；handler-main 不需要）— TS strict 下 unused import 会 error，但 import 仅
-    // 用作类型 / re-export 时是 ok。下面这行让 import 形成显式 runtime 引用让 lint 安心。
-    void sessionManager;
 
     // 13. ok return 装配（K2 metadata + adopt detail + task reassign + spawn 字段透传）
     return ok({

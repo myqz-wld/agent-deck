@@ -6,7 +6,7 @@
 >
 > 工具链: lead 自评(基于 Phase 4.0 read-only architecture spike + Phase 4 Step 4.1-4.12 11 step 实施观察 + Step 4.12 R1+R2 deep-review SKILL kind='code' 输出 + 本次现场 grep / wc / find 实测)。Step 5.3 走 deep-review SKILL kind='mixed' 双对抗验本报告 + verify Step 5.2 重构(若有)。
 >
-> 关联 fix: 0 (本报告**无 HIGH / MED 需 Step 5.2 重构**;3 LOW + 5 INFO + 4 临界子模块监控全留 follow-up plan)。
+> 关联 fix: 0 (本报告**无 HIGH / MED 需 Step 5.2 重构**;3 LOW + 5 INFO + 7 临界文件监控全留 follow-up plan)。
 
 ## Scope
 
@@ -15,7 +15,7 @@
 | **11 个 Phase 4 拆分的 facade 文件** | hand-off-session.ts / archive-plan-impl.ts / claude+codex sdk-bridge index.ts / claude+codex sdk-bridge recoverer.ts / task-repo.ts / session/manager.ts / window.ts / main/index.ts / adapters/types.ts / shared/types/settings.ts / agent-deck-message-repo.ts |
 | **~50 个 Phase 4 新建子模块** | 11 facade 下的 `_deps.ts` / 各 entity 域 / 各 phase 子模块文件 |
 | **spike1 candidate finding** | F1-F9 + A1-A4 全 13 条 |
-| **架构合理性维度** | runtime circular dep / caller import path drift / 重复 helper / facade pattern 一致性 / 临界 LOC 子模块 / hub 集中度 |
+| **架构合理性维度** | runtime circular dep / caller import path drift / 重复 helper / facade pattern 一致性 / 临界 LOC 文件 (含 facade + sub-module) / hub 集中度 |
 
 合计审 11 facade 主文件 + ~50 子模块 + spike1 13 finding。
 
@@ -41,8 +41,8 @@ finding 验证维度:
 - spike1 §A1 列出的 HIGH/MED candidate 是否 100% Phase 4 已落地?
 - spike1 §F1-F9 + §A1-A4 是否有未列 architecture concern?
 - Phase 4 拆分实施过程是否引入新 architecture risk?
-- 量化指标:caller drift / circular dep / 重复 helper / facade pattern 一致性 / 临界 LOC 子模块
-- ≥ 400 LOC 临界子模块未来溢出风险
+- 量化指标:caller drift / circular dep / 重复 helper / facade pattern 一致性 / 临界 LOC 文件 (含 facade + sub-module)
+- ≥ 400 LOC 临界文件未来溢出风险 (含 facade 自身,典型 codex sdk-bridge facade 499 LOC margin 1)
 
 ## 三态裁决总览
 
@@ -206,20 +206,23 @@ finding 验证维度:
 
 **结论**: ✅ **200+ 生产代码 caller 100% 走 facade barrel re-export byte-identical**;测试合理直接 import 子模块属 unit test 覆盖 (与 plan §D5 「测试不动」语义一致 — test fixture 跟 facade 子模块结构);Phase 4 拆分**未引入任何 user-facing 行为变化**
 
-#### 临界子模块监控 (4 个 ≥ 400 LOC,无紧急行动)
+#### 临界文件监控 (7 个 ≥ 400 LOC,无紧急行动) — 含 facade 自身 + sub-module
 
-| 子模块 | LOC | 距 500 余量 | 建议监控行动 |
+| 文件 | LOC | 距 500 余量 | 建议监控行动 |
 |---|---|---|---|
-| `hand-off-session/team-adopt-coordinator.ts` | 474 | 26 LOC | 未来新增 adopt 逻辑前 spike 是否需拆 (N5 fail-fast / N2.c 互斥 / swapLead loop / processSwappedTeam 4 phase 都集中此处) |
-| `archive-plan/impl-precheck.ts` | 439 | 61 LOC | precheck Step 1-6.5 全集中,future 加 step 触发 480 LOC 时拆 (precheck 子 step 之间独立) |
-| `shared/types/settings/app-settings.ts` | 424 | 76 LOC | `AppSettings` 30+ 字段 + 长 jsdoc 占大头,future 加 settings 字段时考虑按 domain 拆 (audio / notification / agent-deck-mcp 等子 interface) |
-| `hand-off-session/handler-main.ts` | 411 | 89 LOC | handler 主入口含 spawn 调用 + archive caller 路径,如新增 hand-off mode 阶段可能溢出 |
+| `adapters/codex-cli/sdk-bridge/index.ts` (facade) | 499 | 1 LOC ⚠⚠⚠ | **下一次新增任何 import / 函数即触发再拆**,改这文件前先 spike 子模块边界 (含 createSession 3 子段 / recoverer 单向 import 入口) |
+| `hand-off-session/team-adopt-coordinator.ts` (sub-module) | 474 | 26 LOC | 未来新增 adopt 逻辑前 spike 是否需拆 (N5 fail-fast / N2.c 互斥 / swapLead loop / processSwappedTeam 4 phase 都集中此处) |
+| `adapters/claude-code/sdk-bridge/index.ts` (facade) | 467 | 33 LOC ⚠ | claude SDK 子进程 lifecycle / dedupOrClaim B 分支 / waitForRealSessionId 集中,新加 SDK 兜底逻辑前先 spike |
+| `session/manager.ts` (facade) | 443 | 57 LOC ⚠ | sessionManager 35+ caller 跨模块 hub,新加 lifecycle 状态 / sdk-claim 分支前先 spike |
+| `archive-plan/impl-precheck.ts` (sub-module) | 439 | 61 LOC | precheck Step 1-6.5 全集中,future 加 step 触发 480 LOC 时拆 (precheck 子 step 之间独立) |
+| `shared/types/settings/app-settings.ts` (sub-module) | 424 | 76 LOC | `AppSettings` 30+ 字段 + 长 jsdoc 占大头,future 加 settings 字段时考虑按 domain 拆 (audio / notification / agent-deck-mcp 等子 interface) |
+| `hand-off-session/handler-main.ts` (sub-module) | 411 | 89 LOC | handler 主入口含 spawn 调用 + archive caller 路径,如新增 hand-off mode 阶段可能溢出 |
 
-**建议**: 监控,加 logic 时若 facade / 子模块 ≥ 480 触发 follow-up split plan (本 plan §D1「单文件 ≤ 500 LOC 护栏」长期约束)
+**建议**: 监控,加 logic 时若 facade / 子模块 ≥ 480 触发 follow-up split plan (本 plan §D1「单文件 ≤ 500 LOC 护栏」长期约束)。**特别警示**: codex-cli sdk-bridge facade 距 500 仅 1 LOC margin,下一个 PR 改这文件几乎必触发再拆 — 任何新增 import / re-export / helper 都需要先把 facade 内已有 helper 抽到 sub-module 腾 LOC。
 
 ## 必修 finding 详细
 
-(本 Step 5.1 报告**无 HIGH/MED 需 Step 5.2 重构**;3 LOW + 5 INFO + 4 临界子模块监控全留 follow-up plan)
+(本 Step 5.1 报告**无 HIGH/MED 需 Step 5.2 重构**;3 LOW + 5 INFO + 7 临界文件监控全留 follow-up plan)
 
 **Step 5.2 工作量**: ≈ 0 (本报告无 actionable finding;Step 5.3 走 deep-review SKILL kind='mixed' 验本报告 finding 真不真,若 reviewer 提新 HIGH 才进 Step 5.2 重构)
 
@@ -292,7 +295,7 @@ finding 验证维度:
 - **0 caller drift 生产代码** ✓ (200+ caller byte-identical)
 - **facade pattern 一致** 4 种各自 internal consistency ✓
 - **0 ≥ 500 LOC 子模块** ✓ (全过单文件护栏)
-- 4 个 ≥ 400 LOC 临界子模块监控 (无紧急行动)
+- 7 个 ≥ 400 LOC 临界文件监控 (无紧急行动,含 3 facade 自身 + 4 sub-module)
 - **3 LOW + 5 INFO** 总结性 finding 留 follow-up plan
 
 ### Step 5.2 重构: 0 work (无 HIGH/MED 需 Phase 4 内修)
