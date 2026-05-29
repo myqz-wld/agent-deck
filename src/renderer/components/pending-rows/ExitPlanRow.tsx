@@ -1,6 +1,9 @@
 import { useState, type JSX } from 'react';
 import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
+import log from '@renderer/utils/logger';
 import { MarkdownText } from '../MarkdownText';
+
+const logger = log.scope('renderer-exit-plan-row');
 
 /**
  * ExitPlanMode 行（markdown plan + 二选一按钮）。接口同 PermissionRow 模式。
@@ -47,7 +50,7 @@ export function ExitPlanRow({
       onResolved(sessionId, payload.requestId);
     } catch (err) {
       // 冷切失败时 sdk-bridge 内部已 emit error message + 回滚 DB；这里 row 保持 pending 让用户看到失败
-      console.error('respondExitPlanMode failed', err);
+      logger.error('respondExitPlanMode failed', err);
     } finally {
       setBusy(false);
     }
