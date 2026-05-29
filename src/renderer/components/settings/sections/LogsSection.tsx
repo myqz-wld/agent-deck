@@ -90,21 +90,21 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
         <button
           type="button"
           onClick={() => void handleOpenDirectory()}
-          className="no-drag rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] hover:bg-white/[0.08]"
+          className="no-drag rounded bg-white/10 px-2 py-0.5 text-[11px] text-deck-text hover:bg-white/20"
         >
           打开日志目录
         </button>
         <button
           type="button"
           onClick={() => void handleShowCurrentInFinder()}
-          className="no-drag rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] hover:bg-white/[0.08]"
+          className="no-drag rounded bg-white/10 px-2 py-0.5 text-[11px] text-deck-text hover:bg-white/20"
         >
           在 Finder 中显示当前日志
         </button>
         <button
           type="button"
           onClick={() => void handleTruncateToday()}
-          className="no-drag rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] hover:bg-white/[0.08]"
+          className="no-drag rounded bg-status-waiting/15 px-2 py-0.5 text-[11px] text-status-waiting hover:bg-status-waiting/25"
         >
           清空今天日志
         </button>

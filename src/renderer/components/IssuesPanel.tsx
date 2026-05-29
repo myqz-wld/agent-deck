@@ -115,9 +115,9 @@ export function IssuesPanel(): JSX.Element {
         />
         <div className="flex-1 overflow-y-auto scrollbar-deck">
           {loading && filteredList.length === 0 ? (
-            <div className="px-3 py-8 text-center text-xs text-deck-text-muted">加载中...</div>
+            <div className="px-3 py-8 text-center text-xs text-deck-muted">加载中...</div>
           ) : filteredList.length === 0 ? (
-            <div className="px-3 py-8 text-center text-xs text-deck-text-muted">
+            <div className="px-3 py-8 text-center text-xs text-deck-muted">
               暂无 issue。agent 在执行中调 mcp tool report_issue 上报问题后会在此显示。
             </div>
           ) : (
@@ -139,7 +139,7 @@ export function IssuesPanel(): JSX.Element {
         {selectedIssueId ? (
           <IssueDetail issueId={selectedIssueId} onClose={() => selectIssue(null)} />
         ) : (
-          <div className="flex h-full items-center justify-center text-xs text-deck-text-muted">
+          <div className="flex h-full items-center justify-center text-xs text-deck-muted">
             左侧选择 issue 查看 detail
           </div>
         )}
@@ -178,10 +178,10 @@ function FilterBar({
         placeholder="搜索标题..."
         value={keywordInput}
         onChange={(e) => onKeywordChange(e.target.value)}
-        className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none focus:ring-1 focus:ring-deck-accent"
+        className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20"
       />
       <div className="flex flex-wrap gap-1">
-        <span className="text-[10px] text-deck-text-muted">状态:</span>
+        <span className="text-[10px] text-deck-muted">状态:</span>
         {STATUS_OPTIONS.map((s) => (
           <FilterChip
             key={s}
@@ -192,7 +192,7 @@ function FilterBar({
         ))}
       </div>
       <div className="flex flex-wrap gap-1">
-        <span className="text-[10px] text-deck-text-muted">类型:</span>
+        <span className="text-[10px] text-deck-muted">类型:</span>
         {KIND_OPTIONS.map((k) => (
           <FilterChip
             key={k}
@@ -202,7 +202,7 @@ function FilterBar({
           />
         ))}
       </div>
-      <label className="flex items-center gap-1 text-[10px] text-deck-text-muted">
+      <label className="flex items-center gap-1 text-[10px] text-deck-muted">
         <input
           type="checkbox"
           checked={filters.showDeleted ?? false}
@@ -227,10 +227,10 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded px-1.5 py-0.5 text-[10px] ${
+      className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
         active
-          ? 'bg-deck-accent/30 text-deck-text'
-          : 'bg-deck-bg-elevated text-deck-text-muted hover:bg-deck-accent/15'
+          ? 'bg-white/15 text-deck-text ring-1 ring-white/20'
+          : 'bg-white/[0.04] text-deck-muted hover:bg-white/10'
       }`}
     >
       {label}
@@ -249,39 +249,39 @@ function IssueRow({
 }): JSX.Element {
   const statusColor =
     issue.status === 'open'
-      ? 'text-status-warning'
+      ? 'text-status-finished'
       : issue.status === 'in-progress'
-        ? 'text-status-active'
-        : 'text-status-muted';
+        ? 'text-status-working'
+        : 'text-status-idle';
   const severityColor =
     issue.severity === 'high'
-      ? 'bg-status-danger/25 text-status-danger'
+      ? 'bg-status-waiting/25 text-status-waiting'
       : issue.severity === 'medium'
-        ? 'bg-status-waiting/25 text-status-waiting'
-        : 'bg-status-muted/25 text-status-muted';
+        ? 'bg-status-finished/25 text-status-finished'
+        : 'bg-status-idle/25 text-status-idle';
   return (
     <li>
       <button
         type="button"
         onClick={onClick}
         className={`w-full px-3 py-2 text-left transition ${
-          selected ? 'bg-deck-accent/15' : 'hover:bg-deck-bg-elevated'
+          selected ? 'bg-white/10' : 'hover:bg-white/[0.04]'
         } ${issue.deletedAt !== null ? 'opacity-50' : ''}`}
       >
         <div className="flex items-center gap-1.5">
           <span className={`text-[10px] uppercase ${statusColor}`}>{issue.status}</span>
           <span className={`rounded px-1 text-[9px] ${severityColor}`}>{issue.severity}</span>
-          <span className="rounded bg-deck-bg-elevated px-1 text-[9px] text-deck-text-muted">
+          <span className="rounded bg-white/[0.06] px-1 text-[9px] text-deck-muted">
             {issue.kind}
           </span>
           {issue.deletedAt !== null && (
-            <span className="rounded bg-status-danger/25 px-1 text-[9px] text-status-danger">
+            <span className="rounded bg-status-waiting/25 px-1 text-[9px] text-status-waiting">
               已删
             </span>
           )}
         </div>
         <div className="mt-1 truncate text-xs text-deck-text">{issue.title}</div>
-        <div className="mt-0.5 text-[10px] text-deck-text-muted">
+        <div className="mt-0.5 text-[10px] text-deck-muted">
           {new Date(issue.createdAt).toLocaleString('zh-CN', { hour12: false })}
           {issue.cwd ? ` · ${issue.cwd.split('/').slice(-2).join('/')}` : ''}
         </div>

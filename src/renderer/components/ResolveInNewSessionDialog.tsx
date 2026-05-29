@@ -108,25 +108,25 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       <div className="flex max-h-[90vh] w-[640px] flex-col rounded-lg bg-deck-bg shadow-xl">
         <div className="flex items-center justify-between border-b border-deck-border px-4 py-2">
           <h2 className="text-sm font-medium text-deck-text">起新会话解决 issue</h2>
-          <button onClick={onClose} className="text-deck-text-muted hover:text-deck-text">
+          <button onClick={onClose} className="text-deck-muted hover:text-deck-text">
             ✕
           </button>
         </div>
         <div className="flex-1 space-y-3 overflow-y-auto scrollbar-deck px-4 py-3">
           {error && (
-            <div className="rounded bg-status-danger/15 px-2 py-1 text-xs text-status-danger">
+            <div className="rounded bg-status-waiting/15 px-2 py-1 text-xs text-status-waiting">
               {error}
             </div>
           )}
           <div className="space-y-1">
-            <label className="block text-[10px] uppercase tracking-wide text-deck-text-muted">
+            <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
               Adapter
             </label>
             <select
               value={adapter}
               onChange={(e) => setAdapter(e.target.value)}
               disabled={busy}
-              className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
+              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
             >
               {adapters.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -136,7 +136,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             </select>
           </div>
           <div className="space-y-1">
-            <label className="block text-[10px] uppercase tracking-wide text-deck-text-muted">
+            <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
               工作目录（cwd；空 = handler 兜底 issue.cwd → homedir）
             </label>
             <input
@@ -146,11 +146,11 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               placeholder="/path/to/project"
               disabled={busy}
               maxLength={4096}
-              className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none focus:ring-1 focus:ring-deck-accent disabled:opacity-50"
+              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
             />
           </div>
           <div className="space-y-1">
-            <label className="block text-[10px] uppercase tracking-wide text-deck-text-muted">
+            <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
               首条 prompt（D8 模板自动预填,可编辑）
             </label>
             <textarea
@@ -159,19 +159,19 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               rows={12}
               disabled={busy}
               maxLength={102400}
-              className="w-full rounded bg-deck-bg-elevated px-2 py-1 font-mono text-[11px] text-deck-text outline-none focus:ring-1 focus:ring-deck-accent disabled:opacity-50"
+              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 font-mono text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
             />
-            <div className="text-[10px] text-deck-text-muted">{prompt.length} / 102400</div>
+            <div className="text-[10px] text-deck-muted">{prompt.length} / 102400</div>
           </div>
           <div className="space-y-1">
-            <label className="block text-[10px] uppercase tracking-wide text-deck-text-muted">
+            <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
               权限模式（optional;空 = adapter / settings 默认）
             </label>
             <select
               value={permissionMode}
               onChange={(e) => setPermissionMode(e.target.value)}
               disabled={busy}
-              className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
+              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
             >
               <option value="">跟随默认</option>
               <option value="default">每次询问</option>
@@ -186,14 +186,14 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           <button
             onClick={onClose}
             disabled={busy}
-            className="rounded bg-deck-bg-elevated px-3 py-1 text-xs text-deck-text-muted hover:text-deck-text disabled:opacity-50"
+            className="rounded bg-white/[0.06] px-3 py-1 text-xs text-deck-muted hover:text-deck-text disabled:opacity-50"
           >
             取消
           </button>
           <button
             onClick={() => void handleSubmit()}
             disabled={busy}
-            className="rounded bg-status-active/30 px-3 py-1 text-xs text-status-active hover:bg-status-active/50 disabled:opacity-50"
+            className="rounded bg-status-working/30 px-3 py-1 text-xs text-status-working hover:bg-status-working/50 disabled:opacity-50"
           >
             {busy ? '起 session 中...' : '起 session'}
           </button>
