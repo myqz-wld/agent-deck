@@ -8,7 +8,7 @@
  * （让 impl test 走 deps inject 时不撞 electron）。
  *
  * **Deny external caller**（types.ts: EXTERNAL_CALLER_ALLOWED.exit_worktree = false）：
- * 写 git + clearCwdReleaseMarker 是 per-session 状态写,需要真实 caller_session_id;external
+ * 写 git + clearCwdReleaseMarker 是 per-session 状态写,需要真实 callerSessionId;external
  * stdio client 没真 caller sid 无法 clearMarker → 直接 deny。
  *
  * 用途:配合 enter_worktree 给 codex / 跨 adapter caller 提供 claude builtin ExitWorktree 的
@@ -67,8 +67,8 @@ export const exitWorktreeHandler = withMcpGuard(
       {
         callerSessionId: ctx.caller.callerSessionId,
         action: args.action,
-        worktreePathOverride: args.worktree_path,
-        discardChanges: args.discard_changes,
+        worktreePathOverride: args.worktreePath,
+        discardChanges: args.discardChanges,
       },
       mergedDeps,
     );

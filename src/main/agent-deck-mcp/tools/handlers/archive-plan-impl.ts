@@ -13,7 +13,7 @@
  *
  * - **precheck** (Step 1-6 + 6.5): 解析 worktree → mainRepo + branch + clean + planFile + status
  *   + frontmatter cross-check + cwd 4 态分流 — 详 archive-plan/impl-precheck.ts
- * - **ff-merge** (Step 7-8c): base_branch 校验 + checkout + merge --ff-only + 重新 read fresh
+ * - **ff-merge** (Step 7-8c): baseBranch 校验 + checkout + merge --ff-only + 重新 read fresh
  *   plan + 校验 fresh status — 详 archive-plan/impl-ff-merge.ts
  * - **archive-fs** (Step 9-12.5): 更新 frontmatter + 写 archived plan + 同步 INDEX + unlink 原 plan
  *   + 归档 spike-reports/ — 详 archive-plan/impl-archive-fs.ts

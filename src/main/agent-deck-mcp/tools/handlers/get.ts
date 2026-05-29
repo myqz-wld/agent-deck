@@ -22,11 +22,11 @@ export const getSessionHandler = withMcpGuard(
   'get_session',
   async (args: GetSessionArgs, _ctx: HandlerContext) => {
     // plan team-cohesion-fix-20260513 Phase A Step A7：走 sessionManager.get（已 enrich）
-    const session = sessionManager.get(args.session_id);
+    const session = sessionManager.get(args.sessionId);
     if (!session) {
       return err(
-        `session ${args.session_id} not found`,
-        'session_id must reference an existing session. Use list_sessions to discover ids; pass status_filter:"all" to include closed sessions.',
+        `session ${args.sessionId} not found`,
+        'sessionId must reference an existing session. Use list_sessions to discover ids; pass statusFilter:"all" to include closed sessions.',
       );
     }
     return ok(projectSession(session) satisfies GetSessionResult);

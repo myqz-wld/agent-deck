@@ -46,7 +46,7 @@ export interface ResolvedForCwd {
  * **REVIEW_56 §F9 修法 (Plan-Review Round 1 + spike3 实证决策 A) — 对称改 archive-plan.ts**:
  * 签名重构 `(sid): { deps: HandOffSessionDeps; warnings: string[] }` — fail-open 退化时
  * warnings 收集。handler 端拿 warnings 后只 console.warn 输出 (hand-off-session ok return
- * 没 warnings 字段不 surface,与 archive-plan.ts 不对称是设计取舍:hand_off 单 baton 退化风险
+ * 没 warnings 字段不 surface,与 archive-plan.ts 不对称是设计取舍:handOff 单 baton 退化风险
  * 低于 archive_plan 收口,加 ok return.warnings schema 是 breaking change 不值)。**signature 仍
  * 与 archive-plan 同款保持对称易维护**。同时顺手补 archive-plan P5 R1 同款 console.warn
  * (对称缺口 — 原 hand-off-session catch silent return {} 无 warn,运维 grep 不到 fail-open 退化)。
@@ -209,10 +209,10 @@ export function validatePlanModeWorktreeExists(
           : `Caller cwd "${finalCwd}" is not in mainRepo "${resolved.mainRepo}" subtree → cold-start enter_worktree cannot resolve mainRepo from caller cwd, will fail.`;
     return {
       result: err(
-        `plan frontmatter worktree_path does not exist on disk: ${resolved.worktreePath}`,
+        `plan frontmatter worktreePath does not exist on disk: ${resolved.worktreePath}`,
         `worktree may have been archived (\`archive_plan\` removed it) / cross-device synced without working tree / manually removed. ` +
           `${reason} ` +
-          `To resume, recreate worktree (\`git worktree add ${resolved.worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktree_path to a valid path.`,
+          `To resume, recreate worktree (\`git worktree add ${resolved.worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktreePath to a valid path.`,
       ),
     };
   }
@@ -230,7 +230,7 @@ export function validatePlanModeWorktreeExists(
  * sandbox.allowWrite=[worktreePath, /tmp, cache] 不含 mainRepo → 接力 session
  * 写 mainRepo plan 文件被沙盒拦下（user CLAUDE.md §Step 4 完成时更新 frontmatter
  * status=completed 必写，不能拦）。修法：plan-driven + 外置 worktree → 自动加
- * mainRepo 进 extraAllowWrite。caller 显式传 args.extra_allow_write 优先（合并）。
+ * mainRepo 进 extraAllowWrite。caller 显式传 args.extraAllowWrite 优先（合并）。
  */
 export function computeExtraAllowWrite(
   args: HandOffSessionArgs,
@@ -244,10 +244,10 @@ export function computeExtraAllowWrite(
     finalCwd === resolved.worktreePath
   ) {
     // 外置 worktree 路径已被 default cwd 推导降级到 worktreePath（HIGH-3 fix）→ 加 mainRepo 让 plan 文件可写
-    const merged = new Set<string>(args.extra_allow_write ?? []);
+    const merged = new Set<string>(args.extraAllowWrite ?? []);
     merged.add(resolved.mainRepo);
     return Array.from(merged);
   }
   // 约定 worktree（finalCwd=mainRepo 已含 mainRepo subtree 写权）/ generic 模式 → 仅 caller 显式
-  return args.extra_allow_write;
+  return args.extraAllowWrite;
 }

@@ -2,15 +2,15 @@
  * Task handler 共享 runtime helper（v024 plan task-team-id-restore-20260525 重写 — v023 follow-up）。
  *
  * 从原 `src/main/task-manager/tools.ts:71-154` 抽出，让 5 个 task handler 共享避免复制漂移：
- * - `argsToInputWithoutOwner`: snake_case args → camelCase TaskCreateInput 子集（不含 ownerSessionId）
- * - `isCallerAuthorizedToWrite`: 写权限校验（v024 改签名 `(callerSid, task)` 按 task.team_id 判 — D3）
+ * - `argsToInputWithoutOwner`: camelCase args → camelCase TaskCreateInput 子集（不含 ownerSessionId）
+ * - `isCallerAuthorizedToWrite`: 写权限校验（v024 改签名 `(callerSid, task)` 按 task.teamId 判 — D3）
  * - `isCallerAuthorizedToRead`: read 权限校验（v024 新增 MED-1 修法,与 write 对称）
- * - `isCallerInTeam`: caller 是否在指定 team 是 active member（task_create 团 team_id 校验用）
+ * - `isCallerInTeam`: caller 是否在指定 team 是 active member（task_create 团 teamId 校验用）
  * - `getVisibleTaskScope`: caller 视角 visible task scope（v024 替代 getVisibleOwnerSessionIds）
  *
  * **删除**: `getCallerFirstTeamName`（v023 为 ingest payload.teamName 提供 first team 名,
  * v024 plan §不变量 6 + Step C2/Step C4 修法 — handler 直接走 agentDeckTeamRepo.get(teamId)?.name
- * 取 args.team_id 或 task.teamId lookup,避免 multi-team caller 漂移到 first team）。
+ * 取 args.teamId 或 task.teamId lookup,避免 multi-team caller 漂移到 first team）。
  *
  * **不在本文件**：`STATUS_VALUES` → `src/main/agent-deck-mcp/tools/schemas.ts` 顶部 export
  * （avoid schema 层从 handler 层间接拉 sessionRepo / agentDeckTeamRepo 运行时依赖）。
@@ -21,8 +21,8 @@ import type { TaskCreateInput } from '@main/store/task-repo';
 import type { TaskRecord, TaskStatus } from '@shared/types';
 
 /**
- * v024：把 zod 解析后的 args（snake_case + nullable | undefined）转成
- * TaskCreateInput 子集（camelCase，不含 ownerSessionId —— 那是 closure 强制注入）。
+ * 把 zod 解析后的 args（camelCase + nullable | undefined）转成
+ * TaskCreateInput 子集（不含 ownerSessionId —— 那是 closure 强制注入）。
  * 仅放入「显式传了的字段」（!== undefined），让 repo 的 update 路径区分「不动」
  * 与「设为 null」。
  */
@@ -30,31 +30,31 @@ export function argsToInputWithoutOwner(args: {
   subject?: string;
   description?: string | null;
   status?: TaskStatus;
-  active_form?: string | null;
+  activeForm?: string | null;
   priority?: number;
   blocks?: string[];
-  blocked_by?: string[];
+  blockedBy?: string[];
   labels?: string[];
-  team_id?: string | null;
+  teamId?: string | null;
 }): Omit<Partial<TaskCreateInput>, 'ownerSessionId'> {
   const out: Omit<Partial<TaskCreateInput>, 'ownerSessionId'> = {};
   if (args.subject !== undefined) out.subject = args.subject;
   if (args.description !== undefined) out.description = args.description;
   if (args.status !== undefined) out.status = args.status;
-  if (args.active_form !== undefined) out.activeForm = args.active_form;
+  if (args.activeForm !== undefined) out.activeForm = args.activeForm;
   if (args.priority !== undefined) out.priority = args.priority;
   if (args.blocks !== undefined) out.blocks = args.blocks;
-  if (args.blocked_by !== undefined) out.blockedBy = args.blocked_by;
+  if (args.blockedBy !== undefined) out.blockedBy = args.blockedBy;
   if (args.labels !== undefined) out.labels = args.labels;
   // v024 plan §D1+D2:支持 update 改 teamId（传 null 转 personal,传 string 转 team-bound）。
-  if (args.team_id !== undefined) out.teamId = args.team_id;
+  if (args.teamId !== undefined) out.teamId = args.teamId;
   return out;
 }
 
 /**
  * v024 plan §D2 + Step C2:caller 是否在指定 team 是 active member。
  *
- * task_create / task_update 显式传 team_id 时校验用。语义对齐 §不变量 13 active 双条件:
+ * task_create / task_update 显式传 teamId 时校验用。语义对齐 §不变量 13 active 双条件:
  * - agent_deck_team_members.left_at IS NULL（成员未软退出）
  * - agent_deck_teams.archived_at IS NULL（团队未归档）
  *
@@ -76,7 +76,7 @@ export function isCallerInTeam(callerSid: string, teamId: string): boolean {
  * v024 plan §D5 + Step C5:caller 视角 visible task scope（替代 v023 getVisibleOwnerSessionIds）。
  *
  * 返:`{ teamIds: string[], includeOwnPersonal: true }` — task_list query 端用
- *   `(team_id IN teamIds) OR (team_id IS NULL AND owner_session_id == callerSid)`
+ *   `(teamId IN teamIds) OR (teamId IS NULL AND owner_session_id == callerSid)`
  * 一次 SQL 拿 caller 可见所有 task（team-bound + own personal）。
  *
  * **§不变量 7 archived team filter 纪律**:仅返 active team teamIds（左 archived team
@@ -102,7 +102,7 @@ export function getVisibleTaskScope(callerSid: string): {
 }
 
 /**
- * v024 plan §D3 + Step C5:写权限校验（HIGH-2 改签名传 task 对象拿 team_id）。
+ * v024 plan §D3 + Step C5:写权限校验（HIGH-2 改签名传 task 对象拿 teamId）。
  *
  * 分支语义:
  * - **`task.teamId !== null` (team-bound)**:caller 必须在该 team 是 active member（双条件
@@ -137,7 +137,7 @@ export function isCallerAuthorizedToWrite(
  * - **`task.teamId === null` (personal)**:caller == owner 才能读
  *
  * **v023 → v024 推翻**(plan §D8): in-process lead 跨 team 看 teammate task / external mcp
- * client 凭已知 task_id 查 task 两类 use case 都被 v024 推翻。task_get external 已经在
+ * client 凭已知 taskId 查 task 两类 use case 都被 v024 推翻。task_get external 已经在
  * EXTERNAL_CALLER_ALLOWED.task_get=false flip 后被 withMcpGuard 入口拦截,本 helper
  * 仅服务 in-process caller 的 team scope 校验。
  */

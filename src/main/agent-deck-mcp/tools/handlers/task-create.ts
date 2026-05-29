@@ -4,16 +4,16 @@
  * plan task-mcp-merge-into-agent-deck-mcp-20260521：从 src/main/task-manager/tools.ts
  * 抽出，转 makeCtx + HandlerContext.caller 模式（与现有 10 个 agent-deck-mcp tool 同款）。
  *
- * **D5**: schema 走 makeCtx(args, extra)，caller_session_id 从 HandlerContext.caller.callerSessionId
+ * **D5**: schema 走 makeCtx(args, extra)，callerSessionId 从 HandlerContext.caller.callerSessionId
  * 拿（in-process closure override / HTTP authn / stdio sentinel 三路径已收口）
  * **D6**: EXTERNAL_CALLER_ALLOWED.task_create = false，withMcpGuard 自动 deny stdio sentinel
  * **D7**: ingest 仅在 in-process transport（claude SDK session events 流看得到 team-task-*）；
  *   HTTP transport（codex SDK 子进程）skip ingest（codex SessionDetail 渲染 team-task-* event 未实证）
  *
- * **v024 plan task-team-id-restore-20260525 §D1+D2**: team_id optional field 加 caller 校验
+ * **v024 plan task-team-id-restore-20260525 §D1+D2**: teamId optional field 加 caller 校验
  * （传时 caller 必须在该 team 是 active member，否则 reject;不传 → null personal task）。
- * ingest payload.teamName 同步取 args.team_id lookup（不走 getCallerFirstTeamName 避免多 team
- * caller 显式 team_id=B 但 first active team=A 漂移到 A — Round 1 MED-2 + Round 3 MED-3 修法）。
+ * ingest payload.teamName 同步取 args.teamId lookup（不走 getCallerFirstTeamName 避免多 team
+ * caller 显式 teamId=B 但 first active team=A 漂移到 A — Round 1 MED-2 + Round 3 MED-3 修法）。
  */
 
 import { sessionRepo } from '@main/store/session-repo';
@@ -45,20 +45,20 @@ export const taskCreateHandler = withMcpGuard(
           `caller session "${callerSid}" not in sessions table (tempKey window or session not yet committed) — retry after session is fully claimed`,
         );
       }
-      // v024 plan §D2:caller 显式传 team_id 时 handler 校验 caller 在该 team active member。
+      // v024 plan §D2:caller 显式传 teamId 时 handler 校验 caller 在该 team active member。
       // 不传 / undefined / null → 落 null personal task,与 caller 是否在 team 无关（D2 用户决策）。
-      if (args.team_id) {
-        if (!isCallerInTeam(callerSid, args.team_id)) {
+      if (args.teamId) {
+        if (!isCallerInTeam(callerSid, args.teamId)) {
           return err(
-            `caller "${callerSid}" is not an active member of team_id "${args.team_id}" — task_create rejected (v024 plan §D3)`,
-            'team-bound task 要求 caller 在该 team 是 active member（agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL 双条件）。Use task_create without team_id for personal task, or join the team first via the application UI.',
+            `caller "${callerSid}" is not an active member of teamId "${args.teamId}" — task_create rejected (v024 plan §D3)`,
+            'team-bound task 要求 caller 在该 team 是 active member（agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL 双条件）。Use task_create without teamId for personal task, or join the team first via the application UI.',
           );
         }
       }
       const input: TaskCreateInput = {
         ...argsToInputWithoutOwner(args),
         ownerSessionId: callerSid,
-        teamId: args.team_id ?? null, // v024 D1+D2:不传 = personal task
+        teamId: args.teamId ?? null, // v024 D1+D2:不传 = personal task
         subject: args.subject,
       };
       const created = taskRepo.create(input);
@@ -71,17 +71,17 @@ export const taskCreateHandler = withMcpGuard(
       });
       // D7：in-process 路径 ingest team-task-created；HTTP/stdio transport skip
       // （codex SDK 子进程 SessionDetail 渲染 team-task-* event 未实证）
-      // CHANGELOG_165 修法: 加 `args.team_id` 第二守卫 (truthy check 也覆盖 null/undefined),
+      // CHANGELOG_165 修法: 加 `args.teamId` 第二守卫 (truthy check 也覆盖 null/undefined),
       // personal task skip ingest — kind 名 `team-task-created` 与 personal task 语义不符,
       // 且 v024 plan 把 personal task 升为 first-class default 后这条 event 在 ActivityFeed /
       // TeamDetail EventsSection 里全是噪声(尤其 task_create 比 task_update 触发频繁,泛滥更严重)。
       // eventBus.emit('task-changed') 不受影响仍发,UI TasksSection / task_list 实时性不丢。
-      if (ctx.caller.transport === 'in-process' && args.team_id) {
-        // v024 plan Round 1 MED-2 + Round 3 MED-3 修法:teamName 取自 args.team_id lookup
-        //（不走 getCallerFirstTeamName 避免多 team caller 显式 team_id=B 但 first active team=A
-        // 漂移到 A）。守卫保证 args.team_id 必非空,直接 lookup。
+      if (ctx.caller.transport === 'in-process' && args.teamId) {
+        // v024 plan Round 1 MED-2 + Round 3 MED-3 修法:teamName 取自 args.teamId lookup
+        //（不走 getCallerFirstTeamName 避免多 team caller 显式 teamId=B 但 first active team=A
+        // 漂移到 A）。守卫保证 args.teamId 必非空,直接 lookup。
         // 实际接口 agentDeckTeamRepo.get(teamId)?.name（Round 3 MED-3:`findById` 不存在）。
-        const teamName = agentDeckTeamRepo.get(args.team_id)?.name ?? null;
+        const teamName = agentDeckTeamRepo.get(args.teamId)?.name ?? null;
         sessionManager.ingest({
           sessionId: callerSid,
           agentId: AGENT_ID,

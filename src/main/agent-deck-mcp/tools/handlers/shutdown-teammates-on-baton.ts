@@ -7,7 +7,7 @@
  * teammate 还在跑（占内存 + SDK live query），用户得手动一个个 shutdown_session。
  *
  * 本 helper 把「caller 是 lead 的所有 team 内其他 active member」一并 sessionManager.close
- * 收口。caller 是 teammate 时 baton 不牵连他人（罕见 case：teammate 自己 hand_off）。
+ * 收口。caller 是 teammate 时 baton 不牵连他人（罕见 case：teammate 自己 handOff）。
  *
  * **复用现有**：sessionManager.close 内部已自动跑 leaveTeamsAndAutoArchive（让 sid 离开
  * 所有 team + 0-lead team 联动 archive）+ adapter close（abort SDK live query）+ setLifecycle
@@ -22,7 +22,7 @@
  *
  * **plan hand-off-session-adopt-teammates-20260520 Phase 3 简化** (D2 + N4):
  * 删除 baton-cleanup teammate-shutdown opt-out 字段。本 helper 永远跑(caller 不再有
- * 短路途径)。Phase 4 引入 hand_off_session adopt_teammates: true 时走独立 phase 1.5
+ * 短路途径)。Phase 4 引入 hand_off_session adoptTeammates: true 时走独立 phase 1.5
  * adopt 路径,baton-cleanup helper 用 adoptTeammates: true 跳过本 helper 标
  * skipped='adopt-keep-implicit'(详 baton-cleanup.ts jsdoc)。
  */
@@ -43,7 +43,7 @@ export interface ShutdownTeammatesResult {
    *   某 team(s) 的 lead 但所有相关 team 都已 archived → UX 精度区分(原 'caller-not-lead'
    *   覆盖此场景 misleading,caller 看到 "你不是 lead" 但其实只是 team archived)
    * - 'adopt-keep-implicit': plan hand-off-session-adopt-teammates-20260520 Phase 4 引入,
-   *   hand_off_session adopt_teammates: true 时 baton-cleanup helper 跳过本 helper(由
+   *   hand_off_session adoptTeammates: true 时 baton-cleanup helper 跳过本 helper(由
    *   handler 层 baton-cleanup 入参 adoptTeammates: true 标定)— Phase 3 完成时仅类型预留
    *   不会出现
    * - 'phase-1-error': **REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3)**: caller layer
@@ -52,7 +52,7 @@ export interface ShutdownTeammatesResult {
    *   区分,便于 UX 与监控分辨「helper 真错」vs「正常无 teammate」。注意本 helper 自身**不会**
    *   返 'phase-1-error' (此值由 baton-cleanup.ts caller layer catch block 写入兜底 result)
    * - 'archive-caller-false-keep': **CHANGELOG_169 F4 修法**(reviewer-codex MED finding):
-   *   hand_off_session caller 显式传 archive_caller=false 时 phase 1 也跳过 shutdown
+   *   hand_off_session caller 显式传 archiveCaller=false 时 phase 1 也跳过 shutdown
    *   teammates(schema 文案承诺「caller 仍可看 reviewer reply」的隐含语义要求 teammates
    *   也保留 alive,不然 caller 看到的是已关闭的 reviewer)。**与 'adopt-keep-implicit' 区分**:
    *   adopt-keep-implicit 是新 session 接管 teammate 当 lead;archive-caller-false-keep 是
@@ -83,7 +83,7 @@ export interface ShutdownTeammatesDeps {
   getTeam?: (teamId: string) => { archivedAt: number | null } | null;
   /**
    * REVIEW_36 R2 HIGH-A：caller 端可显式排除某些 sessionId 不被 shutdown。
-   * 典型场景：hand_off_session(team_name=x) 显式 spawn 新 session 后立即调本 helper —
+   * 典型场景：hand_off_session(teamName=x) 显式 spawn 新 session 后立即调本 helper —
    * 新 session 已被 spawn handler 加为 teammate（spawn.ts:310-317），如果不排除 → helper
    * 把刚交出 baton 的新 session 也关掉（fix-to-fix bug）。
    *

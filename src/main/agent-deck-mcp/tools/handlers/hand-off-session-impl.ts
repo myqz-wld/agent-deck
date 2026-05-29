@@ -14,16 +14,16 @@
  *
  * **plan-driven 模式**(input.planId 传):
  * 1. 解析 plan 文件路径：显式 planFilePathOverride > caller cwd 反查 main-repo →
- *    `<main-repo>/.claude/plans/<plan_id>.md` > `<main-repo>/ref/plans/<plan_id>.md` > `~/.claude/plans/<plan_id>.md`
- * 2. 读 plan + parseFrontmatter，校验 frontmatter 含 `worktree_path`
+ *    `<main-repo>/.claude/plans/<planId>.md` > `<main-repo>/ref/plans/<planId>.md` > `~/.claude/plans/<planId>.md`
+ * 2. 读 plan + parseFrontmatter，校验 frontmatter 含 `worktreePath`
  * 3. 校验 plan status === 'in_progress'（拒 completed / abandoned / 缺 status）
  * 4. mainRepo 启发式 fallback(caller cwd 反查失败时从 worktreePath 反推)
- * 5. 构造 cold-start prompt：基础形式 `按 <plan-abs-path> 接力`；含 phase_label 时附
+ * 5. 构造 cold-start prompt：基础形式 `按 <plan-abs-path> 接力`；含 phaseLabel 时附
  *    `（Phase: <label>）` 后缀
  * 6. 返回 resolved 上下文 mode='plan'
  *
  * **generic 模式**(input.planId 不传,CHANGELOG_99):
- * 1. 不读 plan 文件 / 不要 worktree_path
+ * 1. 不读 plan 文件 / 不要 worktreePath
  * 2. coldStartPrompt = input.prompt ?? '从上一个会话接力继续工作'
  * 3. planFilePath / worktreePath / baseBranch 全 null
  * 4. mainRepo 仍是 caller cwd 反查的结果(没 worktreePath 启发式 fallback)
@@ -64,7 +64,7 @@ export interface HandOffSessionInput {
    * generic 模式不传 → 用 DEFAULT_GENERIC_COLD_START_PROMPT。
    */
   prompt?: string;
-  /** 可选 phase_label，含值时附 prompt 后缀 `（Phase: <label>）`。**仅 plan-driven 模式有效**(CHANGELOG_99) */
+  /** 可选 phaseLabel，含值时附 prompt 后缀 `（Phase: <label>）`。**仅 plan-driven 模式有效**(CHANGELOG_99) */
   phaseLabel?: string;
   /** 显式 plan 文件路径，覆盖 fallback。**仅 plan-driven 模式有效**(CHANGELOG_99) */
   planFilePathOverride?: string;
@@ -72,18 +72,18 @@ export interface HandOffSessionInput {
 
 /**
  * impl 解析后返回的「准备好可以 spawn」上下文。handler 拿这个 + 用户传的
- * adapter/team_name/permission_mode/cwd_override 等组装 spawn_session args。
+ * adapter/teamName/permissionMode/cwd_override 等组装 spawn_session args。
  */
 export interface HandOffSessionResolved {
   /** CHANGELOG_99：'plan' = plan-driven 模式 / 'generic' = 通用 hand-off(无 plan 前提) */
   mode: 'plan' | 'generic';
   /** plan-driven 模式:实际命中的 plan 文件绝对路径。generic 模式:null */
   planFilePath: string | null;
-  /** plan-driven 模式:plan frontmatter 里的 worktree_path(绝对路径)。generic 模式:null */
+  /** plan-driven 模式:plan frontmatter 里的 worktreePath(绝对路径)。generic 模式:null */
   worktreePath: string | null;
   /** 构造好的 cold-start prompt(两种模式都有值;plan: 自动构造 / generic: input.prompt 或默认) */
   coldStartPrompt: string;
-  /** plan frontmatter 里的 base_branch(plan 模式;generic 模式:null) */
+  /** plan frontmatter 里的 baseBranch(plan 模式;generic 模式:null) */
   baseBranch: string | null;
   /**
    * caller cwd 反查 git common-dir 得到的 main repo 绝对路径，**handler 用作 K2 spawn 默认 cwd**
@@ -175,13 +175,13 @@ export async function handOffSessionImpl(
     mainRepo = null;
   }
 
-  // CHANGELOG_99:generic 模式分支(无 plan_id) — 早返回,不走 plan 文件解析路径
+  // CHANGELOG_99:generic 模式分支(无 planId) — 早返回,不走 plan 文件解析路径
   if (input.planId === undefined) {
     // generic 模式:caller 在此模式下传 phaseLabel / planFilePathOverride 是无效的(语义不通)
     // —— 不报错(handler 透传 ok),仅记录 ignoredFields 警告字段
     const ignoredFields: string[] = [];
-    if (input.phaseLabel !== undefined) ignoredFields.push('phase_label');
-    if (input.planFilePathOverride !== undefined) ignoredFields.push('plan_file_path');
+    if (input.phaseLabel !== undefined) ignoredFields.push('phaseLabel');
+    if (input.planFilePathOverride !== undefined) ignoredFields.push('planFilePath');
 
     return {
       mode: 'generic',
@@ -208,22 +208,22 @@ export async function handOffSessionImpl(
   if (input.planFilePathOverride) {
     if (!(await deps.exists(input.planFilePathOverride))) {
       return {
-        error: `plan_file_path override does not exist: ${input.planFilePathOverride}`,
+        error: `planFilePath override does not exist: ${input.planFilePathOverride}`,
       };
     }
     // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.11 修法 (B-MED-2 codex):
-    // plan_file_path 文件名 stem 必须等于 plan_id。否则 cold-start prompt `按 <plan-abs-path>
-    // 接力` 中的 abs-path 是 caller 给的 plan_file_path 文件,但新 SDK session 走 user CLAUDE.md
-    // §Step 3 cold-start 流程会从 frontmatter.worktree_path 自己 EnterWorktree,worktree 路径
-    // 与 plan_id 关联(本 plan worktree-deep-review-batch-a1-b-fixes-20260519,plan_id 派生)。
-    // stem != plan_id 时 caller 实际指向另一个 plan 的文件,新 session 路径混乱。impl 层
+    // planFilePath 文件名 stem 必须等于 planId。否则 cold-start prompt `按 <plan-abs-path>
+    // 接力` 中的 abs-path 是 caller 给的 planFilePath 文件,但新 SDK session 走 user CLAUDE.md
+    // §Step 3 cold-start 流程会从 frontmatter.worktreePath 自己 EnterWorktree,worktree 路径
+    // 与 planId 关联(本 plan worktree-deep-review-batch-a1-b-fixes-20260519,planId 派生)。
+    // stem != planId 时 caller 实际指向另一个 plan 的文件,新 session 路径混乱。impl 层
     // 校验给清晰 hint(schema 是 record shape 不支持 cross-field refine,故落 impl 与
     // archive-plan-impl L386-392 同款治法)。
     const overrideStem = path.basename(input.planFilePathOverride, '.md');
     if (overrideStem !== planId) {
       return {
-        error: `plan_file_path stem "${overrideStem}" does not match plan_id "${planId}"`,
-        hint: `worktree_path / plan-driven cold-start prompt are derived from plan_id. Mismatched stem would lead the new SDK session to the wrong plan. Either rename plan_file_path to "${planId}.md" or change plan_id to "${overrideStem}". 修法 plan §Phase 3 Step 3.11 (B-MED-2 codex)。`,
+        error: `planFilePath stem "${overrideStem}" does not match planId "${planId}"`,
+        hint: `worktreePath / plan-driven cold-start prompt are derived from planId. Mismatched stem would lead the new SDK session to the wrong plan. Either rename planFilePath to "${planId}.md" or change planId to "${overrideStem}". 修法 plan §Phase 3 Step 3.11 (B-MED-2 codex)。`,
       };
     }
     planFilePath = input.planFilePathOverride;
@@ -249,21 +249,21 @@ export async function handOffSessionImpl(
   if (Object.keys(fm).length === 0) {
     return {
       error: `plan file has no parseable frontmatter: ${planFilePath}`,
-      hint: 'plan file must start with `---\\n<key>: <value>\\n---\\n` block (e.g. `worktree_path: /...` and `status: in_progress`).',
+      hint: 'plan file must start with `---\\n<key>: <value>\\n---\\n` block (e.g. `worktreePath: /...` and `status: in_progress`).',
     };
   }
 
-  // 3. 校验 worktree_path 字段
-  const worktreePath = fm.worktree_path;
+  // 3. 校验 worktreePath 字段
+  const worktreePath = fm.worktreePath;
   if (!worktreePath || worktreePath.length === 0) {
     return {
-      error: `plan frontmatter missing required field: worktree_path`,
-      hint: `hand_off_session (plan-driven mode) needs worktree_path to set cwd for the new SDK session. Edit ${planFilePath} frontmatter to include \`worktree_path: <abs-path>\`.`,
+      error: `plan frontmatter missing required field: worktreePath`,
+      hint: `hand_off_session (plan-driven mode) needs worktreePath to set cwd for the new SDK session. Edit ${planFilePath} frontmatter to include \`worktreePath: <abs-path>\`.`,
     };
   }
   if (!path.isAbsolute(worktreePath)) {
     return {
-      error: `plan frontmatter worktree_path must be absolute: ${worktreePath}`,
+      error: `plan frontmatter worktreePath must be absolute: ${worktreePath}`,
     };
   }
   // REVIEW_33 H10 + **REVIEW_56 Batch B R1 LOW-1 (reviewer-codex) 修订**:
@@ -273,7 +273,7 @@ export async function handOffSessionImpl(
   //   — 与 hand-off-session.ts:291-303 cwd resilience 注释 + tools/index.ts:249-251 tool
   //   description "new session expected to run EnterWorktree(path:) itself" 冲突。
   //
-  // **修后**(plan-mode + cwd=mainRepo 时放宽): plan-driven hand_off 默认 cwd 已改 mainRepo,
+  // **修后**(plan-mode + cwd=mainRepo 时放宽): plan-driven handOff 默认 cwd 已改 mainRepo,
   // cold-start 协议要求新 session 读 plan 后,worktree 不存在则调 enter_worktree 创建 → 此场景
   // 应放宽为 warning metadata 让 cold-start 负责;外置 worktree (不在 mainRepo subtree 内) 或
   // caller 显式 cwd=worktreePath 时仍保留 hard reject (cwd 直接进入失效目录无法恢复)。
@@ -325,7 +325,7 @@ export async function handOffSessionImpl(
   }
 
   // 6. 构造 cold-start prompt
-  const baseBranch = fm.base_branch ?? null;
+  const baseBranch = fm.baseBranch ?? null;
   const baseLine = `按 ${planFilePath} 接力`;
   const coldStartPrompt = input.phaseLabel
     ? `${baseLine}（Phase: ${input.phaseLabel}）`

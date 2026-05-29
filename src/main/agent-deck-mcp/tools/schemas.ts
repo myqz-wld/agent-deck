@@ -6,11 +6,12 @@
  * deep-review-and-split-20260513 H2 Step 2.1）。
  *
  * CHANGELOG_100 / plan mcp-tool-simplify-20260514：协议大简化删除旧 reply
- * 轮询三件套 schema。所有发送统一走 send_message + reply_to_message_id；
+ * 轮询三件套 schema。所有发送统一走 send_message + replyToMessageId；
  * reply 直接进 lead conversation flow（无需主动 poll）。
  *
- * 字段命名约定：tool args **snake_case**（与 task-manager 既有约定一致），
- * handler 内部消费时再映射 camelCase（不在 schema 层映射，避免 zod 推导出错）。
+ * 字段命名约定：tool args **camelCase**（plan mcp-tool-camelcase-migration-20260529
+ * 改造，从 snake_case → camelCase 入参出参对齐）；handler 内部直接消费 args.<camelCase>
+ * 不再手工映射。
  *
  * **CHANGELOG_169 F1 §保护清单（不动文件 / file-size-guardrail.md SOP §3）**：
  * 本文件 1215 LOC（>500 行护栏）但故意不拆,理由:
@@ -54,7 +55,7 @@ export const SPAWN_SESSION_SCHEMA = {
       'Must be absolute path',
     ),
   prompt: z.string().min(1).max(100_000),
-  team_name: z.string().min(1).max(128).optional(),
+  teamName: z.string().min(1).max(128).optional(),
   /**
    * 可选 plugin agent body 自动注入（CHANGELOG_76 / plan deep-review-flow-fix D1）：
    * 非空时 in-process / HTTP / stdio handler 都会按 plugin agents registry 找 body file
@@ -63,11 +64,11 @@ export const SPAWN_SESSION_SCHEMA = {
    * 找不到 / 不是合法 plugin agent name → spawn_session 直接返回 err（避免静默落空 fallback）。
    * 仅 claude-code adapter 有意义；其他 adapter 也允许传但行为相同（adapter 自己决定怎么用）。
    */
-  agent_name: z
+  agentName: z
     .string()
     .min(1)
     .max(128)
-    .regex(/^[a-zA-Z0-9._-]+$/, 'agent_name only allows [a-zA-Z0-9._-]')
+    .regex(/^[a-zA-Z0-9._-]+$/, 'agentName only allows [a-zA-Z0-9._-]')
     .optional()
     .describe(
       'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the agent body is auto-prepended to `prompt` from bundled-assets registry, so callers do not need to cat & embed the body themselves. Errors when name does not resolve to a known plugin agent. **Frontmatter `model` field auto-extracted and forwarded to SDK** (effective on both adapters — claude-code: SDK options.model; codex-cli: ThreadOptions.model via codex-sdk v0.131.0+ per-thread override; frontmatter `model` 未设时 codex 端 fallback 到 user `~/.codex/config.toml` 顶层 model 配置).',
@@ -75,29 +76,29 @@ export const SPAWN_SESSION_SCHEMA = {
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。
    * UI 列表 / SessionCard / TeamDetail / wire format wireBody 全走 displayName 优先级链
-   * （argument > agent_name > 默认 cwd-basename）—— 解决"多 reviewer 都显示同一个 cwd 区分不出"的体验问题。
+   * （argument > agentName > 默认 cwd-basename）—— 解决"多 reviewer 都显示同一个 cwd 区分不出"的体验问题。
    */
-  display_name: z
+  displayName: z
     .string()
     .min(1)
     .max(80)
     .optional()
     .describe(
-      'Optional human-readable display name for the spawned session (e.g. "reviewer-claude · batch A", "patch-coder"). When omitted, falls back to agent_name (if set), otherwise cwd-basename. Becomes session.title (visible in SessionList / TeamDetail) and team_member.display_name (visible in wire format prefix).',
+      'Optional human-readable display name for the spawned session (e.g. "reviewer-claude · batch A", "patch-coder"). When omitted, falls back to agentName (if set), otherwise cwd-basename. Becomes session.title (visible in SessionList / TeamDetail) and team_member.displayName (visible in wire format prefix).',
     ),
-  permission_mode: z
+  permissionMode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional()
     .describe(
-      'REVIEW_32 HIGH-5: 不传时从 lead session（caller_session_id 对应 row）继承；caller 显式传则覆盖。external caller (caller 不在 sessions 表) 不继承，沿用 adapter 默认。',
+      'REVIEW_32 HIGH-5: 不传时从 lead session（callerSessionId 对应 row）继承；caller 显式传则覆盖。external caller (caller 不在 sessions 表) 不继承，沿用 adapter 默认。',
     ),
-  codex_sandbox: z
+  codexSandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      'REVIEW_32 HIGH-5: 不传时从 lead 继承；caller 显式传覆盖。**P5 Round 1 reviewer-codex M3 修法 (clarify 契约边界)**：reviewer-* teammate spawn 路径 (agent_name="reviewer-claude" / "reviewer-codex") 由 options-builder 强制 spread "workspace-write" (plan §不变量 6 — reviewer body 内 Bash/shell 工具需读源码 + 写中间文件)，caller 显式传 codex_sandbox 会被 reviewer-* unsafe default override + 主进程 console.warn 提示。如需严格 read-only 给 reviewer，目前不支持 — reviewer body 设计依赖 workspace-write。',
+      'REVIEW_32 HIGH-5: 不传时从 lead 继承；caller 显式传覆盖。**P5 Round 1 reviewer-codex M3 修法 (clarify 契约边界)**：reviewer-* teammate spawn 路径 (agentName="reviewer-claude" / "reviewer-codex") 由 options-builder 强制 spread "workspace-write" (plan §不变量 6 — reviewer body 内 Bash/shell 工具需读源码 + 写中间文件)，caller 显式传 codexSandbox 会被 reviewer-* unsafe default override + 主进程 console.warn 提示。如需严格 read-only 给 reviewer，目前不支持 — reviewer body 设计依赖 workspace-write。',
     ),
-  claude_code_sandbox: z
+  claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
@@ -109,14 +110,14 @@ export const SPAWN_SESSION_SCHEMA = {
    * 文件（user CLAUDE.md §Step 4 plan 完成时更新 frontmatter status=completed 必须写）。
    * 直接调 spawn_session 时一般不传（lead 继承已覆盖大多数场景）。
    */
-  extra_allow_write: z
+  extraAllowWrite: z
     .array(z.string().min(1).max(4096))
     .max(16)
     .optional()
     .describe(
       'REVIEW_36 R2 HIGH-B + MED-C: claude-code adapter 沙盒额外 writable roots（仅 workspace-write 档生效；strict / off 忽略）。每个绝对路径加进 sandbox.allowWrite 让 SDK 子进程能写。典型：hand_off_session 外置 worktree → 传 [mainRepo] 让 plan 文件路径不被 sandbox 拦。',
     ),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -124,12 +125,12 @@ export const SPAWN_SESSION_SCHEMA = {
     .describe(
       'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
     ),
-  parent_session_id: z.string().min(1).max(128).optional(),
+  parentSessionId: z.string().min(1).max(128).optional(),
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
   // hand_off_session handler 装配后透传给本 spawn handler,后者透传给 buildCreateSessionOptions
   // → adapter narrow → bridge createSession → finalize / thread-loop / resume emit first user
   // message 时 spread 进 events.payload。详 HandOffMetadata jsdoc + plan §不变量 5。
-  hand_off: z
+  handOff: z
     .object({
       mode: z.enum(['plan', 'generic']),
       planId: z.string().nullable(),
@@ -144,9 +145,9 @@ export const SPAWN_SESSION_SCHEMA = {
 };
 
 export const SEND_MESSAGE_SCHEMA = {
-  session_id: z.string().min(1).max(128),
+  sessionId: z.string().min(1).max(128),
   text: z.string().min(1).max(100_000),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -155,7 +156,7 @@ export const SEND_MESSAGE_SCHEMA = {
       'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
     ),
   // R3.E0 ADR §5.2 amend：multi-team 共享时必填，单 team 共享时可省（自动 resolve）
-  team_id: z
+  teamId: z
     .string()
     .min(1)
     .max(128)
@@ -164,18 +165,18 @@ export const SEND_MESSAGE_SCHEMA = {
       'Team scope for this message. Required when caller and target share more than one active team; optional when sharing exactly one (auto-resolved). Reject when sharing zero teams.',
     ),
   // plan team-cohesion-fix-20260513 Phase B Step B2：可选对话链关联
-  reply_to_message_id: z
+  replyToMessageId: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(
-      'Optional: link this message into an existing reply chain (the chain is recorded in DB; lead/teammate will see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Use this when answering a specific message you received; omit when starting a new topic. Per-team scope: original.teamId must match the resolved team_id (cross-team chain rejected).',
+      'Optional: link this message into an existing reply chain (the chain is recorded in DB; lead/teammate will see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Use this when answering a specific message you received; omit when starting a new topic. Per-team scope: original.teamId must match the resolved teamId (cross-team chain rejected).',
     ),
 };
 
 export const LIST_SESSIONS_SCHEMA = {
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -183,11 +184,11 @@ export const LIST_SESSIONS_SCHEMA = {
     .describe(
       'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
     ),
-  status_filter: z.enum(['active', 'dormant', 'closed', 'all']).default('active'),
-  adapter_filter: z
+  statusFilter: z.enum(['active', 'dormant', 'closed', 'all']).default('active'),
+  adapterFilter: z
     .enum(['claude-code', 'codex-cli'])
     .optional(),
-  spawned_by_filter: z
+  spawnedByFilter: z
     .string()
     .min(1)
     .max(128)
@@ -199,7 +200,7 @@ export const LIST_SESSIONS_SCHEMA = {
 };
 
 export const GET_SESSION_SCHEMA = {
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -207,12 +208,12 @@ export const GET_SESSION_SCHEMA = {
     .describe(
       'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
     ),
-  session_id: z.string().min(1).max(128),
+  sessionId: z.string().min(1).max(128),
 };
 
 export const SHUTDOWN_SESSION_SCHEMA = {
-  session_id: z.string().min(1).max(128),
-  caller_session_id: z
+  sessionId: z.string().min(1).max(128),
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -235,49 +236,49 @@ export const SHUTDOWN_SESSION_SCHEMA = {
 //   strict 模式让 unknown keys (如已废弃的 opt-out 字段) 在 parse 时直接 throw
 //   `unrecognized_keys` 既挡 caller 从外部传旧字段误以为生效,也作为 schema breaking change 守门。
 export const ARCHIVE_PLAN_SHAPE = {
-  plan_id: z
+  planId: z
     .string()
     .min(1)
     .max(128)
-    .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .regex(/^[A-Za-z0-9._-]+$/, 'planId only allows [A-Za-z0-9._-]')
     .describe(
       'Plan id (matches plan file stem and worktree dir name). Used to derive plan file path and commit message. Charset matches EnterWorktree restriction.',
     ),
-  worktree_path: z
+  worktreePath: z
     .string()
     .min(1)
     .max(4096)
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .describe(
-      'Absolute path to the plan worktree (e.g. /Users/apple/Repository/foo/.claude/worktrees/<plan_id>). Caller (mcp tool) must have already ExitWorktree-d before calling — handler refuses if process.cwd() is inside this path.',
+      'Absolute path to the plan worktree (e.g. /Users/apple/Repository/foo/.claude/worktrees/<planId>). Caller (mcp tool) must have already ExitWorktree-d before calling — handler refuses if process.cwd() is inside this path.',
     ),
-  base_branch: z
+  baseBranch: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(
-      'REVIEW_36 R2 user feedback 修法：caller 不传时优先读 plan frontmatter.base_branch（plan 创建时记录切 worktree 时所在的原分支，feature branch 上开 plan 就是 feature branch 名），frontmatter 也没设 base_branch 字段时 fallback "main"。**强烈建议在 plan frontmatter 显式写 base_branch**，避免 ff-merge 错合到 main 污染主线（feature branch 上跑 plan 但合到 main = worktree 改动从 feature branch 跳过去合主线）。Caller 显式传此参数始终覆盖 frontmatter。',
+      'REVIEW_36 R2 user feedback 修法：caller 不传时优先读 plan frontmatter.baseBranch（plan 创建时记录切 worktree 时所在的原分支，feature branch 上开 plan 就是 feature branch 名），frontmatter 也没设 baseBranch 字段时 fallback "main"。**强烈建议在 plan frontmatter 显式写 baseBranch**，避免 ff-merge 错合到 main 污染主线（feature branch 上跑 plan 但合到 main = worktree 改动从 feature branch 跳过去合主线）。Caller 显式传此参数始终覆盖 frontmatter。',
     ),
-  plan_file_path: z
+  planFilePath: z
     .string()
     .min(1)
     .max(4096)
     .optional()
     .describe(
-      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then <main-repo>/ref/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md. **stem 约束**(impl-level refine,follow-up 20260515): plan_file_path 文件名 stem(去 .md 后缀)必须等于 plan_id — 否则 archive_plan reject(防 archived path / INDEX key 派生与 caller 给的文件 stem 脱节导致 silent unlink 风险)。',
+      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<planId>.md, then <main-repo>/ref/plans/<planId>.md, then ~/.claude/plans/<planId>.md. **stem 约束**(impl-level refine,follow-up 20260515): planFilePath 文件名 stem(去 .md 后缀)必须等于 planId — 否则 archive_plan reject(防 archived path / INDEX key 派生与 caller 给的文件 stem 脱节导致 silent unlink 风险)。',
     ),
-  changelog_id: z
+  changelogId: z
     .string()
     .regex(
       /^\s*\d+(\s*,\s*\d+)*\s*$/,
-      'changelog_id must be a digit (e.g. "122") or comma-separated digits (e.g. "121,122" / "121, 122") matching CHANGELOG_X.md naming; whitespace around digits/commas allowed',
+      'changelogId must be a digit (e.g. "122") or comma-separated digits (e.g. "121,122" / "121, 122") matching CHANGELOG_X.md naming; whitespace around digits/commas allowed',
     )
     .optional()
     .describe(
       'Optional changelog reference(s) for ref/plans/INDEX.md smart update (followup 20260515 (b)+(c))。caller 在 archive_plan 之前已经写完 CHANGELOG_X.md 并 commit,此处显式传 X 数字(如 "122")或多个逗号分隔(如 "121,122" 或 "121, 122" — R1 fix MED-3 放松 regex 容空格,与 helper trim 行为对齐)。impl 拼成 markdown link `[X](../changelogs/CHANGELOG_X.md)` 写入 INDEX 第 3 列「关联 changelog」。**caller 不传时**:smart update existing 4-列 row 保留原 changelog 列;旧 2 列 row 或新 append 行用 `—` placeholder(不强制清空已有,避免数据丢失)。',
     ),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -288,7 +289,7 @@ export const ARCHIVE_PLAN_SHAPE = {
   // plan hand-off-session-adopt-teammates-20260520 Phase 3：删除 baton-cleanup
   // teammate-shutdown 的 opt-out 字段 (D2 + N4 hard gate 1)。default baton-cleanup phase 1
   // 仍 shutdown caller=lead 同 team 其他 active teammate;adopt 路径走 hand_off_session
-  // 的 adopt_teammates: true(详 plan Phase 4)显式接管 teammate。archive_plan 不再支持
+  // 的 adoptTeammates: true(详 plan Phase 4)显式接管 teammate。archive_plan 不再支持
   // opt-out,简化语义。
 };
 
@@ -298,17 +299,17 @@ export const ARCHIVE_PLAN_SHAPE = {
 // （CHANGELOG_99 起的当前 K2 hand-off 自动化入口）
 // K2 hand-off 自动化「跨会话接力」起新 SDK session（CHANGELOG_99 双模式 spawn_session 包装）。
 // 双模式行为:
-//   plan-driven 模式 (传 plan_id):读 plan 文件 frontmatter 拿 worktree_path → 校验
+//   plan-driven 模式 (传 planId):读 plan 文件 frontmatter 拿 worktreePath → 校验
 //     status=in_progress → 调 spawn_session 起新 SDK session（cwd=mainRepo 默认 / 初始
-//     prompt = "按 <plan-abs-path> 接力"，含可选 phase_label 后缀）
-//   generic 模式 (不传 plan_id):无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller
+//     prompt = "按 <plan-abs-path> 接力"，含可选 phaseLabel 后缀）
+//   generic 模式 (不传 planId):无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller
 //     cwd（让任意会话都能 baton 交给一个新 session）。CHANGELOG_97 baton 语义:default
-//     不加 team（caller 显式传 team_name 才启用 lead/teammate 关系）+ default 自动归档 caller。
+//     不加 team（caller 显式传 teamName 才启用 lead/teammate 关系）+ default 自动归档 caller。
 // plan handoff-no-spawn-guards-20260526 §D4/§D6:spawn 路径 handOffMode=true(原 batonMode 升级)
 // 完全跳过 spawn-guards 三道防御(depth + fan-out + spawn-rate) + 永不写 spawn-link,
-// 无论 archive_caller 值。hand-off 是平级接力,power-user 自负责任 — 故意推翻 REVIEW_46/47
-// 「archive_caller=false 退化 normal spawn」分流(详 spawn-guards.ts + spawn-link-guard.ts)。
-// CHANGELOG_99 cwd 失效根治：default cwd 改为 mainRepo（不再是 worktree_path）让新 session
+// 无论 archiveCaller 值。hand-off 是平级接力,power-user 自负责任 — 故意推翻 REVIEW_46/47
+// 「archiveCaller=false 退化 normal spawn」分流(详 spawn-guards.ts + spawn-link-guard.ts)。
+// CHANGELOG_99 cwd 失效根治：default cwd 改为 mainRepo（不再是 worktreePath）让新 session
 // 行为与 EnterWorktree 模式对齐，避免 archive_plan / git worktree remove 删 worktree 后
 // sessionRepo.cwd 失效弯绕。新 session 按 user CLAUDE.md §Step 3 cold-start 流程自己
 // EnterWorktree(path: worktreePath) 进 worktree 干活。
@@ -324,7 +325,7 @@ export const ARCHIVE_PLAN_SHAPE = {
 // - `HAND_OFF_SESSION_SHAPE` (ZodRawShape) 给 `tool()` 注册 + 三 transport 的现有接口用
 // - `HAND_OFF_SESSION_ARGS_SCHEMA = z.object(SHAPE).strict()` 给 handler / type / test 用,
 //   strict 模式让 unknown keys (如已废弃的 opt-out 字段) 在 parse 时直接 throw `unrecognized_keys`
-// - N2.c invariant (adopt_teammates: true 与 args.team_name 互斥) 在 Phase 4 加 .refine()
+// - N2.c invariant (adoptTeammates: true 与 args.teamName 互斥) 在 Phase 4 加 .refine()
 //
 // **HAND_OFF_SESSION_CWD_CONTRACT** (prompt-asset-review-optimize-20260527 MED-R2-1 修法 — 抽 callout 减 cwd describe 膨胀):
 // hand_off_session.cwd 字段语义详细文案抽到此 callout,字段 describe 只保留 3 件事(override
@@ -334,27 +335,27 @@ export const ARCHIVE_PLAN_SHAPE = {
 //   §选项 A (新 session 走 builtin `EnterWorktree(path: worktreePath)` 自己进 worktree)
 // - **codex 端 cold-start 协议**:`resources/codex-config/CODEX_AGENTS.md` §plan cold-start protocol
 //   (codex 端 5 步) (codex 无 native EnterWorktree,走 `shell: cat plan` + 从 frontmatter 拿
-//   worktree_path 后用绝对路径 `git -C <worktree_path> ...` 推进,worktree 不存在时调
-//   `mcp__agent-deck__enter_worktree({plan_id, base_commit})` 创建)
-// - **cwd resilience 设计**:CHANGELOG_99 — default cwd 改为 mainRepo(原 worktree_path)让
+//   worktreePath 后用绝对路径 `git -C <worktreePath> ...` 推进,worktree 不存在时调
+//   `mcp__agent-deck__enter_worktree({planId, baseCommit})` 创建)
+// - **cwd resilience 设计**:CHANGELOG_99 — default cwd 改为 mainRepo(原 worktreePath)让
 //   sessionRepo.cwd 在 worktree 被 `archive_plan` / `git worktree remove` 删后仍 valid
 // - **external worktree 降级**:REVIEW_36 R2 HIGH-3 — 约定 worktree (在 mainRepo subtree 内)
 //   走 mainRepo 享 cwd resilience;外置 worktree (如 /tmp/wt) 自动降级走 worktreePath +
-//   handler 自动加 mainRepo 进 extra_allow_write 让 plan 文件可写
+//   handler 自动加 mainRepo 进 extraAllowWrite 让 plan 文件可写
 export const HAND_OFF_SESSION_SHAPE = {
-  // CHANGELOG_99 双模式改造:plan_id 变 optional。
-  // - 传 plan_id → plan-driven 模式（现有行为）：读 plan 文件 + 校验 frontmatter status=in_progress
+  // CHANGELOG_99 双模式改造:planId 变 optional。
+  // - 传 planId → plan-driven 模式（现有行为）：读 plan 文件 + 校验 frontmatter status=in_progress
   //   + 自动构造 cold-start prompt = `按 <plan-abs-path> 接力`
-  // - 不传 plan_id → generic 模式：无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller cwd
+  // - 不传 planId → generic 模式：无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller cwd
   //   （让任意会话都能 baton 交给一个新 session,不强制 plan-driven workflow 前提）
-  plan_id: z
+  planId: z
     .string()
     .min(1)
     .max(128)
-    .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .regex(/^[A-Za-z0-9._-]+$/, 'planId only allows [A-Za-z0-9._-]')
     .optional()
     .describe(
-      'Plan id (matches plan file stem and worktree dir name). **Optional (CHANGELOG_99 dual-mode)**: when set → plan-driven mode (read frontmatter, validate status=in_progress, auto-construct cold-start prompt "按 <plan-abs-path> 接力"). When omitted → generic mode (caller must pass `prompt`; default cwd = caller cwd; phase_label/plan_file_path ignored). Charset matches EnterWorktree restriction.',
+      'Plan id (matches plan file stem and worktree dir name). **Optional (CHANGELOG_99 dual-mode)**: when set → plan-driven mode (read frontmatter, validate status=in_progress, auto-construct cold-start prompt "按 <plan-abs-path> 接力"). When omitted → generic mode (caller must pass `prompt`; default cwd = caller cwd; phaseLabel/planFilePath ignored). Charset matches EnterWorktree restriction.',
     ),
   prompt: z
     .string()
@@ -362,9 +363,9 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(100_000)
     .optional()
     .describe(
-      'Cold-start prompt for the new SDK session. **Plan-driven mode (plan_id set)**: ignored — auto-constructed as `按 <plan-abs-path> 接力（Phase: <phase_label>?）`. **Generic mode (no plan_id)**: optional but recommended — defaults to `从上一个会话接力继续工作` if omitted. Use this to give the new session enough context (typical: a paragraph summarizing current work + what to do next).',
+      'Cold-start prompt for the new SDK session. **Plan-driven mode (planId set)**: ignored — auto-constructed as `按 <plan-abs-path> 接力（Phase: <phaseLabel>?）`. **Generic mode (no planId)**: optional but recommended — defaults to `从上一个会话接力继续工作` if omitted. Use this to give the new session enough context (typical: a paragraph summarizing current work + what to do next).',
     ),
-  phase_label: z
+  phaseLabel: z
     .string()
     .min(1)
     .max(80)
@@ -382,7 +383,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     )
     .optional()
     .describe(
-      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience). **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing. **External worktree auto-降级**: 约定 worktree 走 mainRepo,外置 worktree 自动降级走 worktreePath + handler 加 mainRepo 进 extra_allow_write。Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath。**Cold-start protocol 详 HAND_OFF_SESSION_CWD_CONTRACT callout (schemas.ts 顶部) + resources/claude-config/CLAUDE.md §Step 3 §选项 A (claude 端) / resources/codex-config/CODEX_AGENTS.md §plan cold-start protocol (codex 端)**',
+      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience). **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing. **External worktree auto-降级**: 约定 worktree 走 mainRepo,外置 worktree 自动降级走 worktreePath + handler 加 mainRepo 进 extraAllowWrite。Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath。**Cold-start protocol 详 HAND_OFF_SESSION_CWD_CONTRACT callout (schemas.ts 顶部) + resources/claude-config/CLAUDE.md §Step 3 §选项 A (claude 端) / resources/codex-config/CODEX_AGENTS.md §plan cold-start protocol (codex 端)**',
     ),
   adapter: z
     .enum(['claude-code', 'codex-cli'])
@@ -390,53 +391,53 @@ export const HAND_OFF_SESSION_SHAPE = {
     .describe(
       'Adapter for the new session. Defaults to "claude-code" (the canonical plan-driven workflow runs Claude Code). Set to "codex-cli" only when plan explicitly designates a different agent.',
     ),
-  team_name: z
+  teamName: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(
-      'Optional team_name. **Default: not set** (CHANGELOG_97 baton semantic — hand-off is a one-way baton transfer, the new session works independently and does NOT need a lead/teammate communication relationship with the caller). Pass a custom name only if you specifically want the caller to remain as lead and the new session to be a teammate (rare; use spawn_session if that is the primary intent).',
+      'Optional teamName. **Default: not set** (CHANGELOG_97 baton semantic — hand-off is a one-way baton transfer, the new session works independently and does NOT need a lead/teammate communication relationship with the caller). Pass a custom name only if you specifically want the caller to remain as lead and the new session to be a teammate (rare; use spawn_session if that is the primary intent).',
     ),
-  permission_mode: z
+  permissionMode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional()
     .describe(
-      'Permission mode for the new SDK session. When omitted, follows spawn_session defaults (caller_session_id lead inheritance > undefined / adapter default).',
+      'Permission mode for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / adapter default).',
     ),
-  codex_sandbox: z
+  codexSandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      'REVIEW_36 HIGH-2: codex-cli sandbox override for the new SDK session. When omitted, follows spawn_session defaults (caller_session_id lead inheritance > undefined / adapter default = "workspace-write"). Pass explicitly to override (e.g. baton from claude lead to codex-cli with stricter "read-only" for sensitive task). Mirrors spawn_session.codex_sandbox 1:1.',
+      'REVIEW_36 HIGH-2: codex-cli sandbox override for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / adapter default = "workspace-write"). Pass explicitly to override (e.g. baton from claude lead to codex-cli with stricter "read-only" for sensitive task). Mirrors spawn_session.codexSandbox 1:1.',
     ),
-  claude_code_sandbox: z
+  claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
-      'REVIEW_36 HIGH-2: claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults (caller_session_id lead inheritance > undefined / settings global). Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claude_code_sandbox 1:1.',
+      'REVIEW_36 HIGH-2: claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / settings global). Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claudeCodeSandbox 1:1.',
     ),
   /**
    * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
    * Plan-driven 模式下外置 worktree 场景**自动**加 mainRepo（让外置 session 能写 plan 文件），caller 显式
    * 传此字段会与自动计算的 mainRepo 合并去重。直接调 hand_off_session 时一般不传。
    */
-  extra_allow_write: z
+  extraAllowWrite: z
     .array(z.string().min(1).max(4096))
     .max(16)
     .optional()
     .describe(
       'REVIEW_36 R2 HIGH-B + MED-C: extra writable roots for the new SDK session sandbox (claude-code adapter + workspace-write only). Plan-driven mode + external worktree (worktree not in mainRepo subtree) **auto-adds** mainRepo to let the new session write plan files. Caller-supplied paths are merged with auto-computed mainRepo. Direct callers usually leave this unset.',
     ),
-  plan_file_path: z
+  planFilePath: z
     .string()
     .min(1)
     .max(4096)
     .optional()
     .describe(
-      'Override plan file path. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md (where main-repo is derived from cwd or plan frontmatter), then <main-repo>/ref/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md.',
+      'Override plan file path. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). When omitted, handler tries (in order): <main-repo>/.claude/plans/<planId>.md (where main-repo is derived from cwd or plan frontmatter), then <main-repo>/ref/plans/<planId>.md, then ~/.claude/plans/<planId>.md.',
     ),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -444,39 +445,39 @@ export const HAND_OFF_SESSION_SHAPE = {
     .describe(
       'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（hand_off_session 不允许 external caller）。',
     ),
-  parent_session_id: z.string().min(1).max(128).optional(),
+  parentSessionId: z.string().min(1).max(128).optional(),
   // plan hand-off-session-adopt-teammates-20260520 Phase 3：删除 baton-cleanup
   // teammate-shutdown 的 opt-out 字段 (D2 + N4 hard gate 1)。default baton-cleanup phase 1
-  // 仍 shutdown caller=lead 同 team 其他 active teammate;adopt 路径走 adopt_teammates: true
+  // 仍 shutdown caller=lead 同 team 其他 active teammate;adopt 路径走 adoptTeammates: true
   // (详 plan Phase 4)显式接管 teammate。hand_off_session 不再支持 opt-out,简化语义。
   // hand-off-mcp-archive-opt-20260515: caller archive 可选 opt-out。
-  archive_caller: z
+  archiveCaller: z
     .boolean()
     .optional()
     .describe(
-      'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archive_caller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。**CHANGELOG_169 F4 修法 (reviewer-codex MED finding)**:`archive_caller: false` 时 phase 1 也跳过 shutdown teammates(标 skipped="archive-caller-false-keep")— caller 仍 active 当 lead 时 teammates 也保留 alive,与「caller 仍可看 reviewer reply」语义一致。`archive_caller: false` 与其他 opt-out 字段(若未来新增)互相独立。',
+      'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archiveCaller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。**CHANGELOG_169 F4 修法 (reviewer-codex MED finding)**:`archiveCaller: false` 时 phase 1 也跳过 shutdown teammates(标 skipped="archive-caller-false-keep")— caller 仍 active 当 lead 时 teammates 也保留 alive,与「caller 仍可看 reviewer reply」语义一致。`archiveCaller: false` 与其他 opt-out 字段(若未来新增)互相独立。',
     ),
   // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D1 + D11 v8 + N2.b + N2.c):
   // baton 单向交接默认会让原 teammate 与新 session 失去共享 active team(send_message 撞
-  // no-shared-team)。adopt_teammates: true 让新 session 接管 caller 同 team 当 lead,与
+  // no-shared-team)。adoptTeammates: true 让新 session 接管 caller 同 team 当 lead,与
   // 保留 teammate 形成共享 active team。详 plan §D11 v8 (handler 自拼 buildAdoptedTeamsContextBlock)。
   //
-  // **N2.c invariant**: adopt_teammates: true 与 args.team_name 互斥(zod refine reject) —
-  // adopt 路径自动过继 caller 同 team,显式 team_name 通常表示 spawn 时让新 session 进
+  // **N2.c invariant**: adoptTeammates: true 与 args.teamName 互斥(zod refine reject) —
+  // adopt 路径自动过继 caller 同 team,显式 teamName 通常表示 spawn 时让新 session 进
   // 另一个 team(可能不在 caller 自己 team),与 adopt 语义冲突。互斥简化语义 + 消除
   // silent prompt 数据丢失 bug。
-  adopt_teammates: z
+  adoptTeammates: z
     .boolean()
     .optional()
     .describe(
-      'Default false (baton 默认行为)。**true 时**: caller 同 team 其他 active+dormant teammate **原地保留**(swapLead 把 lead role 从 caller 转给新 session,teammate 与新 session 共享 active team 可继续 send_message 沟通)。**仅当 caller 是 lead 的 team 走 adopt**(caller 是 teammate 的 team 跳过 + 进 failed.reason="caller-not-lead-in-team")。**N5 ≥1 lead 硬约束**: caller 在所有 team 都不是 lead(全 teammate / 无 active membership)→ handler spawn 之前 fail-fast 返 error,不 spawn / 不 archive caller。**N2.c 互斥**: 不可与 args.team_name 同传(zod refine reject — adopt 路径自动过继 caller 自己 team,与显式指定额外 team 语义冲突)。Detail 见 ok return.adopted 字段:{ preserved: string[], failed: Array<{sid,reason,teamId}>, teamsTotal: number, teamsAdopted: number, firstTeamId: string | null, adoptedTeamIds: string[] }。',
+      'Default false (baton 默认行为)。**true 时**: caller 同 team 其他 active+dormant teammate **原地保留**(swapLead 把 lead role 从 caller 转给新 session,teammate 与新 session 共享 active team 可继续 send_message 沟通)。**仅当 caller 是 lead 的 team 走 adopt**(caller 是 teammate 的 team 跳过 + 进 failed.reason="caller-not-lead-in-team")。**N5 ≥1 lead 硬约束**: caller 在所有 team 都不是 lead(全 teammate / 无 active membership)→ handler spawn 之前 fail-fast 返 error,不 spawn / 不 archive caller。**N2.c 互斥**: 不可与 args.teamName 同传(zod refine reject — adopt 路径自动过继 caller 自己 team,与显式指定额外 team 语义冲突)。Detail 见 ok return.adopted 字段:{ preserved: string[], failed: Array<{sid,reason,teamId}>, teamsTotal: number, teamsAdopted: number, firstTeamId: string | null, adoptedTeamIds: string[] }。',
     ),
-  // v024 plan task-team-id-restore-20260525 §D4:hand_off 跨 team task 过继策略
-  team_task_policy: z
+  // v024 plan task-team-id-restore-20260525 §D4:handOff 跨 team task 过继策略
+  teamTaskPolicy: z
     .enum(['clear-team', 'preserve-team', 'skip'])
     .optional()
     .describe(
-      "team_task_policy?: 'clear-team' (default) | 'preserve-team' | 'skip' — archive_caller=false 时 policy 不执行(taskReassignment.status='skipped' reason='archive-caller-false' policy advisory 透传)(详 convention docs §hand_off)",
+      "teamTaskPolicy?: 'clear-team' (default) | 'preserve-team' | 'skip' — archiveCaller=false 时 policy 不执行(taskReassignment.status='skipped' reason='archive-caller-false' policy advisory 透传)(详 convention docs §handOff)",
     ),
 };
 
@@ -486,57 +487,57 @@ export const HAND_OFF_SESSION_SHAPE = {
 // 路径(详 P1 Step 1.4 archive-plan-impl.ts 4 态分流)。
 //
 // 设计要点:
-// - enter_worktree 走 `git worktree add -b worktree-<plan_id> <worktree_path>` 显式 HEAD 作 base
+// - enter_worktree 走 `git worktree add -b worktree-<planId> <worktreePath>` 显式 HEAD 作 base
 //   (避开 claude builtin v2.1.112 stale base bug — 详 user CLAUDE.md §Step 1 末 callout)
 // - enter_worktree 成功后 setCwdReleaseMarker(callerSid, worktreePath) — 让 archive_plan
 //   预检识别「caller 显式持有该 worktree」放过(状态 2)
 // - exit_worktree 走 `git worktree remove` + `git branch -D` + clearCwdReleaseMarker(callerSid)
-// - 字段对称 archive_plan / hand_off_session 既有约定(snake_case args / 4096 max path / 128 max plan_id)
-// - deny external caller(写 git + setMarker 是 per-session 状态,需要真实 caller_session_id)
+// - 字段对称 archive_plan / hand_off_session 既有约定(camelCase args / 4096 max path / 128 max planId)
+// - deny external caller(写 git + setMarker 是 per-session 状态,需要真实 callerSessionId)
 export const ENTER_WORKTREE_SCHEMA = {
-  plan_id: z
+  planId: z
     .string()
     .min(1)
     .max(128)
-    .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .regex(/^[A-Za-z0-9._-]+$/, 'planId only allows [A-Za-z0-9._-]')
     .describe(
-      'Plan id (matches plan file stem, derives branch name `worktree-<plan_id>` and default worktree path `<main-repo>/.claude/worktrees/<plan_id>/`). Charset aligned with archive_plan / hand_off_session.',
+      'Plan id (matches plan file stem, derives branch name `worktree-<planId>` and default worktree path `<main-repo>/.claude/worktrees/<planId>/`). Charset aligned with archive_plan / hand_off_session.',
     ),
-  worktree_path: z
+  worktreePath: z
     .string()
     .min(1)
     .max(4096)
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional override for worktree absolute path. When omitted, derived as `<main-repo>/.claude/worktrees/<plan_id>/` (main-repo from caller sessionRepo.cwd via `git rev-parse --show-toplevel`). Caller-supplied path overrides default; handler still uses it verbatim as branch checkout target.',
+      'Optional override for worktree absolute path. When omitted, derived as `<main-repo>/.claude/worktrees/<planId>/` (main-repo from caller sessionRepo.cwd via `git rev-parse --show-toplevel`). Caller-supplied path overrides default; handler still uses it verbatim as branch checkout target.',
     ),
-  base_commit: z
+  baseCommit: z
     .string()
     .min(7)
     .max(64)
-    .regex(/^[0-9a-f]+$/i, 'base_commit must be hex SHA (≥7 chars)')
+    .regex(/^[0-9a-f]+$/i, 'baseCommit must be hex SHA (≥7 chars)')
     .optional()
     .describe(
-      'Optional explicit base commit SHA. Highest priority in base resolution chain (plan D2): caller args.base_commit > caller args.base_branch > plan frontmatter base_commit > plan frontmatter base_branch > HEAD. Use to lock new worktree to a specific commit (e.g. for reproducing historical state).',
+      'Optional explicit base commit SHA. Highest priority in base resolution chain (plan D2): caller args.baseCommit > caller args.baseBranch > plan frontmatter baseCommit > plan frontmatter baseBranch > HEAD. Use to lock new worktree to a specific commit (e.g. for reproducing historical state).',
     ),
-  base_branch: z
+  baseBranch: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(
-      'Optional base branch name (resolves to that branch HEAD as base commit). Lower priority than base_commit but higher than plan frontmatter / HEAD fallback (plan D2). Useful when caller wants to branch off a non-current branch without manually resolving SHA.',
+      'Optional base branch name (resolves to that branch HEAD as base commit). Lower priority than baseCommit but higher than plan frontmatter / HEAD fallback (plan D2). Useful when caller wants to branch off a non-current branch without manually resolving SHA.',
     ),
-  plan_file_path: z
+  planFilePath: z
     .string()
     .min(1)
     .max(4096)
     .optional()
     .describe(
-      'Optional plan file absolute path (for frontmatter base_commit / base_branch fallback chain when caller args do not specify base). When omitted, handler tries (in order): <main-repo>/.claude/plans/<plan_id>.md, then <main-repo>/ref/plans/<plan_id>.md, then ~/.claude/plans/<plan_id>.md (same fallback chain as archive_plan).',
+      'Optional plan file absolute path (for frontmatter baseCommit / baseBranch fallback chain when caller args do not specify base). When omitted, handler tries (in order): <main-repo>/.claude/plans/<planId>.md, then <main-repo>/ref/plans/<planId>.md, then ~/.claude/plans/<planId>.md (same fallback chain as archive_plan).',
     ),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -552,7 +553,7 @@ export const EXIT_WORKTREE_SCHEMA = {
     .describe(
       '"keep" 留 worktree 目录与 branch 不动(典型 plan in_progress 中途 hand-off 切会话场景 — 新 session cold-start EnterWorktree(path:...) 复用同一 worktree)；"remove" 删 worktree 目录 + branch(典型 plan 完成或中止收口场景)。两种 action 都会 clearCwdReleaseMarker(callerSid)清 marker。',
     ),
-  worktree_path: z
+  worktreePath: z
     .string()
     .min(1)
     .max(4096)
@@ -561,13 +562,13 @@ export const EXIT_WORKTREE_SCHEMA = {
     .describe(
       'Optional override for worktree absolute path to exit. When omitted, derived from caller sessionRepo.cwd_release_marker (caller must have called enter_worktree first to set the marker — otherwise reject). Use override only when caller knows the path but lost marker (e.g. session restart between enter_worktree and exit_worktree).',
     ),
-  discard_changes: z
+  discardChanges: z
     .boolean()
     .optional()
     .describe(
       'Only meaningful with action="remove". If worktree has uncommitted files / commits not on base branch, tool refuses unless this is true (matches claude builtin ExitWorktree semantic — protects against accidentally losing work). action="keep" 时此字段忽略(留下来的 worktree 改动一定保留)。',
     ),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -594,7 +595,7 @@ export const EXIT_WORKTREE_SCHEMA = {
 // - **不**调 phase 2 archive caller（caller 决定何时 archive；典型场景 caller 已手工归档完毕）
 // - findMemberships 返空（caller 不在任何 team 是 lead）→ error + hint，**不** silent return
 //   success（plan §F1c 明确 buggy 行为：escape hatch 是 caller 显式请求 cleanup，no-op 误导）
-// - deny external（写 sessionManager.close 是高风险 + 需要真实 caller_session_id 才能反查 lead 关系）
+// - deny external（写 sessionManager.close 是高风险 + 需要真实 callerSessionId 才能反查 lead 关系）
 //
 // **与 archive_plan 的边界**：
 // - archive_plan 是 plan 收口 tool（git ff-merge / mv plan / commit / git worktree remove）+
@@ -602,24 +603,24 @@ export const EXIT_WORKTREE_SCHEMA = {
 //   删 baton-cleanup teammate-shutdown 的 opt-out 字段,phase 1 不再支持 opt-out)
 // - shutdown_baton_teammates 是「补跑 phase 1」的独立 tool，不做 git/fs 归档操作
 //
-// 字段对称 archive_plan / hand_off_session 既有约定（snake_case args / 128 max plan_id）。
+// 字段对称 archive_plan / hand_off_session 既有约定（camelCase args / 128 max planId）。
 export const SHUTDOWN_BATON_TEAMMATES_SCHEMA = {
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（shutdown_baton_teammates 不允许 external caller — sessionManager.close 是写操作 + caller=lead 反查需要真实 caller_session_id）。',
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（shutdown_baton_teammates 不允许 external caller — sessionManager.close 是写操作 + caller=lead 反查需要真实 callerSessionId）。',
     ),
-  plan_id: z
+  planId: z
     .string()
     .min(1)
     .max(128)
-    .regex(/^[A-Za-z0-9._-]+$/, 'plan_id only allows [A-Za-z0-9._-]')
+    .regex(/^[A-Za-z0-9._-]+$/, 'planId only allows [A-Za-z0-9._-]')
     .optional()
     .describe(
-      'Optional plan id（仅供 console.warn / event 前缀辨识本次 escape hatch 调用属哪个 plan 收口场景）。本 tool 不读 plan 文件 / 不读 frontmatter / 不依赖 plan 状态（caller 已手工归档完成时 plan 已 mv 走，传 plan_id 仍可辨识）。Charset 与 archive_plan / hand_off_session 对称。',
+      'Optional plan id（仅供 console.warn / event 前缀辨识本次 escape hatch 调用属哪个 plan 收口场景）。本 tool 不读 plan 文件 / 不读 frontmatter / 不依赖 plan 状态（caller 已手工归档完成时 plan 已 mv 走，传 planId 仍可辨识）。Charset 与 archive_plan / hand_off_session 对称。',
     ),
 };
 
@@ -635,7 +636,7 @@ export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SC
 //   strict 模式让 unknown keys (如已废弃的 opt-out 字段) 在 parse 时直接 throw
 //   `unrecognized_keys`
 // - HAND_OFF_SESSION_ARGS_SCHEMA 加 .refine() 实现 Phase 4 N2.c invariant
-//   (adopt_teammates: true 与 args.team_name 互斥)
+//   (adoptTeammates: true 与 args.teamName 互斥)
 // - type infer 用 strict 版本 (旧的 z.ZodObject<typeof SHAPE> 推导出的是 passthrough,
 //   不能 reject unknown keys; strict 版才匹配 handler 实际 parse 路径)
 export const ARCHIVE_PLAN_ARGS_SCHEMA = z.object(ARCHIVE_PLAN_SHAPE).strict();
@@ -643,10 +644,10 @@ export const HAND_OFF_SESSION_ARGS_SCHEMA = z
   .object(HAND_OFF_SESSION_SHAPE)
   .strict()
   .refine(
-    (args) => !(args.adopt_teammates === true && args.team_name !== undefined),
+    (args) => !(args.adoptTeammates === true && args.teamName !== undefined),
     {
       message:
-        'adopt_teammates 与 team_name 不可同传 — adopt 路径自动过继 caller 同 team,不应指定额外 team_name(N2.c 互斥 invariant,plan hand-off-session-adopt-teammates-20260520 Phase 4)',
+        'adoptTeammates 与 teamName 不可同传 — adopt 路径自动过继 caller 同 team,不应指定额外 teamName(N2.c 互斥 invariant,plan hand-off-session-adopt-teammates-20260520 Phase 4)',
     },
   );
 
@@ -695,7 +696,7 @@ export interface ProjectedSession {
  * - closed: 成功 close 的 teammate sid 列表（dedup 跨 team 共享同 sid）
  * - failed: close 失败的 teammate（reason 含错误信息），warn 不阻塞
  * - skipped: 'caller-not-lead'（caller 不是 lead） / 'adopt-keep-implicit'（plan
- *   hand-off-session-adopt-teammates-20260520 Phase 4 — adopt_teammates: true 时
+ *   hand-off-session-adopt-teammates-20260520 Phase 4 — adoptTeammates: true 时
  *   teammate 由 swapLead 接管不 shutdown） / null（正常处理含 closed=[] 的 caller=lead
  *   但 team 内无其他 teammate / helper 抛错兜底）
  */
@@ -708,7 +709,7 @@ type TeammatesShutdownInfo = {
   // 区分 caller layer `runBatonCleanup` 内 helper 自身抛错的兜底(罕见 DB 异常 / mock 失败) vs
   // 正常处理 null(caller=lead 但无其他 active teammate)。
   // CHANGELOG_169 F4 修法 (reviewer-codex MED finding): 加 'archive-caller-false-keep' 第六态,
-  // hand_off_session caller 显式 archive_caller=false 时 phase 1 也跳过 shutdown teammates
+  // hand_off_session caller 显式 archiveCaller=false 时 phase 1 也跳过 shutdown teammates
   // 让 caller 继续观察 reviewer reply(对应 schema 文案承诺)。
   skipped:
     | 'caller-not-lead'
@@ -753,7 +754,7 @@ export interface SpawnSessionResult {
   teamId: string | null;
   teamName: string | null;
   agentName: string | null;
-  /** display_name 优先 → agent_name → null（spawn.ts:163 三级 fallback）。 */
+  /** displayName 优先 → agentName → null（spawn.ts:163 三级 fallback）。 */
   displayName: string | null;
   spawnDepth: number;
   sentAt: number;
@@ -773,11 +774,11 @@ export interface ArchivePlanResult {
   /**
    * **REVIEW_56 §F4 修法**: 区分 archive commit vs worktree merge tip。
    * - **此 `commitHash`** = `git add ref/plans/<id>.md + INDEX.md + ref/plans/<id>/spike-reports/` 后 archive
-   *   commit 在 base_branch 上的 SHA(handler 内部 `git commit` 后 `git rev-parse HEAD` 拿到)
-   * - **frontmatter `final_commit`** = ff-merge worktree branch 到 base_branch 之后 base_branch HEAD
+   *   commit 在 baseBranch 上的 SHA(handler 内部 `git commit` 后 `git rev-parse HEAD` 拿到)
+   * - **frontmatter `final_commit`** = ff-merge worktree branch 到 baseBranch 之后 baseBranch HEAD
    *   SHA(merge 后 worktree branch tip,plan 写入 frontmatter 字段持久化)
    *
-   * 两个 commit 关系:archive commit (本字段) 是 base_branch 上 ff-merge 之后的额外 commit,
+   * 两个 commit 关系:archive commit (本字段) 是 baseBranch 上 ff-merge 之后的额外 commit,
    * 包含 plan archive 文件移动 + INDEX 更新;final_commit 是 ff-merge 那一刻的 base tip(即
    * worktree branch tip)。
    */
@@ -788,8 +789,8 @@ export interface ArchivePlanResult {
    * archive-plan-tool-ux-followup-20260515 (b)+(c):plansIndexAppended boolean → plansIndexAction
    * 四态 enum,让 caller 区分 INDEX 行真正发生的事情:
    * - 'created':INDEX 文件不存在,创建带 4 列 header 的初始文件 + 第一行
-   * - 'appended':INDEX 已存在但无本 plan_id 行,append 一行 4 列 row
-   * - 'updated':INDEX 已存在且有本 plan_id 行 → smart update canonical rewrite 4 列
+   * - 'appended':INDEX 已存在但无本 planId 行,append 一行 4 列 row
+   * - 'updated':INDEX 已存在且有本 planId 行 → smart update canonical rewrite 4 列
    *   (status=completed + changelog 列 + description 列)
    * - 'unchanged':smart update 后内容与原行完全相同(罕见 idempotent)
    */
@@ -834,21 +835,21 @@ export interface HandOffSessionResult extends SpawnSessionResult {
   planFilePath: string | null;
   /** worktree 绝对路径（plan-driven 模式有值；generic 模式 null）。 */
   worktreePath: string | null;
-  /** plan frontmatter base_branch（plan-driven 模式有值；generic 模式 null）。 */
+  /** plan frontmatter baseBranch（plan-driven 模式有值；generic 模式 null）。 */
   baseBranch: string | null;
-  /** phase 标签（plan-driven + caller 传 phase_label 时有值；其他 null）。 */
+  /** phase 标签（plan-driven + caller 传 phaseLabel 时有值；其他 null）。 */
   phaseLabel: string | null;
   /** cold-start prompt 完整字面（caller 可对照 sessionRepo.events 验证 spawn first message 一致）。 */
   initialPrompt: string;
-  /** generic 模式下 caller 传了 plan-only 字段（phase_label / plan_file_path）时被忽略的字段名数组；plan 模式始终空。 */
+  /** generic 模式下 caller 传了 plan-only 字段（phaseLabel / planFilePath）时被忽略的字段名数组；plan 模式始终空。 */
   ignoredFields: string[];
-  /** caller archive 三态：'ok'=成功 / 'failed'=warn-only 不阻塞 / 'skipped'=external caller 或 caller 显式传 archive_caller=false。 */
+  /** caller archive 三态：'ok'=成功 / 'failed'=warn-only 不阻塞 / 'skipped'=external caller 或 caller 显式传 archiveCaller=false。 */
   archived: 'ok' | 'failed' | 'skipped';
   /** baton cleanup phase 1 详情（与 archive_plan 同款）。 */
   teammatesShutdown: TeammatesShutdownInfo;
   /**
    * plan hand-off-session-adopt-teammates-20260520 Phase 4 (D7 v8 + Round 7 codex INFO-3):
-   * adopt_teammates: true 时的 phase 1.5 adopt 详情;`adopt_teammates: false / undefined`
+   * adoptTeammates: true 时的 phase 1.5 adopt 详情;`adoptTeammates: false / undefined`
    * 时为 `null`(default baton 路径)。
    *
    * 字段语义:
@@ -893,38 +894,38 @@ export interface HandOffSessionResult extends SpawnSessionResult {
      * 来源。L814 firstTeam path + L839 rest loop 两处 swapLead 成功都 push(详 Round 4 HIGH-1
      * 修法 + Step D2 实施 hint:processSwappedTeam helper 集中 push)。Spread mapping
      * `adoptedTeamIds: phase15Detail.adoptedTeamIds`(handler return 段必显式 wire,plan §Step D2)。
-     * adopt_teammates=false / undefined 路径 adopted=null 不出现该字段。
+     * adoptTeammates=false / undefined 路径 adopted=null 不出现该字段。
      */
     adoptedTeamIds: string[];
   } | null;
   /**
    * plan task-mcp-owner-session-id-rewrite-20260521 v023 §D3 + deep-review Round 1 F3 修法:
-   * hand_off 内部 reassignTaskOwner(caller→newSpawnedSid)三态结果 + count / error。
+   * handOff 内部 reassignTaskOwner(caller→newSpawnedSid)三态结果 + count / error。
    * 让 caller 通过 ok return 看到 task ownership 转移是否成功(修前仅 console.warn 静默吞错)。
    *
    * v024 plan task-team-id-restore-20260525 §D4 + Round 6 MED-2 修法:**`policy` field required**
    * — 所有 5 个 assignment 路径(skip ok / skip failed / clear-team / preserve-team /
-   * archive_caller=false)都必带 `policy: taskPolicy` 满足 schema 契约。`taskPolicy` 取
-   * `args.team_task_policy ?? 'clear-team'` advisory(archive_caller=false 时 policy 不执行但
+   * archiveCaller=false)都必带 `policy: taskPolicy` 满足 schema 契约。`taskPolicy` 取
+   * `args.teamTaskPolicy ?? 'clear-team'` advisory(archiveCaller=false 时 policy 不执行但
    * 仍透传告诉 caller 传了什么)。
    *
    * v024 plan §不变量 5 + Round 4 MED-1 + Round 5 MED-2 升级:**preserve-team 错配 soft warning** —
    * `policyWarning?: 'preserve-team-unadopted-teams'` + `unadoptedTeamIds: string[]` 字段
-   * 暴露 caller owned distinct team_id 与 newSid handoff 后 active teams 的差集(详
+   * 暴露 caller owned distinct teamId 与 newSid handoff 后 active teams 的差集(详
    * adopted.adoptedTeamIds + spawnData.teamId 算法,plan §Step D2 preserve-team safety 升级)。
    *
    * 三态语义:
    * - `'ok'`: reassign 成功,count 字段是被改 owner 的 task 行数(0 = caller 没拥有任何
    *   task,也算成功)
    * - `'failed'`: reassign 抛错(SQLite locked / FK 异常 / DB 故障),error 字段是错误消息;
-   *   caller 仍会被 archive(若 archive_caller=true),其 task 触发 ON DELETE CASCADE 物理删
+   *   caller 仍会被 archive(若 archiveCaller=true),其 task 触发 ON DELETE CASCADE 物理删
    *   (best-effort 兜底 by LifecycleScheduler.historyRetentionDays TTL GC 不适用 — 已被
    *   即时 CASCADE 删,只是 baton 仍 ok return 不阻塞 — 失败概率低)。caller 通过此字段看
    *   到失败原因决定后续动作(重试 / 手工恢复 task)。**Round 4 MED-2 修法**: applyHandOffSkipPolicy
    *   DB throw 时同样走此 status='failed' 路径,error 透传(不抛错给 caller,sane fallback
    *   spawn/adopt 已成功不回滚 v023 §不变量 12 同款)
    * - `'skipped'`: 跳过 reassign 的两种情况:
-   *   - `reason: 'archive-caller-false'`: caller 显式传 archive_caller=false(F1 修法),
+   *   - `reason: 'archive-caller-false'`: caller 显式传 archiveCaller=false(F1 修法),
    *     caller 仍 active 继续 own 自己的 task。Round 7 LOW-1 修法:仍透传 `policy` advisory。
    *   - `reason: 'spawn-no-sid'`: spawn handler ok return 未带 sessionId(不应发生,type-safe
    *     兜底);type 上 newSpawnedSid 是 string | null,null 时跳过
@@ -952,15 +953,15 @@ export interface HandOffSessionResult extends SpawnSessionResult {
 /**
  * enter_worktree ok return shape (handlers/enter-worktree.ts)。
  *
- * - worktreePath: 实际创建 / 进入的 worktree 绝对路径（caller 不传 args.worktree_path 时由
- *   handler 派生 `<main-repo>/.claude/worktrees/<plan_id>/`,有传则等于 args.worktree_path)
- * - branchName: 创建的 branch 名(`worktree-<plan_id>` 固定模式)
+ * - worktreePath: 实际创建 / 进入的 worktree 绝对路径（caller 不传 args.worktreePath 时由
+ *   handler 派生 `<main-repo>/.claude/worktrees/<planId>/`,有传则等于 args.worktreePath)
+ * - branchName: 创建的 branch 名(`worktree-<planId>` 固定模式)
  * - baseCommit: 实际作为 base 的 commit SHA(40 字符 hex)
  * - baseSource: 5 态枚举表明 base 是从哪个来源 resolved(plan D2 优先级链)
- *   - 'arg-base-commit': caller args.base_commit 显式传
- *   - 'arg-base-branch': caller args.base_branch 显式传,handler resolve 到 HEAD
- *   - 'frontmatter-base-commit': plan frontmatter base_commit 字段
- *   - 'frontmatter-base-branch': plan frontmatter base_branch 字段
+ *   - 'arg-base-commit': caller args.baseCommit 显式传
+ *   - 'arg-base-branch': caller args.baseBranch 显式传,handler resolve 到 HEAD
+ *   - 'frontmatter-base-commit': plan frontmatter baseCommit 字段
+ *   - 'frontmatter-base-branch': plan frontmatter baseBranch 字段
  *   - 'head': 都没传,fallback 主仓库 HEAD（标准走法）
  * - markerSet: setCwdReleaseMarker 成功标 true(几乎一定 true,失败 handler 应已 reject)
  */
@@ -1008,7 +1009,7 @@ export interface ExitWorktreeResult {
  *   teammate 接管 / opt-out 字段(plan hand-off-session-adopt-teammates-20260520 Phase 3
  *   删 baton-cleanup teammate-shutdown opt-out 字段后,'adopt-keep-implicit' 也不出现 —
  *   本 tool 调用方已经手工归档不走 adopt 路径)
- * - planId: 透传 args.plan_id，方便 caller 关联本次 escape hatch 调用属哪个 plan 收口场景
+ * - planId: 透传 args.planId，方便 caller 关联本次 escape hatch 调用属哪个 plan 收口场景
  */
 export interface ShutdownBatonTeammatesResult {
   closed: string[];
@@ -1021,11 +1022,11 @@ export interface ShutdownBatonTeammatesResult {
 //
 // 5 个 task tool schema：从原 src/main/task-manager/tools.ts 抽出，转 agent-deck-mcp 同款 SHAPE 模式。
 //
-// **D5 修法**：schema 加 caller_session_id?（与现有 10 个 simple tool 同款 — in-process closure
+// **D5 修法**：schema 加 callerSessionId?（与现有 10 个 simple tool 同款 — in-process closure
 // override 优先于 args 字段）。task_create owner_session_id 不在 schema 暴露（closure 强制注入
 // ctx.caller.callerSessionId）。
 //
-// 协议: caller_session_id 字段在 in-process / HTTP / stdio 三 transport 行为见 SPAWN_SESSION_SCHEMA
+// 协议: callerSessionId 字段在 in-process / HTTP / stdio 三 transport 行为见 SPAWN_SESSION_SCHEMA
 // 同字段注释。task 5 个 tool 同款语义。
 
 export const TASK_CREATE_SCHEMA = {
@@ -1044,7 +1045,7 @@ export const TASK_CREATE_SCHEMA = {
     .enum(STATUS_VALUES)
     .optional()
     .describe('Initial status (default "pending")'),
-  active_form: z
+  activeForm: z
     .string()
     .nullable()
     .optional()
@@ -1060,21 +1061,21 @@ export const TASK_CREATE_SCHEMA = {
     .array(z.string())
     .optional()
     .describe('IDs of downstream tasks that this task blocks'),
-  blocked_by: z
+  blockedBy: z
     .array(z.string())
     .optional()
     .describe('IDs of upstream tasks that block this task'),
   labels: z.array(z.string()).optional().describe('Free-form tags'),
-  // v024 plan task-team-id-restore-20260525 §D1+D2:team_id 字段
-  team_id: z
+  // v024 plan task-team-id-restore-20260525 §D1+D2:teamId 字段
+  teamId: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(
-      'team_id?: string — 不传 = personal task(仅 owner 可见可写,first-class 用例); 传 string = team-bound task,caller 必须在该 team 是 active member(handler 校验 D3, 详 convention docs §task)',
+      'teamId?: string — 不传 = personal task(仅 owner 可见可写,first-class 用例); 传 string = team-bound task,caller 必须在该 team 是 active member(handler 校验 D3, 详 convention docs §task)',
     ),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -1085,23 +1086,23 @@ export const TASK_CREATE_SCHEMA = {
 };
 
 export const TASK_LIST_SCHEMA = {
-  status_filter: z
+  statusFilter: z
     .enum(STATUS_VALUES)
     .optional()
     .describe('Only return tasks with this status'),
-  subject_filter: z
+  subjectFilter: z
     .string()
     .optional()
     .describe('Case-insensitive substring match on subject'),
-  // v024 plan task-team-id-restore-20260525 §D5:team_id_filter 三态 — FROZEN by Round 1 LOW-1
+  // v024 plan task-team-id-restore-20260525 §D5:teamIdFilter 三态 — FROZEN by Round 1 LOW-1
   // 用 zod literal `z.union([z.string().uuid(), z.literal('null-personal')])` 让 caller 显式表达。
   // 实际改用 z.union([z.string().min(1).max(128), z.literal('null-personal')]) 不强制 UUID 格式
-  // (team_id 现实是 uuid 但 schema 层不绑死格式,与 task_create.team_id 字段一致).
-  team_id_filter: z
+  // (teamId 现实是 uuid 但 schema 层不绑死格式,与 task_create.teamId 字段一致).
+  teamIdFilter: z
     .union([z.string().min(1).max(128), z.literal('null-personal')])
     .optional()
     .describe(
-      "team_id_filter?: string | 'null-personal' — undefined=caller 可见 scope(caller-owned + caller 所在 team 的 team task);string=该 team 绑定 task(caller 必须在该 team 是 active member);'null-personal'=caller 自己 personal task(owner==caller AND team_id IS NULL)(详 convention docs §task)",
+      "teamIdFilter?: string | 'null-personal' — undefined=caller 可见 scope(caller-owned + caller 所在 team 的 team task);string=该 team 绑定 task(caller 必须在该 team 是 active member);'null-personal'=caller 自己 personal task(owner==caller AND teamId IS NULL)(详 convention docs §task)",
     ),
   limit: z
     .number()
@@ -1116,7 +1117,7 @@ export const TASK_LIST_SCHEMA = {
     .min(0)
     .optional()
     .describe('Default 0'),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -1127,39 +1128,39 @@ export const TASK_LIST_SCHEMA = {
 };
 
 export const TASK_GET_SCHEMA = {
-  task_id: z.string().describe('Task UUID returned by task_create'),
-  caller_session_id: z
+  taskId: z.string().describe('Task UUID returned by task_create'),
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny — v024 plan task-team-id-restore-20260525 §D8 修法把 task_get 改严格 team-scoped read + deny external(EXTERNAL_CALLER_ALLOWED.task_get=false),v023 cross-team 可读 use case 已推翻(详 convention docs §task)。in-process caller 必须与 task team_id 共享 active membership(team-bound task)或为 owner(personal task)才能 read,详 D3 镜像 read 权限。',
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny — v024 plan task-team-id-restore-20260525 §D8 修法把 task_get 改严格 team-scoped read + deny external(EXTERNAL_CALLER_ALLOWED.task_get=false),v023 cross-team 可读 use case 已推翻(详 convention docs §task)。in-process caller 必须与 task teamId 共享 active membership(team-bound task)或为 owner(personal task)才能 read,详 D3 镜像 read 权限。',
     ),
 };
 
 export const TASK_UPDATE_SCHEMA = {
-  task_id: z.string().describe('Task UUID to update'),
+  taskId: z.string().describe('Task UUID to update'),
   subject: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).nullable().optional(),
   status: z.enum(STATUS_VALUES).optional(),
-  active_form: z.string().nullable().optional(),
+  activeForm: z.string().nullable().optional(),
   priority: z.number().int().min(0).max(10).optional(),
   blocks: z.array(z.string()).optional(),
-  blocked_by: z.array(z.string()).optional(),
+  blockedBy: z.array(z.string()).optional(),
   labels: z.array(z.string()).optional(),
   // v024 plan task-team-id-restore-20260525 §D1:允许 update 改 teamId(传 null 转 personal;
-  // 传 string 转 team-bound)。caller 必须在新 team_id 是 active member(D3 由 tool 层校验)。
-  team_id: z
+  // 传 string 转 team-bound)。caller 必须在新 teamId 是 active member(D3 由 tool 层校验)。
+  teamId: z
     .string()
     .min(1)
     .max(128)
     .nullable()
     .optional()
     .describe(
-      'team_id?: string | null — 不传 = 不动;传 string = 改为 team-bound(caller 必在该 active team);传 null = 改为 personal task(详 convention docs §task)',
+      'teamId?: string | null — 不传 = 不动;传 string = 改为 team-bound(caller 必在该 active team);传 null = 改为 personal task(详 convention docs §task)',
     ),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -1170,12 +1171,12 @@ export const TASK_UPDATE_SCHEMA = {
 };
 
 export const TASK_DELETE_SCHEMA = {
-  task_id: z.string().describe('Task UUID to delete'),
+  taskId: z.string().describe('Task UUID to delete'),
   force: z
     .boolean()
     .optional()
     .describe('Default false; true = cascade delete blocks downstream chain'),
-  caller_session_id: z
+  callerSessionId: z
     .string()
     .min(1)
     .max(128)
@@ -1219,7 +1220,7 @@ export type TaskUpdateResult = TaskRecord;
 /**
  * task_delete ok return shape (handlers/task-delete.ts)。
  * - success: deletedIds.length > 0 即视为成功（cascade=false 至少删 target；cascade=true 含下游）
- * - taskId: 透传 args.task_id（root 删除目标）
+ * - taskId: 透传 args.taskId（root 删除目标）
  * - deletedIds: 实际被删的所有 task id（root + cascade 下游）
  */
 export interface TaskDeleteResult {
