@@ -6,6 +6,12 @@
 // (5 module-level let 单例聚合)+ helpers 在 ./index/_deps.ts 单源。
 // ────────────────────────────────────────────────────────────────────────────
 
+// Plan runtime-logging-electron-log-20260529 §D7 + §Step 3.0.4: 第一行 import logger.ts,
+// 让 errorHandler.startCatching() 立即生效 + app.setName('Agent Deck') 让 dev/prod log
+// path 一致 + Object.assign(console, log.functions) 接管 console。logger.ts §不变量 8
+// 仅依赖 electron + electron-log/main + node:* (不依赖任何业务模块) 安全可第一行。
+import './utils/logger';
+
 import { app, dialog } from 'electron';
 import { closeDb } from './store/db';
 

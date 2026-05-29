@@ -1,6 +1,13 @@
 /**
  * Renderer-side ambient module declarations.
  *
+ * - `vite/client` types reference 让 renderer 代码可用 `import.meta.env.MODE` 等 vite
+ *   注入 env (Plan runtime-logging-electron-log-20260529 §Step 3.0.3 utils/logger.ts 用)。
+ * - refractor v5 子路径 ambient declare 见下方注释。
+ */
+/// <reference types="vite/client" />
+
+/**
  * refractor v5 把 `package.json` 的 `exports` 字段改成 `"./*": "./lang/*.js"`，
  * 正确 import 形态是 `refractor/<lang>`（不再是 v3 的 `refractor/lang/<lang>`）。
  * 但 TS `moduleResolution: "node"` 不识别 conditional exports，会给所有
