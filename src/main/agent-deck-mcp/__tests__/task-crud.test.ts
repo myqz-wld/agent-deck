@@ -3,23 +3,23 @@
  *
  * 覆盖 5 handler 核心行为（v024 plan §D1-D8 重设计）：
  * - task_create:
- *   - 不传 team_id → personal task（不调 isCallerInTeam）
- *   - 传 team_id + caller 在 team active member → ALLOW + ingest payload.teamName=lookup(team_id)
- *   - 传 team_id + caller 不在 team → reject（D3 写权限校验）
- *   - multi-team caller 显式 team_id=B（first active team=A） → ingest payload.teamName=B（MED-2 修法）
+ *   - 不传 teamId → personal task（不调 isCallerInTeam）
+ *   - 传 teamId + caller 在 team active member → ALLOW + ingest payload.teamName=lookup(teamId)
+ *   - 传 teamId + caller 不在 team → reject（D3 写权限校验）
+ *   - multi-team caller 显式 teamId=B（first active team=A） → ingest payload.teamName=B（MED-2 修法）
  * - task_update / task_delete (D3 写权限改造):
  *   - personal task (teamId=null) + caller == owner → ALLOW
  *   - personal task + caller != owner → reject（personal 不开放同 team 共享）
  *   - team task + caller 在 team active member → ALLOW（不论 owner）
  *   - team task + caller 不在 team → reject
- *   - task_update.patch.team_id 改 string → caller 必须在新 team active member
+ *   - task_update.patch.teamId 改 string → caller 必须在新 team active member
  *   - task_delete cascade predicate signature 改 (id, child) 接收 child 完整 task（HIGH-2）
  * - task_get (D8 team-scoped read):
  *   - 与 write 对称（read/write 镜像）— team-bound active member / personal owner
  *   - v023 cross-team 可读 use case 推翻
  * - task_list (D5 三态分流):
- *   - 不传 team_id_filter → getVisibleTaskScope 走 visibleScope OR 模式
- *   - 传具体 team_id → 校验 caller 在 team active 后用 teamIdFilter
+ *   - 不传 teamIdFilter → getVisibleTaskScope 走 visibleScope OR 模式
+ *   - 传具体 teamId → 校验 caller 在 team active 后用 teamIdFilter
  *   - 传 'null-personal' → ownerSessionIds=[caller] + teamIdFilter='null-personal'
  *   - archived team filter（caller 在 archived team 的 ghost membership 不进 scope）
  *   - member left_at + team archived 双路径独立覆盖（plan §不变量 13 + 已知踩坑 2）
@@ -138,8 +138,8 @@ beforeEach(() => {
   mockSessions.set('sess-caller', { id: 'sess-caller', lifecycle: 'active' });
 });
 
-describe('task_create — v024 D1+D2 personal default + D3 team_id 校验', () => {
-  it('不传 team_id → 闭包注入 ownerSessionId + teamId=null personal + emit task-changed + CHANGELOG_165 skip ingest team-task-created', async () => {
+describe('task_create — v024 D1+D2 personal default + D3 teamId 校验', () => {
+  it('不传 teamId → 闭包注入 ownerSessionId + teamId=null personal + emit task-changed + CHANGELOG_165 skip ingest team-task-created', async () => {
     const created = makeTaskRecord({ id: 't1', subject: 'X', ownerSessionId: 'sess-caller', teamId: null });
     mockTaskRepo.create.mockReturnValue(created);
 
@@ -162,13 +162,13 @@ describe('task_create — v024 D1+D2 personal default + D3 team_id 校验', () =
     expect(result.isError).toBeFalsy();
   });
 
-  it('传 team_id + caller 在 team active member → ALLOW + ingest teamName=lookup(team_id).name', async () => {
+  it('传 teamId + caller 在 team active member → ALLOW + ingest teamName=lookup(teamId).name', async () => {
     setupCallerInTeam('sess-caller', 'team-A', 'Team Alpha');
     const created = makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: 'team-A' });
     mockTaskRepo.create.mockReturnValue(created);
 
     const result = await taskCreateHandler(
-      { subject: 'X', team_id: 'team-A' },
+      { subject: 'X', teamId: 'team-A' },
       makeCtx('sess-caller'),
     );
 
@@ -176,7 +176,7 @@ describe('task_create — v024 D1+D2 personal default + D3 team_id 校验', () =
     expect(mockTaskRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({ ownerSessionId: 'sess-caller', teamId: 'team-A' }),
     );
-    // v024 MED-2: teamName 取 args.team_id lookup（不走 first active team）
+    // v024 MED-2: teamName 取 args.teamId lookup（不走 first active team）
     expect(mockSessionManager.ingest).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({ teamName: 'Team Alpha' }),
@@ -184,20 +184,20 @@ describe('task_create — v024 D1+D2 personal default + D3 team_id 校验', () =
     );
   });
 
-  it('传 team_id + caller 不在 team active member → reject + 不调 repo.create', async () => {
+  it('传 teamId + caller 不在 team active member → reject + 不调 repo.create', async () => {
     // caller 不在任何 team
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([]);
     const result = await taskCreateHandler(
-      { subject: 'X', team_id: 'team-A' },
+      { subject: 'X', teamId: 'team-A' },
       makeCtx('sess-caller'),
     );
 
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/not an active member of team_id "team-A"/);
+    expect(JSON.parse(result.content[0].text).error).toMatch(/not an active member of teamId "team-A"/);
     expect(mockTaskRepo.create).not.toHaveBeenCalled();
   });
 
-  it('v024 MED-2: multi-team caller 显式 team_id=B（first active=A）→ ingest teamName 取 args.team_id lookup=B', async () => {
+  it('v024 MED-2: multi-team caller 显式 teamId=B（first active=A）→ ingest teamName 取 args.teamId lookup=B', async () => {
     // caller 在 team-A + team-B 两个 team
     mockTeamRepo.findActiveMembershipsBySession.mockImplementation((sid: string) => {
       if (sid === 'sess-caller') {
@@ -216,9 +216,9 @@ describe('task_create — v024 D1+D2 personal default + D3 team_id 校验', () =
     const created = makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: 'team-B' });
     mockTaskRepo.create.mockReturnValue(created);
 
-    await taskCreateHandler({ subject: 'X', team_id: 'team-B' }, makeCtx('sess-caller'));
+    await taskCreateHandler({ subject: 'X', teamId: 'team-B' }, makeCtx('sess-caller'));
 
-    // 关键：teamName 取 'Team B'（args.team_id lookup），不漂移到 first active 'Team A'
+    // 关键：teamName 取 'Team B'（args.teamId lookup），不漂移到 first active 'Team A'
     expect(mockSessionManager.ingest).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({ teamName: 'Team B' }),
@@ -251,7 +251,7 @@ describe('task_create — v024 D1+D2 personal default + D3 team_id 校验', () =
       caller: { callerSessionId: 'sess-caller', transport: 'http' },
     };
 
-    await taskCreateHandler({ subject: 'X', team_id: 'team-A' }, ctx);
+    await taskCreateHandler({ subject: 'X', teamId: 'team-A' }, ctx);
 
     expect(mockEventBus.emit).toHaveBeenCalledTimes(1);
     expect(mockSessionManager.ingest).not.toHaveBeenCalled();
@@ -267,7 +267,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
       makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: null, status: 'completed' }),
     );
 
-    await taskUpdateHandler({ task_id: 't1', status: 'completed' }, makeCtx('sess-caller'));
+    await taskUpdateHandler({ taskId: 't1', status: 'completed' }, makeCtx('sess-caller'));
 
     expect(mockTaskRepo.update).toHaveBeenCalled();
   });
@@ -280,7 +280,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     setupCallerInTeam('sess-caller', 'team-A');
 
     const result = await taskUpdateHandler(
-      { task_id: 't1', status: 'completed' },
+      { taskId: 't1', status: 'completed' },
       makeCtx('sess-caller'),
     );
 
@@ -299,7 +299,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     setupCallerInTeam('sess-caller', 'team-A');
 
     const result = await taskUpdateHandler(
-      { task_id: 't1', status: 'active' },
+      { taskId: 't1', status: 'active' },
       makeCtx('sess-caller'),
     );
 
@@ -315,7 +315,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([]);
 
     const result = await taskUpdateHandler(
-      { task_id: 't1', status: 'completed' },
+      { taskId: 't1', status: 'completed' },
       makeCtx('sess-caller'),
     );
 
@@ -331,7 +331,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([]); // 模拟 left_at
 
     const result = await taskUpdateHandler(
-      { task_id: 't1', status: 'active' },
+      { taskId: 't1', status: 'active' },
       makeCtx('sess-caller'),
     );
 
@@ -354,7 +354,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     });
 
     const result = await taskUpdateHandler(
-      { task_id: 't1', status: 'active' },
+      { taskId: 't1', status: 'active' },
       makeCtx('sess-caller'),
     );
 
@@ -362,7 +362,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     expect(mockTaskRepo.update).not.toHaveBeenCalled();
   });
 
-  it('patch.team_id 改 string → caller 必须在新 team active member', async () => {
+  it('patch.teamId 改 string → caller 必须在新 team active member', async () => {
     mockTaskRepo.get.mockReturnValue(
       makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: null }),
     );
@@ -370,7 +370,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([]);
 
     const result = await taskUpdateHandler(
-      { task_id: 't1', team_id: 'team-B' },
+      { taskId: 't1', teamId: 'team-B' },
       makeCtx('sess-caller'),
     );
 
@@ -378,7 +378,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     expect(mockTaskRepo.update).not.toHaveBeenCalled();
   });
 
-  it('patch.team_id = null（改 personal）→ 任何 owner 可改', async () => {
+  it('patch.teamId = null（改 personal）→ 任何 owner 可改', async () => {
     setupCallerInTeam('sess-caller', 'team-A');
     mockTaskRepo.get.mockReturnValue(
       makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: 'team-A' }),
@@ -388,7 +388,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     );
 
     const result = await taskUpdateHandler(
-      { task_id: 't1', team_id: null },
+      { taskId: 't1', teamId: null },
       makeCtx('sess-caller'),
     );
 
@@ -399,7 +399,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
   it('task 不存在 → isError', async () => {
     mockTaskRepo.get.mockReturnValue(null);
     const result = await taskUpdateHandler(
-      { task_id: 'nope', status: 'active' },
+      { taskId: 'nope', status: 'active' },
       makeCtx('sess-caller'),
     );
     expect(result.isError).toBe(true);
@@ -407,13 +407,13 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
 });
 
 describe('task_delete — v024 D3 write permission + cascade predicate (HIGH-2)', () => {
-  it('personal task + caller == owner + cascade=false → delete 返 [task_id] + emit deleted', async () => {
+  it('personal task + caller == owner + cascade=false → delete 返 [taskId] + emit deleted', async () => {
     mockTaskRepo.get.mockReturnValue(
       makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: null }),
     );
     mockTaskRepo.delete.mockReturnValue(['t1']);
 
-    await taskDeleteHandler({ task_id: 't1' }, makeCtx('sess-caller'));
+    await taskDeleteHandler({ taskId: 't1' }, makeCtx('sess-caller'));
 
     expect(mockTaskRepo.delete).toHaveBeenCalledWith(
       't1',
@@ -432,7 +432,7 @@ describe('task_delete — v024 D3 write permission + cascade predicate (HIGH-2)'
     );
     mockTaskRepo.delete.mockReturnValue(['t1', 't2']);
 
-    await taskDeleteHandler({ task_id: 't1', force: true }, makeCtx('sess-caller'));
+    await taskDeleteHandler({ taskId: 't1', force: true }, makeCtx('sess-caller'));
 
     const callArgs = mockTaskRepo.delete.mock.calls[0][1];
     expect(callArgs.cascade).toBe(true);
@@ -478,7 +478,7 @@ describe('task_delete — v024 D3 write permission + cascade predicate (HIGH-2)'
     });
     mockTaskRepo.delete.mockReturnValue(['t1', 't2', 't3']);
 
-    await taskDeleteHandler({ task_id: 't1', force: true }, makeCtx('sess-caller'));
+    await taskDeleteHandler({ taskId: 't1', force: true }, makeCtx('sess-caller'));
 
     expect(mockEventBus.emit).toHaveBeenCalledTimes(3);
     const calls = mockEventBus.emit.mock.calls;
@@ -494,7 +494,7 @@ describe('task_delete — v024 D3 write permission + cascade predicate (HIGH-2)'
     // caller 不在 team-B
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([]);
 
-    const result = await taskDeleteHandler({ task_id: 't1' }, makeCtx('sess-caller'));
+    const result = await taskDeleteHandler({ taskId: 't1' }, makeCtx('sess-caller'));
 
     expect(result.isError).toBe(true);
     expect(mockTaskRepo.delete).not.toHaveBeenCalled();
@@ -506,7 +506,7 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
     const t = makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: null });
     mockTaskRepo.get.mockReturnValue(t);
 
-    const result = await taskGetHandler({ task_id: 't1' }, makeCtx('sess-caller'));
+    const result = await taskGetHandler({ taskId: 't1' }, makeCtx('sess-caller'));
     expect(result.isError).toBeFalsy();
   });
 
@@ -514,7 +514,7 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
     const t = makeTaskRecord({ id: 't1', ownerSessionId: 'sess-other', teamId: null });
     mockTaskRepo.get.mockReturnValue(t);
 
-    const result = await taskGetHandler({ task_id: 't1' }, makeCtx('sess-caller'));
+    const result = await taskGetHandler({ taskId: 't1' }, makeCtx('sess-caller'));
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).error).toMatch(/permission denied/);
   });
@@ -524,7 +524,7 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
     const t = makeTaskRecord({ id: 't1', ownerSessionId: 'sess-mate', teamId: 'team-A' });
     mockTaskRepo.get.mockReturnValue(t);
 
-    const result = await taskGetHandler({ task_id: 't1' }, makeCtx('sess-caller'));
+    const result = await taskGetHandler({ taskId: 't1' }, makeCtx('sess-caller'));
     expect(result.isError).toBeFalsy();
   });
 
@@ -533,7 +533,7 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
     mockTaskRepo.get.mockReturnValue(t);
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([]);
 
-    const result = await taskGetHandler({ task_id: 't1' }, makeCtx('sess-caller'));
+    const result = await taskGetHandler({ taskId: 't1' }, makeCtx('sess-caller'));
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).error).toMatch(/permission denied/);
   });
@@ -544,7 +544,7 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
     mockTaskRepo.get.mockReturnValue(t);
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([]); // 模拟 left_at
 
-    const result = await taskGetHandler({ task_id: 't1' }, makeCtx('sess-caller'));
+    const result = await taskGetHandler({ taskId: 't1' }, makeCtx('sess-caller'));
     expect(result.isError).toBe(true);
   });
 
@@ -560,7 +560,7 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
       return null;
     });
 
-    const result = await taskGetHandler({ task_id: 't1' }, makeCtx('sess-caller'));
+    const result = await taskGetHandler({ taskId: 't1' }, makeCtx('sess-caller'));
     expect(result.isError).toBe(true);
   });
 
@@ -573,19 +573,19 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
     setupCallerInTeam('sess-mate', 'team-A');
     mockSessions.set('sess-mate', { id: 'sess-mate', lifecycle: 'active' });
 
-    const result = await taskGetHandler({ task_id: 't1' }, makeCtx('sess-mate'));
+    const result = await taskGetHandler({ taskId: 't1' }, makeCtx('sess-mate'));
     expect(result.isError).toBeFalsy(); // teammate 仍可读（team-level 可见性是 per-active-member）
   });
 
   it('task 不存在 → isError', async () => {
     mockTaskRepo.get.mockReturnValue(null);
-    const result = await taskGetHandler({ task_id: 'nope' }, makeCtx('sess-caller'));
+    const result = await taskGetHandler({ taskId: 'nope' }, makeCtx('sess-caller'));
     expect(result.isError).toBe(true);
   });
 });
 
 describe('task_list — v024 D5 三态分流', () => {
-  it('不传 team_id_filter → getVisibleTaskScope 走 visibleScope OR 模式', async () => {
+  it('不传 teamIdFilter → getVisibleTaskScope 走 visibleScope OR 模式', async () => {
     setupCallerInTeam('sess-caller', 'team-A');
     mockTaskRepo.list.mockReturnValue([]);
 
@@ -631,34 +631,34 @@ describe('task_list — v024 D5 三态分流', () => {
     expect(callArgs.visibleScope.teamIds).not.toContain('team-archived');
   });
 
-  it('传具体 team_id → 校验 caller 在 team active + 用 teamIdFilter', async () => {
+  it('传具体 teamId → 校验 caller 在 team active + 用 teamIdFilter', async () => {
     setupCallerInTeam('sess-caller', 'team-A');
     mockTaskRepo.list.mockReturnValue([]);
 
-    await taskListHandler({ team_id_filter: 'team-A' }, makeCtx('sess-caller'));
+    await taskListHandler({ teamIdFilter: 'team-A' }, makeCtx('sess-caller'));
 
     const callArgs = mockTaskRepo.list.mock.calls[0][0];
     expect(callArgs.teamIdFilter).toBe('team-A');
     expect(callArgs.visibleScope).toBeUndefined();
   });
 
-  it('传具体 team_id + caller 不在 team → reject', async () => {
+  it('传具体 teamId + caller 不在 team → reject', async () => {
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([]);
 
     const result = await taskListHandler(
-      { team_id_filter: 'team-A' },
+      { teamIdFilter: 'team-A' },
       makeCtx('sess-caller'),
     );
 
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/not an active member of team_id/);
+    expect(JSON.parse(result.content[0].text).error).toMatch(/not an active member of teamId/);
     expect(mockTaskRepo.list).not.toHaveBeenCalled();
   });
 
   it("传 'null-personal' → ownerSessionIds=[caller] + teamIdFilter='null-personal'", async () => {
     mockTaskRepo.list.mockReturnValue([]);
 
-    await taskListHandler({ team_id_filter: 'null-personal' }, makeCtx('sess-caller'));
+    await taskListHandler({ teamIdFilter: 'null-personal' }, makeCtx('sess-caller'));
 
     const callArgs = mockTaskRepo.list.mock.calls[0][0];
     expect(callArgs.ownerSessionIds).toEqual(['sess-caller']);

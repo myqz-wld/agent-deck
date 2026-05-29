@@ -68,7 +68,7 @@ export function makeDeps(state: TestState): HandOffSessionDeps {
   };
 }
 
-/** 构造一个标准 plan 文件 fixture（in_progress + worktree_path + base_branch） */
+/** 构造一个标准 plan 文件 fixture（in_progress + worktreePath + baseBranch） */
 export function planContent(opts: {
   planId?: string;
   worktreePath?: string;
@@ -77,18 +77,18 @@ export function planContent(opts: {
   omitWorktreePath?: boolean;
   worktreePathRelative?: boolean;
 }): string {
-  const lines = ['---', `plan_id: ${opts.planId ?? 'test-plan'}`];
+  const lines = ['---', `planId: ${opts.planId ?? 'test-plan'}`];
   if (!opts.omitWorktreePath) {
     const wp = opts.worktreePathRelative
       ? '.claude/worktrees/test-plan'
       : opts.worktreePath ?? '/Users/test/repo/.claude/worktrees/test-plan';
-    lines.push(`worktree_path: ${wp}`);
+    lines.push(`worktreePath: ${wp}`);
   }
   if (opts.status !== undefined) {
     lines.push(`status: ${opts.status}`);
   }
   if (opts.baseBranch !== undefined) {
-    lines.push(`base_branch: ${opts.baseBranch}`);
+    lines.push(`baseBranch: ${opts.baseBranch}`);
   }
   lines.push('---', '', '# Plan body', '');
   return lines.join('\n');

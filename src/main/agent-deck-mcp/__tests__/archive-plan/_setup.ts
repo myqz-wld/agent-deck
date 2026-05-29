@@ -10,7 +10,7 @@
  * **plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 测试补全**(B-HIGH-4 mainRepo dirty
  * precheck 引入的 mock 队列偏移修法):makeDeps 增加可选 `mainRepoStatus` opts(默认 ''
  * = clean) + 透明拦截 `['status', '--porcelain']` 在 mainRepo cwd 下的调用,不消耗 gitMockPlan
- * 队列。让所有现有 test 的 gitMockPlan 数组结构不变(已经按 worktree-status 之后 = base_branch
+ * 队列。让所有现有 test 的 gitMockPlan 数组结构不变(已经按 worktree-status 之后 = baseBranch
  * verify 之后 ... 顺序写),只在测试故意要验 mainRepo dirty 时显式传 `mainRepoStatus`。
  *
  * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 1.2a 升级**:Phase 1.2a 抽
@@ -243,11 +243,11 @@ export function fixtureHappyPath(): {
     planFilePath,
     [
       '---',
-      `plan_id: ${planId}`,
+      `planId: ${planId}`,
       'created_at: 2026-05-13',
-      `worktree_path: ${worktreePath}`,
+      `worktreePath: ${worktreePath}`,
       'status: in_progress',
-      'base_commit: abc123',
+      'baseCommit: abc123',
       '---',
       '',
       '# Plan body content',

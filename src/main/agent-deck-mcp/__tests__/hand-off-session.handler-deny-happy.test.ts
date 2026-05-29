@@ -20,9 +20,9 @@ import { sessionRepo } from '@main/store/session-repo';
 import { makeState, makeDeps, planContent } from './hand-off-session/_setup';
 
 describe('handOffSessionHandler — deny external caller', () => {
-  it('caller_session_id = __external__ + transport=stdio → 拒绝', async () => {
+  it('callerSessionId = __external__ + transport=stdio → 拒绝', async () => {
     const args: HandOffSessionArgs = {
-      plan_id: 'whatever',
+      planId: 'whatever',
       adapter: 'claude-code',
     };
     const ctx: HandlerContext = {
@@ -58,7 +58,7 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     );
 
     // mock spawnSessionHandler 返回 ok({ sessionId: 'fake-sid', ... })
-    // CHANGELOG_97：team 字段 default null（K2 不再默认设 team_name）
+    // CHANGELOG_97：team 字段 default null（K2 不再默认设 teamName）
     // CHANGELOG_99：mock 返回 cwd 字段 = mainRepo（与 K2 改 default cwd = mainRepo 一致）
     const mockSpawn = vi.fn(
       async (_args: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => ({
@@ -88,9 +88,9 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     });
 
     const args: HandOffSessionArgs = {
-      plan_id: planId,
+      planId: planId,
       adapter: 'claude-code',
-      phase_label: 'H3 phase 4b',
+      phaseLabel: 'H3 phase 4b',
     };
     const ctx: HandlerContext = {
       caller: {
@@ -150,12 +150,12 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     // CHANGELOG_98 / Phase A5 / R2 反馈：archived 三态字段断言（'ok' / 'failed' / 'skipped'）
     expect(data.archived).toBe('ok');
 
-    // spawn 调用参数：cwd 默认 mainRepo（CHANGELOG_99；不再是 worktree_path），
-    // **default 不传 team_name**（CHANGELOG_97），prompt 是 cold-start
+    // spawn 调用参数：cwd 默认 mainRepo（CHANGELOG_99；不再是 worktreePath），
+    // **default 不传 teamName**（CHANGELOG_97），prompt 是 cold-start
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const spawnArgs = mockSpawn.mock.calls[0]![0];
     expect(spawnArgs.cwd).toBe('/Users/test/repo'); // CHANGELOG_99: mainRepo 不是 worktreePath
-    expect(spawnArgs.team_name).toBeUndefined();
+    expect(spawnArgs.teamName).toBeUndefined();
     expect(spawnArgs.adapter).toBe('claude-code');
     expect(spawnArgs.prompt).toBe(`按 ${planFilePath} 接力（Phase: H3 phase 4b）`);
 
@@ -166,7 +166,7 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('caller 显式 cwd / team_name → 透传给 spawn（不被 default 覆盖）', async () => {
+  it('caller 显式 cwd / teamName → 透传给 spawn（不被 default 覆盖）', async () => {
     const state = makeState();
     const planId = 'override-test';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -185,10 +185,10 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
     const args: HandOffSessionArgs = {
-      plan_id: planId,
+      planId: planId,
       adapter: 'claude-code',
       cwd: '/Users/test/some-other-cwd',
-      team_name: 'custom-team',
+      teamName: 'custom-team',
     };
     const ctx: HandlerContext = {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
@@ -227,8 +227,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const data = JSON.parse(result.content[0]!.text);
     const spawnArgs = mockSpawn.mock.calls[0]![0];
     expect(spawnArgs.cwd).toBe('/Users/test/some-other-cwd');
-    expect(spawnArgs.team_name).toBe('custom-team');
-    // CHANGELOG_97：显式传 team_name 时仍归档 caller（baton 语义与是否启用 team 通信关系正交）
+    expect(spawnArgs.teamName).toBe('custom-team');
+    // CHANGELOG_97：显式传 teamName 时仍归档 caller（baton 语义与是否启用 team 通信关系正交）
     expect(mockArchive).toHaveBeenCalledTimes(1);
     expect(data.archived).toBe('ok');
 
@@ -257,7 +257,7 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const args: HandOffSessionArgs = {
-      plan_id: planId,
+      planId: planId,
       adapter: 'claude-code',
     };
     const ctx: HandlerContext = {
@@ -332,7 +332,7 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const args: HandOffSessionArgs = {
-      plan_id: planId,
+      planId: planId,
       adapter: 'claude-code',
     };
     const ctx: HandlerContext = {
@@ -387,7 +387,7 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
     const args: HandOffSessionArgs = {
-      plan_id: planId,
+      planId: planId,
       adapter: 'claude-code',
     };
     const ctx: HandlerContext = {
@@ -420,7 +420,7 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const mockArchive = vi.fn(async (_sid: string) => undefined);
 
     const args: HandOffSessionArgs = {
-      plan_id: 'no-such-plan',
+      planId: 'no-such-plan',
       adapter: 'claude-code',
     };
     const ctx: HandlerContext = {
@@ -503,11 +503,11 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
       return null;
     });
 
-    // 带 team_name 的 baton（典型 baton 接管 lead 场景：plan 接力 + reviewer 续 team）
+    // 带 teamName 的 baton（典型 baton 接管 lead 场景：plan 接力 + reviewer 续 team）
     const args: HandOffSessionArgs = {
-      plan_id: planId,
+      planId: planId,
       adapter: 'claude-code',
-      team_name: 'team-X',
+      teamName: 'team-X',
     };
     const ctx: HandlerContext = {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
@@ -538,7 +538,7 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
 
 // ─── REVIEW_36 HIGH-2 + HIGH-3: sandbox 透传 + 外置 worktree cwd 降级 ──────────
 //
-// HIGH-2: hand_off_session schema 加 codex_sandbox / claude_code_sandbox 字段，
+// HIGH-2: hand_off_session schema 加 codexSandbox / claudeCodeSandbox 字段，
 //         caller 显式传时透传给 spawnArgs（验证修法关闭「caller 永远只能继承 lead」断链）
 // HIGH-3: 外置 worktree (worktreePath 不在 mainRepo subtree 内) → default cwd
 //         降级 worktreePath，让 SDK sandbox.allowWrite=[cwd, /tmp, ~/.cache] 自然
@@ -593,7 +593,7 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
     });
   }
 
-  it('HIGH-2: caller 显式传 claude_code_sandbox + codex_sandbox → 透传 spawnArgs', async () => {
+  it('HIGH-2: caller 显式传 claudeCodeSandbox + codexSandbox → 透传 spawnArgs', async () => {
     const state = makeState();
     const planId = 'sandbox-pass';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -604,10 +604,10 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
     const sessionRepoGetSpy = spyCallerRow();
 
     const args: HandOffSessionArgs = {
-      plan_id: planId,
+      planId: planId,
       adapter: 'claude-code',
-      claude_code_sandbox: 'strict',
-      codex_sandbox: 'read-only',
+      claudeCodeSandbox: 'strict',
+      codexSandbox: 'read-only',
     };
     const ctx: HandlerContext = {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
@@ -622,8 +622,8 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const spawnArgs = mockSpawn.mock.calls[0]![0];
-    expect(spawnArgs.claude_code_sandbox).toBe('strict');
-    expect(spawnArgs.codex_sandbox).toBe('read-only');
+    expect(spawnArgs.claudeCodeSandbox).toBe('strict');
+    expect(spawnArgs.codexSandbox).toBe('read-only');
 
     sessionRepoGetSpy.mockRestore();
   });
@@ -639,7 +639,7 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
     const sessionRepoGetSpy = spyCallerRow();
 
     const args: HandOffSessionArgs = {
-      plan_id: planId,
+      planId: planId,
       adapter: 'claude-code',
     };
     const ctx: HandlerContext = {
@@ -654,8 +654,8 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
     });
 
     const spawnArgs = mockSpawn.mock.calls[0]![0];
-    expect(spawnArgs.claude_code_sandbox).toBeUndefined();
-    expect(spawnArgs.codex_sandbox).toBeUndefined();
+    expect(spawnArgs.claudeCodeSandbox).toBeUndefined();
+    expect(spawnArgs.codexSandbox).toBeUndefined();
 
     sessionRepoGetSpy.mockRestore();
   });
@@ -675,7 +675,7 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
     const sessionRepoGetSpy = spyCallerRow();
 
     await handOffSessionHandler(
-      { plan_id: planId, adapter: 'claude-code' },
+      { planId: planId, adapter: 'claude-code' },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
         spawnSession: mockSpawn,
@@ -708,7 +708,7 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
     const sessionRepoGetSpy = spyCallerRow();
 
     await handOffSessionHandler(
-      { plan_id: planId, adapter: 'claude-code' },
+      { planId: planId, adapter: 'claude-code' },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
         spawnSession: mockSpawn,
@@ -744,7 +744,7 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
     const sessionRepoGetSpy = spyCallerRow();
 
     await handOffSessionHandler(
-      { plan_id: planId, adapter: 'claude-code' },
+      { planId: planId, adapter: 'claude-code' },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
         spawnSession: mockSpawn,
@@ -760,8 +760,8 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
     sessionRepoGetSpy.mockRestore();
   });
 
-  // REVIEW_36 R2 HIGH-A regression: hand_off_session(team_name=x) baton 不应关掉刚 spawn 的新 session
-  it('R2 HIGH-A: team_name 显式传 → shutdownTeammates 收到新 sid 在 excludeSessionIds 中', async () => {
+  // REVIEW_36 R2 HIGH-A regression: hand_off_session(teamName=x) baton 不应关掉刚 spawn 的新 session
+  it('R2 HIGH-A: teamName 显式传 → shutdownTeammates 收到新 sid 在 excludeSessionIds 中', async () => {
     const state = makeState();
     const planId = 'baton-exclude';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -794,9 +794,9 @@ describe('handOffSessionHandler — REVIEW_36 HIGH-2/3 sandbox + 外置 worktree
 
     await handOffSessionHandler(
       {
-        plan_id: planId,
+        planId: planId,
         adapter: 'claude-code',
-        team_name: 'custom-team',
+        teamName: 'custom-team',
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -892,7 +892,7 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
     const sessionRepoGetSpy = await spyCallerRow();
 
     const result = await handOffSessionHandler(
-      { plan_id: 'happy-helper', adapter: 'claude-code' },
+      { planId: 'happy-helper', adapter: 'claude-code' },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
         spawnSession: mockSpawn,
@@ -931,7 +931,7 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
     const sessionRepoGetSpy = await spyCallerRow();
 
     const result = await handOffSessionHandler(
-      { plan_id: 'not-lead', adapter: 'claude-code' },
+      { planId: 'not-lead', adapter: 'claude-code' },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
         spawnSession: mockSpawn,
@@ -962,7 +962,7 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
     const sessionRepoGetSpy = await spyCallerRow();
 
     const result = await handOffSessionHandler(
-      { plan_id: 'helper-crash', adapter: 'claude-code' },
+      { planId: 'helper-crash', adapter: 'claude-code' },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
         spawnSession: mockSpawn,
@@ -1014,7 +1014,7 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
     }));
 
     const result = await handOffSessionHandler(
-      { plan_id: 'spawn-fail', adapter: 'claude-code' },
+      { planId: 'spawn-fail', adapter: 'claude-code' },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
         spawnSession: mockSpawn,
@@ -1030,15 +1030,15 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
   });
 });
 
-// ─── hand-off-mcp-archive-opt-20260515: archive_caller opt-out ─────
+// ─── hand-off-mcp-archive-opt-20260515: archiveCaller opt-out ─────
 //
-// 范围: handOffSessionHandler 调 runBatonCleanup 时透传 args.archive_caller 字段。
-// caller 显式传 archive_caller=false 跳过 phase 2 archive caller(让 caller still active)。
+// 范围: handOffSessionHandler 调 runBatonCleanup 时透传 args.archiveCaller 字段。
+// caller 显式传 archiveCaller=false 跳过 phase 2 archive caller(让 caller still active)。
 // 注: plan hand-off-session-adopt-teammates-20260520 Phase 3 删 baton-cleanup phase 1 opt-out
-// 字段后,archive_caller 是 hand_off_session 唯一保留的 caller 显式 opt-out 字段。
-describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_caller opt-out', () => {
+// 字段后,archiveCaller 是 hand_off_session 唯一保留的 caller 显式 opt-out 字段。
+describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archiveCaller opt-out', () => {
   // helper:让 caller-sid 在 sessionRepo 表里有 row(让 archive caller 走 'ok' 路径,确认是
-  // archive_caller=false 跳的 archive,而非 row missing 误打 'failed' / 'skipped')
+  // archiveCaller=false 跳的 archive,而非 row missing 误打 'failed' / 'skipped')
   function spyCallerRow() {
     return vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) => {
       if (id === 'caller-sid') {
@@ -1091,7 +1091,7 @@ describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_ca
     );
   }
 
-  it('archive_caller=false → mockArchive 不调 + ok return.archived=skipped(caller still active)', async () => {
+  it('archiveCaller=false → mockArchive 不调 + ok return.archived=skipped(caller still active)', async () => {
     const { state, planFilePath } = makePlanFixtureLocal('archive-opt-out');
     const mockSpawn = makeOkSpawnLocal();
     const mockArchive = vi.fn(async (_sid: string) => undefined);
@@ -1104,9 +1104,9 @@ describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_ca
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 'archive-opt-out',
+        planId: 'archive-opt-out',
         adapter: 'claude-code',
-        archive_caller: false,
+        archiveCaller: false,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1121,9 +1121,9 @@ describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_ca
     const data = JSON.parse(result.content[0]!.text);
     // 关键: ok return.archived='skipped'(显式 caller 意图,与 external sentinel 同款值不同来源)
     expect(data.archived).toBe('skipped');
-    // 关键: archive 未被调 (archive_caller=false 短路 phase 2)
+    // 关键: archive 未被调 (archiveCaller=false 短路 phase 2)
     expect(mockArchive).not.toHaveBeenCalled();
-    // **CHANGELOG_169 F4 修法**(reviewer-codex MED finding): archive_caller=false 时 phase 1 也跳过
+    // **CHANGELOG_169 F4 修法**(reviewer-codex MED finding): archiveCaller=false 时 phase 1 也跳过
     // shutdown teammates 让 caller 继续观察 reviewer reply。修前 phase 1 仍跑(shutdown teammates),
     // 修后 phase 1 跳过(teammates 保留 alive),反映 schema 文案承诺。
     expect(mockShutdown).not.toHaveBeenCalled();
@@ -1137,7 +1137,7 @@ describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_ca
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('archive_caller=true (显式) → 同默认行为(mockArchive 仍调 + archived=ok)', async () => {
+  it('archiveCaller=true (显式) → 同默认行为(mockArchive 仍调 + archived=ok)', async () => {
     const { state } = makePlanFixtureLocal('archive-explicit-true');
     const mockSpawn = makeOkSpawnLocal();
     const mockArchive = vi.fn(async (_sid: string) => undefined);
@@ -1150,9 +1150,9 @@ describe('handOffSessionHandler — hand-off-mcp-archive-opt-20260515 archive_ca
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 'archive-explicit-true',
+        planId: 'archive-explicit-true',
         adapter: 'claude-code',
-        archive_caller: true,
+        archiveCaller: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {

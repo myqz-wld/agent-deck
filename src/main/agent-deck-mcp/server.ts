@@ -25,7 +25,7 @@ import { buildAgentDeckTools } from './tools';
  * 构造 in-process MCP server（B'3 在 sdk-bridge 内调，per-session 实例化）。
  *
  * `callerSessionIdProvider` lazy 工厂：每次 tool 调用时调一次拿当前 SDK session id，
- * 用于强制覆盖 args.caller_session_id（防 prompt 注入伪造身份）。
+ * 用于强制覆盖 args.callerSessionId（防 prompt 注入伪造身份）。
  *
  * **server name = 'agent-deck'**：对应 SDK pre-approve `mcp__agent-deck__*` 通配
  * （**注意 hyphen 不是 underscore**：MCP 协议 `mcp__<server-name>__<tool-name>` 中

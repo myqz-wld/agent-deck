@@ -1,16 +1,16 @@
 /**
  * plan codex-handoff-team-alignment-20260518 §P3 Step 3.9 测试矩阵 TC3-7 —
- * spawn handler 按 args.adapter 路由 agent_name 到正确 plugin root 的 D3 矩阵验证。
+ * spawn handler 按 args.adapter 路由 agentName 到正确 plugin root 的 D3 矩阵验证。
  *
  * 覆盖（plan §D3 4 种异构矩阵 + plan §P3 Step 3.9 TC3-7 严格对齐）：
- * - TC3 (D3 行 1): `{adapter:'claude-code', agent_name:'reviewer-claude'}` →
+ * - TC3 (D3 行 1): `{adapter:'claude-code', agentName:'reviewer-claude'}` →
  *   getBundledAssetContent 第 3 参数 = 'claude-code'
- * - TC4 (D3 行 4): `{adapter:'codex-cli', agent_name:'reviewer-claude'}` →
+ * - TC4 (D3 行 4): `{adapter:'codex-cli', agentName:'reviewer-claude'}` →
  *   getBundledAssetContent 第 3 参数 = 'codex-cli' (**关键 v4 修法**:codex × claude wrapper
  *   走 codex-config root,不是 claude-config; spawn.ts:102 透传 args.adapter)
- * - TC5 (D3 行 3): `{adapter:'codex-cli', agent_name:'reviewer-codex'}` →
+ * - TC5 (D3 行 3): `{adapter:'codex-cli', agentName:'reviewer-codex'}` →
  *   getBundledAssetContent 第 3 参数 = 'codex-cli'
- * - TC6 (D3 行 2): `{adapter:'claude-code', agent_name:'reviewer-codex'}` →
+ * - TC6 (D3 行 2): `{adapter:'claude-code', agentName:'reviewer-codex'}` →
  *   getBundledAssetContent 第 3 参数 = 'claude-code'
  *
  * 测试策略：mock getBundledAssetContent 用 spy 记录 (kind, name, adapter) 三参，验证
@@ -311,11 +311,11 @@ function parseToolResult(r: { isError?: boolean; content: Array<{ text: string }
   };
 }
 
-describe('spawn handler agent_name 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)', () => {
-  it('TC3 (D3 行 1): claude lead × claude wrapper teammate — adapter=claude-code, agent_name=reviewer-claude → 找 claude-config root', async () => {
+describe('spawn handler agentName 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)', () => {
+  it('TC3 (D3 行 1): claude lead × claude wrapper teammate — adapter=claude-code, agentName=reviewer-claude → 找 claude-config root', async () => {
     const r = await spawn({
       adapter: 'claude-code',
-      agent_name: 'reviewer-claude',
+      agentName: 'reviewer-claude',
       cwd: '/repo',
       prompt: 'review task',
     });
@@ -334,10 +334,10 @@ describe('spawn handler agent_name 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)
     expect(createSessionCalls[0].prompt).toContain('# claude-code/reviewer-claude body');
   });
 
-  it('TC4 (D3 行 4, v4 关键修正): codex lead × claude wrapper teammate — adapter=codex-cli, agent_name=reviewer-claude → 找 codex-config root (不是 claude-config)', async () => {
+  it('TC4 (D3 行 4, v4 关键修正): codex lead × claude wrapper teammate — adapter=codex-cli, agentName=reviewer-claude → 找 codex-config root (不是 claude-config)', async () => {
     const r = await spawn({
       adapter: 'codex-cli',
-      agent_name: 'reviewer-claude',
+      agentName: 'reviewer-claude',
       cwd: '/repo',
       prompt: 'review task',
     });
@@ -357,10 +357,10 @@ describe('spawn handler agent_name 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)
     expect(createSessionCalls[0].prompt).not.toContain('# claude-code/reviewer-claude body');
   });
 
-  it('TC5 (D3 行 3): codex lead × codex teammate — adapter=codex-cli, agent_name=reviewer-codex → 找 codex-config root', async () => {
+  it('TC5 (D3 行 3): codex lead × codex teammate — adapter=codex-cli, agentName=reviewer-codex → 找 codex-config root', async () => {
     const r = await spawn({
       adapter: 'codex-cli',
-      agent_name: 'reviewer-codex',
+      agentName: 'reviewer-codex',
       cwd: '/repo',
       prompt: 'review task',
     });
@@ -377,10 +377,10 @@ describe('spawn handler agent_name 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)
     expect(createSessionCalls[0].prompt).toContain('# codex-cli/reviewer-codex body');
   });
 
-  it('TC6 (D3 行 2): claude lead × codex wrapper teammate — adapter=claude-code, agent_name=reviewer-codex → 找 claude-config root', async () => {
+  it('TC6 (D3 行 2): claude lead × codex wrapper teammate — adapter=claude-code, agentName=reviewer-codex → 找 claude-config root', async () => {
     const r = await spawn({
       adapter: 'claude-code',
-      agent_name: 'reviewer-codex',
+      agentName: 'reviewer-codex',
       cwd: '/repo',
       prompt: 'review task',
     });

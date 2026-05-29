@@ -3,20 +3,20 @@
  * §Phase 1 Step 1.1c → plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 1.1c 落地）。
  *
  * **背景**：B-HIGH-1（REVIEW_46） — codex 提 + claude 反驳 mini-test 实证：旧版 HTTP global
- * token caller + stdio caller 都能通过 `args.caller_session_id='victim-active-sid'` 伪装
+ * token caller + stdio caller 都能通过 `args.callerSessionId='victim-active-sid'` 伪装
  * 任意活动会话身份调写工具（spawn_session / send_message / shutdown_session / archive_plan
  * / hand_off_session）。修法 (C) 两层守门：
  * 1. transport-http.ts `resolveCallerSidForReadOnly(extra)`：fallbackToGlobal=true 时 force
  *    sentinel；per-session authn 通过时 resolvedSid 真 sid；其他兜底 sentinel
  * 2. transport-stdio.ts `callerSessionIdOverride: () => EXTERNAL_CALLER_SENTINEL` 永远 sentinel
- * 3. tools/index.ts `makeCtx` `overridden ?? args.caller_session_id` — overridden 非 null
+ * 3. tools/index.ts `makeCtx` `overridden ?? args.callerSessionId` — overridden 非 null
  *    短路 args（不让伪造字段 escape）
  * 4. tools/helpers.ts `denyExternalIfNotAllowed`：sentinel + 写 tool 不允许 external → DENY；
  *    stdio + 非 sentinel callerSid（应该不可能，invariant violation 兜底）→ DENY
  *
  * **本测试 1:1 重写 reviewer-claude 反驳轮 mini-test 4 攻击向量**：
- * - (A) stdio + spoofed args.caller_session_id → 4 段防御链组合 → DENY
- * - (B) HTTP global token + spoofed args.caller_session_id → DENY
+ * - (A) stdio + spoofed args.callerSessionId → 4 段防御链组合 → DENY
+ * - (B) HTTP global token + spoofed args.callerSessionId → DENY
  * - (C) HTTP per-session authn + real resolvedSid（合法路径） → ALLOW（不 DENY；合法 caller）
  * - (D) HTTP fallbackToGlobal=true + 攻击者塞 resolvedSid='attacker-sid' → DENY
  * - in-process honest baseline → in-process closure 路径正常工作（覆盖 args sid）
@@ -53,7 +53,7 @@ import {
 /**
  * 模拟 tools/index.ts:108-109 `makeCtx` 短路逻辑（与生产 1:1）：
  * 1. `callerSessionIdOverride?.(extra) ?? null` 拿 override 结果
- * 2. `overridden ?? args.caller_session_id` 短路（overridden 非 null 短路 args）
+ * 2. `overridden ?? args.callerSessionId` 短路（overridden 非 null 短路 args）
  * 3. `makeCallerContext(callerSid, ..., transport)` 兜底缺省 sentinel
  */
 function simulateMakeCtx(opts: {
@@ -78,13 +78,13 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
   // ============================================================================
   // (A) stdio + spoofed sid → DENY
   // ============================================================================
-  it('(A) stdio client 调 spawn_session + args.caller_session_id="victim-active-sid" → DENY', () => {
+  it('(A) stdio client 调 spawn_session + args.callerSessionId="victim-active-sid" → DENY', () => {
     // 攻击场景：Cursor / Continue / 任何 stdio MCP client 调 spawn_session
-    // 时把 args.caller_session_id 填成已知活动会话 id 想 spoof victim 身份调写工具。
+    // 时把 args.callerSessionId 填成已知活动会话 id 想 spoof victim 身份调写工具。
     //
     // 防御链：
     // 1. transport-stdio.ts:85 override `() => SENTINEL` 永返 sentinel
-    // 2. makeCtx 短路 `overridden ?? args.caller_session_id` → SENTINEL
+    // 2. makeCtx 短路 `overridden ?? args.callerSessionId` → SENTINEL
     // 3. makeCallerContext → callerSessionId = SENTINEL
     // 4. denyExternalIfNotAllowed('spawn_session', ctx) → DENY（spawn_session 不允许 external）
     const ctx = simulateMakeCtx({
@@ -135,9 +135,9 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
   // ============================================================================
   // (B) HTTP global token + spoofed sid → DENY
   // ============================================================================
-  it('(B) HTTP global token caller + args.caller_session_id="victim-active-sid" → DENY', () => {
+  it('(B) HTTP global token caller + args.callerSessionId="victim-active-sid" → DENY', () => {
     // 攻击场景：CLI / 第三方 HTTP MCP client 用 mcpServerToken 全局 Bearer 调 spawn_session
-    // 时把 args.caller_session_id 填成已知活动会话 id 想 spoof victim。
+    // 时把 args.callerSessionId 填成已知活动会话 id 想 spoof victim。
     //
     // 防御链：
     // 1. HookServer.checkMcpAuth 反查 per-session map miss + match 全局 token → 写
@@ -197,8 +197,8 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
   });
 
   it('(C) HTTP per-session authn caller + args 塞 fake-injected-sid → resolvedSid 优先（防 prompt 注入）', () => {
-    // codex teammate 真正 caller_session_id 由 HookServer.checkMcpAuth 反查 token 解析；
-    // 即使 codex agent 在 args.caller_session_id 伪造 fake sid（如被 LLM prompt 注入），
+    // codex teammate 真正 callerSessionId 由 HookServer.checkMcpAuth 反查 token 解析；
+    // 即使 codex agent 在 args.callerSessionId 伪造 fake sid（如被 LLM prompt 注入），
     // lambda 返的 resolvedSid 优先 — `overridden ?? args` overridden=real sid 短路 args。
     const extra = {
       authInfo: { resolvedSid: 'real-sid', fallbackToGlobal: false } satisfies McpAuthInfo,
@@ -251,10 +251,10 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
   // ============================================================================
   // (E) in-process honest baseline → 正常路径（closure override 覆盖 args sid）
   // ============================================================================
-  it('(E) in-process honest baseline — closure override 覆盖 args.caller_session_id', () => {
+  it('(E) in-process honest baseline — closure override 覆盖 args.callerSessionId', () => {
     // baseline：in-process transport（应用内 SDK session 调 mcp tool）走 closure
     // override（getAgentDeckMcpServerForSession.ts：`callerSessionIdOverride = () => ownerSid`）
-    // 强制覆盖 caller_session_id，args 字段被忽略 — 即使 SDK Claude 自我 prompt 注入想伪造
+    // 强制覆盖 callerSessionId，args 字段被忽略 — 即使 SDK Claude 自我 prompt 注入想伪造
     // 别的 sid 也无效。
     const ownerSid = 'sdk-owner-sid-123';
     const inProcessOverride = () => ownerSid;

@@ -15,10 +15,10 @@
  * - 'skip': applyHandOffSkipPolicy 单 transaction 4 步 + per-id safeEmit task-changed deleted +
  *   DB throw fallback (status='failed' 不抛错给 caller)
  *
- * **archive_caller=false 优先级**: 三态都 skip,policy 字段透传 advisory (status='skipped')
+ * **archiveCaller=false 优先级**: 三态都 skip,policy 字段透传 advisory (status='skipped')
  *
  * **policy field required (R6 MED-2)**: 所有 5 个 assignment 路径
- * (skip ok / skip failed / clear-team / preserve-team / archive_caller=false) 都带 policy
+ * (skip ok / skip failed / clear-team / preserve-team / archiveCaller=false) 都带 policy
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
@@ -90,7 +90,7 @@ function makeMockSpawn(newSid = 'new-sid') {
 
 function makeBaseArgs(planId: string): HandOffSessionArgs {
   return {
-    plan_id: planId,
+    planId: planId,
     adapter: 'claude-code',
   };
 }
@@ -127,7 +127,7 @@ function parseResult(result: HandlerResult): {
 }
 
 describe('hand_off_session v024 / clear-team policy (default)', () => {
-  it('不传 team_task_policy → 默认 clear-team；reassignOwner({policy:"clear-team"}) + ok.taskReassignment={status:ok, count:N, policy:"clear-team"}', async () => {
+  it('不传 teamTaskPolicy → 默认 clear-team；reassignOwner({policy:"clear-team"}) + ok.taskReassignment={status:ok, count:N, policy:"clear-team"}', async () => {
     const state = makeBaseState('task-reassign-default-clear');
     const mockSpawn = makeMockSpawn('new-sid');
     const mockArchive = vi.fn(async (_sid: string) => undefined);
@@ -154,7 +154,7 @@ describe('hand_off_session v024 / clear-team policy (default)', () => {
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('显式 team_task_policy: "clear-team" → 同款行为 + policy 字段透传', async () => {
+  it('显式 teamTaskPolicy: "clear-team" → 同款行为 + policy 字段透传', async () => {
     const state = makeBaseState('task-reassign-explicit-clear');
     const mockSpawn = makeMockSpawn('new-sid');
     const mockReassign = vi.fn((_old: string, _new: string, _opts) => 2);
@@ -162,7 +162,7 @@ describe('hand_off_session v024 / clear-team policy (default)', () => {
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('task-reassign-explicit-clear'),
-      team_task_policy: 'clear-team',
+      teamTaskPolicy: 'clear-team',
     };
     const result = await handOffSessionHandler(args, ctx, {
       spawnSession: mockSpawn,
@@ -211,7 +211,7 @@ describe('hand_off_session v024 / preserve-team policy + safety 4 cases (Round 4
   it('case a: caller 有 team-B task + newSid 没接管 team-B → policyWarning="preserve-team-unadopted-teams" + unadoptedTeamIds=["team-B"]', async () => {
     // caller-as-teammate teams (not lead) → adopt fail reason='caller-not-lead-in-team'
     // findCallerOwnedTeamIds 返 ['team-B']（caller 拥有的 team-bound task 在 team-B）
-    // phase15Detail.adoptedTeamIds=[]（adopt 没接管任何 team — 默认 adopt_teammates=false）
+    // phase15Detail.adoptedTeamIds=[]（adopt 没接管任何 team — 默认 adoptTeammates=false）
     // spawnData.teamId=null（mockSpawn 返 null）
     // → 差集 = ['team-B']
     const state = makeBaseState('preserve-team-case-a');
@@ -222,8 +222,8 @@ describe('hand_off_session v024 / preserve-team policy + safety 4 cases (Round 4
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('preserve-team-case-a'),
-      team_task_policy: 'preserve-team',
-      // 不开 adopt_teammates → phase15Detail.adoptedTeamIds=[]
+      teamTaskPolicy: 'preserve-team',
+      // 不开 adoptTeammates → phase15Detail.adoptedTeamIds=[]
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -249,7 +249,7 @@ describe('hand_off_session v024 / preserve-team policy + safety 4 cases (Round 4
   });
 
   it('case b 锁住 firstTeam push 完整性: caller 仅有 team-X 的 task + adopt 通过 → policyWarning undefined（不能 false positive）', async () => {
-    // 没 adopt_teammates → phase15Detail.adoptedTeamIds 仍 [] —— 但 caller 也没有 team task
+    // 没 adoptTeammates → phase15Detail.adoptedTeamIds 仍 [] —— 但 caller 也没有 team task
     // findCallerOwnedTeamIds 返 []（caller 仅 personal）→ 差集 = [] → policyWarning undefined
     // (case b 实际锁住 case "caller 无 team task" 不会触发 warning)
     const state = makeBaseState('preserve-team-case-b-no-team-task');
@@ -260,7 +260,7 @@ describe('hand_off_session v024 / preserve-team policy + safety 4 cases (Round 4
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('preserve-team-case-b-no-team-task'),
-      team_task_policy: 'preserve-team',
+      teamTaskPolicy: 'preserve-team',
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -282,7 +282,7 @@ describe('hand_off_session v024 / preserve-team policy + safety 4 cases (Round 4
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('case c: caller 有 team-A task + 没 adopt_teammates → unadoptedTeamIds=["team-A"]', async () => {
+  it('case c: caller 有 team-A task + 没 adoptTeammates → unadoptedTeamIds=["team-A"]', async () => {
     const state = makeBaseState('preserve-team-case-c');
     const mockSpawn = makeMockSpawn('new-sid');
     const mockReassign = vi.fn((_old: string, _new: string, _opts) => 2);
@@ -291,8 +291,8 @@ describe('hand_off_session v024 / preserve-team policy + safety 4 cases (Round 4
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('preserve-team-case-c'),
-      team_task_policy: 'preserve-team',
-      // 不开 adopt_teammates
+      teamTaskPolicy: 'preserve-team',
+      // 不开 adoptTeammates
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -324,7 +324,7 @@ describe('hand_off_session v024 / preserve-team policy + safety 4 cases (Round 4
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('preserve-team-safety-throws'),
-      team_task_policy: 'preserve-team',
+      teamTaskPolicy: 'preserve-team',
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -360,7 +360,7 @@ describe('hand_off_session v024 / skip policy 真删 (Round 2 MED-1 + Round 4 ME
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('skip-policy-ok'),
-      team_task_policy: 'skip',
+      teamTaskPolicy: 'skip',
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -405,7 +405,7 @@ describe('hand_off_session v024 / skip policy 真删 (Round 2 MED-1 + Round 4 ME
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('skip-db-throw'),
-      team_task_policy: 'skip',
+      teamTaskPolicy: 'skip',
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -449,7 +449,7 @@ describe('hand_off_session v024 / skip policy 真删 (Round 2 MED-1 + Round 4 ME
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('skip-emit-listener-throws'),
-      team_task_policy: 'skip',
+      teamTaskPolicy: 'skip',
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -479,8 +479,8 @@ describe('hand_off_session v024 / skip policy 真删 (Round 2 MED-1 + Round 4 ME
   });
 });
 
-describe('hand_off_session v024 / archive_caller=false × 三态 policy 都 skip + policy advisory 透传', () => {
-  it('archive_caller=false + clear-team → skipped + reason="archive-caller-false" + policy="clear-team" advisory', async () => {
+describe('hand_off_session v024 / archiveCaller=false × 三态 policy 都 skip + policy advisory 透传', () => {
+  it('archiveCaller=false + clear-team → skipped + reason="archive-caller-false" + policy="clear-team" advisory', async () => {
     const state = makeBaseState('skip-archive-clear');
     const mockSpawn = makeMockSpawn('new-sid');
     const mockArchive = vi.fn(async () => undefined);
@@ -490,8 +490,8 @@ describe('hand_off_session v024 / archive_caller=false × 三态 policy 都 skip
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('skip-archive-clear'),
-      archive_caller: false,
-      team_task_policy: 'clear-team',
+      archiveCaller: false,
+      teamTaskPolicy: 'clear-team',
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -516,7 +516,7 @@ describe('hand_off_session v024 / archive_caller=false × 三态 policy 都 skip
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('archive_caller=false + preserve-team → skipped + policy="preserve-team" advisory', async () => {
+  it('archiveCaller=false + preserve-team → skipped + policy="preserve-team" advisory', async () => {
     const state = makeBaseState('skip-archive-preserve');
     const mockSpawn = makeMockSpawn('new-sid');
     const mockReassign = vi.fn();
@@ -524,8 +524,8 @@ describe('hand_off_session v024 / archive_caller=false × 三态 policy 都 skip
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('skip-archive-preserve'),
-      archive_caller: false,
-      team_task_policy: 'preserve-team',
+      archiveCaller: false,
+      teamTaskPolicy: 'preserve-team',
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -547,7 +547,7 @@ describe('hand_off_session v024 / archive_caller=false × 三态 policy 都 skip
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('archive_caller=false + skip → skipped + policy="skip" advisory（不调 applyHandOffSkipPolicy）', async () => {
+  it('archiveCaller=false + skip → skipped + policy="skip" advisory（不调 applyHandOffSkipPolicy）', async () => {
     const state = makeBaseState('skip-archive-skip');
     const mockSpawn = makeMockSpawn('new-sid');
     const mockApplySkip = vi.fn();
@@ -555,8 +555,8 @@ describe('hand_off_session v024 / archive_caller=false × 三态 policy 都 skip
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('skip-archive-skip'),
-      archive_caller: false,
-      team_task_policy: 'skip',
+      archiveCaller: false,
+      teamTaskPolicy: 'skip',
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -578,14 +578,14 @@ describe('hand_off_session v024 / archive_caller=false × 三态 policy 都 skip
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('archive_caller=false 默认（不传 team_task_policy）→ skipped + policy="clear-team" advisory（默认 policy）', async () => {
+  it('archiveCaller=false 默认（不传 teamTaskPolicy）→ skipped + policy="clear-team" advisory（默认 policy）', async () => {
     const state = makeBaseState('skip-archive-default-policy');
     const mockSpawn = makeMockSpawn('new-sid');
     const sessionRepoGetSpy = spyCallerRow();
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('skip-archive-default-policy'),
-      archive_caller: false,
+      archiveCaller: false,
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -640,7 +640,7 @@ describe('hand_off_session v024 / seam 默认值（reassignTaskOwner / applyHand
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('不传 applyHandOffSkipPolicy seam + team_task_policy="skip" → 走 taskRepo.applyHandOffSkipPolicy default,无 DB init 抛错 → status="failed" + policy="skip"', async () => {
+  it('不传 applyHandOffSkipPolicy seam + teamTaskPolicy="skip" → 走 taskRepo.applyHandOffSkipPolicy default,无 DB init 抛错 → status="failed" + policy="skip"', async () => {
     const state = makeBaseState('default-skip-seam');
     const mockSpawn = makeMockSpawn('new-sid');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -648,7 +648,7 @@ describe('hand_off_session v024 / seam 默认值（reassignTaskOwner / applyHand
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('default-skip-seam'),
-      team_task_policy: 'skip',
+      teamTaskPolicy: 'skip',
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -697,7 +697,7 @@ describe('hand_off_session v024 / 0 task 边界', () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Phase H Round 1 reviewer-codex MED-2 修法:补 preserve-team + adopt_teammates=true 真实
+// Phase H Round 1 reviewer-codex MED-2 修法:补 preserve-team + adoptTeammates=true 真实
 // adopt 路径覆盖 — case b 锁住 firstTeam push 完整性 + case d 锁住 firstTeam+rest 双 push +
 // adopted.adoptedTeamIds surface 断言。
 //
@@ -758,12 +758,12 @@ const activeLifecycleGetDefault = (sid: string) =>
     cwdReleaseMarker: null,
   }) as never;
 
-describe('hand_off_session v024 / preserve-team + adopt_teammates=true full surface (R1 codex MED-2 修法)', () => {
+describe('hand_off_session v024 / preserve-team + adoptTeammates=true full surface (R1 codex MED-2 修法)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('case b (R4 HIGH-1 firstTeam push 完整性 锁住): caller lead-A + task team_id=A + preserve-team + adopt=true → swapLead 成功 → no policyWarning + adopted.adoptedTeamIds=["team-A"]', async () => {
+  it('case b (R4 HIGH-1 firstTeam push 完整性 锁住): caller lead-A + task teamId=A + preserve-team + adopt=true → swapLead 成功 → no policyWarning + adopted.adoptedTeamIds=["team-A"]', async () => {
     const state = makeBaseState('preserve-team-case-b-adopt');
     const mockSpawn = makeMockSpawn('new-sid');
     const mockReassign = vi.fn((_old: string, _new: string, _opts) => 1);
@@ -784,8 +784,8 @@ describe('hand_off_session v024 / preserve-team + adopt_teammates=true full surf
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('preserve-team-case-b-adopt'),
-      team_task_policy: 'preserve-team',
-      adopt_teammates: true,
+      teamTaskPolicy: 'preserve-team',
+      adoptTeammates: true,
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -840,8 +840,8 @@ describe('hand_off_session v024 / preserve-team + adopt_teammates=true full surf
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('preserve-team-case-d-adopt'),
-      team_task_policy: 'preserve-team',
-      adopt_teammates: true,
+      teamTaskPolicy: 'preserve-team',
+      adoptTeammates: true,
     };
 
     const result = await handOffSessionHandler(args, ctx, {
@@ -873,7 +873,7 @@ describe('hand_off_session v024 / preserve-team + adopt_teammates=true full surf
     sessionRepoGetSpy.mockRestore();
   });
 
-  it('case e (R1 claude MED-1 修法 锁住 spawnData.teamId 非空 ∪ surface): args.team_name="team-shared" → spawnData.teamId="team-shared" → newSidActiveTeamIds = adoptedTeamIds ∪ {"team-shared"} → caller owned 包含 team-shared 不再差集', async () => {
+  it('case e (R1 claude MED-1 修法 锁住 spawnData.teamId 非空 ∪ surface): args.teamName="team-shared" → spawnData.teamId="team-shared" → newSidActiveTeamIds = adoptedTeamIds ∪ {"team-shared"} → caller owned 包含 team-shared 不再差集', async () => {
     const state = makeBaseState('preserve-team-case-e-spawn-teamid');
     // 关键:mockSpawn 返 teamId="team-shared" 非 null,触发 spawnData.teamId 进 newSidActiveTeamIds
     const mockSpawn = vi.fn(
@@ -903,7 +903,7 @@ describe('hand_off_session v024 / preserve-team + adopt_teammates=true full surf
     // caller owned distinct teams = {team-shared, team-unadopted}
     const mockFindOwnedTeamIds = vi.fn((_sid: string) => ['team-shared', 'team-unadopted']);
 
-    // caller 不在任何 lead team(adopt_teammates 不开,phase15Detail.adoptedTeamIds=[]),
+    // caller 不在任何 lead team(adoptTeammates 不开,phase15Detail.adoptedTeamIds=[]),
     // **CHANGELOG_169 F5 修法**: 不再用 spawnData.teamId 信任注入,改用 findActiveMembershipIn
     // 实测 newSpawnedSid 对每个 caller-owned team 的真 active membership。case e mock 让
     // team-shared 返 non-null member(spawn handler 已 addMember 成功),team-unadopted 返
@@ -927,9 +927,9 @@ describe('hand_off_session v024 / preserve-team + adopt_teammates=true full surf
 
     const args: HandOffSessionArgs = {
       ...makeBaseArgs('preserve-team-case-e-spawn-teamid'),
-      team_task_policy: 'preserve-team',
-      team_name: 'team-shared-name', // 触发 spawn handler 把 spawnData.teamId 设为 team-shared
-      // 不开 adopt_teammates → phase15Detail.adoptedTeamIds=[]
+      teamTaskPolicy: 'preserve-team',
+      teamName: 'team-shared-name', // 触发 spawn handler 把 spawnData.teamId 设为 team-shared
+      // 不开 adoptTeammates → phase15Detail.adoptedTeamIds=[]
     };
 
     const result = await handOffSessionHandler(args, ctx, {
