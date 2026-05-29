@@ -1,11 +1,11 @@
 /**
  * hand-off-session team-adopt-coordinator 子模块（plan deep-project-review-comprehensive-20260528
- * Step 4.1 拆分产物，从原 hand-off-session.ts 1306 LOC facade 抽出 adopt_teammates 路径
+ * Step 4.1 拆分产物，从原 hand-off-session.ts 1306 LOC facade 抽出 adoptTeammates 路径
  * 整套逻辑：互斥校验 + N5 fail-fast precheck + memberships 分类 + adoptedSnapshot 装配 +
  * cold-start prompt prepend + phase 1.5 swapLead loop + processSwappedTeam helper）。
  *
  * 责任：
- * - N2.c 互斥 invariant 双层防御（adopt_teammates 与 team_name 不可同传）
+ * - N2.c 互斥 invariant 双层防御（adoptTeammates 与 teamName 不可同传）
  * - allCallerMemberships 分类（callerLeadMemberships / teammateOnlyTeamIds / archivedTeamIds /
  *   notFoundTeamIds）
  * - N5 ≥1 lead 硬约束 fail-fast（caller 不是任何 active team 的 lead → err 不 spawn）
@@ -36,7 +36,7 @@ import log from '@main/utils/logger';
 const logger = log.scope('mcp-team-adopt');
 
 /**
- * adoptedSnapshot — adopt_teammates: true 路径下 cold-start prompt 装配 + phase 1.5
+ * adoptedSnapshot — adoptTeammates: true 路径下 cold-start prompt 装配 + phase 1.5
  * swapLead loop 共享 state。snapshot 在 prompt 装配阶段 frozen（Phase 6 phase 1.5
  * swapLead 改 team_member 表后再反查会丢失 caller=lead 状态）。
  */
@@ -100,24 +100,24 @@ export interface Phase15Detail {
  *   schema 守门只在 *.test.ts 显式调 ARGS_SCHEMA.safeParse 时生效
  *
  * 此处防御性 reject 让生产路径(in-process / HTTP / stdio transport)同传时立即 fail-fast,
- * 避免 args.team_name 透传给 spawn → spawn 内 batonRole='lead' 写新 sid 进 team_name 的
+ * 避免 args.teamName 透传给 spawn → spawn 内 batonRole='lead' 写新 sid 进 teamName 的
  * team → swapLead 之后形成 dual-lead window(N1 violation)/ silent prompt 数据丢失
- * (cold-start prompt 仅含 callerLeadMemberships,不含 args.team_name)。
+ * (cold-start prompt 仅含 callerLeadMemberships,不含 args.teamName)。
  */
 export function validateAdoptTeammatesArgs(args: HandOffSessionArgs): HandlerResult | null {
-  if (args.adopt_teammates === true && args.team_name !== undefined) {
+  if (args.adoptTeammates === true && args.teamName !== undefined) {
     return err(
-      'adopt_teammates 与 team_name 不可同传',
-      'adopt 路径自动过继 caller 同 team(走 swapLead transaction),与显式额外 team_name(spawn 内 addMember 写新 sid as lead)语义冲突 — 同传会形成 spawn 写 lead → swapLead demote caller 之间的 dual-lead window 破坏 N1 invariant,且 cold-start prompt 仅含 callerLeadMemberships 不含额外 team 形成 silent prompt 数据丢失。改用 adopt_teammates: false + 显式 team_name 走 default spawn,或 adopt_teammates: true 不传 team_name 走 adopt 自动过继。',
+      'adoptTeammates 与 teamName 不可同传',
+      'adopt 路径自动过继 caller 同 team(走 swapLead transaction),与显式额外 teamName(spawn 内 addMember 写新 sid as lead)语义冲突 — 同传会形成 spawn 写 lead → swapLead demote caller 之间的 dual-lead window 破坏 N1 invariant,且 cold-start prompt 仅含 callerLeadMemberships 不含额外 team 形成 silent prompt 数据丢失。改用 adoptTeammates: false + 显式 teamName 走 default spawn,或 adoptTeammates: true 不传 teamName 走 adopt 自动过继。',
     );
   }
   return null;
 }
 
 /**
- * adopt_teammates: true 路径 — 准备 adoptedSnapshot + 装配 cold-start prompt prepend block。
+ * adoptTeammates: true 路径 — 准备 adoptedSnapshot + 装配 cold-start prompt prepend block。
  *
- * adopt_teammates 不为 true 时直接 short-circuit 返 `{ adoptedSnapshot: null, coldStartPrompt }`,
+ * adoptTeammates 不为 true 时直接 short-circuit 返 `{ adoptedSnapshot: null, coldStartPrompt }`,
  * caller 用 resolved.coldStartPrompt 原值即可。
  *
  * **N5 ≥1 lead 硬约束 fail-fast**(plan §N5 + Round 4 NEW MED-A1):caller 在所有 team 都
@@ -159,7 +159,7 @@ export function prepareAdoptSnapshotAndPrompt(
 ):
   | { adoptedSnapshot: AdoptedSnapshot | null; coldStartPromptForSDK: string }
   | { isError: true; result: HandlerResult } {
-  if (args.adopt_teammates !== true) {
+  if (args.adoptTeammates !== true) {
     return { adoptedSnapshot: null, coldStartPromptForSDK: baseColdStartPrompt };
   }
 
@@ -198,8 +198,8 @@ export function prepareAdoptSnapshotAndPrompt(
     return {
       isError: true,
       result: err(
-        'adopt_teammates 要求 caller 至少在一个 active team 是 lead',
-        `caller_session_id ${callerSessionId} 当前在 ${allCallerMemberships.length} 个 active membership 内(含 archived team ghost ${archivedTeamIds.length} 条 + team row missing ghost ${notFoundTeamIds.length} 条),但 active team(team.archived_at IS NULL)中 role==='lead' 的 0 个(全 teammate / 全 archived team / team row missing / 无 lead membership)。adopt 语义本质是「lead 把 lead role 转给新 session」,caller 不是任何 active team 的 lead 时该语义无意义。改走 default baton(adopt_teammates: false / 不传)或先确认 caller 在某个 active team 是 lead 再重试。`,
+        'adoptTeammates 要求 caller 至少在一个 active team 是 lead',
+        `callerSessionId ${callerSessionId} 当前在 ${allCallerMemberships.length} 个 active membership 内(含 archived team ghost ${archivedTeamIds.length} 条 + team row missing ghost ${notFoundTeamIds.length} 条),但 active team(team.archived_at IS NULL)中 role==='lead' 的 0 个(全 teammate / 全 archived team / team row missing / 无 lead membership)。adopt 语义本质是「lead 把 lead role 转给新 session」,caller 不是任何 active team 的 lead 时该语义无意义。改走 default baton(adoptTeammates: false / 不传)或先确认 caller 在某个 active team 是 lead 再重试。`,
       ),
     };
   }
@@ -433,7 +433,7 @@ export async function runPhase15AdoptSwapLeadLoop(
       isError: true,
       result: err(
         `adopt firstTeam swap failed: ${firstSwapResult.reason}`,
-        `firstTeamId=${firstTeamId},swapLead 软失败 reason=${firstSwapResult.reason}。caller 状态零变化(swapLead transaction 内 Phase A.0 precheck 短路 demote 未执行 / throws 自动 ROLLBACK),新 session ${newSpawnedSid} 已 close 避免交出 stale firstTeam anchor 的孤儿。caller 防御路径:① 修复 firstTeam(用户重新 spawn 同 team teammate / 修复 DB / 排查 swapLead 撞 invariant)+ 重试 hand_off_session ② 改走 default baton(adopt_teammates: false / 不传)放弃 adopt 走 normal hand-off。`,
+        `firstTeamId=${firstTeamId},swapLead 软失败 reason=${firstSwapResult.reason}。caller 状态零变化(swapLead transaction 内 Phase A.0 precheck 短路 demote 未执行 / throws 自动 ROLLBACK),新 session ${newSpawnedSid} 已 close 避免交出 stale firstTeam anchor 的孤儿。caller 防御路径:① 修复 firstTeam(用户重新 spawn 同 team teammate / 修复 DB / 排查 swapLead 撞 invariant)+ 重试 hand_off_session ② 改走 default baton(adoptTeammates: false / 不传)放弃 adopt 走 normal hand-off。`,
       ),
     };
   }

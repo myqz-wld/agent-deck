@@ -138,7 +138,7 @@ describe('denyExternalIfNotAllowed — read-only tool 例外（EXTERNAL_CALLER_A
 
 describe('denyExternalIfNotAllowed — stdio invariant violation 兜底（B-HIGH-1 (C) 修法 (a)）', () => {
   it('stdio + 非 sentinel callerSid + 写 tool → DENY（invariant violation 兜底守门）', () => {
-    // 假设 transport-stdio.ts:85 漏改回 `callerSessionIdOverride: null`，攻击者 args.caller_session_id
+    // 假设 transport-stdio.ts:85 漏改回 `callerSessionIdOverride: null`，攻击者 args.callerSessionId
     // escape 进 makeCtx → callerSid='attacker-sid'。helpers 这层兜底守门：
     // transport='stdio' + callerSessionId 非 sentinel → invariant violation DENY + console.error
     const c = ctx('attacker-sid', 'stdio');

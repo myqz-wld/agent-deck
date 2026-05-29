@@ -86,7 +86,7 @@ describe('archivePlanImpl — happy path', () => {
     expect(state.gitCalls.length).toBe(12);
     expect(state.gitCalls[0]?.args).toEqual(['rev-parse', '--git-common-dir']);
     expect(state.gitCalls[0]?.cwd).toBe(input.worktreePath);
-    // REVIEW_33 H1：verify base_branch 存在 + checkout 到 base_branch
+    // REVIEW_33 H1：verify baseBranch 存在 + checkout 到 baseBranch
     // plan deep-review-batch-a1-b-fixes-20260519 §Phase 1 Step 1.2 修法 (B-HIGH-3): args 改为
     // ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] 让校验严格落 refs/heads/
     // namespace 不接受 SHA / tag / detached HEAD。
@@ -132,7 +132,7 @@ describe('archivePlanImpl — happy path', () => {
     expect(state.unlinks).toContain(`${expectedMainRepo}/.claude/plans/${input.planId}.md`);
   });
 
-  it('INDEX 已存在 + 不含本 plan_id → append 一行 4 列 row(plansIndexAction=appended)', async () => {
+  it('INDEX 已存在 + 不含本 planId → append 一行 4 列 row(plansIndexAction=appended)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     state.files.set(
@@ -172,10 +172,10 @@ describe('archivePlanImpl — happy path', () => {
     expect((indexWrite!.content.match(/# Plans 索引/g) ?? []).length).toBe(1);
   });
 
-  it('archive-plan-tool-ux-followup-20260515 (b)+(c): plan_id 已在 INDEX → smart update 4 列(plansIndexAction=updated,不再跳过)', async () => {
+  it('archive-plan-tool-ux-followup-20260515 (b)+(c): planId 已在 INDEX → smart update 4 列(plansIndexAction=updated,不再跳过)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
-    // caller 在 in_progress 阶段已经手工把 plan_id 行写进 INDEX(典型 stub 创建惯例)
+    // caller 在 in_progress 阶段已经手工把 planId 行写进 INDEX(典型 stub 创建惯例)
     state.files.set(
       indexPath,
       `# Plans 索引\n\n| 文件 | 状态 | 关联 changelog | 概要 |\n|------|------|---------------|------|\n| [${input.planId}.md](${input.planId}.md) | in_progress | — | stub:work in progress |\n`,
@@ -206,7 +206,7 @@ describe('archivePlanImpl — happy path', () => {
     // status 列被改成 'completed'(原 'in_progress' 替换)
     expect(indexWrites[0].content).toContain('| completed |');
     expect(indexWrites[0].content).not.toMatch(/\| in_progress \|/);
-    // 旧 description 列被替换为 freshFm(fixture 无 description → fallback 到 plan_id)
+    // 旧 description 列被替换为 freshFm(fixture 无 description → fallback 到 planId)
     // 反向守门:'stub:work in progress' 老 description 被覆盖
     expect(indexWrites[0].content).not.toContain('stub:work in progress');
     // 行格式必须 4 列 canonical
@@ -359,7 +359,7 @@ describe('archivePlanImpl — 预检失败分支', () => {
       planPath,
       [
         '---',
-        `plan_id: ${input.planId}`,
+        `planId: ${input.planId}`,
         'status: completed',
         '---',
         '',
@@ -382,7 +382,7 @@ describe('archivePlanImpl — 预检失败分支', () => {
       planPath,
       [
         '---',
-        `plan_id: ${input.planId}`,
+        `planId: ${input.planId}`,
         'status: abandoned',
         '---',
         '',
@@ -405,7 +405,7 @@ describe('archivePlanImpl — 预检失败分支', () => {
     // 缺 status 字段
     state.files.set(
       planPath,
-      ['---', `plan_id: ${input.planId}`, '---', '', 'body'].join('\n'),
+      ['---', `planId: ${input.planId}`, '---', '', 'body'].join('\n'),
     );
     const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
 
@@ -495,7 +495,7 @@ describe('archivePlanImpl — REVIEW_33 H10 worktreePath 存在性预检', () =>
 
     const result = await archivePlanImpl(input, deps);
     expect(_isArchivePlanError(result)).toBe(true);
-    expect((result as ArchivePlanError).error).toContain('worktree_path does not exist');
+    expect((result as ArchivePlanError).error).toContain('worktreePath does not exist');
     expect((result as ArchivePlanError).error).toContain(input.worktreePath);
     expect((result as ArchivePlanError).hint).toContain('manually removed');
     expect((result as ArchivePlanError).hint).toContain('§Step 4 manual cleanup');

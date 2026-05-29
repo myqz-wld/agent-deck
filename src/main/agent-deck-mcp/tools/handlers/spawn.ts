@@ -75,7 +75,7 @@ export const spawnSessionHandler = withMcpGuard(
     if ('isError' in guard) return guard;
     const { parentDepth, fanOutSlot } = guard;
 
-    // D1 (CHANGELOG_76): agent_name 非空 → 按 plugin agents registry resolve body file，
+    // D1 (CHANGELOG_76): agentName 非空 → 按 plugin agents registry resolve body file，
     // 把 body 作为 prompt 前缀注入。getBundledAssetContent('agent', name, adapter) 已 startup
     // 时 loadBundledAssets 预热缓存（main/index.ts:202 step 8.5），现读 fs 一次性拿到。
     // 找不到（拼写错 / 没安装该 plugin）→ 直接 err 防止静默落空 fallback。
@@ -83,7 +83,7 @@ export const spawnSessionHandler = withMcpGuard(
     // **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4 升级**：getBundledAssetContent
     // 新增 adapter 第 3 参数（plugin root narrow key），caller 必须从 args.adapter 透传。bundled
     // 资产仅 claude-code / codex-cli 双 root；adapter 不在该 list 时无 plugin 注入概念
-    // （agent_name 字段对它们无意义），此处提前 reject 避免传非法 adapter 给 bundled-assets。
+    // （agentName 字段对它们无意义），此处提前 reject 避免传非法 adapter 给 bundled-assets。
     //
     // REVIEW_31 Bug 1+2 修法：getBundledAssetContent 真实签名是 discriminated union
     // `{ok:true,content:string} | {ok:false,reason:string}`，老代码把它当 `string|null`
@@ -96,7 +96,7 @@ export const spawnSessionHandler = withMcpGuard(
     // 提取后通过 createSession({ model }) 透传给 SDK，让 reviewer teammate 真正按 frontmatter
     // 标的 model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
     let modelFromFrontmatter: string | undefined;
-    if (args.agent_name) {
+    if (args.agentName) {
       // **structurally unreachable today** —— zod enum (schemas.ts:20) 已 narrow args.adapter
       // 为 'claude-code' | 'codex-cli'，但作为 zod-enum drift defense 保留：future 加新 adapter
       // 到 enum 但忘 plugin-scope（claude-config / codex-config double-root）注册时，此 check
@@ -104,15 +104,15 @@ export const spawnSessionHandler = withMcpGuard(
       if (args.adapter !== 'claude-code' && args.adapter !== 'codex-cli') {
         fanOutSlot.release();
         return err(
-          `agent_name not supported for adapter "${args.adapter}"`,
-          'Plugin agents are scanned from claude-config / codex-config plugin roots only. Adapters outside this list have no agent_deck plugin scope; drop agent_name and pass full prompt directly.',
+          `agentName not supported for adapter "${args.adapter}"`,
+          'Plugin agents are scanned from claude-config / codex-config plugin roots only. Adapters outside this list have no agent_deck plugin scope; drop agentName and pass full prompt directly.',
         );
       }
-      const bodyResult = getBundledAssetContent('agent', args.agent_name, args.adapter);
+      const bodyResult = getBundledAssetContent('agent', args.agentName, args.adapter);
       if (!bodyResult.ok) {
         fanOutSlot.release();
         return err(
-          `agent body not found for agent_name="${args.agent_name}": ${bodyResult.reason}`,
+          `agent body not found for agentName="${args.agentName}": ${bodyResult.reason}`,
           'Plugin agent registry does not include this name. Check Header → 📚 资产库 → Agents tab for available bundled agent names (e.g. "reviewer-claude" / "reviewer-codex"). Spawn aborted to avoid silently falling back to caller prompt without the agent body.',
         );
       }
@@ -135,8 +135,8 @@ export const spawnSessionHandler = withMcpGuard(
       }
     }
 
-    // REVIEW_32 HIGH-5：spawn 默认继承 lead session 的 permission_mode / codex_sandbox /
-    // claude_code_sandbox。caller 显式传则覆盖；external caller (callerExists==false) 不继承
+    // REVIEW_32 HIGH-5：spawn 默认继承 lead session 的 permissionMode / codexSandbox /
+    // claudeCodeSandbox。caller 显式传则覆盖；external caller (callerExists==false) 不继承
     // 沿用 adapter 默认（避免外部 MCP client 误触发 lead 沙盒透传）。
     // 解决 reviewer-codex 报「外层 Claude Code sandbox 拦了 codex in-process app-server 初始化」
     // 的根因 —— spawn 出的 reviewer-codex teammate 没继承 lead 的 sandbox 设置，跑在受限沙盒里。
@@ -156,14 +156,14 @@ export const spawnSessionHandler = withMcpGuard(
     const leadRecord = sessionRepo.get(caller.callerSessionId);
     const callerExists = leadRecord !== null;
     const effectivePermissionMode =
-      args.permission_mode ?? leadRecord?.permissionMode ?? undefined;
-    const effectiveCodexSandbox = args.codex_sandbox ?? leadRecord?.codexSandbox ?? undefined;
+      args.permissionMode ?? leadRecord?.permissionMode ?? undefined;
+    const effectiveCodexSandbox = args.codexSandbox ?? leadRecord?.codexSandbox ?? undefined;
     const effectiveClaudeCodeSandbox =
-      args.claude_code_sandbox ?? leadRecord?.claudeCodeSandbox ?? undefined;
+      args.claudeCodeSandbox ?? leadRecord?.claudeCodeSandbox ?? undefined;
 
     // CHANGELOG_100 / plan mcp-tool-simplify-20260514 D9：把 team ensure 提到 createSession 前，
     // 这样 wire prefix + lead context block 注入 prompt 时能用真实 teamId（删 reply_message
-    // 后 teammate 必须知道 lead session_id + team_id 才能 send_message 回 lead）。
+    // 后 teammate 必须知道 lead sessionId + teamId 才能 send_message 回 lead）。
     // ensureByName 幂等：已存在 team 直接返回；后续 addMember 调用仍需 sid，留在 createSession
     // 之后做（team_member 表 sessionId FK 必须先存在）。
     //
@@ -173,21 +173,21 @@ export const spawnSessionHandler = withMcpGuard(
     // (existing active team 必有 ≥ 1 lead member)。catch 时再次 verify 防并发抢先 addMember。
     let teamIdEarly: string | null = null;
     let teamCreatedNow = false;
-    if (args.team_name) {
+    if (args.teamName) {
       try {
-        const team = agentDeckTeamRepo.ensureByName(args.team_name, { source: 'mcp' });
+        const team = agentDeckTeamRepo.ensureByName(args.teamName, { source: 'mcp' });
         teamIdEarly = team.id;
         teamCreatedNow = agentDeckTeamRepo.listAllMembers(team.id).length === 0;
       } catch (e) {
         // ensure 失败时 lead context block + placeholder 都不注入；後續 addMember 也跳過。
-        logger.warn(`[mcp spawn_session] team ensureByName failed for "${args.team_name}":`, e);
+        logger.warn(`[mcp spawn_session] team ensureByName failed for "${args.teamName}":`, e);
       }
     }
 
-    // REVIEW_31 Bug 4：teammate display name fallback 链 = args.display_name > args.agent_name > 不动。
+    // REVIEW_31 Bug 4：teammate display name fallback 链 = args.displayName > args.agentName > 不动。
     // teammateDisplayName 在多处被引用（wire prefix injection / setTitle / addMember / ok return），
     // 提前算供下面 lead context block 注入也能引用 lead displayName 对称信息。
-    const teammateDisplayName = args.display_name ?? args.agent_name ?? null;
+    const teammateDisplayName = args.displayName ?? args.agentName ?? null;
     const leadDisplayName = leadRecord?.title ?? null;
 
     // plan team-cohesion-fix-20260513 Phase B7 / CHANGELOG_100 D9 升级：spawn 路径
@@ -197,8 +197,8 @@ export const spawnSessionHandler = withMcpGuard(
     //
     // teammate 收到 prompt 后从顶部 regex `\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]` 提
     // messageId + senderSessionId 双锚点，调
-    // send_message({reply_to_message_id: msgId, session_id: senderSid, team_id, text}) 回复 lead。
-    // lead context block 显式列出 lead session_id / team_id / lead displayName + send_message 用法，
+    // send_message({replyToMessageId: msgId, sessionId: senderSid, teamId, text}) 回复 lead。
+    // lead context block 显式列出 lead sessionId / teamId / lead displayName + send_message 用法，
     // 让 teammate 不必依赖 wire prefix 解析也能 send_message（双层冗余防 prompt 长度截断 / 协议漂移）。
     //
     // 注入条件：teamIdEarly 真 + callerExists 真（有 team 且 caller 在 sessions 表）；任一缺
@@ -208,7 +208,7 @@ export const spawnSessionHandler = withMcpGuard(
     //
     // leadDisplayName fallback：优先取 leadRecord.title（用户 / cwd-basename 默认），缺失时用
     // `<leadAdapter>:<lead-sid 前 8>` 同 buildWireBody.resolveFromDisplayName 的 fallback 形态。
-    // 严格说 buildWireBody 优先取 team_member.display_name，但 spawn 路径下 lead addMember 在
+    // 严格说 buildWireBody 优先取 team_member.displayName，但 spawn 路径下 lead addMember 在
     // createSession 之后做（team_member sessionId FK 必须先存在），所以这里只能用 leadRecord.title。
     // teammate 看到的是 lead "first impression" 名字，与之后 send_message reply 看到的可能不同
     // —— 视觉上一致足以让用户识别"是同一个 lead"，无需强一致。
@@ -251,32 +251,32 @@ export const spawnSessionHandler = withMcpGuard(
       sid = await adapter.createSession(
         buildCreateSessionOptions(args.adapter, {
           cwd: args.cwd,
-          prompt: promptForSpawn, // wire 形式（spawn 路径下若有 team_name 则含 [msg <id>] prefix）
+          prompt: promptForSpawn, // wire 形式（spawn 路径下若有 teamName 则含 [msg <id>] prefix）
           // REVIEW_32 HIGH-5：使用 effective 字段（caller 显式 > lead 继承 > undefined）
           // REVIEW_37 P1-Phase2 (claude F4 LOW)：omitUndefined 收口 4 个简单 spread+ternary。
-          // 仅 extra_allow_write（length > 0 语义）+ model（falsy 语义）保留 inline ternary。
+          // 仅 extraAllowWrite（length > 0 语义）+ model（falsy 语义）保留 inline ternary。
           ...omitUndefined({
             permissionMode: effectivePermissionMode,
             codexSandbox: effectiveCodexSandbox,
             claudeCodeSandbox: effectiveClaudeCodeSandbox,
-            teamName: args.team_name,
+            teamName: args.teamName,
             // plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D7（信号源）：透传
-            // args.agent_name → options-builder narrowToCodexOpts 按 reviewer-* 路径触发 codex
+            // args.agentName → options-builder narrowToCodexOpts 按 reviewer-* 路径触发 codex
             // teammate spawn default spread（4 字段 unsafe default：codexSandbox /
             // approvalPolicy / networkAccessEnabled / additionalDirectories）。
             //
             // 仅 codex-cli adapter 消费；claude-code adapter narrow 时 filter 掉
             // （narrowToClaudeOpts 不引用 agentName 字段）。
-            agentName: args.agent_name,
+            agentName: args.agentName,
             // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2: hand_off_session
             // handler 装配的 HandOffMetadata 透传给 builder → adapter narrow → bridge
             // createSession → first user message emit spread 进 events.payload。
-            handOff: args.hand_off,
+            handOff: args.handOff,
           }),
           // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（仅 caller 显式传时）—
           // 留 inline 因要 length > 0 检查（空数组也跳过，omitUndefined 不处理 empty array）
-          ...(args.extra_allow_write !== undefined && args.extra_allow_write.length > 0
-            ? { extraAllowWrite: args.extra_allow_write }
+          ...(args.extraAllowWrite !== undefined && args.extraAllowWrite.length > 0
+            ? { extraAllowWrite: args.extraAllowWrite }
             : {}),
           // plan model-wiring-and-handoff-20260514 Step 3.1 + prompt-asset-review-optimize-20260527 修订：
           // 透传 frontmatter `model` 给 createSession。两 adapter runtime 都真生效:
@@ -291,10 +291,10 @@ export const spawnSessionHandler = withMcpGuard(
       //
       // **REVIEW_39 方案 1 + plan handoff-no-spawn-guards-20260526 §D1/§D6 (handOffMode 升级 batonMode)**:
       // handOffMode=true 路径**永不写 spawn-link**(spawnedBy=null + spawnDepth=0 默认值),
-      // 无论 archive_caller / adopt_teammates 值(plan §D1 + §D4 + §D6 — 故意推翻 REVIEW_46/47
-      // 当年「archive_caller=false 退化 normal spawn」修法,power-user 自负责任详 §D3)。
+      // 无论 archiveCaller / adoptTeammates 值(plan §D1 + §D4 + §D6 — 故意推翻 REVIEW_46/47
+      // 当年「archiveCaller=false 退化 normal spawn」修法,power-user 自负责任详 §D3)。
       //
-      // 修前 bug:hand_off_session archive_caller=false 路径走 normal spawn 写新 session.spawnedBy=
+      // 修前 bug:hand_off_session archiveCaller=false 路径走 normal spawn 写新 session.spawnedBy=
       // callerSid,SessionList Phase C(CHANGELOG_77)按 spawnedBy 树形分组渲染 ↳ teammate badge。
       // 数据层不应记录 spawn-link 假装是 spawn 派遣关系(hand-off-session.ts:21-39 jsdoc 设计
       // 意图明文「不是派出小弟干活」)。
@@ -305,9 +305,9 @@ export const spawnSessionHandler = withMcpGuard(
       //
       // 副作用范围(已逐一验证无影响):
       // - LineageSection.tsx 仅画 active team members(leftAt === null);hand-off default 不传
-      //   team_name → 新 session 不入 team → LineageSection 不渲染 → 无影响
-      // - list_sessions(spawned_by_filter) 救火针对 reviewer 派活路径,不针对 hand-off 路径
-      //   (default archive_caller=true 后 caller 已 archive 退出,无人捡 hand-off child)
+      //   teamName → 新 session 不入 team → LineageSection 不渲染 → 无影响
+      // - list_sessions(spawnedByFilter) 救火针对 reviewer 派活路径,不针对 hand-off 路径
+      //   (default archiveCaller=true 后 caller 已 archive 退出,无人捡 hand-off child)
       // - PendingTab 用 session.teams[] 不用 spawnedBy → 无影响
       // - SessionDetail / TeamDetail 不引用 spawnedBy → 无影响
       // - spawn-guards.ts depth check 用 callerSession.spawnDepth 不用新 session.spawnDepth
@@ -349,9 +349,9 @@ export const spawnSessionHandler = withMcpGuard(
       sessionManager.recordCreatedPermissionMode(sid, effectivePermissionMode);
     }
 
-    // REVIEW_31 Bug 4：teammate display name fallback 链 = args.display_name > args.agent_name > 不动。
-    // 只有 caller 显式给了一个有意义的名字（display_name / agent_name）才覆盖默认 cwd-basename
-    // title —— 否则保留默认行为（avoid 把 agent_name 也强加给那些 caller 没传 agent_name 的「裸 spawn」场景）。
+    // REVIEW_31 Bug 4：teammate display name fallback 链 = args.displayName > args.agentName > 不动。
+    // 只有 caller 显式给了一个有意义的名字（displayName / agentName）才覆盖默认 cwd-basename
+    // title —— 否则保留默认行为（avoid 把 agentName 也强加给那些 caller 没传 agentName 的「裸 spawn」场景）。
     // teamRepo.addMember 同步把 displayName 写进 team_member 表，wire format buildWireBody 优先取此字段
     // → wire prefix 从 fallback `claude-code:8023f956` 升级为「reviewer-claude」/「reviewer-codex」。
     // CHANGELOG_100 D9: teammateDisplayName 在前面已算（spawn 前注入 lead context block 也用到）；
@@ -365,11 +365,11 @@ export const spawnSessionHandler = withMcpGuard(
       }
     }
 
-    // R3.E0 ADR §5.1 amend：team_name 触发 universal team backend 把 caller 加为 lead +
-    // 把新 session 加为 teammate（不再写 sessions.team_name 列）。
+    // R3.E0 ADR §5.1 amend：teamName 触发 universal team backend 把 caller 加为 lead +
+    // 把新 session 加为 teammate（不再写 sessions.teamName 列）。
     // CHANGELOG_100 D9: ensureByName 已提到 createSession 之前（teamIdEarly），这里只做 addMember。
     let teamId: string | null = teamIdEarly;
-    if (args.team_name && teamIdEarly) {
+    if (args.teamName && teamIdEarly) {
       try {
         // caller 自动以 lead role 加入（如已 active 则保留）。caller 不在 sessions 表
         // （external __external__ 等）时跳过。
@@ -403,7 +403,7 @@ export const spawnSessionHandler = withMcpGuard(
           sessionId: sid,
           // REVIEW_37 R2 HIGH-1 修法（双方一致 ✅ 真 HIGH，异构强冗余验证）：默认 'teammate'，
           // 但 baton 路径（hand_off_session 传 batonRole='lead'）让新 session 接管 lead 角色。
-          // 修前：hand_off_session(team_name=X) 后 caller archive 触发 archiveTeamsIfOrphaned
+          // 修前：hand_off_session(teamName=X) 后 caller archive 触发 archiveTeamsIfOrphaned
           // → countActiveLeads=0 → team auto-archive → 残留 reviewer + 新 session 失去 active
           // shared team → send_message 走 no-shared-team reject。修后：新 session 是 lead →
           // archive caller 后 countActiveLeads=1 不触发 auto-archive → 残留 reviewer 通过新
@@ -426,10 +426,10 @@ export const spawnSessionHandler = withMcpGuard(
           kind: 'joined',
         });
         // plan team-cohesion-fix-20260513 Phase A Step A8：删 sessionManager.recordCreatedTeamName 调用
-        // —— universal team backend addMember 已是 SSOT，不再写老 sessions.team_name 列；
+        // —— universal team backend addMember 已是 SSOT，不再写老 sessions.teamName 列；
         // v012 migration 后此列彻底 drop。
       } catch (e) {
-        logger.warn(`[mcp spawn_session] addMember failed for "${args.team_name}":`, e);
+        logger.warn(`[mcp spawn_session] addMember failed for "${args.teamName}":`, e);
       }
     }
 
@@ -437,7 +437,7 @@ export const spawnSessionHandler = withMcpGuard(
     // spawn 仍把 prompt 给 adapter（SDK streaming 协议要求 first user message），同时在
     // messages 表 enqueue 一条 placeholder message（body=promptToUse, status='delivered'，
     // 不重复投递）作为 lead/teammate 对话链的锚点。lead 不再主动 poll reply（CHANGELOG_100 删旧 tool）；
-    // teammate first turn 完成后调 send_message({reply_to_message_id: spawnPromptMessageId, ...})
+    // teammate first turn 完成后调 send_message({replyToMessageId: spawnPromptMessageId, ...})
     // 回复，reply 自动 dispatch 进 lead conversation（J fix 删，CHANGELOG_100）。
     // 无 team / no-shared-team 时不入队 placeholder（spawn 没有可关联的对话场景）。
     // Phase B7：用上面预生成的 placeholderId（与 promptForSpawn 里的 [msg <id>] 一致），
@@ -475,11 +475,11 @@ export const spawnSessionHandler = withMcpGuard(
       adapter: args.adapter,
       cwd: args.cwd,
       teamId,
-      teamName: args.team_name ?? null,
-      // REVIEW_32 HIGH-4：spawn-time agent_name / display_name 回传给 caller
+      teamName: args.teamName ?? null,
+      // REVIEW_32 HIGH-4：spawn-time agentName / displayName 回传给 caller
       // （deep-review SKILL 里 lead 起多组并发 review 时按这两字段区分 reviewer 实例，
       // 不再需要 list_sessions / get_session 反查）。
-      agentName: args.agent_name ?? null,
+      agentName: args.agentName ?? null,
       displayName: teammateDisplayName,
       // **[caller-scoped #4/4]** spawnDepth fallback (grep anchor 详 L148-160 callerExists 定义)
       spawnDepth: created?.spawnDepth ?? (callerExists && shouldWriteSpawnLink({ handOffMode: opts?.handOffMode }) ? parentDepth + 1 : 0),

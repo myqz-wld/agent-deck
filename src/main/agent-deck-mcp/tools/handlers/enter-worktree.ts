@@ -8,7 +8,7 @@
  * electron.app load(让 impl test 走 deps inject 时不撞 electron)。
  *
  * **Deny external caller**（types.ts: EXTERNAL_CALLER_ALLOWED.enter_worktree = false）：
- * 写 git + setCwdReleaseMarker 是 per-session 状态写,需要真实 caller_session_id;external
+ * 写 git + setCwdReleaseMarker 是 per-session 状态写,需要真实 callerSessionId;external
  * stdio client 没真 caller sid 无法 setMarker → 直接 deny。
  *
  * 用途:让 codex / 跨 adapter caller 调 enter_worktree 进 worktree 时,handler setMarker 让
@@ -65,12 +65,12 @@ export const enterWorktreeHandler = withMcpGuard(
     };
     const result = await enterWorktreeImpl(
       {
-        planId: args.plan_id,
+        planId: args.planId,
         callerSessionId: ctx.caller.callerSessionId,
-        worktreePathOverride: args.worktree_path,
-        baseCommitOverride: args.base_commit,
-        baseBranchOverride: args.base_branch,
-        planFilePathOverride: args.plan_file_path,
+        worktreePathOverride: args.worktreePath,
+        baseCommitOverride: args.baseCommit,
+        baseBranchOverride: args.baseBranch,
+        planFilePathOverride: args.planFilePath,
       },
       mergedDeps,
     );

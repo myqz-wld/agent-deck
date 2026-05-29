@@ -52,11 +52,11 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     // 等 final state。这是 ff-merge 之后 main working tree 应该看到的内容。
     const postFfMergeContent = [
       '---',
-      `plan_id: ${input.planId}`,
+      `planId: ${input.planId}`,
       'created_at: 2026-05-13',
-      `worktree_path: ${input.worktreePath}`,
+      `worktreePath: ${input.worktreePath}`,
       'status: in_progress',
-      'base_commit: abc123',
+      'baseCommit: abc123',
       '---',
       '',
       '# Plan body content',
@@ -168,9 +168,9 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(archivedWrite!.content).toContain('status: "completed"');
     expect(archivedWrite!.content).toContain('final_commit: "finalhash456"');
     expect(archivedWrite!.content).toContain('completed_at: "2026-05-15"');
-    // 原 fm 字段(如 plan_id / worktree_path / base_commit)仍透传(freshFm 与 step 6 fm 一致)
-    expect(archivedWrite!.content).toContain('plan_id: "mcp-bug-fix-20260513"');
-    expect(archivedWrite!.content).toContain('base_commit: "abc123"');
+    // 原 fm 字段(如 planId / worktreePath / baseCommit)仍透传(freshFm 与 step 6 fm 一致)
+    expect(archivedWrite!.content).toContain('planId: "mcp-bug-fix-20260513"');
+    expect(archivedWrite!.content).toContain('baseCommit: "abc123"');
   });
 
   it('post-ff-merge fresh re-read 失败(plan 文件被外部并发删除)→ postFfMergeErr [post-ff-merge:reread-plan-after-ffmerge] + 通用 hint', async () => {
@@ -258,11 +258,11 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     const freshDescription = '完整收尾概要-post-ff-merge-fresh-description';
     const postFfMergeContent = [
       '---',
-      `plan_id: ${input.planId}`,
+      `planId: ${input.planId}`,
       'created_at: 2026-05-13',
-      `worktree_path: ${input.worktreePath}`,
+      `worktreePath: ${input.worktreePath}`,
       'status: in_progress',
-      'base_commit: abc123',
+      'baseCommit: abc123',
       `description: ${freshDescription}`,
       '---',
       '',
@@ -305,14 +305,14 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(archivedWrite!.content).toContain(`description: "${freshDescription}"`);
 
     // 2. **关键 assertion**:ref/plans/INDEX.md 必须用 freshFm.description(不能 fallback 到
-    // freshFm.plan_id 或 input.planId,这是 fix 前的 buggy 行为 — fm.description undefined
-    // 时 fallback 链落到 fm.plan_id == input.planId)
+    // freshFm.planId 或 input.planId,这是 fix 前的 buggy 行为 — fm.description undefined
+    // 时 fallback 链落到 fm.planId == input.planId)
     const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
     const indexWrites = state.writes.filter((w) => w.path === indexPath);
     expect(indexWrites.length).toBeGreaterThan(0);
     const lastIndexWrite = indexWrites[indexWrites.length - 1];
     expect(lastIndexWrite.content).toContain(freshDescription);
-    // 反向守门:INDEX.md 不应该用 plan_id fallback(若 fix 前 buggy,summary 会落到 plan_id)
+    // 反向守门:INDEX.md 不应该用 planId fallback(若 fix 前 buggy,summary 会落到 planId)
     // 验证手段:archive-plan-tool-ux-followup-20260515 (c) 4 列 row format:
     // `| [<id>.md](<id>.md) | completed | <changelog or "—"> | <description> |`
     // description 在第 4 列;regex 用 4 个 ` \| ` 分隔的 cells 锚定。
@@ -332,11 +332,11 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     // (Scenario A;reviewer-claude 反驳轮列举 3 现实场景之一)
     const postFfMergeContent = [
       '---',
-      `plan_id: ${input.planId}`,
+      `planId: ${input.planId}`,
       'created_at: 2026-05-13',
-      `worktree_path: ${input.worktreePath}`,
+      `worktreePath: ${input.worktreePath}`,
       'status: abandoned', // ← 关键:fresh status 漂移到 abandoned
-      'base_commit: abc123',
+      'baseCommit: abc123',
       '---',
       '',
       '# Plan body content',

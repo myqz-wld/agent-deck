@@ -3,7 +3,7 @@
  * P2 Step 2.1 / D1 ADR）。
  *
  * 解决问题（HIGH-1）：codex teammate session 通过 HTTP MCP transport 调 agent-deck tool
- * 时，应用层需要从 Bearer token 反查出真正的 caller_session_id（而不是依赖 codex agent
+ * 时，应用层需要从 Bearer token 反查出真正的 callerSessionId（而不是依赖 codex agent
  * 在 args 里自己填，prompt 注入风险）。每个 codex live session 对应一个独立 token，
  * 主进程在 spawn 时 allocate(sid) 拿到 token → 注入 codex 子进程 envOverride
  * `{AGENT_DECK_MCP_TOKEN: <session-token>}` → codex CLI MCP client 读 env 拼 Authorization

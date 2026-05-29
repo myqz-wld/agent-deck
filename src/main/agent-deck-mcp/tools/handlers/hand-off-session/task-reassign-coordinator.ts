@@ -1,11 +1,11 @@
 /**
  * hand-off-session task-reassign-coordinator 子模块（plan deep-project-review-comprehensive-20260528
  * Step 4.1 拆分产物，从原 hand-off-session.ts 1306 LOC facade 抽出 task ownership 三态分流
- * 逻辑：archive_caller=false skip / spawn-no-sid skip / 'skip' / 'clear-team' / 'preserve-team'）。
+ * 逻辑：archiveCaller=false skip / spawn-no-sid skip / 'skip' / 'clear-team' / 'preserve-team'）。
  *
  * 责任：
  * - taskPolicy 三态分流（plan task-team-id-restore-20260525 v024 §Step D2）
- * - archive_caller=false 优先级（F1 修法 + Round 7 LOW-1 codex 补全 policy 字段）
+ * - archiveCaller=false 优先级（F1 修法 + Round 7 LOW-1 codex 补全 policy 字段）
  * - newSpawnedSid null 兜底（spawn handler ok return 不带 sessionId — type-safe 兜底）
  * - 'skip' 分支（applyHandOffSkipPolicy 单 transaction 4 步原子化 + safeEmit per-id）
  * - 'clear-team' / 'preserve-team' 分支（reassignOwner SQL 分流）
@@ -37,8 +37,8 @@ const logger = log.scope('mcp-task-reassign');
  * 后 → archive caller 之前。无 SQL 错误的成功路径上不留窗口;reassignOwner 抛错时
  * baton 仍继续,由 LifecycleScheduler.historyRetentionDays TTL GC 作 best-effort 兜底。
  *
- * **F1 修法**(deep-review Round 1 双方独立 ✅):仅 `args.archive_caller !== false`
- * 时自动过继。archive_caller=false 路径(caller 仍 active,典型场景:lead 起多个
+ * **F1 修法**(deep-review Round 1 双方独立 ✅):仅 `args.archiveCaller !== false`
+ * 时自动过继。archiveCaller=false 路径(caller 仍 active,典型场景:lead 起多个
  * hand-off 子任务并行做事 / debug 工具想观察新 session)→ 跳过过继,caller 仍是自己
  * task owner 继续拥有写权限(走 isCallerAuthorizedToWrite caller==owner 特例)。
  * 修前所有路径无条件过继,撞「caller 仍 active 但 task ownership 已转给新 sid,
@@ -51,8 +51,8 @@ const logger = log.scope('mcp-task-reassign');
  * 接力,但 caller 通过 ok return 字段看到失败原因,不像修前 console.warn 静默吞错。
  *
  * **v024 plan §Step D2 + R6 MED-2 + R7 LOW-2 修法**:`taskPolicy` const 在 reassign 段
- * 顶部声明(在 args.archive_caller / args.team_task_policy 三分支判断之前),让 5 个
- * assignment 路径(skip ok / skip failed / clear-team / preserve-team / archive_caller=false /
+ * 顶部声明(在 args.archiveCaller / args.teamTaskPolicy 三分支判断之前),让 5 个
+ * assignment 路径(skip ok / skip failed / clear-team / preserve-team / archiveCaller=false /
  * spawn-no-sid)共用同一外层 scope,所有路径都带 `policy: taskPolicy` field 满足
  * schemas.ts HandOffSessionResult.taskReassignment shape 契约。
  *
@@ -63,15 +63,15 @@ const logger = log.scope('mcp-task-reassign');
  *   现有 pattern);DB throw → outer catch → status='failed' + error,不抛错给 caller
  *   (spawn/adopt 已 commit 不回滚 — v023 §不变量 12 同款 sane fallback)
  * - `taskPolicy === 'clear-team'` (default): reassignOwner({policy:'clear-team'}) UPDATE owner +
- *   team_id=NULL(过继 ownership 同时清 team_id 变 personal,保最大兼容性)
+ *   teamId=NULL(过继 ownership 同时清 teamId 变 personal,保最大兼容性)
  * - `taskPolicy === 'preserve-team'`: reassignOwner({policy:'preserve-team'}) UPDATE owner 不动
- *   team_id;**preserve-team safety 升级**(Round 4 HIGH-1):reassign 后 query caller owned
- *   distinct team_id(taskRepo.findOwnedDistinctTeamIds)与 newSidActiveTeamIds(phase15Detail.
+ *   teamId;**preserve-team safety 升级**(Round 4 HIGH-1):reassign 后 query caller owned
+ *   distinct teamId(taskRepo.findOwnedDistinctTeamIds)与 newSidActiveTeamIds(phase15Detail.
  *   adoptedTeamIds ∪ spawnData.teamId)比对差集 → policyWarning='preserve-team-unadopted-teams'
  *   + unadoptedTeamIds 字段(handler 不 hard reject,soft warning 让 caller 知情决定 retry / 接受降级)
  *
- * **archive_caller=false 优先级**(F1 修法 + Round 7 LOW-1 codex 补全 policy 字段):caller 显式
- * archive_caller=false 时**先于 reassign skip 整个过继逻辑**,policy 字段仍透传 advisory(caller
+ * **archiveCaller=false 优先级**(F1 修法 + Round 7 LOW-1 codex 补全 policy 字段):caller 显式
+ * archiveCaller=false 时**先于 reassign skip 整个过继逻辑**,policy 字段仍透传 advisory(caller
  * 知道传了什么但实际未执行)— `taskReassignment={status:'skipped', reason:'archive-caller-false',
  * policy: taskPolicy}`。
  *
@@ -86,7 +86,7 @@ export function runTaskReassignment(
   handlerDeps: HandOffSessionHandlerDeps | undefined,
 ): HandOffSessionResult['taskReassignment'] {
   const taskPolicy: 'clear-team' | 'preserve-team' | 'skip' =
-    args.team_task_policy ?? 'clear-team';
+    args.teamTaskPolicy ?? 'clear-team';
 
   if (!newSpawnedSid) {
     logger.warn(
@@ -95,8 +95,8 @@ export function runTaskReassignment(
     return { status: 'skipped', reason: 'spawn-no-sid', policy: taskPolicy };
   }
 
-  if (args.archive_caller === false) {
-    // F1 修法 + Round 7 LOW-1 修法:archive_caller=false 路径跳过过继,caller 仍 own 自己 task。
+  if (args.archiveCaller === false) {
+    // F1 修法 + Round 7 LOW-1 修法:archiveCaller=false 路径跳过过继,caller 仍 own 自己 task。
     // policy advisory 透传(caller 知道传了什么但实际未执行 policy)。
     return {
       status: 'skipped',
@@ -121,7 +121,7 @@ export function runTaskReassignment(
 
 /**
  * 'skip' 分支 — 走 applyHandOffSkipPolicy 单 transaction 4 步原子化(plan §Step B1 + D2):
- * SELECT 团 task ids → chunked DELETE → blocks/blocked_by cleanup → reassign personal。
+ * SELECT 团 task ids → chunked DELETE → blocks/blockedBy cleanup → reassign personal。
  *
  * **嵌套层级语义**(Round 5 MED-4 显式锁住):
  * - safeEmit loop 嵌入 outer try 内(commit 后 result 可用),catch 分支自然跳过 emit(result 不存在)
@@ -158,14 +158,14 @@ function runSkipPolicy(
         });
       } catch (e) {
         logger.warn(
-          `[mcp hand_off_session] team_task_policy='skip' emit task-changed deleted ${id} failed (continuing):`,
+          `[mcp hand_off_session] teamTaskPolicy='skip' emit task-changed deleted ${id} failed (continuing):`,
           e,
         );
       }
     }
     if (result.deletedTeamTaskIds.length > 0 || result.reassignedPersonalCount > 0) {
       logger.info(
-        `[mcp hand_off_session] team_task_policy='skip': ${result.deletedTeamTaskIds.length} team task(s) deleted + ${result.reassignedPersonalCount} personal task(s) reassigned to ${newSpawnedSid}`,
+        `[mcp hand_off_session] teamTaskPolicy='skip': ${result.deletedTeamTaskIds.length} team task(s) deleted + ${result.reassignedPersonalCount} personal task(s) reassigned to ${newSpawnedSid}`,
       );
     }
     return {
@@ -190,7 +190,7 @@ function runSkipPolicy(
 
 /**
  * 'clear-team' (default) | 'preserve-team' 分支:走 reassignOwner 接口
- * (UPDATE owner ± team_id=NULL,policy 由 repo 层 SQL 分流)。
+ * (UPDATE owner ± teamId=NULL,policy 由 repo 层 SQL 分流)。
  *
  * **preserve-team safety 算法**(Round 4 HIGH-1 + Round 4 MED-1 + Round 5 LOW-2):
  * 1. **reassign 之前** snapshot callerOwnedTeamIds(reassign 之后 owner 已被改成 newSid,
@@ -219,7 +219,7 @@ function runReassignOwnerPolicy(
       taskRepo.reassignOwner(oldSid, newSid, opts));
 
   // **reassign 之前** snapshot callerOwnedTeamIds(仅 preserve-team 路径用,clear-team 路径
-  // 不需要 — clear-team 把 team_id 清成 NULL,所有 caller team task 都变 personal,policyWarning
+  // 不需要 — clear-team 把 teamId 清成 NULL,所有 caller team task 都变 personal,policyWarning
   // 无意义)。
   let callerOwnedTeamIdsBeforeReassign: string[] = [];
   if (taskPolicy === 'preserve-team') {
@@ -244,7 +244,7 @@ function runReassignOwnerPolicy(
     });
     if (reassignedCount > 0) {
       logger.info(
-        `[mcp hand_off_session] team_task_policy='${taskPolicy}': ${reassignedCount} task(s) reassigned to ${newSpawnedSid}`,
+        `[mcp hand_off_session] teamTaskPolicy='${taskPolicy}': ${reassignedCount} task(s) reassigned to ${newSpawnedSid}`,
       );
     }
 
@@ -285,7 +285,7 @@ function runReassignOwnerPolicy(
         policyWarning = 'preserve-team-unadopted-teams';
         unadoptedTeamIds = diff;
         logger.warn(
-          `[mcp hand_off_session] preserve-team policyWarning='preserve-team-unadopted-teams': caller owned tasks bound to teams [${diff.join(', ')}] but newSid ${newSpawnedSid} 不是这些 team 的 active member → newSid 撞 D3 写权限 reject(caller 自负责任 — adopt_teammates: true 让 newSid 接管 team 当 lead,或接受降级让 task 处于 unreachable 状态)`,
+          `[mcp hand_off_session] preserve-team policyWarning='preserve-team-unadopted-teams': caller owned tasks bound to teams [${diff.join(', ')}] but newSid ${newSpawnedSid} 不是这些 team 的 active member → newSid 撞 D3 写权限 reject(caller 自负责任 — adoptTeammates: true 让 newSid 接管 team 当 lead,或接受降级让 task 处于 unreachable 状态)`,
         );
       }
     }
@@ -299,7 +299,7 @@ function runReassignOwnerPolicy(
     };
   } catch (e) {
     logger.warn(
-      `[mcp hand_off_session] task ownership reassign (policy='${taskPolicy}') failed (continuing — task reassignment is nice-to-have, hand_off baton still ok; LifecycleScheduler TTL GC will best-effort cleanup):`,
+      `[mcp hand_off_session] task ownership reassign (policy='${taskPolicy}') failed (continuing — task reassignment is nice-to-have, handOff baton still ok; LifecycleScheduler TTL GC will best-effort cleanup):`,
       e,
     );
     return {

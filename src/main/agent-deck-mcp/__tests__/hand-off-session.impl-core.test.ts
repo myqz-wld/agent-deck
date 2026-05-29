@@ -3,9 +3,9 @@
  *
  * 范围：handOffSessionImpl
  * - happy path（caller cwd 反查 main-repo → main-repo/.claude/plans/ 命中 → resolved）
- * - 校验失败分支（plan 缺失 / status 三态错误 / worktree_path 缺失或非绝对）
+ * - 校验失败分支（plan 缺失 / status 三态错误 / worktreePath 缺失或非绝对）
  * - REVIEW_33 H10：worktreePath 存在性预检
- * - base_branch 透传
+ * - baseBranch 透传
  * - generic mode (CHANGELOG_99)
  *
  * 不真起 git / 不真碰 fs / 不真起 SDK session：deps inject 替换全部副作用，跑纯 in-memory，
@@ -52,7 +52,7 @@ describe('handOffSessionImpl — happy path', () => {
     expect(state.gitCalls[0]?.args).toEqual(['rev-parse', '--git-common-dir']);
   });
 
-  it('phase_label 注入 prompt 后缀', async () => {
+  it('phaseLabel 注入 prompt 后缀', async () => {
     const state = makeState();
     const planId = 'test-plan';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -92,11 +92,11 @@ describe('handOffSessionImpl — happy path', () => {
     expect((result as HandOffSessionResolved).planFilePath).toBe(userGlobalPath);
   });
 
-  it('显式 plan_file_path override → 用之（绕过 fallback）', async () => {
+  it('显式 planFilePath override → 用之（绕过 fallback）', async () => {
     const state = makeState();
     const planId = 'override-plan';
     // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.11 修法 (B-MED-2 codex):
-    // hand_off_session impl 加 stem 校验,plan_file_path 文件名 stem 必须等于 plan_id。
+    // hand_off_session impl 加 stem 校验,planFilePath 文件名 stem 必须等于 planId。
     // 旧 fixture customPath stem 是 `myplan` 不匹配 planId `override-plan` → reject。
     // 测试本意是验证 override 路径生效,改用 stem 匹配的 path(同步 archive-plan stem 测试)。
     const customPath = `/Users/test/some-custom-location/${planId}.md`;
@@ -110,7 +110,7 @@ describe('handOffSessionImpl — happy path', () => {
     expect(_isHandOffSessionError(result)).toBe(false);
     expect((result as HandOffSessionResolved).planFilePath).toBe(customPath);
     // CHANGELOG_99：mainRepo 计算从 plan 文件 fallback 那段提到主流程开头，handler 用作
-    // K2 spawn 默认 cwd（即使 plan_file_path 显式 override 也要算）。所以 git 调 1 次。
+    // K2 spawn 默认 cwd（即使 planFilePath 显式 override 也要算）。所以 git 调 1 次。
     expect(state.gitCalls.length).toBe(1);
     expect(state.gitCalls[0]?.args).toEqual(['rev-parse', '--git-common-dir']);
   });
@@ -199,7 +199,7 @@ describe('handOffSessionImpl — 校验失败分支', () => {
     expect(err.hint).toContain('/Users/test/.claude/plans');
   });
 
-  it('显式 plan_file_path override 不存在 → reject', async () => {
+  it('显式 planFilePath override 不存在 → reject', async () => {
     const state = makeState();
     const result = await handOffSessionImpl(
       { planId: 'whatever', planFilePathOverride: '/no/such/path.md' },
@@ -207,20 +207,20 @@ describe('handOffSessionImpl — 校验失败分支', () => {
     );
     expect(_isHandOffSessionError(result)).toBe(true);
     expect((result as HandOffSessionError).error).toContain(
-      'plan_file_path override does not exist',
+      'planFilePath override does not exist',
     );
   });
 
   // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.11 测试 (B-MED-2 codex):
-  // hand_off plan_file_path stem 必须等于 plan_id,否则 reject + hint。
-  it('显式 plan_file_path stem != plan_id → reject + hint(防 worktree path 错位)', async () => {
+  // handOff planFilePath stem 必须等于 planId,否则 reject + hint。
+  it('显式 planFilePath stem != planId → reject + hint(防 worktree path 错位)', async () => {
     const state = makeState();
     const planId = 'expected-plan';
     // stem `wrong-stem` 与 planId `expected-plan` 不匹配
     const customPath = '/Users/test/some-loc/wrong-stem.md';
     state.files.set(
       customPath,
-      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
+      ['---', `planId: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
     );
 
     const result = await handOffSessionImpl(
@@ -229,12 +229,12 @@ describe('handOffSessionImpl — 校验失败分支', () => {
     );
     expect(_isHandOffSessionError(result)).toBe(true);
     const err = result as HandOffSessionError;
-    expect(err.error).toContain('plan_file_path stem');
+    expect(err.error).toContain('planFilePath stem');
     expect(err.error).toContain('"wrong-stem"');
-    expect(err.error).toContain('does not match plan_id');
+    expect(err.error).toContain('does not match planId');
     expect(err.error).toContain('"expected-plan"');
     expect(err.hint).toBeDefined();
-    expect(err.hint).toContain('rename plan_file_path');
+    expect(err.hint).toContain('rename planFilePath');
   });
 
   it('plan 文件无 frontmatter → reject', async () => {
@@ -248,7 +248,7 @@ describe('handOffSessionImpl — 校验失败分支', () => {
     expect((result as HandOffSessionError).error).toContain('no parseable frontmatter');
   });
 
-  it('frontmatter 缺 worktree_path → reject', async () => {
+  it('frontmatter 缺 worktreePath → reject', async () => {
     const state = makeState();
     const planId = 'missing-wp';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -259,10 +259,10 @@ describe('handOffSessionImpl — 校验失败分支', () => {
 
     const result = await handOffSessionImpl({ planId }, makeDeps(state));
     expect(_isHandOffSessionError(result)).toBe(true);
-    expect((result as HandOffSessionError).error).toContain('missing required field: worktree_path');
+    expect((result as HandOffSessionError).error).toContain('missing required field: worktreePath');
   });
 
-  it('frontmatter worktree_path 非绝对路径 → reject', async () => {
+  it('frontmatter worktreePath 非绝对路径 → reject', async () => {
     const state = makeState();
     const planId = 'rel-wp';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -320,7 +320,7 @@ describe('handOffSessionImpl — REVIEW_33 H10 worktreePath 存在性预检', ()
   // 返结构化 `worktreeExists` flag 让 handler 决策),但 test 仍按旧 hard-reject 期望写。本 plan
   // (ref-layout-full-migration-20260526) ref/plans/ 改动与此正交,顺手 skip 让 vitest pass;
   // 重写归 follow-up plan(测 result.worktreeExists === false + handler 层 cwd 决策树覆盖)
-  it.skip('frontmatter worktree_path 路径在 fs 上不存在 → reject + hint 提示重建 worktree / 改 frontmatter', async () => {
+  it.skip('frontmatter worktreePath 路径在 fs 上不存在 → reject + hint 提示重建 worktree / 改 frontmatter', async () => {
     const state = makeState();
     const planId = 'orphan-plan';
     const worktreePath = '/Users/test/repo/.claude/worktrees/orphan-plan';
@@ -335,13 +335,13 @@ describe('handOffSessionImpl — REVIEW_33 H10 worktreePath 存在性预检', ()
     const result = await handOffSessionImpl({ planId }, makeDeps(state));
     expect(_isHandOffSessionError(result)).toBe(true);
     const err = result as HandOffSessionError;
-    expect(err.error).toContain('worktree_path does not exist on disk');
+    expect(err.error).toContain('worktreePath does not exist on disk');
     expect(err.error).toContain(worktreePath);
     expect(err.hint).toContain('git worktree add');
     expect(err.hint).toContain('archive_plan');
   });
 
-  it('frontmatter worktree_path 存在 → step 0 放行，正常返 resolved 上下文', async () => {
+  it('frontmatter worktreePath 存在 → step 0 放行，正常返 resolved 上下文', async () => {
     const state = makeState();
     const planId = 'live-plan';
     const worktreePath = '/Users/test/repo/.claude/worktrees/live-plan';
@@ -358,8 +358,8 @@ describe('handOffSessionImpl — REVIEW_33 H10 worktreePath 存在性预检', ()
   });
 });
 
-describe('handOffSessionImpl — base_branch 透传', () => {
-  it('frontmatter 含 base_branch → resolved.baseBranch 透传', async () => {
+describe('handOffSessionImpl — baseBranch 透传', () => {
+  it('frontmatter 含 baseBranch → resolved.baseBranch 透传', async () => {
     const state = makeState();
     const planId = 'with-base';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -373,7 +373,7 @@ describe('handOffSessionImpl — base_branch 透传', () => {
     expect((result as HandOffSessionResolved).baseBranch).toBe('develop');
   });
 
-  it('frontmatter 无 base_branch → resolved.baseBranch = null', async () => {
+  it('frontmatter 无 baseBranch → resolved.baseBranch = null', async () => {
     const state = makeState();
     const planId = 'no-base';
     const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
@@ -388,7 +388,7 @@ describe('handOffSessionImpl — base_branch 透传', () => {
 // ─── Handler 层测试 ────────────────────────────────────────────────────
 
 describe('handOffSessionImpl — generic mode (CHANGELOG_99)', () => {
-  it('无 plan_id + 显式 prompt → mode=generic, planFilePath/worktreePath/baseBranch=null, coldStartPrompt=args.prompt', async () => {
+  it('无 planId + 显式 prompt → mode=generic, planFilePath/worktreePath/baseBranch=null, coldStartPrompt=args.prompt', async () => {
     const state = makeState();
     const result = await handOffSessionImpl(
       { prompt: '继续 review #42 的反馈,重点看 race condition' },
@@ -405,11 +405,11 @@ describe('handOffSessionImpl — generic mode (CHANGELOG_99)', () => {
     expect(ok.ignoredFields).toEqual([]);
     // mainRepo 仍走 caller cwd → git rev-parse 反查（与 plan 模式共用第 0 步）
     expect(ok.mainRepo).toBe('/Users/test/repo');
-    // git 仅 1 次（rev-parse），plan 文件 fallback 不走（无 plan_id）
+    // git 仅 1 次（rev-parse），plan 文件 fallback 不走（无 planId）
     expect(state.gitCalls.length).toBe(1);
   });
 
-  it('无 plan_id + 不传 prompt → coldStartPrompt = DEFAULT_GENERIC_COLD_START_PROMPT', async () => {
+  it('无 planId + 不传 prompt → coldStartPrompt = DEFAULT_GENERIC_COLD_START_PROMPT', async () => {
     const state = makeState();
     const result = await handOffSessionImpl({}, makeDeps(state));
 
@@ -419,7 +419,7 @@ describe('handOffSessionImpl — generic mode (CHANGELOG_99)', () => {
     expect(ok.coldStartPrompt).toBe('从上一个会话接力继续工作');
   });
 
-  it('无 plan_id + 传 phase_label / planFilePathOverride → 记 ignoredFields 不报错', async () => {
+  it('无 planId + 传 phaseLabel / planFilePathOverride → 记 ignoredFields 不报错', async () => {
     const state = makeState();
     const result = await handOffSessionImpl(
       {
@@ -433,11 +433,11 @@ describe('handOffSessionImpl — generic mode (CHANGELOG_99)', () => {
     expect(_isHandOffSessionError(result)).toBe(false);
     const ok = result as HandOffSessionResolved;
     expect(ok.mode).toBe('generic');
-    expect(ok.coldStartPrompt).toBe('通用 hand-off'); // phase_label 不影响 prompt
-    expect(ok.ignoredFields).toEqual(['phase_label', 'plan_file_path']);
+    expect(ok.coldStartPrompt).toBe('通用 hand-off'); // phaseLabel 不影响 prompt
+    expect(ok.ignoredFields).toEqual(['phaseLabel', 'planFilePath']);
   });
 
-  it('无 plan_id + caller cwd 非 git repo → mainRepo = null（不走 worktreePath 启发式 fallback,因为没 worktreePath）', async () => {
+  it('无 planId + caller cwd 非 git repo → mainRepo = null（不走 worktreePath 启发式 fallback,因为没 worktreePath）', async () => {
     const state = makeState({ gitFails: true });
     const result = await handOffSessionImpl({ prompt: 'gen' }, makeDeps(state));
 

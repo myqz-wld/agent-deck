@@ -12,14 +12,14 @@
  * 1. 反查 caller sessionRepo.cwd 拿 caller cwd（external sentinel 已在 handler 层 deny；
  *    impl 调用前 caller cwd 必有效）
  * 2. 解析 main_repo：`git -C <caller-cwd> rev-parse --show-toplevel`
- * 3. 派生 worktree_path：args.worktree_path > `<main_repo>/.claude/worktrees/<plan_id>/`
- * 4. 派生 branch_name：固定 `worktree-<plan_id>`（与 user CLAUDE.md §Step 1 命名约定对齐）
+ * 3. 派生 worktreePath：args.worktreePath > `<main_repo>/.claude/worktrees/<planId>/`
+ * 4. 派生 branch_name：固定 `worktree-<planId>`（与 user CLAUDE.md §Step 1 命名约定对齐）
  * 5. 解析 base commit（plan D2 优先级链）：
- *    args.base_commit > args.base_branch resolve to HEAD > plan frontmatter base_commit >
- *    plan frontmatter base_branch resolve to HEAD > main_repo HEAD
- * 6. 预检 worktree_path 不存在 + branch 不存在（避免静默 reuse 老 worktree / 重名 branch）
- * 7. `git -C <main_repo> worktree add -b <branch> <worktree_path> <base_commit>`
- * 8. setCwdReleaseMarker(callerSid, worktree_path)（不变量 5 — archive_plan 预检 4 态分流
+ *    args.baseCommit > args.baseBranch resolve to HEAD > plan frontmatter baseCommit >
+ *    plan frontmatter baseBranch resolve to HEAD > main_repo HEAD
+ * 6. 预检 worktreePath 不存在 + branch 不存在（避免静默 reuse 老 worktree / 重名 branch）
+ * 7. `git -C <main_repo> worktree add -b <branch> <worktreePath> <baseCommit>`
+ * 8. setCwdReleaseMarker(callerSid, worktreePath)（不变量 5 — archive_plan 预检 4 态分流
  *    认得跨 adapter 路径）
  *
  * 任一步失败立即返回 error（短路），不做部分回滚（git 操作不可逆）。
@@ -41,11 +41,11 @@ import {
 export interface EnterWorktreeInput {
   planId: string;
   callerSessionId: string;
-  /** Caller 显式 worktree_path 覆盖默认派生路径；不传走 `<main_repo>/.claude/worktrees/<planId>/`。 */
+  /** Caller 显式 worktreePath 覆盖默认派生路径；不传走 `<main_repo>/.claude/worktrees/<planId>/`。 */
   worktreePathOverride?: string;
-  /** plan D2 优先级链最高位：caller args.base_commit。 */
+  /** plan D2 优先级链最高位：caller args.baseCommit。 */
   baseCommitOverride?: string;
-  /** plan D2 优先级链次位：caller args.base_branch（resolve to branch HEAD）。 */
+  /** plan D2 优先级链次位：caller args.baseBranch（resolve to branch HEAD）。 */
   baseBranchOverride?: string;
   /** plan 文件 abs path（用于 frontmatter base fallback）；不传走 fallback 链 .claude/plans/ → ref/plans/ → ~/.claude/plans/。 */
   planFilePathOverride?: string;
@@ -135,10 +135,10 @@ async function resolvePlanFilePath(
 
 /**
  * resolve base commit per plan D2 priority chain。返回 { baseCommit, baseSource } 或 error。
- * - args.base_commit  highest, return as-is (assume valid SHA hex per zod refine)
- * - args.base_branch: `git rev-parse <branch>` to commit; fail → error short-circuit
- * - frontmatter.base_commit: read plan file fm; if set, return
- * - frontmatter.base_branch: read plan file fm; if set, `git rev-parse` to commit
+ * - args.baseCommit  highest, return as-is (assume valid SHA hex per zod refine)
+ * - args.baseBranch: `git rev-parse <branch>` to commit; fail → error short-circuit
+ * - frontmatter.baseCommit: read plan file fm; if set, return
+ * - frontmatter.baseBranch: read plan file fm; if set, `git rev-parse` to commit
  * - head (default): `git rev-parse HEAD` in main_repo
  */
 async function resolveBaseCommit(
@@ -146,11 +146,11 @@ async function resolveBaseCommit(
   mainRepo: string,
   deps: Required<EnterWorktreeDeps>,
 ): Promise<{ baseCommit: string; baseSource: BaseSource } | EnterWorktreeError> {
-  // 1. args.base_commit highest
+  // 1. args.baseCommit highest
   if (input.baseCommitOverride) {
     return { baseCommit: input.baseCommitOverride, baseSource: 'arg-base-commit' };
   }
-  // 2. args.base_branch
+  // 2. args.baseBranch
   if (input.baseBranchOverride) {
     try {
       const baseCommit = await deps.runGit(['rev-parse', input.baseBranchOverride], mainRepo);
@@ -163,18 +163,18 @@ async function resolveBaseCommit(
     } catch (e) {
       return {
         error: `git rev-parse ${input.baseBranchOverride} failed: ${(e as Error).message}`,
-        hint: `args.base_branch must reference an existing branch in ${mainRepo}. Verify with \`git -C ${mainRepo} branch --list\`.`,
+        hint: `args.baseBranch must reference an existing branch in ${mainRepo}. Verify with \`git -C ${mainRepo} branch --list\`.`,
       };
     }
   }
-  // 3. frontmatter base_commit / base_branch
+  // 3. frontmatter baseCommit / baseBranch
   const planFilePath = await resolvePlanFilePath(input, mainRepo, deps);
   if (planFilePath) {
     try {
       const planContent = await deps.readFile(planFilePath);
       const fm = parseFrontmatter(planContent);
-      const fmBaseCommit = typeof fm.base_commit === 'string' ? fm.base_commit.trim() : '';
-      const fmBaseBranch = typeof fm.base_branch === 'string' ? fm.base_branch.trim() : '';
+      const fmBaseCommit = typeof fm.baseCommit === 'string' ? fm.baseCommit.trim() : '';
+      const fmBaseBranch = typeof fm.baseBranch === 'string' ? fm.baseBranch.trim() : '';
       if (fmBaseCommit.length >= 7) {
         return { baseCommit: fmBaseCommit, baseSource: 'frontmatter-base-commit' };
       }
@@ -185,12 +185,12 @@ async function resolveBaseCommit(
             return { baseCommit, baseSource: 'frontmatter-base-branch' };
           }
         } catch {
-          // frontmatter base_branch 解析失败不算 error，fallback 走 HEAD（与 args.base_branch 严格不同：
+          // frontmatter baseBranch 解析失败不算 error，fallback 走 HEAD（与 args.baseBranch 严格不同：
           // args 是 caller 显式传必须 valid；frontmatter 是 best-effort 软约束）
         }
       }
     } catch {
-      // plan 文件不可读不算 error（与 args.base_branch 严格不同），fallback 走 HEAD
+      // plan 文件不可读不算 error（与 args.baseBranch 严格不同），fallback 走 HEAD
     }
   }
   // 5. head (default)
@@ -219,7 +219,7 @@ export async function enterWorktreeImpl(
   if (!callerCwd) {
     return {
       error: `caller session ${input.callerSessionId} has no cwd (session not found or cwd column is null)`,
-      hint: `enter_worktree needs caller cwd to derive main_repo via \`git rev-parse --show-toplevel\`. Make sure caller_session_id references an active session managed by Agent Deck.`,
+      hint: `enter_worktree needs caller cwd to derive main_repo via \`git rev-parse --show-toplevel\`. Make sure callerSessionId references an active session managed by Agent Deck.`,
     };
   }
 
@@ -237,7 +237,7 @@ export async function enterWorktreeImpl(
     return { error: `git rev-parse --show-toplevel returned empty in ${callerCwd}` };
   }
 
-  // 3. worktree_path
+  // 3. worktreePath
   const worktreePath =
     input.worktreePathOverride ??
     path.join(mainRepo, '.claude', 'worktrees', input.planId);
@@ -245,11 +245,11 @@ export async function enterWorktreeImpl(
   // 4. branch_name
   const branchName = `worktree-${input.planId}`;
 
-  // 5. 预检 worktree_path / branch 不存在(先 reject 短路,避免无谓 base resolution git 调用)
+  // 5. 预检 worktreePath / branch 不存在(先 reject 短路,避免无谓 base resolution git 调用)
   if (await deps.exists(worktreePath)) {
     return {
       error: `worktree path already exists: ${worktreePath}`,
-      hint: `enter_worktree refuses silent reuse of an existing path. Either pass a different worktree_path, manually \`git worktree remove ${worktreePath}\`, or call exit_worktree with action="remove" first.`,
+      hint: `enter_worktree refuses silent reuse of an existing path. Either pass a different worktreePath, manually \`git worktree remove ${worktreePath}\`, or call exit_worktree with action="remove" first.`,
     };
   }
   // git branch 存在性检查走 git for-each-ref（exit-code 友好，比 rev-parse fail 噪声小）
@@ -266,7 +266,7 @@ export async function enterWorktreeImpl(
   if (branchExists) {
     return {
       error: `branch already exists: ${branchName}`,
-      hint: `enter_worktree refuses silent reuse of an existing branch. Either manually \`git -C ${mainRepo} branch -D ${branchName}\`, or use a different plan_id.`,
+      hint: `enter_worktree refuses silent reuse of an existing branch. Either manually \`git -C ${mainRepo} branch -D ${branchName}\`, or use a different planId.`,
     };
   }
 
@@ -284,7 +284,7 @@ export async function enterWorktreeImpl(
   } catch (e) {
     return {
       error: `git worktree add failed: ${(e as Error).message}`,
-      hint: `git worktree add -b ${branchName} ${worktreePath} ${baseCommit} (in ${mainRepo}) failed. Common causes: worktree_path parent dir not writable / base_commit not in repo / branch already exists despite step 5 check (race). Verify with the same command manually.`,
+      hint: `git worktree add -b ${branchName} ${worktreePath} ${baseCommit} (in ${mainRepo}) failed. Common causes: worktreePath parent dir not writable / baseCommit not in repo / branch already exists despite step 5 check (race). Verify with the same command manually.`,
     };
   }
 
@@ -296,11 +296,11 @@ export async function enterWorktreeImpl(
   } catch (e) {
     // P5 Round 1 reviewer-claude MED-1 修法 (comment vs code 对齐):marker 写失败必须 return error
     // 让 caller 显式处理(silently no-op + ok return 会让 archive_plan 预检 4 态走错路径,更危险)。
-    // P5 Round 1 reviewer-claude INFO-8 修法:hint 加「must pass args.worktree_path」 — marker 没写
-    // exit_worktree 自动反查不到要操作的 worktree,caller 必须显式传 worktree_path 才能清。
+    // P5 Round 1 reviewer-claude INFO-8 修法:hint 加「must pass args.worktreePath」 — marker 没写
+    // exit_worktree 自动反查不到要操作的 worktree,caller 必须显式传 worktreePath 才能清。
     return {
       error: `worktree created but setCwdReleaseMarker failed: ${(e as Error).message}`,
-      hint: `worktree at ${worktreePath} (branch ${branchName}) was successfully created, but the per-session cwd_release_marker DB write failed. archive_plan preflight 4-state dispatch will misclassify this caller as "in worktree but no marker" (reject). Manual recovery: call exit_worktree({ action: 'remove', worktree_path: '${worktreePath}' }) explicitly (must pass args.worktree_path because marker was never set so auto-resolution can't find it), then retry enter_worktree. Marker write failure usually indicates SQLite locked / corrupted DB / read-only filesystem.`,
+      hint: `worktree at ${worktreePath} (branch ${branchName}) was successfully created, but the per-session cwd_release_marker DB write failed. archive_plan preflight 4-state dispatch will misclassify this caller as "in worktree but no marker" (reject). Manual recovery: call exit_worktree({ action: 'remove', worktreePath: '${worktreePath}' }) explicitly (must pass args.worktreePath because marker was never set so auto-resolution can't find it), then retry enter_worktree. Marker write failure usually indicates SQLite locked / corrupted DB / read-only filesystem.`,
     };
   }
 

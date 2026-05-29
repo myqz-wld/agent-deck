@@ -4,7 +4,7 @@
  *
  * 范围：archivePlanImpl
  * - 默认 plan 路径 fallback（先 main-repo/.claude/plans/ → ~/.claude/plans/）
- * - REVIEW_33 H1：base_branch checkout（rev-parse --verify + checkout）
+ * - REVIEW_33 H1：baseBranch checkout（rev-parse --verify + checkout）
  * - REVIEW_33 H2：status 三档分流（abandoned / unknown / 缺 status）
  * - REVIEW_33 H9：post-ff-merge phase prefix
  *
@@ -35,7 +35,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
       userGlobalPath,
       [
         '---',
-        `plan_id: ${planId}`,
+        `planId: ${planId}`,
         'status: in_progress',
         '---',
         '',
@@ -67,7 +67,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
     expect(state.unlinks).toContain(userGlobalPath);
   });
 
-  it('显式 plan_file_path override → 用之（覆盖默认 fallback）', async () => {
+  it('显式 planFilePath override → 用之（覆盖默认 fallback）', async () => {
     const state = makeState();
     const planId = 'override-plan';
     // archive-plan-tool-ux-followup-20260515 HIGH-1 stem refine: customPath 文件名 stem 必须
@@ -75,7 +75,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
     const customPath = `/Users/test/some-custom-location/${planId}.md`;
     state.files.set(
       customPath,
-      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
+      ['---', `planId: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
     );
     const worktreePath = '/Users/test/repo/.claude/worktrees/override-plan';
     state.files.set(worktreePath, '__dir__'); // REVIEW_33 H10
@@ -109,7 +109,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
     expect(state.unlinks).toContain(customPath);
   });
 
-  it('显式 plan_file_path override 不存在 → reject', async () => {
+  it('显式 planFilePath override 不存在 → reject', async () => {
     const state = makeState();
     state.files.set('/Users/test/repo/.claude/worktrees/whatever', '__dir__'); // REVIEW_33 H10
     state.recognizedMainRepos.add('/Users/test/repo'); // B-HIGH-4 mainRepo status precheck 透明 mock
@@ -125,14 +125,14 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
       deps,
     );
     expect(_isArchivePlanError(result)).toBe(true);
-    expect((result as ArchivePlanError).error).toContain('plan_file_path override does not exist');
+    expect((result as ArchivePlanError).error).toContain('planFilePath override does not exist');
   });
 });
 
-describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
-  it('base_branch 真切：调用顺序含 rev-parse --verify <baseBranch> + checkout <baseBranch>', async () => {
+describe('archivePlanImpl — REVIEW_33 H1 baseBranch checkout', () => {
+  it('baseBranch 真切：调用顺序含 rev-parse --verify <baseBranch> + checkout <baseBranch>', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
-    // 用 develop 作 base_branch（与 default 'main' 区分），确认 impl 真用 input.baseBranch
+    // 用 develop 作 baseBranch（与 default 'main' 区分），确认 impl 真用 input.baseBranch
     const customInput = { ...input, baseBranch: 'develop' };
     const deps = makeDeps(state, [
       `${expectedMainRepo}/.git`,
@@ -165,7 +165,7 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
     expect(state.gitCalls[5]?.args).toEqual(['merge', '--ff-only', 'worktree-mcp-bug-fix-20260513']);
   });
 
-  it('base_branch 不存在 → rev-parse --verify refs/heads/<branch> throw → reject 提示 base_branch 不是 named branch', async () => {
+  it('baseBranch 不存在 → rev-parse --verify refs/heads/<branch> throw → reject 提示 baseBranch 不是 named branch', async () => {
     const { state, input } = fixtureHappyPath();
     const deps = makeDeps(state, [
       `/Users/test/repo/.git`,
@@ -180,7 +180,7 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
     // 措辞从 "does not exist" 改为 "is not a named branch (refs/heads/<name>); SHA / tag /
     // detached HEAD refs are not allowed." — 同时 hint 提示 archive_plan ff-merge 要求
     // 命名 branch、不接受 SHA / tag / detached HEAD。
-    expect((result as ArchivePlanError).error).toContain('base_branch "main"');
+    expect((result as ArchivePlanError).error).toContain('baseBranch "main"');
     expect((result as ArchivePlanError).error).toContain('not a named branch');
     expect((result as ArchivePlanError).error).toContain('refs/heads/');
     // checkout / merge 不应被调用（早返）
@@ -188,7 +188,7 @@ describe('archivePlanImpl — REVIEW_33 H1 base_branch checkout', () => {
     expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
   });
 
-  it('checkout base_branch 失败 → reject + hint 提示 hooks/uncommitted', async () => {
+  it('checkout baseBranch 失败 → reject + hint 提示 hooks/uncommitted', async () => {
     const { state, input } = fixtureHappyPath();
     const deps = makeDeps(state, [
       `/Users/test/repo/.git`,
@@ -217,8 +217,8 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流（abandoned / unk
       planPath,
       [
         '---',
-        `plan_id: ${input.planId}`,
-        `worktree_path: ${input.worktreePath}`,
+        `planId: ${input.planId}`,
+        `worktreePath: ${input.worktreePath}`,
         'status: abandoned',
         '---',
         '',
@@ -246,8 +246,8 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流（abandoned / unk
       planPath,
       [
         '---',
-        `plan_id: ${input.planId}`,
-        `worktree_path: ${input.worktreePath}`,
+        `planId: ${input.planId}`,
+        `worktreePath: ${input.worktreePath}`,
         'status: draft',
         '---',
         '',
@@ -273,8 +273,8 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流（abandoned / unk
       planPath,
       [
         '---',
-        `plan_id: ${input.planId}`,
-        `worktree_path: ${input.worktreePath}`,
+        `planId: ${input.planId}`,
+        `worktreePath: ${input.worktreePath}`,
         // 故意缺 status 行
         '---',
         '',
@@ -409,7 +409,7 @@ describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
     expect((result as ArchivePlanError).hint).toContain('Branch may already be deleted');
   });
 
-  it('pre-ff-merge 失败（如 base_branch 不存在）→ error **不含** [post-ff-merge:] prefix（区分清楚 ff 前后）', async () => {
+  it('pre-ff-merge 失败（如 baseBranch 不存在）→ error **不含** [post-ff-merge:] prefix（区分清楚 ff 前后）', async () => {
     const { state, input } = fixtureHappyPath();
     const deps = makeDeps(state, [
       `/Users/test/repo/.git`,
@@ -423,7 +423,7 @@ describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
     // 关键：pre-ff-merge 失败的 error 不应含 [post-ff-merge:] prefix（caller 看到没有
     // prefix 知道 main 还没动 → 可以简单 retry）
     expect((result as ArchivePlanError).error).not.toContain('[post-ff-merge:');
-    expect((result as ArchivePlanError).error).toContain('base_branch');
+    expect((result as ArchivePlanError).error).toContain('baseBranch');
   });
 });
 

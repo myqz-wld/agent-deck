@@ -12,15 +12,15 @@
  *    skipped 值)
  *    - external sentinel 防御 → skipped='caller-not-lead'
  *    - caller 是 lead 但所有 team 已 archived → skipped='all-lead-teams-archived'(REVIEW_56 §F6 R2)
- *    - adopt_teammates=true(teammate 已转给 newSid) → skipped='adopt-keep-implicit'(Phase 4)
- *    - archive_caller=false(caller 保活) → skipped='archive-caller-false-keep'(CHANGELOG_169 F4)
+ *    - adoptTeammates=true(teammate 已转给 newSid) → skipped='adopt-keep-implicit'(Phase 4)
+ *    - archiveCaller=false(caller 保活) → skipped='archive-caller-false-keep'(CHANGELOG_169 F4)
  *    - phase 1 内部 throw 兜底 → skipped='phase-1-error'(REVIEW_56 §F6 Plan-Review Round 2 codex MED-3)
  *    - 调 shutdownTeammatesOnBaton(callerSid, excludeSessionIds?) → 透传 result
  *    - helper 抛错 → 兜底 closed=[] + skipped='phase-1-error' + console.warn
  *
  * 2. **archive caller 三态**(archived: 'ok' | 'failed' | 'skipped')
  *    - external sentinel → archived='skipped'
- *    - **archive_caller=false 显式 opt-out**(hand-off-mcp-archive-opt-20260515)→ archived='skipped'
+ *    - **archiveCaller=false 显式 opt-out**(hand-off-mcp-archive-opt-20260515)→ archived='skipped'
  *      (与 external sentinel 同款 'skipped' 值,不同来源:caller 显式意图 vs 防御短路)
  *    - sessionRepo.get 探针(CHANGELOG_98 / R2 reviewer-codex MED-2): row missing → 'failed' +
  *      warn,不调 archive(避免 UPDATE no-op 误报 'ok')
@@ -54,7 +54,7 @@
  *
  * **plan hand-off-session-adopt-teammates-20260520 Phase 3 简化** (D2 + N4): 删除 phase 1
  * teammate-shutdown opt-out 字段。default 行为永远调 shutdownTeammatesOnBaton(caller 显式
- * 接管 teammate 走 hand_off_session adopt_teammates: true,详 plan Phase 4 — 那时再加
+ * 接管 teammate 走 hand_off_session adoptTeammates: true,详 plan Phase 4 — 那时再加
  * `adoptTeammates: boolean` 入参标 skipped='adopt-keep-implicit')。Phase 3 期间 helper
  * 入参仅剩 callerSessionId / excludeSessionIds / archiveCaller / toolName,phase 1 永远跑
  * shutdownFn 不带分支。
@@ -79,7 +79,7 @@ export interface RunBatonCleanupInput {
   /**
    * 可选 sid 集合让 shutdownTeammatesOnBaton 跳过这些 sid。
    *
-   * **典型场景**: hand-off-session(team_name=x) 显式 spawn 新 session 后立即 baton cleanup —
+   * **典型场景**: hand-off-session(teamName=x) 显式 spawn 新 session 后立即 baton cleanup —
    * 新 session 已被 spawn handler 加为 teammate(spawn.ts:310-317),不排除会被 helper 误关
    * (REVIEW_36 R2 HIGH-A fix-to-fix bug)。caller 把新 spawn sessionId 传入 excludeSessionIds
    * 即可豁免。
@@ -88,12 +88,12 @@ export interface RunBatonCleanupInput {
    */
   excludeSessionIds?: ReadonlySet<string>;
   /**
-   * hand-off-mcp-archive-opt-20260515: caller 是否要归档(handler 层从 args.archive_caller 读出)。
+   * hand-off-mcp-archive-opt-20260515: caller 是否要归档(handler 层从 args.archiveCaller 读出)。
    * - true (default,不传时按 true 走): phase 2 走 sessionRepo.get + sessionManager.archive 完整流程
    * - false: phase 2 跳过,标 archived='skipped' (与 external sentinel 同款 'skipped' 值,不同来源)
    *
    * **典型场景**: hand_off_session caller 想起新 session 并行做事(更接近 spawn 用法),自己仍要
-   * 继续观察 reviewer reply / 出 summary,显式传 archive_caller=false 跳过 archive 让 caller still active。
+   * 继续观察 reviewer reply / 出 summary,显式传 archiveCaller=false 跳过 archive 让 caller still active。
    *
    * archive_plan 不传(plan 收口 = caller 使命终结必归档,语义上不应 opt-out)— optional + default true 保持
    * archive_plan handler 调用方零改动向后兼容。
@@ -103,8 +103,8 @@ export interface RunBatonCleanupInput {
   archiveCaller?: boolean;
   /**
    * plan hand-off-session-adopt-teammates-20260520 Phase 4 (D3 + D5): hand_off_session
-   * caller 是否显式传 adopt_teammates=true 让新 session 接管 teammate(handler 层从
-   * args.adopt_teammates 读出)。
+   * caller 是否显式传 adoptTeammates=true 让新 session 接管 teammate(handler 层从
+   * args.adoptTeammates 读出)。
    *
    * - **undefined / false (default)**: phase 1 走 shutdownTeammatesOnBaton(default 行为,
    *   关 teammate)+ phase 2 archive caller
@@ -115,10 +115,10 @@ export interface RunBatonCleanupInput {
    * **archive_plan 不传**(plan 收口 = caller 使命终结,teammate 一并 shutdown,语义上不应
    * opt-out 接管)— optional + default 行为对 archive_plan 调用方零改动向后兼容。
    *
-   * **与 archiveCaller 配合**(CHANGELOG_169 F4 修法):**archive_caller=false 也跳过 phase 1**
+   * **与 archiveCaller 配合**(CHANGELOG_169 F4 修法):**archiveCaller=false 也跳过 phase 1**
    * (标 skipped='archive-caller-false-keep')— caller 仍 active 当 lead 时 teammates 也保留
-   * alive 让 caller 继续观察 reviewer reply(对应 schema 文案承诺)。adopt_teammates=true +
-   * archive_caller=false 同传时优先 adopt 分支(同款效果都是 teammates 留 alive 但 skipped
+   * alive 让 caller 继续观察 reviewer reply(对应 schema 文案承诺)。adoptTeammates=true +
+   * archiveCaller=false 同传时优先 adopt 分支(同款效果都是 teammates 留 alive 但 skipped
    * 标识不同来源)。
    */
   adoptTeammates?: boolean;
@@ -174,7 +174,7 @@ export interface RunBatonCleanupResult {
    * - skipped 五态(REVIEW_56 §F6 + 历史 R2 + Phase 4 累积):
    *   - 'caller-not-lead': caller 不是 lead(含 external sentinel)
    *   - 'all-lead-teams-archived': caller 是 lead 但所有相关 team 已 archived(R2 修法 UX 精度)
-   *   - 'adopt-keep-implicit': hand_off_session adopt_teammates: true 时 teammate 由 swapLead
+   *   - 'adopt-keep-implicit': hand_off_session adoptTeammates: true 时 teammate 由 swapLead
    *      接管不 shutdown — Phase 4 引入,Phase 3 阶段类型预留不出现
    *   - 'phase-1-error': **REVIEW_56 §F6 修法 (Plan-Review Round 2 codex MED-3)**: 本 caller layer
    *      catch block 兜底标 — `shutdownTeammatesOnBaton` helper 抛错(DB 异常 / mock 失败)时区分
@@ -186,7 +186,7 @@ export interface RunBatonCleanupResult {
    * Phase 2 结果:
    * - 'ok' = caller 归档成功
    * - 'failed' = warn-only 不阻塞(callerRow 缺 / DB 不可用 / archive 抛错)
-   * - 'skipped' = external caller(防御短路) **或** caller 显式传 archive_caller=false 跳过
+   * - 'skipped' = external caller(防御短路) **或** caller 显式传 archiveCaller=false 跳过
    *   (hand-off-mcp-archive-opt-20260515 — 与 external sentinel 同款值不同来源)
    */
   archived: 'ok' | 'failed' | 'skipped';
@@ -222,7 +222,7 @@ export async function runBatonCleanup(
   // plan hand-off-session-adopt-teammates-20260520 Phase 3 简化(D2 + N4): 删除 phase 1
   // teammate-shutdown opt-out 字段。default 永远调 shutdownTeammatesOnBaton。
   //
-  // **Phase 4 (D3 + D5)**: adopt_teammates=true 时跳过本 helper 标 skipped='adopt-keep-implicit'
+  // **Phase 4 (D3 + D5)**: adoptTeammates=true 时跳过本 helper 标 skipped='adopt-keep-implicit'
   // — teammate 由 hand-off-session.ts handler phase 1.5 adopt 路径调 swapLead 接管(Phase 4
   // 阶段 phase 1.5 在 hand-off-session.ts handler 内;Phase 6 移到 baton-cleanup helper 内
   // 完整化 phase 1.5 流程含 swapLead + listAllMembers + emit + collect preserved/failed)。
@@ -237,7 +237,7 @@ export async function runBatonCleanup(
     // 接管 — 详 hand-off-session.ts handler adopt 分支。
     teammatesShutdown = { closed: [], failed: [], skipped: 'adopt-keep-implicit' };
   } else if (input.archiveCaller === false) {
-    // CHANGELOG_169 F4: caller 显式 archive_caller=false 也跳过 phase 1。caller 仍 active 当
+    // CHANGELOG_169 F4: caller 显式 archiveCaller=false 也跳过 phase 1。caller 仍 active 当
     // lead,teammates 留 alive 让 caller 继续观察 reviewer reply(schema 文案承诺)。
     teammatesShutdown = { closed: [], failed: [], skipped: 'archive-caller-false-keep' };
   } else {
@@ -262,9 +262,9 @@ export async function runBatonCleanup(
   }
 
   // ─── Phase 2: archive caller ────────────────────────────────────
-  // hand-off-mcp-archive-opt-20260515: caller 显式传 archive_caller=false → 跳过 phase 2 标
+  // hand-off-mcp-archive-opt-20260515: caller 显式传 archiveCaller=false → 跳过 phase 2 标
   // archived='skipped'。与 external sentinel 短路同款 'skipped' 值,但来源不同(external = 防御
-  // 短路,archive_caller=false = 显式 caller 意图)。跳过路径不调 getFn / archiveFn,零副作用。
+  // 短路,archiveCaller=false = 显式 caller 意图)。跳过路径不调 getFn / archiveFn,零副作用。
   if (input.archiveCaller === false) {
     return { teammatesShutdown, archived: 'skipped' };
   }

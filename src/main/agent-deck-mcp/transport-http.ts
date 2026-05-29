@@ -23,7 +23,7 @@
  *
  * - 我们的 15 个 mcp tool（10 现有 + 5 task；详 server.ts:36-39 SSOT — plan
  *   task-mcp-merge-into-agent-deck-mcp-20260521 合并 task-manager 入本 namespace 后）
- *   都**无 cross-request session state 需求** — 每条 request 携带 caller_session_id（per-session
+ *   都**无 cross-request session state 需求** — 每条 request 携带 callerSessionId（per-session
  *   token 反查 → resolvedSid），handler 只看单 request 内 args 即可处理，不需要 mcp-sdk
  *   协议层 session lifecycle
  * - **stateful 模式撞「multi-client 共用单 transport instance」缺陷**：单 transport 维护一个
@@ -137,13 +137,13 @@ async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http'
   // callerSessionIdOverride 从 mcp-sdk RequestHandlerExtra.authInfo 读取 resolvedSid
   // （HookServer.checkMcpAuth 已经写到 IncomingMessage.auth → mcp-sdk handleRequest 读
   // req.auth → 注入到 tool handler extra.authInfo）。stdio transport 维持 null（stdio
-  // 无 HTTP auth，handler fallback args.caller_session_id）。
+  // 无 HTTP auth，handler fallback args.callerSessionId）。
   //
   // **B-HIGH-1 (C) 修法 (c)（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）**:
   // 旧版 `?? null` 让 fallbackToGlobal=true（global token 路径无 per-session authn）的 caller
-  // 能填 args.caller_session_id 当任意 active sid spoof 写工具（B-HIGH-1 反驳轮 mini-test 实证）。
+  // 能填 args.callerSessionId 当任意 active sid spoof 写工具（B-HIGH-1 反驳轮 mini-test 实证）。
   // 修法: fallbackToGlobal=true 时 force sentinel；per-session authn 通过时 resolvedSid = real sid
-  // 走合法路径；任何其他情况兜底 sentinel（不让 args.caller_session_id 字段 escape 到 spoof 路径）。
+  // 走合法路径；任何其他情况兜底 sentinel（不让 args.callerSessionId 字段 escape 到 spoof 路径）。
   //
   // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 1.1a 修订**：lambda body 抽到
   // module-level `resolveCallerSidForReadOnly` export 让 __tests__/ 调真实代码（D6 修法）。

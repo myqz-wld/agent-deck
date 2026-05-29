@@ -1,8 +1,8 @@
 /**
- * hand_off_session adopt_teammates 路径集成测试(plan hand-off-session-adopt-teammates-20260520
+ * hand_off_session adoptTeammates 路径集成测试(plan hand-off-session-adopt-teammates-20260520
  * Phase 4 step T4.4-T4.7 + Phase 6 T6.X1-T6.X4)。
  *
- * **范围**:验证 handOffSessionHandler args.adopt_teammates: true 时:
+ * **范围**:验证 handOffSessionHandler args.adoptTeammates: true 时:
  * - N5 ≥1 lead 硬约束 fail-fast(T4.7):caller 无任何 lead membership → handler return err 不
  *   spawn / 不 archive
  * - N2.b cold-start prompt 装配(T4.4 single-team / T4.5 multi-team):spawn args.prompt 含
@@ -96,9 +96,9 @@ function fakeMember(opts: {
  * 构造一个返回 ok JSON 的 mock spawnSessionHandler。
  *
  * **R2 codex LOW-2 修法**(plan handoff-no-spawn-guards-20260526 §D7):捕 spawnArgs 同时
- * 也捕 opts(第三参),让 adopt_teammates:true 测试 case 可断言 opts.handOffMode === true
+ * 也捕 opts(第三参),让 adoptTeammates:true 测试 case 可断言 opts.handOffMode === true
  * + opts.batonRole === 'lead'(§不变量 7 hand-off 与 adopt 路径正交,§D1/§D6 hand-off 永
- * 不写 spawn-link 不论 adopt_teammates 值)。
+ * 不写 spawn-link 不论 adoptTeammates 值)。
  */
 function makeOkSpawn(
   seenSpawnArgs: { ref: SpawnSessionArgs | null },
@@ -126,7 +126,7 @@ function makeOkSpawn(
               displayName: null,
               spawnDepth: 1,
               sentAt: 1234567890,
-              spawnPromptMessageId: null, // adopt 路径 spawn 不传 team_name → spawn 不写 placeholder
+              spawnPromptMessageId: null, // adopt 路径 spawn 不传 teamName → spawn 不写 placeholder
             }),
           },
         ],
@@ -198,7 +198,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
+describe('handOffSessionHandler — adoptTeammates: true (Phase 4)', () => {
   it('T4.7: N5 ≥1 lead 硬约束 fail-fast — caller 无任何 lead membership → return err 不 spawn / 不 archive', async () => {
     const state = makeState();
     state.files.set(
@@ -221,9 +221,9 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
     });
 
     const args: HandOffSessionArgs = {
-      plan_id: 'no-lead',
+      planId: 'no-lead',
       adapter: 'claude-code',
-      adopt_teammates: true,
+      adoptTeammates: true,
     };
     const ctx: HandlerContext = {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
@@ -239,7 +239,7 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
 
     expect(result.isError).toBe(true);
     const errBody = JSON.parse(result.content[0]!.text);
-    expect(errBody.error).toMatch(/adopt_teammates 要求 caller 至少在一个 active team 是 lead/);
+    expect(errBody.error).toMatch(/adoptTeammates 要求 caller 至少在一个 active team 是 lead/);
 
     // **关键守门**:spawn 未调用 + archive 未调用
     expect(mockSpawn).not.toHaveBeenCalled();
@@ -273,9 +273,9 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
     const mockSpawn = makeOkSpawn(seenSpawn);
     const result = await handOffSessionHandler(
       {
-        plan_id: 'teammate-only',
+        planId: 'teammate-only',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -288,7 +288,7 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0]!.text).error).toMatch(/adopt_teammates 要求 caller/);
+    expect(JSON.parse(result.content[0]!.text).error).toMatch(/adoptTeammates 要求 caller/);
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 
@@ -330,9 +330,9 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 'single-team',
+        planId: 'single-team',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -366,15 +366,15 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
     // **不含 multi-team 节**(单 team caller)
     expect(promptForSpawn).not.toContain('**attempted** to adopt as lead');
 
-    // **adopt 路径不传 team_name 给 spawn**(N2.c 互斥 + adopt 路径强制 default baton)
-    expect(seenSpawn.ref!.team_name).toBeUndefined();
+    // **adopt 路径不传 teamName 给 spawn**(N2.c 互斥 + adopt 路径强制 default baton)
+    expect(seenSpawn.ref!.teamName).toBeUndefined();
 
     // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.4 测试覆盖:handOff metadata
-    // 透传 assertion(spawn 收到的 args.hand_off 字段值正确)— plan-driven + adopt_teammates: true
-    // 路径覆盖。验 hand_off 5 字段:mode='plan' / planId='single-team' / phaseLabel=null /
-    // fromCallerSid='caller-sid' / hasAdoptedBlock=true(adopt_teammates: true + adoptedSnapshot
+    // 透传 assertion(spawn 收到的 args.handOff 字段值正确)— plan-driven + adoptTeammates: true
+    // 路径覆盖。验 handOff 5 字段:mode='plan' / planId='single-team' / phaseLabel=null /
+    // fromCallerSid='caller-sid' / hasAdoptedBlock=true(adoptTeammates: true + adoptedSnapshot
     // 装配成功)。
-    expect(seenSpawn.ref!.hand_off).toEqual({
+    expect(seenSpawn.ref!.handOff).toEqual({
       mode: 'plan',
       planId: 'single-team',
       phaseLabel: null,
@@ -429,9 +429,9 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 'multi-team',
+        planId: 'multi-team',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -490,9 +490,9 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 'test-prompt',
+        planId: 'test-prompt',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -508,7 +508,7 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
     const data = JSON.parse(result.content[0]!.text);
 
     // **adopt 路径 spawnPromptMessageId 恒返 null**(adopt 不写 placeholder — Round 6 MED-1 修法)
-    // mock spawn 也返 null,handler 强制 null:`args.adopt_teammates ? null : spawnData.spawnPromptMessageId`
+    // mock spawn 也返 null,handler 强制 null:`args.adoptTeammates ? null : spawnData.spawnPromptMessageId`
     expect(data.spawnPromptMessageId).toBeNull();
 
     // **initialPrompt 与 SDK first message(spawn args.prompt)一致** — schemas.ts 「完整字面」契约
@@ -525,13 +525,13 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
     expect(data.adopted.failed).toEqual([]);
 
     // **default baton 路径** ok return.adopted === null(回归保护)
-    // 用同款 fixture 不传 adopt_teammates 跑一次确认
+    // 用同款 fixture 不传 adoptTeammates 跑一次确认
     seenSpawn.ref = null;
     const defaultResult = await handOffSessionHandler(
       {
-        plan_id: 'test-prompt',
+        planId: 'test-prompt',
         adapter: 'claude-code',
-        // 不传 adopt_teammates
+        // 不传 adoptTeammates
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -547,7 +547,7 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
     expect(defaultData.adopted).toBeNull();
   });
 
-  it('T4 baton-cleanup 集成: adopt_teammates: true → teammatesShutdown.skipped="adopt-keep-implicit" + shutdown helper 不调用', async () => {
+  it('T4 baton-cleanup 集成: adoptTeammates: true → teammatesShutdown.skipped="adopt-keep-implicit" + shutdown helper 不调用', async () => {
     const state = makeState();
     state.files.set(
       '/Users/test/repo/.claude/plans/integration.md',
@@ -580,9 +580,9 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 'integration',
+        planId: 'integration',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -617,7 +617,7 @@ describe('handOffSessionHandler — adopt_teammates: true (Phase 4)', () => {
 // firstTeam fatal abort 双路径(swapped:false + throws)/ T6.X4 partial adopt 接受。
 //
 // fixture 同 Phase 4 集成测试(makeOkSpawn + agentDeckTeamRepo / sessionRepo spy)。
-describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Phase 6)', () => {
+describe('handOffSessionHandler — adoptTeammates 路径 phase 1.5 集成 (Phase 6)', () => {
   // helper:加 caller 在指定 team 是 lead + caller 自己 row 的 sessionRepo + agentDeckTeamRepo spy
   function setupCallerLead(
     leadTeamIds: string[],
@@ -690,9 +690,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-1-happy',
+        planId: 't6-1-happy',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -781,9 +781,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-2-closed',
+        planId: 't6-2-closed',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -833,9 +833,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-3-missing',
+        planId: 't6-3-missing',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -908,9 +908,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-4-multi',
+        planId: 't6-4-multi',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -996,9 +996,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 'safeemit-test',
+        planId: 'safeemit-test',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1062,9 +1062,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-x1-mixed',
+        planId: 't6-x1-mixed',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1115,9 +1115,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-x2-partial',
+        planId: 't6-x2-partial',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1168,9 +1168,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-x3a-fatal',
+        planId: 't6-x3a-fatal',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1218,9 +1218,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-x3b-throws',
+        planId: 't6-x3b-throws',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1267,9 +1267,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-x4-partial-ok',
+        planId: 't6-x4-partial-ok',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1314,7 +1314,7 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
   // 模拟「假设 schema strict refine 被绕过」场景(实际生产 mcp tool 注册路径走 SHAPE 不跑
   // ARGS_SCHEMA refine,需 handler 入口防御作 defense in depth)。直接调 handler 同传 args →
   // 立即 reject + spawnFn 未调用 + caller 状态零变化。
-  it('T4.3d handler 入口 N2.c 防御:adopt_teammates=true + team_name 同传立即 reject(spawn 未调用)', async () => {
+  it('T4.3d handler 入口 N2.c 防御:adoptTeammates=true + teamName 同传立即 reject(spawn 未调用)', async () => {
     const state = makeState();
     setupPlanFile(state, 't4-3d-defense');
 
@@ -1325,10 +1325,10 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
     const result = await handOffSessionHandler(
       // cast 模拟绕过 zod schema 直接调 handler(测 handler defense-in-depth)
       {
-        plan_id: 't4-3d-defense',
+        planId: 't4-3d-defense',
         adapter: 'claude-code',
-        adopt_teammates: true,
-        team_name: 'extra-team',
+        adoptTeammates: true,
+        teamName: 'extra-team',
       } as unknown as HandOffSessionArgs,
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1339,10 +1339,10 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
       },
     );
 
-    // **handler reject**:isError + 错误信息含 'adopt_teammates 与 team_name 不可同传'
+    // **handler reject**:isError + 错误信息含 'adoptTeammates 与 teamName 不可同传'
     expect(result.isError).toBe(true);
     const data = JSON.parse(result.content[0]!.text);
-    expect(data.error).toMatch(/adopt_teammates 与 team_name 不可同传/);
+    expect(data.error).toMatch(/adoptTeammates 与 teamName 不可同传/);
 
     // **副作用零变化**:spawn 未调用 + caller 未 archive
     expect(spawnFn).toHaveBeenCalledTimes(0);
@@ -1389,9 +1389,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-a1-archived-team',
+        planId: 't6-a1-archived-team',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1498,9 +1498,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-a2-archived-tm',
+        planId: 't6-a2-archived-tm',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1568,9 +1568,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-a3-mixed',
+        planId: 't6-a3-mixed',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1644,9 +1644,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
 
     const result = await handOffSessionHandler(
       {
-        plan_id: 't6-a4-missing',
+        planId: 't6-a4-missing',
         adapter: 'claude-code',
-        adopt_teammates: true,
+        adoptTeammates: true,
       },
       { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
       {
@@ -1685,13 +1685,13 @@ describe('handOffSessionHandler — adopt_teammates 路径 phase 1.5 集成 (Pha
   });
 });
 
-// plan handoff-no-spawn-guards-20260526 §D7 R2 codex LOW-2 修法:adopt_teammates: true 路径
-// 锁住 §不变量 7「adopt_teammates: true 路径不受影响 — adopt 是 swapLead 接管 lead 角色与
+// plan handoff-no-spawn-guards-20260526 §D7 R2 codex LOW-2 修法:adoptTeammates: true 路径
+// 锁住 §不变量 7「adoptTeammates: true 路径不受影响 — adopt 是 swapLead 接管 lead 角色与
 // spawn-link / spawn-guards 正交」。原 makeOkSpawn 只捕 spawnArgs 不捕 opts → 改造让 mock spawn
 // 捕第三参 opts 后断言 opts.handOffMode === true + opts.batonRole === 'lead'(adopt 路径仍走
 // hand-off 路径完全跳 spawn-guards / 永不写 spawn-link)。
-describe('handOffSessionHandler — adopt_teammates 路径 opts 第三参覆盖 (R3 codex LOW-2 修法 §D7)', () => {
-  it('adopt_teammates: true → spawn opts.handOffMode === true + opts.batonRole === lead (§不变量 7 正交守门)', async () => {
+describe('handOffSessionHandler — adoptTeammates 路径 opts 第三参覆盖 (R3 codex LOW-2 修法 §D7)', () => {
+  it('adoptTeammates: true → spawn opts.handOffMode === true + opts.batonRole === lead (§不变量 7 正交守门)', async () => {
     const state = makeState();
     state.files.set(
       '/Users/test/repo/.claude/plans/adopt-opts-cover.md',
@@ -1749,9 +1749,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 opts 第三参覆盖 
     );
 
     const args: HandOffSessionArgs = {
-      plan_id: 'adopt-opts-cover',
+      planId: 'adopt-opts-cover',
       adapter: 'claude-code',
-      adopt_teammates: true,
+      adoptTeammates: true,
     };
     const ctx: HandlerContext = {
       caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
@@ -1776,9 +1776,9 @@ describe('handOffSessionHandler — adopt_teammates 路径 opts 第三参覆盖 
     expect(seenOpts.ref?.handOffMode).toBe(true);
     expect(seenOpts.ref?.batonRole).toBe('lead');
 
-    // 守门 §D7 第 3 条新增 case:hand-off + caller spawnDepth>0 路径下 spawnArgs.team_name
-    // 由 N2.c 互斥(args.team_name + adopt_teammates: true 不可同传)保证省略,本 case 验
-    // adopt 路径不传 team_name 透传给 spawn(adopt 自己装 cold-start prompt 含 adopted block)
-    expect(seenSpawn.ref?.team_name).toBeUndefined();
+    // 守门 §D7 第 3 条新增 case:hand-off + caller spawnDepth>0 路径下 spawnArgs.teamName
+    // 由 N2.c 互斥(args.teamName + adoptTeammates: true 不可同传)保证省略,本 case 验
+    // adopt 路径不传 teamName 透传给 spawn(adopt 自己装 cold-start prompt 含 adopted block)
+    expect(seenSpawn.ref?.teamName).toBeUndefined();
   });
 });

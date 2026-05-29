@@ -384,8 +384,8 @@ describe('runBatonCleanup', () => {
     expect(emitFn).not.toHaveBeenCalled();
   });
 
-  // hand-off-mcp-archive-opt-20260515: caller 显式传 archive_caller=false → phase 2 跳过 + archived='skipped'。
-  // CHANGELOG_169 F4 修法 (reviewer-codex MED finding): archive_caller=false 时 phase 1 也跳过
+  // hand-off-mcp-archive-opt-20260515: caller 显式传 archiveCaller=false → phase 2 跳过 + archived='skipped'。
+  // CHANGELOG_169 F4 修法 (reviewer-codex MED finding): archiveCaller=false 时 phase 1 也跳过
   // shutdown teammates 让 caller 继续观察 reviewer reply。skipped='archive-caller-false-keep' 第六态
   // 与 'caller-not-lead' / 'adopt-keep-implicit' 区分语义来源。
   it('case 11: archiveCaller=false → phase 2 跳过 + phase 1 也跳过(F4 修法) + archived=skipped + skipped=archive-caller-false-keep', async () => {
@@ -416,7 +416,7 @@ describe('runBatonCleanup', () => {
   });
 
   // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D3 + D5):
-  // adopt_teammates=true 入参语义守门 — phase 1 跳过 shutdownTeammatesOnBaton 标
+  // adoptTeammates=true 入参语义守门 — phase 1 跳过 shutdownTeammatesOnBaton 标
   // skipped='adopt-keep-implicit'(teammate 由 hand-off-session.ts handler phase 1.5 adopt
   // 路径调 swapLead 接管;Phase 6 在 baton-cleanup helper 内调 swapLead 完整化 phase 1.5)。
   it('case 13 (Phase 4): adoptTeammates=true → skipped=adopt-keep-implicit + shutdown 不调用 + archive 仍走', async () => {
@@ -467,7 +467,7 @@ describe('runBatonCleanup', () => {
       teammatesShutdown: { closed: [], failed: [], skipped: 'adopt-keep-implicit' },
       archived: 'skipped',
     });
-    // 关键:adopt + archive_caller=false 同传 → phase 1 跳 + phase 2 跳,全 0 调用
+    // 关键:adopt + archiveCaller=false 同传 → phase 1 跳 + phase 2 跳,全 0 调用
     expect(shutdownFn).not.toHaveBeenCalled();
     expect(getFn).not.toHaveBeenCalled();
     expect(archiveFn).not.toHaveBeenCalled();
