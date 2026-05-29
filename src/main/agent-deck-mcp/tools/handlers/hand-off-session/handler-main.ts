@@ -53,17 +53,17 @@ import type { HandOffSessionHandlerDeps } from './_deps';
  * spawn handler 第三参 opts 决策 lambda(test seam)。
  *
  * **plan handoff-no-spawn-guards-20260526 §D5/§D6/§D8 收口**:hand-off 永远是「平级接力 +
- * 接管 lead 身份」语义,**无 archive_caller 分流**。本 lambda 退化为常量,无入参:
+ * 接管 lead 身份」语义,**无 archiveCaller 分流**。本 lambda 退化为常量,无入参:
  * - `handOffMode: true` — 让 spawn handler 完全跳过 spawn-guards 三道防御 + 永不写
  *   spawn-link(详 spawn-guards.ts §D4 + spawn-link-guard.ts §D6)
  * - `batonRole: 'lead'` — 让新 session 接管 lead 角色防 archiveTeamsIfOrphaned 误触发
- *   (仅当 args.team_name 启用 team 通信时被 spawn addMember 分支用到;不带 team_name
+ *   (仅当 args.teamName 启用 team 通信时被 spawn addMember 分支用到;不带 teamName
  *   的 hand-off 路径 batonRole 是 no-op)
  *
  * **历史名词 + 故意推翻**:旧名 `batonMode`(REVIEW_39/46/47/48 出现);本 plan §D6 改名升级
  * 语义(原仅跳 depth → 现跳三道 + 永不写 spawn-link)。当年 REVIEW_46(B-HIGH-2)+ REVIEW_47
- * (M12)的「archive_caller=false 退化 normal spawn」分流被本 plan §D4/§D5 故意推翻 —
- * 用户原话「都是平级的」+「不进行任何和 spawn session 有关的检查」,`archive_caller=false × N`
+ * (M12)的「archiveCaller=false 退化 normal spawn」分流被本 plan §D4/§D5 故意推翻 —
+ * 用户原话「都是平级的」+「不进行任何和 spawn session 有关的检查」,`archiveCaller=false × N`
  * 滥用风险由 power-user 自负责任(plan §D3)。
  *
  * **lambda 保留 vs inline 删**:plan §D8 选 (a) 保留 lambda export 维持 test seam(不变量 3
@@ -103,10 +103,10 @@ export const handOffSessionHandler = withMcpGuard(
     for (const w of callerCwdWarnings) console.warn(w);
     const resolved = await handOffSessionImpl(
       {
-        planId: args.plan_id,
+        planId: args.planId,
         prompt: args.prompt,
-        phaseLabel: args.phase_label,
-        planFilePathOverride: args.plan_file_path,
+        phaseLabel: args.phaseLabel,
+        planFilePathOverride: args.planFilePath,
       },
       mergedImplDeps,
     );
@@ -149,8 +149,8 @@ export const handOffSessionHandler = withMcpGuard(
     // 没法用时退化到 mainRepo。R1 fix MED-4:callerCwd 必须 existsSync precheck — 否则 caller
     // 是 K2 老 session(cwd=worktree 已被删)时新 spawn 直接 chdir 失败。
     //
-    // CHANGELOG_97：team_name 不再默认设为 plan_id —— baton 单向交接语义不需要 lead/teammate
-    // 关系；caller 显式传 team_name 时仍透传给 spawn 启用通信关系（罕见使用）。
+    // CHANGELOG_97：teamName 不再默认设为 planId —— baton 单向交接语义不需要 lead/teammate
+    // 关系；caller 显式传 teamName 时仍透传给 spawn 启用通信关系（罕见使用）。
     const planModeDefaultCwd = resolvePlanModeDefaultCwd(resolved);
     const defaultCwd =
       resolved.mode === 'plan'
@@ -162,7 +162,7 @@ export const handOffSessionHandler = withMcpGuard(
     const worktreeRejection = validatePlanModeWorktreeExists(resolved, finalCwd);
     if (worktreeRejection !== null) return worktreeRejection.result;
 
-    // 5. extra_allow_write 计算（外置 worktree 自动加 mainRepo）
+    // 5. extraAllowWrite 计算（外置 worktree 自动加 mainRepo）
     const computedExtraAllowWrite = computeExtraAllowWrite(args, resolved, finalCwd);
 
     if (!finalCwd) {
@@ -175,7 +175,7 @@ export const handOffSessionHandler = withMcpGuard(
       );
     }
 
-    // 6. adopt_teammates 互斥校验（N2.c）+ adoptedSnapshot 装配 + cold-start prompt prepend
+    // 6. adoptTeammates 互斥校验（N2.c）+ adoptedSnapshot 装配 + cold-start prompt prepend
     const adoptValidationResult = validateAdoptTeammatesArgs(args);
     if (adoptValidationResult !== null) return adoptValidationResult;
 
@@ -188,7 +188,7 @@ export const handOffSessionHandler = withMcpGuard(
     if ('isError' in adoptResult) return adoptResult.result;
     const { adoptedSnapshot, coldStartPromptForSDK } = adoptResult;
 
-    // 7. 装配 spawn args（含 adopt 路径 prompt prepend / hand_off metadata / cwd / sandbox / extra_allow_write）
+    // 7. 装配 spawn args（含 adopt 路径 prompt prepend / handOff metadata / cwd / sandbox / extraAllowWrite）
     const spawnArgs: SpawnSessionArgs = {
       adapter: args.adapter ?? 'claude-code',
       cwd: finalCwd,
@@ -200,46 +200,46 @@ export const handOffSessionHandler = withMcpGuard(
       // message emit 时 spread 进 events.payload,renderer 渲染 Hand-off badge + 折叠 adoptedBlock。
       //
       // **phaseLabel 按 resolved.mode 过滤**(R1 reviewer-codex LOW 修法):generic mode 时
-      // hand-off-session-impl.ts:170-186 已把 `phase_label` 标到 ignoredFields(ok return
+      // hand-off-session-impl.ts:170-186 已把 `phaseLabel` 标到 ignoredFields(ok return
       // phaseLabel 也是 null);为了让 events.payload metadata 与 handler 契约一致,此处也按
-      // resolved.mode 过滤,避免 caller 误传 phase_label 给 generic mode 时 events.payload /
+      // resolved.mode 过滤,避免 caller 误传 phaseLabel 给 generic mode 时 events.payload /
       // UI tooltip 显示该 phase 但 ok return 说被忽略(契约不一致 = silent UI/metadata 漂移)。
-      hand_off: {
+      handOff: {
         mode: resolved.mode,
-        planId: args.plan_id ?? null,
-        phaseLabel: resolved.mode === 'plan' ? args.phase_label ?? null : null,
+        planId: args.planId ?? null,
+        phaseLabel: resolved.mode === 'plan' ? args.phaseLabel ?? null : null,
         fromCallerSid: caller.callerSessionId,
-        hasAdoptedBlock: args.adopt_teammates === true && adoptedSnapshot !== null,
+        hasAdoptedBlock: args.adoptTeammates === true && adoptedSnapshot !== null,
       },
       // REVIEW_37 P1-Phase2 (claude F4 LOW)：omitUndefined 收口 4 个简单 spread+ternary。
-      // 仅 extra_allow_write（length > 0 语义）保留 inline ternary。
+      // 仅 extraAllowWrite（length > 0 语义）保留 inline ternary。
       ...omitUndefined({
-        team_name: args.team_name,
-        permission_mode: args.permission_mode,
-        // REVIEW_36 HIGH-2 修法：sandbox 字段镜像 permission_mode 透传策略
-        codex_sandbox: args.codex_sandbox,
-        claude_code_sandbox: args.claude_code_sandbox,
+        teamName: args.teamName,
+        permissionMode: args.permissionMode,
+        // REVIEW_36 HIGH-2 修法：sandbox 字段镜像 permissionMode 透传策略
+        codexSandbox: args.codexSandbox,
+        claudeCodeSandbox: args.claudeCodeSandbox,
       }),
       // REVIEW_36 R2 MED-C 修法：computedExtraAllowWrite 含 mainRepo（外置 worktree 自动加）+
-      // caller 显式 args.extra_allow_write 合并去重。仅当非空时透传给 spawn —
+      // caller 显式 args.extraAllowWrite 合并去重。仅当非空时透传给 spawn —
       // 留 inline 因要 length > 0 检查（空数组也跳过，omitUndefined 不处理 empty array）
       ...(computedExtraAllowWrite !== undefined && computedExtraAllowWrite.length > 0
-        ? { extra_allow_write: [...computedExtraAllowWrite] }
+        ? { extraAllowWrite: [...computedExtraAllowWrite] }
         : {}),
-      // caller_session_id 透传：spawn handler 内 makeCtx 已重新算（in-process closure
+      // callerSessionId 透传：spawn handler 内 makeCtx 已重新算（in-process closure
       // override），但这里用 ctx 直接转发跳过中间层。下方 spawnSessionHandler 接受 ctx 参数
-      // 直接传同一个 caller，不依赖 spawn_session 的 args.caller_session_id 字段。
+      // 直接传同一个 caller，不依赖 spawn_session 的 args.callerSessionId 字段。
     };
 
     // 8. 调 spawn handler 完成实际 spawn（透传同一 ctx 让 caller 视角一致）
-    // plan handoff-no-spawn-guards-20260526 §D5/§D6/§D8:无 archive_caller 分流,hand-off 永远是
+    // plan handoff-no-spawn-guards-20260526 §D5/§D6/§D8:无 archiveCaller 分流,hand-off 永远是
     // {handOffMode: true, batonRole: 'lead'} 平级接力 + 接管 lead 身份语义。
     // spawn handler 端消费语义:
     // - handOffMode=true 跳 spawn-guards 三道全部(depth + fan-out + spawn-rate)+ 永不写
     //   spawn-link(详 spawn-guards.ts §D4 + spawn-link-guard.ts §D6)
     // - batonRole='lead' 让新 session 在 team 内以 lead 角色加入(REVIEW_37 R2 HIGH-1 修法
-    //   仍 valid),仅当 args.team_name 真启用 team 通信时被 spawn addMember 分支用到;
-    //   不带 team_name 的 hand-off 不 addMember 时 batonRole 是 no-op
+    //   仍 valid),仅当 args.teamName 真启用 team 通信时被 spawn addMember 分支用到;
+    //   不带 teamName 的 hand-off 不 addMember 时 batonRole 是 no-op
     const spawnFn = handlerDeps?.spawnSession ?? spawnSessionHandler;
     const { handOffMode, batonRole } = resolveBatonRoleForSpawn();
     const spawnResult = await spawnFn(
@@ -271,7 +271,7 @@ export const handOffSessionHandler = withMcpGuard(
     // spawnData.sessionId 是 SpawnSessionResult.sessionId（cast 后 string，原 typeof 校验是
     // R37 P3-L 前的 Record<string, unknown> 兜底，cast 后 typeof 校验成 redundant 但保留无害）。
     const newSpawnedSid = typeof spawnData.sessionId === 'string' ? spawnData.sessionId : null;
-    // REVIEW_36 R2 HIGH-A: caller 显式 team_name 时 spawn handler 把新 sid 加为 teammate
+    // REVIEW_36 R2 HIGH-A: caller 显式 teamName 时 spawn handler 把新 sid 加为 teammate
     // (spawn.ts:310-317)。如果不通过 excludeSessionIds 排除 → helper 把刚交出 baton 的新 session
     // 也关掉(fix-to-fix bug)。spawnData.sessionId 必有(spawn handler ok return 必带 sessionId
     // 字段),否则前面 isError 短路返回。
@@ -285,7 +285,7 @@ export const handOffSessionHandler = withMcpGuard(
       teamsAdopted: 0,
       adoptedTeamIds: [],
     };
-    if (args.adopt_teammates === true && adoptedSnapshot && newSpawnedSid) {
+    if (args.adoptTeammates === true && adoptedSnapshot && newSpawnedSid) {
       const phase15Result = await runPhase15AdoptSwapLeadLoop(
         caller.callerSessionId,
         adoptedSnapshot,
@@ -314,7 +314,7 @@ export const handOffSessionHandler = withMcpGuard(
     // baton 单向交接 = caller 会话使命终结,team 里没 lead 后 reviewer-claude / reviewer-codex
     // 等 teammate 应一起收口避免孤儿(占内存 + SDK live query)。plan
     // hand-off-session-adopt-teammates-20260520 Phase 3 删除 phase 1 opt-out 字段;Phase 4 引入
-    // adopt_teammates: true 时走独立 phase 1.5 adopt 路径接管 teammate。
+    // adoptTeammates: true 时走独立 phase 1.5 adopt 路径接管 teammate。
     //
     // CHANGELOG_99 R1 fix MED-5: archive 段必须**重新反查** sessionRepo.get 而非复用早期
     // callerSessionRow。spawn 是 long-running async,期间 caller row 可能被删 → 复用
@@ -324,14 +324,14 @@ export const handOffSessionHandler = withMcpGuard(
         callerSessionId: caller.callerSessionId,
         // hand-off-mcp-archive-opt-20260515: caller archive opt-out。
         // default true(baton 单向交接 = caller 使命终结);仅 caller 显式传 false 跳过。
-        archiveCaller: args.archive_caller !== false,
+        archiveCaller: args.archiveCaller !== false,
         // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D3 + D5):
-        // adopt_teammates: true 透传到 baton-cleanup → phase 1 跳过 shutdownTeammatesOnBaton
+        // adoptTeammates: true 透传到 baton-cleanup → phase 1 跳过 shutdownTeammatesOnBaton
         // 标 skipped='adopt-keep-implicit'。teammate 由 phase 1.5 adopt 路径调 swapLead 接管
         // (Phase 4 阶段 phase 1.5 在 hand-off-session.ts handler adopt 分支只装配 cold-start
         // prompt;Phase 6 在 baton-cleanup helper 内调 swapLead 完整化 phase 1.5 流程含
         // listAllMembers + emit + collect preserved/failed)。
-        adoptTeammates: args.adopt_teammates === true,
+        adoptTeammates: args.adoptTeammates === true,
         excludeSessionIds,
         toolName: 'hand_off_session',
       },
@@ -346,18 +346,18 @@ export const handOffSessionHandler = withMcpGuard(
       // CHANGELOG_99 双模式 metadata
       mode: resolved.mode, // 'plan' | 'generic'
       // K2 metadata（plan 模式有值;generic 模式 plan-only 字段全 null）
-      planId: args.plan_id ?? null,
+      planId: args.planId ?? null,
       planFilePath: resolved.planFilePath,
       worktreePath: resolved.worktreePath,
       baseBranch: resolved.baseBranch,
-      phaseLabel: resolved.mode === 'plan' ? args.phase_label ?? null : null,
+      phaseLabel: resolved.mode === 'plan' ? args.phaseLabel ?? null : null,
       // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D11 v8 + Round 5 MED-2):
       // initialPrompt 必与 SDK first message 一致(schemas.ts:690-693「完整字面」契约)。
       // adopt 路径返 coldStartPromptForSDK(含 adopted teams context block + user prompt,
       // 不含 wire prefix);non-adopt 路径返 resolved.coldStartPrompt 原值。
-      initialPrompt: args.adopt_teammates === true ? coldStartPromptForSDK : resolved.coldStartPrompt,
+      initialPrompt: args.adoptTeammates === true ? coldStartPromptForSDK : resolved.coldStartPrompt,
       /**
-       * CHANGELOG_99：generic 模式下 caller 传了 plan-only 字段(phase_label / plan_file_path)
+       * CHANGELOG_99：generic 模式下 caller 传了 plan-only 字段(phaseLabel / planFilePath)
        * 时被忽略的字段名数组(空数组 = 无忽略)。caller 可见此字段提醒"我传错了"。plan 模式
        * 始终空数组。
        */
@@ -369,7 +369,7 @@ export const handOffSessionHandler = withMcpGuard(
        * - failed: close 失败的 teammate(含 reason),warn 不阻塞 ok return
        * - skipped: 'caller-not-lead'(caller 不是 lead) /
        *   'adopt-keep-implicit'(plan hand-off-session-adopt-teammates-20260520 Phase 4 引入,
-       *   adopt_teammates: true 时 teammate 由 swapLead 接管不 shutdown — Phase 3 完成时
+       *   adoptTeammates: true 时 teammate 由 swapLead 接管不 shutdown — Phase 3 完成时
        *   未启用) /
        *   null(正常处理含 closed=[] 的 caller=lead 但 team 内无其他 teammate)
        */

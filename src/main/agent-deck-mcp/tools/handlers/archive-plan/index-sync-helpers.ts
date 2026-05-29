@@ -17,7 +17,7 @@ export function escapeTableCell(s: string): string {
 }
 
 /**
- * archive-plan-tool-ux-followup-20260515 (b) LOW-1 (codex) / claude MED-5: caller 传 changelog_id
+ * archive-plan-tool-ux-followup-20260515 (b) LOW-1 (codex) / claude MED-5: caller 传 changelogId
  * (string + csv 解析,schema 已 regex 守门 `^\d+(,\d+)*$`) → 拼成 markdown link 单值或 ` / ` 分隔多值。
  * - "122" → "[122](../changelogs/CHANGELOG_122.md)"
  * - "121,122" → "[121](../changelogs/CHANGELOG_121.md) / [122](../changelogs/CHANGELOG_122.md)"
@@ -43,15 +43,15 @@ export function formatChangelogCell(changelogId: string | undefined): string | n
  * **行为契约**:
  * - existingContent === null → action='created':写带 4 列 header 的初始 INDEX(`| 文件 | 状态 |
  *   关联 changelog | 概要 |`) + 第一行 4 列 row
- * - existingContent 已含 plan_id 行(行首 `^| [<plan_id>.md](`)→ action='updated':canonical
+ * - existingContent 已含 planId 行(行首 `^| [<planId>.md](`)→ action='updated':canonical
  *   rewrite 该行为 4 列(status='completed' / changelog 列按规则 / description 列覆盖);完全相同 →
  *   action='unchanged'(caller 端可跳过 writeFile)
- * - existingContent 不含 plan_id 行 → action='appended':append 一行 4 列 row 到 INDEX 末尾
+ * - existingContent 不含 planId 行 → action='appended':append 一行 4 列 row 到 INDEX 末尾
  *
- * **caller 不传 changelog_id 时(opts.changelogCell === null)**:smart update 已存在 4 列 row 时
+ * **caller 不传 changelogId 时(opts.changelogCell === null)**:smart update 已存在 4 列 row 时
  * 保留原 changelog 列(避免清空已有);旧 2 列 row 或新 append 用 `—` placeholder。
  *
- * **行级 regex 锚定行首 `^| [<plan_id>.md](`** 而非 `indexContent.includes('(${planId}.md)')` —
+ * **行级 regex 锚定行首 `^| [<planId>.md](`** 而非 `indexContent.includes('(${planId}.md)')` —
  * 后者会撞 description / changelog 列含同款 substring 误命中(罕见但可能,如 description 引用其他
  * plan link)。锚定行首 + 文件链接前缀语法保证只匹配 row 第一列。
  */
@@ -61,7 +61,7 @@ export interface SyncPlansIndexOptions {
   /** 已 escape + slice 200 char 的 description,直接写 INDEX 第 4 列。 */
   description: string;
   /**
-   * caller 传 changelog_id 时拼成的 markdown link string (formatChangelogCell 输出);
+   * caller 传 changelogId 时拼成的 markdown link string (formatChangelogCell 输出);
    * caller 不传时 null,smart update 时保留老 4 列 changelog 列 / append 时用 `—` placeholder。
    */
   changelogCell: string | null;
@@ -77,8 +77,8 @@ export function syncPlansIndex(
 ): SyncPlansIndexResult {
   const { planId, description, changelogCell } = opts;
   const fileLink = `[${planId}.md](${planId}.md)`;
-  // regex 锚定行首 + 文件链接前缀:`^| [<plan_id>.md](` 转义 plan_id 中 regex 特殊字符
-  // (按 schema plan_id charset `[A-Za-z0-9._-]` 含 `.`)
+  // regex 锚定行首 + 文件链接前缀:`^| [<planId>.md](` 转义 planId 中 regex 特殊字符
+  // (按 schema planId charset `[A-Za-z0-9._-]` 含 `.`)
   const escapedPlanId = planId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const planLineRegex = new RegExp(`^\\| \\[${escapedPlanId}\\.md\\]\\(`);
 
@@ -105,10 +105,10 @@ export function syncPlansIndex(
   const lines = workingContent.split('\n');
   const targetIdx = lines.findIndex((line) => planLineRegex.test(line));
 
-  // case 2: 已含 plan_id 行 → smart update canonical rewrite 4 列
+  // case 2: 已含 planId 行 → smart update canonical rewrite 4 列
   if (targetIdx >= 0) {
     // parse 老行用 split('|') 拿 cells;`split('|')` 第一段空(行首 `|`)+ 中间 cells + 末尾空
-    // (行尾 `|`)。slice(1, -1) 拿 cells 部分,trim 去 padding。caller 不传 changelog_id 时
+    // (行尾 `|`)。slice(1, -1) 拿 cells 部分,trim 去 padding。caller 不传 changelogId 时
     // 用老 4 列的第 3 列(index 2)作 fallback。
     //
     // **invariant**(R1 fix codex MED-3 / claude MED-4):**只用 oldCols[2] 作 changelog
@@ -137,7 +137,7 @@ export function syncPlansIndex(
     return { newContent: lines.join('\n'), action: 'updated' };
   }
 
-  // case 3: 不含 plan_id 行 → append 4 列 row(若 header 已升级,workingContent 反映新 header)
+  // case 3: 不含 planId 行 → append 4 列 row(若 header 已升级,workingContent 反映新 header)
   const appendLine = `| ${fileLink} | completed | ${changelogCell ?? '—'} | ${description} |`;
   const sep = workingContent.endsWith('\n') ? '' : '\n';
   return { newContent: workingContent + sep + appendLine + '\n', action: 'appended' };

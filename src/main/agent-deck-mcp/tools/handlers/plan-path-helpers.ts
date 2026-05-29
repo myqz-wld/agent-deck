@@ -7,13 +7,13 @@
  * - archive-plan-impl.ts L394-415 已实现 3 档 fallback(projectLocal > projectArchived >
  *   userGlobal),包含本项目实际惯例的中间档 `<main-repo>/ref/plans/<id>.md`
  * - hand-off-session-impl.ts L201-218 仅 2 档(projectLocal > userGlobal),漏中间档
- *   → caller 不传 plan_file_path 且 plan 文件在 `<main-repo>/ref/plans/`(本项目实际惯例 30+
+ *   → caller 不传 planFilePath 且 plan 文件在 `<main-repo>/ref/plans/`(本项目实际惯例 30+
  *   stub plan 都直接创在 ref/plans/)时全失败,hand-off 无法 cold-start 已归档 plan
  *
  * **修法**:抽 helper 让两个 caller 共享同一 fallback 链 + INDEX message + Tried path 列表。
  *
  * **签名约束**:
- * - mainRepo `string | null`:hand_off generic 模式 / archive_plan 反查失败时可能为 null,
+ * - mainRepo `string | null`:handOff generic 模式 / archive_plan 反查失败时可能为 null,
  *   null 时跳过 project-scoped 路径(projectLocal / projectArchived)只查 userGlobal
  * - deps 接口仅 exists + homedir(两个 caller deps 都已有此 2 字段,helper 不需 fs.stat 等)
  */
@@ -64,6 +64,6 @@ export async function resolvePlanFilePath(
     mainRepo === null ? ' (caller cwd is not a git repo, skipped <main-repo>/ lookups)' : '';
   return {
     error: `plan file not found at any default location`,
-    hint: `Tried: ${triedList}${mainRepoNote}\nPass plan_file_path explicitly to override, or check that plan_id "${planId}" matches the file stem.`,
+    hint: `Tried: ${triedList}${mainRepoNote}\nPass planFilePath explicitly to override, or check that planId "${planId}" matches the file stem.`,
   };
 }

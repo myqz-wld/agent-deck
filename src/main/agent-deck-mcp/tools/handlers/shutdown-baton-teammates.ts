@@ -21,7 +21,7 @@
  *   shutdown」明确指引 IPC TeamShutdownAllTeammates 或 UI Team 面板手动操作。
  *
  * **Deny external caller**（types.ts: EXTERNAL_CALLER_ALLOWED.shutdown_baton_teammates = false）：
- * sessionManager.close 是写操作 + caller=lead 反查需要真实 caller_session_id,绝不允许 stdio
+ * sessionManager.close 是写操作 + caller=lead 反查需要真实 callerSessionId,绝不允许 stdio
  * external client 调用（避免被恶意 mcp client 利用清理任意 team 内 session）。
  *
  * **mock seam**：handlerDeps.shutdownTeammates 让单测无需 mock 整个 sessionManager / agentDeckTeamRepo,
@@ -54,7 +54,7 @@ export const shutdownBatonTeammatesHandler = withMcpGuard(
     handlerDeps?: ShutdownBatonTeammatesHandlerDeps,
   ) => {
     const { caller } = ctx;
-    const planId = args.plan_id ?? null;
+    const planId = args.planId ?? null;
 
     const shutdownFn =
       handlerDeps?.shutdownTeammates ??
@@ -69,7 +69,7 @@ export const shutdownBatonTeammatesHandler = withMcpGuard(
       // 不阻塞行为不同 — 本 tool 是 escape hatch,helper 失败就是「补跑没成功」需让 caller
       // 显式知道,不能假装 ok return）。
       const errStr = e instanceof Error ? e.message : String(e);
-      const planSuffix = planId ? ` (plan_id=${planId})` : '';
+      const planSuffix = planId ? ` (planId=${planId})` : '';
       console.warn(
         `[mcp shutdown_baton_teammates] shutdownTeammatesOnBaton helper threw for caller ${caller.callerSessionId}${planSuffix}:`,
         e,
@@ -87,7 +87,7 @@ export const shutdownBatonTeammatesHandler = withMcpGuard(
         `shutdown_baton_teammates only operates on teams where caller is the lead. Caller currently has no `
           + `active membership with role=lead (either caller is a teammate / was never added to any team). `
           + `To clean up dormant teammates of a specific team without requiring caller to be that team's lead, `
-          + `use the IPC TeamShutdownAllTeammates handler (with team_id) or the UI Team panel's "Shutdown all teammates" button.`,
+          + `use the IPC TeamShutdownAllTeammates handler (with teamId) or the UI Team panel's "Shutdown all teammates" button.`,
       );
     }
 
@@ -102,7 +102,7 @@ export const shutdownBatonTeammatesHandler = withMcpGuard(
         `shutdown_baton_teammates found caller=lead memberships but all relevant teams have archived_at != null. `
           + `No active lead team → no teammate to clean up via this escape hatch (already-archived teams' members were `
           + `cleaned during team archive cascade). If you need to shut down sessions in an archived team specifically, `
-          + `use IPC TeamShutdownAllTeammates handler (with team_id) which doesn't require caller=lead, or shutdown each `
+          + `use IPC TeamShutdownAllTeammates handler (with teamId) which doesn't require caller=lead, or shutdown each `
           + `session individually via shutdown_session.`,
       );
     }

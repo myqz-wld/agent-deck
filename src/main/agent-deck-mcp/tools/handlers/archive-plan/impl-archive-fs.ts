@@ -51,7 +51,7 @@ import type {
  *   - freshFm / freshContent / finalCommit (post-ff-merge state — ff-merge 输出)
  *
  * **Side effects** on warnings 数组(共享 ref):
- *   - silent-override (Step 10 同 plan_id 双存)
+ *   - silent-override (Step 10 同 planId 双存)
  *   - spike-reports rmdir parent failed (Step 12.5 sibling artifacts 残留)
  *   - spike-reports mv failed (Step 12.5 EXDEV / perm)
  *
@@ -97,13 +97,13 @@ export async function runArchiveFs(
   // / 跳过理由 / 当前进度 等收尾回写)
   // archivedDir / archivedPath 已在 step 3.5a 计算（Phase 1.2a 提前路径算法）— 此处复用。
   // archive-plan-tool-ux-followup-20260515 HIGH-2 (双方独立 HIGH 共识) silent override warn:
-  // 同 plan_id 同时存在 `.claude/plans/<id>.md` AND `<main-repo>/ref/plans/<id>.md`(caller 误操作 /
+  // 同 planId 同时存在 `.claude/plans/<id>.md` AND `<main-repo>/ref/plans/<id>.md`(caller 误操作 /
   // 历史遗留)→ fallback 链选 .claude/plans/ 后 step 10 静默覆盖 ref/plans/ 历史 completed archive。
   // 用户决策(Q1):走 warn 而非 reject(不阻断 archive,只让 caller 看到风险)。
   if (path.resolve(planFilePath) !== path.resolve(archivedPath)) {
     if (await deps.exists(archivedPath)) {
       warnings.push(
-        `silent-override: plan_id "${input.planId}" exists at both source ${planFilePath} and archived target ${archivedPath}. ` +
+        `silent-override: planId "${input.planId}" exists at both source ${planFilePath} and archived target ${archivedPath}. ` +
           `Step 10 will overwrite ${archivedPath} (历史 completed archive 可能被覆盖)。建议 caller 后续手工 reconcile:` +
           `(1) inspect git log ${path.relative(mainRepo, archivedPath)} 看老归档历史;` +
           `(2) 决定保留哪份(典型: 老归档 + 本次 fix 用 git revert 回滚或 merge);` +
@@ -139,11 +139,11 @@ export async function runArchiveFs(
 
   // 11. 同步 ref/plans/INDEX.md(archive-plan-tool-ux-followup-20260515 (b)+(c) syncPlansIndex helper
   // 重写):4 列 canonical 格式 `| 文件 | 状态 | 关联 changelog | 概要 |`,smart update existing
-  // 行(替换 status / changelog / description 列),caller 不传 changelog_id 时保留老 4 列 changelog
+  // 行(替换 status / changelog / description 列),caller 不传 changelogId 时保留老 4 列 changelog
   // 列 / 旧 2 列 row 或新 append 用 `—` placeholder。description / changelog 列 escape `|` + 换行。
   // indexPath 已在 step 3.5a 计算（Phase 1.2a 提前路径算法）— 此处复用。
   // freshFm 而非 step 6 fm — 与 step 9-10 frontmatter / body 写入保持同源
-  const rawSummary = (freshFm.description ?? freshFm.plan_id ?? input.planId).slice(0, 200);
+  const rawSummary = (freshFm.description ?? freshFm.planId ?? input.planId).slice(0, 200);
   const summary = escapeTableCell(rawSummary);
   const changelogCell = formatChangelogCell(input.changelogId);
   let plansIndexAction: ArchivePlanResult['plansIndexAction'];
@@ -232,7 +232,7 @@ export async function runArchiveFs(
   const dstSpikeDir = path.join(mainRepo, 'ref', 'plans', input.planId, 'spike-reports');
   let spikeReportsArchived: { srcPath: string; dstPath: string } | null = null;
   // CHANGELOG_169 F8 [MED]: srcSpikeDir == dstSpikeDir 边界 guard(reviewer-claude finding)。
-  // plan_file_path 已在 `<main-repo>/ref/plans/<plan-id>.md` 时(典型本项目 30+ stub plan 场景),
+  // planFilePath 已在 `<main-repo>/ref/plans/<plan-id>.md` 时(典型本项目 30+ stub plan 场景),
   // path.dirname(planFilePath) === `<main-repo>/ref/plans` → srcSpikeDir 与 dstSpikeDir 完全相等。
   // 老 impl 走 mv same → no-op + rmdir parent 非空 fail swallow,但 spikeReportsArchived 仍设
   // non-null 误导 caller 以为归档了。修法:加 path.resolve 比较 guard,相等 skip + 保 null 语义。

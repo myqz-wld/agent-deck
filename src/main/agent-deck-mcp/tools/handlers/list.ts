@@ -1,5 +1,5 @@
 /**
- * list_sessions handler —— 只读列表（status_filter / adapter_filter / spawned_by_filter
+ * list_sessions handler —— 只读列表（statusFilter / adapterFilter / spawnedByFilter
  * + slice limit）。返回 enrich 过 teams[] 的 metadata。
  *
  * 拆分历史：从 src/main/agent-deck-mcp/tools.ts 943-993 抽出（CHANGELOG_81 / plan
@@ -31,11 +31,11 @@ export const listSessionsHandler = withMcpGuard(
     // 注：此处用现有 API 拼装，避免新增 sessionRepo 通用 list({status,adapter,limit})
     // 接口（ADR §6.5.2 #6 实施清单建议加，但需要重构现有 47 个调用点 — 留 R2 收口或 R3）
     let sessions: SessionRecord[] = [];
-    if (args.status_filter === 'active' || args.status_filter === 'dormant') {
+    if (args.statusFilter === 'active' || args.statusFilter === 'dormant') {
       sessions = sessionRepo
         .listActiveAndDormant(args.limit * 2)
-        .filter((s) => s.lifecycle === args.status_filter);
-    } else if (args.status_filter === 'closed') {
+        .filter((s) => s.lifecycle === args.statusFilter);
+    } else if (args.statusFilter === 'closed') {
       sessions = sessionRepo.listHistory({ limit: args.limit });
     } else {
       // 'all'
@@ -43,13 +43,13 @@ export const listSessionsHandler = withMcpGuard(
       const closed = sessionRepo.listHistory({ limit: args.limit });
       sessions = [...live, ...closed];
     }
-    if (args.adapter_filter) {
-      sessions = sessions.filter((s) => s.agentId === args.adapter_filter);
+    if (args.adapterFilter) {
+      sessions = sessions.filter((s) => s.agentId === args.adapterFilter);
     }
-    // spawned_by_filter 在 slice(limit) 前执行（REVIEW_28 reviewer-codex INFO-1 修法），
+    // spawnedByFilter 在 slice(limit) 前执行（REVIEW_28 reviewer-codex INFO-1 修法），
     // 避免大 lead 反查少量 children 时被 limit cutoff 误报空列表。
-    if (args.spawned_by_filter) {
-      sessions = sessions.filter((s) => s.spawnedBy === args.spawned_by_filter);
+    if (args.spawnedByFilter) {
+      sessions = sessions.filter((s) => s.spawnedBy === args.spawnedByFilter);
     }
     const truncated = sessions.slice(0, args.limit);
     // plan team-cohesion-fix-20260513 Phase A Step A7：projectSession 不再自反查 universal

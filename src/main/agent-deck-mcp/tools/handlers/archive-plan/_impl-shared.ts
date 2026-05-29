@@ -35,7 +35,7 @@ export interface ArchivePlanInput {
   worktreePath: string;
   /**
    * Caller 显式传的 base branch。
-   * REVIEW_36 R2 user feedback：caller 不传（undefined）→ impl 优先读 plan frontmatter.base_branch，
+   * REVIEW_36 R2 user feedback：caller 不传（undefined）→ impl 优先读 plan frontmatter.baseBranch，
    * frontmatter 也没设 → fallback "main"。caller 显式传 string 始终覆盖 frontmatter（最高优先级）。
    * 旧实现 schema `.default('main')` 让 caller 不传时 string='main' 强制合到 main，与 user CLAUDE
    * §Step 4 「合回切 worktree 时的原分支」契约不符（feature branch 上跑 plan 应合回 feature branch
@@ -61,10 +61,10 @@ export interface ArchivePlanResult {
    * archive-plan-tool-ux-followup-20260515 (b)+(c)：plansIndexAppended boolean → plansIndexAction
    * 四态 enum,让 caller 区分 INDEX 行真正发生的事情:
    * - 'created':INDEX 文件不存在,创建带 4 列 header 的初始文件 + 写第一行
-   * - 'appended':INDEX 已存在但无本 plan_id 行,append 一行 4 列 row
-   * - 'updated':INDEX 已存在且有本 plan_id 行(老 in_progress / 旧 2 列 stub / 老 4 列 completed)
+   * - 'appended':INDEX 已存在但无本 planId 行,append 一行 4 列 row
+   * - 'updated':INDEX 已存在且有本 planId 行(老 in_progress / 旧 2 列 stub / 老 4 列 completed)
    *   → smart update canonical rewrite 4 列(status=completed + changelog 列 + description 列)
-   * - 'unchanged':INDEX 已存在且有本 plan_id 行,smart update 后内容与原行完全相同(罕见 idempotent)
+   * - 'unchanged':INDEX 已存在且有本 planId 行,smart update 后内容与原行完全相同(罕见 idempotent)
    */
   plansIndexAction: 'created' | 'appended' | 'updated' | 'unchanged';
   finalStatus: 'completed';
@@ -171,7 +171,7 @@ export interface PrecheckResult {
   mainRepo: string;
   worktreeBranch: string;
   planFilePath: string;
-  /** Step 6 frontmatter — Step 7 base_branch fallback 用,post-ff-merge 后用 freshFm 而非 fm */
+  /** Step 6 frontmatter — Step 7 baseBranch fallback 用,post-ff-merge 后用 freshFm 而非 fm */
   fm: Record<string, string>;
   archivedDir: string;
   archivedPath: string;
@@ -279,7 +279,7 @@ const POST_FF_MERGE_HINT_GENERIC =
  */
 const POST_FF_MERGE_RETRY_INVARIANT_PREFIX =
   '⚠ Cannot retry archive_plan as a whole (would hit "branch already merged" / "validation failed" on ff-merge or repeat already-completed steps). ' +
-  'Manually complete remaining cleanup steps according to the phase below, then DO NOT re-call archive_plan; the worktree branch is already merged into base_branch.\n\n';
+  'Manually complete remaining cleanup steps according to the phase below, then DO NOT re-call archive_plan; the worktree branch is already merged into baseBranch.\n\n';
 
 /**
  * REVIEW_33 H9：统一 post-ff-merge error 构造器。error 文本前缀加 `[post-ff-merge:<phase>]`
@@ -333,7 +333,7 @@ export const DEFAULT_DEPS: Required<ArchivePlanDeps> = {
  * CHANGELOG_169 F6 [MED]: INDEX TOCTOU 单飞锁(reviewer-claude finding,reviewer-codex 反驳后
  * 部分成立降级 MED)。
  *
- * 防 caller A 与 B 并发 archive 不同 plan_id 时 INDEX read-modify-write 撞 race:
+ * 防 caller A 与 B 并发 archive 不同 planId 时 INDEX read-modify-write 撞 race:
  * - 都 readFile 拿 INDEX 旧版 N 行 → 各自 syncPlansIndex 算 N+1 行 → A writeFile(commit pending)
  *   → B writeFile(commit 覆盖 A 的 row)→ B 的 git commit pathspec 包含 indexPath → A 的
  *   INDEX row 永久丢失(silent corruption)。

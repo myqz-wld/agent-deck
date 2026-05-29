@@ -37,7 +37,7 @@ export interface HandOffSessionHandlerDeps {
    * CHANGELOG_106 + REVIEW_36 R2 HIGH-A：teammate shutdown helper 的 test seam（与 archive_plan 同款）。
    *
    * REVIEW_36 R2 HIGH-A：seam signature 加可选 `excludeSessionIds` 参数，让 hand-off 把刚 spawn 的新
-   * sessionId 显式排除（修前 `team_name=x` baton 路径下新 session 被 spawn handler 加为 teammate，
+   * sessionId 显式排除（修前 `teamName=x` baton 路径下新 session 被 spawn handler 加为 teammate，
    * 然后被 helper 一并 close）。default 实现 `(sid, exclude) => shutdownTeammatesOnBaton(sid, { excludeSessionIds: exclude })`。
    */
   shutdownTeammates?: (
@@ -46,7 +46,7 @@ export interface HandOffSessionHandlerDeps {
   ) => Promise<ShutdownTeammatesResult>;
   /**
    * plan hand-off-session-adopt-teammates-20260520 Phase 6 (D4 + D5 + D6 + N8):
-   * adopt_teammates: true 路径 phase 1.5 swapLead test seam。default 走
+   * adoptTeammates: true 路径 phase 1.5 swapLead test seam。default 走
    * agentDeckTeamRepo.swapLead;test 注入控制每个 teamId 的 swap 结果(成功 / swapped:false /
    * throws)验证 firstTeam fatal abort + 非 firstTeam 软失败 partial adopt 路径。
    */
@@ -76,7 +76,7 @@ export interface HandOffSessionHandlerDeps {
    * plan task-mcp-owner-session-id-rewrite-20260521 v023 §D3: task 过继 test seam。
    * default 走 taskRepo.reassignOwner;test 注入 spy 验证 spawn 之后、archive caller
    * 之前是否调到 + caller 拥有的 task 行数。失败仅 warn 不阻塞 ok return(task 过继
-   * 是 nice-to-have,hand_off baton 本质是 session 接力)。
+   * 是 nice-to-have,handOff baton 本质是 session 接力)。
    *
    * v024 plan task-team-id-restore-20260525 §Step D2 改造:加 policy 参数让 'clear-team' /
    * 'preserve-team' 两态走同款 reassignOwner 接口（'skip' 走独立 applyHandOffSkipPolicy seam,
@@ -95,7 +95,7 @@ export interface HandOffSessionHandlerDeps {
   applyHandOffSkipPolicy?: (callerSid: string, newSid: string) => ApplyHandOffSkipResult;
   /**
    * v024 plan §Step D2 preserve-team safety 算法 test seam（Round 4 HIGH-1 修法支撑）：default
-   * 走 taskRepo.findOwnedDistinctTeamIds 拿 caller owned distinct non-null team_id 列表。
+   * 走 taskRepo.findOwnedDistinctTeamIds 拿 caller owned distinct non-null teamId 列表。
    * test 注入 mock 控制返回值验证 unadoptedTeamIds 差集算法 + policyWarning 触发条件。
    */
   findCallerOwnedTeamIds?: (callerSid: string) => string[];

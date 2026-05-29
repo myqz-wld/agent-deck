@@ -139,7 +139,7 @@ function resolveCallerCwdDeps(callerSessionId: string): {
   const marker = row.cwdReleaseMarker ?? null;
   // P5 Round 1 reviewer-codex HIGH-1 修法 (release marker seam):
   // archive 成功后 impl 调本 thunk 清 sessionRepo.cwd_release_marker 字段(与 markClosed/close
-  // hook 同款,但本 release seam 在 archive 路径独立 — archive_caller=false 时 caller session
+  // hook 同款,但本 release seam 在 archive 路径独立 — archiveCaller=false 时 caller session
   // 仍 active 也必须清 stale marker 避免下次 archive 撞 4 态状态 4 误 reject)。
   // sessionRepo.clearCwdReleaseMarker 是 sync,包成 async thunk 与 impl signature 对齐。
   const clearMarker = async (): Promise<void> => {
@@ -207,11 +207,11 @@ export const archivePlanHandler = withMcpGuard(
 
     const result = await archivePlanImpl(
       {
-        planId: args.plan_id,
-        worktreePath: args.worktree_path,
-        baseBranch: args.base_branch,
-        planFilePathOverride: args.plan_file_path,
-        changelogId: args.changelog_id,
+        planId: args.planId,
+        worktreePath: args.worktreePath,
+        baseBranch: args.baseBranch,
+        planFilePathOverride: args.planFilePath,
+        changelogId: args.changelogId,
       },
       mergedImplDeps,
     );

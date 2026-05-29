@@ -6,7 +6,7 @@
  * 不动 caller 可重试。
  *
  * **业务流程** (与原 archive-plan-impl.ts:257-635 1:1 对齐, 行级精确):
- * 1. worktree_path 存在性预检 (REVIEW_33 H10) — line 272-277
+ * 1. worktreePath 存在性预检 (REVIEW_33 H10) — line 272-277
  * 2. Step 1: 解析 worktree → main repo 路径 — line 279-294
  * 3. Step 2: 解析 worktree branch — line 296-308
  * 4. Step 3: 预检 worktree clean — line 310-322
@@ -14,7 +14,7 @@
  * 6. Step 3.5b: 派生 archivedPath / indexPath + mainRepo 三具体路径 dirty precheck — line 366-414
  * 7. Step 4: cwd 4 态分流 (releaseMarkerOnSuccess) — line 416-535
  * 8. Step 5: placeholder (已挪到 step 3.5a) — line 537-540
- * 9. Step 6: 读 + parse frontmatter + status 三档分流 + plan_id/worktree_path cross-check — line 542-625
+ * 9. Step 6: 读 + parse frontmatter + status 三档分流 + planId/worktreePath cross-check — line 542-625
  * 10. Step 6.5+: worktreeBranch 命名约束 (soft warn) — line 627-634
  *
  * **跨子模块 state 流** (return value 传递,避免单一巨型 ctx object — Step 4.1 经验):
@@ -44,7 +44,7 @@ import type {
  * 跑 Step 1-6 + 6.5 + worktreeBranch 命名 check。
  *
  * **Side effects** on warnings 数组(共享 ref): silent-override / branch-naming-mismatch /
- * older-plan-missing-{plan_id,worktree_path} / mainRepo-unrelated-dirty / cwd-marker-cross-worktree
+ * older-plan-missing-{planId,worktreePath} / mainRepo-unrelated-dirty / cwd-marker-cross-worktree
  * (5 类预检 warning,详 ArchivePlanResult.warnings 字段 jsdoc)。
  *
  * **Return**: PrecheckResult on success / ArchivePlanError on any fail-fast。
@@ -54,7 +54,7 @@ export async function runPrecheck(
   deps: Required<ArchivePlanDeps>,
   warnings: string[],
 ): Promise<PrecheckResult | ArchivePlanError> {
-  // REVIEW_33 H10：worktree_path 存在性预检（放最前，所有其他预检之前）。
+  // REVIEW_33 H10：worktreePath 存在性预检（放最前，所有其他预检之前）。
   // 旧实现 step 1 直接 `git rev-parse --git-common-dir` in cwd: input.worktreePath；
   // worktree 已被手工 `git worktree remove` / 跨机器迁移 / 误删时 → child_process
   // ENOENT，被 step 1 的 try/catch 抓但 error message 不清晰（混在 git rev-parse 错误
@@ -62,7 +62,7 @@ export async function runPrecheck(
   // 检查，缺失立即返结构化 error 提示「先建 worktree / 修正路径」。
   if (!(await deps.exists(input.worktreePath))) {
     return {
-      error: `worktree_path does not exist: ${input.worktreePath}`,
+      error: `worktreePath does not exist: ${input.worktreePath}`,
       hint: `worktree may have been manually removed (\`git worktree remove\`) / cross-device synced without working tree / wrong path. Verify with \`ls -la ${input.worktreePath}\`. If you really intend to clean up the orphan branch only (no worktree dir), follow user CLAUDE.md §Step 4 manual cleanup instead of archive_plan.`,
     };
   }
@@ -74,7 +74,7 @@ export async function runPrecheck(
   } catch (e) {
     return {
       error: `git rev-parse --git-common-dir failed in worktree: ${(e as Error).message}`,
-      hint: `worktree_path "${input.worktreePath}" is not a valid git worktree (or git not installed). Verify with \`git -C ${input.worktreePath} status\`.`,
+      hint: `worktreePath "${input.worktreePath}" is not a valid git worktree (or git not installed). Verify with \`git -C ${input.worktreePath} status\`.`,
     };
   }
   // git-common-dir 在 worktree 里返回相对 / 绝对路径都可能；resolve to absolute first
@@ -94,7 +94,7 @@ export async function runPrecheck(
   if (!worktreeBranch || worktreeBranch === 'HEAD') {
     return {
       error: `worktree HEAD is detached (branch=${worktreeBranch})`,
-      hint: 'archive_plan requires worktree to be on a named branch so it can be ff-merged into base_branch and then deleted.',
+      hint: 'archive_plan requires worktree to be on a named branch so it can be ff-merged into baseBranch and then deleted.',
     };
   }
 
@@ -123,19 +123,19 @@ export async function runPrecheck(
   if (input.planFilePathOverride) {
     if (!(await deps.exists(input.planFilePathOverride))) {
       return {
-        error: `plan_file_path override does not exist: ${input.planFilePathOverride}`,
+        error: `planFilePath override does not exist: ${input.planFilePathOverride}`,
       };
     }
-    // archive-plan-tool-ux-followup-20260515 HIGH-1 (claude 单方 + 现场验证): plan_file_path
-    // 文件名 stem 必须等于 plan_id。否则 step 10 archivedPath 用 plan_id 派生 = `<main-repo>
-    // /ref/plans/<plan_id>.md` 与 caller 给的 plan_file_path 文件完全脱节,step 12 因 path !==
+    // archive-plan-tool-ux-followup-20260515 HIGH-1 (claude 单方 + 现场验证): planFilePath
+    // 文件名 stem 必须等于 planId。否则 step 10 archivedPath 用 planId 派生 = `<main-repo>
+    // /ref/plans/<planId>.md` 与 caller 给的 planFilePath 文件完全脱节,step 12 因 path !==
     // archivedPath 删 caller 文件,silent unlink 风险。impl 层校验给清晰 hint(schema 是 record
     // shape 不支持 cross-field refine,故落 impl 而非 schema)。
     const overrideStem = path.basename(input.planFilePathOverride, '.md');
     if (overrideStem !== input.planId) {
       return {
-        error: `plan_file_path stem "${overrideStem}" does not match plan_id "${input.planId}"`,
-        hint: `archived path / INDEX key are derived from plan_id (\`<main-repo>/ref/plans/${input.planId}.md\`); step 12 unlink would silently move the plan_file_path file. Either rename plan_file_path to \`${input.planId}.md\` or change plan_id to "${overrideStem}". 修法 followup 20260515 HIGH-1.`,
+        error: `planFilePath stem "${overrideStem}" does not match planId "${input.planId}"`,
+        hint: `archived path / INDEX key are derived from planId (\`<main-repo>/ref/plans/${input.planId}.md\`); step 12 unlink would silently move the planFilePath file. Either rename planFilePath to \`${input.planId}.md\` or change planId to "${overrideStem}". 修法 followup 20260515 HIGH-1.`,
       };
     }
     planFilePath = input.planFilePathOverride;
@@ -191,7 +191,7 @@ export async function runPrecheck(
         `会让 baton-cleanup phase 1 teammate shutdown 没被调到，导致 reviewer 自然衰减成 dormant 残留 ` +
         `（R3 实证「6 reviewer dormant 未 closed」即此场景）。优先 fix 上述 conflicts 后重 invoke archive_plan tool；` +
         `若必须手工归档（conflicts 无法立即修），手工 commit + mv 后调 mcp__agent-deck__shutdown_baton_teammates tool ` +
-        `补跑 baton-cleanup phase 1（其参数 { caller_session_id, plan_id? }，单独 shutdown 同 team active+dormant teammate ` +
+        `补跑 baton-cleanup phase 1（其参数 { callerSessionId, planId? }，单独 shutdown 同 team active+dormant teammate ` +
         `+ 写 team_member.left_at 软退出，不归档 caller — escape hatch 仅供本场景 fallback 使用，user CLAUDE.md §Step 4 ` +
         `5 步手工归档仍是合法 fallback）。`,
     };
@@ -239,7 +239,7 @@ export async function runPrecheck(
   try {
     worktreeReal = await deps.realpath(input.worktreePath);
   } catch (e) {
-    return { error: `realpath of worktree_path failed: ${(e as Error).message}` };
+    return { error: `realpath of worktreePath failed: ${(e as Error).message}` };
   }
   const marker = deps.cwdReleaseMarker();
   // marker 也走 realpath 解 symlink 与 worktreeReal 对齐（防 caller marker 写绝对路径但
@@ -275,7 +275,7 @@ export async function runPrecheck(
         // 状态 4 (旧编号): reject (marker 指向另一个 worktree)
         return {
           error: `caller cwd inside worktree ${worktreeReal} but holds marker for a different worktree (${markerReal})`,
-          hint: `Cross-worktree archive is not allowed. Either call exit_worktree on the marker's worktree first (to clear the stale marker), or call archive_plan with worktree_path matching the held marker (${markerReal}).`,
+          hint: `Cross-worktree archive is not allowed. Either call exit_worktree on the marker's worktree first (to clear the stale marker), or call archive_plan with worktreePath matching the held marker (${markerReal}).`,
         };
       }
     } else {
@@ -318,10 +318,10 @@ export async function runPrecheck(
       // 状态 (d) plan §不变量 5: cwd invalid + marker null OR marker 不匹配 worktree → ERROR
       // (cwd resilience guard rail: caller session state 丢失/混乱)
       return {
-        error: `caller cwd ${callerCwd} is invalid (realpath failed)${markerReal ? ` and marker (${markerReal}) does not match worktree_path (${worktreeReal})` : ' and no enter_worktree marker held'}`,
+        error: `caller cwd ${callerCwd} is invalid (realpath failed)${markerReal ? ` and marker (${markerReal}) does not match worktreePath (${worktreeReal})` : ' and no enter_worktree marker held'}`,
         hint: markerReal
-          ? `cwd resilience guard rail: caller cwd was deleted/moved while a stale marker for a different worktree remains. Either call exit_worktree({ worktree_path: '${markerReal}' }) on the held worktree first to clear the stale marker, or call archive_plan with worktree_path matching the marker.`
-          : `cwd resilience guard rail: caller cwd was deleted/moved without an enter_worktree marker fallback. Restart the caller session in a valid working directory before retrying archive_plan, or pass a fresh caller_session_id whose sessionRepo.cwd is valid.`,
+          ? `cwd resilience guard rail: caller cwd was deleted/moved while a stale marker for a different worktree remains. Either call exit_worktree({ worktreePath: '${markerReal}' }) on the held worktree first to clear the stale marker, or call archive_plan with worktreePath matching the marker.`
+          : `cwd resilience guard rail: caller cwd was deleted/moved without an enter_worktree marker fallback. Restart the caller session in a valid working directory before retrying archive_plan, or pass a fresh callerSessionId whose sessionRepo.cwd is valid.`,
       };
     }
   }
@@ -371,48 +371,48 @@ export async function runPrecheck(
     };
   }
 
-  // 6.5. CHANGELOG_169 F2 [HIGH]: frontmatter ↔ input cross-check (plan_id / worktree_path binding)
+  // 6.5. CHANGELOG_169 F2 [HIGH]: frontmatter ↔ input cross-check (planId / worktreePath binding)
   //
-  // reviewer-codex finding（双方反驳轮裁决 HIGH 真问题）：caller 误传另一 plan 的 worktree_path 时，
-  // 之前的代码不校验 fm.worktree_path / fm.plan_id 与输入一致 → silent corruption（plan-A 错标
+  // reviewer-codex finding（双方反驳轮裁决 HIGH 真问题）：caller 误传另一 plan 的 worktreePath 时，
+  // 之前的代码不校验 fm.worktreePath / fm.planId 与输入一致 → silent corruption（plan-A 错标
   // completed + plan-B worktree 被删 + ff-merge 合错 commit + plan-B 工作整片丢失）。典型触发：
   // user 跑 2-3 plan 收尾时 tab-complete 撞同名 dir / 复制粘贴撞错路径。
   //
   // **D7 决策**（向后兼容老 plan）：字段存在严格校验,字段缺失 soft warn 不 reject。新 plan 模板
-  // 已含 plan_id / worktree_path frontmatter（详 resources/claude-config/CLAUDE.md §Step 1
+  // 已含 planId / worktreePath frontmatter（详 resources/claude-config/CLAUDE.md §Step 1
   // plan 内容文档），老 plan 没字段时不破坏归档。
-  if (typeof fm.plan_id === 'string' && fm.plan_id !== input.planId) {
+  if (typeof fm.planId === 'string' && fm.planId !== input.planId) {
     return {
-      error: `plan_id mismatch: frontmatter plan_id="${fm.plan_id}" but archive_plan called with planId="${input.planId}"`,
-      hint: `Caller likely passed wrong worktree_path for this plan_id (or vice versa). Refusing to ff-merge / write / unlink to avoid silent corruption (the wrong-binding case would merge another worktree's branch + delete another worktree + mark this plan completed). Verify with \`head -10 ${planFilePath}\` then call archive_plan with matching planId + worktreePath pair.`,
+      error: `planId mismatch: frontmatter planId="${fm.planId}" but archive_plan called with planId="${input.planId}"`,
+      hint: `Caller likely passed wrong worktreePath for this planId (or vice versa). Refusing to ff-merge / write / unlink to avoid silent corruption (the wrong-binding case would merge another worktree's branch + delete another worktree + mark this plan completed). Verify with \`head -10 ${planFilePath}\` then call archive_plan with matching planId + worktreePath pair.`,
     };
-  } else if (typeof fm.plan_id !== 'string') {
+  } else if (typeof fm.planId !== 'string') {
     warnings.push(
-      `plan frontmatter has no plan_id field — skipping plan_id cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
+      `plan frontmatter has no planId field — skipping planId cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
     );
   }
 
-  if (typeof fm.worktree_path === 'string' && fm.worktree_path) {
+  if (typeof fm.worktreePath === 'string' && fm.worktreePath) {
     let fmWtReal: string;
     let inputWtReal: string;
     try {
-      fmWtReal = await deps.realpath(fm.worktree_path);
+      fmWtReal = await deps.realpath(fm.worktreePath);
       inputWtReal = await deps.realpath(input.worktreePath);
     } catch (e) {
       return {
-        error: `realpath check failed during worktree_path cross-check: ${(e as Error).message}`,
-        hint: `Either fm.worktree_path="${fm.worktree_path}" or input.worktreePath="${input.worktreePath}" cannot be realpath-resolved (likely a broken symlink or already removed). Fix fs state before retrying.`,
+        error: `realpath check failed during worktreePath cross-check: ${(e as Error).message}`,
+        hint: `Either fm.worktreePath="${fm.worktreePath}" or input.worktreePath="${input.worktreePath}" cannot be realpath-resolved (likely a broken symlink or already removed). Fix fs state before retrying.`,
       };
     }
     if (fmWtReal !== inputWtReal) {
       return {
-        error: `worktree_path mismatch: frontmatter worktree_path="${fm.worktree_path}" (realpath="${fmWtReal}") but archive_plan called with worktreePath="${input.worktreePath}" (realpath="${inputWtReal}")`,
-        hint: `Caller likely passed wrong worktree_path for this plan_id. Refusing to ff-merge / write / unlink to avoid silent corruption (the wrong-binding case would merge another worktree's branch + delete another worktree + mark this plan completed). Verify plan frontmatter or correct args.worktree_path.`,
+        error: `worktreePath mismatch: frontmatter worktreePath="${fm.worktreePath}" (realpath="${fmWtReal}") but archive_plan called with worktreePath="${input.worktreePath}" (realpath="${inputWtReal}")`,
+        hint: `Caller likely passed wrong worktreePath for this planId. Refusing to ff-merge / write / unlink to avoid silent corruption (the wrong-binding case would merge another worktree's branch + delete another worktree + mark this plan completed). Verify plan frontmatter or correct args.worktreePath.`,
       };
     }
   } else {
     warnings.push(
-      `plan frontmatter has no worktree_path field — skipping worktree_path cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
+      `plan frontmatter has no worktreePath field — skipping worktreePath cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
     );
   }
 
