@@ -48,7 +48,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
     setError(null);
     void window.api.issuesGet(issueId).then((fetched) => {
       if (cancelled || !fetched) {
-        if (!cancelled && !fetched) setError(`issue ${issueId} not found`);
+        if (!cancelled && !fetched) setError('未找到该问题');
         return;
       }
       setIssue(fetched);
@@ -139,7 +139,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-deck-border px-3 py-2">
         <h2 className="truncate text-sm font-medium text-deck-text" title={issue.id}>
-          Issue · {issue.id.slice(0, 8)}
+          问题 · {issue.id.slice(0, 8)}
         </h2>
         <button onClick={onClose} className="text-xs text-deck-muted hover:text-deck-text">
           ✕
@@ -190,7 +190,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
               <option value="high">high</option>
             </select>
           </Field>
-          <Field label="类型 (free-form)">
+          <Field label="类型">
             <input
               type="text"
               value={editing.kind}
@@ -211,7 +211,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
             className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
           />
         </Field>
-        <Field label="重现步骤 (optional)">
+        <Field label="重现步骤（可选）">
           <textarea
             value={editing.repro}
             onChange={(e) => setEditing({ ...editing, repro: e.target.value })}
@@ -221,7 +221,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
             className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
           />
         </Field>
-        <Field label="标签 (逗号分隔)">
+        <Field label="标签（逗号分隔）">
           <input
             type="text"
             value={editing.labels}
@@ -233,41 +233,41 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
 
         {/* meta 信息 read-only */}
         <div className="space-y-1 rounded bg-white/[0.03] px-2 py-2 text-[10px] text-deck-muted">
-          <div>id: {issue.id}</div>
-          <div>sourceSessionId: {issue.sourceSessionId ?? <em>原会话已被清理</em>}</div>
-          <div>cwd: {issue.cwd ?? '—'}</div>
+          <div>ID: {issue.id}</div>
+          <div>来源会话: {issue.sourceSessionId ?? <em>原会话已被清理</em>}</div>
+          <div>工作目录: {issue.cwd ?? '—'}</div>
           <div>
-            created: {new Date(issue.createdAt).toLocaleString('zh-CN', { hour12: false })} · updated:{' '}
+            创建: {new Date(issue.createdAt).toLocaleString('zh-CN', { hour12: false })} · 更新:{' '}
             {new Date(issue.updatedAt).toLocaleString('zh-CN', { hour12: false })}
           </div>
           {issue.resolvedAt && (
-            <div>resolved_at: {new Date(issue.resolvedAt).toLocaleString('zh-CN', { hour12: false })}</div>
+            <div>解决于: {new Date(issue.resolvedAt).toLocaleString('zh-CN', { hour12: false })}</div>
           )}
           {issue.deletedAt && (
             <div className="text-status-waiting">
-              deleted_at: {new Date(issue.deletedAt).toLocaleString('zh-CN', { hour12: false })}
+              删除于: {new Date(issue.deletedAt).toLocaleString('zh-CN', { hour12: false })}
             </div>
           )}
           {issue.resolutionSessionId && (
-            <div>resolution_session_id: {issue.resolutionSessionId}</div>
+            <div>解决会话: {issue.resolutionSessionId}</div>
           )}
         </div>
 
         {/* logsRef read-only */}
         {issue.logsRef && (
           <div className="space-y-1 rounded bg-white/[0.03] px-2 py-2 text-[10px] text-deck-muted">
-            <div className="font-medium text-deck-muted">logsRef</div>
-            <div>date: {issue.logsRef.date}</div>
+            <div className="font-medium text-deck-muted">日志参考</div>
+            <div>日期: {issue.logsRef.date}</div>
             {issue.logsRef.tsRange && (
               <div>
-                tsRange: {new Date(issue.logsRef.tsRange.start).toISOString()} ~{' '}
+                时间范围: {new Date(issue.logsRef.tsRange.start).toISOString()} ~{' '}
                 {new Date(issue.logsRef.tsRange.end).toISOString()}
               </div>
             )}
             {issue.logsRef.scopes && issue.logsRef.scopes.length > 0 && (
-              <div>scopes: {issue.logsRef.scopes.join(', ')}</div>
+              <div>范围: {issue.logsRef.scopes.join(', ')}</div>
             )}
-            {issue.logsRef.note && <div className="whitespace-pre-wrap">note: {issue.logsRef.note}</div>}
+            {issue.logsRef.note && <div className="whitespace-pre-wrap">备注: {issue.logsRef.note}</div>}
           </div>
         )}
 
@@ -275,7 +275,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
         {appendices.length > 0 && (
           <div className="space-y-2">
             <div className="text-xs font-medium text-deck-muted">
-              现场追加 ({appendices.length})
+              补充记录 ({appendices.length})
             </div>
             <ul className="space-y-1.5">
               {appendices.map((a) => (
@@ -285,7 +285,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
                 >
                   <div className="mb-1 text-[10px] text-deck-muted">
                     {new Date(a.appendedAt).toLocaleString('zh-CN', { hour12: false })}
-                    {a.appendedSessionId ? ` · sid ${a.appendedSessionId.slice(0, 8)}` : ' · session 已清理'}
+                    {a.appendedSessionId ? ` · 会话 ${a.appendedSessionId.slice(0, 8)}` : ' · 会话已清理'}
                   </div>
                   <div className="whitespace-pre-wrap">{a.body}</div>
                 </li>
@@ -322,7 +322,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
             disabled={saving}
             className="rounded bg-status-waiting/25 px-2 py-1 text-xs text-status-waiting hover:bg-status-waiting/40 disabled:opacity-50"
           >
-            软删
+            删除
           </button>
         ) : (
           <button

@@ -79,11 +79,8 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
 
   const handleSubmit = async (): Promise<void> => {
     setError(null);
-    if (!cwd.trim()) {
-      setError('cwd 必填（或留空让 handler 兜底到 issue.cwd / homedir）');
-    }
     if (!prompt.trim()) {
-      setError('prompt 必填');
+      setError('首条 prompt 不能为空');
       return;
     }
     setBusy(true);
@@ -107,7 +104,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     <div className="frosted-frame fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="flex max-h-[90vh] w-[640px] flex-col rounded-lg bg-deck-bg shadow-xl">
         <div className="flex items-center justify-between border-b border-deck-border px-4 py-2">
-          <h2 className="text-sm font-medium text-deck-text">起新会话解决 issue</h2>
+          <h2 className="text-sm font-medium text-deck-text">起新会话解决问题</h2>
           <button onClick={onClose} className="text-deck-muted hover:text-deck-text">
             ✕
           </button>
@@ -137,7 +134,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           </div>
           <div className="space-y-1">
             <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-              工作目录（cwd；空 = handler 兜底 issue.cwd → homedir）
+              工作目录（留空则用问题来源目录，仍为空则用主目录）
             </label>
             <input
               type="text"
@@ -151,7 +148,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           </div>
           <div className="space-y-1">
             <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-              首条 prompt（D8 模板自动预填,可编辑）
+              首条 prompt（已根据问题内容预填，可编辑）
             </label>
             <textarea
               value={prompt}
@@ -165,7 +162,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           </div>
           <div className="space-y-1">
             <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-              权限模式（optional;空 = adapter / settings 默认）
+              权限模式（可选；留空用默认）
             </label>
             <select
               value={permissionMode}
@@ -195,7 +192,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             disabled={busy}
             className="rounded bg-status-working/30 px-3 py-1 text-xs text-status-working hover:bg-status-working/50 disabled:opacity-50"
           >
-            {busy ? '起 session 中...' : '起 session'}
+            {busy ? '正在起新会话…' : '起新会话'}
           </button>
         </div>
       </div>

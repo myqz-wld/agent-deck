@@ -118,7 +118,7 @@ export function IssuesPanel(): JSX.Element {
             <div className="px-3 py-8 text-center text-xs text-deck-muted">加载中...</div>
           ) : filteredList.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-deck-muted">
-              暂无 issue。agent 在执行中调 mcp tool report_issue 上报问题后会在此显示。
+              暂无问题。Agent 执行任务时主动上报的问题会显示在这里。
             </div>
           ) : (
             <ul className="divide-y divide-deck-border">
@@ -140,7 +140,7 @@ export function IssuesPanel(): JSX.Element {
           <IssueDetail issueId={selectedIssueId} onClose={() => selectIssue(null)} />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-deck-muted">
-            左侧选择 issue 查看 detail
+            从左侧选择一个问题查看详情
           </div>
         )}
       </div>
@@ -208,7 +208,7 @@ function FilterBar({
           checked={filters.showDeleted ?? false}
           onChange={(e) => onFiltersChange({ ...filters, showDeleted: e.target.checked })}
         />
-        显示软删
+        显示已删除
       </label>
     </div>
   );
@@ -276,7 +276,7 @@ function IssueRow({
           </span>
           {issue.deletedAt !== null && (
             <span className="rounded bg-status-waiting/25 px-1 text-[9px] text-status-waiting">
-              已删
+              已删除
             </span>
           )}
         </div>
