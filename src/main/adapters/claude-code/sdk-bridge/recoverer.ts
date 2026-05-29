@@ -1,178 +1,63 @@
 /**
  * SessionRecoverer — 断连自愈 + jsonl 兜底（CHANGELOG_52 Step 3d）。
  *
- * 抽自 sdk-bridge.ts 内的 recoverAndSend 方法（~150 行）+ resumeJsonlExists 探测。
+ * **Step 4.4 facade 拆分**：原 670 LOC 拆完后本文件作 thin facade：
+ * - SessionRecoverer class shell + ctor (7 thunk 注入)
+ * - recoverAndSend thin delegate → `./recoverer/recover-and-send-impl.ts:recoverAndSendImpl`
+ * - emitFallbackMessage class 内 private method 收口（user Q3 confirm 推荐方案）
+ * - findFallbackCwd protected method 留 class 内（test 通过 extend facade override）
+ * - 5 thunk type / 1 ctx interface re-export from `./recoverer/_deps.ts`
+ * - 2 default helper re-export from `./recoverer/jsonl-discovery.ts`
  *
- * State 所有权：
+ * **State 所有权**：
  * - `recovering` Map：**SHARED**，与 lifecycle.restartWithPermissionMode 双方读写同一份
  *   单飞表（CHANGELOG_26）。原 plan 错把它当 recoverer 独占，F2 finding 修法：
  *   提到 facade 持有 → ctx 注入。
  * - `placeholderEmittedAt` Map：**recoverer 独占**，5s dedup 同 sessionId 短时间反复 recover
  *   重 emit「⚠ SDK 通道已断开...」噪声（REVIEW_17 R3 / M3-R3）。
  *
- * 循环依赖（F1 修法）：
+ * **循环依赖**（F1 修法）：
  * - recoverAndSend 调 facade.createSession（resume / 不带 resume 兜底）→ 走 createThunk
  * - recoverAndSend 调 facade.sendMessage（inflight 等完后递归把第二条 text 正常 push）→ 走 sendThunk
  * - resumeJsonlExists 走 jsonlExistsThunk（test 通过子类化 facade override resumeJsonlExists）
  *
- * 护栏（不变）：
+ * **护栏**（不变）：
  * - CHANGELOG_26 — recovering 单飞 + 30s placeholder UX
  * - CHANGELOG_28 — jsonl 预检不在则走不带 resume 的新建 createSession + 事后 renameSdkSession
  * - CHANGELOG_31 — 用户显式发消息触发 recoverAndSend 自动 unarchive
  * - REVIEW_7 H1 — 用 createSession 返回值拿 newRealId（不再 entries() 反查 cwd）
  * - REVIEW_17 R3 — 5s placeholder dedup
  */
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import type { AgentEvent, SessionRecord, UploadedAttachmentRef } from '@shared/types';
-import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
-import { encodeClaudeProjectDir } from '@main/platform';
+import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { findFallbackCwd as findFallbackCwdShared } from '@main/adapters/shared/find-fallback-cwd';
-import { AGENT_ID, MAX_MESSAGE_LENGTH, PLACEHOLDER_DEDUP_MS } from './constants';
-// **plan restart-controller-jsonl-precheck-20260521 §Step 3f 重构**:
-// jsonl missing fallback 整段移到 jsonl-fallback.ts helper,recoverer 不再直接调
-// prependHistorySummary / settingsStore / eventRepo / 4 个 jsonlMissing/cwdFallback 文案 builder
-// (这 4 个 import 已删,改 maybeJsonlFallback 一行覆盖)。
-import { maybeJsonlFallback } from './jsonl-fallback';
-import {
-  buildCwdFallbackInfoText,
-  buildCwdMissingErrorText,
-} from './recoverer-messages';
-import type { SdkBridgeOptions, SdkSessionHandle } from './types';
+import { AGENT_ID } from './constants';
+import { recoverAndSendImpl } from './recoverer/recover-and-send-impl';
+import type {
+  CreateSessionThunk,
+  CwdExistsThunk,
+  JsonlExistsThunk,
+  RecovererCtx,
+  SendMessageThunk,
+  SummariseFnThunk,
+} from './recoverer/_deps';
 
-export interface RecovererCtx {
-  /**
-   * **SHARED** with lifecycle.restartWithPermissionMode（F2 修法）。
-   * 单飞 invariant：同 sessionId 同时只有一条 recovery / restart in-flight。
-   */
-  readonly recovering: Map<string, Promise<unknown>>;
-  readonly emit: SdkBridgeOptions['emit'];
-}
+// re-export 5 thunk type + 1 ctx interface — caller 仍按
+// `import { SessionRecoverer, RecovererCtx, ... } from '@main/adapters/claude-code/sdk-bridge/recoverer'`
+// 方式 import (Step 4.4 facade re-export 保 import path byte-identical)。
+export type {
+  CreateSessionThunk,
+  CwdExistsThunk,
+  JsonlExistsThunk,
+  RecovererCtx,
+  SendMessageThunk,
+  SummariseFnThunk,
+};
 
-export type CreateSessionThunk = (opts: {
-  cwd: string;
-  prompt?: string;
-  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
-  resume?: string;
-  teamName?: string;
-  attachments?: UploadedAttachmentRef[];
-  /**
-   * REVIEW_36 HIGH-1：recoverer fallback 路径（jsonl missing / cwdFellBack）显式透传 sandbox 档位。
-   *
-   * 修前漏洞：fallback 不走 resume → resolveClaudeSandboxMode 拿 opts.resume=undef + opts.claudeCodeSandbox=undef
-   * → 走 settings 全局 fallback（默认 'off'）→ SDK 子进程 spawn 时按全局值装载沙盒，**与历史 record 持久化的
-   * `sessionRepo.claudeCodeSandbox` 无关**。后续 renameSdkSession(OLD, NEW) 把 fromRow.claude_code_sandbox 覆盖到
-   * NEW row 让 DB 字段看起来正确，但**已 spawn 的 SDK 进程已无法改沙盒**（spawn-time 锁定）。
-   *
-   * 用户场景：strict 档历史会话 + 全局默认 'off' + jsonl 丢失 → fallback 后 SDK 子进程实际无沙盒（DB 仍显示 strict），
-   * agent 能读 ~/.ssh / 写任意目录，安全语义静默降级。
-   */
-  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
-  /**
-   * plan model-wiring-and-handoff-20260514 Step 2.4：recoverer fallback / resume 路径显式透传
-   * spawn 时持久化的 model（来源:spawn handler 解 frontmatter `model` 字段）。
-   *
-   * 修前漏洞：fallback 路径不走 resume → resolveClaudeModel 拿 opts.resume=undef +
-   * opts.model=undef → 返回 undefined → SDK 用 ANTHROPIC_MODEL env / 默认 model；
-   * **与历史 record 持久化的 sessionRepo.model 无关**。后续 renameSdkSession(OLD, NEW) 把
-   * fromRow.model 覆盖到 NEW row 让 DB 字段看起来正确，但**已 spawn 的 SDK 进程已用错
-   * model**（query options 锁定后无法切）。
-   *
-   * 用户场景：reviewer-claude opus 历史会话 + lead 主模型 sonnet + jsonl 丢失 → fallback 后
-   * reviewer SDK 子进程实际跑 sonnet（DB 仍显示 opus），异构对抗强度静默降级。
-   */
-  model?: string;
-  /**
-   * plan cross-adapter-parity-20260515 Phase A Step A.6 / REVIEW_40 R1 reviewer-codex MED-F:
-   * recoverer fallback / resume 路径显式透传 spawn 时持久化的 SDK sandbox 额外可写根。
-   *
-   * 修前漏洞:fallback 路径不走 resume → createSession opts.extraAllowWrite=undef →
-   * buildSandboxOptions 走默认值 sandbox.allowWrite=[cwd, /tmp, ~/.cache];
-   * **与历史 record 持久化的 sessionRepo.extraAllowWrite 无关**(此前 sessions.extra_allow_write
-   * 列不存在 → 透传断点 → app 重启后 mainRepo 写权限丢失)。本字段实现 jsdoc 承诺的
-   * 「recoverer 从 sessionRepo 读回」语义,与 claudeCodeSandbox / model 同款显式透传 + ?? undefined
-   * 兜底(rec.extraAllowWrite 历史 NULL 时让 buildSandboxOptions 走默认)。
-   *
-   * 用户场景:hand_off_session 外置 worktree(cwd=worktreePath 不在 mainRepo subtree)+ caller
-   * 传 [mainRepo] 让 session 能写 mainRepo plan 文件。app 重启 / sdk-bridge state lost /
-   * recoverer fallback 路径不读回 → SDK sandbox.allowWrite 不含原 mainRepo → 写 plan 文件
-   * 静默失败(sandbox 拦)→ 用户体感 plan 完成时 frontmatter 更新失败莫名其妙。
-   */
-  extraAllowWrite?: readonly string[];
-  /**
-   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
-   * caller 显式传 cli sid 让 SDK CLI `--resume` 找正确 jsonl + S6 fork detect 不 short-circuit。
-   * 详 ClaudeCreateOpts.resumeCliSid jsdoc。
-   */
-  resumeCliSid?: string;
-  /**
-   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
-   * 'fresh-cli-reuse-app' 让 jsonl-missing fallback 路径显式触发 SDK fresh CLI thread + 复用
-   * applicationSid (不创建新 sessions row,走 sessionManager.updateCliSessionId 黑名单链)。
-   * 详 ClaudeCreateOpts.resumeMode jsdoc 7 种合法/非法组合。
-   */
-  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
-  /**
-   * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法):跳过 finalizeSessionStart 内 emit
-   * 首条 user message — 让 caller 收口 emit 责任避免双气泡。
-   *
-   * **触发场景**:recoverer.recoverAndSend 入口已 emit user message(与 live 主路径
-   * `index.ts:520-535` 时机对称),调 createThunk 时显式传 true 让下游 finalize 跳过重复 emit。
-   *
-   * **不传 / false** = 默认 emit user message(spawn 主路径 / IPC AdapterCreateSession 走此路径,
-   * 首条 prompt 没经过 sendMessage emit user message 路径,必须由 finalize 补 emit)。
-   *
-   * **不影响 attachments / handOff / model / sandbox 持久化等其他 finalize 副作用** —
-   * 仅控制 emit user message 这一动作。
-   */
-  skipFirstUserEmit?: boolean;
-}) => Promise<SdkSessionHandle>;
-
-/**
- * HIGH-1 修法：sendThunk 三参签名，attachments 透传到第二条等待者。
- *
- * 原 plan 漏点：`return this.sendThunk(sessionId, text)` 把 attachments 静默吞掉，
- * 第二条带图的 user message 在 inflight 等待者路径下变纯文本。
- *
- * 透传约束：
- * - 第一条 inflight 的 attachments 走 createThunk（携带 prompt + attachments）
- * - 第二条等待者的 attachments 走 sendThunk（独立 attachments path 集合）
- * - 两条之间不复用 / 不去重，文件路径完全独立（IPC 层为每条 message 各写一批）
- */
-export type SendMessageThunk = (
-  sessionId: string,
-  text: string,
-  attachments?: UploadedAttachmentRef[],
-) => Promise<void>;
-
-export type JsonlExistsThunk = (cwd: string, sessionId: string) => boolean;
-
-/**
- * CHANGELOG_99：cwd 存在性 thunk(test seam)。默认实现走 node fs `existsSync`,
- * test 通过 facade extend override 让单测不依赖真 fs。
- */
-export type CwdExistsThunk = (cwd: string) => boolean;
-
-/**
- * CHANGELOG_107: LLM 摘要 thunk(test seam)。签名与 `summariseSessionForHandOff` 1:1
- * 镜像(避免 facade ctor 写额外包装层),但通过 ctor 注入让单测不调真 LLM 撞 OAuth /
- * 计费 / DB 未 init。
- *
- * 触发场景:Step 2 起 `prependHistorySummary` helper 在 jsonl missing fallback /
- * cwdFellBack=true 路径起 fresh CLI 之前调本 thunk → 拿到摘要 prepend 到 user prompt
- * 前作为 fresh CLI 首条 prompt(让用户体感「Claude 还能续聊」)。
- *
- * 失败语义(与 `summariseSessionForHandOff` 一致):
- * - throw → helper 内部 try/catch 退到「emit 提示让用户自己补背景」原 CHANGELOG_106 路径
- * - return null → events 空 / 摘要为空,helper skip 不 prepend
- * - return string → 成功(限 4000 字符,helper 再做 MAX_MESSAGE_LENGTH 校验)
- */
-export type SummariseFnThunk = (
-  cwd: string,
-  events: AgentEvent[],
-) => Promise<string | null>;
+// re-export 2 default fn — facade.ctor 默认值 + sdk-bridge.ts:46 import 链兼容
+export {
+  defaultCwdExists,
+  defaultResumeJsonlExists,
+} from './recoverer/jsonl-discovery';
 
 export class SessionRecoverer {
   /**
@@ -219,328 +104,26 @@ export class SessionRecoverer {
   ) {}
 
   /**
-   * 断连自愈 + 单飞复用：sendMessage 检测 sessions Map 没有该 sessionId 时调本路径。
-   *
-   * 关键约束：
-   * - 完整复用 createSession，让 expectSdkSession(cwd) → claimAsSdk(opts.resume) →
-   *   dedupOrClaim B 分支兜底 → waitForRealSessionId 全套护栏按原样跑（任何捷径都
-   *   会重打开「两条 active record」bug，CLAUDE.md「resume 优先」节）
-   * - permissionMode 用户上次主动选过的值复原，不能默认 'default' 否则用户辛苦切到的
-   *   plan / acceptEdits 被静默还原
-   * - 历史 record 完全不存在时直接抛与原行为一致的 'not found'，让 IPC 把错原样透传 renderer
-   *
-   * **plan cross-adapter-parity-20260515 Phase B Step B.1 — 返回 Promise<string>**:
-   * 返回 final session id(fallback path 返 newRealId / resume path 返 sessionId)。修前
-   * `Promise<void>` waiter 等 inflight 后用 OLD sessionId 调 sendThunk → bridge.sendMessage
-   * 内 sessions Map miss → 又进 recoverAndSend → sessionRepo.get(OLD) 已 rename DELETE → throw
-   * "not found" — 用户体感「第二条消息消失」(REVIEW_40 R2 reviewer-codex MED parity 限制)。
-   *
-   * 修后 waiter 拿 finalId 调 sendThunk(finalId, text, atts),fallback path 走 NEW(主 recovery
-   * 完成后 sessions Map 已 rename 同步)直接 push 进 NEW session;resume path finalId === sessionId
-   * 行为零变化。失败路径 reject 仍透传(catch 静默 fallback finalId=sessionId 让等待者再撞一次
-   * 触发新一轮 recovery,plan §B.5 设计)。
+   * 断连自愈 + 单飞复用 — Step 4.4 拆完后 thin delegate to `recoverAndSendImpl`。
+   * 详 `recover-and-send-impl.ts` jsdoc 与 callsite 约束保留。
    */
   async recoverAndSend(
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
   ): Promise<string> {
-    const inflight = this.ctx.recovering.get(sessionId);
-    if (inflight) {
-      // 等同一恢复完成 → 然后正常走完整 sendMessage 流程把这条新 text push 进 sessions。
-      // catch 静默：第一波恢复失败时第二条等待者自己再走 sendMessage，要么进新一轮 recovery，
-      // 要么拿到真错。不要把第一波的错往第二条上抛 —— 调用方只关心自己这条的成败。
-      //
-      // plan cross-adapter-parity-20260515 Phase B.1: try/catch 拿 finalId 让 sendThunk 用 NEW
-      // sid 不撞 not found(plan §B.5 设计:reject 时 finalId=sessionId 让等待者再撞一次触发
-      // 新一轮 recovery,与原行为一致)。
-      let finalId: string;
-      try {
-        finalId = (await inflight) as string;
-      } catch {
-        // 第一波恢复已失败,第二条用 OLD 再撞一次触发新一轮 recovery 路径
-        finalId = sessionId;
-      }
-      // HIGH-1 修法：attachments 透传给第二条等待者 sendThunk。
-      // 原版只 sendThunk(sessionId, text) 静默吞掉 attachments；
-      // 这条等待者带的图属于「自己这条 message」与第一条独立，必须走完整 sendMessage 路径。
-      await this.sendThunk(finalId, text, attachments);
-      return finalId;
-    }
-
-    const rec: SessionRecord | null = sessionRepo.get(sessionId);
-    if (!rec) {
-      // 没有历史 record：彻底无法恢复，保留原 throw 信号兼容上层处理
-      throw new Error(`session ${sessionId} not found`);
-    }
-
-    // REVIEW_24 HIGH-2 follow-up：字符长度上限（与 messageRepo cap 全局对齐）。
-    // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
-    //
-    // R2 MED-1 修法 (reviewer-codex + reviewer-claude 双方独立提出真问题):
-    // 提前到 sessionRepo.get 后 + cwd precheck 之前 — 让下面 emit user message 也能提前到
-    // cwd precheck 之前覆盖 cwd 全 miss throw 路径(防 user message 在 throw 后才 emit 永不入库)。
-    const len = text.length;
-    if (len > MAX_MESSAGE_LENGTH) {
-      throw new Error(
-        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
-      );
-    }
-
-    // REVIEW_58 HIGH ✅ + R2 MED-1 收口修法 (deep-review 双方共识真问题):立即 emit user message,
-    // 与 live 主路径 `index.ts:520-535` sendMessage emit 时机对称。修前 sendMessage `if (!s)` 分支
-    // 只委托 recoverAndSend → emit user message 责任全下放下游 `finalizeSessionStart` (在 await
-    // waitForRealSessionId 之后才 emit) / `maybeJsonlFallback` (在 await ctx.createSession
-    // 之后才 emit) / setTimeout 30s fallback / createSession catch 路径完全不 emit → 用户
-    // 截图实测「⚠ SDK 通道已断开...」+ assistant「✅ 一轮完成」但用户的 message bubble 消失。
-    //
-    // **R2 MED-1 修订**:emit 位置在 cwd precheck **之前**(替代 R1 在 cwd precheck 之后),
-    // 让 cwd missing fallback 全 miss throw 路径(目录被删 / 跨设备同步丢失 / 启发式全 miss)
-    // 也保留 events 入库 — 用户体感:看到 cwd missing error 红字 + 自己的 message bubble 仍在,
-    // 帮助决策(如归档 + 新建会话)。否则修了用户截图 bug 但 cwd 全 miss 边角 case 仍漏。
-    //
-    // 现把 emit 责任收口到 recovery 入口:
-    // ① 用户体感与 live 主路径一致(先看到自己的 message,再看 placeholder「在恢复」)
-    // ② 失败/边界路径(createSession catch / setTimeout fallback / cwd-missing 全 miss)
-    //    都不会丢 user message — events 表保留完整对话历史
-    // ③ 下游 createThunk / maybeJsonlFallback 显式传 skipFirstUserEmit:true 让 finalize /
-    //    fallback helper 跳过重复 emit,避免双气泡
-    // 等待者 inflight path(L234-254)无需改 — sendThunk 内部走 sendMessage live 主路径自己 emit。
-    this.ctx.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: {
-        text,
-        role: 'user',
-        ...(attachments && attachments.length > 0 ? { attachments } : {}),
-      },
-      ts: Date.now(),
-      source: 'sdk',
+    return recoverAndSendImpl(sessionId, text, attachments, {
+      ctx: this.ctx,
+      createThunk: this.createThunk,
+      sendThunk: this.sendThunk,
+      jsonlExistsThunk: this.jsonlExistsThunk,
+      cwdExistsThunk: this.cwdExistsThunk,
+      summariseFn: this.summariseFn,
+      listEventsFn: this.listEventsFn,
+      findFallbackCwdThunk: (badCwd) => this.findFallbackCwd(badCwd),
+      emitFallbackMessageThunk: (sid, text, opts) => this.emitFallbackMessage(sid, text, opts),
+      placeholderEmittedAt: this.placeholderEmittedAt,
     });
-
-    // CHANGELOG_99 cwd 失效根治:启发式 fallback (R1 fix MED-2:**移到 unarchive 之前**,
-    // 避免 archived session 在 cwd fallback 失败前被 unarchive 成 active 但实际死路一条 —
-    // 用户体感"刚归档的会话被自动恢复又死路")。
-    //
-    // sessionRepo.cwd 已不存在(典型场景:K2 老 session cwd=worktree 后 worktree 被 archive_plan
-    // 删 / 用户手动 git worktree remove / 跨设备同步丢目录 / 误删等)。
-    //
-    // 走 jsonl missing fallback 同款下游路径:createThunk 不带 resume + 后置 renameSdkSession
-    // (CHANGELOG_28 已成熟;CLI 历史失但应用层 events/file_changes/summaries 子表保留)。
-    //
-    // 找不到 fallback(启发式 1 & 2 全 miss)→ emit error + throw,**不**emit「正在自动恢复」
-    // placeholder(误导:明明不可能恢复)。
-    let effectiveCwd = rec.cwd;
-    let cwdFellBack = false;
-    if (!this.cwdExistsThunk(rec.cwd)) {
-      const fallback = this.findFallbackCwd(rec.cwd);
-      if (fallback === null) {
-        // 真没救:emit 清晰错误,throw,不进 placeholder 路径
-        // **不 unarchive**:archived 状态下 throw,session 仍归档,用户在 SessionList "已归档"
-        // 列表能看到清晰错误信息(MED-2 fix:之前 unarchive 在前 → throw 后 session 变 active 但死路)
-        this.emitFallbackMessage(sessionId, buildCwdMissingErrorText(rec.cwd), { error: true });
-        throw new Error(
-          `session ${sessionId} cwd does not exist and no fallback available: ${rec.cwd}`,
-        );
-      }
-      effectiveCwd = fallback;
-      cwdFellBack = true;
-      // 主动告诉用户 fallback 发生了 + 用了哪个目录(不打 error,info 性质)
-      // CHANGELOG_107 Step 4: 删去「CLI 内部对话历史(jsonl)将丢失」字眼,让后续
-      // prependHistorySummary 决定丢失 / 续上(成功 → inner 分支 emit「LLM 摘要已注入」;
-      // 失败 → inner 分支 emit「将丢失,请补背景」)。outer 只 emit cwd 切换 fact,
-      // 不预判 jsonl 命运,避免「outer 说将丢 + inner 说不丢」前后矛盾误导用户。
-      // REVIEW_36 R2 HIGH-B 修法：补 sandbox 写权限边界变化提示。fallback 后 SDK 子进程
-      // chdir effectiveCwd，sandbox.allowWrite=[effectiveCwd, /tmp, ~/.cache] 自动跟着切到
-      // fallback 目录 → workspace-write 档下写权限边界**可能扩大**（典型：原 worktree 写
-      // `/Users/me/wt`，fallback 到 `/Users/me/elsewhere` 后能写 `/Users/me/elsewhere` 下任何
-      // 内容）。让用户透明知情决策（如安全敏感请右键归档新建会话），而非黑盒静默扩大。
-      // 仅 workspace-write 档需要提示（off 档无 sandbox / strict 档完全只读没扩大风险）。
-      this.emitFallbackMessage(
-        sessionId,
-        buildCwdFallbackInfoText({
-          badCwd: rec.cwd,
-          fallbackCwd: effectiveCwd,
-          sandboxMode: rec.claudeCodeSandbox,
-        }),
-      );
-      const needSandboxWarn = rec.claudeCodeSandbox === 'workspace-write';
-      console.warn(
-        `[sdk-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}` +
-          (needSandboxWarn ? ' (workspace-write sandbox.allowWrite boundary changed)' : ''),
-      );
-    }
-
-    // REVIEW_60 MED-codex-1 修法(reviewer-codex R1 MED 单方 finding + lead 验证):
-    // recovering Map 单飞锁必须在 cwd precheck 之后、任何 await 之前同步 set,
-    // 把 archived session unarchive + 占位 message dedup 整段移进 IIFE 让锁覆盖整链。
-    // 旧 bug: inflight check L248 与 set L515 之间存在 `await sessionManager.unarchive(L389)`
-    // 窗口,两个并发 sendMessage 打到同 archived session 时双方都通过 inflight check → 各自
-    // 创建 IIFE → 双 createSession → 破坏「同 session 只允许一条 recovery in-flight」不变量。
-    const p = (async (): Promise<string> => {
-      try {
-        // CHANGELOG_31：用户在 detail 里主动发消息触发 recoverAndSend = 显式表达「我又要聊它了」，
-        // 自动取消归档。manager.ts:118-121 立的「归档与 lifecycle 正交，不能因事件流自动 unarchive」
-        // 约束针对的是 hook 触发的事件流（避免外部 CLI 在同 cwd 跑导致用户刚归档的会话被自动恢复），
-        // 本路径是用户显式 UI 动作不冲突。不 unarchive 的话，jsonl 在 + 不 fork 路径（realId === OLD_ID）
-        // 下 OLD_ID record 不动，archived_at 还在 → listHistory 仍返回这条 → 用户体感「我都在跟它聊了
-        // 但它还在历史列表里」与 CLAUDE.md「凡让用户感觉像新开会话 / 跳回列表都是 bug」总纲冲突。
-        // unarchive 内部 emit session-upserted，HistoryPanel 监听后自动 reload 把这条从历史列表移除。
-        //
-        // CHANGELOG_99 R1 fix MED-2:本段必须在 cwd precheck **之后** — 确认 cwd 能恢复(原 cwd 在 OR
-        // fallback cwd 找到)再 unarchive,避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
-        // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,让 single-flight 锁覆盖此 await。
-        if (rec.archivedAt !== null) {
-          console.warn(
-            `[sdk-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
-          );
-          await sessionManager.unarchive(sessionId);
-        }
-
-        // 占位 message：30s fallback 期间用户至少看到「在恢复」而不是哑巴 busy。
-        // 不打 error: true（不是错误，是状态提示）；resume 成功后正常 message 流接续，
-        // 占位 message 留在活动流上一行轻量「断开过」痕迹，对回看 / 调试反而有用。
-        //
-        // REVIEW_17 R3 / M3-R3：5s dedup 窗口防同 sessionId 短时间内反复 recover 重 emit
-        // 多条「⚠ SDK 通道已断开」噪声（场景：首次 recover 失败 swallow + 再次 sendMessage
-        // 又进 recoverAndSend，inflight 已删，第二条进来无条件 emit，用户在 detail 看到
-        // 多条同款占位）。
-        // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,与 unarchive 同款 single-flight 锁覆盖。
-        const lastPlaceholderAt = this.placeholderEmittedAt.get(sessionId);
-        const nowTs = Date.now();
-        if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > PLACEHOLDER_DEDUP_MS) {
-          this.placeholderEmittedAt.set(sessionId, nowTs);
-          // 顺手清掉过期 entry（避免 Map 无限涨）
-          for (const [k, ts] of this.placeholderEmittedAt) {
-            if (nowTs - ts > PLACEHOLDER_DEDUP_MS) this.placeholderEmittedAt.delete(k);
-          }
-          this.ctx.emit({
-            sessionId,
-            agentId: AGENT_ID,
-            kind: 'message',
-            payload: { text: '⚠ SDK 通道已断开，正在自动恢复…' },
-            ts: nowTs,
-            source: 'sdk',
-          });
-        }
-
-        // **plan restart-controller-jsonl-precheck-20260521 §Step 3f 修法**:
-        // jsonl 预检 + fallback 整段 inline 实施 (原 recoverer.ts:378-491 ~113 LOC) 抽到
-        // jsonl-fallback.ts helper `maybeJsonlFallback`,与 restart-controller 两条路径共享。
-        // helper 内部包办:① prependHistorySummary 续历史摘要 ② createSession with
-        // resumeMode='fresh-cli-reuse-app' ③ emit fallback info message (按 §D4 三轴选 builder)
-        // ④ emit role='user' message (含 attachments 透传)。详 §D2-C helper 接口设计 + §不变量 11。
-        //
-        // CHANGELOG_28 / CHANGELOG_99 / CHANGELOG_107 现行 jsonl missing fallback 行为
-        // (prependCwd: cwdFellBack ? rec.cwd : effectiveCwd — R2 claude HIGH-F1-2 修法 让
-        // cwdFellBack=true 路径保留「原本是哪个 worktree」摘要语义) 由 helper 透传 opts.prependCwd
-        // 字段一并迁移。
-        //
-        // outer cwdFellBack 路径已 emit cwd 切换 fact (line 293-300 不动),helper 内部
-        // 进 fallback 分支后会补 emit「成功续上 / 将丢失」详情 (cwdFellBack=true 分支)。
-        const fbResult = await maybeJsonlFallback(
-          {
-            jsonlExistsThunk: this.jsonlExistsThunk,
-            createSession: this.createThunk, // RecovererCtx 字段名是 createThunk (helper 接口字段名是 createSession,命名对齐 RestartCtx)
-            emit: this.ctx.emit,
-            summariseFn: this.summariseFn,
-            listEventsFn: this.listEventsFn, // Step 3g 新增 ctor 字段(replace recoverer.ts:395 inline closure)
-          },
-          {
-            sessionId,
-            cliSessionId: rec.cliSessionId ?? null, // SessionRecord.cliSessionId 是 optional (?: string | null) → ?? null 兜底到 helper opts 的 string | null
-            cwd: effectiveCwd, // SDK chdir 目标 (cwdFellBack=true 时是 fallback cwd)
-            prependCwd: cwdFellBack ? rec.cwd : effectiveCwd, // R2 claude HIGH-F1-2 修法 (与原 line 392 现行为对齐)
-            prompt: text,
-            permissionMode: rec.permissionMode ?? undefined,
-            claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
-            model: rec.model ?? undefined,
-            extraAllowWrite: rec.extraAllowWrite ?? undefined,
-            attachments,
-            cwdFellBack,
-            emitContext: 'recover',
-            // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
-            // helper 跳过重复 emit 避免双气泡(详 recoverer.recoverAndSend emit user message 段注释)
-            skipFirstUserEmit: true,
-          },
-        );
-        if (fbResult.fellBack) {
-          // helper 已包办 createSession + 2 emit,不再重复;applicationSid 全程不变 (不变量 3)
-          return fbResult.finalSessionId; // == sessionId
-        }
-        // fellBack=false → fall through 到下面正常 resume 路径 (jsonl 在,行为不变,§不变量 8)
-
-        // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix:
-        // resume 路径下 createThunk 仍可能返回不同 sessionId(CLI 隐式 fork: stream-processor.consume
-        // L245 `if (resumeId && resumeId !== realId)` 触发 renameSdkSession + sessions Map rename
-        // key)。修前固定 `return sessionId` 等待者拿 OLD,resume implicit fork 时仍撞 not found
-        // (修法只覆盖 50% 场景)。修后用 handle.sessionId 反映真实 finalId(不 fork 时 ===
-        // sessionId,fork 时 === newRealId)。
-        const handle = await this.createThunk({
-          cwd: effectiveCwd, // CHANGELOG_99:正常 resume 路径下 cwd 存在,effectiveCwd === rec.cwd
-          prompt: text,
-          resume: sessionId,
-          // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6.5 R6 HIGH-R6-1 双方共识必修**:
-          // recoverer.ts:486 normal resume caller 显式传 resumeCliSid = rec.cliSessionId ?? sessionId,
-          // 防 caller 不传时 S6 fork detect condition 短路让 fork detect 完全跳过 (HIGH-R6-1 真问题)。
-          // 同 Step C.1 restart-controller 修法 pattern (R3 MED-R3-2 已对)。
-          // 反向 rename 后 rec.cliSessionId 是 SDK 当前 thread sid (允许变化),sessionId 是
-          // applicationSid (永远稳定);两者不同时显式传 cli sid 让 SDK CLI `--resume` 找正确 jsonl,
-          // 同时 S6 effective compare 用 cli sid 才能正确触发 fork detect。
-          resumeCliSid: rec.cliSessionId ?? sessionId,
-          // permissionMode null = 用户没主动选过，按 createSession 内默认 'default'；
-          // 已选过的（acceptEdits / plan / bypassPermissions）必须复原，否则用户体感
-          // 「我设过的权限模式被悄悄重置」
-          permissionMode: rec.permissionMode ?? undefined,
-          // REVIEW_36 HIGH-1 修法：与 fallback 分支同款显式透传（resume 路径 sandbox-resolve
-          // 的 fallback #2 sessionRepo 反查 也能拿到，但显式透传 fallback #1 优先级更高 +
-          // 与 permissionMode 处理方式对称 + 一致性更好 + 防 sessionRepo 边界 race）。
-          claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
-          // plan model-wiring-and-handoff-20260514 Step 2.4：与 fallback 分支同款显式透传
-          // （resume 路径 model-resolve 内部也会 sessionRepo 反查，但显式透传更清晰 + 与
-          // claudeCodeSandbox / permissionMode 处理方式对称）。
-          model: rec.model ?? undefined,
-          // plan cross-adapter-parity-20260515 Phase A Step A.6 / REVIEW_40 R1 MED-F:与 fallback
-          // 分支同款显式透传(resume 路径下 sessionRepo 反查也能拿到,但显式透传更清晰 + 与
-          // claudeCodeSandbox / model / permissionMode 处理方式对称 + 一致性更好)。
-          extraAllowWrite: rec.extraAllowWrite ?? undefined,
-          // HIGH-1 修法：attachments 透传，正常 resume 路径下首条恢复消息带图
-          attachments,
-          // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
-          // finalizeSessionStart 跳过重复 emit 避免双气泡(详 recoverer.recoverAndSend emit user message 段注释)
-          skipFirstUserEmit: true,
-        });
-        // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix: 返
-        // handle.sessionId 反映真实 finalId(implicit fork 时是 newRealId,正常 resume 时
-        // 是 sessionId — 与 fallback path 行为对称)。等待者拿到 finalId 不再撞 fork 后
-        // not found。
-        return handle.sessionId;
-      } finally {
-        this.ctx.recovering.delete(sessionId);
-      }
-    })();
-    this.ctx.recovering.set(sessionId, p);
-
-    try {
-      // plan cross-adapter-parity-20260515 Phase B Step B.1: 返 finalId 给 caller(虽 bridge
-      // sendMessage 当前 caller 不消费返回值,但等待者 path 经 inflight 拿同款 finalId)。
-      return await p;
-    } catch (err) {
-      // createSession 失败：占位 message 已经 emit，再补一条 error message 让用户看到原因
-      this.ctx.emit({
-        sessionId,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: {
-          text: `⚠ 自动恢复失败：${(err as Error)?.message ?? String(err)}`,
-          error: true,
-        },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-      throw err;
-    }
   }
 
   /**
@@ -560,8 +143,8 @@ export class SessionRecoverer {
    * - inner cwdFellBack summary used / skipped（buildCwdFallbackSummary*Text）
    *
    * **不覆盖**（recoverer-messages.ts 注释明示「单行字面量留 inline」）：
-   * - L317 占位 message 「⚠ SDK 通道已断开，正在自动恢复…」（占位 dedup 用 nowTs 同款 const）
-   * - L517 兜底失败 message 「⚠ 自动恢复失败：${err}」（err.message 内联，无 builder）
+   * - 占位 message 「⚠ SDK 通道已断开，正在自动恢复…」（占位 dedup 用 nowTs 同款 const）
+   * - 兜底失败 message 「⚠ 自动恢复失败：${err}」（err.message 内联，无 builder）
    *
    * @param sessionId 当前 recover 中的 sessionId
    * @param text 调 builder 出来的最终文案
@@ -624,47 +207,5 @@ export class SessionRecoverer {
    */
   protected findFallbackCwd(badCwd: string): string | null {
     return findFallbackCwdShared(badCwd, this.cwdExistsThunk);
-  }
-}
-
-/**
- * 预检 CLI resume 用的 jsonl 文件是否存在。
- *
- * Claude Code CLI 把会话历史落在 `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`，
- * encoded-cwd 规则见 `@main/platform` 的 `encodeClaudeProjectDir`（macOS/Linux 用 `/`
- * split + `-` join；Win 推测同模式但用 `\` split）。
- *
- * 不存在时 CLI `--resume <sid>` 会 hard fail 抛 "No conversation found"，必须走不带
- * resume 的新建路径（CHANGELOG_28）。如果 CLI 内部规则未来改了 / Win 实际规则与推测
- * 不符，预检会假阴性 → 退化到原 try-and-fail 行为（catch 兜底返 true，让上层 SDK
- * 自己 try）。
- *
- * 这是 facade.resumeJsonlExists 的默认实现；test 通过 extend facade override 该方法
- * 让单测不依赖真 ~/.claude/projects 目录。
- */
-export function defaultResumeJsonlExists(cwd: string, sessionId: string): boolean {
-  try {
-    const encodedDir = encodeClaudeProjectDir(cwd);
-    const jsonlPath = join(homedir(), '.claude', 'projects', encodedDir, `${sessionId}.jsonl`);
-    return existsSync(jsonlPath);
-  } catch {
-    // 任意异常（cwd 解析失败 / FS 权限）→ 退化让 createSession 自己 try，最差不过原行为
-    return true;
-  }
-}
-
-/**
- * CHANGELOG_99:cwd 存在性 thunk 的默认实现 — 直接走 fs.existsSync。
- *
- * 这是 facade.cwdExists 的默认实现;test 通过 extend facade override 让单测不依赖真 fs。
- *
- * **fail-safe 退化**:任意异常退化返回 true(让 createSession 自己 try),最差不过原行为
- * (撞 SDK "Path does not exist")。这与 defaultResumeJsonlExists 同款防御策略。
- */
-export function defaultCwdExists(cwd: string): boolean {
-  try {
-    return existsSync(cwd);
-  } catch {
-    return true;
   }
 }

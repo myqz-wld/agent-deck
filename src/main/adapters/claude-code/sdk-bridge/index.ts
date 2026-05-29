@@ -1,29 +1,17 @@
-import { randomUUID } from 'node:crypto';
 import type {
-  AgentEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
-  HandOffMetadata,
   PermissionRequest,
   PermissionResponse,
   UploadedAttachmentRef,
+  AgentEvent,
 } from '@shared/types';
-import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
-import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
-import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
-import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
-import {
-  getAgentDeckPluginsForSession,
-  getAgentDeckSystemPromptAppend,
-} from '@main/adapters/claude-code/sdk-injection';
-import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
 import { summariseSessionForHandOff } from '@main/session/summarizer/llm-runners';
-// CHANGELOG_52 Step 3a-3g + CHANGELOG_85 Step 3.2：拆 class 完成。本目录（sdk-bridge/）
-// 含 11 个 sub-module + index.ts (facade)。
+// CHANGELOG_52 Step 3a-3g + CHANGELOG_85 Step 3.2 + Step 4.4：拆 class 完成。本目录（sdk-bridge/）
+// 含 14 个 sub-module + 2 子目录（create-session/ + recoverer/） + index.ts (facade)。
 //
 // **TS module resolution 假设**（F5 finding）：moduleResolution: node 模式下
 // `import './sdk-bridge'` 优先匹配 `sdk-bridge.ts` 文件（不存在时才走 `sdk-bridge/index.ts`）。
@@ -32,27 +20,19 @@ import { summariseSessionForHandOff } from '@main/session/summarizer/llm-runners
 //
 // **如果未来切到 node16/bundler module resolution** 此优先级会变（强 ESM 要 explicit
 // `/index` 后缀），届时所有 import 站点要加 `/index`。当前 tsconfig.node.json 用 node。
-import {
-  AGENT_ID,
-} from './constants';
 import type {
   InternalSession,
   SdkBridgeOptions,
   SdkSessionHandle,
 } from './types';
-import { makeInternalSession } from './types';
 import { PermissionResponder } from './permission-responder';
-import { makeCanUseTool } from './can-use-tool';
 import { SessionRecoverer, defaultResumeJsonlExists, defaultCwdExists } from './recoverer';
 import { StreamProcessor } from './stream-processor';
 import { RestartController } from './restart-controller';
 import { runCloseSessionCleanup } from './pending-cancellation';
-import { buildMcpServersForSession } from './mcp-server-init';
-import { buildClaudeQueryOptions } from './query-options-builder';
 import { validateSendMessageOrThrow } from './send-validation';
-import { finalizeSessionStart } from './session-finalize';
-import { resolveClaudeSandboxMode } from './sandbox-resolve';
-import { resolveClaudeModel } from './model-resolve';
+import { createSessionImpl } from './create-session/create-session-impl';
+import type { CreateSessionOpts } from './create-session/_deps';
 
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
@@ -68,39 +48,23 @@ export type { SdkSessionHandle, SdkBridgeOptions } from './types';
  *    sessionManager 的 sdk-owned 集合，让来自 hook 回环的同 id 事件被去重。
  * 3. 所有 emit 都打 source: 'sdk'。
  *
- * **REVIEW_60 R4 §保护清单（不动文件 / file-size-guardrail.md SOP §3 档 3）**：
- * 本文件 806 LOC（>500 行护栏）但故意不进一步拆,理由（reviewer-claude R4 档 3 主张
- * + lead 现场补强论据「整段搬出 helper 实测仍 ~500+ LOC,只换文件不减真复杂度」）:
+ * **Step 4.4 拆分**（plan deep-project-review-comprehensive-20260528）：原 840 LOC
+ * 拆完后本文件作 thin facade（≤ 500 LOC 满足护栏）：
+ * - class shell + ctor（11 sub-module ref 装配）
+ * - createSession 改 thin delegate → `./create-session/create-session-impl.ts:createSessionImpl`
+ * - sendMessage / interrupt / closeSession / setPermissionMode / 2 restartWith* 不拆
+ * - 4 protected wrapper（resumeJsonlExists / cwdExists / summariseForHandOff /
+ *   listEventsForSession）作 test seam 留 class 内
+ * - 6 responder thin wrapper / consume protected wrapper 不拆
  *
- * 1. createSession 主体已抽 12+ helpers (CHANGELOG_52 Step 3a-3g):
- *    PermissionResponder / makeCanUseTool / SessionRecoverer / StreamProcessor /
- *    RestartController / runCloseSessionCleanup / buildMcpServersForSession /
- *    buildClaudeQueryOptions / validateSendMessageOrThrow / finalizeSessionStart /
- *    resolveClaudeSandboxMode / resolveClaudeModel。
- *
- * 2. createSession 主体闭包持 ~10 个跨段共享 ref (tempKey / internal / claudeSandboxMode /
- *    claudeModel / realId / opts / releasePending / mcpServers / effectiveResumeCliSid /
- *    q / query / runtime / claudeBinary / sandboxOpts)。tier-2 抽 sub-method 需打包
- *    args dict 反降可读性。
- *
- * 3. canUseTool 闭包注入 6 个 deps (internal / sid getter / mode getter / emit /
- *    timeout / responder),与 PermissionResponder 双向强耦合不可独立抽。
- *
- * 4. sessions Map / sdkOwned 集合 / pendingMessages 三状态强耦合,createSession
- *    内 try/catch cleanup 必须能同时见到 internal / tempKey / opts.resume。
- *
- * 5. 4 protected wrappers (resumeJsonlExists / cwdExists / summariseForHandOff /
- *    listEventsForSession) 作 test seam 必须挂 facade class 上,不能下沉。
- *
- * 6. Plan reverse-rename-sid-stability-20260520 §A.4-pre S2-S9 多 step 注释绑定
- *    本文件具体行号 + 字段 mutation 顺序,跨 sub-module 化会让 plan 注释 reference rot。
- *
- * 7. (mild 候选 P1 — 不入档 2 阈值) catch block ~38 LOC 可抽 `runCreateSessionRollback`
- *    helper (与 codex/sdk-bridge/create-session-rollback.ts 同款),但减幅 < 5%,不入档 2
- *    阈值「30%+ 减幅」。保留 inline。
- *
- * 下次拆分轮直接跳过本文件;若有 design 重大变更必须重新评估再拆。阈值调整属约定升级
- * 走「决策对抗」三态裁决,不在本批 fix 范围。
+ * **decision 矛盾解决记录**（参照 Step 4.1 hand-off-session 同款 decision 范式）：
+ * 修前 §保护清单 jsdoc（CHANGELOG_169 F1）标记本文件「下次拆分轮直接跳过」，理由是
+ * createSession 主体闭包持 10+ 个跨段共享 ref（tempKey / internal / claudeSandboxMode /
+ * claudeModel / realId / opts / releasePending / mcpServers / effectiveResumeCliSid /
+ * q / query / runtime / claudeBinary / sandboxOpts），tier-2 抽 sub-method 需打包 args dict
+ * 反而降可读性。本 plan §D1 「13 文件全拆 ≤500 LOC」契约 vs §保护清单对立 → user 选
+ * 「强行按 mini-spike 拆」方案：子模块间通过函数 return value 传递派生 state（避免单一
+ * 巨型 ctx object 闭包污染，保函数式 readability），与 Step 4.1 / 4.2 / 4.3 同款做法。
  */
 export class ClaudeSdkBridge {
   /** key 是真实 session_id（拿到之前用临时 id） */
@@ -186,361 +150,24 @@ export class ClaudeSdkBridge {
     this.permissionTimeoutMs = Math.max(0, ms);
   }
 
-  async createSession(opts: {
-    cwd: string;
-    prompt?: string;
-    permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
-    /** 传 sessionId 表示恢复历史会话（CLI 会从 ~/.claude/projects/<cwd>/<sid>.jsonl 续上）。 */
-    resume?: string;
-    /**
-     * R3 universal team backend：team_name 仅作 sessionManager.recordCreatedTeamName
-     * 入口标签使用，不再触发 Claude CLI 实验特性 env 注入（CHANGELOG_45/46 老路径已 R3.E6 删除）。
-     */
-    teamName?: string;
-    /** 首条 user message 的图片附件（path 由 IPC 层 writeUploadedImage 落盘后传入）。 */
-    attachments?: UploadedAttachmentRef[];
-    /**
-     * CHANGELOG_74：Claude Code OS 沙盒 per-session 覆盖（NewSessionDialog / ComposerSdk
-     * 切档传入）。undefined → fallback 链：opts.resume 路径读 sessionRepo.claudeCodeSandbox →
-     * settings.claudeCodeSandbox 全局值 → 'off' 兜底。与 codex codexSandbox 字面镜像。
-     */
-    claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
-    /**
-     * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 workspace-write 档生效）。
-     * 典型场景：
-     * - hand_off_session 外置 worktree（cwd=worktreePath）→ 传 `[mainRepo]` 让 session 能写 mainRepo plan
-     * - recoverer cwd fallback → 传 `[原 mainRepo]` 防写权限静默扩大到 fallback 父目录
-     */
-    extraAllowWrite?: readonly string[];
-    /**
-     * plan model-wiring-and-handoff-20260514 Step 2.2：SDK / agent model 透传。
-     * 来源：spawn handler 解 agent body frontmatter `model` 字段（reviewer-claude.md 的
-     * `model: opus` 等）后传入。fallback 链 opts.model > sessionRepo.model > undefined
-     * （详 model-resolve.ts）。透传给 SDK `query({ options.model })` 真正生效，并
-     * setModel 持久化让 resume / dormant 唤醒后保持一致。
-     */
-    model?: string;
-    /**
-     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
-     * bridge 内部 internal 字段(详 ClaudeCreateOpts.resumeCliSid jsdoc):
-     * - caller 不该传(默认走反查 sessionRepo.cliSessionId 兜底回填)
-     * - recoverer.ts:486 + restart-controller.ts:185/339 caller 显式传 `rec.cliSessionId ?? sessionId`
-     */
-    resumeCliSid?: string;
-    /**
-     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
-     * 解决 resumeCliSid: undefined 双语义冲突,详 ClaudeCreateOpts.resumeMode jsdoc 7 种合法/非法组合:
-     * - 'resume-cli' (default): normal resume 行为
-     * - 'fresh-cli-reuse-app': jsonl-missing fallback 专用,SDK 不带 resume 起 fresh CLI thread
-     */
-    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
-    /**
-     * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
-     * hand_off_session handler 装配后透传给 finalize 链 emit first user message 时 spread 进
-     * events.payload(详 session-finalize.ts FinalizeSessionStartArgs.handOff jsdoc)。
-     * caller 不该传(typical caller 走 spawn handler / hand_off handler 注入)。
-     */
-    handOff?: HandOffMetadata;
-    /**
-     * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法):跳过 finalizeSessionStart 内 emit
-     * 首条 user message。详 recoverer.ts CreateSessionThunk.skipFirstUserEmit jsdoc。
-     *
-     * **触发场景**:recoverer.recoverAndSend 调本路径时显式传 true(emit 责任已在
-     * recoverAndSend 入口收口与 live 主路径 sendMessage `if (s)` 路径对称,避免双气泡)。
-     *
-     * **caller 不该传**(默认 false / undefined):spawn 主路径 / IPC AdapterCreateSession
-     * 走此路径,首条 prompt 没经过 sendMessage emit user message,必须由 finalize 补 emit
-     * 让 UI 活动流看到「你」发的第一条话。
-     */
-    skipFirstUserEmit?: boolean;
-  }): Promise<SdkSessionHandle> {
-    // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
-    // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
-    // UI 已强制必填，这里再守一道，避免 IPC 直调时静默卡死。
-    if (!opts.prompt || !opts.prompt.trim()) {
-      throw new Error('首条消息不能为空：SDK streaming 模式需要首条消息才能启动 CLI');
-    }
-    // R3.E6：删除老 Claude Code experimental teams flag 相关 resume + teamName warn —— teamName
-    // 现在仅作 universal team 抽象的入口标签，与 Claude CLI 实验特性无关，无 resume race。
-    const tempKey = randomUUID();
-    // 时序保护：CLI 子进程内部 hook 可能先于 SDK 通道首条 SDKMessage 到达，
-    // 提前注册 cwd「待领取」标记，让 sessionManager 把首发的同 cwd hook 事件
-    // 自动归到 SDK，避免出现「内/外」两份重复会话。
-    //
-    // 注意：releasePending 必须在「成功 + 失败」两条路径都释放，否则失败时
-    // pending cwd 会卡 60s ttl，期间同 cwd 的真实外部 hook 会话被误吞。
-    // 整段 createSession 用 try/catch 包，catch 里清掉 sessions map 并 release。
-    const releasePending = sessionManager.expectSdkSession(opts.cwd);
-
-    // REVIEW_5 H4：resume 路径下 cwd 待领取兜底**失效**（dedupOrClaim 第二道仅对
-    // `!sessionRepo.get(id)` 起作用，OLD_ID 在历史 DB 里一定存在），CLI 内部 hook 抢先
-    // 上报 SessionStart 时会直接 ensure→revive 出一条 cli source 的 active record，
-    // 与稍后 SDK 30s fallback 用 tempKey 又造的另一条 active record 在 SessionList
-    // 显示成「两条 active 看起来一样的会话」（用户报项 + 双对抗 ✅）。
-    //
-    // 修法：进入即把 opts.resume 提前 claim 到 sdkOwned，hook 进 ingest 时
-    // 第一道防线 `sdkOwned.has(event.sessionId)` 直接 skip。配合下方 fallback 用
-    // opts.resume 作 sessionId 不再造 tempKey 占位行，根治两条 active record。
-    if (opts.resume) {
-      sessionManager.claimAsSdk(opts.resume);
-    }
-    // CHANGELOG_85 Step 3.2：InternalSession 字段初值集中到 types.ts:makeInternalSession factory
-    // （permissionMode 与 query options 同源 `opts.permissionMode ?? 'default'`，详
-    // makeInternalSession + InternalSession.permissionMode 字段 jsdoc）。
-    // plan reverse-rename-sid-stability-20260520 §A.4-pre S2: applicationSid 双阶段化:
-    // - spawn 主路径(无 opts.resume): ctor 时 = tempKey,first realId 到达时 stream-processor.ts:271
-    //   isNewSpawn 分支保护切到 realId 后冻结
-    // - resume / fallback 路径(有 opts.resume): ctor 时 = opts.resume,全生命周期不变
-    const internal = makeInternalSession({
-      cwd: opts.cwd,
-      permissionMode: opts.permissionMode,
-      applicationSid: opts.resume ?? tempKey,
-    });
-
-    if (opts.prompt) {
-      // 用 tempKey 占位 session_id，实际 SDK 会忽略这个字段（用自己的）
-      internal.pendingUserMessages.push(
-        this.streamProcessor.makeUserMessage(tempKey, opts.prompt, opts.attachments),
-      );
-    }
-
-    const userMessageIterable = this.streamProcessor.createUserMessageStream(internal, tempKey);
-
-    // 鉴权 / 模型映射 / 代理地址等都来自 ~/.claude/settings.json 的 env 字段，
-    // 由 main bootstrap 阶段的 applyClaudeSettingsEnv() 注入到 process.env，
-    // SDK spawn 的 CLI 子进程会继承，与终端 `claude` 用同一套配置。
-
-    // CHANGELOG_52 Step 3c：canUseTool 巨型 callback (~275 行) 抽到 sdk-bridge/can-use-tool.ts。
-    // class state 通过 deps 注入（internal / sessionId getter / emit / 超时阈值 / responder ref）。
-    // 护栏（READ_ONLY 白名单 / SandboxNetworkAccess auto-deny / approve+plan deny+message
-    // / approve-bypass deny+interrupt / 超时 timer + abort listener）全部完整保留在 module。
-    const canUseTool = makeCanUseTool({
-      internal,
-      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4b R4 HIGH-H 修订**:
-      // canUseTool getSessionId 返 internal.applicationSid (替代 internal.realSessionId ?? tempKey) —
-      // can-use-tool.ts:139/219/349 多处 emit waiting-for-user event 用此 sid,renderer SessionDetail
-      // 路由必须用 applicationSid 才能命中 PendingTab 不漂浮 (D7 不变量 3 wire prefix [sid] 100%
-      // 写 sessions.id);spawn 主路径 ctor 时 applicationSid = tempKey,first realId 后切到 realId
-      // 冻结 (S2 jsdoc)。
-      getSessionId: () => internal.applicationSid,
-      // CHANGELOG_72 Bug 3：bypass 短路读 internal.permissionMode（与 SDK options 同源），
-      // 不查 sessionRepo —— 避免 createSession 期间 sessionRepo 还没记录 permission_mode 的 race。
-      getPermissionMode: () => internal.permissionMode,
+  /**
+   * Step 4.4 拆完后 thin delegate to `createSessionImpl`。详 `./create-session/` 子目录
+   * 三子模块（_deps SSOT / create-session-impl orchestrator / create-session-sdk-query）
+   * jsdoc：caller 入参签名 / 各 phase 边界 / try/catch 失败 cleanup 不变量保留。
+   *
+   * **decision 矛盾解决**（参照 Step 4.1 同款）：原 §保护清单 jsdoc 标记本文件不拆，
+   * user plan §D1 决策强行拆 → 子模块间通过函数 return value 传递派生 state 避免巨型
+   * ctx object 闭包污染（详 class 头部 jsdoc decision 矛盾解决记录）。
+   */
+  async createSession(opts: CreateSessionOpts): Promise<SdkSessionHandle> {
+    return createSessionImpl(opts, {
+      sessions: this.sessions,
       emit: this.opts.emit,
-      getPermissionTimeoutMs: () => this.permissionTimeoutMs,
+      streamProcessor: this.streamProcessor,
       responder: this.responder,
+      getPermissionTimeoutMs: () => this.permissionTimeoutMs,
+      interrupt: (sid) => this.interrupt(sid),
     });
-
-    // 整段 await 链（loadSdk → query 构造 → waitForRealSessionId）任一步抛错都要
-    // 释放 pending cwd 标记 + 清掉 sessions map 的 tempKey。CHANGELOG_47 修：
-    // 之前 releasePending 只在成功路径调，失败时 60s ttl 内同 cwd 真实外部 hook 会话被误吞。
-    let realId: string;
-    // CHANGELOG_85 Step 3.2：sandbox mode fallback 链抽到 sandbox-resolve.ts。
-    // 提到 try 块外，让 emit session-start 之后的 setClaudeCodeSandbox 持久化用同一变量。
-    const claudeSandboxMode = resolveClaudeSandboxMode(opts);
-    // plan model-wiring-and-handoff-20260514 Step 2.2：model fallback 链抽到 model-resolve.ts。
-    // 提到 try 块外让 finalizeSessionStart 持久化用同一变量（与 sandbox 同模式）。
-    const claudeModel = resolveClaudeModel(opts);
-    try {
-      const { query } = await loadSdk();
-      const runtime = getSdkRuntimeOptions();
-      // plan add-claude-cli-path-override-and-bump-sdks-20260520 §设计决策 D1 + §不变量 N5
-      // + Follow-up F2+F3 抽 helper(plan §D5 + §D7 deviation):resolveClaudeBinary 内含
-      // user override priority chain + existsSync 护栏 + bundled fallback;让 follow-up 单测
-      // 不依赖 sdk-bridge 全 mock boilerplate(详 resolve-claude-binary.ts 抽出动机)。
-      const claudeBinary = resolveClaudeBinary();
-      // REVIEW_14 阶段 2 排查盲点：sandbox 是否生效在 SDK / OS 层不打 log，应用主进程
-      // 看不到「sandbox 装载成功 / 失败」信号；改回顶层 sandbox 字段后此 log 帮助
-      // 实证「buildSandboxOptions 真的传了对应配置进 SDK options」，下次问题排查少绕一圈。
-      const sandboxOpts = buildSandboxOptions(claudeSandboxMode, opts.cwd, opts.extraAllowWrite);
-      console.log(
-        `[sandbox] mode=${claudeSandboxMode} → ${
-          sandboxOpts.sandbox ? 'enabled (top-level)' : 'disabled (no field)'
-        }${
-          opts.extraAllowWrite && opts.extraAllowWrite.length > 0
-            ? ` extraAllowWrite=[${opts.extraAllowWrite.join(', ')}]`
-            : ''
-        }`,
-      );
-      // CHANGELOG_85 Step 3.2：mcp server 拼装抽到 mcp-server-init.ts
-      // （plan task-mcp-merge-into-agent-deck-mcp-20260521 合并后单 server，task tools 跟随
-      // settings.enableAgentDeckMcp toggle；smart migration 守护老用户 enableTaskManager:true 不丢失能力）
-      const mcpServers = await buildMcpServersForSession(internal, tempKey);
-
-      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1
-      // bridge 内部 effectiveResumeCliSid 集中兜底**:
-      // 三分支显式 guard opts.resume 防 spawn 主路径走 sessionRepo.get(undefined):
-      // - fresh-cli-reuse-app fallback: SDK 不带 resume 起 fresh CLI thread → undefined
-      // - spawn 主路径(无 opts.resume): undefined (SDK options.resume 不传)
-      // - normal resume: opts.resumeCliSid 显式优先 / 不传时反查 sessionRepo.cliSessionId 兜底回填
-      // **R8 LOW-R8-1**: assertCreateOptsValid runtime guard 应在 effective resolver **之前**跑
-      // (fail-fast 原则,未实装,本 sub-commit A-4 仅落 effective 集中处理点,guard 留实施期补)。
-      const effectiveResumeCliSid =
-        opts.resumeMode === 'fresh-cli-reuse-app' ? undefined :
-        !opts.resume ? undefined :
-        (opts.resumeCliSid ?? sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume);
-
-      const q = query({
-        prompt: userMessageIterable,
-        // CHANGELOG_85 Step 3.2：query() options 整段抽到 query-options-builder.ts
-        // （pure builder，所有外部依赖通过 args 显式注入，零 side effect）
-        options: buildClaudeQueryOptions({
-          cwd: opts.cwd,
-          permissionMode: opts.permissionMode,
-          // **R6 HIGH-R6-1 修订**: SDK options.resume 字段用 effectiveResumeCliSid (cli sid 维度,
-          // fresh fallback 时 undefined 让 SDK 不带 resume 起 fresh CLI thread,正常 resume 时
-          // 反查 sessionRepo.cliSessionId 兜底回填 — 替代旧 opts.resume 字面 = applicationSid 维度,
-          // 反向 rename 后 appSid != cliSid 时让 CLI 找正确 jsonl 文件)。
-          resume: effectiveResumeCliSid,
-          canUseTool,
-          sandboxOpts,
-          systemPromptAppend: getAgentDeckSystemPromptAppend(),
-          plugins: getAgentDeckPluginsForSession(),
-          runtime,
-          claudeBinary,
-          mcpServers,
-          model: claudeModel,
-        }),
-      });
-      internal.query = q;
-      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S3 ctor sessions Map key 修正**:
-      // sessions Map key = internal.applicationSid (S2 ctor 时已 = opts.resume ?? tempKey)。
-      // - spawn 主路径(无 opts.resume): applicationSid = tempKey,行为与旧 sessions.set(tempKey) 字面等价
-      // - resume / fallback 路径(有 opts.resume): applicationSid = opts.resume,Map key 与
-      //   createUserMessageStream / sendMessage / canUseTool 等 callsite 用的 internal.applicationSid 对齐;
-      //   否则 sessions.has(applicationSid) miss → 流断,符合 plan §S4b 不变量「sessions Map key = applicationSid」
-      // first realId 到达后 stream-processor.ts S3 isNewSpawn 分支 spawn 主路径 delete tempKey + set realId,
-      // resume 路径不再 mutate sessions Map (Map key 已是 applicationSid 不变)。
-      this.sessions.set(internal.applicationSid, internal);
-
-      // 等待第一条带 session_id 的 SDKMessage（system init 几乎一定会先到）
-      // REVIEW_5 H4：把 opts.resume 传下去，30s fallback 时用 OLD_ID 作 sessionId
-      // 替代 tempKey emit 占位事件，让 ingest 走 existing 分支不再创建第二条 active record
-      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 + R7 修订**: 透传
-      // effectiveResumeCliSid + resumeMode 给 consume() 让 isNewSpawn 三分支 + S6 fork detect
-      // 用 effective 值不 short-circuit。
-      realId = await this.streamProcessor.waitForRealSessionId(
-        internal,
-        tempKey,
-        opts.resume,  // resumeId 入参 = applicationSid 维度 (fallback emit 占位用)
-        effectiveResumeCliSid,
-        opts.resumeMode,
-      );
-
-      // A1-HIGH-1 修法（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
-      // 旧 impl waitForRealSessionId 在 SDK 流结束但从未发 first session_id frame 时
-      // resolve(realId ?? tempKey) = tempKey（stream-processor.ts:180）。createSession 继续
-      // 走 finalizeSessionStart 创建一条 sessionId=tempKey 的假 DB record（无 SDK live state）
-      // + opts.resume 的 sdkOwned claim 永不释放（OLD_ID 后续 hook 事件被静默吞 = leak）。
-      // 修法 (A) 彻底失败语义: realId === tempKey 表示 consume 自吞错且 fallback 也没拿到
-      // resumeId（非 resume 路径）→ throw 让 createSession 进 catch L298 走完整 cleanup
-      // （sessions.delete + releasePending + releaseSdkClaim(opts.resume) + throw IPC）。
-      // renderer 收到 error 直接显示，不创建假会话（A1-HIGH-1 双方共识真问题 + reviewer-claude
-      // 反驳轮精确时序追踪铁证 + lead 现场验证 finalizeSessionStart emit session-start 链路写
-      // sessionId=tempKey 的 DB record + sessions.delete(tempKey) 后 finalize 仍执行）。
-      if (realId === tempKey) {
-        throw new Error(
-          'createSession: SDK stream ended without emitting first session_id frame ' +
-            '(consume swallowed SDK error / no resume id available). ' +
-            'Refusing to create a session-less DB record.',
-        );
-      }
-
-      // 注册到 SessionManager 的 sdk-owned 集合，后续 hook 回环将被去重
-      sessionManager.claimAsSdk(realId);
-    } catch (err) {
-      // 任何中间步骤抛错：回滚 sessions / 释放 pending，再 throw 给上层 IPC 显错
-      // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.5 修法 (H2 + A1-HIGH-1 race 双保险 (A) abort consume)**:
-      // catch 块入口立刻 set expectedClose=true + fire-and-forget interrupt() 防 detached SDK
-      // 子进程继续跑 LLM 调用 + 防 SDK in-flight first-id frame 撞 Phase 2.2 (B) guard 入口
-      // (sdk-message-translate.ts:159 expectedClose skip 路径已 land,详 D2 注释)。**idempotency
-      // guard** (R3 plan-review codex LOW-1 + claude INFO 收窄文案): interruptFired flag 仅作用
-      // 本路径 + stream-processor.ts setTimeout fallback fire 路径双路径,不覆盖 public
-      // interrupt(sessionId) + closeSession(sessionId) 入口 (设计内 — caller 显式调用应当直通
-      // SDK,与 spike1 实证 interrupt() 幂等 SDK 行为一致)。
-      if (!internal.interruptFired) {
-        internal.expectedClose = true;
-        internal.interruptFired = true;
-        // R3 fix-7 (I1 reviewer-claude INFO + codex A MED-1): 加 .catch 吞错防 unhandled
-        // rejection（SDK interrupt 在 catch 路径 reject 可能性）。fire-and-forget 语义保持。
-        void internal.query?.interrupt?.().catch((err: unknown) => {
-          console.warn('[sdk-bridge] interrupt during createSession throw failed:', err);
-        });
-      }
-      // REVIEW_60 R2 HIGH-1 修法 (reviewer-claude R2 单方 finding + lead 现场验证 + 与 codex catch 对照 parity gap):
-      // 旧 bug: catch 块只 `sessions.delete(tempKey)` 但 plan reverse-rename-sid-stability-20260520
-      // §A.4-pre S2 已把 sessions.set 切到 applicationSid (L380),resume 路径下 applicationSid =
-      // opts.resume ≠ tempKey,catch sessions.delete(tempKey) 是 no-op → opts.resume entry 永远
-      // 留在 Map 里。后续 sendMessage(opts.resume) → sessions.get 命中 stale internal → 跳过
-      // recoverer 自愈主路径 → push pendingUserMessages 进 stale internal → SDK 已 abort → 静默卡死。
-      // 触发条件: opts.resume 路径 + try 内 sessions.set 之后 throw (waitForRealSessionId 30s
-      // timeout / A1-HIGH-1 realId === tempKey throw / 其他 try 内 throw)。
-      // 修法: 两个 key 同时清 — applicationSid 覆盖 spawn 主 / resume / 反向 rename 后场景;
-      // tempKey 兼容 stream-processor.ts first realId 切 key 在 catch 之前完成的边角 (spawn
-      // 主路径 isNewSpawn 三分支保护已 delete tempKey + set realId,本句 no-op safety net)。
-      // 与 codex/sdk-bridge/index.ts:799 同款 parity 收口 (codex 端正确用 initialSid)。
-      this.sessions.delete(internal.applicationSid);
-      this.sessions.delete(tempKey);
-      releasePending();
-      // REVIEW_5 H4：构造期就 claim 了 opts.resume，失败路径必须释放，
-      // 否则下次同 sessionId 的真实 hook / 终端 CLI 会话会被静默吞掉
-      if (opts.resume) sessionManager.releaseSdkClaim(opts.resume);
-      throw err;
-    }
-    // 真实 id 已经入手，cwd 待领取标记可以释放（如果 hook 已经先消费过则是 no-op）
-    releasePending();
-
-    // CHANGELOG_85 Step 3.2：emit session-start + 持久化 sandbox + 补 emit 首条 prompt
-    // 三段固定 finalize 链抽到 session-finalize.ts。
-    // plan cross-adapter-parity-20260515 Phase A Step A.5: extraAllowWrite 同 claudeModel
-    // 同款持久化(spawn-time 透传给 finalizeSessionStart → setExtraAllowWrite 写库),让
-    // recoverer fallback / resume 路径读回交还 SDK sandbox.allowWrite。
-    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S9 R3 HIGH-F + R6 MED-R6-1 修订**:
-    // applicationSid + cliSessionId 双入参 — spawn 主路径下 internal.applicationSid 已切到
-    // realId 后冻结 (S3 isNewSpawn 修订),emit session-start { sessionId: applicationSid }
-    // 与现有 emit session-start { sessionId: realId } 行为字面等价 (S9 jsdoc)。
-    //
-    // **plan restart-controller-jsonl-precheck-20260521 §Step 3a.5 修法**:
-    // resumeMode='fresh-cli-reuse-app' 路径 (jsonl-missing fallback via maybeJsonlFallback helper)
-    // **跳过整段 finalize 链** — 该路径复用 applicationSid 行 (不创建新 sessions row),
-    // emit session-start 会撞唯一索引 / 创建假 record;setClaudeCodeSandbox / setModel /
-    // setExtraAllowWrite 已由 helper caller (restart-controller / recoverer) 之前显式写过 DB;
-    // 首条 user message emit 由 helper 在 ctx.createSession 成功后补回 (不变量 11)。
-    // fresh fallback 仅依赖 stream-processor S3 isNewSpawn 三分支内部 sessionManager.updateCliSessionId
-    // 单点 UPDATE cli_session_id 列 (不变量 9 + session-finalize.ts:31/41/74 jsdoc 契约对齐)。
-    //
-    // **plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 8 步 + Phase 3 合并修法**:
-    // attachments + handOff 字段透传给 finalize 链让首条 user message emit 时 spread 进 events.payload
-    // (Phase 3 createSession 带图修 + Phase 2 cold-start prompt 特殊渲染)。fresh-cli-reuse-app 路径
-    // 跳过 finalize 不影响 — helper 复 emit user message 时若需要 handOff 由 helper 自带(本 plan 修
-    // 法仅覆盖 spawn 主路径,jsonl-missing fallback 路径不在范围)。
-    if (opts.resumeMode !== 'fresh-cli-reuse-app') {
-      finalizeSessionStart({
-        applicationSid: internal.applicationSid,
-        cliSessionId: realId,
-        cwd: opts.cwd,
-        prompt: opts.prompt,
-        claudeSandboxMode,
-        claudeModel,
-        extraAllowWrite: opts.extraAllowWrite,
-        attachments: opts.attachments,
-        handOff: opts.handOff,
-        // REVIEW_58 HIGH ✅ 收口修法:recoverer.recoverAndSend 入口已 emit user message 时
-        // 显式传 true,finalize 跳过重复 emit(详 createSession opts.skipFirstUserEmit jsdoc)。
-        skipFirstUserEmit: opts.skipFirstUserEmit,
-        emit: this.opts.emit,
-      });
-    }
-
-    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S5 R3 HIGH-F jsdoc 等价性注明**:
-    // return handle.sessionId 用 internal.applicationSid (替代旧 return { sessionId: realId })。
-    // spawn 主路径下 applicationSid 已在 S3 first realId 到达时切到 realId 后冻结,与现有
-    // return { sessionId: realId } 字面行为等价 — caller 拿到的就是 first realId。
-    // resume / fallback 路径下 applicationSid = caller 传入 opts.resume 全程不变。
-    return {
-      sessionId: internal.applicationSid,
-      abort: () => void this.interrupt(internal.applicationSid),
-    };
   }
 
   async sendMessage(
@@ -581,7 +208,7 @@ export class ClaudeSdkBridge {
     // 历史 detail view 用 UploadedImageThumb 走新 IPC loadUploadedImage 渲染
     this.opts.emit({
       sessionId,
-      agentId: AGENT_ID,
+      agentId: 'claude-code',
       kind: 'message',
       payload: {
         text,
