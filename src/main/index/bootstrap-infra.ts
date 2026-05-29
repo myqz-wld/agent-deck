@@ -47,6 +47,7 @@ import { loadBundledAssets } from '../bundled-assets';
 import { reapStaleUploads } from '../store/image-uploads';
 import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { AGENT_DECK_MCP_TOKEN_ENV } from '../codex-config/agent-deck-mcp-injector';
+import { unionUserShellPath } from '../utils/user-shell-path';
 // NOTE(REVIEW_<X>):以下两个 codex-config 模块**必须**走 static import,不要改回 dynamic import。
 // 同一模块在多处 dynamic import(index.ts × 2 + ipc/settings.ts × 3)会让 vite SSR/rollup 把模块代码 inline
 // 进主 index.js,独立 chunk 文件只剩 require 空壳没有 export → 运行时 dynamic import 拿到空对象 →
@@ -73,6 +74,15 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);
   });
+
+  // 0.5 mutate process.env.PATH = union(user shell PATH, process.env.PATH)
+  // 让所有后续 spawn (SDK 子进程 + 主进程 git 等) 自动 inherit 完整 PATH
+  // (修 macOS .app launchd 启动 PATH 只有 /usr/bin:/bin:/usr/sbin:/sbin 问题)。
+  // 详 plan ref/plans/sdk-spawn-shell-path-20260529.md §设计决策 + §不变量 9。
+  const newPath = unionUserShellPath(process.env.PATH);
+  if (newPath !== process.env.PATH) {
+    process.env.PATH = newPath;
+  }
 
   // 1. 数据库
   initDb();
