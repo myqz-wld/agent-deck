@@ -38,6 +38,9 @@ import {
   applyClosedSideEffects,
 } from '../manager-team-coordinator';
 import type { SessionCloseFn, SessionManagerInternalState } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('session-manager-lifecycle');
 
 /**
  * 把 sessionId 加进黑名单,覆盖「主动关闭后 OLD CLI 子进程异步飞回的迟到 hook event 仍带 OLD_ID」窗口。
@@ -135,7 +138,7 @@ export async function closeImpl(
     try {
       await sessionCloseFn(session.agentId, sessionId);
     } catch (err) {
-      console.warn(`[session-mgr] adapter close failed during close(): ${sessionId}`, err);
+      logger.warn(`[session-mgr] adapter close failed during close(): ${sessionId}`, err);
     }
   }
   sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
@@ -314,7 +317,7 @@ export async function deleteImpl(
     try {
       await sessionCloseFn(session.agentId, sessionId);
     } catch (err) {
-      console.warn(`[session-mgr] close on delete failed: ${sessionId}`, err);
+      logger.warn(`[session-mgr] close on delete failed: ${sessionId}`, err);
     }
   }
   // R5 MED-R5-1 双写:applicationSid + cliSessionId 双 key 入黑名单

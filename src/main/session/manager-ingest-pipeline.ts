@@ -5,6 +5,9 @@ import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
 import { extractCwd, nextActivityState } from './manager-helpers';
 import type { UpsertOptions } from './manager';
+import log from '@main/utils/logger';
+
+const logger = log.scope('session-ingest');
 
 /**
  * Ingest 5 段流水线 free function（拆自 manager.ts，CHANGELOG_86 Step 4.3.3）。
@@ -110,7 +113,7 @@ export function dedupOrClaim(ctx: IngestContext, event: AgentEvent): { skip: boo
   if (event.source === 'hook' && !sessionRepo.get(event.sessionId)) {
     const cwd = extractCwd(event);
     if (cwd && ctx.consumePendingSdkClaim(cwd)) {
-      console.log(
+      logger.info(
         `[session-mgr] hook→sdk re-claim (new sid): sessionId=${event.sessionId} cwd=${cwd}`,
       );
       ctx.claimAsSdk(event.sessionId);
@@ -130,7 +133,7 @@ export function dedupOrClaim(ctx: IngestContext, event: AgentEvent): { skip: boo
   if (event.source === 'hook') {
     const cwd = extractCwd(event);
     if (cwd && ctx.consumePendingSdkClaim(cwd)) {
-      console.log(
+      logger.info(
         `[session-mgr] hook→sdk re-claim (existing sid): sessionId=${event.sessionId} cwd=${cwd}`,
       );
       ctx.claimAsSdk(event.sessionId);
@@ -148,7 +151,7 @@ export function dedupOrClaim(ctx: IngestContext, event: AgentEvent): { skip: boo
   // 这条 event 一定是 SDK-derived 进程的孤儿副产品，直接 skip 不创建 source='cli' record。
   // 用户独立终端跑 `claude` 没有 AGENT_DECK_ORIGIN env → header 走默认 'cli' → 不走本分支。
   if (event.source === 'hook' && event.hookOrigin === 'sdk') {
-    console.log(
+    logger.info(
       `[session-mgr] drop sdk-derived orphan hook: sessionId=${event.sessionId} kind=${event.kind}`,
     );
     return { skip: true };
