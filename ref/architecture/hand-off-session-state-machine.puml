@@ -94,6 +94,9 @@ note as N1
 
   双模式差异: plan-driven cwd=mainRepo / generic cwd=caller cwd
   与 archive_plan baton 对比: hand_off 多了 spawn + task reassign
+  多条件优先级: adopt_teammates=true > archive_caller=false > 默认
+  (adopt 在 baton-cleanup 之前执行,swapLead 已转 role;
+   archive_caller=false 仅决定 caller 归档与 phase 1 跳过)
 end note
 
 @enduml
