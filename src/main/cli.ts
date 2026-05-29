@@ -24,6 +24,9 @@ import { getFloatingWindow } from './window';
 import { sessionManager } from './session/manager';
 import { agentDeckTeamRepo, TeamInvariantError } from './store/agent-deck-team-repo';
 import type { PermissionMode } from './adapters/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('main-cli');
 
 export interface CliMemberSpec {
   /** 如 'reviewer-claude'；用作 member.displayName */
@@ -313,7 +316,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
         inv.members.map(async (m) => {
           const memberAdapter = adapterRegistry.get(m.adapter);
           if (!memberAdapter?.createSession) {
-            console.warn(
+            logger.warn(
               `[cli] team member adapter "${m.adapter}" cannot create session; skip ${m.slug}`,
             );
             return;
@@ -343,7 +346,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
               kind: 'joined',
             });
           } catch (e) {
-            console.warn(
+            logger.warn(
               `[cli] failed to spawn team member ${m.slug}:${m.adapter}:`,
               e instanceof Error ? e.message : String(e),
             );
@@ -351,7 +354,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
         }),
       );
     } catch (e) {
-      console.warn(`[cli] team setup failed for "${inv.team}":`, e);
+      logger.warn(`[cli] team setup failed for "${inv.team}":`, e);
     }
   }
 
@@ -373,7 +376,7 @@ export async function handleCliArgv(argv: readonly string[]): Promise<void> {
     inv = parseCliInvocation(argv);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[cli] parse failed:', msg);
+    logger.error('[cli] parse failed:', msg);
     try {
       dialog.showErrorBox('Agent Deck 命令行', msg);
     } catch {
@@ -386,7 +389,7 @@ export async function handleCliArgv(argv: readonly string[]): Promise<void> {
     await applyCliInvocation(inv);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[cli] apply failed:', msg);
+    logger.error('[cli] apply failed:', msg);
     try {
       dialog.showErrorBox('Agent Deck 命令行', msg);
     } catch {

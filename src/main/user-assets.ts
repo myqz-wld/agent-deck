@@ -42,6 +42,9 @@ import type { AssetMeta, UserAssetInput, UserAssetsSnapshot } from '@shared/type
 import { validateAdapterKind } from '@shared/types';
 import { __metaBuilders, isSafeName } from './bundled-assets';
 import { parseFrontmatter, stringifyFrontmatter } from './utils/frontmatter';
+import log from '@main/utils/logger';
+
+const logger = log.scope('main-user-assets');
 
 type UserAdapter = 'claude-code' | 'codex-cli';
 
@@ -276,7 +279,7 @@ function scanUserAgents(adapter: UserAdapter): AssetMeta[] {
   try {
     entries = readdirSync(USER_CLAUDE_AGENTS_DIR);
   } catch (err) {
-    console.warn(`[user-assets] scanUserAgents readdir failed: ${USER_CLAUDE_AGENTS_DIR}`, err);
+    logger.warn(`[user-assets] scanUserAgents readdir failed: ${USER_CLAUDE_AGENTS_DIR}`, err);
     return [];
   }
   const out: AssetMeta[] = [];
@@ -289,7 +292,7 @@ function scanUserAgents(adapter: UserAdapter): AssetMeta[] {
       const fm = parseFrontmatter(readFileSync(absPath, 'utf8'));
       out.push(__metaBuilders.buildAgentMeta(name, absPath, fm, 'user', 'claude-code'));
     } catch (err) {
-      console.warn(`[user-assets] skip agent ${name}:`, (err as Error).message);
+      logger.warn(`[user-assets] skip agent ${name}:`, (err as Error).message);
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -310,7 +313,7 @@ function scanUserSkills(adapter: UserAdapter): AssetMeta[] {
   try {
     entries = readdirSync(skillsRoot);
   } catch (err) {
-    console.warn(`[user-assets] scanUserSkills readdir failed: ${skillsRoot}`, err);
+    logger.warn(`[user-assets] scanUserSkills readdir failed: ${skillsRoot}`, err);
     return [];
   }
   const out: AssetMeta[] = [];
@@ -327,7 +330,7 @@ function scanUserSkills(adapter: UserAdapter): AssetMeta[] {
       const fm = parseFrontmatter(readFileSync(skillFile, 'utf8'));
       out.push(__metaBuilders.buildSkillMeta(entry, skillFile, fm, 'user', adapter));
     } catch (err) {
-      console.warn(`[user-assets] skip skill ${adapter}/${entry}:`, (err as Error).message);
+      logger.warn(`[user-assets] skip skill ${adapter}/${entry}:`, (err as Error).message);
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
