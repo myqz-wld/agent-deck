@@ -46,6 +46,9 @@ import type {
   PreparedSessionContext,
   SdkQueryResult,
 } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-sdk-query');
 
 /**
  * createSession SDK query 段实现 — free fn，无 facade class 内部 state。
@@ -79,7 +82,7 @@ export async function runCreateSessionSdkQuery(
     // 看不到「sandbox 装载成功 / 失败」信号；改回顶层 sandbox 字段后此 log 帮助
     // 实证「buildSandboxOptions 真的传了对应配置进 SDK options」，下次问题排查少绕一圈。
     const sandboxOpts = buildSandboxOptions(claudeSandboxMode, opts.cwd, opts.extraAllowWrite);
-    console.log(
+    logger.info(
       `[sandbox] mode=${claudeSandboxMode} → ${
         sandboxOpts.sandbox ? 'enabled (top-level)' : 'disabled (no field)'
       }${
@@ -190,7 +193,7 @@ export async function runCreateSessionSdkQuery(
       // R3 fix-7 (I1 reviewer-claude INFO + codex A MED-1): 加 .catch 吞错防 unhandled
       // rejection（SDK interrupt 在 catch 路径 reject 可能性）。fire-and-forget 语义保持。
       void internal.query?.interrupt?.().catch((err: unknown) => {
-        console.warn('[sdk-bridge] interrupt during createSession throw failed:', err);
+        logger.warn('[sdk-bridge] interrupt during createSession throw failed:', err);
       });
     }
     // REVIEW_60 R2 HIGH-1 修法 (reviewer-claude R2 单方 finding + lead 现场验证 + 与 codex catch 对照 parity gap):

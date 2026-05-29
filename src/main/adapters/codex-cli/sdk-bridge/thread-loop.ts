@@ -17,6 +17,9 @@ import { sessionManager } from '@main/session/manager';
 import { translateCodexEvent } from '@main/adapters/codex-cli/translate';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { CodexBridgeOptions, InternalSession } from './types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-thread-loop');
 
 export interface ThreadLoopCtx {
   /** 共享 sessions Map ref（facade 持有） */
@@ -80,7 +83,7 @@ export class ThreadLoop {
         try {
           this.ctx.cleanupTempKey(tempKey);
         } catch (cleanupErr) {
-          console.warn(
+          logger.warn(
             `[codex-thread-loop] cleanupTempKey(${tempKey}) failed during resolveWithFallback:`,
             cleanupErr,
           );
@@ -303,7 +306,7 @@ export class ThreadLoop {
                 // 只 update internal.threadId 为新 SDK 返回的 thread_id (cli sid 维度)。
                 const oldId = internal.threadId;
                 const newId = ev.thread_id;
-                console.warn(
+                logger.warn(
                   `[codex-bridge] SDK returned thread_id ${newId} != tracked ${oldId} ` +
                     `(resumeThread-fork or fresh-cli-reuse-app startThread); ` +
                     `updating cli_session_id column on application sid ${internal.applicationSid} (走 manager 黑名单链)`,
@@ -315,7 +318,7 @@ export class ThreadLoop {
                 try {
                   sessionManager.updateCliSessionId(internal.applicationSid, newId);
                 } catch (renameErr) {
-                  console.error(
+                  logger.error(
                     `[codex-bridge] post-resume updateCliSessionId failed app=${internal.applicationSid} → ${newId}, ` +
                       `NEW thread runs but cli_session_id 列未更新 + OLD_CLI_ID 未入黑名单.`,
                     renameErr,

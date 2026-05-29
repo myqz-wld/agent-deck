@@ -43,6 +43,9 @@ import type { AgentEvent } from '@shared/types';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { ThreadLoop } from './thread-loop';
 import type { InternalSession } from './types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-resume-await');
 
 export interface AwaitResumedThreadStartDeps {
   threadLoop: ThreadLoop;
@@ -78,7 +81,7 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
     const fallback = setTimeout(() => {
       if (resolved) return;
       resolved = true;
-      console.warn(
+      logger.warn(
         `[codex-bridge] resume ${applicationSid} no thread.started in ${THREAD_STARTED_FALLBACK_MS}ms, ` +
           `returning original id (turn loop may still recover)`,
       );
@@ -138,7 +141,7 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
         try {
           deps.codexBySession.delete(applicationSid);
         } catch (cleanupErr) {
-          console.warn(
+          logger.warn(
             `[codex-bridge] codexBySession.delete failed during earlyErr cleanup for ${applicationSid}:`,
             cleanupErr,
           );
@@ -146,7 +149,7 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
         try {
           mcpSessionTokenMap.release(applicationSid);
         } catch (cleanupErr) {
-          console.warn(
+          logger.warn(
             `[codex-bridge] mcpSessionTokenMap.release failed during earlyErr cleanup for ${applicationSid}:`,
             cleanupErr,
           );

@@ -1,6 +1,9 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-settings-env');
 
 /**
  * 把 ~/.claude/settings.json 的 `env` 字段强制覆盖到当前进程 env。
@@ -52,7 +55,7 @@ export function applyClaudeSettingsEnv(): void {
     for (const [k, v] of Object.entries(json.env)) {
       if (typeof v !== 'string') continue;
       if (!isAllowed(k)) {
-        console.warn(`[settings-env] reject "${k}": not in whitelist (only ANTHROPIC_*/CLAUDE_*/proxy vars)`);
+        logger.warn(`[settings-env] reject "${k}": not in whitelist (only ANTHROPIC_*/CLAUDE_*/proxy vars)`);
         rejected += 1;
         continue;
       }
@@ -60,12 +63,12 @@ export function applyClaudeSettingsEnv(): void {
       applied += 1;
     }
     if (applied > 0 || rejected > 0) {
-      console.log(
+      logger.info(
         `[settings-env] applied ${applied} env vars from ~/.claude/settings.json` +
           (rejected > 0 ? ` (rejected ${rejected} non-whitelisted)` : ''),
       );
     }
   } catch (err) {
-    console.warn('[settings-env] failed to load ~/.claude/settings.json:', (err as Error).message);
+    logger.warn('[settings-env] failed to load ~/.claude/settings.json:', (err as Error).message);
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import log from 'electron-log/main';
 import {
   buildSandboxOptions,
   SANDBOX_EXCLUDED_COMMANDS,
@@ -173,32 +174,28 @@ describe("buildSandboxOptions('strict')", () => {
 });
 
 describe('buildSandboxOptions 未知 mode 防御性兜底', () => {
-  let warnSpy: ReturnType<typeof vi.spyOn>;
+  const scopedLogger = log.scope('claude-sandbox');
 
   beforeEach(() => {
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    (scopedLogger.warn as ReturnType<typeof vi.fn>).mockClear();
   });
 
-  afterEach(() => {
-    warnSpy.mockRestore();
-  });
-
-  it('未知字符串 mode 返回空对象 + console.warn（settings store 入了脏数据时）', () => {
+  it('未知字符串 mode 返回空对象 + logger.warn（settings store 入了脏数据时）', () => {
     // settings store 入了脏数据 / 旧版本字段重命名后没清掉等场景，要降级而非崩
     const result = buildSandboxOptions('weird-mode' as unknown as SandboxMode, '/tmp/foo');
     expect(result).toEqual({});
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(scopedLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('unknown mode "weird-mode"'),
     );
   });
 
   it("'off' 不触发 warn（这是合法档位）", () => {
     buildSandboxOptions('off', '/tmp/foo');
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(scopedLogger.warn).not.toHaveBeenCalled();
   });
 
   it('undefined 不触发 warn（这是合法 fallback）', () => {
     buildSandboxOptions(undefined, '/tmp/foo');
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(scopedLogger.warn).not.toHaveBeenCalled();
   });
 });

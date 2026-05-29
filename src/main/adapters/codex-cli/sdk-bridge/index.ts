@@ -41,6 +41,9 @@ import {
 // 3 子段 fn(详 create-session/_deps.ts 顶部 jsdoc 拆分说明)。
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-bridge');
 
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
 
@@ -141,7 +144,7 @@ export class CodexSdkBridge {
         try {
           this.codexBySession.delete(tempKey);
         } catch (cleanupErr) {
-          console.warn(
+          logger.warn(
             `[codex-bridge] codexBySession.delete failed in cleanupTempKey for ${tempKey}:`,
             cleanupErr,
           );
@@ -149,7 +152,7 @@ export class CodexSdkBridge {
         try {
           mcpSessionTokenMap.release(tempKey);
         } catch (cleanupErr) {
-          console.warn(
+          logger.warn(
             `[codex-bridge] mcpSessionTokenMap.release failed in cleanupTempKey for ${tempKey}:`,
             cleanupErr,
           );
@@ -250,7 +253,7 @@ export class CodexSdkBridge {
     const agentDeckMcpConfig = buildAgentDeckMcpConfigForCodex(settings, this.opts.hookServer ?? null);
     const codexConfig = mergeCodexConfig(null, agentDeckMcpConfig);
     if (agentDeckMcpConfig) {
-      console.log(`[codex-bridge] agent-deck MCP server config injected (HTTP transport, sid=${sessionId})`);
+      logger.info(`[codex-bridge] agent-deck MCP server config injected (HTTP transport, sid=${sessionId})`);
     }
     // codex SDK 0.120.0 type 注释:env 传值后子进程不再继承 process.env(spike 2 §2 line 222-234
     // 实证 envOverride 优先 + 绕过 process.env fallback)。所以必须手工 spread process.env 过滤
@@ -372,7 +375,7 @@ export class CodexSdkBridge {
     try {
       s.currentTurn.abort();
     } catch (err) {
-      console.warn(`[codex-bridge] interrupt failed`, err);
+      logger.warn(`[codex-bridge] interrupt failed`, err);
     }
   }
 
@@ -411,7 +414,7 @@ export class CodexSdkBridge {
       try {
         internal.currentTurn.abort();
       } catch (err) {
-        console.warn(`[codex-bridge] abort during close failed: ${sessionId}`, err);
+        logger.warn(`[codex-bridge] abort during close failed: ${sessionId}`, err);
       }
       internal.currentTurn = null;
     }
