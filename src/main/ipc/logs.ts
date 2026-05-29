@@ -1,12 +1,15 @@
 /**
  * Runtime logging IPC handlers — Settings LogsSection 后端 (Plan runtime-logging-electron-log-20260529 §D9 §Step 3.2.5).
  *
- * 3 个 typed handler:
+ * 3 个 typed handler (Settings LogsSection):
  * - LogsOpenDirectory       打开整个 logs 目录 (shell.openPath)
  * - LogsShowCurrentInFinder 选中今天的 main-YYYY-MM-DD.log (fallback: 文件不存在 → openPath)
  * - LogsTruncateToday       清空当天 log 文件 (fallback: 文件不存在 → 返 false 让 UI 弹 toast)
+ *
+ * 1 个 fire-and-forget event listener (Plan §Step 3.2.6 follow-up, CHANGELOG_179 方案 2):
+ * - PreloadFatalError       preload 端 contextBridge.exposeInMainWorld 失败时上报落 logger
  */
-import { app, shell } from 'electron';
+import { app, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import log from '@main/utils/logger';
@@ -69,5 +72,16 @@ export function registerLogsIpc(): void {
       logger.warn(`LogsTruncateToday truncate failed: ${msg}`, err);
       return { ok: false, existed: true, error: msg };
     }
+  });
+
+  // CHANGELOG_179 §Step 3.2.6 方案 2: preload 端 contextBridge.exposeInMainWorld('api', api)
+  // 失败时上报落 logger.scope('preload-fatal'). 与 webContents.on('preload-error', ...) 互补
+  // (本 channel 拦加载成功后内部 throw, preload-error 拦 script 本身加载失败).
+  // fire-and-forget 不需 ack, 用 ipcMain.on 而非 invoke/handle.
+  const preloadLogger = log.scope('preload-fatal');
+  ipcMain.on(IpcInvoke.PreloadFatalError, (_event, payload: { message?: string; stack?: string } | undefined) => {
+    const message = payload?.message ?? '<no message>';
+    const stack = payload?.stack ?? '<no stack>';
+    preloadLogger.error(`contextBridge.exposeInMainWorld failed: ${message}\n${stack}`);
   });
 }
