@@ -53,6 +53,9 @@ import { sanitizeWireFieldName } from '@shared/wire-prefix';
 import type { AgentDeckMessage } from '@shared/types';
 
 import { teamEventDispatcher } from './team-event-dispatcher';
+import log from '@main/utils/logger';
+
+const logger = log.scope('universal-message-watcher');
 
 // facade re-export：保持外部 import 路径完全兼容
 // (`from '@main/teams/universal-message-watcher'` → TS module resolution fallback 到 index.ts)
@@ -132,10 +135,10 @@ export class UniversalMessageWatcher {
     try {
       const reset = agentDeckMessageRepo.resetDeliveringOnStartup();
       if (reset > 0) {
-        console.log(`[universal-message-watcher] startup: reset ${reset} delivering rows to pending`);
+        logger.info(`[universal-message-watcher] startup: reset ${reset} delivering rows to pending`);
       }
     } catch (err) {
-      console.warn('[universal-message-watcher] startup recovery failed:', err);
+      logger.warn('[universal-message-watcher] startup recovery failed:', err);
     }
 
     this.offEnqueue = eventBus.on('agent-deck-message-enqueued', () => {
@@ -149,7 +152,7 @@ export class UniversalMessageWatcher {
 
     teamEventDispatcher.start();
 
-    console.log(
+    logger.info(
       `[universal-message-watcher] started (poll=${tickMs}ms, debounce=${ENQUEUE_DEBOUNCE_MS}ms, batch=${BATCH_LIMIT})`,
     );
   }
@@ -166,7 +169,7 @@ export class UniversalMessageWatcher {
       this.debounceTimer = null;
     }
     teamEventDispatcher.stop();
-    console.log('[universal-message-watcher] stopped');
+    logger.info('[universal-message-watcher] stopped');
   }
 
   /** event 触发后的 debounce：50ms 内多个 enqueue 合并为一次 process。 */
@@ -246,7 +249,7 @@ export class UniversalMessageWatcher {
         }
       }
     } catch (err) {
-      console.warn('[universal-message-watcher] process tick failed:', err);
+      logger.warn('[universal-message-watcher] process tick failed:', err);
     } finally {
       this.processing = false;
       if (this.rescheduleAfterCurrent) {
@@ -421,11 +424,11 @@ export class UniversalMessageWatcher {
       if (updated) {
         this.emitStatus(updated);
         if (updated.status === 'pending') {
-          console.warn(
+          logger.warn(
             `[universal-message-watcher] deliver failed (attempt ${updated.attemptCount}/${MAX_RETRY}) message=${updated.id}: ${reason}`,
           );
         } else {
-          console.warn(
+          logger.warn(
             `[universal-message-watcher] deliver exhausted message=${updated.id}: ${reason}`,
           );
         }
