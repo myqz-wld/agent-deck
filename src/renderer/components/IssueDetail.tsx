@@ -69,13 +69,13 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
 
   if (error) {
     return (
-      <div className="px-3 py-3 text-xs text-status-danger">
+      <div className="px-3 py-3 text-xs text-status-waiting">
         {error} <button onClick={onClose} className="underline">关闭</button>
       </div>
     );
   }
   if (!issue || !editing) {
-    return <div className="px-3 py-3 text-xs text-deck-text-muted">加载中...</div>;
+    return <div className="px-3 py-3 text-xs text-deck-muted">加载中...</div>;
   }
 
   const handleSave = async (): Promise<void> => {
@@ -141,13 +141,13 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
         <h2 className="truncate text-sm font-medium text-deck-text" title={issue.id}>
           Issue · {issue.id.slice(0, 8)}
         </h2>
-        <button onClick={onClose} className="text-xs text-deck-text-muted hover:text-deck-text">
+        <button onClick={onClose} className="text-xs text-deck-muted hover:text-deck-text">
           ✕
         </button>
       </div>
       <div className="flex-1 space-y-3 overflow-y-auto scrollbar-deck px-3 py-3">
         {error && (
-          <div className="rounded bg-status-danger/15 px-2 py-1 text-xs text-status-danger">
+          <div className="rounded bg-status-waiting/15 px-2 py-1 text-xs text-status-waiting">
             {error}
           </div>
         )}
@@ -160,7 +160,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
             onChange={(e) => setEditing({ ...editing, title: e.target.value })}
             disabled={isDeleted || saving}
             maxLength={200}
-            className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none focus:ring-1 focus:ring-deck-accent disabled:opacity-50"
+            className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
           />
         </Field>
         <div className="grid grid-cols-3 gap-2">
@@ -169,7 +169,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
               value={editing.status}
               onChange={(e) => setEditing({ ...editing, status: e.target.value as IssueStatus })}
               disabled={isDeleted || saving}
-              className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
+              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
             >
               <option value="open">open</option>
               <option value="in-progress">in-progress</option>
@@ -183,7 +183,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
                 setEditing({ ...editing, severity: e.target.value as IssueSeverity })
               }
               disabled={isDeleted || saving}
-              className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
+              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
             >
               <option value="low">low</option>
               <option value="medium">medium</option>
@@ -197,7 +197,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
               onChange={(e) => setEditing({ ...editing, kind: e.target.value })}
               disabled={isDeleted || saving}
               maxLength={32}
-              className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
+              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
             />
           </Field>
         </div>
@@ -208,7 +208,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
             disabled={isDeleted || saving}
             maxLength={2000}
             rows={4}
-            className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none focus:ring-1 focus:ring-deck-accent disabled:opacity-50"
+            className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
           />
         </Field>
         <Field label="重现步骤 (optional)">
@@ -218,7 +218,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
             disabled={isDeleted || saving}
             maxLength={2000}
             rows={3}
-            className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none focus:ring-1 focus:ring-deck-accent disabled:opacity-50"
+            className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
           />
         </Field>
         <Field label="标签 (逗号分隔)">
@@ -227,12 +227,12 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
             value={editing.labels}
             onChange={(e) => setEditing({ ...editing, labels: e.target.value })}
             disabled={isDeleted || saving}
-            className="w-full rounded bg-deck-bg-elevated px-2 py-1 text-xs text-deck-text outline-none focus:ring-1 focus:ring-deck-accent disabled:opacity-50"
+            className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
           />
         </Field>
 
         {/* meta 信息 read-only */}
-        <div className="space-y-1 rounded bg-deck-bg-elevated/50 px-2 py-2 text-[10px] text-deck-text-muted">
+        <div className="space-y-1 rounded bg-white/[0.03] px-2 py-2 text-[10px] text-deck-muted">
           <div>id: {issue.id}</div>
           <div>sourceSessionId: {issue.sourceSessionId ?? <em>原会话已被清理</em>}</div>
           <div>cwd: {issue.cwd ?? '—'}</div>
@@ -244,7 +244,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
             <div>resolved_at: {new Date(issue.resolvedAt).toLocaleString('zh-CN', { hour12: false })}</div>
           )}
           {issue.deletedAt && (
-            <div className="text-status-danger">
+            <div className="text-status-waiting">
               deleted_at: {new Date(issue.deletedAt).toLocaleString('zh-CN', { hour12: false })}
             </div>
           )}
@@ -255,8 +255,8 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
 
         {/* logsRef read-only */}
         {issue.logsRef && (
-          <div className="space-y-1 rounded bg-deck-bg-elevated/50 px-2 py-2 text-[10px] text-deck-text-muted">
-            <div className="font-medium text-deck-text-muted">logsRef</div>
+          <div className="space-y-1 rounded bg-white/[0.03] px-2 py-2 text-[10px] text-deck-muted">
+            <div className="font-medium text-deck-muted">logsRef</div>
             <div>date: {issue.logsRef.date}</div>
             {issue.logsRef.tsRange && (
               <div>
@@ -274,16 +274,16 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
         {/* appendices read-only */}
         {appendices.length > 0 && (
           <div className="space-y-2">
-            <div className="text-xs font-medium text-deck-text-muted">
+            <div className="text-xs font-medium text-deck-muted">
               现场追加 ({appendices.length})
             </div>
             <ul className="space-y-1.5">
               {appendices.map((a) => (
                 <li
                   key={a.id}
-                  className="rounded bg-deck-bg-elevated/50 px-2 py-1.5 text-[11px] text-deck-text"
+                  className="rounded bg-white/[0.03] px-2 py-1.5 text-[11px] text-deck-text"
                 >
-                  <div className="mb-1 text-[10px] text-deck-text-muted">
+                  <div className="mb-1 text-[10px] text-deck-muted">
                     {new Date(a.appendedAt).toLocaleString('zh-CN', { hour12: false })}
                     {a.appendedSessionId ? ` · sid ${a.appendedSessionId.slice(0, 8)}` : ' · session 已清理'}
                   </div>
@@ -301,7 +301,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
           <button
             onClick={() => void handleSave()}
             disabled={saving}
-            className="rounded bg-deck-accent/30 px-2 py-1 text-xs text-deck-text hover:bg-deck-accent/50 disabled:opacity-50"
+            className="rounded bg-white/15 px-2 py-1 text-xs text-deck-text hover:bg-white/25 disabled:opacity-50"
           >
             保存
           </button>
@@ -310,7 +310,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
           <button
             onClick={() => setResolveDialogOpen(true)}
             disabled={saving}
-            className="rounded bg-status-active/25 px-2 py-1 text-xs text-status-active hover:bg-status-active/40 disabled:opacity-50"
+            className="rounded bg-status-working/25 px-2 py-1 text-xs text-status-working hover:bg-status-working/40 disabled:opacity-50"
           >
             起新会话解决
           </button>
@@ -320,7 +320,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
           <button
             onClick={() => void handleSoftDelete()}
             disabled={saving}
-            className="rounded bg-status-danger/25 px-2 py-1 text-xs text-status-danger hover:bg-status-danger/40 disabled:opacity-50"
+            className="rounded bg-status-waiting/25 px-2 py-1 text-xs text-status-waiting hover:bg-status-waiting/40 disabled:opacity-50"
           >
             软删
           </button>
@@ -328,7 +328,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
           <button
             onClick={() => void handleUndelete()}
             disabled={saving}
-            className="rounded bg-status-warning/25 px-2 py-1 text-xs text-status-warning hover:bg-status-warning/40 disabled:opacity-50"
+            className="rounded bg-status-finished/25 px-2 py-1 text-xs text-status-finished hover:bg-status-finished/40 disabled:opacity-50"
           >
             恢复
           </button>
@@ -353,7 +353,7 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
 function Field({ label, children }: { label: string; children: JSX.Element }): JSX.Element {
   return (
     <div className="space-y-1">
-      <label className="block text-[10px] uppercase tracking-wide text-deck-text-muted">
+      <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
         {label}
       </label>
       {children}
