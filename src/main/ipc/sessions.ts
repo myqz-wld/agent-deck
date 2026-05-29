@@ -14,6 +14,9 @@ import { eventBus } from '@main/event-bus';
 import type { EventMap } from '@main/event-bus';
 import { buildHandOffCreateSessionOpts, dedupHandOff, archiveSourceSessionWithEmit } from './sessions-hand-off-helper';
 import { on, parseStringId, parsePositiveInt, parseStringIdArray, IpcInputError } from './_helpers';
+import log from '@main/utils/logger';
+
+const logger = log.scope('ipc-sessions');
 
 export function registerSessionsIpc(): void {
   // Session
@@ -51,7 +54,7 @@ export function registerSessionsIpc(): void {
       return true;
     } catch (err) {
       if (err instanceof SessionRowMissingError) {
-        console.warn(
+        logger.warn(
           `[ipc SessionArchive] ${sid} setArchived no-op (row 已不在,幂等静默 return true):`,
           err,
         );
@@ -71,7 +74,7 @@ export function registerSessionsIpc(): void {
       return true;
     } catch (err) {
       if (err instanceof SessionRowMissingError) {
-        console.warn(
+        logger.warn(
           `[ipc SessionUnarchive] ${sid} setArchived(null) no-op (row 已不在,幂等静默 return true):`,
           err,
         );
