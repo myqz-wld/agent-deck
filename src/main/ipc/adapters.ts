@@ -34,6 +34,9 @@ import type {
   UploadedAttachmentInput,
   UploadedAttachmentRef,
 } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('ipc-adapters');
 
 /**
  * 校验 + 写盘 attachments。失败抛错，由调用方决定回滚兄弟附件。
@@ -208,7 +211,7 @@ export function registerAdaptersIpc(): void {
           if (!(e instanceof TeamInvariantError)) throw e;
         }
       } catch (e) {
-        console.warn(`[ipc adapters createSession] team ensure / addMember failed for "${teamName}":`, e);
+        logger.warn(`[ipc adapters createSession] team ensure / addMember failed for "${teamName}":`, e);
       }
     }
     return sid;

@@ -13,6 +13,13 @@
  * Electron / SQLite）。
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import log from 'electron-log/main';
+
+// Step 3.3.4 console.warn → logger.warn migrate 后, sessions-hand-off-helper.ts 用
+// log.scope('ipc-sessions-handoff').warn. 测试改 spy 同 name cached vi.fn() object
+// (vitest-setup.ts mock 让 log.scope() 返 cached vi.fn() object 同 name 同一个 obj).
+const handoffLogger = log.scope('ipc-sessions-handoff');
+
 import {
   buildHandOffCreateSessionOpts,
   dedupHandOff,
@@ -324,7 +331,7 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
     });
     const getFn = vi.fn(() => fakeRow());
     const emitFn = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    (handoffLogger.warn as ReturnType<typeof vi.fn>).mockClear();
 
     await expect(
       archiveSourceSessionWithEmit('source-sid', {
@@ -343,12 +350,12 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
       reason: expect.stringContaining('FK constraint violation'),
       reasonKind: 'archive-throw',
     });
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(handoffLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('[ipc sessions hand-off] archive source session source-sid failed:'),
       expect.any(Error),
     );
 
-    warnSpy.mockRestore();
+    
   });
 
   it('archive 抛 SessionRowMissingError → race window → emit row-missing (archive-toctou-fix-20260515 R1 reviewer-codex MED-1)', async () => {
@@ -358,7 +365,7 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
     });
     const getFn = vi.fn(() => fakeRow());
     const emitFn = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    (handoffLogger.warn as ReturnType<typeof vi.fn>).mockClear();
 
     await archiveSourceSessionWithEmit('source-sid', {
       archive: archiveFn,
@@ -375,12 +382,12 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
       reason: expect.stringContaining('race window: probe OK 后 setArchived no-op'),
       reasonKind: 'row-missing',
     });
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(handoffLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('setArchived no-op (race window)'),
       expect.any(SessionRowMissingError),
     );
 
-    warnSpy.mockRestore();
+    
   });
 
   it('archive 抛非 Error(e.g. string)→ emit reason 也能 stringify 不挂', async () => {
@@ -390,7 +397,7 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
     });
     const getFn = vi.fn(() => fakeRow());
     const emitFn = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    (handoffLogger.warn as ReturnType<typeof vi.fn>).mockClear();
 
     await archiveSourceSessionWithEmit('source-sid', {
       archive: archiveFn,
@@ -406,7 +413,7 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
       reasonKind: 'archive-throw',
     });
 
-    warnSpy.mockRestore();
+    
   });
 
   // R2 reviewer-codex MED-1 修法新增 case: 验证 createSession 异步窗口期间 row 被删的场景
@@ -414,7 +421,7 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
     const archiveFn = vi.fn(async (_sid: string) => undefined);
     const getFn = vi.fn(() => null);
     const emitFn = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    (handoffLogger.warn as ReturnType<typeof vi.fn>).mockClear();
 
     await archiveSourceSessionWithEmit('ghost-sid', {
       archive: archiveFn,
@@ -432,11 +439,11 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
       reason: expect.stringContaining('cannot archive caller ghost-sid: not in sessions table'),
       reasonKind: 'row-missing',
     });
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(handoffLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('[ipc sessions hand-off]'),
     );
 
-    warnSpy.mockRestore();
+    
   });
 
   // archive-toctou-fix-20260515 plan: getSession 抛错独立分支 → 'probe-throw' 不再误归 row-missing
@@ -446,7 +453,7 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
       throw new Error('simulated SQLite locked');
     });
     const emitFn = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    (handoffLogger.warn as ReturnType<typeof vi.fn>).mockClear();
 
     await archiveSourceSessionWithEmit('source-sid', {
       archive: archiveFn,
@@ -463,10 +470,10 @@ describe('archiveSourceSessionWithEmit — archive-failure-ux-upthrow-20260515 p
       reason: expect.stringContaining('probe getSession threw for source-sid'),
       reasonKind: 'probe-throw',
     });
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(handoffLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('probe getSession threw for source-sid'),
     );
 
-    warnSpy.mockRestore();
+    
   });
 });

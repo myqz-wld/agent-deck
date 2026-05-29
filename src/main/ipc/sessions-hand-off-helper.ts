@@ -22,6 +22,9 @@ import type { SessionRecord } from '@shared/types';
 import type { CreateSessionOptions } from '@main/adapters/types';
 import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 import { SessionRowMissingError } from '@main/store/session-repo';
+import log from '@main/utils/logger';
+
+const logger = log.scope('ipc-sessions-handoff');
 
 export function buildHandOffCreateSessionOpts(
   session: SessionRecord,
@@ -119,7 +122,7 @@ export async function archiveSourceSessionWithEmit(
     probeError = { reason: `probe getSession threw for ${sid}: ${errStr}` };
   }
   if (probeError) {
-    console.warn(`[ipc sessions hand-off] ${probeError.reason}`);
+    logger.warn(`[ipc sessions hand-off] ${probeError.reason}`);
     deps.emitArchiveFailed({
       sessionId: sid,
       toolName: 'SessionHandOffSpawn',
@@ -130,7 +133,7 @@ export async function archiveSourceSessionWithEmit(
   }
   if (!row) {
     const reason = `cannot archive caller ${sid}: not in sessions table (createSession 期间被异常清理)`;
-    console.warn(`[ipc sessions hand-off] ${reason}`);
+    logger.warn(`[ipc sessions hand-off] ${reason}`);
     deps.emitArchiveFailed({
       sessionId: sid,
       toolName: 'SessionHandOffSpawn',
@@ -151,7 +154,7 @@ export async function archiveSourceSessionWithEmit(
     const reason = isRowMissing
       ? `cannot archive caller ${sid}: ${errStr} (race window: probe OK 后 setArchived no-op)`
       : `archive caller ${sid} failed: ${errStr}`;
-    console.warn(
+    logger.warn(
       `[ipc sessions hand-off] ${
         isRowMissing
           ? `archive source session ${sid} setArchived no-op (race window)`
