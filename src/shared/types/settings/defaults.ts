@@ -61,4 +61,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // R3.E0 ADR §7.5：universal-message-watcher 限流默认值
   mcpMessageRatePerTeamPerMin: 60,
   mcpMessageMaxTargetInflight: 10,
+  // Plan runtime-logging-electron-log-20260529 §D4 §D14: 日志 file transport 默认 'info'
+  // (console 永远 'silly' 固定不变, 详 logger.ts)
+  logLevel: 'info',
 };
