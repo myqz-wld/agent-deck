@@ -11,6 +11,7 @@ import { HookServerSection } from './settings/sections/HookServerSection';
 import { ExternalToolsSection } from './settings/sections/ExternalToolsSection';
 import { ExperimentalSection } from './settings/sections/ExperimentalSection';
 import { AgentDeckMcpSection } from './settings/sections/AgentDeckMcpSection';
+import { LogsSection } from './settings/sections/LogsSection';
 
 interface Props {
   open: boolean;
@@ -207,6 +208,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   <HookServerSection settings={settings} update={update} />
                   <ExternalToolsSection settings={settings} update={update} />
                   <ExperimentalSection settings={settings} update={update} />
+                  <LogsSection settings={settings} update={update} />
                 </SectionGroup>
 
                 <SectionGroup title="跨工具协作(MCP)">
