@@ -37,6 +37,9 @@ import {
   shutdownTeammatesOnBaton,
   type ShutdownTeammatesResult,
 } from './shutdown-teammates-on-baton';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-shutdown-baton');
 
 /**
  * 测试 inject seam：test 通过 deps 注入 mock helper 走纯 in-memory。
@@ -70,7 +73,7 @@ export const shutdownBatonTeammatesHandler = withMcpGuard(
       // 显式知道,不能假装 ok return）。
       const errStr = e instanceof Error ? e.message : String(e);
       const planSuffix = planId ? ` (planId=${planId})` : '';
-      console.warn(
+      logger.warn(
         `[mcp shutdown_baton_teammates] shutdownTeammatesOnBaton helper threw for caller ${caller.callerSessionId}${planSuffix}:`,
         e,
       );

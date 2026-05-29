@@ -8,6 +8,9 @@
 import type { LifecycleState, SessionRecord } from '@shared/types';
 import { getDb } from '../db';
 import { rowToRecord, type Row } from './types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('session-repo-spawn-chain');
 
 /**
  * 单查 sessions.spawn_depth。session 不存在返回 0（兜底，与 spawn_session
@@ -37,7 +40,7 @@ export function setSpawnLink(id: string, spawnedBy: string | null, depth: number
     .prepare(`UPDATE sessions SET spawned_by = ?, spawn_depth = ? WHERE id = ?`)
     .run(spawnedBy, depth, id);
   if (info.changes === 0) {
-    console.warn(
+    logger.warn(
       `[setSpawnLink] UPDATE 0 rows for id=${id} (spawnedBy=${spawnedBy}, depth=${depth}) — ` +
         `session row 不存在,spawn-link 写入静默失败。可能根因:adapter.createSession 返了 tempKey 不是 realId,` +
         `或 caller 在 setSpawnLink 之前 row 已被删/未建。`,

@@ -42,6 +42,9 @@ import {
 import { dirname, join } from 'node:path';
 import { settingsStore } from '@main/store/settings-store';
 import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-sdk-injection');
 
 const USER_CLAUDE_MD_FILENAME = 'agent-deck-claude.md';
 const APPEND_HEADER =
@@ -105,7 +108,7 @@ function ensurePluginMirrorInstalled(): void {
   const src = getPluginSourceDir();
   const dst = getPluginMirrorDir();
   if (!existsSync(src)) {
-    console.warn(`[sdk-injection] plugin source dir missing, skip mirror install: ${src}`);
+    logger.warn(`[sdk-injection] plugin source dir missing, skip mirror install: ${src}`);
     pluginMirrorInstalled = true; // 标记，避免每次 spawn 都 warn
     return;
   }
@@ -117,7 +120,7 @@ function ensurePluginMirrorInstalled(): void {
     substituteMdFilesInPlace(dst);
     pluginMirrorInstalled = true;
   } catch (err) {
-    console.warn(`[sdk-injection] plugin mirror install failed: ${dst}`, err);
+    logger.warn(`[sdk-injection] plugin mirror install failed: ${dst}`, err);
     pluginMirrorInstalled = true; // 标记，避免无限重试 — 用户重启应用才会重试
   }
 }
@@ -138,7 +141,7 @@ function substituteMdFilesInPlace(dir: string): void {
         writeFileSync(path, substituted, 'utf8');
       }
     } catch (err) {
-      console.warn(`[sdk-injection] substitute .md failed: ${path}`, err);
+      logger.warn(`[sdk-injection] substitute .md failed: ${path}`, err);
     }
   }
 }
@@ -221,7 +224,7 @@ export function getActiveAgentDeckClaudeMd(): { content: string; isCustom: boole
     try {
       return { content: readFileSync(userPath, 'utf8'), isCustom: true };
     } catch (err) {
-      console.warn('[sdk-injection] 读取用户副本 CLAUDE.md 失败，回落内置:', err);
+      logger.warn('[sdk-injection] 读取用户副本 CLAUDE.md 失败，回落内置:', err);
     }
   }
   return { content: getBuiltinAgentDeckClaudeMd(), isCustom: false };
@@ -232,7 +235,7 @@ export function getBuiltinAgentDeckClaudeMd(): string {
   try {
     return readFileSync(getBuiltinClaudeMdPath(), 'utf8');
   } catch (err) {
-    console.warn('[sdk-injection] 读取内置 CLAUDE.md 失败:', err);
+    logger.warn('[sdk-injection] 读取内置 CLAUDE.md 失败:', err);
     return '';
   }
 }
@@ -264,7 +267,7 @@ export function resetUserAgentDeckClaudeMd(): void {
     try {
       unlinkSync(path);
     } catch (err) {
-      console.warn('[sdk-injection] 删除用户副本 CLAUDE.md 失败:', err);
+      logger.warn('[sdk-injection] 删除用户副本 CLAUDE.md 失败:', err);
       throw err;
     }
   }
@@ -278,13 +281,13 @@ function readActiveClaudeMdRaw(): string {
     try {
       return readFileSync(userPath, 'utf8');
     } catch (err) {
-      console.warn('[sdk-injection] 读取用户副本 CLAUDE.md 失败，回落内置:', err);
+      logger.warn('[sdk-injection] 读取用户副本 CLAUDE.md 失败，回落内置:', err);
     }
   }
   try {
     return readFileSync(getBuiltinClaudeMdPath(), 'utf8');
   } catch (err) {
-    console.warn('[sdk-injection] 读取 agent-deck CLAUDE.md 失败，跳过注入:', err);
+    logger.warn('[sdk-injection] 读取 agent-deck CLAUDE.md 失败，跳过注入:', err);
     return '';
   }
 }

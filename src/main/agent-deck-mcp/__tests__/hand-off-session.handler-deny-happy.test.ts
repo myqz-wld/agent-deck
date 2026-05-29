@@ -13,11 +13,18 @@
  * - handler caller cwd 反查 + generic mode → hand-off-session.handler-cwd-generic.test.ts
  */
 import { describe, expect, it, vi } from 'vitest';
+import log from 'electron-log/main';
 import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
 import type { HandOffSessionArgs, SpawnSessionArgs } from '../tools/schemas';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
 import { sessionRepo } from '@main/store/session-repo';
 import { makeState, makeDeps, planContent } from './hand-off-session/_setup';
+
+// Step 3.3.5 后 baton-cleanup.ts 用 logger=log.scope('mcp-baton-cleanup').warn 替代 console.warn;
+// hand_off_session handler 集成 runBatonCleanup helper, archive-failure / row-missing /
+// helper-failed 三处 warn 全部源自 baton-cleanup.ts。测试需 spy 此 scoped logger 而非
+// console.warn(vitest-setup.ts mock 已让 log.scope 返 vi.fn 化 logger)
+const batonCleanupLogger = log.scope('mcp-baton-cleanup');
 
 describe('handOffSessionHandler — deny external caller', () => {
   it('callerSessionId = __external__ + transport=stdio → 拒绝', async () => {
@@ -254,7 +261,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     const mockArchive = vi.fn(async (_sid: string) => {
       throw new Error('simulated archive error (e.g. session row already deleted)');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const args: HandOffSessionArgs = {
       planId: planId,
@@ -302,11 +310,10 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     // CHANGELOG_98：archive throw → archived='failed'（与 row missing 路径同状态值不同来源）
     expect(data.archived).toBe('failed');
     expect(mockArchive).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('archive caller caller-sid failed'),
       expect.any(Error),
     );
-    warnSpy.mockRestore();
     sessionRepoGetSpy.mockRestore();
   });
 
@@ -329,7 +336,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
       }),
     );
     const mockArchive = vi.fn(async (_sid: string) => undefined);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const args: HandOffSessionArgs = {
       planId: planId,
@@ -359,11 +367,10 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     // F1 关键：archive 函数不被调用（探针在 archive 之前 short-circuit）
     expect(mockArchive).not.toHaveBeenCalled();
     // F1 关键：warn 含 row missing 提示
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('cannot archive caller ghost-caller-sid'),
     );
 
-    warnSpy.mockRestore();
     sessionRepoGetSpy.mockRestore();
   });
 
@@ -958,7 +965,8 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
     const mockShutdown = vi.fn(async (_sid: string) => {
       throw new Error('simulated helper crash (DB exception / mock failure)');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
     const sessionRepoGetSpy = await spyCallerRow();
 
     const result = await handOffSessionHandler(
@@ -984,13 +992,12 @@ describe('handOffSessionHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集�
     // 关键: archive caller 仍走(helper 故障不阻塞 baton 收口)
     expect(mockArchive).toHaveBeenCalledTimes(1);
     expect(data.archived).toBe('ok');
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('shutdownTeammatesOnBaton helper failed for caller caller-sid'),
       expect.any(Error),
     );
 
     sessionRepoGetSpy.mockRestore();
-    warnSpy.mockRestore();
   });
 
   it('spawn 失败短路 → 不调 helper / 不调 archive(baton 没成功不该牵连 teammate)', async () => {

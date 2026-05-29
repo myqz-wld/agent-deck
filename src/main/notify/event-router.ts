@@ -1,6 +1,9 @@
 import type { AgentEvent } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { notifyUser } from './visual';
+import log from '@main/utils/logger';
+
+const logger = log.scope('notify-event-router');
 
 /**
  * 把 AgentEvent 翻成「是否要给用户系统通知 + 提示音」。
@@ -58,6 +61,6 @@ export function routeEventToNotification(event: AgentEvent): void {
   } catch (err) {
     // 通知失败（无系统权限 / dock 已 release / 音频文件被删 / Notification.show 抛错）
     // 不应反噬主链路。adapter for-await emit 循环对 throw 敏感，这里必须吞。
-    console.error('[event-router] notification dispatch failed:', err);
+    logger.error('[event-router] notification dispatch failed:', err);
   }
 }

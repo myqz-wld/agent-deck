@@ -3,6 +3,9 @@ import { timingSafeEqual } from 'node:crypto';
 
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import type { McpAuthInfo } from '@main/agent-deck-mcp/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('hook-server');
 
 /**
  * 共享内嵌 HTTP server。Adapter 在初始化时通过 RouteRegistry.registerRoute()
@@ -82,7 +85,7 @@ export class HookServer {
   ): void {
     if (!expectedToken) {
       // token 异常缺失（不应发生）：放行但每次都打 warn，让用户能从日志注意到
-      console.warn(`[${tag}] WARN: empty token, request not authenticated`);
+      logger.warn(`[${tag}] WARN: empty token, request not authenticated`);
       return;
     }
     const auth = typeof authHeader === 'string' ? authHeader : '';
@@ -125,7 +128,7 @@ export class HookServer {
     if (!this.mcpToken) {
       // 全局 token 异常缺失（不应发生）：放行但每次都打 warn。
       // per-session 路径仍可能命中（mcpSessionTokenMap），但本分支为简单起见跳过 token 校验。
-      console.warn('[mcp-server] WARN: empty mcpToken, request not authenticated');
+      logger.warn('[mcp-server] WARN: empty mcpToken, request not authenticated');
       return;
     }
 

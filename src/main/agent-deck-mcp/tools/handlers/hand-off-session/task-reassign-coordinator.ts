@@ -25,6 +25,9 @@ import { eventBus } from '@main/event-bus';
 import type { HandOffSessionArgs, HandOffSessionResult } from '../../schemas';
 import type { HandOffSessionHandlerDeps } from './_deps';
 import type { Phase15Detail } from './team-adopt-coordinator';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-task-reassign');
 
 /**
  * Task ownership reassignment 三态分流。
@@ -86,7 +89,7 @@ export function runTaskReassignment(
     args.teamTaskPolicy ?? 'clear-team';
 
   if (!newSpawnedSid) {
-    console.warn(
+    logger.warn(
       `[mcp hand_off_session] newSpawnedSid is null after spawn ok return — task ownership reassignment skipped (unexpected: spawn handler should always return sessionId on ok)`,
     );
     return { status: 'skipped', reason: 'spawn-no-sid', policy: taskPolicy };
@@ -154,14 +157,14 @@ function runSkipPolicy(
           ts: Date.now(),
         });
       } catch (e) {
-        console.warn(
+        logger.warn(
           `[mcp hand_off_session] teamTaskPolicy='skip' emit task-changed deleted ${id} failed (continuing):`,
           e,
         );
       }
     }
     if (result.deletedTeamTaskIds.length > 0 || result.reassignedPersonalCount > 0) {
-      console.log(
+      logger.info(
         `[mcp hand_off_session] teamTaskPolicy='skip': ${result.deletedTeamTaskIds.length} team task(s) deleted + ${result.reassignedPersonalCount} personal task(s) reassigned to ${newSpawnedSid}`,
       );
     }
@@ -173,7 +176,7 @@ function runSkipPolicy(
   } catch (e) {
     // Round 4 MED-2 DB throw fallback — applyHandOffSkipPolicy throw → catch → status='failed'
     // 不抛错给 caller(spawn/adopt 已 commit 不回滚 — v023 §不变量 12 同款 sane fallback)
-    console.warn(
+    logger.warn(
       `[mcp hand_off_session] applyHandOffSkipPolicy threw (continuing — spawn/adopt 已成功不回滚):`,
       e,
     );
@@ -228,7 +231,7 @@ function runReassignOwnerPolicy(
     } catch (e) {
       // safety query 失败仅 warn 不阻塞 reassign(policyWarning 退化为不触发,
       // sane fallback — caller 仍能通过 reassignedCount 看到主结果)
-      console.warn(
+      logger.warn(
         `[mcp hand_off_session] preserve-team safety query findOwnedDistinctTeamIds failed (continuing — policyWarning will not trigger):`,
         e,
       );
@@ -240,7 +243,7 @@ function runReassignOwnerPolicy(
       policy: taskPolicy,
     });
     if (reassignedCount > 0) {
-      console.log(
+      logger.info(
         `[mcp hand_off_session] teamTaskPolicy='${taskPolicy}': ${reassignedCount} task(s) reassigned to ${newSpawnedSid}`,
       );
     }
@@ -269,7 +272,7 @@ function runReassignOwnerPolicy(
           }
         } catch (e) {
           // DB 异常 fail-safe:不加进 active set 让差集把该 teamId push 进 unadopted warning
-          console.warn(
+          logger.warn(
             `[mcp hand_off_session] preserve-team safety: findActiveMembershipIn(${teamId}, ${newSpawnedSid}) threw — treating as not-active-member`,
             e,
           );
@@ -281,7 +284,7 @@ function runReassignOwnerPolicy(
       if (diff.length > 0) {
         policyWarning = 'preserve-team-unadopted-teams';
         unadoptedTeamIds = diff;
-        console.warn(
+        logger.warn(
           `[mcp hand_off_session] preserve-team policyWarning='preserve-team-unadopted-teams': caller owned tasks bound to teams [${diff.join(', ')}] but newSid ${newSpawnedSid} 不是这些 team 的 active member → newSid 撞 D3 写权限 reject(caller 自负责任 — adoptTeammates: true 让 newSid 接管 team 当 lead,或接受降级让 task 处于 unreachable 状态)`,
         );
       }
@@ -295,7 +298,7 @@ function runReassignOwnerPolicy(
       ...(unadoptedTeamIds ? { unadoptedTeamIds } : {}),
     };
   } catch (e) {
-    console.warn(
+    logger.warn(
       `[mcp hand_off_session] task ownership reassign (policy='${taskPolicy}') failed (continuing — task reassignment is nice-to-have, handOff baton still ok; LifecycleScheduler TTL GC will best-effort cleanup):`,
       e,
     );

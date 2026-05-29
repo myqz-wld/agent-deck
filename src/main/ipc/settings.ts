@@ -38,8 +38,11 @@ import {
   resetUserCodexAgentsMd,
 } from '@main/codex-config/agents-md-installer';
 import { syncSkills } from '@main/codex-config/skills-installer';
+import log, { setFileLevel } from '@main/utils/logger';
 import type { AppSettings } from '@shared/types';
 import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode } from './_helpers';
+
+const logger = log.scope('ipc-settings');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SettingsSet 「即改即生效」分发（CHANGELOG_20 / A）。
@@ -148,7 +151,7 @@ function applyCodexMcpServers(p: Partial<AppSettings>, next: AppSettings): void 
   try {
     writeMcpServersToCodexConfig(next.codexMcpServers);
   } catch (err) {
-    console.warn('[settings] writeMcpServersToCodexConfig 失败', err);
+    logger.warn('[settings] writeMcpServersToCodexConfig 失败', err);
   }
 }
 
@@ -164,7 +167,7 @@ function applyCodexAgentsMd(p: Partial<AppSettings>, _next: AppSettings): void {
   try {
     syncAgentDeckSection();
   } catch (err) {
-    console.warn('[settings] syncAgentDeckSection 失败', err);
+    logger.warn('[settings] syncAgentDeckSection 失败', err);
   }
 }
 
@@ -178,7 +181,7 @@ function applyCodexSkills(p: Partial<AppSettings>, _next: AppSettings): void {
   try {
     syncSkills();
   } catch (err) {
-    console.warn('[settings] syncSkills 失败', err);
+    logger.warn('[settings] syncSkills 失败', err);
   }
 }
 
@@ -190,11 +193,19 @@ function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void 
   }
 }
 
+function applyLogLevel(p: Partial<AppSettings>, next: AppSettings): void {
+  // Plan runtime-logging-electron-log-20260529 §D4 §D14 §Step 3.1.3:
+  // 只更新 file transport, console transport 永远 'silly' 不变 (dev terminal 看全部输出)。
+  if ('logLevel' in p) {
+    setFileLevel(next.logLevel);
+  }
+}
+
 function warnHookServerPort(p: Partial<AppSettings>): void {
   // 监听端口在 server 已 listen 后无法热切换；hook curl 命令端口也会与新值不一致。
   // 两个问题都需要重启应用 + 重新点 install hook 才能完整生效。UI 已标「（重启生效）」。
   if ('hookServerPort' in p) {
-    console.warn(
+    logger.warn(
       '[settings] hookServerPort changed; restart app + reinstall hooks to take effect',
     );
   }
@@ -205,7 +216,7 @@ function warnHookServerToken(p: Partial<AppSettings>): void {
   // 但 plan A 重构时务必同时加上避免 silent fail（CHANGELOG_20）。
   // 同 hookServerPort：换 token 必须重启 server + 重新 install hook 才能生效。
   if ('hookServerToken' in p) {
-    console.warn(
+    logger.warn(
       '[settings] hookServerToken changed; restart app + reinstall hooks to take effect',
     );
   }
@@ -261,6 +272,7 @@ export function registerSettingsIpc(): void {
       applyCodexAgentsMd,
       applyCodexSkills,
       applySummaryInterval,
+      applyLogLevel,
       invalidateClaudeMdCache,
     ] as const;
     try {
@@ -283,7 +295,7 @@ export function registerSettingsIpc(): void {
         try {
           fn(rollback, before);
         } catch (rollbackErr) {
-          console.error('[settings] rollback apply* failed:', rollbackErr);
+          logger.error('[settings] rollback apply* failed:', rollbackErr);
         }
       }
       throw err;

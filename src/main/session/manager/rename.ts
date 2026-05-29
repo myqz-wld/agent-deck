@@ -18,6 +18,9 @@ import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import type { SessionManagerInternalState, SessionRenameHookFn } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('session-manager-rename');
 
 /**
  * 把 fromId 的 sessions 行 + 子表引用整体迁到 toId(保留所有事件 / 文件改动 / 总结),然后通知
@@ -74,7 +77,7 @@ export function renameSdkSessionImpl(
   if (updated) {
     eventBus.emit('session-upserted', updated);
     if (updated.agentId === 'codex-cli' && !sessionRenameHookFn) {
-      console.error(
+      logger.error(
         `[sessionManager] CRITICAL: rename(${fromId} → ${toId}) for codex-cli agent but sessionRenameHookFn not registered. ` +
           `codexBySession Map will be stale (entry kept under fromId). main/index.ts bootstrap step 5.1.1 must call setSessionRenameHookFn before any codex spawn. ` +
           `Continuing with 3-key rename (DB / sdkOwned / token map) — codex Codex instance leak until session closeSession.`,
@@ -84,7 +87,7 @@ export function renameSdkSessionImpl(
       try {
         sessionRenameHookFn(updated.agentId, fromId, toId);
       } catch (err) {
-        console.error(
+        logger.error(
           `[sessionManager] rename hook for ${updated.agentId} ${fromId} → ${toId} threw — ` +
             `4-key sync degraded to 3 keys (DB / sdkOwned / token map migrated, codexBySession stale). ` +
             `Stale codex instance leaked until next closeSession; downstream sendMessage(${toId}) will rebuild via ensureCodex.`,

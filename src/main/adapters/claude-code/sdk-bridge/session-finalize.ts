@@ -19,6 +19,9 @@ import type { AgentEvent, HandOffMetadata, UploadedAttachmentRef } from '@shared
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from './constants';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-finalize');
 
 export interface FinalizeSessionStartArgs {
   /**
@@ -129,7 +132,7 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
     try {
       sessionManager.updateCliSessionId(applicationSid, cliSessionId);
     } catch (err) {
-      console.warn(
+      logger.warn(
         `[claude-bridge] updateCliSessionId(${applicationSid}, ${cliSessionId}) 失败`,
         err,
       );
@@ -140,7 +143,7 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
   try {
     sessionRepo.setClaudeCodeSandbox(applicationSid, claudeSandboxMode);
   } catch (err) {
-    console.warn(
+    logger.warn(
       `[claude-bridge] setClaudeCodeSandbox(${applicationSid}, ${claudeSandboxMode}) 失败`,
       err,
     );
@@ -151,7 +154,7 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
     try {
       sessionRepo.setModel(applicationSid, claudeModel);
     } catch (err) {
-      console.warn(`[claude-bridge] setModel(${applicationSid}, ${claudeModel}) 失败`, err);
+      logger.warn(`[claude-bridge] setModel(${applicationSid}, ${claudeModel}) 失败`, err);
     }
   }
 
@@ -161,7 +164,7 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
     try {
       sessionRepo.setExtraAllowWrite(applicationSid, [...extraAllowWrite]);
     } catch (err) {
-      console.warn(
+      logger.warn(
         `[claude-bridge] setExtraAllowWrite(${applicationSid}, [${extraAllowWrite.join(', ')}]) 失败`,
         err,
       );

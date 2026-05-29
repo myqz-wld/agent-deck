@@ -18,6 +18,11 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import log from 'electron-log/main';
+
+// Step 3.3.2 console.log → logger.info migrate 后, 测试改 spy log.scope('settings-store').info
+// (vitest-setup.ts mock 让 log.scope() 返 cached vi.fn() object 同 name 同一个 obj).
+const settingsStoreLogger = log.scope('settings-store');
 
 // In-memory store 替代 electron-store
 let mockRawStore: Record<string, unknown> = {};
@@ -91,7 +96,7 @@ async function loadSettingsStore() {
 
 describe('settings-store smart migration — enableTaskManager → enableAgentDeckMcp (4 格)', () => {
   it('(1) legacy true + 无 explicit enableAgentDeckMcp → set enableAgentDeckMcp=true + warn + legacy deleted', async () => {
-    const warnSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
     mockRawStore = { enableTaskManager: true };
 
     const settings = await loadSettingsStore();
@@ -100,17 +105,17 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     // smart migration set enableAgentDeckMcp=true
     expect(mockSet).toHaveBeenCalledWith('enableAgentDeckMcp', true);
     // warn 日志
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(settingsStoreLogger.info).toHaveBeenCalledWith(
       expect.stringContaining('migrated enableTaskManager=true → enableAgentDeckMcp=true'),
     );
     // legacy key deleted
     expect(mockDelete).toHaveBeenCalledWith('enableTaskManager');
-    warnSpy.mockRestore();
+    
   });
 
   it('(2) legacy false + 无 explicit enableAgentDeckMcp → 不动 enableAgentDeckMcp + legacy deleted', async () => {
     mockRawStore = { enableTaskManager: false };
-    const warnSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
 
     const settings = await loadSettingsStore();
     settings.getAll();
@@ -119,17 +124,17 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     const setCalls = mockSet.mock.calls.filter((c) => c[0] === 'enableAgentDeckMcp');
     expect(setCalls).toHaveLength(0);
     // 不打 migration warn 日志
-    expect(warnSpy).not.toHaveBeenCalledWith(
+    expect(settingsStoreLogger.info).not.toHaveBeenCalledWith(
       expect.stringContaining('migrated enableTaskManager'),
     );
     // legacy key 仍被 REMOVED_KEYS delete
     expect(mockDelete).toHaveBeenCalledWith('enableTaskManager');
-    warnSpy.mockRestore();
+    
   });
 
   it('(3) raw 含 explicit enableAgentDeckMcp value → migration skip（用户决策优先）+ legacy deleted', async () => {
     mockRawStore = { enableTaskManager: true, enableAgentDeckMcp: false };
-    const warnSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
 
     const settings = await loadSettingsStore();
     settings.getAll();
@@ -140,17 +145,17 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     );
     expect(enableSetCalls).toHaveLength(0);
     // 不打 migration warn 日志
-    expect(warnSpy).not.toHaveBeenCalledWith(
+    expect(settingsStoreLogger.info).not.toHaveBeenCalledWith(
       expect.stringContaining('migrated enableTaskManager'),
     );
     // legacy key 仍 delete
     expect(mockDelete).toHaveBeenCalledWith('enableTaskManager');
-    warnSpy.mockRestore();
+    
   });
 
   it('(4) fresh install (raw 全空) → migration no-op + 不打 warn + 默认 OFF (load-bearing：新用户路径不该看 warn 噪音)', async () => {
     mockRawStore = {};
-    const warnSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
 
     const settings = await loadSettingsStore();
     settings.getAll();
@@ -161,7 +166,7 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     );
     expect(enableSetCalls).toHaveLength(0);
     // 不打 migration warn 日志（load-bearing：新用户不该看噪音）
-    expect(warnSpy).not.toHaveBeenCalledWith(
+    expect(settingsStoreLogger.info).not.toHaveBeenCalledWith(
       expect.stringContaining('migrated enableTaskManager'),
     );
     // REMOVED_KEYS delete loop 也不调（key 不在 raw）
@@ -169,7 +174,7 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
       (c) => c[0] === 'enableTaskManager',
     );
     expect(deleteCalls).toHaveLength(0);
-    warnSpy.mockRestore();
+    
   });
 
   it('(5 F1 regression) conf defaults 写回 fs 后仍正确 migrate — 真实生产路径（deep-review R1 codex MED）', async () => {
@@ -181,7 +186,7 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     // F1 fix 后：settings-store.ts 用独立 no-defaults probe Store snapshot fs raw 不受 defaults
     //   污染，judgment 仍命中 → migration 触发 set enableAgentDeckMcp:true（fix 后本 it pass）。
     mockRawStore = { enableTaskManager: true };
-    const warnSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
 
     const settings = await loadSettingsStore();
     settings.getAll();
@@ -189,7 +194,7 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     // 关键断言：即使 conf 真实行为已经污染 mockRawStore（real Store 构造时把
     // DEFAULT_SETTINGS 全部 merge 进 mockRawStore），migration 仍 set enableAgentDeckMcp:true
     expect(mockSet).toHaveBeenCalledWith('enableAgentDeckMcp', true);
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(settingsStoreLogger.info).toHaveBeenCalledWith(
       expect.stringContaining('migrated enableTaskManager=true → enableAgentDeckMcp=true'),
     );
     expect(mockDelete).toHaveBeenCalledWith('enableTaskManager');
@@ -197,7 +202,7 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     // 反向验证：mockRawStore 在 real Store 构造后**确实被 defaults 污染**了
     // （proves mock 真实模拟 conf 行为，本 test 真考验 F1 fix）
     expect('enableAgentDeckMcp' in mockRawStore).toBe(true);
-    warnSpy.mockRestore();
+    
   });
 
   it('(6 F1 regression — windowTransparent 对称) conf defaults 写回 fs 后 transparentWhenPinned migration 仍触发（deep-review R2 双方独立提出 F-R2-A）', async () => {
@@ -214,20 +219,20 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     //
     // 用 false（与 default true 区分）让 `mockSet windowTransparent false` 断言可观察。
     mockRawStore = { transparentWhenPinned: false };
-    const warnSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
 
     const settings = await loadSettingsStore();
     settings.getAll();
 
     // 关键断言：migration 触发 + 沿用老 false 不被 default true 覆盖
     expect(mockSet).toHaveBeenCalledWith('windowTransparent', false);
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(settingsStoreLogger.info).toHaveBeenCalledWith(
       expect.stringContaining('migrated transparentWhenPinned=false → windowTransparent'),
     );
     expect(mockDelete).toHaveBeenCalledWith('transparentWhenPinned');
 
     // 反向验证：mockRawStore 已被 defaults 污染（mock 真实模拟 conf 行为，本 test 真考验 F1 fix）
     expect('windowTransparent' in mockRawStore).toBe(true);
-    warnSpy.mockRestore();
+    
   });
 });

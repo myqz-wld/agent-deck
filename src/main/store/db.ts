@@ -3,6 +3,9 @@ import { app } from 'electron';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { MIGRATIONS } from './migrations';
+import log from '@main/utils/logger';
+
+const logger = log.scope('store-db');
 
 let dbInstance: Database.Database | null = null;
 
@@ -34,7 +37,7 @@ export function initDb(): Database.Database {
       for (const m of pending) {
         db.exec(m.sql);
         db.pragma(`user_version = ${m.version}`);
-        console.log(`[db] migrated to v${m.version} (${m.name})`);
+        logger.info(`[db] migrated to v${m.version} (${m.name})`);
       }
     });
     tx();

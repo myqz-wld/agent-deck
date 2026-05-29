@@ -35,6 +35,9 @@ import type {
   McpToolCallItem,
 } from '@openai/codex-sdk';
 import type { AgentEventKind } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-translate');
 
 export type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
 
@@ -141,7 +144,7 @@ export function classifyStreamErrorEvent(message: string): 'transient' | 'fatal'
   if (STREAM_ERROR_FATAL_RE.test(message)) return 'fatal';
   if (TRANSIENT_STREAM_ERROR_PHRASES.some((p) => message.includes(p))) return 'transient';
   if (STREAM_ERROR_HEURISTIC_RE.test(message)) {
-    console.warn(
+    logger.warn(
       `[codex-cli/translate] heuristic-only transient match (consider adding to white-list): ${message}`,
     );
     return 'transient';
@@ -405,7 +408,7 @@ function translateItemCompleted(item: ThreadItem, emit: EmitFn): void {
         item.message.includes(pat),
       );
       if (isLoaderWarning) {
-        console.warn(
+        logger.warn(
           '[codex-translate] codex CLI loader warning skipped UI emit:',
           item.message,
         );

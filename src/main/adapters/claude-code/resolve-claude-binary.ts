@@ -30,6 +30,9 @@
 import { existsSync } from 'node:fs';
 import { settingsStore } from '@main/store/settings-store';
 import { getPathToClaudeCodeExecutable } from '@main/adapters/claude-code/sdk-runtime';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-binary');
 
 export function resolveClaudeBinary(): string | undefined {
   const claudeCliPath = settingsStore.get('claudeCliPath');
@@ -38,7 +41,7 @@ export function resolveClaudeBinary(): string | undefined {
     if (existsSync(userOverride)) {
       return userOverride;
     }
-    console.warn(
+    logger.warn(
       `[claudeCliPath] user override "${userOverride}" not found, falling back to bundled binary`,
     );
   }

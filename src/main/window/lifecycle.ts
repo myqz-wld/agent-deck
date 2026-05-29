@@ -11,6 +11,9 @@ import {
   type FloatingWindowState,
 } from './_deps';
 import { stopInvalidateLoop } from './pin-visual';
+import log from '@main/utils/logger';
+
+const logger = log.scope('window-lifecycle');
 
 /**
  * 创建 BrowserWindow + 注册 ready-to-show / closed listener + dock icon + 状态复位。
@@ -116,7 +119,7 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
     if (shown || state.win !== capturedWin || capturedWin.isDestroyed()) return;
     shown = true;
     capturedWin.show();
-    console.log(`[window] shown via ${reason}`);
+    logger.info(`[window] shown via ${reason}`);
   };
   capturedWin.once('ready-to-show', () => showOnce('ready-to-show'));
   capturedWin.webContents.once('did-finish-load', () => showOnce('did-finish-load'));
@@ -127,7 +130,16 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
   }, 1500);
 
   state.win.webContents.on('did-fail-load', (_e, code, desc, url) => {
-    console.error(`[window] did-fail-load ${code} ${desc} url=${url}`);
+    logger.error(`[window] did-fail-load ${code} ${desc} url=${url}`);
+  });
+
+  // CHANGELOG_179 §Step 3.2.6 方案 4: preload script 本身加载失败(语法错 / asar 路径错 /
+  // require 失败)兜底落 log.scope('preload-fatal'). 与 ipcMain.on(PreloadFatalError) 互补
+  // (preload-error 拦加载失败 / PreloadFatalError 拦加载成功后内部 throw — preload script
+  // 已加载才能跑 ipcRenderer.send). 两者都落 'preload-fatal' scope 便于 grep 排查.
+  state.win.webContents.on('preload-error', (_event, preloadPath, error) => {
+    const preloadLogger = log.scope('preload-fatal');
+    preloadLogger.error(`preload script load failed: ${preloadPath}\n${error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)}`);
   });
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {

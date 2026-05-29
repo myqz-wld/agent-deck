@@ -48,6 +48,9 @@ import {
 } from './team-adopt-coordinator';
 import { runTaskReassignment } from './task-reassign-coordinator';
 import type { HandOffSessionHandlerDeps } from './_deps';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-handoff-main');
 
 /**
  * spawn handler 第三参 opts 决策 lambda(test seam)。
@@ -100,7 +103,7 @@ export const handOffSessionHandler = withMcpGuard(
       handlerDeps?.implDeps,
       caller.callerSessionId,
     );
-    for (const w of callerCwdWarnings) console.warn(w);
+    for (const w of callerCwdWarnings) logger.warn(w);
     const resolved = await handOffSessionImpl(
       {
         planId: args.planId,

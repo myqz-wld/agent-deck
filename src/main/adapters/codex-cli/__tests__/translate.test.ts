@@ -13,7 +13,12 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { ThreadEvent } from '@openai/codex-sdk';
+import log from 'electron-log/main';
 import { translateCodexEvent } from '../translate';
+
+// Step 3.3.1 console.warn → logger.warn migrate 后, 测试改 spy log.scope('codex-translate').warn
+// (vitest-setup.ts mock 让 log.scope() 返 cached vi.fn() object — spy 直接拿同 name 同一个 obj)
+const codexTranslateLogger = log.scope('codex-translate');
 
 function collect() {
   const events: { kind: string; payload: unknown }[] = [];
@@ -135,27 +140,23 @@ describe('translateCodexEvent', () => {
         expect((events[0].payload as { error?: boolean }).error).toBeUndefined();
       });
 
-      it('C4: heuristic fallback — no white-list match but word-boundary "retry" hit → transient + console.warn', () => {
-        // REVIEW MED-1 修法：plan §D1 设计要求启发式命中 console.warn 留诊断信号。
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-        try {
-          const { emit, events } = collect();
-          translateCodexEvent(
-            {
-              type: 'error',
-              // 不含白名单字面但含完整词形 retry — 启发式命中 word-boundary
-              message: 'Some random retry attempt notice from future codex version',
-            } as unknown as ThreadEvent,
-            emit,
-          );
-          expect(events).toHaveLength(1);
-          expect((events[0].payload as { error?: boolean }).error).toBeUndefined();
-          // 启发式命中必须 console.warn（plan §D1 设计要求）
-          expect(warnSpy).toHaveBeenCalledTimes(1);
-          expect(warnSpy.mock.calls[0][0]).toContain('heuristic-only transient match');
-        } finally {
-          warnSpy.mockRestore();
-        }
+      it('C4: heuristic fallback — no white-list match but word-boundary "retry" hit → transient + logger.warn', () => {
+        // REVIEW MED-1 修法：plan §D1 设计要求启发式命中 logger.warn 留诊断信号。
+        (codexTranslateLogger.warn as ReturnType<typeof vi.fn>).mockClear();
+        const { emit, events } = collect();
+        translateCodexEvent(
+          {
+            type: 'error',
+            // 不含白名单字面但含完整词形 retry — 启发式命中 word-boundary
+            message: 'Some random retry attempt notice from future codex version',
+          } as unknown as ThreadEvent,
+          emit,
+        );
+        expect(events).toHaveLength(1);
+        expect((events[0].payload as { error?: boolean }).error).toBeUndefined();
+        // 启发式命中必须 logger.warn（plan §D1 设计要求）
+        expect(codexTranslateLogger.warn).toHaveBeenCalledTimes(1);
+        expect((codexTranslateLogger.warn as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('heuristic-only transient match');
       });
 
       it('C13: date prefix "[2026/05/21 14:32:25] Reconnecting... 1/5 (...)" → extracts 1/5 not 2026/05', () => {
@@ -194,27 +195,23 @@ describe('translateCodexEvent', () => {
         expect(events[1].payload).toEqual({ ok: false, subtype: 'error' });
       });
 
-      it('C7: heuristic miss (no retry/reconnect/disconnect word) → conservative fatal (no console.warn)', () => {
+      it('C7: heuristic miss (no retry/reconnect/disconnect word) → conservative fatal (no logger.warn)', () => {
         // REVIEW HIGH-1 修法：word-boundary 严格词形,「lost / falling」类词不命中启发式
-        // → 走保守 fatal,不变量 1 不吞真错。同时验证不撞 console.warn（防 regression）
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-        try {
-          const { emit, events } = collect();
-          translateCodexEvent(
-            {
-              type: 'error',
-              message: 'connection lost - falling back to local mode',
-            } as unknown as ThreadEvent,
-            emit,
-          );
-          expect(events).toHaveLength(2);
-          expect((events[0].payload as { error?: boolean }).error).toBe(true);
-          expect(events[1].kind).toBe('finished');
-          // fatal 路径不走启发式 console.warn 分支
-          expect(warnSpy).not.toHaveBeenCalled();
-        } finally {
-          warnSpy.mockRestore();
-        }
+        // → 走保守 fatal,不变量 1 不吞真错。同时验证不撞 logger.warn（防 regression）
+        (codexTranslateLogger.warn as ReturnType<typeof vi.fn>).mockClear();
+        const { emit, events } = collect();
+        translateCodexEvent(
+          {
+            type: 'error',
+            message: 'connection lost - falling back to local mode',
+          } as unknown as ThreadEvent,
+          emit,
+        );
+        expect(events).toHaveLength(2);
+        expect((events[0].payload as { error?: boolean }).error).toBe(true);
+        expect(events[1].kind).toBe('finished');
+        // fatal 路径不走启发式 logger.warn 分支
+        expect(codexTranslateLogger.warn).not.toHaveBeenCalled();
       });
 
       // C8-C12: REVIEW HIGH-1 真 fatal regression — 修前 word-root `retr/disconnect`

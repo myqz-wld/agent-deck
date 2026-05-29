@@ -145,6 +145,27 @@ export const IpcInvoke = {
   AssetsSaveUser: 'assets:save-user',
   AssetsDeleteUser: 'assets:delete-user',
   AssetsRevealInFolder: 'assets:reveal',
+
+  // ─────────── Runtime Logging (Plan runtime-logging-electron-log-20260529 §D9 §Step 3.2) ───────────
+  /** Settings LogsSection 「打开日志目录」 — shell.openPath(app.getPath('logs')). */
+  LogsOpenDirectory: 'logs:open-directory',
+  /** Settings LogsSection 「在 Finder 中显示当前日志」 — shell.showItemInFolder(main-YYYY-MM-DD.log);
+   * fallback: 文件不存在时退化为 shell.openPath(LOG_DIR) 打开整个 logs 目录. */
+  LogsShowCurrentInFinder: 'logs:show-current-in-finder',
+  /** Settings LogsSection 「清空今天日志」 — truncate main-YYYY-MM-DD.log; fallback: 文件不存在
+   * 时 no-op + 返回 false 让 UI 弹 toast「今天还没有日志可清空」. */
+  LogsTruncateToday: 'logs:truncate-today',
+  /**
+   * Preload fatal error 上报通道(Plan §Step 3.2.6 follow-up, CHANGELOG_179) — preload 端
+   * `contextBridge.exposeInMainWorld('api', api)` 失败时 ipcRenderer.send(...) 让 main 端
+   * `ipcMain.on(...)` 接住落 logger.scope('preload-fatal').error(...). 与 webContents.on
+   * ('preload-error') 互补:本 channel 拦 preload 加载成功后内部 throw / preload-error 拦
+   * preload script 本身加载失败(语法错 / asar 路径错 / require 失败). fire-and-forget 不需
+   * 要 main 端 ack(用 ipcRenderer.send + ipcMain.on 而非 invoke/handle).
+   *
+   * payload: { message: string; stack?: string }
+   */
+  PreloadFatalError: 'preload:fatal-error',
 } as const;
 
 export const IpcEvent = {

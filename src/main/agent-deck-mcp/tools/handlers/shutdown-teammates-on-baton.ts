@@ -31,6 +31,9 @@ import type { AgentDeckTeamMember } from '@shared/types';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { sessionManager } from '@main/session/manager';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-shutdown-teammates');
 
 export interface ShutdownTeammatesResult {
   /** 成功 close 的 teammate sessionId（已 dedup 跨 team 共享同 sid 的情况） */
@@ -119,7 +122,7 @@ export async function shutdownTeammatesOnBaton(
       try {
         return agentDeckTeamRepo.get(teamId) as { archivedAt: number | null } | null;
       } catch (err) {
-        console.warn(
+        logger.warn(
           `[shutdown-teammates-on-baton] agentDeckTeamRepo.get(${teamId}) threw — fail-open (treating team as active, may close session in archived team)`,
           err,
         );
@@ -172,7 +175,7 @@ export async function shutdownTeammatesOnBaton(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       failed.push({ sessionId: sid, reason });
-      console.warn(`[shutdown-teammates-on-baton] close(${sid}) failed:`, err);
+      logger.warn(`[shutdown-teammates-on-baton] close(${sid}) failed:`, err);
     }
   }
 

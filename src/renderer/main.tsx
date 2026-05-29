@@ -1,7 +1,15 @@
+// Plan runtime-logging-electron-log-20260529 §D5 + §D8 + §Step 3.0.4: 第一行 import
+// logger.ts, 让 Object.assign(console, log.functions) 守门生效 — renderer 端 console.*
+// 经 IPC bridge 落进同一份 main-YYYY-MM-DD.log。logger.ts §不变量 8 仅依赖 electron-log/
+// renderer + vite env, 不依赖业务模块, 安全可顶部第一行。
+import log from './utils/logger';
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import './styles/globals.css';
+
+const logger = log.scope('renderer-main');
 
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -12,7 +20,7 @@ class RootErrorBoundary extends React.Component<
     return { error };
   }
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    console.error('[renderer] uncaught render error', error, info);
+    logger.error('[renderer] uncaught render error', error, info);
   }
   render(): React.ReactNode {
     if (!this.state.error) return this.props.children;
@@ -43,20 +51,20 @@ class RootErrorBoundary extends React.Component<
 window.addEventListener('error', (ev) => {
   // 资源加载失败（img/script/link 的 onerror 也会冒泡到 window）：只 console，不遮 UI
   if (ev.target && ev.target !== window) {
-    console.error('[renderer] resource load error', (ev.target as HTMLElement).tagName, ev);
+    logger.error('[renderer] resource load error', (ev.target as HTMLElement).tagName, ev);
     return;
   }
   // 跨源脚本错误：浏览器出于 CORS 只给空壳 "Script error." src=:0:0，
   // 既无定位也无 stack，弹 UI 只会遮挡正常内容；记到 console 留痕即可。
   if (ev.message === 'Script error.' && !ev.error && !ev.filename) {
-    console.warn('[renderer] cross-origin script error (suppressed)');
+    logger.warn('[renderer] cross-origin script error (suppressed)');
     return;
   }
   if (typeof ev.message === 'string' && isMonacoUnmountRaceNoise(ev.message)) {
-    console.warn('[renderer] monaco unmount race (suppressed):', ev.message);
+    logger.warn('[renderer] monaco unmount race (suppressed):', ev.message);
     return;
   }
-  console.error('[renderer] window.onerror', ev.error ?? ev.message);
+  logger.error('[renderer] window.onerror', ev.error ?? ev.message);
   showFatal(`window.onerror: ${ev.message}\nsrc=${ev.filename}:${ev.lineno}:${ev.colno}`);
 });
 window.addEventListener('unhandledrejection', (ev) => {
@@ -67,13 +75,13 @@ window.addEventListener('unhandledrejection', (ev) => {
   //    关 diff 时 model 提前 dispose 触发 race）
   // 两条都不影响功能，是 monaco 内部清理时序问题，console 留痕即可。不过滤会全屏遮挡用户。
   if (isMonacoUnmountRaceNoise(ev.reason)) {
-    console.warn(
+    logger.warn(
       '[renderer] monaco unmount race (suppressed):',
       (ev.reason as { message?: string })?.message ?? ev.reason,
     );
     return;
   }
-  console.error('[renderer] unhandledrejection', ev.reason);
+  logger.error('[renderer] unhandledrejection', ev.reason);
   showFatal(`unhandledrejection: ${(ev.reason as { message?: string })?.message ?? ev.reason}`);
 });
 

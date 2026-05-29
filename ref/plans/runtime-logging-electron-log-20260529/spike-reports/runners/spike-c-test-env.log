@@ -1,0 +1,29 @@
+
+=== 验证 1: 默认（不接管）— console.log 走原生 ===
+hello from native console.log
+console.log === originalConsoleLog ? true
+
+=== 验证 2: Object.assign(console, log.functions) 后 ===
+18:06:17.325 › console.log === originalConsoleLog ? false
+18:06:17.327 › hello from logger-wrapped console.log
+main.log content (after console wrapper):
+[2026-05-29 18:06:17.325] [info]  console.log === originalConsoleLog ? false
+[2026-05-29 18:06:17.327] [info]  hello from logger-wrapped console.log
+
+=== 验证 3: 模拟 vi.spyOn(console, "log") ===
+captured = [ [ 'this should be captured by spy' ] ]
+spy captured length = 1
+
+=== 验证 4: 接管后 console.log 是否还走 stdout ===
+18:06:17.328 › test message after wrapper
+stdout 接收次数: 1
+stdout 内容: [ '18:06:17.328 › test message after wrapper' ]
+
+=== Spike (c) 结论 ===
+1. Object.assign(console, log.functions) 后 console.log !== originalConsoleLog ✓
+2. 接管后 console.log 也写文件 + 也走 console transport（如启用）
+3. vi.spyOn(console, "log") 能用 — spy 自己替换 console.log，能拦到调用
+   但拦到的是接管后的 wrapper，spy.mock.calls 与原生 console 一致
+4. 项目侧建议：logger.ts 顶部 if (NODE_ENV !== "test") Object.assign(...)
+   测试环境保持原 console，spy/snapshot 等 51 处 vi.spyOn(console) 零改动
+   生产环境接管，console.* 转发到 logger 落盘

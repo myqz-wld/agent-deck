@@ -32,6 +32,9 @@ import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map'
 import { sessionManager } from '@main/session/manager';
 import type { Codex } from '@openai/codex-sdk';
 import type { InternalSession } from './types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-rollback');
 
 export interface CreateSessionRollbackDeps {
   /** codex 实例 Map (createSession 内 ensureCodex set 进 Map → 失败时 delete 释放 SDK 子进程引用) */
@@ -62,7 +65,7 @@ export function runCreateSessionRollback(args: RunCreateSessionRollbackArgs): vo
   try {
     deps.codexBySession.delete(sessionId);
   } catch (cleanupErr) {
-    console.warn(
+    logger.warn(
       `[codex-bridge] codexBySession.delete failed during createSession early-err cleanup for ${sessionId}:`,
       cleanupErr,
     );
@@ -70,7 +73,7 @@ export function runCreateSessionRollback(args: RunCreateSessionRollbackArgs): vo
   try {
     mcpSessionTokenMap.release(sessionId);
   } catch (cleanupErr) {
-    console.warn(
+    logger.warn(
       `[codex-bridge] mcpSessionTokenMap.release failed during createSession early-err cleanup for ${sessionId}:`,
       cleanupErr,
     );
@@ -78,7 +81,7 @@ export function runCreateSessionRollback(args: RunCreateSessionRollbackArgs): vo
   try {
     deps.sessions.delete(sessionId);
   } catch (cleanupErr) {
-    console.warn(
+    logger.warn(
       `[codex-bridge] sessions.delete failed during createSession early-err cleanup for ${sessionId}:`,
       cleanupErr,
     );
@@ -87,7 +90,7 @@ export function runCreateSessionRollback(args: RunCreateSessionRollbackArgs): vo
     try {
       sessionManager.releaseSdkClaim(resumeSessionId);
     } catch (cleanupErr) {
-      console.warn(
+      logger.warn(
         `[codex-bridge] releaseSdkClaim failed during createSession early-err cleanup for ${resumeSessionId}:`,
         cleanupErr,
       );

@@ -2,6 +2,9 @@ import type { AgentAdapter, AdapterContext } from './types';
 import type { ClaudeCodeAdapter } from './claude-code';
 import type { CodexCliAdapter } from './codex-cli';
 import type { CreateSessionOptionsByAdapter } from './options-builder';
+import log from '@main/utils/logger';
+
+const logger = log.scope('adapter-registry');
 
 /**
  * D2 typed adapter id 映射：agentId → 具体 adapter class type。
@@ -76,9 +79,9 @@ class AdapterRegistryClass {
     for (const adapter of this.map.values()) {
       try {
         await adapter.init(ctx);
-        console.log(`[adapter] ${adapter.id} initialized`);
+        logger.info(`[adapter] ${adapter.id} initialized`);
       } catch (err) {
-        console.error(`[adapter] ${adapter.id} init failed:`, err);
+        logger.error(`[adapter] ${adapter.id} init failed:`, err);
       }
     }
   }
@@ -88,7 +91,7 @@ class AdapterRegistryClass {
       try {
         await adapter.shutdown();
       } catch (err) {
-        console.error(`[adapter] ${adapter.id} shutdown failed:`, err);
+        logger.error(`[adapter] ${adapter.id} shutdown failed:`, err);
       }
     }
   }

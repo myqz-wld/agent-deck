@@ -69,6 +69,9 @@ import {
   shutdownTeammatesOnBaton,
   type ShutdownTeammatesResult,
 } from './shutdown-teammates-on-baton';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-baton-cleanup');
 
 export interface RunBatonCleanupInput {
   /** caller session id(从 ctx.caller.callerSessionId 透传)。external sentinel 时 helper 走防御短路。 */
@@ -247,7 +250,7 @@ export async function runBatonCleanup(
     } catch (e) {
       // helper 自身抛错(罕见: 反查 DB 异常 / mock 失败)→ 兜底 + warn,phase 2 仍正常走
       // (不让 helper 故障阻塞 plan 收口 / baton 收口)。
-      console.warn(
+      logger.warn(
         `[mcp ${input.toolName}] shutdownTeammatesOnBaton helper failed for caller ${input.callerSessionId}:`,
         e,
       );
@@ -294,7 +297,7 @@ export async function runBatonCleanup(
     probeError = { reason: `probe getSession threw for ${input.callerSessionId}: ${errStr}` };
   }
   if (probeError) {
-    console.warn(`[mcp ${input.toolName}] ${probeError.reason}`);
+    logger.warn(`[mcp ${input.toolName}] ${probeError.reason}`);
     emitFn({
       sessionId: input.callerSessionId,
       toolName: input.toolName,
@@ -305,7 +308,7 @@ export async function runBatonCleanup(
   }
   if (!callerRow) {
     const reason = `cannot archive caller ${input.callerSessionId}: not in sessions table (异常被清理 / 边界状态 / 长 async 期间 row 被删)`;
-    console.warn(`[mcp ${input.toolName}] ${reason}`);
+    logger.warn(`[mcp ${input.toolName}] ${reason}`);
     // 上抛 row-missing: row 不存在 → 重试归档无效, UI 仅告知。
     emitFn({
       sessionId: input.callerSessionId,
@@ -330,7 +333,7 @@ export async function runBatonCleanup(
     const reason = isRowMissing
       ? `cannot archive caller ${input.callerSessionId}: ${errStr} (race window: probe OK 后 setArchived no-op)`
       : `archive caller ${input.callerSessionId} failed: ${errStr}`;
-    console.warn(
+    logger.warn(
       `[mcp ${input.toolName}] ${
         isRowMissing
           ? `archive caller ${input.callerSessionId} setArchived no-op (race window)`
