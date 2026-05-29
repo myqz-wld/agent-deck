@@ -233,11 +233,10 @@ function mergeLogsRef(
   const unioned: string[] = [];
   for (const s of incomingScopes) if (!seen.has(s)) { seen.add(s); unioned.push(s); }
   for (const s of existingScopes) if (!seen.has(s)) { seen.add(s); unioned.push(s); }
+  // unioned 已去重且 incoming 优先 + existing 补足；>32 直接截断（incoming 优先保留，
+  // existing 从尾丢）。不要回退用 raw incomingScopes —— 那会把 incoming 内的重复项写回主表
   if (unioned.length > 0) {
-    merged.scopes = unioned.length > SCOPES_MAX
-      // caller args 优先 + existing 从尾截到总数 = SCOPES_MAX
-      ? [...incomingScopes, ...existingScopes.filter((s) => !incomingScopes.includes(s))].slice(0, SCOPES_MAX)
-      : unioned;
+    merged.scopes = unioned.slice(0, SCOPES_MAX);
   }
   // note: append (appended <iso>) <new>
   if (incoming.note != null) {

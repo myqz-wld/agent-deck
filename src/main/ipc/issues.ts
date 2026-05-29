@@ -182,6 +182,9 @@ export function issuesUpdateHandler(id: unknown, patch: unknown): IssueRecord {
   }
   const updated = issueRepo.update(validId, parseRes.data);
   if (!updated) throw new IpcInputError('id', `issue ${validId} not found`);
+  // detail 视图带 appendices；update 返回/emit 必须补齐（与 get/softDelete/undelete/resolve
+  // handler 对称），否则 save 后 store/detail 的现场补充记录被裸记录覆盖消失直到重新 fetch
+  updated.appendices = issueRepo.listAppendices(validId);
   eventBus.emit('issue-changed', {
     kind: 'updated',
     issueId: updated.id,
@@ -249,6 +252,14 @@ export async function issuesResolveInNewSessionHandler(
     if (!issue) {
       throw new IpcInputError('issueId', `issue ${args.issueId} not found`);
     }
+    // 入口守门: resolved / 已软删的 issue 不允许再起解决会话（UI 已隐藏按钮，但直接 IPC
+    // 调用绕不过；同时是 spawn race 的第一道防线）
+    if (issue.status === 'resolved') {
+      throw new IpcInputError('issueId', `issue ${args.issueId} 已是 resolved，无需再起会话`);
+    }
+    if (issue.deletedAt !== null) {
+      throw new IpcInputError('issueId', `issue ${args.issueId} 已删除，无法起会话`);
+    }
     // §4 cwd fallback: non-empty args.cwd > non-empty issue.cwd > homedir
     const cwd =
       (args.cwd && args.cwd.trim().length > 0 && args.cwd.trim())
@@ -267,15 +278,26 @@ export async function issuesResolveInNewSessionHandler(
       codexSandbox,
       claudeCodeSandbox,
     });
-    // §11 写回 resolutionSessionId + status='in-progress'（不是 resolved — 让 user 后续手工 resolve）
-    const updated = issueRepo.update(args.issueId, {
-      resolutionSessionId: sid,
-      status: 'in-progress',
-    });
-    if (!updated) {
+    // §11 写回 resolutionSessionId + status='in-progress'（不是 resolved — 让 user 后续手工 resolve）。
+    // spawn 是异步窗口：用户可能在此期间 resolve / soft-delete 该 issue。re-read 后只在 issue
+    // 仍 actionable（未 resolved + 未删）时才覆盖 status，否则只回写 resolutionSessionId 保住
+    // 已起 session 的 link，不踩用户并发操作。
+    const fresh = issueRepo.get(args.issueId);
+    if (!fresh) {
       // 罕见 race: spawn 完成期间 issue 被另一处 hardDelete — sid 已起,记日志
       console.warn(
         `[ipc issues] IssuesResolveInNewSession: spawn 完成但 issue ${args.issueId} disappeared (race with GC?). sid=${sid} 已起,UI 端可手工 link`,
+      );
+      throw new IpcInputError('issueId', `issue ${args.issueId} disappeared during spawn`);
+    }
+    const stillActionable = fresh.status !== 'resolved' && fresh.deletedAt === null;
+    const updated = issueRepo.update(args.issueId, {
+      resolutionSessionId: sid,
+      ...(stillActionable ? { status: 'in-progress' as const } : {}),
+    });
+    if (!updated) {
+      console.warn(
+        `[ipc issues] IssuesResolveInNewSession: issue ${args.issueId} disappeared between re-read and update. sid=${sid} 已起`,
       );
       throw new IpcInputError('issueId', `issue ${args.issueId} disappeared during spawn`);
     }
