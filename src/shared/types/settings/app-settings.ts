@@ -412,6 +412,20 @@ export interface AppSettings {
    * 设计动机：避免 burst 投递把 codex MAX_PENDING_MESSAGES=20 队列灌爆。
    */
   mcpMessageMaxTargetInflight: number;
+
+  // ─────────────────────────────────────── runtime logging (Plan runtime-logging-electron-log-20260529)
+
+  /**
+   * 日志文件级别（file transport only — console transport 永远 'silly' 不变 / 详 plan §D4 §D14）。
+   *
+   * electron-log v5 LogLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
+   * （**无 'fatal'**, 与 plan §D14 typo 修订对齐 — Step 3.0.2 实证 electron-log type defs）。
+   *
+   * 默认 'info': 生产场景 .app 落盘体积 / 调试 noise 平衡; user 在 Settings UI LogsSection 改成
+   * 'debug' / 'silly' 排查具体 bug, 改后调 logger.setFileLevel(level) 即改即生效（详
+   * src/main/ipc/settings.ts applyLogLevel + src/main/utils/logger.ts setFileLevel）。
+   */
+  logLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly';
 }
 
 // ───────────────────────────────────────────────────────── Hook Status

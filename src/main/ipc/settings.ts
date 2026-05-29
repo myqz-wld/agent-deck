@@ -37,6 +37,7 @@ import {
   resetUserCodexAgentsMd,
 } from '@main/codex-config/agents-md-installer';
 import { syncSkills } from '@main/codex-config/skills-installer';
+import { setFileLevel } from '@main/utils/logger';
 import type { AppSettings } from '@shared/types';
 import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode } from './_helpers';
 
@@ -173,6 +174,14 @@ function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void 
   }
 }
 
+function applyLogLevel(p: Partial<AppSettings>, next: AppSettings): void {
+  // Plan runtime-logging-electron-log-20260529 §D4 §D14 §Step 3.1.3:
+  // 只更新 file transport, console transport 永远 'silly' 不变 (dev terminal 看全部输出)。
+  if ('logLevel' in p) {
+    setFileLevel(next.logLevel);
+  }
+}
+
 function warnHookServerPort(p: Partial<AppSettings>): void {
   // 监听端口在 server 已 listen 后无法热切换；hook curl 命令端口也会与新值不一致。
   // 两个问题都需要重启应用 + 重新点 install hook 才能完整生效。UI 已标「（重启生效）」。
@@ -243,6 +252,7 @@ export function registerSettingsIpc(): void {
       applyCodexAgentsMd,
       applyCodexSkills,
       applySummaryInterval,
+      applyLogLevel,
       invalidateClaudeMdCache,
     ] as const;
     try {
