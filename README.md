@@ -210,6 +210,7 @@ agent-deck new \
 - **会话**
   - **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny + interrupt 处理避免会话死等）/ 历史会话保留天数
   - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时
+  - **日志级别**：file transport 级别下拉（`error` / `warn` / `info` / `verbose` / `debug` / `silly`，默认 `info`）。**只控落盘文件级别**，console transport 永远 `silly`（dev terminal 看全部输出不变）。改后即改即生效（详 plan §D4 §D14）。日志文件位置 `~/Library/Logs/Agent Deck/main-YYYY-MM-DD.log`（macOS），按天拆 + 保留 14 天
 - **提醒与外观**
   - **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3 / wav / aiff / m4a / ogg / flac，带试听 + 重置）
   - **窗口**：置顶时透明（看到下层桌面，默认开；关掉则置顶时仍是 macOS under-window 实玻璃，Windows 等其他平台无 vibrancy 效果）/ 开机自启
@@ -272,6 +273,8 @@ src/
 │   ├── permissions/       会话详情「权限」tab 的扫描器（user / user-local / project / local 四层）
 │   ├── bundled-assets.ts  agent-deck plugin 内置 agents/skills frontmatter 启动缓存
 │   ├── user-assets.ts     用户自定义 ~/.claude/{agents,skills}/ 管理（list/save 原子写/delete/reveal）
+│   ├── utils/
+│   │   └── logger.ts      electron-log v5 main 端封装（按天拆 + 14 天 cleanup + setName + errorHandler.startCatching + 接管 console；NODE_ENV='test' 跳过接管保 vi.spyOn 兼容；业务模块用 `log.scope('<kebab-name>')` 拿 scoped logger）
 │   └── store/             better-sqlite3 + 迁移（user_version v1–v11，v10 加 Universal Team Backend 三表 + v11 加 tasks.team_id）+ repos + electron-store settings
 ├── preload/index.ts       contextBridge 暴露 window.api / window.electronIpc（含 process.platform 静态字段）
 ├── renderer/              React 19
@@ -284,6 +287,8 @@ src/
 │   │                      TeamHub · TeamDetail (Universal Team Backend 视图，走 agent-deck-team:* IPC + universal-message-watcher 投递)
 │   ├── stores/            Zustand session store
 │   ├── hooks/             事件桥接
+│   ├── utils/
+│   │   └── logger.ts      electron-log v5 renderer 端封装（IPC bridge 转发到 main → 同一份 main-YYYY-MM-DD.log；shouldCaptureRendererConsole 守门 vite MODE='test' 跳过接管保 vi.spyOn 兼容）
 │   └── lib/               IPC 兜底 + selectors（selectLiveSessions / selectPendingBuckets）+ platform.ts (IS_DARWIN/IS_WIN/IS_LINUX renderer util)
 └── shared/                types（不允许 import Electron / Node API）+ mcp-tools
 
@@ -299,7 +304,8 @@ resources/
 
 scripts/
 ├── gen-icon-ico.mjs       从 icon.png 生成 icon.ico（pnpm icon:gen）
-└── verify-fts5.sh         sqlite3 CLI 真 SQL 集成校验
+├── verify-fts5.sh         sqlite3 CLI 真 SQL 集成校验（FTS5 schema + 触发器 + MATCH 谓词）
+└── logger-check.sh        grep CI 守门：src/main + src/renderer 0 console.X 残留 + logger.ts 模块独立性自检（pnpm logger:check；依赖 ripgrep）
 ```
 
 ---
@@ -310,9 +316,26 @@ scripts/
 pnpm typecheck       # 必跑
 pnpm test            # vitest（纯函数单测）
 pnpm test:fts5       # sqlite3 CLI 真 SQL 集成校验（FTS5 schema + 触发器 + MATCH 谓词，不依赖 better-sqlite3）
+pnpm logger:check    # grep CI 守门：src/main + src/renderer 0 console.X 残留 + logger.ts 模块独立性（依赖 ripgrep：brew install ripgrep）
 pnpm build           # 大改动跑
 pnpm dist            # 出 dmg + .app
 ```
+
+### 日志（runtime logging）
+
+应用走 [electron-log v5](https://github.com/megahertz/electron-log) 双进程落盘 + console 接管 + fatal hook：
+
+- **位置**（按平台）：
+  - macOS：`~/Library/Logs/Agent Deck/main-YYYY-MM-DD.log`（按天拆 + 保留 14 天）
+  - Windows：`%USERPROFILE%\AppData\Roaming\Agent Deck\logs\`
+  - Linux：`~/.config/Agent Deck/logs/`
+- **设置面板「会话 → 日志级别」** 调 file transport 级别（`error` / `warn` / `info` / `verbose` / `debug` / `silly`，默认 `info`），即改即生效；console transport 永远 `silly` 不变（dev terminal 看全部输出）
+- **业务模块用法**：
+  - main：`import log from '@main/utils/logger'; const logger = log.scope('<kebab-name>'); logger.info(...);`
+  - renderer：`import log from '@renderer/utils/logger'; const logger = log.scope('<kebab-name>'); logger.info(...);`（自动经 IPC bridge 转发到 main 落同一文件）
+- **NODE_ENV='test' 跳过 console 接管**（vitest `vi.spyOn(console)` 零改动通过；vitest-setup.ts 全局 mock electron-log/main + electron-log/renderer + electron-store + electron 让 main 单测可 import 业务模块不撞 `Electron failed to install`）
+- **fatal hook**（uncaughtException + unhandledRejection）由 logger init 即跑接管落盘，避免「.app 沉默 crash 丢堆栈」
+- **新增 console.\* 会被 `pnpm logger:check` 拦** — 跑了 grep CI script 验证 0 残留 + logger.ts §不变量 8 独立性
 
 ### 数据存储
 
