@@ -49,6 +49,26 @@ export function isPureSpawnChain(
  * 避免 archive_caller:false adopt 后 caller 已 left_at 但 child spawnedBy 仍指向 stale caller,
  * Phase 1 把 child 错锁在 stale caller 下)。
  *
+ * **HIGH-A 严格化的 lead-only regression + mixed-child escape 修法 (REVIEW_65)**:
+ * HIGH-A 严格化的本意 = teammate child 没人接(stale lead)时让 Phase 2 走 universal team SSOT
+ * 重新接(Phase 2 仅收 teammate role)。原版 `ownerLeadsSomeTeamOfS` 对 child 任意 team 匹配
+ * 有两个 regression:
+ * (a) **lead-only mid-tier 飘 root**(REVIEW_65 codex+claude 同款 LOW / HIGH-via-bug):lead spawn
+ *     一个 mid-tier "plan session" 自己开新 team 当 lead 起 reviewer pair,mid-tier 与 owner
+ *     lead 没有任何 team 重合 → Phase 1 continue → Phase 2 只收 teammate 不收 lead-only →
+ *     mid-tier 飘成 root → 3 层 spawn 链断裂。
+ * (b) **mixed-child HIGH-A escape**(REVIEW_65 codex HIGH):child 同时是 stale owner 某 team 的
+ *     lead + 别 team 的 teammate(典型:adopt 后 stale caller A 仍 leads T2,D leads T1,B 自己
+ *     spawn(team=T2) 升 T2 第 2 个 lead,B.teams=[T1 teammate, T2 lead], B.spawnedBy=A)。原版
+ *     ownerLeadsSomeTeamOfS=true(T2 重合)→ B 锁回 stale A,Phase 2 不再 reparent T1 teammate
+ *     侧到 D。
+ * 修法:严格化只在 `sHasTeammateRole=true` 时触发(child lead-only 走 Phase 1 直接锁,治 a);
+ * 且 ownerLeads 匹配只看 child 的 **teammate teams**(`ownerLeadsSomeTeammateTeamOfS`),让 stale
+ * lead 在 child teammate 那一面没匹配时仍能被 Phase 2 reparent(治 b)。corner 4 mixed nested
+ * spawn (A leads T1, B teammate T1 + lead T2, C2 teammate T2) 仍正确:B 的 strict 看 B teammate
+ * teams=[T1],owner A T1 lead 命中 → 锁;C2 的 strict 看 C2 teammate teams=[T2],owner B T2 lead
+ * 命中 → 锁。
+ *
  * **Phase 2: universal team 收编 fallback** — 仅 Phase 1 未收编的 teammate 走此分支, teammate
  * 找同 team 的 visible lead 缩进进去 (first-match-wins 单 parent — plan §不变量 5)。让 hand_off
  * adopt_teammates=true 后 newSid + 原 teammate 视觉缩进层级回归 (D4 反转)。
@@ -77,11 +97,21 @@ export function computeChildrenByOwner(sessions: SessionRecord[]): {
     const sTeams = s.teams ?? [];
     if (sTeams.length > 0) {
       const owner = sessions.find((o) => o.id === s.spawnedBy);
-      const ownerLeadsSomeTeamOfS =
+      // REVIEW_65 修法 (b):严格化匹配只看 child 的 **teammate teams** — child 自己是 lead 的
+      // team 与 owner 重合不能让 owner 成为「合法 spawn-link 父」(那是 child 自己当 lead 的别
+      // team,与 spawn-link 关系无关)。修前 ownerLeadsSomeTeamOfS 任意 team 匹配会让 mixed-child
+      // 反例(stale A leads T2,D leads T1,B teammate T1 + lead T2,B.spawnedBy=A)误锁回 A,
+      // Phase 2 不再 reparent T1 teammate 侧到 D(详 jsdoc §HIGH-A 严格化 (b))。
+      const ownerLeadsSomeTeammateTeamOfS =
         owner?.teams?.some(
-          (ot) => ot.role === 'lead' && sTeams.some((st) => st.teamId === ot.teamId),
+          (ot) =>
+            ot.role === 'lead' &&
+            sTeams.some((st) => st.role === 'teammate' && st.teamId === ot.teamId),
         ) ?? false;
-      if (!ownerLeadsSomeTeamOfS) continue;
+      // 严格化仅在 child 含 teammate role 时触发(Phase 2 能接住);child lead-only 时仍按
+      // spawn-link 锁维持视觉父子关系(详 jsdoc §HIGH-A 严格化 (a))。
+      const sHasTeammateRole = sTeams.some((st) => st.role === 'teammate');
+      if (sHasTeammateRole && !ownerLeadsSomeTeammateTeamOfS) continue;
     }
 
     const arr = childrenByOwner.get(s.spawnedBy) ?? [];
