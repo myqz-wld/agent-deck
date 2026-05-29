@@ -18,6 +18,9 @@
  */
 import type { Database } from 'better-sqlite3';
 import type { TaskRecord, TaskStatus } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('task-repo-deps');
 
 /** SQLite row 内部 schema（snake_case 列名）。仅子模块内部使用,不对外 export。 */
 export interface Row {
@@ -47,10 +50,10 @@ export function safeJsonArray(raw: string, field: string, taskId: string): strin
     if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
       return parsed;
     }
-    console.warn(`[task-repo] task ${taskId} 字段 ${field} 不是 string[]，退化空数组：${raw}`);
+    logger.warn(`[task-repo] task ${taskId} 字段 ${field} 不是 string[]，退化空数组：${raw}`);
     return [];
   } catch (e) {
-    console.warn(`[task-repo] task ${taskId} 字段 ${field} JSON 解析失败，退化空数组：${e}`);
+    logger.warn(`[task-repo] task ${taskId} 字段 ${field} JSON 解析失败，退化空数组：${e}`);
     return [];
   }
 }

@@ -13,6 +13,9 @@ import type {
   AgentDeckTeamMember,
   AgentDeckTeamMemberRole,
 } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('agent-deck-team-repo-types');
 
 // ────────────────────────────────────────────────────────────────────────────
 // Errors
@@ -68,13 +71,13 @@ export function teamRowToRecord(r: TeamRow): AgentDeckTeam {
   try {
     metadata = JSON.parse(r.metadata) as Record<string, unknown>;
     if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
-      console.warn(
+      logger.warn(
         `[agent-deck-team-repo] team ${r.id} metadata 不是 object，退化空对象：${r.metadata}`,
       );
       metadata = {};
     }
   } catch (e) {
-    console.warn(`[agent-deck-team-repo] team ${r.id} metadata JSON 解析失败：${e}`);
+    logger.warn(`[agent-deck-team-repo] team ${r.id} metadata JSON 解析失败：${e}`);
     metadata = {};
   }
   return {
@@ -91,7 +94,7 @@ export function teamRowToRecord(r: TeamRow): AgentDeckTeam {
 export function memberRowToRecord(r: MemberRow): AgentDeckTeamMember {
   if (r.role !== 'lead' && r.role !== 'teammate') {
     // SQL CHECK 已挡，理论上不应到这里；防御性 fallback
-    console.warn(
+    logger.warn(
       `[agent-deck-team-repo] member ${r.team_id}/${r.session_id} role ${r.role} 不合法，退化 teammate`,
     );
   }

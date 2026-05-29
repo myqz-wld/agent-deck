@@ -1,6 +1,9 @@
 import Store from 'electron-store';
 import { randomBytes } from 'node:crypto';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('settings-store');
 
 // electron-store v10 继承自 conf v14 的 ESM 类（含 `#private`），
 // TS 推断子类时丢失了 store/get/set 等成员。这里用接口断言显式补回。
@@ -96,7 +99,7 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       const legacy = persistedRaw['transparentWhenPinned'];
       if (typeof legacy === 'boolean') {
         store.set('windowTransparent', legacy);
-        console.log(`[settings] migrated transparentWhenPinned=${legacy} → windowTransparent`);
+        logger.info(`[settings] migrated transparentWhenPinned=${legacy} → windowTransparent`);
       }
     }
     // plan remove-aider-generic-pty-adapters-20260520 Follow-up F2 一次性 migration：
@@ -109,11 +112,11 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
     // 实际是 friendly action（与 README 描述对齐 + 设置面板 jsdoc "默认 10/20" 一致）。
     if (persistedRaw['mcpMaxFanOutPerParent'] === 5) {
       store.set('mcpMaxFanOutPerParent', 10);
-      console.log('[settings] migrated mcpMaxFanOutPerParent 5 → 10 (default uplift, plan F2)');
+      logger.info('[settings] migrated mcpMaxFanOutPerParent 5 → 10 (default uplift, plan F2)');
     }
     if (persistedRaw['mcpSpawnRatePerMinute'] === 10) {
       store.set('mcpSpawnRatePerMinute', 20);
-      console.log('[settings] migrated mcpSpawnRatePerMinute 10 → 20 (default uplift, plan F2)');
+      logger.info('[settings] migrated mcpSpawnRatePerMinute 10 → 20 (default uplift, plan F2)');
     }
     // plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 + R3-claude-MED-1:
     // smart migration 守护老用户 enableTaskManager:true 不丢失能力。在 REMOVED_KEYS
@@ -132,14 +135,14 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       !('enableAgentDeckMcp' in persistedRaw)
     ) {
       store.set('enableAgentDeckMcp', true);
-      console.log(
+      logger.info(
         '[settings] migrated enableTaskManager=true → enableAgentDeckMcp=true (plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 — task tools 合并入 agent-deck namespace，保留老用户 ON 值不丢失能力)',
       );
     }
     for (const key of REMOVED_KEYS) {
       if (key in persistedRaw) {
         looseDelete.delete(key);
-        console.log(`[settings] removed legacy field "${key}"`);
+        logger.info(`[settings] removed legacy field "${key}"`);
       }
     }
 
@@ -152,7 +155,7 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
     if (!token || token.length < 64) {
       const fresh = randomBytes(32).toString('hex');
       store.set('hookServerToken', fresh);
-      console.log('[settings] generated new hookServerToken (random 32-byte hex = 64 chars)');
+      logger.info('[settings] generated new hookServerToken (random 32-byte hex = 64 chars)');
     }
     // R2 / B'0 ADR §5.2：MCP HTTP / stdio transport Bearer token 同模式生成。
     // 与 hookServerToken 独立 —— hook token 嵌进每个 CLI 子进程 spawn 命令泄漏面广，
@@ -163,7 +166,7 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
     if (!mcpToken || mcpToken.length < 64) {
       const fresh = randomBytes(32).toString('hex');
       store.set('mcpServerToken', fresh);
-      console.log('[settings] generated new mcpServerToken (random 32-byte hex = 64 chars)');
+      logger.info('[settings] generated new mcpServerToken (random 32-byte hex = 64 chars)');
     }
   }
   return store;

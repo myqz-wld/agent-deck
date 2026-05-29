@@ -31,6 +31,9 @@ import {
   PREFERRED_EXT_BY_MIME,
   MAX_IMAGE_BYTES,
 } from '@main/ipc/_image-constants';
+import log from '@main/utils/logger';
+
+const logger = log.scope('store-image-uploads');
 
 const REAPER_MAX_AGE_MS_DEFAULT = 14 * 24 * 60 * 60 * 1000;
 
@@ -209,7 +212,7 @@ export async function reapStaleUploads(
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return; // 目录还没建，无活儿
-    console.warn('[image-uploads] reaper readdir failed', err);
+    logger.warn('[image-uploads] reaper readdir failed', err);
     return;
   }
   const cutoff = Date.now() - maxAgeMs;
@@ -228,6 +231,6 @@ export async function reapStaleUploads(
     }
   }
   if (reaped > 0) {
-    console.log(`[image-uploads] reaped ${reaped} stale attachment(s)`);
+    logger.info(`[image-uploads] reaped ${reaped} stale attachment(s)`);
   }
 }
