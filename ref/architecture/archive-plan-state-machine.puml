@@ -75,7 +75,9 @@ note as N1
 
   失败兜底:
   - Step 1-6 任一失败 → 4 entity 全停未变 + sessions 不动
-  - Step 7a 失败 → 仅 archive 错 (marker stale 不污染后续 plan)
+  - Step 7a clear marker 失败 → archive 已成功但 marker 可能残留;
+    warnings 提示 caller 用 exit_worktree / session close 手工清理
+    (stale marker 指向已不存在 worktree → 后续 archive_plan 4 态预检会 reject)
   - Step 7b/c 失败 → marker 已清 + worktree/branch 由 caller 手工 cleanup
   - phase 1 单 teammate close 失败 → 仅该 teammate warn,其他继续
   - phase 2 archive caller 失败 → archived='failed' warn-only,caller 仍 active

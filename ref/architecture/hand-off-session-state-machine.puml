@@ -35,6 +35,7 @@ state "Teammate sessions\n(caller 同 team)" as TeammateState {
 
   [*] --> TeammateAlive
   TeammateAlive --> TeammateAdopted : adopt_teammates=true\n(转交 lead 给 newSid)
+  TeammateAlive --> TeammateAlive : archive_caller=false\n(skip phase 1,\nskipped='archive-caller-false-keep')
   TeammateAlive --> TeammateClosed : 默认路径\n(baton phase 1 关 teammate)
   TeammateAdopted --> [*]
   TeammateClosed --> [*]
@@ -85,7 +86,7 @@ note as N1
   hand_off **6 entity 联动时序**:
   ① caller → archived (default) | active (opt-out)
   ② new session [*] → spawned → active (task 过继后)
-  ③ teammate → adopted (adopt=true) | closed (default)
+  ③ teammate → adopted (adopt=true) | kept (archive_caller=false) | closed (default)
   ④ role → swapped (adopt) | team 30min 自动归档
   ⑤ task → clear-team | preserve-team | skip 三态
   ⑥ spawn-link → 永不写 (hand-off 是平级接力非派遣)
