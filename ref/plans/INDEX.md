@@ -69,3 +69,4 @@
 | [sdk-spawn-shell-path-20260529.md](sdk-spawn-shell-path-20260529.md) | completed | [176](../changelogs/CHANGELOG_176.md) | sdk-spawn-shell-path-20260529 |
 | [mcp-tool-camelcase-migration-20260529.md](mcp-tool-camelcase-migration-20260529.md) | completed | [177](../changelogs/CHANGELOG_177.md) | mcp-tool-camelcase-migration-20260529 |
 | [runtime-logging-electron-log-20260529.md](runtime-logging-electron-log-20260529.md) | completed | [178](../changelogs/CHANGELOG_178.md) | runtime-logging-electron-log-20260529 |
+| [issue-tracker-mcp-20260529.md](issue-tracker-mcp-20260529.md) | completed | [180](../changelogs/CHANGELOG_180.md) | issue-tracker-mcp-20260529 |
