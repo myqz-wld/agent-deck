@@ -59,6 +59,12 @@ export function initWiring(): void {
   // Task Manager (CHANGELOG_43):tasks 表写操作 → renderer
   eventBus.on('task-changed', (p) => safeSend(IpcEvent.TaskChanged, p));
 
+  // Issue Tracker (plan issue-tracker-mcp-20260529 §Step 3.4.4):issues 表写操作 → renderer。
+  // 触发源：mcp report_issue / append_issue_context handler + IPC IssuesUpdate / IssuesSoftDelete /
+  // IssuesUndelete / IssuesResolveInNewSession handler + IssueLifecycleScheduler tick (kind='hardDeleted')。
+  // 桥接到 IpcEvent.IssueChanged 让 renderer issues-store 实时更新（与 task-changed 同款 1 行桥）。
+  eventBus.on('issue-changed', (p) => safeSend(IpcEvent.IssueChanged, p));
+
   // ─── archive-failure-ux-upthrow-20260515 plan: caller archive 失败 UX 上抛 ───
   // 触发源 3 处:
   // 1. mcp baton-cleanup row-missing 短路 (toolName='archive_plan' / 'hand_off_session', reasonKind='row-missing')

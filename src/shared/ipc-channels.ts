@@ -145,6 +145,21 @@ export const IpcEvent = {
   /** Task Manager (CHANGELOG_43)：tasks 表写操作 after-commit 推送。 */
   TaskChanged: 'event:task-changed',
   /**
+   * Issue Tracker (plan issue-tracker-mcp-20260529 §Step 3.4.3)：issues 表写操作 after-commit 推送。
+   *
+   * payload schema = IssueChangedEvent (src/shared/types/issue.ts):
+   *   { kind: 'created'|'updated'|'appended'|'softDeleted'|'undeleted'|'hardDeleted',
+   *     issueId: string, issue: IssueRecord | null, sourceSessionId: string | null, ts: number }
+   *
+   * 触发：mcp report_issue / append_issue_context handler + IPC IssuesUpdate / IssuesSoftDelete /
+   * IssuesUndelete / IssuesResolveInNewSession handler + IssueLifecycleScheduler tick；
+   * main bootstrap listener 桥接 eventBus.on('issue-changed') → safeSend(IpcEvent.IssueChanged)。
+   *
+   * **hardDeleted issue:null + 删前 snapshot sourceSessionId**：record 已不存在,但事件载体让
+   * renderer 仍能精细 invalidate（与 TaskChanged.ownerSessionId 顶级字段对称 — §D7 R3 LOW F7）。
+   */
+  IssueChanged: 'event:issue-changed',
+  /**
    * archive-failure-ux-upthrow-20260515 plan：caller archive 失败 UX 上抛通道。
    *
    * payload schema 与 event-bus.ts EventMap['caller-archive-failed'] 同(archive-toctou-fix-20260515
