@@ -62,6 +62,9 @@ import {
 } from './archive-plan-impl';
 import { runBatonCleanup } from './baton-cleanup';
 import type { ShutdownTeammatesResult } from './shutdown-teammates-on-baton';
+import log from '@main/utils/logger';
+
+const logger = log.scope('mcp-archive-plan');
 
 /**
  * 测试 inject seam：test 通过 depsOverride.implDeps 注入 mock fs/git 走纯 in-memory。
@@ -116,7 +119,7 @@ function resolveCallerCwdDeps(callerSessionId: string): {
     row = sessionRepo.get(callerSessionId);
   } catch (err) {
     const msg = `[archive-plan] sessionRepo.get(${callerSessionId}) threw — falling back to DEFAULT_DEPS (cwd=process.cwd, marker=null). Archive proceeds via mainRepo git ops; cwd precheck degrades to "no marker" branch. err=${err instanceof Error ? err.message : String(err)}`;
-    console.warn(msg);
+    logger.warn(msg);
     warnings.push(msg);
     return { deps: {}, warnings };
   }

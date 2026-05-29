@@ -18,9 +18,15 @@
  * 6. caller 是 lead 但 team 内只有 caller 自己 → closed=[] + skipped=null(正常处理无目标)
  */
 import { describe, expect, it, vi } from 'vitest';
+import log from 'electron-log/main';
 import type { AgentDeckTeamMember } from '@shared/types';
 import { shutdownTeammatesOnBaton } from '../tools/handlers/shutdown-teammates-on-baton';
 import { EXTERNAL_CALLER_SENTINEL } from '../types';
+
+// Step 3.3.5 后 shutdown-teammates-on-baton.ts 用 logger=log.scope('mcp-shutdown-teammates').warn
+// 替代 console.warn。单个 close 失败兜底 warn 需 spy 此 scoped logger 而非 console.warn
+// (vitest-setup.ts mock 已让 log.scope 返 vi.fn 化 logger)
+const shutdownTeammatesLogger = log.scope('mcp-shutdown-teammates');
 
 // helper:构造 AgentDeckTeamMember stub(简化默认值,只关心 teamId/sessionId/role)
 function makeMember(opts: {
@@ -122,7 +128,8 @@ describe('shutdownTeammatesOnBaton helper(CHANGELOG_106)', () => {
 
   it('单个 close 失败 → failed[] 收集 reason + 继续后面 teammate(不一刀切)', async () => {
     const closeCalls: string[] = [];
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = shutdownTeammatesLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const result = await shutdownTeammatesOnBaton('caller-sid', {
       findActiveMembershipsBySession: () => [
@@ -150,11 +157,10 @@ describe('shutdownTeammatesOnBaton helper(CHANGELOG_106)', () => {
     // 关键: 失败 teammate 的 close 被尝试过,后面的 teammate close 仍然被调用(不短路)
     expect(closeCalls).toEqual(['teammate-fail', 'teammate-ok']);
     // warn 含 close failed 提示
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('close(teammate-fail) failed'),
       expect.any(Error),
     );
-    warnSpy.mockRestore();
   });
 
   it('external sentinel → 防御性早 return caller-not-lead(handler 拦截不到这里的双保险)', async () => {

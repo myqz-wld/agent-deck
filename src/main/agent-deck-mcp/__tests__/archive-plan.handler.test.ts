@@ -14,8 +14,15 @@
  * 其它范围 → archive-plan.impl-core.test.ts / archive-plan.impl-r33.test.ts
  */
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import log from 'electron-log/main';
 import type { ArchivePlanDeps } from '../tools/handlers/archive-plan-impl';
 import { makeDeps, fixtureHappyPath } from './archive-plan/_setup';
+
+// Step 3.3.5 后 baton-cleanup.ts 用 logger=log.scope('mcp-baton-cleanup').warn 替代 console.warn;
+// archive_plan handler 集成 runBatonCleanup helper,3 处「cannot archive caller」/「archive caller
+// failed」/「shutdownTeammatesOnBaton helper failed」warn 全部源自 baton-cleanup.ts。
+// 测试需 spy 此 scoped logger 而非 console.warn(vitest-setup.ts mock 已让 log.scope 返 vi.fn 化 logger)
+const batonCleanupLogger = log.scope('mcp-baton-cleanup');
 
 describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
   // CHANGELOG_106:noop shutdownTeammates seam,让本 describe 原 4 case 不撞 DB 未 init
@@ -130,7 +137,8 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
     const { implDeps, workArgs } = makeHandlerStub(true);
     const mockArchive = vi.fn(async (_sid: string) => undefined);
     const sessionRepoGetSpy = vi.spyOn(sessionRepo, 'get').mockImplementation(() => null);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const result = await archivePlanHandler(
       workArgs,
@@ -145,12 +153,11 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
     const data = JSON.parse(result.content[0]!.text);
     expect(data.archived).toBe('failed');
     expect(mockArchive).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('cannot archive caller caller-sid: not in sessions table'),
     );
 
     sessionRepoGetSpy.mockRestore();
-    warnSpy.mockRestore();
   });
 
   it('archive 抛错 → archived=failed + console.warn,不阻塞 ok return', async () => {
@@ -181,7 +188,8 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
       }
       return null;
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
 
     const result = await archivePlanHandler(
       workArgs,
@@ -197,13 +205,12 @@ describe('archivePlanHandler — CHANGELOG_99 archive caller', () => {
     const data = JSON.parse(result.content[0]!.text);
     expect(data.archived).toBe('failed');
     expect(mockArchive).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('archive caller caller-sid failed:'),
       expect.any(Error),
     );
 
     sessionRepoGetSpy.mockRestore();
-    warnSpy.mockRestore();
   });
 
   it('impl 失败短路(worktree dirty)→ 不调 archive caller(plan 收口本身没成功,语义上不该归档 caller)', async () => {
@@ -399,7 +406,8 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
     const mockShutdown = vi.fn(async (_sid: string) => {
       throw new Error('simulated helper crash (DB exception / mock failure)');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warnMock = batonCleanupLogger.warn as ReturnType<typeof vi.fn>;
+    warnMock.mockClear();
     const sessionRepoGetSpy = await spyCallerRow();
 
     const result = await archivePlanHandler(
@@ -423,13 +431,12 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
     expect(mockArchive).toHaveBeenCalledTimes(1);
     expect(data.archived).toBe('ok');
     // warn 含 helper failed 提示
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(warnMock).toHaveBeenCalledWith(
       expect.stringContaining('shutdownTeammatesOnBaton helper failed for caller caller-sid'),
       expect.any(Error),
     );
 
     sessionRepoGetSpy.mockRestore();
-    warnSpy.mockRestore();
   });
 
   it('impl 失败短路(worktree dirty)→ 不调 helper(plan 收口没成功 baton 不该牵连 teammate)', async () => {
