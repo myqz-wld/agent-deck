@@ -21,6 +21,7 @@ export * from './types/permission';
 export * from './types/file';
 export * from './types/summary';
 export * from './types/task';
+export * from './types/issue';
 export * from './types/settings';
 export * from './types/assets';
 export * from './types/attachment';
