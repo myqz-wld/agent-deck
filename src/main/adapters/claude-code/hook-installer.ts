@@ -2,6 +2,9 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from '
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { HookInstallStatus } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-hook-installer');
 
 /**
  * 在 ~/.claude/settings.json 或 <cwd>/.claude/settings.json 中
@@ -210,7 +213,7 @@ export class HookInstaller {
     try {
       data = readSettings(path);
     } catch (err) {
-      console.warn('[hook-installer] status readSettings failed:', err);
+      logger.warn('[hook-installer] status readSettings failed:', err);
       return {
         installed: false,
         scope: opts.scope,

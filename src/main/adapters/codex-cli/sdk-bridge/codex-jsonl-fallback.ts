@@ -35,6 +35,9 @@ import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { AGENT_ID } from './constants';
 import { buildCodexJsonlMissingNoSummaryText } from './codex-recoverer-messages';
 import type { CreateSessionThunk, JsonlExistsThunk } from './recoverer';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-jsonl-fallback');
 
 export interface CodexJsonlFallbackCtx {
   jsonlExistsThunk: JsonlExistsThunk;
@@ -98,7 +101,7 @@ export async function maybeCodexJsonlFallback(
     return { fellBack: false, finalSessionId: opts.sessionId };
   }
 
-  console.warn(
+  logger.warn(
     `[codex-bridge] resume jsonl missing for ${opts.sessionId} (startedAt ${new Date(opts.startedAt).toISOString()}), ` +
       `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
   );

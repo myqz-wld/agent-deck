@@ -25,6 +25,9 @@
  * 行为零变化：抽出前后字面 try/catch + console.warn 一致。
  */
 import { sessionRepo } from '@main/store/session-repo';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-finalize');
 
 export interface PersistSessionFieldsArgs {
   /** thread sessionId（resume 路径 = opts.resume；新建路径 = startNewThreadAndAwaitId 拿到的 realId） */
@@ -72,7 +75,7 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
   try {
     sessionRepo.setCodexSandbox(sessionId, sandboxMode);
   } catch (err) {
-    console.warn(`[codex-bridge] setCodexSandbox(${sessionId}, ${sandboxMode}) 失败`, err);
+    logger.warn(`[codex-bridge] setCodexSandbox(${sessionId}, ${sandboxMode}) 失败`, err);
   }
 
   // 2. plan model-wiring-and-handoff-20260514 Step 2.5 + prompt-asset-review-optimize-20260527 修订:
@@ -83,7 +86,7 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
     try {
       sessionRepo.setModel(sessionId, model);
     } catch (err) {
-      console.warn(`[codex-bridge] setModel(${sessionId}, ${model}) 失败`, err);
+      logger.warn(`[codex-bridge] setModel(${sessionId}, ${model}) 失败`, err);
     }
   }
 
@@ -95,12 +98,12 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
       // setExtraAllowWrite 接 string[] | null,readonly string[] 转 mutable copy
       sessionRepo.setExtraAllowWrite(sessionId, [...extraAllowWrite]);
     } catch (err) {
-      console.warn(
+      logger.warn(
         `[codex-bridge] setExtraAllowWrite(${sessionId}, [${extraAllowWrite.join(', ')}]) 失败`,
         err,
       );
     }
-    console.warn(
+    logger.warn(
       `[codex-bridge] extraAllowWrite=[${extraAllowWrite.join(', ')}] 仅持久化未生效:` +
         ` codex SDK 不支持 extra writable roots,sandboxMode 三档(workspace-write / read-only /` +
         ` danger-full-access)只控根 sandbox profile。本字段持久化保跨 adapter parity 对称。`,

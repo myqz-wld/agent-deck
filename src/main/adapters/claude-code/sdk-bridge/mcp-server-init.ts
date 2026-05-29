@@ -19,6 +19,9 @@
 import { settingsStore } from '@main/store/settings-store';
 import { getAgentDeckMcpServerForSession } from '@main/agent-deck-mcp/server';
 import type { InternalSession } from './types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-mcp-init');
 
 type McpServerConfig = Awaited<ReturnType<typeof getAgentDeckMcpServerForSession>>;
 
@@ -49,7 +52,7 @@ export async function buildMcpServersForSession(
     ? await getAgentDeckMcpServerForSession(() => internal.applicationSid)
     : null;
   if (agentDeckMcpServer) {
-    console.log('[agent-deck-mcp] in-process MCP attached for session (15 tool — 10 + 5 task)');
+    logger.info('[agent-deck-mcp] in-process MCP attached for session (15 tool — 10 + 5 task)');
   }
 
   return { agentDeckMcpServer };

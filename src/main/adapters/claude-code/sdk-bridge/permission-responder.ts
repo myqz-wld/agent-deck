@@ -25,6 +25,9 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import type { InternalSession, SdkBridgeOptions } from './types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-permission-responder');
 
 export interface ResponderCtx {
   /** 共享 sessions Map ref（facade 持有，sub-class 仅读写不重新赋值） */
@@ -141,7 +144,7 @@ export class PermissionResponder {
         const updated = sessionRepo.get(sessionId);
         if (updated) eventBus.emit('session-upserted', updated);
       } catch (err) {
-        console.warn(
+        logger.warn(
           `[sdk-bridge] hot-switch permission mode after approve failed: ${sessionId}`,
           err,
         );
@@ -160,7 +163,7 @@ export class PermissionResponder {
         await this.restartThunk(sessionId, 'bypassPermissions', handoffPrompt);
       } catch (err) {
         // restartThunk 内部已 emit error message + 回滚 DB，这里只 log
-        console.error(
+        logger.error(
           `[sdk-bridge] cold-switch to bypass after approve failed: ${sessionId}`,
           err,
         );
