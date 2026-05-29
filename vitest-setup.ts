@@ -339,3 +339,57 @@ vi.mock('electron-store', () => {
     },
   };
 });
+
+// ─── electron-log/renderer mock ──────────────────────────────────────────
+// Plan §D15 §mock 范围 §Step 3.5.1.5 实证扩展: 原 plan §D15 写「不 mock electron-log/renderer」
+// 基于「renderer 入口顶层不 require electron 安全」实证; 但 Step 3.5.1.5 实测发现 vitest 跑
+// `src/renderer/utils/__tests__/logger-guard.test.ts` 时:
+// 1. test file import `'../logger'` → 触发 logger.ts top-level
+// 2. logger.ts `if (shouldCaptureRendererConsole(import.meta.env.MODE)) Object.assign(console, log.functions)`
+// 3. vitest 处理 src/renderer/utils/logger.ts 时 `import.meta.env.MODE` 替换异常 (vitest define
+//    也未拦住, 具体 root cause 不深查 — 可能与 electron-vite 多 config 拆分 + vitest 平铺 config
+//    冲突), 守门返 true 跑接管
+// 4. 接管后 vitest reporter 内部 console.log 经 electron-log/renderer transports/console.js setTimeout
+//    macrotask 排队 → vitest stdout 失控卡死 5+ min
+//
+// 修法: mock 'electron-log/renderer' 整个 module → logger.ts import 时 log.functions 是 mock no-op,
+// `Object.assign(console, log.functions)` 跑但不真接管 console (mock 方法都是 vi.fn() no-op).
+// renderer 端业务模块测试需验真 logger 行为可在 test file local vi.unmock 覆盖.
+vi.mock('electron-log/renderer', () => {
+  const makeLogFns = () => ({
+    log: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    silly: vi.fn(),
+    verbose: vi.fn(),
+  });
+
+  type ScopedLogger = ReturnType<typeof makeLogFns>;
+  const scopedCache = new Map<string, ScopedLogger>();
+
+  const log = {
+    scope: vi.fn((name: string): ScopedLogger => {
+      const existing = scopedCache.get(name);
+      if (existing) return existing;
+      const fns = makeLogFns();
+      scopedCache.set(name, fns);
+      return fns;
+    }),
+    errorHandler: {
+      startCatching: vi.fn(),
+      stopCatching: vi.fn(),
+    },
+    transports: {
+      console: { level: 'silly' as string | false },
+      ipc: { level: false as string | false },
+    },
+    functions: makeLogFns(),
+    ...makeLogFns(),
+    create: vi.fn(),
+    Logger: vi.fn(),
+  };
+
+  return { default: log };
+});
