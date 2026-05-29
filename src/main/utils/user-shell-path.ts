@@ -6,9 +6,13 @@
  * 问题。
  *
  * 详细 design 决策见 plan `sdk-spawn-shell-path-20260529.md`(归档于 `ref/plans/`):
- * - **execFileSync argv API**:用 `execFileSync(shell, ['-ilc', 'printf "%s\\n" "$PATH"'], ...)`
+ * - **execFileSync argv API**:用 `execFileSync(shell, ['-ilc', '<sentinel-printf>'], ...)`
  *   替代 spike1 §X1 helper 的字符串拼 cmd `execSync` 形式,避免 `$SHELL` 含 quote / space
  *   时命令注入面(plan Round 1 reviewer-codex MED-3 hardening)
+ * - **sentinel marker 包围 PATH 输出**:用 `__AGENT_DECK_PATH_BEGIN__<PATH>__AGENT_DECK_PATH_END__`
+ *   sentinel 标记定位 PATH 行,**不依赖 stdout 最后一行** — 防 zsh login shell 在 `-c`
+ *   命令结束后读 `~/.zlogout` 输出文本污染 last-line(Step 3.6 reviewer-codex Round 1
+ *   MED-1 hardening,/tmp HOME + .zlogout 实测铁证)
  * - **sentinel 二分 memo**:用独立 `captured: boolean` + `cached: string | null` 区分
  *   「未初始化」vs「已捕获含 null」,失败路径也命中 memo(避免每次调用都重跑 execFileSync
  *   + 重复 console.warn + 重复 3s timeout 风险;plan Round 1 reviewer-codex MED-2)
@@ -26,18 +30,22 @@
 
 import { execFileSync } from 'node:child_process';
 
+const SENTINEL_BEGIN = '__AGENT_DECK_PATH_BEGIN__';
+const SENTINEL_END = '__AGENT_DECK_PATH_END__';
+
 let captured = false;
 let cached: string | null = null;
 
 /**
  * 主进程启动时调一次,缓存用户真实终端 PATH。
  *
- * 走用户实际 `$SHELL` 执行 `-ilc 'printf "%s\\n" "$PATH"'`,以便复现用户终端 PATH 配置
- * (nvm/brew/cargo 等用户 shell rc 文件 sourced 加载的路径)。
+ * 走用户实际 `$SHELL` 执行 `-ilc 'printf "__AGENT_DECK_PATH_BEGIN__%s__AGENT_DECK_PATH_END__\\n" "$PATH"'`,
+ * 用 sentinel 标记包围 PATH 输出避免 last-line parse 撞 zsh `.zlogout` 等结束 hook 输出。
+ * 解析时 split lines + 找含 SENTINEL_BEGIN 的行 + 提取两 sentinel 之间的内容。
  *
  * 失败兜底:
  * - `$SHELL` 未设 → 走 `/bin/zsh` 兜底(macOS 默认 shell)
- * - shell 跑挂 / `-ilc` 不支持(tcsh/csh/fish 等)/ 输出空 → 返 null + console.warn
+ * - shell 跑挂 / `-ilc` 不支持(tcsh/csh/fish 等)/ 输出无 sentinel → 返 null + console.warn
  *
  * sentinel 二分 memo:用独立 `captured: boolean` + `cached: string | null` 区分
  * 「未初始化」vs「已捕获含 null」— 失败路径也命中 memo(避免每次调用都重跑 execFileSync
@@ -50,16 +58,32 @@ export function captureUserShellPath(): string | null {
   const shell = process.env.SHELL || '/bin/zsh';
 
   try {
-    const out = execFileSync(shell, ['-ilc', 'printf "%s\\n" "$PATH"'], {
-      encoding: 'utf8',
-      timeout: 3000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    const lines = out.split('\n').filter((l) => l.trim());
-    cached = lines.length > 0 ? lines[lines.length - 1] : null;
+    const out = execFileSync(
+      shell,
+      ['-ilc', `printf "${SENTINEL_BEGIN}%s${SENTINEL_END}\\n" "$PATH"`],
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+
+    const lines = out.split('\n');
+    let pathValue: string | null = null;
+    for (const line of lines) {
+      const beginIdx = line.indexOf(SENTINEL_BEGIN);
+      if (beginIdx === -1) continue;
+      const start = beginIdx + SENTINEL_BEGIN.length;
+      const endIdx = line.indexOf(SENTINEL_END, start);
+      if (endIdx === -1) continue;
+      pathValue = line.slice(start, endIdx);
+      break;
+    }
+
+    cached = pathValue;
     if (cached === null) {
       console.warn(
-        `[user-shell-path] empty output from "${shell} -ilc 'printf $PATH'"; falling back to process.env.PATH`,
+        `[user-shell-path] no sentinel-marked PATH line in "${shell} -ilc" output; falling back to process.env.PATH`,
       );
     }
     return cached;
@@ -111,3 +135,4 @@ export function unionUserShellPath(originalPath: string | undefined): string {
   if (!originalPath) return userPath;
   return dedupePath(`${userPath}:${originalPath}`);
 }
+
