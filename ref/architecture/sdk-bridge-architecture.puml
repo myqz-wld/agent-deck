@@ -30,7 +30,7 @@ package "SDK 子进程" as L4 {
 
 package "外部边界 (jsonl)" as L5 {
   folder "~/.claude/projects/<encoded-cwd>/<sid>.jsonl" as ClaudeJsonl
-  folder "~/.codex/projects/<encoded-cwd>/<sid>.jsonl" as CodexJsonl
+  folder "~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<TS>-<thread_id>.jsonl\n(date-based, cwd-independent)" as CodexJsonl
 }
 
 ' ─── 接口实现 ───
@@ -71,6 +71,9 @@ note bottom of CodexFacade
   - per-session token map (允许并发)
   - jsonl 兜底无 LLM 摘要 (精简版)
   - ErrorItem filter (LOADER_WARNING 过滤)
+  - **jsonl 路径与 cwd 无关 (与 Claude `~/.claude/projects/<encoded-cwd>` 分叉)**:
+    `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<TS>-<thread_id>.jsonl`
+    实现 jsonl-discovery.ts:11-13,40-61 (±1 day 扫描 + 递归兜底, REVIEW_56 §F2)
 end note
 
 note bottom of Common

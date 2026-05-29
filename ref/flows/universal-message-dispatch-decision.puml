@@ -1,11 +1,11 @@
-' description: 消息派发轮询器 tick 决策树 — 4 段 (取候选 / 公平兜底 / claim+派发 / 失败处理)
+' description: 消息派发轮询器 tick 决策树 — 4 段 (取候选 / 公平兜底 / event+poll hybrid claim+派发 / 失败处理)
 ' last_updated: 2026-05-29
 @startuml universal-message-dispatch-decision
 
 title 消息派发轮询器 — tick 决策树 (4 段)
 
 start
-:每 250ms tick 触发 process();
+:event 路径 (eventBus enqueue agent-deck-message-enqueued, 50ms debounce)\n或 250ms poll fallback 触发 process()\n(single-flight + reschedule);
 
 ' ─── 段 1: 取候选 ───
 partition "段 1: 取候选 (backoff WHERE 子句)" {
@@ -20,19 +20,22 @@ partition "段 1: 取候选 (backoff WHERE 子句)" {
   endif
 }
 
-' ─── 段 2: 跨 target 公平兜底 ───
-partition "段 2: 跨 target starvation 公平兜底" {
-  if (候选全部同 target?) then (yes)
-    :findEligibleExcludingTargets LIMIT 1 加 1 跨 target;
+' ─── 段 2: per-candidate backpressure + starvation guard + 跨 target fairness ───
+partition "段 2: fairness 决策树 (per-candidate backpressure + starvation guard + batch full)" {
+  :findEligible → per-candidate otherInflight backpressure check\n(universal-message-watcher/index.ts:203-229);
+  if (deliveredAny=false (全 skip)?) then (yes)
+    :force deliver candidates[0] (starvation guard);
+  endif
+  if (batch full (candidates.length >= BATCH_LIMIT)?) then (yes)
+    :query excluding batchTargets (跨 target 公平兜底,\nuniversal-message-watcher/index.ts:230-247);
     note right
-      单 target 17+ 候选撑爆批量上限时
-      跨 target 公平投递破开闸门
+      不要求 "候选全部同 target",仅看 batch 是否撑满
     end note
   endif
 }
 
 ' ─── 段 3: per candidate claim + 派发 ───
-partition "段 3: per candidate claim + 派发" {
+partition "段 3: per candidate claim + 派发 (stale ACL revalidation, PerKeyRateLimiter 已在 send_message 入队前 check 不在 watcher 二次 check)" {
   while (候选还有未处理?)
     :下一候选;
     :claim (原子 UPDATE WHERE status='pending' RETURNING *);
@@ -41,30 +44,36 @@ partition "段 3: per candidate claim + 派发" {
       :skip 该候选;
     else (yes)
       :status='delivering' + 时间戳更新;
-      :adapter.receiveTeammateMessage 拼 wire prefix\n[from name @ adapter][msg id][sid sid] + body;
+      ' M9: stale ACL revalidation (claim 后 adapter dispatch 前)
+      :stale ACL revalidation\n(target exists/closed/archived; from exists/archived;\n team exists/archived; from/to active membership;\n adapter registered/canCollaborate;\n universal-message-watcher/index.ts:286-407);
+      if (revalidation 失败?) then (yes)
+        :markFailed(reason) terminal\n(stale ACL / target missing / cancelled-by-caller);
+      else (no)
+        :adapter.receiveTeammateMessage 拼 wire prefix\n[from name @ adapter][msg id][sid sid] + body;
 
-      if (receiver SDK 内存活?) then (yes — 主路径)
-        :SDK pushUserMessage → emit user-role event\n(receiver 自动看到无需 poll);
-      else (no — 断连)
-        :recoverAndSend 单飞自愈\n(详 sdk-bridge-recovery-decision 图);
-      endif
+        if (receiver SDK 内存活?) then (yes — 主路径)
+          :SDK pushUserMessage → emit user-role event\n(receiver 自动看到无需 poll);
+        else (no — 断连)
+          :recoverAndSend 单飞自愈\n(详 sdk-bridge-recovery-decision 图);
+        endif
 
-      ' 段 4: 失败处理 (deliver 完成 → markDelivered / 失败 → retry/fail)
-      if (deliver 成功?) then (yes)
-        :markDelivered (status='delivered' terminal);
-      else (no — adapter throw)
-        :retryAfterFail;
-        if (attempt < 3?) then (yes)
-          :status='pending' + attempt++ + 退避到下次 backoff window;
-        else (no)
-          :status='failed' (单条 UPDATE 同时写 attempt=3 + status_reason 防分裂);
+        ' 段 4: 失败处理 (deliver 完成 → markDelivered / 失败 → retry/fail)
+        if (deliver 成功?) then (yes)
+          :markDelivered (status='delivered' terminal);
+        else (no — adapter throw)
+          :retryAfterFail;
+          if (attempt < 3?) then (yes)
+            :status='pending' + attempt++ + 退避到下次 backoff window;
+          else (no)
+            :status='failed' (单条 UPDATE 同时写 attempt=3 + status_reason 防分裂);
+          endif
         endif
       endif
     endif
   endwhile (候选处理完)
 }
 
-:tick 结束 等下一 250ms;
+:tick 结束 等下一 event 或 250ms poll fallback;
 stop
 
 @enduml

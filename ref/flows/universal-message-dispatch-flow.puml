@@ -1,4 +1,4 @@
-' description: send_message → 轮询器 → adapter → SDK 派发 sequence — 4 段 (入队 / poll+claim / 派发 / 失败处理)
+' description: send_message → 轮询器 → adapter → SDK 派发 sequence — 4 段 (入队 / event+poll hybrid / 派发 / 失败处理)
 ' last_updated: 2026-05-29
 @startuml universal-message-dispatch-flow
 
@@ -7,7 +7,8 @@ title 消息派发 — send_message → 轮询器 → adapter → SDK (4 段)
 actor "Sender" as S
 participant "send_message handler" as SendH
 participant "消息表 (DB)" as MsgRepo
-participant "消息派发轮询器\n(250ms poll)" as Watcher
+participant "PerKeyRateLimiter\n(60 msg / 60s / teamId — send_message 入队前 check 一次)" as RL
+participant "消息派发轮询器\n(eventBus enqueue + 50ms debounce + 250ms poll fallback)" as Watcher
 participant "receiver adapter\n(claude / codex)" as RAdapter
 participant "Receiver SDK" as RSDK
 actor "Receiver" as R
@@ -16,25 +17,48 @@ actor "Receiver" as R
 
 S -> SendH: invoke({session_id, text, team_id?, reply_to_message_id?})
 SendH -> SendH: 校验 caller / target shared active team\n(no-shared-team reject;reply chain 同 team scope)
+SendH -> RL: PerKeyRateLimiter check (60 msg / 60s / teamId)
+note right of RL
+  per-key sliding window;超额直接 reject
+  rate-limiter.ts (universal-message-watcher 旁路 helper)
+end note
 SendH -> MsgRepo: insert (status='pending', sent_at=now)
 note right of MsgRepo
   body 1-100KB caller validation + SQL CHECK 兜底
   from != to (self-message reject)
 end note
 MsgRepo --> SendH: AgentDeckMessage { id, ... }
+SendH -> Watcher: eventBus.emit('agent-deck-message-enqueued') (event 路径)
 SendH --> S: ok({sessionId, teamId, messageId, replyToMessageId, sentAt, queued: true})
 
-== 段 2: 轮询器 250ms tick poll + claim ==
+== 段 2: 轮询器 event+poll hybrid dispatch (50ms debounce + 250ms poll fallback) ==
 
-loop 每 250ms tick
+loop event 路径 (50ms debounce) 或 250ms poll fallback
+  Watcher -> Watcher: process() 入口 (single-flight; 重入触发 reschedule)
+  note right of Watcher
+    universal-message-watcher/index.ts:141-148 event + interval 双路径
+    172-183 50ms debounce
+    189-257 processing single-flight + reschedule
+    **lifecycle 旁路**: watcher.start() 联动 teamEventDispatcher.start()
+    (best-effort teammate join/leave/archive fan-out, team-event-dispatcher.ts;
+    独立于 dispatch 主链路不 gating; team archived 真正 gating 在 stale ACL 阶段)
+  end note
   Watcher -> MsgRepo: findEligible (pending + backoff 已到时, ≤ 16 条)
   note right of Watcher
     backoff schedule: attempt 1=250ms / 2=1s / 3=3s
-    跨 target starvation: 全部同 target → 加 1 跨 target 公平兜底
+    跨 target fairness: per-candidate backpressure check
+    + starvation guard (deliveredAny=false 强制 deliver first)
+    + batch full → query excluding batchTargets
   end note
   MsgRepo --> Watcher: candidates[]
 
   loop per candidate
+    ' M10: per-candidate backpressure + starvation guard
+    Watcher -> Watcher: per-candidate otherInflight backpressure check (universal-message-watcher/index.ts:203-229)
+    alt 全 skip 且 deliveredAny=false
+      Watcher -> Watcher: 强制 deliver candidates[0] (starvation guard)
+    end
+    ' M11: PerKeyRateLimiter 已在 send_message 入队前 check 一次, watcher 不再二次 check
     Watcher -> MsgRepo: claim (原子 UPDATE WHERE status='pending' RETURNING *)
     alt claim 成功
       MsgRepo --> Watcher: { status='delivering', delivering_since, last_attempt_at }
@@ -42,29 +66,40 @@ loop 每 250ms tick
       MsgRepo --> Watcher: null (skip)
     end
 
-    ' 段 3: 派发
-    Watcher -> RAdapter: receiveTeammateMessage(fromSid, toSid, body, messageId, replyToMessageId?)
-    RAdapter -> RAdapter: 拼 wire prefix\n[from name @ adapter][msg id][sid sid] + body
-    alt SDK 内存活 (主路径)
-      RAdapter -> RSDK: sendMessage
-      RSDK -> R: emit 'user' role event (auto-inject 对话流)
-      note right of R
-        Receiver 直接看到 user-role message 无需主动 poll
-        wire prefix 让 receiver 知道 senderSid + messageId 后续 reply 链
-      end note
-    else SDK 断连
-      RAdapter -> RSDK: recoverAndSend (单飞自愈)
-      note right of RSDK
-        详 sdk-bridge-resume-recovery-flow 图
-      end note
-      RSDK -> R: emit 'user' role event
+    ' M9: stale ACL revalidation (claim 后,adapter dispatch 前)
+    Watcher -> Watcher: stale ACL revalidation\n(target exists/closed/archived; from exists/archived;\n team exists/archived; from/to active membership;\n adapter registered/canCollaborate)
+    alt revalidation 失败
+      Watcher -> MsgRepo: markFailed(reason) terminal
+    else revalidation 成功
+      ' 段 3: 派发
+      Watcher -> RAdapter: receiveTeammateMessage(fromSid, toSid, body, messageId, replyToMessageId?)
+      RAdapter -> RAdapter: 拼 wire prefix\n[from name @ adapter][msg id][sid sid] + body
+      alt SDK 内存活 (主路径)
+        RAdapter -> RSDK: sendMessage
+        RSDK -> R: emit 'user' role event (auto-inject 对话流)
+        note right of R
+          Receiver 直接看到 user-role message 无需主动 poll
+          wire prefix 让 receiver 知道 senderSid + messageId 后续 reply 链
+        end note
+      else SDK 断连
+        RAdapter -> RSDK: recoverAndSend (单飞自愈)
+        note right of RSDK
+          详 sdk-bridge-resume-recovery-flow 图
+        end note
+        RSDK -> R: emit 'user' role event
+      end
+      RAdapter --> Watcher: success
+      Watcher -> MsgRepo: markDelivered (status='delivered' terminal)
     end
-    RAdapter --> Watcher: success
-    Watcher -> MsgRepo: markDelivered (status='delivered' terminal)
+
+    ' M10: cross-target fairness — batch full 触发查 excluding batchTargets
+    opt batch full (candidates.length >= BATCH_LIMIT, universal-message-watcher/index.ts:230-247)
+      Watcher -> MsgRepo: query excluding batchTargets (跨 target 公平兜底)
+    end
   end
 end
 
-== 段 4: 失败处理 (retry / fail / cancel) ==
+== 段 3: 失败处理 (retry / fail / cancel) ==
 
 opt receiver adapter throw (SDK 起不来 / OAuth 过期 / sandbox 拒)
   Watcher -> MsgRepo: retryAfterFail

@@ -5,13 +5,18 @@
  * **抽出动机**：archive_plan 与 hand_off_session 两个 handler 在「impl/spawn 成功后」各自跑
  * ~80 行重复代码,模板 99% 一致(仅 console.warn 前缀和 hand-off 多 excludeSessionIds 不同):
  *
- * 1. **teammate shutdown 三态**(skipped: 'caller-not-lead' | 'adopt-keep-implicit' | null;
+ * 1. **teammate shutdown 六态**(skipped: 'caller-not-lead' | 'all-lead-teams-archived' |
+ *    'adopt-keep-implicit' | 'archive-caller-false-keep' | 'phase-1-error' | null;
  *    plan hand-off-session-adopt-teammates-20260520 Phase 3 删 baton-cleanup teammate-shutdown
- *    的 opt-out 字段后,'adopt-keep-implicit' 由 Phase 4 引入 hand_off_session adopt_teammates: true
- *    路径才会出现 — Phase 3 完成时此枚举值仅为类型预留)
+ *    的 opt-out 字段后,后续 Phase 4 / CHANGELOG_169 F4 / REVIEW_56 §F6 R2 修法逐步引入剩余
+ *    skipped 值)
  *    - external sentinel 防御 → skipped='caller-not-lead'
+ *    - caller 是 lead 但所有 team 已 archived → skipped='all-lead-teams-archived'(REVIEW_56 §F6 R2)
+ *    - adopt_teammates=true(teammate 已转给 newSid) → skipped='adopt-keep-implicit'(Phase 4)
+ *    - archive_caller=false(caller 保活) → skipped='archive-caller-false-keep'(CHANGELOG_169 F4)
+ *    - phase 1 内部 throw 兜底 → skipped='phase-1-error'(REVIEW_56 §F6 Plan-Review Round 2 codex MED-3)
  *    - 调 shutdownTeammatesOnBaton(callerSid, excludeSessionIds?) → 透传 result
- *    - helper 抛错 → 兜底 closed=[] + skipped=null + console.warn
+ *    - helper 抛错 → 兜底 closed=[] + skipped='phase-1-error' + console.warn
  *
  * 2. **archive caller 三态**(archived: 'ok' | 'failed' | 'skipped')
  *    - external sentinel → archived='skipped'

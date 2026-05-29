@@ -16,6 +16,16 @@ package "tool 实现" as L2 {
   [adopt context block\n(注入接管的 team 列表到 spawn prompt)] as AdoptCtx
 }
 
+note bottom of L2
+  L2 子模块拆分 (hand-off-session.ts:1-37 jsdoc 列 6 子模块):
+  - **facade** (handler.ts 主入口)
+  - **_deps** (内部依赖 wiring)
+  - **cwd-resolver** (cwd 反查 + 双模式 cwd 默认值)
+  - **team-adopt-coordinator** (adopt loop + swapLead 转角色)
+  - **task-reassign-coordinator** (clear-team / preserve-team / skip 三态过继)
+  - **handler-main** (串联 prepareAdopt → spawn → phase1.5 swapLead → runTaskReassignment)
+end note
+
 package "起新 session" as L3 {
   [spawn 控制器\n(handOffMode=true 跳防御 + 不写 spawn-link)] as Spawn
   [adapter + SDK 子进程\n(claude / codex)] as Adapter
@@ -48,10 +58,17 @@ Handler --> Spawn : 起新 SDK session
 Spawn --> Adapter : claude / codex adapter
 Adapter --> SM : upsert 新 session + emit event
 
-Handler --> Repos : 改 task ownership (clear / preserve / skip 三态)
-
-Handler --> AdoptCtx : adopt_teammates=true → 装 adopt block 注入 spawn prompt
-Handler --> Repos : adopt_teammates=true → swapLead 转交 lead 角色
+Handler --> AdoptCtx : (pre-spawn) adopt_teammates=true → prepareAdoptSnapshotAndPrompt 装 adopt block 注入 spawn prompt
+Handler --> Repos : (post-spawn) adopt_teammates=true → phase 1.5 runPhase15AdoptSwapLeadLoop 转交 lead 角色
+Handler --> Repos : runTaskReassignment 改 task ownership (clear / preserve / skip 三态)
+note right of Repos
+  实际调用顺序 (handler-main.ts:178-306):
+  prepareAdoptSnapshotAndPrompt (pre-spawn)
+    → spawn (handOffMode=true)
+    → phase 1.5 runPhase15AdoptSwapLeadLoop (post-spawn swapLead)
+    → runTaskReassignment (按 team_task_policy 三态过继)
+  preserve-team warning 依赖 phase15Detail.adoptedTeamIds
+end note
 
 Handler --> Baton : runBatonCleanup
 Baton --> SM : phase 1 关 teammate (excludeSessionIds={newSid})
@@ -72,9 +89,13 @@ end note
 
 note bottom of Baton
   与 archive_plan 共享 baton 流程(同 helper)
-  phase 1 跳过条件 (任一即跳):
-  - adopt_teammates=true (teammate 已转给 newSid)
-  - archive_caller=false (caller 保活,skipped='archive-caller-false-keep')
+  phase 1 跳过条件 (6 状态完整 enum, baton-cleanup.ts:166-174 + shutdown-teammates-on-baton.ts:147,179):
+  - **null**(成功路径含 closed=[] 的 caller=lead 但 team 内无其他 active teammate)
+  - **'adopt-keep-implicit'**(adopt_teammates=true → teammate 已转给 newSid; Phase 4 引入)
+  - **'archive-caller-false-keep'**(archive_caller=false → caller 保活; CHANGELOG_169 F4 引入)
+  - **'caller-not-lead'**(caller 不是 lead 含 external sentinel)
+  - **'all-lead-teams-archived'**(caller 是 lead 但所有 team 已 archived; REVIEW_56 §F6 R2 修法)
+  - **'phase-1-error'**(phase 1 内部 throw 兜底; REVIEW_56 §F6 Plan-Review Round 2 codex MED-3)
   失败兜底见 hand-off-session-state-machine 图
 end note
 

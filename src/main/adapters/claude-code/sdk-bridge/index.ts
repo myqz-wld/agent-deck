@@ -371,8 +371,8 @@ export class ClaudeSdkBridge {
 
     // 2-5. cleanup 链 — pending cancel + sdkOwned release + zombie row 兜底 + notify wakeup。
     //      整套抽到 pending-cancellation.ts:runCloseSessionCleanup（CHANGELOG_85 Step 3.2）。
-    //      详见该 helper jsdoc：清三 Map / sessions.delete / releaseSdkClaim / markRecentlyDeleted /
-    //      唤醒 createUserMessageStream 的 await。
+    //      详见该 helper jsdoc：清四 Map (pendingFileChangeIntents / sessions / sdkOwned / pendingCancellation)
+    //      + releaseSdkClaim + markRecentlyDeleted / 唤醒 createUserMessageStream 的 await。
     runCloseSessionCleanup({
       sessions: this.sessions,
       internal,

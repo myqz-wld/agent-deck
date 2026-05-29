@@ -1,8 +1,8 @@
-' description: archive_plan 4 态预检 + 原子 7 步收口 + baton cleanup 决策树
+' description: archive_plan precheck 8 分支决策 + 4 子模块原子收口 + baton cleanup 决策树
 ' last_updated: 2026-05-29
 @startuml archive-plan-precheck-decision
 
-title archive_plan — 决策树 (3 段: 预检 / 7 步收口 / cleanup)
+title archive_plan — 决策树 (3 段: precheck 8 分支 / 4 子模块收口 / cleanup)
 
 start
 
@@ -18,20 +18,34 @@ note right
   DB throw / row null → fail-open + warnings.push hint
 end note
 
-' ─── 段 1: 4 态笛卡尔预检 ───
-partition "段 1: 4 态预检 (cwdReleaseMarker × cwd 在 worktree 内)" {
-  if (marker==worktreePath?) then (yes)
-    if (cwd 在 worktree 内?) then (yes)
-      :pass (跨 adapter codex 端);
-    else (no)
-      :pass (默认 caller 已 ExitWorktree keep);
+' ─── 段 1: 8 分支笛卡尔预检 ───
+partition "段 1: precheck 8 分支决策 (笛卡尔积 cwdValid × inWorktree × markerReal)" {
+  if (cwd valid?) then (yes)
+    if (cwd 在 worktree 内?) then (yes — inWorktree)
+      if (marker==worktreePath?) then (yes)
+        :pass (跨 adapter codex 端) + releaseMarkerOnSuccess=true;
+      elseif (marker==null?) then (yes)
+        :reject (cwd-resilience guard\n→ caller 必须先 ExitWorktree(keep));
+        end
+      else (marker 指其他 worktree)
+        :reject (cross-worktree archive 不允许\n→ caller 先 exit_worktree(markerReal) 清 marker\n或用匹配 marker 的 worktree_path 调 archive_plan);
+        end
+      endif
+    else (no — !inWorktree)
+      if (marker==worktreePath?) then (yes)
+        :pass (残留 mcp marker, builtin ExitWorktree 不清\n→ caller 持本 worktree marker 但 cd 出去) + releaseMarkerOnSuccess=true + warn;
+      elseif (marker==null?) then (yes)
+        :pass (默认 caller 已 ExitWorktree keep / 历史 plan / 手工建);
+      else (marker 指其他 worktree)
+        :warn 不释放 marker (releaseMarkerOnSuccess=false) → pass;
+      endif
     endif
-  else (null)
-    if (cwd 在 worktree 内?) then (yes)
-      :reject (cwd-resilience guard\n→ caller 必须先 ExitWorktree(keep));
+  else (no — cwd invalid)
+    if (marker==worktreePath?) then (yes)
+      :pass + releaseMarkerOnSuccess=true (cross-device sync miss 兜底);
+    else (marker 指其他 / null)
+      :reject;
       end
-    else (no)
-      :pass (历史 plan / 手工建);
     endif
   endif
 
@@ -49,29 +63,30 @@ partition "段 1: 4 态预检 (cwdReleaseMarker × cwd 在 worktree 内)" {
   endif
 }
 
-' ─── 段 2: 原子 7 步收口 ───
-partition "段 2: 原子 7 步收口 (任一失败立即 abort 无部分回滚)" {
-  :Step 1-2: git checkout base_branch + ff-merge worktree-<plan_id>;
+' ─── 段 2: 4 子模块原子收口 ───
+partition "段 2: 4 子模块原子收口 (precheck/ff-merge 前失败可 retry; post-ff-merge 失败 manual recovery 无自动 rollback)" {
+  :runFfMerge Step 7-8c: git checkout base_branch + ff-merge worktree-<plan_id>;
   note left
     base_branch resolution chain:
     caller args.base_branch > plan frontmatter.base_branch > "main" fallback
     强烈建议 plan frontmatter 显式写 base_branch (避免 ff-merge 错合主线污染)
     ff-merge 失败 → return error + phaseHint 给具体 manual recovery 决策树
+    ff-merge 成功后失败 → 进入 manual recovery,无自动 rollback
   end note
-  :Step 3: 写 plan frontmatter (status=completed + final_commit + completed_at);
-  :Step 4: mv plan → ref/plans/<plan_id>.md;
+  :runArchiveFs Step 9: 写 plan frontmatter (status=completed + final_commit + completed_at);
+  :runArchiveFs Step 10: mv plan → ref/plans/<plan_id>.md;
 
   if (<plan-artifact-dir>/spike-reports/ 存在?) then (yes)
-    :Step 4.5: mv spike-reports/ → ref/plans/<plan_id>/;
+    :runArchiveFs Step 11: mv spike-reports/ → ref/plans/<plan_id>/;
     note right
       mv 失败 (EXDEV / perm) → warnings.push hint (不阻塞)
     end note
   endif
 
-  :Step 5: sync INDEX (4 态 smart update: created / appended / updated / unchanged);
-  :Step 6: git add + commit (pathspec 隔离 3 critical paths + spike-reports/);
-  :Step 7a: 清 cwdReleaseMarker (提前到 commit 后\n→ 7b/c 失败时 marker 已清);
-  :Step 7b-c: git worktree remove + branch -D;
+  :runArchiveFs Step 12: sync INDEX (4 态 smart update: created / appended / updated / unchanged);
+  :runArchiveFs Step 12.5: git add + commit (pathspec 隔离 3 critical paths + spike-reports/);
+  :runCleanup Step 13: 清 cwdReleaseMarker (提前到 commit 后\n→ Step 14 失败时 marker 已清);
+  :runCleanup Step 14: git worktree remove + branch -D;
 }
 
 ' ─── 段 3: baton cleanup ───

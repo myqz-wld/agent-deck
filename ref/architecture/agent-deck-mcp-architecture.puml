@@ -8,7 +8,7 @@ title MCP 服务器 — 顶层架构概览 (5 大块 + 跨切组件)
 ' 详细 module 名 / 函数名 / LOC / commit / REVIEW 引用见 INDEX 第 3 列「关联 plan / commit」
 
 package "入口" as L1 {
-  [tool 入口 (15 tools)\nstdio + HTTP /mcp] as Entry
+  [tool 入口 (15 tools)\nin-process + stdio + HTTP /mcp] as Entry
 }
 
 package "权限拦截" as L2 {
@@ -28,7 +28,7 @@ package "持久层" as L4 {
 package "运行时联动" as L5 {
   [会话管理器\n(生命周期 + spawn-link)] as SM
   [adapter + SDK 子进程\n(claude + codex)] as Adapter
-  [消息派发轮询器\n(250ms poll)] as Watcher
+  [消息派发轮询器\n(eventBus enqueue + 50ms debounce + 250ms poll fallback)] as Watcher
 }
 
 ' ─── 主调用链 ───
@@ -62,6 +62,16 @@ note bottom of Handler
   - **mcp tool 调用通用流程**: agent-deck-mcp-tool-call-flow
 
   INDEX 索引: ref/architecture/INDEX.md + ref/flows/INDEX.md (双索引)
+end note
+
+note bottom of Entry
+  3 transport 共享同一份 buildAgentDeckTools 输出
+  (server.ts:4-9 jsdoc + line 47 transport: 'in-process'):
+  - **in-process** (in-app caller 默认通道; createSdkMcpServer)
+    EXTERNAL_CALLER_ALLOWED 矩阵决定 deny/allow,
+    in-process caller 自动获 caller_session_id override
+  - **stdio** (StdioServerTransport, 外部 client)
+  - **HTTP /mcp** (route, 外部 client)
 end note
 
 note bottom of Repos
