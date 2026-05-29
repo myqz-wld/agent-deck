@@ -1,10 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import type { Codex, Thread } from '@openai/codex-sdk';
+import type { Codex } from '@openai/codex-sdk';
 import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
 import { settingsStore } from '@main/store/settings-store';
-import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import {
   buildAgentDeckMcpConfigForCodex,
   mergeCodexConfig,
@@ -30,19 +27,20 @@ import type {
 import { resolveBundledCodexBinary } from './codex-binary';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { packCodexInput, extractAttachmentPaths } from './input-pack';
-import { persistSessionFields } from './session-finalize';
 import { RestartController, type RestartCtx } from './restart-controller';
-import { buildCodexThreadOptions } from './thread-options-builder';
-import { runCreateSessionRollback } from './create-session-rollback';
-import { awaitResumedThreadStart } from './resume-path-await';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
-import type { HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
+import type { UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import {
   SessionRecoverer,
   defaultCodexResumeJsonlExists,
   defaultCwdExists,
 } from './recoverer';
+// Phase 4 Step 4.3: createSession 主体抽到 create-session/ 子目录(facade pattern + 3 子段)。
+// facade.createSession 改为 thin delegate 调 createSessionImpl orchestrator → validate / resume / new
+// 3 子段 fn(详 create-session/_deps.ts 顶部 jsdoc 拆分说明)。
+import { createSessionImpl } from './create-session/create-session-impl';
+import type { CreateSessionOpts } from './create-session/_deps';
 
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
 
@@ -295,391 +293,18 @@ export class CodexSdkBridge {
     this.codexBySession.set(newId, codex);
   }
 
-  async createSession(opts: {
-    cwd: string;
-    prompt?: string;
-    /** 传 thread_id 表示恢复历史会话；codex 从 ~/.codex/sessions/<id>.jsonl 重放 */
-    resume?: string;
-    /** 首条 user message 的图片附件（IPC 层已落盘到 <userData>/image-uploads/） */
-    attachments?: UploadedAttachmentRef[];
-    /** 见 types.ts CreateSessionOptions.codexSandbox（per-session 覆盖）。 */
-    codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
-    /**
-     * plan model-wiring-and-handoff-20260514 Step 2.5：spawn handler 解 agent body frontmatter
-     * `model` 字段后传入。**codex-sdk v0.131.0 ThreadOptions.model 已支持 per-thread override**
-     * (prompt-asset-review-optimize-20260527 跟进 reviewer-claude HIGH 修法 — 原注释基于
-     * codex-sdk 旧版判断为 "不接受 per-thread model override" 已过期):
-     * - createSession 透传 model 给 codex SDK `startThread/resumeThread` 的 ThreadOptions.model
-     *   字段 → runtime 真正按 frontmatter 标的 model 跑
-     * - 同时 setModel 持久化到 sessions 表(UI / resume 一致 + DB 记账)
-     *
-     * model 字段未传 → codex SDK fallback 到 user `~/.codex/config.toml` 顶层 `model` 配置。
-     */
-    model?: string;
-    /**
-     * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
-     * caller 透传的 SDK sandbox 额外可写根。**codex SDK 不消费 extra writable roots**
-     * (sandboxMode 三档 'workspace-write' / 'read-only' / 'danger-full-access' 控根 sandbox
-     * profile,无 extra allowWrite 字段),但本字段仍持久化到 sessions.extra_allow_write 保跨
-     * adapter parity 对称(让 SessionRecord 字段在 claude / codex 之间形态一致 + future codex
-     * SDK 加支持时零迁移成本)。
-     *
-     * 与 model 字段语义已差异: model 字段 codex SDK runtime 真生效,extraAllowWrite 仅持久化未生效。
-     */
-    extraAllowWrite?: readonly string[];
-    /**
-     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1 (codex 对称)**:
-     * bridge 内部 internal 字段(详 ClaudeCreateOpts.resumeCliSid jsdoc):
-     * - caller 不该传(默认走反查 sessionRepo.cliSessionId 兜底回填)
-     * - codex/recoverer.ts:359 + codex/restart-controller.ts caller 显式传 `rec.cliSessionId ?? sessionId`
-     */
-    resumeCliSid?: string;
-    /**
-     * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1 (codex 对称)**:
-     * 'fresh-cli-reuse-app' 让 jsonl-missing fallback 路径显式触发 SDK fresh thread + 复用 applicationSid。
-     */
-    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
-    /**
-     * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订):
-     * codex SDK startThread/resumeThread `approvalPolicy` 透传。
-     *
-     * **P5 Round 1 reviewer-codex M1 修法 (clarify 不变量 6 边界)**：
-     * bridge 层 fallback `?? 'never'` 是 **in-process 安全基线**(主进程跑 codex SDK 无 UI 应答
-     * approval 弹窗,'on-request' 会让子进程挂死等审批)— 与 sandboxMode / networkAccessEnabled /
-     * additionalDirectories 三 reviewer-* 专属 unsafe default **语义不同**。
-     *
-     * **不变量 6 修订理解**：
-     * - 3 字段 `sandboxMode / networkAccessEnabled / additionalDirectories` reviewer-* 专属 spread
-     *   (普通 codex session lead 路径**不**应注入,options-builder narrowToCodexOpts 守门)
-     * - 1 字段 `approvalPolicy` **所有 codex session 共享**'never' 基线,bridge 兜底 + options-builder
-     *   reviewer-* 路径冗余设置(都为 'never',无 contention)。caller 显式传 'on-request' 仅在 codex CLI
-     *   外部进程上下文有意义,本 in-process bridge 不支持。
-     *
-     * options-builder 端 reviewer-* 仍写 'never'(与 bridge fallback 一致,显式 + 防 caller 误传)。
-     */
-    approvalPolicy?: 'never' | 'on-request';
-    /**
-     * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `networkAccessEnabled` 透传。
-     * bridge 不主动 enforce default — undefined 沿用 SDK 默认；options-builder 在 reviewer-*
-     * 路径下 spread true 让 reviewer 跨网络访问稳定（reviewer-codex web search /
-     * reviewer-claude wrapper 内 claude SDK fetch 工具）。
-     */
-    networkAccessEnabled?: boolean;
-    /**
-     * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `additionalDirectories` 透传，
-     * 让 codex sandbox=workspace-write 档位额外允许的可读写根。bridge 不主动 enforce default —
-     * undefined 沿用 SDK 默认（无额外路径）；options-builder 在 reviewer-* 路径下 spread
-     * `['~/.claude', '~/.codex']`。
-     */
-    additionalDirectories?: readonly string[];
-    /**
-     * plan §P3 Step 3.5 + §D1 ADR §(c) per-session env 增量字段：merge 到 codex 子进程
-     * envOverride 末尾（优先级最高，与 caller / options-builder spread 一致）。bridge 不主动
-     * enforce default — undefined / 空 object 不新增字段;generic 透传机制(目前无 hot caller —
-     * reviewer-claude wrapper 路径已改 cross-adapter native 删除;字段保留供未来 caller 重用)。
-     *
-     * 注入路径：ensureCodex 接收 envOverrideExtra 参数后 `Object.assign(envOverride,
-     * opts.envOverrideExtra ?? {})`（后写覆盖前写，options-builder spread 字段最终生效）。
-     */
-    envOverrideExtra?: Readonly<Record<string, string>>;
-    /**
-     * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 internal plumbing
-     * (codex 端镜像 claude bridge createSession opts.handOff):hand-off cold-start prompt
-     * metadata。spawn 主路径 first user message emit 时 spread 进 events.payload(thread-loop
-     * fallback :91-99 + success :166-173 + 本 bridge resume :510-516 共 3 处)。
-     * 详 HandOffMetadata jsdoc + plan §不变量 5。caller 不该传。
-     */
-    handOff?: HandOffMetadata;
-    /**
-     * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法 — 对称 claude createSession opts):
-     * 跳过本 createSession resume path 内 emit 首条 user message。
-     *
-     * **触发场景**:recoverer.recoverAndSend 入口已 emit user message(与 live 主路径
-     * `sendMessage if(s)` 时机对称),调 createThunk 时显式传 true 让 resume path 跳过 emit。
-     *
-     * **caller 不该传**(默认 false / undefined):spawn 主路径 / IPC AdapterCreateSession
-     * 走此路径,resume path emit user message 让 UI 活动流看到「你」发的第一条话。
-     *
-     * **不影响 new path emit user message**(由 thread-loop 内 fallback / success 2 处自己 emit) —
-     * 仅控制本 createSession resume path emit user message 这一动作。
-     */
-    skipFirstUserEmit?: boolean;
-  }): Promise<CodexSessionHandle> {
-    if (!opts.prompt || !opts.prompt.trim()) {
-      throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
-    }
-    // REVIEW_4 M4：首条 prompt 也走 MAX_MESSAGE_LENGTH 上限。原版只 sendMessage 校验，
-    // pendingMessages: [opts.prompt] 直接进队列，让 cli.ts / 其他入口可绕过 cap。
-    // attachments 不算 text length（IPC 层 30MB 总附件独立校验）
-    // REVIEW_24 HIGH-2 follow-up：byteLength → length 与 messageRepo cap 全局对齐
-    const promptLen = opts.prompt.length;
-    if (promptLen > MAX_MESSAGE_LENGTH) {
-      throw new Error(
-        `首条 prompt 超出 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限（实际 ${promptLen.toLocaleString()} 字符）`,
-      );
-    }
-
-    // plan codex-handoff-team-alignment-20260518 P2 Step 2.5c sid 时序（v4 H2 关键修法）：
-    // 必须先确定 sessionId 再 allocate token 起 Codex 子进程,这样子进程 envOverride 拿到
-    // per-session token,后续 codex CLI MCP client 调 /mcp 时 HookServer.checkMcpAuth 反查
-    // mcpSessionTokenMap.get(token) 才能命中拿到真正 caller sid。
-    //
-    // - resume 路径:initialSid = opts.resume(已知 thread id)
-    // - 新建路径:initialSid = 提前生成的 tempKey,用作 codex 实例 + sessions Map key,等
-    //   threadLoop.startNewThreadAndAwaitId 拿到 realId 后通过 sessionManager.renameSdkSession
-    //   函数体(Step 2.8)统一 rename codexBySession Map + token map(不变量 7)
-    const initialSid = opts.resume ?? randomUUID();
-    const sessionToken = mcpSessionTokenMap.allocate(initialSid);
-    // REVIEW_60 MED-codex-2 修法(reviewer-codex R1 MED 单方 finding + lead 验证):
-    // 旧 bug: createSession 整个函数体无顶层 try/catch,allocate (L429) 之后任何 throw 都让
-    // token + (可能已 set 的) codex 实例 + (可能已 set 的) sessions Map entry + sdkClaim 全
-    // 泄漏。具体路径:
-    //   1. ensureCodex (L432) throw (loadCodexSdk fail / new sdk.Codex throw 等)
-    //   2. resumeThread/startThread (L484/498) sync throw (codex SDK 内部参数校验失败 / 拿不到 thread id 等)
-    //   3. await thread-loop.runTurnLoop (resume L598 inner Promise) 在 thread-loop earlyErrCb
-    //      cleanup 已含双轨,但本 catch 走 best-effort 重复 cleanup (idempotent: tokenMap.release
-    //      / codexBySession.delete / sessions.delete / releaseSdkClaim 全是 no-op 安全) 加固
-    //   4. new path: startNewThreadAndAwaitId (L735) await throw — thread-loop 内部 fallback 已
-    //      cleanup,本 catch 同款 best-effort 加固
-    // 对称 claude createSession (sdk-bridge/index.ts:31-165) try/catch 收口模板。
-    // 实施: 把后续主体 try 包起来 (catch 在最末 return 之后,不动主体缩进保 git diff 干净)。
-    try {
-      // plan §P3 Step 3.5: 透传 envOverrideExtra（generic 透传机制,目前无 hot caller）到
-      // ensureCodex,让 codex 子进程 env merge extra 字段。
-      const codex = await this.ensureCodex(initialSid, sessionToken, opts.envOverrideExtra);
-    const cwd = resolveSpawnCwd(opts);
-    // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
-    // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
-    // 2. resume 路径下 sessionRepo.get(resume).codexSandbox（用户上次该会话选过的，重启应用后回放）
-    // 3. settingsStore.get('codexSandbox')（settings 全局值兜底）
-    //
-    // symmetry-plan P2 MED-B：从 `bridge.currentSandboxMode` field 改为直接 settingsStore 读
-    // — 与 claude-code adapter sandbox-resolve.ts 同款直读模式（删 in-memory mirror + setter
-    // + apply hook 三层冗余）。settings 改 codexSandbox 不需 push 到 bridge,下次 createSession
-    // 即按新值生效（与 claude 同款语义,spawn-time 锁定不变）。
-    const persistedSandbox = opts.resume
-      ? (sessionRepo.get(opts.resume)?.codexSandbox ?? null)
-      : null;
-    const sandboxMode = opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
-
-    let thread: Thread;
-    // **REVIEW_56 HIGH-1 修法 — facade 必须消费 opts.resumeMode + opts.resumeCliSid**:
-    // recoverer (recoverer.ts:344 + 370) / restart-controller (line 132) 已显式传出这两个字段,
-    // 但本 facade 修前漏接(只看 opts.resume),导致:
-    //  1) jsonl-missing fallback 路径(resumeMode='fresh-cli-reuse-app') 仍 resumeThread →
-    //     SDK 抛 jsonl 不存在错(预检漏判时进一步死链)
-    //  2) 反向 rename 后 cliSessionId !== applicationSid 时 SDK 拿 applicationSid 调
-    //     resumeThread → 找不到正确 jsonl → 历史失。
-    // 修后:
-    //  - effectiveResumeThreadId = opts.resume && resumeMode !== 'fresh-cli-reuse-app'
-    //      ? (opts.resumeCliSid ?? sessionRepo.cliSessionId ?? opts.resume)  // 与 claude
-    //         facade index.ts:332-335 同款 3 层兜底:caller 显式 > sessionRepo 中间层 >
-    //         applicationSid 末层(REVIEW_56 R2 reviewer-claude MED-Cross-Adapter-Parity 修法,
-    //         保 cross-adapter 设计对称 + 防 future caller 漏传 silently fall back 到
-    //         applicationSid 在反向 rename 后 != cliSessionId 时撞错 thread)
-    //      : null                                  // fresh thread / spawn 主路径
-    //  - effectiveResumeThreadId 非空 → resumeThread, 否则 startThread (jsonl-missing fallback
-    //    自然走 startThread + applicationSid 不变,first thread.started 进 thread-loop case 3
-    //    fork-detect 路径 updateCliSessionId 完成反向 rename)。
-    // internal.threadId 仍存 opts.resume(applicationSid),thread-loop case 3 (line 292)
-    // 通过 ev.thread_id !== internal.threadId 触发 fork-detect → updateCliSessionId 把
-    // cli_session_id 列改成 SDK 真 thread_id;applicationSid (sessions.id) 不动 (不变量 1)。
-    const effectiveResumeThreadId =
-      opts.resume && opts.resumeMode !== 'fresh-cli-reuse-app'
-        ? (opts.resumeCliSid ?? sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume)
-        : null;
-    if (effectiveResumeThreadId) {
-      // CHANGELOG_<X> A2a：resume 路径必须透传 sandboxMode / workingDirectory / approvalPolicy，
-      // 否则 codex SDK 默认行为 = 不传 --sandbox flag，让 codex CLI 用 ~/.codex/config.toml 全局
-      // 默认 / read-only 兜底，丢失用户上次该会话选过的档位（spike-A2 实测验证 SDK
-      // resumeThread(id, options) 透传到每次 turn 的 CLI args）。
-      //
-      // plan §P3 Step 3.5 + §不变量 6: 3 个新字段（approvalPolicy / networkAccessEnabled /
-      // additionalDirectories）从 opts 读，bridge **不主动 enforce default**。caller 缺省 →
-      // approvalPolicy 沿用 'never'（现状）；networkAccessEnabled / additionalDirectories
-      // 不写字段（codex SDK 走 ThreadOptions 默认）。options-builder 在 reviewer-* 路径下
-      // 已 spread 4 字段 unsafe default,这里直接透传不影响普通 codex session lead 路径。
-      thread = codex.resumeThread(
-        effectiveResumeThreadId,
-        buildCodexThreadOptions({
-          workingDirectory: cwd,
-          sandboxMode,
-          approvalPolicy: opts.approvalPolicy,
-          model: opts.model,
-          networkAccessEnabled: opts.networkAccessEnabled,
-          additionalDirectories: opts.additionalDirectories,
-        }),
-      );
-    } else {
-      thread = codex.startThread(
-        buildCodexThreadOptions({
-          workingDirectory: cwd,
-          sandboxMode,
-          approvalPolicy: opts.approvalPolicy,
-          model: opts.model,
-          networkAccessEnabled: opts.networkAccessEnabled,
-          additionalDirectories: opts.additionalDirectories,
-        }),
-      );
-    }
-
-    const firstInput = packCodexInput(opts.prompt, opts.attachments);
-    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 + S7**: applicationSid 双阶段化
-    // (initialSid = opts.resume ?? randomUUID() 已是合适 applicationSid 初值,line 392 同款逻辑):
-    // - spawn 主路径(无 opts.resume): ctor 时 applicationSid = initialSid (= randomUUID 即 tempKey),
-    //   first thread.started 到达时 thread-loop.ts:142 isNewSpawn 分支保护切到 realId 后冻结
-    // - resume / fallback 路径(有 opts.resume): ctor 时 applicationSid = opts.resume,全生命周期不变
-    // S7 修订:mcpSessionTokenMap.allocate 已用 initialSid (line 393),与 applicationSid 同款 = sessions.id 维度,
-    //   反向 rename 不动 sessions.id → token map key 永远稳定。
-    const internal: InternalSession = {
-      applicationSid: initialSid,
-      threadId: opts.resume ?? null,
-      cwd,
-      thread,
-      pendingMessages: [firstInput],
-      currentTurn: null,
-      turnLoopRunning: false,
-      intentionallyClosed: false,
-    };
-
-    if (opts.resume) {
-      // resume 路径：thread_id 已知，直接登记
-      this.sessions.set(opts.resume, internal);
-      sessionManager.claimAsSdk(opts.resume);
-      this.opts.emit({
-        sessionId: opts.resume,
-        agentId: AGENT_ID,
-        kind: 'session-start',
-        payload: { cwd, source: 'sdk' },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-      // CHANGELOG_<X> A2a：emit session-start 是同步派发到 sessionManager.ingest →
-      // sessionRepo.upsert 创建 record（如果不存在）；之后调 setCodexSandbox UPDATE 字段。
-      // 后续 advanceState 内 spread record 时会带上最新 codex_sandbox 不会被静默重置。
-      // R37 P2-E Step 3.4b：setSandbox + setModel 收口到 persistSessionFields helper(model 真生效;
-      // extraAllowWrite warn 提示仍 codex runtime 不消费,详 helper 内 try/catch + console.warn)。
-      // plan cross-adapter-parity-20260515 Phase A Step A.7：extraAllowWrite 与 codexSandbox 同样
-      // 持久化(parity 对称写库;不同于 model 字段 v0.131.0+ 真生效,本字段 codex runtime 不消费)。
-      persistSessionFields({
-        sessionId: opts.resume,
-        sandboxMode,
-        model: opts.model,
-        extraAllowWrite: opts.extraAllowWrite,
-      });
-      // REVIEW_58 HIGH ✅ 收口修法:caller 显式 skipFirstUserEmit=true 时跳过
-      // (recoverer.recoverAndSend 入口已 emit,避免双气泡;详 opts.skipFirstUserEmit jsdoc)
-      if (!opts.skipFirstUserEmit) {
-        this.opts.emit({
-          sessionId: opts.resume,
-          agentId: AGENT_ID,
-          kind: 'message',
-          payload: {
-            text: opts.prompt,
-            role: 'user',
-            ...(opts.attachments && opts.attachments.length > 0
-              ? { attachments: opts.attachments }
-              : {}),
-            // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 (resume 路径
-            // first-user-message emit 3 处之一,详 plan §不变量 5):spread handOff metadata 让
-            // renderer 端 message-row 识别 hand-off cold-start prompt + 渲染 Hand-off badge。
-            ...(opts.handOff ? { handOff: opts.handOff } : {}),
-          },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-      }
-      // symmetry-plan P2 MED-D：await 首条 thread.started OR earlyError OR 30s timeout 才 return,
-      // 让外层 createSession await 真的等待 SDK 实际状态(与 claude waitForRealSessionId 同款语义)。
-      //
-      // 修前问题（reviewer-claude rebuttal 反驳点 2/3 + lead 实证）：
-      // - resume path 直接 `void runTurnLoop` + `return { sessionId: opts.resume }` 立即返回,
-      //   restart-controller catch 在 resume path 实际死代码（runTurnLoop earlyErr 路径
-      //   `else if (earlyErrCb)` 默认 undefined → emit error 自己处理,createSession 已 resolve）
-      // - thread-loop:212 `&& !internal.threadId` 保护让 resume 路径跳过 thread.started.thread_id
-      //   校验 → 即使 SDK 真返新 id,application layer 完全感知不到（latent silent split,future-proof
-      //   防 SDK 升级 / CLI 行为变更）
-      //
-      // 修法：仿 startNewThreadAndAwaitId Promise 模式 + onFirstId/onEarlyError 回调:
-      // - onFirstId 触发 → resolve 实际 id（thread-loop 已处理 rename 同 / 不同 id 三种情况）
-      // - onEarlyError 触发 → emit finished 完成 UI 序列 + reject 让 outer (restart-controller /
-      //   recoverer / ipc) catch 触发上下文相关错误处理 (如 DB rollback)
-      // - 30s timeout → 退化 resolve(opts.resume) 假定 SDK 慢但能起,与新路径 resolveWithFallback
-      //   不同（new 路径需 emit error + finished 完整序列；resume 已 emit session-start + user msg
-      //   只缺 thread.started 后续事件,不应武断标 finished:error）
-      // REVIEW_60 R4 §B 抽法 #1 修法:resume path inner Promise 三态状态机 (30s timeout +
-      // onFirstId + earlyErrCb 4 资源 cleanup) 抽到 resume-path-await.ts helper。详 helper jsdoc。
-      const resumedId = await awaitResumedThreadStart({
-        applicationSid: opts.resume,
-        internal,
-        deps: {
-          threadLoop: this.threadLoop,
-          sessions: this.sessions,
-          codexBySession: this.codexBySession,
-          emit: this.opts.emit,
-        },
-      });
-      // **REVIEW_56 R2 MED-2 修法 (reviewer-codex)**: facade resume 路径必须返
-      // applicationSid 而非 resumedId(后者可能是 case 3 fork 后的新 cli sid 维度,与
-      // sessions Map key + DB sessions.id 不一致 — facade contract 错;当前 recoverer
-      // fallback 立即丢弃 handle 没炸,但 future caller 拿 handle.sessionId 调 sendMessage
-      // 会撞 sessions Map miss 触发 recoverer 自愈循环)。
-      // 与 spawn 主路径 line 726 `return { sessionId: internal.applicationSid }` 对偶。
-      // resumedId 仍可在 outer Promise 内部用作 30s timeout 早期错误处理,这里只是
-      // public handle 的边界返 applicationSid。
-      void resumedId; // 保留 await 形式让 timeout / earlyErr / firstIdCb 流程仍跑
-      return { sessionId: internal.applicationSid };
-    }
-
-    // 新建路径：用 initialSid（顶部 allocate 出的 tempKey）占位，等 thread.started 事件拿到
-    // realId 后 rename。plan P2 Step 2.5c：initialSid = randomUUID() 已经在顶部分配 + allocate
-    // 过 token,这里直接复用,不再二次 randomUUID(避免 token / Codex 实例 / sessions Map 三处 key
-    // 不一致)。realId 与 initialSid 不同时,sessionManager.renameSdkSession 函数体内(Step 2.8)
-    // 统一 rename codexBySession Map + token map（不变量 7）。
-    const tempKey = initialSid;
-    this.sessions.set(tempKey, internal);
-    await this.threadLoop.startNewThreadAndAwaitId(
-      internal,
-      tempKey,
-      cwd,
-      opts.prompt,
-      opts.attachments,
-      // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步:透传 handOff
-      // 给 thread-loop 让 thread-loop fallback / success 2 处 first-user-message emit 时
-      // spread 进 events.payload(详 plan §不变量 5 — codex 3 处 emit:fallback / success / resume)。
-      opts.handOff,
-    );
-
-    // CHANGELOG_<X> A2a：新建路径拿到 realId 后持久化 sandboxMode + model。
-    // startNewThreadAndAwaitId 内部已 emit session-start（同步派发 → ingest 创建 record），
-    // 此处 persistSessionFields 紧跟 await 之后跑，UPDATE 必然命中。
-    // R37 P2-E Step 3.4b：与 resume 路径同款收口（差异仅 sessionId 来源 = realId vs opts.resume）。
-    // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 同 resume 路径同款。
-    // **plan reverse-rename-sid-stability-20260520 §A.4-pre S5 R3 HIGH-F + S9 修订**:
-    // persistSessionFields 用 internal.applicationSid (spawn 主路径 first thread.started 后切到 realId 冻结);
-    // return handle.sessionId 用 internal.applicationSid (与 claude S5 修订对称)。
-    persistSessionFields({
-      sessionId: internal.applicationSid,
-      sandboxMode,
-      model: opts.model,
-      extraAllowWrite: opts.extraAllowWrite,
+  async createSession(opts: CreateSessionOpts): Promise<CodexSessionHandle> {
+    // Phase 4 Step 4.3 — facade thin delegate (详 create-session/_deps.ts §拆分布局)。
+    // 字段 jsdoc SSOT 在 CreateSessionOpts interface(create-session/_deps.ts);
+    // method 主体抽到 createSessionImpl orchestrator → validate / resume / new 3 子段。
+    return createSessionImpl(opts, {
+      sessions: this.sessions,
+      codexBySession: this.codexBySession,
+      threadLoop: this.threadLoop,
+      emit: this.opts.emit,
+      // arrow 闭包 facade `this`,运行时晚解析 → this.ensureCodex 一定已绑定
+      ensureCodex: (sid, token, extra) => this.ensureCodex(sid, token, extra),
     });
-
-    return { sessionId: internal.applicationSid };
-    } catch (err) {
-      // REVIEW_60 MED-codex-2 + R4 §B 抽法 #3 修法 (与 try L442 配对):
-      // 4 资源 best-effort cleanup 抽到 create-session-rollback.ts helper (REVIEW_60 R4 reviewer-claude
-      // 抽法清单),caller 调完后 throw err。详 helper jsdoc。
-      runCreateSessionRollback({
-        sessionId: initialSid,
-        resumeSessionId: opts.resume,
-        deps: {
-          codexBySession: this.codexBySession,
-          sessions: this.sessions,
-        },
-      });
-      throw err;
-    }
   }
 
   async sendMessage(
