@@ -1,0 +1,8 @@
+✅ IPC handler 现有路径 (adapter.createSession 调用存在)
+✅ IPC handler 现有路径 (buildCreateSessionOptions 调用存在)
+✅ setSpawnLink 仅 mcp tool spawn handler 调
+✅ spawn_depth DDL DEFAULT 0
+✅ recordCreatedPermissionMode 持久化
+✅ buildCreateSessionOptions narrow
+
+6/6 checks pass
