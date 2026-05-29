@@ -79,7 +79,7 @@ skill 入口必须先 AskUserQuestion(2-3 题)对齐:
     participant "git" as Git
     participant "fs" as Fs
 
-    Caller -> Tool: invoke({plan_id, worktree_path, changelog_id})
+    Caller -> Tool: invoke({planId, worktreePath, changelogId})
     Tool -> Git: status --porcelain (worktree clean check)
     Tool -> Git: merge --ff-only worktree-<id>
     Tool -> Fs: mv plan → ref/plans/
