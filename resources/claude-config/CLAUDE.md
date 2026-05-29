@@ -564,8 +564,8 @@ dist/
 |---|---|---|---|
 | 高 | D pure type re-export | +52 LOC | 纯 type / interface declaration 文件 |
 | 中高 | A factory + singleton | +176 LOC | DB repo / 跨 entity store 类 |
-| 中 | B class shell + thin method delegate | +339 LOC | adapter / manager / window 类 |
-| 中低 | C free fn entry + 子模块 named function | +305 LOC | god-function 拆出来的多 phase 流程 |
+| 中 | C free fn entry + 子模块 named function | +305 LOC | god-function 拆出来的多 phase 流程 |
+| 中低 | B class shell + thin method delegate | +339 LOC | adapter / manager / window 类 |
 
 **LOC trade-off**：拆分后总 LOC 升 +20-30% 是 readability tax，**0 runtime overhead**。增量来源 jsdoc 重复 + ctx interface signature 重复。**接受现实**：facade ≤ 500 LOC 让单文件 review 上下文成本可控，trade-off 合理。
 

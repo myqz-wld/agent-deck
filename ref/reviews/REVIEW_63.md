@@ -250,10 +250,10 @@ finding 验证维度:
 |---|---|---|---|
 | 1 (最高) | Pattern D (pure type re-export) | +52 LOC | 4.9 adapters/types / 4.10 shared/settings |
 | 2 | Pattern A (factory + singleton) | +176 LOC | 4.5 task-repo / 4.11 agent-deck-message-repo |
-| 3 | Pattern B (class shell + thin method delegate) | +339 LOC | 4.3 / 4.4 / 4.6 / 4.7 |
-| 4 (最低) | Pattern C (free fn entry + 子模块 named function) | +305 LOC | 4.1 / 4.2 / 4.8 |
+| 3 | Pattern C (free fn entry + 子模块 named function) | +305 LOC | 4.1 / 4.2 / 4.8 |
+| 4 (最低) | Pattern B (class shell + thin method delegate) | +339 LOC | 4.3 / 4.4 sdk-bridge / 4.6 manager / 4.7 window |
 
-**Pattern C 增量最大**主因 god-function 拆出来的子模块需要 ctx interface 显式签名 + 共享 helper 多 + phase 顺序硬约束 jsdoc 重复。
+**Pattern B 增量最大**主因 class shell + thin method delegate (adapter / manager / window 类) method 多 + delegate boilerplate 重复 + 跨 method 共享 ctx 在 facade 全 spread。
 
 ### E3: Step 4.x.0 mini-spike + user 1-min confirm 模式有效
 
