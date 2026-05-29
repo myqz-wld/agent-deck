@@ -34,6 +34,20 @@ export function LifecycleSection({ settings, update }: Props): JSX.Element {
         min={0}
         onChange={(v) => void update({ historyRetentionDays: v })}
       />
+      {/* plan issue-tracker-mcp-20260529 §Step 3.9 §D13 GC 阈值：与 historyRetentionDays 同款
+          GC 性质,挂同 section 让用户一站式找到所有 GC 阈值（IssueLifecycleScheduler 6h tick） */}
+      <NumberInput
+        label="Issue 已解决保留（天，0 = 关闭 GC）"
+        value={settings.issueResolvedRetentionDays}
+        min={0}
+        onChange={(v) => void update({ issueResolvedRetentionDays: v })}
+      />
+      <NumberInput
+        label="Issue 已软删保留（天，0 = 关闭 GC）"
+        value={settings.issueSoftDeletedRetentionDays}
+        min={0}
+        onChange={(v) => void update({ issueSoftDeletedRetentionDays: v })}
+      />
     </Section>
   );
 }
