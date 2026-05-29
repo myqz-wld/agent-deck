@@ -55,6 +55,12 @@ export type {
   PostFfMergePhase,
 } from './archive-plan/_impl-shared';
 
+// Step 4.12 R1 codex HIGH-1 fix: facade byte-identical re-export contract — baseline
+// 9a03b46 archive-plan-impl.ts:1266 直接 export function postFfMergeErr (value export),
+// 拆分后函数移到 ./archive-plan/_impl-shared.ts 必须从 facade re-export 让旧 caller
+// `from '@main/agent-deck-mcp/tools/handlers/archive-plan-impl'` 仍能拿到该 value。
+export { postFfMergeErr } from './archive-plan/_impl-shared';
+
 // ===========================================================================
 // precheck-helpers re-export (Step 4.2 前的 CHANGELOG_169 F1 Step 1.2 抽出层不动)
 // ===========================================================================
