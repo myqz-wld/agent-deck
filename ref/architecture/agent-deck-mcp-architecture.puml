@@ -47,10 +47,21 @@ Repos --> DB
 
 note bottom of Handler
   专题子图(深入看实施细节):
-  - **archive-plan** 收口流程: archive-plan-architecture + archive-plan-state-machine
-  - **hand-off-session** 接力: hand-off-session-architecture + hand-off-session-state-machine
-  - **sdk-bridge** 双端: sdk-bridge-architecture + sdk-bridge-state-machine
-  - **消息派发**: universal-message-status-state-machine
+  - **archive-plan** 收口:
+    架构 = archive-plan-architecture + archive-plan-state-machine
+    流程 = archive-plan-flow + archive-plan-precheck-decision
+  - **hand-off-session** 接力:
+    架构 = hand-off-session-architecture + hand-off-session-state-machine
+    流程 = hand-off-session-flow + hand-off-session-decision
+  - **sdk-bridge** 双端:
+    架构 = sdk-bridge-architecture + sdk-bridge-state-machine
+    流程 = sdk-bridge-resume-recovery-flow + sdk-bridge-recovery-decision
+  - **消息派发**:
+    架构 = universal-message-status-state-machine
+    流程 = universal-message-dispatch-flow + universal-message-dispatch-decision
+  - **mcp tool 调用通用流程**: agent-deck-mcp-tool-call-flow
+
+  INDEX 索引: ref/architecture/INDEX.md + ref/flows/INDEX.md (双索引)
 end note
 
 note bottom of Repos
