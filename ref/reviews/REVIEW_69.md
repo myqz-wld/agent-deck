@@ -70,5 +70,9 @@ reviewer-claude 环境性缺席（非漏审，CLI 系统性 hang）→ 单 revie
 
 ## 已知未做（环境约束）
 
-- **打包验证**：codex-binary HIGH-1 + MED-3 修法均影响打包 .app 行为，但本会话**未** `pnpm dist` + 装 .app 端到端实测（避免干扰运行中应用实例 / 并发会话）。修法基于 SDK 源码逻辑对齐 + 单测覆盖，下次打包后建议 spot-check codex 起得来 + 文件搜索类 shell tool 正常。
+- **打包验证（MED-3 已端到端实测，2026-05-31 后续会话补做）**：`/Applications/Agent Deck.app`（5/31 00:16 重打包，已含修复 + bundled rg）受控对比实测，铁证如下：
+  - **codex 内置 search（codex 自己 spawn rg）不依赖 PATH**：`codex doctor --json` 在「PATH 含 codex-path」与「PATH 无 codex-path」两组结果完全一致，均 `provider=bundled` + status=ok + 指向旁邻 `vendor/<triple>/codex-path/rg`。补充验证：把 codex 二进制 `cp` 到孤立目录（无旁邻 bundled rg）+ PATH 无 rg → 退化 `provider=system` / status=**warning**「search command could not be verified」；PATH 有系统 rg → 回退 `provider=system` ok。**结论**：真实 .app 布局下二进制与 codex-path 永远同在 `vendor/<triple>/`，codex 内置 search 永远命中旁邻 bundled rg，即便不修复也不退化 → issue 担忧的「内置 search 退化」前提在真实布局下**不成立**。
+  - **model 手敲 `rg` 的 shell 命令纯靠 PATH（修复必要且有效）**：`codex sandbox -- /bin/sh -c 'command -v rg'` 受控对比 — A 组（PATH 无 codex-path，修复前模拟）子 shell `RG_MISSING`；B 组（PATH prepend codex-path，修复后模拟）子 shell `RG_FOUND` → bundled rg 绝对路径。codex 把自身 PATH 原样透传给被执行命令子进程（仅前置 arg0 shim 目录），故 `prependBundledCodexPathDirs(envOverride)` → codex 进程 PATH → model shell 命令子进程，链路闭环。**结论**：修复对「model 手敲 rg」这类场景必要且有效。
+  - **综合定级**：MED-3 实际影响面比初判窄（仅 model 手敲 rg / 其他 bundled helper 的 shell 命令，不含 codex 内置 search），但修复无害且补齐了 shell-command PATH 一致性。残留风险已清。回归测试 `codex-binary-layout.test.ts` 10 case 全绿。
+- **HIGH-1（二进制路径双布局）端到端**：同次实测确认 .app 内 `vendor/<triple>/bin/codex`（197MB）存在 → new 布局命中，`codex --version` = `codex-cli 0.135.0` 正常起。
 - **Area 1/3 提示词资产**：检测到并发会话正在编辑 `CLAUDE.md` / `CODEX_AGENTS.md` / `INDEX.md` + 新建 `CHANGELOG_187.md`（done-but-uncommitted，本会话期间 mtime 19:28-19:30 后静默 2h+）→ 为避免写冲突全程未碰，留并发会话 / user 收口。本会话 read-only 核实：codex/claude 配置对偶**实际维护良好非缺失**（3 skills 双端齐全 / plugin.json claude-only 是 SDK plugins[] vs 文件安装的刻意架构差异 / agent body 功能对偶）。
