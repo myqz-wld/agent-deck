@@ -81,8 +81,9 @@ export const IpcInvoke = {
   /**
    * 6 个 IPC channel 给 UI Issues tab 用（agent 不消费这些 — 与 mcp tool 路径正交）。
    *
-   * **§不变量 1**: agent 只走 mcp tool report_issue / append_issue_context（仅 2 个 write），
-   * read/admin 全部走本组 IPC channel 给 UI 用。两套通道完全隔离。
+   * **§不变量 1**: agent 走 mcp tool 写 issue（report_issue / append_issue_context / update_issue_status，
+   * 3 个 write）；其中 update_issue_status 让源 / 解决会话能自助改 status，其余 read/admin（list / get /
+   * 软删等）全部走本组 IPC channel 给 UI 用。两套通道完全隔离。
    *
    * `IssuesResolveInNewSession` 走 D14 选定路径 (b) — `adapter.createSession(buildCreateSessionOptions(...))`
    * 绕过 mcp tool 层 spawn-guards 三道防御（UI 触发不是 agent spawn agent，不适用）；

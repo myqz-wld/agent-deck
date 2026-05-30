@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   issueRepo: {
     create: vi.fn(),
     get: vi.fn(),
+    update: vi.fn(),
     appendContext: vi.fn(),
     listAppendices: vi.fn(),
   },
@@ -49,9 +50,11 @@ const mockSessions = (sessionRepo as unknown as { __sessions: Map<string, unknow
 
 import { reportIssueHandler } from '../tools/handlers/report-issue';
 import { appendIssueContextHandler } from '../tools/handlers/append-issue-context';
+import { updateIssueStatusHandler } from '../tools/handlers/update-issue-status';
 import {
   REPORT_ISSUE_SCHEMA,
   APPEND_ISSUE_CONTEXT_SCHEMA,
+  UPDATE_ISSUE_STATUS_SCHEMA,
   LOGS_REF_SCHEMA,
 } from '../tools/schemas';
 import { z } from 'zod';
@@ -92,10 +95,12 @@ function makeIssue(overrides: Partial<IssueRecord> = {}): IssueRecord {
 
 const REPORT_SCHEMA_OBJ = z.object(REPORT_ISSUE_SCHEMA);
 const APPEND_SCHEMA_OBJ = z.object(APPEND_ISSUE_CONTEXT_SCHEMA);
+const UPDATE_STATUS_SCHEMA_OBJ = z.object(UPDATE_ISSUE_STATUS_SCHEMA);
 
 beforeEach(() => {
   mockIssueRepo.create.mockReset();
   mockIssueRepo.get.mockReset();
+  mockIssueRepo.update.mockReset();
   mockIssueRepo.appendContext.mockReset();
   mockIssueRepo.listAppendices.mockReset();
   mockEventBus.emit.mockReset();
@@ -491,9 +496,10 @@ describe('append_issue_context — args.logsRef 完整透传到 issueRepo.append
 // §11 external caller deny — EXTERNAL_CALLER_ALLOWED 矩阵 + denyExternalIfNotAllowed
 // ═══════════════════════════════════════════════════════════════════════════
 describe('issue tool external caller deny (§不变量 7)', () => {
-  it('EXTERNAL_CALLER_ALLOWED 17 entries 含两 issue write tool 都 false', () => {
+  it('EXTERNAL_CALLER_ALLOWED 含 3 个 issue write tool 都 false', () => {
     expect(EXTERNAL_CALLER_ALLOWED.report_issue).toBe(false);
     expect(EXTERNAL_CALLER_ALLOWED.append_issue_context).toBe(false);
+    expect(EXTERNAL_CALLER_ALLOWED.update_issue_status).toBe(false);
   });
 
   it('HTTP transport external caller (sentinel) — report_issue DENY', () => {
@@ -553,8 +559,198 @@ describe('issue tool external caller deny (§不变量 7)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §args zod 边界（title / description / additionalContext 长度守门）
+// §12 update_issue_status — 源/解决会话授权 + note 留痕 + 软删/enum/external
+// （plan issue-tracker 体验改进 20260531 §需求3）
 // ═══════════════════════════════════════════════════════════════════════════
+describe('update_issue_status — 源/解决会话自助改 status', () => {
+  it('happy: 源会话改 status=resolved → 调 update + emit kind=updated + 返回完整 record', async () => {
+    const issue = makeIssue({ sourceSessionId: 'sess-caller', status: 'in-progress' });
+    const updated = makeIssue({ sourceSessionId: 'sess-caller', status: 'resolved' });
+    mockIssueRepo.get.mockReturnValue(issue);
+    mockIssueRepo.update.mockReturnValue(updated);
+    mockIssueRepo.listAppendices.mockReturnValue([]);
+
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved' },
+      makeCtx('sess-caller'),
+    );
+
+    expect(mockIssueRepo.update).toHaveBeenCalledWith('issue-1', { status: 'resolved' });
+    expect(mockIssueRepo.appendContext).not.toHaveBeenCalled(); // 无 note
+    expect(mockEventBus.emit).toHaveBeenCalledWith(
+      'issue-changed',
+      expect.objectContaining({ kind: 'updated', issueId: 'issue-1' }),
+    );
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ id: 'issue-1', status: 'resolved' });
+  });
+
+  it('解决会话授权：resolutionSessionId === callerSid 放行（source 是别人）', async () => {
+    const issue = makeIssue({
+      sourceSessionId: 'sess-orig',
+      resolutionSessionId: 'sess-resolver',
+      status: 'in-progress',
+    });
+    mockIssueRepo.get.mockReturnValue(issue);
+    mockIssueRepo.update.mockReturnValue(makeIssue({ status: 'resolved' }));
+    mockIssueRepo.listAppendices.mockReturnValue([]);
+
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved' },
+      makeCtx('sess-resolver'),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockIssueRepo.update).toHaveBeenCalledWith('issue-1', { status: 'resolved' });
+  });
+
+  it('第三方 reject：caller 既非 source 又非 resolution → isError + hint + 不调 update', async () => {
+    mockIssueRepo.get.mockReturnValue(
+      makeIssue({ sourceSessionId: 'sess-orig', resolutionSessionId: 'sess-resolver' }),
+    );
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved' },
+      makeCtx('sess-third-party'),
+    );
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error).toMatch(/neither source/);
+    expect(parsed.error).toMatch(/caller=sess-third-party/);
+    expect(parsed.hint).toMatch(/源会话.*或.*解决会话/);
+    expect(mockIssueRepo.update).not.toHaveBeenCalled();
+    expect(mockEventBus.emit).not.toHaveBeenCalled();
+  });
+
+  it('note 留痕：传 note → appendContext 被调（appendedSessionId=callerSid）+ 随后 update', async () => {
+    const issue = makeIssue({ sourceSessionId: 'sess-caller', status: 'open' });
+    mockIssueRepo.get.mockReturnValue(issue);
+    mockIssueRepo.appendContext.mockReturnValue(issue);
+    mockIssueRepo.update.mockReturnValue(makeIssue({ status: 'resolved' }));
+    mockIssueRepo.listAppendices.mockReturnValue([]);
+
+    await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved', note: '改了 X 行修复' },
+      makeCtx('sess-caller'),
+    );
+
+    expect(mockIssueRepo.appendContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: 'issue-1',
+        body: '改了 X 行修复',
+        logsRef: null,
+        appendedSessionId: 'sess-caller',
+      }),
+    );
+    expect(mockIssueRepo.update).toHaveBeenCalledWith('issue-1', { status: 'resolved' });
+  });
+
+  it('non-existent issueId reject + 不调 update', async () => {
+    mockIssueRepo.get.mockReturnValue(null);
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-ghost', status: 'resolved' },
+      makeCtx('sess-caller'),
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toMatch(/issue issue-ghost not found/);
+    expect(mockIssueRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('软删 reject（即使是源会话）', async () => {
+    mockIssueRepo.get.mockReturnValue(
+      makeIssue({ sourceSessionId: 'sess-caller', deletedAt: Date.now() }),
+    );
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved' },
+      makeCtx('sess-caller'),
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toMatch(/已软删/);
+    expect(mockIssueRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('status enum：zod reject 非法值（如 "done"）', () => {
+    expect(
+      UPDATE_STATUS_SCHEMA_OBJ.safeParse({ issueId: 'i1', status: 'done' }).success,
+    ).toBe(false);
+    for (const s of ['open', 'in-progress', 'resolved'] as const) {
+      expect(
+        UPDATE_STATUS_SCHEMA_OBJ.safeParse({ issueId: 'i1', status: s }).success,
+      ).toBe(true);
+    }
+  });
+
+  it('note zod 边界：空字符串 reject / > 2000 reject', () => {
+    expect(
+      UPDATE_STATUS_SCHEMA_OBJ.safeParse({ issueId: 'i1', status: 'open', note: '' }).success,
+    ).toBe(false);
+    expect(
+      UPDATE_STATUS_SCHEMA_OBJ.safeParse({
+        issueId: 'i1',
+        status: 'open',
+        note: 'a'.repeat(2001),
+      }).success,
+    ).toBe(false);
+  });
+
+  it('external deny：EXTERNAL_CALLER_ALLOWED.update_issue_status === false + http/stdio sentinel DENY', () => {
+    expect(EXTERNAL_CALLER_ALLOWED.update_issue_status).toBe(false);
+    for (const transport of ['http', 'stdio'] as const) {
+      const denial = denyExternalIfNotAllowed('update_issue_status', {
+        callerSessionId: EXTERNAL_CALLER_SENTINEL,
+        transport,
+      });
+      expect(denial).not.toBeNull();
+      expect(denial?.isError).toBe(true);
+    }
+  });
+
+  it('双 null reject（review Round 1）：source/resolution 皆 null（会话被 GC）→ 任意 caller reject + 不调 update', async () => {
+    // §12.3 第三方 reject 用的是 source/resolution 皆**非** null（两个具体 sid）+ 第三方 caller，
+    // 不等价于本 cell：source/resolution 皆 null（会话被 GC 后字段清空）时任意 caller 都该 reject
+    // ——只能走 UI 改 status。验证 `null === callerSid` 恒 false（callerSid 由 makeCallerContext
+    // 保证非空 string），不会因 `null===null` 误放行。
+    mockIssueRepo.get.mockReturnValue(
+      makeIssue({ sourceSessionId: null, resolutionSessionId: null, status: 'in-progress' }),
+    );
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved' },
+      makeCtx('sess-anyone'),
+    );
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error).toMatch(/neither source/);
+    expect(parsed.error).toMatch(/source \(<null>\) nor resolution \(<null>\)/);
+    expect(mockIssueRepo.update).not.toHaveBeenCalled();
+    expect(mockEventBus.emit).not.toHaveBeenCalled();
+  });
+
+  it('部分失败（review Round 1）：note appendContext 成功但 update 返 null（TOCTOU hardDelete）→ isError + 已写 note', async () => {
+    // note 与 update 非同一事务（benign 窗口，见 handler 注释）。appendContext 已 commit 后
+    // update 返 null（race hardDelete）→ handler 返 "disappeared during update" err；note appendix
+    // 走 FK CASCADE 随 issue 删不残留。本用例验证返回契约：isError + appendContext 确实被调过。
+    const issue = makeIssue({ sourceSessionId: 'sess-caller', status: 'open' });
+    mockIssueRepo.get.mockReturnValue(issue);
+    mockIssueRepo.appendContext.mockReturnValue(issue);
+    mockIssueRepo.update.mockReturnValue(null); // race: issue 在 append 与 update 间被 hardDelete
+
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved', note: '修复说明' },
+      makeCtx('sess-caller'),
+    );
+
+    expect(mockIssueRepo.appendContext).toHaveBeenCalledWith(
+      expect.objectContaining({ issueId: 'issue-1', body: '修复说明', appendedSessionId: 'sess-caller' }),
+    );
+    // reviewer-codex R2 INFO：断言 update 真被调（否则未来实现改成 append 后直接 err 不试 update，
+    // 本用例仍会误过）—— 验证「确实走到 update 那步、是 update 返 null 触发 err」而非提前短路。
+    expect(mockIssueRepo.update).toHaveBeenCalledWith('issue-1', { status: 'resolved' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toMatch(/disappeared during update/);
+    expect(mockEventBus.emit).not.toHaveBeenCalled(); // update 失败 → 不 emit
+  });
+});
+
+
 describe('report_issue / append_issue_context args zod 边界', () => {
   it('reject report_issue title 空字符串', () => {
     expect(

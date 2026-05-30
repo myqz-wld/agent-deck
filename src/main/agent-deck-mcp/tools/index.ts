@@ -1,6 +1,7 @@
 /**
- * Agent Deck MCP server 的 17 个 in-process tool 注册 facade（B'0 ADR §3；10 现有 + 5 task + 2 issue —
- * plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 task-manager + issue-tracker-mcp-20260529 加 issue 工具后）。
+ * Agent Deck MCP server 的 18 个 in-process tool 注册 facade（B'0 ADR §3；10 现有 + 5 task + 3 issue —
+ * plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 task-manager + issue-tracker-mcp-20260529 加 2 issue tool
+ * + 体验改进 20260531 §需求3 加 update_issue_status 后）。
  *
  * 三 transport（in-process / HTTP / stdio）共享同一份 buildAgentDeckTools 输出；
  * transport 层负责 caller-id 注入策略：
@@ -56,6 +57,7 @@ import {
   TASK_DELETE_SCHEMA,
   REPORT_ISSUE_SCHEMA,
   APPEND_ISSUE_CONTEXT_SCHEMA,
+  UPDATE_ISSUE_STATUS_SCHEMA,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
@@ -74,6 +76,7 @@ import { taskUpdateHandler } from './handlers/task-update';
 import { taskDeleteHandler } from './handlers/task-delete';
 import { reportIssueHandler } from './handlers/report-issue';
 import { appendIssueContextHandler } from './handlers/append-issue-context';
+import { updateIssueStatusHandler } from './handlers/update-issue-status';
 
 // helpers 子集 re-export，保持老 caller 兼容（外部对 makeCallerContext / denyExternalIfNotAllowed
 // 的 import 路径 `from './tools'` 仍能 resolve）。
@@ -439,13 +442,13 @@ export async function buildAgentDeckTools(
     },
   );
 
-  // plan issue-tracker-mcp-20260529 §Step 3.3.5 + §不变量 1：仅 2 个 write tool 挂出来（agent
-  // 只写不查 — read/admin 走 IPC channels 给 UI 端）。**没有** issue_list / issue_get / issue_update /
-  // issue_delete tool（不是 deny external — 是根本不存在）。schema 与 handler 已就绪,annotations
-  // 与 task_create 同款（写表 INSERT 非破坏不幂等不外联）。
+  // plan issue-tracker-mcp-20260529 §Step 3.3.5 + 体验改进 20260531 §需求3：3 个 issue write tool。
+  // report_issue / append_issue_context 仍是「只写不查」（**没有** issue_list / issue_get / issue_delete —
+  // read/admin 走 IPC channels 给 UI 端）；update_issue_status 是受控开口让源 / 解决会话自助推进 status。
+  // annotations 与 task_create 同款（写表 INSERT 非破坏不幂等不外联）。
   const reportIssue = tool(
     AGENT_DECK_TOOL_NAMES.reportIssue,
-    `Report a new issue from this SDK session (agent execution problem tracker). **agent 只写不查** (§不变量 1): only 2 write tools exposed (report_issue + append_issue_context), no list/get/update/delete tools — UI is responsible for read/admin via IPC channels. \`sourceSessionId\` is closure-injected from callerSessionId (§不变量 3 source = owner). Returns the full IssueRecord (含 issueId for follow-up append_issue_context calls in same session). Defaults: kind="follow-up" (soft enum + free-form fallback — non-enum values stored as-is, UI groups under "other"; recommended values: "follow-up" / "app-bug" / "external-tooling-bug" / "convention-gap" / "enhancement"), severity="medium" (strict enum low/medium/high), cwd fallback chain: args.cwd > caller session cwd > null. \`logsRef\` is a reference (not log content) — see logsRef schema for {date YYYY-MM-DD, tsRange?, scopes?, note?} structure; UI renders as pointer to runtime-logging plan log files.`,
+    `Report a new issue from this SDK session (agent execution problem tracker). **agent write-only for reporting** (§不变量 1): no list/get/delete tools — UI is responsible for read/admin via IPC channels (the only status-write opening is update_issue_status for the source/resolution session). \`sourceSessionId\` is closure-injected from callerSessionId (§不变量 3 source = owner). Returns the full IssueRecord — its primary key field is \`id\` (NOT \`issueId\`); pass that \`id\` as the \`issueId\` arg of follow-up append_issue_context / update_issue_status calls in the same session. Defaults: kind="follow-up" (soft enum + free-form fallback — non-enum values stored as-is, UI groups under "other"; recommended values: "follow-up" / "app-bug"), severity="medium" (strict enum low/medium/high), cwd fallback chain: args.cwd > caller session cwd > null. \`logsRef\` is a reference (not log content) — see logsRef schema for {date YYYY-MM-DD, tsRange?, scopes?, note?} structure; UI renders as pointer to runtime-logging plan log files.`,
     REPORT_ISSUE_SCHEMA,
     async (args, extra) => reportIssueHandler(args, makeCtx(args, extra)),
     {
@@ -462,12 +465,32 @@ export async function buildAgentDeckTools(
 
   const appendIssueContext = tool(
     AGENT_DECK_TOOL_NAMES.appendIssueContext,
-    `Append additional context to an issue YOU previously reported in this same session. **Strict source-bound** (§D10 / §不变量 3): rejects if \`issue.sourceSessionId !== callerSessionId\` (cross-session / cross-caller / hand_off after losing issueId → use report_issue to create a new issue, UI will manually merge). **Rejects if status='resolved'** (§D7): resolved issues don't accept appends; UI can manually flip status back to in-progress to re-enable appending. Append does NOT modify \`issues.description\` (§不变量 9): new content goes to \`issue_appendices\` subtable (immutable from agent perspective; UI renders read-only); optional \`logsRef\` merged into \`issues.logs_ref\` per §D17 (date overwrite / tsRange min-max extend / scopes union+dedup / note append-then-truncate-from-head). Returns the full IssueRecord including the updated \`appendices\` list (so UI can emit 'issue-changed' kind='appended' with full record — no separate IPC fetch needed §D19).`,
+    `Append additional context to an issue YOU previously reported in this same session. **Strict source-bound** (§D10 / §不变量 3): rejects if \`issue.sourceSessionId !== callerSessionId\` (cross-session / cross-caller / hand_off after losing issueId → use report_issue to create a new issue, UI will manually merge). **Rejects if status='resolved'** (§D7): resolved issues don't accept appends; the source/resolution session can flip status back via update_issue_status (or UI can), then append again. Append does NOT modify \`issues.description\` (§不变量 9): new content goes to \`issue_appendices\` subtable (immutable from agent perspective; UI renders read-only); optional \`logsRef\` merged into \`issues.logs_ref\` per §D17 (date overwrite / tsRange min-max extend / scopes union+dedup / note append-then-truncate-from-head). Returns the full IssueRecord including the updated \`appendices\` list (so UI can emit 'issue-changed' kind='appended' with full record — no separate IPC fetch needed §D19).`,
     APPEND_ISSUE_CONTEXT_SCHEMA,
     async (args, extra) => appendIssueContextHandler(args, makeCtx(args, extra)),
     {
       // append_issue_context: 写 issue_appendices 表 INSERT + 可选 issues.logs_ref UPDATE，不破坏
       // 不幂等（重复 append 累积多行 + logsRef merge 算法非幂等）；不与外部世界交互。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+  );
+
+  // plan issue-tracker 体验改进 20260531 §需求3：受控开口让源 / 解决会话自助推进 status
+  // （打破旧「agent 永不改 status」铁律）。授权边界 source OR resolution session;可选 note 留痕。
+  const updateIssueStatus = tool(
+    AGENT_DECK_TOOL_NAMES.updateIssueStatus,
+    `Update the status of an issue YOU are responsible for — authorized only when the caller is the issue's **source session** (the one that report_issue'd it) OR its **resolution session** (the session UI「起新会话解决」spawned to fix it). Use this to self-resolve an issue you fixed (status='resolved') or reopen one (status='open' / 'in-progress') without a human touching the UI. Third-party callers (neither source nor resolution) are rejected. Optional \`note\` (1-2000 chars) is recorded as an appendix for traceability (how it was fixed / why reopened). Rejects soft-deleted issues. Returns the full IssueRecord (with appendices) and emits 'issue-changed' kind='updated' so the UI refreshes live. deny external caller.`,
+    UPDATE_ISSUE_STATUS_SCHEMA,
+    async (args, extra) => updateIssueStatusHandler(args, makeCtx(args, extra)),
+    {
+      // update_issue_status: 写 issues.status UPDATE（+ 可选 appendix INSERT）。破坏性低但改状态机
+      // （进 resolved 触发 GC 倒计时）→ destructiveHint:false 但 idempotentHint:false（note 每次累积新
+      // appendix；重复设同 status 本身幂等但 note 非幂等）。不与外部世界交互。
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -495,5 +518,6 @@ export async function buildAgentDeckTools(
     taskDelete,
     reportIssue,
     appendIssueContext,
+    updateIssueStatus,
   ];
 }

@@ -1,10 +1,11 @@
-' description: issue 生命周期 state machine — status 3 态 (UI 推进) + soft-delete / GC 双轨硬删
-' last_updated: 2026-05-30
+' description: issue 生命周期 state machine — status 3 态 (UI + 源/解决会话推进) + soft-delete / GC 双轨硬删
+' last_updated: 2026-05-31
 @startuml issue-tracker-state-machine
 
-title issue 生命周期 — status 3 态 (仅 UI 推进) + soft-delete / GC 双轨硬删
+title issue 生命周期 — status 3 态 (UI + 源/解决会话 update_issue_status 推进) + soft-delete / GC 双轨硬删
 
-' status (open/in-progress/resolved) 与 deleted_at 正交; agent 永不改 status §D7
+' status (open/in-progress/resolved) 与 deleted_at 正交
+' status 推进: UI IPC OR 源/解决会话经 update_issue_status mcp tool (§D7 + CHANGELOG_189)
 ' 详细 transition test (8 case) / REVIEW 见 INDEX 第 3 列
 
 state "存活 (deleted_at = null)" as Live {
@@ -13,12 +14,12 @@ state "存活 (deleted_at = null)" as Live {
   state "resolved\n(进入时 resolved_at = now)" as Resolved
 
   [*] --> Open : report_issue 创建
-  Open --> InProgress : UI 改 status / ResolveInNewSession 起会话
-  Open --> Resolved : UI 改 status
-  InProgress --> Resolved : UI 改 status (非resolved→resolved 写 resolved_at)
-  Resolved --> InProgress : UI 改回 (resolved_at 保留不动)
-  Resolved --> Open : UI 改回
-  InProgress --> Open : UI 改回
+  Open --> InProgress : UI / update_issue_status\nResolveInNewSession 起会话
+  Open --> Resolved : UI / update_issue_status
+  InProgress --> Resolved : UI / update_issue_status\n(非resolved→resolved 写 resolved_at)
+  Resolved --> InProgress : UI / update_issue_status\n(reopen, resolved_at 保留不动)
+  Resolved --> Open : UI / update_issue_status (reopen)
+  InProgress --> Open : UI / update_issue_status
 }
 
 state "软删 (deleted_at = now)\nUI 列表默认隐藏" as SoftDeleted
@@ -31,8 +32,12 @@ Resolved --> HardDeleted : GC: resolved_at < now - resolvedRetentionDays (默认
 HardDeleted --> [*]
 
 note bottom
-  **agent 永不改 status** (§D7): status 仅 UI IPC zod enum 推进; agent 只 report (创 open) + append (写子表)
+  **status 推进双通道** (§D7 + CHANGELOG_189 协议变更): status 由 (a) UI IPC zod enum 或
+  (b) 源/解决会话经 update_issue_status mcp tool 推进 (授权 sourceSessionId||resolutionSessionId
+  === callerSid; 第三方/双null/软删 reject; deny external)。agent: report 创 open + append 写子表
+  + update_issue_status 改 status; 其余 read/admin (list/get/delete) 仍仅 UI
   **resolved_at 状态机** (§D15): 仅 非resolved→resolved 写 now; resolved→其他 / 其他→其他 不动 resolved_at
+    (reopen 保留 resolved_at 避免 GC 误删; UI 显示「上次解决于」区分当前非 resolved)
   **append 正交**: append_issue_context 写 issue_appendices 子表, 不改 status / 不触发任何 transition
   **GC 双轨** (§D13, IssueLifecycleScheduler 6h tick, 阈值=0 关该轨):
     · resolved 超 resolvedRetentionDays → 直接硬删 (不经 soft-delete)

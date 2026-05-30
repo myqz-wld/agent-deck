@@ -48,7 +48,8 @@ interface IssuesState {
 export const useIssuesStore = create<IssuesState>((set) => ({
   issues: new Map(),
   selectedIssueId: null,
-  filters: { showDeleted: false }, // 默认隐藏软删
+  // 默认「活跃」视图：只显示 open + in-progress，隐藏 resolved（resolved 走「已解决」tab）+ 隐藏软删
+  filters: { statuses: ['open', 'in-progress'], showDeleted: false },
 
   setIssues: (records) => {
     const next = new Map<string, IssueRecord>();
