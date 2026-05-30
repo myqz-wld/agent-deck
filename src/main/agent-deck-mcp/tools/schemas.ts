@@ -1,5 +1,5 @@
 /**
- * Agent Deck MCP server 15 tool 的 zod schema 集中地（10 现有 + 5 task — plan task-mcp-merge-into-agent-deck-mcp-20260521 合并）。
+ * Agent Deck MCP server 17 tool 的 zod schema 集中地（10 现有 + 5 task + 2 issue — plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 task；issue-tracker-mcp-20260529 加 report_issue / append_issue_context）。
  * 三 transport（in-process / HTTP / stdio）共享同一份 schema。
  *
  * 历史：从原 src/main/agent-deck-mcp/tools.ts 剥离（CHANGELOG_81 / plan
@@ -45,7 +45,11 @@ export const STATUS_VALUES = [
 export type TaskStatusValue = (typeof STATUS_VALUES)[number];
 
 export const SPAWN_SESSION_SCHEMA = {
-  adapter: z.enum(['claude-code', 'codex-cli']),
+  adapter: z
+    .enum(['claude-code', 'codex-cli'])
+    .describe(
+      'Which SDK adapter runs the new session: "claude-code" (Claude Code) or "codex-cli" (codex). 跨 adapter 起异构 reviewer pair 时按需选 — lead 自身 adapter 与此无关。',
+    ),
   cwd: z
     .string()
     .min(1)
@@ -53,9 +57,25 @@ export const SPAWN_SESSION_SCHEMA = {
     .refine(
       (p) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p),
       'Must be absolute path',
+    )
+    .describe(
+      'Working directory for the new session. Must be an absolute path (e.g. /Users/.../repo or a worktree dir); relative paths are rejected.',
     ),
-  prompt: z.string().min(1).max(100_000),
-  teamName: z.string().min(1).max(128).optional(),
+  prompt: z
+    .string()
+    .min(1)
+    .max(100_000)
+    .describe(
+      'First user message sent to the new session (the task / instructions). When agentName is set, that agent body is auto-prepended to this prompt.',
+    ),
+  teamName: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'Optional team to form. Omit = standalone session (no team — caller cannot send_message it). Set = caller becomes lead + new session joins as teammate, so the two can send_message each other (reviewer pair / 多轮协作). Reuses an existing team of the same name.',
+    ),
   /**
    * 可选 plugin agent body 自动注入（CHANGELOG_76 / plan deep-review-flow-fix D1）：
    * 非空时 in-process / HTTP / stdio handler 都会按 plugin agents registry 找 body file
@@ -90,19 +110,19 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional()
     .describe(
-      'REVIEW_32 HIGH-5: 不传时从 lead session（callerSessionId 对应 row）继承；caller 显式传则覆盖。external caller (caller 不在 sessions 表) 不继承，沿用 adapter 默认。',
+      '不传时从 lead session（callerSessionId 对应 row）继承；caller 显式传则覆盖。external caller (caller 不在 sessions 表) 不继承，沿用 adapter 默认。',
     ),
   codexSandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      'REVIEW_32 HIGH-5: 不传时从 lead 继承；caller 显式传覆盖。**P5 Round 1 reviewer-codex M3 修法 (clarify 契约边界)**：reviewer-* teammate spawn 路径 (agentName="reviewer-claude" / "reviewer-codex") 由 options-builder 强制 spread "workspace-write" (plan §不变量 6 — reviewer body 内 Bash/shell 工具需读源码 + 写中间文件)，caller 显式传 codexSandbox 会被 reviewer-* unsafe default override + 主进程 console.warn 提示。如需严格 read-only 给 reviewer，目前不支持 — reviewer body 设计依赖 workspace-write。',
+      '不传时从 lead 继承；caller 显式传覆盖。**P5 Round 1 reviewer-codex M3 修法 (clarify 契约边界)**：reviewer-* teammate spawn 路径 (agentName="reviewer-claude" / "reviewer-codex") 由 options-builder 强制 spread "workspace-write" (plan §不变量 6 — reviewer body 内 Bash/shell 工具需读源码 + 写中间文件)，caller 显式传 codexSandbox 会被 reviewer-* unsafe default override + 主进程 console.warn 提示。如需严格 read-only 给 reviewer，目前不支持 — reviewer body 设计依赖 workspace-write。',
     ),
   claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
-      'REVIEW_32 HIGH-5: claude-code adapter 沙盒切档（off / workspace-write / strict）。不传时从 lead 继承（避免 spawn 出的 reviewer-codex 被外层 sandbox 拦 in-process app-server 初始化）。caller 显式传覆盖。',
+      'claude-code adapter 沙盒切档（off / workspace-write / strict）。不传时从 lead 继承（避免 spawn 出的 reviewer-codex 被外层 sandbox 拦 in-process app-server 初始化）。caller 显式传覆盖。',
     ),
   /**
    * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
@@ -115,7 +135,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(16)
     .optional()
     .describe(
-      'REVIEW_36 R2 HIGH-B + MED-C: claude-code adapter 沙盒额外 writable roots（仅 workspace-write 档生效；strict / off 忽略）。每个绝对路径加进 sandbox.allowWrite 让 SDK 子进程能写。典型：hand_off_session 外置 worktree → 传 [mainRepo] 让 plan 文件路径不被 sandbox 拦。',
+      'claude-code adapter 沙盒额外 writable roots（仅 workspace-write 档生效；strict / off 忽略）。每个绝对路径加进 sandbox.allowWrite 让 SDK 子进程能写。典型：hand_off_session 外置 worktree → 传 [mainRepo] 让 plan 文件路径不被 sandbox 拦。',
     ),
   callerSessionId: z
     .string()
@@ -123,9 +143,14 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / archive_plan / hand_off_session 等）会被拒。',
     ),
-  parentSessionId: z.string().min(1).max(128).optional(),
+  parentSessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe('Internal plumbing — direct callers leave unset（spawn-link 父子关系由 handler 维护）。'),
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
   // hand_off_session handler 装配后透传给本 spawn handler,后者透传给 buildCreateSessionOptions
   // → adapter narrow → bridge createSession → finalize / thread-loop / resume emit first user
@@ -153,7 +178,7 @@ export const SEND_MESSAGE_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / archive_plan / hand_off_session 等）会被拒。',
     ),
   // R3.E0 ADR §5.2 amend：multi-team 共享时必填，单 team 共享时可省（自动 resolve）
   teamId: z
@@ -182,7 +207,7 @@ export const LIST_SESSIONS_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / archive_plan / hand_off_session 等）会被拒。',
     ),
   statusFilter: z.enum(['active', 'dormant', 'closed', 'all']).default('active'),
   adapterFilter: z
@@ -206,7 +231,7 @@ export const GET_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / archive_plan / hand_off_session 等）会被拒。',
     ),
   sessionId: z.string().min(1).max(128),
 };
@@ -219,7 +244,7 @@ export const SHUTDOWN_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'REVIEW_32 HIGH-9: in-process transport 自动 override 真实 session id（无需 caller 显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 tool（spawn/send/reply/wait）会被拒。',
+      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / archive_plan / hand_off_session 等）会被拒。',
     ),
   reason: z.string().max(500).optional(),
 };
@@ -250,7 +275,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     .max(4096)
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .describe(
-      'Absolute path to the plan worktree (e.g. /Users/apple/Repository/foo/.claude/worktrees/<planId>). Caller (mcp tool) must have already ExitWorktree-d before calling — handler refuses if process.cwd() is inside this path.',
+      'Absolute path to the plan worktree (e.g. /Users/apple/Repository/foo/.claude/worktrees/<planId>). Caller (mcp tool) must have already ExitWorktree-d before calling — handler refuses if the caller session cwd (or its held cwd_release_marker) is inside this path. Use ExitWorktree(action:"keep"), not a shell `cd`.',
     ),
   baseBranch: z
     .string()
@@ -258,7 +283,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     .max(128)
     .optional()
     .describe(
-      'REVIEW_36 R2 user feedback 修法：caller 不传时优先读 plan frontmatter.base_branch（plan 创建时记录切 worktree 时所在的原分支，feature branch 上开 plan 就是 feature branch 名），frontmatter 也没设 base_branch 字段时 fallback "main"。**强烈建议在 plan frontmatter 显式写 base_branch**，避免 ff-merge 错合到 main 污染主线（feature branch 上跑 plan 但合到 main = worktree 改动从 feature branch 跳过去合主线）。Caller 显式传此参数始终覆盖 frontmatter。',
+      'caller 不传时优先读 plan frontmatter.base_branch（plan 创建时记录切 worktree 时所在的原分支，feature branch 上开 plan 就是 feature branch 名），frontmatter 也没设 base_branch 字段时 fallback "main"。**强烈建议在 plan frontmatter 显式写 base_branch**，避免 ff-merge 错合到 main 污染主线（feature branch 上跑 plan 但合到 main = worktree 改动从 feature branch 跳过去合主线）。Caller 显式传此参数始终覆盖 frontmatter。',
     ),
   planFilePath: z
     .string()
@@ -355,7 +380,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .regex(/^[A-Za-z0-9._-]+$/, 'planId only allows [A-Za-z0-9._-]')
     .optional()
     .describe(
-      'Plan id (matches plan file stem and worktree dir name). **Optional (CHANGELOG_99 dual-mode)**: when set → plan-driven mode (read frontmatter, validate status=in_progress, auto-construct cold-start prompt "按 <plan-abs-path> 接力"). When omitted → generic mode (caller must pass `prompt`; default cwd = caller cwd; phaseLabel/planFilePath ignored). Charset matches EnterWorktree restriction.',
+      'Plan id (matches plan file stem and worktree dir name). **Optional (CHANGELOG_99 dual-mode)**: when set → plan-driven mode (read frontmatter, validate status=in_progress, auto-construct cold-start prompt "按 <plan-abs-path> 接力"). When omitted → generic mode (pass `prompt` to give the new session context — optional, defaults to a generic baton prompt; phaseLabel/planFilePath ignored). Charset matches EnterWorktree restriction.',
     ),
   prompt: z
     .string()
@@ -397,7 +422,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(128)
     .optional()
     .describe(
-      'Optional teamName. **Default: not set** (CHANGELOG_97 baton semantic — hand-off is a one-way baton transfer, the new session works independently and does NOT need a lead/teammate communication relationship with the caller). Pass a custom name only if you specifically want the caller to remain as lead and the new session to be a teammate (rare; use spawn_session if that is the primary intent).',
+      'Optional teamName. **Default: not set** (CHANGELOG_97 baton semantic — hand-off is a one-way baton transfer; the caller is archived by default so it does NOT remain as lead). Pass a name only if you want the new session to join/form that team for communication (rare — for a pure baton, omit). To instead keep the caller current teammates communicating with the new session, use `adoptTeammates: true` (which makes the new session take over the team as lead). **互斥**：不可与 `adoptTeammates: true` 同传（refine reject — adopt 路径自动过继 caller 自己的 team，与显式指定 team 冲突）。',
     ),
   permissionMode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
@@ -409,13 +434,13 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      'REVIEW_36 HIGH-2: codex-cli sandbox override for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / adapter default = "workspace-write"). Pass explicitly to override (e.g. baton from claude lead to codex-cli with stricter "read-only" for sensitive task). Mirrors spawn_session.codexSandbox 1:1.',
+      'codex-cli sandbox override for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / adapter default = "workspace-write"). Pass explicitly to override (e.g. baton from claude lead to codex-cli with stricter "read-only" for sensitive task). Mirrors spawn_session.codexSandbox 1:1.',
     ),
   claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
-      'REVIEW_36 HIGH-2: claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / settings global). Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claudeCodeSandbox 1:1.',
+      'claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / settings global). Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claudeCodeSandbox 1:1.',
     ),
   /**
    * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
@@ -427,7 +452,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(16)
     .optional()
     .describe(
-      'REVIEW_36 R2 HIGH-B + MED-C: extra writable roots for the new SDK session sandbox (claude-code adapter + workspace-write only). Plan-driven mode + external worktree (worktree not in mainRepo subtree) **auto-adds** mainRepo to let the new session write plan files. Caller-supplied paths are merged with auto-computed mainRepo. Direct callers usually leave this unset.',
+      'extra writable roots for the new SDK session sandbox (claude-code adapter + workspace-write only). Plan-driven mode + external worktree (worktree not in mainRepo subtree) **auto-adds** mainRepo to let the new session write plan files. Caller-supplied paths are merged with auto-computed mainRepo. Direct callers usually leave this unset.',
     ),
   planFilePath: z
     .string()
@@ -661,7 +686,7 @@ export type ShutdownBatonTeammatesArgs = z.infer<
 
 // =============== Result types (R37 P3-L Step 4.5) ===============
 //
-// 15 tool 的 ok return shape SSOT（10 现有 + 5 task；与上方 args type 对称，让 input/output schema
+// 17 tool 的 ok return shape SSOT（10 现有 + 5 task + 2 issue；与上方 args type 对称，让 input/output schema
 // 都在 schemas.ts 一处可读）。Handler return 用 `satisfies XxxResult` 做静态字段校验
 // 防漂移（typo / 漏字段 / 字段类型错被 TS 拦）。
 //
@@ -1044,12 +1069,16 @@ export const TASK_CREATE_SCHEMA = {
   status: z
     .enum(STATUS_VALUES)
     .optional()
-    .describe('Initial status (default "pending")'),
+    .describe(
+      'Initial status. Enum: pending | active | completed | blocked | abandoned (default "pending"). 注意：进行中用 "active"（不是 Claude Code builtin 的 "in_progress"），完成用 "completed"（不是 "done"）。',
+    ),
   activeForm: z
     .string()
     .nullable()
     .optional()
-    .describe('Name of the agent currently working on / claiming this task'),
+    .describe(
+      'Optional present-tense activity label rendered in the Tasks UI（与 Claude Code builtin TaskCreate.activeForm 同语义：任务进行时文案，如 "Running tests"）。省略即可。',
+    ),
   priority: z
     .number()
     .int()
@@ -1060,11 +1089,11 @@ export const TASK_CREATE_SCHEMA = {
   blocks: z
     .array(z.string())
     .optional()
-    .describe('IDs of downstream tasks that this task blocks'),
+    .describe('Task UUIDs of downstream tasks that this task blocks'),
   blockedBy: z
     .array(z.string())
     .optional()
-    .describe('IDs of upstream tasks that block this task'),
+    .describe('Task UUIDs of upstream tasks that block this task'),
   labels: z.array(z.string()).optional().describe('Free-form tags'),
   // v024 plan task-team-id-restore-20260525 §D1+D2:teamId 字段
   teamId: z
@@ -1089,7 +1118,9 @@ export const TASK_LIST_SCHEMA = {
   statusFilter: z
     .enum(STATUS_VALUES)
     .optional()
-    .describe('Only return tasks with this status'),
+    .describe(
+      'Only return tasks with this status. Enum: pending | active | completed | blocked | abandoned（进行中是 "active" 不是 "in_progress"）。',
+    ),
   subjectFilter: z
     .string()
     .optional()
@@ -1143,12 +1174,26 @@ export const TASK_UPDATE_SCHEMA = {
   taskId: z.string().describe('Task UUID to update'),
   subject: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).nullable().optional(),
-  status: z.enum(STATUS_VALUES).optional(),
+  status: z
+    .enum(STATUS_VALUES)
+    .optional()
+    .describe(
+      'New status. Enum: pending | active | completed | blocked | abandoned（进行中用 "active" 不是 "in_progress"，完成用 "completed" 不是 "done"）。',
+    ),
   activeForm: z.string().nullable().optional(),
   priority: z.number().int().min(0).max(10).optional(),
-  blocks: z.array(z.string()).optional(),
-  blockedBy: z.array(z.string()).optional(),
-  labels: z.array(z.string()).optional(),
+  blocks: z
+    .array(z.string())
+    .optional()
+    .describe('Task UUIDs — 传入数组整体替换 blocks 列表（省略=不动；传 [] 清空）'),
+  blockedBy: z
+    .array(z.string())
+    .optional()
+    .describe('Task UUIDs — 传入数组整体替换 blockedBy 列表（省略=不动；传 [] 清空）'),
+  labels: z
+    .array(z.string())
+    .optional()
+    .describe('传入数组整体替换 labels 列表（省略=不动；传 [] 清空）'),
   // v024 plan task-team-id-restore-20260525 §D1:允许 update 改 teamId(传 null 转 personal;
   // 传 string 转 team-bound)。caller 必须在新 teamId 是 active member(D3 由 tool 层校验)。
   teamId: z
@@ -1315,7 +1360,7 @@ export const REPORT_ISSUE_SCHEMA = {
     .optional()
     .describe('Severity (default "medium"). Strict enum'),
   logsRef: LOGS_REF_SCHEMA.optional().describe(
-    'Optional reference to runtime logs (NOT log content). Schema: {date: YYYY-MM-DD ISO, tsRange?: {start, end} epoch ms, scopes?: string[], note?: string}. UI renders this as a pointer to the runtime-logging plan log files.',
+    'Optional reference to runtime logs (NOT log content). Schema: {date: YYYY-MM-DD ISO **(required)**, tsRange?: {start, end} epoch ms, scopes?: string[], note?: string}. UI renders this as a pointer to the runtime-logging plan log files.',
   ),
   cwd: z
     .string()
@@ -1361,7 +1406,7 @@ export const APPEND_ISSUE_CONTEXT_SCHEMA = {
     .max(2000)
     .describe('New on-site context (1-2000 chars). Stored in issue_appendices subtable, NOT merged into issues.description'),
   logsRef: LOGS_REF_SCHEMA.optional().describe(
-    'Optional new logsRef to merge into issues.logs_ref (D17: date 覆盖 / tsRange min-max 扩展 / scopes union dedup / note append-then-truncate-from-head). Schema same as report_issue.logsRef.',
+    'Optional new logsRef to merge into issues.logs_ref. **date (YYYY-MM-DD) 仍是 required，即使你只想更新 tsRange/scopes/note** (D17: date 覆盖 / tsRange min-max 扩展 / scopes union dedup / note append-then-truncate-from-head). Schema same as report_issue.logsRef.',
   ),
   callerSessionId: z
     .string()

@@ -1,6 +1,6 @@
 /**
- * Agent Deck MCP server 的 15 个 in-process tool 注册 facade（B'0 ADR §3；10 现有 + 5 task —
- * plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 task-manager 入本 namespace 后）。
+ * Agent Deck MCP server 的 17 个 in-process tool 注册 facade（B'0 ADR §3；10 现有 + 5 task + 2 issue —
+ * plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 task-manager + issue-tracker-mcp-20260529 加 issue 工具后）。
  *
  * 三 transport（in-process / HTTP / stdio）共享同一份 buildAgentDeckTools 输出；
  * transport 层负责 caller-id 注入策略：
@@ -147,7 +147,7 @@ export async function buildAgentDeckTools(
 
   const spawnSession = tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
-    'Spawn a new agent session via the given adapter (claude-code / codex-cli). Returns the new sessionId. Subject to depth / per-parent fan-out / per-app rate-limit (see Agent Deck Settings → MCP Server). callerSessionId is required (in-process transport overrides with the real session id).',
+    'Spawn a new agent session via the given adapter (claude-code / codex-cli). Returns the new sessionId. Pass teamName to form a team (caller becomes lead, new session joins as teammate) so the two can send_message each other; omit for a standalone session. Subject to depth / per-parent fan-out / per-app rate-limit (see Agent Deck Settings → MCP Server). SDK-internal callers do NOT pass callerSessionId — the in-process transport auto-injects the real session id; only external HTTP/stdio callers must pass it.',
     SPAWN_SESSION_SCHEMA,
     async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
     {
@@ -170,7 +170,7 @@ export async function buildAgentDeckTools(
 
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
-    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing. Pass `replyToMessageId` to link this message into an existing reply chain (the chain is recorded in DB; lead/teammate see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Multi-team callers must specify `teamId`.',
+    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing. Pass `replyToMessageId` to link this message into an existing reply chain (the chain is recorded in DB; lead/teammate see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Specify `teamId` only when caller and target share more than one active team (auto-resolved when they share exactly one).',
     SEND_MESSAGE_SCHEMA,
     async (args, extra) => sendMessageHandler(args, makeCtx(args, extra)),
     {
@@ -187,7 +187,7 @@ export async function buildAgentDeckTools(
 
   const listSessions = tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
-    'List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, spawnedBy, spawnDepth) — does NOT include events / messages.',
+    'List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, teams [{teamId, teamName, role}], spawnedBy, spawnDepth) — does NOT include events / messages. Use the teams[].teamId when you need a teamId for send_message (no need to call get_session per session).',
     LIST_SESSIONS_SCHEMA,
     async (args, extra) => listSessionsHandler(args, makeCtx(args, extra)),
     { annotations: { readOnlyHint: true } },
@@ -220,7 +220,7 @@ export async function buildAgentDeckTools(
 
   const archivePlan = tool(
     AGENT_DECK_TOOL_NAMES.archivePlan,
-    'Archive a completed plan-driven worktree (K1 hand-off automation): ff-merge worktree branch into baseBranch, mv plan file to <main-repo>/ref/plans/<planId>.md (status=completed + final_commit + completed_at), **mv `<plan-artifact-dir>/spike-reports/` → `<main-repo>/ref/plans/<planId>/spike-reports/` if present** (`<plan-artifact-dir>` = plan file parent + `<planId>/`), sync ref/plans/INDEX.md (followup 20260515: 4-column smart update — `appended`/`updated`/`unchanged`/`created`), git commit, then git worktree remove + branch -D. **CHANGELOG_99: also default-archives the caller session** (with K2 baton semantic — plan completion = caller session\'s mission ends since worktree is gone and cwd is invalidated). Caller must ExitWorktree first (mcp tool cannot call CLI internal ExitWorktree; rejects when process.cwd() is inside worktree). Refuses if plan status is already "completed" or worktree is dirty. Returns { archivedPath, commitHash, branchDeleted, worktreeRemoved, plansIndexAction: \'created\'|\'appended\'|\'updated\'|\'unchanged\', finalStatus, warnings: string[] (followup 20260515 HIGH-2 silent override 等 non-fatal warning,e.g. `.claude/plans/<id>.md` 与 `ref/plans/<id>.md` 同 id 双存覆盖警告;spike-reports mv EXDEV/perm 失败 hint), spikeReportsArchived: { srcPath, dstPath } | null (null = skip when no spike-reports/ subdir; obj = success), archived: \'ok\' | \'failed\' | \'skipped\' (CHANGELOG_99 caller archive result; \'failed\' is warn-only and does not block ok return) }. deny external caller (high-risk git+fs writes).',
+    'Archive a completed plan-driven worktree (K1 hand-off automation): ff-merge worktree branch into baseBranch, mv plan file to <main-repo>/ref/plans/<planId>.md (status=completed + final_commit + completed_at), **mv `<plan-artifact-dir>/spike-reports/` → `<main-repo>/ref/plans/<planId>/spike-reports/` if present** (`<plan-artifact-dir>` = plan file parent + `<planId>/`), sync ref/plans/INDEX.md (followup 20260515: 4-column smart update — `appended`/`updated`/`unchanged`/`created`), git commit, then git worktree remove + branch -D. **CHANGELOG_99: also default-archives the caller session** (with K2 baton semantic — plan completion = caller session\'s mission ends since worktree is gone and cwd is invalidated). Caller must ExitWorktree first (mcp tool cannot call CLI internal ExitWorktree; rejects when the caller session cwd / held cwd_release_marker is inside the worktree — use ExitWorktree, not a shell `cd`). Refuses if plan status is already "completed" or worktree is dirty. Returns { archivedPath, commitHash, branchDeleted, worktreeRemoved, plansIndexAction: \'created\'|\'appended\'|\'updated\'|\'unchanged\', finalStatus, warnings: string[] (followup 20260515 HIGH-2 silent override 等 non-fatal warning,e.g. `.claude/plans/<id>.md` 与 `ref/plans/<id>.md` 同 id 双存覆盖警告;spike-reports mv EXDEV/perm 失败 hint), spikeReportsArchived: { srcPath, dstPath } | null (null = skip when no spike-reports/ subdir; obj = success), archived: \'ok\' | \'failed\' | \'skipped\' (CHANGELOG_99 caller archive result; \'failed\' is warn-only and does not block ok return) }. deny external caller (high-risk git+fs writes).',
     ARCHIVE_PLAN_SHAPE,
     // plan hand-off-session-adopt-teammates-20260520 Phase 7 reviewer-codex HIGH 修法:
     // tool wrapper closure 跑 ARGS_SCHEMA.safeParse 让 SHAPE-注册路径(SDK / mcp transport)
@@ -291,7 +291,7 @@ export async function buildAgentDeckTools(
   // 走 archive_plan 预检 4 态分流时认得跨 adapter 路径（详 P1 Step 1.4 archive-plan-impl.ts）。
   const enterWorktree = tool(
     AGENT_DECK_TOOL_NAMES.enterWorktree,
-    'Create a new git worktree at `<main-repo>/.claude/worktrees/<planId>/` (or caller-overridden path) with branch `worktree-<planId>`, based on HEAD by default (resolution chain: args.baseCommit > args.baseBranch > plan frontmatter.base_commit > plan frontmatter.base_branch > HEAD). Sets `sessions.cwd_release_marker = <worktreePath>` for the caller session so that `archive_plan` preflight 4-state dispatch recognizes the cross-adapter path (state 2: in worktree + marker == worktreePath → pass). Uses explicit `git worktree add -b <branch> <path> <baseCommit>` (avoids claude builtin EnterWorktree v2.1.112 stale base bug — see user CLAUDE.md §Step 1 末 callout). Returns { worktreePath, branchName, baseCommit, baseSource: arg-base-commit|arg-base-branch|frontmatter-base-commit|frontmatter-base-branch|head, markerSet }. Refuses if worktree path or branch already exists (no silent reuse). deny external caller (git write + per-session marker write).',
+    'Create a new git worktree at `<main-repo>/.claude/worktrees/<planId>/` (or caller-overridden path) with branch `worktree-<planId>`, based on HEAD by default (resolution chain: args.baseCommit > args.baseBranch > plan frontmatter.base_commit > plan frontmatter.base_branch > HEAD). Sets `sessions.cwd_release_marker = <worktreePath>` for the caller session so that `archive_plan` preflight 4-state dispatch recognizes the cross-adapter path (state 2: in worktree + marker == worktreePath → pass). Uses explicit `git worktree add -b <branch> <path> <baseCommit>` (avoids claude builtin EnterWorktree v2.1.112 stale base bug — see user CLAUDE.md §Step 1 末 callout). Returns { worktreePath, branchName, baseCommit, baseSource: arg-base-commit|arg-base-branch|frontmatter-base-commit|frontmatter-base-branch|head, markerSet }. Refuses if worktree path or branch already exists (no silent reuse). **This tool CREATES a worktree and does NOT change the calling session cwd** — after it returns, operate on worktree files via absolute paths or `git -C <worktreePath>` (codex has no native cd; Claude may use builtin EnterWorktree(path:) to actually switch cwd). To resume an EXISTING worktree do NOT call this tool (it refuses existing paths) — use `git -C <worktreePath>` / absolute paths directly. deny external caller (git write + per-session marker write).',
     ENTER_WORKTREE_SCHEMA,
     async (args, extra) => enterWorktreeHandler(args, makeCtx(args, extra)),
     {
@@ -354,7 +354,7 @@ export async function buildAgentDeckTools(
   // contract 对齐（not-found 返 isError 不是 noop）。
   const taskCreate = tool(
     AGENT_DECK_TOOL_NAMES.taskCreate,
-    `Create a structured task in the agent-deck task store. owner_session_id is auto-closed from callerSessionId. Personal task by default (teamId omitted/null) — visible & writable only to owner. Pass teamId to bind task to a team — caller must be active member of that team (agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL). Returns the created task with auto-generated id.`,
+    `Create a structured task in the agent-deck task store. owner_session_id is auto-derived from callerSessionId. Personal task by default (omit teamId — note: task_create rejects an explicit null, just leave the field out) — visible & writable only to owner. Pass teamId to bind task to a team — caller must be active member of that team (agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL). Returns the created task with auto-generated id.`,
     TASK_CREATE_SCHEMA,
     async (args, extra) => taskCreateHandler(args, makeCtx(args, extra)),
     {
