@@ -14,10 +14,11 @@
   - 0.135 把 vendored 二进制从 `vendor/<triple>/codex/codex` 挪到 `vendor/<triple>/bin/codex`（同时 `path/`→`codex-path/` + 新增 `codex-package.json`）。
   - 原 `resolveBundledCodexBinary()` 硬编码旧 `codex/codex` 路径 → 升级后**打包 .app 找不到二进制**（typecheck 抓不到纯 path 字符串漂移），codex 整条链在打包版失效。
   - 修法：先探 new `bin/<binName>` 后 fallback legacy `codex/<binName>`，与 SDK 内部 `resolveNativePackage` 同序双探测，跨 SDK 版本都稳。
-  - **回归测试** `__tests__/codex-binary-layout.test.ts`（5 case：dev null / 双缺 null / new 命中 / legacy fallback / new+legacy 优先 new）。
+  - **回归测试** `__tests__/codex-binary-layout.test.ts`（二进制 5 case：dev null / 双缺 null / new 命中 / legacy fallback / new+legacy 优先 new）。
+- **bundled rg helper PATH 注入**（issue 8c116860，pre-existing 顺带修）：`codexPathOverride` 短路 SDK resolve → SDK `pathDirs=[]`，bundled ripgrep（`codex-path/rg`）不进 codex 子进程 PATH。新增 `resolveBundledCodexPathDirs()` + `prependBundledCodexPathDirs(env)`，`ensureCodex` 走 bundled 二进制时注入 `envOverride.PATH`（用户自填 codexCliPath 不注入；oneshot pool 刻意不补，加注释）。回归测试 +5 case。
 - `electron-builder install-app-deps` 已重建 better-sqlite3（Electron 33 ABI，无 NODE_MODULE_VERSION 问题）。
 - `asarUnpack` glob（`@openai/codex-darwin-*/**/*` 递归）+ pnpm 平台包命名（`@openai/codex@<ver>-darwin-arm64`）两版一致，无新打包风险。
-- 全量测试 1094 passed（codex adapter 106 + 新 layout 5）。
+- 全量测试 1099 passed（codex adapter 116 + 新 layout 10）。
 
 ## Area 2：Issue「起新会话解决」对话框
 
