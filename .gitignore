@@ -21,10 +21,6 @@ ref/flows/*.png
 ref/flows/*.svg
 # ↑ plantuml 渲染产物.puml SSOT 入 git;.png/.svg 渲染输出不入 git
 # (reviewer 跑 plantuml --check-syntax / -tpng 时产生,工具副作用)。
-resources/codex-config/agent-deck-plugin/skills/
-# ↑ plan reviewer-codex-cross-adapter-20260519 §Phase 3 Step 3.3:codex-config 端 SKILL 镜像由
-# build-time `scripts/sync-codex-skills.mjs` 从 SSOT (`resources/claude-config/agent-deck-plugin/skills/`)
-# cp 生成,不入 git (SSOT 仍单源)。dev / build / dist 时 npm `predev` / `prebuild` hook 自动同步。
 .claude/worktrees/
 .claude/scheduled_tasks*
 .claude/plans/

@@ -1,32 +1,31 @@
 /**
- * Codex `~/.codex/skills/agent-deck/<X>/SKILL.md` 同步管理（CHANGELOG_<X> D2）。
+ * Codex `~/.codex/skills/agent-deck/<X>/SKILL.md` 安装管理。
  *
- * 设计目标：把 Agent Deck 自带 plugin 的 skills（resources/claude-config/agent-deck-plugin/
- * skills/<X>/SKILL.md）镜像到 codex 一侧的 ~/.codex/skills/agent-deck/<X>/，让 codex
- * 会话也能 / agent-deck:<skill-name> 触发同名 skill。codex 与 claude 的 SKILL.md
- * frontmatter 几乎同构（name + description），可直接复制。
+ * 设计目标：把 Agent Deck 自带 plugin 的 codex 端 skills（resources/codex-config/
+ * agent-deck-plugin/skills/<X>/SKILL.md）安装到 ~/.codex/skills/agent-deck/<X>/，让 codex
+ * 会话也能 / agent-deck:<skill-name> 触发同名 skill。codex skills 是 codex-config 端**独立
+ * SSOT**——claude 端 skills 在 resources/claude-config/ 各自维护，两端不互相同步（adapter
+ * 工具差异决定 SKILL 措辞不同，详 resources/claude-config/README.md §设计 SSOT）。
  *
  * 路径策略：
- * - 内置 skills 镜像到 `~/.codex/skills/agent-deck/<skill-name>/SKILL.md`
+ * - 内置 skills 安装到 `~/.codex/skills/agent-deck/<skill-name>/SKILL.md`
  *   - `agent-deck/` 命名空间前缀：避免与用户手写的 `~/.codex/skills/<X>/` 撞名
  *   - 与 `<plugin-root>/skills/` 同结构（每个 skill 一个目录 + SKILL.md，可含 references/）
- * - 用户在 ~/.claude/skills/ 自定义的 skills 不镜像（codex 那边对应 ~/.codex/skills/
- *   是用户自管区域，应用不动）
+ * - 用户在 ~/.codex/skills/ 自定义的其他 skills 不动（应用只管 agent-deck/ 命名空间子目录）
  *
- * **同步策略**：
+ * **安装策略**：
  * - 启动时 / settings 改 toggle 时调一次 syncSkills()
- * - **每次启动覆盖写入**（不依赖 mtime 对比；CHANGELOG_169 / REVIEW R3 deep-review fix 后,
- *   syncSkills() 内部对每个 SKILL.md 先 raw → substituteResourcesPlaceholder → write,因为
- *   substitute 输出依赖 runtime constants（app.isPackaged）,source mtime 不是权威 staleness 判据;
- *   raw placeholder / 旧绝对路径残留会让 codex agent invoke skill 时 ENOENT。plugin 总量 ~10 KB
- *   IO 成本忽略不计）
- * - 删除规则：源里删了的 skill 在目标也删（保持镜像一致）
+ * - **每次启动覆盖写入**（不依赖 mtime 对比；syncSkills() 内部对每个 SKILL.md 先 raw →
+ *   substituteResourcesPlaceholder → write，因为 substitute 输出依赖 runtime constants
+ *   （app.isPackaged），source mtime 不是权威 staleness 判据；raw placeholder / 旧绝对路径
+ *   残留会让 codex agent invoke skill 时 ENOENT。plugin 总量 ~10 KB IO 成本忽略不计）
+ * - 删除规则：codex-config 源里删了的 skill 在 ~/.codex/skills/agent-deck/ 也删（保持与源一致）
  * - **不**同步 user 副本（resources/ 本身就是只读快照，不需要副本机制）
  *
  * 不实现：
  * - 外部 watch / hot reload monitor 监听 source skills 目录（dev 模式 hot reload 暂不需要，启动同步即可）
- * - skill 内 references/ 子目录递归同步（当前 deep-review / hello-from-deck 都没有
- *   references；新增 references 时先实现递归同步再发布该 skill）
+ * - skill 内 references/ 子目录递归同步（当前 deep-review / flow-arch-plantuml / hello-from-deck
+ *   都没有 references；新增 references 时先实现递归同步再发布该 skill）
  * - 跨平台路径处理（codex 默认用 ~/.codex 与 macOS 同模式，Win/Linux 同样 homedir）
  */
 import { app } from 'electron';
@@ -52,12 +51,12 @@ export function getCodexSkillsAgentDeckDir(): string {
   return join(homedir(), '.codex', 'skills', 'agent-deck');
 }
 
-/** 内置 plugin skills 源目录绝对路径（dev / prod 自动分流，与 sdk-injection.getClaudeAgentDeckPluginPath 同模式）。 */
+/** 内置 codex plugin skills 源目录绝对路径（codex-config 端两端独立 SSOT；dev / prod 自动分流）。 */
 function getBuiltinSkillsSourceDir(): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'claude-config', 'agent-deck-plugin', 'skills');
+    return join(process.resourcesPath, 'codex-config', 'agent-deck-plugin', 'skills');
   }
-  return join(app.getAppPath(), 'resources', 'claude-config', 'agent-deck-plugin', 'skills');
+  return join(app.getAppPath(), 'resources', 'codex-config', 'agent-deck-plugin', 'skills');
 }
 
 /**

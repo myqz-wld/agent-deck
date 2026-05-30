@@ -66,6 +66,54 @@ claude 视角同款 tool 也存在（MCP 通用），claude 端首选 CLI builti
 
 ---
 
+## 核心流程 / 架构变更必走 plantUML
+
+涉及核心流程 / 架构变更时必须用 plantUML 画图并落到 `ref/` 对应子目录。**「怎么画」(plantUML syntax / 图类型 / workflow)由 `agent-deck:flow-arch-plantuml` SKILL(codex-config 端独立 SSOT)规定;「画在哪 / INDEX 怎么维护」由本节规定**(关注点分离 — SKILL 与位置约定独立维护)。
+
+### 触发条件
+
+详 SKILL.md §何时用 节;速查:
+- **user 明示**「画架构图」/「画流程图」/「画 plantUML」/「核心流程图改一下」等
+- **LLM 自检** 本次改动属以下 4 类任一:① 会话状态机(session lifecycle / sdk-bridge / context resume)② 跨进程通信(IPC / 跨 adapter 编排 / spawn-link 树 / event-bus 路由 / sandbox / permission)③ 数据库 / 协议(DB schema / wire format / canUseTool)④ 关键 mcp tool 行为(archive_plan / hand_off_session / spawn_session / send_message dispatch / lifecycle scheduler)
+- **trivial 改动**(typo / 单点 rename / UI 微调 / 业务模块内部不动协议)**不触发**
+
+invoke 前必须与 user 显式确认是核心变更(SKILL 入口提问 + codex turn 边界 enforce — 见下方 §与 user 确认机制);否则 skill no-op exit。
+
+### 文件位置约定
+
+- **流程图**(sequence diagram / activity diagram)落 `<main-repo>/ref/flows/<topic>.puml`
+- **架构图**(component diagram / 模块依赖 / 跨进程边界)落 `<main-repo>/ref/architecture/<topic>.puml`
+- **文件命名** `<topic>.puml`,topic 用 kebab-case(`archive-plan-flow.puml` / `mcp-server-architecture.puml`)
+- **同主题需要双图**(流程图 + 架构图)→ 拆两份分别落各自目录,topic 名可一致(`archive-plan-flow.puml` vs `archive-plan-architecture.puml`)
+- **目录不存在**(典型新项目 / 本 plan 实施前):SKILL 主动 `shell: mkdir -p ref/flows ref/architecture` + 建空 INDEX.md(下节 4 列模板)
+- **codex shell 工具用法**: codex 端读现有 .puml / INDEX 走 `shell cat` / `shell ls`,写 / 改 .puml + INDEX 走 `apply_patch`(codex 无 claude builtin Read / Write / Edit);可选 `shell: plantuml -syntax <file>.puml` 做语法检查。**严禁** codex 端调 `plantuml -tpng / -tsvg` 渲染产 PNG/SVG(违反 flow-arch SKILL §不渲染 SSOT — user 想看渲染产物自跑 plantuml CLI)。
+
+### INDEX.md 格式
+
+`ref/flows/INDEX.md` 与 `ref/architecture/INDEX.md` 都用 4 列表:
+
+```markdown
+| 文件 | 状态 | 关联 plan / commit | 概要 |
+|---|---|---|---|
+| [archive-plan-flow.puml](archive-plan-flow.puml) | active | [ref-layout-full-migration-20260526](../plans/ref-layout-full-migration-20260526.md) | archive_plan 5 步收口 sequence 图 |
+| [mcp-server-architecture.puml](mcp-server-architecture.puml) | active | commit ef1679 | 主进程 mcp server 内部模块依赖 |
+```
+
+- **状态**:`active`(当前 SSOT)/ `archived`(图过时但保留作历史 reference;.puml 内同步加注释 `' ARCHIVED: ...`)/ `draft`(未确认)
+- **关联 plan / commit**:链接到 `ref/plans/<plan-id>.md` 或 commit hash 让读者溯源(commit hash 用 7 字符 short hash 即可)
+- **概要**:≤80 字描述本图主题
+
+### 与 user 确认机制(codex turn 边界硬约束)
+
+SKILL 入口必须先向 user 提 2-3 个对齐问题 — **是否核心变更 / 图类型选择 / 新建 vs 修改 vs archived 已有**(详 SKILL.md §与 user 确认机制)。**codex 无 AskUserQuestion 阻塞语义,必须靠 turn 边界保证 user 先拍板**:输出问题后必须结束本 turn 等 user 下一轮回复,严禁同一 turn 内继续生成 / 修改任何 .puml 或 INDEX.md。本应用工程实践**严禁** agent 默认静默生成图;每次画图前都要等 user 显式回复确认。
+
+### 与其他规则关系
+
+- 与 `agent-deck:deep-review` SKILL 互斥并行(同会话不并行,避免 .puml SSOT 写竞争);deep-review 中发现需画图 → 完成 review 后 invoke `flow-arch-plantuml`
+- 与本应用 `agent-deck:flow-arch-plantuml` SKILL **关注点分离**:本节定位置/INDEX 规则,SKILL 定画图技术 — 两边修改时**不要复制 SSOT**,只保留 cross-ref(SSOT 单源不复制 — 同款规则只在一处其他位置引用)
+
+---
+
 ## Agent Deck Universal Team Backend
 
 跨 adapter 协作通过 Agent Deck MCP 15 tool（10 现有：`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`；+ 5 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`）编排 + 管理结构化任务。teammate 调工具时走自己 codex SDK 会话的 `approvalPolicy` + `sandboxMode`,**lead 不插手 teammate 权限审批**(失败弹给真人走 teammate 自己 session 的 PendingTab)。

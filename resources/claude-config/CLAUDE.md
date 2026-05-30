@@ -145,7 +145,7 @@ invoke 前必须与 user 显式确认是核心变更(SKILL 入口 AskUserQuestio
 - **文件命名** `<topic>.puml`,topic 用 kebab-case(`archive-plan-flow.puml` / `mcp-server-architecture.puml`)
 - **同主题需要双图**(流程图 + 架构图)→ 拆两份分别落各自目录,topic 名可一致(`archive-plan-flow.puml` vs `archive-plan-architecture.puml`)
 - **目录不存在**(典型新项目 / 本 plan 实施前):SKILL 主动 `mkdir -p ref/flows ref/architecture` + 建空 INDEX.md(下节 4 列模板)
-- **codex 端走法**: codex SDK session 无 `flow-arch-plantuml` SKILL 入口(本 SKILL 仅 claude-config 端打包,详 README.md §设计 SSOT)。codex lead 需画 plantUML 时按本节文件位置 / INDEX 规则手工编辑 `.puml` + INDEX.md(与 claude 端 SKILL 编辑动作等价 — 本约定纯生成/修改 .puml SSOT 不渲染);可选跑 `shell: plantuml -syntax <file>.puml` 做语法检查。**严禁** codex 端调 `plantuml -tpng / -tsvg` 渲染产 PNG/SVG(违反 flow-arch SKILL §不渲染 SSOT — user 想看渲染产物自跑 plantuml CLI)。
+- **codex 端走法**: codex SDK session 有独立 `flow-arch-plantuml` SKILL 入口(codex-config 端打包,与 claude 端两端独立 SSOT,详 README.md §设计 SSOT)。codex lead 需画 plantUML 时 invoke 该 SKILL —— 画图技术(图类型 / syntax / workflow)见 codex flow-arch SKILL,文件位置 / INDEX 规则见 `CODEX_AGENTS.md §核心流程 / 架构变更必走 plantUML 节`。**严禁** codex 端调 `plantuml -tpng / -tsvg` 渲染产 PNG/SVG(违反 flow-arch SKILL §不渲染 SSOT — user 想看渲染产物自跑 plantuml CLI)。
 
 ### INDEX.md 格式
 
