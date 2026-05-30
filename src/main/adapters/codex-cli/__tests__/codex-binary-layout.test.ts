@@ -112,3 +112,69 @@ describe('resolveBundledCodexBinary vendor 双布局', () => {
     expect(resolveBundledCodexBinary()).toBe(join(dir, 'bin', 'codex'));
   });
 });
+
+describe('resolveBundledCodexPathDirs / prependBundledCodexPathDirs（bundled rg helper PATH）', () => {
+  it('dev 模式 → pathDirs []，prepend no-op', async () => {
+    electronState.isPackaged = false;
+    const { resolveBundledCodexPathDirs, prependBundledCodexPathDirs } = await import(
+      '../sdk-bridge/codex-binary'
+    );
+    expect(resolveBundledCodexPathDirs()).toEqual([]);
+    const env = { PATH: '/usr/bin' };
+    prependBundledCodexPathDirs(env);
+    expect(env.PATH).toBe('/usr/bin'); // 未改
+    electronState.isPackaged = true;
+  });
+
+  it.runIf(isDarwinArm64)('new 布局 → codex-path/ 作 pathDir + prepend 进 PATH', async () => {
+    const dir = vendorTripleDir();
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    mkdirSync(join(dir, 'codex-path'), { recursive: true });
+    writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
+    writeFileSync(join(dir, 'codex-path', 'rg'), '#!/bin/sh\n');
+    const { resolveBundledCodexPathDirs, prependBundledCodexPathDirs } = await import(
+      '../sdk-bridge/codex-binary'
+    );
+    const helperDir = join(dir, 'codex-path');
+    expect(resolveBundledCodexPathDirs()).toEqual([helperDir]);
+    const env = { PATH: '/usr/bin:/bin' };
+    prependBundledCodexPathDirs(env);
+    expect(env.PATH).toBe(`${helperDir}:/usr/bin:/bin`);
+  });
+
+  it.runIf(isDarwinArm64)('legacy 布局 → path/ 作 pathDir', async () => {
+    const dir = vendorTripleDir();
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'codex'), { recursive: true });
+    mkdirSync(join(dir, 'path'), { recursive: true });
+    writeFileSync(join(dir, 'codex', 'codex'), '#!/bin/sh\n');
+    writeFileSync(join(dir, 'path', 'rg'), '#!/bin/sh\n');
+    const { resolveBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
+    expect(resolveBundledCodexPathDirs()).toEqual([join(dir, 'path')]);
+  });
+
+  it.runIf(isDarwinArm64)('prepend 去重已存在条目（不重复 prepend）', async () => {
+    const dir = vendorTripleDir();
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    mkdirSync(join(dir, 'codex-path'), { recursive: true });
+    writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
+    writeFileSync(join(dir, 'codex-path', 'rg'), '#!/bin/sh\n');
+    const { prependBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
+    const helperDir = join(dir, 'codex-path');
+    const env = { PATH: `${helperDir}:/usr/bin` }; // 已含 helperDir
+    prependBundledCodexPathDirs(env);
+    expect(env.PATH).toBe(`${helperDir}:/usr/bin`); // 去重不重复
+  });
+
+  it.runIf(isDarwinArm64)('bin 在但 codex-path 缺 → pathDirs []（existingDirs 语义）', async () => {
+    const dir = vendorTripleDir();
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
+    // 不建 codex-path/
+    const { resolveBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
+    expect(resolveBundledCodexPathDirs()).toEqual([]);
+  });
+});
