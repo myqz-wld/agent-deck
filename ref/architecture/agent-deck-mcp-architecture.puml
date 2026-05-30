@@ -1,5 +1,5 @@
-' description: MCP 服务器 (agent-deck-mcp) 顶层概览 — 5 大块 + 跨切组件。专题细节见 8 张子图
-' last_updated: 2026-05-29
+' description: MCP 服务器 (agent-deck-mcp) 顶层概览 — 5 大块 + 跨切组件。专题细节见各主题子图
+' last_updated: 2026-05-30
 @startuml agent-deck-mcp-architecture
 
 title MCP 服务器 — 顶层架构概览 (5 大块 + 跨切组件)
@@ -8,7 +8,7 @@ title MCP 服务器 — 顶层架构概览 (5 大块 + 跨切组件)
 ' 详细 module 名 / 函数名 / LOC / commit / REVIEW 引用见 INDEX 第 3 列「关联 plan / commit」
 
 package "入口" as L1 {
-  [tool 入口 (15 tools)\nin-process + stdio + HTTP /mcp] as Entry
+  [tool 入口 (17 tools)\nin-process + stdio + HTTP /mcp] as Entry
 }
 
 package "权限拦截" as L2 {
@@ -16,12 +16,12 @@ package "权限拦截" as L2 {
 }
 
 package "tool 实现" as L3 {
-  [tool handler facade\n(15 tools 按功能分组)] as Handler
+  [tool handler facade\n(17 tools 按功能分组)] as Handler
   [业务实现层\n(impl + 公共助手)] as Impl
 }
 
 package "持久层" as L4 {
-  [4 张数据表\n(会话 / 团队 / 消息 / 任务)] as Repos
+  [5 张数据表\n(会话 / 团队 / 消息 / 任务 / issue)] as Repos
   database "SQLite 数据库" as DB
 }
 
@@ -33,9 +33,9 @@ package "运行时联动" as L5 {
 
 ' ─── 主调用链 ───
 Entry --> Guard : 每个 tool 调用先过白名单
-Guard --> Handler : 通过后分发到 15 tool facade
+Guard --> Handler : 通过后分发到 17 tool facade
 Handler --> Impl : facade → impl 业务实现
-Handler --> Repos : 读写 4 张数据表
+Handler --> Repos : 读写 5 张数据表
 Impl --> Repos
 Impl --> SM : 起 / 关 / 改 session lifecycle
 SM --> Adapter : 起 SDK 子进程 + emit event
@@ -59,6 +59,9 @@ note bottom of Handler
   - **消息派发**:
     架构 = universal-message-status-state-machine
     流程 = universal-message-dispatch-flow + universal-message-dispatch-decision
+  - **issue-tracker** 问题追踪:
+    架构 = issue-tracker-architecture + issue-tracker-state-machine
+    流程 = issue-tracker-flow + issue-tracker-append-decision
   - **mcp tool 调用通用流程**: agent-deck-mcp-tool-call-flow
 
   INDEX 索引: ref/architecture/INDEX.md + ref/flows/INDEX.md (双索引)
@@ -76,7 +79,7 @@ end note
 
 note bottom of Repos
   术语对照: sessionRepo=会话表 / agentDeckTeamRepo=团队表
-  / agentDeckMessageRepo=消息表 / taskRepo=任务表
+  / agentDeckMessageRepo=消息表 / taskRepo=任务表 / issueRepo=issue 表
 end note
 
 @enduml
