@@ -77,18 +77,18 @@ export function planContent(opts: {
   omitWorktreePath?: boolean;
   worktreePathRelative?: boolean;
 }): string {
-  const lines = ['---', `planId: ${opts.planId ?? 'test-plan'}`];
+  const lines = ['---', `plan_id: ${opts.planId ?? 'test-plan'}`];
   if (!opts.omitWorktreePath) {
     const wp = opts.worktreePathRelative
       ? '.claude/worktrees/test-plan'
       : opts.worktreePath ?? '/Users/test/repo/.claude/worktrees/test-plan';
-    lines.push(`worktreePath: ${wp}`);
+    lines.push(`worktree_path: ${wp}`);
   }
   if (opts.status !== undefined) {
     lines.push(`status: ${opts.status}`);
   }
   if (opts.baseBranch !== undefined) {
-    lines.push(`baseBranch: ${opts.baseBranch}`);
+    lines.push(`base_branch: ${opts.baseBranch}`);
   }
   lines.push('---', '', '# Plan body', '');
   return lines.join('\n');

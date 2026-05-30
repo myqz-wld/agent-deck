@@ -212,10 +212,10 @@ export function validatePlanModeWorktreeExists(
           : `Caller cwd "${finalCwd}" is not in mainRepo "${resolved.mainRepo}" subtree → cold-start enter_worktree cannot resolve mainRepo from caller cwd, will fail.`;
     return {
       result: err(
-        `plan frontmatter worktreePath does not exist on disk: ${resolved.worktreePath}`,
+        `plan frontmatter worktree_path does not exist on disk: ${resolved.worktreePath}`,
         `worktree may have been archived (\`archive_plan\` removed it) / cross-device synced without working tree / manually removed. ` +
           `${reason} ` +
-          `To resume, recreate worktree (\`git worktree add ${resolved.worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktreePath to a valid path.`,
+          `To resume, recreate worktree (\`git worktree add ${resolved.worktreePath} <branch>\`) and ensure plan frontmatter status=in_progress; or update plan frontmatter worktree_path to a valid path.`,
       ),
     };
   }

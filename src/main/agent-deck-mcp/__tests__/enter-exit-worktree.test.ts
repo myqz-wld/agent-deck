@@ -205,9 +205,9 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     const state = makeEnterState();
     state.files.set('/Users/test/repo/.claude/plans/plan1.md', [
       '---',
-      'planId: plan1',
-      'baseCommit: feedbeef',
-      'baseBranch: feature-x',
+      'plan_id: plan1',
+      'base_commit: feedbeef',
+      'base_branch: feature-x',
       '---',
       'body',
     ].join('\n'));
@@ -231,8 +231,8 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     const state = makeEnterState();
     state.files.set('/Users/test/repo/.claude/plans/plan1.md', [
       '---',
-      'planId: plan1',
-      'baseBranch: feature-y',
+      'plan_id: plan1',
+      'base_branch: feature-y',
       '---',
       'body',
     ].join('\n'));

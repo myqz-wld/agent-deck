@@ -53,8 +53,8 @@ describe('archive-plan-tool-ux-followup-20260515 (a) fallback 链', () => {
       planArchivedPath,
       [
         '---',
-        `planId: ${planId}`,
-        `worktreePath: ${worktreePath}`,
+        `plan_id: ${planId}`,
+        `worktree_path: ${worktreePath}`,
         'status: in_progress',
         '---',
         'body',
@@ -94,11 +94,11 @@ describe('archive-plan-tool-ux-followup-20260515 (a) fallback 链', () => {
     const projectArchivedPath = `${mainRepo}/ref/plans/${planId}.md`;
     state.files.set(
       projectLocalPath,
-      ['---', `planId: ${planId}`, 'status: in_progress', '---', 'localBody'].join('\n'),
+      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'localBody'].join('\n'),
     );
     state.files.set(
       projectArchivedPath,
-      ['---', `planId: ${planId}`, 'status: completed', '---', 'oldArchivedBody'].join('\n'),
+      ['---', `plan_id: ${planId}`, 'status: completed', '---', 'oldArchivedBody'].join('\n'),
     );
 
     const deps = makeDeps(state, [
@@ -152,7 +152,7 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-1 planFilePath stem refine
     const customPath = '/Users/test/some-location/wrong-stem.md';
     state.files.set(
       customPath,
-      ['---', `planId: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
+      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
     );
     const worktreePath = '/Users/test/repo/.claude/worktrees/real-plan-id';
     state.files.set(worktreePath, '__dir__');
@@ -183,7 +183,7 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-1 planFilePath stem refine
     const customPath = `/Users/test/some-location/${planId}.md`;
     state.files.set(
       customPath,
-      ['---', `planId: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
+      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
     );
     const worktreePath = '/Users/test/repo/.claude/worktrees/override-plan-good';
     state.files.set(worktreePath, '__dir__');
@@ -228,11 +228,11 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-2 silent override warn', (
     const projectArchivedPath = `${mainRepo}/ref/plans/${planId}.md`;
     state.files.set(
       projectLocalPath,
-      ['---', `planId: ${planId}`, 'status: in_progress', '---', 'newBody'].join('\n'),
+      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'newBody'].join('\n'),
     );
     state.files.set(
       projectArchivedPath,
-      ['---', `planId: ${planId}`, 'status: completed', '---', 'historicalArchive'].join('\n'),
+      ['---', `plan_id: ${planId}`, 'status: completed', '---', 'historicalArchive'].join('\n'),
     );
 
     const deps = makeDeps(state, [
@@ -272,7 +272,7 @@ describe('archive-plan-tool-ux-followup-20260515 HIGH-2 silent override warn', (
     const planArchivedPath = `${mainRepo}/ref/plans/${planId}.md`;
     state.files.set(
       planArchivedPath,
-      ['---', `planId: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
+      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
     );
 
     const deps = makeDeps(state, [

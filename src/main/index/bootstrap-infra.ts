@@ -62,7 +62,7 @@ import { syncSkills } from '../codex-config/skills-installer';
 import type { AgentEvent } from '@shared/types';
 
 import type { BootstrapState } from './_deps';
-import log from '@main/utils/logger';
+import log, { setFileLevel } from '@main/utils/logger';
 
 const logger = log.scope('bootstrap-infra');
 
@@ -103,6 +103,10 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
 
   // 2. 设置
   const settings = settingsStore.getAll();
+  // REVIEW_68 batch-2 [MED reviewer-codex]: logger.ts 模块加载把 file transport 固定 'info'，持久化
+  // settings.logLevel 仅在后续 SettingsSet patch 含 logLevel 时经 applyLogLevel 生效 → 重启后运行时
+  // 回退 'info' 与 UI 显示的持久化值不一致。启动读 settings 后补一次 setFileLevel 应用持久化级别。
+  setFileLevel(settings.logLevel);
 
   // 3. HookServer + RouteRegistry
   state.hookServer = new HookServer(

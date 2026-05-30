@@ -371,48 +371,54 @@ export async function runPrecheck(
     };
   }
 
-  // 6.5. CHANGELOG_169 F2 [HIGH]: frontmatter ↔ input cross-check (planId / worktreePath binding)
+  // 6.5. CHANGELOG_169 F2 [HIGH]: frontmatter ↔ input cross-check (plan_id / worktree_path binding)
   //
   // reviewer-codex finding（双方反驳轮裁决 HIGH 真问题）：caller 误传另一 plan 的 worktreePath 时，
-  // 之前的代码不校验 fm.worktreePath / fm.planId 与输入一致 → silent corruption（plan-A 错标
+  // 之前的代码不校验 fm.worktree_path / fm.plan_id 与输入一致 → silent corruption（plan-A 错标
   // completed + plan-B worktree 被删 + ff-merge 合错 commit + plan-B 工作整片丢失）。典型触发：
   // user 跑 2-3 plan 收尾时 tab-complete 撞同名 dir / 复制粘贴撞错路径。
   //
   // **D7 决策**（向后兼容老 plan）：字段存在严格校验,字段缺失 soft warn 不 reject。新 plan 模板
-  // 已含 planId / worktreePath frontmatter（详 resources/claude-config/CLAUDE.md §Step 1
+  // 已含 plan_id / worktree_path frontmatter（详 resources/claude-config/CLAUDE.md §Step 1
   // plan 内容文档），老 plan 没字段时不破坏归档。
-  if (typeof fm.planId === 'string' && fm.planId !== input.planId) {
+  //
+  // REVIEW_68 batch-3 [HIGH]: plan frontmatter 是 snake_case（CHANGELOG_177 列为合法保留，不随
+  // mcp arg 一起迁 camelCase）。camelcase migration（commit 5ff0d78）误把这里读成 fm.planId /
+  // fm.worktreePath → snake-only plan（文档约定 + 所有归档 plan 实际写法）两个字段恒缺失 → 静默
+  // 走「skipping cross-check」warning 分支 → 本 HIGH silent-corruption 守门实际失效。读 snake_case
+  // key 回正（input.* 仍是 camelCase mcp arg，不动）。
+  if (typeof fm.plan_id === 'string' && fm.plan_id !== input.planId) {
     return {
-      error: `planId mismatch: frontmatter planId="${fm.planId}" but archive_plan called with planId="${input.planId}"`,
+      error: `plan_id mismatch: frontmatter plan_id="${fm.plan_id}" but archive_plan called with planId="${input.planId}"`,
       hint: `Caller likely passed wrong worktreePath for this planId (or vice versa). Refusing to ff-merge / write / unlink to avoid silent corruption (the wrong-binding case would merge another worktree's branch + delete another worktree + mark this plan completed). Verify with \`head -10 ${planFilePath}\` then call archive_plan with matching planId + worktreePath pair.`,
     };
-  } else if (typeof fm.planId !== 'string') {
+  } else if (typeof fm.plan_id !== 'string') {
     warnings.push(
-      `plan frontmatter has no planId field — skipping planId cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
+      `plan frontmatter has no plan_id field — skipping plan_id cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
     );
   }
 
-  if (typeof fm.worktreePath === 'string' && fm.worktreePath) {
+  if (typeof fm.worktree_path === 'string' && fm.worktree_path) {
     let fmWtReal: string;
     let inputWtReal: string;
     try {
-      fmWtReal = await deps.realpath(fm.worktreePath);
+      fmWtReal = await deps.realpath(fm.worktree_path);
       inputWtReal = await deps.realpath(input.worktreePath);
     } catch (e) {
       return {
-        error: `realpath check failed during worktreePath cross-check: ${(e as Error).message}`,
-        hint: `Either fm.worktreePath="${fm.worktreePath}" or input.worktreePath="${input.worktreePath}" cannot be realpath-resolved (likely a broken symlink or already removed). Fix fs state before retrying.`,
+        error: `realpath check failed during worktree_path cross-check: ${(e as Error).message}`,
+        hint: `Either fm.worktree_path="${fm.worktree_path}" or input.worktreePath="${input.worktreePath}" cannot be realpath-resolved (likely a broken symlink or already removed). Fix fs state before retrying.`,
       };
     }
     if (fmWtReal !== inputWtReal) {
       return {
-        error: `worktreePath mismatch: frontmatter worktreePath="${fm.worktreePath}" (realpath="${fmWtReal}") but archive_plan called with worktreePath="${input.worktreePath}" (realpath="${inputWtReal}")`,
+        error: `worktree_path mismatch: frontmatter worktree_path="${fm.worktree_path}" (realpath="${fmWtReal}") but archive_plan called with worktreePath="${input.worktreePath}" (realpath="${inputWtReal}")`,
         hint: `Caller likely passed wrong worktreePath for this planId. Refusing to ff-merge / write / unlink to avoid silent corruption (the wrong-binding case would merge another worktree's branch + delete another worktree + mark this plan completed). Verify plan frontmatter or correct args.worktreePath.`,
       };
     }
   } else {
     warnings.push(
-      `plan frontmatter has no worktreePath field — skipping worktreePath cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
+      `plan frontmatter has no worktree_path field — skipping worktree_path cross-check (older plan; new plan template includes this field per resources/claude-config/CLAUDE.md §Step 1)`,
     );
   }
 

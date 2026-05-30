@@ -220,7 +220,7 @@ describe('handOffSessionImpl — 校验失败分支', () => {
     const customPath = '/Users/test/some-loc/wrong-stem.md';
     state.files.set(
       customPath,
-      ['---', `planId: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
+      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
     );
 
     const result = await handOffSessionImpl(
@@ -259,7 +259,7 @@ describe('handOffSessionImpl — 校验失败分支', () => {
 
     const result = await handOffSessionImpl({ planId }, makeDeps(state));
     expect(_isHandOffSessionError(result)).toBe(true);
-    expect((result as HandOffSessionError).error).toContain('missing required field: worktreePath');
+    expect((result as HandOffSessionError).error).toContain('missing required field: worktree_path');
   });
 
   it('frontmatter worktreePath 非绝对路径 → reject', async () => {

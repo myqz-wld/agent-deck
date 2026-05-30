@@ -154,7 +154,7 @@ export async function assertMainRepoCleanForArchive(
  *
  * 旧 impl `rev-parse --verify <branch>` 接受 SHA / tag / detached HEAD（git man 默认
  * namespace 含 refs/heads/ refs/tags/ refs/remotes/ raw SHA 等），caller 误传 tag 名当
- * baseBranch（典型: plan frontmatter `baseBranch: v1.2.0`）→ checkout tag 后 detached
+ * baseBranch（典型: plan frontmatter `base_branch: v1.2.0`）→ checkout tag 后 detached
  * HEAD → ff-merge 推 HEAD → commit 落 detached → branch -D worktreeBranch 删工作分支 ref
  * → 归档 commit 仅 reflog 可达，gc 30 天后丢失（B-HIGH-3 reviewer-claude 反驳轮 git
  * 端到端实测复现）。修法：显式 verify `refs/heads/<branch>` namespace，强制 named branch
@@ -194,7 +194,7 @@ export async function assertBaseBranchIsNamedBranch(
         `archive_plan ff-merge requires a plain branch name (no rev suffix); names containing '~' / '^' / '@{' are rev expressions ` +
         `that would resolve to a commit + ` +
         `git checkout <name> → detached HEAD → archive commit lost after branch -D + gc. ` +
-        `Edit plan frontmatter baseBranch to a plain branch name (e.g. "main" / "feature-x"). ` +
+        `Edit plan frontmatter base_branch to a plain branch name (e.g. "main" / "feature-x"). ` +
         `Verify with \`git -C ${input.mainRepoAbsPath} check-ref-format --branch <name>\`. ${(e as Error).message}`,
     };
   }
@@ -211,7 +211,7 @@ export async function assertBaseBranchIsNamedBranch(
       hint:
         `archive_plan ff-merge requires a named branch to commit onto. If "${input.baseBranch}" is a tag or SHA, ` +
         `plan cannot be archived (commits would land on detached HEAD and be lost after branch -D + gc). ` +
-        `Edit plan frontmatter baseBranch to a named branch (e.g. "main" / "feature-x"), or pass baseBranch arg explicitly. ` +
+        `Edit plan frontmatter base_branch to a named branch (e.g. "main" / "feature-x"), or pass baseBranch arg explicitly. ` +
         `Verify with \`git -C ${input.mainRepoAbsPath} branch --list\`. ${(e as Error).message}`,
     };
   }

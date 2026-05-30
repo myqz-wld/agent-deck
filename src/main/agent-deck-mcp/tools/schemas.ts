@@ -258,7 +258,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     .max(128)
     .optional()
     .describe(
-      'REVIEW_36 R2 user feedback 修法：caller 不传时优先读 plan frontmatter.baseBranch（plan 创建时记录切 worktree 时所在的原分支，feature branch 上开 plan 就是 feature branch 名），frontmatter 也没设 baseBranch 字段时 fallback "main"。**强烈建议在 plan frontmatter 显式写 baseBranch**，避免 ff-merge 错合到 main 污染主线（feature branch 上跑 plan 但合到 main = worktree 改动从 feature branch 跳过去合主线）。Caller 显式传此参数始终覆盖 frontmatter。',
+      'REVIEW_36 R2 user feedback 修法：caller 不传时优先读 plan frontmatter.base_branch（plan 创建时记录切 worktree 时所在的原分支，feature branch 上开 plan 就是 feature branch 名），frontmatter 也没设 base_branch 字段时 fallback "main"。**强烈建议在 plan frontmatter 显式写 base_branch**，避免 ff-merge 错合到 main 污染主线（feature branch 上跑 plan 但合到 main = worktree 改动从 feature branch 跳过去合主线）。Caller 显式传此参数始终覆盖 frontmatter。',
     ),
   planFilePath: z
     .string()
@@ -299,7 +299,7 @@ export const ARCHIVE_PLAN_SHAPE = {
 // （CHANGELOG_99 起的当前 K2 hand-off 自动化入口）
 // K2 hand-off 自动化「跨会话接力」起新 SDK session（CHANGELOG_99 双模式 spawn_session 包装）。
 // 双模式行为:
-//   plan-driven 模式 (传 planId):读 plan 文件 frontmatter 拿 worktreePath → 校验
+//   plan-driven 模式 (传 planId):读 plan 文件 frontmatter 拿 worktree_path → 校验
 //     status=in_progress → 调 spawn_session 起新 SDK session（cwd=mainRepo 默认 / 初始
 //     prompt = "按 <plan-abs-path> 接力"，含可选 phaseLabel 后缀）
 //   generic 模式 (不传 planId):无需 plan 文件,caller 显式传 prompt + 默认 cwd = caller
@@ -335,7 +335,7 @@ export const ARCHIVE_PLAN_SHAPE = {
 //   §选项 A (新 session 走 builtin `EnterWorktree(path: worktreePath)` 自己进 worktree)
 // - **codex 端 cold-start 协议**:`resources/codex-config/CODEX_AGENTS.md` §plan cold-start protocol
 //   (codex 端 5 步) (codex 无 native EnterWorktree,走 `shell: cat plan` + 从 frontmatter 拿
-//   worktreePath 后用绝对路径 `git -C <worktreePath> ...` 推进,worktree 不存在时调
+//   worktree_path 后用绝对路径 `git -C <worktreePath> ...` 推进,worktree 不存在时调
 //   `mcp__agent-deck__enter_worktree({planId, baseCommit})` 创建)
 // - **cwd resilience 设计**:CHANGELOG_99 — default cwd 改为 mainRepo(原 worktreePath)让
 //   sessionRepo.cwd 在 worktree 被 `archive_plan` / `git worktree remove` 删后仍 valid
@@ -519,7 +519,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .regex(/^[0-9a-f]+$/i, 'baseCommit must be hex SHA (≥7 chars)')
     .optional()
     .describe(
-      'Optional explicit base commit SHA. Highest priority in base resolution chain (plan D2): caller args.baseCommit > caller args.baseBranch > plan frontmatter baseCommit > plan frontmatter baseBranch > HEAD. Use to lock new worktree to a specific commit (e.g. for reproducing historical state).',
+      'Optional explicit base commit SHA. Highest priority in base resolution chain (plan D2): caller args.baseCommit > caller args.baseBranch > plan frontmatter base_commit > plan frontmatter base_branch > HEAD. Use to lock new worktree to a specific commit (e.g. for reproducing historical state).',
     ),
   baseBranch: z
     .string()
@@ -535,7 +535,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .max(4096)
     .optional()
     .describe(
-      'Optional plan file absolute path (for frontmatter baseCommit / baseBranch fallback chain when caller args do not specify base). When omitted, handler tries (in order): <main-repo>/.claude/plans/<planId>.md, then <main-repo>/ref/plans/<planId>.md, then ~/.claude/plans/<planId>.md (same fallback chain as archive_plan).',
+      'Optional plan file absolute path (for frontmatter base_commit / base_branch fallback chain when caller args do not specify base). When omitted, handler tries (in order): <main-repo>/.claude/plans/<planId>.md, then <main-repo>/ref/plans/<planId>.md, then ~/.claude/plans/<planId>.md (same fallback chain as archive_plan).',
     ),
   callerSessionId: z
     .string()
@@ -835,7 +835,7 @@ export interface HandOffSessionResult extends SpawnSessionResult {
   planFilePath: string | null;
   /** worktree 绝对路径（plan-driven 模式有值；generic 模式 null）。 */
   worktreePath: string | null;
-  /** plan frontmatter baseBranch（plan-driven 模式有值；generic 模式 null）。 */
+  /** plan frontmatter base_branch（plan-driven 模式有值；generic 模式 null）。 */
   baseBranch: string | null;
   /** phase 标签（plan-driven + caller 传 phaseLabel 时有值；其他 null）。 */
   phaseLabel: string | null;
@@ -960,8 +960,8 @@ export interface HandOffSessionResult extends SpawnSessionResult {
  * - baseSource: 5 态枚举表明 base 是从哪个来源 resolved(plan D2 优先级链)
  *   - 'arg-base-commit': caller args.baseCommit 显式传
  *   - 'arg-base-branch': caller args.baseBranch 显式传,handler resolve 到 HEAD
- *   - 'frontmatter-base-commit': plan frontmatter baseCommit 字段
- *   - 'frontmatter-base-branch': plan frontmatter baseBranch 字段
+ *   - 'frontmatter-base-commit': plan frontmatter base_commit 字段
+ *   - 'frontmatter-base-branch': plan frontmatter base_branch 字段
  *   - 'head': 都没传,fallback 主仓库 HEAD（标准走法）
  * - markerSet: setCwdReleaseMarker 成功标 true(几乎一定 true,失败 handler 应已 reject)
  */

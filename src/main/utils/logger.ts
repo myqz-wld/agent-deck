@@ -74,8 +74,20 @@ log.transports.console.level = 'silly';
 
 // D6: 默认 format 已含 (scope) padding, 不自定义 (避免空 scope 显示 padded 空白)
 
-// D7: fatal hook init 即跑, 覆盖 uncaughtException + unhandledRejection
-log.errorHandler.startCatching();
+// D7: fatal hook init 即跑, 落盘 uncaughtException + unhandledRejection
+// REVIEW_68 batch-2 [MED, reviewer-claude + reviewer-codex 双方独立提出]: electron-log
+// errorHandler.handle() 只 logFn 落盘 + (默认) 弹模态 showErrorBox，**不 rethrow / 不 exit** →
+// 注册 listener 后 main 进程在 uncaughtException 后带病续跑（DB 半写 / 多 SDK 子进程状态不一致
+// 风险），且生产弹技术堆栈模态给普通用户。修法：(a) showDialog 仅 dev（生产不弹堆栈）；
+// (b) electron-log 落盘后补一道 uncaughtException → app.exit(1) 恢复 Node 默认 fatal 退出语义
+// （electron-log file transport 同步写，本 listener 在 electron-log listener 之后注册 → 先落盘后退出）。
+// unhandledRejection 仅落盘不强退（避免单个 stray promise rejection 过激杀进程）。
+log.errorHandler.startCatching({ showDialog: !app.isPackaged });
+if (process.env.NODE_ENV !== 'test') {
+  process.on('uncaughtException', () => {
+    app.exit(1);
+  });
+}
 
 // D5 + §不变量 2: main 端接管 console.* (NODE_ENV='test' 跳过保 vi.spyOn 兼容)
 // §不变量 10: 守门只控接管动作, 不管 import side effect (那由 D15 vitest setupFiles 全局 mock 守门)

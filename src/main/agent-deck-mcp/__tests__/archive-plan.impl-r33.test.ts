@@ -35,7 +35,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
       userGlobalPath,
       [
         '---',
-        `planId: ${planId}`,
+        `plan_id: ${planId}`,
         'status: in_progress',
         '---',
         '',
@@ -75,7 +75,7 @@ describe('archivePlanImpl — plan 文件路径 fallback', () => {
     const customPath = `/Users/test/some-custom-location/${planId}.md`;
     state.files.set(
       customPath,
-      ['---', `planId: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
+      ['---', `plan_id: ${planId}`, 'status: in_progress', '---', 'body'].join('\n'),
     );
     const worktreePath = '/Users/test/repo/.claude/worktrees/override-plan';
     state.files.set(worktreePath, '__dir__'); // REVIEW_33 H10
@@ -217,8 +217,8 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流（abandoned / unk
       planPath,
       [
         '---',
-        `planId: ${input.planId}`,
-        `worktreePath: ${input.worktreePath}`,
+        `plan_id: ${input.planId}`,
+        `worktree_path: ${input.worktreePath}`,
         'status: abandoned',
         '---',
         '',
@@ -246,8 +246,8 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流（abandoned / unk
       planPath,
       [
         '---',
-        `planId: ${input.planId}`,
-        `worktreePath: ${input.worktreePath}`,
+        `plan_id: ${input.planId}`,
+        `worktree_path: ${input.worktreePath}`,
         'status: draft',
         '---',
         '',
@@ -273,8 +273,8 @@ describe('archivePlanImpl — REVIEW_33 H2 status 三档分流（abandoned / unk
       planPath,
       [
         '---',
-        `planId: ${input.planId}`,
-        `worktreePath: ${input.worktreePath}`,
+        `plan_id: ${input.planId}`,
+        `worktree_path: ${input.worktreePath}`,
         // 故意缺 status 行
         '---',
         '',
@@ -424,6 +424,106 @@ describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
     // prefix 知道 main 还没动 → 可以简单 retry）
     expect((result as ArchivePlanError).error).not.toContain('[post-ff-merge:');
     expect((result as ArchivePlanError).error).toContain('baseBranch');
+  });
+});
+
+describe('archivePlanImpl — REVIEW_68 batch-3: plan frontmatter snake_case 读取（camelcase over-migration 回正）', () => {
+  // commit 5ff0d78 误把 plan frontmatter 读取从 snake_case 迁到 camelCase，但 plan 文件实际写
+  // snake_case（CHANGELOG_177 合法保留 + 所有归档 plan 实证）。导致 snake-only plan 的 cross-check
+  // 静默失效（fm.worktreePath 恒 undefined → 走「字段缺失」warning 分支）+ base_branch fallback 失效。
+  // 本组用 snake-only fixture 验证读 snake key 回正后守门 / fallback 重新生效。
+
+  it('snake-only frontmatter worktree_path 与 input.worktreePath 不一致 → cross-check 触发 reject', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    const wrongWorktree = '/Users/test/repo/.claude/worktrees/WRONG-other-plan';
+    state.files.set(
+      planPath,
+      [
+        '---',
+        `plan_id: ${input.planId}`,
+        `worktree_path: ${wrongWorktree}`, // ← 故意 != input.worktreePath
+        'status: in_progress',
+        'base_branch: main',
+        '---',
+        '',
+        'body',
+      ].join('\n'),
+    );
+    const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('worktree_path mismatch');
+    // silent-corruption 守门生效 → 绝不能 ff-merge / checkout（CHANGELOG_169 F2 防线）
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+    expect(state.gitCalls.find((c) => c.args[0] === 'checkout')).toBeUndefined();
+  });
+
+  it('snake-only frontmatter plan_id 与 input.planId 不一致 → cross-check 触发 reject', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    state.files.set(
+      planPath,
+      [
+        '---',
+        'plan_id: some-other-plan-id', // ← 故意 != input.planId
+        `worktree_path: ${input.worktreePath}`,
+        'status: in_progress',
+        '---',
+        '',
+        'body',
+      ].join('\n'),
+    );
+    const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
+
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(true);
+    expect((result as ArchivePlanError).error).toContain('plan_id mismatch');
+    expect(state.gitCalls.find((c) => c.args[0] === 'merge')).toBeUndefined();
+  });
+
+  it('snake-only frontmatter base_branch (input 不传 baseBranch) → ff-merge checkout fm.base_branch 而非默认 main', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const planPath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    state.files.set(
+      planPath,
+      [
+        '---',
+        `plan_id: ${input.planId}`,
+        `worktree_path: ${input.worktreePath}`,
+        'status: in_progress',
+        'base_branch: feature-x', // ← snake base_branch；input 不传 baseBranch 时应 fallback 到此
+        '---',
+        '',
+        'body',
+      ].join('\n'),
+    );
+    // 全 happy-path git 序列（镜像本文件「fallback 到 ~/.claude/plans」测试）
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`, // rev-parse --git-common-dir
+      'wb', // worktree branch
+      '', // worktree status
+      'fxhash', // rev-parse --verify refs/heads/feature-x（branch 存在）
+      '', // checkout feature-x
+      '', // merge --ff-only wb
+      'h', // rev-parse HEAD finalCommit
+      '',
+      '',
+      'archivehash',
+      '',
+      '',
+    ]);
+
+    // 关键：input 省略 baseBranch → 应读 frontmatter base_branch=feature-x（camelCase over-migration
+    // 时 fm.baseBranch undefined → 无脑 fallback main，feature-branch plan 会污染主线）
+    const result = await archivePlanImpl(
+      { planId: input.planId, worktreePath: input.worktreePath },
+      deps,
+    );
+    const checkout = state.gitCalls.find((c) => c.args[0] === 'checkout');
+    expect(checkout?.args[1]).toBe('feature-x'); // 合到 feature-x 而非 main
+    expect(_isArchivePlanError(result)).toBe(false);
   });
 });
 
