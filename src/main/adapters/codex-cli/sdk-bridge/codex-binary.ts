@@ -6,15 +6,20 @@
  * 打包后绕开 SDK 内部的 `moduleRequire.resolve` 自己拼 vendored 二进制路径。
  *
  * 不绕的话：SDK `findCodexPath` 走 `moduleRequire.resolve('@openai/codex/package.json')` →
- * `createRequire(...).resolve('@openai/codex-darwin-arm64/package.json')` → join 'vendor/.../codex/codex'
- * 链解析（dist/index.js:421-433）。Electron 的 require 把 `@openai/codex/package.json` 解析回的
- * 字符串是 `.../app.asar/node_modules/@openai/codex/package.json`，最终 `binaryPath` 也是
- * `.../app.asar/.../codex`。SDK 拿这个 path 直接 `child_process.spawn`（dist/index.js:238）；spawn
- * 不走 asar 虚拟 fs，OS 系统 fork/exec 把 `app.asar`（一个普通文件）当目录访问 → ENOTDIR。
+ * `createRequire(...).resolve('@openai/codex-darwin-arm64/package.json')` → join vendor 二进制路径
+ * 链解析。Electron 的 require 把 `@openai/codex/package.json` 解析回的字符串是
+ * `.../app.asar/node_modules/@openai/codex/package.json`，最终 `binaryPath` 也落在 asar 内。SDK 拿
+ * 这个 path 直接 `child_process.spawn`；spawn 不走 asar 虚拟 fs，OS 系统 fork/exec 把 `app.asar`
+ * （一个普通文件）当目录访问 → ENOTDIR。
  *
  * 修复策略：app.isPackaged 时，主进程自己按 `app.asar.unpacked` 拼真实路径，传给 SDK 的
  * `codexPathOverride` 短路 SDK 自己的 resolve。dev 模式 `process.resourcesPath` 指向 Electron
  * 自身 Resources（无对应 unpacked 结构），返回 null 让 SDK 走默认 resolve（dev 没 asar 没问题）。
+ *
+ * **vendor 双布局**（codex-sdk ≥ 0.135 改了 vendor 子目录名）：
+ * - 新布局：`vendor/<triple>/bin/<binName>`（0.135+）
+ * - 旧布局：`vendor/<triple>/codex/<binName>`（≤ 0.134）
+ * 与 SDK 内部 `resolveNativePackage` 同款双探测：先 new 后 legacy，跨 SDK 版本都稳。
  *
  * 与 package.json 的 `build.asarUnpack`（@openai/codex* 系列）配合：unpack 把物理文件复制到
  * `app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/...`，本函数定位到那里。
@@ -53,7 +58,7 @@ export function resolveBundledCodexBinary(): string | null {
   if (!app.isPackaged) return null;
   const spec = PLATFORM_BINARY_MAP[`${process.platform}-${process.arch}`];
   if (!spec) return null;
-  const binPath = join(
+  const vendorTripleDir = join(
     process.resourcesPath,
     'app.asar.unpacked',
     'node_modules',
@@ -61,8 +66,12 @@ export function resolveBundledCodexBinary(): string | null {
     spec.pkgDir,
     'vendor',
     spec.triple,
-    'codex',
-    spec.binName,
   );
-  return existsSync(binPath) ? binPath : null;
+  // vendor 双布局（与 SDK resolveNativePackage 同款先 new 后 legacy）：
+  // new (0.135+) = vendor/<triple>/bin/<binName>；legacy (≤0.134) = vendor/<triple>/codex/<binName>
+  const newLayout = join(vendorTripleDir, 'bin', spec.binName);
+  if (existsSync(newLayout)) return newLayout;
+  const legacyLayout = join(vendorTripleDir, 'codex', spec.binName);
+  if (existsSync(legacyLayout)) return legacyLayout;
+  return null;
 }

@@ -27,7 +27,7 @@ const KIND_OPTIONS = [
 
 const KEYWORD_DEBOUNCE_MS = 300;
 
-export function IssuesPanel(): JSX.Element {
+export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) => void }): JSX.Element {
   const issues = useIssuesStore((s) => s.issues);
   const filters = useIssuesStore((s) => s.filters);
   const selectedIssueId = useIssuesStore((s) => s.selectedIssueId);
@@ -137,7 +137,11 @@ export function IssuesPanel(): JSX.Element {
       {/* Right: detail (or empty hint) */}
       <div className="flex-1 overflow-y-auto scrollbar-deck">
         {selectedIssueId ? (
-          <IssueDetail issueId={selectedIssueId} onClose={() => selectIssue(null)} />
+          <IssueDetail
+            issueId={selectedIssueId}
+            onClose={() => selectIssue(null)}
+            onOpenSession={onOpenSession}
+          />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-deck-muted">
             从左侧选择一个问题查看详情

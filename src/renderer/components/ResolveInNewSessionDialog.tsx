@@ -11,6 +11,13 @@
 
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { IssueRecord } from '@shared/types';
+import {
+  PERMISSION_OPTIONS,
+  CODEX_SANDBOX_OPTIONS,
+  CLAUDE_SANDBOX_OPTIONS,
+  type CodexSandboxChoice,
+  type ClaudeSandboxChoice,
+} from '@renderer/lib/sandbox-options';
 
 interface Props {
   issue: IssueRecord;
@@ -21,7 +28,7 @@ interface Props {
 interface AdapterInfo {
   id: string;
   displayName: string;
-  capabilities: { canCreateSession?: boolean };
+  capabilities: { canCreateSession?: boolean; canSetPermissionMode?: boolean };
 }
 
 function buildDefaultPrompt(issue: IssueRecord): string {
@@ -63,6 +70,8 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   const defaultPrompt = useMemo(() => buildDefaultPrompt(issue), [issue]);
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [permissionMode, setPermissionMode] = useState('');
+  const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
+  const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +86,12 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 与 NewSessionDialog 同款按 adapter capability 决定字段可见性
+  const selectedAdapter = adapters.find((a) => a.id === adapter);
+  const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
+  const showCodexSandbox = adapter === 'codex-cli';
+  const showClaudeCodeSandbox = adapter === 'claude-code';
+
   const handleSubmit = async (): Promise<void> => {
     setError(null);
     if (!prompt.trim()) {
@@ -90,7 +105,9 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         adapter,
         cwd: cwd.trim() || undefined,
         prompt,
-        ...(permissionMode ? { permissionMode } : {}),
+        ...(showPermissionMode && permissionMode ? { permissionMode } : {}),
+        ...(showCodexSandbox && codexSandbox ? { codexSandbox } : {}),
+        ...(showClaudeCodeSandbox && claudeCodeSandbox ? { claudeCodeSandbox } : {}),
       });
       onResolved(result.issue);
     } catch (e) {
@@ -160,23 +177,64 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             />
             <div className="text-[10px] text-deck-muted">{prompt.length} / 102400</div>
           </div>
-          <div className="space-y-1">
-            <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-              权限模式（可选；留空用默认）
-            </label>
-            <select
-              value={permissionMode}
-              onChange={(e) => setPermissionMode(e.target.value)}
-              disabled={busy}
-              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
-            >
-              <option value="">跟随默认</option>
-              <option value="default">每次询问</option>
-              <option value="acceptEdits">自动接受编辑</option>
-              <option value="plan">计划模式</option>
-              <option value="bypassPermissions">⚠️ 不再询问</option>
-            </select>
-          </div>
+          {showPermissionMode && (
+            <div className="space-y-1">
+              <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
+                权限模式（可选；留空用默认）
+              </label>
+              <select
+                value={permissionMode}
+                onChange={(e) => setPermissionMode(e.target.value)}
+                disabled={busy}
+                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
+              >
+                <option value="">跟随默认</option>
+                {PERMISSION_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value} title={p.title}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {showCodexSandbox && (
+            <div className="space-y-1">
+              <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
+                沙盒（可选；留空用默认）
+              </label>
+              <select
+                value={codexSandbox}
+                onChange={(e) => setCodexSandbox(e.target.value as CodexSandboxChoice)}
+                disabled={busy}
+                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
+              >
+                {CODEX_SANDBOX_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value} title={p.title}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {showClaudeCodeSandbox && (
+            <div className="space-y-1">
+              <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
+                系统沙盒（可选；留空用默认）
+              </label>
+              <select
+                value={claudeCodeSandbox}
+                onChange={(e) => setClaudeCodeSandbox(e.target.value as ClaudeSandboxChoice)}
+                disabled={busy}
+                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
+              >
+                {CLAUDE_SANDBOX_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value} title={p.title}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
         <div className="flex gap-1.5 border-t border-deck-border px-4 py-2">
           <div className="flex-1" />

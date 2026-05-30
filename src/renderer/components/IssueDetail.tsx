@@ -23,26 +23,59 @@ import { ResolveInNewSessionDialog } from './ResolveInNewSessionDialog';
 interface Props {
   issueId: string;
   onClose: () => void;
+  /** 点「解决会话 / 来源会话」跳到 live 视图打开该 session（App → IssuesPanel 透传） */
+  onOpenSession?: (sid: string) => void;
 }
 
-export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
+type EditingState = {
+  title: string;
+  description: string;
+  repro: string;
+  kind: string;
+  status: IssueStatus;
+  severity: IssueSeverity;
+  labels: string; // comma-joined
+};
+
+function toEditing(rec: IssueRecord): EditingState {
+  return {
+    title: rec.title,
+    description: rec.description,
+    repro: rec.repro ?? '',
+    kind: rec.kind,
+    status: rec.status,
+    severity: rec.severity,
+    labels: rec.labels.join(', '),
+  };
+}
+
+/** 编辑缓冲是否与基线一致（用于判定用户有无未保存草稿）。 */
+function editingMatches(a: EditingState, b: EditingState): boolean {
+  return (
+    a.title === b.title &&
+    a.description === b.description &&
+    a.repro === b.repro &&
+    a.kind === b.kind &&
+    a.status === b.status &&
+    a.severity === b.severity &&
+    a.labels === b.labels
+  );
+}
+
+export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Element {
+  // store 是权威源：list 重拉 / onIssueChanged event（含起新会话改 status='in-progress'）都先
+  // 落 store，本组件订阅它而非读一次。selectedIssueId 不变时 store 行变 → 自动重渲染。
   const issueFromStore = useIssuesStore((s) => s.issues.get(issueId));
   const upsertIssue = useIssuesStore((s) => s.upsertIssue);
   const [issue, setIssue] = useState<IssueRecord | null>(issueFromStore ?? null);
-  const [editing, setEditing] = useState<{
-    title: string;
-    description: string;
-    repro: string;
-    kind: string;
-    status: IssueStatus;
-    severity: IssueSeverity;
-    labels: string; // comma-joined
-  } | null>(null);
+  const [editing, setEditing] = useState<EditingState | null>(
+    issueFromStore ? toEditing(issueFromStore) : null,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
 
-  // 初始 / issueId 变 → 拉 detail 含 appendices
+  // 初始 / issueId 变 → 拉 detail 含 appendices（IssuesGet 比 store 多带 appendices 子列表）
   useEffect(() => {
     let cancelled = false;
     setError(null);
@@ -52,20 +85,33 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
         return;
       }
       setIssue(fetched);
-      setEditing({
-        title: fetched.title,
-        description: fetched.description,
-        repro: fetched.repro ?? '',
-        kind: fetched.kind,
-        status: fetched.status,
-        severity: fetched.severity,
-        labels: fetched.labels.join(', '),
-      });
+      setEditing(toEditing(fetched));
     });
     return () => {
       cancelled = true;
     };
   }, [issueId]);
+
+  // store 行被 onIssueChanged event 更新（典型：起新会话回写 status='in-progress'，或其他
+  // 视图 / teammate 改了同一 issue）→ 刷新 read-only `issue` 显示，避免「状态没刷新需切走再切回」。
+  // editing 草稿处理：仅当用户没有未保存改动时才同步（editingMatches 当前 issue 基线）；用户编辑
+  // 到一半时只更 issue 不动草稿，避免外部 event 吞掉输入。handleSave 的逐字段 diff 仍以最新 issue
+  // 为基线 → 草稿能正确叠加到 DB 较新行上。
+  // saving 期间整体跳过：handleSave 自己 setIssue。
+  // appendices 防丢：list() 路径的 store 行不带 appendices（避免 N+1），event 路径都带；
+  // 故 `?? prev` 保住 IssuesGet 已拉到的子列表（undefined=未加载，区别于 []=确无）。
+  const storeUpdatedAt = issueFromStore?.updatedAt;
+  useEffect(() => {
+    if (!issueFromStore || saving) return;
+    if (issue && issue.updatedAt === issueFromStore.updatedAt) return;
+    const hasDraft = !!(issue && editing && !editingMatches(editing, toEditing(issue)));
+    setIssue((prev) => ({
+      ...issueFromStore,
+      appendices: issueFromStore.appendices ?? prev?.appendices,
+    }));
+    if (!hasDraft) setEditing(toEditing(issueFromStore));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeUpdatedAt]);
 
   if (error) {
     return (
@@ -234,7 +280,14 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
         {/* meta 信息 read-only */}
         <div className="space-y-1 rounded bg-white/[0.03] px-2 py-2 text-[10px] text-deck-muted">
           <div>ID: {issue.id}</div>
-          <div>来源会话: {issue.sourceSessionId ?? <em>原会话已被清理</em>}</div>
+          <div className="flex items-center gap-1">
+            来源会话:{' '}
+            {issue.sourceSessionId ? (
+              <SessionLink sid={issue.sourceSessionId} onOpenSession={onOpenSession} />
+            ) : (
+              <em>原会话已被清理</em>
+            )}
+          </div>
           <div>工作目录: {issue.cwd ?? '—'}</div>
           <div>
             创建: {new Date(issue.createdAt).toLocaleString('zh-CN', { hour12: false })} · 更新:{' '}
@@ -249,7 +302,10 @@ export function IssueDetail({ issueId, onClose }: Props): JSX.Element {
             </div>
           )}
           {issue.resolutionSessionId && (
-            <div>解决会话: {issue.resolutionSessionId}</div>
+            <div className="flex items-center gap-1">
+              解决会话:{' '}
+              <SessionLink sid={issue.resolutionSessionId} onOpenSession={onOpenSession} />
+            </div>
           )}
         </div>
 
@@ -358,5 +414,26 @@ function Field({ label, children }: { label: string; children: JSX.Element }): J
       </label>
       {children}
     </div>
+  );
+}
+
+/** session id 渲染：有 onOpenSession 回调时可点击跳转到该会话，否则纯文本展示。 */
+function SessionLink({
+  sid,
+  onOpenSession,
+}: {
+  sid: string;
+  onOpenSession?: (sid: string) => void;
+}): JSX.Element {
+  if (!onOpenSession) return <span className="font-mono">{sid}</span>;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenSession(sid)}
+      title="打开该会话"
+      className="truncate font-mono text-status-working underline-offset-2 hover:underline"
+    >
+      {sid}
+    </button>
   );
 }
