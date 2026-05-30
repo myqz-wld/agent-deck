@@ -66,6 +66,76 @@ claude 视角同款 tool 也存在（MCP 通用），claude 端首选 CLI builti
 
 ---
 
+## 决策对抗
+
+下结论 / 出 plan 前必做。
+
+**适用范围**(任一即触发):
+- 给代码下定性判断:bug / 优化 / code review / 安全 / 架构 / 根因
+- 出执行计划(plan)
+- 重要技术选型 / 重构方向决策
+- **例外**:trivial 改动(typo / 样式数值 / 单点 rename / 显然措辞修订)
+
+**场景分流**:
+
+| 场景 | 走哪条 | 不能反过来 |
+|---|---|---|
+| **单次决策对抗**(1-2 个问题就够:单点判定 / plan 评审)| 本节 §主路径 双 shell 起外部 CLI —— 同 turn 内起两个外部 CLI 进程 | 多轮 review 别走本路:fresh per turn 丢 in-memory state,反驳轮没自己上轮推理链反驳质量崩 |
+| **多轮深度 review**(多轮 review × fix 循环 + 反驳轮 + focus 切片)| `agent-deck:deep-review` SKILL(teammate 模式,跨轮 context 持久化) | 单次决策对抗别走多轮编排:teammate 编排开销大无收益 |
+
+### 主路径:双 shell 起异构外部 CLI
+
+**操作**:codex lead 用 `shell` 起两个外部 CLI 进程,分别拿独立 stdout。两进程完全独立(互不知道对方存在 / 不沟通)→ 各自 stdout 回 lead → lead 做三态裁决:
+
+1. reviewer-claude 走 `zsh -i -l -c "claude -p ..."`(外部 Claude Code 进程,oneshot print mode)—— 模板:`{{AGENT_DECK_RESOURCES}}/templates/reviewer-claude.sh.tmpl`
+2. reviewer-codex 走 `zsh -i -l -c "codex exec ..."`(外部 codex CLI 进程,oneshot exec mode)—— 模板:`{{AGENT_DECK_RESOURCES}}/templates/reviewer-codex.sh.tmpl`
+
+异构由两路 reviewer 物理保证(claude -p 跑 Claude Opus / codex exec 跑 codex),lead 用哪个 adapter 无关。
+
+> ⚠️ 这两份 `.sh.tmpl` 是 **shell oneshot 起外部 CLI 用**(本节单次决策对抗);与 deep-review SKILL teammate 模式起的同名 reviewer-{claude,codex}(跨轮 context 持久化、属 SKILL 编排)是**两套独立物件**,不混用:单次决策对抗用本节 .sh.tmpl,多轮深度 review 走 deep-review SKILL。
+
+#### 外部 CLI 对抗 Agent 通用姿势(codex 端)
+
+- **登录式 shell 包外层**(macOS:`zsh -i -l -c "..."`),否则缺 brew / nvm / path_helper PATH
+- **强制非交互模式**(`-p` / `exec`)+ **进程级只读约束**(codex `--sandbox read-only --skip-git-repo-check`;claude `--permission-mode default` + `--disallowedTools 'Edit,MultiEdit,Write,NotebookEdit,ExitPlanMode'` + `--allowedTools` 只读白名单)—— **完整 flag 以 `.sh.tmpl` 模板为准**(模板内注释含 plan-mode 陷阱等踩坑)
+- **显式传项目绝对路径**(`-C` / `--cwd`)
+- **分离最终答案与日志**:codex 用 `-o <FILE>`;claude 用 stdout 重定向 `> <FILE>`
+- **reasoning effort 取最高档**(review / plan / 探索类;简单 yes/no 核查可临时降档,但**宁可慢别错**)
+- **长 prompt 走 stdin**,prompt 里**写死要读的文件绝对路径**,不让 CLI 自由 grep / explore
+- **codex shell 并发**:`shell` 起两个外部 CLI 用 `&` 后台化 + `wait` 收集两路 stdout(codex 无 claude 的 run_in_background task-notification 机制,用 shell 原生后台/wait 等价);prompt 短时也可顺序起两个
+- **超时**:重 review 给 5-10 分钟;命令体内**绝不写 `timeout` / `gtimeout`**(macOS 无此命令,会连带后续命令一起 `command not found`),靠 CLI 自身完成或外层进程级控制
+- **大 scope 拆批**:单批 ≤ 10 文件 / prompt ≤ 30 行;超出按主题拆批并发;卡住就拆更小批不要傻等(详 `{{AGENT_DECK_RESOURCES}}/SOPs/codex-cli-stuck-lessons.md`)
+
+### 反驳轮 + 三态裁决
+
+**反驳轮**:单方独有 + HIGH 候选 → 起对方 reviewer 反驳一次(保持异构),反驳 prompt 明禁「借机提其他 finding」专注单点。反驳后 lead 推到 ✅ / ❌ / 仍 ❓ → 必要时 lead 自己现场验证(**单 finding ≤ 5min / ≤ 5 次 grep / ≤ 1 个 test,超就降级非 HIGH 不再纠缠**)。
+
+**三态裁决**(每条 finding):
+- ✅ **真问题**(HIGH 必须满足 ≥1 个验证条件):「**双方独立提出**」(异构强冗余即算验证)**或**「**一方提出且现场实践验证成立**」(grep 出 N 处证据 / 写小 test 复现挂掉 / 跑命令确认)→ 必修
+- ❌ **反驳**:被对抗或现场核实证伪 → 不修,记反驳依据
+- ❓ **部分 / 未验证**:双方角度不同 / 一方提出但纯文本推理(含弱断言)尚未实践验证 → 综合后决定
+
+**单方独有分流**:HIGH → 反驳轮;MED → lead 自己验证;LOW/INFO → 直接 ❓。双方都说没问题 → ✅ 可合。
+
+### Finding 输出契约(reviewer prompt + 三态裁决 + REVIEW.md 共用)
+
+每条 finding 必须带:
+- `文件:行号` + 代码 / 原文片段(≤ 6 行)
+- **验证手段**(如 "grep 出 3 处全无 null check" / "写 stateful mock 模拟双 disconnect 实测 abort 0 次")
+- 严重度分组:HIGH / MED / LOW / INFO(提示性、不影响合并)/ *未验证*
+
+**强制约束**:
+- 空泛 finding + 没验证 = 直接降 ❓ 或 ❌
+- **任何 ✅ HIGH 都必须落到上述两个验证条件之一**(双方独立 / 单方 + 现场验证)
+- 弱断言关键词("可能 / 也许 / 看起来 / 应该 / 大概")**只允许**出现在标注 *未验证* 的条目里
+- 未验证强制降级为非 HIGH
+
+### reviewer 失败兜底
+
+外部 CLI 失败(二进制缺失 / OAuth 过期 / 超时 / `$OUT` 空)→ 提示用户决策:等恢复 / 单方另一路出结论 / 稍后重试 / abort。invariant「**严禁同源双 reviewer**」(不可降级双 codex 或双 Claude — 破坏异构);deep-review SKILL 内合规兜底分支详 §应用环境特有能力 §reviewer-claude 失败 → SKILL 内合规兜底分支 节。
+
+---
+
 ## 核心流程 / 架构变更必走 plantUML
 
 涉及核心流程 / 架构变更时必须用 plantUML 画图并落到 `ref/` 对应子目录。**「怎么画」(plantUML syntax / 图类型 / workflow)由 `agent-deck:flow-arch-plantuml` SKILL(codex-config 端独立 SSOT)规定;「画在哪 / INDEX 怎么维护」由本节规定**(关注点分离 — SKILL 与位置约定独立维护)。
