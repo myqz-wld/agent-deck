@@ -1,11 +1,11 @@
 ---
 name: flow-arch-plantuml
-description: 核心流程 / 架构变更必走 plantUML — 用 plantUML 画 sequence / activity / component 图,纯生成/修改 .puml SSOT 不渲染。触发:用户明示「画架构图」/「画流程图」/「画 plantUML」/「flow diagram」/「architecture diagram」,或 LLM 检测到本次改动涉及核心 src/main 模块流程 / 架构 / 跨进程协议变更。文件位置 + INDEX 规则由应用打包 CLAUDE.md §核心流程 / 架构变更必走 plantUML 节规定,本 SKILL 不重复。
+description: 核心流程 / 架构变更必走 plantUML — 用 plantUML 画 sequence / activity / component 图,纯生成/修改 .puml SSOT 不渲染。触发:用户明示「画架构图」/「画流程图」/「画 plantUML」/「flow diagram」/「architecture diagram」,或 LLM 检测到本次改动涉及核心 src/main 模块流程 / 架构 / 跨进程协议变更。文件位置 + INDEX 规则由应用打包 CODEX_AGENTS.md §核心流程 / 架构变更必走 plantUML 节规定,本 SKILL 不重复。
 ---
 
-# Flow / Architecture plantUML — 核心流程 / 架构变更画图
+# Flow / Architecture plantUML — 核心流程 / 架构变更画图（codex 视角）
 
-> **关注点分离**:本 SKILL 只讲 **plantUML 怎么画**(图类型选择 / 文件结构 / syntax 规约 / 工作流)。**文件位置**(`ref/flows/` / `ref/architecture/`)/ **INDEX.md 格式** / **目录是否存在 + 不存在如何建** 等约定全部 **由应用打包 `CLAUDE.md` §核心流程 / 架构变更必走 plantUML 节规定**,本 SKILL 不重复 SSOT。
+> **关注点分离**:本 SKILL 只讲 **plantUML 怎么画**(图类型选择 / 文件结构 / syntax 规约 / 工作流)。**文件位置**(`ref/flows/` / `ref/architecture/`)/ **INDEX.md 格式** / **目录是否存在 + 不存在如何建** 等约定全部 **由应用打包 `CODEX_AGENTS.md` §核心流程 / 架构变更必走 plantUML 节规定**,本 SKILL 不重复 SSOT。
 
 ## 何时用(invoke 条件严格)
 
@@ -23,26 +23,28 @@ description: 核心流程 / 架构变更必走 plantUML — 用 plantUML 画 seq
 - 业务模块内部改动不涉及对外协议或跨模块通信
 - 仅 fix bug 不动 design
 
-**LLM 自检不确定时直接问 user**:「这是核心流程 / 架构变更吗?需要更新 plantUML 吗?」让 user 拍板。
+**LLM 自检不确定时直接问 user**:「这是核心流程 / 架构变更吗?需要更新 plantUML 吗?」让 user 拍板(codex 提问后必须结束本 turn 等 user 回复,见下节)。
 
-## 与 user 确认机制(skill 起手必调)
+## 与 user 确认机制(skill 起手必调 — codex turn 边界硬约束)
 
-skill 入口必须先 AskUserQuestion(2-3 题)对齐:
+skill 入口必须先向 user 提 2-3 个对齐问题:
 
 1. **是否核心变更**:本次改动 / 设计是否真涉及核心流程或架构?(若 user 否 → skill no-op exit,提示「按 user 判断本次不属核心变更,跳过 plantUML 维护;直接编辑代码不必画图」)
-2. **图类型**:**流程**(sequence / activity)还是**架构**(component)?或者同主题同时需两张?(影响最终文件落在 `ref/flows/` 还是 `ref/architecture/` — 具体路径见应用 CLAUDE.md)
-3. **新建 / 修改 / archive**:列出现有 .puml 让 user 选 — 新建 / 修改已有(指定文件名)/ 标记 archived
+2. **图类型**:**流程**(sequence / activity)还是**架构**(component)?或者同主题同时需两张?(影响最终文件落在 `ref/flows/` 还是 `ref/architecture/` — 具体路径见应用 CODEX_AGENTS.md)
+3. **新建 / 修改 / archive**:`shell ls` 列出现有 .puml 让 user 选 — 新建 / 修改已有(指定文件名)/ 标记 archived
+
+> ⚠️ **codex 无 AskUserQuestion 阻塞语义 — 必须靠 turn 边界保证 user 先拍板**:codex CLI 没有 claude builtin 的 AskUserQuestion 工具(阻塞式 UI 选项)。**输出上述问题后必须结束本 turn 等 user 下一轮 message 回复,严禁同一 turn 内继续生成 / 修改任何 .puml 或 INDEX.md**。本应用工程实践严禁 agent 默认静默生成图;每次画图前都要等 user 显式回复确认。user 回复后才进入下方 §执行流程。
 
 ## 执行流程(7 步)
 
 | Step | 动作 | 关键产出 |
 |---|---|---|
-| 0 | 与 user 对齐(上节)— 确认核心变更 + 图类型 + 新建/修改 | 确认 scope |
-| 1 | 按应用 CLAUDE.md §核心流程 / 架构变更必走 plantUML 节定的路径,`ls` 现有 .puml 清单 + Read 现有 INDEX.md | 上下文 |
-| 2 | 读相关 src/main 改动代码(grep / Read 核心文件)— 对齐 plantUML 描述与代码现状 | 准确 SSOT |
-| 3 | 生成 / 修改 `.puml` 文件(详 §plantUML 规约 节) | .puml SSOT |
-| 4 | 同步 INDEX.md(格式见 CLAUDE.md;append 新建行 / 更新已有行的 description / 标 archived) | INDEX 同步 |
-| 5 | spot-check:grep `@startuml.*@enduml` 配对验证 + 若 user 本机有 plantuml CLI 跑 `plantuml -syntax <file>.puml` 严格语法验证(可选) | 语法 OK |
+| 0 | 与 user 对齐(上节)— 确认核心变更 + 图类型 + 新建/修改;**输出问题后结束 turn,等 user 回复才继续** | 确认 scope |
+| 1 | 按应用 CODEX_AGENTS.md §核心流程 / 架构变更必走 plantUML 节定的路径,`shell ls` 现有 .puml 清单 + `shell cat` 现有 INDEX.md | 上下文 |
+| 2 | 读相关 src/main 改动代码(`shell grep` / `shell cat` 核心文件)— 对齐 plantUML 描述与代码现状 | 准确 SSOT |
+| 3 | 用 `apply_patch` 生成 / 修改 `.puml` 文件(详 §plantUML 规约 节) | .puml SSOT |
+| 4 | 用 `apply_patch` 同步 INDEX.md(格式见 CODEX_AGENTS.md;append 新建行 / 更新已有行的 description / 标 archived) | INDEX 同步 |
+| 5 | spot-check:`shell grep` 验证 `@startuml` / `@enduml` 配对 + 若 user 本机有 plantuml CLI 跑 `shell: plantuml -syntax <file>.puml` 严格语法验证(可选) | 语法 OK |
 | 6 | 报告 user diff:列出新建 / 修改的 .puml + INDEX.md 改动 | user 验收 |
 
 ## plantUML 规约(本 SKILL 唯一 SSOT — 怎么画)
@@ -63,7 +65,7 @@ skill 入口必须先 AskUserQuestion(2-3 题)对齐:
 - **文件后缀**:`.puml`(行业惯例,不用 `.uml` / `.plantuml`)
 - **文件命名**:`<topic>.puml`,topic 用 kebab-case(`archive-plan-flow.puml` / `mcp-server-architecture.puml`)
 - **注释**:plantUML 注释用 `'`(单引号);每个有 design 取舍的节点加 plantUML 内置 `note` 解释
-- **不渲染**:user 想看 PNG/SVG 自跑 `plantuml <file>.puml`(本 SKILL **不调** plantuml CLI 渲染)
+- **不渲染**:user 想看 PNG/SVG 自跑 `plantuml <file>.puml`(本 SKILL **只生成 / 修改 .puml SSOT,不调 plantuml CLI 渲染**)。**严禁** codex 端调 `plantuml -tpng / -tsvg` 产 PNG/SVG(渲染产物不入 git,是 user 本机工具副作用)
 
 ### 图类型选择
 
@@ -133,7 +135,7 @@ skill 入口必须先 AskUserQuestion(2-3 题)对齐:
 ```plantuml
 Caller -> Tool: invoke
 note right
-  Caller 必须先 ExitWorktree(action: "keep");
+  Caller 必须先 exit_worktree(action: "keep");
   cwd 仍在 worktree 内 → tool reject (cwd-resilience guard)
 end note
 ```
@@ -143,8 +145,8 @@ end note
 | 场景 | 处理 |
 |---|---|
 | user 否决「核心变更」judgement → skill no-op exit | 提示「按 user 判断本次不属核心变更,跳过 plantUML 维护;直接编辑代码不必画图」 |
-| 目标目录(`ref/flows/` 等)不存在 | 按应用 CLAUDE.md 规定的位置 `mkdir -p` + 建空 INDEX.md(INDEX 格式见应用 CLAUDE.md);**不**自行决定路径或 INDEX 列定义 |
-| .puml 语法错误 | 若有 plantuml CLI → 跑 `plantuml -syntax <file>.puml` 报错;若无 → grep `@startuml.*@enduml` 配对验证;无法严格 verify 时 warn user 自跑 plantuml CLI 渲染验证 |
+| 目标目录(`ref/flows/` 等)不存在 | 按应用 CODEX_AGENTS.md 规定的位置 `shell: mkdir -p ref/flows ref/architecture` + 建空 INDEX.md(INDEX 格式见应用 CODEX_AGENTS.md);**不**自行决定路径或 INDEX 列定义 |
+| .puml 语法错误 | 若有 plantuml CLI → 跑 `shell: plantuml -syntax <file>.puml` 报错;若无 → `shell grep` 验证 `@startuml` / `@enduml` 配对;无法严格 verify 时 warn user 自跑 plantuml CLI 渲染验证 |
 | 多个 .puml 文件描述同款流程 → 命名冲突 | 用更具体 topic 区分(`archive-plan-tool-flow.puml` vs `archive-plan-manual-flow.puml`)+ INDEX 写明区别 |
 
 ## 与其他 skill 关系
