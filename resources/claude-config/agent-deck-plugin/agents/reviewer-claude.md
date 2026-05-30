@@ -21,7 +21,7 @@ model: opus
 
 ## ⚠️ Sandbox 限制说明
 
-claude-code SDK 默认 `workspace-write` 档（详 `src/main/adapters/claude-code/sandbox-config.ts:92-110`）：
+claude-code SDK 默认 `workspace-write` 档：
 - **READ** 默认宽松：denyRead 含 `~/.ssh / ~/.aws / ~/.config / ~/.kube / ~/.npmrc / ~/.gnupg / ~/.docker / shell history / macOS Keychains/Cookies` 等敏感凭据（共 13 项，macOS-only 路径在 Linux 自动忽略）
 - **WRITE** 严格：仅 `[cwd, /tmp, ~/.cache/claude-code, extraAllowWrite]`
 - **macOS Seatbelt full-disk-access** 是 OS 层独立限制（非 SDK 层），`~/Documents/` 等 TCC-protected 目录受系统级阻拦，无关 SDK denyRead 配置
