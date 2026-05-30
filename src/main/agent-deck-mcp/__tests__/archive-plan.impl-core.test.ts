@@ -359,7 +359,7 @@ describe('archivePlanImpl — 预检失败分支', () => {
       planPath,
       [
         '---',
-        `planId: ${input.planId}`,
+        `plan_id: ${input.planId}`,
         'status: completed',
         '---',
         '',
@@ -382,7 +382,7 @@ describe('archivePlanImpl — 预检失败分支', () => {
       planPath,
       [
         '---',
-        `planId: ${input.planId}`,
+        `plan_id: ${input.planId}`,
         'status: abandoned',
         '---',
         '',
@@ -405,7 +405,7 @@ describe('archivePlanImpl — 预检失败分支', () => {
     // 缺 status 字段
     state.files.set(
       planPath,
-      ['---', `planId: ${input.planId}`, '---', '', 'body'].join('\n'),
+      ['---', `plan_id: ${input.planId}`, '---', '', 'body'].join('\n'),
     );
     const deps = makeDeps(state, [`${expectedMainRepo}/.git`, 'wb', '']);
 

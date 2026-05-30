@@ -157,7 +157,7 @@ describe('assertBaseBranchIsNamedBranch — H3 校验 (check-ref-format + rev-pa
     );
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/nonexistent-branch/);
-    expect(result.hint).toMatch(/Edit plan frontmatter baseBranch/);
+    expect(result.hint).toMatch(/Edit plan frontmatter base_branch/);
   });
 
   it('rejected (rev-parse 失败) 时 hint 同时含 git stderr 摘录 + Verify 命令', async () => {

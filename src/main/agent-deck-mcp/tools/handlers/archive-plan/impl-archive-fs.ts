@@ -143,7 +143,9 @@ export async function runArchiveFs(
   // 列 / 旧 2 列 row 或新 append 用 `—` placeholder。description / changelog 列 escape `|` + 换行。
   // indexPath 已在 step 3.5a 计算（Phase 1.2a 提前路径算法）— 此处复用。
   // freshFm 而非 step 6 fm — 与 step 9-10 frontmatter / body 写入保持同源
-  const rawSummary = (freshFm.description ?? freshFm.planId ?? input.planId).slice(0, 200);
+  // REVIEW_68 batch-3: plan frontmatter snake_case（CHANGELOG_177 合法保留）→ 读 freshFm.plan_id
+  // 而非 camelCase（commit 5ff0d78 over-migration）。description 字段 plan 无此 key，恒 fallback。
+  const rawSummary = (freshFm.description ?? freshFm.plan_id ?? input.planId).slice(0, 200);
   const summary = escapeTableCell(rawSummary);
   const changelogCell = formatChangelogCell(input.changelogId);
   let plansIndexAction: ArchivePlanResult['plansIndexAction'];

@@ -15,8 +15,8 @@
  * 3. 派生 worktreePath：args.worktreePath > `<main_repo>/.claude/worktrees/<planId>/`
  * 4. 派生 branch_name：固定 `worktree-<planId>`（与 user CLAUDE.md §Step 1 命名约定对齐）
  * 5. 解析 base commit（plan D2 优先级链）：
- *    args.baseCommit > args.baseBranch resolve to HEAD > plan frontmatter baseCommit >
- *    plan frontmatter baseBranch resolve to HEAD > main_repo HEAD
+ *    args.baseCommit > args.baseBranch resolve to HEAD > plan frontmatter base_commit >
+ *    plan frontmatter base_branch resolve to HEAD > main_repo HEAD
  * 6. 预检 worktreePath 不存在 + branch 不存在（避免静默 reuse 老 worktree / 重名 branch）
  * 7. `git -C <main_repo> worktree add -b <branch> <worktreePath> <baseCommit>`
  * 8. setCwdReleaseMarker(callerSid, worktreePath)（不变量 5 — archive_plan 预检 4 态分流
@@ -137,8 +137,8 @@ async function resolvePlanFilePath(
  * resolve base commit per plan D2 priority chain。返回 { baseCommit, baseSource } 或 error。
  * - args.baseCommit  highest, return as-is (assume valid SHA hex per zod refine)
  * - args.baseBranch: `git rev-parse <branch>` to commit; fail → error short-circuit
- * - frontmatter.baseCommit: read plan file fm; if set, return
- * - frontmatter.baseBranch: read plan file fm; if set, `git rev-parse` to commit
+ * - frontmatter.base_commit: read plan file fm; if set, return
+ * - frontmatter.base_branch: read plan file fm; if set, `git rev-parse` to commit
  * - head (default): `git rev-parse HEAD` in main_repo
  */
 async function resolveBaseCommit(
@@ -167,14 +167,17 @@ async function resolveBaseCommit(
       };
     }
   }
-  // 3. frontmatter baseCommit / baseBranch
+  // 3. frontmatter base_commit / base_branch
+  // REVIEW_68 batch-3: plan frontmatter snake_case（CHANGELOG_177 合法保留）。camelcase
+  // migration（commit 5ff0d78）误读成 fm.baseCommit/baseBranch → snake-only plan 的 base pin
+  // 被忽略落到 HEAD fallback。读 snake_case key 回正。
   const planFilePath = await resolvePlanFilePath(input, mainRepo, deps);
   if (planFilePath) {
     try {
       const planContent = await deps.readFile(planFilePath);
       const fm = parseFrontmatter(planContent);
-      const fmBaseCommit = typeof fm.baseCommit === 'string' ? fm.baseCommit.trim() : '';
-      const fmBaseBranch = typeof fm.baseBranch === 'string' ? fm.baseBranch.trim() : '';
+      const fmBaseCommit = typeof fm.base_commit === 'string' ? fm.base_commit.trim() : '';
+      const fmBaseBranch = typeof fm.base_branch === 'string' ? fm.base_branch.trim() : '';
       if (fmBaseCommit.length >= 7) {
         return { baseCommit: fmBaseCommit, baseSource: 'frontmatter-base-commit' };
       }
@@ -185,7 +188,7 @@ async function resolveBaseCommit(
             return { baseCommit, baseSource: 'frontmatter-base-branch' };
           }
         } catch {
-          // frontmatter baseBranch 解析失败不算 error，fallback 走 HEAD（与 args.baseBranch 严格不同：
+          // frontmatter base_branch 解析失败不算 error，fallback 走 HEAD（与 args.baseBranch 严格不同：
           // args 是 caller 显式传必须 valid；frontmatter 是 best-effort 软约束）
         }
       }

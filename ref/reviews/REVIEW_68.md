@@ -9,9 +9,9 @@
 
 | Batch | 范围 | 状态 |
 |---|---|---|
-| 1 | issue-tracker-mcp-20260529 | ✅ 本会话收口（HIGH 1 + MED 1 + LOW 4 处理，0 残留 HIGH/MED） |
-| 2 | runtime-logging-electron-log-20260529 | ⏳ 待下个会话 |
-| 3 | mcp-tool-camelcase-migration-20260529 | ⏳ 待下个会话 |
+| 1 | issue-tracker-mcp-20260529 | ✅ 收口（HIGH 1 + MED 1 + LOW 4 处理，0 残留 HIGH/MED） |
+| 2 | runtime-logging-electron-log-20260529 | ✅ 收口（MED 2 + LOW 2 处理，0 残留 HIGH/MED） |
+| 3 | mcp-tool-camelcase-migration-20260529 | ✅ 收口（自查挖出 HIGH 1，revert + fixture + 3 regression，0 残留 HIGH/MED） |
 
 > **异构对抗记录（batch 1）**：reviewer-codex（mcp teammate）正常 Round-1 出 3 finding。reviewer-claude（mcp teammate）spawn 后 +13min 卡住 ~8min（疑似卡自身 PendingTab 工具审批，user 不在无人批）→ lead 按 SKILL §失败兜底 起**外部只读 claude CLI** 做 Round-2 backend 复审（与 codex 仍 Opus×gpt-5.5 异构对，严禁同源化）；随后 reviewer-claude 经 nudge 恢复并交付 Round-1（额外抓到下游 prompt 数据丢失放大 + IssueDetail 反应性）。最终覆盖 = codex R1 + claude R1 + 外部 claude R2，三路独立。
 
@@ -78,6 +78,93 @@ batch-1 **已收口**：HIGH 1 + MED 1 全修；LOW 4（LOW-1 scopes / LOW-2 app
 - **reviewer Round-2**：reviewer-codex ✅ 4 backend fix + 抓出 Fix-5（IssueDetail sync）引入 stale-draft clobber regression → lead 回退；reviewer-claude ✅ 4 backend fix（**误 bless Fix-5**，把 clobber 归 INFO「固有 lost-update」）。
 - **异构对抗价值（案例）**：两路对 Fix-5 严重度分歧（codex MED「还需改」vs claude INFO「不阻塞」）→ lead before/after trace 实证 codex 正确（回退前 fetched-baseline diff 保留外部变更；fix 后 synced-issue diff 用旧草稿覆盖外部 = fix 引入非固有）→ 回退。**单 reviewer 会漏判**：若只 claude，Fix-5 会带 regression 合入；codex 强冗余抓出。`heterogeneous_dual_completed: true`
 
-## Batch 2 / 3 — 待下个会话
+## Batch 2 — runtime-logging-electron-log
 
-下个会话从 plan §下一会话第一步 接力：spawn 新 reviewer pair 跑 batch 2（runtime-logging）+ batch 3（camelcase sanity），结论 append 到本 REVIEW_68。
+### scope
+
+`src/main/utils/logger.ts` / `src/renderer/utils/logger.ts` / `src/main/ipc/logs.ts` / `LogsSection.tsx` / `preload/api/misc.ts`(logs 段) / `ipc-channels.ts`(logs)。focus: init-order 副作用（REVIEW_66 app.setName 同类）/ console 接管不吞 stdout / NODE_ENV=test skip / fatal hook / rotation cleanup / IPC bridge。
+
+> **异构对抗记录（batch 2）**：reviewer-codex（gpt-5.5）+ reviewer-claude（Opus 4.7）mcp teammate 同 team `dr-logging-20260530`，均 Round-1 正常交付（无卡死）。lead 逐条独立现场验证（读 electron-log v5.4.4 `ErrorHandler.js` / `File.js` / `file/index.js` 源码 + bootstrap `setFileLevel` grep）。
+
+### 三态裁决 + 修复
+
+**✅ MED-1 — errorHandler.startCatching() 默认配置改 fatal 语义（uncaughtException 后带病续跑 + 生产弹模态）**
+- **双方独立提出**（codex 评 HIGH / claude 评 MED，核心隐患一致）→ ✅。lead 现场实证 electron-log `ErrorHandler.handle()`(node/ErrorHandler.js:24-58) 只 logFn 落盘 + showDialog(默认 true) 弹 showErrorBox，**全程无 process.exit / app.quit / rethrow**；grep 项目无其他 uncaughtException handler 补退出。
+- 严重度裁决（HIGH vs MED 分歧 → lead 定 **MED**）：条件触发（须真发生 uncaughtException）非常态 malfunction，但触发时 main 管 DB/IPC/多 SDK 子进程，带病续跑有半写/状态不一致风险 + 生产弹技术堆栈模态 UX 差。双方均认同必修，仅 severity label 分歧。
+- 修复：`logger.ts:77-92` — `startCatching({ showDialog: !app.isPackaged })`（生产不弹模态）+ `process.on('uncaughtException', () => app.exit(1))`（electron-log file transport 同步写，其 listener 先注册 → 先落盘后退出，恢复 Node 默认 fatal 语义；NODE_ENV=test 跳过防杀 vitest）。unhandledRejection 仅落盘不强退（避免单 stray rejection 过激杀进程）。
+
+**✅ MED-2 — 持久化 logLevel 启动不生效（重启后回退默认 info，与 UI 显示不一致）**（codex 单方 + lead 现场验证 + **Round-2 codex 复查捞出本会话漏修**）
+- codex MED：logger.ts 模块加载固定 file transport `'info'`，`setFileLevel` 仅在 SettingsSet patch 含 logLevel 时（ipc/settings.ts:200 applyLogLevel）调用 → 用户保存 logLevel='warn' 后本轮生效，重启 main 后回退 'info'，UI 仍显示持久化值 = 运行时/UI 不一致。
+- lead 现场验证：grep `setFileLevel` 仅 ipc/settings.ts:200（SettingsSet path）+ logger.ts def + test；bootstrap-infra.ts:105 / bootstrap-wiring.ts:37 读 settingsStore.getAll() 但不调 setFileLevel。✅。
+- **Round-2 漏修捕获（异构价值案例）**：本会话首轮 fix 只做 startCatching + truncate，**遗漏此 MED**；reviewer-codex Round-2 sign-off 复查捞出 → lead 补修。
+- 修复：`bootstrap-infra.ts:105` settings load 后补 `setFileLevel(settings.logLevel)`（import setFileLevel）。startup regression test 因 bootstrap-infra 无测试 harness（initDb/HookServer/adapter/scheduler 重 mock 面）+ setFileLevel 已 logger.test 覆盖 + logLevel 已 type-check → **裁 follow-up deferral**（reviewer-codex 接受）。
+
+**✅ MED-3 — LogsTruncateToday 绕过 electron-log File cache → rotation 计数失真**（codex 单方 + lead 现场验证）
+- codex MED：`fs.truncateSync` 绕过 electron-log file transport 缓存的 File 对象（initialSize+bytesWritten 判 maxSize rotation）。
+- lead 现场验证：`file/index.js:39` 默认 maxSize=1024**2=1MB + :69 needLogRotation 用 cached file.size，logger.ts 未覆盖 maxSize → rotation active。清空 >1MB 日志后 cached size 仍旧 → 下条写触发过早 rotation / 覆盖 .old.log。✅ 真问题（条件触发，影响 minor）。
+- 修复：`logs.ts` 改用 `log.transports.file.getFile().clear()`（electron-log native File.clear() = writeFileSync('') + reset cache）替代 fs.truncateSync。
+
+**✅ LOW-1 — truncate 成功后立即 logger.info 写回 → 文件非空**（claude 单方）
+- claude LOW：truncate 后 `logger.info('truncated...')` 同步写进同一文件 → 用户点「清空」后文件立即又有一条。✅。
+- 修复：删该 logger.info（随 MED-2 同处理：clear() 后不写回，失败仅经 result.error 返 renderer 弹 toast）。
+
+**✅ LOW-2 — LogsTruncateToday 无 symlink/TOCTOU 防护**（codex 单方，弱威胁模型）
+- codex LOW（自评「无 renderer 传入 path」）：todayLogFile() 内部构造路径，唯一攻击面是当天 log 文件被换成 symlink → truncate follow 到任意同权限可写文件。images.ts 有 realpath 白名单，logs 无。✅ LOW。
+- 修复：truncate 前 `lstatSync` 拒 symlink（mitigates 现实攻击面；clear() 用 writeFileSync 仍 follow，残留极小 TOCTOU 窗口对 LOW 弱威胁可接受）。
+
+### focus 项实践验证（均非问题，双方 + lead 实证）
+- **console 接管不吞 stdout / 无死循环** ✅（双方独立验证 + lead 确认）：electron-log main/renderer console transport 都在**模块加载时**缓存原始 consoleMethods，writeFn 用缓存引用；logger.ts `import log`（触发缓存）永远先于 `Object.assign(console, log.functions)`（覆盖全局）→ transport 输出走原始 console 不递归。main + renderer 均安全。
+- **init-order 同类隐患（REVIEW_66 app.setName）** ✅ 无新（claude 验证）：logger 是 index.ts:13 第一个 import（ESM 最早执行），app.setName→getPath('logs') 顺序正确；cleanupOldLogs 模块加载期同步 IO 但 14 天文件量小可忽略。
+- **NODE_ENV=test skip** ✅ 正确（claude 验证）：仅跳 Object.assign(console)；initialize/cleanup/startCatching/setName/getPath 副作用未 skip，靠 vitest-setup 全局 mock electron+electron-log 守门。
+
+### INFO（非阻断，记录）
+- **INFO-1**（codex + claude）logs IPC 无测试覆盖（registerLogsIpc 3 handler + PreloadFatalError listener 的 fallback / truncate / symlink-reject 路径无回归）。留 follow-up（与 batch-1 补测同款 deferral，ROI 一般 + 依赖 electron shell/fs mock）。
+- **INFO-2**（claude）renderer logger.ts 只 Object.assign(console) 未调 startCatching → renderer window error/unhandledrejection 不自动落盘，与 main §D7 不对称（renderer transports/index.js 有 RendererErrorHandler 但需显式 startCatching）。疑 plan 有意（React error boundary），仅提示。
+
+### 验证（batch 2）
+- ✅ `pnpm typecheck` 过；`logger.test.ts` 8 tests 过（startCatching `.toHaveBeenCalled()` 不验 args，fix 兼容）
+- ✅ 全量 vitest 1089 passed / 197 skipped（含 SQLite ABI guard skip）；`pnpm build` OK
+- ⚠️ logs.ts 改动需重启 dev 实测（truncate 按钮 live 行为 + startCatching 退出语义无法单测，依赖 e2e）
+
+### 收口判定（batch 2）
+
+MED 3 + LOW 2 全修；INFO 2 记录。残留 HIGH/MED = 0。**reviewer Round-2 sign-off**：reviewer-codex ✅（验证 startCatching listener 顺序保证先落盘后退出 + getFile().clear() 真 reset rotation cache + snake revert 完整；Round-2 复查捞出我**漏修 logLevel MED** → 已补 bootstrap-infra setFileLevel + deferral 接受）<!-- R2-SIGNOFF-B2 -->。
+- **follow-up**：logLevel startup-apply regression test（bootstrap-infra 无测试 harness，deferral）；logs IPC 测试覆盖（INFO-1）。
+
+## Batch 3 — camelcase frontmatter over-migration（lead 自查挖出 HIGH）
+
+### scope
+
+lead 自查（plan 定 batch-3 = lead self grep）：`schemas.ts` camelCase 字段 vs handler 读取一致性 + 残留 snake_case 读取。grep 结论 mcp args camelCase 迁移**正确**（handler 全读 camelCase，0 残留 `input.snake_case`；schemas.ts 0 snake zod key），但**意外挖出 plan frontmatter 读取被误迁移的 HIGH**（异构反驳轮经 reviewer-codex 独立确认）。
+
+### 三态裁决 + 修复
+
+**✅ HIGH-1 — camelcase migration 把 plan frontmatter 读取也误迁 camelCase（与 snake-only plan 文件分裂）**
+- **双方独立提出**（lead 自查 grep + 现场实证；reviewer-codex 异构反驳轮独立确认 HIGH + 支持 revert-to-snake）→ ✅ HIGH。
+- 根因：commit `5ff0d78`（32 字段 snake→camel）over-migration 把 plan frontmatter **读取** 从 snake 改 camelCase，但 plan 文件实际写 snake_case（CHANGELOG_177 自己把 plan workflow frontmatter 列为「不迁移的合法保留」+ 所有归档 plan 实证 snake-only + claude-config/CLAUDE.md:257 指示写 snake）。parseFrontmatter（frontmatter.ts:33-41）逐字保留 key 不转 camelCase，readers 无 snake fallback。**= 实现违反了自己 changelog 声明的 intent**。
+- 三重影响（snake-only plan）：① `hand_off_session` plan-driven `fm.worktreePath` undefined → **hard reject**「missing required field」；② `archive_plan` cross-check（CHANGELOG_169 F2 防 silent-corruption HIGH 守门）`fm.planId`/`fm.worktreePath` undefined → **静默走 warning 分支跳过 = 守门失效**；③ `archive_plan`/`enter_worktree` base 读取 `fm.baseBranch`/`fm.baseCommit` undefined → base_branch fallback "main"（**feature-branch plan ff-merge 错合主线污染**）+ enter_worktree base pin 被忽略落 HEAD fallback。
+- 验证（铁证）：`git log -L` 实证 5ff0d78 把这些读取从 snake 改 camel（前一 commit 8969654 是 snake）；`ls -t ref/plans/*.md` 最近 5 个全 snake-only；读 readers 无 `?? fm.snake` fallback + hand-off hard-reject 路径（hand-off-session-impl.ts:258-262）。reviewer-codex 独立 `git show 5ff0d78` + CHANGELOG_177:134 + CODEX_AGENTS.md:233 cold-start 确认 + **补充测试 fixture masking 风险**。
+- 修复（**revert-to-snake**，对齐 CHANGELOG_177 intent，非 accept-both hack — reviewer-codex 共识）：
+  - **8 处读取 revert snake**：hand-off-session-impl.ts（worktree_path/base_branch）/ archive-plan/impl-precheck.ts（plan_id ×3 + worktree_path ×4 cross-check）/ impl-ff-merge.ts（base_branch）/ enter-worktree-impl.ts（base_commit/base_branch）/ impl-archive-fs.ts（plan_id）
+  - **用户 hint/error 文案 + jsdoc 注释同步 snake**（precheck-helpers「Edit plan frontmatter base_branch」/ cwd-resolver「frontmatter worktree_path」等；防未来 re-migration 重踩）
+  - **测试 fixture masking 修复**（reviewer-codex 补充的关键测试风险）：8 个测试文件的 frontmatter-**text** fixture（archive-plan/_setup.ts:246-250 / enter-exit-worktree.test.ts / archive-plan.impl-*.test.ts / hand-off-session/_setup.ts 等）从 camelCase revert 回 snake（masking 真实 snake plan 断裂）+ 相关断言（hand-off missing-field error / base-branch-named-only hint）更新。JS object args（`input:{}`）保留 camelCase（mcp arg 迁移正确，anchored 替换不误伤）。
+  - **新增 3 regression**（archive-plan.impl-r33.test.ts）：snake-only frontmatter worktree_path / plan_id mismatch → cross-check 触发 reject（守门生效，无 ff-merge/checkout）；base_branch frontmatter fallback（input 不传 baseBranch）→ ff-merge checkout feature-x 而非 main。
+
+**✅ MED-1 — 注入 agent SDK system prompt 的 tool/字段 description 仍写 camelCase plan frontmatter key（与 HIGH-1 同源遗漏）**（reviewer-claude R2 提出 + lead grep 扩展）
+- reviewer-claude R2 抓出 2 处（dot-form regex `frontmatter\.[a-z]+[A-Z]`）：schemas.ts:261 archive_plan baseBranch arg desc「**强烈建议在 plan frontmatter 显式写 baseBranch**」+ index.ts:294 enter_worktree tool desc「frontmatter.baseCommit > frontmatter.baseBranch」。
+- **lead grep 扩展**（reviewer-claude regex 漏 space-form）：另 5 处 schemas.ts:302/522/538/838/963-964 含「frontmatter baseCommit / baseBranch / worktreePath」space-form key 引用（含 injected describe + JSDoc 注释）。共 7 处。
+- 后果链（drift 铁证，agent 行为后果推断）：description 注入 SDK system prompt → 「显式写 baseBranch」诱导 agent 写 camelCase plan frontmatter → 经 HIGH-1 修复后代码读 snake 读不到 → base fallback main/HEAD → **正是 batch-3 想防的 camelCase-only plan 污染主线场景再生**。HIGH-1 同源遗漏点（lead 首轮 batch-3 grep 只扫 handler `fm.` reads，漏 tool 定义层）。
+- 修复（7 处全部，区分 frontmatter key vs arg/return/enum）：「plan frontmatter <camelCase>」key 引用 → snake（base_commit/base_branch/worktree_path）；**保留** `args.baseCommit/baseBranch`（mcp arg 正确）+ return 字段 `worktreePath/baseBranch`（TS property 正确）+ enum 值 `'frontmatter-base-commit'`（kebab 字面）+ index.ts:255「derive worktreePath」（描述 return 非 key 指令）。
+- 验证：grep `frontmatter[.\s](baseBranch|baseCommit|worktreePath|planId)` 全 mcp tools 0 残留；typecheck 清 + 全量 1089 passed。
+
+**INFO（batch 3，非阻断）** — schemas.ts:337-338 hand_off schema 上方 `//` 跨行注释「从 frontmatter 拿\n worktree_path」（reviewer-claude R2 grep 跨行命中，我单行 regex 漏）。**非 .describe() 注入**（源码注释，零 agent 影响），与同段 302 一致性顺手 snake 修。
+
+### 验证（batch 3）
+- ✅ `pnpm typecheck` 过；全 mcp `__tests__` 547 passed（35 files）— snake fixture + snake read 一致；含新 3 regression
+- ✅ 全量 vitest 1089 passed / 197 skipped；`pnpm build` OK
+- ⚠️ main 改动需重启 dev / e2e 实测（hand_off / archive_plan / enter_worktree 走真实 plan 文件）
+
+### 收口判定（batch 3）
+
+HIGH 1 + MED 1 全修（HIGH revert + fixture masking 修复 + 3 regression；MED 7 处 description drift → snake）；残留 HIGH/MED = 0。**reviewer Round-2 sign-off**：reviewer-codex ✅（snake readers + snake-only regressions 复核仍在，0 新 HIGH/MED）；reviewer-claude ✅（代码 revert 读+写穷举验证彻底 + 抓出 description drift MED → lead 修 + grep 扩展到 7 处）。**双方共识可合**。<!-- R2-SIGNOFF-B3 -->
+- **异构 Round-2 价值（案例）**：reviewer-codex 捞出我**漏修 logLevel MED**（batch-2），reviewer-claude 捞出我**漏修 description drift MED**（batch-3）— 两路各自补一个 lead 首轮遗漏，单 reviewer 都会放过。`heterogeneous_dual_completed: true`

@@ -44,7 +44,7 @@ import * as path from 'node:path';
  *   - mainRepo: 跑 git checkout / merge 的 cwd
  *   - worktreeBranch: ff-merge 源 (合到 baseBranch)
  *   - planFilePath: Step 8b 重新 read 的 path
- *   - fm: Step 7 baseBranch fallback 用 (caller 不显式传 baseBranch 时读 frontmatter.baseBranch)
+ *   - fm: Step 7 baseBranch fallback 用 (caller 不显式传 baseBranch 时读 frontmatter.base_branch)
  *
  * **Return**: FfMergeResult { finalCommit, freshContent, freshFm } / ArchivePlanError on fail。
  */
@@ -67,10 +67,13 @@ export async function runFfMerge(
   // baseBranch（merge 后不切回，假设 caller 默认在 baseBranch 工作；如不在 caller 自己处理）。
   //
   // REVIEW_36 R2 user feedback：baseBranch 解析优先级 = caller 显式 input.baseBranch >
-  // plan frontmatter.baseBranch (plan 创建时记录) > "main" fallback。旧 schema `.default('main')`
+  // plan frontmatter.base_branch (plan 创建时记录) > "main" fallback。旧 schema `.default('main')`
   // 让 caller 不传时强制合到 main，feature branch 上跑 plan 会污染主线。frontmatter 字段让用户
   // 在 plan 创建时记录原分支（user CLAUDE.md §Step 2 plan 内容文档已加该字段说明）。
-  const fmBaseBranch = typeof fm.baseBranch === 'string' ? fm.baseBranch.trim() : '';
+  // REVIEW_68 batch-3: plan frontmatter snake_case（CHANGELOG_177 合法保留）。camelcase
+  // migration（commit 5ff0d78）误读成 fm.baseBranch → snake-only feature-branch plan 的
+  // base_branch 被忽略 fallback "main" → ff-merge 错合主线。读 snake_case key 回正。
+  const fmBaseBranch = typeof fm.base_branch === 'string' ? fm.base_branch.trim() : '';
   const effectiveBaseBranch =
     input.baseBranch !== undefined && input.baseBranch.length > 0
       ? input.baseBranch

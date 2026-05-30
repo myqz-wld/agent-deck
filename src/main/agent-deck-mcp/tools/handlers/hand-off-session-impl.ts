@@ -15,7 +15,7 @@
  * **plan-driven 模式**(input.planId 传):
  * 1. 解析 plan 文件路径：显式 planFilePathOverride > caller cwd 反查 main-repo →
  *    `<main-repo>/.claude/plans/<planId>.md` > `<main-repo>/ref/plans/<planId>.md` > `~/.claude/plans/<planId>.md`
- * 2. 读 plan + parseFrontmatter，校验 frontmatter 含 `worktreePath`
+ * 2. 读 plan + parseFrontmatter，校验 frontmatter 含 `worktree_path`
  * 3. 校验 plan status === 'in_progress'（拒 completed / abandoned / 缺 status）
  * 4. mainRepo 启发式 fallback(caller cwd 反查失败时从 worktreePath 反推)
  * 5. 构造 cold-start prompt：基础形式 `按 <plan-abs-path> 接力`；含 phaseLabel 时附
@@ -214,7 +214,7 @@ export async function handOffSessionImpl(
     // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.11 修法 (B-MED-2 codex):
     // planFilePath 文件名 stem 必须等于 planId。否则 cold-start prompt `按 <plan-abs-path>
     // 接力` 中的 abs-path 是 caller 给的 planFilePath 文件,但新 SDK session 走 user CLAUDE.md
-    // §Step 3 cold-start 流程会从 frontmatter.worktreePath 自己 EnterWorktree,worktree 路径
+    // §Step 3 cold-start 流程会从 frontmatter.worktree_path 自己 EnterWorktree,worktree 路径
     // 与 planId 关联(本 plan worktree-deep-review-batch-a1-b-fixes-20260519,planId 派生)。
     // stem != planId 时 caller 实际指向另一个 plan 的文件,新 session 路径混乱。impl 层
     // 校验给清晰 hint(schema 是 record shape 不支持 cross-field refine,故落 impl 与
@@ -249,21 +249,24 @@ export async function handOffSessionImpl(
   if (Object.keys(fm).length === 0) {
     return {
       error: `plan file has no parseable frontmatter: ${planFilePath}`,
-      hint: 'plan file must start with `---\\n<key>: <value>\\n---\\n` block (e.g. `worktreePath: /...` and `status: in_progress`).',
+      hint: 'plan file must start with `---\\n<key>: <value>\\n---\\n` block (e.g. `worktree_path: /...` and `status: in_progress`).',
     };
   }
 
-  // 3. 校验 worktreePath 字段
-  const worktreePath = fm.worktreePath;
+  // 3. 校验 worktree_path 字段
+  // REVIEW_68 batch-3: plan frontmatter 是 snake_case（CHANGELOG_177 列为合法保留，不随 mcp
+  // arg 一起迁 camelCase）。camelcase migration（commit 5ff0d78）误把这里读成 fm.worktreePath →
+  // snake-only plan（文档约定 + 所有归档 plan 实际写法）会 hard reject。读 snake_case key 回正。
+  const worktreePath = fm.worktree_path;
   if (!worktreePath || worktreePath.length === 0) {
     return {
-      error: `plan frontmatter missing required field: worktreePath`,
-      hint: `hand_off_session (plan-driven mode) needs worktreePath to set cwd for the new SDK session. Edit ${planFilePath} frontmatter to include \`worktreePath: <abs-path>\`.`,
+      error: `plan frontmatter missing required field: worktree_path`,
+      hint: `hand_off_session (plan-driven mode) needs worktree_path to set cwd for the new SDK session. Edit ${planFilePath} frontmatter to include \`worktree_path: <abs-path>\`.`,
     };
   }
   if (!path.isAbsolute(worktreePath)) {
     return {
-      error: `plan frontmatter worktreePath must be absolute: ${worktreePath}`,
+      error: `plan frontmatter worktree_path must be absolute: ${worktreePath}`,
     };
   }
   // REVIEW_33 H10 + **REVIEW_56 Batch B R1 LOW-1 (reviewer-codex) 修订**:
@@ -325,7 +328,8 @@ export async function handOffSessionImpl(
   }
 
   // 6. 构造 cold-start prompt
-  const baseBranch = fm.baseBranch ?? null;
+  // REVIEW_68 batch-3: plan frontmatter snake_case（见上方 worktree_path 注释）。读 base_branch。
+  const baseBranch = fm.base_branch ?? null;
   const baseLine = `按 ${planFilePath} 接力`;
   const coldStartPrompt = input.phaseLabel
     ? `${baseLine}（Phase: ${input.phaseLabel}）`

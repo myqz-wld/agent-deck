@@ -52,11 +52,11 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     // 等 final state。这是 ff-merge 之后 main working tree 应该看到的内容。
     const postFfMergeContent = [
       '---',
-      `planId: ${input.planId}`,
+      `plan_id: ${input.planId}`,
       'created_at: 2026-05-13',
-      `worktreePath: ${input.worktreePath}`,
+      `worktree_path: ${input.worktreePath}`,
       'status: in_progress',
-      'baseCommit: abc123',
+      'base_commit: abc123',
       '---',
       '',
       '# Plan body content',
@@ -169,8 +169,8 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(archivedWrite!.content).toContain('final_commit: "finalhash456"');
     expect(archivedWrite!.content).toContain('completed_at: "2026-05-15"');
     // 原 fm 字段(如 planId / worktreePath / baseCommit)仍透传(freshFm 与 step 6 fm 一致)
-    expect(archivedWrite!.content).toContain('planId: "mcp-bug-fix-20260513"');
-    expect(archivedWrite!.content).toContain('baseCommit: "abc123"');
+    expect(archivedWrite!.content).toContain('plan_id: "mcp-bug-fix-20260513"');
+    expect(archivedWrite!.content).toContain('base_commit: "abc123"');
   });
 
   it('post-ff-merge fresh re-read 失败(plan 文件被外部并发删除)→ postFfMergeErr [post-ff-merge:reread-plan-after-ffmerge] + 通用 hint', async () => {
@@ -258,11 +258,11 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     const freshDescription = '完整收尾概要-post-ff-merge-fresh-description';
     const postFfMergeContent = [
       '---',
-      `planId: ${input.planId}`,
+      `plan_id: ${input.planId}`,
       'created_at: 2026-05-13',
-      `worktreePath: ${input.worktreePath}`,
+      `worktree_path: ${input.worktreePath}`,
       'status: in_progress',
-      'baseCommit: abc123',
+      'base_commit: abc123',
       `description: ${freshDescription}`,
       '---',
       '',
@@ -332,11 +332,11 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     // (Scenario A;reviewer-claude 反驳轮列举 3 现实场景之一)
     const postFfMergeContent = [
       '---',
-      `planId: ${input.planId}`,
+      `plan_id: ${input.planId}`,
       'created_at: 2026-05-13',
-      `worktreePath: ${input.worktreePath}`,
+      `worktree_path: ${input.worktreePath}`,
       'status: abandoned', // ← 关键:fresh status 漂移到 abandoned
-      'baseCommit: abc123',
+      'base_commit: abc123',
       '---',
       '',
       '# Plan body content',

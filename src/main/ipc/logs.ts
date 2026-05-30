@@ -63,15 +63,27 @@ export function registerLogsIpc(): void {
     if (!fs.existsSync(filePath)) {
       return { ok: true, existed: false };
     }
+    // REVIEW_68 batch-2 [LOW reviewer-codex]: 拒 symlink（lstat 不 follow）。filePath 由 todayLogFile()
+    // 内部构造恒在 logs dir 内，唯一攻击面是当天 log 文件本身被换成 symlink → truncate/writeFile 会
+    // follow 到任意同权限可写文件。lstat 命中 symlink 直接拒（与 ipc/images.ts realpath 加固同源思路）。
     try {
-      fs.truncateSync(filePath, 0);
-      logger.info(`LogsTruncateToday truncated ${filePath}`);
-      return { ok: true, existed: true };
+      if (fs.lstatSync(filePath).isSymbolicLink()) {
+        return { ok: false, existed: true, error: 'refusing to truncate a symlink at the log path' };
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(`LogsTruncateToday truncate failed: ${msg}`, err);
-      return { ok: false, existed: true, error: msg };
+      return { ok: false, existed: true, error: err instanceof Error ? err.message : String(err) };
     }
+    // REVIEW_68 batch-2 [MED reviewer-codex]: 用 electron-log File.clear() 而非 fs.truncateSync。
+    // file transport 缓存每个 path 的 File 对象（initialSize + bytesWritten 判 maxSize rotation，默认
+    // maxSize=1MB）。fs.truncateSync 绕过缓存 → 清空 >1MB 日志后 cached size 仍旧 → 下条写触发过早
+    // rotation / 覆盖 .old.log。File.clear() = writeFileSync('') + reset 缓存，rotation 计数同步归零。
+    // [LOW reviewer-claude]: 不再 truncate 后 logger.info 写回（否则「已清空」立即又有一条记录）；
+    // 失败仅经 result.error 返 renderer 弹 toast，不写回当天 file（console 已被 logger 接管会写回）。
+    const cleared = log.transports.file.getFile().clear();
+    if (!cleared) {
+      return { ok: false, existed: true, error: 'electron-log File.clear() failed (see emitted transport error)' };
+    }
+    return { ok: true, existed: true };
   });
 
   // CHANGELOG_179 §Step 3.2.6 方案 2: preload 端 contextBridge.exposeInMainWorld('api', api)
