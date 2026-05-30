@@ -113,7 +113,7 @@ export function syncSkills(): string[] | null {
 
   const written: string[] = [];
 
-  // 1) 镜像源 skills（mtime 对比避免每次都写）
+  // 1) 镜像源 skills（每次覆盖写，不做 mtime skip — 理由见循环内注释）
   for (const name of sourceSkills) {
     const srcSkillMd = join(sourceDir, name, 'SKILL.md');
     if (!existsSync(srcSkillMd)) continue; // 不是 skill 目录跳过
