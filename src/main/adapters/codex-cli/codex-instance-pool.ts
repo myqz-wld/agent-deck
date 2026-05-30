@@ -20,6 +20,13 @@
  * **Codex 实例本身轻量**（lightweight handle）— 真正 spawn 子进程是 startThread() 时才发生。
  * 共享 1 个 instance 等价于让 oneshot caller 共享同款 SDK config（codexPathOverride），不会因为
  * 共享造成跨用途 lifecycle 干扰（每个 thread 独立、Codex 实例只是 thread 工厂）。
+ *
+ * **bundled rg helper PATH（与 ensureCodex 的差异，刻意不补）**：codexPathOverride 短路 SDK
+ * resolve → SDK 不注入 bundled `codex-path/rg`（详 codex-binary.ts §pathDirs）。live bridge 的
+ * ensureCodex 会 `prependBundledCodexPathDirs` 补回；本 pool **不补** —— oneshot caller
+ * （summarizer 出文字总结 / handoff 起接力 prompt）不触发 codex 的 rg-依赖功能（文件搜索类），
+ * 且本 pool 不传 `env`（子进程继承 process.env，系统装了 rg 时仍可用）。如未来 oneshot caller
+ * 需要 rg，改走传 env + prependBundledCodexPathDirs（issue 8c116860 同款修法）。
  */
 import type { Codex } from '@openai/codex-sdk';
 import { settingsStore } from '@main/store/settings-store';

@@ -24,7 +24,7 @@ import type {
   CodexSessionHandle,
   InternalSession,
 } from './types';
-import { resolveBundledCodexBinary } from './codex-binary';
+import { resolveBundledCodexBinary, prependBundledCodexPathDirs } from './codex-binary';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { packCodexInput, extractAttachmentPaths } from './input-pack';
 import { RestartController, type RestartCtx } from './restart-controller';
@@ -241,7 +241,8 @@ export class CodexSdkBridge {
     // resolveBundledCodexBinary 注释）
     // R37 P1 Step 1.2 (G)：直接 settingsStore.get（删 private codexCliPath field）
     const codexCliPath = settingsStore.get('codexCliPath');
-    const overridePath = (codexCliPath && codexCliPath.trim()) || resolveBundledCodexBinary();
+    const userCodexPath = codexCliPath && codexCliPath.trim();
+    const overridePath = userCodexPath || resolveBundledCodexBinary();
     // CHANGELOG_<X> R2 / B'4 + R1.A5 + R1.D7：自动注入 agent-deck MCP server 配置
     // 给 codex SDK，让 codex CLI 子进程 spawn 时通过 --config mcp_servers.agent-deck.url=...
     // 连接到本应用 HookServer /mcp 路由（HTTP transport）。bearer token 走 env var
@@ -265,6 +266,12 @@ export class CodexSdkBridge {
     envOverride[AGENT_DECK_MCP_TOKEN_ENV] = sessionToken;
     if (envOverrideExtra) {
       Object.assign(envOverride, envOverrideExtra);
+    }
+    // codexPathOverride 短路 SDK 自身 resolve → SDK pathDirs 置空，不再注入 bundled rg helper PATH。
+    // 仅当走的是 bundled 二进制（非用户自填 codexCliPath）时补回（用户自装 codex 自带 PATH 解析，
+    // 不该被我们的 bundled helper 污染）。dev / 无 bundled helper → no-op。
+    if (overridePath && !userCodexPath) {
+      prependBundledCodexPathDirs(envOverride);
     }
     const codex = new sdk.Codex({
       ...(overridePath ? { codexPathOverride: overridePath } : {}),
