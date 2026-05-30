@@ -341,7 +341,12 @@ export function App(): JSX.Element {
               }}
             />
           ) : view === 'issues' ? (
-            <IssuesPanel />
+            <IssuesPanel
+              onOpenSession={(sid) => {
+                setView('live');
+                select(sid);
+              }}
+            />
           ) : (
             <HistoryPanel onSelect={(id) => void onHistorySelect(id)} />
           )}
