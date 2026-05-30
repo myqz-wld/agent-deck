@@ -10,7 +10,7 @@
  * **§D7**: status 严格 3 态（zod IPC 层守门 reject foo）。
  */
 
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import type {
   IssueRecord,
   IssueAppendix,
@@ -75,7 +75,21 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   const [error, setError] = useState<string | null>(null);
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
 
-  // 初始 / issueId 变 → 拉 detail 含 appendices（IssuesGet 比 store 多带 appendices 子列表）
+  // ref 镜像让异步 fetch callback / effect 读到 resolve 那一刻的最新值（闭包变量是启动时旧值）。
+  const issueRef = useRef(issue);
+  const editingRef = useRef(editing);
+  const savingRef = useRef(saving);
+  useEffect(() => {
+    issueRef.current = issue;
+    editingRef.current = editing;
+    savingRef.current = saving;
+  });
+
+  // 初始 / issueId 变 → 拉 detail 含 appendices（IssuesGet 比 store 多带 appendices 子列表）。
+  // editing 已由 issueFromStore 同步 seed（可在 fetch 未回前就编辑）→ fetch 回来时若用户已起草稿
+  // 则只更 issue 不动 editing，保住输入（codex reviewer MED：慢 fetch 吞快速输入）。
+  // 用 ref 读 fetch resolve 那一刻的最新 issue/editing（闭包变量是 effect 启动时的旧值，
+  // 异步 resolve 后已过时）。
   useEffect(() => {
     let cancelled = false;
     setError(null);
@@ -84,8 +98,11 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         if (!cancelled && !fetched) setError('未找到该问题');
         return;
       }
+      const base = issueRef.current;
+      const draft = editingRef.current;
+      const hasDraft = !!(base && draft && !editingMatches(draft, toEditing(base)));
       setIssue(fetched);
-      setEditing(toEditing(fetched));
+      if (!hasDraft) setEditing(toEditing(fetched));
     });
     return () => {
       cancelled = true;
@@ -100,11 +117,14 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   // saving 期间整体跳过：handleSave 自己 setIssue。
   // appendices 防丢：list() 路径的 store 行不带 appendices（避免 N+1），event 路径都带；
   // 故 `?? prev` 保住 IssuesGet 已拉到的子列表（undefined=未加载，区别于 []=确无）。
+  // 用 ref 读最新 issue/editing/saving（这些可在 storeUpdatedAt 不变时变化 → 闭包值会过时）。
   const storeUpdatedAt = issueFromStore?.updatedAt;
   useEffect(() => {
-    if (!issueFromStore || saving) return;
-    if (issue && issue.updatedAt === issueFromStore.updatedAt) return;
-    const hasDraft = !!(issue && editing && !editingMatches(editing, toEditing(issue)));
+    if (!issueFromStore || savingRef.current) return;
+    const base = issueRef.current;
+    if (base && base.updatedAt === issueFromStore.updatedAt) return;
+    const draft = editingRef.current;
+    const hasDraft = !!(base && draft && !editingMatches(draft, toEditing(base)));
     setIssue((prev) => ({
       ...issueFromStore,
       appendices: issueFromStore.appendices ?? prev?.appendices,
@@ -143,6 +163,11 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
       });
       setIssue(updated);
       upsertIssue(updated);
+      // 关键：保存后把 editing 归一化为 DB 返回的 canonical 形态（如 labels "a,b" → "a, b"）。
+      // 不归一化则 editingMatches(editing, toEditing(updated)) 永久 false → store-sync effect 的
+      // hasDraft 守护永久误判有草稿 → 后续外部 issue 更新（起新会话改 status / teammate append）
+      // 再也同步不进 editing（codex reviewer MED 实证）。
+      setEditing(toEditing(updated));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
