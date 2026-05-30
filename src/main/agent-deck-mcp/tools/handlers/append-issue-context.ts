@@ -53,7 +53,7 @@ export const appendIssueContextHandler = withMcpGuard(
       if (issue.status === 'resolved') {
         return err(
           `append rejected: issue ${args.issueId} status='resolved'`,
-          'issue 已 resolved，新现场请 create 新 issue（resolved issue 不接受 append — UI 端可手工改 status 回 in-progress 让 issue 重新可 append）。',
+          'issue 已 resolved，新现场请 create 新 issue（resolved issue 不接受 append）。若你是该 issue 的源 / 解决会话，可先调 update_issue_status 把 status 改回 open/in-progress 再 append；或由 UI 端手工改回。',
         );
       }
       // 与 resolved-reject 对称：软删（用户已在 UI 隐藏）的 issue 也不接受 append。继续 append

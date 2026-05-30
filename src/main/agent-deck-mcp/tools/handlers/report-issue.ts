@@ -10,8 +10,9 @@
  * - emit eventBus 'issue-changed' kind='created'（plan §Step 3.4.2 EventMap 已加 — UI bridge 在 Step 3.4 落地）
  * - withMcpGuard pattern：deny external + caller 反查（§不变量 7 — write 路径 deny external 严守）
  *
- * **§不变量 1**：仅 write tool,**不**自动 read / 不查别人 issue;agent 拿到 returned IssueRecord
- * 内含 issueId,后续同 session append_issue_context 必带此 id。
+ * **§不变量 1**：report_issue 仅 write 不 read（不查别人 issue）；agent 拿到 returned IssueRecord
+ * 后用其主键字段 `id`（不是 `issueId`）作为后续同 session append_issue_context / update_issue_status
+ * 的 `issueId` 入参。status 写入受限：仅源 / 解决会话经 update_issue_status 自助推进，其余 admin 走 UI。
  */
 
 import { sessionRepo } from '@main/store/session-repo';

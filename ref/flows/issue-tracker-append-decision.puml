@@ -1,5 +1,5 @@
 ' description: append_issue_context 4 道守门决策树 — not-found / source-bound / resolved / 软删 reject
-' last_updated: 2026-05-30
+' last_updated: 2026-05-31
 @startuml issue-tracker-append-decision
 
 title append_issue_context — 4 道守门决策树 (source-bound + resolved + 软删 reject)
@@ -35,7 +35,8 @@ if (issue.status == 'resolved'?) then (是)
   :reject — resolved 不接受 append;
   note right
     避免 resolved issue 被续命让 GC 时钟错位
-    UI 可手工翻回 in-progress 重开
+    翻回重开: 源/解决会话经 update_issue_status({status:'in-progress'})
+    或 UI 手工改回, 再 append (CHANGELOG_189)
   end note
   stop
 else (否)
@@ -45,7 +46,7 @@ if (issue.deletedAt != null?) then (是)
   :reject — 已软删 (UI 隐藏);
   note right
     与 resolved-reject 对称
-    恢复后再 append 或 report_issue 重报
+    UI 恢复后再 append 或 report_issue 重报
   end note
   stop
 else (否)

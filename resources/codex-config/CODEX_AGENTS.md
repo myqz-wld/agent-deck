@@ -390,9 +390,9 @@ per-session MCP token 机制 — 应用启动 codex 子进程时分发一次性 
 caller 取消归档继续给已收口 plan-driven session 发消息(撞 cwd 失效)/ 用户手动 `git worktree remove` 不走 archive_plan / 跨设备同步丢目录 → codex sdk-bridge.recoverer 启发式找仍存在的祖先目录当 cwd 兜底(worktree 路径取段之前部分 / 父目录 walk 不超过 home),找到 → emit info + 强制走 jsonl missing fallback 同款下游(CLI 历史失但应用层 events / file_changes / summaries 子表保留);找不到 → emit error 清晰告诉用户。
 
 
-## Issue 上报(report_issue / append_issue_context)
+## Issue 上报(report_issue / append_issue_context / update_issue_status)
 
-Agent 执行中踩到「需后续跟进的问题」→ 通过 2 个 mcp tool 落 issue tracker。**agent 只写不查**:仅 `report_issue` + `append_issue_context` 两个写工具,无 list / get / update / delete — 查询 / triage / 标记 resolved 全走应用 UI(agent 上报,真人处置)。callerSessionId 由 per-session token 自动反查填入,codex 端不必手传。
+Agent 执行中踩到「需后续跟进的问题」→ 通过 mcp tool 落 issue tracker。**agent 以写为主**:`report_issue`(上报)+ `append_issue_context`(同 session 补现场)+ `update_issue_status`(源 / 解决会话自助改 status)3 个 write tool,无 list / get / delete — 查询 / triage / 软删全走应用 UI(agent 上报,真人 + 关联会话协同处置)。callerSessionId 由 per-session token 自动反查填入,codex 端不必手传。
 
 ### 何时上报
 
@@ -402,11 +402,10 @@ Agent 执行中踩到「需后续跟进的问题」→ 通过 2 个 mcp tool 落
 |---|---|
 | `follow-up`(default)| 当前任务暴露的后续工作(本轮 scope 外但该做)|
 | `app-bug` | Agent Deck 应用本身的 bug |
-| `external-tooling-bug` | 外部工具链 bug(claude / codex CLI / SDK / 三方 lib)|
-| `convention-gap` | 约定缺失 / 矛盾 / 该升级 |
-| `enhancement` | 改进想法 |
 
-**不上报**:当前任务直接交付的内容(直接做);一次性 trivial 观察;疑似重复 issue(agent 查不了已有 issue,宁可重报由 UI 合并,不要因怕重复而不报)。
+> 仅这 2 个推荐值;kind 是软枚举,需要时仍可传任意自定义字符串(UI 归到 "other" 分组)。
+
+**不上报**:**当场就能顺手修掉的,直接修,别 report**(report 是留给「本轮 scope 外 / 需后续跟进」的,不是给自己当下能解决的事记 TODO);当前任务直接交付的内容(直接做);一次性 trivial 观察;疑似重复 issue(agent 查不了已有 issue,宁可重报由 UI 合并,不要因怕重复而不报)。
 
 ### report_issue
 
@@ -430,5 +429,16 @@ Agent 执行中踩到「需后续跟进的问题」→ 通过 2 个 mcp tool 落
 `mcp__agent-deck__append_issue_context({ issueId, additionalContext, logsRef? })` — 给**本会话自己上报过**的 issue 追加上下文。
 
 - **source-bound**:仅 `issue.sourceSessionId === 当前 caller` 才能 append;别人的 / 跨会话的 issue 一律 reject → 改用 `report_issue` 开新 issue(UI 手动合并)
-- **resolved / 软删 拒 append**:issue 已 resolved 或已被用户软删(隐藏)→ reject(UI 可翻回 in-progress / 恢复后再 append,或改用 `report_issue` 开新 issue)
+- **resolved / 软删 拒 append**:issue 已 resolved 或已被用户软删(隐藏)→ reject(源 / 解决会话可先用 `update_issue_status` 把 status 改回 open/in-progress 再 append;或 UI 端恢复 / 改回,或改用 `report_issue` 开新 issue)
 - 追加内容进独立子表,**不改**原 `description`;`logsRef` 合并规则:date 覆盖 / tsRange min-max 扩展 / scopes union 去重 / note 追加(**date 始终必填**,即使只更新 tsRange / scopes / note)
+
+### update_issue_status(源 / 解决会话自助改状态)
+
+`mcp__agent-deck__update_issue_status({ issueId, status, note? })` — 让 issue 的**源会话**(report 它的会话)或**解决会话**(UI「起新会话解决」起的会话)自己推进状态,不必劳烦用户去 UI 点。
+
+- **授权边界**:仅 `issue.sourceSessionId === 当前 caller` **或** `issue.resolutionSessionId === 当前 caller` 才放行;第三方会话 reject(其余请走 UI)。两者皆 null(会话被 GC)→ 只能走 UI。
+- **典型用法**:
+  - 你 report 的 issue 后来自己修好了 → `update_issue_status({ issueId, status: 'resolved', note: '简述怎么修的' })`
+  - 解决会话修完 → 同上自助标 resolved;没修好 / 需重开 → `status: 'open'` + note 说明原因
+- **status** 严格 3 态 `open` / `in-progress` / `resolved`;**note**(可选 1-2000 字)会作为一条「补充记录」留痕(怎么修的 / 为何 reopen)。
+- 软删 issue reject。

@@ -16,14 +16,10 @@ import {
 } from '../stores/issues-store';
 import { IssueDetail } from './IssueDetail';
 
-const STATUS_OPTIONS: IssueStatus[] = ['open', 'in-progress', 'resolved'];
-const KIND_OPTIONS = [
-  'follow-up',
-  'app-bug',
-  'external-tooling-bug',
-  'convention-gap',
-  'enhancement',
-] as const;
+// 「活跃」tab = open + in-progress；「已解决」tab = resolved（两 tab 互斥，复用 filters.statuses 底层）
+const ACTIVE_STATUSES: IssueStatus[] = ['open', 'in-progress'];
+const RESOLVED_STATUSES: IssueStatus[] = ['resolved'];
+const KIND_OPTIONS = ['follow-up', 'app-bug'] as const;
 
 const KEYWORD_DEBOUNCE_MS = 300;
 
@@ -165,11 +161,8 @@ function FilterBar({
   onKeywordChange,
   onFiltersChange,
 }: FilterBarProps): JSX.Element {
-  const toggleStatus = (s: IssueStatus): void => {
-    const cur = filters.statuses ?? [];
-    const next = cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s];
-    onFiltersChange({ ...filters, statuses: next.length === 0 ? undefined : next });
-  };
+  // resolved tab 判定：filters.statuses 含 'resolved' = 已解决视图，否则活跃视图
+  const showingResolved = (filters.statuses ?? []).includes('resolved');
   const toggleKind = (k: string): void => {
     const cur = filters.kinds ?? [];
     const next = cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k];
@@ -184,16 +177,17 @@ function FilterBar({
         onChange={(e) => onKeywordChange(e.target.value)}
         className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20"
       />
-      <div className="flex flex-wrap gap-1">
-        <span className="text-[10px] text-deck-muted">状态:</span>
-        {STATUS_OPTIONS.map((s) => (
-          <FilterChip
-            key={s}
-            label={s}
-            active={(filters.statuses ?? []).includes(s)}
-            onClick={() => toggleStatus(s)}
-          />
-        ))}
+      <div className="flex gap-1">
+        <StatusTab
+          label="活跃"
+          active={!showingResolved}
+          onClick={() => onFiltersChange({ ...filters, statuses: ACTIVE_STATUSES })}
+        />
+        <StatusTab
+          label="已解决"
+          active={showingResolved}
+          onClick={() => onFiltersChange({ ...filters, statuses: RESOLVED_STATUSES })}
+        />
       </div>
       <div className="flex flex-wrap gap-1">
         <span className="text-[10px] text-deck-muted">类型:</span>
@@ -215,6 +209,31 @@ function FilterBar({
         显示已删除
       </label>
     </div>
+  );
+}
+
+/** 活跃 / 已解决 互斥 tab（比 chip 更突出「切换视图」语义）。 */
+function StatusTab({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded px-2.5 py-1 text-[11px] transition-colors ${
+        active
+          ? 'bg-white/15 text-deck-text ring-1 ring-white/20'
+          : 'bg-white/[0.04] text-deck-muted hover:bg-white/10'
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

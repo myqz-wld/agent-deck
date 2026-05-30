@@ -1,14 +1,14 @@
-' description: issue-tracker 跨进程架构 — agent 写 (mcp) / UI 读改删 (IPC) / GC / event→renderer 双通道
-' last_updated: 2026-05-30
+' description: issue-tracker 跨进程架构 — agent 写 (mcp 3 tool) / UI 读改删 (IPC) / GC / event→renderer 双通道
+' last_updated: 2026-05-31
 @startuml issue-tracker-architecture
 
-title issue-tracker — 跨进程架构 (agent 写 mcp / UI 读改删 IPC / GC 调度 / event→renderer)
+title issue-tracker — 跨进程架构 (agent 写 mcp 3 tool / UI 读改删 IPC / GC 调度 / event→renderer)
 
 ' 日常术语优先, 括号注 codename; 详细 module / 函数 / commit 见 INDEX 第 3 列
 
 package "主进程 (main)" {
-  package "agent 写通道 (只写不查 §不变量 1)" as MCP {
-    [report_issue / append_issue_context\n(mcp write tool, deny external)] as WriteTool
+  package "agent 写通道 (write-only §不变量 1)" as MCP {
+    [report_issue / append_issue_context\n/ update_issue_status\n(3 mcp write tool, deny external)] as WriteTool
   }
   package "UI 读改删通道 (IPC 6 channel)" as IPCPkg {
     [List / Get / Update\nSoftDelete / Undelete\nResolveInNewSession] as IpcH
@@ -30,8 +30,8 @@ package "渲染进程 (renderer)" {
 }
 
 ' ─── agent 写路径 ───
-WriteTool --> Repo : create / appendContext
-WriteTool --> Bus : emit issue-changed (created / appended)
+WriteTool --> Repo : create / appendContext / update(status)
+WriteTool --> Bus : emit issue-changed (created / appended / updated)
 
 ' ─── UI 读改删路径 ───
 UIView --> IpcH : invoke (list / get / update / delete / undelete)
@@ -63,8 +63,11 @@ note bottom of DB
 end note
 
 note bottom of WriteTool
-  agent 只暴露 2 个 write tool, 无 list / get / update / delete
-  (§不变量 1: 查询 / triage / 状态推进全走 UI IPC, 真人处置)
+  agent 暴露 3 个 write tool (CHANGELOG_189), 无 list / get / delete:
+  - report_issue: 创 open (sourceSessionId 闭包注入)
+  - append_issue_context: 写子表 (strict source-bound)
+  - update_issue_status: 改 status (授权 source||resolution session; 第三方/双null/软删 reject)
+  §不变量 1: 查询 / triage / read+admin 全走 UI IPC, 真人处置; status 是唯一对 agent 开放的受控写
 end note
 
 @enduml

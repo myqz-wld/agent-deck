@@ -1,14 +1,14 @@
-' description: issue-tracker agent 写路径 sequence — report_issue / append_issue_context / GC + event→UI
-' last_updated: 2026-05-30
+' description: issue-tracker agent 写路径 sequence — report / append / update_issue_status / GC + event→UI
+' last_updated: 2026-05-31
 @startuml issue-tracker-flow
 
-title issue-tracker — agent 写路径 sequence (report / append source-bound / GC scheduler + event→UI)
+title issue-tracker — agent 写路径 sequence (report / append source-bound / update_issue_status / GC scheduler + event→UI)
 
-' agent 只写不查 (仅 report_issue + append_issue_context 两 write tool); UI 读改删走 IPC (见架构图)
+' agent 3 个 write tool (report_issue + append_issue_context + update_issue_status); read/admin 走 UI IPC (见架构图)
 ' 详细 module / 函数名 / commit / REVIEW 见 INDEX 第 3 列
 
 actor "Agent\n(SDK session)" as A
-participant "report_issue /\nappend_issue_context\n(mcp write tool)" as Tool
+participant "report_issue / append_issue_context\n/ update_issue_status\n(mcp write tool)" as Tool
 participant "issue 持久层\n(issue-repo)" as Repo
 database "SQLite\n(issues + issue_appendices)" as DB
 participant "事件总线\n(eventBus)" as Bus
@@ -49,6 +49,33 @@ Repo --> Tool: IssueRecord (含 appendices 子列表 §D19)
 Tool -> Bus: emit issue-changed { kind:'appended', issue }
 Tool --> A: ok(IssueRecord + appendices)
 Bus -> UI: IPC issue-changed → store 更新
+
+== update_issue_status: 源/解决会话自助改 status (CHANGELOG_189) ==
+
+A -> Tool: update_issue_status(issueId, status, note?)
+Tool -> Repo: get(issueId)
+note right of Tool
+  授权: sourceSessionId === callerSid (源会话)
+       OR resolutionSessionId === callerSid (解决会话)
+  reject: not-found / 第三方(双 null 即任意 caller) / 软删 / deny external
+  解决会话首轮时序: resolutionSessionId 写回有微延迟 (轻量缓和:
+    prompt 诱导"修复完成后再标" + reject hint 引导几秒后重试)
+end note
+alt note 非空 (可选留痕)
+  Tool -> Repo: appendContext({ issueId, body:note, appendedSessionId:callerSid })
+  note right of Repo
+    复用 append 子表写一条留痕 (怎么修的 / 为何 reopen)
+    与 update 非同一事务 (benign 窗口: update throw 留 note 可重试;
+    race hardDelete → appendix 走 FK CASCADE 自愈不残留)
+  end note
+  Repo -> DB: INSERT issue_appendices
+end
+Tool -> Repo: update(issueId, { status })
+Repo -> DB: UPDATE issues SET status (D15 resolved_at: 非resolved→resolved 写 now / reopen 保留)
+Repo --> Tool: IssueRecord | null (null = race hardDelete → reject)
+Tool -> Bus: emit issue-changed { kind:'updated', issue }
+Tool --> A: ok(IssueRecord + appendices)
+Bus -> UI: IPC issue-changed → store 更新 (列表/详情实时刷新)
 
 == GC: 周期硬删超期 issue (软删 / resolved 双轨) ==
 

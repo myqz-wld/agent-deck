@@ -319,7 +319,12 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
             {new Date(issue.updatedAt).toLocaleString('zh-CN', { hour12: false })}
           </div>
           {issue.resolvedAt && (
-            <div>解决于: {new Date(issue.resolvedAt).toLocaleString('zh-CN', { hour12: false })}</div>
+            <div>
+              {/* LOW-1（review Round 1）：D15 状态机 reopen 后保留 resolved_at（避免 GC 误删），
+                  但当前 status≠resolved 时显示「解决于」与状态矛盾 → 改「上次解决于」。 */}
+              {isResolved ? '解决于' : '上次解决于'}:{' '}
+              {new Date(issue.resolvedAt).toLocaleString('zh-CN', { hour12: false })}
+            </div>
           )}
           {issue.deletedAt && (
             <div className="text-status-waiting">
@@ -423,6 +428,11 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           onResolved={(updated) => {
             setIssue(updated);
             upsertIssue(updated);
+            // 关键：同步 editing 草稿到 resolve 回写后的 canonical 形态（与 handleSave 收尾一致）。
+            // 不补这行 → issue 与 store 是同一对象 updatedAt 相等 → store-sync effect 短路
+            // (:125 base.updatedAt === issueFromStore.updatedAt return) → setEditing 永不执行
+            // → 状态下拉卡在 dialog 打开那刻的旧值（起新会话已把 status 改 in-progress 但下拉仍 open）。
+            setEditing(toEditing(updated));
             setResolveDialogOpen(false);
           }}
         />

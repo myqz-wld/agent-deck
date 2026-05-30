@@ -60,6 +60,20 @@ function buildDefaultPrompt(issue: IssueRecord): string {
         parts.push(`[${idx + 1}] ${new Date(a.appendedAt).toISOString()}: ${a.body}`);
       });
   }
+  // 闭环关键：把 issueId + 处置指引塞进 prompt，让解决会话能用 update_issue_status 自助标状态
+  // （它被授权为本 issue 的「解决会话」）。否则解决会话拿不到 issueId 无从调 tool。
+  // MED-1 轻量缓和（review Round 1）：明确「处理/修复完成后再改 status」——IPC 写回
+  // resolutionSessionId 有数秒微延迟（先 await createSession 启动本会话才写回），诱导 agent
+  // 把 status 变更放到首轮调查/修复之后，天然错开写回窗口，避免起动即调被当第三方 reject。
+  parts.push(
+    '',
+    '---',
+    '你是本 issue 的「解决会话」。请先调查并处理问题，**全部处理 / 修复完成后**再用 mcp 工具自助标记状态（无需用户去 UI 点）：',
+    `- 修好了：update_issue_status({ issueId: "${issue.id}", status: "resolved", note: "简述怎么修的" })`,
+    `- 没修好 / 需重开：update_issue_status({ issueId: "${issue.id}", status: "open", note: "说明原因" })`,
+    '（若刚启动就调本工具收到「非源/解决会话」错误，是 resolutionSessionId 写回有数秒延迟所致——处理完再调通常即已写回。）',
+    `issueId: ${issue.id}`,
+  );
   return parts.join('\n');
 }
 

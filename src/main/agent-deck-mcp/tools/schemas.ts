@@ -1,5 +1,5 @@
 /**
- * Agent Deck MCP server 17 tool 的 zod schema 集中地（10 现有 + 5 task + 2 issue — plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 task；issue-tracker-mcp-20260529 加 report_issue / append_issue_context）。
+ * Agent Deck MCP server 18 tool 的 zod schema 集中地（10 现有 + 5 task + 3 issue — plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 task；issue-tracker-mcp-20260529 加 report_issue / append_issue_context；体验改进 20260531 加 update_issue_status）。
  * 三 transport（in-process / HTTP / stdio）共享同一份 schema。
  *
  * 历史：从原 src/main/agent-deck-mcp/tools.ts 剥离（CHANGELOG_81 / plan
@@ -686,7 +686,7 @@ export type ShutdownBatonTeammatesArgs = z.infer<
 
 // =============== Result types (R37 P3-L Step 4.5) ===============
 //
-// 17 tool 的 ok return shape SSOT（10 现有 + 5 task + 2 issue；与上方 args type 对称，让 input/output schema
+// 18 tool 的 ok return shape SSOT（10 现有 + 5 task + 3 issue；与上方 args type 对称，让 input/output schema
 // 都在 schemas.ts 一处可读）。Handler return 用 `satisfies XxxResult` 做静态字段校验
 // 防漂移（typo / 漏字段 / 字段类型错被 TS 拦）。
 //
@@ -1320,7 +1320,8 @@ export const LOGS_REF_SCHEMA = z
 
 /**
  * `report_issue` mcp tool — agent 上报新 issue。返回完整 IssueRecord（§D19 与
- * task_create 对称）含 issueId 给 agent 同 session 后续 append_issue_context 调用使用。
+ * task_create 对称）。主键字段是 `id`（**不是** `issueId`）— agent 把该 `id` 当作后续同
+ * session append_issue_context / update_issue_status 调用的 `issueId` 入参传入。
  */
 export const REPORT_ISSUE_SCHEMA = {
   title: z
@@ -1343,7 +1344,7 @@ export const REPORT_ISSUE_SCHEMA = {
     .optional()
     .describe('Optional reproduction steps (1-2000 chars). null/undefined = not provided'),
   /**
-   * §D6：kind 软枚举 + free-form fallback —— **不**用 z.enum 严格校验（推荐 5 值原样落库;
+   * §D6：kind 软枚举 + free-form fallback —— **不**用 z.enum 严格校验（推荐 2 值原样落库;
    * agent 可上报自定义 kind 如 'agent-deck-bug',UI 端 'other' 分组,**不**自动 normalize）。
    * 1-32 字符限制由 DDL CHECK 兜底,zod 层做 length 守门避免 caller 传超长字符串。
    */
@@ -1353,7 +1354,7 @@ export const REPORT_ISSUE_SCHEMA = {
     .max(32)
     .optional()
     .describe(
-      'Soft enum (default "follow-up"): "follow-up" / "app-bug" / "external-tooling-bug" / "convention-gap" / "enhancement" — non-enum values stored as-is (UI groups under "other").',
+      'Soft enum (default "follow-up"): recommended values "follow-up" (your own follow-up work) / "app-bug" (Agent Deck app defect) — non-enum values stored as-is (UI groups under "other").',
     ),
   severity: z
     .enum(['low', 'medium', 'high'])
@@ -1418,9 +1419,51 @@ export const APPEND_ISSUE_CONTEXT_SCHEMA = {
     ),
 };
 
+/**
+ * `update_issue_status` mcp tool — issue 的**源会话或解决会话**自助推进 status
+ * （plan issue-tracker 体验改进 20260531 §需求3）。打破旧「agent 永不改 status」铁律的
+ * 受控开口：授权边界 `issue.sourceSessionId === callerSid || issue.resolutionSessionId === callerSid`
+ * （比 append_issue_context 的严格 source-bound 放宽一档 — 解决会话也是合法处置方）。
+ * 软删 issue reject（与 append 对称）。可选 `note` 非空时复用 appendContext 写一条补充
+ * 记录留痕（怎么修的 / 为何 reopen），再走 issueRepo.update 的 D15 resolved_at 状态机。
+ *
+ * 返回完整 IssueRecord（含最新 appendices）让 UI emit 'issue-changed' kind='updated'。
+ */
+export const UPDATE_ISSUE_STATUS_SCHEMA = {
+  issueId: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe(
+      'Issue UUID. Authorized only when caller is the issue source session OR its resolution session (the session spawned by UI「起新会话解决」).',
+    ),
+  status: z
+    .enum(['open', 'in-progress', 'resolved'])
+    .describe(
+      'New status. resolve = "resolved"; reopen = "open" (or "in-progress"). Strict 3-state enum.',
+    ),
+  note: z
+    .string()
+    .min(1)
+    .max(2000)
+    .optional()
+    .describe(
+      'Optional note (1-2000 chars) recorded as an appendix for traceability (e.g. how it was fixed / why reopened). Written via the same issue_appendices subtable as append_issue_context.',
+    ),
+  callerSessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（update_issue_status 不允许 external caller — 写 issues 表 + 授权校验需真实 in-process callerSessionId）。',
+    ),
+};
+
 // Args type infer
 export type ReportIssueArgs = z.infer<z.ZodObject<typeof REPORT_ISSUE_SCHEMA>>;
 export type AppendIssueContextArgs = z.infer<z.ZodObject<typeof APPEND_ISSUE_CONTEXT_SCHEMA>>;
+export type UpdateIssueStatusArgs = z.infer<z.ZodObject<typeof UPDATE_ISSUE_STATUS_SCHEMA>>;
 
 /**
  * Result types（§D19）：handler 返回完整 IssueRecord — 与 task_create / task_update
@@ -1429,3 +1472,4 @@ export type AppendIssueContextArgs = z.infer<z.ZodObject<typeof APPEND_ISSUE_CON
  */
 export type ReportIssueResult = IssueRecord;
 export type AppendIssueContextResult = IssueRecord;
+export type UpdateIssueStatusResult = IssueRecord;
