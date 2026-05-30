@@ -1,0 +1,62 @@
+' description: runtime-logging 双进程架构 — main+renderer logger / console 接管 / electron-log IPC bridge / file transport / Settings LogsSection
+' last_updated: 2026-05-30
+@startuml runtime-logging-architecture
+
+title runtime-logging — 双进程架构 (electron-log v5: console 接管 + IPC bridge + file transport rotation/cleanup)
+
+' 日常术语优先; 详细 module / 函数名 / commit / REVIEW 见 INDEX 第 3 列
+
+package "主进程 (main)" {
+  [main logger\n(utils/logger.ts, electron-log/main)] as MLog
+  [errorHandler.startCatching\n(uncaught/unhandledRejection 落盘\n+ uncaughtException → app.exit(1))] as Fatal
+  [file transport\n(file level=info / console level=silly)] as FT
+  [LogsSection IPC\n(OpenDir / ShowInFinder / TruncateToday)] as LogsIpc
+  [preload-fatal listener\n(PreloadFatalError IPC + webContents preload-error)] as PFatal
+  [main 业务模块\nlog.scope('<name>')] as MBiz
+}
+
+package "渲染进程 (renderer)" {
+  [renderer logger\n(utils/logger.ts, electron-log/renderer)] as RLog
+  [renderer 业务模块\nlog.scope('<name>')] as RBiz
+  [Settings LogsSection UI\n(3 button + logLevel 6 档下拉)] as SettingsUI
+}
+
+folder "~/Library/Logs/Agent Deck/" as Disk {
+  [main-YYYY-MM-DD.log\n(按天拆 + 启动 cleanup 14 天)] as LogFile
+}
+
+' ─── main 端落盘 ───
+MBiz --> MLog : logger.info/warn/error (scoped)
+MLog --> FT : file transport
+FT --> LogFile
+Fatal --> FT : fatal 同步落盘
+note right of MLog
+  init order: app.setName('Agent Deck') 必先于 app.getPath('logs')
+  (REVIEW_66: 否则 dev 落 ~/Library/Logs/Electron/ 撞 §不变量 1)
+  console 接管: Object.assign(console, log.functions) (NODE_ENV=test 跳过保 vi.spyOn)
+end note
+
+' ─── renderer 端经 IPC bridge ───
+RBiz --> RLog : logger.info/... (scoped)
+RLog --> MLog : electron-log IPC bridge\n(main log.initialize() 注入 preload + __electronLog.sendToMain)
+note right of RLog
+  electron-log/renderer 顶层不 require electron (vitest-safe)
+  console 接管守门: import.meta.env.MODE != 'test' (无 process.env §不变量 3)
+end note
+
+' ─── Settings LogsSection ───
+SettingsUI --> LogsIpc : 打开目录 / Finder 显示 / 清空当天
+LogsIpc --> LogFile : shell.openPath / showItemInFolder / File.clear()
+SettingsUI --> MLog : logLevel 改 → setFileLevel (即改即生效; console 永 silly)
+
+' ─── preload fatal ───
+PFatal --> MLog : preload contextBridge 失败 / script 加载失败 → preload-fatal scope 落盘
+
+note bottom of LogFile
+  根本目标 (§不变量 1): macOS .app 双击启动场景 console.* 真正落盘
+  (dev 终端 console transport silly 看全部; 生产靠 file transport)
+  清空走 File.clear() 非 fs.truncate (同步 rotation 缓存计数, REVIEW_68 batch-2)
+  + symlink 拒 (lstat)
+end note
+
+@enduml

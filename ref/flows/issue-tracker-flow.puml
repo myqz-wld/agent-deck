@@ -1,0 +1,69 @@
+' description: issue-tracker agent 写路径 sequence — report_issue / append_issue_context / GC + event→UI
+' last_updated: 2026-05-30
+@startuml issue-tracker-flow
+
+title issue-tracker — agent 写路径 sequence (report / append source-bound / GC scheduler + event→UI)
+
+' agent 只写不查 (仅 report_issue + append_issue_context 两 write tool); UI 读改删走 IPC (见架构图)
+' 详细 module / 函数名 / commit / REVIEW 见 INDEX 第 3 列
+
+actor "Agent\n(SDK session)" as A
+participant "report_issue /\nappend_issue_context\n(mcp write tool)" as Tool
+participant "issue 持久层\n(issue-repo)" as Repo
+database "SQLite\n(issues + issue_appendices)" as DB
+participant "事件总线\n(eventBus)" as Bus
+participant "渲染层\n(issues-store → Issues UI)" as UI
+participant "GC 调度器\n(IssueLifecycleScheduler 6h tick)" as GC
+
+== report_issue: 上报新 issue ==
+
+A -> Tool: report_issue(title, description, kind?, severity?, repro?, labels?, cwd?, logsRef?)
+note right of Tool
+  sourceSessionId 闭包注入 = callerSessionId (§不变量 3)
+  cwd fallback: args.cwd > session.cwd > null
+  kind default 'follow-up' (软枚举) / severity default 'medium'
+  deny external caller (写 issues 表 + closure sid)
+end note
+Tool -> Repo: create({...})
+Repo -> DB: INSERT issues (status='open', deleted_at=null)
+Repo --> Tool: IssueRecord (主键字段 id)
+Tool -> Bus: emit issue-changed { kind:'created', issue, sourceSessionId }
+Tool --> A: ok(IssueRecord) — 含 id 给后续 append 当入参 issueId 用
+Bus -> UI: IPC issue-changed → store upsert → 列表/详情实时刷新
+
+== append_issue_context: 同 session 追加现场 (source-bound) ==
+
+A -> Tool: append_issue_context(issueId, additionalContext, logsRef?)
+Tool -> Repo: get(issueId)
+note right of Tool
+  4 道守门 (详 issue-tracker-append-decision 决策图):
+  not-found / source-bound / resolved / 软删 → reject
+end note
+Tool -> Repo: appendContext({ issueId, body, logsRef })
+Repo -> DB: INSERT issue_appendices (不动 issues.description §不变量 9)
+note right of Repo
+  logsRef merge (§D17): date 覆盖 / tsRange min-max 扩展
+  / scopes union 去重 / note 追加截断
+end note
+Repo --> Tool: IssueRecord (含 appendices 子列表 §D19)
+Tool -> Bus: emit issue-changed { kind:'appended', issue }
+Tool --> A: ok(IssueRecord + appendices)
+Bus -> UI: IPC issue-changed → store 更新
+
+== GC: 周期硬删超期 issue (软删 / resolved 双轨) ==
+
+GC -> Repo: listForGc({ resolvedRetentionDays, softDeletedRetentionDays })
+note right of GC
+  6h tick (默认); 阈值=0 跳过该轨
+  resolved && resolved_at < now-N天  OR  deleted_at < now-M天
+end note
+Repo --> GC: { resolvedExpired[], softDeletedExpired[] }
+loop 逐条 (per-id try/catch 不整批崩)
+  GC -> Repo: get(id) snapshot (删前拿 sourceSessionId)
+  GC -> Repo: hardDelete(id)
+  Repo -> DB: DELETE issues (issue_appendices ON DELETE CASCADE 级联删)
+  GC -> Bus: emit issue-changed { kind:'hardDeleted', issue:null, sourceSessionId }
+end
+Bus -> UI: IPC issue-changed → store 移除
+
+@enduml

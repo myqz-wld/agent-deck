@@ -1,0 +1,43 @@
+' description: issue 生命周期 state machine — status 3 态 (UI 推进) + soft-delete / GC 双轨硬删
+' last_updated: 2026-05-30
+@startuml issue-tracker-state-machine
+
+title issue 生命周期 — status 3 态 (仅 UI 推进) + soft-delete / GC 双轨硬删
+
+' status (open/in-progress/resolved) 与 deleted_at 正交; agent 永不改 status §D7
+' 详细 transition test (8 case) / REVIEW 见 INDEX 第 3 列
+
+state "存活 (deleted_at = null)" as Live {
+  state "open\n(report_issue 默认)" as Open
+  state "in-progress" as InProgress
+  state "resolved\n(进入时 resolved_at = now)" as Resolved
+
+  [*] --> Open : report_issue 创建
+  Open --> InProgress : UI 改 status / ResolveInNewSession 起会话
+  Open --> Resolved : UI 改 status
+  InProgress --> Resolved : UI 改 status (非resolved→resolved 写 resolved_at)
+  Resolved --> InProgress : UI 改回 (resolved_at 保留不动)
+  Resolved --> Open : UI 改回
+  InProgress --> Open : UI 改回
+}
+
+state "软删 (deleted_at = now)\nUI 列表默认隐藏" as SoftDeleted
+state "硬删 (DELETE)\nissue_appendices CASCADE 级联" as HardDeleted
+
+Live --> SoftDeleted : UI SoftDelete (任意 status, idempotent)
+SoftDeleted --> Live : UI Undelete (清 deleted_at, 回原 status)
+SoftDeleted --> HardDeleted : GC: deleted_at < now - softDeletedRetentionDays (默认 7)
+Resolved --> HardDeleted : GC: resolved_at < now - resolvedRetentionDays (默认 90)
+HardDeleted --> [*]
+
+note bottom
+  **agent 永不改 status** (§D7): status 仅 UI IPC zod enum 推进; agent 只 report (创 open) + append (写子表)
+  **resolved_at 状态机** (§D15): 仅 非resolved→resolved 写 now; resolved→其他 / 其他→其他 不动 resolved_at
+  **append 正交**: append_issue_context 写 issue_appendices 子表, 不改 status / 不触发任何 transition
+  **GC 双轨** (§D13, IssueLifecycleScheduler 6h tick, 阈值=0 关该轨):
+    · resolved 超 resolvedRetentionDays → 直接硬删 (不经 soft-delete)
+    · soft-deleted 超 softDeletedRetentionDays → 硬删
+  硬删逐条 emit issue-changed kind='hardDeleted' issue:null + 删前 snapshot.sourceSessionId
+end note
+
+@enduml
