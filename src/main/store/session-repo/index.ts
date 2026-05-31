@@ -12,8 +12,8 @@
  *     batchSetLifecycle / findActiveExpiring / findDormantExpiring /
  *     findHistoryOlderThan / batchDelete)
  *   - rename.ts (~110 行 跨表事务复杂迁移)
- *   - spawn-chain.ts (~95 行 4 个 MCP spawn 链路 method：
- *     getSpawnDepth / setSpawnLink / listAncestors / listChildren)
+ *   - spawn-chain.ts (~70 行 3 个 MCP spawn 链路 method：
+ *     getSpawnDepth / setSpawnLink / listChildren；listAncestors 已 REVIEW_88 删 dead code)
  *
  *   外部 caller import 路径不变（'@main/store/session-repo' 自动 resolve 到 index.ts）。
  *   sessionRepo 对象保持原 27 method surface（spread 自所有 sub-module）。

@@ -368,6 +368,32 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     expect(apxRow.appended_session_id).toBe('iss-new');
   });
 
+  // **REVIEW_88 MED 回归 test (reviewer-codex)**: renameWithDb toExists=true 分支 spawned_by +
+  // spawn_depth 必须一起无条件按 OLD 覆盖。修前 spawned_by truthy guard（OLD null 跳过保留 NEW）
+  // 但 spawn_depth 无条件覆盖 → OLD root(spawned_by=NULL,depth=0) + NEW child(spawned_by='parent',
+  // depth=1) rename 后变脏 spawn-chain `spawned_by='parent',depth=0`。
+  it('renameWithDb toExists=true: OLD root 覆盖 NEW child 的 spawned_by + spawn_depth 一致（REVIEW_88 MED）', () => {
+    insertSession(db, 'parent');
+    insertSession(db, 'old-root'); // OLD 是 root: spawned_by=NULL, spawn_depth=0
+    insertSession(db, 'new-child'); // NEW 预存为 child: spawned_by='parent', spawn_depth=1
+    db.prepare(`UPDATE sessions SET spawned_by = ?, spawn_depth = 1 WHERE id = ?`).run(
+      'parent',
+      'new-child',
+    );
+
+    // toExists=true 路径（new-child 已存在）：rename old-root → new-child
+    renameWithDb(db, 'old-root', 'new-child');
+
+    const row = db
+      .prepare(`SELECT spawned_by, spawn_depth FROM sessions WHERE id = ?`)
+      .get('new-child') as { spawned_by: string | null; spawn_depth: number };
+    // **关键断言**: 二者一致按 OLD(root) 覆盖 — spawned_by=NULL + spawn_depth=0（非脏 'parent'+0）。
+    // 修前：spawned_by 保留 NEW 旧值 'parent'（truthy guard 跳过 null），spawn_depth 被 OLD 覆盖 0
+    // → 脏 spawn-chain（child 指针 + root depth）。
+    expect(row.spawned_by).toBeNull();
+    expect(row.spawn_depth).toBe(0);
+  });
+
   it('findActiveMembershipsBySession 仅返回 active', () => {
     insertSession(db, 'sA');
     const t1 = repo.create({ name: 't1' });
