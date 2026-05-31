@@ -135,7 +135,15 @@ export async function assertMainRepoCleanForArchive(
 
     // 任一 path 命中 critical 即 conflict（rename 把 plan/INDEX/archived 重命名风险高）
     const hitCritical = paths.some((p) => criticalSet.has(p));
-    const displayPath = paths.length > 1 ? paths.join(' -> ') : paths[0];
+    // **REVIEW_74 INFO 修法(deep-review batch B2 reviewer-codex + lead git 实测)**:`git status
+    // --porcelain=v1 -z` 的 rename/copy 字节顺序是 `new\0old`(filename=new, 第二段=old),但
+    // 人类版 `git status` 显示 `old -> new`(旧名在左箭头指向新名)。旧实现 `paths.join(' -> ')` =
+    // `[new, old].join(' -> ')` = `new -> old`,方向与人类 git 相反,caller 看 conflict/hint 误读
+    // rename 方向。实测铁证:`git mv old.txt new.txt` 后 porcelain 人类版 `R old.txt -> new.txt`,
+    // `-z` 字节 `R  new.txt\0old.txt\0`。修法:display 用 `old -> new`(与人类 git 一致);path
+    // *匹配* 仍走上面 `paths.some` 检查 new/old 两段,不受 display 顺序影响。
+    const displayPath =
+      paths.length > 1 ? `${paths[1]} -> ${paths[0]}` : paths[0];
     if (hitCritical) {
       conflicts.push({ path: displayPath, status });
     } else {
