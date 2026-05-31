@@ -121,9 +121,15 @@ export function createMemberCrudHelpers(
           );
         }
       }
+      // **REVIEW_89 LOW (reviewer-claude)**: rejoin 时 display_name 用 COALESCE 防 clobber。
+      // 修前无条件 `SET display_name = ?`（displayName = input.displayName ?? null，L99）→ rejoin
+      // 不传 displayName 时把曾叫 "reviewer-claude" 的 member 别名覆盖成 NULL（典型 spawn.ts 裸
+      // re-spawn 无 displayName/agentName rejoin 一个曾有名 member）。与 swapLead case 2/4 的
+      // REVIEW_56 防御不对称（那里 newDisplayName===null 时不动 display_name 列）。修法对齐：
+      // 仅当 caller 显式传 displayName（非 null）才覆盖，否则 COALESCE 保留旧别名。
       db.prepare(
         `UPDATE agent_deck_team_members
-         SET role = ?, display_name = ?, joined_at = ?, left_at = NULL
+         SET role = ?, display_name = COALESCE(?, display_name), joined_at = ?, left_at = NULL
          WHERE team_id = ? AND session_id = ?`,
       ).run(role, displayName, Date.now(), teamId, sessionId);
       const updated = db

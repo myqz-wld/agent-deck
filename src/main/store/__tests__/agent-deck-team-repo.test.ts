@@ -58,6 +58,11 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / team CRUD', () => {
     expect(t2.archivedAt).toBeNull();
 
     // 还可再起一个 archived 同名
+    // **REVIEW_89 Follow-up #9 #3 test-fix (双方独立)**: 修前 t2 仍 active 时 create 第 3 个 active
+    // 'review-X' → 撞 partial unique（active name 唯一）抛 TeamInvariantError → test 在 L61 挂（非
+    // 预期抛错，因 L61 未包 expect-throw）。源码 partial unique 正确，测试漏了腾空 active 槽位。
+    // 修法：create t3 前先 archive t2（与 L55 archive t1 同款腾空），让 t3 create 时无 active 同名。
+    repo.archive(t2.id);
     const t3 = repo.create({ name: 'review-X' });
     repo.archive(t3.id);
     expect(repo.get(t3.id)?.archivedAt).not.toBeNull();
@@ -167,6 +172,23 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     expect(repo.listActiveMembers(t.id)).toHaveLength(1);
   });
 
+  // **REVIEW_89 LOW 回归 test (reviewer-claude)**: rejoin 不传 displayName 不应 clobber 旧别名
+  // （COALESCE 防御，与 swapLead REVIEW_56 对称）。
+  it('rejoin 不传 displayName → 保留旧别名（COALESCE 防 clobber）REVIEW_89 LOW', () => {
+    insertSession(db, 'sA');
+    const t = repo.create({ name: 'foo' });
+    repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'lead', displayName: 'reviewer-claude' });
+    repo.leaveTeam(t.id, 'sA');
+    // rejoin 不传 displayName（典型 spawn.ts 裸 re-spawn）
+    repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'teammate' });
+    // 修前：display_name 被无条件覆盖成 NULL；修后：COALESCE 保留 'reviewer-claude'
+    expect(repo.findActiveMembershipIn(t.id, 'sA')?.displayName).toBe('reviewer-claude');
+    // 显式传新 displayName 仍能覆盖
+    repo.leaveTeam(t.id, 'sA');
+    repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'teammate', displayName: 'renamed' });
+    expect(repo.findActiveMembershipIn(t.id, 'sA')?.displayName).toBe('renamed');
+  });
+
   it('lead 数上限 = 10 / 第 11 个 lead addMember throw（reviewer schema 不变量）', () => {
     const t = repo.create({ name: 'big' });
     for (let i = 0; i < 10; i++) {
@@ -205,22 +227,28 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     const t2 = repo.create({ name: 't2' });
     const t3 = repo.create({ name: 't3' });
 
-    // sA + sB 共享 t1 + t2；sB + sC 共享 t2；sA + sC 共享无
+    // **REVIEW_89 Follow-up #9 #1 test-fix (reviewer-claude restructure)**: 修前 setup 把 sA(L216)
+    // + sC(L218) 都加进 t2 → sA∩sC = {t2} 非空，但 L223 断言 []（与 L213 注释「sA + sC 共享无」
+    // 矛盾）→ 源码返 [t2.id] 正确，测试 assertion 错。**简单改 L223 为 [t2.id] 或挪 sC 都会破坏
+    // 其他断言**（L221/222/223 三场景在原 setup 下数学互斥）。修法 restructure：
+    //   t1 = {sA, sB} / t2 = {sA, sB} / t3 = {sB, sC}
+    // → sA∩sB = {t1,t2}（L221）/ sB∩sC = {t3}（L222）/ sA∩sC = {}（L223 真空覆盖）/
+    //   leaveTeam(t1,sB) 后 sA∩sB = {t2}（L230）。保全「双 session 无共享 team 返空」独立覆盖。
     repo.addMember({ teamId: t1.id, sessionId: 'sA', role: 'lead' });
     repo.addMember({ teamId: t1.id, sessionId: 'sB', role: 'teammate' });
     repo.addMember({ teamId: t2.id, sessionId: 'sA', role: 'lead' });
     repo.addMember({ teamId: t2.id, sessionId: 'sB', role: 'teammate' });
-    repo.addMember({ teamId: t2.id, sessionId: 'sC', role: 'teammate' });
-    repo.addMember({ teamId: t3.id, sessionId: 'sA', role: 'lead' });
+    repo.addMember({ teamId: t3.id, sessionId: 'sB', role: 'lead' });
+    repo.addMember({ teamId: t3.id, sessionId: 'sC', role: 'teammate' });
 
     expect(repo.findSharedActiveTeams('sA', 'sB').sort()).toEqual([t1.id, t2.id].sort());
-    expect(repo.findSharedActiveTeams('sB', 'sC')).toEqual([t2.id]);
-    expect(repo.findSharedActiveTeams('sA', 'sC')).toEqual([]);
+    expect(repo.findSharedActiveTeams('sB', 'sC')).toEqual([t3.id]);
+    expect(repo.findSharedActiveTeams('sA', 'sC')).toEqual([]); // sA∈{t1,t2} sC∈{t3} 无共享
 
     // 自循环：同一 session 返回空
     expect(repo.findSharedActiveTeams('sA', 'sA')).toEqual([]);
 
-    // leaveTeam 后该 team 不再共享
+    // leaveTeam 后该 team 不再共享（sB 离开 t1 后 sA∩sB 仅剩 t2）
     repo.leaveTeam(t1.id, 'sB');
     expect(repo.findSharedActiveTeams('sA', 'sB')).toEqual([t2.id]);
   });

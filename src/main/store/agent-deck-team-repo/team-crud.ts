@@ -21,11 +21,12 @@ import type { MemberQueryHelpers } from './member-query';
 
 export interface TeamCrudHelpers {
   /**
-   * 建 team。name 在 active set 内 unique（部分索引）：重复 active name 抛 SQLITE_CONSTRAINT；
+   * 建 team。name 在 active set 内 unique（部分索引）：重复 active name 抛 TeamInvariantError；
    * 已 archived 的同名 team 不冲突。
    *
-   * 用 INSERT ... ON CONFLICT DO NOTHING + 同步 SELECT 序列化（避免长事务与 watcher poll
-   * 抢 WAL 写锁），保证 spawn_session ensure-team-by-name 并发安全（ADR §5.1）。
+   * **REVIEW_89 INFO (reviewer-claude)**: create() 是 plain INSERT + catch UNIQUE → **throw**
+   * TeamInvariantError（不 DO NOTHING）。ensure-by-name 并发安全（INSERT ON CONFLICT 风格 +
+   * re-SELECT 竞争兜底）语义在 ensureByName，spawn_session 走的也是 ensureByName 不是 create。
    */
   create(input: CreateTeamInput): AgentDeckTeam;
   /**
@@ -143,8 +144,16 @@ export function createTeamCrudHelpers(
     const where = activeOnly ? 'WHERE archived_at IS NULL' : '';
     const rows = db
       .prepare(
+        // **REVIEW_89 LOW (reviewer-codex + reviewer-claude 双方独立)**: 加 rowid DESC tie-breaker。
+        // create 用 Date.now() 写 created_at，背靠背创建多 team 落同一毫秒 → 仅 `ORDER BY created_at
+        // DESC` 无 total order，分页 / UI / test 跨查询非确定（Follow-up #9 #2 list [c,b,a] 失败根因）。
+        // **必须 rowid 不能 id**（reviewer-claude 关键陷阱）：team.id 是 crypto.randomUUID() 随机值，
+        // `id DESC` tie 内仍乱序；rowid 随插入单调（agent_deck_teams 是普通 rowid 表非 WITHOUT ROWID）
+        // → `rowid DESC` 保「同毫秒后插入在前」语义（与 created_at DESC 一致）+ 确定序。同 REVIEW_84
+        // event-formatter same-ms code-tiebreaker 先例。idx_agent_deck_teams_created_at 只覆盖第一列，
+        // tie 内 rowid 走二次 sort（team 数少 perf 可忽略）。
         `SELECT * FROM agent_deck_teams ${where}
-         ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+         ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
       )
       .all(limit, offset) as TeamRow[];
     return rows.map(teamRowToRecord);
@@ -158,16 +167,13 @@ export function createTeamCrudHelpers(
     // REVIEW_32 MED-7：持久化 archive_reason 到 v016 列。caller 不传 → 'user-action'（默认即用户主动）。
     // 配合 unarchive 联动只复活 'last-lead-archived'，避免覆盖用户主动归档语义。
     const reason: AgentDeckTeamArchiveReason = opts?.reason ?? 'user-action';
-    const result = db
-      .prepare(
-        `UPDATE agent_deck_teams SET archived_at = ?, archive_reason = ?
-         WHERE id = ? AND archived_at IS NULL`,
-      )
-      .run(now, reason, teamId);
-    if (result.changes === 0) {
-      // 已 archived 或不存在
-      return get(teamId);
-    }
+    // **REVIEW_89 INFO (reviewer-claude)**: WHERE archived_at IS NULL 保证「已 archived 时不覆盖
+    // 原 reason」语义（result.changes=0 时 UPDATE 不生效）；旧版 changes===0/else 两分支都
+    // `return get(teamId)` 冗余，直接单 return（行为不变）。
+    db.prepare(
+      `UPDATE agent_deck_teams SET archived_at = ?, archive_reason = ?
+       WHERE id = ? AND archived_at IS NULL`,
+    ).run(now, reason, teamId);
     return get(teamId);
   }
 
