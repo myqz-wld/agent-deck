@@ -47,10 +47,17 @@ export const taskCreateHandler = withMcpGuard(
       }
       // v024 plan §D2:caller 显式传 teamId 时 handler 校验 caller 在该 team active member。
       // 不传 / undefined / null → 落 null personal task,与 caller 是否在 team 无关（D2 用户决策）。
-      if (args.teamId) {
-        if (!isCallerInTeam(callerSid, args.teamId)) {
+      // **REVIEW_87 LOW (reviewer-claude)**: 用显式 `!= null` 判定替代 truthy `if (args.teamId)`，
+      // 并把空串归一到 null。修前 truthy check 让 `teamId=''` 跳过 isCallerInTeam 校验后落
+      // `'' ?? null` = `''`（?? 仅 null/undefined 触发）→ 建出 teamId='' 畸形 task（既非 personal
+      // 也非合法 team，isCallerInTeam('') 恒 false → 永久无人可读写）。schema teamId .min(1) 当前
+      // 挡空串故不可达，但 handler 自身防御不应隐式耦合 schema（纵深防御 + 与 task-update.ts:57
+      // 显式 null 判定一致）。
+      const normalizedTeamId = args.teamId == null || args.teamId === '' ? null : args.teamId;
+      if (normalizedTeamId !== null) {
+        if (!isCallerInTeam(callerSid, normalizedTeamId)) {
           return err(
-            `caller "${callerSid}" is not an active member of teamId "${args.teamId}" — task_create rejected (v024 plan §D3)`,
+            `caller "${callerSid}" is not an active member of teamId "${normalizedTeamId}" — task_create rejected (v024 plan §D3)`,
             'team-bound task 要求 caller 在该 team 是 active member（agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL 双条件）。Use task_create without teamId for personal task, or join the team first via the application UI.',
           );
         }
@@ -58,7 +65,7 @@ export const taskCreateHandler = withMcpGuard(
       const input: TaskCreateInput = {
         ...argsToInputWithoutOwner(args),
         ownerSessionId: callerSid,
-        teamId: args.teamId ?? null, // v024 D1+D2:不传 = personal task
+        teamId: normalizedTeamId, // v024 D1+D2:不传 / 空串 = personal task（REVIEW_87 归一空串到 null）
         subject: args.subject,
       };
       const created = taskRepo.create(input);
@@ -76,12 +83,14 @@ export const taskCreateHandler = withMcpGuard(
       // 且 v024 plan 把 personal task 升为 first-class default 后这条 event 在 ActivityFeed /
       // TeamDetail EventsSection 里全是噪声(尤其 task_create 比 task_update 触发频繁,泛滥更严重)。
       // eventBus.emit('task-changed') 不受影响仍发,UI TasksSection / task_list 实时性不丢。
-      if (ctx.caller.transport === 'in-process' && args.teamId) {
-        // v024 plan Round 1 MED-2 + Round 3 MED-3 修法:teamName 取自 args.teamId lookup
+      if (ctx.caller.transport === 'in-process' && created.teamId) {
+        // v024 plan Round 1 MED-2 + Round 3 MED-3 修法:teamName 取自 created.teamId lookup
         //（不走 getCallerFirstTeamName 避免多 team caller 显式 teamId=B 但 first active team=A
-        // 漂移到 A）。守卫保证 args.teamId 必非空,直接 lookup。
+        // 漂移到 A）。守卫保证 created.teamId 必非空,直接 lookup。
+        // REVIEW_87: 守卫从 args.teamId 改 created.teamId（= normalizedTeamId，空串已归一 null），
+        // 与 task-update.ts 用 updated.teamId 对称（personal task 含归一后的空串都 skip ingest）。
         // 实际接口 agentDeckTeamRepo.get(teamId)?.name（Round 3 MED-3:`findById` 不存在）。
-        const teamName = agentDeckTeamRepo.get(args.teamId)?.name ?? null;
+        const teamName = agentDeckTeamRepo.get(created.teamId)?.name ?? null;
         sessionManager.ingest({
           sessionId: callerSid,
           agentId: AGENT_ID,

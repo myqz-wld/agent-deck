@@ -44,6 +44,13 @@ export const taskDeleteHandler = withMcpGuard(
       if (args.force) {
         // cascade=true 时 root.blocks 下游 task 可能被删 — pre-walk 收集每个潜在 child 的
         // owner（emit task-changed deleted ownerSessionId 用,§不变量 11 + R1 jsdoc 详）。
+        // **REVIEW_87 LOW (reviewer-codex + reviewer-claude)**: pre-walk **必须复用 repo.delete
+        // 同款 predicate** —— 越权 child（caller 无写权限）skip 且**不展开其下游**。修前 handler
+        // pre-walk 不跑 predicate，对越权 child 仍 `queue.push(...child.blocks)` 读取并展开跨 team /
+        // 他人 personal 子图（偏离「越权 child skip 不展开」防御边界 + ownerMap 收集了实际不会被删的
+        // 节点）。与 task-repo-delete.ts:101-108 BFS predicate continue 语义对齐：predicate fail →
+        // continue 不入队下游。这样 ownerMap 只含真正会被删的节点，emit deleted 事件 ownerSessionId
+        // 精确（不再依赖 L下方 `?? target.ownerSessionId` 退化兜底）。
         const queue = [...target.blocks];
         const visited = new Set<string>([args.taskId]);
         while (queue.length > 0) {
@@ -52,6 +59,8 @@ export const taskDeleteHandler = withMcpGuard(
           visited.add(childId);
           const child = taskRepo.get(childId);
           if (!child) continue;
+          // 越权 child：skip + 不展开下游（与 repo.delete predicate 同款边界）。
+          if (!isCallerAuthorizedToWrite(callerSid, child)) continue;
           ownerMap.set(childId, child.ownerSessionId);
           queue.push(...child.blocks);
         }
