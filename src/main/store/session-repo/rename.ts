@@ -86,6 +86,16 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 不复制 fromRow.cli_session_id (避免 tempKey 阶段 NULL / fromRow stale value 带过来)。
       // toExists=true 分支 cli_session_id 处理: see L213+ — **R5 MED-R5-1 + R7 HIGH-R7-1 修订**:
       // 保留 NEW 行已有 cli_session_id 不覆盖 (语义 != cwd_release_marker 无条件覆盖,详注释)。
+      //
+      // **REVIEW_88 INFO (reviewer-claude 提 MED → 反驳轮 reviewer-codex 降 LOW/INFO)**: cli_session_id
+      // 列有 v021 UNIQUE 索引 (idx_sessions_cli_session_id,允许多 NULL 非空必唯一)。本 INSERT
+      // hardcode cli_session_id=toId,理论上若存量某 row.cli_session_id===toId 会撞 SQLITE_CONSTRAINT
+      // 回滚整个 rename 事务。**裁决不修**:① 正常流程不可达 — toId 是 SDK fresh spawn/fork 刚返回
+      // 的 realId(CLI 生成 UUID),要撞需 CLI/SDK 给一个已被别 row 持有为 cli_session_id 的 id(UUID
+      // 碰撞天文级不可能);反向 rename updateCliSessionId 写的也是 SDK realId 同理。② 仅外部 DB 污染 /
+      // import 脏数据可构造。③ 当前 INSERT 撞 UNIQUE → 事务回滚已是安全行为(无半残/无脏数据)。
+      // 「命中冲突清那行 cli_session_id」修法**有害**(破坏另一 session 的 resume/jsonl 反查);
+      // 「INSERT 写 NULL」需补 codex 新建路径 parity 回填否则扩大 NULL 窗口 — 都得不偿失。保留现状。
       db.prepare(
         `INSERT INTO sessions
          (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id)
@@ -153,7 +163,7 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
     // plan linked-swimming-platypus (c) sessions.spawned_by 自引用迁移：v009 ON DELETE
     // SET NULL 兜底，DELETE OLD 自动断链不会撞 FK。但 spawn chain 完整性更友好：UPDATE
     // 让 OLD 派生的子 session 仍指向 NEW（spawned_by 用于 §6.4 per-parent fan-out 反查
-    // + listAncestors / listChildren，应用层不强依赖非 null 但保留更直观）。
+    // + listChildren，应用层不强依赖非 null 但保留更直观）。
     db.prepare(
       `UPDATE sessions SET spawned_by = ? WHERE spawned_by = ?`,
     ).run(toId, fromId);
@@ -218,19 +228,20 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         toId,
       );
     }
-    if (toExists && fromRow.spawned_by) {
-      db.prepare(`UPDATE sessions SET spawned_by = ? WHERE id = ?`).run(fromRow.spawned_by, toId);
-    }
+    // **REVIEW_88 MED (reviewer-codex)**: spawned_by + spawn_depth 必须**一起无条件**按 OLD 覆盖。
+    // 修前 spawned_by 用 truthy guard（OLD null → 跳过保留 NEW 旧值）但 spawn_depth 无条件覆盖
+    // （REVIEW_56 修法）→ 二者规则不一致：OLD 是 root（spawned_by=NULL, depth=0）+ NEW 预存为 child
+    // （spawned_by='parent', depth=1）时，rename 后变 `spawned_by='parent', depth=0` 脏 spawn-chain
+    // （listChildren(parent) 算它是 child 但带 root depth → fan-out/depth 展示/清理读到不一致身份）。
+    // 修法：spawned_by 与 spawn_depth 同款无条件覆盖（都是「会话身份相关字段」，rename = OLD 整迁
+    // 到 NEW，spawn-chain 身份必须以 OLD 为准；OLD null 就该清掉 NEW 的旧 parent 指针）。
+    // 与 toExists=false INSERT 分支同款（L111-112 直接复制 OLD spawned_by/spawn_depth 不 guard）。
     if (toExists) {
-      // REVIEW_56 Batch C R1 claude M-2 修法:spawn_depth 是 INTEGER NOT NULL,0 是合法值
-      // (root session;与 spawn_link.parent_depth=-1 协同标记无 parent)。旧实现 truthy check
-      // `> 0` 把 OLD 是 root session 的事实丢失,与同段其他 string|null 字段语义不一致 — 那些
-      // truthy 跳过对(null 跳过保留 NEW user preference 默认值);spawn_depth 是 INTEGER NOT
-      // NULL 会话身份相关字段,应与 cwd_release_marker L220 / toExists=false INSERT 分支同款
-      // 无条件 OLD 覆盖。当前 NEW createSession 默认 spawn_depth=0 巧合下无 user-visible
-      // 问题,但 latent risk:若未来 createSession 改默认或 schema 调 spawn_depth 默认,会被
-      // truthy 跳过吞掉 OLD root session 身份。修法对齐"会话身份相关字段无条件覆盖"语义。
-      db.prepare(`UPDATE sessions SET spawn_depth = ? WHERE id = ?`).run(fromRow.spawn_depth, toId);
+      db.prepare(`UPDATE sessions SET spawned_by = ?, spawn_depth = ? WHERE id = ?`).run(
+        fromRow.spawned_by,
+        fromRow.spawn_depth,
+        toId,
+      );
     }
     if (toExists && fromRow.generic_pty_config) {
       // R4·F2：老 PTY-based session 的 spawn config 是会话身份相关字段，

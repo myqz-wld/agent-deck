@@ -134,8 +134,14 @@ export function listHistory(
     offset?: number;
   } = {},
 ): SessionRecord[] {
-  const limit = opts.limit ?? 100;
-  const offset = opts.offset ?? 0;
+  // **REVIEW_88 LOW (reviewer-codex)**: clamp limit/offset。preload facade 暴露 limit?/offset?，
+  // IPC handler 对 raw filters 类型断言后直传无 zod/clamp（ipc/sessions.ts SessionListHistory），
+  // caller 传 limit=-1 时 SQLite `LIMIT -1` 返回全部匹配历史行绕过分页一次性加载全量 history 卡主线程。
+  // MCP list_sessions 已 clamp 1..200，此缺口只在 IPC history 路径。clamp 到 [1, 500] + offset ≥ 0。
+  const rawLimit = opts.limit ?? 100;
+  const rawOffset = opts.offset ?? 0;
+  const limit = Math.min(Math.max(Math.trunc(rawLimit), 1), 500);
+  const offset = Math.max(Math.trunc(rawOffset), 0);
   const conditions: string[] = [];
   const params: Record<string, unknown> = { limit, offset };
 
@@ -149,8 +155,16 @@ export function listHistory(
     params.agent_id = opts.agentId;
   }
   if (opts.cwd) {
-    conditions.push(`cwd LIKE @cwd`);
-    params.cwd = `%${opts.cwd}%`;
+    // **REVIEW_88 LOW (reviewer-claude)**: cwd LIKE 把用户输入直接包进 pattern，`%` `_` `\` 未 escape
+    // → 用户在历史面板按 cwd 过滤输入含 `_`（路径常见，如 `my_project`）时 `_` 被当单字符通配符
+    // 匹配 `myXproject` 等非预期路径。非注入（命名参数挡），是搜索语义错误。与 task-repo-list.ts:44-50
+    // subjectKeyword 同款修法：escape `%` `_` `\` + ESCAPE '\'。
+    conditions.push(`cwd LIKE @cwd ESCAPE '\\'`);
+    const escaped = opts.cwd
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+    params.cwd = `%${escaped}%`;
   }
   if (opts.fromTs) {
     conditions.push(`last_event_at >= @from_ts`);

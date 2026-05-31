@@ -2,7 +2,7 @@
  * 测试用 sessionRepo mock factory（R37 P2-F Step 3.1）。
  *
  * 抽自 `src/main/session/__tests__/manager-test-setup.ts` 的 `makeSessionRepoMock`，
- * 加 `setSpawnLink / setTitle / getSpawnDepth / listAncestors / listChildren`
+ * 加 `setSpawnLink / setTitle / getSpawnDepth / listChildren`
  * 等 spawn-chain 扩展 method 的 stateful default，让 mcp-tools / spawn-guards
  * 等 test 也能复用同一份 factory（之前各文件 inline 写自己的 mock，13 个 test 散落）。
  *
@@ -121,19 +121,6 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     setSpawnLink: (id: string, parentId: string | null, depth: number) => {
       const r = sessions.get(id);
       if (r) sessions.set(id, { ...r, spawnedBy: parentId, spawnDepth: depth });
-    },
-    listAncestors: (id: string) => {
-      const out: SessionRecord[] = [];
-      let cursor = sessions.get(id);
-      const visited = new Set<string>([id]);
-      while (cursor && cursor.spawnedBy && !visited.has(cursor.spawnedBy)) {
-        visited.add(cursor.spawnedBy);
-        const parent = sessions.get(cursor.spawnedBy);
-        if (!parent) break;
-        out.push(parent);
-        cursor = parent;
-      }
-      return out;
     },
     listChildren: (parentId: string) =>
       [...sessions.values()].filter(
