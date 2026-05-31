@@ -38,6 +38,18 @@ interface IssuesState {
   filters: IssueFilters;
 
   setIssues: (records: IssueRecord[]) => void;
+  /**
+   * list fetch resolve 专用：把 list snapshot merge 进 store（逐 id 保留 updatedAt 更大的版本），
+   * **保留** store 内 list snapshot 未含的 id（deep-review H1 R2 MED：慢 list fetch 在途期间
+   * onIssueChanged 新建 / 移入当前 filter 的 issue 不在旧 snapshot 内，旧实现整表替换会把它从 store
+   * 剔除导致列表瞬时丢行）。
+   *
+   * 为何 keep-all 安全：① 可见列表由 `selectFilteredIssues` 渲染时按 filters 重新过滤（store Map 是
+   * 超集 cache 非 filter 镜像），out-of-scope 的滞留行不会显示；② hardDelete 走 removeIssue 显式删，
+   * 不依赖 list membership；③ eventBus 进程内不丢事件 + store 重启清空，滞留 stale 行近乎不可达，
+   * 且下次 filter 变 / refetch 自愈。逐 id 仍保 updatedAt 更大版本防慢 fetch 退回 event 已 sync 的最新。
+   */
+  mergeIssuesFromList: (records: IssueRecord[]) => void;
   upsertIssue: (record: IssueRecord) => void;
   /** hardDelete 路径：从 Map 删 + 若 selected 跟着 deselect */
   removeIssue: (id: string) => void;
@@ -60,6 +72,27 @@ export const useIssuesStore = create<IssuesState>((set) => ({
     const next = new Map<string, IssueRecord>();
     for (const r of records) next.set(r.id, r);
     set({ issues: next });
+  },
+
+  // list resolve merge：从当前 store 副本出发（keep-all 保留 snapshot 未含的 id，防瞬时丢行），
+  // 逐 id 用 list 版本覆盖但保留 updatedAt 更大的本地版本。appendices 同 upsert 语义：list 行不带
+  // appendices（避免 N+1），故 list 版本胜出时若旧版本已有 appendices 子列表则保住（避免详情已拉到
+  // 的补充记录被裸 list 记录抹掉）。
+  mergeIssuesFromList: (records) => {
+    set((s) => {
+      const next = new Map(s.issues);
+      for (const r of records) {
+        const existing = s.issues.get(r.id);
+        if (existing && existing.updatedAt > r.updatedAt) continue; // 本地更新 → 保留，不退回
+        next.set(
+          r.id,
+          r.appendices === undefined && existing?.appendices !== undefined
+            ? { ...r, appendices: existing.appendices }
+            : r,
+        );
+      }
+      return { issues: next };
+    });
   },
 
   upsertIssue: (record) => {
@@ -96,7 +129,9 @@ export const useIssuesStore = create<IssuesState>((set) => ({
  * 含跨 filter scope 的 issue（如 filter showDeleted=false 但收到 kind=softDeleted event 后
  * issue 仍在 store 里），所以渲染前再过滤一次。
  */
-export function selectFilteredIssues(state: IssuesState): IssueRecord[] {
+export function selectFilteredIssues(
+  state: Pick<IssuesState, 'issues' | 'filters'>,
+): IssueRecord[] {
   const { issues, filters } = state;
   const arr = Array.from(issues.values());
   return arr

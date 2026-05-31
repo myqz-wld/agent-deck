@@ -7,7 +7,7 @@
  * - hardDeleted event → store.removeIssue + 若 selected 跟着 deselect
  */
 
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { IssueStatus, IssueRecord } from '@shared/types';
 import {
   useIssuesStore,
@@ -27,7 +27,7 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
   const issues = useIssuesStore((s) => s.issues);
   const filters = useIssuesStore((s) => s.filters);
   const selectedIssueId = useIssuesStore((s) => s.selectedIssueId);
-  const setIssues = useIssuesStore((s) => s.setIssues);
+  const mergeIssuesFromList = useIssuesStore((s) => s.mergeIssuesFromList);
   const upsertIssue = useIssuesStore((s) => s.upsertIssue);
   const removeIssue = useIssuesStore((s) => s.removeIssue);
   const setFilters = useIssuesStore((s) => s.setFilters);
@@ -35,17 +35,14 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
 
   const [keywordInput, setKeywordInput] = useState(filters.titleKeyword ?? '');
   const [loading, setLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
 
-  const filteredList = selectFilteredIssues({
-    issues,
-    filters,
-    selectedIssueId,
-    setIssues,
-    upsertIssue,
-    removeIssue,
-    setFilters,
-    selectIssue,
-  } as Parameters<typeof selectFilteredIssues>[0]);
+  // selector 只用 issues / filters 两字段（store.ts），useMemo 缓存避免每 render 对最多 500 条
+  // 重做 filter+sort（deep-review H1 INFO）。
+  const filteredList = useMemo(
+    () => selectFilteredIssues({ issues, filters }),
+    [issues, filters],
+  );
 
   // keyword input → filters debounce 300ms。
   // 用 functional updater 读最新 filters（不是闭包捕获的旧值）：用户输入搜索后 300ms 内切
@@ -63,6 +60,7 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setListError(null);
     void window.api
       .issuesList({
         statuses: filters.statuses,
@@ -73,7 +71,14 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
       })
       .then((list) => {
         if (cancelled) return;
-        setIssues(list);
+        // merge（非整替）：保留期间 onIssueChanged event 已 upsert 的更新记录（deep-review H1 MED）。
+        mergeIssuesFromList(list);
+      })
+      .catch((e: unknown) => {
+        // deep-review H1 MED：无 catch 时 reject 冒泡到 main.tsx unhandledrejection → 全屏 fatal banner。
+        // 接住 → 列表区内联报错，不遮挡整窗。
+        if (cancelled) return;
+        setListError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
         if (cancelled) return;
@@ -87,7 +92,7 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
     filters.kinds,
     filters.titleKeyword,
     filters.showDeleted,
-    setIssues,
+    mergeIssuesFromList,
   ]);
 
   // 订阅 issue-changed event 推 store (与 task-changed "component 自订阅" 同模式)
@@ -113,7 +118,11 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
           onFiltersChange={setFilters}
         />
         <div className="flex-1 overflow-y-auto scrollbar-deck">
-          {loading && filteredList.length === 0 ? (
+          {listError ? (
+            <div className="px-3 py-8 text-center text-xs text-status-waiting">
+              加载失败：{listError}
+            </div>
+          ) : loading && filteredList.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-deck-muted">加载中...</div>
           ) : filteredList.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-deck-muted">
