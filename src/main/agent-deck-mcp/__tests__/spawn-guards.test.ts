@@ -37,7 +37,7 @@ vi.mock('@main/store/settings-store', () => ({
 }));
 
 import { applySpawnGuards } from '../spawn-guards';
-import { spawnRateLimiter, inFlightChildren } from '../rate-limiter';
+import { spawnRateLimiter, inFlightChildren, RateLimiter } from '../rate-limiter';
 
 function seedSession(sid: string, opts: Partial<SessionRecord> = {}) {
   sessionStore.set(sid, {
@@ -238,5 +238,31 @@ describe('applySpawnGuards — fan-out', () => {
       expect('ok' in r).toBe(true);
       if ('ok' in r) r.fanOutSlot.release();
     }
+  });
+});
+
+// REVIEW_85 LOW-2 (reviewer-codex): 滑动窗口 exact-boundary off-by-one。
+// prune 用 `<= threshold`(修前 `<`)让 now === oldest + windowMs 时 oldest 被裁,与 retryAfterMs
+// 边界返 0 语义一致 — 修前「retry after 0ms 但立即 retry 仍失败」。
+describe('RateLimiter — exact-boundary off-by-one (LOW-2)', () => {
+  it('now === oldest + windowMs 时 retryAfterMs=0 且 tryConsume 立即成功（不再差 1ms）', () => {
+    const rl = new RateLimiter(1, 60_000);
+    // t=0 消耗满 quota（max=1）
+    expect(rl.tryConsume(0)).toBe(true);
+    // t=59999（窗口内）仍被拒，retryAfterMs=1
+    expect(rl.tryConsume(59_999)).toBe(false);
+    expect(rl.retryAfterMs(59_999)).toBe(1);
+    // t=60000（exact boundary）：retryAfterMs=0 且 tryConsume 必须立即成功
+    expect(rl.retryAfterMs(60_000)).toBe(0);
+    expect(rl.tryConsume(60_000)).toBe(true);
+  });
+
+  it('修前回归断言：旧 `<` 实现会在 boundary 多拒 1ms（本测试守门 prune 用 <=）', () => {
+    const rl = new RateLimiter(2, 1000);
+    expect(rl.tryConsume(0)).toBe(true);
+    expect(rl.tryConsume(500)).toBe(true);
+    // 满 quota=2。t=1000 时 oldest(0)恰好出窗 → 必须能再 consume
+    expect(rl.retryAfterMs(1000)).toBe(0);
+    expect(rl.tryConsume(1000)).toBe(true);
   });
 });

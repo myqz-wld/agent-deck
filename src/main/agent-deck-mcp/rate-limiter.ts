@@ -55,9 +55,14 @@ export class RateLimiter {
   }
 
   private prune(now: number): void {
+    // **REVIEW_85 LOW-2 (reviewer-codex)**: 用 `<= threshold` 而非 `< threshold`,让 exact-boundary
+    // 的 oldest(now === oldest + windowMs)也被裁掉。修前 retryAfterMs() 在边界返 0(`windowMs -
+    // (now - oldest) === 0`)但 prune 用 `<` 不删 oldest → 下次 tryConsume 仍因 length >= max 拒
+    // 1ms,产生「retry after 0ms 但立即 retry 仍失败」边界。windowMs 后该 timestamp 已不应计入窗口
+    // (滑动窗口是半开区间 (now-windowMs, now]),`<=` 与 retryAfterMs 边界语义一致。
     const threshold = now - this.windowMs;
     let i = 0;
-    while (i < this.timestamps.length && this.timestamps[i] < threshold) i++;
+    while (i < this.timestamps.length && this.timestamps[i] <= threshold) i++;
     if (i > 0) this.timestamps = this.timestamps.slice(i);
   }
 }

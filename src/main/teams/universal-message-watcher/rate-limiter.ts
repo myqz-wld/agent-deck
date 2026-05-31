@@ -25,7 +25,11 @@ export class PerKeyRateLimiter {
     const arr = this.buckets.get(key) ?? [];
     const threshold = now - this.windowMs;
     let i = 0;
-    while (i < arr.length && arr[i] < threshold) i++;
+    // **REVIEW_85 LOW-2 (reviewer-codex)**: `<= threshold` 与 spawn rate-limiter.ts prune 同款修法
+    // 保持两个 limiter 边界语义一致(半开区间 (now-windowMs, now])。修前 `<` 在 now === oldest +
+    // windowMs 时不裁 oldest → retryAfterMs 返 0 但 tryConsume 仍拒 1ms,「retry after 0ms 立即
+    // retry 仍失败」边界。
+    while (i < arr.length && arr[i] <= threshold) i++;
     const fresh = i > 0 ? arr.slice(i) : arr;
     if (fresh.length >= this.maxPerWindow) {
       // 写回（如果裁剪过）
