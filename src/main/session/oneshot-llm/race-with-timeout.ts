@@ -4,7 +4,8 @@
  * **抽出动机**（reviewer 双对抗 R1 H4 finding）：
  * 4 个 LLM oneshot runner 都用相同的 race 模板：
  *   - 提前 catch work promise 防 unhandled rejection（race 输 → work 仍后台跑可能 reject）
- *   - setTimeout 触发 → 可选 onTimeout（claude 调 q.interrupt，codex 没等价物）→ reject
+ *   - setTimeout 触发 → 可选 onTimeout（claude 调 q.interrupt，codex 调 controller.abort 传
+ *     thread.run signal —— 两 adapter 都取消子进程，REVIEW_82）→ reject
  *   - try/finally 必清 timeoutHandle 防 leak（CHANGELOG_13 教训）
  *   - timeoutMs <= 0 直接 return work（与 settingsStore.summaryTimeoutMs=0 「不超时」语义对齐）
  *
@@ -27,7 +28,8 @@ export async function raceWithTimeout<T>(opts: {
   errorMessage: string;
   /**
    * 可选：timer 触发时调（reject 之前）。typical use：claude SDK `q.interrupt()`
-   * 让子进程优雅退；codex SDK 没等价物，省略此参数即可。
+   * 让子进程优雅退；codex SDK `controller.abort()`（thread.run signal）取消 exec 子进程
+   * （REVIEW_82 — 两 adapter 都取消，防周期 timeout 累积后台进程）。
    */
   onTimeout?: () => void;
 }): Promise<T> {

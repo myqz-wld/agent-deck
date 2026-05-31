@@ -37,20 +37,29 @@ interface CapturedThreadOptions {
 }
 
 let captured: CapturedThreadOptions[] = [];
+/** REVIEW_82: 捕获 thread.run 的第二参 turnOptions（{signal}）做 abort 断言 */
+let capturedRunSignals: (AbortSignal | undefined)[] = [];
 
 beforeEach(() => {
   captured = [];
+  capturedRunSignals = [];
   vi.mocked(codexPool.getCodexInstance).mockResolvedValue({
     startThread: (opts: CapturedThreadOptions) => {
       captured.push(opts);
       return {
-        run: async () => ({ finalResponse: 'mock-response' }),
+        run: async (_input: string, turnOptions?: { signal?: AbortSignal }) => {
+          capturedRunSignals.push(turnOptions?.signal);
+          return { finalResponse: 'mock-response' };
+        },
       };
     },
     resumeThread: (_id: string, opts: CapturedThreadOptions) => {
       captured.push(opts);
       return {
-        run: async () => ({ finalResponse: 'mock-response' }),
+        run: async (_input: string, turnOptions?: { signal?: AbortSignal }) => {
+          capturedRunSignals.push(turnOptions?.signal);
+          return { finalResponse: 'mock-response' };
+        },
       };
     },
   } as unknown as Awaited<ReturnType<typeof codexPool.getCodexInstance>>);
@@ -149,5 +158,51 @@ describe('runCodexOneshot model spread to ThreadOptions', () => {
       modelReasoningEffort: 'medium',
       model: 'gpt-5.5',
     });
+  });
+});
+
+describe('runCodexOneshot timeout abort (REVIEW_82 MED — codex 子进程取消 parity)', () => {
+  it('成功路径：thread.run 收到 AbortSignal（未 abort）', async () => {
+    const { runCodexOneshot } = await import('@main/session/oneshot-llm');
+    await runCodexOneshot({
+      cwd: '/tmp',
+      prompt: 'test',
+      modelReasoningEffort: 'low',
+      timeoutMs: 5000,
+      timeoutErrorMessage: 'timeout',
+    });
+    expect(capturedRunSignals).toHaveLength(1);
+    // 关键：thread.run 必须收到 signal（修前不传 → undefined）
+    expect(capturedRunSignals[0]).toBeInstanceOf(AbortSignal);
+    expect(capturedRunSignals[0]?.aborted).toBe(false); // 成功路径未 abort
+  });
+
+  it('timeout 路径：timer 先赢 → onTimeout abort signal → 抛 timeoutErrorMessage', async () => {
+    // fake thread.run 永不 resolve，强制 timer 赢；捕获 signal 验证 abort
+    let capturedSignal: AbortSignal | undefined;
+    vi.mocked(codexPool.getCodexInstance).mockResolvedValue({
+      startThread: () => ({
+        run: (_input: string, turnOptions?: { signal?: AbortSignal }) => {
+          capturedSignal = turnOptions?.signal;
+          return new Promise(() => {}); // 永不 resolve → 强制 timeout
+        },
+      }),
+    } as unknown as Awaited<ReturnType<typeof codexPool.getCodexInstance>>);
+
+    const { runCodexOneshot } = await import('@main/session/oneshot-llm');
+    await expect(
+      runCodexOneshot({
+        cwd: '/tmp',
+        prompt: 'test',
+        modelReasoningEffort: 'low',
+        timeoutMs: 20, // 极短 timeout 强制 timer 赢
+        timeoutErrorMessage: '__codex_oneshot_timeout__',
+      }),
+    ).rejects.toThrow('__codex_oneshot_timeout__');
+
+    // 关键：timeout 触发 onTimeout → controller.abort() → signal.aborted=true
+    // （修前不传 signal + 无 onTimeout → codex 子进程后台跑泄漏）
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect(capturedSignal?.aborted).toBe(true);
   });
 });
