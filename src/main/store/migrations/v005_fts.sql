@@ -9,9 +9,16 @@
 -- 索引，substring 友好，对中英文混合也通用（每个字符按 UTF-8 切 trigram）。代价是索引 3-5x
 -- 大于原文，已可接受。
 --
--- `case_sensitive 1`（review N5 #5 修订）：trigram 默认 case_sensitive=0，会改变历史 LIKE
--- 默认 BINARY collation 的「大小写敏感」行为。这里显式置 1 维持原行为，避免用户突然发现
--- 搜 Foo 也命中 foo。如果未来想反向（默认大小写不敏感）需走「行为变更」走 changelog 公告。
+-- `case_sensitive 1`（review N5 #5 / REVIEW_91 更正）：trigram 默认 case_sensitive=0。
+-- ⚠️ 注意：SQLite 的 `LIKE` 对 ASCII **默认大小写不敏感**（`'foo' LIKE '%Foo%'` 返 1），
+-- 所以 `case_sensitive 1` 并**不**等价于历史 LIKE 行为 —— 反而让 events_fts / summaries_fts
+-- 的 MATCH 大小写敏感（`MATCH '"Foo"'` 不命中 `foo`），而同一 listHistory query 的
+-- `title LIKE` 仍大小写不敏感 → 搜 "Foo" 命中含 "foo" 的标题但漏掉含 "foo" 的事件正文，
+-- 结果按字段来源分裂（REVIEW_91 reviewer-codex + lead sqlite3 实测：cs1 MATCH "Foo" on
+-- "foobar" 返 0 / cs0 返 1 / LIKE %Foo% on "foo" 返 1）。
+-- 这是已知不一致；改成 `case_sensitive 0` 对齐 LIKE 属搜索行为变更，需走 changelog 公告 +
+-- FTS rebuild，留 Follow-up（deep-review-project plan §Follow-up #13）由用户决策方向。
+-- BINARY collation 一致性的原始动机见 review N5 #5 历史讨论。
 --
 -- 用 contentless-delete external content 模式 (content='events', content_rowid='id')：
 -- FTS 表不复制原文，只存索引；通过 rowid 关联回 events.id。空间最省，但需手维护触发器。

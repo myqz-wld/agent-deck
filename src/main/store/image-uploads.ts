@@ -20,7 +20,7 @@
  * - sendMessage / createSession throw 时回滚已写文件（成功路径不动，path 已塞进 SDK 队列）
  * - session delete 不主动清（events 表 CASCADE 删 payload，path 没人引用 → reaper 兜底）
  */
-import { extname, sep } from 'node:path';
+import { extname, sep, resolve } from 'node:path';
 import { promises as fsp } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { LoadImageBlobResult, UploadedAttachmentInput, UploadedAttachmentRef } from '@shared/types';
@@ -66,6 +66,16 @@ export async function writeUploadedImage(
   const ext = PREFERRED_EXT_BY_MIME[input.mime];
   if (!ext) {
     throw new Error(`unsupported attachment mime: ${input.mime}`);
+  }
+  // REVIEW_91（reviewer-codex）：在 Buffer.from decode **之前**按 base64 字符串长度做硬上限，
+  // 避免恶意 / 误投的超大 base64 先在主进程分配完整 Buffer 再被拒（IPC 预检只累加 renderer
+  // 上报的 bytes，base64 本身不受约束）。base64 解码后字节 ≈ length * 3/4，留宽松系数挡明显
+  // 超标的串；精确字节对账仍由下方 buf.length 校验完成。当前 caller 是 first-party renderer
+  // 瞬时分配，故 LOW；前置 cap 是防御性硬化。
+  if (input.base64.length > Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4) {
+    throw new Error(
+      `attachment base64 length ${input.base64.length} exceeds cap for ${MAX_IMAGE_BYTES / 1024 / 1024}MB limit`,
+    );
   }
   // base64 解码实测字节，杜绝 renderer 上报 bytes 与实际不符的注入
   const buf = Buffer.from(input.base64, 'base64');
@@ -181,12 +191,20 @@ export async function loadUploadedImage(reqPath: string): Promise<LoadImageBlobR
  */
 export async function deleteUploadIfExists(path: string): Promise<void> {
   if (!path || typeof path !== 'string') return;
-  // 安全门：只删 image-uploads 下的文件，杜绝传任意路径删盘
+  // 安全门：只删 image-uploads 下的文件，杜绝传任意路径删盘。
+  // REVIEW_91（双 reviewer 独立）：裸 `startsWith(prefix)` 可被 `<uploadsDir>/../foo` 绕出
+  // （node 实测 startsWith 返 true，resolve/unlink 后命中库外文件）。当前 3 个 caller 全传
+  // writeUploadedImage 生成的 server 端 UUID 路径（renderer 只能传 base64 不能传 path）→
+  // 无可达攻击面，但注释自称「杜绝传任意路径删盘」为假契约。与同文件 loadUploadedImage 的
+  // realpath 守卫对齐，让契约名副其实 + 未来若有低信任 caller 也安全。
   const dir = getImageUploadsDir();
+  // resolve 折叠 `..` / `.`（不走 realpath：unlink 目标可能已不存在，realpath 会 ENOENT；
+  // 且 uploads 是扁平目录无内部 symlink，resolve 的纯词法归一已足够挡 `..` 穿越）。
+  const resolved = resolve(path);
   const prefix = dir.endsWith(sep) ? dir : dir + sep;
-  if (!path.startsWith(prefix)) return;
+  if (!resolved.startsWith(prefix)) return;
   try {
-    await fsp.unlink(path);
+    await fsp.unlink(resolved);
   } catch {
     /* swallow */
   }

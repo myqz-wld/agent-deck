@@ -4,7 +4,10 @@
  *
  * 策略两层：
  * 1. 序列化前 shrink 已知大字段（toolResult / output / stdout / stderr / content / text），
- *    深度限制 3 层避免 cycle / 重对象树。单字段截到 8KB。
+ *    深度限制 3 层防 shrink 自身无限递归。单字段截到 MAX_FIELD_BYTES（64KB）。
+ *    注意：depth>3 时返回原值（不再下钻），所以本函数**不**保证消除循环引用 —— 若输入含
+ *    cycle，输出仍含 cycle，下游 JSON.stringify 会抛 TypeError。当前 event payload 全部
+ *    来自 JSON-origin 的 SDK 数据（天然无 cycle），故未加 WeakSet cycle guard。
  * 2. 整体仍 > 256KB → 降级为 marker（__truncated + __originalBytes + __preview），
  *    保 SQL 写得下且能在 UI 看到「这条事件被截了」而不是默默丢失。
  *
@@ -102,8 +105,8 @@ function shrinkLargeFieldsDeep(value: unknown, depth = 0): unknown {
 
 export function safeStringifyPayload(payload: unknown): string {
   // 总是 shrink 已知大字段（即使整体 < 256KB）：
-  // 单字段 8KB 是「显示足够用 + 节省 DB 空间」的实用阈值，超过部分对 UI 可读性几乎无增益，
-  // 对长会话 DB 体积是巨大负担。
+  // 单字段 64KB（MAX_FIELD_BYTES）是「显示足够用 + 节省 DB 空间」的实用阈值，超过部分对 UI
+  // 可读性几乎无增益，对长会话 DB 体积是巨大负担。
   const shrunk = shrinkLargeFieldsDeep(payload);
   const raw = JSON.stringify(shrunk ?? null);
   // 注意：这里也得用 byteLength —— 一个 256KB 的中文 payload `raw.length` 可能只有 ~85K
