@@ -49,17 +49,29 @@ export interface KeywordPredicate {
  * 3. **同一关键词复用 @kw_fts 参数**：better-sqlite3 命名参数允许同一参数在 SQL 里多次
  *    出现，绑定一次即可，避免 prepare 缓存碎片化。
  *
+ * 4. **title LIKE 必须 escape `% _ \` + 配 `ESCAPE '\'`**（REVIEW_91）：与同 listHistory
+ *    query 的 cwd / task subject filter 同款，避免用户输入里的 `_` `%` 被当 LIKE 通配符。
+ *
  * @param keyword 用户搜索关键词（trim 由调用方做）
  * @returns 拼接 SQL + 参数
  */
 export function buildKeywordPredicate(keyword: string): KeywordPredicate {
+  // title LIKE 的 `\` `%` `_` 三个 wildcard 字符做 escape + 配 `ESCAPE '\'`（REVIEW_91
+  // 双 reviewer 独立共识）。与同一 listHistory query 的 cwd（core-crud.ts REVIEW_88）/
+  // task subject（task-repo-list.ts REVIEW_61）同款修法对齐 —— 此前 title 漏修，用户搜含
+  // `_` 的标题（如 `my_project`）时 `_` 被当单字符通配匹配 `myXproject`。非注入（命名参数
+  // 挡），是搜索语义错误。FTS phrase 那侧走 escapeFtsPhrase 不受影响。
+  const likeEscaped = keyword
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
   const params: Record<string, string> = {
-    kw_like: `%${keyword}%`,
+    kw_like: `%${likeEscaped}%`,
   };
 
   if (keyword.length < 3) {
     return {
-      sql: `title LIKE @kw_like`,
+      sql: `title LIKE @kw_like ESCAPE '\\'`,
       params,
     };
   }
@@ -67,7 +79,7 @@ export function buildKeywordPredicate(keyword: string): KeywordPredicate {
   params.kw_fts = escapeFtsPhrase(keyword);
 
   return {
-    sql: `(title LIKE @kw_like
+    sql: `(title LIKE @kw_like ESCAPE '\\'
       OR sessions.id IN (
         SELECT DISTINCT e.session_id FROM events_fts
          JOIN events e ON e.id = events_fts.rowid

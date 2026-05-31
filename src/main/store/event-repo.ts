@@ -144,11 +144,14 @@ export const eventRepo = {
     if (members.length === 0) return [];
     const sessionIds = members.map((m) => m.sessionId);
     const placeholders = sessionIds.map(() => '?').join(',');
+    // 跨多 session IN 查询，同毫秒 ts 跨 session 碰撞概率更高（多个 teammate 并发 emit），
+    // 缺 tie-breaker → TeamDetail 事件流刷新跳序。加 `id DESC`（与 listForSession F3 同款，
+    // REVIEW_91 双 reviewer 独立共识）。
     const rows = getDb()
       .prepare(
         `SELECT * FROM events
          WHERE session_id IN (${placeholders})
-         ORDER BY ts DESC LIMIT ?`,
+         ORDER BY ts DESC, id DESC LIMIT ?`,
       )
       .all(...sessionIds, limit) as Row[];
     return rows.map(rowToEvent);
@@ -159,8 +162,9 @@ export const eventRepo = {
    * summarizer 第二层兜底用：LLM 失败时拿这条作为「Claude 当前在做什么」的近似。
    *
    * 为什么不在调用方过滤 events 数组：
-   * - listForSession 默认 limit=40，tool 密集会话最近 40 条事件可能 0 条 message kind
-   *   （都被 tool-use-start/end 占满），数组 .find 直接 undefined → 走第三层事件统计
+   * - summarizer 调用方传 limit=40（summarizer/index.ts:253，非 listForSession 默认 200），
+   *   tool 密集会话最近 40 条事件可能 0 条 message kind（都被 tool-use-start/end 占满），
+   *   数组 .find 直接 undefined → 走第三层事件统计
    * - 数组 .find 也没过滤 role/error，会拿到用户输入（"push 一下"）或 ⚠ 警告，
    *   summary 显示成"用户的话"而不是"Claude 在做什么"
    *
@@ -170,6 +174,7 @@ export const eventRepo = {
    *
    * SQL 注：sqlite3 json_extract 把 JSON true→1 / false→0 / 字段不存在→SQL NULL。
    * 所以 `error IS NULL OR error = 0` 同时覆盖「无 error 字段」「error: false」「明确 null」。
+   * 同毫秒 ts 加 `id DESC` tie-breaker 取最晚插入那条 assistant message（REVIEW_91）。
    */
   findLatestAssistantMessage(
     sessionId: string,
@@ -182,13 +187,13 @@ export const eventRepo = {
            AND json_extract(payload_json, '$.role') = 'assistant'
            AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
            AND ts >= ?
-         ORDER BY ts DESC LIMIT 1`
+         ORDER BY ts DESC, id DESC LIMIT 1`
       : `SELECT payload_json, ts FROM events
          WHERE session_id = ?
            AND kind = 'message'
            AND json_extract(payload_json, '$.role') = 'assistant'
            AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
-         ORDER BY ts DESC LIMIT 1`;
+         ORDER BY ts DESC, id DESC LIMIT 1`;
     const row = (sinceTs
       ? getDb().prepare(sql).get(sessionId, sinceTs)
       : getDb().prepare(sql).get(sessionId)) as { payload_json: string; ts: number } | undefined;
@@ -234,6 +239,8 @@ export const eventRepo = {
    * 给 caller 各自 since_ts filter 用。窗口通常很短（caller since_ts → coordinator
    * baseline_ts，绝大多数 < 5s），所以不分页直接 ASC 全拉。
    * 边界：fromTs 闭、toTs 开，与 [since_ts, baseline_ts) 语义一致。
+   * 同毫秒 ts 加 `id ASC` tie-breaker（方向跟 ts ASC 一致 — DESC 配 id DESC / ASC 配
+   * id ASC），保证 backfill 时序稳定（REVIEW_91）。
    */
   listForSessionRange(
     sessionId: string,
@@ -245,7 +252,7 @@ export const eventRepo = {
       .prepare(
         `SELECT * FROM events
          WHERE session_id = ? AND ts >= ? AND ts < ?
-         ORDER BY ts ASC LIMIT ?`,
+         ORDER BY ts ASC, id ASC LIMIT ?`,
       )
       .all(sessionId, fromTs, toTs, limit) as Row[];
     return rows.map(rowToEvent);

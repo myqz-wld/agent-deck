@@ -34,14 +34,14 @@ describe('escapeFtsPhrase', () => {
 describe('buildKeywordPredicate', () => {
   it('< 3 字符走 title LIKE only（trigram 索引不覆盖 < 3 gram）', () => {
     const result = buildKeywordPredicate('ab');
-    expect(result.sql).toBe('title LIKE @kw_like');
+    expect(result.sql).toBe("title LIKE @kw_like ESCAPE '\\'");
     expect(result.params.kw_like).toBe('%ab%');
     expect(result.params.kw_fts).toBeUndefined();
   });
 
   it('单字符也走 title LIKE only', () => {
     const result = buildKeywordPredicate('x');
-    expect(result.sql).toBe('title LIKE @kw_like');
+    expect(result.sql).toBe("title LIKE @kw_like ESCAPE '\\'");
     expect(result.params.kw_fts).toBeUndefined();
   });
 
@@ -78,11 +78,23 @@ describe('buildKeywordPredicate', () => {
     expect(result.sql.trim().endsWith(')')).toBe(true);
   });
 
-  it('含 SQL 通配 % 的关键词被 LIKE 字面拼接（不另加 escape，与历史行为一致）', () => {
-    // 历史 listHistory 也是 `%${opts.keyword}%` 不 escape，行为保持
+  it('含 SQL 通配 % 的关键词被 LIKE escape（REVIEW_91：% → \\%，配 ESCAPE）', () => {
+    // REVIEW_91：title LIKE 现 escape `% _ \` + 配 ESCAPE '\'，与 cwd / task subject 同款。
     const result = buildKeywordPredicate('100%');
-    expect(result.params.kw_like).toBe('%100%%');
+    expect(result.params.kw_like).toBe('%100\\%%');
     expect(result.params.kw_fts).toBe('"100%"');
+    expect(result.sql).toContain("ESCAPE '\\'");
+  });
+
+  it('含 _ 通配的关键词被 LIKE escape（REVIEW_91：_ → \\_，避免单字符通配）', () => {
+    // 用户搜 `my_project` 时 `_` 不应被当单字符通配匹配 `myXproject`。
+    const result = buildKeywordPredicate('my_project');
+    expect(result.params.kw_like).toBe('%my\\_project%');
+  });
+
+  it('含反斜杠的关键词先 escape 反斜杠自身（REVIEW_91：\\ → \\\\）', () => {
+    const result = buildKeywordPredicate('a\\b');
+    expect(result.params.kw_like).toBe('%a\\\\b%');
   });
 
   it('含双引号关键词正确转义 FTS phrase', () => {
