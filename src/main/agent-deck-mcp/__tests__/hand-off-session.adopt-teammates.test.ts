@@ -743,6 +743,67 @@ describe('handOffSessionHandler — adoptTeammates 路径 phase 1.5 集成 (Phas
     expect(notifySpy).toHaveBeenNthCalledWith(2, 'new-sid');
   });
 
+  // REVIEW_71 MED(deep-review reviewer-codex HIGH → reviewer-claude 反驳轮 mechanism 100% 确认
+  // / 降 MED):processSwappedTeam 内 listAllMembersForAdopt / getSessionForLifecycle 必须 fail-soft。
+  // 触发前提:swapLead 已成功 commit(caller demote + newSid 升 lead),紧接着 post-commit
+  // bookkeeping 的 list/get 抛错(SQLite locked / disposed connection)。修前裸调用 → 异常一路
+  // 冒泡穿透 withMcpGuard(不 try/catch handler 本体)→ task reassignment + runBatonCleanup(含
+  // archive caller)未跑 → 半提交脏态(caller 已 demote 离队但未归档 + task 未过继)。
+  // 修后 list 抛错降级为 team-level failed 不打断后续流程,handler 仍 ok return + archive 仍跑。
+  it('REVIEW_71 fail-soft: swapLead 成功后 listAllMembersForAdopt 抛错 → 不半提交(handler ok return + archive 仍跑 + failed 含 list-members-error)', async () => {
+    const state = makeState();
+    setupPlanFile(state, 'r71-list-throws-failsoft');
+    setupCallerLead(['team-A'], new Map([['team-A', []]]));
+    vi.spyOn(sessionRepo, 'get').mockImplementation((id: string) =>
+      id === 'caller-sid' ? fakeCallerRow() : null,
+    );
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+    const mockSwapLead = vi.fn(() => ({ swapped: true as const }));
+    // 关键:listAllMembersForAdopt 抛错模拟 post-commit DB 故障(SQLite locked / disposed conn)
+    const throwingListMembers = vi.fn((_teamId: string): never => {
+      throw new Error('SQLITE_BUSY: database is locked');
+    });
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    const result = await handOffSessionHandler(
+      {
+        planId: 'r71-list-throws-failsoft',
+        adapter: 'claude-code',
+        adoptTeammates: true,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: makeOkSpawn(seenSpawn),
+        archiveSession: mockArchive,
+        shutdownTeammates: noopShutdown,
+        implDeps: makeDeps(state),
+        swapLead: mockSwapLead,
+        getSessionForLifecycle: activeLifecycleGet,
+        listAllMembersForAdopt: throwingListMembers,
+        closeSession: noopCloseSession,
+      },
+    );
+
+    // **关键:不半提交** — handler 不抛错,仍 ok return(修前 list 抛错会冒泡穿透 → tool error)
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]!.text);
+
+    // swapLead 已成功(firstTeam team-A swap 一次)
+    expect(mockSwapLead).toHaveBeenCalledTimes(1);
+    // **archive caller 仍跑**(修前会被冒泡异常跳过 → caller demote 却不归档的半提交脏态)
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+    expect(mockArchive).toHaveBeenCalledWith('caller-sid');
+    // **list 失败降级为 team-level failed**(reason 含 list-members-error)而非打崩 handler
+    const listFailed = data.adopted.failed.find(
+      (f: { reason: string }) => f.reason.startsWith('list-members-error'),
+    );
+    expect(listFailed).toBeDefined();
+    expect(listFailed.teamId).toBe('team-A');
+    // swapLead 成功仍计入 teamsAdopted(post-commit bookkeeping 失败不回退 adopt count)
+    expect(data.adopted.teamsAdopted).toBe(1);
+  });
+
   it('T6.2 closed teammate → failed.reason="lifecycle-closed"', async () => {
     const state = makeState();
     setupPlanFile(state, 't6-2-closed');
@@ -1349,7 +1410,49 @@ describe('handOffSessionHandler — adoptTeammates 路径 phase 1.5 集成 (Phas
     expect(mockArchive).toHaveBeenCalledTimes(0);
   });
 
-  // T6.A1(MED archived team filter): caller 在 1 active team + 1 archived team 都是 lead →
+  // REVIEW_71 HIGH(deep-review reviewer-claude MED-1 + reviewer-codex 反驳轮升 HIGH):
+  // adoptTeammates=true + archiveCaller=false 语义矛盾 — adopt 让 caller swapLead 交出 lead 身份
+  // 并离开所有 adopted team(Phase A demote 写 member left_at=now),与 archiveCaller=false「caller
+  // 留下继续 active 观察 reviewer reply」冲突。组合后 caller 被 demote 离队却仍 active → 失去
+  // 自己 team-bound task 写权限 + send_message 撞 no-shared-team。与 N2.c 同款 handler 入口防御
+  // (生产路径走 SHAPE 不跑 strict.refine,需 defense-in-depth)。必须立即 reject + spawn 未调用。
+  it('REVIEW_71 handler 防御:adoptTeammates=true + archiveCaller=false 同传立即 reject(spawn 未调用,无半提交)', async () => {
+    const state = makeState();
+    setupPlanFile(state, 'r71-adopt-archive-false-guard');
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+    const spawnFn = makeOkSpawn(seenSpawn);
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockSwapLead = vi.fn();
+
+    const result = await handOffSessionHandler(
+      // cast 模拟绕过 zod schema 直接调 handler(测 handler defense-in-depth)
+      {
+        planId: 'r71-adopt-archive-false-guard',
+        adapter: 'claude-code',
+        adoptTeammates: true,
+        archiveCaller: false,
+      } as unknown as HandOffSessionArgs,
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      {
+        spawnSession: spawnFn,
+        archiveSession: mockArchive,
+        shutdownTeammates: noopShutdown,
+        swapLead: mockSwapLead,
+        implDeps: makeDeps(state),
+      },
+    );
+
+    // **handler reject**:isError + 错误信息含 'adoptTeammates: true 与 archiveCaller: false 不可同传'
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.error).toMatch(/adoptTeammates: true 与 archiveCaller: false 不可同传/);
+
+    // **关键:零半提交副作用** — spawn 未调用 + swapLead 未调用(caller 未被 demote)+ caller 未 archive
+    expect(spawnFn).toHaveBeenCalledTimes(0);
+    expect(mockSwapLead).toHaveBeenCalledTimes(0);
+    expect(mockArchive).toHaveBeenCalledTimes(0);
+  });
   // callerLeadMemberships 应过滤掉 archived team(team.archivedAt !== null);仅 active team 进
   // adopt 流程。修前 findActiveMembershipsBySession 只过滤 left_at IS NULL 不过滤 archived_at,
   // archived team 的 ghost lead membership 列入 cold-start prompt → 新 session 调 send_message

@@ -67,7 +67,7 @@ const logger = log.scope('mcp-task-reassign');
  * - `taskPolicy === 'preserve-team'`: reassignOwner({policy:'preserve-team'}) UPDATE owner 不动
  *   teamId;**preserve-team safety 升级**(Round 4 HIGH-1):reassign 后 query caller owned
  *   distinct teamId(taskRepo.findOwnedDistinctTeamIds)与 newSidActiveTeamIds(phase15Detail.
- *   adoptedTeamIds ∪ spawnData.teamId)比对差集 → policyWarning='preserve-team-unadopted-teams'
+ *   adoptedTeamIds ∪ findActiveMembershipIn 实测)比对差集 → policyWarning='preserve-team-unadopted-teams'
  *   + unadoptedTeamIds 字段(handler 不 hard reject,soft warning 让 caller 知情决定 retry / 接受降级)
  *
  * **archiveCaller=false 优先级**(F1 修法 + Round 7 LOW-1 codex 补全 policy 字段):caller 显式

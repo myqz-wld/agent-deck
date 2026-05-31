@@ -674,6 +674,22 @@ export const HAND_OFF_SESSION_ARGS_SCHEMA = z
       message:
         'adoptTeammates 与 teamName 不可同传 — adopt 路径自动过继 caller 同 team,不应指定额外 teamName(N2.c 互斥 invariant,plan hand-off-session-adopt-teammates-20260520 Phase 4)',
     },
+  )
+  // REVIEW_71 HIGH(deep-review reviewer-claude MED-1 + reviewer-codex 反驳轮升 HIGH):
+  // adoptTeammates: true 与 archiveCaller: false 不可同传(语义矛盾)。adopt 语义本质是
+  // 「caller 交出 lead 身份并 swapLead 离开所有 adopted team(member left_at=now)」,与
+  // archiveCaller: false「caller 留下继续 active 观察 reviewer reply」直接冲突:组合后
+  // phase 1.5 swapLead 无条件 demote caller 离队,但 caller 仍 active 且 task 不过继 →
+  // ① caller 失去自己 team-bound task 读写范围(已 left team,isCallerInTeam false,owner
+  // 语义与权限语义漂移) ② caller 与 preserved teammate 不再共享 active team,send_message
+  // 撞 no-shared-team(打破 archiveCaller=false schema 文案承诺的「仍可看 reviewer reply」)。
+  // 与 N2.c 同款双层防御(此处 schema refine + handler validateAdoptTeammatesArgs)。
+  .refine(
+    (args) => !(args.adoptTeammates === true && args.archiveCaller === false),
+    {
+      message:
+        'adoptTeammates: true 与 archiveCaller: false 不可同传 — adopt 让 caller swapLead 交出 lead 身份并离开所有 adopted team,与 archiveCaller: false「caller 留下继续观察」语义矛盾(组合后 caller 被 demote 离队却仍 active,失去自己 team task 写权限 + 无法 send_message 观察 teammate)。改用 adoptTeammates: true(让新 session 接管,caller 归档退场)或 archiveCaller: false 不带 adopt(caller 留下当 lead,teammate 保留)。',
+    },
   );
 
 export type ArchivePlanArgs = z.infer<typeof ARCHIVE_PLAN_ARGS_SCHEMA>;
@@ -937,7 +953,8 @@ export interface HandOffSessionResult extends SpawnSessionResult {
    * v024 plan §不变量 5 + Round 4 MED-1 + Round 5 MED-2 升级:**preserve-team 错配 soft warning** —
    * `policyWarning?: 'preserve-team-unadopted-teams'` + `unadoptedTeamIds: string[]` 字段
    * 暴露 caller owned distinct teamId 与 newSid handoff 后 active teams 的差集(详
-   * adopted.adoptedTeamIds + spawnData.teamId 算法,plan §Step D2 preserve-team safety 升级)。
+   * adopted.adoptedTeamIds ∪ findActiveMembershipIn 实测算法,plan §Step D2 preserve-team safety
+   * 升级;CHANGELOG_169 F5 起不再信任 spawnData.teamId 字段,改 repo 查询实测)。
    *
    * 三态语义:
    * - `'ok'`: reassign 成功,count 字段是被改 owner 的 task 行数(0 = caller 没拥有任何
