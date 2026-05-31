@@ -62,6 +62,10 @@ export class IssueLifecycleScheduler {
    * **snapshot before delete**: hardDelete 之后 issueRepo.get 返 null,sourceSessionId 失去依据 —
    * 提前 snapshot 拿 sourceSessionId 顶级字段（issue: null 但 sourceSessionId 仍是删前 issue.sourceSessionId）。
    *
+   * **每路单轮上限 500**（REVIEW_83 LOW，reviewer-codex E2 + lead）: listForGc 默认 limit=500
+   * （与 session-repo findHistoryOlderThan 对称），剩余下轮 tick 续，防 retention 0→非 0 首次启用
+   * 或 high-volume 批量过期时一次同步删上万行 + 上万次 emit 卡主线程（scan() 是 sync 逐条）。
+   *
    * 失败兜底: 单条 hardDelete throw 不中断后续 — 每条独立 try/catch + console.warn,scheduler
    * tick 不因单条 corrupt row 整批崩。
    */

@@ -184,6 +184,9 @@ export interface IssueRepo {
     resolvedRetentionDays: number;
     softDeletedRetentionDays: number;
     nowMs?: number;
+    /** 每路（resolved / softDeleted）单轮 id 上限，剩余下轮 tick 继续。默认 500（与
+     *  session-repo findHistoryOlderThan 对称，防一次同步删上万行卡主线程）。REVIEW_83 LOW。 */
+    limit?: number;
   }): IssueListForGcResult;
   /**
    * §D16 append 子表 INSERT + §D17 logsRef merge 到 issues.logs_ref（args.logsRef 非
@@ -402,22 +405,29 @@ export function createIssueRepo(db: Database): IssueRepo {
   }
 
   function listForGc(opts: {
-    resolvedRetentionDays: number; softDeletedRetentionDays: number; nowMs?: number;
+    resolvedRetentionDays: number; softDeletedRetentionDays: number; nowMs?: number; limit?: number;
   }): IssueListForGcResult {
     const now = opts.nowMs ?? Date.now();
+    // REVIEW_83 LOW (reviewer-codex E2 + lead grep 对照): 每路单轮上限,与 session-repo
+    // findHistoryOlderThan(threshold, limit=500) 对称。issue 是 agent 低频上报量级远小于
+    // session events,但两个 latent 场景可达大批量:① retention 从 0 改非 0 首次启用 GC
+    // 历史一次性全删 ② 长期 high-volume 上报后批量过期。一次同步删 N 千行 + N 千次 emit
+    // 卡主线程(IssueLifecycleScheduler.scan() 是 sync 逐条 hardDelete+emit)。限 500 剩余
+    // 下轮 tick 续(默认 6h)。
+    const limit = opts.limit ?? 500;
     const result: IssueListForGcResult = { resolvedExpired: [], softDeletedExpired: [] };
     if (opts.resolvedRetentionDays > 0) {
       const threshold = now - opts.resolvedRetentionDays * 86_400_000;
       const rows = db.prepare(
-        `SELECT id FROM issues WHERE status = 'resolved' AND resolved_at IS NOT NULL AND resolved_at < ?`,
-      ).all(threshold) as { id: string }[];
+        `SELECT id FROM issues WHERE status = 'resolved' AND resolved_at IS NOT NULL AND resolved_at < ? LIMIT ?`,
+      ).all(threshold, limit) as { id: string }[];
       result.resolvedExpired = rows.map((r) => r.id);
     }
     if (opts.softDeletedRetentionDays > 0) {
       const threshold = now - opts.softDeletedRetentionDays * 86_400_000;
       const rows = db.prepare(
-        `SELECT id FROM issues WHERE deleted_at IS NOT NULL AND deleted_at < ?`,
-      ).all(threshold) as { id: string }[];
+        `SELECT id FROM issues WHERE deleted_at IS NOT NULL AND deleted_at < ? LIMIT ?`,
+      ).all(threshold, limit) as { id: string }[];
       result.softDeletedExpired = rows.map((r) => r.id);
     }
     return result;
