@@ -82,7 +82,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
   it('TC3 happy path: caller cwd 在 git repo 内 → 派生 worktreePath + branch + base=HEAD + setMarker', async () => {
     const state = makeEnterState();
     const deps = makeEnterDeps(state, [
-      '/Users/test/repo',         // git rev-parse --show-toplevel
+      '/Users/test/repo/.git',         // git rev-parse --git-common-dir → dirname
       '',                          // for-each-ref refs/heads/worktree-plan1 (branch 不存在)
       'headhash',                  // git rev-parse HEAD (base=head)
       '',                          // git worktree add
@@ -121,7 +121,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     const state = makeEnterState();
     state.existingPaths.add('/Users/test/repo/.claude/worktrees/plan1'); // worktree 路径已存在
     const deps = makeEnterDeps(state, [
-      '/Users/test/repo', // git rev-parse --show-toplevel
+      '/Users/test/repo/.git', // git rev-parse --git-common-dir → dirname
       // 不会调到 for-each-ref,因为 worktree path 存在就 short-circuit
     ]);
 
@@ -141,7 +141,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
   it('TC4b branch 冲突: worktree path 不存在但 branch 已存在 → reject + marker 不写', async () => {
     const state = makeEnterState();
     const deps = makeEnterDeps(state, [
-      '/Users/test/repo',          // git rev-parse --show-toplevel
+      '/Users/test/repo/.git',          // git rev-parse --git-common-dir → dirname
       'worktree-plan1',             // for-each-ref → branch 已存在
     ]);
 
@@ -160,7 +160,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
   it('TC5a base=arg-base-commit (highest priority)', async () => {
     const state = makeEnterState();
     const deps = makeEnterDeps(state, [
-      '/Users/test/repo',
+      '/Users/test/repo/.git',
       '',                      // for-each-ref branch 不存在
       // 不调 rev-parse HEAD/branch,因为有 baseCommit
       '',                      // git worktree add
@@ -182,7 +182,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
   it('TC5b base=arg-base-branch (resolve to branch HEAD)', async () => {
     const state = makeEnterState();
     const deps = makeEnterDeps(state, [
-      '/Users/test/repo',
+      '/Users/test/repo/.git',
       '',                      // for-each-ref branch 不存在
       'branchhash',            // rev-parse <branch>
       '',                      // git worktree add
@@ -212,9 +212,10 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
       'body',
     ].join('\n'));
     const deps = makeEnterDeps(state, [
-      '/Users/test/repo',
+      '/Users/test/repo/.git',
       '',                      // for-each-ref branch 不存在
-      // 不调 rev-parse HEAD,因为 frontmatter.baseCommit 命中
+      // REVIEW_72 LOW: frontmatter base_commit 现经 rev-parse --verify 预验证(与 args.baseBranch 对称)
+      'feedbeeffullsha',       // rev-parse --verify feedbeef^{commit} → resolved full SHA
       '',                      // git worktree add
     ]);
     const result = await enterWorktreeImpl(
@@ -223,7 +224,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     );
     expect(enterIsError(result)).toBe(false);
     if (enterIsError(result)) return;
-    expect(result.baseCommit).toBe('feedbeef');
+    expect(result.baseCommit).toBe('feedbeeffullsha');
     expect(result.baseSource).toBe('frontmatter-base-commit');
   });
 
@@ -237,7 +238,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
       'body',
     ].join('\n'));
     const deps = makeEnterDeps(state, [
-      '/Users/test/repo',
+      '/Users/test/repo/.git',
       '',                      // for-each-ref branch 不存在
       'featurehash',           // rev-parse feature-y
       '',                      // git worktree add
@@ -256,7 +257,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
   it('TC5e args.baseBranch resolve 失败 → reject (不 fallback HEAD)', async () => {
     const state = makeEnterState();
     const deps = makeEnterDeps(state, [
-      '/Users/test/repo',
+      '/Users/test/repo/.git',
       '',                                            // for-each-ref branch 不存在
       new Error('fatal: ambiguous argument bad-br'), // rev-parse bad-br 失败
     ]);
@@ -287,6 +288,67 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     if (!enterIsError(result)) return;
     expect(result.error).toContain('has no cwd');
     expect(state.gitCalls).toEqual([]); // 没调 git,short-circuit
+  });
+
+  // ─── REVIEW_72 MED: caller cwd 在 linked worktree 内 → 用 git-common-dir 拿真 main repo ───
+  it('REVIEW_72 MED: caller cwd 在 linked worktree 内 → git-common-dir 派生真 main repo(非 worktree 自身)', async () => {
+    const state = makeEnterState();
+    // caller cwd 在某 linked worktree 内
+    state.fakeCallerCwd = new Map([['caller-sid', '/Users/test/repo/.claude/worktrees/other']]);
+    const deps = makeEnterDeps(state, [
+      // git rev-parse --git-common-dir 在 linked worktree 内返回真 main repo 的 .git
+      // (修前 --show-toplevel 会返回 /Users/test/repo/.claude/worktrees/other 即 worktree 自身)
+      '/Users/test/repo/.git',
+      '',                       // for-each-ref branch 不存在
+      'headhash',               // rev-parse HEAD
+      '',                       // git worktree add
+    ]);
+
+    const result = await enterWorktreeImpl(
+      { planId: 'plan-nested', callerSessionId: 'caller-sid' },
+      deps,
+    );
+
+    expect(enterIsError(result)).toBe(false);
+    if (enterIsError(result)) return;
+    // **关键**:worktreePath 派生自真 main repo(/Users/test/repo),不是嵌套到 caller 所在 worktree 内
+    expect(result.worktreePath).toBe('/Users/test/repo/.claude/worktrees/plan-nested');
+    // git-common-dir 调用的 cwd 是 caller cwd(worktree 内),返回真 main repo
+    expect(state.gitCalls[0].args).toEqual(['rev-parse', '--git-common-dir']);
+    expect(state.gitCalls[0].cwd).toBe('/Users/test/repo/.claude/worktrees/other');
+    // worktree add 在真 main repo 内跑
+    const addCall = state.gitCalls.find((c) => c.args[0] === 'worktree');
+    expect(addCall?.cwd).toBe('/Users/test/repo');
+  });
+
+  // ─── REVIEW_72 LOW: frontmatter base_commit rev-parse --verify 失败 → fallback(不 error) ───
+  it('REVIEW_72 LOW: frontmatter base_commit verify 失败(commit 不存在)→ fallback 走 HEAD 不 error', async () => {
+    const state = makeEnterState();
+    state.files.set('/Users/test/repo/.claude/plans/plan1.md', [
+      '---',
+      'plan_id: plan1',
+      'base_commit: deadbeef',  // 非法 / 不存在的 commit
+      '---',
+      'body',
+    ].join('\n'));
+    const deps = makeEnterDeps(state, [
+      '/Users/test/repo/.git',  // git-common-dir → dirname
+      '',                        // for-each-ref branch 不存在
+      new Error('fatal: Needed a single revision'), // rev-parse --verify deadbeef^{commit} 失败
+      'headhash',                // fallback: rev-parse HEAD
+      '',                        // git worktree add
+    ]);
+
+    const result = await enterWorktreeImpl(
+      { planId: 'plan1', callerSessionId: 'caller-sid' },
+      deps,
+    );
+
+    // **关键**:base_commit verify 失败不算 error(best-effort 软约束),fallback 走 HEAD
+    expect(enterIsError(result)).toBe(false);
+    if (enterIsError(result)) return;
+    expect(result.baseCommit).toBe('headhash');
+    expect(result.baseSource).toBe('head');
   });
 });
 
@@ -368,6 +430,7 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
       `/Users/test/repo/.git`, // git-common-dir
       '',                       // status --porcelain clean
       'worktree-plan1',         // branch --show-current
+      '',                       // REVIEW_72 MED: merge-base --is-ancestor (rc=0 = 已合并,放行 remove)
       '',                       // worktree remove
       '',                       // branch -D worktree-plan1
     ]);
@@ -383,15 +446,19 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
     expect(result.branchDeleted).toBe(true);
     expect(result.markerCleared).toBe(true);
     expect(state.markerClears).toEqual(['caller-sid']);
-    // git 命令顺序: common-dir, status, branch --show-current, worktree remove, branch -d/-D
+    // git 命令顺序: common-dir, status, branch --show-current, merge-base(未合并预检), worktree remove, branch -d/-D
     expect(state.gitCalls.map((c) => c.args[0])).toEqual([
-      'rev-parse', 'status', 'branch', 'worktree', 'branch',
+      'rev-parse', 'status', 'branch', 'merge-base', 'worktree', 'branch',
     ]);
-    expect(state.gitCalls[3].args).toEqual(['worktree', 'remove', WT]);
+    // REVIEW_72 MED: 未合并预检在 worktree remove 之前(branchName 已合并到 HEAD → 放行)
+    expect(state.gitCalls[3].args).toEqual([
+      'merge-base', '--is-ancestor', 'worktree-plan1', 'HEAD',
+    ]);
+    expect(state.gitCalls[4].args).toEqual(['worktree', 'remove', WT]);
     // P5 Round 1 reviewer-codex M4 修法 (discardChanges 也保护未合并 commit):
     // 默认 discardChanges=false → 用 `branch -d` (lowercase) 只删已合并 branch (不丢未合并 commit);
     // 测试场景 mock branch 已合并(runGit mock 默认成功),`-d` 删除成功,branchDeleted=true。
-    expect(state.gitCalls[4].args).toEqual(['branch', '-d', 'worktree-plan1']);
+    expect(state.gitCalls[5].args).toEqual(['branch', '-d', 'worktree-plan1']);
   });
 
   it('action=remove + worktree dirty + !discardChanges → reject + marker 不清', async () => {
@@ -416,6 +483,65 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
     expect(state.markerClears).toEqual([]);
     // 仅 git-common-dir + status 调用,无 worktree remove
     expect(state.gitCalls.length).toBe(2);
+  });
+
+  // ─── REVIEW_72 MED: 未合并 commit + discardChanges=false → remove 之前 refuse 保留 worktree ───
+  it('REVIEW_72 MED: clean tree 但 branch 有未合并 commit + !discardChanges → 在 worktree remove 之前 refuse(保留 worktree)', async () => {
+    const state = makeExitState();
+    state.existingPaths.add(WT);
+    state.markerStore.set('caller-sid', WT);
+    const deps = makeExitDeps(state, [
+      `/Users/test/repo/.git`,  // git-common-dir
+      '',                        // status --porcelain clean(working tree 干净,commit 已提交)
+      'worktree-plan1',          // branch --show-current
+      new Error('exit 1'),       // merge-base --is-ancestor rc≠0 → 有未合并 commit
+    ]);
+
+    const result = await exitWorktreeImpl(
+      { callerSessionId: 'caller-sid', action: 'remove' },
+      deps,
+    );
+
+    expect(exitIsError(result)).toBe(true);
+    if (!exitIsError(result)) return;
+    expect(result.error).toContain('not merged into HEAD');
+    expect(result.hint).toContain('discardChanges: true');
+    // **关键:worktree 未被删**(refuse 在 worktree remove 之前)— 无 'worktree' git 调用
+    expect(state.gitCalls.some((c) => c.args[0] === 'worktree')).toBe(false);
+    // **关键:marker 未清**(caller 仍持有,可回 worktree 处理 commit)
+    expect(state.markerClears).toEqual([]);
+    expect(result.markerCleared).toBe(false);
+    // 调用序止于 merge-base 预检
+    expect(state.gitCalls.map((c) => c.args[0])).toEqual([
+      'rev-parse', 'status', 'branch', 'merge-base',
+    ]);
+  });
+
+  // ─── REVIEW_72 MED: 未合并 commit 但 discardChanges=true → 跳过预检强制删 ───
+  it('REVIEW_72 MED: 未合并 commit + discardChanges=true → 跳过 merge-base 预检 + --force 删', async () => {
+    const state = makeExitState();
+    state.existingPaths.add(WT);
+    state.markerStore.set('caller-sid', WT);
+    const deps = makeExitDeps(state, [
+      `/Users/test/repo/.git`,
+      // status 不调用(discardChanges=true 跳过 clean 预检)
+      'worktree-plan1',          // branch --show-current
+      // merge-base 不调用(discardChanges=true 跳过未合并预检)
+      '',                        // worktree remove --force
+      '',                        // branch -D
+    ]);
+
+    const result = await exitWorktreeImpl(
+      { callerSessionId: 'caller-sid', action: 'remove', discardChanges: true },
+      deps,
+    );
+
+    expect(exitIsError(result)).toBe(false);
+    if (exitIsError(result)) return;
+    expect(result.worktreeRemoved).toBe(true);
+    // **关键:discardChanges=true 不调 merge-base 预检**(caller 已显式接受丢 commit)
+    expect(state.gitCalls.some((c) => c.args[0] === 'merge-base')).toBe(false);
+    expect(state.gitCalls.some((c) => c.args[0] === 'status')).toBe(false);
   });
 
   it('action=remove + dirty + discardChanges=true → --force + 通过', async () => {

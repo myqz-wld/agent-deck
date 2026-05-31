@@ -11,7 +11,8 @@
  *
  * 1. 反查 caller sessionRepo.cwd 拿 caller cwd（external sentinel 已在 handler 层 deny；
  *    impl 调用前 caller cwd 必有效）
- * 2. 解析 main_repo：`git -C <caller-cwd> rev-parse --show-toplevel`
+ * 2. 解析 main_repo：`git -C <caller-cwd> rev-parse --git-common-dir` → dirname（与 exit /
+ *    hand-off / archive-plan 三兄弟 impl 统一;caller cwd 在 linked worktree 内也拿真 main repo）
  * 3. 派生 worktreePath：args.worktreePath > `<main_repo>/.claude/worktrees/<planId>/`
  * 4. 派生 branch_name：固定 `worktree-<planId>`（与 user CLAUDE.md §Step 1 命名约定对齐）
  * 5. 解析 base commit（plan D2 优先级链）：
@@ -179,7 +180,24 @@ async function resolveBaseCommit(
       const fmBaseCommit = typeof fm.base_commit === 'string' ? fm.base_commit.trim() : '';
       const fmBaseBranch = typeof fm.base_branch === 'string' ? fm.base_branch.trim() : '';
       if (fmBaseCommit.length >= 7) {
-        return { baseCommit: fmBaseCommit, baseSource: 'frontmatter-base-commit' };
+        // REVIEW_72 LOW(deep-review 双方 — codex LOW + claude INFO):frontmatter base_commit 经
+        // `git rev-parse --verify <commit>^{commit}` 预验证再返回,与 args.baseBranch 的 rev-parse
+        // 验证对称。修前仅校验 length >= 7,非法值(如 "feedbeef" 乱串)延迟到 step 7 git worktree
+        // add 才报错,归入通用 "baseCommit not in repo / branch race" hint 定位不清。验证失败时
+        // **不算 error**(与 fmBaseBranch 同款 best-effort 软约束),fallback 走 HEAD —— frontmatter
+        // 是 plan 文件的软提示,不该因 stale base_commit 阻断 worktree 创建。
+        try {
+          const verified = await deps.runGit(
+            ['rev-parse', '--verify', '--quiet', `${fmBaseCommit}^{commit}`],
+            mainRepo,
+          );
+          if (verified) {
+            return { baseCommit: verified, baseSource: 'frontmatter-base-commit' };
+          }
+          // verify 返空(commit 不存在)→ fall through 到 fmBaseBranch / HEAD
+        } catch {
+          // rev-parse --verify 非零退出(commit 不在 repo)→ best-effort fallback,不 error
+        }
       }
       if (fmBaseBranch.length > 0) {
         try {
@@ -222,22 +240,35 @@ export async function enterWorktreeImpl(
   if (!callerCwd) {
     return {
       error: `caller session ${input.callerSessionId} has no cwd (session not found or cwd column is null)`,
-      hint: `enter_worktree needs caller cwd to derive main_repo via \`git rev-parse --show-toplevel\`. Make sure callerSessionId references an active session managed by Agent Deck.`,
+      hint: `enter_worktree needs caller cwd to derive main_repo via \`git rev-parse --git-common-dir\`. Make sure callerSessionId references an active session managed by Agent Deck.`,
     };
   }
 
   // 2. main_repo
+  // REVIEW_72 MED(deep-review 双方独立 ✅ + lead 实测):用 `git rev-parse --git-common-dir` + dirname
+  // 解析 main repo,**与 exit-worktree-impl / hand-off-session-impl / archive-plan-impl 三兄弟统一**。
+  // 修前用 `--show-toplevel`:caller cwd 在主仓库(或子目录)时与 git-common-dir 等价,但 caller cwd
+  // **在某个 linked worktree 内**时分叉 — show-toplevel 返回该 worktree 根,git-common-dir+dirname
+  // 返回真 main repo。实测铁证(本 worktree 内):show-toplevel=<worktree 自身> vs git-common-dir
+  // dirname=<真 main repo>。修前 caller 已在 worktree1 再调 enter_worktree 起 plan2 → mainRepo 误算
+  // 成 worktree1 → 新 worktree 建到 worktree1/.claude/worktrees/plan2 嵌套错位 + marker 指向嵌套路径
+  // → 后续 archive_plan 用 git-common-dir 拿真 main repo 与 plan frontmatter 嵌套 worktree_path 对不上
+  // 收口链错乱。git worktree add 允许嵌套(实测 rc=0)所以不会立即报错,silent 错位更危险。
   let mainRepo: string;
   try {
-    mainRepo = await deps.runGit(['rev-parse', '--show-toplevel'], callerCwd);
+    const gitCommonDir = await deps.runGit(['rev-parse', '--git-common-dir'], callerCwd);
+    const commonDirAbs = path.isAbsolute(gitCommonDir)
+      ? gitCommonDir
+      : path.resolve(callerCwd, gitCommonDir);
+    mainRepo = path.dirname(commonDirAbs);
   } catch (e) {
     return {
-      error: `git rev-parse --show-toplevel failed in caller cwd ${callerCwd}: ${(e as Error).message}`,
-      hint: `caller cwd "${callerCwd}" is not inside a git repository. enter_worktree requires caller to operate from within a git working tree. Verify with \`git -C ${callerCwd} rev-parse --show-toplevel\`.`,
+      error: `git rev-parse --git-common-dir failed in caller cwd ${callerCwd}: ${(e as Error).message}`,
+      hint: `caller cwd "${callerCwd}" is not inside a git repository. enter_worktree requires caller to operate from within a git working tree. Verify with \`git -C ${callerCwd} rev-parse --git-common-dir\`.`,
     };
   }
   if (!mainRepo) {
-    return { error: `git rev-parse --show-toplevel returned empty in ${callerCwd}` };
+    return { error: `git rev-parse --git-common-dir returned empty in ${callerCwd}` };
   }
 
   // 3. worktreePath
