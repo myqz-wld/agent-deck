@@ -305,6 +305,69 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     ).toBe('parent-new');
   });
 
+  // **REVIEW_83 MED 回归 test (reviewer-codex R2 单方 + lead 现场验证)**: renameWithDb 必须迁移
+  // tasks.owner_session_id / issues.source_session_id / issues.resolution_session_id /
+  // issue_appendices.appended_session_id —— 否则 DELETE OLD 触发 tasks FK ON DELETE CASCADE
+  // 物理删 task + issues/appendix FK ON DELETE SET NULL 断归属。清单写于 v021 早于 v023(tasks)/
+  // v026(issues) 加 FK,从未补这三表 → rename 违反「OLD 整迁 NEW」不变量(现 latent / 防未来 footgun)。
+  it('renameWithDb 内迁移 tasks.owner_session_id（防 DELETE OLD 触发 CASCADE 删 task）REVIEW_83 MED', () => {
+    insertSession(db, 'task-old');
+    // OLD 拥有一个 personal task
+    const taskId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO tasks (id, owner_session_id, team_id, subject, status, priority, created_at, updated_at)
+       VALUES (?, ?, NULL, 'do X', 'pending', 5, ?, ?)`,
+    ).run(taskId, 'task-old', Date.now(), Date.now());
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS c FROM tasks WHERE owner_session_id = ?`).get('task-old') as { c: number }).c,
+    ).toBe(1);
+
+    renameWithDb(db, 'task-old', 'task-new');
+
+    // **关键断言**: task 没被 CASCADE 删,owner 迁到 NEW
+    expect(db.prepare(`SELECT id FROM tasks WHERE id = ?`).get(taskId)).toBeDefined();
+    expect(
+      (db.prepare(`SELECT owner_session_id FROM tasks WHERE id = ?`).get(taskId) as { owner_session_id: string }).owner_session_id,
+    ).toBe('task-new');
+    // OLD 名下无残留
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS c FROM tasks WHERE owner_session_id = ?`).get('task-old') as { c: number }).c,
+    ).toBe(0);
+  });
+
+  it('renameWithDb 内迁移 issues source/resolution + appendix appended_session_id（防 DELETE OLD SET NULL 断归属）REVIEW_83 MED', () => {
+    insertSession(db, 'iss-old');
+    insertSession(db, 'iss-other');
+    const issueId = crypto.randomUUID();
+    // OLD 既是 source 又是 resolution（自助解决场景）
+    db.prepare(
+      `INSERT INTO issues (id, title, description, kind, severity, status, source_session_id, resolution_session_id, created_at, updated_at)
+       VALUES (?, 'bug', 'desc', 'app-bug', 'medium', 'open', ?, ?, ?, ?)`,
+    ).run(issueId, 'iss-old', 'iss-old', Date.now(), Date.now());
+    // issue_appendices: PK 是 INTEGER AUTOINCREMENT, body 列, appended_at 列（不是 created_at）
+    db.prepare(
+      `INSERT INTO issue_appendices (issue_id, body, appended_session_id, appended_at)
+       VALUES (?, 'more ctx', ?, ?)`,
+    ).run(issueId, 'iss-old', Date.now());
+    const appendixId = (
+      db.prepare(`SELECT id FROM issue_appendices WHERE issue_id = ?`).get(issueId) as { id: number }
+    ).id;
+
+    renameWithDb(db, 'iss-old', 'iss-new');
+
+    // **关键断言**: issue 归属迁到 NEW（没被 SET NULL 断链）
+    const issueRow = db
+      .prepare(`SELECT source_session_id, resolution_session_id FROM issues WHERE id = ?`)
+      .get(issueId) as { source_session_id: string | null; resolution_session_id: string | null };
+    expect(issueRow.source_session_id).toBe('iss-new');
+    expect(issueRow.resolution_session_id).toBe('iss-new');
+    // appendix 快照归属迁到 NEW
+    const apxRow = db
+      .prepare(`SELECT appended_session_id FROM issue_appendices WHERE id = ?`)
+      .get(appendixId) as { appended_session_id: string | null };
+    expect(apxRow.appended_session_id).toBe('iss-new');
+  });
+
   it('findActiveMembershipsBySession 仅返回 active', () => {
     insertSession(db, 'sA');
     const t1 = repo.create({ name: 't1' });

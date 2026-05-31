@@ -248,7 +248,25 @@ class SessionManagerClass {
       // 不能因为后续事件流就自动 unarchive,否则用户刚归档的 active 会话
       // 下一秒收到 hook 事件就被默默放回实时面板,违背 CLAUDE.md「正交」约定。
       // 取消归档必须由 unarchive() 显式调用。
-      if (existing.lifecycle === 'closed') {
+      //
+      // **REVIEW_83 HIGH (reviewer-claude + reviewer-codex 双方独立 + lead un-skip
+      // manager-ingest.test.ts:267 实测复现 `expected 'active' to be 'closed'`)**:
+      // closed→active 复活必须收口为 **仅 SDK 通道事件** (opts.source==='sdk' = 用户
+      // resume 主路径,recover-and-send-impl.ts:154 emit sdk user message 触发)。原版无
+      // source 守卫 → 非 sdk 的迟到事件 (shutdown_session 后 CLI 子进程 buffer 异步飞回的
+      // 迟到 hook / 外部 cli 尾包) 也复活 closed → 把已关闭的 reviewer 假活回实时面板。
+      // 而 manager-ingest-pipeline.ts:228 advanceState 的 REVIEW_49 R3 HIGH-2 closed 短路
+      // 永远拦不到 —— 因为本 ensure() 在 advanceState 之前已先复活成 active(短路判 closed 恒
+      // false)。修法:本 ensure() 加 source 守卫,让「非 sdk 迟到事件不复活 closed」收口在
+      // 此处,advanceState 短路对非 sdk closed 事件才真正生效。
+      // 同时要求 archivedAt === null:归档与 lifecycle 正交,事件流不应自动复活归档会话的
+      // lifecycle(auto-unarchive 是 unarchiveOnUserSend 的显式职责,不是被动事件流;
+      // 原版漏此守卫致 closed+archived 会话被事件流偷改 lifecycle='active' — claude HIGH 同源子问题)。
+      if (
+        existing.lifecycle === 'closed' &&
+        existing.archivedAt === null &&
+        opts.source === 'sdk'
+      ) {
         const revived: SessionRecord = {
           ...existing,
           lifecycle: 'active',
