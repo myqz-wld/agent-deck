@@ -454,6 +454,20 @@ export class StreamProcessor {
       this.ctx.sessions.delete(sid);
       this.ctx.sessions.delete(tempKey);
       sessionManager.releaseSdkClaim(sid);
+      // **REVIEW_75 MED (reviewer-codex + lead 代码链实测)**:自然 stream end 也要释放 CLI sid claim。
+      // 根因:create-session-sdk-query.ts:179 拿到 realId 后无条件 claimAsSdk(realId)。resume fork /
+      // fresh-cli-reuse-app 路径下 realId 是 CLI sid 维度,internal.applicationSid 保持应用稳定 sid
+      // (反向 rename 不动 applicationSid)→ realId !== applicationSid。修前 finally 仅
+      // releaseSdkClaim(applicationSid),CLI sid 的 claim 永留 #sdkOwned。后果:SDK 流自然结束
+      // (sdk-stream-ended,不走 closeSession)后,后续同 CLI sid 的迟到 hook event 在 dedupOrClaim
+      // 第 2 分支 `source==='hook' && hasSdkClaim(sid)` 命中被静默丢弃 + Set 条目泄漏到应用重启。
+      // 只有 closeSession→runCloseSessionCleanup(pending-cancellation.ts:113)才释放三面 id,
+      // 自然 sdk-stream-ended 路径覆盖不到。修法:mirror runCloseSessionCleanup 的三面释放语义 —
+      // cliSessionId 与 sid/tempKey 都不同时(典型 fork/fresh)额外释放 CLI sid claim。
+      const cliSid = internal.cliSessionId;
+      if (cliSid && cliSid !== sid && cliSid !== tempKey) {
+        sessionManager.releaseSdkClaim(cliSid);
+      }
     }
     return realId;
   }

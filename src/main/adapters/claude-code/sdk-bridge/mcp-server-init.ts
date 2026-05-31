@@ -43,7 +43,6 @@ type McpServerConfig = Awaited<ReturnType<typeof getAgentDeckMcpServerForSession
  */
 export async function buildMcpServersForSession(
   internal: InternalSession,
-  _tempKey: string,
 ): Promise<{
   agentDeckMcpServer: McpServerConfig | null;
 }> {
