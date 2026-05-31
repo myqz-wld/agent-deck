@@ -679,6 +679,48 @@ describe('translateCodexEvent', () => {
       expect(events[0].payload).toMatchObject({ error: true });
       expect((events[0].payload as { text: string }).text).toMatch(/Network timeout/);
     });
+
+    // ─── REVIEW_80 LOW: loader-warning filter 收窄到 'Ignoring malformed' 锚点（双方独立同向）──
+    it('REVIEW_80 LOW: 真 loader warning（含 "Ignoring malformed agent role definition: failed to deserialize"）→ suppress UI emit + console.warn', () => {
+      const warnSpy = vi.spyOn(codexTranslateLogger, 'warn').mockImplementation(() => undefined);
+      const { emit, events } = collect();
+      translateCodexEvent(
+        {
+          type: 'item.completed',
+          item: {
+            id: 'e-loader',
+            type: 'error',
+            message:
+              'Ignoring malformed agent role definition: failed to deserialize ... invalid type: map, expected a string',
+          },
+        } as unknown as ThreadEvent,
+        emit,
+      );
+      // loader 锚点命中 → 不 emit UI（避免 reviewer-codex spawn 时反复扫 agents dir 污染）
+      expect(events).toHaveLength(0);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      warnSpy.mockRestore();
+    });
+
+    it('REVIEW_80 LOW: 真 turn-level error 仅含 "failed to deserialize"（无 "Ignoring malformed" 锚点）→ 仍 emit message(error)（修前被 OR-any 误吞）', () => {
+      const { emit, events } = collect();
+      translateCodexEvent(
+        {
+          type: 'item.completed',
+          item: {
+            id: 'e-real',
+            type: 'error',
+            message: 'failed to deserialize tool response: unexpected end of JSON input',
+          },
+        } as unknown as ThreadEvent,
+        emit,
+      );
+      // 修前 LOADER_WARNING_PATTERNS.some(includes) 命中 'failed to deserialize' → 静默吞
+      // 修后要求 loader 锚点 'Ignoring malformed' → 真 turn-level error 正常 emit 给用户看
+      expect(events).toHaveLength(1);
+      expect(events[0].payload).toMatchObject({ error: true });
+      expect((events[0].payload as { text: string }).text).toMatch(/failed to deserialize tool response/);
+    });
   });
 
   describe('emit closure isolation', () => {

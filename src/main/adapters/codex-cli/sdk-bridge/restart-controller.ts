@@ -22,6 +22,9 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import type { CodexSessionHandle } from './types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-restart');
 
 export interface RestartCreateOpts {
   cwd: string;
@@ -123,14 +126,22 @@ export class RestartController {
       // close OLD：内部 intentionallyClosed=true → abort current turn → runTurnLoop 静默退出
       await this.ctx.closeSession(sessionId);
 
-      // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox。
-      // symmetry-plan P2 MED-A：写库后 emit session-upserted 让 SessionDetail 下拉值立即跟到
-      // 新 mode（与 claude 同款，5-10s busy 期间用户已经看到「切完了」）。
-      sessionRepo.setCodexSandbox(sessionId, sandbox);
-      const updatedRec = sessionRepo.get(sessionId);
-      if (updatedRec) eventBus.emit('session-upserted', updatedRec);
-
+      // **REVIEW_80 MED 修法（reviewer-claude + reviewer-codex 双方独立共识）**:
+      // forward setCodexSandbox 必须纳入 try。修前它在 try 之外（closeSession 之后裸调），
+      // better-sqlite3 同步 `.run()` throw（SQLITE_BUSY / disk full / corrupt）时异常直接冒出
+      // IIFE → 跳过 catch 的全部补救（rollback + emit error）→ 用户卡在占位「正在切换…」文案
+      // 无 finished / 无 error bubble（自愈靠下条消息走 recoverer，但本次切档静默失败 + 占位卡死），
+      // 违反 ipc/adapters.ts:395 契约「adapter 内部已 emit error / 回滚 DB」。纳入 try 后
+      // setCodexSandbox throw 走 catch emit error 收口占位文案。
+      // 与 claude restart-controller.ts:378 同款 latent pattern（parity-shared，claude 侧留 follow-up）。
       try {
+        // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox。
+        // symmetry-plan P2 MED-A：写库后 emit session-upserted 让 SessionDetail 下拉值立即跟到
+        // 新 mode（与 claude 同款，5-10s busy 期间用户已经看到「切完了」）。
+        sessionRepo.setCodexSandbox(sessionId, sandbox);
+        const updatedRec = sessionRepo.get(sessionId);
+        if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+
         const handle = await this.ctx.createSession({
           cwd: rec.cwd,
           prompt: handoffPrompt,
@@ -148,10 +159,22 @@ export class RestartController {
         // (commit 6e0eb37 / REVIEW_40 注释);thread-loop case 3 是 SSOT。
         return handle.sessionId;
       } catch (err) {
-        // 回滚：DB 改回 oldSandbox + emit session-upserted 让下拉回弹 + emit error message
-        sessionRepo.setCodexSandbox(sessionId, oldSandbox);
-        const rolled = sessionRepo.get(sessionId);
-        if (rolled) eventBus.emit('session-upserted', rolled);
+        // 回滚：DB 改回 oldSandbox + emit session-upserted 让下拉回弹 + emit error message。
+        // **REVIEW_80 MED 修法 (a)（reviewer-claude 补充细节）**: rollback write 自身必须包
+        // try/catch — 修前 line 152 裸调 setCodexSandbox(oldSandbox)，持续性 DB 故障下回滚再
+        // throw 会掩盖原始 err（createSession 错因丢失）+ 跳过下方 emit error message。包 try/catch
+        // 后回滚失败仅 warn，原始 err 仍透传 + error message 仍 emit。
+        // 注:forward setCodexSandbox throw 时 DB 未写成新值,回滚写 oldSandbox 是 idempotent no-op 安全。
+        try {
+          sessionRepo.setCodexSandbox(sessionId, oldSandbox);
+          const rolled = sessionRepo.get(sessionId);
+          if (rolled) eventBus.emit('session-upserted', rolled);
+        } catch (rollbackErr) {
+          logger.warn(
+            `[codex-bridge] restartWithCodexSandbox rollback setCodexSandbox(${sessionId}, ${oldSandbox}) 失败（持续性 DB 故障），原始 err 仍透传:`,
+            rollbackErr,
+          );
+        }
         this.ctx.emit({
           sessionId,
           agentId: AGENT_ID,
