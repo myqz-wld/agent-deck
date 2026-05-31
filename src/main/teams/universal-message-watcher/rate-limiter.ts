@@ -41,6 +41,25 @@ export class PerKeyRateLimiter {
     return true;
   }
 
+  /**
+   * **REVIEW_86 LOW (reviewer-claude)**: 周期性清理空桶，防 buckets Map 随历史 team（含已 archive）
+   * 单调增长。每个 team send 过一次就留一个常驻 entry；archived team 的 bucket 裁剪到空后仍占位，
+   * 无自然 eviction（tryConsume 只对当前 key 操作，不扫别 key）。bounded by team 总数（每桶 ≤
+   * maxPerWindow 个 number），影响小但架构上是泄漏。
+   *
+   * 调用方：universal-message-watcher.start() 的 poll tick 顺带调（low-freq sweep 即可，无需
+   * 单独 timer）。把所有窗口外（全部 timestamp ≤ threshold）的桶删除。
+   */
+  sweepEmptyBuckets(now = Date.now()): void {
+    const threshold = now - this.windowMs;
+    for (const [key, arr] of this.buckets) {
+      // 桶内最新 timestamp 也已出窗 → 整桶可删（下次该 key tryConsume 会重建空桶）
+      if (arr.length === 0 || arr[arr.length - 1] <= threshold) {
+        this.buckets.delete(key);
+      }
+    }
+  }
+
   retryAfterMs(key: string, now = Date.now()): number {
     const arr = this.buckets.get(key);
     if (!arr || arr.length === 0) return 0;
@@ -54,6 +73,11 @@ export class PerKeyRateLimiter {
 
   reset(): void {
     this.buckets.clear();
+  }
+
+  /** 当前桶数（debug / 单测用：验证 sweepEmptyBuckets 真删空桶，REVIEW_86 LOW）。 */
+  get bucketCount(): number {
+    return this.buckets.size;
   }
 }
 
