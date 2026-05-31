@@ -147,9 +147,9 @@ describe('assertMainRepoCleanForArchive — 5 status × 命中 critical → conf
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
     expect(result.ok).toBe(false);
     expect(result.conflicts).toHaveLength(1);
-    // displayPath = "newname -> oldname"（plan §Phase 4.2 设计）
+    // displayPath = "oldname -> newname"（REVIEW_74 INFO: 与人类 git status 方向一致）
     expect(result.conflicts[0]).toEqual({
-      path: 'ref/plans/plan-xyz-20260519.md -> ref/plans/old-plan.md',
+      path: 'ref/plans/old-plan.md -> ref/plans/plan-xyz-20260519.md',
       status: 'R ',
     });
   });
@@ -167,7 +167,7 @@ describe('assertMainRepoCleanForArchive — 5 status × 命中 critical → conf
     expect(result.ok).toBe(false);
     expect(result.conflicts).toHaveLength(1);
     expect(result.conflicts[0]).toEqual({
-      path: 'ref/plans/old-INDEX.md -> ref/plans/INDEX.md',
+      path: 'ref/plans/INDEX.md -> ref/plans/old-INDEX.md',
       status: 'R ',
     });
   });
@@ -184,7 +184,7 @@ describe('assertMainRepoCleanForArchive — 5 status × 命中 critical → conf
     expect(result.ok).toBe(false);
     expect(result.conflicts).toHaveLength(1);
     expect(result.conflicts[0]).toEqual({
-      path: '.claude/plans/plan-xyz-20260519.md -> docs/template.md',
+      path: 'docs/template.md -> .claude/plans/plan-xyz-20260519.md',
       status: 'C ',
     });
   });
@@ -231,7 +231,7 @@ describe('assertMainRepoCleanForArchive — 5 status × 不命中 critical → w
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
     expect(result.ok).toBe(true);
     expect(result.warnings).toEqual([
-      { path: 'src/new-name.ts -> src/old-name.ts', status: 'R ' },
+      { path: 'src/old-name.ts -> src/new-name.ts', status: 'R ' },
     ]);
   });
 
@@ -241,7 +241,7 @@ describe('assertMainRepoCleanForArchive — 5 status × 不命中 critical → w
     const result = await assertMainRepoCleanForArchive({ runGit }, fixedInput);
     expect(result.ok).toBe(true);
     expect(result.warnings).toEqual([
-      { path: 'src/copy.ts -> src/origin.ts', status: 'C ' },
+      { path: 'src/origin.ts -> src/copy.ts', status: 'C ' },
     ]);
   });
 });
@@ -264,8 +264,8 @@ describe('assertMainRepoCleanForArchive — 多 entry 混合：critical + non-cr
     ]);
     expect(result.warnings).toHaveLength(2);
     expect(result.warnings.map((w) => w.path).sort()).toEqual([
-      'src/copy.ts -> src/origin.ts',
       'src/main/index.ts',
+      'src/origin.ts -> src/copy.ts',
     ]);
   });
 });

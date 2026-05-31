@@ -328,11 +328,26 @@ const POST_COMMIT_PHASES: ReadonlySet<PostFfMergePhase> = new Set([
  * 检测 ArchivePlanError.error 文本是否为 post-commit phase 失败(archive commit 已落)。
  * 解析 postFfMergeErr 生成的 `[post-ff-merge:<phase>]` 前缀,phase ∈ POST_COMMIT_PHASES。
  * handler 用此决定 post-ff-merge 失败时是否仍跑 baton cleanup(详 archive-plan.ts MED 修法注释)。
+ *
+ * **REVIEW_74 HIGH 修法(deep-review batch B2 reviewer-claude HIGH + reviewer-codex MED 双方独立 +
+ * lead node 实测三重确认)**:旧实现 `errorText.match(/^\[post-ff-merge:([a-z-]+)\]/)` charset
+ * `[a-z-]+` 不含大写字母,而 POST_COMMIT_PHASES 3 个枚举里有 2 个含大写(`archive-rev-parse-HEAD`
+ * 的 `HEAD` / `git-branch-D` 的 `D`)→ regex 遇大写提前终止 → 后续 `\]` 匹配失败 → 整个 match
+ * 返回 null → 函数误判 false → archive-plan.ts:237 不跑 runBatonCleanup → teammate 成孤儿
+ * dormant 未 closed(正是本函数下面 POST_COMMIT_PHASES jsdoc 自承「本项目反复踩的残留场景」,
+ * 也正是 B1/REVIEW_73 刚 land 的 late-phase baton 修法想覆盖的 3 phase 里漏了 2 个)。bug
+ * 确定性触发非概率;B1 回归 test 只测了唯一全小写的 `git-worktree-remove` 故漏网。
+ *
+ * 修法:改用 startsWith 遍历 POST_COMMIT_PHASES Set 做前缀匹配,**彻底绕开 charset 维护负担**
+ * (未来 phase 名含数字 / 任意字符都不会再 silent 漏判)。闭合 `]` 纳入匹配保证 prefix-safe
+ * (`[post-ff-merge:rev-parse-HEAD]` 不会误命中 `archive-rev-parse-HEAD` 的尾缀,因完整 phase +
+ * `]` 必须全等)。
  */
 export function isPostCommitArchiveError(errorText: string): boolean {
-  const m = errorText.match(/^\[post-ff-merge:([a-z-]+)\]/);
-  if (!m) return false;
-  return POST_COMMIT_PHASES.has(m[1] as PostFfMergePhase);
+  for (const phase of POST_COMMIT_PHASES) {
+    if (errorText.startsWith(`[post-ff-merge:${phase}]`)) return true;
+  }
+  return false;
 }
 
 // ===========================================================================

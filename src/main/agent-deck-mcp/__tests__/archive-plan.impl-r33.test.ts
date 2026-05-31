@@ -18,6 +18,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import {
   archivePlanImpl,
   _isArchivePlanError,
+  isPostCommitArchiveError,
 } from '../tools/handlers/archive-plan-impl';
 import type { ArchivePlanError } from '../tools/handlers/archive-plan-impl';
 import { makeState, makeDeps, fixtureHappyPath } from './archive-plan/_setup';
@@ -424,6 +425,56 @@ describe('archivePlanImpl — REVIEW_33 H9 post-ff-merge phase prefix', () => {
     // prefix 知道 main 还没动 → 可以简单 retry）
     expect((result as ArchivePlanError).error).not.toContain('[post-ff-merge:');
     expect((result as ArchivePlanError).error).toContain('baseBranch');
+  });
+});
+
+describe('isPostCommitArchiveError — REVIEW_74 HIGH: 含大写 phase 正确识别 post-commit', () => {
+  // REVIEW_74 HIGH(deep-review batch B2 reviewer-claude HIGH + reviewer-codex MED 双方独立):
+  // 旧 regex `[a-z-]+` 漏判含大写字母的 post-commit phase(`archive-rev-parse-HEAD` / `git-branch-D`)
+  // → handler 不跑 baton cleanup → teammate 孤儿 dormant 残留。本 describe 穷举全部 11 phase
+  // 锁死「POST_COMMIT_PHASES 全部识别为 post-commit + 其余全部识别为非 post-commit」契约,
+  // 防 charset / phase 枚举漂移再 silent 漏判(B1 回归 test 只覆盖唯一全小写的 git-worktree-remove)。
+
+  // 3 个 post-commit phase(archive commit 已落,失败仍须跑 baton cleanup 收口 team)
+  const POST_COMMIT_PHASES = [
+    'archive-rev-parse-HEAD', // 含大写 HEAD — 旧 regex 漏判
+    'git-worktree-remove', // 全小写 — 旧 regex 唯一命中(B1 仅测此)
+    'git-branch-D', // 含大写 D — 旧 regex 漏判
+  ];
+  // 8 个早期 post-ff-merge phase(plan 尚未完整归档,caller 可 reset 重试,不该牵连 team)
+  const PRE_COMMIT_POST_FFMERGE_PHASES = [
+    'rev-parse-HEAD', // 含大写 HEAD 但非 post-commit — 必须仍返 false
+    'reread-plan-after-ffmerge',
+    'mkdir-plans-dir',
+    'write-archived-plan',
+    'sync-plans-INDEX', // 含大写 INDEX 但非 post-commit — 必须仍返 false
+    'unlink-original-plan',
+    'git-add',
+    'git-commit',
+  ];
+
+  it.each(POST_COMMIT_PHASES)(
+    'post-commit phase "%s" → isPostCommitArchiveError=true (含大写也命中)',
+    (phase) => {
+      expect(isPostCommitArchiveError(`[post-ff-merge:${phase}] some git error`)).toBe(true);
+    },
+  );
+
+  it.each(PRE_COMMIT_POST_FFMERGE_PHASES)(
+    'early post-ff-merge phase "%s" → isPostCommitArchiveError=false(含大写但非 post-commit 不误判)',
+    (phase) => {
+      expect(isPostCommitArchiveError(`[post-ff-merge:${phase}] some git error`)).toBe(false);
+    },
+  );
+
+  it('非 post-ff-merge error(无 prefix)→ false', () => {
+    expect(isPostCommitArchiveError('main repo has uncommitted changes')).toBe(false);
+    expect(isPostCommitArchiveError('')).toBe(false);
+  });
+
+  it('prefix-safe:[post-ff-merge:rev-parse-HEAD] 不被 archive-rev-parse-HEAD 尾缀误命中', () => {
+    // rev-parse-HEAD 是 archive-rev-parse-HEAD 的后缀子串,startsWith + 闭合 `]` 保证不误命中
+    expect(isPostCommitArchiveError('[post-ff-merge:rev-parse-HEAD] x')).toBe(false);
   });
 });
 

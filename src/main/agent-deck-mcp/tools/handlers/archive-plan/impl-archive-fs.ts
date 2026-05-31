@@ -152,16 +152,32 @@ export async function runArchiveFs(
   try {
     // CHANGELOG_169 F6: 单飞锁包 INDEX RMW。同 indexPath 并发 archive 严格串行,先到先得。
     // try/catch/finally delete Map 保证异常路径也释放(参考 recoverer.ts 同款 pattern)。
-    // 用 IIFE 把 RMW 包成 async function 让 promise 自身有 await 路径,避免 unhandled rejection。
+    //
+    // **REVIEW_74 MED 修法(deep-review batch B2 reviewer-claude + reviewer-codex 双方独立 + lead
+    // /tmp harness 实测复现 lost update)**:旧实现把 `indexSyncFlight.set` 排在 `await
+    // previousFlight` **之后** → 退化为「只串行化最后一个 set 者」。当 caller A 持锁期间 B、C
+    // 都到达,二者 `get` 到的 previousFlight 都是 A(各自都没先 set 自己)→ 都只 await A → A
+    // 完成后 B、C **并发**跑各自 RMW(互不 await)同读 A 写后 snapshot → 丢一行(silent INDEX
+    // corruption)。lead harness 三路并发实测 `expected=3 actual=2 lost=B` 复现。附带 finally
+    // 旧实现只判 `stored !== undefined` 不校验身份 → B 完成时误删 C 刚 set 的锁。
+    //
+    // 修法(set-before-await 真链式 + identity-check delete):
+    //  1. `myFlight` 内部先 await predecessor 再跑 RMW,把链 chain 在前一个之上(而非都 chain 在 A)
+    //  2. `indexSyncFlight.set` 提到 await **之前** → 下一个 caller `get` 到的 predecessor 是
+    //     **本次** flight(而非更早的 A)→ 真正串行
+    //  3. finally 只在 `indexSyncFlight.get(indexPath) === myFlightTail` 时 delete(身份校验,
+    //     防误删后到 caller 的锁)
     const previousFlight = indexSyncFlight.get(indexPath);
-    if (previousFlight) {
-      try {
-        await previousFlight;
-      } catch {
-        /* 上一轮 archive 的 INDEX RMW 失败不影响本轮 — 本轮按 fresh state RMW */
-      }
-    }
     const flightPromise: Promise<ArchivePlanResult['plansIndexAction']> = (async () => {
+      // 链式:先等前一个 caller 的 RMW 完成(失败不影响本轮,本轮按 fresh state RMW),
+      // 再读 INDEX → 算 → 写。set-before-await(下面)保证 predecessor 是本次链的真正前驱。
+      if (previousFlight) {
+        try {
+          await previousFlight;
+        } catch {
+          /* 上一轮 archive 的 INDEX RMW 失败不影响本轮 — 本轮按 fresh state RMW */
+        }
+      }
       const indexExists = await deps.exists(indexPath);
       const existingContent = indexExists ? await deps.readFile(indexPath) : null;
       const syncResult = syncPlansIndex(existingContent, {
@@ -174,23 +190,21 @@ export async function runArchiveFs(
       }
       return syncResult.action;
     })();
-    indexSyncFlight.set(
-      indexPath,
-      // .then(success, failure) 让 Map 里的 promise 自身永远 resolve(不抛 unhandled rejection),
-      // 同时实际的 rejection 由 await flightPromise 路径处理(下面 try/catch)。
-      flightPromise.then(
-        () => undefined,
-        () => undefined,
-      ),
+    // .then(success, failure) 让 Map 里的 promise 自身永远 resolve(不抛 unhandled rejection),
+    // 同时实际的 rejection 由 await flightPromise 路径处理(下面 try/catch)。
+    const myFlightTail = flightPromise.then(
+      () => undefined,
+      () => undefined,
     );
+    // **set 在 await 之前**:让下个并发 caller `get` 到本次 flight 当 predecessor,真正串行。
+    indexSyncFlight.set(indexPath, myFlightTail);
     try {
       plansIndexAction = await flightPromise;
     } finally {
-      // delete Map 让下个 caller 可以拿新锁,即使本 caller throw 也清干净
-      const stored = indexSyncFlight.get(indexPath);
-      if (stored !== undefined) {
-        // best-effort:仅删自己设的那把锁(防多 caller 交错下误删别人的锁)。
-        // 由于 await 完成后必定释放本次 IIFE 衍生的 .then() promise,直接 delete 即可。
+      // delete Map 让下个 caller 可以拿新锁,即使本 caller throw 也清干净。
+      // **identity check**:仅删自己设的那把锁(后到 caller 可能已 set 它自己的 myFlightTail
+      // 覆盖本次 — 此时 get !== myFlightTail,不能删,否则把后者的锁误删掉)。
+      if (indexSyncFlight.get(indexPath) === myFlightTail) {
         indexSyncFlight.delete(indexPath);
       }
     }
