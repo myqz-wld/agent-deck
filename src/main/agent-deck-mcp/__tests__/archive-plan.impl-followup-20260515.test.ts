@@ -973,37 +973,20 @@ describe('archive-plan-tool-ux-followup-20260515 R1 fix MED-2: postFfMergeErr re
   });
 
   it('phaseHint 缺省 → hint = GENERIC(GENERIC 自身已含 retry 警告,不重复 prefix)', async () => {
-    const { state, input, expectedMainRepo } = fixtureHappyPath();
-    // 触发 reread-plan-after-ffmerge phase(line 405:read fail 不传 phaseHint 走 GENERIC)
-    // mock 队列必须撑过 step 8 rev-parse HEAD,然后 step 8b read fail
-    const planFilePath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
-    const baseDeps = makeDeps(state, [
-      `${expectedMainRepo}/.git`, // rev-parse --git-common-dir
-      'wb', // rev-parse --abbrev-ref HEAD
-      '', // status --porcelain
-      'mainhash', // rev-parse --verify base
-      '', // checkout base
-      '', // merge --ff-only
-      'finalhash', // rev-parse HEAD(step 8 成功 → 进入 step 8b reread)
-    ]);
-    const wrappedRunGit = baseDeps.runGit!;
-    const deps = {
-      ...baseDeps,
-      runGit: async (args: string[], cwd: string) => {
-        if (args[0] === 'merge' && args[1] === '--ff-only') {
-          // ff-merge 后让 plan 文件被「外部并发删除」(reread fail 触发 line 405)
-          state.files.delete(planFilePath);
-        }
-        return wrappedRunGit(args, cwd);
-      },
-    };
-    const result = await archivePlanImpl(input, deps);
-    expect(_isArchivePlanError(result)).toBe(true);
-    const err = result as ArchivePlanError;
-    // step 8b reread fail 触发 [post-ff-merge:reread-plan-after-ffmerge]
+    // REVIEW_73 MED: 所有 impl postFfMergeErr 调用现都传 phaseHint(8b read-fail/no-fm 也补了
+    // reset phaseHint),无 impl 路径再产生 GENERIC fallback。本 test 改为直接 unit-test
+    // postFfMergeErr 的 GENERIC fallback 分支(phaseHint 缺省时),保留「GENERIC 不重复 prefix」
+    // 契约验证(不再依赖已失效的 8b read-fail 触发路径)。
+    const { postFfMergeErr } = await import('../tools/handlers/archive-plan-impl');
+    const err = postFfMergeErr(
+      'reread-plan-after-ffmerge',
+      new Error('some failure'),
+      // 不传 phaseHint → 走 GENERIC
+    ) as ArchivePlanError;
     expect(err.error).toContain('[post-ff-merge:reread-plan-after-ffmerge]');
     // 不传 phaseHint → 走 GENERIC(自含 retry 警告)
     expect(err.hint).toContain('ff-merge 已完成');
+    expect(err.hint).toContain('phase 标识手工补完');
     // GENERIC 不应被 prefix 重复(prefix 只加给 phaseHint override 路径)
     expect(err.hint).not.toContain('⚠ Cannot retry archive_plan as a whole');
   });

@@ -304,6 +304,37 @@ export function postFfMergeErr(
   };
 }
 
+/**
+ * REVIEW_73 MED(deep-review reviewer-claude + reviewer-codex 双方 ✅):post-commit phase 判定。
+ *
+ * archive commit(impl-cleanup.ts:172 `git commit`)成功之后才进入的 phase —— 此时 plan 已
+ * **实质归档完成**(ff-merge + 写 archived plan + sync INDEX + unlink 原 plan + commit 都成功),
+ * 仅剩 git artifacts 清理(rev-parse archive HEAD / worktree remove / branch -D)。这 3 phase
+ * 失败时 caller 使命已终结(plan 完成),handler 应仍跑 baton cleanup 收口 team(teammate
+ * shutdown + archive caller),避免 teammate 成孤儿 dormant 未 closed(本项目反复踩的残留场景)。
+ *
+ * **不含**早期 post-ff-merge phase(rev-parse-HEAD / reread-plan-after-ffmerge / mkdir-plans-dir /
+ * write-archived-plan / sync-plans-INDEX / unlink-original-plan / git-commit 本身失败):这些
+ * phase plan 尚未完整归档(commit 没落或没到 commit),caller 可能 `git reset --hard ORIG_HEAD`
+ * 回滚重试 → team 不该被收口(否则重试时 teammate 已被关)。
+ */
+const POST_COMMIT_PHASES: ReadonlySet<PostFfMergePhase> = new Set([
+  'archive-rev-parse-HEAD',
+  'git-worktree-remove',
+  'git-branch-D',
+]);
+
+/**
+ * 检测 ArchivePlanError.error 文本是否为 post-commit phase 失败(archive commit 已落)。
+ * 解析 postFfMergeErr 生成的 `[post-ff-merge:<phase>]` 前缀,phase ∈ POST_COMMIT_PHASES。
+ * handler 用此决定 post-ff-merge 失败时是否仍跑 baton cleanup(详 archive-plan.ts MED 修法注释)。
+ */
+export function isPostCommitArchiveError(errorText: string): boolean {
+  const m = errorText.match(/^\[post-ff-merge:([a-z-]+)\]/);
+  if (!m) return false;
+  return POST_COMMIT_PHASES.has(m[1] as PostFfMergePhase);
+}
+
 // ===========================================================================
 // consts — DEFAULT_DEPS + indexSyncFlight singleton Map
 // ===========================================================================

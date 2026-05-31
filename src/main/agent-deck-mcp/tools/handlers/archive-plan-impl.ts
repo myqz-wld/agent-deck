@@ -60,6 +60,9 @@ export type {
 // 拆分后函数移到 ./archive-plan/_impl-shared.ts 必须从 facade re-export 让旧 caller
 // `from '@main/agent-deck-mcp/tools/handlers/archive-plan-impl'` 仍能拿到该 value。
 export { postFfMergeErr } from './archive-plan/_impl-shared';
+// REVIEW_73 MED: post-commit phase 判定(handler post-ff-merge late phase 失败仍跑 baton cleanup)。
+// 从 facade re-export 保持 handler import 路径一致(不深入子模块路径)。
+export { isPostCommitArchiveError } from './archive-plan/_impl-shared';
 
 // ===========================================================================
 // precheck-helpers re-export (Step 4.2 前的 CHANGELOG_169 F1 Step 1.2 抽出层不动)
