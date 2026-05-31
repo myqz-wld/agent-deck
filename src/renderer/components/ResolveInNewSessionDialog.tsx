@@ -146,6 +146,12 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               {error}
             </div>
           )}
+          {issue.resolutionSessionId && (
+            <div className="rounded bg-status-waiting/15 px-2 py-1 text-[11px] text-status-waiting">
+              ⚠️ 该问题已有解决会话（{issue.resolutionSessionId.slice(0, 8)}）。重新起新会话会替换
+              resolutionSessionId，旧解决会话将失去自助改状态（update_issue_status）的授权。
+            </div>
+          )}
           <div className="space-y-1">
             <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
               Adapter

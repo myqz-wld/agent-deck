@@ -19,47 +19,19 @@ import type {
 } from '@shared/types';
 import { useIssuesStore } from '../stores/issues-store';
 import { ResolveInNewSessionDialog } from './ResolveInNewSessionDialog';
+import {
+  type EditingState,
+  type FieldKey,
+  toEditing,
+  buildUpdatePatch,
+  rebaseEditingState,
+} from './issue-detail-editing';
 
 interface Props {
   issueId: string;
   onClose: () => void;
   /** 点「解决会话 / 来源会话」跳到 live 视图打开该 session（App → IssuesPanel 透传） */
   onOpenSession?: (sid: string) => void;
-}
-
-type EditingState = {
-  title: string;
-  description: string;
-  repro: string;
-  kind: string;
-  status: IssueStatus;
-  severity: IssueSeverity;
-  labels: string; // comma-joined
-};
-
-function toEditing(rec: IssueRecord): EditingState {
-  return {
-    title: rec.title,
-    description: rec.description,
-    repro: rec.repro ?? '',
-    kind: rec.kind,
-    status: rec.status,
-    severity: rec.severity,
-    labels: rec.labels.join(', '),
-  };
-}
-
-/** 编辑缓冲是否与基线一致（用于判定用户有无未保存草稿）。 */
-function editingMatches(a: EditingState, b: EditingState): boolean {
-  return (
-    a.title === b.title &&
-    a.description === b.description &&
-    a.repro === b.repro &&
-    a.kind === b.kind &&
-    a.status === b.status &&
-    a.severity === b.severity &&
-    a.labels === b.labels
-  );
 }
 
 export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Element {
@@ -71,6 +43,12 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   const [editing, setEditing] = useState<EditingState | null>(
     issueFromStore ? toEditing(issueFromStore) : null,
   );
+  // baseline = 最新已知服务器值快照（每次 rebase 推进到 latest）。仅用于 rebase 时判定某字段
+  // 「有无未保存草稿」（editing[k] 归一化 !== baseline[k]）。详 issue-detail-editing.ts 头注 ——
+  // 提交判定走 editing vs 最新 issue（非 baseline），修 Round3-MED「冲突字段改回旧值 stale no-op」。
+  const [baseline, setBaseline] = useState<EditingState | null>(
+    issueFromStore ? toEditing(issueFromStore) : null,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
@@ -78,18 +56,32 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   // ref 镜像让异步 fetch callback / effect 读到 resolve 那一刻的最新值（闭包变量是启动时旧值）。
   const issueRef = useRef(issue);
   const editingRef = useRef(editing);
+  const baselineRef = useRef(baseline);
   const savingRef = useRef(saving);
   useEffect(() => {
     issueRef.current = issue;
     editingRef.current = editing;
+    baselineRef.current = baseline;
     savingRef.current = saving;
   });
 
-  // 初始 / issueId 变 → 拉 detail 含 appendices（IssuesGet 比 store 多带 appendices 子列表）。
-  // editing 已由 issueFromStore 同步 seed（可在 fetch 未回前就编辑）→ fetch 回来时若用户已起草稿
-  // 则只更 issue 不动 editing，保住输入（codex reviewer MED：慢 fetch 吞快速输入）。
-  // 用 ref 读 fetch resolve 那一刻的最新 issue/editing（闭包变量是 effect 启动时的旧值，
-  // 异步 resolve 后已过时）。
+  // 用户改某字段：只写 editing（草稿由 editing vs baseline 归一化比较动态得出，无需单独记录）。
+  const updateField = <K extends FieldKey>(key: K, value: EditingState[K]): void => {
+    setEditing((prev) => (prev ? { ...prev, [key]: value } : prev));
+  };
+
+  // 外部 issue（fetch resolve / store-sync event）到来时 rebase：baseline 推进到最新；editing 无草稿
+  // 字段同步最新、有草稿字段保留用户输入。用 ref 读 resolve 那一刻的最新 editing/baseline。
+  const rebaseEditing = (latest: IssueRecord): void => {
+    const next = rebaseEditingState(editingRef.current, baselineRef.current, latest);
+    setEditing(next.editing);
+    setBaseline(next.baseline);
+  };
+
+  // 初始拉 detail 含 appendices（IssuesGet 比 store 多带 appendices 子列表）。父组件 key={issueId}
+  // 保证 issueId 变即 remount fresh state（HIGH-A 跨 issue 污染根治），故本 effect 仅 mount 跑一次。
+  // editing/baseline 已由 issueFromStore 同步 seed（可在 fetch 未回前就编辑）→ fetch 回来时 rebase：
+  // 无草稿字段更到最新，有草稿字段保留（codex MED：慢 fetch 不吞已输入草稿）。
   useEffect(() => {
     let cancelled = false;
     setError(null);
@@ -98,38 +90,32 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         if (!cancelled && !fetched) setError('未找到该问题');
         return;
       }
-      const base = issueRef.current;
-      const draft = editingRef.current;
-      const hasDraft = !!(base && draft && !editingMatches(draft, toEditing(base)));
       setIssue(fetched);
-      if (!hasDraft) setEditing(toEditing(fetched));
+      rebaseEditing(fetched);
     });
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issueId]);
 
   // store 行被 onIssueChanged event 更新（典型：起新会话回写 status='in-progress'，或其他
   // 视图 / teammate 改了同一 issue）→ 刷新 read-only `issue` 显示，避免「状态没刷新需切走再切回」。
-  // editing 草稿处理：仅当用户没有未保存改动时才同步（editingMatches 当前 issue 基线）；用户编辑
-  // 到一半时只更 issue 不动草稿，避免外部 event 吞掉输入。handleSave 的逐字段 diff 仍以最新 issue
-  // 为基线 → 草稿能正确叠加到 DB 较新行上。
+  // editing 草稿处理：rebaseEditing 把无草稿字段同步到最新、有草稿字段保留（HIGH-B / Round2-HIGH 根治）。
   // saving 期间整体跳过：handleSave 自己 setIssue。
   // appendices 防丢：list() 路径的 store 行不带 appendices（避免 N+1），event 路径都带；
   // 故 `?? prev` 保住 IssuesGet 已拉到的子列表（undefined=未加载，区别于 []=确无）。
-  // 用 ref 读最新 issue/editing/saving（这些可在 storeUpdatedAt 不变时变化 → 闭包值会过时）。
+  // 用 ref 读最新 issue/editing/baseline/saving（这些可在 storeUpdatedAt 不变时变化 → 闭包值会过时）。
   const storeUpdatedAt = issueFromStore?.updatedAt;
   useEffect(() => {
     if (!issueFromStore || savingRef.current) return;
     const base = issueRef.current;
     if (base && base.updatedAt === issueFromStore.updatedAt) return;
-    const draft = editingRef.current;
-    const hasDraft = !!(base && draft && !editingMatches(draft, toEditing(base)));
     setIssue((prev) => ({
       ...issueFromStore,
       appendices: issueFromStore.appendices ?? prev?.appendices,
     }));
-    if (!hasDraft) setEditing(toEditing(issueFromStore));
+    rebaseEditing(issueFromStore);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeUpdatedAt]);
 
@@ -140,7 +126,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
       </div>
     );
   }
-  if (!issue || !editing) {
+  if (!issue || !editing || !baseline) {
     return <div className="px-3 py-3 text-xs text-deck-muted">加载中...</div>;
   }
 
@@ -148,26 +134,19 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
     setSaving(true);
     setError(null);
     try {
-      const labelsArr = editing.labels
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const updated = await window.api.issuesUpdate(issueId, {
-        title: editing.title !== issue.title ? editing.title : undefined,
-        description: editing.description !== issue.description ? editing.description : undefined,
-        repro: editing.repro !== (issue.repro ?? '') ? (editing.repro || null) : undefined,
-        kind: editing.kind !== issue.kind ? editing.kind : undefined,
-        status: editing.status !== issue.status ? editing.status : undefined,
-        severity: editing.severity !== issue.severity ? editing.severity : undefined,
-        labels: JSON.stringify(labelsArr) !== JSON.stringify(issue.labels) ? labelsArr : undefined,
-      });
+      const patch = buildUpdatePatch(editing, issue, issueId);
+      // 空 patch（无草稿）→ 跳过 IPC 往返（避免冗余 emit kind=updated 触发全 panel no-op upsert）。
+      if (Object.keys(patch).length === 0) {
+        setSaving(false);
+        return;
+      }
+      const updated = await window.api.issuesUpdate(issueId, patch);
       setIssue(updated);
       upsertIssue(updated);
-      // 关键：保存后把 editing 归一化为 DB 返回的 canonical 形态（如 labels "a,b" → "a, b"）。
-      // 不归一化则 editingMatches(editing, toEditing(updated)) 永久 false → store-sync effect 的
-      // hasDraft 守护永久误判有草稿 → 后续外部 issue 更新（起新会话改 status / teammate append）
-      // 再也同步不进 editing（codex reviewer MED 实证）。
+      // 保存成功 → editing + baseline 都归一化为 DB canonical 形态（labels "a,b" → "a, b"）。
+      // baseline 推进到 updated → 后续外部 event 能把所有字段 rebase 到最新（草稿已落库）。
       setEditing(toEditing(updated));
+      setBaseline(toEditing(updated));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -228,7 +207,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           <input
             type="text"
             value={editing.title}
-            onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+            onChange={(e) => updateField('title', e.target.value)}
             disabled={isDeleted || saving}
             maxLength={200}
             className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
@@ -238,7 +217,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           <Field label="状态">
             <select
               value={editing.status}
-              onChange={(e) => setEditing({ ...editing, status: e.target.value as IssueStatus })}
+              onChange={(e) => updateField('status', e.target.value as IssueStatus)}
               disabled={isDeleted || saving}
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
             >
@@ -250,9 +229,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           <Field label="严重度">
             <select
               value={editing.severity}
-              onChange={(e) =>
-                setEditing({ ...editing, severity: e.target.value as IssueSeverity })
-              }
+              onChange={(e) => updateField('severity', e.target.value as IssueSeverity)}
               disabled={isDeleted || saving}
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
             >
@@ -265,7 +242,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
             <input
               type="text"
               value={editing.kind}
-              onChange={(e) => setEditing({ ...editing, kind: e.target.value })}
+              onChange={(e) => updateField('kind', e.target.value)}
               disabled={isDeleted || saving}
               maxLength={32}
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
@@ -275,7 +252,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         <Field label="描述">
           <textarea
             value={editing.description}
-            onChange={(e) => setEditing({ ...editing, description: e.target.value })}
+            onChange={(e) => updateField('description', e.target.value)}
             disabled={isDeleted || saving}
             maxLength={2000}
             rows={4}
@@ -285,7 +262,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         <Field label="重现步骤（可选）">
           <textarea
             value={editing.repro}
-            onChange={(e) => setEditing({ ...editing, repro: e.target.value })}
+            onChange={(e) => updateField('repro', e.target.value)}
             disabled={isDeleted || saving}
             maxLength={2000}
             rows={3}
@@ -296,7 +273,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           <input
             type="text"
             value={editing.labels}
-            onChange={(e) => setEditing({ ...editing, labels: e.target.value })}
+            onChange={(e) => updateField('labels', e.target.value)}
             disabled={isDeleted || saving}
             className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
           />
@@ -396,9 +373,14 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           <button
             onClick={() => setResolveDialogOpen(true)}
             disabled={saving}
+            title={
+              issue.resolutionSessionId
+                ? '已有解决会话；重新起会替换 resolutionSessionId，旧解决会话将失去自助改状态的授权'
+                : undefined
+            }
             className="rounded bg-status-working/25 px-2 py-1 text-xs text-status-working hover:bg-status-working/40 disabled:opacity-50"
           >
-            起新会话解决
+            {issue.resolutionSessionId ? '换解决会话' : '起新会话解决'}
           </button>
         )}
         <div className="flex-1" />
@@ -428,11 +410,11 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           onResolved={(updated) => {
             setIssue(updated);
             upsertIssue(updated);
-            // 关键：同步 editing 草稿到 resolve 回写后的 canonical 形态（与 handleSave 收尾一致）。
-            // 不补这行 → issue 与 store 是同一对象 updatedAt 相等 → store-sync effect 短路
-            // (:125 base.updatedAt === issueFromStore.updatedAt return) → setEditing 永不执行
-            // → 状态下拉卡在 dialog 打开那刻的旧值（起新会话已把 status 改 in-progress 但下拉仍 open）。
-            setEditing(toEditing(updated));
+            // rebase editing：把非 dirty 字段（典型 status，起新会话已回写 in-progress）同步到
+            // 下拉显示，dirty 字段保留用户草稿。不补这步 → issue 与 store 同对象 updatedAt 相等 →
+            // store-sync effect 短路（base.updatedAt === issueFromStore.updatedAt return）→ editing
+            // 永不刷新 → 状态下拉卡在 dialog 打开那刻的旧 open（起新会话已改 in-progress 但下拉仍 open）。
+            rebaseEditing(updated);
             setResolveDialogOpen(false);
           }}
         />

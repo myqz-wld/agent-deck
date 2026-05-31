@@ -30,7 +30,7 @@
  * 与 package.json 的 `build.asarUnpack`（@openai/codex* 系列）配合：unpack 把物理文件复制到
  * `app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/...`，本函数定位到那里。
  */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { app } from 'electron';
 import type { BundledBinarySpec } from './types';
@@ -76,17 +76,37 @@ function bundledVendorTripleDir(): string | null {
   );
 }
 
+/**
+ * 是否 new 布局（0.135+）。与 SDK `resolveNativePackage` 同款**双条件**：`bin/<binName>` 是文件
+ * **且** `codex-package.json` 是文件（batch-B reviewer-claude LOW —— 旧实现只判 bin/ 单条件，畸形
+ * 布局「有 bin/codex 但无 codex-package.json」时会与 SDK 分叉：SDK fallback legacy 而本模块认 new）。
+ * 用 isFile（statSync().isFile()）而非 existsSync 对齐 SDK（目录撞名也不误判）。
+ */
+function isFile(p: string): boolean {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isNewLayout(vendorTripleDir: string, binName: string): boolean {
+  return (
+    isFile(join(vendorTripleDir, 'bin', binName)) &&
+    isFile(join(vendorTripleDir, 'codex-package.json'))
+  );
+}
+
 export function resolveBundledCodexBinary(): string | null {
   const vendorTripleDir = bundledVendorTripleDir();
   if (!vendorTripleDir) return null;
   const spec = PLATFORM_BINARY_MAP[`${process.platform}-${process.arch}`];
   if (!spec) return null;
   // vendor 双布局（与 SDK resolveNativePackage 同款先 new 后 legacy）：
-  // new (0.135+) = vendor/<triple>/bin/<binName>；legacy (≤0.134) = vendor/<triple>/codex/<binName>
-  const newLayout = join(vendorTripleDir, 'bin', spec.binName);
-  if (existsSync(newLayout)) return newLayout;
+  // new (0.135+) = vendor/<triple>/bin/<binName> + codex-package.json；legacy (≤0.134) = vendor/<triple>/codex/<binName>
+  if (isNewLayout(vendorTripleDir, spec.binName)) return join(vendorTripleDir, 'bin', spec.binName);
   const legacyLayout = join(vendorTripleDir, 'codex', spec.binName);
-  if (existsSync(legacyLayout)) return legacyLayout;
+  if (isFile(legacyLayout)) return legacyLayout;
   return null;
 }
 
@@ -97,25 +117,51 @@ export function resolveBundledCodexBinary(): string | null {
 export function resolveBundledCodexPathDirs(): string[] {
   const vendorTripleDir = bundledVendorTripleDir();
   if (!vendorTripleDir) return [];
-  // 与 resolveBundledCodexBinary 双布局判定对齐：bin/ 存在 → new 布局用 codex-path/；否则 legacy path/
-  const newBin = join(vendorTripleDir, 'bin', 'codex');
-  const candidate = existsSync(newBin)
+  const spec = PLATFORM_BINARY_MAP[`${process.platform}-${process.arch}`];
+  if (!spec) return [];
+  // 与 resolveBundledCodexBinary 共用 isNewLayout 双条件判定（new → codex-path/；legacy → path/）。
+  // 必须用 spec.binName（win32 = codex.exe）—— 硬编码 'codex' 会让 win32 new 布局误判 legacy → 返 []。
+  const candidate = isNewLayout(vendorTripleDir, spec.binName)
     ? join(vendorTripleDir, 'codex-path')
     : join(vendorTripleDir, 'path');
   return existsSync(candidate) ? [candidate] : [];
 }
 
 /**
+ * 选 env 里的 PATH key。复刻 SDK `pathEnvKey`：非 win32 恒 `PATH`；win32 env key 大小写不敏感，
+ * 实际 key 常是 `Path`（也可能 `PATH` / 其他 casing）→ 选已存在的（优先 `Path`，否则最后一个匹配的，
+ * 都没有才 `PATH`），保证注入到 codex 子进程实际读的那个 key。
+ */
+function pathEnvKey(env: Record<string, string>, platform: NodeJS.Platform): string {
+  if (platform !== 'win32') return 'PATH';
+  const matching = Object.keys(env).filter((k) => k.toLowerCase() === 'path');
+  return matching.includes('Path') ? 'Path' : (matching.at(-1) ?? 'PATH');
+}
+
+/**
  * 把 bundled codex helper dir prepend 进 env 的 PATH（in-place 改传入 env 对象）。
- * 复刻 SDK `prependPathDirs` 非-win32 行为：prepend pathDirs + 去重已存在条目。caller 在
- * `new Codex({ env })` 前调，补回 codexPathOverride 短路掉的 bundled helper PATH 注入。
+ * 复刻 SDK `prependPathDirs`（含 win32 语义，batch-B reviewer-codex MED）：
+ * - 选对 PATH key（pathEnvKey）—— win32 实际 key 是 `Path` 而非 `PATH`，写错 key 会产生双 key 分叉
+ *   （helper 写进 `PATH` 但子进程读 `Path` 系统原值 → bundled rg 不生效）。
+ * - win32 删除其他大小写变体的 path key（SDK 同款 — 只保留 pathKey 一个，避免重复 key 行为未定义）。
+ * - prepend pathDirs + 去重已存在条目。
+ * caller 在 `new Codex({ env })` 前调，补回 codexPathOverride 短路掉的 bundled helper PATH 注入。
  * dev / 无 bundled helper → no-op。
  */
-export function prependBundledCodexPathDirs(env: Record<string, string>): void {
+export function prependBundledCodexPathDirs(
+  env: Record<string, string>,
+  platform: NodeJS.Platform = process.platform,
+): void {
   const pathDirs = resolveBundledCodexPathDirs();
   if (pathDirs.length === 0) return;
-  const existing = (env.PATH ?? '')
+  const pathKey = pathEnvKey(env, platform);
+  if (platform === 'win32') {
+    for (const key of Object.keys(env)) {
+      if (key.toLowerCase() === 'path' && key !== pathKey) delete env[key];
+    }
+  }
+  const existing = (env[pathKey] ?? '')
     .split(delimiter)
     .filter((entry) => entry.length > 0 && !pathDirs.includes(entry));
-  env.PATH = [...pathDirs, ...existing].join(delimiter);
+  env[pathKey] = [...pathDirs, ...existing].join(delimiter);
 }

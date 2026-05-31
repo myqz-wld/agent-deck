@@ -88,6 +88,7 @@ describe('resolveBundledCodexBinary vendor 双布局', () => {
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(join(dir, 'bin'), { recursive: true });
     writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
+    writeFileSync(join(dir, 'codex-package.json'), '{}\n'); // new 布局双条件（SDK 同款）
     const { resolveBundledCodexBinary } = await import('../sdk-bridge/codex-binary');
     expect(resolveBundledCodexBinary()).toBe(join(dir, 'bin', 'codex'));
   });
@@ -107,9 +108,24 @@ describe('resolveBundledCodexBinary vendor 双布局', () => {
     mkdirSync(join(dir, 'bin'), { recursive: true });
     mkdirSync(join(dir, 'codex'), { recursive: true });
     writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
+    writeFileSync(join(dir, 'codex-package.json'), '{}\n');
     writeFileSync(join(dir, 'codex', 'codex'), '#!/bin/sh\n');
     const { resolveBundledCodexBinary } = await import('../sdk-bridge/codex-binary');
     expect(resolveBundledCodexBinary()).toBe(join(dir, 'bin', 'codex'));
+  });
+
+  // batch-B reviewer-claude LOW：new 布局双条件（bin/<binName> + codex-package.json）。畸形布局
+  // 「有 bin/codex 但无 codex-package.json」→ 与 SDK 同款 fallback legacy（不认 new）。
+  it.runIf(isDarwinArm64)('有 bin/codex 但无 codex-package.json → 认 legacy（与 SDK 双条件对齐）', async () => {
+    const dir = vendorTripleDir();
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n'); // 不建 codex-package.json
+    mkdirSync(join(dir, 'codex'), { recursive: true });
+    writeFileSync(join(dir, 'codex', 'codex'), '#!/bin/sh\n');
+    const { resolveBundledCodexBinary } = await import('../sdk-bridge/codex-binary');
+    // bin/codex 存在但缺 codex-package.json → 不认 new → fallback legacy codex/codex
+    expect(resolveBundledCodexBinary()).toBe(join(dir, 'codex', 'codex'));
   });
 });
 
@@ -132,6 +148,7 @@ describe('resolveBundledCodexPathDirs / prependBundledCodexPathDirs（bundled rg
     mkdirSync(join(dir, 'bin'), { recursive: true });
     mkdirSync(join(dir, 'codex-path'), { recursive: true });
     writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
+    writeFileSync(join(dir, 'codex-package.json'), '{}\n'); // new 布局双条件
     writeFileSync(join(dir, 'codex-path', 'rg'), '#!/bin/sh\n');
     const { resolveBundledCodexPathDirs, prependBundledCodexPathDirs } = await import(
       '../sdk-bridge/codex-binary'
@@ -160,6 +177,7 @@ describe('resolveBundledCodexPathDirs / prependBundledCodexPathDirs（bundled rg
     mkdirSync(join(dir, 'bin'), { recursive: true });
     mkdirSync(join(dir, 'codex-path'), { recursive: true });
     writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
+    writeFileSync(join(dir, 'codex-package.json'), '{}\n');
     writeFileSync(join(dir, 'codex-path', 'rg'), '#!/bin/sh\n');
     const { prependBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
     const helperDir = join(dir, 'codex-path');
@@ -173,8 +191,112 @@ describe('resolveBundledCodexPathDirs / prependBundledCodexPathDirs（bundled rg
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(join(dir, 'bin'), { recursive: true });
     writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
-    // 不建 codex-path/
+    writeFileSync(join(dir, 'codex-package.json'), '{}\n'); // new 布局，但不建 codex-path/
     const { resolveBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
     expect(resolveBundledCodexPathDirs()).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// win32 binName='codex.exe' 回归（deep-review batch-B finding）：resolveBundledCodexPathDirs 旧实现
+// 硬编码 'codex' 探测 new 布局 bin/，但 win32 binName 是 codex.exe → new 布局误判成 legacy →
+// bundled rg helper 不注入。修法：用 spec.binName 探测（与 resolveBundledCodexBinary 同款）。
+// 测试机非 win32，故 stub process.platform/arch 让 PLATFORM_BINARY_MAP 命中 win32-x64。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('resolveBundledCodexPathDirs win32 binName=codex.exe 回归', () => {
+  const WIN_TRIPLE = 'x86_64-pc-windows-msvc';
+  const WIN_PKG_DIR = 'codex-win32-x64';
+  const origPlatform = process.platform;
+  const origArch = process.arch;
+
+  function winVendorTripleDir(): string {
+    return join(
+      FIXTURE_ROOT,
+      'app.asar.unpacked',
+      'node_modules',
+      '@openai',
+      WIN_PKG_DIR,
+      'vendor',
+      WIN_TRIPLE,
+    );
+  }
+
+  beforeAll(() => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    Object.defineProperty(process, 'arch', { value: 'x64', configurable: true });
+    electronState.isPackaged = true;
+  });
+
+  afterAll(() => {
+    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true });
+    Object.defineProperty(process, 'arch', { value: origArch, configurable: true });
+  });
+
+  it('new 布局 bin/codex.exe + codex-path/ → 命中 codex-path（不被误判 legacy）', async () => {
+    const dir = winVendorTripleDir();
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    mkdirSync(join(dir, 'codex-path'), { recursive: true });
+    writeFileSync(join(dir, 'bin', 'codex.exe'), 'MZ\n'); // win32 binName 带 .exe
+    writeFileSync(join(dir, 'codex-package.json'), '{}\n'); // new 布局双条件
+    writeFileSync(join(dir, 'codex-path', 'rg.exe'), 'MZ\n');
+    const { resolveBundledCodexBinary, resolveBundledCodexPathDirs } = await import(
+      '../sdk-bridge/codex-binary'
+    );
+    // 二进制：spec.binName=codex.exe → 命中 new 布局
+    expect(resolveBundledCodexBinary()).toBe(join(dir, 'bin', 'codex.exe'));
+    // helper PATH：必须命中 codex-path/（旧硬编码 'codex' 会因 bin/codex 不存在误判 legacy → []）
+    expect(resolveBundledCodexPathDirs()).toEqual([join(dir, 'codex-path')]);
+  });
+
+  it('legacy 布局 codex/codex.exe + path/ → 命中 path/', async () => {
+    const dir = winVendorTripleDir();
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'codex'), { recursive: true });
+    mkdirSync(join(dir, 'path'), { recursive: true });
+    writeFileSync(join(dir, 'codex', 'codex.exe'), 'MZ\n');
+    writeFileSync(join(dir, 'path', 'rg.exe'), 'MZ\n');
+    const { resolveBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
+    expect(resolveBundledCodexPathDirs()).toEqual([join(dir, 'path')]);
+  });
+
+  // batch-B reviewer-codex MED：win32 env key 是 `Path` 非 `PATH`，prepend 必须选对 key + 删重复变体，
+  // 否则产生 {Path:原值, PATH:helper} 双 key 分叉 → codex 子进程读 Path(无 helper) → bundled rg 不生效。
+  it('prepend win32：env={Path} → helper prepend 到 Path（不产生双 key 分叉）', async () => {
+    const dir = winVendorTripleDir();
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    mkdirSync(join(dir, 'codex-path'), { recursive: true });
+    writeFileSync(join(dir, 'bin', 'codex.exe'), 'MZ\n');
+    writeFileSync(join(dir, 'codex-package.json'), '{}\n'); // new 布局双条件
+    writeFileSync(join(dir, 'codex-path', 'rg.exe'), 'MZ\n');
+    const helperDir = join(dir, 'codex-path');
+    const { prependBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
+    const env: Record<string, string> = { Path: 'C:\\Windows\\System32;C:\\Windows' };
+    prependBundledCodexPathDirs(env, 'win32');
+    // helper prepend 到原 Path（用 win32 路径分隔符 ; — 测试机 darwin join 用 / 但 delimiter 由
+    // node:path 决定；此处只断言 key 选择 + helper 在最前，不依赖 delimiter 具体值）
+    expect(env.Path.startsWith(helperDir)).toBe(true);
+    expect(env.Path).toContain('C:\\Windows\\System32');
+    // 关键：不新增 PATH key（避免双 key 分叉）
+    expect(env.PATH).toBeUndefined();
+  });
+
+  it('prepend win32：env 同时有 Path 和 PATH → 只保留 Path、删除 PATH 变体', async () => {
+    const dir = winVendorTripleDir();
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    mkdirSync(join(dir, 'codex-path'), { recursive: true });
+    writeFileSync(join(dir, 'bin', 'codex.exe'), 'MZ\n');
+    writeFileSync(join(dir, 'codex-package.json'), '{}\n'); // new 布局双条件
+    writeFileSync(join(dir, 'codex-path', 'rg.exe'), 'MZ\n');
+    const helperDir = join(dir, 'codex-path');
+    const { prependBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
+    // pathEnvKey 优先选 'Path'（即便也有 'PATH'）
+    const env: Record<string, string> = { Path: 'C:\\sys', PATH: 'C:\\stale' };
+    prependBundledCodexPathDirs(env, 'win32');
+    expect(env.Path.startsWith(helperDir)).toBe(true);
+    expect(env.Path).toContain('C:\\sys');
+    expect(env.PATH).toBeUndefined(); // 其他大小写变体被删
   });
 });

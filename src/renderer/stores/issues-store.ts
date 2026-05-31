@@ -42,7 +42,12 @@ interface IssuesState {
   /** hardDelete 路径：从 Map 删 + 若 selected 跟着 deselect */
   removeIssue: (id: string) => void;
   selectIssue: (id: string | null) => void;
-  setFilters: (filters: IssueFilters) => void;
+  /**
+   * 支持 functional updater（与 React setState 同款）：debounce / 异步 callback 必须用
+   * `setFilters(prev => ...)` 读最新 filters，否则闭包捕获的旧 filters 会覆盖期间用户的
+   * tab / kind / showDeleted 切换（reviewer-codex MED：搜索 debounce 旧闭包覆盖刚切的 tab）。
+   */
+  setFilters: (filters: IssueFilters | ((prev: IssueFilters) => IssueFilters)) => void;
 }
 
 export const useIssuesStore = create<IssuesState>((set) => ({
@@ -78,7 +83,9 @@ export const useIssuesStore = create<IssuesState>((set) => ({
 
   selectIssue: (id) => set({ selectedIssueId: id }),
 
-  setFilters: (filters) => set({ filters }),
+  // functional updater 支持：传 fn 时基于最新 filters 计算（debounce callback 防旧闭包覆盖）。
+  setFilters: (filters) =>
+    set((s) => ({ filters: typeof filters === 'function' ? filters(s.filters) : filters })),
 }));
 
 /**

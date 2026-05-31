@@ -47,10 +47,13 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
     selectIssue,
   } as Parameters<typeof selectFilteredIssues>[0]);
 
-  // keyword input → filters debounce 300ms
+  // keyword input → filters debounce 300ms。
+  // 用 functional updater 读最新 filters（不是闭包捕获的旧值）：用户输入搜索后 300ms 内切
+  // tab/kind/showDeleted 时，旧 timeout 到点只补 titleKeyword 到**最新** filters，不再把刚切的
+  // tab 覆盖回去（reviewer-codex MED：debounce 旧闭包覆盖 tab 切换）。
   useEffect(() => {
     const t = setTimeout(() => {
-      setFilters({ ...filters, titleKeyword: keywordInput || undefined });
+      setFilters((prev) => ({ ...prev, titleKeyword: keywordInput || undefined }));
     }, KEYWORD_DEBOUNCE_MS);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,7 +136,12 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
       {/* Right: detail (or empty hint) */}
       <div className="flex-1 overflow-y-auto scrollbar-deck">
         {selectedIssueId ? (
+          // key={selectedIssueId} 是 load-bearing：强制 per-issue remount fresh state（editing/
+          // baseline 从新 issue 重 seed），根治切 issue 时旧草稿写到新 issue 的跨 issue 污染
+          // （deep-review HIGH-A）。删此 key 会令污染复活；buildUpdatePatch 的 expectedIssueId
+          // 守护是第二道防线但不可替代 key（fresh state 才能保证 baseline 正确）。
           <IssueDetail
+            key={selectedIssueId}
             issueId={selectedIssueId}
             onClose={() => selectIssue(null)}
             onOpenSession={onOpenSession}
