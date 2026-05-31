@@ -97,6 +97,19 @@ export async function recoverAndSendImpl(
     throw new Error(`session ${sessionId} not found`);
   }
 
+  // **REVIEW_81 MED 修法（reviewer-claude + reviewer-codex 双方独立共识 + lead 全链 trace；
+  // C2 claude MED-1 / REVIEW_76 的 codex 对称缺口，codex 侧此前未跟修）**:
+  // 入口先捕获 wasClosed（在下方 line ~134 emit user message 复活之前读）。
+  // closed 会话走入口 emit user message → ingest → ensure（manager.ts:251-258 `if existing.lifecycle
+  // === 'closed'` → upsert lifecycle:'active' + emit session-upserted）**复活成 active**；随后两条
+  // 失败路径（cwd 全 miss throw / createSession reject outer catch rethrow）都不回滚 → closed 会话
+  // 复活成 active 但无 SDK live session = dead-active 幽灵（SessionList 死卡片）。codex 全程只读
+  // rec.archivedAt（unarchive）从不读 rec.lifecycle，与 claude 修前一模一样（archived 有对称防护、
+  // closed 没防）。两条失败路径 `if (wasClosed) sessionManager.markClosed(sessionId)` 回滚。
+  // 用 markClosed（manager.ts:349 已暴露，guard 接受 active→closed）不用 raw setLifecycle
+  // （REVIEW_56 第四入口反模式 — 绕过 clear marker + leave team + UI emit）。
+  const wasClosed = rec.lifecycle === 'closed';
+
   // MAX_MESSAGE_LENGTH 字符长度上限（与 messageRepo cap 全局对齐）。
   // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
   //
@@ -160,6 +173,12 @@ export async function recoverAndSendImpl(
         ts: Date.now(),
         source: 'sdk',
       });
+      // **REVIEW_81 MED 修法**: closed 会话被入口 emit user message 复活成 active，cwd 全 miss
+      // 此路径 throw 前不起 createSession（dead-active 幽灵）。wasClosed 时走 markClosed 再关闭
+      // （与 archived 路径「cwd-miss 时保持归档」对称 — closed 也应保持 closed）。markClosed 放
+      // error message emit 之后：error emit（source:'sdk'）过 ingest 时 record 已 active →
+      // ensure 走 manager.ts:261 `return existing` 不再复活 → 顺序安全（与 claude C2 同款结论）。
+      if (wasClosed) sessionManager.markClosed(sessionId);
       throw new Error(
         `session ${sessionId} cwd does not exist and no fallback available: ${rec.cwd}`,
       );
@@ -332,6 +351,12 @@ export async function recoverAndSendImpl(
       ts: Date.now(),
       source: 'sdk',
     });
+    // **REVIEW_81 MED 修法**: closed 会话被入口 emit user message 复活成 active，createSession
+    // reject 后无 SDK live session（dead-active 幽灵）。wasClosed 时走 markClosed 再关闭。
+    // 顺序：上面 error message emit（source:'sdk'）过 ingest 时 record 已 active → ensure 走
+    // manager.ts:261 return existing **不再复活**（仅 closed 才复活）→ 回滚放 error emit 之后安全
+    // （markClosed active→closed 一次到位，与 claude C2 反驳轮关键确证同款顺序坑结论）。
+    if (wasClosed) sessionManager.markClosed(sessionId);
     throw err;
   }
 }
