@@ -105,7 +105,9 @@ export interface CreateSessionOpts {
    * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `additionalDirectories` 透传，
    * 让 codex sandbox=workspace-write 档位额外允许的可读写根。bridge 不主动 enforce default —
    * undefined 沿用 SDK 默认（无额外路径）；options-builder 在 reviewer-* 路径下 spread
-   * `['~/.claude', '~/.codex']`。
+   * `['~/.claude', '~/.codex', '/tmp']`（options-builder.ts:176-180 SSOT;`/tmp` 供
+   * reviewer-claude wrapper Bash 模板写 `/tmp/<basename>.{in,out,err}.txt` 路由 stdio,
+   * spike4 实证缺 `/tmp` 时 codex sandbox-exec 拒读 wrapper 输出）。
    */
   additionalDirectories?: readonly string[];
   /**

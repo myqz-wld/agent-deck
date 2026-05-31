@@ -2,7 +2,7 @@
  * Codex SDK ThreadOptions builder（REVIEW_60 R4 §B 抽法 #2 / file-size-guardrail.md SOP §档 2 强）。
  *
  * 抽自 codex-cli/sdk-bridge/index.ts createSession L499-L526 双分支 spread (resumeThread /
- * startThread 入参字面重复)，9 字段 (workingDirectory / sandboxMode / approvalPolicy /
+ * startThread 入参字面重复)，7 字段 (workingDirectory / sandboxMode / approvalPolicy /
  * skipGitRepoCheck / model / networkAccessEnabled / additionalDirectories) 只 workingDirectory
  * 与上层调用形态 (resumeThread vs startThread) 无关,builder 统一返回。
  *
