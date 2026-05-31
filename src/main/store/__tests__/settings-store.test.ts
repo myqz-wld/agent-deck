@@ -236,3 +236,102 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// REVIEW_92（Batch G5）— value-uplift migration 一次性 sentinel + token canonical 格式
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('REVIEW_92 — value-uplift migration 一次性 sentinel（reviewer-claude MED）', () => {
+  it('(A) 老用户 fanOut=5 / rate=10 首次进来 → uplift 到 10/20 + 置 sentinel', async () => {
+    mockRawStore = { mcpMaxFanOutPerParent: 5, mcpSpawnRatePerMinute: 10 };
+    const settings = await loadSettingsStore();
+    settings.getAll();
+    expect(mockSet).toHaveBeenCalledWith('mcpMaxFanOutPerParent', 10);
+    expect(mockSet).toHaveBeenCalledWith('mcpSpawnRatePerMinute', 20);
+    // sentinel 置位
+    expect(mockSet).toHaveBeenCalledWith('__valueUpliftMigrationDone', true);
+  });
+
+  it('(B) 关键 bug 修复：sentinel 已置 + 用户重选回 5/10 → migration 不 re-fire（选择存活）', async () => {
+    // 模拟「上次启动已 uplift + 置 sentinel」后，用户在 UI 主动选回 5/10 持久化的状态
+    mockRawStore = {
+      mcpMaxFanOutPerParent: 5,
+      mcpSpawnRatePerMinute: 10,
+      __valueUpliftMigrationDone: true,
+    };
+    const settings = await loadSettingsStore();
+    settings.getAll();
+    // 关键：sentinel 存在 → 整块 migration 跳过 → 不把用户选的 5/10 压回 10/20
+    const fanOutCalls = mockSet.mock.calls.filter((c) => c[0] === 'mcpMaxFanOutPerParent');
+    const rateCalls = mockSet.mock.calls.filter((c) => c[0] === 'mcpSpawnRatePerMinute');
+    expect(fanOutCalls).toHaveLength(0);
+    expect(rateCalls).toHaveLength(0);
+  });
+
+  it('(C) 用户显式选 7/15（非老 default）→ 不 migrate + 置 sentinel', async () => {
+    mockRawStore = { mcpMaxFanOutPerParent: 7, mcpSpawnRatePerMinute: 15 };
+    const settings = await loadSettingsStore();
+    settings.getAll();
+    const fanOutCalls = mockSet.mock.calls.filter((c) => c[0] === 'mcpMaxFanOutPerParent');
+    const rateCalls = mockSet.mock.calls.filter((c) => c[0] === 'mcpSpawnRatePerMinute');
+    expect(fanOutCalls).toHaveLength(0);
+    expect(rateCalls).toHaveLength(0);
+    // 即便未触发任一迁移也置 sentinel（杜绝下次 re-fire）
+    expect(mockSet).toHaveBeenCalledWith('__valueUpliftMigrationDone', true);
+  });
+
+  it('(D) fresh install (raw 空) → 不 migrate + 置 sentinel', async () => {
+    mockRawStore = {};
+    const settings = await loadSettingsStore();
+    settings.getAll();
+    const fanOutCalls = mockSet.mock.calls.filter((c) => c[0] === 'mcpMaxFanOutPerParent');
+    expect(fanOutCalls).toHaveLength(0);
+    expect(mockSet).toHaveBeenCalledWith('__valueUpliftMigrationDone', true);
+  });
+
+  it('(E) getAll() 剔除 __ 前缀内部 sentinel，不泄漏到 IPC/renderer', async () => {
+    mockRawStore = { __valueUpliftMigrationDone: true };
+    const settings = await loadSettingsStore();
+    const all = settings.getAll() as unknown as Record<string, unknown>;
+    expect('__valueUpliftMigrationDone' in all).toBe(false);
+  });
+});
+
+describe('REVIEW_92 — token canonical 格式校验（reviewer-codex LOW）', () => {
+  it('malformed 64-char token（64 个空格）→ 重生成 canonical hex', async () => {
+    mockRawStore = {
+      hookServerToken: ' '.repeat(64),
+      mcpServerToken: 'x'.repeat(64),
+    };
+    const settings = await loadSettingsStore();
+    settings.getAll();
+    // 两个 malformed token 都被重生成
+    const hookCalls = mockSet.mock.calls.filter((c) => c[0] === 'hookServerToken');
+    const mcpCalls = mockSet.mock.calls.filter((c) => c[0] === 'mcpServerToken');
+    expect(hookCalls.length).toBeGreaterThan(0);
+    expect(mcpCalls.length).toBeGreaterThan(0);
+    expect(hookCalls[0][1]).toMatch(/^[0-9a-f]{64}$/);
+    expect(mcpCalls[0][1]).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('canonical token（64 hex）→ 不重生成（稳定）', async () => {
+    const validHook = 'a'.repeat(64); // 合法 lowercase hex
+    const validMcp = '0123456789abcdef'.repeat(4); // 64 char lowercase hex
+    mockRawStore = { hookServerToken: validHook, mcpServerToken: validMcp };
+    const settings = await loadSettingsStore();
+    settings.getAll();
+    const hookCalls = mockSet.mock.calls.filter((c) => c[0] === 'hookServerToken');
+    const mcpCalls = mockSet.mock.calls.filter((c) => c[0] === 'mcpServerToken');
+    expect(hookCalls).toHaveLength(0);
+    expect(mcpCalls).toHaveLength(0);
+  });
+
+  it('null token（fresh install）→ 生成 canonical hex', async () => {
+    mockRawStore = {};
+    const settings = await loadSettingsStore();
+    settings.getAll();
+    const hookCalls = mockSet.mock.calls.filter((c) => c[0] === 'hookServerToken');
+    expect(hookCalls.length).toBeGreaterThan(0);
+    expect(hookCalls[0][1]).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
