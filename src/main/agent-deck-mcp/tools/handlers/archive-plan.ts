@@ -58,6 +58,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import {
   archivePlanImpl,
   _isArchivePlanError,
+  isPostCommitArchiveError,
   type ArchivePlanDeps,
 } from './archive-plan-impl';
 import { runBatonCleanup } from './baton-cleanup';
@@ -220,6 +221,38 @@ export const archivePlanHandler = withMcpGuard(
     );
 
     if (_isArchivePlanError(result)) {
+      // REVIEW_73 MED(deep-review reviewer-claude + reviewer-codex 双方 ✅ + lead grep 验证):
+      // post-ff-merge **late phase** 失败(archive commit 已落,仅剩 git artifacts 清理)时
+      // 仍跑 baton cleanup。修前 handler 对**任何** ArchivePlanError 一刀切 return err(baton
+      // cleanup 在其后),导致 plan 已实质归档(ff-merge + commit + mv plan + INDEX 都成功)但
+      // step 14a worktree remove / 14b branch -D 失败 → teammate 不 shutdown 成孤儿 dormant 未
+      // closed + caller 不归档。这是本项目反复踩的 dormant 残留的另一条进入路径(正常调 tool
+      // 但 late phase 失败,jsdoc 原只归因于手工归档绕过)。
+      //
+      // **late phase 判定**:error 前缀 `[post-ff-merge:<phase>]`,phase ∈ {archive-rev-parse-HEAD,
+      // git-worktree-remove, git-branch-D} 时 archive commit 已落(impl-cleanup.ts:172 git commit
+      // 成功之后才进这 3 phase),plan 实质完成 = caller 使命终结 = team 该收口。早期 post-ff-merge
+      // phase(write-archived-plan / sync-INDEX / unlink / git-commit 本身失败)plan 尚未完整归档,
+      // **不**触发 baton(caller 可能 reset --hard ORIG_HEAD 回滚重试,team 不该被收口)。
+      if (isPostCommitArchiveError(result.error)) {
+        // plan 已实质归档,跑 baton cleanup 收口 team(teammate shutdown + archive caller),
+        // 再透传 impl 的 post-ff-merge error 让 caller 知道 git artifacts 清理还需手工补完。
+        try {
+          await runBatonCleanup(
+            { callerSessionId: caller.callerSessionId, toolName: 'archive_plan' },
+            {
+              shutdownTeammates: handlerDeps?.shutdownTeammates,
+              archiveSession: handlerDeps?.archiveSession,
+            },
+          );
+        } catch (cleanupErr) {
+          // baton cleanup 自身抛错只 warn 不阻塞 — 主诉求是透传 impl 的 post-ff-merge error
+          logger.warn(
+            `[mcp archive_plan] post-commit baton cleanup threw while handling post-ff-merge error (continuing to surface impl error):`,
+            cleanupErr,
+          );
+        }
+      }
       return err(result.error, result.hint);
     }
 

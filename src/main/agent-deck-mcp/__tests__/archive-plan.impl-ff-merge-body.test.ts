@@ -173,7 +173,7 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(archivedWrite!.content).toContain('base_commit: "abc123"');
   });
 
-  it('post-ff-merge fresh re-read 失败(plan 文件被外部并发删除)→ postFfMergeErr [post-ff-merge:reread-plan-after-ffmerge] + 通用 hint', async () => {
+  it('post-ff-merge fresh re-read 失败(plan 文件被外部并发删除)→ postFfMergeErr [post-ff-merge:reread-plan-after-ffmerge] + reset phaseHint (REVIEW_73)', async () => {
     const { state, input, expectedMainRepo } = fixtureHappyPath();
     const planFilePath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
 
@@ -206,7 +206,10 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     expect(err.error).toContain('[post-ff-merge:reread-plan-after-ffmerge]');
     expect(err.error).toContain('ENOENT'); // makeDeps fake 抛这个 message
     expect(err.hint).toContain('ff-merge 已完成');
-    expect(err.hint).toContain('phase 标识手工补完');
+    // REVIEW_73 MED: 8b read fail 改走专用 reset phaseHint(8b/8c 唯一可干净 reset 的 post-ff-merge phase),
+    // 不再落 generic「phase 标识手工补完」。hint 含 retry-invariant prefix + reset --hard ORIG_HEAD 引导。
+    expect(err.hint).toContain('git reset --hard ORIG_HEAD');
+    expect(err.hint).toContain('Cannot retry archive_plan as a whole');
     // archive 写不应该发生(短路 in step 8b)
     expect(state.writes.find((w) => w.path.includes('ref/plans/'))).toBeUndefined();
   });
@@ -396,6 +399,61 @@ describe('archivePlanImpl — ff-merge body preservation (archive-plan-content-o
     const indexWrite = state.writes.find((w) => w.path === indexPath);
     expect(indexWrite).toBeUndefined();
     // 4. 原 plan 文件没被 unlink(短路在 step 8c,step 12 unlink 不会跑)
+    expect(state.unlinks).toEqual([]);
+  });
+
+  // REVIEW_73 LOW(deep-review reviewer-codex 提 HIGH → reviewer-claude 反驳轮 grep 铁证降 LOW):
+  // 8c 复查 fresh plan_id 绑定(precheck 在 ff-merge 前查 plan_id+worktree_path,8c 修前只查 status)。
+  // worktree branch 把 plan_id 改成另一值 + 保持 status: in_progress → 修前 8c status 通过 →
+  // archive-fs 写 mismatched freshFm 到 ref/plans/<input.planId>.md(归档文件 plan_id 与文件名脱节)。
+  it('REVIEW_73 LOW: 8c 复查 fresh plan_id 漂移 → postFfMergeErr 拒绝(防归档文件身份字段不一致)', async () => {
+    const { state, input, expectedMainRepo, expectedArchivedPath } = fixtureHappyPath();
+    const planFilePath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+
+    // post-ff-merge:caller 在 worktree branch 把 plan_id 改成另一个值但保持 status: in_progress
+    const postFfMergeContent = [
+      '---',
+      'plan_id: some-other-plan-id', // ← 关键:fresh plan_id 漂移(与 input.planId 不符)
+      'created_at: 2026-05-13',
+      `worktree_path: ${input.worktreePath}`,
+      'status: in_progress', // status 仍 in_progress(绕过 8c status 校验)
+      '---',
+      '',
+      '# Plan body',
+    ].join('\n');
+
+    const baseDeps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'worktree-mcp-bug-fix-20260513',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhashdrift',
+      // 短路在 8c-id,git add/commit/remove/branch-D 不会调
+    ]);
+    const wrappedRunGit = baseDeps.runGit!;
+    const deps = {
+      ...baseDeps,
+      runGit: async (args: string[], cwd: string) => {
+        if (args[0] === 'merge' && args[1] === '--ff-only') {
+          state.files.set(planFilePath, postFfMergeContent);
+        }
+        return wrappedRunGit(args, cwd);
+      },
+    };
+
+    const result = await archivePlanImpl(input, deps);
+
+    expect(_isArchivePlanError(result)).toBe(true);
+    const err = result as { error: string; hint: string };
+    expect(err.error).toContain('[post-ff-merge:reread-plan-after-ffmerge]');
+    expect(err.error).toContain('plan_id');
+    expect(err.error).toContain('some-other-plan-id');
+    // hint 走 reset 路径(8b/8c 可干净 reset)
+    expect(err.hint).toContain('git reset --hard ORIG_HEAD');
+    // 关键:archive 写 + unlink 都不发生(短路在 8c-id)
+    expect(state.writes.find((w) => w.path === expectedArchivedPath)).toBeUndefined();
     expect(state.unlinks).toEqual([]);
   });
 });

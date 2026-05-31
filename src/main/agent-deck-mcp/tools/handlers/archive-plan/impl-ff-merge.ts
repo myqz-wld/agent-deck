@@ -148,7 +148,18 @@ export async function runFfMerge(
   try {
     freshContent = await deps.readFile(planFilePath);
   } catch (e) {
-    return postFfMergeErr('reread-plan-after-ffmerge', e as Error);
+    // REVIEW_73 MED(deep-review reviewer-codex ✅):8b read fail 走专用 reset phaseHint,与 8c
+    // status drift 同级。8b/8c 无任何 fs 写入累积(仅 ff-merge 成功),`git reset --hard
+    // ORIG_HEAD` 干净回滚(_impl-shared.ts §PostFfMergePhase jsdoc 明确 8b/8c 是唯一可 reset
+    // 的 post-ff-merge phase)。修前两条 8b 路径不传 phaseHint → 落 generic hint「按 phase 手工
+    // 补完后续 cleanup」误导 caller 走手工补完归档,而非先 undo ff-merge 再修 plan 文件。
+    return postFfMergeErr(
+      'reread-plan-after-ffmerge',
+      e as Error,
+      'ff-merge 已完成但重新 read plan 文件失败(磁盘 / 权限 / fs lock)。8b 阶段无 fs 写入累积可干净回滚:' +
+        'first `git reset --hard ORIG_HEAD`(撤销 ff-merge,archive_plan 此前未对 main repo 做其他改动),' +
+        'then fix the fs issue (restore the plan file / check permissions), then re-call archive_plan.',
+    );
   }
   const freshFm = parseFrontmatter(freshContent);
   if (Object.keys(freshFm).length === 0) {
@@ -161,7 +172,67 @@ export async function runFfMerge(
         `plan file at ${planFilePath} has no parseable frontmatter after ff-merge ` +
           `(caller may have stripped the frontmatter block on the worktree branch)`,
       ),
+      // REVIEW_73 MED(reviewer-codex ✅):no-frontmatter 同走 reset phaseHint(与 read fail / 8c 同级)。
+      'ff-merge 已完成但 fresh plan 文件无可解析 frontmatter(caller 可能在 worktree branch 误删 frontmatter block)。' +
+        'first `git reset --hard ORIG_HEAD`(撤销 ff-merge),then fix the frontmatter block **on the worktree branch** ' +
+        '(cd into worktree, restore `---\\n<key>: <value>\\n---` block with status: in_progress, commit), then re-call archive_plan.',
     );
+  }
+
+  // 8c-id. **重新校验 fresh plan_id / worktree_path 绑定**(REVIEW_73 LOW — deep-review
+  // reviewer-codex 提 HIGH → reviewer-claude 反驳轮 grep 铁证降 LOW)。
+  //
+  // **非对称缺口**:precheck(impl-precheck.ts:390-418)在 ff-merge 之前同时校验 fm.plan_id +
+  // fm.worktree_path 与 input 一致(CHANGELOG_169 F2),但 8c 只复跑 status 校验。worktree branch
+  // 若把 frontmatter 的 plan_id / worktree_path 改成另一值且保持 status: in_progress,ff-merge
+  // 带进 main → 8c status 通过 → archive-fs Step 9 `{ ...freshFm }` 写到 ref/plans/<input.planId>.md
+  // → 归档文件 frontmatter 的 plan_id 字段与文件名 stem 脱节(内容不一致)。
+  //
+  // **降 LOW 理由**(reviewer-claude grep 铁证):所有 destructive op(ff-merge 源 / archivedPath /
+  // worktree remove / branch -D / unlink / INDEX key)100% 走 input.* + precheck-derived,**零个**
+  // 读 freshFm.plan_id/worktree_path → 不复现 F2 silent corruption(无误删 / 无错合 / 无错标),
+  // 仅归档文件内容字段不一致(cosmetic)+ 触发需身份字段被反常编辑(plan 创建即固定,极罕见)。
+  // 但补这道 8c 复查是 cheap defense-in-depth + 与 precheck 对称,故修。失败走 postFfMergeErr
+  // reset 路径(与 8c status drift 同级,8b/8c 可干净 reset)。
+  const freshPlanId = typeof freshFm.plan_id === 'string' ? freshFm.plan_id : null;
+  if (freshPlanId !== null && freshPlanId !== input.planId) {
+    return postFfMergeErr(
+      'reread-plan-after-ffmerge',
+      new Error(
+        `fresh plan_id "${freshPlanId}" (read after ff-merge) does not match archive_plan input planId "${input.planId}" ` +
+          `(plan_id was likely edited on the worktree branch). Archiving would write mismatched identity fields to ref/plans/${input.planId}.md.`,
+      ),
+      'ff-merge 已完成但 fresh frontmatter 的 plan_id 与 input planId 不符(worktree branch 改了身份字段)。' +
+        'first `git reset --hard ORIG_HEAD`(撤销 ff-merge),then fix plan_id **on the worktree branch** ' +
+        'to match the intended planId (cd into worktree, edit frontmatter, commit), then re-call archive_plan with the matching planId.',
+    );
+  }
+  const freshWorktreePath =
+    typeof freshFm.worktree_path === 'string' && freshFm.worktree_path ? freshFm.worktree_path : null;
+  if (freshWorktreePath !== null) {
+    let fmWtReal: string;
+    let inputWtReal: string | null = null;
+    try {
+      fmWtReal = await deps.realpath(freshWorktreePath);
+    } catch {
+      fmWtReal = freshWorktreePath; // realpath 失败 fallback 字面(worktree 可能已被外部删,极端 edge)
+    }
+    try {
+      inputWtReal = await deps.realpath(input.worktreePath);
+    } catch {
+      inputWtReal = input.worktreePath;
+    }
+    if (fmWtReal !== inputWtReal) {
+      return postFfMergeErr(
+        'reread-plan-after-ffmerge',
+        new Error(
+          `fresh worktree_path "${freshWorktreePath}" (read after ff-merge) does not match archive_plan input worktreePath "${input.worktreePath}" ` +
+            `(worktree_path was likely edited on the worktree branch).`,
+        ),
+        'ff-merge 已完成但 fresh frontmatter 的 worktree_path 与 input worktreePath 不符(worktree branch 改了身份字段)。' +
+          'first `git reset --hard ORIG_HEAD`(撤销 ff-merge),then fix worktree_path **on the worktree branch**, commit, then re-call archive_plan.',
+      );
+    }
   }
 
   // 8c. **重新校验 fresh status**(R1 review 反驳轮异构同源共识 HIGH)

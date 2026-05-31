@@ -473,4 +473,59 @@ describe('archivePlanHandler — CHANGELOG_106 shutdownTeammatesOnBaton 集成',
 
     sessionRepoGetSpy.mockRestore();
   });
+
+  // REVIEW_73 MED(deep-review reviewer-claude + reviewer-codex 双方 ✅):post-ff-merge **late
+  // phase** 失败(archive commit 已落,仅 git artifacts 清理失败)时仍跑 baton cleanup。
+  // 对比上面 precheck dirty 短路(plan 没收口 → 不跑 baton),本 case 是 git-worktree-remove
+  // 失败(commit 已落 plan 实质归档 → caller 使命终结 → team 该收口)。修前 handler 对任何
+  // ArchivePlanError 一刀切 return err 跳过 baton → teammate 孤儿 dormant 未 closed。
+  it('REVIEW_73 MED: post-ff-merge late phase(git-worktree-remove)失败 → 仍跑 baton cleanup(plan 已实质归档)', async () => {
+    const { archivePlanHandler } = await import('../tools/handlers/archive-plan');
+    const { state, input } = fixtureHappyPath();
+    // happy path 走到 archive commit + archivehash,然后 git worktree remove 抛错
+    const gitStdouts: Array<string | Error> = [
+      `${input.worktreePath.replace('/.claude/worktrees/' + input.planId, '')}/.git`, // git-common-dir
+      'worktree-mcp-bug-fix-20260513', // abbrev-ref HEAD
+      '', // worktree status --porcelain (clean)
+      'mainhash', // rev-parse --verify base
+      '', // checkout base
+      '', // merge --ff-only
+      'deadbeef123', // rev-parse HEAD (finalCommit)
+      '', // git add
+      '', // git commit
+      'archivehash', // rev-parse HEAD (archiveCommit) — archive commit 已落
+      new Error('fatal: worktree is locked'), // git worktree remove 失败(post-commit late phase)
+    ];
+    const deps = makeDeps(state, gitStdouts);
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+    const mockShutdown = vi.fn(async (_sid: string) => ({
+      closed: ['teammate-A'],
+      failed: [],
+      skipped: null as null,
+    }));
+    const sessionRepoGetSpy = await spyCallerRow();
+
+    const result = await archivePlanHandler(
+      {
+        planId: input.planId,
+        worktreePath: input.worktreePath,
+        baseBranch: input.baseBranch,
+      },
+      { caller: { callerSessionId: 'caller-sid', transport: 'in-process' } },
+      { implDeps: deps, archiveSession: mockArchive, shutdownTeammates: mockShutdown },
+    );
+
+    // impl 报 post-ff-merge error(透传给 caller 让其手工补完 worktree remove)
+    expect(result.isError).toBe(true);
+    const errPayload = JSON.parse(result.content[0]!.text);
+    expect(errPayload.error).toContain('[post-ff-merge:git-worktree-remove]');
+    // **关键: 仍跑 baton cleanup**(plan 已实质归档,team 收口) — teammate shutdown + archive caller 都调用
+    expect(mockShutdown).toHaveBeenCalledTimes(1);
+    // runBatonCleanup 内部双参签名传给 shutdownFn (callerSid, excludeSessionIds=undefined) — archive_plan 不传 exclude
+    expect(mockShutdown).toHaveBeenCalledWith('caller-sid', undefined);
+    expect(mockArchive).toHaveBeenCalledTimes(1);
+    expect(mockArchive).toHaveBeenCalledWith('caller-sid');
+
+    sessionRepoGetSpy.mockRestore();
+  });
 });
