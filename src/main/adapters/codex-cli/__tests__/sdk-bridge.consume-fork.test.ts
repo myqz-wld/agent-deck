@@ -459,6 +459,94 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     expect(bridge.createCalls).toHaveLength(2);
   });
 
+  // ─── REVIEW_80 MED: forward setCodexSandbox throw 窗口（双方独立共识）──────────────
+  it('REVIEW_80 MED: forward setCodexSandbox throw（closeSession 后、createSession try 外）→ 走 catch emit error message + rethrow（修前静默死态）', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-dbfail',
+      agentId: 'codex-cli',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'read-only', // old
+    });
+    // forward setCodexSandbox（第 1 次调）throw 模拟 SQLITE_BUSY / disk full；
+    // rollback setCodexSandbox（第 2 次调，写 oldSandbox）成功
+    vi.mocked(sessionRepo.setCodexSandbox)
+      .mockImplementationOnce(() => {
+        throw new Error('SQLITE_BUSY: database is locked');
+      })
+      .mockImplementationOnce(() => undefined);
+
+    // 修前：forward throw 在 try 外 → 跳过 catch → 无 error bubble + rethrow 原始 DB err
+    // 修后：forward 纳入 try → catch emit error message + rethrow（原始 err 透传）
+    await expect(
+      bridge.restartWithCodexSandbox('sess-dbfail', 'workspace-write', 'go'),
+    ).rejects.toThrow(/SQLITE_BUSY/);
+
+    // 关键断言（修前缺失）：catch 跑了 → emit 一条 error message 收口占位文案
+    const errMsgs = emits.filter(
+      (e) =>
+        e.kind === 'message' &&
+        (e.payload as { error?: boolean }).error === true &&
+        ((e.payload as { text?: string }).text ?? '').includes('切到 sandbox'),
+    );
+    expect(errMsgs).toHaveLength(1);
+
+    // createSession 未被调（forward DB write 就挂了，不该进 createSession）
+    expect(bridge.createCalls).toHaveLength(0);
+    // setCodexSandbox 调 2 次：1) forward throw 2) catch rollback
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(2);
+    expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(2, 'sess-dbfail', 'read-only');
+  });
+
+  // ─── REVIEW_80 MED (a): rollback setCodexSandbox 自身 throw 不掩盖原始 err ──────────
+  it('REVIEW_80 MED(a): createSession throw 后 rollback setCodexSandbox 再 throw → 原始 createSession err 仍透传（不被回滚 err 掩盖）+ error message 仍 emit', async () => {
+    const bridge = makeBridge();
+    bridge.createBehavior = 'reject';
+    bridge.rejectWith = new Error('codex spawn original failure');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-dblrollback',
+      agentId: 'codex-cli',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'read-only',
+    });
+    // forward set 成功（第 1 次）；rollback set（第 2 次，catch 内）throw 持续性 DB 故障
+    vi.mocked(sessionRepo.setCodexSandbox)
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error('rollback DB still failing');
+      });
+
+    // 关键：rethrow 的应是原始 createSession err，不是 rollback err（修前裸调回滚 throw 会掩盖原 err）
+    await expect(
+      bridge.restartWithCodexSandbox('sess-dblrollback', 'workspace-write', 'go'),
+    ).rejects.toThrow(/codex spawn original failure/);
+
+    // rollback 失败被 try/catch 吞（warn），error message 仍 emit
+    const errMsgs = emits.filter(
+      (e) =>
+        e.kind === 'message' &&
+        (e.payload as { error?: boolean }).error === true &&
+        ((e.payload as { text?: string }).text ?? '').includes('切到 sandbox'),
+    );
+    expect(errMsgs).toHaveLength(1);
+  });
+
   it('handoffPrompt 空 → 直接抛 (codex SDK runStreamed 协议约束)', async () => {
     const bridge = makeBridge();
     await expect(

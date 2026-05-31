@@ -18,7 +18,8 @@
  * - item.completed{mcp_tool_call}    → tool-use-end
  * - item.completed{web_search}       → tool-use-start + tool-use-end（一对，web_search 没有 started 事件）
  * - item.completed{todo_list}        → message(role:assistant, todoList)
- * - item.completed{error}            → message(error)
+ * - item.completed{error}            → message(error)（loader warning 子类含 'Ignoring malformed'
+ *                                       走 console.warn 不 emit，详 translateItemCompleted error case）
  * - item.updated{command_execution}  → tool-use-start（同 toolUseId 重发，store dedup 替换 → UI 实时显示 aggregated_output 增长）
  * - item.updated{mcp_tool_call}      → tool-use-start（同上）
  * - item.updated{其他类型}           → 不发（agent_message / reasoning 文本增量去重复杂；file_change / web_search / todo_list 无 update 价值；error 终态 item.completed 已 cover）
@@ -400,13 +401,16 @@ function translateItemCompleted(item: ThreadItem, emit: EmitFn): void {
       // 修法: 关键词 filter 类 ① 走 console.warn 应用日志保留诊断 + 不污染 UI;类 ② 维持原 emit
       // 行为给用户看到真 turn-level 错误。pattern 取代表性短语 — 与 codex CLI loader 错误前缀对齐
       // (源自 codex-rs core/src/agent_role/ 加载逻辑实测前缀)。
-      const LOADER_WARNING_PATTERNS = [
-        'Ignoring malformed',
-        'failed to deserialize',
-      ];
-      const isLoaderWarning = LOADER_WARNING_PATTERNS.some((pat) =>
-        item.message.includes(pat),
-      );
+      // **REVIEW_80 LOW 修法（reviewer-codex + reviewer-claude 双方独立同向）**:
+      // 修前 LOADER_WARNING_PATTERNS 用 `.some(includes)` OR 任一命中 → `'failed to deserialize'`
+      // 是 serde 通用短语（codex 跑工具拿到畸形 JSON / MCP tool result 反序列化失败等**真
+      // turn-level 错误**也含此短语）单独命中即被静默吞掉,用户看不到真错。
+      // 真实 loader warning 形如 "Ignoring malformed agent role definition: failed to deserialize
+      // ... invalid type: map" — `'Ignoring malformed'` 前缀是 loader 专属锚点（agent-role
+      // 加载逻辑 codex-rs core/src/agent_role/ 输出),且与 `failed to deserialize` 同句共现。
+      // 修后要求 loader 专属锚点 `'Ignoring malformed'` 命中才 suppress UI emit;只含
+      // `failed to deserialize` 不含 loader 锚点的真 turn-level error 走下方 emit error 给用户看。
+      const isLoaderWarning = item.message.includes('Ignoring malformed');
       if (isLoaderWarning) {
         logger.warn(
           '[codex-translate] codex CLI loader warning skipped UI emit:',
