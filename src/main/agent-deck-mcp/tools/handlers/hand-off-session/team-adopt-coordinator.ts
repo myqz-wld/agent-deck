@@ -111,6 +111,26 @@ export function validateAdoptTeammatesArgs(args: HandOffSessionArgs): HandlerRes
       'adopt 路径自动过继 caller 同 team(走 swapLead transaction),与显式额外 teamName(spawn 内 addMember 写新 sid as lead)语义冲突 — 同传会形成 spawn 写 lead → swapLead demote caller 之间的 dual-lead window 破坏 N1 invariant,且 cold-start prompt 仅含 callerLeadMemberships 不含额外 team 形成 silent prompt 数据丢失。改用 adoptTeammates: false + 显式 teamName 走 default spawn,或 adoptTeammates: true 不传 teamName 走 adopt 自动过继。',
     );
   }
+  // REVIEW_71 HIGH(deep-review reviewer-claude MED-1 + reviewer-codex 反驳轮升 HIGH):
+  // adoptTeammates: true 与 archiveCaller: false 不可同传(语义矛盾)。生产 mcp tool 注册
+  // 路径走 SHAPE 不跑 strict.refine,schema 守门只在 *.test.ts 显式 safeParse 时生效,故与
+  // N2.c teamName 互斥同款在 handler 入口加防御性硬约束。
+  //
+  // 矛盾根因:adopt 让 caller swapLead 交出 lead 身份 + Phase A demote 写 member left_at=now
+  // (离开所有 adopted team);archiveCaller: false 让 caller 留下继续 active。组合后:
+  // ① phase 1.5 swapLead 触发条件(handler-main.ts:291)只看 adoptTeammates,与 archiveCaller
+  //    无关 → caller 无条件被 demote 离队
+  // ② runTaskReassignment 因 archiveCaller===false 走 skip(task-reassign-coordinator.ts:98)→
+  //    task 不过继,caller 仍是 owner 但已 left team → 失去 team-bound task 读写范围(isCallerInTeam
+  //    false,owner 语义与权限语义漂移)
+  // ③ caller 与 preserved teammate 不再共享 active team → send_message 撞 no-shared-team,
+  //    打破 archiveCaller: false schema 文案承诺的「caller 仍可看 reviewer reply」
+  if (args.adoptTeammates === true && args.archiveCaller === false) {
+    return err(
+      'adoptTeammates: true 与 archiveCaller: false 不可同传',
+      'adopt 让 caller swapLead 交出 lead 身份并离开所有 adopted team(Phase A demote 写 member left_at=now),与 archiveCaller: false「caller 留下继续 active 观察 reviewer reply」语义矛盾。组合后 caller 被 demote 离队却仍 active:① 失去自己 team-bound task 读写范围(已 left team,isCallerInTeam false) ② 与 preserved teammate 不再共享 active team,send_message 撞 no-shared-team 无法观察 teammate(违背 archiveCaller: false 的核心用途)。改用 adoptTeammates: true(让新 session 接管 teammate,caller 归档退场)或 archiveCaller: false 不带 adopt(caller 留下当 lead,teammate 由 phase 1 跳过保留 alive)。',
+    );
+  }
   return null;
 }
 
@@ -339,14 +359,48 @@ export async function runPhase15AdoptSwapLeadLoop(
     // emit failures 不影响 adopt count 语义（swapLead 已成功,emit 是 side-effect notification）。
     adoptedTeamIdsList.push(teamId);
     // listAllMembers 拿 teammate(过滤 caller 已 demote + newSpawnedSid 自己 + leftAt 软退出)
-    const teammates = listMembersFn(teamId).filter(
-      (m) =>
-        m.leftAt === null &&
-        m.sessionId !== callerSessionId &&
-        m.sessionId !== newSpawnedSid,
-    );
+    //
+    // REVIEW_71 MED(deep-review reviewer-codex HIGH → reviewer-claude 反驳轮 mechanism 100%
+    // 确认 / 降 MED):listMembersFn + 循环内 getSessionFn 必须 fail-soft 包 try/catch,与下方
+    // emit/notify 的 safeEmit 同款 post-commit 防护哲学(L377 注释「不让 side-effect 异常打断
+    // swap 主流程」)。这两处原裸调用是 half-wrap oversight:processSwappedTeam 整个函数体都是
+    // swapLead commit 之后的 bookkeeping,作者保护了下半段 emit 却漏了上半段 list/get。
+    // withMcpGuard(helpers.ts:137-143)不 try/catch handler 本体,任一抛错会一路冒泡穿透 →
+    // firstTeam swapLead 已 commit(caller demote + newSid 升 lead)+ 新 session 已 spawn,但
+    // task reassignment + runBatonCleanup(含 archive caller)还没跑 → 半提交脏态。触发需
+    // SQLite locked / disposed connection 罕见基础设施故障(同连接 swapLead transaction 刚
+    // commit 微秒后),但 fix 极廉价 + 后果脏,按 safeEmit 同款补防护。
+    // list 失败 → team-level failed + 跳过本 team teammate 分类(swapLead 已成功不影响 adopt count)。
+    let teammates: ReturnType<typeof listMembersFn>;
+    try {
+      teammates = listMembersFn(teamId).filter(
+        (m) =>
+          m.leftAt === null &&
+          m.sessionId !== callerSessionId &&
+          m.sessionId !== newSpawnedSid,
+      );
+    } catch (e) {
+      failedList.push({
+        sid: '(list-members-query)',
+        reason: `list-members-error: ${e instanceof Error ? e.message : String(e)}`,
+        teamId,
+      });
+      teammates = [];
+    }
     for (const tm of teammates) {
-      const tmSession = getSessionFn(tm.sessionId);
+      let tmSession: ReturnType<typeof getSessionFn>;
+      try {
+        tmSession = getSessionFn(tm.sessionId);
+      } catch (e) {
+        // 单个 session get 抛错 → push failed(lifecycle-query-error)+ continue,不打断
+        // 后续 teammate 分类 / 后续 team swap(与上方 list fail-soft 同款 post-commit 防护)。
+        failedList.push({
+          sid: tm.sessionId,
+          reason: `lifecycle-query-error: ${e instanceof Error ? e.message : String(e)}`,
+          teamId,
+        });
+        continue;
+      }
       if (tmSession === null) {
         failedList.push({ sid: tm.sessionId, reason: 'session-missing', teamId });
         continue;
