@@ -10,7 +10,7 @@
  * **§D7**: status 严格 3 态（zod IPC 层守门 reject foo）。
  */
 
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { cloneElement, useEffect, useId, useRef, useState, type JSX } from 'react';
 import type {
   IssueRecord,
   IssueAppendix,
@@ -25,6 +25,7 @@ import {
   toEditing,
   buildUpdatePatch,
   rebaseEditingState,
+  validateEditing,
 } from './issue-detail-editing';
 
 interface Props {
@@ -50,7 +51,14 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
     issueFromStore ? toEditing(issueFromStore) : null,
   );
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // deep-review H1 HIGH：致命加载失败（loadError，整组件替换）与操作失败（opError，主视图内联条）
+  // 拆成两个 state。旧实现共用一个 error → 任何 save/delete 失败都 early-return 摧毁整表单 + 丢草稿，
+  // 且本应承担内联展示的代码块成了死代码。
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [opError, setOpError] = useState<string | null>(null);
+  // 手动重试计数：loadError 视图「重试」按钮递增 → mount fetch effect 重跑（H1 R2 INFO：瞬时 IPC
+  // reject 后无需「关闭+重选」即可 in-place 重试）。
+  const [fetchNonce, setFetchNonce] = useState(0);
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
 
   // ref 镜像让异步 fetch callback / effect 读到 resolve 那一刻的最新值（闭包变量是启动时旧值）。
@@ -82,22 +90,57 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   // 保证 issueId 变即 remount fresh state（HIGH-A 跨 issue 污染根治），故本 effect 仅 mount 跑一次。
   // editing/baseline 已由 issueFromStore 同步 seed（可在 fetch 未回前就编辑）→ fetch 回来时 rebase：
   // 无草稿字段更到最新，有草稿字段保留（codex MED：慢 fetch 不吞已输入草稿）。
+  // fetchNonce：手动「重试」时递增，触发本 effect 重跑（loadError 视图重试按钮用，H1 R2 INFO）。
   useEffect(() => {
     let cancelled = false;
-    setError(null);
-    void window.api.issuesGet(issueId).then((fetched) => {
-      if (cancelled || !fetched) {
-        if (!cancelled && !fetched) setError('未找到该问题');
-        return;
-      }
-      setIssue(fetched);
-      rebaseEditing(fetched);
-    });
+    setLoadError(null);
+    void window.api
+      .issuesGet(issueId)
+      .then((fetched) => {
+        if (cancelled) return;
+        if (!fetched) {
+          setLoadError('未找到该问题');
+          return;
+        }
+        const cur = issueRef.current;
+        // deep-review H1 MED：初始 fetch 无 updatedAt guard → 慢 fetch 取旧 snapshot 后于
+        // onIssueChanged event 到达时，旧响应 setIssue 会把更新的记录退回旧值。
+        if (cur) {
+          // fetched 严格更旧 → 整丢（event 版本更新，保留）。
+          if (fetched.updatedAt < cur.updatedAt) return;
+          // deep-review H1 R2 MED（same-ms 防御）：updatedAt 相等但内容可能不同（Date.now() ms 非单调
+          // 版本号，同毫秒 create/update/append 可同值）。相等时 mount fetch 的唯一实益是补 appendices
+          // （读时 attach，不 bump updated_at）→ 只在本地缺 appendices 时补，不用 fetched 覆盖 content
+          // 字段（避免旧快照覆盖同毫秒到达的 event 版本）。
+          // ⚠️ 残留（H1 R3 codex MED → Follow-up #15）：same-ms tie 还有两条兄弟路径未闭合 —
+          //   (a) store-sync effect（下方 L150 `===updatedAt` early-return）同毫秒不同内容 event 不 rebase；
+          //   (b) mergeIssuesFromList（issues-store.ts）`>` 保本地，equal 时旧 list 快照覆盖 event 版本。
+          // 三条根因同一：ms 时间戳非单调。彻底解 = repo 层加单调 revision（issue-repo REVIEW_70 scope
+          // 外，且 renderer 侧 seq band-aid 要改动 HIGH-A/B/Round2/3 所在最高风险 editing 逻辑，对近乎
+          // 不可达（需两并发写者同毫秒写同一 issue）且自愈（下个 event/refetch 修正）的瞬时 staleness
+          // 不成比例）→ 留 Follow-up，此处 renderer 侧仅就 mount fetch 路径防御兜底。
+          if (fetched.updatedAt === cur.updatedAt) {
+            if (cur.appendices === undefined && fetched.appendices !== undefined) {
+              setIssue({ ...cur, appendices: fetched.appendices });
+            }
+            return;
+          }
+        }
+        // fetched 更新（或本地无 issue）→ 正常 apply + rebase。
+        setIssue(fetched);
+        rebaseEditing(fetched);
+      })
+      .catch((e: unknown) => {
+        // deep-review H1 MED：无 catch 时 IPC reject 会冒泡到 main.tsx unhandledrejection → 全屏 fatal
+        // banner 闪 8s，detail 永久卡「加载中…」。接住 → 走内联 loadError 展示（可重试）。
+        if (cancelled) return;
+        setLoadError(e instanceof Error ? e.message : String(e));
+      });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [issueId]);
+  }, [issueId, fetchNonce]);
 
   // store 行被 onIssueChanged event 更新（典型：起新会话回写 status='in-progress'，或其他
   // 视图 / teammate 改了同一 issue）→ 刷新 read-only `issue` 显示，避免「状态没刷新需切走再切回」。
@@ -119,10 +162,20 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeUpdatedAt]);
 
-  if (error) {
+  if (loadError) {
     return (
       <div className="px-3 py-3 text-xs text-status-waiting">
-        {error} <button onClick={onClose} className="underline">关闭</button>
+        {loadError}{' '}
+        <button
+          type="button"
+          onClick={() => setFetchNonce((n) => n + 1)}
+          className="underline hover:text-deck-text"
+        >
+          重试
+        </button>{' '}
+        <button type="button" onClick={onClose} className="underline hover:text-deck-text">
+          关闭
+        </button>
       </div>
     );
   }
@@ -131,8 +184,15 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   }
 
   const handleSave = async (): Promise<void> => {
+    // deep-review H1 LOW：renderer 端前置校验（与 IPC zod + repo trim 守门对齐），非法输入挡在 IPC
+    // 之前 → 不发请求、不丢草稿，只内联报错。配合 opError 拆分让用户改完再存。
+    const invalid = validateEditing(editing);
+    if (invalid) {
+      setOpError(invalid);
+      return;
+    }
     setSaving(true);
-    setError(null);
+    setOpError(null);
     try {
       const patch = buildUpdatePatch(editing, issue, issueId);
       // 空 patch（无草稿）→ 跳过 IPC 往返（避免冗余 emit kind=updated 触发全 panel no-op upsert）。
@@ -148,7 +208,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
       setEditing(toEditing(updated));
       setBaseline(toEditing(updated));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setOpError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -156,13 +216,14 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
 
   const handleSoftDelete = async (): Promise<void> => {
     setSaving(true);
+    setOpError(null);
     try {
       await window.api.issuesSoftDelete(issueId);
       // store 通过 onIssueChanged 自动更新；这里同步 local issue state 让 button 立即换显
       const fresh = await window.api.issuesGet(issueId);
       if (fresh) setIssue(fresh);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setOpError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -170,12 +231,13 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
 
   const handleUndelete = async (): Promise<void> => {
     setSaving(true);
+    setOpError(null);
     try {
       await window.api.issuesUndelete(issueId);
       const fresh = await window.api.issuesGet(issueId);
       if (fresh) setIssue(fresh);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setOpError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -191,14 +253,19 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         <h2 className="truncate text-sm font-medium text-deck-text" title={issue.id}>
           问题 · {issue.id.slice(0, 8)}
         </h2>
-        <button onClick={onClose} className="text-xs text-deck-muted hover:text-deck-text">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="关闭"
+          className="text-xs text-deck-muted hover:text-deck-text"
+        >
           ✕
         </button>
       </div>
       <div className="flex-1 space-y-3 overflow-y-auto scrollbar-deck px-3 py-3">
-        {error && (
+        {opError && (
           <div className="rounded bg-status-waiting/15 px-2 py-1 text-xs text-status-waiting">
-            {error}
+            {opError}
           </div>
         )}
 
@@ -362,6 +429,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
       <div className="flex gap-1.5 border-t border-deck-border px-3 py-2">
         {!isDeleted && (
           <button
+            type="button"
             onClick={() => void handleSave()}
             disabled={saving}
             className="rounded bg-white/15 px-2 py-1 text-xs text-deck-text hover:bg-white/25 disabled:opacity-50"
@@ -371,6 +439,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         )}
         {!isDeleted && !isResolved && (
           <button
+            type="button"
             onClick={() => setResolveDialogOpen(true)}
             disabled={saving}
             title={
@@ -386,6 +455,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         <div className="flex-1" />
         {!isDeleted ? (
           <button
+            type="button"
             onClick={() => void handleSoftDelete()}
             disabled={saving}
             className="rounded bg-status-waiting/25 px-2 py-1 text-xs text-status-waiting hover:bg-status-waiting/40 disabled:opacity-50"
@@ -394,6 +464,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           </button>
         ) : (
           <button
+            type="button"
             onClick={() => void handleUndelete()}
             disabled={saving}
             className="rounded bg-status-finished/25 px-2 py-1 text-xs text-status-finished hover:bg-status-finished/40 disabled:opacity-50"
@@ -423,13 +494,16 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   );
 }
 
+// deep-review H1 LOW（a11y）：label 经 htmlFor/id 关联到唯一控件子节点，点 label 聚焦输入框、
+// 屏幕阅读器拿到控件名。children 必须是单个表单控件元素（input/select/textarea）。
 function Field({ label, children }: { label: string; children: JSX.Element }): JSX.Element {
+  const id = useId();
   return (
     <div className="space-y-1">
-      <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
+      <label htmlFor={id} className="block text-[10px] uppercase tracking-wide text-deck-muted">
         {label}
       </label>
-      {children}
+      {cloneElement(children, { id })}
     </div>
   );
 }

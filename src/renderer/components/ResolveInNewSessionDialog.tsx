@@ -9,7 +9,7 @@
  *   dedupe 兜底（§D14 UI throttle 兜底）
  */
 
-import { useEffect, useMemo, useState, type JSX } from 'react';
+import { cloneElement, useEffect, useId, useState, type JSX } from 'react';
 import type { IssueRecord } from '@shared/types';
 import {
   PERMISSION_OPTIONS,
@@ -81,22 +81,34 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
   const [adapter, setAdapter] = useState('claude-code');
   const [cwd, setCwd] = useState(issue.cwd ?? '');
-  const defaultPrompt = useMemo(() => buildDefaultPrompt(issue), [issue]);
-  const [prompt, setPrompt] = useState(defaultPrompt);
+  // deep-review H1 INFO：buildDefaultPrompt 只需作 useState 初值（mount 后不再消费），用惰性初始化
+  // 替代 useMemo（去掉每次 issue 变重算但不被用的死计算）。
+  const [prompt, setPrompt] = useState(() => buildDefaultPrompt(issue));
   const [permissionMode, setPermissionMode] = useState('');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // deep-review H1 R2 LOW：adapter 列表加载失败 / 为空时禁止提交（否则用默认 'claude-code' 发起，
+  // select 无 option、permission/sandbox 字段按错误 adapter 显示，最终 IPC 二次失败）。
+  const [adaptersReady, setAdaptersReady] = useState(false);
 
   useEffect(() => {
-    void window.api.listAdapters().then((rows) => {
-      const usable = rows.filter((a) => a.capabilities.canCreateSession);
-      setAdapters(usable);
-      if (usable.length > 0 && !usable.find((a) => a.id === adapter)) {
-        setAdapter(usable[0].id);
-      }
-    });
+    void window.api
+      .listAdapters()
+      .then((rows) => {
+        const usable = rows.filter((a) => a.capabilities.canCreateSession);
+        setAdapters(usable);
+        setAdaptersReady(usable.length > 0);
+        if (usable.length > 0 && !usable.find((a) => a.id === adapter)) {
+          setAdapter(usable[0].id);
+        }
+      })
+      .catch((e: unknown) => {
+        // deep-review H1 MED：无 catch 时 reject 冒泡到 main.tsx unhandledrejection → 全屏 fatal；
+        // adapter 列表空时 dialog 仍显示但 select 无选项 → 提示用户而非静默。
+        setError(`无法加载 adapter 列表：${e instanceof Error ? e.message : String(e)}`);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -108,6 +120,12 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
 
   const handleSubmit = async (): Promise<void> => {
     setError(null);
+    // deep-review H1 R2 LOW：adapter 列表未就绪（加载失败 / 为空）→ 拒绝提交（避免用默认 adapter
+    // 发起注定二次失败的会话）。
+    if (!adaptersReady) {
+      setError('adapter 列表不可用，无法起会话');
+      return;
+    }
     if (!prompt.trim()) {
       setError('首条 prompt 不能为空');
       return;
@@ -136,7 +154,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       <div className="flex max-h-[90vh] w-[640px] flex-col rounded-lg bg-deck-bg shadow-xl">
         <div className="flex items-center justify-between border-b border-deck-border px-4 py-2">
           <h2 className="text-sm font-medium text-deck-text">起新会话解决问题</h2>
-          <button onClick={onClose} className="text-deck-muted hover:text-deck-text">
+          <button type="button" onClick={onClose} aria-label="关闭" className="text-deck-muted hover:text-deck-text">
             ✕
           </button>
         </div>
@@ -152,10 +170,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               resolutionSessionId，旧解决会话将失去自助改状态（update_issue_status）的授权。
             </div>
           )}
-          <div className="space-y-1">
-            <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-              Adapter
-            </label>
+          <DialogField label="Adapter">
             <select
               value={adapter}
               onChange={(e) => setAdapter(e.target.value)}
@@ -168,11 +183,8 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
                 </option>
               ))}
             </select>
-          </div>
-          <div className="space-y-1">
-            <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-              工作目录（留空则用问题来源目录，仍为空则用主目录）
-            </label>
+          </DialogField>
+          <DialogField label="工作目录（留空则用问题来源目录，仍为空则用主目录）">
             <input
               type="text"
               value={cwd}
@@ -182,11 +194,8 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               maxLength={4096}
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
             />
-          </div>
-          <div className="space-y-1">
-            <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-              首条 prompt（已根据问题内容预填，可编辑）
-            </label>
+          </DialogField>
+          <DialogField label="首条 prompt（已根据问题内容预填，可编辑）">
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -195,13 +204,10 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               maxLength={102400}
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 font-mono text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
             />
-            <div className="text-[10px] text-deck-muted">{prompt.length} / 102400</div>
-          </div>
+          </DialogField>
+          <div className="-mt-2 text-[10px] text-deck-muted">{prompt.length} / 102400</div>
           {showPermissionMode && (
-            <div className="space-y-1">
-              <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-                权限模式（可选；留空用默认）
-              </label>
+            <DialogField label="权限模式（可选；留空用默认）">
               <select
                 value={permissionMode}
                 onChange={(e) => setPermissionMode(e.target.value)}
@@ -215,13 +221,10 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
                   </option>
                 ))}
               </select>
-            </div>
+            </DialogField>
           )}
           {showCodexSandbox && (
-            <div className="space-y-1">
-              <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-                沙盒（可选；留空用默认）
-              </label>
+            <DialogField label="沙盒（可选；留空用默认）">
               <select
                 value={codexSandbox}
                 onChange={(e) => setCodexSandbox(e.target.value as CodexSandboxChoice)}
@@ -234,13 +237,10 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
                   </option>
                 ))}
               </select>
-            </div>
+            </DialogField>
           )}
           {showClaudeCodeSandbox && (
-            <div className="space-y-1">
-              <label className="block text-[10px] uppercase tracking-wide text-deck-muted">
-                系统沙盒（可选；留空用默认）
-              </label>
+            <DialogField label="系统沙盒（可选；留空用默认）">
               <select
                 value={claudeCodeSandbox}
                 onChange={(e) => setClaudeCodeSandbox(e.target.value as ClaudeSandboxChoice)}
@@ -253,12 +253,13 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
                   </option>
                 ))}
               </select>
-            </div>
+            </DialogField>
           )}
         </div>
         <div className="flex gap-1.5 border-t border-deck-border px-4 py-2">
           <div className="flex-1" />
           <button
+            type="button"
             onClick={onClose}
             disabled={busy}
             className="rounded bg-white/[0.06] px-3 py-1 text-xs text-deck-muted hover:text-deck-text disabled:opacity-50"
@@ -266,14 +267,29 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             取消
           </button>
           <button
+            type="button"
             onClick={() => void handleSubmit()}
-            disabled={busy}
+            disabled={busy || !adaptersReady}
             className="rounded bg-status-working/30 px-3 py-1 text-xs text-status-working hover:bg-status-working/50 disabled:opacity-50"
           >
             {busy ? '正在起新会话…' : '起新会话'}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// deep-review H1 LOW（a11y）：label htmlFor 关联到唯一控件子节点（input/select/textarea）。
+// 与 IssueDetail.Field 同款 cloneElement 注入 id 模式。
+function DialogField({ label, children }: { label: string; children: JSX.Element }): JSX.Element {
+  const id = useId();
+  return (
+    <div className="space-y-1">
+      <label htmlFor={id} className="block text-[10px] uppercase tracking-wide text-deck-muted">
+        {label}
+      </label>
+      {cloneElement(children, { id })}
     </div>
   );
 }

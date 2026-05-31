@@ -91,6 +91,24 @@ export function hasDraft(editing: EditingState, baseline: EditingState): boolean
   return FIELD_KEYS.some((k) => !fieldEquals(k, editing, baseline));
 }
 
+/**
+ * 提交前 renderer 端校验，与 IPC `UPDATE_PATCH_SCHEMA`（src/main/ipc/issues.ts）+ repo 层 trim 守门
+ * 对齐：title/description/kind 非空（trim 后）、labels ≤16 项 / 单项 ≤64 字符。
+ *
+ * 返回 null = 通过；否则返回中文错误信息（落 opError 内联显示，**不发 IPC、不丢草稿**）。
+ * deep-review H1 LOW：原先 renderer 无必填校验，清空标题点保存 → IPC zod reject → 旧共用 error
+ * 路径摧毁整表单。前置校验把非法输入挡在 IPC 之前，配合 HIGH 的 loadError/opError 拆分保住草稿。
+ */
+export function validateEditing(editing: EditingState): string | null {
+  if (!editing.title.trim()) return '标题不能为空';
+  if (!editing.description.trim()) return '描述不能为空';
+  if (!editing.kind.trim()) return '类型不能为空';
+  const labels = parseLabels(editing.labels);
+  if (labels.length > 16) return '标签最多 16 个';
+  if (labels.some((l) => l.length > 64)) return '单个标签最长 64 字符';
+  return null;
+}
+
 /** issuesUpdate 的 patch 形态（仅 detail 可改字段，全 optional — 缺省 = 不动该列）。 */
 export interface IssueUpdatePatch {
   title?: string;
@@ -111,15 +129,18 @@ export interface IssueUpdatePatch {
  * - Round3-MED（冲突字段改回旧值）：editing=open 但 issue=resolved → editing!==issue → **提交 open**
  *   （用户确实想把已被外部改成 resolved 的字段写回 open，正确，不再 stale no-op / UI-DB 分叉）
  *
- * HIGH-A 第二道防线：`expectedIssueId`（=组件 props.issueId）与 `issue.id` 不一致 → 返空 patch
- * （key remount 是主防线，这里兜底防回归把 A 的草稿写到 B）。
+ * HIGH-A 兜底防线（非主防线）：`expectedIssueId`（=组件 props.issueId）与 `issue.id` 不一致 → 返空 patch。
+ * 主防线是 IssuesPanel `key={selectedIssueId}` 的 per-issue remount（fresh state）。本 guard 只拦
+ * 「issue 对象 id 与 props 不符」（stale issue object），**不覆盖**「editing 来自旧 issue、issue 对象
+ * 已是新 issue」的污染形态（那种形态 issue.id===expectedIssueId 会放行）——故只是防 stale object 的兜底。
  */
 export function buildUpdatePatch(
   editing: EditingState,
   issue: IssueRecord,
   expectedIssueId: string,
 ): IssueUpdatePatch {
-  // HIGH-A 第二道防线：身份不符直接返空（key remount 是主防线，这里兜底防回归）。
+  // HIGH-A 兜底防线：issue 对象 id 与 props 不符（stale issue object）直接返空。注意这不是「主防线」
+  // ——主防线是 key remount；本 guard 不覆盖「editing 来自旧 issue、issue 已是新 issue」的污染形态。
   if (issue.id !== expectedIssueId) return {};
   const canonical = toEditing(issue);
   const patch: IssueUpdatePatch = {};
