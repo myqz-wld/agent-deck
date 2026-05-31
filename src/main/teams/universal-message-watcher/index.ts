@@ -19,12 +19,15 @@
  * - throw 时 attemptCount ++ + lastAttemptAt = now → 退避后下次再选
  * - attemptCount >= 3 直接 failed
  *
- * **wire format**（§4.4，plan team-cohesion-fix-20260513 Phase B7：注入 messageId）：
- *   `[from <displayName> @ <adapterId>][msg <id>]\n<原始 body>`
+ * **wire format**（§4.4，CHANGELOG_100 / plan mcp-tool-simplify-20260514 D9：双锚点）：
+ *   `[from <displayName> @ <adapterId>][msg <id>][sid <senderSessionId>]\n<原始 body>`
  * adapter 端不再二次封装；body 直接 sendMessage 到 receiver。
- * teammate（reviewer-* / 其他 mcp-aware agent）收到后从顶部 regex `\[msg ([0-9a-f-]+)\]` 提
- * messageId，调 `reply_message({reply_to_message_id, text})` 回 lead；lead `wait_reply({message_id})`
- * 即可精确等到这条 reply（DB 按 reply_to_message_id 查 + listener fast path）。
+ * teammate（reviewer-* / 其他 mcp-aware agent）收到后从顶部 regex
+ * `\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]` 提 messageId + senderSessionId 双锚点，调
+ * `send_message({ sessionId: senderSid, teamId, text, replyToMessageId: messageId })` 回 lead；
+ * reply 走与普通 message 同款 dispatch（universal-message-watcher.deliver → adapter）自动注入
+ * receiver SDK conversation（reply_message / wait_reply / check_reply 三 tool 已 CHANGELOG_100 删，
+ * 见本文件 deliver() 内 J fix 注释）。
  *
  * **sessionManager.close 兜底**：watcher 检测 receiver session lifecycle='closed' →
  * messageRepo.markFailed reason='session-closed'。wait-reply-coordinator 同步监听
@@ -53,6 +56,7 @@ import { sanitizeWireFieldName } from '@shared/wire-prefix';
 import type { AgentDeckMessage } from '@shared/types';
 
 import { teamEventDispatcher } from './team-event-dispatcher';
+import { messageRateLimiter } from './rate-limiter';
 import log from '@main/utils/logger';
 
 const logger = log.scope('universal-message-watcher');
@@ -122,6 +126,8 @@ function buildWireBody(
 export class UniversalMessageWatcher {
   private pollInterval: NodeJS.Timeout | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
+  /** REVIEW_86 LOW (reviewer-claude): per-team rate-limiter 空桶低频清理 timer（防 Map 随历史 team 增长）。 */
+  private sweepInterval: NodeJS.Timeout | null = null;
   private offEnqueue: (() => void) | null = null;
   /** 单飞：同一 tick 内多次触发只跑一次（防 event + poll burst 串行重入）。 */
   private processing = false;
@@ -150,6 +156,14 @@ export class UniversalMessageWatcher {
       void this.process();
     }, tickMs);
 
+    // REVIEW_86 LOW (reviewer-claude): per-team rate-limiter 空桶低频清理（每 60s = rate 窗口长度）。
+    // 全部 timestamp 出窗的桶整桶删，防 buckets Map 随历史 team（含 archived）单调增长。
+    // 用独立低频 timer 而非 poll tick（250ms 太频繁，sweep 无需那么勤）。unref 让它不阻止进程退出。
+    this.sweepInterval = setInterval(() => {
+      messageRateLimiter.sweepEmptyBuckets();
+    }, 60_000);
+    this.sweepInterval.unref?.();
+
     teamEventDispatcher.start();
 
     logger.info(
@@ -167,6 +181,10 @@ export class UniversalMessageWatcher {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
+    }
+    if (this.sweepInterval) {
+      clearInterval(this.sweepInterval);
+      this.sweepInterval = null;
     }
     teamEventDispatcher.stop();
     logger.info('[universal-message-watcher] stopped');
@@ -203,7 +221,19 @@ export class UniversalMessageWatcher {
       // per-target backpressure 阈值同步当前 settings
       const maxInflight = settingsStore.get('mcpMessageMaxTargetInflight') ?? 10;
 
+      // **REVIEW_86 MED (reviewer-claude + reviewer-codex 反驳轮共识)**: 旧 starvation guard 用
+      // **全局** deliveredAny 标志，over-cap target X 被 under-cap target Y 的持续流量饿死——
+      // X(pending 12-15) 每 candidate `otherInflight=count-1 > maxInflight` 全 skip，但 Y under-cap
+      // deliver 置 deliveredAny=true → L245 guard（!deliveredAny 才救）被 Y 掩盖跳过；L256 cross-target
+      // 二阶段仅在 batch 撑爆且救 batch **外** target（X 已在 batch 内救不到）。X 每 tick drain 0 无限饿死。
+      // codex 反驳轮补充：X=15/Y=1（batch=16）+ X≥16（drain 到 15 后停）同样命中——只要 Y 持续 trickle。
+      // 修法（codex 安全设计）：保留 REVIEW_35 的 `count-1`（防同 target 死锁）+ REVIEW_56 的 cross-target
+      // 二阶段（救 batch 外 target），额外 per-target 记录「本 tick 被 backpressure skip 的 target 的
+      // head candidate」+「本 tick 有成功 deliver 的 target 集合」；主 loop 后对每个被 skip 且**本 tick
+      // 零进展**的 over-cap target 强制 deliver 其 head 一条，保证每个 over-cap target 每 tick ≥1 进展。
       let deliveredAny = false;
+      const deliveredTargets = new Set<string>();
+      const firstSkippedByTarget = new Map<string, AgentDeckMessage>();
       for (const candidate of candidates) {
         // backpressure check：候选已经包含 status='pending' + 退避到期。
         // REVIEW_35 HIGH-A1：`countPendingForTarget` 返回 pending+delivering 之和，包含 candidate
@@ -217,23 +247,36 @@ export class UniversalMessageWatcher {
         const otherInflight =
           agentDeckMessageRepo.countPendingForTarget(candidate.toSessionId) - 1;
         if (otherInflight > maxInflight) {
+          // 记录每个 over-cap target 的 head candidate（FIFO 最早），供 loop 后 per-target rescue。
+          if (!firstSkippedByTarget.has(candidate.toSessionId)) {
+            firstSkippedByTarget.set(candidate.toSessionId, candidate);
+          }
           continue;
         }
         await this.deliver(candidate);
         deliveredAny = true;
+        deliveredTargets.add(candidate.toSessionId);
       }
-      // REVIEW_35 HIGH-A1 starvation guard：N >> maxInflight+1 同 target（典型：N≥17 撑爆 BATCH_LIMIT=16）
-      // 时单 tick 所有 candidates 仍可能全 skip，跨 target 也饿死（其他 target 被挤出 batch）。
-      // 修法：deliveredAny=false 且 candidates 非空 → 强制 deliver candidates[0] 破开闸门。
-      // 代价：实际允许偶尔超 cap 一条短瞬窗口（candidate[0] deliver 完后 cap 降回）。这是
-      // unbounded queue + bounded resource 经典 trade-off — 优先保活而非严格 cap。
+      // REVIEW_86 MED per-target rescue：对每个本 tick 被 backpressure skip 且零成功 deliver 的
+      // over-cap target，强制 deliver 其 head 一条破开闸门——保证 over-cap target 不被其他 target
+      // 流量无限饿死。代价同 REVIEW_35 guard：偶尔微超 cap 一条（deliver 后 count 降回）。这取代旧
+      // 全局 deliveredAny guard（L245）——per-target 视角严格更强（旧 guard 只在全局零 deliver 时救
+      // candidates[0] 一个 target，新逻辑救所有零进展 over-cap target）。
+      for (const [toSessionId, head] of firstSkippedByTarget) {
+        if (!deliveredTargets.has(toSessionId)) {
+          await this.deliver(head);
+          deliveredAny = true;
+          deliveredTargets.add(toSessionId);
+        }
+      }
+      // 兜底：candidates 非空但全程零 deliver（理论上 per-target rescue 已覆盖所有 over-cap skip，
+      // 此处仅防御「candidates 非空但既无 under-cap deliver 又无 firstSkippedByTarget」的不可达组合）。
       if (!deliveredAny && candidates.length > 0) {
         await this.deliver(candidates[0]);
       }
       // REVIEW_56 Batch C R1 codex MED-2 修法:cross-target starvation 二阶段公平兜底。
-      // 上面 starvation guard 只 deliver candidates[0] = batch 内 FIFO 最早,但 batch 全是
-      // target-X 时 (single target 撑爆 BATCH_LIMIT) candidates[0] 仍属 target-X → 跨 target
-      // target-Y 仍 starve 数分钟(target-X queue 降到 < BATCH_LIMIT 前 Y 才进 batch)。
+      // per-target rescue 救的是 batch **内** 被 skip 的 over-cap target;但 batch 全是 target-X 撑爆
+      // BATCH_LIMIT 时,batch **外** 的 target-Y 根本进不了 candidates → 需 secondary query 救。
       // 修法:batch 撑爆 BATCH_LIMIT 时 (candidates.length >= BATCH_LIMIT) 跑 secondary
       // query 拉一条**不在 batch targets** 的最早 pending,公平投递破开闸门。
       // 触发条件: candidates.length >= BATCH_LIMIT 精确捕捉 batch 撑爆场景 — 不撑爆时
@@ -270,6 +313,37 @@ export class UniversalMessageWatcher {
     }
     this.emitStatus(claimed);
 
+    // **REVIEW_86 MED-1 (reviewer-codex)**: claim 已把行置 'delivering'，但 claim 后的 invariant
+    // 重验（sessionRepo.get / agentDeckTeamRepo.get / findActiveMembershipIn）+ buildWireBody 旧版
+    // **在 adapter try/catch 之外**。任一同步抛错（SQLITE_BUSY / I/O / DB lock）冒到 process() 外层
+    // catch 只 warn，不 retryAfterFail / 不 markFailed → 行永久卡 'delivering'，而 findEligible 仅扫
+    // 'pending' → 运行期不再重投，只有下次 start() 的 resetDeliveringOnStartup() 能救（需重启）。
+    // 修法:把整段 post-claim（invariant 重验 + buildWireBody + adapter call）包进一个 try；catch
+    // 内对 claimed.id 调 retryAfterFail（退避后重投，到 MAX_RETRY 自动 failed），确保所有 post-claim
+    // 异常都走状态机不会卡 delivering。invariant 违规路径（markFailed + return）是 by-design 终止态，
+    // return 正常退出 try 不进 catch，行为不变。
+    try {
+      await this.dispatchClaimed(claimed);
+    } catch (err) {
+      // claim 后任意同步/异步异常（invariant 重验 DB 抛错 / buildWireBody 抛错 / 未被内层 adapter
+      // try 捕获的其他抛错）统一退避重投，破开「永久卡 delivering」。
+      const reason = err instanceof Error ? err.message : String(err);
+      const updated = agentDeckMessageRepo.retryAfterFail(claimed.id, reason, Date.now());
+      if (updated) {
+        this.emitStatus(updated);
+        logger.warn(
+          `[universal-message-watcher] deliver post-claim error (attempt ${updated.attemptCount}/${MAX_RETRY}) message=${updated.id}: ${reason}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * claim 之后的投递主体：5 项 invariant 重验 → adapter resolve → buildWireBody → adapter call。
+   * 抽出让 deliver() 的 outer try 能兜住本段任意 post-claim 抛错（REVIEW_86 MED-1）。
+   * invariant 违规走 markFailed + return（终止态，by-design）；adapter call 失败走内层 retryAfterFail。
+   */
+  private async dispatchClaimed(claimed: AgentDeckMessage): Promise<void> {
     // CHANGELOG_100 / plan mcp-tool-simplify-20260514：J fix 一刀切拦截已删除。
     //
     // 旧 J fix（CHANGELOG_99 之前）：`if (claimed.replyToMessageId != null)` 直接 markDelivered

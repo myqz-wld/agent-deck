@@ -254,6 +254,19 @@ export function registerTeamsIpc(): void {
       if (typeof obj.body !== 'string' || !obj.body) {
         throw new IpcInputError('body', 'body required (non-empty string)');
       }
+      // **REVIEW_86 MED-2 (reviewer-codex)**: enqueue.ts 注释明确「archived team 由 caller 拒」，
+      // 但旧 IPC send 只用 listActiveMembers 校验 membership——该 SQL（member-query.ts:50-52）只 JOIN
+      // sessions 过滤 s.archived_at，**不** JOIN agent_deck_teams 不看 team.archived_at；team archive
+      // 不清 member row，故 archived team 仍能通过 IPC 入队 → watcher claim 后在 team.archivedAt 处
+      // markFailed → caller 先拿 queued ok 随后异步失败（误导）。与 MCP send.ts:39-50 closed/archived
+      // 前置拒绝对齐：team 不存在 / archived 直接 IpcInputError，不入队。
+      const team = agentDeckTeamRepo.get(teamId);
+      if (!team) {
+        throw new IpcInputError('teamId', `team ${teamId} not found`);
+      }
+      if (team.archivedAt !== null) {
+        throw new IpcInputError('teamId', `team ${teamId} is archived; cannot send messages`);
+      }
       // 校验 from / to 都在该 team active
       const members = agentDeckTeamRepo.listActiveMembers(teamId);
       const memberIds = new Set(members.map((m) => m.sessionId));
@@ -262,6 +275,12 @@ export function registerTeamsIpc(): void {
       }
       if (!memberIds.has(toSessionId)) {
         throw new IpcInputError('toSessionId', `${toSessionId} not active in team ${teamId}`);
+      }
+      // target session closed 前置拒绝（与 MCP send.ts:39-44 对齐，避免入队后 watcher 必 fail）。
+      // listActiveMembers 已过滤 archived session，但不查 lifecycle='closed'（closed 不写 archived_at）。
+      const toSession = sessionRepo.get(toSessionId);
+      if (toSession && toSession.lifecycle === 'closed') {
+        throw new IpcInputError('toSessionId', `${toSessionId} is closed; cannot receive messages`);
       }
       const result = enqueueAgentDeckMessage({
         teamId,

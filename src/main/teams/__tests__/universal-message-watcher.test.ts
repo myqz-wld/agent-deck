@@ -27,6 +27,8 @@ import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 const claimCalls: string[] = [];
 const markDeliveredCalls: Array<{ id: string; ts: number }> = [];
 const markFailedCalls: Array<{ id: string; reason: string }> = [];
+// REVIEW_86 MED-1: 记录 retryAfterFail 调用让 post-claim throw test 断言走状态机不卡 delivering。
+const retryAfterFailCalls: Array<{ id: string; reason: string }> = [];
 const sessionRepoGetCalls: string[] = [];
 const adapterRegistryGetCalls: string[] = [];
 const receiveTeammateMessageCalls: Array<{ to: string; from: string; body: string }> = [];
@@ -34,6 +36,13 @@ const emitStatusCalls: Array<{ id: string; status: string }> = [];
 
 let nextClaimResult: AgentDeckMessage | null = null;
 let nextSessionResult: { id: string; lifecycle: 'active' | 'dormant' | 'closed'; agentId: string; archivedAt?: number | null } | null = null;
+// REVIEW_86 LOW-2 (reviewer-codex): per-sid sessionRepo.get overlay 让 invariant test 区分
+// target / from session 独立返值（修前单 nextSessionResult 全局 → invariant-2/3 在 target 反查
+// 就 fail，打不到 from-session 分支）。empty → fallback nextSessionResult（向后兼容现有 test）。
+const sessionByIdMap: Map<
+  string,
+  { id: string; lifecycle: 'active' | 'dormant' | 'closed'; agentId: string; archivedAt?: number | null } | null
+> = new Map();
 let nextAdapterResult:
   | { capabilities: { canCollaborate: boolean }; receiveTeammateMessage?: typeof receiveTeammateMessageStub }
   | undefined = undefined;
@@ -99,7 +108,22 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
       }
       return nextClaimResult ? { ...nextClaimResult, status: 'failed', statusReason: reason } : null;
     },
-    retryAfterFail: () => null,
+    retryAfterFail: (id: string, reason: string, _now: number) => {
+      // REVIEW_86 MED-1: 记录 retryAfterFail 调用 + stateful 改 status 回 pending（退避重投语义）。
+      retryAfterFailCalls.push({ id, reason });
+      if (statefulPendingMap) {
+        const m = statefulPendingMap.get(id);
+        if (!m) return null;
+        m.attemptCount = (m.attemptCount ?? 0) + 1;
+        // attemptCount < MAX_RETRY(3) → 退避后回 pending；到顶 → failed
+        m.status = m.attemptCount >= 3 ? 'failed' : 'pending';
+        m.statusReason = reason;
+        return { ...m };
+      }
+      return nextClaimResult
+        ? { ...nextClaimResult, status: 'pending' as const, statusReason: reason, attemptCount: 1 }
+        : null;
+    },
     findEligible: (opts: { now: number; limit: number }) => {
       if (statefulPendingMap) {
         return Array.from(statefulPendingMap.values())
@@ -142,6 +166,8 @@ vi.mock('@main/store/session-repo', () => ({
     overrides: {
       get: (id: string) => {
         sessionRepoGetCalls.push(id);
+        // REVIEW_86 LOW-2: per-sid overlay 优先（invariant-2/3 区分 target/from）；empty → fallback。
+        if (sessionByIdMap.has(id)) return sessionByIdMap.get(id)!;
         return nextSessionResult;
       },
     },
@@ -176,6 +202,8 @@ vi.mock('@main/store/settings-store', () => ({
 
 const teamRepoListCalls: Array<{ activeOnly?: boolean; limit?: number; offset?: number }> = [];
 let teamRepoListResults: Array<{ id: string; archivedAt: number | null }> = [];
+// REVIEW_86 MED-1: agentDeckTeamRepo.get 抛错开关（模拟 claim 后 invariant 重验 DB 抛错）。
+let teamGetThrow = false;
 
 vi.mock('@main/store/agent-deck-team-repo', () => ({
   agentDeckTeamRepo: makeAgentDeckTeamRepoMock({
@@ -186,7 +214,12 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
       }) as AgentDeckTeamRepo['list'],
       // REVIEW_56 Batch C R1 codex MED-1 修法 stub: watcher deliver() 重验 team 是否 archived
       // / 双方仍是 active member。返 nextTeamResult / nextMembershipResult 让 test 显式控制。
-      get: ((_teamId: string) => nextTeamResult) as AgentDeckTeamRepo['get'],
+      // REVIEW_86 MED-1: teamGetThrow=true 时抛错，模拟 claim 后 invariant 重验 DB 抛错（SQLITE_BUSY）
+      // → 验证走 deliver() outer try → retryAfterFail，不卡 delivering。
+      get: ((_teamId: string) => {
+        if (teamGetThrow) throw new Error('simulated SQLITE_BUSY in team get');
+        return nextTeamResult;
+      }) as AgentDeckTeamRepo['get'],
       // REVIEW_56 §Test-Watcher 修法 (Plan-Review Round 2 codex MED-2): per-sessionId Map overlay
       // 让新 invariant fail 分支 test 区分 from/to membership 独立返值。empty Map → fallback
       // nextMembershipResult (existing test backward compat)。
@@ -198,6 +231,7 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
 
 // import after mocks
 import { UniversalMessageWatcher, teamEventDispatcher } from '@main/teams/universal-message-watcher';
+import { PerKeyRateLimiter } from '@main/teams/universal-message-watcher/rate-limiter';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -228,6 +262,7 @@ beforeEach(() => {
   claimCalls.length = 0;
   markDeliveredCalls.length = 0;
   markFailedCalls.length = 0;
+  retryAfterFailCalls.length = 0;
   sessionRepoGetCalls.length = 0;
   adapterRegistryGetCalls.length = 0;
   receiveTeammateMessageCalls.length = 0;
@@ -245,6 +280,8 @@ beforeEach(() => {
   nextTeamResult = { id: 'team-1', archivedAt: null };
   nextMembershipResult = { sessionId: 'mock-sid', teamId: 'team-1', role: 'teammate', leftAt: null };
   membershipBySid.clear();
+  sessionByIdMap.clear();
+  teamGetThrow = false;
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────
@@ -500,34 +537,39 @@ describe('universal-message-watcher.deliver — REVIEW_56 §Test-Watcher invaria
     expect(receiveTeammateMessageCalls).toHaveLength(0);
   });
 
-  it('invariant-2: from session not found (sessionRepo.get(from) 返 null) → markFailed', async () => {
+  it('invariant-2: from session not found (sessionRepo.get(from) 返 null) → markFailed reason 含 "from session not found"', async () => {
     const watcher = new UniversalMessageWatcher();
     const msg = makeMessage({ id: 'from-not-found-msg', fromSessionId: 'F-missing', toSessionId: 'T1' });
     nextClaimResult = msg;
-    // sessionRepoGetCalls 第一次拿 target = OK; 但 from session 反查可能 fail
-    // watcher 实际逻辑只调 sessionRepo.get(toSessionId)? — 让 test 标 from 反查 markFailed path
-    // (取决具体 invariant 实现位置:见 universal-message-watcher/index.ts:320 from session not found)
-    nextSessionResult = null; // 整 sessionRepo.get 返 null = 任何反查 fail
+    // REVIEW_86 LOW-2 (reviewer-codex): 用 per-sid overlay 让 target(T1) active 通过、from(F-missing)
+    // 返 null → 真打到 "from session not found" 分支（修前单 nextSessionResult=null 让 target 反查
+    // 先 fail，根本到不了 from 分支，断言 markFailed>0 假覆盖）。
+    sessionByIdMap.set('T1', { id: 'T1', lifecycle: 'active', agentId: 'claude-code', archivedAt: null });
+    sessionByIdMap.set('F-missing', null);
     await callDeliver(watcher, msg);
     expect(markFailedCalls.length).toBeGreaterThan(0);
+    expect(markFailedCalls[0].reason).toContain('from session not found');
     expect(receiveTeammateMessageCalls).toHaveLength(0);
   });
 
-  it('invariant-3: from session archived (archivedAt 非 null) → markFailed', async () => {
+  it('invariant-3: from session archived (archivedAt 非 null) → markFailed reason 含 "from session archived"', async () => {
     const watcher = new UniversalMessageWatcher();
     const msg = makeMessage({ id: 'from-arch-msg', fromSessionId: 'F-arch', toSessionId: 'T2' });
     nextClaimResult = msg;
-    // single nextSessionResult 全局 stub — 返 archivedAt 让 target / from 都 archived 路径触发
-    nextSessionResult = {
+    // REVIEW_86 LOW-2: target(T2) active 通过、from(F-arch) archived → 真打到 "from session archived"
+    // 分支（修前单 nextSessionResult archived 让 target archived 分支先 fire，到不了 from 分支）。
+    sessionByIdMap.set('T2', { id: 'T2', lifecycle: 'active', agentId: 'claude-code', archivedAt: null });
+    sessionByIdMap.set('F-arch', {
       id: 'F-arch',
       lifecycle: 'active',
       agentId: 'claude-code',
       archivedAt: Date.now() - 1000,
-    };
+    });
     nextTeamResult = { id: 'team-1', archivedAt: null };
     nextMembershipResult = { sessionId: 'mock', teamId: 'team-1', role: 'teammate', leftAt: null };
     await callDeliver(watcher, msg);
     expect(markFailedCalls.length).toBeGreaterThan(0);
+    expect(markFailedCalls[0].reason).toContain('from session archived');
     expect(receiveTeammateMessageCalls).toHaveLength(0);
   });
 
@@ -593,5 +635,116 @@ describe('universal-message-watcher.deliver — REVIEW_56 §Test-Watcher invaria
     expect(failed).toBeDefined();
     expect(failed!.reason).toContain('to no longer active');
     expect(receiveTeammateMessageCalls).toHaveLength(0);
+  });
+});
+
+// ─── REVIEW_86 (Batch F2) 回归 test ──────────────────────────────────────
+
+describe('universal-message-watcher.deliver — REVIEW_86 MED-1 post-claim throw 不卡 delivering', () => {
+  it('claim 后 invariant 重验抛错（DB SQLITE_BUSY）→ retryAfterFail 不卡 delivering', async () => {
+    const watcher = new UniversalMessageWatcher();
+    const msg = makeMessage({ id: 'post-claim-throw-msg', fromSessionId: 'F', toSessionId: 'T' });
+    nextClaimResult = msg;
+    // target / from session 都 OK，让流程走到 agentDeckTeamRepo.get（invariant 重验）
+    sessionByIdMap.set('T', { id: 'T', lifecycle: 'active', agentId: 'claude-code', archivedAt: null });
+    sessionByIdMap.set('F', { id: 'F', lifecycle: 'active', agentId: 'claude-code', archivedAt: null });
+    teamGetThrow = true; // agentDeckTeamRepo.get 抛错（模拟 claim 后同步 DB 抛）
+    // 修前：throw 冒到 process() 外层 catch 只 warn，行卡 delivering（findEligible 不再扫到）。
+    // 修后：deliver() outer try 捕获 → retryAfterFail 退避重投。
+    await callDeliver(watcher, msg);
+    // 关键断言：post-claim throw 走了状态机 retryAfterFail，而非静默卡 delivering
+    expect(retryAfterFailCalls.length).toBe(1);
+    expect(retryAfterFailCalls[0].id).toBe('post-claim-throw-msg');
+    expect(retryAfterFailCalls[0].reason).toContain('SQLITE_BUSY');
+    // 没有走到 adapter dispatch
+    expect(receiveTeammateMessageCalls).toHaveLength(0);
+  });
+});
+
+describe('universal-message-watcher.process — REVIEW_86 MED over-cap target 不被 under-cap target 流量饿死', () => {
+  // claude+codex 反驳轮共识：旧全局 deliveredAny → X(over-cap) 被 Y(under-cap) trickle 掩盖永饿死。
+  // 修后 per-target rescue：每个 over-cap 且本 tick 零进展的 target 强制 deliver head 一条。
+
+  async function runOneTick(pending: Map<string, AgentDeckMessage>, maxInflight = 10): Promise<void> {
+    statefulPendingMap = pending;
+    statefulMaxInflight = maxInflight;
+    nextSessionResult = { id: 'X', lifecycle: 'active', agentId: 'claude-code' };
+    nextAdapterResult = {
+      capabilities: { canCollaborate: true },
+      receiveTeammateMessage: receiveTeammateMessageStub,
+    };
+    const watcher = new UniversalMessageWatcher();
+    await (watcher as unknown as { process: () => Promise<void> }).process();
+  }
+
+  it('X 持续 over-cap（每 tick 补到 ≥12）+ Y 每 tick trickle — X 每 tick 仍 deliver ≥1（不被 Y 掩盖饿死）', async () => {
+    // 真实 starvation 场景：X 必须**持续** over-cap（≥12 pending）才暴露 bug——每 tick 补 X 到 13、
+    // 同时 Y trickle 1 条。修前全局 deliveredAny：Y deliver 置 true → starvation guard 被掩盖 →
+    // X 每 tick drain 0（otherInflight=12>10 全 skip，无 rescue）→ 永饿死。修后 per-target rescue：
+    // X 每 tick 强制 deliver head 1 条。注意不能让 X 掉到 ≤11（那会触发 REVIEW_35 N=11 自然全 drain
+    // 掩盖 starvation 维度）——所以每 tick 把 X 补回 13。
+    const pending = new Map<string, AgentDeckMessage>();
+    let xSeq = 0;
+    let ySeq = 0;
+    function topUpX(targetCount: number): void {
+      const cur = Array.from(pending.values()).filter(
+        (m) => m.toSessionId === 'target-X' && (m.status === 'pending' || m.status === 'delivering'),
+      ).length;
+      for (let i = cur; i < targetCount; i++) {
+        const m = makeMessage({ id: `target-X-msg-${xSeq}`, toSessionId: 'target-X', sentAt: 1_000_000 + xSeq });
+        pending.set(m.id, m);
+        xSeq++;
+      }
+    }
+
+    let totalXDelivered = 0;
+    for (let tick = 0; tick < 3; tick++) {
+      topUpX(13); // 每 tick 把 X 补到 13 pending（持续 over-cap，>maxInflight+1=11）
+      const yMsg = makeMessage({ id: `target-Y-msg-${ySeq}`, toSessionId: 'target-Y', sentAt: 2_000_000 + ySeq });
+      pending.set(yMsg.id, yMsg);
+      ySeq++;
+
+      await runOneTick(pending, 10);
+
+      const xDeliveredNow = Array.from(pending.values()).filter(
+        (m) => m.toSessionId === 'target-X' && m.status === 'delivered',
+      ).length;
+      const xDeliveredThisTick = xDeliveredNow - totalXDelivered;
+      // 修前：X 每 tick drain 0（被 Y 的 deliveredAny=true 掩盖 + 持续 over-cap 无 N=11 自然 drain）。
+      // 修后：per-target rescue 每 tick 救 X head ≥1 条。
+      expect(xDeliveredThisTick).toBeGreaterThanOrEqual(1);
+      // Y 同样有进展（不被 X 反向饿死）
+      const yDeliveredNow = Array.from(pending.values()).filter(
+        (m) => m.toSessionId === 'target-Y' && m.status === 'delivered',
+      ).length;
+      expect(yDeliveredNow).toBe(tick + 1);
+      totalXDelivered = xDeliveredNow;
+    }
+    expect(totalXDelivered).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('PerKeyRateLimiter.sweepEmptyBuckets — REVIEW_86 LOW Map 无界增长', () => {
+  it('全部 timestamp 出窗的桶被清理，活跃桶保留（bucketCount 验证）', async () => {
+    const rl = new PerKeyRateLimiter(60, 1000); // window 1s
+    rl.tryConsume('team-stale', 0); // t=0 用一次（之后不再用）
+    rl.tryConsume('team-active', 1950); // t=1950 用一次（窗口内）
+    expect(rl.bucketCount).toBe(2);
+    // t=2000：team-stale 最新 ts=0 ≤ threshold(1000) 出窗 → 删；team-active 最新 ts=1950 > 1000 → 保留
+    rl.sweepEmptyBuckets(2000);
+    expect(rl.bucketCount).toBe(1); // 修前 no-op → 仍 2（discriminating）
+    // team-active 桶仍在（1950 + 1000 - 2000 = 950 剩余 retryAfterMs）
+    expect(rl.retryAfterMs('team-active', 2000)).toBeGreaterThan(0);
+  });
+
+  it('多个 stale 桶全删（bucketCount 归零）', async () => {
+    const rl = new PerKeyRateLimiter(2, 1000);
+    rl.tryConsume('t1', 0);
+    rl.tryConsume('t2', 100);
+    rl.tryConsume('t3', 200);
+    expect(rl.bucketCount).toBe(3);
+    // t=2000 全部出窗 → sweep 全删
+    rl.sweepEmptyBuckets(2000);
+    expect(rl.bucketCount).toBe(0); // 修前 no-op → 仍 3
   });
 });
