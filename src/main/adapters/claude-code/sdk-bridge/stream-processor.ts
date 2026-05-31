@@ -287,14 +287,14 @@ export class StreamProcessor {
           // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.2 修法 (H1+H2 race 双保险 (B) consume guard)**:
           // R2 plan-review HIGH-A 修订：用临时 incomingId 局部变量 — guard 命中时**不能**直接
           // 写入 realId 然后 continue。如果 `realId = m.session_id` 后 continue 跳出当前 frame,
-          // 但后续 frame `sid = realId ?? internal.realSessionId ?? tempKey` 三档链仍选 late id,
-          // finally cleanup 同款撞 race。
+          // 但后续 frame 仍走正常 first-id 路径切 sessions Map / 调 rename,finally cleanup 同款撞 race。
           //
-          // **race 真正护栏**：fallback fire 后 internal.realSessionId 已被 set 为 fallbackId
-          // (Phase 2.1 + A1-HIGH-2 修法)。此时 SDK in-flight burst 仍 emit late first-id frame
-          // (spike1 case A 实证)→ guard 命中 → console.warn + continue 让 translate 仍 emit 后续
-          // frame (用 sid 三档链 → fallbackId) 但**不**改 sessions Map / **不**改 realId / **不**调
-          // renameSdkSession,确保 fallbackId 上的 record 不丢失。
+          // **race 真正护栏**：fallback fire 后 internal.cliSessionId 已被 set 为 fallbackId
+          // (Phase 2.1 + A1-HIGH-2 修法,line 195)。此时 SDK in-flight burst 仍 emit late first-id frame
+          // (spike1 case A 实证)→ guard 命中 (cliSessionId !== incomingId) → console.warn + continue,
+          // **不**改 sessions Map / **不**改 realId / **不**调 renameSdkSession,确保 fallbackId 上的
+          // record 不丢失。后续 frame 事件派发恒用 internal.applicationSid (line 385 单一来源,fallback
+          // 路径下已切 fallbackId),late first-id 仅跳过 mutation 不影响派发维度。
           //
           // 不变量 1: race 修法 land 后 fallback fire / createSession throw 路径 SDK 真发的 first
           // id frame 不能覆盖 fallback 已设的 fallbackId / 已 mutate 的 sessions Map。
@@ -304,8 +304,8 @@ export class StreamProcessor {
               `[sdk-bridge] late first-id arrived after fallback; ` +
                 `incoming=${incomingId} fallback=${internal.cliSessionId}; skipping mutation`,
             );
-            // realId 保持 null,后续 frame `sid = realId ?? internal.cliSessionId ?? tempKey`
-            // 三档链 → fallbackId,translate 仍 emit 但不撞 sessions Map race。
+            // realId 保持 null,后续 frame 事件派发恒用 internal.applicationSid (line 385),
+            // sessions Map 不被 late id 改写,translate 仍 emit 但不撞 sessions Map race。
             continue;
           }
           realId = incomingId;
@@ -458,12 +458,20 @@ export class StreamProcessor {
       // 根因:create-session-sdk-query.ts:179 拿到 realId 后无条件 claimAsSdk(realId)。resume fork /
       // fresh-cli-reuse-app 路径下 realId 是 CLI sid 维度,internal.applicationSid 保持应用稳定 sid
       // (反向 rename 不动 applicationSid)→ realId !== applicationSid。修前 finally 仅
-      // releaseSdkClaim(applicationSid),CLI sid 的 claim 永留 #sdkOwned。后果:SDK 流自然结束
-      // (sdk-stream-ended,不走 closeSession)后,后续同 CLI sid 的迟到 hook event 在 dedupOrClaim
-      // 第 2 分支 `source==='hook' && hasSdkClaim(sid)` 命中被静默丢弃 + Set 条目泄漏到应用重启。
-      // 只有 closeSession→runCloseSessionCleanup(pending-cancellation.ts:113)才释放三面 id,
-      // 自然 sdk-stream-ended 路径覆盖不到。修法:mirror runCloseSessionCleanup 的三面释放语义 —
+      // releaseSdkClaim(applicationSid),CLI sid 的 claim 永留 #sdkOwned。
+      // **真实后果(REVIEW_77 reviewer-claude INFO 精确化)**:核心是 #sdkOwned Set 条目泄漏 —
+      // fork/fresh 每会话留一条 CLI sid claim 永不释放,累积到应用重启。至于「迟到 hook event 被
+      // 丢弃」只在 ingest 3a `findByCliSessionId` 不命中(cli_session_id 列没写该 cliSid)时才靠
+      // cliSid claim 顺带挡;3a 命中时 event.sessionId 已被覆写成 applicationSid,dedupOrClaim
+      // 检查的是 hasSdkClaim(applicationSid) 不是 cliSid claim — 故 leak 才是修法主因,非 dedup。
+      // 只有 closeSession→runCloseSessionCleanup(pending-cancellation.ts:107-115)才释放三面 id,
+      // 自然 sdk-stream-ended 路径覆盖不到。修法:mirror runCloseSessionCleanup 的「释放」语义 —
       // cliSessionId 与 sid/tempKey 都不同时(典型 fork/fresh)额外释放 CLI sid claim。
+      // **刻意只 mirror release 不 mirror 黑名单**(REVIEW_77 reviewer-claude LOW 裁决):自然
+      // sdk-stream-ended → advanceState 设 dormant(允许用户随时 resume 复活),与 closeSession→closed
+      // (禁止复活,故 pending-cancellation.ts:121-127 才加 markRecentlyDeleted 黑名单)语义相反 —
+      // dormant 路径加黑名单会误挡 60s 内合法 resume(manager.ts:320 isRecentlyDeleted 早返不区分
+      // source),故此处与 applicationSid release(L456,黑名单同样不加)一致只释放不拉黑。
       const cliSid = internal.cliSessionId;
       if (cliSid && cliSid !== sid && cliSid !== tempKey) {
         sessionManager.releaseSdkClaim(cliSid);

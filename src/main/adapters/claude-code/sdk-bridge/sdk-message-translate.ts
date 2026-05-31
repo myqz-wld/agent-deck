@@ -119,7 +119,7 @@ export function translateSdkMessage(
         const toolName = block.tool_use_id
           ? internal.toolUseNames.get(block.tool_use_id)
           : undefined;
-        // CHANGELOG_<X> A1：tool-use-end status 跨 adapter 统一字段。
+        // CHANGELOG_61 A1：tool-use-end status 跨 adapter 统一字段。
         // claude tool_result 含 `is_error: boolean` → 翻为 status='failed' / 'completed'，
         // 与 codex tool-use-end 的 status 对齐。UI ToolEndRow 据此显示红色边框 + ⚠ 徽标。
         // status 字段缺省视作 'completed'（老事件 / 老 hook 兜底）。
