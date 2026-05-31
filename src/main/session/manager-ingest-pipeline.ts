@@ -159,7 +159,8 @@ export function dedupOrClaim(ctx: IngestContext, event: AgentEvent): { skip: boo
   return { skip: false };
 }
 
-/** 第 2 段：取/建 SessionRecord。复活 closed 也由 ensure 内部处理。 */
+/** 第 2 段：取/建 SessionRecord。closed→active 复活由 ensure 内部处理(仅 source==='sdk' 用户
+ *  resume 才复活;REVIEW_83 HIGH source 守卫,非 sdk 迟到事件不复活 closed)。 */
 export function ensureRecord(ctx: IngestContext, event: AgentEvent): SessionRecord {
   return ctx.ensure(event.sessionId, {
     agentId: event.agentId,
@@ -215,19 +216,52 @@ export function persistFileChange(event: AgentEvent): void {
  *
  * 不在判定里写 archivedAt：归档与 lifecycle 正交，归档的会话来事件不应自动 unarchive。
  *
- * **REVIEW_49 R3 followup HIGH-2 修法**:**closed lifecycle / archived 会话短路丢迟到 hook event**。
- * 触发链:closeSession 调 markClosed (manager.ts:333) 不写 recentlyDeleted 黑名单 +
+ * **REVIEW_49 R3 followup HIGH-2 + REVIEW_83 HIGH/MED 修法**:**closed / archived 会话短路丢迟到 event**。
+ * 触发链:closeSession 调 markClosed (manager.ts:349) 不写 recentlyDeleted 黑名单 +
  * shutdown_session 后 60s 黑名单 TTL 过 / hook 子进程内部 buffer 异步飞回 → ingest 走
- * dispatch (manager.ts:253 3a findByCliSessionId 命中已 closed row 覆写后) → advanceState
- * 旧版 L211-214 任何非 active lifecycle 都复活回 active → emit session-upserted → UI 看到
- * 「我刚 shutdown 的 reviewer 又活了」假活。修法:closed/archived 整段 short-circuit return —
+ * dispatch (manager.ts:309 3a findByCliSessionId 命中已 closed row 覆写后) → advanceState
+ * 旧版任何非 active lifecycle 都复活回 active → emit session-upserted → UI 看到
+ * 「我刚 shutdown 的 reviewer 又活了」假活。short-circuit return —
  * persistEventRow + persistFileChange 仍会写 events/file_changes 子表(数据保留供审计),
  * 仅不更新 sessions.lastEventAt + 不复活 lifecycle + 不 emit session-upserted。
  * dormant 仍可正常复活成 active(user resume 走真路径)— 不在 short-circuit 范围。
+ *
+ * **REVIEW_83 收口要点**(deep-review-project-20260531 Batch E):
+ * - closed→active 复活已收口到 ensure()(manager.ts:251,仅 source==='sdk' 用户 resume 才复活)。
+ *   原版本短路被架空:ensure() 在 advanceState 之前对任何来源都复活 closed→active → 短路判
+ *   closed 恒 false(REVIEW_83 HIGH,双方独立 + un-skip manager-ingest.test.ts:267 实测)。
+ * - archived 会话短路新增 **session-end 终止例外**:archiveImpl 只写 archivedAt 不动 lifecycle,
+ *   原版本对 archived 一律 return → archived active 会话收 session-end 后 lifecycle 永停 active
+ *   (scheduler 又过滤 archived 不衰减)→ unarchive 后幽灵 active。修法:archived 仍落 session-end
+ *   终态转换(active→dormant/closed + endedAt)但不 emit(REVIEW_83 MED,codex 单方 + lead 验证)。
  */
 export function advanceState(record: SessionRecord, event: AgentEvent): void {
-  // **REVIEW_49 R3 follow-up HIGH-2**: closed/archived 短路 — 见函数 jsdoc 修法说明
-  if (record.lifecycle === 'closed' || record.archivedAt !== null) {
+  // **REVIEW_49 R3 follow-up HIGH-2**: closed 短路 — 见函数 jsdoc 修法说明。
+  // closed 是终态:任何事件都短路(不复活 / 不推进 / 不广播)。closed→active 复活已收口到
+  // ensure()(manager.ts:251,仅 source==='sdk' 用户 resume 才复活;REVIEW_83 HIGH)。
+  if (record.lifecycle === 'closed') {
+    return;
+  }
+  // **REVIEW_83 MED (reviewer-codex 单方 + lead 代码链验证)**: archived(非 closed) 会话短路,
+  // 但 **session-end 终止事件例外**。根因:archiveImpl(lifecycle.ts:178) 只写 archivedAt 不动
+  // lifecycle;原版本分支对 archivedAt !== null 一律 return → archived 的 active 会话收到
+  // session-end 时 lifecycle 永停 active(endedAt 也不写),且 scheduler findActive/DormantExpiring
+  // 都过滤 archived_at IS NULL 不参与衰减 → unarchive 后该会话以幽灵 active 出现在实时面板
+  // (实际早已结束)。修法:archived 会话仍落 session-end 的 lifecycle 终止转换(active→dormant/closed
+  // + endedAt),但 **不 emit session-upserted**(archived 会话不作实时活动广播,codex 修复方向;
+  // unarchive 时 unarchiveImpl 走 sessionRepo.get 读到 fresh lifecycle 再 emit)。非终止事件
+  // (message / tool-use 等)仍一律短路防 phantom 活(与 REVIEW_49 archived 回归 test 一致)。
+  if (record.archivedAt !== null) {
+    if (event.kind === 'session-end') {
+      const term: LifecycleState = event.source === 'sdk' ? 'dormant' : 'closed';
+      if (term !== record.lifecycle) {
+        sessionRepo.upsert({
+          ...record,
+          lifecycle: term,
+          endedAt: term === 'closed' ? event.ts : null,
+        });
+      }
+    }
     return;
   }
   const nextActivity = nextActivityState(record.activity, event.kind, event.payload);

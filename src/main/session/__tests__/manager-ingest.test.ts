@@ -257,14 +257,14 @@ describe('SessionManager.ingest 时序', () => {
     sessionManager.releaseSdkClaim('OLD_ID');
   });
 
-  // **REVIEW_49 R3 follow-up HIGH-2 回归 test**:advanceState 对 closed/archived session
-  // 撞迟到 hook event 短路丢弃,不复活 lifecycle / 不更新 lastEventAt / 不 emit session-upserted。
-  // 触发链:closeSession → markClosed (manager.ts:333,**不**写 recentlyDeleted 黑名单) →
+  // **REVIEW_49 R3 follow-up HIGH-2 + REVIEW_83 HIGH 回归 test**:closed session 撞迟到 hook event
+  // 短路丢弃,不复活 lifecycle / 不更新 lastEventAt / 不 emit session-upserted。
+  // 触发链:closeSession → markClosed (manager.ts:349,**不**写 recentlyDeleted 黑名单) →
   // 60s 后 hook 子进程内部 buffer 异步飞回,event.sessionId === appSid 直接 dispatch
-  // (绕过 3a findByCliSessionId / 黑名单两道防线) → 旧版 advanceState L211-214 复活 closed → active。
-  // ↑ pre-existing fail(main HEAD 同款 fail,与 ref-layout-full-migration-20260526 plan 无关)。
-  // 本 plan 顺手 skip 让 vitest pass;重写归 follow-up plan(verify R3 follow-up impl 是否真的 short-circuit + 修测试期望)
-  it.skip('REVIEW_49 R3 follow-up: closed session 收到迟到 hook → advanceState short-circuit 不复活', () => {
+  // (绕过 3a findByCliSessionId / 黑名单两道防线) → 旧版 ensure() 无 source 守卫复活 closed → active。
+  // **REVIEW_83 修法**:ensure() 复活加 `source==='sdk'` 守卫(manager.ts:251),hook 迟到事件不复活;
+  // un-skip 本 test (原 it.skip pre-existing fail,REVIEW_83 fix 后转 pass)。
+  it('REVIEW_83 HIGH: closed session 收到迟到 hook → ensure source 守卫不复活', () => {
     // 预置 closed session (模拟 closeSession 已跑过)
     mockSessions.set('CLOSED_SID', {
       id: 'CLOSED_SID',
@@ -309,6 +309,70 @@ describe('SessionManager.ingest 时序', () => {
     expect(upsertCountAfter).toBe(upsertCountBefore);
     // events / file_changes 子表保留供审计 (advanceState 之前的 persistEventRow 仍跑)
     expect(mockEvents.length).toBeGreaterThan(0);
+  });
+
+  // **REVIEW_83 HIGH 回归 test (正路径)**:closed session 收到 SDK 通道事件(用户 resume)
+  // 仍正常复活 active —— 证 source 守卫只挡非 sdk 迟到事件,不误伤 legit resume
+  // (recover-and-send-impl.ts:154 emit source:'sdk' user message 触发复活的主路径)。
+  it('REVIEW_83 HIGH: closed session 收到 SDK 事件(resume) → 正常复活 active', () => {
+    mockSessions.set('CLOSED_RESUME', {
+      id: 'CLOSED_RESUME',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'closed resume',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: 200,
+      archivedAt: null,
+      permissionMode: null,
+    });
+    // SDK 通道事件(用户从 detail 主动 sendMessage → recoverAndSend emit source:'sdk' user message)
+    const resumeEvent = makeEvent({
+      sessionId: 'CLOSED_RESUME',
+      source: 'sdk',
+      kind: 'message',
+      payload: { text: 'user resume closed session', role: 'user' },
+      ts: 6000,
+    });
+    sessionManager.ingest(resumeEvent);
+
+    // **关键断言**: SDK resume 仍能复活 closed → active(否则破坏 resume 主路径)
+    expect(mockSessions.get('CLOSED_RESUME')?.lifecycle).toBe('active');
+  });
+
+  // **REVIEW_83 HIGH 同源子问题回归 test (reviewer-claude)**:closed + archived 双态 session
+  // 收到 SDK 事件也不复活 lifecycle(archivedAt === null 守卫)—— 归档与 lifecycle 正交,
+  // 事件流不应偷改归档会话 lifecycle(auto-unarchive 是 unarchiveOnUserSend 显式职责)。
+  it('REVIEW_83 HIGH: closed+archived session 收到 SDK 事件 → 不复活(正交守卫)', () => {
+    mockSessions.set('CLOSED_ARCH', {
+      id: 'CLOSED_ARCH',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'closed archived',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: 200,
+      archivedAt: 4000, // 关键:既 closed 又 archived
+      permissionMode: null,
+    });
+    const evt = makeEvent({
+      sessionId: 'CLOSED_ARCH',
+      source: 'sdk',
+      kind: 'message',
+      payload: { text: 'event for closed+archived', role: 'user' },
+      ts: 7000,
+    });
+    sessionManager.ingest(evt);
+
+    // **关键断言**: lifecycle 仍 closed(archivedAt 守卫挡住,事件流不偷改归档会话状态)
+    expect(mockSessions.get('CLOSED_ARCH')?.lifecycle).toBe('closed');
+    expect(mockSessions.get('CLOSED_ARCH')?.archivedAt).toBe(4000);
   });
 
   it('REVIEW_49 R3 follow-up: archived session 收到迟到 event → advanceState short-circuit', () => {
@@ -356,6 +420,85 @@ describe('SessionManager.ingest 时序', () => {
         (e.payload as SessionRecord)?.id === 'ARCHIVED_SID',
     ).length;
     expect(upsertCountAfter).toBe(upsertCountBefore);
+  });
+
+  // **REVIEW_83 MED 回归 test (reviewer-codex 单方 + lead 验证)**:archived + active 会话收到
+  // session-end → advanceState 仍落 lifecycle 终止转换(不再永停 active),但不 emit。
+  // 根因:archiveImpl 只写 archivedAt 不动 lifecycle + scheduler findActive/DormantExpiring
+  // 过滤 archived 不衰减 → 原版 archived 一律 short-circuit 让 session-end 漏处理 → unarchive
+  // 后幽灵 active。修法:archived 短路新增 session-end 终止例外(active→dormant/closed + endedAt)。
+  it('REVIEW_83 MED: archived+active session 收到 SDK session-end → 落 dormant 终态(不 emit)', () => {
+    mockSessions.set('ARCH_END_SDK', {
+      id: 'ARCH_END_SDK',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'archived active sdk-end',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: 5000, // 关键:archived 但 lifecycle 仍 active
+      permissionMode: null,
+    });
+    const upsertBefore = mockEmits.filter(
+      (e) => e.name === 'session-upserted' && (e.payload as SessionRecord)?.id === 'ARCH_END_SDK',
+    ).length;
+
+    // SDK 通道 session-end(query 流终止) → dormant 终态
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'ARCH_END_SDK',
+        source: 'sdk',
+        kind: 'session-end',
+        payload: { reason: 'sdk-stream-ended' },
+        ts: 6000,
+      }),
+    );
+
+    // **关键断言**: lifecycle 落 dormant(不再永停 active 幽灵),archivedAt 不动(正交保留)
+    expect(mockSessions.get('ARCH_END_SDK')?.lifecycle).toBe('dormant');
+    expect(mockSessions.get('ARCH_END_SDK')?.archivedAt).toBe(5000);
+    // 不 emit session-upserted(archived 会话不作实时活动广播;unarchive 时再读 fresh lifecycle)
+    const upsertAfter = mockEmits.filter(
+      (e) => e.name === 'session-upserted' && (e.payload as SessionRecord)?.id === 'ARCH_END_SDK',
+    ).length;
+    expect(upsertAfter).toBe(upsertBefore);
+  });
+
+  // **REVIEW_83 MED 回归 test (hook session-end → closed 终态)**:archived + active 会话收到
+  // hook 通道 session-end(终端 CLI 真退出) → closed 终态 + endedAt 写入。
+  it('REVIEW_83 MED: archived+active session 收到 hook session-end → 落 closed 终态 + endedAt', () => {
+    mockSessions.set('ARCH_END_HOOK', {
+      id: 'ARCH_END_HOOK',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'archived active hook-end',
+      source: 'cli',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: 5000,
+      permissionMode: null,
+    });
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'ARCH_END_HOOK',
+        source: 'hook',
+        kind: 'session-end',
+        payload: {},
+        ts: 8000,
+      }),
+    );
+
+    // **关键断言**: hook session-end → closed 终态 + endedAt = event.ts
+    expect(mockSessions.get('ARCH_END_HOOK')?.lifecycle).toBe('closed');
+    expect(mockSessions.get('ARCH_END_HOOK')?.endedAt).toBe(8000);
+    expect(mockSessions.get('ARCH_END_HOOK')?.archivedAt).toBe(5000);
   });
 
   it('REVIEW_49 R3 follow-up: dormant session 收到 event → 仍走复活路径(不在 short-circuit 范围)', () => {

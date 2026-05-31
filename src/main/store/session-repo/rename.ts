@@ -11,9 +11,9 @@ import type { Row } from './types';
 
 /**
  * 把 sessions 表里 fromId 改名 toId，并把 events / file_changes / summaries / team_members
- * / messages.from_session_id / messages.to_session_id / sessions.spawned_by 自引用一起迁移。
- * 整体在事务内做，避免外键 CASCADE 误删历史。
- * 用于 SDK fallback：tempKey 占位行 → 真实 session_id 出现后无损迁移。
+ * / messages.from_session_id / messages.to_session_id / sessions.spawned_by 自引用 / tasks
+ * / issues / issue_appendices 的 session FK 一起迁移。整体在事务内做，避免外键 CASCADE / SET NULL
+ * 误删 / 误断历史。用于 SDK fallback：tempKey 占位行 → 真实 session_id 出现后无损迁移。
  *
  * REVIEW_17 R2 / H1-R2：toExists=true 分支（recoverAndSend jsonl-missing 走
  * 不带 resume 的 createSession + 事后 rename 时触发——NEW_ID 已被 createSession
@@ -156,6 +156,41 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
     // + listAncestors / listChildren，应用层不强依赖非 null 但保留更直观）。
     db.prepare(
       `UPDATE sessions SET spawned_by = ? WHERE spawned_by = ?`,
+    ).run(toId, fromId);
+
+    // **REVIEW_83 MED (reviewer-codex 单方 R2 + lead 现场验证 — 现 latent / 未来防 footgun)**:
+    // tasks / issues / issue_appendices 的 session FK 迁移。rename 语义是「OLD 整迁到 NEW
+    // 名下」,但本 helper 的子表迁移清单写于 v021(reverse-rename plan,commit 579f934)之前,
+    // **晚于** v023(tasks.owner_session_id NOT NULL ON DELETE CASCADE) / v026(issues
+    // source/resolution_session_id + issue_appendices.appended_session_id ON DELETE SET NULL)
+    // 加 FK — 清单从未补这三表。若不迁,下方 DELETE OLD 会:① CASCADE 物理删 OLD 拥有的 task
+    // ② SET NULL 断 OLD 上报 / 解决的 issue 归属 + appendix 快照 → 违反 rename 不变量 + 断
+    // hand-off / task / issue 权限链。
+    //
+    // **当前可达性裁决 (lead 现场验证,故定 MED 非 codex 所提 HIGH)**:现两个 live caller
+    // 都是 renameSdkSession(tempKey, realId) spawn bootstrap —— (a) codex thread-loop.ts:171
+    // tempKey 行从未进 sessions 表(等 thread.started 才 claim,session-start emit 用 realId)→
+    // FK 要求 owner 行存在故无 task 挂 tempKey → rename noop;(b) claude stream-processor.ts:338
+    // applicationSid 在同一首条 SDK 消息 handler 先切 realId(L331)再 rename(L338),早于 agent
+    // 任何 tool_use → task_create callerSid 解析为 realId 不挂 tempKey。recoverer jsonl-missing
+    // 早已改 resumeMode='fresh-cli-reuse-app' 复用 applicationSid + updateCliSessionId(不删行
+    // 不 rename)→ toExists=true 分支对 recoverer 已 dead。故现无 live 数据丢失,但 **一次重构
+    // 之差**(任何新 caller rename 一个已积累 task/issue 的长存 session)即 silent 数据损坏 →
+    // 按「会话身份迁移」不变量补齐,与上面 6 表同段迁移对称。
+    //
+    // 迁移用 UPDATE(不撞 PK:tasks PK=id UUID / issues PK=id / appendix PK=id,session 列均非
+    // PK,NEW 已有自己的 task/issue 也只是并存不冲突)。在 DELETE OLD 之前跑,避开 CASCADE/SET NULL。
+    db.prepare(
+      `UPDATE tasks SET owner_session_id = ? WHERE owner_session_id = ?`,
+    ).run(toId, fromId);
+    db.prepare(
+      `UPDATE issues SET source_session_id = ? WHERE source_session_id = ?`,
+    ).run(toId, fromId);
+    db.prepare(
+      `UPDATE issues SET resolution_session_id = ? WHERE resolution_session_id = ?`,
+    ).run(toId, fromId);
+    db.prepare(
+      `UPDATE issue_appendices SET appended_session_id = ? WHERE appended_session_id = ?`,
     ).run(toId, fromId);
 
     // REVIEW_17 R2 / H1-R2：toExists=true 时（recoverAndSend jsonl-missing fallback）
