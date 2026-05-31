@@ -71,6 +71,7 @@ vi.mock('@main/session/manager', () => ({
     releaseSdkClaim: vi.fn(),
     renameSdkSession: vi.fn(),
     unarchive: vi.fn(),
+    markClosed: vi.fn(),
   },
 }));
 
@@ -85,6 +86,7 @@ beforeEach(() => {
   vi.mocked(sessionRepo.get).mockReset();
   vi.mocked(sessionManager.renameSdkSession).mockReset();
   vi.mocked(sessionManager.unarchive).mockReset();
+  vi.mocked(sessionManager.markClosed).mockReset();
 });
 
 afterEach(() => {
@@ -798,5 +800,160 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     expect(userMsgs).toHaveLength(1);
     expect(userMsgs[0].sessionId).toBe('sess-cwd-throw');
     expect((userMsgs[0].payload as { text: string }).text).toBe('lost prompt');
+  });
+
+  // ─── REVIEW_81 MED: closed 会话恢复失败 → markClosed 回滚（C2 claude 对称缺口）─────────
+  describe('REVIEW_81 MED: closed-revival markClosed 回滚', () => {
+    it('closed + cwd 全 miss → 入口 emit 复活后 cwd-miss throw 前 markClosed 回滚', async () => {
+      const bridge = makeBridge();
+      bridge.cwdExistsOverride = new Map<string, boolean>(); // 空 Map = 任何路径 false → fallback 全 miss
+      vi.mocked(sessionRepo.get).mockReturnValue({
+        id: 'sess-closed-cwd',
+        agentId: 'codex-cli',
+        cwd: '/some/dead/path',
+        title: 'x',
+        source: 'sdk',
+        lifecycle: 'closed', // ← closed 会话
+        activity: 'idle',
+        startedAt: 1,
+        lastEventAt: 2,
+        endedAt: 3,
+        archivedAt: null,
+      });
+
+      await expect(bridge.sendMessage('sess-closed-cwd', 'hi')).rejects.toThrow(
+        /cwd does not exist and no fallback available/,
+      );
+
+      // 关键：closed 被入口 emit 复活成 active，cwd-miss throw 前必须 markClosed 回滚
+      expect(sessionManager.markClosed).toHaveBeenCalledWith('sess-closed-cwd');
+    });
+
+    it('closed + createSession reject → outer catch emit error 后 markClosed 回滚', async () => {
+      const bridge = makeBridge();
+      bridge.createBehavior = 'reject';
+      bridge.rejectWith = new Error('codex spawn failed');
+      // jsonl 在 → 走正常 resume 路径（createThunk reject）
+      vi.mocked(sessionRepo.get).mockReturnValue({
+        id: 'sess-closed-reject',
+        agentId: 'codex-cli',
+        cwd: '/tmp/work',
+        title: 'x',
+        source: 'sdk',
+        lifecycle: 'closed', // ← closed 会话
+        activity: 'idle',
+        startedAt: 1,
+        lastEventAt: 2,
+        endedAt: 3,
+        archivedAt: null,
+        codexSandbox: 'workspace-write',
+      });
+
+      await expect(bridge.sendMessage('sess-closed-reject', 'hi')).rejects.toThrow(
+        /codex spawn failed/,
+      );
+
+      // 关键：closed 复活 + createSession reject → outer catch markClosed 回滚
+      expect(sessionManager.markClosed).toHaveBeenCalledWith('sess-closed-reject');
+      // 边界：error message 仍 emit（markClosed 放 error emit 之后）
+      const errMsgs = emits.filter(
+        (e) =>
+          e.kind === 'message' &&
+          (e.payload as { error?: boolean }).error === true &&
+          ((e.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
+      );
+      expect(errMsgs).toHaveLength(1);
+    });
+
+    it('边界: dormant + 恢复失败 → 不调 markClosed（仅 closed 才回滚）', async () => {
+      const bridge = makeBridge();
+      bridge.cwdExistsOverride = new Map<string, boolean>();
+      vi.mocked(sessionRepo.get).mockReturnValue({
+        id: 'sess-dormant-fail',
+        agentId: 'codex-cli',
+        cwd: '/some/dead/path',
+        title: 'x',
+        source: 'sdk',
+        lifecycle: 'dormant', // ← dormant（ensure 不复活 dormant）
+        activity: 'idle',
+        startedAt: 1,
+        lastEventAt: 2,
+        endedAt: 3,
+        archivedAt: null,
+      });
+
+      await expect(bridge.sendMessage('sess-dormant-fail', 'hi')).rejects.toThrow(
+        /cwd does not exist/,
+      );
+
+      // dormant 不被 ensure 复活 → 不该 markClosed（精确 guard）
+      expect(sessionManager.markClosed).not.toHaveBeenCalled();
+    });
+
+    it('边界: closed + 恢复成功 → 不调 markClosed（恢复成功保持 active）', async () => {
+      const bridge = makeBridge();
+      // jsonl 在 + cwd 在 + createSession 成功（默认 createBehavior='resolve'）
+      vi.mocked(sessionRepo.get).mockReturnValue({
+        id: 'sess-closed-ok',
+        agentId: 'codex-cli',
+        cwd: '/tmp/work',
+        title: 'x',
+        source: 'sdk',
+        lifecycle: 'closed', // ← closed 但恢复成功
+        activity: 'idle',
+        startedAt: 1,
+        lastEventAt: 2,
+        endedAt: 3,
+        archivedAt: null,
+        codexSandbox: 'workspace-write',
+      });
+
+      await bridge.sendMessage('sess-closed-ok', 'hi');
+
+      // 恢复成功 → closed 复活成 active 是预期最终态（用户又在聊它）→ 不该 markClosed
+      expect(sessionManager.markClosed).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── REVIEW_81 MED: jsonl-missing fallback info emit 时间线（reviewer-codex 单方）────────
+  it('REVIEW_81 MED: jsonl missing + createSession reject → 只 emit 自动恢复失败，不 emit fallback info（时间线不矛盾）', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false; // jsonl 缺失 → 走 fresh-cli-reuse-app fallback
+    bridge.createBehavior = 'reject';
+    bridge.rejectWith = new Error('fresh thread spawn failed');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-jsonl-fail',
+      agentId: 'codex-cli',
+      cwd: '/tmp/work',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      codexSandbox: 'workspace-write',
+    });
+
+    await expect(bridge.sendMessage('sess-jsonl-fail', 'hi')).rejects.toThrow(
+      /fresh thread spawn failed/,
+    );
+
+    // 关键：createSession reject 时 fallback info「续聊从 fresh thread 开始」**不**应 emit
+    // （修前 emit 在 createSession 之前 → 用户先看到 fallback 成功 info 又看到失败，时间线矛盾）
+    const fallbackInfo = emits.filter((e) =>
+      ((e.payload as { text?: string }).text ?? '').includes('续聊从 fresh thread 开始'),
+    );
+    expect(fallbackInfo).toHaveLength(0);
+
+    // 只 emit 一条「自动恢复失败」error
+    const errMsgs = emits.filter(
+      (e) =>
+        e.kind === 'message' &&
+        (e.payload as { error?: boolean }).error === true &&
+        ((e.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
+    );
+    expect(errMsgs).toHaveLength(1);
   });
 });

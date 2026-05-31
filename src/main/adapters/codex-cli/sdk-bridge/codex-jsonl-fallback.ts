@@ -105,16 +105,6 @@ export async function maybeCodexJsonlFallback(
     `[codex-bridge] resume jsonl missing for ${opts.sessionId} (startedAt ${new Date(opts.startedAt).toISOString()}), ` +
       `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
   );
-  ctx.emit({
-    sessionId: opts.sessionId,
-    agentId: AGENT_ID,
-    kind: 'message',
-    payload: {
-      text: buildCodexJsonlMissingNoSummaryText(),
-    },
-    ts: Date.now(),
-    source: 'sdk',
-  });
 
   // fallback 路径:不带 resume + 显式透传 sandbox/model/extraAllowWrite 否则静默降全局默认
   // (与 claude REVIEW_36 HIGH-1 同款教训)。attachments 透传让首条恢复消息带图。
@@ -137,6 +127,24 @@ export async function maybeCodexJsonlFallback(
     // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
     // createSession resume path 跳过重复 emit (详 recoverer.recoverAndSend emit user message 段注释)
     skipFirstUserEmit: true,
+  });
+
+  // **REVIEW_81 MED 修法（reviewer-codex 单方 + lead claude parity 验证）**:
+  // fallback info message 必须 emit 在 createSession **成功之后**（与 claude jsonl-fallback.ts:277
+  // step ③ 同款顺序）。修前 emit 在 createSession 之前 → createSession reject 时用户先看到
+  // 「本会话续聊从 fresh thread 开始 (历史保留)」info，随后又看到 recoverer outer catch 的
+  // 「⚠ 自动恢复失败」error → 时间线自相矛盾（fallback 已开始 vs 又失败）。移到 createSession
+  // 成功后 emit：createSession throw 时本 emit 不执行，rethrow 给 recoverer outer catch 只 emit
+  // 一条 error message，时间线干净（cross-adapter parity 对齐 claude）。
+  ctx.emit({
+    sessionId: opts.sessionId,
+    agentId: AGENT_ID,
+    kind: 'message',
+    payload: {
+      text: buildCodexJsonlMissingNoSummaryText(),
+    },
+    ts: Date.now(),
+    source: 'sdk',
   });
 
   // plan cross-adapter-parity-20260515 Phase B Step B.2: 返 sessionId (== applicationSid 不变,
