@@ -43,6 +43,8 @@ interface MakeCtxOpts {
   createSession?: (opts: unknown) => Promise<SdkSessionHandle>;
   summariseFnReturn?: string | null;
   listEventsFnReturn?: AgentEvent[];
+  /** REVIEW_76 MED: 让 listEventsFn 抛错验证「永不抛错」契约（fresh fallback 仍走 createSession） */
+  listEventsFnThrow?: Error;
 }
 
 function makeCtx(opts: MakeCtxOpts = {}): {
@@ -67,7 +69,11 @@ function makeCtx(opts: MakeCtxOpts = {}): {
     createSession: createSessionSpy as unknown as JsonlFallbackCtx['createSession'],
     emit: (e) => emits.push(e),
     summariseFn: summariseFnSpy as unknown as JsonlFallbackCtx['summariseFn'],
-    listEventsFn: () => opts.listEventsFnReturn ?? [],
+    listEventsFn: opts.listEventsFnThrow
+      ? () => {
+          throw opts.listEventsFnThrow;
+        }
+      : () => opts.listEventsFnReturn ?? [],
   };
   return { ctx, jsonlExistsThunkSpy, createSessionSpy, summariseFnSpy };
 }
@@ -357,5 +363,31 @@ describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
     });
     await expect(maybeJsonlFallback(ctx, makeRecoverOpts())).rejects.toThrow('SDK 启动失败');
     expect(emits).toHaveLength(0); // R5 双方共识 emit 顺序: createSession 先 / emit 后 — createSession 抛错时 emit 不发,caller catch 块 emit error
+  });
+
+  // ─────────────────────────────────────────────
+  // REVIEW_76 MED: listEventsFn throw 不阻断 fresh fallback（「永不抛错」契约）
+  // ─────────────────────────────────────────────
+  it('REVIEW_76 MED: listEventsFn 抛错 → 不传播,fresh fallback 仍调 createSession（永不抛错契约）', async () => {
+    // 模拟 eventRepo.listForSession 内部 rowToEvent JSON.parse 损坏 payload 抛错
+    const { ctx, createSessionSpy } = makeCtx({
+      jsonlExistsReturn: false, // jsonl 缺失 → 走 fresh fallback
+      listEventsFnThrow: new Error('JSON.parse: corrupt payload_json (simulated)'),
+    });
+
+    // 修前：listEventsFn 在 prependHistorySummary try 外抛错 → 穿透 maybeJsonlFallback →
+    // 在 createSession 之前中断 → recoverer 只 emit「自动恢复失败」不进 fresh CLI fallback。
+    // 修后：listEventsFn 纳入 try/catch → thunk-throw failReason → fall back to originalText →
+    // 仍调 createSession 起 fresh CLI thread（fellBack=true）。
+    const result = await maybeJsonlFallback(ctx, makeRecoverOpts({ cwd: '/tmp/corrupt' }));
+
+    // **MED-2 核心断言**：helper 不抛错 + fellBack=true + createSession 仍被调（fresh CLI 起来）
+    expect(result.fellBack).toBe(true);
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+    // createSession 用 originalText（摘要 prepend 跳过，因 listEventsFn 抛错走 thunk-throw）
+    expect(createSessionSpy.mock.calls[0][0]).toMatchObject({
+      prompt: '继续之前的话题', // makeRecoverOpts 默认 prompt（未被摘要 prepend）
+      resumeMode: 'fresh-cli-reuse-app',
+    });
   });
 });

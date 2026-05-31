@@ -96,6 +96,29 @@ export async function recoverAndSendImpl(
     throw new Error(`session ${sessionId} not found`);
   }
 
+  // **REVIEW_76 MED (reviewer-codex + reviewer-claude 反驳轮 ✅ 双方共识 + lead 链路实测)**:
+  // 捕获 closed lifecycle 用于失败路径回滚。
+  // 根因:下方 L131 emit user message(source:'sdk',REVIEW_58 把 emit 提前到 cwd precheck 之前)
+  // 同步走 sessionManager.ingest → ensureRecord → ensure(manager.ts:251) `if lifecycle==='closed'`
+  // → upsert 'active' + emit session-upserted(复活)。dedupOrClaim 5 个 skip 分支全 gate 在
+  // source==='hook' → source:'sdk' message 必穿透必复活。reviewer-claude 反驳轮关键确证:
+  // scheduler-closed 会话**不进** recentlyDeleted 黑名单(唯一调用点 pending-cancellation.ts:121
+  // 仅 closeSession 路径,markClosedImpl 不调;TTL 60s ≪ closeAfterMs)→ 黑名单这条反驳路径不成立,
+  // 复活无法被拦。随后两条失败路径(① cwd 全 miss L165 throw ② createSession reject outer catch)
+  // 都不回滚 lifecycle → closed 会话被复活成 active 但无 SDK live session = dead-active 幽灵
+  // (SessionList 实时面板一条点了发不出消息的死会话,直到 scheduler 再次 active→dormant→closed
+  // 衰减才自愈 — 非永久但 user-visible)。
+  // **archived 有对称防护但 closed 漏**:同函数 L160-167 cwd-miss 时故意不 unarchive(archived
+  // 防 dead-active),但 closed 复活发生在更早的 L131 emit → archived 防了 closed 没防(REVIEW_58
+  // 把 emit 提前与 ensure closed-revive 交叠产生的缝)。
+  // **dormant 不在范围**:ensure 仅 closed→active 复活(dormant 走 manager.ts:261 return existing
+  // 不复活);dormant 是正常 resume 主路径,复活成 active 是 desired 不需回滚。
+  // **修法**:wasClosed 标记 + 两条失败路径走 sessionManager.markClosed(invariant-respecting
+  // 再关闭:清 cwd_release_marker + leave team membership + emit session-upserted 让 UI 自洽,
+  // REVIEW_56 明确 raw setLifecycle 绕过 markClosed 是「第四入口」反模式;markClosed guard
+  // active→closed 通过,team-leave 幂等无害 — 会话首次 closed 时已 left)。
+  const wasClosed = rec.lifecycle === 'closed';
+
   // REVIEW_24 HIGH-2 follow-up：字符长度上限（与 messageRepo cap 全局对齐）。
   // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
   //
@@ -162,6 +185,12 @@ export async function recoverAndSendImpl(
       // **不 unarchive**:archived 状态下 throw,session 仍归档,用户在 SessionList "已归档"
       // 列表能看到清晰错误信息(MED-2 fix:之前 unarchive 在前 → throw 后 session 变 active 但死路)
       deps.emitFallbackMessageThunk(sessionId, buildCwdMissingErrorText(rec.cwd), { error: true });
+      // **REVIEW_76 MED 回滚**:L131 user emit + 上面 error emit 都已把 closed 会话复活成 active,
+      // 此路径 throw 前不起 createSession(dead-active 幽灵)。wasClosed 时走 markClosed 再关闭
+      // (与 archived 路径「cwd-miss 时保持归档」对称 — closed 也应保持 closed)。markClosed 内部
+      // 走 active→closed(此刻已被复活成 active)+ 清 marker + leave team + emit session-upserted
+      // 让 SessionList 自洽切回历史列表(user message bubble 已入 events 表保留,SessionDetail 仍可见)。
+      if (wasClosed) sessionManager.markClosed(sessionId);
       throw new Error(
         `session ${sessionId} cwd does not exist and no fallback available: ${rec.cwd}`,
       );
@@ -294,11 +323,17 @@ export async function recoverAndSendImpl(
       // fellBack=false → fall through 到下面正常 resume 路径 (jsonl 在,行为不变,§不变量 8)
 
       // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix:
-      // resume 路径下 createThunk 仍可能返回不同 sessionId(CLI 隐式 fork: stream-processor.consume
-      // L245 `if (resumeId && resumeId !== realId)` 触发 renameSdkSession + sessions Map rename
-      // key)。修前固定 `return sessionId` 等待者拿 OLD,resume implicit fork 时仍撞 not found
-      // (修法只覆盖 50% 场景)。修后用 handle.sessionId 反映真实 finalId(不 fork 时 ===
-      // sessionId,fork 时 === newRealId)。
+      // 用 handle.sessionId(而非固定 return sessionId)反映 createThunk 返回的真实 finalId,
+      // 等待者据此 sendThunk(finalId) 命中 sessions Map 不撞 not found。
+      // **REVIEW_76 INFO (reviewer-claude) 注释订正**:reverse-rename-sid-stability §S6 落地后,
+      // resume 路径(resumeId 非空 → stream-processor.ts:325 `isNewSpawn = !resumeId && ...` = false)
+      // CLI 隐式 fork 走 stream-processor.ts:365 `if (resumeId && resumeId !== realId)` →
+      // L375 **updateCliSessionId(applicationSid, realId)**(仅改 cli_session_id 列,**不** renameSdkSession,
+      // **不**动 sessions.id;renameSdkSession 仅 isNewSpawn 分支 L338 调)→ createSessionImpl resume
+      // 路径 applicationSid 冻结 → handle.sessionId **恒 === sessionId(opts.resume)**。故 recoverer
+      // 各路径 handle.sessionId 恒 === sessionId(REVIEW_41 改动在 reverse-rename 后于 recoverer 已等价,
+      // 因 recoverer 永远传 resume 永不 isNewSpawn)。保留 handle.sessionId 写法是防御性正确(若未来
+      // createSessionImpl resume 语义变,这里自动跟随),但当前不会返 newRealId。
       const handle = await deps.createThunk({
         cwd: effectiveCwd, // CHANGELOG_99:正常 resume 路径下 cwd 存在,effectiveCwd === rec.cwd
         prompt: text,
@@ -334,9 +369,9 @@ export async function recoverAndSendImpl(
         skipFirstUserEmit: true,
       });
       // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix: 返
-      // handle.sessionId 反映真实 finalId(implicit fork 时是 newRealId,正常 resume 时
-      // 是 sessionId — 与 fallback path 行为对称)。等待者拿到 finalId 不再撞 fork 后
-      // not found。
+      // handle.sessionId 反映真实 finalId。**REVIEW_76 INFO 订正**:reverse-rename 后 resume
+      // 路径 applicationSid 冻结(见上 createThunk 前注释),handle.sessionId 恒 === sessionId;
+      // 保留此写法是防御性正确(自动跟随 createSessionImpl resume 语义),当前不返 newRealId。
       return handle.sessionId;
     } finally {
       deps.ctx.recovering.delete(sessionId);
@@ -361,6 +396,12 @@ export async function recoverAndSendImpl(
       ts: Date.now(),
       source: 'sdk',
     });
+    // **REVIEW_76 MED 回滚(第二条失败路径:createSession reject)**:L131 user emit 已把 closed
+    // 会话复活成 active,createSession reject 后无 SDK live session(dead-active 幽灵)。wasClosed
+    // 时走 markClosed 再关闭。reviewer-claude 反驳轮关键确证:上面 error message emit(source:'sdk')
+    // 虽再过 ingest,但此刻 record 已是 active → ensure(manager.ts:261)走 return existing **不再
+    // 复活**(仅 closed 才复活),故回滚放 error emit 之后安全(markClosed active→closed 一次到位)。
+    if (wasClosed) sessionManager.markClosed(sessionId);
     throw err;
   }
 }
