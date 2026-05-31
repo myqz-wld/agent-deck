@@ -65,12 +65,17 @@ export function createCrud(db: Database) {
   function listByTeam(teamId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[] {
     const limit = Math.max(1, Math.min(opts?.limit ?? 100, 500));
     const offset = Math.max(0, opts?.offset ?? 0);
+    // REVIEW_90 MED (双方独立 + lead sqlite3 真测): 同毫秒 sent_at（背靠背 insert 落同一
+    // Date.now()）下纯 `ORDER BY sent_at DESC` 无 total order → 返回插入序(oldest-first)违背
+    // 「最新在前」契约 + 分页 LIMIT/OFFSET 切到同毫秒 tie 组时跨页重复/漏行。加 `rowid DESC`
+    // 二级排序定序（必须 rowid 非 id —— id 是 crypto.randomUUID() 随机，rowid 单调随插入）。
+    // 与 G2 team-repo REVIEW_89 list rowid DESC 修法同款。
     if (opts?.status) {
       const rows = db
         .prepare(
           `SELECT * FROM agent_deck_messages
            WHERE team_id = ? AND status = ?
-           ORDER BY sent_at DESC LIMIT ? OFFSET ?`,
+           ORDER BY sent_at DESC, rowid DESC LIMIT ? OFFSET ?`,
         )
         .all(teamId, opts.status, limit, offset) as MessageRow[];
       return rows.map(rowToRecord);
@@ -79,7 +84,7 @@ export function createCrud(db: Database) {
       .prepare(
         `SELECT * FROM agent_deck_messages
          WHERE team_id = ?
-         ORDER BY sent_at DESC LIMIT ? OFFSET ?`,
+         ORDER BY sent_at DESC, rowid DESC LIMIT ? OFFSET ?`,
       )
       .all(teamId, limit, offset) as MessageRow[];
     return rows.map(rowToRecord);
@@ -89,6 +94,8 @@ export function createCrud(db: Database) {
     // plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2：from_session_id OR to_session_id
     // 命中即返回。SessionDetail tab 兜底视图（J fix 后 reply 不入 SDK，此处 DB 视角补回）。
     // 不走 idx_messages_sent_at（无法两个谓词都索引），扫表 + WHERE filter，rows ≤ 几千问题不大。
+    // REVIEW_90 MED: `rowid DESC` 二级排序定序（同 listByTeam；listBySession 走全表 SCAN + TEMP
+    // B-TREE，与 listByTeam 索引路径不同 plan，同毫秒 tie 序更需显式定序）。
     const limit = Math.max(1, Math.min(opts?.limit ?? 100, 500));
     const offset = Math.max(0, opts?.offset ?? 0);
     if (opts?.status) {
@@ -96,7 +103,7 @@ export function createCrud(db: Database) {
         .prepare(
           `SELECT * FROM agent_deck_messages
            WHERE (from_session_id = ? OR to_session_id = ?) AND status = ?
-           ORDER BY sent_at DESC LIMIT ? OFFSET ?`,
+           ORDER BY sent_at DESC, rowid DESC LIMIT ? OFFSET ?`,
         )
         .all(sessionId, sessionId, opts.status, limit, offset) as MessageRow[];
       return rows.map(rowToRecord);
@@ -105,7 +112,7 @@ export function createCrud(db: Database) {
       .prepare(
         `SELECT * FROM agent_deck_messages
          WHERE from_session_id = ? OR to_session_id = ?
-         ORDER BY sent_at DESC LIMIT ? OFFSET ?`,
+         ORDER BY sent_at DESC, rowid DESC LIMIT ? OFFSET ?`,
       )
       .all(sessionId, sessionId, limit, offset) as MessageRow[];
     return rows.map(rowToRecord);
