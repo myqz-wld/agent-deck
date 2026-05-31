@@ -137,17 +137,41 @@ export class PermissionResponder {
       if (response.targetMode === 'plan') {
         return;
       }
-      // 热切档：SDK 已退出 plan mode，立刻同步 mode 到 SDK Query + DB + UI
+      // 热切档：SDK 已退出 plan mode，立刻同步 mode 到 internal cache + SDK Query + DB + UI
+      // **REVIEW_78 MED (reviewer-codex + lead 验证)**：补 internal.permissionMode cache 同步 +
+      // 失败回滚 + 用户可见 error，与 index.ts setPermissionMode（:424-436）/ restart-controller
+      // 失败回滚同款。修前漏 3 项：① 不写 s.permissionMode → canUseTool 的 getPermissionMode()
+      // (create-session-impl.ts:137 读 internal.permissionMode) 仍停旧 mode，DB/SDK/cache 三分裂
+      // (违反 sdk-message-translate.ts:196「DB/UI ↔ internal cache 单一源」不变量) + 下次
+      // setPermissionMode 读 s.permissionMode 当 rollback baseline 会拿到脏值；② 失败只 console.warn
+      // 不回滚 DB → 用户已批准退 plan 但 DB 卡旧 mode；③ 失败无 error message → 用户不知切失败。
+      // optimistic 写 cache 在 await 前（与 index.ts:427 同款 fail-secure 时序）。
+      const oldMode = s.permissionMode;
+      s.permissionMode = response.targetMode; // optimistic（与 index.ts setPermissionMode 同款）
       try {
         await s.query.setPermissionMode(response.targetMode);
         sessionRepo.setPermissionMode(sessionId, response.targetMode);
         const updated = sessionRepo.get(sessionId);
         if (updated) eventBus.emit('session-upserted', updated);
       } catch (err) {
+        s.permissionMode = oldMode; // 回滚 cache（与 index.ts setPermissionMode catch 同款）
         logger.warn(
           `[sdk-bridge] hot-switch permission mode after approve failed: ${sessionId}`,
           err,
         );
+        this.ctx.emit({
+          sessionId,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text:
+              `⚠ 切换权限模式到 ${response.targetMode} 失败：${(err as Error)?.message ?? String(err)}。` +
+              `已回退到 ${oldMode}，请重新发送一条消息让 Claude 续上。`,
+            error: true,
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
       }
       return;
     }

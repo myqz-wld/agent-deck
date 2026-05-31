@@ -22,12 +22,23 @@ import { AGENT_ID } from './constants';
 import type { InternalSession } from './types';
 
 /**
- * 清掉 internal 上的三个 pending Maps + emit *-cancelled 事件。
+ * 清掉 internal 上的三个 pending Maps + emit *-cancelled 事件 + best-effort resolve SDK promise。
  *
  * @param internal 待 close 的 session 内部 state
- * @param realIdForEmit emit 用的 sessionId（realSessionId ?? sessionId 兜底，与
- *   原 closeSession 同款；wait 之前 close 罕见路径用 sessionId 兜底）
+ * @param realIdForEmit emit 用的 sessionId（caller 传 internal.applicationSid；
+ *   wait 之前 close 罕见路径用 sessionId 兜底）
  * @param emit AgentEvent dispatcher（注入避免直接 import event-bus）
+ *
+ * **REVIEW_78 MED 防御性 hardening（reviewer-codex 提 + lead 裁 LOW→仍 fix）**：每条 entry emit
+ * cancelled 后**额外调 entry.resolver** best-effort 释放 canUseTool 的 await。修前依赖 closeSession
+ * 先 `await query.interrupt()` 同步驱动 can-use-tool.ts abort listener resolve（reviewer-claude
+ * 论证此时序通常成立），但 SDK interrupt() 的 ctx.signal abort 同步性**未契约保证**：若 abort 在
+ * `await interrupt()` 返回后才 async fire，则 cancelPendingAndEmit 先 clear Map → abort listener
+ * 与 consume() finally（stream-processor.ts:422-440）都 iterate 空 Map → canUseTool promise 不被
+ * resolve（GC 时悬挂，非资源泄漏但语义不洁）。此处主动 resolve 让释放责任不依赖 interrupt 同步性。
+ * **幂等安全**：Promise resolve 首次 settle 后续 no-op，与 abort listener / consume finally 任一
+ * 先 resolve 不冲突（与 can-use-tool.ts 三方 delete 竞争同款幂等论证）。resolver 语义对齐 consume
+ * finally：permission→deny+interrupt / ask→__session_ended__ / exitPlan→keep-planning。
  */
 export function cancelPendingAndEmit(
   internal: InternalSession,
@@ -44,6 +55,8 @@ export function cancelPendingAndEmit(
       source: 'sdk',
     });
     if (entry.timer) clearTimeout(entry.timer);
+    // best-effort resolve（幂等）：不依赖 interrupt() 同步驱动 abort listener
+    entry.resolver({ behavior: 'deny', message: 'session ended', interrupt: true });
   }
   internal.pendingPermissions.clear();
   for (const entry of internal.pendingAskUserQuestions.values()) {
@@ -56,6 +69,9 @@ export function cancelPendingAndEmit(
       source: 'sdk',
     });
     if (entry.timer) clearTimeout(entry.timer);
+    entry.resolver({
+      answers: [{ question: '__session_ended__', selected: [], other: '会话已结束' }],
+    });
   }
   internal.pendingAskUserQuestions.clear();
   for (const entry of internal.pendingExitPlanModes.values()) {
@@ -68,6 +84,7 @@ export function cancelPendingAndEmit(
       source: 'sdk',
     });
     if (entry.timer) clearTimeout(entry.timer);
+    entry.resolver({ decision: 'keep-planning', feedback: '会话已结束' });
   }
   internal.pendingExitPlanModes.clear();
 }
@@ -76,10 +93,11 @@ export function cancelPendingAndEmit(
  * closeSession 的 step 2-5 整套 cleanup 链。
  *
  * facade closeSession 内调用顺序（与原 inline 实现 100% 一致）：
- * 1. emit `*-cancelled` + clear 三 pending Map（cancelPendingAndEmit）
+ * 1. emit `*-cancelled` + best-effort resolve + clear 三 pending Map（cancelPendingAndEmit）
  * 2. sessions.delete(key) — consume() stream 下次 notify 后自然终止
- * 3. releaseSdkClaim sessionId / realSessionId（避免 hook 事件误吞）
- * 4. markRecentlyDeleted sessionId / realSessionId（REVIEW_12 Bug 5 60s 黑名单兜底）
+ * 3. releaseSdkClaim 三面（sessionId / applicationSid / cliSessionId，互不相等时各释放一次）
+ * 4. markRecentlyDeleted 三面（sessionId / applicationSid / cliSessionId，REVIEW_12 Bug 5 +
+ *    R5 MED-R5-1 升级 60s 黑名单兜底，挡反向 rename 后 SDK 尾包(appSid) / hook 尾包(cliSid)）
  * 5. notify wakeup（唤醒 createUserMessageStream 的 await）
  */
 export function runCloseSessionCleanup(args: {

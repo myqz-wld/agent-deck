@@ -40,8 +40,9 @@ export interface MakeCanUseToolDeps {
   /** Per-session state（pending Maps / toolUseNames / 等） */
   readonly internal: InternalSession;
   /**
-   * 实时取 sessionId（createSession 阶段 internal.realSessionId 还没拿到 → 用 tempKey 兜）。
-   * lazy getter 让 canUseTool 第一次被调用时（必然在 waitForRealSessionId 之后）能拿到 realId。
+   * 实时取 sessionId（createSession spawn 阶段 internal.applicationSid 初值 = tempKey；
+   * first realId 到达后冻结为 real id，resume 路径全程 = opts.resume）。lazy getter 让
+   * canUseTool 第一次被调用时（必然在 waitForRealSessionId 之后）能拿到稳定的 applicationSid。
    */
   readonly getSessionId: () => string;
   /**
