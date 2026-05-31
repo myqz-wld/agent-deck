@@ -78,7 +78,9 @@ export interface PrependHistorySummaryOptions {
  * - `summary-empty` → caller emit CHANGELOG_106「请补背景」(events 给了但 LLM 拿不出有效内容,
  *   等价于摘要失败)
  * - `over-length` → caller emit CHANGELOG_106「请补背景」(摘要太长无法 prepend,等价失败)
- * - `thunk-throw` → caller emit CHANGELOG_106「请补背景」(LLM 真挂了,与原 fallback 路径一致)
+ * - `thunk-throw` → caller emit CHANGELOG_106「请补背景」(events 来源 thunk `listEventsFn`
+ *   或 LLM 摘要 thunk `summariseFn` 任一抛错,与原 fallback 路径一致 — REVIEW_76 把
+ *   listEventsFn 也纳入此 failReason 保「永不抛错」契约)
  */
 export type PrependFailReason =
   | 'settings-off'
@@ -153,7 +155,28 @@ export async function prependHistorySummary(
 
   // 2. events 空(从未有过 turn / 已被 historyRetentionDays 清理)→ skip
   //    没历史可摘要,本来 fresh CLI 也续不上,与原 fallback 等价。
-  const events = listEventsFn(sessionId);
+  //
+  // **REVIEW_76 MED (reviewer-codex + lead 代码链实测)**: listEventsFn 调用纳入 try/catch。
+  // 修前 listEventsFn(sessionId) 在 try 外(只有 summariseFn 在 try 内),违反本函数 jsdoc +
+  // §不变量「永不抛错,任何失败封装为 PrependResult 让 caller fall back to originalText」承诺。
+  // 触发:生产 thunk = eventRepo.listForSession(index.ts:286-287),其内部 rows.map(rowToEvent)
+  // 走 JSON.parse(r.payload_json)(event-repo.ts:21) — 历史 row payload_json 损坏 / DB 读错时
+  // 同步抛错 → 穿透 prependHistorySummary → maybeJsonlFallback 在 createSession 之前中断 →
+  // recoverer 只 emit「⚠ 自动恢复失败」**不进 fresh CLI reuse-app fallback**(用户体感本该能续聊
+  // 的会话彻底起不来)。修法:listEventsFn 纳入 try/catch,复用 thunk-throw failReason(caller
+  // 已处理:emit CHANGELOG_106「请补背景」+ 继续 fresh CLI fallback 用 originalText),确保
+  // 「永不抛错」契约完整覆盖 events 来源 thunk(与 summariseFn 同款保护)。
+  let events: AgentEvent[];
+  try {
+    events = listEventsFn(sessionId);
+  } catch (err) {
+    return {
+      prompt: originalText,
+      used: false,
+      failReason: 'thunk-throw',
+      thrown: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
   if (!events || events.length === 0) {
     return { prompt: originalText, used: false, failReason: 'no-events' };
   }

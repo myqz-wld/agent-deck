@@ -52,6 +52,8 @@ vi.mock('@main/session/manager', () => ({
     renameSdkSession: vi.fn(),
     unarchive: vi.fn(),
     updateCliSessionId: vi.fn(),
+    // REVIEW_76 MED: recoverAndSend 失败路径 closed→active 复活回滚走 sessionManager.markClosed
+    markClosed: vi.fn(),
   },
 }));
 
@@ -1136,5 +1138,116 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     );
     expect(cwdErrorIdx).toBeGreaterThan(-1);
     expect(userMsgIdx).toBeLessThan(cwdErrorIdx);
+  });
+});
+
+describe('REVIEW_76 MED: closed 会话恢复失败回滚 lifecycle（dead-active 幽灵防护）', () => {
+  it('closed + cwd 全 miss throw → markClosed 回滚（不留 dead-active 幽灵）', async () => {
+    const bridge = makeBridge();
+    bridge.cwdExistsOverride = new Map<string, boolean>(); // 空 Map = 任何路径 false → 全 miss
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-closed-cwdmiss',
+      agentId: 'claude-code',
+      cwd: '/some/dead/path',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'closed', // ← 关键：closed 会话（user emit 会经 ingest→ensure 复活成 active）
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+    });
+
+    await expect(bridge.sendMessage('sess-closed-cwdmiss', 'hi')).rejects.toThrow(
+      /cwd does not exist and no fallback available/,
+    );
+
+    // **MED-1 核心断言**：closed 会话恢复失败 → markClosed 回滚（防 dead-active 幽灵）
+    expect(vi.mocked(sessionManager.markClosed)).toHaveBeenCalledWith('sess-closed-cwdmiss');
+    // createSession 不被调（cwd 全 miss 短路 throw 在 createSession 之前）
+    expect(bridge.createCalls).toHaveLength(0);
+  });
+
+  it('closed + createSession reject → outer catch markClosed 回滚', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false; // jsonl 缺失 → maybeJsonlFallback 走 createThunk
+    bridge.createBehavior = 'reject';
+    bridge.rejectWith = new Error('SDK spawn failed (simulated)');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-closed-reject',
+      agentId: 'claude-code',
+      cwd: '/tmp/work', // cwd 存在（cwdExistsOverride 默认 true）→ 不走 cwd-miss 路径
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'closed', // ← closed 会话
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+    });
+
+    await expect(bridge.sendMessage('sess-closed-reject', 'hi')).rejects.toThrow(
+      /SDK spawn failed/,
+    );
+
+    // **MED-1 核心断言**：createSession reject 后 outer catch markClosed 回滚
+    expect(vi.mocked(sessionManager.markClosed)).toHaveBeenCalledWith('sess-closed-reject');
+    // 自动恢复失败 error message 仍 emit（用户看到原因）
+    const recoverFailMsgs = emits.filter(
+      (e) => ((e.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
+    );
+    expect(recoverFailMsgs).toHaveLength(1);
+  });
+
+  it('dormant + 恢复失败 → 不调 markClosed（dormant 复活成 active 是 desired，不回滚）', async () => {
+    const bridge = makeBridge();
+    bridge.cwdExistsOverride = new Map<string, boolean>(); // 全 miss
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-dormant-cwdmiss',
+      agentId: 'claude-code',
+      cwd: '/some/dead/path',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant', // ← dormant（ensure 不复活 dormant，无需回滚）
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+    });
+
+    await expect(bridge.sendMessage('sess-dormant-cwdmiss', 'hi')).rejects.toThrow(
+      /cwd does not exist and no fallback available/,
+    );
+
+    // **MED-1 边界断言**：dormant 不调 markClosed（wasClosed=false，仅 closed 才回滚）
+    expect(vi.mocked(sessionManager.markClosed)).not.toHaveBeenCalled();
+  });
+
+  it('closed + 恢复成功 → 不调 markClosed（成功复活成 active 是 desired）', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = true; // jsonl 在 → 正常 resume 路径
+    bridge.createBehavior = 'resolve'; // createSession 成功
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-closed-ok',
+      agentId: 'claude-code',
+      cwd: '/tmp/work', // cwd 存在
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+    });
+
+    await bridge.sendMessage('sess-closed-ok', 'hi');
+
+    // **MED-1 边界断言**：恢复成功路径不回滚（closed 会话成功 resume 应保持 active）
+    expect(vi.mocked(sessionManager.markClosed)).not.toHaveBeenCalled();
+    expect(bridge.createCalls).toHaveLength(1);
   });
 });
