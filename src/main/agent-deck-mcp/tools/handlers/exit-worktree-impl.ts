@@ -266,13 +266,48 @@ export async function exitWorktreeImpl(
       }
     }
 
-    // 5b. 解析 branch（用于 5d 删 branch）
+    // 5b. 解析 branch（用于 5c-pre 未合并预检 + 5d 删 branch）
     try {
       const out = await deps.runGit(['branch', '--show-current'], worktreePath);
       branchName = out.trim() || null;
     } catch {
       // 罕见 detached HEAD / git 版本太老 — 不阻塞 worktree remove
       branchName = null;
+    }
+
+    // 5c-pre. 未合并 commit 预检（REVIEW_72 MED — deep-review reviewer-codex ✅ + lead 实测）：
+    // schema (schemas.ts:594) 承诺「discardChanges=false 时若 worktree 有 commits not on base
+    // branch,tool refuses ... protects against accidentally losing work」。修前仅 5a 预检
+    // uncommitted changes(working tree dirty),已 commit 但未合并的 commit 不在 5a 拦截范围 →
+    // 先 `git worktree remove`(working tree clean 时 rc=0 成功删目录)再到 5d `git branch -d`
+    // 才发现未合并 → worktree 目录已删但 return error,违反「refuse 保护工作」契约。
+    //
+    // **git 顺序硬约束**:不能在 worktree remove 之前先 `branch -d`(git 拒删 checked-out branch),
+    // 所以删除顺序无法调换 → 必须在 remove **之前**独立预检未合并状态。`git merge-base
+    // --is-ancestor <branch> HEAD`(在 main repo 跑)精确镜像 `git branch -d` 的 reachability 判定:
+    // rc=0 = branch tip 可从 main repo HEAD 到达(已合并,删 worktree 安全);rc=1 = 有未合并 commit。
+    //
+    // **实测铁证**:worktree 内 commit 后 `git worktree remove`(clean tree)rc=0 删目录成功,随后
+    // `git branch -d` rc=1 报 not fully merged 但 branch+commit 存活(可 `git branch -D` 恢复)。本
+    // 预检让 discardChanges=false + 未合并 时**保留 worktree**让 caller 回去处理,兑现 schema 契约。
+    // branch == null(detached HEAD) / protected branch 跳过预检(无对应 branch -d 删除动作)。
+    if (!input.discardChanges && branchName && !PROTECTED_BRANCHES.has(branchName)) {
+      let hasUnmergedCommits = false;
+      try {
+        // is-ancestor rc=0 → 已合并(merge-base 成功);非 0 throw → 未合并 / 错误
+        await deps.runGit(['merge-base', '--is-ancestor', branchName, 'HEAD'], mainRepo);
+      } catch {
+        // rc=1(未合并)或 rc=128(罕见 git 错误)→ 保守视为有未合并 commit,refuse 保护工作。
+        // 即使 is-ancestor 因非预期原因失败,保留 worktree 也比误删安全(caller 可显式 discardChanges=true)。
+        hasUnmergedCommits = true;
+      }
+      if (hasUnmergedCommits) {
+        return {
+          error: `worktree branch "${branchName}" has commits not merged into HEAD — refusing to remove (discardChanges=false)`,
+          hint: `exit_worktree refuses to remove a worktree whose branch has unmerged commits (protects against accidentally losing work — matches schema contract). worktree at ${worktreePath} is preserved so you can recover. Options: (a) merge / cherry-pick the unmerged commits into your base branch first, then retry exit_worktree; (b) call exit_worktree({ action: 'remove', worktreePath: '${worktreePath}', discardChanges: true }) to force remove (destructive, deletes worktree + branch with those commits); (c) keep the work: exit_worktree({ action: 'keep' }) leaves worktree + branch intact. Marker DB unchanged (caller still holds marker).`,
+          markerCleared: false,
+        };
+      }
     }
 
     // 5c. git worktree remove
