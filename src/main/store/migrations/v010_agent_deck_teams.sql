@@ -17,7 +17,7 @@
 -- 1) team 元信息
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS agent_deck_teams (
-  id          TEXT PRIMARY KEY NOT NULL,           -- nanoid 12 字符（与 task-repo 同款）
+  id          TEXT PRIMARY KEY NOT NULL,           -- crypto.randomUUID() 36-char（与 task-repo 同款）
   name        TEXT NOT NULL,                       -- 用户可见名（active 内 unique，见下方部分索引）
   created_at  INTEGER NOT NULL,                    -- 毫秒
   archived_at INTEGER,                             -- NULL = active；非 NULL = 用户归档（UI 默认隐藏）
@@ -92,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_team_members_active_session
 -- - last_attempt_at  reviewer HIGH-1 修法：替代 sent_at 做退避基准（避免 sent_at 不退避 bug）
 -- - delivering_since 进入 delivering 时间；crash recovery 用 (§4.6 不再无条件 ++ attempt_count)
 CREATE TABLE IF NOT EXISTS agent_deck_messages (
-  id              TEXT PRIMARY KEY NOT NULL,        -- nanoid 16 字符
+  id              TEXT PRIMARY KEY NOT NULL,        -- crypto.randomUUID() 36-char
   team_id         TEXT NOT NULL REFERENCES agent_deck_teams(id) ON DELETE CASCADE,
   from_session_id TEXT NOT NULL,                    -- 不强制 FK（允许已 closed / 已删的 sender 留痕）
   to_session_id   TEXT NOT NULL,                    -- 同上

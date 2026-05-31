@@ -239,6 +239,78 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     expect(msgRepo.listBySession('sZZZ-no-such')).toHaveLength(0);
   });
 
+  it('findEligible 同毫秒 sent_at 用 rowid ASC 锁 FIFO（REVIEW_90 R2 MED 回归）', () => {
+    // dispatch FIFO contract: 同毫秒入队多条（含 fresh last_attempt_at=NULL 与 retry 混合）时
+    // 纯 ORDER BY sent_at ASC 无 total order — query plan 走 idx_messages_status_last_attempt 后
+    // temp sort，同 sent_at tie 受扫描序影响可让后插入的 fresh 排到先插入的 retry 前，违背 FIFO。
+    // 修法加 rowid ASC 二级定序（oldest-first）。insert() 无法注入 sent_at/attempt_count，用 raw INSERT。
+    const SAME = 1_700_000_000_000;
+    // m1: 先插入（rowid 小=oldest），已 retry 一次（attempt=1, last_attempt_at=1000，backoff(1)=1000ms 早已到期）
+    db.prepare(
+      `INSERT INTO agent_deck_messages
+       (id, team_id, from_session_id, to_session_id, body, status, status_reason,
+        sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since, reply_to_message_id)
+       VALUES ('fe1-old-retry', ?, 'sA', 'sB', 'a', 'pending', NULL, ?, NULL, 1, 1000, NULL, NULL)`,
+    ).run(teamId, SAME);
+    // m2: 后插入（rowid 大=newer），同毫秒，fresh（attempt=0, last_attempt_at=NULL）
+    db.prepare(
+      `INSERT INTO agent_deck_messages
+       (id, team_id, from_session_id, to_session_id, body, status, status_reason,
+        sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since, reply_to_message_id)
+       VALUES ('fe2-new-fresh', ?, 'sA', 'sB', 'b', 'pending', NULL, ?, NULL, 0, NULL, NULL, NULL)`,
+    ).run(teamId, SAME);
+    // m3: 严格更晚 sent_at
+    db.prepare(
+      `INSERT INTO agent_deck_messages
+       (id, team_id, from_session_id, to_session_id, body, status, status_reason,
+        sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since, reply_to_message_id)
+       VALUES ('fe3-newer', ?, 'sA', 'sB', 'c', 'pending', NULL, ?, NULL, 0, NULL, NULL, NULL)`,
+    ).run(teamId, SAME + 1);
+
+    // now=3000：三条都 eligible（m1 retry 退避到期 1000+1000<=3000；m2/m3 fresh）。
+    // FIFO 期望同毫秒内 oldest-first：fe1-old-retry（先插）→ fe2-new-fresh（后插）→ fe3-newer（更晚 ms）
+    const eligible = msgRepo.findEligible({ now: 3000 }).map((m) => m.id);
+    expect(eligible).toEqual(['fe1-old-retry', 'fe2-new-fresh', 'fe3-newer']);
+
+    // findEligibleExcludingTargets 同款 FIFO（取最早一条）：排除 sZ（无关）应仍取 fe1
+    const fair = msgRepo.findEligibleExcludingTargets({ now: 3000, excludeTargets: ['sZ-other'] });
+    expect(fair?.id).toBe('fe1-old-retry');
+  });
+
+  it('listByTeam / listBySession 同毫秒 sent_at 用 rowid DESC 稳定定序（REVIEW_90 MED 回归）', () => {
+    // 背靠背 insert 落同一毫秒（insert() 内部 const now = Date.now()）→ 纯 ORDER BY sent_at DESC
+    // 无 total order：SQLite 返回插入序(oldest-first)，违背 jsdoc「最新在前」+ 分页 LIMIT/OFFSET
+    // 切到同毫秒 tie 组跨页重复/漏行。修法加 rowid DESC 二级排序（必须 rowid 非 id——id 是
+    // crypto.randomUUID() 随机；rowid 单调随插入）。insert() 无法注入 sent_at，用 raw INSERT 锁同毫秒。
+    const SAME = 1_700_000_000_000;
+    const ids = ['mm1', 'mm2', 'mm3', 'mm4', 'mm5'];
+    const stmt = db.prepare(
+      `INSERT INTO agent_deck_messages
+       (id, team_id, from_session_id, to_session_id, body, status, status_reason,
+        sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since, reply_to_message_id)
+       VALUES (?, ?, 'sA', 'sB', ?, 'pending', NULL, ?, NULL, 0, NULL, NULL, NULL)`,
+    );
+    for (const id of ids) stmt.run(id, teamId, `body-${id}`, SAME);
+
+    // newest-first（rowid DESC）：插入序 mm1..mm5 → 期望 mm5..mm1
+    const expectedDesc = ['mm5', 'mm4', 'mm3', 'mm2', 'mm1'];
+    expect(msgRepo.listByTeam(teamId).map((m) => m.id)).toEqual(expectedDesc);
+    expect(msgRepo.listBySession('sB').map((m) => m.id)).toEqual(expectedDesc);
+    // listBySession 走全表 SCAN + TEMP B-TREE（与 listByTeam 索引路径不同 plan），同样稳定
+    expect(msgRepo.listBySession('sA').map((m) => m.id)).toEqual(expectedDesc);
+
+    // 分页边界稳定：page1(LIMIT2 OFFSET0) + page2(LIMIT2 OFFSET2) 无重复/漏行
+    const page1 = msgRepo.listByTeam(teamId, { limit: 2, offset: 0 }).map((m) => m.id);
+    const page2 = msgRepo.listByTeam(teamId, { limit: 2, offset: 2 }).map((m) => m.id);
+    expect(page1).toEqual(['mm5', 'mm4']);
+    expect(page2).toEqual(['mm3', 'mm2']);
+    // session 视角分页同款稳定
+    const sPage1 = msgRepo.listBySession('sB', { limit: 2, offset: 0 }).map((m) => m.id);
+    const sPage2 = msgRepo.listBySession('sB', { limit: 2, offset: 2 }).map((m) => m.id);
+    expect(sPage1).toEqual(['mm5', 'mm4']);
+    expect(sPage2).toEqual(['mm3', 'mm2']);
+  });
+
   it('CASCADE：删 team 级联删 messages', () => {
     msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'hi' });
     expect(msgRepo.listByTeam(teamId)).toHaveLength(1);

@@ -27,6 +27,10 @@ export function createDispatch(db: Database) {
     // backoff WHERE 子句从 message-delivery-state.ts BACKOFF_TIERS 表派生（CHANGELOG_109 R37
     // P2-N Step 3.6 codex 11 LOW SSOT）。改 backoff schedule 只动 BACKOFF_TIERS 数组，本处
     // 自动跟着对（每 tier 一个 ? placeholder 绑 now）。详 buildFindEligibleWhereSql jsdoc。
+    // REVIEW_90 R2 MED (codex 单方 + lead sqlite3 实证): `ORDER BY sent_at ASC` 同毫秒入队多条
+    // (含 fresh last_attempt_at=NULL 与 retry 混合) 时无 total order — query plan 走
+    // idx_messages_status_last_attempt 后 temp sort，同 sent_at tie 受扫描序影响可让后插入的 fresh
+    // 排到先插入的 retry 前，违背 FIFO。加 `rowid ASC` 二级定序锁 FIFO（rowid 单调随插入，oldest-first）。
     const { whereSql, backoffPlaceholderCount } = buildFindEligibleWhereSql();
     const sql = `
       SELECT * FROM agent_deck_messages
@@ -34,7 +38,7 @@ export function createDispatch(db: Database) {
         AND (
           ${whereSql}
         )
-      ORDER BY sent_at ASC
+      ORDER BY sent_at ASC, rowid ASC
       LIMIT ?`;
     const params: number[] = [];
     for (let i = 0; i < backoffPlaceholderCount; i++) params.push(opts.now);
@@ -68,7 +72,7 @@ export function createDispatch(db: Database) {
           ${whereSql}
         )
         ${excludeClause}
-      ORDER BY sent_at ASC
+      ORDER BY sent_at ASC, rowid ASC
       LIMIT 1`;
     const rows = db.prepare(sql).all(...params) as MessageRow[];
     return rows.length > 0 ? rowToRecord(rows[0]) : null;

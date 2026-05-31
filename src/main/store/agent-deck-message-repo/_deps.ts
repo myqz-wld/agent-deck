@@ -76,7 +76,8 @@ export interface InsertMessageInput {
   /**
    * plan team-cohesion-fix-20260513 Phase B7：可选预先生成的 id（默认 crypto.randomUUID()）。
    * spawn_session 路径用 —— 需要在 createSession 之前知道 placeholder messageId 才能拼到
-   * prompt 顶部 `[msg <id>]` prefix（让 teammate 收到 prompt 后能 regex 提 id 调 reply_message）。
+   * prompt 顶部 `[msg <id>]` prefix（让 teammate 收到 prompt 后能 regex 提 id 调
+   * send_message({ replyToMessageId })）。
    */
   id?: string;
   teamId: string;
@@ -86,7 +87,9 @@ export interface InsertMessageInput {
   body: string;
   /**
    * plan team-cohesion-fix-20260513 Phase B Step B1：对话链关联（可选）。
-   * 非 NULL 时建立"这是对某条 msg 的 reply"语义；wait_reply 走此字段反查。
+   * 非 NULL 时建立"这是对某条 msg 的 reply"语义（reply 与普通 message 走同款 dispatch，
+   * CHANGELOG_100 删 reply_message / wait_reply / check_reply 后 reply_to_message_id 仅作
+   * 对话链元数据保留，无 reverse-lookup helper —— 详 crud.ts 末注释）。
    * caller-side 不强制校验 reply_to_message_id 真实存在（FK ON DELETE SET NULL 兜底）。
    */
   replyToMessageId?: string | null;
@@ -143,11 +146,12 @@ export interface AgentDeckMessageRepo {
   /**
    * plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2：按 session 维度拉 cross-session
    * messages（from_session_id = sid OR to_session_id = sid）。SessionDetail 「跨会话消息」tab
-   * 兜底用：J fix（§决策 1）让 reply 不再 inject 给 sender SDK 后，lead 没主动 wait_reply /
-   * check_reply 时看不到 reply —— 此 method 提供 DB 视角全量可视化。
+   * 兜底用：CHANGELOG_100 协议简化后 reply 与普通 message 同款 dispatch 自动注入 receiver SDK，
+   * 此 method 额外提供 DB 视角全量可视化（含已 delivered / failed 的历史消息）。
    *
    * 包含：本 session 发出的 send + 收到的 send + 本 session 发出的 reply + 收到的 reply。
-   * 排序与 listByTeam 一致 ORDER BY sent_at DESC（最新在前）。
+   * 排序与 listByTeam 一致 ORDER BY sent_at DESC, rowid DESC（最新在前，rowid 二级定序保证
+   * 同毫秒稳定 + 分页边界确定，REVIEW_90 修法）。
    */
   listBySession(sessionId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[];
 
@@ -156,7 +160,8 @@ export interface AgentDeckMessageRepo {
    * 取「现在 eligible 投递」的消息：status='pending' 且
    * (last_attempt_at IS NULL OR last_attempt_at + backoff(attempt_count) <= now)。
    *
-   * 按 sent_at ASC 排序保证 FIFO；LIMIT 控制单轮处理量（默认 16）。
+   * 按 sent_at ASC, rowid ASC 排序保证 FIFO（rowid 二级定序锁同毫秒入队稳定 oldest-first，
+   * REVIEW_90 R2 修法）；LIMIT 控制单轮处理量（默认 16）。
    *
    * 注：本方法只查不改；调用方逐个 row 用 claim() 原子化抢占。
    */
@@ -164,7 +169,7 @@ export interface AgentDeckMessageRepo {
   /**
    * REVIEW_56 Batch C R1 codex MED-2 修法专用:取一条**不在 excludeTargets** 的最早 pending
    * eligible message。watcher process() detect cross-target starvation 时调,公平兜底投递。
-   * 排序与 findEligible 一致(sent_at ASC),LIMIT 1。
+   * 排序与 findEligible 一致(sent_at ASC, rowid ASC),LIMIT 1。
    *
    * - excludeTargets 空数组 → 等价 `findEligible({now, limit: 1})`
    * - 无符合返 null
