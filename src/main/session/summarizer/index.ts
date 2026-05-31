@@ -217,19 +217,34 @@ export class Summarizer {
     return out;
   }
 
-  /** 手动触发某会话的总结 */
+  /**
+   * 手动触发某会话的总结。
+   *
+   * **REVIEW_83 LOW (reviewer-claude E2 + lead grep 0 caller)**: 走 inFlight 守门，与 scanAll
+   * 共享并发上限。修前 summarizeNow 直接调 summarize() 不 add/check inFlight → 若未来接 IPC
+   * 「手动总结」按钮与周期 scanAll 并发跑同 sid → 两条 LLM oneshot 并发同 session → 双 insert
+   * summary + race lastSummarizedAt.set。当前 0 caller 故 latent，但 public method 一旦接 IPC
+   * 即激活 → 防御性加守门：inFlight.has → 跳过返 null（与 scanAll line 134 同款语义）；否则
+   * add + try/finally delete 保证异常路径也释放槽。
+   */
   async summarizeNow(sessionId: string): Promise<SummaryRecord | null> {
-    const summary = await this.summarize(sessionId);
-    if (!summary) return null;
-    const rec = summaryRepo.insert({
-      sessionId,
-      content: summary,
-      trigger: 'manual',
-      ts: Date.now(),
-    });
-    eventBus.emit('summary-added', rec);
-    this.lastSummarizedAt.set(sessionId, Date.now());
-    return rec;
+    if (this.inFlight.has(sessionId)) return null; // 已有 in-flight（scanAll 或另一次 summarizeNow）→ 跳过
+    this.inFlight.add(sessionId);
+    try {
+      const summary = await this.summarize(sessionId);
+      if (!summary) return null;
+      const rec = summaryRepo.insert({
+        sessionId,
+        content: summary,
+        trigger: 'manual',
+        ts: Date.now(),
+      });
+      eventBus.emit('summary-added', rec);
+      this.lastSummarizedAt.set(sessionId, Date.now());
+      return rec;
+    } finally {
+      this.inFlight.delete(sessionId);
+    }
   }
 
   private async summarize(sessionId: string): Promise<string | null> {

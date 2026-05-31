@@ -435,4 +435,26 @@ describe.skipIf(!bindingAvailable)('issue-repo / listForGc 阈值边界', () => 
     const result = repo.listForGc({ resolvedRetentionDays: 90, softDeletedRetentionDays: 7, nowMs: futureNow });
     expect(result.resolvedExpired).toContain(a.id);
   });
+
+  // **REVIEW_83 LOW (reviewer-codex E2 + lead)**: listForGc 每路单轮上限,默认 500,
+  // 与 session-repo findHistoryOlderThan 对称,防一次同步删上万行卡主线程。
+  it('listForGc 默认 limit=500 截断每路 + 显式 limit override', () => {
+    const ago100d = Date.now() - 100 * 86_400_000;
+    // 造 7 条超期 resolved
+    const ids: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const x = repo.create({ title: `R${i}`, description: 'D', sourceSessionId: sid });
+      repo.update(x.id, { status: 'resolved' });
+      db.prepare(`UPDATE issues SET resolved_at = ? WHERE id = ?`).run(ago100d, x.id);
+      ids.push(x.id);
+    }
+    // 默认 limit=500 → 7 条全返
+    const full = repo.listForGc({ resolvedRetentionDays: 90, softDeletedRetentionDays: 7 });
+    expect(full.resolvedExpired).toHaveLength(7);
+    // 显式 limit=3 → 截断到 3 条（剩余下轮 tick 续）
+    const capped = repo.listForGc({ resolvedRetentionDays: 90, softDeletedRetentionDays: 7, limit: 3 });
+    expect(capped.resolvedExpired).toHaveLength(3);
+    // 截断的 3 条是全集子集
+    for (const id of capped.resolvedExpired) expect(ids).toContain(id);
+  });
 });

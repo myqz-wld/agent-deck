@@ -1,11 +1,20 @@
 import type { AgentEvent } from '@shared/types';
 
 /**
- * 把 events 转成给 LLM 看的「最近活动」文本。`events` 入参按 ts DESC（listForSession
+ * 把 events 转成给 LLM 看的「最近活动」文本。`events` 入参按 (ts DESC, id DESC)（listForSession
  * 的语义），先按时间升序排回去（按发生顺序读 LLM 才能正确理解前后逻辑），
  * 然后取**最新** 30 行 —— 注意是末尾 30 不是前 30，否则丢掉的是最新 10 条而不是最旧 10 条
  * （历史 bug：原来 `for (...) if (lines.length >= 30) break` 在升序遍历里 break 早，
  * 导致 LLM 看到的总是会话开头那段旧上下文，越往后看到的越旧）。
+ *
+ * **REVIEW_83 LOW (reviewer-codex 单方 + lead node repro)**: 排序必须带 `id` tie-breaker。
+ * `listForSession`（event-repo.ts:112）返回 `ORDER BY ts DESC, id DESC` —— 同毫秒内 id 更大
+ * （更新）的 row 排在前面。formatter 旧版仅 `sort((a,b) => a.ts - b.ts)`，JS sort 稳定 →
+ * 同 ts 保留输入顺序（id DESC = 新→旧）→ 同毫秒事件在 prompt 里**逆序**（违背本函数
+ * 「按发生顺序读」契约，SDK 连续 emit 同毫秒是现实路径，handoff 简报会读到局部反序步骤）。
+ * 修法：tie-breaker `(a.ts - b.ts) || (idOf(a) - idOf(b))` 还原同毫秒 chronological（id 升序 =
+ * 旧→新）。`events.id` 是 INTEGER AUTOINCREMENT 单调（v001），listForSession 返回类型
+ * `AgentEvent & { id: number }` 带此列；入参放宽到 optional id 兼容无 id 的 caller（?? 0 兜底）。
  *
  * `[Claude 说]` 只算 role !== 'user' 且 error !== true 的 message：
  * - 用户输入虽然 emit 成了 message kind 但 role: 'user'，把它写成"Claude 说"会让
@@ -13,9 +22,12 @@ import type { AgentEvent } from '@shared/types';
  * - error: true 的 ⚠ 警告是基础设施消息（API 错误、待响应队列提示），不是真正
  *   的"Claude 在做什么"
  */
-export function formatEventsForPrompt(events: AgentEvent[]): string {
-  // 升序后取末尾 30：events 已经是 DESC，先排正，再 slice(-30) 拿最新一段
-  const ordered = [...events].sort((a, b) => a.ts - b.ts).slice(-30);
+export function formatEventsForPrompt(events: (AgentEvent & { id?: number })[]): string {
+  // 升序后取末尾 30：events 已经是 (ts DESC, id DESC)，先排正（ts 升序 + id tie-breaker 还原
+  // 同毫秒 chronological），再 slice(-30) 拿最新一段。
+  const ordered = [...events]
+    .sort((a, b) => a.ts - b.ts || (a.id ?? 0) - (b.id ?? 0))
+    .slice(-30);
   const lines: string[] = [];
   for (const e of ordered) {
     const p = (e.payload ?? {}) as Record<string, unknown>;
