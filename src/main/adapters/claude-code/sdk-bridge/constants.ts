@@ -43,7 +43,7 @@ export const MAX_PENDING_MESSAGES = 20;
  * 加白名单不依赖 permissionMode：plan / acceptEdits / bypass / default 任何模式下，
  * 这些工具语义上都不该被拦（plan mode 本意只拦 mutation；其他 mode 也只该拦危险操作）。
  *
- * **CHANGELOG_<X> B1：定义抽到 `@shared/constants/read-only-tools.ts`** 让 lead canUseTool
+ * **CHANGELOG_56 B1：定义抽到 `@shared/constants/read-only-tools.ts`** 让 lead canUseTool
  * 与 teammate inbox auto-approve 共享同一份白名单（避免双处 hardcode 漂移）。
  * 新增白名单条目去 shared 文件改，本处 re-export 仅为 sdk-bridge 现有 import 路径不变。
  */

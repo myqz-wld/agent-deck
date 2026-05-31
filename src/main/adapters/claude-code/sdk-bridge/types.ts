@@ -212,7 +212,10 @@ export interface InternalSession {
  * 抽自 ClaudeSdkBridge.createSession 内 11 字段对象字面量，集中字段初值默认逻辑
  * （permissionMode 与 query options 同源 `opts.permissionMode ?? 'default'`，详
  * permissionMode 字段 jsdoc）。query 字段 spawn 之前用 `undefined as Query` 占位，
- * realSessionId 等首条 SDKMessage 拿到后 by waitForRealSessionId 替换。
+ * applicationSid / cliSessionId 双轨化（R7 HIGH-R7-1 重命名）：applicationSid = ctor 入参
+ * （spawn 主路径 = tempKey，first SDKMessage 拿到 realId 后由 stream-processor isNewSpawn
+ * 分支切到 realId 后冻结 / resume 路径 = opts.resume 全程不变）；cliSessionId 初值 null，
+ * 首条 SDKMessage 拿到 realId 后由 consume 写入（详 applicationSid / cliSessionId 字段 jsdoc）。
  */
 export function makeInternalSession(opts: {
   cwd: string;

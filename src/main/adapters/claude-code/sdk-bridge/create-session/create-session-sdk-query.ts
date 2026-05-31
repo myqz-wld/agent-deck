@@ -94,7 +94,7 @@ export async function runCreateSessionSdkQuery(
     // CHANGELOG_85 Step 3.2：mcp server 拼装抽到 mcp-server-init.ts
     // （plan task-mcp-merge-into-agent-deck-mcp-20260521 合并后单 server，task tools 跟随
     // settings.enableAgentDeckMcp toggle；smart migration 守护老用户 enableTaskManager:true 不丢失能力）
-    const mcpServers = await buildMcpServersForSession(internal, tempKey);
+    const mcpServers = await buildMcpServersForSession(internal);
 
     // **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1
     // bridge 内部 effectiveResumeCliSid 集中兜底**:
@@ -214,6 +214,30 @@ export async function runCreateSessionSdkQuery(
     // REVIEW_5 H4：构造期就 claim 了 opts.resume，失败路径必须释放，
     // 否则下次同 sessionId 的真实 hook / 终端 CLI 会话会被静默吞掉
     if (opts.resume) sessionManager.releaseSdkClaim(opts.resume);
+
+    // REVIEW_75 HIGH (reviewer-codex + lead 代码链实测三重确认):清掉失败路径落下的孤儿
+    // tempKey DB row。
+    // 根因:consume() 在 try 内会经 emit() 链路走 sessionManager.ingest — 无论是 30s timeout
+    // 的「⚠ SDK 30 秒」error message(stream-processor.ts:219)还是 consume finally 必发的
+    // session-end(stream-processor.ts:446),event.source==='sdk' 在 dedupOrClaim 5 个 skip 分支
+    // (全部要求 source==='hook')里一个都不命中 → ensureRecord 必建一条 id=tempKey/source='sdk'
+    // 的 DB row(随后 session-end 把它推成 dormant)。catch 此前只 delete in-memory Map + release
+    // claim,**从不删这条 DB row** → SessionList 永久残留一条无 jsonl / 无 SDK live state 的幽灵
+    // dormant 会话(只能等 historyRetentionDays 时间清理,默认可能永不清)。A1-HIGH-1 的
+    // realId===tempKey throw 只挡住了 finalizeSessionStart 这一条创建源,挡不住更早的 consume
+    // emit 链路。
+    //
+    // **只删 tempKey 不删 applicationSid**(安全边界,防误删 resume 合法历史):
+    // - spawn 主路径:applicationSid === tempKey,孤儿 row 的 id 就是 tempKey,删之安全
+    // - resume 路径:applicationSid === opts.resume(预先存在的合法 row);且 resume 路径 fallback
+    //   用 fallbackId=resumeId≠tempKey → realId≠tempKey 永不进 A1-HIGH-1 throw;其他 try 内 throw
+    //   也绝不能删 opts.resume 行(那是用户历史会话)。故这里**只**删 tempKey,opts.resume 行不动。
+    // - tempKey 是 randomUUID,删一条不存在的 tempKey row 是无害 no-op(DELETE WHERE id=? 命中 0 行)。
+    try {
+      sessionRepo.delete(tempKey);
+    } catch (delErr) {
+      logger.warn(`[sdk-bridge] 清理孤儿 tempKey row 失败: ${tempKey}`, delErr);
+    }
     throw err;
   }
 

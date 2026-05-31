@@ -31,9 +31,13 @@ export interface FinalizeSessionStartArgs {
    * 现有 emit session-start { sessionId: realId } 行为字面等价 (caller 仍拿 first realId)。
    * resume / fallback 路径下 applicationSid = caller 入参 opts.resume 全程不变。
    *
-   * **R6 MED-R6-1 修订**: jsonl-missing fallback 路径**不调** finalizeSessionStart (S8 重写后
-   * fresh fallback 复用 applicationSid 行 + 走 sessionManager.updateCliSessionId 黑名单链,不需
-   * emit session-start 创建新 sessions row 撞唯一索引)。仅 spawn 主路径调本 helper。
+   * **R6 MED-R6-1 修订**: jsonl-missing fallback 路径（resumeMode='fresh-cli-reuse-app'）**不调**
+   * finalizeSessionStart (S8 重写后 fresh fallback 复用 applicationSid 行 + 走
+   * sessionManager.updateCliSessionId 黑名单链,不需 emit session-start 创建新 sessions row 撞唯一
+   * 索引)。**调本 helper 的路径**:spawn 主路径 + normal resume 路径(create-session-impl.ts:178
+   * `if (opts.resumeMode !== 'fresh-cli-reuse-app')` 守门 — normal resume resumeMode 默认
+   * 'resume-cli' 也满足该条件;normal resume 走 ensure() revive 既有 row 不撞唯一索引 +
+   * recover-and-send-impl.ts 显式传 skipFirstUserEmit=true 防双气泡)。**仅** fresh-cli-reuse-app 跳过。
    */
   applicationSid: string;
   /**
@@ -101,8 +105,13 @@ export interface FinalizeSessionStartArgs {
  * 行为字面等价 (S3 isNewSpawn 修订让 applicationSid === realId in spawn 路径)。
  *
  * **不调本 helper 的路径** (R6 MED-R6-1 修订):
- * - jsonl-missing fallback (S8 重写后): fresh fallback 路径只调 sessionManager.updateCliSessionId
- *   (manager 黑名单链),不创建新 sessions row 不 emit session-start (避免撞唯一索引)
+ * - jsonl-missing fallback (resumeMode='fresh-cli-reuse-app', S8 重写后): fresh fallback 路径只调
+ *   sessionManager.updateCliSessionId (manager 黑名单链),不创建新 sessions row 不 emit session-start
+ *   (避免撞唯一索引)
+ *
+ * **调本 helper 的路径**: spawn 主路径 + normal resume 路径 (create-session-impl.ts:178 守门条件
+ * `opts.resumeMode !== 'fresh-cli-reuse-app'` — normal resume resumeMode 默认 'resume-cli' 满足;
+ * normal resume 走 ensure() revive 既有 row + caller 传 skipFirstUserEmit=true 防双气泡)。
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
   const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, extraAllowWrite, attachments, handOff, skipFirstUserEmit, emit } = args;
