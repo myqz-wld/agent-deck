@@ -39,9 +39,14 @@
  *  - effectiveResumeThreadId 非空 → resumeThread, 否则 startThread (jsonl-missing fallback
  *    自然走 startThread + applicationSid 不变,first thread.started 进 thread-loop case 3
  *    fork-detect 路径 updateCliSessionId 完成反向 rename)。
- * internal.threadId 仍存 opts.resume(applicationSid),thread-loop case 3 (line 292)
- * 通过 ev.thread_id !== internal.threadId 触发 fork-detect → updateCliSessionId 把
- * cli_session_id 列改成 SDK 真 thread_id;applicationSid (sessions.id) 不动 (不变量 1)。
+ * internal.threadId 初值 = effectiveResumeThreadId ?? opts.resume(REVIEW_79 MED-1 修法,见
+ * internal 构造处注释):
+ *  - normal resume after fallback: threadId = cli-sid(effectiveResumeThreadId)→ SDK 返同 cli-sid
+ *    → thread-loop case 2 正常分支(修前用 applicationSid 误触 case 3 fork-detect)
+ *  - fresh-cli-reuse-app: effectiveResumeThreadId=null → threadId = opts.resume(applicationSid),
+ *    SDK startThread 返新 thread_id 与 applicationSid 不一致 → thread-loop case 3 (line 292)
+ *    通过 ev.thread_id !== internal.threadId 触发 fork-detect → updateCliSessionId 把
+ *    cli_session_id 列改成 SDK 真 thread_id;applicationSid (sessions.id) 不动 (不变量 1)。
  */
 import type { Thread } from '@openai/codex-sdk';
 import { sessionRepo } from '@main/store/session-repo';
@@ -88,9 +93,12 @@ export async function createSessionImpl(
     // — 与 claude-code adapter sandbox-resolve.ts 同款直读模式（删 in-memory mirror + setter
     // + apply hook 三层冗余）。settings 改 codexSandbox 不需 push 到 bridge,下次 createSession
     // 即按新值生效（与 claude 同款语义,spawn-time 锁定不变）。
-    const persistedSandbox = opts.resume
-      ? (sessionRepo.get(opts.resume)?.codexSandbox ?? null)
-      : null;
+    //
+    // REVIEW_79 INFO (reviewer-claude) 修法:同一 row 单读复用。修前 persistedSandbox(取
+    // .codexSandbox) 与 effectiveResumeThreadId(取 .cliSessionId) 各调一次 sessionRepo.get(opts.resume)
+    // 同步读同一行(两读间无 await,better-sqlite3 同步单线程值一致无 race,纯冗余)。
+    const resumeRec = opts.resume ? sessionRepo.get(opts.resume) : null;
+    const persistedSandbox = resumeRec?.codexSandbox ?? null;
     const sandboxMode =
       opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
 
@@ -101,7 +109,7 @@ export async function createSessionImpl(
     // 在反向 rename 后 != cliSessionId 时撞错 thread。详 orchestrator jsdoc 顶部 REVIEW_56 HIGH-1。
     const effectiveResumeThreadId =
       opts.resume && opts.resumeMode !== 'fresh-cli-reuse-app'
-        ? (opts.resumeCliSid ?? sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume)
+        ? (opts.resumeCliSid ?? resumeRec?.cliSessionId ?? opts.resume)
         : null;
     if (effectiveResumeThreadId) {
       // CHANGELOG_<X> A2a：resume 路径必须透传 sandboxMode / workingDirectory / approvalPolicy，
@@ -146,9 +154,24 @@ export async function createSessionImpl(
     // - resume / fallback 路径(有 opts.resume): ctor 时 applicationSid = opts.resume,全生命周期不变
     // S7 修订:mcpSessionTokenMap.allocate 已用 initialSid (validate phase),与 applicationSid 同款 = sessions.id 维度,
     //   反向 rename 不动 sessions.id → token map key 永远稳定。
+    //
+    // **REVIEW_79 MED-1 修法 (reviewer-claude 单方 + lead 现场验证,claude parity 偏差)**:
+    // internal.threadId 初值必须用 effectiveResumeThreadId(= 实际传给 resumeThread 的 cli-sid 维度)
+    // 而非 opts.resume(applicationSid 维度)。反向 rename 后(applicationSid=A,cli_session_id=C,C≠A)
+    // normal resume 走 resumeThread(C) → SDK 返 thread_id=C,若 internal.threadId 仍是 A 则
+    // thread-loop.ts:295 `internal.threadId(A) !== ev.thread_id(C)` 误触 case 3 fork-detect(本该
+    // case 2 正常分支)→ 每次 resume 这类会话都打误导性 `logger.warn "SDK returned thread_id C !=
+    // tracked A"`(实际无 fork) + latent 脆弱(若未来 case 3 改无条件写黑名单则 C 被误拉黑成真 bug)。
+    // 当前 updateCliSessionId(A, C) 因 oldCliSid===C===newCliSid 不写黑名单(rename.ts:151)故无数据损坏。
+    // 与 claude parity(stream-processor.ts:365 比较 effectiveResumeCliSid=cli-sid 维度 vs realId)对齐。
+    // 三路径验证: ① normal resume after fallback → threadId=C → SDK 返 C → case 2 ✓
+    //            ② fresh-cli-reuse-app → effectiveResumeThreadId=null → threadId=opts.resume=A →
+    //               SDK startThread 返新 id D → A!==D → case 3 ✓ (intended 保留)
+    //            ③ spawn (无 resume) → effectiveResumeThreadId=null + opts.resume undefined →
+    //               threadId=null → case 1 ✓ (保留)
     const internal: InternalSession = {
       applicationSid: initialSid,
-      threadId: opts.resume ?? null,
+      threadId: effectiveResumeThreadId ?? opts.resume ?? null,
       cwd,
       thread,
       pendingMessages: [firstInput],

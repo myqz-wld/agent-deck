@@ -64,7 +64,6 @@ export async function runCreateSessionNewPath(
   // 副作用 (sandbox / model 持久化)在 await 完成后跑;sandbox 字段同 resume path persist 字段同款。
   // ctx.sandboxMode 是 prepare phase 决定的(opts.codexSandbox > rec.codexSandbox(resume 路径) >
   // settingsStore.get('codexSandbox') 三层 fallback)。
-  // void sandboxMode 引用避免 TS noUnusedLocals 提示 — 当前用法已存在 persistSessionFields 调用内。
   persistSessionFields({
     sessionId: internal.applicationSid,
     sandboxMode,
