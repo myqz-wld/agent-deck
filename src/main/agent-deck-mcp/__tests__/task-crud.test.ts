@@ -256,6 +256,27 @@ describe('task_create — v024 D1+D2 personal default + D3 teamId 校验', () =>
     expect(mockEventBus.emit).toHaveBeenCalledTimes(1);
     expect(mockSessionManager.ingest).not.toHaveBeenCalled();
   });
+
+  // REVIEW_87 LOW (reviewer-claude): teamId='' 归一到 null（不建畸形 teamId='' task）。
+  // schema .min(1) 当前挡空串，本测纵深防御 handler 自身行为（绕过 schema 直调 handler）。
+  it('LOW: teamId="" 空串 → 归一到 null personal task（不跳 isCallerInTeam 后落畸形 teamId=""）', async () => {
+    const created = makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: null });
+    mockTaskRepo.create.mockReturnValue(created);
+
+    const result = await taskCreateHandler(
+      { subject: 'X', teamId: '' },
+      makeCtx('sess-caller'),
+    );
+
+    expect(result.isError).toBeFalsy();
+    // 关键：空串归一到 null（修前 truthy check 跳校验 + '' ?? null = '' 建畸形 task）
+    expect(mockTaskRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ teamId: null }),
+    );
+    // 归一 null → personal → 不调 isCallerInTeam（findActiveMembershipsBySession 不被触发当校验）
+    // 也不 ingest（personal task）
+    expect(mockSessionManager.ingest).not.toHaveBeenCalled();
+  });
 });
 
 describe('task_update — v024 D3 write permission (team-scoped)', () => {
@@ -396,6 +417,59 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     expect(mockTaskRepo.update).toHaveBeenCalled();
   });
 
+  // REVIEW_87 MED (reviewer-codex + reviewer-claude 反驳轮共识): team-bound → personal 转换
+  // 必须 caller == owner，否则非 owner team member 可私吞共享 task 成原 owner personal task。
+  it('MED: 非 owner team member 把 team task 转 personal → permission denied + 不调 update', async () => {
+    // caller 是 team-A active member（非 owner），task owner 是 sess-mate
+    setupCallerInTeam('sess-caller', 'team-A');
+    mockTaskRepo.get.mockReturnValue(
+      makeTaskRecord({ id: 't1', ownerSessionId: 'sess-mate', teamId: 'team-A' }),
+    );
+
+    const result = await taskUpdateHandler(
+      { taskId: 't1', teamId: null }, // 试图把他人共享 task 转 personal
+      makeCtx('sess-caller'),
+    );
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toMatch(/cannot convert team task .* to personal/);
+    // 关键：repo.update 根本没被调（攻击在权限层被挡）
+    expect(mockTaskRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('MED 不误伤：owner 自己把 team task 转 personal → ALLOW', async () => {
+    setupCallerInTeam('sess-caller', 'team-A');
+    mockTaskRepo.get.mockReturnValue(
+      makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: 'team-A' }),
+    );
+    mockTaskRepo.update.mockReturnValue(
+      makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: null }),
+    );
+
+    const result = await taskUpdateHandler(
+      { taskId: 't1', teamId: null },
+      makeCtx('sess-caller'),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockTaskRepo.update).toHaveBeenCalled();
+  });
+
+  // REVIEW_87 LOW (reviewer-codex): 空 patch（仅 taskId 无任何字段）→ 不调 update + 不 emit。
+  it('LOW: task_update({taskId}) 空 patch → 返 ok existing + 不 emit task-changed + 不调 repo.update', async () => {
+    mockTaskRepo.get.mockReturnValue(
+      makeTaskRecord({ id: 't1', ownerSessionId: 'sess-caller', teamId: null }),
+    );
+
+    const result = await taskUpdateHandler({ taskId: 't1' }, makeCtx('sess-caller'));
+
+    expect(result.isError).toBeFalsy();
+    // 空 patch 不刷 DB（无 realtime 噪声）
+    expect(mockTaskRepo.update).not.toHaveBeenCalled();
+    expect(mockEventBus.emit).not.toHaveBeenCalled();
+  });
+
   it('task 不存在 → isError', async () => {
     mockTaskRepo.get.mockReturnValue(null);
     const result = await taskUpdateHandler(
@@ -498,6 +572,42 @@ describe('task_delete — v024 D3 write permission + cascade predicate (HIGH-2)'
 
     expect(result.isError).toBe(true);
     expect(mockTaskRepo.delete).not.toHaveBeenCalled();
+  });
+
+  // REVIEW_87 LOW (reviewer-codex + reviewer-claude): handler pre-walk 复用 repo predicate —
+  // 越权 child skip 且不展开其下游（与 repo.delete BFS continue 语义对齐）。
+  it('LOW: cascade pre-walk 越权 child（跨 team）skip 且不展开下游 grandchild', async () => {
+    // caller 在 team-A；chain: t1(caller,team-A) → t2(越权,team-B) → t3(team-B grandchild)
+    setupCallerInTeam('sess-caller', 'team-A');
+    const root = makeTaskRecord({
+      id: 't1',
+      ownerSessionId: 'sess-caller',
+      teamId: 'team-A',
+      blocks: ['t2'],
+    });
+    const child = makeTaskRecord({
+      id: 't2',
+      ownerSessionId: 'sess-stranger',
+      teamId: 'team-B', // caller 不在 team-B → 越权 child
+      blocks: ['t3'],
+    });
+    const grandchild = makeTaskRecord({ id: 't3', ownerSessionId: 'sess-stranger', teamId: 'team-B' });
+    const getCalls: string[] = [];
+    mockTaskRepo.get.mockImplementation((id: string) => {
+      getCalls.push(id);
+      if (id === 't1') return root;
+      if (id === 't2') return child;
+      if (id === 't3') return grandchild;
+      return null;
+    });
+    mockTaskRepo.delete.mockReturnValue(['t1']); // repo 实际只删 root（越权 child skip）
+
+    await taskDeleteHandler({ taskId: 't1', force: true }, makeCtx('sess-caller'));
+
+    // 关键：pre-walk 读了 t2（判定越权）但**没读 t3**（越权 child skip 不展开下游）。
+    // 修前 pre-walk 不跑 predicate → 会 queue.push(t2.blocks) 读 t3（越权子图展开）。
+    expect(getCalls).toContain('t2');
+    expect(getCalls).not.toContain('t3');
   });
 });
 

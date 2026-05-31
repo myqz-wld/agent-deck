@@ -62,9 +62,34 @@ export const taskUpdateHandler = withMcpGuard(
           );
         }
       }
+      // **REVIEW_87 MED (reviewer-codex + reviewer-claude 反驳轮共识)**: team-bound → personal 转换
+      // （args.teamId === null 且 existing 是 team-bound）必须额外要求 caller == owner。
+      // **权限域切换漏洞**:上面 isCallerAuthorizedToWrite 对 team-bound task 只要求 caller 是该 team
+      // active member（不要求 owner），而 teamId=null 分支跳过新 team 校验 + repo update 保留原
+      // ownerSessionId（闭包锁不可改 owner）→ 非 owner team member 可对他人拥有的共享 task 调
+      // task_update({teamId:null}) 把它变成**原 owner 的 personal task**：team 全员（含发起者）失
+      // 可见性，只剩原 owner 能看到（用旧域 team-membership 权限授权了切到新域 owner-scoped 的操作，
+      // 新域约束 caller==owner 被 args.teamId!==null 短路跳过）。修法:转 personal 必须 caller==owner。
+      // 合法路径不误伤:owner 自转 personal（callerSid===ownerSessionId 放行）/ 已是 personal 的改其他
+      // 字段（existing.teamId===null 不进本分支，落 isCallerAuthorizedToWrite personal 分支已要求
+      // caller==owner）/ A→B 搬运（args.teamId!==null 不进本分支，走上面新 team 校验）。
+      if (args.teamId === null && existing.teamId !== null && callerSid !== existing.ownerSessionId) {
+        return err(
+          `permission denied: caller "${callerSid}" cannot convert team task ${taskId} to personal (only owner "${existing.ownerSessionId}" may convert a team-bound task to personal)`,
+          'team-bound task 转 personal（teamId=null）要求 caller 是该 task 的 owner——否则会把团队共享 task 私吞成原 owner 的 personal task，团队全员失去可见性。Only the task owner can convert it to personal.',
+        );
+      }
       // argsToInputWithoutOwner 已不放 ownerSessionId,patch 不会有 ownerSessionId 键。
       // v024:argsToInputWithoutOwner 已支持 args.teamId 透传到 patch.teamId。
       const patch = argsToInputWithoutOwner(rest);
+      // **REVIEW_87 LOW (reviewer-codex)**: 空 patch（caller 只传 taskId 无任何字段）直接返回
+      // existing，**不 emit task-changed** —— repo.update 对空 sets 返回 existing 不刷 updated_at
+      // （task-repo-crud.ts:105），但旧版 handler 仍 emit kind='updated' 制造无 DB 变更的 realtime
+      // 噪声 + 让 tool 描述「updated_at is auto-refreshed」在该路径失真。schema 仅 taskId 必填
+      // → task_update({taskId}) 是合法可达输入。提前返回保持「无变更不广播」语义。
+      if (Object.keys(patch).length === 0) {
+        return ok(existing satisfies TaskUpdateResult);
+      }
       const updated = taskRepo.update(taskId, patch);
       if (!updated) return err(`task ${taskId} not found`);
       eventBus.emit('task-changed', {
