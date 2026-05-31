@@ -63,17 +63,14 @@ export const spawnSessionHandler = withMcpGuard(
       );
     }
 
-    // 完整防递归 3 条规则（ADR §6 / REVIEW_28 移除 §6.2 cwd cycle 后）：depth 上限 /
-    // fan-out / spawn-rate（顺序：不消耗资源的检查前置，详 spawn-guards.ts 头注释）。
-    // 任一 deny 立即返回；通过 → 拿到 fanOutSlot，必须在 createSession 完成后（无论成功
-    // 失败）调 release()。
-    // plan handoff-no-spawn-guards-20260526 §D4 / §D6:透传 opts.handOffMode,hand-off 路径
-    // 完全跳过三道防御 + 不进 in-flight 计数(详 applySpawnGuards jsdoc + spawn-link-guard.ts)
-    const guard = applySpawnGuards(caller, args.cwd, args.adapter, {
-      handOffMode: opts?.handOffMode ?? false,
-    });
-    if ('isError' in guard) return guard;
-    const { parentDepth, fanOutSlot } = guard;
+    // **REVIEW_85 MED-A (reviewer-claude) + LOW-1 (reviewer-codex)**: applySpawnGuards 下移到
+    // 「所有 createSession 前的纯计算 + 可抛 DB 读」之后。
+    // - MED-A: 旧实现 guard 先同步 inc fanOutSlot,但 release 只在下方 createSession 的 try/finally
+    //   —— 中间 `leadRecord = sessionRepo.get()` 等裸 DB 读抛错(SQLITE_BUSY / I/O)会越过 handler
+    //   永久泄漏 in-flight 计数(dec 仅 release 一条路径,byParent Map 进程级常驻)。下移后 guard 到
+    //   createSession-try 之间无裸 DB 读,泄漏窗口归零。
+    // - LOW-1: agentName body resolve 此时已在 guard 前,拼错 agentName 提前 return err 不再消耗
+    //   app-wide spawn-rate token。
 
     // D1 (CHANGELOG_76): agentName 非空 → 按 plugin agents registry resolve body file，
     // 把 body 作为 prompt 前缀注入。getBundledAssetContent('agent', name, adapter) 已 startup
@@ -102,7 +99,6 @@ export const spawnSessionHandler = withMcpGuard(
       // 到 enum 但忘 plugin-scope（claude-config / codex-config double-root）注册时，此 check
       // 仍会 reject 防止 caller 拿非 plugin scope adapter 走 bundled-assets 误注入路径。
       if (args.adapter !== 'claude-code' && args.adapter !== 'codex-cli') {
-        fanOutSlot.release();
         return err(
           `agentName not supported for adapter "${args.adapter}"`,
           'Plugin agents are scanned from claude-config / codex-config plugin roots only. Adapters outside this list have no agent_deck plugin scope; drop agentName and pass full prompt directly.',
@@ -110,7 +106,6 @@ export const spawnSessionHandler = withMcpGuard(
       }
       const bodyResult = getBundledAssetContent('agent', args.agentName, args.adapter);
       if (!bodyResult.ok) {
-        fanOutSlot.release();
         return err(
           `agent body not found for agentName="${args.agentName}": ${bodyResult.reason}`,
           'Plugin agent registry does not include this name. Check Header → 📚 资产库 → Agents tab for available bundled agent names (e.g. "reviewer-claude" / "reviewer-codex"). Spawn aborted to avoid silently falling back to caller prompt without the agent body.',
@@ -143,11 +138,12 @@ export const spawnSessionHandler = withMcpGuard(
     // REVIEW_36 LOW-1：sessionRepo.get 单次反查（旧实现 callerExists / leadRecord 各调一次）。
     //
     // **REVIEW_49 R1 follow-up LOW**: `callerExists` 控制 caller-scoped side effects 散落 4 处
-    // (grep `[caller-scoped]` anchor 可定位):
-    //   1. L307 spawn-link 写入 (`callerExists && shouldWriteSpawnLink({handOffMode})`)
-    //   2. L367 team addMember (caller 加入新 team 当 lead)
-    //   3. L442 placeholder message (lead context 注入消息表)
-    //   4. L473 spawnDepth fallback (created?.spawnDepth ?? 0)
+    // (grep `[caller-scoped #` anchor 定位 — REVIEW_85 INFO reviewer-claude:删内联行号改引 anchor
+    // 名,anchor 是 SSOT,内联行号随每次编辑漂移反成维护负担):
+    //   #1/4 spawn-link 写入 (`callerExists && shouldWriteSpawnLink({handOffMode})`)
+    //   #2/4 team addMember (caller 加入新 team 当 lead)
+    //   #3/4 placeholder message (lead context 注入消息表)
+    //   #4/4 spawnDepth fallback (created?.spawnDepth ?? 0)
     // **不变量**:这 4 处都依赖 `callerExists === true` (caller 在 sessions 表) 才执行;
     // external caller / 已 archive 的 caller / 不存在的 sid 一律跳过。未来加新副作用走 `[caller-scoped]`
     // anchor 标记 + 校验 `callerExists` 守门。**抽 helper 评估**: 抽 `applyCallerScopedSideEffects`
@@ -160,6 +156,25 @@ export const spawnSessionHandler = withMcpGuard(
     const effectiveCodexSandbox = args.codexSandbox ?? leadRecord?.codexSandbox ?? undefined;
     const effectiveClaudeCodeSandbox =
       args.claudeCodeSandbox ?? leadRecord?.claudeCodeSandbox ?? undefined;
+
+    // 完整防递归 3 条规则（ADR §6 / REVIEW_28 移除 §6.2 cwd cycle 后）：depth 上限 /
+    // fan-out / spawn-rate（顺序：不消耗资源的检查前置，详 spawn-guards.ts 头注释）。
+    // 任一 deny 立即返回；通过 → 拿到 fanOutSlot，必须在 createSession 完成后（无论成功
+    // 失败）调 release()。
+    // plan handoff-no-spawn-guards-20260526 §D4 / §D6:透传 opts.handOffMode,hand-off 路径
+    // 完全跳过三道防御 + 不进 in-flight 计数(详 applySpawnGuards jsdoc + spawn-link-guard.ts)
+    //
+    // **REVIEW_85 MED-A (reviewer-claude) 位置不变量**:guard 必须在「上面所有可抛 DB 读
+    // (leadRecord = sessionRepo.get) + agentName body resolve」之后、ensureByName 之前。
+    //   - 之后:guard inc fanOutSlot 后到下方 createSession try/finally 之间不能有裸抛点,否则
+    //     抛错越过 handler → release 永不执行 → in-flight 计数永久泄漏。leadRecord 上移到 guard
+    //     前(本来就在前),ensureByName 块自带 try/catch(L下方),二者之间纯计算 → 泄漏窗口归零。
+    //   - 之前:guard deny 时直接 return,若 ensureByName 已先跑会留空 team 孤儿(deny 路径无 cleanup)。
+    const guard = applySpawnGuards(caller, args.cwd, args.adapter, {
+      handOffMode: opts?.handOffMode ?? false,
+    });
+    if ('isError' in guard) return guard;
+    const { parentDepth, fanOutSlot } = guard;
 
     // CHANGELOG_100 / plan mcp-tool-simplify-20260514 D9：把 team ensure 提到 createSession 前，
     // 这样 wire prefix + lead context block 注入 prompt 时能用真实 teamId（删 reply_message
@@ -345,8 +360,23 @@ export const spawnSessionHandler = withMcpGuard(
 
     // REVIEW_32 HIGH-5：用 effective 值持久化（继承自 lead 的也要写 sessionRepo，否则 resume
     // 路径下次拿不到正确 mode）。capability 校验保留 —— 不支持该 capability 的 adapter 跳过。
+    //
+    // **REVIEW_85 MED-B (reviewer-claude)**: 包 try/catch 与 sibling post-createSession 副作用
+    // (setTitle / addMember / placeholder) 一致。recordCreatedPermissionMode → lifecycle
+    // recordCreatedPermissionModeImpl 内 setPermissionMode(DB 写) + sessionRepo.get(DB 读) +
+    // eventBus.emit('session-upserted')(同步派发监听器,任一监听器抛会冒泡)三处可抛。修前裸调
+    // 抛错会越过 handler → caller 收 MCP error 拿不到 sessionId,而 SDK 子进程已起 → 孤儿活
+    // session + caller 可能重试重复 spawn。permissionMode 持久化失败最坏 fallback 默认 mode,
+    // 远比孤儿活 session 轻 → 失败仅 warn 不阻塞 spawn 成功返回。
     if (adapter.capabilities.canSetPermissionMode && effectivePermissionMode) {
-      sessionManager.recordCreatedPermissionMode(sid, effectivePermissionMode);
+      try {
+        sessionManager.recordCreatedPermissionMode(sid, effectivePermissionMode);
+      } catch (e) {
+        logger.warn(
+          `[mcp spawn_session] recordCreatedPermissionMode(${sid}, ${effectivePermissionMode}) failed:`,
+          e,
+        );
+      }
     }
 
     // REVIEW_31 Bug 4：teammate display name fallback 链 = args.displayName > args.agentName > 不动。
@@ -394,8 +424,19 @@ export const spawnSessionHandler = withMcpGuard(
               kind: 'joined',
             });
           } catch (e) {
-            // 已 active 时 invariant 抛错；视为「已是 lead」幂等成功
             if (!(e instanceof TeamInvariantError)) throw e;
+            // **REVIEW_85 MED-1 (reviewer-codex)**: TeamInvariantError 不止表示「caller 已是
+            // active member」(member-crud.ts:111),也表示 lead-count >= MAX_LEADS_PER_TEAM
+            // (member-crud.ts:139) 以及 caller 已是 active teammate(非 lead)。旧实现一律吞当
+            // 「已是 lead」幂等成功 → caller 实际没真加进 team 当 lead → 与新 session 无 shared
+            // active team → teammate 首轮 send_message 撞 no-shared-team。
+            // 修法:吞之前反查 caller 是否真的已是该 team 的 active lead;不是(lead-count 超 /
+            // 已是 teammate)则 re-throw 让外层 catch(MED-2 修法)走降级 + 孤儿 team cleanup。
+            const callerMembership = agentDeckTeamRepo.findActiveMembershipIn(
+              teamIdEarly,
+              caller.callerSessionId,
+            );
+            if (callerMembership?.role !== 'lead') throw e;
           }
         }
         agentDeckTeamRepo.addMember({
@@ -429,7 +470,38 @@ export const spawnSessionHandler = withMcpGuard(
         // —— universal team backend addMember 已是 SSOT，不再写老 sessions.teamName 列；
         // v012 migration 后此列彻底 drop。
       } catch (e) {
+        // **REVIEW_85 MED-2 (reviewer-codex)**: 旧实现仅 logger.warn 吞掉 addMember(lead/teammate
+        // 任一)失败,但 teamId 仍保留 → 下方 placeholder 照插 → 末尾 return ok 带 teamId。caller
+        // 收到「team 创建成功」假象,但实际 caller 与新 session 不共享 active team(membership 没写
+        // 成),teammate 按 prompt 调 send_message 首轮撞 no-shared-team / replyToMessageId not found。
+        // 修法:team setup 失败 = 整个 team-spawn 失败 → close 已起的孤儿 session + cleanup 本次
+        // 新建空 team(mirror createSession-catch L325 re-verify-empty 防并发抢先)+ return err
+        // 让 caller 知道失败可干净 retry,不返回半残 ok。
         logger.warn(`[mcp spawn_session] addMember failed for "${args.teamName}":`, e);
+        try {
+          await sessionManager.close(sid);
+        } catch (closeErr) {
+          logger.warn(
+            `[mcp spawn_session] orphan session close after addMember failure failed for ${sid}:`,
+            closeErr,
+          );
+        }
+        if (teamCreatedNow && teamIdEarly) {
+          try {
+            if (agentDeckTeamRepo.listAllMembers(teamIdEarly).length === 0) {
+              agentDeckTeamRepo.hardDelete(teamIdEarly);
+            }
+          } catch (cleanupErr) {
+            logger.warn(
+              `[mcp spawn_session] team cleanup after addMember failure failed for ${teamIdEarly}:`,
+              cleanupErr,
+            );
+          }
+        }
+        return err(
+          `team setup failed for "${args.teamName}": ${e instanceof Error ? e.message : String(e)}`,
+          'Session was spawned but team membership could not be established (e.g. lead count limit reached, or a DB write error). The orphan session was closed and any empty team created in this call was removed. Fix the team condition and retry spawn_session, or spawn without teamName for a standalone session.',
+        );
       }
     }
 

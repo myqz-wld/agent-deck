@@ -24,22 +24,38 @@ import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 import { makeAgentDeckTeamRepoMock } from '@main/__tests__/_shared/mocks/agent-deck-team-repo';
 import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+// REVIEW_85 MED-1/MED-2: 从 mock 模块拿 TeamInvariantError（vi.mock 导出的同一 class），
+// 让 addMemberThrow 抛的 error 能被 handler 的 `instanceof TeamInvariantError` 识别。
+import { TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { adapterRegistry } from '@main/adapters/registry';
+// REVIEW_85 MED-A: 用真实 inFlightChildren 单例断言 spawn handler 抛错路径不泄漏计数
+// （tools.test.ts 不 mock rate-limiter，handler 走真 spawn-guards → 真 inFlightChildren）。
+import { inFlightChildren } from '../rate-limiter';
 
 // ─── Mock: sessionRepo / sessionManager / adapterRegistry ──────────────
 // R37 P2-F Step 3.1：sessionRepo / sdk-loader / settings-store / agent-deck-team-repo
 // 走 _shared/mocks/ factory；vi.hoisted 让 sessionStore 等 const 在 vi.mock factory
 // 调用前已初始化（factory immediate access 闭包外 const 撞 ReferenceError）。
-const { sessionStore, setSpawnLinkCalls, setTitleCalls } = vi.hoisted(() => ({
+const { sessionStore, setSpawnLinkCalls, setTitleCalls, sessionGetThrow } = vi.hoisted(() => ({
   sessionStore: new Map<string, SessionRecord>(),
   setSpawnLinkCalls: [] as Array<{ id: string; parentId: string | null; depth: number }>,
   setTitleCalls: [] as Array<{ id: string; title: string }>,
+  // REVIEW_85 MED-A (reviewer-claude): sessionGetThrow.sid 非 null 时 sessionRepo.get(sid) 抛错,
+  // 验证 applySpawnGuards 下移后 caller DB 读抛错不泄漏 in-flight 计数。
+  sessionGetThrow: { sid: null as string | null },
 }));
 
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: makeSessionRepoMock({
     sessions: sessionStore,
     overrides: {
+      // REVIEW_85 MED-A: get override 支持模拟抛错（sessionGetThrow.sid 命中时）。
+      get: (id: string) => {
+        if (sessionGetThrow.sid !== null && id === sessionGetThrow.sid) {
+          throw new Error('simulated DB error');
+        }
+        return sessionStore.get(id) ?? null;
+      },
       // setSpawnLink / setTitle 被多处 test 断言调用 — 用 spy 包装记录调用 + 同步 stateful。
       setSpawnLink: (id: string, parentId: string | null, depth: number) => {
         setSpawnLinkCalls.push({ id, parentId, depth });
@@ -61,6 +77,9 @@ vi.mock('@main/store/session-repo', () => ({
 const closeCalls: string[] = [];
 const recordPermCalls: Array<{ sid: string; mode: string | undefined }> = [];
 const notifyTeamCalls: string[] = [];
+// REVIEW_85 MED-B (reviewer-claude): 设 true 时 recordCreatedPermissionMode 抛错（验证 spawn
+// 仍返回成功不产生孤儿活 session）。
+let recordPermThrow = false;
 
 vi.mock('@main/session/manager', () => ({
   sessionManager: {
@@ -70,6 +89,8 @@ vi.mock('@main/session/manager', () => ({
       if (r) sessionStore.set(id, { ...r, lifecycle: 'closed' });
     },
     recordCreatedPermissionMode: (sid: string, mode: string | undefined) => {
+      // REVIEW_85 MED-B: 模拟持久化抛错（DB write / emit listener 冒泡）
+      if (recordPermThrow) throw new Error('simulated recordCreatedPermissionMode error');
       recordPermCalls.push({ sid, mode });
     },
     // plan team-cohesion-fix-20260513 Phase A：universal team backend 写入 hook
@@ -230,6 +251,13 @@ const addMemberCalls: Array<{ teamId: string; sessionId: string; role: string; d
 // teamCreatedNow 判定与 createSession 失败 cleanup 路径有合理 mock 行为。
 const mockTeamMembers = new Map<string, Array<{ sessionId: string; role: string; displayName: string | null }>>();
 const hardDeleteCalls: string[] = [];
+// REVIEW_85 MED-1/MED-2 (reviewer-codex) 测试 hook:
+// - addMemberThrow: 设为 {role,error} 时,匹配 role 的 addMember 调用抛该 error(模拟
+//   TeamInvariantError lead-count 超 / 写失败);null = 不抛(默认)。
+// - mockActiveMembershipIn: (teamId,sid)→membership|null,MED-1 修法反查 caller 是否真已
+//   是 active lead 用(key=`${teamId}:${sid}`)。
+let addMemberThrow: { role: 'lead' | 'teammate'; error: Error } | null = null;
+const mockActiveMembershipIn = new Map<string, { role: 'lead' | 'teammate' }>();
 
 vi.mock('@main/store/agent-deck-team-repo', () => ({
   agentDeckTeamRepo: makeAgentDeckTeamRepoMock({
@@ -248,6 +276,10 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
         role: 'lead' | 'teammate';
         displayName: string | null;
       }) => {
+        // REVIEW_85 MED-1/MED-2 hook：匹配 role 的调用抛错（模拟 lead-count 超 / 写失败）。
+        if (addMemberThrow && addMemberThrow.role === input.role) {
+          throw addMemberThrow.error;
+        }
         addMemberCalls.push(input);
         // 同步追到 mockTeamMembers 让 listAllMembers 看见
         const arr = mockTeamMembers.get(input.teamId) ?? [];
@@ -280,6 +312,10 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
       findActiveMembershipsBySession: ((sid: string) =>
         mockMembershipsBySession.get(sid) ?? []) as unknown as AgentDeckTeamRepo['findActiveMembershipsBySession'],
       get: (teamId: string) => (mockTeamsById.get(teamId) ?? null) as ReturnType<AgentDeckTeamRepo['get']>,
+      // REVIEW_85 MED-1 (reviewer-codex): findActiveMembershipIn 反查 caller 是否真已是 active lead
+      findActiveMembershipIn: ((teamId: string, sessionId: string) =>
+        (mockActiveMembershipIn.get(`${teamId}:${sessionId}`) ??
+          null) as ReturnType<AgentDeckTeamRepo['findActiveMembershipIn']>),
       // CHANGELOG_100 R2 fix (codex MED-2)
       listAllMembers: ((teamId: string) =>
         mockTeamMembers.get(teamId) ?? []) as unknown as AgentDeckTeamRepo['listAllMembers'],
@@ -418,6 +454,11 @@ beforeEach(async () => {
   mockTeamsById.clear();
   mockTeamMembers.clear();
   hardDeleteCalls.length = 0;
+  addMemberThrow = null;
+  mockActiveMembershipIn.clear();
+  recordPermThrow = false;
+  sessionGetThrow.sid = null;
+  inFlightChildren.reset();
   mockMessages.clear();
   insertedMessages.length = 0;
   markedDelivered.length = 0;
@@ -624,6 +665,116 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     // 验证 lead + teammate 都被 notify 触发桥点 enrich。
     expect(notifyTeamCalls).toContain('lead');
     expect(notifyTeamCalls).toContain('spawned-1');
+  });
+
+  // ─── REVIEW_85 (Batch F1) 回归 test ────────────────────────────────────
+
+  // MED-1 (reviewer-codex): TeamInvariantError catch 过宽。lead addMember 抛 lead-count
+  // TeamInvariantError 且 caller 不是已有 active lead → 不该吞当幂等成功（修前会，导致
+  // caller 无 shared team teammate 首轮 reply 撞 no-shared-team）。修后 re-throw → 外层
+  // catch 走 MED-2 降级（close 孤儿 + cleanup + return err）。
+  it('MED-1: lead addMember 抛 TeamInvariantError 且 caller 非已有 lead → spawn 返 err（不吞当幂等）', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    // caller 不是该 team 的 active lead（mockActiveMembershipIn 空 → findActiveMembershipIn 返 null）
+    addMemberThrow = { role: 'lead', error: new TeamInvariantError('team x lead count 10 >= 10') };
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'p',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/team setup failed/);
+  });
+
+  it('MED-1: lead addMember 抛 TeamInvariantError 但 caller 已是 active lead → 吞当幂等成功', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    // caller 已是该 team 的 active lead → findActiveMembershipIn 返 {role:'lead'} → 吞幂等
+    mockActiveMembershipIn.set('team-review-team:lead', { role: 'lead' });
+    addMemberThrow = { role: 'lead', error: new TeamInvariantError('member lead already active in team') };
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'p',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    // 吞幂等 → 继续 teammate addMember + 正常返回成功
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessionId).toBe('spawned-1');
+  });
+
+  // MED-2 (reviewer-codex): teammate addMember 失败 → 不返回 dishonest ok，
+  // 而是 close 孤儿 session + cleanup 空 team + return err。
+  it('MED-2: teammate addMember 失败 → close 孤儿 session + hardDelete 空 team + 返 err', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo' });
+    addMemberThrow = { role: 'teammate', error: new Error('DB write failed') };
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'p',
+      teamName: 'review-team',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/team setup failed/);
+    // 孤儿 session 被 close
+    expect(closeCalls).toContain('spawned-1');
+    // 本次新建空 team 被 hardDelete（teamCreatedNow=true，lead 已加成功后 teammate 失败，
+    // 但 cleanup 前 re-verify listAllMembers — lead 在表里所以实际不删；改测「未撞 cleanup 错」
+    // 即 close 已发生 + 返 err 是核心断言）。
+  });
+
+  // MED-B (reviewer-claude): recordCreatedPermissionMode 抛错不该让 spawn 失败产生孤儿
+  // 活 session。修后包 try/catch → 失败仅 warn，spawn 仍返回成功 + sessionId。
+  it('MED-B: recordCreatedPermissionMode 抛错 → spawn 仍返回成功（不产生孤儿）', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo', permissionMode: 'plan' });
+    // 让 recordCreatedPermissionMode 抛错（claude-code adapter canSetPermissionMode=true）
+    recordPermThrow = true;
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'p',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessionId).toBe('spawned-1');
+  });
+
+  // MED-A (reviewer-claude): leak window 归零结构不变量。applySpawnGuards 下移后,
+  // body 内 sessionRepo.get(caller)（leadRecord）抛错发生在 guard inc fanOutSlot 之前 →
+  // 不可能泄漏 in-flight 计数。**用 in-process transport + closure override** 让
+  // withMcpGuard 的 validateExternalCaller 跳过自己那次 sessionRepo.get（否则 throw 落在
+  // wrapper 层根本到不了 handler body，测不到 leak window）。
+  it('MED-A: leadRecord = sessionRepo.get(caller) 抛错 → 不泄漏 in-flight 计数（guard 已下移到 DB 读后）', async () => {
+    const tools = await getTools({
+      transport: 'in-process',
+      callerSessionIdOverride: () => 'lead',
+    });
+    seedSession('lead', { cwd: '/repo' });
+    const before = inFlightChildren.get('lead');
+    sessionGetThrow.sid = 'lead'; // 让 body 内 sessionRepo.get('lead')（leadRecord）抛错
+    await expect(
+      tools.get('spawn_session').handler({
+        adapter: 'codex-cli',
+        cwd: '/repo',
+        prompt: 'p',
+        callerSessionId: 'lead',
+      }, {}),
+    ).rejects.toThrow(/simulated DB error/);
+    sessionGetThrow.sid = null;
+    // guard 在 leadRecord get 之后才 inc → 抛错时 fanOutSlot 根本没获取 → 计数零变化。
+    // 修前(guard 在 leadRecord 前)：guard 已 inc → leadRecord throw → release 永不跑 → 泄漏 1。
+    expect(inFlightChildren.get('lead')).toBe(before);
   });
 
   it('Phase B5+B7 方案 A: spawn 返 placeholder spawnPromptMessageId + wire format 注入 [msg <id>]', async () => {
