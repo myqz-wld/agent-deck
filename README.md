@@ -208,7 +208,7 @@ agent-deck new \
 ⚙ 按钮打开设置面板。按主题分 4 组（**会话** / **提醒与外观** / **集成与运行环境** / **跨工具协作（MCP）**），每组若干 section 可点标题折叠 / 展开（状态 localStorage 持久化；默认仅「生命周期」展开）：
 
 - **会话**
-  - **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny + interrupt 处理避免会话死等）/ 历史会话保留天数
+  - **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（秒；默认 300，超时按 deny + interrupt 处理避免会话死等）/ 历史会话保留天数 / **断连恢复注入对话条数**（默认 30；jsonl 丢失走 fresh CLI/thread 续聊时，除 LLM 总结外额外注入 DB 最近 N 条原始对话消息让 Claude/Codex 看到上下文细节，预算式拼接故实际条数 ≤ 设定值）
   - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时
   - **日志级别**：file transport 级别下拉（`error` / `warn` / `info` / `verbose` / `debug` / `silly`，默认 `info`）。**只控落盘文件级别**，console transport 永远 `silly`（dev terminal 看全部输出不变）。改后即改即生效（详 plan §D4 §D14）。日志文件位置 `~/Library/Logs/Agent Deck/main-YYYY-MM-DD.log`（macOS），按天拆 + 保留 14 天
 - **提醒与外观**
