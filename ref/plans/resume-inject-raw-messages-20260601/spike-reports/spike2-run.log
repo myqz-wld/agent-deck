@@ -1,0 +1,7 @@
+EVT system/hook_started
+EVT system/hook_response
+EVT system/init
+EVT result/success
+  RESULT num_turns=0 result=""
+
+=== 结论 === asstTurns=0(期望1) 小明=false 紫=false 旺财=false
