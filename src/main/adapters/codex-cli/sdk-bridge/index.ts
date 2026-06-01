@@ -2,6 +2,8 @@ import type { Codex } from '@openai/codex-sdk';
 import { sessionManager } from '@main/session/manager';
 import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
 import { settingsStore } from '@main/store/settings-store';
+import { eventRepo } from '@main/store/event-repo';
+import { summariseSessionForHandOff } from '@main/session/summarizer';
 import {
   buildAgentDeckMcpConfigForCodex,
   mergeCodexConfig,
@@ -29,7 +31,7 @@ import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { packCodexInput, extractAttachmentPaths } from './input-pack';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
-import type { UploadedAttachmentRef } from '@shared/types';
+import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import {
   SessionRecoverer,
@@ -172,12 +174,22 @@ export class CodexSdkBridge {
     // symmetry-plan P2 HIGH-B：SessionRecoverer 装配（与 claude facade 同款 thunk 注入模式）。
     // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
     // attachments 透传 sendMessage 第三参（与 claude HIGH-1 同款 — 避免 inflight 第二条等待者丢图）。
+    // **plan resume-inject-raw-messages-20260601 §D5/§D7/§D8（解开 REVIEW_60 F5）**：+3 thunk
+    // 让 codex 与 claude 对称走 injectResumeHistory 注入历史。
+    // - summariseFn: bind 本类 protected summariseForHandOff（默认 summariseSessionForHandOff
+    //   agentName='Agent'，复用 claude oneshot 本地 OAuth；§D8 不为 codex 写平行总结函数）
+    // - listEventsFn: bind protected listEventsForSession（eventRepo.listForSession 全量喂总结）
+    // - listMessagesFn: bind protected listRecentMessagesForSession（eventRepo.listRecentMessages
+    //   message-only 拼原始对话段）
     this.recoverer = new SessionRecoverer(
       { recovering: this.recovering, emit: opts.emit },
       (createOpts) => this.createSession(createOpts),
       (sid, text, attachments) => this.sendMessage(sid, text, attachments),
       (threadId, startedAt) => this.codexResumeJsonlExists(threadId, startedAt),
       (cwd) => this.cwdExists(cwd),
+      (cwd, events) => this.summariseForHandOff(cwd, events),
+      (sid) => this.listEventsForSession(sid),
+      (sid, limit, beforeId) => this.listRecentMessagesForSession(sid, limit, beforeId),
     );
   }
 
@@ -505,5 +517,42 @@ export class CodexSdkBridge {
    */
   protected cwdExists(cwd: string): boolean {
     return defaultCwdExists(cwd);
+  }
+
+  /**
+   * **plan resume-inject-raw-messages-20260601 §D8 test seam**（同 cwdExists / codexResumeJsonlExists
+   * 模式）。codex jsonl-missing fallback 起 fresh thread 前生成 LLM 总结 prepend（解开 REVIEW_60 F5）。
+   *
+   * 复用 claude oneshot `summariseSessionForHandOff`（本地 OAuth，sonnet 4 节结构化），传
+   * **agentName='Agent'**（§D8：让 codex 会话总结不自称「Claude 会话」，buildHandoffPrompt 按此分支
+   * intro + 主体 `${a}` 替换）。不为 codex 写平行总结函数 —— 解开「codex SDK 4 节模板 reasoning
+   * effort 签名差异」的历史耦合。失败语义见 SummariseFnThunk type jsdoc。
+   *
+   * test 通过子类化 override 不调真 LLM（撞 OAuth / 计费 / DB 未 init）。
+   */
+  protected summariseForHandOff(cwd: string, events: AgentEvent[]): Promise<string | null> {
+    return summariseSessionForHandOff(cwd, events, 'Agent');
+  }
+
+  /**
+   * **plan resume-inject §D7 test seam**：全量 events 来源（喂 summariseForHandOff 出 4 节结构）。
+   * 实际走 module-level `eventRepo.listForSession`（默认 limit=200，DESC；formatEventsForPrompt
+   * 内部自己 sort ASC + slice 取最新）。test 子类化 override 不依赖真 DB。
+   */
+  protected listEventsForSession(sessionId: string): AgentEvent[] {
+    return eventRepo.listForSession(sessionId);
+  }
+
+  /**
+   * **plan resume-inject §D5 test seam**：message-only 来源（拼「最近原始对话消息段」）。
+   * 实际走 module-level `eventRepo.listRecentMessages`（kind='message' + role∈{user,assistant} +
+   * error 非真）。test 子类化 override 不依赖真 DB。
+   */
+  protected listRecentMessagesForSession(
+    sessionId: string,
+    limit: number,
+    beforeIdInclusive?: number,
+  ): (AgentEvent & { id: number })[] {
+    return eventRepo.listRecentMessages(sessionId, limit, beforeIdInclusive);
   }
 }

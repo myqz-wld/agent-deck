@@ -30,6 +30,11 @@ vi.mock('@main/store/session-repo', () => ({
 vi.mock('@main/store/event-repo', () => ({
   eventRepo: {
     listForSession: vi.fn(() => []),
+    // plan resume-inject-raw-messages-20260601 §D5: message-only 查询 + maxEventId（injectResumeHistory
+    // 双数据源 + beforeIdInclusive 来源）。默认空 / null 让现有 case 走 no-history（used=false）；
+    // 「raw 成功」case 显式 mockReturnValue 一条 message。
+    listRecentMessages: vi.fn(() => []),
+    maxEventId: vi.fn(() => null),
   },
 }));
 
@@ -37,7 +42,9 @@ vi.mock('@main/store/settings-store', () => ({
   settingsStore: makeSettingsStoreMock({
     overrides: {
       get: vi.fn((key: string) => {
-        if (key === 'autoSummariseOnFallback') return true;
+        // plan resume-inject-raw-messages-20260601 §D5: autoSummariseOnFallback 已删（无条件注入），
+        // 改 resumeRecentMessagesCount（injectResumeHistory 拉最近 N 条原始对话）。
+        if (key === 'resumeRecentMessagesCount') return 30;
         return undefined;
       }),
     },
@@ -83,9 +90,14 @@ beforeEach(() => {
   // CHANGELOG_107 Step 6 配套:reset event-repo / settings-store mock 让 case 间隔离
   vi.mocked(eventRepo.listForSession).mockReset();
   vi.mocked(eventRepo.listForSession).mockReturnValue([]);
+  // plan resume-inject-raw-messages-20260601 §D5: reset 新增 message-only 查询 + maxEventId mock
+  vi.mocked(eventRepo.listRecentMessages).mockReset();
+  vi.mocked(eventRepo.listRecentMessages).mockReturnValue([]);
+  vi.mocked(eventRepo.maxEventId).mockReset();
+  vi.mocked(eventRepo.maxEventId).mockReturnValue(null);
   vi.mocked(settingsStore.get).mockReset();
   vi.mocked(settingsStore.get).mockImplementation(((key: unknown) => {
-    if (key === 'autoSummariseOnFallback') return true;
+    if (key === 'resumeRecentMessagesCount') return 30;
     return undefined;
   }) as never);
 });
@@ -464,6 +476,17 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
         ts: 1,
       },
     ]);
+    // plan resume-inject §D5: raw 段是底线，used=true 需 listRecentMessages 返非空原始对话
+    vi.mocked(eventRepo.listRecentMessages).mockReturnValue([
+      {
+        id: 1,
+        sessionId: 'sess-summary-ok',
+        agentId: '',
+        kind: 'message',
+        payload: { role: 'user', text: '历史问题' },
+        ts: 1,
+      },
+    ]);
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-summary-ok',
       agentId: 'claude-code',
@@ -506,27 +529,26 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     expect(compatNotice).toHaveLength(0);
   });
 
-  it('CHANGELOG_107: jsonl 不存在 + settings.autoSummariseOnFallback=false → skip 摘要,走原 CHANGELOG_106 文案', async () => {
+  it('plan resume-inject §不变量7: 无条件注入（无 settings off 开关）+ DB 无历史 → 退回原 prompt 走 skipped 文案', async () => {
     const bridge = makeBridge();
     bridge.jsonlExistsOverride = false;
-    bridge.summariseOverride = '不应被调用(settings off 在前)';
-    // settings off — 即使 listEvents 非空也不该调 summariseFn
-    vi.mocked(settingsStore.get).mockImplementation(((key: unknown) => {
-      if (key === 'autoSummariseOnFallback') return false;
-      return undefined;
-    }) as never);
+    bridge.summariseOverride = '不应被注入(DB 无原始对话消息 → no-history)';
+    // plan resume-inject §不变量7: autoSummariseOnFallback 开关已删（无条件注入）。
+    // DB 无原始对话消息（listRecentMessages 空）→ injectResumeHistory no-history → used=false →
+    // 退回原 prompt（raw 段是底线，仅总结无 raw 不注入）。
     vi.mocked(eventRepo.listForSession).mockReturnValue([
       {
         id: 1,
-        sessionId: 'sess-settings-off',
+        sessionId: 'sess-no-history',
         agentId: '',
         kind: 'message',
         payload: { text: 'hi' },
         ts: 1,
       },
     ]);
+    // listRecentMessages 默认空（beforeEach）→ no-history
     vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-settings-off',
+      id: 'sess-no-history',
       agentId: 'claude-code',
       cwd: '/tmp/no-summary',
       title: 'x',
@@ -540,19 +562,19 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       permissionMode: null,
     });
 
-    await bridge.sendMessage('sess-settings-off', 'hi');
+    await bridge.sendMessage('sess-no-history', 'hi');
 
-    // createSession 用原 prompt(不 prepend 摘要)
+    // createSession 用原 prompt(no-history 退回 originalText，不 prepend)
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]?.prompt).toBe('hi');
 
-    // emit 原 CHANGELOG_106 文案(走 fallback 失败分支)
+    // emit skipped 文案(走 used=false 分支)
     const compatNotice = emits.filter((e) =>
       ((e.payload as { text?: string }).text ?? '').includes('请在下条消息里把背景再告诉它一次'),
     );
     expect(compatNotice).toHaveLength(1);
 
-    // **不**emit「LLM 摘要自动注入」(根本没调 summariseFn)
+    // **不**emit「LLM 摘要自动注入」(no-history 退回前不拼总结)
     const summaryOk = emits.filter((e) =>
       ((e.payload as { text?: string }).text ?? '').includes('应用通过 LLM 摘要自动注入'),
     );
@@ -624,6 +646,17 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
         agentId: '',
         kind: 'message',
         payload: { text: 'hi' },
+        ts: 1,
+      },
+    ]);
+    // plan resume-inject §D5: raw 段是底线，used=true 需 listRecentMessages 返非空原始对话
+    vi.mocked(eventRepo.listRecentMessages).mockReturnValue([
+      {
+        id: 1,
+        sessionId: 'sess-cwd-summary',
+        agentId: '',
+        kind: 'message',
+        payload: { role: 'user', text: '历史问题' },
         ts: 1,
       },
     ]);

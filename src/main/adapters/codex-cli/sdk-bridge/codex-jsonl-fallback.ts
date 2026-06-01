@@ -15,15 +15,18 @@
  * - 返 `{fellBack: boolean, finalSessionId: string}` discriminated union (caller 据 fellBack 判
  *   走 fallback 路径还是 fall-through 正常 resume)
  *
- * **codex 精简版差异 vs claude**:
- * - **无 LLM 摘要 prepend** (claude 端 maybeJsonlFallback 含 summariseFn + prependHistorySummary
- *   + 6 emit text builder 应对摘要成功 / 失败双分支;codex 暂不接,REVIEW_60 F5 follow-up 独立 plan 收口)
- * - **emit text 单一** (走 codex-recoverer-messages.ts buildCodexJsonlMissingNoSummaryText)
- * - **不带 prependCwd / cwdFellBack 字段** (claude 端用来选 6 builder 之一;codex 无 LLM 摘要无此分流)
+ * **codex 与 claude 对称（plan resume-inject-raw-messages-20260601 §D8 解开 REVIEW_60 F5）**:
+ * - **历史注入对称**：调 shared `injectResumeHistory`（@main/session/resume-history）拼「总结段 +
+ *   最近原始对话消息段 + 当前消息」。3 thunk（summariseFn / listEventsFn / listMessagesFn）+
+ *   maxEventIdFn + prependCwd 经 Ctx/Opts 注入（recover-and-send-impl 在 entry emit user 前固化
+ *   maxEventIdBefore 排除当前消息）。
+ * - **emit text 双分支**（buildCodexJsonlMissingSummaryUsedText / SkippedText，对称 claude
+ *   buildJsonlMissingSummaryUsed/SkippedText）：used=true 历史已注入 / used=false 退回纯当前消息。
+ * - **original-over-length 阻塞态**（§D6 step0）：originalText > maxLength → throw 给 recoverer
+ *   outer catch（不进 createSession，codex create-session-validate.ts 有 MAX throw 会阻塞 fresh thread）。
  *
  * **不变量**:
- * - 行为字面等价于 codex recoverer.ts 原 inline L373-L418 (仅平移 + 抽接口,不引入新逻辑)
- * - createSession opts 字段完全照 inline 透传 (resume=sessionId / resumeMode='fresh-cli-reuse-app' /
+ * - createSession opts 字段照透传 (resume=sessionId / resumeMode='fresh-cli-reuse-app' /
  *   codexSandbox / model / extraAllowWrite / attachments / skipFirstUserEmit:true)
  * - REVIEW_58 HIGH ✅ 收口 skipFirstUserEmit:true (recoverAndSend 入口已 emit user message)
  *
@@ -32,9 +35,19 @@
  * recoverer.ts 中定义)。
  */
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
-import { AGENT_ID } from './constants';
-import { buildCodexJsonlMissingNoSummaryText } from './codex-recoverer-messages';
+import { settingsStore } from '@main/store/settings-store';
+import { injectResumeHistory } from '@main/session/resume-history';
+import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
+import {
+  buildCodexJsonlMissingSummaryUsedText,
+  buildCodexJsonlMissingSummarySkippedText,
+} from './codex-recoverer-messages';
 import type { CreateSessionThunk, JsonlExistsThunk } from './recoverer';
+import type {
+  SummariseFnThunk,
+  ListEventsFnThunk,
+  ListRecentMessagesFnThunk,
+} from './recoverer/_deps';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-jsonl-fallback');
@@ -43,6 +56,19 @@ export interface CodexJsonlFallbackCtx {
   jsonlExistsThunk: JsonlExistsThunk;
   createSession: CreateSessionThunk;
   emit: (event: AgentEvent) => void;
+  /**
+   * **plan resume-inject-raw-messages-20260601 §D8**: LLM 总结 thunk(test seam)。caller bind
+   * `summariseSessionForHandOff(cwd, events, 'Agent')`(复用 claude oneshot 本地 OAuth)。
+   */
+  summariseFn: SummariseFnThunk;
+  /**
+   * **plan resume-inject §D7**: 全量 events 来源 thunk(test seam)，喂 summariseFn 出 4 节结构。
+   */
+  listEventsFn: ListEventsFnThunk;
+  /**
+   * **plan resume-inject §D5**: message-only 来源 thunk(test seam)，拼「最近原始对话消息段」。
+   */
+  listMessagesFn: ListRecentMessagesFnThunk;
 }
 
 export interface CodexJsonlFallbackOpts {
@@ -54,8 +80,19 @@ export interface CodexJsonlFallbackOpts {
   startedAt: number;
   /** SDK chdir 目标 (cwdFellBack=true 时是 fallback cwd,否则原 rec.cwd) */
   cwd: string;
+  /**
+   * **plan resume-inject §D7**: injectResumeHistory 总结 cwd（传 rec.cwd 保留「原本哪个
+   * worktree」语义，与 claude prependCwd 对称；codex cwd fallback 时 cwd 是 fallback cwd 但
+   * 总结 prompt 标注用原 cwd 更有意义）。
+   */
+  prependCwd: string;
   /** recoverer 入参 text (本批 sendMessage 用户输入) */
   prompt: string;
+  /**
+   * **plan resume-inject §D4**: maxEventId thunk（caller 在 entry emit user **前**固化常量后
+   * 绑 `() => maxEventIdBefore`，injectResumeHistory 作 beforeIdInclusive 排除当前消息）。
+   */
+  maxEventIdFn: () => number | null;
   /** rec.codexSandbox ?? undefined (显式透传防静默降默认) */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** rec.model ?? undefined (codex-sdk v0.131.0+ per-thread override) */
@@ -106,6 +143,32 @@ export async function maybeCodexJsonlFallback(
       `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
   );
 
+  // **plan resume-inject-raw-messages-20260601 §D2/§D8 修法（解开 REVIEW_60 F5）**：
+  // codex 端原本完全不注入历史（只 emit「请下条消息把背景给 Codex」），本 plan 让 codex 与
+  // claude 对称走 injectResumeHistory 拼「总结段 + 最近原始对话消息段 + 当前消息」三段结构化
+  // 文本（§架构地基：拼 1 条结构化 user message 是唯一正解）。DB 没历史 / 总结失败 / 预算边界 /
+  // thunk throw → used=false 退回 originalText（仍 createSession 起 fresh thread）。
+  // **唯一例外** original-over-length（§D6 step0 + §不变量 1）：originalText 自身 > maxLength →
+  // throw 让 recoverer outer catch emit error + 不进 createSession（codex create-session-validate.ts
+  // 有 MAX throw 会阻塞 fresh thread → 这里提前拦下给清晰错误）。
+  const summaryResult = await injectResumeHistory({
+    sessionId: opts.sessionId,
+    originalText: opts.prompt,
+    cwd: opts.prependCwd,
+    recentMessagesCount: settingsStore.get('resumeRecentMessagesCount'),
+    maxLength: MAX_MESSAGE_LENGTH,
+    agentName: 'Agent', // §D8: codex 视角不自称「Claude 会话」
+    maxEventIdFn: opts.maxEventIdFn,
+    summariseFn: ctx.summariseFn,
+    listEventsFn: ctx.listEventsFn,
+    listMessagesFn: ctx.listMessagesFn,
+  });
+  if (summaryResult.failReason === 'original-over-length') {
+    throw new Error(
+      `单条消息 ${opts.prompt.length.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限，无法作为 fallback 首条 prompt。请精简或拆分发送。`,
+    );
+  }
+
   // fallback 路径:不带 resume + 显式透传 sandbox/model/extraAllowWrite 否则静默降全局默认
   // (与 claude REVIEW_36 HIGH-1 同款教训)。attachments 透传让首条恢复消息带图。
   // **plan reverse-rename-sid-stability-20260520 §A.4-pre S8 R3 HIGH-G + R5 HIGH-R5-1 +
@@ -115,7 +178,7 @@ export async function maybeCodexJsonlFallback(
   // 走 manager 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订)。
   await ctx.createSession({
     cwd: opts.cwd,
-    prompt: opts.prompt,
+    prompt: summaryResult.prompt, // 三段结构化文本 (含历史) 或 originalText (used:false 兜底)
     // **R6 MED-R6-1 修订**: resume = applicationSid (复用 caller 入参 sessionId)
     resume: opts.sessionId,
     // **R3 HIGH-G + R7 HIGH-R7-1 修订**: 显式 mode 字段触发 fresh CLI thread + 复用 applicationSid
@@ -136,12 +199,17 @@ export async function maybeCodexJsonlFallback(
   // 「⚠ 自动恢复失败」error → 时间线自相矛盾（fallback 已开始 vs 又失败）。移到 createSession
   // 成功后 emit：createSession throw 时本 emit 不执行，rethrow 给 recoverer outer catch 只 emit
   // 一条 error message，时间线干净（cross-adapter parity 对齐 claude）。
+  // **plan resume-inject §D8**: 文案按 summaryResult.used 二态选 builder（对称 claude
+  // buildJsonlMissingSummaryUsed/SkippedText）— used=true 历史已注入「应能续上前情」/
+  // used=false 退回纯当前消息「请补背景」。
   ctx.emit({
     sessionId: opts.sessionId,
     agentId: AGENT_ID,
     kind: 'message',
     payload: {
-      text: buildCodexJsonlMissingNoSummaryText(),
+      text: summaryResult.used
+        ? buildCodexJsonlMissingSummaryUsedText(opts.cwd)
+        : buildCodexJsonlMissingSummarySkippedText(opts.cwd),
     },
     ts: Date.now(),
     source: 'sdk',

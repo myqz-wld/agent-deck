@@ -63,6 +63,21 @@ export class TestCodexBridge extends CodexSdkBridge {
    * findFallbackCwd 私有方法（与 claude TestBridge cwdExistsOverride 同款）。
    */
   public cwdExistsOverride: boolean | Map<string, boolean> = true;
+  /**
+   * **plan resume-inject-raw-messages-20260601 §D8 test seam**：LLM 总结 mock。默认 null 让
+   * jsonl-missing fallback 走「无总结」路径（injectResumeHistory summary 段缺省，不破现有
+   * recovery case；现有断言验 used=false skipped 文案）。Step 7「总结成功」case 显式 set 字符串。
+   */
+  public summariseOverride: string | null = null;
+  /**
+   * **plan resume-inject §D7 test seam**：全量 events mock（喂 summariseForHandOff）。默认空数组。
+   */
+  public listEventsOverride: AgentEvent[] = [];
+  /**
+   * **plan resume-inject §D5 test seam**：message-only mock（拼原始对话段）。默认空数组 → 现有
+   * jsonl-missing case 走 no-history（used=false skipped 文案）。Step 7「raw 成功」case 显式 set。
+   */
+  public listMessagesOverride: (AgentEvent & { id: number })[] = [];
 
   override async createSession(opts: {
     cwd: string;
@@ -111,6 +126,36 @@ export class TestCodexBridge extends CodexSdkBridge {
   protected override cwdExists(cwd: string): boolean {
     if (typeof this.cwdExistsOverride === 'boolean') return this.cwdExistsOverride;
     return this.cwdExistsOverride.get(cwd) ?? false;
+  }
+
+  /**
+   * **plan resume-inject-raw-messages-20260601 §D8 test seam**：override 让单测不调真
+   * summariseSessionForHandOff（撞 OAuth / 计费 / DB 未 init）。默认返 summariseOverride（null）。
+   */
+  protected override summariseForHandOff(
+    _cwd: string,
+    _events: AgentEvent[],
+  ): Promise<string | null> {
+    return Promise.resolve(this.summariseOverride);
+  }
+
+  /**
+   * **plan resume-inject §D7 test seam**：override 让单测不依赖真 eventRepo（DB 未 init）。
+   */
+  protected override listEventsForSession(_sessionId: string): AgentEvent[] {
+    return this.listEventsOverride;
+  }
+
+  /**
+   * **plan resume-inject §D5 test seam**：override 让单测不依赖真 eventRepo（DB 未 init）。
+   * 默认空数组 → jsonl-missing fallback 走 no-history（used=false）。
+   */
+  protected override listRecentMessagesForSession(
+    _sessionId: string,
+    _limit: number,
+    _beforeIdInclusive?: number,
+  ): (AgentEvent & { id: number })[] {
+    return this.listMessagesOverride;
   }
 }
 

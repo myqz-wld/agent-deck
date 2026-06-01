@@ -22,6 +22,7 @@
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { eventRepo } from '@main/store/event-repo';
 import { AGENT_ID, MAX_MESSAGE_LENGTH } from '../constants';
 import {
   buildCodexCwdMissingErrorText,
@@ -35,6 +36,9 @@ import type {
   JsonlExistsThunk,
   RecovererCtx,
   SendMessageThunk,
+  SummariseFnThunk,
+  ListEventsFnThunk,
+  ListRecentMessagesFnThunk,
 } from './_deps';
 import { PLACEHOLDER_DEDUP_MS } from './_deps';
 import log from '@main/utils/logger';
@@ -49,6 +53,15 @@ export interface RecoverAndSendDeps {
   readonly jsonlExistsThunk: JsonlExistsThunk;
   readonly cwdExistsThunk: CwdExistsThunk;
   readonly findFallbackCwd: FindFallbackCwdThunk;
+  /**
+   * **plan resume-inject-raw-messages-20260601 §D5/§D7/§D8**: 3 thunk 透传给 codex-jsonl-fallback
+   * 让其调 injectResumeHistory 拼「总结段 + 原始对话段 + 当前消息」(对称 claude 端)。
+   * maxEventIdFn 不在此 — recover-and-send-impl 在 entry emit user **前**直接 eventRepo.maxEventId
+   * 捕获常量后构造 `() => maxEventIdBefore` 传给 helper（时机敏感不走 ctor thunk，对称 claude）。
+   */
+  readonly summariseFn: SummariseFnThunk;
+  readonly listEventsFn: ListEventsFnThunk;
+  readonly listMessagesFn: ListRecentMessagesFnThunk;
 }
 
 /**
@@ -121,6 +134,19 @@ export async function recoverAndSendImpl(
     throw new Error(
       `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
     );
+  }
+
+  // **plan resume-inject-raw-messages-20260601 §D4：在 entry emit user message 之前固化
+  // maxEventIdBefore**（对称 claude recover-and-send-impl）。下面 emit user message 会落库 →
+  // 若 codex-jsonl-fallback 用「emit 后」的 maxEventId 作 beforeIdInclusive 会把当前消息算进
+  // 「最近原始对话消息段」→ 与拼接末段重复 + 白占 slot。这里先捕获常量值（emit 前 max id =
+  // 最后一条真实历史本身），传给 maybeCodexJsonlFallback.maxEventIdFn 作 `() => maxEventIdBefore`
+  // thunk。同步读一次兜底 try/catch 防 eventRepo 抛错穿透阻断 fallback（§不变量 1 永不抛错）。
+  let maxEventIdBefore: number | null = null;
+  try {
+    maxEventIdBefore = eventRepo.maxEventId(sessionId);
+  } catch {
+    maxEventIdBefore = null;
   }
 
   // REVIEW_58 HIGH ✅ + R2 MED-1 收口修法 (deep-review 双方共识真问题 — 对称 claude recoverer.ts):
@@ -278,13 +304,24 @@ export async function recoverAndSendImpl(
           jsonlExistsThunk: deps.jsonlExistsThunk,
           createSession: deps.createThunk,
           emit: deps.ctx.emit,
+          // plan resume-inject §D5/§D7/§D8: 3 thunk 让 helper 调 injectResumeHistory 拼三段历史
+          summariseFn: deps.summariseFn,
+          listEventsFn: deps.listEventsFn,
+          listMessagesFn: deps.listMessagesFn,
         },
         {
           sessionId,
           cliSessionId: rec.cliSessionId ?? null,
           startedAt: rec.startedAt,
           cwd: effectiveCwd,
+          // plan resume-inject §D7: 总结 cwd 用原 rec.cwd 保留「原本哪个 worktree」语义
+          // (对称 claude prependCwd；codex cwd fallback 时 effectiveCwd 是 fallback cwd 但 codex
+          //  jsonl 独立 cwd，总结 prompt 标注用原 cwd 更有意义)。
+          prependCwd: rec.cwd,
           prompt: text,
+          // plan resume-inject §D4: maxEventIdBefore 在 entry emit user 之前固化(见上)，thunk 返
+          // 常量排除当前消息(injectResumeHistory 内 try/catch 防御，这里已 null 兜底)。
+          maxEventIdFn: () => maxEventIdBefore,
           codexSandbox: rec.codexSandbox ?? undefined,
           model: rec.model ?? undefined,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,

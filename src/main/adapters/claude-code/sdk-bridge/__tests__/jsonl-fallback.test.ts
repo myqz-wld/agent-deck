@@ -26,11 +26,13 @@ import {
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import type { SdkSessionHandle } from '../types';
 
-// mock settingsStore 让 helper 内部 settingsStore.get('autoSummariseOnFallback') 默认 true
+// mock settingsStore 让 helper 内部 settingsStore.get('resumeRecentMessagesCount') 返 30
+// (plan resume-inject-raw-messages-20260601 §D5: autoSummariseOnFallback 已删，改无条件注入 +
+//  resumeRecentMessagesCount 控制原始对话条数)
 vi.mock('@main/store/settings-store', () => ({
   settingsStore: {
     get: vi.fn((key: string) => {
-      if (key === 'autoSummariseOnFallback') return true;
+      if (key === 'resumeRecentMessagesCount') return 30;
       return undefined;
     }),
   },
@@ -253,6 +255,8 @@ describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
       jsonlExistsReturn: false,
       summariseFnReturn: '前情摘要内容',
       listEventsFnReturn: [{ sessionId: 's', agentId: 'a', kind: 'message', payload: { text: 'x' }, ts: 0, source: 'sdk' }],
+      // plan resume-inject §D5: used=true 需有原始对话消息（raw 段是底线）
+      listMessagesFnReturn: [{ id: 1, sessionId: 's', agentId: 'a', kind: 'message', payload: { role: 'user', text: '历史问题' }, ts: 0, source: 'sdk' }],
     });
     await maybeJsonlFallback(ctx, makeRecoverOpts({ cwd: '/tmp/x' }));
     expect(emits).toHaveLength(2);
@@ -261,10 +265,11 @@ describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
     expect(infoText).toContain('/tmp/x');
   });
 
-  it('T7-skipped: 摘要失败 (listEvents 空,used=false) → emit 走 buildJsonlMissingSummarySkippedText', async () => {
+  it('T7-skipped: 无历史 (listMessages 空,used=false) → emit 走 buildJsonlMissingSummarySkippedText', async () => {
     const { ctx } = makeCtx({
       jsonlExistsReturn: false,
-      listEventsFnReturn: [], // 空 events → prependHistorySummary 返 no-events
+      listEventsFnReturn: [], // 空 events → 总结段也空
+      // listMessagesFnReturn 默认空 → injectResumeHistory no-history → used=false
     });
     await maybeJsonlFallback(ctx, makeRecoverOpts({ cwd: '/tmp/x' }));
     expect(emits).toHaveLength(2);
@@ -281,6 +286,8 @@ describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
       jsonlExistsReturn: false,
       summariseFnReturn: '摘要',
       listEventsFnReturn: [{ sessionId: 's', agentId: 'a', kind: 'message', payload: { text: 'x' }, ts: 0, source: 'sdk' }],
+      // plan resume-inject §D5: used=true 需有原始对话消息（raw 段是底线，仅总结无 raw → no-history）
+      listMessagesFnReturn: [{ id: 1, sessionId: 's', agentId: 'a', kind: 'message', payload: { role: 'user', text: '历史问题' }, ts: 0, source: 'sdk' }],
     });
     await maybeJsonlFallback(ctx, makeRecoverOpts({ cwdFellBack: false, cwd: '/tmp/c1' }));
     expect((emits[0].payload as { text: string }).text).toContain('LLM 摘要自动注入');
@@ -299,6 +306,7 @@ describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
       jsonlExistsReturn: true, // cwdFellBack=true 短路不调 jsonlExistsThunk
       summariseFnReturn: '摘要',
       listEventsFnReturn: [{ sessionId: 's', agentId: 'a', kind: 'message', payload: { text: 'x' }, ts: 0, source: 'sdk' }],
+      listMessagesFnReturn: [{ id: 1, sessionId: 's', agentId: 'a', kind: 'message', payload: { role: 'user', text: '历史问题' }, ts: 0, source: 'sdk' }],
     });
     await maybeJsonlFallback(
       ctx,
@@ -321,6 +329,7 @@ describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
       jsonlExistsReturn: false,
       summariseFnReturn: '摘要',
       listEventsFnReturn: [{ sessionId: 's', agentId: 'a', kind: 'message', payload: { text: 'x' }, ts: 0, source: 'sdk' }],
+      listMessagesFnReturn: [{ id: 1, sessionId: 's', agentId: 'a', kind: 'message', payload: { role: 'user', text: '历史问题' }, ts: 0, source: 'sdk' }],
     });
     await maybeJsonlFallback(
       ctx,
