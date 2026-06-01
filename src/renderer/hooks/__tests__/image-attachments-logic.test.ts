@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { evictToBudget, type CacheEntry } from '../useImageBlob';
-import { isAnimatedWebpHeader } from '../useImageAttachments';
+import { isAnimatedWebpHeader, detectAnimatedWebp } from '../useImageAttachments';
 
 function okEntry(bytes: number, ts: number): CacheEntry {
   return { result: { ok: true, mime: 'image/png', bytes, dataUrl: 'data:image/png;base64,x' }, ts };
@@ -116,5 +116,39 @@ describe('isAnimatedWebpHeader（MED-3 animated WebP 检测）', () => {
     wav.set([0x52, 0x49, 0x46, 0x46], 0); // RIFF
     wav.set([0x57, 0x41, 0x56, 0x45], 8); // "WAVE"
     expect(isAnimatedWebpHeader(wav)).toBe(false);
+  });
+});
+
+describe('detectAnimatedWebp（MED-3 fake File 端到端，含 file.slice().arrayBuffer() async 路径）', () => {
+  function webpFile({ vp8x, anim, tailBytes = 0 }: { vp8x: boolean; anim?: boolean; tailBytes?: number }): File {
+    const head = new Uint8Array(32 + tailBytes);
+    head.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
+    head.set([0x57, 0x45, 0x42, 0x50], 8); // "WEBP"
+    if (vp8x) {
+      head.set([0x56, 0x50, 0x38, 0x58], 12); // "VP8X"
+      head[20] = anim ? 0x02 : 0x00;
+    } else {
+      head.set([0x56, 0x50, 0x38, 0x20], 12); // "VP8 "
+    }
+    return new File([head], 'x.webp', { type: 'image/webp' });
+  }
+
+  it('animated webp File → true（读前 32 字节 slice 检测 ANIM bit）', async () => {
+    expect(await detectAnimatedWebp(webpFile({ vp8x: true, anim: true, tailBytes: 100 }))).toBe(true);
+  });
+
+  it('静态 VP8X webp File → false', async () => {
+    expect(await detectAnimatedWebp(webpFile({ vp8x: true, anim: false, tailBytes: 100 }))).toBe(false);
+  });
+
+  it('simple lossy webp File → false', async () => {
+    expect(await detectAnimatedWebp(webpFile({ vp8x: false, tailBytes: 100 }))).toBe(false);
+  });
+
+  it('非 webp 内容的 File → false（保守不拦截）', async () => {
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0])], 'x.png', {
+      type: 'image/png',
+    });
+    expect(await detectAnimatedWebp(png)).toBe(false);
   });
 });
