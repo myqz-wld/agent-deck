@@ -11,11 +11,11 @@ import type { AgentDeckMessage } from '@shared/types';
 import { makeEventBusMock } from '@main/__tests__/_shared/mocks/event-bus';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 
-const insertCalls: Array<{ teamId: string; fromSessionId: string; toSessionId: string; body: string }> = [];
+const insertCalls: Array<{ teamId: string | null; fromSessionId: string; toSessionId: string; body: string }> = [];
 
 vi.mock('@main/store/agent-deck-message-repo', () => ({
   agentDeckMessageRepo: {
-    insert: (input: { teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId?: string | null }) => {
+    insert: (input: { teamId: string | null; fromSessionId: string; toSessionId: string; body: string; replyToMessageId?: string | null }) => {
       insertCalls.push({
         teamId: input.teamId,
         fromSessionId: input.fromSessionId,
@@ -111,5 +111,59 @@ describe('enqueueAgentDeckMessage — REVIEW_86 LOW token-before-insert', () => 
     ).toThrow(/超过/);
     expect(insertCalls).toHaveLength(0);
     expect(messageRateLimiter.bucketCount).toBe(0);
+  });
+});
+
+// plan teamless-dm-20260601 D3：限流桶 key 分流 —— team 走 teamId，teamless 走 `from:<sid>`。
+describe('enqueueAgentDeckMessage — teamless rateKey 分流 (D3)', () => {
+  it('teamless DM (teamId=null) 用 `from:<fromSessionId>` 桶，不与真实 teamId 桶混淆', () => {
+    const r = enqueueAgentDeckMessage({
+      teamId: null,
+      fromSessionId: 'senderA',
+      toSessionId: 'recv1',
+      body: 'teamless hi',
+    });
+    expect(r.ok).toBe(true);
+    expect(insertCalls).toHaveLength(1);
+    expect(insertCalls[0].teamId).toBeNull();
+    // 桶建在 `from:senderA`，bucketCount=1
+    expect(messageRateLimiter.bucketCount).toBe(1);
+  });
+
+  it('两个不同 sender 的 teamless DM 各占独立桶（互不消耗）', () => {
+    enqueueAgentDeckMessage({ teamId: null, fromSessionId: 'senderA', toSessionId: 'recv1', body: 'a' });
+    enqueueAgentDeckMessage({ teamId: null, fromSessionId: 'senderB', toSessionId: 'recv1', body: 'b' });
+    // from:senderA + from:senderB 两个独立桶
+    expect(messageRateLimiter.bucketCount).toBe(2);
+    expect(insertCalls).toHaveLength(2);
+  });
+
+  it('同 sender 跨多 receiver 的 teamless DM 共享单桶（per-sender 成本阀），达 60 后 reject', () => {
+    // 同 sender 给不同 receiver 各发，全落 `from:senderA` 单桶
+    let lastOk = true;
+    let okCount = 0;
+    for (let i = 0; i < 61; i++) {
+      const r = enqueueAgentDeckMessage({
+        teamId: null,
+        fromSessionId: 'senderA',
+        toSessionId: `recv-${i}`, // 每条不同 receiver
+        body: `msg ${i}`,
+      });
+      if (r.ok) okCount++;
+      else lastOk = false;
+    }
+    // 单桶 60/min：前 60 条 ok，第 61 条 rate-limited
+    expect(okCount).toBe(60);
+    expect(lastOk).toBe(false);
+    // 仍只有 1 个桶（from:senderA），证明跨 receiver 共享
+    expect(messageRateLimiter.bucketCount).toBe(1);
+  });
+
+  it('teamless `from:<sid>` 桶与同名 teamId 桶不串（前缀隔离）', () => {
+    // 极端构造：一个真实 teamId 恰好等于某 sender id（现实中 UUID 不会，但验前缀隔离逻辑）
+    enqueueAgentDeckMessage({ teamId: 'collide', fromSessionId: 'sX', toSessionId: 'sY', body: 'team msg' });
+    enqueueAgentDeckMessage({ teamId: null, fromSessionId: 'collide', toSessionId: 'sZ', body: 'teamless msg' });
+    // 桶 key 分别是 'collide' 和 'from:collide' → 两个独立桶，不串
+    expect(messageRateLimiter.bucketCount).toBe(2);
   });
 });

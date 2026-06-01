@@ -232,7 +232,7 @@ vi.mock('@main/store/event-repo', () => ({
 
 // R3.E8 mock：agent-deck-team-repo + universal-message-watcher（spawn_session ensure-team /
 // send_message route via DB envelope）。测试不实际操作 SQLite，只验证 handler 决策。
-const enqueuedMessages: Array<{ teamId: string; fromSessionId: string; toSessionId: string; body: string }> = [];
+const enqueuedMessages: Array<{ teamId: string | null; fromSessionId: string; toSessionId: string; body: string }> = [];
 const sharedTeamsBySession = new Map<string, string[]>();
 function setSharedTeams(a: string, b: string, teamIds: string[]): void {
   const key = [a, b].sort().join(':');
@@ -384,7 +384,7 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
 }));
 
 vi.mock('@main/teams/universal-message-watcher', () => ({
-  enqueueAgentDeckMessage: (input: { teamId: string; fromSessionId: string; toSessionId: string; body: string }) => {
+  enqueueAgentDeckMessage: (input: { teamId: string | null; fromSessionId: string; toSessionId: string; body: string }) => {
     enqueuedMessages.push(input);
     return {
       ok: true as const,
@@ -1304,11 +1304,52 @@ describe('agent-deck-mcp tools — send_message', () => {
     expect(parsed.data.error).toMatch(/is closed/);
   });
 
-  it('rejects when caller and target share zero teams', async () => {
+  // plan teamless-dm-20260601 §不变量 7：原「share zero teams → no-shared-team reject」
+  // 断言反转为「→ teamless DM 投递（teamId=null）」。这是 send_message gate 的唯一反转点
+  // （hand-off 系列的 no-shared-team 保护断言禁止反转，见 hand-off-session.*.test.ts）。
+  it('delivers as teamless DM when caller and target share zero teams', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     seedSession('teammate', { agentId: 'claude-code' });
-    // 不调 setSharedTeams → 默认 zero
+    // 不调 setSharedTeams → 默认 zero shared team → teamless 分支
+    const r = await tools.get('send_message').handler({
+      sessionId: 'teammate',
+      text: 'hi teamless',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.queued).toBe(true);
+    expect(parsed.data.teamId).toBeNull();
+    expect(enqueuedMessages).toEqual([
+      { teamId: null, fromSessionId: 'lead', toSessionId: 'teammate', body: 'hi teamless', replyToMessageId: null },
+    ]);
+  });
+
+  // plan teamless-dm-20260601 D4 (codex-3)：显式传不共享的 teamId 必须 reject，不静默降级 teamless。
+  it('rejects explicit teamId not in shared active set (no silent teamless downgrade)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    // 双方零 shared team，但 caller 显式传了一个 teamId → 必须 team-not-shared reject
+    const r = await tools.get('send_message').handler({
+      sessionId: 'teammate',
+      text: 'hi',
+      teamId: 'team-stale',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/team-not-shared/);
+    expect(enqueuedMessages).toEqual([]); // 没有静默降级入队
+  });
+
+  // plan teamless-dm-20260601 D4 (codex-2)：teamless 分支前置补 archived reject
+  // （findSharedActiveTeams 的 archived 过滤被绕过后必须显式补，§不变量 4）。
+  it('rejects teamless DM when target session is archived', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code', archivedAt: Date.now() });
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
       text: 'hi',
@@ -1316,7 +1357,112 @@ describe('agent-deck-mcp tools — send_message', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/no-shared-team/);
+    expect(parsed.data.error).toMatch(/archived/);
+    expect(enqueuedMessages).toEqual([]);
+  });
+
+  it('rejects teamless DM when caller session is archived', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { archivedAt: Date.now() });
+    seedSession('teammate', { agentId: 'claude-code' });
+    const r = await tools.get('send_message').handler({
+      sessionId: 'teammate',
+      text: 'hi',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/archived/);
+    expect(enqueuedMessages).toEqual([]);
+  });
+
+  // plan teamless-dm-20260601 D4 (codex-1)：teamless reply 必须 pair-scoped。
+  // original 是别的 session pair 的 teamless 消息 → 即便 teamId 都是 null 也必须 reject。
+  it('rejects teamless reply pointing to a message between other sessions', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    // 无 shared team → teamless；但 original 是 sX↔sY 的 teamless 消息（与 lead/teammate 无关）
+    mockMessages.set('other-pair-teamless', {
+      id: 'other-pair-teamless',
+      teamId: null,
+      fromSessionId: 'sX',
+      toSessionId: 'sY',
+      body: 'unrelated teamless',
+      status: 'delivered',
+      statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    });
+    const r = await tools.get('send_message').handler({
+      sessionId: 'teammate',
+      text: 'reply',
+      replyToMessageId: 'other-pair-teamless',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/teamless reply chain mismatch/);
+    expect(enqueuedMessages).toEqual([]);
+  });
+
+  it('allows teamless reply when original is between the same session pair', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    // original 是 teammate→lead 的 teamless 消息；lead 回 teammate → 同一对 session ✅
+    mockMessages.set('same-pair-teamless', {
+      id: 'same-pair-teamless',
+      teamId: null,
+      fromSessionId: 'teammate',
+      toSessionId: 'lead',
+      body: 'first teamless',
+      status: 'delivered',
+      statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    });
+    const r = await tools.get('send_message').handler({
+      sessionId: 'teammate',
+      text: 'my teamless reply',
+      replyToMessageId: 'same-pair-teamless',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.queued).toBe(true);
+    expect(parsed.data.teamId).toBeNull();
+    expect(enqueuedMessages).toEqual([
+      { teamId: null, fromSessionId: 'lead', toSessionId: 'teammate', body: 'my teamless reply', replyToMessageId: 'same-pair-teamless' },
+    ]);
+  });
+
+  // plan teamless-dm-20260601 D4：team↔teamless reply 边界对称（`!==` 天然处理）。
+  it('rejects team reply pointing to a teamless original (teamId mismatch)', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    setSharedTeams('lead', 'teammate', ['team-X']); // team 模式
+    mockMessages.set('teamless-original', {
+      id: 'teamless-original',
+      teamId: null, // teamless original
+      fromSessionId: 'teammate',
+      toSessionId: 'lead',
+      body: 'teamless first',
+      status: 'delivered',
+      statusReason: null,
+      sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
+      replyToMessageId: null,
+    });
+    const r = await tools.get('send_message').handler({
+      sessionId: 'teammate',
+      text: 'team reply',
+      replyToMessageId: 'teamless-original',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/cross-team reply not allowed/);
   });
 
   it('rejects ambiguous-team when sharing >=2 teams without teamId', async () => {

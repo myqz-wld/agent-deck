@@ -22,7 +22,7 @@ import { coerceMessageStatus } from '@main/store/message-delivery-state';
 
 export interface MessageRow {
   id: string;
-  team_id: string;
+  team_id: string | null;
   from_session_id: string;
   to_session_id: string;
   body: string;
@@ -80,7 +80,8 @@ export interface InsertMessageInput {
    * send_message({ replyToMessageId })）。
    */
   id?: string;
-  teamId: string;
+  /** teamId=null = teamless DM（plan teamless-dm-20260601）。caller（send.ts / IPC）负责决定 team vs teamless。 */
+  teamId: string | null;
   fromSessionId: string;
   toSessionId: string;
   /** 1-100KB；caller-side 校验 + SQL CHECK 兜底 */

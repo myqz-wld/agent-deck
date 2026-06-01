@@ -120,13 +120,13 @@ export const teamsApi = {
       IpcEvent.AgentDeckTeamChanged,
       cb,
     ),
-  /** 订阅 message 入队 / 状态变迁 push（main bootstrap 16ms debounce + per-message 累加）。 */
+  /** 订阅 message 入队 / 状态变迁 push（main bootstrap 16ms debounce + per-message 累加）。teamId=null = teamless DM（plan teamless-dm-20260601）。 */
   onAgentDeckMessageChanged: (
     cb: (
-      items: { kind: string; teamId: string; messageId: string; payload: unknown }[],
+      items: { kind: string; teamId: string | null; messageId: string; payload: unknown }[],
     ) => void,
   ): (() => void) =>
-    subscribe<{ kind: string; teamId: string; messageId: string; payload: unknown }[]>(
+    subscribe<{ kind: string; teamId: string | null; messageId: string; payload: unknown }[]>(
       IpcEvent.AgentDeckMessageChanged,
       cb,
     ),

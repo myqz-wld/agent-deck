@@ -173,7 +173,7 @@ export async function buildAgentDeckTools(
 
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
-    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing. Pass `replyToMessageId` to link this message into an existing reply chain (the chain is recorded in DB; lead/teammate see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Specify `teamId` only when caller and target share more than one active team (auto-resolved when they share exactly one).',
+    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing. Works with or without a shared team: if caller and target share an active team the message is team-scoped; if they share none it is delivered as a teamless DM (still injected into the target session\'s conversation, just not shown in a team panel). Pass `replyToMessageId` to link this message into an existing reply chain (the chain is recorded in DB; lead/teammate see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Specify `teamId` only when caller and target share more than one active team (auto-resolved when they share exactly one; rejected if the passed teamId is not a shared active team).',
     SEND_MESSAGE_SCHEMA,
     async (args, extra) => sendMessageHandler(args, makeCtx(args, extra)),
     {

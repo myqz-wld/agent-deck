@@ -15,7 +15,8 @@ import { messageRateLimiter } from './rate-limiter';
 
 /** caller-side 校验前缀拼装 + 入队的便利封装。caller 应用方都走此入口（统一 wire format）。 */
 export interface EnqueueMessageInput {
-  teamId: string;
+  /** teamId=null = teamless DM（plan teamless-dm-20260601）；限流走 per-sender 桶（见 enqueueAgentDeckMessage rateKey）。 */
+  teamId: string | null;
   fromSessionId: string;
   toSessionId: string;
   body: string;
@@ -70,11 +71,16 @@ export function enqueueAgentDeckMessage(input: EnqueueMessageInput): {
   if (input.body.length > MAX_BODY_LENGTH) {
     throw new MessageInvariantError(`body 长度 ${input.body.length} 超过 ${MAX_BODY_LENGTH}`);
   }
-  if (!messageRateLimiter.tryConsume(input.teamId, now)) {
+  // plan teamless-dm-20260601 D3：限流桶 key 分流。team 消息走 teamId（per-team 60/min，语义
+  // 不变）；teamless DM（teamId=null）走 `from:<fromSessionId>`（per-sender 60/min，跨所有 receiver
+  // 共享单桶 = 故意的 sender-level 成本阀，防失控消息循环烧 token，§不变量 5）。`from:` 前缀防与
+  // 真实 teamId 撞 key——teamId 是 crypto.randomUUID()（charset `[0-9a-f-]`，绝不含 `:`），前缀隔离安全。
+  const rateKey = input.teamId ?? `from:${input.fromSessionId}`;
+  if (!messageRateLimiter.tryConsume(rateKey, now)) {
     return {
       ok: false,
       error: 'rate-limit-exceeded',
-      retryAfterMs: messageRateLimiter.retryAfterMs(input.teamId, now),
+      retryAfterMs: messageRateLimiter.retryAfterMs(rateKey, now),
     };
   }
   const message = agentDeckMessageRepo.insert(input);
