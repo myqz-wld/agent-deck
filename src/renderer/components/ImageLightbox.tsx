@@ -1,4 +1,4 @@
-import { useEffect, type JSX } from 'react';
+import { useEffect, useRef, type JSX } from 'react';
 import { useImageBlob } from '@renderer/hooks/useImageBlob';
 import { sharedImageBlobCache } from '@renderer/lib/image-blob-cache';
 
@@ -36,14 +36,20 @@ export function ImageLightbox({
   path: string;
   alt?: string;
 }): JSX.Element {
-  // Esc 键关闭(React 标准 idiom — useEffect cleanup function 内 remove listener)
+  // Esc 键关闭(React 标准 idiom — useEffect cleanup function 内 remove listener)。
+  // REVIEW_102 INFO（reviewer-claude）：用 ref 持有最新 onClose，effect deps=[] 只在
+  // mount/unmount 各挂/卸一次 listener。caller 普遍传 inline `onClose={() => setX(null)}`
+  // （如 message-row.tsx:291），若 deps=[onClose] 则每次父 render onClose 新引用 → 反复
+  // remove/add window keydown listener。ref 模式让 listener 对 onClose 引用变化免疫。
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseRef.current();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, []);
 
   // 共享 cache 同款 IPC(与 UploadedImageThumb 同款 cache key = path)
   const state = useImageBlob(() => window.api.loadUploadedImage(path), path, sharedImageBlobCache);

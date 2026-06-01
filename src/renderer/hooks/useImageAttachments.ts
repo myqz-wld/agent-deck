@@ -137,6 +137,45 @@ async function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> 
 }
 
 /**
+ * 判断 WebP 文件头 32 字节是否标记为 animated（纯函数，便于单测）。
+ *
+ * WebP 容器格式（RIFF）：`"RIFF"(4) + size(4) + "WEBP"(4) + chunk...`。只有扩展格式
+ * `VP8X` chunk 才可能带动画；其 flags byte（文件偏移 20）的 ANIM bit（0x02）置位即动图。
+ * simple lossy(`VP8 `)/lossless(`VP8L`) 永远静态。头不足 / 非 webp / 非 VP8X 一律返回 false。
+ */
+export function isAnimatedWebpHeader(head: Uint8Array): boolean {
+  if (head.length < 21) return false;
+  // "RIFF"
+  if (head[0] !== 0x52 || head[1] !== 0x49 || head[2] !== 0x46 || head[3] !== 0x46) return false;
+  // "WEBP" at offset 8
+  if (head[8] !== 0x57 || head[9] !== 0x45 || head[10] !== 0x42 || head[11] !== 0x50) return false;
+  // chunk fourcc at offset 12 必须是 "VP8X"（扩展格式，只有它能带动画）
+  if (head[12] !== 0x56 || head[13] !== 0x50 || head[14] !== 0x38 || head[15] !== 0x58) return false;
+  // VP8X flags byte 在 offset 20（12-15 fourcc + 16-19 chunk size + 20 flags）；ANIM bit = 0x02
+  return (head[20] & 0x02) !== 0;
+}
+
+/**
+ * 检测 WebP 是否为动图（animated）。
+ *
+ * REVIEW_102 MED-3（reviewer-codex + lead web 规范逻辑链验证）：白名单允许 image/webp，
+ * 但超 base64 阈值的压缩路径只拦了 GIF，animated WebP 会进 canvas → JPEG → 只剩首帧 +
+ * mime 变 image/jpeg，用户发给模型的内容与原图静默不一致。canvas.drawImage 对动图只绘制
+ * 当前帧 + jpeg 格式无动画能力是 web 规范确定性事实。
+ *
+ * 只读文件头 32 字节（isAnimatedWebpHeader 纯逻辑判定），失败（读不到 / 非 webp / 太短）
+ * 一律返回 false（保守：检测失败不拦截，让后续 canvas 路径处理）。
+ */
+async function detectAnimatedWebp(file: File): Promise<boolean> {
+  try {
+    const head = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+    return isAnimatedWebpHeader(head);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 把图按指定 scale + jpeg quality 编码到 canvas 再读出 base64。
  * 失败返回 null（caller 跳过本档继续下一个尝试），成功返回 `{base64, bytes}`（mime 固定 jpeg）。
  */
@@ -169,19 +208,23 @@ function encodeToJpegBase64(
 /**
  * 读图 → 必要时压缩到 base64 ≤ MAX_BASE64_BYTES_FOR_API。
  *
- * 三层路径：
+ * 四层路径：
  * 1. 原图 base64 ≤ 阈值 → 直接返回（最佳路径，无质量损失）
  * 2. GIF 超阈值 → reject（动图压缩会丢动，宁可让用户决定要不要换静图）
+ * 2.5 animated WebP 超阈值 → reject（同 GIF：canvas 重编码丢动 + mime 变 jpeg 静默失真）
  * 3. 其他超阈值 → canvas 重编码为 JPEG，按 quality 0.85→0.55、scale 1.0→0.5 序列尝试，
  *    第一个 ≤ 阈值返回；全档都不行 → reject 让 UI 报错
+ *
+ * REVIEW_102 INFO（reviewer-claude）：dataUrl 由 caller 预读一次后传入（不再自己 readFileAsDataUrl），
+ * 与 makeThumbnail 共享同一份，消除「同一文件读两遍 + 2× base64 string 瞬时内存」。
  *
  * 返回 `{base64, mime, bytes}` 已就绪喂给后端 IPC（mime 可能从 png 变 jpeg，bytes 是实际 raw byte）。
  */
 async function readAndMaybeCompress(
   file: File,
   mime: string,
+  dataUrl: string,
 ): Promise<{ base64: string; mime: string; bytes: number; compressed: boolean }> {
-  const dataUrl = await readFileAsDataUrl(file);
   const originalBase64 = stripDataUrlPrefix(dataUrl);
 
   // Path 1: 原图够小直接走（绝大多数 < 3.6MB 截图命中这条路径，无质量损失）
@@ -193,6 +236,14 @@ async function readAndMaybeCompress(
   if (mime === 'image/gif') {
     throw new Error(
       `gif 动图 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 API 5MB base64 上限，无法自动压缩（压会丢动）。请手动转静图或缩小尺寸`,
+    );
+  }
+
+  // Path 2.5: animated WebP 同 GIF —— canvas → JPEG 会丢动 + mime 静默变 jpeg（REVIEW_102 MED-3）。
+  // 仅对 webp 做文件头检测（静态 webp 仍走 Path 3 正常压缩）。
+  if (mime === 'image/webp' && (await detectAnimatedWebp(file))) {
+    throw new Error(
+      `webp 动图 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 API 5MB base64 上限，无法自动压缩（压会丢动）。请手动转静图或缩小尺寸`,
     );
   }
 
@@ -215,9 +266,11 @@ async function readAndMaybeCompress(
  *
  * gif 跳过 resize（canvas 只能拿首帧 → 动图变静图丢失原意），直接用原图 dataUrl
  * （gif 通常不大，不 resize 内存影响有限）。
+ *
+ * REVIEW_102 INFO（reviewer-claude）：fullDataUrl 由 caller 预读传入，与 readAndMaybeCompress
+ * 共享同一份，消除同文件读两遍。
  */
-async function makeThumbnail(file: File, mime: string): Promise<string> {
-  const fullDataUrl = await readFileAsDataUrl(file);
+async function makeThumbnail(mime: string, fullDataUrl: string): Promise<string> {
   if (mime === 'image/gif') return fullDataUrl;
   return await new Promise<string>((resolve) => {
     const img = new Image();
@@ -271,8 +324,10 @@ export function useImageAttachments(): UseImageAttachmentsResult {
   // REVIEW_35 follow-up rH R2-M3: mountedRef + generationRef 防 unmount race。
   // - mountedRef: unmount 后 add() 内 await 完 readAndMaybeCompress/makeThumbnail 不再 setState
   //   （React 不报「setState on unmounted」warning，但状态 ref 写入是真 leak）
-  // - generationRef: clear()/remove(id) bump generation；resolve 后 generation 不匹配则丢弃
-  //   防 in-flight add 在用户 clear 后「复活」附件
+  // - generationRef: clear()/unmount bump generation；resolve 后 generation 不匹配则丢弃，
+  //   防 in-flight add 在用户 clear（整批取消）/unmount 后「复活」附件。
+  //   REVIEW_102 MED-1：remove(id) **不**再 bump（详 remove() 注释 —— 单图删除不应连坐
+  //   同批 in-flight 兄弟；整批取消才用 bump）。
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
 
@@ -314,10 +369,12 @@ export function useImageAttachments(): UseImageAttachmentsResult {
           continue;
         }
         try {
-          // 压缩与缩略图并发跑（缩略图始终用原图算，与压缩独立）
+          // REVIEW_102 INFO（reviewer-claude）：先读一次 dataUrl 共享给压缩 + 缩略图两条路径，
+          // 消除同文件读两遍 + 2× base64 string 瞬时内存。canvas 编码仍并发（共享同一份 dataUrl）。
+          const dataUrl = await readFileAsDataUrl(file);
           const [compressed, thumb] = await Promise.all([
-            readAndMaybeCompress(file, file.type),
-            makeThumbnail(file, file.type),
+            readAndMaybeCompress(file, file.type, dataUrl),
+            makeThumbnail(file.type, dataUrl),
           ]);
           // REVIEW_35 follow-up rH R2-M3: await resolve 后检查 mounted + generation
           if (!mountedRef.current || generationRef.current !== generationAtStart) {
@@ -378,9 +435,20 @@ export function useImageAttachments(): UseImageAttachmentsResult {
   );
 
   const remove = useCallback((id: string): void => {
-    // REVIEW_35 follow-up rH R2-M3: bump generation 让 in-flight add() 完成后丢弃，
-    // 避免被 remove 的 entry 因 add() resolve 后又被 setAttachments 复活
-    generationRef.current++;
+    // REVIEW_102 MED-1（reviewer-claude 独立命中 + lead sim 复现 + 复活不可达铁证）：
+    // remove() **不再** bump generationRef。
+    //
+    // 旧实现 bump generation 是过度取消：本意「避免被删 entry 因 add() resolve 后复活」，
+    // 但该复活场景不可达 —— entry 的 id 是在 add() 内 `await Promise.all([compress,thumb])`
+    // **之后** line 327 nextId() 才生成，in-flight（仍在 await）的图还没 id、UI 列表里没有
+    // 它、用户根本点不到「删」它；能被 remove 的一定是已 push 完成（同步走完 359-362）的
+    // entry，它的 add 处理早已结束，不存在 resolve-after-remove 复活。
+    //
+    // 而 bump generation 的副作用是误伤：多图批量上传时 entry 逐张 push（line 361 在 for 内），
+    // 删第 1 张时其余 file[1]/file[2] 可能仍在 await；bump 让整批 generationAtStart 失配 →
+    // line 323 把它们静默 continue 丢弃（无 error 无提示）。用户只删 1 张却丢了同批其余几张。
+    // 修法：remove 只删该 id（同步 ref + state），不动 generation；整批取消仍由 clear()/unmount
+    // 的 bump 负责（那才是「丢弃所有 in-flight」的正确语义）。/tmp/img-med1-fix.mjs 3 场景实证。
     fullBase64Ref.current.delete(id);
     // 同步 ref + state(为下一次 add() 用 ref 算 currentTotal 时取最新值)
     attachmentsRef.current = attachmentsRef.current.filter((a) => a.id !== id);
