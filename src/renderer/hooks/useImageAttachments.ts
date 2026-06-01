@@ -164,9 +164,10 @@ export function isAnimatedWebpHeader(head: Uint8Array): boolean {
  * 当前帧 + jpeg 格式无动画能力是 web 规范确定性事实。
  *
  * 只读文件头 32 字节（isAnimatedWebpHeader 纯逻辑判定），失败（读不到 / 非 webp / 太短）
- * 一律返回 false（保守：检测失败不拦截，让后续 canvas 路径处理）。
+ * 一律返回 false（保守：检测失败不拦截，让后续 canvas 路径处理）。export 供 REVIEW_102
+ * 回归测试用 fake File 端到端验证（含 file.slice().arrayBuffer() async 路径）。
  */
-async function detectAnimatedWebp(file: File): Promise<boolean> {
+export async function detectAnimatedWebp(file: File): Promise<boolean> {
   try {
     const head = new Uint8Array(await file.slice(0, 32).arrayBuffer());
     return isAnimatedWebpHeader(head);
@@ -372,6 +373,21 @@ export function useImageAttachments(): UseImageAttachmentsResult {
           // REVIEW_102 INFO（reviewer-claude）：先读一次 dataUrl 共享给压缩 + 缩略图两条路径，
           // 消除同文件读两遍 + 2× base64 string 瞬时内存。canvas 编码仍并发（共享同一份 dataUrl）。
           const dataUrl = await readFileAsDataUrl(file);
+          // REVIEW_102 R2 LOW（reviewer-codex）：oversize animated webp 会在 readAndMaybeCompress
+          // 的 Path 2.5 被拒，但 Promise.all 会先同步启动 makeThumbnail（new Image + img.src 已发生）
+          // → 被拒的 20MB 级 animated webp 仍触发一次无用的整图 decode + canvas 峰值（Promise.all
+          // reject 不取消已启动的另一分支，/tmp/promise-all-branch.mjs 实证）。这里 preflight：
+          // webp 且超阈值时先检测 animated，命中直接抛错（走 catch → push error），不启动 thumbnail。
+          // readAndMaybeCompress 内 Path 2.5 保留作 defense-in-depth（直接调用方 / 未来 caller 兜底）。
+          if (
+            file.type === 'image/webp' &&
+            stripDataUrlPrefix(dataUrl).length > MAX_BASE64_BYTES_FOR_API &&
+            (await detectAnimatedWebp(file))
+          ) {
+            throw new Error(
+              `webp 动图 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 API 5MB base64 上限，无法自动压缩（压会丢动）。请手动转静图或缩小尺寸`,
+            );
+          }
           const [compressed, thumb] = await Promise.all([
             readAndMaybeCompress(file, file.type, dataUrl),
             makeThumbnail(file.type, dataUrl),
