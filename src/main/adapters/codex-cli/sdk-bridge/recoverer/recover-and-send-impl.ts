@@ -331,8 +331,27 @@ export async function recoverAndSendImpl(
           model: rec.model ?? undefined,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
           attachments,
+          // **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法（对称 claude）**：await
+          // injectResumeHistory（LLM oneshot 10-30s）期间用户主动 close 会被 closeImpl 静默设 closed
+          // 但不 abort 在途 recovering promise；helper await 后重读本 thunk，**await 期间新出现的
+          // closed** → abort 不起 fresh thread（否则 createSession SDK 事件触发 ensure closed→active
+          // 复活）。
+          // **关键：检测「await 期间新 close」transition 而非绝对 closed 态** —— 入口就 closed 的合法
+          // resume（wasClosed=true，REVIEW_81 行为，应正常复活）不能误 abort。cancel 条件 =
+          // `closed-now AND NOT wasClosed`（仅 await 中途新 close / record 删才 abort）。
+          isCancelledFn: () => {
+            const r = sessionRepo.get(sessionId);
+            if (!r) return true; // record await 期间被删 → abort
+            return r.lifecycle === 'closed' && !wasClosed; // 仅「新 close」才 abort
+          },
         },
       );
+      // **R2 HIGH 修法（对称 claude）**：abort 优先于 fellBack/fall-through 判定。用户 await 窗口内
+      // close → helper 返 aborted:true → 不 createSession / 不 fall through 正常 resume → 直接
+      // return sessionId 静默结束（lifecycle 已是用户想要的 closed，无需回滚）。
+      if (fbResult.aborted) {
+        return sessionId;
+      }
       if (fbResult.fellBack) {
         // helper 已包办 emit + createSession,applicationSid 全程不变 (反向 rename §不变量)
         return fbResult.finalSessionId; // == sessionId

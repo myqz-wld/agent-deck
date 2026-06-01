@@ -387,4 +387,44 @@ describe('injectResumeHistory (plan resume-inject §D5/§D6/§D7)', () => {
     expect(r.used).toBe(true);
     expect(r.prompt.length).toBeLessThanOrEqual(1000); // 恒不超长
   });
+
+  // ─── R2 reviewer-codex LOW 修法回归: raw 全超预算 + summary 在边界带（三段判定丢但 summary-only fit）───
+  it('R2 LOW: summaryCost===budgetForHistory 边界 + raw 全超预算 → summary-only 仍保住（不误丢能 fit 的总结）', async () => {
+    // 构造 codex 实测边界：rawWrapperCost=38 / summaryWrapperCost=55
+    // maxLength=200, currentBlock=31（CURRENT_HEADER 19 + \n + 11）, budgetForHistory=200-31-38=131
+    // summaryLen=76 → summaryCost=76+55=131 === budgetForHistory → 三段判定 includeSummary=false（严格 <）
+    // 但 summary-only = 131+31 = 162 ≤ 200 → 修后应保住 summary
+    const r = await injectResumeHistory(
+      makeOpts({
+        originalText: 'o'.repeat(11),
+        maxLength: 200,
+        summariseFn: vi.fn(async () => 's'.repeat(76)),
+        listEventsFn: vi.fn(() => [evt('x')]),
+        // 唯一候选是巨消息（超 raw 预算）→ continue 后 raw 空
+        listMessagesFn: vi.fn(() => [msg(1, 'user', 'R'.repeat(190))]),
+      }),
+    );
+    expect(r.used).toBe(true); // 不退回纯 originalText
+    expect(r.failReason).toBe('raw-budget-empty-summary-used');
+    expect(r.prompt).toContain('历史会话摘要'); // 总结段保住（修前会被误丢）
+    expect(r.prompt).toContain('用户当前消息');
+    expect(r.prompt).not.toContain('最近原始对话消息'); // raw 段缺省
+    expect(r.prompt.length).toBeLessThanOrEqual(200);
+  });
+
+  it('R2 LOW: raw 全超预算 + summary 也装不下 → history-budget-empty 退纯 originalText', async () => {
+    // summary 巨大装不下 + raw 也全超预算 → 无任何历史可注 → 退纯 originalText
+    const r = await injectResumeHistory(
+      makeOpts({
+        originalText: 'o'.repeat(11),
+        maxLength: 200,
+        summariseFn: vi.fn(async () => 's'.repeat(500)), // summary-only 也超 maxLength
+        listEventsFn: vi.fn(() => [evt('x')]),
+        listMessagesFn: vi.fn(() => [msg(1, 'user', 'R'.repeat(190))]),
+      }),
+    );
+    expect(r.used).toBe(false);
+    expect(r.failReason).toBe('history-budget-empty');
+    expect(r.prompt).toBe('o'.repeat(11)); // 退纯 originalText
+  });
 });

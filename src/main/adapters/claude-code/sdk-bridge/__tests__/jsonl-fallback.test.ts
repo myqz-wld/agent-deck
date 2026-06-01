@@ -404,4 +404,69 @@ describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
       resumeMode: 'fresh-cli-reuse-app',
     });
   });
+
+  // ─────────────────────────────────────────────
+  // R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实: close-during-summary-await abort
+  // ─────────────────────────────────────────────
+  it('R2 HIGH: isCancelledFn 在 summary await 后返 true（用户 close）→ abort 不调 createSession（aborted:true）', async () => {
+    // 模拟用户在 injectResumeHistory（summariseFn await）期间主动 close：
+    // summariseFn 是 async（让出事件循环），其间把 cancelled flag 翻 true 模拟 closeImpl 设 closed。
+    let cancelled = false;
+    const { ctx, createSessionSpy } = makeCtx({
+      jsonlExistsReturn: false, // jsonl 缺失 → 走 fallback
+      listMessagesFnReturn: [
+        { id: 1, sessionId: 's', agentId: '', kind: 'message', payload: { role: 'user', text: '历史' }, ts: 1, source: 'sdk' },
+      ],
+    });
+    // 覆写 summariseFn 让它在 await 期间翻 cancelled（模拟用户 close 落在 LLM await 窗口）
+    ctx.summariseFn = (async () => {
+      cancelled = true; // closeImpl setLifecycle('closed') 发生在 await 中途
+      return '总结';
+    }) as unknown as JsonlFallbackCtx['summariseFn'];
+
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRecoverOpts({ isCancelledFn: () => cancelled }),
+    );
+
+    // 修后：await 后重读 isCancelledFn → true → abort 不起 fresh CLI
+    expect(result.aborted).toBe(true);
+    expect(result.fellBack).toBe(false);
+    expect(createSessionSpy).not.toHaveBeenCalled(); // 关键：不起 fresh CLI（否则 ensure 复活 closed）
+    // abort 时不 emit fallback info（避免 close 后又冒「恢复成功」矛盾文案）
+    expect(emits.filter((e) => e.kind === 'message')).toHaveLength(0);
+  });
+
+  it('R2 HIGH: isCancelledFn 返 false（未 close）→ 正常 fallback 起 fresh CLI', async () => {
+    const { ctx, createSessionSpy } = makeCtx({
+      jsonlExistsReturn: false,
+      summariseFnReturn: '总结',
+      listMessagesFnReturn: [
+        { id: 1, sessionId: 's', agentId: '', kind: 'message', payload: { role: 'user', text: '历史' }, ts: 1, source: 'sdk' },
+      ],
+    });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRecoverOpts({ isCancelledFn: () => false }),
+    );
+    expect(result.aborted).toBeUndefined();
+    expect(result.fellBack).toBe(true);
+    expect(createSessionSpy).toHaveBeenCalledOnce(); // 未 close → 正常起 fresh
+  });
+
+  it('R2 HIGH: restart 路径不传 isCancelledFn → 不 gate（即使 lifecycle 过渡态 closed 也正常 fallback）', async () => {
+    // restart 本就「先 close 再 cold restart」，过渡态 closed 是预期，不能被 abort 拦
+    const { ctx, createSessionSpy } = makeCtx({
+      jsonlExistsReturn: false,
+      summariseFnReturn: '总结',
+      listMessagesFnReturn: [
+        { id: 1, sessionId: 's', agentId: '', kind: 'message', payload: { role: 'user', text: '历史' }, ts: 1, source: 'sdk' },
+      ],
+    });
+    // makeRestartOpts 不传 isCancelledFn（undefined）→ helper 不 gate
+    const result = await maybeJsonlFallback(ctx, makeRestartOpts());
+    expect(result.aborted).toBeUndefined();
+    expect(result.fellBack).toBe(true);
+    expect(createSessionSpy).toHaveBeenCalledOnce(); // restart 正常起，不被 closed gate 拦
+  });
 });

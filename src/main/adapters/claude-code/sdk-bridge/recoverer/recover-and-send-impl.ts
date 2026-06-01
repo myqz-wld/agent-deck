@@ -340,8 +340,28 @@ export async function recoverAndSendImpl(
           // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
           // helper 跳过重复 emit 避免双气泡(详 recoverer.recoverAndSend emit user message 段注释)
           skipFirstUserEmit: true,
+          // **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法**：await injectResumeHistory
+          // （LLM oneshot 10-30s）期间用户主动 close 会被 closeImpl 静默设 closed 但不 abort 在途
+          // recovering promise；helper 在 await 后重读本 thunk，**await 期间新出现的 closed** →
+          // abort 不起 fresh CLI（否则 createSession SDK 事件触发 ensure closed→active 复活，反转
+          // 用户显式 close）。
+          // **关键：必须检测「await 期间新 close」transition，不是绝对 closed 态** —— 入口就 closed
+          // 的合法 resume（wasClosed=true，用户主动 resume 已关闭会话，REVIEW_76/81 行为，应正常
+          // 复活）不能误 abort。故 cancel 条件 = `closed-now AND NOT wasClosed`（仅 await 中途新出现
+          // 的 closed / record 被删才 abort）。
+          isCancelledFn: () => {
+            const r = sessionRepo.get(sessionId);
+            if (!r) return true; // record await 期间被删 → abort
+            return r.lifecycle === 'closed' && !wasClosed; // 仅「新 close」才 abort
+          },
         },
       );
+      // **R2 HIGH 修法**：abort 优先于 fellBack/fall-through 判定。用户 await 窗口内 close →
+      // helper 返 aborted:true → 不 createSession / 不 fall through 正常 resume（两条都会复活 closed）
+      // → 直接 return sessionId 静默结束（lifecycle 已是用户想要的 closed，无需回滚）。
+      if (fbResult.aborted) {
+        return sessionId;
+      }
       if (fbResult.fellBack) {
         // helper 已包办 createSession + 2 emit,不再重复;applicationSid 全程不变 (不变量 3)
         return fbResult.finalSessionId; // == sessionId

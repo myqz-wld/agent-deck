@@ -55,6 +55,9 @@ import {
   buildRestartJsonlMissingSummaryUsedText,
 } from './recoverer-messages';
 import type { SdkSessionHandle } from './types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('claude-jsonl-fallback');
 
 /**
  * helper-local create opts 类型 (R5 codex MED-1 修法):
@@ -170,6 +173,24 @@ type JsonlFallbackOptsBase = {
    * 仅控制 §4 emit role='user' message 这一动作。
    */
   skipFirstUserEmit?: boolean;
+  /**
+   * **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实（双方共识，lead 全链 trace + 两端
+   * 独立时序脚本复现）**：recover 路径在 `await injectResumeHistory`（summariseFn LLM oneshot
+   * 10-30s）期间，用户若在 UI 主动 close → closeImpl 调 adapter.closeSession（此刻 fresh CLI
+   * 还没起，sessions Map 无 live internal → early-return no-op）+ setLifecycle('closed')，但
+   * **不 abort 在途 recovering promise / 不加黑名单**。await resolve 后 helper 若继续 createSession
+   * 起 fresh CLI → 首条 SDK 事件过 ensure（closed && archivedAt===null && source==='sdk'）→
+   * **复活成 active**，用户显式 close 被静默反转 + 起一个用户不想要的 fresh CLI（按次计费）。
+   *
+   * 修法：recover 路径传本 thunk（`() => sessionRepo.get(sid)?.lifecycle === 'closed' || row missing`），
+   * helper 在 await **之后**、createSession **之前**重读 — 已 closed/missing → abort 不起 fresh
+   * （返 aborted:true），lifecycle 已是用户想要的 closed 无需额外回滚。重读到 createSession 之间
+   * 同步无 await，JS 单线程下 close 插不进来（无二次 TOCTOU）。
+   *
+   * **restart 路径不传本 thunk**（undefined → 不 gate）：restart 本就「先 close 再 cold restart」，
+   * 过渡态 closed 是预期，不能用「closed 则 abort」拦它。
+   */
+  isCancelledFn?: () => boolean;
 };
 
 export type JsonlFallbackOpts =
@@ -204,6 +225,14 @@ export interface JsonlFallbackResult {
    *         recoverer 走 line 500-535 原 resume createSession 路径)。
    */
   fellBack: boolean;
+  /**
+   * **R2 HIGH 修法**：recover 路径在 await injectResumeHistory 后重读 lifecycle 发现已 closed/missing
+   * （用户 await 窗口内主动 close）→ abort 不起 fresh CLI。caller 必须在判 fellBack/fall-through
+   * **之前**先检查本字段：true → 直接 return finalSessionId 静默结束（lifecycle 已是用户想要的
+   * closed，不 createSession / 不 emit / 不 fall through 到正常 resume，避免复活）。
+   * undefined/false → 正常按 fellBack 处理。restart 路径不传 isCancelledFn → 本字段恒 undefined。
+   */
+  aborted?: boolean;
 }
 
 /**
@@ -270,6 +299,20 @@ export async function maybeJsonlFallback(
     throw new Error(
       `单条消息 ${opts.prompt.length.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限，无法作为 fallback 首条 prompt。请精简或拆分发送。`,
     );
+  }
+
+  // **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法**：await injectResumeHistory（LLM
+  // oneshot 10-30s）后、createSession 前重读 lifecycle。recover 路径若用户在 await 窗口内主动
+  // close → isCancelledFn 返 true → abort 不起 fresh CLI（否则 createSession SDK 事件过 ensure
+  // closed→active 复活，静默反转用户显式 close + 起多余 fresh CLI）。lifecycle 已是用户想要的
+  // closed，abort 时不 createSession / 不 emit / 直接返 aborted:true 让 caller 静默结束。
+  // 重读到 createSession 之间同步无 await，JS 单线程下 close 插不进来（无二次 TOCTOU）。
+  // restart 路径不传 isCancelledFn（undefined）→ 不 gate（restart 本就先 close 再 cold restart）。
+  if (opts.isCancelledFn?.()) {
+    logger.warn(
+      `[sdk-bridge] recover fallback aborted: session ${opts.sessionId} closed during summary await (user close)`,
+    );
+    return { finalSessionId: opts.sessionId, fellBack: false, aborted: true };
   }
 
   // ② ctx.createSession with resumeMode='fresh-cli-reuse-app'
