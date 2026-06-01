@@ -2,7 +2,7 @@
  * Codex `~/.codex/AGENTS.md` Agent Deck 注入段管理（CHANGELOG_<X> D1，含 D5 决策实现）。
  *
  * 设计目标：让 Agent Deck 把自带的应用约定同步到 codex 一侧的 AGENTS.md，让 codex
- * 会话也能享受 Agent Deck 的项目通用约定（输出语言 / 运行时 / 决策对抗 / 等）。
+ * 会话也能享受 Agent Deck 的项目通用约定（输出语言 / 运行时 / 提示词资产维护 / 等）。
  *
  * **plan codex-handoff-team-alignment-20260518 §D5 fallback 策略（P3 Step 3.6 修法）**:
  * 内置内容源切到 `resources/codex-config/CODEX_AGENTS.md`（codex 视角约定独立维护，不再

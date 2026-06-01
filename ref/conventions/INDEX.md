@@ -4,7 +4,7 @@
 >
 > **目的**：让项目 CLAUDE.md 保持**静态**（只放设计原则 + 流程性约定），动态累积的「反复出现过的设计决定」沉淀到本目录单独维护。
 >
-> **流程**：候选放 `tally.md`，count ≥ 3 走「决策对抗」三态裁决后升级 → 新建 `<X>-<topic>.md`（X 递增整数）+ 本 INDEX 加行 + tally 删该候选条。详 `~/.claude/CLAUDE.md` §反复反馈→升级约定 节。
+> **流程**：候选放 `tally.md`，count ≥ 3 走 `agent-deck:simple-review` 三态裁决后升级 → 新建 `<X>-<topic>.md`（X 递增整数）+ 本 INDEX 加行 + tally 删该候选条。详 `resources/claude-config/CLAUDE.md` §反复反馈 / 反复踩坑 → 升级约定 节。
 
 ## 升级后约定
 
@@ -12,7 +12,7 @@
 
 | 文件 | 主题（≤ 80 字） | 升级日期 | 关联 changelog | 关联 review |
 |------|---------------|---------|--------------|------------|
-| [01-reviewer-claude-oneshot-disallow-exitplanmode.md](01-reviewer-claude-oneshot-disallow-exitplanmode.md) | 决策对抗 reviewer-claude oneshot (claude -p) 必须 `--permission-mode default` + `--disallowedTools` 含 `ExitPlanMode`；plan mode 撞 -p 非交互拒绝路径吞 finding | 2026-05-25 | — | [REVIEW_52](../reviews/REVIEW_52.md) 首踩 + [REVIEW_54](../reviews/REVIEW_54.md) 再踩 |
+| <第一条升级后填> | | | | |
 
 ## 候选状态
 

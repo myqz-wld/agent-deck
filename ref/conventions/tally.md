@@ -20,7 +20,7 @@
 2. **读本文件**，找语义相近的已有条目：
    - 找到 → `count` +1，更新 `last_at` 为今天日期
    - 没找到 → 新增条目（`count: 1`），写在对应 section
-3. **count 达到 3** → 这是「约定升级」决策，按通用 CLAUDE.md「决策对抗」节走**双对抗三态裁决**：
+3. **count 达到 3** → 这是「约定升级」决策，走 `agent-deck:simple-review` SKILL 做**三态裁决**：
    - 起两个独立异构 Agent，各自评审升级提案：措辞是否准确 / 边界是否清晰 / 与已有约定有无冲突 / 升级到哪一节最合适
    - 三态结果汇总后告诉用户「这条 [反馈/踩坑] 累计 3 次，对抗审视结论 ✅/❌/⚠️ 如下，要升级吗？」
    - 用户确认后**新建 `conventions/<X>-<topic>.md`**（X 递增整数，与 changelog/CHANGELOG_X / reviews/REVIEW_X 编号空间独立）+ 同步 [INDEX.md](INDEX.md) 加行 + 从本文件删除该条目

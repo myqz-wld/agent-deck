@@ -4,7 +4,7 @@
 >
 > **目的**：让项目 CLAUDE.md 保持**静态**（只放设计原则 + 流程性约定），动态累积的「反复出现过的设计决定」沉淀到本目录单独维护。
 >
-> **流程**：候选放 `tally.md`，count ≥ 3 走「决策对抗」三态裁决后升级 → 新建 `<X>-<topic>.md`（X 递增整数）+ 本 INDEX 加行 + tally 删该候选条。详 `resources/claude-config/CLAUDE.md` §反复反馈 / 反复踩坑 → 升级约定 节。
+> **流程**：候选放 `tally.md`，count ≥ 3 走 `agent-deck:simple-review` 三态裁决后升级 → 新建 `<X>-<topic>.md`（X 递增整数）+ 本 INDEX 加行 + tally 删该候选条。详 `resources/claude-config/CLAUDE.md` §反复反馈 / 反复踩坑 → 升级约定 节。
 
 ## 升级后约定
 

@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 > 给 Claude Code 在本仓库工作时的硬性约定。
-> 通用约定（输出 / 运行时 / 决策对抗 / 外部 CLI / 工程地基）见 `resources/claude-config/CLAUDE.md`，本文件只放**项目专属**。
+> 通用约定（输出 / 运行时 / review 对抗 / 工程地基）见 `resources/claude-config/CLAUDE.md`，本文件只放**项目专属**。
 
 ## 仓库基础
 

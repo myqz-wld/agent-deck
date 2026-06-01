@@ -23,14 +23,15 @@
 
 应用打包注入的 plugin 包（agents / skills / commands）：
 
-- `resources/claude-config/agent-deck-plugin/agents/reviewer-claude.md` / `resources/codex-config/agent-deck-plugin/agents/reviewer-codex.md` —— `deep-review` SKILL 用的两 reviewer teammate body（**两端独立 SSOT** 各自维护）
+- `resources/claude-config/agent-deck-plugin/agents/reviewer-claude.md` / `resources/codex-config/agent-deck-plugin/agents/reviewer-codex.md` —— `simple-review` / `deep-review` SKILL 共用的两 reviewer teammate body（**两端独立 SSOT** 各自维护）
+- `skills/simple-review/SKILL.md` —— 单次异构 review × 可选一轮 fix 的轻量 SKILL（**两端独立 SSOT**：claude-config + codex-config 各自维护）
 - `skills/deep-review/SKILL.md` —— 多轮异构 review × fix 收口的 SKILL（**两端独立 SSOT**：claude-config + codex-config 各自维护）
 - `skills/flow-arch-plantuml/SKILL.md` —— 核心流程 / 架构变更画 plantUML 的 SKILL（**两端独立 SSOT**：claude-config 用 Read/Write/AskUserQuestion，codex-config 用 shell/apply_patch + turn 边界）
 - `skills/hello-from-deck/SKILL.md` —— plugin 自检 SKILL（**两端独立 SSOT**：claude-config + codex-config 各自维护）
 
 设计 SSOT：
 
-- 单次决策对抗（双 Bash 起外部 CLI）走 `resources/claude-config/CLAUDE.md` §决策对抗 主路径定义
+- 单次 / 单点对抗 review 走 `agent-deck-plugin/skills/simple-review/SKILL.md`（spawn 异构 reviewer 对，单次 full_review + 可选一轮 fix）
 - 多轮深度 review 走 `agent-deck-plugin/skills/deep-review/SKILL.md` teammate 模式定义
 - mcp 15 tool 协议 + Universal Team Backend 在 `resources/claude-config/CLAUDE.md` §Agent Deck Universal Team Backend 节定义
 - reviewer body 行为契约在 `agent-deck-plugin/agents/reviewer-{claude,codex}.md`
