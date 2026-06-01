@@ -106,7 +106,7 @@ describe('archivePlanImpl — happy path', () => {
     // REVIEW_56 Batch B R1 MED-1: [9] 新增 archive-rev-parse-HEAD,worktree remove / branch -D 各 +1
     expect(state.gitCalls[9]?.args).toEqual(['rev-parse', 'HEAD']);
     expect(state.gitCalls[9]?.cwd).toBe(expectedMainRepo);
-    expect(state.gitCalls[10]?.args).toEqual(['worktree', 'remove', input.worktreePath]);
+    expect(state.gitCalls[10]?.args).toEqual(['worktree', 'remove', '--force', input.worktreePath]);
     expect(state.gitCalls[11]?.args).toEqual(['branch', '-D', 'worktree-mcp-bug-fix-20260513']);
 
     // 写归档 plan：含新 frontmatter + body 保留。
@@ -170,6 +170,59 @@ describe('archivePlanImpl — happy path', () => {
     expect(indexWrite!.content).toMatch(newRowRegex);
     // 没有重写 header(header 出现 1 次)
     expect((indexWrite!.content.match(/# Plans 索引/g) ?? []).length).toBe(1);
+  });
+
+  // ─── Follow-up #8: INDEX 概要列读 plan 正文 ## section 首行 ───
+  it('Follow-up #8: plan 正文有 ## section → INDEX 概要列用 section 首行(非 planId)', async () => {
+    const { state, input, expectedMainRepo } = fixtureHappyPath();
+    const indexPath = path.join(expectedMainRepo, 'ref', 'plans', 'INDEX.md');
+    // 覆盖默认 fixture plan 文件(无 ## section)为含 ## 总目标 section 的 plan
+    const planFilePath = `${expectedMainRepo}/.claude/plans/${input.planId}.md`;
+    state.files.set(
+      planFilePath,
+      [
+        '---',
+        `plan_id: ${input.planId}`,
+        `worktree_path: ${input.worktreePath}`,
+        'status: in_progress',
+        'base_commit: abc123',
+        '---',
+        '',
+        '# Plan title',
+        '',
+        '## 总目标',
+        '',
+        '清理遗留的 follow-up 问题并加固 MCP handlers。',
+      ].join('\n'),
+    );
+
+    const deps = makeDeps(state, [
+      `${expectedMainRepo}/.git`,
+      'wbranch',
+      '',
+      'mainhash',
+      '',
+      '',
+      'finalhash',
+      '',
+      '',
+      'archivehash',
+      '',
+      '',
+    ]);
+    const result = await archivePlanImpl(input, deps);
+    expect(_isArchivePlanError(result)).toBe(false);
+
+    const indexWrite = state.writes.find((w) => w.path === indexPath);
+    expect(indexWrite).toBeTruthy();
+    // **关键:概要列含 ## 总目标 section 首行文本,不是 planId**
+    expect(indexWrite!.content).toContain('清理遗留的 follow-up 问题并加固 MCP handlers。');
+    // 概要列(第 4 列)是 section 文本而非 planId
+    const planLine = indexWrite!.content
+      .split('\n')
+      .find((l) => l.includes(`[${input.planId}.md]`));
+    expect(planLine).toBeTruthy();
+    expect(planLine).toMatch(/清理遗留的 follow-up/);
   });
 
   it('archive-plan-tool-ux-followup-20260515 (b)+(c): planId 已在 INDEX → smart update 4 列(plansIndexAction=updated,不再跳过)', async () => {

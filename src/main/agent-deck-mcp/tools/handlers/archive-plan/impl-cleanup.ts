@@ -228,13 +228,17 @@ export async function runCleanup(
   }
 
   // 14. git worktree remove + branch -D
+  // Follow-up #6: worktree remove 带 --force。precheck 已验 worktree clean,但 precheck→实删
+  // 窗口被外部写脏时 `git worktree remove`(无 --force)会失败,hint 反而建议 --force(实现与
+  // 文案矛盾)。--force 兜底 race window 写脏,与 hint 文案 + 中止流程手动命令(user CLAUDE.md
+  // §Step 4 中止 `git worktree remove --force`)对齐。
   try {
-    await deps.runGit(['worktree', 'remove', input.worktreePath], mainRepo);
+    await deps.runGit(['worktree', 'remove', '--force', input.worktreePath], mainRepo);
   } catch (e) {
     return postFfMergeErr(
       'git-worktree-remove',
       e as Error,
-      'Worktree may have uncommitted state added between predecessor check and remove. Manually run `git worktree remove --force` and `git branch -D`.',
+      'Worktree remove failed even with --force (rare: worktree locked / nested git op / fs permission). Manually run `git worktree remove --force` and `git branch -D`.',
     );
   }
   try {
