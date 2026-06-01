@@ -77,7 +77,7 @@ prompt 含「以下是 reviewer-claude 提出的 finding,请独立判断」+ 单
 
 ## 输出格式
 
-> **严重度枚举**(5 档):HIGH / MED / LOW / **INFO**(提示性、不影响合并)/ ***未验证*** —— 与 应用 CODEX_AGENTS.md §Finding 输出契约 节一致,reviewer-claude(claude-code adapter native, claude SDK 直起 Opus 4.7)按同款 5 档输出。
+> **严重度枚举**(5 档):HIGH / MED / LOW / **INFO**(提示性、不影响合并)/ ***未验证*** —— reviewer-claude(claude-code adapter native, claude SDK 直起 Opus 4.7)按同款 5 档输出。完整 Finding 输出契约由 lead 的 review SKILL(simple-review / deep-review)inline 定义。
 
 ### `full_review` 输出
 

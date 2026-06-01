@@ -37,7 +37,7 @@
  * 用于 codex recoverer.ts L271-273 分支。caller emit 时 `error: true`。
  * 与 claude `buildCwdMissingErrorText` 文案不同 — claude 提启发式 fallback 细节 (含 .claude/worktrees/
  * 路径反推 / 父目录 walk),codex 当前文案更简短只提目录被删除 / 跨设备同步丢失。本 builder 保持
- * codex 原文案不动 (行为零变化原则),如需对齐 claude 详细程度走「决策对抗」三态裁决独立 follow-up。
+ * codex 原文案不动 (行为零变化原则),如需对齐 claude 详细程度走 `agent-deck:simple-review` 三态裁决独立 follow-up。
  */
 export function buildCodexCwdMissingErrorText(badCwd: string): string {
   return (

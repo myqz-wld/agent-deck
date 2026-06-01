@@ -19,7 +19,7 @@
  *   拆 15 个文件会让 tool description 散在 15 文件难统一对齐 handler + import 复杂度大幅增
  * - tier-1 抽法收益小:zod SHAPE / ARGS_SCHEMA 是配对定义,抽 result types 只能省 ~70 行
  * - tier-3 拆 class 不适用(本文件零 class state)
- * - 阈值调整属约定升级走「决策对抗」三态裁决,不在本批 fix 范围
+ * - 阈值调整属约定升级走 `agent-deck:simple-review` 三态裁决,不在本批 fix 范围
  *
  * 下次拆分轮直接跳过本文件;若有 design 重大变更必须重新评估再拆。
  */

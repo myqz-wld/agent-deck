@@ -13,7 +13,7 @@
 
 > **注:** 优先级链 in scope 是 claude SDK system prompt 注入的 baseline 文件之间(`settingSources: ['user',...]` 自动加载 user CLAUDE.md 作 baseline)。per-turn user message / developer message 等 SDK API 内置 prompt 类型的优先级在 SDK preset 内规定,与本节正交。**codex 视角等价 `CODEX_AGENTS.md` 因 codex SDK 加载机制不同(`~/.codex/AGENTS.md` marker 注入,无 user 通用约定全局加载机制)措辞不同是 adapter 差异不是 SSOT drift,维护时不要强行对齐两端**。
 
-**加载范围**:本文件总是随应用打包注入到 SDK system prompt 末尾。`settingSources: ['user','project','local']` 的交互式 SDK 会话同时加载 user CLAUDE.md;`settingSources: []` 的内部 oneshot（如间歇总结）不加载 user CLAUDE.md,**本文件 self-contained 包含所需工程实践 inline**(§决策对抗 / §核心流程架构变更必走 plantUML / §复杂 plan workflow / §新项目工程地基)。
+**加载范围**:本文件总是随应用打包注入到 SDK system prompt 末尾。`settingSources: ['user','project','local']` 的交互式 SDK 会话同时加载 user CLAUDE.md;`settingSources: []` 的内部 oneshot（如间歇总结）不加载 user CLAUDE.md,**本文件 self-contained 包含所需工程实践 inline**(§核心流程架构变更必走 plantUML / §复杂 plan workflow / §新项目工程地基 / §提示词资产维护)。
 
 ## 应用环境特有能力（不依赖 user CLAUDE.md）
 
@@ -48,80 +48,7 @@
 
 ### reviewer-codex 失败 → SKILL 内合规兜底分支
 
-`deep-review` SKILL 内若 reviewer-codex teammate 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort），lead 走 Bash `{{AGENT_DECK_RESOURCES}}/templates/reviewer-codex.sh.tmpl` 起外部 codex CLI 仍构成异构对（详 SKILL.md §失败兜底 表第 1 行）。**严禁**自动降级到同源双 Claude（破坏异构对抗原则）。
-
----
-
-## 决策对抗
-
-下结论 / 出 plan 前必做。
-
-**适用范围**（任一即触发）：
-- 给代码下定性判断：bug / 优化 / code review / 安全 / 架构 / 根因
-- 出执行计划（plan）
-- 重要技术选型 / 重构方向决策
-- **例外**：trivial 改动（typo / 样式数值 / 单点 rename / 显然措辞修订）
-
-**场景分流**：
-
-| 场景 | 走哪条 | 不能反过来 |
-|---|---|---|
-| **单次决策对抗**（1-2 个问题就够：单点判定 / plan 评审）| 本节 §主路径 双 Bash 起外部 CLI —— 同 message 并发起两个外部 CLI 进程 | 多轮 review 别走本路：fresh per turn 丢 in-memory state，反驳轮没自己上轮推理链反驳质量崩 |
-| **多轮深度 review**（多轮 review × fix 循环 + 反驳轮 + focus 切片）| 应用环境若提供多轮 review 编排能力（teammate / SKILL 模式）则走之；否则降级为多次单点对抗（每次跑双 Bash），跨轮 mental model 丢失，反驳轮无法引用自己 R_N 推理链 | 单次决策对抗别走多轮编排：teammate 编排开销大无收益 |
-
-### 主路径：双 Bash 起异构外部 CLI
-
-**操作**：在同一 message 里并发起两个 Bash 调用，分别拿独立 stdout：
-
-1. reviewer-claude 走 `zsh -i -l -c "claude -p ..."`（外部 Claude Code 进程，oneshot print mode）—— 模板：`{{AGENT_DECK_RESOURCES}}/templates/reviewer-claude.sh.tmpl`
-2. reviewer-codex 走 `zsh -i -l -c "codex exec ..."`（外部 codex CLI 进程，oneshot exec mode）—— 模板：`{{AGENT_DECK_RESOURCES}}/templates/reviewer-codex.sh.tmpl`
-
-> ⚠️ 这两份 `.sh.tmpl` 是 **Bash oneshot 起外部 CLI 用**（本节 §主路径单次决策对抗）；与 SDK 内可能挂载的同名 `reviewer-{claude,codex}` agent body（teammate 模式，跨轮 context 持久化、属环境专属编排）是**两套独立物件**，不要混用：单次决策对抗用本节 .sh.tmpl，多轮深度 review 走环境提供的 SKILL teammate 模式（如有）。
-
-两个进程完全独立（互不知道对方存在 / 不沟通）→ 各自 stdout 回到主 agent → 主 agent 做三态裁决。
-
-#### 外部 CLI 对抗 Agent 通用姿势
-
-任何外部 CLI 当对抗 Agent 都遵循：
-
-- **登录式 shell 包外层**（macOS：`zsh -i -l -c "..."`），否则缺 brew / nvm / path_helper PATH
-- **强制非交互模式**（`-p` / `exec` / `--non-interactive` / `--batch`）
-- **进程级只读约束**（codex 用 `--sandbox read-only --skip-git-repo-check`；claude 用 `--permission-mode default` + `--disallowedTools 'Edit,MultiEdit,Write,NotebookEdit,ExitPlanMode'` + `--allowedTools` 只读白名单）—— **完整 flag 以 `.sh.tmpl` 模板为准**（模板注释含 plan-mode 吞 finding 陷阱：plan mode 下 `-p` 非交互会强制 ExitPlanMode 审批无人可批 → finding 被吞，REVIEW_52/54 双踩坑）
-- **显式传项目绝对路径**（`-C` / `--cwd` / `--workdir`）
-- **分离最终答案与日志**：codex 用 `-o <FILE>`；claude 用 stdout 重定向 `> <FILE>`
-- **reasoning effort 取最高档**（review / plan / 探索类用最高档；简单 yes/no 核查可临时降档省时间，但**宁可慢别错**）
-- **长 prompt 走 stdin**（避免 argv 长度 / shell 转义陷阱），prompt 里**写死要读的文件绝对路径**，不让 CLI 自由 grep / explore
-- **后台并发 + 等 task-notification**：Bash 工具用 `run_in_background: true`，让两个 CLI 真并发跑
-- **超时只走 Bash 工具的 `timeout` 参数**（命令体内绝不写 `timeout` / `gtimeout`）。重 review 给 5-10 分钟（300000-600000 ms）
-- **大 scope 拆批**：单批 ≤ 10 文件 / prompt ≤ 30 行；超出按主题拆批 + `run_in_background` 并发；卡住 `TaskStop` 后再拆更小批，不要傻等（详 `{{AGENT_DECK_RESOURCES}}/SOPs/codex-cli-stuck-lessons.md`）
-
-### 反驳轮 + 三态裁决
-
-**反驳轮**：单方独有 + HIGH 候选 → spawn 对方 reviewer 反驳一次（保持异构），反驳 prompt 明禁「借机提其他 finding」专注单点。反驳后主 agent 推到 ✅ / ❌ / 仍 ❓ → 必要时主 agent 自己现场验证（**单 finding ≤ 5min / ≤ 5 次 grep / ≤ 1 个 test，超就降级非 HIGH 不再纠缠**）。
-
-**三态裁决**（每条 finding）：
-- ✅ **真问题**（HIGH 必须满足 ≥1 个验证条件）：「**双方独立提出**」（异构强冗余即算验证）**或**「**一方提出且现场实践验证成立**」（grep 出 N 处证据 / 写小 test 复现挂掉 / 跑命令确认）→ 必修
-- ❌ **反驳**：被对抗或现场核实证伪 → 不修，记反驳依据
-- ❓ **部分 / 未验证**：双方角度不同 / 一方提出但纯文本推理（含弱断言）尚未实践验证 → 综合后决定
-
-**单方独有分流**：HIGH → 反驳轮；MED → 主 agent 自己验证；LOW/INFO → 直接 ❓。双方都说没问题 → ✅ 可合。
-
-### Finding 输出契约（reviewer prompt + 三态裁决 + REVIEW.md 共用）
-
-每条 finding 必须带：
-- `文件:行号` + 代码 / 原文片段（≤ 6 行）
-- **验证手段**（如 "grep 出 3 处全无 null check" / "写 stateful mock 模拟双 disconnect 实测 abort 0 次"）
-- 严重度分组：HIGH / MED / LOW / INFO（提示性、不影响合并）/ *未验证*
-
-**强制约束**：
-- 空泛 finding + 没验证 = 直接降 ❓ 或 ❌
-- **任何 ✅ HIGH 都必须落到上述两个验证条件之一**（双方独立 / 单方 + 现场验证）
-- 弱断言关键词（"可能 / 也许 / 看起来 / 应该 / 大概"）**只允许**出现在标注 *未验证* 的条目里 (注:reviewer-{claude,codex}.md §核心纪律 inline 重复此列表是设计意图 — reviewer agent body 独立注入 SDK,不依赖本文件 baseline 加载顺序,维护时不要按「冗余必合并」规则去抽 SSOT)
-- 未验证强制降级为非 HIGH
-
-### reviewer-codex 失败兜底
-
-reviewer-codex CLI 失败（二进制缺失 / OAuth 过期 / 超时 / `$OUT` 空）→ 提示用户决策：等恢复 / 单方 reviewer-claude 出结论 / 稍后重试 / abort。invariant「严禁同源双 Claude」+ 合规兜底分支详 §应用环境特有能力 §reviewer-codex 失败 → SKILL 内合规兜底分支 节。
+`simple-review` / `deep-review` SKILL 内若 reviewer-codex teammate 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort），lead `shutdown_session` 掉失败的 reviewer-codex → `spawn_session({adapter:'codex-cli', agentName:'reviewer-codex', ...})` 重 spawn 一个，与未动的 reviewer-claude teammate 仍构成异构对（详 SKILL.md §失败兜底 表第 1 行）。**严禁**自动降级到同源双 Claude（破坏异构对抗原则）。
 
 ---
 
@@ -218,7 +145,7 @@ Step 4    §plan 完成 / 中止 cleanup
 - 不变量 / 边界条件 inline 到 plan §不变量节
 - 不确定项标注 *待 spike 验证* 留 Step 0.5
 
-> 与 §决策对抗 正交：RFC = design 大方向对齐（与用户讨论）；决策对抗 = 结论评审（双 Bash 起异构 CLI 单次 review）。RFC 后仍可叠加决策对抗。
+> 与 review 对抗正交：RFC = design 大方向对齐（与用户讨论）；review 对抗 = 结论评审（`agent-deck:simple-review` 单次 / `agent-deck:deep-review` 多轮）。RFC 后仍可叠加 review 对抗。
 
 ### Step 0.5. Spike 前置（实测 SDK / lib 行为验证假设）
 
@@ -239,7 +166,7 @@ Step 4    §plan 完成 / 中止 cleanup
 - 残留风险列表入 plan §已知踩坑
 - **归档**：spike 产物（spike md + runner + .log trace）写作期落 `<plan-artifact-dir>/spike-reports/`；plan 完成时按 §Step 4 完成节 step 3 一起 mv 到 `<main-repo>/ref/plans/<plan-id>/spike-reports/`，成为归档 plan .md 的同名 artifacts 目录并入 git（design 决策溯源 evidence 永久保留）
 
-> 与 §决策对抗 正交：spike = 实测假设（单 runner 跑 SDK）；决策对抗 = 评审结论。两者可叠加。
+> 与 review 对抗正交：spike = 实测假设（单 runner 跑 SDK）；review 对抗 = 评审结论。两者可叠加。
 
 ### Step 1. Plan 文件 hand off（时间隔离）
 
@@ -277,9 +204,9 @@ Step 4    §plan 完成 / 中止 cleanup
 - 若 review 出 HIGH design 缺陷 → 回到 Step 0 RFC / Step 0.5 spike 重新对齐
 - 若 0 HIGH 0 真 MED → 进 Step 2 EnterWorktree
 
-**与 §决策对抗 关系**：本 Step 1.5 = 复杂 plan 内嵌的多轮深度 review；§决策对抗 主路径是单次决策对抗（双 Bash 起外部 CLI）。复杂 plan 走多轮 SKILL 编排，单次决策走主路径。
+**与 review SKILL 关系**：本 Step 1.5 = 复杂 plan 内嵌的多轮深度 review（`agent-deck:deep-review`）；单点 / 单次评审走 `agent-deck:simple-review`。复杂 plan 走多轮 SKILL 编排，单次决策走 simple-review。
 
-> ⚠️ **没有应用环境提供 deep-review SKILL 时**：降级为 §决策对抗 主路径单次 review（双 Bash 起外部 CLI，模板 `{{AGENT_DECK_RESOURCES}}/templates/reviewer-{claude,codex}.sh.tmpl`），仅评审 plan 文件本身（不含多轮 fix loop）。这是 fallback 不是替代,有应用 SKILL 优先用 SKILL。
+> ⚠️ **没有应用环境提供 deep-review SKILL 时**：降级为 `agent-deck:simple-review` 单次评审 plan 文件本身（不含多轮 fix loop）；连 simple-review 也无（MCP 关）→ 人审。这是 fallback 不是替代，有应用 SKILL 优先用 SKILL。
 
 ### Step 2. EnterWorktree（空间隔离 — user confirm 后才进）
 
@@ -577,7 +504,7 @@ dist/
 
 ### 多轮 Deep-Review 收口经验
 
-> 与 §决策对抗 §反驳轮 + 三态裁决 正交：那节定义 per-finding ✅/❌/❓ 三态裁决；本节定义**整 review session 何时 conclude** 的判定 + 反驳轮自纠机制 + fix 后同步纪律。适用任何走多轮异构对抗的 review session（典型应用环境 deep-review SKILL）。
+> 与 `agent-deck:simple-review` / `agent-deck:deep-review` §反驳轮 + 三态裁决 正交：那两个 SKILL 各自 inline per-finding ✅/❌/❓ 三态裁决；本节定义**整 review session 何时 conclude** 的判定 + 反驳轮自纠机制 + fix 后同步纪律。适用任何走多轮异构对抗的 review session（典型应用环境 deep-review SKILL）。
 
 **双方共识收口判定**：收口条件 = **双方 reviewer 在最后一轮明示「同意 conclude」** + 0 HIGH/MED finding（LOW/INFO 留 follow-up plan）。**单方收口不算**（漏审风险，典型 R1 一方漏审某维度，另一方在 R2 抓出 HIGH-1 仍需 fix 才能合）。
 
@@ -596,9 +523,37 @@ dist/
 | **用户反馈**（`# 用户反馈候选`） | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 |
 | **Agent 踩坑**（`# Agent 踩坑候选`） | Coding Agent 在 review / 修 bug 时**自己**发现踩了同类坑（典型：try/finally 漏 cleanup / TOCTOU / N+1 查询 / async listener 不被 await） |
 
-**流程**：找语义相近条目 → `count` +1 + 更新 `last_at`；没找到 → 新增（`count: 1`）。**count = 3** → 走「决策对抗」三态裁决，结论告诉用户后**新建** `ref/conventions/<X>-<topic>.md`（X 递增）+ 同步 `ref/conventions/INDEX.md` 加行 + 从 tally 删该条。count < 3 → 静默更新。
+**流程**：找语义相近条目 → `count` +1 + 更新 `last_at`；没找到 → 新增（`count: 1`）。**count = 3** → 走 `agent-deck:simple-review` 评审升级提案（三态裁决），结论告诉用户后**新建** `ref/conventions/<X>-<topic>.md`（X 递增）+ 同步 `ref/conventions/INDEX.md` 加行 + 从 tally 删该条。count < 3 → 静默更新。
 
 **边界**：不计一次性请求 / trivial 反馈；用户反馈必须是工程偏好 / 设计取舍 / 工作流偏好；Agent 踩坑必须是模式化问题。30 天未更新且 count < 3 → 下次扫描可清理。
+
+
+## 提示词资产维护
+
+**适用范围**：长生命周期 prompt 资产 —— 本应用环境内即 `resources/claude-config/CLAUDE.md`（本文件）/ `resources/codex-config/CODEX_AGENTS.md` / `agent-deck-plugin/agents/reviewer-{claude,codex}.md` / `agent-deck-plugin/skills/*/SKILL.md` / 注入 SDK 的 mcp tool description / `resources/templates/` 模板。一次性 prompt（spawn 时临时拼的 reviewer prompt / hand-off cold-start prompt）**不在本节**。
+
+**何时适用**：改上述任一资产前必走 §修改前自检；新增资产文件同样适用。**何时不适用**：业务代码（src/ 下）注释 / 一次性 prompt / 历史快照（ref/changelogs/ ref/reviews/ ref/plans/ 写定不改）。
+
+### 5 条硬约束
+
+1. **信息密度优先**：一段 = 一个判断；多处出现同款规则抽到一处，其他位置只 cross-ref 不复制；通读后 `grep '<关键短语>' <资产>` 命中 ≥ 2 处即冗余必合并（**例外**：reviewer-{claude,codex}.md §核心纪律 / SKILL inline 纪律 是有意独立注入 SDK 的 self-contained 副本，不按本约束抽 SSOT）
+2. **当前事实，不写兼容 / 预测**：禁「兼容旧 X / 过渡期 Y / 老版本仍可用 / 未来可能 X / TODO / FUTURE / 后续会加 Z」；废弃功能 / 字段 / 方法直接删不留 deprecated 注释；**例外**：「不要 X 因为以前撞过 Y」这种行为锚点（保留单点理由，如 EnterWorktree stale base bug callout）
+3. **可执行性 > 描述性**：写「做 X / 违反 X 直接拒绝 / 失败兜底走 Y」；不写「建议 X / 可以 X / 最好 X / 应该考虑 X」；模糊副词（"通常 / 一般 / 大概"）必须配「但 X 时例外」具体边界
+4. **范围与失败兜底显式**：每条约定写「何时适用 / 何时不适用 / 命中时做什么 / 失败兜底走哪」；没范围 = 默认全场景 = 易过度推广
+5. **示例克制**：一条规则一两个最具说明性示例足够；重复示例（"如：X / Y / Z" 中 Y/Z 与 X 同款）删 Y/Z；反例至少给一个具体样本
+
+### 修改前自检（按约束顺序 5 步，任一阻断必改完再 commit）
+
+1. **约束 1 自检**：`grep '<关键短语>' <file>` 命中 ≥ 2 → 合并到一处其他位置 cross-ref（reviewer body / SKILL inline 副本除外）
+2. **约束 2 自检**：`grep -nE '兼容|FUTURE|TODO|未来|向后|deprecated|过渡期|后续会加|老版本' <file>` 命中 ≥ 1 → 删（meta 引用 / 行为锚点反例除外，需在 commit message 注明）
+3. **约束 3 自检**：`grep -nE '建议|应该考虑|最好|可以(用|走|考虑)|大概率?|通常|一般' <file>` 命中 → 改成「做 X / 违反直接拒绝」可执行动作，或配「但 X 时例外」具体边界
+4. **约束 4 自检**：通读节标题清单，每节有无「何时适用 / 失败走哪」？无则补
+5. **约束 5 自检**：`grep -nE '如[:：]|例如|比如' <file>` 命中后看示例数 ≥ 3 → 与首示例同款的删
+
+### 失败兜底
+
+- 自检 grep 工具不可用 / 阈值假阳性 → 降级人工 review，不阻断 commit；commit message 注明「跳过自检 §N，理由：X」
+- 同款假阳性连续 ≥ 3 次 → 修订本节阈值或黑名单
 
 
 ## Agent Deck Universal Team Backend
