@@ -1,6 +1,7 @@
 import { type JSX, useState } from 'react';
 import type { AppSettings } from '@shared/types';
 import { Section } from '../controls';
+import { LogViewerModal } from './LogViewerModal';
 
 interface Props {
   settings: AppSettings;
@@ -26,14 +27,14 @@ const LEVEL_OPTIONS: { value: LogLevel; label: string; description: string }[] =
  *   file transport, console 永远 silly 保 dev terminal 全输出 — D4 修订; IPC SettingsSet
  *   handler 调 applyLogLevel(next.logLevel) 即改即生效 — Step 3.1.3)
  * - 打开日志目录按钮 — main 端 shell.openPath(app.getPath('logs'))
- * - 在 Finder 中显示当前日志按钮 — main 端 shell.showItemInFolder(main-YYYY-MM-DD.log);
- *   文件不存在时 fallback 退化为 openPath LOG_DIR (UI 透明无感, 防 macOS showItemInFolder
- *   不存在路径行为不可靠)
+ * - 查看日志按钮 — 打开应用内 Monaco 只读 modal 展示当天 main-YYYY-MM-DD.log
+ *   (window.api.logsReadToday(); 文件不存在 → 空态; > 2MB → 尾部 2MB + truncated banner)
  * - 清空今天日志按钮 — main 端 fs.truncateSync 当天 log 文件; 文件不存在时弹 toast「今天还
  *   没有日志可清空」
  */
 export function LogsSection({ settings, update }: Props): JSX.Element {
   const [toast, setToast] = useState<{ msg: string; kind: 'info' | 'error' } | null>(null);
+  const [logOpen, setLogOpen] = useState(false);
 
   function flashToast(msg: string, kind: 'info' | 'error' = 'info'): void {
     setToast({ msg, kind });
@@ -44,17 +45,6 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
     const res = await window.api.logsOpenDirectory();
     if (!res.ok) {
       flashToast(`打开失败: ${res.error ?? 'unknown'}`, 'error');
-    }
-  }
-
-  async function handleShowCurrentInFinder(): Promise<void> {
-    const res = await window.api.logsShowCurrentInFinder();
-    if (!res.ok) {
-      flashToast(`显示失败: ${res.error ?? 'unknown'}`, 'error');
-      return;
-    }
-    if (res.fallback) {
-      flashToast('今天还没有日志文件,已打开日志目录');
     }
   }
 
@@ -97,10 +87,10 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
           </button>
           <button
             type="button"
-            onClick={() => void handleShowCurrentInFinder()}
+            onClick={() => setLogOpen(true)}
             className="flex-1 rounded bg-white/10 px-2 py-1 text-[11px] text-deck-text hover:bg-white/20"
           >
-            在 Finder 中显示
+            查看日志
           </button>
         </div>
         <button
@@ -129,6 +119,8 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
         <code className="rounded bg-white/5 px-1">%APPDATA%/Agent Deck/logs/</code> (Win) /
         <code className="rounded bg-white/5 px-1">~/.config/Agent Deck/logs/</code> (Linux).
       </div>
+
+      <LogViewerModal open={logOpen} onClose={() => setLogOpen(false)} />
     </Section>
   );
 }

@@ -330,6 +330,7 @@ pnpm dist            # 出 dmg + .app
   - Windows：`%USERPROFILE%\AppData\Roaming\Agent Deck\logs\`
   - Linux：`~/.config/Agent Deck/logs/`
 - **设置面板「会话 → 日志级别」** 调 file transport 级别（`error` / `warn` / `info` / `verbose` / `debug` / `silly`，默认 `info`），即改即生效；console transport 永远 `silly` 不变（dev terminal 看全部输出）
+- **设置面板「会话 → 日志」操作按钮**：打开日志目录 / 查看日志（应用内 Monaco 只读 modal 展示当天 `main-YYYY-MM-DD.log`，> 2MB 仅显尾部 2MB）/ 清空今天日志
 - **业务模块用法**：
   - main：`import log from '@main/utils/logger'; const logger = log.scope('<kebab-name>'); logger.info(...);`
   - renderer：`import log from '@renderer/utils/logger'; const logger = log.scope('<kebab-name>'); logger.info(...);`（自动经 IPC bridge 转发到 main 落同一文件）

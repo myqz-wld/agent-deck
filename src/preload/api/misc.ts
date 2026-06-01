@@ -186,11 +186,18 @@ export const miscApi = {
   logsOpenDirectory: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IpcInvoke.LogsOpenDirectory),
   /**
-   * Settings LogsSection 「在 Finder 中显示当前日志」 — main 端调 shell.showItemInFolder
-   * 选中今天 main-YYYY-MM-DD.log; 文件不存在 fallback 退化为 openPath LOG_DIR (UI 透明无感).
+   * Settings LogsSection 「显示日志」 — main 端读当天 main-YYYY-MM-DD.log 文本供应用内
+   * Monaco 只读查看; 文件不存在返 { ok:true, existed:false }; 文件 > 2MB 返尾部 2MB + truncated:true.
    */
-  logsShowCurrentInFinder: (): Promise<{ ok: boolean; fallback?: boolean; error?: string }> =>
-    ipcRenderer.invoke(IpcInvoke.LogsShowCurrentInFinder),
+  logsReadToday: (): Promise<{
+    ok: boolean;
+    existed: boolean;
+    content?: string;
+    truncated?: boolean;
+    size?: number;
+    path?: string;
+    error?: string;
+  }> => ipcRenderer.invoke(IpcInvoke.LogsReadToday),
   /**
    * Settings LogsSection 「清空今天日志」 — main 端 fs.truncate 当天 log 文件; 文件不存在返
    * `{ ok: true, existed: false }` 让 UI 弹「今天还没有日志可清空」toast.

@@ -2,9 +2,10 @@
  * Runtime logging IPC handlers — Settings LogsSection 后端 (Plan runtime-logging-electron-log-20260529 §D9 §Step 3.2.5).
  *
  * 3 个 typed handler (Settings LogsSection):
- * - LogsOpenDirectory       打开整个 logs 目录 (shell.openPath)
- * - LogsShowCurrentInFinder 选中今天的 main-YYYY-MM-DD.log (fallback: 文件不存在 → openPath)
- * - LogsTruncateToday       清空当天 log 文件 (fallback: 文件不存在 → 返 false 让 UI 弹 toast)
+ * - LogsOpenDirectory  打开整个 logs 目录 (shell.openPath)
+ * - LogsReadToday      读当天 main-YYYY-MM-DD.log 文本供应用内 Monaco 只读查看
+ *                      (fallback: 文件不存在 → existed:false 让 UI 显空态; 文件 > 2MB → 读尾部 2MB + truncated:true)
+ * - LogsTruncateToday  清空当天 log 文件 (fallback: 文件不存在 → 返 false 让 UI 弹 toast)
  *
  * 1 个 fire-and-forget event listener (Plan §Step 3.2.6 follow-up, CHANGELOG_179 方案 2):
  * - PreloadFatalError       preload 端 contextBridge.exposeInMainWorld 失败时上报落 logger
@@ -18,6 +19,9 @@ import { on } from './_helpers';
 
 const logger = log.scope('ipc-logs');
 
+/** 应用内 Monaco 查看的 tail cap: 当天 log 正常 ≤1MB (electron-log maxSize rotate), 防御性 2MB 上限. */
+const LOG_READ_TAIL_CAP = 2 * 1024 * 1024;
+
 /** 与 logger.ts §D3 todayStr() 同款本地时区 YYYY-MM-DD. */
 function todayLogFile(): string {
   const now = new Date();
@@ -25,6 +29,19 @@ function todayLogFile(): string {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   return path.join(app.getPath('logs'), `main-${y}-${m}-${d}.log`);
+}
+
+/** lstat 拒 symlink (不 follow), 与 LogsTruncateToday 同源防护: filePath 恒在 logs dir 内,
+ *  唯一攻击面是当天 log 文件被换成 symlink → 读/清会 follow 到任意同权限文件. */
+function refuseSymlink(filePath: string): { ok: false; error: string } | null {
+  try {
+    if (fs.lstatSync(filePath).isSymbolicLink()) {
+      return { ok: false, error: 'refusing to read a symlink at the log path' };
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  return null;
 }
 
 export function registerLogsIpc(): void {
@@ -39,23 +56,57 @@ export function registerLogsIpc(): void {
     return { ok: true };
   });
 
-  // 在 Finder 中显示当前日志 (D9 fallback: 文件不存在 → openPath LOG_DIR)
-  on(IpcInvoke.LogsShowCurrentInFinder, async (): Promise<{ ok: boolean; fallback?: boolean; error?: string }> => {
-    const filePath = todayLogFile();
-    if (!fs.existsSync(filePath)) {
-      // fallback: 当天 log 还没写过 → 退化为打开整个 logs 目录, 避免 macOS showItemInFolder 不存在
-      // 路径行为不可靠 (实测可能弹「找不到该项目」对话框)
-      const dir = app.getPath('logs');
-      const err = await shell.openPath(dir);
-      if (err) {
-        logger.warn('LogsShowCurrentInFinder fallback openPath failed', err);
-        return { ok: false, fallback: true, error: err };
+  // 读当天日志供应用内 Monaco 只读查看 (D9 fallback: 文件不存在 → existed:false; > 2MB → tail cap)
+  on(
+    IpcInvoke.LogsReadToday,
+    async (): Promise<{
+      ok: boolean;
+      existed: boolean;
+      content?: string;
+      truncated?: boolean;
+      size?: number;
+      path?: string;
+      error?: string;
+    }> => {
+      const filePath = todayLogFile();
+      if (!fs.existsSync(filePath)) {
+        return { ok: true, existed: false, path: filePath };
       }
-      return { ok: true, fallback: true };
-    }
-    shell.showItemInFolder(filePath); // void return, 失败 macOS 静默 (无 promise)
-    return { ok: true };
-  });
+      const sym = refuseSymlink(filePath);
+      if (sym) return { ...sym, existed: true, path: filePath };
+      try {
+        const size = fs.statSync(filePath).size;
+        if (size <= LOG_READ_TAIL_CAP) {
+          const content = fs.readFileSync(filePath, 'utf-8');
+          return { ok: true, existed: true, content, truncated: false, size, path: filePath };
+        }
+        // > 2MB: 只读尾部 LOG_READ_TAIL_CAP 字节 (日志尾部=最新, 用户最关心), 标 truncated
+        const fd = fs.openSync(filePath, 'r');
+        try {
+          const buf = Buffer.alloc(LOG_READ_TAIL_CAP);
+          const read = fs.readSync(fd, buf, 0, LOG_READ_TAIL_CAP, size - LOG_READ_TAIL_CAP);
+          return {
+            ok: true,
+            existed: true,
+            content: buf.subarray(0, read).toString('utf-8'),
+            truncated: true,
+            size,
+            path: filePath,
+          };
+        } finally {
+          fs.closeSync(fd);
+        }
+      } catch (err) {
+        logger.warn('LogsReadToday read failed', err);
+        return {
+          ok: false,
+          existed: true,
+          path: filePath,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
 
   // 清空当天日志 (D9 fallback: 文件不存在 → 返 false 让 UI 弹 toast)
   on(IpcInvoke.LogsTruncateToday, async (): Promise<{ ok: boolean; existed: boolean; error?: string }> => {

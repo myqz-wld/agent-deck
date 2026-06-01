@@ -150,9 +150,9 @@ export const IpcInvoke = {
   // ─────────── Runtime Logging (Plan runtime-logging-electron-log-20260529 §D9 §Step 3.2) ───────────
   /** Settings LogsSection 「打开日志目录」 — shell.openPath(app.getPath('logs')). */
   LogsOpenDirectory: 'logs:open-directory',
-  /** Settings LogsSection 「在 Finder 中显示当前日志」 — shell.showItemInFolder(main-YYYY-MM-DD.log);
-   * fallback: 文件不存在时退化为 shell.openPath(LOG_DIR) 打开整个 logs 目录. */
-  LogsShowCurrentInFinder: 'logs:show-current-in-finder',
+  /** Settings LogsSection 「显示日志」 — 读当天 main-YYYY-MM-DD.log 文本供应用内 Monaco 只读查看;
+   * 文件不存在返 { ok:true, existed:false }; 文件 > 2MB 读尾部 2MB + truncated:true (防 Monaco/IPC 撑爆). */
+  LogsReadToday: 'logs:read-today',
   /** Settings LogsSection 「清空今天日志」 — truncate main-YYYY-MM-DD.log; fallback: 文件不存在
    * 时 no-op + 返回 false 让 UI 弹 toast「今天还没有日志可清空」. */
   LogsTruncateToday: 'logs:truncate-today',
