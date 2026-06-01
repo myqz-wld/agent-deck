@@ -150,7 +150,10 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   };
 
   return (
-    <div className="frosted-frame fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    // 根 div 不能叠 .frosted-frame：其 unlayered `position:relative` 会顶掉 Tailwind `@layer
+    // utilities` 里的 `.fixed{position:fixed}`（CSS 级联 unlayered > layered），令 overlay 退回
+    // 文档流而非相对 viewport 全屏。overlay 只需半透明遮罩 + 模糊。详见 LogViewerModal 顶部注释。
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <div className="flex max-h-[90vh] w-[640px] flex-col rounded-lg bg-deck-bg shadow-xl">
         <div className="flex items-center justify-between border-b border-deck-border px-4 py-2">
           <h2 className="text-sm font-medium text-deck-text">起新会话解决问题</h2>
