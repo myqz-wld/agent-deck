@@ -34,6 +34,16 @@ export function LifecycleSection({ settings, update }: Props): JSX.Element {
         min={0}
         onChange={(v) => void update({ historyRetentionDays: v })}
       />
+      {/* plan resume-inject-raw-messages-20260601 §D5：断连恢复（jsonl 丢失走 fresh CLI/thread）
+          时除 LLM 总结外额外注入的最近原始对话消息条数。与 historyRetentionDays 同属「会话历史 /
+          恢复」语义，挂同 section 让用户一站式找到。预算式拼接 → 实际注入条数 ≤ 设定值（长会话
+          优先保最新对话不撑爆单条上限）。min=1：原始对话段是注入底线，0 会让整段注入退化无意义。 */}
+      <NumberInput
+        label="断连恢复注入对话条数"
+        value={settings.resumeRecentMessagesCount}
+        min={1}
+        onChange={(v) => void update({ resumeRecentMessagesCount: v })}
+      />
       {/* plan issue-tracker-mcp-20260529 §Step 3.9 §D13 GC 阈值：与 historyRetentionDays 同款
           GC 性质,挂同 section 让用户一站式找到所有 GC 阈值（IssueLifecycleScheduler 6h tick） */}
       <NumberInput

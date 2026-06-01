@@ -48,6 +48,11 @@ const REMOVED_KEYS: readonly string[] = [
   // — 简洁 design,user 在新 UI 重选 provider=codex 后再填 model id。
   'codexSummaryModel',
   'codexHandOffModel',
+  // plan resume-inject-raw-messages-20260601 §不变量 7：删 autoSummariseOnFallback toggle。
+  // UI toggle 早删（plan prancy-forging-penguin），字段保留 default:true 当孤儿 zombie；本 plan
+  // 把 fallback 路径改成无条件注入历史（DB 有历史就注 — 删死分支 `if (!autoSummariseOnFallback)`），
+  // 字段进 REMOVED_KEYS 清历史持久化孤儿。
+  'autoSummariseOnFallback',
 ];
 
 let store: (Store<AppSettings> & StoreApi<AppSettings>) | null = null;

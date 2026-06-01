@@ -176,6 +176,22 @@ export type SummariseFnThunk = (
 export type ListEventsFnThunk = (sessionId: string) => AgentEvent[];
 
 /**
+ * **plan resume-inject-raw-messages-20260601 §D5 修法**:
+ * message-only 来源 thunk(test seam)。facade 内部转发给 protected
+ * listRecentMessagesForSession 方法,默认走 `eventRepo.listRecentMessages`。
+ *
+ * 让 jsonl-fallback helper(injectResumeHistory)拼「最近原始对话消息段」与 recoverer
+ * 主路径共享同款 facade extend override 模式(避免双处 hardcode eventRepo 漂移)。
+ * 第二参 limit = recentMessagesCount,第三参 beforeIdInclusive 由 injectResumeHistory 从
+ * maxEventIdFn 拿到后传入(排除 entry emit 的当前消息)。
+ */
+export type ListRecentMessagesFnThunk = (
+  sessionId: string,
+  limit: number,
+  beforeIdInclusive?: number,
+) => (AgentEvent & { id: number })[];
+
+/**
  * `findFallbackCwd` thunk — facade extend override 注入点。
  *
  * recoverAndSend impl 通过本 thunk 调用 facade.findFallbackCwd protected method（test
@@ -213,6 +229,11 @@ export interface RecoverAndSendDeps {
   readonly cwdExistsThunk: CwdExistsThunk;
   readonly summariseFn: SummariseFnThunk;
   readonly listEventsFn: ListEventsFnThunk;
+  /**
+   * **plan resume-inject-raw-messages-20260601 §D5**: message-only thunk，helper
+   * injectResumeHistory 拼「最近原始对话消息段」用（与 listEventsFn 全量数据源并列双数据源）。
+   */
+  readonly listMessagesFn: ListRecentMessagesFnThunk;
   readonly findFallbackCwdThunk: FindFallbackCwdThunk;
   readonly emitFallbackMessageThunk: EmitFallbackMessageThunk;
   /**

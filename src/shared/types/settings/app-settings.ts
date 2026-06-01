@@ -169,6 +169,19 @@ export interface AppSettings {
    */
   historyRetentionDays: number;
   /**
+   * resume/fallback 注入「最近原始对话消息」条数（plan resume-inject-raw-messages-20260601 §D5）。
+   *
+   * jsonl-missing fallback 起 fresh CLI/thread 之前，除 LLM 总结段外**额外注入** DB（events 表）
+   * 最近 N 条原始 role/text 对话消息（让 Agent 续聊不只看压缩总结，还看到原始上下文细节）。
+   * - 正数：注入最近 N 条对话（user/assistant message-only，预算式拼接逐条加到逼近 maxLength
+   *   预算就停，故实际条数 ≤ N — 长会话优先保最新对话不撑爆 102_400 单条上限）。
+   * - default 30：30 条对话扣总结约占 95900 预算，平均每条 ≤3196 字符即 fit（§架构地基）。
+   *
+   * 即改即生效：消费者（claude/codex fallback 路径）每次 fallback 触发临时 settingsStore.get，
+   * 无 cache 需 invalidate；不影响正常 resume 路径（jsonl 在 → CLI 自续 jsonl，Agent 看完整对话）。
+   */
+  resumeRecentMessagesCount: number;
+  /**
    * Issue Tracker §D13 GC 阈值（plan issue-tracker-mcp-20260529）：resolved issue 保留天数。
    * - 正数：超过该天数的 resolved issue（resolved_at < now - days * 86400_000）将被
    *   IssueLifecycleScheduler 6h tick 一并 hardDelete（appendices ON DELETE CASCADE 一起删）。
@@ -262,23 +275,6 @@ export interface AppSettings {
   // plan task-mcp-merge-into-agent-deck-mcp-20260521：原 `enableTaskManager` 字段下线，
   // 5 个 task tool 合并入 agent-deck-mcp namespace，跟随 enableAgentDeckMcp 开关；
   // settings-store REMOVED_KEYS + smart migration 守护老用户 ON 值不丢失能力。
-  /**
-   * CHANGELOG_107:fallback 路径(jsonl missing / cwdFellBack=true)起 fresh CLI 之前
-   * 自动调 LLM 生成历史摘要 prepend 到首条 prompt(让用户体感「Claude 还能续聊」,
-   * 而不是 CHANGELOG_106 兜底「请下条消息把背景告诉它一次」的手动补)。
-   *
-   * - true(默认):每次 fallback 触发都跑一次 LLM(sonnet,~10-30s,4000 字摘要),
-   *   prepend 到 fresh CLI 首条 prompt 前。LLM 失败 / DB 没历史 / 摘要超长 → 静默退回
-   *   原 fallback 路径(emit「请补背景」与 CHANGELOG_106 行为一致)。
-   * - false:跳过摘要,fallback 直接走 CHANGELOG_106 原路径。成本敏感用户可关
-   *   (sonnet 摘要按调用计费;fallback 频繁的长历史会话有可观成本)。
-   *
-   * 不影响正常 resume 路径(jsonl 在 + cwd 在 → CLI 自续 jsonl,Claude 看完整对话)。
-   *
-   * 即改即生效:消费者(recoverer Step 3/4)每次 fallback 触发临时 settingsStore.get,
-   * 无 cache 需 invalidate;ipc/settings.ts 无 apply* helper(同 enableSound 等纯 boolean)。
-   */
-  autoSummariseOnFallback: boolean;
   /**
    * Claude Code SDK 子进程的 OS 级沙盒档位（默认 'off'）。SDK 0.2.118 内置 sandbox 能力
    * （macOS Seatbelt / Linux bubblewrap），让用户在 UI 主动开启文件系统 + 网络 OS 级隔离。

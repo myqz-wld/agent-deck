@@ -43,8 +43,8 @@
 import type { PermissionMode } from '@main/adapters/types';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
-import { AGENT_ID } from './constants';
-import { prependHistorySummary } from './recoverer-helpers';
+import { injectResumeHistory } from '@main/session/resume-history';
+import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
 import type { JsonlExistsThunk, SummariseFnThunk } from './recoverer';
 import {
   buildCwdFallbackSummarySkippedText,
@@ -92,11 +92,22 @@ export interface JsonlFallbackCtx {
   emit: (event: AgentEvent) => void;
   summariseFn: SummariseFnThunk;
   /**
-   * events 来源 thunk (test seam) — caller bind `eventRepo.listForSession`;
-   * 单测可注入 mock 数组让纯函数行为可控。与 `PrependHistorySummaryOptions.listEventsFn`
-   * 字面对齐(mutable `AgentEvent[]`,避免 strictFunctionTypes 透传问题)。
+   * 全量 events 来源 thunk (test seam) — caller bind `eventRepo.listForSession`;
+   * 单测可注入 mock 数组让纯函数行为可控。喂 `injectResumeHistory` 的 summariseFn 出 4 节结构
+   * (总结段数据源,plan resume-inject-raw-messages-20260601 §D7 双数据源之一)。
    */
   listEventsFn: (sessionId: string) => AgentEvent[];
+  /**
+   * message-only 来源 thunk (test seam) — caller bind `eventRepo.listRecentMessages`;
+   * 拼「最近原始对话消息段」(plan resume-inject-raw-messages-20260601 §D5 双数据源之二)。
+   * 第二参 limit = recentMessagesCount,第三参 beforeIdInclusive 由 `injectResumeHistory` 从
+   * maxEventIdFn 拿到后传入(排除 entry emit 的当前消息)。
+   */
+  listMessagesFn: (
+    sessionId: string,
+    limit: number,
+    beforeIdInclusive?: number,
+  ) => (AgentEvent & { id: number })[];
 }
 
 /**
@@ -122,14 +133,26 @@ type JsonlFallbackOptsBase = {
   /** SDK 子进程 chdir 目标 cwd (recover 路径下 cwdFellBack=true 时是 fallback cwd) */
   cwd: string;
   /**
-   * prependHistorySummary 用的 cwd (传给 LLM 摘要 prompt 标注「会话 cwd」)。
+   * injectResumeHistory 用的 cwd (传给 LLM 总结 prompt 标注「会话 cwd」)。
    *
-   * recover 路径 cwdFellBack=true 时**应**传原 `rec.cwd`(让摘要保留「原本是哪个
+   * recover 路径 cwdFellBack=true 时**应**传原 `rec.cwd`(让总结保留「原本是哪个
    * worktree」的语义); restart 路径 cwdFellBack 永远 false,prependCwd === cwd。
    */
   prependCwd: string;
-  /** 用户当前要发的 prompt(原文,不带 prefix);helper 内部走 prependHistorySummary 拼接 */
+  /** 用户当前要发的 prompt(原文,不带 prefix);helper 内部走 injectResumeHistory 拼三段 */
   prompt: string;
+  /**
+   * **plan resume-inject-raw-messages-20260601 §D4：maxEventId thunk（不是预算值）**。
+   * 传给 `injectResumeHistory` 作 message-only 查询的 beforeIdInclusive 来源，排除「当前消息」。
+   *
+   * - **recover 路径**：caller 在 entry emit user message **之前**捕获 `eventRepo.maxEventId(sid)`
+   *   常量值后绑成 `() => <captured>` thunk（emit 后再 lazy 调会把当前消息算进去 → off-by-one）。
+   * - **restart 路径**：handoffPrompt 不在入口 emit 落库 → 无「当前消息」需排除 → 传 `() => null`。
+   *
+   * helper(injectResumeHistory) 内 try/catch 调本 thunk（§不变量 1 永不抛错；throw → 退化为
+   * 「查最近 N」不加边界，仍继续 fallback）。
+   */
+  maxEventIdFn: () => number | null;
   permissionMode?: PermissionMode;
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   model?: string;
@@ -223,18 +246,31 @@ export async function maybeJsonlFallback(
     return { finalSessionId: opts.sessionId, fellBack: false };
   }
 
-  // fallback 分支: ① prependHistorySummary 续历史摘要前情
-  // (设计动机:让 fresh CLI thread 不失上下文 — 用户体感「Claude 还能续聊」,
-  //  避免 CHANGELOG_106 兜底「请下条消息把背景告诉它一次」手动补)。
-  // settings 关 / DB 没历史 / 摘要为空 / 超长 / thunk throw → result.used=false 退回 originalText。
-  const summaryResult = await prependHistorySummary({
+  // fallback 分支: ① injectResumeHistory 拼「总结段 + 最近原始对话消息段 + 当前消息」三段
+  // (plan resume-inject-raw-messages-20260601 §架构地基：拼 1 条结构化 user message 是唯一正解；
+  //  设计动机:让 fresh CLI thread 不失上下文 — 用户体感「Claude 还能续聊」)。
+  // DB 没历史 / 总结失败 / 预算边界 / thunk throw → result.used=false 退回 originalText（仍 createSession）。
+  // **唯一例外** original-over-length（§D6 step0 + §不变量 1）：originalText 自身 > maxLength →
+  // throw 让 caller catch 块按现行模式 emit error + 不进 createSession（超长 prompt 裸进 SDK 会
+  // 无界透传撑爆；覆盖 restart 传 handoffPrompt 含 plan 无 cap 的 caller）。
+  const summaryResult = await injectResumeHistory({
     sessionId: opts.sessionId,
     originalText: opts.prompt,
     cwd: opts.prependCwd,
-    autoSummariseOnFallback: settingsStore.get('autoSummariseOnFallback'),
+    recentMessagesCount: settingsStore.get('resumeRecentMessagesCount'),
+    maxLength: MAX_MESSAGE_LENGTH,
+    agentName: 'Claude',
+    maxEventIdFn: opts.maxEventIdFn,
     summariseFn: ctx.summariseFn,
     listEventsFn: ctx.listEventsFn,
+    listMessagesFn: ctx.listMessagesFn,
   });
+  if (summaryResult.failReason === 'original-over-length') {
+    // §不变量 1 唯一阻塞态：不进 createSession，throw 给 caller catch（emit error + rethrow）。
+    throw new Error(
+      `单条消息 ${opts.prompt.length.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限，无法作为 fallback 首条 prompt。请精简或拆分发送。`,
+    );
+  }
 
   // ② ctx.createSession with resumeMode='fresh-cli-reuse-app'
   //    硬约束 (不变量 10): **不**传 resumeCliSid 字段 — fresh + 非空 resumeCliSid 是
@@ -242,7 +278,7 @@ export async function maybeJsonlFallback(
   // 抛错 → 直接 rethrow 让 caller catch 块按现行模式 emit error + DB 回滚 + rethrow。
   await ctx.createSession({
     cwd: opts.cwd,
-    prompt: summaryResult.prompt, // prepended (含摘要) 或 originalText (失败兜底)
+    prompt: summaryResult.prompt, // 三段结构化文本 (含历史) 或 originalText (used:false 兜底)
     resume: opts.sessionId, // applicationSid 复用 (不变量 2)
     resumeMode: 'fresh-cli-reuse-app', // 触发 index.ts:419 createSession finalize guard 跳过 finalizeSessionStart
     permissionMode: opts.permissionMode,

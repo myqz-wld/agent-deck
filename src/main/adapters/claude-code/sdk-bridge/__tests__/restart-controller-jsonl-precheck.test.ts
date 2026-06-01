@@ -85,6 +85,8 @@ interface MakeCtxOpts {
   createSession?: (opts: RestartCreateOpts) => Promise<SdkSessionHandle>;
   summariseFnReturn?: string | null;
   listEventsFnReturn?: AgentEvent[];
+  /** plan resume-inject §D5: message-only 返回（拼原始对话段）。默认空数组。 */
+  listMessagesFnReturn?: (AgentEvent & { id: number })[];
 }
 
 function makeCtx(opts: MakeCtxOpts = {}): {
@@ -105,6 +107,7 @@ function makeCtx(opts: MakeCtxOpts = {}): {
     jsonlExistsThunk: () => opts.jsonlExistsReturn ?? true,
     summariseFn: async () => opts.summariseFnReturn ?? null,
     listEventsFn: () => opts.listEventsFnReturn ?? [],
+    listMessagesFn: () => opts.listMessagesFnReturn ?? [], // plan resume-inject §D5: message-only stub
   };
   return { ctx, createSessionSpy };
 }

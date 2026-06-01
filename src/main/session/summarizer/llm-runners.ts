@@ -27,6 +27,7 @@ import {
   runClaudeOneshot,
   CLAUDE_SUMMARIZE_SYSTEM_PROMPT,
   CLAUDE_HANDOFF_SYSTEM_PROMPT,
+  type AgentName,
 } from '@main/session/oneshot-llm';
 import { formatEventsForPrompt } from './event-formatter';
 
@@ -77,17 +78,25 @@ export async function summariseViaLlm(cwd: string, events: AgentEvent[]): Promis
  *
  * 失败处理：caller (IPC handler) 接到 throw 后透传 → renderer modal inline error 让用户
  * 重试或手动编辑兜底 prompt。本函数内只做 timeout race + result 收集，不做 fallback。
+ *
+ * **agentName 参数化**（plan resume-inject-raw-messages-20260601 §D8）：默认 `'Claude'`
+ * 向后兼容所有现有 caller（IPC hand-off / claude fallback）；codex jsonl-missing fallback
+ * 复用本 claude oneshot（本地 OAuth，不为 codex 写平行总结函数 — 解开 REVIEW_60 F5 卡住的
+ * 耦合）但传 `'Agent'`，否则 codex 会话摘要会自称「Claude 会话」（buildHandoffPrompt 的 intro
+ * + 主体 `${a}` 替换按此分支）。marker label `[Claude 说]` 等保留字面（formatEventsForPrompt
+ * 固定输出 label，不本地化）。
  */
 export async function summariseSessionForHandOff(
   cwd: string,
   events: AgentEvent[],
+  agentName: AgentName = 'Claude',
 ): Promise<string | null> {
   const activity = formatEventsForPrompt(events);
   if (!activity) return null;
 
   const result = await runClaudeOneshot({
     cwd,
-    prompt: buildHandoffPrompt({ cwd, activity, agentName: 'Claude' }),
+    prompt: buildHandoffPrompt({ cwd, activity, agentName }),
     // hand-off 简报默认 sonnet(推翻 CHANGELOG_161 与 summary 对齐 haiku 的决策):
     // 4 节结构化简报对结构精度 / 上下文压缩质量敏感,sonnet 比 haiku 显著更稳。summary 仍 haiku
     // (短 tag-line 容错高、量大成本敏感),hand-off 不在该约束。user 想降 haiku 或升 opus/

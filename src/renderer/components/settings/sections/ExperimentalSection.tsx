@@ -20,9 +20,11 @@ interface Props {
  * 5 个 task tool 合并入 agent-deck-mcp namespace 后跟随 enableAgentDeckMcp 开关（详
  * AgentDeckMcpSection），settings-store smart migration 自动 carry 老用户 ON 值。
  *
- * plan prancy-forging-penguin：删 autoSummariseOnFallback toggle — 字段保留默认 true
- * 不可配，让 fallback 路径(jsonl missing / cwdFellBack=true)永远自动 LLM 摘要(成本
- * 敏感时改 settings.json 手动 set false 仍生效;UI 不再暴露避免新用户误关错过续聊体感)。
+ * plan prancy-forging-penguin：删 autoSummariseOnFallback toggle（字段曾保留 default:true 当
+ * 孤儿不可配）。plan resume-inject-raw-messages-20260601 §不变量 7 **彻底删字段**：fallback 路径
+ * (jsonl missing / cwdFellBack=true) 改为**无条件注入历史**（DB 有历史就注「LLM 总结 + 最近原始
+ * 对话」），autoSummariseOnFallback 进 settings-store REMOVED_KEYS 清孤儿 —— settings.json 手动
+ * set false 也不再生效（字段已不存在）。注入条数由「会话生命周期」section 的 resumeRecentMessagesCount 控制。
  */
 export function ExperimentalSection({ settings, update }: Props): JSX.Element {
   const sandboxNativeAvailable = IS_DARWIN || IS_LINUX;

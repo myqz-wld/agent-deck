@@ -24,6 +24,7 @@
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import { eventRepo } from '@main/store/event-repo';
 import { AGENT_ID, MAX_MESSAGE_LENGTH, PLACEHOLDER_DEDUP_MS } from '../constants';
 // **plan restart-controller-jsonl-precheck-20260521 §Step 3f 重构**:
 // jsonl missing fallback 整段移到 jsonl-fallback.ts helper,recoverer 不再直接调
@@ -130,6 +131,21 @@ export async function recoverAndSendImpl(
     throw new Error(
       `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
     );
+  }
+
+  // **plan resume-inject-raw-messages-20260601 §D4：在 entry emit user message 之前固化
+  // maxEventIdBefore**。下面 L154 emit user message 会落库 → 若 jsonl-fallback 路径用「emit
+  // 后」的 maxEventId 作 beforeIdInclusive，会把刚 emit 的当前消息算进「最近原始对话消息段」
+  // → 与拼接末段「用户当前消息」重复 + 白占 1 slot。这里**先**捕获常量值（emit 前的 max id =
+  // 最后一条真实历史本身），传给 maybeJsonlFallback.maxEventIdFn 作 `() => maxEventIdBefore`
+  // thunk（injectResumeHistory SQL `AND id <= ?` 保留 emit 前全部历史 + 排除 emit 的当前消息）。
+  // 异常封装在 injectResumeHistory 内（maxEventIdFn try/catch）；这里同步读一次也兜底 try/catch
+  // 防 eventRepo 抛错穿透阻断 fallback（§不变量 1 永不抛错 — 与 REVIEW_76 listEventsFn 同款教训）。
+  let maxEventIdBefore: number | null = null;
+  try {
+    maxEventIdBefore = eventRepo.maxEventId(sessionId);
+  } catch {
+    maxEventIdBefore = null;
   }
 
   // REVIEW_58 HIGH ✅ + R2 MED-1 收口修法 (deep-review 双方共识真问题):立即 emit user message,
@@ -297,6 +313,7 @@ export async function recoverAndSendImpl(
           emit: deps.ctx.emit,
           summariseFn: deps.summariseFn,
           listEventsFn: deps.listEventsFn, // Step 3g 新增 ctor 字段(replace recoverer.ts:395 inline closure)
+          listMessagesFn: deps.listMessagesFn, // plan resume-inject §D5: message-only 拼原始对话段
         },
         {
           sessionId,
@@ -304,6 +321,9 @@ export async function recoverAndSendImpl(
           cwd: effectiveCwd, // SDK chdir 目标 (cwdFellBack=true 时是 fallback cwd)
           prependCwd: cwdFellBack ? rec.cwd : effectiveCwd, // R2 claude HIGH-F1-2 修法 (与原 line 392 现行为对齐)
           prompt: text,
+          // plan resume-inject §D4: maxEventIdBefore 在 entry emit user message 之前固化(见上),
+          // thunk 返常量值排除当前消息(injectResumeHistory 内 try/catch 防御,这里已 null 兜底)。
+          maxEventIdFn: () => maxEventIdBefore,
           permissionMode: rec.permissionMode ?? undefined,
           claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
           model: rec.model ?? undefined,
