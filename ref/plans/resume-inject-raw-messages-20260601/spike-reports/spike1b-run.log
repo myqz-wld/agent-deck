@@ -1,0 +1,11 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm.
+npm warn Unknown project config "side-effects-cache". This will stop working in the next major version of npm.
+EVENT type=system subtype=hook_started
+EVENT type=system subtype=hook_response
+EVENT type=system subtype=init
+EVENT type=result subtype=success
+  RESULT: {"type":"result","subtype":"success","is_error":false,"duration_ms":10,"duration_api_ms":0,"num_turns":0,"result":"","stop_reason":null,"session_id":"0d4f7055-f037-4a37-8641-f41b0902ec5b","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output
+
+=== 结论 ===
+asstTurns=0 (期望1)
+小明=false 紫=false 旺财=false

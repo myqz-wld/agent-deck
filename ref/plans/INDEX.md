@@ -75,3 +75,4 @@
 | [followup-cleanup-20260601.md](followup-cleanup-20260601.md) | completed | [REVIEW_96](../reviews/REVIEW_96.md) | deep-review-project 遗留 11 条 follow-up 清理(MCP handlers / archive-plan / worktree / scheduler / message-repo / image-uploads + 测试网) |
 | [sqlite-tests-no-skip-20260601.md](sqlite-tests-no-skip-20260601.md) | completed | — | sqlite-tests-no-skip-20260601 |
 | [teamless-dm-20260601.md](teamless-dm-20260601.md) | completed | [194](../changelogs/CHANGELOG_194.md) | teamless-dm-20260601 |
+| [resume-inject-raw-messages-20260601.md](resume-inject-raw-messages-20260601.md) | completed | [195](../changelogs/CHANGELOG_195.md) | resume-inject-raw-messages-20260601 |

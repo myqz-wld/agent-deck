@@ -1,0 +1,9 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm.
+npm warn Unknown project config "side-effects-cache". This will stop working in the next major version of npm.
+EVENT type=system subtype=hook_started
+EVENT type=system subtype=hook_response
+EVENT type=system subtype=init
+EVENT type=result subtype=success
+  RESULT num_turns=0 result=""
+
+=== 结论 === asstTurns=0 小明=false 紫=false 旺财=false
