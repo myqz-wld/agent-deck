@@ -142,6 +142,19 @@ export interface CreateSessionOpts {
    * 仅控制本 createSession resume path emit user message 这一动作。
    */
   skipFirstUserEmit?: boolean;
+  /**
+   * **REVIEW_99 R3 cancellation-epoch MED 修法 (codex 对称 claude createSession opts)**:recover
+   * 路径传 cancelGuard thunk,createSession 内部在 ensureCodex / resumeThread pre-registration await
+   * 之后、sessions.set / runTurnLoop 启动**之前**调一次 — 返 true(用户 await 期间再次 close →
+   * close-epoch 变 / record 被删)→ throw RecoveryCancelledError(sentinel)abort,不起 fresh thread /
+   * 不污染 sessions Map。
+   *
+   * **caller 不该传**(默认 undefined → 不 gate):spawn 主路径 / IPC AdapterCreateSession / restart
+   * 路径都不传。仅 recover 两端(recover-and-send-impl normal-resume createThunk + codex-jsonl-fallback
+   * helper 内 createSession)传。sentinel 由 recoverer outer catch / inflight waiter special-case 识别后
+   * 静默 abort(不 emit「自动恢复失败」)。详 @main/adapters/shared/recovery-cancelled.ts。
+   */
+  cancelCheck?: () => boolean;
 }
 
 /**

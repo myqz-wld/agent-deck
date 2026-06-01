@@ -20,6 +20,7 @@
  */
 
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
+import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { AgentEvent } from '@shared/types';
 import type { UploadedAttachmentRef } from '@shared/types';
 
@@ -45,6 +46,11 @@ export interface CreateSessionCall {
    */
   model?: string;
   attachments?: UploadedAttachmentRef[];
+  /**
+   * **REVIEW_99 R3 cancellation-epoch MED 修法 regression (codex 对称 claude)**:让 recovery test
+   * 能断言 recover 路径 createThunk 收到 cancelCheck thunk(MED post-guard 窗口收口)。
+   */
+  cancelCheck?: () => boolean;
 }
 
 export class TestCodexBridge extends CodexSdkBridge {
@@ -87,6 +93,7 @@ export class TestCodexBridge extends CodexSdkBridge {
     codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
     model?: string;
     attachments?: UploadedAttachmentRef[];
+    cancelCheck?: () => boolean;
   }): Promise<{ sessionId: string }> {
     this.createCalls.push({
       cwd: opts.cwd,
@@ -96,6 +103,7 @@ export class TestCodexBridge extends CodexSdkBridge {
       codexSandbox: opts.codexSandbox,
       model: opts.model,
       attachments: opts.attachments,
+      cancelCheck: opts.cancelCheck,
     });
     if (this.createBehavior === 'block') {
       await new Promise<void>((res) => {
@@ -103,6 +111,13 @@ export class TestCodexBridge extends CodexSdkBridge {
       });
     } else if (this.createBehavior === 'reject') {
       throw this.rejectWith ?? new Error('mock create reject');
+    }
+    // **REVIEW_99 R3 cancellation-epoch MED 修法 mock (对称 claude)**:mirror 真实
+    // create-session-resume 的 pre-registration guard — createBehavior 解锁后(模拟 ensureCodex /
+    // resumeThread await 完成)查一次 cancelCheck,返 true → throw RecoveryCancelledError(模拟
+    // 「await 窗口内用户 close」),让 MED post-guard 窗口测试不依赖真 codex spawn 也能驱动 sentinel。
+    if (opts.cancelCheck?.()) {
+      throw new RecoveryCancelledError(opts.resume ?? 'mock-temp-key');
     }
     return { sessionId: opts.resume ?? 'new-sid' };
   }

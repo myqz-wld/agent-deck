@@ -219,6 +219,11 @@ export async function maybeCodexJsonlFallback(
     // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
     // createSession resume path 跳过重复 emit (详 recoverer.recoverAndSend emit user message 段注释)
     skipFirstUserEmit: true,
+    // **REVIEW_99 R3 cancellation-epoch MED 修法 (对称 claude jsonl-fallback)**:透传 recover caller
+    // 的 cancelGuard 让 fresh-thread createSession 内部 pre-registration await 后、sessions.set 前再查
+    // 一次 epoch(覆盖 helper isCancelledFn 检查点与 createSession sessions.set 之间的二段 await 窗口)。
+    // recover 路径 isCancelledFn = cancelGuard 同一 closure;restart 路径 isCancelledFn undefined → 不 gate。
+    cancelCheck: opts.isCancelledFn,
   });
 
   // **REVIEW_81 MED 修法（reviewer-codex 单方 + lead claude parity 验证）**:

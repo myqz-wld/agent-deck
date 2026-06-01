@@ -67,6 +67,9 @@ vi.mock('@main/session/manager', () => ({
     releaseSdkClaim: vi.fn(),
     renameSdkSession: vi.fn(),
     unarchive: vi.fn(),
+    // REVIEW_99 R3 cancellation-epoch: recoverAndSend 入口捕 baseline。返 0 恒定 = 不 close →
+    // 合法 resume 不误 abort（本 test 验 earlyErr cleanup 后 recoverer 自愈,非 close 场景）。
+    getCloseEpoch: vi.fn(() => 0),
   },
 }));
 

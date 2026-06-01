@@ -38,6 +38,7 @@ import {
   applyClosedSideEffects,
 } from '../manager-team-coordinator';
 import type { SessionCloseFn, SessionManagerInternalState } from './_deps';
+import { bumpCloseEpochImpl } from './_deps';
 import log from '@main/utils/logger';
 
 const logger = log.scope('session-manager-lifecycle');
@@ -93,9 +94,17 @@ export function markDormantImpl(sessionId: string): void {
  * fire-and-forget leave。三入口 invariant 显式声明 ("clear marker + leave + auto-archive
  * 三联动") — 详 manager-team-coordinator.ts §applyClosedSideEffects jsdoc。
  */
-export function markClosedImpl(sessionId: string): void {
+export function markClosedImpl(
+  state: SessionManagerInternalState,
+  sessionId: string,
+): void {
   const r = sessionRepo.get(sessionId);
   if (!r || (r.lifecycle !== 'dormant' && r.lifecycle !== 'active')) return;
+  // REVIEW_99 R3 cancellation-epoch (codex 第 2 点):markClosed 也自增 close-epoch,覆盖
+  // scheduler 衰减 active→closed / restart rollback / 非 UI close 路径 — 这些在 recover await
+  // 期间发生时同样应 abort 不给已判定该关的会话起 fresh CLI。transition guard(active/dormant→closed)
+  // 通过后才自增(与「真正发生 close 推进」对齐;guard 拦下的 no-op 不算 close 动作)。
+  bumpCloseEpochImpl(state, sessionId);
   sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
   void applyClosedSideEffects(sessionId, {
     awaitLeave: false,
@@ -131,9 +140,14 @@ export function markClosedImpl(sessionId: string): void {
 export async function closeImpl(
   sessionId: string,
   sessionCloseFn: SessionCloseFn | null,
+  state: SessionManagerInternalState,
 ): Promise<void> {
   const session = sessionRepo.get(sessionId);
   if (!session) return; // 已删 / 从未存在 → noop
+  // REVIEW_99 R3 cancellation-epoch (codex 第 2 点):自增放 close intent **起点**(adapter
+  // close 之前)。否则 adapter.closeSession no-op / 卡住期间 recover guard 看不到 close intent
+  // → 漏判「恢复期间第二次 close」。session 存在(record 校验已过)→ close intent 确定发生 → 自增。
+  bumpCloseEpochImpl(state, sessionId);
   if (session.agentId && sessionCloseFn) {
     try {
       await sessionCloseFn(session.agentId, sessionId);
@@ -311,6 +325,10 @@ export async function deleteImpl(
   sessionId: string,
   sessionCloseFn: SessionCloseFn | null,
 ): Promise<void> {
+  // REVIEW_99 R3 cancellation-epoch (codex 第 2 点):delete 路径起点也自增 — 与 close 同款
+  // 「会话结束 intent」语义,recover await 期间 delete 同样应 abort 不起 fresh CLI(record-missing
+  // guard 也能挡,但自增便于日志 / 测试断言 + 与 close 路径对称)。
+  bumpCloseEpochImpl(state, sessionId);
   await leaveTeamsAndAutoArchive(sessionId, 'deleted');
   const session = sessionRepo.get(sessionId);
   if (session?.agentId && sessionCloseFn) {
@@ -329,6 +347,11 @@ export async function deleteImpl(
   if (cliSidBeforeDelete && cliSidBeforeDelete !== sessionId) {
     state.recentlyDeleted.set(cliSidBeforeDelete, now);
   }
+  // REVIEW_99 R3 cancellation-epoch:删 closeEpoch entry 防 Map 随删除会话无界增长。
+  // 安全:row 已 sessionRepo.delete → recover guard record-missing 分支(`!sessionRepo.get(sid)`)
+  // 兜底捕获 — 即便此处删了 epoch entry,getCloseEpoch 返 0 与 baseline(也是 0,若 baseline 期
+  // session 从未 close)看似相等,但 record 已 null 让 guard 仍 abort(record-missing 优先判定)。
+  state.closeEpoch.delete(sessionId);
   eventBus.emit('session-removed', sessionId);
 }
 

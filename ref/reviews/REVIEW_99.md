@@ -1,7 +1,7 @@
-# REVIEW_99 — resume-history 历史注入特性首次 code deep-review（3 轮异构对抗 + 反驳轮）
+# REVIEW_99 — resume-history 历史注入特性首次 code deep-review（R1→R4 四轮异构对抗 + 反驳轮，cancellation-epoch 收口）
 
 > 关联 plan：`ref/plans/resume-inject-raw-messages-20260601.md`（已归档；plan 仅过 Step 1.5 plan-review，**代码实施此前从未 code-review**）
-> 关联 commits：`0d94640`→`7a5c75a`（特性实施，~1563 行新代码）/ `92d711c`（R1 fix）/ `88fec9b`（R2 fix）
+> 关联 commits：`0d94640`→`7a5c75a`（特性实施，~1563 行新代码）/ `92d711c`（R1 fix）/ `88fec9b`（R2 fix）/ R4 cancellation-epoch 收口（commit 待填）
 > 性质：新特性首次 code review（debug/加固 —— 无新功能引入，归 reviews）
 
 ## 背景与诉求
@@ -85,30 +85,48 @@ jsonl-fallback +3（close-abort / 未close正常起 / restart不gate）+ inject-
 
 - **[INFO] json_valid guard 缺失**（reviewer-claude R2）：listRecentMessages / findLatestAssistantMessage / hasToolUseStartWithFilePath 用 `json_extract` 无 `json_valid` 前置 guard，malformed JSON 行致整查 throw（非 per-row skip）。**既有 codebase 范式**（非本特性引入）+ 写入侧 safeStringifyPayload 无 malformed 可达路径 + 即使触发被 injectResumeHistory step1 try/catch 兜成 no-history（永不阻塞不变量仍守住）。建议单开 follow-up plan 统一为这批 `json_extract` 查询加 `json_valid(payload_json) AND` 前置 guard。
 
-## ⚠️ R3 carry-forward —— close-race 收口未完成（下一会话用 epoch 方案修）
+## R3→R4 carry-forward 收口 —— cancellation-epoch（commit 待填）
 
-R3 reviewer-codex 抓出 R2 transition-check fix（commit 88fec9b）**本身有残留洞**，lead 全部现场验证为**真**。R2 的 `wasClosed` lifecycle-snapshot 方案根因不可靠，需改 **cancellation epoch** 方案。**这两条尚未修复**：
+R3 reviewer-codex 抓出 R2 transition-check fix（commit 88fec9b）**本身有残留洞**，lead 全部现场验证为**真**（reviewer-claude R3 误 conclude 被 codex 抓回 = both-agree 收口要求的价值）。R2 的 `wasClosed` lifecycle-snapshot 方案根因不可靠，R4 改 **cancellation-epoch** 方案收口。**R4 双 reviewer 均明示 conclude + 可合，0 HIGH 0 真 MED 0 新增行为 finding。**
 
-### [HIGH 未修] wasClosed 基线漏「恢复期间第二次 close」
-- **链路**：① session 入口就 closed（合法 resume）→ `wasClosed=true`（入口 emit **之前**捕获）② 入口 `emit(source:'sdk')` 必经 ensure（manager.ts:266）revive closed→active（**dedupOrClaim 所有 skip 分支 gate 在 source==='hook'，source:'sdk' 入口 user message 永不 skip → 必到 ensure revive** —— lead 已验证）③ await injectResumeHistory 期间用户**再次** close → DB 回 closed ④ `isCancelledFn: closed && !wasClosed` = `closed && !true` = false → 不 abort → createSession 反转第二次 close。
-- **根因**：`wasClosed` 在入口 emit **之前**捕获，但入口 emit 本身会 revive → `wasClosed` 是错误基线。
-- **位置**：claude/codex `recover-and-send-impl.ts` isCancelledFn thunk（88fec9b 引入）。
+### [HIGH 已修] wasClosed 基线漏「恢复期间第二次 close」
+- **链路**：① session 入口就 closed（合法 resume）→ `wasClosed=true`（入口 emit **之前**捕获）② 入口 `emit(source:'sdk')` 必经 ensure（manager.ts:266）revive closed→active ③ await injectResumeHistory 期间用户**再次** close → DB 回 closed ④ `isCancelledFn: closed && !wasClosed` = `closed && !true` = false → 不 abort → createSession 反转第二次 close。
+- **根因**：`wasClosed` 在入口 emit **之前**捕获，但入口 emit 本身会 revive → `wasClosed` 是错误基线（lifecycle 快照无法可靠检测「recovery 期间发生过 close」）。
+- **修法**：cancellation-epoch。`closeImpl`（adapter close 前）/ `markClosedImpl`（transition guard 后）/ `deleteImpl`（起点）对每 session 自增 `closeEpoch` 计数器；recover 入口 emit user message **之后**捕获 `closeEpochBaseline`（codex 第 1 点 —— emit 后捕获让旧 close 纳入 baseline、排除入口复活）；`cancelGuard = () => !sessionRepo.get(sid) || getCloseEpoch(sid) !== baseline` 替代 isCancelledFn lifecycle 快照。epoch 是「close 动作发生过没有」的直接信号，不是 lifecycle 快照推断。
+- **位置**：`manager/_deps.ts`（closeEpoch Map + bump/get impl）/ `manager/lifecycle.ts`（3 入口 bump）/ `manager.ts`（getCloseEpoch/bumpCloseEpoch/forgetCloseEpoch facade）/ claude+codex `recover-and-send-impl.ts`（baseline + cancelGuard）。
 
-### [MED 未修] post-guard 窗口（createSession 内 sessions.set 前）
-- **链路**：R2 guard 只在 `await injectResumeHistory` 后、`ctx.createSession` 前查一次。进 createSession 后到 `deps.sessions.set(internal.applicationSid, internal)`（create-session-sdk-query.ts:143）之间还有 await（loadSdk L74 / buildMcpServersForSession L97）→ 这段窗口用户 close 仍 no-op（sessions Map 无 internal）→ 同款 revive。codex 端 create-session-impl.ts:85 对称。
-- **根因**：与 HIGH 同根 —— lifecycle 快照无法可靠检测「recovery 期间发生过 close」。
+### [MED 已修] post-guard 窗口（createSession 内 sessions.set 前）
+- **链路**：R2 guard 只在 `await injectResumeHistory` 后查一次。进 createSession 后到 `sessions.set`（claude create-session-sdk-query.ts / codex create-session-resume.ts）之间还有 await（loadSdk / buildMcpServersForSession / ensureCodex / resumeThread）→ 这段窗口用户 close 仍 no-op → 同款 revive。
+- **修法**：新 opts 字段 `cancelCheck` 贯穿 CreateSessionThunk/CreateSessionOpts 两端；createSession 内部在 pre-registration await 之后、query()/startThread + sessions.set **之前**二次查 `if (opts.cancelCheck?.()) throw RecoveryCancelledError`；recover 两端 normal-resume createThunk + jsonl-fallback helper 内 createSession 都透传 `cancelCheck: cancelGuard`（helper 经 `cancelCheck: opts.isCancelledFn` 转发覆盖二段 await 窗口）。
 
-### 修复方案（下一会话实施）：cancellation epoch
-- `closeImpl` / `markClosedImpl`（lifecycle.ts）对每个 session 自增一个 **close-epoch 计数器**（内存 Map<sid, number> 或复用某已有结构）。
-- recovery 入口 **emit user message 之后** 捕获 `epochAtEntry = getCloseEpoch(sid)`（注意：必须在 emit 后，因 emit 触发 revive 不算 close）。
-- helper 在 `createSession` 前检查 `getCloseEpoch(sid) !== epochAtEntry` → abort（替代现 isCancelledFn 的 lifecycle 快照）。
-- **MED 收口**：epoch 检查需再传入 createSession，在 `sessions.set` 前（pre-registration awaits 后）再查一次；或更稳 —— sessions.set 后立即补查一次 epoch，变了则立即 closeSession 自己。
-- **绕开两个陷阱**：① 不依赖 lifecycle 快照（entry-emit revive 不影响 epoch）② mock-vs-reality gap 消失（epoch 是显式信号，测试可直接 mock getCloseEpoch 返不同值模拟 close）。
-- **测试**：需覆盖「入口就 closed 的合法 resume（epoch 不变 → 不 abort）」+「await 中途首次/二次 close（epoch 变 → abort）」+「post-guard 窗口 close（sessions.set 前后 epoch 变 → abort/自关）」。
+### 统一 abort 收口 —— sentinel-throw（lead 偏离 codex union 建议，双 reviewer R4 确认 sound）
+- codex R3 建议「单飞 Promise 改 union `{kind:'ok'}|{kind:'aborted'}`」。lead **改用 sentinel-throw**：`recovering` Map 与 restart-controller **共享**，restart producer 存 `Promise<string>`；若 recoverer 改返 union object，一个 recoverer waiter 等到 restart 的 string 读 `.kind` 会 undefined 误判。sentinel-throw 让两 producer Promise 都保持 `Promise<string>`，靠鸭子类型 `isRecoveryCancelledError`（检 `__recoveryCancelled` 属性非 instanceof，跨 realm/mock 安全）在 reject 路径识别。
+- **所有 abort 路径**（jsonl-fallback aborted + MED pre-registration guard）统一 `throw RecoveryCancelledError` → IIFE p reject → ① waiter catch special-case 跳过 retry/sendThunk（codex 第 4 点 —— 否则 sendThunk(sessionId) 重新触发 recovery revive 刚 close 的会话）② first-caller outer catch special-case **静默 return sessionId**（不 emit「自动恢复失败」/不 markClosed —— lifecycle 已是用户想要的 closed）。
+- **reviewer-claude R4 实测确证**：sentinel 经 runCreateSessionSdkQuery catch + create-session-impl catch 两层原样 rethrow（cleanup 幂等无害）→ recover outer catch `isRecoveryCancelledError` 在 generic catch 之前识别；restart-controller 单飞 `while(inflight){await inflight;catch{}}` 裸 catch 吞 sentinel 无害（不消费返回值）。lead 独立复核 restart waiter 同结论。
 
-> R3 详细 finding + 修复推理链 + reviewer-codex 补充意见见接力文件 `.claude/plans/deep-review-project-rolling-20260602.md`。reviewer 对（teamId 591cd6f2）未 shutdown，下一会话可 send_message resume 复用 mental model 继续收口。
+### scheduler 第四入口 gap（lead 自发现，双 reviewer R4 确认修对）
+- LifecycleScheduler dormant→closed 走 `batchSetLifecycle`「第四入口」绕过 markClosedImpl 内部 bump；retention purge 走 `batchDelete` 绕过 deleteImpl 内部 closeEpoch.delete。lead 加 facade `bumpCloseEpoch`/`forgetCloseEpoch` public + scheduler 两 loop 显式调，补齐绕过路径（消除理论缝 + 防 Map 泄漏）。
+
+### R4 测试（claude/codex 各 6 case + 全套回归）
+① 入口就 closed 合法 resume（epoch 恒 0）不误 abort（绕 mock-vs-reality gap）② jsonl-fallback await 中再次 close（epoch 变）aborted 不起 fresh ③ post-guard createSession pre-registration close sentinel abort ④ concurrent waiter aborted 不 retry（codex 第 4 点）⑤ 真 createSession 失败（epoch 不变）仍 markClosed 回滚 + emit error（回归 REVIEW_76/81）⑥ baseline 在 emit 后捕获 → user message 入 events（abort 不丢用户输入）。**1351 tests 全过 + typecheck 双绿**；两 reviewer 各自本地 focused recovery tests 实跑通过（claude 115 / codex 69）。
+
+### R4 三态裁决（both-agree）
+| Finding | reviewer-claude | reviewer-codex | lead |
+|---|---|---|---|
+| R3 HIGH（恢复期间第二次 close）| ✅ 已修 | ✅ 已修 | ✅ epoch baseline + cancelGuard |
+| R3 MED（post-guard 窗口）| ✅ 已修 | ✅ 已修 | ✅ 两端 createSession sessions.set 前二次检查点 |
+| §4 sentinel 偏离 union | ✅ sound（比 union 更对）| ✅ sound | ✅ shared Map 约束 |
+| §5 scheduler gap（lead 自发现）| ✅ 修对 | ✅ 补齐 | ✅ bump/forget 补第四入口 |
+| 新引入洞 | ✅ 0 个 | ✅ 0 个 | ✅ 0 个 |
+
+**both-agree 达成**：reviewer-claude + reviewer-codex R4 均明示 conclude + 可合。剩 1 INFO（json_valid guard，既有范式）+ codex R4 提的 sentinel 注释陈旧（已随收口修正）转 follow-up / 已处理。
 
 ## 收口状态
 
-**Batch 1 部分收口**：R1（3 finding）+ R2（1 HIGH + 1 LOW）已修 + 测试（commits 92d711c / 88fec9b，178 tests 全过 + typecheck 双绿）。**R3 carry-forward 未收口**：close-race 残留 1 HIGH + 1 MED（R2 transition-check 自身洞），需下一会话用 cancellation epoch 方案专门修复 + 双 reviewer 重新 conclude 共识。**本 REVIEW 暂不算最终收口**（双 reviewer 未达成 conclude 共识 —— reviewer-codex R3 明确不同意）。
+**Batch 1 收口（R1→R4 四轮异构对抗 + 反驳轮）**：
+- **R1**（3 finding：MED-A clamp / MED-C raw-drop / LOW-B dup）+ **R2**（1 HIGH close-race / 1 LOW summary-only）已修（commits 92d711c / 88fec9b）。
+- **R3→R4 carry-forward**（1 HIGH 恢复期间第二次 close / 1 MED post-guard 窗口）用 cancellation-epoch 方案收口（commit 待填）+ lead 自发现 2 增量（sentinel-throw / scheduler gap）。
+- **1351 tests 全过 + typecheck 双绿**。**双 reviewer R4 均明示 conclude + 可合，0 HIGH 0 真 MED 残留**。
+- **Follow-up（不阻塞）**：1 INFO（json_valid guard 既有范式，建议单开小 plan 统一加固）。
+
 
