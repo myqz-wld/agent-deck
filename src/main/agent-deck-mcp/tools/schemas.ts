@@ -1336,9 +1336,8 @@ export const LOGS_REF_SCHEMA = z
   );
 
 /**
- * `report_issue` mcp tool — agent 上报新 issue。返回完整 IssueRecord（§D19 与
- * task_create 对称）。主键字段是 `id`（**不是** `issueId`）— agent 把该 `id` 当作后续同
- * session append_issue_context / update_issue_status 调用的 `issueId` 入参传入。
+ * `report_issue` mcp tool — agent 上报新 issue。返回完整 IssueRecord;主键字段是 `id`
+ * （不是 `issueId`）,作为后续同 session append_issue_context / update_issue_status 的 issueId 入参。
  */
 export const REPORT_ISSUE_SCHEMA = {
   title: z
@@ -1360,34 +1359,28 @@ export const REPORT_ISSUE_SCHEMA = {
     .nullable()
     .optional()
     .describe('Optional reproduction steps (1-2000 chars). null/undefined = not provided'),
-  /**
-   * §D6：kind 软枚举 + free-form fallback —— **不**用 z.enum 严格校验（推荐 2 值原样落库;
-   * agent 可上报自定义 kind 如 'agent-deck-bug',UI 端 'other' 分组,**不**自动 normalize）。
-   * 1-32 字符限制由 DDL CHECK 兜底,zod 层做 length 守门避免 caller 传超长字符串。
-   */
+  // §D6: kind 软枚举 + free-form fallback — 不用 z.enum 严格校验,非推荐值原样落库 UI 'other' 分组。
   kind: z
     .string()
     .min(1)
     .max(32)
     .optional()
     .describe(
-      'Soft enum (default "follow-up"): recommended values "follow-up" (your own follow-up work) / "app-bug" (Agent Deck app defect) — non-enum values stored as-is (UI groups under "other").',
+      'Default "follow-up" (your own follow-up work) or "app-bug" (an Agent Deck defect). Any other string is kept as-is and grouped under "other".',
     ),
   severity: z
     .enum(['low', 'medium', 'high'])
     .optional()
     .describe('Severity (default "medium"). Strict enum'),
   logsRef: LOGS_REF_SCHEMA.optional().describe(
-    'Optional reference to runtime logs (NOT log content). Schema: {date: YYYY-MM-DD ISO **(required)**, tsRange?: {start, end} epoch ms, scopes?: string[], note?: string}. UI renders this as a pointer to the runtime-logging plan log files.',
+    'Optional pointer to runtime logs (NOT the log content): {date: YYYY-MM-DD (required), tsRange?, scopes?, note?}.',
   ),
   cwd: z
     .string()
     .max(2048)
     .nullable()
     .optional()
-    .describe(
-      'Optional cwd snapshot (≤2048 chars). When omitted, handler falls back to caller session.cwd then null.',
-    ),
+    .describe('Optional cwd. Omit it — the handler fills in your session cwd automatically.'),
   labels: z
     .array(z.string().min(1).max(64))
     .max(16)
@@ -1398,83 +1391,60 @@ export const REPORT_ISSUE_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（report_issue 不允许 external caller — 写 issues 表 + sourceSessionId 闭包）。',
-    ),
+    .describe('Auto-injected — leave unset. External (HTTP/stdio) callers are denied.'),
 };
 
 /**
- * `append_issue_context` mcp tool — agent 在**同一 session 内**为已上报的 issue 追加
- * 现场。strict source-bound（§D10）：handler 校验 `issue.sourceSessionId === callerSid`，
- * 跨 session / 跨 caller 一律 reject。append 不动 `issues.description`,新行写入
- * `issue_appendices` 子表（§D16）;`logsRef` 走 §D17 merge 算法（merge 到 issues.logs_ref）。
- *
- * 返回完整 IssueRecord（含最新 appendices 列表）让 UI emit 'issue-changed' kind='appended'
- * 时直接拿到 全 record + 子表（§D19 不必再 IPC fetch）。
+ * `append_issue_context` mcp tool — agent 在同一 session 内为已上报 issue 追加现场。
+ * source-bound + resolved/软删 reject 详 handler;append 走 issue_appendices 子表不动 description。
  */
 export const APPEND_ISSUE_CONTEXT_SCHEMA = {
   issueId: z
     .string()
     .min(1)
     .max(128)
-    .describe('Issue UUID returned by report_issue. Strict source-bound: only the originating session can append'),
+    .describe('The `id` returned by report_issue. Only the session that reported it can append.'),
   additionalContext: z
     .string()
     .min(1)
     .max(2000)
-    .describe('New on-site context (1-2000 chars). Stored in issue_appendices subtable, NOT merged into issues.description'),
+    .describe('New context to append (1-2000 chars). Appended as a note; the original description is untouched.'),
   logsRef: LOGS_REF_SCHEMA.optional().describe(
-    'Optional new logsRef to merge into issues.logs_ref. **date (YYYY-MM-DD) 仍是 required，即使你只想更新 tsRange/scopes/note** (D17: date 覆盖 / tsRange min-max 扩展 / scopes union dedup / note append-then-truncate-from-head). Schema same as report_issue.logsRef.',
+    'Optional logsRef to merge in (same shape as report_issue.logsRef; date is always required even when only updating tsRange/scopes/note).',
   ),
   callerSessionId: z
     .string()
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（append_issue_context 不允许 external caller — 写 issues + issue_appendices 表 + source-bound 校验）。',
-    ),
+    .describe('Auto-injected — leave unset. External (HTTP/stdio) callers are denied.'),
 };
 
 /**
- * `update_issue_status` mcp tool — issue 的**源会话或解决会话**自助推进 status
- * （plan issue-tracker 体验改进 20260531 §需求3）。打破旧「agent 永不改 status」铁律的
- * 受控开口：授权边界 `issue.sourceSessionId === callerSid || issue.resolutionSessionId === callerSid`
- * （比 append_issue_context 的严格 source-bound 放宽一档 — 解决会话也是合法处置方）。
- * 软删 issue reject（与 append 对称）。可选 `note` 非空时复用 appendContext 写一条补充
- * 记录留痕（怎么修的 / 为何 reopen），再走 issueRepo.update 的 D15 resolved_at 状态机。
- *
- * 返回完整 IssueRecord（含最新 appendices）让 UI emit 'issue-changed' kind='updated'。
+ * `update_issue_status` mcp tool — issue 的源会话或解决会话自助推进 status。
+ * 授权边界 source OR resolution session;软删 reject;可选 note 留痕 — 详 handler。
  */
 export const UPDATE_ISSUE_STATUS_SCHEMA = {
   issueId: z
     .string()
     .min(1)
     .max(128)
-    .describe(
-      'Issue UUID. Authorized only when caller is the issue source session OR its resolution session (the session spawned by UI「起新会话解决」).',
-    ),
+    .describe('The issue `id`. Only its source session or resolution session may update it.'),
   status: z
     .enum(['open', 'in-progress', 'resolved'])
-    .describe(
-      'New status. resolve = "resolved"; reopen = "open" (or "in-progress"). Strict 3-state enum.',
-    ),
+    .describe('"resolved" to close it, "open" / "in-progress" to reopen.'),
   note: z
     .string()
     .min(1)
     .max(2000)
     .optional()
-    .describe(
-      'Optional note (1-2000 chars) recorded as an appendix for traceability (e.g. how it was fixed / why reopened). Written via the same issue_appendices subtable as append_issue_context.',
-    ),
+    .describe('Optional note kept as an appendix — how you fixed it / why you reopened it.'),
   callerSessionId: z
     .string()
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（update_issue_status 不允许 external caller — 写 issues 表 + 授权校验需真实 in-process callerSessionId）。',
-    ),
+    .describe('Auto-injected — leave unset. External (HTTP/stdio) callers are denied.'),
 };
 
 // Args type infer
