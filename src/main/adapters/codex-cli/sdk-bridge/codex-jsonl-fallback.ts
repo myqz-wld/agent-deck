@@ -101,6 +101,16 @@ export interface CodexJsonlFallbackOpts {
   extraAllowWrite?: readonly string[];
   /** 首条恢复消息带图 attachments 透传 */
   attachments?: UploadedAttachmentRef[];
+  /**
+   * **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法（对称 claude jsonl-fallback.ts）**：
+   * recover 路径在 `await injectResumeHistory`（summariseFn LLM oneshot 10-30s）期间用户若主动
+   * close → closeImpl no-op adapter.closeSession + setLifecycle('closed') 但不 abort 在途 recovering
+   * promise。await resolve 后 helper 若继续 createSession 起 fresh thread → 首条 SDK 事件过 ensure
+   * （closed && archivedAt===null && source==='sdk'）→ 复活成 active，反转用户显式 close。
+   * 修法：recover caller 传本 thunk（`() => sessionRepo.get(sid)?.lifecycle==='closed' || missing`），
+   * helper await 后重读 — closed/missing → abort 不起 fresh（返 aborted:true）。单线程无二次 TOCTOU。
+   */
+  isCancelledFn?: () => boolean;
 }
 
 export interface CodexJsonlFallbackResult {
@@ -108,6 +118,13 @@ export interface CodexJsonlFallbackResult {
   fellBack: boolean;
   /** fallback 路径下 = sessionId (applicationSid 不变);fall through 时不消费 */
   finalSessionId: string;
+  /**
+   * **R2 HIGH 修法（对称 claude）**：recover 路径 await injectResumeHistory 后重读 lifecycle 发现
+   * 已 closed/missing（用户 await 窗口内主动 close）→ abort 不起 fresh thread。caller 必须在判
+   * fellBack/fall-through **之前**先检查本字段：true → 直接 return finalSessionId 静默结束
+   * （lifecycle 已是用户想要的 closed，不 createSession / 不 emit / 不 fall through，避免复活）。
+   */
+  aborted?: boolean;
 }
 
 /**
@@ -167,6 +184,18 @@ export async function maybeCodexJsonlFallback(
     throw new Error(
       `单条消息 ${opts.prompt.length.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限，无法作为 fallback 首条 prompt。请精简或拆分发送。`,
     );
+  }
+
+  // **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法（对称 claude jsonl-fallback.ts）**：
+  // await injectResumeHistory（LLM oneshot 10-30s）后、createSession 前重读 lifecycle。recover
+  // 路径若用户在 await 窗口内主动 close → isCancelledFn 返 true → abort 不起 fresh thread（否则
+  // createSession SDK 事件过 ensure closed→active 复活，静默反转用户显式 close）。lifecycle 已是
+  // 用户想要的 closed，abort 时不 createSession / 不 emit / 直接返 aborted:true。单线程无二次 TOCTOU。
+  if (opts.isCancelledFn?.()) {
+    logger.warn(
+      `[codex-bridge] recover fallback aborted: session ${opts.sessionId} closed during summary await (user close)`,
+    );
+    return { fellBack: false, finalSessionId: opts.sessionId, aborted: true };
   }
 
   // fallback 路径:不带 resume + 显式透传 sandbox/model/extraAllowWrite 否则静默降全局默认

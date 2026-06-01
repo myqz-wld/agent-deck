@@ -358,17 +358,26 @@ export async function injectResumeHistory(
   // 预算式拼 raw 段（逐条加到逼近 budgetForHistory 停，reverse 成 chronological）。
   const rawSegment = buildRawSegment(messages, agentName, budgetForHistory);
 
-  // ===== step4：raw 段为空 → 据「总结段是否已纳入」二分（R1 reviewer-codex MED 深层修法）=====
+  // ===== step4：raw 段为空 → 据「总结段能否独立 fit」二分（R1+R2 reviewer-codex MED/LOW 修法）=====
   // raw 为空触发条件（buildRawSegment continue 化后）：所有候选消息都单条超预算，或 wrapper
   // 边界预算 ≤ 0。两种子情况：
-  // - **总结已纳入**（includeSummary）→ 拼「总结 + 当前消息」两段，不连带丢已生成成功的总结
-  //   （raw-budget-empty-summary-used）。总结比纯 originalText 有价值，且这条历史路径已 used:true。
-  // - **总结未纳入**（无总结 / 总结也超预算被丢）→ 无任何历史可注 → 退纯 originalText
-  //   （history-budget-empty，已过 step0 → ≤ maxLength → createSession 一定能起，防御兜底）。
+  // - **总结能独立 fit**（summary-only 不含 raw wrapper 时能装下）→ 拼「总结 + 当前消息」两段，
+  //   不连带丢已生成成功的总结（raw-budget-empty-summary-used）。
+  // - **总结也装不下 / 无总结** → 无任何历史可注 → 退纯 originalText（history-budget-empty，已过
+  //   step0 → ≤ maxLength → createSession 一定能起，防御兜底）。
+  //
+  // **R2 reviewer-codex LOW 修法（lead 重算确证）**：此处**重新**判 summary-only fit，不复用
+  // 上面 includeSummary（那个判定预扣了 rawWrapperCost，过度保守）。反例：summaryCost===budgetForHistory
+  // 时 includeSummary=false（严格 `<`），但 summary-only prompt（summaryCost + currentBlock，不含
+  // raw wrapper）可能仍 ≤ maxLength（lead 实测 162 ≤ 200）→ 旧逻辑会误丢能 fit 的总结。重判
+  // `hasSummary && summaryCost + currentBlock.length <= maxLength` 兜住这条边界。
   if (rawSegment.length === 0) {
-    if (includeSummary) {
-      const prompt = `${SUMMARY_HEADER}\n${summary!.trim()}\n\n${currentBlock}`;
-      return { prompt, used: true, failReason: 'raw-budget-empty-summary-used' };
+    if (hasSummary) {
+      const summaryCost = summary!.trim().length + summaryWrapperCost;
+      if (summaryCost + currentBlock.length <= maxLength) {
+        const prompt = `${SUMMARY_HEADER}\n${summary!.trim()}\n\n${currentBlock}`;
+        return { prompt, used: true, failReason: 'raw-budget-empty-summary-used' };
+      }
     }
     return { prompt: originalText, used: false, failReason: 'history-budget-empty' };
   }
