@@ -244,30 +244,29 @@ export const useSessionStore = create<State>((set) => ({
           const cur = state.pendingPermissionsBySession.get(event.sessionId);
           if (cur?.some((r) => r.requestId === reqId)) {
             pendingMap = new Map(state.pendingPermissionsBySession);
-            pendingMap.set(
-              event.sessionId,
-              cur.filter((r) => r.requestId !== reqId),
-            );
+            // deep-review H2 LOW：filter 后空数组 delete key（与 resolvePermission/setPendingRequests
+            // 的 length===0 → delete 对齐；旧实现 set([]) 留空 key 内存微泄漏 + 与同文件约定不一致）。
+            const next = cur.filter((r) => r.requestId !== reqId);
+            if (next.length === 0) pendingMap.delete(event.sessionId);
+            else pendingMap.set(event.sessionId, next);
           }
         } else if (isAskQuestionCancelled(event.payload)) {
           const reqId = event.payload.requestId;
           const cur = state.pendingAskQuestionsBySession.get(event.sessionId);
           if (cur?.some((r) => r.requestId === reqId)) {
             askMap = new Map(state.pendingAskQuestionsBySession);
-            askMap.set(
-              event.sessionId,
-              cur.filter((r) => r.requestId !== reqId),
-            );
+            const next = cur.filter((r) => r.requestId !== reqId);
+            if (next.length === 0) askMap.delete(event.sessionId);
+            else askMap.set(event.sessionId, next);
           }
         } else if (isExitPlanCancelled(event.payload)) {
           const reqId = event.payload.requestId;
           const cur = state.pendingExitPlanModesBySession.get(event.sessionId);
           if (cur?.some((r) => r.requestId === reqId)) {
             exitMap = new Map(state.pendingExitPlanModesBySession);
-            exitMap.set(
-              event.sessionId,
-              cur.filter((r) => r.requestId !== reqId),
-            );
+            const next = cur.filter((r) => r.requestId !== reqId);
+            if (next.length === 0) exitMap.delete(event.sessionId);
+            else exitMap.set(event.sessionId, next);
           }
         }
       }
@@ -409,35 +408,120 @@ export const useSessionStore = create<State>((set) => ({
     }),
 
   setPendingRequestsAll: (map) =>
-    set(() => {
-      const p = new Map<string, PermissionRequest[]>();
-      const a = new Map<string, AskUserQuestionRequest[]>();
-      const x = new Map<string, ExitPlanModeRequest[]>();
+    set((state) => {
+      // deep-review H2 MED（codex）：启动全量快照**merge** 进现有 pending（非整表替换）。
+      // App mount 先挂 useEventBridge（onAgentEvent 订阅）再异步拉 listAdapterPendingAll，
+      // 快照 IPC 在途期间到达的 waiting-for-user live event 已 pushEvent 加 pending；旧实现
+      // `set(() => new Map(snapshot))` 整表替换会抹掉这些 live pending → chip 0 + 按钮不显示 →
+      // 用户授权不了 → SDK 死锁。改为按 sid + requestId union 合并：快照补全主进程已知 pending，
+      // live event 加的 pending 保留。
+      const mergeBucket = <R extends { requestId: string }>(
+        existing: Map<string, R[]>,
+        incoming: Map<string, R[]>,
+      ): Map<string, R[]> => {
+        const next = new Map(existing);
+        for (const [sid, snap] of incoming) {
+          const cur = next.get(sid);
+          if (!cur || cur.length === 0) {
+            if (snap.length > 0) next.set(sid, snap);
+            continue;
+          }
+          // union by requestId：cur（含 live event 新增）优先保留，快照补 cur 没有的。
+          const seen = new Set(cur.map((r) => r.requestId));
+          const merged = [...cur, ...snap.filter((r) => !seen.has(r.requestId))];
+          next.set(sid, merged);
+        }
+        return next;
+      };
+      const pIn = new Map<string, PermissionRequest[]>();
+      const aIn = new Map<string, AskUserQuestionRequest[]>();
+      const xIn = new Map<string, ExitPlanModeRequest[]>();
       for (const [sid, { permissions, askQuestions, exitPlanModes }] of Object.entries(map)) {
-        if (permissions.length > 0) p.set(sid, permissions);
-        if (askQuestions.length > 0) a.set(sid, askQuestions);
-        if (exitPlanModes.length > 0) x.set(sid, exitPlanModes);
+        if (permissions.length > 0) pIn.set(sid, permissions);
+        if (askQuestions.length > 0) aIn.set(sid, askQuestions);
+        if (exitPlanModes.length > 0) xIn.set(sid, exitPlanModes);
       }
       return {
-        pendingPermissionsBySession: p,
-        pendingAskQuestionsBySession: a,
-        pendingExitPlanModesBySession: x,
+        pendingPermissionsBySession: mergeBucket(state.pendingPermissionsBySession, pIn),
+        pendingAskQuestionsBySession: mergeBucket(state.pendingAskQuestionsBySession, aIn),
+        pendingExitPlanModesBySession: mergeBucket(state.pendingExitPlanModesBySession, xIn),
       };
     }),
 
   renameSession: (fromId, toId) =>
     set((state) => {
       if (fromId === toId) return {};
-      const moveMapKey = <V,>(src: Map<string, V>): Map<string, V> => {
+      // deep-review H2 MED（双方）：M4 防御原对 by-session Map 用「toId 已存在则跳过 set + fromId
+      // 已 delete」→ toId 预先有一小段（CLI fork 后 realId 上先到一条 event/pending）时，fromId 的
+      // 200 条 recentEvents / summaries / pending 被静默整张丢弃。改为 **merge**：events/summaries
+      // 按值拼接（fromId 在前保时间线）后截断 RECENT_LIMIT；pending 按 requestId union。fromId 几乎
+      // 总是全新 realId 不触发冲突（claude：toId 预存极罕见），但 merge 让任意 IPC 到达顺序无数据丢失。
+      const concatEvents = (a: AgentEvent[], b: AgentEvent[]): AgentEvent[] => {
+        // a=fromId（旧 id，含历史）b=toId（新 realId，已到达的少量）。recentEvents 数组语义是
+        // newest-first（pushEvent unshift / listEvents ORDER BY ts DESC）→ 必须按 ts DESC 排序再
+        // 截断，否则（deep-review H2 R2 LOW，双方独立 + Node repro）concat「旧在前」+ slice 在
+        // fromId 已满 RECENT_LIMIT 时会把 toId 的最新事件全截掉（最该保的反被裁）。与 moveSummaries
+        // 同款 sort 兜底。dedup tool-use（同 kind+toolUseId 保最新一条）在 sort 后做。
+        const merged = [...a, ...b].sort((e1, e2) => e2.ts - e1.ts);
+        const seenStart = new Set<string>();
+        const seenEnd = new Set<string>();
+        const out: AgentEvent[] = [];
+        for (const e of merged) {
+          if (e.kind === 'tool-use-start' || e.kind === 'tool-use-end') {
+            const tid = (e.payload as { toolUseId?: unknown })?.toolUseId;
+            if (typeof tid === 'string' && tid) {
+              const seen = e.kind === 'tool-use-start' ? seenStart : seenEnd;
+              if (seen.has(tid)) continue;
+              seen.add(tid);
+            }
+          }
+          out.push(e);
+        }
+        return out.slice(0, RECENT_LIMIT);
+      };
+      const moveEvents = (src: Map<string, AgentEvent[]>): Map<string, AgentEvent[]> => {
         if (!src.has(fromId)) return src;
         const next = new Map(src);
         const v = next.get(fromId)!;
         next.delete(fromId);
-        // REVIEW_7 M4：toId 已有 entry（IPC 顺序乱序、其他路径已积累）时不覆盖，
-        // 保留 toId 已有数据避免数据丢失（fork / fallback 场景下 NEW_ID 几乎是新 id 不会触发，
-        // 但加这道防御让 renameSession 对任意 IPC 到达顺序鲁棒，不依赖未文档化的同步保证）。
-        if (!next.has(toId)) {
+        const existing = next.get(toId);
+        next.set(toId, existing ? concatEvents(v, existing) : v);
+        return next;
+      };
+      const moveSummaries = (src: Map<string, SummaryRecord[]>): Map<string, SummaryRecord[]> => {
+        if (!src.has(fromId)) return src;
+        const next = new Map(src);
+        const v = next.get(fromId)!;
+        next.delete(fromId);
+        const existing = next.get(toId);
+        // summaries：fromId（历史）+ toId（新到）concat 后按 ts DESC 排序（from/to 是不同 sessionId
+        // stamp，同一 summary record 不会同时在两 key → 无需 dedup，concat+sort 即正确）。
+        next.set(toId, existing ? [...v, ...existing].sort((a, b) => b.ts - a.ts) : v);
+        return next;
+      };
+      const moveLatest = (src: Map<string, SummaryRecord>): Map<string, SummaryRecord> => {
+        if (!src.has(fromId)) return src;
+        const next = new Map(src);
+        const v = next.get(fromId)!;
+        next.delete(fromId);
+        const existing = next.get(toId);
+        // latest：取 ts 更新者。
+        next.set(toId, existing && existing.ts >= v.ts ? existing : v);
+        return next;
+      };
+      const movePending = <R extends { requestId: string }>(
+        src: Map<string, R[]>,
+      ): Map<string, R[]> => {
+        if (!src.has(fromId)) return src;
+        const next = new Map(src);
+        const v = next.get(fromId)!;
+        next.delete(fromId);
+        const existing = next.get(toId);
+        if (!existing) {
           next.set(toId, v);
+        } else {
+          const seen = new Set(existing.map((r) => r.requestId));
+          next.set(toId, [...existing, ...v.filter((r) => !seen.has(r.requestId))]);
         }
         return next;
       };
@@ -446,7 +530,7 @@ export const useSessionStore = create<State>((set) => ({
       const fromRec = sessions.get(fromId);
       if (fromRec) {
         sessions.delete(fromId);
-        // REVIEW_7 M4：toId 已有 record（emit 乱序时 upsert 先到 / 其他路径已 upsert）则保留较新 record，
+        // M4：toId 已有 record（emit 乱序时 upsert 先到 / 其他路径已 upsert）则保留较新 record，
         // 不用 fromRec 覆盖；toId 不存在才用 fromRec 兜底设 id 为 toId。
         if (!sessions.has(toId)) {
           sessions.set(toId, { ...fromRec, id: toId });
@@ -454,12 +538,12 @@ export const useSessionStore = create<State>((set) => ({
       }
       return {
         sessions,
-        recentEventsBySession: moveMapKey(state.recentEventsBySession),
-        summariesBySession: moveMapKey(state.summariesBySession),
-        latestSummaryBySession: moveMapKey(state.latestSummaryBySession),
-        pendingPermissionsBySession: moveMapKey(state.pendingPermissionsBySession),
-        pendingAskQuestionsBySession: moveMapKey(state.pendingAskQuestionsBySession),
-        pendingExitPlanModesBySession: moveMapKey(state.pendingExitPlanModesBySession),
+        recentEventsBySession: moveEvents(state.recentEventsBySession),
+        summariesBySession: moveSummaries(state.summariesBySession),
+        latestSummaryBySession: moveLatest(state.latestSummaryBySession),
+        pendingPermissionsBySession: movePending(state.pendingPermissionsBySession),
+        pendingAskQuestionsBySession: movePending(state.pendingAskQuestionsBySession),
+        pendingExitPlanModesBySession: movePending(state.pendingExitPlanModesBySession),
         selectedSessionId: state.selectedSessionId === fromId ? toId : state.selectedSessionId,
       };
     }),
