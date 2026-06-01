@@ -60,19 +60,7 @@ vi.mock('@main/store/db', () => ({
   },
 }));
 
-function probeBetterSqliteBinding(): boolean {
-  try {
-    const db = new Database(':memory:');
-    db.close();
-    return true;
-  } catch (e) {
-    console.warn(
-      `[repo-tiebreaker.test] better-sqlite3 binding 不可用，跳过本文件全部用例。原因：${e instanceof Error ? e.message : String(e)}`,
-    );
-    return false;
-  }
-}
-const bindingAvailable = probeBetterSqliteBinding();
+import { bindingAvailable } from './_binding-probe';
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');

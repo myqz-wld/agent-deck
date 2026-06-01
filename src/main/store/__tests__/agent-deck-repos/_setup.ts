@@ -35,21 +35,11 @@ import v024 from '../../migrations/v024_tasks_add_team_id.sql?raw';
 import v025 from '../../migrations/v025_events_tool_use_end_dedup.sql?raw';
 import v026 from '../../migrations/v026_issues.sql?raw';
 
-function probeBetterSqliteBinding(): boolean {
-  try {
-    const db = new Database(':memory:');
-    db.close();
-    return true;
-  } catch (e) {
-    console.warn(
-      `[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。` +
-        `若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：${e instanceof Error ? e.message : String(e)}`,
-    );
-    return false;
-  }
-}
-
-export const bindingAvailable = probeBetterSqliteBinding();
+// binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
+// 让本 _setup 的 7 个下游 consumer（team-repo / message-repo / task-repo / issue-repo /
+// rejoin-after-soft-exit / swap-lead + agent-deck-mcp dormant-teammate-shutdown）的
+// `import { bindingAvailable } from './...../_setup'` 继续可用，0 改动。
+export { bindingAvailable } from '../_binding-probe';
 
 export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
   const db = new Database(dbPath);

@@ -128,18 +128,20 @@ describe.skipIf(!bindingAvailable)('session-repo / cwd_release_marker (plan P1 S
     expect(newRow?.cwdReleaseMarker).toBe('/wt/old-path'); // marker 从 OLD 覆盖到 NEW
   });
 
-  it('TC2b 边角: fromRow.cwd_release_marker 为 null 时 toExists=true 不撞 SQL 错', () => {
+  it('TC2b 边角: fromRow.cwd_release_marker 为 null 时 toExists=true 无条件覆盖 NEW（marker 以 OLD 为准）', () => {
     insertActiveSession(db, 'sid-OLD'); // marker = null
     insertActiveSession(db, 'sid-NEW');
     coreCrud.setCwdReleaseMarker('sid-NEW', '/existing/wt'); // NEW 已有 marker
-    // OLD 没 marker → rename 时 if (toExists && fromRow.cwd_release_marker) 分支跳过,
-    // 不应覆盖 NEW 已有 marker。
+    // P5 Round 1 reviewer-codex MED-2 修法后:rename toExists=true 分支**无条件**用 fromRow
+    // 覆盖 cwd_release_marker(rename.ts:283）。marker 是 transient session state(worktree 持有
+    // 标记),rename = OLD 接管 NEW 身份 → OLD null 必须清掉 NEW 的 stale marker,否则 codex SDK
+    // 隐式 fork 后 stale marker 跟到新 sid 触发 archive_plan 状态 4 误 reject。
     expect(sessionRepo.get('sid-OLD')?.cwdReleaseMarker).toBeNull();
 
     renameWithDb(db, 'sid-OLD', 'sid-NEW');
 
     expect(sessionRepo.get('sid-OLD')).toBeNull();
-    // NEW 已有 marker 不被 OLD null 淹没
-    expect(sessionRepo.get('sid-NEW')?.cwdReleaseMarker).toBe('/existing/wt');
+    // OLD null 无条件覆盖 → NEW 的 stale marker 被清空（以 OLD 为准）
+    expect(sessionRepo.get('sid-NEW')?.cwdReleaseMarker).toBeNull();
   });
 });

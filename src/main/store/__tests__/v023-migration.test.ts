@@ -39,19 +39,7 @@ const PRE_V023 = [
   v013, v014, v015, v016, v017, v018, v019, v020, v021, v022,
 ];
 
-function probeBetterSqliteBinding(): boolean {
-  try {
-    const db = new Database(':memory:');
-    db.close();
-    return true;
-  } catch (e) {
-    console.warn(
-      `[v023-migration.test] better-sqlite3 binding 不可用，跳过本文件全部用例。原因：${e instanceof Error ? e.message : String(e)}`,
-    );
-    return false;
-  }
-}
-const bindingAvailable = probeBetterSqliteBinding();
+import { bindingAvailable } from './_binding-probe';
 
 function makeDbAt(version: 'pre-v023' | 'post-v023'): Database.Database {
   const db = new Database(':memory:');
@@ -223,11 +211,28 @@ describe.skipIf(!bindingAvailable)('v023 migration / DROP + CREATE 全新 schema
     }
   });
 
-  it('幂等性：重复跑 v023 应抛错（DROP IF EXISTS 安全，CREATE TABLE 无 IF NOT EXISTS）', () => {
+  it('重复执行匹配 destructive DROP+CREATE 契约（不抛 + 重建空表，非数据幂等）', () => {
     const db = makeDbAt('post-v023');
     try {
-      // tasks 表已存在 → CREATE TABLE 应抛 already exists
-      expect(() => db.exec(v023)).toThrow(/already exists/i);
+      // v023 = `DROP TABLE IF EXISTS tasks` + `CREATE TABLE tasks`（SQL:34,61）。重跑不是
+      // **数据**幂等（会清空有数据的 tasks），而是**契约**幂等：DROP IF EXISTS 兜底重跑不抛 +
+      // schema 重建正确。先插一条 task，重跑 v023，显式断言被清空（明示 destructive rerun 语义）。
+      insertSession(db, 'sess-1');
+      db.prepare(
+        `INSERT INTO tasks (id, owner_session_id, subject, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run('t-1', 'sess-1', 'X', '2025-01-01', '2025-01-01');
+      expect((db.prepare(`SELECT COUNT(*) AS c FROM tasks`).get() as { c: number }).c).toBe(1);
+
+      // 重跑 v023：DROP IF EXISTS 使其不抛（CREATE TABLE 无 IF NOT EXISTS 但前面已 DROP）
+      expect(() => db.exec(v023)).not.toThrow();
+
+      // destructive：原 task 被清空 + schema 仍正确（owner_session_id 列在）
+      expect((db.prepare(`SELECT COUNT(*) AS c FROM tasks`).get() as { c: number }).c).toBe(0);
+      const cols = (db.prepare(`PRAGMA table_info(tasks)`).all() as Array<{ name: string }>).map(
+        (c) => c.name,
+      );
+      expect(cols).toContain('owner_session_id');
     } finally {
       db.close();
     }

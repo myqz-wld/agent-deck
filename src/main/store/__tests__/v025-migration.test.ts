@@ -63,19 +63,7 @@ const PRE_V025 = [
   v013, v014, v015, v016, v017, v018, v019, v020, v021, v022, v023, v024,
 ];
 
-function probeBetterSqliteBinding(): boolean {
-  try {
-    const db = new Database(':memory:');
-    db.close();
-    return true;
-  } catch (e) {
-    console.warn(
-      `[v025-migration.test] better-sqlite3 binding 不可用，跳过本文件全部用例。原因：${e instanceof Error ? e.message : String(e)}`,
-    );
-    return false;
-  }
-}
-const bindingAvailable = probeBetterSqliteBinding();
+import { bindingAvailable } from './_binding-probe';
 
 function makeDbAt(version: 'pre-v025' | 'post-v025'): Database.Database {
   const db = new Database(':memory:');

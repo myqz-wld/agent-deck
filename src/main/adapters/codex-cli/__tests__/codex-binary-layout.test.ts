@@ -33,8 +33,21 @@ vi.mock('electron', () => ({
 }));
 
 // process.resourcesPath 不是标准 Node 字段（Electron 注入），测试里手动赋值
-// （resolveBundledCodexBinary 读 process.resourcesPath）
+// （resolveBundledCodexBinary 读 process.resourcesPath）。
+// ⚠️ Electron-as-node 下 process.resourcesPath 是 read-only（writable:false, configurable:true），
+// 直接赋值抛 `TypeError: Cannot assign to read only property`（plan sqlite-tests-no-skip-20260601 D7）。
+// 必须走 Object.defineProperty（configurable:true 让两 runtime 都能重定义 + 还原；
+// 系统 node 下该属性本就 undefined 也能 defineProperty）。
 const originalResourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+
+function setResourcesPath(value: string | undefined): void {
+  Object.defineProperty(process, 'resourcesPath', {
+    value,
+    configurable: true,
+    writable: true,
+    enumerable: true,
+  });
+}
 
 /** 仅 darwin-arm64 测试机上跑布局断言（其他平台 spec 不同，dev / null 分支仍覆盖） */
 const isDarwinArm64 = process.platform === 'darwin' && process.arch === 'arm64';
@@ -54,12 +67,12 @@ function vendorTripleDir(): string {
 }
 
 beforeAll(() => {
-  (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath = FIXTURE_ROOT;
+  setResourcesPath(FIXTURE_ROOT);
 });
 
 afterAll(() => {
   if (existsSync(FIXTURE_ROOT)) rmSync(FIXTURE_ROOT, { recursive: true, force: true });
-  (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath = originalResourcesPath;
+  setResourcesPath(originalResourcesPath);
   electronState.isPackaged = true;
 });
 

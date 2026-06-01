@@ -26,6 +26,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import log from 'electron-log/main';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -508,9 +509,13 @@ describe.skipIf(!bindingAvailable)('task-repo / 并发与持久化', () => {
 });
 
 describe.skipIf(!bindingAvailable)('task-repo / 损坏数据容错', () => {
+  // _deps.ts:23 用 `log.scope('task-repo-deps')`，其 .warn 在 vitest-setup electron-log/main
+  // mock 下是按 scope name 缓存的 vi.fn。scope name 必须与 _deps.ts **完全一致** `'task-repo-deps'`，
+  // typo 成别名 → 拿到另一 cache 实例 → toHaveBeenCalled 永远 false 假绿（plan D5）。
   it('blocks / blocked_by / labels 列里写脏 JSON：rowToRecord 退化空数组 + warn', () => {
     const { db, repo, sid } = makeMemoryRepo();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = log.scope('task-repo-deps').warn as ReturnType<typeof vi.fn>;
+    warnSpy.mockClear();
     try {
       const t = repo.create({ subject: 'A', ownerSessionId: sid });
       // 直接用 SQL 写入坏数据，绕过 repo 的 JSON.stringify
@@ -524,14 +529,14 @@ describe.skipIf(!bindingAvailable)('task-repo / 损坏数据容错', () => {
       expect(got?.labels).toEqual([]);
       expect(warnSpy).toHaveBeenCalled();
     } finally {
-      warnSpy.mockRestore();
       db.close();
     }
   });
 
   it('blocks 数组里有非 string 元素：退化空数组 + warn', () => {
     const { db, repo, sid } = makeMemoryRepo();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = log.scope('task-repo-deps').warn as ReturnType<typeof vi.fn>;
+    warnSpy.mockClear();
     try {
       const t = repo.create({ subject: 'A', ownerSessionId: sid });
       db.prepare(`UPDATE tasks SET blocks = ? WHERE id = ?`).run('[1, 2, 3]', t.id);
@@ -539,7 +544,6 @@ describe.skipIf(!bindingAvailable)('task-repo / 损坏数据容错', () => {
       expect(got?.blocks).toEqual([]);
       expect(warnSpy).toHaveBeenCalled();
     } finally {
-      warnSpy.mockRestore();
       db.close();
     }
   });

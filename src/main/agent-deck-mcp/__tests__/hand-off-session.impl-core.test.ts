@@ -316,11 +316,12 @@ describe('handOffSessionImpl — 校验失败分支', () => {
 });
 
 describe('handOffSessionImpl — REVIEW_33 H10 worktreePath 存在性预检', () => {
-  // pre-existing test — REVIEW_56 Batch B R1 LOW-1 + R2 MED-1 修订改 impl 行为(不再 reject,改
-  // 返结构化 `worktreeExists` flag 让 handler 决策),但 test 仍按旧 hard-reject 期望写。本 plan
-  // (ref-layout-full-migration-20260526) ref/plans/ 改动与此正交,顺手 skip 让 vitest pass;
-  // 重写归 follow-up plan(测 result.worktreeExists === false + handler 层 cwd 决策树覆盖)
-  it.skip('frontmatter worktreePath 路径在 fs 上不存在 → reject + hint 提示重建 worktree / 改 frontmatter', async () => {
+  // REVIEW_56 Batch B R1 LOW-1 + R2 MED-1 修订:impl **不再 hard-reject** worktree 不存在,
+  // 改返结构化 `worktreeExists: false` flag(hand-off-session-impl.ts:297,346),由 handler 层
+  // validatePlanModeWorktreeExists + finalCwd 做 4-case 决策(hard reject / graceful warn)。
+  // 本 test 验 impl 层契约:worktree 不存在 → 仍 resolved + worktreeExists=false（不在 impl 层 reject）。
+  // handler 层决策树覆盖见 hand-off-session.handler-cwd-generic.test.ts（D8b 补）。
+  it('frontmatter worktreePath 路径在 fs 上不存在 → resolved + worktreeExists=false（impl 不 reject，留 handler 决策）', async () => {
     const state = makeState();
     const planId = 'orphan-plan';
     const worktreePath = '/Users/test/repo/.claude/worktrees/orphan-plan';
@@ -329,16 +330,15 @@ describe('handOffSessionImpl — REVIEW_33 H10 worktreePath 存在性预检', ()
       planContent({ planId, status: 'in_progress', worktreePath }),
     );
     // 关键：模拟 worktree 已删（state.files 没设 worktreePath，且 missingWorktree=true
-    // 阻止 makeDeps 的 `.claude/worktrees/` fallback）
+    // 阻止 makeDeps 的 `.claude/worktrees/` fallback → deps.exists(worktreePath) 返 false）
     state.missingWorktree = true;
 
     const result = await handOffSessionImpl({ planId }, makeDeps(state));
-    expect(_isHandOffSessionError(result)).toBe(true);
-    const err = result as HandOffSessionError;
-    expect(err.error).toContain('worktreePath does not exist on disk');
-    expect(err.error).toContain(worktreePath);
-    expect(err.hint).toContain('git worktree add');
-    expect(err.hint).toContain('archive_plan');
+    // impl 不再 hard-reject：返 resolved 且 worktreeExists=false（契约从 hard-reject 迁移）
+    expect(_isHandOffSessionError(result)).toBe(false);
+    const ok = result as HandOffSessionResolved;
+    expect(ok.worktreeExists).toBe(false);
+    expect(ok.worktreePath).toBe(worktreePath);
   });
 
   it('frontmatter worktreePath 存在 → step 0 放行，正常返 resolved 上下文', async () => {
