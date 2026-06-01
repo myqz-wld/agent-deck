@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import { useId, type JSX } from 'react';
 
 /**
  * 3 个 sandbox / permission select 行（permissionMode / codex sandbox / claude OS 沙盒）。
@@ -26,10 +26,14 @@ export function SelectRow<T extends string>({
   onChange: (next: T) => void;
 }): JSX.Element {
   const current = options.find((o) => o.value === value);
+  // deep-review H3 LOW（a11y，codex）：label htmlFor 关联到 select（旧实现 label 是裸 <span>，
+  // select 无 id/aria-label → 可见名称不成为控件程序化名称）。title 是当前选项说明，非字段名。
+  const id = useId();
   return (
     <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-deck-muted">
-      <span>{label}</span>
+      <label htmlFor={id}>{label}</label>
       <select
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
         disabled={disabled}

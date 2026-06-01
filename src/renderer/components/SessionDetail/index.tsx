@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type JSX } from 'react';
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type {
   AgentEvent,
   DiffPayload,
@@ -21,7 +21,7 @@ import { SourceBadge } from './SourceBadge';
 import { ComposerSdk } from './ComposerSdk';
 import { CliFooter } from './CliFooter';
 import { ChangeTimeline } from './ChangeTimeline';
-import { decodeBlob } from './helpers';
+import { decodeBlob, groupFileChanges, pickLatestChange } from './helpers';
 
 type Tab = 'activity' | 'diff' | 'summary' | 'messages' | 'permissions';
 
@@ -35,12 +35,34 @@ interface Props {
 export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('activity');
   const [changes, setChanges] = useState<FileChangeRecord[] | null>(null);
+  const [diffError, setDiffError] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedChangeId, setSelectedChangeId] = useState<number | null>(null);
   /** K3 hand-off preview dialog 开关（plan mcp-bug-and-feature-batch-20260513 Phase 4c）。 */
   const [handOffOpen, setHandOffOpen] = useState(false);
   /** 最近被 SDK 自动取消的权限/提问，用于 toast 提示「不是你做的，是 SDK 取消的」。 */
   const [cancelToasts, setCancelToasts] = useState<{ id: string; text: string; ts: number }[]>([]);
+  // deep-review H3 MED：auto-dismiss timer 用独立 ref registry，**不绑 [recent] effect cleanup**。
+  // 旧实现 timer 在 [recent] effect 内 setTimeout + cleanup clearTimeout → 下一条非 cancel 事件到达
+  // 时 React 先跑旧 cleanup 杀掉 timer、新 effect 看非 cancel 直接 return 不补设 timer → toast 永不
+  // auto-dismiss（活跃会话取消后必有后续活动，必踩）。改为按 toast id 存 timer，添加时设、移除/卸载时清。
+  const toastTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const dismissToast = (id: string): void => {
+    setCancelToasts((prev) => prev.filter((t) => t.id !== id));
+    const tm = toastTimersRef.current.get(id);
+    if (tm) {
+      clearTimeout(tm);
+      toastTimersRef.current.delete(id);
+    }
+  };
+  // 卸载时清掉所有挂起的 toast timer（防 setState on unmounted）。
+  useEffect(() => {
+    const timers = toastTimersRef.current;
+    return () => {
+      for (const tm of timers.values()) clearTimeout(tm);
+      timers.clear();
+    };
+  }, []);
 
   /** 留作选择器但目前未渲染 banner —— 活动流的 PermissionRow / AskRow / ExitPlanRow 已统一接管。
    *  拿一下值用 void 标记 used，免得删 selector 还要清 EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES。 */
@@ -62,18 +84,22 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
 
   // 监听最近一条事件：如果是 SDK 主动取消的权限 / 提问 / 计划批准，弹一个 5s toast，
   // 让用户知道 banner 上那条不是被自己点掉的。
+  // deep-review H3 MED：timer 放 toastTimersRef（不绑本 effect cleanup），避免下一条事件 cleanup
+  // 杀掉 auto-dismiss timer。本 effect 只负责「检测 cancel 事件 → 加 toast + 注册 timer」。
   useEffect(() => {
     const e = recent[0];
-    if (!e || e.kind !== 'waiting-for-user') return undefined;
+    if (!e || e.kind !== 'waiting-for-user') return;
     const p = (e.payload ?? {}) as { type?: string; requestId?: string };
     if (
       p.type !== 'permission-cancelled' &&
       p.type !== 'ask-question-cancelled' &&
       p.type !== 'exit-plan-cancelled'
     ) {
-      return undefined;
+      return;
     }
     const id = `${e.ts}-${p.requestId ?? ''}`;
+    // 已有该 toast（含已注册 timer）→ 不重复加、不重设 timer。
+    if (toastTimersRef.current.has(id)) return;
     const kindLabel =
       p.type === 'permission-cancelled'
         ? '权限请求'
@@ -81,21 +107,26 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           ? '提问'
           : '计划批准请求';
     const text = `已取消一条${kindLabel}`;
-    setCancelToasts((prev) => {
-      if (prev.some((t) => t.id === id)) return prev;
-      return [...prev, { id, text, ts: e.ts }];
-    });
+    setCancelToasts((prev) => (prev.some((t) => t.id === id) ? prev : [...prev, { id, text, ts: e.ts }]));
     const timer = setTimeout(() => {
       setCancelToasts((prev) => prev.filter((t) => t.id !== id));
+      toastTimersRef.current.delete(id);
     }, 5000);
-    return () => clearTimeout(timer);
+    toastTimersRef.current.set(id, timer);
   }, [recent]);
 
   useEffect(() => {
     setTab('activity');
     setChanges(null);
+    setDiffError(null);
     setSelectedFilePath(null);
     setSelectedChangeId(null);
+    // deep-review H3 MED：SessionDetail 无 key prop（App.tsx）→ 切会话不 remount，cancelToasts
+    // useState 跨会话存活；切会话时 B 的 recent[0] 非 cancel 不会触发清理 → A 的 toast 串到 B。
+    // 这里 reset 时一并清空 toast + 其 timer。
+    setCancelToasts([]);
+    for (const tm of toastTimersRef.current.values()) clearTimeout(tm);
+    toastTimersRef.current.clear();
   }, [session.id]);
 
   /** 加载并订阅 file_changes：
@@ -106,29 +137,49 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
    *
    * REVIEW_2 修：原本仅在 changes===null 时拉一次，期间产生的新 file-changed 不会刷新；
    *           且切会话时旧 IPC 返回会污染新会话列表。融合 Claude A 节流 + Codex B sequence。
+   *
+   * deep-review H3 LOW：effect deps 去掉 hasLoaded（改用 changesLoadedRef）。旧 hasLoaded 入 deps →
+   * 首次 sync setChanges 后 false→true 触发 effect 重订阅，cleanup `clearTimeout(timer)` 会杀掉 sync
+   * 在途期间 file-changed 设的 300ms 节流 timer → 那条刷新被吞直到下条 file-changed。去掉 hasLoaded
+   * dep 让订阅在「首加载」前后稳定，不重订阅不杀 timer。
    */
-  const hasLoaded = changes !== null;
+  const changesLoadedRef = useRef(false);
   useEffect(() => {
-    if (tab !== 'diff' && !hasLoaded) return;
+    changesLoadedRef.current = changes !== null;
+  });
+  useEffect(() => {
+    if (tab !== 'diff' && !changesLoadedRef.current) return;
     let disposed = false;
     let req = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const sync = (): void => {
       const cur = ++req;
-      void window.api.listFileChanges(session.id).then((rows) => {
-        if (disposed || cur !== req) return;
-        const arr = rows as FileChangeRecord[];
-        const latest = arr.length > 0 ? [...arr].sort((a, b) => b.ts - a.ts)[0] : null;
-        setChanges(arr);
-        setSelectedFilePath((p) =>
-          p && arr.some((c) => c.filePath === p) ? p : latest?.filePath ?? null,
-        );
-        setSelectedChangeId((p) =>
-          p !== null && arr.some((c) => c.id === p) ? p : latest?.id ?? null,
-        );
-      });
+      void window.api
+        .listFileChanges(session.id)
+        .then((rows) => {
+          if (disposed || cur !== req) return;
+          const arr = rows as FileChangeRecord[];
+          // deep-review H3 LOW：同毫秒同文件改动 latest 选取带 id tiebreaker（pickLatestChange 与
+          // groupFileChanges 同 tiebreaker，DB 端是 ts DESC, id DESC，新 id 在前）。
+          const latest = pickLatestChange(arr);
+          setChanges(arr);
+          setDiffError(null);
+          setSelectedFilePath((p) =>
+            p && arr.some((c) => c.filePath === p) ? p : latest?.filePath ?? null,
+          );
+          setSelectedChangeId((p) =>
+            p !== null && arr.some((c) => c.id === p) ? p : latest?.id ?? null,
+          );
+        })
+        .catch((err: unknown) => {
+          // deep-review H3 MED：无 catch 时 IPC reject 冒泡 main.tsx unhandledrejection → 全屏 fatal。
+          // 接住 → diffError。渲染处（changes===null 才整屏 error，有数据时 inline strip 保留 stale）
+          // 与 MessagesPanel `error && messages.length===0` 守门对齐（H3 R2 LOW 修正）。
+          if (disposed || cur !== req) return;
+          setDiffError(err instanceof Error ? err.message : String(err));
+        });
     };
-    if (tab === 'diff' && !hasLoaded) sync();
+    if (tab === 'diff' && changes === null) sync();
     const off = window.api.onAgentEvent((e) => {
       if (e.sessionId !== session.id || e.kind !== 'file-changed') return;
       if (timer != null) return;
@@ -142,29 +193,13 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
       if (timer != null) clearTimeout(timer);
       off();
     };
-  }, [tab, hasLoaded, session.id]);
+    // changes 故意不入 deps（只用首次 sync 的 changes===null 判定 + changesLoadedRef 读最新），
+    // 防 changes 每次刷新都重订阅；仅 tab/session.id 变才重订阅。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, session.id]);
 
-  // 按文件分组：每组内按时间升序（时间线从上到下：旧 → 新）；
-  // 文件按最近一次改动时间倒序排列，让最近活跃的文件排前面。
-  const fileGroups = useMemo(() => {
-    if (!changes) return [];
-    const map = new Map<string, FileChangeRecord[]>();
-    for (const c of changes) {
-      const arr = map.get(c.filePath) ?? [];
-      arr.push(c);
-      map.set(c.filePath, arr);
-    }
-    return [...map.entries()]
-      .map(([filePath, items]) => {
-        const sorted = items.sort((a, b) => a.ts - b.ts);
-        return {
-          filePath,
-          items: sorted,
-          lastTs: sorted[sorted.length - 1].ts,
-        };
-      })
-      .sort((a, b) => b.lastTs - a.lastTs);
-  }, [changes]);
+  // 按文件分组：组内升序（旧→新）+ 文件按最近改动倒序，同毫秒带 id tiebreaker（详 groupFileChanges）。
+  const fileGroups = useMemo(() => (changes ? groupFileChanges(changes) : []), [changes]);
 
   const selectedGroup = useMemo(
     () => fileGroups.find((g) => g.filePath === selectedFilePath) ?? null,
@@ -227,9 +262,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
                 <span className="flex-1">{t.text}</span>
                 <button
                   type="button"
-                  onClick={() =>
-                    setCancelToasts((prev) => prev.filter((x) => x.id !== t.id))
-                  }
+                  onClick={() => dismissToast(t.id)}
                   className="text-deck-muted/60 hover:text-deck-text"
                   aria-label="关闭"
                 >
@@ -276,11 +309,23 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         {tab === 'diff' && (
           <div className="flex h-full flex-col gap-2">
             {changes === null ? (
-              <div className="text-[11px] text-deck-muted">加载中…</div>
+              // deep-review H3 R2 LOW：仅**首加载失败**（changes 仍 null）才整屏 error（与 MessagesPanel
+              // `error && messages.length===0` 同款守门）。已有数据时 re-sync 失败不抹掉已加载 diff —
+              // 走下方 inline error strip 保留 stale + 提示，自愈（下次 re-sync 成功清 diffError）。
+              diffError ? (
+                <div className="text-[11px] text-status-waiting">加载改动失败：{diffError}</div>
+              ) : (
+                <div className="text-[11px] text-deck-muted">加载中…</div>
+              )
             ) : changes.length === 0 ? (
               <div className="text-[11px] text-deck-muted">本会话暂无文件改动</div>
             ) : (
               <>
+                {diffError && (
+                  <div className="shrink-0 text-[10px] text-status-waiting/80">
+                    刷新改动失败（显示的是上次结果）：{diffError}
+                  </div>
+                )}
                 {/* 文件分组：每个文件一个按钮，右上角小角标显示改动次数 */}
                 <div className="flex shrink-0 flex-wrap gap-1">
                   {fileGroups.map((g) => (
@@ -332,8 +377,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           （中断按钮左侧），通过 onHandOff prop 触发 setHandOffOpen(true)。 */}
       {isSdk ? (
         <ComposerSdk
-          sessionId={session.id}
-          agentId={session.agentId}
+          session={session}
           onHandOff={() => setHandOffOpen(true)}
         />
       ) : (

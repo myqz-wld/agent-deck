@@ -35,3 +35,50 @@ export function fileKindLabel(kind: string): string {
       return kind.toUpperCase();
   }
 }
+
+/** 最小 file-change 形态（仅排序 / 分组用到的字段）；与 FileChangeRecord 结构兼容。 */
+export interface FileChangeLike {
+  id: number;
+  filePath: string;
+  ts: number;
+}
+
+export interface FileChangeGroup<T extends FileChangeLike> {
+  filePath: string;
+  /** 组内升序（旧 → 新），同毫秒按 id 升序兜底。 */
+  items: T[];
+  lastTs: number;
+  lastId: number;
+}
+
+/**
+ * 按 filePath 分组 file changes：组内升序（旧→新）+ 文件按最近改动倒序。
+ *
+ * deep-review H3 LOW（codex）：同毫秒同文件改动必须带 id tiebreaker（DB 端是 `ORDER BY ts DESC,
+ * id DESC`，新 id 在前）。旧实现组内仅 `a.ts-b.ts` 稳定排序 + 取 `items[length-1]` 当最新 → 同 ts
+ * 时顺序不定可能选到旧 row。这里组内 `(a.ts-b.ts)||(a.id-b.id)` 升序，组间 `lastTs||lastId` 倒序。
+ */
+export function groupFileChanges<T extends FileChangeLike>(changes: T[]): FileChangeGroup<T>[] {
+  const map = new Map<string, T[]>();
+  for (const c of changes) {
+    const arr = map.get(c.filePath) ?? [];
+    arr.push(c);
+    map.set(c.filePath, arr);
+  }
+  return [...map.entries()]
+    .map(([filePath, items]) => {
+      const sorted = items.sort((a, b) => a.ts - b.ts || a.id - b.id);
+      const last = sorted[sorted.length - 1];
+      return { filePath, items: sorted, lastTs: last.ts, lastId: last.id };
+    })
+    .sort((a, b) => b.lastTs - a.lastTs || b.lastId - a.lastId);
+}
+
+/**
+ * 从扁平 file-change 列表选「真最新」一条（同毫秒按 id 更大者）。返回 null 当列表空。
+ * deep-review H3 LOW：与 groupFileChanges 同 tiebreaker，diff tab 默认选中用。
+ */
+export function pickLatestChange<T extends FileChangeLike>(changes: T[]): T | null {
+  if (changes.length === 0) return null;
+  return [...changes].sort((a, b) => b.ts - a.ts || b.id - a.id)[0];
+}

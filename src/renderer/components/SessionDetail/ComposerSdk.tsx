@@ -1,5 +1,5 @@
 import { useRef, useState, type JSX } from 'react';
-import { useSessionStore } from '@renderer/stores/session-store';
+import type { SessionRecord } from '@shared/types';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import log from '@renderer/utils/logger';
 import { ImageIcon } from './composer-sdk/ImageIcon';
@@ -35,17 +35,22 @@ const logger = log.scope('renderer-composer-sdk');
  * - `composer-sdk/SandboxSelects.tsx`   通用 SelectRow + permission/codex/claude 三组 options
  */
 export function ComposerSdk({
-  sessionId,
-  agentId,
+  session,
   onHandOff,
 }: {
-  sessionId: string;
-  agentId: string;
+  /** deep-review H3 MED：直接接收 parent 的 session record（= App detailSession，store.sessions
+   *  优先 + closed 会话 historySession 兜底），不再自己 `sessions.get(sessionId)`。旧实现自读 store
+   *  对 closed 会话（不在 active+dormant Map）返 undefined → permission/sandbox 三下拉落 fallback
+   *  显示比实际更宽松（如真实 strict 显示成 off）。CLAUDE.md「detail 视图权威 = store.sessions」
+   *  对 closed 不成立，故以 parent prop 为准。 */
+  session: SessionRecord;
   /** CHANGELOG_94: 「📤 接力到新会话」按钮触发 callback，由 SessionDetail 渲染
    *  HandOffPreviewDialog。仅当 prop 传入时显示按钮（CLI 会话不传，逻辑由
    *  SessionDetail 决定）。 */
   onHandOff?: () => void;
 }): JSX.Element {
+  const sessionId = session.id;
+  const agentId = session.agentId;
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   // REVIEW_35 MED-D-claude-4：busyRef 同步锁，防超快连点（< 16ms）双 send race
@@ -56,8 +61,7 @@ export function ComposerSdk({
   // SDK Query 自身持有运行时 permissionMode 但不暴露 getter，所以从 session 记录的
   // permission_mode 列读「用户上次主动选过的值」。这是持久化的（DB），切别的 detail
   // 再切回来 / 重启 dev / 恢复会话，下拉都能正确还原。CLI 通道这字段是 null → 默认。
-  const session = useSessionStore((s) => s.sessions.get(sessionId));
-  const permissionMode = (session?.permissionMode ?? 'default') as PermissionMode;
+  const permissionMode = (session.permissionMode ?? 'default') as PermissionMode;
   const [pmBusy, setPmBusy] = useState(false);
   const [pmError, setPmError] = useState<string | null>(null);
 
@@ -65,14 +69,14 @@ export function ComposerSdk({
   // codex SDK 的 sandboxMode 是 startThread/resumeThread spawn-time 锁定，
   // 切档必须冷切（销毁旧 thread + 用新 sandbox resume 重建），与 claude
   // bypassPermissions 路径同模式。
-  const codexSandbox = (session?.codexSandbox ?? 'workspace-write') as CodexSandbox;
+  const codexSandbox = (session.codexSandbox ?? 'workspace-write') as CodexSandbox;
   const [csBusy, setCsBusy] = useState(false);
   const [csError, setCsError] = useState<string | null>(null);
 
   // CHANGELOG_74：claude OS 沙盒切档（与 codex 字面镜像）。SDK 的 sandbox options 是
   // query() spawn-time 锁定，切档必须冷切重启 SDK 子进程。session.claudeCodeSandbox
   // null/undefined → 'off' 兜底（与全局默认对齐）。
-  const claudeCodeSandbox = (session?.claudeCodeSandbox ?? 'off') as ClaudeCodeSandbox;
+  const claudeCodeSandbox = (session.claudeCodeSandbox ?? 'off') as ClaudeCodeSandbox;
   const [csClaudeBusy, setCsClaudeBusy] = useState(false);
   const [csClaudeError, setCsClaudeError] = useState<string | null>(null);
 
@@ -161,13 +165,14 @@ export function ComposerSdk({
     // 子进程启动时锁死，运行时调 setPermissionMode('bypassPermissions') 会被 SDK 静默吞。
     // ipc.ts 的 SetPermissionMode handler 检测到 bypass 时会路由到 restartWithPermissionMode：
     // 销毁旧 SDK 子进程 + 用 flag=true 重建（5-10s busy）。失败会回滚到原 mode + emit error msg。
-    if (next === 'bypassPermissions' && permissionMode !== 'bypassPermissions') {
+    // 注：外层已 `next !== permissionMode` early-return，故只判 `next === 'bypassPermissions'`。
+    if (next === 'bypassPermissions') {
       const ok = await window.api.confirmDialog({
         title: '切换到完全免询问',
         message: '需要重启当前会话',
         detail:
-          '重启后,Claude 执行工具时不再向你确认 —— 包括文件修改、Bash 命令等所有操作。重启约需 5-10 秒。\n\n' +
-          '失败时会自动回到当前模式。继续?',
+          '重启后，Claude 执行工具时不再向你确认 —— 包括文件修改、Bash 命令等所有操作。重启约需 5-10 秒。\n\n' +
+          '失败时会自动回到当前模式。继续？',
         okLabel: '重启并启用',
         cancelLabel: '取消',
         destructive: true,
@@ -196,13 +201,13 @@ export function ComposerSdk({
    */
   const changeSandbox = async (next: CodexSandbox): Promise<void> => {
     if (next === codexSandbox || csBusy) return;
-    if (next === 'danger-full-access' && codexSandbox !== 'danger-full-access') {
+    if (next === 'danger-full-access') {
       const ok = await window.api.confirmDialog({
-        title: '关闭沙盒(完全开放)',
+        title: '关闭沙盒（完全开放）',
         message: '需要重启当前会话',
         detail:
-          '重启后,Codex 可以读写任意文件、执行任意命令。重启约需 5-10 秒。\n\n' +
-          '失败时会自动回到当前沙盒设置。继续?',
+          '重启后，Codex 可以读写任意文件、执行任意命令。重启约需 5-10 秒。\n\n' +
+          '失败时会自动回到当前沙盒设置。继续？',
         okLabel: '重启并关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
@@ -234,13 +239,13 @@ export function ComposerSdk({
    */
   const changeClaudeCodeSandbox = async (next: ClaudeCodeSandbox): Promise<void> => {
     if (next === claudeCodeSandbox || csClaudeBusy) return;
-    if (next === 'off' && claudeCodeSandbox !== 'off') {
+    if (next === 'off') {
       const ok = await window.api.confirmDialog({
         title: '关闭系统沙盒',
         message: '需要重启当前会话',
         detail:
-          '重启后,Claude 不再受系统沙盒约束(仅靠应用内授权弹窗管控)。重启约需 5-10 秒。\n\n' +
-          '失败时会自动回到当前沙盒设置。继续?',
+          '重启后，Claude 不再受系统沙盒约束（仅靠应用内授权弹窗管控）。重启约需 5-10 秒。\n\n' +
+          '失败时会自动回到当前沙盒设置。继续？',
         okLabel: '重启并关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
