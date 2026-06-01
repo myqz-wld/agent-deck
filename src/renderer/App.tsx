@@ -47,24 +47,41 @@ export function App(): JSX.Element {
   useEffect(() => {
     historySessionRef.current = historySession;
   }, [historySession]);
+  // deep-review H2 LOW：history row 快速连点 A→B 时，A 的 getSession 若后 resolve 会覆盖 B 的
+  // 选择（旧响应覆盖新选择）。递增 seq，then 内只接受最新 seq 的响应。
+  const historySelectSeqRef = useRef(0);
 
   // 初始化：从设置读取 alwaysOnTop / windowTransparent，并同步主进程（让 vibrancy 跟透明开关匹配）
+  // deep-review H2 LOW：cancelled flag 防 StrictMode 双 mount / unmount 后 setState（App 根组件
+  // 实战不 unmount，dev StrictMode 双调会 warn；与 H1 同款守门）。
   useEffect(() => {
+    let cancelled = false;
     void window.api.getSettings().then((s) => {
+      if (cancelled) return;
       const settings = s as AppSettings;
       setPinned(settings.alwaysOnTop);
       setWindowTransparent(settings.windowTransparent);
       void window.api.setAlwaysOnTop(settings.alwaysOnTop);
     });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 启动时同步主进程当前还在等的 pending 请求 —— renderer HMR / 重启后 store 是空的，
   // 但主进程的 SDK 仍在 await 用户响应；不拉一次的话 PermissionRow 会被错渲成「已处理」，
   // 按钮不显示，用户授权不了 → SDK 死锁。
+  // 注：setPendingAll 现为 merge（非整表替换，deep-review H2 MED）→ IPC 在途期间 live event
+  // 新增的 pending 不被快照抹掉。
   useEffect(() => {
+    let cancelled = false;
     void window.api.listAdapterPendingAll('claude-code').then((map) => {
+      if (cancelled) return;
       setPendingAll(map);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [setPendingAll]);
 
   // 监听全局快捷键 Cmd+Alt+P：主进程已切换 alwaysOnTop+vibrancy，这里同步 UI 与持久化设置
@@ -215,7 +232,10 @@ export function App(): JSX.Element {
   };
 
   const onHistorySelect = async (id: string): Promise<void> => {
+    const seq = ++historySelectSeqRef.current;
     const s = (await window.api.getSession(id)) as SessionRecord | null;
+    // 旧响应（用户已点了别的 row）丢弃：只有最新一次请求的响应才 setHistorySession。
+    if (seq !== historySelectSeqRef.current) return;
     if (s) setHistorySession(s);
   };
 
