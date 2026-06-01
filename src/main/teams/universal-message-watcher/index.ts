@@ -228,6 +228,13 @@ export class UniversalMessageWatcher {
    * processing flag 防 reentry（poll + event 同时触发不会跑两遍）。
    */
   private async process(): Promise<void> {
+    // **REVIEW_100 R2 LOW (reviewer-codex) — 入口 stopped guard，补全 commit 15b0080**:
+    // 15b0080 修住「in-flight process() 的 finally 在 stop 后再 setImmediate」，但
+    // **已 queued 的 setImmediate(process) callback 拦不住** — stop 前已排入 event loop 的
+    // callback，stop 清 timer/flag 后仍会轮到执行进 process() 查库/claim/deliver，在 shutdown
+    // 语义后与 adapterRegistry.shutdownAll() 竞争。入口 `!running` 直接早退是所有异步入口的
+    // 终极闸门（poll tick / debounce / setImmediate reschedule 三条 callback 路径统一拦住）。
+    if (!this.running) return;
     if (this.processing) {
       this.rescheduleAfterCurrent = true;
       return;
