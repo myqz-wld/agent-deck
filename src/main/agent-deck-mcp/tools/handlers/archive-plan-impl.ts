@@ -84,6 +84,7 @@ export type {
 // ===========================================================================
 export {
   escapeTableCell,
+  extractPlanSummaryFromBody,
   formatChangelogCell,
   syncPlansIndex,
 } from './archive-plan/index-sync-helpers';

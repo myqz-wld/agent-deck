@@ -23,6 +23,7 @@ import {
   archivePlanImpl,
   _isArchivePlanError,
   escapeTableCell,
+  extractPlanSummaryFromBody,
   formatChangelogCell,
   syncPlansIndex,
   type PlansIndexAction,
@@ -445,6 +446,56 @@ describe('archive-plan-tool-ux-followup-20260515 (b)+(c) changelogId + INDEX 4 �
 });
 
 // ─── helper unit tests ────────────────────────────────────────────────
+
+// ─── Follow-up #8: extractPlanSummaryFromBody helper ─────────────────────────
+describe('extractPlanSummaryFromBody helper (Follow-up #8)', () => {
+  it('首个 ## section 下首行自然段文本 → 提取', () => {
+    const body = [
+      '# Plan title',
+      '',
+      '## 总目标',
+      '',
+      '清理 deep-review 遗留的 11 条 follow-up。',
+      '',
+      '## 工作流',
+      'worktree 隔离。',
+    ].join('\n');
+    expect(extractPlanSummaryFromBody(body)).toBe('清理 deep-review 遗留的 11 条 follow-up。');
+  });
+
+  it('## section 下首行是 list / quote / fence → 跳过取首个自然段', () => {
+    const body = [
+      '## Context',
+      '',
+      '- bullet item',
+      '> quote',
+      '```',
+      'code',
+      '```',
+      '真正的概要文本。',
+    ].join('\n');
+    expect(extractPlanSummaryFromBody(body)).toBe('真正的概要文本。');
+  });
+
+  it('无 ## section(只有 # h1 + 正文)→ null', () => {
+    const body = ['# Plan body content', '', 'Some details.'].join('\n');
+    expect(extractPlanSummaryFromBody(body)).toBeNull();
+  });
+
+  it('## section 下紧跟另一个标题(无正文)→ null', () => {
+    const body = ['## 总目标', '', '### 子节', '内容'].join('\n');
+    expect(extractPlanSummaryFromBody(body)).toBeNull();
+  });
+
+  it('### 三级标题不算 section 锚点(只认恰好 ## 二级)', () => {
+    const body = ['### 子节标题', '不应被当作概要', '', '## 真 section', '真概要'].join('\n');
+    expect(extractPlanSummaryFromBody(body)).toBe('真概要');
+  });
+
+  it('空 body → null', () => {
+    expect(extractPlanSummaryFromBody('')).toBeNull();
+  });
+});
 
 describe('escapeTableCell helper', () => {
   it('plain string → 不变', () => {

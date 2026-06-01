@@ -26,6 +26,7 @@ import { stringifyFrontmatter } from '@main/utils/frontmatter';
 
 import {
   escapeTableCell,
+  extractPlanSummaryFromBody,
   formatChangelogCell,
   syncPlansIndex,
 } from './index-sync-helpers';
@@ -144,8 +145,19 @@ export async function runArchiveFs(
   // indexPath 已在 step 3.5a 计算（Phase 1.2a 提前路径算法）— 此处复用。
   // freshFm 而非 step 6 fm — 与 step 9-10 frontmatter / body 写入保持同源
   // REVIEW_68 batch-3: plan frontmatter snake_case（CHANGELOG_177 合法保留）→ 读 freshFm.plan_id
-  // 而非 camelCase（commit 5ff0d78 over-migration）。description 字段 plan 无此 key，恒 fallback。
-  const rawSummary = (freshFm.description ?? freshFm.plan_id ?? input.planId).slice(0, 200);
+  // 而非 camelCase（commit 5ff0d78 over-migration）。
+  // Follow-up #8: description fallback 链加「读 plan 正文首个 `## ` section 首行非空文本」中间档。
+  // plan frontmatter 几乎从不带 description key(用 `## 总目标`/`## Context` 节承载),旧链
+  // `freshFm.description ?? freshFm.plan_id ?? planId` 恒落 planId(INDEX 概要列与文件名列重复无
+  // 信息量)。新链:freshFm.description > 正文 section 首行 > freshFm.plan_id > planId。body 已在
+  // step 10 stripFrontmatter(freshContent) 算出复用。
+  const bodySummary = extractPlanSummaryFromBody(body);
+  const rawSummary = (
+    freshFm.description ??
+    bodySummary ??
+    freshFm.plan_id ??
+    input.planId
+  ).slice(0, 200);
   const summary = escapeTableCell(rawSummary);
   const changelogCell = formatChangelogCell(input.changelogId);
   let plansIndexAction: ArchivePlanResult['plansIndexAction'];

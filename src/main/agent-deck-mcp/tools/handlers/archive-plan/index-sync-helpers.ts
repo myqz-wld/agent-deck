@@ -17,6 +17,61 @@ export function escapeTableCell(s: string): string {
 }
 
 /**
+ * Follow-up #8: 从 plan 文件正文(已 stripFrontmatter)提取 INDEX 概要列 description。
+ *
+ * plan 文件 frontmatter 几乎从不带 `description` key(plan 模板用 `## 总目标` / `## Context`
+ * 节承载概要),所以旧 fallback 链 `freshFm.description ?? freshFm.plan_id ?? planId` 恒落到
+ * planId,INDEX 概要列只显示 plan-id(与文件名列重复,无信息量)。本 helper 提取首个 `## ` section
+ * 标题下的首行非空正文文本作为概要,让 INDEX 概要列有实际内容。
+ *
+ * **提取规则**:
+ * - 找首个 `## ` 开头的 section 标题行(`#` / `###`+ 不算,只认恰好二级标题)
+ * - 取该标题之后首行**非空、非标题(不以 `#` 开头)、非纯分隔/引用**的文本行
+ * - 找到 → trim 返回(caller 端再 escape + slice 200);找不到(无 `## ` section / section 下全空)→ null
+ *
+ * 纯文本启发式,不解析 markdown 语义;`- ` list item / `> ` quote / ``` ``` fence 行都跳过
+ * (这些不是「一句话概要」),保守只取自然段首行。
+ */
+export function extractPlanSummaryFromBody(body: string): string | null {
+  const lines = body.split('\n');
+  let inFirstSection = false;
+  let inFence = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!inFirstSection) {
+      // 找首个恰好二级标题 `## xxx`(不匹配 `###`+ / `#`)
+      if (/^##\s+\S/.test(line) && !line.startsWith('###')) {
+        inFirstSection = true;
+      }
+      continue;
+    }
+    // fence 状态机:``` 开/闭 fence,fence 内全跳过(避免 fence 内代码被当概要)
+    if (line.startsWith('```')) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    // section 内:跳过空行 / 标题行 / list / quote / 表格 / 分隔线,取首个自然段文本
+    if (line === '') continue;
+    if (line.startsWith('#')) {
+      // 撞到下一个标题仍没正文 → 放弃(该 section 无自然段文本)
+      return null;
+    }
+    if (
+      line.startsWith('-') ||
+      line.startsWith('*') ||
+      line.startsWith('>') ||
+      line.startsWith('|') ||
+      /^\d+\.\s/.test(line)
+    ) {
+      continue;
+    }
+    return line;
+  }
+  return null;
+}
+
+/**
  * archive-plan-tool-ux-followup-20260515 (b) LOW-1 (codex) / claude MED-5: caller 传 changelogId
  * (string + csv 解析,schema 已 regex 守门 `^\d+(,\d+)*$`) → 拼成 markdown link 单值或 ` / ` 分隔多值。
  * - "122" → "[122](../changelogs/CHANGELOG_122.md)"
