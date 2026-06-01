@@ -816,3 +816,49 @@ describe('PerKeyRateLimiter.sweepEmptyBuckets — REVIEW_86 LOW Map 无界增长
     expect(rl.bucketCount).toBe(0); // 修前 no-op → 仍 3
   });
 });
+
+// ─── REVIEW_100 LOW (reviewer-codex): stop() 后不再 reschedule process() tick ───
+// bug: stop() 只清 timer/listener 不清 rescheduleAfterCurrent + finally 无 running guard →
+// in-flight process() 期间 stop() 被调（before-quit），当前 tick 结束仍 setImmediate(process)
+// 再跑一轮，在 shutdown 语义后继续 claim/deliver + 与 adapterRegistry.shutdownAll() 竞争。
+describe('universal-message-watcher.stop — REVIEW_100 LOW: 停后不 reschedule', () => {
+  it('stop() 清 rescheduleAfterCurrent + 置 running=false（白盒断言 flag 状态）', () => {
+    const watcher = new UniversalMessageWatcher();
+    const w = watcher as unknown as {
+      running: boolean;
+      rescheduleAfterCurrent: boolean;
+      pollInterval: NodeJS.Timeout | null;
+    };
+    watcher.start({ pollIntervalMs: 999_999 }); // 长 poll 防 test 期间真 tick
+    expect(w.running).toBe(true);
+    // 模拟 in-flight process() 期间 poll/event 置 reschedule flag
+    w.rescheduleAfterCurrent = true;
+    watcher.stop();
+    // 修后：stop() 清 flag + 置 running=false → finally guard 不会再 setImmediate(process)
+    expect(w.running).toBe(false);
+    expect(w.rescheduleAfterCurrent).toBe(false);
+    expect(w.pollInterval).toBeNull();
+  });
+
+  it('stop 后 process() finally 不 reschedule（running guard 拦 setImmediate）', async () => {
+    statefulPendingMap = null; // 用单值 mock 路径
+    nextClaimResult = null;
+    const watcher = new UniversalMessageWatcher();
+    const w = watcher as unknown as {
+      running: boolean;
+      processing: boolean;
+      rescheduleAfterCurrent: boolean;
+      process: () => Promise<void>;
+    };
+    // 不 start（running=false 模拟「stop 已调用」）+ 手动置 rescheduleAfterCurrent
+    w.running = false;
+    w.rescheduleAfterCurrent = true;
+    const spy = vi.spyOn(w, 'process');
+    // 直接跑一轮 process()（findEligible 返空 → 早退，但 finally 仍判 reschedule）
+    await w.process();
+    // 等一个 macrotask 让潜在的 setImmediate(process) 有机会 fire
+    await new Promise((r) => setTimeout(r, 0));
+    // 修后：running=false → finally 不 setImmediate → process 只被显式调的那 1 次
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});

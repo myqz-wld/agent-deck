@@ -138,10 +138,20 @@ export class UniversalMessageWatcher {
   private processing = false;
   /** 收到 enqueue event 但还在 processing 时，flag 置 true，processing 完后立刻 reschedule。 */
   private rescheduleAfterCurrent = false;
+  /**
+   * **REVIEW_100 LOW (reviewer-codex)**: running/stopped 状态闸门。`stop()` 只清 timer / listener
+   * 但不清 `rescheduleAfterCurrent` + `finally` 无 stopped guard → in-flight process() tick 期间
+   * poll/event 置 rescheduleAfterCurrent=true 后 before-quit 调 stop()，当前 tick 结束仍
+   * `setImmediate(process)` 再跑一轮，在 shutdown 语义之后继续 claim/deliver 并与 adapterRegistry
+   * .shutdownAll()(lifecycle-hooks.ts:90,在 watcher.stop() L82 之后)竞争。修法:running flag
+   * 在 finally reschedule 前 gate + stop() 清 rescheduleAfterCurrent。
+   */
+  private running = false;
 
   /** 应用启动调一次。idempotent：重复调不会起多个 timer。 */
   start(opts?: { pollIntervalMs?: number }): void {
     if (this.pollInterval) return;
+    this.running = true;
     // crash recovery：把上次进程崩溃时卡在 delivering 的行重置为 pending（§4.6）
     try {
       const reset = agentDeckMessageRepo.resetDeliveringOnStartup();
@@ -177,6 +187,11 @@ export class UniversalMessageWatcher {
   }
 
   stop(): void {
+    this.running = false;
+    // **REVIEW_100 LOW (reviewer-codex)**: 清 rescheduleAfterCurrent，防 in-flight process() 的
+    // finally 在 stop 后仍 setImmediate 再跑一轮（shutdown 语义后继续 claim/deliver + 与
+    // adapterRegistry.shutdownAll 竞争）。配合 finally 的 running guard 双保险。
+    this.rescheduleAfterCurrent = false;
     this.offEnqueue?.();
     this.offEnqueue = null;
     if (this.pollInterval) {
@@ -300,7 +315,10 @@ export class UniversalMessageWatcher {
       logger.warn('[universal-message-watcher] process tick failed:', err);
     } finally {
       this.processing = false;
-      if (this.rescheduleAfterCurrent) {
+      // **REVIEW_100 LOW (reviewer-codex)**: running guard — stop() 后不再 reschedule。
+      // 否则 in-flight tick 期间 stop() 被调（before-quit），当前 tick 结束仍 setImmediate 再跑一轮，
+      // 在 shutdown 语义之后继续 claim/deliver + 与 adapterRegistry.shutdownAll() 竞争。
+      if (this.running && this.rescheduleAfterCurrent) {
         this.rescheduleAfterCurrent = false;
         // 立刻再跑一轮（处理 processing 期间新 enqueue 的 message）
         setImmediate(() => void this.process());
