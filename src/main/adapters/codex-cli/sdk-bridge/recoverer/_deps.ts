@@ -14,13 +14,15 @@
  *
  * **codex 与 claude 差异**(架构内禀):
  * - codex 无 hook 通道:不调 sessionManager.expectSdkSession (claude 走 hook 路径需要)
- * - codex 无 LLM 摘要 prepend (留独立 follow-up,详 recoverer.ts facade 顶部 jsdoc)
+ * - codex 历史注入已与 claude 对称 (plan resume-inject-raw-messages-20260601 §D8 解开 REVIEW_60 F5):
+ *   走 shared injectResumeHistory，3 thunk (summariseFn / listEventsFn / listMessagesFn) 经 ctor
+ *   注入；详 recoverer.ts facade 顶部 jsdoc。
  * - codex 不支持 implicit fork:spike-A2 实测 codex CLI resume 永远返回同 thread_id
  *   (recoverer 仍保 post-rename 防御 `if newRealId !== sessionId` future-proof)
  * - codex jsonl 路径与 claude 不同:`~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<TIMESTAMP>-<thread_id>.jsonl`
  *   预检算法见 `jsonl-discovery.defaultCodexResumeJsonlExists`
  */
-import type { UploadedAttachmentRef } from '@shared/types';
+import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import type { CodexBridgeOptions, CodexSessionHandle } from '../types';
 
 /** 5s dedup 窗口防同 sessionId 短时间内多次 recover 重 emit「⚠ Codex 通道已断开」噪声。 */
@@ -117,3 +119,44 @@ export type CwdExistsThunk = (cwd: string) => boolean;
  * sub-module 通过 thunk 反调避免循环依赖。
  */
 export type FindFallbackCwdThunk = (badCwd: string) => string | null;
+
+// ===== plan resume-inject-raw-messages-20260601 §D5/§D8 新增 4 thunk（codex 端接入历史注入）=====
+// 修前 codex jsonl-missing fallback 完全不注入历史（REVIEW_60 F5 待办）。本 plan 让 codex 与
+// claude 对称走 injectResumeHistory（拼「总结段 + 原始消息段 + 当前消息」）。4 thunk 全走 facade
+// extend override 模式（test 子类化 override），避免 codex-jsonl-fallback.ts 与 recoverer.ts 双处
+// hardcode eventRepo / summariseSessionForHandOff 漂移。
+
+/**
+ * LLM 总结 thunk(test seam)。caller bind `summariseSessionForHandOff(cwd, events, 'Agent')`
+ * (复用 claude oneshot 本地 OAuth，agentName='Agent' 让 codex 会话总结不自称「Claude 会话」，
+ * §D8)。喂全量 events 出 4 节结构。失败语义：throw / null / 空 → injectResumeHistory 总结段缺省。
+ */
+export type SummariseFnThunk = (
+  cwd: string,
+  events: AgentEvent[],
+) => Promise<string | null>;
+
+/**
+ * 全量 events 来源 thunk(test seam)。caller bind `eventRepo.listForSession`。喂 summariseFn 出
+ * 4 节结构（总结段数据源，§D7 双数据源之一）。
+ */
+export type ListEventsFnThunk = (sessionId: string) => AgentEvent[];
+
+/**
+ * message-only 来源 thunk(test seam)。caller bind `eventRepo.listRecentMessages`。拼「最近原始
+ * 对话消息段」(§D5 双数据源之二)。第二参 limit = recentMessagesCount，第三参 beforeIdInclusive
+ * 由 injectResumeHistory 从 maxEventIdFn 拿到后传入（排除 entry emit 的当前消息）。
+ */
+export type ListRecentMessagesFnThunk = (
+  sessionId: string,
+  limit: number,
+  beforeIdInclusive?: number,
+) => (AgentEvent & { id: number })[];
+
+/**
+ * maxEventId thunk(§D4，不是预算值)。caller(recover-and-send-impl) 在 entry emit user message
+ * **之前**捕获 `eventRepo.maxEventId(sid)` 常量后绑成 `() => <captured>` thunk，传给
+ * injectResumeHistory 作 message-only 查询的 beforeIdInclusive 来源（SQL `AND id <= ?` 排除当前消息）。
+ * injectResumeHistory 内 try/catch 调本 thunk（§不变量 1 永不抛错）。
+ */
+export type MaxEventIdFnThunk = () => number | null;

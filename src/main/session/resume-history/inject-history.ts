@@ -286,16 +286,15 @@ export async function injectResumeHistory(
   }
 
   // ===== step2：拿总结段（全量 events 喂 summariseFn）=====
-  // listEventsFn + summariseFn 都 try/catch（§不变量 1 永不抛错）。任一失败 → summary=null，
-  // 走「丢总结保 raw」（§D7：不因总结失败连带丢 raw — 原始消息比总结更可靠）。
+  // listEventsFn + summariseFn 都 try/catch（§不变量 1 永不抛错）。任一失败 / 返 null / 返空 →
+  // summary=null → hasSummary=false → 走「丢总结保 raw」（§D7：不因总结失败连带丢 raw —
+  // 原始消息比总结更可靠）。
   let summary: string | null = null;
-  let summaryFailed = false;
   try {
     const events = listEventsFn(sessionId);
     summary = await summariseFn(cwd, events);
   } catch {
     summary = null;
-    summaryFailed = true;
   }
   const hasSummary = !!summary && summary.trim().length > 0;
 
@@ -325,8 +324,9 @@ export async function injectResumeHistory(
       // 总结段单独超大致预算不够 → 丢总结保 raw（§D6 step2）
       summaryReason = 'over-length-dropped-summary';
     }
-  } else if (summaryFailed) {
-    // 总结失败（throw / null / 空）→ 标注，仍拼 raw（§D7）
+  } else {
+    // 总结段缺省（summariseFn throw / 返 null / 返空）→ 标注，仍拼 raw（§D7：不因总结失败连带
+    // 丢 raw — 原始消息比总结更可靠）。此处已过 no-history return，必然有 raw 候选。
     summaryReason = 'summary-failed-raw-used';
   }
 

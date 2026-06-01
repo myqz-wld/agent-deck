@@ -259,17 +259,19 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     );
     expect(placeholders).toHaveLength(1);
 
-    // emit jsonl missing info — codex 文案与 claude 不同（"Codex 内部对话历史 (jsonl) 已不存在"）
+    // emit jsonl missing info — plan resume-inject §D8: 默认 mock(summarise=null + listMessages=[])
+    // → injectResumeHistory used=false → skipped 文案「Codex 内部对话历史(jsonl)已丢失」+ 请补背景。
+    // (REVIEW_60 F5 解开后 codex 也走注入,used=false 时文案与旧 NoSummary 语义一致仅措辞微调)
     const jsonlLostInfo = emits.filter((e) => {
       const p = e.payload as { text?: string; error?: boolean };
-      return (p.text ?? '').includes('Codex 内部对话历史 (jsonl) 已不存在');
+      return (p.text ?? '').includes('Codex 内部对话历史(jsonl)已丢失');
     });
     expect(jsonlLostInfo).toHaveLength(1);
     expect(jsonlLostInfo[0].sessionId).toBe('sess-no-jsonl');
     // info 性质,不打 error: true(与 claude 路径一致)
     expect((jsonlLostInfo[0].payload as { error?: boolean }).error).not.toBe(true);
-    // 文案断言:fresh thread + 历史保留 + 提示用户补背景
-    expect((jsonlLostInfo[0].payload as { text: string }).text).toMatch(/fresh thread|背景/);
+    // 文案断言:used=false skipped 路径提示用户补背景（DB 无历史可注）
+    expect((jsonlLostInfo[0].payload as { text: string }).text).toMatch(/背景/);
   });
 
   it('jsonl 不存在 + handle.sessionId !== sessionId → 调 updateCliSessionId(applicationSid, NEW_CLI) — 反向 rename 修订', async () => {
@@ -555,8 +557,10 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     const cwdInfo = emits.filter((e) =>
       ((e.payload as { text?: string }).text ?? '').includes('已切到 fallback'),
     );
+    // plan resume-inject §D8: codex 新文案「Codex 内部对话历史(jsonl)已丢失」(used=false skipped，
+    // TestBridge summarise/listMessages 默认空 → no-history)
     const jsonlInfo = emits.filter((e) =>
-      ((e.payload as { text?: string }).text ?? '').includes('jsonl) 已不存在'),
+      ((e.payload as { text?: string }).text ?? '').includes('Codex 内部对话历史(jsonl)已丢失'),
     );
     expect(cwdInfo).toHaveLength(1);
     expect(jsonlInfo).toHaveLength(1);

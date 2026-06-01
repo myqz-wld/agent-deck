@@ -34,12 +34,13 @@
  *
  * **codex 与 claude 的关键差异**（架构内禀 / SDK 形态）：
  * - codex 无 hook 通道：不调 sessionManager.expectSdkSession（claude 走 hook 路径需要）
- * - codex 无 LLM 摘要 prepend：claude 用 `summariseSessionForHandOff` thunk + `prependHistorySummary`
- *   helper 在 fallback 路径起 fresh CLI 之前生成摘要 prepend。codex 现版本暂不接，原因：
- *   `summariseCodexSessionForHandOff` 走 codex SDK 自身（codex 不支持 systemPrompt + 4 节模板
- *   reasoning effort 'medium'），与 claude `summariseSessionForHandOff` 签名差异较大；
- *   shared `prependHistorySummary` helper 现持有 claude `MAX_MESSAGE_LENGTH` 常量耦合。
- *   留独立 follow-up 收口（R37 R3 类似的 INFO 触发条件 — 一并 polish 时合入）。
+ * - **codex 历史注入已与 claude 对称**（plan resume-inject-raw-messages-20260601 §D8 解开
+ *   REVIEW_60 F5）：jsonl-missing fallback 起 fresh thread 前走 shared `injectResumeHistory`
+ *   （`@main/session/resume-history`）拼「总结段 + 最近原始对话消息段 + 当前消息」。总结段复用
+ *   claude oneshot `summariseSessionForHandOff(cwd, events, 'Agent')`（本地 OAuth，agentName='Agent'
+ *   让 codex 会话总结不自称「Claude 会话」），不为 codex 写平行总结函数。共享层 maxLength 参数化
+ *   解开历史「claude MAX_MESSAGE_LENGTH 常量耦合」。3 thunk（summariseFn / listEventsFn /
+ *   listMessagesFn）经 ctor 注入 → codex-jsonl-fallback helper。
  * - codex 不支持 implicit fork：spike-A2 实测 codex CLI resume 永远返回同 thread_id（详
  *   restart-controller line 97 注释）。recoverer 仍保留 post-rename 防御（`if newRealId !== sessionId`）
  *   future-proof 防 SDK 升级 / CLI 行为变更。
@@ -63,6 +64,9 @@ import type {
   JsonlExistsThunk,
   RecovererCtx,
   SendMessageThunk,
+  SummariseFnThunk,
+  ListEventsFnThunk,
+  ListRecentMessagesFnThunk,
 } from './recoverer/_deps';
 import { recoverAndSendImpl } from './recoverer/recover-and-send-impl';
 
@@ -93,6 +97,22 @@ export class SessionRecoverer {
     private readonly sendThunk: SendMessageThunk,
     private readonly jsonlExistsThunk: JsonlExistsThunk,
     private readonly cwdExistsThunk: CwdExistsThunk,
+    /**
+     * **plan resume-inject-raw-messages-20260601 §D8 修法**: LLM 总结 thunk(test seam)。
+     * facade bind `summariseSessionForHandOff(cwd, events, 'Agent')`(复用 claude oneshot 本地
+     * OAuth，agentName='Agent' 让 codex 会话总结不自称「Claude 会话」)。解开 REVIEW_60 F5 耦合。
+     */
+    private readonly summariseFn: SummariseFnThunk,
+    /**
+     * **plan resume-inject §D7**: 全量 events 来源 thunk(test seam)。facade bind
+     * `eventRepo.listForSession`，喂 summariseFn 出 4 节结构(总结段数据源)。
+     */
+    private readonly listEventsFn: ListEventsFnThunk,
+    /**
+     * **plan resume-inject §D5**: message-only 来源 thunk(test seam)。facade bind
+     * `eventRepo.listRecentMessages`，拼「最近原始对话消息段」(双数据源之二)。
+     */
+    private readonly listMessagesFn: ListRecentMessagesFnThunk,
   ) {}
 
   /**
@@ -124,6 +144,11 @@ export class SessionRecoverer {
       cwdExistsThunk: this.cwdExistsThunk,
       // arrow 闭包 this,运行时晚解析 → this.findFallbackCwd 一定已绑定 (test override 注入点)
       findFallbackCwd: (badCwd) => this.findFallbackCwd(badCwd),
+      // plan resume-inject-raw-messages-20260601 §D5/§D7/§D8: 3 thunk 透传给 codex-jsonl-fallback
+      // 让其调 injectResumeHistory 拼「总结段 + 原始对话段 + 当前消息」(对称 claude)。
+      summariseFn: this.summariseFn,
+      listEventsFn: this.listEventsFn,
+      listMessagesFn: this.listMessagesFn,
     });
   }
 
