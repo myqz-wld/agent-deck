@@ -1208,7 +1208,7 @@ describe('handOffSessionHandler — adoptTeammates 路径 phase 1.5 集成 (Phas
     expect(data.archived).toBe('ok');
   });
 
-  it('T6.X3a firstTeam swapLead swapped:false → fatal abort + close newSid + 不 archive caller + return error', async () => {
+  it('T6.X3a firstTeam swapLead swapped:false → fatal abort + team-scoped shutdown + close newSid + 不 archive caller + return error', async () => {
     const state = makeState();
     setupPlanFile(state, 't6-x3a-fatal');
     setupCallerLead(['team-1', 'team-2'], new Map());
@@ -1221,11 +1221,18 @@ describe('handOffSessionHandler — adoptTeammates 路径 phase 1.5 集成 (Phas
     const mockSwapLead = vi.fn(() => ({ swapped: false as const, reason: 'caller-not-lead' }));
     const mockCloseSession = vi.fn(async (_sid: string) => undefined);
     const mockArchive = vi.fn(async (_sid: string) => undefined);
-    const mockShutdown = vi.fn(async (_sid: string) => ({
-      closed: [],
-      failed: [],
-      skipped: 'caller-not-lead' as const,
-    }));
+    // Follow-up #1: fatal abort 路径下 shutdownTeammates 应被调用做 team-scoped 清理(避免孤儿)
+    const shutdownCalls: Array<{ sid: string; exclude: ReadonlySet<string> | undefined }> = [];
+    const mockShutdown = vi.fn(
+      async (sid: string, exclude?: ReadonlySet<string>) => {
+        shutdownCalls.push({ sid, exclude });
+        return {
+          closed: ['reviewer-other-team'],
+          failed: [],
+          skipped: null as null,
+        };
+      },
+    );
 
     const result = await handOffSessionHandler(
       {
@@ -1253,12 +1260,22 @@ describe('handOffSessionHandler — adoptTeammates 路径 phase 1.5 集成 (Phas
 
     // **关键 fatal abort 守门**:firstTeam 一次 swap 失败 → 不继续其他 team(swap 仅调一次)
     expect(mockSwapLead).toHaveBeenCalledTimes(1);
+    // **Follow-up #1: team-scoped shutdown 一次**(caller 仍是所有 team lead,清掉其他 team teammate 避免孤儿)
+    expect(mockShutdown).toHaveBeenCalledTimes(1);
+    expect(shutdownCalls[0]!.sid).toBe('caller-sid');
+    // exclude 含 newSpawnedSid(避免误关即将被 close 的新 session)
+    expect(shutdownCalls[0]!.exclude?.has('new-sid')).toBe(true);
+    // **error extras 透传 teammatesShutdown 结果**(caller 看到孤儿已被清)
+    expect(errBody.teammatesShutdown).toEqual({
+      closed: ['reviewer-other-team'],
+      failed: [],
+      skipped: null,
+    });
     // **shutdown newSid 一次**(避免交出 stale firstTeam anchor 的孤儿新 session)
     expect(mockCloseSession).toHaveBeenCalledTimes(1);
     expect(mockCloseSession).toHaveBeenCalledWith('new-sid');
     // **不 archive caller**(caller 状态零变化 — phase 1.5 fatal abort 早于 runBatonCleanup)
     expect(mockArchive).not.toHaveBeenCalled();
-    expect(mockShutdown).not.toHaveBeenCalled();
   });
 
   it('T6.X3b firstTeam swapLead throws → fatal abort 同款路径(implementer 必须 try/catch 围 swapLead)', async () => {
@@ -1276,6 +1293,12 @@ describe('handOffSessionHandler — adoptTeammates 路径 phase 1.5 集成 (Phas
     });
     const mockCloseSession = vi.fn(async (_sid: string) => undefined);
     const mockArchive = vi.fn(async (_sid: string) => undefined);
+    // Follow-up #1: throws 路径同款 fatal abort → team-scoped shutdown 也被调用
+    const mockShutdown = vi.fn(async (_sid: string, _exclude?: ReadonlySet<string>) => ({
+      closed: [],
+      failed: [],
+      skipped: 'caller-not-lead' as const,
+    }));
 
     const result = await handOffSessionHandler(
       {
@@ -1287,7 +1310,7 @@ describe('handOffSessionHandler — adoptTeammates 路径 phase 1.5 集成 (Phas
       {
         spawnSession: makeOkSpawn(seenSpawn),
         archiveSession: mockArchive,
-        shutdownTeammates: noopShutdown,
+        shutdownTeammates: mockShutdown,
         implDeps: makeDeps(state),
         swapLead: mockSwapLead,
         getSessionForLifecycle: activeLifecycleGet,
@@ -1304,6 +1327,8 @@ describe('handOffSessionHandler — adoptTeammates 路径 phase 1.5 集成 (Phas
     expect(errBody.error).toMatch(/simulated FK constraint violation/);
 
     expect(mockSwapLead).toHaveBeenCalledTimes(1);
+    // Follow-up #1: throws 路径同款 team-scoped shutdown(避免孤儿)
+    expect(mockShutdown).toHaveBeenCalledTimes(1);
     expect(mockCloseSession).toHaveBeenCalledTimes(1);
     expect(mockArchive).not.toHaveBeenCalled();
   });
