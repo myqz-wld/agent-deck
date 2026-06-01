@@ -126,7 +126,8 @@ export type AgentDeckMessageStatus =
  */
 export interface AgentDeckMessage {
   id: string;
-  teamId: string;
+  /** teamId=null = teamless DM（无 shared team 时的直发消息，plan teamless-dm-20260601）；非 null = team 内消息 */
+  teamId: string | null;
   /** 不强制 FK（允许已 closed / 已删的 sender 留痕）；displayName 反查走 §4.4 fallback 链 */
   fromSessionId: string;
   toSessionId: string;
@@ -211,7 +212,8 @@ export interface AgentDeckTeamMemberChangedEvent {
  */
 export interface AgentDeckMessageStatusChangedEvent {
   id: string;
-  teamId: string;
+  /** teamless DM 时为 null（plan teamless-dm-20260601）。 */
+  teamId: string | null;
   status: AgentDeckMessageStatus;
   statusReason: string | null;
 }

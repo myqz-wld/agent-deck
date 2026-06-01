@@ -158,7 +158,9 @@ export function initWiring(): void {
     teamChangedSender({ kind: `member-${p.kind}`, teamId: p.teamId, payload: p }),
   );
 
-  const messageChangedSender = makeDebouncedTeamSender<{ kind: string; teamId: string; messageId: string; payload: unknown }>(
+  // plan teamless-dm-20260601 D2：teamId 可空（teamless DM）。dedup key 用 messageId 不含 teamId，
+  // 故 null 不影响合并；renderer 收到后整体重拉不解析 payload.teamId（reviewer-claude R2 INFO 确认）。
+  const messageChangedSender = makeDebouncedTeamSender<{ kind: string; teamId: string | null; messageId: string; payload: unknown }>(
     IpcEvent.AgentDeckMessageChanged,
     safeSend,
     (item) => `${item.kind}:${item.messageId}`,

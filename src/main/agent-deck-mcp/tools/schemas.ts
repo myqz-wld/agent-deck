@@ -74,7 +74,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Optional team to form. Omit = standalone session (no team — caller cannot send_message it). Set = caller becomes lead + new session joins as teammate, so the two can send_message each other (reviewer pair / 多轮协作). Reuses an existing team of the same name.',
+      'Optional team to form. Omit = standalone session (no team — but the two can still exchange teamless DMs via send_message, they just won\'t appear in a team panel). Set = caller becomes lead + new session joins as teammate (reviewer pair / 多轮协作, shows in TeamDetail). Reuses an existing team of the same name.',
     ),
   /**
    * 可选 plugin agent body 自动注入（CHANGELOG_76 / plan deep-review-flow-fix D1）：
@@ -180,14 +180,15 @@ export const SEND_MESSAGE_SCHEMA = {
     .describe(
       'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / archive_plan / hand_off_session 等）会被拒。',
     ),
-  // R3.E0 ADR §5.2 amend：multi-team 共享时必填，单 team 共享时可省（自动 resolve）
+  // R3.E0 ADR §5.2 amend：multi-team 共享时必填，单 team 共享时可省（自动 resolve）。
+  // plan teamless-dm-20260601：无 shared team 时省略 teamId → teamless DM（自动降级）。
   teamId: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(
-      'Team scope for this message. Required when caller and target share more than one active team; optional when sharing exactly one (auto-resolved). Reject when sharing zero teams.',
+      'Team scope for this message. Required when caller and target share more than one active team; optional when sharing exactly one (auto-resolved). When they share NO active team, omit it to send a teamless DM (delivered to the target session but not shown in any team panel). If you pass a teamId that is not a shared active team, the call is rejected (not silently downgraded).',
     ),
   // plan team-cohesion-fix-20260513 Phase B Step B2：可选对话链关联
   replyToMessageId: z

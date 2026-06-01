@@ -80,16 +80,21 @@ const BATCH_LIMIT = 16;
 
 function resolveFromDisplayName(
   fromSessionId: string,
-  teamId: string,
+  teamId: string | null,
 ): { displayName: string; adapterId: string } {
   const session = sessionRepo.get(fromSessionId);
   // adapter 已删时走二级 fallback（避免 `null:abcd1234`）
   const adapterId = session?.agentId ?? 'unknown-adapter';
-  // REVIEW_35 MED-A2：用 PK lookup 替代 listAllMembers 全表扫。high-volume team 单条 dispatch
-  // 的 O(M_team) SQL 降到 O(log N)（走 (team_id, session_id) 复合索引）。
-  const myMembership = agentDeckTeamRepo.findActiveMembershipIn(teamId, fromSessionId);
-  if (myMembership?.displayName && myMembership.displayName.trim()) {
-    return { displayName: myMembership.displayName, adapterId };
+  // plan teamless-dm-20260601 D6：teamless DM（teamId=null）无 team membership 可查 → 直接走
+  // fallback。优先 session.title（用户可见名，如 "reviewer-claude · batch A"），缺失再退
+  // `<adapterId>:<sid 前 8>`。team 模式下保留 REVIEW_35 MED-A2 的 PK lookup（O(log N) 复合索引）。
+  if (teamId !== null) {
+    const myMembership = agentDeckTeamRepo.findActiveMembershipIn(teamId, fromSessionId);
+    if (myMembership?.displayName && myMembership.displayName.trim()) {
+      return { displayName: myMembership.displayName, adapterId };
+    }
+  } else if (session?.title && session.title.trim()) {
+    return { displayName: session.title, adapterId };
   }
   // fallback `<adapterId>:<sessionId 前 8 字符>`
   return {
@@ -378,13 +383,16 @@ export class UniversalMessageWatcher {
       return;
     }
 
-    // REVIEW_56 Batch C R1 codex MED-1 修法: enqueue 时 send.ts:53 校验 caller/target 共享 active
+    // REVIEW_56 Batch C R1 codex MED-1 修法: enqueue 时 send.ts 校验 caller/target 共享 active
     // team(+ archived check),但 enqueue 与 deliver 之间发生 team archive / from leave team /
     // to leave team / from archived / target archived 任一种 → claim 后 dispatch 已 stale。
     // ipc/teams.ts:155 AgentDeckTeamArchive handler 只 emit event 不 cancel pending message
-    // (ipc 路径不知 message-repo);watcher 是 dispatch 路径最后一道闸门 → claim 后重验 5 项
-    // invariant 失败 markFailed 不 dispatch,防止向已 archive / leave 的 receiver 投递。
+    // (ipc 路径不知 message-repo);watcher 是 dispatch 路径最后一道闸门 → claim 后重验 invariant
+    // 失败 markFailed 不 dispatch,防止向已 archive / leave 的 receiver 投递。
     // (cancel pending 主动清理是 follow-up optimization;watcher 重验是充分的正确性 invariant。)
+    //
+    // **session 级闸门**（target archived / from not found / from archived）对 team + teamless
+    // **都适用**，留在 teamless guard 外（plan teamless-dm-20260601 D5）。
     if (target.archivedAt != null) {
       const failed = agentDeckMessageRepo.markFailed(
         claimed.id,
@@ -410,54 +418,60 @@ export class UniversalMessageWatcher {
       if (failed) this.emitStatus(failed);
       return;
     }
-    const team = agentDeckTeamRepo.get(claimed.teamId);
-    if (!team) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'team not found',
+    // **team 级闸门**（team exists / team archived / from-to active membership）仅 team 消息适用。
+    // plan teamless-dm-20260601 D5：teamless DM（teamId=null）无 team / membership 概念 → 整段短路。
+    // membership 是 peer-ACL，teamless 已由 RFC 放弃（§不变量 9）；上面 session 级安全闸门保留。
+    // 同时 `agentDeckTeamRepo.get(claimed.teamId)` 要求非 null string，guard 也消解类型。
+    if (claimed.teamId !== null) {
+      const team = agentDeckTeamRepo.get(claimed.teamId);
+      if (!team) {
+        const failed = agentDeckMessageRepo.markFailed(
+          claimed.id,
+          'team not found',
+        );
+        if (failed) this.emitStatus(failed);
+        return;
+      }
+      if (team.archivedAt != null) {
+        const failed = agentDeckMessageRepo.markFailed(
+          claimed.id,
+          'team archived',
+        );
+        if (failed) this.emitStatus(failed);
+        return;
+      }
+      const fromMembership = agentDeckTeamRepo.findActiveMembershipIn(
+        claimed.teamId,
+        claimed.fromSessionId,
       );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-    if (team.archivedAt != null) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'team archived',
+      const toMembership = agentDeckTeamRepo.findActiveMembershipIn(
+        claimed.teamId,
+        claimed.toSessionId,
       );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-    const fromMembership = agentDeckTeamRepo.findActiveMembershipIn(
-      claimed.teamId,
-      claimed.fromSessionId,
-    );
-    const toMembership = agentDeckTeamRepo.findActiveMembershipIn(
-      claimed.teamId,
-      claimed.toSessionId,
-    );
-    if (!fromMembership && !toMembership) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'from and to no longer active members of team',
-      );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-    if (!fromMembership) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'from no longer active member of team',
-      );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-    if (!toMembership) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'to no longer active member of team',
-      );
-      if (failed) this.emitStatus(failed);
-      return;
+      if (!fromMembership && !toMembership) {
+        const failed = agentDeckMessageRepo.markFailed(
+          claimed.id,
+          'from and to no longer active members of team',
+        );
+        if (failed) this.emitStatus(failed);
+        return;
+      }
+      if (!fromMembership) {
+        const failed = agentDeckMessageRepo.markFailed(
+          claimed.id,
+          'from no longer active member of team',
+        );
+        if (failed) this.emitStatus(failed);
+        return;
+      }
+      if (!toMembership) {
+        const failed = agentDeckMessageRepo.markFailed(
+          claimed.id,
+          'to no longer active member of team',
+        );
+        if (failed) this.emitStatus(failed);
+        return;
+      }
     }
 
     let adapter: AgentAdapter | undefined;

@@ -94,8 +94,8 @@ export interface EventMap {
   'agent-deck-team-deleted': [{ id: string }];
   /** members 表 insert/update/leave 后。kind 区分新加入 / 退出 / role 变更。 */
   'agent-deck-team-member-changed': [AgentDeckTeamMemberChangedEvent];
-  /** messageRepo.insert 后；watcher 监听此 event 立刻 process（debounced 50ms 防 burst）。 */
-  'agent-deck-message-enqueued': [{ id: string; teamId: string; fromSessionId: string; toSessionId: string }];
+  /** messageRepo.insert 后；watcher 监听此 event 立刻 process（debounced 50ms 防 burst）。teamId=null = teamless DM（plan teamless-dm-20260601）。 */
+  'agent-deck-message-enqueued': [{ id: string; teamId: string | null; fromSessionId: string; toSessionId: string }];
   /** watcher 每次 update messages.status 后；UI 显示投递进度用。 */
   'agent-deck-message-status-changed': [AgentDeckMessageStatusChangedEvent];
 }

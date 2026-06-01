@@ -181,13 +181,19 @@ mcp__agent-deck__send_message({ sessionId, teamId, text, replyToMessageId?, call
 
 lead context 重置 / 重启后捡 stranded reviewer:`list_sessions(spawnedByFilter:'<old_lead_sid>', statusFilter:'active')` 拉自己以前 spawn 的 active reviewer;按 sessionId 调 `send_message` 发新 prompt(receiver reply 通过 wire prefix `[msg <id>][sid <senderSid>]` 自动挂 reply chain 注入 lead conversation,与 §三个核心约定 §2 后续轮次锚点同款);收尾走 `shutdown_session`。
 
-> ⚠️ **shared-team 前置约束**:`send_message` 必须在 caller session 与 target reviewer 至少共享一个 active team 时才能 dispatch(否则报 `no-shared-team` 立即 reject,不入 messages 表)。
-> - **同 caller session(context 重置 / compaction)**:sessionId 不变 → 成员关系不变 → 直接 `list_sessions(spawnedByFilter)` 捡回来 + `send_message` 即可
-> - **真换了 caller session**(应用重启 / 用户手动新开 / hand_off_session 默认不携 team 起新 session):新 caller 不在原 team 内 → `send_message` 必报 `no-shared-team` → 必须先满足以下任一条件:
+> ℹ️ **shared-team 与 teamless DM**(plan teamless-dm-20260601 起放宽):`send_message` 不再强制 caller 与 target 共享 active team。
+> - **有 shared active team**:消息 team-scoped(行为不变;多 team 共享时仍需 `teamId` 去重)。
+> - **无 shared active team 且未显式传 teamId**:自动降级 **teamless DM**(teamId=null),消息仍入 messages 表 + 注入 receiver SDK conversation,只是不进 team 聚合面板。
+> - **显式传了不共享的 teamId**:仍 reject(`team-not-shared`,不静默降级)。
+> - **archived caller / target**:teamless 路径显式 reject(不入队)。
+>
+> 对「跨会话救火」的实际影响:
+> - **同 caller session(context 重置 / compaction)**:sessionId 不变 → 成员关系不变 → 直接 `list_sessions(spawnedByFilter)` 捡回来 + `send_message` 即可(team-scoped)。
+> - **真换了 caller session**(应用重启 / 用户手动新开 / hand_off_session 默认不携 team 起新 session):新 caller 不在原 team 内 → `send_message` 现在**会以 teamless DM 投递成功**(不再 hard reject)。若只是想继续给 reviewer 发 prompt,teamless DM 即可用。但**需要保留 reviewer 跨轮 mental model / 多 team 正确归属**时,仍建议先回到 team:
 >   1. 调 `spawn_session({adapter:'codex-cli', teamName:<old-team-name>, ...})` 重起一对 reviewer(旧的走 `shutdown_session` 收尾,避免 ghost)
 >   2. 通过 UI 手动把新 caller 加入旧 team(应用 → Team 面板 → Add Member)
 >   3. `hand_off_session` 起新 session 时显式传 `teamName:<old-team-name>` 让新 session 直接落入 team(仅当 plan 接力同 team 场景;baton 单向交接默认场景不加 team)
-> - 需要保留 reviewer 跨轮 mental model → 走选项 2/3;接受重跑 reviewer → 走选项 1
+> - 需要保留 reviewer 跨轮 mental model → 走选项 2/3;接受重跑 reviewer → 走选项 1;只需单发消息不在意 team 归属 → 直接 teamless DM
 
 ### Wire format / regex / DB invariant
 
