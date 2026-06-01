@@ -177,27 +177,32 @@ export class RestartController {
     // set，覆盖整个冷重启的副作用窗口（与 claude REVIEW_36 R2 MED-B 修法同款）。原实现
     // 直接顺序跑 close → DB → createSession，两个并发 restart 都能越过 inflight 检查同时进入。
     const p = (async (): Promise<string> => {
-      // close OLD：内部 intentionallyClosed=true → abort current turn → runTurnLoop 静默退出
-      await this.ctx.closeSession(sessionId);
-
-      // **REVIEW_101 R1 双方共识 MED（restart 缺 cancel-guard）修法 — cancellation-epoch baseline**:
-      // restart 冷切 createSession await 窗口内若用户主动 close / scheduler 衰减 dormant→closed /
-      // MCP shutdown_session（三入口均 bumpCloseEpoch + setLifecycle='closed'，lifecycle.ts:107/150 +
-      // lifecycle-scheduler.ts:103）→ 若不 gate，createSession 继续 emit session-start(source:'sdk')
-      // → ensure closed→active 复活幽灵（与 recover 路径 REVIEW_99 R3 修的同款 race；两端 restart
-      // 路径 pre-existing 共缺，claude restart 同样无此 guard → claude 侧留 follow-up parity）。
+      // **REVIEW_101 R1 双方共识 MED（restart 缺 cancel-guard）修法 + R2 INFO-A（reviewer-claude 强化
+      // 建议，lead 现场验证采纳）— cancellation-epoch baseline 捕获时机移到 `await ctx.closeSession`
+      // 之前**:
+      // restart 冷切期间用户主动 close / scheduler 衰减 dormant→closed / MCP shutdown_session（三入口均
+      // bumpCloseEpoch + setLifecycle='closed'，lifecycle.ts:107/150 + lifecycle-scheduler.ts:103）→ 若不
+      // gate，createSession 继续 emit session-start(source:'sdk') → ensure closed→active 复活幽灵（与
+      // recover 路径 REVIEW_99 R3 修的同款 race；两端 restart 路径 pre-existing 共缺，claude restart 同样
+      // 无此 guard → claude 侧留 follow-up parity）。
       //
-      // **baseline 捕获时机 = 本行（ctx.closeSession 之后 / setCodexSandbox 之前）**：lead 现场 trace
-      // 确认 codex adapter 层 `ctx.closeSession`（index.ts:425-472）**只 abort turn + sessions.delete
-      // + releaseSdkClaim，不 setLifecycle / 不 bumpCloseEpoch**（只有 sessionManager.close/markClosed/
-      // delete 才 bump）。故 baseline 在 close 前后捕获**等价**（这段无 epoch 变化）；置于 close 之后
-      // 紧贴 rec 校验，语义清晰 + future-proof（万一未来 adapter close 改为联动 sessionManager.close，
-      // 本位置仍只捕获「restart 自身 intentional close 之后用户额外 close」）。
+      // **为何在 `await ctx.closeSession` 之前捕获（R2 INFO-A 订正 R1 的「之后」位置）**：lead 现场 trace
+      // 确认 codex adapter 层 `ctx.closeSession`（index.ts:425-472）只 abort turn + sessions.delete +
+      // releaseSdkClaim，**不** setLifecycle / 不 bumpCloseEpoch（只有 sessionManager.close/markClosed/
+      // delete 才 bump）→ baseline 在 close 前后捕获**值等价**。但 `await ctx.closeSession` 仍让出
+      // microtask；若用户 `sessionManager.close`（不查 recovering Map，单飞挡不住）正好在该 microtask 窗口
+      // 内跑完 bump+setClosed，baseline 放「close 之后」会把这次 close 算进基线 → 漏判。移到 close **之前**
+      // 捕获 → 连 closeSession 让出的 microtask 窗口内的 close 都被 cancelGuard 后续检查捕获（baseline <
+      // 新 epoch → abort），与 recover 路径「baseline 捕获前全同步无 await」语义更一致。残留固有 TOCTOU
+      // （baseline 捕获瞬间到首检查点之间的 close）是 cancellation-epoch 全路径共有边界，recover 同样不覆盖。
       const closeEpochBaseline = sessionManager.getCloseEpoch(sessionId);
       const cancelGuard = (): boolean => {
         if (!sessionRepo.get(sessionId)) return true; // record await 期间被删 → abort
         return sessionManager.getCloseEpoch(sessionId) !== closeEpochBaseline;
       };
+
+      // close OLD：内部 intentionallyClosed=true → abort current turn → runTurnLoop 静默退出
+      await this.ctx.closeSession(sessionId);
 
       // **REVIEW_80 MED 修法（reviewer-claude + reviewer-codex 双方独立共识）**:
       // forward setCodexSandbox 必须纳入 try。修前它在 try 之外（closeSession 之后裸调），
@@ -220,7 +225,8 @@ export class RestartController {
         // create-session-impl.ts:111 resumeMode 默认走 resumeThread → jsonl 缺失（用户清
         // ~/.codex/sessions / 跨设备同步未带）时 codex CLI resume 抛 earlyErr → 回滚旧档 = 切档失败
         // （claude restart 同场景一次成功，line 217/402 已有 maybeJsonlFallback）。接入对称：
-        // - jsonl 在 → fellBack=false → fall through 到下方 direct createSession resume（行为不变）
+        // - jsonl 在 → fellBack=false → fall through 到下方 direct createSession resume（控制流不变；
+        //   见下方 fall-through 处 R2 INFO-B 注释：model 透传是本次 fix 的故意变更非字面等价）
         // - jsonl 缺 → fellBack=true → helper 已包办 fresh-cli-reuse-app createSession + 历史注入 +
         //   emit fallback info，直接 return（不再重复 createSession）
         // - aborted（cancelGuard 在 helper await injectResumeHistory 后命中）→ 静默结束不回滚
@@ -276,7 +282,12 @@ export class RestartController {
           // 改动较大 → 留 follow-up（与 claude restart cancel-guard follow-up 同批 parity 收口）。
           return fbResult.finalSessionId;
         }
-        // fellBack=false → fall through 到正常 resume 路径（jsonl 在，行为与修前 direct createSession 一致）
+        // fellBack=false → fall through 到正常 resume 路径。
+        // **REVIEW_101 R2 INFO-B（reviewer-claude 措辞订正）**：jsonl 在时**控制流**与修前 direct
+        // createSession 等价，但 model 透传是本次 fix 的**故意行为变更**——修前 fall-through 不传 model，
+        // create-session-impl 对 model 无 sessionRepo fallback（不同于 sandbox 有 persistedSandbox），
+        // 故修前 jsonl 在 + rec.model 非空时 ThreadOptions 不带 model → codex 按全局默认 model 跑（=
+        // reviewer-codex R1「restart 丢 model」MED 根因）。仅 rec.model 为 null 时才与修前字面等价。
 
         const handle = await this.ctx.createSession({
           cwd: rec.cwd,
