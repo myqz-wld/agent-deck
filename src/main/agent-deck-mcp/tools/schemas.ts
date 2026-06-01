@@ -585,7 +585,7 @@ export const EXIT_WORKTREE_SCHEMA = {
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional override for worktree absolute path to exit. When omitted, derived from caller sessionRepo.cwd_release_marker (caller must have called enter_worktree first to set the marker — otherwise reject). Use override only when caller knows the path but lost marker (e.g. session restart between enter_worktree and exit_worktree).',
+      'Optional override for worktree absolute path to exit. When omitted, derived from caller sessionRepo.cwd_release_marker (caller must have called enter_worktree first to set the marker — otherwise reject). Use override only when caller knows the path but lost marker (e.g. session restart between enter_worktree and exit_worktree). Trailing slash is normalized before the cross-worktree consistency check (passing `/path/` vs marker `/path` will not falsely reject).',
     ),
   discardChanges: z
     .boolean()

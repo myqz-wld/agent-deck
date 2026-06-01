@@ -322,8 +322,7 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
   });
 
   // ─── REVIEW_72 LOW: frontmatter base_commit rev-parse --verify 失败 → fallback(不 error) ───
-  it('REVIEW_72 LOW: frontmatter base_commit verify 失败(commit 不存在)→ fallback 走 HEAD 不 error', async () => {
-    const state = makeEnterState();
+  it('REVIEW_72 LOW: frontmatter base_commit verify 失败(commit 不存在)→ fallback 走 HEAD 不 error', async () => {    const state = makeEnterState();
     state.files.set('/Users/test/repo/.claude/plans/plan1.md', [
       '---',
       'plan_id: plan1',
@@ -349,6 +348,78 @@ describe('enterWorktreeImpl — happy path + 路径冲突 + base 优先级', () 
     if (enterIsError(result)) return;
     expect(result.baseCommit).toBe('headhash');
     expect(result.baseSource).toBe('head');
+  });
+
+  // ─── Follow-up #4: marker 写失败 → best-effort 回滚已建 worktree 防 orphan ───
+  it('Follow-up #4: setCwdReleaseMarker 抛错 → 回滚已建 worktree(remove --force + branch -D)+ return error', async () => {
+    const state = makeEnterState();
+    const deps = makeEnterDeps(state, [
+      '/Users/test/repo/.git',  // git-common-dir
+      '',                        // for-each-ref branch 不存在
+      'headhash',                // rev-parse HEAD
+      '',                        // git worktree add(成功)
+      '',                        // 回滚:git worktree remove --force
+      '',                        // 回滚:git branch -D worktree-plan1
+    ]);
+    // marker 写失败模拟 DB lock
+    deps.setCwdReleaseMarker = () => {
+      throw new Error('SQLITE_LOCKED');
+    };
+
+    const result = await enterWorktreeImpl(
+      { planId: 'plan1', callerSessionId: 'caller-sid' },
+      deps,
+    );
+
+    expect(enterIsError(result)).toBe(true);
+    if (!enterIsError(result)) return;
+    expect(result.error).toContain('setCwdReleaseMarker failed');
+    expect(result.error).toContain('SQLITE_LOCKED');
+    // **关键:回滚已建 worktree**(remove --force + branch -D 都被调用)
+    const removeCall = state.gitCalls.find(
+      (c) => c.args[0] === 'worktree' && c.args[1] === 'remove',
+    );
+    expect(removeCall?.args).toEqual([
+      'worktree', 'remove', '--force', '/Users/test/repo/.claude/worktrees/plan1',
+    ]);
+    const branchDelCall = state.gitCalls.find(
+      (c) => c.args[0] === 'branch' && c.args[1] === '-D',
+    );
+    expect(branchDelCall?.args).toEqual(['branch', '-D', 'worktree-plan1']);
+    // hint 说明已回滚
+    expect(result.hint).toContain('Already rolled back');
+  });
+
+  it('Follow-up #4: marker 写失败 + 回滚 worktree remove 也失败 → error hint 说明需手动清 orphan', async () => {
+    const state = makeEnterState();
+    const deps = makeEnterDeps(state, [
+      '/Users/test/repo/.git',  // git-common-dir
+      '',                        // for-each-ref branch 不存在
+      'headhash',                // rev-parse HEAD
+      '',                        // git worktree add(成功)
+      new Error('worktree locked'), // 回滚:git worktree remove --force 失败
+      // branch -D 不会被调用(remove 失败后不尝试)
+    ]);
+    deps.setCwdReleaseMarker = () => {
+      throw new Error('SQLITE_LOCKED');
+    };
+
+    const result = await enterWorktreeImpl(
+      { planId: 'plan1', callerSessionId: 'caller-sid' },
+      deps,
+    );
+
+    expect(enterIsError(result)).toBe(true);
+    if (!enterIsError(result)) return;
+    expect(result.error).toContain('setCwdReleaseMarker failed');
+    // **关键:回滚失败 → hint 说明需手动清 orphan**
+    expect(result.hint).toContain('Rollback FAILED');
+    expect(result.hint).toContain('Manually run');
+    // remove 失败后不调 branch -D
+    const branchDelCall = state.gitCalls.find(
+      (c) => c.args[0] === 'branch' && c.args[1] === '-D',
+    );
+    expect(branchDelCall).toBeUndefined();
   });
 });
 
@@ -678,5 +749,58 @@ describe('exitWorktreeImpl — keep / remove / 边角', () => {
     if (!exitIsError(result)) return;
     expect(result.error).toContain('cannot resolve worktreePath');
     expect(result.hint).toContain('enter_worktree first to set the marker');
+  });
+
+  // ─── Follow-up #5: 尾斜杠归一化 — args.worktreePath 带尾斜杠 vs marker 不带 → 不误报 cross-worktree ───
+  it('Follow-up #5: args.worktreePath 尾斜杠差异(marker 无尾斜杠)→ 归一化后视为同一 worktree 不 reject', async () => {
+    const state = makeExitState();
+    state.existingPaths.add(WT);
+    state.markerStore.set('caller-sid', WT); // marker 无尾斜杠
+    const deps = makeExitDeps(state, [
+      `/Users/test/repo/.git`, // git-common-dir
+    ]);
+    // realpath fallback 退化字面(realpath 抛错 → 字面比较),验证 stripTrailingSlash 归一化生效
+    deps.realpath = async (p: string) => {
+      throw new Error(`ENOENT realpath ${p}`);
+    };
+
+    const result = await exitWorktreeImpl(
+      {
+        callerSessionId: 'caller-sid',
+        action: 'keep',
+        worktreePathOverride: `${WT}/`, // arg 带尾斜杠
+      },
+      deps,
+    );
+
+    // **关键:归一化后 `${WT}/` === marker `${WT}` → 不 reject cross-worktree**
+    expect(exitIsError(result)).toBe(false);
+    if (exitIsError(result)) return;
+    expect(result.action).toBe('keep');
+    expect(result.markerCleared).toBe(true);
+    expect(state.markerClears).toEqual(['caller-sid']);
+  });
+
+  it('Follow-up #5: 真 cross-worktree(归一化后仍不等)→ 仍正确 reject', async () => {
+    const state = makeExitState();
+    const otherWt = '/Users/test/repo/.claude/worktrees/other-plan';
+    state.markerStore.set('caller-sid', otherWt);
+    const deps = makeExitDeps(state, []);
+    deps.realpath = async (p: string) => p; // realpath 返原值(无 symlink)
+
+    const result = await exitWorktreeImpl(
+      {
+        callerSessionId: 'caller-sid',
+        action: 'remove',
+        worktreePathOverride: `${WT}/`, // 带尾斜杠但 base 路径不同
+      },
+      deps,
+    );
+
+    // **关键:归一化后 `${WT}` !== `${otherWt}` → 仍 reject**(尾斜杠归一化不掩盖真 cross-worktree)
+    expect(exitIsError(result)).toBe(true);
+    if (!exitIsError(result)) return;
+    expect(result.error).toContain('does not match caller marker');
+    expect(state.markerClears).toEqual([]);
   });
 });

@@ -23,7 +23,11 @@
  * 8. setCwdReleaseMarker(callerSid, worktreePath)（不变量 5 — archive_plan 预检 4 态分流
  *    认得跨 adapter 路径）
  *
- * 任一步失败立即返回 error（短路），不做部分回滚（git 操作不可逆）。
+ * Follow-up #4: step 1-6 任一失败立即 return error 短路（git 操作未发生,无需回滚）。step 7
+ * worktree add 成功后 step 8 marker 写失败 → **best-effort 回滚已建 worktree**（git worktree
+ * remove --force + branch -D）防 orphan,再 return error；回滚失败则 warn 并在 error hint 里
+ * 说明需手动清。git 操作可逆但代价高,marker 写失败回滚已建 worktree 防 orphan(修前注释「不做
+ * 部分回滚」与「orphan 风险」实现矛盾 — marker 没写 caller 既看到 error 又留个无主 worktree)。
  *
  * **deps inject 模式**：默认实现走 Node 内置 + sessionRepo（child_process.execFile + fs/promises +
  * os.homedir + sessionRepo.setCwdReleaseMarker），test 通过传 `deps` 完全替换为 in-memory mock。
@@ -330,11 +334,36 @@ export async function enterWorktreeImpl(
   } catch (e) {
     // P5 Round 1 reviewer-claude MED-1 修法 (comment vs code 对齐):marker 写失败必须 return error
     // 让 caller 显式处理(silently no-op + ok return 会让 archive_plan 预检 4 态走错路径,更危险)。
-    // P5 Round 1 reviewer-claude INFO-8 修法:hint 加「must pass args.worktreePath」 — marker 没写
-    // exit_worktree 自动反查不到要操作的 worktree,caller 必须显式传 worktreePath 才能清。
+    //
+    // Follow-up #4: marker 写失败 → best-effort 回滚已建 worktree(git worktree remove --force +
+    // branch -D)防 orphan。修前只 return error 留 orphan worktree(marker 没写 → exit_worktree 自动
+    // 反查不到,caller 既看到 error 又留个无主 worktree)。git 操作可逆但代价高,marker 写失败回滚
+    // 更干净。回滚失败(git remove / branch -D throw)→ 收集进 rollback note,error hint 说明需手动清。
+    const markerErrMsg = (e as Error).message;
+    const rollbackNotes: string[] = [];
+    let rolledBack = false;
+    try {
+      await deps.runGit(['worktree', 'remove', '--force', worktreePath], mainRepo);
+      rolledBack = true;
+    } catch (rmErr) {
+      rollbackNotes.push(`git worktree remove --force failed: ${(rmErr as Error).message}`);
+    }
+    // branch -D 仅在 worktree remove 成功后尝试(remove 失败时 branch 还 checked-out,删不掉)
+    if (rolledBack) {
+      try {
+        await deps.runGit(['branch', '-D', branchName], mainRepo);
+      } catch (brErr) {
+        rollbackNotes.push(`git branch -D ${branchName} failed: ${(brErr as Error).message}`);
+      }
+    }
+    const rollbackStatus = rolledBack
+      ? rollbackNotes.length === 0
+        ? `Already rolled back (worktree removed + branch ${branchName} deleted).`
+        : `Worktree removed but branch cleanup had issues: ${rollbackNotes.join('; ')}. Manually run \`git -C ${mainRepo} branch -D ${branchName}\`.`
+      : `Rollback FAILED: ${rollbackNotes.join('; ')}. Manually run \`git -C ${mainRepo} worktree remove --force ${worktreePath}\` + \`git -C ${mainRepo} branch -D ${branchName}\` to clean up the orphan worktree.`;
     return {
-      error: `worktree created but setCwdReleaseMarker failed: ${(e as Error).message}`,
-      hint: `worktree at ${worktreePath} (branch ${branchName}) was successfully created, but the per-session cwd_release_marker DB write failed. archive_plan preflight 4-state dispatch will misclassify this caller as "in worktree but no marker" (reject). Manual recovery: call exit_worktree({ action: 'remove', worktreePath: '${worktreePath}' }) explicitly (must pass args.worktreePath because marker was never set so auto-resolution can't find it), then retry enter_worktree. Marker write failure usually indicates SQLite locked / corrupted DB / read-only filesystem.`,
+      error: `worktree created but setCwdReleaseMarker failed: ${markerErrMsg}`,
+      hint: `worktree at ${worktreePath} (branch ${branchName}) was created, but the per-session cwd_release_marker DB write failed (archive_plan preflight 4-state dispatch would misclassify caller as "in worktree but no marker"). ${rollbackStatus} Marker write failure usually indicates SQLite locked / corrupted DB / read-only filesystem — retry enter_worktree after resolving the DB issue.`,
     };
   }
 
