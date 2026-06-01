@@ -272,10 +272,11 @@ archive_plan 撞 precheck fail / abandoned plan 时手工归档。codex 端用 `
 
 起新 SDK session 接力当前工作 + 默认归档 caller(单向 baton)。**两种模式**:传 `planId` = plan-driven(读 frontmatter,要求 status=in_progress + 有 worktree_path,cold-start prompt 自动 = `按 <plan-abs-path> 接力`);不传 = generic(cold-start prompt = 你传的 `prompt`)。
 
-**调用**:`mcp__agent-deck__hand_off_session({ planId?, phaseLabel?, prompt?, cwd?, adapter?: "codex-cli", teamName?, codexSandbox?, planFilePath?, archiveCaller?: true, adoptTeammates?: false, teamTaskPolicy?: 'clear-team' | 'preserve-team' | 'skip' })`
+**调用**:`mcp__agent-deck__hand_off_session({ planId?, phaseLabel?, prompt?, cwd?, adapter?: 'claude-code' | 'codex-cli', teamName?, codexSandbox?, planFilePath?, archiveCaller?: true, adoptTeammates?: false, teamTaskPolicy?: 'clear-team' | 'preserve-team' | 'skip' })`
 **返回**:`{ mode, planId, worktreePath, sessionId, cwd, teamId, archived, teammatesShutdown, taskReassignment, ... }`
 
 **要点**:
+- **adapter**(默认 `claude-code`):**省略一律起 claude-code session,与 caller 的 adapter 无关**。codex lead 想接力到另一个 codex session 必须显式传 `'codex-cli'`
 - **cwd**:plan-driven 默认 mainRepo(worktree 被 archive_plan 删后仍 valid);generic 默认 caller cwd。当前 cwd 不对就显式传——别在本 session `cd`(codex shell 跨 turn 切 cwd 不持久)
 - **archiveCaller**(默认 true):单向 baton。传 false 让 caller 留着并行做事,可多次起 session
 - **teamName**(默认不加):纯 baton 不需要;要让新 session 和原 teammate 继续通信才传
