@@ -18,11 +18,11 @@
 
 import { existsSync } from 'node:fs';
 import { err, type HandlerResult } from '../../helpers';
-import { EXTERNAL_CALLER_SENTINEL } from '../../../types';
-import { sessionRepo } from '@main/store/session-repo';
+import type { SessionRecord } from '@shared/types';
 import type { HandOffSessionArgs } from '../../schemas';
 import type { HandOffSessionDeps } from '../hand-off-session-impl';
 import type { HandOffSessionHandlerDeps } from './_deps';
+import { fetchCallerSessionRow } from '../_shared/caller-cwd-resolver';
 import log from '@main/utils/logger';
 
 const logger = log.scope('mcp-handoff-cwd');
@@ -39,47 +39,37 @@ export interface ResolvedForCwd {
 }
 
 /**
- * 从 caller session id 反查 sessions 表拿 cwd，构造 implDeps 子集（仅 cwd 字段）。
+ * 从 caller session row 拿 cwd，构造 implDeps 子集（仅 cwd 字段）。
  *
  * 解 H5 caller cwd bug 的核心：impl DEFAULT_DEPS.cwd = process.cwd()（Electron main
  * 进程 cwd，通常 `/`），与真正的 caller SDK session cwd 无关，所以反查 main-repo /
  * 判定 worktree 都失败。handler 层必须从 sessionRepo 反查 caller session 的真实 cwd
  * 注入。external sentinel / 反查不到时返回空对象，impl 仍走 DEFAULT_DEPS.cwd 兜底。
  *
- * **REVIEW_56 §F9 修法 (Plan-Review Round 1 + spike3 实证决策 A) — 对称改 archive-plan.ts**:
- * 签名重构 `(sid): { deps: HandOffSessionDeps; warnings: string[] }` — fail-open 退化时
- * warnings 收集。handler 端拿 warnings 后只 console.warn 输出 (hand-off-session ok return
- * 没 warnings 字段不 surface,与 archive-plan.ts 不对称是设计取舍:handOff 单 baton 退化风险
- * 低于 archive_plan 收口,加 ok return.warnings schema 是 breaking change 不值)。**signature 仍
- * 与 archive-plan 同款保持对称易维护**。同时顺手补 archive-plan P5 R1 同款 console.warn
- * (对称缺口 — 原 hand-off-session catch silent return {} 无 warn,运维 grep 不到 fail-open 退化)。
+ * **Follow-up #2 + #7 修法**:row 反查收口到 `_shared/caller-cwd-resolver.ts` 的
+ * `fetchCallerSessionRow`(与 archive-plan 共用),并加可选 `prefetchedRow` 参数 — caller
+ * (handler-main)已经反查过一次时直接复用,避免对同一 callerSessionId 二次落 DB。
+ * `prefetchedRow !== undefined` 时直接用(含 null 表示已查但 caller 不在 sessions 表 →
+ * 退化 DEFAULT_DEPS,不再补查);`undefined` 时走 fetchCallerSessionRow 自查(保留独立调用
+ * 兜底 + test seam)。
+ *
+ * **REVIEW_56 §F9 历史**: fail-open 退化时 warnings 收集。handler 端拿 warnings 后只
+ * console.warn 输出 (hand-off-session ok return 没 warnings 字段不 surface,与 archive-plan.ts
+ * 不对称是设计取舍:handOff 单 baton 退化风险低于 archive_plan 收口)。
  */
-export function resolveCallerCwdDeps(callerSessionId: string): {
+export function resolveCallerCwdDeps(
+  callerSessionId: string,
+  prefetchedRow?: SessionRecord | null,
+): {
   deps: HandOffSessionDeps;
   warnings: string[];
 } {
-  const warnings: string[] = [];
-  if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return { deps: {}, warnings };
-  // CHANGELOG_99 R1 fix MED-1:sessionRepo.get 包 try/catch fail-safe (与 L143 段对称)。
-  // DB 异常 (test 未 init / 生产 SQLite locked / FK conflict) 时返回空 deps,让 impl 退化到
-  // DEFAULT_DEPS.cwd = process.cwd() 兜底,而非 handler 直接 crash。
-  // REVIEW_56 §F9 修法: 加 console.warn (对称 archive-plan.ts P5 R1 修法) + warnings 收集。
-  let row: ReturnType<typeof sessionRepo.get> = null;
-  try {
-    row = sessionRepo.get(callerSessionId);
-  } catch (e) {
-    const msg = `[hand-off-session] sessionRepo.get(${callerSessionId}) threw — falling back to DEFAULT_DEPS (cwd=process.cwd). Hand off proceeds without caller cwd injection. err=${e instanceof Error ? e.message : String(e)}`;
-    logger.warn(msg);
-    warnings.push(msg);
-    return { deps: {}, warnings };
-  }
-  if (!row?.cwd) {
-    if (!row) {
-      const msg = `[hand-off-session] sessionRepo.get(${callerSessionId}) returned null — caller session not found, falling back to DEFAULT_DEPS`;
-      warnings.push(msg);
-    }
-    return { deps: {}, warnings };
-  }
+  // prefetchedRow 已传(handler-main 复用 #2)→ 直接用,不再查 DB;undefined → 自查兜底(test seam / 独立调用)。
+  const { row, warnings } =
+    prefetchedRow !== undefined
+      ? { row: prefetchedRow, warnings: [] as string[] }
+      : fetchCallerSessionRow(callerSessionId, 'hand-off-session');
+  if (!row?.cwd) return { deps: {}, warnings };
   const cwd = row.cwd;
   return { deps: { cwd: () => cwd }, warnings };
 }
@@ -95,14 +85,21 @@ export function resolveCallerCwdDeps(callerSessionId: string): {
  * 实现策略：caller 显式 cwd 时直接返回 caller 原 implDeps；否则把 callerCwdInjection 放
  * **后面** spread 覆盖任何 caller implDeps 里 cwd: undefined 的边界 case。
  *
- * **REVIEW_56 §F9 修法**: 签名同 resolveCallerCwdDeps,返 `{deps, warnings}` 对称 archive-plan.ts。
+ * **Follow-up #2 修法**: 加可选 `prefetchedRow` 参数透传给 resolveCallerCwdDeps,让 handler-main
+ * 一次反查复用(避免 mergeCallerCwd + resolveCallerSessionCwd 二次落 DB)。
+ *
+ * **REVIEW_56 §F9 历史**: 签名返 `{deps, warnings}` 对称 archive-plan.ts。
  */
 export function mergeCallerCwd(
   callerImplDeps: HandOffSessionDeps | undefined,
   callerSessionId: string,
+  prefetchedRow?: SessionRecord | null,
 ): { deps: HandOffSessionDeps | undefined; warnings: string[] } {
   if (callerImplDeps?.cwd) return { deps: callerImplDeps, warnings: [] };
-  const { deps: callerCwdInjection, warnings } = resolveCallerCwdDeps(callerSessionId);
+  const { deps: callerCwdInjection, warnings } = resolveCallerCwdDeps(
+    callerSessionId,
+    prefetchedRow,
+  );
   if (!callerCwdInjection.cwd) return { deps: callerImplDeps, warnings };
   return { deps: { ...callerImplDeps, ...callerCwdInjection }, warnings };
 }
@@ -116,24 +113,23 @@ export function mergeCallerCwd(
  * session 的 sendMessage 路径,不覆盖新 spawn 的 createSession)。precheck false → null
  * 让 default cwd fallback 到 mainRepo。
  *
- * external sentinel / DB 错时 callerSessionRow null,fallback 到 mainRepo / undefined。
+ * **Follow-up #2 修法**: 加可选 `prefetchedRow` 参数 — handler-main 一次反查复用,避免与
+ * mergeCallerCwd 二次落 DB。`prefetchedRow !== undefined` 时直接用(含 null);`undefined` 时
+ * 走 fetchCallerSessionRow 自查(test seam / 独立调用兜底)。external sentinel / DB 错时
+ * callerSessionRow null,fallback 到 mainRepo / undefined。
  */
 export function resolveCallerSessionCwd(
   callerSessionId: string,
   handlerDeps: HandOffSessionHandlerDeps | undefined,
+  prefetchedRow?: SessionRecord | null,
 ): {
-  callerSessionRow: ReturnType<typeof sessionRepo.get>;
+  callerSessionRow: SessionRecord | null;
   callerSessionCwd: string | null;
 } {
-  let callerSessionRow: ReturnType<typeof sessionRepo.get> = null;
-  if (callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
-    try {
-      callerSessionRow = sessionRepo.get(callerSessionId);
-    } catch {
-      // DB 不可用(typical: test 环境 DB 未 init)→ 留 null
-      callerSessionRow = null;
-    }
-  }
+  const callerSessionRow: SessionRecord | null =
+    prefetchedRow !== undefined
+      ? prefetchedRow
+      : fetchCallerSessionRow(callerSessionId, 'hand-off-session').row;
   const cwdExistsFn = handlerDeps?.cwdExists ?? existsSync;
   const callerSessionCwdRaw: string | null = callerSessionRow?.cwd ?? null;
   const callerSessionCwd: string | null =

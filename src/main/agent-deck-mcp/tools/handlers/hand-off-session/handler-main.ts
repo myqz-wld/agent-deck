@@ -14,6 +14,7 @@
  * + spread spawnData 全字段）。
  */
 
+import { existsSync } from 'node:fs';
 import {
   err,
   ok,
@@ -48,6 +49,7 @@ import {
 } from './team-adopt-coordinator';
 import { runTaskReassignment } from './task-reassign-coordinator';
 import type { HandOffSessionHandlerDeps } from './_deps';
+import { fetchCallerSessionRow } from '../_shared/caller-cwd-resolver';
 import log from '@main/utils/logger';
 
 const logger = log.scope('mcp-handoff-main');
@@ -88,6 +90,16 @@ export const handOffSessionHandler = withMcpGuard(
   ) => {
     const { caller } = ctx;
 
+    // Follow-up #2 修法:一次反查 caller session row 复用给 mergeCallerCwd + resolveCallerSessionCwd
+    // 两个 resolver(避免对同一 callerSessionId 二次落 DB)。external sentinel 短路 + try/catch
+    // fail-open + warnings 收集收口到 _shared/caller-cwd-resolver.ts 的 fetchCallerSessionRow
+    // (Follow-up #7 与 archive-plan 共用)。warnings 由下方 mergeCallerCwd 透传一次性 logger.warn,
+    // 此处仅取 row(prefetchRow.warnings 与 mergeCallerCwd warnings 同源,不重复输出 — mergeCallerCwd
+    // 收到 prefetchedRow 后 warnings=[] 不再补查,故 prefetch 的 warnings 在此显式 logger.warn)。
+    const prefetched = fetchCallerSessionRow(caller.callerSessionId, 'hand-off-session');
+    for (const w of prefetched.warnings) logger.warn(w);
+    const prefetchedRow = prefetched.row;
+
     // 1. impl 层：双模式分流(plan-driven / generic) — 解析 plan 文件 / 构造 cold-start prompt
     // ⚠️ caller cwd 注入：impl 默认用 process.cwd() 当 caller cwd（电子 main 进程的 cwd，
     // 通常是 `/`），与真正的 caller SDK session cwd（在 sessions 表里）完全无关。所以
@@ -95,15 +107,13 @@ export const handOffSessionHandler = withMcpGuard(
     // 不传 → impl 默认 process.cwd() → main-repo 反查永远失败 → 报「caller cwd is not a
     // git repo」（即使 caller 实际在 worktree / git repo 内）。
     // 优先级：caller 显式 implDeps.cwd > sessionRepo 反查 > impl DEFAULT_DEPS（process.cwd）
-    // REVIEW_56 §F9 修法: mergeCallerCwd 返 {deps, warnings} (对称 archive-plan.ts)。
-    // hand-off-session ok return 没 warnings 字段不 surface,只 console.warn 输出 (caller 通过
-    // operator log grep `[hand-off-session]` 可见 fail-open 退化)。signature 重构与
-    // archive-plan 同款保持对称易维护。
-    const { deps: mergedImplDeps, warnings: callerCwdWarnings } = mergeCallerCwd(
+    // Follow-up #2: 透传 prefetchedRow 避免二次落 DB。prefetchedRow 已含反查结果(含 null),
+    // mergeCallerCwd 收到后 warnings=[] 不再补查 — fail-open warnings 已在上方 prefetch 段输出。
+    const { deps: mergedImplDeps } = mergeCallerCwd(
       handlerDeps?.implDeps,
       caller.callerSessionId,
+      prefetchedRow,
     );
-    for (const w of callerCwdWarnings) logger.warn(w);
     const resolved = await handOffSessionImpl(
       {
         planId: args.planId,
@@ -117,10 +127,11 @@ export const handOffSessionHandler = withMcpGuard(
       return err(resolved.error, resolved.hint);
     }
 
-    // 2. 反查 callerSessionRow + callerSessionCwd（generic 模式 default cwd 用 + existsSync precheck）
+    // 2. callerSessionCwd（generic 模式 default cwd 用 + existsSync precheck）— Follow-up #2 复用 prefetchedRow
     const { callerSessionCwd } = resolveCallerSessionCwd(
       caller.callerSessionId,
       handlerDeps,
+      prefetchedRow,
     );
 
     // 3. 组装 spawn_session args：cwd 双模式 default(CHANGELOG_99 + REVIEW_36 HIGH-3)。
@@ -160,6 +171,23 @@ export const handOffSessionHandler = withMcpGuard(
         ? planModeDefaultCwd
         : callerSessionCwd ?? resolved.mainRepo ?? undefined;
     const finalCwd = args.cwd ?? defaultCwd;
+
+    // Follow-up #3: 显式 args.cwd 覆盖路径加 existsSync precheck。generic 模式 callerSessionCwd
+    // 已有 precheck(resolveCallerSessionCwd 内 cwdExists),plan 模式 worktreeExists 走
+    // validatePlanModeWorktreeExists,但 caller 显式传 args.cwd 这条覆盖路径两边都漏检 → 失效
+    // 路径直接传给 spawn 时 chdir 失败(SDK createSession ENOENT,recoverer 不覆盖新 spawn)。
+    // 这里 return 清晰错误而非把失效 cwd 推到 spawn 才报。复用 handlerDeps?.cwdExists ?? existsSync
+    // (与 resolveCallerSessionCwd 同款 seam,test 可注入)。
+    if (args.cwd !== undefined) {
+      const cwdExistsFn = handlerDeps?.cwdExists ?? existsSync;
+      if (!cwdExistsFn(args.cwd)) {
+        return err(
+          `explicit cwd does not exist on disk: ${args.cwd}`,
+          `args.cwd was passed explicitly but the path does not exist (spawn would fail with chdir ENOENT). ` +
+            `Pass a valid existing directory, or omit args.cwd to use the default (plan mode: mainRepo / worktreePath; generic mode: caller session cwd / mainRepo).`,
+        );
+      }
+    }
 
     // 4. plan-driven worktreeExists missing 4 case 决策（hard reject / graceful warn）
     const worktreeRejection = validatePlanModeWorktreeExists(resolved, finalCwd);

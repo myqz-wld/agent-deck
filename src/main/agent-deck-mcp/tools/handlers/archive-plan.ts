@@ -53,7 +53,6 @@ import {
   type HandlerContext,
 } from '../helpers';
 import type { ArchivePlanArgs, ArchivePlanResult } from '../schemas';
-import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import { sessionRepo } from '@main/store/session-repo';
 import {
   archivePlanImpl,
@@ -63,6 +62,7 @@ import {
 } from './archive-plan-impl';
 import { runBatonCleanup } from './baton-cleanup';
 import type { ShutdownTeammatesResult } from './shutdown-teammates-on-baton';
+import { fetchCallerSessionRow } from './_shared/caller-cwd-resolver';
 import log from '@main/utils/logger';
 
 const logger = log.scope('mcp-archive-plan');
@@ -96,7 +96,14 @@ export interface ArchivePlanHandlerDeps {
  * cwdReleaseMarker fetcher 让 impl 走 4 态分流（详 archive-plan-impl §step 4）。两个字段都
  * 从同一个 sessionRepo.get(callerSid) row 派生（一次 DB read 复用，避免 N+1）。
  *
- * **REVIEW_56 §F9 修法 (Plan-Review Round 1 + spike3 实证决策 A)**: 签名重构 `(sid):
+ * **Follow-up #7 修法**: row 反查(external sentinel 短路 + try/catch fail-open + warnings 收集)
+ * 收口到 _shared/caller-cwd-resolver.ts 的 fetchCallerSessionRow(与 hand-off-session 共用),
+ * 本函数只保留 archive 专属的 row→deps 映射(cwd + cwdReleaseMarker + clearCwdReleaseMarker)。
+ * shared helper 是纯函数不 logger.warn,故本函数 loop warnings 输出 operator log 保留 P5 R1
+ * reviewer-codex HIGH-2 修法的 fail-open 退化可见性(原 throw 路径 operator log;null 路径现也
+ * 一并输出 — 严格更多可见性无功能回归)。
+ *
+ * **REVIEW_56 §F9 修法 (Plan-Review Round 1 + spike3 实证决策 A)**: 签名 `(sid):
  * { deps: ArchivePlanDeps; warnings: string[] }` — fail-open 退化时 warnings 数组收集让 caller
  * (handler) merge 进 ok return.warnings 让 caller (lead / agent) 通过 ok return 看到 fail-open
  * 退化(原 P5 R1 修法只 console.warn 到 operator log,caller silent 不知)。
@@ -105,29 +112,11 @@ function resolveCallerCwdDeps(callerSessionId: string): {
   deps: ArchivePlanDeps;
   warnings: string[];
 } {
-  const warnings: string[] = [];
-  if (callerSessionId === EXTERNAL_CALLER_SENTINEL) return { deps: {}, warnings };
-  // CHANGELOG_99 R1 fix MED-1:sessionRepo.get 包 try/catch fail-safe (与 archive 段 try/catch
-  // 对称)。DB 异常 (test 未 init / 生产 SQLite locked / FK conflict) 时返回空 deps,让 impl
-  // 退化到 DEFAULT_DEPS.cwd = process.cwd() + cwdReleaseMarker = () => null 兜底,而非 handler
-  // 直接 crash。
-  // P5 Round 1 reviewer-codex HIGH-2 (downgraded MED) 修法:DB 异常时 console.warn 让 operator
-  // 看到 fail-open 退化(原静默 return {} 看不到 DB 问题)。fail-open 设计取舍保留(handler 稳定
-  // > 严格安全),archive git 操作走 mainRepo 不依赖 callerCwd 限定 blast radius。
-  // REVIEW_56 §F9 修法: 同时把 warning push 到 warnings 数组让 handler 后续 merge 进 ok return.warnings。
-  let row: ReturnType<typeof sessionRepo.get> = null;
-  try {
-    row = sessionRepo.get(callerSessionId);
-  } catch (err) {
-    const msg = `[archive-plan] sessionRepo.get(${callerSessionId}) threw — falling back to DEFAULT_DEPS (cwd=process.cwd, marker=null). Archive proceeds via mainRepo git ops; cwd precheck degrades to "no marker" branch. err=${err instanceof Error ? err.message : String(err)}`;
-    logger.warn(msg);
-    warnings.push(msg);
-    return { deps: {}, warnings };
-  }
+  const { row, warnings } = fetchCallerSessionRow(callerSessionId, 'archive-plan');
+  // shared helper 纯收集不 logger.warn → 本函数 loop 输出 operator log 保留 fail-open 退化可见性。
+  for (const w of warnings) logger.warn(w);
   if (!row) {
-    // REVIEW_56 §F9 修法: row null (caller session 不在 sessions 表) 也加 warning 让 caller 知道
-    const msg = `[archive-plan] sessionRepo.get(${callerSessionId}) returned null — caller session not found, falling back to DEFAULT_DEPS`;
-    warnings.push(msg);
+    // external sentinel(warnings=[])/ DB throw / row null(warnings 含退化 msg)→ 退化 DEFAULT_DEPS。
     return { deps: {}, warnings };
   }
   // P5 Round 1 reviewer-claude LOW-5 修法 (cwd / marker 独立 fallback):

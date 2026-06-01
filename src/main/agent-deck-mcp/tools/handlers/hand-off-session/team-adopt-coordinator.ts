@@ -31,6 +31,10 @@ import {
   buildAdoptedTeamsContextBlock,
   type AdoptedTeam,
 } from '../adopted-teams-context-block';
+import {
+  shutdownTeammatesOnBaton,
+  type ShutdownTeammatesResult,
+} from '../shutdown-teammates-on-baton';
 import log from '@main/utils/logger';
 
 const logger = log.scope('mcp-team-adopt');
@@ -265,12 +269,20 @@ export function prepareAdoptSnapshotAndPrompt(
  * adopt 流程:在 spawn 成功后、runBatonCleanup 之前跑 swapLead loop + listAllMembers +
  * lifecycle precheck + emit + collect preserved/failed。设计要点:
  *
- * **firstTeam fatal abort 路径**(Round 5 codex MED-3):firstTeam swapLead 失败(swapped:false /
- * throws)→ fatal abort:
- * - 调 closeFn(newSpawnedSid) shutdown 新 session(避免交出 stale firstTeam anchor 的孤儿
+ * **firstTeam fatal abort 路径**(Round 5 codex MED-3 + Follow-up #1):firstTeam swapLead
+ * 失败(swapped:false / throws)→ fatal abort 彻底回退不留孤儿:
+ * - **先**对 caller 全 team teammate 跑 team-scoped shutdown(Follow-up #1 修法 — 复用
+ *   shutdownTeammatesFn = shutdownTeammatesOnBaton,excludeSessionIds 含 newSpawnedSid 不误关
+ *   即将被 close 的新 session)。修前只 close newSid + return error,caller 在**其他 team** 的
+ *   teammate(典型 multi-team caller 的 reviewer-claude / reviewer-codex)既没被新 session 接管
+ *   (swapLead 没跑到 / firstTeam 失败短路)也没被 shutdown → 孤儿泄漏(占内存 + SDK live query)。
+ *   shutdown 失败仅 warn 不阻塞仍 return error(彻底回退优先,残留 teammate 用户可手动清)。
+ * - **再**调 closeFn(newSpawnedSid) shutdown 新 session(避免交出 stale firstTeam anchor 的孤儿
  *   新 session)
  * - **不 archive caller**(caller 状态零变化 — phase 1.5 入口 caller 仍是 lead,swapLead
- *   transaction 内 precheck 短路 demote 未执行)
+ *   transaction 内 precheck 短路 demote 未执行)。caller 在此路径已被 shutdownTeammatesFn 牵连了
+ *   teammate 但自己 active 不变,符合「fatal abort = 整片回退到 hand-off 前的干净态(无新 session +
+ *   无孤儿 teammate)」语义
  * - hand_off_session **return error**「adopt firstTeam swap failed: <reason>」+ hint 含
  *   failed firstTeamId + reason
  *
@@ -307,6 +319,13 @@ export async function runPhase15AdoptSwapLeadLoop(
     ((teamId: string) => agentDeckTeamRepo.listAllMembers(teamId));
   const closeSessionFn =
     handlerDeps?.closeSession ?? ((sid: string) => sessionManager.close(sid));
+  // Follow-up #1 修法:firstTeam fatal abort 时对 caller 全 team teammate 跑 team-scoped
+  // shutdown(避免孤儿)。default 复用 shutdownTeammatesOnBaton(含 excludeSessionIds 透传),
+  // 与 baton-cleanup.ts phase 1 同款 helper / 同款 deps seam(HandOffSessionHandlerDeps.shutdownTeammates)。
+  const shutdownTeammatesFn =
+    handlerDeps?.shutdownTeammates ??
+    ((callerSid: string, exclude?: ReadonlySet<string>) =>
+      shutdownTeammatesOnBaton(callerSid, { excludeSessionIds: exclude }));
 
   const preservedSet = new Set<string>();
   const failedList: Array<{ sid: string; reason: string; teamId: string }> = [];
@@ -473,7 +492,28 @@ export async function runPhase15AdoptSwapLeadLoop(
     };
   }
   if (firstSwapResult.swapped !== true) {
-    // **fatal abort**:close newSpawnedSid + 不 archive caller + return error
+    // **fatal abort 彻底回退不留孤儿**(Follow-up #1):
+    // 1. 先对 caller 全 team teammate 跑 team-scoped shutdown(caller 此刻仍是所有 team 的
+    //    lead — firstTeam swapLead 没 commit / rest loop 没跑,findActiveMembershipsBySession
+    //    反查到 caller 全部 lead team)。excludeSessionIds 含 newSpawnedSid 避免误关即将被
+    //    close 的新 session(spawn handler 若把它加为 teammate — adopt 路径 N2.c 互斥不传
+    //    teamName 不会加,但 exclude 是廉价防御)。修前只 close newSid → caller 在其他 team 的
+    //    teammate(典型 multi-team caller 的 reviewer)成孤儿(占内存 + SDK live query)。
+    //    shutdown 失败仅 warn 不阻塞 — 彻底回退优先,残留 teammate 用户可手动清。
+    let abortShutdown: ShutdownTeammatesResult;
+    try {
+      abortShutdown = await shutdownTeammatesFn(
+        callerSessionId,
+        new Set<string>([newSpawnedSid]),
+      );
+    } catch (shutdownErr) {
+      logger.warn(
+        `[mcp hand_off_session] adopt firstTeam fatal abort: team-scoped shutdown for caller ${callerSessionId} threw (continuing return err):`,
+        shutdownErr,
+      );
+      abortShutdown = { closed: [], failed: [], skipped: 'phase-1-error' };
+    }
+    // 2. 再 close newSpawnedSid + 不 archive caller + return error
     try {
       await closeSessionFn(newSpawnedSid);
     } catch (closeErr) {
@@ -487,7 +527,8 @@ export async function runPhase15AdoptSwapLeadLoop(
       isError: true,
       result: err(
         `adopt firstTeam swap failed: ${firstSwapResult.reason}`,
-        `firstTeamId=${firstTeamId},swapLead 软失败 reason=${firstSwapResult.reason}。caller 状态零变化(swapLead transaction 内 Phase A.0 precheck 短路 demote 未执行 / throws 自动 ROLLBACK),新 session ${newSpawnedSid} 已 close 避免交出 stale firstTeam anchor 的孤儿。caller 防御路径:① 修复 firstTeam(用户重新 spawn 同 team teammate / 修复 DB / 排查 swapLead 撞 invariant)+ 重试 hand_off_session ② 改走 default baton(adoptTeammates: false / 不传)放弃 adopt 走 normal hand-off。`,
+        `firstTeamId=${firstTeamId},swapLead 软失败 reason=${firstSwapResult.reason}。caller 状态零变化(swapLead transaction 内 Phase A.0 precheck 短路 demote 未执行 / throws 自动 ROLLBACK),新 session ${newSpawnedSid} 已 close 避免交出 stale firstTeam anchor 的孤儿,caller 名下其他 team teammate 已 team-scoped shutdown(closed=${abortShutdown.closed.length} / failed=${abortShutdown.failed.length})彻底回退不留孤儿。caller 防御路径:① 修复 firstTeam(用户重新 spawn 同 team teammate / 修复 DB / 排查 swapLead 撞 invariant)+ 重试 hand_off_session ② 改走 default baton(adoptTeammates: false / 不传)放弃 adopt 走 normal hand-off。`,
+        { teammatesShutdown: abortShutdown },
       ),
     };
   }

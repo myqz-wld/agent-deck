@@ -228,6 +228,8 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
       archiveSession: mockArchive,
       // CHANGELOG_106:noop shutdownTeammates 防默认 helper 撞 DB 未 init 噪音
       shutdownTeammates: noopShutdown,
+      // Follow-up #3:显式 args.cwd 加 existsSync precheck,fixture 传虚构 cwd 真 fs 不存在 → mock cwdExists 返 true
+      cwdExists: () => true,
       implDeps: makeDeps(state),
     });
 
@@ -240,6 +242,58 @@ describe('handOffSessionHandler — happy path with mock spawn', () => {
     expect(data.archived).toBe('ok');
 
     sessionRepoGetSpy.mockRestore();
+  });
+
+  // Follow-up #3: 显式 args.cwd 失效路径(existsSync false)→ handler return err 清晰提示,
+  // spawn 未调用(而非把失效 cwd 推到 spawn 才 chdir ENOENT)。
+  it('Follow-up #3: 显式 args.cwd 不存在 → return err + spawn 未调用', async () => {
+    const state = makeState();
+    const planId = 'cwd-missing-test';
+    const planFilePath = `/Users/test/repo/.claude/plans/${planId}.md`;
+    state.files.set(planFilePath, planContent({ planId, status: 'in_progress' }));
+
+    const seenSpawn = { ref: null as SpawnSessionArgs | null };
+    const mockSpawn = vi.fn(
+      async (spawnArgs: SpawnSessionArgs, _ctx: HandlerContext): Promise<HandlerResult> => {
+        seenSpawn.ref = spawnArgs;
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ sessionId: 's', adapter: 'claude-code', cwd: '/x', teamName: null }),
+            },
+          ],
+        };
+      },
+    );
+    const mockArchive = vi.fn(async (_sid: string) => undefined);
+
+    const args: HandOffSessionArgs = {
+      planId,
+      adapter: 'claude-code',
+      cwd: '/Users/test/nonexistent-dir',
+    };
+    const ctx: HandlerContext = {
+      caller: { callerSessionId: 'caller-sid', transport: 'in-process' },
+    };
+
+    const result = await handOffSessionHandler(args, ctx, {
+      spawnSession: mockSpawn,
+      archiveSession: mockArchive,
+      shutdownTeammates: noopShutdown,
+      // cwdExists 返回 false 模拟 args.cwd 真 fs 不存在
+      cwdExists: (p: string) => p !== '/Users/test/nonexistent-dir',
+      implDeps: makeDeps(state),
+    });
+
+    // **handler reject**:isError + 错误信息含 'explicit cwd does not exist'
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.error).toMatch(/explicit cwd does not exist on disk: \/Users\/test\/nonexistent-dir/);
+
+    // **副作用零变化**:spawn 未调用 + caller 未 archive
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(mockArchive).not.toHaveBeenCalled();
   });
 
   it('CHANGELOG_97: archive caller 失败 → warn-only 不阻塞 K2 成功 return', async () => {
