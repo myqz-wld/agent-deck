@@ -72,6 +72,13 @@ export async function writeUploadedImage(
   // 上报的 bytes，base64 本身不受约束）。base64 解码后字节 ≈ length * 3/4，留宽松系数挡明显
   // 超标的串；精确字节对账仍由下方 buf.length 校验完成。当前 caller 是 first-party renderer
   // 瞬时分配，故 LOW；前置 cap 是防御性硬化。
+  //
+  // Follow-up #14 [INFO]: cap 公式 `ceil(MAX*4/3)+4` 隐含假设 **base64 无换行**(标准 base64
+  // 编码每 N 字符不插 `\n`)。当前不可达:input.base64 来自 renderer 的 browser btoa / FileReader
+  // .readAsDataURL,二者都产**无换行**的连续 base64 串(data URL 前缀已在 renderer strip)。若
+  // 未来 renderer 改用 MIME-formatted base64(RFC 2045 每 76 字符插 `\r\n`),换行字节会让同样
+  // MAX 字节的图片 base64 长度超过本 cap 被误拒 → 届时需放宽 cap 含换行字节(如 cap +=
+  // ceil(len/76)*2)或先 strip 换行再算长度。逻辑当前正确,仅备忘前提假设,不改。
   if (input.base64.length > Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4) {
     throw new Error(
       `attachment base64 length ${input.base64.length} exceeds cap for ${MAX_IMAGE_BYTES / 1024 / 1024}MB limit`,

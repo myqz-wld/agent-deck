@@ -27,12 +27,26 @@ interface IssueSchedulerOptions {
   softDeletedRetentionDays: number;
   /** 调度间隔；默认 6h（D20） */
   tickIntervalMs?: number;
+  /**
+   * Follow-up #11: GC 单轮批量上限,传给 listForGc(每路) + 判定本轮是否删满(=还有积压)。
+   * 默认 500(与 issue-repo listForGc 内部 default + session-repo findHistoryOlderThan 对称)。
+   */
+  gcBatchLimit?: number;
+  /**
+   * Follow-up #11: 某路删满 limit(还有积压)时调度的「续删 tick」短延迟。默认 30s。
+   * 常态 6h tick 不变,仅积压未清完时用此短延迟加速续删直到某轮删 < limit。
+   */
+  catchUpDelayMs?: number;
 }
 
 const DEFAULT_TICK_INTERVAL_MS = 6 * 3600_000;
+const DEFAULT_GC_BATCH_LIMIT = 500;
+const DEFAULT_CATCH_UP_DELAY_MS = 30_000;
 
 export class IssueLifecycleScheduler {
   private timer: NodeJS.Timeout | null = null;
+  /** Follow-up #11: 积压续删 one-shot timer(与常态 setInterval timer 独立);stop() 一并清。 */
+  private catchUpTimer: NodeJS.Timeout | null = null;
   constructor(private opts: IssueSchedulerOptions) {}
 
   start(): void {
@@ -46,6 +60,11 @@ export class IssueLifecycleScheduler {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    // Follow-up #11: 一并清 pending 续删 timer,防 stop 后 catch-up tick 仍碰 DB。
+    if (this.catchUpTimer) {
+      clearTimeout(this.catchUpTimer);
+      this.catchUpTimer = null;
     }
   }
 
@@ -68,11 +87,18 @@ export class IssueLifecycleScheduler {
    *
    * 失败兜底: 单条 hardDelete throw 不中断后续 — 每条独立 try/catch + console.warn,scheduler
    * tick 不因单条 corrupt row 整批崩。
+   *
+   * **Follow-up #11 续删节奏**: 某路 listForGc 删满 limit(=可能还有积压)→ 调度一个短延迟
+   * (catchUpDelayMs 默认 30s)的额外 tick 续删,直到某轮两路都删 < limit。常态 6h tick 频率
+   * 不变,只在「积压未清完」时加速续删。用户调短 retention 想快速清积压时不必等 6h × N 轮。
+   * one-shot timer(catchUpTimer),复用同 scan() — 重入时若已有 pending catch-up 不重复排。
    */
   scan(): void {
+    const limit = this.opts.gcBatchLimit ?? DEFAULT_GC_BATCH_LIMIT;
     const result = issueRepo.listForGc({
       resolvedRetentionDays: this.opts.resolvedRetentionDays,
       softDeletedRetentionDays: this.opts.softDeletedRetentionDays,
+      limit,
     });
     const allIds = [...result.resolvedExpired, ...result.softDeletedExpired];
     if (allIds.length === 0) return;
@@ -98,6 +124,26 @@ export class IssueLifecycleScheduler {
     if (deletedCount > 0) {
       console.log(`[issue-gc] hardDeleted ${deletedCount} issues (resolved=${result.resolvedExpired.length}, soft=${result.softDeletedExpired.length})`);
     }
+    // Follow-up #11: 某路删满 limit = 可能还有积压 → 调度短延迟续删 tick。两路都 < limit 时不排
+    // (积压清完,回到常态 6h tick)。deletedCount === 0(本轮全 race / 全 throw)也不排避免空转死循环。
+    const hitLimit =
+      result.resolvedExpired.length >= limit || result.softDeletedExpired.length >= limit;
+    if (hitLimit && deletedCount > 0) {
+      this.scheduleCatchUpTick();
+    }
+  }
+
+  /**
+   * Follow-up #11: 调度一个短延迟续删 tick(one-shot)。已有 pending catch-up 时不重复排
+   * (避免同一轮积压排多个 timer)。timer fire 时先清自身引用再 scan(),让本轮若仍删满可再排下一个。
+   */
+  private scheduleCatchUpTick(): void {
+    if (this.catchUpTimer) return;
+    const delay = this.opts.catchUpDelayMs ?? DEFAULT_CATCH_UP_DELAY_MS;
+    this.catchUpTimer = setTimeout(() => {
+      this.catchUpTimer = null;
+      this.scan();
+    }, delay);
   }
 }
 

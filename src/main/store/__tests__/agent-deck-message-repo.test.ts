@@ -317,4 +317,84 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     db.prepare(`DELETE FROM agent_deck_teams WHERE id = ?`).run(teamId);
     expect(msgRepo.listByTeam(teamId)).toHaveLength(0);
   });
+
+  // ─── Follow-up #12: findEligibleExcludingTargets repo 层 unit test ───
+  // dispatch.ts:50-78 的空数组 fallback(不拼 NOT IN ())/ NOT IN 排除 / FIFO 此前仅集成层覆盖,
+  // 补 repo 层直接单测(SQLite 真测)。用 raw INSERT 锁同毫秒 sent_at 验 FIFO(insert() 无法注入
+  // sent_at)。
+  describe('findEligibleExcludingTargets (Follow-up #12)', () => {
+    /** raw INSERT pending message,锁定 sent_at 验 FIFO(同毫秒走 rowid ASC)。 */
+    function rawInsert(id: string, toSessionId: string, sentAt: number): void {
+      db.prepare(
+        `INSERT INTO agent_deck_messages
+         (id, team_id, from_session_id, to_session_id, body, status, status_reason,
+          sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since, reply_to_message_id)
+         VALUES (?, ?, 'sA', ?, ?, 'pending', NULL, ?, NULL, 0, NULL, NULL, NULL)`,
+      ).run(id, teamId, toSessionId, `body-${id}`, sentAt);
+    }
+
+    it('空 excludeTargets → 退化为 findEligible LIMIT 1(取最早一条,不拼 NOT IN ())', () => {
+      const SAME = 1_700_000_000_000;
+      rawInsert('e1-oldest', 'sB', SAME);
+      rawInsert('e2-newer', 'sB', SAME + 100);
+      // 空数组不拼 `NOT IN ()`(SQL 语法非法)→ 等价纯 findEligible 取最早
+      const r = msgRepo.findEligibleExcludingTargets({ now: SAME + 1000, excludeTargets: [] });
+      expect(r).not.toBeNull();
+      expect(r?.id).toBe('e1-oldest');
+    });
+
+    it('非空 excludeTargets → NOT IN 正确排除被选 target,取剩余最早一条', () => {
+      const SAME = 1_700_000_000_000;
+      // 最早的发给 sB(被排除),次早发给 sC(应被选中)
+      rawInsert('x1-to-sB', 'sB', SAME);
+      rawInsert('x2-to-sC', 'sC', SAME + 100);
+      rawInsert('x3-to-sB', 'sB', SAME + 200);
+      const r = msgRepo.findEligibleExcludingTargets({
+        now: SAME + 1000,
+        excludeTargets: ['sB'],
+      });
+      // sB 全被排除 → 取唯一非排除的 sC
+      expect(r?.id).toBe('x2-to-sC');
+    });
+
+    it('多 target 排除 → NOT IN (?, ?) 全排除后取剩余最早', () => {
+      const SAME = 1_700_000_000_000;
+      rawInsert('m1-to-sB', 'sB', SAME);
+      rawInsert('m2-to-sC', 'sC', SAME + 100);
+      rawInsert('m3-to-sD', 'sD', SAME + 200);
+      const r = msgRepo.findEligibleExcludingTargets({
+        now: SAME + 1000,
+        excludeTargets: ['sB', 'sC'],
+      });
+      expect(r?.id).toBe('m3-to-sD');
+    });
+
+    it('所有 pending 的 target 都被排除 → 返 null', () => {
+      const SAME = 1_700_000_000_000;
+      rawInsert('o1-to-sB', 'sB', SAME);
+      rawInsert('o2-to-sB', 'sB', SAME + 100);
+      const r = msgRepo.findEligibleExcludingTargets({
+        now: SAME + 1000,
+        excludeTargets: ['sB'],
+      });
+      expect(r).toBeNull();
+    });
+
+    it('同毫秒 sent_at 多条非排除 target → rowid ASC 锁 FIFO(取先插入一条)', () => {
+      const SAME = 1_700_000_000_000;
+      // 同毫秒发给两个不同非排除 target:先插 sC 后插 sD → FIFO 取先插的 sC
+      rawInsert('f1-to-sC', 'sC', SAME);
+      rawInsert('f2-to-sD', 'sD', SAME);
+      const r = msgRepo.findEligibleExcludingTargets({
+        now: SAME + 1000,
+        excludeTargets: ['sZ-unrelated'],
+      });
+      expect(r?.id).toBe('f1-to-sC');
+    });
+
+    it('无 pending message → 返 null(空数组 fallback 路径也不崩)', () => {
+      const r = msgRepo.findEligibleExcludingTargets({ now: Date.now(), excludeTargets: [] });
+      expect(r).toBeNull();
+    });
+  });
 });
