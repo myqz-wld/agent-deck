@@ -35,6 +35,7 @@ import {
   buildCwdFallbackInfoText,
   buildCwdMissingErrorText,
 } from '../recoverer-messages';
+import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { RecoverAndSendDeps } from './_deps';
 import log from '@main/utils/logger';
 
@@ -77,11 +78,23 @@ export async function recoverAndSendImpl(
     // plan cross-adapter-parity-20260515 Phase B.1: try/catch 拿 finalId 让 sendThunk 用 NEW
     // sid 不撞 not found(plan §B.5 设计:reject 时 finalId=sessionId 让等待者再撞一次触发
     // 新一轮 recovery,与原行为一致)。
+    //
+    // **REVIEW_99 R3 cancellation-epoch (codex 第 4 点 — 最易漏的 single-flight waiter 路径)**:
+    // 主 recovery 因「恢复期间用户再次 close」abort 时 IIFE throw RecoveryCancelledError(不 resolve
+    // sessionId)。若仍走旧 `catch { finalId = sessionId }` 兜底 → 等待者立刻 sendThunk(sessionId)
+    // → bridge.sendMessage sessions Map miss → 再进 recoverAndSend → 把刚 close 的会话又 revive
+    // (反转用户显式 close)。修法:special-case sentinel — 主 recovery 已判定该会话该关,等待者
+    // **不** retry / 不 sendThunk,静默返 sessionId(lifecycle 已是用户想要的 closed)。非 sentinel
+    // 的真失败仍走旧 retry 路径(第二条 OLD 再撞一次触发新一轮 recovery,plan §B.5 设计不变)。
     let finalId: string;
     try {
       finalId = (await inflight) as string;
-    } catch {
-      // 第一波恢复已失败,第二条用 OLD 再撞一次触发新一轮 recovery 路径
+    } catch (err) {
+      if (isRecoveryCancelledError(err)) {
+        // 主 recovery 被 close abort → 等待者不 retry(否则 revive closed),静默结束
+        return sessionId;
+      }
+      // 第一波恢复已失败(非 cancel),第二条用 OLD 再撞一次触发新一轮 recovery 路径
       finalId = sessionId;
     }
     // HIGH-1 修法：attachments 透传给第二条等待者 sendThunk。
@@ -179,6 +192,24 @@ export async function recoverAndSendImpl(
     ts: Date.now(),
     source: 'sdk',
   });
+
+  // **REVIEW_99 R3 cancellation-epoch baseline (codex 第 1 点 — 必须 entry emit 之后捕获)**:
+  // closed 合法 resume 时上面 entry emit(source:'sdk')同步走 ingest → ensure(manager.ts:265)
+  // closed→active 复活,**不算 close**;baseline 放 emit 前会把入口前的旧 close 混进(closed 合法
+  // resume 的 wasClosed=true 场景旧 close 早已自增过 epoch)。entry emit 后捕获 → baseline 锁定
+  // 「本次 recovery 起点的 close 计数」,后续多检查点(jsonl-fallback await 后 + createSession
+  // pre-registration await 后)比对 `getCloseEpoch !== baseline` 只对**恢复期间新发生的 close**
+  // 命中。与 maxEventIdBefore 在 emit **前**捕获相反(那是要排除当前消息;这是要排除入口复活前的
+  // 旧 close)— 注意区分两者时机语义。
+  const closeEpochBaseline = sessionManager.getCloseEpoch(sessionId);
+  // cancelGuard:多检查点共用的 cancel 判定 closure。`record missing`(await 期间被 delete)或
+  // `epoch 变了`(await 期间用户再次 close / scheduler 衰减 / delete intent)→ true。替代旧
+  // `closed && !wasClosed` lifecycle 快照(漏「恢复期间第二次 close」+ 撞 6 集成测试 mock 不 revive
+  // gap)。epoch 不依赖 lifecycle 快照,mock 不调 closeImpl → epoch 不变 → 合法 resume 不误 abort。
+  const cancelGuard = (): boolean => {
+    if (!sessionRepo.get(sessionId)) return true; // record await 期间被删 → abort
+    return sessionManager.getCloseEpoch(sessionId) !== closeEpochBaseline;
+  };
 
   // CHANGELOG_99 cwd 失效根治:启发式 fallback (R1 fix MED-2:**移到 unarchive 之前**,
   // 避免 archived session 在 cwd fallback 失败前被 unarchive 成 active 但实际死路一条 —
@@ -340,27 +371,29 @@ export async function recoverAndSendImpl(
           // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
           // helper 跳过重复 emit 避免双气泡(详 recoverer.recoverAndSend emit user message 段注释)
           skipFirstUserEmit: true,
-          // **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法**：await injectResumeHistory
-          // （LLM oneshot 10-30s）期间用户主动 close 会被 closeImpl 静默设 closed 但不 abort 在途
-          // recovering promise；helper 在 await 后重读本 thunk，**await 期间新出现的 closed** →
-          // abort 不起 fresh CLI（否则 createSession SDK 事件触发 ensure closed→active 复活，反转
-          // 用户显式 close）。
-          // **关键：必须检测「await 期间新 close」transition，不是绝对 closed 态** —— 入口就 closed
-          // 的合法 resume（wasClosed=true，用户主动 resume 已关闭会话，REVIEW_76/81 行为，应正常
-          // 复活）不能误 abort。故 cancel 条件 = `closed-now AND NOT wasClosed`（仅 await 中途新出现
-          // 的 closed / record 被删才 abort）。
-          isCancelledFn: () => {
-            const r = sessionRepo.get(sessionId);
-            if (!r) return true; // record await 期间被删 → abort
-            return r.lifecycle === 'closed' && !wasClosed; // 仅「新 close」才 abort
-          },
+          // **REVIEW_99 R3 cancellation-epoch (替代 R2 isCancelledFn lifecycle 快照)**：await
+          // injectResumeHistory（LLM oneshot 10-30s）期间用户主动 close 会被 closeImpl 自增 close-epoch
+          // + 静默设 closed 但不 abort 在途 recovering promise；helper 在 await 后重读本 thunk，
+          // **epoch 变了**（恢复期间新 close / scheduler 衰减 / delete）→ abort 不起 fresh CLI
+          // （否则 createSession SDK 事件触发 ensure closed→active 复活，反转用户显式 close）。
+          // **R3 修法关键：epoch 是「close 动作发生过没有」的直接信号，不是「当前 lifecycle 是不是
+          // closed」的快照推断**。旧 `closed && !wasClosed` 漏「恢复期间第二次 close」（入口就 closed
+          // 的合法 resume wasClosed=true → 条件恒 false → await 中第二次 close 误放行 → createSession
+          // 反转）+ 撞 6 集成测试 mock 不 revive gap；epoch 天然绕开（cancelGuard 不依赖 lifecycle，
+          // mock 不调 closeImpl → epoch 不变 → 合法 resume 不误 abort）。详 manager/_deps.ts closeEpoch jsdoc。
+          isCancelledFn: cancelGuard,
         },
       );
-      // **R2 HIGH 修法**：abort 优先于 fellBack/fall-through 判定。用户 await 窗口内 close →
-      // helper 返 aborted:true → 不 createSession / 不 fall through 正常 resume（两条都会复活 closed）
-      // → 直接 return sessionId 静默结束（lifecycle 已是用户想要的 closed，无需回滚）。
+      // **R2 HIGH 修法 + REVIEW_99 R3 cancellation-epoch 统一 abort 语义**：abort 优先于
+      // fellBack/fall-through 判定。用户 await 窗口内 close（epoch 变）→ helper 返 aborted:true。
+      // **R3 关键改动**：从 `return sessionId`(resolve)改 `throw RecoveryCancelledError`(reject)。
+      // 原因(codex 第 4 点)：IIFE p 是 waiter 直接 await 的 Promise，resolve sessionId 会让并发
+      // 等待者拿到 sessionId → sendThunk(sessionId) → 重新触发 recovery 把刚 close 的会话 revive。
+      // 改 throw sentinel → p reject → waiter special-case 跳过 retry / outer catch special-case
+      // 静默 return sessionId(不 emit 错误)。统一所有 abort 路径(jsonl-fallback aborted + 下方
+      // normal-resume createSession pre-registration guard)都走 sentinel-reject 一条收口。
       if (fbResult.aborted) {
-        return sessionId;
+        throw new RecoveryCancelledError(sessionId);
       }
       if (fbResult.fellBack) {
         // helper 已包办 createSession + 2 emit,不再重复;applicationSid 全程不变 (不变量 3)
@@ -413,6 +446,14 @@ export async function recoverAndSendImpl(
         // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
         // finalizeSessionStart 跳过重复 emit 避免双气泡(详 recoverer.recoverAndSend emit user message 段注释)
         skipFirstUserEmit: true,
+        // **REVIEW_99 R3 cancellation-epoch MED 修法 (post-guard 窗口)**：正常 resume 路径
+        // createSession 内部 loadSdk / buildMcpServersForSession await 到 sessions.set 之间
+        // (~create-session-sdk-query.ts pre-registration window) 用户 close → 旧实现只在
+        // jsonl-fallback await 后查一次,这条 await 窗口漏判 → ensure closed→active 复活幽灵。
+        // 传 cancelCheck thunk 让 createSession 在 sessions.set **之前** 再查一次 epoch:变了
+        // → throw RecoveryCancelledError(sentinel)在 query 启动 / sessions.set 之前 abort,
+        // 不起 fresh CLI。outer catch special-case sentinel 静默 abort(不 emit「自动恢复失败」)。
+        cancelCheck: cancelGuard,
       });
       // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix: 返
       // handle.sessionId 反映真实 finalId。**REVIEW_76 INFO 订正**:reverse-rename 后 resume
@@ -430,6 +471,20 @@ export async function recoverAndSendImpl(
     // sendMessage 当前 caller 不消费返回值,但等待者 path 经 inflight 拿同款 finalId)。
     return await p;
   } catch (err) {
+    // **REVIEW_99 R3 cancellation-epoch 统一 abort 收口**：sentinel special-case 必须在 generic
+    // catch **之前**。所有 abort 路径(jsonl-fallback aborted / normal-resume createSession
+    // pre-registration guard)都让 p reject RecoveryCancelledError。此时 lifecycle 已是用户想要
+    // 的 closed(close 真发生过 → epoch 已自增),**不** emit「自动恢复失败」错误文案(误导用户以为
+    // 系统出错)、**不** markClosed 回滚(close 已是终态)。
+    // **关键时序设计**：p 本身 reject(让 inflight waiter special-case 跳过 retry,codex 第 4 点),
+    // 但本 first-caller outer catch **静默 return sessionId**(不向 renderer 抛错 — 用户主动 close
+    // 不该看到红字)。与 R2 jsonl-fallback aborted 直接 return sessionId 的 UX 语义一致。
+    if (isRecoveryCancelledError(err)) {
+      logger.warn(
+        `[sdk-bridge] recover aborted (session closed during recovery): ${sessionId}`,
+      );
+      return sessionId; // 静默结束(lifecycle 已是用户想要的 closed,无需回滚 / 不抛错给 renderer)
+    }
     // createSession 失败：占位 message 已经 emit，再补一条 error message 让用户看到原因
     deps.ctx.emit({
       sessionId,

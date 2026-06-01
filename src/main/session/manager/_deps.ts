@@ -67,6 +67,24 @@ export interface SessionManagerInternalState {
    *   rename.renameSdkSessionImpl(单写 fromId) / rename.updateCliSessionIdImpl(单写 oldCliSid)
    */
   recentlyDeleted: Map<string, number>;
+  /**
+   * close-epoch 计数器 Map<sessionId, count>(REVIEW_99 R3 carry-forward cancellation-epoch 方案)。
+   *
+   * **动机**: closed 会话被用户合法 resume → recover 入口 emit user message(source:'sdk')经
+   * ensure closed→active 复活 → `await injectResumeHistory`(LLM 10-30s)/ createSession 内部
+   * pre-registration await 期间用户**再次** close → 旧 `closed && !wasClosed` lifecycle 快照判定
+   * 漏掉「恢复期间第二次 close」(wasClosed=true 让条件恒 false)→ 反转用户显式 close 起 fresh CLI。
+   * epoch 是「close 动作发生过没有」的直接信号,不是「当前 lifecycle 是不是 closed」的快照推断。
+   *
+   * - **自增入口**(close intent 起点): lifecycle.closeImpl(adapter close 前) /
+   *   lifecycle.markClosedImpl(transition guard 后,覆盖 scheduler 衰减 / rollback / 非 UI close) /
+   *   lifecycle.deleteImpl(起点)。**markDormant 不自增**(dormant 可恢复非 close intent)。
+   * - **读取入口**: facade.getCloseEpoch → recover 入口捕获 baseline + 多检查点比对(jsonl-fallback
+   *   await 后 + createSession pre-registration await 后)。
+   * - **delete 清理**: deleteImpl 末尾删 entry 防 Map 随删除会话无界增长 — 安全因 recover guard
+   *   record-missing 分支(`!sessionRepo.get(sid)`)兜底捕获 delete(sessionRepo.delete 后 row 即 null)。
+   */
+  closeEpoch: Map<string, number>;
 }
 
 /** 黑名单 TTL — 与 manager.ts:123 RECENTLY_DELETED_TTL_MS 同款常量。 */
@@ -90,5 +108,34 @@ export function isRecentlyDeletedImpl(
     return false;
   }
   return true;
+}
+
+/**
+ * close intent 起点自增 close-epoch(REVIEW_99 R3 cancellation-epoch)。
+ *
+ * closeImpl / markClosedImpl / deleteImpl 各自在 close intent 起点调本 helper,让
+ * recover guard 的 `getCloseEpoch(sid) !== baseline` 比对能感知「close 动作发生过」。
+ * Map.get(sid) ?? 0 兜首次自增到 1(baseline 捕获时若 session 从未 close 过 getCloseEpoch
+ * 返 0,first close 后变 1 → guard 命中)。
+ */
+export function bumpCloseEpochImpl(
+  state: SessionManagerInternalState,
+  sessionId: string,
+): void {
+  state.closeEpoch.set(sessionId, (state.closeEpoch.get(sessionId) ?? 0) + 1);
+}
+
+/**
+ * 读 close-epoch 当前值(REVIEW_99 R3 cancellation-epoch)。未 close 过返 0。
+ *
+ * recover 入口 emit user message **之后**捕获 baseline(emit 触发 revive 不算 close,且
+ * emit 前 baseline 会把旧 close 混进);多检查点(jsonl-fallback await 后 / createSession
+ * pre-registration await 后)比对 `getCloseEpoch(sid) !== baseline` 判 cancel。
+ */
+export function getCloseEpochImpl(
+  state: SessionManagerInternalState,
+  sessionId: string,
+): number {
+  return state.closeEpoch.get(sessionId) ?? 0;
 }
 

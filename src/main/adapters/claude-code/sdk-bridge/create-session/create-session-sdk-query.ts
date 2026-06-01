@@ -40,6 +40,7 @@ import {
 import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
 import { buildMcpServersForSession } from '../mcp-server-init';
 import { buildClaudeQueryOptions } from '../query-options-builder';
+import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -95,6 +96,20 @@ export async function runCreateSessionSdkQuery(
     // （plan task-mcp-merge-into-agent-deck-mcp-20260521 合并后单 server，task tools 跟随
     // settings.enableAgentDeckMcp toggle；smart migration 守护老用户 enableTaskManager:true 不丢失能力）
     const mcpServers = await buildMcpServersForSession(internal);
+
+    // **REVIEW_99 R3 cancellation-epoch MED 修法 (post-guard 窗口收口)**:
+    // loadSdk / buildMcpServersForSession 是 createSession 内部最后两个 pre-registration await。
+    // recover 路径若用户在这段 await 窗口内主动 close → cancelCheck 返 true(close-epoch 变 /
+    // record 删)。在 query() 启动 CLI 子进程 + sessions.set 注册 **之前** throw RecoveryCancelledError
+    // sentinel abort:① 不起 fresh CLI(按次计费)② 不 sessions.set 污染 Map ③ 首条 SDK 事件不会
+    // 过 ensure closed→active 复活反转用户显式 close。sentinel 由 recoverer outer catch / waiter
+    // special-case 静默 abort(不 emit「自动恢复失败」)。query() 同步无 await,sessions.set 紧随其后
+    // 同步执行 → JS 单线程下本 guard 到 sessions.set 之间 close 插不进来(无二次 TOCTOU,与 helper
+    // await-后-createSession-前同步窗口同款论证)。**caller 不传 cancelCheck(spawn / IPC / restart)
+    // → 不 gate(undefined?.() === undefined falsy)**。
+    if (opts.cancelCheck?.()) {
+      throw new RecoveryCancelledError(opts.resume ?? tempKey);
+    }
 
     // **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1
     // bridge 内部 effectiveResumeCliSid 集中兜底**:

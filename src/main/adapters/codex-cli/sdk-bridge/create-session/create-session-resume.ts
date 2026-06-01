@@ -24,6 +24,7 @@ import type { UploadedAttachmentRef } from '@shared/types';
 import { AGENT_ID } from '../constants';
 import { persistSessionFields } from '../session-finalize';
 import { awaitResumedThreadStart } from '../resume-path-await';
+import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -43,6 +44,17 @@ export async function runCreateSessionResumePath(
   }
   const resumeId = opts.resume;
   const { internal, cwd, sandboxMode } = ctx;
+  // **REVIEW_99 R3 cancellation-epoch MED 修法 (post-guard 窗口收口,对称 claude create-session-sdk-query)**:
+  // codex orchestrator(create-session-impl.ts)在 dispatch 入本 resume 子段前已 await ensureCodex /
+  // resumeThread(pre-registration window)。recover 路径若用户在这段 await 窗口内主动 close →
+  // cancelCheck 返 true(close-epoch 变 / record 删)。在 sessions.set 注册 + claimAsSdk + emit
+  // session-start + runTurnLoop 启动 **之前** throw RecoveryCancelledError sentinel abort:① 不起
+  // turn loop ② 不 sessions.set 污染 Map ③ session-start emit 不会过 ensure closed→active 复活反转
+  // 用户显式 close。sentinel 由 recoverer outer catch / waiter special-case 静默 abort。**caller 不传
+  // cancelCheck(spawn / IPC / restart)→ 不 gate(undefined?.() falsy)**。
+  if (opts.cancelCheck?.()) {
+    throw new RecoveryCancelledError(resumeId);
+  }
   // resume 路径：thread_id 已知，直接登记
   deps.sessions.set(resumeId, internal);
   sessionManager.claimAsSdk(resumeId);

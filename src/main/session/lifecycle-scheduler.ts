@@ -1,6 +1,7 @@
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { applyClosedSideEffects } from '@main/session/manager-team-coordinator';
+import { sessionManager } from '@main/session/manager';
 import log from '@main/utils/logger';
 
 const logger = log.scope('lifecycle-scheduler');
@@ -95,6 +96,11 @@ export class LifecycleScheduler {
       // 之前;clear 后 emit 旧 rec → renderer store 仍带 stale marker 直到下次 upsert)。
       for (const rec of updated) {
         updatedClosedIds.add(rec.id);
+        // **REVIEW_99 R3 cancellation-epoch (codex 第 2 点 + reviewer-claude 落地注意 ②)**:
+        // scheduler 走 batchSetLifecycle「第四入口」绕过 markClosedImpl 内部 epoch++,这里显式补一次。
+        // 否则 recover await 期间 scheduler 衰减 dormant→closed 不被 cancelGuard 感知 → 给已判定该关
+        // 的会话起 fresh CLI(结构上 active 10-30s 难达 closed,防御性补全消除理论缝)。
+        sessionManager.bumpCloseEpoch(rec.id);
         // REVIEW_56 §F20 修法 (Plan-Review Round 1 + spike 决策, DRY): 三入口 (markClosed / close /
         // lifecycle-scheduler purge) 副作用统一抽 applyClosedSideEffects helper。
         // 顺序: sync clearMarker (含 try/catch 错误隔离) → sync onClearedBeforeLeave callback
@@ -132,7 +138,13 @@ export class LifecycleScheduler {
         updatedClosedIds.size > 0 ? ids.filter((id) => !updatedClosedIds.has(id)) : ids;
       if (idsToPurge.length > 0) {
         const removed = sessionRepo.batchDelete(idsToPurge);
-        for (const id of removed) eventBus.emit('session-removed', id);
+        // **REVIEW_99 R3 cancellation-epoch**:purge 走 batchDelete「第四入口」绕过 deleteImpl 内部
+        // closeEpoch.delete → 显式清 entry 防 Map 随 purge 会话无界累积(与 recentlyDeleted TTL 同款
+        // 防泄漏纪律)。purged sid randomUUID 不复用,清后无 correctness 影响纯内存回收。
+        for (const id of removed) {
+          sessionManager.forgetCloseEpoch(id);
+          eventBus.emit('session-removed', id);
+        }
         logger.info(
           `[lifecycle] purged ${removed.length} history sessions older than ${this.opts.historyRetentionDays}d`,
         );

@@ -91,6 +91,13 @@ export type CreateSessionThunk = (opts: {
    * 走此路径,resume path 必须 emit user message 让 UI 活动流看到「你」发的第一条话)。
    */
   skipFirstUserEmit?: boolean;
+  /**
+   * **REVIEW_99 R3 cancellation-epoch MED 修法 (codex 对称 claude)**:recover 路径透传 cancelGuard,
+   * createSession 内部 ensureCodex / resumeThread pre-registration 到 sessions.set 之间查一次 epoch,
+   * 变了 throw RecoveryCancelledError abort。详 codex CreateSessionOpts.cancelCheck jsdoc。restart /
+   * spawn / IPC 不传。
+   */
+  cancelCheck?: () => boolean;
 }) => Promise<CodexSessionHandle>;
 
 export type SendMessageThunk = (

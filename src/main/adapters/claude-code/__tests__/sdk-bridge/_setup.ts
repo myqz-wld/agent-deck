@@ -13,6 +13,7 @@
  */
 
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
+import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 
 export interface CreateSessionCall {
@@ -37,6 +38,11 @@ export interface CreateSessionCall {
    * sandbox.allowWrite 不含原 mainRepo,写 plan 文件静默失败)。
    */
   extraAllowWrite?: readonly string[];
+  /**
+   * **REVIEW_99 R3 cancellation-epoch MED 修法 regression**:让 recovery test 能断言 recover 路径
+   * createThunk 收到 cancelCheck thunk(MED post-guard 窗口收口)。spawn / IPC / restart 路径不传。
+   */
+  cancelCheck?: () => boolean;
 }
 
 export class TestBridge extends ClaudeSdkBridge {
@@ -103,6 +109,8 @@ export class TestBridge extends ClaudeSdkBridge {
     claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
     /** plan cross-adapter-parity-20260515 Phase A.9: fallback / resume 透传 extra writable roots */
     extraAllowWrite?: readonly string[];
+    /** REVIEW_99 R3 cancellation-epoch MED: recover 路径 pre-registration cancel guard thunk */
+    cancelCheck?: () => boolean;
   }): Promise<{ sessionId: string; abort: () => void }> {
     this.createCalls.push({
       cwd: opts.cwd,
@@ -112,6 +120,7 @@ export class TestBridge extends ClaudeSdkBridge {
       permissionMode: opts.permissionMode,
       claudeCodeSandbox: opts.claudeCodeSandbox,
       extraAllowWrite: opts.extraAllowWrite,
+      cancelCheck: opts.cancelCheck,
     });
     if (this.createBehavior === 'block') {
       await new Promise<void>((res) => {
@@ -119,6 +128,13 @@ export class TestBridge extends ClaudeSdkBridge {
       });
     } else if (this.createBehavior === 'reject') {
       throw this.rejectWith ?? new Error('mock create reject');
+    }
+    // **REVIEW_99 R3 cancellation-epoch MED 修法 mock**:mirror 真实 create-session-sdk-query 的
+    // pre-registration guard — createBehavior 解锁后(模拟 loadSdk / buildMcpServers await 完成)
+    // 查一次 cancelCheck,返 true → throw RecoveryCancelledError(模拟「await 窗口内用户 close」)。
+    // 让 MED post-guard 窗口测试不依赖真 SDK spawn 也能驱动 sentinel 路径。
+    if (opts.cancelCheck?.()) {
+      throw new RecoveryCancelledError(opts.resume ?? 'mock-temp-key');
     }
     // plan cross-adapter-parity-20260515 + REVIEW_41 MED-2 fix regression: 模拟 CLI implicit
     // fork — opts.resume 命中时返 forkOnResumeOverride 而非 opts.resume。让 B.4 fork case

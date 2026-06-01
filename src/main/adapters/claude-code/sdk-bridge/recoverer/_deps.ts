@@ -118,6 +118,12 @@ export type CreateSessionThunk = (opts: {
    * 仅控制 emit user message 这一动作。
    */
   skipFirstUserEmit?: boolean;
+  /**
+   * **REVIEW_99 R3 cancellation-epoch MED 修法**:recover 路径透传 cancelGuard,createSession 内部
+   * pre-registration await 后 sessions.set 前查一次 epoch,变了 throw RecoveryCancelledError abort。
+   * 详 ClaudeCreateOpts.cancelCheck jsdoc(create-session/_deps.ts)。restart / spawn / IPC 不传。
+   */
+  cancelCheck?: () => boolean;
 }) => Promise<SdkSessionHandle>;
 
 /**

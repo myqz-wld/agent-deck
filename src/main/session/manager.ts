@@ -45,6 +45,8 @@ import {
   type SessionCloseFn,
   type SessionRenameHookFn,
   isRecentlyDeletedImpl,
+  getCloseEpochImpl,
+  bumpCloseEpochImpl,
 } from './manager/_deps';
 import {
   markRecentlyDeletedImpl,
@@ -166,6 +168,14 @@ class SessionManagerClass {
   private recentlyDeleted = new Map<string, number>(); // cli_session_id (or applicationSid) → deletedAt
 
   /**
+   * close-epoch 计数器 Map<sessionId, count>(REVIEW_99 R3 carry-forward cancellation-epoch)。
+   * closeImpl / markClosedImpl / deleteImpl 在 close intent 起点自增;recover 入口 emit user
+   * message 后捕 baseline,多检查点比对 getCloseEpoch !== baseline 判「恢复期间用户再次 close」。
+   * 详 manager/_deps.ts SessionManagerInternalState.closeEpoch jsdoc。
+   */
+  private closeEpoch = new Map<string, number>();
+
+  /**
    * Pipeline 看到的 facade(Object.freeze 的 5 方法对象)。
    * 闭包封装 raw state,pipeline 函数 cast `(ctx as any).sdkOwned` 返回 undefined
    * (cast 路径不可达),保护 claim 单一 mutating 入口不变量。CHANGELOG_86 Step 4.3.3。
@@ -190,6 +200,7 @@ class SessionManagerClass {
     });
     this.internalState = {
       recentlyDeleted: this.recentlyDeleted,
+      closeEpoch: this.closeEpoch,
     };
   }
 
@@ -363,14 +374,53 @@ class SessionManagerClass {
     markDormantImpl(sessionId);
   }
 
-  /** thin delegate → manager/lifecycle.markClosedImpl (dormant/active → closed + side effects)。 */
+  /** thin delegate → manager/lifecycle.markClosedImpl (dormant/active → closed + side effects + close-epoch++)。 */
   markClosed(sessionId: string): void {
-    markClosedImpl(sessionId);
+    markClosedImpl(this.internalState, sessionId);
   }
 
-  /** thin delegate → manager/lifecycle.closeImpl (主动 close 含 adapter.closeSession)。 */
+  /** thin delegate → manager/lifecycle.closeImpl (主动 close 含 adapter.closeSession + close-epoch++)。 */
   async close(sessionId: string): Promise<void> {
-    await closeImpl(sessionId, sessionCloseFn);
+    await closeImpl(sessionId, sessionCloseFn, this.internalState);
+  }
+
+  /**
+   * 读 close-epoch 当前值(REVIEW_99 R3 cancellation-epoch,未 close 过返 0)。
+   *
+   * recover 入口(recover-and-send-impl 两端)在 emit user message **之后**捕获 baseline,
+   * 多检查点(jsonl-fallback await 后 / createSession pre-registration await 后)比对
+   * `getCloseEpoch(sid) !== baseline` 判「恢复期间用户再次 close / scheduler 衰减 / delete」。
+   * 详 manager/_deps.ts getCloseEpochImpl jsdoc。
+   */
+  getCloseEpoch(sessionId: string): number {
+    return getCloseEpochImpl(this.internalState, sessionId);
+  }
+
+  /**
+   * 自增 close-epoch(REVIEW_99 R3 cancellation-epoch)— **scheduler 衰减 dormant→closed 专用入口**。
+   *
+   * closeImpl / markClosedImpl / deleteImpl 内部已自增(close intent 起点),但 LifecycleScheduler
+   * 出于性能走 `batchSetLifecycle` + inline `applyClosedSideEffects`「第四入口」**绕过** markClosedImpl
+   * (REVIEW_56 §F20 只统一了 side-effects,不走 markClosedImpl)→ 不会触发内部自增。本 public 方法让
+   * scheduler 在 batched close loop 显式补一次 epoch++,与其他三入口对齐 close intent 信号,recover
+   * await 期间 scheduler 衰减同样能 abort。结构上 active(刚被 entry emit revive)10-30s 内难达 closed,
+   * 此入口是防御性补全(消除理论缝)而非热路径。
+   */
+  bumpCloseEpoch(sessionId: string): void {
+    bumpCloseEpochImpl(this.internalState, sessionId);
+  }
+
+  /**
+   * 删 close-epoch entry(REVIEW_99 R3 cancellation-epoch)— **scheduler 历史 purge 专用清理入口**。
+   *
+   * deleteImpl 内部已在删 row 后清 entry,但 LifecycleScheduler 历史超期 purge 走
+   * `sessionRepo.batchDelete`「第四入口」**绕过** deleteImpl → 不清 closeEpoch entry。本 public 方法让
+   * scheduler 在 batchDelete loop 显式清,防 closeEpoch Map 随 purge 的会话无界累积(与 recentlyDeleted
+   * TTL 清理同款防泄漏纪律)。清后 getCloseEpoch 返 0,但 purged sid 永不会再被任何 recovery 引用
+   * (sid 是 randomUUID 不复用),无correctness 影响纯内存回收。
+   */
+  forgetCloseEpoch(sessionId: string): void {
+    this.closeEpoch.delete(sessionId);
   }
 
   /** thin delegate → manager/lifecycle.archiveImpl (setArchived + clearCwdReleaseMarker + team 联动)。 */

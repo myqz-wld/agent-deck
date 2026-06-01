@@ -87,6 +87,14 @@ export interface JsonlFallbackCreateOpts {
    * helper 内 `[...arr]` spread 转 readonly→mutable 时自然降级无副作用。
    */
   attachments?: UploadedAttachmentRef[];
+  /**
+   * **REVIEW_99 R3 cancellation-epoch MED 修法**:fresh-cli fallback 路径 createSession 内部也有
+   * pre-registration await(loadSdk / buildMcpServersForSession)窗口。helper 把 recover caller 的
+   * cancelGuard(= opts.isCancelledFn 同一 closure)透传到本字段,让 fresh-cli createSession 在
+   * sessions.set 前再查一次 epoch — 覆盖 helper isCancelledFn 检查点(injectResumeHistory await 后)
+   * 与 createSession 内部 sessions.set 之间的二段 await 窗口。restart 路径不传(undefined → 不 gate)。
+   */
+  cancelCheck?: () => boolean;
 }
 
 export interface JsonlFallbackCtx {
@@ -329,6 +337,11 @@ export async function maybeJsonlFallback(
     model: opts.model,
     extraAllowWrite: opts.extraAllowWrite,
     attachments: opts.attachments,
+    // **REVIEW_99 R3 cancellation-epoch MED 修法**:透传 recover caller 的 cancelGuard 让 fresh-cli
+    // createSession 内部 pre-registration await 后、sessions.set 前再查一次 epoch(覆盖 helper
+    // isCancelledFn 检查点与 createSession sessions.set 之间的二段 await 窗口)。recover 路径 isCancelledFn
+    // = cancelGuard 同一 closure;restart 路径 isCancelledFn undefined → cancelCheck 也 undefined 不 gate。
+    cancelCheck: opts.isCancelledFn,
     // ⚠️ 严禁传 resumeCliSid (不变量 10)
   });
 

@@ -61,6 +61,10 @@ vi.mock('@main/session/manager', () => ({
     updateCliSessionId: vi.fn(),
     // REVIEW_76 MED: recoverAndSend 失败路径 closed→active 复活回滚走 sessionManager.markClosed
     markClosed: vi.fn(),
+    // REVIEW_99 R3 cancellation-epoch: recover 入口捕 baseline + 多检查点比对。默认返 0 恒定
+    // (= 不 close → 合法 resume 不误 abort);close-during-await 测试用 mockReturnValueOnce 序列
+    // 模拟「baseline 捕获返 0 → await 后返 1」(epoch 变 → cancelGuard true → abort)。
+    getCloseEpoch: vi.fn(() => 0),
   },
 }));
 
@@ -87,6 +91,10 @@ beforeEach(() => {
   vi.mocked(sessionRepo.get).mockReset();
   // CHANGELOG_99 R1 fix LOW-8 配套:reset renameSdkSession 让 cwdFellBack rename 断言准确
   vi.mocked(sessionManager.renameSdkSession).mockReset();
+  // REVIEW_99 R3 cancellation-epoch: reset getCloseEpoch 默认返 0(不 close → 合法 resume 不误 abort)
+  vi.mocked(sessionManager.getCloseEpoch).mockReset();
+  vi.mocked(sessionManager.getCloseEpoch).mockReturnValue(0);
+  vi.mocked(sessionManager.markClosed).mockReset();
   // CHANGELOG_107 Step 6 配套:reset event-repo / settings-store mock 让 case 间隔离
   vi.mocked(eventRepo.listForSession).mockReset();
   vi.mocked(eventRepo.listForSession).mockReturnValue([]);
@@ -139,7 +147,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
     // createSession 被调一次，参数完整复用 record
     expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0]).toEqual({
+    expect(bridge.createCalls[0]).toMatchObject({
       cwd: '/tmp/work',
       prompt: 'hi',
       resume: 'sess-1',
@@ -147,6 +155,8 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       // REVIEW_36 HIGH-1: 正常 resume 路径也透传（fixture 中 record 没设字段，undefined）
       claudeCodeSandbox: undefined,
     });
+    // REVIEW_99 R3 cancellation-epoch: normal-resume 路径透传 cancelCheck thunk(MED post-guard 窗口)
+    expect(typeof bridge.createCalls[0].cancelCheck).toBe('function');
   });
 
   it('record 不在 → 抛与原行为一致的 not found 错，createSession 不被调', async () => {
@@ -1284,3 +1294,164 @@ describe('REVIEW_76 MED: closed 会话恢复失败回滚 lifecycle（dead-active
     expect(bridge.createCalls).toHaveLength(1);
   });
 });
+
+// ─── REVIEW_99 R3 cancellation-epoch: 恢复期间用户再次 close / post-guard 窗口 / waiter abort ───
+//
+// R3 carry-forward 修法替代 R2 `closed && !wasClosed` lifecycle 快照（漏「恢复期间第二次 close」+
+// 撞集成测试 mock 不 revive gap）。epoch 是「close 动作发生过没有」的直接信号:recover 入口 emit
+// user message 后捕 baseline,多检查点比对 getCloseEpoch !== baseline。
+//
+// mock 驱动方式:getCloseEpoch 默认返 0(beforeEach)。模拟「恢复期间 close」用 mockReturnValueOnce
+// 序列 — 第 1 次调(入口捕 baseline)返 0,后续调(helper await 后 / createSession pre-registration)
+// 返 1(epoch 变 → cancelGuard true → abort)。
+describe('REVIEW_99 R3 cancellation-epoch: 恢复期间再次 close abort', () => {
+  const closedRec = (id: string, cwd = '/tmp/work') => ({
+    id,
+    agentId: 'claude-code',
+    cwd,
+    title: 'x',
+    source: 'sdk' as const,
+    lifecycle: 'closed' as const,
+    activity: 'idle' as const,
+    startedAt: 1,
+    lastEventAt: 2,
+    endedAt: 3,
+    archivedAt: null,
+    permissionMode: null,
+  });
+
+  it('① 入口就 closed 合法 resume（epoch 恒 0 不变）→ 正常 createSession，不 abort', async () => {
+    const bridge = makeBridge();
+    // jsonl 在 → 正常 resume 路径;getCloseEpoch 恒 0(beforeEach 默认)= 无「恢复期间 close」
+    vi.mocked(sessionRepo.get).mockReturnValue(closedRec('sess-legal-resume'));
+
+    await bridge.sendMessage('sess-legal-resume', 'hi');
+
+    // 合法 resume：epoch 不变 → cancelGuard 恒 false → 正常 createSession（不误 abort）
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].resume).toBe('sess-legal-resume');
+    // 不 markClosed（恢复成功，closed→active 是 desired）
+    expect(vi.mocked(sessionManager.markClosed)).not.toHaveBeenCalled();
+  });
+
+  it('② jsonl-fallback await 期间用户再次 close（epoch 变）→ aborted 不起 fresh CLI', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false; // 走 jsonl-missing fallback（含 injectResumeHistory await）
+    // getCloseEpoch: 第 1 次(入口 baseline) 0 → 第 2 次起(helper isCancelledFn await 后) 1（epoch 变）
+    vi.mocked(sessionManager.getCloseEpoch)
+      .mockReturnValueOnce(0) // 入口 baseline
+      .mockReturnValue(1); // helper await 后 cancelGuard → 1 !== 0 → abort
+    vi.mocked(sessionRepo.get).mockReturnValue(closedRec('sess-await-close'));
+
+    await bridge.sendMessage('sess-await-close', 'hi');
+
+    // 关键：helper isCancelledFn 返 true → aborted → 不起 fresh CLI（否则 ensure 复活 closed）
+    expect(bridge.createCalls).toHaveLength(0);
+    // abort 不 markClosed（lifecycle 已是用户想要的 closed，close 真发生过无需回滚）
+    expect(vi.mocked(sessionManager.markClosed)).not.toHaveBeenCalled();
+    // abort 不 emit「自动恢复失败」error（用户主动 close 不是错误）
+    const errMsgs = emits.filter(
+      (e) => ((e.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
+    );
+    expect(errMsgs).toHaveLength(0);
+  });
+
+  it('③ post-guard 窗口：normal-resume createSession pre-registration close（epoch 变）→ sentinel abort', async () => {
+    const bridge = makeBridge();
+    // jsonl 在 → 正常 resume 路径;TestBridge createSession 解锁后查 cancelCheck（mirror 真实 MED guard）
+    // getCloseEpoch: 入口 baseline 0 → helper isCancelledFn(jsonl 在不进 helper await,但 cancelGuard
+    // 仍会被 createSession cancelCheck 调) 返 1。用 mockReturnValueOnce 0 + 其余 1。
+    vi.mocked(sessionManager.getCloseEpoch)
+      .mockReturnValueOnce(0) // 入口 baseline
+      .mockReturnValue(1); // createSession pre-registration cancelCheck → abort
+    vi.mocked(sessionRepo.get).mockReturnValue(closedRec('sess-postguard'));
+
+    await bridge.sendMessage('sess-postguard', 'hi');
+
+    // createCalls 记录了 1 次（TestBridge mock 在 push 后才 throw sentinel），但抛了 sentinel → abort
+    // 关键：cancelCheck 是函数 + 抛 sentinel 后 outer catch 静默 return（不 emit error / 不 markClosed）
+    expect(typeof bridge.createCalls[0]?.cancelCheck).toBe('function');
+    expect(vi.mocked(sessionManager.markClosed)).not.toHaveBeenCalled();
+    const errMsgs = emits.filter(
+      (e) => ((e.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
+    );
+    expect(errMsgs).toHaveLength(0);
+  });
+
+  it('④ concurrent waiter：主 recovery abort（sentinel reject）→ waiter 不 retry / 不 sendThunk', async () => {
+    const bridge = makeBridge();
+    bridge.createBehavior = 'block'; // 第一波 createSession 阻塞,让 p2 在 inflight 等待者 path arrival
+    // jsonl 在 → 走 normal-resume 路径（createSession 被 block 住,p2 进 inflight）。解锁后
+    // createSession mock 查 cancelCheck=cancelGuard → epoch 变(1 !== 0) → throw sentinel → p reject。
+    vi.mocked(sessionManager.getCloseEpoch)
+      .mockReturnValueOnce(0) // p1 入口 baseline（p2 走 inflight path 不捕 baseline）
+      .mockReturnValue(1); // createSession pre-registration cancelCheck → 1 !== 0 → sentinel abort
+    vi.mocked(sessionRepo.get).mockReturnValue(closedRec('sess-waiter-abort'));
+
+    // 第一波（不 await）注册 inflight,blocked 在 createSession
+    const p1 = bridge.sendMessage('sess-waiter-abort', 'first').catch(() => undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+    // 第二波同 sessionId 进 inflight 等待者 path（await 同一个 p）
+    const p2 = bridge.sendMessage('sess-waiter-abort', 'second').catch(() => undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // createSession 此刻被调一次（blocked,单飞第二条等同一 inflight）
+    expect(bridge.createCalls).toHaveLength(1);
+
+    // 解锁 → createSession mock 查 cancelCheck → throw sentinel → p1 reject(sentinel) → p2 waiter
+    // special-case 跳过 retry
+    bridge.unblock?.();
+    await p1;
+    await p2;
+
+    // 关键 ④（codex 第 4 点）：主 recovery aborted（sentinel）→ 等待者 special-case 不 retry → 不 sendThunk
+    // （否则 sendThunk(sessionId) → 重新触发 recovery 把刚 close 的会话 revive）
+    expect(bridge.sendMessageCalls).toHaveLength(0);
+    // abort 不 emit「自动恢复失败」（用户主动 close 不是错误）
+    const errMsgs = emits.filter(
+      (e) => ((e.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
+    );
+    expect(errMsgs).toHaveLength(0);
+  });
+
+  it('⑤ 真 createSession 失败（非 cancel,epoch 不变）→ 仍走 markClosed 回滚 + emit error（回归 REVIEW_76）', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    bridge.createBehavior = 'reject';
+    bridge.rejectWith = new Error('SDK spawn failed (real failure, not cancel)');
+    // getCloseEpoch 恒 0（无 close）→ cancelGuard 恒 false → 不 abort，createSession 真失败走 generic catch
+    vi.mocked(sessionRepo.get).mockReturnValue(closedRec('sess-real-fail'));
+
+    await expect(bridge.sendMessage('sess-real-fail', 'hi')).rejects.toThrow(/real failure/);
+
+    // 真失败（非 sentinel）→ markClosed 回滚（REVIEW_76 行为保留）+ emit 自动恢复失败
+    expect(vi.mocked(sessionManager.markClosed)).toHaveBeenCalledWith('sess-real-fail');
+    const errMsgs = emits.filter(
+      (e) => ((e.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
+    );
+    expect(errMsgs).toHaveLength(1);
+  });
+
+  it('⑥ baseline 在 entry emit 之后捕获 → user message 入 events（abort 不丢用户输入）', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    vi.mocked(sessionManager.getCloseEpoch)
+      .mockReturnValueOnce(0)
+      .mockReturnValue(1);
+    vi.mocked(sessionRepo.get).mockReturnValue(closedRec('sess-emit-then-abort'));
+
+    await bridge.sendMessage('sess-emit-then-abort', 'my input');
+
+    // entry emit user message 在 baseline 捕获之前发出 → 即使随后 abort，用户输入已入 events
+    const userMsgs = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect((userMsgs[0].payload as { text: string }).text).toBe('my input');
+    // 随后 abort（epoch 变）→ 不起 fresh CLI
+    expect(bridge.createCalls).toHaveLength(0);
+  });
+});
+
