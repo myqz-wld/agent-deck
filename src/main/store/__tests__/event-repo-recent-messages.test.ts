@@ -238,4 +238,28 @@ describe.skipIf(!bindingAvailable)('event-repo listRecentMessages / maxEventId (
     expect(rowsA).toHaveLength(1);
     expect((rowsA[0].payload as { text: string }).text).toBe('A 的消息');
   });
+
+  // ─── R1 reviewer-codex MED 防御层回归：limit 坏值 clamp（防 SQLite LIMIT -1 无界 / LIMIT 0 空）───
+  it('R1 MED-A defensive: limit=-1 → clamp 到 1（不退化为 SQLite 无界 LIMIT -1 拉全表）', () => {
+    for (let i = 0; i < 5; i++) insertMessage(testDb, 'sess-A', 'user', `m${i}`, 1000 + i);
+    // 修前：listRecentMessages 直接把 -1 当 LIMIT 参数 → SQLite LIMIT -1 = 无界 → 返全部 5 条
+    // 修后：内部 safeLimit clamp -1 → 1 → 只返最近 1 条
+    const rows = mod.eventRepo.listRecentMessages('sess-A', -1);
+    expect(rows).toHaveLength(1);
+    expect((rows[0].payload as { text: string }).text).toBe('m4'); // 最近一条
+  });
+
+  it('R1 MED-A defensive: limit=0 → clamp 到 30（不退化为 SQLite LIMIT 0 静默空）', () => {
+    for (let i = 0; i < 5; i++) insertMessage(testDb, 'sess-A', 'user', `m${i}`, 1000 + i);
+    // 0 是 falsy → safeLimit `|| 30` → 30 → 返全部 5 条（不是 LIMIT 0 的空集）
+    const rows = mod.eventRepo.listRecentMessages('sess-A', 0);
+    expect(rows).toHaveLength(5);
+  });
+
+  it('R1 MED-A defensive: limit=9999 → clamp 上界 200', () => {
+    for (let i = 0; i < 5; i++) insertMessage(testDb, 'sess-A', 'user', `m${i}`, 1000 + i);
+    // 9999 → min(200, ...) = 200；本 case 数据只有 5 条，验证不抛错且正常返回（clamp 不影响 < 200 的真实数据量）
+    const rows = mod.eventRepo.listRecentMessages('sess-A', 9999);
+    expect(rows).toHaveLength(5);
+  });
 });

@@ -224,8 +224,15 @@ export const eventRepo = {
    * 在 emit **之前**捕获 `maxEventId(sessionId)` 作 beforeIdInclusive 传入，SQL 加 **`AND id <= ?`**：
    * - `<=` 而非 `<`（plan §D4 off-by-one）：emit 前的 max id = 最后一条真实历史本身，`id < ?`
    *   会把它一起漏掉；`<=` 保留「emit 前的全部历史」+ 排除 emit 出的当前消息（其 id > beforeId）。
-   * - 不传（restart 路径 / maxEventId 取不到的降级）→ 不加边界，退化为「查最近 N」（caller 自己
-   *   兜底去重末条，详 helper）。
+   * - 不传（`beforeIdInclusive === undefined`）→ 不加边界，退化为「查最近 N」。
+   *   **R1 reviewer-claude LOW 注释订正**：原措辞「caller 自己兜底去重末条，详 helper」与实现
+   *   不符（helper buildRawSegment 无去重逻辑）。实际语义按 caller 路径分两类，都**不会**重复
+   *   当前消息：
+   *   - **restart 路径**：handoffPrompt 不在入口 emit 落库 → DB 无「当前消息」row → 查最近 N
+   *     不含当前消息，天然无重复。
+   *   - **recover 路径**：caller 传 `() => maxEventIdBefore ?? 0`（R1 codex MED 修法）。session
+   *     0 历史时 maxEventId 返 null → caller `?? 0` → beforeId=0 → `id <= 0` 命中空集（不走
+   *     undefined 分支）。故 recover 路径永不进入本 undefined 分支携带当前消息，无需 helper 去重。
    *
    * **排序 / tie-breaker**（plan §D4 R1 LOW + REVIEW_83）：`ORDER BY ts DESC, id DESC LIMIT N`
    * 取最新 N 条（id 作 secondary key 防同毫秒逆序，与 listForSession F3 同款）。caller 拿到后
@@ -240,6 +247,11 @@ export const eventRepo = {
     limit: number,
     beforeIdInclusive?: number,
   ): (AgentEvent & { id: number })[] {
+    // **R1 reviewer-codex MED 防御层**：消费点（injectResumeHistory）已 clamp，这里再做一层
+    // defensive clamp 防未来非 IPC caller 直接传坏值 → SQLite `LIMIT -1`（负数）= 无界拉全表
+    // message + 全量 JSON.parse（长会话 OOM 风险）/ `LIMIT 0` = 静默空。clamp [1, 200] 与
+    // injectResumeHistory 入口对齐；`|| 30` 兜 NaN（Number.isFinite 失败 → fallback default）。
+    const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit)) || 30));
     const sql =
       beforeIdInclusive !== undefined
         ? `SELECT * FROM events
@@ -256,8 +268,8 @@ export const eventRepo = {
              AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
            ORDER BY ts DESC, id DESC LIMIT ?`;
     const rows = (beforeIdInclusive !== undefined
-      ? getDb().prepare(sql).all(sessionId, beforeIdInclusive, limit)
-      : getDb().prepare(sql).all(sessionId, limit)) as Row[];
+      ? getDb().prepare(sql).all(sessionId, beforeIdInclusive, safeLimit)
+      : getDb().prepare(sql).all(sessionId, safeLimit)) as Row[];
     return rows.map(rowToEvent);
   },
 

@@ -285,4 +285,106 @@ describe('injectResumeHistory (plan resume-inject §D5/§D6/§D7)', () => {
     expect(r.prompt).toContain('历史问题短'); // raw 段在
     expect(r.prompt).not.toContain('历史会话摘要'); // 总结段被丢
   });
+
+  // ─── R1 reviewer-codex MED 修法回归: 单条 raw 超预算 → continue 跳过试更旧短消息（不 break）───
+  it('R1 MED-C: 最新 raw 单条超预算 → 跳过它拼更旧的短消息（不整段丢弃）', async () => {
+    // 最新一条是接近上限的巨消息（超 raw 预算），后面几条短消息能 fit。
+    // 修前 break → picked 空 → history-budget-empty 退回 originalText；
+    // 修后 continue → 跳过巨消息，较旧短消息进 raw。
+    const huge = 'H'.repeat(280); // 接近 maxLength=300，单条超 raw 预算
+    const r = await injectResumeHistory(
+      makeOpts({
+        originalText: '现',
+        maxLength: 300,
+        summariseFn: vi.fn(async () => null), // 无总结，单验 raw continue 行为
+        // DESC：列表第一个 = 最新。最新是巨消息，后两条短消息能 fit。
+        listMessagesFn: vi.fn(() => [
+          msg(3, 'user', huge),
+          msg(2, 'assistant', '旧短答'),
+          msg(1, 'user', '更旧短问'),
+        ]),
+      }),
+    );
+    expect(r.used).toBe(true); // 不再退回 originalText
+    expect(r.prompt).toContain('旧短答'); // 较旧短消息进 raw
+    expect(r.prompt).toContain('更旧短问');
+    expect(r.prompt).not.toContain(huge); // 巨消息被跳过
+    expect(r.prompt.length).toBeLessThanOrEqual(300); // 不超长
+  });
+
+  // ─── R1 reviewer-codex MED 深层修法回归: raw 全超预算但总结 fit → 保总结不退纯 originalText ───
+  it('R1 MED-C deep: raw 全超预算 + 总结 fit → raw-budget-empty-summary-used（保总结+当前）', async () => {
+    // 所有候选消息都单条超 raw 预算（continue 后 picked 仍空），但总结段小能 fit。
+    // 修前（即使 continue）step4 raw 空 → history-budget-empty 退回纯 originalText 丢总结；
+    // 修后 → includeSummary 时拼「总结 + 当前消息」两段保住总结。
+    const r = await injectResumeHistory(
+      makeOpts({
+        originalText: '现',
+        maxLength: 200,
+        summariseFn: vi.fn(async () => '精炼总结'), // 小总结能 fit
+        listEventsFn: vi.fn(() => [evt('x')]),
+        // 唯一候选是巨消息（超 raw 预算）→ continue 后 picked 空
+        listMessagesFn: vi.fn(() => [msg(1, 'user', 'R'.repeat(190))]),
+      }),
+    );
+    expect(r.used).toBe(true); // 不退回纯 originalText
+    expect(r.failReason).toBe('raw-budget-empty-summary-used');
+    expect(r.prompt).toContain('精炼总结'); // 总结段保住
+    expect(r.prompt).toContain('用户当前消息'); // 当前消息段在
+    expect(r.prompt).not.toContain('最近原始对话消息'); // raw 段缺省
+    expect(r.prompt.length).toBeLessThanOrEqual(200); // 不超长
+  });
+
+  // ─── R1 双 reviewer 共识 MED 修法回归: recentMessagesCount 服务端 clamp ───
+  it('R1 MED-A: recentMessagesCount=0 → clamp 到 1（不静默关闭注入）', async () => {
+    const listMessagesSpy = vi.fn(() => [msg(1, 'user', '历史')]);
+    await injectResumeHistory(
+      makeOpts({ recentMessagesCount: 0, listMessagesFn: listMessagesSpy }),
+    );
+    // clamp: 0 → Math.max(1, 0||30=30) ... 0 是 falsy → || 30 → min(200,max(1,30))=30
+    expect(listMessagesSpy).toHaveBeenCalledWith('sess-1', 30, undefined);
+  });
+
+  it('R1 MED-A: recentMessagesCount=-1 → clamp（不传无界 LIMIT -1）', async () => {
+    const listMessagesSpy = vi.fn(() => [msg(1, 'user', '历史')]);
+    await injectResumeHistory(
+      makeOpts({ recentMessagesCount: -1, listMessagesFn: listMessagesSpy }),
+    );
+    // -1: Math.floor(-1)=-1 truthy → Math.max(1,-1)=1 → min(200,1)=1
+    expect(listMessagesSpy).toHaveBeenCalledWith('sess-1', 1, undefined);
+  });
+
+  it('R1 MED-A: recentMessagesCount=NaN → fallback default 30', async () => {
+    const listMessagesSpy = vi.fn(() => [msg(1, 'user', '历史')]);
+    await injectResumeHistory(
+      makeOpts({ recentMessagesCount: NaN, listMessagesFn: listMessagesSpy }),
+    );
+    // NaN: Number(NaN)=NaN, Math.floor(NaN)=NaN, NaN||30=30 → min(200,max(1,30))=30
+    expect(listMessagesSpy).toHaveBeenCalledWith('sess-1', 30, undefined);
+  });
+
+  it('R1 MED-A: recentMessagesCount=9999 → clamp 上界 200', async () => {
+    const listMessagesSpy = vi.fn(() => [msg(1, 'user', '历史')]);
+    await injectResumeHistory(
+      makeOpts({ recentMessagesCount: 9999, listMessagesFn: listMessagesSpy }),
+    );
+    expect(listMessagesSpy).toHaveBeenCalledWith('sess-1', 200, undefined);
+  });
+
+  // ─── R1 reviewer-claude INFO: full 三段最终 prompt.length ≤ maxLength 精确锁定 ───
+  it('R1 INFO: full 三段拼接最终 prompt.length 严格 ≤ maxLength（off-by-one 安全侧锁定）', async () => {
+    const r = await injectResumeHistory(
+      makeOpts({
+        originalText: 'o'.repeat(100),
+        maxLength: 1000,
+        summariseFn: vi.fn(async () => 's'.repeat(300)),
+        listEventsFn: vi.fn(() => [evt('x')]),
+        listMessagesFn: vi.fn(() =>
+          Array.from({ length: 20 }, (_, i) => msg(i + 1, 'user', 'm'.repeat(60))),
+        ),
+      }),
+    );
+    expect(r.used).toBe(true);
+    expect(r.prompt.length).toBeLessThanOrEqual(1000); // 恒不超长
+  });
 });

@@ -125,13 +125,17 @@ export interface InjectResumeHistoryOptions {
  *   消息段 + 当前消息」。
  * - `summary-failed-raw-used`（§D7 R1 MED）：summariseFn throw / 返空 → 总结段缺省，拼「原始
  *   消息段 + 当前消息」。与「原始消息比总结更可靠」初衷一致，**不**退纯 originalText。
+ * - `raw-budget-empty-summary-used`（R1 reviewer-codex MED 深层修法）：raw 段为空（所有候选
+ *   消息都单条超预算 / wrapper 边界）**但总结段已纳入** → 拼「总结 + 当前消息」两段，不连带
+ *   丢已生成成功的总结（§D1 raw 是底线，但底线铺不下时总结仍比纯 originalText 有价值）。
  */
 export type PrependFailReason =
   | 'original-over-length'
   | 'no-history'
   | 'history-budget-empty'
   | 'over-length-dropped-summary'
-  | 'summary-failed-raw-used';
+  | 'summary-failed-raw-used'
+  | 'raw-budget-empty-summary-used';
 
 /**
  * helper 返回结构：
@@ -202,7 +206,14 @@ function buildRawSegment(
     const line = `[${rolePrefix(rt.role, agentName)}] ${rt.text}`;
     // +1 为行间 '\n'（最后一行的 \n 不计也无妨，预算是上界近似留余量）。
     const cost = line.length + 1;
-    if (used + cost > budget) break;
+    // **R1 reviewer-codex MED + lead 验证修法（plan resume-inject §D4 边界订正）**：单条
+    // 超预算时 `continue` 跳过本条试更旧的短消息，**不** `break`。原 `break` 在「最新一条历史
+    // 是接近 102_400 上限的 paste/log」时第一轮即 `used+cost>budget` → picked 空 → 外层
+    // 把空 raw 解释成 history-budget-empty → 退回纯 originalText，连**已生成成功的 LLM 总结段**
+    // 和**后面更旧能 fit 的短消息**一起被丢。改 continue：超大单条跳过，较旧短消息仍能进 raw，
+    // 总结段也得以保留（外层 includeSummary 判定独立于 raw 是否空）。代价：raw 段可能跳过最新
+    // 那条超大消息（但它本就 fit 不下，总结段已涵盖其语义；保更多可读历史 > 强塞一条截断的巨消息）。
+    if (used + cost > budget) continue;
     picked.push(line);
     used += cost;
   }
@@ -248,6 +259,20 @@ export async function injectResumeHistory(
     listMessagesFn,
   } = opts;
 
+  // **R1 双 reviewer 共识 MED（reviewer-codex + reviewer-claude 独立提出 + lead sqlite 实测）**：
+  // recentMessagesCount 服务端 clamp（最靠近消费点，覆盖所有 caller + NaN + 非 IPC caller）。
+  // settings.resumeRecentMessagesCount 仅 renderer NumberInput min=1 软约束，IPC 直连 / 外部 MCP
+  // client / 未来 bug 可绕过塞负数 / 0 / NaN：负数 → SQLite `LIMIT -1` 无界拉全表 message +
+  // 全量 JSON.parse（长会话上万条 → 主进程性能损耗甚至 OOM）；0 → `LIMIT 0` 空 → 历史注入静默
+  // 失效；NaN → better-sqlite3 bind 抛错被下方 try/catch 兜成 no-history。三者都不 crash 主路径
+  // （预算式拼接兜底最终 prompt 恒不超长），但负数有真实性能后果 + 与 settings.ts 其他字段 per-field
+  // 校验不一致。clamp 到 [1, 200]：1 = raw 段底线（§D1），200 上界与 listForSession 默认 limit 对齐
+  // 防离谱大值。`|| 30` 兜 NaN（Number.isFinite 失败 → fallback default）。
+  const safeRecentCount = Math.min(
+    200,
+    Math.max(1, Math.floor(Number(recentMessagesCount)) || 30),
+  );
+
   // ===== step0：originalText 自身超长 → 唯一阻塞态，caller 不进 createSession =====
   // 覆盖所有 caller（recoverer 入口已校验 ≤MAX，但 restart 传 handoffPrompt 含 plan 无 cap）。
   if (originalText.length > maxLength) {
@@ -267,7 +292,7 @@ export async function injectResumeHistory(
 
   let messages: (AgentEvent & { id: number })[];
   try {
-    messages = listMessagesFn(sessionId, recentMessagesCount, beforeId);
+    messages = listMessagesFn(sessionId, safeRecentCount, beforeId);
   } catch (err) {
     // listMessagesFn 抛错（payload_json 损坏 / DB 读错）→ 视作无历史，退回 originalText。
     // §不变量 1：永不抛错，封装为 PrependResult 让 caller fall back。
@@ -333,10 +358,18 @@ export async function injectResumeHistory(
   // 预算式拼 raw 段（逐条加到逼近 budgetForHistory 停，reverse 成 chronological）。
   const rawSegment = buildRawSegment(messages, agentName, budgetForHistory);
 
-  // ===== step4：raw 段为空（wrapper 边界，预算 ≤ 0）→ 退纯 originalText（防御兜底）=====
-  // 正常路径几乎不可达：originalText 已过 step0（≤ maxLength），当前消息通常远 < maxLength。
-  // 仅「当前消息 + wrapper 本身逼近 maxLength」的极端边界触发（§D6 step3 R4 改名）。
+  // ===== step4：raw 段为空 → 据「总结段是否已纳入」二分（R1 reviewer-codex MED 深层修法）=====
+  // raw 为空触发条件（buildRawSegment continue 化后）：所有候选消息都单条超预算，或 wrapper
+  // 边界预算 ≤ 0。两种子情况：
+  // - **总结已纳入**（includeSummary）→ 拼「总结 + 当前消息」两段，不连带丢已生成成功的总结
+  //   （raw-budget-empty-summary-used）。总结比纯 originalText 有价值，且这条历史路径已 used:true。
+  // - **总结未纳入**（无总结 / 总结也超预算被丢）→ 无任何历史可注 → 退纯 originalText
+  //   （history-budget-empty，已过 step0 → ≤ maxLength → createSession 一定能起，防御兜底）。
   if (rawSegment.length === 0) {
+    if (includeSummary) {
+      const prompt = `${SUMMARY_HEADER}\n${summary!.trim()}\n\n${currentBlock}`;
+      return { prompt, used: true, failReason: 'raw-budget-empty-summary-used' };
+    }
     return { prompt: originalText, used: false, failReason: 'history-budget-empty' };
   }
 
