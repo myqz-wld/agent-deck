@@ -163,10 +163,12 @@ describe('summariseSessionForHandOff', () => {
   });
 
   it('throws __handoff_summary_timeout__ when SDK blocks past timeout (verified by integration / dev smoke)', () => {
-    // K3 timeout 行为与 summariseViaLlm 同款 Promise.race + setTimeout(60_000) 模式。
-    // 单测里用 vi.useFakeTimers + Promise.race 会触发 vitest 的 unhandled-rejection 警告
-    // （fake timer reject 后，race 内部 timer promise 仍被 vitest 当 unhandled）—— 这是
-    // 测试 brittle 不是产线 bug。timeout 路径走 dev smoke + summariseViaLlm 现有覆盖。
+    // K3 timeout 行为与 summariseViaLlm 同款 raceWithTimeout(work + setTimeout)模式。
+    // 此处 SDK 集成层的 timeout 路径走 dev smoke + summariseViaLlm 现有覆盖;timeout race 核心
+    // 逻辑(timer 先赢 reject / work 先赢 / timeoutMs<=0 / onTimeout / finally clearTimeout)的
+    // **真单测**已在 Follow-up #10 落地:src/main/session/oneshot-llm/__tests__/race-with-timeout.test.ts
+    // (纯 promise + 真实短 timeout,不碰 SDK / 不碰 fake-timer 故不 brittle)。原 expect(true) 占位
+    // 删除,改为指向新单测的注释。
     expect(true).toBe(true);
   });
 

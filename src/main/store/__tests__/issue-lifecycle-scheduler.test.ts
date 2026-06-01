@@ -233,6 +233,100 @@ describe('IssueLifecycleScheduler.scan — 阈值 0 跳过 / 超期硬删 / emit
   });
 });
 
+// ─── Follow-up #11: 积压续删节奏 ─────────────────────────────────────────────
+describe('IssueLifecycleScheduler.scan — Follow-up #11 删满 limit → 续删 tick', () => {
+  it('某路删满 limit(=积压)→ 调度短延迟续删 tick;续删轮删 < limit 后停', () => {
+    vi.useFakeTimers();
+    // gcBatchLimit=2 模拟批量上限;第一轮 resolved 删满 2(积压),第二轮删 1(< limit,清完)
+    let round = 0;
+    mockIssueRepo.listForGc.mockImplementation(() => {
+      round++;
+      if (round === 1) return { resolvedExpired: ['r1', 'r2'], softDeletedExpired: [] }; // 删满 2
+      if (round === 2) return { resolvedExpired: ['r3'], softDeletedExpired: [] }; // < limit 清完
+      return { resolvedExpired: [], softDeletedExpired: [] };
+    });
+    mockIssueRepo.get.mockImplementation((id: string) => makeIssue({ id }));
+
+    const s = new IssueLifecycleScheduler({
+      resolvedRetentionDays: 90,
+      softDeletedRetentionDays: 7,
+      gcBatchLimit: 2,
+      catchUpDelayMs: 30_000,
+    });
+    s.scan(); // 第一轮:删满 2 → 排续删 tick
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(1);
+    expect(mockIssueRepo.hardDelete).toHaveBeenCalledTimes(2);
+
+    // 续删 tick 在 30s 后 fire
+    vi.advanceTimersByTime(30_000);
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(2);
+    expect(mockIssueRepo.hardDelete).toHaveBeenCalledTimes(3); // +1 (r3)
+
+    // 第二轮删 < limit → 不再排续删,30s 后无新 scan
+    vi.advanceTimersByTime(30_000);
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(2); // 没有第三轮
+    vi.useRealTimers();
+  });
+
+  it('删 < limit(无积压)→ 不排续删 tick', () => {
+    vi.useFakeTimers();
+    mockIssueRepo.listForGc.mockReturnValue({ resolvedExpired: ['r1'], softDeletedExpired: [] });
+    mockIssueRepo.get.mockReturnValue(makeIssue({ id: 'r1' }));
+    const s = new IssueLifecycleScheduler({
+      resolvedRetentionDays: 90,
+      softDeletedRetentionDays: 7,
+      gcBatchLimit: 500,
+      catchUpDelayMs: 30_000,
+    });
+    s.scan();
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(60_000);
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(1); // 无续删
+    vi.useRealTimers();
+  });
+
+  it('删满 limit 但 deletedCount=0(全 race/throw)→ 不排续删 tick(防空转死循环)', () => {
+    vi.useFakeTimers();
+    mockIssueRepo.listForGc.mockReturnValue({
+      resolvedExpired: ['g1', 'g2'],
+      softDeletedExpired: [],
+    });
+    mockIssueRepo.get.mockReturnValue(makeIssue({ id: 'g' }));
+    mockIssueRepo.hardDelete.mockReturnValue(false); // 全 race(已被删)→ deletedCount=0
+    const s = new IssueLifecycleScheduler({
+      resolvedRetentionDays: 90,
+      softDeletedRetentionDays: 7,
+      gcBatchLimit: 2,
+      catchUpDelayMs: 30_000,
+    });
+    s.scan();
+    vi.advanceTimersByTime(60_000);
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(1); // 不排续删
+    vi.useRealTimers();
+  });
+
+  it('stop() 清 pending 续删 timer → 续删 tick 不再 fire', () => {
+    vi.useFakeTimers();
+    mockIssueRepo.listForGc.mockReturnValue({
+      resolvedExpired: ['r1', 'r2'],
+      softDeletedExpired: [],
+    });
+    mockIssueRepo.get.mockImplementation((id: string) => makeIssue({ id }));
+    const s = new IssueLifecycleScheduler({
+      resolvedRetentionDays: 90,
+      softDeletedRetentionDays: 7,
+      gcBatchLimit: 2,
+      catchUpDelayMs: 30_000,
+    });
+    s.scan(); // 删满 → 排续删 tick
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(1);
+    s.stop(); // 清 pending 续删 timer
+    vi.advanceTimersByTime(60_000);
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(1); // 续删被取消
+    vi.useRealTimers();
+  });
+});
+
 describe('IssueLifecycleScheduler.updateThresholds — 热更新 (settings.ts applyIssueGcThresholds 用)', () => {
   it('updateThresholds 改 resolvedRetentionDays 后立即生效（下次 scan 用新值传给 listForGc）', () => {
     mockIssueRepo.listForGc.mockReturnValue({ resolvedExpired: [], softDeletedExpired: [] });
@@ -244,12 +338,14 @@ describe('IssueLifecycleScheduler.updateThresholds — 热更新 (settings.ts ap
     expect(mockIssueRepo.listForGc).toHaveBeenCalledWith({
       resolvedRetentionDays: 90,
       softDeletedRetentionDays: 7,
+      limit: 500, // Follow-up #11: scheduler 显式传 gcBatchLimit(default 500)
     });
     s.updateThresholds({ resolvedRetentionDays: 30 });
     s.scan();
     expect(mockIssueRepo.listForGc).toHaveBeenLastCalledWith({
       resolvedRetentionDays: 30, // 热更新
       softDeletedRetentionDays: 7, // 未传字段保留
+      limit: 500,
     });
   });
 });
