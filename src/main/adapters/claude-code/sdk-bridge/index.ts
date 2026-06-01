@@ -114,6 +114,10 @@ export class ClaudeSdkBridge {
       jsonlExistsThunk: (cwd, sid) => this.resumeJsonlExists(cwd, sid),
       summariseFn: (cwd, events) => this.summariseForHandOff(cwd, events),
       listEventsFn: (sid) => this.listEventsForSession(sid),
+      // plan resume-inject-raw-messages-20260601 §D5：message-only thunk（与 SessionRecoverer
+      // 共享同一 closure），helper injectResumeHistory 拼「最近原始对话消息段」用。
+      listMessagesFn: (sid, limit, beforeId) =>
+        this.listRecentMessagesForSession(sid, limit, beforeId),
     });
 
     this.responder = new PermissionResponder(
@@ -129,12 +133,15 @@ export class ClaudeSdkBridge {
     // attachments 透传 sendMessage 第三参（HIGH-1：避免 inflight 第二条等待者丢图）。
     // CHANGELOG_99：cwdExists thunk 也走 facade extend override 模式(同 resumeJsonlExists)
     // CHANGELOG_107: summariseFn thunk 同款 facade extend override 模式,默认实现 =
-    // summariseSessionForHandOff,Step 2 起 prependHistorySummary helper 调它。
+    // summariseSessionForHandOff,fallback 路径 helper 调它。
     // **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
-    // 新增 listEventsFn ctor 字段(末尾),与 RestartController 共享同一 closure
+    // 新增 listEventsFn ctor 字段,与 RestartController 共享同一 closure
     // `(sid) => this.listEventsForSession(sid)`,让 helper maybeJsonlFallback 内部
     // events 拉取走同款 facade extend override 模式(test 子类化 facade override
     // listEventsForSession protected method)。
+    // **plan resume-inject-raw-messages-20260601 §D5 修法**: 新增 listMessagesFn ctor 字段
+    // (末尾),与 RestartController 共享同一 closure,helper injectResumeHistory 拼「最近原始
+    // 对话消息段」用(message-only,test 子类化 override listRecentMessagesForSession)。
     this.recoverer = new SessionRecoverer(
       { recovering: this.recovering, emit: opts.emit },
       (createOpts) => this.createSession(createOpts),
@@ -143,6 +150,7 @@ export class ClaudeSdkBridge {
       (cwd) => this.cwdExists(cwd),
       (cwd, events) => this.summariseForHandOff(cwd, events),
       (sid) => this.listEventsForSession(sid),
+      (sid, limit, beforeId) => this.listRecentMessagesForSession(sid, limit, beforeId),
     );
 
     this.streamProcessor = new StreamProcessor({ sessions: this.sessions, emit: opts.emit });
@@ -285,6 +293,24 @@ export class ClaudeSdkBridge {
    */
   protected listEventsForSession(sessionId: string): AgentEvent[] {
     return eventRepo.listForSession(sessionId);
+  }
+
+  /**
+   * **plan resume-inject-raw-messages-20260601 §D5 message-only test seam**（同
+   * listEventsForSession / summariseForHandOff 模式）。
+   *
+   * 让 test 通过子类化 override 不依赖真 DB（单测 mock message 序列）；实际走 module-level
+   * `eventRepo.listRecentMessages(sid, limit, beforeIdInclusive?)`（只取 kind='message' +
+   * role∈{user,assistant} + error 非真）。RestartController + SessionRecoverer ctor 共享同一份
+   * closure 注入，让 helper `maybeJsonlFallback` 内部「最近原始对话消息段」拉取走同款 thunk
+   * （避免双处 hardcode eventRepo 漂移）。
+   */
+  protected listRecentMessagesForSession(
+    sessionId: string,
+    limit: number,
+    beforeIdInclusive?: number,
+  ): (AgentEvent & { id: number })[] {
+    return eventRepo.listRecentMessages(sessionId, limit, beforeIdInclusive);
   }
 
   // CHANGELOG_52 Step 3b：6 respond/list 方法 + 3 timeout 方法迁到 PermissionResponder。

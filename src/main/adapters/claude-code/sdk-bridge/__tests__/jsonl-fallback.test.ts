@@ -45,6 +45,8 @@ interface MakeCtxOpts {
   listEventsFnReturn?: AgentEvent[];
   /** REVIEW_76 MED: 让 listEventsFn 抛错验证「永不抛错」契约（fresh fallback 仍走 createSession） */
   listEventsFnThrow?: Error;
+  /** plan resume-inject §D5: message-only 返回（拼原始对话段）。默认空数组。 */
+  listMessagesFnReturn?: (AgentEvent & { id: number })[];
 }
 
 function makeCtx(opts: MakeCtxOpts = {}): {
@@ -74,6 +76,7 @@ function makeCtx(opts: MakeCtxOpts = {}): {
           throw opts.listEventsFnThrow;
         }
       : () => opts.listEventsFnReturn ?? [],
+    listMessagesFn: () => opts.listMessagesFnReturn ?? [],
   };
   return { ctx, jsonlExistsThunkSpy, createSessionSpy, summariseFnSpy };
 }
@@ -85,6 +88,7 @@ function makeRecoverOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallb
     cwd: '/tmp/test',
     prependCwd: '/tmp/test',
     prompt: '继续之前的话题',
+    maxEventIdFn: () => null,
     emitContext: 'recover',
     cwdFellBack: false,
     ...(overrides as object),
@@ -98,6 +102,7 @@ function makeRestartOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallb
     cwd: '/tmp/test',
     prependCwd: '/tmp/test',
     prompt: '继续之前的会话',
+    maxEventIdFn: () => null,
     emitContext: 'restart',
     cwdFellBack: false,
     restartLabel: '权限模式 plan',

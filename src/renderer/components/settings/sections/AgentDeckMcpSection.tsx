@@ -21,7 +21,7 @@ interface Props {
  * 3. 防递归 3 条规则的可调阈值（depth / spawn-rate / fan-out）
  * 4. mcpServerToken 显示（只读 + 复制按钮，自动生成不允许改）
  *
- * 与 ExperimentalSection 区分：那边是「实验功能」（sandbox / autoSummariseOnFallback），
+ * 与 ExperimentalSection 区分：那边是「实验功能」（Claude / Codex 沙盒档位），
  * 这边是「跨 runtime 编排 + 结构化任务管理」独立 section。
  */
 export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {

@@ -75,6 +75,15 @@ export interface RestartCtx {
   jsonlExistsThunk: JsonlExistsThunk;
   summariseFn: SummariseFnThunk;
   listEventsFn: (sessionId: string) => AgentEvent[];
+  /**
+   * **plan resume-inject-raw-messages-20260601 §D5**: message-only thunk(与 RecovererCtx
+   * 共享同一 instance — facade 注入),helper injectResumeHistory 拼「最近原始对话消息段」用。
+   */
+  listMessagesFn: (
+    sessionId: string,
+    limit: number,
+    beforeIdInclusive?: number,
+  ) => (AgentEvent & { id: number })[];
 }
 
 export class RestartController {
@@ -212,6 +221,7 @@ export class RestartController {
               emit: this.ctx.emit,
               summariseFn: this.ctx.summariseFn,
               listEventsFn: this.ctx.listEventsFn,
+              listMessagesFn: this.ctx.listMessagesFn, // plan resume-inject §D5: message-only 拼原始对话段
             },
             {
               sessionId: currentSid,
@@ -219,6 +229,9 @@ export class RestartController {
               cwd: rec.cwd,
               prependCwd: rec.cwd, // restart 路径 cwdFellBack 永远 false → prependCwd === cwd
               prompt: handoffPrompt,
+              // plan resume-inject §D4: restart 路径 handoffPrompt 不在入口 emit 落库 → 无「当前
+              // 消息」需排除 → maxEventIdFn 返 null(injectResumeHistory 退化为「查最近 N」不加边界)。
+              maxEventIdFn: () => null,
               permissionMode: mode,
               claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
               extraAllowWrite: rec.extraAllowWrite ?? undefined,
@@ -393,6 +406,7 @@ export class RestartController {
               emit: this.ctx.emit,
               summariseFn: this.ctx.summariseFn,
               listEventsFn: this.ctx.listEventsFn,
+              listMessagesFn: this.ctx.listMessagesFn, // plan resume-inject §D5: message-only 拼原始对话段
             },
             {
               sessionId: currentSid,
@@ -400,6 +414,9 @@ export class RestartController {
               cwd: rec.cwd,
               prependCwd: rec.cwd, // restart 路径 cwdFellBack 永远 false → prependCwd === cwd
               prompt: handoffPrompt,
+              // plan resume-inject §D4: restart 路径 handoffPrompt 不在入口 emit 落库 → 无「当前
+              // 消息」需排除 → maxEventIdFn 返 null(injectResumeHistory 退化为「查最近 N」不加边界)。
+              maxEventIdFn: () => null,
               permissionMode: rec.permissionMode ?? undefined, // 透传保留用户辛苦切的 mode (不被 sandbox 切档静默重置)
               claudeCodeSandbox: sandbox, // 新 sandbox 档 (与下方 createSession 同款)
               extraAllowWrite: rec.extraAllowWrite ?? undefined,

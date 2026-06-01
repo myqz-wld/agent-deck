@@ -36,6 +36,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   windowTransparent: true,
   startOnLogin: false,
   historyRetentionDays: 30,
+  // plan resume-inject-raw-messages-20260601 §D5：jsonl-missing fallback 注入最近 N 条原始
+  // 对话消息（预算式拼接，实际条数 ≤ N，长会话优先保最新不撑爆 102_400）。default 30。
+  resumeRecentMessagesCount: 30,
   // Issue Tracker §D13 GC 阈值（plan issue-tracker-mcp-20260529）：
   // - resolvedRetentionDays 默认 90d (resolved issue 三月后硬删,留充分窗口给用户复盘)
   // - softDeletedRetentionDays 默认 7d (软删一周后硬删,与 history 30d 不同 — 软删本就 implicit 已完成 triage)
@@ -49,8 +52,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   injectAgentDeckPlugin: true,
   // R3.E6 (PR-B) 删 agentTeamsEnabled / autoApproveTeammateMode；
   // plan task-mcp-merge-into-agent-deck-mcp-20260521 删 enableTaskManager；
+  // plan resume-inject-raw-messages-20260601 删 autoSummariseOnFallback（无条件注入历史 — UI
+  // toggle 早删字段成孤儿，REMOVED_KEYS 清历史 + 改 fallback 路径无条件走注入，详 settings-store.ts）；
   // REMOVED_KEYS + smart migration 自动清历史 + 守护老用户 ON 值（详 settings-store.ts）
-  autoSummariseOnFallback: true,
   claudeCodeSandbox: 'off',
   codexSandbox: 'workspace-write',
   codexMcpServers: [],

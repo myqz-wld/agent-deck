@@ -101,6 +101,19 @@ export class SessionRecoverer {
      * hardcode eventRepo 漂移)。
      */
     private readonly listEventsFn: (sessionId: string) => AgentEvent[],
+    /**
+     * **plan resume-inject-raw-messages-20260601 §D5 修法**:
+     * message-only 来源 thunk(test seam)。facade 内部转发给 protected
+     * listRecentMessagesForSession 方法,默认走 `eventRepo.listRecentMessages`。
+     *
+     * 让 jsonl-fallback helper(injectResumeHistory)拼「最近原始对话消息段」与 recoverer
+     * 主路径共享同款 facade extend override 模式(避免双处 hardcode eventRepo 漂移)。
+     */
+    private readonly listMessagesFn: (
+      sessionId: string,
+      limit: number,
+      beforeIdInclusive?: number,
+    ) => (AgentEvent & { id: number })[],
   ) {}
 
   /**
@@ -120,6 +133,7 @@ export class SessionRecoverer {
       cwdExistsThunk: this.cwdExistsThunk,
       summariseFn: this.summariseFn,
       listEventsFn: this.listEventsFn,
+      listMessagesFn: this.listMessagesFn,
       findFallbackCwdThunk: (badCwd) => this.findFallbackCwd(badCwd),
       emitFallbackMessageThunk: (sid, text, opts) => this.emitFallbackMessage(sid, text, opts),
       placeholderEmittedAt: this.placeholderEmittedAt,

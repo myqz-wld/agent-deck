@@ -86,6 +86,7 @@ function makeCtx(opts?: {
     jsonlExistsThunk: () => true, // jsonl 假装在 → maybeJsonlFallback fellBack=false 走原路径
     summariseFn: async () => null,
     listEventsFn: () => [],
+    listMessagesFn: () => [], // plan resume-inject §D5: jsonl 假装在不触发 fallback，stub 空
   };
   return { ctx, recovering };
 }
