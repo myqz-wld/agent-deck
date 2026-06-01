@@ -123,6 +123,18 @@ function isError(x: unknown): x is ExitWorktreeError {
   );
 }
 
+/**
+ * Follow-up #5: 去尾斜杠归一化。realpath fallback(realpath 失败退化字面)+ marker 反查路径可能
+ * 一端带尾斜杠(`/path/`)另一端不带(`/path`),字面 `!==` 误报 cross-worktree reject。realpath
+ * 成功时一般已无尾斜杠(fs.realpath 规整),但 fallback 字面路径 / caller 显式传带尾斜杠的
+ * worktreePath / marker 历史写入带尾斜杠时需归一化。保留根 `/`(replace(/\/+$/,'') 对单 `/`
+ * 会清成空串,故空串时还原 `/`)。
+ */
+function stripTrailingSlash(p: string): string {
+  const stripped = p.replace(/\/+$/, '');
+  return stripped === '' ? '/' : stripped;
+}
+
 export async function exitWorktreeImpl(
   input: ExitWorktreeInput,
   depsOverride?: ExitWorktreeDeps,
@@ -146,6 +158,10 @@ export async function exitWorktreeImpl(
   // 比较,与 archive-plan-impl §step 4 marker 处理对称。两边都解 symlink — args 端 macOS firmlink
   // /var → /private/var,marker 端用户跨会话 marker 走不同符号链路径 → 字面 !== 但 realpath ===
   // 时旧实现错报 cross-worktree reject。realpath 失败 fallback 字面（极端 edge case 退化）。
+  //
+  // Follow-up #5: realpath 后再去尾斜杠归一化(stripTrailingSlash)。realpath fallback 退化字面时
+  // 一端带尾斜杠(`/path/`)另一端不带(`/path`)会误报 cross-worktree reject(realpath 成功一般已
+  // 规整尾斜杠,但 fallback 字面 / caller 显式传带尾斜杠 worktreePath / marker 历史带尾斜杠时需归一化)。
   if (input.worktreePathOverride && marker) {
     let argReal = input.worktreePathOverride;
     let markerReal = marker;
@@ -159,7 +175,7 @@ export async function exitWorktreeImpl(
     } catch {
       /* fallback 字面 */
     }
-    if (argReal !== markerReal) {
+    if (stripTrailingSlash(argReal) !== stripTrailingSlash(markerReal)) {
       return {
         error: `args.worktreePath (${input.worktreePathOverride}) does not match caller marker (${marker})`,
         hint: `Cross-worktree exit is not allowed (caller holds marker for a different worktree). Resolve by: (a) call exit_worktree without args.worktreePath to operate on marker's worktree, or (b) clear marker by calling enter_worktree → exit_worktree on the marker's worktree first.`,
