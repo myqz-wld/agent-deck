@@ -65,13 +65,18 @@ interface Props {
  * 应用内日志查看 modal（替代原「在 Finder 中显示」外部跳转）。
  *
  * - 通过 `window.api.logsReadToday()` 读当天 main-YYYY-MM-DD.log，用只读 Monaco Editor 展示。
- * - **定位**：用 `createPortal` 渲染到 `document.body` + `fixed inset-0 z-[60]` 全屏覆盖。
- *   **必须走 portal**：LogViewerModal 的祖先链里 FloatingFrame(.frosted-frame) 与 SettingsDialog
- *   外层都带 `backdrop-filter`，而 CSS 规范下 backdrop-filter（同 transform / filter）会把后代
- *   `position: fixed` 的 containing block 从 viewport 改成该祖先 → `fixed inset-0` 被困在设置面板
- *   矩形内，再被卡片 `overflow-y-auto max-h-[85%]` 裁掉（截图 bug 现象）。portal 让 modal 脱离整条
- *   backdrop-filter 祖先链，fixed 才真正相对 viewport。z-[60] 高于 SettingsDialog(z-40) 与
- *   ContentViewerModal(z-50)。
+ * - **定位**：根 div 用 `fixed inset-0 z-[60]` 全屏覆盖 + `createPortal` 到 `document.body`。
+ *   两点缺一不可，否则 modal 不可见（本 bug 曾误判为「被裁切」/「打包没生效」）：
+ *   1. **根 div 不能叠 `.frosted-frame`**：globals.css 的 `.frosted-frame{position:relative}` 是
+ *      **unlayered**，Tailwind 的 `.fixed{position:fixed}` 在 `@layer utilities` 内。CSS 级联中
+ *      unlayered 永远胜 layered（早于 specificity / 源码顺序），故同元素叠 `frosted-frame fixed`
+ *      时 position 实为 `relative`、`fixed` 被静默顶掉 → 退回文档流被设置面板 overflow 裁成一条；
+ *      改 portal 后又被排到占满视口的 #root 之后、`body{overflow:hidden}` 挤出视口 → 完全不可见。
+ *      frosted-frame 是窗口玻璃面板用的，overlay 只需 `bg-black/60 backdrop-blur-sm` 遮罩。
+ *   2. **必须 `createPortal` 到 body**：祖先链里 FloatingFrame(.frosted-frame) 与 SettingsDialog
+ *      外层 `backdrop-blur-sm` 的 backdrop-filter 会把后代 `fixed` 的 containing block 从 viewport
+ *      改成该祖先（CSS 规范，同 transform / filter）。portal 脱离整条祖先链，fixed 才相对 viewport。
+ *   z-[60] 高于 SettingsDialog(z-40) 与 ContentViewerModal(z-50)。
  * - 刷新按钮重新拉取（日志是滚动写入的，查看期间可能有新行）。
  * - 空态（existed:false）/ 截断 banner（truncated:true，main 端 > 2MB 只返尾部 2MB）。
  */
@@ -114,7 +119,7 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
   if (!open) return null;
 
   return createPortal(
-    <div className="frosted-frame fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="no-drag flex h-[80%] w-[80%] max-w-[900px] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
         <header className="mb-2 flex items-center justify-between gap-2">
           <div className="flex min-w-0 flex-col gap-0.5">
