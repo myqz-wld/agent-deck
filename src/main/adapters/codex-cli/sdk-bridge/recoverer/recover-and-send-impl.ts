@@ -321,7 +321,12 @@ export async function recoverAndSendImpl(
           prompt: text,
           // plan resume-inject §D4: maxEventIdBefore 在 entry emit user 之前固化(见上)，thunk 返
           // 常量排除当前消息(injectResumeHistory 内 try/catch 防御，这里已 null 兜底)。
-          maxEventIdFn: () => maxEventIdBefore,
+          // **R1 reviewer-codex MED 修法（对称 claude recover-and-send-impl）**:`?? 0` 兜 null。
+          // null 触发 = session 此前 0 条 events。此时若退化「不加边界查最近 N」，入口刚 emit 的
+          // 当前消息(emit→ingest→insert 全同步已落库的唯一一行)会被 raw 段查到 → 与末段「用户当前
+          // 消息」重复。改返 0 让 SQL `id <= 0` 命中空集 → 干净走 no-history。restart 路径 `()=>null`
+          // 不受影响（handoffPrompt 不入口 emit，无当前消息需排除）—— 仅 recover 路径需此兜底。
+          maxEventIdFn: () => maxEventIdBefore ?? 0,
           codexSandbox: rec.codexSandbox ?? undefined,
           model: rec.model ?? undefined,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
