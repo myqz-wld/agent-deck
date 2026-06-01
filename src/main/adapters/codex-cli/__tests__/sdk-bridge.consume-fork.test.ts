@@ -68,6 +68,10 @@ vi.mock('@main/session/manager', () => ({
     renameSdkSession: vi.fn(),
     updateCliSessionId: vi.fn(),
     unarchive: vi.fn(),
+    // REVIEW_101 R1：restart 接入 cancellation-epoch（getCloseEpoch baseline + cancelGuard）后新增
+    // 依赖。mock 稳定返 0 → baseline === 后续检查值 → cancelGuard 返 false → 不 abort（这些测试不
+    // 模拟 restart 期间 close，走正常 fallback / resume 路径，与原断言一致）。
+    getCloseEpoch: vi.fn(() => 0),
   },
 }));
 
@@ -89,6 +93,10 @@ beforeEach(() => {
   vi.mocked(sessionManager.updateCliSessionId).mockReset();
   vi.mocked(sessionManager.claimAsSdk).mockReset();
   vi.mocked(sessionManager.releaseSdkClaim).mockReset();
+  // REVIEW_101 R1：reset getCloseEpoch 默认返 0（无 close → cancelGuard 恒 false 不误 abort）。
+  // close-during-restart 测试用 mockReturnValueOnce 序列模拟 epoch 变。
+  vi.mocked(sessionManager.getCloseEpoch).mockReset();
+  vi.mocked(sessionManager.getCloseEpoch).mockReturnValue(0);
 });
 
 afterEach(() => {
@@ -562,5 +570,120 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     await expect(
       bridge.restartWithCodexSandbox('sess-ghost', 'workspace-write', 'x'),
     ).rejects.toThrow(/not found in repo/);
+  });
+
+  // ─── REVIEW_101 R1: restart 接入 cancellation-epoch（close-during-restart abort）─────────
+  // reviewer-codex R1 HIGH（降 MED 双方共识）+ reviewer-claude 反驳轮确认：restart 冷切 createSession
+  // await 窗口内用户 close / scheduler 衰减 → epoch 变 → cancelGuard abort 不复活幽灵。修前 restart
+  // 路径 0 覆盖此场景（recovery.test.ts 的 cancellation-epoch ①-⑥ 只测 recover 路径）。
+  it('REVIEW_101: restart createSession await 期间 close（epoch 变）→ abort 静默结束，不回滚 sandbox / 不 emit 切档失败', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-cancel',
+      agentId: 'codex-cli',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'read-only',
+    });
+    // epoch 序列：baseline 捕获返 0；cancelGuard 内查（createSession override 调 cancelCheck）返 1（epoch
+    // 变 = await 窗口内 close）→ cancelCheck 返 true → createSession override throw RecoveryCancelledError。
+    vi.mocked(sessionManager.getCloseEpoch)
+      .mockReturnValueOnce(0) // baseline（close OLD 之后捕获）
+      .mockReturnValue(1); // cancelGuard 后续查 → epoch 变 → abort
+
+    // abort 路径静默 return sessionId（不 reject 给 caller）
+    const result = await bridge.restartWithCodexSandbox('sess-cancel', 'workspace-write', 'go');
+    expect(result).toBe('sess-cancel');
+
+    // 关键断言 1：不 emit「切到 sandbox 失败」红字（用户主动 close 不该看到切档失败错误）
+    const errMsgs = emits.filter(
+      (e) =>
+        e.kind === 'message' &&
+        (e.payload as { error?: boolean }).error === true &&
+        ((e.payload as { text?: string }).text ?? '').includes('切到 sandbox'),
+    );
+    expect(errMsgs).toHaveLength(0);
+    // 关键断言 2：不回滚 sandbox（forward set 1 次写 workspace-write；abort 不触发 catch rollback 第 2 次）
+    // forward set 成功后走 maybeCodexJsonlFallback（jsonl 在 fall-through）→ createSession throw sentinel
+    // → outer catch special-case 静默 return，不回滚 → setCodexSandbox 仅 1 次
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(1);
+    expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(1, 'sess-cancel', 'workspace-write');
+  });
+
+  // ─── REVIEW_101 R1: restart 透传 model（reviewer-codex MED）─────────────────────────────
+  // 修前 restart 只传 codexSandbox，丢 rec.model → 带自定义 model 的 session 切档后跑全局默认 model。
+  it('REVIEW_101: restart createSession 透传 rec.model（与 recover 对称，防切档后退回默认模型）', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-model',
+      agentId: 'codex-cli',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'read-only',
+      model: 'gpt-5.5-codex',
+    });
+
+    await bridge.restartWithCodexSandbox('sess-model', 'workspace-write', 'go');
+
+    // jsonl 在（jsonlExistsOverride 默认 true）→ fall-through direct resume createSession
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].model).toBe('gpt-5.5-codex');
+    // cancelCheck 也透传（cancel-guard）
+    expect(bridge.createCalls[0].cancelCheck).toBeTypeOf('function');
+  });
+
+  // ─── REVIEW_101 R1: restart jsonl 缺失走 fallback（reviewer-claude MED）──────────────────
+  // 修前 restart 无 jsonl 处理：jsonl 缺失走 resumeThread earlyErr → 回滚旧档切档失败。修法接入
+  // maybeCodexJsonlFallback：jsonl 缺失走 fresh-cli-reuse-app 起 fresh thread → 切档成功。
+  it('REVIEW_101: restart jsonl 缺失 → fallback fresh-cli-reuse-app 切档成功（不回滚旧档）', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false; // 模拟 jsonl 被清 / 跨设备同步未带
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-nojsonl',
+      agentId: 'codex-cli',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'read-only',
+    });
+
+    const result = await bridge.restartWithCodexSandbox('sess-nojsonl', 'workspace-write', 'go');
+    expect(result).toBe('sess-nojsonl'); // applicationSid 不变
+
+    // jsonl 缺失 → helper 走 fresh-cli-reuse-app createSession
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].resumeMode).toBe('fresh-cli-reuse-app');
+    expect(bridge.createCalls[0].codexSandbox).toBe('workspace-write'); // 新档透传
+    // 切档成功不回滚：setCodexSandbox 仅 forward 1 次（无 catch rollback 第 2 次）
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(1);
+    expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(1, 'sess-nojsonl', 'workspace-write');
+    // 不 emit「切到 sandbox 失败」红字
+    const errMsgs = emits.filter(
+      (e) =>
+        e.kind === 'message' &&
+        (e.payload as { error?: boolean }).error === true &&
+        ((e.payload as { text?: string }).text ?? '').includes('切到 sandbox'),
+    );
+    expect(errMsgs).toHaveLength(0);
   });
 });

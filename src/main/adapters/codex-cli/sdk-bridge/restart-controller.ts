@@ -20,8 +20,17 @@
 import type { AgentEvent } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
+import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from './constants';
+import { maybeCodexJsonlFallback } from './codex-jsonl-fallback';
+import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { CodexSessionHandle } from './types';
+import type {
+  JsonlExistsThunk,
+  SummariseFnThunk,
+  ListEventsFnThunk,
+  ListRecentMessagesFnThunk,
+} from './recoverer/_deps';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-restart');
@@ -37,6 +46,39 @@ export interface RestartCreateOpts {
    */
   resumeCliSid?: string;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  /**
+   * **REVIEW_101 R1 双方共识合并修法（codex restart 对称能力缺失 — jsonl-fallback + model）**:
+   * 与 ClaudeCreateOpts.resumeMode 对齐让 ctx.createSession 透传 fallback 路径不丢精度。
+   * helper `maybeCodexJsonlFallback` fellBack=true 路径调 ctx.createSession 时显式传
+   * 'fresh-cli-reuse-app' 触发 create-session-impl.ts:111 走 startThread（jsonl-missing 起 fresh thread）。
+   * - 'resume-cli'(default): normal resume 行为（与本路径原 line 145 direct createSession 字面等价）
+   * - 'fresh-cli-reuse-app': jsonl-missing fallback 专用 — 仅 helper 内部使用，restart caller 不直接传
+   */
+  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+  /**
+   * **REVIEW_101 R1 reviewer-codex MED（restart 丢 model）修法**:
+   * recover 路径已显式传 `model: rec.model ?? undefined`（recover-and-send-impl.ts:406 /
+   * codex-jsonl-fallback.ts:216），但 restart 冷切原只传 codexSandbox → 一个带自定义 model 的 codex
+   * session 切 sandbox 后 DB/UI 仍显示原 model，但新 SDK thread 实际按全局默认 model 跑
+   * （create-session-impl.ts:131 仅 opts.model 非 undefined 才放进 ThreadOptions）。restart 透传
+   * rec.model ?? undefined 与 recover 对称。
+   */
+  model?: string;
+  /**
+   * **REVIEW_101 R1 合并修法（parity 对称透传）**: 与 recover 路径 createSession 一致透传
+   * extraAllowWrite（codex runtime 不消费仅持久化保 cross-adapter parity，与 session-finalize.ts
+   * persistSessionFields 同款语义）。helper maybeCodexJsonlFallback 也需此字段对齐 recover。
+   */
+  extraAllowWrite?: readonly string[];
+  /**
+   * **REVIEW_101 R1 双方共识 MED（restart 缺 cancel-guard）修法**:
+   * restart 冷切 createSession await 窗口内若用户主动 close / scheduler 衰减 dormant→closed /
+   * MCP shutdown_session（三入口均 bumpCloseEpoch + setLifecycle='closed'）→ restart 继续 emit
+   * session-start(source:'sdk') → ensure closed→active 复活幽灵（与 recover 路径 REVIEW_99 R3 修的
+   * 同款 race，两端 restart 路径 pre-existing 共缺）。restart 传 cancelCheck=cancelGuard 让
+   * create-session-resume.ts:55 在 sessions.set 前查 epoch：变了 throw RecoveryCancelledError abort。
+   */
+  cancelCheck?: () => boolean;
 }
 
 export interface RestartCtx {
@@ -51,6 +93,18 @@ export interface RestartCtx {
   closeSession: (sessionId: string) => Promise<void>;
   /** thunk 反调 facade.createSession，restart 路径用 resume + 新 sandbox 重建。 */
   createSession: (opts: RestartCreateOpts) => Promise<CodexSessionHandle>;
+  /**
+   * **REVIEW_101 R1 双方共识合并修法（codex restart 接入 maybeCodexJsonlFallback）**:
+   * helper `maybeCodexJsonlFallback` 需要的 4 thunk（与 RecovererCtx 共享同一份 instance —
+   * facade index.ts 注入，对齐 claude RestartCtx）。codex restart 修前完全无 jsonl 处理 → jsonl
+   * 缺失（用户清 ~/.codex/sessions / 跨设备同步未带）时冷切 sandbox 走 resumeThread earlyErr →
+   * 回滚旧档 = 切档失败（claude 同场景一次成功）。补这 4 thunk 让 codex restart mirror claude /
+   * recover 的 jsonl 预检 + fallback。
+   */
+  jsonlExistsThunk: JsonlExistsThunk;
+  summariseFn: SummariseFnThunk;
+  listEventsFn: ListEventsFnThunk;
+  listMessagesFn: ListRecentMessagesFnThunk;
 }
 
 export class RestartController {
@@ -126,6 +180,25 @@ export class RestartController {
       // close OLD：内部 intentionallyClosed=true → abort current turn → runTurnLoop 静默退出
       await this.ctx.closeSession(sessionId);
 
+      // **REVIEW_101 R1 双方共识 MED（restart 缺 cancel-guard）修法 — cancellation-epoch baseline**:
+      // restart 冷切 createSession await 窗口内若用户主动 close / scheduler 衰减 dormant→closed /
+      // MCP shutdown_session（三入口均 bumpCloseEpoch + setLifecycle='closed'，lifecycle.ts:107/150 +
+      // lifecycle-scheduler.ts:103）→ 若不 gate，createSession 继续 emit session-start(source:'sdk')
+      // → ensure closed→active 复活幽灵（与 recover 路径 REVIEW_99 R3 修的同款 race；两端 restart
+      // 路径 pre-existing 共缺，claude restart 同样无此 guard → claude 侧留 follow-up parity）。
+      //
+      // **baseline 捕获时机 = 本行（ctx.closeSession 之后 / setCodexSandbox 之前）**：lead 现场 trace
+      // 确认 codex adapter 层 `ctx.closeSession`（index.ts:425-472）**只 abort turn + sessions.delete
+      // + releaseSdkClaim，不 setLifecycle / 不 bumpCloseEpoch**（只有 sessionManager.close/markClosed/
+      // delete 才 bump）。故 baseline 在 close 前后捕获**等价**（这段无 epoch 变化）；置于 close 之后
+      // 紧贴 rec 校验，语义清晰 + future-proof（万一未来 adapter close 改为联动 sessionManager.close，
+      // 本位置仍只捕获「restart 自身 intentional close 之后用户额外 close」）。
+      const closeEpochBaseline = sessionManager.getCloseEpoch(sessionId);
+      const cancelGuard = (): boolean => {
+        if (!sessionRepo.get(sessionId)) return true; // record await 期间被删 → abort
+        return sessionManager.getCloseEpoch(sessionId) !== closeEpochBaseline;
+      };
+
       // **REVIEW_80 MED 修法（reviewer-claude + reviewer-codex 双方独立共识）**:
       // forward setCodexSandbox 必须纳入 try。修前它在 try 之外（closeSession 之后裸调），
       // better-sqlite3 同步 `.run()` throw（SQLITE_BUSY / disk full / corrupt）时异常直接冒出
@@ -142,6 +215,69 @@ export class RestartController {
         const updatedRec = sessionRepo.get(sessionId);
         if (updatedRec) eventBus.emit('session-upserted', updatedRec);
 
+        // **REVIEW_101 R1 双方共识合并修法（codex restart 接入 maybeCodexJsonlFallback）**:
+        // 修前 codex restart 完全无 jsonl 处理，close OLD → 写 DB → 直接 createSession({resume}) →
+        // create-session-impl.ts:111 resumeMode 默认走 resumeThread → jsonl 缺失（用户清
+        // ~/.codex/sessions / 跨设备同步未带）时 codex CLI resume 抛 earlyErr → 回滚旧档 = 切档失败
+        // （claude restart 同场景一次成功，line 217/402 已有 maybeJsonlFallback）。接入对称：
+        // - jsonl 在 → fellBack=false → fall through 到下方 direct createSession resume（行为不变）
+        // - jsonl 缺 → fellBack=true → helper 已包办 fresh-cli-reuse-app createSession + 历史注入 +
+        //   emit fallback info，直接 return（不再重复 createSession）
+        // - aborted（cancelGuard 在 helper await injectResumeHistory 后命中）→ 静默结束不回滚
+        // restart 路径 handoffPrompt 不在入口 emit 落库 → 无「当前消息」需排除 → maxEventIdFn 返 null
+        // （injectResumeHistory 退化为「查最近 N」不加边界，与 claude restart maybeJsonlFallback 同款）。
+        const fbResult = await maybeCodexJsonlFallback(
+          {
+            jsonlExistsThunk: this.ctx.jsonlExistsThunk,
+            createSession: this.ctx.createSession,
+            emit: this.ctx.emit,
+            summariseFn: this.ctx.summariseFn,
+            listEventsFn: this.ctx.listEventsFn,
+            listMessagesFn: this.ctx.listMessagesFn,
+          },
+          {
+            sessionId,
+            cliSessionId: rec.cliSessionId ?? null,
+            startedAt: rec.startedAt,
+            cwd: rec.cwd,
+            // restart 路径 cwd 不 fallback（rec.cwd 直用）→ prependCwd === cwd
+            prependCwd: rec.cwd,
+            prompt: handoffPrompt,
+            // restart handoffPrompt 不入口 emit → 无当前消息需排除 → 返 null（退化查最近 N 不加边界）
+            maxEventIdFn: () => null,
+            codexSandbox: sandbox,
+            // **REVIEW_101 R1 MED（restart 丢 model）**: 透传 rec.model 与 recover 对称（否则 fallback
+            // 起 fresh thread 仍按全局默认 model 跑）。
+            model: rec.model ?? undefined,
+            extraAllowWrite: rec.extraAllowWrite ?? undefined,
+            // **REVIEW_101 R1 cancel-guard**: 传 isCancelledFn 让 helper await injectResumeHistory
+            // 后、createSession 前查 epoch（用户 await 窗口内 close → abort 不起 fresh thread）。
+            isCancelledFn: cancelGuard,
+          },
+        );
+        // **REVIEW_101 R1 cancel-guard**: abort 优先判定（用户 await 窗口内 close，epoch 变）。
+        // restart 路径 abort 时不回滚 sandbox、不 emit「切档失败」红字（lifecycle 已是用户想要的
+        // closed）→ throw RecoveryCancelledError 让 outer catch special-case 静默结束。
+        if (fbResult.aborted) {
+          throw new RecoveryCancelledError(sessionId);
+        }
+        if (fbResult.fellBack) {
+          // helper 已包办 createSession + emit，applicationSid 全程不变（== sessionId）
+          //
+          // **REVIEW_101 R1 已知差异（lead 标注，待 R2 评判）**: codex maybeCodexJsonlFallback 硬编码
+          // `skipFirstUserEmit: true`（codex-jsonl-fallback.ts:221，假设 recover 路径 entry 已 emit
+          // user message），且 codex helper **不**像 claude helper 那样自 emit role='user'。restart 路径
+          // 无 entry emit → fallback 分支下 handoffPrompt **不显示为 user bubble**（仅 emit fallback
+          // info message）。影响有限：① fallback 仅 jsonl 缺失（罕见）触发 ② handoffPrompt 是系统冷切
+          // 提示语非用户珍贵输入 ③ 修前此场景整个切档失败（reviewer-claude MED），修法后切档成功只是
+          // 少一条系统 prompt bubble = 净改善。与 claude restart fallback（claude helper 自 emit user）
+          // 存在 parity 差异，根因 = codex helper 当前只为 recover 设计（无 emitContext 概念）。彻底对齐
+          // 需 codex helper 加 emitContext + 自 emit user 分支（claude jsonl-fallback.ts:384 模式），
+          // 改动较大 → 留 follow-up（与 claude restart cancel-guard follow-up 同批 parity 收口）。
+          return fbResult.finalSessionId;
+        }
+        // fellBack=false → fall through 到正常 resume 路径（jsonl 在，行为与修前 direct createSession 一致）
+
         const handle = await this.ctx.createSession({
           cwd: rec.cwd,
           prompt: handoffPrompt,
@@ -150,6 +286,12 @@ export class RestartController {
           // 显式传 cli sid 让 codex SDK resumeThread 拿正确 thread_id (反向 rename 后两者不同时)。
           resumeCliSid: rec.cliSessionId ?? sessionId,
           codexSandbox: sandbox,
+          // **REVIEW_101 R1 MED（restart 丢 model）**: 透传 rec.model 与 recover-and-send-impl.ts:406 对称。
+          model: rec.model ?? undefined,
+          extraAllowWrite: rec.extraAllowWrite ?? undefined,
+          // **REVIEW_101 R1 cancel-guard**: 传 cancelCheck 让 create-session-resume.ts:55 在
+          // sessions.set 前查 epoch（pre-registration await 窗口内 close → throw sentinel abort）。
+          cancelCheck: cancelGuard,
         });
         // **plan reverse-rename-sid-stability-20260520 §C.2 反向 rename 修订**:
         // codex resume 路径下 applicationSid 全程不变 = sessionId;
@@ -159,6 +301,18 @@ export class RestartController {
         // (commit 6e0eb37 / REVIEW_40 注释);thread-loop case 3 是 SSOT。
         return handle.sessionId;
       } catch (err) {
+        // **REVIEW_101 R1 cancel-guard 统一 abort 收口（对称 recover-and-send-impl.ts:439）**:
+        // sentinel special-case 必须在 generic catch **之前**。用户在 restart createSession await
+        // 窗口内 close（epoch 变）→ maybeCodexJsonlFallback aborted / create-session-resume
+        // pre-registration guard 都 throw RecoveryCancelledError。此时 lifecycle 已是用户想要的
+        // closed，**不**回滚 sandbox（回滚会 emit session-upserted 让已 closed 会话下拉值闪动）、
+        // **不** emit「切到 sandbox 失败」红字（用户主动 close 不该看到切档失败错误）。静默结束。
+        if (isRecoveryCancelledError(err)) {
+          logger.warn(
+            `[codex-bridge] restartWithCodexSandbox aborted (session closed during restart): ${sessionId}`,
+          );
+          return sessionId; // 静默结束（lifecycle 已是用户想要的 closed，无需回滚 / 不抛错给 renderer）
+        }
         // 回滚：DB 改回 oldSandbox + emit session-upserted 让下拉回弹 + emit error message。
         // **REVIEW_80 MED 修法 (a)（reviewer-claude 补充细节）**: rollback write 自身必须包
         // try/catch — 修前 line 152 裸调 setCodexSandbox(oldSandbox)，持续性 DB 故障下回滚再

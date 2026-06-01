@@ -168,6 +168,14 @@ export class CodexSdkBridge {
       // thunk 反调本 facade 的 closeSession / createSession，避免直接持有 facade ref
       closeSession: (sessionId: string): Promise<void> => this.closeSession(sessionId),
       createSession: (restartOpts) => this.createSession(restartOpts),
+      // **REVIEW_101 R1 双方共识合并修法（codex restart 接入 maybeCodexJsonlFallback）**:
+      // restart 与 recoverer 共享同一份 jsonl 探测 + 历史注入 thunk instance（对齐 claude RestartCtx）。
+      // 让 restartWithCodexSandbox 冷切 sandbox 时 jsonl 缺失走 fresh-cli-reuse-app fallback 而非
+      // resumeThread earlyErr 回滚切档失败（修前 codex restart 完全无 jsonl 处理，claude restart 已有）。
+      jsonlExistsThunk: (threadId, startedAt) => this.codexResumeJsonlExists(threadId, startedAt),
+      summariseFn: (cwd, events) => this.summariseForHandOff(cwd, events),
+      listEventsFn: (sid) => this.listEventsForSession(sid),
+      listMessagesFn: (sid, limit, beforeId) => this.listRecentMessagesForSession(sid, limit, beforeId),
     };
     this.restartController = new RestartController(restartCtx);
 
