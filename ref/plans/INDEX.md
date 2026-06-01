@@ -71,3 +71,4 @@
 | [runtime-logging-electron-log-20260529.md](runtime-logging-electron-log-20260529.md) | completed | [178](../changelogs/CHANGELOG_178.md) | runtime-logging-electron-log-20260529 |
 | [issue-tracker-mcp-20260529.md](issue-tracker-mcp-20260529.md) | completed | [180](../changelogs/CHANGELOG_180.md) | issue-tracker-mcp-20260529 |
 | [deep-review-and-asset-polish-20260530.md](deep-review-and-asset-polish-20260530.md) | completed | [181](../changelogs/CHANGELOG_181.md) / [182](../changelogs/CHANGELOG_182.md) / [183](../changelogs/CHANGELOG_183.md) / [184](../changelogs/CHANGELOG_184.md) / [185](../changelogs/CHANGELOG_185.md) | deep-review-and-asset-polish-20260530 |
+| [deep-review-project-20260531.md](deep-review-project-20260531.md) | completed | [190](../changelogs/CHANGELOG_190.md) | deep-review-project-20260531 |
