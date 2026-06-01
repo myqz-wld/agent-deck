@@ -1,4 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
+import log from '@renderer/utils/logger';
+
+const logger = log.scope('log-viewer');
 
 // Monaco 体积大，懒加载（与 diff/renderers/TextDiffRenderer.tsx 同款 lazy import 模式，
 // 但这里用单文件 Editor 而非 DiffEditor）。
@@ -6,6 +9,41 @@ const Editor = lazy(async () => {
   const mod = await import('@monaco-editor/react');
   return { default: mod.Editor };
 });
+
+/**
+ * Monaco lazy import 专用 local ErrorBoundary（REVIEW simple-review log+asset [MED reviewer-claude] 修法）。
+ *
+ * **为何需要**：`<Suspense>` 只接 pending promise，**不接 rejection**（React 语义）。dynamic
+ * import('@monaco-editor/react') 失败（chunk 404 / hash 对不上 / 网络）时 lazy 组件 render 期
+ * re-throw → 无 local boundary 时冒泡到 main.tsx 唯一的 RootErrorBoundary → 整 app 渲染持久
+ * 「Renderer crashed」全屏崩溃屏（无 auto-dismiss，须 remount 才恢复）。一个日志查看小功能的
+ * chunk 失败不应打死整 app。本 boundary 把失败收敛成模态内 localized 提示，引导用户改用
+ * 「打开日志目录」。（sibling TextDiffRenderer 当前无 local boundary，是既有 tradeoff，本次不一并改。）
+ */
+class MonacoErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+  // REVIEW (simple-review log+asset) [LOW reviewer-claude] 修法：补 componentDidCatch 落 logger。
+  // 没有它则 lazy import reject 被本 boundary 抢先接住后静默吞掉（改前是冒泡到 main.tsx
+  // RootErrorBoundary.componentDidCatch 落 logger.error）→ Monaco chunk 真失败（stale deploy /
+  // hash 对不上，项目打包踩坑有先例）时开发侧日志查无线索。getDerivedStateFromError 已够触发
+  // fallback render，componentDidCatch 仅补可观测性（正交）。
+  componentDidCatch(error: Error): void {
+    logger.error('monaco editor lazy load failed', error);
+  }
+  render(): ReactNode {
+    if (this.state.failed) {
+      return (
+        <div className="flex h-full items-center justify-center p-3 text-center text-[11px] text-status-waiting">
+          日志视图加载失败（Monaco 资源未能加载）。请改用「打开日志目录」查看原始文件。
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 interface LogReadResult {
   ok: boolean;
@@ -119,30 +157,32 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
               今天还没有日志
             </div>
           ) : result?.content != null ? (
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
-                  加载日志视图…
-                </div>
-              }
-            >
-              <Editor
-                height="100%"
-                language="plaintext"
-                theme="vs-dark"
-                value={result.content}
-                options={{
-                  readOnly: true,
-                  minimap: { enabled: false },
-                  fontSize: 11,
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  wordWrap: 'on',
-                  overviewRulerLanes: 0,
-                  lineNumbers: 'on',
-                }}
-              />
-            </Suspense>
+            <MonacoErrorBoundary>
+              <Suspense
+                fallback={
+                  <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
+                    加载日志视图…
+                  </div>
+                }
+              >
+                <Editor
+                  height="100%"
+                  language="plaintext"
+                  theme="vs-dark"
+                  value={result.content}
+                  options={{
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    fontSize: 11,
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    wordWrap: 'on',
+                    overviewRulerLanes: 0,
+                    lineNumbers: 'on',
+                  }}
+                />
+              </Suspense>
+            </MonacoErrorBoundary>
           ) : (
             <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
               读取中…
