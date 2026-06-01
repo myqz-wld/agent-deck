@@ -1,4 +1,5 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import log from '@renderer/utils/logger';
 
 const logger = log.scope('log-viewer');
@@ -64,10 +65,13 @@ interface Props {
  * 应用内日志查看 modal（替代原「在 Finder 中显示」外部跳转）。
  *
  * - 通过 `window.api.logsReadToday()` 读当天 main-YYYY-MM-DD.log，用只读 Monaco Editor 展示。
- * - **定位**：`fixed inset-0 z-[60]` —— 必须 `fixed` 而非 `absolute`：LogsSection 嵌在
- *   SettingsDialog 的 `overflow-y-auto max-h-[85%]` 卡片内，`absolute` 会被该 overflow 裁掉且
- *   定位到错误祖先；`fixed` 逃逸 overflow + 豁免 `.frosted-frame > *:not(.fixed)` 强制 relative
- *   规则（globals.css）。z-[60] 高于 SettingsDialog(z-40) 与 ContentViewerModal(z-50)。
+ * - **定位**：用 `createPortal` 渲染到 `document.body` + `fixed inset-0 z-[60]` 全屏覆盖。
+ *   **必须走 portal**：LogViewerModal 的祖先链里 FloatingFrame(.frosted-frame) 与 SettingsDialog
+ *   外层都带 `backdrop-filter`，而 CSS 规范下 backdrop-filter（同 transform / filter）会把后代
+ *   `position: fixed` 的 containing block 从 viewport 改成该祖先 → `fixed inset-0` 被困在设置面板
+ *   矩形内，再被卡片 `overflow-y-auto max-h-[85%]` 裁掉（截图 bug 现象）。portal 让 modal 脱离整条
+ *   backdrop-filter 祖先链，fixed 才真正相对 viewport。z-[60] 高于 SettingsDialog(z-40) 与
+ *   ContentViewerModal(z-50)。
  * - 刷新按钮重新拉取（日志是滚动写入的，查看期间可能有新行）。
  * - 空态（existed:false）/ 截断 banner（truncated:true，main 端 > 2MB 只返尾部 2MB）。
  */
@@ -109,7 +113,7 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="frosted-frame fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="no-drag flex h-[80%] w-[80%] max-w-[900px] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
         <header className="mb-2 flex items-center justify-between gap-2">
@@ -190,6 +194,7 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
