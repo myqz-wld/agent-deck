@@ -73,3 +73,4 @@
 | [deep-review-and-asset-polish-20260530.md](deep-review-and-asset-polish-20260530.md) | completed | [181](../changelogs/CHANGELOG_181.md) / [182](../changelogs/CHANGELOG_182.md) / [183](../changelogs/CHANGELOG_183.md) / [184](../changelogs/CHANGELOG_184.md) / [185](../changelogs/CHANGELOG_185.md) | deep-review-and-asset-polish-20260530 |
 | [deep-review-project-20260531.md](deep-review-project-20260531.md) | completed | [190](../changelogs/CHANGELOG_190.md) | deep-review-project-20260531 |
 | [followup-cleanup-20260601.md](followup-cleanup-20260601.md) | completed | [REVIEW_96](../reviews/REVIEW_96.md) | deep-review-project 遗留 11 条 follow-up 清理(MCP handlers / archive-plan / worktree / scheduler / message-repo / image-uploads + 测试网) |
+| [sqlite-tests-no-skip-20260601.md](sqlite-tests-no-skip-20260601.md) | completed | — | sqlite-tests-no-skip-20260601 |
