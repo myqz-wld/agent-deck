@@ -207,6 +207,77 @@ export const eventRepo = {
     }
   },
 
+  /**
+   * plan resume-inject-raw-messages-20260601 §D5：拉最近 N 条「对话消息」（kind='message'
+   * 且 role ∈ {user, assistant} 且 error 非真），给 jsonl-missing fallback 注入「最近原始
+   * 对话消息段」用（与 LLM 总结段双数据源并列 — 总结段喂全量 events 出 4 节结构，原始消息
+   * 段只要干净的 role/text 对话）。
+   *
+   * **为什么不复用 listForSession 再 JS 侧过滤**（plan §D5 R1 MED）：
+   * - listForSession 默认 limit=200，tool 密集会话最近 200 条事件可能被 tool-use-start/end /
+   *   file-changed / waiting-for-user 占满，0 条 message kind → 想要的「最近 N 条对话」根本
+   *   取不到。SQL 直接 `WHERE kind='message' + role IN` 拿正好 N 条对话，不受 raw events 密度影响。
+   *
+   * **beforeIdInclusive 排除「当前消息」**（plan §D4 R2/R3 MED）：recover 路径在起 fresh CLI
+   * 之前会先 emit 一条 user message 落库（recover-and-send-impl entry，与 live 主路径时机对称），
+   * fallback 查最近 N 时会把它查进来 → 与拼接末段「用户当前消息」重复 + 白占 1 slot。caller
+   * 在 emit **之前**捕获 `maxEventId(sessionId)` 作 beforeIdInclusive 传入，SQL 加 **`AND id <= ?`**：
+   * - `<=` 而非 `<`（plan §D4 off-by-one）：emit 前的 max id = 最后一条真实历史本身，`id < ?`
+   *   会把它一起漏掉；`<=` 保留「emit 前的全部历史」+ 排除 emit 出的当前消息（其 id > beforeId）。
+   * - 不传（restart 路径 / maxEventId 取不到的降级）→ 不加边界，退化为「查最近 N」（caller 自己
+   *   兜底去重末条，详 helper）。
+   *
+   * **排序 / tie-breaker**（plan §D4 R1 LOW + REVIEW_83）：`ORDER BY ts DESC, id DESC LIMIT N`
+   * 取最新 N 条（id 作 secondary key 防同毫秒逆序，与 listForSession F3 同款）。caller 拿到后
+   * 自己 `.reverse()` 成 chronological 升序（旧→新）拼接，本方法只负责「取最新 N 条」。
+   *
+   * SQL 注（与 findLatestAssistantMessage 同款范式）：sqlite3 json_extract 把 JSON true→1 /
+   * false→0 / 字段不存在→SQL NULL，所以 `error IS NULL OR error = 0` 同时覆盖「无 error 字段」
+   * 「error: false」「明确 null」。
+   */
+  listRecentMessages(
+    sessionId: string,
+    limit: number,
+    beforeIdInclusive?: number,
+  ): (AgentEvent & { id: number })[] {
+    const sql =
+      beforeIdInclusive !== undefined
+        ? `SELECT * FROM events
+           WHERE session_id = ?
+             AND kind = 'message'
+             AND json_extract(payload_json, '$.role') IN ('user', 'assistant')
+             AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+             AND id <= ?
+           ORDER BY ts DESC, id DESC LIMIT ?`
+        : `SELECT * FROM events
+           WHERE session_id = ?
+             AND kind = 'message'
+             AND json_extract(payload_json, '$.role') IN ('user', 'assistant')
+             AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+           ORDER BY ts DESC, id DESC LIMIT ?`;
+    const rows = (beforeIdInclusive !== undefined
+      ? getDb().prepare(sql).all(sessionId, beforeIdInclusive, limit)
+      : getDb().prepare(sql).all(sessionId, limit)) as Row[];
+    return rows.map(rowToEvent);
+  },
+
+  /**
+   * plan resume-inject-raw-messages-20260601 §D4：拿该 session 当前 events 表里的最大 id
+   * （无 row 返 null）。用途：recover 路径在 entry emit 「用户当前消息」**之前**捕获本值作
+   * `listRecentMessages` 的 beforeIdInclusive 边界，把随后 emit 出的当前消息排除在「最近原始
+   * 对话消息段」之外（避免与拼接末段「用户当前消息」重复）。
+   *
+   * **为什么不直接用 emit 返回值**（plan §D4 gap-1）：`emit` 返回 void（事件经 adapter →
+   * sessionManager.ingest 异步落库，调用方拿不到 insert id），且 eventRepo 此前无「拿 max id」
+   * 方法 → 必须独立查一次。`SELECT MAX(id)` 对 (session_id) 走主键扫描，开销可忽略。
+   */
+  maxEventId(sessionId: string): number | null {
+    const r = getDb()
+      .prepare(`SELECT MAX(id) as m FROM events WHERE session_id = ?`)
+      .get(sessionId) as { m: number | null };
+    return r.m;
+  },
+
   deleteForSession(sessionId: string): void {
     getDb().prepare(`DELETE FROM events WHERE session_id = ?`).run(sessionId);
   },
