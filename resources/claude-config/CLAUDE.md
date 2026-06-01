@@ -530,30 +530,27 @@ dist/
 
 ## 提示词资产维护
 
-**适用范围**：长生命周期 prompt 资产 —— 本应用环境内即 `resources/claude-config/CLAUDE.md`（本文件）/ `resources/codex-config/CODEX_AGENTS.md` / `agent-deck-plugin/agents/reviewer-{claude,codex}.md` / `agent-deck-plugin/skills/*/SKILL.md` / 注入 SDK 的 mcp tool description / `resources/templates/` 模板。一次性 prompt（spawn 时临时拼的 reviewer prompt / hand-off cold-start prompt）**不在本节**。
+**改长生命周期 prompt 资产前必走本节**——即 `resources/claude-config/CLAUDE.md`（本文件）/ `resources/codex-config/CODEX_AGENTS.md` / `agent-deck-plugin/agents/reviewer-{claude,codex}.md` / `agent-deck-plugin/skills/*/SKILL.md` / 注入 SDK 的 mcp tool description / `resources/templates/` 模板。**不适用**：src/ 业务代码注释 / 一次性 prompt（spawn 临时拼的 reviewer / cold-start prompt）/ 历史快照（ref/ 下写定不改）。
 
-**何时适用**：改上述任一资产前必走 §修改前自检；新增资产文件同样适用。**何时不适用**：业务代码（src/ 下）注释 / 一次性 prompt / 历史快照（ref/changelogs/ ref/reviews/ ref/plans/ 写定不改）。
+**核心原则——受众优先**：这些资产是写给「读它的 agent」看的，不是写给维护者看的。每个单元（章节 / 工具描述）第一句先答**做什么 + 何时用**，让没读过代码的 agent 一眼知道何时调；调用契约 / 参数其次；内部不变量（§ref / 闭包机制 / 状态机细节）移到末尾或直接删。issue 工具长期没人调，就是因为描述开头全是 `§不变量` 而不是 trigger。
 
 ### 5 条硬约束
 
-1. **信息密度优先**：一段 = 一个判断；多处出现同款规则抽到一处，其他位置只 cross-ref 不复制；通读后 `grep '<关键短语>' <资产>` 命中 ≥ 2 处即冗余必合并（**例外**：reviewer-{claude,codex}.md §核心纪律 / SKILL inline 纪律 是有意独立注入 SDK 的 self-contained 副本，不按本约束抽 SSOT）
-2. **当前事实，不写兼容 / 预测**：禁「兼容旧 X / 过渡期 Y / 老版本仍可用 / 未来可能 X / TODO / FUTURE / 后续会加 Z」；废弃功能 / 字段 / 方法直接删不留 deprecated 注释；**例外**：「不要 X 因为以前撞过 Y」这种行为锚点（保留单点理由，如 EnterWorktree stale base bug callout）
-3. **可执行性 > 描述性**：写「做 X / 违反 X 直接拒绝 / 失败兜底走 Y」；不写「建议 X / 可以 X / 最好 X / 应该考虑 X」；模糊副词（"通常 / 一般 / 大概"）必须配「但 X 时例外」具体边界
-4. **范围与失败兜底显式**：每条约定写「何时适用 / 何时不适用 / 命中时做什么 / 失败兜底走哪」；没范围 = 默认全场景 = 易过度推广
-5. **示例克制**：一条规则一两个最具说明性示例足够；重复示例（"如：X / Y / Z" 中 Y/Z 与 X 同款）删 Y/Z；反例至少给一个具体样本
+1. **去重**：同款规则只在一处写全，其余 cross-ref 不复制；`grep '<关键短语>' <资产>` 命中 ≥ 2 处即合并。**例外**：reviewer-{claude,codex}.md §核心纪律 / SKILL inline 纪律是有意独立注入 SDK 的 self-contained 副本，不抽 SSOT。
+2. **只写当前事实**：禁「兼容旧 X / 过渡期 / 老版本仍可用 / 未来可能 / TODO / FUTURE / 后续会加」；废弃的功能 / 字段直接删，不留 deprecated 注释。**例外**：「不要 X，以前撞过 Y」这种行为锚点保留理由（如 EnterWorktree stale base bug callout）。
+3. **可执行 > 描述**：写「做 X / 违反直接拒绝」，不写「建议 / 最好 / 可以 / 应该考虑」；模糊副词（通常 / 一般 / 大概）必须配「但 X 时例外」的具体边界。
+4. **少兜底**：只留**会改变 caller 下一步动作**的失败处理（如「失败走 Y」）。纯防御性实现细节（race / TOCTOU / EXDEV / "仅 warn 不阻塞" / 穷举 error reason）属代码注释，不进 agent 读的描述。
+5. **示例克制**：一条规则一两个最具代表性的示例够了；同款重复示例（"如 X / Y / Z" 里 Y/Z 与 X 雷同）删掉。
 
-### 修改前自检（按约束顺序 5 步，任一阻断必改完再 commit）
+### 修改前自检（grep 命中即按对应约束处理，全过再 commit）
 
-1. **约束 1 自检**：`grep '<关键短语>' <file>` 命中 ≥ 2 → 合并到一处其他位置 cross-ref（reviewer body / SKILL inline 副本除外）
-2. **约束 2 自检**：`grep -nE '兼容|FUTURE|TODO|未来|向后|deprecated|过渡期|后续会加|老版本' <file>` 命中 ≥ 1 → 删（meta 引用 / 行为锚点反例除外，需在 commit message 注明）
-3. **约束 3 自检**：`grep -nE '建议|应该考虑|最好|可以(用|走|考虑)|大概率?|通常|一般' <file>` 命中 → 改成「做 X / 违反直接拒绝」可执行动作，或配「但 X 时例外」具体边界
-4. **约束 4 自检**：通读节标题清单，每节有无「何时适用 / 失败走哪」？无则补
-5. **约束 5 自检**：`grep -nE '如[:：]|例如|比如' <file>` 命中后看示例数 ≥ 3 → 与首示例同款的删
+1. **去重**：`grep '<关键短语>' <file>` ≥ 2 → 合并（reviewer / SKILL inline 副本除外）
+2. **当前事实**：`grep -nE '兼容|FUTURE|TODO|未来|向后|deprecated|过渡期|后续会加|老版本' <file>` ≥ 1 → 删（meta 引用 / 行为锚点除外）
+3. **可执行**：`grep -nE '建议|应该考虑|最好|可以(用|走|考虑)|大概率?|通常|一般' <file>` → 改成可执行动作或配具体边界
+4. **首句 trigger + 少兜底**：通读每节 / 每个工具描述首句——是否先答「做什么 + 何时用」？防御性兜底是否塞进了描述？无 trigger 则补，防御细节则删回代码注释
+5. **示例**：`grep -nE '如[:：]|例如|比如' <file>` 命中后看示例数 ≥ 3 → 删雷同的
 
-### 失败兜底
-
-- 自检 grep 工具不可用 / 阈值假阳性 → 降级人工 review，不阻断 commit；commit message 注明「跳过自检 §N，理由：X」
-- 同款假阳性连续 ≥ 3 次 → 修订本节阈值或黑名单
+grep 工具不可用 / 假阳性 → 降级人工 review，不阻断 commit，commit message 注明「跳过自检 §N，理由」。
 
 
 ## Agent Deck Universal Team Backend
@@ -636,133 +633,78 @@ claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调
 
 ### plan hand-off 自动化：archive_plan
 
-`archive_plan` 在 plan 完成后**原子执行** **本文件** §Step 4「完成」5 步：ff merge worktree branch → `base_branch`（plan frontmatter 字段值）/ 更新 frontmatter (`status=completed` + `final_commit` + `completed_at`) / mv plan → `<main-repo>/ref/plans/<plan-id>.md` / **如 plan 有 spike-reports/ → mv `<plan-artifact-dir>/spike-reports/` → `<main-repo>/ref/plans/<plan-id>/spike-reports/`** / 同步 `<main-repo>/ref/plans/INDEX.md` / `git add` + commit / `git worktree remove` + `git branch -D`。caller 调用前必须先 `ExitWorktree(action: "keep")`。
+plan 完成后一行原子收口，替代 §Step 4「完成」5 步手工序列：ff-merge worktree branch 回 `base_branch` → 改 frontmatter（status=completed + final_commit + completed_at）→ mv plan 到 `<main-repo>/ref/plans/`（有 spike-reports/ 一并归档）→ 同步 INDEX → commit → 删 worktree + branch。**调用前先 `ExitWorktree(action: "keep")`** 把 cwd 切出 worktree（mcp 不能替你调 ExitWorktree）。
 
-**调用**：`mcp__agent-deck__archive_plan({ planId, worktreePath, baseBranch?: <plan frontmatter.base_branch ?? "main">, planFilePath?, changelogId? })`(`baseBranch` 默认值:schema 优先读 plan frontmatter.base_branch,缺失才 fallback "main")
-**返回**：`{ archivedPath, commitHash, branchDeleted, worktreeRemoved, plansIndexAction: 'created'|'appended'|'updated'|'unchanged', finalStatus, warnings: string[], spikeReportsArchived: { srcPath, dstPath } | null, archived: 'ok'|'failed'|'skipped', teammatesShutdown: { closed, failed, skipped } }`
+**调用**：`mcp__agent-deck__archive_plan({ planId, worktreePath, baseBranch?, planFilePath?, changelogId? })`
+- `baseBranch` 不传默认读 plan frontmatter.base_branch，缺失才 fallback "main"
+- `changelogId` 关联 changelog 编号（`"122"` 或 `"121,122"`），写进 INDEX 链接列
+- `planFilePath` 省略则按 `.claude/plans/` > `ref/plans/` > `~/.claude/plans/` 找；传了则文件名 stem 必须 == planId
 
-**app-only 差异**：
+**返回**：`{ archivedPath, commitHash, branchDeleted, worktreeRemoved, plansIndexAction, finalStatus, warnings, spikeReportsArchived, archived, teammatesShutdown }`
 
-- **预检短路**：plan status ≠ in_progress / worktree dirty / cwd 在 worktree 内 / detached HEAD 任一命中 → 立即返回 error，不做部分回滚（git 操作不可逆）
-- **lead 必须先 ExitWorktree**：mcp 不能调 ExitWorktree CLI 内部 tool；cwd 在 worktree 内时 tool 直接 reject
-- **自动归档 caller session**：plan 收口后默认归档 caller（baton 同款语义），返回 `archived` 三态字段；归档失败仅 warn 不阻塞 ok return
-- **abandoned plan 不走本 tool**：tool 强制 `status=completed` 且入项目 git 归档；abandoned 走 **本文件** §Step 4 §中止 手工流程
-- **changelog 引用归档** agent 自己写（tool 不做）
-- **spike-reports/ 自动归档**：detect `<plan-artifact-dir>/spike-reports/` 存在（`<plan-artifact-dir>` = `<plan-file-dir>/<plan-id>/`，即 plan 文件父目录下的同名 artifacts 目录）→ mv 到 `<main-repo>/ref/plans/<planId>/spike-reports/`（plan .md 同名子目录与 plan .md 平级，约定 plan .md 是主体 + 同名目录是 artifacts），spike-reports/ 子目录递归入 git 归档 commit。不存在 → skip 不报错（trivial plan 无 spike 是合法场景）。mv 失败（EXDEV 跨 fs / perm）→ warnings 落 hint「spike-reports archive failed: ... Manually run \`mkdir -p && mv && git add+commit --amend\`」+ 不阻塞 ok return。`spikeReportsArchived` 字段告诉 caller 实际归档结果（null = skip / `{srcPath, dstPath}` = 成功）
-- **UX 完善**：
-  - fallback 链 `<main-repo>/.claude/plans/` > `<main-repo>/ref/plans/` > `~/.claude/plans/`(加中间档兜底本项目实际惯例)
-  - `planFilePath` 文件名 stem 必须 == `planId`(impl 层 reject 防 silent unlink)
-  - INDEX 4 列 canonical `| 文件 | 状态 | 关联 changelog | 概要 |` + smart update existing 行(替换 status / changelog / description)
-  - `changelogId` optional string + csv(单值 `"122"` / 多值 `"121,122"`),拼成 markdown link 写入 INDEX 第 3 列;不传时 smart update 保留老 4 列 changelog 列 / 旧 2 列或新 append 用 `—` placeholder
-  - `plansIndexAction` 四态 enum 替代旧 boolean,让 caller 区分 INDEX 行真正发生的事情
-  - `warnings` non-fatal warning 数组(如 `.claude/plans/<id>.md` 与 `ref/plans/<id>.md` 同 id 双存覆盖警告 — 走 warn 而非 reject)
-  - 7 phase post-ff-merge 失败专用 phaseHint 给具体 manual recovery 决策树
-- **mainRepo dirty precheck 精确化**：仅 reject 三具体路径 `{archivedPath, indexPath, planFilePath}` 命中 dirty / staged / untracked / R rename / C copy（含 old/new path 任一命中）— 其他无关 dirty 文件降 warning + commit message 注脚（commit pathspec 隔离不吞）。precheck 失败时 hint 软引导 caller fix 撞 critical paths 后重 invoke archive_plan，**或** 走 §escape hatch: shutdown_baton_teammates 补跑 baton-cleanup phase 1（如 caller 必须手工归档场景）— 不硬技术阻断手工归档（**本文件** §Step 4 5 步手工归档仍是合法 fallback）
+**要点**：
+- **预检失败立即返 error 不回滚**（git 不可逆）：plan status ≠ in_progress / worktree dirty / cwd 还在 worktree 内 / detached HEAD。dirty 只卡 plan 相关路径（plan 文件 / INDEX / 归档目标），无关 dirty 文件放行
+- **默认归档 caller + 关掉同 team teammate**（baton 语义）
+- **abandoned plan 不走本 tool**（强制 completed）→ 走 §Step 4 §中止 手工流程
+- **changelog 内容 agent 自己写**（tool 只更新 INDEX 链接）
+- 预检失败但你已手工归档 → 用 §escape hatch shutdown_baton_teammates 补关 teammate
 
 ### escape hatch: shutdown_baton_teammates
 
-`shutdown_baton_teammates` 让 caller 手工归档 plan 后**补跑** baton-cleanup phase 1（同 team 其他 active+dormant teammate 一并 close + 成员关系软退出）。仅供 archive_plan 撞 precheck fail / 历史 dormant 残留清理使用。
+手工归档 plan（绕过 archive_plan tool）后，用它补关同 team 的 reviewer teammate——否则它们衰减成 dormant 但没 closed，白占内存。archive_plan 正常跑时已含这步，不必再调。
 
-**调用**：`mcp__agent-deck__shutdown_baton_teammates({ callerSessionId?, planId? })`
-**返回**：`{ closed: string[], failed: Array<{sessionId,reason}>, skipped: null, planId: string | null }`
+**调用**：`mcp__agent-deck__shutdown_baton_teammates({ planId? })`
+**返回**：`{ closed, failed, skipped: null, planId }`
 
-**典型场景**：
-
-archive_plan tool 撞 mainRepo dirty / cwd resilience guard 等 precheck fail → caller 走 **本文件** §Step 4 5 步手工归档绕过 archive_plan tool（commit + mv plan + git worktree remove + branch -D）→ baton-cleanup phase 1 没被自动跑到 → 同 team teammate（reviewer-claude / reviewer-codex 等）自然衰减成 dormant 但**没** closed，占内存 + SDK live query。本 tool 让 caller 显式补跑 phase 1。
-
-**与 archive_plan 的边界**：
-
-- archive_plan 是 plan 收口 tool（git ff-merge / mv plan / commit / git worktree remove）+ default baton-cleanup phase 1+2(archive_plan 不再支持 phase 1 跳过)
-- `shutdown_baton_teammates` 是「补跑 phase 1」的独立 tool，**不**做任何 git/fs 归档操作；**不**调 phase 2 archive caller（caller 决定何时 archive；典型场景 caller 已手工归档完毕）
-
-**错误契约**：
-
-- caller 不在任何 team 是 lead（caller 是 teammate / 无 active membership / 所有 caller-lead 团队都已 archive）→ **error + hint**（**非** silent return success — escape hatch 是 caller 显式请求 cleanup，no-op 误导 caller 以为成功了）。hint 指向应用 UI Team 面板「Shutdown all teammates」入口（不要求 caller 是 lead）
-- helper 自身抛错（DB SQLite locked / session close abort 等）→ error + console.warn，**不**像 archive_plan / hand_off_session 兜底 warn 不阻塞（本 tool 是 escape hatch，helper 失败就是补跑没成功，需让 caller 显式知道）
-
-**deny external caller**：session close 是写操作 + caller=lead 反查需要真实 callerSessionId，绝不允许 stdio external client 调用（避免被恶意 mcp client 利用清理任意 team session）。
+- 只关 teammate，**不**做 git/fs 归档、**不**归档 caller 自己
+- caller 在任何 team 都不是 lead → 返回 error（不是静默成功），按 hint 走 UI Team 面板
+- deny external caller
 
 ### plan hand-off 自动化：hand_off_session
 
-`hand_off_session` 起新 SDK session 接力 + 自动归档 caller。**双模式**：plan-driven 传 `planId`（读 plan frontmatter，要求 `status: in_progress` + 有 `worktree_path`（frontmatter 字段名 snake_case），cold start prompt = `按 <plan-abs-path> 接力`，可附 `phaseLabel`）；generic 不传 `planId`（不读 plan，cold start prompt = `args.prompt` 或默认「从上一个会话接力继续工作」）。
+起新 SDK session 接力当前工作 + 默认归档 caller（单向 baton）。**两种模式**：传 `planId` = plan-driven（读 frontmatter，要求 status=in_progress + 有 worktree_path，cold-start prompt 自动 = `按 <plan-abs-path> 接力`）；不传 = generic（cold-start prompt = 你传的 `prompt`）。
 
 **调用**：`mcp__agent-deck__hand_off_session({ planId?, phaseLabel?, prompt?, cwd?, adapter?: "claude-code", teamName?, permissionMode?, planFilePath?, archiveCaller?: true, adoptTeammates?: false, teamTaskPolicy?: 'clear-team' | 'preserve-team' | 'skip' })`
-**返回**：`{ mode: 'plan'|'generic', planId, planFilePath, worktreePath, initialPrompt, sessionId, cwd, teamId, teamName, spawnPromptMessageId, archived, teammatesShutdown, taskReassignment, ... }`
+**返回**：`{ mode, planId, worktreePath, sessionId, cwd, teamId, archived, teammatesShutdown, taskReassignment, ... }`
 
-**app-only 差异**：
+**要点**：
+- **cwd**：plan-driven 默认 mainRepo（worktree 被 archive_plan 删后仍 valid，新 session 自己 EnterWorktree 进去）；generic 默认 caller cwd。当前 cwd 不对就显式传——别在本 session `cd`（Bash 跨 turn 切 cwd 不持久）
+- **archiveCaller**（默认 true）：单向 baton。传 false 让 caller 留着并行做事（如自己继续看 reviewer reply），可多次起 session
+- **teamName**（默认不加）：纯 baton 不需要；要让新 session 和原 teammate 继续通信才传
+- **adoptTeammates: true**：新 session 接管 caller 的 team 当 lead，原 teammate 继续可达。要求 caller 至少在一个 team 是 lead，且与 teamName 互斥
+- **新 session cold-start 5 步**（plan-driven）：见 §复杂 plan workflow §Step 3 选项 A（cat plan → EnterWorktree(path:) → git log 自检 → 按「下一会话第一步」动手）
+- **prompt 太长装不下** → 先落盘 `/tmp/handoff-<id>.md`，prompt 写「先 `Bash: cat <abs-path>` 再按文件推进」
+- **要并行子任务而非交接身份** → 用 `spawn_session` 不是 hand_off_session
 
-- **cwd resilience**：plan-driven 默认 `cwd = mainRepo`（fallback 链 `args.cwd > resolved.mainRepo > resolved.worktreePath`），让 session 记录的 cwd 在 worktree 被 archive_plan 删后仍 valid；新 session 自己按 **本文件** §Step 3 cold-start `EnterWorktree(path: worktreePath)` 进 worktree。generic 默认 `cwd = caller cwd`
-- **hand-off 完全独立于 spawn-guards / 永不写 spawn-link**:`hand_off_session` 内部调 spawn 时传 `handOffMode: true`,让 spawn handler **完全跳过** spawn-guards 三道防御(depth check + fan-out + spawn-rate)+ **永不写** spawn-link 关系(parent 指针 / depth 字段保持 null/0)。理由:hand-off 是「平级接力 + 接管 lead 身份」语义不是 spawn 派遣关系（「平级接力」不是「派出小弟干活」）,数据层不应记录 spawn-link 让 SessionList 树形分组错挂 teammate badge。**统一行为**:无论 `archiveCaller` 值(default true / 显式 false)/ `adoptTeammates` 值(default false / true),hand-off 路径行为完全一致 — 新 session 在 SessionList 呈现为独立 root,不显示与 caller 任何 spawn 关系。**`archiveCaller: false × N` 滥用风险**:caller 持 false × N 次起 N 个 session 是合法 power-user 路径(典型 lead 起多 hand-off 子任务自己仍想看 reviewer reply / debug 工具用例),应用层不阻止 — power-user 自负责任
-- **archive 默认 true,可 opt-out**：caller 无论 untracked / dirty / 已加入 team 都归档（default）；typical baton 语义「任意时刻单 in-flight session」自然成立。**例外 opt-out**：caller 显式传 `archiveCaller: false` 跳过归档（罕见场景：lead 起多个 hand-off 子任务并行做事自己仍想看 reviewer reply / 出 summary；debug 工具想起新 session 实测某 plan 但 caller 仍要观察）。`archiveCaller: false` 时 ok return.archived === "skipped"
-- **default 不加 team**：baton 单向交接不强加 lead/teammate 关系;显式 `teamName` 才启用通信
-- **adoptTeammates 选 in 接管 caller 同 team 当 lead**:default false 走纯 baton(原 teammate 与新 session 失去 shared active team,`send_message` 撞 no-shared-team)。**`adoptTeammates: true`** 让新 session 接管 caller 同 team 当 lead,原 teammate 与新 session 共享 active team 可继续 send_message 沟通。**≥1 lead 硬约束**:caller 在所有 team 都不是 lead → handler spawn 之前 fail-fast 返 error,不 spawn / 不 archive caller。**与 teamName 互斥**:adopt 路径自动过继 caller 自己 team,与显式额外 team 语义冲突。**archived team / archived teammate filter**:caller 在 archived team 的 ghost membership(role 不论 lead / teammate)push failed reason='team-archived';archived teammate(session 已归档)进 failed reason='session-archived' + cold-start prompt 装配时已过滤(避免新 session 调 send_message 撞 shared-active-team 解析的 archived 过滤)。Detail 见 ok return.adopted 字段:`{ preserved, failed, teamsTotal, teamsAdopted, firstTeamId } | null`(adoptTeammates: true 时 non-null;`failed.reason` 取值 `'caller-not-lead-in-team' / 'team-archived' / 'swap-lead-failed: ...' / 'swap-lead-error: ...' / 'session-missing' / 'lifecycle-closed' / 'session-archived'`)。
-- **预检短路**：plan-driven 模式 plan 文件不存在 / status ≠ in_progress / frontmatter 缺 `worktree_path` / spawn 失败 → 立即返回 error
-- **新 session cold-start 5 步**（plan-driven 模式；本文件含 §复杂 plan workflow 让 cold start prompt「按 <plan-abs-path> 接力」可识别,self-contained）：① `Bash: cat <plan-abs-path>` 全文 → ② frontmatter 取 `worktree_path`（snake_case key）→ ③ `EnterWorktree(path: <worktree-path-value>)` 进 worktree（用 `path` 不用 `name` 避开 v2.1.112 stale base bug）→ ④ `git log --oneline -3` 自检 HEAD = frontmatter `base_commit` 或之后 → ⑤ 按 plan §下一会话第一步 直接动手。详细约定见**本文件** §复杂 plan workflow §Step 3 接力姿势节
-- **task 自动过继 + teamTaskPolicy 三态**: spawn 完成 + 新 sid 落 DB + adopt 完成后、archive caller 之前, 按 `teamTaskPolicy` 三态处理 caller owned task。**过继 ownership 不刷 `updated_at`** 让 list 默认排序保持稳定。
-  - **`'clear-team'`** (default): `UPDATE tasks SET owner_session_id=newSid, teamId=NULL WHERE owner_session_id=callerSid` — 过继 ownership 同时清 teamId 变 personal。适用面最广,newSid 拿到的 task 都是 personal,caller==owner 写权限路径直接生效;newSid 不必加任何 team 就能继续 own / read / write 全部过继的 task。typical baton 场景首选,task 不丢
-  - **`'preserve-team'`** (caller 自负责任): `UPDATE tasks SET owner_session_id=newSid WHERE owner_session_id=callerSid`(不动 teamId)。caller 想让 newSid 接管 team-bound task 同时继承 team 上下文(典型与 `adoptTeammates=true` 配合让 newSid swapLead 接管 team 当 lead,team-bound task 仍指向同一 team newSid 可写)。**Caller 自负责任**:如 newSid 没成为对应 team 的 active member,newSid 撞写权限 reject — handler 不 hard reject 但 ok return `taskReassignment.policyWarning='preserve-team-unadopted-teams'` + `unadoptedTeamIds: string[]` 暴露差集 teamId
-  - **`'skip'`** (清理场景): 单 transaction 4 步原子化:SELECT caller owned team task ids → DELETE → cleanup blocks/blockedBy 引用 → reassign 剩余 personal task to newSid。caller 不希望 team-bound task 跨 baton 保留(典型 plan 收口后 abandon 中间 task);不依赖 caller archive 后 CASCADE — task 在 handoff 时被立即 DELETE 语义干净零中间窗口
-  - **`archiveCaller=false` 优先级**:caller 显式 `archiveCaller=false` 时 reassign 整段被 skip(caller 仍 active 继续 own 自己 task),`teamTaskPolicy` 不执行 — ok return `taskReassignment={status:'skipped', reason:'archive-caller-false', policy: <resolvedPolicy>}`(policy 字段仍透传 advisory)
-  - **失败兜底**: skip-policy / 过继 ownership 的 DB / SQL 异常都仅 warn 不阻塞 ok return — task 过继是 nice-to-have,baton 本质是 session 接力;caller 通过 ok return `taskReassignment` 字段(`'ok'+count+policy[+policyWarning+unadoptedTeamIds]` / `'failed'+error+policy` / `'skipped'+reason+policy`)看到结果。配合 ON DELETE CASCADE 让 caller archive 后被物理删时 task 已留新 session 名下不被 CASCADE 删
-- **ShutdownAllTeammates 不过继 task owner**:与 handOff caller→newSid 不对称。teammate 关闭后 task 仍在 teammate 名下,被历史保留期 TTL GC 触发物理删除时 CASCADE 删。teammate context 已死 task 本质无主,删干净是合理设计(配合 GC 主语义)。
-- **典型主动触发（generic mode）**：当前 cwd 不适合手头任务（cwd 已失效 / 不属目标 repo / 用户明示换目录 / 跨 repo 任务）→ 不要在当前 session 强行 `cd` / 跨目录绝对路径（**Bash / shell tool 跨 turn 起新子 shell,cwd 切换不持久** — claude Bash 与 codex shell 同款行为,每次 tool call 走 child_process,设了 `cd` 下次 turn 失效）,用 generic mode 显式传新 `cwd` + 自包含 `prompt` 接力到正确目录
-- **prompt 装不下完整 context 时**（必要信息务必传递完整，避免 hand-off 丢失大量上下文）：caller 先把 context 落盘到 `/tmp/handoff-<id>.md`（临时文件不用清理），prompt 起手写「先 `Bash: cat <abs-path>` 再按文件内指令推进」让新 session cold-start 第一步读全
-- **想保留 caller 不归档**：传 `archiveCaller: false`（详上 archive 默认 true 节）；要起独立 spawn 而非接力身份交接 → 用 `spawn_session` 替代 `hand_off_session`（spawn 出新 session 但不切接力身份，适合并行子任务）
+**caller 的 task 怎么过继**（`teamTaskPolicy`，仅 archiveCaller=true 时执行）：
 
-### recoverer cwd 启发式 fallback（兜底）
-
-caller 取消归档继续给已收口 plan-driven session 发消息（撞 cwd 失效）/ 用户手动 `git worktree remove` 不走 archive_plan / 跨设备同步丢目录 → sdk-bridge.recoverer 启发式找仍存在的祖先目录当 cwd 兜底（worktree 路径取段之前部分 / 父目录 walk 不超过 home），找到 → emit info + 强制走 jsonl missing fallback 同款下游（CLI 历史失但应用层 events / file_changes / summaries 子表保留）；找不到 → emit error 清晰告诉用户。
+| policy | 行为 |
+|---|---|
+| `clear-team`（默认）| task 过继给新 session 并清 teamId 变 personal——新 session 不必加 team 就能读写，最省心 |
+| `preserve-team` | 过继但保留 teamId（配合 adoptTeammates 让新 session 当 lead 后仍能写）。新 session 没进对应 team 则写不了，return 里 `policyWarning` 提示 |
+| `skip` | 直接删 caller 的 team task（plan 收口后丢弃中间 task），personal task 仍过继 |
 
 
 ## Issue 上报（report_issue / append_issue_context / update_issue_status）
 
-Agent 执行中踩到「需后续跟进的问题」→ 通过 mcp tool 落 issue tracker。**agent 以写为主**：`report_issue`（上报）+ `append_issue_context`（同 session 补现场）+ `update_issue_status`（源 / 解决会话自助改 status）3 个 write tool，无 list / get / delete — 查询 / triage / 软删全走应用 UI（agent 上报，真人 + 关联会话协同处置）。
+执行中踩到「该记下来、但不该现在动手」的问题 → 用 mcp tool 落 issue tracker，别默默吞掉。三个 write tool 的完整签名 / 参数见各自工具描述，本节只讲**何时用**。agent 只写不查（无 list / get / delete），查询 / triage / 删除走应用 UI。
 
 ### 何时上报
 
-执行中发现以下任一、且**不属于当前任务直接交付范围** → 上报 issue（而非默默吞掉 / 强塞进当前改动）：
+发现以下任一、且**不在当前任务交付范围内** → `report_issue`：
 
-| kind（soft enum） | 场景 |
+| kind | 场景 |
 |---|---|
 | `follow-up`（default）| 当前任务暴露的后续工作（本轮 scope 外但该做）|
 | `app-bug` | Agent Deck 应用本身的 bug |
 
-> 仅这 2 个推荐值；kind 是软枚举,需要时仍可传任意自定义字符串（UI 归到 "other" 分组）。
+**不上报**：
+- **当场能顺手修的，直接修**——report 是留给「scope 外 / 需后续跟进」的，不是给自己当下能解决的事记 TODO
+- 当前任务直接要交付的内容（直接做）
+- 一次性 trivial 观察
+- 怕重复而不报：agent 查不了已有 issue，宁可重报由 UI 合并
 
-**不上报**：**当场就能顺手修掉的，直接修，别 report**（report 是留给「本轮 scope 外 / 需后续跟进」的，不是给自己当下能解决的事记 TODO）；当前任务直接交付的内容（直接做）；一次性 trivial 观察；疑似重复 issue（agent 查不了已有 issue，宁可重报由 UI 合并，不要因怕重复而不报）。
+### 上报后
 
-### report_issue
-
-`mcp__agent-deck__report_issue({ title, description, kind?, severity?, repro?, labels?, cwd?, logsRef? })`
-
-| 字段 | 必传 | 说明 |
-|---|---|---|
-| `title` | ✓ | 1-200 字，一句话点题 |
-| `description` | ✓ | 1-2000 字，**self-contained**（triager 不读日志也能懂上下文）|
-| `kind` | optional | 见上表，default `follow-up`；非枚举值原样存，UI 归到 "other" |
-| `severity` | optional | strict enum `low` / `medium` / `high`，default `medium` |
-| `repro` | optional | 复现步骤 1-2000 字 |
-| `labels` | optional | 自由 tag，≤16 个 |
-| `cwd` | optional | **默认不传**，自动取 caller session cwd |
-| `logsRef` | optional | 日志指针（非日志内容）：`{ date: "YYYY-MM-DD", tsRange?, scopes?, note? }` |
-
-返回完整 IssueRecord（主键字段名是 `id`，**不是** `issueId`）；把该 `id` 作为 `append_issue_context` 入参 `issueId` 传入做同会话后续追加。
-
-### append_issue_context（source-bound）
-
-`mcp__agent-deck__append_issue_context({ issueId, additionalContext, logsRef? })` — 给**本会话自己上报过**的 issue 追加上下文。
-
-- **source-bound**：仅 `issue.sourceSessionId === 当前 caller` 才能 append；别人的 / 跨会话的 issue 一律 reject → 改用 `report_issue` 开新 issue（UI 手动合并）
-- **resolved / 软删 拒 append**：issue 已 resolved 或已被用户软删（隐藏）→ reject（源 / 解决会话可先用 `update_issue_status` 把 status 改回 open/in-progress 再 append；或 UI 端恢复 / 改回，或改用 `report_issue` 开新 issue）
-- 追加内容进独立子表，**不改**原 `description`；`logsRef` 合并规则：date 覆盖 / tsRange min-max 扩展 / scopes union 去重 / note 追加（**date 始终必填**，即使只更新 tsRange / scopes / note）
-
-### update_issue_status（源 / 解决会话自助改状态）
-
-`mcp__agent-deck__update_issue_status({ issueId, status, note? })` — 让 issue 的**源会话**（report 它的会话）或**解决会话**（UI「起新会话解决」起的会话）自己推进状态，不必劳烦用户去 UI 点。
-
-- **授权边界**：仅 `issue.sourceSessionId === 当前 caller` **或** `issue.resolutionSessionId === 当前 caller` 才放行；第三方会话 reject（其余请走 UI）。两者皆 null（会话被 GC）→ 只能走 UI。
-- **典型用法**：
-  - 你 report 的 issue 后来自己修好了 → `update_issue_status({ issueId, status: 'resolved', note: '简述怎么修的' })`
-  - 解决会话修完 → 同上自助标 resolved；没修好 / 需重开 → `status: 'open'` + note 说明原因
-- **status** 严格 3 态 `open` / `in-progress` / `resolved`；**note**（可选 1-2000 字）会作为一条「补充记录」留痕（怎么修的 / 为何 reopen）。
-- 软删 issue reject。
+- **补现场** → `append_issue_context`：给本会话刚 report 的 issue（用返回的 `id`）追加上下文。只能补自己的、还没 resolved 的 issue。
+- **改状态** → `update_issue_status`：自己修好了标 `resolved`，要重开标 `open`；仅源会话 / 解决会话能改，不用等人去 UI 点。
