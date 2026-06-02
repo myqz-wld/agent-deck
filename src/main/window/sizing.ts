@@ -33,11 +33,18 @@ export function toggleCompactImpl(state: FloatingWindowState): boolean {
     const [w, h] = state.win.getSize();
     // REVIEW_103 R2: 折叠瞬间用真实物理尺寸 (w,h) 捕获 custom 偏好 (按当前屏 max/default 判定 +
     // animate guard)。必须放在 lastNormalSize 覆盖之前传入 w/h —— 此刻 getSize() 是折叠前的
-    // 真实窗口尺寸,正是要记的「用户偏好」;下面 lastNormalSize=w/h 与 setSize(COMPACT) 之后就
-    // 拿不到了。capture 用 state.win.getBounds() 定位当前 display,与 lastNormalSize 无关。
+    // 真实窗口尺寸,正是要记的「用户偏好」;下面 lastNormalSize 覆盖后就拿不到了。
+    // capture 用 state.win.getBounds() 定位当前 display,与 lastNormalSize 无关。
     captureCustomIfApplicable(state, w, h);
+    // REVIEW_103 R3 LOW (codex): animate guard 也要护 lastNormalSize —— 折叠紧跟一次
+    // toggleMaximize/Default 的 setBounds animate (macOS ~250ms) 时,getSize() 取中间帧,
+    // 无条件写进 lastNormalSize 会让展开恢复中间帧 (captureCustomIfApplicable 已护 preferredSize
+    // 但 lastNormalSize 是另一条恢复路径)。300ms guard 内不信 getSize,沿用既有 lastNormalSize
+    // 作折叠 / 展开目标 (上一次稳定的 normal 尺寸);guard 外才用新读的 w/h。
+    if (shouldTrustGetSize(Date.now(), state.lastToggleAt)) {
+      state.lastNormalSize = { width: w, height: h };
+    }
     state.win.setMinimumSize(MIN_WIDTH, COMPACT_HEIGHT);
-    state.lastNormalSize = { width: w, height: h };
     state.win.setSize(state.lastNormalSize.width, COMPACT_HEIGHT, true);
   } else {
     // 退 compact:lastNormalSize.height 可能是 R1 旧路径残留的 < MIN_HEIGHT 值(如用户
@@ -256,7 +263,7 @@ function rememberIfCustom(
   if (curW === state.lastNormalSize.width && curH === state.lastNormalSize.height) return;
   // R3 LOW (animate race) 短路: macOS setBounds animate=true 期间 getSize 取动画中间帧,
   // 不等于已写终态 lastNormalSize 绕过上面短路。300ms guard 内不存,避免污染 preferredSize。
-  if (Date.now() - state.lastToggleAt < ANIMATE_GUARD_MS) return;
+  if (!shouldTrustGetSize(Date.now(), state.lastToggleAt)) return;
   const atMax = isNear(curW, curH, maxW, maxH);
   const atDefault = isNear(curW, curH, defaultW, defaultH);
   if (!atMax && !atDefault) {
@@ -267,6 +274,19 @@ function rememberIfCustom(
 /** 容差比较 — 用户拖窗口后尺寸可能与 setSize 时差 1-2px,直接 `===` 会把刚切完窗口误判为「不在目标态」。 */
 function isNear(aW: number, aH: number, bW: number, bH: number): boolean {
   return Math.abs(aW - bW) <= TARGET_TOLERANCE_PX && Math.abs(aH - bH) <= TARGET_TOLERANCE_PX;
+}
+
+/**
+ * getSize() 当前是否可信 (不在 setBounds animate 中间帧窗口内)。
+ *
+ * macOS setBounds(_, true) 是 ~250ms 异步原生动画,期间 getSize() 取动画中间帧。toggle 时
+ * 记 lastToggleAt=now,本函数判 now - lastToggleAt ≥ ANIMATE_GUARD_MS(300ms,留 50ms 余量)。
+ * captureCustomIfApplicable (preferredSize 写入) 与 toggleCompactImpl (lastNormalSize 写入)
+ * 共用此判定 —— 两条恢复路径都不能信中间帧 (REVIEW_45 R3 LOW + REVIEW_103 R3 LOW codex)。
+ * 抽纯函数便于 unit test (REVIEW_103 R3 INFO claude)。
+ */
+function shouldTrustGetSize(now: number, lastToggleAt: number): boolean {
+  return now - lastToggleAt >= ANIMATE_GUARD_MS;
 }
 
 /**
@@ -283,7 +303,7 @@ function isNear(aW: number, aH: number, bW: number, bH: number): boolean {
  */
 function captureCustomIfApplicable(state: FloatingWindowState, curW: number, curH: number): void {
   if (!state.win) return;
-  if (Date.now() - state.lastToggleAt < ANIMATE_GUARD_MS) return;
+  if (!shouldTrustGetSize(Date.now(), state.lastToggleAt)) return;
   const display = screen.getDisplayMatching(state.win.getBounds()).workArea;
   const maxW = Math.max(MIN_WIDTH, display.width - MAX_INSET);
   const maxH = Math.max(MIN_HEIGHT, display.height - MAX_INSET);
@@ -354,6 +374,7 @@ function clampPositionInDisplay(
 // (shouldCaptureCustom 跨屏 custom 判定)。
 export const __testExports = {
   isNear,
+  shouldTrustGetSize,
   centerInDisplay,
   clampPositionInDisplay,
   rememberIfCustom,
