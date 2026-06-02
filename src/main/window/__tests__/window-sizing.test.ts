@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { __testExports } from '@main/window/sizing';
 import type { FloatingWindowState } from '@main/window/_deps';
 
-const { isNear, centerInDisplay, clampPositionInDisplay, rememberIfCustom, shouldCaptureCustom } = __testExports;
+const { isNear, shouldTrustGetSize, centerInDisplay, clampPositionInDisplay, rememberIfCustom, shouldCaptureCustom } = __testExports;
 
 const DEFAULT_WIDTH = 520;
 const DEFAULT_HEIGHT = 680;
@@ -121,6 +121,23 @@ describe('window/sizing rememberIfCustom (REVIEW_45 MED-2, reverted to original 
     const s = makeState({ lastNormalSize: { width: 1, height: 1 }, lastToggleAt: Date.now() });
     rememberIfCustom(s, 700, 500, maxW, maxH, defW, defH);
     expect(s.preferredSize).toBeNull();
+  });
+});
+
+describe('window/sizing shouldTrustGetSize (REVIEW_103 R3 animate-guard, ANIMATE_GUARD_MS=300)', () => {
+  // setBounds(_, true) macOS animate ~250ms; getSize() 中间帧不可信。lastToggleAt 记 toggle 时刻。
+  // captureCustomIfApplicable (preferredSize) + toggleCompactImpl (lastNormalSize) + rememberIfCustom 共用。
+  it('distrusts getSize within the 300ms animate window', () => {
+    const now = 1_000_000;
+    expect(shouldTrustGetSize(now, now)).toBe(false); // gap 0
+    expect(shouldTrustGetSize(now, now - 100)).toBe(false); // gap 100 < 300
+    expect(shouldTrustGetSize(now, now - 299)).toBe(false); // gap 299 < 300
+  });
+  it('trusts getSize at/after the 300ms boundary', () => {
+    const now = 1_000_000;
+    expect(shouldTrustGetSize(now, now - 300)).toBe(true); // gap 300 >= 300
+    expect(shouldTrustGetSize(now, now - 5000)).toBe(true); // long past
+    expect(shouldTrustGetSize(now, 0)).toBe(true); // never toggled (lastToggleAt=0 default)
   });
 });
 
