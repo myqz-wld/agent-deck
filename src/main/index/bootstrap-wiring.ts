@@ -18,11 +18,11 @@ import { globalShortcut } from 'electron';
 
 import { ensureFocusableOnActivate, getFloatingWindow } from '../window';
 import { eventBus } from '../event-bus';
-import { settingsStore } from '../store/settings-store';
 import { sessionManager } from '../session/manager';
 import { notifyUser } from '../notify/visual';
 import { handleCliArgv } from '../cli';
 import { IpcEvent } from '@shared/ipc-channels';
+import type { AppSettings } from '@shared/types/settings/app-settings';
 
 import { makeDebouncedTeamSender, TOOL_DISPLAY_NAME } from './_deps';
 import log from '@main/utils/logger';
@@ -31,11 +31,12 @@ const logger = log.scope('bootstrap-wiring');
 
 /**
  * bootstrap god-function Phase 9-11 wiring 段。
- * initInfra 返回 ok=true 后由 facade 调用。
+ * initInfra 返回非 null settings 后由 facade 调用。
+ *
+ * REVIEW_104 LOW-E: settings 由 caller(facade)从 initInfra 返回值透传,不再 wiring 段独立
+ * settingsStore.getAll() 一次(同一 .then 内无 await 间隙,两次读快照等价,改单次读 + 显式传递)。
  */
-export function initWiring(): void {
-  const settings = settingsStore.getAll();
-
+export function initWiring(settings: AppSettings): void {
   // 9. 创建窗口并把事件总线接到 webContents
   const floating = getFloatingWindow();
   floating.create();
@@ -58,7 +59,22 @@ export function initWiring(): void {
   // plan team-cohesion-fix-20260513 Phase A:桥到 renderer 前 enrichWithTeams 把 universal team
   // backend membership 拼到 SessionRecord.teams[],让 SessionCard / PendingTab / TeamDetail
   // 拿到 lead/teammate 角色 + teamName 不再依赖老 sessions.team_name 列。
-  eventBus.on('session-upserted', (s) => safeSend(IpcEvent.SessionUpserted, sessionManager.enrichWithTeams(s)));
+  // REVIEW_104 MED-C (reviewer-claude): 本 listener 必须包 try/catch。enrichWithTeams →
+  // enrichRecordWithTeams → agentDeckTeamRepo.findActiveMembershipsBySession → getDb() 会抛
+  // (shutdown 后 dbInstance=null → db.ts:52 throw;或 SQLITE_IOERR / 磁盘满 / corruption)。enrichWithTeams
+  // 作为 safeSend 实参先求值 → 抛错冒泡到 eventBus.emit('session-upserted') 的同步 caller。最危险 emit
+  // 点 lifecycle-scheduler.ts:70 `for (rec of updated) emit('session-upserted', rec)` 跑在 setInterval
+  // tick 上,listener 抛 → 中断 batch loop 剩余 rec 漏 emit + 从 timer 回调冒泡 uncaughtException。同款
+  // hazard 已在本文件 caller-archive-failed listener + agent-deck-mcp/tools/handlers/spawn.ts:367 加固,
+  // 唯独这条 DB-touching 热路径 listener 裸奔 = 不对称裂口。零成本 try/catch 守门补齐。其余 session-removed /
+  // session-renamed / summary-added 等只透传 id/payload 不触 DB,风险低,本轮不动。
+  eventBus.on('session-upserted', (s) => {
+    try {
+      safeSend(IpcEvent.SessionUpserted, sessionManager.enrichWithTeams(s));
+    } catch (err) {
+      logger.error('[session-upserted listener] enrichWithTeams/safeSend 异常 (吞掉防撞穿 emit caller):', err);
+    }
+  });
   eventBus.on('session-removed', (id) => safeSend(IpcEvent.SessionRemoved, id));
   eventBus.on('session-renamed', (p) => safeSend(IpcEvent.SessionRenamed, p));
   eventBus.on('summary-added', (s) => safeSend(IpcEvent.SummaryAdded, s));
@@ -200,7 +216,12 @@ export function initWiring(): void {
   const transparentRegistered = globalShortcut.register(transparentShortcut, () => {
     const w = floating.window;
     if (!w || w.isDestroyed()) return;
-    const next = !(settingsStore.get('windowTransparent') ?? true);
+    // REVIEW_104 MED-D fix: 读 in-memory SSOT `floating.windowTransparent`(setWindowTransparentImpl
+    // 写入的同一字段)算 next,替代旧的 `settingsStore.get('windowTransparent')`。旧路径以 store 为源,
+    // 但 main 端从不 settingsStore.set('windowTransparent')(grep 确认唯一持久化是 renderer 收到
+    // TransparentToggled 后 setSettings 往返)→ renderer 死时 store 永久 stale → 连按读旧值算错 next。
+    // 与 pin 快捷键读 live `w.isAlwaysOnTop()` 对齐「读 live SSOT」语义。持久化仍走 renderer 往返。
+    const next = !floating.windowTransparent;
     floating.setWindowTransparent(next);
     safeSend(IpcEvent.TransparentToggled, next);
   });

@@ -47,11 +47,12 @@ if (gotLock) {
 
   // REVIEW_35 MED-D-codex-4: 抓 bootstrap 完成 promise 让 second-instance handler 能等待
   const bootstrappedPromise = app.whenReady().then(async () => {
-    const ok = await initInfra(state);
-    // initInfra return false 仅在 EADDRINUSE fail-loud 路径(已 dialog.showErrorBox + closeDb +
-    // app.exit(1)),defensive 早返回防 race(exit 是 sync but immediate)。
-    if (!ok) return;
-    initWiring();
+    const settings = await initInfra(state);
+    // REVIEW_104 LOW-E: initInfra 返回 settings 快照(成功)或 null(EADDRINUSE fail-loud 路径已
+    // dialog.showErrorBox + closeDb + app.exit(1))。null → defensive 早返回防 race(exit 是 sync
+    // but immediate);非 null → 把同一快照透传给 initWiring,省 wiring 段重复 settingsStore.getAll()。
+    if (!settings) return;
+    initWiring(settings);
   });
   bootstrappedPromise.catch((err) => {
     // REVIEW_35 R2 HIGH-D codex H2:bootstrap fatal reject 不能只 console.error,必须给用户

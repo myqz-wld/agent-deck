@@ -60,6 +60,7 @@ import { unionUserShellPath } from '../utils/user-shell-path';
 import { syncAgentDeckSection } from '../codex-config/agents-md-installer';
 import { syncSkills } from '../codex-config/skills-installer';
 import type { AgentEvent } from '@shared/types';
+import type { AppSettings } from '@shared/types/settings/app-settings';
 
 import type { BootstrapState } from './_deps';
 import log, { setFileLevel } from '@main/utils/logger';
@@ -69,10 +70,12 @@ const logger = log.scope('bootstrap-infra');
 /**
  * bootstrap god-function Phase 0-8.6 infrastructure init 段。
  *
- * @returns true = init 全成功继续 wiring;false = fatalExit (EADDRINUSE 已 app.exit(1) +
- *   closeDb,caller 应直接 return defensive)
+ * @returns AppSettings(init 全成功)= 把 Phase 2 读到的 settings 快照交给 caller 传给 initWiring,
+ *   避免 wiring 段再独立 settingsStore.getAll() 一次(REVIEW_104 LOW-E:同一 .then 内无 await 间隙,
+ *   两次读快照等价,改为单次读 + 显式传递,既省一次全量读又让「共享同一快照」不变量显式);
+ *   null = fatalExit (EADDRINUSE 已 app.exit(1) + closeDb,caller 应直接 return defensive)
  */
-export async function initInfra(state: BootstrapState): Promise<boolean> {
+export async function initInfra(state: BootstrapState): Promise<AppSettings | null> {
   electronApp.setAppUserModelId('com.agentdeck.app');
 
   // 0. 把 ~/.claude/settings.json 的 env 注入到主进程
@@ -229,7 +232,7 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
       logger.warn('[hook-server fatal] closeDb error', err);
     }
     app.exit(1);
-    return false;
+    return null;
   }
 
   // 7. 启动生命周期调度器与总结器
@@ -294,5 +297,6 @@ export async function initInfra(state: BootstrapState): Promise<boolean> {
   // 8.6 image-uploads reaper:清掉 14 天前的孤儿附件文件
   void reapStaleUploads();
 
-  return true;
+  // REVIEW_104 LOW-E: 把 Phase 2 读到的 settings 快照返给 caller 传给 initWiring,省 wiring 段重复读。
+  return settings;
 }
