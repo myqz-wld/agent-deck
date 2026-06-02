@@ -20,6 +20,7 @@ import { adapterRegistry } from '../adapters/registry';
 import { setLifecycleScheduler } from '../session/lifecycle-scheduler';
 import { setTeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
 import { setIssueLifecycleScheduler } from '../store/issue-lifecycle-scheduler';
+import { setMessageLifecycleScheduler } from '../store/message-lifecycle-scheduler';
 import { summarizer } from '../session/summarizer';
 import { stopAllSounds } from '../notify/sound';
 import { universalMessageWatcher } from '../teams/universal-message-watcher';
@@ -94,6 +95,10 @@ export function registerLifecycleHooks(
         // 在 quit 期间继续碰 DB（与现有 LifecycleScheduler / TeamLifecycleScheduler 同款 stop 模式）
         state.issueScheduler?.stop();
         setIssueLifecycleScheduler(null);
+        // plan message-retention-and-index-20260602 §D8: stop MessageLifecycleScheduler 防 6h tick /
+        // 30s catch-up timer 在 quit 期间继续碰 DB（同 issue/session scheduler stop 模式）。
+        state.messageScheduler?.stop();
+        setMessageLifecycleScheduler(null);
         summarizer.stop();
         stopAllSounds();
         // R3.E5:universal-message-watcher shutdown

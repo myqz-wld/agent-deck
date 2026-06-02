@@ -45,6 +45,10 @@ import {
   IssueLifecycleScheduler,
   setIssueLifecycleScheduler,
 } from '../store/issue-lifecycle-scheduler';
+import {
+  MessageLifecycleScheduler,
+  setMessageLifecycleScheduler,
+} from '../store/message-lifecycle-scheduler';
 import { summarizer } from '../session/summarizer';
 import { routeEventToNotification } from '../notify/event-router';
 import { bootstrapIpc } from '../ipc';
@@ -278,6 +282,13 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   });
   state.issueScheduler.start();
   setIssueLifecycleScheduler(state.issueScheduler);
+  // plan message-retention-and-index-20260602 §D8: agent_deck_messages retention GC scheduler。
+  // 默认 6h tick + 30s catch-up（同 IssueLifecycleScheduler）。messageRetentionDays=0 跳过 GC。
+  state.messageScheduler = new MessageLifecycleScheduler({
+    messageRetentionDays: settings.messageRetentionDays,
+  });
+  state.messageScheduler.start();
+  setMessageLifecycleScheduler(state.messageScheduler);
   summarizer.start();
 
   // 7.0 D1+D2:app ready 后同步 Agent Deck 段到 ~/.codex/AGENTS.md + skills

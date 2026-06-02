@@ -105,6 +105,20 @@ export interface ListMessagesByTeamOptions {
   status?: AgentDeckMessageStatus;
 }
 
+/**
+ * plan message-retention-and-index-20260602 §D7：retention GC 查询参数。
+ * MessageLifecycleScheduler.scan 注入，按 `status IN (terminal) AND sent_at < now - retentionDays`
+ * 取超期 terminal 消息 id（走 v030 partial index idx_messages_terminal_sent_at）。
+ */
+export interface ListExpiredForGcOptions {
+  /** 保留天数；scan 从 settings.messageRetentionDays 注入（>0，0 时 scheduler 早退不调本方法） */
+  retentionDays: number;
+  /** 当前时间戳（毫秒）；scheduler 注入便于测试 */
+  now: number;
+  /** 单批 LIMIT；默认 500（与 session-repo findHistoryOlderThan / issueRepo listForGc 对称） */
+  limit?: number;
+}
+
 export interface FindEligibleOptions {
   /** 当前时间戳（毫秒）；watcher 注入便于测试 */
   now: number;
@@ -146,15 +160,45 @@ export interface AgentDeckMessageRepo {
   listByTeam(teamId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[];
   /**
    * plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2：按 session 维度拉 cross-session
-   * messages（from_session_id = sid OR to_session_id = sid）。SessionDetail 「跨会话消息」tab
+   * messages（本 session 发出 from = sid 或收到 to = sid）。SessionDetail 「跨会话消息」tab
    * 兜底用：CHANGELOG_100 协议简化后 reply 与普通 message 同款 dispatch 自动注入 receiver SDK，
    * 此 method 额外提供 DB 视角全量可视化（含已 delivered / failed 的历史消息）。
    *
    * 包含：本 session 发出的 send + 收到的 send + 本 session 发出的 reply + 收到的 reply。
-   * 排序与 listByTeam 一致 ORDER BY sent_at DESC, rowid DESC（最新在前，rowid 二级定序保证
-   * 同毫秒稳定 + 分页边界确定，REVIEW_90 修法）。
+   * 排序 ORDER BY sent_at DESC, rowid DESC（最新在前，rowid 二级定序保证同毫秒稳定 + 分页边界
+   * 确定，REVIEW_90 修法）。
+   *
+   * plan message-retention-and-index-20260602 D5：实现从 `WHERE from=? OR to=?` 改 UNION ALL
+   * 双索引（消灭全表 SCAN，issue 7dcb0676），第二分支带 from<>to guard 防 rename-collision
+   * self-row 重复——对 caller 契约 byte-identical（N2），仅性能 + 坏数据去重改善。
    */
   listBySession(sessionId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[];
+
+  // ─── retention GC helpers（plan message-retention-and-index-20260602 §D7） ───
+  /**
+   * 取超期 terminal 消息 id（MessageLifecycleScheduler GC 用）：
+   * `status IN ('delivered','failed','cancelled') AND sent_at < now - retentionDays*86400_000
+   *  ORDER BY sent_at ASC LIMIT limit`。
+   *
+   * 走 v030 partial index idx_messages_terminal_sent_at（sent_at WHERE status IN terminal）→
+   * LIMIT early-stop 无 temp sort（Deep-Review R1 codex HIGH-1：必须 partial 不是 status-first，
+   * 否则 USE TEMP B-TREE 全排 backlog 破 500 预算）。
+   *
+   * ⚠️ 实现的 `status IN (...)` 必须与 partial index WHERE 字面同序同值才命中（codex R2 实测：
+   * 参数化/单值/顺序不同均不命中）—— SQL 抽 LIST_EXPIRED_FOR_GC_SQL export const，仅 threshold/
+   * limit 参数化，status literal 内联（gc.ts）。pending/delivering 永不入选（N4，非 terminal）。
+   */
+  listExpiredForGc(opts: ListExpiredForGcOptions): string[];
+  /**
+   * 批量物理删除消息（GC 用）：单事务逐条 DELETE FROM agent_deck_messages WHERE id=?
+   * （+ defense-in-depth status IN terminal guard）。返回真正删除的 id 数组。
+   *
+   * reply_to_message_id 自引用 FK ON DELETE SET NULL 自动把引用被删行的 reply 行 reply_to 置 NULL，
+   * reply 行本身保留（N5）。terminal 是吸收态（state-machine 6 UPDATE 全要求 pending/delivering），
+   * by-id 删 listExpiredForGc 选中的 terminal 行无 TOCTOU 复活风险（Deep-Review R1 claude INFO）。
+   */
+  batchHardDelete(ids: readonly string[]): string[];
+
 
   // ─── watcher 关键 helpers（§4.1 / §4.3） ───
   /**

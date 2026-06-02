@@ -197,6 +197,13 @@ export function initWiring(settings: AppSettings): void {
   eventBus.on('agent-deck-message-status-changed', (p) =>
     messageChangedSender({ kind: 'status-changed', teamId: p.teamId, messageId: p.id, payload: p }),
   );
+  // plan message-retention-and-index-20260602 §D7：GC 删超期消息后桥到同一 AgentDeckMessageChanged
+  // IPC，renderer 整体重拉刷掉已删消息。⚠️ purged 无单条 messageId，pickKey 是 `${kind}:${messageId}`
+  // → 必须传**合成固定 messageId** 'purged:gc' 才能 burst 合并成一次 IPC（不传得 undefined key）。
+  // teamId=null 合法（GC 跨 team/teamless 全局，renderer 不解析 payload 整体重拉）。
+  eventBus.on('agent-deck-message-purged', (p) =>
+    messageChangedSender({ kind: 'purged', teamId: null, messageId: 'purged:gc', payload: p }),
+  );
 
   ensureFocusableOnActivate();
 

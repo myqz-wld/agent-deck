@@ -14,17 +14,18 @@ import type { RouteRegistry } from '../hook-server/route-registry';
 import type { LifecycleScheduler } from '../session/lifecycle-scheduler';
 import type { TeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
 import type { IssueLifecycleScheduler } from '../store/issue-lifecycle-scheduler';
+import type { MessageLifecycleScheduler } from '../store/message-lifecycle-scheduler';
 import type { EventMap } from '../event-bus';
 
 /**
- * Phase 4 Step 4.8 拆分:5 module-level let 单例聚合成单一 mutable state object。
+ * Phase 4 Step 4.8 拆分:module-level let 单例聚合成单一 mutable state object。
  *
  * 用法:facade index.ts 持 `const state: BootstrapState = createInitialBootstrapState()`;
  * sub-module (bootstrap-infra / bootstrap-wiring / lifecycle-hooks) 接受 state 参数
  * 直接 read/write 同一引用,保 bootstrap god-function 拆分后 mutate 路径 byte-identical。
  *
  * 与 Step 4.7 window.ts FloatingWindowState 同款全字段 mutable interface pattern
- * (无真私有约束需求 — bootstrap 单例本身就是 module-level let,5 字段全 public 暴露)。
+ * (无真私有约束需求 — bootstrap 单例本身就是 module-level let,全字段 public 暴露)。
  */
 export interface BootstrapState {
   hookServer: HookServer | null;
@@ -33,6 +34,8 @@ export interface BootstrapState {
   teamScheduler: TeamLifecycleScheduler | null;
   /** plan issue-tracker-mcp-20260529 §Step 3.7.2 / §D13 / §D20: Issue Tracker GC scheduler */
   issueScheduler: IssueLifecycleScheduler | null;
+  /** plan message-retention-and-index-20260602 §D8: agent_deck_messages retention GC scheduler */
+  messageScheduler: MessageLifecycleScheduler | null;
   agentDeckMcpHttpShutdown: (() => Promise<void>) | null;
 }
 
@@ -43,6 +46,7 @@ export function createInitialBootstrapState(): BootstrapState {
     scheduler: null,
     teamScheduler: null,
     issueScheduler: null,
+    messageScheduler: null,
     agentDeckMcpHttpShutdown: null,
   };
 }

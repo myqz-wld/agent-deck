@@ -197,6 +197,20 @@ export interface AppSettings {
    */
   issueSoftDeletedRetentionDays: number;
   /**
+   * agent_deck_messages retention GC 保留天数（plan message-retention-and-index-20260602 §D3）。
+   * - 正数：`status IN ('delivered','failed','cancelled') AND sent_at < now - days * 86400_000`
+   *   的超期 terminal 消息将被 MessageLifecycleScheduler 6h tick 批量 hardDelete（每轮 ≤ 500，
+   *   删满则 30s catch-up 续删）。pending/delivering 在途消息**永不删**。teamless（team_id=NULL）
+   *   与 team 消息统一阈值。默认 30。
+   * - 0：禁用消息自动 GC（永久保留，与 teamless DM 前的旧行为一致）。
+   * 与 historyRetentionDays / issueResolvedRetentionDays 正交独立。
+   *
+   * ⚠️ trade-off：messageRetentionDays < historyRetentionDays 时，SessionDetail「跨会话消息」tab
+   * 可能比 session 本身先空（消息先被 GC）。可接受——该 tab 是 DB 视角兜底视图，reply 早已注入
+   * SDK conversation（CHANGELOG_100），历史可视化非关键路径。
+   */
+  messageRetentionDays: number;
+  /**
    * Codex CLI 二进制绝对路径（@openai/codex-sdk 的 codexPathOverride）。
    * - null：用 SDK 自带的 vendored 二进制（@openai/codex 跟随 npm 装上，已打包进 .app）
    * - 绝对路径：覆盖为外部 codex（例如用户自装的更新版 `which codex` 给的路径）

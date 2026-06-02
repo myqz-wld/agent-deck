@@ -24,6 +24,7 @@ import {
   MAX_BODY_LENGTH,
   type AgentDeckMessageRepo,
 } from '../agent-deck-message-repo';
+import { LIST_EXPIRED_FOR_GC_SQL } from '../agent-deck-message-repo/gc';
 import { bindingAvailable, makeMemoryDb, insertSession } from './agent-deck-repos/_setup';
 
 describe.skipIf(!bindingAvailable)('agent-deck-message-repo / insert + invariants', () => {
@@ -296,7 +297,8 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     const expectedDesc = ['mm5', 'mm4', 'mm3', 'mm2', 'mm1'];
     expect(msgRepo.listByTeam(teamId).map((m) => m.id)).toEqual(expectedDesc);
     expect(msgRepo.listBySession('sB').map((m) => m.id)).toEqual(expectedDesc);
-    // listBySession 走全表 SCAN + TEMP B-TREE（与 listByTeam 索引路径不同 plan），同样稳定
+    // listBySession 改 UNION ALL 双索引后（plan message-retention-and-index-20260602 D5），子查询
+    // SELECT *, rowid AS _rid + 外层 ORDER BY sent_at DESC, _rid DESC 仍保 rowid 二级定序稳定。
     expect(msgRepo.listBySession('sA').map((m) => m.id)).toEqual(expectedDesc);
 
     // 分页边界稳定：page1(LIMIT2 OFFSET0) + page2(LIMIT2 OFFSET2) 无重复/漏行
@@ -395,6 +397,140 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     it('无 pending message → 返 null(空数组 fallback 路径也不崩)', () => {
       const r = msgRepo.findEligibleExcludingTargets({ now: Date.now(), excludeTargets: [] });
       expect(r).toBeNull();
+    });
+  });
+
+  // ─── plan message-retention-and-index-20260602 D5: listBySession UNION ALL self-row guard ───
+  describe('listBySession UNION ALL self-row guard (Deep-Review R1 codex HIGH-2)', () => {
+    /** raw INSERT 绕过 repo insert 的 from==to throw,模拟 rename collision 造的 self-row。 */
+    function rawInsert(id: string, from: string, to: string, sentAt: number, status = 'delivered'): void {
+      db.prepare(
+        `INSERT INTO agent_deck_messages
+         (id, team_id, from_session_id, to_session_id, body, status, status_reason,
+          sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since, reply_to_message_id)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, 0, NULL, NULL, NULL)`,
+      ).run(id, teamId, from, to, `body-${id}`, status, sentAt);
+    }
+
+    it('self-row(from==to,rename collision)只返 1 行不重复(guard 生效,byte-identical baseline OR)', () => {
+      const SAME = 1_700_000_000_000;
+      // 模拟 rename A→B 把 from=A,to=B 变 from=B,to=B 的 self-row
+      rawInsert('self1', 'sSELF', 'sSELF', SAME);
+      // baseline OR 查询语义:from=sSELF OR to=sSELF → 该行命中 1 次
+      const orCount = (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS c FROM agent_deck_messages WHERE from_session_id='sSELF' OR to_session_id='sSELF'`,
+          )
+          .get() as { c: number }
+      ).c;
+      expect(orCount).toBe(1);
+      // UNION ALL + guard 必须也只返 1 行(无 guard 会返 2 行重复 → 违反 N2)
+      const view = msgRepo.listBySession('sSELF');
+      expect(view).toHaveLength(1);
+      expect(view[0].id).toBe('self1');
+      // status filter 分支同款 guard
+      expect(msgRepo.listBySession('sSELF', { status: 'delivered' })).toHaveLength(1);
+    });
+
+    it('guard 不漏正常行：sender-only / receiver-only 各 1 条都在', () => {
+      const SAME = 1_700_000_000_000;
+      rawInsert('out1', 'sX', 'sB', SAME); // sX 作为 sender
+      rawInsert('in1', 'sA', 'sX', SAME + 1); // sX 作为 receiver
+      const view = msgRepo.listBySession('sX').map((m) => m.id);
+      // 两条都在(out1 from=sX 命中第一分支,in1 to=sX 命中第二分支且 from=sA<>sX 不被 guard 排除)
+      expect(view.sort()).toEqual(['in1', 'out1']);
+    });
+  });
+
+  // ─── plan message-retention-and-index-20260602 D7: retention GC repo ───
+  describe('GC: listExpiredForGc + batchHardDelete', () => {
+    /** raw INSERT 锁定 status + sent_at（insert() 无法注入）。 */
+    function rawInsert(id: string, status: string, sentAt: number, replyTo: string | null = null): void {
+      db.prepare(
+        `INSERT INTO agent_deck_messages
+         (id, team_id, from_session_id, to_session_id, body, status, status_reason,
+          sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since, reply_to_message_id)
+         VALUES (?, ?, 'sA', 'sB', ?, ?, NULL, ?, NULL, 0, NULL, NULL, ?)`,
+      ).run(id, teamId, `body-${id}`, status, sentAt, replyTo);
+    }
+
+    const NOW = 1_700_000_000_000;
+    const OLD = NOW - 40 * 86400_000; // 40 天前（> 30 天 retention → 超期）
+    const FRESH = NOW - 1 * 86400_000; // 1 天前（< 30 天 → 不超期）
+
+    it('terminal(delivered/failed/cancelled)超期删；pending/delivering 超期不删（N4）', () => {
+      rawInsert('del-old', 'delivered', OLD);
+      rawInsert('fail-old', 'failed', OLD);
+      rawInsert('cancel-old', 'cancelled', OLD);
+      rawInsert('pending-old', 'pending', OLD); // 在途，永不删
+      rawInsert('delivering-old', 'delivering', OLD); // 在途，永不删
+      const ids = msgRepo.listExpiredForGc({ retentionDays: 30, now: NOW, limit: 500 });
+      expect(ids.sort()).toEqual(['cancel-old', 'del-old', 'fail-old']);
+      // pending/delivering 即便超期也不入选
+      expect(ids).not.toContain('pending-old');
+      expect(ids).not.toContain('delivering-old');
+    });
+
+    it('terminal 未超期不删（FRESH < retention）', () => {
+      rawInsert('del-fresh', 'delivered', FRESH);
+      rawInsert('del-old', 'delivered', OLD);
+      const ids = msgRepo.listExpiredForGc({ retentionDays: 30, now: NOW, limit: 500 });
+      expect(ids).toEqual(['del-old']);
+    });
+
+    it('retentionDays=0 → 空（GC 关闭，防御早退）', () => {
+      rawInsert('del-old', 'delivered', OLD);
+      expect(msgRepo.listExpiredForGc({ retentionDays: 0, now: NOW, limit: 500 })).toEqual([]);
+    });
+
+    it('limit 分批：超期 5 条 limit=2 只返最早 2 条（sent_at ASC）', () => {
+      rawInsert('d1', 'delivered', OLD);
+      rawInsert('d2', 'delivered', OLD + 1);
+      rawInsert('d3', 'delivered', OLD + 2);
+      rawInsert('d4', 'delivered', OLD + 3);
+      rawInsert('d5', 'delivered', OLD + 4);
+      const ids = msgRepo.listExpiredForGc({ retentionDays: 30, now: NOW, limit: 2 });
+      expect(ids).toEqual(['d1', 'd2']); // 最早 2 条
+    });
+
+    it('batchHardDelete 真删 + 返回删除 id；defense status guard 不删非 terminal', () => {
+      rawInsert('del-old', 'delivered', OLD);
+      rawInsert('pending-old', 'pending', OLD);
+      // 即便误把 pending id 传进来，defense-in-depth status guard 也不删它
+      const removed = msgRepo.batchHardDelete(['del-old', 'pending-old']);
+      expect(removed).toEqual(['del-old']);
+      expect(msgRepo.get('del-old')).toBeNull();
+      expect(msgRepo.get('pending-old')).not.toBeNull(); // pending 仍在
+    });
+
+    it('reply_to 自引用 FK ON DELETE SET NULL：删父消息后 reply 行 reply_to 变 NULL 且行保留（N5）', () => {
+      rawInsert('parent-old', 'delivered', OLD);
+      // child 引用 parent；child 本身未超期（FRESH）应保留，仅 reply_to 被 SET NULL
+      rawInsert('child-fresh', 'delivered', FRESH, 'parent-old');
+      expect(msgRepo.get('child-fresh')?.replyToMessageId).toBe('parent-old');
+      const removed = msgRepo.batchHardDelete(['parent-old']);
+      expect(removed).toEqual(['parent-old']);
+      // child 行保留，reply_to 被 SET NULL
+      const child = msgRepo.get('child-fresh');
+      expect(child).not.toBeNull();
+      expect(child?.replyToMessageId).toBeNull();
+    });
+
+    it('GC 查询走 partial index idx_messages_terminal_sent_at：无 SCAN 无 TEMP B-TREE（R1 HIGH-1 + R2 回归）', () => {
+      rawInsert('d1', 'delivered', OLD);
+      // 跑 gc.ts 的真实 SQL 常量（LIST_EXPIRED_FOR_GC_SQL）的 EXPLAIN，而非测试自写查询
+      // （Deep-Review R2 claude LOW：否则 gc.ts literal 漂移无守护，HIGH-1 可静默复活）。
+      const threshold = NOW - 30 * 86400_000;
+      const plan = db
+        .prepare(`EXPLAIN QUERY PLAN ${LIST_EXPIRED_FOR_GC_SQL}`)
+        .all(threshold, 500) as { detail: string }[];
+      const detail = plan.map((r) => r.detail).join(' | ');
+      // ① 不含全表 SCAN ② 不含 TEMP B-TREE（R1 HIGH-1：status-first 也是 SEARCH 但有 temp sort）
+      // ③ 命中 partial index（R2 codex MED：三条合一才锁死回归）
+      expect(detail).not.toContain('SCAN agent_deck_messages');
+      expect(detail).not.toContain('TEMP B-TREE');
+      expect(detail).toContain('idx_messages_terminal_sent_at');
     });
   });
 });
