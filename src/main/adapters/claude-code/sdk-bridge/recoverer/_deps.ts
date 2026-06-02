@@ -94,14 +94,14 @@ export type CreateSessionThunk = (opts: {
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
    * caller 显式传 cli sid 让 SDK CLI `--resume` 找正确 jsonl + S6 fork detect 不 short-circuit。
-   * 详 ClaudeCreateOpts.resumeCliSid jsdoc。
+   * 详 create-session/_deps.ts CreateSessionOpts.resumeCliSid jsdoc (REVIEW_105 MED-1 SSOT 锚点)。
    */
   resumeCliSid?: string;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
    * 'fresh-cli-reuse-app' 让 jsonl-missing fallback 路径显式触发 SDK fresh CLI thread + 复用
    * applicationSid (不创建新 sessions row,走 sessionManager.updateCliSessionId 黑名单链)。
-   * 详 ClaudeCreateOpts.resumeMode jsdoc 7 种合法/非法组合。
+   * 详 create-session/_deps.ts CreateSessionOpts.resumeMode jsdoc 7 种合法/非法组合 (REVIEW_105 MED-1 SSOT 锚点)。
    */
   resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
   /**

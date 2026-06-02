@@ -35,7 +35,8 @@ export interface RestartCreateOpts {
   resumeCliSid?: string;
   /**
    * **plan restart-controller-jsonl-precheck-20260521 §Step 3b 修法**:
-   * 与 ClaudeCreateOpts.resumeMode 字段对齐(types.ts:186 / index.ts:186)让 ctx.createSession
+   * 与 bridge CreateSessionOpts.resumeMode 字段对齐(create-session/_deps.ts — REVIEW_105 MED-1 SSOT 锚点;
+   * 修前误对齐 facade ClaudeCreateOpts, 现已从 facade type 删除)让 ctx.createSession
    * 透传 fallback 路径不丢精度。helper `maybeJsonlFallback` fellBack=true 路径调 ctx.createSession
    * 时显式传 'fresh-cli-reuse-app' 触发 index.ts:419 finalize guard 跳过整个 finalizeSessionStart。
    *

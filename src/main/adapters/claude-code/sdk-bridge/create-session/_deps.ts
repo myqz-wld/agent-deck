@@ -69,16 +69,44 @@ export interface CreateSessionOpts {
   model?: string;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
-   * bridge 内部 internal 字段(详 ClaudeCreateOpts.resumeCliSid jsdoc):
+   * bridge 内部 internal 字段(**REVIEW_105 MED-1: 本字段 SSOT 锚点 — facade ClaudeCreateOpts /
+   * CreateSessionOptionsRaw 不再声明本字段, 见 adapters/types/create-session-opts.ts REVIEW_105 注释**):
    * - caller 不该传(默认走反查 sessionRepo.cliSessionId 兜底回填)
    * - recoverer.ts:486 + restart-controller.ts:185/339 caller 显式传 `rec.cliSessionId ?? sessionId`
+   *   让 bridge 内部 SDK options.resume + jsonl preflight + S6 fork detect compare 拿正确 cli sid。
+   *
+   * **null 边角**: caller 不传 → bridge 内部三分支 resolve(R7 HIGH-R7-1 修订, create-session-sdk-query.ts):
+   *   `opts.resumeMode === 'fresh-cli-reuse-app' ? undefined : !opts.resume ? undefined :`
+   *   `(opts.resumeCliSid ?? sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume)`
    */
   resumeCliSid?: string;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
-   * 解决 resumeCliSid: undefined 双语义冲突,详 ClaudeCreateOpts.resumeMode jsdoc 7 种合法/非法组合:
-   * - 'resume-cli' (default): normal resume 行为
-   * - 'fresh-cli-reuse-app': jsonl-missing fallback 专用,SDK 不带 resume 起 fresh CLI thread
+   * 解决 `resumeCliSid: undefined` 双语义冲突 — spawn 主路径(无 opts.resume)与 jsonl-missing
+   * fallback(有 opts.resume + resumeCliSid undefined)在入参侧无法区分, 改用显式 mode 字段。
+   * (**REVIEW_105 MED-1: 本字段 7 组合不变量表 SSOT 锚点, facade type 不再声明**)
+   *
+   * - **'resume-cli'** (default): 默认 SDK resume 行为 — caller 显式传 resumeCliSid 用之, 否则
+   *   bridge 内部按 `sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume` 反查; spawn 主路径
+   *   (opts.resume undefined)直接走新建路径(三分支 `!opts.resume → undefined`)
+   * - **'fresh-cli-reuse-app'**: jsonl-missing fallback 专用 — 复用 caller 传入 opts.resume 作
+   *   applicationSid, 但 SDK 不带 resume 起 fresh CLI thread; first realId 后只调
+   *   sessionManager.updateCliSessionId 写 cli_session_id 列(不 emit session-start 不创建 NEW row)
+   *
+   * **R4 MED-R4-1 7 种合法/非法组合不变量表**:
+   * | opts.resume | resumeMode | resumeCliSid | 路径 | effectiveResumeCliSid | SDK resume 入参 |
+   * |---|---|---|---|---|---|
+   * | undefined | 'resume-cli'(default) | undefined | spawn 主路径 | undefined | 不传 |
+   * | 非空 | 'resume-cli' | 非空 | normal resume(显式 cli sid) | resumeCliSid | resumeCliSid |
+   * | 非空 | 'resume-cli' | undefined | normal resume(反查 fallback) | sessionRepo.get(resume)?.cliSessionId ?? resume | effectiveResumeCliSid |
+   * | 非空 | 'fresh-cli-reuse-app' | undefined | jsonl-missing fallback | undefined | 不传 |
+   * | undefined | 'fresh-cli-reuse-app' | * | **错误 — runtime guard reject** | - | - |
+   * | 非空 | 'fresh-cli-reuse-app' | 非空 | **错误 — runtime guard reject** | - | - |
+   * | undefined | 'resume-cli' | 非空 | **错误 — runtime guard reject** | - | - |
+   *
+   * **R4 MED-R4-1 runtime guard**: bridge createThunk / createSession 入口加 `assertCreateOptsValid(opts)`,
+   * 3 种非法组合直接抛错(防 caller 误传静默走错路径)。**R8 LOW-R8-1**: `assertCreateOptsValid`
+   * 必须先于 effective resolver 计算(fail-fast)。
    */
   resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
   /**
