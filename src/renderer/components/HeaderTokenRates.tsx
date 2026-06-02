@@ -54,7 +54,7 @@ export function HeaderTokenRates(): JSX.Element | null {
   return (
     <div ref={containerRef} className="min-w-0 flex-1 overflow-hidden">
       {maxItems > 0 && top.length > 0 ? (
-        <div className="flex items-center gap-2 overflow-hidden">
+        <div className="flex items-center justify-center gap-2 overflow-hidden">
           {top.map((row) => {
             const tps = rateByBucket.get(row.bucketKey) ?? 0;
             const name = normalizeModel(row.bucketKey).displayName;
