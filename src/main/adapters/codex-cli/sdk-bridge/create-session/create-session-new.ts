@@ -78,6 +78,10 @@ export async function runCreateSessionNewPath(
     sandboxMode,
     model: effectiveModel,
     extraAllowWrite: opts.extraAllowWrite,
+    // plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn-time default 持久化，
+    // 让 recover / restart 读回还原 codex SDK 网络访问 + 额外可读写目录（runtime 真生效）。
+    networkAccessEnabled: opts.networkAccessEnabled,
+    additionalDirectories: opts.additionalDirectories,
   });
 
   return { sessionId: internal.applicationSid };

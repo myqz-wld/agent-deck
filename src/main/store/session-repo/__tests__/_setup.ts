@@ -6,12 +6,13 @@
  * plan sqlite-tests-no-skip-20260601 D3：import + re-export 让 cwd-release-marker.test 的
  * `import { bindingAvailable } from './_setup'` 0 改动可用）。
  *
- * Migration 范围 v001-v026（plan sqlite-tests-no-skip-20260601 D4）：原只载到 v020，但
- * session-repo 的 core-crud.upsert 写 cli_session_id（v021）、rename.ts 迁 tasks.owner_session_id
- * （v023）/ issues.*（v026）→ 老 fixture 缺列让 cwd-release-marker.test 4 个用例撞
- * `no such column`。补齐到 v026 与 agent-deck-repos/_setup.ts 对齐。
- * 仅 cwd-release-marker.test.ts import 本 fixture（archive.test.ts 不 import），改动 contained；
- * v021-v026 中仅 v023 含 DROP TABLE IF EXISTS tasks，fresh in-memory DB 下安全（drop 后重建）。
+ * Migration 范围 v001-v029（plan sqlite-tests-no-skip-20260601 D4 + codex-recover-network-dirs-parity-20260602）：
+ * 原只载到 v020，但 session-repo 的 core-crud.upsert 写 cli_session_id（v021）、rename.ts 迁
+ * tasks.owner_session_id（v023）/ issues.*（v026）→ 补齐到 v026；upsert / rename 又新增
+ * network_access_enabled + additional_directories（v029）→ 再补 v027-v029 否则撞 `no such column`。
+ * 与 agent-deck-repos/_setup.ts 对齐。仅 cwd-release-marker.test.ts import 本 fixture
+ * （archive.test.ts 不 import），改动 contained；v021-v029 中仅 v023 含 DROP TABLE IF EXISTS tasks，
+ * fresh in-memory DB 下安全（drop 后重建）。
  */
 
 import Database from 'better-sqlite3';
@@ -41,6 +42,9 @@ import v023 from '../../migrations/v023_tasks_owner_session_id_rewrite.sql?raw';
 import v024 from '../../migrations/v024_tasks_add_team_id.sql?raw';
 import v025 from '../../migrations/v025_events_tool_use_end_dedup.sql?raw';
 import v026 from '../../migrations/v026_issues.sql?raw';
+import v027 from '../../migrations/v027_agent_deck_messages_team_id_nullable.sql?raw';
+import v028 from '../../migrations/v028_token_usage.sql?raw';
+import v029 from '../../migrations/v029_sessions_network_dirs.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让 cwd-release-marker.test 的 `import { bindingAvailable } from './_setup'` 0 改动可用。
@@ -57,7 +61,7 @@ export function makeMemoryDb(): Database.Database {
   for (const sql of [
     v001, v002, v003, v004, v005, v006, v007, v008, v009, v010,
     v011, v012, v013, v014, v015, v016, v017, v018, v019, v020,
-    v021, v022, v023, v024, v025, v026,
+    v021, v022, v023, v024, v025, v026, v027, v028, v029,
   ]) {
     db.exec(sql);
   }

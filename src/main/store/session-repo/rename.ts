@@ -98,8 +98,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 「INSERT 写 NULL」需补 codex 新建路径 parity 回填否则扩大 NULL 窗口 — 都得不偿失。保留现状。
       db.prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         toId,
         fromRow.agent_id,
@@ -122,6 +122,11 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.spawn_depth,
         fromRow.generic_pty_config,
         toId,  // ← cli_session_id hardcode toId (R6 HIGH-R6-1 + R7 HIGH-R7-1 修订:spawn 主路径 first realId 即 toId)
+        // plan codex-recover-network-dirs-parity-20260602：列扩 21→23 (network_access_enabled +
+        // additional_directories)。用 fromRow.* raw int/string 不转换（SELECT * 拿的已是 DB 原值，
+        // 与 extra_allow_write / codex_sandbox 同款直接复制）。
+        fromRow.network_access_enabled,
+        fromRow.additional_directories,
       );
     }
     // 迁移子表引用（外键 ON DELETE CASCADE 在删 fromId 时不会误删，因为 session_id 已改）
@@ -268,6 +273,29 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 后续 recoverer 路径 SDK sandbox.allowWrite 不含原 mainRepo → 写 plan 文件静默失败。
       db.prepare(`UPDATE sessions SET extra_allow_write = ? WHERE id = ?`).run(
         fromRow.extra_allow_write,
+        toId,
+      );
+    }
+    if (toExists && fromRow.network_access_enabled != null) {
+      // plan codex-recover-network-dirs-parity-20260602：network_access_enabled 防御性 parity
+      // 覆盖（镜像上方 extra_allow_write block）。**定性 = 防御性 parity，非 spawn 救命** —— spawn
+      // 路径 persistSessionFields 在 startNewThreadAndAwaitId（内含 tempKey→realId rename）**之后**
+      // 跑且写 internal.applicationSid(=realId)，rename 拷不拷新列 spawn 都不丢值；且 recoverer
+      // jsonl-missing 已改 fresh-cli-reuse-app + updateCliSessionId（不走本 toExists=true 分支）。
+      // 保留覆盖纯为「OLD 整迁 NEW」不变量 + 与 model/extra_allow_write 对称，防 future caller rename
+      // 已设此列的 session 时静默丢值。**用 != null 不用 truthy**：3 态布尔，OLD 显式 0(false) 也应
+      // 覆盖，仅 OLD null 才保留 NEW（与 codex_sandbox truthy guard 不同 — 那是字符串无 falsy 合法值）。
+      db.prepare(`UPDATE sessions SET network_access_enabled = ? WHERE id = ?`).run(
+        fromRow.network_access_enabled,
+        toId,
+      );
+    }
+    if (toExists && fromRow.additional_directories) {
+      // plan codex-recover-network-dirs-parity-20260602：additional_directories 防御性 parity 覆盖
+      // （镜像 extra_allow_write block，truthy guard 同款 —— TEXT JSON 列 null/空串都跳过保留 NEW）。
+      // 定性同上：防御性 parity 非 spawn 救命。
+      db.prepare(`UPDATE sessions SET additional_directories = ? WHERE id = ?`).run(
+        fromRow.additional_directories,
         toId,
       );
     }

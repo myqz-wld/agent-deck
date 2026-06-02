@@ -422,6 +422,61 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     expect(row.spawn_depth).toBe(0);
   });
 
+  // **plan codex-recover-network-dirs-parity-20260602 回归 test**: renameWithDb 两分支必须搬运
+  // network_access_enabled + additional_directories（防御性 parity，与 model/extra_allow_write
+  // 同段迁移；防 future caller rename 已设此列的 session 时静默丢值）。
+  it('renameWithDb toExists=false INSERT: network/dirs 跟到 toId', () => {
+    insertSession(db, 'net-old');
+    // 直接 SQL 设新列（insertSession helper 不含这俩）
+    db.prepare(
+      `UPDATE sessions SET network_access_enabled = 1, additional_directories = ? WHERE id = ?`,
+    ).run(JSON.stringify(['/home/.claude', '/tmp']), 'net-old');
+
+    // toExists=false 路径（net-new 不存在）→ 走 INSERT 全列复制
+    renameWithDb(db, 'net-old', 'net-new');
+
+    const row = db
+      .prepare(`SELECT network_access_enabled, additional_directories FROM sessions WHERE id = ?`)
+      .get('net-new') as { network_access_enabled: number | null; additional_directories: string | null };
+    expect(row.network_access_enabled).toBe(1);
+    expect(row.additional_directories).toBe(JSON.stringify(['/home/.claude', '/tmp']));
+    // OLD 已删
+    expect(db.prepare(`SELECT id FROM sessions WHERE id = ?`).get('net-old')).toBeUndefined();
+  });
+
+  it('renameWithDb toExists=true: OLD network/dirs 覆盖到已存在的 NEW 行', () => {
+    insertSession(db, 'net-old2');
+    insertSession(db, 'net-new2'); // NEW 预存（toExists=true 分支）
+    db.prepare(
+      `UPDATE sessions SET network_access_enabled = 1, additional_directories = ? WHERE id = ?`,
+    ).run(JSON.stringify(['/home/.codex']), 'net-old2');
+
+    renameWithDb(db, 'net-old2', 'net-new2');
+
+    const row = db
+      .prepare(`SELECT network_access_enabled, additional_directories FROM sessions WHERE id = ?`)
+      .get('net-new2') as { network_access_enabled: number | null; additional_directories: string | null };
+    // OLD 值覆盖到 NEW（防御性 parity）
+    expect(row.network_access_enabled).toBe(1);
+    expect(row.additional_directories).toBe(JSON.stringify(['/home/.codex']));
+  });
+
+  it('renameWithDb toExists=true: network_access_enabled=0(false) 也覆盖（!= null guard 非 truthy）', () => {
+    insertSession(db, 'net-old3');
+    insertSession(db, 'net-new3');
+    // OLD 显式 false(0)，NEW 预存 true(1) → != null guard 应让 OLD 0 覆盖 NEW 1
+    db.prepare(`UPDATE sessions SET network_access_enabled = 0 WHERE id = ?`).run('net-old3');
+    db.prepare(`UPDATE sessions SET network_access_enabled = 1 WHERE id = ?`).run('net-new3');
+
+    renameWithDb(db, 'net-old3', 'net-new3');
+
+    const row = db
+      .prepare(`SELECT network_access_enabled FROM sessions WHERE id = ?`)
+      .get('net-new3') as { network_access_enabled: number | null };
+    // 关键: OLD 显式 0(false) 覆盖 NEW 1 —— 若用 truthy guard 会漏掉 0 错误保留 NEW 的 1
+    expect(row.network_access_enabled).toBe(0);
+  });
+
   it('findActiveMembershipsBySession 仅返回 active', () => {
     insertSession(db, 'sA');
     const t1 = repo.create({ name: 't1' });

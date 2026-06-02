@@ -1,0 +1,27 @@
+-- plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn-time 的
+-- networkAccessEnabled + additionalDirectories 持久化到 sessions 表（cross-adapter parity，
+-- 镜像 v019 extra_allow_write / v008 codex_sandbox 同款 per-session resilience 模式）。
+--
+-- 问题：options-builder.ts narrowToCodexOpts 在 reviewer-* 分支注入 4 个 unsafe default。
+-- 其中 codexSandbox 已 v008 持久化、approvalPolicy 有 buildCodexThreadOptions `?? 'never'`
+-- fallback，唯独 networkAccessEnabled + additionalDirectories **既不持久化也无 fallback** →
+-- app 重启 / dev hot reload / main crash 后 sessions Map miss → recover 路径 createSession
+-- 不重传这俩 → SDK 走默认（无网络访问 + 无额外可读写目录）→ recover 后的 reviewer-codex
+-- 失去 web search + 跨目录读 plan/config + /tmp 中间文件能力。
+--
+-- 这俩字段与 extra_allow_write 不同：codex SDK runtime **真消费**（经
+-- buildCodexThreadOptions → startThread/resumeThread 的 ThreadOptions），不是 persist-only
+-- no-op。recover/restart 读回透传后 reviewer 能力恢复。
+--
+-- 字段值：
+-- - network_access_enabled INTEGER：3 态布尔（NULL=未设 / 0=false / 1=true）。**不加 DEFAULT** —
+--   保留 unset vs explicit-false 区分（NULL → recover 时 ?? undefined 跳过走 SDK 默认；
+--   0/1 → 显式回放）。注意 better-sqlite3 拒绝 raw boolean bind，写入端 boolean→0/1 手转，
+--   读取端 rowToRecord `=== 1` 还原（详 session-repo/types.ts rowToRecord）。
+-- - additional_directories TEXT：JSON.stringify(string[])（全绝对路径），NULL = 不指定。
+--   读取端复用 parseStringArrayJson defense-in-depth（与 extra_allow_write 同款）。
+--
+-- 兼容性：claude 会话 + 普通 codex session（非 reviewer-*）该两字段始终 NULL（不读不写）。
+-- 两 ALTER 同文件（先例 v009 spawned_by + spawn_depth；db.ts db.exec 支持多语句）。
+ALTER TABLE sessions ADD COLUMN network_access_enabled INTEGER;
+ALTER TABLE sessions ADD COLUMN additional_directories TEXT;

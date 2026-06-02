@@ -57,6 +57,27 @@ export interface PersistSessionFieldsArgs {
    * runtime 真生效,extraAllowWrite 仍未生效)。
    */
   extraAllowWrite?: readonly string[];
+  /**
+   * plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn 时 options-builder
+   * 注入的 `networkAccessEnabled` unsafe default。**与 extraAllowWrite 关键区别：codex SDK
+   * runtime 真消费**（经 buildCodexThreadOptions → startThread/resumeThread 的
+   * ThreadOptions.networkAccessEnabled），持久化是为了 recover / restart 路径读回还原 reviewer
+   * 网络访问能力 —— **不是** extraAllowWrite 那种 persist-only no-op，故下方写入**不打 warn**。
+   *
+   * undefined → 跳过持久化（保留原值）；**用 `!== undefined` 不用 truthy** —— `false` 是合法值
+   * （非 reviewer caller 显式关网络），truthy guard 会漏掉显式 false。
+   */
+  networkAccessEnabled?: boolean;
+  /**
+   * plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn 时 options-builder
+   * 注入的 `additionalDirectories` unsafe default。**codex SDK runtime 真消费**（经
+   * buildCodexThreadOptions → startThread/resumeThread 的 ThreadOptions.additionalDirectories
+   * 让 sandbox=workspace-write 额外允许这些根），持久化为 recover / restart 还原跨目录访问能力。
+   * 与 extraAllowWrite 不同（那个 codex 不消费），故写入**不打 warn**。
+   *
+   * undefined / 空数组 → 跳过持久化（保留原值）。非空数组 → setAdditionalDirectories 写入。
+   */
+  additionalDirectories?: readonly string[];
 }
 
 /**
@@ -69,7 +90,8 @@ export interface PersistSessionFieldsArgs {
  * console.warn：失败时透出错误，与 claude session-finalize 同款诊断模式。
  */
 export function persistSessionFields(args: PersistSessionFieldsArgs): void {
-  const { sessionId, sandboxMode, model, extraAllowWrite } = args;
+  const { sessionId, sandboxMode, model, extraAllowWrite, networkAccessEnabled, additionalDirectories } =
+    args;
 
   // 1. 持久化 sandbox 档位（CHANGELOG_<X> A2a）
   try {
@@ -108,5 +130,33 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
         ` codex SDK 不支持 extra writable roots,sandboxMode 三档(workspace-write / read-only /` +
         ` danger-full-access)只控根 sandbox profile。本字段持久化保跨 adapter parity 对称。`,
     );
+  }
+
+  // 4. plan codex-recover-network-dirs-parity-20260602：networkAccessEnabled 持久化。
+  // **与 extraAllowWrite 不同：codex SDK runtime 真消费**（buildCodexThreadOptions →
+  // startThread/resumeThread），故**不打 warn**（同 setModel）。**用 `!== undefined` 不用 truthy** —
+  // false 是合法值（非 reviewer caller 显式关网络），truthy guard 会漏掉显式 false。
+  if (networkAccessEnabled !== undefined) {
+    try {
+      sessionRepo.setNetworkAccessEnabled(sessionId, networkAccessEnabled);
+    } catch (err) {
+      logger.warn(
+        `[codex-bridge] setNetworkAccessEnabled(${sessionId}, ${networkAccessEnabled}) 失败`,
+        err,
+      );
+    }
+  }
+
+  // 5. plan codex-recover-network-dirs-parity-20260602：additionalDirectories 持久化。
+  // **codex SDK runtime 真消费**（同上），不打 warn。空数组跳过（同 extraAllowWrite guard）。
+  if (additionalDirectories !== undefined && additionalDirectories.length > 0) {
+    try {
+      sessionRepo.setAdditionalDirectories(sessionId, [...additionalDirectories]);
+    } catch (err) {
+      logger.warn(
+        `[codex-bridge] setAdditionalDirectories(${sessionId}, [${additionalDirectories.join(', ')}]) 失败`,
+        err,
+      );
+    }
   }
 }

@@ -1,6 +1,7 @@
 /**
  * session-repo —— core CRUD（upsert / get / list*）+ per-session settings setter
- * (permissionMode / title / codexSandbox / claudeCodeSandbox / model / extraAllowWrite) + delete。
+ * (permissionMode / title / codexSandbox / claudeCodeSandbox / model / extraAllowWrite /
+ *  networkAccessEnabled / additionalDirectories) + delete。
  *
  * 拆分历史：从 src/main/store/session-repo.ts 抽出（CHANGELOG_83 / plan
  * deep-review-and-split-20260513 H2 Step 2.3）。
@@ -46,11 +47,15 @@ export function upsert(rec: SessionRecord): void {
   // toId / toExists=true 分支保留 NEW 行已有 cli_session_id 不覆盖(详 rename.ts)。
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
   // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
+  // plan codex-recover-network-dirs-parity-20260602：network_access_enabled +
+  // additional_directories 同款（v029）— reviewer-codex spawn-time default 持久化让 recover /
+  // restart 路径还原 codex SDK 网络访问 + 额外可读写目录；upsert 必须参与否则 lifecycle 复活
+  // 路径丢字段。**boolean→int 手转**（better-sqlite3 拒绝 raw boolean bind）。
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id)
+       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories)
+       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories)
        ON CONFLICT(id) DO UPDATE SET
          cwd = excluded.cwd,
          title = excluded.title,
@@ -69,7 +74,9 @@ export function upsert(rec: SessionRecord): void {
          spawned_by = excluded.spawned_by,
          spawn_depth = excluded.spawn_depth,
          generic_pty_config = excluded.generic_pty_config,
-         cli_session_id = excluded.cli_session_id`,
+         cli_session_id = excluded.cli_session_id,
+         network_access_enabled = excluded.network_access_enabled,
+         additional_directories = excluded.additional_directories`,
     )
     .run({
       id: rec.id,
@@ -96,6 +103,15 @@ export function upsert(rec: SessionRecord): void {
       spawn_depth: rec.spawnDepth ?? 0,
       generic_pty_config: null,
       cli_session_id: rec.cliSessionId ?? null,
+      // plan codex-recover-network-dirs-parity-20260602：boolean→int 手转（better-sqlite3 拒绝
+      // raw boolean bind）。null（未设）保持 null 走 SDK 默认；additional_directories 同
+      // extra_allow_write JSON.stringify 空数组→null。
+      network_access_enabled:
+        rec.networkAccessEnabled == null ? null : rec.networkAccessEnabled ? 1 : 0,
+      additional_directories:
+        rec.additionalDirectories && rec.additionalDirectories.length > 0
+          ? JSON.stringify(rec.additionalDirectories)
+          : null,
     });
 }
 
@@ -268,6 +284,39 @@ export function setModel(id: string, model: string | null): void {
 export function setExtraAllowWrite(id: string, paths: string[] | null): void {
   const json = paths && paths.length > 0 ? JSON.stringify(paths) : null;
   getDb().prepare(`UPDATE sessions SET extra_allow_write = ? WHERE id = ?`).run(json, id);
+}
+
+/**
+ * 写入 Codex SDK 网络访问开关（plan codex-recover-network-dirs-parity-20260602）。
+ *
+ * 调用方：codex-cli adapter session-finalize persistSessionFields —— reviewer-codex spawn 时
+ * options-builder 注入的 `networkAccessEnabled: true` 持久化，让 recover / restart 路径还原
+ * codex SDK 网络访问能力（与 setCodexSandbox / setModel 同款 per-session resilience）。
+ * 普通 codex session（非 reviewer-*）+ claude session 不调（字段对它们无意义）。
+ *
+ * **boolean→int 手转**：better-sqlite3 拒绝 raw boolean bind。`enabled=null` → 列写 NULL
+ * （恢复「不指定，recover ?? undefined 跳过走 SDK 默认」语义）；true→1 / false→0。
+ * 与 setCodexSandbox / setModel 完全对称的字面镜像。
+ */
+export function setNetworkAccessEnabled(id: string, enabled: boolean | null): void {
+  const intVal = enabled == null ? null : enabled ? 1 : 0;
+  getDb().prepare(`UPDATE sessions SET network_access_enabled = ? WHERE id = ?`).run(intVal, id);
+}
+
+/**
+ * 写入 Codex SDK 额外可读写目录（plan codex-recover-network-dirs-parity-20260602）。
+ *
+ * 调用方：codex-cli adapter session-finalize persistSessionFields —— reviewer-codex spawn 时
+ * options-builder 注入的 `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` 持久化，
+ * 让 recover / restart 路径还原 codex SDK 额外可读写根（配合 setNetworkAccessEnabled）。
+ * 普通 codex session + claude session 不调。
+ *
+ * `dirs`：绝对路径数组；空数组 / null → 列写 NULL（语义同 caller 不传，codex SDK 走默认无额外
+ * 目录）。与 setExtraAllowWrite 完全对称的字面镜像（JSON.stringify string[]）。
+ */
+export function setAdditionalDirectories(id: string, dirs: string[] | null): void {
+  const json = dirs && dirs.length > 0 ? JSON.stringify(dirs) : null;
+  getDb().prepare(`UPDATE sessions SET additional_directories = ? WHERE id = ?`).run(json, id);
 }
 
 /**
