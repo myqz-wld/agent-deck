@@ -13,6 +13,7 @@ import { DataPanel } from './components/DataPanel';
 import { HeaderTokenRates } from './components/HeaderTokenRates';
 import { useSessionStore } from './stores/session-store';
 import { useEventBridge } from './hooks/use-event-bridge';
+import { useIssuesBridge } from './hooks/use-issues-bridge';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
 import { selectLiveSessions, selectPendingBuckets, sumPendingBuckets } from './lib/session-selectors';
 import type { AppSettings, SessionRecord } from '@shared/types';
@@ -23,6 +24,9 @@ type View = 'live' | 'history' | 'pending' | 'teams' | 'issues' | 'data';
 
 export function App(): JSX.Element {
   useEventBridge();
+  // 常驻订阅 issue-changed（不放 IssuesPanel 组件内，否则切走 tab unmount 即漏事件 →
+  // 切回问题页状态不刷新）。详 use-issues-bridge.ts 头注。
+  useIssuesBridge();
   const sessions = useSessionStore((s) => s.sessions);
   const selectedId = useSessionStore((s) => s.selectedSessionId);
   const select = useSessionStore((s) => s.selectSession);

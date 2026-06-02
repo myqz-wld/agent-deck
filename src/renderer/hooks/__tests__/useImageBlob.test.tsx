@@ -1,10 +1,10 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 /**
  * useImageBlob hook 异步状态机回归测试（REVIEW_102 follow-up，issue 6f86ac86）。
  *
  * 背景：REVIEW_102 R2 双 reviewer（claude + codex）独立命中 INFO —— 本轮风险最高的 hook 级
  * 异步 race 行为仅靠 /tmp sim 实证（/tmp/blob-reject2.mjs），未落 repo committed test。
- * 用户拍板方案 (a)：引入 jsdom + @testing-library/react renderHook 直测真实 hook 行为。
+ * 用户拍板方案 (a)：引入 happy-dom + @testing-library/react renderHook 直测真实 hook 行为。
  * 本文件覆盖 useImageBlob 的两条修法（spike1-jsdom-rtl-compat.md 验证可行 + mutation test 挡回归）：
  *
  * - LOW-1（codex 单方 + lead sim 实证）：loader reject → loading:false + io_error result，

@@ -153,8 +153,8 @@ $env:PATH += ";$env:LOCALAPPDATA\Programs\Agent Deck\resources\bin"
 ### 开发模式
 
 ```bash
-pnpm install
-pnpm rebuild better-sqlite3 electron esbuild   # 给当前 Electron 重编 native module
+pnpm install                                    # postinstall 自动 electron-builder install-app-deps 重 build better-sqlite3；
+                                                # electron / esbuild 预编译二进制经 pnpm.onlyBuiltDependencies 放行
 pnpm dev                                        # electron-vite + HMR
 ```
 
@@ -315,7 +315,7 @@ scripts/
 
 ```bash
 pnpm typecheck       # 必跑
-pnpm test            # vitest（默认 node 环境纯逻辑单测 + 文件顶部 `// @vitest-environment jsdom` 切 React hook 测试）
+pnpm test            # vitest（默认 node 环境纯逻辑单测 + 文件顶部 `// @vitest-environment happy-dom` 切 React hook 测试）
 pnpm test:fts5       # sqlite3 CLI 真 SQL 集成校验（FTS5 schema + 触发器 + MATCH 谓词，不依赖 better-sqlite3）
 pnpm logger:check    # grep CI 守门：src/main + src/renderer 0 console.X 残留 + logger.ts 模块独立性（依赖 ripgrep：brew install ripgrep）
 pnpm build           # 大改动跑
