@@ -80,3 +80,4 @@
 | [deep-review-project-rolling-20260602.md](deep-review-project-rolling-20260602.md) | completed | [REVIEW_99..REVIEW_109](../reviews/INDEX.md) | 滚动 review Batch 1-11（11 主逻辑 + 4 simple-review 收尾 = 15 批 ~100 真修）全部收口，切 maintenance-mode（B1 被动 file-level expiry 驱动） |
 | [codex-recover-network-dirs-parity-20260602.md](codex-recover-network-dirs-parity-20260602.md) | completed | [198](../changelogs/CHANGELOG_198.md) | codex-recover-network-dirs-parity-20260602 |
 | [pending-tab-resume-and-new-session-default-20260602.md](pending-tab-resume-and-new-session-default-20260602.md) | completed | [200](../changelogs/CHANGELOG_200.md) | BUG 1 ActivityFeed 监听 onSessionUpserted 强制重拉 listAdapterPending（resume 根因修）+ BUG 2 useLastSessionDefaults 模块顶层 let store 跨 mount 持久 / 跨重启不持久 |
+| [message-retention-and-index-20260602.md](message-retention-and-index-20260602.md) | completed | [201](../changelogs/CHANGELOG_201.md) | 修复 `agent_deck_messages` 表两个独立问题（一次 v029 migration 收口）： |

@@ -1,0 +1,37 @@
+===== (1) baseline 当前 OR 查询 EXPLAIN（期望 SCAN + TEMP B-TREE）=====
+QUERY PLAN
+|--SCAN agent_deck_messages
+`--USE TEMP B-TREE FOR ORDER BY
+
+===== (2) UNION ALL 双索引重写 EXPLAIN（期望双 SEARCH USING INDEX，无 SCAN）=====
+QUERY PLAN
+`--MERGE (UNION ALL)
+   |--LEFT
+   |  |--SEARCH agent_deck_messages USING INDEX idx_messages_from_session_sent_at (from_session_id=?)
+   |  `--USE TEMP B-TREE FOR RIGHT PART OF ORDER BY
+   `--RIGHT
+      |--SEARCH agent_deck_messages USING INDEX idx_messages_to_session_sent_at (to_session_id=?)
+      `--USE TEMP B-TREE FOR RIGHT PART OF ORDER BY
+
+===== (3a) 正常数据正确性：union_all_cnt == or_cnt（self-msg 不存在 → 无重复）=====
+200|200|0
+
+===== (3b) self-row guard（Review R1 codex HIGH-2）：rename collision 造 from==to =====
+-- 插一条 self-row（模拟 rename A->B 把 from=A,to=B 变 from=B,to=B）：
+-- baseline OR（期望 1）/ 无 guard UNION ALL（期望 2 BUG）/ 有 guard（期望 1 FIX）：
+1|2|1
+
+===== (4a) GC status-first 索引 (status,sent_at)：SEARCH 但仍 TEMP B-TREE（破 500 预算 ❌）=====
+QUERY PLAN
+|--SEARCH agent_deck_messages USING INDEX idx_messages_status_sent_at (status=? AND sent_at<?)
+`--USE TEMP B-TREE FOR ORDER BY
+
+===== (4b) GC partial 索引 (sent_at) WHERE status IN terminal：无 TEMP B-TREE（✅ 正解）=====
+QUERY PLAN
+`--SEARCH agent_deck_messages USING INDEX idx_messages_terminal_sent_at (sent_at<?)
+
+===== (4c) partial index 命中规则（Review R2 codex）：参数化 / 单值 / 顺序不同 不命中 =====
+-- 单值 equality（期望 不命中 partial，走别的索引或 SCAN）：
+QUERY PLAN
+|--SEARCH agent_deck_messages USING INDEX idx_messages_team_id_sent_at (ANY(team_id) AND sent_at<?)
+`--USE TEMP B-TREE FOR ORDER BY
