@@ -39,11 +39,44 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
   TeamInvariantError: class extends Error {},
 }));
 
+// shutdown race guard（issue shutdown-race-ingest-db-guard）: mock @main/store/db 让本文件可切
+// isDbClosed() 返回值,验 ingest 入口 closeDb 后短路丢弃尾包。默认 closed=false → 现存 14 个 it 全部
+// 走原路径(guard no-op);guard 专测 it 内 __setClosed(true) 再 ingest 验短路。getDb mock 成 throw
+// 是防御性兜底(模拟 dbInstance=null 退出态)—— guard 生效时根本不该走到 getDb;位置回归靠 guard 专测
+// spy sessionRepo.findByCliSessionId 断言(不是断言 getDb,因 mock 的 findByCliSessionId 纯内存不路由
+// getDb,断言 getDb 会 vacuous — reviewer MED-1 修法)。
+const dbMock = vi.hoisted(() => {
+  let closed = false;
+  return {
+    isDbClosed: (): boolean => closed,
+    __setClosed: (v: boolean): void => {
+      closed = v;
+    },
+    getDb: vi.fn(() => {
+      throw new Error('Database not initialized. Call initDb() first.');
+    }),
+    initDb: vi.fn(),
+    closeDb: vi.fn(() => {
+      closed = true;
+    }),
+  };
+});
+vi.mock('@main/store/db', () => ({
+  isDbClosed: dbMock.isDbClosed,
+  getDb: dbMock.getDb,
+  initDb: dbMock.initDb,
+  closeDb: dbMock.closeDb,
+}));
+
 // 注意：mock 必须在 import sessionManager 之前（vi.mock 是 hoist 的，但显式分隔更清楚）
 import { sessionManager } from '@main/session/manager';
+// shutdown guard 专测拿 mocked sessionRepo 引用 spy findByCliSessionId（ingest 第一处 repo 访问）。
+// vi.mock('@main/store/session-repo') 已 hoist,此 import 拿到的就是 makeSessionRepoMock() 产物。
+import { sessionRepo } from '@main/store/session-repo';
 
 beforeEach(async () => {
   await resetMocks();
+  dbMock.__setClosed(false); // 防 guard 专测把 closed 态泄漏给后续 it
 });
 
 afterEach(() => {
@@ -530,5 +563,82 @@ describe('SessionManager.ingest 时序', () => {
     // **关键断言**: dormant 走复活路径 → active(short-circuit 仅 closed/archived)
     expect(mockSessions.get('DORMANT_SID')?.lifecycle).toBe('active');
     expect(mockSessions.get('DORMANT_SID')?.lastEventAt).toBe(7000);
+  });
+});
+
+describe('SessionManager.ingest shutdown race guard（issue shutdown-race-ingest-db-guard）', () => {
+  it('DB 已 closed → ingest 入口短路丢弃尾包（不碰 repo / 不落库 / 不广播）', () => {
+    // 模拟 before-quit finally closeDb() 跑过后,adapter in-flight 尾包飞回 ingest。
+    dbMock.__setClosed(true);
+
+    // **位置回归哨兵（MED-1 修法,reviewer 双方共识 + claude 实测）**:spy ingest 第一处 repo 访问
+    // findByCliSessionId(manager.ts ingest 第一行 guard 之后紧跟的 sessionRepo 调用)。guard 生效时
+    // 根本不该到达 → 0 次调用。若 guard 被挪到 findByCliSessionId 之后,本 spy 会被调用 → 抓回归。
+    // (旧版断言 dbMock.getDb 是 vacuous:mock 的 findByCliSessionId 纯内存遍历不路由 getDb,挪 guard
+    // 也恒 0 次 — reviewer-claude 实测「挪 guard 后 16/16 仍过」证伪旧哨兵,改 spy 真 repo 入口。)
+    const findSpy = vi.spyOn(sessionRepo as { findByCliSessionId: (s: string) => unknown }, 'findByCliSessionId');
+
+    const tail = makeEvent({
+      sessionId: 'sess-shutdown-tail',
+      source: 'sdk',
+      kind: 'message',
+      payload: { text: 'late tail packet after closeDb' },
+      ts: 9000,
+    });
+    sessionManager.ingest(tail);
+
+    // 入口 isDbClosed() 短路 → 不碰任何 repo / 不建 record / 不落 events / 不 emit
+    expect(findSpy).not.toHaveBeenCalled();
+    expect(mockSessions.get('sess-shutdown-tail')).toBeUndefined();
+    expect(mockEvents).toHaveLength(0);
+    expect(mockEmits).toHaveLength(0);
+
+    findSpy.mockRestore();
+  });
+
+  it('DB 已 closed → token-usage 尾包也被入口 guard 挡住（不写 token_usage / 不 emit）', () => {
+    // token-usage 早返旁路在 ingest guard 之后(manager.ts:331 guard → :370 persistTokenUsage→
+    // tokenUsageRepo→getDb)。closed 时入口 guard 必须先短路,否则退出期 token-usage 尾包会
+    // persistTokenUsage→getDb throw。锁住 guard 不被挪到 token-usage 早返之后(reviewer-codex 修法建议)。
+    dbMock.__setClosed(true);
+    const findSpy = vi.spyOn(sessionRepo as { findByCliSessionId: (s: string) => unknown }, 'findByCliSessionId');
+
+    const tokenTail = makeEvent({
+      sessionId: 'sess-token-tail',
+      source: 'sdk',
+      kind: 'token-usage',
+      payload: { model: 'claude-opus-4-8', inputTokens: 10, outputTokens: 20 },
+      ts: 9100,
+    });
+    sessionManager.ingest(tokenTail);
+
+    // guard 在 token-usage 早返之前 → 整体短路,token-usage-changed 也不 emit
+    expect(findSpy).not.toHaveBeenCalled();
+    expect(mockEmits.filter((e) => e.name === 'token-usage-changed')).toHaveLength(0);
+
+    findSpy.mockRestore();
+  });
+
+  it('DB 未 closed（正常运行态）→ ingest 走原路径正常落库（guard no-op）', () => {
+    // 显式验「未关闭时 guard 不误伤正常事件」—— 与现存 14 个 it 默认态一致,但本 it 紧挨上面
+    // closed 专测,验 beforeEach 复位 closed=false 生效 + guard 非误短路 + findByCliSessionId 真被调。
+    expect(dbMock.isDbClosed()).toBe(false);
+    const findSpy = vi.spyOn(sessionRepo as { findByCliSessionId: (s: string) => unknown }, 'findByCliSessionId');
+
+    const ev = makeEvent({
+      sessionId: 'sess-normal-after-guard',
+      source: 'hook',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    });
+    sessionManager.ingest(ev);
+
+    // guard no-op → findByCliSessionId 正常被调（对偶证明:closed 时 0 次 vs 正常时 ≥1 次,
+    // 两个 case 合起来才真正锁住「guard 位于 findByCliSessionId 之前」位置不变量）。
+    expect(findSpy).toHaveBeenCalled();
+    expect(mockSessions.get('sess-normal-after-guard')?.source).toBe('cli');
+    expect(mockEvents).toHaveLength(1);
+
+    findSpy.mockRestore();
   });
 });

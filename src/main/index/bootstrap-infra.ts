@@ -29,7 +29,7 @@ import { join } from 'node:path';
 
 import { HookServer } from '../hook-server/server';
 import { RouteRegistry } from '../hook-server/route-registry';
-import { initDb, closeDb } from '../store/db';
+import { initDb, closeDb, isDbClosed } from '../store/db';
 import { settingsStore } from '../store/settings-store';
 import { adapterRegistry } from '../adapters/registry';
 import { claudeCodeAdapter } from '../adapters/claude-code';
@@ -129,6 +129,14 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
     hookServer: state.hookServer,
     routeRegistry: state.routeRegistry,
     emit: (event: AgentEvent) => {
+      // shutdown race guard (issue shutdown-race-ingest-db-guard):closeDb() 跑过后 adapter
+      // in-flight 尾包仍会经本 sink 飞回。ingest 入口自身已查 isDbClosed() 短路(主修法),此处
+      // 在 sink 顶端再 drop 一次有两个收益:① sink 另一消费者 routeEventToNotification 对
+      // finished/waiting-for-user 事件会 sessionManager.get() → getDb() throw(虽被 event-router
+      // 自身 try/catch 兜住不 crash,但产生 "notification dispatch failed" 噪音 log + 无谓工作);
+      // ② 显式表达「DB 关闭后退出期事件整体丢弃」意图,两消费者对称受护(避免只挡 ingest 留
+      // routeEventToNotification 半拉子,与 REVIEW_104 只补一条 listener 的不对称裂口同型)。
+      if (isDbClosed()) return;
       sessionManager.ingest(event);
       routeEventToNotification(event);
     },
