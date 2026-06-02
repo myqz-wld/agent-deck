@@ -30,6 +30,7 @@ import type {
 } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
+import { isDbClosed } from '@main/store/db';
 import { deriveTitle, normalizeCwd } from './manager-helpers';
 import { enrichRecordWithTeams, enrichRecordsWithTeamsBatch } from './manager-enrich';
 import {
@@ -320,6 +321,14 @@ class SessionManagerClass {
    * 再 claim,UI 会闪现「内/外两份」。CHANGELOG_16 / REVIEW_1 修过、payload-truncate 测试覆盖。
    */
   ingest(event: AgentEvent): void {
+    // **shutdown race guard (issue shutdown-race-ingest-db-guard)**:before-quit finally 跑 closeDb() 后
+    // (REVIEW_104 MED-B WAL checkpoint 不变量提前到 finally),adapter in-flight 尾包(shutdownAll drain
+    // 完成前已 emit / 迟到 SDK 流尾包)仍会走到本入口 → 下方 findByCliSessionId → getDb() 在
+    // dbInstance=null 上 throw → adapter async 流上变 unhandledRejection 落盘噪音(logger.ts 仅落盘
+    // 不强退,非 crash 非数据丢失)。DB 已显式关闭时退出期事件本就无需持久化,直接 drop。
+    // isDbClosed() 仅在「正常跑过 → closeDb」时为 true;启动期 init-never (dbInstance=null 但未 closeDb)
+    // 返 false → 不在此短路,getDb() 照常 loud throw,不掩盖「漏 initDb」启动 bug(详 db.ts dbClosed jsdoc)。
+    if (isDbClosed()) return;
     // plan reverse-rename-sid-stability-20260520 §A.3 / §D7 / §不变量 5 修订:
     // ingest 入口 4 态分流 — hook event sessionId 是 CLI thread sid 维度 (translate.ts:31
     // sessionId: p.session_id 来自 hook payload),反向 rename 后 cli_session_id 与
