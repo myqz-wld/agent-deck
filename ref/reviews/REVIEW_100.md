@@ -3,7 +3,7 @@
 > 关联特性：teamless DM（commit `3a18030` `feat(mcp): teamless DM` / CHANGELOG_194）+ universal-message-watcher 跨 adapter 消息投递引擎
 > 关联 commits：`15b0080`（R1 fix shutdown reschedule race）/ `73b6cbb`（R2 fix process 入口 guard 补全）
 > 性质：滚动「全项目 deep review」Batch 2（debug/加固 —— 无新功能引入，归 reviews）
-> follow-up issue：`7dcb0676`（teamless 表无界增长 + listBySession 全表扫描，out-of-scope）
+> follow-up issue：`7dcb0676`（teamless 表无界增长 + listBySession 全表扫描，out-of-scope）→ **✅ RESOLVED**（plan `message-retention-and-index-20260602` / CHANGELOG_201：v030 索引 + MessageLifecycleScheduler retention GC + UNION ALL 重写）
 
 ## 背景与诉求
 
