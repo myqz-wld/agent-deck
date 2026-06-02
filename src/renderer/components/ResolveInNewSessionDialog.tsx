@@ -11,12 +11,14 @@
 
 import { cloneElement, useEffect, useId, useState, type JSX } from 'react';
 import type { IssueRecord } from '@shared/types';
+import { getLastDefaults, setLastDefaults } from '@renderer/hooks/useLastSessionDefaults';
 import {
   PERMISSION_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
   CLAUDE_SANDBOX_OPTIONS,
   type CodexSandboxChoice,
   type ClaudeSandboxChoice,
+  type PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
 
 interface Props {
@@ -84,7 +86,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   // deep-review H1 INFO：buildDefaultPrompt 只需作 useState 初值（mount 后不再消费），用惰性初始化
   // 替代 useMemo（去掉每次 issue 变重算但不被用的死计算）。
   const [prompt, setPrompt] = useState(() => buildDefaultPrompt(issue));
-  const [permissionMode, setPermissionMode] = useState('');
+  const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('default');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
   const [busy, setBusy] = useState(false);
@@ -112,6 +114,16 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // plan pending-tab-resume-and-new-session-default-20260602 §D2 BUG 2：与 NewSessionDialog
+  // 共享 last-used 记忆。dialog mount 时 + adapter 切换时从 useLastSessionDefaults store 读回
+  // 上次值；不要在「adapters 还没加载好」时跑（adapter 切到合法值后再跑）。
+  useEffect(() => {
+    const d = getLastDefaults(adapter);
+    if (d.permissionMode !== undefined) setPermissionMode(d.permissionMode);
+    if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
+    if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
+  }, [adapter]);
+
   // 与 NewSessionDialog 同款按 adapter capability 决定字段可见性
   const selectedAdapter = adapters.find((a) => a.id === adapter);
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
@@ -137,7 +149,9 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         adapter,
         cwd: cwd.trim() || undefined,
         prompt,
-        ...(showPermissionMode && permissionMode ? { permissionMode } : {}),
+        // plan pending-tab-resume-and-new-session-default-20260602 §D2：'default' = 跟随默认，
+        // 不作为 per-session 覆盖传给主进程（主进程收到 'default' 也等价不传，与历史契约一致）。
+        ...(showPermissionMode && permissionMode !== 'default' ? { permissionMode } : {}),
         ...(showCodexSandbox && codexSandbox ? { codexSandbox } : {}),
         ...(showClaudeCodeSandbox && claudeCodeSandbox ? { claudeCodeSandbox } : {}),
       });
@@ -210,14 +224,17 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           </DialogField>
           <div className="-mt-2 text-[10px] text-deck-muted">{prompt.length} / 102400</div>
           {showPermissionMode && (
-            <DialogField label="权限模式（可选；留空用默认）">
+            <DialogField label="权限模式（跟随上次选；切 adapter 会重读）">
               <select
                 value={permissionMode}
-                onChange={(e) => setPermissionMode(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value as PermissionModeChoice;
+                  setPermissionMode(v);
+                  setLastDefaults(adapter, { permissionMode: v });
+                }}
                 disabled={busy}
                 className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
               >
-                <option value="">跟随默认</option>
                 {PERMISSION_OPTIONS.map((p) => (
                   <option key={p.value} value={p.value} title={p.title}>
                     {p.label}
@@ -227,10 +244,14 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             </DialogField>
           )}
           {showCodexSandbox && (
-            <DialogField label="沙盒（可选；留空用默认）">
+            <DialogField label="沙盒（跟随上次选）">
               <select
                 value={codexSandbox}
-                onChange={(e) => setCodexSandbox(e.target.value as CodexSandboxChoice)}
+                onChange={(e) => {
+                  const v = e.target.value as CodexSandboxChoice;
+                  setCodexSandbox(v);
+                  setLastDefaults(adapter, { codexSandbox: v });
+                }}
                 disabled={busy}
                 className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
               >
@@ -243,10 +264,14 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             </DialogField>
           )}
           {showClaudeCodeSandbox && (
-            <DialogField label="系统沙盒（可选；留空用默认）">
+            <DialogField label="系统沙盒（跟随上次选）">
               <select
                 value={claudeCodeSandbox}
-                onChange={(e) => setClaudeCodeSandbox(e.target.value as ClaudeSandboxChoice)}
+                onChange={(e) => {
+                  const v = e.target.value as ClaudeSandboxChoice;
+                  setClaudeCodeSandbox(v);
+                  setLastDefaults(adapter, { claudeCodeSandbox: v });
+                }}
                 disabled={busy}
                 className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
               >

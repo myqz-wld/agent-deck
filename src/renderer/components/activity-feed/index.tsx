@@ -81,6 +81,31 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     };
   }, [sessionId, agentId, isSdk, setRecent, setPending]);
 
+  // plan pending-tab-resume-and-new-session-default-20260602 §D1 BUG 1 根因修法：
+  // resume 路径（session-upserted + lifecycle 转 active）下，SessionDetail 不重 mount、
+  // 上方 useEffect 不重跑、listAdapterPending 不再同步一次，主进程协议层 resume 后新 emit 的
+  // in-process AskUserQuestion 落到 pendingAskQuestionsBySession，但 row 视图拿的是 useMemo
+  // 派生的 pendingAskIds（line 88-91），listAdapterPending 不再调就没机会覆盖。
+  // 实测修复：监听 onSessionUpserted 当同 sessionId 到达时（resume / 重连 / lifecycle 切换
+  // 都会 emit），强制重拉一次 listAdapterPending 把 in-process 等待态同步进 store。
+  // 副作用安全：listAdapterPending 走 setPendingRequests store action，line 392-407 内部
+  // length===0 时 delete key、否则 set — 与 pushEvent 增量更新同款语义，重复调用幂等。
+  useEffect(() => {
+    if (!isSdk) return;
+    const off = window.api.onSessionUpserted((s) => {
+      if (s.id !== sessionId) return;
+      void window.api
+        .listAdapterPending(agentId, sessionId)
+        .then((res) => {
+          setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes);
+        })
+        .catch((err: unknown) => {
+          logger.warn('[activity-feed] onSessionUpserted listAdapterPending failed:', err);
+        });
+    });
+    return off;
+  }, [sessionId, agentId, isSdk, setPending]);
+
   const pendingPermIds = useMemo(
     () => new Set(pendingPermissions.map((r) => r.requestId)),
     [pendingPermissions],

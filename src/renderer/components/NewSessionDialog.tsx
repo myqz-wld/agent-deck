@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
+import { getLastDefaults, setLastDefaults } from '@renderer/hooks/useLastSessionDefaults';
 import {
   PERMISSION_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
   CLAUDE_SANDBOX_OPTIONS,
   type CodexSandboxChoice,
   type ClaudeSandboxChoice,
+  type PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
 
 interface AdapterInfo {
@@ -29,8 +31,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [agentId, setAgentId] = useState('claude-code');
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [permissionMode, setPermissionMode] =
-    useState<'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'>('default');
+  const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('default');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   // CHANGELOG_74：claude-code OS 沙盒 per-session 覆盖（与 codexSandbox 字面镜像）
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
@@ -53,6 +54,18 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
       }
     });
   }, [open]);
+
+  // plan pending-tab-resume-and-new-session-default-20260602 §D2 BUG 2：两个弹窗共享 last-used。
+  // open 变 true 时（dialog 重新打开）从模块顶层 store 读回上次的选项；mount 期不变（避免
+  // dialog 关掉再开之间被外部 mutation 误改）。adapter 切换时也重读（跨 adapter 不串味，
+  // useLastSessionDefaults.setLastDefaults 内已经按 adapter 维度分桶）。
+  useEffect(() => {
+    if (!open) return;
+    const d = getLastDefaults(agentId);
+    if (d.permissionMode !== undefined) setPermissionMode(d.permissionMode);
+    if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
+    if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
+  }, [open, agentId]);
 
   if (!open) return null;
 
@@ -232,9 +245,11 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <Field label="权限模式">
                 <select
                   value={permissionMode}
-                  onChange={(e) =>
-                    setPermissionMode(e.target.value as typeof permissionMode)
-                  }
+                  onChange={(e) => {
+                    const v = e.target.value as PermissionModeChoice;
+                    setPermissionMode(v);
+                    setLastDefaults(agentId, { permissionMode: v });
+                  }}
                   className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 >
                   {PERMISSION_OPTIONS.map((p) => (
@@ -250,7 +265,11 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <Field label="沙盒">
                 <select
                   value={codexSandbox}
-                  onChange={(e) => setCodexSandbox(e.target.value as CodexSandboxChoice)}
+                  onChange={(e) => {
+                    const v = e.target.value as CodexSandboxChoice;
+                    setCodexSandbox(v);
+                    setLastDefaults(agentId, { codexSandbox: v });
+                  }}
                   className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 >
                   {CODEX_SANDBOX_OPTIONS.map((p) => (
@@ -266,7 +285,11 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <Field label="系统沙盒">
                 <select
                   value={claudeCodeSandbox}
-                  onChange={(e) => setClaudeCodeSandbox(e.target.value as ClaudeSandboxChoice)}
+                  onChange={(e) => {
+                    const v = e.target.value as ClaudeSandboxChoice;
+                    setClaudeCodeSandbox(v);
+                    setLastDefaults(agentId, { claudeCodeSandbox: v });
+                  }}
                   className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 >
                   {CLAUDE_SANDBOX_OPTIONS.map((p) => (
