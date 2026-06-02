@@ -44,18 +44,61 @@ describe('translateCodexEvent', () => {
   });
 
   describe('turn lifecycle', () => {
-    it('turn.completed → finished(ok:true) with usage', () => {
+    it('turn.completed → finished(ok:true) with usage + token-usage（plan A4）', () => {
       const { emit, events } = collect();
       const usage = { input_tokens: 100, output_tokens: 50 };
-      translateCodexEvent(
-        { type: 'turn.completed', usage } as ThreadEvent,
-        emit,
-      );
-      expect(events).toHaveLength(1);
+      translateCodexEvent({ type: 'turn.completed', usage } as ThreadEvent, emit, {
+        model: 'gpt-5.5',
+      });
+      // A4：turn.completed 现 emit finished + token-usage 两条（§不变量 7 解耦）
+      expect(events).toHaveLength(2);
       expect(events[0]).toEqual({
         kind: 'finished',
         payload: { ok: true, subtype: 'success', usage },
       });
+      expect(events[1]).toEqual({
+        kind: 'token-usage',
+        payload: {
+          messageId: null,
+          model: 'gpt-5.5',
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+        },
+      });
+    });
+
+    it('token-usage：reasoning 归入 output + cacheRead=cached_input + cacheCreation=0', () => {
+      const { emit, events } = collect();
+      const usage = {
+        input_tokens: 100,
+        output_tokens: 50,
+        cached_input_tokens: 30,
+        reasoning_output_tokens: 20,
+      };
+      translateCodexEvent({ type: 'turn.completed', usage } as ThreadEvent, emit, {
+        model: 'gpt-5.5',
+      });
+      const tu = events.find((e) => e.kind === 'token-usage');
+      expect(tu?.payload).toEqual({
+        messageId: null,
+        model: 'gpt-5.5',
+        inputTokens: 100,
+        outputTokens: 70, // 50 output + 20 reasoning
+        cacheReadTokens: 30,
+        cacheCreationTokens: 0,
+      });
+    });
+
+    it('token-usage：model 未传 → null（caller 未提供 sessions.model）', () => {
+      const { emit, events } = collect();
+      translateCodexEvent(
+        { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 2 } } as ThreadEvent,
+        emit,
+      );
+      const tu = events.find((e) => e.kind === 'token-usage');
+      expect((tu?.payload as { model: string | null }).model).toBeNull();
     });
 
     it('turn.failed → message(error) + finished(ok:false,failed)', () => {

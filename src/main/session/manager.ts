@@ -39,6 +39,7 @@ import {
   persistEventRow,
   persistFileChange,
   advanceState,
+  persistTokenUsage,
 } from './manager-ingest-pipeline';
 import {
   type SessionManagerInternalState,
@@ -351,6 +352,17 @@ class SessionManagerClass {
     // **3c + 3d**: dedupOrClaim 内部时序兜底 (REVIEW_5 H1 / REVIEW_12 修法保留) → ensureRecord 建会话
     // 与原 ingest 5 段流程保持不变 (dedupOrClaim 必须留在最前 + 早返硬约束)
     if (dedupOrClaim(this.ingestCtx, event).skip) return;
+    // token-usage 早返旁路（plan model-token-stats §Phase 1 A5 / §不变量 2/10）：
+    // 不写 events 表 / 不进 activity 状态机 / 不 emit agent-event（避免污染活动流 + 卡片状态机）。
+    // 放在 dedupOrClaim 后（黑名单 / sdkOwned 去重仍生效，§不变量 10：被删 session 60s 内尾包
+    // token-usage 在 isRecentlyDeleted 处已 drop，是预期）、ensureRecord 前（不为 token-usage 建/
+    // 复活 session row）。persistTokenUsage 自包裹 try/catch，失败不阻塞（§不变量 3）。
+    // emit token-usage-changed 通知 renderer（daily 视图 debounce refetch；rates/topToday 走 poll）。
+    if (event.kind === 'token-usage') {
+      persistTokenUsage(event);
+      eventBus.emit('token-usage-changed', { sessionId: event.sessionId, ts: event.ts });
+      return;
+    }
     const record = ensureRecord(this.ingestCtx, event);
     persistEventRow(event);
     persistFileChange(event);

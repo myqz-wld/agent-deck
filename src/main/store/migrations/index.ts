@@ -38,6 +38,7 @@ import v024 from './v024_tasks_add_team_id.sql?raw';
 import v025 from './v025_events_tool_use_end_dedup.sql?raw';
 import v026 from './v026_issues.sql?raw';
 import v027 from './v027_agent_deck_messages_team_id_nullable.sql?raw';
+import v028 from './v028_token_usage.sql?raw';
 
 export interface Migration {
   version: number;
@@ -73,4 +74,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 25, name: 'events_tool_use_end_dedup', sql: v025 },
   { version: 26, name: 'issues', sql: v026 },
   { version: 27, name: 'agent_deck_messages_team_id_nullable', sql: v027 },
+  { version: 28, name: 'token_usage', sql: v028 },
 ];

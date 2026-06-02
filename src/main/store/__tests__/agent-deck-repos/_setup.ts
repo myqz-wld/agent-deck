@@ -34,6 +34,8 @@ import v023 from '../../migrations/v023_tasks_owner_session_id_rewrite.sql?raw';
 import v024 from '../../migrations/v024_tasks_add_team_id.sql?raw';
 import v025 from '../../migrations/v025_events_tool_use_end_dedup.sql?raw';
 import v026 from '../../migrations/v026_issues.sql?raw';
+import v027 from '../../migrations/v027_agent_deck_messages_team_id_nullable.sql?raw';
+import v028 from '../../migrations/v028_token_usage.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让本 _setup 的 7 个下游 consumer（team-repo / message-repo / task-repo / issue-repo /
@@ -45,7 +47,7 @@ export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012, v013, v014, v015, v016, v017, v018, v019, v020, v021, v022, v023, v024, v025, v026]) {
+  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012, v013, v014, v015, v016, v017, v018, v019, v020, v021, v022, v023, v024, v025, v026, v027, v028]) {
     db.exec(sql);
   }
   return db;

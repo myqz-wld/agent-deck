@@ -9,6 +9,8 @@ import { AssetsLibraryDialog } from './components/AssetsLibraryDialog';
 import { PendingTab } from './components/PendingTab';
 import { TeamHub } from './components/TeamHub';
 import { IssuesPanel } from './components/IssuesPanel';
+import { DataPanel } from './components/DataPanel';
+import { HeaderTokenRates } from './components/HeaderTokenRates';
 import { useSessionStore } from './stores/session-store';
 import { useEventBridge } from './hooks/use-event-bridge';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
@@ -17,7 +19,7 @@ import type { AppSettings, SessionRecord } from '@shared/types';
 
 registerBuiltinDiffRenderers();
 
-type View = 'live' | 'history' | 'pending' | 'teams' | 'issues';
+type View = 'live' | 'history' | 'pending' | 'teams' | 'issues' | 'data';
 
 export function App(): JSX.Element {
   useEventBridge();
@@ -243,7 +245,7 @@ export function App(): JSX.Element {
     <FloatingFrame transparent={windowTransparent}>
       <div className="flex h-full flex-col">
         <header className="drag-region flex h-9 shrink-0 items-center gap-2 pl-[78px] pr-2.5">
-          <div className="min-w-0 flex-1 truncate">
+          <div className="min-w-0 shrink truncate">
             <span className="text-[11px] font-medium tracking-wide">Agent Deck</span>
             <span className="ml-1.5 text-[10px] text-deck-muted/70">
               {stats.total} 会话
@@ -265,6 +267,9 @@ export function App(): JSX.Element {
               </button>
             )}
           </div>
+          {/* 需求1：header 中部 Top3 模型输出 token/s，窄宽自动退化隐藏（HeaderTokenRates 内部用
+              useContainerWidth 判阈值）。drag-region 上的交互元素需要时再加 no-drag，纯展示无需。 */}
+          <HeaderTokenRates />
           <div className="flex shrink-0 items-center gap-0.5 no-drag">
             <IconButton title="新建会话" onClick={() => setNewSessionOpen(true)}>
               ＋
@@ -309,6 +314,17 @@ export function App(): JSX.Element {
               }}
             >
               问题
+            </TabButton>
+            <TabButton
+              active={view === 'data'}
+              onClick={() => {
+                setView('data');
+                // 与 teams / issues 同模式：切到 data tab 时清 selectedSessionId（否则
+                // detailSession 优先级高于 view 分支会盖掉 DataPanel）
+                select(null);
+              }}
+            >
+              数据
             </TabButton>
             <Divider />
             <IconButton
@@ -367,6 +383,8 @@ export function App(): JSX.Element {
                 select(sid);
               }}
             />
+          ) : view === 'data' ? (
+            <DataPanel />
           ) : (
             <HistoryPanel onSelect={(id) => void onHistorySelect(id)} />
           )}

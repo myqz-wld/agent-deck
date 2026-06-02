@@ -1,8 +1,9 @@
-import type { AgentEvent, LifecycleState, SessionRecord } from '@shared/types';
+import type { AgentEvent, LifecycleState, SessionRecord, TokenUsagePayload } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
+import { tokenUsageRepo } from '@main/store/token-usage-repo';
 import { extractCwd, nextActivityState } from './manager-helpers';
 import type { UpsertOptions } from './manager';
 import log from '@main/utils/logger';
@@ -204,6 +205,40 @@ export function persistFileChange(event: AgentEvent): void {
     toolCallId: p.toolCallId ?? null,
     ts: event.ts,
   });
+}
+
+/**
+ * 第 6 段（plan model-token-stats-and-dashboard-20260602 §Phase 1 A5）：token-usage 事件落
+ * token_usage 表。
+ *
+ * **由 ingest 早返分支调用**（manager.ts ingest：dedupOrClaim 后、ensureRecord 前）——token-usage
+ * 不走主事件流（不写 events 表 / 不进 activity 状态机 / 不 emit agent-event，§不变量 2），故不在
+ * 5 段顺序内，是独立早返旁路。
+ *
+ * **整体 try/catch**（§不变量 3）：DB 异常（极端：表损坏 / 磁盘满）只 warn，绝不阻塞主事件流
+ * （token 统计是旁路，失败不该影响会话功能）。与 persistFileChange 不同——它在 5 段内 throw 会
+ * 中断 ingest，本函数在早返分支自包裹。
+ *
+ * bucket 归一在 tokenUsageRepo.insert 内部经 normalizeModel 算（SSOT，§不变量 4）。
+ */
+export function persistTokenUsage(event: AgentEvent): void {
+  try {
+    const p = event.payload as TokenUsagePayload | null | undefined;
+    if (!p) return;
+    tokenUsageRepo.insert({
+      sessionId: event.sessionId,
+      agentId: event.agentId,
+      messageId: p.messageId ?? null,
+      model: p.model ?? null,
+      inputTokens: p.inputTokens ?? 0,
+      outputTokens: p.outputTokens ?? 0,
+      cacheReadTokens: p.cacheReadTokens ?? 0,
+      cacheCreationTokens: p.cacheCreationTokens ?? 0,
+      ts: event.ts,
+    });
+  } catch (err) {
+    logger.warn(`[session-ingest] persistTokenUsage failed (sid=${event.sessionId})`, err);
+  }
 }
 
 /**

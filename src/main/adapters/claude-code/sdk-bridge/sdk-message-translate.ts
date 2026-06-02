@@ -46,7 +46,17 @@ export function translateSdkMessage(
   };
 
   if (msg.type === 'assistant') {
+    // m = msg.message = BetaMessage（id / model / usage / content 都在这层，不在 msg 顶层）。
+    // plan §Phase 1 A2（F7 claude-INFO-3）：token-usage 采集的 id/model/usage 读自 m。
     const m = msg.message as {
+      id?: string;
+      model?: string;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number | null;
+        cache_read_input_tokens?: number | null;
+      };
       content?: {
         type: string;
         text?: string;
@@ -105,6 +115,45 @@ export function translateSdkMessage(
         // 详 types.ts pendingFileChangeIntents 字段 jsdoc。
         pushFileChangeIntent(internal, block.name, block.input, block.id);
       }
+    }
+    // token-usage 采集（plan §Phase 1 A2 / §不变量 3/5）。整体 try/catch：采集失败绝不打断
+    // 上面已 emit 的 message/thinking/tool-use 主事件流（不变量 3）。
+    // 去重快路径（不变量 5 / G2）：同 turn 多 tool_use 拆成多条 assistant message 共享同一 id +
+    // 正常携带 identical usage；存完整 4 指标，新帧任一指标 > 已见才放行 emit（rare discrepancy
+    // 取最大值，DB ON CONFLICT max-merge 收口），全 ≤ 已见则 skip 省 IPC/DB。
+    try {
+      const u = m.usage;
+      if (m.id && u) {
+        const input = u.input_tokens ?? 0;
+        const output = u.output_tokens ?? 0;
+        const cacheRead = u.cache_read_input_tokens ?? 0;
+        const cacheCreation = u.cache_creation_input_tokens ?? 0;
+        const prev = internal.seenUsageMessageIds.get(m.id);
+        const grew =
+          !prev ||
+          input > prev.input ||
+          output > prev.output ||
+          cacheRead > prev.cacheRead ||
+          cacheCreation > prev.cacheCreation;
+        if (grew) {
+          internal.seenUsageMessageIds.set(m.id, {
+            input: Math.max(prev?.input ?? 0, input),
+            output: Math.max(prev?.output ?? 0, output),
+            cacheRead: Math.max(prev?.cacheRead ?? 0, cacheRead),
+            cacheCreation: Math.max(prev?.cacheCreation ?? 0, cacheCreation),
+          });
+          e('token-usage', {
+            messageId: m.id,
+            model: m.model ?? null,
+            inputTokens: input,
+            outputTokens: output,
+            cacheReadTokens: cacheRead,
+            cacheCreationTokens: cacheCreation,
+          });
+        }
+      }
+    } catch {
+      // 采集是旁路统计，任何异常都不应影响主翻译流程（不变量 3）。
     }
   } else if (msg.type === 'user') {
     const m = msg.message as {
