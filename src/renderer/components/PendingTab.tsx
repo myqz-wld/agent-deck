@@ -20,8 +20,9 @@ import { AskRow, ExitPlanRow, PermissionRow } from './pending-rows';
  * pending Map），wasCancelled 永远 false（取消事件已让 store 删 Map 项）。
  *
  * 视觉：每会话一个 section，header 整行可点击跳到 SessionDetail；right side 提供
- * 「全部允许」「全部拒绝」批量按钮（仅作用于 PermissionRequest + ExitPlanModeRequest，
- * AskUserQuestion 必须人审具体选项不参与批量）。
+ * 「全部允许」「全部拒绝」批量按钮（仅作用于 PermissionRequest；ExitPlanModeRequest
+ * / AskUserQuestion 必须人审，不参与批量——plan 模式逐条在 ExitPlanRow 内点
+ * 「批准并切到 X」/「继续规划」/「⚠️ 不再询问」，ask 逐条在 AskRow 内回答选项）。
  */
 
 interface Props {
@@ -88,22 +89,12 @@ function PendingSection({
   const isSdk = session.source === 'sdk';
   const ts = session.lastEventAt;
 
-  const batchableCount = permissions.length + exitPlanModes.length;
+  // 批量按钮只作用于 PermissionRequest；plan / ask 跟 ask 一样必须逐条处理 —
+  // 详见顶部 doc 注释。batchableCount 唯一来源即 permissions.length。
+  const batchableCount = permissions.length;
   const askCount = askQuestions.length;
   const [batchBusy, setBatchBusy] = useState(false);
-  // 批量批准 ExitPlanMode 时切到的目标权限模式（仅 3 个热档；bypass 必须 row 内单条点
-  // 触发冷切，避免 N 个 SDK 子进程并起 + N 条不可逆 bypass 用户来不及确认）。
-  // 默认 acceptEdits：plan 批准后接着自动接受编辑是高频用例。
-  const [batchTargetMode, setBatchTargetMode] = useState<
-    'default' | 'acceptEdits' | 'plan'
-  >('acceptEdits');
   const batchDisabled = batchableCount === 0 || !isSdk || batchBusy;
-
-  const targetModeLabel: Record<typeof batchTargetMode, string> = {
-    default: '每次询问',
-    acceptEdits: '自动接受编辑',
-    plan: '继续计划模式',
-  };
 
   // plan team-cohesion-fix-20260513 Phase D：team chip + role badge（与 SessionCard 同款风格）。
   // session.teams 由 sessionManager.enrichWithTeams 在 IPC 桥点统一注入（Phase A），
@@ -129,10 +120,10 @@ function PendingSection({
   const batchTooltip = !isSdk
     ? '这是终端启动的只读会话，请回到原终端窗口操作'
     : batchableCount === 0
-      ? '仅剩需要你回答的问题，请逐条作答'
-      : `批量响应 ${permissions.length} 项权限请求 + ${exitPlanModes.length} 项计划批准（切到「${targetModeLabel[batchTargetMode]}」）${
-          askCount > 0
-            ? `；${askCount} 个问题不会被批量处理，请逐条回答`
+      ? '仅剩需要你逐条处理的计划 / 问题（请展开对应行）'
+      : `批量响应 ${permissions.length} 项权限请求${
+          exitPlanModes.length + askCount > 0
+            ? `；${exitPlanModes.length} 项计划批准 + ${askCount} 个问题需要逐条处理`
             : ''
         }`;
 
@@ -141,21 +132,15 @@ function PendingSection({
     if (batchDisabled) return;
     setBatchBusy(true);
     try {
-      // 串行响应避免主进程并发 race；resolveX 同步删 store 的 pending 列表，
-      // 下一帧 useMemo 重算让 row 逐条消失（动画感）。
+      // 串行响应避免主进程并发 race；resolvePermission 同步删 store 的 pending 列表，
+      // 下一帧 useMemo 重算让 row 逐条消失（动画感）。ExitPlanMode / AskUserQuestion
+      // 不参与批量 — 详见顶部 doc 注释。
       for (const req of permissions) {
         await window.api.respondPermission(session.agentId, session.id, req.requestId, {
           decision: 'allow',
           updatedInput: req.toolInput,
         });
         resolvePermission(session.id, req.requestId);
-      }
-      for (const req of exitPlanModes) {
-        await window.api.respondExitPlanMode(session.agentId, session.id, req.requestId, {
-          decision: 'approve',
-          targetMode: batchTargetMode,
-        });
-        resolveExitPlan(session.id, req.requestId);
       }
     } finally {
       setBatchBusy(false);
@@ -173,12 +158,6 @@ function PendingSection({
           message: '用户批量拒绝',
         });
         resolvePermission(session.id, req.requestId);
-      }
-      for (const req of exitPlanModes) {
-        await window.api.respondExitPlanMode(session.agentId, session.id, req.requestId, {
-          decision: 'keep-planning',
-        });
-        resolveExitPlan(session.id, req.requestId);
       }
     } finally {
       setBatchBusy(false);
@@ -244,21 +223,6 @@ function PendingSection({
               className="ml-auto flex shrink-0 items-center gap-1"
               onClick={(e) => e.stopPropagation()}
             >
-              {exitPlanModes.length > 0 && (
-                <select
-                  value={batchTargetMode}
-                  disabled={batchDisabled}
-                  onChange={(e) =>
-                    setBatchTargetMode(e.target.value as typeof batchTargetMode)
-                  }
-                  title="批量批准计划时使用此权限模式。完全免询问需要在单条计划里确认（避免一次重启多个会话）。"
-                  className="rounded border border-deck-border bg-white/[0.06] px-1 py-0.5 text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
-                >
-                  <option value="default">每次询问</option>
-                  <option value="acceptEdits">自动接受编辑</option>
-                  <option value="plan">继续计划模式</option>
-                </select>
-              )}
               <button
                 type="button"
                 disabled={batchDisabled}
