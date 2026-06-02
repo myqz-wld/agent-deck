@@ -51,6 +51,18 @@ export class FloatingWindow {
     return this._state.win;
   }
 
+  /**
+   * REVIEW_104 MED-D (reviewer-claude + lead 独立): in-memory windowTransparent SSOT getter。
+   * Cmd+Alt+T 全局快捷键用它读「当前透明态」算 next,替代旧的 `settingsStore.get('windowTransparent')`
+   * —— 旧路径以 store 为源,而 setWindowTransparentImpl 只写 in-memory state 不写回 store,持久化
+   * 唯一靠 renderer 收到 TransparentToggled 后 setSettings 往返;renderer 死 / webContents destroyed
+   * 时 safeSend no-op → store 永久 stale → 下次按键读旧值算错 next → toggle 卡死/反向。pin 快捷键
+   * 读 live `w.isAlwaysOnTop()` 永远自洽,本 getter 让透明快捷键对齐同款「读 live SSOT」语义。
+   */
+  get windowTransparent(): boolean {
+    return this._state.windowTransparent;
+  }
+
   setAlwaysOnTop(value: boolean): void {
     setAlwaysOnTopImpl(this._state, value);
   }
