@@ -62,17 +62,21 @@ export type AgentId = (typeof AGENT_IDS)[number];
  * 分支与文档)。
  *
  * **覆盖 runtime 分支**(本文件):
- * 1. `narrowToCodexOpts` L111 主分支 — codex teammate spawn unsafe default spread enforce 点
- * 2. `narrowToCodexOpts` L148 子分支 — 仅 'reviewer-claude' 触发 AGENT_DECK_CLAUDE_PATH 注入
- *    (不抽 SSOT — 这是 reviewer-claude 子集独有逻辑,不应被 reviewer-codex 触发)
+ * - `narrowToCodexOpts` `isReviewerAgentName(raw.agentName)` 主分支 — codex teammate spawn
+ *   unsafe default spread enforce 点(reviewer-claude / reviewer-codex 两值同款 spread 4 字段:
+ *   codexSandbox / approvalPolicy / networkAccessEnabled / additionalDirectories)
+ *
+ * **REVIEW_105 R2 INFO 订正(reviewer-codex 单方)**: 删除旧「reviewer-claude 子分支注入
+ * AGENT_DECK_CLAUDE_PATH」描述 —— 该子分支已随 plan reviewer-codex-cross-adapter-20260519
+ * Phase 2 删除(reviewer-claude 改 cross-adapter native, 不再走 wrapper Bash 起外部 codex CLI,
+ * 不再注入 envOverrideExtra: AGENT_DECK_CLAUDE_PATH)。当前 reviewer 分支两值行为对称无子分支。
  *
  * **不 SSOT 化的位置**(by design):
  * - jsdoc / 注释里的字面量字符串(说明文档可读性优先,引用 const 名反而绕)
  * - 测试 fixture / mock data(测试就是要 hardcode 字面量验证 runtime 分支)
  * - schema description / hint 文案(给 caller LLM 看的英文文档)
  *
- * 加新 reviewer agent 时只需把名字加进本 list,主分支 `narrowToCodexOpts` L111 default spread
- * 自动覆盖。子分支(reviewer-claude AGENT_DECK_CLAUDE_PATH 注入)按需手工加 case 即可。
+ * 加新 reviewer agent 时只需把名字加进本 list, reviewer 主分支 default spread 自动覆盖。
  */
 export const REVIEWER_AGENT_NAMES = ['reviewer-claude', 'reviewer-codex'] as const;
 export type ReviewerAgentName = (typeof REVIEWER_AGENT_NAMES)[number];
@@ -164,15 +168,15 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
     // approvalPolicy='never' 跳过 codex CLI 工具审批弹窗(reviewer 是 in-process bridge 派发,
     // PendingTab UI 走应用层 / 没有 user 在 codex CLI 直接审批的入口)
     out.approvalPolicy = 'never';
-    // networkAccessEnabled=true 让 reviewer-codex 能 web search / reviewer-claude wrapper
-    // 内的 claude SDK 能 fetch 工具调外部资源(spike 3 实证 codex sandbox=workspace-write
-    // 默认 networkAccessEnabled 在某些 platform 受限,显式打开稳)
+    // networkAccessEnabled=true 让 reviewer-codex 能 web search / 调外部资源(spike 3 实证 codex
+    // sandbox=workspace-write 默认 networkAccessEnabled 在某些 platform 受限,显式打开稳)
     out.networkAccessEnabled = true;
     // additionalDirectories: ['~/.claude', '~/.codex', '/tmp'] 让 codex sandbox 允许跨目录访
-    // plan / claude config / codex config 文件 + reviewer-claude wrapper 走 /tmp 中间文件
-    // (spike4 实证 `/tmp` 必需 — wrapper Bash 模板写 `/tmp/<basename>.in.txt` `.out.txt`
-    // `.err.txt` 路由 stdin/stdout/stderr;不含 /tmp 时 codex sandbox-exec 拒读 wrapper 输出;
-    // 详 `<worktree>/spike-reports/spike4-claude-nested-sandbox.md`)。
+    // plan / claude config / codex config 文件 + reviewer 走 /tmp 中间文件
+    // (REVIEW_105 R2 INFO 订正: 旧叙述「reviewer-claude wrapper 走 /tmp」已过时 —— cross-adapter
+    // native 后 reviewer-claude 不再走 wrapper Bash 路径; /tmp 仍必需 = reviewer-codex 端 shell
+    // 工具调用 / sandbox-exec 中间文件路由需求(spike4 实证不含 /tmp 时 codex sandbox-exec 拒读
+    // 中间文件输出); 详 spike-reports/spike4-claude-nested-sandbox.md)。
     out.additionalDirectories = [
       path.join(os.homedir(), '.claude'),
       path.join(os.homedir(), '.codex'),
@@ -328,9 +332,18 @@ void _assertAgentIdsListMatchesOptions;
  *
  * **by-design 例外**（不算 narrow 该挑、故从对比集排除）：
  * - `cwd`：必填字段，narrow 起手 `{ cwd: raw.cwd }` 恒挑，不进 optional 清单
- * - codex `approvalPolicy` / `networkAccessEnabled` / `additionalDirectories` / `envOverrideExtra`：
- *   仅 reviewer-* 分支 spread 产出（不变量 6），**不是** caller 经 Raw 透传字段，故不在 Raw、也不该
- *   被主分支 narrow 挑（narrow 主分支挑了反而污染普通 codex session）
+ * - codex `approvalPolicy` / `networkAccessEnabled` / `additionalDirectories`：仅 reviewer-* 分支
+ *   spread 产出（不变量 6），**不是** caller 经 Raw 透传字段，故不在 Raw、也不该被主分支 narrow
+ *   挑（narrow 主分支挑了反而污染普通 codex session）
+ * - codex `envOverrideExtra`：**性质不同于上 3 个**（REVIEW_105 R2 双 reviewer 独立命中 LOW 订正）——
+ *   它**不是** reviewer-* spread 字段（reviewer 分支 L163-180 实际只 spread 上 3 个 + codexSandbox,
+ *   无 envOverrideExtra；TC8/TC9 显式断言 reviewer 路径下它 undefined），而是「facade 声明 + bridge
+ *   消费但当前零 producer」的 internal 直传字段（create-session-opts.ts CodexCreateOpts.envOverrideExtra
+ *   jsdoc 明说「目前无 hot caller，字段保留供未来 caller 重用」, 不在 Raw → narrow 挑不到）。与刚修的
+ *   resumeCliSid / resumeMode 同 bug 类(facade 死字段), 仅因「故意保留未接线」而非缺陷。**维护警告**:
+ *   未来若给 envOverrideExtra 接 caller(经 Raw 透传), 必须把它移出本排除集 + 加进 _CODEX_PASSTHROUGH_KEYS,
+ *   否则守门不会提醒「Raw 加了但 narrow 漏挑」→ MED-1 同款漏挑复发(根治方向 = 同 resumeCliSid 归位
+ *   bridge _deps.ts, 牵动 codex index.ts 透传链, 见 REVIEW_105 follow-up)。
  */
 type OmitKey<T, K extends PropertyKey> = { [P in Exclude<keyof T, K>]: unknown };
 

@@ -166,6 +166,17 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
  * 被 narrow 透传, 且 internal 字段(若 caller 误塞 raw)不出现在 narrow 输出。
  */
 describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)', () => {
+  // REVIEW_105 R2 INFO-1 (reviewer-codex): handOff 在 _CLAUDE/CODEX_PASSTHROUGH_KEYS 清单内,
+  // 但 R1 矩阵漏构造 handOff fixture → 若 narrow 删 `out.handOff = raw.handOff` 赋值, typecheck +
+  // 测试都不挂(运行时盲区)。最小 HandOffMetadata fixture cast 补断言。
+  const HANDOFF_FIXTURE = {
+    mode: 'generic',
+    planId: null,
+    phaseLabel: null,
+    fromCallerSid: 'caller-sid',
+    hasAdoptedBlock: false,
+  } as Parameters<typeof buildCreateSessionOptions>[1]['handOff'];
+
   it('claude arm: 全 caller-passthrough 字段透传 + codex-only 字段 filter', () => {
     const opts = buildCreateSessionOptions('claude-code', {
       cwd: '/repo',
@@ -177,6 +188,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
       model: 'opus',
       claudeCodeSandbox: 'workspace-write',
       extraAllowWrite: ['/main-repo'],
+      handOff: HANDOFF_FIXTURE,
       // codex-only 字段(应被 filter)
       codexSandbox: 'read-only',
       agentName: 'reviewer-claude',
@@ -191,6 +203,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
     expect(opts.model).toBe('opus');
     expect(opts.claudeCodeSandbox).toBe('workspace-write');
     expect(opts.extraAllowWrite).toEqual(['/main-repo']);
+    expect(opts.handOff).toBe(HANDOFF_FIXTURE); // INFO-1: 防 narrow 漏 handOff 赋值
     // codex-only 字段被 filter
     expect('codexSandbox' in opts).toBe(false);
     expect('agentName' in opts).toBe(false);
@@ -206,6 +219,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
       model: 'gpt-5',
       codexSandbox: 'read-only',
       extraAllowWrite: ['/main-repo'],
+      handOff: HANDOFF_FIXTURE,
       // claude-only 字段(应被 filter)
       permissionMode: 'plan',
       claudeCodeSandbox: 'strict',
@@ -219,6 +233,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
     // 普通 codex session(非 reviewer-*) caller 显式 codexSandbox 透传不被覆盖
     expect(opts.codexSandbox).toBe('read-only');
     expect(opts.extraAllowWrite).toEqual(['/main-repo']);
+    expect(opts.handOff).toBe(HANDOFF_FIXTURE); // INFO-1: 防 narrow 漏 handOff 赋值
     // claude-only 字段被 filter
     expect('permissionMode' in opts).toBe(false);
     expect('claudeCodeSandbox' in opts).toBe(false);
