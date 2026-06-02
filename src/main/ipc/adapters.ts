@@ -182,7 +182,24 @@ export function registerAdaptersIpc(): void {
     }
     // 持久化 permissionMode：抽到 sessionManager.recordCreatedPermissionMode，
     // CLI 路径（cli.ts applyCliInvocation）也走同一个 helper，确保两条入口语义一致。
-    sessionManager.recordCreatedPermissionMode(sid, permissionMode ?? undefined);
+    // REVIEW_108 MED-3：与 mcp spawn_session handler（spawn.ts:364-380）对称，把
+    // recordCreatedPermissionMode 包成 capability gate + try/catch warn-only。helper
+    // 内部 setPermissionMode(DB 写) + sessionRepo.get(DB 读) + eventBus.emit（同步派发
+    // 监听器，任一监听器抛会冒泡）三处可抛。修前裸调抛错会越过 handler → caller 收 IPC
+    // error 拿不到 sid，而 SDK 子进程已起 → 孤儿活 session + caller 可能重试重复 create。
+    // permissionMode 持久化失败最坏 fallback 默认 mode，远比孤儿活 session 轻 → 失败
+    // 仅 warn 不阻塞 createSession 成功返回。capability gate 与 cli.ts:285 对齐（codex
+    // arm canSetPermissionMode=false，跳过避免 codex session 落无意义 permission_mode 列）。
+    if (permissionMode !== null && adapter.capabilities.canSetPermissionMode) {
+      try {
+        sessionManager.recordCreatedPermissionMode(sid, permissionMode);
+      } catch (e) {
+        logger.warn(
+          `[ipc createSession] recordCreatedPermissionMode(${sid}, ${permissionMode}) failed:`,
+          e,
+        );
+      }
+    }
     // plan team-cohesion-fix-20260513 Phase A Step A8：删 sessionManager.recordCreatedTeamName，
     // 改走 universal team backend ensureByName + addMember(role:'teammate')。IPC 入口
     // (agent-deck new --team-name X) 不知道 session 是 lead 还是 teammate，按 teammate 安全加入；
@@ -287,44 +304,51 @@ export function registerAdaptersIpc(): void {
     return true;
   });
   on(IpcInvoke.AdapterRespondPermission, async (_e, agentId, sessionId, requestId, response) => {
-    const adapter = adapterRegistry.get(String(agentId));
+    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.respondPermission) throw new Error('adapter cannot respond to permission');
     await adapter.respondPermission(
-      String(sessionId),
-      String(requestId),
+      parseStringId('sessionId', sessionId),
+      parseStringId('requestId', requestId),
       response as Parameters<NonNullable<typeof adapter.respondPermission>>[2],
     );
     return true;
   });
   on(IpcInvoke.AdapterRespondAskUserQuestion, async (_e, agentId, sessionId, requestId, answer) => {
-    const adapter = adapterRegistry.get(String(agentId));
+    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.respondAskUserQuestion) {
       throw new Error('adapter cannot respond to AskUserQuestion');
     }
     await adapter.respondAskUserQuestion(
-      String(sessionId),
-      String(requestId),
+      parseStringId('sessionId', sessionId),
+      parseStringId('requestId', requestId),
       answer as Parameters<NonNullable<typeof adapter.respondAskUserQuestion>>[2],
     );
     return true;
   });
   on(IpcInvoke.AdapterRespondExitPlanMode, async (_e, agentId, sessionId, requestId, response) => {
-    const adapter = adapterRegistry.get(String(agentId));
+    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.respondExitPlanMode) {
       throw new Error('adapter cannot respond to ExitPlanMode');
     }
     await adapter.respondExitPlanMode(
-      String(sessionId),
-      String(requestId),
+      parseStringId('sessionId', sessionId),
+      parseStringId('requestId', requestId),
       response as Parameters<NonNullable<typeof adapter.respondExitPlanMode>>[2],
     );
     return true;
   });
   on(IpcInvoke.AdapterSetPermissionMode, async (_e, agentId, sessionId, mode) => {
-    const adapter = adapterRegistry.get(String(agentId));
+    const validAgentId = parseStringId('agentId', agentId, 64);
+    const adapter = adapterRegistry.get(validAgentId);
     if (!adapter?.setPermissionMode) throw new Error('adapter cannot set permission mode');
-    const sid = String(sessionId);
-    const m = mode as Parameters<NonNullable<typeof adapter.setPermissionMode>>[1];
+    const sid = parseStringId('sessionId', sessionId);
+    // mode 必须是非空白名单值（与同文件 AdapterCreateSession 走 parsePermissionMode
+    // 范式对称，REVIEW_108 MED-2）。undefined / null / 非白名单 → IpcInputError 拒绝，
+    // 防止 raw cast 漏掉 bypass 冷切分支 + 把非法值直写 DB。
+    if (mode === undefined || mode === null) {
+      throw new IpcInputError('mode', 'required (one of default|acceptEdits|plan|bypassPermissions)');
+    }
+    const m = parsePermissionMode(mode) as Parameters<NonNullable<typeof adapter.setPermissionMode>>[1];
     // bypassPermissions 必须冷切：SDK 的 allowDangerouslySkipPermissions flag 在子进程
     // 启动时锁死，运行时热切会被 SDK 静默吞（用户体感「切了但还在询问」）。
     // 冷切走 restartWithPermissionMode 销毁旧子进程 + 用新 flag 重建（复用 recoverAndSend
@@ -359,12 +383,12 @@ export function registerAdaptersIpc(): void {
   });
 
   on(IpcInvoke.AdapterListPending, (_e, agentId, sessionId) => {
-    const adapter = adapterRegistry.get(String(agentId));
+    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.listPending) return { permissions: [], askQuestions: [], exitPlanModes: [] };
-    return adapter.listPending(String(sessionId));
+    return adapter.listPending(parseStringId('sessionId', sessionId));
   });
   on(IpcInvoke.AdapterListPendingAll, (_e, agentId) => {
-    const adapter = adapterRegistry.get(String(agentId));
+    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.listAllPending) return {};
     return adapter.listAllPending();
   });
@@ -377,24 +401,27 @@ export function registerAdaptersIpc(): void {
    * close → resumeThread(new sandbox) → handoffPrompt 触发首条 turn。失败回滚 DB。
    *
    * 校验：adapter 必须存在 + capabilities.canRestartWithCodexSandbox === true +
-   * 实现了 restartWithCodexSandbox 方法（典型 = codex-cli adapter）。
+   * 实现了 restartWithCodexSandbox 方法（典型 = codex-cli adapter）。sandbox 字段走
+   * 既有 parseCodexSandboxMode helper（REVIEW_108 LOW-1 整改：消除重复 if + 裸 cast）。
    */
   on(
     IpcInvoke.AdapterRestartWithCodexSandbox,
     async (_e, agentId, sessionId, sandbox, handoffPrompt) => {
-      const adapter = adapterRegistry.get(String(agentId));
+      const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
       if (!adapter?.capabilities.canRestartWithCodexSandbox || !adapter.restartWithCodexSandbox) {
         throw new Error('adapter does not support codex sandbox restart');
       }
-      const sid = String(sessionId);
-      const sb = String(sandbox) as 'workspace-write' | 'read-only' | 'danger-full-access';
-      if (sb !== 'workspace-write' && sb !== 'read-only' && sb !== 'danger-full-access') {
-        throw new Error(`invalid codex sandbox: ${sb}`);
+      const sid = parseStringId('sessionId', sessionId);
+      // parseCodexSandboxMode 走与 SetPermissionMode 同款「白名单 + IpcInputError 透传」范式，
+      // 替手写 String(x) as union + 三路 if。undefined/null 返 null 时给明确报错（与 mode required 一致）。
+      const sbRaw = parseCodexSandboxMode(sandbox);
+      if (sbRaw === null) {
+        throw new IpcInputError('sandbox', 'required (one of workspace-write|read-only|danger-full-access)');
       }
-      const prompt = String(handoffPrompt ?? '');
+      const prompt = typeof handoffPrompt === 'string' ? handoffPrompt : '';
       // adapter.restartWithCodexSandbox 内部已 emit error / 回滚 DB；本 handler 直接透传
       // 返回值（重启后的 sessionId，与 claude restartWithPermissionMode 接口签名对齐）。
-      return adapter.restartWithCodexSandbox(sid, sb, prompt);
+      return adapter.restartWithCodexSandbox(sid, sbRaw, prompt);
     },
   );
 
@@ -406,25 +433,26 @@ export function registerAdaptersIpc(): void {
    * 失败回滚 sessionRepo.claudeCodeSandbox。
    *
    * 校验：adapter 必须存在 + capabilities.canRestartWithClaudeCodeSandbox === true +
-   * 实现了 restartWithClaudeCodeSandbox 方法（典型 = claude-code adapter）。
+   * 实现了 restartWithClaudeCodeSandbox 方法（典型 = claude-code adapter）。sandbox 字段
+   * 走既有 parseSandboxMode helper（与 codex sandbox 同款整改，REVIEW_108 LOW-1）。
    */
   on(
     IpcInvoke.AdapterRestartWithClaudeCodeSandbox,
     async (_e, agentId, sessionId, sandbox, handoffPrompt) => {
-      const adapter = adapterRegistry.get(String(agentId));
+      const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
       if (
         !adapter?.capabilities.canRestartWithClaudeCodeSandbox ||
         !adapter.restartWithClaudeCodeSandbox
       ) {
         throw new Error('adapter does not support claude-code sandbox restart');
       }
-      const sid = String(sessionId);
-      const sb = String(sandbox) as 'off' | 'workspace-write' | 'strict';
-      if (sb !== 'off' && sb !== 'workspace-write' && sb !== 'strict') {
-        throw new Error(`invalid claude-code sandbox: ${sb}`);
+      const sid = parseStringId('sessionId', sessionId);
+      const sbRaw = parseSandboxMode(sandbox);
+      if (sbRaw === null) {
+        throw new IpcInputError('sandbox', 'required (one of off|workspace-write|strict)');
       }
-      const prompt = String(handoffPrompt ?? '');
-      return adapter.restartWithClaudeCodeSandbox(sid, sb, prompt);
+      const prompt = typeof handoffPrompt === 'string' ? handoffPrompt : '';
+      return adapter.restartWithClaudeCodeSandbox(sid, sbRaw, prompt);
     },
   );
 }
