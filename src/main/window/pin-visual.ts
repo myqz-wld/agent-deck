@@ -28,7 +28,7 @@ import type { FloatingWindowState } from './_deps';
  * 非 macOS / 非 pin 不需要这个机制:vibrancy 由系统层持续刷新。
  */
 export function setAlwaysOnTopImpl(state: FloatingWindowState, value: boolean): void {
-  if (!state.win) return;
+  if (!state.win || state.win.isDestroyed()) return;
   state.win.setAlwaysOnTop(value, value ? 'floating' : 'normal');
   if (process.platform === 'darwin') {
     state.win.setVibrancy(state.windowTransparent ? null : 'under-window');
@@ -48,7 +48,7 @@ export function setAlwaysOnTopImpl(state: FloatingWindowState, value: boolean): 
  */
 export function setWindowTransparentImpl(state: FloatingWindowState, value: boolean): void {
   state.windowTransparent = value;
-  if (!state.win || process.platform !== 'darwin') return;
+  if (!state.win || state.win.isDestroyed() || process.platform !== 'darwin') return;
   // 解耦后无论 pin 不 pin 都立即应用 vibrancy 切换。startInvalidateLoop 是 pin 时启的
   // 100ms 重绘循环,与透明切换正交(不需在此动)。
   state.win.setVibrancy(value ? null : 'under-window');
@@ -69,12 +69,16 @@ export function setWindowTransparentImpl(state: FloatingWindowState, value: bool
 export function kickRepaintAfterPin(state: FloatingWindowState): void {
   const w = state.win;
   if (!w || w.isDestroyed()) return;
-  const [width, height] = w.getContentSize();
-  w.setContentSize(width, height + 1);
+  // REVIEW_103 L-C fix: 固定 capturedWin,与 lifecycle.ts createImpl 的 generation guard 同款
+  // 不变量 —— 同步段拿 winA content size,若 winA 进 pin 后立刻 close + dock activate 建 winB,
+  // setImmediate 回调重读 state.win 会拿到 winB 把它 size 改成 winA 旧尺寸。改用 capturedWin
+  // 比对 (state.win === capturedWin) 守门,保留旧 width/height (by design) 但目标 window 固定。
+  const capturedWin = w;
+  const [width, height] = capturedWin.getContentSize();
+  capturedWin.setContentSize(width, height + 1);
   setImmediate(() => {
-    const w2 = state.win;
-    if (!w2 || w2.isDestroyed()) return;
-    w2.setContentSize(width, height);
+    if (state.win !== capturedWin || capturedWin.isDestroyed()) return;
+    capturedWin.setContentSize(width, height);
   });
 }
 

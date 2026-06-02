@@ -40,6 +40,11 @@ export function initWiring(): void {
   const floating = getFloatingWindow();
   floating.create();
   floating.setWindowTransparent(settings.windowTransparent);
+  // REVIEW_103 L-A fix: alwaysOnTop 与 windowTransparent 对称,启动 / dock recreate 后立即应用
+  // 持久化值。否则 createImpl 硬编码 alwaysOnTop:true,设了 alwaysOnTop=false 的用户启动时窗口
+  // 先置顶,要等 renderer App mount 异步调 setAlwaysOnTop 才修正;renderer/preload 加载失败时
+  // 会一直置顶。setAlwaysOnTop 顺带按 windowTransparent reconcile vibrancy + pin invalidate loop。
+  floating.setAlwaysOnTop(settings.alwaysOnTop);
   const safeSend = <T>(channel: string, payload: T): void => {
     const w = floating.window;
     if (!w || w.isDestroyed() || w.webContents.isDestroyed()) return;

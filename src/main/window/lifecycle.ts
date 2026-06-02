@@ -123,11 +123,16 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
   };
   capturedWin.once('ready-to-show', () => showOnce('ready-to-show'));
   capturedWin.webContents.once('did-finish-load', () => showOnce('did-finish-load'));
-  // 1.5s 兜底句柄存 instance state,'closed' listener 同步 clearTimeout(R2 LOW codex)
-  state.fallbackShowTimer = setTimeout(() => {
+  // 1.5s 兜底句柄存 instance state,'closed' listener 同步 clearTimeout(R2 LOW codex)。
+  // REVIEW_103 L-D fix: 捕获本轮 handle,callback 只在 slot 仍指向自己时才置 null。否则
+  // winA 旧 timer 跨 close+recreate 到点 (理论窗口) 会把已被 winB create 覆盖的 timerB 句柄
+  // 误清 → winB close 时无法 clearTimeout。当前 getAllWindows()===0 gate 保证 winA 'closed'
+  // 同步清 timerA 先于 winB 创建 → 实战不可达,本 fix 是与 generation guard 不变量对齐的零成本加固。
+  const fallbackTimer = setTimeout(() => {
     showOnce('fallback-timeout');
-    state.fallbackShowTimer = null;
+    if (state.fallbackShowTimer === fallbackTimer) state.fallbackShowTimer = null;
   }, 1500);
+  state.fallbackShowTimer = fallbackTimer;
 
   state.win.webContents.on('did-fail-load', (_e, code, desc, url) => {
     logger.error(`[window] did-fail-load ${code} ${desc} url=${url}`);
@@ -154,6 +159,19 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
   // 残影压不住。Electron 公开 API，无 hack。
   state.win.webContents.setBackgroundThrottling(false);
 
+  // REVIEW_103 L-B fix: dock-activate 重建 winB 路径只调 createImpl,不经 bootstrap 的
+  // setWindowTransparent/setAlwaysOnTop reconcile;构造硬编码 vibrancy:'under-window' 无视
+  // state.windowTransparent → winB show 时「实玻璃→frosted」闪跳,靠 renderer mount 调
+  // setAlwaysOnTop 顺带 reconcile 自愈。这里按 state.windowTransparent (跨 recreate 持久的
+  // 透明 SSOT) 显式 setVibrancy,不依赖 renderer 兜底。bootstrap 路径此调用与随后的
+  // setWindowTransparent(settings) idempotent 叠加 (window show:false 期间,无可见闪)。
+  // pin 态 invalidate loop 仍由 bootstrap setAlwaysOnTop(L-A) / renderer self-heal 收口
+  // (dock recreate 是 macOS Cmd+W 后罕见路径 + loop 缺失会自愈,不在 createImpl 内启避免
+  // 改 bootstrap loop 启动时序)。
+  if (process.platform === 'darwin') {
+    state.win.setVibrancy(state.windowTransparent ? null : 'under-window');
+  }
+
   // R3 fix REVIEW_45 MED-2 (codex): create() 重建窗口（如 macOS Cmd+W 关窗 + dock activate
   // 触发 ensureFocusableOnActivate 调 create()）时，singleton 旧 state.compact / lastNormalSize /
   // preferredSize 仍是旧值，新 BrowserWindow 是 default 尺寸但语义状态错乱 →
@@ -170,6 +188,10 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
 
 /**
  * 关闭窗口 + 显式清理所有定时器 + 重置 emitCompactChanged 引用。
+ *
+ * **⚠️ 当前无生产调用点 (REVIEW_103 D-1)**: `FloatingWindow.close()` 全仓无 caller (before-quit
+ * 不关浮窗,窗口经 macOS Cmd+W 的 'closed' listener 收口)。无对应 IPC channel。保留作显式
+ * 程序化关闭入口 (与 flash() 同类「待接线」能力);下方 REVIEW_45/61 清理加固在接线后即生效。
  *
  * **R2 fix REVIEW_45 LOW (claude)**: close 收尾彻底化 — 清 emitCompactChanged 引用防 closure
  * 持有旧 safeSend / webContents (单例 recreate 场景如 macOS dock activate 触发

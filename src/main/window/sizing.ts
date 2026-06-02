@@ -21,7 +21,7 @@ import {
  * 退 compact 时恢复 normal 底线;clamp lastNormalSize 防 R1 旧路径残留 < MIN_HEIGHT 值。
  */
 export function toggleCompactImpl(state: FloatingWindowState): boolean {
-  if (!state.win) return state.compact;
+  if (!state.win || state.win.isDestroyed()) return state.compact;
   state.compact = !state.compact;
   if (state.compact) {
     const [w, h] = state.win.getSize();
@@ -110,7 +110,7 @@ export function toggleMaximizeImpl(state: FloatingWindowState): { width: number;
     nextW = fbW;
     nextH = fbH;
   } else {
-    rememberIfCustom(state, curW, curH, maxW, maxH, defaultW, defaultH);
+    rememberIfCustom(state, curW, curH, maxW, maxH, defaultW, defaultH, wasCompact);
     nextW = maxW;
     nextH = maxH;
   }
@@ -169,7 +169,7 @@ export function toggleDefaultImpl(state: FloatingWindowState): { width: number; 
     nextW = fbW;
     nextH = fbH;
   } else {
-    rememberIfCustom(state, curW, curH, maxW, maxH, defaultW, defaultH);
+    rememberIfCustom(state, curW, curH, maxW, maxH, defaultW, defaultH, wasCompact);
     nextW = defaultW;
     nextH = defaultH;
   }
@@ -216,6 +216,15 @@ function applyTargetSize(
  * 短路条件:curSize === lastNormalSize → 用户没主动拖过 → 不存。代价:用户精确手动拖回
  * 上次 toggle 同尺寸 (极罕见) 也不被记,可接受。
  *
+ * **REVIEW_103 MED-1 修法 (fromCompact 参数)**: compact 路径下 caller 把 curW/curH
+ * **派生自 lastNormalSize**(toggleMaximize/toggleDefault wasCompact 分支),与上面「physical
+ * === lastNormalSize」短路叠加成**恒真式**(拿 lastNormalSize 跟自己比) → preferredSize 永不
+ * 记录 → 用户「拖到自定义尺寸 → 折叠 → 一键最大 → 再按想恢复」拿到 default 兜底,自定义尺寸
+ * 丢失。修法:fromCompact=true 时跳过 physical-equality 短路(折叠前的 lastNormalSize 本就是
+ * 用户最后真实尺寸,应当作 custom 候选);此时仍由下面 atMax/atDefault 判定挡掉「default→折叠→
+ * 最大→最大」误记 default 为 custom 的退化(node sim CASE C 实证)。animate guard 短路保留
+ * (compact 路径不经 setBounds animate,wasCompact 时 lastToggleAt 仍是上次值不受影响)。
+ *
  * **in-memory only**: 重启应用 preferredSize 清零 (settings.json 不持久化) —— 与
  * windowTransparent / alwaysOnTop 不同的取舍:尺寸偏好通常是"本次会话临时"语义,
  * 长跨度持久化反而误导 (重启场景常对应 display / 工作流变化)。如未来用户报,再走
@@ -229,9 +238,12 @@ function rememberIfCustom(
   maxH: number,
   defaultW: number,
   defaultH: number,
+  fromCompact: boolean,
 ): void {
-  // R2 MED-2 短路: 跨屏后窗口物理尺寸 == 上次 toggle 设的 lastNormalSize (用户没拖) → 不存
-  if (curW === state.lastNormalSize.width && curH === state.lastNormalSize.height) return;
+  // R2 MED-2 短路: 跨屏后窗口物理尺寸 == 上次 toggle 设的 lastNormalSize (用户没拖) → 不存。
+  // REVIEW_103 MED-1: fromCompact 路径 curW/curH 已被 caller 派生为 lastNormalSize,短路恒真
+  // 会吞掉真实偏好 → 仅 !fromCompact 时启用本短路。
+  if (!fromCompact && curW === state.lastNormalSize.width && curH === state.lastNormalSize.height) return;
   // R3 LOW (animate race) 短路: macOS setBounds animate=true 期间 getSize 取动画中间帧,
   // 不等于已写终态 lastNormalSize 绕过上面短路。300ms guard 内不存,避免污染 preferredSize。
   if (Date.now() - state.lastToggleAt < ANIMATE_GUARD_MS) return;
@@ -283,3 +295,15 @@ function clampPositionInDisplay(
     y: Math.max(minY, Math.min(maxY, y)),
   };
 }
+
+// ─── test-only exports (REVIEW_103 INFO-1) ───────────────────────────────────
+// geometry / remember 纯逻辑零 Electron 依赖,但 file-private 无法被 vitest 直接 import。
+// 收敛进单一 __testExports 对象暴露给 __tests__/window-sizing.test.ts,生产代码不引用
+// (与公开 toggle* API 物理隔离,避免误用)。锁 REVIEW_45 历史修复点 (负坐标 display /
+// 极小屏 clamp / isNear 容差 / animate guard) + REVIEW_103 MED-1 (fromCompact 短路)。
+export const __testExports = {
+  isNear,
+  centerInDisplay,
+  clampPositionInDisplay,
+  rememberIfCustom,
+};
