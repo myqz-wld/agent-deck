@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * useImageAttachments hook 异步 race 回归测试（REVIEW_102 follow-up，issue 6f86ac86）。
+ * useImageAttachments hook 异步 race + 图片边界回归测试。
  *
  * 背景：REVIEW_102 R2 双 reviewer 独立命中 INFO —— 本轮风险最高的 MED-1 generationRef 批级
  * 语义仅靠 /tmp sim 实证（/tmp/img-med1-fix.mjs 3 场景），未落 repo committed test。用户拍板
@@ -11,35 +11,72 @@
  *   remove() 不 bump generationRef → 多图批量上传删任一张时，同批仍 in-flight 的兄弟不被
  *   连坐静默丢弃；clear()/unmount 的整批取消 bump 保留（那才是丢弃所有 in-flight 的正确语义）。
  *
+ * 覆盖 REVIEW_111 R1 INFO follow-up issue a28d008f 更宽 branch coverage：
+ *   ① makeThumbnail img.onerror 回退 → resolve fullDataUrl（图片 decode 失败时缩略图回退原图）
+ *   ② readAndMaybeCompress 大图 Path3 canvas 重编码降档（按 COMPRESS_ATTEMPTS 7 档逐档尝试，
+ *      第一个 ≤ 阈值返回；全档都不行则 reject）
+ *   ③ gif 超阈值 reject（动图不能 canvas 重编码，超阈值直接报错让用户手动转静图）
+ *
  * ── mock 策略（jsdom 不实现 FileReader 行为 / Image decode / canvas）──
- * - FileReader.readAsDataURL → microtask 自动 onload 返回小 dataUrl（base64 远 < 压缩阈值，
- *   故 readAndMaybeCompress 走 Path1 同步返回，不碰 Image）。
+ * - FileReader.readAsDataURL → microtask 自动 onload 返回 dataUrl。
+ *   默认小 base64（< MAX_BASE64_BYTES_FOR_API → readAndMaybeCompress 走 Path1 不碰 Image）。
+ *   测试可通过 `setMockBigBase64(charLen)` 改成大 base64（驱动 Path3 大图降档 + gif 超阈值分支）。
+ *   webp 永远返回大 base64（驱动 REVIEW_111 补强的 animated-webp preflight 分支）。
  * - Image.onload **不自动触发**，进 imageOnloadQueue 手动队列 —— 唯一异步卡点是 makeThumbnail
  *   的 `new Image()`，逐个 flush 即可精确控制每张图的 push 时机，构造「A 已入列、B/C 仍 in-flight」。
- * - canvas getContext/toDataURL spyOn（缩略图编码）。
+ *   测试可通过 `setMockImageFail(true)` 让 QueuedImage 触发 onerror 而非 onload（覆盖
+ *   makeThumbnail 的 img.onerror 回退分支）。
+ * - canvas getContext/toDataURL spyOn。toDataURL 默认返固定小 jpeg；测试可通过
+ *   `setMockCompressLengths([...])` 改为按调用次序返回不同长度的 base64 字符串（模拟降档：
+ *   前几档 oversize → 第 N 档 ≤ MAX_BASE64_BYTES_FOR_API 命中；callCount 计数）。
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import { useImageAttachments } from '../useImageAttachments';
 
+/** MAX_BASE64_BYTES_FOR_API 镜像生产（5MB - 200KB safety margin）。 */
+const MAX_BASE64_BYTES_FOR_API = 5 * 1024 * 1024 - 200 * 1024;
+
 let imageOnloadQueue: Array<() => void> = [];
+
+/**
+ * 测试可控的 mock 钩子：每个 beforeEach 重置默认值，新测试可按需覆写。
+ * - bigBase64: 非空字符串 → FakeFileReader 返该 base64 dataUrl（让 Path3 触发）；null → 默认
+ * - failImage: true → QueuedImage 触发 onerror（img.onerror 分支）；false → 默认 onload
+ * - compressLengths: 非空数组 → canvas.toDataURL 按 callCount 一次返一档（模拟降档循环）；
+ *   数组含 'no-ctx' 元素 → getContext 返 null（encodeToJpegBase64 短路）；null → 默认固定 jpeg
+ */
+let mockHooks: {
+  bigBase64: string | null;
+  failImage: boolean;
+  compressLengths: Array<{ size: number } | 'no-ctx'> | null;
+} = {
+  bigBase64: null,
+  failImage: false,
+  compressLengths: null,
+};
 
 beforeEach(() => {
   imageOnloadQueue = [];
+  mockHooks = { bigBase64: null, failImage: false, compressLengths: null };
 
   class FakeFileReader {
     result: string | ArrayBuffer | null = null;
     onload: (() => void) | null = null;
     onerror: (() => void) | null = null;
     readAsDataURL(file: Blob): void {
-      // webp 返回超 API base64 阈值的大 dataUrl（驱动 add() 的 animated-webp preflight 分支，
-      // REVIEW_111 补强）；其余（png 等）返回小 base64（< MAX_BASE64_BYTES_FOR_API）→
-      // readAndMaybeCompress 走 Path1 直接返回不碰压缩 Image。
       const type = (file as File).type;
-      this.result =
-        type === 'image/webp'
-          ? 'data:image/webp;base64,' + 'A'.repeat(5 * 1024 * 1024)
-          : 'data:image/png;base64,aGVsbG8=';
+      if (mockHooks.bigBase64 !== null) {
+        // 走 Path3 触发：base64 长度必须 > MAX_BASE64_BYTES_FOR_API
+        this.result = 'data:' + type + ';base64,' + mockHooks.bigBase64;
+      } else {
+        // 默认：webp 返超阈值大 base64（REVIEW_111 补强 animated-webp preflight），
+        // 其他 mime 返小 base64（Path1 不碰 Image）。
+        this.result =
+          type === 'image/webp'
+            ? 'data:image/webp;base64,' + 'A'.repeat(5 * 1024 * 1024)
+            : 'data:image/png;base64,aGVsbG8=';
+      }
       queueMicrotask(() => this.onload?.());
     }
   }
@@ -54,7 +91,12 @@ beforeEach(() => {
     private _src = '';
     set src(v: string) {
       this._src = v;
-      imageOnloadQueue.push(() => this.onload?.());
+      // failImage=true 推 onerror 到队列；默认 onload 走 imageOnloadQueue（向后兼容老测试）。
+      if (mockHooks.failImage) {
+        imageOnloadQueue.push(() => this.onerror?.());
+      } else {
+        imageOnloadQueue.push(() => this.onload?.());
+      }
     }
     get src(): string {
       return this._src;
@@ -62,13 +104,49 @@ beforeEach(() => {
   }
   vi.stubGlobal('Image', QueuedImage as unknown as typeof Image);
 
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-    fillStyle: '',
-    fillRect: vi.fn(),
-    drawImage: vi.fn(),
-    globalCompositeOperation: '',
-  } as unknown as CanvasRenderingContext2D);
-  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,dGh1bWI=');
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((..._args: unknown[]) => {
+    // compressLengths 含 'no-ctx'（按 callCount 索引）→ 模拟 getContext('2d') 返 null，
+    // 让 encodeToJpegBase64 短路返 null。索引 = 累计 getContext 调用次数 - 1（每次
+    // encodeToJpegBase64 调一次 getContext；与 toDataURL 配对计数）。
+    const arr = mockHooks.compressLengths;
+    if (arr) {
+      const getCtxIdx = (HTMLCanvasElement.prototype.getContext as unknown as {
+        mock: { calls: unknown[] };
+      }).mock.calls.length - 1;
+      if (arr[getCtxIdx] === 'no-ctx') {
+        return null;
+      }
+    }
+    return {
+      fillStyle: '',
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+      globalCompositeOperation: '',
+    };
+  }) as unknown as typeof HTMLCanvasElement.prototype.getContext);
+
+  // toDataURL spy：根据 mockHooks.compressLengths 排队返回；callCount-1 取索引。
+  // 兜底：未配 compressLengths 返固定小 jpeg（保持老测试行为）。
+  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(((
+    _mime?: string,
+    _quality?: number,
+  ) => {
+    const arr = mockHooks.compressLengths;
+    if (!arr) {
+      return 'data:image/jpeg;base64,dGh1bWI=';
+    }
+    // 索引 = 累计 toDataURL 调用次数 - 1（同一 canvas 多次调用 = 同一档再调；不同 canvas = 不同档）
+    const idx = (HTMLCanvasElement.prototype.toDataURL as unknown as {
+      mock: { calls: unknown[] };
+    }).mock.calls.length - 1;
+    const step = arr[idx];
+    if (step && typeof step === 'object' && 'size' in step) {
+      return 'data:image/jpeg;base64,' + 'A'.repeat(step.size);
+    }
+    // 索引越界 / 'no-ctx' 不会到 toDataURL（前者不应发生，后者 getContext 返 null 短路）。
+    // 越界兜底：返超 MAX 大 base64，让生产循环跑完所有档 → reject。
+    return 'data:image/jpeg;base64,' + 'A'.repeat(7 * 1024 * 1024);
+  }) as unknown as typeof HTMLCanvasElement.prototype.toDataURL);
 });
 
 afterEach(() => {
@@ -76,6 +154,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+/** 让 FakeFileReader 对所有 mime 返指定长度（> MAX_BASE64_BYTES_FOR_API）大 base64。 */
+function setMockBigBase64(charLen: number): void {
+  mockHooks.bigBase64 = 'A'.repeat(charLen);
+}
+
+/** 让 QueuedImage 触发 onerror 而非 onload（覆盖 makeThumbnail img.onerror 分支）。 */
+function setMockImageFail(fail: boolean): void {
+  mockHooks.failImage = fail;
+}
+
+/**
+ * 让 canvas.toDataURL 按调用次序返回不同长度的 base64 字符串（模拟 COMPRESS_ATTEMPTS 降档）。
+ *   - {size: N} → 第 N 次 toDataURL 调用返该长 base64（生产:encodeToJpegBase64 一档一次）
+ *   - 数组长度可 < 7（不够 7 档时剩余档走越界兜底 → 全超 MAX → reject）
+ */
+function setMockCompressLengths(lengths: Array<{ size: number } | 'no-ctx'>): void {
+  mockHooks.compressLengths = lengths;
+}
 
 function png(name: string, size = 1000): File {
   return new File([new Uint8Array(size)], name, { type: 'image/png' });
@@ -307,5 +404,178 @@ describe('useImageAttachments — 复活场景不可达（MED-1 铁证）', () =
       await addDone;
     });
     expect(hook.current.attachments.map((a) => a.name)).toEqual(['M']); // M 正常入列，未被误删
+  });
+});
+
+/**
+ * ── 覆盖 REVIEW_111 R1 INFO follow-up（issue a28d008f）—— 更宽 branch coverage ──
+ *
+ * 这三条边界与 MED-1 race 正交（无并发时序，是图片编码/压缩的纯路径覆盖）。三方独立命中：
+ * ① makeThumbnail img.onerror 回退（useImageAttachments.ts:278）
+ * ② readAndMaybeCompress 大图 Path3 canvas 重编码降档（useImageAttachments.ts:251-262）
+ * ③ gif 超阈值 reject（useImageAttachments.ts:236-241）
+ *
+ * 复用本文件已建的 jsdom 测试环境 + FakeFileReader/QueuedImage/canvas mock 基建，扩展
+ * `setMockBigBase64` / `setMockImageFail` / `setMockCompressLengths` 三个 helper 控 mock 行为。
+ *
+ * 区分性断言用「函数行为可观察差异」而非内部状态：thumbnailDataUrl 字符串内容、attachments[0]
+ * 的 mime/originalBytes、error 文本含子串、imageOnloadQueue 长度。
+ */
+
+describe('useImageAttachments — makeThumbnail img.onerror 回退（原图 dataUrl）', () => {
+  it('缩略图 Image decode 失败 → thumbnailDataUrl 回退为 fullDataUrl（不入 reject 链）', async () => {
+    // 设 failImage 让 QueuedImage 推 onerror 进队列 → 触发生产 makeThumbnail 的
+    // `img.onerror = () => resolve(fullDataUrl)`（useImageAttachments.ts:278）。
+    setMockImageFail(true);
+    const { result: hook } = renderHook(() => useImageAttachments());
+    let addDone!: Promise<void>;
+    await act(async () => {
+      addDone = hook.current.add([png('broken.png')]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    // 卡在 thumb Image（queue 已 push onerror）→ flushOneImage 触发 onerror → makeThumbnail
+    // resolve(fullDataUrl)；flushOneImage 复用同一 helper（不分 onload/onerror，只 shift 队首）
+    await flushOneImage();
+    await act(async () => {
+      await addDone;
+    });
+    // 老 mock：FakeFileReader 对 png 返 'data:image/png;base64,aGVsbG8=' → fullDataUrl
+    expect(hook.current.attachments).toHaveLength(1);
+    expect(hook.current.attachments[0].name).toBe('broken.png');
+    // 区分性断言：thumbnailDataUrl === fullDataUrl（onerror 回退完整 dataUrl，无 jpeg 编码）
+    expect(hook.current.attachments[0].thumbnailDataUrl).toBe('data:image/png;base64,aGVsbG8=');
+    // mime 仍是 png（onerror 回退不影响 readAndMaybeCompress 的 mime 决策，Path1 直接 return）
+    expect(hook.current.attachments[0].mime).toBe('image/png');
+    expect(hook.current.error).toBeNull(); // onerror 不抛错，error 不应被设
+  });
+});
+
+describe('useImageAttachments — readAndMaybeCompress 大图 Path3 canvas 重编码降档', () => {
+  it('大图 base64 > 阈值 → 走 canvas 重编码 JPEG，前 3 档 oversize + 第 4 档命中 → mime 变 jpeg + entry 正常入列', async () => {
+    // 配 7 档逐档长度：前 3 档 oversize（> MAX），第 4 档 fits（< MAX），后 3 档不再被调
+    // （循环命中 return）。不配够 7 档不影响 — 命中即 return。
+    setMockBigBase64(6 * 1024 * 1024); // 6MB chars, base64 length 远 > MAX_BASE64_BYTES_FOR_API
+    setMockCompressLengths([
+      { size: MAX_BASE64_BYTES_FOR_API + 100 }, // 档 1 oversize
+      { size: MAX_BASE64_BYTES_FOR_API + 100 }, // 档 2 oversize
+      { size: MAX_BASE64_BYTES_FOR_API + 100 }, // 档 3 oversize
+      { size: MAX_BASE64_BYTES_FOR_API - 1000 }, // 档 4 命中（< MAX）
+    ]);
+    const { result: hook } = renderHook(() => useImageAttachments());
+    let addDone!: Promise<void>;
+    await act(async () => {
+      addDone = hook.current.add([png('big.png', 5 * 1024 * 1024)]); // 5MB raw → 必然超 base64 阈值
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    // Path3 触发 2 个 Image 入队：① readAndMaybeCompress 内 `await loadImageFromDataUrl(dataUrl)`
+    // 调 `new Image()` ② makeThumbnail 调 `new Image()`。两者共享同一 fullDataUrl 并行。
+    expect(imageOnloadQueue).toHaveLength(2);
+    await flushOneImage(); // ① 压缩 Image decode 完成
+    await flushOneImage(); // ② thumb Image 完成
+    await act(async () => {
+      await addDone;
+    });
+    // 区分性断言：mime 变 jpeg（生产 encodeToJpegBase64 固定 image/jpeg）+ entry 入列
+    expect(hook.current.attachments).toHaveLength(1);
+    expect(hook.current.attachments[0].mime).toBe('image/jpeg');
+    // originalBytes 标记压缩前大小（add() 末尾 line 428：compressed=true 时填 originalBytes）
+    expect(hook.current.attachments[0].originalBytes).toBe(5 * 1024 * 1024);
+    // bytes 是实际 jpeg 解码后字节（生产 encodeToJpegBase64 line 206：
+    // bytes: base64ByteLength(base64)，公式 Math.floor((len * 3) / 4) - pad。
+    // 5037080 → 5037080 * 3 / 4 = 3777810，无 padding。
+    const expectedBytes = Math.floor((MAX_BASE64_BYTES_FOR_API - 1000) * 3) / 4;
+    expect(hook.current.attachments[0].bytes).toBe(Math.floor(expectedBytes));
+    expect(hook.current.error).toBeNull();
+    // toDataURL 至少被调过 4 次（前 3 档 oversize + 第 4 档命中，命中后循环 return）
+    expect(
+      (HTMLCanvasElement.prototype.toDataURL as unknown as { mock: { calls: unknown[] } }).mock.calls
+        .length,
+    ).toBeGreaterThanOrEqual(4);
+  });
+
+  it('大图走 7 档全 oversize → reject 让 UI 报错（catch → setError），不入列', async () => {
+    setMockBigBase64(6 * 1024 * 1024);
+    // 7 档全 oversize（lengths 数组配 7 个，命中阈值仍 > MAX）→ 循环跑完 reject
+    const allOversize = { size: MAX_BASE64_BYTES_FOR_API + 100 };
+    setMockCompressLengths([
+      allOversize, allOversize, allOversize, allOversize, allOversize, allOversize, allOversize,
+    ]);
+    const { result: hook } = renderHook(() => useImageAttachments());
+    let addDone!: Promise<void>;
+    await act(async () => {
+      addDone = hook.current.add([png('huge.png', 5 * 1024 * 1024)]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(imageOnloadQueue).toHaveLength(2); // 压缩 Image + thumb Image
+    await flushOneImage();
+    await flushOneImage();
+    await act(async () => {
+      await addDone;
+    });
+    // catch 路径：error 含「即使最低质量」+ 不入列
+    expect(hook.current.attachments).toHaveLength(0);
+    expect(hook.current.error).toContain('即使最低质量');
+  });
+
+  it('encodeToJpegBase64 拿不到 ctx（getContext 返 null）→ 该档 out=null 跳过继续下一档', async () => {
+    // 'no-ctx' 标记让 getContext 返 null → encodeToJpegBase64 line 194 `if (!ctx) return null`
+    // → 循环 `if (!out) continue` 跳过该档。配第一档 no-ctx + 后续档 fits，验证跳过语义。
+    setMockBigBase64(6 * 1024 * 1024);
+    setMockCompressLengths(['no-ctx', { size: MAX_BASE64_BYTES_FOR_API - 1000 }]);
+    const { result: hook } = renderHook(() => useImageAttachments());
+    let addDone!: Promise<void>;
+    await act(async () => {
+      addDone = hook.current.add([png('noctx.png', 5 * 1024 * 1024)]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(imageOnloadQueue).toHaveLength(2);
+    await flushOneImage();
+    await flushOneImage();
+    await act(async () => {
+      await addDone;
+    });
+    // 跳过 no-ctx 档 → 第 2 档命中 → 正常入列 jpeg
+    expect(hook.current.attachments).toHaveLength(1);
+    expect(hook.current.attachments[0].mime).toBe('image/jpeg');
+    expect(hook.current.error).toBeNull();
+  });
+});
+
+describe('useImageAttachments — gif 动图超阈值 reject（Path 2）', () => {
+  it('gif + base64 长度 > MAX → reject 「gif 动图」+ 不入列 + imageOnloadQueue 空', async () => {
+    // gif 大 base64 → Path 2 命中（gif 跳过 makeThumbnail 第一个分支直接 return fullDataUrl，不 new Image）
+    setMockBigBase64(6 * 1024 * 1024);
+    const gif = new File([new Uint8Array(5 * 1024 * 1024)], 'anim.gif', { type: 'image/gif' });
+    const { result: hook } = renderHook(() => useImageAttachments());
+    await act(async () => {
+      await hook.current.add([gif]);
+    });
+    // 区分性断言 1：error 含「gif 动图」+ 「无法自动压缩」
+    expect(hook.current.error).toContain('gif 动图');
+    expect(hook.current.error).toContain('无法自动压缩');
+    // 区分性断言 2：未入列
+    expect(hook.current.attachments).toHaveLength(0);
+    // 区分性断言 3：gif 跳过 makeThumbnail new Image（line 275 `if (mime === 'image/gif') return fullDataUrl`）
+    // → imageOnloadQueue 永远为空（gif 不会被画 canvas 缩略图，保留动图语义）
+    expect(imageOnloadQueue).toHaveLength(0);
+  });
+
+  it('gif + base64 长度 ≤ MAX → 走 Path 1 正常入列（小动图无需压缩）', async () => {
+    // 小 gif → Path 1 命中（base64 length <= MAX）→ 正常入列；makeThumbnail 仍走
+    // mime==='image/gif' 分支直接返 fullDataUrl，不 new Image。
+    const smallGif = new File([new Uint8Array(100)], 'small.gif', { type: 'image/gif' });
+    const { result: hook } = renderHook(() => useImageAttachments());
+    await act(async () => {
+      await hook.current.add([smallGif]);
+    });
+    // 小 gif：默认 FakeFileReader 返 'data:image/png;base64,aGVsbG8='（非 webp → 走小 base64 分支）
+    // → base64 length 远 < MAX → Path 1 命中
+    expect(hook.current.attachments).toHaveLength(1);
+    expect(hook.current.attachments[0].name).toBe('small.gif');
+    expect(hook.current.attachments[0].mime).toBe('image/gif');
+    // 缩略图直接用原图 dataUrl（gif 不 resize 避免首帧化）
+    expect(hook.current.attachments[0].thumbnailDataUrl).toBe('data:image/png;base64,aGVsbG8=');
+    expect(hook.current.error).toBeNull();
+    expect(imageOnloadQueue).toHaveLength(0); // gif 永远不进 imageOnloadQueue
   });
 });
