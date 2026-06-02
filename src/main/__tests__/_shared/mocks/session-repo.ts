@@ -100,6 +100,11 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     // R3 reviewer-claude LOW 修法:与 setClaudeCodeSandbox / setModel 同款 vi.fn 桩
     // (大部分测试不消费返回值,显式调用走 mockClear / toHaveBeenCalledWith 即可)。
     setExtraAllowWrite: vi.fn(),
+    // plan codex-recover-network-dirs-parity-20260602：persistSessionFields 调这两个 setter,
+    // create-session-thread-id-init / consume-fork / early-err-cleanup 等跑真 createSessionImpl 的
+    // 测试缺 stub 会 "setNetworkAccessEnabled is not a function" crash（load-bearing）。
+    setNetworkAccessEnabled: vi.fn(),
+    setAdditionalDirectories: vi.fn(),
 
     // ─── rename ───
     rename: vi.fn(),

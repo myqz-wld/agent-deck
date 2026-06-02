@@ -99,6 +99,17 @@ export interface CodexJsonlFallbackOpts {
   model?: string;
   /** rec.extraAllowWrite ?? undefined (parity 透传,codex runtime 不消费仅持久化) */
   extraAllowWrite?: readonly string[];
+  /**
+   * plan codex-recover-network-dirs-parity-20260602：rec.networkAccessEnabled ?? undefined。
+   * **codex SDK runtime 真消费**（区别 extraAllowWrite）—— fresh thread 起动时透传让 reviewer-codex
+   * 保持网络访问。recover + restart 两路共用本 opts（restart-controller 也调本 helper）。
+   */
+  networkAccessEnabled?: boolean;
+  /**
+   * plan codex-recover-network-dirs-parity-20260602：rec.additionalDirectories ?? undefined。
+   * codex SDK runtime 真消费 —— fresh thread 起动时透传让 reviewer 保持跨目录读写能力。
+   */
+  additionalDirectories?: readonly string[];
   /** 首条恢复消息带图 attachments 透传 */
   attachments?: UploadedAttachmentRef[];
   /**
@@ -215,6 +226,10 @@ export async function maybeCodexJsonlFallback(
     codexSandbox: opts.codexSandbox,
     model: opts.model,
     extraAllowWrite: opts.extraAllowWrite,
+    // plan codex-recover-network-dirs-parity-20260602：fresh thread 起动透传 network/dirs
+    // （codex SDK runtime 真消费）让 reviewer-codex jsonl-missing fallback 后保持网络 + 跨目录能力。
+    networkAccessEnabled: opts.networkAccessEnabled,
+    additionalDirectories: opts.additionalDirectories,
     attachments: opts.attachments,
     // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
     // createSession resume path 跳过重复 emit (详 recoverer.recoverAndSend emit user message 段注释)

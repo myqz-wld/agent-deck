@@ -72,6 +72,16 @@ export interface RestartCreateOpts {
    */
   extraAllowWrite?: readonly string[];
   /**
+   * **plan codex-recover-network-dirs-parity-20260602（restart 对称补齐，用户确认）**:
+   * recover 路径已透传 network/dirs；restart 冷切 sandbox 也对称透传。**与 extraAllowWrite 不同：
+   * codex SDK runtime 真消费** —— 用户手动切 reviewer-codex 的 sandbox 档时，不透传则切档后
+   * 新 thread 失去网络访问 + 跨目录能力。restart 透传 rec.networkAccessEnabled / additionalDirectories
+   * ?? undefined 与 recover 对称（同 model/extraAllowWrite 透传模式）。
+   */
+  networkAccessEnabled?: boolean;
+  /** plan codex-recover-network-dirs-parity-20260602（restart 对称）：见 networkAccessEnabled。 */
+  additionalDirectories?: readonly string[];
+  /**
    * **REVIEW_101 R1 双方共识 MED（restart 缺 cancel-guard）修法**:
    * restart 冷切 createSession await 窗口内若用户主动 close / scheduler 衰减 dormant→closed /
    * MCP shutdown_session（三入口均 bumpCloseEpoch + setLifecycle='closed'）→ restart 继续 emit
@@ -257,6 +267,10 @@ export class RestartController {
             // 起 fresh thread 仍按全局默认 model 跑）。
             model: rec.model ?? undefined,
             extraAllowWrite: rec.extraAllowWrite ?? undefined,
+            // **plan codex-recover-network-dirs-parity-20260602（restart 对称）**: jsonl-missing
+            // fallback 起 fresh thread 时透传 network/dirs（codex SDK runtime 真消费）与 recover 对称。
+            networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
+            additionalDirectories: rec.additionalDirectories ?? undefined,
             // **REVIEW_101 R1 cancel-guard**: 传 isCancelledFn 让 helper await injectResumeHistory
             // 后、createSession 前查 epoch（用户 await 窗口内 close → abort 不起 fresh thread）。
             isCancelledFn: cancelGuard,
@@ -301,6 +315,10 @@ export class RestartController {
           // **REVIEW_101 R1 MED（restart 丢 model）**: 透传 rec.model 与 recover-and-send-impl.ts:406 对称。
           model: rec.model ?? undefined,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
+          // **plan codex-recover-network-dirs-parity-20260602（restart 对称）**: 正常 resume 重建
+          // thread 透传 network/dirs（codex SDK runtime 真消费）与 recover 对称。
+          networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
+          additionalDirectories: rec.additionalDirectories ?? undefined,
           // **REVIEW_101 R1 cancel-guard**: 传 cancelCheck 让 create-session-resume.ts:55 在
           // sessions.set 前查 epoch（pre-registration await 窗口内 close → throw sentinel abort）。
           cancelCheck: cancelGuard,

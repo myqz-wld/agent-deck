@@ -70,6 +70,20 @@ export type CreateSessionThunk = (opts: {
    */
   extraAllowWrite?: readonly string[];
   /**
+   * plan codex-recover-network-dirs-parity-20260602：recover 路径显式透传 spawn 时持久化的
+   * `networkAccessEnabled`（rec.networkAccessEnabled ?? undefined）。**与 extraAllowWrite 不同：
+   * codex SDK runtime 真消费** —— recover 重建 thread 时不透传 → SDK 走默认无网络 → reviewer-codex
+   * 失去 web search。这是本字段加进 thunk 的**唯一类型瓶颈**（facade CreateSessionOpts 已有此字段，
+   * bridge createSession(opts) 整体透传 createSessionImpl 无白名单丢弃）。
+   */
+  networkAccessEnabled?: boolean;
+  /**
+   * plan codex-recover-network-dirs-parity-20260602：recover 路径显式透传 spawn 时持久化的
+   * `additionalDirectories`（rec.additionalDirectories ?? undefined）。codex SDK runtime 真消费
+   * （配合 networkAccessEnabled），recover 不透传 → reviewer-codex 失去跨目录读 plan/config + /tmp。
+   */
+  additionalDirectories?: readonly string[];
+  /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1 (codex 对称)**:
    * caller 显式传 cli sid (rec.cliSessionId ?? sessionId) 让 codex SDK resumeThread 拿正确 thread sid。
    */

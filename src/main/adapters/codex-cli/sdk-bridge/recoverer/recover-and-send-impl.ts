@@ -354,6 +354,11 @@ export async function recoverAndSendImpl(
           codexSandbox: rec.codexSandbox ?? undefined,
           model: rec.model ?? undefined,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
+          // plan codex-recover-network-dirs-parity-20260602：jsonl-missing fallback 起 fresh thread
+          // 时透传 reviewer-codex spawn-time 持久化的 network/dirs（codex SDK runtime 真消费）。
+          // `?? undefined`：false 保留 / null 跳过走 SDK 默认（与 codexSandbox/model 同款）。
+          networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
+          additionalDirectories: rec.additionalDirectories ?? undefined,
           attachments,
           // **REVIEW_99 R3 cancellation-epoch (替代 R2 isCancelledFn lifecycle 快照,对称 claude)**：
           // await injectResumeHistory（LLM oneshot 10-30s）期间用户主动 close 会被 closeImpl 自增
@@ -405,6 +410,11 @@ export async function recoverAndSendImpl(
         codexSandbox: rec.codexSandbox ?? undefined,
         model: rec.model ?? undefined,
         extraAllowWrite: rec.extraAllowWrite ?? undefined,
+        // plan codex-recover-network-dirs-parity-20260602：正常 resume 重建 thread 时透传
+        // reviewer-codex spawn-time 持久化的 network/dirs（codex SDK runtime 真消费 — 不透传则
+        // recover 后 reviewer 失去 web search + 跨目录访问）。`?? undefined` false 保留 / null 跳过。
+        networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
+        additionalDirectories: rec.additionalDirectories ?? undefined,
         attachments,
         // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
         // createSession resume path 跳过重复 emit(详 recoverer.recoverAndSend emit user message 段注释)

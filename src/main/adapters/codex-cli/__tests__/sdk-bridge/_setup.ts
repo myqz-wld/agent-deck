@@ -45,6 +45,13 @@ export interface CreateSessionCall {
    * record.model 否则已 spawn 的 codex 实际跑默认 model 而 DB record 显示原 model 不一致。
    */
   model?: string;
+  /**
+   * plan codex-recover-network-dirs-parity-20260602：recover / restart 透传校验 —— reviewer-codex
+   * spawn-time 持久化的 network/dirs 必须经 recover createSession 重新交还 codex SDK，否则
+   * recover 后 reviewer 失去 web search + 跨目录访问。recovery test 断言这俩字段透传。
+   */
+  networkAccessEnabled?: boolean;
+  additionalDirectories?: readonly string[];
   attachments?: UploadedAttachmentRef[];
   /**
    * **REVIEW_99 R3 cancellation-epoch MED 修法 regression (codex 对称 claude)**:让 recovery test
@@ -92,6 +99,8 @@ export class TestCodexBridge extends CodexSdkBridge {
     resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
     codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
     model?: string;
+    networkAccessEnabled?: boolean;
+    additionalDirectories?: readonly string[];
     attachments?: UploadedAttachmentRef[];
     cancelCheck?: () => boolean;
   }): Promise<{ sessionId: string }> {
@@ -102,6 +111,8 @@ export class TestCodexBridge extends CodexSdkBridge {
       resumeMode: opts.resumeMode,
       codexSandbox: opts.codexSandbox,
       model: opts.model,
+      networkAccessEnabled: opts.networkAccessEnabled,
+      additionalDirectories: opts.additionalDirectories,
       attachments: opts.attachments,
       cancelCheck: opts.cancelCheck,
     });

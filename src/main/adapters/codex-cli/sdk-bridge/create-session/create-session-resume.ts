@@ -78,6 +78,10 @@ export async function runCreateSessionResumePath(
     sandboxMode,
     model: opts.model,
     extraAllowWrite: opts.extraAllowWrite,
+    // plan codex-recover-network-dirs-parity-20260602：resume 路径同款透传持久化（recover 走
+    // 正常 resume 时让 NEW row 字段不被静默丢弃；runtime 真生效）。
+    networkAccessEnabled: opts.networkAccessEnabled,
+    additionalDirectories: opts.additionalDirectories,
   });
   // REVIEW_58 HIGH ✅ 收口修法:caller 显式 skipFirstUserEmit=true 时跳过
   // (recoverer.recoverAndSend 入口已 emit,避免双气泡;详 opts.skipFirstUserEmit jsdoc)

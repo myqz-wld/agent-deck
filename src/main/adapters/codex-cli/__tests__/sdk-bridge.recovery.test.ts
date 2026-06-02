@@ -1104,3 +1104,117 @@ describe('REVIEW_99 R3 cancellation-epoch: codex 恢复期间再次 close abort'
   });
 });
 
+// ─── plan codex-recover-network-dirs-parity-20260602: reviewer-codex spawn-time
+// networkAccessEnabled + additionalDirectories recover 读回透传 ───────────────────
+//
+// 修前 bug: 这俩字段既不持久化也无 bridge fallback → app 重启 / dev hot reload / main crash 后
+// recover 重建 thread 不透传 → codex SDK 走默认（无网络 + 无额外目录）→ reviewer-codex 失去
+// web search + 跨目录读 plan/config + /tmp。修法持久化 + recover 读回透传（与 codexSandbox/model
+// 同款 ?? undefined：false 保留 / null 跳过走 SDK 默认）。
+describe('plan codex-recover-network-dirs-parity: network/dirs recover 透传', () => {
+  const REVIEWER_DIRS = ['/home/.claude', '/home/.codex', '/tmp'];
+
+  it('normal-resume: record 带 networkAccessEnabled=true + additionalDirectories → createCalls 携带', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-net-resume',
+      agentId: 'codex-cli',
+      cwd: '/tmp/work',
+      title: 'reviewer',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'workspace-write',
+      networkAccessEnabled: true,
+      additionalDirectories: REVIEWER_DIRS,
+    });
+
+    await bridge.sendMessage('sess-net-resume', 'hi');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].networkAccessEnabled).toBe(true);
+    expect(bridge.createCalls[0].additionalDirectories).toEqual(REVIEWER_DIRS);
+  });
+
+  it('normal-resume: record network=null/dirs=null → createCalls 两者 undefined（?? undefined 跳过）', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-net-null',
+      agentId: 'codex-cli',
+      cwd: '/tmp/work',
+      title: 'normal-codex',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      // networkAccessEnabled / additionalDirectories 缺省（普通 codex session / claude 行 NULL）
+    });
+
+    await bridge.sendMessage('sess-net-null', 'hi');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].networkAccessEnabled).toBeUndefined();
+    expect(bridge.createCalls[0].additionalDirectories).toBeUndefined();
+  });
+
+  it('normal-resume: record networkAccessEnabled=false → createCalls 保留 false（不被 ?? undefined 误吞）', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-net-false',
+      agentId: 'codex-cli',
+      cwd: '/tmp/work',
+      title: 'explicit-false',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      networkAccessEnabled: false,
+    });
+
+    await bridge.sendMessage('sess-net-false', 'hi');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    // false 是合法值（显式关网络），?? undefined 不收敛 false → createSession 拿到 false
+    expect(bridge.createCalls[0].networkAccessEnabled).toBe(false);
+  });
+
+  it('jsonl-missing fallback: record 带 network/dirs → fresh-cli-reuse-app createSession 携带', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false; // jsonl 缺失 → fresh thread fallback
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-net-fallback',
+      agentId: 'codex-cli',
+      cwd: '/tmp/abandoned',
+      title: 'reviewer',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: 3,
+      archivedAt: null,
+      codexSandbox: 'workspace-write',
+      networkAccessEnabled: true,
+      additionalDirectories: REVIEWER_DIRS,
+    });
+
+    await bridge.sendMessage('sess-net-fallback', 'hi');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].resumeMode).toBe('fresh-cli-reuse-app');
+    expect(bridge.createCalls[0].networkAccessEnabled).toBe(true);
+    expect(bridge.createCalls[0].additionalDirectories).toEqual(REVIEWER_DIRS);
+  });
+});
+
+

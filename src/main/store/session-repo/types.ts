@@ -1,5 +1,5 @@
 /**
- * session-repo —— Row 类型 + rowToRecord + parseExtraAllowWriteJson 共享 helper。
+ * session-repo —— Row 类型 + rowToRecord + parseStringArrayJson 共享 helper。
  *
  * 拆分历史：从 src/main/store/session-repo.ts 抽出（CHANGELOG_83 / plan
  * deep-review-and-split-20260513 H2 Step 2.3）。所有 sub-module 共享 import 此处。
@@ -38,6 +38,12 @@ export interface Row {
   // plan cross-adapter-parity-20260515 Phase A Step A.2：SDK sandbox 额外可写根 per-session 持久化
   // (REVIEW_40 R1 reviewer-codex MED-F follow-up)。JSON.stringify(string[]) 全绝对路径 / NULL = 不指定。
   extra_allow_write: string | null;
+  // plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn-time 的
+  // networkAccessEnabled (INTEGER 3 态 NULL/0/1) + additionalDirectories (TEXT JSON string[])
+  // 持久化（v029），让 recover / restart 路径读回交还 codex SDK。codex runtime 真消费（区别
+  // extra_allow_write persist-only no-op）。详 SessionRecord jsdoc。
+  network_access_enabled: number | null;
+  additional_directories: string | null;
   // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：mcp enter_worktree marker
   // 标记 caller 显式持有的 worktreePath（archive_plan 预检 4 态分流用），NULL = 未持有 marker。
   cwd_release_marker: string | null;
@@ -75,7 +81,12 @@ export function rowToRecord(r: Row): SessionRecord {
     claudeCodeSandbox:
       (r.claude_code_sandbox as 'off' | 'workspace-write' | 'strict' | null) ?? null,
     model: r.model ?? null,
-    extraAllowWrite: parseExtraAllowWriteJson(r.extra_allow_write),
+    extraAllowWrite: parseStringArrayJson(r.extra_allow_write),
+    // plan codex-recover-network-dirs-parity-20260602：INTEGER 3 态 → boolean | null
+    // (null=未设跳过 / 0=false / 1=true)；additional_directories 复用 parseStringArrayJson 防脏。
+    networkAccessEnabled:
+      r.network_access_enabled == null ? null : r.network_access_enabled === 1,
+    additionalDirectories: parseStringArrayJson(r.additional_directories),
     cwdReleaseMarker: r.cwd_release_marker ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
@@ -84,14 +95,17 @@ export function rowToRecord(r: Row): SessionRecord {
 }
 
 /**
- * sessions.extra_allow_write 列存的是 JSON.stringify(string[])（绝对路径数组）。
+ * 通用 string[] JSON 列解析（plan codex-recover-network-dirs-parity-20260602 从
+ * parseExtraAllowWriteJson 重命名 —— 现 sessions.extra_allow_write + sessions.additional_directories
+ * 两列共用，命名去掉 extraAllowWrite 偏向）。列存的是 JSON.stringify(string[])（绝对路径数组）。
  * 解析失败 / NULL / 类型不对 → null（不抛错,defense-in-depth）。
  *
- * 写入端(setExtraAllowWrite / upsert)做 JSON.stringify;读取端二次校验防止用户手改 DB /
- * migration 故障 / 历史脏数据等情形(过滤掉非数组 / 非 string 元素 / 空数组 → null,
- * 与 caller 不传 extraAllowWrite 行为对齐 sandbox.allowWrite 不增 root)。
+ * 写入端(setExtraAllowWrite / setAdditionalDirectories / upsert)做 JSON.stringify;读取端二次
+ * 校验防止用户手改 DB / migration 故障 / 历史脏数据等情形(过滤掉非数组 / 非 string 元素 /
+ * 空数组 → null,与 caller 不传对应字段行为对齐 — sandbox.allowWrite 不增 root /
+ * additionalDirectories 不增目录)。
  */
-export function parseExtraAllowWriteJson(raw: string | null): string[] | null {
+export function parseStringArrayJson(raw: string | null): string[] | null {
   if (!raw) return null;
   let parsed: unknown;
   try {
