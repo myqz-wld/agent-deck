@@ -28,6 +28,8 @@ import type { FloatingWindowState } from './_deps';
  * 非 macOS / 非 pin 不需要这个机制:vibrancy 由系统层持续刷新。
  */
 export function setAlwaysOnTopImpl(state: FloatingWindowState, value: boolean): void {
+  // REVIEW_103 R2 LOW: 写入 pin SSOT,让 dock-activate 重建路径 createImpl 能 reconcile。
+  state.alwaysOnTop = value;
   if (!state.win || state.win.isDestroyed()) return;
   state.win.setAlwaysOnTop(value, value ? 'floating' : 'normal');
   if (process.platform === 'darwin') {

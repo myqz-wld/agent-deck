@@ -49,10 +49,12 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    alwaysOnTop: true,
+    // REVIEW_103 R2 LOW: 读 state.alwaysOnTop (pin SSOT) 而非硬编码 true,dock-activate 重建
+    // winB 时按持久化 pin 状态创建,不再先置顶等 renderer 自愈。
+    alwaysOnTop: state.alwaysOnTop,
     backgroundColor: '#00000000',
     hasShadow: true,
-    vibrancy: 'under-window',
+    vibrancy: state.windowTransparent ? undefined : 'under-window',
     visualEffectState: 'active',
     titleBarStyle: 'hidden',
     show: false,
@@ -75,7 +77,9 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
     }
   }
 
-  state.win.setAlwaysOnTop(true, 'floating');
+  // REVIEW_103 R2 LOW: 读 state.alwaysOnTop reconcile pin level (recreate 路径不经 bootstrap)。
+  // value=false 时 'normal' level (与 setAlwaysOnTopImpl 同款 'floating'|'normal' 语义)。
+  state.win.setAlwaysOnTop(state.alwaysOnTop, state.alwaysOnTop ? 'floating' : 'normal');
   state.win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   // REVIEW_61 R2 LOW (codex) + R1 MED-A (codex) fix: BrowserWindow generation guard +
@@ -159,15 +163,13 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
   // 残影压不住。Electron 公开 API，无 hack。
   state.win.webContents.setBackgroundThrottling(false);
 
-  // REVIEW_103 L-B fix: dock-activate 重建 winB 路径只调 createImpl,不经 bootstrap 的
-  // setWindowTransparent/setAlwaysOnTop reconcile;构造硬编码 vibrancy:'under-window' 无视
-  // state.windowTransparent → winB show 时「实玻璃→frosted」闪跳,靠 renderer mount 调
-  // setAlwaysOnTop 顺带 reconcile 自愈。这里按 state.windowTransparent (跨 recreate 持久的
-  // 透明 SSOT) 显式 setVibrancy,不依赖 renderer 兜底。bootstrap 路径此调用与随后的
-  // setWindowTransparent(settings) idempotent 叠加 (window show:false 期间,无可见闪)。
-  // pin 态 invalidate loop 仍由 bootstrap setAlwaysOnTop(L-A) / renderer self-heal 收口
-  // (dock recreate 是 macOS Cmd+W 后罕见路径 + loop 缺失会自愈,不在 createImpl 内启避免
-  // 改 bootstrap loop 启动时序)。
+  // REVIEW_103 L-B + R2 fix: dock-activate 重建 winB 路径只调 createImpl,不经 bootstrap 的
+  // setWindowTransparent/setAlwaysOnTop reconcile。构造的 vibrancy / alwaysOnTop 现已读 state
+  // SSOT (windowTransparent / alwaysOnTop),此处再显式 setVibrancy 一次是双保险 (构造期 vibrancy
+  // 偶发不立即生效的 Electron 边角),按 state.windowTransparent 不依赖 renderer mount 自愈。
+  // bootstrap 路径此调用与随后 setWindowTransparent(settings) idempotent 叠加 (window show:false
+  // 期间,无可见闪)。pin 态 invalidate loop 仍由 bootstrap setAlwaysOnTop(L-A) / renderer
+  // self-heal 收口 (dock recreate 罕见 + loop 缺失会自愈,不在 createImpl 内启避免改 loop 时序)。
   if (process.platform === 'darwin') {
     state.win.setVibrancy(state.windowTransparent ? null : 'under-window');
   }
