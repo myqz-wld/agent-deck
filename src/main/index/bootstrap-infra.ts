@@ -10,7 +10,7 @@
 // Phase 4   adapter register
 // Phase 5   adapter.initAll + setSessionCloseFn + setSessionRenameHookFn hook 注入
 // Phase 5.5 mcp HTTP transport mount (PRE_LISTEN — 必须在 hookServer.start 之前)
-// Phase 6   hookServer.start() + EADDRINUSE fail-loud (return false 让 caller skip wiring)
+// Phase 6   hookServer.start() + EADDRINUSE fail-loud (return null 让 caller skip wiring)
 // Phase 7   scheduler / teamScheduler / summarizer / syncAgentDeckSection / syncSkills
 // Phase 7.05 universal-message-watcher.start()
 // Phase 7.1 开机自启
@@ -18,7 +18,8 @@
 // Phase 8.5 loadBundledAssets
 // Phase 8.6 reapStaleUploads
 //
-// 返回 boolean: true = ok 继续 wiring;false = fatalExit (EADDRINUSE 已 app.exit(1))
+// 返回 AppSettings | null: 非 null = ok 继续 wiring(settings 快照透传 initWiring,REVIEW_104 LOW-E);
+//   null = fatalExit (EADDRINUSE 已 app.exit(1))
 // ────────────────────────────────────────────────────────────────────────────
 
 import { app, dialog } from 'electron';
