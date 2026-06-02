@@ -76,3 +76,4 @@
 | [sqlite-tests-no-skip-20260601.md](sqlite-tests-no-skip-20260601.md) | completed | — | sqlite-tests-no-skip-20260601 |
 | [teamless-dm-20260601.md](teamless-dm-20260601.md) | completed | [194](../changelogs/CHANGELOG_194.md) | teamless-dm-20260601 |
 | [resume-inject-raw-messages-20260601.md](resume-inject-raw-messages-20260601.md) | completed | [195](../changelogs/CHANGELOG_195.md) | resume-inject-raw-messages-20260601 |
+| [model-token-stats-and-dashboard-20260602.md](model-token-stats-and-dashboard-20260602.md) | completed | [197](../changelogs/CHANGELOG_197.md) | 在**不触碰现有事件语义**的前提下，新增一条「token 使用」采集→持久化→查询→展示的垂直切片，支撑三个用户需求： |
