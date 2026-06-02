@@ -1,10 +1,10 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 /**
  * useImageAttachments hook 异步 race + 图片边界回归测试。
  *
  * 背景：REVIEW_102 R2 双 reviewer 独立命中 INFO —— 本轮风险最高的 MED-1 generationRef 批级
  * 语义仅靠 /tmp sim 实证（/tmp/img-med1-fix.mjs 3 场景），未落 repo committed test。用户拍板
- * 方案 (a)：jsdom + renderHook 直测真实 hook。spike1-jsdom-rtl-compat.md 验证可行 + spike2 经
+ * 方案 (a)：happy-dom + renderHook 直测真实 hook。spike1-jsdom-rtl-compat.md 验证可行 + spike2 经
  * mutation test 证明能挡回归（插回 remove() 旧 bump bug → 本文件 MED-1 测试变红）。
  *
  * 覆盖 MED-1（claude 单方 + lead sim 复现 + 复活不可达铁证）：
@@ -17,7 +17,7 @@
  *      第一个 ≤ 阈值返回；全档都不行则 reject）
  *   ③ gif 超阈值 reject（动图不能 canvas 重编码，超阈值直接报错让用户手动转静图）
  *
- * ── mock 策略（jsdom 不实现 FileReader 行为 / Image decode / canvas）──
+ * ── mock 策略（happy-dom 不实现 FileReader 行为 / Image decode / canvas）──
  * - FileReader.readAsDataURL → microtask 自动 onload 返回 dataUrl。
  *   默认小 base64（< MAX_BASE64_BYTES_FOR_API → readAndMaybeCompress 走 Path1 不碰 Image）。
  *   测试可通过 `setMockBigBase64(charLen)` 改成大 base64（驱动 Path3 大图降档 + gif 超阈值分支）。

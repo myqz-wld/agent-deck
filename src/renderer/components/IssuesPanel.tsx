@@ -3,8 +3,9 @@
  *
  * - 上方 filter 栏: status 多选 / kind 多选 / search title (debounce 300ms) / show deleted toggle
  * - 主列表: createdAt DESC 排序; click 切到 IssueDetail
- * - useEffect 启动时拉 `window.api.issuesList(filters)` + 订阅 `window.api.onIssueChanged` 实时更新 store
- * - hardDeleted event → store.removeIssue + 若 selected 跟着 deselect
+ * - useEffect 启动时 + filter 变时拉 `window.api.issuesList(filters)` merge 进 store
+ * - issue-changed 实时事件由全局常驻 `useIssuesBridge`（App.tsx）订阅，**不在本组件内**——
+ *   否则切走 tab unmount 即漏事件、切回状态不刷新（详 use-issues-bridge.ts 头注）
  */
 
 import { useEffect, useMemo, useState, type JSX } from 'react';
@@ -28,8 +29,6 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
   const filters = useIssuesStore((s) => s.filters);
   const selectedIssueId = useIssuesStore((s) => s.selectedIssueId);
   const mergeIssuesFromList = useIssuesStore((s) => s.mergeIssuesFromList);
-  const upsertIssue = useIssuesStore((s) => s.upsertIssue);
-  const removeIssue = useIssuesStore((s) => s.removeIssue);
   const setFilters = useIssuesStore((s) => s.setFilters);
   const selectIssue = useIssuesStore((s) => s.selectIssue);
 
@@ -95,17 +94,9 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
     mergeIssuesFromList,
   ]);
 
-  // 订阅 issue-changed event 推 store (与 task-changed "component 自订阅" 同模式)
-  useEffect(() => {
-    const off = window.api.onIssueChanged((e) => {
-      if (e.kind === 'hardDeleted') {
-        removeIssue(e.issueId);
-      } else if (e.issue) {
-        upsertIssue(e.issue);
-      }
-    });
-    return off;
-  }, [upsertIssue, removeIssue]);
+  // 注：issue-changed event 订阅已上移到全局常驻 useIssuesBridge（App.tsx），不再放本组件内
+  // ——否则切走 tab 时 IssuesPanel unmount，期间的 issue-changed 事件全漏，切回状态不刷新
+  // （详 use-issues-bridge.ts 头注）。本组件只负责按 filter 拉 list snapshot + 渲染。
 
   return (
     <div className="flex h-full">
