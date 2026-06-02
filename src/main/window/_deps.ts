@@ -63,6 +63,12 @@ export interface FloatingWindowState {
    *  由 main/index.ts 启动时从 settings.windowTransparent 读初始值传进来；之后由
    *  setWindowTransparent 改动。**不再依赖 alwaysOnTopCurrent**：透明独立切换。 */
   windowTransparent: boolean;
+  /** REVIEW_103 R2 LOW (codex) fix: pin (置顶) 状态 SSOT。dock-activate 重建 winB 走 createImpl
+   *  不经 bootstrap reconcile,旧版构造硬编码 alwaysOnTop:true → 设 alwaysOnTop=false 的用户
+   *  recreate 后窗口又被置顶 (靠 renderer mount 自愈,preload 失败则永久置顶)。把 pin 状态收进
+   *  state,setAlwaysOnTopImpl 写入,createImpl 读取 → recreate 路径自 reconcile,与
+   *  windowTransparent 对称。默认 true (与原构造硬编码一致,首启 bootstrap 再按 settings 覆盖)。 */
+  alwaysOnTop: boolean;
   /** REVIEW_61 LOW-1 (claude) fix: flash 重入保护 timer 句柄。close()/'closed' listener 同步 clearInterval。 */
   flashTimer: NodeJS.Timeout | null;
   flashOriginalOpacity: number;
@@ -88,6 +94,7 @@ export function createInitialState(): FloatingWindowState {
     preferredSize: null,
     lastToggleAt: 0,
     windowTransparent: true,
+    alwaysOnTop: true,
     flashTimer: null,
     flashOriginalOpacity: 1,
     fallbackShowTimer: null,

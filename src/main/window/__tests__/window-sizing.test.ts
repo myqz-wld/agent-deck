@@ -2,17 +2,17 @@
 // REVIEW_103 INFO-1 — window/sizing.ts geometry / rememberIfCustom 纯逻辑回归锁
 //
 // 这组纯函数承载 REVIEW_45 多次踩坑历史 (负坐标 display / 极小屏 clamp / isNear 容差 /
-// animate guard) + REVIEW_103 MED-1 (fromCompact 短路修复)。Round 1 之前 0 覆盖,本测试
-// 是 deep-review Batch 5 收口产物。纯几何无 Electron 依赖,node env 直跑。
+// animate guard) + REVIEW_103 R2 fold-time capture 决策 (shouldCaptureCustom)。Round 1 之前
+// 0 覆盖,本测试是 deep-review Batch 5 收口产物。纯几何无 Electron 依赖,node env 直跑。
 //
 // 通过 sizing.ts `__testExports` 拿 file-private helper (生产代码不引用 __testExports)。
 // ─────────────────────────────────────────────────────────────────────────────
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 import { __testExports } from '@main/window/sizing';
 import type { FloatingWindowState } from '@main/window/_deps';
 
-const { isNear, centerInDisplay, clampPositionInDisplay, rememberIfCustom } = __testExports;
+const { isNear, centerInDisplay, clampPositionInDisplay, rememberIfCustom, shouldCaptureCustom } = __testExports;
 
 const DEFAULT_WIDTH = 520;
 const DEFAULT_HEIGHT = 680;
@@ -26,6 +26,7 @@ function makeState(over: Partial<FloatingWindowState> = {}): FloatingWindowState
     preferredSize: null,
     lastToggleAt: 0,
     windowTransparent: true,
+    alwaysOnTop: true,
     flashTimer: null,
     flashOriginalOpacity: 1,
     fallbackShowTimer: null,
@@ -81,57 +82,68 @@ describe('window/sizing clampPositionInDisplay', () => {
   });
 });
 
-describe('window/sizing rememberIfCustom (REVIEW_45 MED-2 + REVIEW_103 MED-1)', () => {
+describe('window/sizing rememberIfCustom (REVIEW_45 MED-2, reverted to original in REVIEW_103 R2)', () => {
   const maxW = 1880;
   const maxH = 1040;
   const defW = 520;
   const defH = 680;
 
-  beforeEach(() => {
-    // freeze time far past animate guard so ANIMATE_GUARD_MS short-circuit never fires
-    // (rememberIfCustom uses Date.now() - lastToggleAt; lastToggleAt defaults 0 → huge gap)
-  });
-
-  it('records a genuinely custom (dragged) size, fromCompact=false', () => {
+  it('records a genuinely custom (dragged) size on the direct (non-compact) toggle path', () => {
     const s = makeState({ lastNormalSize: { width: 999, height: 999 } });
-    rememberIfCustom(s, 700, 500, maxW, maxH, defW, defH, false);
+    rememberIfCustom(s, 700, 500, maxW, maxH, defW, defH);
     expect(s.preferredSize).toEqual({ width: 700, height: 500 });
   });
 
   it('REVIEW_45 MED-2: skips when physical size == lastNormalSize (cross-display, user did not drag)', () => {
     const s = makeState({ lastNormalSize: { width: 700, height: 500 } });
-    rememberIfCustom(s, 700, 500, maxW, maxH, defW, defH, false);
-    expect(s.preferredSize).toBeNull(); // short-circuit → not recorded
+    rememberIfCustom(s, 700, 500, maxW, maxH, defW, defH);
+    expect(s.preferredSize).toBeNull();
   });
 
   it('does NOT record when current == max or == default (toggle-induced, not custom)', () => {
     const s1 = makeState({ lastNormalSize: { width: 1, height: 1 } });
-    rememberIfCustom(s1, maxW, maxH, maxW, maxH, defW, defH, false);
+    rememberIfCustom(s1, maxW, maxH, maxW, maxH, defW, defH);
     expect(s1.preferredSize).toBeNull(); // atMax
     const s2 = makeState({ lastNormalSize: { width: 1, height: 1 } });
-    rememberIfCustom(s2, defW, defH, maxW, maxH, defW, defH, false);
+    rememberIfCustom(s2, defW, defH, maxW, maxH, defW, defH);
     expect(s2.preferredSize).toBeNull(); // atDefault
   });
 
-  it('REVIEW_103 MED-1: fromCompact=true bypasses physical==lastNormalSize short-circuit (fold→toggle keeps custom)', () => {
-    // compact 路径 caller 把 curW/curH 派生自 lastNormalSize → 与短路条件恒等
-    // 修复前: 必 skip → preferredSize 永 null → 自定义尺寸丢失
-    const s = makeState({ lastNormalSize: { width: 700, height: 500 } });
-    rememberIfCustom(s, 700, 500, maxW, maxH, defW, defH, true);
-    expect(s.preferredSize).toEqual({ width: 700, height: 500 }); // 修复后正确记录
-  });
-
-  it('REVIEW_103 MED-1 regression guard: fromCompact=true at default still NOT recorded (atDefault gate holds)', () => {
-    // default→fold→max→max 不能把 default 误记为 custom (node sim CASE C)
-    const s = makeState({ lastNormalSize: { width: defW, height: defH } });
-    rememberIfCustom(s, defW, defH, maxW, maxH, defW, defH, true);
-    expect(s.preferredSize).toBeNull(); // atDefault → 不记
+  it('REVIEW_103 R2: wasCompact path passes curW/curH == lastNormalSize → short-circuits to no-op (cross-display safe)', () => {
+    // toggleMaximize/toggleDefault wasCompact 分支 caller 传 curW/curH = lastNormalSize → 必短路。
+    // 这是 R2 关闭跨屏污染的关键:unfold→toggle 路径不再记 custom,改由 fold-time capture 负责。
+    const s = makeState({ lastNormalSize: { width: 1880, height: 1040 } });
+    rememberIfCustom(s, 1880, 1040, maxW, maxH, defW, defH); // even cross-display stale → short-circuit
+    expect(s.preferredSize).toBeNull();
   });
 
   it('REVIEW_45 R3 LOW (animate race): skips while within ANIMATE_GUARD_MS of last toggle', () => {
-    // lastToggleAt = now → gap 0 < 300ms guard → skip even for a custom size
     const s = makeState({ lastNormalSize: { width: 1, height: 1 }, lastToggleAt: Date.now() });
-    rememberIfCustom(s, 700, 500, maxW, maxH, defW, defH, false);
+    rememberIfCustom(s, 700, 500, maxW, maxH, defW, defH);
     expect(s.preferredSize).toBeNull();
+  });
+});
+
+describe('window/sizing shouldCaptureCustom (REVIEW_103 R2 fold-time capture decision)', () => {
+  // 折叠瞬间用真实物理尺寸按当前屏 max/default 判 custom。纯决策,不依赖 Electron window。
+  it('MED-1: genuine custom physical size on current screen → capture', () => {
+    // drag 700x500 on screen-A (max 1880x1040), fold → should capture
+    expect(shouldCaptureCustom(700, 500, 1880, 1040, 520, 680)).toBe(true);
+  });
+  it('CASE C: at default → NOT custom → do not capture', () => {
+    expect(shouldCaptureCustom(520, 680, 1880, 1040, 520, 680)).toBe(false);
+  });
+  it('at max → NOT custom → do not capture', () => {
+    expect(shouldCaptureCustom(1880, 1040, 1880, 1040, 520, 680)).toBe(false);
+  });
+  it('REVIEW_103 R2 CASE E/GROW key: custom 700x500 stays custom on BOTH smaller and bigger screens (cross-display correct)', () => {
+    // The whole point of fold-time capture: judge against CURRENT screen geometry at fold moment.
+    // 700x500 is custom on a small screen (max 960x700)...
+    expect(shouldCaptureCustom(700, 500, 960, 700, 520, 680)).toBe(true);
+    // ...and still custom on a big screen (max 3400x1400) — neither max nor default there.
+    expect(shouldCaptureCustom(700, 500, 3400, 1400, 520, 680)).toBe(true);
+  });
+  it('isNear tolerance applies (size within 4px of max counts as max → not captured)', () => {
+    expect(shouldCaptureCustom(1878, 1040, 1880, 1040, 520, 680)).toBe(false); // diff 2 → atMax
   });
 });
