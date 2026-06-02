@@ -167,6 +167,39 @@ describe.skipIf(!bindingAvailable)('task-repo / list 排序与过滤', () => {
     expect(list.map((x) => x.id)).toEqual([c.id, b.id, a.id]);
   });
 
+  it('same-ms updated_at tie-breaker：rowid DESC 保 newest-first + 分页无重漏（REVIEW_106 MED）', () => {
+    // REVIEW_106 MED（lead 预备 + reviewer-claude + reviewer-codex 三重命中,真 SQLite 实证）:
+    // updated_at 用 new Date().toISOString()（ms 精度）,plan workflow 批量建/改 task 易撞
+    // 同毫秒。仅 ORDER BY updated_at DESC 对同毫秒簇无 total order — 修前返 rowid-ASC
+    // （最旧在前,违背 jsdoc newest-first）。修后 ORDER BY updated_at DESC, rowid DESC。
+    //
+    // raw SQL 固定 5 行**完全相同** updated_at（绕过 create() 的 new Date() 无法保证同 ms）,
+    // rowid 按 insert 顺序 1..5 单调递增。预期 newest-first = rowid DESC = 后插入的排前。
+    const SAME_TS = '2026-06-02T10:00:00.000Z';
+    const ins = db.prepare(
+      `INSERT INTO tasks (id, owner_session_id, team_id, subject, description, status,
+        active_form, priority, blocks, blocked_by, labels, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, NULL, 'pending', NULL, 5, '[]', '[]', '[]', ?, ?)`,
+    );
+    // insert 顺序 = rowid 顺序：r1..r5（r5 最后插入 = 最新）
+    const ids = ['r1', 'r2', 'r3', 'r4', 'r5'];
+    for (const id of ids) ins.run(id, sid, `subj-${id}`, SAME_TS, SAME_TS);
+
+    // 全量：newest-first = rowid DESC = [r5,r4,r3,r2,r1]
+    const all = repo.list({ limit: 100 });
+    expect(all.map((x) => x.id)).toEqual(['r5', 'r4', 'r3', 'r2', 'r1']);
+
+    // 分页：page1(limit2 offset0) + page2(offset2) + page3(offset4) 拼起来无重漏,
+    // 与全量序严格一致（修前同毫秒边界行跨页可能漏/重）。
+    const page1 = repo.list({ limit: 2, offset: 0 }).map((x) => x.id);
+    const page2 = repo.list({ limit: 2, offset: 2 }).map((x) => x.id);
+    const page3 = repo.list({ limit: 2, offset: 4 }).map((x) => x.id);
+    expect(page1).toEqual(['r5', 'r4']);
+    expect(page2).toEqual(['r3', 'r2']);
+    expect(page3).toEqual(['r1']);
+    expect([...page1, ...page2, ...page3]).toEqual(['r5', 'r4', 'r3', 'r2', 'r1']);
+  });
+
   it('status 过滤', () => {
     repo.create({ subject: 'A', ownerSessionId: sid, status: 'pending' });
     repo.create({ subject: 'B', ownerSessionId: sid, status: 'active' });
@@ -720,6 +753,26 @@ describe.skipIf(!bindingAvailable)('task-repo v024 / list 三态 filter (D5)', (
     const list = repo.list({
       visibleScope: { teamIds: [], callerSid: sid },
     });
+    expect(list.map((x) => x.id)).toEqual([callerPersonal.id]);
+  });
+
+  it('visibleScope teamIds>500 → 退化为仅 caller personal 不丢失（REVIEW_106 LOW）', () => {
+    // REVIEW_106 LOW（reviewer-codex 单方 + lead 现场核实 handler 默认走 visibleScope）:
+    // 旧实现 teamIds>500 直接 return [] 连 caller 自己 personal task 也丢 = 破坏可见性契约。
+    // 修后退化为 personal-only（与 teamIds.length===0 同款）:team-bound task 放弃命中,
+    // 但 caller personal task 仍可见。
+    insertSession(db, 'sess-mate');
+    insertTeam(db, 'team-real');
+    const callerPersonal = repo.create({ subject: 'P-mine', ownerSessionId: sid });
+    repo.create({ subject: 'P-mate', ownerSessionId: 'sess-mate' }); // 别人 personal 不进
+    repo.create({ subject: 'T-real', ownerSessionId: sid, teamId: 'team-real' }); // team task >500 分支放弃
+
+    // 构造 501 个 teamId（极端病态：caller 同 active team 数超 SQLite IN 上限 500）
+    const teamIds = Array.from({ length: 501 }, (_, i) => `team-${i}`);
+    const list = repo.list({
+      visibleScope: { teamIds, callerSid: sid },
+    });
+    // 修前：[] （personal 也丢）；修后：[callerPersonal]（personal 保住，team task 放弃）
     expect(list.map((x) => x.id)).toEqual([callerPersonal.id]);
   });
 });
