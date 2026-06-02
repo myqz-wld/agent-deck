@@ -31,9 +31,10 @@ export function toggleCompactImpl(state: FloatingWindowState): boolean {
   state.compact = !state.compact;
   if (state.compact) {
     const [w, h] = state.win.getSize();
-    // REVIEW_103 R2: 折叠瞬间用真实物理尺寸捕获 custom 偏好 (按当前屏 max/default 判定 +
-    // animate guard)。放在 lastNormalSize 覆盖之前 —— captureCustomIfApplicable 内部短路依赖
-    // 「physical != lastNormalSize」语义,此刻 lastNormalSize 仍是上一次的值。
+    // REVIEW_103 R2: 折叠瞬间用真实物理尺寸 (w,h) 捕获 custom 偏好 (按当前屏 max/default 判定 +
+    // animate guard)。必须放在 lastNormalSize 覆盖之前传入 w/h —— 此刻 getSize() 是折叠前的
+    // 真实窗口尺寸,正是要记的「用户偏好」;下面 lastNormalSize=w/h 与 setSize(COMPACT) 之后就
+    // 拿不到了。capture 用 state.win.getBounds() 定位当前 display,与 lastNormalSize 无关。
     captureCustomIfApplicable(state, w, h);
     state.win.setMinimumSize(MIN_WIDTH, COMPACT_HEIGHT);
     state.lastNormalSize = { width: w, height: h };
