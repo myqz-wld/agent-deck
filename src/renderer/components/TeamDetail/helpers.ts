@@ -30,8 +30,13 @@ export function shortenPath(p: string | null | undefined): string {
   return '…/' + parts.slice(-3).join('/');
 }
 
-/** 时间戳 → 相对时间(如「3 分钟前」/「刚刚」),用于 events / messages 列表显示。 */
+/** 时间戳 → 相对时间(如「3 分钟前」/「刚刚」),用于 events / messages / tasks 列表显示。 */
 export function relativeTime(ts: number, now: number = Date.now()): string {
+  // REVIEW_107 LOW（防御护栏）：非 finite 输入（典型 TasksSection 走 Date.parse(updatedAt)，
+  // 非法 ISO → NaN）会让下方 Math.max(0,NaN)=NaN、所有区间比较 false → 落到末尾 `NaN 天前`。
+  // events `e.ts` / messages `msg.sentAt` 是 number 直传安全，Date.parse 是唯一 NaN 注入口；
+  // 当前 repo 保证 updatedAt 合法 ISO 不可达，集中在共享 helper 兜底让三个 caller 全受益。
+  if (!Number.isFinite(ts)) return '';
   const dt = Math.max(0, now - ts);
   if (dt < 5_000) return '刚刚';
   if (dt < 60_000) return `${Math.floor(dt / 1_000)} 秒前`;

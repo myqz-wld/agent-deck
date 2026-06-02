@@ -1,14 +1,21 @@
 import type { JSX } from 'react';
+import { useMemo } from 'react';
 import type { AgentDeckTeamMember } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
+import { selectPendingBuckets } from '@renderer/lib/session-selectors';
 import { Section, EmptyState } from './Header';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：team 内 pending 聚合 section（与 PendingTab 同源）。
  *
- * 数据**不**走 IPC（避免与 PendingTab 数据源不一致 + 重复 SQL），直接从 store 的
- * `pendingPermissionsBySession` / `pendingAskQuestionsBySession` / `pendingExitPlanModesBySession`
- * 三个 Map ∩ team 成员 sessionIds 聚合。
+ * 数据**不**走 IPC（避免与 PendingTab 数据源不一致 + 重复 SQL），复用 PendingTab 同款
+ * `selectPendingBuckets`（session-selectors）算出 buckets 后按 team 成员 sessionIds 过滤。
+ *
+ * REVIEW_107 MED：必须复用 `selectPendingBuckets` 而非自行按 raw pending Map 聚合——后者
+ * 只看 member `leftAt === null`，漏掉 PendingTab 走的 `archivedAt !== null` + lifecycle
+ * ∉ {active,dormant} 过滤（pending Map 仅 removeSession 清，session archive/非活跃但仍是
+ * active member 时残留 pending）。口径漂移会让 TeamDetail 显示 PendingTab 已隐藏的、用户
+ * 点进去也无法处理的会话。复用 selector = 两个视图 0 漂移 + 继承其 waiting/lastEventAt 排序。
  *
  * 展示：每个有 pending 的成员一行，标 总数 + 三类数量分布；点击跳转 SessionDetail（也可
  * 跳 PendingTab，但跳 SessionDetail 更直接给用户上下文）。无 pending 时显空 state（隐藏
@@ -28,20 +35,25 @@ export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
   const pendingAsks = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExits = useSessionStore((s) => s.pendingExitPlanModesBySession);
 
-  const memberSidSet = new Set(members.filter((m) => m.leftAt === null).map((m) => m.sessionId));
+  // 复用 PendingTab 同款 selector（含 archivedAt + lifecycle 过滤 + waiting/lastEventAt 排序），
+  // 再按 team active 成员 sessionIds 过滤。memberSidSet 依赖 members → useMemo 锁住重算时机。
+  const rows = useMemo(() => {
+    const memberSidSet = new Set(
+      members.filter((m) => m.leftAt === null).map((m) => m.sessionId),
+    );
+    return selectPendingBuckets(sessions, pendingPerms, pendingAsks, pendingExits)
+      .filter((b) => memberSidSet.has(b.session.id))
+      .map((b) => ({
+        sid: b.session.id,
+        label: b.session.title ?? b.session.id.slice(0, 8),
+        perms: b.permissions.length,
+        asks: b.askQuestions.length,
+        exits: b.exitPlanModes.length,
+        total: b.total,
+      }));
+  }, [members, sessions, pendingPerms, pendingAsks, pendingExits]);
 
-  // 聚合：每个成员的 pending counts
-  const rows = Array.from(memberSidSet)
-    .map((sid) => ({
-      sid,
-      perms: pendingPerms.get(sid)?.length ?? 0,
-      asks: pendingAsks.get(sid)?.length ?? 0,
-      exits: pendingExits.get(sid)?.length ?? 0,
-    }))
-    .filter((r) => r.perms + r.asks + r.exits > 0)
-    .sort((a, b) => b.perms + b.asks + b.exits - (a.perms + a.asks + a.exits));
-
-  const totalPending = rows.reduce((sum, r) => sum + r.perms + r.asks + r.exits, 0);
+  const totalPending = rows.reduce((sum, r) => sum + r.total, 0);
 
   if (rows.length === 0) {
     return (
@@ -55,9 +67,8 @@ export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
     <Section title="待处理" count={totalPending}>
       <ul className="flex flex-col gap-1">
         {rows.map((r) => {
-          const sess = sessions.get(r.sid);
-          const label = sess?.title ?? r.sid.slice(0, 8);
-          const total = r.perms + r.asks + r.exits;
+          const label = r.label;
+          const total = r.total;
           return (
             <li
               key={r.sid}
