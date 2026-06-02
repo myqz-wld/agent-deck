@@ -177,9 +177,10 @@ export interface CodexCreateOpts {
    * plan §P3 Step 3.5 + §不变量 6：codex SDK startThread `additionalDirectories` 透传，
    * 让 codex sandbox=workspace-write 档位下额外允许的可读写根。
    *
-   * reviewer-* 路径 options-builder spread 为 `['~/.claude', '~/.codex']`，让 reviewer 端
-   * 跨目录访问 plan 文件 / claude config / codex config（review 阶段 cp 临时副本到 worktree
-   * 内仍依赖这两路径作 fallback 源）。
+   * reviewer-* 路径 options-builder spread 为 `['~/.claude', '~/.codex', '/tmp']`，让 reviewer
+   * 端跨目录访问 plan 文件 / claude config / codex config（review 阶段 cp 临时副本到 worktree
+   * 内仍依赖这两路径作 fallback 源）；`/tmp` 是 reviewer-codex 端 shell 工具调用 / sandbox-exec
+   * 中间文件路由需求（spike4 实证不含 /tmp 时 codex sandbox-exec 拒读中间文件输出）。
    *
    * undefined → 沿用 codex SDK 默认（不加额外路径）。普通 codex session 不被污染（不变量 6）。
    */
