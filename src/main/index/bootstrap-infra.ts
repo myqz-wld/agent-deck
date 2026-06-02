@@ -125,7 +125,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   adapterRegistry.register(codexCliAdapter);
 
   // 5. 把 adapter 发出的 AgentEvent 接入 SessionManager
-  await adapterRegistry.initAll({
+  const adapterInitResults = await adapterRegistry.initAll({
     hookServer: state.hookServer,
     routeRegistry: state.routeRegistry,
     emit: (event: AgentEvent) => {
@@ -137,6 +137,18 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
       userClaudeSettings: join(homedir(), '.claude', 'settings.json'),
     },
   });
+  // REVIEW_105 MED-2 (deep-review Batch 7 双方共识): initAll 保留「单 adapter 失败不连坐」
+  // resilience 续跑, 但调用方必须消费 per-adapter result 明确 surface 失败 —— 否则半死 adapter
+  // 留在 registry, get() 仍返回它, 直到用户 spawn 才在 createSession 抛 cryptic "adapter not
+  // initialized", 启动期零可观测。失败项升级为带 actionable hint 的 error 日志(该 adapter 的
+  // session 将无法创建)。不 throw / 不连坐: 另一 adapter 仍可用是 by-design(双 adapter 桌面应用)。
+  const failedAdapters = adapterInitResults.filter((r) => !r.ok);
+  for (const f of failedAdapters) {
+    logger.error(
+      `[adapter] ${f.id} init FAILED — 该 adapter 的会话将无法创建(spawn / resume 时 createSession 会抛 "adapter not initialized")。其他 adapter 不受影响仍可用。`,
+      f.err,
+    );
+  }
 
   // 5.1 注入「会话删除时关 SDK 侧 live query」hook
   setSessionCloseFn(async (agentId, sessionId) => {

@@ -80,49 +80,14 @@ export interface ClaudeCreateOpts {
    * 真正生效）。codex 端字段持久化保 parity 对称但 runtime 不消费，详 CodexCreateOpts.extraAllowWrite。
    */
   extraAllowWrite?: readonly string[];
-  /**
-   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1**: bridge 内部 internal 字段。
-   *
-   * caller 不该传(typical caller 走 opts.resume = applicationSid 自动反查 cliSessionId 兜底);
-   * 仅 recoverer.ts:486 + restart-controller.ts:185/339 caller 显式传 `rec.cliSessionId ?? sessionId`
-   * 让 bridge 内部 SDK options.resume + jsonl preflight + S6 fork detect compare 拿正确 cli sid。
-   * R6 HIGH-R6-1 双方共识 bridge 内部 effectiveResumeCliSid 兜底 + caller 显式传两层防御协同。
-   *
-   * **null 边角**: caller 不传 → bridge 内部三分支 resolve(R7 HIGH-R7-1 修订):
-   *   `opts.resumeMode === 'fresh-cli-reuse-app' ? undefined : !opts.resume ? undefined :`
-   *   `(opts.resumeCliSid ?? sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume)`
-   */
-  resumeCliSid?: string;
-  /**
-   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
-   * 解决 `resumeCliSid: undefined` 双语义冲突 — 因 spawn 主路径(无 opts.resume)与 jsonl-missing
-   * fallback (有 opts.resume + resumeCliSid undefined)在 (opts.resume + opts.resumeCliSid 都没传)
-   * 入参侧无法区分。改用显式 mode 字段。
-   *
-   * - **'resume-cli'** (default): 默认 SDK resume 行为 — 若 caller 显式传 resumeCliSid 用之,
-   *   否则 bridge 内部按 `sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume` 反查;
-   *   spawn 主路径(opts.resume undefined)直接走新建路径(三分支 `!opts.resume → undefined`)
-   * - **'fresh-cli-reuse-app'**: jsonl-missing fallback 专用 — 复用 caller 传入 opts.resume 作
-   *   applicationSid,但 SDK 不带 resume 起 fresh CLI thread;first realId 后只调
-   *   sessionManager.updateCliSessionId 写 cli_session_id 列(不 emit session-start 不创建 NEW row)
-   *
-   * **R4 MED-R4-1 7 种合法/非法组合不变量表**:
-   * | opts.resume | resumeMode | resumeCliSid | 路径 | effectiveResumeCliSid | SDK resume 入参 |
-   * |---|---|---|---|---|---|
-   * | undefined | 'resume-cli'(default) | undefined | spawn 主路径 | undefined | 不传 |
-   * | 非空 | 'resume-cli' | 非空 | normal resume(显式 cli sid) | resumeCliSid | resumeCliSid |
-   * | 非空 | 'resume-cli' | undefined | normal resume(反查 fallback) | sessionRepo.get(resume)?.cliSessionId ?? resume | effectiveResumeCliSid |
-   * | 非空 | 'fresh-cli-reuse-app' | undefined | jsonl-missing fallback | undefined | 不传 |
-   * | undefined | 'fresh-cli-reuse-app' | * | **错误 — runtime guard reject** | - | - |
-   * | 非空 | 'fresh-cli-reuse-app' | 非空 | **错误 — runtime guard reject** | - | - |
-   * | undefined | 'resume-cli' | 非空 | **错误 — runtime guard reject** | - | - |
-   *
-   * **R4 MED-R4-1 runtime guard**: bridge createThunk / createSession 入口加
-   * `assertCreateOptsValid(opts)` 函数,3 种非法组合直接抛错(防 caller 误传静默走错路径)。
-   * **R8 LOW-R8-1**: implementation-time 必须保证 `assertCreateOptsValid` 先于 effective resolver
-   * 计算(fail-fast 原则)。
-   */
-  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+  // **REVIEW_105 MED-1 (deep-review Batch 7, 双 reviewer + lead 三重独立命中)**:
+  // resumeCliSid / resumeMode 是 bridge 内部 internal 字段(caller 不该传, 仅 recoverer /
+  // restart-controller 直调 bridge `ctx.createSession` 时显式传), 语义与 cancelCheck /
+  // skipFirstUserEmit 同类 → 按既定分层只活在 bridge 内部 CreateSessionOpts(claude
+  // create-session/_deps.ts + codex create-session/_deps.ts), **不进 facade ClaudeCreateOpts**。
+  // 修前两字段误混进 facade type 但 builder narrowToClaudeOpts / facade.createSession 白名单
+  // spread 都不传它们(死字段 + Raw jsdoc「都消费」契约矛盾)。7 组合不变量表 + runtime guard
+  // SSOT 已迁到 bridge create-session/_deps.ts CreateSessionOpts.resumeCliSid/resumeMode jsdoc。
   /**
    * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
    * hand_off_session handler 装配后透传给 adapter,让 createSession first user message emit
@@ -179,23 +144,11 @@ export interface CodexCreateOpts {
    * 详细持久化路径见 ClaudeCreateOpts.extraAllowWrite jsdoc。
    */
   extraAllowWrite?: readonly string[];
-  /**
-   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 (codex 端镜像 ClaudeCreateOpts.resumeCliSid)**:
-   * codex SDK resumeThread 入参兜底回填 — 详 ClaudeCreateOpts.resumeCliSid jsdoc。
-   *
-   * codex 端典型 caller 显式传:
-   * - codex/recoverer.ts:359 normal resume (R6 S6.5 修订)
-   * - codex/restart-controller.ts createSession 调用 (R3 MED-R3-2 修订)
-   *
-   * codex 端 thread-loop case 3 fork detect 用 internal.threadId 维度比较 (与 claude S6
-   * effectiveResumeCliSid 同款语义),不直接读 opts.resumeCliSid。
-   */
-  resumeCliSid?: string;
-  /**
-   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 (codex 端镜像 ClaudeCreateOpts.resumeMode)**:
-   * 详 ClaudeCreateOpts.resumeMode jsdoc 7 种合法/非法组合不变量表 + runtime guard。
-   */
-  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+  // **REVIEW_105 MED-1 (deep-review Batch 7)**: resumeCliSid / resumeMode 同 ClaudeCreateOpts —
+  // bridge 内部 internal 字段(caller 不该传, 仅 codex recoverer / restart-controller 直调 bridge
+  // 时显式传), 按既定分层只活在 bridge 内部 CreateSessionOpts(codex create-session/_deps.ts),
+  // **不进 facade CodexCreateOpts**。修前误混进 facade type 但 narrowToCodexOpts / facade.createSession
+  // 白名单都不传(死字段)。详 ClaudeCreateOpts extraAllowWrite 下方 REVIEW_105 注释。
   /**
    * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7：
    * codex SDK startThread/resumeThread `approvalPolicy` 透传（caller 显式 / options-builder
@@ -290,13 +243,13 @@ export interface CreateSessionOptionsRaw {
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   extraAllowWrite?: readonly string[];
-  /**
-   * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 — Raw 透传字段**:
-   * builder helper buildCreateSessionOptions narrow 时透传给对应 adapter (claude / codex 都消费)。
-   * 详 ClaudeCreateOpts.resumeCliSid + resumeMode jsdoc。
-   */
-  resumeCliSid?: string;
-  resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+  // **REVIEW_105 MED-1 (deep-review Batch 7)**: 移除 resumeCliSid / resumeMode —— 修前 Raw 声明
+  // 这两字段 + jsdoc 写「builder narrow 时透传给 claude / codex 都消费」, 但 narrowToClaudeOpts /
+  // narrowToCodexOpts 都不挑、facade.createSession 白名单也不 spread = 契约 vs 实现矛盾(死字段)。
+  // 它们是 bridge 内部 internal 字段(caller 不该传, recoverer / restart 直调 bridge `ctx.createSession`
+  // 时显式传), 按 cancelCheck / skipFirstUserEmit 同款分层只活在 bridge CreateSessionOpts。Raw 是
+  // 「caller 经 builder 透传的字段并集」, internal 字段本不该在此声明。SSOT 不变量表见 bridge
+  // create-session/_deps.ts。field 级守门 _assertNarrowCoversArmFields 防此类漏挑复发(见 options-builder.ts)。
   /**
    * plan §P3 Step 3.5 信号源（v4 D7）：spawn handler 透传 `args.agent_name` 让
    * `narrowToCodexOpts` 按 reviewer-* 路径触发 codex teammate spawn default spread。

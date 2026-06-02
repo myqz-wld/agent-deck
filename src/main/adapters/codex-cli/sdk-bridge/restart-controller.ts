@@ -48,8 +48,9 @@ export interface RestartCreateOpts {
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
    * **REVIEW_101 R1 双方共识合并修法（codex restart 对称能力缺失 — jsonl-fallback + model）**:
-   * 与 ClaudeCreateOpts.resumeMode 对齐让 ctx.createSession 透传 fallback 路径不丢精度。
-   * helper `maybeCodexJsonlFallback` fellBack=true 路径调 ctx.createSession 时显式传
+   * 与 bridge CreateSessionOpts.resumeMode 对齐(claude create-session/_deps.ts — REVIEW_105 MED-1 SSOT
+   * 锚点; 修前误对齐 facade ClaudeCreateOpts, 现已从 facade type 删除)让 ctx.createSession 透传
+   * fallback 路径不丢精度。helper `maybeCodexJsonlFallback` fellBack=true 路径调 ctx.createSession 时显式传
    * 'fresh-cli-reuse-app' 触发 create-session-impl.ts:111 走 startThread（jsonl-missing 起 fresh thread）。
    * - 'resume-cli'(default): normal resume 行为（与本路径原 line 145 direct createSession 字面等价）
    * - 'fresh-cli-reuse-app': jsonl-missing fallback 专用 — 仅 helper 内部使用，restart caller 不直接传

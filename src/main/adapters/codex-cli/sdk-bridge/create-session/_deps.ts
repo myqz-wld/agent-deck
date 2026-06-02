@@ -65,7 +65,8 @@ export interface CreateSessionOpts {
   extraAllowWrite?: readonly string[];
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1 (codex 对称)**:
-   * bridge 内部 internal 字段(详 ClaudeCreateOpts.resumeCliSid jsdoc):
+   * bridge 内部 internal 字段(详 claude bridge create-session/_deps.ts CreateSessionOpts.resumeCliSid
+   * jsdoc — REVIEW_105 MED-1 后该处是 7 组合不变量表 SSOT 锚点; facade type 不再声明本字段):
    * - caller 不该传(默认走反查 sessionRepo.cliSessionId 兜底回填)
    * - codex/recoverer.ts:359 + codex/restart-controller.ts caller 显式传 `rec.cliSessionId ?? sessionId`
    */

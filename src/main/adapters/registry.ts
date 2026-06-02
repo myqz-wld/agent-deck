@@ -31,6 +31,18 @@ export type AdapterIdMap = {
 };
 
 /**
+ * **REVIEW_105 MED-2 (deep-review Batch 7)**: initAll per-adapter 结果 —— 让 bootstrap 调用方
+ * 区分「全部 init 成功」vs「部分 adapter init 失败但续跑」, 对失败项明确 surface(升级日志 +
+ * actionable hint), 替代修前「catch 只 log 后静默续跑 + 调用方不消费返回值」导致半死 adapter
+ * 启动期零可观测的缺陷。`ok: false` 时 `err` 携带原始异常供调用方记录。
+ */
+export interface AdapterInitResult {
+  id: string;
+  ok: boolean;
+  err?: unknown;
+}
+
+/**
  * **守门 (4)**: AdapterIdMap keys 必须与 CreateSessionOptionsByAdapter keys 严格一致
  * (与 options-builder.ts 守门 (3) 同款 trick)。漏 entry → 此 type 解析为 false → 赋值 true 报错。
  * 反向:CreateSessionOptionsByAdapter 加 entry 但本 map 未加 → 同款报错。
@@ -46,7 +58,9 @@ const _assertAdapterIdMapMatchesOptions: _AssertSameKeys<
 > = true;
 void _assertAdapterIdMapMatchesOptions;
 
-class AdapterRegistryClass {
+// REVIEW_105 MED-2 (deep-review Batch 7): export class 供 registry.test.ts 隔离测 initAll
+// per-adapter result(不污染 module-level singleton adapterRegistry —— 后者已被 bootstrap register)。
+export class AdapterRegistryClass {
   private map = new Map<string, AgentAdapter>();
 
   register(adapter: AgentAdapter): void {
@@ -75,15 +89,24 @@ class AdapterRegistryClass {
     return [...this.map.values()];
   }
 
-  async initAll(ctx: AdapterContext): Promise<void> {
+  async initAll(ctx: AdapterContext): Promise<AdapterInitResult[]> {
+    const results: AdapterInitResult[] = [];
     for (const adapter of this.map.values()) {
       try {
         await adapter.init(ctx);
         logger.info(`[adapter] ${adapter.id} initialized`);
+        results.push({ id: adapter.id, ok: true });
       } catch (err) {
+        // REVIEW_105 MED-2 (deep-review Batch 7 双方共识): 保留「一个 adapter init 失败不连坐
+        // 其他 adapter」的 resilience 续跑语义(双 adapter 桌面应用, codex 挂了 claude 仍可用),
+        // 但**不再静默** —— 返回 per-adapter result 让 bootstrap 调用方明确 surface 失败(否则
+        // 半死 adapter 留在 registry, get() 仍返回它, 直到用户 spawn 该 adapter 才在
+        // createSession 抛 "adapter not initialized" cryptic 错, 启动期零可观测)。
         logger.error(`[adapter] ${adapter.id} init failed:`, err);
+        results.push({ id: adapter.id, ok: false, err });
       }
     }
+    return results;
   }
 
   async shutdownAll(): Promise<void> {

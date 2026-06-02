@@ -266,8 +266,11 @@ export function isAgentId(value: string): value is AgentId {
  * | (6) main/index.ts adapterRegistry.register(<NewAdapter>) | runtime 拿不到 adapter,caller throw "adapter cannot create sessions" | **流程检查** + adapter init 集成测试 |
  * | (7) MCP schemas.ts SpawnSessionArgs.adapter zod enum / IPC schema enum | runtime user 调 mcp 时 zod 报「不在 enum」 | **流程检查** + MCP handler 集成测试 |
  * | (8) cli.ts parseCliInvocation enum 校验(若有) | runtime user CLI 调时报 unknown agent | **流程检查** |
+ * | (9) options-builder.ts narrowToXOpts 漏挑某 arm 字段(REVIEW_105 MED-1) | TS 报错 | `_assertClaudePassthroughCoversArm` / `_assertCodexPassthroughCoversArm`(field 级, 本文件末) |
  *
- * (1)+(2)+(3)+(4)+(5) 是「主链 5 处 TS 编译期强守门」— 加新 adapter 时漏改 TS 编译必报错;
+ * (1)+(2)+(3)+(4)+(5)+(9) 是「TS 编译期强守门」— (1)-(5) agentId 集合级(加新 adapter 漏改报错),
+ * (9) field 级(arm 新增 caller-passthrough 字段但 narrow 漏挑报错, 修前缺此守门导致 resumeCliSid /
+ * resumeMode 静默漏挑 typecheck 仍过);
  * (6)+(7)+(8) 是「runtime 边界 3 处流程检查」— TS 类型层无法守门(register 是 runtime 调用,
  * zod schema 是 runtime parser),靠 commit message + plan checklist + 集成测试覆盖。
  *
@@ -310,3 +313,61 @@ const _assertAgentIdsListMatchesOptions: AssertSameKeys<
   CreateSessionOptionsByAdapter
 > = true;
 void _assertAgentIdsListMatchesOptions;
+
+/**
+ * **守门 (9) field 级 narrow 覆盖（REVIEW_105 MED-1 deep-review Batch 7 双 reviewer 共识 follow-up）**:
+ *
+ * 修前缺陷：守门 (1)-(8) 全是 **agentId 字面量集合级**（AssertSameKeys 只比 adapter id keys），
+ * **管不到 narrowToXOpts 内部逐字段覆盖** —— 这正是 resumeCliSid / resumeMode 能静默漏挑且
+ * typecheck 通过的根因（两 reviewer + lead 三重独立命中）。
+ *
+ * 本守门下探到字段级：强制「narrow 应透传的字段清单」与「对应 arm 的 key 集（减去 by-design
+ * 例外）」**双向一致**。Raw / arm 新增一个 caller-passthrough 字段但 narrow 漏挑 → 开发者漏更新
+ * 下方 PASSTHROUGH 清单 → AssertSameKeys 编译期报错（清单列了但实际 narrow 没写的运行时遗漏由
+ * teammate-spawn-defaults.test.ts field-coverage 矩阵兜底，类型层无法验证运行时挑了哪些 key）。
+ *
+ * **by-design 例外**（不算 narrow 该挑、故从对比集排除）：
+ * - `cwd`：必填字段，narrow 起手 `{ cwd: raw.cwd }` 恒挑，不进 optional 清单
+ * - codex `approvalPolicy` / `networkAccessEnabled` / `additionalDirectories` / `envOverrideExtra`：
+ *   仅 reviewer-* 分支 spread 产出（不变量 6），**不是** caller 经 Raw 透传字段，故不在 Raw、也不该
+ *   被主分支 narrow 挑（narrow 主分支挑了反而污染普通 codex session）
+ */
+type OmitKey<T, K extends PropertyKey> = { [P in Exclude<keyof T, K>]: unknown };
+
+/** claude arm 中 narrow 应从 raw 透传的字段（cwd 必填恒挑除外）。漏挑某字段时此清单与 arm key 集不一致 → 报错。 */
+const _CLAUDE_PASSTHROUGH_KEYS = {
+  prompt: 0,
+  permissionMode: 0,
+  resume: 0,
+  teamName: 0,
+  attachments: 0,
+  model: 0,
+  claudeCodeSandbox: 0,
+  extraAllowWrite: 0,
+  handOff: 0,
+} as const;
+const _assertClaudePassthroughCoversArm: AssertSameKeys<
+  typeof _CLAUDE_PASSTHROUGH_KEYS,
+  OmitKey<ClaudeCreateOpts, 'cwd'>
+> = true;
+void _assertClaudePassthroughCoversArm;
+
+/** codex arm 中 narrow 主分支应从 raw 透传的字段（cwd 必填 + 4 个 reviewer-* spread-only 字段除外）。 */
+const _CODEX_PASSTHROUGH_KEYS = {
+  prompt: 0,
+  resume: 0,
+  teamName: 0,
+  attachments: 0,
+  model: 0,
+  codexSandbox: 0,
+  extraAllowWrite: 0,
+  handOff: 0,
+} as const;
+const _assertCodexPassthroughCoversArm: AssertSameKeys<
+  typeof _CODEX_PASSTHROUGH_KEYS,
+  OmitKey<
+    CodexCreateOpts,
+    'cwd' | 'approvalPolicy' | 'networkAccessEnabled' | 'additionalDirectories' | 'envOverrideExtra'
+  >
+> = true;
+void _assertCodexPassthroughCoversArm;
