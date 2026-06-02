@@ -1,0 +1,113 @@
+// @vitest-environment jsdom
+/**
+ * SPIKE（image-hook-race-tests-20260602）—— 验证 React19 + RTL16 + vitest2 + jsdom29 兼容性。
+ * 验证点：
+ *  ① useImageBlob renderHook + act + waitFor 能跑通（无 DOM 依赖的薄 hook）
+ *  ② jsdom 下 useImageAttachments.add() 走 FileReader/Image/canvas，需 mock 让其不卡死
+ * 跑通后本文件删除，正式测试拆 useImageBlob.test.tsx / useImageAttachments.test.tsx。
+ */
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, act, waitFor, cleanup } from '@testing-library/react';
+import { useImageBlob, createImageBlobCache, type CacheEntry } from '../useImageBlob';
+import { useImageAttachments } from '../useImageAttachments';
+import type { LoadImageBlobResult } from '@shared/types';
+
+afterEach(() => cleanup());
+
+// ───────────────────────────── ① useImageBlob ─────────────────────────────
+describe('SPIKE useImageBlob renderHook', () => {
+  it('loader resolve ok → loading:false + result', async () => {
+    const cache = createImageBlobCache();
+    const result: LoadImageBlobResult = { ok: true, mime: 'image/png', bytes: 10, dataUrl: 'data:image/png;base64,x' };
+    const { result: hook } = renderHook(() =>
+      useImageBlob(() => Promise.resolve(result), 'k1', cache),
+    );
+    expect(hook.current.loading).toBe(true);
+    await waitFor(() => expect(hook.current.loading).toBe(false));
+    expect(hook.current.result).toEqual(result);
+  });
+
+  it('loader REJECT → loading:false + io_error（不永久 loading）', async () => {
+    const cache = createImageBlobCache();
+    const { result: hook } = renderHook(() =>
+      useImageBlob(() => Promise.reject(new Error('IPC channel closed')), 'k2', cache),
+    );
+    await waitFor(() => expect(hook.current.loading).toBe(false));
+    expect(hook.current.result).toMatchObject({ ok: false, reason: 'io_error' });
+  });
+
+  it('cache hit → 刷新 ts（LRU 非 FIFO）', async () => {
+    const cache = createImageBlobCache();
+    const old: CacheEntry = { result: { ok: true, mime: 'image/png', bytes: 1, dataUrl: 'd' }, ts: 1000 };
+    cache.set('hit', old);
+    const { result: hook } = renderHook(() =>
+      useImageBlob(() => Promise.reject(new Error('should not be called')), 'hit', cache),
+    );
+    await waitFor(() => expect(hook.current.loading).toBe(false));
+    expect(cache.get('hit')!.ts).toBeGreaterThan(1000);
+  });
+});
+
+// ───────────────────────── ② useImageAttachments ──────────────────────────
+// mock FileReader / Image / canvas，让 add() 的 readFileAsDataUrl + loadImageFromDataUrl
+// + makeThumbnail canvas 路径在 jsdom 下能 resolve（jsdom 不实现 canvas / Image decode）。
+describe('SPIKE useImageAttachments add() 在 jsdom 下不卡死', () => {
+  beforeEach(() => {
+    // FileReader.readAsDataURL → 立即 onload 返回小 dataUrl
+    class FakeFileReader {
+      result: string | ArrayBuffer | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL(_file: Blob) {
+        this.result = 'data:image/png;base64,aGVsbG8=';
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('FileReader', FakeFileReader as unknown as typeof FileReader);
+
+    // Image → src setter 触发 onload
+    class FakeImage {
+      width = 100;
+      height = 100;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      private _src = '';
+      set src(v: string) {
+        this._src = v;
+        queueMicrotask(() => this.onload?.());
+      }
+      get src() {
+        return this._src;
+      }
+    }
+    vi.stubGlobal('Image', FakeImage as unknown as typeof Image);
+
+    // canvas.getContext + toDataURL（jsdom canvas 无实现）
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillStyle: '',
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+      globalCompositeOperation: '',
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,dGh1bWI=');
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function pngFile(name = 'a.png', size = 1000): File {
+    const f = new File([new Uint8Array(size)], name, { type: 'image/png' });
+    return f;
+  }
+
+  it('add 一张小 png → attachments 出现一条', async () => {
+    const { result: hook } = renderHook(() => useImageAttachments());
+    await act(async () => {
+      await hook.current.add([pngFile()]);
+    });
+    expect(hook.current.attachments).toHaveLength(1);
+    expect(hook.current.attachments[0].mime).toBe('image/png');
+  });
+});

@@ -1,0 +1,101 @@
+// @vitest-environment jsdom
+/**
+ * SPIKE 2 —— 验证 MED-1 race 时序可控性（最高风险项）。
+ * 核心难点：add() 对每个 file 串行 await，需要让「A 已 push 入列、B/C 仍 in-flight」的状态
+ * 可被测试精确触发，再调 remove(A) 验证 B/C 不被连坐丢弃。
+ * 机制：FileReader 自动 microtask resolve；Image onload 进手动队列，测试逐个 flush 控制时序。
+ */
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, act, cleanup } from '@testing-library/react';
+import { useImageAttachments } from '../useImageAttachments';
+
+let imageOnloadQueue: Array<() => void> = [];
+
+beforeEach(() => {
+  imageOnloadQueue = [];
+  class FakeFileReader {
+    result: string | ArrayBuffer | null = null;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    readAsDataURL() {
+      this.result = 'data:image/png;base64,aGVsbG8=';
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  vi.stubGlobal('FileReader', FakeFileReader as unknown as typeof FileReader);
+
+  // Image.onload 不自动触发，进队列等测试 flush（控制 thumb 完成时机 = 控制 push 时机）
+  class QueuedImage {
+    width = 100;
+    height = 100;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    private _src = '';
+    set src(v: string) {
+      this._src = v;
+      imageOnloadQueue.push(() => this.onload?.());
+    }
+    get src() {
+      return this._src;
+    }
+  }
+  vi.stubGlobal('Image', QueuedImage as unknown as typeof Image);
+
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    fillStyle: '',
+    fillRect: vi.fn(),
+    drawImage: vi.fn(),
+    globalCompositeOperation: '',
+  } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,dGh1bWI=');
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+function png(name: string): File {
+  return new File([new Uint8Array(1000)], name, { type: 'image/png' });
+}
+
+/** 触发队首 Image.onload + settle 所有 microtask/macrotask（让 add 的 for 循环推进到下一卡点）。 */
+async function flushOneImage(): Promise<void> {
+  await act(async () => {
+    imageOnloadQueue.shift()?.();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+describe('SPIKE2 MED-1 race 时序可控', () => {
+  it('删第一张时同批 in-flight 兄弟不被连坐丢弃', async () => {
+    const { result: hook } = renderHook(() => useImageAttachments());
+    let addDone!: Promise<void>;
+    // 启动 add（不 await，会卡在 A 的 thumb Image）；settle 让 A_img 入队 + for 卡在 Promise.all(A)
+    await act(async () => {
+      addDone = hook.current.add([png('A'), png('B'), png('C')]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(hook.current.attachments).toHaveLength(0); // A 还没 push（等 A_img）
+    expect(imageOnloadQueue).toHaveLength(1); // A_img 在队列
+
+    // flush A_img → A push + B_img 入队（for 推进到 B 卡 Promise.all(B)）
+    await flushOneImage();
+    expect(hook.current.attachments.map((a) => a.name)).toEqual(['A']);
+    const aId = hook.current.attachments[0].id;
+
+    // 此刻 B/C 仍 in-flight（B 卡在 Promise.all，C 还没轮到）。删 A
+    act(() => hook.current.remove(aId));
+
+    // flush B_img → B push + C_img 入队；flush C_img → C push + add 完成
+    await flushOneImage();
+    await flushOneImage();
+    await act(async () => {
+      await addDone;
+    });
+
+    const names = hook.current.attachments.map((a) => a.name);
+    expect(names).toEqual(['B', 'C']); // A 被删，B/C 没被连坐丢弃 ← MED-1 修法核心
+  });
+});

@@ -20,8 +20,12 @@ export default defineConfig({
     },
   },
   test: {
+    // 默认 node 环境（main/preload/纯逻辑测试）。需要 DOM 的 React hook 测试在文件顶部用
+    // `// @vitest-environment jsdom` docblock 单文件切 jsdom（见 hooks/__tests__/useImageBlob.test.tsx
+    // / useImageAttachments.test.tsx），不污染其余 node 测试、也不引入全局 jsdom 启动开销。
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    // 同时收 .test.ts（纯逻辑）+ .test.tsx（React hook 测试，用 RTL renderHook）。
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     // 全局 mock electron + electron-log/main + electron-store + electron-log/renderer
     // —— Plan runtime-logging-electron-log-20260529 §D15 + §Step 3.0.2.5 + §Step 3.5.1.5 实证扩展.
     // 详 vitest-setup.ts 头注.
