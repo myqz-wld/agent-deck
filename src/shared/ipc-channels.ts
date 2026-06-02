@@ -96,6 +96,14 @@ export const IpcInvoke = {
   IssuesUndelete: 'issues:undelete',
   IssuesResolveInNewSession: 'issues:resolve-in-new-session',
 
+  // ─────────── Token 使用统计 (plan model-token-stats-and-dashboard-20260602) ───────────
+  /** 各 model bucket 在最近 WINDOW_MS 窗口的 output 总量（renderer 算 token/s = out ÷ 窗口秒）。 */
+  TokenUsageRates: 'token-usage:rates',
+  /** 今日各 model bucket output 总量降序（Top3 header + 数据页今日汇总）。 */
+  TokenUsageTopToday: 'token-usage:top-today',
+  /** model bucket × 本地日期的 4 指标聚合（数据 tab 表格）。 */
+  TokenUsageDaily: 'token-usage:daily',
+
   // ─────────── R3.E8 — Agent Deck universal team backend (替代老 team:* channel) ───────────
   /** 列出 active team（默认隐藏 archived）。返回 AgentDeckTeam[]（裸，不含 members）。 */
   AgentDeckTeamList: 'agent-deck-team:list',
@@ -199,6 +207,12 @@ export const IpcEvent = {
    * renderer 仍能精细 invalidate（与 TaskChanged.ownerSessionId 顶级字段对称 — §D7 R3 LOW F7）。
    */
   IssueChanged: 'event:issue-changed',
+  /**
+   * token_usage 落库后（plan model-token-stats-and-dashboard-20260602 §Phase 2）：main bootstrap
+   * 桥接 eventBus.on('token-usage-changed') → safeSend。renderer 数据 tab debounce refetch daily
+   * （header / rates 走 poll 不依赖此 event）。payload = TokenUsageChangedEvent {sessionId, ts}。
+   */
+  TokenUsageChanged: 'event:token-usage-changed',
   /**
    * archive-failure-ux-upthrow-20260515 plan：caller archive 失败 UX 上抛通道。
    *

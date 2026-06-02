@@ -36,6 +36,7 @@ function makeInternal(permissionMode: PermissionMode): InternalSession {
     pendingExitPlanModes: new Map(),
     toolUseNames: new Map(),
     pendingFileChangeIntents: new Map(),
+    seenUsageMessageIds: new Map(),
     // R3 fix-3: permissionModeChain 默认 undefined（无 in-flight setPermissionMode）
   };
 }

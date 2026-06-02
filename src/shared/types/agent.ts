@@ -15,7 +15,8 @@ export type AgentEventKind =
   | 'session-end'
   | 'team-task-created'
   | 'team-task-completed'
-  | 'team-teammate-idle';
+  | 'team-teammate-idle'
+  | 'token-usage';
 
 export interface AgentEvent<P = unknown> {
   sessionId: string;

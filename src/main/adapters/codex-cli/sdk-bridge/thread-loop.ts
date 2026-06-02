@@ -14,6 +14,7 @@
 import type { ThreadEvent } from '@openai/codex-sdk';
 import type { AgentEventKind, HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
+import { sessionRepo } from '@main/store/session-repo';
 import { translateCodexEvent } from '@main/adapters/codex-cli/translate';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { CodexBridgeOptions, InternalSession } from './types';
@@ -336,7 +337,12 @@ export class ThreadLoop {
                 earlyErrCb = undefined;
               }
             }
-            translateCodexEvent(ev as ThreadEvent, emit);
+            translateCodexEvent(ev as ThreadEvent, emit, {
+              // plan §Phase 1 A4b：codex turn.completed 不带 model，token-usage 采集从
+              // sessions.model 取（A4c 已让新建路径 effective model 永非 null）。applicationSid
+              // 是应用稳定身份维度（与 emit sessionId 一致）。
+              model: sessionRepo.get(internal.applicationSid)?.model ?? null,
+            });
           }
         } catch (err) {
           // REVIEW_4 H1+M5：被 closeSession / 30s timeout fallback 主动 abort 的，静默退出。

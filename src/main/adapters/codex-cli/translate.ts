@@ -177,8 +177,15 @@ export function extractRetryProgress(message: string): string {
  * 把一条 ThreadEvent 翻译为 0~N 条 AgentEvent，通过 emit 回调发出。
  *
  * 不在这里处理 thread.started（sessionId 同步在 sdk-bridge 控制）。
+ *
+ * @param opts.model plan model-token-stats §Phase 1 A4b：turn.completed 采集 token-usage 时
+ *   写入的 model（codex event 不带 model，由 caller 从 sessions.model 取传入；null → 归一走 unknown）。
  */
-export function translateCodexEvent(event: ThreadEvent, emit: EmitFn): void {
+export function translateCodexEvent(
+  event: ThreadEvent,
+  emit: EmitFn,
+  opts?: { model?: string | null },
+): void {
   switch (event.type) {
     case 'thread.started':
     case 'turn.started':
@@ -196,6 +203,21 @@ export function translateCodexEvent(event: ThreadEvent, emit: EmitFn): void {
 
     case 'turn.completed': {
       emit('finished', { ok: true, subtype: 'success', usage: event.usage });
+      // plan model-token-stats §Phase 1 A4：turn.completed 的 usage 是 per-turn 增量，独立 emit
+      // token-usage（与 finished 解耦，§不变量 7）。codex Usage：input_tokens / cached_input_tokens /
+      // output_tokens / reasoning_output_tokens；无 cache_creation（填 0）；reasoning 归入 output
+      // （GPT reasoning 算输出）；cacheRead = cached_input。model 由 caller 传（codex event 不带）。
+      const u = event.usage;
+      if (u) {
+        emit('token-usage', {
+          messageId: null, // codex 无 message id；每 turn 独立 INSERT（不参与 partial UNIQUE）
+          model: opts?.model ?? null,
+          inputTokens: u.input_tokens ?? 0,
+          outputTokens: (u.output_tokens ?? 0) + (u.reasoning_output_tokens ?? 0),
+          cacheReadTokens: u.cached_input_tokens ?? 0,
+          cacheCreationTokens: 0,
+        });
+      }
       return;
     }
 

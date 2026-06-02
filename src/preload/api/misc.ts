@@ -16,6 +16,8 @@ import type {
   ImageSource,
   LoadImageBlobResult,
   PermissionScanResult,
+  TokenRateRow,
+  TokenDailyRow,
   UserAssetInput,
   UserAssetsSnapshot,
 } from '@shared/types';
@@ -204,4 +206,15 @@ export const miscApi = {
    */
   logsTruncateToday: (): Promise<{ ok: boolean; existed: boolean; error?: string }> =>
     ipcRenderer.invoke(IpcInvoke.LogsTruncateToday),
+
+  // ─── Token 使用统计 (plan model-token-stats-and-dashboard-20260602 §Phase 2 Q5) ───
+  /** 最近 60s 窗口各 model bucket output 总量（renderer 算 token/s = out ÷ 60）。 */
+  tokenUsageRates: (): Promise<TokenRateRow[]> =>
+    ipcRenderer.invoke(IpcInvoke.TokenUsageRates),
+  /** 今日各 model bucket output 总量降序（header Top3 + 数据页今日汇总）。 */
+  tokenUsageTopToday: (): Promise<TokenRateRow[]> =>
+    ipcRenderer.invoke(IpcInvoke.TokenUsageTopToday),
+  /** model bucket × 本地日期的 4 指标聚合（数据 tab 表格）。 */
+  tokenUsageDaily: (): Promise<TokenDailyRow[]> =>
+    ipcRenderer.invoke(IpcInvoke.TokenUsageDaily),
 };

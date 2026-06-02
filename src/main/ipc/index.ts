@@ -27,6 +27,7 @@ import { registerTeamsIpc } from './teams';
 import { registerAssetsIpc } from './assets';
 import { registerLogsIpc } from './logs';
 import { registerIssuesIpc } from './issues';
+import { registerTokenUsageIpc } from './token-usage';
 
 export function bootstrapIpc(): void {
   registerWindowAppIpc();
@@ -40,4 +41,5 @@ export function bootstrapIpc(): void {
   registerAssetsIpc();
   registerLogsIpc();
   registerIssuesIpc();
+  registerTokenUsageIpc();
 }

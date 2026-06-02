@@ -19,6 +19,8 @@
  * fallback / success / resume,本子段不直接 emit user message)。
  */
 import { persistSessionFields } from '../session-finalize';
+import { readTopLevelModelFromCodexConfig } from '@main/codex-config/toml-writer';
+import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -64,10 +66,17 @@ export async function runCreateSessionNewPath(
   // 副作用 (sandbox / model 持久化)在 await 完成后跑;sandbox 字段同 resume path persist 字段同款。
   // ctx.sandboxMode 是 prepare phase 决定的(opts.codexSandbox > rec.codexSandbox(resume 路径) >
   // settingsStore.get('codexSandbox') 三层 fallback)。
+  // plan model-token-stats §Phase 1 A4c（deep-review R1 F2 双方独立）：codex turn.completed 不带
+  // model，token 统计从 sessions.model 取。新建路径 resolve effective model 持久化，避免交互式
+  // codex（不显式传 model 走 ~/.codex/config.toml 默认）落 null → 全折进 unknown bucket。
+  // effective = opts.model > config.toml 顶层 model > 'codex-default' 占位。**仅新建路径**做此
+  // resolve（resume 路径保留 sessions.model 原值，不在此覆盖）。
+  const effectiveModel =
+    opts.model ?? readTopLevelModelFromCodexConfig() ?? CODEX_DEFAULT_BUCKET;
   persistSessionFields({
     sessionId: internal.applicationSid,
     sandboxMode,
-    model: opts.model,
+    model: effectiveModel,
     extraAllowWrite: opts.extraAllowWrite,
   });
 

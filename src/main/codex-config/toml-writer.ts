@@ -167,6 +167,50 @@ export function readMcpServersFromCodexConfig(
   return parseMcpServersSection(m[1]);
 }
 
+/**
+ * 读 `~/.codex/config.toml` 顶层 `model = "..."`（plan model-token-stats-and-dashboard-20260602
+ * §Phase 1 A4c / deep-review R2 G1 双方独立 + R3 LOW-1）。
+ *
+ * codex 不显式传 model 时走 config.toml 默认；token 统计需要 effective model 才能按模型拆分，
+ * 否则全折进 'codex-default' bucket（plan §已知踩坑 1）。
+ *
+ * **不引 TOML parser 依赖**（toml-writer.ts:22 + REVIEW_2 约定：@iarna/toml ~120KB / 半截
+ * config.toml 解析失败教训）—— 行级扫描：
+ * - **section-aware**：遇第一个 `[section]` header 立即停（顶层 key 必在任何 table header 之前；
+ *   不停会误读 `[profiles.foo]` / `[model_providers.*]` 段内的 `model = ...`）
+ * - **精确锚 `model` 后紧跟 `=`/空格**：排除 `model_provider` / `model_providers` 误命中
+ * - **正则直接捕获首个引号 token**（basic `"..."` / literal `'...'`）：尾部 inline comment
+ *   `model = "x" # primary` 自然忽略；basic 走 parseTomlString（含转义）、literal 无转义剥引号
+ *
+ * 读不到（无文件 / 无顶层 model / 值非引号形态）→ 返 null（caller 链 `?? 'codex-default'` 兜底）。
+ */
+export function readTopLevelModelFromCodexConfig(
+  configPath: string = getCodexConfigPath(),
+): string | null {
+  if (!existsSync(configPath)) return null;
+  let content = '';
+  try {
+    content = readFileSync(configPath, 'utf8');
+  } catch {
+    return null;
+  }
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === '' || line.startsWith('#')) continue;
+    // 遇 section header → 顶层扫描结束（顶层 key 不可能在 table header 之后）
+    if (line.startsWith('[')) break;
+    // 顶层 model = "..." / '...'，精确锚 model 后紧跟 = 或空格（排除 model_provider）
+    const m = /^model[ \t]*=[ \t]*("(?:[^"\\]|\\.)*"|'[^']*')/.exec(line);
+    if (m) {
+      const tok = m[1];
+      return tok[0] === '"' ? parseTomlString(tok) : tok.slice(1, -1);
+    }
+    // model= 在但值非引号形态（裸值 / multi-line）→ 这就是顶层 model 行，无法解析则停
+    if (/^model[ \t]*=/.test(line)) return null;
+  }
+  return null;
+}
+
 // ────────────────────────────────────────────────────────── helpers
 
 function replaceMarkerSection(existing: string, newSection: string): string {
