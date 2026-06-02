@@ -8,7 +8,7 @@
  *   + INSERT into agent_deck_messages（status='pending', sent_at=now, last_attempt_at=null）
  * - get：复用 _deps.getById free function（state-machine 也用，避免重复 SQL）
  * - listByTeam：按 team_id 拉 + 可选 status filter
- * - listBySession：按 session_id (from OR to) 拉跨会话视图（SessionDetail tab 兜底）
+ * - listBySession：按 session_id 拉跨会话视图（UNION ALL 双索引重写 + self-row guard，SessionDetail tab 兜底）
  *
  * 本子模块不依赖其他子模块，纯 SQL CRUD。
  */
@@ -91,30 +91,58 @@ export function createCrud(db: Database) {
   }
 
   function listBySession(sessionId: string, opts?: ListMessagesByTeamOptions): AgentDeckMessage[] {
-    // plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2：from_session_id OR to_session_id
-    // 命中即返回。SessionDetail tab 兜底视图（J fix 后 reply 不入 SDK，此处 DB 视角补回）。
-    // 不走 idx_messages_sent_at（无法两个谓词都索引），扫表 + WHERE filter，rows ≤ 几千问题不大。
-    // REVIEW_90 MED: `rowid DESC` 二级排序定序（同 listByTeam；listBySession 走全表 SCAN + TEMP
-    // B-TREE，与 listByTeam 索引路径不同 plan，同毫秒 tie 序更需显式定序）。
+    // plan mcp-bug-and-feature-batch-20260513 Phase 5 Step 5.2：拉本 session 收发的所有
+    // cross-session messages。SessionDetail「跨会话消息」tab 兜底视图（reply 已注入 SDK，
+    // 此处 DB 视角补回全量历史含 delivered/failed）。
+    //
+    // plan message-retention-and-index-20260602 D5：从 `WHERE from=? OR to=?` 改 UNION ALL
+    // 双分支——OR 两谓词无法都索引必走全表 SCAN（issue 7dcb0676），UNION ALL 让每分支各走
+    // v030 的 (from,sent_at DESC) / (to,sent_at DESC) 索引消灭全表扫描（spike1 实证）。
+    //
+    // ⚠️ 第二分支必须带 `AND from_session_id <> ?` 去重 guard（Deep-Review R1 codex HIGH-2）：
+    // 正常 self-msg（from==to）insert 时 throw 不存在，但 session-repo/rename.ts 分别 UPDATE
+    // from/to——rename A→B 时 `from=A,to=B` 行会变 `from=B,to=B`（self-row）。无 guard 时该行被
+    // 两分支各计一次 → baseline OR 返 1 行但 UNION ALL 返 2 行，违反 N2 byte-identical。guard
+    // 把「from 与 to 都等于本 session」的 self-row 从第二分支排除（第一分支已计），总计仍 1 行。
+    //
+    // REVIEW_90 MED：`rowid DESC` 二级定序锁同毫秒 sent_at tie 稳定（rowid 非 id——id 是随机
+    // UUID）。UNION ALL 子查询 `SELECT *, rowid AS _rid`，外层显式列投影剥离 _rid + ORDER BY
+    // sent_at DESC, _rid DESC。外层投影保结果列集与旧 `SELECT *` 一致（rowToRecord 字段选择式
+    // 映射即便不剥 _rid 也安全，显式投影更干净）。
     const limit = Math.max(1, Math.min(opts?.limit ?? 100, 500));
     const offset = Math.max(0, opts?.offset ?? 0);
     if (opts?.status) {
       const rows = db
         .prepare(
-          `SELECT * FROM agent_deck_messages
-           WHERE (from_session_id = ? OR to_session_id = ?) AND status = ?
-           ORDER BY sent_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+          `SELECT id, team_id, from_session_id, to_session_id, body, status, status_reason,
+                  sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since,
+                  reply_to_message_id
+           FROM (
+             SELECT *, rowid AS _rid FROM agent_deck_messages
+               WHERE from_session_id = ? AND status = ?
+             UNION ALL
+             SELECT *, rowid AS _rid FROM agent_deck_messages
+               WHERE to_session_id = ? AND from_session_id <> ? AND status = ?
+           )
+           ORDER BY sent_at DESC, _rid DESC LIMIT ? OFFSET ?`,
         )
-        .all(sessionId, sessionId, opts.status, limit, offset) as MessageRow[];
+        .all(sessionId, opts.status, sessionId, sessionId, opts.status, limit, offset) as MessageRow[];
       return rows.map(rowToRecord);
     }
     const rows = db
       .prepare(
-        `SELECT * FROM agent_deck_messages
-         WHERE from_session_id = ? OR to_session_id = ?
-         ORDER BY sent_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+        `SELECT id, team_id, from_session_id, to_session_id, body, status, status_reason,
+                sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since,
+                reply_to_message_id
+         FROM (
+           SELECT *, rowid AS _rid FROM agent_deck_messages WHERE from_session_id = ?
+           UNION ALL
+           SELECT *, rowid AS _rid FROM agent_deck_messages
+             WHERE to_session_id = ? AND from_session_id <> ?
+         )
+         ORDER BY sent_at DESC, _rid DESC LIMIT ? OFFSET ?`,
       )
-      .all(sessionId, sessionId, limit, offset) as MessageRow[];
+      .all(sessionId, sessionId, sessionId, limit, offset) as MessageRow[];
     return rows.map(rowToRecord);
   }
 

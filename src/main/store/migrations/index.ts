@@ -40,6 +40,7 @@ import v026 from './v026_issues.sql?raw';
 import v027 from './v027_agent_deck_messages_team_id_nullable.sql?raw';
 import v028 from './v028_token_usage.sql?raw';
 import v029 from './v029_sessions_network_dirs.sql?raw';
+import v030 from './v030_agent_deck_messages_indexes.sql?raw';
 
 export interface Migration {
   version: number;
@@ -77,4 +78,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 27, name: 'agent_deck_messages_team_id_nullable', sql: v027 },
   { version: 28, name: 'token_usage', sql: v028 },
   { version: 29, name: 'sessions_network_dirs', sql: v029 },
+  { version: 30, name: 'agent_deck_messages_indexes', sql: v030 },
 ];

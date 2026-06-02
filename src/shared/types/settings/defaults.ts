@@ -44,6 +44,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // - softDeletedRetentionDays 默认 7d (软删一周后硬删,与 history 30d 不同 — 软删本就 implicit 已完成 triage)
   issueResolvedRetentionDays: 90,
   issueSoftDeletedRetentionDays: 7,
+  // plan message-retention-and-index-20260602 §D3：agent_deck_messages retention GC 阈值。
+  // 默认 30d（与 historyRetentionDays 起步一致，用户可单独调）。MessageLifecycleScheduler 6h tick
+  // 删 status IN terminal && sent_at < now-Nd 的超期消息（pending/delivering 永不删）。0 = 关闭 GC。
+  messageRetentionDays: 30,
   codexCliPath: null,
   claudeCliPath: null,
   injectAgentDeckClaudeMd: true,

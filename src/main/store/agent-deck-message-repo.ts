@@ -4,14 +4,16 @@
  * 持久层：agent_deck_messages 表 CRUD + watcher 关键 helpers。
  *
  * **Phase 4 Step 4.11 拆分**（沿用 Step 4.5 task-repo 同款 factory pattern）：
- * 本文件已从 527 LOC facade 化（薄 re-export + factory 装配 + singleton lazy）。13 method
- * 按 ADR §4 状态机分三域:
+ * 本文件已从 527 LOC facade 化（薄 re-export + factory 装配 + singleton lazy）。15 method
+ * 按 ADR §4 状态机分四域:
  * - `./crud.ts` — insert / get / listByTeam / listBySession（4 method 基础读写）
  * - `./dispatch.ts` — findEligible / findEligibleExcludingTargets / countPendingForTarget
  *   （3 method watcher 配对查询）
  * - `./state-machine.ts` — claim / markDelivered / markFailed / retryAfterFail / cancel /
  *   resetDeliveringOnStartup（6 method 状态机迁移）
- * - `./_deps.ts` — MessageRow + rowToRecord + 4 Input shapes + AgentDeckMessageRepo interface
+ * - `./gc.ts` — listExpiredForGc / batchHardDelete（2 method retention GC，plan
+ *   message-retention-and-index-20260602；MessageLifecycleScheduler 调用）
+ * - `./_deps.ts` — MessageRow + rowToRecord + 5 Input shapes + AgentDeckMessageRepo interface
  *   + getById free function（state-machine UPDATE 后反查最新 row 共享 SELECT）
  *
  * 设计要点：
@@ -53,6 +55,10 @@ import {
 import { createCrud } from './agent-deck-message-repo/crud';
 import { createDispatch } from './agent-deck-message-repo/dispatch';
 import { createStateMachine } from './agent-deck-message-repo/state-machine';
+import { createGc, GC_BATCH_LIMIT, LIST_EXPIRED_FOR_GC_SQL } from './agent-deck-message-repo/gc';
+
+// gc retention 常量 / SQL re-export（scheduler 引用 GC_BATCH_LIMIT 作 SSOT；测试引用 SQL 跑 EXPLAIN）
+export { GC_BATCH_LIMIT, LIST_EXPIRED_FOR_GC_SQL };
 
 // back-compat re-export（旧 caller 仍可 `from '@main/store/agent-deck-message-repo'` 取常量）
 export {
@@ -71,6 +77,7 @@ export type {
   FindEligibleExcludingTargetsOptions,
   FindEligibleOptions,
   InsertMessageInput,
+  ListExpiredForGcOptions,
   ListMessagesByTeamOptions,
 } from './agent-deck-message-repo/_deps';
 
@@ -80,10 +87,12 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
   const crud = createCrud(db);
   const dispatch = createDispatch(db);
   const state = createStateMachine(db);
+  const gc = createGc(db);
   return {
     ...crud,
     ...dispatch,
     ...state,
+    ...gc,
   };
 }
 
@@ -108,4 +117,6 @@ export const agentDeckMessageRepo: AgentDeckMessageRepo = {
   cancel: (messageId, reason) => defaultRepo().cancel(messageId, reason),
   countPendingForTarget: (toSessionId) => defaultRepo().countPendingForTarget(toSessionId),
   resetDeliveringOnStartup: () => defaultRepo().resetDeliveringOnStartup(),
+  listExpiredForGc: (opts) => defaultRepo().listExpiredForGc(opts),
+  batchHardDelete: (ids) => defaultRepo().batchHardDelete(ids),
 };

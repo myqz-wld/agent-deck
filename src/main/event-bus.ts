@@ -100,6 +100,13 @@ export interface EventMap {
   /** watcher 每次 update messages.status 后；UI 显示投递进度用。 */
   'agent-deck-message-status-changed': [AgentDeckMessageStatusChangedEvent];
   /**
+   * MessageLifecycleScheduler GC 删超期 terminal 消息后（plan message-retention-and-index-20260602
+   * §D7）：每轮 batchHardDelete 后 deletedCount>0 emit 一次 { count }。bootstrap-wiring 桥到同一
+   * IpcEvent.AgentDeckMessageChanged（合成固定 messageId 'purged:gc' 走 debounce 合并），renderer
+   * （MessagesPanel / TeamDetail 订阅 onAgentDeckMessageChanged）整体重拉刷掉已删消息。
+   */
+  'agent-deck-message-purged': [{ count: number }];
+  /**
    * token-usage 落库后（plan model-token-stats-and-dashboard-20260602 §Phase 2 Q4）：manager
    * ingest token-usage 早返分支 emit。main bootstrap 桥接到 IPC IpcEvent.TokenUsageChanged 推
    * renderer，数据 tab debounce refetch daily（header / rates 走 poll 不依赖此 event）。

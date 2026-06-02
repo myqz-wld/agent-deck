@@ -16,6 +16,7 @@ import { settingsStore } from '@main/store/settings-store';
 import { adapterRegistry } from '@main/adapters/registry';
 import { getLifecycleScheduler } from '@main/session/lifecycle-scheduler';
 import { getIssueLifecycleScheduler } from '@main/store/issue-lifecycle-scheduler';
+import { getMessageLifecycleScheduler } from '@main/store/message-lifecycle-scheduler';
 import { summarizer } from '@main/session/summarizer';
 import {
   getActiveAgentDeckClaudeMd,
@@ -72,6 +73,21 @@ function applyIssueGcThresholds(p: Partial<AppSettings>, next: AppSettings): voi
     getIssueLifecycleScheduler()?.updateThresholds({
       resolvedRetentionDays: next.issueResolvedRetentionDays,
       softDeletedRetentionDays: next.issueSoftDeletedRetentionDays,
+    });
+  }
+}
+
+/**
+ * plan message-retention-and-index-20260602 §D8: agent_deck_messages retention GC 阈值热更新。
+ *
+ * 与 applyIssueGcThresholds 同款 in-key check + scheduler updateThresholds 调用。caller 改
+ * messageRetentionDays 后立即生效（下次 6h tick 用新阈值；0 → scheduler.scan 早退停止 GC）。
+ * scheduler null（bootstrap 中尚未起 / before-quit 已 stop）→ optional chain 跳过。
+ */
+function applyMessageGcThreshold(p: Partial<AppSettings>, next: AppSettings): void {
+  if ('messageRetentionDays' in p) {
+    getMessageLifecycleScheduler()?.updateThresholds({
+      messageRetentionDays: next.messageRetentionDays,
     });
   }
 }
@@ -262,6 +278,7 @@ export function registerSettingsIpc(): void {
     const APPLY_FNS = [
       applyLifecycleThresholds,
       applyIssueGcThresholds,
+      applyMessageGcThreshold,
       applyLoginItem,
       applyAlwaysOnTop,
       applyWindowTransparent,

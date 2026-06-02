@@ -58,6 +58,15 @@ export function LifecycleSection({ settings, update }: Props): JSX.Element {
         min={0}
         onChange={(v) => void update({ issueSoftDeletedRetentionDays: v })}
       />
+      {/* plan message-retention-and-index-20260602 §D3：agent_deck_messages retention GC，与
+          historyRetentionDays / issue GC 同款性质挂同 section（MessageLifecycleScheduler 6h tick，
+          删超期 terminal 消息，pending/delivering 永不删） */}
+      <NumberInput
+        label="跨会话消息保留（天，0 = 关闭 GC）"
+        value={settings.messageRetentionDays}
+        min={0}
+        onChange={(v) => void update({ messageRetentionDays: v })}
+      />
     </Section>
   );
 }

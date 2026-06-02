@@ -6,7 +6,7 @@
  * - makeDebouncedTeamSender: 16ms debounce 累加 + per-key dedup(同 key 后值覆盖) +
  *   leading-skip(timer 在飞时不重起) + trailing-flush(timer fire 后清空 + 再来新 item 起新 timer) +
  *   空 pending 不 send 守门
- * - createInitialBootstrapState: 6 字段全 null 初值
+ * - createInitialBootstrapState: 7 字段全 null 初值
  * - TOOL_DISPLAY_NAME: 对 EventMap caller-archive-failed toolName union 完整覆盖(穷举)
  *
  * 不在本文件(需 Electron app / DB / 真窗口,属 integration,与既有「bootstrap god-function 无
@@ -91,7 +91,7 @@ describe('makeDebouncedTeamSender', () => {
 });
 
 describe('createInitialBootstrapState', () => {
-  it('6 字段全部初始化为 null(单例聚合 mutable state 起点)', () => {
+  it('7 字段全部初始化为 null(单例聚合 mutable state 起点)', () => {
     const state = createInitialBootstrapState();
     expect(state).toEqual({
       hookServer: null,
@@ -99,6 +99,7 @@ describe('createInitialBootstrapState', () => {
       scheduler: null,
       teamScheduler: null,
       issueScheduler: null,
+      messageScheduler: null,
       agentDeckMcpHttpShutdown: null,
     });
   });
