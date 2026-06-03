@@ -1,0 +1,39 @@
+[     0] spike start, prompt len=59
+[    11] model=haiku
+[  3726] message_start usage.input=10 output=1
+[  7637] FULL assistant frame: usage.output_tokens=1 input=10
+[ 11241] FULL assistant frame: usage.output_tokens=1 input=10
+[ 11251] message_delta #1 usage.output_tokens=1441 stop=end_turn
+[ 11266] RESULT frame: subtype=success modelUsage={"claude-haiku-4-5-20251001":{"inputTokens":10,"outputTokens":1441,"cacheReadInputTokens":24662,"cacheCreationInputTokens":1690,"webSearchRequests":0,"costUSD":0.011793699999999999,"contextWindow":200000,"maxOutputTokens":32000}}
+
+══════════ SPIKE 汇总 ══════════
+model = haiku
+frame 计数: {
+  "stream_event": 285,
+  "message_start": 1,
+  "message_delta": 1,
+  "content_block_delta": 278,
+  "text_delta": 166,
+  "other_stream": 5,
+  "assistant": 2,
+  "result": 1
+}
+原始 stream_event.event.type 直方图: {"message_start":1,"content_block_start":2,"content_block_delta":278,"content_block_stop":2,"message_delta":1,"message_stop":1}
+原始 content_block_delta.delta.type 直方图: {"thinking_delta":111,"signature_delta":1,"text_delta":166}
+
+Q1/Q2 message_delta:
+  发送次数 = 1
+  间隔 = n/a
+  output_tokens 累计序列 = [1441]
+
+附 content_block_delta(text_delta):
+  发送次数 = 166
+  间隔 = count=165 avg=22ms min=0ms max=256ms
+
+Q3 完整帧是否照常来:
+  type:assistant 帧数 = 2 (最后 output_tokens= 1 )
+  type:result 帧数 = 1 (modelUsage= {"claude-haiku-4-5-20251001":{"inputTokens":10,"outputTokens":1441,"cacheReadInputTokens":24662,"cacheCreationInputTokens":1690,"webSearchRequests":0,"costUSD":0.011793699999999999,"contextWindow":200000,"maxOutputTokens":32000}} )
+
+firstToken(ttft 观测) = 7637 ms
+总耗时 = 11280 ms
+══════════════════════════════

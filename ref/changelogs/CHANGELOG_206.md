@@ -4,6 +4,7 @@
 
 > 关联 plan：`ref/plans/tok-rate-realtime-streaming-20260603.md`（归档后生效）
 > 关联 review：plan design 已 plan-driven 双对抗收口（reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5，R1+R2 两轮）；本批为 plan-driven 实施无二次 deep-review（用户示意跳过对抗）
+> 关联 spike：`ref/plans/tok-rate-realtime-streaming-20260603/spike-reports/`（spike1 + spike2 + spike3 实测产物永久入 git，D1 / D5 决策的不可变 evidence）
 
 ### 改动总览（2 commit · 12 文件改 + 2 新）
 

@@ -1,0 +1,23 @@
+[     0] codex spike start
+[    96] thread.started id=019e8b9e-38b4-7cf3-be01-a2f46c551d81
+[ 17103] item.completed{agent_message} FINAL text.len=433
+[ 17336] turn.completed usage={"input_tokens":23568,"cached_input_tokens":7552,"output_tokens":675,"reasoning_output_tokens":255}
+
+══════════ CODEX SPIKE 汇总 ══════════
+event 计数: {"thread.started":1,"turn.started":1,"turn.completed":1,"item.started":0,"item.updated":0,"item.completed":1,"error":0}
+item.updated 按 type: {}
+
+Q1/Q2 agent_message item.updated:
+  发送次数 = 0
+  间隔 = n/a
+  text.len 序列 = []
+  >>> text 语义判定: 无 agent_message 增量帧
+
+Q3 reasoning item.updated:
+  发送次数 = 0 
+
+Q4 usage 出现次数(应为 1，仅 turn.completed) = 1
+
+firstAgentMsgUpdate = null ms
+总耗时 = 19101 ms
+══════════════════════════════════════
