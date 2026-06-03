@@ -724,8 +724,10 @@ describe('translateCodexEvent', () => {
     });
 
     // ─── REVIEW_80 LOW: loader-warning filter 收窄到 'Ignoring malformed' 锚点（双方独立同向）──
-    it('REVIEW_80 LOW: 真 loader warning（含 "Ignoring malformed agent role definition: failed to deserialize"）→ suppress UI emit + console.warn', () => {
-      const warnSpy = vi.spyOn(codexTranslateLogger, 'warn').mockImplementation(() => undefined);
+    // plan log-noise-and-disposed-20260603 §D1: warn → debug (5 天 264 次同 8 个 .codex/agents/*.toml
+    // 无诊断价值, 改 debug 后 file transport 不收, dev 终端 console 仍留痕)
+    it('REVIEW_80 LOW: 真 loader warning（含 "Ignoring malformed agent role definition: failed to deserialize"）→ suppress UI emit + logger.debug', () => {
+      const debugSpy = vi.spyOn(codexTranslateLogger, 'debug').mockImplementation(() => undefined);
       const { emit, events } = collect();
       translateCodexEvent(
         {
@@ -741,8 +743,8 @@ describe('translateCodexEvent', () => {
       );
       // loader 锚点命中 → 不 emit UI（避免 reviewer-codex spawn 时反复扫 agents dir 污染）
       expect(events).toHaveLength(0);
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      warnSpy.mockRestore();
+      expect(debugSpy).toHaveBeenCalledTimes(1);
+      debugSpy.mockRestore();
     });
 
     it('REVIEW_80 LOW: 真 turn-level error 仅含 "failed to deserialize"（无 "Ignoring malformed" 锚点）→ 仍 emit message(error)（修前被 OR-any 误吞）', () => {
