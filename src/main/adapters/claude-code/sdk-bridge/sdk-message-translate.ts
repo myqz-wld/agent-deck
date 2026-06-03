@@ -23,10 +23,136 @@ import {
   parseImageToolResult,
 } from '@main/adapters/claude-code/translate';
 import { isImageTool } from '@shared/mcp-tools';
+import { normalizeModel } from '@shared/model-normalize';
 import { AGENT_ID } from './constants';
 import type { InternalSession } from './types';
 
 type EmitFn = (e: AgentEvent) => void;
+type UsageCounts = { input: number; output: number; cacheRead: number; cacheCreation: number };
+
+const ZERO_USAGE: UsageCounts = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+
+function hasUsage(c: UsageCounts): boolean {
+  return c.input > 0 || c.output > 0 || c.cacheRead > 0 || c.cacheCreation > 0;
+}
+
+function maxUsage(a: UsageCounts | undefined, b: UsageCounts): UsageCounts {
+  return {
+    input: Math.max(a?.input ?? 0, b.input),
+    output: Math.max(a?.output ?? 0, b.output),
+    cacheRead: Math.max(a?.cacheRead ?? 0, b.cacheRead),
+    cacheCreation: Math.max(a?.cacheCreation ?? 0, b.cacheCreation),
+  };
+}
+
+function positiveDelta(next: UsageCounts, prev: UsageCounts | undefined): UsageCounts {
+  return {
+    input: Math.max(0, next.input - (prev?.input ?? 0)),
+    output: Math.max(0, next.output - (prev?.output ?? 0)),
+    cacheRead: Math.max(0, next.cacheRead - (prev?.cacheRead ?? 0)),
+    cacheCreation: Math.max(0, next.cacheCreation - (prev?.cacheCreation ?? 0)),
+  };
+}
+
+function addTurnUsage(internal: InternalSession, model: string | null, delta: UsageCounts): void {
+  if (!hasUsage(delta)) return;
+  const bucket = normalizeModel(model).bucketKey;
+  const prev = internal.turnUsageByBucket.get(bucket) ?? ZERO_USAGE;
+  internal.turnUsageByBucket.set(bucket, {
+    input: prev.input + delta.input,
+    output: prev.output + delta.output,
+    cacheRead: prev.cacheRead + delta.cacheRead,
+    cacheCreation: prev.cacheCreation + delta.cacheCreation,
+  });
+}
+
+function sumTurnUsage(internal: InternalSession): UsageCounts {
+  const total = { ...ZERO_USAGE };
+  for (const usage of internal.turnUsageByBucket.values()) {
+    total.input += usage.input;
+    total.output += usage.output;
+    total.cacheRead += usage.cacheRead;
+    total.cacheCreation += usage.cacheCreation;
+  }
+  return total;
+}
+
+function emitResultUsageCorrection(
+  e: (kind: AgentEvent['kind'], payload: unknown) => void,
+  internal: InternalSession,
+  r: {
+    uuid?: string;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
+    modelUsage?: Record<
+      string,
+      {
+        inputTokens?: number;
+        outputTokens?: number;
+        cacheReadInputTokens?: number;
+        cacheCreationInputTokens?: number;
+      }
+    >;
+  },
+): void {
+  try {
+    const entries = Object.entries(r.modelUsage ?? {});
+    if (entries.length > 0) {
+      for (const [model, usage] of entries) {
+        const finalUsage = {
+          input: usage.inputTokens ?? 0,
+          output: usage.outputTokens ?? 0,
+          cacheRead: usage.cacheReadInputTokens ?? 0,
+          cacheCreation: usage.cacheCreationInputTokens ?? 0,
+        };
+        const bucket = normalizeModel(model).bucketKey;
+        const delta = positiveDelta(finalUsage, internal.turnUsageByBucket.get(bucket));
+        if (hasUsage(delta)) {
+          e('token-usage', {
+            messageId: r.uuid ? `result:${r.uuid}:${bucket}` : null,
+            model,
+            inputTokens: delta.input,
+            outputTokens: delta.output,
+            cacheReadTokens: delta.cacheRead,
+            cacheCreationTokens: delta.cacheCreation,
+          });
+        }
+      }
+      return;
+    }
+
+    // Older / unusual SDK builds may omit modelUsage. Fall back to aggregate usage and subtract
+    // everything already seen in this turn; model stays null so normalizeModel buckets it as unknown.
+    const u = r.usage;
+    if (u) {
+      const finalUsage = {
+        input: u.input_tokens ?? 0,
+        output: u.output_tokens ?? 0,
+        cacheRead: u.cache_read_input_tokens ?? 0,
+        cacheCreation: u.cache_creation_input_tokens ?? 0,
+      };
+      const delta = positiveDelta(finalUsage, sumTurnUsage(internal));
+      if (hasUsage(delta)) {
+        e('token-usage', {
+          messageId: r.uuid ? `result:${r.uuid}:aggregate` : null,
+          model: null,
+          inputTokens: delta.input,
+          outputTokens: delta.output,
+          cacheReadTokens: delta.cacheRead,
+          cacheCreationTokens: delta.cacheCreation,
+        });
+      }
+    }
+  } catch {
+    // token usage 是旁路统计，result correction 失败不应影响 finished / UI 主流程。
+  } finally {
+    internal.turnUsageByBucket.clear();
+  }
+}
 
 /**
  * 把 SDK 上行的 SDKMessage 翻译成 AgentEvent 流，按需 emit 一条或多条事件。
@@ -124,31 +250,31 @@ export function translateSdkMessage(
     try {
       const u = m.usage;
       if (m.id && u) {
-        const input = u.input_tokens ?? 0;
-        const output = u.output_tokens ?? 0;
-        const cacheRead = u.cache_read_input_tokens ?? 0;
-        const cacheCreation = u.cache_creation_input_tokens ?? 0;
+        const usage = {
+          input: u.input_tokens ?? 0,
+          output: u.output_tokens ?? 0,
+          cacheRead: u.cache_read_input_tokens ?? 0,
+          cacheCreation: u.cache_creation_input_tokens ?? 0,
+        };
         const prev = internal.seenUsageMessageIds.get(m.id);
+        const merged = maxUsage(prev, usage);
         const grew =
           !prev ||
-          input > prev.input ||
-          output > prev.output ||
-          cacheRead > prev.cacheRead ||
-          cacheCreation > prev.cacheCreation;
+          usage.input > prev.input ||
+          usage.output > prev.output ||
+          usage.cacheRead > prev.cacheRead ||
+          usage.cacheCreation > prev.cacheCreation;
         if (grew) {
-          internal.seenUsageMessageIds.set(m.id, {
-            input: Math.max(prev?.input ?? 0, input),
-            output: Math.max(prev?.output ?? 0, output),
-            cacheRead: Math.max(prev?.cacheRead ?? 0, cacheRead),
-            cacheCreation: Math.max(prev?.cacheCreation ?? 0, cacheCreation),
-          });
+          const delta = positiveDelta(merged, prev);
+          internal.seenUsageMessageIds.set(m.id, merged);
+          addTurnUsage(internal, m.model ?? null, delta);
           e('token-usage', {
             messageId: m.id,
             model: m.model ?? null,
-            inputTokens: input,
-            outputTokens: output,
-            cacheReadTokens: cacheRead,
-            cacheCreationTokens: cacheCreation,
+            inputTokens: usage.input,
+            outputTokens: usage.output,
+            cacheReadTokens: usage.cacheRead,
+            cacheCreationTokens: usage.cacheCreation,
           });
         }
       }
@@ -198,6 +324,22 @@ export function translateSdkMessage(
       is_error?: boolean;
       result?: string;
       errors?: string[];
+      uuid?: string;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+      };
+      modelUsage?: Record<
+        string,
+        {
+          inputTokens?: number;
+          outputTokens?: number;
+          cacheReadInputTokens?: number;
+          cacheCreationInputTokens?: number;
+        }
+      >;
     };
     // REVIEW_13 Bug 6 / P17 双通道防护陷阱再撞：result frame 在 expectedClose=true 时
     // 必须**整体静默**，不只 gate 红字 message。REVIEW_11 D'2 修法只 gate 了 message emit
@@ -217,6 +359,7 @@ export function translateSdkMessage(
     // frame 整段静默路径（不需 Phase 2 新增 skip 逻辑，复核确认 expectedClose 已 land 且覆盖
     // result frame 翻译）。
     if (internal.expectedClose) return;
+    emitResultUsageCorrection(e, internal, r);
     if (r.is_error || (r.subtype && r.subtype !== 'success')) {
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
       e('message', { text: `⚠ ${detail}`, error: true });
