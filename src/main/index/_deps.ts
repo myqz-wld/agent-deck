@@ -52,6 +52,32 @@ export function createInitialBootstrapState(): BootstrapState {
 }
 
 /**
+ * plan log-noise-and-disposed-20260603 §D2 / §D3
+ *
+ * safeSend factory:try/catch 包 `webContents.send` 抛框架已知 race 时静默。
+ * 5 天 18 次 `Error sending from webFrameMain: Render frame was disposed`
+ * 单日 14 次与 Claude Code process SIGKILL 同波(销毁竞态),isDestroyed
+ * 守门拦不到 Electron framework 内部 race。仅静默这条已知 race 噪声,其他
+ * send 失败(TypeError / 业务 bug)仍 throw 走 errorHandler.startCatching 落盘。
+ *
+ * 抽到 _deps.ts 让单测可独立 import,无需走 bootstrap-wiring.ts 整个 god-function
+ * 副作用链(后者触发 src/main/window/lifecycle.ts:1 named import 'electron' 在
+ * vitest CJS interop 下撞 Named export 'BrowserWindow' not found, 详 plan §已知踩坑)。
+ */
+export function makeSafeSend(getWindow: () => Electron.BrowserWindow | null) {
+  return <T>(channel: string, payload: T): void => {
+    const w = getWindow();
+    if (!w || w.isDestroyed() || w.webContents.isDestroyed()) return;
+    try {
+      w.webContents.send(channel, payload);
+    } catch (err) {
+      if (err instanceof Error && /Render frame was disposed/.test(err.message)) return;
+      throw err;
+    }
+  };
+}
+
+/**
  * R3.E9 IPC bridge debouncer:team / message events 16ms debounce + per-team 累加
  * (reviewer claude LOW 收口)。burst 投递时 renderer 不会被高频重渲染。
  *

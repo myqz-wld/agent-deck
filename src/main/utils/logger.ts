@@ -100,6 +100,72 @@ export function setFileLevel(level: LogLevel): void {
   log.transports.file.level = level;
 }
 
+/**
+ * plan log-noise-and-disposed-20260603 §D2-revised-v2 (reviewer-codex R2 HIGH-1 修法):
+ *
+ * Electron framework (v33) 内部 webContents.send 链路有 native try/catch 吞 framework
+ * 自身报错, 走 console.error 输出 'Error sending from webFrameMain: Error: Render
+ * frame was disposed ...'。main 端 logger.ts:95 Object.assign(console, log.functions)
+ * 接管 console.* → 14/14 日志样本全带该前缀(06-02 单日 14 次,5 天 18 次)。
+ *
+ * 修法: Logger 实例级 hook(`log.hooks` 数组, 见 electron-log v5 src/core/Logger.js:177
+ * `this.hooks.reduce((msg, hook) => msg ? hook(msg, transFn, transName) : msg, ...)`),
+ * 窄过滤 + 限定 transportName === 'file' + 双关键词单 arg 同时命中返 false 丢该行。
+ *
+ * **关键陷阱(reviewer-codex R2 HIGH-1 实证)**:
+ * - 早期修法装到 `log.transports.file.hooks` 错(Transport 实际无 hooks 字段,
+ *   真实 logger pipeline 只在 Logger 实例级 `this.hooks` reduce,Transport 自己
+ *   消费的是 `transforms` 而非 hooks — 详 d.ts `Logger.Hook[]` 在 `Logger.hooks`
+ *   字段不在 FileTransport)。
+ * - pass-through 必须**返回原 message**(不是 undefined / null) — reduce 短路
+ *   语义是「`msg ? hook(...) : msg`」,返 truthy message 继续 reduce 链;返
+ *   false 短路并最终跳过该 transport(`if (transformedMsg) transFn(...)`)。
+ *
+ * 锚点 'Error sending from webFrameMain' + 'Render frame was disposed' 单 arg 同时
+ * 命中才丢,防误吞其他 framework 错(单关键词已通过 case 锁定透传)。
+ */
+
+interface FilterLogMessage {
+  data: unknown[];
+}
+
+export function shouldDropWebFrameMainDisposedNoise(
+  message: FilterLogMessage,
+): boolean {
+  for (const item of message.data) {
+    if (typeof item !== 'string') continue;
+    if (
+      item.includes('Error sending from webFrameMain') &&
+      item.includes('Render frame was disposed')
+    ) {
+      return true;
+    }
+  }
+  return false; // 不丢
+}
+
+const webFrameMainDisposedNoiseHook = (
+  message: FilterLogMessage,
+  _transport: unknown,
+  transportName?: string,
+): FilterLogMessage | false => {
+  // 限定 file transport 落盘过滤(console transport 不动 — dev 终端应保留)
+  if (transportName !== 'file') return message;
+  return shouldDropWebFrameMainDisposedNoise(message) ? false : message;
+};
+
+export function installWebFrameMainDisposedFileFilter(): void {
+  // 装到 Logger 实例级 `log.hooks` (electron-log v5 d.ts:600-603, runtime Logger.js:177
+  // `this.hooks.reduce(...)`)。同一 hook ref dedup 防 HMR / 重 init 重复加。
+  // `log.hooks` 在 d.ts Logger.hooks 字段已声明为 Hook[];FilterLogMessage 与 LogMessage
+  // 结构子集兼容(date/level 由 electron-log reduce 链补),此位置强转收窄到 Hook[]。
+  const hooks = log.hooks as unknown as ((m: FilterLogMessage, t: unknown, n?: string) => FilterLogMessage | false)[];
+  if (hooks.includes(webFrameMainDisposedNoiseHook)) return;
+  hooks.push(webFrameMainDisposedNoiseHook);
+}
+
+installWebFrameMainDisposedFileFilter();
+
 // Settings UI 显示日志路径 + 「在 Finder 中显示」用
 export { LOG_DIR };
 

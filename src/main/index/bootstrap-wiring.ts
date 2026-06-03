@@ -24,7 +24,7 @@ import { handleCliArgv } from '../cli';
 import { IpcEvent } from '@shared/ipc-channels';
 import type { AppSettings } from '@shared/types/settings/app-settings';
 
-import { makeDebouncedTeamSender, TOOL_DISPLAY_NAME } from './_deps';
+import { makeDebouncedTeamSender, makeSafeSend, TOOL_DISPLAY_NAME } from './_deps';
 import log from '@main/utils/logger';
 
 const logger = log.scope('bootstrap-wiring');
@@ -46,11 +46,7 @@ export function initWiring(settings: AppSettings): void {
   // 先置顶,要等 renderer App mount 异步调 setAlwaysOnTop 才修正;renderer/preload 加载失败时
   // 会一直置顶。setAlwaysOnTop 顺带按 windowTransparent reconcile vibrancy + pin invalidate loop。
   floating.setAlwaysOnTop(settings.alwaysOnTop);
-  const safeSend = <T>(channel: string, payload: T): void => {
-    const w = floating.window;
-    if (!w || w.isDestroyed() || w.webContents.isDestroyed()) return;
-    w.webContents.send(channel, payload);
-  };
+  const safeSend = makeSafeSend(() => floating.window);
   // CHANGELOG_124 R1 fix REVIEW_45 MED-1:toggleMaximize / toggleDefault 退出 compact 态时
   // 通过此回调 emit IpcEvent.CompactToggled,让 renderer App.tsx 同步本地 compact state,
   // 避免按钮 label `{compact ? '▢' : '─'}` 与窗口实际尺寸反转。

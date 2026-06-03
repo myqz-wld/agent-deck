@@ -434,7 +434,12 @@ function translateItemCompleted(item: ThreadItem, emit: EmitFn): void {
       // `failed to deserialize` 不含 loader 锚点的真 turn-level error 走下方 emit error 给用户看。
       const isLoaderWarning = item.message.includes('Ignoring malformed');
       if (isLoaderWarning) {
-        logger.warn(
+        // 5 天 264 次同 8 个 .codex/agents/*.toml (user 另一项目 hilo-agent-opencode),
+        // codex CLI loader 反复扫目录重复 emit, warn 级别把磁盘日志灌成无诊断价值噪声。
+        // UI emit 已 REVIEW_80 修过(前缀 'Ignoring malformed' 命中即不 emit), 留 logger 仅
+        // 为 dev 终端 console 留痕 → 降 debug(file transport 默认 info 不收)。
+        // 日志内容(message + 完整文本)保留不动, 不缩成前缀, debug 下 dev 端仍可看全句。
+        logger.debug(
           '[codex-translate] codex CLI loader warning skipped UI emit:',
           item.message,
         );
