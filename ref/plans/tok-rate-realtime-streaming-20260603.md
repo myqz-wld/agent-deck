@@ -7,6 +7,7 @@ base_commit: 9afbf68
 base_branch: main
 final_commit: 8961b77
 completed_at: 2026-06-03T20:15:00Z
+spike_reports_path: ref/plans/tok-rate-realtime-streaming-20260603/spike-reports/
 ---
 
 # header 实时 tok/s（流式估算·末尾校准）+ GC wiring + DataPanel 文案 + MiniMax fixture 清理
@@ -303,3 +304,15 @@ translateSdkMessage(this.ctx.emit, sid, m, internal);
 - **staleness 闪烁（R1 reviewer-claude INFO）**：tool 执行 gap >1.5s 时 live entry 转 stale → 回落 poll 值（生成中≈0）→ header 掉 0 → 下条 message 又跳回，轻微闪烁。staleness 在 render 时求值无自带 timer，靠 poll(2.5s) setRates 驱动 re-render 重算（故「最坏滞留 ~2.5s」成立但机制隐式）。display-only 可接受
 - **stream_event 带 session_id**：consume L286 first-id 逻辑类型无关（仅读 m.session_id 不看 m.type），且 system:init 仍是 query 首个 id-bearer（realId set 后 L286 `!realId` 短路，后续 stream_event 不入 first-id 块）→ message_start 实际不会成首帧，低风险（Phase 8.2 加廉价保险断言）
 - **GC 删统计源**：tokenUsageRetentionDays 设太短吞 daily dashboard 历史（default 365 + jsdoc 警示 + 0=永久 + Phase 6.4 Settings UI 可调）
+
+---
+
+## 附录：归档的 spike 实测产物（spike-reports/）
+
+详见 `spike-reports/` 同名子目录（plan frontmatter `spike_reports_path` 记录绝对路径）：
+
+- **spike1-partial-messages.md** —— Claude Agent SDK `includePartialMessages` 实测，确认 `content_block_delta` 高频但只带文本、`message_delta` 被 CLI 压成 turn 末单发 → 锁定「文本估算」路径。配套 `runner.mjs` + `case-a-default-model.log` / `case-a2-opus-rerun.log` / `case-b-haiku.log` / `case-c-sonnet.log`。
+- **spike2-codex-realtime.md** —— codex SDK 端实测，确认 codex 无 `stream_event` 推流路径 → D5 codex 天然退化走 60s 窗口的论据。配套 `codex-runner.mjs` + `codex-case-a.log` / `codex-case-b-long.log` / `codex-case-c-cmd.log` / `codex-runner-cmd.mjs` / `codex-runner-long.mjs`。
+- **spike3-long-haiku.log** —— 长输出（haiku 4704tok/41.8s）实测 message_delta 仍单发，堵上 spike1「只测短输出」盲区，让 D1「message_delta 单发」从短输出偶然上升为 CLI 通道硬限制结论。配套 `runner-long.mjs`。
+
+所有 .log / .mjs / .md 永久入 git（`spike-reports/` 例外条目已写进 `.gitignore` 跳过全局 `*.log` 过滤），作为 D1 决策（精确 token delta 不可行，必须文本估算）的不可变 evidence。
