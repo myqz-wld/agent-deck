@@ -81,3 +81,4 @@
 | [codex-recover-network-dirs-parity-20260602.md](codex-recover-network-dirs-parity-20260602.md) | completed | [198](../changelogs/CHANGELOG_198.md) | codex-recover-network-dirs-parity-20260602 |
 | [pending-tab-resume-and-new-session-default-20260602.md](pending-tab-resume-and-new-session-default-20260602.md) | completed | [200](../changelogs/CHANGELOG_200.md) | BUG 1 ActivityFeed 监听 onSessionUpserted 强制重拉 listAdapterPending（resume 根因修）+ BUG 2 useLastSessionDefaults 模块顶层 let store 跨 mount 持久 / 跨重启不持久 |
 | [message-retention-and-index-20260602.md](message-retention-and-index-20260602.md) | completed | [201](../changelogs/CHANGELOG_201.md) | 修复 `agent_deck_messages` 表两个独立问题（一次 v029 migration 收口）： |
+| [log-noise-and-disposed-20260603.md](log-noise-and-disposed-20260603.md) | completed | [205](../changelogs/CHANGELOG_205.md) | 一次 commit 改 2 个文件落地 2 个独立 fix： |
