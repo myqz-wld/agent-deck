@@ -1,0 +1,22 @@
+[     0] spike3-long start, model=haiku, prompt len=99
+[  4186] message_start input=10 output=1
+[ 41819] *** message_delta #1  out=4704  Δout=+4704  gap=0ms  inst=n/a tok/s  stop=end_turn
+[ 41824] RESULT subtype=success modelUsage={"claude-haiku-4-5-20251001":{"inputTokens":10,"outputTokens":4704,"cacheReadInputTokens":25580,"cacheCreationInputTokens":1730,"webSearchRequests":0,"costUSD":0.0282505,"contextWindow":200000,"maxOutputTokens":32000}}
+
+══════════ SPIKE3 汇总（长输出）══════════
+model = haiku
+总耗时 = 41840 ms
+
+>>> message_delta（关键）:
+  发送次数 = 1
+  间隔 = n/a
+  累计 output_tokens 序列 = [4704]
+  时间戳序列 = [41819]
+
+对比 text_delta:
+  发送次数 = 1329   间隔 = count=1328 avg=27ms min=0ms max=1128ms
+  thinking_delta 次数 = 37
+
+裁决:
+  ❌ message_delta 仍只 1 次 → spike1 结论成立，走文本估算
+═══════════════════════════════════════

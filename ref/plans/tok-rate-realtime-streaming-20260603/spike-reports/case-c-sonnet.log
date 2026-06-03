@@ -1,0 +1,39 @@
+[     0] spike start, prompt len=59
+[     9] model=sonnet
+[  5625] message_start usage.input=3 output=3
+[  9363] FULL assistant frame: usage.output_tokens=3 input=3
+[ 25039] FULL assistant frame: usage.output_tokens=3 input=3
+[ 25042] message_delta #1 usage.output_tokens=1379 stop=end_turn
+[ 25062] RESULT frame: subtype=success modelUsage={"claude-sonnet-4-6-thinking-high[1m]":{"inputTokens":3,"outputTokens":1379,"cacheReadInputTokens":0,"cacheCreationInputTokens":26428,"webSearchRequests":0,"costUSD":0.119799,"contextWindow":1000000,"maxOutputTokens":32000}}
+
+══════════ SPIKE 汇总 ══════════
+model = sonnet
+frame 计数: {
+  "stream_event": 339,
+  "message_start": 1,
+  "message_delta": 1,
+  "content_block_delta": 330,
+  "text_delta": 267,
+  "other_stream": 7,
+  "assistant": 2,
+  "result": 1
+}
+原始 stream_event.event.type 直方图: {"message_start":1,"content_block_start":3,"content_block_delta":330,"content_block_stop":3,"message_delta":1,"message_stop":1}
+原始 content_block_delta.delta.type 直方图: {"text_delta":267,"thinking_delta":62,"signature_delta":1}
+
+Q1/Q2 message_delta:
+  发送次数 = 1
+  间隔 = n/a
+  output_tokens 累计序列 = [1379]
+
+附 content_block_delta(text_delta):
+  发送次数 = 267
+  间隔 = count=266 avg=73ms min=0ms max=3738ms
+
+Q3 完整帧是否照常来:
+  type:assistant 帧数 = 2 (最后 output_tokens= 3 )
+  type:result 帧数 = 1 (modelUsage= {"claude-sonnet-4-6-thinking-high[1m]":{"inputTokens":3,"outputTokens":1379,"cacheReadInputTokens":0,"cacheCreationInputTokens":26428,"webSearchRequests":0,"costUSD":0.119799,"contextWindow":1000000,"maxOutputTokens":32000}} )
+
+firstToken(ttft 观测) = 5625 ms
+总耗时 = 25078 ms
+══════════════════════════════

@@ -1,0 +1,39 @@
+[     0] spike start, prompt len=59
+[     9] model=(default)
+[  5471] message_start usage.input=0 output=0
+[ 10375] FULL assistant frame: usage.output_tokens=0 input=0
+[ 32063] FULL assistant frame: usage.output_tokens=0 input=0
+[ 32065] message_delta #1 usage.output_tokens=1095 stop=end_turn
+[ 32071] RESULT frame: subtype=success modelUsage={"claude-opus-4-8-thinking-max[1m]":{"inputTokens":14,"outputTokens":1095,"cacheReadInputTokens":17077,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.0359835,"contextWindow":1000000,"maxOutputTokens":64000}}
+
+══════════ SPIKE 汇总 ══════════
+model = (default)
+frame 计数: {
+  "stream_event": 38,
+  "message_start": 1,
+  "message_delta": 1,
+  "content_block_delta": 31,
+  "text_delta": 24,
+  "other_stream": 5,
+  "assistant": 2,
+  "result": 1
+}
+原始 stream_event.event.type 直方图: {"message_start":1,"content_block_start":2,"content_block_delta":31,"content_block_stop":2,"message_delta":1,"message_stop":1}
+原始 content_block_delta.delta.type 直方图: {"thinking_delta":6,"signature_delta":1,"text_delta":24}
+
+Q1/Q2 message_delta:
+  发送次数 = 1
+  间隔 = n/a
+  output_tokens 累计序列 = [1095]
+
+附 content_block_delta(text_delta):
+  发送次数 = 24
+  间隔 = count=23 avg=942ms min=366ms max=1232ms
+
+Q3 完整帧是否照常来:
+  type:assistant 帧数 = 2 (最后 output_tokens= 0 )
+  type:result 帧数 = 1 (modelUsage= {"claude-opus-4-8-thinking-max[1m]":{"inputTokens":14,"outputTokens":1095,"cacheReadInputTokens":17077,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.0359835,"contextWindow":1000000,"maxOutputTokens":64000}} )
+
+firstToken(ttft 观测) = 10375 ms
+总耗时 = 32085 ms
+══════════════════════════════
