@@ -49,6 +49,34 @@ function assistantMsg(opts: {
   };
 }
 
+function resultMsg(opts: {
+  uuid?: string;
+  modelUsage?: Record<
+    string,
+    {
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadInputTokens?: number;
+      cacheCreationInputTokens?: number;
+    }
+  >;
+  usage?: Record<string, number>;
+}) {
+  return {
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    uuid: opts.uuid ?? 'result-uuid-1',
+    usage: opts.usage ?? {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    },
+    modelUsage: opts.modelUsage ?? {},
+  };
+}
+
 function tokenEvents(events: AgentEvent[]): AgentEvent[] {
   return events.filter((e) => e.kind === 'token-usage');
 }
@@ -223,5 +251,95 @@ describe('translateSdkMessage token-usage 采集', () => {
     expect(events.some((e) => e.kind === 'message')).toBe(true);
     // token-usage 因 throw 被 catch 吞，未 emit
     expect(tokenEvents(events)).toHaveLength(0);
+  });
+
+  it('result.modelUsage 补齐 assistant 帧缺失的 output delta（MiniMax-M3 tok/s=0 回归）', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      assistantMsg({
+        id: 'm1',
+        model: 'MiniMax-M3',
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_input_tokens: 80_242,
+          cache_creation_input_tokens: 0,
+        },
+      }),
+      internal,
+    );
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        uuid: 'result-1',
+        modelUsage: {
+          'MiniMax-M3': {
+            inputTokens: 754,
+            outputTokens: 147,
+            cacheReadInputTokens: 80_242,
+            cacheCreationInputTokens: 0,
+          },
+        },
+      }),
+      internal,
+    );
+
+    const tu = tokenEvents(events);
+    expect(tu).toHaveLength(2);
+    expect(tu[0].payload).toMatchObject({
+      messageId: 'm1',
+      model: 'MiniMax-M3',
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 80_242,
+    });
+    expect(tu[1].payload).toEqual({
+      messageId: 'result:result-1:minimax-m3',
+      model: 'MiniMax-M3',
+      inputTokens: 754,
+      outputTokens: 147,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    });
+  });
+
+  it('result.modelUsage 与 assistant 已采集值一致时不重复计数', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      assistantMsg({
+        id: 'm1',
+        model: 'claude-opus-4-8',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 30,
+          cache_creation_input_tokens: 10,
+        },
+      }),
+      internal,
+    );
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        uuid: 'result-2',
+        modelUsage: {
+          'claude-opus-4-8': {
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadInputTokens: 30,
+            cacheCreationInputTokens: 10,
+          },
+        },
+      }),
+      internal,
+    );
+
+    expect(tokenEvents(events)).toHaveLength(1);
   });
 });

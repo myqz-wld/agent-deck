@@ -11,8 +11,10 @@
 
 /**
  * `token-usage` 事件 payload。claude assistant message / codex turn.completed 采集后 emit。
- * - messageId：claude BetaMessage.id（去重锚点）；codex 无 → null
- * - model：原始 model id（claude BetaMessage.model / codex 取 sessions.model）；归一在写库时算
+ * - messageId：claude assistant 用 BetaMessage.id；claude result correction 用 synthetic id；
+ *   codex 无 → null
+ * - model：原始 model id（claude BetaMessage.model / result.modelUsage key / codex 取 sessions.model）；
+ *   归一在写库时算
  * - 4 指标：cache_* 缺省填 0（codex 无 cache_creation；claude cache_* 可能为 null）
  */
 export interface TokenUsagePayload {

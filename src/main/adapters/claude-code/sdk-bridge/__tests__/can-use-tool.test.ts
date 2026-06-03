@@ -37,6 +37,7 @@ function makeInternal(permissionMode: PermissionMode): InternalSession {
     toolUseNames: new Map(),
     pendingFileChangeIntents: new Map(),
     seenUsageMessageIds: new Map(),
+    turnUsageByBucket: new Map(),
     // R3 fix-3: permissionModeChain 默认 undefined（无 in-flight setPermissionMode）
   };
 }

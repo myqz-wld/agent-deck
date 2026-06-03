@@ -171,6 +171,17 @@ export interface InternalSession {
     { input: number; output: number; cacheRead: number; cacheCreation: number }
   >;
   /**
+   * 当前 turn 已从 assistant message 采集到的 usage，按归一 model bucket 累加 delta。
+   *
+   * Claude Code 2.1.160 / agent SDK 0.3.160 下部分 provider 的 assistant 帧会先给 input/cache，
+   * 但 output_tokens 在最终 result.modelUsage 才完整；result 采集必须只补「最终值 - 已见值」，
+   * 否则 input/cache 会被重复计入。每个 result frame 处理后清空，下一轮重新累计。
+   */
+  turnUsageByBucket: Map<
+    string,
+    { input: number; output: number; cacheRead: number; cacheCreation: number }
+  >;
+  /**
    * 应用层主动关闭/重启该 session 的标记。置位时 query loop catch 块抛的 SDK 错误
    * （典型：approve-bypass deny+interrupt:true 触发 SDK 内部 [ede_diagnostic] 状态机
    * 不一致诊断错误）属于设计内副产品，UI 不再 emit 红字，仅 console.warn 留痕。
@@ -253,6 +264,7 @@ export function makeInternalSession(opts: {
     toolUseNames: new Map(),
     pendingFileChangeIntents: new Map(),
     seenUsageMessageIds: new Map(),
+    turnUsageByBucket: new Map(),
     // R3 fix-3: permissionModeChain 默认 undefined（无 in-flight setPermissionMode）
   };
 }

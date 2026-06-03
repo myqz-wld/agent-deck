@@ -14,9 +14,10 @@
 --   session 删除后 token_usage row 保留（统计不应因 session GC 塌缩，符合「历史每天」语义）。
 -- - **message_id partial UNIQUE + max-merge**（deep-review R1 F1 + R2 H1）：claude 同 turn 多
 --   tool_use 共享同一 BetaMessage.id，正常携带 identical usage；rare case 同 id 不同 output 取
---   最高值（官方 cost-tracking 文档）。partial UNIQUE 仅 message_id 非空生效；codex message_id=NULL
---   每 turn 独立 INSERT 新行（不参与 UNIQUE）。upsert 走 ON CONFLICT(message_id) WHERE message_id
---   IS NOT NULL DO UPDATE SET <4指标>=max(...)（conflict target 必带 WHERE 谓词，REVIEW_52 约定）。
+--   最高值（官方 cost-tracking 文档）。result.modelUsage 补差额时用 synthetic message_id，同样
+--   依赖 partial UNIQUE 防 result replay 重复计数。codex message_id=NULL 每 turn 独立 INSERT
+--   新行（不参与 UNIQUE）。upsert 走 ON CONFLICT(message_id) WHERE message_id IS NOT NULL
+--   DO UPDATE SET <4指标>=max(...)（conflict target 必带 WHERE 谓词，REVIEW_52 约定）。
 -- - **model_raw（原始 id 保粒度）+ model_bucket（归一聚合维度，写时算）双存**；display 名不入库
 --   （renderer 从 bucket 派生，改文案无需迁移）。
 -- - **timestamp INTEGER epoch ms**（与 sessions / issues 一致）。
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS token_usage (
   id                     INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id             TEXT,                              -- 纯 TEXT 无 FK；仅可选 drill-down
   agent_id               TEXT NOT NULL,                     -- 'claude-code' | 'codex-cli'
-  message_id             TEXT,                              -- claude BetaMessage.id（去重锚点）；codex NULL
+  message_id             TEXT,                              -- claude assistant/result 去重锚点；codex NULL
   model_raw              TEXT NOT NULL,                     -- 原始 model id 保粒度
   model_bucket           TEXT NOT NULL,                     -- 归一 bucket key（GROUP BY 维度）
   input_tokens           INTEGER NOT NULL DEFAULT 0,
