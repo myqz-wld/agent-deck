@@ -1,4 +1,4 @@
-<!-- 由 resources/codex-config/CODEX_AGENTS.md 打包注入到 codex SDK 子进程加载链(`~/.codex/AGENTS.md`)末尾;维护说明详 resources/codex-config/README.md(若存在)与 resources/claude-config/README.md 同款。 -->
+<!-- 由 resources/codex-config/CODEX_AGENTS.md 打包注入到 codex SDK 子进程加载链(`~/.codex/AGENTS.md`)末尾;维护说明详 resources/README.md。 -->
 
 --- Agent Deck 应用环境约定（codex 视角，随应用打包注入到每个 codex SDK 会话）---
 

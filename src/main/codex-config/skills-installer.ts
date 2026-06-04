@@ -5,7 +5,7 @@
  * agent-deck-plugin/skills/<X>/SKILL.md）安装到 ~/.codex/skills/agent-deck/<X>/，让 codex
  * 会话也能 / agent-deck:<skill-name> 触发同名 skill。codex skills 是 codex-config 端**独立
  * SSOT**——claude 端 skills 在 resources/claude-config/ 各自维护，两端不互相同步（adapter
- * 工具差异决定 SKILL 措辞不同，详 resources/claude-config/README.md §设计 SSOT）。
+ * 工具差异决定 SKILL 措辞不同，详 resources/README.md §设计 SSOT）。
  *
  * 路径策略：
  * - 内置 skills 安装到 `~/.codex/skills/agent-deck/<skill-name>/SKILL.md`
