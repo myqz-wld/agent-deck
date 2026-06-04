@@ -59,7 +59,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // plan resume-inject-raw-messages-20260601 删 autoSummariseOnFallback（无条件注入历史 — UI
   // toggle 早删字段成孤儿，REMOVED_KEYS 清历史 + 改 fallback 路径无条件走注入，详 settings-store.ts）；
   // REMOVED_KEYS + smart migration 自动清历史 + 守护老用户 ON 值（详 settings-store.ts）
-  claudeCodeSandbox: 'off',
+  claudeCodeSandbox: 'workspace-write',
   codexSandbox: 'workspace-write',
   codexMcpServers: [],
   // R3.E6 删 autoApproveTeammateMode；REMOVED_KEYS 自动清历史

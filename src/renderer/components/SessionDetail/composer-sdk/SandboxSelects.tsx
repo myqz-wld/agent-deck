@@ -55,7 +55,7 @@ export type CodexSandbox = 'workspace-write' | 'read-only' | 'danger-full-access
 export type ClaudeCodeSandbox = 'off' | 'workspace-write' | 'strict';
 
 export const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string; title?: string }[] = [
-  { value: 'default', label: '每次询问（默认）', title: '每次工具调用前都询问你是否允许' },
+  { value: 'default', label: '每次询问', title: '每次工具调用前都询问你是否允许' },
   { value: 'acceptEdits', label: '自动接受文件编辑', title: '自动允许文件编辑；其他工具仍需询问' },
   { value: 'plan', label: '计划模式（只规划）', title: '只生成计划，不执行任何工具调用' },
   { value: 'bypassPermissions', label: '⚠️ 不再询问（仍在系统沙盒内）', title: 'Claude 全程不再询问任何工具调用；系统沙盒（若启用）仍生效' },

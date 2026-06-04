@@ -31,7 +31,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [agentId, setAgentId] = useState('claude-code');
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('default');
+  const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('bypassPermissions');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   // CHANGELOG_74：claude-code OS 沙盒 per-session 覆盖（与 codexSandbox 字面镜像）
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');

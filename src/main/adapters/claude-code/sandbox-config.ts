@@ -31,7 +31,6 @@
  *
  * 已知未解决项（REVIEW_14 阶段 3 候选）：
  * - 用户自定义 allowedDomains UI（阶段 3 视反馈再加）
- * - 默认 'off' → 'workspace-write'（用户决策暂不切，等更长观察期）
  *
  * CHANGELOG_54 已落地：
  * - excludedCommands 扩 docker/watchman/orb/lima/colima/make/xcodebuild（保守版，

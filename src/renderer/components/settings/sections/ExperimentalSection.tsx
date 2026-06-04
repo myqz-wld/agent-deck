@@ -43,16 +43,15 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
           className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
         >
           <option value="off" title="系统不会限制 Claude；仅靠应用内授权弹窗管控">⚠️ 关闭（无系统沙盒）</option>
-          <option value="workspace-write" title="工作目录可写；敏感目录禁读；网络默认禁">工作目录可写</option>
+          <option value="workspace-write" title="工作目录可写；敏感目录禁读；网络默认禁">工作目录可写（默认）</option>
           <option value="strict" title="工作目录也只读，最严格">严格只读</option>
         </select>
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
         {sandboxNativeAvailable ? (
           <>
-            开启后会限制 Claude 访问敏感目录、降低误操作风险。
-            Codex 默认已启用<strong>工作目录可写</strong>,本设置补齐 Claude 这一侧。
-            <br />· <strong>关闭</strong>:仅用应用内授权弹窗管控(默认行为)
+            默认限制 Claude 访问敏感目录、降低误操作风险,并与 Codex 的默认沙盒档位对齐。
+            <br />· <strong>关闭</strong>:仅用应用内授权弹窗管控
             <br />· <strong>工作目录可写</strong>:工作目录可写,网络默认禁止;
             <code className="rounded bg-white/5 px-1">~/.ssh</code> /
             <code className="rounded bg-white/5 px-1">~/.aws</code> /

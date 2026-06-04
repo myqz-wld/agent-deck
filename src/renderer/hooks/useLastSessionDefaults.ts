@@ -4,6 +4,7 @@
  *
  * 两个入口（NewSessionDialog 顶部「＋」按钮起、ResolveInNewSessionDialog issue 详情起）
  * 共享同一组记忆：用户在 A 弹窗选了「plan + strict」，关掉后再开 B 弹窗默认还是「plan + strict」。
+ * Claude Code 冷启动默认 permissionMode = bypassPermissions；用户改过后以内存记忆为准。
  *
  * **范围**：
  * - 跨 mount 持久（同一 session 内 React 重渲染 / dialog 关闭重开都不丢）
@@ -35,7 +36,7 @@ type Defaults = {
 };
 
 const store: Record<AdapterId, Defaults> = {
-  'claude-code': {},
+  'claude-code': { permissionMode: 'bypassPermissions' },
   'codex-cli': {},
 };
 

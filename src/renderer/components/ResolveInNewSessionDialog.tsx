@@ -86,7 +86,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   // deep-review H1 INFO：buildDefaultPrompt 只需作 useState 初值（mount 后不再消费），用惰性初始化
   // 替代 useMemo（去掉每次 issue 变重算但不被用的死计算）。
   const [prompt, setPrompt] = useState(() => buildDefaultPrompt(issue));
-  const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('default');
+  const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('bypassPermissions');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
   const [busy, setBusy] = useState(false);
