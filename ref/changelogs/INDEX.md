@@ -220,3 +220,4 @@
 | [CHANGELOG_213.md](CHANGELOG_213.md) | CLI wrapper `agent-deck new` 缺省注入 `--permission-mode bypassPermissions`，与 Dialog 新建行为对齐；用户仍可显式传其他档位覆盖。 |
 | [CHANGELOG_214.md](CHANGELOG_214.md) | 修复 `bypassPermissions` 被 SDK `system.init` 帧的 `'default'` 覆盖导致 `canUseTool` 短路失效、DB 写成 `'default'` 的问题。 |
 | [CHANGELOG_215.md](CHANGELOG_215.md) | 修复 second-instance argv Chromium 重排问题：`requestSingleInstanceLock({ argv })` + handler 优先读 `additionalData.argv`，彻底修复 CLI 路径 `--permission-mode`/`--cwd`/`--prompt` 全部丢失的 bug。 |
+| [CHANGELOG_216.md](CHANGELOG_216.md) | Codex 侧生成中 tok/s 实时估算：`item.updated{agent_message/reasoning}` 差值累积 + EMA 平滑，接入既有 `token-rate-tick` 通道，Header Top3 同步显示 Codex 速率。 |

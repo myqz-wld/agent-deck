@@ -16,6 +16,10 @@ import type { AgentEventKind, HandOffMetadata, UploadedAttachmentRef } from '@sh
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { translateCodexEvent } from '@main/adapters/codex-cli/translate';
+import {
+  handleCodexEventForLiveRate,
+  clearCodexLiveTokenEstimate,
+} from './live-token-rate';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { CodexBridgeOptions, InternalSession } from './types';
 import log from '@main/utils/logger';
@@ -337,6 +341,7 @@ export class ThreadLoop {
                 earlyErrCb = undefined;
               }
             }
+            handleCodexEventForLiveRate(ev as ThreadEvent, internal, internal.applicationSid);
             translateCodexEvent(ev as ThreadEvent, emit, {
               // plan §Phase 1 A4b：codex turn.completed 不带 model，token-usage 采集从
               // sessions.model 取（A4c 已让新建路径 effective model 永非 null）。applicationSid
@@ -355,6 +360,7 @@ export class ThreadLoop {
           const aborted = controller.signal.aborted;
           const msg = err instanceof Error ? err.message : String(err);
           if (aborted) {
+            clearCodexLiveTokenEstimate(internal, internal.applicationSid);
             emit('finished', { ok: false, subtype: 'interrupted' });
           } else if (earlyErrCb) {
             // 第一个 turn 在拿到 thread.started 前就挂了（codex spawn 后立即 exit）。
