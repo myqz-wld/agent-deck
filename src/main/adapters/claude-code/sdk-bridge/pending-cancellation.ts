@@ -121,7 +121,9 @@ export function runCloseSessionCleanup(args: {
   cancelPendingAndEmit(internal, realIdForEmit, emit);
 
   // step 3：从 sessions map 移除
-  sessions.delete(key);
+  if (sessions.get(key) === internal) {
+    sessions.delete(key);
+  }
 
   // step 4：释放 sdkOwned (sessionId + applicationSid + cliSessionId 三面 — applicationSid 总是
   // 与 sessionId 同款维度但显式 release 一份保险;cliSessionId 与 applicationSid 不同时释放 cli sid claim)

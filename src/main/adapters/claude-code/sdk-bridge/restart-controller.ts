@@ -14,7 +14,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import { maybeJsonlFallback } from './jsonl-fallback';
-import type { JsonlExistsThunk, SummariseFnThunk } from './recoverer';
+import type { JsonlExistsThunk, JsonlMtimeMsThunk, SummariseFnThunk } from './recoverer';
 import type { SdkSessionHandle } from './types';
 
 export interface RestartCreateOpts {
@@ -73,6 +73,7 @@ export interface RestartCtx {
    * facade 注入,详 §Step 3g)。
    */
   jsonlExistsThunk: JsonlExistsThunk;
+  jsonlMtimeMsThunk: JsonlMtimeMsThunk;
   summariseFn: SummariseFnThunk;
   listEventsFn: (sessionId: string) => AgentEvent[];
   /**
@@ -217,6 +218,7 @@ export class RestartController {
           const fbResult = await maybeJsonlFallback(
             {
               jsonlExistsThunk: this.ctx.jsonlExistsThunk,
+              jsonlMtimeMsThunk: this.ctx.jsonlMtimeMsThunk,
               createSession: this.ctx.createSession, // RestartCreateOpts 的 createSession (覆盖 JsonlFallbackCreateOpts 子集)
               emit: this.ctx.emit,
               summariseFn: this.ctx.summariseFn,
@@ -232,6 +234,7 @@ export class RestartController {
               // plan resume-inject §D4: restart 路径 handoffPrompt 不在入口 emit 落库 → 无「当前
               // 消息」需排除 → maxEventIdFn 返 null(injectResumeHistory 退化为「查最近 N」不加边界)。
               maxEventIdFn: () => null,
+              minHealJsonlMtimeMs: rec.lastEventAt,
               permissionMode: mode,
               claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
               extraAllowWrite: rec.extraAllowWrite ?? undefined,
@@ -251,7 +254,9 @@ export class RestartController {
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订**:
             // 反向 rename 后 currentSid 是 applicationSid;SDK CLI `--resume` 需 cli sid 找 jsonl。
             // caller 显式传 cliSessionId 兜底,反向 rename 后两者不同时才生效(否则字面等价旧行为)。
-            resumeCliSid: rec.cliSessionId ?? currentSid,
+            // **CHANGELOG_224 幻影 fork 自愈**: healedCliSessionId 命中时切到它(= currentSid),
+            // 防 rec.cliSessionId 那个幻影 id 让 CLI `--resume` hard-fail 退 fresh-cli。
+            resumeCliSid: fbResult.healedCliSessionId ?? rec.cliSessionId ?? currentSid,
             permissionMode: mode,
             // plan cross-adapter-parity-20260515 + REVIEW_41 MED-3 fix:rec.claudeCodeSandbox /
             // rec.extraAllowWrite 必须透传,否则冷重启后 SDK 子进程 sandbox.allowWrite 丢失原
@@ -401,6 +406,7 @@ export class RestartController {
           const fbResult = await maybeJsonlFallback(
             {
               jsonlExistsThunk: this.ctx.jsonlExistsThunk,
+              jsonlMtimeMsThunk: this.ctx.jsonlMtimeMsThunk,
               createSession: this.ctx.createSession,
               emit: this.ctx.emit,
               summariseFn: this.ctx.summariseFn,
@@ -416,6 +422,7 @@ export class RestartController {
               // plan resume-inject §D4: restart 路径 handoffPrompt 不在入口 emit 落库 → 无「当前
               // 消息」需排除 → maxEventIdFn 返 null(injectResumeHistory 退化为「查最近 N」不加边界)。
               maxEventIdFn: () => null,
+              minHealJsonlMtimeMs: rec.lastEventAt,
               permissionMode: rec.permissionMode ?? undefined, // 透传保留用户辛苦切的 mode (不被 sandbox 切档静默重置)
               claudeCodeSandbox: sandbox, // 新 sandbox 档 (与下方 createSession 同款)
               extraAllowWrite: rec.extraAllowWrite ?? undefined,
@@ -433,7 +440,9 @@ export class RestartController {
             prompt: handoffPrompt,
             resume: currentSid,
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订** (同 restartWithPermissionMode):
-            resumeCliSid: rec.cliSessionId ?? currentSid,
+            // **CHANGELOG_224 幻影 fork 自愈**: healedCliSessionId 命中时切到它(= currentSid),
+            // 防 rec.cliSessionId 那个幻影 id 让 CLI `--resume` hard-fail 退 fresh-cli。
+            resumeCliSid: fbResult.healedCliSessionId ?? rec.cliSessionId ?? currentSid,
             claudeCodeSandbox: sandbox,
             // REVIEW_36 R2 MED-A 修法：必须透传 rec.permissionMode 否则新 SDK 默认 'default'，
             // DB 仍保留旧 mode（acceptEdits/plan/bypassPermissions）→ DB/UI 与 SDK 实际行为不一致。

@@ -26,7 +26,12 @@ import type {
   SdkSessionHandle,
 } from './types';
 import { PermissionResponder } from './permission-responder';
-import { SessionRecoverer, defaultResumeJsonlExists, defaultCwdExists } from './recoverer';
+import {
+  SessionRecoverer,
+  defaultResumeJsonlExists,
+  defaultResumeJsonlMtimeMs,
+  defaultCwdExists,
+} from './recoverer';
 import { StreamProcessor } from './stream-processor';
 import { RestartController } from './restart-controller';
 import { runCloseSessionCleanup } from './pending-cancellation';
@@ -112,6 +117,7 @@ export class ClaudeSdkBridge {
       closeSession: (sid, closeOpts) => this.closeSession(sid, closeOpts),
       createSession: (createOpts) => this.createSession(createOpts).then((h) => h),
       jsonlExistsThunk: (cwd, sid) => this.resumeJsonlExists(cwd, sid),
+      jsonlMtimeMsThunk: (cwd, sid) => this.resumeJsonlMtimeMs(cwd, sid),
       summariseFn: (cwd, events) => this.summariseForHandOff(cwd, events),
       listEventsFn: (sid) => this.listEventsForSession(sid),
       // plan resume-inject-raw-messages-20260601 §D5：message-only thunk（与 SessionRecoverer
@@ -147,6 +153,7 @@ export class ClaudeSdkBridge {
       (createOpts) => this.createSession(createOpts),
       (sid, text, attachments) => this.sendMessage(sid, text, attachments),
       (cwd, sid) => this.resumeJsonlExists(cwd, sid),
+      (cwd, sid) => this.resumeJsonlMtimeMs(cwd, sid),
       (cwd) => this.cwdExists(cwd),
       (cwd, events) => this.summariseForHandOff(cwd, events),
       (sid) => this.listEventsForSession(sid),
@@ -255,6 +262,16 @@ export class ClaudeSdkBridge {
    */
   protected resumeJsonlExists(cwd: string, sessionId: string): boolean {
     return defaultResumeJsonlExists(cwd, sessionId);
+  }
+
+  /**
+   * Claude Code jsonl mtime protected wrapper。
+   *
+   * read-side 幻影 fork 自愈用它确认 applicationSid.jsonl 没明显落后于 DB lastEventAt；
+   * 失败返回 null，helper 会退回 fresh fallback。
+   */
+  protected resumeJsonlMtimeMs(cwd: string, sessionId: string): number | null {
+    return defaultResumeJsonlMtimeMs(cwd, sessionId);
   }
 
   /**
@@ -493,8 +510,17 @@ export class ClaudeSdkBridge {
     internal: InternalSession,
     tempKey: string,
     onFirstId: (id: string) => void,
-    resumeId?: string,
+    applicationResumeId?: string,
+    effectiveResumeCliSid?: string,
+    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app',
   ): Promise<string | null> {
-    return this.streamProcessor.consume(internal, tempKey, onFirstId, resumeId);
+    return this.streamProcessor.consume(
+      internal,
+      tempKey,
+      onFirstId,
+      applicationResumeId,
+      effectiveResumeCliSid,
+      resumeMode,
+    );
   }
 }

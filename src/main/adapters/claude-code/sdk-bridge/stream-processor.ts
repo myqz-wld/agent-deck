@@ -11,7 +11,7 @@
  *
  * 护栏（不变）：
  * - REVIEW_5 H4 — waitForRealSessionId 30s fallback 用 resumeId 作 fallbackId（避免造孤儿 tempKey）
- * - CHANGELOG_27 — consume 内首条 realId !== resumeId → renameSdkSession(OLD, NEW)（CLI 隐式 fork 软兜底）
+ * - CHANGELOG_27/224 — consume 内区分真 CLI sid fork 与幻影运行 id，真 fork 只更新 cli_session_id
  * - CHANGELOG_34 — consume catch 内 internal.expectedClose=true 时 skip 红字（应用主动关闭副产品）
  * - CHANGELOG_47 — finally 流终止补 error message 给 UI 看到根因
  * - REVIEW_7 M3 — renameSdkSession 内聚 sdkOwned claim 转移
@@ -122,13 +122,13 @@ export class StreamProcessor {
       // (否则反向 rename 后 cliSid != appSid 时 sessions.has(cliSid) miss → 用户 message 断流,
       // 用户报告 bug 触发场景之一)。
       const key = internal.applicationSid;
-      if (!this.ctx.sessions.has(key)) return;
+      if (this.ctx.sessions.get(key) !== internal) return;
     }
   }
 
   /**
    * 启动一个并行任务，从 query 流中读出第一条带 session_id 的消息，
-   * 并切换 sessions Map 的 key 为真实 session_id。同时把消息流的「消费」
+   * 并按 applicationSid/cliSessionId 分工完成 sessions Map 与 DB cli_session_id 维护。同时把消息流的「消费」
    * 交给 consume() 持续运行。
    *
    * 30 秒兜底：极端情况下 SDK 一直没回任何消息（CLI 鉴权失败 / 代理超限 / stream 卡死等），
@@ -243,7 +243,8 @@ export class StreamProcessor {
             clearTimeout(fallback);
             resolve(id);
           },
-          effectiveResumeCliSid ?? resumeId,
+          resumeId,
+          effectiveResumeCliSid,
           resumeMode,
         );
         // consume 结束（流自然终止）；如果还没 resolve，用最后已知 id
@@ -269,7 +270,8 @@ export class StreamProcessor {
     internal: InternalSession,
     tempKey: string,
     onFirstId: (id: string) => void,
-    resumeId?: string,
+    applicationResumeId?: string,
+    effectiveResumeCliSid?: string,
     /**
      * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
      * jsonl-missing fallback 走 resumeMode='fresh-cli-reuse-app' 时,caller 传 resumeId=applicationSid
@@ -309,8 +311,29 @@ export class StreamProcessor {
             // sessions Map 不被 late id 改写,translate 仍 emit 但不撞 sessions Map race。
             continue;
           }
-          realId = incomingId;
-          internal.cliSessionId = realId;
+          const isNewSpawn = !applicationResumeId && resumeMode !== 'fresh-cli-reuse-app';
+          const isNormalResume = !!applicationResumeId && resumeMode !== 'fresh-cli-reuse-app';
+          const requestedCliSid = effectiveResumeCliSid;
+          const isPhantomResumeId =
+            isNormalResume &&
+            requestedCliSid === internal.applicationSid &&
+            incomingId !== internal.applicationSid;
+
+          if (isPhantomResumeId) {
+            // Claude Code 2.1.160+ can emit a fresh run id in the SDK init/status frame while
+            // the transcript is still appended to applicationSid.jsonl. Persisting that run id as
+            // cli_session_id makes the next restart/recover resume a non-existent jsonl file.
+            realId = internal.applicationSid;
+            internal.cliSessionId = internal.applicationSid;
+            logger.warn(
+              `[sdk-bridge] CLI resume emitted runtime id ${incomingId} for application sid ` +
+                `${internal.applicationSid}; preserving application sid as cli_session_id`,
+            );
+            onFirstId(realId);
+          } else {
+            realId = incomingId;
+            internal.cliSessionId = realId;
+          }
           // **plan reverse-rename-sid-stability-20260520 §A.4-pre S3 R4 HIGH-R4-1 + R7 HIGH-R7-1
           // isNewSpawn 三分支保护**: 区分 spawn 主路径 vs resume/fallback 路径,防 fallback 路径
           // 误进 spawn rename 分支破 5 处契约。S6 fork detect 比较 effectiveResumeCliSid 在本块 if 之后处理。
@@ -323,8 +346,7 @@ export class StreamProcessor {
           //   (R5 HIGH-R5-1 + R6 MED-R6-1 修订: DB 写经 manager 包装,manager 内部读 oldCliSid 进黑名单 60s)。
           //   normal resume (resumeMode='resume-cli') 不在此处写 DB,交给 S6 fork detect 处理(无 fork
           //   时 cliSid 同值无需写,真实 fork 时由 S6 经 manager 黑名单链写入)。
-          const isNewSpawn = !resumeId && resumeMode !== 'fresh-cli-reuse-app';
-          if (tempKey !== realId) {
+          if (!isPhantomResumeId && tempKey !== realId) {
             if (isNewSpawn) {
               // spawn 主路径: D2 spawn bootstrap rename 保留 + applicationSid 切到 realId 冻结
               this.ctx.sessions.delete(tempKey);
@@ -357,15 +379,19 @@ export class StreamProcessor {
           // 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订:DB 写必须经 sessionManager 包装,manager 内部
           // 读 oldCliSid + recentlyDeleted.set(oldCliSid, ...) 黑名单 60s)。
           //
-          // **R7 MED-R7-1 修订**: condition 用 resumeId 参数 (caller waitForRealSessionId 透传时
-          // 已传 effectiveResumeCliSid ?? resumeId,即 effective 值) — 与 plan §A.4-pre S6 line 396
-          // condition 字面对齐。
+          // **R7 MED-R7-1 + CHANGELOG_224 修订**: condition 用 requestedCliSid
+          // (caller waitForRealSessionId 透传 effectiveResumeCliSid),并跳过 phantom runtime id。
           // CHANGELOG_27 / REVIEW_6：CLI 在 SDK streaming input + resume + 新 prompt 下隐式 fork —
           // 实测铁证：resume=OLD_ID, prompt='ping' → first session_id=NEW_ID (≠ OLD_ID),
           // CLI 内置 fork 与 SDK 文档「forkSession 默认 false 不 fork」不一致。
-          if (resumeId && resumeId !== realId) {
+          if (
+            !isPhantomResumeId &&
+            resumeMode !== 'fresh-cli-reuse-app' &&
+            requestedCliSid &&
+            requestedCliSid !== realId
+          ) {
             logger.warn(
-              `[sdk-bridge] CLI forked: requested cli sid=${resumeId} but got realId=${realId}; ` +
+              `[sdk-bridge] CLI forked: requested cli sid=${requestedCliSid} but got realId=${realId}; ` +
                 `updating cli_session_id column on application sid ${internal.applicationSid} (走 manager 黑名单链)`,
             );
             // **R5 HIGH-R5-1 + R6 MED-R6-1 + R7 MED-R7-1 修订**: 走 sessionManager.updateCliSessionId
@@ -376,7 +402,7 @@ export class StreamProcessor {
             sessionManager.updateCliSessionId(internal.applicationSid, realId);
           }
 
-          onFirstId(realId);
+          if (!isPhantomResumeId) onFirstId(realId);
         }
 
         // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4 R4 HIGH-H 修订**:
@@ -453,8 +479,12 @@ export class StreamProcessor {
         ts: Date.now(),
         source: 'sdk',
       });
-      this.ctx.sessions.delete(sid);
-      this.ctx.sessions.delete(tempKey);
+      if (this.ctx.sessions.get(sid) === internal) {
+        this.ctx.sessions.delete(sid);
+      }
+      if (this.ctx.sessions.get(tempKey) === internal) {
+        this.ctx.sessions.delete(tempKey);
+      }
       sessionManager.releaseSdkClaim(sid);
       // **REVIEW_75 MED (reviewer-codex + lead 代码链实测)**:自然 stream end 也要释放 CLI sid claim。
       // 根因:create-session-sdk-query.ts:179 拿到 realId 后无条件 claimAsSdk(realId)。resume fork /

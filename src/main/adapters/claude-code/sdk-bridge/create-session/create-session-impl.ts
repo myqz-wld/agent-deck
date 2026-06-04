@@ -25,7 +25,7 @@ import { randomUUID } from 'node:crypto';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { makeCanUseTool } from '../can-use-tool';
-import { makeInternalSession } from '../types';
+import { makeInternalSession, type InternalSession } from '../types';
 import { resolveClaudeSandboxMode } from '../sandbox-resolve';
 import { resolveClaudeModel } from '../model-resolve';
 import { finalizeSessionStart } from '../session-finalize';
@@ -79,6 +79,7 @@ export async function createSessionImpl(
   // 全部 no-op-safe:releasePending 内部 identity check / releaseSdkClaim Set.delete / Map.delete /
   // sessionRepo.delete(tempKey) DELETE 命中 0 行均无害)。
   const releasePending = sessionManager.expectSdkSession(opts.cwd);
+  let internalForCleanup: InternalSession | null = null;
 
   try {
     // REVIEW_5 H4：resume 路径下 cwd 待领取兜底**失效**（dedupOrClaim 第二道仅对
@@ -105,6 +106,7 @@ export async function createSessionImpl(
       permissionMode: opts.permissionMode,
       applicationSid: opts.resume ?? tempKey,
     });
+    internalForCleanup = internal;
 
     if (opts.prompt) {
       // 用 tempKey 占位 session_id，实际 SDK 会忽略这个字段（用自己的）
@@ -225,7 +227,9 @@ export async function createSessionImpl(
     // spawn 路径孤儿 row id===tempKey;resume 路径 opts.resume 是预先存在合法 row 不能删)。
     releasePending();
     if (opts.resume) sessionManager.releaseSdkClaim(opts.resume);
-    deps.sessions.delete(tempKey);
+    if (internalForCleanup && deps.sessions.get(tempKey) === internalForCleanup) {
+      deps.sessions.delete(tempKey);
+    }
     try {
       sessionRepo.delete(tempKey);
     } catch {

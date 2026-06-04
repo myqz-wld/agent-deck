@@ -106,6 +106,7 @@ vi.mock('@main/session/summarizer/llm-runners', () => ({
 }));
 
 import { sessionManager } from '@main/session/manager';
+import { sessionRepo } from '@main/store/session-repo';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
@@ -146,6 +147,9 @@ beforeEach(() => {
   vi.mocked(sessionManager.releaseSdkClaim).mockReset();
   vi.mocked(sessionManager.expectSdkSession).mockReset();
   vi.mocked(sessionManager.expectSdkSession).mockReturnValue(() => undefined);
+  vi.mocked(sessionRepo.get).mockReset();
+  vi.mocked(sessionRepo.get).mockReturnValue(null);
+  (sessionRepo as unknown as { __sessions: Map<string, unknown> }).__sessions.clear();
 });
 
 afterEach(() => {
@@ -232,6 +236,28 @@ describe('REVIEW_75 F3 [MED]：consume 自然 stream end 释放 CLI sid claim', 
     const bridge = makeBridge();
     const mockQuery = new MockSdkQuery();
     installMockQuery(mockQuery);
+    vi.mocked(sessionRepo.get).mockImplementation((sid: string) =>
+      sid === 'APP-SID'
+        ? ({
+            id: 'APP-SID',
+            cwd: '/tmp/test',
+            adapter: 'claude-code',
+            title: null,
+            lifecycle: 'active',
+            permissionMode: 'default',
+            claudeCodeSandbox: 'workspace-write',
+            cliSessionId: 'OLD-CLI-SID',
+            model: null,
+            extraAllowWrite: null,
+            archivedAt: null,
+            createdAt: 0,
+            updatedAt: 0,
+            lastEventAt: 0,
+            spawnDepth: 0,
+            spawnedBy: null,
+          } as never)
+        : null,
+    );
 
     // resume 路径 + CLI 隐式 fork：opts.resume='APP-SID'（applicationSid），SDK first id 给
     // 不同的 'CLI-FORK-ID'（realId = CLI sid 维度）。consume first-id 路径走 S6 fork detect

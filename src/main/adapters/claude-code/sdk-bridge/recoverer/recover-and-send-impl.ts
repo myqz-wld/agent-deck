@@ -340,6 +340,7 @@ export async function recoverAndSendImpl(
       const fbResult = await maybeJsonlFallback(
         {
           jsonlExistsThunk: deps.jsonlExistsThunk,
+          jsonlMtimeMsThunk: deps.jsonlMtimeMsThunk,
           createSession: deps.createThunk, // RecovererCtx 字段名是 createThunk (helper 接口字段名是 createSession,命名对齐 RestartCtx)
           emit: deps.ctx.emit,
           summariseFn: deps.summariseFn,
@@ -361,6 +362,7 @@ export async function recoverAndSendImpl(
           // no-history（0 历史本就无可注）。restart 路径的 `() => null` 不受影响（那条 handoffPrompt
           // 不入口 emit 落库，无当前消息需排除，退化查最近 N 正确）—— 仅 recover 路径需此兜底。
           maxEventIdFn: () => maxEventIdBefore ?? 0,
+          minHealJsonlMtimeMs: rec.lastEventAt,
           permissionMode: rec.permissionMode ?? undefined,
           claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
           model: rec.model ?? undefined,
@@ -424,7 +426,10 @@ export async function recoverAndSendImpl(
         // 反向 rename 后 rec.cliSessionId 是 SDK 当前 thread sid (允许变化),sessionId 是
         // applicationSid (永远稳定);两者不同时显式传 cli sid 让 SDK CLI `--resume` 找正确 jsonl,
         // 同时 S6 effective compare 用 cli sid 才能正确触发 fork detect。
-        resumeCliSid: rec.cliSessionId ?? sessionId,
+        // **CHANGELOG_224 幻影 fork 自愈**: fbResult.healedCliSessionId 命中(rec.cliSessionId 那个
+        // 幻影 id 无 jsonl,但 applicationSid jsonl 在盘)时切到它(= sessionId),否则 CLI
+        // `--resume <幻影>` hard-fail 退 fresh-cli 丢历史。未命中(undefined)沿用原值行为不变。
+        resumeCliSid: fbResult.healedCliSessionId ?? rec.cliSessionId ?? sessionId,
         // permissionMode null = 用户没主动选过，按 createSession 内默认 'default'；
         // 已选过的（acceptEdits / plan / bypassPermissions）必须复原，否则用户体感
         // 「我设过的权限模式被悄悄重置」
