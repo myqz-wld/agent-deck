@@ -144,6 +144,9 @@ const createSessionCalls: Array<{
   prompt?: string;
   teamName?: string;
   handOff?: HandOffMetadata;
+  permissionMode?: string;
+  codexSandbox?: string;
+  claudeCodeSandbox?: string;
 }> = [];
 
 vi.mock('@main/adapters/registry', () => ({
@@ -161,6 +164,9 @@ vi.mock('@main/adapters/registry', () => ({
           prompt?: string;
           teamName?: string;
           handOff?: HandOffMetadata;
+          permissionMode?: string;
+          codexSandbox?: string;
+          claudeCodeSandbox?: string;
         }) => {
           const sid = nextSpawnedSid;
           createSessionCalls.push({
@@ -169,6 +175,9 @@ vi.mock('@main/adapters/registry', () => ({
             prompt: opts.prompt,
             teamName: opts.teamName,
             handOff: opts.handOff,
+            permissionMode: opts.permissionMode,
+            codexSandbox: opts.codexSandbox,
+            claudeCodeSandbox: opts.claudeCodeSandbox,
           });
           sessionStore.set(sid, {
             id: sid,
@@ -646,6 +655,98 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
+  });
+
+  it('same adapter spawn inherits caller permissionMode and sandbox settings', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', {
+      cwd: '/repo',
+      agentId: 'claude-code',
+      permissionMode: 'plan',
+      claudeCodeSandbox: 'strict',
+    });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'same adapter task',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].permissionMode).toBe('plan');
+    expect(createSessionCalls[0].claudeCodeSandbox).toBe('strict');
+    expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'plan' }]);
+  });
+
+  it('cross-adapter codex → claude uses target defaults instead of inheriting caller settings', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', {
+      cwd: '/repo',
+      agentId: 'codex-cli',
+      permissionMode: 'plan',
+      codexSandbox: 'read-only',
+      claudeCodeSandbox: 'strict',
+    });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'cross adapter task',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].permissionMode).toBe('bypassPermissions');
+    expect(createSessionCalls[0].claudeCodeSandbox).toBeUndefined();
+    expect(createSessionCalls[0].codexSandbox).toBeUndefined();
+    expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'bypassPermissions' }]);
+  });
+
+  it('cross-adapter explicit permissionMode and sandbox override target defaults', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', {
+      cwd: '/repo',
+      agentId: 'codex-cli',
+      permissionMode: 'plan',
+      codexSandbox: 'read-only',
+      claudeCodeSandbox: 'strict',
+    });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'cross adapter explicit task',
+      permissionMode: 'acceptEdits',
+      claudeCodeSandbox: 'workspace-write',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].permissionMode).toBe('acceptEdits');
+    expect(createSessionCalls[0].claudeCodeSandbox).toBe('workspace-write');
+    expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'acceptEdits' }]);
+  });
+
+  it('same codex adapter spawn inherits caller codex sandbox', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', {
+      cwd: '/repo',
+      agentId: 'codex-cli',
+      codexSandbox: 'read-only',
+    });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'same codex task',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].codexSandbox).toBe('read-only');
+    expect(createSessionCalls[0].permissionMode).toBeUndefined();
+    expect(recordPermCalls).toEqual([]);
   });
 
   it('records team membership when teamName provided', async () => {

@@ -224,3 +224,4 @@
 | [CHANGELOG_217.md](CHANGELOG_217.md) | Codex tok/s 完成态校准：实测 `@openai/codex-sdk` 0.135.0 普通回答不发 `item.updated(agent_message/reasoning)`，改为 `turn.started` 记录耗时、`item.completed` 文本估算、`turn.completed` 用权威 usage 发短暂校准 tick，再回落到 60s `token_usage` 窗口。 |
 | [CHANGELOG_218.md](CHANGELOG_218.md) | Deepseek（Claude Code）会话 profile + 资产页切换防闪烁：新增 `deepseek-claude-code` adapter，独立 `~/.agent_deck/.deepseek/settings.json` 存 Deepseek URL/token/model env，其他 agents/skills/CLAUDE.md 复用 Claude 侧；新建会话/issue 解决/CLI/MCP schema 接入；`spawn_session(agentName)` 走 Claude bundled agent root；资产库「应用约定」Claude/Codex editor 常驻挂载防切换跳变。 |
 | [CHANGELOG_219.md](CHANGELOG_219.md) | resources 配置说明入口归位：新增 `resources/README.md` 承担 claude-config / codex-config 双端资源总览与 SSOT 边界，删除误放在 Claude 子目录下的 `resources/claude-config/README.md`，并修正打包路径与双端维护边界说明。 |
+| [CHANGELOG_220.md](CHANGELOG_220.md) | `spawn_session` 改为同 adapter 才继承 caller 权限/沙盒，跨 adapter 使用 target 默认；Codex→Claude 默认 `bypassPermissions` 不再落回每次询问。 |
