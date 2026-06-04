@@ -24,6 +24,7 @@ import { getFloatingWindow } from './window';
 import { sessionManager } from './session/manager';
 import { agentDeckTeamRepo, TeamInvariantError } from './store/agent-deck-team-repo';
 import type { PermissionMode } from './adapters/types';
+import { unwrapCliArgvPayload } from './cli-argv-payload';
 import log from '@main/utils/logger';
 
 const logger = log.scope('main-cli');
@@ -374,7 +375,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
 export async function handleCliArgv(argv: readonly string[]): Promise<void> {
   let inv: CliInvocation;
   try {
-    inv = parseCliInvocation(argv);
+    inv = parseCliInvocation(unwrapCliArgvPayload(argv));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('[cli] parse failed:', msg);

@@ -229,3 +229,4 @@
 | [CHANGELOG_222.md](CHANGELOG_222.md) | reviewer 长期文案移除具体模型版本，改用 Claude/Codex adapter 与 provider 系列说明。 |
 | [CHANGELOG_223.md](CHANGELOG_223.md) | 撤回 221 对 jsonl 在的 restart resume 注入 DB 历史 —— jsonl 在时 CLI/resumeThread 已从 jsonl 续上完整上下文，直接透传内部恢复指令不再叠 DB 摘要；删除 `buildRestartResumePrompt`，jsonl 缺失 fallback 仍续历史。沙盒只包裹单条命令、不吞 jsonl，已实测排除「沙盒丢 jsonl」。 |
 | [CHANGELOG_224.md](CHANGELOG_224.md) | 幻影 fork 自愈（闭环 223 排查日志）：CLI `--resume` 下 init 帧吐从不落盘的运行 id，stream-processor 不再把该运行 id 写入 `cli_session_id`；历史已污染时 precheck 回探 `applicationSid.jsonl`，仅 mtime 足够新才切回 applicationSid resume；旧 SDK stream 清理加 identity guard，避免冷重启后删掉新 internal 导致发送无响应。 |
+| [CHANGELOG_225.md](CHANGELOG_225.md) | CLI wrapper 对 `new` argv 改用 base64 payload 传递，避开 macOS Electron `second-instance` 对 `--flag value` 的重排；修复 wrapper 自动补的 `--permission-mode bypassPermissions` 再次丢失、会话回到每次询问的问题。 |
