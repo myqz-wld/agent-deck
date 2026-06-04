@@ -279,8 +279,8 @@ export class ThreadLoop {
                 // 当前 case 1 仅 spawn 主路径触发 (resume 路径 ctor 时 internal.threadId 已有 opts.resume),
                 // 故无条件设 applicationSid 即可 (与 claude stream-processor.ts:271 isNewSpawn 分支同款)
                 //
-                // **CHANGELOG_139 双 reviewer 独立同款铁证 HIGH-1 修法**(reviewer-claude Opus 4.7
-                // + reviewer-codex gpt-5.5 单轮异构对抗):plan reverse-rename-sid-stability-20260520
+                // **CHANGELOG_139 双 reviewer 独立同款铁证 HIGH-1 修法**(Claude adapter reviewer
+                // + Codex adapter reviewer 单轮异构对抗):plan reverse-rename-sid-stability-20260520
                 // §A.4-pre S3 在 codex 端实施时漏了 `internal.applicationSid = ev.thread_id;` 这行
                 // assignment(claude 端 stream-processor.ts:328 已落,codex 注释口头说"切到 first thread_id"
                 // 但代码没切)。漏切导致 internal.applicationSid 永远是 ctor 时的 tempKey,

@@ -42,6 +42,12 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
+vi.mock('@main/store/settings-store', () => ({
+  settingsStore: {
+    get: vi.fn((key: string) => (key === 'resumeRecentMessagesCount' ? 30 : undefined)),
+  },
+}));
+
 const emits: AgentEvent[] = [];
 
 function makeRec(sid: string): SessionRecord {

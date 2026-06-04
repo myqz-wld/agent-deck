@@ -104,6 +104,10 @@ export interface InjectResumeHistoryOptions {
     limit: number,
     beforeIdInclusive?: number,
   ) => (AgentEvent & { id: number })[];
+  /** summary 段 header。默认说明 jsonl 缺失；restart 正常 resume 路径可传专用文案。 */
+  summaryHeader?: string;
+  /** current 段 header。默认是用户消息；restart 路径可标成内部重启指令。 */
+  currentHeader?: string;
 }
 
 /**
@@ -257,6 +261,8 @@ export async function injectResumeHistory(
     summariseFn,
     listEventsFn,
     listMessagesFn,
+    summaryHeader = SUMMARY_HEADER,
+    currentHeader = CURRENT_HEADER,
   } = opts;
 
   // **R1 双 reviewer 共识 MED（reviewer-codex + reviewer-claude 独立提出 + lead sqlite 实测）**：
@@ -326,11 +332,11 @@ export async function injectResumeHistory(
   // ===== step3：预算式拼接 =====
   // 固定开销 = 当前消息 + 三/两段 wrapper（header + 分隔空行）。预算 = maxLength − 固定开销。
   // wrapper 估算（取上界，留余量）：每个 header 一行 + 段间 '\n\n' 分隔。
-  const currentBlock = `${CURRENT_HEADER}\n${originalText}`;
+  const currentBlock = `${currentHeader}\n${originalText}`;
   // raw 段 wrapper：RAW_HEADER + '\n' + 段正文 + '\n\n' 接 currentBlock
   const rawWrapperCost = RAW_HEADER.length + 1 + 2;
   // 总结段 wrapper（仅 hasSummary 时计）：SUMMARY_HEADER + '\n' + 总结 + '\n\n'
-  const summaryWrapperCost = SUMMARY_HEADER.length + 1 + 2;
+  const summaryWrapperCost = summaryHeader.length + 1 + 2;
 
   // 预算分配：先扣「当前消息 + raw wrapper」（raw 段一定要拼，是底线）。
   let budgetForHistory = maxLength - currentBlock.length - rawWrapperCost;
@@ -375,7 +381,7 @@ export async function injectResumeHistory(
     if (hasSummary) {
       const summaryCost = summary!.trim().length + summaryWrapperCost;
       if (summaryCost + currentBlock.length <= maxLength) {
-        const prompt = `${SUMMARY_HEADER}\n${summary!.trim()}\n\n${currentBlock}`;
+        const prompt = `${summaryHeader}\n${summary!.trim()}\n\n${currentBlock}`;
         return { prompt, used: true, failReason: 'raw-budget-empty-summary-used' };
       }
     }
@@ -385,7 +391,7 @@ export async function injectResumeHistory(
   // ===== 拼最终结构化文本（§D3 三段顺序：总结前 / 原始消息中 / 当前消息后）=====
   const parts: string[] = [];
   if (includeSummary) {
-    parts.push(`${SUMMARY_HEADER}\n${summary!.trim()}`);
+    parts.push(`${summaryHeader}\n${summary!.trim()}`);
   }
   parts.push(`${RAW_HEADER}\n${rawSegment}`);
   parts.push(currentBlock);

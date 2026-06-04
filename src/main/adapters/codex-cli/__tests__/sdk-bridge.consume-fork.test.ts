@@ -84,6 +84,7 @@ import { emits, makeBridge } from './sdk-bridge/_setup';
 import type { Thread, ThreadEvent } from '@openai/codex-sdk';
 import type { Input } from '@openai/codex-sdk';
 import type { InternalSession } from '@main/adapters/codex-cli/sdk-bridge/types';
+import type { AgentEvent } from '@shared/types';
 
 beforeEach(() => {
   emits.length = 0;
@@ -130,6 +131,18 @@ function makeInternalSession(thread: Thread, threadId: string | null = null): In
     currentTurn: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
+  };
+}
+
+function msg(id: number, role: 'user' | 'assistant', text: string): AgentEvent & { id: number } {
+  return {
+    id,
+    sessionId: 's',
+    agentId: 'codex-cli',
+    kind: 'message',
+    payload: { role, text },
+    ts: id,
+    source: 'sdk',
   };
 }
 
@@ -644,6 +657,43 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     expect(bridge.createCalls[0].model).toBe('gpt-5.5-codex');
     // cancelCheck 也透传（cancel-guard）
     expect(bridge.createCalls[0].cancelCheck).toBeTypeOf('function');
+  });
+
+  it('restart jsonl 在 → createSession prompt 注入 DB 历史 + 标记为内部重启指令', async () => {
+    const bridge = makeBridge();
+    bridge.summariseOverride = 'Codex 重启摘要';
+    bridge.listEventsOverride = [
+      { sessionId: 'sess-history', agentId: 'codex-cli', kind: 'message', payload: { text: 'x' }, ts: 1, source: 'sdk' },
+    ];
+    bridge.listMessagesOverride = [
+      msg(2, 'assistant', 'Codex 历史回答'),
+      msg(1, 'user', 'Codex 历史问题'),
+    ];
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-history',
+      agentId: 'codex-cli',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'read-only',
+    });
+
+    await bridge.restartWithCodexSandbox('sess-history', 'workspace-write', 'go');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    const prompt = bridge.createCalls[0].prompt ?? '';
+    expect(prompt).toContain('历史会话摘要（由应用 DB 历史自动生成，用于重启后恢复上下文）');
+    expect(prompt).toContain('Codex 重启摘要');
+    expect(prompt).toContain('[用户] Codex 历史问题');
+    expect(prompt).toContain('[Agent] Codex 历史回答');
+    expect(prompt).toContain('应用内部重启指令');
+    expect(prompt).toContain('go');
   });
 
   // ─── REVIEW_101 R1: restart jsonl 缺失走 fallback（reviewer-claude MED）──────────────────

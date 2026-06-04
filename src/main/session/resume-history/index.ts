@@ -12,3 +12,7 @@ export {
   type PrependResult,
   type PrependFailReason,
 } from './inject-history';
+export {
+  buildRestartResumePrompt,
+  type BuildRestartResumePromptOptions,
+} from './restart-prompt';

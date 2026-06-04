@@ -60,8 +60,8 @@ export async function summariseCodexSessionViaOneshot(
     // plan prancy-forging-penguin:codex summary model 改读统一字段 settings.summaryModel
     // (不再是 codexSummaryModel — 已下线 + REMOVED_KEYS 清孤儿)。优先级链:
     //   settings.summaryModel > CODEX_SUMMARY_MODEL env > undefined (fallback config.toml)
-    // user 责任:provider=codex 时 settings.summaryModel 填的 model id 必须 codex SDK 可用
-    // (典型 'gpt-5.5-mini' 等)。填 'haiku' 会撞 codex SDK 不识别报错并走 caller fallback。
+    // user 责任:provider=codex 时 settings.summaryModel 填的 model id 必须 codex SDK 可用。
+    // 填其他 provider 的 alias 会撞 codex SDK 不识别报错并走 caller fallback。
     model:
       settingsStore.get('summaryModel') ||
       process.env.CODEX_SUMMARY_MODEL ||

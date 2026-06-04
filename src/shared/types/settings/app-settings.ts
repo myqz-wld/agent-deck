@@ -85,10 +85,10 @@ export interface AppSettings {
    *
    * - `''`(默认空) = 沿用各 provider 自己的 env / alias / config.toml 链
    * - 非空 = 覆盖,直接传给对应 SDK 的 options.model;**填的 model id 必须对当前 provider 可用**
-   *   (claude 端 'haiku'/'sonnet' alias OK, codex 端典型用 'gpt-5.5-mini')
+   *   (claude 端用 Claude provider alias,codex 端用 Codex SDK 可用 model id)
    *
-   * **provider × model 匹配是 user 责任**:settings.summaryProvider='codex' + summaryModel='haiku'
-   * 会撞 codex SDK 不识别报错,日志会清楚。
+   * **provider × model 匹配是 user 责任**:settings.summaryProvider='codex' + summaryModel 填
+   * Claude alias 会撞 codex SDK 不识别报错,日志会清楚。
    */
   summaryModel: string;
   /**

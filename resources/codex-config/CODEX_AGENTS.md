@@ -68,7 +68,7 @@ claude 视角同款 tool 也存在（MCP 通用），claude 端首选 CLI builti
 
 ### reviewer-claude 失败 → SKILL 内合规兜底分支（对称 claude 视角）
 
-`simple-review` / `deep-review` SKILL 内若 reviewer-claude teammate 失败（claude SDK 起不来 / OAuth 过期 / sandbox 拒 / timeout / claude jsonl 缺失 fresh-session abort），lead `shutdown_session` 掉失败的 reviewer-claude → `spawn_session({adapter:'claude-code', agentName:'reviewer-claude', ...})` 重 spawn 一个，与未动的 reviewer-codex teammate 仍构成 Opus 4.7 vs gpt-5.5 异构对（详 SKILL.md §失败兜底 表）。**严禁**自动降级到同源双 Codex（破坏异构对抗原则）— claude / codex 两路 reviewer 失败兜底对称 enforce。
+`simple-review` / `deep-review` SKILL 内若 reviewer-claude teammate 失败（claude SDK 起不来 / OAuth 过期 / sandbox 拒 / timeout / claude jsonl 缺失 fresh-session abort），lead `shutdown_session` 掉失败的 reviewer-claude → `spawn_session({adapter:'claude-code', agentName:'reviewer-claude', ...})` 重 spawn 一个，与未动的 reviewer-codex teammate 仍构成 Claude adapter + Codex adapter 异构对（详 SKILL.md §失败兜底 表）。**严禁**自动降级到同源双 Codex（破坏异构对抗原则）— claude / codex 两路 reviewer 失败兜底对称 enforce。
 
 ---
 
