@@ -118,7 +118,7 @@ export function denyExternalIfNotAllowed(
 }
 
 /**
- * R37 P1 Step 1.1：15 个 handler 共用「deny external + caller 反查」防御链 wrapper（plan task-mcp-merge-into-agent-deck-mcp-20260521 合并后 10 现有 + 5 task）。
+ * R37 P1 Step 1.1：18 个 handler 共用「deny external + caller 反查」防御链 wrapper。
  * 抽出前每个 handler 起手都是 5 行模板（4 处独立维护 → 一处漏 denyExternalIfNotAllowed
  * 即 security risk: external caller 能调禁用 tool）。抽出后 handler 业务直接写 wrapper body。
  *

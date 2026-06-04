@@ -24,6 +24,12 @@
 
 本应用环境(agent-deck) teammate 协作走 mcp tool(详 §Agent Deck Universal Team Backend 节)。teammate 通过 `send_message` 发消息 → universal-message-watcher → adapter.receiveTeammateMessage → adapter.sendMessage → codex SDK 把 message 喂给 receiver thread 自动注入 conversation flow(receiver codex 看到 user-role message 直接 act on it,无需主动 poll)。
 
+### codex turn boundary：等 teammate reply 必须结束 turn
+
+Codex SDK 是 turn-based，不支持 claude SDK 的 stream input turn 内打断。Codex lead 调 `spawn_session` / `send_message` 后等待 reviewer / teammate reply 时，必须记录 `spawnPromptMessageId` 或 `messageId`、告诉 user 已派出任务，然后结束当前 turn；不要用 `sleep` / `get_session` 循环在同一 turn 等。下一条 wire-prefixed teammate reply 会作为下一轮 user input 注入，届时提取 `[msg <id>][sid <senderSid>]` 继续裁决。
+
+只在 user 下一轮询问状态、或达到 SKILL 明确的卡住阈值时，才查 `get_session.lastEventAt` 并按 SKILL 走 nudge / shutdown / 重 spawn。simple-review / deep-review / 反驳轮 / Round 2 fix 全部遵守这个 turn boundary。
+
 ### task 进度跟踪走 `mcp__agent-deck__task_*`(codex 端与 claude 端对称,无独立 task server)
 
 本应用环境跑 plan / 多 Agent 协作 / 多步骤工作时,**task 进度跟踪必须走** `mcp__agent-deck__task_create` / `task_update` / `task_list` / `task_get` / `task_delete`(codex CLI 本身无内置原生 task 工具,所以不存在"替代"问题,直接用本组)。
@@ -142,7 +148,7 @@ grep 工具不可用 / 假阳性 → 降级人工 review,不阻断 commit,commit
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 15 tool（10 现有：`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`；+ 5 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`）编排 + 管理结构化任务。teammate 调工具时走自己 codex SDK 会话的 `approvalPolicy` + `sandboxMode`,**lead 不插手 teammate 权限审批**(失败弹给真人走 teammate 自己 session 的 PendingTab)。
+跨 adapter 协作通过 Agent Deck MCP 18 tool（10 个会话/plan/worktree：`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`；5 个 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`；3 个 issue：`report_issue` / `append_issue_context` / `update_issue_status`）编排会话、管理结构化任务并上报 issue。teammate 调工具时走自己 codex SDK 会话的 `approvalPolicy` + `sandboxMode`,**lead 不插手 teammate 权限审批**(失败弹给真人走 teammate 自己 session 的 PendingTab)。
 
 速查:`spawn_session` 起 SDK session;`send_message` 统一发消息 / reply;`list_sessions` / `get_session` 只读查会话;`shutdown_session` close lifecycle 不删数据;`archive_plan` 原子归档 plan;`hand_off_session` baton 接力;`enter_worktree` / `exit_worktree` 管 worktree;`shutdown_baton_teammates` 补跑 teammate cleanup。
 
@@ -189,7 +195,7 @@ lead context 重置 / 重启后捡 stranded reviewer:`list_sessions(spawnedByFil
 >
 > 对「跨会话救火」的实际影响:
 > - **同 caller session(context 重置 / compaction)**:sessionId 不变 → 成员关系不变 → 直接 `list_sessions(spawnedByFilter)` 捡回来 + `send_message` 即可(team-scoped)。
-> - **真换了 caller session**(应用重启 / 用户手动新开 / hand_off_session 默认不携 team 起新 session):新 caller 不在原 team 内 → `send_message` 现在**会以 teamless DM 投递成功**(不再 hard reject)。若只是想继续给 reviewer 发 prompt,teamless DM 即可用。但**需要保留 reviewer 跨轮 mental model / 多 team 正确归属**时,仍建议先回到 team:
+> - **真换了 caller session**(应用重启 / 用户手动新开 / hand_off_session 默认不携 team 起新 session):新 caller 不在原 team 内 → `send_message` 现在**会以 teamless DM 投递成功**(不再 hard reject)。若只是想继续给 reviewer 发 prompt,teamless DM 即可用。但**需要保留 reviewer 跨轮 mental model / 多 team 正确归属**时,必须先回到 team:
 >   1. 调 `spawn_session({adapter:'codex-cli', teamName:<old-team-name>, ...})` 重起一对 reviewer(旧的走 `shutdown_session` 收尾,避免 ghost)
 >   2. 通过 UI 手动把新 caller 加入旧 team(应用 → Team 面板 → Add Member)
 >   3. `hand_off_session` 起新 session 时显式传 `teamName:<old-team-name>` 让新 session 直接落入 team(仅当 plan 接力同 team 场景;baton 单向交接默认场景不加 team)

@@ -10,8 +10,8 @@ interface Props {
 /**
  * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6,CHANGELOG_160 简化）。
  *
- * 功能：让 claude / codex / 第三方 MCP client 通过 15 个 tool 跨 adapter 编排其他 coding
- * agent session + 管理结构化任务。
+ * 功能：让 claude / codex / 第三方 MCP client 通过 18 个 tool 跨 adapter 编排其他 coding
+ * agent session + 管理结构化任务 + 上报 issue。
  *
  * UI 布局（自顶向下）：
  * 1. 总开关 enableAgentDeckMcp + 描述
@@ -35,7 +35,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
       <div className="text-[10px] leading-snug text-deck-muted/70">
         开启后,Claude / Codex / 任何支持 MCP 的 AI 客户端都能在会话里调用工具,管理其他会话和团队任务。
         <details className="mt-1">
-          <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">查看完整工具清单（15 个）</summary>
+          <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">查看完整工具清单（18 个）</summary>
           <div className="mt-1 pl-2 text-deck-muted/80">
             <strong className="text-deck-text/85">会话编排</strong>:
             <code className="rounded bg-white/5 px-1">spawn_session</code> /
@@ -57,6 +57,11 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             <code className="rounded bg-white/5 px-1">task_get</code> /
             <code className="rounded bg-white/5 px-1">task_update</code> /
             <code className="rounded bg-white/5 px-1">task_delete</code>
+            <br />
+            <strong className="text-deck-text/85">Issue 跟踪</strong>:
+            <code className="rounded bg-white/5 px-1">report_issue</code> /
+            <code className="rounded bg-white/5 px-1">append_issue_context</code> /
+            <code className="rounded bg-white/5 px-1">update_issue_status</code>
           </div>
         </details>
         <div className="mt-1">

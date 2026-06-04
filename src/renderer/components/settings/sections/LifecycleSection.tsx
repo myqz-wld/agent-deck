@@ -23,10 +23,10 @@ export function LifecycleSection({ settings, update }: Props): JSX.Element {
         onChange={(v) => void update({ closeAfterMs: v * 3_600_000 })}
       />
       <NumberInput
-        label="权限请求超时（秒，0 = 不超时）"
-        value={Math.round(settings.permissionTimeoutMs / 1000)}
+        label="权限请求超时（分钟，0 = 不超时）"
+        value={Math.round(settings.permissionTimeoutMs / 60000)}
         min={0}
-        onChange={(v) => void update({ permissionTimeoutMs: v * 1000 })}
+        onChange={(v) => void update({ permissionTimeoutMs: v * 60_000 })}
       />
       <NumberInput
         label="历史会话保留（天，0 = 永久保留）"

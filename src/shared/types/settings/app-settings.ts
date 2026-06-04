@@ -351,7 +351,7 @@ export interface AppSettings {
   // ─────────────────────────────────────── Agent Deck MCP server (R2 / B'0 ADR §7)
 
   /**
-   * Agent Deck MCP server 总开关（默认 false / R2 / B'0 ADR §7）。
+   * Agent Deck MCP server 总开关（默认 true / R2 / B'0 ADR §7）。
    *
    * 开 → 三 transport 同时启用：
    * - in-process（claude SDK 会话自动挂，B'3）
@@ -387,9 +387,9 @@ export interface AppSettings {
    */
   mcpHttpEnabled: boolean;
   /**
-   * stdio 子命令开关（默认 false / 仅外部用户主动开）。
+   * stdio 子命令开关（默认 true；仅在 enableAgentDeckMcp 开时生效）。
    * 影响 `agent-deck mcp` 子命令是否真启 stdio transport，OFF 时报「未启用」错退出。
-   * 默认 false 是因为 stdio external caller 默认 deny spawn_session（详 B'0 §4.3）。
+   * external caller 默认 deny spawn_session（详 B'0 §4.3）。
    */
   mcpStdioEnabled: boolean;
   /**

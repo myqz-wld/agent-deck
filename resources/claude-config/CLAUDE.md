@@ -197,12 +197,12 @@ Step 4    §plan 完成 / 中止 cleanup
 - agent 主动 invoke 应用环境提供的 deep-review SKILL（如 agent-deck 应用环境的 `/agent-deck:deep-review`）
 - args（typed scope）：`{kind: 'plan', paths: ['<plan-abs-path>']}`（plan 评审走 kind='plan' 模板）；如同时含 code 实施一致性需 review → kind='mixed'
 - SKILL 内部走多轮异构对抗（reviewer-claude / reviewer-codex teammate）+ 反驳轮 + 三态裁决
-- finding HIGH 必修 / MED 现场验证 → fix 直到 reviewer 共识可合
+- finding CRITICAL/HIGH 必修且必须保留反驳论 / MEDIUM 现场验证并记录处置 → fix 直到 reviewer 共识可合
 
 **输出**：
 - 修订后的 plan 文件（design 经过双对抗评审，不变量明确，步骤 checklist 行级精确）
-- 若 review 出 HIGH design 缺陷 → 回到 Step 0 RFC / Step 0.5 spike 重新对齐
-- 若 0 HIGH 0 真 MED → 进 Step 2 EnterWorktree
+- 若 review 出 CRITICAL/HIGH design 缺陷 → 回到 Step 0 RFC / Step 0.5 spike 重新对齐
+- 若 0 CRITICAL/HIGH 且 MEDIUM 均有处置记录 → 进 Step 2 EnterWorktree
 
 **与 review SKILL 关系**：本 Step 1.5 = 复杂 plan 内嵌的多轮深度 review（`agent-deck:deep-review`）；单点 / 单次评审走 `agent-deck:simple-review`。复杂 plan 走多轮 SKILL 编排，单次决策走 simple-review。
 
@@ -506,11 +506,11 @@ dist/
 
 > 与 `agent-deck:simple-review` / `agent-deck:deep-review` §反驳轮 + 三态裁决 正交：那两个 SKILL 各自 inline per-finding ✅/❌/❓ 三态裁决；本节定义**整 review session 何时 conclude** 的判定 + 反驳轮自纠机制 + fix 后同步纪律。适用任何走多轮异构对抗的 review session（典型应用环境 deep-review SKILL）。
 
-**双方共识收口判定**：收口条件 = **双方 reviewer 在最后一轮明示「同意 conclude」** + 0 HIGH/MED finding（LOW/INFO 留 follow-up plan）。**单方收口不算**（漏审风险，典型 R1 一方漏审某维度，另一方在 R2 抓出 HIGH-1 仍需 fix 才能合）。
+**双方共识收口判定**：收口条件 = **双方 reviewer 在最后一轮明示「同意 conclude」** + 0 CRITICAL/HIGH finding（MEDIUM 均有 lead 处置记录，LOW/INFO 留 follow-up plan）。**单方收口不算**（漏审风险，典型 R1 一方漏审某维度，另一方在 R2 抓出 HIGH-1 仍需 fix 才能合）。
 
 **反驳轮自纠 mental model**：reviewer 在 R_{N+1} 主动检查自己上轮漏审维度。**触发**：对方 reviewer 在自己未覆盖维度抓 finding 时，R_{N+1} 必须显式 acknowledge 漏审 + 升级 mental model（典型升级：「facade refactor sanity 必须穷举 baseline named export 列表 1:1 diff，不能只看形态」），否则下轮同款漏审重发。
 
-**fix 后表格 / 描述文字必同步**：数据 fix 后，所有引用了原数据的表格 + 描述都要同步更新。**Why**：反驳轮验证 fix 时会 grep 原数据找漂移，导致原本只是 R_N INFO 的下次评审变 R_{N+1} MED。**How to apply**：R_N fix 数据 X 后，`grep '<原数据>' ref/reviews ref/plans ref/conventions` 找命中处一并更新。典型样例：REVIEW.md §临界文件监控 fix LOC 411→406 后必须把 §B INFO 引用同步。
+**fix 后表格 / 描述文字必同步**：数据 fix 后，所有引用了原数据的表格 + 描述都要同步更新。**Why**：反驳轮验证 fix 时会 grep 原数据找漂移，导致原本只是 R_N INFO 的下次评审变 R_{N+1} MEDIUM。**How to apply**：R_N fix 数据 X 后，`grep '<原数据>' ref/reviews ref/plans ref/conventions` 找命中处一并更新。典型样例：REVIEW.md §临界文件监控 fix LOC 411→406 后必须把 §B INFO 引用同步。
 
 ### 反复反馈 / 反复踩坑 → 升级约定
 
@@ -555,7 +555,7 @@ grep 工具不可用 / 假阳性 → 降级人工 review，不阻断 commit，co
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 15 tool（10 现有：`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`；+ 5 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`）编排 + 管理结构化任务。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 18 tool（10 个会话/plan/worktree：`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`；5 个 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`；3 个 issue：`report_issue` / `append_issue_context` / `update_issue_status`）编排会话、管理结构化任务并上报 issue。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
 速查：`spawn_session` 起 SDK session；`send_message` 统一发消息 / reply；`list_sessions` / `get_session` 只读查会话；`shutdown_session` close lifecycle 不删数据；`archive_plan` 原子归档 plan；`hand_off_session` baton 接力；`enter_worktree` / `exit_worktree` 管 worktree；`shutdown_baton_teammates` 补跑 teammate cleanup。
 
@@ -602,7 +602,7 @@ lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawnedByF
 >
 > 对「跨会话救火」的实际影响：
 > - **同 caller session（context 重置 / compaction）**：sessionId 不变 → 成员关系不变 → 直接 `list_sessions(spawnedByFilter)` 捡回来 + `send_message` 即可（team-scoped）。
-> - **真换了 caller session**（应用重启 / 用户手动新开 / hand_off_session 默认不携 team 起新 session）：新 caller 不在原 team 内 → `send_message` 现在**会以 teamless DM 投递成功**（不再 hard reject）。若只是想继续给 reviewer 发 prompt，teamless DM 即可用。但**需要保留 reviewer 跨轮 mental model / 多 team 正确归属**时，仍建议先回到 team：
+> - **真换了 caller session**（应用重启 / 用户手动新开 / hand_off_session 默认不携 team 起新 session）：新 caller 不在原 team 内 → `send_message` 现在**会以 teamless DM 投递成功**（不再 hard reject）。若只是想继续给 reviewer 发 prompt，teamless DM 即可用。但**需要保留 reviewer 跨轮 mental model / 多 team 正确归属**时，必须先回到 team：
 >   1. 调 `spawn_session({adapter:'claude-code', teamName:<old-team-name>, ...})` 重起一对 reviewer（旧的走 `shutdown_session` 收尾，避免 ghost）
 >   2. 通过 UI 手动把新 caller 加入旧 team（应用 → Team 面板 → Add Member）
 >   3. `hand_off_session` 起新 session 时显式传 `teamName:<old-team-name>` 让新 session 直接落入 team（仅当 plan 接力同 team 场景；baton 单向交接默认场景不加 team）

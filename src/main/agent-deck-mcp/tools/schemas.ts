@@ -16,7 +16,7 @@
  * **CHANGELOG_169 F1 §保护清单（不动文件 / file-size-guardrail.md SOP §3）**：
  * 本文件 1215 LOC（>500 行护栏）但故意不拆,理由:
  * - 70%+ 是 tool description 字符串(SDK system prompt 注入的契约文档),tier-2 directorize
- *   拆 15 个文件会让 tool description 散在 15 文件难统一对齐 handler + import 复杂度大幅增
+ *   拆 18 个文件会让 tool description 散在 18 文件难统一对齐 handler + import 复杂度大幅增
  * - tier-1 抽法收益小:zod SHAPE / ARGS_SCHEMA 是配对定义,抽 result types 只能省 ~70 行
  * - tier-3 拆 class 不适用(本文件零 class state)
  * - 阈值调整属约定升级走 `agent-deck:simple-review` 三态裁决,不在本批 fix 范围

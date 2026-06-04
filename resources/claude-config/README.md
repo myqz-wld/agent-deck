@@ -33,7 +33,7 @@
 
 - 单次 / 单点对抗 review 走 `agent-deck-plugin/skills/simple-review/SKILL.md`（spawn 异构 reviewer 对，单次 full_review + 可选一轮 fix）
 - 多轮深度 review 走 `agent-deck-plugin/skills/deep-review/SKILL.md` teammate 模式定义
-- mcp 15 tool 协议 + Universal Team Backend 在 `resources/claude-config/CLAUDE.md` §Agent Deck Universal Team Backend 节定义
+- mcp 18 tool 协议 + Universal Team Backend 在 `resources/claude-config/CLAUDE.md` §Agent Deck Universal Team Backend 节定义
 - reviewer body 行为契约在 `agent-deck-plugin/agents/reviewer-{claude,codex}.md`
 - **SKILL 两端独立 SSOT**：claude skills（`resources/claude-config/agent-deck-plugin/skills/`）与 codex skills（`resources/codex-config/agent-deck-plugin/skills/`）各自维护,不互相同步。adapter 工具差异（claude `Read`/`Write`/`AskUserQuestion` vs codex `shell cat`/`apply_patch`/turn 边界）决定 SKILL 措辞本质不同,两端独立避免「写一份再同步」的漂移。codex skills 由 `src/main/codex-config/skills-installer.ts` 从 codex-config 读源安装到 `~/.codex/skills/agent-deck/`;claude skills 通过 SDK `plugins` 字段注入
 

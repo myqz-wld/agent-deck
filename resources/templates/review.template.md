@@ -34,11 +34,11 @@ src/main/bar.ts
 
 > 本文件**首次加入 git** 的 commit 视为该批文件的覆盖基线（自动取，不写 hash）。请与本轮结论 / 关联修复一同落地，不要预先创建空 `REVIEW_<X>.md`。
 
-**约束**：<已知不再列的问题（如「CHANGELOG 1-N 已修过的不要再列」）/ 输出格式 / 严重度分级 (HIGH/MED/LOW)>
+**约束**：<已知不再列的问题（如「CHANGELOG 1-N 已修过的不要再列」）/ 输出格式 / 严重度分级 (CRITICAL/HIGH/MEDIUM/LOW/INFO)>
 
 ## 三态裁决结果
 
-> 本节遵循 `agent-deck:simple-review` / `agent-deck:deep-review` SKILL §Finding 输出契约 验证纪律：每条 ✅ 必须带**验证手段**（grep / 写小 test / 跑命令 / 读真实代码），未验证的 finding 强制降级 ❓ + 非 HIGH。弱断言只允许出现在 *未验证* 条目。
+> 本节遵循 `agent-deck:simple-review` / `agent-deck:deep-review` SKILL §Finding 输出契约 验证纪律：每条 ✅ 必须带**验证手段**（grep / 写小 test / 跑命令 / 读真实代码），未验证的 finding 强制降级 ❓ + MEDIUM 或更低。弱断言只允许出现在 *未验证* 条目。
 
 ### ✅ 真问题（双方独立提出 / 一方提出且现场实践验证成立）
 
@@ -57,13 +57,19 @@ src/main/bar.ts
 
 ## 修复（CHANGELOG_<Y> 落地）
 
+### CRITICAL
+1. **<文件:行号>** — <一句话修复方案>
+
 ### HIGH
 1. **<文件:行号>** — <一句话修复方案>
 
-### MED
+### MEDIUM
 ...
 
 ### LOW
+...
+
+### INFO
 ...
 
 ## 关联 changelog
