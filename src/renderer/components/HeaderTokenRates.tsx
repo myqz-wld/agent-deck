@@ -2,15 +2,16 @@ import { useRef, type JSX } from 'react';
 import { useTokenUsageStore } from '../stores/token-usage-store';
 import { useTokenRatesPoll } from '../hooks/use-token-rates-poll';
 import { useContainerWidth } from '../hooks/use-container-width';
+import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
 import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
 import type { TokenRateRow } from '@shared/types';
 
 /**
  * Header 中部「Top3 模型输出 token/s」（plan model-token-stats-and-dashboard-20260602 §Phase 3 R3）。
  *
- * 需求1：顶栏中间显示使用最频 Top3 模型的输出 token/s。
- * - **Top3 排名**：今日 output 总量降序（topToday 前 3，RFC 决策）。
- * - **token/s**：该 bucket 最近 60s 窗口 output 总量 ÷ 60（rates，与 topToday 按 bucketKey 对齐）。
+ * 需求1：顶栏中间显示当前输出速率最高的 Top3 模型 token/s。
+ * - **Top3 排名**：当前 tok/s 降序（生成中 fresh live 估算优先，其次 60s 窗口 rates）。
+ * - **token/s**：生成中用 display-only 估算 tick；否则该 bucket 最近 60s 窗口 output 总量 ÷ 60。
  * - **响应式隐藏**（需求3）：容器宽度 < 阈值时整区 return null（header 已挤：红绿灯让位 + 6 tab +
  *   图标，Top3 区最先退化）。两级退化：≥ FULL 显示 3 个、[ONE, FULL) 显示 1 个、< ONE 隐藏。
  *
@@ -40,6 +41,7 @@ export function HeaderTokenRates(): JSX.Element | null {
   useTokenRatesPoll();
   const topToday = useTokenUsageStore((s) => s.topToday);
   const rates = useTokenUsageStore((s) => s.rates);
+  const liveBySession = useTokenUsageStore((s) => s.liveBySession);
 
   // 容器太窄 → 整区隐藏（width===null 视为未知，先按可显示渲染，避免首帧误隐藏闪烁）。
   // 注意：ref 必须始终挂在一个真实 DOM 节点上才能被 ResizeObserver 观测；这里用一个 0 宽
@@ -47,22 +49,26 @@ export function HeaderTokenRates(): JSX.Element | null {
   const maxItems =
     width === null ? 3 : width >= HEADER_TOPRATES_FULL_PX ? 3 : width >= HEADER_TOPRATES_ONE_PX ? 1 : 0;
 
-  // rates 按 bucketKey 建索引，与 topToday 排名对齐取 token/s
+  // 按当前 tok/s 排名；today 仅用于 tooltip 背景信息。
+  const freshLiveByBucket = buildFreshLiveByBucket(liveBySession, Date.now());
   const rateByBucket = new Map(rates.map((r) => [r.bucketKey, toRate(r)]));
-  const top = topToday.slice(0, Math.max(maxItems, 0));
+  const todayByBucket = new Map(topToday.map((r) => [r.bucketKey, r.outputTokens]));
+  const top = rankLiveAwareBuckets(freshLiveByBucket, rates).slice(0, Math.max(maxItems, 0));
 
   return (
     <div ref={containerRef} className="min-w-0 flex-1 overflow-hidden">
       {maxItems > 0 && top.length > 0 ? (
         <div className="flex items-center justify-center gap-2 overflow-hidden">
-          {top.map((row) => {
-            const tps = rateByBucket.get(row.bucketKey) ?? 0;
-            const name = normalizeModel(row.bucketKey).displayName;
+          {top.map((bucketKey) => {
+            const liveTps = freshLiveByBucket.get(bucketKey);
+            const tps = liveTps ?? rateByBucket.get(bucketKey) ?? 0;
+            const name = normalizeModel(bucketKey).displayName;
+            const todayOutput = todayByBucket.get(bucketKey) ?? 0;
             return (
               <span
-                key={row.bucketKey}
+                key={bucketKey}
                 className="flex shrink-0 items-center gap-1 text-[10px] text-deck-muted"
-                title={`${name}：最近 60s ${fmtRate(tps)} tok/s（今日输出 ${row.outputTokens.toLocaleString()} tokens）`}
+                title={`${name}：${liveTps !== undefined ? '生成中估算' : '最近 60s'} ${fmtRate(tps)} tok/s（今日输出 ${todayOutput.toLocaleString()} tokens）`}
               >
                 <span className="max-w-[88px] truncate text-deck-text/80">{name}</span>
                 <span className="tabular-nums text-status-working">{fmtRate(tps)}</span>

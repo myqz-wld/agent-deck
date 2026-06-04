@@ -109,6 +109,8 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）
     settingSources: ['user', 'project', 'local'],
     canUseTool,
+    // 生成中 tok/s 估算依赖 stream_event(content_block_delta)。summarizer 不经此 builder。
+    includePartialMessages: true,
     // resume：传入历史 sessionId，SDK 会让 CLI 加载 ~/.claude/projects/<cwd>/<sid>.jsonl
     // 续上之前的对话，第一条 SDKMessage 的 session_id 就是这个 sid。
     resume,

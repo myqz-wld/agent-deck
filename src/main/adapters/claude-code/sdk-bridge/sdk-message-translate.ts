@@ -25,6 +25,7 @@ import {
 import { isImageTool } from '@shared/mcp-tools';
 import { normalizeModel } from '@shared/model-normalize';
 import { AGENT_ID } from './constants';
+import { clearLiveTokenEstimate, handleStreamEventForLiveRate } from './live-token-rate';
 import type { InternalSession } from './types';
 
 type EmitFn = (e: AgentEvent) => void;
@@ -358,6 +359,7 @@ export function translateSdkMessage(
     // (替代 success)。本 L159 已 land 的 `if (internal.expectedClose) return;` 覆盖该 result
     // frame 整段静默路径（不需 Phase 2 新增 skip 逻辑，复核确认 expectedClose 已 land 且覆盖
     // result frame 翻译）。
+    clearLiveTokenEstimate(internal, sessionId, ts);
     if (internal.expectedClose) return;
     emitResultUsageCorrection(e, internal, r);
     if (r.is_error || (r.subtype && r.subtype !== 'success')) {
@@ -405,6 +407,8 @@ export function translateSdkMessage(
         if (updated) eventBus.emit('session-upserted', updated);
       }
     }
+  } else if (msg.type === 'stream_event') {
+    handleStreamEventForLiveRate(internal, sessionId, msg, ts);
   }
   // 其他 system subtype 与未知 type 忽略
 }

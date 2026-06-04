@@ -209,10 +209,15 @@ export const IpcEvent = {
   IssueChanged: 'event:issue-changed',
   /**
    * token_usage 落库后（plan model-token-stats-and-dashboard-20260602 §Phase 2）：main bootstrap
-   * 桥接 eventBus.on('token-usage-changed') → safeSend。renderer 数据 tab debounce refetch daily
-   * （header / rates 走 poll 不依赖此 event）。payload = TokenUsageChangedEvent {sessionId, ts}。
+   * 桥接 eventBus.on('token-usage-changed') → safeSend。renderer 数据 tab debounce refetch daily，
+   * rates/topToday 也用它做 turn 末快速校准。payload = TokenUsageChangedEvent {sessionId, ts}。
    */
   TokenUsageChanged: 'event:token-usage-changed',
+  /**
+   * 生成中 tok/s 估算 tick。display-only，不落 token_usage；turn 末 TokenUsageChanged + done tick
+   * 让 renderer 切回精确 60s 窗口值。
+   */
+  TokenRateTick: 'event:token-rate-tick',
   /**
    * archive-failure-ux-upthrow-20260515 plan：caller archive 失败 UX 上抛通道。
    *

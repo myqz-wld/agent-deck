@@ -215,3 +215,5 @@
 | [CHANGELOG_208.md](CHANGELOG_208.md) | simple-review / deep-review 升级五级严重度 CRITICAL/HIGH/MEDIUM/LOW/INFO；CRITICAL/HIGH 必须反驳论；0 CRITICAL/HIGH 才允许合入；reviewer / review 文档模板与 plan review gate 同步。 |
 | [CHANGELOG_209.md](CHANGELOG_209.md) | Codex review workflow 适配 turn-based SDK：派出 reviewer / 反驳轮 / Round 2 后结束 turn，下一轮 teammate reply 注入后继续裁决；禁止同 turn sleep/poll 等待。 |
 | [CHANGELOG_210.md](CHANGELOG_210.md) | Claude Code 默认沙盒改 Workspace Write；新建会话权限默认「不再询问」；旧默认 off 一次性迁移。 |
+| [CHANGELOG_211.md](CHANGELOG_211.md) | TeamDetail 成员区新增 Add Member 入口，可把现有活跃会话加入已有团队。 |
+| [CHANGELOG_212.md](CHANGELOG_212.md) | Header/DataPanel 按当前 tok/s 排名；Claude `stream_event` 文本增量估算生成中 tok/s，经 display-only `token-rate-tick` 推到 renderer，turn 末用 `token_usage` 精确 60s 窗口校准；Codex 保持 `turn.completed` 统计。 |

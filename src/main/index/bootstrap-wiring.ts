@@ -86,9 +86,10 @@ export function initWiring(settings: AppSettings): void {
   eventBus.on('issue-changed', (p) => safeSend(IpcEvent.IssueChanged, p));
 
   // Token 使用统计 (plan model-token-stats-and-dashboard-20260602 §Phase 2 Q4)：token_usage 落库
-  // 后桥接到 renderer，数据 tab debounce refetch daily（header / rates 走 poll 不依赖此 event；
-  // 与 task-changed / issue-changed 同款 1 行桥）。
+  // 后桥接到 renderer，daily/rates debounce refetch（与 task-changed / issue-changed 同款 1 行桥）。
   eventBus.on('token-usage-changed', (p) => safeSend(IpcEvent.TokenUsageChanged, p));
+  // 生成中 tok/s 估算 tick：display-only，不走 AgentEvent/token_usage 表。
+  eventBus.on('token-rate-tick', (p) => safeSend(IpcEvent.TokenRateTick, p));
 
   // ─── archive-failure-ux-upthrow-20260515 plan: caller archive 失败 UX 上抛 ───
   // 触发源 3 处:

@@ -19,6 +19,7 @@ import type {
   SessionRecord,
   SummaryRecord,
   TaskChangedEvent,
+  TokenRateTickEvent,
   TokenUsageChangedEvent,
 } from '@shared/types';
 
@@ -109,9 +110,11 @@ export interface EventMap {
   /**
    * token-usage 落库后（plan model-token-stats-and-dashboard-20260602 §Phase 2 Q4）：manager
    * ingest token-usage 早返分支 emit。main bootstrap 桥接到 IPC IpcEvent.TokenUsageChanged 推
-   * renderer，数据 tab debounce refetch daily（header / rates 走 poll 不依赖此 event）。
+   * renderer，数据 tab debounce refetch daily，rates/topToday 也用它做 turn 末快速校准。
    */
   'token-usage-changed': [TokenUsageChangedEvent];
+  /** Claude stream_event 文本增量估算出的 display-only tok/s；main bootstrap 桥接到 renderer。 */
+  'token-rate-tick': [TokenRateTickEvent];
 }
 
 export class TypedEventBus {
