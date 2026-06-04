@@ -55,7 +55,7 @@ export interface CallerContext {
 }
 
 /**
- * Agent Deck MCP tool 15 个名字常量集中地（10 现有 + 5 task — plan task-mcp-merge-into-agent-deck-mcp-20260521 合并）。
+ * Agent Deck MCP tool 18 个名字常量集中地（10 会话/plan/worktree + 5 task + 3 issue）。
  * 文档（README + skill）+ 防御性 deny 决策（B'5 / B'2.a）共用。
  *
  * plan mcp-bug-and-feature-batch-20260513 Phase 4a Step 4a.1：加 archive_plan tool

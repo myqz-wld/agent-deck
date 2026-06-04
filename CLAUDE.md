@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-> 本文件保留 **agent-deck 项目专属 design invariant**（§项目特定约定 / §仓库基础 / §验证流程 / §打包与本地安装）+ **通用工程约定的最低操作指南**（§改动后必做 / §反复反馈升级 — 这两节在 user CLAUDE.md / SOPs 无等价 SSOT，本文件保留最低指南给普通终端 claude）。
+> 本文件保留 **agent-deck 项目专属 design invariant**（§项目特定约定 / §仓库基础 / §验证流程 / §打包与本地安装）+ **通用工程约定的最低操作指南**（§改动后必做 / §反复反馈升级 — 这两节在 user CLAUDE.md / SOPs 无等价 SSOT，本文件保留最低指南给普通终端 claude）。Codex 对偶入口是 `AGENTS.md`；共享仓库规则以本文件为准，`AGENTS.md` 只补 Codex 入口差异，避免双写漂移。
 >
 > **应用 SDK 会话内**额外加载 `resources/claude-config/CLAUDE.md` §新项目工程地基 获取详细约定（应用打包注入到 SDK system prompt 末尾，与本文件独立维护）。**单文件 ≤ 500 行护栏** 详见 `resources/SOPs/file-size-guardrail.md`。
 
@@ -35,18 +35,12 @@
 - 间歇总结的 SDK oneshot 设 `settingSources: []`，避免 hook 回环到自己
 - 应用内会话的 SDK 设 `settingSources: ['user', 'project', 'local']`，等价于在该 cwd 跑 `claude`
 
-### Teammate 权限边界（in-process Agent Teams）
+### 跨会话协作 / MCP 边界
 
-Agent Teams 实验特性的 in-process backend：teammate 调工具走 inbox 协议（`~/.claude/teams/<X>/inboxes/team-lead.json`），**不会**回到 lead 的 SDK `canUseTool` 回调（CHANGELOG_45 第一句铁证）。所以 lead 的 `permissionMode` / `READ_ONLY_TOOLS` 白名单 / `~/.claude/settings.json` `permissions.allow` 在 teammate 这边**全失效**——每个 teammate 工具调用默认都从 inbox 文件转一圈到 PendingTab 弹给用户。
-
-应用层唯一减负口子是 `inbox-watcher.processInboxFile` 检测到 `permission_request` 时主动写 inbox response allow 跳过 UI（CHANGELOG_56 落地，由 `settings.autoApproveTeammateMode` 控制三档）。新增白名单条目去 `src/shared/constants/read-only-tools.ts`（lead canUseTool 与 inbox-watcher 共享同一份 Set，避免双处 hardcode 漂移）。
-
-接 inbox-watcher 内部分支必须遵守的护栏（reviewer 双对抗 4 处 HIGH/MED 修法，CHANGELOG_56 B4）：
-- **同步 `seenRequestIds.add` 在前**：dedup 真正护栏，防 await `lookupLeadPermissionMode` / `appendInboxMessage` 期间另一波 file change 重入
-- **嵌套 try/catch 区分 append-fail vs emit-fail**：append 失败 → 回滚 dedup + emit `team-permission-requested` 走 UI 兜底（避免「auto-approve 静默失败 + lead inbox 不再变化」死锁——chokidar 不会因 teammate inbox 写失败而 fire processInboxFile）；append 成功 → dedup 必须保留，emit `team-permission-resolved` 抛错只 warn，不回滚（否则下次 lead inbox change 重读 entries 重复 append 双 response）
-- **`fromAgentId='team-lead'` 是 inbox 协议常量**：与 IPC TeamRespondPermission handler 同款（ipc/teams.ts:142），CLI 端默认接受此 from（CHANGELOG_45 实测）。如未来 CLI 升级强校验需双端同步改
-
-`lookupLeadPermissionMode(teamName)` 三级回退：fs SSOT (`team-fs.readTeamConfig().raw.leadSessionId`) 优先 → DB SDK 候选启发式 → null（→ shouldAutoApprove 走 `follow-lead-fallback` 降级 read-only）。**不过滤 lifecycle / archivedAt**——按本节首段「鉴权与会话边界」正交规则，归档 / dormant 的 lead 仍是 lead，「lead 离线但 teammate 在跑」是合理边界。
+- 跨 adapter 协作走 Agent Deck Universal Team Backend + Agent Deck MCP tools；不要恢复旧 inbox-based Agent Teams backend。
+- Teammate 调工具走 teammate 自己会话的 permission / sandbox 边界；lead 不代批权限，不把 lead 的 `permissionMode` / allowlist 套到 teammate。
+- Agent Deck MCP server 默认开启；关闭 `enableAgentDeckMcp` 时，新建 SDK 会话不挂 agent-deck MCP tools，Codex 自动注入的 `mcp_servers.agent-deck` 段也会移除。
+- Claude / Codex 应用提示词资产必须成对审计：`resources/claude-config/CLAUDE.md` ↔ `resources/codex-config/CODEX_AGENTS.md`，skills 目录同名文件也要检查对偶。adapter 工具差异允许措辞不同，但协议语义不能单边漂移。
 
 ### 事件去重与生命周期
 

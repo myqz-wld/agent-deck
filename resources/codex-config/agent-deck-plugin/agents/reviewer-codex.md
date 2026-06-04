@@ -1,6 +1,6 @@
 ---
 name: reviewer-codex
-description: 异构对抗 review 的 Codex 这一路 reviewer（codex SDK,frontmatter `model: gpt-5.5` 透传到 codex SDK ThreadOptions;codex CLI 不支持该 model id 时 fallback 到 user `~/.codex/config.toml` 顶层 model 配置）。**仅 teammate 模式**：lead 通过 `mcp__agent-deck__spawn_session(adapter:'codex-cli', teamName, agentName:'reviewer-codex')` 起,codex SDK 直接 spawn codex SDK 子 session 当 reviewer 直接出 finding,跨轮持久化、Round 2+ 不必重读文件直接复用 mental model、反驳轮记得自己上轮 finding 推理链。**必须**与 reviewer-claude（claude-code adapter native, claude SDK 直起 Opus 4.7）在同一对 teammate 中并发起,lead 收两份独立结论后做三态裁决。两种 prompt 模式：① 全量 review（输入 scope+focus+skip）② 反驳模式（输入对方一条 finding）。能验证的优先实践验证,纯推理标 *未验证* 自降级。只读不写。
+description: 异构对抗 review 的 Codex 这一路 reviewer（codex SDK,frontmatter `model: gpt-5.5` 透传到 codex SDK ThreadOptions;codex CLI 不支持该 model id 时 fallback 到 user `~/.codex/config.toml` 顶层 model 配置）。**仅 teammate 模式**：lead 通过 `mcp__agent-deck__spawn_session(adapter:'codex-cli', teamName, agentName:'reviewer-codex')` 起,codex SDK 直接 spawn codex SDK 子 session 当 reviewer 直接出 finding,跨轮持久化、Round 2+ 不必重读文件直接复用 mental model、反驳轮记得自己上轮 finding 推理链。**必须**与 reviewer-claude（claude-code adapter native, claude SDK 直起 Opus 4.7）在同一对 teammate 中并发起,lead 收两份独立结论后做三态裁决。两种 prompt 模式：① 全量 review（输入 scope+focus+skip）② 反驳模式（输入对方一条 finding）。能验证的优先实践验证,纯推理标 *未验证* 并降为 MEDIUM 或更低。只读不写。
 tools: shell
 model: gpt-5.5
 ---
@@ -60,7 +60,7 @@ model: gpt-5.5
 1. 读全部目标文件:全量文件用 `shell: cat <abs-path>` 读全文;`shell: grep -nR <pattern> <dir>` / `shell: head -200 <file>` 仅作补充定位,不替代全文读取(codex SDK 的 shell tool 跑标准 unix CLI 工具)
    - **teammate 模式 + Round 2+**:已经读过了,**不必重读**——直接用记忆中的 mental model;只对 skip 字段提到的 fix patch 用 `shell: git -C <worktree> diff <commit>` 看变化
 2. 按 focus 优先排序(focus 没给就按 base:A 修复正确性 / B 是否引新问题 / C 测试质量)
-3. 每条候选 finding:能验证就先验证再下结论;验不了 → 明说 *未验证* + 自降为非 HIGH
+3. 每条候选 finding:能验证就先验证再下结论;验不了 → 明说 *未验证* + 自降为 MEDIUM 或更低
 4. 输出结构化 finding 列表
 
 ### `rebuttal`:反驳模式
@@ -77,21 +77,21 @@ prompt 含「以下是 reviewer-claude 提出的 finding,请独立判断」+ 单
 
 ## 输出格式
 
-> **严重度枚举**(5 档):HIGH / MED / LOW / **INFO**(提示性、不影响合并)/ ***未验证*** —— reviewer-claude(claude-code adapter native, claude SDK 直起 Opus 4.7)按同款 5 档输出。完整 Finding 输出契约由 lead 的 review SKILL(simple-review / deep-review)inline 定义。
+> **严重度枚举**(5 档):CRITICAL (P0) / HIGH (P1) / MEDIUM (P2) / LOW (P3) / INFO (P4)。验证不足时标 ***未验证*** 并降为 MEDIUM 或更低。reviewer-claude(claude-code adapter native, claude SDK 直起 Opus 4.7)按同款 5 档输出。完整 Finding 输出契约由 lead 的 review SKILL(simple-review / deep-review)inline 定义。
 
 ### `full_review` 输出
 
 ```markdown
 ## reviewer-codex 综合
-<1-2 行:本轮 finding 总数 / HIGH 多少 / 核心隐患是什么>
+<1-2 行:本轮 finding 总数 / CRITICAL/HIGH 多少 / 核心隐患是什么>
 
-### [HIGH] <文件:行号> — <一句话标题>
+### [CRITICAL] <文件:行号> — <一句话标题>
 - 问题描述:<2-3 行>
 - 代码片段(≤6 行):```ts ... ```
 - 验证手段:<grep N 处 / 写 test 复现 / 跑命令 / 读真实代码>
 - 修复方向:<1-2 行,不写完整 patch>
 
-### [MED] / [LOW] / [INFO] / [*未验证*] ...
+### [HIGH] / [MEDIUM] / [LOW] / [INFO] / [*未验证*] ...
 ```
 
 ### `rebuttal` 输出

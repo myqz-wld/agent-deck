@@ -86,7 +86,7 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
     //
     // 影响面（DEFAULT_SETTINGS 含的 key）：
     // - transparentWhenPinned → windowTransparent migration（windowTransparent: true 默认）
-    // - enableTaskManager → enableAgentDeckMcp migration（enableAgentDeckMcp: false 默认）
+    // - enableTaskManager → enableAgentDeckMcp migration（enableAgentDeckMcp 默认值参与写回）
     //
     // 修法：构造 real store 前先开一个无 defaults 的 probe Store，snapshot fs 上**真实持久化的
     // raw**（probe 自己不传 defaults，conf 构造时 `if (options.defaults)` 跳过 → 不触发 merge
@@ -150,6 +150,31 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       // sentinel（已置位老用户会跳过新迁移）→ 需引入第二个 sentinel 或带版本号的 migration 标记。
       looseStore.set(VALUE_UPLIFT_SENTINEL, true);
     }
+    // 2026-06-04 设置面板数值默认值升级。electron-store 会把 defaults 写回设置文件，
+    // 所以旧安装里“用户没动过”的默认值也会以普通持久化值存在。这里沿用上方 value-uplift
+    // sentinel 模式：只升级一次恰好等于旧默认的数值，之后用户手动改回旧值也能跨重启保留。
+    // enableAgentDeckMcp 不进本轮 uplift：无法区分旧默认 false 与用户显式关闭；新安装走
+    // DEFAULT_SETTINGS=true，legacy enableTaskManager 仍由下方 smart migration 处理。
+    const SETTINGS_DEFAULTS_20260604_SENTINEL = '__settingsDefaults20260604Done';
+    if (persistedRaw[SETTINGS_DEFAULTS_20260604_SENTINEL] !== true) {
+      if (persistedRaw['activeWindowMs'] === 30 * 60 * 1000) {
+        store.set('activeWindowMs', 60 * 60 * 1000);
+        logger.info('[settings] migrated activeWindowMs 30min → 60min (2026-06-04 default uplift)');
+      }
+      if (persistedRaw['permissionTimeoutMs'] === 5 * 60 * 1000) {
+        store.set('permissionTimeoutMs', 30 * 60 * 1000);
+        logger.info(
+          '[settings] migrated permissionTimeoutMs 5min → 30min (2026-06-04 default uplift)',
+        );
+      }
+      if (persistedRaw['issueResolvedRetentionDays'] === 90) {
+        store.set('issueResolvedRetentionDays', 30);
+        logger.info(
+          '[settings] migrated issueResolvedRetentionDays 90d → 30d (2026-06-04 default uplift)',
+        );
+      }
+      looseStore.set(SETTINGS_DEFAULTS_20260604_SENTINEL, true);
+    }
     // plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 + R3-claude-MED-1:
     // smart migration 守护老用户 enableTaskManager:true 不丢失能力。在 REMOVED_KEYS
     // delete loop 之前 (line 74) 读 persistedRaw.enableTaskManager 决定是否 carry 到 enableAgentDeckMcp。
@@ -157,19 +182,22 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
     // 4 case 矩阵（详 plan §测试覆盖矩阵 settings-store migration 4 格断言）：
     // - persistedRaw enableTaskManager:true + persistedRaw 不含 enableAgentDeckMcp → set enableAgentDeckMcp:true
     //   + warn（保留老用户「task tools 可用」语义；5 个 task tool 已合入 agent-deck namespace）
-    // - persistedRaw enableTaskManager:false + persistedRaw 不含 enableAgentDeckMcp → 不动 enableAgentDeckMcp
-    //   （保留默认 false；老用户主动 OFF 表达「不想用」尊重）
+    // - persistedRaw enableTaskManager:false + persistedRaw 不含 enableAgentDeckMcp → set enableAgentDeckMcp:false
+    //   （保留老用户主动 OFF 表达「不想用」）
     // - persistedRaw 含 explicit enableAgentDeckMcp 值 → migration skip（用户决策优先）
     // - persistedRaw 全空（fresh install）→ migration no-op + 不打 warn（新用户路径不该看 warn 噪音）
-    if (
-      'enableTaskManager' in persistedRaw &&
-      persistedRaw['enableTaskManager'] === true &&
-      !('enableAgentDeckMcp' in persistedRaw)
-    ) {
-      store.set('enableAgentDeckMcp', true);
-      logger.info(
-        '[settings] migrated enableTaskManager=true → enableAgentDeckMcp=true (plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 — task tools 合并入 agent-deck namespace，保留老用户 ON 值不丢失能力)',
-      );
+    if ('enableTaskManager' in persistedRaw && !('enableAgentDeckMcp' in persistedRaw)) {
+      if (persistedRaw['enableTaskManager'] === true) {
+        store.set('enableAgentDeckMcp', true);
+        logger.info(
+          '[settings] migrated enableTaskManager=true → enableAgentDeckMcp=true (plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 — task tools 合并入 agent-deck namespace，保留老用户 ON 值不丢失能力)',
+        );
+      } else if (persistedRaw['enableTaskManager'] === false) {
+        store.set('enableAgentDeckMcp', false);
+        logger.info(
+          '[settings] migrated enableTaskManager=false → enableAgentDeckMcp=false (preserve legacy explicit OFF)',
+        );
+      }
     }
     for (const key of REMOVED_KEYS) {
       if (key in persistedRaw) {
@@ -232,4 +260,3 @@ export const settingsStore = {
     return next;
   },
 };
-

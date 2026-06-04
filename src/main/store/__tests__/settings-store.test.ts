@@ -4,9 +4,9 @@
  *
  * 验证 enableTaskManager → enableAgentDeckMcp smart migration 4 case：
  * - (1) raw enableTaskManager:true + raw 不含 enableAgentDeckMcp → enableAgentDeckMcp:true + warn + legacy key deleted
- * - (2) raw enableTaskManager:false + raw 不含 enableAgentDeckMcp → enableAgentDeckMcp 不动（保留 false default）+ legacy key deleted
+ * - (2) raw enableTaskManager:false + raw 不含 enableAgentDeckMcp → enableAgentDeckMcp:false + legacy key deleted
  * - (3) raw 含 explicit enableAgentDeckMcp → migration skip（用户决策优先）+ legacy key deleted
- * - (4) raw 全空（fresh install）→ no-op + 不打 warn + 默认 OFF
+ * - (4) raw 全空（fresh install）→ no-op + 不打 warn + 默认 ON
  *
  * F1 fix (deep-review-changelog146-20260524 R1 codex MED) regression case (5):
  * 模拟 conf@10.2.0 真实行为 — 构造时把 defaults `Object.assign({}, defaults, fileStore)` merged
@@ -113,19 +113,17 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     
   });
 
-  it('(2) legacy false + 无 explicit enableAgentDeckMcp → 不动 enableAgentDeckMcp + legacy deleted', async () => {
+  it('(2) legacy false + 无 explicit enableAgentDeckMcp → set enableAgentDeckMcp=false + legacy deleted', async () => {
     mockRawStore = { enableTaskManager: false };
     (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
 
     const settings = await loadSettingsStore();
     settings.getAll();
 
-    // migration 不 set enableAgentDeckMcp（保留 default false 不动）
-    const setCalls = mockSet.mock.calls.filter((c) => c[0] === 'enableAgentDeckMcp');
-    expect(setCalls).toHaveLength(0);
-    // 不打 migration warn 日志
-    expect(settingsStoreLogger.info).not.toHaveBeenCalledWith(
-      expect.stringContaining('migrated enableTaskManager'),
+    // migration 保留 legacy explicit OFF
+    expect(mockSet).toHaveBeenCalledWith('enableAgentDeckMcp', false);
+    expect(settingsStoreLogger.info).toHaveBeenCalledWith(
+      expect.stringContaining('migrated enableTaskManager=false → enableAgentDeckMcp=false'),
     );
     // legacy key 仍被 REMOVED_KEYS delete
     expect(mockDelete).toHaveBeenCalledWith('enableTaskManager');
@@ -153,18 +151,19 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
     
   });
 
-  it('(4) fresh install (raw 全空) → migration no-op + 不打 warn + 默认 OFF (load-bearing：新用户路径不该看 warn 噪音)', async () => {
+  it('(4) fresh install (raw 全空) → migration no-op + 不打 warn + 默认 ON (load-bearing：新用户路径不该看 warn 噪音)', async () => {
     mockRawStore = {};
     (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
 
     const settings = await loadSettingsStore();
-    settings.getAll();
+    const all = settings.getAll();
 
     // 无 enableTaskManager 在 raw → migration 整段不进 if
     const enableSetCalls = mockSet.mock.calls.filter(
       (c) => c[0] === 'enableAgentDeckMcp',
     );
     expect(enableSetCalls).toHaveLength(0);
+    expect(all.enableAgentDeckMcp).toBe(true);
     // 不打 migration warn 日志（load-bearing：新用户不该看噪音）
     expect(settingsStoreLogger.info).not.toHaveBeenCalledWith(
       expect.stringContaining('migrated enableTaskManager'),
@@ -294,6 +293,85 @@ describe('REVIEW_92 — value-uplift migration 一次性 sentinel（reviewer-cla
     const settings = await loadSettingsStore();
     const all = settings.getAll() as unknown as Record<string, unknown>;
     expect('__valueUpliftMigrationDone' in all).toBe(false);
+  });
+});
+
+describe('2026-06-04 — settings panel default uplift 一次性 sentinel', () => {
+  it('(A) 老数值默认值首次进来 → uplift 到新默认 + 置 sentinel', async () => {
+    mockRawStore = {
+      activeWindowMs: 30 * 60 * 1000,
+      permissionTimeoutMs: 5 * 60 * 1000,
+      issueResolvedRetentionDays: 90,
+    };
+
+    const settings = await loadSettingsStore();
+    settings.getAll();
+
+    expect(mockSet).toHaveBeenCalledWith('activeWindowMs', 60 * 60 * 1000);
+    expect(mockSet).toHaveBeenCalledWith('permissionTimeoutMs', 30 * 60 * 1000);
+    expect(mockSet).toHaveBeenCalledWith('issueResolvedRetentionDays', 30);
+    expect(mockSet.mock.calls.filter((c) => c[0] === 'enableAgentDeckMcp')).toHaveLength(0);
+    expect(mockSet).toHaveBeenCalledWith('__settingsDefaults20260604Done', true);
+  });
+
+  it('(B) sentinel 已置 + 用户改回旧值 → migration 不 re-fire', async () => {
+    mockRawStore = {
+      activeWindowMs: 30 * 60 * 1000,
+      permissionTimeoutMs: 5 * 60 * 1000,
+      issueResolvedRetentionDays: 90,
+      enableAgentDeckMcp: false,
+      __settingsDefaults20260604Done: true,
+    };
+
+    const settings = await loadSettingsStore();
+    settings.getAll();
+
+    for (const key of [
+      'activeWindowMs',
+      'permissionTimeoutMs',
+      'issueResolvedRetentionDays',
+      'enableAgentDeckMcp',
+    ]) {
+      expect(mockSet.mock.calls.filter((c) => c[0] === key)).toHaveLength(0);
+    }
+  });
+
+  it('(C) 用户自定义非旧默认值 → 不 migrate + 置 sentinel', async () => {
+    mockRawStore = {
+      activeWindowMs: 45 * 60 * 1000,
+      permissionTimeoutMs: 10 * 60 * 1000,
+      issueResolvedRetentionDays: 14,
+      enableAgentDeckMcp: true,
+    };
+
+    const settings = await loadSettingsStore();
+    settings.getAll();
+
+    expect(mockSet.mock.calls.filter((c) => c[0] === 'activeWindowMs')).toHaveLength(0);
+    expect(mockSet.mock.calls.filter((c) => c[0] === 'permissionTimeoutMs')).toHaveLength(0);
+    expect(mockSet.mock.calls.filter((c) => c[0] === 'issueResolvedRetentionDays')).toHaveLength(0);
+    expect(mockSet.mock.calls.filter((c) => c[0] === 'enableAgentDeckMcp')).toHaveLength(0);
+    expect(mockSet).toHaveBeenCalledWith('__settingsDefaults20260604Done', true);
+  });
+
+  it('(D) legacy enableTaskManager=false 仍保留 MCP explicit OFF', async () => {
+    mockRawStore = { enableTaskManager: false };
+
+    const settings = await loadSettingsStore();
+    settings.getAll();
+
+    expect(mockSet).toHaveBeenCalledWith('enableAgentDeckMcp', false);
+    expect(mockDelete).toHaveBeenCalledWith('enableTaskManager');
+  });
+
+  it('(E) 新版 enableAgentDeckMcp=false 无 legacy key → 保留用户显式关闭', async () => {
+    mockRawStore = { enableAgentDeckMcp: false };
+
+    const settings = await loadSettingsStore();
+    settings.getAll();
+
+    expect(mockSet.mock.calls.filter((c) => c[0] === 'enableAgentDeckMcp')).toHaveLength(0);
+    expect(mockSet).toHaveBeenCalledWith('__settingsDefaults20260604Done', true);
   });
 });
 

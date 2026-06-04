@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   silentWhenFocused: true,
   waitingSoundPath: null,
   finishedSoundPath: null,
-  activeWindowMs: 30 * 60 * 1000,
+  activeWindowMs: 60 * 60 * 1000,
   closeAfterMs: 24 * 60 * 60 * 1000,
   summaryIntervalMs: 5 * 60 * 1000,
   summaryEventCount: 10,
@@ -31,7 +31,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   handOffProvider: 'claude',
   handOffModel: '',
   handOffReasoning: 'medium',
-  permissionTimeoutMs: 5 * 60 * 1000,
+  permissionTimeoutMs: 30 * 60 * 1000,
   alwaysOnTop: true,
   windowTransparent: true,
   startOnLogin: false,
@@ -40,9 +40,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // 对话消息（预算式拼接，实际条数 ≤ N，长会话优先保最新不撑爆 102_400）。default 30。
   resumeRecentMessagesCount: 30,
   // Issue Tracker §D13 GC 阈值（plan issue-tracker-mcp-20260529）：
-  // - resolvedRetentionDays 默认 90d (resolved issue 三月后硬删,留充分窗口给用户复盘)
+  // - resolvedRetentionDays 默认 30d (与历史 / 消息保留默认窗口对齐)
   // - softDeletedRetentionDays 默认 7d (软删一周后硬删,与 history 30d 不同 — 软删本就 implicit 已完成 triage)
-  issueResolvedRetentionDays: 90,
+  issueResolvedRetentionDays: 30,
   issueSoftDeletedRetentionDays: 7,
   // plan message-retention-and-index-20260602 §D3：agent_deck_messages retention GC 阈值。
   // 默认 30d（与 historyRetentionDays 起步一致，用户可单独调）。MessageLifecycleScheduler 6h tick
@@ -63,8 +63,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codexSandbox: 'workspace-write',
   codexMcpServers: [],
   // R3.E6 删 autoApproveTeammateMode；REMOVED_KEYS 自动清历史
-  // B'0 ADR §7：Agent Deck MCP server 默认 OFF（task tools 跟随，详 enableAgentDeckMcp jsdoc）
-  enableAgentDeckMcp: false,
+  // B'0 ADR §7：Agent Deck MCP server 默认 ON（task tools 跟随，详 enableAgentDeckMcp jsdoc）
+  enableAgentDeckMcp: true,
   mcpServerToken: null,
   mcpHttpEnabled: true,
   mcpStdioEnabled: true,
