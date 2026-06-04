@@ -40,17 +40,26 @@ export function registerLifecycleHooks(
   state: BootstrapState,
   bootstrappedPromise: Promise<void>,
 ): void {
-  app.on('second-instance', (_event, argv) => {
+  app.on('second-instance', (_event, commandLine, _workingDir, additionalData) => {
     const all = BrowserWindow.getAllWindows();
     if (all.length) {
       all[0].show();
       all[0].focus();
     }
+    // Chromium 会把 commandLine 里的所有 --flag 前置、值后置，破坏 parseCliInvocation 的
+    // key-value 解析。用 requestSingleInstanceLock({ argv: process.argv }) 把原始 argv
+    // 作为 additionalData 传过来，这里优先使用原始 argv。
+    const rawArgv =
+      additionalData != null &&
+      typeof additionalData === 'object' &&
+      Array.isArray((additionalData as { argv?: unknown }).argv)
+        ? ((additionalData as { argv: string[] }).argv)
+        : commandLine;
     // REVIEW_35 MED-D-codex (codex MED-D4):second-instance 在 cold-start 时可能在
     // bootstrap() 完成前触发 → handleCliArgv 调 adapterRegistry.get 拿不到 adapter → CLI new
     // 被当作 adapter 不可用处理。修法:把 bootstrap 完成 promise 抓回来,second-instance handler
     // 等 bootstrap 完成再投递 argv。
-    void bootstrappedPromise.then(() => handleCliArgv(argv)).catch((err) =>
+    void bootstrappedPromise.then(() => handleCliArgv(rawArgv)).catch((err) =>
       logger.warn('[second-instance] handleCliArgv failed', err),
     );
   });
