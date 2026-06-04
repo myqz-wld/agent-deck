@@ -5,6 +5,7 @@
  * caller 路径行为:
  * - T1: jsonl 在 → fellBack=false → 走原 resume 路径 createSession 一次 + opts.resumeCliSid 正确
  * - T3: jsonl 缺失 + helper.createSession 抛错 → DB 回滚 + emit error + throw
+ * - 关闭项回归: bypassPermissions / sandbox off 的 jsonl 在与缺失 fallback 均保留目标档位
  *
  * **测试方式**: new RestartController + mock RestartCtx (含 jsonlExistsThunk / summariseFn /
  * listEventsFn 3 个 Step 3c 新字段),不走 ClaudeSdkBridge facade。让 ctx.createSession spy 验证
@@ -185,6 +186,77 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
   });
 
+  it('T1-pm-bypass: 切到 bypassPermissions 且 jsonl 在 → 正常 resume，不注入 DB 历史', async () => {
+    const sid = 'app-sid-pm-bypass-T1';
+    repoCache.set(
+      sid,
+      makeRec(sid, {
+        cliSessionId: 'cli-sid-PM-bypass',
+        permissionMode: 'default',
+        claudeCodeSandbox: 'off',
+      }),
+    );
+    const { ctx, createSessionSpy, closeCalls } = makeCtx({
+      jsonlExistsReturn: true,
+      summariseFnReturn: '不应注入的摘要',
+      listMessagesFnReturn: [msg(2, 'assistant', '历史回答'), msg(1, 'user', '历史问题')],
+    });
+    const ctrl = new RestartController(ctx);
+
+    const result = await ctrl.restartWithPermissionMode(
+      sid,
+      'bypassPermissions',
+      SDK_RESTART_RESUME_PROMPT,
+    );
+
+    expect(result).toBe(sid);
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+    const opts = createSessionSpy.mock.calls[0][0] as RestartCreateOpts;
+    expect(opts.resume).toBe(sid);
+    expect(opts.resumeCliSid).toBe('cli-sid-PM-bypass');
+    expect(opts.permissionMode).toBe('bypassPermissions');
+    expect(opts.claudeCodeSandbox).toBe('off');
+    expect(opts.prompt).toBe(SDK_RESTART_RESUME_PROMPT);
+    expect(opts.prompt).not.toContain('历史会话摘要');
+    expect(opts.prompt).not.toContain('最近原始对话消息');
+    expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
+  });
+
+  it('T2-pm-bypass: 切到 bypassPermissions 且 jsonl 缺失 → fresh fallback 保留 bypass/off 档位', async () => {
+    const sid = 'app-sid-pm-bypass-T2';
+    repoCache.set(
+      sid,
+      makeRec(sid, {
+        cliSessionId: 'cli-sid-PM-bypass',
+        permissionMode: 'default',
+        claudeCodeSandbox: 'off',
+      }),
+    );
+    const { ctx, createSessionSpy, closeCalls } = makeCtx({
+      jsonlExistsReturn: false,
+      summariseFnReturn: null,
+    });
+    const ctrl = new RestartController(ctx);
+
+    const result = await ctrl.restartWithPermissionMode(sid, 'bypassPermissions', '继续之前的会话');
+
+    expect(result).toBe(sid);
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+    const opts = createSessionSpy.mock.calls[0][0] as RestartCreateOpts;
+    expect(opts.resume).toBe(sid);
+    expect(opts.resumeMode).toBe('fresh-cli-reuse-app');
+    expect('resumeCliSid' in opts).toBe(false);
+    expect(opts.permissionMode).toBe('bypassPermissions');
+    expect(opts.claudeCodeSandbox).toBe('off');
+    expect(opts.prompt).toContain('继续之前的会话');
+    expect(setPermissionModeSpy).toHaveBeenCalledOnce();
+    expect(setPermissionModeSpy.mock.calls[0]).toEqual([sid, 'bypassPermissions']);
+    expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
+    expect(emits.some((e) => e.kind === 'message' && (e.payload as { error?: boolean }).error)).toBe(
+      false,
+    );
+  });
+
   it('T3-pm: jsonl 缺失 + helper.createSession 抛错 → DB 回滚 oldMode + emit error + throw', async () => {
     const sid = 'app-sid-pm-T3';
     repoCache.set(sid, makeRec(sid, { cliSessionId: 'cli-sid-PM', permissionMode: 'default' }));
@@ -252,6 +324,73 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
     expect(opts.prompt).not.toContain('历史会话摘要');
     expect(opts.prompt).not.toContain('沙盒历史问题');
     expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
+  });
+
+  it('T1-sandbox-off: 关闭 sandbox 且 jsonl 在 → 正常 resume，并保留既有 bypass 权限', async () => {
+    const sid = 'app-sid-sb-off-T1';
+    repoCache.set(
+      sid,
+      makeRec(sid, {
+        cliSessionId: 'cli-sid-SB-off',
+        permissionMode: 'bypassPermissions',
+        claudeCodeSandbox: 'workspace-write',
+      }),
+    );
+    const { ctx, createSessionSpy, closeCalls } = makeCtx({
+      jsonlExistsReturn: true,
+      summariseFnReturn: '不应注入的摘要',
+      listMessagesFnReturn: [msg(2, 'assistant', '沙盒历史回答'), msg(1, 'user', '沙盒历史问题')],
+    });
+    const ctrl = new RestartController(ctx);
+
+    const result = await ctrl.restartWithClaudeCodeSandbox(sid, 'off', SDK_RESTART_RESUME_PROMPT);
+
+    expect(result).toBe(sid);
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+    const opts = createSessionSpy.mock.calls[0][0] as RestartCreateOpts;
+    expect(opts.resume).toBe(sid);
+    expect(opts.resumeCliSid).toBe('cli-sid-SB-off');
+    expect(opts.claudeCodeSandbox).toBe('off');
+    expect(opts.permissionMode).toBe('bypassPermissions');
+    expect(opts.prompt).toBe(SDK_RESTART_RESUME_PROMPT);
+    expect(opts.prompt).not.toContain('历史会话摘要');
+    expect(opts.prompt).not.toContain('最近原始对话消息');
+    expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
+  });
+
+  it('T2-sandbox-off: 关闭 sandbox 且 jsonl 缺失 → fresh fallback 保留 off/bypass 档位', async () => {
+    const sid = 'app-sid-sb-off-T2';
+    repoCache.set(
+      sid,
+      makeRec(sid, {
+        cliSessionId: 'cli-sid-SB-off',
+        permissionMode: 'bypassPermissions',
+        claudeCodeSandbox: 'workspace-write',
+      }),
+    );
+    const { ctx, createSessionSpy, closeCalls } = makeCtx({
+      jsonlExistsReturn: false,
+      summariseFnReturn: null,
+    });
+    const ctrl = new RestartController(ctx);
+
+    const result = await ctrl.restartWithClaudeCodeSandbox(sid, 'off', '继续之前的会话');
+
+    expect(result).toBe(sid);
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+    const opts = createSessionSpy.mock.calls[0][0] as RestartCreateOpts;
+    expect(opts.resume).toBe(sid);
+    expect(opts.resumeMode).toBe('fresh-cli-reuse-app');
+    expect('resumeCliSid' in opts).toBe(false);
+    expect(opts.claudeCodeSandbox).toBe('off');
+    expect(opts.permissionMode).toBe('bypassPermissions');
+    expect(opts.prompt).toContain('继续之前的会话');
+    expect(setClaudeCodeSandboxSpy).toHaveBeenCalledOnce();
+    expect(setClaudeCodeSandboxSpy.mock.calls[0]).toEqual([sid, 'off']);
+    expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
+    expect(emits.some((e) => e.kind === 'message' && (e.payload as { error?: boolean }).error)).toBe(
+      false,
+    );
   });
 
   it('T3-sandbox: jsonl 缺失 + helper.createSession 抛错 → DB 回滚 oldSandbox + emit error + throw', async () => {
