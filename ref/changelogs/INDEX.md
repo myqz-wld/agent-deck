@@ -217,3 +217,4 @@
 | [CHANGELOG_210.md](CHANGELOG_210.md) | Claude Code 默认沙盒改 Workspace Write；新建会话权限默认「不再询问」；旧默认 off 一次性迁移。 |
 | [CHANGELOG_211.md](CHANGELOG_211.md) | TeamDetail 成员区新增 Add Member 入口，可把现有活跃会话加入已有团队。 |
 | [CHANGELOG_212.md](CHANGELOG_212.md) | Header/DataPanel 按当前 tok/s 排名；Claude `stream_event` 文本增量估算生成中 tok/s，经 display-only `token-rate-tick` 推到 renderer，turn 末用 `token_usage` 精确 60s 窗口校准；Codex 保持 `turn.completed` 统计。 |
+| [CHANGELOG_213.md](CHANGELOG_213.md) | CLI wrapper `agent-deck new` 缺省注入 `--permission-mode bypassPermissions`，与 Dialog 新建行为对齐；用户仍可显式传其他档位覆盖。 |

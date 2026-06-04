@@ -61,6 +61,7 @@ abs() {
 NEW_ARGS=()
 HAS_CWD=0
 HAS_NEW=0
+HAS_PERMISSION_MODE=0
 
 i=1
 while (( i <= $# )); do
@@ -68,6 +69,16 @@ while (( i <= $# )); do
   case "$cur" in
     new)
       HAS_NEW=1
+      NEW_ARGS+=("$cur")
+      ;;
+    --permission-mode)
+      HAS_PERMISSION_MODE=1
+      NEW_ARGS+=("$cur")
+      ((i++))
+      NEW_ARGS+=("${!i}")
+      ;;
+    --permission-mode=*)
+      HAS_PERMISSION_MODE=1
       NEW_ARGS+=("$cur")
       ;;
     --cwd)
@@ -95,6 +106,11 @@ done
 # new 子命令但用户没传 --cwd → 自动补当前 PWD（按用户终端所在的目录）
 if (( HAS_NEW == 1 && HAS_CWD == 0 )); then
   NEW_ARGS+=("--cwd" "$PWD")
+fi
+
+# new 子命令但用户没传 --permission-mode → 默认 bypassPermissions
+if (( HAS_NEW == 1 && HAS_PERMISSION_MODE == 0 )); then
+  NEW_ARGS+=("--permission-mode" "bypassPermissions")
 fi
 
 exec "$EXEC_PATH" "${NEW_ARGS[@]}"
