@@ -219,3 +219,4 @@
 | [CHANGELOG_212.md](CHANGELOG_212.md) | Header/DataPanel 按当前 tok/s 排名；Claude `stream_event` 文本增量估算生成中 tok/s，经 display-only `token-rate-tick` 推到 renderer，turn 末用 `token_usage` 精确 60s 窗口校准；Codex 保持 `turn.completed` 统计。 |
 | [CHANGELOG_213.md](CHANGELOG_213.md) | CLI wrapper `agent-deck new` 缺省注入 `--permission-mode bypassPermissions`，与 Dialog 新建行为对齐；用户仍可显式传其他档位覆盖。 |
 | [CHANGELOG_214.md](CHANGELOG_214.md) | 修复 `bypassPermissions` 被 SDK `system.init` 帧的 `'default'` 覆盖导致 `canUseTool` 短路失效、DB 写成 `'default'` 的问题。 |
+| [CHANGELOG_215.md](CHANGELOG_215.md) | 修复 second-instance argv Chromium 重排问题：`requestSingleInstanceLock({ argv })` + handler 优先读 `additionalData.argv`，彻底修复 CLI 路径 `--permission-mode`/`--cwd`/`--prompt` 全部丢失的 bug。 |

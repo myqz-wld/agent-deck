@@ -27,7 +27,9 @@ const logger = log.scope('main-index');
 process.stdout.on('error', () => {});
 process.stderr.on('error', () => {});
 
-const gotLock = app.requestSingleInstanceLock();
+// additionalData 把原始 process.argv 传给第一个实例的 second-instance handler，
+// 避免 Chromium 重排 commandLine（所有 --flag 前置、值后置）导致 parseCliInvocation 失效。
+const gotLock = app.requestSingleInstanceLock({ argv: process.argv });
 // 锁失败立即 quit;后续 listener 注册全部隔离到 if (gotLock) { ... } 分支,
 // 防止第二实例进 bootstrap 副作用(initDb / hookServer / IPC handler 重复注册)。
 // REVIEW_35 MED-D-claude (HIGH→MED 降级 by codex 反驳)。
