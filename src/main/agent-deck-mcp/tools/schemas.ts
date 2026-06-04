@@ -46,9 +46,9 @@ export type TaskStatusValue = (typeof STATUS_VALUES)[number];
 
 export const SPAWN_SESSION_SCHEMA = {
   adapter: z
-    .enum(['claude-code', 'codex-cli'])
+    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
     .describe(
-      'Which SDK adapter runs the new session: "claude-code" (Claude Code) or "codex-cli" (codex). 跨 adapter 起异构 reviewer pair 时按需选 — lead 自身 adapter 与此无关。',
+      'Which SDK adapter runs the new session: "claude-code" (Claude Code), "deepseek-claude-code" (Deepseek via Claude Code), or "codex-cli" (codex). 跨 adapter 起异构 reviewer pair 时按需选 — lead 自身 adapter 与此无关。',
     ),
   cwd: z
     .string()
@@ -212,7 +212,7 @@ export const LIST_SESSIONS_SCHEMA = {
     ),
   statusFilter: z.enum(['active', 'dormant', 'closed', 'all']).default('active'),
   adapterFilter: z
-    .enum(['claude-code', 'codex-cli'])
+    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
     .optional(),
   spawnedByFilter: z
     .string()
@@ -412,10 +412,10 @@ export const HAND_OFF_SESSION_SHAPE = {
       'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience). **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing. **External worktree auto-降级**: 约定 worktree 走 mainRepo,外置 worktree 自动降级走 worktreePath + handler 加 mainRepo 进 extraAllowWrite。Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath。**Cold-start protocol 详 HAND_OFF_SESSION_CWD_CONTRACT callout (schemas.ts 顶部) + resources/claude-config/CLAUDE.md §Step 3 §选项 A (claude 端) / resources/codex-config/CODEX_AGENTS.md §plan cold-start protocol (codex 端)**',
     ),
   adapter: z
-    .enum(['claude-code', 'codex-cli'])
+    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
     .default('claude-code')
     .describe(
-      'Adapter for the new session. Defaults to "claude-code" (the canonical plan-driven workflow runs Claude Code). Set to "codex-cli" only when plan explicitly designates a different agent.',
+      'Adapter for the new session. Defaults to "claude-code" (the canonical plan-driven workflow runs Claude Code). Set "deepseek-claude-code" for Deepseek via Claude Code, or "codex-cli" when the plan explicitly designates Codex.',
     ),
   teamName: z
     .string()

@@ -82,19 +82,21 @@ export function ComposerSdk({
 
   // 多 agent 适配：
   // - 标签 / placeholder 文案用对应 agent 名（Claude / Codex / ...）
-  // - 权限模式 select 仅 claude-code 显示（codex SDK 没有运行时切权限模式；REVIEW_35 MED-D-codex-3
+  // - 权限模式 select 仅 Claude Code 桥接层显示（codex SDK 没有运行时切权限模式；REVIEW_35 MED-D-codex-3
   //   修法：用 capabilities.canSetPermissionMode 而非 `agentId !== 'codex-cli'` —— 后者把
   //   不支持 setPermissionMode 的 adapter 错归入支持类，切换抛 IPC 错）
   // - codex sandbox select 仅 codex-cli 显示（claude 没有 codex 那套档位）
-  // - claude OS sandbox select 仅 claude-code 显示（CHANGELOG_74，与 codex 字面镜像）
+  // - claude OS sandbox select 仅 Claude Code 桥接层显示（CHANGELOG_74，与 codex 字面镜像）
   // - 图片附件入口（粘贴 / 拖放 / 上传）按 capabilities.canAcceptAttachments gate
-  //   （REVIEW_35 HIGH-D2：当前 claude-code 与 codex-cli 都 true；白名单 gate 防止未来新
+  //   （REVIEW_35 HIGH-D2：当前三种 SDK adapter 都 true；白名单 gate 防止未来新
   //   adapter 默认就拿到 attachments 路径，必须显式 opt-in）
-  const agentDisplayName = agentId === 'codex-cli' ? 'Codex' : 'Claude';
-  const supportsPermissionMode = agentId === 'claude-code';
+  const agentDisplayName =
+    agentId === 'codex-cli' ? 'Codex' : agentId === 'deepseek-claude-code' ? 'Deepseek' : 'Claude';
+  const supportsPermissionMode = agentId === 'claude-code' || agentId === 'deepseek-claude-code';
   const supportsCodexSandbox = agentId === 'codex-cli';
-  const supportsClaudeCodeSandbox = agentId === 'claude-code';
-  const canAcceptAttachments = agentId === 'claude-code' || agentId === 'codex-cli';
+  const supportsClaudeCodeSandbox = agentId === 'claude-code' || agentId === 'deepseek-claude-code';
+  const canAcceptAttachments =
+    agentId === 'claude-code' || agentId === 'deepseek-claude-code' || agentId === 'codex-cli';
 
   const send = async (): Promise<void> => {
     const t = text.trim();
@@ -105,12 +107,12 @@ export function ComposerSdk({
     // 第 2 次闭包仍看 busy=false 重复发同款消息（attachments 已 clear，发空附件 / 空文本）
     if (busyRef.current) return;
     if (busy) return;
-    // REVIEW_35 HIGH-D2：不在白名单的 adapter（当前白名单仅 claude-code / codex-cli）
+    // REVIEW_35 HIGH-D2：不在白名单的 adapter
     // gate 拒发并保留 attachments（不调 imgs.clear()）让用户能切 adapter 或删图后重发；
     // 静默丢图 + 失去 retry 能力的旧版本回归不可接受
     if (!canAcceptAttachments && hasAttachments) {
       setSendError(
-        '当前会话类型不支持图片附件，请移除图片后再发送，或切换到支持图片的 Claude / Codex 会话',
+        '当前会话类型不支持图片附件，请移除图片后再发送，或切换到支持图片的 Claude / Deepseek / Codex 会话',
       );
       return;
     }

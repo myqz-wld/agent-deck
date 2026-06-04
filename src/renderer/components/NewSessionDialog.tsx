@@ -75,8 +75,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
   // Codex 三档 sandbox：仅在 codex-cli adapter 时显示
   const showCodexSandbox = agentId === 'codex-cli';
-  // CHANGELOG_74：Claude OS 沙盒：仅 claude-code adapter 时显示（与 codex 字面镜像）
-  const showClaudeCodeSandbox = agentId === 'claude-code';
+  // CHANGELOG_74：Claude OS 沙盒：Claude Code 及 Deepseek(Claude Code) 都走同一 SDK 桥接层
+  const showClaudeCodeSandbox = agentId === 'claude-code' || agentId === 'deepseek-claude-code';
 
   const browse = async (): Promise<void> => {
     const r = await window.api.chooseDirectory(cwd || undefined);

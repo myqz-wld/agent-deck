@@ -218,6 +218,7 @@ export interface CodexCreateOpts {
  */
 export type CreateSessionOptions =
   | ({ agentId: 'claude-code' } & ClaudeCreateOpts)
+  | ({ agentId: 'deepseek-claude-code' } & ClaudeCreateOpts)
   | ({ agentId: 'codex-cli' } & CodexCreateOpts);
 
 /**

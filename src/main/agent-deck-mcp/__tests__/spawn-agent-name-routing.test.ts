@@ -12,6 +12,8 @@
  *   getBundledAssetContent 第 3 参数 = 'codex-cli'
  * - TC6 (D3 行 2): `{adapter:'claude-code', agentName:'reviewer-codex'}` →
  *   getBundledAssetContent 第 3 参数 = 'claude-code'
+ * - Deepseek: `{adapter:'deepseek-claude-code', agentName:'reviewer-claude'}` →
+ *   getBundledAssetContent 第 3 参数 = 'claude-code'（Deepseek 只换模型/env,复用 Claude 资产）
  *
  * 测试策略：mock getBundledAssetContent 用 spy 记录 (kind, name, adapter) 三参，验证
  * spawn handler 真实透传 args.adapter 作第 3 参数（plan §D4 路由实现点）。
@@ -70,12 +72,11 @@ let nextSpawnedSid = 1;
 vi.mock('@main/adapters/registry', () => ({
   adapterRegistry: {
     get: (id: string) => {
-      // 仅 claude-code / codex-cli 注册;非 schema-valid adapter 由 zod enum 拒
       return {
         id,
         capabilities: {
           canCreateSession: true,
-          canSetPermissionMode: id === 'claude-code',
+          canSetPermissionMode: id === 'claude-code' || id === 'deepseek-claude-code',
         },
         createSession: async (opts: {
           agentId?: string;
@@ -355,6 +356,28 @@ describe('spawn handler agentName 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)'
     expect(getBundledAssetContentCalls[0].adapter).not.toBe('claude-code');
     expect(createSessionCalls[0].prompt).toContain('# codex-cli/reviewer-claude body');
     expect(createSessionCalls[0].prompt).not.toContain('# claude-code/reviewer-claude body');
+  });
+
+  it('Deepseek (Claude Code): adapter=deepseek-claude-code, agentName=reviewer-claude → 复用 claude-config root', async () => {
+    const r = await spawn({
+      adapter: 'deepseek-claude-code',
+      agentName: 'reviewer-claude',
+      cwd: '/repo',
+      prompt: 'review task',
+    });
+
+    const { isError } = parseToolResult(r as any);
+    expect(isError).toBeFalsy();
+
+    expect(getBundledAssetContentCalls).toHaveLength(1);
+    expect(getBundledAssetContentCalls[0]).toEqual({
+      kind: 'agent',
+      name: 'reviewer-claude',
+      adapter: 'claude-code',
+    });
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].adapter).toBe('deepseek-claude-code');
+    expect(createSessionCalls[0].prompt).toContain('# claude-code/reviewer-claude body');
   });
 
   it('TC5 (D3 行 3): codex lead × codex teammate — adapter=codex-cli, agentName=reviewer-codex → 找 codex-config root', async () => {

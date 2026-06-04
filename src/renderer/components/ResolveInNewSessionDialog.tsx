@@ -128,7 +128,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   const selectedAdapter = adapters.find((a) => a.id === adapter);
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
   const showCodexSandbox = adapter === 'codex-cli';
-  const showClaudeCodeSandbox = adapter === 'claude-code';
+  const showClaudeCodeSandbox = adapter === 'claude-code' || adapter === 'deepseek-claude-code';
 
   const handleSubmit = async (): Promise<void> => {
     setError(null);

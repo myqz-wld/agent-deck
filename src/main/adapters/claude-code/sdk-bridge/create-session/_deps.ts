@@ -68,6 +68,11 @@ export interface CreateSessionOpts {
    */
   model?: string;
   /**
+   * Bridge-internal env overlay for Claude-compatible provider profiles. Not exposed through
+   * IPC/MCP raw opts; adapter profiles inject it at bridge.createSession time.
+   */
+  envOverrideExtra?: Readonly<Record<string, string>>;
+  /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
    * bridge 内部 internal 字段(**REVIEW_105 MED-1: 本字段 SSOT 锚点 — facade ClaudeCreateOpts /
    * CreateSessionOptionsRaw 不再声明本字段, 见 adapters/types/create-session-opts.ts REVIEW_105 注释**):

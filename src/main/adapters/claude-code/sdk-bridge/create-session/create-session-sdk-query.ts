@@ -73,7 +73,10 @@ export async function runCreateSessionSdkQuery(
   let realId: string;
   try {
     const { query } = await loadSdk();
-    const runtime = getSdkRuntimeOptions();
+    const baseRuntime = getSdkRuntimeOptions();
+    const runtime = opts.envOverrideExtra
+      ? { ...baseRuntime, env: { ...baseRuntime.env, ...opts.envOverrideExtra } }
+      : baseRuntime;
     // plan add-claude-cli-path-override-and-bump-sdks-20260520 §设计决策 D1 + §不变量 N5
     // + Follow-up F2+F3 抽 helper(plan §D5 + §D7 deviation):resolveClaudeBinary 内含
     // user override priority chain + existsSync 护栏 + bundled fallback;让 follow-up 单测

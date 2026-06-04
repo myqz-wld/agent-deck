@@ -77,10 +77,8 @@ export const spawnSessionHandler = withMcpGuard(
     // 时 loadBundledAssets 预热缓存（main/index.ts:202 step 8.5），现读 fs 一次性拿到。
     // 找不到（拼写错 / 没安装该 plugin）→ 直接 err 防止静默落空 fallback。
     //
-    // **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4 升级**：getBundledAssetContent
-    // 新增 adapter 第 3 参数（plugin root narrow key），caller 必须从 args.adapter 透传。bundled
-    // 资产仅 claude-code / codex-cli 双 root；adapter 不在该 list 时无 plugin 注入概念
-    // （agentName 字段对它们无意义），此处提前 reject 避免传非法 adapter 给 bundled-assets。
+    // Deepseek profile reuses Claude-side agents/skills/resources. It has no separate bundled
+    // asset root, so agentName resolves through the claude-code plugin root.
     //
     // REVIEW_31 Bug 1+2 修法：getBundledAssetContent 真实签名是 discriminated union
     // `{ok:true,content:string} | {ok:false,reason:string}`，老代码把它当 `string|null`
@@ -94,17 +92,15 @@ export const spawnSessionHandler = withMcpGuard(
     // 标的 model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
     let modelFromFrontmatter: string | undefined;
     if (args.agentName) {
-      // **structurally unreachable today** —— zod enum (schemas.ts:20) 已 narrow args.adapter
-      // 为 'claude-code' | 'codex-cli'，但作为 zod-enum drift defense 保留：future 加新 adapter
-      // 到 enum 但忘 plugin-scope（claude-config / codex-config double-root）注册时，此 check
-      // 仍会 reject 防止 caller 拿非 plugin scope adapter 走 bundled-assets 误注入路径。
-      if (args.adapter !== 'claude-code' && args.adapter !== 'codex-cli') {
+      const assetAdapter =
+        args.adapter === 'deepseek-claude-code' ? 'claude-code' : args.adapter;
+      if (assetAdapter !== 'claude-code' && assetAdapter !== 'codex-cli') {
         return err(
           `agentName not supported for adapter "${args.adapter}"`,
           'Plugin agents are scanned from claude-config / codex-config plugin roots only. Adapters outside this list have no agent_deck plugin scope; drop agentName and pass full prompt directly.',
         );
       }
-      const bodyResult = getBundledAssetContent('agent', args.agentName, args.adapter);
+      const bodyResult = getBundledAssetContent('agent', args.agentName, assetAdapter);
       if (!bodyResult.ok) {
         return err(
           `agent body not found for agentName="${args.agentName}": ${bodyResult.reason}`,
