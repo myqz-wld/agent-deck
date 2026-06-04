@@ -74,6 +74,18 @@ export interface InternalSession {
    * 用户主动 interrupt（interruptSession）**不**置此标记 —— UI 仍要看到「已中断」反馈。
    */
   intentionallyClosed: boolean;
+  /** 生成中 tok/s display-only 估算状态（不写库，turn 末清掉）。 */
+  codexLiveTokenEstimate?: CodexLiveTokenEstimateState;
+}
+
+/** Codex 侧生成中 tok/s 估算状态（仅展示，不落库）。 */
+export interface CodexLiveTokenEstimateState {
+  bucketKey: string;
+  estTokensSinceFlush: number;
+  lastFlushTs: number;
+  emaTps: number | undefined;
+  /** item.id → 已累积文本长度，用于计算每次 item.updated 的文本增量。 */
+  itemTextLens: Map<string, number>;
 }
 
 /**
