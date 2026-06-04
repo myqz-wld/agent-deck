@@ -48,7 +48,7 @@ import { settingsStore } from '@main/store/settings-store';
 import { encodeClaudeProjectDir } from '@main/platform';
 import { injectResumeHistory } from '@main/session/resume-history';
 import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
-import type { JsonlExistsThunk, SummariseFnThunk } from './recoverer';
+import type { JsonlExistsThunk, JsonlMtimeMsThunk, SummariseFnThunk } from './recoverer';
 import {
   buildCwdFallbackSummarySkippedText,
   buildCwdFallbackSummaryUsedText,
@@ -61,6 +61,8 @@ import type { SdkSessionHandle } from './types';
 import log from '@main/utils/logger';
 
 const logger = log.scope('claude-jsonl-fallback');
+
+const HEAL_JSONL_MTIME_SKEW_MS = 2_000;
 
 /**
  * helper-local create opts 类型 (R5 codex MED-1 修法):
@@ -102,6 +104,7 @@ export interface JsonlFallbackCreateOpts {
 
 export interface JsonlFallbackCtx {
   jsonlExistsThunk: JsonlExistsThunk;
+  jsonlMtimeMsThunk: JsonlMtimeMsThunk;
   createSession: (opts: JsonlFallbackCreateOpts) => Promise<SdkSessionHandle>;
   emit: (event: AgentEvent) => void;
   summariseFn: SummariseFnThunk;
@@ -167,6 +170,13 @@ type JsonlFallbackOptsBase = {
    * 「查最近 N」不加边界，仍继续 fallback）。
    */
   maxEventIdFn: () => number | null;
+  /**
+   * read-side 幻影 fork 自愈的 freshness 下界，通常传 SessionRecord.lastEventAt。
+   *
+   * applicationSid.jsonl 必须存在且 mtime 不明显早于本值，才允许替代缺失的 cliSessionId.jsonl。
+   * 证据不足时走 fresh fallback，避免真实 fork 的旧 applicationSid.jsonl 被误当成当前历史。
+   */
+  minHealJsonlMtimeMs: number;
   permissionMode?: PermissionMode;
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   model?: string;
@@ -244,6 +254,14 @@ export interface JsonlFallbackResult {
    * undefined/false → 正常按 fellBack 处理。restart 路径不传 isCancelledFn → 本字段恒 undefined。
    */
   aborted?: boolean;
+  /**
+   * **CHANGELOG_224 幻影 fork 自愈**: `fellBack=false` 且 helper 检测到「cli sid 维度 jsonl 缺失但
+   * applicationSid jsonl 在盘」(CLI `--resume` 下 init 帧吐幻影运行 id,transcript 仍在 applicationSid
+   * 名下) → 本字段 = applicationSid(= opts.sessionId)。caller 正常 resume 路径必须把 `resumeCliSid`
+   * 切到本值(而非 rec.cliSessionId 那个幻影 id),否则 CLI `--resume <幻影>` hard-fail。
+   * undefined → 无幻影,caller 沿用 rec.cliSessionId 原值。fellBack=true / aborted 路径恒 undefined。
+   */
+  healedCliSessionId?: string;
 }
 
 /**
@@ -279,11 +297,50 @@ export async function maybeJsonlFallback(
   // (反向 rename 后 cliSessionId 是 SDK 当前 thread sid,与 jsonl 文件名对应;
   //  sessionId/applicationSid 与 jsonl 文件名解耦)。?? sessionId 兜底防 null 边角。
   // OR 短路: cwdFellBack=true 时不调 jsonlExistsThunk(plan §D5 T10a + §不变量 10 fail-safe)
-  const jsonlMissing = opts.cwdFellBack || !ctx.jsonlExistsThunk(opts.cwd, opts.cliSessionId ?? opts.sessionId);
+  let jsonlMissing = opts.cwdFellBack || !ctx.jsonlExistsThunk(opts.cwd, opts.cliSessionId ?? opts.sessionId);
+
+  // **幻影 fork 自愈 (CHANGELOG_224)**: cli sid 维度的 jsonl 缺失,但这极可能是「幻影 fork」——
+  // CLI 在 `--resume <applicationSid>` + streaming-input 下,init 帧会吐一个全新「运行 id」
+  // (hook/settings-env 按它建空 session-env 目录),而 transcript 实际仍续写在 applicationSid
+  // 名下的 jsonl(每条记录 sessionId=applicationSid,parentUuid 直接挂回原消息树)。stream-processor
+  // S6 fork detect 只读 init 帧那个运行 id 就写进 cli_session_id 列 → 列指向一个从不落盘的 id。
+  // 退 fresh-cli(丢连续会话线退化成 DB 摘要注入,违反 CLAUDE.md「resume 优先」纲领)之前,先探测
+  // applicationSid.jsonl: 命中且 mtime 足够新才认为真历史就在盘上,改用它 resume(caller
+  // resumeCliSid 跟随 healedCliSessionId),不退 fresh-cli。
+  // 触发条件: ① cli sid 维度缺失 ② 非 cwdFellBack(cwd 已切,原 jsonl 不在新 cwd 下,保持 fail-safe
+  // fallback 不误判存在) ③ cliSessionId 非空且 != applicationSid(相等时 primary 已覆盖,无幻影)。
+  // 本 helper 不主动写 cli_session_id: 它只在 read-side 兜底历史已污染的 row。source-side
+  // 修复在 stream-processor 首帧处理处完成，避免后续 resume 再把幻影运行 id 写进 DB。
+  let healedCliSessionId: string | undefined;
+  if (jsonlMissing && !opts.cwdFellBack && opts.cliSessionId && opts.cliSessionId !== opts.sessionId) {
+    if (ctx.jsonlExistsThunk(opts.cwd, opts.sessionId)) {
+      const appSidJsonlMtimeMs = ctx.jsonlMtimeMsThunk(opts.cwd, opts.sessionId);
+      const freshnessCutoff = opts.minHealJsonlMtimeMs - HEAL_JSONL_MTIME_SKEW_MS;
+      if (appSidJsonlMtimeMs == null || appSidJsonlMtimeMs < freshnessCutoff) {
+        logger.warn(
+          `[jsonl-fallback] 幻影 fork 自愈跳过: emitContext=${opts.emitContext} ` +
+            `cliSessionId=${opts.cliSessionId} 无 jsonl,applicationSid=${opts.sessionId} jsonl 在盘 ` +
+            `但 mtime=${appSidJsonlMtimeMs ?? 'null'} 早于 freshnessCutoff=${freshnessCutoff} ` +
+            `minHealJsonlMtimeMs=${opts.minHealJsonlMtimeMs}; 走 fresh-cli fallback`,
+        );
+      } else {
+        healedCliSessionId = opts.sessionId;
+        jsonlMissing = false;
+        logger.warn(
+          `[jsonl-fallback] 幻影 fork 自愈: emitContext=${opts.emitContext} ` +
+            `cliSessionId=${opts.cliSessionId} 无 jsonl,但 applicationSid=${opts.sessionId} jsonl 在盘 → ` +
+            `mtime=${appSidJsonlMtimeMs} freshnessCutoff=${freshnessCutoff}; ` +
+            `改用 applicationSid resume (caller resumeCliSid 切到 healedCliSessionId),不退 fresh-cli`,
+        );
+      }
+    }
+  }
 
   if (!jsonlMissing) {
-    // 正常路径:caller 自走原 resume 路径,helper 不 emit / 不 createSession
-    return { finalSessionId: opts.sessionId, fellBack: false };
+    // 正常路径 / 幻影 fork 自愈命中:caller 自走原 resume 路径,helper 不 emit / 不 createSession。
+    // healedCliSessionId 命中时 caller 把 resumeCliSid 切到它(= applicationSid)让 CLI `--resume`
+    // 找对 jsonl;未命中(undefined)时 caller 沿用 rec.cliSessionId 原值(行为不变)。
+    return { finalSessionId: opts.sessionId, fellBack: false, healedCliSessionId };
   }
 
   // **CHANGELOG_223 排查日志（fork 子 jsonl 落盘 vs 连续快速重启时序竞态）**：precheck 判定 jsonl

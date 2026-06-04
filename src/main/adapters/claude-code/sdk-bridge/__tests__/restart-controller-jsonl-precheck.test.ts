@@ -129,6 +129,7 @@ function makeCtx(opts: MakeCtxOpts = {}): {
     },
     createSession: createSessionSpy as unknown as RestartCtx['createSession'],
     jsonlExistsThunk: () => opts.jsonlExistsReturn ?? true,
+    jsonlMtimeMsThunk: () => 10_000,
     summariseFn: async () => opts.summariseFnReturn ?? null,
     listEventsFn: () => opts.listEventsFnReturn ?? [],
     listMessagesFn: () => opts.listMessagesFnReturn ?? [], // plan resume-inject §D5: message-only stub

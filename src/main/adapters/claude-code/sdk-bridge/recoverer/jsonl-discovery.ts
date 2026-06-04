@@ -15,7 +15,7 @@
  * `recoverer.ts` 不再含 fs / os / path 直接 import,仅留 SessionRecoverer class shell +
  * 复用本子模块的 default fn 作 thunk 默认值。
  */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { encodeClaudeProjectDir } from '@main/platform';
@@ -43,6 +43,22 @@ export function defaultResumeJsonlExists(cwd: string, sessionId: string): boolea
   } catch {
     // 任意异常（cwd 解析失败 / FS 权限）→ 退化让 createSession 自己 try，最差不过原行为
     return true;
+  }
+}
+
+/**
+ * 读取 Claude Code CLI resume jsonl 的 mtime。
+ *
+ * 只用于 read-side 幻影 fork 自愈的 freshness gate：若 applicationSid.jsonl 明显早于 DB
+ * lastEventAt，说明它可能是真实 fork 前的旧历史，不能拿它替代缺失的 cliSessionId.jsonl。
+ */
+export function defaultResumeJsonlMtimeMs(cwd: string, sessionId: string): number | null {
+  try {
+    const encodedDir = encodeClaudeProjectDir(cwd);
+    const jsonlPath = join(homedir(), '.claude', 'projects', encodedDir, `${sessionId}.jsonl`);
+    return statSync(jsonlPath).mtimeMs;
+  } catch {
+    return null;
   }
 }
 

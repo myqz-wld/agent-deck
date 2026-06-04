@@ -36,6 +36,7 @@ import type {
   CreateSessionThunk,
   CwdExistsThunk,
   JsonlExistsThunk,
+  JsonlMtimeMsThunk,
   RecovererCtx,
   SendMessageThunk,
   SummariseFnThunk,
@@ -48,6 +49,7 @@ export type {
   CreateSessionThunk,
   CwdExistsThunk,
   JsonlExistsThunk,
+  JsonlMtimeMsThunk,
   RecovererCtx,
   SendMessageThunk,
   SummariseFnThunk,
@@ -56,6 +58,7 @@ export type {
 // re-export 2 default fn — facade.ctor 默认值 + sdk-bridge.ts:46 import 链兼容
 export {
   defaultCwdExists,
+  defaultResumeJsonlMtimeMs,
   defaultResumeJsonlExists,
 } from './recoverer/jsonl-discovery';
 
@@ -77,6 +80,7 @@ export class SessionRecoverer {
      * extend facade override resumeJsonlExists），保证现有测试范式（TestBridge）不破。
      */
     private readonly jsonlExistsThunk: JsonlExistsThunk,
+    private readonly jsonlMtimeMsThunk: JsonlMtimeMsThunk,
     /**
      * CHANGELOG_99：cwd 存在性探测 thunk(test seam)。facade 内部转发给 protected
      * cwdExists 方法,默认走 fs.existsSync。
@@ -130,6 +134,7 @@ export class SessionRecoverer {
       createThunk: this.createThunk,
       sendThunk: this.sendThunk,
       jsonlExistsThunk: this.jsonlExistsThunk,
+      jsonlMtimeMsThunk: this.jsonlMtimeMsThunk,
       cwdExistsThunk: this.cwdExistsThunk,
       summariseFn: this.summariseFn,
       listEventsFn: this.listEventsFn,

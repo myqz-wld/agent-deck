@@ -90,6 +90,7 @@ function makeCtx(opts?: {
     // race 行为验证。summariseFn / listEventsFn 走 stub return null / 空数组,fellBack=true 不会
     // 触发(jsonl 假装在),不调用。
     jsonlExistsThunk: () => true, // jsonl 假装在 → maybeJsonlFallback fellBack=false 走原路径
+    jsonlMtimeMsThunk: () => 10_000,
     summariseFn: async () => null,
     listEventsFn: () => [],
     listMessagesFn: () => [], // plan resume-inject §D5: jsonl 假装在不触发 fallback，stub 空

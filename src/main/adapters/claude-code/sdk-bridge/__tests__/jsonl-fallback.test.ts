@@ -42,6 +42,7 @@ const emits: AgentEvent[] = [];
 
 interface MakeCtxOpts {
   jsonlExistsReturn?: boolean | ((cwd: string, sid: string) => boolean);
+  jsonlMtimeMsReturn?: number | null | ((cwd: string, sid: string) => number | null);
   createSession?: (opts: unknown) => Promise<SdkSessionHandle>;
   summariseFnReturn?: string | null;
   listEventsFnReturn?: AgentEvent[];
@@ -54,6 +55,7 @@ interface MakeCtxOpts {
 function makeCtx(opts: MakeCtxOpts = {}): {
   ctx: JsonlFallbackCtx;
   jsonlExistsThunkSpy: ReturnType<typeof vi.fn>;
+  jsonlMtimeMsThunkSpy: ReturnType<typeof vi.fn>;
   createSessionSpy: ReturnType<typeof vi.fn>;
   summariseFnSpy: ReturnType<typeof vi.fn>;
 } {
@@ -63,6 +65,12 @@ function makeCtx(opts: MakeCtxOpts = {}): {
       : (_cwd: string, _sid: string) =>
           opts.jsonlExistsReturn === undefined ? true : opts.jsonlExistsReturn,
   );
+  const jsonlMtimeMsThunkSpy = vi.fn(
+    typeof opts.jsonlMtimeMsReturn === 'function'
+      ? opts.jsonlMtimeMsReturn
+      : (_cwd: string, _sid: string) =>
+          opts.jsonlMtimeMsReturn === undefined ? 10_000 : opts.jsonlMtimeMsReturn,
+  );
   const createSessionSpy = vi.fn(
     opts.createSession ??
       (async () => ({ sessionId: 'helper-stub-sid' }) as SdkSessionHandle),
@@ -70,6 +78,7 @@ function makeCtx(opts: MakeCtxOpts = {}): {
   const summariseFnSpy = vi.fn(async () => opts.summariseFnReturn ?? null);
   const ctx: JsonlFallbackCtx = {
     jsonlExistsThunk: jsonlExistsThunkSpy as unknown as JsonlFallbackCtx['jsonlExistsThunk'],
+    jsonlMtimeMsThunk: jsonlMtimeMsThunkSpy as unknown as JsonlFallbackCtx['jsonlMtimeMsThunk'],
     createSession: createSessionSpy as unknown as JsonlFallbackCtx['createSession'],
     emit: (e) => emits.push(e),
     summariseFn: summariseFnSpy as unknown as JsonlFallbackCtx['summariseFn'],
@@ -80,7 +89,7 @@ function makeCtx(opts: MakeCtxOpts = {}): {
       : () => opts.listEventsFnReturn ?? [],
     listMessagesFn: () => opts.listMessagesFnReturn ?? [],
   };
-  return { ctx, jsonlExistsThunkSpy, createSessionSpy, summariseFnSpy };
+  return { ctx, jsonlExistsThunkSpy, jsonlMtimeMsThunkSpy, createSessionSpy, summariseFnSpy };
 }
 
 function makeRecoverOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallbackOpts {
@@ -91,6 +100,7 @@ function makeRecoverOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallb
     prependCwd: '/tmp/test',
     prompt: '继续之前的话题',
     maxEventIdFn: () => null,
+    minHealJsonlMtimeMs: 1_000,
     emitContext: 'recover',
     cwdFellBack: false,
     ...(overrides as object),
@@ -105,6 +115,7 @@ function makeRestartOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallb
     prependCwd: '/tmp/test',
     prompt: '继续之前的会话',
     maxEventIdFn: () => null,
+    minHealJsonlMtimeMs: 1_000,
     emitContext: 'restart',
     cwdFellBack: false,
     restartLabel: '权限模式 plan',
@@ -468,5 +479,109 @@ describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
     expect(result.aborted).toBeUndefined();
     expect(result.fellBack).toBe(true);
     expect(createSessionSpy).toHaveBeenCalledOnce(); // restart 正常起，不被 closed gate 拦
+  });
+
+  // ─────────────────────────────────────────────
+  // CHANGELOG_224: 幻影 fork 自愈 — cli sid 维度 jsonl 缺失但 applicationSid jsonl 在盘
+  // (CLI `--resume` 下 init 帧吐幻影运行 id,transcript 仍写在 applicationSid 名下)
+  // ─────────────────────────────────────────────
+  it('Heal-1: cliSessionId.jsonl 缺失 + applicationSid.jsonl 在 → fellBack=false + healedCliSessionId===sessionId + 不退 fresh-cli', async () => {
+    const { ctx, createSessionSpy, jsonlExistsThunkSpy, jsonlMtimeMsThunkSpy } = makeCtx({
+      // cli sid 维度的 jsonl 不在(幻影),只有 applicationSid 的在盘
+      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-A',
+      jsonlMtimeMsReturn: 10_000,
+    });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: 'cli-sid-phantom', cwd: '/tmp/h' }),
+    );
+    expect(result.fellBack).toBe(false); // 不退 fresh-cli
+    expect(result.healedCliSessionId).toBe('app-sid-A'); // caller 据此把 resumeCliSid 切到 applicationSid
+    expect(result.finalSessionId).toBe('app-sid-A');
+    expect(createSessionSpy).not.toHaveBeenCalled(); // helper 不起 fresh CLI
+    expect(emits).toHaveLength(0); // 不 emit fallback info(走正常 resume)
+    // 探测两次: 先 cli sid(false) 后 applicationSid(true)
+    expect(jsonlExistsThunkSpy).toHaveBeenNthCalledWith(1, '/tmp/h', 'cli-sid-phantom');
+    expect(jsonlExistsThunkSpy).toHaveBeenNthCalledWith(2, '/tmp/h', 'app-sid-A');
+    expect(jsonlMtimeMsThunkSpy).toHaveBeenCalledWith('/tmp/h', 'app-sid-A');
+  });
+
+  it('Heal-1b: applicationSid.jsonl 早于 lastEventAt → 视为 stale,不自愈并退 fresh-cli', async () => {
+    const { ctx, createSessionSpy, jsonlMtimeMsThunkSpy } = makeCtx({
+      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-A',
+      jsonlMtimeMsReturn: 1_000,
+    });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRecoverOpts({
+        sessionId: 'app-sid-A',
+        cliSessionId: 'cli-sid-real-fork',
+        cwd: '/tmp/h',
+        minHealJsonlMtimeMs: 10_000,
+      }),
+    );
+    expect(result.fellBack).toBe(true);
+    expect(result.healedCliSessionId).toBeUndefined();
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+    expect(jsonlMtimeMsThunkSpy).toHaveBeenCalledWith('/tmp/h', 'app-sid-A');
+  });
+
+  it('Heal-1c: applicationSid.jsonl mtime 探测失败 → 证据不足,不自愈并退 fresh-cli', async () => {
+    const { ctx, createSessionSpy } = makeCtx({
+      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-A',
+      jsonlMtimeMsReturn: null,
+    });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: 'cli-sid-real-fork', cwd: '/tmp/h' }),
+    );
+    expect(result.fellBack).toBe(true);
+    expect(result.healedCliSessionId).toBeUndefined();
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+  });
+
+  it('Heal-2: cli sid + applicationSid 两个 jsonl 都缺失 → 无自愈,正常退 fresh-cli (fellBack=true + healedCliSessionId undefined)', async () => {
+    const { ctx, createSessionSpy } = makeCtx({ jsonlExistsReturn: false });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: 'cli-sid-phantom' }),
+    );
+    expect(result.fellBack).toBe(true);
+    expect(result.healedCliSessionId).toBeUndefined();
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+  });
+
+  it('Heal-3: cwdFellBack=true → 短路不探测(applicationSid jsonl 即便在盘也不自愈,保持 fail-safe fallback)', async () => {
+    const { ctx, createSessionSpy, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: true });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: 'cli-sid-phantom', cwdFellBack: true }),
+    );
+    expect(result.healedCliSessionId).toBeUndefined();
+    expect(result.fellBack).toBe(true); // cwd 切了走 fresh-cli fallback
+    expect(jsonlExistsThunkSpy).not.toHaveBeenCalled(); // 短路: 自愈探测也不调 thunk
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+  });
+
+  it('Heal-4: cliSessionId === sessionId (无幻影可言) + jsonl 缺失 → 不自愈,退 fresh-cli', async () => {
+    const { ctx, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: false });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRecoverOpts({ sessionId: 'same-id', cliSessionId: 'same-id' }),
+    );
+    expect(result.healedCliSessionId).toBeUndefined();
+    expect(result.fellBack).toBe(true);
+    expect(jsonlExistsThunkSpy).toHaveBeenCalledOnce(); // 仅 primary 一次,不重复探 applicationSid
+  });
+
+  it('Heal-5: cliSessionId null + applicationSid jsonl 缺失 → 不因 null 触发自愈探测,退 fresh-cli', async () => {
+    const { ctx, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: false });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: null }),
+    );
+    expect(result.healedCliSessionId).toBeUndefined();
+    expect(result.fellBack).toBe(true);
+    expect(jsonlExistsThunkSpy).toHaveBeenCalledOnce(); // primary 用 ?? sessionId 探一次,不二探
   });
 });

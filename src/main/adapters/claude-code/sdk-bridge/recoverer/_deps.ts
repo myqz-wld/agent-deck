@@ -8,8 +8,8 @@
  *
  * **本文件覆盖范围**：
  * - `RecovererCtx` — facade 注入的 ctx ref（recovering Map SHARED + emit thunk）
- * - 5 thunk type signatures（CreateSessionThunk / SendMessageThunk / JsonlExistsThunk /
- *   CwdExistsThunk / SummariseFnThunk）+ ListEventsFnThunk
+ * - thunk type signatures（CreateSessionThunk / SendMessageThunk / JsonlExistsThunk /
+ *   JsonlMtimeMsThunk / CwdExistsThunk / SummariseFnThunk）+ ListEventsFnThunk
  *
  * **不变量保留**：所有原 inline jsdoc 字面 carry over（REVIEW_36 HIGH-1 sandbox 透传 /
  * REVIEW_58 HIGH skipFirstUserEmit / plan reverse-rename-sid-stability §A.4-pre S1 R6+R7 /
@@ -146,6 +146,15 @@ export type SendMessageThunk = (
 export type JsonlExistsThunk = (cwd: string, sessionId: string) => boolean;
 
 /**
+ * Claude Code CLI resume jsonl 的 mtime 探测 thunk(test seam)。
+ *
+ * 返回 epoch ms；文件不存在 / stat 失败 / 权限异常返回 null。read-side 幻影 fork 自愈只在
+ * applicationSid.jsonl 存在且 mtime 足够新时才 resume applicationSid，避免真实 fork 当前
+ * cli jsonl 缺失时误用旧 applicationSid.jsonl 回退上下文。
+ */
+export type JsonlMtimeMsThunk = (cwd: string, sessionId: string) => number | null;
+
+/**
  * CHANGELOG_99：cwd 存在性 thunk(test seam)。默认实现走 node fs `existsSync`,
  * test 通过 facade extend override 让单测不依赖真 fs。
  */
@@ -232,6 +241,7 @@ export interface RecoverAndSendDeps {
   readonly createThunk: CreateSessionThunk;
   readonly sendThunk: SendMessageThunk;
   readonly jsonlExistsThunk: JsonlExistsThunk;
+  readonly jsonlMtimeMsThunk: JsonlMtimeMsThunk;
   readonly cwdExistsThunk: CwdExistsThunk;
   readonly summariseFn: SummariseFnThunk;
   readonly listEventsFn: ListEventsFnThunk;

@@ -226,8 +226,12 @@ export async function runCreateSessionSdkQuery(
     // tempKey 兼容 stream-processor.ts first realId 切 key 在 catch 之前完成的边角 (spawn
     // 主路径 isNewSpawn 三分支保护已 delete tempKey + set realId,本句 no-op safety net)。
     // 与 codex/sdk-bridge/index.ts:799 同款 parity 收口 (codex 端正确用 initialSid)。
-    deps.sessions.delete(internal.applicationSid);
-    deps.sessions.delete(tempKey);
+    if (deps.sessions.get(internal.applicationSid) === internal) {
+      deps.sessions.delete(internal.applicationSid);
+    }
+    if (deps.sessions.get(tempKey) === internal) {
+      deps.sessions.delete(tempKey);
+    }
     releasePending();
     // REVIEW_5 H4：构造期就 claim 了 opts.resume，失败路径必须释放，
     // 否则下次同 sessionId 的真实 hook / 终端 CLI 会话会被静默吞掉
