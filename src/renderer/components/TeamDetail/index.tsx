@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useCallback, useEffect, useState, type JSX } from 'react';
 import type {
   AgentDeckMessage,
   AgentDeckTeam,
@@ -86,6 +86,17 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
       offTeam();
       offMsg();
     };
+  }, [teamId]);
+
+  const reloadAfterMemberAdded = useCallback(async (): Promise<void> => {
+    const row = await window.api.getAgentDeckTeamFull(teamId);
+    if (!row) {
+      setError('团队不存在或已删除');
+      return;
+    }
+    setSnap(row);
+    setError(null);
+    setLoading(false);
   }, [teamId]);
 
   // plan team-cohesion-fix-20260513 Phase F D7：批量 close 所有 teammate（lead 不动）。
@@ -198,7 +209,13 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
         )}
       </Header>
       <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
-        <MembersSection members={snap.members} onOpenSession={onOpenSession} />
+        <MembersSection
+          teamId={teamId}
+          members={snap.members}
+          onOpenSession={onOpenSession}
+          canAddMember={snap.archivedAt === null}
+          onMemberAdded={reloadAfterMemberAdded}
+        />
         <LineageSection members={snap.members} onOpenSession={onOpenSession} />
         <PendingSection members={snap.members} onOpenSession={onOpenSession} />
         <EventsSection events={snap.recentEvents} />

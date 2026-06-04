@@ -18,6 +18,7 @@ import type {
   SessionRecord,
   SummaryRecord,
   TaskChangedEvent,
+  TokenRateTickEvent,
   TokenUsageChangedEvent,
 } from '@shared/types';
 import { subscribe } from './_helpers';
@@ -51,10 +52,13 @@ export const eventsApi = {
     subscribe<IssueChangedEvent>(IpcEvent.IssueChanged, cb),
   /**
    * Token 使用统计 (plan model-token-stats-and-dashboard-20260602 §Phase 2 Q5)：订阅 token_usage
-   * 落库 after-commit 推送。数据 tab 订阅后 debounce refetch daily（header / rates 走 poll 不依赖此）。
+   * 落库 after-commit 推送。renderer 订阅后 debounce refetch daily/rates。
    */
   onTokenUsageChanged: (cb: (e: TokenUsageChangedEvent) => void): (() => void) =>
     subscribe<TokenUsageChangedEvent>(IpcEvent.TokenUsageChanged, cb),
+  /** 生成中 tok/s 估算 tick。display-only，不落库。 */
+  onTokenRateTick: (cb: (e: TokenRateTickEvent) => void): (() => void) =>
+    subscribe<TokenRateTickEvent>(IpcEvent.TokenRateTick, cb),
   onPinToggled: (cb: (pinned: boolean) => void): (() => void) =>
     subscribe<boolean>(IpcEvent.PinToggled, cb),
   onTransparentToggled: (cb: (transparent: boolean) => void): (() => void) =>

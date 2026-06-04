@@ -61,6 +61,13 @@ export interface PendingExitPlanModeEntry {
  */
 export type PendingUserMessage = () => Promise<SDKUserMessage>;
 
+export interface LiveTokenEstimateState {
+  bucketKey: string;
+  estTokensSinceFlush: number;
+  lastFlushTs: number;
+  emaTps?: number;
+}
+
 export interface InternalSession {
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 / 不变量 1+2 双轨字段**:
@@ -181,6 +188,8 @@ export interface InternalSession {
     string,
     { input: number; output: number; cacheRead: number; cacheCreation: number }
   >;
+  /** 生成中 tok/s 估算展示态。display-only；turn result / session 结束时清理。 */
+  liveTokenEstimate?: LiveTokenEstimateState;
   /**
    * 应用层主动关闭/重启该 session 的标记。置位时 query loop catch 块抛的 SDK 错误
    * （典型：approve-bypass deny+interrupt:true 触发 SDK 内部 [ede_diagnostic] 状态机
@@ -265,6 +274,7 @@ export function makeInternalSession(opts: {
     pendingFileChangeIntents: new Map(),
     seenUsageMessageIds: new Map(),
     turnUsageByBucket: new Map(),
+    liveTokenEstimate: undefined,
     // R3 fix-3: permissionModeChain 默认 undefined（无 in-flight setPermissionMode）
   };
 }

@@ -1,8 +1,9 @@
-import type { JSX } from 'react';
-import type { AgentDeckTeamMember } from '@shared/types';
+import { useMemo, useState, type JSX } from 'react';
+import type { AgentDeckTeamMember, AgentDeckTeamMemberRole, SessionRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { Section, EmptyState } from './Header';
 import { lifecycleLabel, agentIdLabel } from './helpers';
+import { selectJoinableTeamSessions } from './member-candidates';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：成员清单 section。
@@ -17,16 +18,78 @@ import { lifecycleLabel, agentIdLabel } from './helpers';
  * 直接渲染 props 不再做 fs / IPC 调用）。
  */
 interface Props {
+  teamId: string;
   members: AgentDeckTeamMember[];
   onOpenSession: (sessionId: string) => void;
+  canAddMember: boolean;
+  onMemberAdded: () => Promise<void>;
 }
 
-export function MembersSection({ members, onOpenSession }: Props): JSX.Element {
+export function MembersSection({
+  teamId,
+  members,
+  onOpenSession,
+  canAddMember,
+  onMemberAdded,
+}: Props): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions);
+  const [addSessionId, setAddSessionId] = useState('');
+  const [addRole, setAddRole] = useState<AgentDeckTeamMemberRole>('teammate');
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const joinableSessions = useMemo(
+    () => selectJoinableTeamSessions(sessions, members),
+    [sessions, members],
+  );
+  const selectedSession =
+    joinableSessions.find((session) => session.id === addSessionId) ?? joinableSessions[0] ?? null;
+  const selectedSessionId = selectedSession?.id ?? '';
+
+  const onAddMember = async (): Promise<void> => {
+    if (!canAddMember || addBusy || !selectedSession) return;
+    setAddBusy(true);
+    setAddError(null);
+    try {
+      await window.api.addAgentDeckTeamMember({
+        teamId,
+        sessionId: selectedSession.id,
+        role: addRole,
+      });
+      setAddSessionId('');
+      try {
+        await onMemberAdded();
+      } catch (err) {
+        setAddError(`已加入，刷新失败：${(err as Error).message ?? String(err)}`);
+      }
+    } catch (err) {
+      setAddError(`加入失败：${(err as Error).message ?? String(err)}`);
+    } finally {
+      setAddBusy(false);
+    }
+  };
 
   if (members.length === 0) {
     return (
       <Section title="成员" count={0}>
+        {canAddMember && (
+          <AddMemberForm
+            joinableSessions={joinableSessions}
+            selectedSessionId={selectedSessionId}
+            role={addRole}
+            busy={addBusy}
+            error={addError}
+            onSessionChange={(value) => {
+              setAddSessionId(value);
+              setAddError(null);
+            }}
+            onRoleChange={(value) => {
+              setAddRole(value);
+              setAddError(null);
+            }}
+            onSubmit={() => void onAddMember()}
+          />
+        )}
         <EmptyState>尚无成员</EmptyState>
       </Section>
     );
@@ -34,6 +97,24 @@ export function MembersSection({ members, onOpenSession }: Props): JSX.Element {
 
   return (
     <Section title="成员" count={members.length}>
+      {canAddMember && (
+        <AddMemberForm
+          joinableSessions={joinableSessions}
+          selectedSessionId={selectedSessionId}
+          role={addRole}
+          busy={addBusy}
+          error={addError}
+          onSessionChange={(value) => {
+            setAddSessionId(value);
+            setAddError(null);
+          }}
+          onRoleChange={(value) => {
+            setAddRole(value);
+            setAddError(null);
+          }}
+          onSubmit={() => void onAddMember()}
+        />
+      )}
       <ul className="flex flex-col gap-1">
         {members.map((m) => {
           const sess = sessions.get(m.sessionId);
@@ -62,6 +143,81 @@ export function MembersSection({ members, onOpenSession }: Props): JSX.Element {
       </ul>
     </Section>
   );
+}
+
+function AddMemberForm({
+  joinableSessions,
+  selectedSessionId,
+  role,
+  busy,
+  error,
+  onSessionChange,
+  onRoleChange,
+  onSubmit,
+}: {
+  joinableSessions: SessionRecord[];
+  selectedSessionId: string;
+  role: AgentDeckTeamMemberRole;
+  busy: boolean;
+  error: string | null;
+  onSessionChange: (value: string) => void;
+  onRoleChange: (value: AgentDeckTeamMemberRole) => void;
+  onSubmit: () => void;
+}): JSX.Element {
+  const disabled = busy || !selectedSessionId || joinableSessions.length === 0;
+
+  return (
+    <form
+      className="mb-2 flex flex-col gap-1 rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1.5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select
+          aria-label="选择要加入团队的会话"
+          value={selectedSessionId}
+          onChange={(event) => onSessionChange(event.target.value)}
+          disabled={busy || joinableSessions.length === 0}
+          className="min-w-0 flex-1 rounded border border-deck-border bg-deck-bg px-1.5 py-0.5 text-[10px] text-deck-text outline-none hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {joinableSessions.length === 0 ? (
+            <option value="">没有可加入的活跃会话</option>
+          ) : (
+            joinableSessions.map((session) => (
+              <option key={session.id} value={session.id}>
+                {sessionOptionLabel(session)}
+              </option>
+            ))
+          )}
+        </select>
+        <select
+          aria-label="成员角色"
+          value={role}
+          onChange={(event) => onRoleChange(event.target.value as AgentDeckTeamMemberRole)}
+          disabled={busy || joinableSessions.length === 0}
+          className="w-[72px] rounded border border-deck-border bg-deck-bg px-1.5 py-0.5 text-[10px] text-deck-text outline-none hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <option value="teammate">协作者</option>
+          <option value="lead">负责人</option>
+        </select>
+        <button
+          type="submit"
+          disabled={disabled}
+          className="rounded bg-blue-400/15 px-2 py-0.5 text-[10px] font-medium text-blue-200 transition hover:bg-blue-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {busy ? '加入中…' : '+ 加入'}
+        </button>
+      </div>
+      {error && <div className="text-[10px] text-status-waiting/90">{error}</div>}
+    </form>
+  );
+}
+
+function sessionOptionLabel(session: SessionRecord): string {
+  const title = session.title.trim() || session.id.slice(0, 8);
+  return `${title} · ${agentIdLabel(session.agentId)} · ${lifecycleLabel(session.lifecycle)}`;
 }
 
 function RoleBadge({ role }: { role: 'lead' | 'teammate' }): JSX.Element {

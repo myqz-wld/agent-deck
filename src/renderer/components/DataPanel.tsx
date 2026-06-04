@@ -1,6 +1,7 @@
 import { useEffect, useMemo, type JSX } from 'react';
 import { useTokenUsageStore } from '../stores/token-usage-store';
 import { useTokenRatesPoll } from '../hooks/use-token-rates-poll';
+import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
 import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
 import type { TokenDailyRow } from '@shared/types';
 
@@ -8,12 +9,12 @@ import type { TokenDailyRow } from '@shared/types';
  * 数据 tab：每模型每天 token 使用统计（plan model-token-stats-and-dashboard-20260602 §Phase 3 R5）。
  *
  * 需求2 + 追加：
- * - **顶部实时区**：全部 model bucket 的当前 token/s（非仅 Top3，与 header 同源 rates poll）。
+ * - **顶部实时区**：全部 model bucket 的当前 token/s（生成中 fresh live 估算优先，其次 60s 窗口）。
  * - **今日汇总行**：今日各指标合计。
  * - **主体表格**：行 = model bucket（友好名）× 日期，列 = input/output/cacheRead/cacheCreation（无费用）。
  *
- * **刷新**：rates 走 poll（useTokenRatesPoll）；daily 走 push（onTokenUsageChanged debounce refetch）+
- * mount 拉一次（组件自订阅模式，与 IssuesPanel 同款，use-event-bridge 不动）。
+ * **刷新**：rates/live 走 useTokenRatesPoll；daily 走 onTokenUsageChanged debounce refetch + mount 拉一次
+ * （组件自订阅模式，与 IssuesPanel 同款，use-event-bridge 不动）。
  */
 
 const DAILY_REFETCH_DEBOUNCE_MS = 500;
@@ -25,6 +26,7 @@ function fmt(n: number): string {
 
 export function DataPanel(): JSX.Element {
   const rates = useTokenUsageStore((s) => s.rates);
+  const liveBySession = useTokenUsageStore((s) => s.liveBySession);
   const daily = useTokenUsageStore((s) => s.daily);
   const setDaily = useTokenUsageStore((s) => s.setDaily);
   useTokenRatesPoll();
@@ -50,19 +52,21 @@ export function DataPanel(): JSX.Element {
     };
   }, [setDaily]);
 
-  // 实时区：全 bucket token/s（output ÷ 60），降序
-  const liveRates = useMemo(
-    () =>
-      rates
-        .map((r) => ({
-          bucketKey: r.bucketKey,
-          name: normalizeModel(r.bucketKey).displayName,
-          tps: r.outputTokens / (WINDOW_MS / 1000),
-        }))
-        .filter((r) => r.tps > 0)
-        .sort((a, b) => b.tps - a.tps),
-    [rates],
-  );
+  // 实时区：全 bucket token/s，生成中 fresh live 估算优先，降序
+  const liveRates = useMemo(() => {
+    const freshLiveByBucket = buildFreshLiveByBucket(liveBySession, Date.now());
+    const rateByBucket = new Map(rates.map((r) => [r.bucketKey, r.outputTokens / (WINDOW_MS / 1000)]));
+    return rankLiveAwareBuckets(freshLiveByBucket, rates)
+      .map((bucketKey) => {
+        const tps = freshLiveByBucket.get(bucketKey) ?? rateByBucket.get(bucketKey) ?? 0;
+        return {
+          bucketKey,
+          name: normalizeModel(bucketKey).displayName,
+          tps,
+        };
+      })
+      .filter((r) => r.tps > 0);
+  }, [liveBySession, rates]);
   const totalTps = liveRates.reduce((sum, r) => sum + r.tps, 0);
 
   // 今日汇总（daily 里 day === 本地今天的行）+ 全量汇总
@@ -80,7 +84,7 @@ export function DataPanel(): JSX.Element {
       <section className="mb-3">
         <div className="mb-1 flex items-center gap-2 text-deck-muted">
           <span className="font-medium text-deck-text">实时输出速率</span>
-          <span className="text-[10px] text-deck-muted/70">最近 {WINDOW_MS / 1000}s 滑动窗口</span>
+          <span className="text-[10px] text-deck-muted/70">生成中估算 / {WINDOW_MS / 1000}s 窗口</span>
           {totalTps > 0 && (
             <span className="ml-auto tabular-nums text-status-working">
               合计 {totalTps < 10 ? totalTps.toFixed(1) : Math.round(totalTps)} tok/s

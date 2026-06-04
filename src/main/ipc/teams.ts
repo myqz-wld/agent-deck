@@ -209,6 +209,7 @@ export function registerTeamsIpc(): void {
         sessionId,
         kind: 'joined',
       });
+      sessionManager.notifyTeamMembershipChanged(sessionId);
       return member;
     },
   );
@@ -226,6 +227,7 @@ export function registerTeamsIpc(): void {
       const left = agentDeckTeamRepo.leaveTeam(teamId, sessionId);
       if (left) {
         eventBus.emit('agent-deck-team-member-changed', { teamId, sessionId, kind: 'left' });
+        sessionManager.notifyTeamMembershipChanged(sessionId);
         // 0-lead 自动 archive 兜底（与 sessionManager.delete 同语义）
         const remaining = agentDeckTeamRepo.countActiveLeads(teamId);
         if (remaining === 0) {
