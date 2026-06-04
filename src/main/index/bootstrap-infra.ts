@@ -33,6 +33,7 @@ import { initDb, closeDb, isDbClosed } from '../store/db';
 import { settingsStore } from '../store/settings-store';
 import { adapterRegistry } from '../adapters/registry';
 import { claudeCodeAdapter } from '../adapters/claude-code';
+import { deepseekClaudeCodeAdapter } from '../adapters/deepseek-claude-code';
 import { applyClaudeSettingsEnv } from '../adapters/claude-code/settings-env';
 import { codexCliAdapter } from '../adapters/codex-cli';
 import { sessionManager, setSessionCloseFn, setSessionRenameHookFn } from '../session/manager';
@@ -126,6 +127,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
 
   // 4. 注册 adapter
   adapterRegistry.register(claudeCodeAdapter);
+  adapterRegistry.register(deepseekClaudeCodeAdapter);
   adapterRegistry.register(codexCliAdapter);
 
   // 5. 把 adapter 发出的 AgentEvent 接入 SessionManager

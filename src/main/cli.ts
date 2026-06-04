@@ -73,6 +73,7 @@ const CODEX_SANDBOXES: ReadonlyArray<'workspace-write' | 'read-only' | 'danger-f
 const AGENT_ALIASES: Record<string, string> = {
   codex: 'codex-cli',
   claude: 'claude-code',
+  deepseek: 'deepseek-claude-code',
 };
 
 function findSubcommand(argv: readonly string[]): { sub: string; args: string[] } | null {

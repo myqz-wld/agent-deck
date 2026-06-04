@@ -1,5 +1,6 @@
 import type { AgentAdapter, AdapterContext } from './types';
 import type { ClaudeCodeAdapter } from './claude-code';
+import type { DeepseekClaudeCodeAdapter } from './deepseek-claude-code';
 import type { CodexCliAdapter } from './codex-cli';
 import type { CreateSessionOptionsByAdapter } from './options-builder';
 import log from '@main/utils/logger';
@@ -27,6 +28,7 @@ const logger = log.scope('adapter-registry');
  */
 export type AdapterIdMap = {
   'claude-code': ClaudeCodeAdapter;
+  'deepseek-claude-code': DeepseekClaudeCodeAdapter;
   'codex-cli': CodexCliAdapter;
 };
 

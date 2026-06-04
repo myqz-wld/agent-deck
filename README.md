@@ -1,6 +1,6 @@
 # Agent Deck
 
-通用 Coding Agent 驾驶舱。半透明毛玻璃悬浮窗，聚合多个 Claude Code 与 Codex CLI 会话，实时显示活动、文件改动 diff、阶段性总结；任何会话把控制权交回你时，立即颜色 + 声音 + 系统通知。
+通用 Coding Agent 驾驶舱。半透明毛玻璃悬浮窗，聚合多个 Claude Code、Deepseek（Claude Code）与 Codex CLI 会话，实时显示活动、文件改动 diff、阶段性总结；任何会话把控制权交回你时，立即颜色 + 声音 + 系统通知。
 
 适合「同时驾驶多个 coding agent」的人 —— 你有 3 条 Claude Code 会话和 1 条 Codex 在跑，不必再轮流切终端窗口确认谁在等你；窗口悬浮在桌面角落，红闪烁徽标 + 提示音告诉你哪一条停了。
 
@@ -15,13 +15,13 @@
 - **活动流 + Diff + 总结**：每条会话点开看消息时间线、按文件分组的 Monaco DiffEditor、阶段性 LLM 一句话总结；Task 工具调用专门渲染（subagent 名 + 紫色 chip + prompt 全文折叠/展开）
 - **控制权交接提醒**：waiting → 红闪烁 + 提示音 + 系统通知 + Dock 弹跳；finished → 黄 + 完成音；可逐项关闭，可换自定义提示音
 - **三类人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Plan mode 执行计划批准 —— 全部在活动流卡片里直接处理。批准 plan 时可选目标权限模式（默认 / 自动接受编辑 / 保持 Plan / 完全免询问）；切到「完全免询问」会自动重启 SDK 子进程
-- **OS 级沙盒**：Claude Code SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐。**三件套**（与 Codex 完全对称）：① 全局默认（设置面板 / 默认关）；② 新建会话覆盖（NewSessionDialog 4 档下拉「跟随设置 / off / workspace-write / strict」）；③ 会话内运行时切档（SessionDetail 输入区上方下拉，切到 `off` 弹 confirm，切到 `workspace-write` / `strict` 直接生效，5-10s 冷切重启 SDK 子进程）
-- **Universal Team Backend**：cross-adapter（claude-code / codex-cli）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent-deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；Team tab 可把现有活跃会话手动加入已有团队；`mcp__agent-deck__send_message` 走 DB queue 投递并自动把 reply 注入 lead conversation。**无需共享 team 也能互发**：caller 与 target 无 shared active team 时 `send_message` 自动降级 teamless DM（消息仍注入目标会话，只是不进 team 聚合面板）。**CLI 内自起的 inbox-only team 在 agent-deck UI 不可见**（应通过 `mcp__agent-deck__spawn_session` 起 team 进 universal backend）；老 `~/.claude/teams/<X>/` 数据 Settings 提供一次性 export 入口
+- **OS 级沙盒**：Claude Code / Deepseek（Claude Code）SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐。**三件套**（与 Codex 完全对称）：① 全局默认（设置面板 / 默认关）；② 新建会话覆盖（NewSessionDialog 4 档下拉「跟随设置 / off / workspace-write / strict」）；③ 会话内运行时切档（SessionDetail 输入区上方下拉，切到 `off` 弹 confirm，切到 `workspace-write` / `strict` 直接生效，5-10s 冷切重启 SDK 子进程）
+- **Universal Team Backend**：cross-adapter（claude-code / deepseek-claude-code / codex-cli）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent-deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；Team tab 可把现有活跃会话手动加入已有团队；`mcp__agent-deck__send_message` 走 DB queue 投递并自动把 reply 注入 lead conversation。**无需共享 team 也能互发**：caller 与 target 无 shared active team 时 `send_message` 自动降级 teamless DM（消息仍注入目标会话，只是不进 team 聚合面板）。**CLI 内自起的 inbox-only team 在 agent-deck UI 不可见**（应通过 `mcp__agent-deck__spawn_session` 起 team 进 universal backend）；老 `~/.claude/teams/<X>/` 数据 Settings 提供一次性 export 入口
 - **输入框图片附件**：会话主输入框 + 新建会话 dialog 都支持「粘贴 / 拖放 / 上传按钮」三件套发图（PNG / JPEG / GIF / WebP，单图 ≤ 20MB / 单条总附件 ≤ 30MB）。Claude SDK 走 base64 image content block，Codex SDK 接 `local_image` 文件路径，主进程统一把 base64 落盘到 `<userData>/image-uploads/<uuid>.<ext>` 喂下游；历史 detail view 里能看到自己发了什么图，14 天孤儿文件 reaper 自动清理
 - **模型 Token 统计**：顶栏中部实时显示今日使用最频 Top3 模型的「输出 token/s」（最近 60 秒滑动窗口；窗口宽度不足时自动退化隐藏，先减到 Top1 再隐藏）。「数据」tab（与 实时/待处理/历史/团队/问题 同级）看每个模型每天的 token 使用：模型×日期表格（输入 / 输出 / 缓存读 / 缓存写）+ 今日汇总 + 全模型实时 token/s 区。token 用量从每条 assistant message（Claude）/ turn 完成（Codex）采集；同基础模型的不同变体（thinking / 1m 等）按友好名（如 `Opus 4.8`）合并统计
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
 - **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md / CODEX_AGENTS.md 到 system prompt；可注入 agent-deck plugin 自带的 `deep-review` skill + native `reviewer-claude` (Claude Code / Opus 4.7) / `reviewer-codex` (Codex SDK / gpt-5.5) 双异构对抗 reviewer
-- **多 Adapter**：Claude Code（hook + SDK 双通道，SDK 支持 streaming input 多轮交互）+ Codex CLI（单 SDK 通道，turn-based 协议每轮等上一轮完成；常作 reviewer / 子任务 teammate，主导会话场景按个人偏好选）
+- **多 Adapter**：Claude Code（hook + SDK 双通道，SDK 支持 streaming input 多轮交互）+ Deepseek（Claude Code 兼容通道，独立 `~/.agent_deck/.deepseek/settings.json` 存 URL / token / model，复用 Claude 侧 agents/skills/CLAUDE.md）+ Codex CLI（单 SDK 通道，turn-based 协议每轮等上一轮完成；常作 reviewer / 子任务 teammate，主导会话场景按个人偏好选）
 
 ---
 
@@ -67,6 +67,7 @@ closed 后再来同 sessionId 事件 → 自动复活回 active。归档跳过 l
 `AgentAdapter` 接口声明 `capabilities`，UI 按能力自动隐藏不支持的字段。
 
 - **Claude Code**：hook + SDK 双通道，能力全开（创建 / 中断 / 发消息 / 工具批准 / AskUserQuestion / ExitPlanMode / 切权限模式 / 安装 hook）
+- **Deepseek（Claude Code）**：复用 Claude Code SDK 桥接层和 Claude 侧 agents/skills/CLAUDE.md；仅鉴权与模型 env 从 `~/.agent_deck/.deepseek/settings.json` 覆盖，不安装独立 hook
 - **Codex CLI**：基于 `@openai/codex-sdk` 单 SDK 通道，支持创建 / 发消息 / 中断 / 恢复；不支持工具批准 / 主动询问 / Plan mode / 运行时切权限模式（codex SDK 物理不支持）；**streaming input 也不支持**（turn-based 模式），多轮 prompt 互动延迟感比 claude-code 显著，主导会话场景推荐 claude-code，作 reviewer / 子任务 teammate 用 turn-based 不影响
 
 新增 adapter 实现 `AgentAdapter` 接口注册即可。
@@ -162,9 +163,10 @@ HMR 只对 renderer 生效；改了 `src/main/**` 或 `src/preload/**` 必须重
 
 ### 鉴权（首次使用前）
 
-应用 **不读不写任何 API Key**。
+Claude / Codex 路径不读写 API Key；Deepseek 路径只读取你在 `.deepseek/settings.json` 填入的 token 并注入对应 SDK 子进程，不写入其它位置。
 
 - **Claude Code**：跑过 `claude login`（订阅或 Console 账户都行）。SDK 自己读 `~/.claude/.credentials.json`；`~/.claude/settings.json` 的 `permissions / hooks / env / mcpServers` 全部继承（等价于在该 cwd 跑 `claude`）
+- **Deepseek（Claude Code）**：首次创建该类型会话时自动创建 `~/.agent_deck/.deepseek/settings.json`；填入 `env.ANTHROPIC_AUTH_TOKEN` 后即可使用。该文件独立保存 DeepSeek 的 `ANTHROPIC_BASE_URL` / token / model 名称，agents / skills / CLAUDE.md / MCP 等仍复用 Claude Code 侧资源
 - **Codex CLI**：在终端跑过 `codex auth`，应用直接复用 `~/.codex` 配置
 
 `~/.claude/settings.json` 的 `env` 字段在启动时按白名单（`ANTHROPIC_*` / `CLAUDE_*` / 标准代理变量）注入到主进程，让 SDK 子进程拿到代理 / 自定义 base URL。其它键（如 `NODE_OPTIONS` / `PATH`）会被拒绝。
@@ -194,7 +196,7 @@ agent-deck new --cwd "C:\path\to\repo" --prompt "..."
 agent-deck new \
   [--cwd <path>]                          # 缺省走 wrapper 取 $PWD / %CD%（裸调 .app/.exe 时取 ~ / %USERPROFILE%）
   [--prompt "..."]                        # 首条消息（缺省 "你好"，避免 SDK 卡 30s fallback）
-  [--agent claude-code|codex-cli]
+  [--agent claude-code|deepseek-claude-code|codex-cli]  # 短名可用 --agent claude|deepseek|codex
   [--permission-mode default|acceptEdits|plan|bypassPermissions]
   [--resume <sessionId>]                  # 续历史 jsonl
   [--no-focus]                            # 默认会拉前窗口 + 选中新会话
@@ -235,7 +237,7 @@ agent-deck new \
 
 大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；沙盒档位 / Agent Deck MCP transport 开关 / 资产注入开关均为 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / idleQuiet）热生效。
 
-Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md。每个 tab 顶部带「注入开关」横条（Skills tab：Claude plugin + Codex skills 同步；Agents tab：与 Skills 共用 plugin 开关；应用约定 tab：Claude system prompt + Codex AGENTS.md 同步）。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
+Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md。每个 tab 顶部带「注入开关」横条（Skills tab：Claude plugin + Codex skills 同步；Agents tab：与 Skills 共用 plugin 开关；应用约定 tab：Claude system prompt + Codex AGENTS.md 同步）。Deepseek（Claude Code）不单独维护资产视角，创建会话和 `spawn_session(agentName=...)` 都复用 Claude 侧 agents/skills/CLAUDE.md，只从 `.deepseek` 读取模型和鉴权 env。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
 
 ---
 
@@ -267,6 +269,7 @@ src/
 │   ├── hook-server/       共享 fastify 实例 + RouteRegistry（adapter 动态注册路由）
 │   ├── adapters/
 │   │   ├── claude-code/   hook 路由 + hook installer + SDK bridge + CLAUDE.md / skill / agents 注入 + sandbox-config（三档 OS 隔离配置）
+│   │   ├── deepseek-claude-code/ Claude Code SDK profile wrapper；从 ~/.agent_deck/.deepseek/settings.json 注入 DeepSeek env，复用 Claude 侧资源
 │   │   └── codex-cli/     @openai/codex-sdk 封装（pendingMessages 串行 turn + AbortController interrupt）
 │   ├── session/           SessionManager / LifecycleScheduler / Summarizer
 │   ├── teams/             R3 Universal Team Backend：universal-message-watcher（cross-adapter team message 投递）+ team-fs 仅保留 exportLegacyTeams（老 ~/.claude/teams 数据一次性导出）

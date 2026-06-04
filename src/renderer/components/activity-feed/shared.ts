@@ -17,6 +17,8 @@ export const DEFAULT_RENDER_MODE: RenderMode = 'plaintext';
  */
 export function getAgentShortName(agentId: string): string {
   switch (agentId) {
+    case 'deepseek-claude-code':
+      return 'Deepseek';
     case 'codex-cli':
       return 'Codex';
     default:

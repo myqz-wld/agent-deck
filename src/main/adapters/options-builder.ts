@@ -36,6 +36,7 @@ const logger = log.scope('adapter-options');
  */
 export type CreateSessionOptionsByAdapter = {
   'claude-code': ClaudeCreateOpts;
+  'deepseek-claude-code': ClaudeCreateOpts;
   'codex-cli': CodexCreateOpts;
 };
 
@@ -52,7 +53,7 @@ export type CreateSessionOptionsByAdapter = {
  *
  * 详 §D2 多侧 SSOT 守门 注释表 守门点 (5)。
  */
-export const AGENT_IDS = ['claude-code', 'codex-cli'] as const;
+export const AGENT_IDS = ['claude-code', 'deepseek-claude-code', 'codex-cli'] as const;
 
 export type AgentId = (typeof AGENT_IDS)[number];
 
@@ -227,11 +228,13 @@ export function buildCreateSessionOptions(
 ): CreateSessionOptions {
   if (!isAgentId(agentId)) {
     throw new Error(
-      `unknown agentId: "${agentId}" (expected: claude-code | codex-cli)`,
+      `unknown agentId: "${agentId}" (expected: claude-code | deepseek-claude-code | codex-cli)`,
     );
   }
   switch (agentId) {
     case 'claude-code':
+      return { agentId, ...narrowToClaudeOpts(raw) };
+    case 'deepseek-claude-code':
       return { agentId, ...narrowToClaudeOpts(raw) };
     case 'codex-cli':
       return { agentId, ...narrowToCodexOpts(raw) };

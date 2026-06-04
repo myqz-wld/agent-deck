@@ -389,15 +389,15 @@ function AssetsTab({
 }
 
 /**
- * 「应用约定」tab：Claude / Codex sub-tab 切换分别渲染对应编辑器（CHANGELOG_137）。
+ * 「应用约定」tab：Claude / Codex sub-tab 切换只切可见性,两个 editor 常驻。
  *
  * **plan assets-codex-user-and-ui-unify-20260521 §D1**：本 tab 改用公共 AdapterSubTab 组件，
  * 与 Skills/Agents 三 tab UI paradigm 一致；onSwitch hook 仍保留 dirty 拦截（子 editor 持有
  * 未保存草稿时弹 confirmDialog）。
  *
  * dirty 上报双层:
- * - 子 editor 通过 onSubDirty 上报,本组件 forward 给父级 onDirtyChange(让父级关闭弹窗时拦截)
- * - 子 adapter 切换时 AdapterSubTab onSwitch 拦截 dirty(否则草稿随子 editor unmount 静默丢失)
+ * - 子 editor 按 adapter 分桶上报,本组件 forward any-dirty 给父级 onDirtyChange(让父级关闭弹窗时拦截)
+ * - 子 adapter 切换时只拦截当前可见 adapter 的 dirty;确认丢弃时才 reset 当前 editor
  */
 function ClaudeMdTab({
   onDirtyChange,
@@ -405,20 +405,29 @@ function ClaudeMdTab({
   onDirtyChange: (dirty: boolean) => void;
 }): JSX.Element {
   const [adapter, setAdapter] = useState<AssetAdapter>('claude-code');
-  const subDirtyRef = useRef(false);
+  const [resetKeys, setResetKeys] = useState<Record<AssetAdapter, number>>({
+    'claude-code': 0,
+    'codex-cli': 0,
+  });
+  const dirtyByAdapterRef = useRef<Record<AssetAdapter, boolean>>({
+    'claude-code': false,
+    'codex-cli': false,
+  });
 
   const onSubDirty = useCallback(
-    (d: boolean) => {
-      subDirtyRef.current = d;
-      onDirtyChange(d);
+    (source: AssetAdapter, d: boolean) => {
+      dirtyByAdapterRef.current[source] = d;
+      onDirtyChange(Object.values(dirtyByAdapterRef.current).some(Boolean));
     },
     [onDirtyChange],
   );
+  const onClaudeDirty = useCallback((d: boolean) => onSubDirty('claude-code', d), [onSubDirty]);
+  const onCodexDirty = useCallback((d: boolean) => onSubDirty('codex-cli', d), [onSubDirty]);
 
   // dirty 拦截：子 editor 持有未保存草稿时弹 confirmDialog 拦截 sub-tab 切换
   const guardSwitchAdapter = async (_next: AssetAdapter): Promise<boolean> => {
-    if (!subDirtyRef.current) return true;
-    return window.api.confirmDialog({
+    if (!dirtyByAdapterRef.current[adapter]) return true;
+    const ok = await window.api.confirmDialog({
       title: '切换视角',
       message: '应用约定有未保存的草稿，确定要丢弃吗？',
       detail: '切换后改动将丢失，无法恢复。',
@@ -426,26 +435,35 @@ function ClaudeMdTab({
       cancelLabel: '继续编辑',
       destructive: true,
     });
+    if (ok) {
+      dirtyByAdapterRef.current[adapter] = false;
+      onDirtyChange(Object.values(dirtyByAdapterRef.current).some(Boolean));
+      setResetKeys((prev) => ({ ...prev, [adapter]: prev[adapter] + 1 }));
+    }
+    return ok;
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-h-[310px] flex-col gap-2">
       <AdapterSubTab current={adapter} onSelect={setAdapter} onSwitch={guardSwitchAdapter} />
-      {adapter === 'claude-code' ? (
-        <>
-          <div className="text-[10px] leading-snug text-deck-muted/70">
-            应用内置的 CLAUDE.md,会拼接到每个 Claude 会话的系统提示末尾。改动只对新建会话生效。
-          </div>
-          <ClaudeMdEditor onDirtyChange={onSubDirty} />
-        </>
-      ) : (
-        <>
-          <div className="text-[10px] leading-snug text-deck-muted/70">
-            应用内置的 CODEX_AGENTS.md,会同步到 ~/.codex/AGENTS.md 的 Agent Deck 区段(你写的其他内容保留)。改动只对新建 Codex 会话生效。
-          </div>
-          <CodexAgentsMdEditor onDirtyChange={onSubDirty} />
-        </>
-      )}
+      <div
+        className={adapter === 'claude-code' ? 'flex flex-col gap-2' : 'hidden'}
+        aria-hidden={adapter !== 'claude-code'}
+      >
+        <div className="text-[10px] leading-snug text-deck-muted/70">
+          应用内置的 CLAUDE.md,会拼接到每个 Claude 会话的系统提示末尾。改动只对新建会话生效。
+        </div>
+        <ClaudeMdEditor key={resetKeys['claude-code']} onDirtyChange={onClaudeDirty} />
+      </div>
+      <div
+        className={adapter === 'codex-cli' ? 'flex flex-col gap-2' : 'hidden'}
+        aria-hidden={adapter !== 'codex-cli'}
+      >
+        <div className="text-[10px] leading-snug text-deck-muted/70">
+          应用内置的 CODEX_AGENTS.md,会同步到 ~/.codex/AGENTS.md 的 Agent Deck 区段(你写的其他内容保留)。改动只对新建 Codex 会话生效。
+        </div>
+        <CodexAgentsMdEditor key={resetKeys['codex-cli']} onDirtyChange={onCodexDirty} />
+      </div>
     </div>
   );
 }
