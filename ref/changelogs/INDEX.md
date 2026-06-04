@@ -214,3 +214,4 @@
 | [CHANGELOG_207.md](CHANGELOG_207.md) | Settings 默认值改 30d/30min/1h/MCP 默认开；补根级 AGENTS.md；MCP 18 tool 文案对偶。 |
 | [CHANGELOG_208.md](CHANGELOG_208.md) | simple-review / deep-review 升级五级严重度 CRITICAL/HIGH/MEDIUM/LOW/INFO；CRITICAL/HIGH 必须反驳论；0 CRITICAL/HIGH 才允许合入；reviewer / review 文档模板与 plan review gate 同步。 |
 | [CHANGELOG_209.md](CHANGELOG_209.md) | Codex review workflow 适配 turn-based SDK：派出 reviewer / 反驳轮 / Round 2 后结束 turn，下一轮 teammate reply 注入后继续裁决；禁止同 turn sleep/poll 等待。 |
+| [CHANGELOG_210.md](CHANGELOG_210.md) | Claude Code 默认沙盒改 Workspace Write；新建会话权限默认「不再询问」；旧默认 off 一次性迁移。 |

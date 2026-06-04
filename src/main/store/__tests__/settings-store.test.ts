@@ -375,6 +375,42 @@ describe('2026-06-04 — settings panel default uplift 一次性 sentinel', () =
   });
 });
 
+describe('2026-06-04 — Claude Code sandbox default uplift', () => {
+  it('(A) 旧默认 off 首次进来 → uplift 到 workspace-write + 置独立 sentinel', async () => {
+    mockRawStore = { claudeCodeSandbox: 'off', __settingsDefaults20260604Done: true };
+
+    const settings = await loadSettingsStore();
+    const all = settings.getAll();
+
+    expect(mockSet).toHaveBeenCalledWith('claudeCodeSandbox', 'workspace-write');
+    expect(mockSet).toHaveBeenCalledWith('__claudeSandboxDefault20260604Done', true);
+    expect(all.claudeCodeSandbox).toBe('workspace-write');
+  });
+
+  it('(B) sentinel 已置 + 用户改回 off → migration 不 re-fire', async () => {
+    mockRawStore = {
+      claudeCodeSandbox: 'off',
+      __claudeSandboxDefault20260604Done: true,
+    };
+
+    const settings = await loadSettingsStore();
+    const all = settings.getAll();
+
+    expect(mockSet.mock.calls.filter((c) => c[0] === 'claudeCodeSandbox')).toHaveLength(0);
+    expect(all.claudeCodeSandbox).toBe('off');
+  });
+
+  it('(C) fresh install → 默认 workspace-write + 内部 sentinel 不泄漏', async () => {
+    mockRawStore = {};
+
+    const settings = await loadSettingsStore();
+    const all = settings.getAll() as unknown as Record<string, unknown>;
+
+    expect(all.claudeCodeSandbox).toBe('workspace-write');
+    expect('__claudeSandboxDefault20260604Done' in all).toBe(false);
+  });
+});
+
 describe('REVIEW_92 — token canonical 格式校验（reviewer-codex LOW）', () => {
   it('malformed 64-char token（64 个空格）→ 重生成 canonical hex', async () => {
     mockRawStore = {

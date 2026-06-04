@@ -290,8 +290,8 @@ export interface AppSettings {
   // 5 个 task tool 合并入 agent-deck-mcp namespace，跟随 enableAgentDeckMcp 开关；
   // settings-store REMOVED_KEYS + smart migration 守护老用户 ON 值不丢失能力。
   /**
-   * Claude Code SDK 子进程的 OS 级沙盒档位（默认 'off'）。SDK 0.2.118 内置 sandbox 能力
-   * （macOS Seatbelt / Linux bubblewrap），让用户在 UI 主动开启文件系统 + 网络 OS 级隔离。
+   * Claude Code SDK 子进程的 OS 级沙盒档位（默认 'workspace-write'）。SDK 0.2.118 内置
+   * sandbox 能力（macOS Seatbelt / Linux bubblewrap），默认开启文件系统 + 网络 OS 级隔离。
    *
    * 三档语义：
    * - `'off'`：不启用沙盒，行为同现状（仅应用层 canUseTool 弹框决策）
@@ -300,8 +300,8 @@ export interface AppSettings {
    * - `'strict'`：cwd 只读、网络默认 deny + `failIfUnavailable: true`（沙盒不可用直接报错退出）
    *   + `allowUnsandboxedCommands: false`（封死 dangerouslyDisableSandbox 逃逸）
    *
-   * 与 codex-cli 已默认的 `sandboxMode: 'workspace-write'` 对齐策略：默认 off 让用户主动开
-   * （REVIEW_14 推荐路径阶段 2），观察 1-2 周用户反馈无异常后阶段 3 再考虑切默认 on。
+   * 与 codex-cli 已默认的 `sandboxMode: 'workspace-write'` 对齐：两个主 SDK adapter 默认
+   * 都在工作目录可写的系统沙盒内运行。
    *
    * **关闭开关只影响下次新建会话**——已在跑的 SDK 子进程已按当前档位 spawn，sandbox 是
    * spawn-time options，不会被撤销（与 agentTeamsEnabled 同模式）。

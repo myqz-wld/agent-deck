@@ -52,12 +52,12 @@ export type CreateSessionThunk = (opts: {
    * REVIEW_36 HIGH-1：recoverer fallback 路径（jsonl missing / cwdFellBack）显式透传 sandbox 档位。
    *
    * 修前漏洞：fallback 不走 resume → resolveClaudeSandboxMode 拿 opts.resume=undef + opts.claudeCodeSandbox=undef
-   * → 走 settings 全局 fallback（默认 'off'）→ SDK 子进程 spawn 时按全局值装载沙盒，**与历史 record 持久化的
+   * → 走 settings 全局 fallback → SDK 子进程 spawn 时按全局值装载沙盒，**与历史 record 持久化的
    * `sessionRepo.claudeCodeSandbox` 无关**。后续 renameSdkSession(OLD, NEW) 把 fromRow.claude_code_sandbox 覆盖到
    * NEW row 让 DB 字段看起来正确，但**已 spawn 的 SDK 进程已无法改沙盒**（spawn-time 锁定）。
    *
-   * 用户场景：strict 档历史会话 + 全局默认 'off' + jsonl 丢失 → fallback 后 SDK 子进程实际无沙盒（DB 仍显示 strict），
-   * agent 能读 ~/.ssh / 写任意目录，安全语义静默降级。
+   * 用户场景：strict 档历史会话 + jsonl 丢失 → fallback 后 SDK 子进程落到全局沙盒档位（DB 仍显示 strict），
+   * 历史会话的安全语义静默降级。
    */
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   /**

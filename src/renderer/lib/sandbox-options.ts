@@ -13,7 +13,7 @@ export type CodexSandboxChoice = '' | 'workspace-write' | 'read-only' | 'danger-
 export type ClaudeSandboxChoice = '' | 'off' | 'workspace-write' | 'strict';
 
 export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; title?: string }[] = [
-  { value: 'default', label: '每次询问（默认）', title: '每次工具调用前都询问你是否允许' },
+  { value: 'default', label: '每次询问', title: '每次工具调用前都询问你是否允许' },
   { value: 'acceptEdits', label: '自动接受文件编辑', title: '自动允许文件编辑；其他工具仍需询问' },
   { value: 'plan', label: '计划模式（只规划）', title: '只生成计划，不执行任何工具调用' },
   {

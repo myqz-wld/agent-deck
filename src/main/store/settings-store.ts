@@ -175,6 +175,18 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       }
       looseStore.set(SETTINGS_DEFAULTS_20260604_SENTINEL, true);
     }
+    // Claude Code sandbox 默认从 off 升到 workspace-write。单独 sentinel，不能复用上面的
+    // 2026-06-04 数值默认 sentinel：已经跑过旧版本默认升级的用户也必须能收到本次迁移。
+    const CLAUDE_SANDBOX_DEFAULT_20260604_SENTINEL = '__claudeSandboxDefault20260604Done';
+    if (persistedRaw[CLAUDE_SANDBOX_DEFAULT_20260604_SENTINEL] !== true) {
+      if (persistedRaw['claudeCodeSandbox'] === 'off') {
+        store.set('claudeCodeSandbox', 'workspace-write');
+        logger.info(
+          '[settings] migrated claudeCodeSandbox off → workspace-write (2026-06-04 default uplift)',
+        );
+      }
+      looseStore.set(CLAUDE_SANDBOX_DEFAULT_20260604_SENTINEL, true);
+    }
     // plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 + R3-claude-MED-1:
     // smart migration 守护老用户 enableTaskManager:true 不丢失能力。在 REMOVED_KEYS
     // delete loop 之前 (line 74) 读 persistedRaw.enableTaskManager 决定是否 carry 到 enableAgentDeckMcp。

@@ -722,8 +722,8 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
   // ─── REVIEW_36 HIGH-1: recoverer fallback claudeCodeSandbox 透传回归 ────────
   //
   // 修前漏洞：fallback 路径调 createThunk 没传 claudeCodeSandbox，sandbox-resolve 拿
-  // opts.resume=undef + opts.claudeCodeSandbox=undef → 走 settings 全局 fallback（默认 'off'）
-  // → SDK 子进程实际无沙盒，与 sessionRepo.claudeCodeSandbox='strict' 完全脱钩。
+  // opts.resume=undef + opts.claudeCodeSandbox=undef → 走 settings 全局 fallback
+  // → SDK 子进程按全局值启动，与 sessionRepo.claudeCodeSandbox='strict' 完全脱钩。
   //
   // 这两个 case 锁定 fix：fallback 路径必须把 rec.claudeCodeSandbox 显式透传给 createThunk。
 
@@ -751,7 +751,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
     expect(bridge.createCalls).toHaveLength(1);
     // 关键断言：fallback 路径必须把 record.claudeCodeSandbox 透传给 createThunk
-    // （而不是 undefined → sandbox-resolve fallback 到 settings 全局 'off' 静默降级）
+    // （而不是 undefined → sandbox-resolve fallback 到 settings 全局值静默降级）
     expect(bridge.createCalls[0].claudeCodeSandbox).toBe('strict');
   });
 
@@ -1454,4 +1454,3 @@ describe('REVIEW_99 R3 cancellation-epoch: 恢复期间再次 close abort', () =
     expect(bridge.createCalls).toHaveLength(0);
   });
 });
-
