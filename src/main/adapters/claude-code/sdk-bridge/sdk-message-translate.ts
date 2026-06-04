@@ -399,12 +399,23 @@ export function translateSdkMessage(
     ) {
       // Phase 3 修法：先同步 internal cache（让 canUseTool bypass 短路立刻按新 mode 判断），
       // 再走 DB 比对路径。internal.permissionMode 与 sessionRepo.permissionMode 同步更新。
-      internal.permissionMode = next;
-      const cur = sessionRepo.get(sessionId);
-      if (cur && cur.permissionMode !== next) {
-        sessionRepo.setPermissionMode(sessionId, next);
-        const updated = sessionRepo.get(sessionId);
-        if (updated) eventBus.emit('session-upserted', updated);
+      //
+      // bypassPermissions 保护：SDK CLI 使用 allowDangerouslySkipPermissions flag，不把
+      // 'bypassPermissions' 当 mode 上报，system.init 始终回传 'default' 作为底层 mode。
+      // 若用 SDK 报的 'default' 覆盖，canUseTool bypass 短路会失效，DB 也会被写成 'default'。
+      // 条件：当前已是 bypassPermissions 且 SDK 报 'default' → 跳过（保留 bypass 语义）。
+      // 用户通过下拉切换时，setPermissionMode 先 optimistic 写 s.permissionMode，之后
+      // SDK system.status 到达时 internal 已不是 bypassPermissions，不受此保护影响。
+      if (internal.permissionMode === 'bypassPermissions' && next === 'default') {
+        // 跳过：SDK 回报的 'default' 是 allowDangerouslySkipPermissions 的底层 mode，非真实切换
+      } else {
+        internal.permissionMode = next;
+        const cur = sessionRepo.get(sessionId);
+        if (cur && cur.permissionMode !== next) {
+          sessionRepo.setPermissionMode(sessionId, next);
+          const updated = sessionRepo.get(sessionId);
+          if (updated) eventBus.emit('session-upserted', updated);
+        }
       }
     }
   } else if (msg.type === 'stream_event') {
