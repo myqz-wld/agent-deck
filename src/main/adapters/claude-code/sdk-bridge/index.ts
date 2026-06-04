@@ -109,7 +109,7 @@ export class ClaudeSdkBridge {
     this.restartController = new RestartController({
       recovering: this.recovering,
       emit: opts.emit,
-      closeSession: (sid) => this.closeSession(sid),
+      closeSession: (sid, closeOpts) => this.closeSession(sid, closeOpts),
       createSession: (createOpts) => this.createSession(createOpts).then((h) => h),
       jsonlExistsThunk: (cwd, sid) => this.resumeJsonlExists(cwd, sid),
       summariseFn: (cwd, events) => this.summariseForHandOff(cwd, events),
@@ -378,7 +378,7 @@ export class ClaudeSdkBridge {
    * 与 interrupt 区别：interrupt 允许 resume / 继续同 session；close 是永久关闭，
    * 由 SessionManager.delete 调用，确保 SDK 子进程不继续跑（CHANGELOG_20 / N2）。
    */
-  async closeSession(sessionId: string): Promise<void> {
+  async closeSession(sessionId: string, opts: { markRecentlyDeleted?: boolean } = {}): Promise<void> {
     let key: string | null = null;
     let internal: InternalSession | null = null;
     for (const [k, v] of this.sessions.entries()) {
@@ -405,16 +405,13 @@ export class ClaudeSdkBridge {
       logger.warn(`[sdk-bridge] interrupt during close failed: ${sessionId}`, err);
     }
 
-    // 2-5. cleanup 链 — pending cancel + sdkOwned release + zombie row 兜底 + notify wakeup。
-    //      整套抽到 pending-cancellation.ts:runCloseSessionCleanup（CHANGELOG_85 Step 3.2）。
-    //      详见该 helper jsdoc：清四 Map (pendingFileChangeIntents / sessions / sdkOwned / pendingCancellation)
-    //      + releaseSdkClaim + markRecentlyDeleted / 唤醒 createUserMessageStream 的 await。
     runCloseSessionCleanup({
       sessions: this.sessions,
       internal,
       key,
       sessionId,
       emit: this.opts.emit,
+      markRecentlyDeleted: opts.markRecentlyDeleted,
     });
   }
 

@@ -42,8 +42,7 @@ export interface ClaudeCreateOpts {
   /**
    * SDK / agent model 透传（plan model-wiring-and-handoff-20260514 Step 2.1）。
    *
-   * 来源链：spawn handler 解 agent body frontmatter `model` 字段（reviewer-claude.md 的
-   * `model: opus`）→ 传给 createSession。
+   * 来源链：spawn handler 解 agent body frontmatter `model` 字段 → 传给 createSession。
    *
    * adapter 行为：透传给 SDK `query({ options.model })` 真正生效；并 setModel 持久化让
    * resume / dormant 唤醒后保持一致。

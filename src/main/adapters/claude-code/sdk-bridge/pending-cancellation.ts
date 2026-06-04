@@ -106,8 +106,9 @@ export function runCloseSessionCleanup(args: {
   key: string;
   sessionId: string;
   emit: (e: AgentEvent) => void;
+  markRecentlyDeleted?: boolean;
 }): void {
-  const { sessions, internal, key, sessionId, emit } = args;
+  const { sessions, internal, key, sessionId, emit, markRecentlyDeleted = true } = args;
 
   // step 2 + 顺手修：先 emit 后 clear，避免 store 端 zombie row 残留
   // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4b R5 MED-R5-1 修订**:
@@ -136,12 +137,14 @@ export function runCloseSessionCleanup(args: {
   // 覆盖 OLD CLI 子进程 SIGTERM 后飞回的迟到 hook event 仍带 OLD_ID 或 cliSessionId 窗口。
   // 与 SessionManager.delete + renameSdkSession 入口对称 (markRecentlyDeleted 内部 R5 MED-R5-1 双写已加 cliSid,
   // 此处显式调一次保 sessionId 自己 + 反向 rename 后 caller 入参 sessionId 是 appSid / cliSid 不同 都被覆盖)。
-  sessionManager.markRecentlyDeleted(sessionId);
-  if (internal.applicationSid !== sessionId) {
-    sessionManager.markRecentlyDeleted(internal.applicationSid);
-  }
-  if (internal.cliSessionId && internal.cliSessionId !== sessionId && internal.cliSessionId !== internal.applicationSid) {
-    sessionManager.markRecentlyDeleted(internal.cliSessionId);
+  if (markRecentlyDeleted) {
+    sessionManager.markRecentlyDeleted(sessionId);
+    if (internal.applicationSid !== sessionId) {
+      sessionManager.markRecentlyDeleted(internal.applicationSid);
+    }
+    if (internal.cliSessionId && internal.cliSessionId !== sessionId && internal.cliSessionId !== internal.applicationSid) {
+      sessionManager.markRecentlyDeleted(internal.cliSessionId);
+    }
   }
 
   // step 5：唤醒 createUserMessageStream 的 await，让它走到 sessions.has(key) === false 后 return。

@@ -12,7 +12,7 @@
  * - item.started{command_execution} → tool-use-start
  * - item.completed{command_execution} → tool-use-end
  * - item.completed{agent_message}    → message(role:assistant)
- * - item.completed{reasoning}        → thinking（GPT-5 reasoning 与 Claude extended thinking 共用 ThinkingBubble，CHANGELOG_43）
+ * - item.completed{reasoning}        → thinking（Codex reasoning 与 Claude extended thinking 共用 ThinkingBubble，CHANGELOG_43）
  * - item.completed{file_change}      → file-changed × N（codex 不带 before/after，都填 null）
  * - item.started{mcp_tool_call}      → tool-use-start
  * - item.completed{mcp_tool_call}    → tool-use-end
@@ -205,8 +205,8 @@ export function translateCodexEvent(
       emit('finished', { ok: true, subtype: 'success', usage: event.usage });
       // plan model-token-stats §Phase 1 A4：turn.completed 的 usage 是 per-turn 增量，独立 emit
       // token-usage（与 finished 解耦，§不变量 7）。codex Usage：input_tokens / cached_input_tokens /
-      // output_tokens / reasoning_output_tokens；无 cache_creation（填 0）；reasoning 归入 output
-      // （GPT reasoning 算输出）；cacheRead = cached_input。model 由 caller 传（codex event 不带）。
+      // output_tokens / reasoning_output_tokens；无 cache_creation（填 0）；reasoning 归入 output；
+      // cacheRead = cached_input。model 由 caller 传（codex event 不带）。
       const u = event.usage;
       if (u) {
         emit('token-usage', {
@@ -328,7 +328,7 @@ function translateItemCompleted(item: ThreadItem, emit: EmitFn): void {
     }
 
     case 'reasoning': {
-      // GPT-5 reasoning 摘要 → 'thinking' event，与 Claude extended thinking 走同一渲染通道
+      // Codex reasoning 摘要 → 'thinking' event，与 Claude extended thinking 走同一渲染通道
       // （ThinkingBubble 弱化样式 + 头部 thinking 标签）。CHANGELOG_43 统一约定。
       emit('thinking', { text: item.text });
       return;

@@ -8,7 +8,7 @@
  * - **summarize**（30 字 tag-line）：`replace(/\s+/g, ' ').trim()` 把多行换行折成单空格，
  *   再 slice(120)。tag-line 显示在 SessionList / 顶部 chip，必须单行。
  * - **handoff**（4 节简报）：仅 `trim()`，**保留 \n 换行**让 textarea preview 直接渲染分段。
- *   再 slice(4000) 防超长（sonnet 4 节通常 800-2000 字，4000 给 outliers）。
+ *   再 slice(4000) 防超长（4 节简报通常 800-2000 字，4000 给 outliers）。
  *
  * 两种策略不能混用（summarize 用 trim 会让换行进 SessionList chip 撑变形；handoff 用
  * replace 会把 4 节模板的 `\n【已做】\n- ...` 折成单行不可读）。抽 2 个具名 helper 强约束

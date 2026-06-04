@@ -1,5 +1,6 @@
 import { useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
+import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import log from '@renderer/utils/logger';
 import { ImageIcon } from './composer-sdk/ImageIcon';
@@ -222,8 +223,12 @@ export function ComposerSdk({
       // IPC 主进程 restartWithCodexSandbox：closeSession → setCodexSandbox →
       // createSession({resume, codexSandbox, prompt}) → 失败回滚 DB + emit error。
       // session-upserted event 推回 renderer store 让下拉值跟着 sessions Map 变。
-      // handoffPrompt 不能空，给一段无伤大雅的占位。
-      await window.api.restartWithCodexSandbox(agentId, sessionId, next, '继续之前的会话');
+      await window.api.restartWithCodexSandbox(
+        agentId,
+        sessionId,
+        next,
+        SDK_RESTART_RESUME_PROMPT,
+      );
     } catch (err) {
       setCsError((err as Error).message);
     } finally {
@@ -259,7 +264,12 @@ export function ComposerSdk({
     try {
       // IPC 主进程 restartWithClaudeCodeSandbox：closeSession → setClaudeCodeSandbox →
       // createSession({resume, claudeCodeSandbox, prompt}) → 失败回滚 DB + emit error。
-      await window.api.restartWithClaudeCodeSandbox(agentId, sessionId, next, '继续之前的会话');
+      await window.api.restartWithClaudeCodeSandbox(
+        agentId,
+        sessionId,
+        next,
+        SDK_RESTART_RESUME_PROMPT,
+      );
     } catch (err) {
       setCsClaudeError((err as Error).message);
     } finally {

@@ -10,6 +10,7 @@
  */
 import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
+import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { adapterRegistry } from '@main/adapters/registry';
 import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 import { sessionManager } from '@main/session/manager';
@@ -356,7 +357,7 @@ export function registerAdaptersIpc(): void {
     // 收口到此方法，行为一致。restartWithPermissionMode 内部已写 DB + emit upsert，
     // 失败时回滚 DB + emit error message，本 handler 不重复处理。
     if (m === 'bypassPermissions' && adapter.restartWithPermissionMode) {
-      await adapter.restartWithPermissionMode(sid, m, '继续之前的会话');
+      await adapter.restartWithPermissionMode(sid, m, SDK_RESTART_RESUME_PROMPT);
       return true;
     }
     // REVIEW_11 Bug 2 次因：DB 写 + emit upsert 必须先于 SDK 调用，且 SDK 失败要回滚。
@@ -418,7 +419,10 @@ export function registerAdaptersIpc(): void {
       if (sbRaw === null) {
         throw new IpcInputError('sandbox', 'required (one of workspace-write|read-only|danger-full-access)');
       }
-      const prompt = typeof handoffPrompt === 'string' ? handoffPrompt : '';
+      const prompt =
+        typeof handoffPrompt === 'string' && handoffPrompt.trim()
+          ? handoffPrompt
+          : SDK_RESTART_RESUME_PROMPT;
       // adapter.restartWithCodexSandbox 内部已 emit error / 回滚 DB；本 handler 直接透传
       // 返回值（重启后的 sessionId，与 claude restartWithPermissionMode 接口签名对齐）。
       return adapter.restartWithCodexSandbox(sid, sbRaw, prompt);
@@ -451,7 +455,10 @@ export function registerAdaptersIpc(): void {
       if (sbRaw === null) {
         throw new IpcInputError('sandbox', 'required (one of off|workspace-write|strict)');
       }
-      const prompt = typeof handoffPrompt === 'string' ? handoffPrompt : '';
+      const prompt =
+        typeof handoffPrompt === 'string' && handoffPrompt.trim()
+          ? handoffPrompt
+          : SDK_RESTART_RESUME_PROMPT;
       return adapter.restartWithClaudeCodeSandbox(sid, sbRaw, prompt);
     },
   );

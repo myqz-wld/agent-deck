@@ -61,8 +61,8 @@ export interface CreateSessionOpts {
   extraAllowWrite?: readonly string[];
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.2：SDK / agent model 透传。
-   * 来源：spawn handler 解 agent body frontmatter `model` 字段（reviewer-claude.md 的
-   * `model: opus` 等）后传入。fallback 链 opts.model > sessionRepo.model > undefined
+   * 来源：spawn handler 解 agent body frontmatter `model` 字段后传入。
+   * fallback 链 opts.model > sessionRepo.model > undefined
    * （详 model-resolve.ts）。透传给 SDK `query({ options.model })` 真正生效，并
    * setModel 持久化让 resume / dormant 唤醒后保持一致。
    */

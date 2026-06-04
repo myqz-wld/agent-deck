@@ -12,14 +12,11 @@
 import type { AgentEvent } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
-import { AGENT_ID } from './constants';
+import { buildRestartResumePrompt } from '@main/session/resume-history';
+import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
 import { maybeJsonlFallback } from './jsonl-fallback';
 import type { JsonlExistsThunk, SummariseFnThunk } from './recoverer';
 import type { SdkSessionHandle } from './types';
-// **plan reverse-rename-sid-stability-20260520 §C.1 反向 rename 修订**:
-// 不再需要 import sessionManager — restart-controller 不再直接调 sessionManager.renameSdkSession;
-// CLI fork rename 走 bridge stream-processor S6 fork detect 内部 sessionManager.updateCliSessionId
-// (sessions.id 不变,cli_session_id 列单点 UPDATE)。
 
 export interface RestartCreateOpts {
   cwd: string;
@@ -65,7 +62,10 @@ export interface RestartCtx {
   recovering: Map<string, Promise<unknown>>;
   emit: (event: AgentEvent) => void;
   /** thunk 反调 facade.closeSession，避免直接持有 facade ref */
-  closeSession: (sessionId: string) => Promise<void>;
+  closeSession: (
+    sessionId: string,
+    opts?: { markRecentlyDeleted?: boolean },
+  ) => Promise<void>;
   /** thunk 反调 facade.createSession，restart 路径用 resume + 新 mode/sandbox 重建 */
   createSession: (opts: RestartCreateOpts) => Promise<SdkSessionHandle>;
   /**
@@ -90,6 +90,19 @@ export interface RestartCtx {
 export class RestartController {
   constructor(private ctx: RestartCtx) {}
 
+  private buildRestartPrompt(sessionId: string, prompt: string, cwd: string): Promise<string> {
+    return buildRestartResumePrompt({
+      sessionId,
+      originalText: prompt,
+      cwd,
+      maxLength: MAX_MESSAGE_LENGTH,
+      agentName: 'Claude',
+      summariseFn: this.ctx.summariseFn,
+      listEventsFn: this.ctx.listEventsFn,
+      listMessagesFn: this.ctx.listMessagesFn,
+    });
+  }
+
   /**
    * 冷切权限模式：销毁旧 SDK 子进程，用新 mode 重建（复用 createSession 的 H4/H1 全套护栏）。
    *
@@ -100,7 +113,7 @@ export class RestartController {
    *
    * 为什么 handoffPrompt 必须非空？
    * - createSession 入口校验 prompt.trim() 非空（streaming 协议必须有首条 user message 才能启 CLI）。
-   * - 调用方负责拼好语义（例如「用户已批准 plan…请直接执行」/「继续之前的会话」）。
+   * - 调用方负责拼好语义（例如内部重启恢复指令或「用户已批准 plan…请直接执行」）。
    *
    * 单飞：与 sendMessage 触发的 recoverAndSend 共用 `ctx.recovering` Map，
    * 同 sessionId 的并发 cold-restart / connection-loss recovery 排队执行。
@@ -200,7 +213,7 @@ export class RestartController {
       const p = (async (): Promise<string> => {
         // close OLD：内部已修为 emit *-cancelled 事件清 renderer zombie row 后再清 Map
         // Phase 2.9: 用 currentSid 让 close 操作落到正确 record
-        await this.ctx.closeSession(currentSid);
+        await this.ctx.closeSession(currentSid, { markRecentlyDeleted: false });
 
         // 写 DB：必须先于 createSession（cold path 翻序；hot path 不动保持 ipc.ts:451-462 原样）。
         // 同步 emit upsert 让 SessionDetail 下拉值立即跟到新 mode（5-10s busy 期间用户已经看到「切完了」）。
@@ -212,9 +225,7 @@ export class RestartController {
           // **plan restart-controller-jsonl-precheck-20260521 §Step 3d 修法**:
           // jsonl 预检 + fallback (jsonl 缺失走 fresh-cli-reuse-app + helper 内部续历史摘要 +
           // emit fallback info + emit role='user';不变量 11 helper 已包办 createSession + 2 emit)。
-          // fellBack=true 时直接 return currentSid (helper 已 createSession 不再重复)。
-          // fellBack=false 时 fall through 到下面原 line 182-198 resume 路径 (jsonl 在,行为不变,
-          // §不变量 8)。
+          // fellBack=false 时走正常 resume；该路径也会注入 DB 历史，避免重启后只看到空泛 handoffPrompt。
           const fbResult = await maybeJsonlFallback(
             {
               jsonlExistsThunk: this.ctx.jsonlExistsThunk,
@@ -245,9 +256,11 @@ export class RestartController {
             return fbResult.finalSessionId; // == currentSid (不变量 3 applicationSid 全程不变)
           }
 
+          const resumePrompt = await this.buildRestartPrompt(currentSid, handoffPrompt, rec.cwd);
+
           await this.ctx.createSession({
             cwd: rec.cwd,
-            prompt: handoffPrompt,
+            prompt: resumePrompt,
             resume: currentSid,
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订**:
             // 反向 rename 后 currentSid 是 applicationSid;SDK CLI `--resume` 需 cli sid 找 jsonl。
@@ -386,7 +399,7 @@ export class RestartController {
       // REVIEW_36 R2 MED-B 修法：单飞标记必须在 closeSession + DB write + createSession **之前**
       // set，覆盖整个冷重启的副作用窗口。同 restartWithPermissionMode 修法。
       const p = (async (): Promise<string> => {
-        await this.ctx.closeSession(currentSid);
+        await this.ctx.closeSession(currentSid, { markRecentlyDeleted: false });
 
         // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox
         sessionRepo.setClaudeCodeSandbox(currentSid, sandbox);
@@ -397,9 +410,7 @@ export class RestartController {
           // **plan restart-controller-jsonl-precheck-20260521 §Step 3e 修法** (与 Step 3d 同款):
           // jsonl 预检 + fallback (jsonl 缺失走 fresh-cli-reuse-app + helper 内部续历史摘要 +
           // emit fallback info + emit role='user';不变量 11 helper 已包办)。
-          // fellBack=true 时直接 return currentSid (helper 已 createSession 不再重复)。
-          // fellBack=false 时 fall through 到下面原 line 331-346 resume 路径 (jsonl 在,行为不变,
-          // §不变量 8)。
+          // fellBack=false 时走正常 resume；该路径也会注入 DB 历史，避免重启后只看到空泛 handoffPrompt。
           const fbResult = await maybeJsonlFallback(
             {
               jsonlExistsThunk: this.ctx.jsonlExistsThunk,
@@ -430,9 +441,11 @@ export class RestartController {
             return fbResult.finalSessionId; // == currentSid (不变量 3 applicationSid 全程不变)
           }
 
+          const resumePrompt = await this.buildRestartPrompt(currentSid, handoffPrompt, rec.cwd);
+
           await this.ctx.createSession({
             cwd: rec.cwd,
-            prompt: handoffPrompt,
+            prompt: resumePrompt,
             resume: currentSid,
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订** (同 restartWithPermissionMode):
             resumeCliSid: rec.cliSessionId ?? currentSid,

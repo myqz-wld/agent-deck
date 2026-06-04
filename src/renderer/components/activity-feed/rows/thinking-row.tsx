@@ -9,7 +9,7 @@ const COLLAPSE_THRESHOLD_CHARS = 600;
 
 /**
  * Claude / Codex 的内部推理（Anthropic extended thinking、SDK 压平的多 text block prelude、
- * 或 GPT-5 reasoning 摘要）。视觉与 MessageBubble 区分：dashed 边框 + 暗背景 + 斜体淡灰文字 +
+ * 或 Codex reasoning 摘要）。视觉与 MessageBubble 区分：dashed 边框 + 暗背景 + 斜体淡灰文字 +
  * 头部「{agent} · thinking」标签（区分是哪一族模型在思考，而不是只标 'thinking'）。
  * 默认 plaintext；超过 COLLAPSE_THRESHOLD_CHARS 字符默认折叠（max-height + 「展开」按钮）。
  */

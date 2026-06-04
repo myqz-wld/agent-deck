@@ -96,9 +96,8 @@ export const spawnSessionHandler = withMcpGuard(
     // 必须正确解 union，并把 reason 透传给 err 便于 caller 排查。
     let promptToUse = args.prompt;
     // plan model-wiring-and-handoff-20260514 Step 3.1：agent body frontmatter `model` 提取。
-    // reviewer-claude.md `model: opus` / reviewer-codex.md `model: sonnet` 现状零改动即生效；
     // 提取后通过 createSession({ model }) 透传给 SDK，让 reviewer teammate 真正按 frontmatter
-    // 标的 model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
+    // 标的 provider model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
     let modelFromFrontmatter: string | undefined;
     if (args.agentName) {
       const assetAdapter =

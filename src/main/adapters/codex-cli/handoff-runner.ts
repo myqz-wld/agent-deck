@@ -67,7 +67,7 @@ export async function summariseCodexSessionForHandOff(
     // (不再是 codexHandOffModel — 已下线 + REMOVED_KEYS 清孤儿)。优先级链:
     //   settings.handOffModel > CODEX_HANDOFF_MODEL env > undefined (fallback config.toml)
     // user 责任:provider=codex 时 settings.handOffModel 填的 model id 必须 codex SDK 可用
-    // (典型 'gpt-5.5' 或 mid 级 model 对标 claude haiku 升档场景)。
+    // (典型为当前 provider 可用的中档 model id)。
     model:
       settingsStore.get('handOffModel') ||
       process.env.CODEX_HANDOFF_MODEL ||

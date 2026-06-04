@@ -19,12 +19,14 @@ import { ClaudeSdkBridge } from '../index';
 import { makeInternalSession, type InternalSession } from '../types';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '@shared/types';
-import { cancelPendingAndEmit } from '../pending-cancellation';
+import { cancelPendingAndEmit, runCloseSessionCleanup } from '../pending-cancellation';
+import { sessionManager } from '@main/session/manager';
 
 vi.mock('@main/session/manager', () => ({
   sessionManager: {
     claimAsSdk: vi.fn(),
     releaseSdkClaim: vi.fn(),
+    markRecentlyDeleted: vi.fn(),
     expectSdkSession: vi.fn(() => () => undefined),
     renameSdkSession: vi.fn(),
     updateCliSessionId: vi.fn(),
@@ -114,6 +116,7 @@ function injectExitPlanEntry(internal: InternalSession, requestId: string): void
 beforeEach(() => {
   emits.length = 0;
   dbState.permissionMode = 'plan';
+  vi.clearAllMocks();
 });
 
 afterEach(() => {
@@ -259,5 +262,29 @@ describe('REVIEW_78 MED-2 — cancelPendingAndEmit best-effort resolve 三类 pe
     realResolver({ behavior: 'deny', message: 'aborted', interrupt: true });
     // settled 保持首次值（真实 Promise resolve 幂等语义）
     expect(settled).toEqual({ behavior: 'deny', message: 'session ended', interrupt: true });
+  });
+});
+
+describe('restart close cleanup — optional recentlyDeleted blacklist', () => {
+  it('markRecentlyDeleted=false → cleanup 不把同 sid 加入 recentlyDeleted 黑名单', () => {
+    const internal = makeInternalSession({
+      cwd: '/tmp/test',
+      permissionMode: 'default',
+      applicationSid: 'sess-restart',
+    });
+    const sessions = new Map<string, InternalSession>([['sess-restart', internal]]);
+
+    runCloseSessionCleanup({
+      sessions,
+      internal,
+      key: 'sess-restart',
+      sessionId: 'sess-restart',
+      emit: () => undefined,
+      markRecentlyDeleted: false,
+    });
+
+    expect(sessions.has('sess-restart')).toBe(false);
+    expect(sessionManager.releaseSdkClaim).toHaveBeenCalledWith('sess-restart');
+    expect(sessionManager.markRecentlyDeleted).not.toHaveBeenCalled();
   });
 });

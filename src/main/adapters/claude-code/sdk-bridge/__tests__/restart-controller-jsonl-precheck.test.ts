@@ -49,7 +49,25 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
+vi.mock('@main/store/settings-store', () => ({
+  settingsStore: {
+    get: vi.fn((key: string) => (key === 'resumeRecentMessagesCount' ? 30 : undefined)),
+  },
+}));
+
 const emits: AgentEvent[] = [];
+
+function msg(id: number, role: 'user' | 'assistant', text: string): AgentEvent & { id: number } {
+  return {
+    id,
+    sessionId: 's',
+    agentId: 'claude-code',
+    kind: 'message',
+    payload: { role, text },
+    ts: id,
+    source: 'sdk',
+  };
+}
 
 function makeRec(
   sid: string,
@@ -92,8 +110,10 @@ interface MakeCtxOpts {
 function makeCtx(opts: MakeCtxOpts = {}): {
   ctx: RestartCtx;
   createSessionSpy: ReturnType<typeof vi.fn>;
+  closeCalls: Array<{ sid: string; opts?: { markRecentlyDeleted?: boolean } }>;
 } {
   const recovering = new Map<string, Promise<unknown>>();
+  const closeCalls: Array<{ sid: string; opts?: { markRecentlyDeleted?: boolean } }> = [];
   const createSessionSpy = vi.fn(
     opts.createSession ??
       (async (_o: RestartCreateOpts) =>
@@ -102,14 +122,16 @@ function makeCtx(opts: MakeCtxOpts = {}): {
   const ctx: RestartCtx = {
     recovering,
     emit: (e) => emits.push(e),
-    closeSession: async () => undefined,
+    closeSession: async (sid, closeOpts) => {
+      closeCalls.push({ sid, opts: closeOpts });
+    },
     createSession: createSessionSpy as unknown as RestartCtx['createSession'],
     jsonlExistsThunk: () => opts.jsonlExistsReturn ?? true,
     summariseFn: async () => opts.summariseFnReturn ?? null,
     listEventsFn: () => opts.listEventsFnReturn ?? [],
     listMessagesFn: () => opts.listMessagesFnReturn ?? [], // plan resume-inject §D5: message-only stub
   };
-  return { ctx, createSessionSpy };
+  return { ctx, createSessionSpy, closeCalls };
 }
 
 beforeEach(() => {
@@ -128,7 +150,21 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
   it('T1-pm: jsonl 在 → fellBack=false → 走原 resume 路径 createSession 一次 + opts.resumeCliSid 含 rec.cliSessionId 兜底', async () => {
     const sid = 'app-sid-pm-T1';
     repoCache.set(sid, makeRec(sid, { cliSessionId: 'cli-sid-PM', permissionMode: 'default' }));
-    const { ctx, createSessionSpy } = makeCtx({ jsonlExistsReturn: true });
+    const { ctx, createSessionSpy, closeCalls } = makeCtx({
+      jsonlExistsReturn: true,
+      summariseFnReturn: '重启前摘要',
+      listEventsFnReturn: [
+        {
+          sessionId: sid,
+          agentId: 'claude-code',
+          kind: 'message',
+          payload: { text: 'x' },
+          ts: 1,
+          source: 'sdk',
+        },
+      ],
+      listMessagesFnReturn: [msg(2, 'assistant', '历史回答'), msg(1, 'user', '历史问题')],
+    });
     const ctrl = new RestartController(ctx);
 
     const result = await ctrl.restartWithPermissionMode(sid, 'plan', '继续之前的会话');
@@ -139,7 +175,13 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     expect(opts.resume).toBe(sid);
     expect(opts.resumeCliSid).toBe('cli-sid-PM'); // §不变量 8: resumeCliSid: rec.cliSessionId ?? currentSid
     expect(opts.permissionMode).toBe('plan');
-    // 不变量 8 验证: 现行 resume 路径行为不退化
+    expect(opts.prompt).toContain('历史会话摘要（由应用 DB 历史自动生成，用于重启后恢复上下文）');
+    expect(opts.prompt).toContain('最近原始对话消息');
+    expect(opts.prompt).toContain('[用户] 历史问题');
+    expect(opts.prompt).toContain('[Claude] 历史回答');
+    expect(opts.prompt).toContain('应用内部重启指令');
+    expect(opts.prompt).toContain('继续之前的会话');
+    expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
   });
 
   it('T3-pm: jsonl 缺失 + helper.createSession 抛错 → DB 回滚 oldMode + emit error + throw', async () => {
@@ -179,7 +221,21 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
       sid,
       makeRec(sid, { cliSessionId: 'cli-sid-SB', claudeCodeSandbox: 'workspace-write' }),
     );
-    const { ctx, createSessionSpy } = makeCtx({ jsonlExistsReturn: true });
+    const { ctx, createSessionSpy, closeCalls } = makeCtx({
+      jsonlExistsReturn: true,
+      summariseFnReturn: '沙盒重启摘要',
+      listEventsFnReturn: [
+        {
+          sessionId: sid,
+          agentId: 'claude-code',
+          kind: 'message',
+          payload: { text: 'x' },
+          ts: 1,
+          source: 'sdk',
+        },
+      ],
+      listMessagesFnReturn: [msg(2, 'assistant', '沙盒历史回答'), msg(1, 'user', '沙盒历史问题')],
+    });
     const ctrl = new RestartController(ctx);
 
     const result = await ctrl.restartWithClaudeCodeSandbox(sid, 'strict', '继续之前的会话');
@@ -190,6 +246,11 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
     expect(opts.resume).toBe(sid);
     expect(opts.resumeCliSid).toBe('cli-sid-SB');
     expect(opts.claudeCodeSandbox).toBe('strict');
+    expect(opts.prompt).toContain('历史会话摘要（由应用 DB 历史自动生成，用于重启后恢复上下文）');
+    expect(opts.prompt).toContain('[用户] 沙盒历史问题');
+    expect(opts.prompt).toContain('[Claude] 沙盒历史回答');
+    expect(opts.prompt).toContain('应用内部重启指令');
+    expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
   });
 
   it('T3-sandbox: jsonl 缺失 + helper.createSession 抛错 → DB 回滚 oldSandbox + emit error + throw', async () => {

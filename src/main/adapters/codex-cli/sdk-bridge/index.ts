@@ -531,7 +531,7 @@ export class CodexSdkBridge {
    * **plan resume-inject-raw-messages-20260601 §D8 test seam**（同 cwdExists / codexResumeJsonlExists
    * 模式）。codex jsonl-missing fallback 起 fresh thread 前生成 LLM 总结 prepend（解开 REVIEW_60 F5）。
    *
-   * 复用 claude oneshot `summariseSessionForHandOff`（本地 OAuth，sonnet 4 节结构化），传
+   * 复用 claude oneshot `summariseSessionForHandOff`（本地 OAuth，Claude 侧 4 节结构化），传
    * **agentName='Agent'**（§D8：让 codex 会话总结不自称「Claude 会话」，buildHandoffPrompt 按此分支
    * intro + 主体 `${a}` 替换）。不为 codex 写平行总结函数 —— 解开「codex SDK 4 节模板 reasoning
    * effort 签名差异」的历史耦合。失败语义见 SummariseFnThunk type jsdoc。

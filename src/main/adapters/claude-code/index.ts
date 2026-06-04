@@ -219,8 +219,8 @@ class ClaudeCodeAdapter implements AgentAdapter {
   /**
    * R37 P2-I Step 3.3：LLM 驱动的「最近做什么」入口（dispatch 下放）。
    *
-   * - 'summary' → `summariseViaLlm` (haiku 30 字 tag-line，settings.summaryTimeoutMs)
-   * - 'handoff' → `summariseSessionForHandOff` (sonnet 4 节简报，60s timeout hardcoded)
+   * - 'summary' → `summariseViaLlm` (Claude 侧 30 字 tag-line，settings.summaryTimeoutMs)
+   * - 'handoff' → `summariseSessionForHandOff` (Claude 侧 4 节简报，60s timeout hardcoded)
    *
    * model / systemPrompt / timeout / result 清洗等差异全在底层 runner，本 adapter 只做 dispatch。
    */
