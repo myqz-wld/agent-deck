@@ -47,8 +47,8 @@ export function registerLifecycleHooks(
       all[0].focus();
     }
     // Chromium 会把 commandLine 里的所有 --flag 前置、值后置，破坏 parseCliInvocation 的
-    // key-value 解析。用 requestSingleInstanceLock({ argv: process.argv }) 把原始 argv
-    // 作为 additionalData 传过来，这里优先使用原始 argv。
+    // key-value 解析。additionalData.argv 可用时优先使用；macOS wrapper new 路径另有
+    // payload token，handleCliArgv 会在 parse 前解码。
     const rawArgv =
       additionalData != null &&
       typeof additionalData === 'object' &&

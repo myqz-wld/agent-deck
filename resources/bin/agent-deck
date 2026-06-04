@@ -10,6 +10,7 @@
 #   - 把 --cwd 的相对路径在 shell 端转成绝对路径，避免转发给主实例后被
 #     主实例自己的 process.cwd()（一般是 / 或 .app 安装目录）重新解析。
 #   - 如果是 `new` 但没传 --cwd，自动用当前 PWD 作为 --cwd。
+#   - 把归一化后的 argv 编成单个 payload，避开 Electron 对 --flag/value 的重排。
 #   - 应用未运行 → 由 macOS 自动拉起首启实例，CLI 参数走首启分支。
 #   - 应用已运行 → second-instance 事件转发参数到主实例处理。
 #
@@ -111,6 +112,14 @@ fi
 # new 子命令但用户没传 --permission-mode → 默认 bypassPermissions
 if (( HAS_NEW == 1 && HAS_PERMISSION_MODE == 0 )); then
   NEW_ARGS+=("--permission-mode" "bypassPermissions")
+fi
+
+if (( HAS_NEW == 1 )); then
+  # Electron/macOS 会把普通 `--flag value` argv 重排为 switches-before-positionals，导致
+  # second-instance 入口拿不到 key/value 邻接关系。传一个非 switch payload，让主进程解码后
+  # 再按原 parser 处理。
+  PAYLOAD="$(printf '%s\0' "${NEW_ARGS[@]}" | base64 | tr -d '\n')"
+  exec "$EXEC_PATH" new "agent-deck-argv-b64:$PAYLOAD"
 fi
 
 exec "$EXEC_PATH" "${NEW_ARGS[@]}"
