@@ -12,8 +12,7 @@
 import type { AgentEvent } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
-import { buildRestartResumePrompt } from '@main/session/resume-history';
-import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
+import { AGENT_ID } from './constants';
 import { maybeJsonlFallback } from './jsonl-fallback';
 import type { JsonlExistsThunk, SummariseFnThunk } from './recoverer';
 import type { SdkSessionHandle } from './types';
@@ -89,19 +88,6 @@ export interface RestartCtx {
 
 export class RestartController {
   constructor(private ctx: RestartCtx) {}
-
-  private buildRestartPrompt(sessionId: string, prompt: string, cwd: string): Promise<string> {
-    return buildRestartResumePrompt({
-      sessionId,
-      originalText: prompt,
-      cwd,
-      maxLength: MAX_MESSAGE_LENGTH,
-      agentName: 'Claude',
-      summariseFn: this.ctx.summariseFn,
-      listEventsFn: this.ctx.listEventsFn,
-      listMessagesFn: this.ctx.listMessagesFn,
-    });
-  }
 
   /**
    * 冷切权限模式：销毁旧 SDK 子进程，用新 mode 重建（复用 createSession 的 H4/H1 全套护栏）。
@@ -225,7 +211,9 @@ export class RestartController {
           // **plan restart-controller-jsonl-precheck-20260521 §Step 3d 修法**:
           // jsonl 预检 + fallback (jsonl 缺失走 fresh-cli-reuse-app + helper 内部续历史摘要 +
           // emit fallback info + emit role='user';不变量 11 helper 已包办 createSession + 2 emit)。
-          // fellBack=false 时走正常 resume；该路径也会注入 DB 历史，避免重启后只看到空泛 handoffPrompt。
+          // fellBack=false（jsonl 在）时走正常 resume，**不**注入 DB 历史：CLI `--resume` 会从
+          // jsonl 续上完整上下文，再注入 DB 摘要/原始对话只会让模型把整段历史当成新输入（CHANGELOG_221
+          // 曾在此注入，CHANGELOG_223 撤回）。仅 jsonl 缺失的 fallback 路径才靠 maybeJsonlFallback 续历史。
           const fbResult = await maybeJsonlFallback(
             {
               jsonlExistsThunk: this.ctx.jsonlExistsThunk,
@@ -256,11 +244,9 @@ export class RestartController {
             return fbResult.finalSessionId; // == currentSid (不变量 3 applicationSid 全程不变)
           }
 
-          const resumePrompt = await this.buildRestartPrompt(currentSid, handoffPrompt, rec.cwd);
-
           await this.ctx.createSession({
             cwd: rec.cwd,
-            prompt: resumePrompt,
+            prompt: handoffPrompt,
             resume: currentSid,
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订**:
             // 反向 rename 后 currentSid 是 applicationSid;SDK CLI `--resume` 需 cli sid 找 jsonl。
@@ -410,7 +396,8 @@ export class RestartController {
           // **plan restart-controller-jsonl-precheck-20260521 §Step 3e 修法** (与 Step 3d 同款):
           // jsonl 预检 + fallback (jsonl 缺失走 fresh-cli-reuse-app + helper 内部续历史摘要 +
           // emit fallback info + emit role='user';不变量 11 helper 已包办)。
-          // fellBack=false 时走正常 resume；该路径也会注入 DB 历史，避免重启后只看到空泛 handoffPrompt。
+          // fellBack=false（jsonl 在）时走正常 resume，**不**注入 DB 历史（CHANGELOG_223 撤回 221 注入）：
+          // CLI `--resume` 已从 jsonl 续上完整上下文，仅 jsonl 缺失 fallback 才靠 maybeJsonlFallback 续历史。
           const fbResult = await maybeJsonlFallback(
             {
               jsonlExistsThunk: this.ctx.jsonlExistsThunk,
@@ -441,11 +428,9 @@ export class RestartController {
             return fbResult.finalSessionId; // == currentSid (不变量 3 applicationSid 全程不变)
           }
 
-          const resumePrompt = await this.buildRestartPrompt(currentSid, handoffPrompt, rec.cwd);
-
           await this.ctx.createSession({
             cwd: rec.cwd,
-            prompt: resumePrompt,
+            prompt: handoffPrompt,
             resume: currentSid,
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订** (同 restartWithPermissionMode):
             resumeCliSid: rec.cliSessionId ?? currentSid,
