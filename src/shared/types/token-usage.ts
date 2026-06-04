@@ -5,7 +5,7 @@
  * - **TokenUsagePayload**：`token-usage` AgentEvent 的 payload（采集层 emit → ingest 落库）
  * - **TokenRateRow** / **TokenDailyRow**：IPC 查询返回行（main repo → renderer）
  * - **TokenUsageChangedEvent**：main → renderer push 通知（daily/rates 数据变更，触发 refetch）
- * - **TokenRateTickEvent**：main → renderer push 的生成中 tok/s 估算展示态（不落库）
+ * - **TokenRateTickEvent**：main → renderer push 的 tok/s 估算展示态（不落库）
  *
  * 仅依赖标准库；列名 camelCase（DB 层 snake_case 在 token-usage-repo 内转换）。
  */
@@ -58,12 +58,12 @@ export interface TokenUsageChangedEvent {
   ts: number;
 }
 
-/** main → renderer push：生成中 tok/s 估算 tick。display-only，不写 token_usage。 */
+/** main → renderer push：tok/s 估算 tick。display-only，不写 token_usage。 */
 export interface TokenRateTickEvent {
   sessionId: string;
   bucketKey: string;
   tps: number;
   ts: number;
-  /** turn 结束 / session 结束时清掉该 session 的 live 展示态。 */
+  /** turn 失败 / session 结束时清掉该 session 的 live 展示态。 */
   done?: boolean;
 }

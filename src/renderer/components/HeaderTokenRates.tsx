@@ -68,7 +68,7 @@ export function HeaderTokenRates(): JSX.Element | null {
               <span
                 key={bucketKey}
                 className="flex shrink-0 items-center gap-1 text-[10px] text-deck-muted"
-                title={`${name}：${liveTps !== undefined ? '生成中估算' : '最近 60s'} ${fmtRate(tps)} tok/s（今日输出 ${todayOutput.toLocaleString()} tokens）`}
+                title={`${name}：${liveTps !== undefined ? '实时估算' : '最近 60s'} ${fmtRate(tps)} tok/s（今日输出 ${todayOutput.toLocaleString()} tokens）`}
               >
                 <span className="max-w-[88px] truncate text-deck-text/80">{name}</span>
                 <span className="tabular-nums text-status-working">{fmtRate(tps)}</span>
