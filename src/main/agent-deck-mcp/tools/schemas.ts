@@ -110,25 +110,25 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional()
     .describe(
-      '不传时从 lead session（callerSessionId 对应 row）继承；caller 显式传则覆盖。external caller (caller 不在 sessions 表) 不继承，沿用 adapter 默认。',
+      'caller 显式传则覆盖。省略时：target adapter 与 caller adapter 相同 → 继承 caller session 的 permissionMode；跨 adapter spawn → 用 target adapter 默认值（claude-code / deepseek-claude-code 默认 bypassPermissions；codex-cli 无 permissionMode）。',
     ),
   codexSandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      '不传时从 lead 继承；caller 显式传覆盖。**P5 Round 1 reviewer-codex M3 修法 (clarify 契约边界)**：reviewer-* teammate spawn 路径 (agentName="reviewer-claude" / "reviewer-codex") 由 options-builder 强制 spread "workspace-write" (plan §不变量 6 — reviewer body 内 Bash/shell 工具需读源码 + 写中间文件)，caller 显式传 codexSandbox 会被 reviewer-* unsafe default override + 主进程 console.warn 提示。如需严格 read-only 给 reviewer，目前不支持 — reviewer body 设计依赖 workspace-write。',
+      'caller 显式传优先于继承 / 默认。省略时：target adapter 是 codex-cli 且 caller 也是 codex-cli → 继承 caller session 的 codexSandbox；跨 adapter spawn → 不继承 caller sandbox,由 codex adapter 走 settings 默认。**P5 Round 1 reviewer-codex M3 修法 (clarify 契约边界)**：reviewer-* teammate spawn 路径 (agentName="reviewer-claude" / "reviewer-codex") 由 options-builder 强制 spread "workspace-write" (plan §不变量 6 — reviewer body 内 Bash/shell 工具需读源码 + 写中间文件)，caller 显式传 codexSandbox 会被 reviewer-* unsafe default override + 主进程 console.warn 提示。严格 read-only reviewer 当前不支持 — reviewer body 设计依赖 workspace-write。',
     ),
   claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
-      'claude-code adapter 沙盒切档（off / workspace-write / strict）。不传时从 lead 继承（避免 spawn 出的 reviewer-codex 被外层 sandbox 拦 in-process app-server 初始化）。caller 显式传覆盖。',
+      'claude-code / deepseek-claude-code adapter 沙盒切档（off / workspace-write / strict）。caller 显式传则覆盖。省略时：target adapter 与 caller adapter 相同 → 继承 caller session 的 claudeCodeSandbox；跨 adapter spawn → 不继承 caller sandbox,由 target adapter 走 settings 默认。',
     ),
   /**
    * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
    * hand_off_session 在外置 worktree 场景下传 `[mainRepo]` 让外置 worktree session 能写 mainRepo plan
    * 文件（user CLAUDE.md §Step 4 plan 完成时更新 frontmatter status=completed 必须写）。
-   * 直接调 spawn_session 时一般不传（lead 继承已覆盖大多数场景）。
+   * 直接调 spawn_session 时无需传，除非目标 Claude sandbox 需要额外写入根；same-adapter spawn 会继承 caller 既有值。
    */
   extraAllowWrite: z
     .array(z.string().min(1).max(4096))
@@ -429,19 +429,19 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional()
     .describe(
-      'Permission mode for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / adapter default).',
+      'Permission mode for the new SDK session. When omitted, follows spawn_session defaults: same target adapter as caller inherits caller permissionMode; cross-adapter spawn uses target adapter defaults (claude-code / deepseek-claude-code default bypassPermissions; codex-cli has no permissionMode).',
     ),
   codexSandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      'codex-cli sandbox override for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / adapter default = "workspace-write"). Pass explicitly to override (e.g. baton from claude lead to codex-cli with stricter "read-only" for sensitive task). Mirrors spawn_session.codexSandbox 1:1.',
+      'codex-cli sandbox override for the new SDK session. When omitted, follows spawn_session defaults: same-adapter codex handoff inherits caller codexSandbox; cross-adapter handoff lets codex adapter use settings default. Pass explicitly to override (e.g. baton from claude lead to codex-cli with stricter "read-only" for sensitive task). Mirrors spawn_session.codexSandbox 1:1.',
     ),
   claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
-      'claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults (callerSessionId lead inheritance > undefined / settings global). Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claudeCodeSandbox 1:1.',
+      'claude-code / deepseek-claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults: same target adapter as caller inherits caller claudeCodeSandbox; cross-adapter handoff lets target adapter use settings global. Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claudeCodeSandbox 1:1.',
     ),
   /**
    * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。

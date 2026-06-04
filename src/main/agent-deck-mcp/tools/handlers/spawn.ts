@@ -4,7 +4,7 @@
  *   adapter capabilities 校验 + agent body resolve
  * - 持久化链：setSpawnLink + recordCreatedPermissionMode + setTitle +
  *   teamRepo.ensureByName/addMember(lead+teammate) + messageRepo.insert (placeholder)
- * - permission/sandbox 继承（REVIEW_32 HIGH-5）：caller 显式 > lead 继承 > undefined
+ * - permission/sandbox 默认值：caller 显式 > same-adapter lead 继承 > target adapter 默认
  * - team-cohesion-fix-20260513 Phase B5/B7：spawn 路径与 reply chain 贯通的 placeholder + wire prefix
  *
  * 拆分历史：从 src/main/agent-deck-mcp/tools.ts 432-668 抽出（CHANGELOG_81 / plan
@@ -39,6 +39,15 @@ import { buildLeadContextBlock } from './lead-context-block';
 import log from '@main/utils/logger';
 
 const logger = log.scope('mcp-spawn');
+
+function defaultPermissionModeForTargetAdapter(
+  adapter: SpawnSessionArgs['adapter'],
+): 'bypassPermissions' | undefined {
+  if (adapter === 'claude-code' || adapter === 'deepseek-claude-code') {
+    return 'bypassPermissions';
+  }
+  return undefined;
+}
 
 export const spawnSessionHandler = withMcpGuard(
   'spawn_session',
@@ -126,11 +135,13 @@ export const spawnSessionHandler = withMcpGuard(
       }
     }
 
-    // REVIEW_32 HIGH-5：spawn 默认继承 lead session 的 permissionMode / codexSandbox /
-    // claudeCodeSandbox。caller 显式传则覆盖；external caller (callerExists==false) 不继承
-    // 沿用 adapter 默认（避免外部 MCP client 误触发 lead 沙盒透传）。
-    // 解决 reviewer-codex 报「外层 Claude Code sandbox 拦了 codex in-process app-server 初始化」
-    // 的根因 —— spawn 出的 reviewer-codex teammate 没继承 lead 的 sandbox 设置，跑在受限沙盒里。
+    // Spawn 权限 / 沙盒默认值：
+    // - caller 显式传参永远最高优先级；
+    // - caller 与 target adapter 相同才继承 lead 的 permission/sandbox；
+    // - 跨 adapter spawn 不继承 lead（不同 adapter 的权限/沙盒语义不同），改用 target adapter
+    //   默认值。Claude-family 的应用默认是 bypassPermissions（与 NewSessionDialog /
+    //   agent-deck new 默认一致）；sandbox 仍留 undefined 让 target adapter 走 settings 全局默认。
+    // 这避免 Codex lead spawn Claude teammate 时把目标落回 Claude SDK 默认 "每次询问"。
     // REVIEW_36 LOW-1：sessionRepo.get 单次反查（旧实现 callerExists / leadRecord 各调一次）。
     //
     // **REVIEW_49 R1 follow-up LOW**: `callerExists` 控制 caller-scoped side effects 散落 4 处
@@ -147,11 +158,18 @@ export const spawnSessionHandler = withMcpGuard(
     // 当前散落 + anchor 注释比抽 helper 维护负担低。
     const leadRecord = sessionRepo.get(caller.callerSessionId);
     const callerExists = leadRecord !== null;
+    const shouldInheritAdapterSettings = leadRecord?.agentId === args.adapter;
     const effectivePermissionMode =
-      args.permissionMode ?? leadRecord?.permissionMode ?? undefined;
-    const effectiveCodexSandbox = args.codexSandbox ?? leadRecord?.codexSandbox ?? undefined;
+      args.permissionMode ??
+      (shouldInheritAdapterSettings
+        ? (leadRecord?.permissionMode ?? undefined)
+        : defaultPermissionModeForTargetAdapter(args.adapter));
+    const effectiveCodexSandbox =
+      args.codexSandbox ??
+      (shouldInheritAdapterSettings ? (leadRecord?.codexSandbox ?? undefined) : undefined);
     const effectiveClaudeCodeSandbox =
-      args.claudeCodeSandbox ?? leadRecord?.claudeCodeSandbox ?? undefined;
+      args.claudeCodeSandbox ??
+      (shouldInheritAdapterSettings ? (leadRecord?.claudeCodeSandbox ?? undefined) : undefined);
 
     // 完整防递归 3 条规则（ADR §6 / REVIEW_28 移除 §6.2 cwd cycle 后）：depth 上限 /
     // fan-out / spawn-rate（顺序：不消耗资源的检查前置，详 spawn-guards.ts 头注释）。
@@ -263,7 +281,7 @@ export const spawnSessionHandler = withMcpGuard(
         buildCreateSessionOptions(args.adapter, {
           cwd: args.cwd,
           prompt: promptForSpawn, // wire 形式（spawn 路径下若有 teamName 则含 [msg <id>] prefix）
-          // REVIEW_32 HIGH-5：使用 effective 字段（caller 显式 > lead 继承 > undefined）
+          // 使用 effective 字段（caller 显式 > same-adapter lead 继承 > target adapter 默认）
           // REVIEW_37 P1-Phase2 (claude F4 LOW)：omitUndefined 收口 4 个简单 spread+ternary。
           // 仅 extraAllowWrite（length > 0 语义）+ model（falsy 语义）保留 inline ternary。
           ...omitUndefined({
