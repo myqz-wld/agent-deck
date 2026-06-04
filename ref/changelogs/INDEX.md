@@ -227,3 +227,4 @@
 | [CHANGELOG_220.md](CHANGELOG_220.md) | `spawn_session` 改为同 adapter 才继承 caller 权限/沙盒，跨 adapter 使用 target 默认；Codex→Claude 默认 `bypassPermissions` 不再落回每次询问。 |
 | [CHANGELOG_221.md](CHANGELOG_221.md) | 沙盒/权限冷重启使用内部恢复 prompt，并在正常 resume 路径注入 DB 历史，避免模型误解和上下文丢失。 |
 | [CHANGELOG_222.md](CHANGELOG_222.md) | reviewer 长期文案移除具体模型版本，改用 Claude/Codex adapter 与 provider 系列说明。 |
+| [CHANGELOG_223.md](CHANGELOG_223.md) | 撤回 221 对 jsonl 在的 restart resume 注入 DB 历史 —— jsonl 在时 CLI/resumeThread 已从 jsonl 续上完整上下文，直接透传内部恢复指令不再叠 DB 摘要；删除 `buildRestartResumePrompt`，jsonl 缺失 fallback 仍续历史。沙盒只包裹单条命令、不吞 jsonl，已实测排除「沙盒丢 jsonl」。 |

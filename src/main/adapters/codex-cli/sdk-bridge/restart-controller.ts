@@ -21,8 +21,7 @@ import type { AgentEvent } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
-import { buildRestartResumePrompt } from '@main/session/resume-history';
-import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
+import { AGENT_ID } from './constants';
 import { maybeCodexJsonlFallback } from './codex-jsonl-fallback';
 import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { CodexSessionHandle } from './types';
@@ -304,21 +303,14 @@ export class RestartController {
         // create-session-impl 对 model 无 sessionRepo fallback（不同于 sandbox 有 persistedSandbox），
         // 故修前 jsonl 在 + rec.model 非空时 ThreadOptions 不带 model → codex 按全局默认 model 跑（=
         // reviewer-codex R1「restart 丢 model」MED 根因）。仅 rec.model 为 null 时才与修前字面等价。
-
-        const resumePrompt = await buildRestartResumePrompt({
-          sessionId,
-          originalText: handoffPrompt,
-          cwd: rec.cwd,
-          maxLength: MAX_MESSAGE_LENGTH,
-          agentName: 'Agent',
-          summariseFn: this.ctx.summariseFn,
-          listEventsFn: this.ctx.listEventsFn,
-          listMessagesFn: this.ctx.listMessagesFn,
-        });
+        //
+        // **CHANGELOG_223 撤回 221 注入**：jsonl 在时 codex resumeThread 已从 thread jsonl 续上完整
+        // 上下文，**不**再注入 DB 摘要/原始对话（注入只会让模型把整段历史当成新输入）。仅 jsonl 缺失的
+        // maybeCodexJsonlFallback 路径才靠 injectResumeHistory 续历史。
 
         const handle = await this.ctx.createSession({
           cwd: rec.cwd,
-          prompt: resumePrompt,
+          prompt: handoffPrompt,
           resume: sessionId,
           // **plan reverse-rename-sid-stability-20260520 §C.2 R3 MED-R3-2 修订**:
           // 显式传 cli sid 让 codex SDK resumeThread 拿正确 thread_id (反向 rename 后两者不同时)。

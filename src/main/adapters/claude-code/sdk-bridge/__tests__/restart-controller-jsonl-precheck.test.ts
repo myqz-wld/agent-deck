@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RestartController, type RestartCtx, type RestartCreateOpts } from '../restart-controller';
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import type { SdkSessionHandle } from '../types';
+import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 
 // sessionRepo / sessionManager mock 让 RestartController 不撞依赖
 const repoCache = new Map<string, SessionRecord>();
@@ -167,7 +168,7 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     });
     const ctrl = new RestartController(ctx);
 
-    const result = await ctrl.restartWithPermissionMode(sid, 'plan', '继续之前的会话');
+    const result = await ctrl.restartWithPermissionMode(sid, 'plan', SDK_RESTART_RESUME_PROMPT);
 
     expect(result).toBe(sid); // applicationSid 全程不变
     expect(createSessionSpy).toHaveBeenCalledOnce(); // 只调原 resume 路径一次 (helper 没 createSession)
@@ -175,12 +176,12 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     expect(opts.resume).toBe(sid);
     expect(opts.resumeCliSid).toBe('cli-sid-PM'); // §不变量 8: resumeCliSid: rec.cliSessionId ?? currentSid
     expect(opts.permissionMode).toBe('plan');
-    expect(opts.prompt).toContain('历史会话摘要（由应用 DB 历史自动生成，用于重启后恢复上下文）');
-    expect(opts.prompt).toContain('最近原始对话消息');
-    expect(opts.prompt).toContain('[用户] 历史问题');
-    expect(opts.prompt).toContain('[Claude] 历史回答');
-    expect(opts.prompt).toContain('应用内部重启指令');
-    expect(opts.prompt).toContain('继续之前的会话');
+    // CHANGELOG_223：jsonl 在 → handoffPrompt（= SDK_RESTART_RESUME_PROMPT 内部恢复指令）原样透传，
+    // CLI --resume 已从 jsonl 续上完整上下文，**不**再注入 221 的 DB 摘要/原始对话（否则模型把整段历史当新输入）。
+    expect(opts.prompt).toBe(SDK_RESTART_RESUME_PROMPT);
+    expect(opts.prompt).not.toContain('历史会话摘要');
+    expect(opts.prompt).not.toContain('最近原始对话消息');
+    expect(opts.prompt).not.toContain('[用户] 历史问题');
     expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
   });
 
@@ -238,7 +239,7 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
     });
     const ctrl = new RestartController(ctx);
 
-    const result = await ctrl.restartWithClaudeCodeSandbox(sid, 'strict', '继续之前的会话');
+    const result = await ctrl.restartWithClaudeCodeSandbox(sid, 'strict', SDK_RESTART_RESUME_PROMPT);
 
     expect(result).toBe(sid); // applicationSid 全程不变
     expect(createSessionSpy).toHaveBeenCalledOnce(); // 只调原 resume 路径一次
@@ -246,10 +247,10 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
     expect(opts.resume).toBe(sid);
     expect(opts.resumeCliSid).toBe('cli-sid-SB');
     expect(opts.claudeCodeSandbox).toBe('strict');
-    expect(opts.prompt).toContain('历史会话摘要（由应用 DB 历史自动生成，用于重启后恢复上下文）');
-    expect(opts.prompt).toContain('[用户] 沙盒历史问题');
-    expect(opts.prompt).toContain('[Claude] 沙盒历史回答');
-    expect(opts.prompt).toContain('应用内部重启指令');
+    // CHANGELOG_223：jsonl 在 → handoffPrompt 原样透传，不注入 DB 历史（同 restartWithPermissionMode）。
+    expect(opts.prompt).toBe(SDK_RESTART_RESUME_PROMPT);
+    expect(opts.prompt).not.toContain('历史会话摘要');
+    expect(opts.prompt).not.toContain('沙盒历史问题');
     expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
   });
 

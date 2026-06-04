@@ -659,8 +659,9 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     expect(bridge.createCalls[0].cancelCheck).toBeTypeOf('function');
   });
 
-  it('restart jsonl 在 → createSession prompt 注入 DB 历史 + 标记为内部重启指令', async () => {
+  it('restart jsonl 在 → createSession prompt 原样透传 handoffPrompt，不注入 DB 历史（CHANGELOG_223 撤回 221）', async () => {
     const bridge = makeBridge();
+    // 即便 DB 历史/摘要齐备，jsonl 在的 resume 路径也**不**注入（resumeThread 已从 thread jsonl 续上）。
     bridge.summariseOverride = 'Codex 重启摘要';
     bridge.listEventsOverride = [
       { sessionId: 'sess-history', agentId: 'codex-cli', kind: 'message', payload: { text: 'x' }, ts: 1, source: 'sdk' },
@@ -688,12 +689,10 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
 
     expect(bridge.createCalls).toHaveLength(1);
     const prompt = bridge.createCalls[0].prompt ?? '';
-    expect(prompt).toContain('历史会话摘要（由应用 DB 历史自动生成，用于重启后恢复上下文）');
-    expect(prompt).toContain('Codex 重启摘要');
-    expect(prompt).toContain('[用户] Codex 历史问题');
-    expect(prompt).toContain('[Agent] Codex 历史回答');
-    expect(prompt).toContain('应用内部重启指令');
-    expect(prompt).toContain('go');
+    expect(prompt).toBe('go'); // handoffPrompt 原样，无 DB 注入
+    expect(prompt).not.toContain('历史会话摘要');
+    expect(prompt).not.toContain('Codex 重启摘要');
+    expect(prompt).not.toContain('Codex 历史问题');
   });
 
   // ─── REVIEW_101 R1: restart jsonl 缺失走 fallback（reviewer-claude MED）──────────────────
