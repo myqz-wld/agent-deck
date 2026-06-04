@@ -221,3 +221,4 @@
 | [CHANGELOG_214.md](CHANGELOG_214.md) | 修复 `bypassPermissions` 被 SDK `system.init` 帧的 `'default'` 覆盖导致 `canUseTool` 短路失效、DB 写成 `'default'` 的问题。 |
 | [CHANGELOG_215.md](CHANGELOG_215.md) | 修复 second-instance argv Chromium 重排问题：`requestSingleInstanceLock({ argv })` + handler 优先读 `additionalData.argv`，彻底修复 CLI 路径 `--permission-mode`/`--cwd`/`--prompt` 全部丢失的 bug。 |
 | [CHANGELOG_216.md](CHANGELOG_216.md) | Codex 侧生成中 tok/s 实时估算：`item.updated{agent_message/reasoning}` 差值累积 + EMA 平滑，接入既有 `token-rate-tick` 通道，Header Top3 同步显示 Codex 速率。 |
+| [CHANGELOG_217.md](CHANGELOG_217.md) | Codex tok/s 完成态校准：实测 `@openai/codex-sdk` 0.135.0 普通回答不发 `item.updated(agent_message/reasoning)`，改为 `turn.started` 记录耗时、`item.completed` 文本估算、`turn.completed` 用权威 usage 发短暂校准 tick，再回落到 60s `token_usage` 窗口。 |

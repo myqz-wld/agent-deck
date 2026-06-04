@@ -81,6 +81,7 @@ export interface InternalSession {
 /** Codex 侧生成中 tok/s 估算状态（仅展示，不落库）。 */
 export interface CodexLiveTokenEstimateState {
   bucketKey: string;
+  turnStartedTs: number;
   estTokensSinceFlush: number;
   lastFlushTs: number;
   emaTps: number | undefined;

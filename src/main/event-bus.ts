@@ -113,7 +113,7 @@ export interface EventMap {
    * renderer，数据 tab debounce refetch daily，rates/topToday 也用它做 turn 末快速校准。
    */
   'token-usage-changed': [TokenUsageChangedEvent];
-  /** Claude stream_event 文本增量估算出的 display-only tok/s；main bootstrap 桥接到 renderer。 */
+  /** display-only tok/s tick；main bootstrap 桥接到 renderer，不写 token_usage。 */
   'token-rate-tick': [TokenRateTickEvent];
 }
 
