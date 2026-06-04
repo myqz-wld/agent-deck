@@ -40,9 +40,12 @@
  * 让单测可以直接 input/output 验证(Step 4 加单测)。
  */
 
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { PermissionMode } from '@main/adapters/types';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
+import { encodeClaudeProjectDir } from '@main/platform';
 import { injectResumeHistory } from '@main/session/resume-history';
 import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
 import type { JsonlExistsThunk, SummariseFnThunk } from './recoverer';
@@ -282,6 +285,24 @@ export async function maybeJsonlFallback(
     // 正常路径:caller 自走原 resume 路径,helper 不 emit / 不 createSession
     return { finalSessionId: opts.sessionId, fellBack: false };
   }
+
+  // **CHANGELOG_223 排查日志（fork 子 jsonl 落盘 vs 连续快速重启时序竞态）**：precheck 判定 jsonl
+  // 缺失 → 即将走 fresh-cli fallback。落一行 warn 含完整可复现信息：算出的 jsonl 绝对路径让用户能直接
+  // `ls` 验证「文件真不在 / 只是 precheck 算错」。restart 路径 cwdFellBack 恒 false → jsonlExistsThunk
+  // 真被调用过，path miss 是真 file-existence miss（最值得排查）；recover 路径 cwdFellBack=true 时是
+  // cwd 切换的预期 fallback（短路没调 thunk，path 仅为「本该查的位置」参考）。
+  const lookupId = opts.cliSessionId ?? opts.sessionId;
+  let jsonlPath = '(path compute failed)';
+  try {
+    jsonlPath = join(homedir(), '.claude', 'projects', encodeClaudeProjectDir(opts.cwd), `${lookupId}.jsonl`);
+  } catch {
+    // encodeClaudeProjectDir 抛错（非法 cwd）→ 保留占位串，不阻断 fallback
+  }
+  logger.warn(
+    `[jsonl-fallback] precheck MISS → fresh-cli fallback: emitContext=${opts.emitContext} ` +
+      `cwdFellBack=${opts.cwdFellBack ?? false} sessionId=${opts.sessionId} ` +
+      `cliSessionId=${opts.cliSessionId ?? 'null'} lookupId=${lookupId} cwd=${opts.cwd} jsonlPath=${jsonlPath}`,
+  );
 
   // fallback 分支: ① injectResumeHistory 拼「总结段 + 最近原始对话消息段 + 当前消息」三段
   // (plan resume-inject-raw-messages-20260601 §架构地基：拼 1 条结构化 user message 是唯一正解；
