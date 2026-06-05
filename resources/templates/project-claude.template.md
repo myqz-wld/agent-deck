@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 > 给 Claude Code 在本仓库工作时的硬性约定，也是 Claude / Codex 共享仓库规则的 SSOT。
-> 通用约定（输出 / 运行时 / review 对抗 / 工程地基）见 `resources/claude-config/CLAUDE.md`，本文件只放**项目专属**。
+> Agent Deck 应用环境通用约定（输出 / 运行时 / review 对抗 / 工程地基）会随 SDK 会话自动注入；本文件只放**项目专属**。
 > Codex 对偶入口是 `AGENTS.md`（薄指针 → 本文件，只补 Codex 入口差异）；共享仓库规则以本文件为准，避免双写漂移。
 
 ## 仓库基础
@@ -12,7 +12,7 @@
 
 ## 项目特定触发
 
-`resources/claude-config/CLAUDE.md`「新项目工程地基」节定义了通用「改动后必做」流程（README 三问 / changelog / reviews / 反馈升级），本文件只补**项目特定**触发：
+应用环境「新项目工程地基」节定义了通用「改动后必做」流程（README 三问 / changelog / reviews / 反馈升级），本文件只补**项目特定**触发：
 
 - <例：改 main / preload 后必须重启 dev>
 - <例：改 DB schema 必须新增 migration 文件 + bump user_version>
@@ -20,7 +20,7 @@
 
 ## 项目特定约定（设计要点速查）
 
-> 反复出现过的设计决定，改动前注意。**新升级走 `ref/conventions/<X>-<topic>.md`**（详 `resources/claude-config/CLAUDE.md` §反复反馈 / 反复踩坑 → 升级约定 节）；本节仅保留 `ref/conventions/` 目录建立**之前**的历史升级，新项目初始为空。
+> 反复出现过的设计决定，改动前注意。**新升级走 `ref/conventions/<X>-<topic>.md`**（详应用环境 §反复反馈 / 反复踩坑 → 升级约定 节）；本节仅保留 `ref/conventions/` 目录建立**之前**的历史升级，新项目初始为空。
 
 <!-- 模式（每个主题一节）：
 
