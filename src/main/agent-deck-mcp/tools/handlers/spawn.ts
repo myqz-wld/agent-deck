@@ -136,7 +136,7 @@ export const spawnSessionHandler = withMcpGuard(
 
     // Spawn 权限 / 沙盒默认值：
     // - caller 显式传参永远最高优先级；
-    // - caller 与 target adapter 相同才继承 lead 的 permission/sandbox；
+    // - caller 与 target adapter 相同才继承 lead 的 permission/sandbox/extra writable roots；
     // - 跨 adapter spawn 不继承 lead（不同 adapter 的权限/沙盒语义不同），改用 target adapter
     //   默认值。Claude-family 的应用默认是 bypassPermissions（与 NewSessionDialog /
     //   agent-deck new 默认一致）；sandbox 仍留 undefined 让 target adapter 走 settings 全局默认。
@@ -169,6 +169,12 @@ export const spawnSessionHandler = withMcpGuard(
     const effectiveClaudeCodeSandbox =
       args.claudeCodeSandbox ??
       (shouldInheritAdapterSettings ? (leadRecord?.claudeCodeSandbox ?? undefined) : undefined);
+    const effectiveExtraAllowWrite =
+      args.extraAllowWrite !== undefined
+        ? args.extraAllowWrite
+        : shouldInheritAdapterSettings
+          ? (leadRecord?.extraAllowWrite ?? undefined)
+          : undefined;
 
     // 完整防递归 3 条规则（ADR §6 / REVIEW_28 移除 §6.2 cwd cycle 后）：depth 上限 /
     // fan-out / spawn-rate（顺序：不消耗资源的检查前置，详 spawn-guards.ts 头注释）。
@@ -301,10 +307,11 @@ export const spawnSessionHandler = withMcpGuard(
             // createSession → first user message emit spread 进 events.payload。
             handOff: args.handOff,
           }),
-          // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（仅 caller 显式传时）—
+          // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（caller 显式或 same-adapter
+          // 从 lead 继承）—
           // 留 inline 因要 length > 0 检查（空数组也跳过，omitUndefined 不处理 empty array）
-          ...(args.extraAllowWrite !== undefined && args.extraAllowWrite.length > 0
-            ? { extraAllowWrite: args.extraAllowWrite }
+          ...(effectiveExtraAllowWrite !== undefined && effectiveExtraAllowWrite.length > 0
+            ? { extraAllowWrite: effectiveExtraAllowWrite }
             : {}),
           // plan model-wiring-and-handoff-20260514 Step 3.1 + prompt-asset-review-optimize-20260527 修订：
           // 透传 frontmatter `model` 给 createSession。两 adapter runtime 都真生效:

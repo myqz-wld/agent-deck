@@ -147,6 +147,7 @@ const createSessionCalls: Array<{
   permissionMode?: string;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
+  extraAllowWrite?: readonly string[];
 }> = [];
 
 vi.mock('@main/adapters/registry', () => ({
@@ -167,6 +168,7 @@ vi.mock('@main/adapters/registry', () => ({
           permissionMode?: string;
           codexSandbox?: string;
           claudeCodeSandbox?: string;
+          extraAllowWrite?: readonly string[];
         }) => {
           const sid = nextSpawnedSid;
           createSessionCalls.push({
@@ -178,6 +180,7 @@ vi.mock('@main/adapters/registry', () => ({
             permissionMode: opts.permissionMode,
             codexSandbox: opts.codexSandbox,
             claudeCodeSandbox: opts.claudeCodeSandbox,
+            extraAllowWrite: opts.extraAllowWrite,
           });
           sessionStore.set(sid, {
             id: sid,
@@ -664,6 +667,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       agentId: 'claude-code',
       permissionMode: 'plan',
       claudeCodeSandbox: 'strict',
+      extraAllowWrite: ['/main-repo', '/shared-cache'],
     });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
@@ -676,6 +680,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].permissionMode).toBe('plan');
     expect(createSessionCalls[0].claudeCodeSandbox).toBe('strict');
+    expect(createSessionCalls[0].extraAllowWrite).toEqual(['/main-repo', '/shared-cache']);
     expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'plan' }]);
   });
 
@@ -687,6 +692,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       permissionMode: 'plan',
       codexSandbox: 'read-only',
       claudeCodeSandbox: 'strict',
+      extraAllowWrite: ['/codex-extra-root'],
     });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
@@ -700,6 +706,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].permissionMode).toBe('bypassPermissions');
     expect(createSessionCalls[0].claudeCodeSandbox).toBeUndefined();
     expect(createSessionCalls[0].codexSandbox).toBeUndefined();
+    expect(createSessionCalls[0].extraAllowWrite).toBeUndefined();
     expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'bypassPermissions' }]);
   });
 
@@ -718,6 +725,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       prompt: 'cross adapter explicit task',
       permissionMode: 'acceptEdits',
       claudeCodeSandbox: 'workspace-write',
+      extraAllowWrite: ['/explicit-root'],
       callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
@@ -725,6 +733,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].permissionMode).toBe('acceptEdits');
     expect(createSessionCalls[0].claudeCodeSandbox).toBe('workspace-write');
+    expect(createSessionCalls[0].extraAllowWrite).toEqual(['/explicit-root']);
     expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'acceptEdits' }]);
   });
 
