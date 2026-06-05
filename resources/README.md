@@ -9,6 +9,8 @@
 | `resources/bin` | `.app/Contents/Resources/bin` | CLI wrapper 与辅助脚本 |
 | `resources/claude-config` | `.app/Contents/Resources/claude-config` | Claude Code / Deepseek(Claude Code) 侧应用约定与 plugin |
 | `resources/codex-config` | `.app/Contents/Resources/codex-config` | Codex 侧应用约定、agent body 与 skills 源 |
+| `resources/SOPs` | `.app/Contents/Resources/SOPs` | 应用约定引用的可执行 SOP 脚本 / 说明 |
+| `resources/templates` | `.app/Contents/Resources/templates` | 新项目地基、changelog、review、convention 模板 |
 | `resources/sounds` | `.app/Contents/Resources/sounds` | 应用提示音 |
 
 不要手动改打包后的 `.app/Contents/Resources/*` 文件；改本目录源文件后重新 build / 重启 dev。
