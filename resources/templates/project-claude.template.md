@@ -1,7 +1,8 @@
 # CLAUDE.md
 
-> 给 Claude Code 在本仓库工作时的硬性约定。
+> 给 Claude Code 在本仓库工作时的硬性约定，也是 Claude / Codex 共享仓库规则的 SSOT。
 > 通用约定（输出 / 运行时 / review 对抗 / 工程地基）见 `resources/claude-config/CLAUDE.md`，本文件只放**项目专属**。
+> Codex 对偶入口是 `AGENTS.md`（薄指针 → 本文件，只补 Codex 入口差异）；共享仓库规则以本文件为准，避免双写漂移。
 
 ## 仓库基础
 
