@@ -362,7 +362,8 @@ frontmatter 置 `status: abandoned` + 中止理由 → `ExitWorktree(action: "ke
 
 ```
 project-root/
-├── CLAUDE.md                     # 项目专属（与 ~/.claude/CLAUDE.md 互补）
+├── CLAUDE.md                     # 项目专属 Claude 入口 + 共享仓库规则 SSOT（与 ~/.claude/CLAUDE.md 互补）
+├── AGENTS.md                     # 项目专属 Codex 入口（薄指针 → CLAUDE.md，只补 Codex 入口差异，避免双写漂移）
 ├── README.md                     # 功能总览（用户视角）
 ├── src/                          # 源码（统一根入口，详 §src/build 标准目录结构 节）
 ├── build/ 或 dist/               # build 产物（统一根出口二选一，详 §src/build 标准目录结构 节）
@@ -378,7 +379,8 @@ project-root/
 ```
 
 模板见 `{{AGENT_DECK_RESOURCES}}/templates/`：
-- `project-claude.template.md` / `changelog-index.template.md` / `reviews-index.template.md` / `conventions-tally.template.md` / `conventions-index.template.md` / `convention-single.template.md` / `changelog.template.md` / `review.template.md`
+- `project-claude.template.md`（项目 CLAUDE.md，Claude 入口 + 共享规则 SSOT）/ `project-agents.template.md`（项目 AGENTS.md，Codex 入口薄指针 → CLAUDE.md）/ `changelog-index.template.md` / `reviews-index.template.md` / `conventions-tally.template.md` / `conventions-index.template.md` / `convention-single.template.md` / `changelog.template.md` / `review.template.md`
+- **CLAUDE.md / AGENTS.md 成对落地**：项目约定写全在 `CLAUDE.md`（Claude / Codex 共用 SSOT），`AGENTS.md` 只放 Codex 入口差异（必读顺序 + Codex 工具差异）并指回 `CLAUDE.md`，不复制项目约定正文。
 
 ### src/build 标准目录结构
 
