@@ -24,7 +24,7 @@
  *
  * 不实现：
  * - 外部 watch / hot reload monitor 监听 source skills 目录（dev 模式 hot reload 暂不需要，启动同步即可）
- * - skill 内 references/ 子目录递归同步（当前 deep-review / flow-arch-plantuml / hello-from-deck
+ * - skill 内 references/ 子目录递归同步（当前 deep-review / simple-review / hello-from-deck
  *   都没有 references；新增 references 时先实现递归同步再发布该 skill）
  * - 跨平台路径处理（codex 默认用 ~/.codex 与 macOS 同模式，Win/Linux 同样 homedir）
  */

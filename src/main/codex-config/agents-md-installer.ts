@@ -184,10 +184,9 @@ export function syncAgentDeckSection(
     return null;
   }
   if (!content.trim()) return null;
-  // CHANGELOG_169 / REVIEW_<X>: substitute {{AGENT_DECK_RESOURCES}} placeholder with absolute
-  // path right before writing to ~/.codex/AGENTS.md so the codex agent in user-project cwd can
-  // directly `bash` / `cat` SOPs/templates. Mirrors sdk-injection.ts (claude end) substitution
-  // in getAgentDeckSystemPromptAppend.
+  // Substitute {{AGENT_DECK_RESOURCES}} with an absolute resources root before writing to
+  // ~/.codex/AGENTS.md. Mirrors sdk-injection.ts (claude end) substitution in
+  // getAgentDeckSystemPromptAppend.
   const substituted = substituteResourcesPlaceholder(content);
   const newSection = buildSection(substituted);
   const next = replaceOrAppendMarkerSection(existing, newSection);

@@ -14,4 +14,4 @@
 - Codex 没有 native EnterWorktree / ExitWorktree；plan worktree 进退必须走 Agent Deck MCP `enter_worktree` / `exit_worktree`，普通 shell 命令用 `git -C <worktree>` 或绝对路径。
 - Codex SDK 是 turn-based：等待 teammate / reviewer / MCP reply 时，发出 `spawn_session` 或 `send_message` 后说明状态并结束当前 turn；不要用 `sleep` / `get_session` 循环在同一 turn 等。下一条 wire-prefixed teammate reply 会作为下一轮 user input 注入后再继续裁决。
 - 改长生命周期 prompt 资产前，按 `CLAUDE.md` / 应用约定里的提示词资产维护自检执行；新增或修改 Claude 侧规则时同步审计 Codex 对偶资产，反之亦然。
-- 功能变更 / 行为修改 / API / 依赖升级后补 `ref/changelogs/CHANGELOG_X.md` + `ref/changelogs/INDEX.md`；debug / 性能 / 安全 review 补 `ref/reviews/REVIEW_X.md` + `ref/reviews/INDEX.md`。
+- changelog / review / convention / flow-architecture diagram 等项目产物组织交给当前用户环境的 project skills；本文件只补 Codex 工具差异。

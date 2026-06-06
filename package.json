@@ -113,20 +113,6 @@
         "filter": [
           "**/*"
         ]
-      },
-      {
-        "from": "resources/SOPs",
-        "to": "SOPs",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "resources/templates",
-        "to": "templates",
-        "filter": [
-          "**/*"
-        ]
       }
     ],
     "asarUnpack": [

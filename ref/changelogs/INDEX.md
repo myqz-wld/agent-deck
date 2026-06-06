@@ -232,3 +232,4 @@
 | [CHANGELOG_225.md](CHANGELOG_225.md) | CLI wrapper 对 `new` argv 改用 base64 payload 传递，避开 macOS Electron `second-instance` 对 `--flag value` 的重排；修复 wrapper 自动补的 `--permission-mode bypassPermissions` 再次丢失、会话回到每次询问的问题。 |
 | [CHANGELOG_226.md](CHANGELOG_226.md) | 新项目工程地基补 Codex 入口模板：新增 `project-agents.template.md`（AGENTS.md 薄指针 → CLAUDE.md），Claude / Codex baseline 都写入「CLAUDE.md（共享 SSOT）/ AGENTS.md（Codex 入口差异）成对落地」，并清理模板中的悬空 `resources/...` 路径。 |
 | [CHANGELOG_227.md](CHANGELOG_227.md) | 修复 `spawn_session` 同 adapter 继承沙盒额外写根漏项：`extraAllowWrite` 现在按 caller 显式 > same-adapter lead 继承 > cross-adapter 不传；跨 adapter 仍走 target adapter 默认值。补 tools.test 覆盖 same-adapter 继承、cross-adapter 不继承、显式覆盖。 |
+| [CHANGELOG_228.md](CHANGELOG_228.md) | 拆出弱相关通用工程地基与 flow/architecture diagram 提示词，Agent Deck 内置资源保持自闭环且不引用外部 skill。 |
