@@ -59,9 +59,8 @@
  * - dev (`!app.isPackaged`):  `<app.getAppPath()>/resources`
  * - prod (`app.isPackaged`):  `process.resourcesPath` (= `Contents/Resources/`)
  *
- * `package.json` extraResources flattens `resources/SOPs → SOPs` and `resources/templates →
- * templates`, so the placeholder must resolve to **resources root** (not `resources/` subdir).
- * Both dev and prod resolve to a directory containing `SOPs/` and `templates/` subdirectories.
+ * The placeholder resolves to the packaged resources root so bundled config and plugin assets
+ * can refer to sibling runtime assets the same way in dev and prod.
  *
  * **Safety**: `substituteResourcesPlaceholder` is idempotent for already-substituted strings —
  * the `text.includes` check returns the input unchanged when no placeholder remains. Calling

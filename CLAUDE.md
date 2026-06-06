@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-> 本文件保留 **agent-deck 项目专属 design invariant**（§项目特定约定 / §仓库基础 / §验证流程 / §打包与本地安装）+ **通用工程约定的最低操作指南**（§改动后必做 / §反复反馈升级 — 这两节在 user CLAUDE.md / SOPs 无等价 SSOT，本文件保留最低指南给普通终端 claude）。Codex 对偶入口是 `AGENTS.md`；共享仓库规则以本文件为准，`AGENTS.md` 只补 Codex 入口差异，避免双写漂移。
+> 本文件保留 **agent-deck 项目专属 design invariant**（§项目特定约定 / §仓库基础 / §验证流程 / §打包与本地安装）+ 普通终端 Claude 跑本仓库时的最低入口规则。Codex 对偶入口是 `AGENTS.md`；共享仓库规则以本文件为准，`AGENTS.md` 只补 Codex 入口差异，避免双写漂移。
 >
-> **应用 SDK 会话内**额外加载 `resources/claude-config/CLAUDE.md` §新项目工程地基 获取详细约定（应用打包注入到 SDK system prompt 末尾，与本文件独立维护）。**单文件 ≤ 500 行护栏** 详见 `resources/SOPs/file-size-guardrail.md`。
+> **应用 SDK 会话内**额外加载 `resources/claude-config/CLAUDE.md` 获取 Agent Deck 协议约定。changelog / review / convention / file-size / flow-architecture diagram 等项目产物组织由用户安装的 skills 管理，Agent Deck baseline 不打包这些模板或方法论。
 
 ## 仓库基础
 
@@ -13,15 +13,11 @@
 
 ## 改动后必做（最低操作指南）
 
-> 详细约定见应用 CLAUDE.md §新项目工程地基（应用 SDK 会话内自动加载）。本节保留最低操作指南供普通终端 claude 跑 agent-deck 项目时参照。
+> 本节只保留本仓库的执行流程。changelog / review / convention / flow-architecture diagram 文件放哪里、模板怎么写、文件大小护栏怎么登记，交给当前用户环境的 project skills 组织。
 
 1. **改用户可见行为 / 文件结构 / 启动方式**（UI / 设置项 / 快捷键 / 项目结构 / 端口 / 依赖 / 验证步骤）→ 改对应章节 `README.md`；纯 bug 修复 / 内部重构不动 README
-2. **写 changelog 或 review 二选一**（必做）：
-   - 功能变更 / 行为修改 / API / 依赖升级 → `ref/changelogs/CHANGELOG_X.md`（X 递增）+ 同步 `ref/changelogs/INDEX.md`
-   - Debug / 性能 / 安全 review → `ref/reviews/REVIEW_X.md`（X 递增）+ 同步 `ref/reviews/INDEX.md`
-   - 新建前 `ls ref/changelogs/` / `ls ref/reviews/` 找最大 X
-3. **改功能前先读** `ls ref/conventions/ ref/changelogs/ ref/reviews/` + 浏览相关条目（避免推翻已有约定 / 重复踩坑）
-4. **单文件 ≤ 500 行护栏**：触发拆分尝试，详 `resources/SOPs/file-size-guardrail.md` + 应用 CLAUDE.md §单文件大小护栏。参考 agent-deck 项目 3 轮拆分实例：`ref/changelogs/CHANGELOG_50.md` / `CHANGELOG_51.md` / `CHANGELOG_52.md`
+2. 改功能前先读当前项目已有的约定、changelog、review 记录；读取范围和产物格式按 project engineering skill 执行
+3. 改长生命周期 prompt 资产前，按本文件和应用约定中的提示词资产维护规则做自检
 
 ---
 
@@ -41,6 +37,12 @@
 - Teammate 调工具走 teammate 自己会话的 permission / sandbox 边界；lead 不代批权限，不把 lead 的 `permissionMode` / allowlist 套到 teammate。
 - Agent Deck MCP server 默认开启；关闭 `enableAgentDeckMcp` 时，新建 SDK 会话不挂 agent-deck MCP tools，Codex 自动注入的 `mcp_servers.agent-deck` 段也会移除。
 - Claude / Codex 应用提示词资产必须成对审计：`resources/claude-config/CLAUDE.md` ↔ `resources/codex-config/CODEX_AGENTS.md`，skills 目录同名文件也要检查对偶。adapter 工具差异允许措辞不同，但协议语义不能单边漂移。
+
+### 内置资产自闭环原则（重要）
+
+Agent Deck 内部资产必须在 Agent Deck bundle 内自闭环；这是本项目的核心设计原则之一，不是实现细节。`resources/claude-config/`、`resources/codex-config/`、内置 `agent-deck-plugin` agents/skills、注入 SDK 的 MCP tool description 都必须在 Agent Deck baseline 内自洽生效。用户不安装任何额外 skill 时，Agent Deck 内置行为仍必须完整可用。
+
+用户安装的 skills 是增强层，不是 Agent Deck 内置行为的依赖层。把弱相关内容拆出去时，只能从内置资产中删除，或保留一份自闭环的最小规则；**不得**把必要行为替换成“去用某个用户侧 skill / 详见外部 skill”或 `$some-skill` 指针。Agent Deck 自带并随应用打包的 internal agents / skills / resources 可以互相引用作为内部闭环，但引用方仍要保留触发条件、边界和失败动作等执行所需的最小信息。
 
 ### 事件去重与生命周期
 
@@ -97,18 +99,7 @@
 
 ## 反复反馈 / 反复踩坑 → 升级约定（最低操作指南）
 
-> 详细约定见应用 CLAUDE.md §反复反馈 / 反复踩坑 → 升级约定（应用 SDK 会话内自动加载）。本节保留最低操作指南。
-
-候选放 `ref/conventions/tally.md`（git 管理，不绑 `.claude/` 工具目录）。两类候选同一文件分 section：
-
-| 类型 | 触发 |
-|---|---|
-| **用户反馈**（`# 用户反馈候选`） | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 |
-| **Agent 踩坑**（`# Agent 踩坑候选`） | Coding Agent 在 review / 修 bug 时**自己**发现踩了同类坑（典型：try/finally 漏 cleanup / TOCTOU / N+1 查询 / async listener 不被 await） |
-
-**流程**：找语义相近条目 → `count` +1 + 更新 `last_at`；没找到 → 新增（`count: 1`）。**count = 3** → 走 `agent-deck:simple-review` 评审升级提案（三态裁决）→ user 确认后**新建** `ref/conventions/<X>-<topic>.md`（X 递增）+ 同步 `ref/conventions/INDEX.md` 加行 + 从 tally 删该条。count < 3 → 静默更新。
-
-**边界**：不计一次性请求 / trivial 反馈；用户反馈必须是工程偏好 / 设计取舍 / 工作流偏好；Agent 踩坑必须是模式化问题。30 天未更新且 count < 3 → 下次扫描可清理。tally 是 Claude Code 内部状态，**不要手工管理**。
+用户给出纠正性 / 偏好性反馈，或 Coding Agent 在 review / 修 bug 时发现同类工程坑，按当前用户环境的 project engineering skill 记录和升级 conventions。到达升级门槛时先走 `agent-deck:simple-review` 做三态裁决，再请 user 确认；一次性请求和 trivial 观察不升级。
 
 ---
 

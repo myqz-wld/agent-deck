@@ -65,7 +65,7 @@ let cachedClaudeMdAppend: string | null = null;
  * **CHANGELOG_169 plugin mirror（REVIEW deep-review R2 reviewer-codex HIGH 修法）**：
  * SDK 直接读 plugin root 下 SKILL.md / agent body 等文件，**绕过** `getAgentDeckSystemPromptAppend`
  * 的 placeholder substitute。所以 plugin 内文档里写的 `{{AGENT_DECK_RESOURCES}}/...` 占位符
- * 不会被替换 → agent 看到字面占位 → 跑 `bash {{X}}/templates/...` 必 ENOENT。
+ * 必须在镜像安装时替换，否则 agent 会看到不可执行的字面占位符路径。
  *
  * Fix：用户每次 spawn 时 lazy 跑 `ensurePluginMirrorInstalled()` —— cp source plugin 到
  * `<userData>/agent-deck-plugin/`，并对所有 .md 文件做 placeholder substitute（in-place）。

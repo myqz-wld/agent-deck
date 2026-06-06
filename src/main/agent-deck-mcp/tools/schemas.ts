@@ -357,8 +357,9 @@ export const ARCHIVE_PLAN_SHAPE = {
 // hand_off_session.cwd 字段语义详细文案抽到此 callout,字段 describe 只保留 3 件事(override
 // cwd / plan vs generic 默认值 / external worktree 自动降级)。完整 cold-start protocol 见对应
 // 资产 SSOT:
-// - **claude 端 cold-start 协议**:`resources/claude-config/CLAUDE.md` §复杂 plan workflow §Step 3
-//   §选项 A (新 session 走 builtin `EnterWorktree(path: worktreePath)` 自己进 worktree)
+// - **claude 端 cold-start 协议**:`resources/claude-config/CLAUDE.md`
+//   §复杂 plan：Agent Deck baseline 最小协议 §Handoff (新 session 走 builtin
+//   `EnterWorktree(path: worktreePath)` 自己进 worktree)
 // - **codex 端 cold-start 协议**:`resources/codex-config/CODEX_AGENTS.md` §plan cold-start protocol
 //   (codex 端 5 步) (codex 无 native EnterWorktree,走 `shell: cat plan` + 从 frontmatter 拿
 //   worktree_path 后用绝对路径 `git -C <worktreePath> ...` 推进,worktree 不存在时调
@@ -409,7 +410,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     )
     .optional()
     .describe(
-      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience). **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing. **External worktree auto-降级**: 约定 worktree 走 mainRepo,外置 worktree 自动降级走 worktreePath + handler 加 mainRepo 进 extraAllowWrite。Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath。**Cold-start protocol 详 HAND_OFF_SESSION_CWD_CONTRACT callout (schemas.ts 顶部) + resources/claude-config/CLAUDE.md §Step 3 §选项 A (claude 端) / resources/codex-config/CODEX_AGENTS.md §plan cold-start protocol (codex 端)**',
+      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience). **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing. **External worktree auto-降级**: 约定 worktree 走 mainRepo,外置 worktree 自动降级走 worktreePath + handler 加 mainRepo 进 extraAllowWrite。Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath。**Cold-start protocol 详 HAND_OFF_SESSION_CWD_CONTRACT callout (schemas.ts 顶部) + resources/claude-config/CLAUDE.md §复杂 plan：Agent Deck baseline 最小协议 §Handoff (claude 端) / resources/codex-config/CODEX_AGENTS.md §plan cold-start protocol (codex 端)**',
     ),
   adapter: z
     .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])

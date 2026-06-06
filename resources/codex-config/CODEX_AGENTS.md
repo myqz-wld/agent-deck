@@ -18,7 +18,7 @@
 >
 > **加载范围**：codex SDK 起 thread 时自动加载 `~/.codex/AGENTS.md`(本应用 build-time installer 把本文件内容同步到该路径)。codex 子进程 system prompt 末尾追加本文件内容,与 claude SDK `settingSources: ['user','project','local']` 自动加载 `~/.claude/CLAUDE.md` 是平行机制。
 >
-> **self-contained 范围**:本文件包含 Codex 端所需工程实践 inline(§核心流程 / 架构变更必走 plantUML / §新项目工程地基 / §提示词资产维护 / §plan cold-start protocol),避免 Codex SDK 会话依赖 Claude 侧 user 配置。
+> **self-contained 范围**:本文件包含 Codex 端 Agent Deck 协议 / plan cold-start / prompt 资产维护约定;弱相关通用方法论不放入应用环境约定。
 
 ## 应用环境特有能力（不依赖 user CLAUDE.md）
 
@@ -74,196 +74,16 @@ claude 视角同款 tool 也存在（MCP 通用），claude 端首选 CLI builti
 
 ---
 
-## 新项目工程地基
-
-新建任何长期维护工程时，第一次提交就把这套结构建好。
-
-### 目录骨架
-
-```
-project-root/
-├── CLAUDE.md                     # 项目专属 Claude 入口 + 共享仓库规则 SSOT（与 ~/.claude/CLAUDE.md 互补）
-├── AGENTS.md                     # 项目专属 Codex 入口（薄指针 → CLAUDE.md，只补 Codex 入口差异，避免双写漂移）
-├── README.md                     # 功能总览（用户视角）
-├── src/                          # 源码（统一根入口，详 §src/build 标准目录结构 节）
-├── build/ 或 dist/               # build 产物（统一根出口二选一，详 §src/build 标准目录结构 节）
-└── ref/                          # AI Coding 参考资产（changelogs / reviews / plans / conventions 统一收纳）
-    ├── changelogs/INDEX.md       # 一行表索引；CHANGELOG_X.md 第一次有变更时再建
-    ├── reviews/INDEX.md          # 一行表索引；REVIEW_X.md 第一次 review 时再建
-    ├── plans/                    # 项目内 git 归档版 completed plan（in_progress 草稿在 .claude/plans/）
-    │   └── INDEX.md              # 第一次有 completed plan 时再建
-    └── conventions/              # 项目特定约定（与 ref/changelogs/ ref/reviews/ ref/plans/ 同级）
-        ├── INDEX.md              # 已升级约定一行表索引 + 候选概览
-        ├── tally.md              # 反馈 / 踩坑候选状态机（自维护，不要手工删条目）
-        └── <X>-<topic>.md        # 单条已升级约定，X 递增整数
-```
-
-模板见 `{{AGENT_DECK_RESOURCES}}/templates/`：
-- `project-claude.template.md`（项目 CLAUDE.md，Claude 入口 + 共享规则 SSOT）/ `project-agents.template.md`（项目 AGENTS.md，Codex 入口薄指针 → CLAUDE.md）/ `changelog-index.template.md` / `reviews-index.template.md` / `conventions-tally.template.md` / `conventions-index.template.md` / `convention-single.template.md` / `changelog.template.md` / `review.template.md`
-- **CLAUDE.md / AGENTS.md 成对落地**：项目约定写全在 `CLAUDE.md`（Claude / Codex 共用 SSOT），`AGENTS.md` 只放 Codex 入口差异（必读顺序 + Codex 工具差异）并指回 `CLAUDE.md`，不复制项目约定正文。
-
-### src/build 标准目录结构
-
-源码与 build 产物统一根入口/出口，避免后续大重构。
-
-- **源码**落 `<project-root>/src/`。first-party 源代码（业务 / 工具脚本 / first-party test 源；**不含**测试 fixture / 自动生成产物 / 第三方依赖）落本目录
-- **build 产物**落 `<project-root>/build/` 或 `<project-root>/dist/` 二选一（项目内统一用一个；本节后续表述 `build/` 处泛指你选定的那一个）。任何工具链输出（`out/` `release/` `target/` `.next/` `.turbo/` `node_modules/.cache/` 等历史命名）一律收敛到所选根出口的子目录
-- **选 build/ 还是 dist/**：跟工具链默认走（Vite / Webpack / Cargo / tsup / TypeScript 默认 `dist/` → 用 `dist/`；Go / electron-builder / make 默认 `build/` → 用 `build/`），减少配置摩擦。**同项目内不混用**
-- **多入口项目**（Electron / monorepo / 多语言混合）按子目录分流：`src/<entry>/` ↔ `build/<entry>/` 或 `dist/<entry>/`
-- **顶层非 src/ 非 build/dist/ 资产**按用途归位，**不归 src/ 也不归所选根出口**：项目元数据 / 顶层配置 / 锁定文件放根目录；静态资产按框架惯例放 `public/` / `static/` / `assets/`；CI / IDE / Git 放对应点目录；第三方依赖由包管理器自治；本约定专属顶层目录是 `ref/` 与 `.claude/`
-- **.gitignore 必备**：`build/` 与 `dist/` **都加**（项目实际用其一，另一个无害保留为防御性条目，避免临时工具链产生未追踪产物意外入 git）
-
-**落地姿势**：配工具链时显式声明 outDir / distDir 指向所选根目录：
-- TypeScript：`tsconfig.json` `"outDir": "build/"` 或 `"dist/"`
-- Vite / Webpack：`build.outDir: 'build/'` 或 `'dist/'`
-- electron-vite：`main.build.outDir: 'build/main'` / `preload.build.outDir: 'build/preload'` / `renderer.build.outDir: 'build/renderer'`（或同款用 `dist/`）
-- electron-builder：`directories.output: 'build/dist'` 或 `'dist/'`
-- Go：`go build -o build/<binary>` 或 `dist/<binary>`
-- Cargo：`CARGO_TARGET_DIR=build/target` 或 `dist/target`
-
-**例外**：本约定只约束新项目第一次落地；已有项目按工具链默认惯例保留原状。迁移已有项目必须走复杂 plan 流程，先验证 dev / build / dist / 打包链路。
-
-### .gitignore 必备条目
-
-`.gitignore` 必含以下条目（按用途分组）：
-
-```gitignore
-# Agent Deck / Claude Code 运行时产物
-.claude/worktrees/        # plan 隔离 worktree（per-session state）
-.claude/scheduled_tasks*  # cron 任务持久化与锁文件
-.claude/plans/            # plan local 工作目录（in_progress 短临时草稿；
-                          # completed 后归档到顶级 ref/plans/<plan-id>.md / 同名子目录入 git）
-
-# build 产物（详 §src/build 标准目录结构 节；build/ 与 dist/ 都加，项目实际用其一，另一个无害保留为防御性条目）
-build/
-dist/
-
-# 全局 *.log 过滤 + spike artifacts exception
-*.log
-!ref/plans/**/spike-reports/**/*.log
-```
-
-`ref/` 顶级目录及其子目录（含 `ref/plans/` 与 `ref/plans/<plan-id>/spike-reports/`）不在 `.gitignore`；completed plan + changelog + reviews + conventions + spike-reports/ 子目录都要入 git 归档。仅 `.claude/plans/` 临时草稿位置忽略。
-
-### README.md = 功能总览（用户视角）
-
-改完功能 3 问：
-
-1. 改了**用户可见行为**？（UI / CLI / API / 设置项 / 快捷键 / 状态显示）→ 改对应章节
-2. 改了**文件结构 / 新建模块**？→ 改「项目结构」节
-3. 改了**启动方式 / 端口 / 依赖 / 验证步骤**？→ 改「开发与运行」节
-
-纯 bug 修复 / 内部重构（不改用户感知）→ 不动 README，写 changelog 或 review。
-
-### ref/changelogs/ + ref/reviews/ 双轨
-
-| 类型 | 写到 | 例子 |
-|---|---|---|
-| **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `ref/changelogs/` | 新建 XXX、升级 SDK、加 CLI 命令 |
-| **Debug / 性能 / 安全 review**（不引新功能，修问题或加固） | `ref/reviews/` | code review 修复、TOCTOU、内存泄漏 |
-
-**通用规则**：
-- 文件名 `CHANGELOG_X.md` / `REVIEW_X.md`，X 递增整数。新建前 `ls` 找最大 X
-- 小改动追加最新一条；大改动新建一条
-- 同步更新对应 `INDEX.md`（一行表概要 ≤80 字）
-- changelog 单文件：标题 + 概要 + 变更内容（按模块 bullet）；**不要写「踩坑细节」**——那些去 reviews
-- reviews 单文件结构见 `{{AGENT_DECK_RESOURCES}}/templates/review.template.md`
-
-**改功能前**：先 `ls ref/conventions/ ref/changelogs/ ref/reviews/` + 浏览相关条目（含 `ref/conventions/INDEX.md` 已升级约定 + 相关 changelog/review），了解历史决策、避免推翻已有约定 / 重复踩坑。
-
-### 已审文件过期（File-level Review Expiry）
-
-`ref/reviews/` 不是「审过即终身豁免」。下一轮 review 强制最小范围 = 未审 ∪ 已审过期 ∪ scope_unknown。
-
-**过期判定**（任一命中即过期，自上次 REVIEW 覆盖基线起）：净 churn ≥ min(200 行, 当前文件 LOC 的 30%)；distinct commit 数 ≥ 3；距覆盖 ≥ 90 天且期间该文件至少有 1 次代码变更；frontmatter `expired: true`（人工兜底）。
-
-`<BASE>` = REVIEW.md 文件首次加入 git 的 commit。rename / move / split 出来的新路径不继承旧路径已审状态，按未审处理。
-
-**默认硬合并**：仅当合并后 > 20 文件 / > 6000 行时问「拆批 / 先审哪批」。用户主动跳过某过期文件需写入本份 REVIEW frontmatter 的 `skipped_expired` 备注。
-
-**自检脚本**：agent 在下一轮 review 第一步跑 `bash {{AGENT_DECK_RESOURCES}}/SOPs/file-level-review-expiry.sh`。
-
-### 单文件大小护栏（≤ 500 行）
-
-任何代码源文件 LOC > 500 行触发拆分尝试（commit 前必做一次）。3 档风险升序选择 + 真不能拆的登记机制详 `{{AGENT_DECK_RESOURCES}}/SOPs/file-size-guardrail.md`。阈值 500 调整属约定升级。
-
-**facade 自身 LOC 必计**：facade pattern 拆分后 facade 自身也必须 ≤ 500 LOC。≥ 400 LOC 进入临界监控，≥ 480 LOC 下次任意改动触发再拆。
-
-### 反复反馈 / 反复踩坑 → 升级约定
-
-候选放 `ref/conventions/tally.md`（统一参考资产根 `ref/` 下与 `ref/changelogs/` `ref/reviews/` `ref/plans/` 同级，git 管理；**不**绑 `.claude/` 工具目录）。count ≥ 3 升级新建 `ref/conventions/<X>-<topic>.md`（X 递增整数，单约定单文件）+ 同步 `ref/conventions/INDEX.md` 加行 + 从 tally 删该条。让项目 CLAUDE.md 保持静态，动态累积沉淀到 ref/conventions/。
-
-两类候选同一文件分 section：
-
-| 类型 | 触发条件 |
-|---|---|
-| **用户反馈**（`# 用户反馈候选`） | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「我已经说过…」「以后…」「记住…」「每次…」 |
-| **Agent 踩坑**（`# Agent 踩坑候选`） | Coding Agent 在 review / 修 bug 时自己发现踩了同类坑（典型：try/finally 漏 cleanup / TOCTOU / N+1 查询 / async listener 不被 await） |
-
-**流程**：找语义相近条目 → `count` +1 + 更新 `last_at`；没找到 → 新增（`count: 1`）。**count = 3** → 走 `agent-deck:simple-review` 评审升级提案（三态裁决），结论告诉用户后新建约定文件 + 同步 INDEX + 从 tally 删该条。count < 3 → 静默更新。
-
-**边界**：不计一次性请求 / trivial 反馈；用户反馈必须是工程偏好 / 设计取舍 / 工作流偏好；Agent 踩坑必须是模式化问题。30 天未更新且 count < 3 → 下次扫描可清理。
-
----
-
-## 核心流程 / 架构变更必走 plantUML
-
-涉及核心流程 / 架构变更时必须用 plantUML 画图并落到 `ref/` 对应子目录。**「怎么画」(plantUML syntax / 图类型 / workflow)由 `agent-deck:flow-arch-plantuml` SKILL(codex-config 端独立 SSOT)规定;「画在哪 / INDEX 怎么维护」由本节规定**(关注点分离 — SKILL 与位置约定独立维护)。
-
-### 触发条件
-
-详 SKILL.md §何时用 节;速查:
-- **user 明示**「画架构图」/「画流程图」/「画 plantUML」/「核心流程图改一下」等
-- **LLM 自检** 本次改动属以下 4 类任一:① 会话状态机(session lifecycle / sdk-bridge / context resume)② 跨进程通信(IPC / 跨 adapter 编排 / spawn-link 树 / event-bus 路由 / sandbox / permission)③ 数据库 / 协议(DB schema / wire format / canUseTool)④ 关键 mcp tool 行为(archive_plan / hand_off_session / spawn_session / send_message dispatch / lifecycle scheduler)
-- **trivial 改动**(typo / 单点 rename / UI 微调 / 业务模块内部不动协议)**不触发**
-
-invoke 前必须与 user 显式确认是核心变更(SKILL 入口提问 + codex turn 边界 enforce — 见下方 §与 user 确认机制);否则 skill no-op exit。
-
-### 文件位置约定
-
-- **流程图**(sequence diagram / activity diagram)落 `<main-repo>/ref/flows/<topic>.puml`
-- **架构图**(component diagram / 模块依赖 / 跨进程边界)落 `<main-repo>/ref/architecture/<topic>.puml`
-- **文件命名** `<topic>.puml`,topic 用 kebab-case(`archive-plan-flow.puml` / `mcp-server-architecture.puml`)
-- **同主题需要双图**(流程图 + 架构图)→ 拆两份分别落各自目录,topic 名可一致(`archive-plan-flow.puml` vs `archive-plan-architecture.puml`)
-- **目录不存在**(典型新项目 / 本 plan 实施前):SKILL 主动 `shell: mkdir -p ref/flows ref/architecture` + 建空 INDEX.md(下节 4 列模板)
-- **codex shell 工具用法**: codex 端读现有 .puml / INDEX 走 `shell cat` / `shell ls`,写 / 改 .puml + INDEX 走 `apply_patch`(codex 无 claude builtin Read / Write / Edit);可选 `shell: plantuml -syntax <file>.puml` 做语法检查。**严禁** codex 端调 `plantuml -tpng / -tsvg` 渲染产 PNG/SVG(违反 flow-arch SKILL §不渲染 SSOT — user 想看渲染产物自跑 plantuml CLI)。
-
-### INDEX.md 格式
-
-`ref/flows/INDEX.md` 与 `ref/architecture/INDEX.md` 都用 4 列表:
-
-```markdown
-| 文件 | 状态 | 关联 plan / commit | 概要 |
-|---|---|---|---|
-| [archive-plan-flow.puml](archive-plan-flow.puml) | active | [ref-layout-full-migration-20260526](../plans/ref-layout-full-migration-20260526.md) | archive_plan 5 步收口 sequence 图 |
-| [mcp-server-architecture.puml](mcp-server-architecture.puml) | active | commit ef1679 | 主进程 mcp server 内部模块依赖 |
-```
-
-- **状态**:`active`(当前 SSOT)/ `archived`(图过时但保留作历史 reference;.puml 内同步加注释 `' ARCHIVED: ...`)/ `draft`(未确认)
-- **关联 plan / commit**:链接到 `ref/plans/<plan-id>.md` 或 commit hash 让读者溯源(commit hash 用 7 字符 short hash 即可)
-- **概要**:≤80 字描述本图主题
-
-### 与 user 确认机制(codex turn 边界硬约束)
-
-SKILL 入口必须先向 user 提 2-3 个对齐问题 — **是否核心变更 / 图类型选择 / 新建 vs 修改 vs archived 已有**(详 SKILL.md §与 user 确认机制)。**codex 无 AskUserQuestion 阻塞语义,必须靠 turn 边界保证 user 先拍板**:输出问题后必须结束本 turn 等 user 下一轮回复,严禁同一 turn 内继续生成 / 修改任何 .puml 或 INDEX.md。本应用工程实践**严禁** agent 默认静默生成图;每次画图前都要等 user 显式回复确认。
-
-### 与其他规则关系
-
-- 与 `agent-deck:deep-review` SKILL 互斥并行(同会话不并行,避免 .puml SSOT 写竞争);deep-review 中发现需画图 → 完成 review 后 invoke `flow-arch-plantuml`
-- 与本应用 `agent-deck:flow-arch-plantuml` SKILL **关注点分离**:本节定位置/INDEX 规则,SKILL 定画图技术 — 两边修改时**不要复制 SSOT**,只保留 cross-ref(SSOT 单源不复制 — 同款规则只在一处其他位置引用)
-
----
-
 ## 提示词资产维护
 
-**改长生命周期 prompt 资产前必走本节**——即 `resources/codex-config/CODEX_AGENTS.md`(本文件)/ `resources/claude-config/CLAUDE.md` / `agent-deck-plugin/agents/reviewer-codex.md` / `agent-deck-plugin/skills/*/SKILL.md`(codex 端) / 注入 codex SDK 的 mcp tool description / `resources/templates/` 模板。**不适用**:src/ 业务代码注释 / 一次性 prompt(spawn 临时拼的 reviewer / cold-start prompt)/ 历史快照(ref/ 下写定不改)。
+**改长生命周期 prompt 资产前必走本节**——即 `resources/codex-config/CODEX_AGENTS.md`(本文件)/ `resources/claude-config/CLAUDE.md` / `agent-deck-plugin/agents/reviewer-codex.md` / `agent-deck-plugin/skills/*/SKILL.md`(codex 端) / 注入 codex SDK 的 mcp tool description。**不适用**:src/ 业务代码注释 / 一次性 prompt(spawn 临时拼的 reviewer / cold-start prompt)/ 历史快照(ref/ 下写定不改)。
 
 **核心原则——受众优先**:这些资产是写给「读它的 agent」看的,不是写给维护者看的。每个单元(章节 / 工具描述)第一句先答**做什么 + 何时用**,让没读过代码的 agent 一眼知道何时调;调用契约 / 参数其次;内部不变量(§ref / 闭包机制 / 状态机细节)移到末尾或直接删。issue 工具长期没人调,就是因为描述开头全是 `§不变量` 而不是 trigger。
 
 ### 5 条硬约束
 
 1. **去重**:同款规则只在一处写全,其余 cross-ref 不复制;`shell: grep '<关键短语>' <资产>` 命中 ≥ 2 处即合并。**例外**:reviewer-codex.md §核心纪律 / SKILL inline 纪律是有意独立注入 codex SDK 的 self-contained 副本,不抽 SSOT。
-2. **只写当前事实**:禁「兼容旧 X / 过渡期 / 老版本仍可用 / 未来可能 / TODO / FUTURE / 后续会加」;废弃的功能 / 字段直接删,不留 deprecated 注释。**例外**:「不要 X,以前撞过 Y」这种行为锚点保留理由。
+2. **只写当前事实**:禁「兼容|FUTURE|TODO|未来|向后|deprecated|过渡期|后续会加|老版本|旧结构|历史升级|目录建立之前|迁移」这类旧态 / 预测 / 过渡表述;废弃的功能 / 字段直接删,不留 deprecated 注释。不要保留“旧路径仍支持 / 后续迁移 / 目录建立之前”这类兼容逻辑;旧行为若仍影响当前 agent 动作,改写成当前可执行规则,不讲历史。
 3. **可执行 > 描述**:写「做 X / 违反直接拒绝」,不写「建议 / 最好 / 可以 / 应该考虑」;模糊副词(通常 / 一般 / 大概)必须配「但 X 时例外」的具体边界。
 4. **少兜底**:只留**会改变 caller 下一步动作**的失败处理(如「失败走 Y」)。纯防御性实现细节(race / TOCTOU / EXDEV / "仅 warn 不阻塞" / 穷举 error reason)属代码注释,不进 agent 读的描述。
 5. **示例克制**:一条规则一两个最具代表性的示例够了;同款重复示例("如 X / Y / Z" 里 Y/Z 与 X 雷同)删掉。
@@ -271,7 +91,7 @@ SKILL 入口必须先向 user 提 2-3 个对齐问题 — **是否核心变更 /
 ### 修改前自检(codex 端用 `shell: grep`,命中即按对应约束处理,全过再 commit)
 
 1. **去重**:`shell: grep '<关键短语>' <file>` ≥ 2 → 合并(reviewer / SKILL inline 副本除外)
-2. **当前事实**:`shell: grep -nE '兼容|FUTURE|TODO|未来|向后|deprecated|过渡期|后续会加|老版本' <file>` ≥ 1 → 删(meta 引用 / 行为锚点除外)
+2. **当前事实**:`shell: grep -nE '兼容|FUTURE|TODO|未来|向后|deprecated|过渡期|后续会加|老版本|旧结构|历史升级|目录建立之前|迁移' <file>` ≥ 1 → 删(meta 引用 / 行为锚点除外)
 3. **可执行**:`shell: grep -nE '建议|应该考虑|最好|可以(用|走|考虑)|大概率?|通常|一般' <file>` → 改成可执行动作或配具体边界
 4. **首句 trigger + 少兜底**:通读每节 / 每个工具描述首句——是否先答「做什么 + 何时用」?防御性兜底是否塞进了描述?无 trigger 则补,防御细节则删回代码注释
 5. **示例**:`shell: grep -nE '如[:：]|例如|比如' <file>` 命中后看示例数 ≥ 3 → 删雷同的
@@ -376,7 +196,7 @@ plan 完成后一行原子收口,替代下方 §手工归档 fallback 5 步:ff-m
 
 **调用**:`mcp__agent-deck__archive_plan({ planId, worktreePath, baseBranch?, planFilePath?, changelogId? })`
 - `baseBranch` 不传默认读 plan frontmatter.base_branch,缺失才 fallback "main"
-- `changelogId` 关联 changelog 编号(`"122"` 或 `"121,122"`),写进 INDEX 链接列
+- `changelogId` 关联已有变更记录编号(`"122"` 或 `"121,122"`),写进 plan INDEX 链接列;变更记录文件的组织规则不属于 archive_plan
 - `planFilePath` 省略则按 `.claude/plans/` > `ref/plans/` > `~/.claude/plans/` 找;传了则文件名 stem 必须 == planId
 
 **返回**:`{ archivedPath, commitHash, branchDeleted, worktreeRemoved, plansIndexAction, finalStatus, warnings, spikeReportsArchived, archived, teammatesShutdown }`
@@ -385,23 +205,23 @@ plan 完成后一行原子收口,替代下方 §手工归档 fallback 5 步:ff-m
 - **预检失败立即返 error 不回滚**(git 不可逆):plan status ≠ in_progress / worktree dirty / cwd 还在 worktree 内 / detached HEAD。codex cwd 预检走 session 记录的 cwd + cwd 释放标记,不读进程 cwd。dirty 只卡 plan 相关路径,无关 dirty 放行
 - **默认归档 caller + 关掉同 team teammate**(baton 语义)
 - **abandoned plan 不走本 tool**(强制 completed)→ 走下方 §手工归档 fallback §abandoned 中止
-- **changelog 内容 agent 自己写**(tool 只更新 INDEX 链接)
+- **变更记录内容由当前项目规则生成**(tool 只更新 plan INDEX 链接)
 - 预检失败但你已手工归档 → 用 §escape hatch shutdown_baton_teammates 补关 teammate
 
 ### 手工归档 fallback（跨 adapter 通用；archive_plan 不可用时）
 
 archive_plan 撞 precheck fail / abandoned plan 时手工归档。codex 端用 `shell` 跑 git + `apply_patch` 改 frontmatter(无 native EnterWorktree/ExitWorktree,worktree 进退走 MCP)。
 
-**completed 收尾 5 步**（步骤 1/2/3/5 同一事务,任一失败整片 abort;step 4 是 changelog 补写）:
+**completed 收尾 5 步**（步骤 1/2/3/5 同一事务,任一失败整片 abort;step 4 是变更记录关联）:
 1. `exit_worktree(action: "keep")` 切出 worktree
 2. ff-merge 回 frontmatter `base_branch`（不是无脑 main）:`git -C <main-repo> checkout <base-branch>` + `git -C <main-repo> merge --ff-only worktree-<plan-id>`
 3. frontmatter 置 status=completed + final_commit + completed_at → mv plan 到 `<main-repo>/ref/plans/<plan-id>.md`（有 spike-reports/ 一并 mv）→ 同步 INDEX → `git add` + commit
-4. `ref/changelogs/CHANGELOG_X.md` 引用归档（不抄全 plan）
+4. 按当前项目规则补变更记录;若有编号,在 plan INDEX 关联列写入该编号（不抄全 plan）
 5. `git worktree remove <worktreePath>` + `git branch -D worktree-<plan-id>`;**plan 关联 team 有 teammate** 则收尾后调 §escape hatch shutdown_baton_teammates 补关（无 team 跳过）
 
 **abandoned 中止 3 步**（不入 git 归档）:frontmatter 置 status=abandoned + 理由 → `exit_worktree(action: "keep")` → `git worktree remove --force <worktreePath>` + `git branch -D worktree-<plan-id>`
 
-> claude 视角等价 5 步 / 3 步在 `resources/claude-config/CLAUDE.md` §复杂 plan workflow §Step 4;两端独立 SSOT,codex 端 inline 是因 codex 无 `~/.claude/CLAUDE.md` 自动加载机制。
+> claude 视角等价 5 步 / 3 步在 `resources/claude-config/CLAUDE.md` §复杂 plan：Agent Deck baseline 最小协议 §完成 / 中止;两端独立 SSOT,codex 端 inline 是因 codex 无 `~/.claude/CLAUDE.md` 自动加载机制。
 
 ### escape hatch: shutdown_baton_teammates
 
@@ -449,7 +269,7 @@ archive_plan 撞 precheck fail / abandoned plan 时手工归档。codex 端用 `
 4. 按 plan §下一会话第一步 动手:**不重新讨论 §设计决策**;**所有 shell / 路径显式指向 worktree**(`git -C <worktree-path>`),codex SDK cwd 没切
 5. 进度 / §设计决策 / §不变量 变更先告诉用户确认
 
-> claude 视角对应 protocol 在 `resources/claude-config/CLAUDE.md` §复杂 plan workflow §Step 3 §选项 A。
+> claude 视角对应 protocol 在 `resources/claude-config/CLAUDE.md` §复杂 plan：Agent Deck baseline 最小协议 §Handoff。
 
 ### codex SDK 特有:per-session token / spawn options default
 
