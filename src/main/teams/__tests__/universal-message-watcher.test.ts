@@ -36,6 +36,7 @@ const emitStatusCalls: Array<{ id: string; status: string }> = [];
 // plan teamless-dm-20260601 D5: 记录 team repo 调用，验证 teamless（teamId=null）时 team 闸门被短路（不调）。
 const teamRepoGetCalls: string[] = [];
 const membershipInCalls: Array<{ teamId: string; sessionId: string }> = [];
+let markDeliveredThrow: Error | null = null;
 
 let nextClaimResult: AgentDeckMessage | null = null;
 let nextSessionResult: { id: string; lifecycle: 'active' | 'dormant' | 'closed'; agentId: string; archivedAt?: number | null } | null = null;
@@ -90,6 +91,7 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
     },
     markDelivered: (id: string, ts: number) => {
       markDeliveredCalls.push({ id, ts });
+      if (markDeliveredThrow) throw markDeliveredThrow;
       if (statefulPendingMap) {
         const m = statefulPendingMap.get(id);
         if (!m) return null;
@@ -290,6 +292,7 @@ beforeEach(() => {
   membershipBySid.clear();
   sessionByIdMap.clear();
   teamGetThrow = false;
+  markDeliveredThrow = null;
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────
@@ -730,6 +733,37 @@ describe('universal-message-watcher.deliver — REVIEW_86 MED-1 post-claim throw
     // 没有走到 adapter dispatch
     expect(receiveTeammateMessageCalls).toHaveLength(0);
   });
+
+  it('adapter 已接收后 markDelivered 抛错 → 不 retryAfterFail 重投同一 wire body', async () => {
+    const msg = makeMessage({ id: 'post-submit-markdelivered-throw' });
+    nextClaimResult = { ...msg, status: 'delivering' };
+    sessionByIdMap.set('receiver-sid', {
+      id: 'receiver-sid',
+      lifecycle: 'active',
+      agentId: 'claude-code',
+      archivedAt: null,
+    });
+    sessionByIdMap.set('sender-sid', {
+      id: 'sender-sid',
+      lifecycle: 'active',
+      agentId: 'claude-code',
+      archivedAt: null,
+    });
+    nextAdapterResult = {
+      capabilities: { canCollaborate: true },
+      receiveTeammateMessage: receiveTeammateMessageStub,
+    };
+    markDeliveredThrow = new Error('simulated SQLITE_BUSY in markDelivered');
+
+    const watcher = new UniversalMessageWatcher();
+    await callDeliver(watcher, msg);
+
+    expect(receiveTeammateMessageCalls).toHaveLength(1);
+    expect(markDeliveredCalls).toHaveLength(1);
+    expect(retryAfterFailCalls).toHaveLength(0);
+    expect(markFailedCalls).toHaveLength(1);
+    expect(markFailedCalls[0]?.reason).toContain('adapter accepted');
+  });
 });
 
 describe('universal-message-watcher.process — REVIEW_86 MED over-cap target 不被 under-cap target 流量饿死', () => {
@@ -827,6 +861,56 @@ describe('PerKeyRateLimiter.sweepEmptyBuckets — REVIEW_86 LOW Map 无界增长
 // in-flight process() 期间 stop() 被调（before-quit），当前 tick 结束仍 setImmediate(process)
 // 再跑一轮，在 shutdown 语义后继续 claim/deliver + 与 adapterRegistry.shutdownAll() 竞争。
 describe('universal-message-watcher.stop — REVIEW_100 LOW: 停后不 reschedule', () => {
+  it('stop() 发生在第一条投递 await 期间，解锁后不继续 claim batch 后续消息', async () => {
+    statefulPendingMap = new Map();
+    statefulPendingMap.set('stop-batch-1', makeMessage({ id: 'stop-batch-1', toSessionId: 'recv-X', sentAt: 1 }));
+    statefulPendingMap.set('stop-batch-2', makeMessage({ id: 'stop-batch-2', toSessionId: 'recv-X', sentAt: 2 }));
+    statefulMaxInflight = 10;
+    sessionByIdMap.set('recv-X', {
+      id: 'recv-X',
+      lifecycle: 'active',
+      agentId: 'claude-code',
+      archivedAt: null,
+    });
+    sessionByIdMap.set('sender-sid', {
+      id: 'sender-sid',
+      lifecycle: 'active',
+      agentId: 'claude-code',
+      archivedAt: null,
+    });
+
+    let releaseFirst: () => void = () => {};
+    const firstDeliveryStarted = new Promise<void>((resolve) => {
+      nextAdapterResult = {
+        capabilities: { canCollaborate: true },
+        receiveTeammateMessage: async (to: string, from: string, body: string) => {
+          receiveTeammateMessageCalls.push({ to, from, body });
+          if (receiveTeammateMessageCalls.length === 1) {
+            resolve();
+            await new Promise<void>((release) => {
+              releaseFirst = release;
+            });
+          }
+        },
+      };
+    });
+
+    const watcher = new UniversalMessageWatcher();
+    const w = watcher as unknown as { running: boolean; process: () => Promise<void> };
+    w.running = true;
+    const processPromise = w.process();
+
+    await firstDeliveryStarted;
+    watcher.stop();
+    releaseFirst();
+    await processPromise;
+
+    expect(claimCalls).toEqual(['stop-batch-1']);
+    expect(receiveTeammateMessageCalls).toHaveLength(1);
+    expect(statefulPendingMap.get('stop-batch-1')?.status).toBe('delivered');
+    expect(statefulPendingMap.get('stop-batch-2')?.status).toBe('pending');
+  });
+
   it('stop() 清 rescheduleAfterCurrent + 置 running=false（白盒断言 flag 状态）', () => {
     const watcher = new UniversalMessageWatcher();
     const w = watcher as unknown as {

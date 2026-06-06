@@ -585,12 +585,12 @@ mcp__agent-deck__send_message({ sessionId, teamId, text, replyToMessageId?, call
 | 字段 | 必传 | 含义 |
 |---|---|---|
 | `sessionId` | ✓ | target receiver session id |
-| `teamId` | caller/target 共享多 team 时必传 | 共享单 team 自动 resolve |
+| `teamId` | caller/target 共享多 team 时必传 | 共享单 team 自动 resolve；零共享 team 且省略则走 teamless DM |
 | `text` | ✓ | message body |
 | `replyToMessageId` | optional | 从收到的 wire prefix `[msg <id>]` 提取链入 reply chain |
 | `callerSessionId` | optional | in-process 自动闭包；HTTP transport 必传 |
 
-**收消息**：caller 调 send_message → universal-message-watcher 自动把 message dispatch 给 receiver adapter → adapter 给消息加 wire prefix `[from <name> @ <adapter>][msg <id>][sid <senderSid>]` → 喂给 receiver SDK → receiver Claude 看到 user-role message 直接处理（lead 不需主动 poll，看到 wire-prefixed user message 即知 reply 到了）。
+**收消息**：caller 调 send_message → universal-message-watcher 构造含 wire prefix `[from <name> @ <adapter>][msg <id>][sid <senderSid>]` 的 wireBody → receiver adapter 把 wireBody 喂给 receiver SDK → receiver Claude 看到 user-role message 直接处理（lead 不需主动 poll，看到 wire-prefixed user message 即知 reply 到了）。
 
 ### 跨会话救火：list_sessions(spawnedByFilter)
 
@@ -614,7 +614,7 @@ lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawnedByF
 
 teammate 端协议约束（`[from <name> @ <adapter>][msg <id>][sid <senderSid>]\n` 三段 wire prefix / regex 提 messageId + senderSessionId / 用 send_message 回 / DB messages.body 不含 wire prefix 的 invariant）已强约束在 reviewer-{claude,codex}.md「核心纪律」节，**lead 不需关心**这些细节。
 
-**wire format id invariant**：`messageId` / `senderSessionId` 都由 `crypto.randomUUID()` 生成（v4 UUID lowercase hex + hyphen，charset `[0-9a-f-]{36}`），regex `/\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]/` 与该 charset 严格对齐。
+**wire format id invariant**：`messageId` 由 `crypto.randomUUID()` 生成（v4 UUID）；`senderSessionId` 是 SDK / CLI 分配的 session id（codex 为 v7 thread id，非 v4）。两者均为 lowercase hex + hyphen 36 字符，regex `/\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]/` 与该 charset 严格对齐，不得收紧为 version-specific UUID regex。
 
 ### NO MSG ANCHOR 退化路径（reviewer 端 fallback）
 

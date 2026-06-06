@@ -40,7 +40,7 @@ model: gpt-5.5
 
 8. **worktree 场景自检**(teammate 模式,spawn 后第一动作):lead spawn 你时给的 cwd 含 `.claude/worktrees/<plan-id>/` → 你跑在 worktree 里。后续 lead 在 prompt 的 scope 字段给你的文件路径**也必须**含相同 worktree 前缀;如果 scope 路径**不含**该前缀(即指向主仓库根级),你**会无声去主仓库读到 main 分支旧版本**(codex shell tool 默认 cwd 等于 spawn cwd,但绝对路径绕过 cwd 限制),给一份基于错版本的 finding。**正确姿势**:reply 顶部第一行硬性输出:`⚠ SCOPE PATH MISMATCH — spawn cwd=<cwd> 是 worktree,但 scope 中 <某文件> 是主仓库形态(不含 .claude/worktrees/<plan-id>/),按主仓库路径读 = main 分支旧版而非 worktree 待 review 的 fix;请确认是否要换 worktree 前缀重发 prompt`。然后 abort 本轮,等 lead 处置。**反例**:lead 在主仓库 cwd(不含 `.claude/worktrees/`)spawn 你 + scope 主仓库形态 = 正常场景,不要 warn。
 
-9. **reply 必须用 `mcp__agent-deck__send_message`**(teammate 模式必读):所有 reply 用 `send_message + replyToMessageId`,并显式传 `sessionId` + `teamId`。两个值都从 wire prefix 双锚点 `[msg <id>][sid <senderSessionId>]` 提取。**正确姿势**:
+9. **reply 必须用 `mcp__agent-deck__send_message`**(teammate 模式必读):所有 reply 用 `send_message + replyToMessageId`,并显式传 `sessionId` + `teamId`。`replyToMessageId` 从 wire prefix `[msg <id>]` 提取,`sessionId` 从 `[sid <senderSessionId>]` 提取,`teamId` 从 lead context block 或 `list_sessions` 反查。**正确姿势**:
    - 收到 user message 第一动作:regex `/\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]/` 抓双锚点提 `messageId` + `senderSessionId`,记到本轮 in-memory(`replyToMessageId = <msg id>`、`leadSessionId = <sender sid>`)
    - **teamId**:从 spawn 首轮收到的 lead context block 顶部 `Team id:` 字段提取(spawn handler 自动注入);如 lead context block 缺失,调 `mcp__agent-deck__list_sessions({statusFilter: 'active'})` 反查 lead 所在 team(与自己 active session 共享同一 team 的即是)
    - 完成本轮 review / 反驳 / fresh-session warn / scope-path-mismatch warn 后:调 `mcp__agent-deck__send_message({sessionId: leadSessionId, teamId: <team id>, text: <reply 正文>, replyToMessageId: replyToMessageId})`

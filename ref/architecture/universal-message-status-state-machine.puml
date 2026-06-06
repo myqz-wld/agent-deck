@@ -1,5 +1,5 @@
-' description: 消息状态机 — 5 状态 (pending / delivering / delivered / failed / cancelled) + crash recovery
-' last_updated: 2026-05-29
+' description: 消息状态机 — 5 状态 (pending / delivering / delivered / failed / cancelled) + crash recovery + post-submit no-retry
+' last_updated: 2026-06-06
 @startuml universal-message-status-state-machine
 
 title 消息状态机 — 5 状态 + crash recovery
@@ -23,7 +23,7 @@ Delivering --> Failed : retryAfterFail\n(attempt >= MAX_RETRY=3)
 
 ' LO2: markFailed 直迁 (state-machine.ts:60-67 SQL WHERE id=? AND status IN ('pending','delivering'))
 Pending --> Failed : markFailed (stale ACL /\ntarget missing / cancelled-by-caller)
-Delivering --> Failed : markFailed (stale ACL /\nadapter missing / capability fail)
+Delivering --> Failed : markFailed (stale ACL /\nadapter missing / capability fail /\npost-submit markDelivered failure)
 
 ' 撤回路径 (仅活跃态可撤)
 Pending --> Cancelled : cancel
@@ -52,6 +52,9 @@ note as N1
   - 撤回边界: 仅 pending / delivering 可进 cancelled;terminal 拒
   - markFailed 路径: WHERE id=? AND status IN ('pending', 'delivering')
     (state-machine.ts:60-67) — pending / delivering 都可直进 failed (stale ACL / adapter missing)
+  - adapter.receiveTeammateMessage resolve 后视为 receiver side effect 已发生;
+    后续 markDelivered 抛错不得 retryAfterFail 退回 pending,只能 terminal fail / log,
+    避免同一 wire body 重复注入 receiver
   - crash recovery: delivering → pending (不计 attempt,避免 crash 把还有重试余量的拍 failed)
   - 原子性: 所有 UPDATE WHERE status 守门防并发态切换
 end note
