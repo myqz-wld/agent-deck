@@ -28,10 +28,7 @@ import { HAND_OFF_SPAWN_HEADER } from '@shared/hand-off-headers';
 export interface BuildLeadContextBlockOpts {
   /** caller(lead)session id,放入 wire prefix `[sid <id>]` + lead context block "Lead sessionId" 字段 */
   leadSessionId: string;
-  /**
-   * caller team id(teamIdEarly) — 放入 wire prefix(隐式,通过 buildWireBody 协议)
-   * + lead context block "Team id" 字段。
-   */
+  /** caller team id(teamIdEarly) — 不进 wire prefix,只写入 lead context block "Team id" 字段。 */
   teamId: string;
   /**
    * lead displayName 优先取 leadRecord.title;缺失时 caller 端用

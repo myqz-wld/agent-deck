@@ -281,6 +281,7 @@ export class UniversalMessageWatcher {
           continue;
         }
         await this.deliver(candidate);
+        if (!this.running) return;
         deliveredAny = true;
         deliveredTargets.add(candidate.toSessionId);
       }
@@ -292,6 +293,7 @@ export class UniversalMessageWatcher {
       for (const [toSessionId, head] of firstSkippedByTarget) {
         if (!deliveredTargets.has(toSessionId)) {
           await this.deliver(head);
+          if (!this.running) return;
           deliveredAny = true;
           deliveredTargets.add(toSessionId);
         }
@@ -300,6 +302,7 @@ export class UniversalMessageWatcher {
       // 此处仅防御「candidates 非空但既无 under-cap deliver 又无 firstSkippedByTarget」的不可达组合）。
       if (!deliveredAny && candidates.length > 0) {
         await this.deliver(candidates[0]);
+        if (!this.running) return;
       }
       // REVIEW_56 Batch C R1 codex MED-2 修法:cross-target starvation 二阶段公平兜底。
       // per-target rescue 救的是 batch **内** 被 skip 的 over-cap target;但 batch 全是 target-X 撑爆
@@ -316,6 +319,7 @@ export class UniversalMessageWatcher {
         });
         if (fairCandidate) {
           await this.deliver(fairCandidate);
+          if (!this.running) return;
         }
       }
     } catch (err) {
@@ -529,8 +533,6 @@ export class UniversalMessageWatcher {
         claimed.fromSessionId,
         wireBody,
       );
-      const delivered = agentDeckMessageRepo.markDelivered(claimed.id, Date.now());
-      if (delivered) this.emitStatus(delivered);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const updated = agentDeckMessageRepo.retryAfterFail(claimed.id, reason, Date.now());
@@ -545,6 +547,29 @@ export class UniversalMessageWatcher {
             `[universal-message-watcher] deliver exhausted message=${updated.id}: ${reason}`,
           );
         }
+      }
+      return;
+    }
+
+    try {
+      const delivered = agentDeckMessageRepo.markDelivered(claimed.id, Date.now());
+      if (delivered) this.emitStatus(delivered);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        `[universal-message-watcher] markDelivered failed after adapter accepted message=${claimed.id}; not retrying to avoid duplicate receiver injection: ${reason}`,
+      );
+      try {
+        const failed = agentDeckMessageRepo.markFailed(
+          claimed.id,
+          `post-delivery markDelivered failed after adapter accepted; not retried: ${reason}`,
+        );
+        if (failed) this.emitStatus(failed);
+      } catch (markFailedErr) {
+        logger.warn(
+          `[universal-message-watcher] markFailed also failed after markDelivered failure message=${claimed.id}:`,
+          markFailedErr,
+        );
       }
     }
   }

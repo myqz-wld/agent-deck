@@ -230,16 +230,16 @@ describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → cod
     await bridge.sendMessage(sid, wireBody);
 
     const pendingText = sessions.get(sid)!.pendingMessages[0] as string;
-    // app CLAUDE.md §wire format id invariant：messageId / senderSessionId 都由 randomUUID 生成
-    // (v4 UUID lowercase hex + hyphen，charset `[0-9a-f-]{36}`)
+    // app CLAUDE.md §wire format id invariant：messageId 是 v4 randomUUID；
+    // senderSessionId 由 SDK / CLI 分配，不承诺 v4，但同为 lowercase hex + hyphen 36 字符。
     const ANCHOR_RE = /\[msg ([0-9a-f-]{36})\]\[sid ([0-9a-f-]{36})\]/;
     const m = ANCHOR_RE.exec(pendingText);
     expect(m).not.toBeNull();
     const [, msgIdMatch, sidMatch] = m!;
-    // 进一步精确 v4 UUID 格式（version=4 + variant=8/9/a/b）
     const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    const UUID_36_RE = /^[0-9a-f-]{36}$/;
     expect(msgIdMatch).toMatch(UUID_V4_RE);
-    expect(sidMatch).toMatch(UUID_V4_RE);
+    expect(sidMatch).toMatch(UUID_36_RE);
   });
 
   it('TC8e: 多 codex teammate session 各自 pendingMessages 不串（wire prefix 隔离 + sessions Map 隔离双轨道）', async () => {
