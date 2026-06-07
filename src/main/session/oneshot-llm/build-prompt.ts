@@ -34,7 +34,8 @@ export function buildSummarizePrompt(opts: {
 - [Claude 主动询问用户] = ${a} 用 AskUserQuestion 在向用户提问（不是用户在问 ${a}）
 - [Claude 改动文件] / [Claude 请求工具权限] = 字面意思
 
-请用一句简洁的中文（不超过 30 字）总结 ${a} 当前正在做的核心任务。
+请只根据上面的事件，用一句简洁中文（不超过 30 字）总结 ${a} 当前正在做的核心任务。
+若事件不足以判断任务，输出“等待更多活动”。
 直接输出这句描述，不要前缀、不要解释、不要 Markdown、不要调用任何工具。
 **绝不能把 ${a} 的动作写成"用户 …"** —— 用户的输入不在记录中。
 
@@ -65,7 +66,7 @@ export function buildHandoffPrompt(opts: {
 - [Claude 主动询问用户] = ${a} 用 AskUserQuestion 在向用户提问
 - [Claude 改动文件] / [Claude 请求工具权限] = 字面意思
 
-请基于这些事件生成一份「接力简报」，让另一个新 session agent 能接着干活。
+请只基于这些事件生成一份「接力简报」，让另一个新 session agent 能接着干活。不要补写事件里没有的步骤、文件或结论。
 
 会话 cwd：${cwd || '(未知)'}
 最近活动（按时间从早到晚）：
@@ -89,7 +90,7 @@ ${activity}
 【相关文件】
 - <绝对路径 1>
 - <绝对路径 2>
-- ...（最多 10 个，从 [Claude 改动文件] / [Claude 调用工具] Edit/Read/Write 中提）
+- ...（最多 10 个，只从 [Claude 改动文件] / [Claude 调用工具] Edit/Read/Write 中提；没有就写“无”）
 
 输出后请直接返回，**不要调用任何工具**。`;
 }
@@ -103,7 +104,7 @@ ${activity}
 export const CLAUDE_SUMMARIZE_SYSTEM_PROMPT =
   '你是一个会话观察助手。你看到的每一条事件都是 Claude（AI 助手）一侧的行为，' +
   '用户输入不会出现在记录里。基于这些事件用一句简短中文描述 Claude 当前任务。' +
-  '不要把 Claude 的动作写成"用户 …"，不要调用工具，不要展开解释。';
+  '事件不足以判断时输出“等待更多活动”。不要把 Claude 的动作写成"用户 …"，不要调用工具，不要展开解释。';
 
 /**
  * Claude SDK handoff 的 systemPrompt（同上仅 claude-runner.ts 用）。
@@ -112,5 +113,5 @@ export const CLAUDE_SUMMARIZE_SYSTEM_PROMPT =
  */
 export const CLAUDE_HANDOFF_SYSTEM_PROMPT =
   '你是一个会话接力简报生成助手。基于活动记录生成结构化的「目标 / 已做 / 下一步 / 相关文件」四节简报，' +
-  '让接力的下一个 session 能直接续上工作。不要调用工具，不要 Markdown code block 包裹，' +
+  '让接力的下一个 session 能直接续上工作。只使用活动记录里的事实，不要补写不存在的步骤、文件或结论。不要调用工具，不要 Markdown code block 包裹，' +
   '严格按四节模板输出。';
