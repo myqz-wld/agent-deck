@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: 深度 code / plan / mixed review — 多轮异构 reviewer 对抗 + 三态裁决 + 五级严重度(CRITICAL/HIGH/MEDIUM/LOW/INFO),挖深层 bug(race / leak / 边角 / 架构 / 安全 / 测试盲区)+ plan design 缺陷。CRITICAL/HIGH 必须反驳论,无 CRITICAL/HIGH 才允许合入。前提:会话已挂载 agent-deck-mcp。触发:「深度 code review」/「deep review」/「双对抗 review」/「review fix 多轮」/「再 review 一轮」/「plan 评审」/「RFC 评审」/「mixed review」。
+description: 深度 review agent / deep code / plan / mixed review — 多轮异构 reviewer 对抗 + 三态裁决 + 五级严重度(CRITICAL/HIGH/MEDIUM/LOW/INFO),深挖 race/leak/边角/架构/安全/测试盲区与 plan design 缺陷。CRITICAL/HIGH 必须反驳论,无 CRITICAL/HIGH 才允许合入。前提:会话已挂载 agent-deck-mcp。触发:「deep review」/「深度 code review」/「双对抗 review」/「深度 review agent」/「多轮 review agent」/「review agent 深挖」/「review fix 多轮」/「再 review 一轮」/「深挖整体改动是否符合预期」/「plan 评审」/「RFC 评审」/「mixed review」。
 ---
 
 # Deep Review — 多轮异构对抗 review × fix 收口（code / plan / mixed）
