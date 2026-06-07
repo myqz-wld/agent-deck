@@ -1,6 +1,6 @@
 ---
 name: simple-review
-description: 轻量异构对抗 review — spawn 一对 reviewer-claude + reviewer-codex 单次 full_review + 三态裁决 + 五级严重度(CRITICAL/HIGH/MEDIUM/LOW/INFO)。CRITICAL/HIGH 必须反驳论,无 CRITICAL/HIGH 才允许合入。前提:会话已挂载 agent-deck-mcp。触发:「review 一下」/「简单 review」/「轻量 review」/「决策评审」/「对抗一下」/「帮我 review」/「这个对不对」/「下结论前对抗」/「约定升级评审」。
+description: 轻量 review agent / simple review — spawn reviewer-claude + reviewer-codex 单次 full_review + 三态裁决 + 五级严重度(CRITICAL/HIGH/MEDIUM/LOW/INFO)。CRITICAL/HIGH 必须反驳论,无 CRITICAL/HIGH 才允许合入。前提:会话已挂载 agent-deck-mcp。触发:「start review agent」/「review agent validation」/「overall change matches expectations」/「起 review agent」/「review agent 校验」/「review agent 复核」/「整体改动是否符合预期」/「校验和自我提升审计」/「review 一下」/「简单 review」/「轻量 review」/「决策评审」/「对抗一下」/「帮我 review」/「这个对不对」/「下结论前对抗」/「约定升级评审」。
 ---
 
 # Simple Review — 单次异构对抗 × 可选一轮 fix（code / plan）
