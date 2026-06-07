@@ -76,7 +76,7 @@ claude 视角同款 tool 也存在（MCP 通用），claude 端首选 CLI builti
 
 ## 提示词资产维护
 
-**改长生命周期 prompt 资产前必走本节**——即 `resources/codex-config/CODEX_AGENTS.md`(本文件)/ `resources/claude-config/CLAUDE.md` / `agent-deck-plugin/agents/reviewer-codex.md` / `agent-deck-plugin/skills/*/SKILL.md`(codex 端) / 注入 codex SDK 的 mcp tool description。**不适用**:src/ 业务代码注释 / 一次性 prompt(spawn 临时拼的 reviewer / cold-start prompt)/ 历史快照(ref/ 下写定不改)。
+**改长生命周期 prompt 资产前必走本节**——即 `resources/codex-config/CODEX_AGENTS.md`(本文件)/ `resources/claude-config/CLAUDE.md` / `agent-deck-plugin/agents/reviewer-codex.md` / `agent-deck-plugin/skills/*/SKILL.md`(codex 端) / 注入 codex SDK 的 mcp tool description;维护本仓库时还包括根 `README.md` / `CLAUDE.md` / `AGENTS.md` / `resources/README.md`。**不适用**:src/ 业务代码注释 / 一次性 prompt(spawn 临时拼的 reviewer / cold-start prompt)/ 历史快照(ref/ 下写定不改)。
 
 **核心原则——受众优先**:这些资产是写给「读它的 agent」看的,不是写给维护者看的。每个单元(章节 / 工具描述)第一句先答**做什么 + 何时用**,让没读过代码的 agent 一眼知道何时调;调用契约 / 参数其次;内部不变量(§ref / 闭包机制 / 状态机细节)移到末尾或直接删。issue 工具长期没人调,就是因为描述开头全是 `§不变量` 而不是 trigger。
 
