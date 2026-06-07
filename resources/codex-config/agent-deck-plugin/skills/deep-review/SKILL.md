@@ -193,7 +193,7 @@ focus:
 - 流程一致性（RFC 决策 / spike 实证 inline 进 §设计决策）
 - 测试矩阵覆盖度（plan §不变量 是否每条有对应 test case）
 - §下一会话第一步 是否完整可执行（cold start prompt 含绝对路径）
-- §已知踩坑 是否完备
+- §已知风险 / 历史问题 是否完备
 ```
 
 ### kind='mixed' 模板（双 mode 并行）

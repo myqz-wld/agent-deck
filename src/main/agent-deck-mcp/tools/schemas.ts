@@ -268,7 +268,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     .max(128)
     .regex(/^[A-Za-z0-9._-]+$/, 'planId only allows [A-Za-z0-9._-]')
     .describe(
-      'Plan id (matches plan file stem and worktree dir name). Used to derive plan file path and commit message. Charset matches EnterWorktree restriction.',
+      'Plan id (matches plan file stem and worktree dir name). Used to derive plan file path and commit message. Allowed characters: [A-Za-z0-9._-].',
     ),
   worktreePath: z
     .string()
@@ -276,7 +276,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     .max(4096)
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .describe(
-      'Absolute path to the plan worktree (e.g. /Users/apple/Repository/foo/.claude/worktrees/<planId>). Caller (mcp tool) must have already ExitWorktree-d before calling — handler refuses if the caller session cwd (or its held cwd_release_marker) is inside this path. Use ExitWorktree(action:"keep"), not a shell `cd`.',
+      'Absolute path to the plan worktree (e.g. /Users/apple/Repository/foo/.claude/worktrees/<planId>). Before calling archive_plan, leave this worktree with exit_worktree({ action: "keep" }) or Claude ExitWorktree(keep); shell `cd` is not enough because the caller session may still hold a worktree marker.',
     ),
   baseBranch: z
     .string()
@@ -284,7 +284,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     .max(128)
     .optional()
     .describe(
-      'caller 不传时优先读 plan frontmatter.base_branch（plan 创建时记录切 worktree 时所在的原分支，feature branch 上开 plan 就是 feature branch 名），frontmatter 也没设 base_branch 字段时 fallback "main"。**强烈建议在 plan frontmatter 显式写 base_branch**，避免 ff-merge 错合到 main 污染主线（feature branch 上跑 plan 但合到 main = worktree 改动从 feature branch 跳过去合主线）。Caller 显式传此参数始终覆盖 frontmatter。',
+      'Target branch for the ff-merge. Omit to use plan frontmatter.base_branch; if that is missing, archive_plan falls back to "main". Pass baseBranch explicitly when the plan was based on a feature branch or the frontmatter is incomplete.',
     ),
   planFilePath: z
     .string()
@@ -292,7 +292,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     .max(4096)
     .optional()
     .describe(
-      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<planId>.md, then <main-repo>/ref/plans/<planId>.md, then ~/.claude/plans/<planId>.md. **stem 约束**(impl-level refine,follow-up 20260515): planFilePath 文件名 stem(去 .md 后缀)必须等于 planId — 否则 archive_plan reject(防 archived path / INDEX key 派生与 caller 给的文件 stem 脱节导致 silent unlink 风险)。',
+      'Override plan file path. When omitted, handler tries (in order): <main-repo>/.claude/plans/<planId>.md, then <main-repo>/ref/plans/<planId>.md, then ~/.claude/plans/<planId>.md. The file stem must equal planId; otherwise archive_plan rejects.',
     ),
   changelogId: z
     .string()
@@ -302,7 +302,7 @@ export const ARCHIVE_PLAN_SHAPE = {
     )
     .optional()
     .describe(
-      'Optional changelog reference(s) for ref/plans/INDEX.md smart update (followup 20260515 (b)+(c))。caller 在 archive_plan 之前已经写完 CHANGELOG_X.md 并 commit,此处显式传 X 数字(如 "122")或多个逗号分隔(如 "121,122" 或 "121, 122" — R1 fix MED-3 放松 regex 容空格,与 helper trim 行为对齐)。impl 拼成 markdown link `[X](../changelogs/CHANGELOG_X.md)` 写入 INDEX 第 3 列「关联 changelog」。**caller 不传时**:smart update existing 4-列 row 保留原 changelog 列;旧 2 列 row 或新 append 行用 `—` placeholder(不强制清空已有,避免数据丢失)。',
+      'Optional changelog reference(s) for ref/plans/INDEX.md. Pass one number ("122") or comma-separated numbers ("121,122" / "121, 122") after the matching CHANGELOG_X.md files exist. archive_plan writes markdown links in the INDEX changelog column; when omitted, existing changelog cells are preserved and new rows use `—`.',
     ),
   callerSessionId: z
     .string()
@@ -482,7 +482,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .boolean()
     .optional()
     .describe(
-      'Default true (即 default archive caller — baton 单向交接语义,caller 会话使命终结)。某些场景下 caller 想起新 session 并行做事(更接近 spawn 用法),自己 still alive 协调进度 → pass `archiveCaller: false` 跳过 archive,caller 仍 active。典型用例:lead 起多个 hand-off 处理 follow-up 子任务,自己仍想看 reviewer reply / 出 summary;debug 工具想起新 session 实测某 plan 但 caller 仍要继续观察。**注意**: 跳过 archive 时 ok return.archived === "skipped",与 external caller 同款语义值。**CHANGELOG_169 F4 修法 (reviewer-codex MED finding)**:`archiveCaller: false` 时 phase 1 也跳过 shutdown teammates(标 skipped="archive-caller-false-keep")— caller 仍 active 当 lead 时 teammates 也保留 alive,与「caller 仍可看 reviewer reply」语义一致。`archiveCaller: false` 与其他 opt-out 字段(若未来新增)互相独立。',
+      'Default true: archive the caller after spawning the new session, making hand_off_session a one-way baton. Pass false only when the caller must stay active for parallel coordination or debugging. With archiveCaller=false, teammate shutdown is skipped and ok return.archived is "skipped".',
     ),
   // plan hand-off-session-adopt-teammates-20260520 Phase 4 (D1 + D11 v8 + N2.b + N2.c):
   // baton 单向交接默认会让原 teammate 与新 session 失去共享 active team(send_message 撞
@@ -504,7 +504,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['clear-team', 'preserve-team', 'skip'])
     .optional()
     .describe(
-      "teamTaskPolicy?: 'clear-team' (default) | 'preserve-team' | 'skip' — archiveCaller=false 时 policy 不执行(taskReassignment.status='skipped' reason='archive-caller-false' policy advisory 透传)(详 convention docs §handOff)",
+      "teamTaskPolicy?: 'clear-team' (default) | 'preserve-team' | 'skip'. Applies only when archiveCaller=true. clear-team reassigns caller team tasks to the new session as personal tasks; preserve-team keeps teamId and requires the new session to be an active member to write them; skip drops caller team tasks. With archiveCaller=false, policy is advisory and taskReassignment.status='skipped'.",
     ),
 };
 
@@ -1121,7 +1121,7 @@ export const TASK_CREATE_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'teamId?: string — 不传 = personal task(仅 owner 可见可写,first-class 用例); 传 string = team-bound task,caller 必须在该 team 是 active member(handler 校验 D3, 详 convention docs §task)',
+      'teamId?: string — omit for a personal task visible/writable only to its owner; pass a team id for a team-bound task visible/writable by active members of that team. Caller must be an active member of the target team.',
     ),
   callerSessionId: z
     .string()
@@ -1152,7 +1152,7 @@ export const TASK_LIST_SCHEMA = {
     .union([z.string().min(1).max(128), z.literal('null-personal')])
     .optional()
     .describe(
-      "teamIdFilter?: string | 'null-personal' — undefined=caller 可见 scope(caller-owned + caller 所在 team 的 team task);string=该 team 绑定 task(caller 必须在该 team 是 active member);'null-personal'=caller 自己 personal task(owner==caller AND teamId IS NULL)(详 convention docs §task)",
+      "teamIdFilter?: string | 'null-personal' — omit for all tasks visible to caller (caller-owned personal tasks plus team tasks from active memberships); pass a team id for that team's tasks (caller must be an active member); pass 'null-personal' for caller-owned personal tasks only.",
     ),
   limit: z
     .number()
@@ -1185,7 +1185,7 @@ export const TASK_GET_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny — v024 plan task-team-id-restore-20260525 §D8 修法把 task_get 改严格 team-scoped read + deny external(EXTERNAL_CALLER_ALLOWED.task_get=false),v023 cross-team 可读 use case 已推翻(详 convention docs §task)。in-process caller 必须与 task teamId 共享 active membership(team-bound task)或为 owner(personal task)才能 read,详 D3 镜像 read 权限。',
+      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny。Caller can read a team-bound task only when it is an active member of that task team; caller can read a personal task only when it owns the task.',
     ),
 };
 
@@ -1222,7 +1222,7 @@ export const TASK_UPDATE_SCHEMA = {
     .nullable()
     .optional()
     .describe(
-      'teamId?: string | null — 不传 = 不动;传 string = 改为 team-bound(caller 必在该 active team);传 null = 改为 personal task(详 convention docs §task)',
+      'teamId?: string | null — omit to leave unchanged; pass a team id to make the task team-bound (caller must be an active member of that team); pass null to make it personal to the caller.',
     ),
   callerSessionId: z
     .string()

@@ -20,7 +20,7 @@
 - **输入框图片附件**：会话主输入框 + 新建会话 dialog 都支持「粘贴 / 拖放 / 上传按钮」三件套发图（PNG / JPEG / GIF / WebP，单图 ≤ 20MB / 单条总附件 ≤ 30MB）。Claude SDK 走 base64 image content block，Codex SDK 接 `local_image` 文件路径，主进程统一把 base64 落盘到 `<userData>/image-uploads/<uuid>.<ext>` 喂下游；历史 detail view 里能看到自己发了什么图，14 天孤儿文件 reaper 自动清理
 - **模型 Token 统计**：顶栏中部实时显示今日使用最频 Top3 模型的「输出 token/s」（最近 60 秒滑动窗口；窗口宽度不足时自动退化隐藏，先减到 Top1 再隐藏）。「数据」tab（与 实时/待处理/历史/团队/问题 同级）看每个模型每天的 token 使用：模型×日期表格（输入 / 输出 / 缓存读 / 缓存写）+ 今日汇总 + 全模型实时 token/s 区。token 用量从每条 assistant message（Claude）/ turn 完成（Codex）采集；同基础模型的不同变体（thinking / 1m 等）按友好名合并统计
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
-- **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md / CODEX_AGENTS.md 到 system prompt；可注入 agent-deck plugin 自带的 `deep-review` skill + native `reviewer-claude`（Claude Code adapter）/ `reviewer-codex`（Codex SDK adapter）双异构对抗 reviewer
+- **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md / CODEX_AGENTS.md 到 system prompt；内置 prompt / agent / skill 资源随应用 bundle 自闭环生效，用户自定义 agents/skills 只作为增强层；可注入 agent-deck plugin 自带的 `deep-review` skill + native `reviewer-claude`（Claude Code adapter）/ `reviewer-codex`（Codex SDK adapter）双异构对抗 reviewer
 - **多 Adapter**：Claude Code（hook + SDK 双通道，SDK 支持 streaming input 多轮交互）+ Deepseek（Claude Code 兼容通道，独立 `~/.agent_deck/.deepseek/settings.json` 存 URL / token / model，复用 Claude 侧 agents/skills/CLAUDE.md）+ Codex CLI（单 SDK 通道，turn-based 协议每轮等上一轮完成；常作 reviewer / 子任务 teammate，主导会话场景按个人偏好选）
 
 ---
@@ -116,7 +116,7 @@ xattr -dr com.apple.quarantine "/Applications/Agent Deck.app"
 ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/local/bin/agent-deck
 ```
 
-每一步的根因详见「开发指南 → 打包必须知道的几件事」。
+每一步的规则详见「开发指南 → 打包规则」。
 
 ### Windows：装 NSIS exe
 
@@ -230,14 +230,14 @@ agent-deck new \
     - **HTTP** `/mcp`：codex 启动时通过 SDK config 自动注入 `mcp_servers.agent-deck` 段连接（独立 Bearer token，env var `AGENT_DECK_MCP_TOKEN` 引用）；外部 MCP client 也可连
     - **stdio**：外部 MCP client（Cursor / Continue / Claude Desktop）通过 `agent-deck mcp` 子命令连，仅暴露 3 个只读 tool 给 external caller（`list_sessions` / `get_session` / `task_list`）；其余 15 个 tool（`spawn_session` / `send_message` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates` / `task_create` / `task_get` / `task_update` / `task_delete` / `report_issue` / `append_issue_context` / `update_issue_status`）一律 deny external，防 fork bomb / 跨 client 越权
 
-    防递归规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 20） / 单 caller 最大子会话（默认 10） / cwd realpath 整链回溯 cycle 检测；message rate limit（默认 60/min）：team message 按 per-team 桶，teamless DM 按 per-sender 桶（同发送方跨所有 receiver 共享单桶）。reply 不再轮询等待，`send_message` 送达后由 universal-message-watcher 自动注入目标会话和 reply chain。task 工具自动闭包 owner_session_id = caller_session_id；写权限同 team active member 共享；hand_off_session baton 时自动过继 task。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值。详见 [`docs/agent-deck-mcp-protocol.md`](docs/agent-deck-mcp-protocol.md) 协议 stub
+    防递归规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 20） / 单 caller 最大子会话（默认 10） / cwd realpath 整链回溯 cycle 检测；message rate limit（默认 60/min）：team message 按 per-team 桶，teamless DM 按 per-sender 桶（同发送方跨所有 receiver 共享单桶）。reply 不再轮询等待，`send_message` 送达后由 universal-message-watcher 自动注入目标会话和 reply chain。task 工具自动闭包 owner_session_id = caller_session_id；写权限同 team active member 共享；hand_off_session baton 时自动过继 task。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值；协议细节以本 README、内置 CLAUDE.md / CODEX_AGENTS.md 和 MCP tool descriptions 为准。
   - **Codex MCP Servers**：JSON 编辑 codex CLI 接的外部 MCP server，写到 `~/.codex/config.toml` 的 marker 段（不破坏用户手写其他段）
 
 > 资产注入开关在 Header「📚 资产库」三 tab 顶部，设置面板内不重复（避免单一开关多处真源）。
 
 大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；沙盒档位 / Agent Deck MCP transport 开关 / 资产注入开关均为 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / idleQuiet）热生效。
 
-Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md。每个 tab 顶部带「注入开关」横条（Skills tab：Claude plugin + Codex skills 同步；Agents tab：与 Skills 共用 plugin 开关；应用约定 tab：Claude system prompt + Codex AGENTS.md 同步）。Deepseek（Claude Code）不单独维护资产视角，创建会话和 `spawn_session(agentName=...)` 都复用 Claude 侧 agents/skills/CLAUDE.md，只从 `.deepseek` 读取模型和鉴权 env。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
+Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md。每个 tab 顶部带「注入开关」横条（Skills tab：Claude plugin + Codex skills 同步；Agents tab：与 Skills 共用 plugin 开关；应用约定 tab：Claude system prompt + Codex AGENTS.md 同步）。内置资源是 Agent Deck 行为 baseline；用户自定义 agents/skills 是增强层，不能替代内置协议或 reviewer 纪律。Deepseek（Claude Code）不单独维护资产视角，创建会话和 `spawn_session(agentName=...)` 都复用 Claude 侧 agents/skills/CLAUDE.md，只从 `.deepseek` 读取模型和鉴权 env。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
 
 ---
 
@@ -367,7 +367,7 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
   -d '{"session_id":"test-001","cwd":"<任意目录>"}'
 ```
 
-### 打包必须知道的几件事
+### 打包规则
 
 每条都有过失败案例，详见对应 changelog / review：
 
@@ -395,6 +395,6 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
 
 - [ref/changelogs/INDEX.md](ref/changelogs/INDEX.md) —— **功能变更**索引（新功能 / 行为修改 / API / 依赖升级）
 - [ref/reviews/INDEX.md](ref/reviews/INDEX.md) —— **Debug / 性能 / 安全 review** 索引（不引入新功能，修问题或加固；含双对抗 Agent 三态裁决报告）
-- [CLAUDE.md](CLAUDE.md) —— 给 Claude Code 在本仓库工作时的硬性约定 + 项目设计要点 + 「已审文件过期」机制（review 自动排程）
+- [CLAUDE.md](CLAUDE.md) —— 给 Claude Code 在本仓库工作时的硬性约定、项目设计要点与验证流程
 
-改任何模块前先 `ls ref/changelogs/ ref/reviews/` + 浏览相关条目，了解历史决策、避免推翻已有约定 / 重复踩坑。设计取舍（如「为什么 lifecycle 与 archived 正交」）通常在 changelog；过往 bug 与加固方案（含证据 + 三态裁决）在 reviews。
+改任何模块前先 `ls ref/changelogs/ ref/reviews/` + 浏览相关条目，了解历史决策、避免推翻已有约定 / 重复修同类问题。设计取舍（如「为什么 lifecycle 与 archived 正交」）通常在 changelog；过往 bug 与加固方案（含证据 + 三态裁决）在 reviews。
