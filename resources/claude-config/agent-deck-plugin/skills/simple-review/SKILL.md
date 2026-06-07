@@ -1,6 +1,6 @@
 ---
 name: simple-review
-description: 轻量 review agent / simple review — spawn reviewer-claude + reviewer-codex 单次 full_review + 三态裁决 + 五级严重度(CRITICAL/HIGH/MEDIUM/LOW/INFO)。CRITICAL/HIGH 必须反驳论,无 CRITICAL/HIGH 才允许合入。前提:会话已挂载 agent-deck-mcp。触发:「start review agent」/「review agent validation」/「overall change matches expectations」/「起 review agent」/「review agent 校验」/「review agent 复核」/「整体改动是否符合预期」/「校验和自我提升审计」/「review 一下」/「简单 review」/「轻量 review」/「决策评审」/「对抗一下」/「帮我 review」/「这个对不对」/「下结论前对抗」/「约定升级评审」。
+description: 轻量 review agent / simple review — 用于单点代码、plan sanity、技术选型或约定升级前的单次异构对抗评审。spawn reviewer-claude + reviewer-codex 各跑一次 full_review，lead 做三态裁决和五级严重度 gate；CRITICAL/HIGH 必须有反驳论，无 CRITICAL/HIGH 才允许合入。前提：会话已挂载 agent-deck-mcp。触发：「start review agent」/「review agent validation」/「overall change matches expectations」/「起 review agent」/「review agent 校验」/「review agent 复核」/「整体改动是否符合预期」/「校验和自我提升审计」/「review 一下」/「简单 review」/「轻量 review」/「决策评审」/「对抗一下」/「帮我 review」/「这个对不对」/「下结论前对抗」/「约定升级评审」。
 ---
 
 # Simple Review — 单次异构对抗 × 可选一轮 fix（code / plan）
@@ -166,7 +166,7 @@ focus:
 
 | 场景 | 处理 |
 |---|---|
-| reviewer-codex 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort）| 通知用户决策。**合规兜底（仍异构）**：`shutdown_session` 掉失败的 reviewer-codex → `spawn_session({adapter:'codex-cli', agentName:'reviewer-codex', ...})` **重 spawn**（retry ≤ 2 次 / 每次 ≤ 5min），与未动的 reviewer-claude teammate 仍异构。重 spawn 仍失败 → 提示用户三选一：①等 SDK/OAuth 恢复后再 spawn ②单方 reviewer-claude 出结论（finding 全降单方非 CRITICAL/HIGH，过 §三态裁决 §单方独有分流）③abort。**严禁**降级同源双 Claude；**严禁**让 reviewer-claude teammate 跑「codex 视角」补缺 |
+| reviewer-codex 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort）| 通知用户决策。**合规兜底（仍异构）**：`shutdown_session` 掉失败的 reviewer-codex → `spawn_session({adapter:'codex-cli', agentName:'reviewer-codex', ...})` **重 spawn**（retry ≤ 2 次 / 每次 ≤ 5min），与未动的 reviewer-claude teammate 仍异构。重 spawn 仍失败 → 提示用户三选一：①等 SDK/OAuth 恢复后再 spawn ②单方 reviewer-claude 出结论（finding 全降单方非 CRITICAL/HIGH，过 §三态裁决 §单方独有分流）③abort。**严禁**降级同源双 Claude；**严禁**让 reviewer-claude 冒充 reviewer-codex 补缺 |
 | reviewer-claude 失败（claude SDK 起不来 / OAuth 过期 / sandbox 拒 / timeout / claude jsonl 缺失 fresh-session abort）| 对称处理：`shutdown_session` + `spawn_session({adapter:'claude-code', agentName:'reviewer-claude', ...})` 重 spawn，与 reviewer-codex teammate 仍异构。仍失败 → 三选一（等恢复 / 单方 reviewer-codex 出结论降单方非 CRITICAL/HIGH / abort）。**严禁**降级同源双 Codex |
 | reviewer-* 报「⚠ FRESH SESSION — in-memory state empty」信号 | teammate 被 SDK 自动重启过 in-memory state 全丢。`shutdown_session` → 重 spawn → 按 scope 重发 init prompt 全量重跑（不要继续 Round 2） |
 | reviewer-* 报「⚠ SCOPE PATH MISMATCH」信号 | scope 路径前缀与 spawn cwd 不一致（worktree 场景 scope 写成主仓库根级形态 / auto cp 漏 cp 某文件）。修 scope 路径 / 检查 manifest → shutdown + 重 spawn + 重发 prompt |

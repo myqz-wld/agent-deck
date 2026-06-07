@@ -91,7 +91,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .regex(/^[a-zA-Z0-9._-]+$/, 'agentName only allows [a-zA-Z0-9._-]')
     .optional()
     .describe(
-      'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the agent body is auto-prepended to `prompt` from bundled-assets registry, so callers do not need to cat & embed the body themselves. Errors when name does not resolve to a known plugin agent. **Frontmatter `model` field auto-extracted and forwarded to SDK** (effective on both adapters — claude-code: SDK options.model; codex-cli: ThreadOptions.model via codex-sdk v0.131.0+ per-thread override; frontmatter `model` 未设时 codex 端 fallback 到 user `~/.codex/config.toml` 顶层 model 配置).',
+      'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the bundled agent body is auto-prepended to `prompt`, so callers do not need to read and embed the body themselves. Unknown names reject. If the body frontmatter has `model`, the target adapter receives it as the session model.',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。
@@ -116,7 +116,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      'caller 显式传优先于继承 / 默认。省略时：target adapter 是 codex-cli 且 caller 也是 codex-cli → 继承 caller session 的 codexSandbox；跨 adapter spawn → 不继承 caller sandbox,由 codex adapter 走 settings 默认。**P5 Round 1 reviewer-codex M3 修法 (clarify 契约边界)**：reviewer-* teammate spawn 路径 (agentName="reviewer-claude" / "reviewer-codex") 由 options-builder 强制 spread "workspace-write" (plan §不变量 6 — reviewer body 内 Bash/shell 工具需读源码 + 写中间文件)，caller 显式传 codexSandbox 会被 reviewer-* unsafe default override + 主进程 console.warn 提示。严格 read-only reviewer 当前不支持 — reviewer body 设计依赖 workspace-write。',
+      'caller 显式传优先于继承 / 默认。省略时：target adapter 是 codex-cli 且 caller 也是 codex-cli → 继承 caller session 的 codexSandbox；跨 adapter spawn → 不继承 caller sandbox,由 codex adapter 走 settings 默认。reviewer-* teammate（agentName="reviewer-claude" / "reviewer-codex"）固定使用 workspace-write defaults，因为 reviewer body 需要读源码并写临时验证文件；caller 显式传 codexSandbox 会被 reviewer default 覆盖并记录 warning。严格 read-only reviewer 当前不支持。',
     ),
   claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])
@@ -382,7 +382,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .regex(/^[A-Za-z0-9._-]+$/, 'planId only allows [A-Za-z0-9._-]')
     .optional()
     .describe(
-      'Plan id (matches plan file stem and worktree dir name). **Optional (CHANGELOG_99 dual-mode)**: when set → plan-driven mode (read frontmatter, validate status=in_progress, auto-construct cold-start prompt "按 <plan-abs-path> 接力"). When omitted → generic mode (pass `prompt` to give the new session context — optional, defaults to a generic baton prompt; phaseLabel/planFilePath ignored). Charset matches EnterWorktree restriction.',
+      'Plan id (matches plan file stem and worktree dir name). Set it for plan-driven hand-off: read frontmatter, require status=in_progress, and auto-build cold-start prompt `按 <plan-abs-path> 接力`. Omit it for generic hand-off: use `prompt` for context; phaseLabel and planFilePath are ignored. Charset matches enter_worktree.',
     ),
   prompt: z
     .string()
@@ -390,7 +390,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(100_000)
     .optional()
     .describe(
-      'Cold-start prompt for the new SDK session. **Plan-driven mode (planId set)**: ignored — auto-constructed as `按 <plan-abs-path> 接力（Phase: <phaseLabel>?）`. **Generic mode (no planId)**: optional but recommended — defaults to `从上一个会话接力继续工作` if omitted. Use this to give the new session enough context (typical: a paragraph summarizing current work + what to do next).',
+      'Cold-start prompt for the new SDK session. Plan-driven mode ignores this and auto-builds `按 <plan-abs-path> 接力（Phase: <phaseLabel>?）`. Generic mode uses this as the hand-off context; omit it only when the generic default `从上一个会话接力继续工作` is enough.',
     ),
   phaseLabel: z
     .string()
@@ -398,7 +398,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(80)
     .optional()
     .describe(
-      'Optional phase label (e.g. "H3 - Phase 4c Step 4c.1") appended to the cold-start prompt as `（Phase: <label>）`. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). Helps the new session immediately know which phase to start. Omit for plain "按 <plan-abs-path> 接力".',
+      'Optional phase label (e.g. "H3 - Phase 4c Step 4c.1") appended to the plan-driven cold-start prompt as `（Phase: <label>）`. Ignored in generic mode. Omit for plain `按 <plan-abs-path> 接力`.',
     ),
   cwd: z
     .string()
@@ -410,7 +410,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     )
     .optional()
     .describe(
-      'Override cwd for the new SDK session. **Plan-driven mode default**: main repo path (CHANGELOG_99 cwd resilience). **Generic mode default**: caller cwd (looked up from sessionRepo) — falls back to mainRepo if caller cwd is missing. **External worktree auto-降级**: 约定 worktree 走 mainRepo,外置 worktree 自动降级走 worktreePath + handler 加 mainRepo 进 extraAllowWrite。Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath。**Cold-start protocol 详 HAND_OFF_SESSION_CWD_CONTRACT callout (schemas.ts 顶部) + resources/claude-config/CLAUDE.md §复杂 plan：Agent Deck baseline 最小协议 §Handoff (claude 端) / resources/codex-config/CODEX_AGENTS.md §plan cold-start protocol (codex 端)**',
+      'Override cwd for the new SDK session. Plan-driven default is the main repo path so the session remains valid after the worktree is archived or removed; generic default is caller cwd, with mainRepo fallback. Plan-driven fallback chain: caller args.cwd > resolved.mainRepo > resolved.worktreePath. External worktrees use worktreePath and automatically add mainRepo to extraAllowWrite.',
     ),
   adapter: z
     .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
@@ -424,7 +424,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(128)
     .optional()
     .describe(
-      'Optional teamName. **Default: not set** (CHANGELOG_97 baton semantic — hand-off is a one-way baton transfer; the caller is archived by default so it does NOT remain as lead). Pass a name only if you want the new session to join/form that team for communication (rare — for a pure baton, omit). To instead keep the caller current teammates communicating with the new session, use `adoptTeammates: true` (which makes the new session take over the team as lead). **互斥**：不可与 `adoptTeammates: true` 同传（refine reject — adopt 路径自动过继 caller 自己的 team，与显式指定 team 冲突）。',
+      'Optional teamName. Default: omit it for a pure one-way baton; the caller is archived by default and does not remain as lead. Pass a name only when the new session must join/form that team for communication. To keep caller current teammates with the new session, use `adoptTeammates: true` instead. Cannot be combined with `adoptTeammates: true`.',
     ),
   permissionMode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
@@ -462,7 +462,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(4096)
     .optional()
     .describe(
-      'Override plan file path. **Only used in plan-driven mode** — silently ignored in generic mode (CHANGELOG_99). When omitted, handler tries (in order): <main-repo>/.claude/plans/<planId>.md (where main-repo is derived from cwd or plan frontmatter), then <main-repo>/ref/plans/<planId>.md, then ~/.claude/plans/<planId>.md.',
+      'Override plan file path. Used only in plan-driven mode; ignored in generic mode. When omitted, handler tries: <main-repo>/.claude/plans/<planId>.md, then <main-repo>/ref/plans/<planId>.md, then ~/.claude/plans/<planId>.md.',
     ),
   callerSessionId: z
     .string()
@@ -497,7 +497,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .boolean()
     .optional()
     .describe(
-      'Default false (baton 默认行为)。**true 时**: caller 同 team 其他 active+dormant teammate **原地保留**(swapLead 把 lead role 从 caller 转给新 session,teammate 与新 session 共享 active team 可继续 send_message 沟通)。**仅当 caller 是 lead 的 team 走 adopt**(caller 是 teammate 的 team 跳过 + 进 failed.reason="caller-not-lead-in-team")。**N5 ≥1 lead 硬约束**: caller 在所有 team 都不是 lead(全 teammate / 无 active membership)→ handler spawn 之前 fail-fast 返 error,不 spawn / 不 archive caller。**N2.c 互斥**: 不可与 args.teamName 同传(zod refine reject — adopt 路径自动过继 caller 自己 team,与显式指定额外 team 语义冲突)。Detail 见 ok return.adopted 字段:{ preserved: string[], failed: Array<{sid,reason,teamId}>, teamsTotal: number, teamsAdopted: number, firstTeamId: string | null, adoptedTeamIds: string[] }。',
+      'Default false. Pass true when the new hand-off session must take over caller lead teams so existing teammates can keep using send_message with it. Requires caller to be lead of at least one active team; otherwise the tool rejects before spawning or archiving. Cannot be combined with teamName. Return.adopted lists preserved teammates, failed entries, total/adopted team counts, firstTeamId, and adoptedTeamIds.',
     ),
   // v024 plan task-team-id-restore-20260525 §D4:handOff 跨 team task 过继策略
   teamTaskPolicy: z
