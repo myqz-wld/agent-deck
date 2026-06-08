@@ -12,6 +12,7 @@ import { summariseSessionForHandOff } from '@main/session/summarizer';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
 import type { EventMap } from '@main/event-bus';
+import type { AppSettings } from '@shared/types';
 import { buildHandOffCreateSessionOpts, dedupHandOff, archiveSourceSessionWithEmit } from './sessions-hand-off-helper';
 import { on, parseStringId, parsePositiveInt, parseStringIdArray, IpcInputError } from './_helpers';
 import log from '@main/utils/logger';
@@ -109,9 +110,9 @@ export function registerSessionsIpc(): void {
     const events = eventRepo.listForSession(sid, 200);
     // plan prancy-forging-penguin 改造:dispatch 改成按 **settings.handOffProvider** 选 adapter
     // 出简报(与被 hand-off 的目标会话原 adapter 解耦)。原 R37 P2-I 是按 session.agentId 走,
-    // 现在变成 user 在 settings 选 'claude' 还是 'codex' 出简报 — claude session 也可能由
-    // codex SDK 出简报,反之亦然。user 责任:settings.handOffModel 填的 model id 必须对当前
-    // provider 可用。
+    // 现在变成 user 在 settings 选 'claude' / 'deepseek' / 'codex' 出简报 — claude session 也可能
+    // 由 Deepseek 或 codex SDK 出简报,反之亦然。user 责任:settings.handOffModel 填的 model id
+    // 必须对当前 provider 可用。
     //
     // 关键边界:**两个 adapter 变量分开取**:
     // - summaryAdapter (provider-driven):仅用于出简报 LLM 调用 (line summary = ...)
@@ -119,7 +120,7 @@ export function registerSessionsIpc(): void {
     //   因为 Stage 2 起新会话用的是被 hand-off 目标会话**自己的** adapter (新 session 沿用原
     //   adapter,与 user 选的 simulate provider 无关)
     const provider = settingsStore.get('handOffProvider');
-    const summaryProviderAgentId = provider === 'codex' ? 'codex-cli' : 'claude-code';
+    const summaryProviderAgentId = handOffProviderToAdapterId(provider);
     const summaryAdapter = adapterRegistry.get(summaryProviderAgentId);
     const sessionAdapter = adapterRegistry.get(session.agentId);
     // plan remove-aider-generic-pty-adapters-20260520 P9 R2 reviewer-codex MED 修法：
@@ -233,4 +234,18 @@ export function registerSessionsIpc(): void {
       ),
     );
   });
+}
+
+function handOffProviderToAdapterId(
+  provider: AppSettings['handOffProvider'],
+): 'claude-code' | 'deepseek-claude-code' | 'codex-cli' {
+  switch (provider) {
+    case 'codex':
+      return 'codex-cli';
+    case 'deepseek':
+      return 'deepseek-claude-code';
+    case 'claude':
+    default:
+      return 'claude-code';
+  }
 }

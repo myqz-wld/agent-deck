@@ -21,6 +21,10 @@ import {
   getDeepseekSettingsPath,
   loadDeepseekClaudeEnv,
 } from './config';
+import {
+  summariseViaLlm,
+  summariseSessionForHandOff,
+} from '@main/session/summarizer/llm-runners';
 
 const ADAPTER_ID = 'deepseek-claude-code';
 
@@ -182,6 +186,24 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
 
   setPermissionTimeoutMs(ms: number): void {
     this.bridge?.setPermissionTimeoutMs(ms);
+  }
+
+  /**
+   * Deepseek provider for periodic summaries and hand-off briefs.
+   *
+   * It reuses the Claude-family oneshot runner with Deepseek's Anthropic-compatible
+   * base URL/token/model env overlay, keeping provider selection independent from the
+   * target session adapter.
+   */
+  async summariseEvents(
+    cwd: string,
+    events: AgentEvent[],
+    kind: 'summary' | 'handoff',
+  ): Promise<string | null> {
+    const envOverride = loadDeepseekClaudeEnv();
+    return kind === 'summary'
+      ? summariseViaLlm(cwd, events, { agentName: 'Deepseek', envOverride })
+      : summariseSessionForHandOff(cwd, events, 'Deepseek', { envOverride });
   }
 }
 

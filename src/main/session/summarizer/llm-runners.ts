@@ -7,7 +7,7 @@
  *   - race + timer → `raceWithTimeout()`
  *   - prompt body → `buildSummarizePrompt()` / `buildHandoffPrompt()`
  *   - result 清洗 → `cleanCompactResult()` / `cleanStructuredResult()`
- *   - systemPrompt → `CLAUDE_SUMMARIZE_SYSTEM_PROMPT` / `CLAUDE_HANDOFF_SYSTEM_PROMPT` 常量
+ *   - systemPrompt → `buildSummarizeSystemPrompt(agentName)` / `buildHandoffSystemPrompt(agentName)`
  *
  * 本文件保留：
  *   - events → activity 文本（formatEventsForPrompt 复用）+ 空短路
@@ -25,11 +25,23 @@ import {
   cleanCompactResult,
   cleanStructuredResult,
   runClaudeOneshot,
-  CLAUDE_SUMMARIZE_SYSTEM_PROMPT,
-  CLAUDE_HANDOFF_SYSTEM_PROMPT,
+  buildSummarizeSystemPrompt,
+  buildHandoffSystemPrompt,
   type AgentName,
 } from '@main/session/oneshot-llm';
 import { formatEventsForPrompt } from './event-formatter';
+
+interface ClaudeFamilyRunnerOptions {
+  agentName?: AgentName;
+  envOverride?: Readonly<Record<string, string>>;
+}
+
+function providerEnv(
+  opts: ClaudeFamilyRunnerOptions | undefined,
+  key: string,
+): string | undefined {
+  return opts?.envOverride?.[key] ?? process.env[key];
+}
 
 /**
  * 用本地 OAuth + Claude Code SDK 跑一次 oneshot 总结。一句话（≤ 30 字）描述当前任务。
@@ -40,13 +52,18 @@ import { formatEventsForPrompt } from './event-formatter';
  * - 优先调 q.interrupt() 让 SDK 自己优雅退（清掉 cli.js 子进程）
  * - 兜底 throw `__summarizer_timeout__`，让外层 catch 走兜底路径
  */
-export async function summariseViaLlm(cwd: string, events: AgentEvent[]): Promise<string | null> {
+export async function summariseViaLlm(
+  cwd: string,
+  events: AgentEvent[],
+  opts?: ClaudeFamilyRunnerOptions,
+): Promise<string | null> {
   const activity = formatEventsForPrompt(events);
   if (!activity) return null;
+  const agentName = opts?.agentName ?? 'Claude';
 
   const result = await runClaudeOneshot({
     cwd,
-    prompt: buildSummarizePrompt({ cwd, activity, agentName: 'Claude' }),
+    prompt: buildSummarizePrompt({ cwd, activity, agentName }),
     // 总结只一句话，用 haiku 足够：成本低、吐字快，多个会话排队也不会卡。
     // 模型优先级（plan model-wiring-and-handoff-20260514 Step 4.3）：
     //   1. settings.summaryModel（UI 暴露的字符串字段，'' 表示沿用下面 env / alias 链）
@@ -56,10 +73,11 @@ export async function summariseViaLlm(cwd: string, events: AgentEvent[]): Promis
     // applyClaudeSettingsEnv 在 bootstrap 时已把 settings.json 的 env 注入 process.env。
     model:
       settingsStore.get('summaryModel') ||
-      process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
-      process.env.ANTHROPIC_MODEL ||
+      providerEnv(opts, 'ANTHROPIC_DEFAULT_HAIKU_MODEL') ||
+      providerEnv(opts, 'ANTHROPIC_MODEL') ||
       'haiku',
-    systemPrompt: CLAUDE_SUMMARIZE_SYSTEM_PROMPT,
+    systemPrompt: buildSummarizeSystemPrompt(agentName),
+    envOverride: opts?.envOverride,
     timeoutMs: settingsStore.get('summaryTimeoutMs'),
     timeoutErrorMessage: '__summarizer_timeout__',
   });
@@ -80,7 +98,7 @@ export async function summariseViaLlm(cwd: string, events: AgentEvent[]): Promis
  * 重试或手动编辑兜底 prompt。本函数内只做 timeout race + result 收集，不做 fallback。
  *
  * **agentName 参数化**（plan resume-inject-raw-messages-20260601 §D8）：默认 `'Claude'`
- * 向后兼容所有现有 caller（IPC hand-off / claude fallback）；codex jsonl-missing fallback
+ * 保留所有现有 caller 契约（IPC hand-off / claude fallback）；codex jsonl-missing fallback
  * 复用本 claude oneshot（本地 OAuth，不为 codex 写平行总结函数 — 解开 REVIEW_60 F5 卡住的
  * 耦合）但传 `'Agent'`，否则 codex 会话摘要会自称「Claude 会话」（buildHandoffPrompt 的 intro
  * + 主体 `${a}` 替换按此分支）。marker label `[Claude 说]` 等保留字面（formatEventsForPrompt
@@ -90,6 +108,7 @@ export async function summariseSessionForHandOff(
   cwd: string,
   events: AgentEvent[],
   agentName: AgentName = 'Claude',
+  opts?: ClaudeFamilyRunnerOptions,
 ): Promise<string | null> {
   const activity = formatEventsForPrompt(events);
   if (!activity) return null;
@@ -108,12 +127,13 @@ export async function summariseSessionForHandOff(
     //   4. 'sonnet' alias 兜底
     model:
       settingsStore.get('handOffModel') ||
-      process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-      process.env.ANTHROPIC_MODEL ||
+      providerEnv(opts, 'ANTHROPIC_DEFAULT_SONNET_MODEL') ||
+      providerEnv(opts, 'ANTHROPIC_MODEL') ||
       'sonnet',
-    systemPrompt: CLAUDE_HANDOFF_SYSTEM_PROMPT,
+    systemPrompt: buildHandoffSystemPrompt(agentName),
+    envOverride: opts?.envOverride,
     // K3 单独的超时（不复用 summaryTimeoutMs—— hand-off 用 sonnet 慢，需要更长 budget）。
-    // 60s 上限：sonnet + 200 events 通常 10-30s，60s 给 outliers 留余量。
+    // 60s 上限：sonnet + 200 events 现有负载多在 10-30s，60s 给 outliers 留余量。
     timeoutMs: 60_000,
     timeoutErrorMessage: '__handoff_summary_timeout__',
   });
