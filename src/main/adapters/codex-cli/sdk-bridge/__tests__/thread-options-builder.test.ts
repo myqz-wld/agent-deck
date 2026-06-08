@@ -58,6 +58,31 @@ describe('buildCodexThreadOptions', () => {
     expect(opts.additionalDirectories).toEqual(['/a', '/b']);
   });
 
+  it('model=codex-default 是统计占位 → 不传给 Codex SDK', () => {
+    const opts = buildCodexThreadOptions({
+      workingDirectory: '/repo/x',
+      sandboxMode: 'workspace-write',
+      model: 'codex-default',
+    });
+    expect('model' in opts).toBe(false);
+  });
+
+  it('model 首尾空白会 trim；空白 model 不传给 Codex SDK', () => {
+    const trimmed = buildCodexThreadOptions({
+      workingDirectory: '/repo/x',
+      sandboxMode: 'workspace-write',
+      model: '  gpt-5.5-codex  ',
+    });
+    expect(trimmed.model).toBe('gpt-5.5-codex');
+
+    const blank = buildCodexThreadOptions({
+      workingDirectory: '/repo/x',
+      sandboxMode: 'workspace-write',
+      model: '   ',
+    });
+    expect('model' in blank).toBe(false);
+  });
+
   it('networkAccessEnabled=false 是合法显式值 → 字段出现且为 false（不被 spread 条件误判为缺省）', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',

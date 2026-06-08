@@ -23,6 +23,7 @@ import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from './constants';
 import { maybeCodexJsonlFallback } from './codex-jsonl-fallback';
+import { toCodexSdkModelOverride } from '../sdk-model';
 import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { CodexSessionHandle } from './types';
 import type {
@@ -171,6 +172,7 @@ export class RestartController {
     if (!rec) throw new Error(`session ${sessionId} not found in repo`);
     const oldSandbox: 'workspace-write' | 'read-only' | 'danger-full-access' | null =
       rec.codexSandbox ?? null;
+    const sdkModel = toCodexSdkModelOverride(rec.model);
 
     // 占位 message：让用户在 close + 重建 期间看到状态（与 claude 冷切同模式）
     this.ctx.emit({
@@ -265,7 +267,7 @@ export class RestartController {
             codexSandbox: sandbox,
             // **REVIEW_101 R1 MED（restart 丢 model）**: 透传 rec.model 与 recover 对称（否则 fallback
             // 起 fresh thread 仍按全局默认 model 跑）。
-            model: rec.model ?? undefined,
+            model: sdkModel,
             extraAllowWrite: rec.extraAllowWrite ?? undefined,
             // **plan codex-recover-network-dirs-parity-20260602（restart 对称）**: jsonl-missing
             // fallback 起 fresh thread 时透传 network/dirs（codex SDK runtime 真消费）与 recover 对称。
@@ -317,7 +319,7 @@ export class RestartController {
           resumeCliSid: rec.cliSessionId ?? sessionId,
           codexSandbox: sandbox,
           // **REVIEW_101 R1 MED（restart 丢 model）**: 透传 rec.model 与 recover-and-send-impl.ts:406 对称。
-          model: rec.model ?? undefined,
+          model: sdkModel,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
           // **plan codex-recover-network-dirs-parity-20260602（restart 对称）**: 正常 resume 重建
           // thread 透传 network/dirs（codex SDK runtime 真消费）与 recover 对称。

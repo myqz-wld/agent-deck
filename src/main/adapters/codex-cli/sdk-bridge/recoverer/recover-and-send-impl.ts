@@ -29,6 +29,7 @@ import {
   buildCodexCwdFallbackInfoText,
 } from '../codex-recoverer-messages';
 import { maybeCodexJsonlFallback } from '../codex-jsonl-fallback';
+import { toCodexSdkModelOverride } from '../../sdk-model';
 import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type {
   CreateSessionThunk,
@@ -133,6 +134,7 @@ export async function recoverAndSendImpl(
   // 用 markClosed（manager.ts:349 已暴露，guard 接受 active→closed）不用 raw setLifecycle
   // （REVIEW_56 第四入口反模式 — 绕过 clear marker + leave team + UI emit）。
   const wasClosed = rec.lifecycle === 'closed';
+  const sdkModel = toCodexSdkModelOverride(rec.model);
 
   // MAX_MESSAGE_LENGTH 字符长度上限（与 messageRepo cap 全局对齐）。
   // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
@@ -352,7 +354,7 @@ export async function recoverAndSendImpl(
           // 不受影响（handoffPrompt 不入口 emit，无当前消息需排除）—— 仅 recover 路径需此兜底。
           maxEventIdFn: () => maxEventIdBefore ?? 0,
           codexSandbox: rec.codexSandbox ?? undefined,
-          model: rec.model ?? undefined,
+          model: sdkModel,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
           // plan codex-recover-network-dirs-parity-20260602：jsonl-missing fallback 起 fresh thread
           // 时透传 reviewer-codex spawn-time 持久化的 network/dirs（codex SDK runtime 真消费）。
@@ -408,7 +410,7 @@ export async function recoverAndSendImpl(
         // 反查到（详 codex-cli/sdk-bridge/index.ts:185-188 fallback chain），但显式透传更清晰
         // 一致 + 与 claude HIGH-1 处理方式对称 + 防 sessionRepo 边界 race。
         codexSandbox: rec.codexSandbox ?? undefined,
-        model: rec.model ?? undefined,
+        model: sdkModel,
         extraAllowWrite: rec.extraAllowWrite ?? undefined,
         // plan codex-recover-network-dirs-parity-20260602：正常 resume 重建 thread 时透传
         // reviewer-codex spawn-time 持久化的 network/dirs（codex SDK runtime 真消费 — 不透传则

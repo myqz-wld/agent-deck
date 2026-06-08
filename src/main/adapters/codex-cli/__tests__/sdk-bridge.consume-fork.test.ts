@@ -659,6 +659,30 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     expect(bridge.createCalls[0].cancelCheck).toBeTypeOf('function');
   });
 
+  it('restart 不把 codex-default 统计占位当真实 SDK model 透传', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-default-model',
+      agentId: 'codex-cli',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'read-only',
+      model: 'codex-default',
+    });
+
+    await bridge.restartWithCodexSandbox('sess-default-model', 'workspace-write', 'go');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].model).toBeUndefined();
+  });
+
   it('restart jsonl 在 → createSession prompt 原样透传 handoffPrompt，不注入 DB 历史（CHANGELOG_223 撤回 221）', async () => {
     const bridge = makeBridge();
     // 即便 DB 历史/摘要齐备，jsonl 在的 resume 路径也**不**注入（resumeThread 已从 thread jsonl 续上）。
