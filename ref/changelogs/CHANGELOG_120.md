@@ -44,4 +44,4 @@ R1 双外部 CLI（reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 xhigh）异
 - R1.5 反驳轮**纠正 lead R1 阶段同款一刀切错**（"supplementary citation = hard dependency"），证明反驳机制对单边判断的纠偏价值
 - 全程 lead 自主修订（reviewer 反馈采纳是 lead 三态裁决判断）+ 用户每章 sign-off 关键 architectural 决策（Option D2 / Option D 重写 / 范围定义）
 
-详 [`plans/adapter-architecture-design-20260515.md`](../plans/adapter-architecture-design-20260515.md) + [`docs/adapter-architecture-rfc-20260515.md`](../docs/adapter-architecture-rfc-20260515.md)。
+详 [`plans/adapter-architecture-design-20260515.md`](../plans/adapter-architecture-design-20260515.md)（含 `adapter-architecture-rfc-20260515` 决策记录）。

@@ -97,6 +97,6 @@ runtime 边界 **3 处流程检查**（TS 类型层无法守门，commit message
 ## 引用
 
 - Plan: [`plans/p4-baseadapter-d2-implement-20260515.md`](../plans/p4-baseadapter-d2-implement-20260515.md)
-- 父 RFC: [`docs/adapter-architecture-rfc-20260515.md`](../docs/adapter-architecture-rfc-20260515.md) Chapter 1
+- 父 RFC: `adapter-architecture-rfc-20260515` Chapter 1（见父 plan）
 - 父 plan: [`plans/adapter-architecture-design-20260515.md`](../plans/adapter-architecture-design-20260515.md) (RFC stub 收口) → CHANGELOG_120
 - 触发: [REVIEW_40.md](../reviews/REVIEW_40.md) follow-up P2 architectural design questions
