@@ -1,4 +1,4 @@
-import type { SummaryRecord } from '@shared/types';
+import type { AppSettings, SummaryRecord } from '@shared/types';
 import { summaryRepo } from '@main/store/summary-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { sessionRepo } from '@main/store/session-repo';
@@ -256,19 +256,20 @@ export class Summarizer {
     // 1) 优先：跑一次 LLM oneshot,**dispatch 由 settings.summaryProvider 决定**
     //    (plan prancy-forging-penguin 改造):
     //    - settings.summaryProvider='claude' (默认) → claude SDK oneshot(haiku 默认,~/.claude OAuth)
+    //    - settings.summaryProvider='deepseek' → Deepseek Claude Code adapter oneshot(Deepseek config)
     //    - settings.summaryProvider='codex' → codex SDK oneshot(read-only sandbox + reasoning 档位
     //      由 settings.summaryReasoning 决定,默认 'low')
     //
     //    **关键 design 决策**:adapter 不再按 session.agentId 选(原 R37 P2-I 路径),改成按
     //    settings.summaryProvider 选 — claude session 也可能走 codex SDK 总结,反之亦然。
-    //    user 责任:settings.summaryModel 填的 model id 必须对当前 provider 可用(claude 端
-    //    'haiku' OK,codex 端 'haiku' 撞 SDK 不识别会报错并走 fallback 路径)。
+    //    user 责任:settings.summaryModel 填的 model id 必须对当前 provider 可用(claude/deepseek 端
+    //    用各自 provider alias,codex 端 'haiku' 撞 SDK 不识别会报错并走 fallback 路径)。
     //
     //    spike-A3 实测 5 codex 并发 oneshot 复用 app-server 单例,资源温和(10s / ~44MB),
     //    与 claude 共用全局 summaryMaxConcurrent 不需分桶。
     try {
       const provider = settingsStore.get('summaryProvider');
-      const providerAgentId = provider === 'codex' ? 'codex-cli' : 'claude-code';
+      const providerAgentId = providerToAdapterId(provider);
       const adapter = adapterRegistry.get(providerAgentId);
       let llm: string | null = null;
       if (adapter?.summariseEvents) {
@@ -324,3 +325,17 @@ export class Summarizer {
 }
 
 export const summarizer = new Summarizer();
+
+function providerToAdapterId(
+  provider: AppSettings['summaryProvider'],
+): 'claude-code' | 'deepseek-claude-code' | 'codex-cli' {
+  switch (provider) {
+    case 'codex':
+      return 'codex-cli';
+    case 'deepseek':
+      return 'deepseek-claude-code';
+    case 'claude':
+    default:
+      return 'claude-code';
+  }
+}

@@ -7,7 +7,7 @@
 | 源目录 | 打包后目录 | 用途 |
 |---|---|---|
 | `resources/bin` | `.app/Contents/Resources/bin` | CLI wrapper 与辅助脚本 |
-| `resources/claude-config` | `.app/Contents/Resources/claude-config` | Claude Code / Deepseek(Claude Code) 侧应用约定与 plugin |
+| `resources/claude-config` | `.app/Contents/Resources/claude-config` | Claude Code / Deepseek（Claude Code）侧应用约定与 plugin |
 | `resources/codex-config` | `.app/Contents/Resources/codex-config` | Codex 侧应用约定、agent body 与 skills 源 |
 | `resources/sounds` | `.app/Contents/Resources/sounds` | 应用提示音 |
 
@@ -15,7 +15,7 @@
 
 ## claude-config/
 
-Claude Code adapter 使用的资源根，Deepseek(Claude Code) 复用这套 agents / skills / CLAUDE.md，只叠加 provider 配置。
+Claude Code adapter 使用的资源根；Deepseek（Claude Code）复用这套 agents / skills / CLAUDE.md，并通过 `~/.agent_deck/.deepseek/settings.json` 叠加 provider env。
 
 - `CLAUDE.md`：通过 Claude SDK `systemPrompt.append` 追加到 preset system prompt 末尾，位置在 user / project / local `CLAUDE.md` 之后。设置面板保存的用户副本落 `<userData>/agent-deck-claude.md`，优先于内置文件。
 - `agent-deck-plugin/`：Claude SDK `plugins` 字段使用的本地 plugin 源。运行时会镜像到 `<userData>/agent-deck-plugin/` 并替换资源占位符，再交给 SDK 扫描。

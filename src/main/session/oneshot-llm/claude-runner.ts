@@ -46,6 +46,8 @@ export async function runClaudeOneshot(opts: {
   model: string;
   /** systemPrompt（caller 从 build-prompt.ts CLAUDE_*_SYSTEM_PROMPT 常量取）。 */
   systemPrompt: string;
+  /** Provider-specific env overlay; Deepseek uses this to set base URL/token/model without mutating process.env. */
+  envOverride?: Readonly<Record<string, string>>;
   /** Timeout 毫秒；<= 0 不起 timer。 */
   timeoutMs: number;
   /** Timer 触发 reject 的 errorMessage（caller 区分 summarize / handoff）。 */
@@ -69,7 +71,10 @@ export async function runClaudeOneshot(opts: {
       // SDK 默认会 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
       // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime，零依赖系统 node。
       executable: runtime.executable,
-      env: runtime.env,
+      env: {
+        ...runtime.env,
+        ...(opts.envOverride ?? {}),
+      },
       // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
       // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
       // 不经 Electron fs patch → ENOTDIR → summarizer LLM 100% 失败 → 全降级到事件统计。

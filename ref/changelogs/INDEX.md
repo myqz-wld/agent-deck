@@ -234,3 +234,4 @@
 | [CHANGELOG_227.md](CHANGELOG_227.md) | 修复 `spawn_session` 同 adapter 继承沙盒额外写根漏项：`extraAllowWrite` 现在按 caller 显式 > same-adapter lead 继承 > cross-adapter 不传；跨 adapter 仍走 target adapter 默认值。补 tools.test 覆盖 same-adapter 继承、cross-adapter 不继承、显式覆盖。 |
 | [CHANGELOG_228.md](CHANGELOG_228.md) | 拆出弱相关通用工程地基与 flow/architecture diagram 提示词，Agent Deck 内置资源保持自闭环且不引用外部 skill。 |
 | [CHANGELOG_229.md](CHANGELOG_229.md) | 修正 Codex deep-review skill 残留 Claude Bash 工具名，统一为 `shell:` 写法。 |
+| [CHANGELOG_230.md](CHANGELOG_230.md) | 周期性总结和 UI Hand-off 简报支持 Deepseek provider；升级 Codex SDK 到 0.137.0、Claude Agent SDK 到 0.3.168；补 provider 流程图与提示词资产文案收紧。 |

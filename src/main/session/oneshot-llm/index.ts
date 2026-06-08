@@ -16,18 +16,18 @@
  *
  * **公共 API**：
  * - `buildSummarizePrompt({cwd, activity, agentName})` / `buildHandoffPrompt({cwd, activity, agentName})`
+ * - `buildSummarizeSystemPrompt(agentName)` / `buildHandoffSystemPrompt(agentName)`
  * - `cleanCompactResult(raw, maxLen)` / `cleanStructuredResult(raw, maxLen)`
  * - `runClaudeOneshot({...})` / `runCodexOneshot({...})`
- * - `raceWithTimeout({...})`（一般不直接用，2 runner 内部已封装；仅当 caller 需自定 race 时暴露）
- * - `CLAUDE_SUMMARIZE_SYSTEM_PROMPT` / `CLAUDE_HANDOFF_SYSTEM_PROMPT` 常量（codex 不接受 systemPrompt）
+ * - `raceWithTimeout({...})`（2 runner 内部已封装；caller 需自定 race 时再直接使用）
  * - `AgentName` type
  */
 export type { AgentName } from './build-prompt';
 export {
   buildSummarizePrompt,
   buildHandoffPrompt,
-  CLAUDE_SUMMARIZE_SYSTEM_PROMPT,
-  CLAUDE_HANDOFF_SYSTEM_PROMPT,
+  buildSummarizeSystemPrompt,
+  buildHandoffSystemPrompt,
 } from './build-prompt';
 export { cleanCompactResult, cleanStructuredResult } from './clean-result';
 export { raceWithTimeout } from './race-with-timeout';

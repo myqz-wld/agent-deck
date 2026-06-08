@@ -65,17 +65,18 @@ export interface AppSettings {
    * **与被总结 session 自身的 adapter 无关**(claude session 也可能由 codex SDK 总结,反之亦然
    * — 由 user 在 settings 决定)。
    *
-   * - `'claude'`(默认): 走 claude SDK + settings.summaryModel 字段
-   * - `'codex'`: 走 codex SDK + settings.summaryModel 字段 + settings.summaryReasoning 档位
+   * - `'claude'`(默认): 走 Claude Code SDK + settings.summaryModel 字段
+   * - `'deepseek'`: 走 Deepseek Claude Code adapter + settings.summaryModel 字段
+   * - `'codex'`: 走 Codex SDK + settings.summaryModel 字段 + settings.summaryReasoning 档位
    *
    * 切档即时生效:summarizer 每次 scanAll() 重读本字段,无 cache。已在跑的 in-flight LLM
    * 调用不撤回(也不会回收 — 完成的 summary 落到 summaryRepo 不影响下次 provider 决策)。
    */
-  summaryProvider: 'claude' | 'codex';
+  summaryProvider: 'claude' | 'deepseek' | 'codex';
   /**
    * 周期性 summarize 用的 LLM model id(覆盖 env / alias 兜底,plan prancy-forging-penguin)。
    *
-   * 优先级链(provider='claude' 时由 summariseViaLlm 实施):
+   * 优先级链(provider='claude' / 'deepseek' 时由 summariseViaLlm 实施):
    *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ `ANTHROPIC_MODEL` env
    *   ＞ 'haiku' alias 兜底
    *
@@ -85,10 +86,10 @@ export interface AppSettings {
    *
    * - `''`(默认空) = 沿用各 provider 自己的 env / alias / config.toml 链
    * - 非空 = 覆盖,直接传给对应 SDK 的 options.model;**填的 model id 必须对当前 provider 可用**
-   *   (claude 端用 Claude provider alias,codex 端用 Codex SDK 可用 model id)
+   *   (Claude/Deepseek 端用所选 Claude-family provider alias,codex 端用 Codex SDK 可用 model id)
    *
    * **provider × model 匹配是 user 责任**:settings.summaryProvider='codex' + summaryModel 填
-   * Claude alias 会撞 codex SDK 不识别报错,日志会清楚。
+   * 其他 provider alias 会撞当前 SDK 不识别报错,日志会清楚。
    */
   summaryModel: string;
   /**
@@ -109,11 +110,11 @@ export interface AppSettings {
    * **决定出简报的 adapter,与被 hand-off 的目标会话原 adapter 无关**(目标会话保持自己 adapter 不变,
    * 仅是简报这一段由 user 选的 provider 出)。
    */
-  handOffProvider: 'claude' | 'codex';
+  handOffProvider: 'claude' | 'deepseek' | 'codex';
   /**
    * Hand-off 接力简报用的 LLM model id(覆盖 env / alias 兜底)。
    *
-   * 优先级链(provider='claude' 时由 summariseSessionForHandOff 实施):
+   * 优先级链(provider='claude' / 'deepseek' 时由 summariseSessionForHandOff 实施):
    *   `settings.handOffModel` ＞ `ANTHROPIC_DEFAULT_SONNET_MODEL` env ＞ `ANTHROPIC_MODEL` env
    *   ＞ 'sonnet' alias 兜底
    *
@@ -130,7 +131,7 @@ export interface AppSettings {
   /**
    * Hand-off 接力简报的 reasoning effort 档位(plan prancy-forging-penguin)。
    *
-   * **仅 handOffProvider='codex' 时生效**(claude provider 忽略,thinking 走 model id 后缀)。
+   * **仅 handOffProvider='codex' 时生效**(Claude-family providers 忽略,thinking 走 model id 后缀)。
    *
    * - default `'medium'`: 与原 hardcoded handoff='medium' 行为对齐 — hand-off 4 节结构化输出
    *   对模型理解力要求高,medium 是 spike 实测下的最佳折中(high 太慢、low 输出结构常常错位)

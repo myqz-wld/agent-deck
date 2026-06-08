@@ -23,7 +23,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryTimeoutMs: 60 * 1000,
   // plan prancy-forging-penguin: provider × model × reasoning 三联字段(summary / handoff 两组)
   // - summaryModel/handOffModel: 默认空 = 沿用各 provider env / alias / config.toml 链
-  // - summaryProvider/handOffProvider: 默认 'claude'(走 claude SDK + OAuth 凭证)
+  // - summaryProvider/handOffProvider: 默认 'claude'(走 Claude Code SDK + OAuth 凭证)
   // - summaryReasoning/handOffReasoning: 默认 low/medium 与原 hardcoded 行为对齐(仅 codex provider 生效)
   summaryProvider: 'claude',
   summaryModel: '',

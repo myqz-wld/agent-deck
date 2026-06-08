@@ -13,8 +13,8 @@ interface Props {
  * 同套 draft / focus / blur 提交模式，避免输入时每字符触发 IPC）。
  *
  * 抽到本文件 local 而非 controls.tsx：本控件目前仅 SummarySection 用 + 字段语义带强 hint
- * 文案，与通用 controls 抽离没好处（YAGNI）。如果未来其他 settings 字段也需要 free-form
- * string input，再迁到 controls.tsx 抽 TextInput / FreeFormStringInput helper。
+ * 文案，与通用 controls 抽离没好处（YAGNI）。其他 settings 字段需要 free-form string input
+ * 时，再迁到 controls.tsx 抽 TextInput / FreeFormStringInput helper。
  */
 function ModelInput({
   value,
@@ -63,7 +63,7 @@ function ModelInput({
   );
 }
 
-type Provider = 'claude' | 'codex';
+type Provider = AppSettings['summaryProvider'];
 type Reasoning = 'minimal' | 'low' | 'medium' | 'high';
 
 /**
@@ -76,10 +76,10 @@ type Reasoning = 'minimal' | 'low' | 'medium' | 'high';
  *   2. provider select + model input(flex-1) + reasoning select 全宽一行(input 拿 ~140px 够显示 "claude-sonnet-4-6")
  *   3. hint 单独一行
  *
- * - Provider select: claude / codex,决定走哪个 LLM SDK
+ * - Provider select: claude / deepseek / codex,决定走哪个 LLM provider
  * - Model input: free-form model id,空 = 沿用 provider 各自 env / alias / config.toml 兜底
  * - Reasoning select: minimal/low/medium/high,**仅 provider='codex' 启用**
- *   (claude SDK 无独立 reasoning 字段,thinking 走 model id 后缀)
+ *   (Claude-family providers 无独立 reasoning 字段,thinking 走 model id 后缀)
  */
 function ModelRow({
   label,
@@ -102,7 +102,7 @@ function ModelRow({
   onModelChange: (v: string) => void;
   onReasoningChange: (v: Reasoning) => void;
 }): JSX.Element {
-  const reasoningDisabled = provider === 'claude';
+  const reasoningDisabled = provider !== 'codex';
   return (
     <div className="flex flex-col gap-1 text-[11px]">
       <div>{label}</div>
@@ -113,6 +113,7 @@ function ModelRow({
           className="no-drag shrink-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
         >
           <option value="claude">claude</option>
+          <option value="deepseek">deepseek</option>
           <option value="codex">codex</option>
         </select>
         <ModelInput value={model} placeholder={modelPlaceholder} onChange={onModelChange} />
@@ -122,7 +123,7 @@ function ModelRow({
           onChange={(e) => onReasoningChange(e.target.value as Reasoning)}
           title={
             reasoningDisabled
-              ? 'Claude 端通过模型名后缀控制推理强度（如 claude-opus-4-7-thinking-max），不需要单独设置'
+              ? 'Claude / Deepseek 端通过模型名后缀或 provider 配置控制推理强度，不需要单独设置'
               : '选择 Codex 总结时使用的推理强度'
           }
           className="no-drag w-20 shrink-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
@@ -162,22 +163,22 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
       />
       <ModelRow
         label="周期性总结"
-        hint="Claude 留空使用默认快速模型；Codex 留空使用 Codex 配置里的默认模型。推理强度只影响 Codex。"
+        hint="Claude / Deepseek 留空使用各自默认快速模型；Codex 留空使用 Codex 配置里的默认模型。推理强度只影响 Codex。"
         provider={settings.summaryProvider}
         model={settings.summaryModel}
         reasoning={settings.summaryReasoning}
-        modelPlaceholder="留空使用默认（haiku）"
+        modelPlaceholder="留空使用快速默认模型"
         onProviderChange={(v) => void update({ summaryProvider: v })}
         onModelChange={(v) => void update({ summaryModel: v })}
         onReasoningChange={(v) => void update({ summaryReasoning: v })}
       />
       <ModelRow
         label="Hand-off 简报"
-        hint="生成 4 节结构化简报（目标 / 已做 / 在做 / 下一步）。默认 sonnet 保证结构精度；可改 haiku 省成本或改 opus 提升质量。推理强度只影响 Codex。"
+        hint="生成 4 节结构化简报（目标 / 已做 / 下一步 / 相关文件）。Claude / Deepseek 留空用各自结构化默认模型；推理强度只影响 Codex。"
         provider={settings.handOffProvider}
         model={settings.handOffModel}
         reasoning={settings.handOffReasoning}
-        modelPlaceholder="sonnet（沿用 env / alias）"
+        modelPlaceholder="留空使用结构化默认模型"
         onProviderChange={(v) => void update({ handOffProvider: v })}
         onModelChange={(v) => void update({ handOffModel: v })}
         onReasoningChange={(v) => void update({ handOffReasoning: v })}
