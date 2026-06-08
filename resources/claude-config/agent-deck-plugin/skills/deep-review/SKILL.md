@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: "Deep review agent for complex code, plan, or mixed-scope reviews. Use for deep review, multi-round review agents, review-fix loops, plan/RFC review, mixed review, overall validation of complex changes, or Chinese equivalents such as 深度 review and plan 评审. Spawns reviewer-claude and reviewer-codex as a heterogeneous pair across rounds; lead must adjudicate findings, require example-backed complex issues, produce a final summary report, and block merge until CRITICAL/HIGH findings are fixed or rebutted."
+description: "Deep review agent for complex code, plan, or mixed-scope reviews. Use for deep review, multi-round review agents, review-fix loops, plan/RFC review, mixed review, overall validation of complex changes, or Chinese anchors such as 深度 review, 双对抗 review, review agent 深挖, 再 review 一轮, 深挖整体改动是否符合预期, and plan 评审. Spawns reviewer-claude and reviewer-codex as a heterogeneous pair across rounds; lead must adjudicate findings, require example-backed complex issues, produce a final summary report, and block merge until CRITICAL/HIGH findings are fixed or rebutted."
 ---
 
 # Deep Review — 多轮异构对抗 review × fix 收口（code / plan / mixed）
@@ -183,7 +183,7 @@ Report fields:
 - `output_mode: full_review` 或 `rebuttal`
 - `scope`：文件清单（**绝对路径**，与 spawn cwd 同前缀；worktree 外路径已被 SKILL §Sandbox 处理 auto cp 替换为 cache 内路径）
 - `focus`：本轮重点维度（按 kind + Round N 选 §多轮挖深 表对应行）
-- `finding_contract`：每条 finding 必带定位、片段、验证手段、严重度；复杂 finding 必带用户解释示例
+- `finding_contract`：每条 finding 必带定位、片段、验证手段、严重度、修复方向；复杂 finding 必带用户解释示例
 - `skip`：上轮 ✅ fix 摘要 / 已审过的稳定项；每条按格式 `已修：<filepath:line> <一句话改动> (commit <hash>)`
 
 ### kind='code' 模板（focus 维度）
@@ -223,16 +223,17 @@ focus:
 - `文件:行号` + 代码 / 原文片段（≤ 6 行）
 - **验证手段**（如 "grep 出 3 处全无 null check" / "写 stateful mock 模拟双 disconnect 实测 abort 0 次"）
 - **用户解释示例**：复杂 finding（race / lifecycle / 架构耦合 / 安全 / 性能 / 多 step plan drift）必须给一个 concrete example：触发路径、关键状态变化、输入或 plan step、用户能看到的失败结果。示例必须使用 scope 里的真实函数 / 文件 / plan step 名称，不写抽象比喻
+- **修复方向 / fix direction**：1-2 行说明应该改哪里、改什么；不写完整 patch
 - 严重度分组：CRITICAL (P0) / HIGH (P1) / MEDIUM (P2) / LOW (P3) / INFO (P4) / *未验证*
 
 **强制约束**：
-- 空泛 finding + 没验证 = 直接降 ❓ 或 ❌
+- 空泛 finding / 缺定位 / 缺片段 / 缺验证 / 缺修复方向 = 直接降 ❓ 或 ❌
 - 复杂 finding 缺用户解释示例 = lead 降 ❓；CRITICAL/HIGH 复杂 finding 先让 reviewer 补 example，再进入反驳轮
 - **任何 ✅ CRITICAL/HIGH 都必须落到 §三态裁决 两个验证条件之一**（双方独立 / 单方 + 现场验证）且必须有反驳论
 - 弱断言关键词（"可能 / 也许 / 看起来 / 应该 / 大概"）**只允许**出现在标注 *未验证* 的条目里
 - 未验证强制降级为 MEDIUM 或更低
 
-reviewer body 已强约束本契约。lead spot-check：缺定位 / 缺代码片段 / 缺验证手段任一项 → 降 ❓；纯文本推理无验证标 ✅ CRITICAL/HIGH → 强制降 ❓ 或走反驳轮。
+reviewer body 已强约束本契约。lead spot-check：缺定位 / 缺代码片段 / 缺验证手段 / 缺修复方向任一项 → 降 ❓；纯文本推理无验证标 ✅ CRITICAL/HIGH → 强制降 ❓ 或走反驳轮。
 
 ## 失败兜底
 
