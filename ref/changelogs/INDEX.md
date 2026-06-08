@@ -235,3 +235,4 @@
 | [CHANGELOG_228.md](CHANGELOG_228.md) | 拆出弱相关通用工程地基与 flow/architecture diagram 提示词，Agent Deck 内置资源保持自闭环且不引用外部 skill。 |
 | [CHANGELOG_229.md](CHANGELOG_229.md) | 修正 Codex deep-review skill 残留 Claude Bash 工具名，统一为 `shell:` 写法。 |
 | [CHANGELOG_230.md](CHANGELOG_230.md) | 周期性总结和 UI Hand-off 简报支持 Deepseek provider；升级 Codex SDK 到 0.137.0、Claude Agent SDK 到 0.3.168；补 provider 流程图与提示词资产文案收紧。 |
+| [CHANGELOG_231.md](CHANGELOG_231.md) | Codex 恢复 / 冷重启不再把 `codex-default` 统计占位传给 SDK，修复 ChatGPT 账号不支持该模型名的流级错误。 |

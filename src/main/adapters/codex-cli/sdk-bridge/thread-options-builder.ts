@@ -16,6 +16,7 @@
  * **测试**: 见 codex-cli/sdk-bridge/__tests__/thread-options-builder.test.ts (待补 R4 follow-up)
  */
 import type { ThreadOptions } from '@openai/codex-sdk';
+import { toCodexSdkModelOverride } from '../sdk-model';
 
 export interface BuildCodexThreadOptionsArgs {
   /** SDK 子进程 chdir 目标 (resume 路径:effectiveCwd / spawn 路径:cwd) */
@@ -33,12 +34,13 @@ export interface BuildCodexThreadOptionsArgs {
 }
 
 export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): ThreadOptions {
+  const model = toCodexSdkModelOverride(args.model);
   return {
     workingDirectory: args.workingDirectory,
     sandboxMode: args.sandboxMode,
     approvalPolicy: args.approvalPolicy ?? 'never',
     skipGitRepoCheck: true,
-    ...(args.model !== undefined ? { model: args.model } : {}),
+    ...(model !== undefined ? { model } : {}),
     ...(args.networkAccessEnabled !== undefined
       ? { networkAccessEnabled: args.networkAccessEnabled }
       : {}),

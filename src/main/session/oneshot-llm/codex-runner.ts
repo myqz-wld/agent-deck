@@ -37,6 +37,7 @@
  * race 整个 promise 无此问题）。修后行为与 P2-H 抽 helper 前等价。
  */
 import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
+import { toCodexSdkModelOverride } from '@main/adapters/codex-cli/sdk-model';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { raceWithTimeout } from './race-with-timeout';
 
@@ -87,6 +88,7 @@ export async function runCodexOneshot(opts: {
   const controller = new AbortController();
   const work = (async () => {
     const codex = await getCodexInstance();
+    const model = toCodexSdkModelOverride(opts.model);
 
     const thread = codex.startThread({
       workingDirectory: resolveSpawnCwd(opts),
@@ -94,9 +96,7 @@ export async function runCodexOneshot(opts: {
       approvalPolicy: 'never',
       skipGitRepoCheck: true,
       modelReasoningEffort: opts.modelReasoningEffort,
-      ...(opts.model !== undefined && opts.model.trim().length > 0
-        ? { model: opts.model.trim() }
-        : {}),
+      ...(model !== undefined ? { model } : {}),
     });
 
     return thread.run(opts.prompt, { signal: controller.signal });

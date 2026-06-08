@@ -140,6 +140,20 @@ describe('runCodexOneshot model spread to ThreadOptions', () => {
     expect(captured[0].model).toBe('gpt-5.5');
   });
 
+  it('opts.model = "codex-default" 是统计占位 → ThreadOptions 不含 model 字段', async () => {
+    const { runCodexOneshot } = await import('@main/session/oneshot-llm');
+    await runCodexOneshot({
+      cwd: '/tmp',
+      prompt: 'test',
+      modelReasoningEffort: 'low',
+      model: 'codex-default',
+      timeoutMs: 5000,
+      timeoutErrorMessage: 'timeout',
+    });
+    expect(captured).toHaveLength(1);
+    expect(captured[0].model).toBeUndefined();
+  });
+
   it('其他 ThreadOptions 字段 (sandboxMode / approvalPolicy / skipGitRepoCheck / modelReasoningEffort) 不受 model 行为影响', async () => {
     const { runCodexOneshot } = await import('@main/session/oneshot-llm');
     await runCodexOneshot({
