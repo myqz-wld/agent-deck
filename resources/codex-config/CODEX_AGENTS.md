@@ -21,7 +21,7 @@
 
 Codex SDK 是 turn-based。lead 调 `spawn_session` 或 `send_message` 后，如果下一步需要等待 teammate / reviewer reply，记录 `spawnPromptMessageId` 或 `messageId`，告诉 user 已派出任务，然后结束当前 turn。不要在同一 turn 内用 `sleep`、`get_session` 循环或忙等轮询。
 
-下一条 wire-prefixed teammate reply 会作为 user-role message 注入本 thread；届时提取 `[msg <id>][sid <senderSid>]` 并继续裁决。只有 user 后续询问状态或 skill 给出明确卡住阈值时，才查 `get_session.lastEventAt` 并按 skill 执行 nudge、shutdown 或重 spawn。
+下一条 wire-prefixed teammate reply 会作为 user-role message 注入本 thread；届时提取 `[msg <id>][sid <senderSid>]` 并继续处理回复。只有 user 后续询问状态或 skill 给出明确卡住阈值时，才查 `get_session.lastEventAt` 并按 skill 执行 nudge、shutdown 或重 spawn。
 
 ### Task 进度
 
@@ -89,7 +89,7 @@ Worktree tools：`enter_worktree` / `exit_worktree`。Task tools：`task_create`
 
 后续轮次用 `send_message` 返回的 `messageId` 作为 reply chain 锚点。receiver 收到的 user message 顶部会带 `[msg <id>][sid <senderSid>]`，reply 时提取这两个值并传回 `replyToMessageId`。
 
-lead 等 teammate reply 时遵守 Codex turn boundary；发出任务后结束当前 turn，等 wire-prefixed reply 注入后再继续裁决。
+lead 等 teammate reply 时遵守 Codex turn boundary；发出任务后结束当前 turn，等 wire-prefixed reply 注入后再继续处理。
 
 ### Cross-session rescue
 

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import log from '@main/utils/logger';
 import { omitUndefined } from '@main/utils/optional-fields';
 
 import {
@@ -20,6 +21,8 @@ import { spawnSessionHandler } from '../spawn';
 import type { HandOffSessionHandlerDeps } from './_deps';
 import { transferHandOffResources } from './resource-transfer-coordinator';
 
+const logger = log.scope('mcp-handoff-main');
+
 export function resolveBatonRoleForSpawn(): { handOffMode: true; batonRole: 'lead' } {
   return { handOffMode: true, batonRole: 'lead' };
 }
@@ -30,6 +33,26 @@ function resourceTransferFailed(result: HandOffSessionResult['resourceTransfer']
     result.teams.status === 'failed' ||
     result.worktreeMarker.status === 'failed'
   );
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function truncateLogText(text: string, max = 2000): string {
+  return text.length <= max ? text : `${text.slice(0, max)}...<truncated>`;
+}
+
+function summarizeHandlerResult(result: { content: Array<{ text: string }> }): string {
+  const text = result.content[0]?.text ?? '<empty>';
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown; hint?: unknown };
+    const error = typeof parsed.error === 'string' ? parsed.error : text;
+    const hint = typeof parsed.hint === 'string' ? ` hint=${parsed.hint}` : '';
+    return truncateLogText(`${error}${hint}`);
+  } catch {
+    return truncateLogText(text);
+  }
 }
 
 export const handOffSessionHandler = withMcpGuard(
@@ -43,6 +66,7 @@ export const handOffSessionHandler = withMcpGuard(
     const callerSessionId = caller.callerSessionId;
     const callerRow = sessionRepo.get(callerSessionId);
     if (!callerRow) {
+      logger.warn(`[mcp hand_off_session] caller session not found: ${callerSessionId}`);
       return err(
         `caller session not found: ${callerSessionId}`,
         'hand_off_session needs a real caller session so its teams, tasks, and worktree marker can be transferred to the successor.',
@@ -52,11 +76,18 @@ export const handOffSessionHandler = withMcpGuard(
     const finalCwd = args.cwd ?? callerRow.cwd;
     const cwdExists = handlerDeps?.cwdExists ?? existsSync;
     if (!cwdExists(finalCwd)) {
+      logger.warn(
+        `[mcp hand_off_session] cwd missing before spawn: caller=${callerSessionId} cwd=${finalCwd}`,
+      );
       return err(
         `handoff cwd does not exist on disk: ${finalCwd}`,
         'Pass args.cwd with an existing absolute directory, or repair the caller session cwd before handing off.',
       );
     }
+
+    logger.info(
+      `[mcp hand_off_session] start caller=${callerSessionId} adapter=${args.adapter ?? 'claude-code'} cwd=${finalCwd} promptChars=${args.prompt.length} extraAllowWrite=${args.extraAllowWrite?.length ?? 0}`,
+    );
 
     const spawnArgs: SpawnSessionArgs = {
       adapter: args.adapter ?? 'claude-code',
@@ -79,14 +110,23 @@ export const handOffSessionHandler = withMcpGuard(
     const spawnFn = handlerDeps?.spawnSession ?? spawnSessionHandler;
     const { handOffMode, batonRole } = resolveBatonRoleForSpawn();
     const spawnResult = await spawnFn(spawnArgs, ctx, { handOffMode, batonRole });
-    if (spawnResult.isError) return spawnResult;
+    if (spawnResult.isError) {
+      logger.warn(
+        `[mcp hand_off_session] spawn_session failed caller=${callerSessionId} adapter=${spawnArgs.adapter} cwd=${finalCwd}: ${summarizeHandlerResult(spawnResult)}`,
+      );
+      return spawnResult;
+    }
 
     let spawnData: SpawnSessionResult;
     try {
       spawnData = JSON.parse(spawnResult.content[0]?.text ?? '{}') as SpawnSessionResult;
     } catch (e) {
+      logger.warn(
+        `[mcp hand_off_session] failed to parse spawn_session result caller=${callerSessionId}:`,
+        e,
+      );
       return err(
-        `failed to parse spawn_session result: ${(e as Error).message}`,
+        `failed to parse spawn_session result: ${errorMessage(e)}`,
         'spawn_session returned non-JSON content; this is an internal error.',
       );
     }
@@ -96,11 +136,17 @@ export const handOffSessionHandler = withMcpGuard(
         ? spawnData.sessionId
         : null;
     if (!newSessionId) {
+      logger.warn(
+        `[mcp hand_off_session] spawn_session result missing sessionId caller=${callerSessionId}`,
+      );
       return err(
         'spawn_session result did not include sessionId',
         'The successor session was not addressable, so hand_off_session cannot transfer resources.',
       );
     }
+    logger.info(
+      `[mcp hand_off_session] spawned successor caller=${callerSessionId} successor=${newSessionId} adapter=${spawnData.adapter} cwd=${spawnData.cwd}`,
+    );
 
     const transferFn = handlerDeps?.transferResources ?? transferHandOffResources;
     const resourceTransfer = transferFn({
@@ -109,18 +155,50 @@ export const handOffSessionHandler = withMcpGuard(
       newSessionId,
     });
     if (resourceTransferFailed(resourceTransfer)) {
+      logger.warn(
+        `[mcp hand_off_session] resource transfer failed caller=${callerSessionId} successor=${newSessionId}: ${JSON.stringify(resourceTransfer)}`,
+      );
+      let successorClosed: 'ok' | 'failed' = 'ok';
+      try {
+        const closeFn = handlerDeps?.closeSession ?? ((sid: string) => sessionManager.close(sid));
+        await closeFn(newSessionId);
+        logger.info(
+          `[mcp hand_off_session] closed successor after transfer failure successor=${newSessionId}`,
+        );
+      } catch (e) {
+        successorClosed = 'failed';
+        logger.warn(
+          `[mcp hand_off_session] failed to close successor after transfer failure successor=${newSessionId}:`,
+          e,
+        );
+      }
       return err(
         'handoff resource transfer failed; caller was not closed',
-        `Successor session ${newSessionId} was spawned, but mandatory caller resource transfer failed. Caller ${callerSessionId} remains active. Details: ${JSON.stringify(resourceTransfer)}`,
+        `Successor session ${newSessionId} was spawned, but mandatory caller resource transfer failed. Caller ${callerSessionId} remains active. Successor cleanup: ${successorClosed}. Details: ${JSON.stringify(resourceTransfer)}`,
+        {
+          successorSessionId: newSessionId,
+          successorClosed,
+          resourceTransfer,
+        },
       );
     }
+    logger.info(
+      `[mcp hand_off_session] resources transferred caller=${callerSessionId} successor=${newSessionId} tasks=${resourceTransfer.tasks.count} teams=${resourceTransfer.teams.transferred.length} worktreeMarker=${resourceTransfer.worktreeMarker.status}`,
+    );
 
     let callerClosed: HandOffSessionResult['callerClosed'] = 'ok';
     try {
       const closeFn = handlerDeps?.closeSession ?? ((sid: string) => sessionManager.close(sid));
       await closeFn(callerSessionId);
-    } catch {
+      logger.info(
+        `[mcp hand_off_session] caller closed caller=${callerSessionId} successor=${newSessionId}`,
+      );
+    } catch (e) {
       callerClosed = 'failed';
+      logger.warn(
+        `[mcp hand_off_session] caller close failed after successful transfer caller=${callerSessionId} successor=${newSessionId}:`,
+        e,
+      );
     }
 
     return ok({
