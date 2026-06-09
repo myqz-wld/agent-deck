@@ -81,6 +81,11 @@ describe('applySpawnGuards — depth 上限', () => {
     if ('isError' in r) {
       const data = JSON.parse(r.content[0].text);
       expect(data.error).toMatch(/spawn depth 3 >= max 3/);
+      expect(data.spawnLimits).toMatchObject({
+        depth: { current: 3, next: 4, max: 3 },
+        fanOut: { current: 0, activeChildren: 0, inFlight: 0, max: 5 },
+        rate: { current: 0, max: 100, windowMs: 60_000, retryAfterMs: 0 },
+      });
     }
   });
 
@@ -88,6 +93,13 @@ describe('applySpawnGuards — depth 上限', () => {
     seedSession('lead', { spawnDepth: 2 });
     const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli');
     expect('ok' in r).toBe(true);
+    if ('ok' in r) {
+      expect(r.spawnLimits).toMatchObject({
+        depth: { current: 2, next: 3, max: 3 },
+        fanOut: { current: 1, activeChildren: 0, inFlight: 1, max: 5 },
+        rate: { current: 1, max: 100, windowMs: 60_000, retryAfterMs: 0 },
+      });
+    }
   });
 
   // plan handoff-no-spawn-guards-20260526 §D4/§D6: hand-off 路径完全跳过三道防御
@@ -171,6 +183,10 @@ describe('applySpawnGuards — spawn-rate 滑动窗口', () => {
       const data = JSON.parse(r.content[0].text);
       expect(data.error).toMatch(/spawn rate exceeded: 2\/min/);
       expect(data.hint).toMatch(/Wait/);
+      expect(data.spawnLimits.rate.current).toBe(2);
+      expect(data.spawnLimits.rate.max).toBe(2);
+      expect(data.spawnLimits.rate.windowMs).toBe(60_000);
+      expect(data.spawnLimits.rate.retryAfterMs).toBeGreaterThan(0);
     }
   });
 });
@@ -186,6 +202,11 @@ describe('applySpawnGuards — fan-out', () => {
     if ('isError' in r) {
       const data = JSON.parse(r.content[0].text);
       expect(data.error).toMatch(/fan-out 2 reached/);
+      expect(data.spawnLimits).toMatchObject({
+        depth: { current: 0, next: 1, max: 3 },
+        fanOut: { current: 2, activeChildren: 2, inFlight: 0, max: 2 },
+        rate: { current: 0, max: 100, windowMs: 60_000, retryAfterMs: 0 },
+      });
     }
   });
 

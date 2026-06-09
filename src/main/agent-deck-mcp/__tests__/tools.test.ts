@@ -30,7 +30,7 @@ import { TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { adapterRegistry } from '@main/adapters/registry';
 // REVIEW_85 MED-A: 用真实 inFlightChildren 单例断言 spawn handler 抛错路径不泄漏计数
 // （tools.test.ts 不 mock rate-limiter，handler 走真 spawn-guards → 真 inFlightChildren）。
-import { inFlightChildren } from '../rate-limiter';
+import { inFlightChildren, spawnRateLimiter } from '../rate-limiter';
 
 // ─── Mock: sessionRepo / sessionManager / adapterRegistry ──────────────
 // R37 P2-F Step 3.1：sessionRepo / sdk-loader / settings-store / agent-deck-team-repo
@@ -471,6 +471,7 @@ beforeEach(async () => {
   recordPermThrow = false;
   sessionGetThrow.sid = null;
   inFlightChildren.reset();
+  spawnRateLimiter.reset();
   mockMessages.clear();
   insertedMessages.length = 0;
   markedDelivered.length = 0;
@@ -625,6 +626,12 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(parsed.data.sessionId).toBe('spawned-1');
+    expect(parsed.data.spawnDepth).toBe(1);
+    expect(parsed.data.spawnLimits).toMatchObject({
+      depth: { current: 0, next: 1, max: 3 },
+      fanOut: { current: 1, activeChildren: 1, inFlight: 0, max: 5 },
+      rate: { current: 1, max: 100, windowMs: 60_000, retryAfterMs: 0 },
+    });
     expect(setSpawnLinkCalls).toEqual([
       { id: 'spawned-1', parentId: 'lead', depth: 1 },
     ]);

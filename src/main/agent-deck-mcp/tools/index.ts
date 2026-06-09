@@ -116,7 +116,7 @@ export async function buildAgentDeckTools(
 
   const spawnSession = tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
-    'Spawn a new SDK session with adapter "claude-code", "deepseek-claude-code", or "codex-cli". Put the full task in `prompt`; for long context, write a file under /tmp and tell the new session to read it. Pass `teamName` when the caller should become lead of a shared team; omit it for a standalone session. Returns the new session id, optional team id, and `spawnPromptMessageId` for the first reply chain. SDK sessions leave `callerSessionId` unset because Agent Deck injects it.',
+    'Spawn a new SDK session with adapter "claude-code", "deepseek-claude-code", or "codex-cli". Put the full task in `prompt`; for long context, write a file under /tmp and tell the new session to read it. Pass `teamName` when the caller should become lead of a shared team; omit it for a standalone session. Returns the new session id, optional team id, `spawnPromptMessageId` for the first reply chain, and `spawnLimits` with current depth/fan-out/rate usage plus configured caps. SDK sessions leave `callerSessionId` unset because Agent Deck injects it.',
     SPAWN_SESSION_SCHEMA,
     async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
     {

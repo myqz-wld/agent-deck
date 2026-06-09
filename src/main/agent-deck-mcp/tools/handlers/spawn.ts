@@ -27,13 +27,14 @@ import { parseFrontmatter } from '@main/utils/frontmatter';
 import { omitUndefined } from '@main/utils/optional-fields';
 
 import { applySpawnGuards } from '../../spawn-guards';
+import { inFlightChildren } from '../../rate-limiter';
 import {
   err,
   ok,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import type { SpawnSessionArgs, SpawnSessionResult } from '../schemas';
+import type { SpawnSessionArgs, SpawnSessionLimits, SpawnSessionResult } from '../schemas';
 import { shouldWriteSpawnLink } from './spawn-link-guard';
 import { buildLeadContextBlock } from './lead-context-block';
 import log from '@main/utils/logger';
@@ -47,6 +48,38 @@ function defaultPermissionModeForTargetAdapter(
     return 'bypassPermissions';
   }
   return undefined;
+}
+
+function finalizeSpawnLimits(
+  base: SpawnSessionLimits,
+  input: { callerSessionId: string; spawnDepth: number },
+): SpawnSessionLimits {
+  try {
+    const activeChildren = sessionRepo.listChildren(input.callerSessionId, 'active').length;
+    const inFlight = inFlightChildren.get(input.callerSessionId);
+    return {
+      ...base,
+      depth: {
+        ...base.depth,
+        next: input.spawnDepth,
+      },
+      fanOut: {
+        ...base.fanOut,
+        current: activeChildren + inFlight,
+        activeChildren,
+        inFlight,
+      },
+    };
+  } catch (e) {
+    logger.warn(`[mcp spawn_session] spawnLimits fan-out refresh failed:`, e);
+    return {
+      ...base,
+      depth: {
+        ...base.depth,
+        next: input.spawnDepth,
+      },
+    };
+  }
 }
 
 export const spawnSessionHandler = withMcpGuard(
@@ -562,6 +595,15 @@ export const spawnSessionHandler = withMcpGuard(
     }
 
     const created = sessionRepo.get(sid);
+    const spawnDepth =
+      created?.spawnDepth ??
+      (callerExists && shouldWriteSpawnLink({ handOffMode: opts?.handOffMode })
+        ? parentDepth + 1
+        : 0);
+    const spawnLimits = finalizeSpawnLimits(guard.spawnLimits, {
+      callerSessionId: caller.callerSessionId,
+      spawnDepth,
+    });
     return ok({
       sessionId: sid,
       adapter: args.adapter,
@@ -574,7 +616,8 @@ export const spawnSessionHandler = withMcpGuard(
       agentName: args.agentName ?? null,
       displayName: teammateDisplayName,
       // **[caller-scoped #4/4]** spawnDepth fallback (grep anchor 详 L148-160 callerExists 定义)
-      spawnDepth: created?.spawnDepth ?? (callerExists && shouldWriteSpawnLink({ handOffMode: opts?.handOffMode }) ? parentDepth + 1 : 0),
+      spawnDepth,
+      spawnLimits,
       sentAt: Date.now(),
       // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 作为 teammate first reply anchor
       spawnPromptMessageId,
