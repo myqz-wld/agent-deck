@@ -1,7 +1,7 @@
 /**
- * codex-binary.ts vendor 双布局回归测试（codex-sdk 0.131 → 0.135 升级踩坑）。
+ * codex-binary.ts vendor 双布局回归测试（Codex runtime 0.131 → 0.135 升级踩坑）。
  *
- * **背景**：codex-sdk ≥ 0.135 把 vendored 二进制从 `vendor/<triple>/codex/codex` 挪到
+ * **背景**：Codex runtime ≥ 0.135 把 vendored 二进制从 `vendor/<triple>/codex/codex` 挪到
  * `vendor/<triple>/bin/codex`。`resolveBundledCodexBinary()` 原本硬编码旧 `codex/codex` 布局，
  * 升级后打包 .app 找不到二进制（typecheck 抓不到 path 字符串漂移）→ codex 整条链失效。
  *

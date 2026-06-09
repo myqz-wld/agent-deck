@@ -243,3 +243,4 @@
 | [CHANGELOG_236.md](CHANGELOG_236.md) | Codex live path 迁到 app-server JSON-RPC，新增 active turn mid-turn steering + IPC/UI/prompt/PlantUML |
 | [CHANGELOG_237.md](CHANGELOG_237.md) | Codex mid-turn steering 收敛到 sendMessage 路由和主输入框 |
 | [CHANGELOG_238.md](CHANGELOG_238.md) | Codex 新建会话写入 `codex_sandbox` 后补发 `session-upserted`，修复显式选「完全开放」后详情页仍显示「工作目录可写」 |
+| [CHANGELOG_239.md](CHANGELOG_239.md) | Codex runtime 全量切到 app-server：oneshot 复用 app-server，tok/s 只吃权威 usage delta，删除旧 SDK translator/依赖 |

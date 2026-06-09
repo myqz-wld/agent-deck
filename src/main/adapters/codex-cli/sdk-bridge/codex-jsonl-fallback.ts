@@ -37,7 +37,7 @@
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { injectResumeHistory } from '@main/session/resume-history';
-import { toCodexSdkModelOverride } from '../sdk-model';
+import { toCodexModelOverride } from '../sdk-model';
 import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
 import {
   buildCodexJsonlMissingSummaryUsedText,
@@ -96,7 +96,7 @@ export interface CodexJsonlFallbackOpts {
   maxEventIdFn: () => number | null;
   /** rec.codexSandbox ?? undefined (显式透传防静默降默认) */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
-  /** rec.model ?? undefined (codex-sdk v0.131.0+ per-thread override) */
+  /** rec.model ?? undefined (Codex runtime v0.131.0+ per-thread override) */
   model?: string;
   /** rec.extraAllowWrite ?? undefined (parity 透传,codex runtime 不消费仅持久化) */
   extraAllowWrite?: readonly string[];
@@ -225,7 +225,7 @@ export async function maybeCodexJsonlFallback(
     // **R3 HIGH-G + R7 HIGH-R7-1 修订**: 显式 mode 字段触发 fresh CLI thread + 复用 applicationSid
     resumeMode: 'fresh-cli-reuse-app',
     codexSandbox: opts.codexSandbox,
-    model: toCodexSdkModelOverride(opts.model),
+    model: toCodexModelOverride(opts.model),
     extraAllowWrite: opts.extraAllowWrite,
     // plan codex-recover-network-dirs-parity-20260602：fresh thread 起动透传 network/dirs
     // （codex SDK runtime 真消费）让 reviewer-codex jsonl-missing fallback 后保持网络 + 跨目录能力。

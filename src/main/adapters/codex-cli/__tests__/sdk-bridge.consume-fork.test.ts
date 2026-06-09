@@ -29,12 +29,13 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
-import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 
 // 与 recovery test 同款 6 个入口模块 stub,绕过 vitest node 环境下 electron 模块的 'failed to install'
 vi.mock('@main/adapters/codex-cli/sdk-bridge/codex-binary', () => ({
   resolveBundledCodexBinary: () => null,
+  resolveCodexBinary: () => null,
+  prependResolvedCodexPathDirs: vi.fn(),
 }));
 vi.mock('@main/store/image-uploads', () => ({
   deleteUploadIfExists: vi.fn(async () => undefined),
@@ -75,14 +76,12 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
-vi.mock('@main/adapters/codex-cli/sdk-loader', () => makeBareSdkLoaderMock());
-
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { eventBus } from '@main/event-bus';
 import { emits, makeBridge } from './sdk-bridge/_setup';
-import type { Thread, ThreadEvent } from '@openai/codex-sdk';
-import type { Input } from '@openai/codex-sdk';
+import type { CodexAppServerStreamEvent } from '@main/adapters/codex-cli/app-server/client';
+import type { CodexInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { InternalSession } from '@main/adapters/codex-cli/sdk-bridge/types';
 import type { AgentEvent } from '@shared/types';
 
@@ -108,7 +107,10 @@ afterEach(() => {
  * 创建 fake Thread:runStreamed 返回可控 events 序列。
  * 让我们直接 inject 到 InternalSession 触发 ThreadLoop.runTurnLoop 各种分支。
  */
-function makeFakeThread(events: ThreadEvent[], throwBeforeEvents?: Error): Thread {
+function makeFakeThread(
+  events: CodexAppServerStreamEvent[],
+  throwBeforeEvents?: Error,
+): InternalSession['thread'] {
   return {
     runStreamed: vi.fn(async () => {
       if (throwBeforeEvents) throw throwBeforeEvents;
@@ -118,16 +120,19 @@ function makeFakeThread(events: ThreadEvent[], throwBeforeEvents?: Error): Threa
         })(),
       };
     }),
-  } as unknown as Thread;
+  } as unknown as InternalSession['thread'];
 }
 
-function makeInternalSession(thread: Thread, threadId: string | null = null): InternalSession {
+function makeInternalSession(
+  thread: InternalSession['thread'],
+  threadId: string | null = null,
+): InternalSession {
   return {
     applicationSid: threadId ?? 'sess-test',
     threadId,
     cwd: '/tmp/x',
     thread: thread as unknown as InternalSession['thread'],
-    pendingMessages: ['hi' as Input],
+    pendingMessages: ['hi' as CodexInput],
     currentTurn: null,
     currentTurnId: null,
     turnLoopRunning: false,
@@ -151,7 +156,7 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
   it('case 1 (新建路径): !threadId → 设 internal.threadId + claimAsSdk + firstIdCb(NEW_ID)', async () => {
     const bridge = makeBridge();
     const thread = makeFakeThread([
-      { type: 'thread.started', thread_id: 'NEW_ID' } as ThreadEvent,
+      { type: 'thread.started', thread_id: 'NEW_ID' },
     ]);
     const internal = makeInternalSession(thread, null); // threadId = null = 新建路径
     const tempKey = 'temp-uuid';
@@ -183,7 +188,7 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
     const bridge = makeBridge();
     const SAME_ID = 'same-id';
     const thread = makeFakeThread([
-      { type: 'thread.started', thread_id: SAME_ID } as ThreadEvent,
+      { type: 'thread.started', thread_id: SAME_ID },
     ]);
     const internal = makeInternalSession(thread, SAME_ID); // threadId 已设(resume path)
     const sessionsMap = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
@@ -218,7 +223,7 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
     const NEW_ID = 'new-fork-id';
     // 模拟 SDK resumeThread 返回的 thread 在 thread.started 事件里给出新 id（罕见 + future-proof）
     const thread = makeFakeThread([
-      { type: 'thread.started', thread_id: NEW_ID } as ThreadEvent,
+      { type: 'thread.started', thread_id: NEW_ID },
     ]);
     const internal = makeInternalSession(thread, OLD_ID); // resume path: threadId 已设
     // 反向 rename 后 sessions Map key = applicationSid (= OLD_ID for resume path); cli sid 维度 internal.threadId

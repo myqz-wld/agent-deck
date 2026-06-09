@@ -9,21 +9,21 @@ import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter'
 const ADAPTER_ID = 'codex-cli';
 
 /**
- * Codex CLI 适配器（基于 @openai/codex-sdk）。
+ * Codex CLI 适配器（基于 `codex app-server --stdio`）。
  *
  * 能力边界（与 plan 对齐）：
  * - ✅ createSession / sendMessage / interrupt / resume / 事件流
- * - ❌ canUseTool 等价回调（codex SDK 是单工通道，approvalPolicy 是字符串枚举一次性配置）
+ * - ❌ canUseTool 等价回调（Codex approvalPolicy 是字符串枚举一次性配置）
  * - ❌ AskUserQuestion / ExitPlanMode（codex 没有这些工具/状态机）
  * - ❌ 运行时 setPermissionMode（approvalPolicy 仅在 startThread 时设一次）
  * - ❌ installIntegration / hook（codex 没有 hook 机制）
  *
- * 默认安全策略：approvalPolicy 写死 'never'（codex SDK 不支持 canUseTool 等价回调，
+ * 默认安全策略：approvalPolicy 写死 'never'（Codex 不支持 canUseTool 等价回调，
  * 无法运行时审批）；sandboxMode 默认 'workspace-write' 但**可被 settings.codexSandbox 覆盖**
  * （CHANGELOG_54 B-4：补齐 REVIEW_14「双 backend 沙盒对称」目标，让用户能在 read-only /
  * workspace-write / danger-full-access 三档间切）。靠 OS sandbox 兜底。
  *
- * 二进制：随 @openai/codex-sdk 装上 @openai/codex（含 vendored 平台二进制 ~150MB），
+ * 二进制：直接依赖 @openai/codex（含 vendored 平台二进制 ~150MB），
  * 跟随 .app 走。用户可在设置面板填 codexCliPath 覆盖为外部 codex（如自装的更新版本）。
  */
 class CodexCliAdapter implements AgentAdapter {

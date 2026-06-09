@@ -212,8 +212,8 @@ export interface AppSettings {
    */
   messageRetentionDays: number;
   /**
-   * Codex CLI 二进制绝对路径（@openai/codex-sdk 的 codexPathOverride）。
-   * - null：用 SDK 自带的 vendored 二进制（@openai/codex 跟随 npm 装上，已打包进 .app）
+   * Codex CLI 二进制绝对路径（Codex app-server executable override）。
+   * - null：用 @openai/codex 自带的 vendored 二进制（已打包进 .app）
    * - 绝对路径：覆盖为外部 codex（例如用户自装的更新版 `which codex` 给的路径）
    * agent-deck 不读不写 codex 鉴权（`~/.codex/config.toml` / 环境变量），全由用户终端配置。
    */

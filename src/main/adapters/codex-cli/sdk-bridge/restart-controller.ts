@@ -23,7 +23,7 @@ import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from './constants';
 import { maybeCodexJsonlFallback } from './codex-jsonl-fallback';
-import { toCodexSdkModelOverride } from '../sdk-model';
+import { toCodexModelOverride } from '../sdk-model';
 import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { CodexSessionHandle } from './types';
 import type {
@@ -172,7 +172,7 @@ export class RestartController {
     if (!rec) throw new Error(`session ${sessionId} not found in repo`);
     const oldSandbox: 'workspace-write' | 'read-only' | 'danger-full-access' | null =
       rec.codexSandbox ?? null;
-    const sdkModel = toCodexSdkModelOverride(rec.model);
+    const sdkModel = toCodexModelOverride(rec.model);
 
     // 占位 message：让用户在 close + 重建 期间看到状态（与 claude 冷切同模式）
     this.ctx.emit({

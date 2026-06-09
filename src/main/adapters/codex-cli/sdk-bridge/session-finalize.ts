@@ -5,7 +5,7 @@
  * 字面镜像的 setCodexSandbox + setModel 模板。两路都需要在拿到 thread sessionId
  * 之后把 sandboxMode + model 持久化到 sessions 表。
  *
- * **prompt-asset-review-optimize-20260527 修订**:codex-sdk v0.131.0+ ThreadOptions.model 已支持
+ * **prompt-asset-review-optimize-20260527 修订**:Codex runtime v0.131.0+ ThreadOptions.model 已支持
  * per-thread override → bridge.createSession 已 spread `opts.model` 进 ThreadOptions runtime
  * 真生效;本 helper 仅负责 setModel 持久化让 UI / resume / dormant 唤醒一致(原 D5 "runtime 不生效"
  * warn 模板已删,过期判断已过)。
@@ -37,7 +37,7 @@ export interface PersistSessionFieldsArgs {
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.5 + prompt-asset-review-optimize-20260527 修订:
-   * opts.model 透传值(codex-sdk v0.131.0+ ThreadOptions.model 已支持 per-thread override,
+   * opts.model 透传值(Codex runtime v0.131.0+ ThreadOptions.model 已支持 per-thread override,
    * bridge.createSession 已 spread runtime 真生效)。
    * undefined → 跳过持久化(保留 sessions.model 原值,resume 路径下保持原 model);
    * 非 undefined → setModel 持久化到 sessions.model,让 UI / resume / dormant 唤醒一致
@@ -54,7 +54,7 @@ export interface PersistSessionFieldsArgs {
    *
    * undefined / 空数组 → 跳过持久化(保留 sessions.extra_allow_write 原值)。非空数组 →
    * setExtraAllowWrite 写入 + warn 提示 codex runtime 不消费 extra writable roots(本字段
-   * 与 model 字段已不同款:model 字段 codex-sdk v0.131.0+ ThreadOptions.model 已支持
+   * 与 model 字段已不同款:model 字段 Codex runtime v0.131.0+ ThreadOptions.model 已支持
    * runtime 真生效,extraAllowWrite 仍未生效)。
    */
   extraAllowWrite?: readonly string[];
@@ -82,7 +82,7 @@ export interface PersistSessionFieldsArgs {
 }
 
 /**
- * 持久化 sandboxMode + model 字段(prompt-asset-review-optimize-20260527 修订:codex-sdk
+ * 持久化 sandboxMode + model 字段(prompt-asset-review-optimize-20260527 修订:Codex runtime
  * v0.131.0+ ThreadOptions.model 已支持 per-thread override → bridge.createSession 已 spread
  * 进 ThreadOptions runtime 真生效;本 helper 仅 setModel 持久化让 resume / UI / dormant 唤醒
  * 一致,原 codex 专属 "runtime 不生效" warn 提示已删)。
@@ -102,7 +102,7 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
   }
 
   // 2. plan model-wiring-and-handoff-20260514 Step 2.5 + prompt-asset-review-optimize-20260527 修订:
-  // opts.model 持久化(setModel)让 UI / resume / DB 与 frontmatter 一致。codex-sdk v0.131.0
+  // opts.model 持久化(setModel)让 UI / resume / DB 与 frontmatter 一致。Codex runtime v0.131.0
   // ThreadOptions.model 已支持 per-thread override — runtime model 由 sdk-bridge.index.ts
   // startThread/resumeThread 透传字段真生效(不再需要原 D5 warn,frontmatter model 不再是 dead config)。
   if (model) {

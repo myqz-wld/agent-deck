@@ -26,7 +26,7 @@ importers:
       '@monaco-editor/react':
         specifier: ^4.7.0
         version: 4.7.0(monaco-editor@0.55.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@openai/codex-sdk':
+      '@openai/codex':
         specifier: ^0.138.0
         version: 0.138.0
       better-sqlite3:
@@ -566,10 +566,6 @@ packages:
     resolution: {integrity: sha512-mJd2Z5TjYWq/ttPLLGqArdtnC74J6bOzg4rMDnN+p1xTacZ2yPRCk2y0oSWQtygLR9YVQXgOcONrwtnk3JupxQ==}
     engines: {node: ^12.13.0 || ^14.15.0 || >=16.0.0}
     deprecated: This functionality has been moved to @npmcli/fs
-
-  '@openai/codex-sdk@0.138.0':
-    resolution: {integrity: sha512-n/dAp0AcfUyss1WPPfwEmT/KUypyw9LrnoO/00f3OTgGSWzNUhHJzSGmBkZgsidrpsNzLKlUP9DXqvfactIkwA==}
-    engines: {node: '>=18'}
 
   '@openai/codex@0.138.0':
     resolution: {integrity: sha512-m5vUQeN+oFkCt594xbVujSzzT3CiihFuRXlbQfqJ7sEXH4yNeY99e6ryqFZgQSz/deQcaVbjhhO/TR0YJ1Vsjg==}
@@ -3931,10 +3927,6 @@ snapshots:
     dependencies:
       mkdirp: 1.0.4
       rimraf: 3.0.2
-
-  '@openai/codex-sdk@0.138.0':
-    dependencies:
-      '@openai/codex': 0.138.0
 
   '@openai/codex@0.138.0':
     optionalDependencies:

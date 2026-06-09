@@ -103,9 +103,9 @@ export function parseSandboxMode(value: unknown): SandboxMode | null {
 }
 
 /**
- * codex SDK 原生 `SandboxMode` union 的字面量（CHANGELOG_54 B-4）。本地复刻一份避免
- * 主进程 IPC 层 import @openai/codex-sdk type（settings 校验是 hot-path 应保持轻）。
- * 与 settings.ts 的 codexSandbox union 必须保持一致；改动方向：codex SDK bump 后核对。
+ * Codex runtime `SandboxMode` union 的字面量（CHANGELOG_54 B-4）。本地复刻一份避免
+ * 主进程 IPC 层 import runtime type（settings 校验是 hot-path 应保持轻）。
+ * 与 settings.ts 的 codexSandbox union 必须保持一致；改动方向：Codex runtime bump 后核对。
  */
 export const CODEX_SANDBOX_MODE_VALUES = [
   'workspace-write',
