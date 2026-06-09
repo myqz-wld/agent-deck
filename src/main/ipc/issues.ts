@@ -28,6 +28,7 @@ import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 import { sessionManager } from '@main/session/manager';
 import { issueRepo } from '@main/store/issue-repo';
 import { eventBus } from '@main/event-bus';
+import log from '@main/utils/logger';
 import {
   on,
   IpcInputError,
@@ -37,6 +38,8 @@ import {
   parseCodexSandboxMode,
 } from './_helpers';
 import type { IssueRecord } from '@shared/types';
+
+const logger = log.scope('ipc-issues');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // zod schemas (§D7 / §D15 — status strict enum 第 9 case 在此层 reject)
@@ -244,7 +247,13 @@ export async function issuesResolveInNewSessionHandler(
 
   // §D14 UI throttle 兜底: 同 issueId 并发 click 期间 return 同 Promise
   const cached = inFlightResolve.get(args.issueId);
-  if (cached) return cached;
+  if (cached) {
+    logger.info('[IssuesResolveInNewSession] reuse in-flight resolve', {
+      issueId: args.issueId,
+      adapter: args.adapter,
+    });
+    return cached;
+  }
 
   const promise = (async () => {
     // §1 拿 issue（cwd fallback 链需要 issue.cwd）
@@ -269,6 +278,15 @@ export async function issuesResolveInNewSessionHandler(
     const permissionMode = parsePermissionMode(args.permissionMode);
     const codexSandbox = parseCodexSandboxMode(args.codexSandbox);
     const claudeCodeSandbox = parseSandboxMode(args.claudeCodeSandbox);
+    logger.info('[IssuesResolveInNewSession] spawning resolution session', {
+      issueId: args.issueId,
+      adapter: args.adapter,
+      cwd,
+      permissionMode,
+      codexSandbox,
+      claudeCodeSandbox,
+      promptLength: args.prompt.length,
+    });
     // §9-§10 起 SDK session + recordCreatedPermissionMode
     const sid = await createIssueResolutionSession({
       adapter: args.adapter,
@@ -278,6 +296,11 @@ export async function issuesResolveInNewSessionHandler(
       codexSandbox,
       claudeCodeSandbox,
     });
+    logger.info('[IssuesResolveInNewSession] spawned resolution session', {
+      issueId: args.issueId,
+      adapter: args.adapter,
+      sid,
+    });
     // §11 写回 resolutionSessionId + status='in-progress'（不是 resolved — 让 user 后续手工 resolve）。
     // spawn 是异步窗口：用户可能在此期间 resolve / soft-delete 该 issue。re-read 后只在 issue
     // 仍 actionable（未 resolved + 未删）时才覆盖 status，否则只回写 resolutionSessionId 保住
@@ -285,9 +308,10 @@ export async function issuesResolveInNewSessionHandler(
     const fresh = issueRepo.get(args.issueId);
     if (!fresh) {
       // 罕见 race: spawn 完成期间 issue 被另一处 hardDelete — sid 已起,记日志
-      console.warn(
-        `[ipc issues] IssuesResolveInNewSession: spawn 完成但 issue ${args.issueId} disappeared (race with GC?). sid=${sid} 已起,UI 端可手工 link`,
-      );
+      logger.warn('[IssuesResolveInNewSession] issue disappeared after spawn', {
+        issueId: args.issueId,
+        sid,
+      });
       throw new IpcInputError('issueId', `issue ${args.issueId} disappeared during spawn`);
     }
     const stillActionable = fresh.status !== 'resolved' && fresh.deletedAt === null;
@@ -296,9 +320,12 @@ export async function issuesResolveInNewSessionHandler(
       ...(stillActionable ? { status: 'in-progress' as const } : {}),
     });
     if (!updated) {
-      console.warn(
-        `[ipc issues] IssuesResolveInNewSession: issue ${args.issueId} disappeared between re-read and update. sid=${sid} 已起`,
-      );
+      logger.warn('[IssuesResolveInNewSession] issue disappeared before link update', {
+        issueId: args.issueId,
+        sid,
+        freshStatus: fresh.status,
+        freshDeletedAt: fresh.deletedAt,
+      });
       throw new IpcInputError('issueId', `issue ${args.issueId} disappeared during spawn`);
     }
     updated.appendices = issueRepo.listAppendices(args.issueId);
@@ -308,6 +335,12 @@ export async function issuesResolveInNewSessionHandler(
       issue: updated,
       sourceSessionId: updated.sourceSessionId,
       ts: Date.now(),
+    });
+    logger.info('[IssuesResolveInNewSession] linked resolution session', {
+      issueId: updated.id,
+      sid,
+      status: updated.status,
+      stillActionable,
     });
     return { sessionId: sid, issue: updated };
   })();

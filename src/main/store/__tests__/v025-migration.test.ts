@@ -17,6 +17,7 @@
  *   - 验: 升级后再 INSERT 同 toolUseId tool-use-end 走 UPSERT（不报 UNIQUE 错）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import log from 'electron-log/main';
 import Database from 'better-sqlite3';
 import v001 from '../migrations/v001_init.sql?raw';
 import v002 from '../migrations/v002_sessions_source.sql?raw';
@@ -65,6 +66,8 @@ const PRE_V025 = [
 ];
 
 import { bindingAvailable } from './_binding-probe';
+
+const eventRepoLogger = log.scope('event-repo');
 
 function makeDbAt(version: 'pre-v025' | 'post-v025'): Database.Database {
   const db = new Database(':memory:');
@@ -384,6 +387,7 @@ describe.skipIf(!bindingAvailable)('v025 migration / sub-case C: event-repo inte
   beforeEach(async () => {
     testDb = makeDbAt('post-v025');
     dbHolder.current = testDb;
+    (eventRepoLogger.warn as ReturnType<typeof vi.fn>).mockClear();
     // 动态 import 确保 vi.mock 已生效（vitest hoist vi.mock 早于 ESM import）
     eventRepoModule = await import('../event-repo');
     insertSession(testDb, 'sess-A');
@@ -414,6 +418,73 @@ describe.skipIf(!bindingAvailable)('v025 migration / sub-case C: event-repo inte
     expect(row.ts).toBe(200);
     const count = (testDb.prepare(`SELECT COUNT(*) AS c FROM events`).get() as { c: number }).c;
     expect(count).toBe(1);
+  });
+
+  it('eventRepo.insert 读到历史脏 payload_json → logger.warn 后按 null payload 合并', () => {
+    const dirtyId = Number(
+      testDb
+        .prepare(
+          `INSERT INTO events (session_id, kind, payload_json, ts, tool_use_id)
+           VALUES ('sess-A', 'tool-use-start', 'not json{', 100, 'dirty-item')`,
+        )
+        .run().lastInsertRowid,
+    );
+
+    const id = eventRepoModule.eventRepo.insert({
+      sessionId: 'sess-A',
+      agentId: 'codex-cli',
+      kind: 'tool-use-start',
+      payload: { toolUseId: 'dirty-item', toolName: 'Bash', toolInput: { command: 'fixed' } },
+      ts: 200,
+    });
+
+    expect(id).toBe(dirtyId);
+    expect(eventRepoLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('[event-repo] payload JSON parse failed'),
+      expect.objectContaining({
+        operation: 'merge-existing-payload',
+        eventId: dirtyId,
+        sessionId: 'sess-A',
+        kind: 'tool-use-start',
+        toolUseId: 'dirty-item',
+        ts: 200,
+      }),
+      expect.any(Error),
+    );
+    const row = testDb.prepare(`SELECT payload_json, ts FROM events WHERE id = ?`).get(dirtyId) as {
+      payload_json: string;
+      ts: number;
+    };
+    expect(JSON.parse(row.payload_json)).toEqual({
+      toolUseId: 'dirty-item',
+      toolName: 'Bash',
+      toolInput: { command: 'fixed' },
+    });
+    expect(row.ts).toBe(200);
+  });
+
+  it('eventRepo.listForSession 读到脏 payload_json → logger.warn 后保持原抛错语义', () => {
+    const dirtyId = Number(
+      testDb
+        .prepare(
+          `INSERT INTO events (session_id, kind, payload_json, ts, tool_use_id)
+           VALUES ('sess-A', 'message', 'not json{', 100, NULL)`,
+        )
+        .run().lastInsertRowid,
+    );
+
+    expect(() => eventRepoModule.eventRepo.listForSession('sess-A')).toThrow();
+    expect(eventRepoLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('[event-repo] payload JSON parse failed'),
+      expect.objectContaining({
+        operation: 'row-to-event',
+        eventId: dirtyId,
+        sessionId: 'sess-A',
+        kind: 'message',
+        ts: 100,
+      }),
+      expect.any(Error),
+    );
   });
 
   it('eventRepo.insert tool-use-start：app-server outputDelta 合并保留 Bash command 并追加输出', () => {

@@ -12,6 +12,9 @@ import type {
   SessionRecord,
   SessionSource,
 } from '@shared/types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('session-repo');
 
 // ────────────────────────────────────────────────────────────────────────────
 // SQLite row shape + record 转换
@@ -81,12 +84,18 @@ export function rowToRecord(r: Row): SessionRecord {
     claudeCodeSandbox:
       (r.claude_code_sandbox as 'off' | 'workspace-write' | 'strict' | null) ?? null,
     model: r.model ?? null,
-    extraAllowWrite: parseStringArrayJson(r.extra_allow_write),
+    extraAllowWrite: parseStringArrayJson(r.extra_allow_write, {
+      sessionId: r.id,
+      field: 'extra_allow_write',
+    }),
     // plan codex-recover-network-dirs-parity-20260602：INTEGER 3 态 → boolean | null
     // (null=未设跳过 / 0=false / 1=true)；additional_directories 复用 parseStringArrayJson 防脏。
     networkAccessEnabled:
       r.network_access_enabled == null ? null : r.network_access_enabled === 1,
-    additionalDirectories: parseStringArrayJson(r.additional_directories),
+    additionalDirectories: parseStringArrayJson(r.additional_directories, {
+      sessionId: r.id,
+      field: 'additional_directories',
+    }),
     cwdReleaseMarker: r.cwd_release_marker ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
@@ -98,22 +107,51 @@ export function rowToRecord(r: Row): SessionRecord {
  * 通用 string[] JSON 列解析（plan codex-recover-network-dirs-parity-20260602 从
  * parseExtraAllowWriteJson 重命名 —— 现 sessions.extra_allow_write + sessions.additional_directories
  * 两列共用，命名去掉 extraAllowWrite 偏向）。列存的是 JSON.stringify(string[])（绝对路径数组）。
- * 解析失败 / NULL / 类型不对 → null（不抛错,defense-in-depth）。
+ * 解析失败 / NULL / 类型不对 → null（不抛错,defense-in-depth）。非 NULL 脏数据会
+ * warn 一次,避免沙盒额外目录 / codex additionalDirectories 悄悄退化成未设置。
  *
  * 写入端(setExtraAllowWrite / setAdditionalDirectories / upsert)做 JSON.stringify;读取端二次
  * 校验防止用户手改 DB / migration 故障 / 历史脏数据等情形(过滤掉非数组 / 非 string 元素 /
  * 空数组 → null,与 caller 不传对应字段行为对齐 — sandbox.allowWrite 不增 root /
  * additionalDirectories 不增目录)。
  */
-export function parseStringArrayJson(raw: string | null): string[] | null {
+interface StringArrayJsonContext {
+  sessionId?: string;
+  field?: 'extra_allow_write' | 'additional_directories' | string;
+}
+
+export function parseStringArrayJson(
+  raw: string | null,
+  ctx: StringArrayJsonContext = {},
+): string[] | null {
   if (!raw) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    logger.warn('[session-repo] string[] JSON parse failed', {
+      sessionId: ctx.sessionId,
+      field: ctx.field,
+      rawLength: raw.length,
+    }, err);
     return null;
   }
-  if (!Array.isArray(parsed)) return null;
+  if (!Array.isArray(parsed)) {
+    logger.warn('[session-repo] string[] JSON is not an array', {
+      sessionId: ctx.sessionId,
+      field: ctx.field,
+      rawType: typeof parsed,
+    });
+    return null;
+  }
   const filtered = parsed.filter((x): x is string => typeof x === 'string' && x.length > 0);
+  if (filtered.length !== parsed.length) {
+    logger.warn('[session-repo] string[] JSON dropped invalid entries', {
+      sessionId: ctx.sessionId,
+      field: ctx.field,
+      total: parsed.length,
+      valid: filtered.length,
+    });
+  }
   return filtered.length > 0 ? filtered : null;
 }

@@ -73,7 +73,7 @@ function TaskRow({ task }: { task: TaskRecord }): JSX.Element {
           )}
           {task.priority !== 5 && (
             <span title={`优先级 ${task.priority}`}>
-              {task.priority < 5 ? '⬆' : '⬇'} P{task.priority}
+              {task.priority < 5 ? '⬆' : '⬇'} 优先级 {task.priority}
             </span>
           )}
         </div>

@@ -4,60 +4,79 @@ import { toolIcon } from './tool-icons';
 
 /** SimpleRow 单行灰文字摘要：按事件 kind / waiting-for-user 子类型分发到一句中文描述。 */
 export function describe(e: AgentEvent): string {
-  const p = (e.payload ?? {}) as Record<string, unknown>;
+  const p = payloadObject(e.payload);
   switch (e.kind) {
-    case 'session-start':
-      return `会话开始 · ${(p.cwd as string) ?? ''}`;
+    case 'session-start': {
+      const cwd = textValue(p.cwd);
+      return cwd ? `会话开始 · ${cwd}` : '会话开始';
+    }
     case 'tool-use-start': {
-      const tool = (p.toolName as string) ?? '工具';
+      const tool = textValue(p.toolName) || '工具';
       if (tool === 'ExitPlanMode') return '📋 收到一个执行计划';
       const detail = describeToolInput(tool, p.toolInput);
       return detail ? `${toolIcon(tool)} ${tool} · ${detail}` : `${toolIcon(tool)} ${tool}`;
     }
     case 'tool-use-end': {
-      const tool = (p.toolName as string) ?? '工具';
+      const tool = textValue(p.toolName) || '工具';
       return `${toolIcon(tool)} ${tool} 完成`;
     }
-    case 'file-changed':
-      return `📝 ${(p.filePath as string) ?? ''}`;
+    case 'file-changed': {
+      const filePath = textValue(p.filePath);
+      return filePath ? `📝 ${filePath}` : '📝 文件改动';
+    }
     case 'waiting-for-user': {
-      const type = (p.type as string) ?? '';
-      if (type === 'permission-request') return `⚠️ 等待你授权 ${(p.toolName as string) ?? ''}`;
+      const type = textValue(p.type);
+      if (type === 'permission-request') {
+        const tool = textValue(p.toolName) || '工具';
+        const detail = describeToolInput(tool, p.toolInput);
+        return detail ? `⚠️ 等待你授权 ${tool} · ${detail}` : `⚠️ 等待你授权 ${tool}`;
+      }
       if (type === 'ask-user-question') return '❓ 收到一个问题';
       if (type === 'exit-plan-mode') return '📋 收到一个执行计划';
       if (type === 'permission-cancelled') return '⚪ 权限请求已取消';
       if (type === 'ask-question-cancelled') return '⚪ 提问已取消';
       if (type === 'exit-plan-cancelled') return '⚪ 计划批准请求已取消';
-      return `⚠️ 等待你的输入${p.message ? ` · ${p.message as string}` : ''}`;
+      const message = textValue(p.message);
+      return `⚠️ 等待你的输入${message ? ` · ${message}` : ''}`;
     }
     case 'finished':
       return '✅ 一轮完成';
-    case 'session-end':
-      return `⏹ 会话结束${p.reason ? ` · ${translateSessionEndReason(p.reason as string)}` : ''}`;
+    case 'session-end': {
+      const reason = textValue(p.reason);
+      return `⏹ 会话结束${reason ? ` · ${translateSessionEndReason(reason)}` : ''}`;
+    }
     // CHANGELOG_165: M3 Agent Teams 事件家族 SimpleRow 渲染(原走 default 只显 e.kind 字符串)。
     // payload schema 见 CHANGELOG_40 §共享类型 TeamTaskPayload / TeamTeammateIdlePayload。
     // handler ingest 时仅含 schema 子集({teamName, taskId, description}+task_create 的 assignee);
     // 兼容写时 teammateName / reason 缺失时 graceful degrade。
     case 'team-task-created': {
-      const desc = (p.description as string) ?? (p.taskId as string) ?? '';
-      const teammate = (p.teammateName as string) ?? '';
-      const team = (p.teamName as string) ?? '';
-      return `📌 新 task · ${desc}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
+      const desc = textValue(p.description) || textValue(p.taskId);
+      const teammate = textValue(p.teammateName);
+      const team = textValue(p.teamName);
+      return `📌 新任务${desc ? ` · ${desc}` : ''}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
     }
     case 'team-task-completed': {
-      const desc = (p.description as string) ?? (p.taskId as string) ?? '';
-      const teammate = (p.teammateName as string) ?? '';
-      const team = (p.teamName as string) ?? '';
-      return `✓ task 完成 · ${desc}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
+      const desc = textValue(p.description) || textValue(p.taskId);
+      const teammate = textValue(p.teammateName);
+      const team = textValue(p.teamName);
+      return `✓ 任务完成${desc ? ` · ${desc}` : ''}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
     }
     case 'team-teammate-idle': {
-      const teammate = (p.teammateName as string) ?? '';
-      const reason = (p.reason as string) ?? '';
+      const teammate = textValue(p.teammateName);
+      const reason = textValue(p.reason);
       return `💤 队友空闲${teammate ? ` · ${teammate}` : ''}${reason ? ` (${reason})` : ''}`;
     }
     default:
       return e.kind;
   }
+}
+
+function payloadObject(payload: unknown): Record<string, unknown> {
+  return payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+}
+
+function textValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 /** session-end reason 英文枚举 → 中文(active/dormant/closed 等 SDK 内部枚举值统一翻译)。

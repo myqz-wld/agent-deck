@@ -222,7 +222,10 @@ function describeLiveActivity(
   session: SessionRecord,
   recent: AgentEvent[],
 ): string[] {
-  if (session.activity === 'waiting') return ['⚠️ 等待你的输入'];
+  if (session.activity === 'waiting') {
+    const waitingLine = recent.find((e) => e.kind === 'waiting-for-user');
+    return [waitingLine ? formatEventLine(waitingLine) || '⚠️ 等待你的输入' : '⚠️ 等待你的输入'];
+  }
   if (session.activity === 'finished' && recent[0]?.kind !== 'tool-use-start') {
     return ['✅ 一轮完成'];
   }
@@ -240,23 +243,25 @@ function describeLiveActivity(
   return lines;
 }
 
-function formatEventLine(e: AgentEvent): string | null {
-  const p = (e.payload ?? {}) as Record<string, unknown>;
+export function formatEventLine(e: AgentEvent): string | null {
+  const p = payloadObject(e.payload);
   switch (e.kind) {
     case 'tool-use-start': {
-      const tool = (p.toolName as string) || '工具';
+      const tool = textValue(p.toolName) || '工具';
       const detail = summariseToolInput(tool, p.toolInput);
       return detail ? `${toolIcon(tool)} ${tool} · ${detail}` : `${toolIcon(tool)} ${tool}`;
     }
     case 'file-changed': {
-      const path = (p.filePath as string) || '';
-      return `📝 ${shortenPath(path)}`;
+      const path = textValue(p.filePath);
+      return path ? `📝 ${shortenPath(path)}` : null;
     }
     case 'message': {
       const text = typeof p.text === 'string' ? p.text.replace(/\s+/g, ' ').trim() : '';
       if (!text) return null;
       return `💬 ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`;
     }
+    case 'waiting-for-user':
+      return formatWaitingLine(p);
     case 'session-start':
       return null; // 太弱，跳过让循环找下一个更具体的
     case 'tool-use-end':
@@ -268,6 +273,28 @@ function formatEventLine(e: AgentEvent): string | null {
     default:
       return null;
   }
+}
+
+function formatWaitingLine(p: Record<string, unknown>): string {
+  const type = textValue(p.type);
+  if (type === 'permission-request') {
+    const tool = textValue(p.toolName) || '工具';
+    const detail = summariseToolInput(tool, p.toolInput);
+    return detail ? `⚠️ 等待你授权 ${tool} · ${detail}` : `⚠️ 等待你授权 ${tool}`;
+  }
+  if (type === 'ask-user-question') return '❓ 收到一个问题';
+  if (type === 'exit-plan-mode') {
+    const plan = textValue(p.plan);
+    const firstLine = plan.split('\n').find((line) => line.trim())?.trim();
+    return firstLine
+      ? `📋 等待批准计划 · ${firstLine.slice(0, 60)}${firstLine.length > 60 ? '…' : ''}`
+      : '📋 收到一个执行计划';
+  }
+  if (type === 'permission-cancelled') return '⚪ 权限请求已取消';
+  if (type === 'ask-question-cancelled') return '⚪ 提问已取消';
+  if (type === 'exit-plan-cancelled') return '⚪ 计划批准请求已取消';
+  const message = textValue(p.message);
+  return `⚠️ 等待你的输入${message ? ` · ${message.slice(0, 60)}${message.length > 60 ? '…' : ''}` : ''}`;
 }
 
 function summariseToolInput(toolName: string, input: unknown): string | null {
@@ -291,7 +318,12 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
       // Phase 5 Step 5.3（plan mcp-bug-and-feature-batch-20260513 §决策 4 L2）：显示进度
       // [N/M done]，让用户瞄一眼卡片就知道任务推进度。原来 return null 完全丢信息。
       // todos schema：{ content, status, activeForm }[]，status: 'pending' | 'in_progress' | 'completed'
-      const todos = Array.isArray(o.todos) ? (o.todos as Array<{ status?: string }>) : [];
+      const todos = Array.isArray(o.todos)
+        ? o.todos.filter(
+            (t): t is { status?: string; activeForm?: string } =>
+              t !== null && typeof t === 'object',
+          )
+        : [];
       if (todos.length === 0) return null;
       const done = todos.filter((t) => t.status === 'completed').length;
       const inProgress = todos.find((t) => t.status === 'in_progress');
@@ -349,10 +381,17 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
   }
 }
 
+function payloadObject(payload: unknown): Record<string, unknown> {
+  return payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+}
+
+function textValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function shortenPath(p: string): string {
   if (!p) return '';
   const parts = p.split('/');
   if (parts.length <= 3) return p;
   return '…/' + parts.slice(-2).join('/');
 }
-

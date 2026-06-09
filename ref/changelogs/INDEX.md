@@ -244,3 +244,5 @@
 | [CHANGELOG_237.md](CHANGELOG_237.md) | Codex mid-turn steering 收敛到 sendMessage 路由和主输入框 |
 | [CHANGELOG_238.md](CHANGELOG_238.md) | Codex 新建会话写入 `codex_sandbox` 后补发 `session-upserted`，修复显式选「完全开放」后详情页仍显示「工作目录可写」 |
 | [CHANGELOG_239.md](CHANGELOG_239.md) | Codex runtime 全量切到 app-server：oneshot 复用 app-server，tok/s 只吃权威 usage delta，删除旧 SDK translator/依赖 |
+| [CHANGELOG_240.md](CHANGELOG_240.md) | 业务日志打印补强：清掉 main 端残留 `console.*`，Issue/Message GC、Issue「起新会话解决」、session JSON 配置解析、event payload 脏数据统一走 scoped logger，并补 issueId/sid/sessionId/retention/limit/catch-up 等排查上下文。 |
+| [CHANGELOG_241.md](CHANGELOG_241.md) | UI 事件描述与展示文案补强：TeamDetail / ActivityFeed / SessionCard 显示工具入参和等待原因，收紧 task/prompt/diff/raw status 等技术词外露。 |

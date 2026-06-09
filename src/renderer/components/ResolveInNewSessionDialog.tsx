@@ -139,7 +139,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       return;
     }
     if (!prompt.trim()) {
-      setError('首条 prompt 不能为空');
+      setError('第一条消息不能为空');
       return;
     }
     setBusy(true);
@@ -187,7 +187,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               resolutionSessionId，旧解决会话将失去自助改状态（update_issue_status）的授权。
             </div>
           )}
-          <DialogField label="Adapter">
+          <DialogField label="执行器">
             <select
               value={adapter}
               onChange={(e) => setAdapter(e.target.value)}
@@ -212,7 +212,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
             />
           </DialogField>
-          <DialogField label="首条 prompt（已根据问题内容预填，可编辑）">
+          <DialogField label="第一条消息（已根据问题内容预填，可编辑）">
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
