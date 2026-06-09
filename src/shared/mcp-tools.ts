@@ -20,8 +20,6 @@ export const IMAGE_TOOL_SUFFIXES = [
   '__ImageMultiEdit',
 ] as const;
 
-export type ImageToolSuffix = (typeof IMAGE_TOOL_SUFFIXES)[number];
-
 /**
  * 是否是任意一种图片 MCP 工具。
  * 例：'mcp__image-toolkit__ImageEdit' → true；'Edit' / 'Read' → false。
@@ -29,10 +27,4 @@ export type ImageToolSuffix = (typeof IMAGE_TOOL_SUFFIXES)[number];
 export function isImageTool(toolName: string | undefined | null): boolean {
   if (!toolName) return false;
   return IMAGE_TOOL_SUFFIXES.some((s) => toolName.endsWith(s));
-}
-
-/** 返回工具名匹配到的 suffix（用来分支判断 read / write / edit / multi-edit），没匹配返回 null */
-export function imageToolSuffix(toolName: string | undefined | null): ImageToolSuffix | null {
-  if (!toolName) return null;
-  return IMAGE_TOOL_SUFFIXES.find((s) => toolName.endsWith(s)) ?? null;
 }

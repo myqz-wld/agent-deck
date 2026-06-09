@@ -147,15 +147,6 @@ function substituteMdFilesInPlace(dir: string): void {
 }
 
 /**
- * 让 settings 切换 / 用户副本变更 / 升级后强制重新生成 plugin mirror。
- * 当前实现：清标志，下次 `getClaudeAgentDeckPluginPath` 调用时重新跑 install。
- * 已运行的 SDK 会话已经把 plugin path 固化进 spawn args，invalidate 只影响**下次新建**会话。
- */
-export function invalidatePluginMirror(): void {
-  pluginMirrorInstalled = false;
-}
-
-/**
  * 返回要传给 SDK `plugins:` 字段的 plugin 列表。
  *
  * 开关：settings.injectAgentDeckPlugin === false 时返回空数组（设置面板里有

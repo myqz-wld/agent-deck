@@ -13,7 +13,7 @@ const logger = log.scope('claude-hook-installer');
  * 每条 hook 命令带特殊标记 `# agent-deck-hook` 用于识别本应用注入的条目。
  */
 
-export const HOOK_TAG = 'agent-deck-hook';
+const HOOK_TAG = 'agent-deck-hook';
 
 const HOOK_EVENTS = [
   'SessionStart',

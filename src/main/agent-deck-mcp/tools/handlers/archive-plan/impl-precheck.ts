@@ -140,11 +140,7 @@ export async function runPrecheck(
     }
     planFilePath = input.planFilePathOverride;
   } else {
-    // archive-plan-tool-ux-followup-20260515 (a) + plan deep-review-batch-a1-b-fixes-20260519
-    // §Phase 3 Step 3.9 修法 (B-MED-3 双方独立强冗余):抽 resolvePlanFilePath helper 共享
-    // hand-off-session-impl.ts 同款 3 档 fallback (projectLocal > projectArchived > userGlobal),
-    // 顺序贴 user CLAUDE.md §Step 2 文档约定 .claude/plans/ in_progress 优先,但 ref/plans/ 中间
-    // 档兜底本项目实际惯例(archive_plan 完成后 mv 目标位置)。
+    // Canonical 3-tier fallback: projectLocal > projectArchived > userGlobal.
     const resolved = await resolvePlanFilePath(mainRepo, input.planId, {
       exists: deps.exists,
       homedir: deps.homedir,

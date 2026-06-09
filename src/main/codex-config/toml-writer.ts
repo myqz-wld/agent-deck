@@ -52,7 +52,7 @@ const MARKER_BANNER = `# (Agent Deck 自动写入；用户在设置面板编辑 
 export type CodexMcpServerConfig = CodexMcpServerConfigShared;
 
 /** ~/.codex/config.toml 绝对路径（不依赖 Electron app.getPath，便于单测）。 */
-export function getCodexConfigPath(): string {
+function getCodexConfigPath(): string {
   return join(homedir(), '.codex', 'config.toml');
 }
 
