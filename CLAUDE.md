@@ -17,7 +17,7 @@
 
 1. **改用户可见行为 / 文件结构 / 启动方式**（UI / 设置项 / 快捷键 / 项目结构 / 端口 / 依赖 / 验证步骤）→ 改对应章节 `README.md`；纯 bug 修复 / 内部重构不动 README
 2. 改功能前先读当前项目已有的约定、changelog、review 记录；优先从对应 `ref/*/INDEX.md` 进入，再读相关条目
-3. 改长生命周期 prompt 资产前，按本文件和应用约定中的提示词资产维护规则做自检
+3. 改长生命周期 prompt 资产前，按“内置资产自闭环原则”审计；当前环境有 prompt-asset 维护 skill 时，用它负责 inventory、备份、去重和 review，不要把 Agent Deck 必要行为外包给用户侧 skill
 
 ---
 
@@ -42,7 +42,7 @@
 
 Agent Deck 内部资产必须在 Agent Deck bundle 内自闭环；这是本项目的核心设计原则之一，不是实现细节。`resources/claude-config/`、`resources/codex-config/`、内置 `agent-deck-plugin` agents/skills、注入 SDK 的 MCP tool description 都必须在 Agent Deck baseline 内自洽生效。用户不安装任何额外 skill 时，Agent Deck 内置行为仍必须完整可用。
 
-根 `README.md`、`CLAUDE.md`、`AGENTS.md`、`resources/README.md` 也是长期 prompt 资产；修改时按同一原则审计自闭环、触发条件、边界和本地链接。
+根 `README.md`、`CLAUDE.md`、`AGENTS.md`、`resources/README.md` 也是长期 prompt 资产；修改时按同一原则审计自闭环、触发条件、边界和本地链接。通用 prompt-asset inventory、备份、去重和 review 流程由维护 workflow 承担，不写进 Agent Deck runtime baseline。
 
 用户安装的 skills 是增强层，不是 Agent Deck 内置行为的依赖层。把弱相关内容拆出去时，只能从内置资产中删除，或保留一份自闭环的最小规则；**不得**把必要行为替换成“去用某个用户侧 skill / 详见外部 skill”或 `$some-skill` 指针。Agent Deck 自带并随应用打包的 internal agents / skills / resources 可以互相引用作为内部闭环，但引用方仍要保留触发条件、边界和失败动作等执行所需的最小信息。
 
