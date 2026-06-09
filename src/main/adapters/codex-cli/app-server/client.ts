@@ -24,6 +24,10 @@ export type CodexAppServerStreamEvent =
   | { type: 'thread.started'; thread_id: string }
   | { type: 'server.notification'; notification: CodexAppServerNotification };
 
+export interface CodexAppServerRunResult {
+  finalResponse: string;
+}
+
 export interface CodexAppServerOptions {
   codexPathOverride?: string | null;
   config?: CodexConfigObject | null;
@@ -326,6 +330,20 @@ export class CodexAppServerThread {
     };
   }
 
+  async run(
+    input: CodexAppServerUserInput[],
+    opts?: { signal?: AbortSignal },
+  ): Promise<CodexAppServerRunResult> {
+    const { events } = await this.runStreamed(input, opts);
+    const messages: string[] = [];
+    for await (const ev of events) {
+      if (ev.type !== 'server.notification') continue;
+      const text = readCompletedAgentMessageText(ev.notification);
+      if (text) messages.push(text);
+    }
+    return { finalResponse: messages.join('\n') };
+  }
+
   async steer(input: CodexAppServerUserInput[], expectedTurnId: string): Promise<void> {
     const threadId = await this.ensureThread();
     await this.client.request('turn/steer', {
@@ -468,6 +486,9 @@ function buildThreadConfig(
   if (options.skipGitRepoCheck) {
     config.skip_git_repo_check = true;
   }
+  if (options.modelReasoningEffort !== undefined) {
+    config.model_reasoning_effort = options.modelReasoningEffort;
+  }
   if (options.networkAccessEnabled !== undefined || options.additionalDirectories !== undefined) {
     const workspace =
       config.sandbox_workspace_write &&
@@ -580,6 +601,20 @@ function isTerminalForTurn(
   const params = notification.params as { willRetry?: unknown; turnId?: unknown } | undefined;
   if (params?.willRetry === true) return false;
   return !activeTurnId || params?.turnId === undefined || params.turnId === activeTurnId;
+}
+
+function readCompletedAgentMessageText(notification: CodexAppServerNotification): string {
+  if (notification.method !== 'item/completed') return '';
+  const params = asObject(notification.params);
+  const item = asObject(params?.item);
+  if (item?.type !== 'agentMessage') return '';
+  return typeof item.text === 'string' ? item.text : '';
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function formatRpcError(error: JsonRpcResponse['error']): string {

@@ -41,9 +41,8 @@ import type { AppSettings } from '@shared/types';
 import type { HookServer } from '@main/hook-server/server';
 
 /**
- * codex SDK 接受任意 toml-friendly object（codex SDK CodexOptions.config 类型签名）。
- * 我们手定一个最小子集即可，不依赖 SDK 内部 type alias（@openai/codex-sdk 未 export
- * CodexConfigObject 类型）。
+ * Codex app-server 接受任意 toml-friendly config object。
+ * 我们手定一个最小子集即可，不依赖 Codex runtime 内部 type alias。
  */
 type CodexConfigValue = string | number | boolean | CodexConfigValue[] | CodexConfigObject;
 export interface CodexConfigObject {

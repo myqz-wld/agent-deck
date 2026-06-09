@@ -1,12 +1,12 @@
 /**
- * 类型 — Codex SDK bridge（CHANGELOG_52 Step 4a / 第三轮大文件拆分）。
+ * 类型 — Codex bridge（CHANGELOG_52 Step 4a / 第三轮大文件拆分）。
  *
  * 抽自 codex-cli/sdk-bridge.ts 顶部 interface 段。
  */
-import type { Input } from '@openai/codex-sdk';
 import type { AgentEvent } from '@shared/types';
 import type { HookServer } from '@main/hook-server/server';
 import type { CodexAppServerThread } from '../app-server/client';
+import type { CodexInput } from './input-pack';
 
 export interface CodexSessionHandle {
   sessionId: string;
@@ -54,13 +54,13 @@ export interface InternalSession {
   /**
    * 待发送 user message 串行队列（同 thread 不能并发 turn）。
    *
-   * 元素类型 `Input`（codex SDK 原生类型 = `string | UserInput[]`）：
+   * 元素类型 `CodexInput`（`string | CodexUserInput[]`）：
    * - 纯文本消息：直接 push 字符串
    * - 带 attachments：push `[{type:'local_image', path}, ..., {type:'text', text}]`
-   *   codex SDK 自己 fs 读 path（不像 Claude SDK 要主进程 readFile + base64 喂进队列），
+   *   codex 子进程自己 fs 读 path（不像 Claude SDK 要主进程 readFile + base64 喂进队列），
    *   所以 codex 这边天然没有「base64 常驻队列内存」问题
    */
-  pendingMessages: Input[];
+  pendingMessages: CodexInput[];
   /** 当前正在跑的 turn 的 AbortController；中断时调用 abort() */
   currentTurn: AbortController | null;
   /** app-server active turn id；turn/steer 的 expectedTurnId 必须匹配它。 */
@@ -77,24 +77,18 @@ export interface InternalSession {
    * 用户主动 interrupt（interruptSession）**不**置此标记 —— UI 仍要看到「已中断」反馈。
    */
   intentionallyClosed: boolean;
-  /** 生成中 tok/s display-only 估算状态（不写库，turn 末清掉）。 */
+  /** 生成中 tok/s display-only app-server usage 状态（不写库，turn 末清掉）。 */
   codexLiveTokenEstimate?: CodexLiveTokenEstimateState;
 }
 
-/** Codex 侧生成中 tok/s 估算状态（仅展示，不落库）。 */
+/** Codex 侧生成中 tok/s usage 状态（仅展示，不落库）。 */
 export interface CodexLiveTokenEstimateState {
   bucketKey: string;
-  turnStartedTs: number;
-  estTokensSinceFlush: number;
-  lastFlushTs: number;
-  emaTps: number | undefined;
-  /** item.id → 已累积文本长度，用于计算每次 item.updated 的文本增量。 */
-  itemTextLens: Map<string, number>;
+  lastUsageTickTs: number;
 }
 
 /**
- * 打包后 (.app) 内置 codex vendored 二进制的平台映射，照搬 @openai/codex-sdk
- * `PLATFORM_PACKAGE_BY_TARGET`（dist/index.js 145-150）。
+ * 打包后 (.app) 内置 codex vendored 二进制的平台映射，对齐 @openai/codex 平台包。
  */
 export interface BundledBinarySpec {
   /** @openai/ 下的子包目录名，与 PLATFORM_PACKAGE_BY_TARGET 的 value 去掉 '@openai/' 前缀对齐 */

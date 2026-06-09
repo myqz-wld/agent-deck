@@ -1,10 +1,10 @@
 /**
  * codex frontmatter `model` 真生效 regression tests (CHANGELOG_157 R2 reviewer-codex
- * MED-2 follow-up — verify codex-sdk v0.131.0+ ThreadOptions.model 透传 + 优先级链 +
+ * MED-2 follow-up — verify Codex app-server ThreadOptions.model 透传 + 优先级链 +
  * 边界 case)。
  *
  * 测试三件事:
- * 1. `runCodexOneshot(opts.model)` 透传到 codex SDK `startThread({ model })` 参数
+ * 1. `runCodexOneshot(opts.model)` 透传到 app-server `startThread({ model })` 参数
  * 2. `opts.model` 边界 case (undefined / '' / '   ' / 'gpt-x') 的 trim+skip 行为
  * 3. summarizer-runner / handoff-runner caller 走 `settings.codex*Model > env > undefined`
  *    优先级链
@@ -24,6 +24,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as codexPool from '@main/adapters/codex-cli/codex-instance-pool';
+import type { CodexAppServerUserInput } from '@main/adapters/codex-cli/app-server/client';
 
 vi.mock('@main/adapters/codex-cli/codex-instance-pool');
 
@@ -47,7 +48,7 @@ beforeEach(() => {
     startThread: (opts: CapturedThreadOptions) => {
       captured.push(opts);
       return {
-        run: async (_input: string, turnOptions?: { signal?: AbortSignal }) => {
+        run: async (_input: CodexAppServerUserInput[], turnOptions?: { signal?: AbortSignal }) => {
           capturedRunSignals.push(turnOptions?.signal);
           return { finalResponse: 'mock-response' };
         },
@@ -56,7 +57,7 @@ beforeEach(() => {
     resumeThread: (_id: string, opts: CapturedThreadOptions) => {
       captured.push(opts);
       return {
-        run: async (_input: string, turnOptions?: { signal?: AbortSignal }) => {
+        run: async (_input: CodexAppServerUserInput[], turnOptions?: { signal?: AbortSignal }) => {
           capturedRunSignals.push(turnOptions?.signal);
           return { finalResponse: 'mock-response' };
         },
@@ -196,7 +197,7 @@ describe('runCodexOneshot timeout abort (REVIEW_82 MED — codex 子进程取消
     let capturedSignal: AbortSignal | undefined;
     vi.mocked(codexPool.getCodexInstance).mockResolvedValue({
       startThread: () => ({
-        run: (_input: string, turnOptions?: { signal?: AbortSignal }) => {
+        run: (_input: CodexAppServerUserInput[], turnOptions?: { signal?: AbortSignal }) => {
           capturedSignal = turnOptions?.signal;
           return new Promise(() => {}); // 永不 resolve → 强制 timeout
         },

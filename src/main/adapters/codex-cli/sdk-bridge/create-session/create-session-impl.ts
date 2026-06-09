@@ -12,8 +12,8 @@
  * 旧 bug: createSession 整个函数体无顶层 try/catch,allocate 之后任何 throw 都让
  * token + (可能已 set 的) codex 实例 + (可能已 set 的) sessions Map entry + sdkClaim 全
  * 泄漏。具体路径:
- *   1. ensureCodex throw (loadCodexSdk fail / new sdk.Codex throw 等)
- *   2. resumeThread/startThread sync throw (codex SDK 内部参数校验失败 / 拿不到 thread id 等)
+ *   1. ensureCodex throw (new CodexAppServerClient throw 等)
+ *   2. resumeThread/startThread sync throw (Codex app-server 参数校验失败 / 拿不到 thread id 等)
  *   3. await thread-loop.runTurnLoop (resume path inner Promise) 在 thread-loop earlyErrCb
  *      cleanup 已含双轨,但本 catch 走 best-effort 重复 cleanup (idempotent: tokenMap.release
  *      / codexBySession.delete / sessions.delete / releaseSdkClaim 全是 no-op 安全) 加固

@@ -20,12 +20,13 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
-import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 
 // 与 recovery test 同款 6 个入口模块 stub,绕过 vitest node 环境下 electron 模块的 'failed to install'
 vi.mock('@main/adapters/codex-cli/sdk-bridge/codex-binary', () => ({
   resolveBundledCodexBinary: () => null,
+  resolveCodexBinary: () => null,
+  prependResolvedCodexPathDirs: vi.fn(),
 }));
 vi.mock('@main/store/image-uploads', () => ({
   deleteUploadIfExists: vi.fn(async () => undefined),
@@ -58,8 +59,6 @@ vi.mock('@main/session/manager', () => ({
     unarchive: vi.fn(),
   },
 }));
-
-vi.mock('@main/adapters/codex-cli/sdk-loader', () => makeBareSdkLoaderMock());
 
 import { sessionManager } from '@main/session/manager';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';

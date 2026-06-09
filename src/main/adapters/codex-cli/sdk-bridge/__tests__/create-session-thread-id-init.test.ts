@@ -3,7 +3,7 @@
  * （REVIEW_79 Batch D1）。
  *
  * 必须真跑 createSessionImpl（不能用 _setup.ts TestCodexBridge override createSession 捷径），
- * 所以本文件直接 `new CodexSdkBridge({emit})` + mock loadCodexSdk 注入 fake Codex 类，
+ * 所以本文件直接 `new CodexSdkBridge({emit})` + mock CodexAppServerClient 注入 fake thread，
  * 与 sdk-bridge.early-err-cleanup.test.ts 同款 infra。
  *
  * 覆盖两组修复点：
@@ -17,17 +17,43 @@
  *
  * 2. **rollback 枚举路径（reviewer-claude + reviewer-codex 双方独立 MED/INFO 测试缺口）**：
  *    REVIEW_60 MED-codex-2 顶层 try/catch + runCreateSessionRollback 的两条 throw 路径：
- *    - ensureCodex throw（loadCodexSdk reject）→ catch → rollback 清 token + Map + throw 透传
- *    - resumeThread sync throw（codex SDK 参数校验失败）→ 同上
+ *    - ensureCodex throw（app-server client 构造失败）→ catch → rollback 清 token + Map + throw 透传
+ *    - resumeThread sync throw（app-server 参数校验失败）→ 同上
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 
+const appServerClientMock = vi.hoisted(() => {
+  const state = {
+    nextThread: null as unknown,
+    resumeThreadSyncThrow: null as Error | null,
+    constructorThrow: null as Error | null,
+    CodexAppServerClient: vi.fn(() => {
+      if (state.constructorThrow) throw state.constructorThrow;
+      return {
+        resumeThread: vi.fn((_id: string, _opts: unknown) => {
+          if (state.resumeThreadSyncThrow) throw state.resumeThreadSyncThrow;
+          if (!state.nextThread) throw new Error('test setup forgot nextThread');
+          return state.nextThread;
+        }),
+        startThread: vi.fn((_opts: unknown) => {
+          if (!state.nextThread) throw new Error('test setup forgot nextThread');
+          return state.nextThread;
+        }),
+        dispose: vi.fn(),
+      };
+    }),
+  };
+  return state;
+});
+
 // 与 early-err-cleanup test 同款入口模块 stub
 vi.mock('@main/adapters/codex-cli/sdk-bridge/codex-binary', () => ({
   resolveBundledCodexBinary: () => null,
+  resolveCodexBinary: () => null,
   prependBundledCodexPathDirs: vi.fn(),
+  prependResolvedCodexPathDirs: vi.fn(),
 }));
 vi.mock('@main/store/image-uploads', () => ({
   deleteUploadIfExists: vi.fn(async () => undefined),
@@ -45,6 +71,9 @@ vi.mock('@main/codex-config/agent-deck-mcp-injector', () => ({
 }));
 vi.mock('@main/adapters/codex-cli/codex-instance-pool', () => ({
   invalidateCodexInstance: vi.fn(),
+}));
+vi.mock('@main/adapters/codex-cli/app-server/client', () => ({
+  CodexAppServerClient: appServerClientMock.CodexAppServerClient,
 }));
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: makeSessionRepoMock({
@@ -65,17 +94,14 @@ vi.mock('@main/session/manager', () => ({
     unarchive: vi.fn(),
   },
 }));
-vi.mock('@main/adapters/codex-cli/sdk-loader', () => ({ loadCodexSdk: vi.fn() }));
 
 // per-session token map 是真 module（in-memory Map）— rollback 断言 token 被 release。
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
-import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
 import type { AgentEvent } from '@shared/types';
-import type { Thread } from '@openai/codex-sdk';
 
 const emits: AgentEvent[] = [];
 
@@ -102,13 +128,14 @@ class ControlledThread {
 }
 
 let nextThread: ControlledThread | null = null;
-/** resumeThread / startThread 同步抛错开关（rollback 路径 2） */
-let resumeThreadSyncThrow: Error | null = null;
 
 beforeEach(() => {
   emits.length = 0;
   nextThread = null;
-  resumeThreadSyncThrow = null;
+  appServerClientMock.nextThread = null;
+  appServerClientMock.resumeThreadSyncThrow = null;
+  appServerClientMock.constructorThrow = null;
+  appServerClientMock.CodexAppServerClient.mockClear();
   mcpSessionTokenMap.clearAll();
   vi.mocked(sessionRepo.get).mockReset();
   vi.mocked(sessionRepo.setCodexSandbox).mockReset();
@@ -118,20 +145,6 @@ beforeEach(() => {
   vi.mocked(sessionManager.renameSdkSession).mockReset();
   vi.mocked(sessionManager.updateCliSessionId).mockReset();
 
-  vi.mocked(loadCodexSdk).mockResolvedValue({
-    Codex: class {
-      constructor(_opts: unknown) {}
-      resumeThread(_id: string, _opts: unknown): Thread {
-        if (resumeThreadSyncThrow) throw resumeThreadSyncThrow;
-        if (!nextThread) throw new Error('test setup forgot nextThread');
-        return nextThread as unknown as Thread;
-      }
-      startThread(_opts: unknown): Thread {
-        if (!nextThread) throw new Error('test setup forgot nextThread');
-        return nextThread as unknown as Thread;
-      }
-    },
-  } as unknown as Awaited<ReturnType<typeof loadCodexSdk>>);
 });
 
 afterEach(() => {
@@ -174,6 +187,7 @@ describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
     } as unknown as ReturnType<typeof sessionRepo.get>);
 
     nextThread = new ControlledThread();
+    appServerClientMock.nextThread = nextThread;
     nextThread.startedThreadId = 'cli-C'; // SDK resumeThread(cli-C) 正常返同 id
 
     const bridge = makeBridge();
@@ -220,6 +234,7 @@ describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
     } as unknown as ReturnType<typeof sessionRepo.get>);
 
     nextThread = new ControlledThread();
+    appServerClientMock.nextThread = nextThread;
     nextThread.startedThreadId = 'cli-NEW'; // startThread 返新 fresh thread id
 
     const bridge = makeBridge();
@@ -240,9 +255,9 @@ describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
 });
 
 describe('codex createSession early-failure rollback (REVIEW_79 test gap)', () => {
-  // ── rollback 路径 1: ensureCodex throw（loadCodexSdk reject）──────────────────
-  it('ensureCodex throw（loadCodexSdk reject）→ catch → token released + sessions Map 不残留 + throw 透传', async () => {
-    vi.mocked(loadCodexSdk).mockRejectedValue(new Error('sdk load boom'));
+  // ── rollback 路径 1: ensureCodex throw（app-server client constructor throw）──────────────────
+  it('ensureCodex throw（app-server client 构造失败）→ catch → token released + sessions Map 不残留 + throw 透传', async () => {
+    appServerClientMock.constructorThrow = new Error('app-server client boom');
 
     const bridge = makeBridge();
     const err = await bridge
@@ -250,7 +265,7 @@ describe('codex createSession early-failure rollback (REVIEW_79 test gap)', () =
       .catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toMatch(/sdk load boom/);
+    expect((err as Error).message).toMatch(/app-server client boom/);
 
     // token allocate 发生在 validate phase（throw 前），rollback 必须 release
     expect(mcpSessionTokenMap.get('sess-e1')).toBeNull();
@@ -277,7 +292,7 @@ describe('codex createSession early-failure rollback (REVIEW_79 test gap)', () =
       codexSandbox: 'workspace-write',
       cliSessionId: 'sess-e2',
     } as unknown as ReturnType<typeof sessionRepo.get>);
-    resumeThreadSyncThrow = new Error('resumeThread param invalid');
+    appServerClientMock.resumeThreadSyncThrow = new Error('resumeThread param invalid');
 
     const bridge = makeBridge();
     const err = await bridge

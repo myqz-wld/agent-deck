@@ -48,7 +48,7 @@ export type CreateSessionThunk = (opts: {
    * `recoverer.ts` HIGH-1 同款修法 — fallback 路径不走 resume 时若不显式透传，
    * 已 spawn 的 codex 实际跑默认 model 而 DB record 仍显示原 model）。
    *
-   * codex-sdk v0.131.0+ ThreadOptions.model 已支持 per-thread override(prompt-asset-review-optimize-20260527
+   * Codex runtime v0.131.0+ ThreadOptions.model 已支持 per-thread override(prompt-asset-review-optimize-20260527
    * 修订:原"codex SDK 不接受 per-thread model override"判断已过期), createSession spread
    * 进 ThreadOptions runtime 真切 model + setModel 持久化让 UI / resume / dormant 唤醒一致。
    */
@@ -57,7 +57,7 @@ export type CreateSessionThunk = (opts: {
    * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
    * recoverer fallback / resume 路径显式透传 spawn 时持久化的 SDK sandbox 额外可写根。
    *
-   * 与 model 字段已不同款(prompt-asset-review-optimize-20260527 修订:codex-sdk v0.131.0+
+   * 与 model 字段已不同款(prompt-asset-review-optimize-20260527 修订:Codex runtime v0.131.0+
    * ThreadOptions.model 已 runtime 真生效,extraAllowWrite 仍未生效):codex SDK 不消费 extra
    * writable roots(sandboxMode 三档无 allowWrite 字段),但 createSession 内部仍 setExtraAllowWrite
    * 持久化保 parity 对称 — 保留入参字段对齐 claude 接口形态。**透传到当前不消费的 opts 无副作用**
@@ -66,7 +66,7 @@ export type CreateSessionThunk = (opts: {
    * 修法理由(plan §4 推荐 ✅ 做):即使 codex bridge 当前不消费,持久化字段 + 读回保 parity 完整,
    * future codex SDK 加支持时零迁移成本 + 减跨 adapter 漂移。与 codexSandbox / claudeCodeSandbox
    * 同样走显式透传 + ?? undefined 兜底(rec.extraAllowWrite 历史 NULL 时 undefined 跳过 setter)
-   * — 不同于 model 字段(codex-sdk v0.131.0+ 真生效),本字段 runtime 不消费仅持久化。
+   * — 不同于 model 字段(Codex runtime v0.131.0+ 真生效),本字段 runtime 不消费仅持久化。
    */
   extraAllowWrite?: readonly string[];
   /**

@@ -29,7 +29,7 @@ import {
   buildCodexCwdFallbackInfoText,
 } from '../codex-recoverer-messages';
 import { maybeCodexJsonlFallback } from '../codex-jsonl-fallback';
-import { toCodexSdkModelOverride } from '../../sdk-model';
+import { toCodexModelOverride } from '../../sdk-model';
 import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type {
   CreateSessionThunk,
@@ -134,7 +134,7 @@ export async function recoverAndSendImpl(
   // 用 markClosed（manager.ts:349 已暴露，guard 接受 active→closed）不用 raw setLifecycle
   // （REVIEW_56 第四入口反模式 — 绕过 clear marker + leave team + UI emit）。
   const wasClosed = rec.lifecycle === 'closed';
-  const sdkModel = toCodexSdkModelOverride(rec.model);
+  const sdkModel = toCodexModelOverride(rec.model);
 
   // MAX_MESSAGE_LENGTH 字符长度上限（与 messageRepo cap 全局对齐）。
   // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
@@ -392,7 +392,7 @@ export async function recoverAndSendImpl(
       // 正常 resume 路径：jsonl 在 + cwd 有 → 走 createSession({resume, prompt, codexSandbox, model, attachments})
       // 复用 createSession 内部全套 protocol。
       // plan cross-adapter-parity-20260515 Phase A Step A.7:extraAllowWrite 与 codexSandbox 同样
-      // 显式透传(不同于 model 字段:codex-sdk v0.131.0+ 已 runtime 真生效;本字段仍仅持久化未消费)。
+      // 显式透传(不同于 model 字段:Codex runtime v0.131.0+ 已 runtime 真生效;本字段仍仅持久化未消费)。
       // plan cross-adapter-parity-20260515 Phase B Step B.2 + REVIEW_41 MED-2 fix: 拿 handle
       // 反映真实 finalId(codex spike-A2 实测 resume 不 fork → handle.sessionId === sessionId,
       // 但保 future-proof 防 codex SDK 升级 / 行为变更,且与 claude resume path 对称)。

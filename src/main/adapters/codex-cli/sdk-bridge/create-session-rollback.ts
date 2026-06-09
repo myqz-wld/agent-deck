@@ -5,8 +5,8 @@
  * R1 MED-codex-2 修法 (顶层 try/catch 防早期失败泄漏 token / instance) 配对。
  *
  * **触发场景** (createSession 顶层 try 内任一 throw):
- * 1. ensureCodex throw (loadCodexSdk fail / new sdk.Codex throw 等)
- * 2. resumeThread / startThread sync throw (codex SDK 内部参数校验失败 / 拿不到 thread id 等)
+ * 1. ensureCodex throw (new CodexAppServerClient throw 等)
+ * 2. resumeThread / startThread sync throw (Codex app-server 参数校验失败 / 拿不到 thread id 等)
  * 3. await thread-loop.runTurnLoop / startNewThreadAndAwaitId 内部 fallback path 已自 cleanup,
  *    本 catch 走 best-effort 重复 cleanup (idempotent) 加固
  *

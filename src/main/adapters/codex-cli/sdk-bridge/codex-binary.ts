@@ -16,7 +16,7 @@
  * `codexPathOverride` 短路 SDK 自己的 resolve。dev 模式 `process.resourcesPath` 指向 Electron
  * 自身 Resources（无对应 unpacked 结构），返回 null 让 SDK 走默认 resolve（dev 没 asar 没问题）。
  *
- * **vendor 双布局**（codex-sdk ≥ 0.135 改了 vendor 子目录名）：
+ * **vendor 双布局**（Codex runtime ≥ 0.135 改了 vendor 子目录名）：
  * - 新布局：二进制 `vendor/<triple>/bin/<binName>` + helper PATH `vendor/<triple>/codex-path/`（0.135+）
  * - 旧布局：二进制 `vendor/<triple>/codex/<binName>` + helper PATH `vendor/<triple>/path/`（≤ 0.134）
  * 与 SDK 内部 `resolveNativePackage` 同款双探测：先 new 后 legacy，跨 SDK 版本都稳。

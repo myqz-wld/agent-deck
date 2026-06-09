@@ -42,14 +42,14 @@ export interface CreateSessionOpts {
   codexSandbox?: CodexSandboxMode;
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.5：spawn handler 解 agent body frontmatter
-   * `model` 字段后传入。**codex-sdk v0.131.0 ThreadOptions.model 已支持 per-thread override**
+   * `model` 字段后传入。**Codex runtime v0.131.0 ThreadOptions.model 已支持 per-thread override**
    * (prompt-asset-review-optimize-20260527 跟进 reviewer-claude HIGH 修法 — 原注释基于
-   * codex-sdk 旧版判断为 "不接受 per-thread model override" 已过期):
-   * - createSession 透传 model 给 codex SDK `startThread/resumeThread` 的 ThreadOptions.model
+   * Codex runtime 旧版判断为 "不接受 per-thread model override" 已过期):
+   * - createSession 透传 model 给 Codex app-server `startThread/resumeThread` 的 ThreadOptions.model
    *   字段 → runtime 真正按 frontmatter 标的 model 跑
    * - 同时 setModel 持久化到 sessions 表(UI / resume 一致 + DB 记账)
    *
-   * model 字段未传 → codex SDK fallback 到 user `~/.codex/config.toml` 顶层 `model` 配置。
+   * model 字段未传 → Codex runtime fallback 到 user `~/.codex/config.toml` 顶层 `model` 配置。
    */
   model?: string;
   /**

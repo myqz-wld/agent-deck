@@ -17,13 +17,12 @@
  *   - codexSandbox + model 透传（与 claude HIGH-1 同款防 fallback 路径静默降级）
  *
  * Mock 策略（与 claude recovery test 同款，hoisted vi.mock 必须每个文件独立写）：
- *   - sessionRepo / sessionManager / sdk-loader 全 mock
+ *   - sessionRepo / sessionManager 全 mock
  *   - 子类化 CodexSdkBridge 覆盖 createSession 不真起 codex CLI 子进程，避免本机 vitest spawn 真 codex binary
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UploadedAttachmentRef } from '@shared/types';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
-import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 
 // codex bridge index.ts top-level 导入链上有几条间接 import 'electron'/electron-store 的路径,
@@ -35,6 +34,8 @@ import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-st
 // (TestBridge override createSession 后这些被 mock 的方法实际不会被调用，仅满足 module load)。
 vi.mock('@main/adapters/codex-cli/sdk-bridge/codex-binary', () => ({
   resolveBundledCodexBinary: () => null,
+  resolveCodexBinary: () => null,
+  prependResolvedCodexPathDirs: vi.fn(),
 }));
 vi.mock('@main/store/image-uploads', () => ({
   deleteUploadIfExists: vi.fn(async () => undefined),
@@ -57,7 +58,7 @@ vi.mock('@main/adapters/codex-cli/codex-instance-pool', () => ({
   invalidateCodexInstance: vi.fn(),
 }));
 
-// sessionRepo / sdk-loader 走 _shared/mocks/ factory；sessionRepo.get 用 vi.fn override 让 caller
+// sessionRepo 走 _shared/mocks/ factory；sessionRepo.get 用 vi.fn override 让 caller
 // 在 beforeEach mockReset / mockReturnValue 切换 fixture（与 claude test 同款）。
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: makeSessionRepoMock({
@@ -77,8 +78,6 @@ vi.mock('@main/session/manager', () => ({
     getCloseEpoch: vi.fn(() => 0),
   },
 }));
-
-vi.mock('@main/adapters/codex-cli/sdk-loader', () => makeBareSdkLoaderMock());
 
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
@@ -1216,5 +1215,4 @@ describe('plan codex-recover-network-dirs-parity: network/dirs recover 透传', 
     expect(bridge.createCalls[0].additionalDirectories).toEqual(REVIEWER_DIRS);
   });
 });
-
 

@@ -18,7 +18,7 @@
  * 这两个修复点在 createSession resume path 的 earlyErrCb closure 里，必须真跑
  * createSession（不能用 TestCodexBridge override createSession 的捷径）。所以本文件：
  *   1. **不用 TestCodexBridge / makeBridge**，直接 `new CodexSdkBridge({emit})`
- *   2. mock `loadCodexSdk` 注入 fake `Codex` 类，其 `resumeThread` / `startThread` 返
+ *   2. mock `CodexAppServerClient` 注入 fake app-server client，其 `resumeThread` / `startThread` 返
  *      ControlledThread（`runStreamed` 受 test 控制 reject/resolve 时机）
  *   3. R3-1 case 用 `vi.useFakeTimers()` 推进 30s 触发 fallback setTimeout 后再 reject
  *      runStreamed 模拟 late earlyErr
@@ -31,10 +31,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 
+const appServerClientMock = vi.hoisted(() => {
+  const state = {
+    nextThread: null as unknown,
+    CodexAppServerClient: vi.fn(() => ({
+      resumeThread: vi.fn(() => {
+        if (!state.nextThread) throw new Error('test setup forgot to assign nextThread');
+        return state.nextThread;
+      }),
+      startThread: vi.fn(() => {
+        if (!state.nextThread) throw new Error('test setup forgot to assign nextThread');
+        return state.nextThread;
+      }),
+      dispose: vi.fn(),
+    })),
+  };
+  return state;
+});
+
 // 与 recovery / consume-fork test 同款 6 个入口模块 stub,绕过 vitest node 环境下
 // electron 模块的 'failed to install'(详 _setup.ts 同款注释)
 vi.mock('@main/adapters/codex-cli/sdk-bridge/codex-binary', () => ({
   resolveBundledCodexBinary: () => null,
+  resolveCodexBinary: () => null,
+  prependResolvedCodexPathDirs: vi.fn(),
 }));
 vi.mock('@main/store/image-uploads', () => ({
   deleteUploadIfExists: vi.fn(async () => undefined),
@@ -53,6 +73,9 @@ vi.mock('@main/codex-config/agent-deck-mcp-injector', () => ({
 }));
 vi.mock('@main/adapters/codex-cli/codex-instance-pool', () => ({
   invalidateCodexInstance: vi.fn(),
+}));
+vi.mock('@main/adapters/codex-cli/app-server/client', () => ({
+  CodexAppServerClient: appServerClientMock.CodexAppServerClient,
 }));
 
 vi.mock('@main/store/session-repo', () => ({
@@ -73,32 +96,22 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
-// **关键**: bare loadCodexSdk mock — caller 在 beforeEach mockResolvedValue 注入 fake
-// Codex 类。与 recovery / consume-fork test 不同(它们用 TestBridge override createSession
-// 不真调 loadCodexSdk),本文件必须真跑 createSession 触发 earlyErrCb wrapper。
-//
-// 不复用 `makeBareSdkLoaderMock` 因为它返 `loadSdk`(claude 端 export 名),codex 端
-// export 名是 `loadCodexSdk` — inline 写避免 factory naming mismatch。
-vi.mock('@main/adapters/codex-cli/sdk-loader', () => ({ loadCodexSdk: vi.fn() }));
-
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
-import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
 import type { AgentEvent } from '@shared/types';
-import type { Thread } from '@openai/codex-sdk';
 
 const emits: AgentEvent[] = [];
 
 /**
  * Test seam: runStreamed 受外部控制 reject/resolve 时机。
  *
- * codex SDK `Thread.runStreamed(input, opts) => Promise<{ events: AsyncIterable<...> }>`
+ * app-server thread `runStreamed(input, opts) => Promise<{ events: AsyncIterable<...> }>`
  * 真实接口让 thread loop `await runStreamed` 拿到 events 后 `for await` 消费。本 fake
  * 让 runStreamed 返回 pending Promise,test 通过 `rejectStreamed` / `resolveStreamed`
  * 控制何时 fulfill — 触发 thread-loop catch 路径(reject) 或正常 events stream(resolve)。
  *
- * **关键**: codex SDK Thread 接口允许 runStreamed 是同步 fn 返回 Promise(类型 sig
+ * **关键**: app-server thread 接口允许 runStreamed 是同步 fn 返回 Promise(类型 sig
  * `(input, opts) => Promise<...>`),不必标 async。这让我们可以同步注册 reject 回调。
  */
 class ControlledThread {
@@ -117,7 +130,7 @@ class ControlledThread {
 /**
  * 推进 microtask 链让 await/Promise resolution 跑完。
  * await Promise.resolve() 推进一个 microtask;真实 createSession resume 内 await 链
- * 较深(ensureCodex → loadCodexSdk → new sdk.Codex → resumeThread → emit → await new Promise
+ * 较深(ensureCodex → new CodexAppServerClient → resumeThread → emit → await new Promise
  * → runTurnLoop → await runStreamed),需要多次 flush。
  */
 async function flushMicrotasks(): Promise<void> {
@@ -132,6 +145,8 @@ let nextThread: ControlledThread | null = null;
 beforeEach(() => {
   emits.length = 0;
   nextThread = null;
+  appServerClientMock.nextThread = null;
+  appServerClientMock.CodexAppServerClient.mockClear();
   vi.mocked(sessionRepo.get).mockReset();
   vi.mocked(sessionRepo.setCodexSandbox).mockReset();
   vi.mocked(sessionRepo.setModel).mockReset();
@@ -140,20 +155,6 @@ beforeEach(() => {
   vi.mocked(sessionManager.renameSdkSession).mockReset();
   vi.mocked(sessionManager.unarchive).mockReset();
 
-  // loadCodexSdk 注入 fake Codex 类:resumeThread / startThread 返当前 nextThread
-  vi.mocked(loadCodexSdk).mockResolvedValue({
-    Codex: class {
-      constructor(_opts: unknown) {}
-      resumeThread(_id: string, _opts: unknown): Thread {
-        if (!nextThread) throw new Error('test setup forgot to assign nextThread');
-        return nextThread as unknown as Thread;
-      }
-      startThread(_opts: unknown): Thread {
-        if (!nextThread) throw new Error('test setup forgot to assign nextThread');
-        return nextThread as unknown as Thread;
-      }
-    },
-  } as unknown as Awaited<ReturnType<typeof loadCodexSdk>>);
 });
 
 afterEach(() => {
@@ -178,6 +179,7 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
   // ─── R2-1 path 1: 30s 内 earlyErr → cleanup + reject + finished:error 一次 ───────
   it('R2-1: thread.runStreamed 立即抛错 → earlyErrCb cleanup sessions Map + releaseSdkClaim + emit finished:error 一次 + reject Promise', async () => {
     nextThread = new ControlledThread();
+    appServerClientMock.nextThread = nextThread;
     const bridge = makeBridge();
 
     // createSession resume 不 await(本路径会 reject)
@@ -235,6 +237,7 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
   it('R3-1: 30s timeout 后 late earlyErr → cleanup sessions Map + releaseSdkClaim + emit late error message + emit finished:error 一次 (createPromise 已 resolve 不抛)', async () => {
     vi.useFakeTimers();
     nextThread = new ControlledThread();
+    appServerClientMock.nextThread = nextThread;
     const bridge = makeBridge();
 
     // createSession resume 不 await(30s timeout 会 resolve(opts.resume))
@@ -327,6 +330,7 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
     });
 
     nextThread = new ControlledThread();
+    appServerClientMock.nextThread = nextThread;
     const bridge = makeBridge();
 
     // 1) 第一次 createSession resume 触发 R2-1 path 1
@@ -345,6 +349,7 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
     // 让第二轮 nextThread 不抛错 — 但 recoverer 调 createThunk 我们让它 block 在 await runStreamed
     // 从而验证 placeholder + createSession 启动这一段 (不必走完整 turn)
     nextThread = new ControlledThread();
+    appServerClientMock.nextThread = nextThread;
 
     // 不 await sendMessage,让 recoverer.recoverAndSend 跑到 createThunk 启动 + emit placeholder
     const sendPromise = bridge.sendMessage('sess-r3', 'second').catch((e: unknown) => e);

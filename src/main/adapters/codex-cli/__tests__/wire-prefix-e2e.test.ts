@@ -27,13 +27,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
-import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 
 // 与 recovery / consume-fork test 同款 6 个入口模块 stub,绕过 vitest node 环境下 electron 模块的
 // 'failed to install'（codex bridge index.ts top-level 导入链上有几条间接 import 'electron' 的路径）
 vi.mock('@main/adapters/codex-cli/sdk-bridge/codex-binary', () => ({
   resolveBundledCodexBinary: () => null,
+  resolveCodexBinary: () => null,
+  prependResolvedCodexPathDirs: vi.fn(),
 }));
 vi.mock('@main/store/image-uploads', () => ({
   deleteUploadIfExists: vi.fn(async () => undefined),
@@ -67,11 +68,9 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
-vi.mock('@main/adapters/codex-cli/sdk-loader', () => makeBareSdkLoaderMock());
-
 import { emits, makeBridge } from './sdk-bridge/_setup';
 import { parseWirePrefix } from '@shared/wire-prefix';
-import type { Thread, Input } from '@openai/codex-sdk';
+import type { CodexInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { InternalSession } from '@main/adapters/codex-cli/sdk-bridge/types';
 
 beforeEach(() => {
@@ -86,12 +85,12 @@ afterEach(() => {
  * 构造一个 fake Thread (runStreamed 不会被 sendMessage 路径直接调,但 turnLoop 会;此处
  * pendingMessages.push 后 turnLoopRunning=true 跳过启动 turn loop,fake thread 不真用)。
  */
-function makeFakeThread(): Thread {
+function makeFakeThread(): InternalSession['thread'] {
   return {
     runStreamed: vi.fn(async () => {
       throw new Error('not invoked in this test');
     }),
-  } as unknown as Thread;
+  } as unknown as InternalSession['thread'];
 }
 
 function makeInternalSession(threadId: string): InternalSession {
@@ -166,7 +165,7 @@ describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → cod
     const internal = sessions.get(sid)!;
     expect(internal.pendingMessages).toHaveLength(1);
     // packCodexInput 纯文本路径直接返回 string（input-pack.ts:28 `if (!attachments) return text`）
-    const lastInput: Input = internal.pendingMessages[0];
+    const lastInput: CodexInput = internal.pendingMessages[0];
     expect(typeof lastInput).toBe('string');
     expect(lastInput).toBe(wireBody);
     // 显式断言：wire prefix 三段 + 双锚点字段都 byte-level 一致
