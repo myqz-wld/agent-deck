@@ -7,6 +7,7 @@ import type {
   SessionRecord,
   SummaryRecord,
 } from '@shared/types';
+import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import {
   isAskQuestionCancelled,
   isAskUserQuestion,
@@ -93,7 +94,7 @@ export const EMPTY_EXIT_PLAN_MODES: ExitPlanModeRequest[] = [];
  *   → ToolEndRow 的 button onClick 点了无反应（"点不开"症状）。
  *
  * 替换后：每个 toolUseId 在数组里至多两条（start 一份 + end 一份），位置不变（保时间线），
- * payload 更新到最新。
+ * payload 合并到最新：状态/输出跟随新事件，`toolInput.command` 等稳定识别字段在新事件缺失时保留。
  *
  * 替换边界：仅 `kind === 'tool-use-start' | 'tool-use-end'` + payload.toolUseId 是非空
  * string 时生效。claude SDK 的 tool-use-* 也有 toolUseId（hook 通道也透传）→ 同样受益。
@@ -105,6 +106,7 @@ function upsertEvent(arr: AgentEvent[], event: AgentEvent): AgentEvent[] {
   if (event.kind === 'tool-use-start' || event.kind === 'tool-use-end') {
     const tid = (event.payload as { toolUseId?: unknown })?.toolUseId;
     if (typeof tid === 'string' && tid) {
+      const normalizedEvent = withMergedToolPayload(event, null);
       const idx = arr.findIndex(
         (e) =>
           e.kind === event.kind &&
@@ -112,12 +114,27 @@ function upsertEvent(arr: AgentEvent[], event: AgentEvent): AgentEvent[] {
       );
       if (idx >= 0) {
         const next = arr.slice();
-        next[idx] = event;
+        next[idx] = withMergedToolPayload(event, next[idx].payload);
         return next;
       }
+      return [normalizedEvent, ...arr].slice(0, RECENT_LIMIT);
     }
   }
   return [event, ...arr].slice(0, RECENT_LIMIT);
+}
+
+function withMergedToolPayload(event: AgentEvent, previousPayload: unknown): AgentEvent {
+  return {
+    ...event,
+    payload: mergeToolUsePayload(previousPayload, event.payload),
+  };
+}
+
+function mergeDuplicateToolEvent(latest: AgentEvent, older: AgentEvent): AgentEvent {
+  return {
+    ...latest,
+    payload: mergeToolUsePayload(older.payload, latest.payload),
+  };
 }
 
 // EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES 已在文件上方导出
@@ -336,16 +353,22 @@ export const useSessionStore = create<State>((set) => ({
       // toolUseId 缺失/非 string/空字符串时不 dedup（fallback 不漏渲染，与 upsertEvent
       // 守门一致）。tool-use-start 与 tool-use-end 各自独立 seen set（同 toolUseId 的
       // start + end 是不同 kind 不能互相挤掉，每对仍独立两行）。
-      const seenStart = new Set<string>();
-      const seenEnd = new Set<string>();
+      const seenStart = new Map<string, number>();
+      const seenEnd = new Map<string, number>();
       const deduped: AgentEvent[] = [];
       for (const e of events) {
         if (e.kind === 'tool-use-start' || e.kind === 'tool-use-end') {
           const tid = (e.payload as { toolUseId?: unknown })?.toolUseId;
           if (typeof tid === 'string' && tid) {
             const seen = e.kind === 'tool-use-start' ? seenStart : seenEnd;
-            if (seen.has(tid)) continue;
-            seen.add(tid);
+            const idx = seen.get(tid);
+            if (idx != null) {
+              deduped[idx] = mergeDuplicateToolEvent(deduped[idx]!, e);
+              continue;
+            }
+            seen.set(tid, deduped.length);
+            deduped.push(withMergedToolPayload(e, null));
+            continue;
           }
         }
         deduped.push(e);
@@ -463,16 +486,22 @@ export const useSessionStore = create<State>((set) => ({
         // fromId 已满 RECENT_LIMIT 时会把 toId 的最新事件全截掉（最该保的反被裁）。与 moveSummaries
         // 同款 sort 兜底。dedup tool-use（同 kind+toolUseId 保最新一条）在 sort 后做。
         const merged = [...a, ...b].sort((e1, e2) => e2.ts - e1.ts);
-        const seenStart = new Set<string>();
-        const seenEnd = new Set<string>();
+        const seenStart = new Map<string, number>();
+        const seenEnd = new Map<string, number>();
         const out: AgentEvent[] = [];
         for (const e of merged) {
           if (e.kind === 'tool-use-start' || e.kind === 'tool-use-end') {
             const tid = (e.payload as { toolUseId?: unknown })?.toolUseId;
             if (typeof tid === 'string' && tid) {
               const seen = e.kind === 'tool-use-start' ? seenStart : seenEnd;
-              if (seen.has(tid)) continue;
-              seen.add(tid);
+              const idx = seen.get(tid);
+              if (idx != null) {
+                out[idx] = mergeDuplicateToolEvent(out[idx]!, e);
+                continue;
+              }
+              seen.set(tid, out.length);
+              out.push(withMergedToolPayload(e, null));
+              continue;
             }
           }
           out.push(e);
@@ -548,4 +577,3 @@ export const useSessionStore = create<State>((set) => ({
       };
     }),
 }));
-

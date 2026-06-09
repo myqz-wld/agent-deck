@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react';
 import type { AgentEvent } from '@shared/types';
 import { MarkdownText } from '@renderer/components/MarkdownText';
+import { formatDisplayText } from '../format';
 import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shared';
 
 /** REVIEW_4 M16：thinking 默认折叠阈值。extended thinking 经常是几 KB 的推理过程，
@@ -21,7 +22,7 @@ export function ThinkingBubble({
   agentId: string;
 }): JSX.Element {
   const p = (event.payload ?? {}) as { text?: string };
-  const text = (p.text ?? '').trim();
+  const text = formatDisplayText(p.text).trim();
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const otherName = getAgentShortName(agentId);
   const [mode, setMode] = useState<RenderMode>(DEFAULT_RENDER_MODE);
@@ -39,7 +40,7 @@ export function ThinkingBubble({
         <div className="mb-0.5 flex items-center gap-1 text-[9px] text-deck-muted/60">
           <span>{otherName}</span>
           <span className="text-deck-muted/40">·</span>
-          <span className="font-mono uppercase tracking-wider">思考中</span>
+          <span className="font-mono uppercase tracking-wider">思考</span>
           <span className="text-deck-muted/40">·</span>
           <span className="font-mono tabular-nums text-deck-muted/40">{ts}</span>
           {text.length > 0 && (

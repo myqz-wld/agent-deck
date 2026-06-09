@@ -8,6 +8,7 @@ import { parseWirePrefix } from '@shared/wire-prefix';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { UploadedImageThumb } from '@renderer/components/UploadedImageThumb';
 import { ImageLightbox } from '@renderer/components/ImageLightbox';
+import { formatDisplayText } from '../format';
 import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shared';
 
 /** REVIEW_4 M16：超过此字符数的 message 默认折叠（max-height + 展开按钮），
@@ -87,7 +88,7 @@ export function MessageBubble({
     handOff?: HandOffMetadata;
   };
   const role = p.role === 'user' ? 'user' : 'assistant';
-  const rawText = p.text ?? '';
+  const rawText = formatDisplayText(p.text);
   // Phase 5 Step 5.1（plan mcp-bug-and-feature-batch-20260513 §决策 5 方案 B）：解析
   // wire prefix（cross-session teammate message 顶部 `[from X @ Y][msg Z]\n`）—— 仅 user
   // role 才可能含 prefix（teammate 收 lead send_message → adapter.receiveTeammateMessage

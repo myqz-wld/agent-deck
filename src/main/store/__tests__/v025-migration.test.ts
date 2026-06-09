@@ -43,6 +43,7 @@ import v022 from '../migrations/v022_events_tool_use_dedup.sql?raw';
 import v023 from '../migrations/v023_tasks_owner_session_id_rewrite.sql?raw';
 import v024 from '../migrations/v024_tasks_add_team_id.sql?raw';
 import v025 from '../migrations/v025_events_tool_use_end_dedup.sql?raw';
+import { APPEND_AGGREGATED_OUTPUT } from '@shared/agent-event-merge';
 
 // Fix 4 (REVIEW_54 双对抗 codex LOW-2 修法):
 // 让 sub-case C 能直接 import eventRepo.insert 跑真生产分支（抓 ternary kindLiteral
@@ -392,7 +393,7 @@ describe.skipIf(!bindingAvailable)('v025 migration / sub-case C: event-repo inte
     testDb.close();
   });
 
-  it('eventRepo.insert tool-use-start：第二次同 toolUseId 走 UPSERT 命中 conflict，row id 不变 + payload 替最新', () => {
+  it('eventRepo.insert tool-use-start：第二次同 toolUseId 命中同一行，row id 不变 + payload 合并保最新字段', () => {
     const evStart1 = {
       sessionId: 'sess-A',
       agentId: 'codex-cli',
@@ -404,7 +405,7 @@ describe.skipIf(!bindingAvailable)('v025 migration / sub-case C: event-repo inte
     const evStart2 = { ...evStart1, payload: { ...evStart1.payload, toolInput: { command: 'second' } }, ts: 200 };
     const id2 = eventRepoModule.eventRepo.insert(evStart2);
 
-    expect(id2).toBe(id1); // UPSERT 命中 conflict → row id 不变（ternary 选 'tool-use-start' 字面对齐 v022 partial index）
+    expect(id2).toBe(id1);
     const row = testDb.prepare(`SELECT payload_json, ts FROM events WHERE id = ?`).get(id1) as {
       payload_json: string;
       ts: number;
@@ -413,6 +414,54 @@ describe.skipIf(!bindingAvailable)('v025 migration / sub-case C: event-repo inte
     expect(row.ts).toBe(200);
     const count = (testDb.prepare(`SELECT COUNT(*) AS c FROM events`).get() as { c: number }).c;
     expect(count).toBe(1);
+  });
+
+  it('eventRepo.insert tool-use-start：app-server outputDelta 合并保留 Bash command 并追加输出', () => {
+    const evStart = {
+      sessionId: 'sess-A',
+      agentId: 'codex-cli',
+      kind: 'tool-use-start' as const,
+      payload: { toolUseId: 'cmd_rg', toolName: 'Bash', toolInput: { command: 'rg foo src' } },
+      ts: 100,
+    };
+    const id1 = eventRepoModule.eventRepo.insert(evStart);
+    const id2 = eventRepoModule.eventRepo.insert({
+      ...evStart,
+      payload: {
+        toolUseId: 'cmd_rg',
+        toolName: 'Bash',
+        aggregatedOutput: 'src/a.ts\n',
+        [APPEND_AGGREGATED_OUTPUT]: true,
+        status: 'inProgress',
+      },
+      ts: 200,
+    });
+    const id3 = eventRepoModule.eventRepo.insert({
+      ...evStart,
+      payload: {
+        toolUseId: 'cmd_rg',
+        toolName: 'Bash',
+        aggregatedOutput: 'src/b.ts\n',
+        [APPEND_AGGREGATED_OUTPUT]: true,
+        status: 'inProgress',
+      },
+      ts: 300,
+    });
+
+    expect(id2).toBe(id1);
+    expect(id3).toBe(id1);
+    const row = testDb.prepare(`SELECT payload_json, ts FROM events WHERE id = ?`).get(id1) as {
+      payload_json: string;
+      ts: number;
+    };
+    expect(JSON.parse(row.payload_json)).toEqual({
+      toolUseId: 'cmd_rg',
+      toolName: 'Bash',
+      toolInput: { command: 'rg foo src' },
+      aggregatedOutput: 'src/a.ts\nsrc/b.ts\n',
+      status: 'inProgress',
+    });
+    expect(row.ts).toBe(300);
   });
 
   it('eventRepo.insert tool-use-end：第二次同 toolUseId 走 UPSERT 命中 conflict，row id 不变（v025 + ternary 选 tool-use-end 字面）', () => {
