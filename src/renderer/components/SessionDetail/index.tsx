@@ -224,6 +224,8 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     : null;
 
   const isSdk = session.source === 'sdk';
+  const turnBusy = session.activity === 'working';
+  const canSteerTurn = session.agentId === 'codex-cli';
 
   return (
     <div className="flex h-full flex-col">
@@ -379,6 +381,8 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         <ComposerSdk
           session={session}
           onHandOff={() => setHandOffOpen(true)}
+          turnBusy={turnBusy}
+          canSteerTurn={canSteerTurn}
         />
       ) : (
         <CliFooter />

@@ -1,6 +1,4 @@
-import type { Codex } from '@openai/codex-sdk';
 import { sessionManager } from '@main/session/manager';
-import { loadCodexSdk } from '@main/adapters/codex-cli/sdk-loader';
 import { settingsStore } from '@main/store/settings-store';
 import { eventRepo } from '@main/store/event-repo';
 import { summariseSessionForHandOff } from '@main/session/summarizer';
@@ -26,9 +24,8 @@ import type {
   CodexSessionHandle,
   InternalSession,
 } from './types';
-import { resolveBundledCodexBinary, prependBundledCodexPathDirs } from './codex-binary';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
-import { packCodexInput, extractAttachmentPaths } from './input-pack';
+import { packCodexInput, extractAttachmentPaths, toCodexAppServerInput } from './input-pack';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
@@ -43,6 +40,7 @@ import {
 // 3 子段 fn(详 create-session/_deps.ts 顶部 jsdoc 拆分说明)。
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
+import { CodexAppServerClient } from '../app-server/client';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-bridge');
@@ -98,7 +96,7 @@ export class CodexSdkBridge {
    * `codex-instance-pool.ts` 仅服务 oneshot caller（summarizer-runner / handoff-runner），
    * 不需要 per-session token，沿用全局 process.env 路径，与本 Map 双轨独立维护（plan §M5）。
    */
-  private codexBySession: Map<string, Codex> = new Map();
+  private codexBySession: Map<string, CodexAppServerClient> = new Map();
   /**
    * symmetry-plan P2 HIGH-A：与 claude `recovering` Map 同模式 — 单飞 Map 覆盖
    * `restartWithCodexSandbox` 整段副作用窗口（close + DB write + createSession）。
@@ -144,6 +142,7 @@ export class CodexSdkBridge {
       // resolveWithFallback 内已 catch 本 thunk 的 throw 但仍兜底)。
       cleanupTempKey: (tempKey: string) => {
         try {
+          this.codexBySession.get(tempKey)?.dispose();
           this.codexBySession.delete(tempKey);
         } catch (cleanupErr) {
           logger.warn(
@@ -220,7 +219,15 @@ export class CodexSdkBridge {
    */
   setCodexCliPath(_path: string | null): void {
     // 注意：不再持 instance field，path 实际从 settingsStore.get 读。本方法仅作 invalidation hook
-    this.codexBySession.clear();
+    for (const [sid, codex] of this.codexBySession.entries()) {
+      if (this.sessions.has(sid)) continue;
+      try {
+        codex.dispose();
+      } catch {
+        // ignore
+      }
+      this.codexBySession.delete(sid);
+    }
     // R37 P1 Step 1.2 (G)：同步 invalidate oneshot pool，让 summarizer-runner / handoff-runner
     // 下次 call 也用新 path 重建（修前 3 处独立 cache，path 改要等各自 path 比较 miss 才同步）
     invalidateCodexInstance();
@@ -252,17 +259,15 @@ export class CodexSdkBridge {
     sessionId: string,
     sessionToken: string,
     envOverrideExtra?: Readonly<Record<string, string>>,
-  ): Promise<Codex> {
+  ): Promise<CodexAppServerClient> {
     const cached = this.codexBySession.get(sessionId);
     if (cached) return cached;
-    const sdk = await loadCodexSdk();
     // 优先级：用户在设置面板填的 codexCliPath（可指向自装版本）> 打包后内置的 unpacked 二进制
     // > SDK 自己 resolve（dev 模式正常，打包后会拼出 app.asar 内路径导致 spawn ENOTDIR，见
     // resolveBundledCodexBinary 注释）
     // R37 P1 Step 1.2 (G)：直接 settingsStore.get（删 private codexCliPath field）
     const codexCliPath = settingsStore.get('codexCliPath');
     const userCodexPath = codexCliPath && codexCliPath.trim();
-    const overridePath = userCodexPath || resolveBundledCodexBinary();
     // CHANGELOG_<X> R2 / B'4 + R1.A5 + R1.D7：自动注入 agent-deck MCP server 配置
     // 给 codex SDK，让 codex CLI 子进程 spawn 时通过 --config mcp_servers.agent-deck.url=...
     // 连接到本应用 HookServer /mcp 路由（HTTP transport）。bearer token 走 env var
@@ -287,15 +292,9 @@ export class CodexSdkBridge {
     if (envOverrideExtra) {
       Object.assign(envOverride, envOverrideExtra);
     }
-    // codexPathOverride 短路 SDK 自身 resolve → SDK pathDirs 置空，不再注入 bundled rg helper PATH。
-    // 仅当走的是 bundled 二进制（非用户自填 codexCliPath）时补回（用户自装 codex 自带 PATH 解析，
-    // 不该被我们的 bundled helper 污染）。dev / 无 bundled helper → no-op。
-    if (overridePath && !userCodexPath) {
-      prependBundledCodexPathDirs(envOverride);
-    }
-    const codex = new sdk.Codex({
-      ...(overridePath ? { codexPathOverride: overridePath } : {}),
-      ...(codexConfig ? { config: codexConfig } : {}),
+    const codex = new CodexAppServerClient({
+      codexPathOverride: userCodexPath || null,
+      config: codexConfig,
       env: envOverride,
     });
     this.codexBySession.set(sessionId, codex);
@@ -396,6 +395,38 @@ export class CodexSdkBridge {
     }
   }
 
+  async steerTurn(sessionId: string, text: string): Promise<void> {
+    const s = this.sessions.get(sessionId);
+    if (!s) {
+      throw new Error('Codex 会话不在运行中，无法 mid-turn steer。');
+    }
+
+    const len = text.length;
+    if (len > MAX_MESSAGE_LENGTH) {
+      throw new Error(
+        `单条 steer ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简后再发送。`,
+      );
+    }
+
+    if (!s.currentTurn || !s.currentTurnId) {
+      throw new Error('Codex 当前没有可 steer 的 active turn。');
+    }
+
+    await s.thread.steer(toCodexAppServerInput(packCodexInput(text)), s.currentTurnId);
+    this.opts.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: {
+        text,
+        role: 'user',
+        steer: true,
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+  }
+
   async interrupt(sessionId: string): Promise<void> {
     const s = this.sessions.get(sessionId);
     if (!s?.currentTurn) return;
@@ -471,9 +502,11 @@ export class CodexSdkBridge {
     // 不一致时(例如新建路径 thread-loop firstId 拿到 realId !== tempKey 的瞬间已经 rename 过
     // codexBySession + token map,这里 sessionId == realId / threadId == realId 同款,只命中一次
     // 不会双删;但保险起见两条都跑同款 noop 边角)。
+    this.codexBySession.get(sessionId)?.dispose();
     this.codexBySession.delete(sessionId);
     mcpSessionTokenMap.release(sessionId);
     if (internal.threadId && internal.threadId !== sessionId) {
+      this.codexBySession.get(internal.threadId)?.dispose();
       this.codexBySession.delete(internal.threadId);
       mcpSessionTokenMap.release(internal.threadId);
     }

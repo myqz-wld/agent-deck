@@ -15,13 +15,13 @@
  * **CreateSessionOpts SSOT**: facade.createSession 用 `opts: CreateSessionOpts` 直接消费本 type,
  * 字段 jsdoc 单源在本文件 — 改 facade method 必须改本 type 反之亦然。
  */
-import type { Codex, Thread } from '@openai/codex-sdk';
 import type { HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
 import type {
   CodexBridgeOptions,
   CodexSessionHandle,
   InternalSession,
 } from '../types';
+import type { CodexAppServerClient, CodexAppServerThread } from '../../app-server/client';
 import type { ThreadLoop } from '../thread-loop';
 
 export type CodexSandboxMode = 'workspace-write' | 'read-only' | 'danger-full-access';
@@ -170,7 +170,7 @@ export interface CreateSessionOpts {
  */
 export interface CreateSessionDeps {
   readonly sessions: Map<string, InternalSession>;
-  readonly codexBySession: Map<string, Codex>;
+  readonly codexBySession: Map<string, CodexAppServerClient>;
   readonly threadLoop: ThreadLoop;
   readonly emit: CodexBridgeOptions['emit'];
   /**
@@ -181,7 +181,7 @@ export interface CreateSessionDeps {
     sessionId: string,
     sessionToken: string,
     envOverrideExtra?: Readonly<Record<string, string>>,
-  ) => Promise<Codex>;
+  ) => Promise<CodexAppServerClient>;
 }
 
 /**
@@ -204,7 +204,7 @@ export interface ValidateResult {
 export interface PreparedContext {
   readonly cwd: string;
   readonly sandboxMode: CodexSandboxMode;
-  readonly thread: Thread;
+  readonly thread: CodexAppServerThread;
   readonly internal: InternalSession;
 }
 

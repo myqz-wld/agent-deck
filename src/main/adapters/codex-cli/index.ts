@@ -33,6 +33,7 @@ class CodexCliAdapter implements AgentAdapter {
     canCreateSession: true,
     canInterrupt: true,
     canSendMessage: true,
+    canSteerTurn: true,
     canInstallHooks: false,
     canRespondPermission: false,
     canSetPermissionMode: false,
@@ -118,6 +119,11 @@ class CodexCliAdapter implements AgentAdapter {
   ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     await this.bridge.sendMessage(sessionId, text, attachments);
+  }
+
+  async steerTurn(sessionId: string, text: string): Promise<void> {
+    if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    await this.bridge.steerTurn(sessionId, text);
   }
 
   /**

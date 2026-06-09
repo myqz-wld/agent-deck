@@ -21,7 +21,7 @@
 - **模型 Token 统计**：顶栏中部实时显示今日使用最频 Top3 模型的「输出 token/s」（最近 60 秒滑动窗口；窗口宽度不足时自动退化隐藏，先减到 Top1 再隐藏）。「数据」tab（与 实时/待处理/历史/团队/问题 同级）看每个模型每天的 token 使用：模型×日期表格（输入 / 输出 / 缓存读 / 缓存写）+ 今日汇总 + 全模型实时 token/s 区。token 用量从每条 assistant message（Claude）/ turn 完成（Codex）采集；同基础模型的不同变体（thinking / 1m 等）按友好名合并统计
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
 - **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md / CODEX_AGENTS.md 到 system prompt；内置 prompt / agent / skill 资源随应用 bundle 自闭环生效，用户自定义 agents/skills 只作为增强层；可注入 agent-deck plugin 自带的 `deep-review` skill + native `reviewer-claude`（Claude Code adapter）/ `reviewer-codex`（Codex SDK adapter）双异构对抗 reviewer
-- **多 Adapter**：Claude Code（hook + SDK 双通道，SDK 支持 streaming input 多轮交互）+ Deepseek（Claude Code 协议适配通道，独立 `~/.agent_deck/.deepseek/settings.json` 存 URL / token / model，复用 Claude 侧 agents/skills/CLAUDE.md）+ Codex CLI（单 SDK 通道，turn-based 协议每轮等上一轮完成；常作 reviewer / 子任务 teammate，主导会话场景按个人偏好选）
+- **多 Adapter**：Claude Code（hook + SDK 双通道，SDK 支持 streaming input 多轮交互）+ Deepseek（Claude Code 协议适配通道，独立 `~/.agent_deck/.deepseek/settings.json` 存 URL / token / model，复用 Claude 侧 agents/skills/CLAUDE.md）+ Codex CLI（app-server SDK 通道，turn-based 协议每轮等上一轮完成；active 普通 turn 期间支持 mid-turn steering，可把用户修正注入当前 turn；常作 reviewer / 子任务 teammate，主导会话场景按个人偏好选）
 
 ---
 
@@ -68,7 +68,7 @@ closed 后再来同 sessionId 事件 → 自动复活回 active。归档跳过 l
 
 - **Claude Code**：hook + SDK 双通道，能力全开（创建 / 中断 / 发消息 / 工具批准 / AskUserQuestion / ExitPlanMode / 切权限模式 / 安装 hook）
 - **Deepseek（Claude Code）**：复用 Claude Code SDK 桥接层和 Claude 侧 agents/skills/CLAUDE.md；仅鉴权与模型 env 从 `~/.agent_deck/.deepseek/settings.json` 覆盖，不安装独立 hook
-- **Codex CLI**：基于 `@openai/codex-sdk` 单 SDK 通道，支持创建 / 发消息 / 中断 / 恢复；不支持工具批准 / 主动询问 / Plan mode / 运行时切权限模式（codex SDK 物理不支持）；**streaming input 也不支持**（turn-based 模式），多轮 prompt 互动延迟感比 claude-code 显著，主导会话场景推荐 claude-code，作 reviewer / 子任务 teammate 用 turn-based 不影响
+- **Codex CLI**：基于 `codex app-server --stdio` 的 SDK 通道，支持创建 / 发消息 / 中断 / 恢复 / active turn 修正；不支持工具批准 / 主动询问 / Plan mode / 运行时切权限模式（Codex 协议物理不支持）。普通消息仍是 turn-based，每轮等上一轮完成；当前普通 turn 忙碌时，输入区会显示单独的「修正」输入框，Enter 发送 `turn/steer` 而不是排队下一轮消息
 
 新增 adapter 实现 `AgentAdapter` 接口注册即可。
 
@@ -270,7 +270,7 @@ src/
 │   ├── adapters/
 │   │   ├── claude-code/   hook 路由 + hook installer + SDK bridge + CLAUDE.md / skill / agents 注入 + sandbox-config（三档 OS 隔离配置）
 │   │   ├── deepseek-claude-code/ Claude Code SDK profile wrapper；从 ~/.agent_deck/.deepseek/settings.json 注入 DeepSeek env，复用 Claude 侧资源
-│   │   └── codex-cli/     @openai/codex-sdk 封装（pendingMessages 串行 turn + AbortController interrupt）
+│   │   └── codex-cli/     codex app-server JSON-RPC bridge（pendingMessages 串行 turn + interrupt + steer）
 │   ├── session/           SessionManager / LifecycleScheduler / Summarizer
 │   ├── teams/             R3 Universal Team Backend：universal-message-watcher（cross-adapter team message 投递）+ team-fs 仅保留 exportLegacyTeams（老 ~/.claude/teams 数据一次性导出）
 │   ├── notify/            sound.ts（跨平台播放 + 防叠播 + 5s 上限）/ visual.ts（系统通知 + Dock）

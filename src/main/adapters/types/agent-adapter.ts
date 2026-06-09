@@ -45,6 +45,8 @@ export interface AgentAdapter {
     text: string,
     attachments?: UploadedAttachmentRef[],
   ): Promise<void>;
+  /** Mid-turn steering：只修改当前正在跑的 turn，不进入下一轮 pending message queue。 */
+  steerTurn?(sessionId: string, text: string): Promise<void>;
   respondPermission?(
     sessionId: string,
     requestId: string,

@@ -13,6 +13,7 @@
  */
 import type { Input, UserInput } from '@openai/codex-sdk';
 import type { UploadedAttachmentRef } from '@shared/types';
+import type { CodexAppServerUserInput } from '../app-server/client';
 
 /**
  * 把 (text, attachments) 包成 codex SDK 接受的 Input 形态。
@@ -50,4 +51,20 @@ export function extractAttachmentPaths(input: Input): string[] {
     }
   }
   return paths;
+}
+
+export function toCodexAppServerInput(input: Input): CodexAppServerUserInput[] {
+  if (typeof input === 'string') {
+    return [{ type: 'text', text: input, text_elements: [] }];
+  }
+
+  const out: CodexAppServerUserInput[] = [];
+  for (const item of input) {
+    if (item.type === 'local_image') {
+      out.push({ type: 'localImage', path: item.path });
+    } else if (item.type === 'text') {
+      out.push({ type: 'text', text: item.text, text_elements: [] });
+    }
+  }
+  return out;
 }

@@ -38,8 +38,8 @@
  */
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { sessionManager } from '@main/session/manager';
-import type { Codex } from '@openai/codex-sdk';
 import type { AgentEvent } from '@shared/types';
+import type { CodexAppServerClient } from '../app-server/client';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { ThreadLoop } from './thread-loop';
 import type { InternalSession } from './types';
@@ -52,7 +52,7 @@ export interface AwaitResumedThreadStartDeps {
   /** sessions Map (earlyErrCb 失败路径 cleanup) */
   sessions: Map<string, InternalSession>;
   /** codex 实例 Map (earlyErrCb 失败路径 cleanup) */
-  codexBySession: Map<string, Codex>;
+  codexBySession: Map<string, CodexAppServerClient>;
   /** outer createSession 注入的 SdkBridgeOptions.emit (event-bus 派发) */
   emit: (event: AgentEvent) => void;
 }
@@ -139,6 +139,7 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
         deps.sessions.delete(applicationSid);
         sessionManager.releaseSdkClaim(applicationSid);
         try {
+          deps.codexBySession.get(applicationSid)?.dispose();
           deps.codexBySession.delete(applicationSid);
         } catch (cleanupErr) {
           logger.warn(

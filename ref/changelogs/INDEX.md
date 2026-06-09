@@ -240,3 +240,4 @@
 | [CHANGELOG_233.md](CHANGELOG_233.md) | MCP handoff/worktree 改为 plan-free primitives，移除公开 archive/cleanup tools |
 | [CHANGELOG_234.md](CHANGELOG_234.md) | `hand_off_session` 资源转移失败时关闭已 spawn successor，补主路径诊断日志 |
 | [CHANGELOG_235.md](CHANGELOG_235.md) | 升级 Claude/Codex SDK 与随包 native binary：Claude Agent SDK 0.3.169、Anthropic SDK 0.102.0、Codex SDK/native 0.138.0 |
+| [CHANGELOG_236.md](CHANGELOG_236.md) | Codex live path 迁到 app-server JSON-RPC，新增 active turn mid-turn steering + IPC/UI/prompt/PlantUML |

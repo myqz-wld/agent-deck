@@ -1,10 +1,15 @@
-' description: sdk-bridge 双端 (claude-code + codex-cli) 模块架构 — 5 大块,双端结构镜像
-' last_updated: 2026-05-29
+' description: sdk-bridge 双端 (claude-code + codex-cli) 模块架构 — Codex live path uses app-server + mid-turn steering
+' last_updated: 2026-06-10
 @startuml sdk-bridge-architecture
 
-title sdk-bridge — 双端 (claude / codex) 模块架构 (5 大块对偶)
+title sdk-bridge — 双端模块架构 (Codex app-server + mid-turn steering)
 
 ' 内部 module 名 / 函数名 / LOC / commit / REVIEW 引用见 INDEX
+
+package "Renderer / IPC steering surface" as L0 {
+  [SessionDetail Composer\nsteer input] as SteerUI
+  [preload steerAdapterTurn\n+ adapter:steer-turn IPC] as SteerIPC
+}
 
 package "公共抽象 (跨 adapter)" as L1 {
   [adapter 接口\n(两端共同实现)] as AdapterIf
@@ -20,12 +25,12 @@ package "claude-code 端" as L2 {
 package "codex-cli 端 (镜像)" as L3 {
   [codex facade\n(创建 + 消息主路径)] as CodexFacade
   [codex 自愈层\n(recoverer + jsonl 兜底)] as CodexRec
-  [thread-loop + thread-options-builder\n+ rollback + resume-await + token-map\n+ ErrorItem filter] as CodexAux
+  [app-server client + thread-loop\n+ currentTurnId + translate\n+ rollback + resume-await + token-map] as CodexAux
 }
 
-package "SDK 子进程" as L4 {
+package "SDK / protocol 子进程" as L4 {
   [claude SDK 子进程] as ClaudeSDK
-  [codex SDK 子进程] as CodexSDK
+  [codex app-server --stdio\n(JSON-RPC over stdio)] as CodexSDK
 }
 
 package "外部边界 (jsonl)" as L5 {
@@ -37,6 +42,8 @@ package "外部边界 (jsonl)" as L5 {
 
 AdapterIf <|.. ClaudeFacade
 AdapterIf <|.. CodexFacade
+SteerUI --> SteerIPC : active turn input
+SteerIPC --> AdapterIf : steerTurn(sessionId, text)
 
 ' ─── claude 端调用链 ───
 
@@ -51,7 +58,9 @@ ClaudeSDK --> ClaudeJsonl : 写 conversation history
 ' ─── codex 端调用链 (镜像 claude) ───
 
 CodexFacade --> CodexAux : helpers
-CodexFacade --> CodexSDK : spawn 子进程 + 消息主路径
+CodexFacade --> CodexSDK : app-server thread/start|resume\n+ turn/start 主路径
+CodexFacade --> CodexAux : steerTurn guard\n(active currentTurnId)
+CodexAux --> CodexSDK : turn/steer(expectedTurnId)\n(no turn override)
 CodexFacade --> CodexRec : sendMessage 撞 absent → 自愈
 CodexRec --> Common : 反查 cwd / 取消归档
 CodexRec --> CodexJsonl : jsonl 文件兜底预检
@@ -68,9 +77,12 @@ end note
 
 note bottom of CodexFacade
   codex 端独有:
+  - app-server --stdio 长连接 (JSON-RPC)
+  - currentTurnId 来自 turn/started 通知,用于 turn/steer expectedTurnId
+  - turn/steer 不产生 turn/started;review/compact turn 不可 steer
   - per-session token map (允许并发)
   - jsonl 兜底无 LLM 摘要 (精简版)
-  - ErrorItem filter (LOADER_WARNING 过滤)
+  - app-server notification translate + live token-rate
   - **jsonl 路径与 cwd 无关 (与 Claude `~/.claude/projects/<encoded-cwd>` 分叉)**:
     `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<TS>-<thread_id>.jsonl`
     实现 jsonl-discovery.ts:11-13,40-61 (±1 day 扫描 + 递归兜底, REVIEW_56 §F2)

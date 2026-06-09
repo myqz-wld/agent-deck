@@ -15,7 +15,6 @@
  *
  * **测试**: 见 codex-cli/sdk-bridge/__tests__/thread-options-builder.test.ts (待补 R4 follow-up)
  */
-import type { ThreadOptions } from '@openai/codex-sdk';
 import { toCodexSdkModelOverride } from '../sdk-model';
 
 export interface BuildCodexThreadOptionsArgs {
@@ -33,7 +32,17 @@ export interface BuildCodexThreadOptionsArgs {
   additionalDirectories?: readonly string[];
 }
 
-export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): ThreadOptions {
+export interface CodexThreadOptions {
+  workingDirectory: string;
+  sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
+  approvalPolicy: 'untrusted' | 'on-failure' | 'on-request' | 'never';
+  skipGitRepoCheck: boolean;
+  model?: string;
+  networkAccessEnabled?: boolean;
+  additionalDirectories?: string[];
+}
+
+export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): CodexThreadOptions {
   const model = toCodexSdkModelOverride(args.model);
   return {
     workingDirectory: args.workingDirectory,

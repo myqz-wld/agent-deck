@@ -38,6 +38,8 @@ const logger = log.scope('renderer-composer-sdk');
 export function ComposerSdk({
   session,
   onHandOff,
+  turnBusy = false,
+  canSteerTurn = false,
 }: {
   /** deep-review H3 MED：直接接收 parent 的 session record（= App detailSession，store.sessions
    *  优先 + closed 会话 historySession 兜底），不再自己 `sessions.get(sessionId)`。旧实现自读 store
@@ -49,6 +51,10 @@ export function ComposerSdk({
    *  HandOffPreviewDialog。仅当 prop 传入时显示按钮（CLI 会话不传，逻辑由
    *  SessionDetail 决定）。 */
   onHandOff?: () => void;
+  /** 当前 SDK turn 是否仍在运行中；不同于本组件本地 send IPC busy。 */
+  turnBusy?: boolean;
+  /** Adapter capability: 当前会话是否支持 mid-turn steering。 */
+  canSteerTurn?: boolean;
 }): JSX.Element {
   const sessionId = session.id;
   const agentId = session.agentId;
@@ -57,6 +63,9 @@ export function ComposerSdk({
   // REVIEW_35 MED-D-claude-4：busyRef 同步锁，防超快连点（< 16ms）双 send race
   const busyRef = useRef(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [steerText, setSteerText] = useState('');
+  const [steerBusy, setSteerBusy] = useState(false);
+  const [steerError, setSteerError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgs = useImageAttachments();
   // SDK Query 自身持有运行时 permissionMode 但不暴露 getter，所以从 session 记录的
@@ -151,6 +160,23 @@ export function ComposerSdk({
     } finally {
       busyRef.current = false;
       setBusy(false);
+    }
+  };
+
+  const steer = async (): Promise<void> => {
+    const t = steerText.trim();
+    if (!t || steerBusy) return;
+    setSteerText('');
+    setSteerBusy(true);
+    setSteerError(null);
+    try {
+      await window.api.steerAdapterTurn(agentId, sessionId, t);
+    } catch (err) {
+      logger.error('steerAdapterTurn failed', err);
+      setSteerText(t);
+      setSteerError((err as Error).message);
+    } finally {
+      setSteerBusy(false);
     }
   };
 
@@ -278,6 +304,8 @@ export function ComposerSdk({
   };
 
   const canSend = (text.trim().length > 0 || imgs.attachments.length > 0) && !busy;
+  const showSteer = canSteerTurn && turnBusy;
+  const canSteer = steerText.trim().length > 0 && !steerBusy;
 
   return (
     <div className="shrink-0 border-t border-deck-border px-2.5 py-2">
@@ -316,7 +344,37 @@ export function ComposerSdk({
         onDismiss={() => setCsClaudeError(null)}
       />
       <ErrorBanner message={sendError} onDismiss={() => setSendError(null)} />
+      <ErrorBanner message={steerError} prefix="修正发送失败" onDismiss={() => setSteerError(null)} />
       <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />
+      {showSteer && (
+        <div className="mb-1.5 flex items-center gap-1.5 rounded border border-status-working/30 bg-status-working/10 px-1.5 py-1">
+          <input
+            value={steerText}
+            onChange={(e) => setSteerText(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                e.key === 'Enter' &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing &&
+                e.nativeEvent.keyCode !== 229
+              ) {
+                e.preventDefault();
+                if (canSteer) void steer();
+              }
+            }}
+            placeholder="修正当前 Codex turn…"
+            className="min-w-0 flex-1 bg-transparent px-1 text-[11px] outline-none placeholder:text-deck-muted/60"
+          />
+          <button
+            type="button"
+            onClick={() => void steer()}
+            disabled={!canSteer}
+            className="h-6 shrink-0 rounded bg-status-working/25 px-2 text-[10px] font-medium text-status-working hover:bg-status-working/35 disabled:opacity-40"
+          >
+            {steerBusy ? '发送中…' : '修正'}
+          </button>
+        </div>
+      )}
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
