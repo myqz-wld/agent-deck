@@ -1,6 +1,6 @@
---- Agent Deck 应用环境约定（随应用打包注入到每个 Codex SDK 会话）---
+# Agent Deck 应用环境约定
 
-# 应用环境约定
+> 随应用打包注入到每个 Codex SDK 会话。
 
 ## 优先级与加载
 
