@@ -1,0 +1,70 @@
+' description: Codex mid-turn steering sequence — renderer steer input to app-server turn/steer
+' last_updated: 2026-06-10
+@startuml codex-mid-turn-steering-flow
+
+title Codex mid-turn steering — active turn correction flow
+
+actor User
+participant "SessionDetail\nComposerSdk" as UI
+participant "preload API" as Preload
+participant "main IPC\nadapter:steer-turn" as IPC
+participant "AdapterRegistry\n+ Codex adapter" as Adapter
+participant "CodexSdkBridge" as Bridge
+participant "InternalSession" as Session
+participant "CodexAppServerThread" as Thread
+participant "Codex app-server\n--stdio" as Server
+participant "eventBus / store" as Events
+
+== Active turn establishes steer target ==
+
+Bridge -> Thread: runStreamed(input)
+Thread -> Server: thread/start|resume if needed
+Thread -> Server: turn/start { threadId, input }
+Server --> Thread: response { turn.id }
+Server --> Bridge: notification turn/started { turn.id }
+Bridge -> Session: currentTurnId = turn.id
+Bridge -> Events: translate streaming notifications
+Events --> UI: session.activity = working
+
+== User steers current turn ==
+
+User -> UI: type correction while turn is working
+UI -> Preload: steerAdapterTurn(agentId, sessionId, text)
+Preload -> IPC: invoke adapter:steer-turn
+IPC -> Adapter: capability canSteerTurn?
+
+alt adapter cannot steer
+  IPC --> UI: error "adapter cannot steer active turn"
+else Codex adapter
+  Adapter -> Bridge: steerTurn(sessionId, text)
+  Bridge -> Session: read currentTurn + currentTurnId
+  alt no active turn id
+    Bridge --> UI: error "no steerable active turn"
+  else active normal turn
+    Bridge -> Thread: steer(text, expectedTurnId=currentTurnId)
+    Thread -> Server: turn/steer { threadId, expectedTurnId, input }
+    alt review / compact / id mismatch / completed
+      Server --> Thread: JSON-RPC error
+      Thread --> UI: error surfaced in steer input
+    else accepted
+      Server --> Thread: result { turnId }
+      Bridge -> Events: emit user message { role:user, steer:true }
+      Events --> UI: show correction in transcript
+    end
+  end
+end
+
+== Turn continues ==
+
+Server --> Bridge: item/* deltas + completions
+Bridge -> Events: app-server translate + token usage
+Server --> Bridge: turn/completed { turn.id, status }
+Bridge -> Session: currentTurnId = null
+Bridge -> Events: finished
+
+note right of Server
+  turn/steer does not emit turn/started.
+  It accepts input only; no model/cwd/sandbox override.
+end note
+
+@enduml

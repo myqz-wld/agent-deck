@@ -126,9 +126,10 @@ function makeInternalSession(thread: Thread, threadId: string | null = null): In
     applicationSid: threadId ?? 'sess-test',
     threadId,
     cwd: '/tmp/x',
-    thread,
+    thread: thread as unknown as InternalSession['thread'],
     pendingMessages: ['hi' as Input],
     currentTurn: null,
+    currentTurnId: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
   };

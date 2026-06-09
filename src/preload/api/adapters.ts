@@ -32,6 +32,12 @@ export const adaptersApi = {
     payload: string | { text: string; attachments?: UploadedAttachmentInput[] },
   ): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSendMessage, agentId, sessionId, payload),
+  steerAdapterTurn: (
+    agentId: string,
+    sessionId: string,
+    text: string,
+  ): Promise<void> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterSteerTurn, agentId, sessionId, text),
   respondPermission: (
     agentId: string,
     sessionId: string,

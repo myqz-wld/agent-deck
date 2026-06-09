@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ThreadEvent, Thread } from '@openai/codex-sdk';
+import type { ThreadEvent } from '@openai/codex-sdk';
 import type { InternalSession } from '../types';
 
 vi.mock('@main/event-bus', () => ({ eventBus: { emit: vi.fn() } }));
@@ -17,9 +17,10 @@ function makeInternalSession(over: Partial<InternalSession> = {}): InternalSessi
     applicationSid: 'sid-1',
     threadId: 'sid-1',
     cwd: '/tmp',
-    thread: {} as Thread,
+    thread: {} as unknown as InternalSession['thread'],
     pendingMessages: [],
     currentTurn: null,
+    currentTurnId: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
     ...over,

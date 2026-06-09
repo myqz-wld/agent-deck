@@ -30,7 +30,7 @@
  */
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { sessionManager } from '@main/session/manager';
-import type { Codex } from '@openai/codex-sdk';
+import type { CodexAppServerClient } from '../app-server/client';
 import type { InternalSession } from './types';
 import log from '@main/utils/logger';
 
@@ -38,7 +38,7 @@ const logger = log.scope('codex-rollback');
 
 export interface CreateSessionRollbackDeps {
   /** codex 实例 Map (createSession 内 ensureCodex set 进 Map → 失败时 delete 释放 SDK 子进程引用) */
-  codexBySession: Map<string, Codex>;
+  codexBySession: Map<string, CodexAppServerClient>;
   /** sessions Map (createSession 主路径在 thread.started 后 set,早期 throw 时可能未 set 或半 set) */
   sessions: Map<string, InternalSession>;
 }
@@ -63,6 +63,7 @@ export function runCreateSessionRollback(args: RunCreateSessionRollbackArgs): vo
   const { sessionId, resumeSessionId, deps } = args;
 
   try {
+    deps.codexBySession.get(sessionId)?.dispose();
     deps.codexBySession.delete(sessionId);
   } catch (cleanupErr) {
     logger.warn(

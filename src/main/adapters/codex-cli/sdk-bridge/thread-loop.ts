@@ -11,17 +11,20 @@
  *   （session-start → user msg → error → finished）
  * - earlyErrCb 路径与 closeSession / fallback 路径互斥，不出双 finished
  */
-import type { ThreadEvent } from '@openai/codex-sdk';
 import type { AgentEventKind, HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
-import { translateCodexEvent } from '@main/adapters/codex-cli/translate';
+import { translateCodexAppServerNotification } from '@main/adapters/codex-cli/app-server/translate';
 import {
-  handleCodexEventForLiveRate,
+  handleCodexAppServerNotificationForLiveRate,
   clearCodexLiveTokenEstimate,
 } from './live-token-rate';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { CodexBridgeOptions, InternalSession } from './types';
+import type {
+  CodexAppServerNotification,
+} from '../app-server/client';
+import { toCodexAppServerInput } from './input-pack';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-thread-loop');
@@ -252,8 +255,7 @@ export class ThreadLoop {
           });
         };
         try {
-          // codex SDK runStreamed 接 Input (= string | UserInput[])，类型自动适配
-          const { events } = await internal.thread.runStreamed(input, {
+          const { events } = await internal.thread.runStreamed(toCodexAppServerInput(input), {
             signal: controller.signal,
           });
           for await (const ev of events) {
@@ -341,13 +343,17 @@ export class ThreadLoop {
                 earlyErrCb = undefined;
               }
             }
-            handleCodexEventForLiveRate(ev as ThreadEvent, internal, internal.applicationSid);
-            translateCodexEvent(ev as ThreadEvent, emit, {
-              // plan §Phase 1 A4b：codex turn.completed 不带 model，token-usage 采集从
-              // sessions.model 取（A4c 已让新建路径 effective model 永非 null）。applicationSid
-              // 是应用稳定身份维度（与 emit sessionId 一致）。
-              model: sessionRepo.get(internal.applicationSid)?.model ?? null,
-            });
+            if (ev.type === 'server.notification') {
+              this.trackCurrentTurnId(internal, ev.notification);
+              handleCodexAppServerNotificationForLiveRate(
+                ev.notification,
+                internal,
+                internal.applicationSid,
+              );
+              translateCodexAppServerNotification(ev.notification, emit, {
+                model: sessionRepo.get(internal.applicationSid)?.model ?? null,
+              });
+            }
           }
         } catch (err) {
           // REVIEW_4 H1+M5：被 closeSession / 30s timeout fallback 主动 abort 的，静默退出。
@@ -377,10 +383,46 @@ export class ThreadLoop {
           }
         } finally {
           internal.currentTurn = null;
+          internal.currentTurnId = null;
         }
       }
     } finally {
       internal.turnLoopRunning = false;
     }
   }
+
+  private trackCurrentTurnId(
+    internal: InternalSession,
+    notification: CodexAppServerNotification,
+  ): void {
+    if (notification.method === 'turn/started') {
+      const turnId = readTurnId(notification);
+      if (turnId) internal.currentTurnId = turnId;
+      return;
+    }
+    if (notification.method === 'turn/completed') {
+      const turnId = readTurnId(notification);
+      if (!turnId || turnId === internal.currentTurnId) {
+        internal.currentTurnId = null;
+      }
+      return;
+    }
+    if (notification.method === 'error') {
+      const params = notification.params as { willRetry?: unknown; turnId?: unknown } | undefined;
+      if (params?.willRetry === true) return;
+      const turnId = typeof params?.turnId === 'string' ? params.turnId : null;
+      if (!turnId || turnId === internal.currentTurnId) {
+        internal.currentTurnId = null;
+      }
+    }
+  }
+}
+
+function readTurnId(notification: CodexAppServerNotification): string | null {
+  const params = notification.params;
+  if (!params || typeof params !== 'object') return null;
+  const turn = (params as { turn?: { id?: unknown } }).turn;
+  if (turn && typeof turn.id === 'string') return turn.id;
+  const turnId = (params as { turnId?: unknown }).turnId;
+  return typeof turnId === 'string' ? turnId : null;
 }

@@ -99,9 +99,10 @@ function makeInternalSession(threadId: string): InternalSession {
     applicationSid: threadId,
     threadId,
     cwd: '/tmp/codex-cwd',
-    thread: makeFakeThread(),
+    thread: makeFakeThread() as unknown as InternalSession['thread'],
     pendingMessages: [],
     currentTurn: null,
+    currentTurnId: null,
     // **关键**:turnLoopRunning=true → bridge.sendMessage 跳过 void runTurnLoop 启动
     // (本 test 不验证 turn loop 行为,只关心 wire prefix 在 pendingMessages 与 emit 中的保留)
     turnLoopRunning: true,

@@ -48,7 +48,6 @@
  *    通过 ev.thread_id !== internal.threadId 触发 fork-detect → updateCliSessionId 把
  *    cli_session_id 列改成 SDK 真 thread_id;applicationSid (sessions.id) 不动 (不变量 1)。
  */
-import type { Thread } from '@openai/codex-sdk';
 import { sessionRepo } from '@main/store/session-repo';
 import { settingsStore } from '@main/store/settings-store';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
@@ -56,6 +55,7 @@ import { packCodexInput } from '../input-pack';
 import { buildCodexThreadOptions } from '../thread-options-builder';
 import { runCreateSessionRollback } from '../create-session-rollback';
 import type { InternalSession } from '../types';
+import type { CodexAppServerThread } from '../../app-server/client';
 import { validateCreateSessionOpts } from './create-session-validate';
 import { runCreateSessionResumePath } from './create-session-resume';
 import { runCreateSessionNewPath } from './create-session-new';
@@ -102,7 +102,7 @@ export async function createSessionImpl(
     const sandboxMode =
       opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
 
-    let thread: Thread;
+    let thread: CodexAppServerThread;
     // effectiveResumeThreadId 3 层兜底:caller 显式 > sessionRepo cliSessionId 中间层 >
     // applicationSid 末层。REVIEW_56 R2 reviewer-claude MED-Cross-Adapter-Parity 修法,
     // 保 cross-adapter 设计对称 + 防 future caller 漏传 silently fall back 到 applicationSid
@@ -176,6 +176,7 @@ export async function createSessionImpl(
       thread,
       pendingMessages: [firstInput],
       currentTurn: null,
+      currentTurnId: null,
       turnLoopRunning: false,
       intentionallyClosed: false,
     };

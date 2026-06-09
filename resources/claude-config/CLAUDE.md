@@ -17,6 +17,12 @@
 
 跨 adapter teammate 协作走 Agent Deck MCP tools。`send_message` 会经 universal-message-watcher 注入 receiver conversation；receiver 看到 user-role message 后直接处理，不主动轮询。
 
+### Codex mid-turn steering
+
+Agent Deck 的 Codex teammate 在 active 普通 turn 期间支持 mid-turn steering。用户对 Codex 当前工作的修正会直接注入该 Codex turn；收到修正的 Codex 应立即按最新指令调整，而不是把它当成下一轮排队消息。
+
+Steering 不适用于 Codex review / compact turn，也不是等待 teammate reply 的机制。Claude lead 等 Codex reviewer 或 teammate 回复时仍不主动轮询；看到 wire-prefixed user-role reply 后再继续处理。
+
 ### Task 进度
 
 多步骤工作、plan、review 或跨会话协作必须用 Agent Deck MCP task tools 跟踪进度；不要同时维护一套 Claude Code 原生 task list。

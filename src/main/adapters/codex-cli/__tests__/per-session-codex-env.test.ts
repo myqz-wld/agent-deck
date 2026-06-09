@@ -1,5 +1,5 @@
 /**
- * codex bridge per-session Codex 实例 + token map integration 单测
+ * codex bridge per-session app-server client + token map integration 单测
  * （plan codex-handoff-team-alignment-20260518 P2 Step 2.10 / TC5-7b）。
  *
  * 覆盖（v4 M2/L2/M7 race / leak case 全覆盖）：
@@ -14,8 +14,8 @@
  *   迁移（sessions Map / sdkOwned / token map / codexBySession Map）
  * - TC7b: session close → token map 应清空 + codexBySession Map 删 entry（M7 内存泄漏）
  *
- * 测试策略：用 TestCodexBridge 强制访问 private codexBySession Map + 注入 fake Codex
- * 实例（不真 spawn codex 子进程）;sessionManager mock 模拟 renameSdkSession hook 派发;
+ * 测试策略：用 TestCodexBridge 强制访问 private codexBySession Map + 注入 fake app-server
+ * client（不真 spawn codex 子进程）;sessionManager mock 模拟 renameSdkSession hook 派发;
  * mcpSessionTokenMap 是 module-level singleton 直接用真实模块。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,7 +64,7 @@ vi.mock('@main/adapters/codex-cli/sdk-loader', () => makeBareSdkLoaderMock());
 import { sessionManager } from '@main/session/manager';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { emits, makeBridge } from './sdk-bridge/_setup';
-import type { Codex } from '@openai/codex-sdk';
+import type { CodexAppServerClient } from '@main/adapters/codex-cli/app-server/client';
 import type { InternalSession } from '@main/adapters/codex-cli/sdk-bridge/types';
 
 beforeEach(() => {
@@ -78,11 +78,11 @@ afterEach(() => {
 });
 
 /**
- * Make a fake Codex instance (no real subprocess) — just an opaque object 给 tests
+ * Make a fake app-server client (no real subprocess) — just an opaque object 给 tests
  * 直接塞进 bridge.codexBySession Map 用于验证 rename / close 操作 Map key。
  */
-function makeFakeCodex(label: string): Codex {
-  return { __fakeCodexLabel: label } as unknown as Codex;
+function makeFakeCodex(label: string): CodexAppServerClient {
+  return { __fakeCodexLabel: label, dispose: vi.fn() } as unknown as CodexAppServerClient;
 }
 
 function makeInternalSession(threadId: string | null = null): InternalSession {
@@ -93,6 +93,7 @@ function makeInternalSession(threadId: string | null = null): InternalSession {
     thread: {} as InternalSession['thread'],
     pendingMessages: [],
     currentTurn: null,
+    currentTurnId: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
   };
@@ -116,12 +117,12 @@ describe('TC5: 多 codex session per-session token 不串（用中性变量名 S
     expect(mcpSessionTokenMap.get(SPIKE_LABEL_B)).toBe('codex-teammate-B');
   });
 
-  it('per-session Codex 实例 Map 独立持各 session entry（bridge.codexBySession 不串）', () => {
+  it('per-session app-server client Map 独立持各 session entry（bridge.codexBySession 不串）', () => {
     const bridge = makeBridge();
-    const codexBySession = (bridge as unknown as { codexBySession: Map<string, Codex> })
+    const codexBySession = (bridge as unknown as { codexBySession: Map<string, CodexAppServerClient> })
       .codexBySession;
 
-    // 模拟两 session 各起独立 Codex 实例（real ensureCodex 路径会做这件事）
+    // 模拟两 session 各起独立 app-server client（real ensureCodex 路径会做这件事）
     const codexA = makeFakeCodex('A');
     const codexB = makeFakeCodex('B');
     codexBySession.set('codex-teammate-A', codexA);
@@ -169,12 +170,12 @@ describe('TC7: sessionId rename → mcpSessionTokenMap.rename + codexBySession M
 
   it('bridge.renameCodexInstance(oldId, newId) → codexBySession Map key 同步迁移', () => {
     const bridge = makeBridge();
-    const codexBySession = (bridge as unknown as { codexBySession: Map<string, Codex> })
+    const codexBySession = (bridge as unknown as { codexBySession: Map<string, CodexAppServerClient> })
       .codexBySession;
     const oldSid = 'codex-temp-sid';
     const newSid = 'codex-real-thread-id';
 
-    // 模拟新建路径 ensureCodex(tempKey, token) 把 Codex 实例放进 Map
+    // 模拟新建路径 ensureCodex(tempKey, token) 把 app-server client 放进 Map
     const codex = makeFakeCodex('initial');
     codexBySession.set(oldSid, codex);
 
@@ -182,14 +183,14 @@ describe('TC7: sessionId rename → mcpSessionTokenMap.rename + codexBySession M
     // 派发 hook → bridge.renameCodexInstance（不变量 7 接入点）
     bridge.renameCodexInstance(oldSid, newSid);
 
-    // codexBySession Map 同步迁移：oldSid delete + newSid set 同一 Codex 实例
+    // codexBySession Map 同步迁移：oldSid delete + newSid set 同一 app-server client
     expect(codexBySession.has(oldSid)).toBe(false);
     expect(codexBySession.get(newSid)).toBe(codex);
   });
 
   it('renameCodexInstance: oldId 不在 Map（claude adapter / 已 release）→ 静默 no-op', () => {
     const bridge = makeBridge();
-    const codexBySession = (bridge as unknown as { codexBySession: Map<string, Codex> })
+    const codexBySession = (bridge as unknown as { codexBySession: Map<string, CodexAppServerClient> })
       .codexBySession;
 
     // 不抛错 + Map 仍空
@@ -199,7 +200,7 @@ describe('TC7: sessionId rename → mcpSessionTokenMap.rename + codexBySession M
 
   it('renameCodexInstance: newId 已经在 Map（理论不应发生; 不覆盖防丢已 spawn 子进程引用）', () => {
     const bridge = makeBridge();
-    const codexBySession = (bridge as unknown as { codexBySession: Map<string, Codex> })
+    const codexBySession = (bridge as unknown as { codexBySession: Map<string, CodexAppServerClient> })
       .codexBySession;
     const oldSid = 'old';
     const newSid = 'new-existing';
@@ -220,7 +221,7 @@ describe('TC7: sessionId rename → mcpSessionTokenMap.rename + codexBySession M
 describe('TC7b: session close → token map 应清空 + codexBySession Map 删 entry（M7 内存泄漏）', () => {
   it('closeSession(sid) → codexBySession.delete + mcpSessionTokenMap.release 双轨清理', async () => {
     const bridge = makeBridge();
-    const codexBySession = (bridge as unknown as { codexBySession: Map<string, Codex> })
+    const codexBySession = (bridge as unknown as { codexBySession: Map<string, CodexAppServerClient> })
       .codexBySession;
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
 
@@ -248,7 +249,7 @@ describe('TC7b: session close → token map 应清空 + codexBySession Map 删 e
 
   it('closeSession: sid != threadId（fork 场景）→ 两个 key 都 release（边角覆盖）', async () => {
     const bridge = makeBridge();
-    const codexBySession = (bridge as unknown as { codexBySession: Map<string, Codex> })
+    const codexBySession = (bridge as unknown as { codexBySession: Map<string, CodexAppServerClient> })
       .codexBySession;
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
 
@@ -277,7 +278,7 @@ describe('TC7b: session close → token map 应清空 + codexBySession Map 删 e
 
   it('closeSession: sid 不在 sessions Map → 直接 return（不清 token / codexBySession，防误删别 session）', async () => {
     const bridge = makeBridge();
-    const codexBySession = (bridge as unknown as { codexBySession: Map<string, Codex> })
+    const codexBySession = (bridge as unknown as { codexBySession: Map<string, CodexAppServerClient> })
       .codexBySession;
 
     // 别 session 在 codexBySession + token map（不应被本次 close 误删）
@@ -297,10 +298,10 @@ describe('TC7b: session close → token map 应清空 + codexBySession Map 删 e
 describe('TC8 (bonus): setCodexCliPath → codexBySession Map clear 整个（已 spawn 子进程不受影响）', () => {
   it('setCodexCliPath 清整 Map（v4 P2 Sub-step 2.5e 重组）', () => {
     const bridge = makeBridge();
-    const codexBySession = (bridge as unknown as { codexBySession: Map<string, Codex> })
+    const codexBySession = (bridge as unknown as { codexBySession: Map<string, CodexAppServerClient> })
       .codexBySession;
 
-    // setup: 3 个 session 各持 Codex 实例
+    // setup: 3 个 session 各持 app-server client
     codexBySession.set('s1', makeFakeCodex('s1'));
     codexBySession.set('s2', makeFakeCodex('s2'));
     codexBySession.set('s3', makeFakeCodex('s3'));

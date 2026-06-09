@@ -2,6 +2,7 @@ import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { normalizeModel } from '@shared/model-normalize';
 import type { ThreadEvent, ThreadItem } from '@openai/codex-sdk';
+import type { CodexAppServerNotification } from '../app-server/client';
 import type { InternalSession, CodexLiveTokenEstimateState } from './types';
 
 const THROTTLE_MS = 250;
@@ -94,6 +95,22 @@ function ingestCompletedOrUpdatedText(
   emitLiveTick(internal, sessionId, state, state.estTokensSinceFlush / (elapsedMs / 1000), now);
 }
 
+function ingestDeltaText(
+  internal: InternalSession,
+  sessionId: string,
+  deltaText: string,
+  now: number,
+): void {
+  if (!deltaText) return;
+  const state = internal.codexLiveTokenEstimate ?? armEstimate(internal, sessionId, now);
+  state.estTokensSinceFlush += estimateTokensFromText(deltaText);
+
+  const elapsedMs = now - state.lastFlushTs;
+  if (elapsedMs < THROTTLE_MS) return;
+
+  emitLiveTick(internal, sessionId, state, state.estTokensSinceFlush / (elapsedMs / 1000), now);
+}
+
 function emitCompletionUsageTick(
   ev: Extract<ThreadEvent, { type: 'turn.completed' }>,
   internal: InternalSession,
@@ -148,6 +165,120 @@ export function handleCodexEventForLiveRate(
   } catch {
     // Display-only estimation must never interrupt event translation.
   }
+}
+
+export function handleCodexAppServerNotificationForLiveRate(
+  notification: CodexAppServerNotification,
+  internal: InternalSession,
+  sessionId: string,
+  now = Date.now(),
+): void {
+  try {
+    if (notification.method === 'turn/started') {
+      armEstimate(internal, sessionId, now);
+      return;
+    }
+
+    if (
+      notification.method === 'item/agentMessage/delta' ||
+      notification.method === 'item/reasoning/textDelta' ||
+      notification.method === 'item/reasoning/summaryTextDelta'
+    ) {
+      const delta = readStringField(notification.params, 'delta');
+      ingestDeltaText(internal, sessionId, delta, now);
+      return;
+    }
+
+    if (notification.method === 'item/completed') {
+      ingestAppServerCompletedText(notification.params, internal, sessionId, now);
+      return;
+    }
+
+    if (notification.method === 'thread/tokenUsage/updated') {
+      emitAppServerUsageTick(notification.params, internal, sessionId, now);
+      return;
+    }
+
+    if (notification.method === 'turn/completed') {
+      clearCodexLiveTokenEstimate(internal, sessionId, now);
+      return;
+    }
+
+    if (notification.method === 'error') {
+      const params = notification.params as { willRetry?: unknown } | undefined;
+      if (params?.willRetry !== true) clearCodexLiveTokenEstimate(internal, sessionId, now);
+    }
+  } catch {
+    // Display-only estimation must never interrupt event translation.
+  }
+}
+
+function ingestAppServerCompletedText(
+  params: unknown,
+  internal: InternalSession,
+  sessionId: string,
+  now: number,
+): void {
+  const item = readObjectField(params, 'item');
+  if (!item) return;
+  const type = item.type;
+  if (type === 'agentMessage') {
+    ingestDeltaText(internal, sessionId, readStringField(item, 'text'), now);
+    return;
+  }
+  if (type === 'reasoning') {
+    const content = readStringArrayField(item, 'content');
+    const summary = readStringArrayField(item, 'summary');
+    ingestDeltaText(
+      internal,
+      sessionId,
+      content.length > 0 ? content.join('\n') : summary.join('\n'),
+      now,
+    );
+  }
+}
+
+function emitAppServerUsageTick(
+  params: unknown,
+  internal: InternalSession,
+  sessionId: string,
+  now: number,
+): void {
+  const state = internal.codexLiveTokenEstimate;
+  if (!state) return;
+  const tokenUsage = readObjectField(params, 'tokenUsage');
+  const last = readObjectField(tokenUsage, 'last');
+  if (!last) return;
+  const elapsedMs = Math.max(now - state.turnStartedTs, THROTTLE_MS);
+  const outputTokens =
+    readNumberField(last, 'outputTokens') + readNumberField(last, 'reasoningOutputTokens');
+  emitLiveTick(internal, sessionId, state, outputTokens / (elapsedMs / 1000), now, false);
+}
+
+function readObjectField(value: unknown, key: string): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const field = (value as Record<string, unknown>)[key];
+  return field && typeof field === 'object' && !Array.isArray(field)
+    ? (field as Record<string, unknown>)
+    : null;
+}
+
+function readStringField(value: unknown, key: string): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === 'string' ? field : '';
+}
+
+function readNumberField(value: unknown, key: string): number {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === 'number' && Number.isFinite(field) ? field : 0;
+}
+
+function readStringArrayField(value: unknown, key: string): string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  const field = (value as Record<string, unknown>)[key];
+  return Array.isArray(field) ? field.filter((x): x is string => typeof x === 'string') : [];
 }
 
 /** Turn 失败 / 用户中断时清掉生成中展示态，emit done:true 让 renderer 移除该 session 的 live 条目。 */

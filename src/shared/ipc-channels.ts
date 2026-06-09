@@ -50,6 +50,7 @@ export const IpcInvoke = {
   AdapterCreateSession: 'adapter:create-session',
   AdapterInterrupt: 'adapter:interrupt',
   AdapterSendMessage: 'adapter:send-message',
+  AdapterSteerTurn: 'adapter:steer-turn',
   AdapterRespondPermission: 'adapter:respond-permission',
   AdapterRespondAskUserQuestion: 'adapter:respond-ask-user-question',
   AdapterRespondExitPlanMode: 'adapter:respond-exit-plan-mode',

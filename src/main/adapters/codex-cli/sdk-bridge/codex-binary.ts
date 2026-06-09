@@ -31,9 +31,12 @@
  * `app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/...`，本函数定位到那里。
  */
 import { existsSync, statSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { createRequire } from 'node:module';
+import { delimiter, dirname, join } from 'node:path';
 import { app } from 'electron';
 import type { BundledBinarySpec } from './types';
+
+const requireFromHere = createRequire(__filename);
 
 const PLATFORM_BINARY_MAP: Record<string, BundledBinarySpec | undefined> = {
   'darwin-arm64': { pkgDir: 'codex-darwin-arm64', triple: 'aarch64-apple-darwin', binName: 'codex' },
@@ -63,7 +66,7 @@ const PLATFORM_BINARY_MAP: Record<string, BundledBinarySpec | undefined> = {
 /** packaged app 内 `<vendor>/<triple>` 目录绝对路径；dev / 不支持平台 → null。 */
 function bundledVendorTripleDir(): string | null {
   if (!app.isPackaged) return null;
-  const spec = PLATFORM_BINARY_MAP[`${process.platform}-${process.arch}`];
+  const spec = currentPlatformSpec();
   if (!spec) return null;
   return join(
     process.resourcesPath,
@@ -74,6 +77,25 @@ function bundledVendorTripleDir(): string | null {
     'vendor',
     spec.triple,
   );
+}
+
+function currentPlatformSpec(): BundledBinarySpec | undefined {
+  return PLATFORM_BINARY_MAP[`${process.platform}-${process.arch}`];
+}
+
+function unpackAsarPath(raw: string): string {
+  return raw.replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2');
+}
+
+function nodeModulesVendorTripleDir(): string | null {
+  const spec = currentPlatformSpec();
+  if (!spec) return null;
+  try {
+    const pkgJson = requireFromHere.resolve(`@openai/${spec.pkgDir}/package.json`);
+    return unpackAsarPath(join(dirname(pkgJson), 'vendor', spec.triple));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -100,7 +122,7 @@ function isNewLayout(vendorTripleDir: string, binName: string): boolean {
 export function resolveBundledCodexBinary(): string | null {
   const vendorTripleDir = bundledVendorTripleDir();
   if (!vendorTripleDir) return null;
-  const spec = PLATFORM_BINARY_MAP[`${process.platform}-${process.arch}`];
+  const spec = currentPlatformSpec();
   if (!spec) return null;
   // vendor 双布局（与 SDK resolveNativePackage 同款先 new 后 legacy）：
   // new (0.135+) = vendor/<triple>/bin/<binName> + codex-package.json；legacy (≤0.134) = vendor/<triple>/codex/<binName>
@@ -110,6 +132,21 @@ export function resolveBundledCodexBinary(): string | null {
   return null;
 }
 
+export function resolveNodeModulesCodexBinary(): string | null {
+  const vendorTripleDir = nodeModulesVendorTripleDir();
+  if (!vendorTripleDir) return null;
+  const spec = currentPlatformSpec();
+  if (!spec) return null;
+  if (isNewLayout(vendorTripleDir, spec.binName)) return join(vendorTripleDir, 'bin', spec.binName);
+  const legacyLayout = join(vendorTripleDir, 'codex', spec.binName);
+  if (isFile(legacyLayout)) return legacyLayout;
+  return null;
+}
+
+export function resolveCodexBinary(): string | null {
+  return resolveBundledCodexBinary() ?? resolveNodeModulesCodexBinary();
+}
+
 /**
  * bundled codex helper PATH 目录（含 ripgrep 等）。与二进制双布局对齐：new=codex-path / legacy=path。
  * 仅返回**实际存在**的目录（与 SDK `existingDirs` 同语义）；dev / 不支持平台 / 目录缺失 → []。
@@ -117,7 +154,7 @@ export function resolveBundledCodexBinary(): string | null {
 export function resolveBundledCodexPathDirs(): string[] {
   const vendorTripleDir = bundledVendorTripleDir();
   if (!vendorTripleDir) return [];
-  const spec = PLATFORM_BINARY_MAP[`${process.platform}-${process.arch}`];
+  const spec = currentPlatformSpec();
   if (!spec) return [];
   // 与 resolveBundledCodexBinary 共用 isNewLayout 双条件判定（new → codex-path/；legacy → path/）。
   // 必须用 spec.binName（win32 = codex.exe）—— 硬编码 'codex' 会让 win32 new 布局误判 legacy → 返 []。
@@ -125,6 +162,23 @@ export function resolveBundledCodexPathDirs(): string[] {
     ? join(vendorTripleDir, 'codex-path')
     : join(vendorTripleDir, 'path');
   return existsSync(candidate) ? [candidate] : [];
+}
+
+export function resolveNodeModulesCodexPathDirs(): string[] {
+  const vendorTripleDir = nodeModulesVendorTripleDir();
+  if (!vendorTripleDir) return [];
+  const spec = currentPlatformSpec();
+  if (!spec) return [];
+  const candidate = isNewLayout(vendorTripleDir, spec.binName)
+    ? join(vendorTripleDir, 'codex-path')
+    : join(vendorTripleDir, 'path');
+  return existsSync(candidate) ? [candidate] : [];
+}
+
+export function resolveCodexPathDirs(): string[] {
+  const bundled = resolveBundledCodexPathDirs();
+  if (bundled.length > 0) return bundled;
+  return resolveNodeModulesCodexPathDirs();
 }
 
 /**
@@ -153,6 +207,22 @@ export function prependBundledCodexPathDirs(
   platform: NodeJS.Platform = process.platform,
 ): void {
   const pathDirs = resolveBundledCodexPathDirs();
+  prependCodexPathDirs(env, pathDirs, platform);
+}
+
+export function prependResolvedCodexPathDirs(
+  env: Record<string, string>,
+  platform: NodeJS.Platform = process.platform,
+): void {
+  const pathDirs = resolveCodexPathDirs();
+  prependCodexPathDirs(env, pathDirs, platform);
+}
+
+function prependCodexPathDirs(
+  env: Record<string, string>,
+  pathDirs: string[],
+  platform: NodeJS.Platform,
+): void {
   if (pathDirs.length === 0) return;
   const pathKey = pathEnvKey(env, platform);
   if (platform === 'win32') {

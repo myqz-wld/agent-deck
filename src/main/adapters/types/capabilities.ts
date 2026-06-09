@@ -7,6 +7,7 @@ export interface AdapterCapabilities {
   canCreateSession: boolean;
   canInterrupt: boolean;
   canSendMessage: boolean;
+  canSteerTurn?: boolean;
   canInstallHooks: boolean;
   canRespondPermission: boolean;
   canSetPermissionMode: boolean;
