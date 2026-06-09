@@ -60,8 +60,8 @@ partition "段 2: cwd + jsonl 兜底链 (按 adapter 分叉)" {
       end
     endif
     note right
-      典型触发: caller 取消归档继续给已收口 plan-driven session 发消息
-      / 用户手动 git worktree remove 不走 archive_plan
+      典型触发: caller 继续给 cwd 已删除的旧 session 发消息
+      / 用户手动 git worktree remove
       / 跨设备同步丢目录
     end note
 

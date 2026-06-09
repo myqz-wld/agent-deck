@@ -55,7 +55,7 @@ state "DB lifecycle + 归档\n(正交两维)" as DbLifecycle {
   DbActive --> DbClosed : 显式 shutdown
   DbClosed --> [*] : TTL GC (CASCADE 删子表)
 
-  DbActive --> DbArchived : baton (archive_plan / hand_off)
+  DbActive --> DbArchived : UI / legacy archive flag
   DbArchived --> DbActive : 自愈触发取消归档
 }
 

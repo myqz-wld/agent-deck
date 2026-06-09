@@ -110,30 +110,16 @@ export function MessageBubble({
   const isError = !!p.error;
   const isUser = role === 'user';
   const attachments = isUser && Array.isArray(p.attachments) ? p.attachments : null;
-  // plan §Phase 2 Step 2.3 Hand-off badge:metadata 优先级链
-  // 1. payload.handOff 有值 → 用 metadata.mode 作 badge 文字 + tooltip 含 planId / phaseLabel / fromCallerSid
-  // 2. payload.handOff 无值 + marker 命中(向后兼容 old events / 不走本 plan plumbing 的 spawn 路径)→
-  //    fallback `Hand-off · {kind}`(kind = 'spawn' | 'adopt')
-  // 3. metadata 与 marker 都没命中 → 不显示 badge
   const handOffMeta = isUser ? p.handOff : undefined;
-  const modeLabel = (m: string): string => (m === 'plan' ? '计划' : m === 'generic' ? '普通' : m);
-  // handOffMeta 是真正的 hand_off_session metadata(plan/generic 模式) — 标「接力」。
-  // handOffKind 是 parseHandOffContext 识别的 marker(spawn = spawn_session 给 teammate 注入 lead context;
-  // adopt = hand_off_session adopt_teammates: true 接管 team 上下文)。
-  // spawn 不是 hand_off,标「上下文」避免与「接力」语义混淆;adopt 仍属 hand_off 路径。
   const handOffBadgeLabel = handOffMeta
-    ? `接力 · ${modeLabel(handOffMeta.mode)}`
+    ? '接力 · 会话'
     : handOffContext && handOffKind
       ? handOffKind === 'spawn'
         ? '上下文 · 派遣'
         : '接力 · 接管'
       : null;
   const handOffBadgeTooltip = handOffMeta
-    ? `模式：${modeLabel(handOffMeta.mode)}${handOffMeta.planId ? ` · 计划：${handOffMeta.planId}` : ''}${
-        handOffMeta.phaseLabel ? ` · 阶段：${handOffMeta.phaseLabel}` : ''
-      } · 来源会话：${handOffMeta.fromCallerSid.slice(0, 8)}${
-        handOffMeta.hasAdoptedBlock ? ' · 已接管团队' : ''
-      }`
+    ? `会话接力 · 来源会话：${handOffMeta.fromCallerSid.slice(0, 8)}`
     : null;
   // adoptedBlock summary 文案区分(plan §Phase 2 Step 2.3):spawn 是 spawn_session 注入
   // lead context(非 hand-off),adopt 是 hand_off_session.adopt_teammates:true 真接力。

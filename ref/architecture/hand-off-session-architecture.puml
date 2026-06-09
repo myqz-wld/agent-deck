@@ -1,102 +1,46 @@
-' description: hand_off_session tool 模块架构 — 5 大块,baton 接力主链路
-' last_updated: 2026-05-29
+' plan: mcp-handoff-worktree-redesign-20260609
+' description: hand_off_session module architecture
+' last_updated: 2026-06-09
 @startuml hand-off-session-architecture
 
-title hand_off_session — 模块架构 (baton 接力 5 大块)
+title hand_off_session — module architecture
 
-' 节点名用日常术语优先,内部 module 名 / 函数名 / LOC / commit / REVIEW 引用见 INDEX
-
-package "入口" as L1 {
-  [MCP 入口 + 入口拦截\n(deny external)] as Entry
+package "MCP entry" {
+  [withMcpGuard\n(deny external)] as Guard
+  [hand-off-session\nhandler-main] as Handler
 }
 
-package "tool 实现" as L2 {
-  [hand_off facade\n(参数解析 + cwd 反查 + adopt loop)] as Handler
-  [plan resolve 业务层\n(读 plan + 校验 + 构造 cold start prompt)] as Impl
-  [adopt context block\n(注入接管的 team 列表到 spawn prompt)] as AdoptCtx
+package "Session creation" {
+  [spawn_session handler] as Spawn
+  [adapter createSession\nClaude / Codex] as Adapter
 }
 
-note bottom of L2
-  L2 子模块拆分 (hand-off-session.ts:1-37 jsdoc 列 6 子模块):
-  - **facade** (handler.ts 主入口)
-  - **_deps** (内部依赖 wiring)
-  - **cwd-resolver** (cwd 反查 + 双模式 cwd 默认值)
-  - **team-adopt-coordinator** (adopt loop + swapLead 转角色)
-  - **task-reassign-coordinator** (clear-team / preserve-team / skip 三态过继)
-  - **handler-main** (串联 prepareAdopt → spawn → phase1.5 swapLead → runTaskReassignment)
-end note
-
-package "起新 session" as L3 {
-  [spawn 控制器\n(handOffMode=true 跳防御 + 不写 spawn-link)] as Spawn
-  [adapter + SDK 子进程\n(claude / codex)] as Adapter
+package "Resource transfer" {
+  [resource-transfer\ncoordinator] as Transfer
+  [sessionRepo\ncwd marker] as Sessions
+  [agentDeckTeamRepo\nmemberships] as Teams
+  [taskRepo\nreassignOwner] as Tasks
 }
 
-package "baton 收尾" as L4 {
-  [baton 收尾流程\n(phase 1 关 teammate + phase 2 归档 caller)] as Baton
+package "Close caller" {
+  [sessionManager.close] as Close
+  [closed side effects\nclear marker + leave teams] as SideEffects
 }
 
-package "持久层 + 联动" as L5 {
-  [4 张数据表\n(会话 / 团队 / 任务)] as Repos
-  [会话管理器 + 事件总线] as SM
-  folder "plan 文件 + worktree" as Fs
-}
+Guard --> Handler
+Handler --> Spawn : prompt + cwd + handOff metadata
+Spawn --> Adapter
+Adapter --> Sessions : successor session row
+Handler --> Transfer
+Transfer --> Sessions : move marker
+Transfer --> Teams : swapLead / addMember
+Transfer --> Tasks : preserve-team task reassignment
+Handler --> Close
+Close --> SideEffects
 
-' ─── 调用链 ───
-
-Entry --> Handler : 通过白名单后进 facade
-Handler --> Repos : 反查 caller cwd
-Handler --> Impl : plan-driven 模式调 plan resolve
-Impl --> Fs : 按 fallback 链找 plan 文件
-Impl --> Handler : 返 plan 元数据 + cold start prompt
-
-note right of Handler
-  双模式分流 (plan-driven vs generic) 细节
-  详 hand-off-session-flow / decision 图
-end note
-
-Handler --> Spawn : 起新 SDK session
-Spawn --> Adapter : claude / codex adapter
-Adapter --> SM : upsert 新 session + emit event
-
-Handler --> AdoptCtx : (pre-spawn) adopt_teammates=true → prepareAdoptSnapshotAndPrompt 装 adopt block 注入 spawn prompt
-Handler --> Repos : (post-spawn) adopt_teammates=true → phase 1.5 runPhase15AdoptSwapLeadLoop 转交 lead 角色
-Handler --> Repos : runTaskReassignment 改 task ownership (clear / preserve / skip 三态)
-note right of Repos
-  实际调用顺序 (handler-main.ts:178-306):
-  prepareAdoptSnapshotAndPrompt (pre-spawn)
-    → spawn (handOffMode=true)
-    → phase 1.5 runPhase15AdoptSwapLeadLoop (post-spawn swapLead)
-    → runTaskReassignment (按 team_task_policy 三态过继)
-  preserve-team warning 依赖 phase15Detail.adoptedTeamIds
-end note
-
-Handler --> Baton : runBatonCleanup
-Baton --> SM : phase 1 关 teammate (excludeSessionIds={newSid})
-Baton --> Repos : phase 2 归档 caller session
-Baton --> Handler : 返 cleanup 结果
-Handler --> Entry : ok({sessionId, archived, adopted, taskReassignment, ...})
-
-' ─── 关键不变量 ───
-
-note bottom of Spawn
-  关键不变量:
-  - handOffMode=true → 跳 spawn-guards 三道防御 + 永不写 spawn-link
-  - hand-off 是平级接力 (不是派遣关系),SessionList 不挂 teammate badge
-  - plan-driven + external worktree (worktree 不在 mainRepo 子树) →
-    handler 自动把 mainRepo 加进 spawn args.extra_allow_write
-    (claude-code workspace-write 沙盒额外 writable roots,新 session 能写 plan 文件)
-end note
-
-note bottom of Baton
-  与 archive_plan 共享 baton 流程(同 helper)
-  phase 1 跳过条件 (6 状态完整 enum, baton-cleanup.ts:166-174 + shutdown-teammates-on-baton.ts:147,179):
-  - **null**(成功路径含 closed=[] 的 caller=lead 但 team 内无其他 active teammate)
-  - **'adopt-keep-implicit'**(adopt_teammates=true → teammate 已转给 newSid; Phase 4 引入)
-  - **'archive-caller-false-keep'**(archive_caller=false → caller 保活; CHANGELOG_169 F4 引入)
-  - **'caller-not-lead'**(caller 不是 lead 含 external sentinel)
-  - **'all-lead-teams-archived'**(caller 是 lead 但所有 team 已 archived; REVIEW_56 §F6 R2 修法)
-  - **'phase-1-error'**(phase 1 内部 throw 兜底; REVIEW_56 §F6 Plan-Review Round 2 codex MED-3)
-  失败兜底见 hand-off-session-state-machine 图
+note bottom
+  Plan files and project archival records are outside this MCP tool.
+  External skills or project conventions orchestrate those assets through prompt text.
 end note
 
 @enduml

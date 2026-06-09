@@ -1,113 +1,33 @@
-' description: archive_plan precheck 8 分支决策 + 4 子模块原子收口 + baton cleanup 决策树
-' last_updated: 2026-05-29
+' plan: mcp-handoff-worktree-redesign-20260609
+' description: Retired archive_plan decision boundary.
+' last_updated: 2026-06-09
+' ARCHIVED: archive_plan precheck decisions no longer apply to the public MCP tool set.
 @startuml archive-plan-precheck-decision
 
-title archive_plan — 决策树 (3 段: precheck 8 分支 / 4 子模块收口 / cleanup)
+title archive_plan — retired decision boundary
 
 start
 
-:Caller invoke archive_plan(plan_id, worktree_path, base_branch?, ...);
+:SDK agent needs to close out plan-shaped work;
+:Check Agent Deck MCP registry;
 
-if (入口拦截器: 白名单允许?) then (no)
-  :reject (deny external — 写 git + 删 worktree 高风险);
-  end
+if (archive_plan is registered?) then (no)
+  :Use the active project or skill closeout workflow;
+  :Preserve or record code changes according to that workflow;
+  if (worktree cleanup is needed?) then (yes)
+    :Call exit_worktree(worktreePath?, discardChanges?, deleteBranch?);
+  else (no)
+    :Leave filesystem state as the project workflow requires;
+  endif
+else (yes)
+  :Not a current Agent Deck path;
 endif
 
-:反查 caller cwd / cwdReleaseMarker (DB);
-note right
-  DB throw / row null → fail-open + warnings.push hint
-end note
-
-' ─── 段 1: 8 分支笛卡尔预检 ───
-partition "段 1: precheck 8 分支决策 (笛卡尔积 cwdValid × inWorktree × markerReal)" {
-  if (cwd valid?) then (yes)
-    if (cwd 在 worktree 内?) then (yes — inWorktree)
-      if (marker==worktreePath?) then (yes)
-        :pass (跨 adapter codex 端) + releaseMarkerOnSuccess=true;
-      elseif (marker==null?) then (yes)
-        :reject (cwd-resilience guard\n→ caller 必须先 ExitWorktree(keep));
-        end
-      else (marker 指其他 worktree)
-        :reject (cross-worktree archive 不允许\n→ caller 先 exit_worktree(markerReal) 清 marker\n或用匹配 marker 的 worktree_path 调 archive_plan);
-        end
-      endif
-    else (no — !inWorktree)
-      if (marker==worktreePath?) then (yes)
-        :pass (残留 mcp marker, builtin ExitWorktree 不清\n→ caller 持本 worktree marker 但 cd 出去) + releaseMarkerOnSuccess=true + warn;
-      elseif (marker==null?) then (yes)
-        :pass (默认 caller 已 ExitWorktree keep / 历史 plan / 手工建);
-      else (marker 指其他 worktree)
-        :warn 不释放 marker (releaseMarkerOnSuccess=false) → pass;
-      endif
-    endif
-  else (no — cwd invalid)
-    if (marker==worktreePath?) then (yes)
-      :pass + releaseMarkerOnSuccess=true (cross-device sync miss 兜底);
-    else (marker 指其他 / null)
-      :reject;
-      end
-    endif
-  endif
-
-  if (plan status=in_progress + worktree clean + base_branch checkout 安全?) then (no)
-    :reject (plan 已完成 / dirty / detached HEAD);
-    end
-  endif
-  if (mainRepo 3 critical paths dirty? archivedPath / indexPath / planFilePath) then (yes)
-    :reject (soft hint 引导 caller fix 后重 invoke\n或走手工 5 步 + shutdown_baton_teammates 补 phase 1);
-    end
-  endif
-  if (plan_id ↔ worktree_path frontmatter cross-check OK?) then (no)
-    :reject (防 silent corruption 双 plan 一起死);
-    end
-  endif
-}
-
-' ─── 段 2: 4 子模块原子收口 ───
-partition "段 2: 4 子模块原子收口 (precheck/ff-merge 前失败可 retry; post-ff-merge 失败 manual recovery 无自动 rollback)" {
-  :runFfMerge Step 7-8c: git checkout base_branch + ff-merge worktree-<plan_id>;
-  note left
-    base_branch resolution chain:
-    caller args.base_branch > plan frontmatter.base_branch > "main" fallback
-    强烈建议 plan frontmatter 显式写 base_branch (避免 ff-merge 错合主线污染)
-    ff-merge 失败 → return error + phaseHint 给具体 manual recovery 决策树
-    ff-merge 成功后失败 → 进入 manual recovery,无自动 rollback
-  end note
-  :runArchiveFs Step 9: 写 plan frontmatter (status=completed + final_commit + completed_at);
-  :runArchiveFs Step 10: mv plan → ref/plans/<plan_id>.md;
-
-  if (<plan-artifact-dir>/spike-reports/ 存在?) then (yes)
-    :runArchiveFs Step 11: mv spike-reports/ → ref/plans/<plan_id>/;
-    note right
-      mv 失败 (EXDEV / perm) → warnings.push hint (不阻塞)
-    end note
-  endif
-
-  :runArchiveFs Step 12: sync INDEX (4 态 smart update: created / appended / updated / unchanged);
-  :runArchiveFs Step 12.5: git add + commit (pathspec 隔离 3 critical paths + spike-reports/);
-  :runCleanup Step 13: 清 cwdReleaseMarker (提前到 commit 后\n→ Step 14 失败时 marker 已清);
-  :runCleanup Step 14: git worktree remove + branch -D;
-}
-
-' ─── 段 3: baton cleanup ───
-partition "段 3: baton cleanup phase 1+2 (与 hand_off 共享 helper)" {
-  :phase 1: 关 caller 同 team 全部 teammate;
-  if (caller 是任一 team 的 lead?) then (no)
-    :teammatesShutdown.skipped='caller-not-lead';
-  else (yes)
-    :close (dedup 跨 team 共享 sid, per-sid try/catch 单个 fail 仅 warn);
-  endif
-
-  :phase 2: 归档 caller session;
-  if (archive throw / row missing?) then (yes)
-    :archived='failed' warn-only (不阻塞);
-  else (no)
-    :archived='ok';
-  endif
-}
-
-:return ok(archivedPath, commitHash, plansIndexAction, archived, teammatesShutdown,\n  warnings, spikeReportsArchived);
-
 stop
+
+note right
+  Plan files, changelog indexes, review records, and archive directories
+  are project assets. They are not Agent Deck MCP invariants.
+end note
 
 @enduml

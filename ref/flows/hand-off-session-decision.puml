@@ -1,102 +1,41 @@
-' description: hand_off_session 双模式分流 + adopt + task + cleanup 决策树
-' last_updated: 2026-05-29
+' plan: mcp-handoff-worktree-redesign-20260609
+' description: hand_off_session session baton decision tree
+' last_updated: 2026-06-09
 @startuml hand-off-session-decision
 
-title hand_off_session — 决策树 (3 段: 分流 / spawn+adopt / cleanup)
+title hand_off_session — session baton decision tree
 
 start
+:Caller invokes hand_off_session(prompt, cwd?, adapter?);
 
-:Caller invoke hand_off_session(args);
-
-if (入口拦截器: 白名单允许?) then (no)
-  :reject (deny external);
-  end
+if (caller is real in-process session?) then (no)
+  :reject;
+  stop
 endif
 
-:反查 caller cwd (DB);
+:load caller session row;
+if (cwd override or caller cwd exists?) then (no)
+  :reject before spawn;
+  stop
+endif
 
-' ─── 段 1: 双模式分流 ───
-partition "段 1: 双模式分流 (plan-driven vs generic)" {
-  if (plan_id 传?) then (yes — plan-driven)
-    :按 fallback 链找 plan 文件;
-    if (plan 文件存在 + status=in_progress + worktree_path 非空?) then (no)
-      :reject;
-      end
-    endif
-    :构造 cold start prompt "按 <plan-abs-path> 接力";
-    :cwd 默认 = mainRepo (cwd resilience);
-    note right
-      external worktree (worktree 不在 mainRepo 子树) →
-      handler 自动把 mainRepo 加进 spawn args.extra_allow_write
-      (claude-code workspace-write 沙盒额外 writable roots,
-       让新 SDK session 能写 plan 文件)
-    end note
-  else (no — generic)
-    :不调 plan resolve;
-    :cold start prompt = args.prompt 或默认;
-    :cwd 默认 = caller cwd;
-  endif
-  :cwd 兜底链 + 失效自动回退;
-}
+:spawn successor with handOff metadata;
+if (spawn failed or no successor sessionId?) then (yes)
+  :return spawn error;
+  stop
+endif
 
-' ─── 段 2: adopt 预检 + spawn + task 三态 ───
-partition "段 2: adopt 预检 (spawn 前 fail-fast) + spawn + task 三态" {
-  if (adopt_teammates=true?) then (yes)
-    :≥1 lead 硬约束: caller 必须至少在 1 个 team 是 lead;
-    if (caller 在所有 team 都不是 lead?) then (yes)
-      :reject (spawn 前 fail-fast — 不 spawn / 不 archive caller);
-      end
-    endif
-    :收集 archived team / archived teammate filter (排除 ghost);
-    :装 adopt context block → 注入 coldStartPromptForSDK;
-  endif
+:transfer worktree marker if caller has one;
+:transfer active team memberships;
+if (caller is team lead?) then (yes)
+  :swapLead caller -> successor;
+else (teammate)
+  :add successor as teammate;
+endif
 
-  :spawn 新 session (handOffMode=true → 跳防御 + 不写 spawn-link);
-  if (spawn 失败?) then (yes)
-    :reject;
-    end
-  endif
-
-  if (adopt_teammates=true?) then (yes)
-    :swapLead 转交 lead 角色 (per team loop, firstTeam 优先);
-    note right
-      firstTeam swap 失败 → 回滚 newSid + reject
-      非 firstTeam 失败 → 软失败继续 (failed.reason 透传)
-    end note
-  endif
-
-  if (archive_caller=false?) then (yes)
-    :task 过继 skip (caller 仍 own,policy 透传 advisory);
-  else (no)
-    :按 team_task_policy 三态过继 task\n(clear-team / preserve-team / skip);
-    note right
-      reassign throw 仅 warn 不阻塞
-      preserve-team + newSid 未 adopt 该 team →
-        policyWarning='preserve-team-unadopted-teams' + unadoptedTeamIds 透传
-    end note
-  endif
-}
-
-' ─── 段 3: cleanup ───
-partition "段 3: baton cleanup (与 archive_plan 共享 helper)" {
-  if (phase 1 跳过条件 (6 状态完整 enum):\n- adopt_teammates=true → 'adopt-keep-implicit'\n- archive_caller=false → 'archive-caller-false-keep'\n- caller 不是 lead (含 external sentinel) → 'caller-not-lead'\n- caller 是 lead 但所有 team 已 archived → 'all-lead-teams-archived'\n- phase 1 内部 throw → 'phase-1-error'\n- 成功路径 caller=lead + team 内无其他 active teammate → null
-?) then (yes)
-    :skip phase 1 (skipped=对应 6 状态之一);
-  else (no — 命中默认路径)
-    :phase 1: 关 caller 同 team 全部 teammate\n(excludeSessionIds={newSid} 防新 session 被一并关);
-  endif
-
-  if (archive_caller=false?) then (yes)
-    :skip phase 2 (caller 仍 active);
-  else (no)
-    :phase 2: 归档 caller session;
-    note right
-      archive throw → archived='failed' warn-only
-    end note
-  endif
-}
-
-:return ok(mode, sessionId, archived, adopted?, taskReassignment, ...);
+:reassign caller-owned tasks to successor with teamId preserved;
+:close caller session;
+:return ok with resourceTransfer and callerClosed;
 
 stop
 

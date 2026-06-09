@@ -170,11 +170,8 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
   // 但 R1 矩阵漏构造 handOff fixture → 若 narrow 删 `out.handOff = raw.handOff` 赋值, typecheck +
   // 测试都不挂(运行时盲区)。最小 HandOffMetadata fixture cast 补断言。
   const HANDOFF_FIXTURE = {
-    mode: 'generic',
-    planId: null,
-    phaseLabel: null,
+    mode: 'session',
     fromCallerSid: 'caller-sid',
-    hasAdoptedBlock: false,
   } as Parameters<typeof buildCreateSessionOptions>[1]['handOff'];
 
   it('claude arm: 全 caller-passthrough 字段透传 + codex-only 字段 filter', () => {

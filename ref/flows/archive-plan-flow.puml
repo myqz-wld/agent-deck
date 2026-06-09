@@ -1,96 +1,33 @@
-' description: archive_plan tool 4 子模块原子收口 sequence — 4 段 (入口 / 预检 / 收口 / cleanup)
-' last_updated: 2026-05-29
+' plan: mcp-handoff-worktree-redesign-20260609
+' description: Retired archive_plan public MCP flow boundary.
+' last_updated: 2026-06-09
+' ARCHIVED: archive_plan is no longer registered as a public Agent Deck MCP tool.
 @startuml archive-plan-flow
 
-title archive_plan — 4 子模块原子收口 sequence (precheck + ff-merge + archive-fs + cleanup)
+title archive_plan — retired public MCP flow
 
-actor Caller as C
-participant "archive_plan facade" as H
-participant "收口业务层\n(impl)" as I
-participant "预检助手 + INDEX 同步助手" as PC
-participant "数据表 (会话)" as DB
-participant "baton 收尾\n(关 teammate + 归档 caller)" as BC
-participant "会话管理器" as SM
-participant "git + fs" as IO
+actor "SDK agent" as Agent
+participant "Agent Deck MCP registry" as Registry
+participant "active project / skill workflow" as Skill
+participant "git + project files" as Git
+participant "exit_worktree" as Exit
 
-== 段 1: 入口 + 白名单 + cwd 反查 ==
+Agent -> Registry: list tools
+Registry --> Agent: no archive_plan tool
 
-C -> H: invoke(plan_id, worktree_path, base_branch?, plan_file_path?, changelog_id?)
-note right of H
-  入口拦截器: 白名单 deny external (写 git + 删 worktree 高风险)
-  fail-open: DB throw / row null → 退化 default + warnings.push
-end note
-H -> DB: 反查 caller cwd + cwdReleaseMarker
-DB --> H: { cwd, cwdReleaseMarker }
+Agent -> Skill: follow project or skill plan closeout rules
+Skill -> Git: merge, record changelog/review/plan artifacts as that project requires
+Skill -> Exit: remove worktree when changes are preserved or intentionally discarded
 
-== 段 2: 进 impl + precheck 8 分支决策 ==
-
-H -> I: archivePlanImpl(args, mergedDeps)
-I -> PC: runPrecheck (笛卡尔 cwdValid × inWorktree × markerReal 8 分支短路 + 其他预检)
-note right of PC
-  8 分支决策 (cwdValid × inWorktree × markerReal):
-  ① cwd valid + inWorktree + marker==worktreePath → pass + releaseMarkerOnSuccess (跨 adapter)
-  ② cwd valid + inWorktree + marker==null → reject (cwd-resilience guard)
-  ③ cwd valid + inWorktree + marker 指其他 worktree → reject (cross-worktree archive 不允许)
-  ④ cwd valid + !inWorktree + marker==worktreePath → pass + releaseMarkerOnSuccess
-  ⑤ cwd valid + !inWorktree + marker==null → pass (默认 caller 已 ExitWorktree keep)
-  ⑥ cwd valid + !inWorktree + marker 指其他 worktree → warn 不释放 marker
-  ⑦ cwd invalid + marker==worktreePath → pass + releaseMarkerOnSuccess
-  ⑧ cwd invalid + marker 指其他 → reject
-end note
-PC --> I: precheck OK + releaseMarkerOnSuccess 字段
-I -> IO: realpath + plan frontmatter parse (plan_id ↔ worktree_path cross-check)
-
-== 段 3: 4 子模块原子收口 (precheck/ff-merge 前失败可 retry; post-ff-merge 失败 manual recovery 无自动 rollback) ==
-
-I -> IO: runFfMerge Step 7-8c: git checkout base_branch + ff-merge worktree-<plan_id>
-note right of IO
-  base_branch resolution chain:
-  caller args.base_branch > plan frontmatter.base_branch > "main" fallback
-  强烈建议 plan frontmatter 显式写 base_branch
-  (避免 ff-merge 错合主线污染)
-  **失败兜底**: ff-merge 失败 → return error + phaseHint;ff-merge 成功后失败进入 manual recovery
-end note
-I -> IO: runArchiveFs Step 9: 写 plan frontmatter (status=completed + final_commit + completed_at)
-I -> IO: runArchiveFs Step 10: mv plan → ref/plans/<plan_id>.md
-
-opt spike-reports/ 存在 (Step 11)
-  I -> IO: runArchiveFs Step 11: mv spike-reports/ → ref/plans/<plan_id>/
-  note right of IO
-    mv 失败 (EXDEV / perm) → warnings.push hint (不阻塞)
-  end note
-end
-
-I -> PC: runArchiveFs Step 12: sync INDEX (smart update 4 态)
-note right of PC
-  4 态: created / appended / updated / unchanged
-  RMW 单飞锁防 TOCTOU 并发写丢
-end note
-PC --> I: plansIndexAction
-
-I -> IO: runArchiveFs Step 12.5: git add + commit (pathspec 隔离 3 critical paths + spike-reports/)
-I -> DB: runCleanup Step 13: 清 cwdReleaseMarker (提前到 commit 后\n→ Step 14 失败时 marker 已清,caller 跑别 plan 不撞 stale)
-I -> IO: runCleanup Step 14: git worktree remove + branch -D
-
-I --> H: { archivedPath, commitHash, plansIndexAction, warnings, spikeReportsArchived }
-
-== 段 4: baton cleanup phase 1+2 (与 hand_off 共享 helper) ==
-
-H -> BC: runBatonCleanup({callerSid, toolName: 'archive_plan'})
-note right of BC
-  archive_plan 永远跑 phase 1 (plan 收口 = team 整片收口)
+note right of Registry
+  Agent Deck keeps session, message, task, issue, and worktree primitives.
+  It does not encode project-specific plan/archive directory policy.
 end note
 
-BC -> SM: phase 1: 关 caller 同 team 全部 teammate\n(dedup 跨 team 共享 sid, per-sid try/catch)
-SM --> BC: { closed, failed, skipped }
-
-BC -> DB: phase 2: 归档 caller (failed warn-only 不阻塞)
-SM --> BC: archived: 'ok' / 'failed' / 'skipped'
-
-BC --> H: { teammatesShutdown, archived }
-
-== 收口 ok return ==
-
-H --> C: ok({ archivedPath, commitHash, branchDeleted, worktreeRemoved,\n  plansIndexAction, warnings, spikeReportsArchived, archived, teammatesShutdown })
+note right of Exit
+  exit_worktree removes the worktree directory.
+  It refuses dirty content unless discardChanges=true.
+  Branch deletion is explicit with deleteBranch=true.
+end note
 
 @enduml

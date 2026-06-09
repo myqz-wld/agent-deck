@@ -1,116 +1,42 @@
-' description: hand_off_session 6 entity 并行 state 联动 — caller / new session / teammate / role / task / spawn-link
-' last_updated: 2026-05-29
+' plan: mcp-handoff-worktree-redesign-20260609
+' description: hand_off_session state machine
+' last_updated: 2026-06-09
 @startuml hand-off-session-state-machine
 
-title hand_off_session — 6 entity 并行 state 联动
+title hand_off_session — state machine
 
-' 内部 module 名 / 函数名 / REVIEW 引用见 INDEX 第 3 列
-
-' ─── entity 1: caller session ───
-state "Caller session" as CallerState {
-  state "active" as CallerActive
-  state "archived" as CallerArchived
-
-  [*] --> CallerActive
-  CallerActive --> CallerArchived : archive_caller=true (default)
-  CallerActive --> CallerActive : archive_caller=false (skip)
-  CallerArchived --> [*]
+state "Caller session" as Caller {
+  [*] --> active
+  active --> transferring : spawn successor
+  transferring --> closed : resources transferred\nsessionManager.close
 }
 
-' ─── entity 2: new session ───
-state "New session" as NewState {
-  state "spawned" as NewSpawned
-  state "active (own caller tasks)" as NewActive
-
-  [*] --> NewSpawned : 起 SDK 子进程\n(handOffMode=true)
-  NewSpawned --> NewActive : task 三态过继完成
-  NewActive --> [*]
+state "Successor session" as Successor {
+  [*] --> spawned : spawn_session
+  spawned --> owner : marker / teams / tasks assigned
+  owner --> [*]
 }
 
-' ─── entity 3: teammate sessions ───
-state "Teammate sessions\n(caller 同 team)" as TeammateState {
-  state "active / dormant" as TeammateAlive
-  state "swapped (adopt 路径)" as TeammateAdopted
-  state "closed (默认路径)" as TeammateClosed
-  state "kept (archive_caller=false)" as KeptByArchiveCallerFalse
-  state "kept (caller-not-lead)" as KeptByCallerNotLead
-
-  [*] --> TeammateAlive
-  TeammateAlive --> TeammateAdopted : adopt_teammates=true\n(转交 lead 给 newSid;\nskipped='adopt-keep-implicit')
-  TeammateAlive --> KeptByArchiveCallerFalse : archive_caller=false\n(skip phase 1,\nskipped='archive-caller-false-keep')
-  TeammateAlive --> KeptByCallerNotLead : caller 不是任一 team 的 lead\n(skipped='caller-not-lead' /\n'all-lead-teams-archived')
-  TeammateAlive --> TeammateClosed : 默认路径\n(baton phase 1 关 teammate)
-  TeammateAdopted --> [*]
-  TeammateClosed --> [*]
-  KeptByArchiveCallerFalse --> [*]
-  KeptByCallerNotLead --> [*]
+state "Worktree marker" as Marker {
+  [*] --> heldByCaller
+  heldByCaller --> heldBySuccessor : marker copied
+  heldBySuccessor --> [*]
 }
 
-' ─── entity 4: team_members.role ───
-state "team_members.role\n(per team)" as RoleState {
-  state "caller=lead / teammate=teammate" as RoleOrig
-  state "newSid=lead / teammate=teammate" as RoleSwapped
-  state "team 归档 (无 lead)" as RoleArchived
-
-  [*] --> RoleOrig
-  RoleOrig --> RoleSwapped : adopt=true\n(转交 lead 角色)
-  RoleOrig --> RoleOrig : archive_caller=false\n(caller 仍 lead,team 不归档)
-  RoleOrig --> RoleArchived : 默认路径\n(caller 归档后 team 无 lead\n→ 30min grace 自动归档)
-  RoleSwapped --> [*]
-  RoleArchived --> [*]
+state "Team memberships" as Team {
+  [*] --> callerMember
+  callerMember --> successorLead : caller was lead\nswapLead
+  callerMember --> successorTeammate : caller was teammate\naddMember
 }
 
-' ─── entity 5: task ownership ───
-state "Task ownership\n(per caller-owned task)" as TaskState {
-  state "owner=caller" as TaskOrig
-  state "owner=newSid + team_id=NULL" as TaskClearedTeam
-  state "owner=newSid (team_id 不动)" as TaskPreservedTeam
-  state "team task 删 / personal 过继" as TaskSkip
-
-  [*] --> TaskOrig
-  TaskOrig --> TaskClearedTeam : policy=clear-team (default)
-  TaskOrig --> TaskPreservedTeam : policy=preserve-team
-  TaskOrig --> TaskSkip : policy=skip (原子)
-  TaskOrig --> TaskOrig : archive_caller=false (不动)
-
-  TaskClearedTeam --> [*]
-  TaskPreservedTeam --> [*]
-  TaskSkip --> [*]
+state "Tasks" as Tasks {
+  [*] --> ownerCaller
+  ownerCaller --> ownerSuccessor : reassignOwner\npreserve teamId
 }
 
-' ─── entity 6: spawn-link ───
-state "spawn-link 关系\n(caller → newSid)" as SpawnLinkState {
-  state "未记录 (永远 null)" as NoLink
-
-  [*] --> NoLink
-  NoLink --> [*]
-}
-
-' ─── 跨 entity 联动 + 关键不变量 ───
-
-note as N1
-  hand_off **6 entity 联动时序**:
-  ① caller → archived (default) | active (opt-out)
-  ② new session [*] → spawned → active (task 过继后)
-  ③ teammate → adopted (adopt=true) | kept-by-archive_caller-false | kept-by-caller-not-lead | closed (default)
-  ④ role → swapped (adopt) | kept (archive_caller=false) | team 30min 自动归档
-  ⑤ task → clear-team | preserve-team | skip 三态
-  ⑥ spawn-link → 永不写 (hand-off 是平级接力非派遣)
-
-  双模式差异: plan-driven cwd=mainRepo / generic cwd=caller cwd
-  与 archive_plan baton 对比: hand_off 多了 spawn + task reassign
-
-  **phase 1 跳过条件 (6 状态完整 enum, baton-cleanup.ts:166-174)**:
-  - null (成功路径含 closed=[] 的 caller=lead 但 team 内无其他 active teammate)
-  - 'adopt-keep-implicit' (adopt_teammates=true → teammate 已转给 newSid)
-  - 'archive-caller-false-keep' (archive_caller=false → caller 保活)
-  - 'caller-not-lead' (caller 不是 lead 含 external sentinel)
-  - 'all-lead-teams-archived' (caller 是 lead 但所有 team 已 archived)
-  - 'phase-1-error' (phase 1 内部 throw 兜底)
-
-  多条件优先级: adopt_teammates=true > archive_caller=false > 默认
-  (adopt 在 baton-cleanup 之前执行,swapLead 已转 role;
-   archive_caller=false 仅决定 caller 归档与 phase 1 跳过)
+note bottom
+  The caller closes even when individual transfer results report failure.
+  The ok return exposes resourceTransfer for follow-up handling.
 end note
 
 @enduml

@@ -1,32 +1,3 @@
-/**
- * Agent Deck MCP server 的 18 个 in-process tool 注册 facade（B'0 ADR §3；10 现有 + 5 task + 3 issue —
- * plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 task-manager + issue-tracker-mcp-20260529 加 2 issue tool
- * + 体验改进 20260531 §需求3 加 update_issue_status 后）。
- *
- * 三 transport（in-process / HTTP / stdio）共享同一份 buildAgentDeckTools 输出；
- * transport 层负责 caller-id 注入策略：
- * - in-process（B'3）：closure 强制覆盖 args.callerSessionId（防 prompt 注入伪造）
- * - HTTP/stdio：args.callerSessionId 必填，handler 内反查 sessionManager
- *
- * 字段命名约定：tool args **snake_case**（与 task-manager 既有约定一致），
- * 内部 TS 接口 camelCase。
- *
- * 拆分历史（CHANGELOG_81 / plan deep-review-and-split-20260513 H2 Step 2.1）：
- *   原 src/main/agent-deck-mcp/tools.ts (1060 行) 拆为：
- *   - tools/index.ts (本文件，~110 行 facade)
- *   - tools/schemas.ts (~210 行 zod schema)
- *   - tools/helpers.ts (~145 行 ok/err/projectSession/validateExternalCaller/...)
- *   - tools/handlers/{spawn,send,list,get,shutdown}.ts (各 ~50-260 行)
- *   - tools/handlers/archive-plan{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4a)
- *   - tools/handlers/hand-off-session{,-impl}.ts (plan mcp-bug-and-feature-batch-20260513 Phase 4b)
- *
- * CHANGELOG_100 / plan mcp-tool-simplify-20260514：协议大简化，删除旧 reply polling
- *   三件套（语法糖 + 阻塞 / 非阻塞 reply poll），所有消息发送统一走 send_message +
- *   replyToMessageId；reply 不再被
- *   universal-message-watcher 的 J fix 拦截，正常 dispatch 给 lead → SDK emit user-role
- *   message → lead 直接看到 reply 自动 act on it。心智模型大幅简化。
- */
-
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
@@ -43,13 +14,10 @@ import {
   SEND_MESSAGE_SCHEMA,
   SHUTDOWN_SESSION_SCHEMA,
   SPAWN_SESSION_SCHEMA,
-  ARCHIVE_PLAN_SHAPE,
-  ARCHIVE_PLAN_ARGS_SCHEMA,
   HAND_OFF_SESSION_SHAPE,
   HAND_OFF_SESSION_ARGS_SCHEMA,
   ENTER_WORKTREE_SCHEMA,
   EXIT_WORKTREE_SCHEMA,
-  SHUTDOWN_BATON_TEAMMATES_SCHEMA,
   TASK_CREATE_SCHEMA,
   TASK_LIST_SCHEMA,
   TASK_GET_SCHEMA,
@@ -64,11 +32,9 @@ import { sendMessageHandler } from './handlers/send';
 import { listSessionsHandler } from './handlers/list';
 import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
-import { archivePlanHandler } from './handlers/archive-plan';
 import { handOffSessionHandler } from './handlers/hand-off-session';
 import { enterWorktreeHandler } from './handlers/enter-worktree';
 import { exitWorktreeHandler } from './handlers/exit-worktree';
-import { shutdownBatonTeammatesHandler } from './handlers/shutdown-baton-teammates';
 import { taskCreateHandler } from './handlers/task-create';
 import { taskListHandler } from './handlers/task-list';
 import { taskGetHandler } from './handlers/task-get';
@@ -150,7 +116,7 @@ export async function buildAgentDeckTools(
 
   const spawnSession = tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
-    'Spawn a new agent session via the given adapter (claude-code / deepseek-claude-code / codex-cli). Returns the new sessionId. Pass teamName to form a team (caller becomes lead, new session joins as teammate) so the two can send_message each other; omit for a standalone session. Subject to depth / per-parent fan-out / per-app rate-limit (see Agent Deck Settings → MCP Server). SDK-internal callers do NOT pass callerSessionId — the in-process transport auto-injects the real session id; only external HTTP/stdio callers must pass it.',
+    'Spawn a new agent session via the given adapter (claude-code / deepseek-claude-code / codex-cli). Returns the new sessionId. Put full task context in prompt; for long context, write a file under /tmp and tell the spawned session to read it. Pass teamName to form a team (caller becomes lead, new session joins as teammate) so the two can send_message each other; omit for a standalone session. Subject to depth / per-parent fan-out / per-app rate-limit (see Agent Deck Settings → MCP Server). SDK-internal callers do NOT pass callerSessionId — the in-process transport auto-injects the real session id; only external HTTP/stdio callers must pass it.',
     SPAWN_SESSION_SCHEMA,
     async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
     {
@@ -221,48 +187,10 @@ export async function buildAgentDeckTools(
     },
   );
 
-  const archivePlan = tool(
-    AGENT_DECK_TOOL_NAMES.archivePlan,
-    'Archive a completed plan in one atomic step: ff-merge the worktree branch into baseBranch, stamp the plan frontmatter (status=completed + final_commit + completed_at), move the plan file (and its spike-reports/ if any) into <main-repo>/ref/plans/, sync ref/plans/INDEX.md, git commit, then remove the worktree + branch. By default also archives the caller session (baton semantic — the plan is done, this session\'s job is over) and shuts down its teammates. Before calling, leave the plan worktree with Agent Deck exit_worktree({ action: "keep" }) or Claude ExitWorktree(keep); this tool rejects while the caller still holds that worktree. Rejects if the plan is already completed or the worktree is dirty. Args: { planId, worktreePath, baseBranch? (defaults to plan frontmatter.base_branch, else "main"), planFilePath?, changelogId? }. Returns { archivedPath, commitHash, branchDeleted, worktreeRemoved, plansIndexAction, finalStatus, warnings, spikeReportsArchived, archived, teammatesShutdown }. deny external caller.',
-    ARCHIVE_PLAN_SHAPE,
-    // plan hand-off-session-adopt-teammates-20260520 Phase 7 reviewer-codex HIGH 修法:
-    // tool wrapper closure 跑 ARGS_SCHEMA.safeParse 让 SHAPE-注册路径(SDK / mcp transport)
-    // 也实际跑 strict 校验 — 否则 schema 层 unknown keys / refine 守门只在 *.test.ts 显式
-    // 调 ARGS_SCHEMA.safeParse 时生效,生产路径漏过 strict 校验。第一道闸门;handler 入口
-    // 仍可保留 invariant 防御作第二道。
-    async (args, extra) => {
-      const parseRes = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse(args);
-      if (!parseRes.success) {
-        const firstIssue = parseRes.error.issues[0];
-        return err(
-          `archive_plan args invalid: ${firstIssue?.message ?? 'unknown error'}`,
-          JSON.stringify(parseRes.error.issues),
-        );
-      }
-      return archivePlanHandler(parseRes.data, makeCtx(parseRes.data, extra));
-    },
-    {
-      // archive_plan: git ff-merge / mv plan / git commit / git worktree remove / branch -D — 极
-      // 破坏性多步 git+fs writes; 重复跑撞 plan status=completed 直接 reject → idempotentHint:false。
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
-    },
-  );
-
   const handOffSession = tool(
     AGENT_DECK_TOOL_NAMES.handOffSession,
-    'Hand off to a fresh SDK session and (by default) archive the caller — a one-way baton when this session is done or its cwd no longer fits the work. Two modes: pass `planId` for plan-driven (reads the plan frontmatter, requires status=in_progress, auto-builds the cold-start prompt "按 <plan-abs-path> 接力"); omit it for generic (you supply `prompt`). By default the new session joins no team and the caller is archived right after spawn; pass `teamName` only if the two need to keep talking, or `archiveCaller: false` to keep the caller alive for parallel work. plan-driven cwd defaults to mainRepo so it stays valid after the worktree is removed (the new session enters the worktree itself); generic cwd defaults to the caller cwd. When the caller is archived, its tasks are reassigned to the new session per `teamTaskPolicy`: "clear-team" (default) hands them over as personal tasks; "preserve-team" keeps their teamId (pair with adoptTeammates so the new session can still write them); "skip" drops the caller\'s team tasks. Returns { mode, planId, worktreePath, sessionId, cwd, teamId, archived, adopted, taskReassignment, ... }. deny external caller.',
+    'Hand off the current SDK session to a fresh successor session. Provide the full cold-start text in `prompt`; include any plan file path, /tmp context file path, and next action directly in that text. The tool transfers caller-owned resources (tasks, active team memberships, worktree marker) to the successor and closes the caller only after mandatory transfer succeeds; transfer failure returns an error and keeps the caller active. Use spawn_session for parallel work. Returns the spawn_session fields plus { initialPrompt, callerClosed, resourceTransfer } on success. deny external caller.',
     HAND_OFF_SESSION_SHAPE,
-    // plan hand-off-session-adopt-teammates-20260520 Phase 7 reviewer-codex HIGH 修法:同 archive_plan
-    // — tool wrapper closure 跑 HAND_OFF_SESSION_ARGS_SCHEMA.safeParse 让生产 SHAPE-注册路径
-    // 也实际跑 strict + N2.c refine 校验。修前 SHAPE 注册的 SDK / mcp transport 不跑 .strict()
-    // 也不跑 .refine(),user 同传 {adoptTeammates: true, teamName: 'X'} schema 不 reject →
-    // handler 透传 args.teamName 给 spawn → spawn batonRole='lead' 写 newSid 入 team X →
-    // swapLead 之后形成 dual-lead window 破坏 N1 invariant + silent prompt 数据丢失。
     async (args, extra) => {
       const parseRes = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse(args);
       if (!parseRes.success) {
@@ -275,10 +203,6 @@ export async function buildAgentDeckTools(
       return handOffSessionHandler(parseRes.data, makeCtx(parseRes.data, extra));
     },
     {
-      // hand_off_session: 起 SDK 子进程同 spawn_session 是应用内 closed-world; 默认 archiveCaller=true
-      // 归档 caller (destructiveHint:true,会 close 当前 caller session); 重复 hand-off 起 N 个新
-      // session → idempotentHint:false。
-      // **fix v3** (2026-05-20): openWorldHint 由 true 改 false — 与 spawn_session 同款修订(详上)。
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -288,18 +212,12 @@ export async function buildAgentDeckTools(
     },
   );
 
-  // plan codex-handoff-team-alignment-20260518 P1 Step 1.3：mcp 版 enter_worktree / exit_worktree
-  // 给 codex / 跨 adapter caller 提供 claude builtin EnterWorktree / ExitWorktree 的等价能力。
-  // 不取代 claude builtin（claude SDK session 仍首选 builtin），仅作补充让跨 adapter caller
-  // 走 archive_plan 预检 4 态分流时认得跨 adapter 路径（详 P1 Step 1.4 archive-plan-impl.ts）。
   const enterWorktree = tool(
     AGENT_DECK_TOOL_NAMES.enterWorktree,
-    'Create a new git worktree at `<main-repo>/.claude/worktrees/<planId>/` on branch `worktree-<planId>`, based on HEAD by default (resolution chain: args.baseCommit > args.baseBranch > plan frontmatter.base_commit > plan frontmatter.base_branch > HEAD — using an explicit base avoids the claude builtin EnterWorktree stale-base bug). Also marks the caller session so archive_plan recognizes the worktree later. **This does NOT change your cwd** — operate on the worktree via absolute paths or `git -C <worktreePath>` (Claude may then EnterWorktree(path:) to actually switch). Refuses if the worktree path or branch already exists — to resume an existing worktree, skip this tool and use `git -C <worktreePath>` directly. Returns { worktreePath, branchName, baseCommit, baseSource, markerSet }. deny external caller.',
+    'Create a fresh git worktree from a required local baseBranch. The tool resolves refs/heads/<baseBranch> to a commit, creates a new workBranch from that exact branch version, records the caller worktree marker, and returns { worktreePath, workBranch, baseBranch, baseCommit, baseSource, markerSet }. It does not change the SDK session cwd; use absolute paths or git -C <worktreePath>. deny external caller.',
     ENTER_WORKTREE_SCHEMA,
     async (args, extra) => enterWorktreeHandler(args, makeCtx(args, extra)),
     {
-      // enter_worktree: 创新 git worktree dir + branch (不破坏现有, refuses if path/branch
-      // already exists 走 reject 路径); 重复跑同 planId 撞 reject → idempotentHint:false。
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -311,13 +229,10 @@ export async function buildAgentDeckTools(
 
   const exitWorktree = tool(
     AGENT_DECK_TOOL_NAMES.exitWorktree,
-    'Exit a git worktree entered via enter_worktree. action="keep" leaves the worktree + branch in place (typical before a hand-off or archive_plan); action="remove" deletes them (refuses if dirty unless discardChanges=true). Both clear the caller\'s worktree marker. Returns { worktreePath, action, branchDeleted, worktreeRemoved, markerCleared }. deny external caller.',
+    'Clean up the worktree directory owned by the caller marker or by an explicit worktreePath. It refuses dirty worktrees unless discardChanges=true; do not discard until user work is saved, committed, or intentionally abandoned. By default the work branch is kept so committed changes are not lost; pass deleteBranch=true only after the work is merged, cherry-picked, or intentionally abandoned. Returns { worktreePath, workBranch, branchDeleted, worktreeRemoved, markerCleared }. deny external caller.',
     EXIT_WORKTREE_SCHEMA,
     async (args, extra) => exitWorktreeHandler(args, makeCtx(args, extra)),
     {
-      // exit_worktree: action=keep 不破坏(只 clear cwd marker), action=remove 真删 git worktree
-      // dir + branch -D 是破坏性 → 整体保守 destructiveHint:true。重复 exit 撞 marker not set
-      // 走 reject → idempotentHint:false。
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -327,34 +242,8 @@ export async function buildAgentDeckTools(
     },
   );
 
-  // plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.3 / D4 F1c：
-  // shutdown_baton_teammates tool — escape hatch 让 caller 手工归档 plan 后补跑 baton-cleanup
-  // phase 1（仅 teammate shutdown，不归档 caller）。
-  const shutdownBatonTeammates = tool(
-    AGENT_DECK_TOOL_NAMES.shutdownBatonTeammates,
-    'Escape hatch: shut down all active teammates of every team where you are the lead, without archiving yourself. Use it after you archived a plan by hand (bypassing archive_plan, which normally does this) — otherwise the reviewer teammates linger as un-closed dormant sessions wasting memory. If you are not the lead of any active team it returns an error (not silent success) pointing you to the UI Team panel. Returns { closed, failed, skipped: null, planId }. deny external caller.',
-    SHUTDOWN_BATON_TEAMMATES_SCHEMA,
-    async (args, extra) => shutdownBatonTeammatesHandler(args, makeCtx(args, extra)),
-    {
-      // shutdown_baton_teammates: 终止所有 caller-lead team 的 active teammates 是破坏性 (close
-      // sessions + abort SDK live queries); 重复跑已 closed teammates 是 noop 等价 →
-      // idempotentHint:true。
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-  );
-
   // plan task-mcp-merge-into-agent-deck-mcp-20260521：5 个 task tool 合并入 agent-deck-mcp
   // namespace（工具名从 mcp__tasks__task_* 切到 mcp__agent-deck__task_*，breaking change）。
-  // R3-claude-LOW-1：用 plain SHAPE 注册（与 8 个 simple tool 同款，不走 archive_plan /
-  // hand_off_session 的 ARGS_SCHEMA.safeParse-wrapper pattern — task tools 无 .strict() /
-  // .refine() invariant 需 production 真跑校验）。
-  // R1 F3 + R2 F-R2-1：annotations 4-tuple 显式标 — task_delete idempotentHint:false 与现状
-  // contract 对齐（not-found 返 isError 不是 noop）。
   const taskCreate = tool(
     AGENT_DECK_TOOL_NAMES.taskCreate,
     `Create a structured task in the agent-deck task store. owner_session_id is auto-derived from callerSessionId. Personal task by default (omit teamId — note: task_create rejects an explicit null, just leave the field out) — visible & writable only to owner. Pass teamId to bind task to a team — caller must be active member of that team (agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL). Returns the created task with auto-generated id.`,
@@ -431,8 +320,7 @@ export async function buildAgentDeckTools(
     async (args, extra) => taskDeleteHandler(args, makeCtx(args, extra)),
     {
       // task_delete: 真删 task + cascade 下游是破坏性；R2 F-R2-1：idempotentHint:false
-      // 与现状 contract 对齐（not-found 返 isError 不是 noop —— 与 archive_plan idempotentHint:false
-      // 同款；不像 shutdown_session 已 closed noop 等价）。
+      // 与现状 contract 对齐（not-found 返 isError 不是 noop；不像 shutdown_session 已 closed noop 等价）。
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -506,11 +394,9 @@ export async function buildAgentDeckTools(
     listSessions,
     getSession,
     shutdownSession,
-    archivePlan,
     handOffSession,
     enterWorktree,
     exitWorktree,
-    shutdownBatonTeammates,
     taskCreate,
     taskList,
     taskGet,

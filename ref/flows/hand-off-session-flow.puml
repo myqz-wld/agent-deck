@@ -1,103 +1,44 @@
-' description: hand_off_session baton 接力 sequence — 4 主路径 (cwd 反查 / 双模式分流 / spawn + adopt + task / cleanup)
-' last_updated: 2026-05-29
+' plan: mcp-handoff-worktree-redesign-20260609
+' description: hand_off_session session baton sequence
+' last_updated: 2026-06-09
 @startuml hand-off-session-flow
 
-title hand_off_session — baton 接力 sequence (4 主路径)
+title hand_off_session — session baton sequence
 
 actor Caller as C
-participant "hand_off facade" as H
-participant "plan resolve\n(plan-driven 才用)" as I
-participant "spawn 控制器" as SP
-participant "数据表\n(会话 / 团队 / 任务)" as DB
-participant "baton 收尾\n(关 teammate + 归档 caller)" as BC
-participant "会话管理器 + SDK" as SM
+participant "hand_off_session handler" as H
+participant "spawn_session handler" as SP
+participant "resource transfer" as RT
+database "session / team / task tables" as DB
+participant "session manager" as SM
+participant "successor SDK" as SDK
 
-== 入口: 白名单 + cwd 反查 ==
+C -> H: hand_off_session(prompt, cwd?, adapter?, sandbox?)
+H -> DB: load caller session row
+alt caller missing or cwd invalid
+  H --> C: error
+else valid caller
+  H -> SP: spawn(prompt, cwd, handOff={mode:'session'})
+  SP -> SDK: create successor SDK session
+  SP -> DB: insert successor session + first user message event
+  SP --> H: spawn result { sessionId, cwd, ... }
 
-C -> H: invoke(plan_id?, prompt?, cwd?, adapter?, team_name?,\n  adopt_teammates?, archive_caller?, team_task_policy?, ...)
-H -> DB: 反查 caller cwd / cwdReleaseMarker
+  H -> RT: transfer(callerSid, successorSid)
+  RT -> DB: copy worktree marker when present
+  RT -> DB: swap lead memberships / add teammate memberships
+  RT -> DB: reassign caller tasks to successor, preserve teamId
+  RT --> H: resourceTransfer
+
+  H -> SM: close caller session
+  SM -> DB: lifecycle=closed + clear caller marker + leave teams
+  SM --> H: callerClosed
+  H --> C: ok(spawn fields + initialPrompt + callerClosed + resourceTransfer)
+end
+
 note right of H
-  入口拦截器: 白名单 deny external (起 SDK 子进程 fork bomb 风险)
-  DB throw / row null → fail-open 退化 + console.warn
+  No plan mode exists in this tool.
+  Put plan path, /tmp context file path,
+  and next action directly in prompt.
 end note
-
-== 段 1: 双模式分流 ==
-
-alt plan-driven (plan_id 传)
-  H -> I: 解析 plan
-  I -> I: 按 fallback 链找 plan 文件 + 校验 + 构造 cold start prompt
-  I --> H: { planFilePath, worktreePath, mainRepo, coldStartPrompt, isExternalWorktree }
-  H -> H: cwd 默认 = mainRepo (cwd resilience)
-  note right of H
-    external worktree (worktree 不在 mainRepo 子树) →
-    handler 自动把 mainRepo 加进 spawn args.extra_allow_write
-    (claude-code workspace-write 沙盒额外 writable roots,
-     让新 SDK session 能写 plan 文件)
-  end note
-else generic (无 plan_id)
-  H -> H: 直接组装 generic 上下文 (cold start prompt = args.prompt 或默认)
-  H -> H: cwd 默认 = caller cwd (与 plan-driven 不同)
-end
-
-H -> H: cwd 兜底链 + 失效自动回退
-
-== 段 2: adopt 预检 + prompt 装配 + spawn + task 三态 ==
-
-opt adopt_teammates=true (spawn 前必先做 N5 fail-fast + 装 adopt block)
-  H -> DB: ≥1 lead 硬约束: caller 至少在 1 个 team 是 lead
-  note right of DB
-    无 active lead membership → spawn 之前直接 reject
-    (不 spawn / 不 archive caller, fail-fast 不变量)
-  end note
-  H -> DB: 收集 archived team / archived teammate filter (排除 ghost)
-  H -> H: 装 adopt context block → 注入 coldStartPromptForSDK
-end
-
-H -> SP: spawn (handOffMode=true → 跳防御 + 不写 spawn-link)
-SP -> SM: 起 SDK 子进程 (prompt 已含 adopt block 如有)
-SP --> H: { newSid, teamId?, spawnPromptMessageId? }
-
-opt adopt_teammates=true (spawn 后)
-  H -> DB: swapLead 转交 lead 角色 (per team loop, firstTeam 优先)
-  note right of DB
-    firstTeam swap 失败 → 回滚 newSid + reject
-    非 firstTeam 失败 → 软失败继续 (failed.reason 透传)
-  end note
-end
-
-opt archive_caller=true (默认)
-  H -> DB: 按 team_task_policy 三态过继 task\n(clear-team / preserve-team / skip)
-  note right of DB
-    reassign throw 仅 warn 不阻塞
-    preserve-team + newSid 未 adopt 该 team → policyWarning=\n  'preserve-team-unadopted-teams' + unadoptedTeamIds 透传
-  end note
-end
-
-== 段 3: baton cleanup (与 archive_plan 共享 helper) ==
-
-H -> BC: runBatonCleanup({callerSid, adoptTeammates, archiveCaller})
-opt adopt_teammates=false AND archive_caller=true AND caller 是 lead
-  BC -> SM: phase 1: 关 caller 同 team 全部 teammate\n(excludeSessionIds={newSid} 防 spawn 加入的 newSid 被一并关)
-end
-note right of BC
-  phase 1 跳过条件 (6 状态完整 enum, baton-cleanup.ts:166-174):
-  - **null** (成功路径含 closed=[] 的 caller=lead 但 team 内无其他 active teammate)
-  - **'adopt-keep-implicit'** (adopt_teammates=true → teammate 已转给 newSid; Phase 4 引入)
-  - **'archive-caller-false-keep'** (archive_caller=false → caller 保活; CHANGELOG_169 F4)
-  - **'caller-not-lead'** (caller 不是 lead 含 external sentinel)
-  - **'all-lead-teams-archived'** (caller 是 lead 但所有 team 已 archived; REVIEW_56 §F6 R2)
-  - **'phase-1-error'** (phase 1 内部 throw 兜底; REVIEW_56 §F6 codex MED-3)
-end note
-opt archive_caller=true (默认)
-  BC -> SM: phase 2: 归档 caller session
-  note right of SM
-    archive throw → archived='failed' warn-only
-  end note
-end
-BC --> H: { teammatesShutdown, archived }
-
-== 段 4: 收口 ok return ==
-
-H --> C: ok({ mode, sessionId, cwd, teamId?, archived, teammatesShutdown,\n  adopted? (preserved/failed/teamsTotal), taskReassignment (status/count/policy) })
 
 @enduml

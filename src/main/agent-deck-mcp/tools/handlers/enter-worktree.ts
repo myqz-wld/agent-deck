@@ -1,22 +1,3 @@
-/**
- * enter_worktree handler 入口（plan codex-handoff-team-alignment-20260518 P1 Step 1.3 /
- * D2 + 不变量 5）。
- *
- * 薄 wrapper：deny external caller + validateExternalCaller + 注入 sessionRepo seam(callerCwd /
- * setCwdReleaseMarker)+ 调 enterWorktreeImpl + 包 ok/err。业务行为完全在 enter-worktree-impl.ts
- * （git/fs/frontmatter 操作 + DEFAULT_DEPS inject 模式）;impl 不 import sessionRepo 避免触发
- * electron.app load(让 impl test 走 deps inject 时不撞 electron)。
- *
- * **Deny external caller**（types.ts: EXTERNAL_CALLER_ALLOWED.enter_worktree = false）：
- * 写 git + setCwdReleaseMarker 是 per-session 状态写,需要真实 callerSessionId;external
- * stdio client 没真 caller sid 无法 setMarker → 直接 deny。
- *
- * 用途:让 codex / 跨 adapter caller 调 enter_worktree 进 worktree 时,handler setMarker 让
- * archive_plan 预检 4 态分流认得跨 adapter 路径(详 P1 Step 1.4 archive-plan-impl.ts)。
- * claude builtin EnterWorktree 已对 claude SDK session 走 ExitWorktree → cwd 移出 worktree 的
- * 现有路径不动(claude 端 builtin 仍是首选,本 mcp tool 是补充给 codex / 跨 adapter)。
- */
-
 import { sessionRepo } from '@main/store/session-repo';
 import {
   err,
@@ -57,20 +38,17 @@ export const enterWorktreeHandler = withMcpGuard(
     ctx: HandlerContext,
     handlerDeps?: EnterWorktreeHandlerDeps,
   ) => {
-    // 默认 sessionRepo seam 合并 caller 显式 implDeps(caller 显式字段优先,DEFAULT_SESSION_DEPS 仅
-    // 填缺位 — 与 archive-plan.ts mergeCallerCwd 同款思路)。
     const mergedDeps: EnterWorktreeDeps = {
       ...DEFAULT_SESSION_DEPS,
       ...handlerDeps?.implDeps,
     };
     const result = await enterWorktreeImpl(
       {
-        planId: args.planId,
         callerSessionId: ctx.caller.callerSessionId,
+        baseBranch: args.baseBranch,
+        workBranchOverride: args.workBranch,
         worktreePathOverride: args.worktreePath,
-        baseCommitOverride: args.baseCommit,
-        baseBranchOverride: args.baseBranch,
-        planFilePathOverride: args.planFilePath,
+        worktreeRootOverride: args.worktreeRoot,
       },
       mergedDeps,
     );
@@ -81,7 +59,8 @@ export const enterWorktreeHandler = withMcpGuard(
 
     return ok({
       worktreePath: result.worktreePath,
-      branchName: result.branchName,
+      workBranch: result.workBranch,
+      baseBranch: result.baseBranch,
       baseCommit: result.baseCommit,
       baseSource: result.baseSource,
       markerSet: result.markerSet,
