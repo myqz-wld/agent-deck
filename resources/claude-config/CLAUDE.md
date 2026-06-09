@@ -1,248 +1,112 @@
-<!-- 由 resources/claude-config/CLAUDE.md 打包注入 SDK system prompt 末尾;维护说明详 resources/README.md。 -->
-
---- Agent Deck 应用环境约定（随应用打包注入到每个 SDK 会话）---
+--- Agent Deck 应用环境约定（随应用打包注入到每个 Claude Code SDK 会话）---
 
 # 应用环境约定
 
-## 优先级声明（必读）
+## 优先级与加载
 
-本文件是 agent-deck 应用环境的 baseline 约定。**优先级链**:
-- SDK preset claude_code 内置安全约束（IMPORTANT 节）始终**最高优先级**,本文件与 user CLAUDE.md 都不替代
-- user CLAUDE.md（`~/.claude/CLAUDE.md`）通用约定**优先于**本文件;与本文件冲突时**以 user CLAUDE.md 为准**
-- 本文件提供 agent-deck 应用专属补充能力（mcp tool / plugin SKILL / cold-start 协议等）,不替换 user 通用约定
+本文件给应用内 SDK 会话补充 Agent Deck runtime 协议；安全约束、用户指令和项目约定按 SDK 优先级继续生效。
 
-> **注:** 优先级链 in scope 是 claude SDK system prompt 注入的 baseline 文件之间(`settingSources: ['user',...]` 自动加载 user CLAUDE.md 作 baseline)。per-turn user message / developer message 等 SDK API 内置 prompt 类型的优先级在 SDK preset 内规定,与本节正交。**codex 视角等价 `CODEX_AGENTS.md` 因 codex SDK 加载机制不同(`~/.codex/AGENTS.md` marker 注入,无 user 通用约定全局加载机制)措辞不同是 adapter 差异不是 SSOT drift,维护时不要强行对齐两端**。
+- Claude Code preset 内置安全约束始终最高，本文件不替代。
+- `settingSources: ['user','project','local']` 会同时加载 user / project / local `CLAUDE.md`；这些文件里的用户约定优先于本 baseline。
+- per-turn user message、开发者注入和 SDK API 指令按 SDK 原生优先级生效；与本 baseline 冲突时遵守更高优先级指令。
+- `settingSources: []` 的内部 oneshot 只接收应用注入的 baseline，不加载 user / project / local `CLAUDE.md`。
 
-**加载范围**:本文件总是随应用打包注入到 SDK system prompt 末尾。`settingSources: ['user','project','local']` 的交互式 SDK 会话同时加载 user CLAUDE.md;`settingSources: []` 的内部 oneshot（如间歇总结）不加载 user CLAUDE.md。Agent Deck 协议与 plan 最小协议在本文件自闭环生效。
+## Runtime 能力
 
-## 应用环境特有能力（不依赖 user CLAUDE.md）
+### Teammate 协作
 
-### 协议覆盖：teammate 协作走 mcp tool
+跨 adapter teammate 协作走 Agent Deck MCP tools。`send_message` 会经 universal-message-watcher 注入 receiver conversation；receiver 看到 user-role message 后直接处理，不主动轮询。
 
-本应用环境（agent-deck）teammate 协作走 mcp tool（详 §Agent Deck Universal Team Backend 节）。teammate 通过 `send_message` 发消息 → universal-message-watcher → adapter.receiveTeammateMessage → adapter.sendMessage → SDK emit user-role event 自动注入 receiver conversation flow（receiver Claude 看到 user message 直接 act on it，无需主动 poll）。
+### Task 进度
 
-### task 进度跟踪走 `mcp__agent-deck__task_*`,不走原生 `TaskCreate / TaskUpdate / TaskList`
+多步骤工作、plan、review 或跨会话协作必须用 Agent Deck MCP task tools 跟踪进度；不要同时维护一套 Claude Code 原生 task list。
 
-本应用环境跑 plan / 多 Agent 协作 / 多步骤工作时,**task 进度跟踪必须走** `mcp__agent-deck__task_create` / `task_update` / `task_list` / `task_get` / `task_delete`,**不走** Claude Code CLI 内置的 `TaskCreate` / `TaskUpdate` / `TaskList`。
+- 新建 personal task：`mcp__agent-deck__task_create({ subject, description?, status?, priority?, blocks?, blockedBy?, labels? })`。
+- 新建 team-bound task：`mcp__agent-deck__task_create({ subject, teamId, ... })`；caller 必须是该 team 的 active member。
+- 更新状态：`mcp__agent-deck__task_update({ taskId, status })`，状态只用 `pending` / `active` / `completed` / `blocked` / `abandoned`。
+- 列表查询：`mcp__agent-deck__task_list()` 返回 caller 可见 task；`teamIdFilter` 限定某个 team；`teamIdFilter: 'null-personal'` 只看 caller personal task。
+- 单个查询和删除走 `task_get` / `task_delete`，权限按 task 的 `teamId` 判定。
 
-**Why**:
-- task 必有归属 session（创建时自动绑当前 caller，不存在「无归属 task」）— 归属 session row 被历史保留期 GC 或显式物理删除时，DB FK ON DELETE CASCADE 自动删 owner task（**注意**：`closed` / 归档标记 仅打 lifecycle 标记不删 row 不触发 CASCADE），无 backlog 累积
-- task 可绑 team 也可不绑 — 绑了 = team 共享（同 team teammate 可见可写），没绑 = 私人（仅 owner 可见可写），类比群聊 vs 私聊。team 之间严格隔离避免 lead 跨 team 时 task 串流
-- **权限**按 teamId 决定：team-bound → caller 必须是该 team active member 才能 read/write；personal → 仅 owner 可见可写（不开放同 team 共享，避免 lead 私人 task 被 teammate 偷看 / 偷改）
-- **personal task 是 first-class**：用户不在任何 team 时仍能用 task（典型场景：lead 起 reviewer pair 不必加 team 也想用 task 跟踪）。不传 `teamId` = personal default
-- `hand_off_session` baton 时自动把 caller 拥有的 task 过继给 successor session,并保留 teamId
-- 原生 `TaskCreate` 只 in-process 当前 SDK session 可见，跨会话 / 跨 teammate 全部丢失，与 universal team backend 协作意图相违背
+如果 `enableAgentDeckMcp: false` 让 MCP task tools 不可用，Claude Code 原生 Task tools 只能记录当前 SDK session 的本地进度；跨会话状态必须写进 plan 文件或 handoff prompt。
 
-**How to apply**:
-- **新建 personal task** (default): `mcp__agent-deck__task_create({ subject, description?, status?, priority?, blocks?, blockedBy?, labels? })` → owner_session_id 自动闭包当前 caller, teamId=NULL
-- **新建 team-bound task** (caller 必在该 active team): `mcp__agent-deck__task_create({ subject, teamId: <team-uuid>, ... })` — 不在该 team 是 active member 时 reject
-- 状态切换: `mcp__agent-deck__task_update({ taskId, status })`, 枚举 `pending` / `active` / `completed` / `blocked` / `abandoned`(注意 `active` 替代原生 `in_progress`)。写权限按 teamId 判定;跨 team 写 reject
-- 列表查询:
-  - 默认 `mcp__agent-deck__task_list()` → caller 可见 scope(自己 personal ∪ 所有 active team 的 team task)
-  - `task_list({ teamIdFilter: <team-uuid> })` → 该 team 绑定的 task(caller 必在该 team active member)
-  - `task_list({ teamIdFilter: 'null-personal' })` → caller 自己的 personal task(字面量,与传 team-uuid 区分语义)
-- 单个查询: `mcp__agent-deck__task_get({ taskId })` — 严格 team-scoped read + deny external caller
-- 删除: `mcp__agent-deck__task_delete({ taskId, force?: false })`, force=true 级联删 downstream(每个 child 都过写权限,跨 team 子节点 skip)
+### Review teammate 失败
 
-**例外**: 应用 settings `enableAgentDeckMcp: false` 关闭时本组工具(以及其他 agent-deck mcp 工具)整体不挂 → 退化用 Claude Code CLI 内置原生 `TaskCreate / TaskUpdate / TaskList`。本应用打包 SDK 会话默认行为是 toggle ON 时挂上,挂上后**优先用 mcp__agent-deck__task_\***,不重复用原生 TaskCreate 制造两套 task list 进度漂移。
+`simple-review` / `deep-review` 必须保留 Claude + Codex 异构 reviewer pair。若 reviewer-codex 失败，lead 先 `shutdown_session` 关闭失败 session，再重 spawn `adapter: 'codex-cli'`、`agentName: 'reviewer-codex'`；不要用第二个 Claude reviewer 替代。
 
-### reviewer-codex 失败 → SKILL 内合规兜底分支
+## Plan / Worktree / Handoff
 
-`simple-review` / `deep-review` SKILL 内若 reviewer-codex teammate 失败（codex SDK 起不来 / OAuth 过期 / shell tool call cancel / sandbox 拒 / timeout / codex thread jsonl 缺失 fresh-session abort），lead `shutdown_session` 掉失败的 reviewer-codex → `spawn_session({adapter:'codex-cli', agentName:'reviewer-codex', ...})` 重 spawn 一个，与未动的 reviewer-claude teammate 仍构成异构对（详 SKILL.md §失败兜底 表第 1 行）。**严禁**自动降级到同源双 Claude（破坏异构对抗原则）。
+复杂、跨会话、高风险或需要隔离的工作先写 durable plan，再进入 worktree 或 handoff。plan 路径必须是绝对路径，由 caller、项目约定或当前工作流指定；本 baseline 不假设仓库归档目录。
 
----
-## 复杂 plan：Agent Deck baseline 最小协议
+Plan 内容必须让 successor session 不读历史也能继续：
 
-复杂 plan 用于跨会话、高风险或需要 worktree 隔离的工作。本节只保留 Agent Deck 必须自带的 plan / worktree / handoff / cleanup 协议；通用 RFC、spike、planning 方法论不在 baseline 展开，用户 skill 只能作为增强层。
+- 目标和不变量。
+- 已确认的范围、排除项和设计决策。
+- 当前 checklist 和进度。
+- 下一会话第一步。
+- 已知风险、验证要求和未解决问题。
 
-### 触发
-
-- 预计跨多个会话、多个 phase 或多模块才能收口。
-- 改动破坏性强、实验性强，或失败时需要整片回退。
-- 改动跨 adapter、schema、进程、权限或关键 SDK 行为边界。
-- 当前会话准备 hand off，且后续 agent 必须靠文件恢复进度。
-
-### Plan 文件
-
-触发后先写 plan，再进 worktree。plan 必须用绝对路径，合法位置：
-
-- `<main-repo>/ref/plans/<plan-id>.md`：completed 后入 git 的归档位置。
-- `<main-repo>/.claude/plans/<plan-id>.md`：project-local in_progress 草稿，完成后归档到 `ref/plans/`。
-- `~/.claude/plans/<plan-id>.md`：跨项目 plan 或 CLI `/plan` 默认位置。
-
-`<plan-id>` 用 `<topic>-<YYYYMMDD>`，字符集限 `[A-Za-z0-9._-]`，单 segment ≤ 64 字符。frontmatter 必含 `plan_id` / `created_at` / `worktree_path` / `status: in_progress|completed|abandoned` / `base_commit` / `base_branch`；frontmatter 用 snake_case，MCP tool args 用 camelCase。
-
-正文必须包含：总目标与不变量、设计决策、步骤 checklist、当前进度、下一会话第一步、已知风险。`base_branch` 是切 worktree 时主仓库所在分支，完成时合回它，不是默认合 main。
-
-### Review Gate
-
-复杂 plan 写完、进 worktree 前，按可用 review 流程评审 plan。Agent Deck deep-review 可用时评审 `{kind: 'plan', paths: ['<plan-abs-path>']}`；无 deep-review 时走 simple-review；MCP / review skill 都不可用时交给用户人审。CRITICAL/HIGH finding 未处置前不进 worktree。
-
-### Worktree
-
-需要隔离代码改动时，从明确的本地 base branch 创建 worktree；plan 文件、changelog、review 记录和目录命名由当前项目约定或 skill 决定，不属于 Agent Deck baseline。
-
-Claude 端可用 CLI builtin 管 worktree；需要跨 adapter 对齐或写入 Agent Deck worktree marker 时走 MCP：
+需要隔离代码改动时，从明确的本地 `baseBranch` 创建 worktree。Claude Code 端可用 native worktree 能力；需要写入 Agent Deck worktree marker 或跨 adapter 对齐时，走 MCP：
 
 ```ts
 mcp__agent-deck__enter_worktree({ baseBranch, workBranch?, worktreePath?, worktreeRoot? })
-// return: { worktreePath, workBranch, baseBranch, baseCommit, baseSource: 'base-branch', markerSet }
 ```
 
-进入 worktree 后，代码读写命令显式指向 `worktreePath`。大批量编辑后查 worktree 与主仓库的 `git status`，确认改动落在预期位置。
-
-### Handoff
-
-交接当前会话时，用 `hand_off_session` 启动 successor session；把 plan 路径、`/tmp` 临时上下文文件、当前进度和下一步直接写进 `prompt`。`hand_off_session` 会接管 caller 的 task、active team membership 和 worktree marker；接管成功后关闭 caller，接管失败则返回 error 并保留 caller。并行子任务用 `spawn_session`。
-
-长上下文统一走 prompt 约定：先把内容落到 `/tmp/<name>.md`，再在 `prompt` 写明“先读取该文件再继续”。这同样适用于 `spawn_session`，不是 handoff 专属能力。
-
-### 完成 / 中止
-
-完成或中止工作时，按当前项目约定或 active skill 处理 plan、changelog、review 和归档记录；Agent Deck MCP 不提供 plan 归档 tool。清理 worktree 前先确认改动已合并、提交、迁移或明确放弃。
-
-MCP 清理调用：
+进入 worktree 后，读写命令指向返回的 `worktreePath`。清理前确认改动已合并、迁出或明确放弃，再调用：
 
 ```ts
 mcp__agent-deck__exit_worktree({ worktreePath?, discardChanges?, deleteBranch? })
 ```
 
-默认删除 worktree 目录并保留 work branch；设置 `deleteBranch: true` 前，先确认分支内容已合并、cherry-pick 或明确放弃。`discardChanges: true` 只在用户明确要丢弃未提交改动时使用。
+`discardChanges: true` 只在用户明确放弃未提交改动时使用；`deleteBranch: true` 只在分支内容已合并、cherry-pick 或明确放弃后使用。
 
-### 与其他机制的关系
+交接当前会话时，用 `hand_off_session` 启动 successor session。`prompt` 必须写明 plan 路径、临时上下文文件路径、当前进度和下一步；工具会转移 caller 的 task、active team membership 和 worktree marker，成功后关闭 caller。并行子任务用 `spawn_session`。
 
-- plan 文件是跨会话设计与进度文档；MCP task store 是单会话 / 跨会话任务可见性通道。完成后的 changelog / review 记录按当前项目约定、现有 `ref/` 格式或 active skill 组织；Agent Deck baseline 不硬编码这些项目资产目录。
-- 复杂 plan 的 worktree 隔离是机械执行边界；架构、选型、breaking change 仍要走合适的设计对齐或 review 流程，结论写回 plan「设计决策」。
-
-## 内置资产维护边界
-
-维护 Agent Deck 打包 prompt / agent / skill 资产时，保留应用运行必需协议，通用 prompt 优化流程不写进本 baseline。
-
-- Agent Deck 必要行为必须在 `resources/claude-config/`、`resources/codex-config/`、内置 agents / skills 与 MCP tool descriptions 内自闭环；不要把 MCP、session、wire、worktree、task、issue 协议替换成用户侧 skill 指针。
-- 通用 prompt-asset 审计、inventory、备份、去重与 review-agent 验证属于维护工作流；本 baseline 只记录会改变应用 SDK 会话下一步动作的协议、触发条件、边界和失败处理。
-- 修改 Claude / Codex 对偶资产时成对审计；协议语义必须对齐，adapter 工具差异可以分别写。
-- Reviewer body 与 review SKILL 的 inline discipline 是独立加载所需的 self-contained 副本；不要只抽到本 baseline 里。
+长上下文先写到 `/tmp/<name>.md`，再在 `spawn_session` 或 `hand_off_session` prompt 中要求 successor 读取该绝对路径。
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 16 tool（6 个 session：`spawn_session` / `hand_off_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session`；2 个 worktree：`enter_worktree` / `exit_worktree`；5 个 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`；3 个 issue：`report_issue` / `append_issue_context` / `update_issue_status`）编排会话、管理 worktree、管理结构化任务并上报 issue。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+Agent Deck MCP tools 编排 session、message、worktree、task 和 issue。teammate 调工具时使用自己的 SDK session 权限和 sandbox；lead 不代批权限。
 
-速查：`spawn_session` 起并行 SDK session；`hand_off_session` 起 successor session 并接管 caller 资源；`send_message` 统一发消息 / reply；`list_sessions` / `get_session` 只读查会话；`shutdown_session` close lifecycle 不删数据；`enter_worktree` / `exit_worktree` 管 worktree。
+Session tools：
 
-### 三个核心约定（lead 角度）
+- `spawn_session`：启动并行 SDK session；传 `teamName` 时会创建 shared team 并返回 `spawnPromptMessageId`。
+- `hand_off_session`：启动 successor session 并接管 caller 资源。
+- `send_message`：发送普通消息或带 `replyToMessageId` 的 reply。
+- `list_sessions` / `get_session`：只读查询 session。
+- `shutdown_session`：标记 `closed` 并停止 live query；不删除 events、messages、file changes 或 summaries。
 
-1. **spawn 首轮锚点**：`spawn_session` 返回 `spawnPromptMessageId: string | null`（仅当传 `teamName` 且 caller 在 sessions 表时非空），是首轮 prompt 在 messages 表的 placeholder id。teammate first turn 完成后调 `send_message({replyToMessageId: spawnPromptMessageId, ...})` 回复，reply 自动注入 lead conversation。lead 不需主动 poll —— 看到 user-role wire-prefixed message 即知 reply 到了
-2. **后续轮次锚点**：`send_message` 返回 `{ sessionId, teamId, messageId, replyToMessageId, sentAt, queued: true }`。caller 用 `messageId` 在 DB 查 reply chain（如有审计需求）；正常对话不需要 — receiver 收到 message 后会**自动通过 wire prefix `[msg <id>][sid <senderSid>]`** 提到 caller 的 messageId 当 `replyToMessageId` 调 send_message reply 回来。`replyToMessageId` 仅当 caller 调 send 时显式传入 `replyToMessageId` 才有值，开新话题（首条 message / 不挂 reply chain）时为 `null`
-3. **shutdown 不删数据**：`shutdown_session` 只标 lifecycle='closed' + abort SDK live query；events / file_changes / summaries / messages 子表保留，lead 在裁决报告里仍可引用。team 成员关系软退出（行不删，archive 时归档面板仍可看 member 历史）；spawn-link 父子关系全保留（list_sessions(spawnedByFilter) 跨 lifecycle 全见，跨会话救火依赖此）
+Worktree tools：`enter_worktree` / `exit_worktree`。Task tools：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`。Issue tools：`report_issue` / `append_issue_context` / `update_issue_status`。
 
-> **dormant ≠ 丢 mental model**：lifecycle scheduler 转 dormant 只 abort SDK live query + 清 in-process Map，**不删 jsonl**；下一次 `send_message` 自动 SDK resume 复原对话历史。**唯一例外**：jsonl 缺失（用户手动删 `~/.claude/projects/` / 应用重装 / 跨设备同步未带）走 hard fail fallback → teammate 触发 `⚠ FRESH SESSION` warn 必须重 spawn。
->
-> 实操：复用直接 `send_message`；彻底不再用才 `shutdown_session`。
+### Message anchors
 
-### send_message 一统消息发送
+`spawn_session` 返回的 `spawnPromptMessageId` 是 teammate 首轮 reply 的链路锚点。teammate first turn 完成后用 `send_message({ replyToMessageId: spawnPromptMessageId, ... })` 回复；reply 自动注入 lead conversation。
 
-最小调用（普通 / reply 都用同一 tool，reply 加 `replyToMessageId` 链接 DB 对话链）：
+后续轮次用 `send_message` 返回的 `messageId` 作为 reply chain 锚点。receiver 收到的 user message 顶部会带 `[msg <id>][sid <senderSid>]`，reply 时提取这两个值并传回 `replyToMessageId`。
 
-```ts
-mcp__agent-deck__send_message({ sessionId, teamId, text, replyToMessageId?, callerSessionId? })
-// return: { sessionId, teamId, messageId, replyToMessageId, sentAt, queued: true }
-```
+lead 等 teammate reply 时不需要主动 poll；看到 wire-prefixed user-role message 即继续裁决。
 
-字段速查：
+### Cross-session rescue
 
-| 字段 | 必传 | 含义 |
-|---|---|---|
-| `sessionId` | ✓ | target receiver session id |
-| `teamId` | caller/target 共享多 team 时必传 | 共享单 team 自动 resolve；零共享 team 且省略则走 teamless DM |
-| `text` | ✓ | message body |
-| `replyToMessageId` | optional | 从收到的 wire prefix `[msg <id>]` 提取链入 reply chain |
-| `callerSessionId` | optional | in-process 自动闭包；HTTP transport 必传 |
+lead context 重置后，用 `list_sessions({ spawnedByFilter: '<old-lead-session-id>', statusFilter: 'active' })` 找回旧 reviewer，再按 sessionId 发 `send_message`。如果 caller 与 target 不共享 active team 且未传 `teamId`，消息走 teamless DM：仍写入 messages 并注入 receiver conversation，但不进入 team 聚合面板。显式传入不共享的 `teamId` 会被拒绝。
 
-**收消息**：caller 调 send_message → universal-message-watcher 构造含 wire prefix `[from <name> @ <adapter>][msg <id>][sid <senderSid>]` 的 wireBody → receiver adapter 把 wireBody 喂给 receiver SDK → receiver Claude 看到 user-role message 直接处理（lead 不需主动 poll，看到 wire-prefixed user message 即知 reply 到了）。
+需要保留 reviewer 跨轮 team 归属时，把新 caller 加回旧 team 或重新 spawn reviewer pair；只需单发补救消息时，teamless DM 可用。
 
-### 跨会话救火：list_sessions(spawnedByFilter)
+### Wire fallback
 
-lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawnedByFilter:'<old_lead_sid>', statusFilter:'active')` 拉自己以前 spawn 的 active reviewer；按 sessionId 调 `send_message` 发新 prompt（receiver reply 通过 wire prefix `[msg <id>][sid <senderSid>]` 自动挂 reply chain 注入 lead conversation，与 §三个核心约定 §2 后续轮次锚点同款）；收尾走 `shutdown_session`。
+reviewer agent 收到的 message 如果没有 `[msg <id>][sid <senderSid>]` 双锚点，仍要交付结果，但 reply 顶部必须提示 `⚠ NO MSG ANCHOR`。reviewer 先用 `list_sessions({ statusFilter: 'active' })` 反查 lead 和 shared team；无法唯一定位时，把结果留在当前 reviewer session 的 assistant output，lead 可在 SessionDetail 查看。
 
-> ℹ️ **shared-team 与 teamless DM**（plan teamless-dm-20260601 起放宽）：`send_message` 不再强制 caller 与 target 共享 active team。
-> - **有 shared active team**：消息 team-scoped（行为不变；多 team 共享时仍需 `teamId` 去重）。
-> - **无 shared active team 且未显式传 teamId**：自动降级 **teamless DM**（teamId=null），消息仍入 messages 表 + 注入 receiver SDK conversation，只是不进 team 聚合面板。
-> - **显式传了不共享的 teamId**：仍 reject（`team-not-shared`，不静默降级）。
-> - **archived caller / target**：teamless 路径显式 reject（不入队）。
->
-> 对「跨会话救火」的实际影响：
-> - **同 caller session（context 重置 / compaction）**：sessionId 不变 → 成员关系不变 → 直接 `list_sessions(spawnedByFilter)` 捡回来 + `send_message` 即可（team-scoped）。
-> - **真换了 caller session**（应用重启 / 用户手动新开）：新 caller 不在原 team 内 → `send_message` 现在**会以 teamless DM 投递成功**（不再 hard reject）。若只是想继续给 reviewer 发 prompt，teamless DM 即可用。但**需要保留 reviewer 跨轮 mental model / 多 team 正确归属**时，必须先回到 team：
->   1. 调 `spawn_session({adapter:'claude-code', teamName:<old-team-name>, ...})` 重起一对 reviewer（旧的走 `shutdown_session` 收尾，避免 ghost）
->   2. 通过 UI 手动把新 caller 加入旧 team（应用 → Team 面板 → Add Member）
-> - 需要保留 reviewer 跨轮 mental model → 走选项 2；接受重跑 reviewer → 走选项 1；只需单发消息不在意 team 归属 → 直接 teamless DM
+`messageId` 是 UUID；`senderSessionId` 是 SDK / CLI session id。解析 wire prefix 时只假设 lowercase hex + hyphen，不要收紧为 version-specific UUID regex。
 
-### Wire format / regex / DB invariant
+### Dormant sessions
 
-teammate 端协议约束（`[from <name> @ <adapter>][msg <id>][sid <senderSid>]\n` 三段 wire prefix / regex 提 messageId + senderSessionId / 用 send_message 回 / DB messages.body 不含 wire prefix 的 invariant）已强约束在 reviewer-{claude,codex}.md「核心纪律」节，**lead 不需关心**这些细节。
+`dormant` 只停止 live query 和释放内存状态，不删除 conversation jsonl。下一次 `send_message` 会 resume 原 session。若 jsonl 缺失并触发 `⚠ FRESH SESSION`，关闭该 teammate 并重 spawn；不要继续依赖 fresh session 的旧上下文。
 
-**wire format id invariant**：`messageId` 由 `crypto.randomUUID()` 生成（v4 UUID）；`senderSessionId` 是 SDK / CLI 分配的 session id（codex 为 v7 thread id，非 v4）。两者均为 lowercase hex + hyphen 36 字符，regex `/\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]/` 与该 charset 严格对齐，不得收紧为 version-specific UUID regex。
+## Issue 上报
 
-### NO MSG ANCHOR 退化路径（reviewer 端 fallback）
+执行中发现应该记录、但不属于当前交付范围的问题，用 Agent Deck issue tools 上报；不要把当前任务应交付的内容改写成 issue。
 
-reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <senderSid>]` 双锚点 wire prefix（典型：lead context 重置后用裸文本 ping / 第三方 dispatch 路径丢前缀），按下面 fallback 处理：
+- `report_issue`：记录 follow-up 或 Agent Deck app bug。
+- `append_issue_context`：给本会话刚上报且未 resolved 的 issue 补上下文。
+- `update_issue_status`：自己修好后标 `resolved`，或需要重开时标 `open` / `in-progress`。
 
-1. reply 顶部硬性输出 `⚠ NO MSG ANCHOR — prompt 顶部没找到 [msg <id>][sid <senderSessionId>] wire prefix，本 reply 没法挂 replyToMessageId 进 lead 对话链；请 lead 通过 send_message 重新发本轮 prompt 提供 anchor`
-2. **退化路径**：仍要交付 finding / codex 输出（不 abort）。`sessionId` 反查：调 `mcp__agent-deck__list_sessions({statusFilter: 'active'})`（不 filter adapter：cross-adapter native pair 中 lead 可能是 claude-code 或 codex-cli 任一）→ 按以下顺序定位 lead：① displayName 含 "Lead-" 前缀 / ② displayName 非 reviewer-* 标识 / ③ team 内排除自己 sessionId 后唯一 active；3 条都失败走第 4 步终极兜底。`teamId` 反查：调 `list_sessions` 看自己 session 的 `teams[]` 字段（与 lead 共享的 teamId）
-3. **副作用警告**：reply 不挂 `replyToMessageId` 失去对话链锚点，DB / SessionDetail 看不出 reply 链关系；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
-4. **list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding / codex 输出落本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到
-
-### enter_worktree / exit_worktree
-
-用 MCP worktree 工具在跨 adapter 场景下创建、标记和清理 git worktree；Claude 端使用 CLI builtin 时也必须遵守同一语义。
-
-**进入**：`mcp__agent-deck__enter_worktree({ baseBranch, workBranch?, worktreePath?, worktreeRoot? })`
-- `baseBranch` 必传，解析本地 `refs/heads/<baseBranch>` 当前 commit；不接受 SHA / tag / rev 表达式
-- `workBranch` 不传时由 Agent Deck 派生；外部 skill 或项目规范需要固定命名时显式传
-- `worktreePath` / `worktreeRoot` 只控制目录布局；plan 文件路径不参与此工具协议
-- 返回 `{ worktreePath, workBranch, baseBranch, baseCommit, baseSource: 'base-branch', markerSet }`
-
-**退出**：`mcp__agent-deck__exit_worktree({ worktreePath?, discardChanges?, deleteBranch? })`
-- 默认删除 worktree 目录、清 marker、保留 work branch，保护已提交工作不丢
-- dirty worktree 会拒绝；只有用户明确放弃未提交改动时才传 `discardChanges: true`
-- `deleteBranch: true` 只在分支已合并、已 cherry-pick 或明确放弃后使用
-
-### hand_off_session
-
-用 `hand_off_session` 把当前会话交给 successor session；该工具只做 session baton，不读取 plan 文件、不管理项目归档。
-
-**调用**：`mcp__agent-deck__hand_off_session({ prompt, cwd?, adapter?, permissionMode?, codexSandbox?, claudeCodeSandbox?, extraAllowWrite? })`
-
-**行为**：
-- `prompt` 必传；把 plan 文件路径、`/tmp` 临时文件路径、当前进度和下一步直接写在 prompt 里
-- `cwd` 不传则继承 caller cwd；路径不存在时拒绝
-- `adapter` 默认 `claude-code`；要接力到 Codex 显式传 `codex-cli`
-- 工具会创建 successor session，转移 caller 的 task、active team membership 和 worktree marker；转移成功后关闭 caller，转移失败返回 error 并保留 caller
-- 要并行派生工作，用 `spawn_session`；不要用 `hand_off_session`
-
-**返回**：spawn_session 字段 + `{ initialPrompt, callerClosed, resourceTransfer }`
-
-
-## Issue 上报（report_issue / append_issue_context / update_issue_status）
-
-执行中踩到「该记下来、但不该现在动手」的问题 → 用 mcp tool 落 issue tracker，别默默吞掉。三个 write tool 的完整签名 / 参数见各自工具描述，本节只讲**何时用**。agent 只写不查（无 list / get / delete），查询 / triage / 删除走应用 UI。
-
-### 何时上报
-
-发现以下任一、且**不在当前任务交付范围内** → `report_issue`：
-
-| kind | 场景 |
-|---|---|
-| `follow-up`（default）| 当前任务暴露的后续工作（本轮 scope 外但该做）|
-| `app-bug` | Agent Deck 应用本身的 bug |
-
-**不上报**：
-- **当场能顺手修的，直接修**——report 是留给「scope 外 / 需后续跟进」的，不是给自己当下能解决的事记 TODO
-- 当前任务直接要交付的内容（直接做）
-- 一次性 trivial 观察
-- 怕重复而不报：agent 查不了已有 issue，宁可重报由 UI 合并
-
-### 上报后
-
-- **补现场** → `append_issue_context`：给本会话刚 report 的 issue（用返回的 `id`）追加上下文。只能补自己的、还没 resolved 的 issue。
-- **改状态** → `update_issue_status`：自己修好了标 `resolved`，要重开标 `open`；仅源会话 / 解决会话能改，不用等人去 UI 点。
+当场能修且在当前 scope 内的问题直接修；一次性 trivial 观察不上报。
