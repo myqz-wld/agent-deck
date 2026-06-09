@@ -63,9 +63,6 @@ export function ComposerSdk({
   // REVIEW_35 MED-D-claude-4：busyRef 同步锁，防超快连点（< 16ms）双 send race
   const busyRef = useRef(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [steerText, setSteerText] = useState('');
-  const [steerBusy, setSteerBusy] = useState(false);
-  const [steerError, setSteerError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgs = useImageAttachments();
   // SDK Query 自身持有运行时 permissionMode 但不暴露 getter，所以从 session 记录的
@@ -97,7 +94,8 @@ export function ComposerSdk({
   //   不支持 setPermissionMode 的 adapter 错归入支持类，切换抛 IPC 错）
   // - codex sandbox select 仅 codex-cli 显示（claude 没有 codex 那套档位）
   // - claude OS sandbox select 仅 Claude Code 桥接层显示（CHANGELOG_74，与 codex 字面镜像）
-  // - 图片附件入口（粘贴 / 拖放 / 上传）按 capabilities.canAcceptAttachments gate
+  // - 图片附件入口（粘贴 / 拖放 / 上传）按 capabilities.canAcceptAttachments gate；
+  //   Codex busy steer 模式暂时禁用附件入口，因为 turn/steer 只接受文字修正
   //   （REVIEW_35 HIGH-D2：当前三种 SDK adapter 都 true；白名单 gate 防止未来新
   //   adapter 默认就拿到 attachments 路径，必须显式 opt-in）
   const agentDisplayName =
@@ -107,6 +105,8 @@ export function ComposerSdk({
   const supportsClaudeCodeSandbox = agentId === 'claude-code' || agentId === 'deepseek-claude-code';
   const canAcceptAttachments =
     agentId === 'claude-code' || agentId === 'deepseek-claude-code' || agentId === 'codex-cli';
+  const isSteerMode = canSteerTurn && turnBusy;
+  const canUseAttachments = canAcceptAttachments && !isSteerMode;
 
   const send = async (): Promise<void> => {
     const t = text.trim();
@@ -124,6 +124,10 @@ export function ComposerSdk({
       setSendError(
         '当前会话类型不支持图片附件，请移除图片后再发送，或切换到支持图片的 Claude / Deepseek / Codex 会话',
       );
+      return;
+    }
+    if (isSteerMode && hasAttachments) {
+      setSendError('Codex 当前 turn 的修正只支持文字，请移除图片后再发送。');
       return;
     }
     busyRef.current = true;
@@ -160,23 +164,6 @@ export function ComposerSdk({
     } finally {
       busyRef.current = false;
       setBusy(false);
-    }
-  };
-
-  const steer = async (): Promise<void> => {
-    const t = steerText.trim();
-    if (!t || steerBusy) return;
-    setSteerText('');
-    setSteerBusy(true);
-    setSteerError(null);
-    try {
-      await window.api.steerAdapterTurn(agentId, sessionId, t);
-    } catch (err) {
-      logger.error('steerAdapterTurn failed', err);
-      setSteerText(t);
-      setSteerError((err as Error).message);
-    } finally {
-      setSteerBusy(false);
     }
   };
 
@@ -304,8 +291,11 @@ export function ComposerSdk({
   };
 
   const canSend = (text.trim().length > 0 || imgs.attachments.length > 0) && !busy;
-  const showSteer = canSteerTurn && turnBusy;
-  const canSteer = steerText.trim().length > 0 && !steerBusy;
+  const canSubmit = isSteerMode ? text.trim().length > 0 && !busy : canSend;
+  const inputPlaceholder = isSteerMode
+    ? '修正当前 Codex turn…  (Enter 发送 / Shift+Enter 换行)'
+    : `给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行 / 可粘贴或拖放图片)`;
+  const submitLabel = isSteerMode ? (busy ? '发送中…' : '修正') : busy ? '发送中…' : '发送';
 
   return (
     <div className="shrink-0 border-t border-deck-border px-2.5 py-2">
@@ -344,45 +334,15 @@ export function ComposerSdk({
         onDismiss={() => setCsClaudeError(null)}
       />
       <ErrorBanner message={sendError} onDismiss={() => setSendError(null)} />
-      <ErrorBanner message={steerError} prefix="修正发送失败" onDismiss={() => setSteerError(null)} />
       <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />
-      {showSteer && (
-        <div className="mb-1.5 flex items-center gap-1.5 rounded border border-status-working/30 bg-status-working/10 px-1.5 py-1">
-          <input
-            value={steerText}
-            onChange={(e) => setSteerText(e.target.value)}
-            onKeyDown={(e) => {
-              if (
-                e.key === 'Enter' &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing &&
-                e.nativeEvent.keyCode !== 229
-              ) {
-                e.preventDefault();
-                if (canSteer) void steer();
-              }
-            }}
-            placeholder="修正当前 Codex turn…"
-            className="min-w-0 flex-1 bg-transparent px-1 text-[11px] outline-none placeholder:text-deck-muted/60"
-          />
-          <button
-            type="button"
-            onClick={() => void steer()}
-            disabled={!canSteer}
-            className="h-6 shrink-0 rounded bg-status-working/25 px-2 text-[10px] font-medium text-status-working hover:bg-status-working/35 disabled:opacity-40"
-          >
-            {steerBusy ? '发送中…' : '修正'}
-          </button>
-        </div>
-      )}
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        // REVIEW_35 HIGH-D2：仅 canAcceptAttachments adapter 才绑 paste/drop/dragover；
-        // 不在白名单的 adapter 不绑，防止用户拖入触发空发送 + 静默丢图。
-        onPaste={canAcceptAttachments ? imgs.onPaste : undefined}
-        onDrop={canAcceptAttachments ? imgs.onDrop : undefined}
-        onDragOver={canAcceptAttachments ? imgs.onDragOver : undefined}
+        // REVIEW_35 HIGH-D2：仅允许附件入口时才绑 paste/drop/dragover；
+        // 不在白名单 / Codex steer 模式不绑，防止用户拖入触发空发送 + 静默丢图。
+        onPaste={canUseAttachments ? imgs.onPaste : undefined}
+        onDrop={canUseAttachments ? imgs.onDrop : undefined}
+        onDragOver={canUseAttachments ? imgs.onDragOver : undefined}
         onKeyDown={(e) => {
           // Enter 发送；Shift+Enter 换行（IME 拼写期间不拦，避免吞掉中文上屏的 Enter）
           if (
@@ -393,10 +353,10 @@ export function ComposerSdk({
             e.nativeEvent.keyCode !== 229
           ) {
             e.preventDefault();
-            if (canSend) void send();
+            if (canSubmit) void send();
           }
         }}
-        placeholder={`给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行 / 可粘贴或拖放图片)`}
+        placeholder={inputPlaceholder}
         rows={2}
         className="block w-full resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
       />
@@ -404,8 +364,8 @@ export function ComposerSdk({
           替代了原「右侧三按钮纵向堆叠」+「单独 attachments strip」，让附件操作分组、
           发送/中断作为主操作右对齐。emoji 图标换成 inline SVG 避免基线对不齐。 */}
       <div className="mt-1.5 flex items-center gap-1.5">
-        {/* REVIEW_35 HIGH-D2：仅 canAcceptAttachments adapter 才显示图片入口 */}
-        {canAcceptAttachments && (
+        {/* REVIEW_35 HIGH-D2：仅允许附件入口时才显示图片按钮 */}
+        {canUseAttachments && (
           <>
             <input
               ref={fileInputRef}
@@ -475,10 +435,10 @@ export function ComposerSdk({
         <button
           type="button"
           onClick={() => void send()}
-          disabled={!canSend}
+          disabled={!canSubmit}
           className="h-7 shrink-0 rounded bg-status-working/30 px-3 text-[10px] font-medium text-status-working hover:bg-status-working/40 disabled:opacity-40"
         >
-          {busy ? '发送中…' : '发送'}
+          {submitLabel}
         </button>
       </div>
     </div>

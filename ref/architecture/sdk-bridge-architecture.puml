@@ -1,14 +1,16 @@
-' description: sdk-bridge 双端 (claude-code + codex-cli) 模块架构 — Codex live path uses app-server + mid-turn steering
+' plan: codex-mid-turn-steering-20260610
+' description: sdk-bridge 双端 (claude-code + codex-cli) 模块架构 — Codex sendMessage routes active turns to app-server steering
 ' last_updated: 2026-06-10
 @startuml sdk-bridge-architecture
 
-title sdk-bridge — 双端模块架构 (Codex app-server + mid-turn steering)
+title sdk-bridge — 双端模块架构 (Codex sendMessage + app-server steering)
 
 ' 内部 module 名 / 函数名 / LOC / commit / REVIEW 引用见 INDEX
 
-package "Renderer / IPC steering surface" as L0 {
-  [SessionDetail Composer\nsteer input] as SteerUI
-  [preload steerAdapterTurn\n+ adapter:steer-turn IPC] as SteerIPC
+package "Renderer / IPC message surface" as L0 {
+  [SessionDetail Composer\nsingle input] as ComposerUI
+  [preload sendAdapterMessage\n+ adapter:send-message IPC] as SendIPC
+  [preload steerAdapterTurn\n+ adapter:steer-turn IPC\n(low-level explicit)] as SteerIPC
 }
 
 package "公共抽象 (跨 adapter)" as L1 {
@@ -42,7 +44,8 @@ package "外部边界 (jsonl)" as L5 {
 
 AdapterIf <|.. ClaudeFacade
 AdapterIf <|.. CodexFacade
-SteerUI --> SteerIPC : active turn input
+ComposerUI --> SendIPC : idle send OR active correction
+SendIPC --> AdapterIf : sendMessage(sessionId, text, attachments?)
 SteerIPC --> AdapterIf : steerTurn(sessionId, text)
 
 ' ─── claude 端调用链 ───
@@ -59,7 +62,8 @@ ClaudeSDK --> ClaudeJsonl : 写 conversation history
 
 CodexFacade --> CodexAux : helpers
 CodexFacade --> CodexSDK : app-server thread/start|resume\n+ turn/start 主路径
-CodexFacade --> CodexAux : steerTurn guard\n(active currentTurnId)
+CodexFacade --> CodexAux : sendMessage active route\n(currentTurnId + no attachments)
+CodexFacade --> CodexAux : steerTurn explicit guard\n(active currentTurnId)
 CodexAux --> CodexSDK : turn/steer(expectedTurnId)\n(no turn override)
 CodexFacade --> CodexRec : sendMessage 撞 absent → 自愈
 CodexRec --> Common : 反查 cwd / 取消归档

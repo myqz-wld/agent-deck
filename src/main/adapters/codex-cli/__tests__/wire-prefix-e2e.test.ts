@@ -110,6 +110,27 @@ function makeInternalSession(threadId: string): InternalSession {
   };
 }
 
+function makeActiveInternalSession(threadId: string): {
+  internal: InternalSession;
+  steer: ReturnType<typeof vi.fn>;
+} {
+  const steer = vi.fn(async () => undefined);
+  return {
+    internal: {
+      applicationSid: threadId,
+      threadId,
+      cwd: '/tmp/codex-cwd',
+      thread: { steer } as unknown as InternalSession['thread'],
+      pendingMessages: [],
+      currentTurn: new AbortController(),
+      currentTurnId: 'turn-active-1',
+      turnLoopRunning: true,
+      intentionallyClosed: false,
+    },
+    steer,
+  };
+}
+
 /**
  * 构造一条与 universal-message-watcher.buildWireBody 输出形态字节级对齐的 wire body
  * （buildWireBody 原文：`[from ${displayName} @ ${adapterId}][msg ${id}][sid ${fromSid}]\n${body}`）。
@@ -339,6 +360,62 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     expect(items).toHaveLength(2);
     expect(items[0]).toMatchObject({ type: 'local_image', path: '/tmp/x.png' });
     // wireBody 包成 type:text item 字节级保留（codex 子进程仍能从 text 顶部 parse wire prefix）
+    expect(items[1]).toMatchObject({ type: 'text', text: wireBody });
+  });
+
+  it('active turn：bridge.sendMessage(sid, wireBody) 自动走 turn/steer，不进入 pendingMessages', async () => {
+    const bridge = makeBridge();
+    const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
+    const sid = 'codex-active-steer';
+    const { internal, steer } = makeActiveInternalSession(sid);
+    sessions.set(sid, internal);
+
+    const wireBody = buildClaudeLeadToCodexTeammateWireBody({
+      displayName: 'Lead-Steer',
+      msgId: '12345678-1234-4567-8901-234567890abc',
+      senderSid: 'abcdef01-2345-4678-89ab-cdef01234567',
+      body: '这条作为运行中修正注入',
+    });
+
+    await bridge.sendMessage(sid, wireBody);
+
+    expect(internal.pendingMessages).toHaveLength(0);
+    expect(steer).toHaveBeenCalledWith(
+      [{ type: 'text', text: wireBody, text_elements: [] }],
+      'turn-active-1',
+    );
+    const messageEvents = emits.filter((e) => e.kind === 'message' && e.sessionId === sid);
+    expect(messageEvents).toHaveLength(1);
+    expect(messageEvents[0].payload).toMatchObject({
+      text: wireBody,
+      role: 'user',
+      steer: true,
+    });
+  });
+
+  it('active turn + attachments：bridge.sendMessage 保持普通队列，避免 turn/steer 丢附件', async () => {
+    const bridge = makeBridge();
+    const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
+    const sid = 'codex-active-attach';
+    const { internal, steer } = makeActiveInternalSession(sid);
+    sessions.set(sid, internal);
+
+    const wireBody = buildClaudeLeadToCodexTeammateWireBody({
+      displayName: 'Lead-Attach-Active',
+      msgId: '22345678-1234-4567-8901-234567890abc',
+      senderSid: 'bbcdef01-2345-4678-89ab-cdef01234567',
+      body: '看这张图',
+    });
+    const attachments = [
+      { kind: 'uploaded' as const, path: '/tmp/active.png', mime: 'image/png', bytes: 1024 },
+    ];
+
+    await bridge.sendMessage(sid, wireBody, attachments);
+
+    expect(steer).not.toHaveBeenCalled();
+    expect(internal.pendingMessages).toHaveLength(1);
+    const items = internal.pendingMessages[0] as Array<{ type: string; text?: string; path?: string }>;
+    expect(items[0]).toMatchObject({ type: 'local_image', path: '/tmp/active.png' });
     expect(items[1]).toMatchObject({ type: 'text', text: wireBody });
   });
 });

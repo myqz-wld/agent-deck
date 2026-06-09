@@ -365,6 +365,11 @@ export class CodexSdkBridge {
       );
     }
 
+    if (!attachments?.length && s.currentTurn && s.currentTurnId) {
+      await this.steerActiveTurn(s, sessionId, text, s.currentTurnId);
+      return;
+    }
+
     if (s.pendingMessages.length >= MAX_PENDING_MESSAGES) {
       throw new Error(
         `待发送队列已堆积 ${MAX_PENDING_MESSAGES} 条。请等当前 turn 跑完再继续发送。`,
@@ -412,7 +417,16 @@ export class CodexSdkBridge {
       throw new Error('Codex 当前没有可 steer 的 active turn。');
     }
 
-    await s.thread.steer(toCodexAppServerInput(packCodexInput(text)), s.currentTurnId);
+    await this.steerActiveTurn(s, sessionId, text, s.currentTurnId);
+  }
+
+  private async steerActiveTurn(
+    s: InternalSession,
+    sessionId: string,
+    text: string,
+    expectedTurnId: string,
+  ): Promise<void> {
+    await s.thread.steer(toCodexAppServerInput(packCodexInput(text)), expectedTurnId);
     this.opts.emit({
       sessionId,
       agentId: AGENT_ID,
