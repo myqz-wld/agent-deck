@@ -87,7 +87,7 @@ export function ToolStartRow({
               aria-expanded={taskPromptOpen}
               className="rounded bg-white/8 px-1.5 py-0.5 text-[9px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
             >
-              {taskPromptOpen ? '收起 prompt' : '展开 prompt'}
+              {taskPromptOpen ? '收起指令' : '查看指令'}
             </button>
           )}
           <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
@@ -124,7 +124,7 @@ export function ToolStartRow({
             aria-expanded={diffOpen}
             className="rounded bg-white/8 px-1.5 py-0.5 text-[9px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
           >
-            {diffOpen ? '收起 diff' : '展开 diff'}
+            {diffOpen ? '收起改动' : '查看改动'}
           </button>
         )}
         <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
@@ -180,6 +180,7 @@ export function ToolEndRow({
   const text = useMemo(() => formatToolResult(result), [result]);
   const imageRead = useMemo(() => parseImageReadResult(result), [result]);
   const hasContent = text && text.trim().length > 0;
+  const statusText = toolStatusText(p.status);
   // 借 start 事件的 toolInput 拼 detail —— 让「✨ Skill 完成」补回「· agent-deck:deep-code-review」。
   // imageRead 自己带 [provider · model] 后缀就不再叠 detail，避免一行三段信息太挤。
   const detail = useMemo(
@@ -253,11 +254,29 @@ export function ToolEndRow({
       ) : (
         <div className="mt-1 px-1.5 py-1 text-[10px] italic text-deck-muted/70">
           （无输出
-          {typeof p.status === 'string' && p.status !== 'completed' && ` · 状态: ${p.status}`}
+          {statusText && ` · 状态：${statusText}`}
           {typeof p.exitCode === 'number' && ` · 退出码: ${p.exitCode}`}
           ）
         </div>
       ))}
     </li>
   );
+}
+
+function toolStatusText(status: unknown): string | null {
+  if (status === 'completed' || status == null) return null;
+  switch (status) {
+    case 'failed':
+      return '失败';
+    case 'cancelled':
+      return '已取消';
+    case 'error':
+      return '出错';
+    case 'inProgress':
+    case 'in_progress':
+    case 'running':
+      return '执行中';
+    default:
+      return typeof status === 'string' ? '状态未知' : null;
+  }
 }

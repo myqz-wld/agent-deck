@@ -15,6 +15,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import log from 'electron-log/main';
 
 const mocks = vi.hoisted(() => ({
   repo: {
@@ -36,12 +37,15 @@ import { MessageLifecycleScheduler } from '../message-lifecycle-scheduler';
 
 const mockRepo = mocks.repo;
 const mockEventBus = mocks.eventBus;
+const messageGcLogger = log.scope('message-gc');
 
 beforeEach(() => {
   mockRepo.listExpiredForGc.mockReset();
   // 默认 batchHardDelete 原样返回传入 ids（全部成功删）
   mockRepo.batchHardDelete.mockReset().mockImplementation((ids: readonly string[]) => [...ids]);
   mockEventBus.emit.mockReset();
+  (messageGcLogger.warn as ReturnType<typeof vi.fn>).mockClear();
+  (messageGcLogger.info as ReturnType<typeof vi.fn>).mockClear();
 });
 
 describe('MessageLifecycleScheduler.scan — 阈值 0 跳过 / 超期删 / emit purged', () => {
@@ -88,19 +92,18 @@ describe('MessageLifecycleScheduler.scan — 阈值 0 跳过 / 超期删 / emit 
     expect(mockEventBus.emit).not.toHaveBeenCalled();
   });
 
-  it('scan throw（DB 锁）→ console.warn 不崩，不 emit', () => {
+  it('scan throw（DB 锁）→ logger.warn 不崩，不 emit', () => {
     mockRepo.listExpiredForGc.mockImplementation(() => {
       throw new Error('SQLite locked');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const s = new MessageLifecycleScheduler({ messageRetentionDays: 30 });
     expect(() => s.scan()).not.toThrow();
     expect(mockEventBus.emit).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/message-gc.*scan failed/),
+    expect(messageGcLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('[message-gc] scan failed'),
+      expect.objectContaining({ retentionDays: 30, limit: 500 }),
       expect.any(Error),
     );
-    warnSpy.mockRestore();
   });
 });
 

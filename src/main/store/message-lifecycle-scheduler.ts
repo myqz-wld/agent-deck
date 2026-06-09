@@ -22,6 +22,9 @@
 
 import { agentDeckMessageRepo, GC_BATCH_LIMIT } from '@main/store/agent-deck-message-repo';
 import { eventBus } from '@main/event-bus';
+import log from '@main/utils/logger';
+
+const logger = log.scope('message-gc');
 
 interface MessageSchedulerOptions {
   /** §D3 阈值：status IN terminal && sent_at < now - days*86400_000 → hardDelete。0 = 关闭 GC */
@@ -82,7 +85,7 @@ export class MessageLifecycleScheduler {
    * 全 throw）不排避免空转死循环。单写者 SQLite 下 race 近不可能，parity + 防御保留。
    *
    * 失败兜底：listExpiredForGc / batchHardDelete throw（如 DB 锁）不崩 scheduler tick —— 整体
-   * try/catch + warn，下一 tick（6h 后或 catch-up）重试。
+   * try/catch + scoped logger，下一 tick（6h 后或 catch-up）重试。
    */
   scan(): void {
     if (this.opts.messageRetentionDays <= 0) return;
@@ -92,6 +95,7 @@ export class MessageLifecycleScheduler {
     const limit = Math.min(this.opts.gcBatchLimit ?? DEFAULT_GC_BATCH_LIMIT, GC_BATCH_LIMIT);
     let deletedCount = 0;
     let hitLimit = false;
+    let candidateCount = 0;
     try {
       const ids = agentDeckMessageRepo.listExpiredForGc({
         retentionDays: this.opts.messageRetentionDays,
@@ -99,16 +103,26 @@ export class MessageLifecycleScheduler {
         limit,
       });
       if (ids.length === 0) return;
+      candidateCount = ids.length;
       hitLimit = ids.length >= limit;
       const removed = agentDeckMessageRepo.batchHardDelete(ids);
       deletedCount = removed.length;
     } catch (err) {
-      console.warn('[message-gc] scan failed:', err);
+      logger.warn('[message-gc] scan failed', {
+        retentionDays: this.opts.messageRetentionDays,
+        limit,
+      }, err);
       return;
     }
     if (deletedCount > 0) {
       eventBus.emit('agent-deck-message-purged', { count: deletedCount });
-      console.log(`[message-gc] purged ${deletedCount} expired terminal messages`);
+      logger.info('[message-gc] purged expired terminal messages', {
+        deletedCount,
+        candidateCount,
+        retentionDays: this.opts.messageRetentionDays,
+        limit,
+        hitLimit,
+      });
     }
     // 删满 limit + 真删了行 → 调度短延迟续删 tick（积压清完回常态 6h）。
     if (hitLimit && deletedCount > 0) {

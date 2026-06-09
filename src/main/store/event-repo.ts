@@ -3,6 +3,9 @@ import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { getDb } from './db';
 import { safeStringifyPayload } from './payload-truncate';
 import { agentDeckTeamRepo } from './agent-deck-team-repo';
+import log from '@main/utils/logger';
+
+const logger = log.scope('event-repo');
 
 interface Row {
   id: number;
@@ -13,13 +16,35 @@ interface Row {
   tool_use_id: string | null;
 }
 
+interface PayloadParseContext {
+  operation: string;
+  eventId?: number;
+  sessionId?: string;
+  kind?: string;
+  toolUseId?: string | null;
+  ts?: number;
+}
+
 function rowToEvent(r: Row): AgentEvent & { id: number } {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(r.payload_json) as unknown;
+  } catch (err) {
+    logger.warn('[event-repo] payload JSON parse failed', {
+      operation: 'row-to-event',
+      eventId: r.id,
+      sessionId: r.session_id,
+      kind: r.kind,
+      ts: r.ts,
+    }, err);
+    throw err;
+  }
   return {
     id: r.id,
     sessionId: r.session_id,
     agentId: '', // events 表不冗余 agent_id；调用者通过 session join 拿
     kind: r.kind as AgentEvent['kind'],
-    payload: JSON.parse(r.payload_json) as unknown,
+    payload,
     ts: r.ts,
   };
 }
@@ -38,10 +63,11 @@ function extractToolUseId(event: AgentEvent): string | null {
   return typeof tid === 'string' && tid !== '' ? tid : null;
 }
 
-function parsePayloadJson(json: string): unknown {
+function parsePayloadJson(json: string, ctx: PayloadParseContext): unknown {
   try {
     return JSON.parse(json) as unknown;
-  } catch {
+  } catch (err) {
+    logger.warn('[event-repo] payload JSON parse failed', ctx, err);
     return null;
   }
 }
@@ -80,7 +106,17 @@ export const eventRepo = {
         | { id: number; payload_json: string }
         | undefined;
       const payload = existing
-        ? mergeToolUsePayload(parsePayloadJson(existing.payload_json), event.payload)
+        ? mergeToolUsePayload(
+          parsePayloadJson(existing.payload_json, {
+            operation: 'merge-existing-payload',
+            eventId: existing.id,
+            sessionId: event.sessionId,
+            kind: event.kind,
+            toolUseId,
+            ts: event.ts,
+          }),
+          event.payload,
+        )
         : mergeToolUsePayload(null, event.payload);
       if (existing) {
         getDb()
@@ -189,14 +225,14 @@ export const eventRepo = {
     sinceTs?: number,
   ): { text: string; ts: number } | null {
     const sql = sinceTs
-      ? `SELECT payload_json, ts FROM events
+      ? `SELECT id, payload_json, ts FROM events
          WHERE session_id = ?
            AND kind = 'message'
            AND json_extract(payload_json, '$.role') = 'assistant'
            AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
            AND ts >= ?
          ORDER BY ts DESC, id DESC LIMIT 1`
-      : `SELECT payload_json, ts FROM events
+      : `SELECT id, payload_json, ts FROM events
          WHERE session_id = ?
            AND kind = 'message'
            AND json_extract(payload_json, '$.role') = 'assistant'
@@ -204,13 +240,20 @@ export const eventRepo = {
          ORDER BY ts DESC, id DESC LIMIT 1`;
     const row = (sinceTs
       ? getDb().prepare(sql).get(sessionId, sinceTs)
-      : getDb().prepare(sql).get(sessionId)) as { payload_json: string; ts: number } | undefined;
+      : getDb().prepare(sql).get(sessionId)) as { id: number; payload_json: string; ts: number } | undefined;
     if (!row) return null;
     try {
       const p = JSON.parse(row.payload_json) as { text?: string };
       const text = typeof p.text === 'string' ? p.text : '';
       return text ? { text, ts: row.ts } : null;
-    } catch {
+    } catch (err) {
+      logger.warn('[event-repo] payload JSON parse failed', {
+        operation: 'find-latest-assistant-message',
+        eventId: row.id,
+        sessionId,
+        kind: 'message',
+        ts: row.ts,
+      }, err);
       return null;
     }
   },

@@ -48,6 +48,84 @@ describe('describeEventPayload — 正常路径', () => {
   it('session-end reason 翻译', () => {
     expect(describeEventPayload(ev('session-end', { reason: 'completed' }))).toBe('正常结束');
   });
+  it('session-start 缺 cwd 时显示用户向状态', () => {
+    expect(describeEventPayload(ev('session-start', {}))).toBe('会话已开始');
+  });
+  it('file-changed 缺 filePath 时显示用户向状态', () => {
+    expect(describeEventPayload(ev('file-changed', {}))).toBe('文件已变更');
+  });
+  it('tool-use-start 显示工具入参摘要，而不是只显示工具名', () => {
+    expect(
+      describeEventPayload(
+        ev('tool-use-start', {
+          toolName: 'Bash',
+          toolInput: { command: 'pnpm test -- --runInBand' },
+        }),
+      ),
+    ).toBe('Bash · pnpm test -- --runInBand');
+  });
+  it('tool-use-start 文件工具显示 file_path', () => {
+    expect(
+      describeEventPayload(
+        ev('tool-use-start', {
+          toolName: 'Write',
+          toolInput: { file_path: '/repo/src/main.ts' },
+        }),
+      ),
+    ).toBe('Write · /repo/src/main.ts');
+  });
+  it('tool-use-end 失败时显示中文状态，不暴露 raw status', () => {
+    expect(
+      describeEventPayload(
+        ev('tool-use-end', {
+          toolName: 'Bash',
+          toolInput: { command: 'pnpm test' },
+          status: 'failed',
+        }),
+      ),
+    ).toBe('Bash · pnpm test · 失败');
+  });
+  it('waiting permission-request 显示工具和入参摘要', () => {
+    expect(
+      describeEventPayload(
+        ev('waiting-for-user', {
+          type: 'permission-request',
+          toolName: 'Edit',
+          toolInput: { file_path: '/repo/src/App.tsx' },
+        }),
+      ),
+    ).toBe('Edit · /repo/src/App.tsx');
+  });
+  it('waiting ask-user-question 显示第一条问题', () => {
+    expect(
+      describeEventPayload(
+        ev('waiting-for-user', {
+          type: 'ask-user-question',
+          questions: [{ question: '选择哪种部署方式？' }],
+        }),
+      ),
+    ).toBe('选择哪种部署方式？');
+  });
+  it('waiting exit-plan-mode 显示计划首行', () => {
+    expect(
+      describeEventPayload(
+        ev('waiting-for-user', {
+          type: 'exit-plan-mode',
+          plan: '\n\n1. 先补测试\n2. 再改实现',
+        }),
+      ),
+    ).toBe('1. 先补测试');
+  });
+  it('waiting cancelled 类型显示明确取消状态', () => {
+    expect(describeEventPayload(ev('waiting-for-user', { type: 'permission-cancelled' }))).toBe(
+      '权限请求已取消',
+    );
+  });
+  it('waiting 未知结构对象时显示用户向兜底', () => {
+    expect(describeEventPayload(ev('waiting-for-user', { message: { type: 'internal' } }))).toBe(
+      '等待响应',
+    );
+  });
   it('team-task-created 拼 desc → assigned @ team', () => {
     expect(
       describeEventPayload(

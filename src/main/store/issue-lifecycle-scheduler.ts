@@ -19,6 +19,9 @@
 
 import { issueRepo } from '@main/store/issue-repo';
 import { eventBus } from '@main/event-bus';
+import log from '@main/utils/logger';
+
+const logger = log.scope('issue-gc');
 
 interface IssueSchedulerOptions {
   /** §D13 阈值: status='resolved' && resolved_at < now - days * 86400_000 → hardDelete。0 = 关闭 */
@@ -85,7 +88,7 @@ export class IssueLifecycleScheduler {
    * （与 session-repo findHistoryOlderThan 对称），剩余下轮 tick 续，防 retention 0→非 0 首次启用
    * 或 high-volume 批量过期时一次同步删上万行 + 上万次 emit 卡主线程（scan() 是 sync 逐条）。
    *
-   * 失败兜底: 单条 hardDelete throw 不中断后续 — 每条独立 try/catch + console.warn,scheduler
+   * 失败兜底: 单条 hardDelete throw 不中断后续 — 每条独立 try/catch + scoped logger,scheduler
    * tick 不因单条 corrupt row 整批崩。
    *
    * **Follow-up #11 续删节奏**: 某路 listForGc 删满 limit(=可能还有积压)→ 调度一个短延迟
@@ -118,16 +121,22 @@ export class IssueLifecycleScheduler {
         });
         deletedCount++;
       } catch (err) {
-        console.warn(`[issue-gc] hardDelete ${id} failed:`, err);
+        logger.warn('[issue-gc] hardDelete failed', { issueId: id }, err);
       }
-    }
-    if (deletedCount > 0) {
-      console.log(`[issue-gc] hardDeleted ${deletedCount} issues (resolved=${result.resolvedExpired.length}, soft=${result.softDeletedExpired.length})`);
     }
     // Follow-up #11: 某路删满 limit = 可能还有积压 → 调度短延迟续删 tick。两路都 < limit 时不排
     // (积压清完,回到常态 6h tick)。deletedCount === 0(本轮全 race / 全 throw)也不排避免空转死循环。
     const hitLimit =
       result.resolvedExpired.length >= limit || result.softDeletedExpired.length >= limit;
+    if (deletedCount > 0) {
+      logger.info('[issue-gc] hardDeleted issues', {
+        deletedCount,
+        resolvedExpired: result.resolvedExpired.length,
+        softDeletedExpired: result.softDeletedExpired.length,
+        limit,
+        hitLimit,
+      });
+    }
     if (hitLimit && deletedCount > 0) {
       this.scheduleCatchUpTick();
     }

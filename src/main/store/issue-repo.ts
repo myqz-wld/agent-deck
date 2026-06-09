@@ -27,7 +27,10 @@ import type {
   IssueStatus,
   LogsRef,
 } from '@shared/types';
+import log from '@main/utils/logger';
 import { getDb } from './db';
+
+const logger = log.scope('issue-repo');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Row schema (snake_case) + 类型转换 helpers
@@ -64,7 +67,10 @@ interface AppendixRow {
 function safeJsonParse<T>(raw: string | null, fallback: T, ctx: string): T {
   if (raw == null) return fallback;
   try { return JSON.parse(raw) as T; }
-  catch (e) { console.warn(`[issue-repo] JSON parse 失败 (${ctx})，退化默认: ${e}`); return fallback; }
+  catch (e) {
+    logger.warn(`[issue-repo] JSON parse 失败 (${ctx})，退化默认`, e);
+    return fallback;
+  }
 }
 
 function rowToRecord(r: IssueRow): IssueRecord {

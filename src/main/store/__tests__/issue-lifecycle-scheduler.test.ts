@@ -15,6 +15,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import log from 'electron-log/main';
 
 const mocks = vi.hoisted(() => ({
   issueRepo: {
@@ -33,6 +34,7 @@ import type { IssueRecord } from '@shared/types';
 
 const mockIssueRepo = mocks.issueRepo;
 const mockEventBus = mocks.eventBus;
+const issueGcLogger = log.scope('issue-gc');
 
 function makeIssue(overrides: Partial<IssueRecord> = {}): IssueRecord {
   const now = Date.now();
@@ -62,6 +64,8 @@ beforeEach(() => {
   mockIssueRepo.get.mockReset();
   mockIssueRepo.hardDelete.mockReset().mockReturnValue(true);
   mockEventBus.emit.mockReset();
+  (issueGcLogger.warn as ReturnType<typeof vi.fn>).mockClear();
+  (issueGcLogger.info as ReturnType<typeof vi.fn>).mockClear();
 });
 
 describe('IssueLifecycleScheduler.scan — 阈值 0 跳过 / 超期硬删 / emit kind=hardDeleted', () => {
@@ -203,7 +207,7 @@ describe('IssueLifecycleScheduler.scan — 阈值 0 跳过 / 超期硬删 / emit
     expect(mockEventBus.emit).not.toHaveBeenCalled();
   });
 
-  it('单条 hardDelete throw → console.warn,后续条目仍继续不中断', () => {
+  it('单条 hardDelete throw → logger.warn,后续条目仍继续不中断', () => {
     mockIssueRepo.listForGc.mockReturnValue({
       resolvedExpired: ['fail-id', 'ok-id'],
       softDeletedExpired: [],
@@ -213,7 +217,6 @@ describe('IssueLifecycleScheduler.scan — 阈值 0 跳过 / 超期硬删 / emit
       if (id === 'fail-id') throw new Error('SQLite locked');
       return true;
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const s = new IssueLifecycleScheduler({
       resolvedRetentionDays: 90,
       softDeletedRetentionDays: 7,
@@ -225,11 +228,11 @@ describe('IssueLifecycleScheduler.scan — 阈值 0 跳过 / 超期硬删 / emit
       'issue-changed',
       expect.objectContaining({ issueId: 'ok-id' }),
     );
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/hardDelete fail-id failed/),
+    expect(issueGcLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('[issue-gc] hardDelete failed'),
+      expect.objectContaining({ issueId: 'fail-id' }),
       expect.any(Error),
     );
-    warnSpy.mockRestore();
   });
 });
 

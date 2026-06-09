@@ -86,7 +86,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const submit = async (): Promise<void> => {
     setError(null);
     if (!prompt.trim()) {
-      setError('请输入第一条消息(留空无法启动会话)');
+      setError('请输入第一条消息（留空无法启动会话）');
       return;
     }
     setBusy(true);
@@ -140,7 +140,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
           <div className="text-[11px] text-deck-muted">没有可用的适配器</div>
         ) : (
           <div className="flex flex-col gap-3">
-            <Field label="Agent">
+            <Field label="执行器">
               <select
                 value={agentId}
                 onChange={(e) => setAgentId(e.target.value)}
@@ -180,7 +180,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                 onPaste={imgs.onPaste}
                 onDrop={imgs.onDrop}
                 onDragOver={imgs.onDragOver}
-                placeholder="必填,启动会话需要第一条消息(可粘贴或拖放图片)"
+                placeholder="必填，启动会话需要第一条消息（可粘贴或拖放图片）"
                 rows={3}
                 className="w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
               />
