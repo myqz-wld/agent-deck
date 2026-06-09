@@ -236,3 +236,4 @@
 | [CHANGELOG_229.md](CHANGELOG_229.md) | 修正 Codex deep-review skill 残留 Claude Bash 工具名，统一为 `shell:` 写法。 |
 | [CHANGELOG_230.md](CHANGELOG_230.md) | 周期性总结和 UI Hand-off 简报支持 Deepseek provider；升级 Codex SDK 到 0.137.0、Claude Agent SDK 到 0.3.168；补 provider 流程图与提示词资产文案收紧。 |
 | [CHANGELOG_231.md](CHANGELOG_231.md) | Codex 恢复 / 冷重启不再把 `codex-default` 统计占位传给 SDK，修复 ChatGPT 账号不支持该模型名的流级错误。 |
+| [CHANGELOG_232.md](CHANGELOG_232.md) | 项目组织清理：补 `dist/` ignore，清空 `.claude/` 残留 |
