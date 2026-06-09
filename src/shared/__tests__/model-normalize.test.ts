@@ -56,12 +56,12 @@ describe('normalizeModel', () => {
   });
 
   describe('gpt / codex', () => {
-    it('gpt-5.5 → GPT 5.5', () => {
-      expect(normalizeModel('gpt-5.5')).toEqual({ bucketKey: 'gpt-5.5', displayName: 'GPT 5.5' });
+    it('gpt-5.5 → gpt-5.5（与其他 Codex 模型 bucket 风格对齐）', () => {
+      expect(normalizeModel('gpt-5.5')).toEqual({ bucketKey: 'gpt-5.5', displayName: 'gpt-5.5' });
     });
 
-    it('gpt-5-5（连字符分隔）→ GPT 5.5（与点分隔同 bucket）', () => {
-      expect(normalizeModel('gpt-5-5').bucketKey).toBe('gpt-5.5');
+    it('gpt-5-5（连字符分隔）→ gpt-5.5（与点分隔同 bucket/display）', () => {
+      expect(normalizeModel('gpt-5-5')).toEqual({ bucketKey: 'gpt-5.5', displayName: 'gpt-5.5' });
     });
   });
 

@@ -93,7 +93,6 @@ const FAMILY_DISPLAY: Record<string, string> = {
   opus: 'Opus',
   sonnet: 'Sonnet',
   haiku: 'Haiku',
-  gpt: 'GPT',
 };
 
 /**
@@ -102,6 +101,7 @@ const FAMILY_DISPLAY: Record<string, string> = {
  * - null / 空串 → UNKNOWN_BUCKET（「未知模型」）
  * - CODEX_DEFAULT_BUCKET 占位 → 「Codex (默认模型)」
  * - 识别出 family+version → bucketKey=`<family>-<version>`（如 `opus-4.8`），displayName=`Opus 4.8`
+ *  ；gpt family 保持 bucket 风格显示（`gpt-5.5`），与 Codex / 第三方模型 id 对齐。
  * - 识别出 family 无 version（alias）→ bucketKey=family，displayName=`Opus`
  * - 未识别 → fallback：bucketKey=stripped core（小写归一保聚合稳定），displayName=原始 raw（保粒度可读）
  */
@@ -118,6 +118,12 @@ export function normalizeModel(raw: string | null | undefined): NormalizedModel 
   if (parsed) {
     const familyDisplay = FAMILY_DISPLAY[parsed.family] ?? parsed.family;
     if (parsed.version) {
+      if (parsed.family === 'gpt') {
+        return {
+          bucketKey: `${parsed.family}-${parsed.version}`,
+          displayName: `${parsed.family}-${parsed.version}`,
+        };
+      }
       return {
         bucketKey: `${parsed.family}-${parsed.version}`,
         displayName: `${familyDisplay} ${parsed.version}`,
