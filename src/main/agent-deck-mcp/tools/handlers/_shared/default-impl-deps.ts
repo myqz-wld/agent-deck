@@ -1,14 +1,6 @@
 /**
- * 4 个 mcp tool impl 文件（archive-plan-impl / hand-off-session-impl /
- * enter-worktree-impl / exit-worktree-impl）共用的 DEFAULT_DEPS 字段实现。
- *
- * **修法动机**（CHANGELOG_169 F9）：4 处定义同款 runGit / readFile / exists / cwd /
- * homedir / realpath 等 fs/process default helper，违反 user CLAUDE.md 提示词资产维护
- * §约束 1「多处出现同款规则抽到一处其他位置引用」。如默认行为变更（如 fs.stat → fs.access
- * / mkdir 加 mode 参数），单点维护即可一致生效，避免 4 处同步改易遗漏。
- *
- * **使用方式**：每个 default helper 单独 export，各 impl 文件按需 `import { ... }` 取用，
- * 拼到自己的 DEFAULT_DEPS 对象里。共用核心是「行为单点」，不是「减少 LOC」。
+ * Shared DEFAULT_DEPS helpers for MCP handlers that need git, fs, cwd, home,
+ * and realpath operations. Each handler imports only the helpers it uses.
  */
 
 import { execFile } from 'node:child_process';

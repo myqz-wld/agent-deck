@@ -522,7 +522,7 @@ export function consumePendingFileChangeIntent(
  *
  * 行为与原 ClaudeSdkBridge.maybeEmitImageFileChanged 字节级等价（completed 路径不变）。
  */
-export function maybeEmitImageFileChanged(
+function maybeEmitImageFileChanged(
   e: (kind: AgentEvent['kind'], payload: unknown) => void,
   internal: InternalSession,
   toolUseId: string | undefined,
