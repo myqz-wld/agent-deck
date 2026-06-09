@@ -551,6 +551,31 @@ export interface ShutdownSessionResult {
   alreadyClosed: boolean;
 }
 
+/** spawn_session guard limits exposed to callers on success and guard-deny paths. */
+export interface SpawnSessionLimits {
+  depth: {
+    /** Caller session depth before this spawn. */
+    current: number;
+    /** Spawned session depth on success, or the normal-spawn attempted next depth on guard deny. */
+    next: number;
+    max: number;
+  };
+  fanOut: {
+    /** Active children plus in-flight spawn reservations for this caller. */
+    current: number;
+    activeChildren: number;
+    inFlight: number;
+    max: number;
+  };
+  rate: {
+    /** Used spawn tokens in the current sliding window. */
+    current: number;
+    max: number;
+    windowMs: number;
+    retryAfterMs: number;
+  };
+}
+
 /** spawn_session ok return shape（spawn.ts handler；hand-off-session 通过 extends 复用全部字段）。 */
 export interface SpawnSessionResult {
   sessionId: string;
@@ -562,6 +587,7 @@ export interface SpawnSessionResult {
   /** displayName 优先 → agentName → null（spawn.ts:163 三级 fallback）。 */
   displayName: string | null;
   spawnDepth: number;
+  spawnLimits: SpawnSessionLimits;
   sentAt: number;
   spawnPromptMessageId: string | null;
 }

@@ -4,7 +4,7 @@
  * 抽到独立模块让 tools.ts 不爆 500 行 + 单测可单独覆盖 3 条规则的全部边界。
  *
  * 3 条规则按代价从低到高 + 「不消耗资源的检查前置」顺序执行（REVIEW_28 reviewer-codex MED-1）：
- * 1. depth 上限（O(1) DB 单查 spawn_depth；不消耗资源）
+ * 1. depth 上限（spawn_depth 单查；不消耗 rate token）
  * 2. fan-out（O(parent_children) DB 反查 + 同步段 in-flight 计数叠加；不消耗 rate token）
  * 3. spawn-rate 滑动窗口（O(1) 同步段 tryConsume；**消耗 token**，所以放最后）
  *
@@ -25,6 +25,7 @@
  */
 
 import type { CallerContext } from './types';
+import type { SpawnSessionLimits } from './tools/schemas';
 import { sessionRepo } from '@main/store/session-repo';
 import { settingsStore } from '@main/store/settings-store';
 import { spawnRateLimiter, inFlightChildren } from './rate-limiter';
@@ -34,12 +35,46 @@ export interface GuardDenial {
   isError: true;
 }
 
-function deny(error: string, hint?: string): GuardDenial {
+const SPAWN_RATE_WINDOW_MS = 60_000;
+
+function buildSpawnLimits(input: {
+  parentDepth: number;
+  nextDepth: number;
+  activeChildren: number;
+  inFlight: number;
+  maxDepth: number;
+  maxFanOut: number;
+  rateCurrent: number;
+  rateMax: number;
+  retryAfterMs?: number;
+}): SpawnSessionLimits {
+  return {
+    depth: {
+      current: input.parentDepth,
+      next: input.nextDepth,
+      max: input.maxDepth,
+    },
+    fanOut: {
+      current: input.activeChildren + input.inFlight,
+      activeChildren: input.activeChildren,
+      inFlight: input.inFlight,
+      max: input.maxFanOut,
+    },
+    rate: {
+      current: input.rateCurrent,
+      max: input.rateMax,
+      windowMs: SPAWN_RATE_WINDOW_MS,
+      retryAfterMs: input.retryAfterMs ?? 0,
+    },
+  };
+}
+
+function deny(error: string, hint: string | undefined, spawnLimits: SpawnSessionLimits): GuardDenial {
   return {
     content: [
       {
         type: 'text' as const,
-        text: JSON.stringify(hint ? { error, hint } : { error }),
+        text: JSON.stringify(hint ? { error, hint, spawnLimits } : { error, spawnLimits }),
       },
     ],
     isError: true as const,
@@ -75,17 +110,35 @@ export function applySpawnGuards(
   _newCwd: string,
   _newAdapter: string,
   opts?: { handOffMode?: boolean },
-): GuardDenial | { ok: true; parentDepth: number; fanOutSlot: { release: () => void } } {
+): GuardDenial | {
+  ok: true;
+  parentDepth: number;
+  spawnLimits: SpawnSessionLimits;
+  fanOutSlot: { release: () => void };
+} {
   const settings = settingsStore.getAll();
   const maxDepth = settings.mcpMaxSpawnDepth ?? 3;
   const maxFanOut = settings.mcpMaxFanOutPerParent ?? 10;
   const ratePerMin = settings.mcpSpawnRatePerMinute ?? 20;
 
   // 0. 同步刷新 RateLimiter 配置（hot-toggle 用户 Settings 立即生效）
-  spawnRateLimiter.setLimits(ratePerMin, 60_000);
+  spawnRateLimiter.setLimits(ratePerMin, SPAWN_RATE_WINDOW_MS);
 
-  // parentDepth 始终算(返给 caller 即使 handOffMode 路径下游不消费;O(1) DB 单查不增成本)
+  // parentDepth / fan-out snapshot 始终算：成功和 guard-deny 路径都把当前值与上限返给 caller。
   const parentDepth = sessionRepo.getSpawnDepth(caller.callerSessionId);
+  const activeChildren = sessionRepo.listChildren(caller.callerSessionId, 'active').length;
+  const initialInFlight = inFlightChildren.get(caller.callerSessionId);
+  const attemptedNextDepth = parentDepth + 1;
+  const initialLimits = buildSpawnLimits({
+    parentDepth,
+    nextDepth: attemptedNextDepth,
+    activeChildren,
+    inFlight: initialInFlight,
+    maxDepth,
+    maxFanOut,
+    rateCurrent: spawnRateLimiter.currentCount,
+    rateMax: ratePerMin,
+  });
 
   // 1. depth 上限（不消耗资源，最先）
   // §D4 plan handoff-no-spawn-guards-20260526:handOffMode=true 时跳过本检查
@@ -93,19 +146,19 @@ export function applySpawnGuards(
     return deny(
       `spawn depth ${parentDepth} >= max ${maxDepth}`,
       `Increase Settings → MCP Server → mcpMaxSpawnDepth (current: ${maxDepth}) if you really need a deeper chain. Default 3 covers lead → teammate → sub-teammate.`,
+      initialLimits,
     );
   }
 
   // 2. fan-out（同步段内 check + inc 防穿透；不消耗 rate token）
   // §D4:handOffMode=true 时整段 fan-out check 跳过(hand-off 平级接力不构成 fork-bomb 风险)
   if (!opts?.handOffMode) {
-    const dbChildren = sessionRepo.listChildren(caller.callerSessionId, 'active').length;
-    const inFlight = inFlightChildren.get(caller.callerSessionId);
-    const effective = dbChildren + inFlight;
+    const effective = activeChildren + initialInFlight;
     if (effective + 1 > maxFanOut) {
       return deny(
         `fan-out ${effective} reached for parent ${caller.callerSessionId} (max ${maxFanOut})`,
         'Wait for in-flight children to settle, or shutdown some before spawning more. Increase Settings → MCP Server → mcpMaxFanOutPerParent if you genuinely need more.',
+        initialLimits,
       );
     }
   }
@@ -116,9 +169,21 @@ export function applySpawnGuards(
   // (SlidingWindowRateLimiter.tryConsume 实现内 push to requests array 副作用也跳)
   if (!opts?.handOffMode && !spawnRateLimiter.tryConsume()) {
     const retry = spawnRateLimiter.retryAfterMs();
+    const rateDeniedLimits = buildSpawnLimits({
+      parentDepth,
+      nextDepth: attemptedNextDepth,
+      activeChildren,
+      inFlight: initialInFlight,
+      maxDepth,
+      maxFanOut,
+      rateCurrent: spawnRateLimiter.currentCount,
+      rateMax: ratePerMin,
+      retryAfterMs: Math.ceil(retry),
+    });
     return deny(
       `app-wide spawn rate exceeded: ${ratePerMin}/min (retry after ${Math.ceil(retry)}ms)`,
       `Wait ~${Math.ceil(retry / 1000)}s before retrying. Increase Settings → MCP Server → mcpSpawnRatePerMinute if you frequently run parallel deep-review.`,
+      rateDeniedLimits,
     );
   }
 
@@ -128,10 +193,22 @@ export function applySpawnGuards(
   if (!opts?.handOffMode) {
     inFlightChildren.inc(caller.callerSessionId);
   }
+  const reservedInFlight = opts?.handOffMode ? initialInFlight : initialInFlight + 1;
+  const spawnLimits = buildSpawnLimits({
+    parentDepth,
+    nextDepth: attemptedNextDepth,
+    activeChildren,
+    inFlight: reservedInFlight,
+    maxDepth,
+    maxFanOut,
+    rateCurrent: spawnRateLimiter.currentCount,
+    rateMax: ratePerMin,
+  });
   let released = false;
   return {
     ok: true,
     parentDepth,
+    spawnLimits,
     fanOutSlot: {
       release: () => {
         if (released) return;
