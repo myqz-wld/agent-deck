@@ -218,7 +218,7 @@ function translateItemCompleted(item: AnyRecord, emit: EmitFn): void {
           after: null,
           metadata: {
             source: 'codex',
-            changeKind: c?.kind,
+            changeKind: codexFileChangeKind(c?.kind),
             patchStatus: item.status,
             diff: c?.diff,
           },
@@ -427,6 +427,12 @@ function itemText(item: AnyRecord): string {
 function itemErrorMessage(item: AnyRecord): string | undefined {
   const err = asRecord(item.error);
   return stringField(err?.message) || stringField(item.errorMessage) || undefined;
+}
+
+function codexFileChangeKind(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  const record = asRecord(value);
+  return stringField(record?.type) || undefined;
 }
 
 function stringifyField(value: unknown): string {

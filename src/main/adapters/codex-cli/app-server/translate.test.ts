@@ -322,4 +322,47 @@ describe('translateCodexAppServerNotification', () => {
       },
     ]);
   });
+
+  it('normalizes app-server file change kind objects before persisting metadata', () => {
+    const { emit, events } = collect();
+    translateCodexAppServerNotification(
+      {
+        method: 'item/completed',
+        params: {
+          item: {
+            id: 'patch-1',
+            type: 'fileChange',
+            status: 'completed',
+            changes: [
+              {
+                path: '/tmp/a.ts',
+                kind: { type: 'update', move_path: null },
+                diff: '@@ -1 +1 @@',
+              },
+            ],
+          },
+        },
+      } as CodexAppServerNotification,
+      emit,
+    );
+
+    expect(events).toEqual([
+      {
+        kind: 'file-changed',
+        payload: {
+          filePath: '/tmp/a.ts',
+          kind: 'text',
+          before: null,
+          after: null,
+          metadata: {
+            source: 'codex',
+            changeKind: 'update',
+            patchStatus: 'completed',
+            diff: '@@ -1 +1 @@',
+          },
+          toolCallId: 'patch-1',
+        },
+      },
+    ]);
+  });
 });

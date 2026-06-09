@@ -25,31 +25,33 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
     // 在 claude Write content=null 等罕见 payload 上显「changeKind: undefined」迷惑信息。
     const md = (payload.metadata ?? {}) as {
       source?: string;
-      changeKind?: string;
-      patchStatus?: string;
+      changeKind?: unknown;
+      patchStatus?: unknown;
     };
     const isCodex = md.source === 'codex';
+    const changeKind = normalizeCodexChangeKind(md.changeKind);
+    const patchStatus = typeof md.patchStatus === 'string' ? md.patchStatus : null;
     return (
       <div className="flex h-full flex-col gap-2">
         <div className="flex items-center gap-2 text-[11px]">
           <span className="text-deck-muted/70">📄</span>
           <span className="truncate font-mono text-[11px]">{payload.filePath}</span>
-          {isCodex && md.changeKind && (
+          {isCodex && changeKind && (
             <span
               className={`rounded px-1.5 py-0.5 text-[9px] uppercase ${
-                md.changeKind === 'add'
+                changeKind === 'add'
                   ? 'bg-status-working/20 text-status-working'
-                  : md.changeKind === 'delete'
+                  : changeKind === 'delete'
                     ? 'bg-status-error/20 text-status-error'
                     : 'bg-white/10 text-deck-muted'
               }`}
             >
-              {md.changeKind}
+              {changeKind}
             </span>
           )}
-          {isCodex && md.patchStatus && md.patchStatus !== 'completed' && (
+          {isCodex && patchStatus && patchStatus !== 'completed' && (
             <span className="rounded bg-status-error/20 px-1.5 py-0.5 text-[9px] uppercase text-status-error">
-              {md.patchStatus}
+              {patchStatus}
             </span>
           )}
         </div>
@@ -110,6 +112,15 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
       </div>
     </div>
   );
+}
+
+export function normalizeCodexChangeKind(value: unknown): string | null {
+  if (typeof value === 'string' && value) return value;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const type = (value as { type?: unknown }).type;
+    return typeof type === 'string' && type ? type : null;
+  }
+  return null;
 }
 
 function guessLanguageByPath(p: string): string {
