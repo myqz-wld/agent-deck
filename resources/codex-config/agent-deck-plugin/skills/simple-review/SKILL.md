@@ -1,11 +1,11 @@
 ---
 name: simple-review
-description: "Lightweight review agent for one-shot heterogeneous adversarial review. Use for single code or plan sanity checks, technical or policy decisions, prompt or agent validation, overall-change validation, or Chinese anchors such as 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Spawns reviewer-claude and reviewer-codex once; lead adjudicates findings, requires concrete examples for complex issues, produces a final summary report, and blocks merge until CRITICAL/HIGH findings are fixed or rebutted."
+description: "Lightweight review skill for one-shot heterogeneous adversarial review. Use for single code, plan, prompt-asset, or policy sanity checks; technical decisions; agent validation; overall-change validation; post-edit prompt-asset validation; or Chinese anchors such as 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Spawns reviewer-claude and reviewer-codex once; lead adjudicates findings and blocks merge until CRITICAL/HIGH findings are fixed or disproven."
 ---
 
 # Simple Review
 
-Use this skill when a single code change, plan, technical decision, prompt asset, agent instruction, or completed diff needs a fast heterogeneous adversarial review. It starts reviewer-claude and reviewer-codex once, compares their independent findings, and gives the user a final gate decision.
+Use this skill when a single code change, plan, prompt asset, agent instruction, technical decision, or completed diff needs a fast heterogeneous adversarial review. It starts reviewer-claude and reviewer-codex once, compares their independent findings, and gives the user a final gate decision.
 
 Use `deep-review` instead when scope spans many modules, needs multiple fix rounds, mixes code and plan review, or requires deep race/security/architecture investigation.
 
@@ -21,16 +21,23 @@ The caller must pass typed scope:
 
 ```ts
 {
-  kind: 'code' | 'plan',
+  kind: 'code' | 'plan' | 'prompt',
   paths: string[],
   ack_cache_unignored?: boolean
 }
 ```
 
 - `kind` is mandatory; do not infer it from file extensions.
+- Use `kind: 'prompt'` for system prompts, agent bodies, `SKILL.md`, MCP/tool descriptions, and other durable AI-facing instructions.
 - `paths` must be absolute paths.
 - Paths should be inside the same repo/worktree root as `cwd`; paths outside that root are copied into the sandbox cache before spawning reviewers.
 - Keep a single invocation small enough for one pass. If the scope is broad, split by topic or use `deep-review`.
+
+## Prompt Asset Reviews
+
+Use `kind: 'prompt'` as the expected validation pass after material prompt-asset edits. Do not skip it only because reviewer replies arrive in a later turn; dispatch the pair, end the turn, and continue adjudication when replies arrive.
+
+Reviewers focus on executable instructions, stale or duplicated rules, contradiction, paired-asset drift, preserved safety/tool/validation gates, hidden local assumptions, and whether the changed prompt will cause the next agent action to improve.
 
 ## Sandbox Cache
 
@@ -147,6 +154,15 @@ Plan focus:
 - Decisions and invariants are clear.
 - Workflow is internally consistent.
 - Next handoff step is executable from a cold start.
+```
+
+Prompt focus:
+
+```text
+- Instructions change the next agent action at task time.
+- Safety, tool, validation, and failure-handling gates are preserved.
+- Paired assets stay behaviorally aligned while preserving adapter-specific mechanics.
+- No stale, duplicated, contradictory, or local-only maintenance rules leak into reusable assets.
 ```
 
 Rebuttal prompt:
