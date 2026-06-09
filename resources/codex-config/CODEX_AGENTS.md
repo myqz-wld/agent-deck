@@ -124,7 +124,7 @@ Codex teammate spawn 使用应用层默认 app-server thread options；reviewer-
 
 MCP `spawn_session` 只暴露 `codexSandbox` 等白名单字段；不能覆盖任意 `additionalDirectories` 或 `networkAccessEnabled`。需要读取默认范围外文件时，把文件复制到 worktree、repo cwd、`~/.claude`、`~/.codex` 或 `/tmp` 后再传 scope。
 
-Agent Deck 为每个 Codex app-server session 注入 `AGENT_DECK_MCP_TOKEN`。Codex MCP client 用该 token 连接 streamable HTTP MCP server；server 反查 caller session 后自动填入 tool handler。外部全局 token 只允许只读能力，spawn、send 和 archive 等写操作会被拒绝。
+Agent Deck 为每个 Codex app-server session 注入 `AGENT_DECK_MCP_TOKEN`。Codex MCP client 用该 token 连接 streamable HTTP MCP server；server 反查 caller session 后自动填入 tool handler。外部全局 token 只允许只读能力；session、worktree、task 和 issue 写工具会被拒绝。
 
 ## Issue 上报
 

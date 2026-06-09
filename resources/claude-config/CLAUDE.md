@@ -17,11 +17,17 @@
 
 跨 adapter teammate 协作走 Agent Deck MCP tools。`send_message` 会经 universal-message-watcher 注入 receiver conversation；receiver 看到 user-role message 后直接处理，不主动轮询。
 
+### Lead wait boundary
+
+lead 调 `spawn_session` 或 `send_message` 后，如果下一步需要等待 teammate / reviewer reply，记录 `spawnPromptMessageId` 或 `messageId`，告诉 user 已派出任务，然后停止当前 turn。不要在同一 turn 内用 `sleep`、`get_session` 循环或忙等轮询。
+
+下一条 wire-prefixed teammate reply 会作为 user-role message 注入本 session；届时提取 `[msg <id>][sid <senderSid>]` 并继续处理回复。只有 user 后续询问状态或 skill 给出明确卡住阈值时，才查 `get_session.lastEventAt` 并按 skill 执行 nudge、shutdown 或重 spawn。
+
 ### Codex mid-turn steering
 
 Agent Deck 的 Codex teammate 在 active 普通 turn 期间支持 mid-turn steering。用户对 Codex 当前工作的修正会直接注入该 Codex turn；收到修正的 Codex 应立即按最新指令调整，而不是把它当成下一轮排队消息。
 
-Steering 不适用于 Codex review / compact turn，也不是等待 teammate reply 的机制。Claude lead 等 Codex reviewer 或 teammate 回复时仍不主动轮询；看到 wire-prefixed user-role reply 后再继续处理。
+Steering 不适用于 Codex review / compact turn，也不是等待 teammate reply 的机制。Claude lead 等 Codex reviewer 或 teammate 回复时仍遵守 Lead wait boundary；看到 wire-prefixed user-role reply 后再继续处理。
 
 ### Task 进度
 
@@ -89,7 +95,7 @@ Worktree tools：`enter_worktree` / `exit_worktree`。Task tools：`task_create`
 
 后续轮次用 `send_message` 返回的 `messageId` 作为 reply chain 锚点。receiver 收到的 user message 顶部会带 `[msg <id>][sid <senderSid>]`，reply 时提取这两个值并传回 `replyToMessageId`。
 
-lead 等 teammate reply 时不需要主动 poll；看到 wire-prefixed user-role message 即继续处理。
+lead 等 teammate reply 时遵守 Lead wait boundary；发出任务后停止当前 turn，等 wire-prefixed reply 注入后再继续处理。
 
 ### Cross-session rescue
 

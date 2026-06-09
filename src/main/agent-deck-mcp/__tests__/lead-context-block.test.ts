@@ -35,14 +35,12 @@ describe('buildLeadContextBlock — spawn 路径 wire prefix + lead context bloc
     expect(result.contextBlock).toContain('Lead sessionId: `lead-sid-12345678-90ab-cdef-1234-567890abcdef`');
     expect(result.contextBlock).toContain('Team id: `team-id-deadbeef`');
     expect(result.contextBlock).toContain('Lead displayName: Lead User');
-    expect(result.contextBlock).toContain('回 lead 用：');
+    expect(result.contextBlock).toContain('Reply to the lead with Agent Deck MCP after you finish this turn:');
     expect(result.contextBlock).toContain('mcp__agent-deck__send_message({');
     expect(result.contextBlock).toContain("sessionId: 'lead-sid-12345678-90ab-cdef-1234-567890abcdef',");
     expect(result.contextBlock).toContain("teamId: 'team-id-deadbeef',");
     expect(result.contextBlock).toContain('replyToMessageId:');
-    expect(result.contextBlock).toContain(
-      'wire prefix regex（双锚点）: `/\\[msg ([0-9a-f-]+)\\]\\[sid ([0-9a-f-]+)\\]/`',
-    );
+    expect(result.contextBlock).toContain('Extract `replyToMessageId` from the top wire prefix `[msg <id>]`.');
   });
 
   it('leadDisplayName=null → contextBlock 显示 `(unset)` + wirePrefix from name fallback `<adapter>:<sid 前 8>`', () => {
@@ -113,16 +111,16 @@ describe('buildLeadContextBlock — spawn 路径 wire prefix + lead context bloc
         `- Team id: \`tid-bbbb\`\n` +
         `- Lead displayName: Snapshot Lead\n` +
         `\n` +
-        `回 lead 用：\n` +
+        `Reply to the lead with Agent Deck MCP after you finish this turn:\n` +
         `\`\`\`\n` +
         `mcp__agent-deck__send_message({\n` +
         `  sessionId: 'sid-aaaa',  // lead sessionId\n` +
-        `  teamId: 'tid-bbbb',  // 当前 team id\n` +
+        `  teamId: 'tid-bbbb',  // current team id\n` +
         `  text: '<reply text>',\n` +
-        `  replyToMessageId: '<msg-id from wire prefix>'  // 从顶部 [msg <id>] 提取\n` +
+        `  replyToMessageId: '<msg-id from wire prefix>'\n` +
         `})\n` +
         `\`\`\`\n` +
-        `wire prefix regex（双锚点）: \`/\\[msg ([0-9a-f-]+)\\]\\[sid ([0-9a-f-]+)\\]/\`\n`,
+        `Extract \`replyToMessageId\` from the top wire prefix \`[msg <id>]\`. Reply to the actual sender in \`[sid <senderSid>]\`; for later or rescue messages, replace the example \`sessionId\` above with that sender sid.\n`,
     );
   });
 });

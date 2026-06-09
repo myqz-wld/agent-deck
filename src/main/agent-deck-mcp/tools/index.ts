@@ -116,7 +116,7 @@ export async function buildAgentDeckTools(
 
   const spawnSession = tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
-    'Spawn a new agent session via the given adapter (claude-code / deepseek-claude-code / codex-cli). Returns the new sessionId. Put full task context in prompt; for long context, write a file under /tmp and tell the spawned session to read it. Pass teamName to form a team (caller becomes lead, new session joins as teammate) so the two can send_message each other; omit for a standalone session. Subject to depth / per-parent fan-out / per-app rate-limit (see Agent Deck Settings → MCP Server). SDK-internal callers do NOT pass callerSessionId — the in-process transport auto-injects the real session id; only external HTTP/stdio callers must pass it.',
+    'Spawn a new SDK session with adapter "claude-code", "deepseek-claude-code", or "codex-cli". Put the full task in `prompt`; for long context, write a file under /tmp and tell the new session to read it. Pass `teamName` when the caller should become lead of a shared team; omit it for a standalone session. Returns the new session id, optional team id, and `spawnPromptMessageId` for the first reply chain. SDK sessions leave `callerSessionId` unset because Agent Deck injects it.',
     SPAWN_SESSION_SCHEMA,
     async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
     {
@@ -139,7 +139,7 @@ export async function buildAgentDeckTools(
 
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
-    'Send a user message to an existing session. Routes through the universal-message-watcher (DB envelope + cross-adapter dispatch). Returns immediately after queueing. Works with or without a shared team: if caller and target share an active team the message is team-scoped; if they share none it is delivered as a teamless DM (still injected into the target session\'s conversation, just not shown in a team panel). Pass `replyToMessageId` to link this message into an existing reply chain (the chain is recorded in DB; lead/teammate see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Specify `teamId` only when caller and target share more than one active team (auto-resolved when they share exactly one; rejected if the passed teamId is not a shared active team).',
+    'Send a user-role message to another session and return after it is queued. Use `replyToMessageId` when answering a wire-prefixed message so the receiver sees the reply in the same chain. Omit `teamId` when there is exactly one shared team or no shared team; pass it only to disambiguate multiple shared teams. If the sessions share no active team, the message is delivered as a teamless DM and still enters the receiver conversation.',
     SEND_MESSAGE_SCHEMA,
     async (args, extra) => sendMessageHandler(args, makeCtx(args, extra)),
     {
@@ -156,7 +156,7 @@ export async function buildAgentDeckTools(
 
   const listSessions = tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
-    'List currently visible sessions (read-only). Returns metadata (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, teams [{teamId, teamName, role}], spawnedBy, spawnDepth) — does NOT include events / messages. Use the teams[].teamId when you need a teamId for send_message (no need to call get_session per session).',
+    'List currently visible sessions. Returns session metadata only: ids, adapter, cwd, lifecycle, title, lastEventAt, teams, spawnedBy, and spawnDepth. It does not return events or messages. Use `teams[].teamId` when you need a `teamId` for `send_message`.',
     LIST_SESSIONS_SCHEMA,
     async (args, extra) => listSessionsHandler(args, makeCtx(args, extra)),
     { annotations: { readOnlyHint: true } },
@@ -164,7 +164,7 @@ export async function buildAgentDeckTools(
 
   const getSession = tool(
     AGENT_DECK_TOOL_NAMES.getSession,
-    'Get a single session metadata by id. Returns same projection as list_sessions (sessionId, adapter, cwd, lifecycle, title, lastEventAt, teamName, teams, spawnedBy, spawnDepth) — does NOT include events / messages. Returns isError when session does not exist.',
+    'Get metadata for one session id. Returns the same fields as `list_sessions` and does not include events or messages. Returns an MCP error when the session does not exist.',
     GET_SESSION_SCHEMA,
     async (args, extra) => getSessionHandler(args, makeCtx(args, extra)),
     { annotations: { readOnlyHint: true } },
@@ -172,7 +172,7 @@ export async function buildAgentDeckTools(
 
   const shutdownSession = tool(
     AGENT_DECK_TOOL_NAMES.shutdownSession,
-    'Mark a session as closed (lifecycle=closed) + abort its SDK live query. Does NOT delete events / file_changes / summaries / messages — they remain queryable (lead can still cite closed teammate replies in deep-review aftermath; list_sessions(spawnedByFilter) still finds closed children). team_member soft-exit via left_at; spawn_link kept whole. caller cannot shutdown self.',
+    'Close another session and abort its live SDK query. This does not delete events, file changes, summaries, messages, team history, or spawn links. The caller cannot shut down itself.',
     SHUTDOWN_SESSION_SCHEMA,
     async (args, extra) => shutdownSessionHandler(args, makeCtx(args, extra)),
     {
@@ -189,7 +189,7 @@ export async function buildAgentDeckTools(
 
   const handOffSession = tool(
     AGENT_DECK_TOOL_NAMES.handOffSession,
-    'Hand off the current SDK session to a fresh successor session. Provide the full cold-start text in `prompt`; include any plan file path, /tmp context file path, and next action directly in that text. The tool transfers caller-owned resources (tasks, active team memberships, worktree marker) to the successor and closes the caller only after mandatory transfer succeeds; transfer failure returns an error and keeps the caller active. Use spawn_session for parallel work. Returns the spawn_session fields plus { initialPrompt, callerClosed, resourceTransfer } on success. deny external caller.',
+    'Hand off the current SDK session to a fresh successor. Put the complete cold-start instructions in `prompt`, including plan paths, /tmp context files, and the next action. The tool transfers caller-owned tasks, active team memberships, and the worktree marker, then closes the caller only after transfer succeeds. Use `spawn_session` for parallel work.',
     HAND_OFF_SESSION_SHAPE,
     async (args, extra) => {
       const parseRes = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse(args);
@@ -214,7 +214,7 @@ export async function buildAgentDeckTools(
 
   const enterWorktree = tool(
     AGENT_DECK_TOOL_NAMES.enterWorktree,
-    'Create a fresh git worktree from a required local baseBranch. The tool resolves refs/heads/<baseBranch> to a commit, creates a new workBranch from that exact branch version, records the caller worktree marker, and returns { worktreePath, workBranch, baseBranch, baseCommit, baseSource, markerSet }. It does not change the SDK session cwd; use absolute paths or git -C <worktreePath>. deny external caller.',
+    'Create a fresh git worktree from a required local branch name. `baseBranch` must resolve to `refs/heads/<baseBranch>`; SHA, tag, and rev syntax are rejected. The tool creates a new work branch, records the caller worktree marker, and returns the worktree path and base commit. It does not change the SDK session cwd.',
     ENTER_WORKTREE_SCHEMA,
     async (args, extra) => enterWorktreeHandler(args, makeCtx(args, extra)),
     {
@@ -229,7 +229,7 @@ export async function buildAgentDeckTools(
 
   const exitWorktree = tool(
     AGENT_DECK_TOOL_NAMES.exitWorktree,
-    'Clean up the worktree directory owned by the caller marker or by an explicit worktreePath. It refuses dirty worktrees unless discardChanges=true; do not discard until user work is saved, committed, or intentionally abandoned. By default the work branch is kept so committed changes are not lost; pass deleteBranch=true only after the work is merged, cherry-picked, or intentionally abandoned. Returns { worktreePath, workBranch, branchDeleted, worktreeRemoved, markerCleared }. deny external caller.',
+    'Remove the worktree owned by the caller marker, or the explicit `worktreePath` when allowed. The tool refuses dirty worktrees unless `discardChanges=true`. It keeps the work branch by default; pass `deleteBranch=true` only after the work is merged, cherry-picked, or intentionally abandoned.',
     EXIT_WORKTREE_SCHEMA,
     async (args, extra) => exitWorktreeHandler(args, makeCtx(args, extra)),
     {
@@ -246,7 +246,7 @@ export async function buildAgentDeckTools(
   // namespace（工具名从 mcp__tasks__task_* 切到 mcp__agent-deck__task_*，breaking change）。
   const taskCreate = tool(
     AGENT_DECK_TOOL_NAMES.taskCreate,
-    `Create a structured task in the agent-deck task store. owner_session_id is auto-derived from callerSessionId. Personal task by default (omit teamId — note: task_create rejects an explicit null, just leave the field out) — visible & writable only to owner. Pass teamId to bind task to a team — caller must be active member of that team (agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL). Returns the created task with auto-generated id.`,
+    `Create a structured task in the Agent Deck task store. Omit \`teamId\` for a personal task owned by the caller. Pass \`teamId\` for a team task; the caller must be an active member of that team. Returns the created task with an auto-generated id.`,
     TASK_CREATE_SCHEMA,
     async (args, extra) => taskCreateHandler(args, makeCtx(args, extra)),
     {
@@ -263,7 +263,7 @@ export async function buildAgentDeckTools(
 
   const taskList = tool(
     AGENT_DECK_TOOL_NAMES.taskList,
-    `List tasks visible to the current session. Default scope (teamIdFilter omitted): caller-owned personal tasks ∪ team-bound tasks where caller is active member of task.teamId (archived teams excluded). Pass teamIdFilter='<uuid>' to restrict to one team (caller must be active member). Pass teamIdFilter='null-personal' to restrict to caller's own personal tasks. Returns { total, hasMore, tasks: [...] } where total = tasks.length on current page (post-LIMIT/OFFSET) and hasMore signals more results may exist (tasks.length === limit). Default limit=100, max 500.`,
+    `List tasks visible to the current session. Omit \`teamIdFilter\` to include caller-owned personal tasks and team tasks from active memberships. Pass a team id to restrict to that team, or \`null-personal\` for personal tasks only. Returns the current page plus \`hasMore\`; default limit is 100, max 500.`,
     TASK_LIST_SCHEMA,
     async (args, extra) => taskListHandler(args, makeCtx(args, extra)),
     {
@@ -282,7 +282,7 @@ export async function buildAgentDeckTools(
 
   const taskGet = tool(
     AGENT_DECK_TOOL_NAMES.taskGet,
-    'Get a single task by id, scoped to caller team membership (team-bound task: caller must be active member; personal task: caller must be owner). Deny external caller (EXTERNAL_CALLER_ALLOWED.task_get=false).',
+    'Get one task by id. Team tasks require active membership in that team; personal tasks require caller ownership.',
     TASK_GET_SCHEMA,
     async (args, extra) => taskGetHandler(args, makeCtx(args, extra)),
     {
@@ -298,7 +298,7 @@ export async function buildAgentDeckTools(
 
   const taskUpdate = tool(
     AGENT_DECK_TOOL_NAMES.taskUpdate,
-    `Incrementally update a task, scoped to caller team membership. Team-bound task (teamId != null): caller must be active member of task.teamId (regardless of owner). Personal task (teamId IS NULL): caller must be owner. Omitted fields are left unchanged. Pass null to clear nullable fields (description, activeForm). Pass teamId=null to convert to personal; pass teamId='<uuid>' to bind to a team (caller must be active member of new team). updated_at is auto-refreshed.`,
+    `Update a task. Omitted fields are left unchanged. Pass null only for nullable fields such as \`description\`, \`activeForm\`, or \`teamId\`. Setting \`teamId\` binds the task to a team where the caller is active; \`teamId=null\` makes it personal to the caller.`,
     TASK_UPDATE_SCHEMA,
     async (args, extra) => taskUpdateHandler(args, makeCtx(args, extra)),
     {
@@ -315,7 +315,7 @@ export async function buildAgentDeckTools(
 
   const taskDelete = tool(
     AGENT_DECK_TOOL_NAMES.taskDelete,
-    `Delete a task by id, scoped to caller team membership. Team-bound task (teamId != null): caller must be active member of task.teamId. Personal task (teamId IS NULL): caller must be owner. With force=true, recursively delete all downstream tasks listed in blocks (each downstream is also write-permission-checked by teamId: tasks the caller cannot write are skipped, not deleted). Without force, surviving tasks have their blocks/blockedBy references to it cleaned up.`,
+    `Delete a task by id. Team tasks require active membership; personal tasks require caller ownership. With \`force=true\`, recursively delete writable downstream tasks listed in \`blocks\`; downstream tasks the caller cannot write are skipped. Without force, surviving task links are cleaned up.`,
     TASK_DELETE_SCHEMA,
     async (args, extra) => taskDeleteHandler(args, makeCtx(args, extra)),
     {
@@ -336,7 +336,7 @@ export async function buildAgentDeckTools(
   // annotations 与 task_create 同款（写表 INSERT 非破坏不幂等不外联）。
   const reportIssue = tool(
     AGENT_DECK_TOOL_NAMES.reportIssue,
-    `Log a problem you hit but should NOT fix right now — work the current task surfaced that's out of scope (kind="follow-up", the default), or a bug in Agent Deck itself (kind="app-bug"). Use this instead of silently dropping it or cramming an unrelated fix into the current change. If you can just fix it now, fix it — don't report. Only title + description are required; write description self-contained so a triager gets it without reading logs. Returns the created issue; if you need to add more to it later this same session, pass the returned \`id\` to append_issue_context / update_issue_status.`,
+    `Report a problem that should be tracked but not fixed in the current task. Use \`kind="follow-up"\` for out-of-scope work and \`kind="app-bug"\` for an Agent Deck defect. If the issue is in scope and easy to fix now, fix it instead of reporting. Include a self-contained description. Returns the created issue id for later append or status updates.`,
     REPORT_ISSUE_SCHEMA,
     async (args, extra) => reportIssueHandler(args, makeCtx(args, extra)),
     {
@@ -353,7 +353,7 @@ export async function buildAgentDeckTools(
 
   const appendIssueContext = tool(
     AGENT_DECK_TOOL_NAMES.appendIssueContext,
-    `Add more context to an issue YOU reported earlier in THIS session (pass its \`id\` as \`issueId\`). New content is appended as a separate note — it never rewrites the original description. Rejected if the issue is from another session or deleted (report a new issue instead — a deleted one can only be restored from the UI), or resolved (reopen it first with update_issue_status).`,
+    `Append context to an issue reported earlier by this same session. Pass the issue \`id\` as \`issueId\`. The new content is added as a separate note and never rewrites the original description. Deleted issues are rejected; resolved issues must be reopened first.`,
     APPEND_ISSUE_CONTEXT_SCHEMA,
     async (args, extra) => appendIssueContextHandler(args, makeCtx(args, extra)),
     {
@@ -372,7 +372,7 @@ export async function buildAgentDeckTools(
   // （打破旧「agent 永不改 status」铁律）。授权边界 source OR resolution session;可选 note 留痕。
   const updateIssueStatus = tool(
     AGENT_DECK_TOOL_NAMES.updateIssueStatus,
-    `Change an issue's status yourself — resolve one you fixed (status="resolved"), or reopen one (status="open" / "in-progress") — without waiting for a human to click in the UI. Only the issue's source session (who reported it) or resolution session (the one UI「起新会话解决」spawned to fix it) may call this; anyone else is rejected, as are soft-deleted issues (restore from the UI first). Optionally pass \`note\` to record how you fixed it / why you reopened it.`,
+    `Update an issue status when this session reported the issue or was spawned to resolve it. Use \`resolved\` after fixing it, or \`open\` / \`in-progress\` to reopen it. Other sessions and deleted issues are rejected. Optionally pass \`note\` to record the reason.`,
     UPDATE_ISSUE_STATUS_SCHEMA,
     async (args, extra) => updateIssueStatusHandler(args, makeCtx(args, extra)),
     {

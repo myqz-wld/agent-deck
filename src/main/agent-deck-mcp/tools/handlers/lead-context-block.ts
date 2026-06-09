@@ -48,8 +48,9 @@ export interface BuildLeadContextBlockResult {
   wirePrefix: string;
   /**
    * lead context block 文字模板(`## Hand-off context (auto-injected by Agent Deck MCP)` 标题 +
-   * Lead sessionId / Team id / Lead displayName 字段 + send_message 用法 codeblock + wire prefix
-   * regex 双锚点说明)。**不**含 wire prefix 自己 — wirePrefix 字段独立 prepend。
+   * Lead sessionId / Team id / Lead displayName 字段 + send_message 用法 codeblock +
+   * replyToMessageId 和 sender sessionId 提取说明)。**不**含 wire prefix 自己 —
+   * wirePrefix 字段独立 prepend。
    */
   contextBlock: string;
 }
@@ -86,16 +87,16 @@ export function buildLeadContextBlock(
     `- Team id: \`${opts.teamId}\`\n` +
     `- Lead displayName: ${opts.leadDisplayName ?? '(unset)'}\n` +
     `\n` +
-    `回 lead 用：\n` +
+    `Reply to the lead with Agent Deck MCP after you finish this turn:\n` +
     `\`\`\`\n` +
     `mcp__agent-deck__send_message({\n` +
     `  sessionId: '${opts.leadSessionId}',  // lead sessionId\n` +
-    `  teamId: '${opts.teamId}',  // 当前 team id\n` +
+    `  teamId: '${opts.teamId}',  // current team id\n` +
     `  text: '<reply text>',\n` +
-    `  replyToMessageId: '<msg-id from wire prefix>'  // 从顶部 [msg <id>] 提取\n` +
+    `  replyToMessageId: '<msg-id from wire prefix>'\n` +
     `})\n` +
     `\`\`\`\n` +
-    `wire prefix regex（双锚点）: \`/\\[msg ([0-9a-f-]+)\\]\\[sid ([0-9a-f-]+)\\]/\`\n`;
+    `Extract \`replyToMessageId\` from the top wire prefix \`[msg <id>]\`. Reply to the actual sender in \`[sid <senderSid>]\`; for later or rescue messages, replace the example \`sessionId\` above with that sender sid.\n`;
 
   const wirePrefix = `[from ${leadFromName} @ ${leadAdapterSanitized}][msg ${opts.placeholderId}][sid ${opts.leadSessionId}]\n`;
 
