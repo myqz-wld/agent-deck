@@ -68,7 +68,7 @@ closed 后再来同 sessionId 事件 → 自动复活回 active。归档跳过 l
 
 - **Claude Code**：hook + SDK 双通道，能力全开（创建 / 中断 / 发消息 / 工具批准 / AskUserQuestion / ExitPlanMode / 切权限模式 / 安装 hook）
 - **Deepseek（Claude Code）**：复用 Claude Code SDK 桥接层和 Claude 侧 agents/skills/CLAUDE.md；仅鉴权与模型 env 从 `~/.agent_deck/.deepseek/settings.json` 覆盖，不安装独立 hook
-- **Codex CLI**：基于 `codex app-server --stdio` 的 SDK 通道，支持创建 / 发消息 / 中断 / 恢复 / active turn 修正；不支持工具批准 / 主动询问 / Plan mode / 运行时切权限模式（Codex 协议物理不支持）。普通消息仍是 turn-based，每轮等上一轮完成；当前普通 turn 忙碌时，输入区会显示单独的「修正」输入框，Enter 发送 `turn/steer` 而不是排队下一轮消息
+- **Codex CLI**：基于 `codex app-server --stdio` 的 SDK 通道，支持创建 / 发消息 / 中断 / 恢复 / active turn 修正；不支持工具批准 / 主动询问 / Plan mode / 运行时切权限模式（Codex 协议物理不支持）。普通消息仍是 turn-based，每轮等上一轮完成；Codex adapter 的 `sendMessage` 会在当前普通 turn 忙碌时自动走 `turn/steer`，否则排队下一轮消息；输入区同一个输入框会随状态切到「修正」模式
 
 新增 adapter 实现 `AgentAdapter` 接口注册即可。
 

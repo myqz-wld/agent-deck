@@ -1,13 +1,14 @@
-' description: Codex mid-turn steering sequence — renderer steer input to app-server turn/steer
+' plan: codex-mid-turn-steering-20260610
+' description: Codex sendMessage active-turn routing — main composer to app-server turn/steer
 ' last_updated: 2026-06-10
 @startuml codex-mid-turn-steering-flow
 
-title Codex mid-turn steering — active turn correction flow
+title Codex mid-turn steering — sendMessage active-turn route
 
 actor User
 participant "SessionDetail\nComposerSdk" as UI
 participant "preload API" as Preload
-participant "main IPC\nadapter:steer-turn" as IPC
+participant "main IPC\nadapter:send-message" as IPC
 participant "AdapterRegistry\n+ Codex adapter" as Adapter
 participant "CodexSdkBridge" as Bridge
 participant "InternalSession" as Session
@@ -26,31 +27,32 @@ Bridge -> Session: currentTurnId = turn.id
 Bridge -> Events: translate streaming notifications
 Events --> UI: session.activity = working
 
-== User steers current turn ==
+== User sends from unified composer ==
 
 User -> UI: type correction while turn is working
-UI -> Preload: steerAdapterTurn(agentId, sessionId, text)
-Preload -> IPC: invoke adapter:steer-turn
-IPC -> Adapter: capability canSteerTurn?
+UI -> Preload: sendAdapterMessage(agentId, sessionId, { text })
+Preload -> IPC: invoke adapter:send-message
+IPC -> Adapter: sendMessage(sessionId, text, attachments?)
+Adapter -> Bridge: sendMessage(sessionId, text, attachments?)
+Bridge -> Session: read currentTurn + currentTurnId + pendingMessages
 
-alt adapter cannot steer
-  IPC --> UI: error "adapter cannot steer active turn"
-else Codex adapter
-  Adapter -> Bridge: steerTurn(sessionId, text)
-  Bridge -> Session: read currentTurn + currentTurnId
-  alt no active turn id
-    Bridge --> UI: error "no steerable active turn"
-  else active normal turn
-    Bridge -> Thread: steer(text, expectedTurnId=currentTurnId)
-    Thread -> Server: turn/steer { threadId, expectedTurnId, input }
-    alt review / compact / id mismatch / completed
-      Server --> Thread: JSON-RPC error
-      Thread --> UI: error surfaced in steer input
-    else accepted
-      Server --> Thread: result { turnId }
-      Bridge -> Events: emit user message { role:user, steer:true }
-      Events --> UI: show correction in transcript
-    end
+alt no active turn id OR message has attachments
+  Bridge -> Session: pendingMessages.push(input)
+  opt turn loop not running
+    Bridge -> Thread: runTurnLoop(next pending input)
+  end
+  Bridge -> Events: emit user message { role:user }
+  Events --> UI: show queued/normal user message
+else active text-only turn
+  Bridge -> Thread: steer(text, expectedTurnId=currentTurnId)
+  Thread -> Server: turn/steer { threadId, expectedTurnId, input }
+  alt review / compact / id mismatch / completed
+    Server --> Thread: JSON-RPC error
+    Thread --> UI: error surfaced through sendMessage
+  else accepted
+    Server --> Thread: result { turnId }
+    Bridge -> Events: emit user message { role:user, steer:true }
+    Events --> UI: show correction in transcript
   end
 end
 
@@ -65,6 +67,12 @@ Bridge -> Events: finished
 note right of Server
   turn/steer does not emit turn/started.
   It accepts input only; no model/cwd/sandbox override.
+end note
+
+note right of Bridge
+  Explicit steerTurn(sessionId,text) remains a low-level adapter API.
+  UI / teammate / CLI send paths converge on sendMessage;
+  Codex sendMessage decides steer vs pending queue from live state.
 end note
 
 @enduml
