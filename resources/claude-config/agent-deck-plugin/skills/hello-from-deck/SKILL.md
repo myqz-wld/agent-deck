@@ -5,7 +5,7 @@ description: "Agent Deck built-in skill self-check. Use when the user calls /age
 
 # Hello From Deck
 
-Use this skill to verify that the Agent Deck app packaged and injected the bundled skill through the SDK `plugins` field.
+Use this skill to verify that the Agent Deck app packaged and injected the bundled skill for the current adapter.
 
 ## When To Use
 

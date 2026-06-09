@@ -22,6 +22,13 @@
 import { z } from 'zod';
 import type { IssueRecord, TaskRecord } from '@shared/types';
 
+const SDK_CALLER_SESSION_ID_DESCRIPTION =
+  'Leave unset in SDK sessions; Agent Deck injects the real caller session id. Direct HTTP/stdio callers without a real session are treated as external.';
+const SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION =
+  `${SDK_CALLER_SESSION_ID_DESCRIPTION} This tool rejects external callers.`;
+const SDK_READ_CALLER_SESSION_ID_DESCRIPTION =
+  `${SDK_CALLER_SESSION_ID_DESCRIPTION} Read-only external callers see only their visible external scope.`;
+
 /**
  * Task tool status 枚举（plan task-mcp-merge-into-agent-deck-mcp-20260521 Step 0.5 + R2 F-R2-4 修法）：
  * 放 schemas.ts 顶部 export 而非 handler/task-helpers.ts —— schema 层 enum 天然位置，
@@ -105,19 +112,19 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional()
     .describe(
-      'caller 显式传则覆盖。省略时：target adapter 与 caller adapter 相同 → 继承 caller session 的 permissionMode；跨 adapter spawn → 用 target adapter 默认值（claude-code / deepseek-claude-code 默认 bypassPermissions；codex-cli 无 permissionMode）。',
+      'Optional permission mode for the spawned Claude-family session. Omit it to inherit from a same-adapter caller; cross-adapter spawns use the target adapter default. codex-cli ignores this field.',
     ),
   codexSandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      'caller 显式传优先于继承 / 默认。省略时：target adapter 是 codex-cli 且 caller 也是 codex-cli → 继承 caller session 的 codexSandbox；跨 adapter spawn → 不继承 caller sandbox,由 codex adapter 走 settings 默认。reviewer-* teammate（agentName="reviewer-claude" / "reviewer-codex"）固定使用 workspace-write defaults，因为 reviewer body 需要读源码并写临时验证文件；caller 显式传 codexSandbox 会被 reviewer default 覆盖并记录 warning。严格 read-only reviewer 当前不支持。',
+      'Optional sandbox for a codex-cli spawned session. Omit it to inherit from a same-adapter codex caller; cross-adapter spawns use the codex adapter default. Bundled reviewer agents use workspace-write defaults so they can read source and write temporary verification files.',
     ),
   claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
-      'claude-code / deepseek-claude-code adapter 沙盒切档（off / workspace-write / strict）。caller 显式传则覆盖。省略时：target adapter 与 caller adapter 相同 → 继承 caller session 的 claudeCodeSandbox；跨 adapter spawn → 不继承 caller sandbox,由 target adapter 走 settings 默认。',
+      'Optional sandbox for claude-code or deepseek-claude-code. Omit it to inherit from a same-adapter caller; cross-adapter spawns use the target adapter default.',
     ),
   /**
    * 可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
@@ -128,16 +135,14 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(16)
     .optional()
     .describe(
-      'claude-code adapter 沙盒额外 writable roots（仅 workspace-write 档生效；strict / off 忽略）。每个绝对路径加进 sandbox.allowWrite 让 SDK 子进程能写。直接调 spawn_session 时只在目标 Claude sandbox 需要额外写入根时传；same-adapter spawn 会继承 caller 既有值。',
+      'Extra writable roots for a claude-code workspace-write sandbox. Use only when the spawned Claude-family session must edit paths outside cwd.',
     ),
   callerSessionId: z
     .string()
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / hand_off_session 等）会被拒。',
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
   parentSessionId: z
     .string()
     .min(1)
@@ -167,9 +172,7 @@ export const SEND_MESSAGE_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / hand_off_session 等）会被拒。',
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
   // R3.E0 ADR §5.2 amend：multi-team 共享时必填，单 team 共享时可省（自动 resolve）。
   // plan teamless-dm-20260601：无 shared team 时省略 teamId → teamless DM（自动降级）。
   teamId: z
@@ -197,9 +200,7 @@ export const LIST_SESSIONS_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / hand_off_session 等）会被拒。',
-    ),
+    .describe(SDK_READ_CALLER_SESSION_ID_DESCRIPTION),
   statusFilter: z.enum(['active', 'dormant', 'closed', 'all']).default('active'),
   adapterFilter: z
     .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
@@ -221,9 +222,7 @@ export const GET_SESSION_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / hand_off_session 等）会被拒。',
-    ),
+    .describe(SDK_READ_CALLER_SESSION_ID_DESCRIPTION),
   sessionId: z.string().min(1).max(128),
 };
 
@@ -234,9 +233,7 @@ export const SHUTDOWN_SESSION_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动注入真实 session id（SDK 内 agent 不要显式传）；HTTP / stdio external transport 必须显式传，否则 caller 视为 __external__，需要真实 session 上下文的 write tool（spawn_session / send_message / hand_off_session 等）会被拒。',
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
   reason: z.string().max(500).optional(),
 };
 
@@ -360,9 +357,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（hand_off_session 不允许 external caller）。',
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
   parentSessionId: z.string().min(1).max(128).optional(),
 };
 
@@ -409,9 +404,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（enter_worktree 不允许 external caller — git worktree add 是写操作 + setCwdReleaseMarker 是 per-session 状态需真实 caller sid）。',
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const EXIT_WORKTREE_SCHEMA = {
@@ -441,9 +434,7 @@ export const EXIT_WORKTREE_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（exit_worktree 不允许 external caller — git worktree remove 是写操作 + clearCwdReleaseMarker 是 per-session 状态需真实 caller sid）。',
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 // Retired public tool schema. Keep this only so legacy internal handlers/tests and guard
@@ -667,14 +658,14 @@ export const TASK_CREATE_SCHEMA = {
     .enum(STATUS_VALUES)
     .optional()
     .describe(
-      'Initial status. Enum: pending | active | completed | blocked | abandoned (default "pending"). 注意：进行中用 "active"（不是 Claude Code builtin 的 "in_progress"），完成用 "completed"（不是 "done"）。',
+      'Initial status. Use pending, active, completed, blocked, or abandoned. Default is pending. Use active for in-progress work and completed for finished work.',
     ),
   activeForm: z
     .string()
     .nullable()
     .optional()
     .describe(
-      'Optional present-tense activity label rendered in the Tasks UI（与 Claude Code builtin TaskCreate.activeForm 同语义：任务进行时文案，如 "Running tests"）。省略即可。',
+      'Optional present-tense activity label shown in the Tasks UI, such as "Running tests".',
     ),
   priority: z
     .number()
@@ -699,16 +690,14 @@ export const TASK_CREATE_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'teamId?: string — omit for a personal task visible/writable only to its owner; pass a team id for a team-bound task visible/writable by active members of that team. Caller must be an active member of the target team.',
+      'Omit for a personal task visible only to the owner. Pass a team id for a team task visible and writable by active team members; the caller must be an active member.',
     ),
   callerSessionId: z
     .string()
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（task_create 不允许 external caller）。',
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const TASK_LIST_SCHEMA = {
@@ -716,7 +705,7 @@ export const TASK_LIST_SCHEMA = {
     .enum(STATUS_VALUES)
     .optional()
     .describe(
-      'Only return tasks with this status. Enum: pending | active | completed | blocked | abandoned（进行中是 "active" 不是 "in_progress"）。',
+      'Only return tasks with this status: pending, active, completed, blocked, or abandoned.',
     ),
   subjectFilter: z
     .string()
@@ -750,9 +739,7 @@ export const TASK_LIST_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__；task_list 允许 external (返空 visible scope 是预期)。',
-    ),
+    .describe(SDK_READ_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const TASK_GET_SCHEMA = {
@@ -763,7 +750,7 @@ export const TASK_GET_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny。Caller can read a team-bound task only when it is an active member of that task team; caller can read a personal task only when it owns the task.',
+      `${SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION} The caller can read a team task only with active team membership, and a personal task only when it owns the task.`,
     ),
 };
 
@@ -775,22 +762,22 @@ export const TASK_UPDATE_SCHEMA = {
     .enum(STATUS_VALUES)
     .optional()
     .describe(
-      'New status. Enum: pending | active | completed | blocked | abandoned（进行中用 "active" 不是 "in_progress"，完成用 "completed" 不是 "done"）。',
+      'New status: pending, active, completed, blocked, or abandoned. Use active for in-progress work and completed for finished work.',
     ),
   activeForm: z.string().nullable().optional(),
   priority: z.number().int().min(0).max(10).optional(),
   blocks: z
     .array(z.string())
     .optional()
-    .describe('Task UUIDs — 传入数组整体替换 blocks 列表（省略=不动；传 [] 清空）'),
+    .describe('Task UUIDs that replace the whole blocks list. Omit to leave unchanged; pass [] to clear.'),
   blockedBy: z
     .array(z.string())
     .optional()
-    .describe('Task UUIDs — 传入数组整体替换 blockedBy 列表（省略=不动；传 [] 清空）'),
+    .describe('Task UUIDs that replace the whole blockedBy list. Omit to leave unchanged; pass [] to clear.'),
   labels: z
     .array(z.string())
     .optional()
-    .describe('传入数组整体替换 labels 列表（省略=不动；传 [] 清空）'),
+    .describe('Labels that replace the whole labels list. Omit to leave unchanged; pass [] to clear.'),
   // v024 plan task-team-id-restore-20260525 §D1:允许 update 改 teamId(传 null 转 personal;
   // 传 string 转 team-bound)。caller 必须在新 teamId 是 active member(D3 由 tool 层校验)。
   teamId: z
@@ -800,16 +787,14 @@ export const TASK_UPDATE_SCHEMA = {
     .nullable()
     .optional()
     .describe(
-      'teamId?: string | null — omit to leave unchanged; pass a team id to make the task team-bound (caller must be an active member of that team); pass null to make it personal to the caller.',
+      'Omit to leave unchanged. Pass a team id to make the task team-bound; the caller must be an active member. Pass null to make it personal to the caller.',
     ),
   callerSessionId: z
     .string()
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（task_update 不允许 external caller）。',
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const TASK_DELETE_SCHEMA = {
@@ -823,9 +808,7 @@ export const TASK_DELETE_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      'In-process transport 自动 override 真实 session id；HTTP / stdio external transport 视为 __external__ 直接 deny（task_delete 不允许 external caller）。',
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 // Args type infer（与现有 10 个 simple tool 同款 z.infer<z.ZodObject<typeof SCHEMA>>）
@@ -971,7 +954,7 @@ export const REPORT_ISSUE_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe('Auto-injected — leave unset. External (HTTP/stdio) callers are denied.'),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 /**
@@ -997,7 +980,7 @@ export const APPEND_ISSUE_CONTEXT_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe('Auto-injected — leave unset. External (HTTP/stdio) callers are denied.'),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 /**
@@ -1024,7 +1007,7 @@ export const UPDATE_ISSUE_STATUS_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe('Auto-injected — leave unset. External (HTTP/stdio) callers are denied.'),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 // Args type infer

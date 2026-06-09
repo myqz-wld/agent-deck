@@ -63,16 +63,20 @@ Spawn both reviewers in parallel and keep the pair heterogeneous:
 
 Never replace a failed reviewer with a second reviewer from the same adapter family. If one side fails, use the fallback table below.
 
+## Lead Turn Boundary
+
+After spawning reviewers or sending rebuttal/Round 2 prompts, tell the user what was dispatched and stop the current turn. Reviewer replies arrive as later Agent Deck user-role messages; continue adjudication when they arrive. Do not use `sleep`, busy loops, or repeated `get_session` polling in the same turn.
+
 ## Workflow
 
 | Step | Action |
 |---|---|
 | 0 | Normalize `scope`, create sandbox cache for external paths, and build the reviewer prompt from the templates below. |
 | 1 | Spawn reviewer-claude and reviewer-codex without waiting between spawns. Record each `sessionId`, `teamId`, and `spawnPromptMessageId`. |
-| 2 | Tell the user that both reviewers are running and that replies will arrive through Agent Deck messages. Wait for both reviewer replies; do not poll unless the user asks for status or the timeout rule fires. |
-| 3 | Adjudicate every finding with the tri-state rules below. |
-| 4 | For every CRITICAL/HIGH finding, send one rebuttal request to the opposite reviewer using `send_message` and the relevant reply chain anchor. |
-| 5 | If a real CRITICAL/HIGH is fixed, reuse the same reviewers for one optional Round 2. Send only the fix diff and `skip` summary; do not respawn unless a fresh-session or scope mismatch warning requires it. |
+| 2 | Tell the user that both reviewers are running and replies will arrive through Agent Deck messages; then stop the current turn. |
+| 3 | When both reviewer replies arrive, adjudicate every finding with the tri-state rules below. |
+| 4 | For every CRITICAL/HIGH finding, send one rebuttal request to the opposite reviewer using `send_message` and the relevant reply chain anchor; then stop the current turn. |
+| 5 | If a real CRITICAL/HIGH is fixed, reuse the same reviewers for one optional Round 2. Send only the fix diff and `skip` summary; then stop the current turn. Do not respawn unless a fresh-session or scope mismatch warning requires it. |
 | 6 | Finish with reviewer shutdown, cache cleanup, and the final summary report. |
 
 Stop after one fix round unless the result still has CRITICAL/HIGH findings or many new true findings. Escalate that case to `deep-review`.
@@ -163,7 +167,7 @@ Do not add unrelated findings.
 | reviewer-claude fails | Shutdown that session, respawn reviewer-claude with `adapter: 'claude-code'`, retry at most twice, and keep reviewer-codex. If it still fails, ask the user to wait, proceed with single-reviewer downgraded findings, or abort. Never replace it with a second Codex reviewer. |
 | reviewer reports `⚠ FRESH SESSION` | Shutdown and respawn that reviewer, then rerun Round 1 with full scope. Do not continue Round 2. |
 | reviewer reports `⚠ SCOPE PATH MISMATCH` | Fix the scope path or cache manifest, then shutdown, respawn, and resend the prompt. |
-| reviewer does not reply for 30 minutes | Only after the threshold or a user status request, check `get_session(lastEventAt)`. If recent, tell the user it is still running; otherwise ask the user to resolve PendingTab or respawn. |
+| reviewer does not reply for 30 minutes | Only after the threshold or a user status request, check `get_session(lastEventAt)`. If recent, tell the user it is still running and stop the turn; otherwise ask the user to resolve PendingTab or respawn. |
 | sandbox cache copy fails | Warn, abort this review, and ask caller to provide readable paths. |
 | MCP send/spawn errors | Follow the MCP tool error. Do not silently downgrade to same-adapter reviewers. |
 
