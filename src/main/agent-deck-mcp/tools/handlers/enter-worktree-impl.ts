@@ -1,112 +1,50 @@
-/**
- * enter_worktree handler 的实现层 — git / fs / frontmatter / DB 业务逻辑（plan
- * codex-handoff-team-alignment-20260518 P1 Step 1.3 / D2 + 不变量 5）。
- *
- * **抽出 impl 子模块的动机**：handler 入口（enter-worktree.ts）只做 deny external + caller
- * sid 反查 + 调本 impl + 包 ok/err。git / fs / frontmatter 的业务行为在这里，可以单测时
- * inject deps mock 走纯 in-memory（与 archive-plan-impl 同款 DEFAULT_DEPS pattern）。
- *
- * **业务流程**（user CLAUDE.md §Step 1 主路径 (b) 「Bash 显式 git worktree add」+ 不变量 5
- * setCwdReleaseMarker 的 mcp 自动化）：
- *
- * 1. 反查 caller sessionRepo.cwd 拿 caller cwd（external sentinel 已在 handler 层 deny；
- *    impl 调用前 caller cwd 必有效）
- * 2. 解析 main_repo：`git -C <caller-cwd> rev-parse --git-common-dir` → dirname（与 exit /
- *    hand-off / archive-plan 三兄弟 impl 统一;caller cwd 在 linked worktree 内也拿真 main repo）
- * 3. 派生 worktreePath：args.worktreePath > `<main_repo>/.claude/worktrees/<planId>/`
- * 4. 派生 branch_name：固定 `worktree-<planId>`（与 user CLAUDE.md §Step 1 命名约定对齐）
- * 5. 解析 base commit（plan D2 优先级链）：
- *    args.baseCommit > args.baseBranch resolve to HEAD > plan frontmatter base_commit >
- *    plan frontmatter base_branch resolve to HEAD > main_repo HEAD
- * 6. 预检 worktreePath 不存在 + branch 不存在（避免静默 reuse 老 worktree / 重名 branch）
- * 7. `git -C <main_repo> worktree add -b <branch> <worktreePath> <baseCommit>`
- * 8. setCwdReleaseMarker(callerSid, worktreePath)（不变量 5 — archive_plan 预检 4 态分流
- *    认得跨 adapter 路径）
- *
- * Follow-up #4: step 1-6 任一失败立即 return error 短路（git 操作未发生,无需回滚）。step 7
- * worktree add 成功后 step 8 marker 写失败 → **best-effort 回滚已建 worktree**（git worktree
- * remove --force + branch -D）防 orphan,再 return error；回滚失败则 warn 并在 error hint 里
- * 说明需手动清。git 操作可逆但代价高,marker 写失败回滚已建 worktree 防 orphan(修前注释「不做
- * 部分回滚」与「orphan 风险」实现矛盾 — marker 没写 caller 既看到 error 又留个无主 worktree)。
- *
- * **deps inject 模式**：默认实现走 Node 内置 + sessionRepo（child_process.execFile + fs/promises +
- * os.homedir + sessionRepo.setCwdReleaseMarker），test 通过传 `deps` 完全替换为 in-memory mock。
- */
-
 import * as path from 'node:path';
 
-import { parseFrontmatter } from '@main/utils/frontmatter';
 import {
-  runGitDefault,
-  readFileDefault,
   existsDefault,
-  homedirDefault,
+  mkdirDefault,
+  runGitDefault,
 } from './_shared/default-impl-deps';
 
 export interface EnterWorktreeInput {
-  planId: string;
   callerSessionId: string;
-  /** Caller 显式 worktreePath 覆盖默认派生路径；不传走 `<main_repo>/.claude/worktrees/<planId>/`。 */
+  baseBranch: string;
+  workBranchOverride?: string;
   worktreePathOverride?: string;
-  /** plan D2 优先级链最高位：caller args.baseCommit。 */
-  baseCommitOverride?: string;
-  /** plan D2 优先级链次位：caller args.baseBranch（resolve to branch HEAD）。 */
-  baseBranchOverride?: string;
-  /** plan 文件 abs path（用于 frontmatter base fallback）；不传走 fallback 链 .claude/plans/ → ref/plans/ → ~/.claude/plans/。 */
-  planFilePathOverride?: string;
+  worktreeRootOverride?: string;
 }
-
-export type BaseSource =
-  | 'arg-base-commit'
-  | 'arg-base-branch'
-  | 'frontmatter-base-commit'
-  | 'frontmatter-base-branch'
-  | 'head';
 
 export interface EnterWorktreeImplResult {
   worktreePath: string;
-  branchName: string;
+  workBranch: string;
+  baseBranch: string;
   baseCommit: string;
-  baseSource: BaseSource;
+  baseSource: 'base-branch';
   markerSet: boolean;
 }
 
 export type EnterWorktreeError = { error: string; hint?: string };
 
 export interface EnterWorktreeDeps {
-  /** 跑 git 子命令；返回 stdout（trim）。失败抛 error。 */
   runGit?: (args: string[], cwd: string) => Promise<string>;
-  /** 读文件 utf8。失败抛（典型 ENOENT）。 */
-  readFile?: (filePath: string) => Promise<string>;
-  /** 文件 / 目录是否存在（true / false，不抛）。 */
   exists?: (p: string) => Promise<boolean>;
-  /** $HOME 路径。 */
-  homedir?: () => string;
-  /** sessionRepo.get(callerSid).cwd 反查 seam，方便单测注入虚拟 cwd 不需要 mock 整 sessionRepo。 */
+  mkdir?: (p: string) => Promise<void>;
   callerCwd?: (callerSid: string) => string | null;
-  /** setCwdReleaseMarker seam，方便单测验证 marker 写入行为。 */
   setCwdReleaseMarker?: (sid: string, marker: string) => void;
+  now?: () => number;
 }
 
 const DEFAULT_DEPS: Required<EnterWorktreeDeps> = {
   runGit: runGitDefault,
-  readFile: readFileDefault,
   exists: existsDefault,
-  homedir: homedirDefault,
-  // callerCwd / setCwdReleaseMarker 由 handler 显式注入(handler 端 import sessionRepo,
-  // 避免 impl import 触发 electron.app load — 让本 impl test 走 deps inject 时不撞 electron)。
-  // DEFAULT_DEPS 这两项故意抛 hint error,提示 caller 必须注入(silently no-op 会让 marker 不写
-  // 静默失败,更危险)。
+  mkdir: mkdirDefault,
   callerCwd: (_sid: string) => {
-    throw new Error(
-      'enter-worktree-impl: deps.callerCwd not injected. Handler must provide a real sessionRepo wrapper.',
-    );
+    throw new Error('enter-worktree-impl: deps.callerCwd not injected.');
   },
   setCwdReleaseMarker: (_sid: string, _marker: string) => {
-    throw new Error(
-      'enter-worktree-impl: deps.setCwdReleaseMarker not injected. Handler must provide a real sessionRepo wrapper.',
-    );
+    throw new Error('enter-worktree-impl: deps.setCwdReleaseMarker not injected.');
   },
+  now: () => Date.now(),
 };
 
 function isError(x: unknown): x is EnterWorktreeError {
@@ -117,120 +55,103 @@ function isError(x: unknown): x is EnterWorktreeError {
   );
 }
 
-/**
- * fallback 链解 plan 文件路径（与 archive-plan-impl 同款）：
- * 显式 override > <main-repo>/.claude/plans/<id>.md > <main-repo>/ref/plans/<id>.md > ~/.claude/plans/<id>.md
- * 返回首个存在的路径；都不存在返 null（frontmatter base fallback 跳过走 HEAD）。
- */
-async function resolvePlanFilePath(
-  input: EnterWorktreeInput,
-  mainRepo: string,
-  deps: Required<EnterWorktreeDeps>,
-): Promise<string | null> {
-  const candidates: string[] = [];
-  if (input.planFilePathOverride) candidates.push(input.planFilePathOverride);
-  candidates.push(path.join(mainRepo, '.claude', 'plans', `${input.planId}.md`));
-  candidates.push(path.join(mainRepo, 'ref', 'plans', `${input.planId}.md`));
-  candidates.push(path.join(deps.homedir(), '.claude', 'plans', `${input.planId}.md`));
-  for (const c of candidates) {
-    if (await deps.exists(c)) return c;
-  }
-  return null;
+function isPlainLocalBranchName(name: string): boolean {
+  return (
+    name.trim() === name &&
+    name.length > 0 &&
+    !name.startsWith('-') &&
+    !name.includes('..') &&
+    !name.includes('@{') &&
+    !name.includes('^') &&
+    !name.includes('~') &&
+    !name.includes(':') &&
+    !name.includes('?') &&
+    !name.includes('*') &&
+    !name.includes('[') &&
+    !name.includes('\\') &&
+    !/\s/.test(name)
+  );
 }
 
-/**
- * resolve base commit per plan D2 priority chain。返回 { baseCommit, baseSource } 或 error。
- * - args.baseCommit  highest, return as-is (assume valid SHA hex per zod refine)
- * - args.baseBranch: `git rev-parse <branch>` to commit; fail → error short-circuit
- * - frontmatter.base_commit: read plan file fm; if set, return
- * - frontmatter.base_branch: read plan file fm; if set, `git rev-parse` to commit
- * - head (default): `git rev-parse HEAD` in main_repo
- */
-async function resolveBaseCommit(
-  input: EnterWorktreeInput,
-  mainRepo: string,
+function slugForPath(value: string): string {
+  return value.replace(/\//g, '__').replace(/[^A-Za-z0-9._-]/g, '-');
+}
+
+async function resolveMainRepo(
+  callerCwd: string,
   deps: Required<EnterWorktreeDeps>,
-): Promise<{ baseCommit: string; baseSource: BaseSource } | EnterWorktreeError> {
-  // 1. args.baseCommit highest
-  if (input.baseCommitOverride) {
-    return { baseCommit: input.baseCommitOverride, baseSource: 'arg-base-commit' };
-  }
-  // 2. args.baseBranch
-  if (input.baseBranchOverride) {
-    try {
-      const baseCommit = await deps.runGit(['rev-parse', input.baseBranchOverride], mainRepo);
-      if (!baseCommit) {
-        return {
-          error: `git rev-parse ${input.baseBranchOverride} returned empty in ${mainRepo}`,
-        };
-      }
-      return { baseCommit, baseSource: 'arg-base-branch' };
-    } catch (e) {
-      return {
-        error: `git rev-parse ${input.baseBranchOverride} failed: ${(e as Error).message}`,
-        hint: `args.baseBranch must reference an existing branch in ${mainRepo}. Verify with \`git -C ${mainRepo} branch --list\`.`,
-      };
-    }
-  }
-  // 3. frontmatter base_commit / base_branch
-  // REVIEW_68 batch-3: plan frontmatter snake_case（CHANGELOG_177 合法保留）。camelcase
-  // migration（commit 5ff0d78）误读成 fm.baseCommit/baseBranch → snake-only plan 的 base pin
-  // 被忽略落到 HEAD fallback。读 snake_case key 回正。
-  const planFilePath = await resolvePlanFilePath(input, mainRepo, deps);
-  if (planFilePath) {
-    try {
-      const planContent = await deps.readFile(planFilePath);
-      const fm = parseFrontmatter(planContent);
-      const fmBaseCommit = typeof fm.base_commit === 'string' ? fm.base_commit.trim() : '';
-      const fmBaseBranch = typeof fm.base_branch === 'string' ? fm.base_branch.trim() : '';
-      if (fmBaseCommit.length >= 7) {
-        // REVIEW_72 LOW(deep-review 双方 — codex LOW + claude INFO):frontmatter base_commit 经
-        // `git rev-parse --verify <commit>^{commit}` 预验证再返回,与 args.baseBranch 的 rev-parse
-        // 验证对称。修前仅校验 length >= 7,非法值(如 "feedbeef" 乱串)延迟到 step 7 git worktree
-        // add 才报错,归入通用 "baseCommit not in repo / branch race" hint 定位不清。验证失败时
-        // **不算 error**(与 fmBaseBranch 同款 best-effort 软约束),fallback 走 HEAD —— frontmatter
-        // 是 plan 文件的软提示,不该因 stale base_commit 阻断 worktree 创建。
-        try {
-          const verified = await deps.runGit(
-            ['rev-parse', '--verify', '--quiet', `${fmBaseCommit}^{commit}`],
-            mainRepo,
-          );
-          if (verified) {
-            return { baseCommit: verified, baseSource: 'frontmatter-base-commit' };
-          }
-          // verify 返空(commit 不存在)→ fall through 到 fmBaseBranch / HEAD
-        } catch {
-          // rev-parse --verify 非零退出(commit 不在 repo)→ best-effort fallback,不 error
-        }
-      }
-      if (fmBaseBranch.length > 0) {
-        try {
-          const baseCommit = await deps.runGit(['rev-parse', fmBaseBranch], mainRepo);
-          if (baseCommit) {
-            return { baseCommit, baseSource: 'frontmatter-base-branch' };
-          }
-        } catch {
-          // frontmatter base_branch 解析失败不算 error，fallback 走 HEAD（与 args.baseBranch 严格不同：
-          // args 是 caller 显式传必须 valid；frontmatter 是 best-effort 软约束）
-        }
-      }
-    } catch {
-      // plan 文件不可读不算 error（与 args.baseBranch 严格不同），fallback 走 HEAD
-    }
-  }
-  // 5. head (default)
+): Promise<string | EnterWorktreeError> {
   try {
-    const baseCommit = await deps.runGit(['rev-parse', 'HEAD'], mainRepo);
-    if (!baseCommit) {
-      return { error: `git rev-parse HEAD returned empty in ${mainRepo}` };
-    }
-    return { baseCommit, baseSource: 'head' };
+    const gitCommonDir = await deps.runGit(['rev-parse', '--git-common-dir'], callerCwd);
+    const commonDirAbs = path.isAbsolute(gitCommonDir)
+      ? gitCommonDir
+      : path.resolve(callerCwd, gitCommonDir);
+    return path.dirname(commonDirAbs);
   } catch (e) {
     return {
-      error: `git rev-parse HEAD failed in main repo ${mainRepo}: ${(e as Error).message}`,
-      hint: `main_repo "${mainRepo}" may not be a valid git repo or HEAD is detached / unborn (no commits). Verify with \`git -C ${mainRepo} log -1\`.`,
+      error: `caller cwd is not inside a git repo: ${callerCwd}`,
+      hint: `enter_worktree derives the main repo from the caller session cwd with git rev-parse --git-common-dir. Start from a git repo session or pass worktree operations through a session whose cwd is in the repo.`,
     };
   }
+}
+
+async function resolveBaseCommit(
+  baseBranch: string,
+  mainRepo: string,
+  deps: Required<EnterWorktreeDeps>,
+): Promise<string | EnterWorktreeError> {
+  if (!isPlainLocalBranchName(baseBranch)) {
+    return {
+      error: `baseBranch must be a plain local branch name: ${baseBranch}`,
+      hint: 'Pass a branch name like main or feature/x. SHA, tag, rev syntax, whitespace, and ref expressions are rejected.',
+    };
+  }
+  try {
+    await deps.runGit(['check-ref-format', '--branch', baseBranch], mainRepo);
+  } catch (e) {
+    return {
+      error: `baseBranch is not a valid branch name: ${baseBranch}`,
+      hint: `git check-ref-format --branch rejected the name. Pass an existing local branch name, not a commit or tag.`,
+    };
+  }
+  try {
+    const commit = await deps.runGit(
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${baseBranch}^{commit}`],
+      mainRepo,
+    );
+    if (!commit) {
+      return {
+        error: `baseBranch does not resolve to a local branch commit: ${baseBranch}`,
+        hint: `Create or fetch the local branch first, then retry. Verify with git -C ${mainRepo} branch --list ${baseBranch}.`,
+      };
+    }
+    return commit;
+  } catch (e) {
+    return {
+      error: `baseBranch does not resolve to a local branch commit: ${baseBranch}`,
+      hint: `enter_worktree resolves refs/heads/${baseBranch}; SHA, tag, and remote-only refs are not accepted.`,
+    };
+  }
+}
+
+async function rollbackCreatedWorktree(input: {
+  deps: Required<EnterWorktreeDeps>;
+  mainRepo: string;
+  worktreePath: string;
+  workBranch: string;
+}): Promise<string[]> {
+  const warnings: string[] = [];
+  try {
+    await input.deps.runGit(['worktree', 'remove', '--force', input.worktreePath], input.mainRepo);
+  } catch (e) {
+    warnings.push(`git worktree remove --force failed: ${(e as Error).message}`);
+  }
+  try {
+    await input.deps.runGit(['branch', '-D', input.workBranch], input.mainRepo);
+  } catch (e) {
+    warnings.push(`git branch -D ${input.workBranch} failed: ${(e as Error).message}`);
+  }
+  return warnings;
 }
 
 export async function enterWorktreeImpl(
@@ -239,137 +160,93 @@ export async function enterWorktreeImpl(
 ): Promise<EnterWorktreeImplResult | EnterWorktreeError> {
   const deps: Required<EnterWorktreeDeps> = { ...DEFAULT_DEPS, ...depsOverride };
 
-  // 1. 反查 caller cwd
   const callerCwd = deps.callerCwd(input.callerSessionId);
   if (!callerCwd) {
     return {
-      error: `caller session ${input.callerSessionId} has no cwd (session not found or cwd column is null)`,
-      hint: `enter_worktree needs caller cwd to derive main_repo via \`git rev-parse --git-common-dir\`. Make sure callerSessionId references an active session managed by Agent Deck.`,
+      error: `caller session ${input.callerSessionId} has no cwd`,
+      hint: 'enter_worktree requires a real Agent Deck session so it can derive the repo and store the worktree marker.',
     };
   }
 
-  // 2. main_repo
-  // REVIEW_72 MED(deep-review 双方独立 ✅ + lead 实测):用 `git rev-parse --git-common-dir` + dirname
-  // 解析 main repo,**与 exit-worktree-impl / hand-off-session-impl / archive-plan-impl 三兄弟统一**。
-  // 修前用 `--show-toplevel`:caller cwd 在主仓库(或子目录)时与 git-common-dir 等价,但 caller cwd
-  // **在某个 linked worktree 内**时分叉 — show-toplevel 返回该 worktree 根,git-common-dir+dirname
-  // 返回真 main repo。实测铁证(本 worktree 内):show-toplevel=<worktree 自身> vs git-common-dir
-  // dirname=<真 main repo>。修前 caller 已在 worktree1 再调 enter_worktree 起 plan2 → mainRepo 误算
-  // 成 worktree1 → 新 worktree 建到 worktree1/.claude/worktrees/plan2 嵌套错位 + marker 指向嵌套路径
-  // → 后续 archive_plan 用 git-common-dir 拿真 main repo 与 plan frontmatter 嵌套 worktree_path 对不上
-  // 收口链错乱。git worktree add 允许嵌套(实测 rc=0)所以不会立即报错,silent 错位更危险。
-  let mainRepo: string;
-  try {
-    const gitCommonDir = await deps.runGit(['rev-parse', '--git-common-dir'], callerCwd);
-    const commonDirAbs = path.isAbsolute(gitCommonDir)
-      ? gitCommonDir
-      : path.resolve(callerCwd, gitCommonDir);
-    mainRepo = path.dirname(commonDirAbs);
-  } catch (e) {
-    return {
-      error: `git rev-parse --git-common-dir failed in caller cwd ${callerCwd}: ${(e as Error).message}`,
-      hint: `caller cwd "${callerCwd}" is not inside a git repository. enter_worktree requires caller to operate from within a git working tree. Verify with \`git -C ${callerCwd} rev-parse --git-common-dir\`.`,
-    };
-  }
-  if (!mainRepo) {
-    return { error: `git rev-parse --git-common-dir returned empty in ${callerCwd}` };
-  }
+  const mainRepo = await resolveMainRepo(callerCwd, deps);
+  if (isError(mainRepo)) return mainRepo;
 
-  // 3. worktreePath
+  const baseCommit = await resolveBaseCommit(input.baseBranch, mainRepo, deps);
+  if (isError(baseCommit)) return baseCommit;
+
+  const derivedBranch =
+    input.workBranchOverride ??
+    `agent-deck/${slugForPath(input.baseBranch)}-${input.callerSessionId.slice(0, 8)}-${deps
+      .now()
+      .toString(36)}`;
+  const workBranch = derivedBranch;
+  const worktreeRoot = input.worktreeRootOverride ?? path.join(mainRepo, '.agent-deck', 'worktrees');
   const worktreePath =
-    input.worktreePathOverride ??
-    path.join(mainRepo, '.claude', 'worktrees', input.planId);
+    input.worktreePathOverride ?? path.join(worktreeRoot, slugForPath(workBranch));
 
-  // 4. branch_name
-  const branchName = `worktree-${input.planId}`;
-
-  // 5. 预检 worktreePath / branch 不存在(先 reject 短路,避免无谓 base resolution git 调用)
   if (await deps.exists(worktreePath)) {
     return {
-      error: `worktree path already exists: ${worktreePath}`,
-      hint: `enter_worktree refuses silent reuse of an existing path. Either pass a different worktreePath, manually \`git worktree remove ${worktreePath}\`, or call exit_worktree with action="remove" first.`,
+      error: `worktreePath already exists: ${worktreePath}`,
+      hint: 'Choose a new workBranch or worktreePath. enter_worktree creates a fresh worktree and does not attach to an existing directory.',
     };
   }
-  // git branch 存在性检查走 git for-each-ref（exit-code 友好，比 rev-parse fail 噪声小）
-  let branchExists = false;
+
   try {
-    const out = await deps.runGit(
-      ['for-each-ref', '--format=%(refname:short)', `refs/heads/${branchName}`],
+    const branchExists = await deps.runGit(
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${workBranch}`],
       mainRepo,
     );
-    branchExists = out.trim() === branchName;
+    if (branchExists) {
+      return {
+        error: `workBranch already exists: ${workBranch}`,
+        hint: 'Choose a new workBranch or delete the stale branch after preserving any needed commits.',
+      };
+    }
   } catch {
-    // for-each-ref 罕见失败（典型 main_repo 不是 git repo —— 但 step 2 已校验过），fallback false 让 step 7 撞 git 错误
+    // rev-parse --verify exits non-zero when the branch does not exist; that is the desired path.
   }
-  if (branchExists) {
+
+  try {
+    await deps.runGit(['check-ref-format', '--branch', workBranch], mainRepo);
+  } catch {
     return {
-      error: `branch already exists: ${branchName}`,
-      hint: `enter_worktree refuses silent reuse of an existing branch. Either manually \`git -C ${mainRepo} branch -D ${branchName}\`, or use a different planId.`,
+      error: `workBranch is not a valid branch name: ${workBranch}`,
+      hint: 'Pass a valid branch name, for example agent-deck/my-task.',
     };
   }
 
-  // 6. base resolution (放在存在性检查后,避免无谓 git rev-parse HEAD 调用)
-  const baseResult = await resolveBaseCommit(input, mainRepo, deps);
-  if (isError(baseResult)) return baseResult;
-  const { baseCommit, baseSource } = baseResult;
+  await deps.mkdir(path.dirname(worktreePath));
 
-  // 7. git worktree add
   try {
-    await deps.runGit(
-      ['worktree', 'add', '-b', branchName, worktreePath, baseCommit],
-      mainRepo,
-    );
+    await deps.runGit(['worktree', 'add', '-b', workBranch, worktreePath, baseCommit], mainRepo);
   } catch (e) {
     return {
       error: `git worktree add failed: ${(e as Error).message}`,
-      hint: `git worktree add -b ${branchName} ${worktreePath} ${baseCommit} (in ${mainRepo}) failed. Common causes: worktreePath parent dir not writable / baseCommit not in repo / branch already exists despite step 5 check (race). Verify with the same command manually.`,
+      hint: `Verify baseBranch "${input.baseBranch}" is available and worktreePath parent is writable: ${path.dirname(worktreePath)}`,
     };
   }
 
-  // 8. setCwdReleaseMarker
-  let markerSet = false;
   try {
     deps.setCwdReleaseMarker(input.callerSessionId, worktreePath);
-    markerSet = true;
   } catch (e) {
-    // P5 Round 1 reviewer-claude MED-1 修法 (comment vs code 对齐):marker 写失败必须 return error
-    // 让 caller 显式处理(silently no-op + ok return 会让 archive_plan 预检 4 态走错路径,更危险)。
-    //
-    // Follow-up #4: marker 写失败 → best-effort 回滚已建 worktree(git worktree remove --force +
-    // branch -D)防 orphan。修前只 return error 留 orphan worktree(marker 没写 → exit_worktree 自动
-    // 反查不到,caller 既看到 error 又留个无主 worktree)。git 操作可逆但代价高,marker 写失败回滚
-    // 更干净。回滚失败(git remove / branch -D throw)→ 收集进 rollback note,error hint 说明需手动清。
-    const markerErrMsg = (e as Error).message;
-    const rollbackNotes: string[] = [];
-    let rolledBack = false;
-    try {
-      await deps.runGit(['worktree', 'remove', '--force', worktreePath], mainRepo);
-      rolledBack = true;
-    } catch (rmErr) {
-      rollbackNotes.push(`git worktree remove --force failed: ${(rmErr as Error).message}`);
-    }
-    // branch -D 仅在 worktree remove 成功后尝试(remove 失败时 branch 还 checked-out,删不掉)
-    if (rolledBack) {
-      try {
-        await deps.runGit(['branch', '-D', branchName], mainRepo);
-      } catch (brErr) {
-        rollbackNotes.push(`git branch -D ${branchName} failed: ${(brErr as Error).message}`);
-      }
-    }
-    const rollbackStatus = rolledBack
-      ? rollbackNotes.length === 0
-        ? `Already rolled back (worktree removed + branch ${branchName} deleted).`
-        : `Worktree removed but branch cleanup had issues: ${rollbackNotes.join('; ')}. Manually run \`git -C ${mainRepo} branch -D ${branchName}\`.`
-      : `Rollback FAILED: ${rollbackNotes.join('; ')}. Manually run \`git -C ${mainRepo} worktree remove --force ${worktreePath}\` + \`git -C ${mainRepo} branch -D ${branchName}\` to clean up the orphan worktree.`;
+    const warnings = await rollbackCreatedWorktree({ deps, mainRepo, worktreePath, workBranch });
     return {
-      error: `worktree created but setCwdReleaseMarker failed: ${markerErrMsg}`,
-      hint: `worktree at ${worktreePath} (branch ${branchName}) was created, but the per-session cwd_release_marker DB write failed (archive_plan preflight 4-state dispatch would misclassify caller as "in worktree but no marker"). ${rollbackStatus} Marker write failure usually indicates SQLite locked / corrupted DB / read-only filesystem — retry enter_worktree after resolving the DB issue.`,
+      error: `setCwdReleaseMarker failed after worktree creation: ${(e as Error).message}`,
+      hint:
+        warnings.length > 0
+          ? `Rollback was incomplete: ${warnings.join('; ')}`
+          : 'Created worktree and branch were rolled back.',
     };
   }
 
-  return { worktreePath, branchName, baseCommit, baseSource, markerSet };
+  return {
+    worktreePath,
+    workBranch,
+    baseBranch: input.baseBranch,
+    baseCommit,
+    baseSource: 'base-branch',
+    markerSet: true,
+  };
 }
 
-// 测试用：暴露 DEFAULT_DEPS 让 single-deps override case 仍 fallback 真实现
-export const _internalDefaultDeps = DEFAULT_DEPS;
 export const _internalIsError = isError;

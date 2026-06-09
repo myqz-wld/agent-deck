@@ -1,22 +1,3 @@
-/**
- * exit_worktree handler 入口（plan codex-handoff-team-alignment-20260518 P1 Step 1.3 /
- * D2 + 不变量 5）。
- *
- * 薄 wrapper：deny external caller + validateExternalCaller + 注入 sessionRepo seam(callerMarker /
- * clearCwdReleaseMarker)+ 调 exitWorktreeImpl + 包 ok/err。业务行为完全在 exit-worktree-impl.ts
- * （git/fs/DB 操作 + DEFAULT_DEPS inject 模式）;impl 不 import sessionRepo 避免触发 electron.app load
- * （让 impl test 走 deps inject 时不撞 electron）。
- *
- * **Deny external caller**（types.ts: EXTERNAL_CALLER_ALLOWED.exit_worktree = false）：
- * 写 git + clearCwdReleaseMarker 是 per-session 状态写,需要真实 callerSessionId;external
- * stdio client 没真 caller sid 无法 clearMarker → 直接 deny。
- *
- * 用途:配合 enter_worktree 给 codex / 跨 adapter caller 提供 claude builtin ExitWorktree 的
- * 等价能力。两种 action:
- * - 'keep': 中途 hand-off 切会话场景,worktree 改动保留,marker 清(防 caller 后续误判仍持有)
- * - 'remove': plan 完成/中止收口场景,worktree + branch 整片删,marker 清
- */
-
 import { sessionRepo } from '@main/store/session-repo';
 import {
   err,
@@ -57,8 +38,6 @@ export const exitWorktreeHandler = withMcpGuard(
     ctx: HandlerContext,
     handlerDeps?: ExitWorktreeHandlerDeps,
   ) => {
-    // 默认 sessionRepo seam 合并 caller 显式 implDeps(caller 显式字段优先 — 与 enter-worktree.ts
-    // 同款思路)。
     const mergedDeps: ExitWorktreeDeps = {
       ...DEFAULT_SESSION_DEPS,
       ...handlerDeps?.implDeps,
@@ -66,9 +45,9 @@ export const exitWorktreeHandler = withMcpGuard(
     const result = await exitWorktreeImpl(
       {
         callerSessionId: ctx.caller.callerSessionId,
-        action: args.action,
         worktreePathOverride: args.worktreePath,
         discardChanges: args.discardChanges,
+        deleteBranch: args.deleteBranch,
       },
       mergedDeps,
     );
@@ -89,7 +68,7 @@ export const exitWorktreeHandler = withMcpGuard(
 
     return ok({
       worktreePath: result.worktreePath,
-      action: result.action,
+      workBranch: result.workBranch,
       branchDeleted: result.branchDeleted,
       worktreeRemoved: result.worktreeRemoved,
       markerCleared: result.markerCleared,

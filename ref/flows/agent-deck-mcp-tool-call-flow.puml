@@ -1,5 +1,6 @@
+' plan: mcp-handoff-worktree-redesign-20260609
 ' description: MCP 服务器典型 tool 调用 sequence — 4 段 (入口 / 入口拦截 / 业务路由 / 收口)
-' last_updated: 2026-05-29
+' last_updated: 2026-06-09
 @startuml agent-deck-mcp-tool-call-flow
 
 title MCP 服务器 — 典型 tool 调用 sequence (4 段)
@@ -30,7 +31,7 @@ end
 
 Guard -> Guard: check 外部调用白名单[tool_name]?
 note right of Guard
-  deny list: spawn / send / shutdown / archive / hand_off / worktree / task write
+  deny list: spawn / send / shutdown / hand_off / worktree / task write
   原因: 写 git + 起 SDK + DB 高风险
 end note
 alt 在 deny list + external caller
@@ -43,7 +44,7 @@ Guard -> Handler: handler(args, ctx, depsOverride?)
 
 Handler -> Handler: 解析 args + 反查 caller cwd / 共享 team (如需)
 
-alt 走 impl (archive_plan / hand_off / 进退 worktree)
+alt 走 impl (hand_off / 进退 worktree)
   Handler -> Impl: implFn(args, mergedDeps)
   Impl -> Store: 调公共助手 + 4 张数据表
   Impl -> IO: 真 fs / git / SDK 调用

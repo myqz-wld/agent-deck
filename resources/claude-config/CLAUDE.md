@@ -30,7 +30,7 @@
 - task 可绑 team 也可不绑 — 绑了 = team 共享（同 team teammate 可见可写），没绑 = 私人（仅 owner 可见可写），类比群聊 vs 私聊。team 之间严格隔离避免 lead 跨 team 时 task 串流
 - **权限**按 teamId 决定：team-bound → caller 必须是该 team active member 才能 read/write；personal → 仅 owner 可见可写（不开放同 team 共享，避免 lead 私人 task 被 teammate 偷看 / 偷改）
 - **personal task 是 first-class**：用户不在任何 team 时仍能用 task（典型场景：lead 起 reviewer pair 不必加 team 也想用 task 跟踪）。不传 `teamId` = personal default
-- `hand_off_session` baton 时按 `teamTaskPolicy` 三态处理 task（详 §handOff 节）
+- `hand_off_session` baton 时自动把 caller 拥有的 task 过继给 successor session,并保留 teamId
 - 原生 `TaskCreate` 只 in-process 当前 SDK session 可见，跨会话 / 跨 teammate 全部丢失，与 universal team backend 协作意图相违背
 
 **How to apply**:
@@ -80,45 +80,38 @@
 
 ### Worktree
 
-Claude 端进入 plan worktree 走两步，避开 `EnterWorktree(name:)` stale base bug：
+需要隔离代码改动时，从明确的本地 base branch 创建 worktree；plan 文件、changelog、review 记录和目录命名由当前项目约定或 skill 决定，不属于 Agent Deck baseline。
 
-```bash
-git -C <main-repo> worktree add -b worktree-<plan-id> <main-repo>/.claude/worktrees/<plan-id>
+Claude 端可用 CLI builtin 管 worktree；需要跨 adapter 对齐或写入 Agent Deck worktree marker 时走 MCP：
+
+```ts
+mcp__agent-deck__enter_worktree({ baseBranch, workBranch?, worktreePath?, worktreeRoot? })
+// return: { worktreePath, workBranch, baseBranch, baseCommit, baseSource: 'base-branch', markerSet }
 ```
 
-随后调用 `EnterWorktree(path: "<main-repo>/.claude/worktrees/<plan-id>")`。禁止用 `EnterWorktree(name: "<plan-id>")` 创建 plan worktree；该路径在本地 HEAD 与 `origin/<default>` 不一致时会基于 stale base。
-
-进 worktree 后，所有代码资产路径都必须指向 `.claude/worktrees/<plan-id>/` 下的绝对路径；plan 文件本身、`~/.claude/` 配置和 worktree 外的独立项目不套这个规则。大批量编辑后双向查 `git status`：worktree 应 dirty，主仓库应 clean。
+进入 worktree 后，代码读写命令显式指向 `worktreePath`。大批量编辑后查 worktree 与主仓库的 `git status`，确认改动落在预期位置。
 
 ### Handoff
 
-会话结束前必须更新 plan 的 checklist、当前进度、下一会话第一步，并用 `ExitWorktree(action: "keep")` 退出 worktree。下一会话第一步必须是完整指令，不能写“继续上次”。
+交接当前会话时，用 `hand_off_session` 启动 successor session；把 plan 路径、`/tmp` 临时上下文文件、当前进度和下一步直接写进 `prompt`。`hand_off_session` 会接管 caller 的 task、active team membership 和 worktree marker；接管成功后关闭 caller，接管失败则返回 error 并保留 caller。并行子任务用 `spawn_session`。
 
-默认 cold-start prompt：
-
-```text
-按 <plan-abs-path> 接力
-```
-
-新会话看到这句话必须：
-
-1. `Bash: cat <plan-abs-path>` 读 plan 全文；跨会话第一次读长期存在且可能被其他会话修改过的文件，禁用 `Read`。
-2. 从 frontmatter 拿 `worktree_path`，用 `EnterWorktree(path: <worktree_path>)` 进入现有 worktree。
-3. 跑 `git log --oneline -3` 确认 HEAD 在 `base_commit` 之后。
-4. 按 plan「下一会话第一步」动手，不重新讨论已记录的设计决策。
-5. 进度、设计决策或不变量变化时先告诉用户确认。
-
-Agent Deck MCP 可用时，`hand_off_session` 可以起新 SDK session 并归档 caller；具体参数与 baton 语义见 §Agent Deck Universal Team Backend。
+长上下文统一走 prompt 约定：先把内容落到 `/tmp/<name>.md`，再在 `prompt` 写明“先读取该文件再继续”。这同样适用于 `spawn_session`，不是 handoff 专属能力。
 
 ### 完成 / 中止
 
-completed plan 优先走 `archive_plan`：先 `ExitWorktree(action: "keep")`，再调 MCP tool 原子归档。手工 fallback 必须按同一事务完成：ff-merge `worktree-<plan-id>` 回 `base_branch`，更新 frontmatter 为 completed，移动 plan 到 `ref/plans/` 并同步 INDEX，关联已有变更记录编号，最后删除 worktree 与 branch。plan 有 `spike-reports/` 时一并归档到 `ref/plans/<plan-id>/spike-reports/`。
+完成或中止工作时，按当前项目约定或 active skill 处理 plan、changelog、review 和归档记录；Agent Deck MCP 不提供 plan 归档 tool。清理 worktree 前先确认改动已合并、提交、迁移或明确放弃。
 
-abandoned plan 不走 `archive_plan`。将 frontmatter 置 `status: abandoned` 并写明理由，`ExitWorktree(action: "keep")` 后强制删除 worktree 与 `worktree-<plan-id>` branch。
+MCP 清理调用：
+
+```ts
+mcp__agent-deck__exit_worktree({ worktreePath?, discardChanges?, deleteBranch? })
+```
+
+默认删除 worktree 目录并保留 work branch；设置 `deleteBranch: true` 前，先确认分支内容已合并、cherry-pick 或明确放弃。`discardChanges: true` 只在用户明确要丢弃未提交改动时使用。
 
 ### 与其他机制的关系
 
-- plan 文件是跨会话设计与进度文档；MCP task store 是单会话 / 跨会话任务可见性通道。完成后的 changelog / review 记录按当前项目约定或现有 `ref/` 格式组织；用户 skill 只能增强自动化，不能作为 Agent Deck baseline 的必要依赖。
+- plan 文件是跨会话设计与进度文档；MCP task store 是单会话 / 跨会话任务可见性通道。完成后的 changelog / review 记录按当前项目约定、现有 `ref/` 格式或 active skill 组织；Agent Deck baseline 不硬编码这些项目资产目录。
 - 复杂 plan 的 worktree 隔离是机械执行边界；架构、选型、breaking change 仍要走合适的设计对齐或 review 流程，结论写回 plan「设计决策」。
 
 ## 提示词资产维护
@@ -147,9 +140,9 @@ grep 工具不可用 / 假阳性 → 降级人工 review，不阻断 commit，co
 
 ## Agent Deck Universal Team Backend
 
-跨 adapter 协作通过 Agent Deck MCP 18 tool（10 个会话/plan/worktree：`mcp__agent-deck__spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `archive_plan` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `shutdown_baton_teammates`；5 个 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`；3 个 issue：`report_issue` / `append_issue_context` / `update_issue_status`）编排会话、管理结构化任务并上报 issue。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
+跨 adapter 协作通过 Agent Deck MCP 16 tool（6 个 session：`spawn_session` / `hand_off_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session`；2 个 worktree：`enter_worktree` / `exit_worktree`；5 个 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`；3 个 issue：`report_issue` / `append_issue_context` / `update_issue_status`）编排会话、管理 worktree、管理结构化任务并上报 issue。teammate 调工具时走自己 SDK 会话的 canUseTool，**lead 不插手 teammate 权限审批**（失败弹给真人走 teammate 自己 session 的 PendingTab）。
 
-速查：`spawn_session` 起 SDK session；`send_message` 统一发消息 / reply；`list_sessions` / `get_session` 只读查会话；`shutdown_session` close lifecycle 不删数据；`archive_plan` 原子归档 plan；`hand_off_session` baton 接力；`enter_worktree` / `exit_worktree` 管 worktree；`shutdown_baton_teammates` 补跑 teammate cleanup。
+速查：`spawn_session` 起并行 SDK session；`hand_off_session` 起 successor session 并接管 caller 资源；`send_message` 统一发消息 / reply；`list_sessions` / `get_session` 只读查会话；`shutdown_session` close lifecycle 不删数据；`enter_worktree` / `exit_worktree` 管 worktree。
 
 ### 三个核心约定（lead 角度）
 
@@ -194,11 +187,10 @@ lead context 重置 / 重启后捡 stranded reviewer：`list_sessions(spawnedByF
 >
 > 对「跨会话救火」的实际影响：
 > - **同 caller session（context 重置 / compaction）**：sessionId 不变 → 成员关系不变 → 直接 `list_sessions(spawnedByFilter)` 捡回来 + `send_message` 即可（team-scoped）。
-> - **真换了 caller session**（应用重启 / 用户手动新开 / hand_off_session 默认不携 team 起新 session）：新 caller 不在原 team 内 → `send_message` 现在**会以 teamless DM 投递成功**（不再 hard reject）。若只是想继续给 reviewer 发 prompt，teamless DM 即可用。但**需要保留 reviewer 跨轮 mental model / 多 team 正确归属**时，必须先回到 team：
+> - **真换了 caller session**（应用重启 / 用户手动新开）：新 caller 不在原 team 内 → `send_message` 现在**会以 teamless DM 投递成功**（不再 hard reject）。若只是想继续给 reviewer 发 prompt，teamless DM 即可用。但**需要保留 reviewer 跨轮 mental model / 多 team 正确归属**时，必须先回到 team：
 >   1. 调 `spawn_session({adapter:'claude-code', teamName:<old-team-name>, ...})` 重起一对 reviewer（旧的走 `shutdown_session` 收尾，避免 ghost）
 >   2. 通过 UI 手动把新 caller 加入旧 team（应用 → Team 面板 → Add Member）
->   3. `hand_off_session` 起新 session 时显式传 `teamName:<old-team-name>` 让新 session 直接落入 team（仅当 plan 接力同 team 场景；baton 单向交接默认场景不加 team）
-> - 需要保留 reviewer 跨轮 mental model → 走选项 2/3；接受重跑 reviewer → 走选项 1；只需单发消息不在意 team 归属 → 直接 teamless DM
+> - 需要保留 reviewer 跨轮 mental model → 走选项 2；接受重跑 reviewer → 走选项 1；只需单发消息不在意 team 归属 → 直接 teamless DM
 
 ### Wire format / regex / DB invariant
 
@@ -215,73 +207,35 @@ reviewer agent 收到的 user message 顶部如果没找到 `[msg <id>][sid <sen
 3. **副作用警告**：reply 不挂 `replyToMessageId` 失去对话链锚点，DB / SessionDetail 看不出 reply 链关系；NO MSG ANCHOR 是**降级体验**，触发后 lead 应优先 shutdown + 重 spawn / 重发带 anchor 的 prompt 而非长期靠这个路径
 4. **list_sessions 反查 lead 也失败**（多对 lead+teammate 同时跑歧义 / API 错）：直接把 finding / codex 输出落本 SDK session 的 assistant output（不调任何 mcp tool），lead 切到本 reviewer 的 SessionDetail UI 仍可看到
 
-### enter_worktree / exit_worktree（MCP 替代方案）
+### enter_worktree / exit_worktree
 
-claude 端首选 CLI builtin `EnterWorktree` / `ExitWorktree` 工具（直接调用建/退 git worktree + 切 cwd + 记录 session 的 cwd）。本应用 MCP 等价 tool 用于以下场景（builtin 不适用时）:
+用 MCP worktree 工具在跨 adapter 场景下创建、标记和清理 git worktree；Claude 端使用 CLI builtin 时也必须遵守同一语义。
 
-- `mcp__agent-deck__enter_worktree({ planId, worktreePath?, baseCommit?, baseBranch?, planFilePath? })`:创建 worktree 目录 + 写 cwd 释放标记；它不是 Claude CLI builtin `EnterWorktree(path:)`，不会替调用方切当前 SDK cwd
-- `mcp__agent-deck__exit_worktree({ action: "keep" | "remove", worktreePath?, discardChanges?: false })`:退出 worktree
+**进入**：`mcp__agent-deck__enter_worktree({ baseBranch, workBranch?, worktreePath?, worktreeRoot? })`
+- `baseBranch` 必传，解析本地 `refs/heads/<baseBranch>` 当前 commit；不接受 SHA / tag / rev 表达式
+- `workBranch` 不传时由 Agent Deck 派生；外部 skill 或项目规范需要固定命名时显式传
+- `worktreePath` / `worktreeRoot` 只控制目录布局；plan 文件路径不参与此工具协议
+- 返回 `{ worktreePath, workBranch, baseBranch, baseCommit, baseSource: 'base-branch', markerSet }`
 
-**何时走 MCP 替代**:
-- 想避开 EnterWorktree CLI v2.1.112 stale base bug（详**本文件** §复杂 plan：Agent Deck baseline 最小协议 §Worktree）— MCP impl 显式用 HEAD 作 base 不撞 origin/<default> 落后陷阱
-- 跨 adapter 测试 / 调试 — MCP 路径主路径(codex 必走 MCP),claude 端走同款 MCP 可对齐行为
-- 需要明确写 cwd 释放标记（archive_plan 4 态预检场景必需）— MCP enter_worktree 自动写 marker，builtin EnterWorktree 不写。**默认 workflow** 仍 builtin EnterWorktree + 手工 `ExitWorktree(action:"keep")` → archive_plan 走 session 记录的 cwd 兜底,无需切 MCP
+**退出**：`mcp__agent-deck__exit_worktree({ worktreePath?, discardChanges?, deleteBranch? })`
+- 默认删除 worktree 目录、清 marker、保留 work branch，保护已提交工作不丢
+- dirty worktree 会拒绝；只有用户明确放弃未提交改动时才传 `discardChanges: true`
+- `deleteBranch: true` 只在分支已合并、已 cherry-pick 或明确放弃后使用
 
-详 codex 端 protocol layer `resources/codex-config/CODEX_AGENTS.md §enter_worktree / exit_worktree` 节(codex 必走 MCP,无 fallback)。
+### hand_off_session
 
-### plan hand-off 自动化：archive_plan
+用 `hand_off_session` 把当前会话交给 successor session；该工具只做 session baton，不读取 plan 文件、不管理项目归档。
 
-plan 完成后一行原子收口，替代 §复杂 plan：Agent Deck baseline 最小协议 §完成 / 中止 的手工序列：ff-merge worktree branch 回 `base_branch` → 改 frontmatter（status=completed + final_commit + completed_at）→ mv plan 到 `<main-repo>/ref/plans/`（有 spike-reports/ 一并归档）→ 同步 INDEX → commit → 删 worktree + branch。**调用前先 `ExitWorktree(action: "keep")`** 把 cwd 切出 worktree（mcp 不能替你调 ExitWorktree）。
+**调用**：`mcp__agent-deck__hand_off_session({ prompt, cwd?, adapter?, permissionMode?, codexSandbox?, claudeCodeSandbox?, extraAllowWrite? })`
 
-**调用**：`mcp__agent-deck__archive_plan({ planId, worktreePath, baseBranch?, planFilePath?, changelogId? })`
-- `baseBranch` 不传默认读 plan frontmatter.base_branch，缺失才 fallback "main"
-- `changelogId` 关联已有变更记录编号（`"122"` 或 `"121,122"`），写进 plan INDEX 链接列；变更记录文件的组织规则不属于 archive_plan
-- `planFilePath` 省略则按 `.claude/plans/` > `ref/plans/` > `~/.claude/plans/` 找；传了则文件名 stem 必须 == planId
+**行为**：
+- `prompt` 必传；把 plan 文件路径、`/tmp` 临时文件路径、当前进度和下一步直接写在 prompt 里
+- `cwd` 不传则继承 caller cwd；路径不存在时拒绝
+- `adapter` 默认 `claude-code`；要接力到 Codex 显式传 `codex-cli`
+- 工具会创建 successor session，转移 caller 的 task、active team membership 和 worktree marker；转移成功后关闭 caller，转移失败返回 error 并保留 caller
+- 要并行派生工作，用 `spawn_session`；不要用 `hand_off_session`
 
-**返回**：`{ archivedPath, commitHash, branchDeleted, worktreeRemoved, plansIndexAction, finalStatus, warnings, spikeReportsArchived, archived, teammatesShutdown }`
-
-**要点**：
-- **预检失败立即返 error 不回滚**（git 不可逆）：plan status ≠ in_progress / worktree dirty / cwd 还在 worktree 内 / detached HEAD。dirty 只卡 plan 相关路径（plan 文件 / INDEX / 归档目标），无关 dirty 文件放行
-- **默认归档 caller + 关掉同 team teammate**（baton 语义）
-- **abandoned plan 不走本 tool**（强制 completed）→ 走 §复杂 plan：Agent Deck baseline 最小协议 §完成 / 中止 手工流程
-- **变更记录内容由当前项目规则生成**（tool 只更新 plan INDEX 链接）
-- 预检失败但你已手工归档 → 用 §escape hatch shutdown_baton_teammates 补关 teammate
-
-### escape hatch: shutdown_baton_teammates
-
-手工归档 plan（绕过 archive_plan tool）后，用它补关同 team 的 reviewer teammate——否则它们衰减成 dormant 但没 closed，白占内存。archive_plan 正常跑时已含这步，不必再调。
-
-**调用**：`mcp__agent-deck__shutdown_baton_teammates({ planId? })`
-**返回**：`{ closed, failed, skipped: null, planId }`
-
-- 只关 teammate，**不**做 git/fs 归档、**不**归档 caller 自己
-- caller 在任何 team 都不是 lead → 返回 error（不是静默成功），按 hint 走 UI Team 面板
-- deny external caller
-
-### plan hand-off 自动化：hand_off_session
-
-起新 SDK session 接力当前工作 + 默认归档 caller（单向 baton）。**两种模式**：传 `planId` = plan-driven（读 frontmatter，要求 status=in_progress + 有 worktree_path，cold-start prompt 自动 = `按 <plan-abs-path> 接力`）；不传 = generic（cold-start prompt = 你传的 `prompt`）。
-
-**调用**：`mcp__agent-deck__hand_off_session({ planId?, phaseLabel?, prompt?, cwd?, adapter?: 'claude-code' | 'codex-cli', teamName?, permissionMode?, planFilePath?, archiveCaller?: true, adoptTeammates?: false, teamTaskPolicy?: 'clear-team' | 'preserve-team' | 'skip' })`
-**返回**：`{ mode, planId, worktreePath, sessionId, cwd, teamId, archived, teammatesShutdown, taskReassignment, ... }`
-
-**要点**：
-- **adapter**（默认 `claude-code`）：省略即起 claude-code session；要起 codex session 显式传 `'codex-cli'`
-- **cwd**：plan-driven 默认 mainRepo（worktree 被 archive_plan 删后仍 valid，新 session 自己 EnterWorktree 进去）；generic 默认 caller cwd。当前 cwd 不对就显式传——别在本 session `cd`（Bash 跨 turn 切 cwd 不持久）
-- **archiveCaller**（默认 true）：单向 baton。传 false 让 caller 留着并行做事（如自己继续看 reviewer reply），可多次起 session
-- **teamName**（默认不加）：纯 baton 不需要；要让新 session 和原 teammate 继续通信才传
-- **adoptTeammates: true**：新 session 接管 caller 的 team 当 lead，原 teammate 继续可达。要求 caller 至少在一个 team 是 lead，且与 teamName 互斥
-- **新 session cold-start 5 步**（plan-driven）：见 §复杂 plan：Agent Deck baseline 最小协议 §Handoff（cat plan → EnterWorktree(path:) → git log 自检 → 按「下一会话第一步」动手）
-- **prompt 太长装不下** → 先落盘 `/tmp/handoff-<id>.md`，prompt 写「先 `Bash: cat <abs-path>` 再按文件推进」
-- **要并行子任务而非交接身份** → 用 `spawn_session` 不是 hand_off_session
-
-**caller 的 task 怎么过继**（`teamTaskPolicy`，仅 archiveCaller=true 时执行）：
-
-| policy | 行为 |
-|---|---|
-| `clear-team`（默认）| task 过继给新 session 并清 teamId 变 personal——新 session 不必加 team 就能读写，最省心 |
-| `preserve-team` | 过继但保留 teamId（配合 adoptTeammates 让新 session 当 lead 后仍能写）。新 session 没进对应 team 则写不了，return 里 `policyWarning` 提示 |
-| `skip` | 直接删 caller 的 team task（plan 收口后丢弃中间 task），personal task 仍过继 |
+**返回**：spawn_session 字段 + `{ initialPrompt, callerClosed, resourceTransfer }`
 
 
 ## Issue 上报（report_issue / append_issue_context / update_issue_status）

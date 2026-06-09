@@ -57,7 +57,7 @@ end note
 
 ' cwd 启发式 fallback
 Rec -> Fs: cwdExists(row.cwd)?
-opt cwd 失效 (worktree 被 archive_plan 删 / 跨设备同步丢)
+opt cwd 失效 (worktree 已被删除 / 跨设备同步丢)
   Rec -> Rec: 启发式找仍存在的祖先目录
   alt 找到 fallback
     Rec -> SMap: emit info '⚠ cwd 失效,自动回退到 <fallback-cwd>'

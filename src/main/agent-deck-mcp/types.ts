@@ -54,55 +54,19 @@ export interface CallerContext {
   transport: AgentDeckMcpTransport;
 }
 
-/**
- * Agent Deck MCP tool 18 个名字常量集中地（10 会话/plan/worktree + 5 task + 3 issue）。
- * 文档（README + skill）+ 防御性 deny 决策（B'5 / B'2.a）共用。
- *
- * plan mcp-bug-and-feature-batch-20260513 Phase 4a Step 4a.1：加 archive_plan tool
- * —— K1 hand-off 自动化 plan 收口（git ff merge / mv plan / commit / worktree remove /
- * branch -D 一次调用代替原 user CLAUDE.md §Step 4 cleanup 5 步 Bash）。
- *
- * plan mcp-bug-and-feature-batch-20260513 Phase 4b Step 4b.1：加 hand_off_session tool
- * （CHANGELOG_99 改名前 `start_next_session`）
- * —— K2 hand-off 自动化「跨会话接力」起新 SDK session（双模式 spawn_session 包装：
- * plan-driven 模式读 plan frontmatter 拿 worktreePath 自动构造 cold-start prompt；
- * generic 模式无需 plan，caller 显式传 prompt + 默认 cwd = caller cwd，让任意会话都能
- * baton 交给一个新 session）。
- *
- * CHANGELOG_100 / plan mcp-tool-simplify-20260514：协议大简化 10 → 7 tool。
- * 删 reply_message + wait_reply + check_reply 三个 tool；caller 改用
- * send_message + replyToMessageId；reply 自动 dispatch 进 lead conversation flow，
- * 无需主动 poll。J fix 拦截删（universal-message-watcher 不再特别拦 reply）。
- *
- * plan codex-handoff-team-alignment-20260518 P1 Step 1.2 / D2 + 不变量 5：
- * 加 enter_worktree + exit_worktree 两个 tool — 7 → 9 tool。给 codex / 跨 adapter caller
- * 提供 claude builtin EnterWorktree / ExitWorktree 的等价能力,让 archive_plan 预检走 4
- * 态分流时认得跨 adapter 路径(详 P1 Step 1.4 archive-plan-impl.ts)。
- *
- * plan task-mcp-merge-into-agent-deck-mcp-20260521：合并 task-manager/ 的 5 个 task tool
- * 进 agent-deck-mcp namespace — 10 → 15 tool（含 task_create/list/get/update/delete）。
- * 让 codex SDK 子进程通过现有 mcp_servers.agent-deck HTTP transport 自动拿到 task tool。
- *
- * plan issue-tracker-mcp-20260529 §Step 3.3.4：加 report_issue + append_issue_context 两个
- * issue tracker write tool。后续 issue-tracker 体验改进 20260531 §需求3 加 update_issue_status
- * （源 / 解决会话自助推进 status）— 共 3 个 issue write tool，15 → 18 tool。**§不变量 1 调整**：
- * agent 仍**不挂** issue_list / issue_get / issue_delete 等 read/admin tool（read/admin 走 UI
- * IPC）；唯一开口是 status 可由「源会话或解决会话」自助改（update_issue_status 授权边界）。
- */
+/** Agent Deck MCP tool names. Public registry exposes 16 tools; archive/teammate cleanup names are retained only as deny-by-default guard keys for old internal handlers. */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
   sendMessage: 'send_message',
   listSessions: 'list_sessions',
   getSession: 'get_session',
   shutdownSession: 'shutdown_session',
+  // Retained guard key, not registered by buildAgentDeckTools.
   archivePlan: 'archive_plan',
   handOffSession: 'hand_off_session',
   enterWorktree: 'enter_worktree',
   exitWorktree: 'exit_worktree',
-  // plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 5.3 / D4 F1c：
-  // escape hatch tool — caller 手工归档 plan 后补跑 baton-cleanup phase 1（仅 teammate
-  // shutdown，不归档 caller）。仅供 archive_plan precheck fail fallback / 历史 dormant 残留
-  // 清理使用。
+  // Retained guard key, not registered by buildAgentDeckTools.
   shutdownBatonTeammates: 'shutdown_baton_teammates',
   // plan task-mcp-merge-into-agent-deck-mcp-20260521：5 个 task tool 合并入 agent-deck namespace
   // （工具名从 mcp__tasks__task_* 切到 mcp__agent-deck__task_*，breaking change）。
@@ -123,21 +87,8 @@ export type AgentDeckToolName =
   (typeof AGENT_DECK_TOOL_NAMES)[keyof typeof AGENT_DECK_TOOL_NAMES];
 
 /**
- * 注册到 in-process MCP / HTTP / stdio 的 tool 是否允许「外部 caller」调用。
- * spawn_session / send_message / shutdown_session / archive_plan / hand_off_session /
- * enter_worktree / exit_worktree / shutdown_baton_teammates 默认 deny external（防 fork bomb /
- * 越权 IPC / 高风险 git+fs 写 / 起 SDK session 的 fork bomb / setMarker 需 per-session 真实
- * callerSessionId / 写 sessionManager.close 需 caller=lead 反查关系）；
- * list_sessions / get_session 是只读 / 观察类，允许 external。
- *
- * **plan task-mcp-merge-into-agent-deck-mcp-20260521 §D6 + R1 F1**：5 个 task tool 严格类型 +
- * 显式赋值（不存在「不加 = allow」语义 — Record 严格类型 + denyExternalIfNotAllowed 把
- * undefined 当 deny）：
- * - task_create / task_update / task_delete / **task_get** deny external（v024 plan §D8 把
- *   task_get 改严格 team-scoped read,与 write 对称 deny external — v023 cross-team 可读 use
- *   case 推翻;详 plan task-team-id-restore-20260525 §D8 + Step C7）
- * - task_list allow external（返空 visible scope 对未在 caller team 的 external client 是合理；
- *   read-only 可见性 scope allow external 不破坏 active member 边界）
+ * External caller allow-list. Unknown or omitted entries are treated as denied by helper code;
+ * retired guard keys remain explicit false so old imports never become callable through external transport.
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,

@@ -1,78 +1,44 @@
-' description: archive_plan tool 模块架构 — 5 大块,4 子模块原子收口(precheck + ff-merge + archive-fs + cleanup)
-' last_updated: 2026-05-29
+' plan: mcp-handoff-worktree-redesign-20260609
+' description: Retired archive_plan public MCP architecture boundary.
+' last_updated: 2026-06-09
+' ARCHIVED: archive_plan is no longer part of the public MCP registry.
 @startuml archive-plan-architecture
 
-title archive_plan — 模块架构 (4 子模块原子收口: precheck + ff-merge + archive-fs + cleanup)
+title archive_plan — retired public MCP architecture
 
-' 节点名用日常术语优先,内部 module 名 / 函数名 / LOC / commit / REVIEW 引用见 INDEX
-
-package "入口" as L1 {
-  [MCP 入口 + 入口拦截\n(deny external)] as Entry
+package "Agent Deck MCP public tools" as MCP {
+  [session tools] as Session
+  [worktree tools] as Worktree
+  [task tools] as Task
+  [issue tools] as Issue
 }
 
-package "tool 实现" as L2 {
-  [archive_plan facade\n(参数解析 + cwd 反查)] as Handler
-  [收口业务层\n(4 子模块原子收口: precheck + ff-merge + archive-fs + cleanup\n+ post-ff-merge manual recovery)] as Impl
-  [预检助手 + INDEX 同步助手] as Helpers
+package "Project / skill layer" as Project {
+  [plan closeout rules] as PlanRules
+  [changelog / review records] as Records
+  [project archive layout] as Layout
 }
 
-package "公共助手" as L3 {
-  [fs/git 公共助手\n(4 个 tool 共享)] as SharedDeps
-  [baton 收尾流程\n(关 teammate + 归档 caller)] as Baton
+package "External boundaries" as External {
+  [git repository] as Git
+  folder "project files" as Files
 }
 
-package "持久层" as L4 {
-  [4 张数据表\n(会话 + 团队)] as Repos
-  [会话管理器 + 事件总线] as SM
-}
+Session --> PlanRules : hand_off_session prompt can point to plan/tmp context
+Worktree --> Git : enter_worktree / exit_worktree primitives
+PlanRules --> Records
+PlanRules --> Layout
+Records --> Files
+Layout --> Files
 
-package "外部边界" as L5 {
-  folder "主仓库 + worktree + ref/plans/\n+ ref/plans/<id>/spike-reports/" as Fs
-  [git CLI 子进程] as Git
-}
-
-' ─── 调用链 ───
-
-Entry --> Handler : 通过白名单后进 facade
-Handler --> Repos : 反查 caller cwd + cwdReleaseMarker
-Handler --> Impl : 进 4 子模块收口
-
-Impl --> Helpers : runPrecheck 4 态笛卡尔 (plan/worktree/cwd/ff-merge)
-Impl --> SharedDeps : 调 fs/git 公共助手
-
-' 4 子模块原子收口 (facade 串联 runPrecheck → runFfMerge → runArchiveFs → runCleanup; 每阶段 error 短路)
-' precheck Step 1-6.5 / ff-merge Step 7-8c / archive-fs Step 9-12.5 / cleanup Step 13-14
-Impl --> Helpers : runPrecheck Step 1-6.5 (8 分支决策 + frontmatter parse + cross-check)
-Impl --> Git : runFfMerge Step 7-8c (checkout base_branch + ff-merge worktree-<plan_id>)
-Impl --> Fs : runArchiveFs Step 9-12.5 (改 plan frontmatter + mv plan + mv spike-reports/ + INDEX smart update + git add+commit)
-Impl --> Repos : runCleanup Step 13 清 cwdReleaseMarker (commit 后提前清)
-Impl --> Git : runCleanup Step 14 worktree remove + branch -D
-
-Impl --> Handler : 返收口结果
-Handler --> Baton : runBatonCleanup
-Baton --> SM : phase 1 关 caller 同 team teammate
-Baton --> Repos : phase 2 归档 caller session
-Baton --> Handler : 返 cleanup 结果
-Handler --> Entry : ok({archivedPath, plansIndexAction, archived, ...})
-
-' ─── 关键不变量 ───
-
-note bottom of Impl
-  关键不变量:
-  - 4 子模块原子收口: precheck → ff-merge → archive-fs → cleanup,每阶段 error 短路
-  - 失败语义双段:
-    · precheck / ff-merge 前失败 → 可 retry (4 entity 全停未变 + sessions 不动)
-    · post-ff-merge 失败 (archive-fs / cleanup) → 进入 manual recovery,**无自动 rollback**
-      (impl-archive-fs.ts:117-124 明文 "Cannot retry archive_plan as a whole",
-       impl-ff-merge.ts:93-108 / impl-cleanup.ts:230-247 走 postFfMergeErr 给手工 cleanup hint)
-  - cleanup Step 13 清 marker 提前到 commit 后 → Step 14 worktree remove/branch -D 失败时 marker 已清,
-    caller 跑别 plan 不撞 stale marker reject
-  失败兜底见 archive-plan-state-machine 图
+note bottom of MCP
+  MCP exposes primitives only.
+  It does not define where a project stores completed plans or records.
 end note
 
-note bottom of SharedDeps
-  fs/git 公共助手 (10 个)被 4 个 tool 共享
-  (archive_plan / hand_off_session / enter_worktree / exit_worktree)
+note bottom of Project
+  A skill such as project-engineering-foundation can orchestrate
+  repository-specific plan/changelog/review policy outside MCP.
 end note
 
 @enduml

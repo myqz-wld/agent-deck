@@ -1051,11 +1051,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const handOffMeta: HandOffMetadata = {
-      mode: 'plan',
-      planId: 'test-plan-id',
-      phaseLabel: 'Phase 2 Step X',
+      mode: 'session',
       fromCallerSid: 'lead-sid',
-      hasAdoptedBlock: true,
     };
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
@@ -1074,11 +1071,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const handOffMeta: HandOffMetadata = {
-      mode: 'generic',
-      planId: null,
-      phaseLabel: null,
+      mode: 'session',
       fromCallerSid: 'lead-sid',
-      hasAdoptedBlock: false,
     };
     const r = await tools.get('spawn_session').handler({
       adapter: 'codex-cli',
@@ -1892,139 +1886,42 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
   });
 });
 
-// ─── plan hand-off-session-adopt-teammates-20260520 Phase 3 hard gate 2 ─────
-//
-// **范围**: 验证 ARCHIVE_PLAN_ARGS_SCHEMA / HAND_OFF_SESSION_ARGS_SCHEMA 双层命名
-// (D2 + N4 + Round 3 MED-2) 的 strict reject 行为 — unknown keys (如已废弃的
-// keep_teammates 字段) 必 throw `unrecognized_keys`。
-//
-// **设计要点**:
-// - SHAPE = ZodRawShape 给 `tool()` 注册 + 三 transport 现有接口 — passthrough,允许 unknown keys
-// - ARGS_SCHEMA = z.object(SHAPE).strict() 给 handler / type / test 用 — strict 模式 reject
-//   unknown keys
-// - 既挡 caller 从外部传旧字段误以为生效,也作为 schema breaking change 守门
-//
-// **守门 case** (3 条 + 1 happy path):
-// 1. ARCHIVE_PLAN_ARGS_SCHEMA reject 旧 keep_teammates 字段(破除式守门)
-// 2. HAND_OFF_SESSION_ARGS_SCHEMA reject 旧 keep_teammates 字段
-// 3. ARCHIVE_PLAN_ARGS_SCHEMA reject 任意 unknown 字段(generic strict 守门)
-// 4. ARCHIVE_PLAN_ARGS_SCHEMA happy path: 已知字段全 accept(回归保护)
-describe('plan hand-off-session-adopt-teammates-20260520 Phase 3: ARGS_SCHEMA strict reject 守门', () => {
-  it('hard gate 2: ARCHIVE_PLAN_ARGS_SCHEMA reject keep_teammates (Phase 3 已删字段)', async () => {
-    const { ARCHIVE_PLAN_ARGS_SCHEMA } = await import('../tools/schemas');
-    const result = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse({
-      planId: 'foo',
-      worktreePath: '/abs/path',
-      keep_teammates: true,
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      // 关键: zod strict 模式 reject unknown keys 时报 'unrecognized_keys' issue code
-      const issues = result.error.issues;
-      const hasUnrecognized = issues.some(
-        (i) => i.code === 'unrecognized_keys' && (i as { keys?: string[] }).keys?.includes('keep_teammates'),
-      );
-      expect(hasUnrecognized).toBe(true);
-    }
-  });
-
-  it('hard gate 2: HAND_OFF_SESSION_ARGS_SCHEMA reject keep_teammates (Phase 3 已删字段)', async () => {
+describe('hand_off_session schema — prompt-only session baton', () => {
+  it('accepts prompt/cwd/adapter and lets prompt carry /tmp context paths', async () => {
     const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
     const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
-      planId: 'foo',
-      adapter: 'claude-code',
-      keep_teammates: true,
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const issues = result.error.issues;
-      const hasUnrecognized = issues.some(
-        (i) => i.code === 'unrecognized_keys' && (i as { keys?: string[] }).keys?.includes('keep_teammates'),
-      );
-      expect(hasUnrecognized).toBe(true);
-    }
-  });
-
-  it('strict generic: ARCHIVE_PLAN_ARGS_SCHEMA reject 任意 unknown 字段', async () => {
-    const { ARCHIVE_PLAN_ARGS_SCHEMA } = await import('../tools/schemas');
-    const result = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse({
-      planId: 'foo',
-      worktreePath: '/abs/path',
-      __random_typo_field__: 'should be rejected',
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const hasUnrecognized = result.error.issues.some(
-        (i) =>
-          i.code === 'unrecognized_keys' &&
-          (i as { keys?: string[] }).keys?.includes('__random_typo_field__'),
-      );
-      expect(hasUnrecognized).toBe(true);
-    }
-  });
-
-  it('happy path 回归: ARCHIVE_PLAN_ARGS_SCHEMA accept 已知字段', async () => {
-    const { ARCHIVE_PLAN_ARGS_SCHEMA } = await import('../tools/schemas');
-    const result = ARCHIVE_PLAN_ARGS_SCHEMA.safeParse({
-      planId: 'foo',
-      worktreePath: '/abs/path',
-      baseBranch: 'main',
-      changelogId: '99',
+      prompt: 'Read /tmp/handoff-123.md, then continue the plan at ref/plans/example.md.',
+      cwd: '/repo',
+      adapter: 'codex-cli',
     });
     expect(result.success).toBe(true);
   });
-});
 
-// ─── plan hand-off-session-adopt-teammates-20260520 Phase 4 N2.c invariant ─
-//
-// **范围**: 验证 HAND_OFF_SESSION_ARGS_SCHEMA.refine() 实现 N2.c 互斥不变量 —
-// args.adoptTeammates: true 与 args.teamName 不可同传(zod refine reject)。
-//
-// **理由**(plan §N2.c + §决策对抗 Round 3 MED-3 修法):
-// - caller 显式 args.teamName 通常表示「spawn 时让新 session 进这个 team(可能不在
-//   caller 自己 team)」,与 adopt(过继 caller 自己 team)语义本来就有冲突
-// - 互斥简化语义 + 消除 silent prompt 数据丢失 bug
-//
-// **守门 case** (3 条):
-// T4.3a HAND_OFF_SESSION_ARGS_SCHEMA reject adoptTeammates: true + teamName 同传
-// T4.3b adoptTeammates: true 单传 (无 teamName) 通过
-// T4.3c teamName 单传 (无 adoptTeammates) 通过(回归保护)
-describe('plan hand-off-session-adopt-teammates-20260520 Phase 4: HAND_OFF_SESSION_ARGS_SCHEMA N2.c 互斥 invariant', () => {
-  it('T4.3a: reject adoptTeammates=true + teamName 同传 (N2.c 互斥)', async () => {
+  it('requires prompt', async () => {
     const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
     const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
-      planId: 'foo',
       adapter: 'claude-code',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects removed plan/adopt/archive/task-policy fields as unknown keys', async () => {
+    const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
+    const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      prompt: 'continue',
+      planId: 'old-plan',
       adoptTeammates: true,
-      teamName: 'some-team',
+      archiveCaller: false,
+      teamTaskPolicy: 'clear-team',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      // refine 失败时 zod 报 'custom' issue code + plan §N2.c 文案 message
-      const hasRefineFail = result.error.issues.some(
-        (i) => i.code === 'custom' && /adoptTeammates 与 teamName 不可同传/.test(i.message),
+      const keys = result.error.issues
+        .filter((i) => i.code === 'unrecognized_keys')
+        .flatMap((i) => (i as { keys?: string[] }).keys ?? []);
+      expect(keys).toEqual(
+        expect.arrayContaining(['planId', 'adoptTeammates', 'archiveCaller', 'teamTaskPolicy']),
       );
-      expect(hasRefineFail).toBe(true);
     }
-  });
-
-  it('T4.3b: accept adoptTeammates=true 单传 (无 teamName — adopt 主路径)', async () => {
-    const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
-    const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
-      planId: 'foo',
-      adapter: 'claude-code',
-      adoptTeammates: true,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('T4.3c: accept teamName 单传 (无 adoptTeammates — 回归保护)', async () => {
-    const { HAND_OFF_SESSION_ARGS_SCHEMA } = await import('../tools/schemas');
-    const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
-      planId: 'foo',
-      adapter: 'claude-code',
-      teamName: 'some-team',
-    });
-    expect(result.success).toBe(true);
   });
 });
