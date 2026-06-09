@@ -1,137 +1,143 @@
-# Agent Deck 应用环境约定
+# Agent Deck Application Environment Conventions
 
-> 随应用打包注入到每个 Codex SDK 会话。
+> Bundled with the app and injected into every Codex SDK session.
 
-## 优先级与加载
+## Priority And Loading
 
-本文件给应用内 Codex SDK 会话补充 Agent Deck runtime 协议；安全约束、用户指令和项目约定按 Codex 优先级继续生效。
+This file adds the Agent Deck runtime protocol to in-app Codex SDK sessions. Codex safety constraints, user instructions, and project conventions keep their native priority.
 
-- Codex SDK 内置安全约束、sandbox、approval policy 和 system rules 始终最高，本文件不替代。
-- developer message 和 per-turn user prompt 优先于本 baseline；冲突时遵守 caller 当下指令。
-- `~/.codex/AGENTS.md` 中 Agent Deck marker 之外的用户自加段与本 baseline 同层级；冲突时按更具体、更近的 caller 指令执行。
-- 本文件通过 Agent Deck installer 同步到 `~/.codex/AGENTS.md` 的 marker 段，Codex thread 启动时随 AGENTS 加载链进入 system prompt。
+- Built-in Codex SDK safety constraints, sandbox, approval policy, and system rules always have the highest priority. This file does not replace them.
+- Developer messages and per-turn user prompts take priority over this baseline; when they conflict, follow the caller's current instruction.
+- User-added content outside the Agent Deck marker in `~/.codex/AGENTS.md` is at the same priority level as this baseline. When they conflict, follow the more specific and closer caller instruction.
+- This file is synced by the Agent Deck installer into the marker block in `~/.codex/AGENTS.md`; when a Codex thread starts, it enters the system prompt through the AGENTS loading chain.
 
-## Runtime 能力
+## Runtime Capabilities
 
-### Teammate 协作
+### Teammate Collaboration
 
-跨 adapter teammate 协作走 Agent Deck MCP tools。`send_message` 会经 universal-message-watcher 注入 receiver conversation；receiver 看到 user-role message 后直接处理，不主动轮询。
+Cross-adapter teammate collaboration uses Agent Deck MCP tools. `send_message` is injected into the receiver conversation by the universal-message-watcher; the receiver handles the user-role message directly and does not poll.
 
-### Codex turn boundary
+### Codex Wait Boundary
 
-Codex SDK 是 turn-based。lead 调 `spawn_session` 或 `send_message` 后，如果下一步需要等待 teammate / reviewer reply，记录 `spawnPromptMessageId` 或 `messageId`，告诉 user 已派出任务，然后结束当前 turn。不要在同一 turn 内用 `sleep`、`get_session` 循环或忙等轮询。
+When the lead calls `spawn_session` or `send_message` and the next useful step depends on a teammate or reviewer reply, record `spawnPromptMessageId` or `messageId`, tell the user that the task was sent, then return control instead of polling. Do not use `sleep`, `get_session` loops, or busy-wait polling in the same request.
 
-下一条 wire-prefixed teammate reply 会作为 user-role message 注入本 thread；届时提取 `[msg <id>][sid <senderSid>]` 并继续处理回复。只有 user 后续询问状态或 skill 给出明确卡住阈值时，才查 `get_session.lastEventAt` 并按 skill 执行 nudge、shutdown 或重 spawn。
+The next wire-prefixed teammate reply is injected as a user-role message into this thread. Extract `[msg <id>][sid <senderSid>]` and continue from that reply. Only query `get_session.lastEventAt` when the user later asks for status or a skill gives an explicit stuck threshold; then follow the skill's nudge, shutdown, or respawn rule.
 
-### Codex mid-turn steering
+### Codex Mid-Turn Steering
 
-Agent Deck 会把用户在 active Codex turn 期间发出的修正作为 mid-turn steering 注入当前 turn。收到 steer 后，立即按最新指令调整当前工作；不要把 steer 当成下一轮排队消息，也不要先完成旧目标再处理。
+Agent Deck injects user corrections sent during an active Codex turn as mid-turn steering into the current turn. When a steer arrives, immediately follow the latest instruction; do not treat it as queued input for the next turn, and do not finish the old goal first.
 
-Steering 只对当前 active 的普通 turn 生效；review / compact turn 不可 steer。没有 active turn 时，消息按普通下一轮 user input 处理。等待 teammate / reviewer reply 仍遵守 Codex turn boundary；steer 不是轮询或等待 teammate 的机制。
+Steering applies only to active ordinary turns. Review and compact turns cannot be steered. When no turn is active, messages are handled as normal next-turn user input. Steering is not a polling or waiting mechanism for teammate or reviewer replies.
 
-### Task 进度
+### Task Progress
 
-多步骤工作、plan、review 或跨会话协作必须用 Agent Deck MCP task tools 跟踪进度。Codex 没有原生 task tool；MCP task tools 不可用时，把进度写进 plan 文件、handoff prompt 或对话历史。
+Multi-step work, plans, reviews, and cross-session collaboration must track progress with Agent Deck MCP task tools. Codex has no native task tool; when MCP task tools are unavailable, write progress into the plan file, handoff prompt, or conversation history.
 
-- 新建 personal task：`mcp__agent-deck__task_create({ subject, description?, status?, priority?, blocks?, blockedBy?, labels? })`。
-- 新建 team-bound task：`mcp__agent-deck__task_create({ subject, teamId, ... })`；caller 必须是该 team 的 active member。
-- 更新状态：`mcp__agent-deck__task_update({ taskId, status })`，状态只用 `pending` / `active` / `completed` / `blocked` / `abandoned`。
-- 列表查询：`mcp__agent-deck__task_list()` 返回 caller 可见 task；`teamIdFilter` 限定某个 team；`teamIdFilter: 'null-personal'` 只看 caller personal task。
-- 单个查询和删除走 `task_get` / `task_delete`，权限按 task 的 `teamId` 判定。
+- Create a personal task: `mcp__agent-deck__task_create({ subject, description?, status?, priority?, blocks?, blockedBy?, labels? })`.
+- Create a team-bound task: `mcp__agent-deck__task_create({ subject, teamId, ... })`; the caller must be an active member of the team.
+- Update status: `mcp__agent-deck__task_update({ taskId, status })`; use only `pending` / `active` / `completed` / `blocked` / `abandoned`.
+- List tasks: `mcp__agent-deck__task_list()` returns tasks visible to the caller; `teamIdFilter` limits to one team; `teamIdFilter: 'null-personal'` lists only the caller's personal tasks.
+- Use `task_get` / `task_delete` for single-task lookup and deletion; permissions are based on the task's `teamId`.
 
-### Review teammate 失败
+### Review Teammate Failure
 
-`simple-review` / `deep-review` 必须保留 Claude + Codex 异构 reviewer pair。若 reviewer-claude 失败，lead 先 `shutdown_session` 关闭失败 session，再重 spawn `adapter: 'claude-code'`、`agentName: 'reviewer-claude'`；不要用第二个 Codex reviewer 替代。
+`simple-review` / `deep-review` must keep a heterogeneous Claude + Codex reviewer pair. If reviewer-claude fails, the lead first calls `shutdown_session` on the failed session, then respawns with `adapter: 'claude-code'` and `agentName: 'reviewer-claude'`. Do not substitute a second Codex reviewer.
 
 ## Plan / Worktree / Handoff
 
-复杂、跨会话、高风险或需要隔离的工作先写 durable plan，再进入 worktree 或 handoff。plan 路径必须是绝对路径，由 caller、项目约定或当前工作流指定；本 baseline 不假设仓库归档目录。
+For complex, cross-session, high-risk, or isolated work, write a durable plan before entering a worktree or handing off. The plan path must be absolute and supplied by the caller, project convention, or current workflow; this baseline does not assume a repository archive directory.
 
-Plan 内容必须让 successor session 不读历史也能继续：
+The plan must let a successor session continue without reading prior chat history:
 
-- 目标和不变量。
-- 已确认的范围、排除项和设计决策。
-- 当前 checklist 和进度。
-- 下一会话第一步。
-- 已知风险、验证要求和未解决问题。
+- Goal and invariants.
+- Confirmed scope, exclusions, and design decisions.
+- Current checklist and progress.
+- First step for the next session.
+- Known risks, validation requirements, and unresolved questions.
 
-Codex 没有 native EnterWorktree / ExitWorktree。需要隔离代码改动时，必须用 Agent Deck MCP 创建、标记和清理 worktree：
+Codex has no native EnterWorktree / ExitWorktree. When code changes need isolation, use Agent Deck MCP to create, mark, and clean up the worktree:
 
 ```ts
 mcp__agent-deck__enter_worktree({ baseBranch, workBranch?, worktreePath?, worktreeRoot? })
 ```
 
-`baseBranch` 必须是本地 branch 名，解析为 `refs/heads/<baseBranch>` 当前 commit；不要传 SHA、tag 或 rev 表达式。MCP 不改变 Codex SDK cwd，进入 worktree 后用绝对路径或 `git -C <worktreePath>`。
+`baseBranch` must be a local branch name that resolves to the current commit of `refs/heads/<baseBranch>`; do not pass a SHA, tag, or rev expression. MCP does not change the Codex SDK cwd. After entering the worktree, use absolute paths or `git -C <worktreePath>`.
 
-清理前确认改动已合并、迁出或明确放弃，再调用：
+Before cleanup, confirm changes were merged, moved out, or explicitly abandoned, then call:
 
 ```ts
 mcp__agent-deck__exit_worktree({ worktreePath?, discardChanges?, deleteBranch? })
 ```
 
-`discardChanges: true` 只在用户明确放弃未提交改动时使用；`deleteBranch: true` 只在分支内容已合并、cherry-pick 或明确放弃后使用。
+Use `discardChanges: true` only when the user explicitly wants to abandon uncommitted changes. Use `deleteBranch: true` only after the branch content has been merged, cherry-picked, or explicitly abandoned.
 
-交接当前会话时，用 `hand_off_session` 启动 successor session。`prompt` 必须写明 plan 路径、临时上下文文件路径、当前进度和下一步；工具会转移 caller 的 task、active team membership 和 worktree marker，成功后关闭 caller。并行子任务用 `spawn_session`。
+To hand off the current session, start a successor with `hand_off_session`. The `prompt` must include the plan path, temporary context file path, current progress, and next step. The tool transfers the caller's tasks, active team memberships, and worktree marker, then closes the caller after a successful transfer. Use `spawn_session` for parallel subtasks.
 
-长上下文先写到 `/tmp/<name>.md`，再在 `spawn_session` 或 `hand_off_session` prompt 中要求 successor 运行 `shell: cat <abs-path>` 读取该文件。
+For long context, first write `/tmp/<name>.md`, then ask the successor in the `spawn_session` or `hand_off_session` prompt to run `shell: cat <abs-path>` and read that file.
 
 ## Agent Deck Universal Team Backend
 
-Agent Deck MCP tools 编排 session、message、worktree、task 和 issue。teammate 调工具时使用自己的 Codex SDK approval policy、sandbox 和 MCP token；lead 不代批权限。
+Agent Deck MCP tools orchestrate sessions, messages, worktrees, tasks, and issues. Teammates call tools under their own Codex SDK approval policy, sandbox, and MCP token; the lead does not approve permissions on their behalf.
 
-Session tools：
+Session tools:
 
-- `spawn_session`：启动并行 SDK session；传 `teamName` 时会创建 shared team 并返回 `spawnPromptMessageId`。
-- `hand_off_session`：启动 successor session 并接管 caller 资源。
-- `send_message`：发送普通消息或带 `replyToMessageId` 的 reply。
-- `list_sessions` / `get_session`：只读查询 session。
-- `shutdown_session`：标记 `closed` 并停止 live query；不删除 events、messages、file changes 或 summaries。
+- `spawn_session`: starts a parallel SDK session; passing `teamName` creates a shared team and returns `spawnPromptMessageId`.
+- `hand_off_session`: starts a successor session and transfers caller resources.
+- `send_message`: sends a normal message or a reply with `replyToMessageId`.
+- `list_sessions` / `get_session`: read-only session queries.
+- `shutdown_session`: marks the session `closed` and stops the live query; it does not delete events, messages, file changes, or summaries.
 
-Worktree tools：`enter_worktree` / `exit_worktree`。Task tools：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`。Issue tools：`report_issue` / `append_issue_context` / `update_issue_status`。
+Worktree tools: `enter_worktree` / `exit_worktree`. Task tools: `task_create` / `task_list` / `task_get` / `task_update` / `task_delete`. Issue tools: `report_issue` / `append_issue_context` / `update_issue_status`.
 
-### Message anchors
+### Message Anchors
 
-`spawn_session` 返回的 `spawnPromptMessageId` 是 teammate 首轮 reply 的链路锚点。teammate first turn 完成后用 `send_message({ replyToMessageId: spawnPromptMessageId, ... })` 回复；reply 自动注入 lead conversation。
+The `spawnPromptMessageId` returned by `spawn_session` is the anchor for the teammate's first reply. After the teammate's first turn completes, it replies with `send_message({ replyToMessageId: spawnPromptMessageId, ... })`; the reply is injected into the lead conversation.
 
-后续轮次用 `send_message` 返回的 `messageId` 作为 reply chain 锚点。receiver 收到的 user message 顶部会带 `[msg <id>][sid <senderSid>]`，reply 时提取这两个值并传回 `replyToMessageId`。
+For later rounds, use the `messageId` returned by `send_message` as the reply-chain anchor. The receiver's user message begins with `[msg <id>][sid <senderSid>]`; extract both values and pass the message id back as `replyToMessageId`.
 
-lead 等 teammate reply 时遵守 Codex turn boundary；发出任务后结束当前 turn，等 wire-prefixed reply 注入后再继续处理。
+When the lead waits for a teammate reply, follow the Codex Wait Boundary: send the task, do not poll, and continue only after the wire-prefixed reply is injected.
 
-### Cross-session rescue
+### Cross-Session Rescue
 
-lead context 重置后，用 `list_sessions({ spawnedByFilter: '<old-lead-session-id>', statusFilter: 'active' })` 找回旧 reviewer，再按 sessionId 发 `send_message`。如果 caller 与 target 不共享 active team 且未传 `teamId`，消息走 teamless DM：仍写入 messages 并注入 receiver conversation，但不进入 team 聚合面板。显式传入不共享的 `teamId` 会被拒绝。
+After a lead context reset, use `list_sessions({ spawnedByFilter: '<old-lead-session-id>', statusFilter: 'active' })` to recover old reviewers, then send by session id. If caller and target share no active team and `teamId` is omitted, the message is delivered as a teamless DM: it is still written to messages and injected into the receiver conversation, but it does not appear in the team aggregate panel. Passing a non-shared `teamId` is rejected.
 
-需要保留 reviewer 跨轮 team 归属时，把新 caller 加回旧 team 或重新 spawn reviewer pair；只需单发补救消息时，teamless DM 可用。
+When reviewer team membership must persist across rounds, add the new caller back to the old team or respawn the reviewer pair. For a one-off rescue message, teamless DM is acceptable.
 
-### Wire fallback
+### Wire Fallback
 
-reviewer agent 收到的 message 如果没有 `[msg <id>][sid <senderSid>]` 双锚点，仍要交付结果，但 reply 顶部必须提示 `⚠ NO MSG ANCHOR`。reviewer 先用 `list_sessions({ statusFilter: 'active' })` 反查 lead 和 shared team；无法唯一定位时，把结果留在当前 reviewer session 的 assistant output，lead 可在 SessionDetail 查看。
+If a reviewer agent receives a message without both `[msg <id>][sid <senderSid>]` anchors, it must still deliver results, but the reply must start with:
 
-`messageId` 是 UUID；`senderSessionId` 是 SDK / CLI session id。解析 wire prefix 时只假设 lowercase hex + hyphen，不要收紧为 version-specific UUID regex。
+```text
+⚠ NO MSG ANCHOR
+```
 
-### Dormant sessions
+The reviewer first uses `list_sessions({ statusFilter: 'active' })` to find the lead and shared team. If it cannot identify a unique lead, it leaves the result in the current reviewer session's assistant output so the lead can read it in SessionDetail.
 
-`dormant` 只停止 live query 和释放内存状态，不删除 Codex thread jsonl。下一次 `send_message` 会通过 Codex app-server `thread/resume` 复原对话历史。若 jsonl 缺失并触发 `⚠ FRESH SESSION`，关闭该 teammate 并重 spawn；不要继续依赖 fresh session 的旧上下文。
+`messageId` is a UUID; `senderSessionId` is an SDK / CLI session id. When parsing the wire prefix, assume only lowercase hex plus hyphens and do not tighten the regex to a version-specific UUID format.
 
-## Codex app-server defaults
+### Dormant Sessions
 
-Codex teammate spawn 使用应用层默认 app-server thread options；reviewer-codex 依赖这些默认值运行：
+`dormant` only stops the live query and releases in-memory state; it does not delete the Codex thread jsonl. The next `send_message` restores conversation history through Codex app-server `thread/resume`. If the jsonl is missing and triggers `⚠ FRESH SESSION`, close that teammate and respawn; do not rely on the fresh session's old context.
 
-- `sandboxMode: 'workspace-write'`。
-- `approvalPolicy: 'never'`，避免 SDK 会话等待不可见审批。
-- `networkAccessEnabled: true`，供 reviewer-codex 调 OpenAI API。
-- `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']`，供 reviewer 读取必要上下文和临时文件。
+## Codex App-Server Defaults
 
-MCP `spawn_session` 只暴露 `codexSandbox` 等白名单字段；不能覆盖任意 `additionalDirectories` 或 `networkAccessEnabled`。需要读取默认范围外文件时，把文件复制到 worktree、repo cwd、`~/.claude`、`~/.codex` 或 `/tmp` 后再传 scope。
+Codex teammate spawn uses the app-level default app-server thread options; reviewer-codex depends on these defaults:
 
-Agent Deck 为每个 Codex app-server session 注入 `AGENT_DECK_MCP_TOKEN`。Codex MCP client 用该 token 连接 streamable HTTP MCP server；server 反查 caller session 后自动填入 tool handler。外部全局 token 只允许只读能力；session、worktree、task 和 issue 写工具会被拒绝。
+- `sandboxMode: 'workspace-write'`.
+- `approvalPolicy: 'never'`, so SDK sessions do not wait for invisible approvals.
+- `networkAccessEnabled: true`, so reviewer-codex can call the OpenAI API.
+- `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']`, so reviewers can read required context and temporary files.
 
-## Issue 上报
+MCP `spawn_session` exposes only allowlisted fields such as `codexSandbox`; it cannot override arbitrary `additionalDirectories` or `networkAccessEnabled`. When a file outside the default readable scope is needed, copy it into the worktree, repo cwd, `~/.claude`, `~/.codex`, or `/tmp` before passing the scope.
 
-执行中发现应该记录、但不属于当前交付范围的问题，用 Agent Deck issue tools 上报；不要把当前任务应交付的内容改写成 issue。
+Agent Deck injects `AGENT_DECK_MCP_TOKEN` into every Codex app-server session. The Codex MCP client uses that token to connect to the streamable HTTP MCP server; the server resolves the caller session and fills it into tool handlers automatically. External global tokens allow only read-only capability; session, worktree, task, and issue write tools are rejected.
 
-- `report_issue`：记录 follow-up 或 Agent Deck app bug。
-- `append_issue_context`：给本会话刚上报且未 resolved 的 issue 补上下文。
-- `update_issue_status`：自己修好后标 `resolved`，或需要重开时标 `open` / `in-progress`。
+## Issue Reporting
 
-当场能修且在当前 scope 内的问题直接修；一次性 trivial 观察不上报。
+When you find a problem that should be tracked but is outside the current delivery scope, report it with Agent Deck issue tools. Do not turn required work for the current task into an issue.
+
+- `report_issue`: records a follow-up or Agent Deck app bug.
+- `append_issue_context`: appends context to an unresolved issue reported by this session.
+- `update_issue_status`: mark an issue `resolved` after fixing it, or `open` / `in-progress` when reopening.
+
+Fix in-scope problems immediately when they are easy to fix. Do not report one-off trivial observations.
