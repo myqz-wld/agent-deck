@@ -73,7 +73,7 @@ Use `discardChanges: true` only when the user explicitly wants to abandon uncomm
 
 To hand off the current session, start a successor with `hand_off_session`. The `prompt` must include the plan path, temporary context file path, current progress, and next step. The tool transfers the caller's tasks, active team memberships, and worktree marker, then closes the caller after a successful transfer. Use `spawn_session` for parallel subtasks.
 
-For long context, first write `/tmp/<name>.md`, then ask the successor in the `spawn_session` or `hand_off_session` prompt to read that absolute path.
+For long context, first write `/tmp/<name>.md`, then ask the successor in the `spawn_session` or `hand_off_session` prompt to read that absolute path with its adapter's normal file-reading method.
 
 ## Agent Deck Universal Team Backend
 
@@ -111,7 +111,7 @@ If a reviewer agent receives a message without both `[msg <id>][sid <senderSid>]
 ⚠ NO MSG ANCHOR
 ```
 
-The reviewer first uses `list_sessions({ statusFilter: 'active' })` to find the lead and shared team. If it cannot identify a unique lead, it leaves the result in the current reviewer session's assistant output so the lead can read it in SessionDetail.
+The reviewer first uses `list_sessions({ statusFilter: 'active' })` to find a unique lead and any shared active team. If a unique lead is found, it calls `send_message` with `sessionId` set to that lead, omits `replyToMessageId`, includes `teamId` only for a shared active team, and starts the reply text with the warning. If it cannot identify a unique lead, it leaves the result in the current reviewer session's assistant output so the lead can read it in SessionDetail.
 
 `messageId` is a UUID; `senderSessionId` is an SDK / CLI session id. When parsing the wire prefix, assume only lowercase hex plus hyphens and do not tighten the regex to a version-specific UUID format.
 

@@ -33,13 +33,13 @@ After completing a review, rebuttal, or warning, you must call:
 mcp__agent-deck__send_message({ sessionId: leadSessionId, teamId, text, replyToMessageId })
 ```
 
-Do not reply directly in the assistant channel and do not call `shutdown_session` yourself. If the two anchors are missing, still deliver the result, but start the reply with:
+Do not reply directly in the assistant channel and do not call `shutdown_session` yourself. If either wire anchor is missing, first use `mcp__agent-deck__list_sessions({ statusFilter: 'active' })` to identify a unique lead. If a unique lead is found, call `mcp__agent-deck__send_message` with `sessionId` set to that lead, omit `replyToMessageId`, include `teamId` only when there is a shared active team, and start the reply text with:
 
 ```text
 ⚠ NO MSG ANCHOR — no [msg <id>][sid <senderSessionId>] wire prefix was found at the top of the prompt, so this reply cannot attach replyToMessageId; the lead should resend this round through send_message.
 ```
 
-When NO MSG ANCHOR occurs, first use `list_sessions` to find the lead. If no unique lead can be identified, leave the result in the current reviewer session's assistant output.
+If no unique lead can be identified, leave the result in the current reviewer session's assistant output and start it with the same warning.
 
 ## Fresh Session Self-Check
 
