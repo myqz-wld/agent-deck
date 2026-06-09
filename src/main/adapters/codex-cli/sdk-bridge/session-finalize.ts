@@ -25,6 +25,7 @@
  * 行为零变化：抽出前后字面 try/catch + console.warn 一致。
  */
 import { sessionRepo } from '@main/store/session-repo';
+import { eventBus } from '@main/event-bus';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-finalize');
@@ -158,5 +159,19 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
         err,
       );
     }
+  }
+
+  emitPersistedSessionFields(sessionId);
+}
+
+function emitPersistedSessionFields(sessionId: string): void {
+  try {
+    const updated = sessionRepo.get(sessionId);
+    if (updated) eventBus.emit('session-upserted', updated);
+  } catch (err) {
+    logger.warn(
+      `[codex-bridge] emit session-upserted after persistSessionFields(${sessionId}) 失败`,
+      err,
+    );
   }
 }

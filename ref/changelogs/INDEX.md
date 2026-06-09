@@ -242,3 +242,4 @@
 | [CHANGELOG_235.md](CHANGELOG_235.md) | 升级 Claude/Codex SDK 与随包 native binary：Claude Agent SDK 0.3.169、Anthropic SDK 0.102.0、Codex SDK/native 0.138.0 |
 | [CHANGELOG_236.md](CHANGELOG_236.md) | Codex live path 迁到 app-server JSON-RPC，新增 active turn mid-turn steering + IPC/UI/prompt/PlantUML |
 | [CHANGELOG_237.md](CHANGELOG_237.md) | Codex mid-turn steering 收敛到 sendMessage 路由和主输入框 |
+| [CHANGELOG_238.md](CHANGELOG_238.md) | Codex 新建会话写入 `codex_sandbox` 后补发 `session-upserted`，修复显式选「完全开放」后详情页仍显示「工作目录可写」 |
