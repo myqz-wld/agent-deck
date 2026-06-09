@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
+import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import log from '@main/utils/logger';
 import { omitUndefined } from '@main/utils/optional-fields';
 
@@ -188,7 +189,20 @@ export const handOffSessionHandler = withMcpGuard(
 
     let callerClosed: HandOffSessionResult['callerClosed'] = 'ok';
     try {
-      const closeFn = handlerDeps?.closeSession ?? ((sid: string) => sessionManager.close(sid));
+      const closeFn =
+        handlerDeps?.closeSession ??
+        ((sid: string) => {
+          // Mark the session closed WITHOUT aborting the active SDK turn.
+          // sessionManager.close() calls adapter.closeSession() → query.interrupt(), which kills
+          // the current turn before the MCP tool result is delivered back to Claude. Instead:
+          // - markClosed: sets lifecycle=closed + applies side effects (leave teams, clear marker)
+          // - markRecentlyDeleted: prevents the natural stream-end from reviving the session to dormant
+          // - mcpSessionTokenMap.release: cleans up the token map entry (no-op for Claude sessions)
+          sessionManager.markClosed(sid);
+          sessionManager.markRecentlyDeleted(sid);
+          mcpSessionTokenMap.release(sid);
+          return Promise.resolve();
+        });
       await closeFn(callerSessionId);
       logger.info(
         `[mcp hand_off_session] caller closed caller=${callerSessionId} successor=${newSessionId}`,
