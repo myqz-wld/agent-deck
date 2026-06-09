@@ -83,7 +83,7 @@ Worktree tools：`enter_worktree` / `exit_worktree`。Task tools：`task_create`
 
 后续轮次用 `send_message` 返回的 `messageId` 作为 reply chain 锚点。receiver 收到的 user message 顶部会带 `[msg <id>][sid <senderSid>]`，reply 时提取这两个值并传回 `replyToMessageId`。
 
-lead 等 teammate reply 时不需要主动 poll；看到 wire-prefixed user-role message 即继续裁决。
+lead 等 teammate reply 时不需要主动 poll；看到 wire-prefixed user-role message 即继续处理。
 
 ### Cross-session rescue
 

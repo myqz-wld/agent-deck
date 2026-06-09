@@ -126,7 +126,7 @@ describe('handOffSessionHandler', () => {
     expect(data.resourceTransfer.worktreeMarker).toEqual({ status: 'skipped', marker: null });
   });
 
-  it('does not close the caller when mandatory resource transfer fails', async () => {
+  it('closes the successor but not the caller when mandatory resource transfer fails', async () => {
     vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
     const spawnSession = vi.fn(async (): Promise<HandlerResult> => ({
       content: [
@@ -175,7 +175,76 @@ describe('handOffSessionHandler', () => {
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain('caller was not closed');
     expect(result.content[0]?.text).toContain('successor-sid');
-    expect(closeSession).not.toHaveBeenCalled();
+    expect(closeSession).toHaveBeenCalledTimes(1);
+    expect(closeSession).toHaveBeenCalledWith('successor-sid');
+    expect(closeSession).not.toHaveBeenCalledWith('caller-sid');
+
+    const data = parseResult(result);
+    expect(data.successorSessionId).toBe('successor-sid');
+    expect(data.successorClosed).toBe('ok');
+    expect(data.resourceTransfer.teams.failed).toEqual([
+      { teamId: 'team-A', role: 'lead', reason: 'swap failed' },
+    ]);
+  });
+
+  it('reports successor cleanup failure when transfer failure cleanup cannot close the spawned session', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+    const spawnSession = vi.fn(async (): Promise<HandlerResult> => ({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            sessionId: 'successor-sid',
+            adapter: 'claude-code',
+            cwd: '/repo',
+            teamId: null,
+            teamName: null,
+            agentName: null,
+            displayName: null,
+            spawnDepth: 0,
+            sentAt: 123,
+            spawnPromptMessageId: null,
+          }),
+        },
+      ],
+    }));
+    const closeSession = vi.fn(async (_sid: string) => {
+      throw new Error('close failed');
+    });
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue', adapter: 'claude-code' },
+      ctx(),
+      {
+        spawnSession,
+        closeSession,
+        cwdExists: () => true,
+        transferResources: () => ({
+          tasks: { status: 'failed', count: 0, error: 'task db failed' },
+          teams: {
+            status: 'failed',
+            transferred: [],
+            failed: [
+              {
+                teamId: '*',
+                role: 'teammate',
+                reason: 'skipped team transfer because task transfer failed',
+              },
+            ],
+          },
+          worktreeMarker: { status: 'skipped', marker: null },
+        }),
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(closeSession).toHaveBeenCalledTimes(1);
+    expect(closeSession).toHaveBeenCalledWith('successor-sid');
+    expect(closeSession).not.toHaveBeenCalledWith('caller-sid');
+
+    const data = parseResult(result);
+    expect(data.successorSessionId).toBe('successor-sid');
+    expect(data.successorClosed).toBe('failed');
   });
 
   it('rejects missing cwd before spawning', async () => {

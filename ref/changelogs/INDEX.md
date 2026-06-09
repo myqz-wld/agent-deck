@@ -238,3 +238,4 @@
 | [CHANGELOG_231.md](CHANGELOG_231.md) | Codex 恢复 / 冷重启不再把 `codex-default` 统计占位传给 SDK，修复 ChatGPT 账号不支持该模型名的流级错误。 |
 | [CHANGELOG_232.md](CHANGELOG_232.md) | 项目组织清理：补 `dist/` ignore，清空 `.claude/` 残留 |
 | [CHANGELOG_233.md](CHANGELOG_233.md) | MCP handoff/worktree 改为 plan-free primitives，移除公开 archive/cleanup tools |
+| [CHANGELOG_234.md](CHANGELOG_234.md) | `hand_off_session` 资源转移失败时关闭已 spawn successor，补主路径诊断日志 |
