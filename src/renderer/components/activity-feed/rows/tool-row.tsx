@@ -5,7 +5,7 @@ import { ImageThumb } from '@renderer/components/ImageThumb';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { toolInputToDiff } from '@renderer/components/pending-rows';
 import { describeToolInput } from '../describe';
-import { formatToolResult, parseImageReadResult } from '../format';
+import { formatDisplayText, formatToolResult, parseImageReadResult } from '../format';
 import { toolIcon } from '../tool-icons';
 
 /**
@@ -20,7 +20,7 @@ export function ToolStartRow({
   sessionId: string;
 }): JSX.Element {
   const p = (event.payload ?? {}) as Record<string, unknown>;
-  const tool = (p.toolName as string) ?? '工具';
+  const tool = formatDisplayText(p.toolName) || '工具';
   const detail = describeToolInput(tool, p.toolInput);
   const diff = toolInputToDiff(tool, p.toolInput);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
@@ -159,7 +159,7 @@ export function ToolEndRow({
   const p = (event.payload ?? {}) as Record<string, unknown>;
   const startPayload = (startEvent?.payload ?? {}) as Record<string, unknown>;
   const tool =
-    (p.toolName as string) ?? (startPayload.toolName as string) ?? '工具';
+    formatDisplayText(p.toolName) || formatDisplayText(startPayload.toolName) || '工具';
   const result = p.toolResult ?? p.toolResponse;
   const [open, setOpen] = useState(false);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
@@ -183,8 +183,8 @@ export function ToolEndRow({
   // 借 start 事件的 toolInput 拼 detail —— 让「✨ Skill 完成」补回「· agent-deck:deep-code-review」。
   // imageRead 自己带 [provider · model] 后缀就不再叠 detail，避免一行三段信息太挤。
   const detail = useMemo(
-    () => (imageRead ? null : describeToolInput(tool, startPayload.toolInput)),
-    [tool, startPayload.toolInput, imageRead],
+    () => (imageRead ? null : describeToolInput(tool, startPayload.toolInput ?? p.toolInput)),
+    [tool, startPayload.toolInput, p.toolInput, imageRead],
   );
 
   // 失败：红色边框 + 浅红背景，与 status-error 色对齐（与 SessionDetail 错误消息同色）

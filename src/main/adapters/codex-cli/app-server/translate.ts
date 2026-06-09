@@ -1,14 +1,17 @@
 import type { CodexAppServerNotification } from './client';
+import { APPEND_AGGREGATED_OUTPUT } from '@shared/agent-event-merge';
 import {
   classifyStreamErrorEvent,
   extractRetryProgress,
-  type EmitFn,
-} from '../translate';
+} from '../stream-error-classifier';
+import type { AgentEventKind } from '@shared/types';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server-translate');
+const GENERIC_SKILL_TOOL_NAMES = new Set(['skill', 'invoke', 'invoke_skill', 'skill.invoke']);
 
 type AnyRecord = Record<string, unknown>;
+type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
 
 export function translateCodexAppServerNotification(
   notification: CodexAppServerNotification,
@@ -141,9 +144,16 @@ function translateItemStarted(item: AnyRecord, emit: EmitFn): void {
       toolUseId: item.id,
     });
   } else if (type === 'dynamicToolCall') {
+    const tool = dynamicToolDisplay(item);
     emit('tool-use-start', {
-      toolName: formatDynamicToolName(item),
-      toolInput: item.arguments,
+      toolName: tool.toolName,
+      toolInput: tool.toolInput,
+      toolUseId: item.id,
+    });
+  } else if (type === 'collabAgentToolCall') {
+    emit('tool-use-start', {
+      toolName: 'Agent',
+      toolInput: collabAgentToolInput(item),
       toolUseId: item.id,
     });
   }
@@ -159,6 +169,7 @@ function translateCommandOutputDelta(params: unknown, emit: EmitFn): void {
     toolName: 'Bash',
     toolUseId: itemId,
     aggregatedOutput: delta,
+    [APPEND_AGGREGATED_OUTPUT]: true,
     status: 'inProgress',
   });
 }
@@ -171,9 +182,8 @@ function translateItemCompleted(item: AnyRecord, emit: EmitFn): void {
     }
 
     case 'reasoning': {
-      const content = stringArray(item.content);
       const summary = stringArray(item.summary);
-      const text = content.length > 0 ? content.join('\n') : summary.join('\n');
+      const text = summary.join('\n');
       if (text) emit('thinking', { text });
       return;
     }
@@ -187,6 +197,7 @@ function translateItemCompleted(item: AnyRecord, emit: EmitFn): void {
       emit('tool-use-end', {
         toolUseId: item.id,
         toolName: 'Bash',
+        ...(typeof item.command === 'string' ? { toolInput: { command: item.command } } : {}),
         toolResult: item.aggregatedOutput ?? '',
         exitCode: item.exitCode ?? null,
         status: item.status,
@@ -231,9 +242,10 @@ function translateItemCompleted(item: AnyRecord, emit: EmitFn): void {
     }
 
     case 'dynamicToolCall': {
+      const tool = dynamicToolDisplay(item);
       emit('tool-use-end', {
         toolUseId: item.id,
-        toolName: formatDynamicToolName(item),
+        toolName: tool.toolName,
         toolResult: item.contentItems,
         status: item.status,
         error: item.success === false ? 'Dynamic tool call failed' : undefined,
@@ -256,14 +268,50 @@ function translateItemCompleted(item: AnyRecord, emit: EmitFn): void {
       return;
     }
 
+    case 'hookPrompt': {
+      const text = itemText(item);
+      emit('message', {
+        text: text ? `🪝 Hook prompt\n\n${text}` : '🪝 Hook prompt',
+        role: 'assistant',
+      });
+      return;
+    }
+
+    case 'contextCompaction': {
+      const text = itemText(item);
+      emit('message', {
+        text: text ? `🧭 上下文已压缩\n\n${text}` : '🧭 上下文已压缩',
+        role: 'assistant',
+      });
+      return;
+    }
+
+    case 'enteredReviewMode': {
+      emit('message', { text: '🔎 已进入 review 模式', role: 'assistant' });
+      return;
+    }
+
+    case 'exitedReviewMode': {
+      emit('message', { text: '🔎 已退出 review 模式', role: 'assistant' });
+      return;
+    }
+
+    case 'collabAgentToolCall': {
+      emit('tool-use-end', {
+        toolUseId: item.id,
+        toolName: 'Agent',
+        toolResult: item.result ?? item.output ?? item.content ?? item.contentItems ?? '',
+        status: item.status,
+        error:
+          itemErrorMessage(item) ??
+          (item.success === false ? 'Collab agent tool call failed' : undefined),
+      });
+      return;
+    }
+
     case 'imageView':
     case 'imageGeneration':
     case 'userMessage':
-    case 'hookPrompt':
-    case 'contextCompaction':
-    case 'enteredReviewMode':
-    case 'exitedReviewMode':
-    case 'collabAgentToolCall':
       return;
 
     default:
@@ -298,4 +346,94 @@ function formatDynamicToolName(item: AnyRecord): string {
   const tool = stringField(item.tool);
   const namespace = typeof item.namespace === 'string' && item.namespace ? item.namespace : null;
   return namespace ? `${namespace}.${tool}` : tool || 'DynamicTool';
+}
+
+function dynamicToolDisplay(item: AnyRecord): { toolName: string; toolInput: unknown } {
+  const skill = dynamicToolSkillName(item);
+  if (skill) {
+    const args = asRecord(item.arguments);
+    const argText =
+      stringField(args?.args) ||
+      stringField(args?.arguments) ||
+      stringField(args?.input) ||
+      stringField(args?.prompt) ||
+      stringifyField(args?.args ?? args?.arguments ?? args?.input ?? args?.prompt);
+    return {
+      toolName: 'Skill',
+      toolInput: argText ? { skill, args: argText } : { skill },
+    };
+  }
+  return {
+    toolName: formatDynamicToolName(item),
+    toolInput: item.arguments,
+  };
+}
+
+function dynamicToolSkillName(item: AnyRecord): string | null {
+  const namespace = stringField(item.namespace).toLowerCase();
+  const tool = stringField(item.tool).toLowerCase();
+  if (
+    namespace !== 'skill' &&
+    namespace !== 'skills' &&
+    tool !== 'skill' &&
+    tool !== 'invoke_skill' &&
+    tool !== 'skill.invoke'
+  ) {
+    return null;
+  }
+  const args = asRecord(item.arguments);
+  const skill =
+    stringField(args?.skill) ||
+    stringField(args?.skillName) ||
+    stringField(args?.name) ||
+    stringField(item.name);
+  if (skill) return skill;
+  const toolName = stringField(item.tool);
+  return toolName && !GENERIC_SKILL_TOOL_NAMES.has(toolName.toLowerCase()) ? toolName : null;
+}
+
+function collabAgentToolInput(item: AnyRecord): Record<string, string> {
+  const prompt =
+    stringField(item.prompt) ||
+    stringField(item.instructions) ||
+    stringField(item.input) ||
+    stringField(item.task);
+  const description =
+    stringField(item.description) || stringField(item.title) || stringField(item.summary);
+  return {
+    subagent_type:
+      stringField(item.subagent_type) ||
+      stringField(item.subagentType) ||
+      stringField(item.agentName) ||
+      stringField(item.agent) ||
+      stringField(item.name) ||
+      'codex-collab-agent',
+    ...(prompt ? { prompt } : {}),
+    ...(description ? { description } : {}),
+  };
+}
+
+function itemText(item: AnyRecord): string {
+  const parts = [
+    stringField(item.text),
+    stringField(item.message),
+    stringField(item.summary),
+    stringField(item.prompt),
+    ...stringArray(item.content),
+  ].filter(Boolean);
+  return parts.join('\n\n').trim();
+}
+
+function itemErrorMessage(item: AnyRecord): string | undefined {
+  const err = asRecord(item.error);
+  return stringField(err?.message) || stringField(item.errorMessage) || undefined;
+}
+
+function stringifyField(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }

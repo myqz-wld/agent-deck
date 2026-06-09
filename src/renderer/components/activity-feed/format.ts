@@ -29,11 +29,37 @@ export function eventKey(e: AgentEvent): string {
     return `fc:${e.ts}:${fp}`;
   }
   if (e.kind === 'message' || e.kind === 'thinking') {
-    const text = typeof p.text === 'string' ? p.text : '';
+    const text = formatDisplayText(p.text);
     const nonce = text.slice(0, 32);
     return `${e.sessionId}:${e.kind}:${e.ts}:${nonce}`;
   }
   return `${e.sessionId}:${e.kind}:${e.ts}`;
+}
+
+/** Message/thinking payload text is persisted as unknown; never hand raw objects to React. */
+export function formatDisplayText(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => formatDisplayTextBlock(item))
+      .filter(Boolean)
+      .join('\n');
+  }
+  return formatDisplayTextBlock(value);
+}
+
+function formatDisplayTextBlock(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value !== 'object') return String(value);
+  const block = value as { text?: unknown; content?: unknown };
+  if (typeof block.text === 'string') return block.text;
+  if (typeof block.content === 'string') return block.content;
+  if (Array.isArray(block.content)) return formatDisplayText(block.content);
+  return stringifyUnknown(value);
 }
 
 /** SDK 工具返回的 toolResult 可能是 string、{type,text}[]，或别的结构。 */
@@ -55,6 +81,14 @@ export function formatToolResult(result: unknown): string {
   }
   if (typeof result === 'object') return JSON.stringify(result, null, 2);
   return String(result);
+}
+
+function stringifyUnknown(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 /**

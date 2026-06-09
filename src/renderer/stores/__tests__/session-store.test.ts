@@ -8,6 +8,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AgentEvent, PermissionRequest, SessionRecord } from '@shared/types';
+import { APPEND_AGGREGATED_OUTPUT } from '@shared/agent-event-merge';
 import { useSessionStore } from '../session-store';
 
 function makePerm(requestId: string): PermissionRequest {
@@ -155,5 +156,103 @@ describe('pushEvent cancel 分支 delete-on-empty（deep-review H2 LOW）', () =
     pushEvent(makeEvent('sid-1', 'waiting-for-user', makePerm('r2')));
     pushEvent(makeEvent('sid-1', 'waiting-for-user', { type: 'permission-cancelled', requestId: 'r1' }));
     expect(useSessionStore.getState().pendingPermissionsBySession.get('sid-1')?.map((r) => r.requestId)).toEqual(['r2']);
+  });
+});
+
+describe('tool-use-start merge — preserve command identity during output deltas', () => {
+  it('pushEvent keeps the original Bash command while appending app-server output deltas', () => {
+    const { pushEvent } = useSessionStore.getState();
+    pushEvent(
+      makeEvent(
+        'sid-1',
+        'tool-use-start',
+        { toolUseId: 'cmd-1', toolName: 'Bash', toolInput: { command: 'rg foo src' } },
+        1,
+      ),
+    );
+    pushEvent(
+      makeEvent(
+        'sid-1',
+        'tool-use-start',
+        {
+          toolUseId: 'cmd-1',
+          toolName: 'Bash',
+          aggregatedOutput: 'src/a.ts\n',
+          [APPEND_AGGREGATED_OUTPUT]: true,
+          status: 'inProgress',
+        },
+        2,
+      ),
+    );
+    pushEvent(
+      makeEvent(
+        'sid-1',
+        'tool-use-start',
+        {
+          toolUseId: 'cmd-1',
+          toolName: 'Bash',
+          aggregatedOutput: 'src/b.ts\n',
+          [APPEND_AGGREGATED_OUTPUT]: true,
+          status: 'inProgress',
+        },
+        3,
+      ),
+    );
+
+    const events = useSessionStore.getState().recentEventsBySession.get('sid-1');
+    expect(events).toHaveLength(1);
+    expect(events?.[0].payload).toEqual({
+      toolUseId: 'cmd-1',
+      toolName: 'Bash',
+      toolInput: { command: 'rg foo src' },
+      aggregatedOutput: 'src/a.ts\nsrc/b.ts\n',
+      status: 'inProgress',
+    });
+  });
+
+  it('setRecentEvents merges duplicate history rows so latest progress still has the original command', () => {
+    useSessionStore.getState().setRecentEvents('sid-1', [
+      makeEvent(
+        'sid-1',
+        'tool-use-start',
+        {
+          toolUseId: 'cmd-1',
+          toolName: 'Bash',
+          aggregatedOutput: 'src/b.ts\n',
+          [APPEND_AGGREGATED_OUTPUT]: true,
+          status: 'inProgress',
+        },
+        3,
+      ),
+      makeEvent(
+        'sid-1',
+        'tool-use-start',
+        {
+          toolUseId: 'cmd-1',
+          toolName: 'Bash',
+          aggregatedOutput: 'src/a.ts\n',
+          [APPEND_AGGREGATED_OUTPUT]: true,
+          status: 'inProgress',
+        },
+        2,
+      ),
+      makeEvent(
+        'sid-1',
+        'tool-use-start',
+        { toolUseId: 'cmd-1', toolName: 'Bash', toolInput: { command: 'rg foo src' } },
+        1,
+      ),
+    ]);
+
+    const events = useSessionStore.getState().recentEventsBySession.get('sid-1');
+    expect(events).toHaveLength(1);
+    expect(events?.[0].ts).toBe(3);
+    expect(events?.[0].payload).toEqual({
+      toolUseId: 'cmd-1',
+      toolName: 'Bash',
+      toolInput: { command: 'rg foo src' },
+      aggregatedOutput: 'src/b.ts\n',
+      status: 'inProgress',
+    });
   });
 });
