@@ -18,7 +18,7 @@
 >
 > **加载范围**：codex SDK 起 thread 时自动加载 `~/.codex/AGENTS.md`(本应用 build-time installer 把本文件内容同步到该路径)。codex 子进程 system prompt 末尾追加本文件内容,与 claude SDK `settingSources: ['user','project','local']` 自动加载 `~/.claude/CLAUDE.md` 是平行机制。
 >
-> **self-contained 范围**:本文件包含 Codex 端 Agent Deck 协议 / plan cold-start / prompt 资产维护约定;弱相关通用方法论不放入应用环境约定。
+> **self-contained 范围**:本文件包含 Codex 端 Agent Deck 协议 / cold-start / tool 协作约定;弱相关通用方法论不放入应用环境约定。
 
 ## 应用环境特有能力（不依赖 user CLAUDE.md）
 
@@ -74,29 +74,14 @@ Claude 侧可用 CLI builtin 或同款 MCP；Codex 侧没有 builtin fallback。
 
 ---
 
-## 提示词资产维护
+## 内置资产维护边界
 
-**改长生命周期 prompt 资产前必走本节**——即 `resources/codex-config/CODEX_AGENTS.md`(本文件)/ `resources/claude-config/CLAUDE.md` / `agent-deck-plugin/agents/reviewer-codex.md` / `agent-deck-plugin/skills/*/SKILL.md`(codex 端) / 注入 codex SDK 的 mcp tool description;维护本仓库时还包括根 `README.md` / `CLAUDE.md` / `AGENTS.md` / `resources/README.md`。**不适用**:src/ 业务代码注释 / 一次性 prompt(spawn 临时拼的 reviewer / cold-start prompt)/ 历史快照(ref/ 下写定不改)。
+维护 Agent Deck 打包 prompt / agent / skill 资产时，保留应用运行必需协议，通用 prompt 优化流程不写进本 baseline。
 
-**核心原则——受众优先**:这些资产是写给「读它的 agent」看的,不是写给维护者看的。每个单元(章节 / 工具描述)第一句先答**做什么 + 何时用**,让没读过代码的 agent 一眼知道何时调;调用契约 / 参数其次;内部不变量(§ref / 闭包机制 / 状态机细节)移到末尾或直接删。issue 工具长期没人调,就是因为描述开头全是 `§不变量` 而不是 trigger。
-
-### 5 条硬约束
-
-1. **去重**:同款规则只在一处写全,其余 cross-ref 不复制;`shell: grep '<关键短语>' <资产>` 命中 ≥ 2 处即合并。**例外**:reviewer-codex.md §核心纪律 / SKILL inline 纪律是有意独立注入 codex SDK 的 self-contained 副本,不抽 SSOT。
-2. **只写当前事实**:禁「兼容|FUTURE|TODO|未来|向后|deprecated|过渡期|后续会加|老版本|旧结构|历史升级|目录建立之前|迁移」这类旧态 / 预测 / 过渡表述;废弃的功能 / 字段直接删,不留 deprecated 注释。不要保留“旧路径仍支持 / 后续迁移 / 目录建立之前”这类兼容逻辑;旧行为若仍影响当前 agent 动作,改写成当前可执行规则,不讲历史。
-3. **可执行 > 描述**:写「做 X / 违反直接拒绝」,不写「建议 / 最好 / 可以 / 应该考虑」;模糊副词(通常 / 一般 / 大概)必须配「但 X 时例外」的具体边界。
-4. **少兜底**:只留**会改变 caller 下一步动作**的失败处理(如「失败走 Y」)。纯防御性实现细节(race / TOCTOU / EXDEV / "仅 warn 不阻塞" / 穷举 error reason)属代码注释,不进 agent 读的描述。
-5. **示例克制**:一条规则一两个最具代表性的示例够了;同款重复示例("如 X / Y / Z" 里 Y/Z 与 X 雷同)删掉。
-
-### 修改前自检(codex 端用 `shell: grep`,命中即按对应约束处理,全过再 commit)
-
-1. **去重**:`shell: grep '<关键短语>' <file>` ≥ 2 → 合并(reviewer / SKILL inline 副本除外)
-2. **当前事实**:`shell: grep -nE '兼容|FUTURE|TODO|未来|向后|deprecated|过渡期|后续会加|老版本|旧结构|历史升级|目录建立之前|迁移' <file>` ≥ 1 → 删(meta 引用 / 行为锚点除外)
-3. **可执行**:`shell: grep -nE '建议|应该考虑|最好|可以(用|走|考虑)|大概率?|通常|一般' <file>` → 改成可执行动作或配具体边界
-4. **首句 trigger + 少兜底**:通读每节 / 每个工具描述首句——是否先答「做什么 + 何时用」?防御性兜底是否塞进了描述?无 trigger 则补,防御细节则删回代码注释
-5. **示例**:`shell: grep -nE '如[:：]|例如|比如' <file>` 命中后看示例数 ≥ 3 → 删雷同的
-
-grep 工具不可用 / 假阳性 → 降级人工 review,不阻断 commit,commit message 注明「跳过自检 §N,理由」。
+- Agent Deck 必要行为必须在 `resources/claude-config/`、`resources/codex-config/`、内置 agents / skills 与 MCP tool descriptions 内自闭环；不要把 MCP、session、wire、worktree、task、issue 协议替换成用户侧 skill 指针。
+- 通用 prompt-asset 审计、inventory、备份、去重与 review-agent 验证属于维护工作流；本 baseline 只记录会改变应用 SDK 会话下一步动作的协议、触发条件、边界和失败处理。
+- 修改 Claude / Codex 对偶资产时成对审计；协议语义必须对齐，adapter 工具差异可以分别写。
+- Reviewer body 与 review SKILL 的 inline discipline 是独立加载所需的 self-contained 副本；不要只抽到本 baseline 里。
 
 ---
 
