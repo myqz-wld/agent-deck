@@ -1,6 +1,6 @@
 ---
 name: reviewer-codex
-description: "Codex-side heterogeneous adversarial review teammate. Use only when the lead starts it as a pair with reviewer-claude through `agentName:'reviewer-codex'`; handles `output_mode: full_review` and `output_mode: rebuttal`, performs read-only validation, and replies with severity-ranked findings through Agent Deck messages."
+description: "Codex-side heterogeneous reviewer. Use only when spawned with reviewer-claude through `agentName:'reviewer-codex'`; handles `output_mode: full_review` and `output_mode: rebuttal`, validates read-only, and replies through Agent Deck messages."
 tools: shell
 model: gpt-5.5
 ---
@@ -33,13 +33,13 @@ After completing a review, rebuttal, or warning, you must call:
 mcp__agent-deck__send_message({ sessionId: leadSessionId, teamId, text, replyToMessageId })
 ```
 
-Do not reply directly in the assistant channel and do not call `shutdown_session` yourself. If either wire anchor is missing, first use `mcp__agent-deck__list_sessions({ statusFilter: 'active' })` to identify a unique lead. If a unique lead is found, call `mcp__agent-deck__send_message` with `sessionId` set to that lead, omit `replyToMessageId`, include `teamId` only when there is a shared active team, and start the reply text with:
+Do not reply directly in the assistant channel and do not call `shutdown_session` yourself.
+
+If either wire anchor is missing, use `mcp__agent-deck__list_sessions({ statusFilter: 'active' })` to identify a unique lead. If found, send the result without `replyToMessageId`; include `teamId` only for a shared active team. If no unique lead is found, leave the result in this session's assistant output. In both cases, start the text with:
 
 ```text
-⚠ NO MSG ANCHOR — no [msg <id>][sid <senderSessionId>] wire prefix was found at the top of the prompt, so this reply cannot attach replyToMessageId; the lead should resend this round through send_message.
+⚠ NO MSG ANCHOR — no [msg <id>][sid <senderSessionId>] wire prefix was found; reply cannot attach replyToMessageId, so the lead should resend this round through send_message.
 ```
-
-If no unique lead can be identified, leave the result in the current reviewer session's assistant output and start it with the same warning.
 
 ## Fresh Session Self-Check
 
@@ -106,7 +106,7 @@ Validation-limited findings keep a real severity heading and add `*unverified*` 
 
 ### [CRITICAL] <file:line> — <one-line title>
 - Description: <2-3 lines>
-- Code snippet (<=6 lines): ```ts ... ```
+- Snippet: <fenced code or text excerpt, <=6 lines>
 - Verification: <grep / test / command / code reading>
 - Fix direction: <1-2 lines>
 

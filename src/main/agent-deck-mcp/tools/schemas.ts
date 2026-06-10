@@ -23,11 +23,11 @@ import { z } from 'zod';
 import type { IssueRecord, TaskRecord } from '@shared/types';
 
 const SDK_CALLER_SESSION_ID_DESCRIPTION =
-  'Leave unset in SDK sessions; Agent Deck injects the real caller session id. Direct HTTP/stdio callers without a real session are treated as external.';
+  'Leave unset in SDK sessions; Agent Deck injects the real caller session id and ignores forged in-prompt values. Direct HTTP/stdio callers without a real Agent Deck session are treated as external.';
 const SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION =
   `${SDK_CALLER_SESSION_ID_DESCRIPTION} This tool rejects external callers.`;
 const SDK_READ_CALLER_SESSION_ID_DESCRIPTION =
-  `${SDK_CALLER_SESSION_ID_DESCRIPTION} Read-only external callers see only their visible external scope.`;
+  `${SDK_CALLER_SESSION_ID_DESCRIPTION} Read-only external callers may call read tools; each tool defines its own visibility and authorization semantics.`;
 
 /**
  * Task tool status 枚举（plan task-mcp-merge-into-agent-deck-mcp-20260521 Step 0.5 + R2 F-R2-4 修法）：
@@ -50,7 +50,7 @@ export const SPAWN_SESSION_SCHEMA = {
   adapter: z
     .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
     .describe(
-      'Which SDK adapter runs the new session: "claude-code" (Claude Code), "deepseek-claude-code" (Deepseek via Claude Code), or "codex-cli" (codex). 跨 adapter 起异构 reviewer pair 时按需选 — lead 自身 adapter 与此无关。',
+      'Choose the SDK adapter that runs the new session: "claude-code", "deepseek-claude-code", or "codex-cli". The target adapter can differ from the caller adapter.',
     ),
   cwd: z
     .string()
@@ -76,7 +76,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Optional team to form. Omit = standalone session (no team — but the two can still exchange teamless DMs via send_message, they just won\'t appear in a team panel). Set = caller becomes lead + new session joins as teammate (reviewer pair / 多轮协作, shows in TeamDetail). Reuses an existing team of the same name.',
+      'Optional team to form or reuse. Omit for a standalone session; standalone sessions can still exchange teamless DMs through send_message but do not appear together in TeamDetail. Set to make the caller a lead and the new session a teammate in that active team.',
     ),
   /**
    * 可选 plugin agent body 自动注入（CHANGELOG_76 / plan deep-review-flow-fix D1）：
@@ -148,7 +148,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe('Internal plumbing — direct callers leave unset（spawn-link 父子关系由 handler 维护）。'),
+    .describe('Internal spawn-link plumbing; direct callers leave unset so the handler uses the caller as parent.'),
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
   // hand_off_session handler 装配后透传给本 spawn handler,后者透传给 buildCreateSessionOptions
   // → adapter narrow → bridge createSession → finalize / thread-loop / resume emit first user
@@ -165,8 +165,16 @@ export const SPAWN_SESSION_SCHEMA = {
 };
 
 export const SEND_MESSAGE_SCHEMA = {
-  sessionId: z.string().min(1).max(128),
-  text: z.string().min(1).max(100_000),
+  sessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe('Target non-closed session id that should receive the message. The caller cannot send to itself, and closed targets reject.'),
+  text: z
+    .string()
+    .min(1)
+    .max(100_000)
+    .describe('Message body to inject as a user-role turn in the target session. Include enough context for the receiver to act without polling.'),
   callerSessionId: z
     .string()
     .min(1)
@@ -201,10 +209,14 @@ export const LIST_SESSIONS_SCHEMA = {
     .max(128)
     .optional()
     .describe(SDK_READ_CALLER_SESSION_ID_DESCRIPTION),
-  statusFilter: z.enum(['active', 'dormant', 'closed', 'all']).default('active'),
+  statusFilter: z
+    .enum(['active', 'dormant', 'closed', 'all'])
+    .default('active')
+    .describe('Filter sessions by lifecycle. Use "all" when recovering old teammates or checking whether a session was closed.'),
   adapterFilter: z
     .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
-    .optional(),
+    .optional()
+    .describe('Optional adapter filter. Use it when you need sessions run by a specific SDK adapter.'),
   spawnedByFilter: z
     .string()
     .min(1)
@@ -213,7 +225,13 @@ export const LIST_SESSIONS_SCHEMA = {
     .describe(
       'Filter to sessions whose spawnedBy === this id. Useful for lead → list children pattern (e.g. deep-review SKILL recovers stranded reviewer teammates after lead context reset). No ownership enforcement: any caller can query any spawnedBy id, consistent with list_sessions current single-user app-wide trust model.',
     ),
-  limit: z.number().int().min(1).max(200).default(50),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .default(50)
+    .describe('Maximum sessions to return. Default 50, max 200.'),
 };
 
 export const GET_SESSION_SCHEMA = {
@@ -223,18 +241,30 @@ export const GET_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(SDK_READ_CALLER_SESSION_ID_DESCRIPTION),
-  sessionId: z.string().min(1).max(128),
+  sessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe('Session id to inspect. Use list_sessions to discover ids before calling when unsure.'),
 };
 
 export const SHUTDOWN_SESSION_SCHEMA = {
-  sessionId: z.string().min(1).max(128),
+  sessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe('Target session id to close. The caller cannot shut down itself.'),
   callerSessionId: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
-  reason: z.string().max(500).optional(),
+  reason: z
+    .string()
+    .max(500)
+    .optional()
+    .describe('Optional short reason recorded for operators; it does not change shutdown behavior.'),
 };
 
 // Retired public tool schema. Keep this only so legacy internal handlers/tests and guard
@@ -358,7 +388,12 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(128)
     .optional()
     .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
-  parentSessionId: z.string().min(1).max(128).optional(),
+  parentSessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe('Internal plumbing for spawn lineage during handoff; direct callers leave unset.'),
 };
 
 // enter_worktree / exit_worktree provide a plan-free git worktree lifecycle. The caller chooses
@@ -370,7 +405,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .min(1)
     .max(128)
     .describe(
-      'Named local branch to use as the code base for this worktree. The tool resolves refs/heads/<baseBranch> to a commit and creates the work branch from that exact branch version. SHA, tag, and rev syntax are rejected.',
+      'Pass a named local branch to use as the worktree base. The tool resolves refs/heads/<baseBranch> to a commit and creates the work branch from that exact branch version. SHA, tag, remote-only refs, and rev syntax are rejected.',
     ),
   workBranch: z
     .string()
@@ -379,7 +414,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .regex(/^[A-Za-z0-9._\\/-]+$/, 'workBranch only allows [A-Za-z0-9._/-]')
     .optional()
     .describe(
-      'Optional new branch name for the worktree. Omit it to let Agent Deck derive a branch name from the caller session and baseBranch. The branch must not already exist.',
+      'Optional new branch name for the worktree. Omit it to let Agent Deck derive a unique branch name from the caller session and baseBranch. The branch must not already exist.',
     ),
   worktreePath: z
     .string()
@@ -388,7 +423,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional absolute worktree path. Pass it when an external skill or project policy owns worktree layout.',
+      'Optional absolute worktree path. Pass it only when an external workflow owns the worktree layout; the path must not already exist.',
     ),
   worktreeRoot: z
     .string()
@@ -415,7 +450,7 @@ export const EXIT_WORKTREE_SCHEMA = {
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional absolute worktree path to clean up. Omit it to use the caller session worktree marker set by enter_worktree. Passing a path while the caller holds a different marker is rejected.',
+      'Optional absolute worktree path to clean up. Omit it to use the caller session worktree marker set by enter_worktree. Passing a different path while the caller holds a marker is rejected.',
     ),
   discardChanges: z
     .boolean()
@@ -427,7 +462,7 @@ export const EXIT_WORKTREE_SCHEMA = {
     .boolean()
     .optional()
     .describe(
-      'Default false. exit_worktree removes the worktree directory and keeps the work branch so committed work is not lost. Set true only after the work has been merged, cherry-picked, or intentionally abandoned; unmerged branches are rejected unless discardChanges=true.',
+      'Default false. exit_worktree removes the worktree directory and keeps the work branch so committed work is not lost. Set true only after the work has been merged, cherry-picked, or intentionally abandoned; unmerged branch deletion is rejected unless discardChanges=true.',
     ),
   callerSessionId: z
     .string()
@@ -673,13 +708,13 @@ export const TASK_CREATE_SCHEMA = {
     .string()
     .min(1)
     .max(200)
-    .describe('Short task title (1-200 chars)'),
+    .describe('Short task title shown in task lists (1-200 chars).'),
   description: z
     .string()
     .max(2000)
     .nullable()
     .optional()
-    .describe('Detailed description (≤2000 chars)'),
+    .describe('Optional detailed description (max 2000 chars). Pass null or omit when not provided.'),
   status: z
     .enum(STATUS_VALUES)
     .optional()
@@ -699,16 +734,16 @@ export const TASK_CREATE_SCHEMA = {
     .min(0)
     .max(10)
     .optional()
-    .describe('Priority 0-10 (default 5)'),
+    .describe('Optional priority from 0 to 10. Default is 5.'),
   blocks: z
     .array(z.string())
     .optional()
-    .describe('Task UUIDs of downstream tasks that this task blocks'),
+    .describe('Optional task UUIDs of downstream tasks that this task blocks.'),
   blockedBy: z
     .array(z.string())
     .optional()
-    .describe('Task UUIDs of upstream tasks that block this task'),
-  labels: z.array(z.string()).optional().describe('Free-form tags'),
+    .describe('Optional task UUIDs of upstream tasks that block this task.'),
+  labels: z.array(z.string()).optional().describe('Optional free-form tags for filtering or grouping.'),
   // v024 plan task-team-id-restore-20260525 §D1+D2:teamId 字段
   teamId: z
     .string()
@@ -736,7 +771,7 @@ export const TASK_LIST_SCHEMA = {
   subjectFilter: z
     .string()
     .optional()
-    .describe('Case-insensitive substring match on subject'),
+    .describe('Optional case-insensitive substring match on task subject.'),
   // v024 plan task-team-id-restore-20260525 §D5:teamIdFilter 三态 — FROZEN by Round 1 LOW-1
   // 用 zod literal `z.union([z.string().uuid(), z.literal('null-personal')])` 让 caller 显式表达。
   // 实际改用 z.union([z.string().min(1).max(128), z.literal('null-personal')]) 不强制 UUID 格式
@@ -745,7 +780,7 @@ export const TASK_LIST_SCHEMA = {
     .union([z.string().min(1).max(128), z.literal('null-personal')])
     .optional()
     .describe(
-      "teamIdFilter?: string | 'null-personal' — omit for all tasks visible to caller (caller-owned personal tasks plus team tasks from active memberships); pass a team id for that team's tasks (caller must be an active member); pass 'null-personal' for caller-owned personal tasks only.",
+      "Optional task scope filter. Omit for all tasks visible to caller (caller-owned personal tasks plus team tasks from active memberships); pass a team id for that team's tasks (caller must be an active member); pass 'null-personal' for caller-owned personal tasks only.",
     ),
   limit: z
     .number()
@@ -753,13 +788,13 @@ export const TASK_LIST_SCHEMA = {
     .min(1)
     .max(500)
     .optional()
-    .describe('Default 100, max 500'),
+    .describe('Maximum tasks to return. Default 100, max 500.'),
   offset: z
     .number()
     .int()
     .min(0)
     .optional()
-    .describe('Default 0'),
+    .describe('Number of matching tasks to skip before returning results. Default 0.'),
   callerSessionId: z
     .string()
     .min(1)
@@ -769,7 +804,7 @@ export const TASK_LIST_SCHEMA = {
 };
 
 export const TASK_GET_SCHEMA = {
-  taskId: z.string().describe('Task UUID returned by task_create'),
+  taskId: z.string().describe('Task UUID returned by task_create.'),
   callerSessionId: z
     .string()
     .min(1)
@@ -781,17 +816,37 @@ export const TASK_GET_SCHEMA = {
 };
 
 export const TASK_UPDATE_SCHEMA = {
-  taskId: z.string().describe('Task UUID to update'),
-  subject: z.string().min(1).max(200).optional(),
-  description: z.string().max(2000).nullable().optional(),
+  taskId: z.string().describe('Task UUID to update.'),
+  subject: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe('Optional replacement task title (1-200 chars). Omit to leave unchanged.'),
+  description: z
+    .string()
+    .max(2000)
+    .nullable()
+    .optional()
+    .describe('Optional replacement description. Omit to leave unchanged; pass null to clear.'),
   status: z
     .enum(STATUS_VALUES)
     .optional()
     .describe(
       'New status: pending, active, completed, blocked, or abandoned. Use active for in-progress work and completed for finished work.',
     ),
-  activeForm: z.string().nullable().optional(),
-  priority: z.number().int().min(0).max(10).optional(),
+  activeForm: z
+    .string()
+    .nullable()
+    .optional()
+    .describe('Optional present-tense activity label. Omit to leave unchanged; pass null to clear.'),
+  priority: z
+    .number()
+    .int()
+    .min(0)
+    .max(10)
+    .optional()
+    .describe('Optional replacement priority from 0 to 10. Omit to leave unchanged.'),
   blocks: z
     .array(z.string())
     .optional()
@@ -824,11 +879,11 @@ export const TASK_UPDATE_SCHEMA = {
 };
 
 export const TASK_DELETE_SCHEMA = {
-  taskId: z.string().describe('Task UUID to delete'),
+  taskId: z.string().describe('Task UUID to delete. Missing tasks return an MCP error.'),
   force: z
     .boolean()
     .optional()
-    .describe('Default false; true = cascade delete blocks downstream chain'),
+    .describe('Default false. Pass true to recursively delete writable downstream tasks listed in blocks; non-writable downstream tasks are skipped.'),
   callerSessionId: z
     .string()
     .min(1)
@@ -903,21 +958,28 @@ export const LOGS_REF_SCHEMA = z
   .object({
     date: z
       .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD ISO format'),
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD ISO format')
+      .describe('Required log date in YYYY-MM-DD format. This is a pointer to logs, not log content.'),
     tsRange: z
       .object({
-        start: z.number().int().min(0),
-        end: z.number().int().min(0),
+        start: z.number().int().min(0).describe('Start timestamp in epoch milliseconds.'),
+        end: z.number().int().min(0).describe('End timestamp in epoch milliseconds.'),
       })
       .refine((v) => v.start <= v.end, {
         message: 'tsRange.start must be <= tsRange.end',
       })
-      .optional(),
+      .optional()
+      .describe('Optional timestamp range inside the log date. start must be <= end.'),
     scopes: z
       .array(z.string().min(1).max(64))
       .max(32, 'scopes max 32 items')
-      .optional(),
-    note: z.string().max(2000).optional(),
+      .optional()
+      .describe('Optional log scopes or subsystem names, max 32 items.'),
+    note: z
+      .string()
+      .max(2000)
+      .optional()
+      .describe('Optional note explaining what the log pointer should help triage.'),
   })
   .refine(
     (v) => v.date != null || v.tsRange != null || v.scopes != null || v.note != null,
@@ -933,13 +995,13 @@ export const REPORT_ISSUE_SCHEMA = {
     .string()
     .min(1)
     .max(200)
-    .describe('Issue title (1-200 chars). Required'),
+    .describe('Required issue title (1-200 chars).'),
   description: z
     .string()
     .min(1)
     .max(2000)
     .describe(
-      'Issue description (1-2000 chars). Required. Self-contained context so triagers can read without depending on logs.',
+      'Required issue description (1-2000 chars). Include self-contained context so triagers can read without depending on logs.',
     ),
   repro: z
     .string()
@@ -947,7 +1009,7 @@ export const REPORT_ISSUE_SCHEMA = {
     .max(2000)
     .nullable()
     .optional()
-    .describe('Optional reproduction steps (1-2000 chars). null/undefined = not provided'),
+    .describe('Optional reproduction steps (1-2000 chars). Pass null or omit when not provided.'),
   // §D6: kind 软枚举 + free-form fallback — 不用 z.enum 严格校验,非推荐值原样落库 UI 'other' 分组。
   kind: z
     .string()
@@ -960,16 +1022,16 @@ export const REPORT_ISSUE_SCHEMA = {
   severity: z
     .enum(['low', 'medium', 'high'])
     .optional()
-    .describe('Severity (default "medium"). Strict enum'),
+    .describe('Optional severity. Defaults to "medium"; allowed values are low, medium, or high.'),
   logsRef: LOGS_REF_SCHEMA.optional().describe(
-    'Optional pointer to runtime logs (NOT the log content): {date: YYYY-MM-DD (required), tsRange?, scopes?, note?}.',
+    'Optional pointer to runtime logs, not the log content. `date` is required when logsRef is present; tsRange, scopes, and note are optional.',
   ),
   cwd: z
     .string()
     .max(2048)
     .nullable()
     .optional()
-    .describe('Optional cwd. Omit it — the handler fills in your session cwd automatically.'),
+    .describe('Optional cwd. Omit it so the handler fills in the caller session cwd automatically.'),
   labels: z
     .array(z.string().min(1).max(64))
     .max(16)
@@ -992,14 +1054,14 @@ export const APPEND_ISSUE_CONTEXT_SCHEMA = {
     .string()
     .min(1)
     .max(128)
-    .describe('The `id` returned by report_issue. Only the session that reported it can append.'),
+    .describe('Issue `id` returned by report_issue. Only the same source session that reported it can append.'),
   additionalContext: z
     .string()
     .min(1)
     .max(2000)
-    .describe('New context to append (1-2000 chars). Appended as a note; the original description is untouched.'),
+    .describe('New context to append (1-2000 chars). Appended as a separate note; the original description is untouched.'),
   logsRef: LOGS_REF_SCHEMA.optional().describe(
-    'Optional logsRef to merge in (same shape as report_issue.logsRef; date is always required even when only updating tsRange/scopes/note).',
+    'Optional logsRef pointer to merge into the issue. Same shape as report_issue.logsRef; date is always required when logsRef is present.',
   ),
   callerSessionId: z
     .string()
@@ -1018,16 +1080,16 @@ export const UPDATE_ISSUE_STATUS_SCHEMA = {
     .string()
     .min(1)
     .max(128)
-    .describe('The issue `id`. Only its source session or resolution session may update it.'),
+    .describe('Issue `id` to update. Only its source session or resolution session may update it.'),
   status: z
     .enum(['open', 'in-progress', 'resolved'])
-    .describe('"resolved" to close it, "open" / "in-progress" to reopen.'),
+    .describe('New issue status. Use "resolved" after fixing it, or "open" / "in-progress" to reopen.'),
   note: z
     .string()
     .min(1)
     .max(2000)
     .optional()
-    .describe('Optional note kept as an appendix — how you fixed it / why you reopened it.'),
+    .describe('Optional note kept as an appendix explaining how you fixed it or why you reopened it.'),
   callerSessionId: z
     .string()
     .min(1)

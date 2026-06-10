@@ -1,6 +1,6 @@
 ---
 name: simple-review
-description: "Lightweight review skill for one-shot heterogeneous adversarial review. Use for single code, plan, prompt-asset, or policy sanity checks; technical decisions; agent validation; overall-change validation; post-edit prompt-asset validation; or Chinese anchors such as 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Spawns reviewer-claude and reviewer-codex once; lead adjudicates findings and blocks merge until CRITICAL/HIGH findings are fixed or disproven."
+description: "Run a one-pass heterogeneous reviewer-claude + reviewer-codex check for code, plans, prompt assets, technical decisions, agent validation, overall-change validation, post-edit prompt-asset validation, or Chinese anchors such as 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Blocks completion until CRITICAL/HIGH findings are fixed or disproven."
 ---
 
 # Simple Review
@@ -35,7 +35,7 @@ The caller must pass typed scope:
 
 ## Prompt Asset Reviews
 
-Use `kind: 'prompt'` as the expected validation pass after material prompt-asset edits. Do not skip it only because reviewer replies arrive in a later turn; dispatch the pair, end the turn, and continue adjudication when replies arrive.
+Use `kind: 'prompt'` as the expected validation pass after material prompt-asset edits. Do not skip it only because reviewer replies arrive in a later turn; dispatch the pair, end the current turn, and continue adjudication when replies arrive.
 
 Reviewers focus on executable instructions, stale or duplicated rules, contradiction, paired-asset drift, preserved safety/tool/validation gates, hidden local assumptions, and whether the changed prompt will cause the next agent action to improve.
 
@@ -70,9 +70,9 @@ Spawn both reviewers in parallel and keep the pair heterogeneous:
 
 Never replace a failed reviewer with a second reviewer from the same adapter family. If one side fails, use the fallback table below.
 
-## Codex Turn Boundary
+## Turn Boundary
 
-Codex SDK is turn-based. After spawning reviewers or sending rebuttal/Round 2 prompts, tell the user what was dispatched and end the current turn. Reviewer replies arrive as later user-role messages; continue adjudication then. Do not use `sleep`, busy loops, or repeated `get_session` polling in the same turn.
+After spawning reviewers or sending rebuttal/Round 2 prompts, tell the user what was dispatched and end the current turn. Reviewer replies arrive as later Agent Deck user-role messages; continue adjudication when they arrive. Do not use `sleep`, busy loops, or repeated `get_session` polling in the same turn.
 
 ## Workflow
 
@@ -80,7 +80,7 @@ Codex SDK is turn-based. After spawning reviewers or sending rebuttal/Round 2 pr
 |---|---|
 | 0 | Normalize `scope`, create sandbox cache for external paths, and build the reviewer prompt from the templates below. |
 | 1 | Spawn reviewer-claude and reviewer-codex without waiting between spawns. Record each `sessionId`, `teamId`, and `spawnPromptMessageId`. |
-| 2 | Tell the user that both reviewers are running and replies will arrive as later user messages; then end the current turn. |
+| 2 | Tell the user that both reviewers are running and replies will arrive through Agent Deck messages; then end the current turn. |
 | 3 | When both reviewer replies arrive, adjudicate every finding with the tri-state rules below. |
 | 4 | For every CRITICAL/HIGH finding, send one rebuttal request to the opposite reviewer using `send_message` and the relevant reply chain anchor; then end the current turn. |
 | 5 | If a real CRITICAL/HIGH is fixed, reuse the same reviewers for one optional Round 2. Send only the fix diff and `skip` summary; then end the current turn. Do not respawn unless a fresh-session or scope mismatch warning requires it. |
@@ -92,7 +92,7 @@ Stop after one fix round unless the result still has CRITICAL/HIGH findings or m
 
 Each finding gets one outcome:
 
-- ✅ **True issue**: both reviewers independently report it, or one reviewer reports it and lead verifies it with shell/test evidence.
+- ✅ **True issue**: both reviewers independently report it, or one reviewer reports it and the lead verifies it with search/read/command/test evidence.
 - ❌ **Rebutted**: the opposite reviewer or lead verification disproves it.
 - ❓ **Partial / unverified**: evidence is incomplete or based on weak text-only reasoning. Downgrade to MEDIUM or lower.
 
@@ -123,12 +123,12 @@ Lead must spot-check reviewer findings. A valid finding includes:
 - `file:line` and a source snippet of at most 6 lines.
 - Verification method, such as grep results, a failing test, command output, or direct code reading.
 - Fix direction in 1-2 lines, not a full patch.
-- Severity from CRITICAL / HIGH / MEDIUM / LOW / INFO / `*unverified*`.
+- Severity from CRITICAL / HIGH / MEDIUM / LOW / INFO; add `*unverified*` only when validation is limited.
 - For complex race, lifecycle, architecture, security, performance, or multi-step plan issues: a concrete user-facing example with the trigger path, state sequence, input, or plan step and the visible failure.
 
 Invalid findings are downgraded or rejected when they lack location, snippet, verification, fix direction, or a concrete example for complex claims.
 
-Weak assertion words such as "可能 / 也许 / 看起来 / 应该 / 大概" are allowed only in `*unverified*` findings.
+Weak assertion words such as "maybe", "might", "probably", "可能 / 也许 / 看起来 / 应该 / 大概" are allowed only in `*unverified*` findings.
 
 ## Prompt Templates
 
@@ -183,7 +183,7 @@ Do not add unrelated findings.
 | reviewer-claude fails | Shutdown that session, respawn reviewer-claude with `adapter: 'claude-code'`, retry at most twice, and keep reviewer-codex. If it still fails, ask the user to wait, proceed with single-reviewer downgraded findings, or abort. Never replace it with a second Codex reviewer. |
 | reviewer reports `⚠ FRESH SESSION` | Shutdown and respawn that reviewer, then rerun Round 1 with full scope. Do not continue Round 2. |
 | reviewer reports `⚠ SCOPE PATH MISMATCH` | Fix the scope path or cache manifest, then shutdown, respawn, and resend the prompt. |
-| reviewer does not reply for 30 minutes | Only after the threshold or a user status request, check `get_session(lastEventAt)`. If recent, tell the user it is still running and end the turn; otherwise ask the user to resolve PendingTab or respawn. |
+| reviewer does not reply for 30 minutes | Only after the threshold or a user status request, check `get_session(lastEventAt)`. If recent, tell the user it is still running and end the turn; otherwise ask the user to resolve pending UI approvals if relevant or respawn. |
 | sandbox cache copy fails | Warn, abort this review, and ask caller to provide readable paths. |
 | MCP send/spawn errors | Follow the MCP tool error. Do not silently downgrade to same-adapter reviewers. |
 
