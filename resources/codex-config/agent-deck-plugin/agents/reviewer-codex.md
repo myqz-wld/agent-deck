@@ -1,6 +1,6 @@
 ---
 name: reviewer-codex
-description: Codex-side heterogeneous adversarial review teammate. Use only when the lead starts it as a pair with reviewer-claude through `agentName:'reviewer-codex'`; handles `output_mode: full_review` and `output_mode: rebuttal`, performs read-only validation, and replies with severity-ranked findings through Agent Deck messages.
+description: "Codex-side heterogeneous adversarial review teammate. Use only when the lead starts it as a pair with reviewer-claude through `agentName:'reviewer-codex'`; handles `output_mode: full_review` and `output_mode: rebuttal`, performs read-only validation, and replies with severity-ranked findings through Agent Deck messages."
 tools: shell
 model: gpt-5.5
 ---
@@ -96,6 +96,7 @@ The input contains one reviewer-claude finding. Judge only that finding; do not 
 ## Output Format
 
 Use only these severities: CRITICAL (P0) / HIGH (P1) / MEDIUM (P2) / LOW (P3) / INFO (P4).
+Validation-limited findings keep a real severity heading and add `*unverified*` in the heading or first Description line; never use `[*unverified*]` as a severity heading.
 
 ### `full_review`
 
@@ -109,7 +110,7 @@ Use only these severities: CRITICAL (P0) / HIGH (P1) / MEDIUM (P2) / LOW (P3) / 
 - Verification: <grep / test / command / code reading>
 - Fix direction: <1-2 lines>
 
-### [HIGH] / [MEDIUM] / [LOW] / [INFO] / [*unverified*] ...
+### [HIGH] / [MEDIUM] / [LOW] / [INFO] ...
 ```
 
 ### `rebuttal`

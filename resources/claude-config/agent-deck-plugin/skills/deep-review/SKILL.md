@@ -54,7 +54,7 @@ Run staging in step 0:
   "createdAt": "<ISO timestamp>",
   "files": [
     {
-      "origAbspath": "/Users/.../ref/plans/foo.md",
+      "origAbspath": "/Users/.../external-inputs/foo.md",
       "cachePath": "<reviewRoot>/.deep-review-cache/<invocationId>/<fileSha8>-foo.md"
     }
   ]
@@ -77,7 +77,7 @@ Every review round must use the same heterogeneous pair:
 
 Spawn both reviewers concurrently in round 1. Reuse the same reviewer sessions in later rounds with `send_message`; do not respawn between rounds unless a failure path requires it.
 
-The lead adapter does not matter. A Claude lead still spawns `reviewer-codex` with `adapter: "codex-cli"`; a Codex lead still spawns `reviewer-claude` with `adapter: "claude-code"`. Reviewers must be independent and must not know the other reviewer exists. The lead adjudicates; reviewers do not judge each other except during explicit rebuttal rounds.
+The lead adapter does not matter. A Claude lead still spawns `reviewer-codex` with `adapter: "codex-cli"`; a Codex lead still spawns `reviewer-claude` with `adapter: "claude-code"`. Reviewers must stay independent, must not contact the other reviewer, and must not read the other reviewer's conclusions except during explicit rebuttal mode. The lead adjudicates; reviewers do not judge each other except during explicit rebuttal rounds.
 
 Never replace a failed reviewer with another reviewer from the same adapter family. Heterogeneity is part of the gate.
 
@@ -98,7 +98,7 @@ Every finding receives one lead outcome:
 
 - `ACCEPTED`: A real issue. CRITICAL/HIGH findings require either independent agreement from both reviewers or one reviewer plus lead-side verification.
 - `REBUTTED`: The finding is disproved by the other reviewer or by lead-side checks. Record the rebuttal evidence.
-- `UNVERIFIED`: The finding may be real but lacks evidence. Downgrade it to MEDIUM or lower.
+- `UNVERIFIED`: Lead outcome for a finding that may be real but lacks evidence. Downgrade severity to MEDIUM or lower.
 
 CRITICAL/HIGH rules:
 
@@ -110,8 +110,8 @@ CRITICAL/HIGH rules:
 Single-reviewer findings:
 
 - CRITICAL/HIGH: run the rebuttal path above.
-- MEDIUM: the lead checks quickly with search/read commands or at most one focused test. Keep the check under about 5 minutes, 5 searches, and 1 test. If still uncertain, mark `UNVERIFIED` and downgrade to LOW/INFO.
-- LOW/INFO: list as `UNVERIFIED` unless the lead can confirm it cheaply.
+- MEDIUM: the lead checks quickly with search/read commands or at most one focused test. Keep the check under about 5 minutes, 5 searches, and 1 test. If still uncertain, assign lead outcome `UNVERIFIED` and downgrade severity to LOW/INFO.
+- LOW/INFO: assign lead outcome `UNVERIFIED` unless the lead can confirm it cheaply.
 
 Severity is based on real impact and trigger likelihood, not reviewer confidence. Lack of evidence lowers severity.
 
@@ -203,13 +203,13 @@ Every reviewer finding must include:
 - Verification method, such as search evidence, a focused test, a command result, or a precise reasoning check.
 - User-facing example for complex findings: name the concrete trigger path, state sequence, input, or plan step and the visible failure.
 - Fix direction in 1-2 lines. Do not ask reviewers to write a full patch.
-- Severity bucket: CRITICAL, HIGH, MEDIUM, LOW, INFO, or UNVERIFIED.
+- Severity bucket: CRITICAL, HIGH, MEDIUM, LOW, or INFO. When validation is limited, keep the severity bucket and add `*unverified*` in the heading or first description line.
 
 Lead spot-checks:
 
-- Missing location, snippet, verification, or fix direction means downgrade to `UNVERIFIED` or `REBUTTED`.
-- Complex findings without a concrete example stay `UNVERIFIED`; if they claim CRITICAL/HIGH, ask the reviewer to add the example before rebuttal.
-- Weak language such as "maybe", "might", "looks like", or "probably" is allowed only in UNVERIFIED findings.
+- Missing location, snippet, verification, or fix direction means assign lead outcome `UNVERIFIED` or `REBUTTED`.
+- Complex findings without a concrete example get lead outcome `UNVERIFIED`; if they claim CRITICAL/HIGH, ask the reviewer to add the example before rebuttal.
+- Weak language such as "maybe", "might", "looks like", or "probably" is allowed only in findings marked `*unverified*`.
 - Pure text reasoning cannot become accepted CRITICAL/HIGH without independent agreement or lead-side verification plus rebuttal.
 
 ## Failure Fallbacks

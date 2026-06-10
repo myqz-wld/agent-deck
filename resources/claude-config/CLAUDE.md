@@ -25,7 +25,7 @@ The next wire-prefixed teammate reply is injected as a user-role message into th
 
 ### Codex Mid-Turn Steering
 
-Agent Deck Codex teammates support mid-turn steering during an active ordinary turn. User corrections to the Codex teammate's current work are injected directly into that Codex turn; the receiving Codex session should immediately follow the latest instruction instead of treating it as queued input for the next turn.
+When Agent Deck injects a user correction into an active ordinary Codex teammate turn, the receiving Codex session must immediately follow the latest instruction instead of treating it as queued input for the next turn.
 
 Steering does not apply to Codex review or compact turns, and it is not a mechanism for waiting on teammate replies. A Claude lead waiting for a Codex reviewer or teammate still follows the Lead Wait Boundary and continues only after seeing the injected wire-prefixed user-role reply.
 
