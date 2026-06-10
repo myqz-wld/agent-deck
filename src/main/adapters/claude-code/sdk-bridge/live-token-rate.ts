@@ -1,6 +1,6 @@
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
-import { normalizeModel } from '@shared/model-normalize';
+import { CLAUDE_DEFAULT_BUCKET, normalizeModel } from '@shared/model-normalize';
 import type { InternalSession } from './types';
 
 const THROTTLE_MS = 250;
@@ -25,9 +25,10 @@ function resolveBucketKey(internal: InternalSession, sessionId: string): string 
   try {
     const model =
       sessionRepo.get(internal.applicationSid)?.model ?? sessionRepo.get(sessionId)?.model ?? null;
+    if (model == null || model.trim() === '') return CLAUDE_DEFAULT_BUCKET;
     return normalizeModel(model).bucketKey;
   } catch {
-    return normalizeModel(null).bucketKey;
+    return CLAUDE_DEFAULT_BUCKET;
   }
 }
 

@@ -6,6 +6,7 @@ vi.mock('@main/store/session-repo', () => ({
 }));
 
 import { eventBus } from '@main/event-bus';
+import { sessionRepo } from '@main/store/session-repo';
 import {
   clearLiveTokenEstimate,
   estimateTokensFromText,
@@ -14,6 +15,7 @@ import {
 import { makeInternalSession } from '../types';
 
 const emitMock = vi.mocked(eventBus.emit);
+const sessionGetMock = vi.mocked(sessionRepo.get);
 
 function streamEvent(event: unknown): { type: 'stream_event'; event: unknown } {
   return { type: 'stream_event', event };
@@ -22,6 +24,8 @@ function streamEvent(event: unknown): { type: 'stream_event'; event: unknown } {
 describe('live-token-rate', () => {
   beforeEach(() => {
     emitMock.mockClear();
+    sessionGetMock.mockReset();
+    sessionGetMock.mockReturnValue({ model: 'claude-opus-4-8' } as ReturnType<typeof sessionRepo.get>);
   });
 
   it('estimateTokensFromText 按 CJK / 非空白 ASCII 粗估 token', () => {
@@ -73,5 +77,23 @@ describe('live-token-rate', () => {
       ts: 1500,
       done: true,
     });
+  });
+
+  it('session 未持久化 model 时归到 claude-default 而不是 unknown', () => {
+    sessionGetMock.mockReturnValue({ model: null } as ReturnType<typeof sessionRepo.get>);
+    const internal = makeInternalSession({ cwd: '/tmp', applicationSid: 'sid-1' });
+
+    handleStreamEventForLiveRate(internal, 'sid-1', streamEvent({ type: 'message_start' }), 1000);
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
+      1300,
+    );
+
+    expect(emitMock).toHaveBeenCalledWith(
+      'token-rate-tick',
+      expect.objectContaining({ bucketKey: 'claude-default' }),
+    );
   });
 });

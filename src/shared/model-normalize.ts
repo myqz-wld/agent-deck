@@ -34,6 +34,11 @@ export interface NormalizedModel {
  * 不到具体值 → 落此占位，UI 显示「Codex (默认模型)」让用户理解统计合并局限。
  */
 export const CODEX_DEFAULT_BUCKET = 'codex-default';
+/**
+ * Claude 未显式指定 model 的占位 bucket（实时 tok/s / 极端 SDK usage 缺 model 兜底值）。
+ * 与 Codex 默认模型占位对齐：避免 Claude-family session.model 为空时 UI 显示通用「未知模型」。
+ */
+export const CLAUDE_DEFAULT_BUCKET = 'claude-default';
 /** 完全无 model 信息的兜底 bucket（理论极端：raw 为空且非 codex-default 占位）。 */
 export const UNKNOWN_BUCKET = 'unknown';
 
@@ -112,6 +117,9 @@ export function normalizeModel(raw: string | null | undefined): NormalizedModel 
   const trimmed = raw.trim();
   if (trimmed === CODEX_DEFAULT_BUCKET) {
     return { bucketKey: CODEX_DEFAULT_BUCKET, displayName: 'Codex (默认模型)' };
+  }
+  if (trimmed === CLAUDE_DEFAULT_BUCKET) {
+    return { bucketKey: CLAUDE_DEFAULT_BUCKET, displayName: 'Claude (默认模型)' };
   }
   const core = stripVariantSuffixes(trimmed);
   const parsed = parseFamilyVersion(core);

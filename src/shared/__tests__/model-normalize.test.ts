@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeModel,
   WINDOW_MS,
+  CLAUDE_DEFAULT_BUCKET,
   CODEX_DEFAULT_BUCKET,
   UNKNOWN_BUCKET,
 } from '../model-normalize';
@@ -70,6 +71,13 @@ describe('normalizeModel', () => {
       expect(normalizeModel(CODEX_DEFAULT_BUCKET)).toEqual({
         bucketKey: CODEX_DEFAULT_BUCKET,
         displayName: 'Codex (默认模型)',
+      });
+    });
+
+    it('claude-default 占位 → 「Claude (默认模型)」', () => {
+      expect(normalizeModel(CLAUDE_DEFAULT_BUCKET)).toEqual({
+        bucketKey: CLAUDE_DEFAULT_BUCKET,
+        displayName: 'Claude (默认模型)',
       });
     });
 
