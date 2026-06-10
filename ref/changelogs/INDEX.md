@@ -246,3 +246,4 @@
 | [CHANGELOG_239.md](CHANGELOG_239.md) | Codex runtime 全量切到 app-server：oneshot 复用 app-server，tok/s 只吃权威 usage delta，删除旧 SDK translator/依赖 |
 | [CHANGELOG_240.md](CHANGELOG_240.md) | 业务日志打印补强：清掉 main 端残留 `console.*`，Issue/Message GC、Issue「起新会话解决」、session JSON 配置解析、event payload 脏数据统一走 scoped logger，并补 issueId/sid/sessionId/retention/limit/catch-up 等排查上下文。 |
 | [CHANGELOG_241.md](CHANGELOG_241.md) | UI 事件描述与展示文案补强：TeamDetail / ActivityFeed / SessionCard 显示工具入参和等待原因，收紧 task/prompt/diff/raw status 等技术词外露。 |
+| [CHANGELOG_242.md](CHANGELOG_242.md) | 升级 Claude/Codex CLI 与 SDK：Codex 0.139.0、Claude Agent SDK 0.3.170、Anthropic SDK 0.104.1。 |
