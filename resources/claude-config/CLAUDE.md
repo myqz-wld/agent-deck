@@ -31,13 +31,12 @@ Steering does not apply to Codex review or compact turns, and it is not a mechan
 
 ### Task Progress
 
-Multi-step work, plans, reviews, and cross-session collaboration must track progress with Agent Deck MCP task tools. Do not maintain a separate Claude Code native task list for the same work.
+Use Agent Deck MCP task tools as the cross-session progress source for multi-step work, plans, reviews, and teammate collaboration. Do not keep a separate Claude Code native task list for the same cross-session work.
 
-- Create a personal task: `mcp__agent-deck__task_create({ subject, description?, status?, priority?, blocks?, blockedBy?, labels? })`.
-- Create a team-bound task: `mcp__agent-deck__task_create({ subject, teamId, ... })`; the caller must be an active member of the team.
-- Update status: `mcp__agent-deck__task_update({ taskId, status })`; use only `pending` / `active` / `completed` / `blocked` / `abandoned`.
-- List tasks: `mcp__agent-deck__task_list()` returns tasks visible to the caller; `teamIdFilter` limits to one team; `teamIdFilter: 'null-personal'` lists only the caller's personal tasks.
-- Use `task_get` / `task_delete` for single-task lookup and deletion; permissions are based on the task's `teamId`.
+- `mcp__agent-deck__task_create({ subject, ... })` creates a personal task; include `teamId` for a team task, which requires active team membership.
+- `mcp__agent-deck__task_update({ taskId, status })` changes status; use only `pending`, `active`, `completed`, `blocked`, or `abandoned`.
+- `mcp__agent-deck__task_list({ teamIdFilter? })` lists visible tasks; pass a team id for one team or `null-personal` for caller-owned personal tasks.
+- `mcp__agent-deck__task_get` and `mcp__agent-deck__task_delete` operate on one task; permissions follow the task's `teamId`.
 
 If `enableAgentDeckMcp: false` makes MCP task tools unavailable, Claude Code native Task tools may record only the current SDK session's local progress. Cross-session state must be written into the plan file or handoff prompt.
 
@@ -47,7 +46,7 @@ If `enableAgentDeckMcp: false` makes MCP task tools unavailable, Claude Code nat
 
 ## Plan / Worktree / Handoff
 
-For complex, cross-session, high-risk, or isolated work, write a durable plan before entering a worktree or handing off. The plan path must be absolute and supplied by the caller, project convention, or current workflow; this baseline does not assume a repository archive directory.
+For complex, cross-session, high-risk, or isolated work, write a durable plan before entering a worktree or handing off. The plan path must be absolute and supplied by the caller, project convention, or current workflow; this baseline does not assume any built-in plan directory.
 
 The plan must let a successor session continue without reading prior chat history:
 

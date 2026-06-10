@@ -116,7 +116,7 @@ export async function buildAgentDeckTools(
 
   const spawnSession = tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
-    'Spawn a new SDK session with adapter "claude-code", "deepseek-claude-code", or "codex-cli". Put the full task in `prompt`; for long context, write a file under /tmp and tell the new session to read it. Pass `teamName` when the caller should become lead of a shared team; omit it for a standalone session. Returns the new session id, optional team id, `spawnPromptMessageId` for the first reply chain, and `spawnLimits` with current depth/fan-out/rate usage plus configured caps. SDK sessions leave `callerSessionId` unset because Agent Deck injects it.',
+    'Spawn a parallel SDK session on "claude-code", "deepseek-claude-code", or "codex-cli". Put the complete task in `prompt`; for long context, write a file under /tmp and tell the new session to read it. Pass `teamName` to create or reuse a shared team where the caller is lead; omit it for a standalone session. Returns the new `sessionId`, optional `teamId`, optional `spawnPromptMessageId` for the first reply chain, and `spawnLimits` with depth/fan-out/rate state. Use `hand_off_session` instead when the current session should be replaced. SDK sessions leave `callerSessionId` unset because Agent Deck injects it.',
     SPAWN_SESSION_SCHEMA,
     async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
     {
@@ -139,7 +139,7 @@ export async function buildAgentDeckTools(
 
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
-    'Send a user-role message to another session and return after it is queued. Use `replyToMessageId` when answering a wire-prefixed message so the receiver sees the reply in the same chain. Omit `teamId` when there is exactly one shared team or no shared team; pass it only to disambiguate multiple shared teams. If the sessions share no active team, the message is delivered as a teamless DM and still enters the receiver conversation.',
+    'Queue a user-role message for another non-closed session. Use `replyToMessageId` when answering a wire-prefixed message so the receiver sees the reply in the same chain. Omit `teamId` when there is exactly one shared team or no shared team; pass it to disambiguate multiple shared teams. A wrong explicit `teamId` is rejected instead of downgraded. With no shared active team, omitting `teamId` sends a teamless DM that still enters the receiver conversation. Returns `messageId` and `queued:true`; do not poll for delivery in the same turn.',
     SEND_MESSAGE_SCHEMA,
     async (args, extra) => sendMessageHandler(args, makeCtx(args, extra)),
     {
@@ -156,7 +156,7 @@ export async function buildAgentDeckTools(
 
   const listSessions = tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
-    'List currently visible sessions. Returns session metadata only: ids, adapter, cwd, lifecycle, title, lastEventAt, teams, spawnedBy, and spawnDepth. It does not return events or messages. Use `teams[].teamId` when you need a `teamId` for `send_message`.',
+    'List app-wide session metadata available to allowed read callers. Filter by lifecycle, adapter, parent session, and limit when narrowing a handoff or rescue search. Returns metadata only: ids, adapter, cwd, lifecycle, title, lastEventAt, teams, spawnedBy, and spawnDepth; it does not return events or messages. Use `teams[].teamId` when you need a `teamId` for `send_message`.',
     LIST_SESSIONS_SCHEMA,
     async (args, extra) => listSessionsHandler(args, makeCtx(args, extra)),
     { annotations: { readOnlyHint: true } },
@@ -164,7 +164,7 @@ export async function buildAgentDeckTools(
 
   const getSession = tool(
     AGENT_DECK_TOOL_NAMES.getSession,
-    'Get metadata for one session id. Returns the same fields as `list_sessions` and does not include events or messages. Returns an MCP error when the session does not exist.',
+    'Get app-wide metadata for one session id available to allowed read callers. Returns the same projection as `list_sessions` and does not include events or messages. Returns an MCP error when the session does not exist; use `list_sessions` first when you need to discover valid ids.',
     GET_SESSION_SCHEMA,
     async (args, extra) => getSessionHandler(args, makeCtx(args, extra)),
     { annotations: { readOnlyHint: true } },
@@ -172,7 +172,7 @@ export async function buildAgentDeckTools(
 
   const shutdownSession = tool(
     AGENT_DECK_TOOL_NAMES.shutdownSession,
-    'Close another session and abort its live SDK query. This does not delete events, file changes, summaries, messages, team history, or spawn links. The caller cannot shut down itself.',
+    'Close another session and abort its live SDK query. This destructive but idempotent action never deletes events, file changes, summaries, messages, team history, or spawn links. The caller cannot shut down itself. Returns `alreadyClosed` so callers can treat repeat shutdowns as complete.',
     SHUTDOWN_SESSION_SCHEMA,
     async (args, extra) => shutdownSessionHandler(args, makeCtx(args, extra)),
     {
@@ -189,7 +189,7 @@ export async function buildAgentDeckTools(
 
   const handOffSession = tool(
     AGENT_DECK_TOOL_NAMES.handOffSession,
-    'Hand off the current SDK session to a fresh successor. Put the complete cold-start instructions in `prompt`, including plan paths, /tmp context files, and the next action. The tool transfers caller-owned tasks, active team memberships, and the worktree marker, then closes the caller only after transfer succeeds. Use `spawn_session` for parallel work.',
+    'Hand off the current SDK session to a fresh successor. Put complete cold-start instructions in `prompt`, including plan paths, /tmp context files, current progress, and the next action. The tool transfers caller-owned tasks, active team memberships, and the worktree marker, then closes the caller only after mandatory transfer succeeds. Returns successor spawn fields plus transfer details. Use `spawn_session` for parallel work.',
     HAND_OFF_SESSION_SHAPE,
     async (args, extra) => {
       const parseRes = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse(args);
@@ -214,7 +214,7 @@ export async function buildAgentDeckTools(
 
   const enterWorktree = tool(
     AGENT_DECK_TOOL_NAMES.enterWorktree,
-    'Create a fresh git worktree from a required local branch name. `baseBranch` must resolve to `refs/heads/<baseBranch>`; SHA, tag, and rev syntax are rejected. The tool creates a new work branch, records the caller worktree marker, and returns the worktree path and base commit. It does not change the SDK session cwd.',
+    'Create a fresh git worktree for isolated code changes from a required local branch name. `baseBranch` must resolve to `refs/heads/<baseBranch>`; SHA, tag, remote-only refs, and rev syntax are rejected. The tool creates a new work branch, records the caller worktree marker, and returns the worktree path, work branch, and base commit. It does not change the SDK session cwd.',
     ENTER_WORKTREE_SCHEMA,
     async (args, extra) => enterWorktreeHandler(args, makeCtx(args, extra)),
     {
@@ -229,7 +229,7 @@ export async function buildAgentDeckTools(
 
   const exitWorktree = tool(
     AGENT_DECK_TOOL_NAMES.exitWorktree,
-    'Remove the worktree owned by the caller marker, or the explicit `worktreePath` when allowed. The tool refuses dirty worktrees unless `discardChanges=true`. It keeps the work branch by default; pass `deleteBranch=true` only after the work is merged, cherry-picked, or intentionally abandoned.',
+    'Remove the worktree owned by the caller marker, or an explicit `worktreePath` when the caller has no marker or the path matches the marker. The tool refuses dirty worktrees unless `discardChanges=true`. It keeps the work branch by default; pass `deleteBranch=true` only after the work is merged, cherry-picked, or intentionally abandoned. Errors may include `markerCleared` to guide retry cleanup.',
     EXIT_WORKTREE_SCHEMA,
     async (args, extra) => exitWorktreeHandler(args, makeCtx(args, extra)),
     {
@@ -246,7 +246,7 @@ export async function buildAgentDeckTools(
   // namespace（工具名从 mcp__tasks__task_* 切到 mcp__agent-deck__task_*，breaking change）。
   const taskCreate = tool(
     AGENT_DECK_TOOL_NAMES.taskCreate,
-    `Create a structured task in the Agent Deck task store. Omit \`teamId\` for a personal task owned by the caller. Pass \`teamId\` for a team task; the caller must be an active member of that team. Returns the created task with an auto-generated id.`,
+    `Create a structured task in the Agent Deck task store. Omit \`teamId\` for a personal task owned by the caller. Pass \`teamId\` for a team task; the caller must be an active member of that team. Returns the complete created task record with an auto-generated id.`,
     TASK_CREATE_SCHEMA,
     async (args, extra) => taskCreateHandler(args, makeCtx(args, extra)),
     {
@@ -263,7 +263,7 @@ export async function buildAgentDeckTools(
 
   const taskList = tool(
     AGENT_DECK_TOOL_NAMES.taskList,
-    `List tasks visible to the current session. Omit \`teamIdFilter\` to include caller-owned personal tasks and team tasks from active memberships. Pass a team id to restrict to that team, or \`null-personal\` for personal tasks only. Returns the current page plus \`hasMore\`; default limit is 100, max 500.`,
+    `List tasks visible to the current session. Omit \`teamIdFilter\` to include caller-owned personal tasks and team tasks from active memberships. Pass a team id to restrict to that active team, or \`null-personal\` for caller-owned personal tasks only. Read-only external callers get only their visible scope. Returns the current page plus \`hasMore\`; default limit is 100, max 500.`,
     TASK_LIST_SCHEMA,
     async (args, extra) => taskListHandler(args, makeCtx(args, extra)),
     {
@@ -282,7 +282,7 @@ export async function buildAgentDeckTools(
 
   const taskGet = tool(
     AGENT_DECK_TOOL_NAMES.taskGet,
-    'Get one task by id. Team tasks require active membership in that team; personal tasks require caller ownership.',
+    'Get one task by id. This read rejects external callers. Team tasks require active membership in that team; personal tasks require caller ownership. Returns the complete task record or an MCP error.',
     TASK_GET_SCHEMA,
     async (args, extra) => taskGetHandler(args, makeCtx(args, extra)),
     {
@@ -298,7 +298,7 @@ export async function buildAgentDeckTools(
 
   const taskUpdate = tool(
     AGENT_DECK_TOOL_NAMES.taskUpdate,
-    `Update a task. Omitted fields are left unchanged. Pass null only for nullable fields such as \`description\`, \`activeForm\`, or \`teamId\`. Setting \`teamId\` binds the task to a team where the caller is active; \`teamId=null\` makes it personal to the caller.`,
+    `Update a task with patch semantics. Omitted fields are left unchanged. Pass null only for nullable fields such as \`description\`, \`activeForm\`, or \`teamId\`. Setting \`teamId\` binds the task to a team where the caller is active; \`teamId=null\` makes it personal and only the owner may convert a team task to personal. Returns the updated task record.`,
     TASK_UPDATE_SCHEMA,
     async (args, extra) => taskUpdateHandler(args, makeCtx(args, extra)),
     {
@@ -315,7 +315,7 @@ export async function buildAgentDeckTools(
 
   const taskDelete = tool(
     AGENT_DECK_TOOL_NAMES.taskDelete,
-    `Delete a task by id. Team tasks require active membership; personal tasks require caller ownership. With \`force=true\`, recursively delete writable downstream tasks listed in \`blocks\`; downstream tasks the caller cannot write are skipped. Without force, surviving task links are cleaned up.`,
+    `Delete a task by id. This destructive action is not idempotent: a missing task returns an error. Team tasks require active membership; personal tasks require caller ownership. With \`force=true\`, recursively delete writable downstream tasks listed in \`blocks\`; downstream tasks the caller cannot write are skipped. Without force, surviving task links are cleaned up.`,
     TASK_DELETE_SCHEMA,
     async (args, extra) => taskDeleteHandler(args, makeCtx(args, extra)),
     {
@@ -336,7 +336,7 @@ export async function buildAgentDeckTools(
   // annotations 与 task_create 同款（写表 INSERT 非破坏不幂等不外联）。
   const reportIssue = tool(
     AGENT_DECK_TOOL_NAMES.reportIssue,
-    `Report a problem that should be tracked but not fixed in the current task. Use \`kind="follow-up"\` for out-of-scope work and \`kind="app-bug"\` for an Agent Deck defect. If the issue is in scope and easy to fix now, fix it instead of reporting. Include a self-contained description. Returns the created issue id for later append or status updates.`,
+    `Report a problem that should be tracked but not fixed in the current task. Use \`kind="follow-up"\` for out-of-scope work and \`kind="app-bug"\` for an Agent Deck defect. If the issue is in scope and easy to fix now, fix it instead of reporting. Include a self-contained description. Returns the created IssueRecord; use its \`id\` as \`issueId\` for later append or status updates.`,
     REPORT_ISSUE_SCHEMA,
     async (args, extra) => reportIssueHandler(args, makeCtx(args, extra)),
     {
@@ -353,7 +353,7 @@ export async function buildAgentDeckTools(
 
   const appendIssueContext = tool(
     AGENT_DECK_TOOL_NAMES.appendIssueContext,
-    `Append context to an issue reported earlier by this same session. Pass the issue \`id\` as \`issueId\`. The new content is added as a separate note and never rewrites the original description. Deleted issues are rejected; resolved issues must be reopened first.`,
+    `Append context to an issue reported earlier by this same session. Pass the issue \`id\` as \`issueId\`. The new content is added as a separate note and never rewrites the original description. Deleted issues are rejected; resolved issues must be reopened first. Returns the updated IssueRecord including appendices.`,
     APPEND_ISSUE_CONTEXT_SCHEMA,
     async (args, extra) => appendIssueContextHandler(args, makeCtx(args, extra)),
     {
@@ -372,7 +372,7 @@ export async function buildAgentDeckTools(
   // （打破旧「agent 永不改 status」铁律）。授权边界 source OR resolution session;可选 note 留痕。
   const updateIssueStatus = tool(
     AGENT_DECK_TOOL_NAMES.updateIssueStatus,
-    `Update an issue status when this session reported the issue or was spawned to resolve it. Use \`resolved\` after fixing it, or \`open\` / \`in-progress\` to reopen it. Other sessions and deleted issues are rejected. Optionally pass \`note\` to record the reason.`,
+    `Update an issue status when this session reported the issue or was spawned to resolve it. Use \`resolved\` after fixing it, or \`open\` / \`in-progress\` to reopen it. Other sessions, deleted issues, and external callers are rejected. Optionally pass \`note\` to record the reason. Returns the updated IssueRecord including appendices.`,
     UPDATE_ISSUE_STATUS_SCHEMA,
     async (args, extra) => updateIssueStatusHandler(args, makeCtx(args, extra)),
     {

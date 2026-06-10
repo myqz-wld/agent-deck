@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: "Use for deep, multi-round reviews of complex code, plans, or mixed plan-and-code changes. Orchestrates reviewer-claude and reviewer-codex as a heterogeneous pair across review-fix rounds; the lead adjudicates findings, requires evidence and rebuttal for CRITICAL/HIGH issues, writes a final gate report, and blocks merge until CRITICAL/HIGH findings are fixed or disproved. Also matches Chinese review anchors such as 深度 review, 双对抗 review, review agent 深挖, 再 review 一轮, 深挖整体改动是否符合预期, and plan 评审."
+description: "Run multi-round heterogeneous reviewer-claude + reviewer-codex review for complex code, plans, or mixed plan-and-code changes; use for deep race, lifecycle, architecture, security, performance, or plan-gate risk. Requires evidence and rebuttal for CRITICAL/HIGH findings and blocks until they are fixed or disproved. Chinese anchors: 深度 review, 双对抗 review, review agent 深挖, 再 review 一轮, 深挖整体改动是否符合预期, and plan 评审."
 ---
 
 # Deep Review
