@@ -116,7 +116,7 @@ export interface SessionRecord {
    * Codex SDK 网络访问开关（plan codex-recover-network-dirs-parity-20260602）。
    *
    * 持久化 reviewer-codex spawn 时 options-builder.ts narrowToCodexOpts 在 reviewer-* 分支
-   * 注入的 `networkAccessEnabled: true` unsafe default，让 app 重启 / dev hot reload /
+   * 注入的 `networkAccessEnabled: true` reviewer runtime default，让 app 重启 / dev hot reload /
    * main crash 后 sessions Map miss 时 recover / restart 路径能从 sessionRepo 读回交还
    * codex SDK，与 codexSandbox / model 同款 per-session resilience 模式。
    *
@@ -137,13 +137,13 @@ export interface SessionRecord {
    * Codex SDK 额外可读写目录（plan codex-recover-network-dirs-parity-20260602）。
    *
    * 持久化 reviewer-codex spawn 时 options-builder.ts narrowToCodexOpts 在 reviewer-* 分支
-   * 注入的 `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` unsafe default，让
+   * 注入的 `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` reviewer runtime default，让
    * recover / restart 路径能从 sessionRepo 读回交还 codex SDK（与 networkAccessEnabled 配套）。
    *
    * **与 extraAllowWrite 关键区别**：本字段 codex SDK runtime **真消费**——经
    * `buildCodexThreadOptions` → `startThread`/`resumeThread` 的 ThreadOptions.additionalDirectories
-   * 真正让 codex sandbox=workspace-write 档位额外允许读写这些根（reviewer-codex 依赖跨目录读
-   * plan / claude config / codex config + /tmp 中间文件）。**不是** extraAllowWrite 那种 codex
+   * 真正把这些根加入当前 codex sandbox 可访问范围（实际读写能力仍受 sandboxMode 档位约束；
+   * reviewer-codex 依赖跨目录读 plan / claude config / codex config + /tmp 中间文件）。**不是** extraAllowWrite 那种 codex
    * 不消费的 persist-only 字段，future 维护者勿误判而删 recover 透传。
    *
    * - 仅 codex reviewer-* spawn 写；普通 codex session + claude-code 会话始终 null。

@@ -1,6 +1,6 @@
 /**
  * plan codex-handoff-team-alignment-20260518 §P3 Step 3.9 测试矩阵 —
- * options-builder.narrowToCodexOpts agentName-based unsafe default spread 验证
+ * options-builder.narrowToCodexOpts agentName-based reviewer runtime default spread 验证
  * (plan §不变量 6 + §D7).
  *
  * **plan reviewer-codex-cross-adapter-20260519 Phase 2 Step 2.4 修订**:
@@ -8,19 +8,19 @@
  * 起外部 codex CLI),改 cross-adapter native (claude-code adapter 直起 claude SDK)。
  * 删除 reviewer-claude wrapper 专用 envOverrideExtra: AGENT_DECK_CLAUDE_PATH 注入分支
  * + 对应测试 case (TC9 / TC11)。reviewer-claude / reviewer-codex 两个 reviewer-* 仍
- * 共享 4 项 unsafe default spread (codexSandbox / approvalPolicy /
- * networkAccessEnabled / additionalDirectories) — 这部分行为 unchanged。
+ * 共享 3 项 reviewer runtime default spread (approvalPolicy / networkAccessEnabled /
+ * additionalDirectories)。codexSandbox 走普通 spawn 语义：caller 显式 / same-adapter 继承
+ * 透传到本 builder,reviewer 分支不再覆盖。
  *
  * 覆盖:
- * - TC8: agentName='reviewer-codex' → 4 项 unsafe default spread
- * - TC10: agentName=undefined (普通 codex session 用户起的 lead) → **不** spread unsafe
- *   default (不变量 6: 普通 session 不被污染)
+ * - TC8: agentName='reviewer-codex' → 3 项 reviewer runtime default spread
+ * - TC10: agentName=undefined (普通 codex session 用户起的 lead) → **不** spread reviewer
+ *   runtime default (不变量 6: 普通 session 不被污染)
  * - TC10b: agentName='reviewer-typescript' (非 reviewer-* 两值) → 同款不 spread
  * - TC11b: claude-code adapter narrow 不消费 agentName 字段 (filter 掉 —
  *   narrowToClaudeOpts 不 spread codex default)
  *
- * 4 项 unsafe default:
- *   - codexSandbox: 'workspace-write'
+ * 3 项 reviewer runtime default:
  *   - approvalPolicy: 'never'
  *   - networkAccessEnabled: true
  *   - additionalDirectories: ['<home>/.claude', '<home>/.codex', '/tmp']
@@ -36,7 +36,7 @@ import path from 'node:path';
 import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 
 describe('options-builder narrowToCodexOpts agentName-based default spread (plan §P3 Step 3.9)', () => {
-  it('TC8: agentName="reviewer-codex" → 4 项 unsafe default spread', () => {
+  it('TC8: agentName="reviewer-codex" → 3 项 reviewer runtime default spread, sandbox 不强制覆盖', () => {
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'review task',
@@ -46,8 +46,9 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     // narrow 后 agentId 字段已塞
     expect(opts.agentId).toBe('codex-cli');
 
-    // 4 项 unsafe default 强制 spread
-    expect(opts.codexSandbox).toBe('workspace-write');
+    // 3 项 reviewer runtime default spread；sandbox 由 caller 显式 / same-adapter 继承 /
+    // target adapter 默认链路决定，本层不强塞 workspace-write。
+    expect(opts.codexSandbox).toBeUndefined();
     expect(opts.approvalPolicy).toBe('never');
     expect(opts.networkAccessEnabled).toBe(true);
     // additionalDirectories 含 /tmp(spike4 实证 reviewer 必需,reviewer-claude /
@@ -63,23 +64,24 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     expect(opts.envOverrideExtra).toBeUndefined();
   });
 
-  it('TC9: agentName="reviewer-claude" → 4 项 unsafe default spread (cross-adapter native, 不再注入 envOverrideExtra)', () => {
+  it('TC9: agentName="reviewer-claude" → 3 项 reviewer runtime default spread and preserves caller sandbox', () => {
     // **plan reviewer-codex-cross-adapter-20260519 Phase 2 Step 2.4 修订**:
     // 旧 wrapper 路径 (claude-code adapter wrapper Bash 起外部 codex CLI) 删除,
     // reviewer-claude 改 cross-adapter native (claude-code adapter 直起 claude SDK)。
     // 但 codex-cli adapter 仍可能 spawn reviewer-claude(理论上 cross-adapter 反向场景
     // 无,因 lead 起 reviewer-claude 总用 adapter:'claude-code') — 留此 case 验证
-    // codex-cli adapter narrow 时 reviewer-claude / reviewer-codex 两值都触发 4 项 default。
+    // codex-cli adapter narrow 时 reviewer-claude / reviewer-codex 两值都触发 3 项 runtime default。
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'review task',
       agentName: 'reviewer-claude',
+      codexSandbox: 'danger-full-access',
     });
 
     expect(opts.agentId).toBe('codex-cli');
 
-    // 4 项 unsafe default 强制 spread (与 TC8 同款)
-    expect(opts.codexSandbox).toBe('workspace-write');
+    // caller/effective sandbox 透传,reviewer 分支不再 clamp 到 workspace-write。
+    expect(opts.codexSandbox).toBe('danger-full-access');
     expect(opts.approvalPolicy).toBe('never');
     expect(opts.networkAccessEnabled).toBe(true);
     expect(opts.additionalDirectories).toEqual([
@@ -92,7 +94,7 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     expect(opts.envOverrideExtra).toBeUndefined();
   });
 
-  it('TC10: agentName=undefined (普通 codex session lead) → 不 spread unsafe default (不变量 6 enforce — 普通 session 不被污染)', () => {
+  it('TC10: agentName=undefined (普通 codex session lead) → 不 spread reviewer runtime default (不变量 6 enforce — 普通 session 不被污染)', () => {
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'lead chat',
@@ -101,7 +103,7 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
 
     expect(opts.agentId).toBe('codex-cli');
 
-    // **关键 negative**: 4 字段任一被 spread 都是 bug(污染普通 codex session)
+    // **关键 negative**: reviewer runtime default 任一被 spread 都是 bug(污染普通 codex session)
     expect(opts.codexSandbox).toBeUndefined();
     expect(opts.approvalPolicy).toBeUndefined();
     expect(opts.networkAccessEnabled).toBeUndefined();

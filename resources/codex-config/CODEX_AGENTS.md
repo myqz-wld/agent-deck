@@ -122,14 +122,13 @@ The reviewer first uses `list_sessions({ statusFilter: 'active' })` to find a un
 
 ## Codex App-Server Defaults
 
-Codex teammate spawn uses the app-level default app-server thread options; reviewer-codex depends on these defaults:
+Codex teammate spawn uses the app-level default app-server thread options unless the caller passes an explicit override or a same-adapter Codex caller has a persisted sandbox to inherit. Reviewer-codex follows the same `codexSandbox` inheritance and override rules as any other Codex spawn.
 
-- `sandboxMode: 'workspace-write'`.
+- `sandboxMode` follows `codexSandbox`: explicit argument, same-adapter inheritance, then Codex adapter default.
 - `approvalPolicy: 'never'`, so SDK sessions do not wait for invisible approvals.
-- `networkAccessEnabled: true`, so reviewer-codex can call the OpenAI API.
-- `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']`, so reviewers can read required context and temporary files.
+- For reviewer-codex, `networkAccessEnabled: true` and `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` are injected so reviewers can read required context and temporary files.
 
-MCP `spawn_session` exposes only allowlisted fields such as `codexSandbox`; it cannot override arbitrary `additionalDirectories` or `networkAccessEnabled`. When a file outside the default readable scope is needed, copy it into the worktree, repo cwd, `~/.claude`, `~/.codex`, or `/tmp` before passing the scope.
+MCP `spawn_session` exposes only allowlisted fields such as `codexSandbox`; it cannot override arbitrary `additionalDirectories` or `networkAccessEnabled`. When a file outside the readable scope is needed, copy it into the worktree, repo cwd, `~/.claude`, `~/.codex`, or `/tmp` before passing the scope.
 
 Agent Deck injects `AGENT_DECK_MCP_TOKEN` into every Codex app-server session. The Codex MCP client uses that token to connect to the streamable HTTP MCP server; the server resolves the caller session and fills it into tool handlers automatically. External global tokens allow only read-only capability; session, worktree, task, and issue write tools are rejected.
 
