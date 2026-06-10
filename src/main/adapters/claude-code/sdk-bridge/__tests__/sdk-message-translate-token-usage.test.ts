@@ -13,7 +13,7 @@
  *
  * sessionRepo / eventBus mock 掉（assistant token-usage 分支不碰它们，仅 result/system 分支用）。
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: { get: vi.fn(), setPermissionMode: vi.fn() } }));
 vi.mock('@main/event-bus', () => ({ eventBus: { emit: vi.fn() } }));
@@ -21,6 +21,9 @@ vi.mock('@main/event-bus', () => ({ eventBus: { emit: vi.fn() } }));
 import { translateSdkMessage } from '../sdk-message-translate';
 import { makeInternalSession } from '../types';
 import type { AgentEvent } from '@shared/types';
+import { sessionRepo } from '@main/store/session-repo';
+
+const sessionGetMock = vi.mocked(sessionRepo.get);
 
 function setup() {
   const events: AgentEvent[] = [];
@@ -82,6 +85,10 @@ function tokenEvents(events: AgentEvent[]): AgentEvent[] {
 }
 
 describe('translateSdkMessage token-usage 采集', () => {
+  beforeEach(() => {
+    sessionGetMock.mockReset();
+  });
+
   it('基本采集：id/model/usage → 一条 token-usage（cache_* 正常）', () => {
     const { events, emit, internal } = setup();
     translateSdkMessage(
@@ -108,6 +115,29 @@ describe('translateSdkMessage token-usage 采集', () => {
       outputTokens: 50,
       cacheReadTokens: 30,
       cacheCreationTokens: 10,
+    });
+  });
+
+  it('assistant usage 缺 model 时归到 claude-default', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      assistantMsg({
+        id: 'm1',
+        usage: {
+          input_tokens: 5,
+          output_tokens: 3,
+        },
+      }),
+      internal,
+    );
+
+    expect(tokenEvents(events)[0].payload).toMatchObject({
+      messageId: 'm1',
+      model: 'claude-default',
+      inputTokens: 5,
+      outputTokens: 3,
     });
   });
 

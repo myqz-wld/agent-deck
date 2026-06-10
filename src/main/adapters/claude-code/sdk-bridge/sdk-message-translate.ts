@@ -23,7 +23,7 @@ import {
   parseImageToolResult,
 } from '@main/adapters/claude-code/translate';
 import { isImageTool } from '@shared/mcp-tools';
-import { normalizeModel } from '@shared/model-normalize';
+import { CLAUDE_DEFAULT_BUCKET, normalizeModel } from '@shared/model-normalize';
 import { AGENT_ID } from './constants';
 import { clearLiveTokenEstimate, handleStreamEventForLiveRate } from './live-token-rate';
 import type { InternalSession } from './types';
@@ -35,6 +35,20 @@ const ZERO_USAGE: UsageCounts = { input: 0, output: 0, cacheRead: 0, cacheCreati
 
 function hasUsage(c: UsageCounts): boolean {
   return c.input > 0 || c.output > 0 || c.cacheRead > 0 || c.cacheCreation > 0;
+}
+
+function hasExplicitModel(model: string | null | undefined): model is string {
+  return model != null && model.trim() !== '';
+}
+
+function resolveClaudeFallbackModel(internal: InternalSession, sessionId: string): string {
+  try {
+    const model =
+      sessionRepo.get(internal.applicationSid)?.model ?? sessionRepo.get(sessionId)?.model ?? null;
+    return hasExplicitModel(model) ? model : CLAUDE_DEFAULT_BUCKET;
+  } catch {
+    return CLAUDE_DEFAULT_BUCKET;
+  }
 }
 
 function maxUsage(a: UsageCounts | undefined, b: UsageCounts): UsageCounts {
@@ -81,6 +95,7 @@ function sumTurnUsage(internal: InternalSession): UsageCounts {
 function emitResultUsageCorrection(
   e: (kind: AgentEvent['kind'], payload: unknown) => void,
   internal: InternalSession,
+  fallbackModel: string,
   r: {
     uuid?: string;
     usage?: {
@@ -127,7 +142,8 @@ function emitResultUsageCorrection(
     }
 
     // Older / unusual SDK builds may omit modelUsage. Fall back to aggregate usage and subtract
-    // everything already seen in this turn; model stays null so normalizeModel buckets it as unknown.
+    // everything already seen in this turn; use Claude default so UI does not show generic unknown
+    // for a Claude-family session with no explicit model override.
     const u = r.usage;
     if (u) {
       const finalUsage = {
@@ -140,7 +156,7 @@ function emitResultUsageCorrection(
       if (hasUsage(delta)) {
         e('token-usage', {
           messageId: r.uuid ? `result:${r.uuid}:aggregate` : null,
-          model: null,
+          model: fallbackModel,
           inputTokens: delta.input,
           outputTokens: delta.output,
           cacheReadTokens: delta.cacheRead,
@@ -268,10 +284,13 @@ export function translateSdkMessage(
         if (grew) {
           const delta = positiveDelta(merged, prev);
           internal.seenUsageMessageIds.set(m.id, merged);
-          addTurnUsage(internal, m.model ?? null, delta);
+          const model = hasExplicitModel(m.model)
+            ? m.model
+            : resolveClaudeFallbackModel(internal, sessionId);
+          addTurnUsage(internal, model, delta);
           e('token-usage', {
             messageId: m.id,
-            model: m.model ?? null,
+            model,
             inputTokens: usage.input,
             outputTokens: usage.output,
             cacheReadTokens: usage.cacheRead,
@@ -361,7 +380,7 @@ export function translateSdkMessage(
     // result frame 翻译）。
     clearLiveTokenEstimate(internal, sessionId, ts);
     if (internal.expectedClose) return;
-    emitResultUsageCorrection(e, internal, r);
+    emitResultUsageCorrection(e, internal, resolveClaudeFallbackModel(internal, sessionId), r);
     if (r.is_error || (r.subtype && r.subtype !== 'success')) {
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
       e('message', { text: `⚠ ${detail}`, error: true });
