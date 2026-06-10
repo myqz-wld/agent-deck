@@ -118,6 +118,15 @@ export class CodexAppServerClient {
     return this.processGeneration;
   }
 
+  /**
+   * 子进程当前是否存活。Thread.interrupt 用：进程已退出时 turn 早已被 handleExit 的
+   * synthetic error 通知终结，此时再走 request('turn/interrupt') 会经 ensureProcess
+   * **重新拉起一个全新 app-server 进程**只为发一条无意义的 interrupt —— 该 guard 避免之。
+   */
+  get isProcessAlive(): boolean {
+    return this.child !== null;
+  }
+
   startThread(options: CodexThreadOptions): CodexAppServerThread {
     return new CodexAppServerThread(this, { mode: 'start', options });
   }
@@ -356,6 +365,9 @@ export class CodexAppServerThread {
   async interrupt(turnId = this.activeTurnId): Promise<void> {
     const threadId = this.threadId;
     if (!threadId || !turnId) return;
+    // 进程已死：handleExit 已向所有 subscriber 派发 synthetic error（terminal）终结队列，
+    // 这里静默返回即可；不能走 request —— ensureProcess 会为这条 interrupt 重新 spawn 进程。
+    if (!this.client.isProcessAlive) return;
     await this.client.request('turn/interrupt', { threadId, turnId });
   }
 
@@ -373,15 +385,22 @@ export class CodexAppServerThread {
         yield { type: 'thread.started', thread_id: threadId };
       }
 
+      // 本 turn 是否已见 `turn/started` 通知。stdout 是单管道 FIFO：上一个 turn 的迟到
+      // `turn/completed` 一定先于本 turn 的 `turn/started` 到达 → activeTurnId 还未知时
+      // （turn/start 响应与 turn/started 通知都没到），未见 started 就来的 completed 是
+      // 上一个 turn 的尾包，不能当 terminal 关队列（否则本 turn 事件全部静默丢失，turn
+      // 在服务端继续跑但 UI 看不到任何输出）。
+      let turnStartSeen = false;
       unsub = this.client.subscribe((notification) => {
         const notificationThreadId = getNotificationThreadId(notification);
         if (notificationThreadId && notificationThreadId !== threadId) return;
         if (notification.method === 'turn/started') {
           const turnId = getNotificationTurnId(notification);
           if (turnId) this.activeTurnId = turnId;
+          turnStartSeen = true;
         }
         queue.push(notification);
-        if (isTerminalForTurn(notification, this.activeTurnId)) {
+        if (isTerminalForTurn(notification, this.activeTurnId, turnStartSeen)) {
           this.activeTurnId = null;
           queue.close();
         }
@@ -393,6 +412,12 @@ export class CodexAppServerThread {
         abortListener = () => {
           void this.interrupt().catch((err) => {
             logger.warn('[codex-app-server] turn interrupt request failed', err);
+            // turn/start 已 resolve 后 abortPromise 的 reject 不再被任何人 await（race 已
+            // settle），中断完全依赖 interrupt RPC 成功 → 服务端发 terminal 通知关队列。
+            // RPC 失败时服务端不会再发 terminal → for-await 永久挂起。主动 throw 队列让
+            // generator 抛出，thread-loop catch 按 signal.aborted 走 finished:interrupted。
+            // 队列已 close（terminal 已到 / 进程退出 synthetic error）时 throw 是 no-op。
+            queue.throw(new Error('Codex turn interrupted'));
           });
           reject(new Error('Codex turn interrupted'));
         };
@@ -592,10 +617,16 @@ function getNotificationTurnId(notification: CodexAppServerNotification): string
 function isTerminalForTurn(
   notification: CodexAppServerNotification,
   activeTurnId: string | null,
+  turnStartSeen: boolean,
 ): boolean {
   if (notification.method === 'turn/completed') {
     const turn = (notification.params as { turn?: { id?: unknown } } | undefined)?.turn;
-    return !activeTurnId || turn?.id === activeTurnId;
+    if (activeTurnId) return turn?.id === activeTurnId;
+    // activeTurnId 未知时按 FIFO 时序判别：本 turn 的 completed 不可能先于自己的 started
+    // 到达（同一 stdout 管道顺序投递）→ 未见 started 的 completed 是上一个 turn 的迟到
+    // 尾包，不是本 turn terminal（详 runTurn 内 turnStartSeen 注释）。见过 started 但
+    // turn id 未解析出时退回旧行为（completed 即 terminal）。
+    return turnStartSeen;
   }
   if (notification.method !== 'error') return false;
   const params = notification.params as { willRetry?: unknown; turnId?: unknown } | undefined;

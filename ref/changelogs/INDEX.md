@@ -248,3 +248,4 @@
 | [CHANGELOG_241.md](CHANGELOG_241.md) | UI 事件描述与展示文案补强：TeamDetail / ActivityFeed / SessionCard 显示工具入参和等待原因，收紧 task/prompt/diff/raw status 等技术词外露。 |
 | [CHANGELOG_242.md](CHANGELOG_242.md) | 升级 Claude/Codex CLI 与 SDK：Codex 0.139.0、Claude Agent SDK 0.3.170、Anthropic SDK 0.104.1。 |
 | [CHANGELOG_243.md](CHANGELOG_243.md) | reviewer-codex 不再强制 `codexSandbox=workspace-write`，改为遵循显式参数 / 同 adapter 继承 / Codex 默认链；同步 MCP tool description、Codex 应用约定和内置 reviewer 文案。 |
+| [CHANGELOG_244.md](CHANGELOG_244.md) | 项目级 review 修复 4 个边角缺陷：spawn setSpawnLink 失败孤儿会话、codex turn 中断 RPC 失败挂起、迟到 turn/completed 提前关新 turn 队列、event 单行脏 payload 毒化批量读取（含 json_extract SQL 级守卫）。 |

@@ -463,7 +463,9 @@ describe.skipIf(!bindingAvailable)('v025 migration / sub-case C: event-repo inte
     expect(row.ts).toBe(200);
   });
 
-  it('eventRepo.listForSession 读到脏 payload_json → logger.warn 后保持原抛错语义', () => {
+  it('eventRepo.listForSession 读到脏 payload_json → logger.warn + skip 坏行（不再整批抛错）', () => {
+    // 坏行隔离修法：rowToEvent 对 parse 失败改 skip + warn（原 re-throw 让一行坏数据毒化
+    // 整个会话的活动流 / 团队事件流读取 → 永久打不开）。详 event-repo.ts rowToEvent jsdoc。
     const dirtyId = Number(
       testDb
         .prepare(
@@ -472,8 +474,16 @@ describe.skipIf(!bindingAvailable)('v025 migration / sub-case C: event-repo inte
         )
         .run().lastInsertRowid,
     );
+    testDb
+      .prepare(
+        `INSERT INTO events (session_id, kind, payload_json, ts, tool_use_id)
+         VALUES ('sess-A', 'message', '{"role":"user","text":"正常行"}', 200, NULL)`,
+      )
+      .run();
 
-    expect(() => eventRepoModule.eventRepo.listForSession('sess-A')).toThrow();
+    const rows = eventRepoModule.eventRepo.listForSession('sess-A');
+    expect(rows).toHaveLength(1);
+    expect((rows[0].payload as { text: string }).text).toBe('正常行');
     expect(eventRepoLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('[event-repo] payload JSON parse failed'),
       expect.objectContaining({
