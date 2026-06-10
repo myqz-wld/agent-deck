@@ -20,15 +20,12 @@
 
 import os from 'node:os';
 import path from 'node:path';
-import log from '@main/utils/logger';
 import type {
   ClaudeCreateOpts,
   CodexCreateOpts,
   CreateSessionOptions,
   CreateSessionOptionsRaw,
 } from './types';
-
-const logger = log.scope('adapter-options');
 
 /**
  * agentId → 对应 adapter 接受的字段 interface 映射（不含 agentId 字段，agentId 由 builder 自动塞）。
@@ -64,8 +61,8 @@ export type AgentId = (typeof AGENT_IDS)[number];
  *
  * **覆盖 runtime 分支**(本文件):
  * - `narrowToCodexOpts` `isReviewerAgentName(raw.agentName)` 主分支 — codex teammate spawn
- *   unsafe default spread enforce 点(reviewer-claude / reviewer-codex 两值同款 spread 4 字段:
- *   codexSandbox / approvalPolicy / networkAccessEnabled / additionalDirectories)
+ *   reviewer runtime default spread enforce 点(reviewer-claude / reviewer-codex 两值同款 spread
+ *   approvalPolicy / networkAccessEnabled / additionalDirectories；codexSandbox 走普通 spawn 继承链)
  *
  * **REVIEW_105 R2 INFO 订正(reviewer-codex 单方)**: 删除旧「reviewer-claude 子分支注入
  * AGENT_DECK_CLAUDE_PATH」描述 —— 该子分支已随 plan reviewer-codex-cross-adapter-20260519
@@ -121,13 +118,14 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
  *
  * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7**:
  * 按 `raw.agentName in ['reviewer-claude', 'reviewer-codex']` 触发 codex teammate spawn
- * default spread —— 4 字段 unsafe default 强制（`codexSandbox: 'workspace-write'` 不允许
- * caller 覆盖；`approvalPolicy: 'never'` / `networkAccessEnabled: true` /
- * `additionalDirectories: ['~/.claude', '~/.codex']`）。
+ * default spread —— 3 字段 reviewer runtime default（`approvalPolicy: 'never'` /
+ * `networkAccessEnabled: true` /
+ * `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']`）。
  *
  * **enforce 点 = 本函数（options-builder 层）**，**禁** `bridge.startThread` hardcode default
  * （污染普通 codex session lead 路径）。普通 codex session（agentName 缺省 / 非 reviewer-*）
- * 走 caller 显式字段路径，不被 spread 污染（不变量 6）。
+ * 走 caller 显式字段路径，不被 spread 污染（不变量 6）。reviewer-* 的 codexSandbox 不在本层
+ * 强制覆盖，沿用 caller 显式值 / same-adapter 继承 / target adapter 默认值。
  *
  * **信号源 = `raw.agentName`**（v4 D7）：禁用 `opts.spawnedBy` 反向信号源（v3 错误信号 — spawn
  * link 在 spawn handler `setSpawnLink` 后才写库，adapter.createSession 时刻 spawned_by 还没
@@ -148,24 +146,14 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   // sdk-bridge resume,详 plan §不变量 5)。
   if (raw.handOff !== undefined) out.handOff = raw.handOff;
 
-  // plan §P3 Step 3.5 + §不变量 6: codex teammate spawn (REVIEWER_AGENT_NAMES SSOT) unsafe
-  // default spread enforce 点。caller 路径 / 普通 codex session 走 raw.agentName 缺省 /
-  // 非 reviewer-* 路径,不进本分支不被污染。
+  // plan §P3 Step 3.5 + §不变量 6: codex reviewer teammate spawn (REVIEWER_AGENT_NAMES
+  // SSOT) runtime default spread enforce 点。caller 路径 / 普通 codex session 走
+  // raw.agentName 缺省 / 非 reviewer-* 路径,不进本分支不被污染。
   // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.2 修法(A1-MED-2 claude):用
   // isReviewerAgentName SSOT guard 替代 hardcode `=== 'reviewer-claude' || === 'reviewer-codex'`。
   if (isReviewerAgentName(raw.agentName)) {
-    // P5 Round 1 reviewer-claude M3 / reviewer-codex M3 修法 (override warn for caller debug):
-    // caller 显式传 codexSandbox 给 reviewer-* 会被 override → log warn 让 caller 在主进程
-    // log 看到「我设的 read-only 怎么 reviewer 还能写文件」debug 路径不静默(schema 文案已明示
-    // reviewer-* 路径不 override 契约,本 warn 是落地实证 + 调试信号)。
-    if (raw.codexSandbox !== undefined && raw.codexSandbox !== 'workspace-write') {
-      logger.warn(
-        `reviewer-* spawn (agent_name=${raw.agentName}) ignoring caller codex_sandbox='${raw.codexSandbox}' — reviewer body design requires workspace-write (read source + write /tmp middleware files). plan §不变量 6 enforce.`,
-      );
-    }
-    // codexSandbox 强制 'workspace-write'(不允许 caller 覆盖) — reviewer 必须能写 worktree 内
-    // cache 副本 + 跨目录读 plan / claude config / codex config(配合 additionalDirectories)
-    out.codexSandbox = 'workspace-write';
+    // codexSandbox 不在 reviewer 分支强制覆盖。spawn handler 已在本函数前完成
+    // caller explicit > same-adapter inherit > target default 的 effective 计算；这里保留该值。
     // approvalPolicy='never' 跳过 codex CLI 工具审批弹窗(reviewer 是 in-process bridge 派发,
     // PendingTab UI 走应用层 / 没有 user 在 codex CLI 直接审批的入口)
     out.approvalPolicy = 'never';

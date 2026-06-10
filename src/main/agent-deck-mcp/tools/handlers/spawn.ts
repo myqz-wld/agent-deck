@@ -329,8 +329,9 @@ export const spawnSessionHandler = withMcpGuard(
             teamName: args.teamName,
             // plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D7（信号源）：透传
             // args.agentName → options-builder narrowToCodexOpts 按 reviewer-* 路径触发 codex
-            // teammate spawn default spread（4 字段 unsafe default：codexSandbox /
-            // approvalPolicy / networkAccessEnabled / additionalDirectories）。
+            // reviewer teammate runtime default spread（approvalPolicy / networkAccessEnabled /
+            // additionalDirectories）。codexSandbox 已按普通 spawn 规则在 effectiveCodexSandbox
+            // 里完成 caller 显式 / same-adapter 继承 / target default 选择。
             //
             // 仅 codex-cli adapter 消费；claude-code adapter narrow 时 filter 掉
             // （narrowToClaudeOpts 不引用 agentName 字段）。

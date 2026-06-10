@@ -118,7 +118,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      'Optional sandbox for a codex-cli spawned session. Omit it to inherit from a same-adapter codex caller; cross-adapter spawns use the codex adapter default. Bundled reviewer agents use workspace-write defaults so they can read source and write temporary verification files.',
+      'Optional sandbox for a codex-cli spawned session, including bundled reviewer agents. Omit it to inherit from a same-adapter codex caller; cross-adapter spawns use the codex adapter default.',
     ),
   claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])

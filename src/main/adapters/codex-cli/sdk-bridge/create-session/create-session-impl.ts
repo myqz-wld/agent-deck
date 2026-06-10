@@ -121,7 +121,8 @@ export async function createSessionImpl(
       // additionalDirectories）从 opts 读，bridge **不主动 enforce default**。caller 缺省 →
       // approvalPolicy 沿用 'never'（现状）；networkAccessEnabled / additionalDirectories
       // 不写字段（codex SDK 走 ThreadOptions 默认）。options-builder 在 reviewer-* 路径下
-      // 已 spread 4 字段 unsafe default,这里直接透传不影响普通 codex session lead 路径。
+      // 已 spread reviewer runtime defaults（approvalPolicy / networkAccessEnabled /
+      // additionalDirectories）,这里直接透传不影响普通 codex session lead 路径。
       thread = codex.resumeThread(
         effectiveResumeThreadId,
         buildCodexThreadOptions({

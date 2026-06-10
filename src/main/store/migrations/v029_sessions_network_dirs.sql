@@ -2,7 +2,7 @@
 -- networkAccessEnabled + additionalDirectories 持久化到 sessions 表（cross-adapter parity，
 -- 镜像 v019 extra_allow_write / v008 codex_sandbox 同款 per-session resilience 模式）。
 --
--- 问题：options-builder.ts narrowToCodexOpts 在 reviewer-* 分支注入 4 个 unsafe default。
+-- 问题：options-builder.ts narrowToCodexOpts 在 reviewer-* 分支注入 reviewer runtime defaults。
 -- 其中 codexSandbox 已 v008 持久化、approvalPolicy 有 buildCodexThreadOptions `?? 'never'`
 -- fallback，唯独 networkAccessEnabled + additionalDirectories **既不持久化也无 fallback** →
 -- app 重启 / dev hot reload / main crash 后 sessions Map miss → recover 路径 createSession

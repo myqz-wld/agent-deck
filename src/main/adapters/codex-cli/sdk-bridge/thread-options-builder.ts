@@ -28,7 +28,7 @@ export interface BuildCodexThreadOptionsArgs {
   approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never';
   /** spawn handler frontmatter `model` 字段 */
   model?: string;
-  /** options-builder 在 reviewer-* 路径下 spread unsafe default;普通 codex session 缺省 */
+  /** options-builder 在 reviewer-* 路径下 spread reviewer runtime default;普通 codex session 缺省 */
   networkAccessEnabled?: boolean;
   /** 同上,caller 缺省 → 不写字段 → SDK 走默认值 */
   additionalDirectories?: readonly string[];

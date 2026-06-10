@@ -60,7 +60,7 @@ export interface PersistSessionFieldsArgs {
   extraAllowWrite?: readonly string[];
   /**
    * plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn 时 options-builder
-   * 注入的 `networkAccessEnabled` unsafe default。**与 extraAllowWrite 关键区别：codex SDK
+   * 注入的 `networkAccessEnabled` reviewer runtime default。**与 extraAllowWrite 关键区别：codex SDK
    * runtime 真消费**（经 buildCodexThreadOptions → startThread/resumeThread 的
    * ThreadOptions.networkAccessEnabled），持久化是为了 recover / restart 路径读回还原 reviewer
    * 网络访问能力 —— **不是** extraAllowWrite 那种 persist-only no-op，故下方写入**不打 warn**。
@@ -71,9 +71,9 @@ export interface PersistSessionFieldsArgs {
   networkAccessEnabled?: boolean;
   /**
    * plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn 时 options-builder
-   * 注入的 `additionalDirectories` unsafe default。**codex SDK runtime 真消费**（经
+   * 注入的 `additionalDirectories` reviewer runtime default。**codex SDK runtime 真消费**（经
    * buildCodexThreadOptions → startThread/resumeThread 的 ThreadOptions.additionalDirectories
-   * 让 sandbox=workspace-write 额外允许这些根），持久化为 recover / restart 还原跨目录访问能力。
+   * 把这些根加入当前 sandbox 可访问范围），持久化为 recover / restart 还原跨目录访问能力。
    * 与 extraAllowWrite 不同（那个 codex 不消费），故写入**不打 warn**。
    *
    * undefined / 空数组 → 跳过持久化（保留原值）。非空数组 → setAdditionalDirectories 写入。

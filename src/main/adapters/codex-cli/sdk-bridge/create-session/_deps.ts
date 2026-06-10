@@ -82,11 +82,12 @@ export interface CreateSessionOpts {
    *
    * **P5 Round 1 reviewer-codex M1 修法 (clarify 不变量 6 边界)**：
    * bridge 层 fallback `?? 'never'` 是 **in-process 安全基线**(主进程跑 codex SDK 无 UI 应答
-   * approval 弹窗,'on-request' 会让子进程挂死等审批)— 与 sandboxMode / networkAccessEnabled /
-   * additionalDirectories 三 reviewer-* 专属 unsafe default **语义不同**。
+   * approval 弹窗,'on-request' 会让子进程挂死等审批)— 与 networkAccessEnabled /
+   * additionalDirectories 两个 reviewer-* runtime default **语义不同**。sandboxMode 不再是
+   * reviewer 专属 default,而是走普通 caller 显式 / same-adapter 继承 / target default 链。
    *
    * **不变量 6 修订理解**：
-   * - 3 字段 `sandboxMode / networkAccessEnabled / additionalDirectories` reviewer-* 专属 spread
+   * - 2 字段 `networkAccessEnabled / additionalDirectories` reviewer-* 专属 spread
    *   (普通 codex session lead 路径**不**应注入,options-builder narrowToCodexOpts 守门)
    * - 1 字段 `approvalPolicy` **所有 codex session 共享**'never' 基线,bridge 兜底 + options-builder
    *   reviewer-* 路径冗余设置(都为 'never',无 contention)。caller 显式传 'on-request' 仅在 codex CLI
