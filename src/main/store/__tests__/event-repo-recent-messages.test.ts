@@ -262,4 +262,32 @@ describe.skipIf(!bindingAvailable)('event-repo listRecentMessages / maxEventId (
     const rows = mod.eventRepo.listRecentMessages('sess-A', 9999);
     expect(rows).toHaveLength(5);
   });
+
+  // ─── 坏行隔离回归：单行 payload_json 损坏不毒化整批查询（rowToEvent skip + warn 而非 throw）───
+  // 修前：rowToEvent 对 JSON.parse 失败 re-throw，rows.map 批量转换让一行坏数据使
+  // listForSession / listRecentMessages / findTeamEvents 整个查询抛错 → 该会话活动流永久打不开。
+  // 写入侧有 safeStringifyPayload 守护，坏行只可能来自磁盘损坏 / 外部写入 → skip + warn 隔离。
+  it('坏行隔离：listForSession 跳过 payload_json 损坏的行，返回其余正常行', () => {
+    insertMessage(testDb, 'sess-A', 'user', '正常消息 1', 1000);
+    testDb
+      .prepare(`INSERT INTO events (session_id, kind, payload_json, ts) VALUES (?, 'message', ?, ?)`)
+      .run('sess-A', '{broken json!!', 1001);
+    insertMessage(testDb, 'sess-A', 'assistant', '正常消息 2', 1002);
+
+    const rows = mod.eventRepo.listForSession('sess-A');
+    expect(rows).toHaveLength(2);
+    const texts = rows.map((r) => (r.payload as { text: string }).text).sort();
+    expect(texts).toEqual(['正常消息 1', '正常消息 2']);
+  });
+
+  it('坏行隔离：listRecentMessages 同样跳过损坏行不抛错', () => {
+    insertMessage(testDb, 'sess-A', 'user', '正常消息', 1000);
+    testDb
+      .prepare(`INSERT INTO events (session_id, kind, payload_json, ts) VALUES (?, 'message', ?, ?)`)
+      .run('sess-A', 'not-json-at-all', 1001);
+
+    const rows = mod.eventRepo.listRecentMessages('sess-A', 30);
+    expect(rows).toHaveLength(1);
+    expect((rows[0].payload as { text: string }).text).toBe('正常消息');
+  });
 });

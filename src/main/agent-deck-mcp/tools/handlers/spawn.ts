@@ -384,7 +384,20 @@ export const spawnSessionHandler = withMcpGuard(
       // **[caller-scoped #1/4]** spawn-link 写入(grep anchor 详 L148-160 callerExists 定义)
       if (callerExists && shouldWriteSpawnLink({ handOffMode: opts?.handOffMode })) {
         const newDepth = parentDepth + 1;
-        sessionRepo.setSpawnLink(sid, caller.callerSessionId, newDepth);
+        try {
+          sessionRepo.setSpawnLink(sid, caller.callerSessionId, newDepth);
+        } catch (e) {
+          // 此时 createSession 已成功（SDK 子进程已起）。若让本抛错落到外层 catch，会
+          // return err 提示「createSession failed; no session created」误导 caller 重试 →
+          // 孤儿活会话 + 重复 spawn。降级处理：spawnedBy 留 NULL（fan-out 反查少计 1 个
+          // child + SessionList 树形分组缺这条边），远比孤儿会话 + 误导性错误轻 → 仅 warn
+          // 不阻塞 spawn 成功返回（与 recordCreatedPermissionMode REVIEW_85 MED-B 同款）。
+          // 注意仍在 finally release 之前完成（保 MED-1 fan-out race 修法的顺序保证）。
+          logger.warn(
+            `[mcp spawn_session] setSpawnLink(${sid}, ${caller.callerSessionId}, ${newDepth}) failed; spawnedBy left NULL:`,
+            e,
+          );
+        }
       }
     } catch (e) {
       fanOutSlot.release();

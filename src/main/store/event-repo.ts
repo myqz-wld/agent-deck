@@ -25,19 +25,26 @@ interface PayloadParseContext {
   ts?: number;
 }
 
-function rowToEvent(r: Row): AgentEvent & { id: number } {
+/**
+ * 单行 → AgentEvent。payload JSON 损坏时返 null（warn 落盘）而**不是 throw**：
+ * list 类查询都是 `rows.map(...)` 批量转换，单行坏数据若 throw 会让整个会话的
+ * 活动流 / 团队事件流 / resume 注入永久读取失败（一行毒化全批）。写入侧有
+ * safeStringifyPayload 守护，坏行只可能来自磁盘损坏 / 外部写入 —— skip + warn
+ * 与同文件 parsePayloadJson（merge 路径降级返 null）策略对齐。
+ */
+function rowToEvent(r: Row): (AgentEvent & { id: number }) | null {
   let payload: unknown;
   try {
     payload = JSON.parse(r.payload_json) as unknown;
   } catch (err) {
-    logger.warn('[event-repo] payload JSON parse failed', {
+    logger.warn('[event-repo] payload JSON parse failed; row skipped', {
       operation: 'row-to-event',
       eventId: r.id,
       sessionId: r.session_id,
       kind: r.kind,
       ts: r.ts,
     }, err);
-    throw err;
+    return null;
   }
   return {
     id: r.id,
@@ -47,6 +54,16 @@ function rowToEvent(r: Row): AgentEvent & { id: number } {
     payload,
     ts: r.ts,
   };
+}
+
+/** 批量转换 + 跳过坏行（rowToEvent 返 null 的行被过滤，详 rowToEvent jsdoc）。 */
+function rowsToEvents(rows: Row[]): (AgentEvent & { id: number })[] {
+  const out: (AgentEvent & { id: number })[] = [];
+  for (const r of rows) {
+    const e = rowToEvent(r);
+    if (e) out.push(e);
+  }
+  return out;
 }
 
 /**
@@ -156,7 +173,7 @@ export const eventRepo = {
         `SELECT * FROM events WHERE session_id = ? ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?`,
       )
       .all(sessionId, limit, offset) as Row[];
-    return rows.map(rowToEvent);
+    return rowsToEvents(rows);
   },
 
   countForSession(sessionId: string, sinceTs?: number): number {
@@ -198,7 +215,7 @@ export const eventRepo = {
          ORDER BY ts DESC, id DESC LIMIT ?`,
       )
       .all(...sessionIds, limit) as Row[];
-    return rows.map(rowToEvent);
+    return rowsToEvents(rows);
   },
 
   /**
@@ -219,24 +236,30 @@ export const eventRepo = {
    * SQL 注：sqlite3 json_extract 把 JSON true→1 / false→0 / 字段不存在→SQL NULL。
    * 所以 `error IS NULL OR error = 0` 同时覆盖「无 error 字段」「error: false」「明确 null」。
    * 同毫秒 ts 加 `id DESC` tie-breaker 取最晚插入那条 assistant message（REVIEW_91）。
+   *
+   * **坏行隔离**（与 rowToEvent skip 同根因）：json_extract 对 malformed JSON 是 SQL 级
+   * runtime error，单行损坏会让整个查询抛错。用 CASE WHEN json_valid 包住（CASE 保证
+   * 条件求值顺序；裸 `json_valid(x) AND json_extract(x)` 的 AND 项 SQLite 不保证求值序）。
    */
   findLatestAssistantMessage(
     sessionId: string,
     sinceTs?: number,
   ): { text: string; ts: number } | null {
+    const validAssistantCond = `CASE WHEN json_valid(payload_json) THEN (
+             json_extract(payload_json, '$.role') = 'assistant'
+             AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+           ) ELSE 0 END`;
     const sql = sinceTs
       ? `SELECT id, payload_json, ts FROM events
          WHERE session_id = ?
            AND kind = 'message'
-           AND json_extract(payload_json, '$.role') = 'assistant'
-           AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+           AND ${validAssistantCond}
            AND ts >= ?
          ORDER BY ts DESC, id DESC LIMIT 1`
       : `SELECT id, payload_json, ts FROM events
          WHERE session_id = ?
            AND kind = 'message'
-           AND json_extract(payload_json, '$.role') = 'assistant'
-           AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+           AND ${validAssistantCond}
          ORDER BY ts DESC, id DESC LIMIT 1`;
     const row = (sinceTs
       ? getDb().prepare(sql).get(sessionId, sinceTs)
@@ -303,25 +326,29 @@ export const eventRepo = {
     // message + 全量 JSON.parse（长会话 OOM 风险）/ `LIMIT 0` = 静默空。clamp [1, 200] 与
     // injectResumeHistory 入口对齐；`|| 30` 兜 NaN（Number.isFinite 失败 → fallback default）。
     const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit)) || 30));
+    // 坏行隔离：CASE WHEN json_valid 包住 json_extract（malformed JSON 是 SQL 级 error，
+    // 单行损坏会毒化整个查询；详 findLatestAssistantMessage 同款注释）。
+    const validDialogCond = `CASE WHEN json_valid(payload_json) THEN (
+               json_extract(payload_json, '$.role') IN ('user', 'assistant')
+               AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+             ) ELSE 0 END`;
     const sql =
       beforeIdInclusive !== undefined
         ? `SELECT * FROM events
            WHERE session_id = ?
              AND kind = 'message'
-             AND json_extract(payload_json, '$.role') IN ('user', 'assistant')
-             AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+             AND ${validDialogCond}
              AND id <= ?
            ORDER BY ts DESC, id DESC LIMIT ?`
         : `SELECT * FROM events
            WHERE session_id = ?
              AND kind = 'message'
-             AND json_extract(payload_json, '$.role') IN ('user', 'assistant')
-             AND (json_extract(payload_json, '$.error') IS NULL OR json_extract(payload_json, '$.error') = 0)
+             AND ${validDialogCond}
            ORDER BY ts DESC, id DESC LIMIT ?`;
     const rows = (beforeIdInclusive !== undefined
       ? getDb().prepare(sql).all(sessionId, beforeIdInclusive, safeLimit)
       : getDb().prepare(sql).all(sessionId, safeLimit)) as Row[];
-    return rows.map(rowToEvent);
+    return rowsToEvents(rows);
   },
 
   /**
@@ -356,12 +383,15 @@ export const eventRepo = {
    */
   hasToolUseStartWithFilePath(sessionId: string, filePath: string): boolean {
     if (!sessionId || !filePath) return false;
+    // 坏行隔离：CASE WHEN json_valid 同款守卫（详 findLatestAssistantMessage 注释）。
     const r = getDb()
       .prepare(
         `SELECT 1 FROM events
          WHERE session_id = ?
            AND kind = 'tool-use-start'
-           AND json_extract(payload_json, '$.toolInput.file_path') = ?
+           AND CASE WHEN json_valid(payload_json)
+                 THEN json_extract(payload_json, '$.toolInput.file_path') = ?
+                 ELSE 0 END
          LIMIT 1`,
       )
       .get(sessionId, filePath);
@@ -389,6 +419,6 @@ export const eventRepo = {
          ORDER BY ts ASC, id ASC LIMIT ?`,
       )
       .all(sessionId, fromTs, toTs, limit) as Row[];
-    return rows.map(rowToEvent);
+    return rowsToEvents(rows);
   },
 };
