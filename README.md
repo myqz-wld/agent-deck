@@ -325,7 +325,8 @@ scripts/
 ├── gen-icon-ico.mjs       从 icon.png 生成 icon.ico（pnpm icon:gen）
 ├── test-electron.mjs      用 Electron 内置 node（ABI 130）跑 vitest，让 better-sqlite3 单测真跑不 skip（pnpm test）
 ├── verify-fts5.sh         sqlite3 CLI 真 SQL 集成校验（FTS5 schema + 触发器 + MATCH 谓词）
-└── logger-check.sh        grep CI 守门：src/main + src/renderer 0 console.X 残留 + logger.ts 模块独立性自检（pnpm logger:check；依赖 ripgrep）
+├── logger-check.sh        grep CI 守门：src/main + src/renderer 0 console.X 残留 + logger.ts 模块独立性自检（pnpm logger:check；依赖 ripgrep）
+└── file-level-review-expiry.sh  review 过期机械检查（见 CLAUDE.md §Review 过期与最小复审范围）
 ```
 
 ---
