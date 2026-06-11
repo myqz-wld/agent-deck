@@ -81,9 +81,16 @@ export function App(): JSX.Element {
   // 新增的 pending 不被快照抹掉。
   useEffect(() => {
     let cancelled = false;
-    void window.api.listAdapterPendingAll('claude-code').then((map) => {
-      if (cancelled) return;
-      setPendingAll(map);
+    void window.api.listAdapters().then(async (adapters) => {
+      for (const adapter of adapters) {
+        try {
+          const map = await window.api.listAdapterPendingAll(adapter.id);
+          if (cancelled) return;
+          setPendingAll(map);
+        } catch (err) {
+          console.warn(`[app] listAdapterPendingAll(${adapter.id}) failed`, err);
+        }
+      }
     });
     return () => {
       cancelled = true;

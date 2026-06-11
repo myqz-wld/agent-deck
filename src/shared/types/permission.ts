@@ -72,6 +72,13 @@ export interface ExitPlanModeRequest {
   type: 'exit-plan-mode';
   requestId: string;
   toolUseId?: string;
+  /**
+   * Omitted/adapter = native Claude ExitPlanMode. mcp = Agent Deck MCP
+   * request_plan_review, which reuses the same UI but does not change SDK
+   * permission mode when approved.
+   */
+  reviewSource?: 'adapter' | 'mcp';
+  title?: string;
   /** plan 内容，通常是 markdown 文本（从 toolInput.plan 取） */
   plan: string;
 }

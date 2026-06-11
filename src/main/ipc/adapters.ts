@@ -17,6 +17,7 @@ import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { eventBus } from '@main/event-bus';
+import { planReviewService } from '@main/plan-review/service';
 import {
   on,
   IpcInputError,
@@ -38,6 +39,12 @@ import type {
 import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-adapters');
+
+function mergeExitPlanModes<T extends { requestId: string }>(base: T[], extra: T[]): T[] {
+  if (extra.length === 0) return base;
+  const seen = new Set(base.map((req) => req.requestId));
+  return [...base, ...extra.filter((req) => !seen.has(req.requestId))];
+}
 
 /**
  * 校验 + 写盘 attachments。失败抛错，由调用方决定回滚兄弟附件。
@@ -341,13 +348,24 @@ export function registerAdaptersIpc(): void {
     return true;
   });
   on(IpcInvoke.AdapterRespondExitPlanMode, async (_e, agentId, sessionId, requestId, response) => {
+    const sid = parseStringId('sessionId', sessionId);
+    const rid = parseStringId('requestId', requestId);
+    if (
+      planReviewService.respond(
+        sid,
+        rid,
+        response as Parameters<typeof planReviewService.respond>[2],
+      )
+    ) {
+      return true;
+    }
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.respondExitPlanMode) {
       throw new Error('adapter cannot respond to ExitPlanMode');
     }
     await adapter.respondExitPlanMode(
-      parseStringId('sessionId', sessionId),
-      parseStringId('requestId', requestId),
+      sid,
+      rid,
       response as Parameters<NonNullable<typeof adapter.respondExitPlanMode>>[2],
     );
     return true;
@@ -399,13 +417,28 @@ export function registerAdaptersIpc(): void {
 
   on(IpcInvoke.AdapterListPending, (_e, agentId, sessionId) => {
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
-    if (!adapter?.listPending) return { permissions: [], askQuestions: [], exitPlanModes: [] };
-    return adapter.listPending(parseStringId('sessionId', sessionId));
+    const sid = parseStringId('sessionId', sessionId);
+    const base = adapter?.listPending
+      ? adapter.listPending(sid)
+      : { permissions: [], askQuestions: [], exitPlanModes: [] };
+    return {
+      ...base,
+      exitPlanModes: mergeExitPlanModes(base.exitPlanModes, planReviewService.listPending(sid)),
+    };
   });
   on(IpcInvoke.AdapterListPendingAll, (_e, agentId) => {
-    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
-    if (!adapter?.listAllPending) return {};
-    return adapter.listAllPending();
+    const validAgentId = parseStringId('agentId', agentId, 64);
+    const adapter = adapterRegistry.get(validAgentId);
+    const out = adapter?.listAllPending ? adapter.listAllPending() : {};
+    const mcpPlanReviews = planReviewService.listAllPending(validAgentId);
+    for (const [sid, exitPlanModes] of Object.entries(mcpPlanReviews)) {
+      const cur = out[sid] ?? { permissions: [], askQuestions: [], exitPlanModes: [] };
+      out[sid] = {
+        ...cur,
+        exitPlanModes: mergeExitPlanModes(cur.exitPlanModes, exitPlanModes),
+      };
+    }
+    return out;
   });
 
   /**

@@ -48,6 +48,8 @@ When MCP task tools are unavailable, write progress into the plan file, handoff 
 
 For complex, cross-session, high-risk, or isolated work, write a durable plan before entering a worktree or handing off. The plan path must be absolute and supplied by the caller, project convention, or current workflow; this baseline does not assume any built-in plan directory.
 
+Codex has no native Plan mode. When you have a plan that needs explicit user review before execution, call `mcp__agent-deck__request_plan_review({ plan, title? })`. Proceed only after `decision: "approved"`; if it returns `decision: "revise"`, update the plan using the returned feedback and ask again when needed.
+
 The plan must let a successor session continue without reading prior chat history:
 
 - Goal and invariants.
@@ -85,6 +87,7 @@ Session tools:
 - `spawn_session`: starts a parallel SDK session; passing `teamName` creates a shared team and returns `spawnPromptMessageId`.
 - `hand_off_session`: starts a successor session and transfers caller resources.
 - `send_message`: sends a normal message or a reply with `replyToMessageId`.
+- `request_plan_review`: shows a markdown plan in Agent Deck's plan review UI and waits for the user's approval or revision feedback.
 - `list_sessions` / `get_session`: read-only session queries.
 - `shutdown_session`: marks the session `closed` and stops the live query; it does not delete events, messages, file changes, or summaries.
 

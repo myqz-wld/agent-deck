@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { type JSX, type ReactNode, isValidElement } from 'react';
+import { memo, type JSX, type ReactNode, isValidElement } from 'react';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 // 按需 import 常用 language（按 reviewer 输出 / 用户对话最高频的语种），bundle 受控。
@@ -211,3 +211,5 @@ export function MarkdownText({ text }: Props): JSX.Element {
 function hasLanguageClassName(value: unknown): boolean {
   return typeof value === 'string' && /language-/.test(value);
 }
+
+export const MemoizedMarkdownText = memo(MarkdownText);

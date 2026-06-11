@@ -14,7 +14,7 @@
 - **多会话聚合**：应用内 SDK 创建（**内**）+ 外部终端 CLI hook 上报（**外**）共一份视图，三段 tab：实时 / 待处理 / 历史
 - **活动流 + Diff + 总结**：每条会话点开看消息时间线、按文件分组的 Monaco DiffEditor、阶段性 LLM 一句话总结；Task 工具调用专门渲染（subagent 名 + 紫色 chip + prompt 全文折叠/展开）
 - **控制权交接提醒**：waiting → 红闪烁 + 提示音 + 系统通知 + Dock 弹跳；finished → 黄 + 完成音；可逐项关闭，可换自定义提示音
-- **三类人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Plan mode 执行计划批准 —— 全部在活动流卡片里直接处理。批准 plan 时可选目标权限模式（默认 / 自动接受编辑 / 保持 Plan / 完全免询问）；切到「完全免询问」会自动重启 SDK 子进程
+- **人机交互内嵌响应**（仅 SDK 会话）：工具权限请求、Claude 主动询问、Claude Plan mode 执行计划批准、MCP `request_plan_review` 计划检阅 —— 全部在活动流卡片里直接处理。批准 Claude Plan mode 时可选目标权限模式（默认 / 自动接受编辑 / 保持 Plan / 完全免询问）；切到「完全免询问」会自动重启 SDK 子进程
 - **OS 级沙盒**：Claude Code / Deepseek（Claude Code）SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐。**三件套**（与 Codex 完全对称）：① 全局默认（设置面板，默认 workspace-write）；② 新建会话覆盖（NewSessionDialog 4 档下拉「跟随设置 / off / workspace-write / strict」）；③ 会话内运行时切档（SessionDetail 输入区上方下拉，切到 `off` 弹 confirm，切到 `workspace-write` / `strict` 直接生效，5-10s 冷切重启 SDK 子进程）
 - **Universal Team Backend**：cross-adapter（claude-code / deepseek-claude-code / codex-cli）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent-deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；Team tab 可把现有活跃会话手动加入已有团队；`mcp__agent-deck__send_message` 走 DB queue 投递并自动把 reply 注入 lead conversation。**无需共享 team 也能互发**：caller 与 target 无 shared active team 时 `send_message` 自动降级 teamless DM（消息仍注入目标会话，只是不进 team 聚合面板）。**CLI 内自起的 inbox-only team 在 agent-deck UI 不可见**（应通过 `mcp__agent-deck__spawn_session` 起 team 进 universal backend）
 - **输入框图片附件**：会话主输入框 + 新建会话 dialog 都支持「粘贴 / 拖放 / 上传按钮」三件套发图（PNG / JPEG / GIF / WebP，单图 ≤ 20MB / 单条总附件 ≤ 30MB）。Claude SDK 走 base64 image content block，Codex SDK 接 `local_image` 文件路径，主进程统一把 base64 落盘到 `<userData>/image-uploads/<uuid>.<ext>` 喂下游；历史 detail view 里能看到自己发了什么图，14 天孤儿文件 reaper 自动清理
@@ -237,10 +237,10 @@ agent-deck new \
     - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict，默认 Workspace Write）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免。本档位是「全局默认」；新建会话对话框可 per-session 覆盖；会话内可运行时切档冷切重启
     - **Codex 沙盒**：三档下拉（Workspace Write / Read Only / Danger Full Access），与 Claude 默认对齐
 - **跨工具协作（MCP）**
-  - **Agent Deck MCP server（默认开）**：启用后让 claude / deepseek / codex / 第三方 MCP client 通过 16 个 tool（6 个 session：`spawn_session` / `send_message` / `list_sessions` / `get_session` / `shutdown_session` / `hand_off_session`；2 个 worktree：`enter_worktree` / `exit_worktree`；5 个 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`；3 个 issue：`report_issue` / `append_issue_context` / `update_issue_status`）跨 adapter 编排其他 coding agent session、管理结构化任务并上报 issue。transport：
+  - **Agent Deck MCP server（默认开）**：启用后让 claude / deepseek / codex / 第三方 MCP client 通过 17 个 tool（7 个 session / interaction：`spawn_session` / `send_message` / `request_plan_review` / `list_sessions` / `get_session` / `shutdown_session` / `hand_off_session`；2 个 worktree：`enter_worktree` / `exit_worktree`；5 个 task：`task_create` / `task_list` / `task_get` / `task_update` / `task_delete`；3 个 issue：`report_issue` / `append_issue_context` / `update_issue_status`）跨 adapter 编排其他 coding agent session、请求用户检阅计划、管理结构化任务并上报 issue。transport：
     - **in-process**：claude SDK 会话自动挂
     - **HTTP** `/mcp`：codex 启动时通过 SDK config 自动注入 `mcp_servers.agent-deck` 段连接（独立 Bearer token，env var `AGENT_DECK_MCP_TOKEN` 引用）；外部 MCP client 也可连
-    - **external caller 限制**：没有 per-session 身份的连接（外部 MCP client / HTTP 全局 token fallback）仅允许 3 个只读 tool（`list_sessions` / `get_session` / `task_list`）；其余 13 个 tool（`spawn_session` / `send_message` / `shutdown_session` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `task_create` / `task_get` / `task_update` / `task_delete` / `report_issue` / `append_issue_context` / `update_issue_status`）一律 deny external，防 fork bomb / 跨 client 越权。stdio transport 代码已就绪但 `agent-deck mcp` CLI 入口当前未接线
+    - **external caller 限制**：没有 per-session 身份的连接（外部 MCP client / HTTP 全局 token fallback）仅允许 3 个只读 tool（`list_sessions` / `get_session` / `task_list`）；其余 14 个 tool（`spawn_session` / `send_message` / `request_plan_review` / `shutdown_session` / `hand_off_session` / `enter_worktree` / `exit_worktree` / `task_create` / `task_get` / `task_update` / `task_delete` / `report_issue` / `append_issue_context` / `update_issue_status`）一律 deny external，防 fork bomb / 跨 client 越权。stdio transport 代码已就绪但 `agent-deck mcp` CLI 入口当前未接线
 
     防递归规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 20） / 单 caller 最大子会话（默认 10） / cwd realpath 整链回溯 cycle 检测；message rate limit（默认 60/min）：team message 按 per-team 桶，teamless DM 按 per-sender 桶（同发送方跨所有 receiver 共享单桶）。reply 不再轮询等待，`send_message` 送达后由 universal-message-watcher 自动注入目标会话和 reply chain。task 工具自动闭包 owner_session_id = caller_session_id；写权限同 team active member 共享；hand_off_session baton 时自动过继 task。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值；协议细节以本 README、内置 CLAUDE.md / CODEX_AGENTS.md 和 MCP tool descriptions 为准。
 
@@ -284,7 +284,7 @@ src/
 │   │   ├── claude-code/   hook 路由 + hook installer + SDK bridge + CLAUDE.md / skill / agents 注入 + sandbox-config（三档 OS 隔离配置）
 │   │   ├── deepseek-claude-code/ Claude Code SDK profile wrapper；从 ~/.agent_deck/.deepseek/settings.json 注入 DeepSeek env，复用 Claude 侧资源
 │   │   └── codex-cli/     codex app-server JSON-RPC bridge（pendingMessages 串行 turn + interrupt + steer）
-│   ├── agent-deck-mcp/    Agent Deck MCP server（16 tool + in-process / HTTP transport + spawn-guards / rate-limiter）
+│   ├── agent-deck-mcp/    Agent Deck MCP server（17 tool + in-process / HTTP transport + spawn-guards / rate-limiter）
 │   ├── session/           SessionManager / LifecycleScheduler / Summarizer
 │   ├── teams/             Universal Team Backend：universal-message-watcher（cross-adapter team message 投递）+ team-lifecycle-scheduler
 │   ├── notify/            sound.ts（跨平台播放 + 防叠播 + 5s 上限）/ visual.ts（系统通知 + Dock）

@@ -1,12 +1,15 @@
-import { useState, type JSX } from 'react';
+import { useMemo, useState, type JSX } from 'react';
 import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
 import log from '@renderer/utils/logger';
-import { MarkdownText } from '../MarkdownText';
+import { MemoizedMarkdownText } from '../MarkdownText';
 
 const logger = log.scope('renderer-exit-plan-row');
+const PLAN_COLLAPSE_THRESHOLD_CHARS = 1_800;
+const PLAN_COLLAPSE_THRESHOLD_LINES = 36;
 
 /**
- * ExitPlanMode 行（markdown plan + 二选一按钮）。接口同 PermissionRow 模式。
+ * ExitPlanMode / MCP plan review row. Native Claude ExitPlanMode keeps the
+ * permission-mode selector; MCP plan review is approval/feedback only.
  */
 export function ExitPlanRow({
   event,
@@ -28,19 +31,23 @@ export function ExitPlanRow({
   onResolved: (sessionId: string, requestId: string) => void;
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
-  // 「继续规划」时可选反馈输入框，默认折叠；点了「继续规划」按钮且 feedback 为空时，
-  // 展开输入框让用户可以补充意见再确认；如果用户已写过反馈直接发送，跳过 confirm 步骤。
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
-  // 批准时切到的目标权限模式（plan 通过 ▾ 下拉选）。
-  // - 热档（default/acceptEdits/plan）：respondExitPlanMode 内部走 query.setPermissionMode 热切
-  // - bypass：必须冷切（重启 SDK 子进程），点击前弹 confirmDialog 二次确认。
-  // 默认 acceptEdits：plan 批准后接着自动接受编辑是高频用例。
   const [targetMode, setTargetMode] = useState<
     'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
   >('acceptEdits');
+
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
-  const plan = payload.plan ?? '';
+  const plan = payload.plan || '(计划内容为空)';
+  const isMcpPlanReview = payload.reviewSource === 'mcp';
+  const actorName = isMcpPlanReview ? '模型' : 'Claude';
+
+  const targetModeLabel: Record<typeof targetMode, string> = {
+    default: '每次询问',
+    acceptEdits: '自动接受编辑',
+    plan: '继续计划模式',
+    bypassPermissions: '⚠️ 不再询问',
+  };
 
   const respond = async (response: ExitPlanModeResponse): Promise<void> => {
     if (!isSdk || !stillPending || busy) return;
@@ -49,7 +56,6 @@ export function ExitPlanRow({
       await window.api.respondExitPlanMode(agentId, sessionId, payload.requestId, response);
       onResolved(sessionId, payload.requestId);
     } catch (err) {
-      // 冷切失败时 sdk-bridge 内部已 emit error message + 回滚 DB；这里 row 保持 pending 让用户看到失败
       logger.error('respondExitPlanMode failed', err);
     } finally {
       setBusy(false);
@@ -57,8 +63,11 @@ export function ExitPlanRow({
   };
 
   const onClickApprove = async (): Promise<void> => {
+    if (isMcpPlanReview) {
+      void respond({ decision: 'approve', targetMode: 'default' });
+      return;
+    }
     if (targetMode === 'bypassPermissions') {
-      // bypass 冷切：会重启 SDK 子进程（5-10s busy）+ 后续完全免询问，强制弹 confirm
       const ok = await window.api.confirmDialog({
         title: '批准并切换到完全免询问',
         message: '需要重启当前会话',
@@ -76,23 +85,12 @@ export function ExitPlanRow({
     void respond({ decision: 'approve', targetMode });
   };
 
-  // 「继续规划」按钮：第一次点击展开反馈框（如果还没展开），第二次/已有反馈直接提交。
-  // 实战体验：避免每次都强制弹输入框（用户大概率没意见也想直接驳回），
-  // 但提供一个「写明白哪儿不满意」的入口，比一句空 deny 让 Claude 瞎猜要好。
   const onClickKeepPlanning = (): void => {
     if (!showFeedback) {
       setShowFeedback(true);
       return;
     }
     void respond({ decision: 'keep-planning', feedback: feedback.trim() || undefined });
-  };
-
-  // 按钮文案：根据 targetMode 显示「批准并切到 X」，bypass 加 ⚠️ 标识
-  const targetModeLabel: Record<typeof targetMode, string> = {
-    default: '每次询问',
-    acceptEdits: '自动接受编辑',
-    plan: '继续计划模式',
-    bypassPermissions: '⚠️ 不再询问',
   };
 
   return (
@@ -116,41 +114,52 @@ export function ExitPlanRow({
           }
         >
           {stillPending
-            ? '📋 收到一个执行计划'
+            ? isMcpPlanReview
+              ? '📋 待检阅计划'
+              : '📋 收到一个执行计划'
             : wasCancelled
-              ? '🚫 计划批准已被取消'
+              ? '🚫 计划检阅已被取消'
               : '✅ 已处理'}
         </span>
+        {payload.title && (
+          <span
+            className="max-w-[16rem] truncate rounded bg-white/[0.06] px-1.5 py-0.5 text-deck-muted/90"
+            title={payload.title}
+          >
+            {payload.title}
+          </span>
+        )}
         <span className="font-mono tabular-nums text-deck-muted/60">{ts}</span>
         {stillPending && isSdk && (
           <div className="ml-auto flex flex-wrap items-center gap-1">
-            {/* targetMode 选档：approve 时切到此档；bypass 走冷切（重启 SDK 子进程） */}
-            <select
-              value={targetMode}
-              disabled={busy}
-              onChange={(e) =>
-                setTargetMode(e.target.value as typeof targetMode)
-              }
-              title="批准计划后切换到的权限模式(完全免询问需要重启会话)"
-              className="rounded border border-deck-border bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
-            >
-              <option value="default" title="每次工具调用前都询问">每次询问</option>
-              <option value="acceptEdits" title="自动允许文件编辑；其他工具仍需询问">自动接受编辑</option>
-              <option value="plan" title="保持计划模式，不执行任何工具">继续计划模式</option>
-              <option value="bypassPermissions" title="不再询问任何工具调用；需要重启会话">⚠️ 不再询问</option>
-            </select>
+            {!isMcpPlanReview && (
+              <select
+                value={targetMode}
+                disabled={busy}
+                onChange={(e) => setTargetMode(e.target.value as typeof targetMode)}
+                title="批准计划后切换到的权限模式(完全免询问需要重启会话)"
+                className="rounded border border-deck-border bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+              >
+                <option value="default" title="每次工具调用前都询问">每次询问</option>
+                <option value="acceptEdits" title="自动允许文件编辑；其他工具仍需询问">自动接受编辑</option>
+                <option value="plan" title="保持计划模式，不执行任何工具">继续计划模式</option>
+                <option value="bypassPermissions" title="不再询问任何工具调用；需要重启会话">⚠️ 不再询问</option>
+              </select>
+            )}
             <button
               type="button"
               disabled={busy}
               onClick={() => void onClickApprove()}
               title={
-                targetMode === 'bypassPermissions'
-                  ? '批准计划并切到完全免询问模式(需重启会话,5-10 秒)'
-                  : `批准计划并切到「${targetModeLabel[targetMode]}」`
+                isMcpPlanReview
+                  ? '批准计划并把结果返回给模型'
+                  : targetMode === 'bypassPermissions'
+                    ? '批准计划并切到完全免询问模式(需重启会话,5-10 秒)'
+                    : `批准计划并切到「${targetModeLabel[targetMode]}」`
               }
               className="rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              批准并切到 {targetModeLabel[targetMode]}
+              {isMcpPlanReview ? '批准计划' : `批准并切到 ${targetModeLabel[targetMode]}`}
             </button>
             <button
               type="button"
@@ -159,9 +168,9 @@ export function ExitPlanRow({
               title={
                 showFeedback
                   ? feedback.trim()
-                    ? '把反馈发给 Claude，让它修改计划'
-                    : '不写反馈也可以，Claude 会主动询问需要补充哪方面'
-                  : '让 Claude 留在 plan mode 继续修改计划（点击后可写反馈）'
+                    ? `把反馈发给${actorName}，让它修改计划`
+                    : `不写反馈也可以，${actorName}会主动询问需要补充哪方面`
+                  : `让${actorName}继续修改计划（点击后可写反馈）`
               }
               className="rounded border border-deck-border bg-white/[0.06] px-2.5 py-0.5 text-[10px] text-deck-text hover:bg-white/[0.12] disabled:opacity-50"
             >
@@ -170,13 +179,13 @@ export function ExitPlanRow({
           </div>
         )}
       </div>
-      <div className="rounded border border-deck-border/40 bg-black/20 p-2">
-        <MarkdownText text={plan || '(计划内容为空)'} />
-      </div>
+
+      <PlanMarkdownPanel plan={plan} />
+
       {stillPending && isSdk && showFeedback && (
         <div className="mt-2 flex flex-col gap-1">
           <label className="text-[10px] text-deck-muted">
-            可选:告诉 Claude 哪里需要调整(留空也能提交)
+            可选:告诉{actorName}哪里需要调整(留空也能提交)
           </label>
           <textarea
             value={feedback}
@@ -201,7 +210,12 @@ export function ExitPlanRow({
             <button
               type="button"
               disabled={busy}
-              onClick={() => void respond({ decision: 'keep-planning', feedback: feedback.trim() || undefined })}
+              onClick={() =>
+                void respond({
+                  decision: 'keep-planning',
+                  feedback: feedback.trim() || undefined,
+                })
+              }
               className="rounded bg-deck-text/80 px-2.5 py-0.5 text-[10px] font-semibold text-deck-bg-strong hover:brightness-110 disabled:opacity-40"
             >
               发送反馈,继续规划
@@ -209,14 +223,62 @@ export function ExitPlanRow({
           </div>
         </div>
       )}
+
       {!isSdk && (
-        <div className="mt-1.5 text-[10px] text-deck-muted">这是终端启动的只读会话，请回到原终端窗口批准</div>
+        <div className="mt-1.5 text-[10px] text-deck-muted">
+          这是终端启动的只读会话，请回到原终端窗口批准
+        </div>
       )}
       {!stillPending && isSdk && wasCancelled && (
         <div className="mt-1.5 text-[10px] text-deck-muted/70">
-          这次计划批准请求已取消
+          这次计划检阅请求已取消
         </div>
       )}
     </li>
   );
+}
+
+function PlanMarkdownPanel({ plan }: { plan: string }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const lineCount = plan.split('\n').length;
+  const isLong =
+    plan.length > PLAN_COLLAPSE_THRESHOLD_CHARS ||
+    lineCount > PLAN_COLLAPSE_THRESHOLD_LINES;
+  const renderedPlan = useMemo(
+    () => (isLong && !expanded ? buildCollapsedPlanPreview(plan) : plan),
+    [expanded, isLong, plan],
+  );
+
+  return (
+    <div className="rounded border border-deck-border/40 bg-black/20 p-2">
+      <div
+        className={`min-h-0 ${
+          isLong && !expanded ? 'max-h-[42vh] overflow-auto scrollbar-deck pr-1' : ''
+        }`}
+      >
+        <MemoizedMarkdownText text={renderedPlan} />
+      </div>
+      {isLong && (
+        <div className="mt-1.5 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            className="rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/[0.08] hover:text-deck-text"
+          >
+            {expanded ? '收起' : `展开全部（${plan.length} 字）`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function buildCollapsedPlanPreview(plan: string): string {
+  const byLine = plan.split('\n').slice(0, PLAN_COLLAPSE_THRESHOLD_LINES).join('\n');
+  const clipped =
+    byLine.length > PLAN_COLLAPSE_THRESHOLD_CHARS
+      ? byLine.slice(0, PLAN_COLLAPSE_THRESHOLD_CHARS).replace(/\s+\S*$/, '').trimEnd()
+      : byLine;
+  return clipped.length < plan.length ? `${clipped}\n\n...` : clipped;
 }

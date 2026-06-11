@@ -85,7 +85,7 @@ export function denyExternalIfNotAllowed(
           type: 'text' as const,
           text: JSON.stringify({
             error: `tool ${toolName} not allowed for external caller (callerSessionId=__external__)`,
-            hint: 'External MCP clients can only call read-only tools (list_sessions, get_session). To spawn / send / shutdown sessions, use the in-process or HTTP transport with a real callerSessionId.',
+            hint: 'External MCP clients can only call read-only tools (list_sessions, get_session, task_list). To spawn / send / shutdown sessions, use the in-process or HTTP transport with a real callerSessionId.',
           }),
         },
       ],
@@ -118,7 +118,7 @@ export function denyExternalIfNotAllowed(
 }
 
 /**
- * R37 P1 Step 1.1：18 个 handler 共用「deny external + caller 反查」防御链 wrapper。
+ * R37 P1 Step 1.1：MCP handler 共用「deny external + caller 反查」防御链 wrapper。
  * 抽出前每个 handler 起手都是 5 行模板（4 处独立维护 → 一处漏 denyExternalIfNotAllowed
  * 即 security risk: external caller 能调禁用 tool）。抽出后 handler 业务直接写 wrapper body。
  *
