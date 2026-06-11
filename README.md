@@ -124,8 +124,6 @@ xattr -dr com.apple.quarantine "/Applications/Agent Deck.app"
 ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/local/bin/agent-deck
 ```
 
-不 kill 安装时不要删除或覆盖正在运行的 `/Applications/Agent Deck.app`。删除运行中的 bundle 会让当前实例丢失执行通道；这种场景只打包到 `build/dist`，等用户手动退出后再覆盖，或先拷到临时 bundle 后用 Finder / 系统层替换。
-
 每一步的规则详见「开发指南 → 打包规则」。
 
 ### Windows：装 NSIS exe
@@ -391,7 +389,7 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
 - `package.json > build.win.icon = "resources/icon.ico"` 必须显式指定；icon 改动后跑 `pnpm icon:gen` 重生成 `.ico`
 - `extraResources` 必须把 `resources/bin → bin` 显式 copy，wrapper（`agent-deck` POSIX + `agent-deck.cmd` Win）才能进 .app / NSIS install dir
 - 装包后必须 `codesign --force --deep --sign -` ad-hoc 重签（仅 macOS）
-- 覆盖重装前必须关闭旧 main 进程：macOS 用 `pkill`，Windows 用 `taskkill /F /IM "Agent Deck.exe"`。如果用户明确要求不 kill，禁止 `rm -rf "/Applications/Agent Deck.app"`；只打包，或等用户退出后再替换。
+- 覆盖重装前必须关闭旧 main 进程：macOS 用 `pkill`，Windows 用 `taskkill /F /IM "Agent Deck.exe"`。不要删除或覆盖正在运行的 bundle —— 当前实例会丢失资源与执行通道（不便 kill 时的处理规则见 [CLAUDE.md](CLAUDE.md) §打包配置规则）
 - `asarUnpack` 必须包含 `@openai/codex/**` 与 `@anthropic-ai/claude-agent-sdk` 的所有平台子包（darwin / linux / win32 × arm64 / x64）
 - **Win 包必须在 Win 主机或 Win CI runner 跑 `pnpm dist:win`**
 
@@ -403,4 +401,4 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
 - [ref/reviews/INDEX.md](ref/reviews/INDEX.md) —— **Debug / 性能 / 安全 review** 索引（不引入新功能，修问题或加固）
 - [CLAUDE.md](CLAUDE.md) —— 给 Claude Code 在本仓库工作时的硬性约定、项目设计要点与验证流程
 
-改任何模块前先 `ls ref/changelogs/ ref/reviews/` + 浏览相关条目，了解历史决策、避免推翻已有约定 / 重复修同类问题。设计取舍（「为什么 lifecycle 与 archived 正交」这类）多在 changelog；过往 bug 与加固方案在 reviews。
+设计取舍（「为什么 lifecycle 与 archived 正交」这类）多在 changelog；过往 bug 与加固方案在 reviews；改模块前的阅读顺序按 [CLAUDE.md](CLAUDE.md)「改动后必做」执行。
