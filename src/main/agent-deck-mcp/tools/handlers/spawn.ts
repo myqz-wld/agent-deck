@@ -37,6 +37,7 @@ import {
 import type { SpawnSessionArgs, SpawnSessionLimits, SpawnSessionResult } from '../schemas';
 import { shouldWriteSpawnLink } from './spawn-link-guard';
 import { buildLeadContextBlock } from './lead-context-block';
+import { resolveSpawnModelOptions } from './spawn-model-options';
 import log from '@main/utils/logger';
 
 const logger = log.scope('mcp-spawn');
@@ -165,6 +166,11 @@ export const spawnSessionHandler = withMcpGuard(
         // 删除原 codex-cli adapter warn — codex-sdk v0.131.0 ThreadOptions.model
         // 已支持 per-thread override,frontmatter model 在 codex 端 runtime 真生效。
       }
+    }
+
+    const resolvedModelOptions = resolveSpawnModelOptions(args, modelFromFrontmatter);
+    if (!resolvedModelOptions.ok) {
+      return err(resolvedModelOptions.error, resolvedModelOptions.hint);
     }
 
     // Spawn 权限 / 沙盒默认值：
@@ -327,6 +333,9 @@ export const spawnSessionHandler = withMcpGuard(
             codexSandbox: effectiveCodexSandbox,
             claudeCodeSandbox: effectiveClaudeCodeSandbox,
             teamName: args.teamName,
+            model: resolvedModelOptions.options.model,
+            modelReasoningEffort: resolvedModelOptions.options.modelReasoningEffort,
+            claudeCodeEffortLevel: resolvedModelOptions.options.claudeCodeEffortLevel,
             // plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D7（信号源）：透传
             // args.agentName → options-builder narrowToCodexOpts 按 reviewer-* 路径触发 codex
             // reviewer teammate runtime default spread（approvalPolicy / networkAccessEnabled /
@@ -347,12 +356,6 @@ export const spawnSessionHandler = withMcpGuard(
           ...(effectiveExtraAllowWrite !== undefined && effectiveExtraAllowWrite.length > 0
             ? { extraAllowWrite: effectiveExtraAllowWrite }
             : {}),
-          // plan model-wiring-and-handoff-20260514 Step 3.1 + prompt-asset-review-optimize-20260527 修订：
-          // 透传 frontmatter `model` 给 createSession。两 adapter runtime 都真生效:
-          // - claude-code → bridge.createSession → buildClaudeQueryOptions → SDK options.model 切 runtime model + setModel 持久化 resume 一致
-          // - codex-cli (codex-sdk v0.131.0+) → bridge.createSession → ThreadOptions.model 透传 codex CLI runtime + setModel 持久化(原 D5 "runtime 不生效" 判断已过期)
-          // 留 inline 因 falsy 语义（空字符串视作未设，omitUndefined 仅过滤 undefined）。
-          ...(modelFromFrontmatter ? { model: modelFromFrontmatter } : {}),
         }),
       );
       // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）。

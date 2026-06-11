@@ -35,9 +35,7 @@ The caller must pass typed scope:
 
 ## Prompt Asset Reviews
 
-Use `kind: 'prompt'` as the expected validation pass after material prompt-asset edits. Do not skip it only because reviewer replies arrive in a later turn; dispatch the pair, end the current turn, and continue adjudication when replies arrive.
-
-Reviewers focus on executable instructions, stale or duplicated rules, contradiction, paired-asset drift, preserved safety/tool/validation gates, hidden local assumptions, and whether the changed prompt will cause the next agent action to improve.
+Use `kind: 'prompt'` as the expected validation pass after material prompt-asset edits. Do not skip it only because reviewer replies arrive in a later turn. Reviewer priorities come from the Prompt focus template below.
 
 ## Sandbox Cache
 
@@ -57,7 +55,7 @@ Startup checks:
 Cleanup:
 
 - After review finishes or aborts, remove only this invocation cache directory.
-- If copy or cleanup fails, report the exact failed path and do not invent findings for unreadable files.
+- If cleanup fails, report the exact failed path. Copy failures follow the Failure Handling table.
 
 ## Reviewer Pair
 
@@ -162,7 +160,7 @@ Prompt focus:
 - Instructions change the next agent action at task time.
 - Safety, tool, validation, and failure-handling gates are preserved.
 - Paired assets stay behaviorally aligned while preserving adapter-specific mechanics.
-- No stale, duplicated, contradictory, or local-only maintenance rules leak into reusable assets.
+- No stale, duplicated, or contradictory rules; no hidden local assumptions or local-only maintenance rules leak into reusable assets.
 ```
 
 Rebuttal prompt:
@@ -179,12 +177,11 @@ Do not add unrelated findings.
 
 | Situation | Action |
 |---|---|
-| reviewer-codex fails | Shutdown that session, respawn reviewer-codex with `adapter: 'codex-cli'`, retry at most twice, and keep reviewer-claude. If it still fails, ask the user to wait, proceed with single-reviewer downgraded findings, or abort. Never replace it with a second Claude reviewer. |
-| reviewer-claude fails | Shutdown that session, respawn reviewer-claude with `adapter: 'claude-code'`, retry at most twice, and keep reviewer-codex. If it still fails, ask the user to wait, proceed with single-reviewer downgraded findings, or abort. Never replace it with a second Codex reviewer. |
+| Either reviewer fails | Shutdown the failed session and respawn the same agent on its own adapter (reviewer-claude with `adapter: 'claude-code'`, reviewer-codex with `adapter: 'codex-cli'`); retry at most twice and keep the surviving reviewer. If it still fails, ask the user to wait, proceed with single-reviewer downgraded findings, or abort. Never respawn on the other adapter; the pair must not become two same-family reviewers. |
 | reviewer reports `⚠ FRESH SESSION` | Shutdown and respawn that reviewer, then rerun Round 1 with full scope. Do not continue Round 2. |
 | reviewer reports `⚠ SCOPE PATH MISMATCH` | Fix the scope path or cache manifest, then shutdown, respawn, and resend the prompt. |
 | reviewer does not reply for 30 minutes | Only after the threshold or a user status request, check `get_session(lastEventAt)`. If recent, tell the user it is still running and end the turn; otherwise ask the user to resolve pending UI approvals if relevant or respawn. |
-| sandbox cache copy fails | Warn, abort this review, and ask caller to provide readable paths. |
+| sandbox cache copy fails | Warn with the exact failed path, abort this review, and ask caller to provide readable paths. Do not invent findings for unreadable files. |
 | MCP send/spawn errors | Follow the MCP tool error. Do not silently downgrade to same-adapter reviewers. |
 
 ## Final Summary Report
@@ -200,7 +197,3 @@ Before ending the workflow, report:
 - Cleanup status: reviewer shutdown and sandbox cache cleanup.
 
 Do not finish with only "done" or "review passed".
-
-## Relationship To Deep Review
-
-This skill is one-shot review plus one optional fix round. Use `deep-review` for multi-round investigation, mixed scopes, repeated CRITICAL/HIGH findings, or broad cross-module risk.

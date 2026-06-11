@@ -178,7 +178,11 @@ export class ClaudeSdkBridge {
    * ctx object 闭包污染（详 class 头部 jsdoc decision 矛盾解决记录）。
    */
   async createSession(opts: CreateSessionOpts): Promise<SdkSessionHandle> {
-    const envOverrideExtra = this.opts.envProvider?.();
+    const providerEnv = this.opts.envProvider?.();
+    const envOverrideExtra =
+      providerEnv || opts.envOverrideExtra
+        ? { ...(providerEnv ?? {}), ...(opts.envOverrideExtra ?? {}) }
+        : undefined;
     const defaultModel = this.opts.defaultModelProvider?.();
     const effectiveOpts: CreateSessionOpts = {
       ...opts,

@@ -366,7 +366,7 @@ export async function recoverAndSendImpl(
           // await injectResumeHistory（LLM oneshot 10-30s）期间用户主动 close 会被 closeImpl 自增
           // close-epoch + 静默设 closed 但不 abort 在途 recovering promise；helper await 后重读本
           // thunk，**epoch 变了**（恢复期间新 close / scheduler 衰减 / delete）→ abort 不起 fresh
-          // thread（否则 createSession SDK 事件触发 ensure closed→active 复活，反转用户显式 close）。
+          // thread（否则 createSession first user message 触发 ensure closed→active 复活，反转用户显式 close）。
           // epoch 是「close 动作发生过没有」的直接信号,旧 `closed && !wasClosed` 漏「恢复期间第二次
           // close」+ 撞集成测试 mock 不 revive gap;cancelGuard 不依赖 lifecycle 快照天然绕开。
           // 详 manager/_deps.ts closeEpoch jsdoc + claude recover-and-send-impl 对称实现。

@@ -21,6 +21,7 @@ import type {
   HandOffMetadata,
   UploadedAttachmentRef,
 } from '@shared/types';
+import type { ClaudeCodeEffortLevel } from '@main/adapters/types';
 import type { InternalSession, SdkBridgeOptions, SdkSessionHandle } from '../types';
 import type { PermissionResponder } from '../permission-responder';
 import type { StreamProcessor } from '../stream-processor';
@@ -67,6 +68,11 @@ export interface CreateSessionOpts {
    * setModel 持久化让 resume / dormant 唤醒后保持一致。
    */
   model?: string;
+  /**
+   * Per-session Claude Code thinking / effort override. Passed to SDK `query({ options.effort })`.
+   * Undefined preserves user settings / provider defaults.
+   */
+  claudeCodeEffortLevel?: ClaudeCodeEffortLevel;
   /**
    * Bridge-internal env overlay for Claude-compatible provider profiles. Not exposed through
    * IPC/MCP raw opts; adapter profiles inject it at bridge.createSession time.

@@ -160,14 +160,21 @@ export function dedupOrClaim(ctx: IngestContext, event: AgentEvent): { skip: boo
   return { skip: false };
 }
 
-/** 第 2 段：取/建 SessionRecord。closed→active 复活由 ensure 内部处理(仅 source==='sdk' 用户
- *  resume 才复活;REVIEW_83 HIGH source 守卫,非 sdk 迟到事件不复活 closed)。 */
+function shouldReviveClosedSession(event: AgentEvent): boolean {
+  if (event.source !== 'sdk' || event.kind !== 'message') return false;
+  const payload = event.payload as { role?: unknown } | null | undefined;
+  return payload?.role === 'user';
+}
+
+/** 第 2 段：取/建 SessionRecord。closed→active 复活由 ensure 内部处理(仅 SDK user message
+ * 用户 resume 才复活;SDK/hook 迟到尾包不复活 closed)。 */
 export function ensureRecord(ctx: IngestContext, event: AgentEvent): SessionRecord {
   return ctx.ensure(event.sessionId, {
     agentId: event.agentId,
     cwd: extractCwd(event),
     // SDK 通道发来的事件 → 应用内会话；hook 通道（含未标 source 的） → 外部 CLI 会话
     source: event.source === 'sdk' ? 'sdk' : 'cli',
+    reviveClosed: shouldReviveClosedSession(event),
   });
 }
 
@@ -262,7 +269,7 @@ export function persistTokenUsage(event: AgentEvent): void {
  * dormant 仍可正常复活成 active(user resume 走真路径)— 不在 short-circuit 范围。
  *
  * **REVIEW_83 收口要点**(deep-review-project-20260531 Batch E):
- * - closed→active 复活已收口到 ensure()(manager.ts:251,仅 source==='sdk' 用户 resume 才复活)。
+ * - closed→active 复活已收口到 ensure()(manager.ts:251,仅 SDK user message 用户 resume 才复活)。
  *   原版本短路被架空:ensure() 在 advanceState 之前对任何来源都复活 closed→active → 短路判
  *   closed 恒 false(REVIEW_83 HIGH,双方独立 + un-skip manager-ingest.test.ts:267 实测)。
  * - archived 会话短路新增 **session-end 终止例外**:archiveImpl 只写 archivedAt 不动 lifecycle,
@@ -273,7 +280,8 @@ export function persistTokenUsage(event: AgentEvent): void {
 export function advanceState(record: SessionRecord, event: AgentEvent): void {
   // **REVIEW_49 R3 follow-up HIGH-2**: closed 短路 — 见函数 jsdoc 修法说明。
   // closed 是终态:任何事件都短路(不复活 / 不推进 / 不广播)。closed→active 复活已收口到
-  // ensure()(manager.ts:251,仅 source==='sdk' 用户 resume 才复活;REVIEW_83 HIGH)。
+  // ensure()(manager.ts:251,仅 SDK user message 用户 resume 才复活;REVIEW_83 HIGH +
+  // shutdown_session SDK 尾包 follow-up)。
   if (record.lifecycle === 'closed') {
     return;
   }

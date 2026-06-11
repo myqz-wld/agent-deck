@@ -46,6 +46,28 @@ export const STATUS_VALUES = [
 ] as const;
 export type TaskStatusValue = (typeof STATUS_VALUES)[number];
 
+export const SPAWN_SESSION_MODEL_VALUES = [
+  'haiku',
+  'sonnet',
+  'opus',
+  'fable',
+  'gpt-5.5',
+  'gpt-5.4',
+  'v4-flash',
+  'v4-pro',
+] as const;
+export type SpawnSessionModelValue = (typeof SPAWN_SESSION_MODEL_VALUES)[number];
+
+export const SPAWN_SESSION_THINKING_VALUES = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+export type SpawnSessionThinkingValue = (typeof SPAWN_SESSION_THINKING_VALUES)[number];
+
 export const SPAWN_SESSION_SCHEMA = {
   adapter: z
     .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
@@ -93,7 +115,19 @@ export const SPAWN_SESSION_SCHEMA = {
     .regex(/^[a-zA-Z0-9._-]+$/, 'agentName only allows [a-zA-Z0-9._-]')
     .optional()
     .describe(
-      'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the bundled agent body is auto-prepended to `prompt`, so callers do not need to read and embed the body themselves. Unknown names reject. If the body frontmatter has `model`, the target adapter receives it as the session model.',
+      'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the bundled agent body is auto-prepended to `prompt`, so callers do not need to read and embed the body themselves. Unknown names reject. If the body frontmatter has `model`, the target adapter receives it as the session model unless explicit `model` is set.',
+    ),
+  model: z
+    .enum(SPAWN_SESSION_MODEL_VALUES)
+    .optional()
+    .describe(
+      'Optional model override for this spawned session. Valid combinations are adapter-scoped: claude-code accepts haiku, sonnet, opus, fable; codex-cli accepts gpt-5.5, gpt-5.4; deepseek-claude-code accepts v4-flash, v4-pro. Explicit model overrides any bundled agent frontmatter model.',
+    ),
+  thinking: z
+    .enum(SPAWN_SESSION_THINKING_VALUES)
+    .optional()
+    .describe(
+      'Optional thinking / reasoning complexity for this spawned session. Valid combinations are adapter-scoped: codex-cli accepts minimal, low, medium, high, xhigh; claude-code and deepseek-claude-code accept low, medium, high, xhigh, max.',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。
@@ -169,7 +203,7 @@ export const SEND_MESSAGE_SCHEMA = {
     .string()
     .min(1)
     .max(128)
-    .describe('Target non-closed session id that should receive the message. The caller cannot send to itself, and closed targets reject.'),
+    .describe('Target session id to receive the message. When replying, use the `<senderSid>` from the `[msg <id>][sid <senderSid>]` wire prefix of the received message. Dormant targets resume automatically; closed targets reject, and the caller cannot send to itself.'),
   text: z
     .string()
     .min(1)
@@ -198,7 +232,7 @@ export const SEND_MESSAGE_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Optional: link this message into an existing reply chain (the chain is recorded in DB; lead/teammate will see the reply auto-injected as a user-role message in their conversation flow — no need to poll). Use this when answering a specific message you received; omit when starting a new topic. Per-team scope: original.teamId must match the resolved teamId (cross-team chain rejected).',
+      'Message id being answered: the `<id>` from the `[msg <id>][sid <senderSid>]` wire prefix of the received message, or `spawnPromptMessageId` for the first reply after spawn. Links this message into that reply chain; the receiver sees it auto-injected as a user-role message — no polling. Omit when starting a new topic. The original message team must match the resolved teamId; cross-team chains are rejected.',
     ),
 };
 
@@ -223,7 +257,7 @@ export const LIST_SESSIONS_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Filter to sessions whose spawnedBy === this id. Useful for lead → list children pattern (e.g. deep-review SKILL recovers stranded reviewer teammates after lead context reset). No ownership enforcement: any caller can query any spawnedBy id, consistent with list_sessions current single-user app-wide trust model.',
+      'Filter to sessions whose spawnedBy equals this id. Use it to recover children after a lead context reset: pass the old lead session id to find stranded teammates, then message them by session id. No ownership check; any caller may query any spawnedBy id.',
     ),
   limit: z
     .number()
@@ -334,7 +368,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .min(1)
     .max(100_000)
     .describe(
-      'Cold-start prompt for the successor session. Include any plan file path, temporary file path, and next action directly in this text. For long context, write a file under /tmp and tell the new session to read it; this is the same prompt convention used by spawn_session.',
+      'Cold-start prompt for the successor session. Include any plan file path, temporary context file path, current progress, and the next action directly in this text. For long context, write a file under /tmp and tell the new session to read it; this is the same prompt convention used by spawn_session.',
     ),
   cwd: z
     .string()
@@ -810,9 +844,7 @@ export const TASK_GET_SCHEMA = {
     .min(1)
     .max(128)
     .optional()
-    .describe(
-      `${SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION} The caller can read a team task only with active team membership, and a personal task only when it owns the task.`,
-    ),
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const TASK_UPDATE_SCHEMA = {

@@ -27,7 +27,7 @@ The next wire-prefixed teammate reply is injected as a user-role message into th
 
 When Agent Deck injects a user correction into an active ordinary Codex teammate turn, the receiving Codex session must immediately follow the latest instruction instead of treating it as queued input for the next turn.
 
-Steering does not apply to Codex review or compact turns, and it is not a mechanism for waiting on teammate replies. A Claude lead waiting for a Codex reviewer or teammate still follows the Lead Wait Boundary and continues only after seeing the injected wire-prefixed user-role reply.
+Steering does not apply to Codex review or compact turns, and it is not a mechanism for waiting on teammate replies. A Claude lead waiting for a Codex reviewer or teammate still follows the Lead Wait Boundary.
 
 ### Task Progress
 
@@ -62,7 +62,7 @@ When code changes need isolation, create a worktree from an explicit local `base
 mcp__agent-deck__enter_worktree({ baseBranch, workBranch?, worktreePath?, worktreeRoot? })
 ```
 
-After entering the worktree, point read/write commands at the returned `worktreePath`. Before cleanup, confirm changes were merged, moved out, or explicitly abandoned, then call:
+`baseBranch` must be a named local branch; the tool resolves `refs/heads/<baseBranch>` and rejects SHAs, tags, remote-only refs, and rev expressions. After entering the worktree, point read/write commands at the returned `worktreePath`. Before cleanup, confirm changes were merged, moved out, or explicitly abandoned, then call:
 
 ```ts
 mcp__agent-deck__exit_worktree({ worktreePath?, discardChanges?, deleteBranch? })
@@ -94,7 +94,7 @@ The `spawnPromptMessageId` returned by `spawn_session` is the anchor for the tea
 
 For later rounds, use the `messageId` returned by `send_message` as the reply-chain anchor. The receiver's user message begins with `[msg <id>][sid <senderSid>]`; extract both values and pass the message id back as `replyToMessageId`.
 
-When the lead waits for a teammate reply, follow the Lead Wait Boundary: send the task, stop the current turn, and continue only after the wire-prefixed reply is injected.
+When the lead waits for a teammate reply, follow the Lead Wait Boundary.
 
 ### Cross-Session Rescue
 

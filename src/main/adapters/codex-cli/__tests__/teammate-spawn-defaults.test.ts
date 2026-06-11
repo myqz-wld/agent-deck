@@ -185,6 +185,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
       teamName: 'team-x',
       attachments: [],
       model: 'opus',
+      claudeCodeEffortLevel: 'max',
       claudeCodeSandbox: 'workspace-write',
       extraAllowWrite: ['/main-repo'],
       handOff: HANDOFF_FIXTURE,
@@ -200,6 +201,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
     expect(opts.teamName).toBe('team-x');
     expect(opts.attachments).toEqual([]);
     expect(opts.model).toBe('opus');
+    expect(opts.claudeCodeEffortLevel).toBe('max');
     expect(opts.claudeCodeSandbox).toBe('workspace-write');
     expect(opts.extraAllowWrite).toEqual(['/main-repo']);
     expect(opts.handOff).toBe(HANDOFF_FIXTURE); // INFO-1: 防 narrow 漏 handOff 赋值
@@ -216,6 +218,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
       teamName: 'team-x',
       attachments: [],
       model: 'gpt-5',
+      modelReasoningEffort: 'xhigh',
       codexSandbox: 'read-only',
       extraAllowWrite: ['/main-repo'],
       handOff: HANDOFF_FIXTURE,
@@ -229,6 +232,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
     expect(opts.teamName).toBe('team-x');
     expect(opts.attachments).toEqual([]);
     expect(opts.model).toBe('gpt-5');
+    expect(opts.modelReasoningEffort).toBe('xhigh');
     // 普通 codex session(非 reviewer-*) caller 显式 codexSandbox 透传不被覆盖
     expect(opts.codexSandbox).toBe('read-only');
     expect(opts.extraAllowWrite).toEqual(['/main-repo']);

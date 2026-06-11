@@ -86,3 +86,4 @@
 | [deepseek-summary-handoff-sdk-prompt-20260608.md](deepseek-summary-handoff-sdk-prompt-20260608.md) | completed | [230](../changelogs/CHANGELOG_230.md) | Deepseek summary / hand-off provider + Codex/Claude SDK 升级 + prompt asset 收紧 |
 | [codex-mid-turn-steering-20260610.md](codex-mid-turn-steering-20260610.md) | completed | [236](../changelogs/CHANGELOG_236.md) | Codex app-server mid-turn steering(adapter bridge + IPC/preload/UI + prompt/PlantUML) |
 | [codex-app-server-unification-20260610.md](codex-app-server-unification-20260610.md) | completed | [239](../changelogs/CHANGELOG_239.md) | Codex tok/s 改权威 app-server usage delta，oneshot 切 app-server 并清理旧 SDK 路径 |
+| [spawn-session-model-thinking-20260611.md](spawn-session-model-thinking-20260611.md) | in_progress | — | spawn_session 增加 adapter-scoped model/thinking 参数校验与透传 |

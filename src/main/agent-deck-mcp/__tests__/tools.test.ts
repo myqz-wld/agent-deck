@@ -147,18 +147,23 @@ const createSessionCalls: Array<{
   permissionMode?: string;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
+  model?: string;
+  modelReasoningEffort?: string;
+  claudeCodeEffortLevel?: string;
   extraAllowWrite?: readonly string[];
 }> = [];
 
 vi.mock('@main/adapters/registry', () => ({
   adapterRegistry: {
     get: (id: string) => {
-      if (id !== 'claude-code' && id !== 'codex-cli') return undefined;
+      if (id !== 'claude-code' && id !== 'codex-cli' && id !== 'deepseek-claude-code') {
+        return undefined;
+      }
       return {
         id,
         capabilities: {
           canCreateSession: true,
-          canSetPermissionMode: id === 'claude-code',
+          canSetPermissionMode: id === 'claude-code' || id === 'deepseek-claude-code',
         },
         createSession: async (opts: {
           cwd: string;
@@ -168,6 +173,9 @@ vi.mock('@main/adapters/registry', () => ({
           permissionMode?: string;
           codexSandbox?: string;
           claudeCodeSandbox?: string;
+          model?: string;
+          modelReasoningEffort?: string;
+          claudeCodeEffortLevel?: string;
           extraAllowWrite?: readonly string[];
         }) => {
           const sid = nextSpawnedSid;
@@ -180,6 +188,9 @@ vi.mock('@main/adapters/registry', () => ({
             permissionMode: opts.permissionMode,
             codexSandbox: opts.codexSandbox,
             claudeCodeSandbox: opts.claudeCodeSandbox,
+            model: opts.model,
+            modelReasoningEffort: opts.modelReasoningEffort,
+            claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
             extraAllowWrite: opts.extraAllowWrite,
           });
           sessionStore.set(sid, {
@@ -614,6 +625,28 @@ describe('agent-deck-mcp tools — spawn_session', () => {
   // （deep-code-review SKILL：lead 在 repo 起 reviewer teammate 同 cwd 同 adapter）。
   // 防递归靠 §6.1 depth + §6.4 fan-out + §6.3 spawn-rate 三条兜底（spawn-guards.test.ts 覆盖）。
 
+  it('schema exposes model and thinking as optional enum tool parameters', async () => {
+    const { SPAWN_SESSION_SCHEMA } = await import('../tools/schemas');
+    expect(SPAWN_SESSION_SCHEMA.model.unwrap().options).toEqual([
+      'haiku',
+      'sonnet',
+      'opus',
+      'fable',
+      'gpt-5.5',
+      'gpt-5.4',
+      'v4-flash',
+      'v4-pro',
+    ]);
+    expect(SPAWN_SESSION_SCHEMA.thinking.unwrap().options).toEqual([
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ]);
+  });
+
   it('allows same cwd same adapter (deep-code-review SKILL 合法路径)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
@@ -763,6 +796,133 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].codexSandbox).toBe('read-only');
     expect(createSessionCalls[0].permissionMode).toBeUndefined();
     expect(recordPermCalls).toEqual([]);
+  });
+
+  it('passes adapter-scoped codex model and thinking to createSession', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'codex model task',
+      model: 'gpt-5.5',
+      thinking: 'xhigh',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].model).toBe('gpt-5.5');
+    expect(createSessionCalls[0].modelReasoningEffort).toBe('xhigh');
+    expect(createSessionCalls[0].claudeCodeEffortLevel).toBeUndefined();
+  });
+
+  it('passes claude-family thinking as sanitized Claude Code effort level', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo', agentId: 'codex-cli' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'claude model task',
+      model: 'opus',
+      thinking: 'max',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].model).toBe('opus');
+    expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('max');
+    expect(createSessionCalls[0].modelReasoningEffort).toBeUndefined();
+  });
+
+  it('maps deepseek model aliases to runtime model ids and passes effort', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'deepseek-claude-code',
+      cwd: '/repo',
+      prompt: 'deepseek model task',
+      model: 'v4-pro',
+      thinking: 'high',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].adapter).toBe('deepseek-claude-code');
+    expect(createSessionCalls[0].model).toBe('deepseek-v4-pro[1m]');
+    expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('high');
+  });
+
+  it('rejects model values that belong to a different adapter before createSession', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'bad model task',
+      model: 'opus',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/model "opus" is not valid for adapter "codex-cli"/);
+    expect(createSessionCalls).toHaveLength(0);
+  });
+
+  it('rejects thinking values that belong to a different adapter before createSession', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
+
+    const cases = [
+      {
+        adapter: 'claude-code',
+        thinking: 'minimal',
+        message: /thinking "minimal" is not valid for adapter "claude-code"/,
+      },
+      {
+        adapter: 'codex-cli',
+        thinking: 'max',
+        message: /thinking "max" is not valid for adapter "codex-cli"/,
+      },
+      {
+        adapter: 'deepseek-claude-code',
+        thinking: 'minimal',
+        message: /thinking "minimal" is not valid for adapter "deepseek-claude-code"/,
+      },
+    ] as const;
+
+    for (const c of cases) {
+      const r = await tools.get('spawn_session').handler({
+        adapter: c.adapter,
+        cwd: '/repo',
+        prompt: 'bad thinking task',
+        thinking: c.thinking,
+        callerSessionId: 'lead',
+      }, {});
+      const parsed = parseResult(r);
+      expect(parsed.isError).toBe(true);
+      expect(parsed.data.error).toMatch(c.message);
+    }
+    expect(createSessionCalls).toHaveLength(0);
+  });
+
+  it('passes claude-family thinking xhigh through as Claude Code effort', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'xhigh thinking task',
+      thinking: 'xhigh',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('xhigh');
+    expect(createSessionCalls[0].modelReasoningEffort).toBeUndefined();
   });
 
   it('records team membership when teamName provided', async () => {
