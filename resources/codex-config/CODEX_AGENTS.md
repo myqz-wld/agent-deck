@@ -62,7 +62,7 @@ Codex has no native EnterWorktree / ExitWorktree. When code changes need isolati
 mcp__agent-deck__enter_worktree({ baseBranch, workBranch?, worktreePath?, worktreeRoot? })
 ```
 
-`baseBranch` must be a local branch name that resolves to the current commit of `refs/heads/<baseBranch>`; do not pass a SHA, tag, or rev expression. MCP does not change the Codex SDK cwd. After entering the worktree, use absolute paths or `git -C <worktreePath>`.
+`baseBranch` must be a named local branch; the tool resolves `refs/heads/<baseBranch>` and rejects SHAs, tags, remote-only refs, and rev expressions. MCP does not change the Codex SDK cwd. After entering the worktree, use absolute paths or `git -C <worktreePath>`.
 
 Before cleanup, confirm changes were merged, moved out, or explicitly abandoned, then call:
 
@@ -96,7 +96,7 @@ The `spawnPromptMessageId` returned by `spawn_session` is the anchor for the tea
 
 For later rounds, use the `messageId` returned by `send_message` as the reply-chain anchor. The receiver's user message begins with `[msg <id>][sid <senderSid>]`; extract both values and pass the message id back as `replyToMessageId`.
 
-When the lead waits for a teammate reply, follow the Codex Wait Boundary: send the task, do not poll, and continue only after the wire-prefixed reply is injected.
+When the lead waits for a teammate reply, follow the Codex Wait Boundary.
 
 ### Cross-Session Rescue
 

@@ -147,6 +147,7 @@ export async function runCreateSessionSdkQuery(
         claudeBinary,
         mcpServers,
         model: claudeModel,
+        effort: opts.claudeCodeEffortLevel,
       }),
     });
     internal.query = q;

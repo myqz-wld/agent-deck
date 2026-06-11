@@ -53,6 +53,10 @@ export interface CreateSessionOpts {
    */
   model?: string;
   /**
+   * Codex app-server ThreadOptions.modelReasoningEffort passthrough for live spawned sessions.
+   */
+  modelReasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  /**
    * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
    * caller 透传的 SDK sandbox 额外可写根。**codex SDK 不消费 extra writable roots**
    * (sandboxMode 三档 'workspace-write' / 'read-only' / 'danger-full-access' 控根 sandbox

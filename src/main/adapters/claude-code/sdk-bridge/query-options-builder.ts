@@ -12,7 +12,7 @@
  * 直接读 settingsStore / sessionRepo / eventBus。caller 负责 await load 各项后传入。
  */
 
-import type { Options } from '@anthropic-ai/claude-agent-sdk';
+import type { EffortLevel, Options } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
 import type { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
@@ -44,6 +44,10 @@ export interface BuildClaudeQueryOptionsArgs {
    * model-resolve.ts fallback 链）。
    */
   model?: string;
+  /**
+   * Per-session Claude Code effort override. undefined → SDK/user settings choose the effort.
+   */
+  effort?: EffortLevel;
 }
 
 /**
@@ -64,6 +68,7 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     claudeBinary,
     mcpServers: { agentDeckMcpServer },
     model,
+    effort,
   } = args;
 
   return {
@@ -141,6 +146,9 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     // 'claude-opus-4-7-thinking-max[1m]'），SDK CLI 透传给 API 决定模型。
     // 优先级链由 model-resolve.ts 负责（opts.model > sessionRepo.model > undefined）。
     ...(model ? { model } : {}),
+    // spawn_session thinking override: SDK supports 'low' / 'medium' / 'high' / 'xhigh' / 'max'
+    // through top-level options.effort. Undefined leaves ~/.claude settings and provider defaults intact.
+    ...(effort ? { effort } : {}),
     // OS 级沙盒（REVIEW_14 阶段 2 + REVIEW_15 实测纠错）：根据 settings.claudeCodeSandbox
     // 档位拼装**顶层 sandbox 字段**（REVIEW_15 实测铁证：managedSettings.sandbox 包装无效，
     // 必须用顶层 `sandbox: SandboxSettings` 字段，详 sandbox-config.ts 头注释决策 #1）。

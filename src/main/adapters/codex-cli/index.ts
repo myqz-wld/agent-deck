@@ -88,6 +88,7 @@ class CodexCliAdapter implements AgentAdapter {
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
       model: opts.model,
+      modelReasoningEffort: opts.modelReasoningEffort,
       extraAllowWrite: opts.extraAllowWrite,
       // plan codex-handoff-team-alignment-20260518 §P3 Step 3.5: 4 个新字段（codex teammate
       // spawn default 由 options-builder narrowToCodexOpts spread；此处只透传不主动 enforce）

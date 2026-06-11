@@ -115,7 +115,7 @@ export async function recoverAndSendImpl(
   // 根因:下方 L131 emit user message(source:'sdk',REVIEW_58 把 emit 提前到 cwd precheck 之前)
   // 同步走 sessionManager.ingest → ensureRecord → ensure(manager.ts:251) `if lifecycle==='closed'`
   // → upsert 'active' + emit session-upserted(复活)。dedupOrClaim 5 个 skip 分支全 gate 在
-  // source==='hook' → source:'sdk' message 必穿透必复活。reviewer-claude 反驳轮关键确证:
+  // source==='hook' → source:'sdk' user message 必穿透必复活。reviewer-claude 反驳轮关键确证:
   // scheduler-closed 会话**不进** recentlyDeleted 黑名单(唯一调用点 pending-cancellation.ts:121
   // 仅 closeSession 路径,markClosedImpl 不调;TTL 60s ≪ closeAfterMs)→ 黑名单这条反驳路径不成立,
   // 复活无法被拦。随后两条失败路径(① cwd 全 miss L165 throw ② createSession reject outer catch)
@@ -377,7 +377,7 @@ export async function recoverAndSendImpl(
           // injectResumeHistory（LLM oneshot 10-30s）期间用户主动 close 会被 closeImpl 自增 close-epoch
           // + 静默设 closed 但不 abort 在途 recovering promise；helper 在 await 后重读本 thunk，
           // **epoch 变了**（恢复期间新 close / scheduler 衰减 / delete）→ abort 不起 fresh CLI
-          // （否则 createSession SDK 事件触发 ensure closed→active 复活，反转用户显式 close）。
+          // （否则 createSession first user message 触发 ensure closed→active 复活，反转用户显式 close）。
           // **R3 修法关键：epoch 是「close 动作发生过没有」的直接信号，不是「当前 lifecycle 是不是
           // closed」的快照推断**。旧 `closed && !wasClosed` 漏「恢复期间第二次 close」（入口就 closed
           // 的合法 resume wasClosed=true → 条件恒 false → await 中第二次 close 误放行 → createSession

@@ -116,7 +116,7 @@ export async function buildAgentDeckTools(
 
   const spawnSession = tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
-    'Spawn a parallel SDK session on "claude-code", "deepseek-claude-code", or "codex-cli". Put the complete task in `prompt`; for long context, write a file under /tmp and tell the new session to read it. Pass `teamName` to create or reuse a shared team where the caller is lead; omit it for a standalone session. Returns the new `sessionId`, optional `teamId`, optional `spawnPromptMessageId` for the first reply chain, and `spawnLimits` with depth/fan-out/rate state. Use `hand_off_session` instead when the current session should be replaced. SDK sessions leave `callerSessionId` unset because Agent Deck injects it.',
+    'Spawn a parallel SDK session on "claude-code", "deepseek-claude-code", or "codex-cli". Put the complete task in `prompt`. Optionally pass adapter-scoped `model` and `thinking` values from the tool schema. Pass `teamName` to create or reuse a shared team where the caller is lead; omit it for a standalone session. Returns the new `sessionId`, optional `teamId`, optional `spawnPromptMessageId` for the first reply chain, and `spawnLimits` with depth/fan-out/rate state; guard denials report the violated limit in `spawnLimits`. Use `hand_off_session` instead when the current session should be replaced.',
     SPAWN_SESSION_SCHEMA,
     async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
     {
@@ -189,7 +189,7 @@ export async function buildAgentDeckTools(
 
   const handOffSession = tool(
     AGENT_DECK_TOOL_NAMES.handOffSession,
-    'Hand off the current SDK session to a fresh successor. Put complete cold-start instructions in `prompt`, including plan paths, /tmp context files, current progress, and the next action. The tool transfers caller-owned tasks, active team memberships, and the worktree marker, then closes the caller only after mandatory transfer succeeds. Returns successor spawn fields plus transfer details. Use `spawn_session` for parallel work.',
+    'Hand off the current SDK session to a fresh successor when this session should be replaced, such as a context reset or the next work phase. Put complete cold-start instructions in `prompt`. The tool transfers caller-owned tasks, active team memberships, and the worktree marker, then closes the caller only after mandatory transfer succeeds; on transfer failure it returns an MCP error and the caller stays open. Returns successor spawn fields plus transfer details. Use `spawn_session` for parallel work.',
     HAND_OFF_SESSION_SHAPE,
     async (args, extra) => {
       const parseRes = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse(args);

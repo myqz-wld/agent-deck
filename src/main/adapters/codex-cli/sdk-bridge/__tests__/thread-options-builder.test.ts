@@ -2,10 +2,10 @@
  * buildCodexThreadOptions 纯函数单测（REVIEW_79 MED 测试缺口修法 — 双方独立 INFO/MED：
  * reviewer-codex INFO「helper 缺直接单测」+ reviewer-claude MED「thread-options-builder.ts 零 test」）。
  *
- * 覆盖 thread-options-builder.ts:35 `buildCodexThreadOptions` 的 7 字段收口逻辑：
+ * 覆盖 thread-options-builder.ts `buildCodexThreadOptions` 的字段收口逻辑：
  * - approvalPolicy `?? 'never'` fallback（caller 缺省 → 'never'；caller 显式 → 透传）
  * - skipGitRepoCheck 恒 true
- * - model / networkAccessEnabled / additionalDirectories 条件 spread（undefined → 字段不出现）
+ * - model / modelReasoningEffort / networkAccessEnabled / additionalDirectories 条件 spread（undefined → 字段不出现）
  * - additionalDirectories 浅拷贝（防 caller 后续 mutate 入参影响 SDK 内部）
  *
  * 纯函数零 mock：直接 import + 断言 return object。
@@ -34,26 +34,29 @@ describe('buildCodexThreadOptions', () => {
     expect(opts.approvalPolicy).toBe('on-request');
   });
 
-  it('model / networkAccessEnabled / additionalDirectories 全缺省 → 字段不出现在 return object', () => {
+  it('model / modelReasoningEffort / networkAccessEnabled / additionalDirectories 全缺省 → 字段不出现在 return object', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
     });
     // 条件 spread 语义:undefined optional 字段不应作为 key 存在(让 SDK 走自身默认)
     expect('model' in opts).toBe(false);
+    expect('modelReasoningEffort' in opts).toBe(false);
     expect('networkAccessEnabled' in opts).toBe(false);
     expect('additionalDirectories' in opts).toBe(false);
   });
 
-  it('model / networkAccessEnabled / additionalDirectories 显式传 → 全部出现在 return object', () => {
+  it('model / modelReasoningEffort / networkAccessEnabled / additionalDirectories 显式传 → 全部出现在 return object', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
       model: 'gpt-5.5-codex',
+      modelReasoningEffort: 'xhigh',
       networkAccessEnabled: true,
       additionalDirectories: ['/a', '/b'],
     });
     expect(opts.model).toBe('gpt-5.5-codex');
+    expect(opts.modelReasoningEffort).toBe('xhigh');
     expect(opts.networkAccessEnabled).toBe(true);
     expect(opts.additionalDirectories).toEqual(['/a', '/b']);
   });

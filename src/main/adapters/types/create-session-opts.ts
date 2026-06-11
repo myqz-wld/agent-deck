@@ -10,6 +10,9 @@ import type {
 
 import type { PermissionMode } from './adapter-context';
 
+export type ClaudeCodeEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type CodexModelReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
 /**
  * 所有 2 adapter 共享的最小字段集（cwd / prompt）。各 adapter 专属 interface 内联其余
  * 字段保 jsdoc 集中（不抽 BaseCreateOpts，让每个 interface 自身可读完整字段集）。
@@ -53,6 +56,11 @@ export interface ClaudeCreateOpts {
    * spawn / resume 路径不查 settings 全局值。
    */
   model?: string;
+  /**
+   * Per-session Claude Code thinking / effort level. The bridge passes this sanitized enum to SDK
+   * `options.effort`. Undefined preserves the provider / user config default.
+   */
+  claudeCodeEffortLevel?: ClaudeCodeEffortLevel;
   /**
    * Claude Code per-session OS 沙盒档位覆盖（CHANGELOG_74）。三档直接复用
    * settings.claudeCodeSandbox 字面量。undefined = 用 settings.claudeCodeSandbox 全局值
@@ -127,6 +135,11 @@ export interface CodexCreateOpts {
    *   由 `~/.codex/config.toml` 决定);未传值时 codex CLI fallback config.toml 顶层 model
    */
   model?: string;
+  /**
+   * Codex app-server ThreadOptions.modelReasoningEffort passthrough for per-session thinking
+   * complexity. Undefined lets the Codex CLI use its config/default.
+   */
+  modelReasoningEffort?: CodexModelReasoningEffort;
   /**
    * Codex per-session sandbox 档位覆盖。三档直接复用 codex SDK 原生 SandboxMode 字面量。
    * undefined = 用 settings.codexSandbox 全局值。spawn-time 一次性透传给 codex.startThread；
@@ -241,6 +254,8 @@ export interface CreateSessionOptionsRaw {
   teamName?: string;
   attachments?: UploadedAttachmentRef[];
   model?: string;
+  claudeCodeEffortLevel?: ClaudeCodeEffortLevel;
+  modelReasoningEffort?: CodexModelReasoningEffort;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   extraAllowWrite?: readonly string[];

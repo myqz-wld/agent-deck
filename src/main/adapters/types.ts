@@ -12,7 +12,9 @@
 
 export type { AdapterContext, PermissionMode } from './types/adapter-context';
 export type {
+  ClaudeCodeEffortLevel,
   ClaudeCreateOpts,
+  CodexModelReasoningEffort,
   CodexCreateOpts,
   CreateSessionOptions,
   CreateSessionOptionsRaw,

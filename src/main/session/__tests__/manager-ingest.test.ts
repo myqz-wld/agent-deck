@@ -295,9 +295,9 @@ describe('SessionManager.ingest 时序', () => {
   // 触发链:closeSession → markClosed (manager.ts:349,**不**写 recentlyDeleted 黑名单) →
   // 60s 后 hook 子进程内部 buffer 异步飞回,event.sessionId === appSid 直接 dispatch
   // (绕过 3a findByCliSessionId / 黑名单两道防线) → 旧版 ensure() 无 source 守卫复活 closed → active。
-  // **REVIEW_83 修法**:ensure() 复活加 `source==='sdk'` 守卫(manager.ts:251),hook 迟到事件不复活;
+  // **REVIEW_83 修法**:ensure() 复活加 SDK user message 守卫(manager.ts:251),hook 迟到事件不复活;
   // un-skip 本 test (原 it.skip pre-existing fail,REVIEW_83 fix 后转 pass)。
-  it('REVIEW_83 HIGH: closed session 收到迟到 hook → ensure source 守卫不复活', () => {
+  it('REVIEW_83 HIGH: closed session 收到迟到 hook → ensure resume 守卫不复活', () => {
     // 预置 closed session (模拟 closeSession 已跑过)
     mockSessions.set('CLOSED_SID', {
       id: 'CLOSED_SID',
@@ -344,10 +344,82 @@ describe('SessionManager.ingest 时序', () => {
     expect(mockEvents.length).toBeGreaterThan(0);
   });
 
-  // **REVIEW_83 HIGH 回归 test (正路径)**:closed session 收到 SDK 通道事件(用户 resume)
-  // 仍正常复活 active —— 证 source 守卫只挡非 sdk 迟到事件,不误伤 legit resume
+  it('shutdown_session follow-up: closed session 收到迟到 SDK session-end → 不复活', () => {
+    mockSessions.set('CLOSED_SDK_TAIL', {
+      id: 'CLOSED_SDK_TAIL',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'closed sdk tail',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: 200,
+      archivedAt: null,
+      permissionMode: null,
+    });
+    const upsertCountBefore = mockEmits.filter(
+      (e) =>
+        e.name === 'session-upserted' &&
+        (e.payload as SessionRecord)?.id === 'CLOSED_SDK_TAIL',
+    ).length;
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'CLOSED_SDK_TAIL',
+        source: 'sdk',
+        kind: 'session-end',
+        payload: { reason: 'late tail after shutdown_session' },
+        ts: 6000,
+      }),
+    );
+
+    expect(mockSessions.get('CLOSED_SDK_TAIL')?.lifecycle).toBe('closed');
+    expect(mockSessions.get('CLOSED_SDK_TAIL')?.lastEventAt).toBe(100);
+    const upsertCountAfter = mockEmits.filter(
+      (e) =>
+        e.name === 'session-upserted' &&
+        (e.payload as SessionRecord)?.id === 'CLOSED_SDK_TAIL',
+    ).length;
+    expect(upsertCountAfter).toBe(upsertCountBefore);
+    expect(mockEvents.length).toBeGreaterThan(0);
+  });
+
+  it('shutdown_session follow-up: closed session 收到迟到 SDK assistant message → 不复活', () => {
+    mockSessions.set('CLOSED_SDK_ASSISTANT', {
+      id: 'CLOSED_SDK_ASSISTANT',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'closed sdk assistant tail',
+      source: 'sdk',
+      lifecycle: 'closed',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: 200,
+      archivedAt: null,
+      permissionMode: null,
+    });
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'CLOSED_SDK_ASSISTANT',
+        source: 'sdk',
+        kind: 'message',
+        payload: { text: 'late assistant tail after close', role: 'assistant' },
+        ts: 7000,
+      }),
+    );
+
+    expect(mockSessions.get('CLOSED_SDK_ASSISTANT')?.lifecycle).toBe('closed');
+    expect(mockSessions.get('CLOSED_SDK_ASSISTANT')?.lastEventAt).toBe(100);
+  });
+
+  // **REVIEW_83 HIGH 回归 test (正路径)**:closed session 收到 SDK user message(用户 resume)
+  // 仍正常复活 active —— 证复活守卫只放行用户 resume,不误伤 legit resume
   // (recover-and-send-impl.ts:154 emit source:'sdk' user message 触发复活的主路径)。
-  it('REVIEW_83 HIGH: closed session 收到 SDK 事件(resume) → 正常复活 active', () => {
+  it('REVIEW_83 HIGH: closed session 收到 SDK user message(resume) → 正常复活 active', () => {
     mockSessions.set('CLOSED_RESUME', {
       id: 'CLOSED_RESUME',
       agentId: 'claude-code',

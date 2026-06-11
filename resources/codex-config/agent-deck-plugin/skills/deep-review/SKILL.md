@@ -77,7 +77,7 @@ Every review round must use the same heterogeneous pair:
 
 Spawn both reviewers concurrently in round 1. Reuse the same reviewer sessions in later rounds with `send_message`; do not respawn between rounds unless a failure path requires it.
 
-The lead adapter does not matter. A Claude lead still spawns `reviewer-codex` with `adapter: "codex-cli"`; a Codex lead still spawns `reviewer-claude` with `adapter: "claude-code"`. Reviewers must stay independent, must not contact the other reviewer, and must not read the other reviewer's conclusions except during explicit rebuttal mode. The lead adjudicates; reviewers do not judge each other except during explicit rebuttal rounds.
+The lead adapter does not matter. A Claude lead still spawns `reviewer-codex` with `adapter: "codex-cli"`; a Codex lead still spawns `reviewer-claude` with `adapter: "claude-code"`. Reviewers stay independent: they do not contact each other and do not read or judge the other reviewer's conclusions except in explicit rebuttal rounds. The lead adjudicates.
 
 Never replace a failed reviewer with another reviewer from the same adapter family. Heterogeneity is part of the gate.
 
@@ -163,7 +163,7 @@ Each spawn or round prompt must include:
 
 - `output_mode`: `full_review` or `rebuttal`.
 - `scope`: absolute paths, using staged cache paths for external files.
-- `focus`: the current round focus from the table above.
+- `focus`: the current round's row from the Round Focus table, expanded with wording from the focus blocks below; do not send the full multi-round menu.
 - `finding_contract`: location, snippet, verification, severity, fix direction, and example requirements.
 - `skip`: accepted fixes and stable items from previous rounds.
 
@@ -218,8 +218,8 @@ Lead spot-checks:
 |---|---|
 | `reviewer-codex` fails to start, loses auth, hits sandbox denial, times out, reports tool-call cancellation, or loses its thread state | Shut down the failed reviewer, respawn `adapter: "codex-cli"` with `agentName: "reviewer-codex"`, and retry up to 2 times within about 5 minutes per attempt. If it still fails, offer: wait for recovery, continue with single-side reviewer-claude findings downgraded through single-reviewer adjudication, or abort. Never replace it with another Claude reviewer. |
 | `reviewer-claude` fails to start, loses auth, hits sandbox denial, times out, or loses its session state | Shut down the failed reviewer, respawn `adapter: "claude-code"` with `agentName: "reviewer-claude"`, and retry up to 2 times within about 5 minutes per attempt. If it still fails, offer: wait for recovery, continue with single-side reviewer-codex findings downgraded through single-reviewer adjudication, or abort. Never replace it with another Codex reviewer. |
-| Reviewer reports `FRESH SESSION` or equivalent empty-memory state | Shut down that reviewer, respawn the same adapter/agent, and restart from the round 1 full prompt for the current scope. Do not continue round N+1 with lost context. |
-| Reviewer reports `SCOPE PATH MISMATCH` | Fix the path list or staging manifest, shut down affected reviewers, respawn, and resend the full prompt. |
+| Reviewer reports `⚠ FRESH SESSION` or equivalent empty-memory state | Shut down that reviewer, respawn the same adapter/agent, and restart from the round 1 full prompt for the current scope. Do not continue round N+1 with lost context. |
+| Reviewer reports `⚠ SCOPE PATH MISMATCH` | Fix the path list or staging manifest, shut down affected reviewers, respawn, and resend the full prompt. |
 | Reviewer remains stuck after status check and nudge | Ask the user to resolve pending UI approvals if relevant, or use the same-adapter respawn fallback above. |
 | `kind: "mixed"` loses one reviewer | Run the retry and respawn chain first. If only one reviewer remains, its findings cannot become CRITICAL/HIGH unless they pass single-reviewer adjudication with lead-side verification and rebuttal. |
 | Staging external files fails | Abort and report the failed path and reason. |

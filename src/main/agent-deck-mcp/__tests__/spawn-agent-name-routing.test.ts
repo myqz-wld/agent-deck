@@ -38,6 +38,7 @@ const { sessionStore, getBundledAssetContentCalls, createSessionCalls } = vi.hoi
     cwd: string;
     prompt?: string;
     agentId?: string;
+    model?: string;
   }>,
 }));
 
@@ -82,6 +83,7 @@ vi.mock('@main/adapters/registry', () => ({
           agentId?: string;
           cwd: string;
           prompt?: string;
+          model?: string;
         }) => {
           const sid = `spawned-${nextSpawnedSid++}`;
           createSessionCalls.push({
@@ -89,6 +91,7 @@ vi.mock('@main/adapters/registry', () => ({
             cwd: opts.cwd,
             prompt: opts.prompt,
             agentId: opts.agentId,
+            model: opts.model,
           });
           sessionStore.set(sid, {
             id: sid,
@@ -418,5 +421,21 @@ describe('spawn handler agentName 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)'
       adapter: 'claude-code',
     });
     expect(createSessionCalls[0].prompt).toContain('# claude-code/reviewer-codex body');
+  });
+
+  it('explicit model overrides bundled agent frontmatter model', async () => {
+    const r = await spawn({
+      adapter: 'claude-code',
+      agentName: 'reviewer-claude',
+      cwd: '/repo',
+      prompt: 'review task',
+      model: 'sonnet',
+    });
+
+    const { isError } = parseToolResult(r as any);
+    expect(isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    // mock agent frontmatter has `model: opus`; explicit tool param wins.
+    expect(createSessionCalls[0].model).toBe('sonnet');
   });
 });
