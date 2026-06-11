@@ -91,7 +91,7 @@ pnpm dev
 每次想体验「装好的版本」或者验证 wrapper 能不能从 .app 找到 → 完整跑一遍：
 
 ```bash
-# 0. 杀掉所有旧实例（必做；见下面规则清单）
+# 0. 杀掉所有旧实例（覆盖重装必做；明确要求不 kill 时只执行打包步骤）
 pkill -f "Agent Deck.app/Contents/MacOS/Agent Deck" 2>/dev/null
 pkill -f "Agent Deck Helper" 2>/dev/null
 
@@ -115,7 +115,8 @@ ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/loc
 ### 打包配置规则
 
 - `mac.icon: "resources/icon.png"` 必须显式配置；`extraResources` 必须把 `resources/bin` copy 到 .app 的 `bin`。
-- ad-hoc 重签、重装前 pkill 旧进程、SDK / codex native binary unpack 都是必需项；缺任一项先修配置，不要绕到业务代码。
+- ad-hoc 重签、覆盖重装前 pkill 旧进程、SDK / codex native binary unpack 都是必需项；缺任一项先修配置，不要绕到业务代码。
+- 用户明确要求不 kill 时，禁止删除或覆盖正在运行的 `/Applications/Agent Deck.app`。`rm -rf "/Applications/Agent Deck.app"` 会让当前实例丢失 bundle 资源和执行通道；这种场景只打包到 `build/dist`，等用户手动退出后再覆盖，或先拷到临时 bundle 后用 Finder / 系统层替换。
 - 验证 wrapper 前必须 `unset ELECTRON_RUN_AS_NODE`；若二进制表现成 Node 或把 `new` 当脚本解析，这是验证环境污染，不要改 wrapper / 打包配置。
 - 跑 vitest SQLite 真测前后必须保护 better-sqlite3 binding（证据：CHANGELOG_42）。若 Electron 报 `NODE_MODULE_VERSION 115 vs 130`，清 npm prebuild cache 和 binding build 目录后强制 rebuild：
   ```bash
