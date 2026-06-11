@@ -63,14 +63,14 @@ function stripVariantSuffixes(raw: string): string {
 
 /**
  * 把核心串解析成 `{family, version}`。
- * - claude：`claude-opus-4-8` → family=opus / version=4.8；`claude-sonnet-4-5` → sonnet/4.5
- * - claude alias（无版本号，来自 agent frontmatter）：`opus`/`sonnet`/`haiku` → family/无 version
+ * - claude：`claude-fable-5` → family=fable / version=5；`claude-opus-4-8` → opus/4.8
+ * - claude alias（无版本号，来自 agent frontmatter）：`fable`/`opus`/`sonnet`/`haiku` → family/无 version
  * - gpt/codex：`gpt-5.5` → gpt/5.5
  * 返回 null = 未识别（走 fallback 原样）。
  */
 function parseFamilyVersion(core: string): { family: string; version: string | null } | null {
   // claude-<family>-<major>-<minor> 或 claude-<family>-<major>
-  const claudeMatch = /^claude-(opus|sonnet|haiku)(?:-(\d+)(?:-(\d+))?)?/.exec(core);
+  const claudeMatch = /^claude-(fable|opus|sonnet|haiku)(?:-(\d+)(?:-(\d+))?)?/.exec(core);
   if (claudeMatch) {
     const family = claudeMatch[1];
     const major = claudeMatch[2];
@@ -78,8 +78,8 @@ function parseFamilyVersion(core: string): { family: string; version: string | n
     const version = major ? (minor ? `${major}.${minor}` : major) : null;
     return { family, version };
   }
-  // 裸 alias：opus / sonnet / haiku（agent frontmatter model 字段常见）
-  const aliasMatch = /^(opus|sonnet|haiku)$/.exec(core);
+  // 裸 alias：fable / opus / sonnet / haiku（agent frontmatter model 字段常见）
+  const aliasMatch = /^(fable|opus|sonnet|haiku)$/.exec(core);
   if (aliasMatch) {
     return { family: aliasMatch[1], version: null };
   }
@@ -95,6 +95,7 @@ function parseFamilyVersion(core: string): { family: string; version: string | n
 }
 
 const FAMILY_DISPLAY: Record<string, string> = {
+  fable: 'Fable',
   opus: 'Opus',
   sonnet: 'Sonnet',
   haiku: 'Haiku',

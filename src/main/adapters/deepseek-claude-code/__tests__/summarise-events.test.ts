@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => {
     ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
     ANTHROPIC_AUTH_TOKEN: 'test-token',
     ANTHROPIC_MODEL: 'deepseek-v4-pro[1m]',
+    ANTHROPIC_DEFAULT_FABLE_MODEL: 'deepseek-v4-pro[1m]',
     ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
     ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-pro[1m]',
   };

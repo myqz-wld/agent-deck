@@ -83,7 +83,7 @@ export interface AssetMeta {
   description: string;
   /** agent only。逗号分隔的 tool 列表，如 `Read, Grep, Glob, Bash`。 */
   tools?: string;
-  /** agent only。`opus` / `sonnet` / `haiku` 三档之一，或 SDK 接受的具体 model id。 */
+  /** agent only。`fable` / `opus` / `sonnet` / `haiku` alias 之一，或 SDK 接受的具体 model id。 */
   model?: string;
   /** UI hint：从 description 里 regex 抽出的「触发：...」/「/agent-deck:...」短语列表。 */
   triggers?: string[];

@@ -74,8 +74,8 @@ export interface SessionRecord {
    * claudeCodeSandbox 同款 per-session resilience 模式。
    *
    * - claude-code adapter：值会通过 buildClaudeQueryOptions → SDK `query({ options.model })`
-   *   真正传给 cli.js；接受 'opus' / 'sonnet' / 'haiku' alias 或具体 model id 如
-   *   'claude-opus-4-7-thinking-max[1m]'
+   *   真正传给 cli.js；接受 'fable' / 'opus' / 'sonnet' / 'haiku' alias 或具体 model id 如
+   *   'claude-fable-5'
    * - codex-cli adapter（codex-sdk v0.131.0+）：值通过 sdk-bridge spread 到 ThreadOptions.model
    *   真正传给 codex CLI runtime + setModel 持久化让 resume / dormant 唤醒一致；user 端
    *   codex CLI 实际可用 model id 由 `~/.codex/config.toml` 配置决定（user 须自行 preflight

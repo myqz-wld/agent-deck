@@ -16,6 +16,7 @@ const DEFAULT_ENV: Record<string, string> = {
   ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
   ANTHROPIC_AUTH_TOKEN: '',
   ANTHROPIC_MODEL: 'deepseek-v4-pro[1m]',
+  ANTHROPIC_DEFAULT_FABLE_MODEL: 'deepseek-v4-pro[1m]',
   ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-pro[1m]',
   ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-pro[1m]',
   ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
@@ -31,6 +32,7 @@ interface DeepseekSettingsFile {
   authToken?: unknown;
   apiKey?: unknown;
   model?: unknown;
+  fableModel?: unknown;
   opusModel?: unknown;
   sonnetModel?: unknown;
   haikuModel?: unknown;
@@ -50,6 +52,7 @@ export function loadDeepseekClaudeEnv(): Readonly<Record<string, string>> {
   setIfString(env, 'ANTHROPIC_BASE_URL', parsed.baseUrl ?? parsed.url);
   setIfString(env, 'ANTHROPIC_AUTH_TOKEN', parsed.authToken ?? parsed.token ?? parsed.apiKey);
   setIfString(env, 'ANTHROPIC_MODEL', parsed.model);
+  setIfString(env, 'ANTHROPIC_DEFAULT_FABLE_MODEL', parsed.fableModel);
   setIfString(env, 'ANTHROPIC_DEFAULT_OPUS_MODEL', parsed.opusModel);
   setIfString(env, 'ANTHROPIC_DEFAULT_SONNET_MODEL', parsed.sonnetModel);
   setIfString(env, 'ANTHROPIC_DEFAULT_HAIKU_MODEL', parsed.haikuModel);

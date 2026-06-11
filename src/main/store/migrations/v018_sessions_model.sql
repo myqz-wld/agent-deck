@@ -2,8 +2,8 @@
 -- 持久化到 sessions.model，让 SDK resume / dormant 唤醒后保持模型一致（与 permission_mode /
 -- claude_code_sandbox / codex_sandbox 同款 per-session resilience 模式）。
 --
--- 字段值：自由 string（claude SDK 接受 'opus' / 'sonnet' / 'haiku' alias，也接受具体 model id 如
--- 'claude-opus-4-7-thinking-max[1m]'）。NULL = 不指定，SDK 自己读 ANTHROPIC_MODEL env。
+-- 字段值：自由 string（claude SDK 接受 'fable' / 'opus' / 'sonnet' / 'haiku' alias，也接受具体
+-- model id 如 'claude-fable-5'）。NULL = 不指定，SDK 自己读 ANTHROPIC_MODEL env。
 --
 -- 兼容性：claude-code / codex-cli 双路径都持久化 + runtime 真生效。
 -- claude-code:SDK options.model;codex-cli (codex-sdk v0.131.0+):ThreadOptions.model;
