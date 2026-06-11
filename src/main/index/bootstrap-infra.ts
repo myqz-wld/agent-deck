@@ -50,6 +50,10 @@ import {
   MessageLifecycleScheduler,
   setMessageLifecycleScheduler,
 } from '../store/message-lifecycle-scheduler';
+import {
+  TokenUsageLifecycleScheduler,
+  setTokenUsageLifecycleScheduler,
+} from '../store/token-usage-lifecycle-scheduler';
 import { summarizer } from '../session/summarizer';
 import { routeEventToNotification } from '../notify/event-router';
 import { bootstrapIpc } from '../ipc';
@@ -291,6 +295,11 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   });
   state.messageScheduler.start();
   setMessageLifecycleScheduler(state.messageScheduler);
+  // token_usage is the history source for daily token stats, so keep a fixed 365d retention.
+  // This intentionally has no settings panel control; it is only a background storage guard.
+  state.tokenUsageScheduler = new TokenUsageLifecycleScheduler();
+  state.tokenUsageScheduler.start();
+  setTokenUsageLifecycleScheduler(state.tokenUsageScheduler);
   summarizer.start();
 
   // 7.0 D1+D2:app ready 后同步 Agent Deck 段到 ~/.codex/AGENTS.md + skills
