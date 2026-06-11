@@ -54,10 +54,11 @@ export interface CallerContext {
   transport: AgentDeckMcpTransport;
 }
 
-/** Agent Deck MCP tool names. Public registry exposes 16 tools; archive/teammate cleanup names are retained only as deny-by-default guard keys for old internal handlers. */
+/** Agent Deck MCP tool names. Public registry exposes 17 tools; archive/teammate cleanup names are retained only as deny-by-default guard keys for old internal handlers. */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
   sendMessage: 'send_message',
+  requestPlanReview: 'request_plan_review',
   listSessions: 'list_sessions',
   getSession: 'get_session',
   shutdownSession: 'shutdown_session',
@@ -93,6 +94,7 @@ export type AgentDeckToolName =
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,
   send_message: false,
+  request_plan_review: false,
   list_sessions: true,
   get_session: true,
   shutdown_session: false,

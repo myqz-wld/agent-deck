@@ -99,8 +99,8 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突
     // （plugin 强制命名空间前缀）。
     plugins,
-    // Agent Deck MCP（plan task-mcp-merge-into-agent-deck-mcp-20260521 合并后单 server，18 tool —
-    // 10 现有 + 5 task + 3 issue）：开关开 → 挂 in-process MCP server + pre-approve `mcp__agent-deck__*`
+    // Agent Deck MCP（单 server，17 public tool — 7 session/interaction + 2 worktree + 5 task + 3 issue）：
+    // 开关开 → 挂 in-process MCP server + pre-approve `mcp__agent-deck__*`
     // 通配（应用工具属于受控工具，不走 canUseTool 弹框）。开关关 → 不展开两字段，与不挂 plugin
     // 同语义零副作用。原独立 tasks server 已合并入 agent-deck namespace，删 enableTaskManager 独立 toggle。
     ...(agentDeckMcpServer

@@ -1,6 +1,6 @@
-' plan: mcp-handoff-worktree-redesign-20260609
+' source: request-plan-review-mcp-20260611
 ' description: MCP 服务器典型 tool 调用 sequence — 4 段 (入口 / 入口拦截 / 业务路由 / 收口)
-' last_updated: 2026-06-09
+' last_updated: 2026-06-11
 @startuml agent-deck-mcp-tool-call-flow
 
 title MCP 服务器 — 典型 tool 调用 sequence (4 段)
@@ -31,7 +31,8 @@ end
 
 Guard -> Guard: check 外部调用白名单[tool_name]?
 note right of Guard
-  deny list: spawn / send / shutdown / hand_off / worktree / task write
+  deny list: spawn / send / request_plan_review / shutdown
+  / hand_off / worktree / task write+task_get / issue write
   原因: 写 git + 起 SDK + DB 高风险
 end note
 alt 在 deny list + external caller
@@ -69,6 +70,10 @@ else 走 send_message (universal team backend)
     eventBus enqueue (agent-deck-message-enqueued) → 50ms debounce process
     + 250ms poll fallback (single-flight + reschedule)
   end note
+else 走 request_plan_review (用户检阅 plan)
+  Handler -> Store: planReviewService 写 pending resolver
+  Store -> Store: sessionManager.ingest waiting-for-user
+  Store --> Handler: 用户 approve / revise / timeout 后 resolve
 end
 
 == 段 4: 收口 ok return ==

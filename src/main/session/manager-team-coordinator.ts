@@ -1,5 +1,6 @@
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
+import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import type { AgentDeckTeamArchiveReason } from '@shared/types/agent-deck-team';
 import log from '@main/utils/logger';
 
@@ -17,11 +18,9 @@ const logger = log.scope('session-team-coordinator');
  * - unarchiveTeamsForRevivedLead(sid) — 与 `_unarchiveTeamsForRevivedLead` 等价，unarchive(sessionId) 联动用。
  *
  * Import 策略：
- * - eventBus 用 top-level import（与原 _leaveAllActiveTeams 一致，避免 close/markClosed
- *   路径的异常边界因 lazy await 多一个 microtask 而漂移；delete 段 1 历史 lazy 是遗物）。
- * - agentDeckTeamRepo 维持 lazy import (`await import(...)`)，与历史 _leaveAllActiveTeams 模式
- *   对称；现状已无真实 cycle（manager-enrich.ts 已 top-level import 它），是过保护，未来可考虑
- *   收编 top-level（但属本拆分外的另一次决策）。
+ * - eventBus / agentDeckTeamRepo 都用 top-level import。manager-enrich.ts 已长期静态 import
+ *   agentDeckTeamRepo，现状无真实 cycle；这里继续 lazy import 只会触发 Vite
+ *   dynamic/static mixed-import warning，且不会实际分包。
  */
 
 /** SessionManager.close/markClosed 走 'closed'，SessionManager.delete 走 'deleted'。 */
@@ -60,7 +59,6 @@ export async function leaveTeamsAndAutoArchive(
     deleted: 'last-lead-deleted',
   } satisfies Record<SessionEndReason, AgentDeckTeamArchiveReason>;
   try {
-    const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
     const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
     for (const m of memberships) {
       try {
@@ -85,7 +83,7 @@ export async function leaveTeamsAndAutoArchive(
     }
   } catch (err) {
     logger.warn(
-      `[session-mgr] leaveTeamsAndAutoArchive skipped (import failed): ${sessionId}`,
+      `[session-mgr] leaveTeamsAndAutoArchive skipped: ${sessionId}`,
       err,
     );
   }
@@ -96,11 +94,9 @@ export async function leaveTeamsAndAutoArchive(
  * 与 leaveTeamsAndAutoArchive 的区别：membership 不动（lead 没真离开，只是被隐藏），
  * 所以**不**调 leaveTeam、**不**emit team-member-changed。countActiveLeads 已加
  * INNER JOIN sessions archived_at IS NULL 过滤，本 sid 自动从计数中去除。
- * lazy import 防循环依赖（与 leaveTeamsAndAutoArchive 同模式）。
  */
 export async function archiveTeamsIfOrphaned(sessionId: string): Promise<void> {
   try {
-    const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
     const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
     for (const m of memberships) {
       try {
@@ -119,7 +115,7 @@ export async function archiveTeamsIfOrphaned(sessionId: string): Promise<void> {
     }
   } catch (err) {
     logger.warn(
-      `[session-mgr] archiveTeamsIfOrphaned skipped (import failed): ${sessionId}`,
+      `[session-mgr] archiveTeamsIfOrphaned skipped: ${sessionId}`,
       err,
     );
   }
@@ -139,7 +135,6 @@ export async function archiveTeamsIfOrphaned(sessionId: string): Promise<void> {
  */
 export async function unarchiveTeamsForRevivedLead(sessionId: string): Promise<void> {
   try {
-    const { agentDeckTeamRepo } = await import('@main/store/agent-deck-team-repo');
     const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(sessionId);
     for (const m of memberships) {
       try {
@@ -159,7 +154,7 @@ export async function unarchiveTeamsForRevivedLead(sessionId: string): Promise<v
     }
   } catch (err) {
     logger.warn(
-      `[session-mgr] unarchiveTeamsForRevivedLead skipped (import failed): ${sessionId}`,
+      `[session-mgr] unarchiveTeamsForRevivedLead skipped: ${sessionId}`,
       err,
     );
   }

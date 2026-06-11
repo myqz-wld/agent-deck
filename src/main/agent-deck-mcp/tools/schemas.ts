@@ -1,6 +1,6 @@
 /**
- * Agent Deck MCP server zod schema 集中地。公开 registry 暴露 16 个 tool:
- * 6 session + 2 worktree + 5 task + 3 issue。archive_plan / shutdown_baton_teammates
+ * Agent Deck MCP server zod schema 集中地。公开 registry 暴露 17 个 tool:
+ * 7 session/interaction + 2 worktree + 5 task + 3 issue。archive_plan / shutdown_baton_teammates
  * 只保留为退役 guard/type 兼容键,不注册给 SDK agent。
  * 三 transport（in-process / HTTP / stdio）共享同一份 schema。
  *
@@ -233,7 +233,36 @@ export const SEND_MESSAGE_SCHEMA = {
     .optional()
     .describe(
       'Message id being answered: the `<id>` from the `[msg <id>][sid <senderSid>]` wire prefix of the received message, or `spawnPromptMessageId` for the first reply after spawn. Links this message into that reply chain; the receiver sees it auto-injected as a user-role message — no polling. Omit when starting a new topic. The original message team must match the resolved teamId; cross-team chains are rejected.',
+  ),
+};
+
+export const REQUEST_PLAN_REVIEW_SCHEMA = {
+  plan: z
+    .string()
+    .min(1)
+    .max(100_000)
+    .describe(
+      'Markdown plan to show to the user for review. Call this when you need explicit user approval or revision feedback before executing a plan.',
     ),
+  title: z
+    .string()
+    .min(1)
+    .max(120)
+    .optional()
+    .describe('Optional short title shown above the plan review card.'),
+  timeoutMs: z
+    .number()
+    .int()
+    .min(1_000)
+    .max(86_400_000)
+    .optional()
+    .describe('Optional timeout in milliseconds. Omit to wait until the user approves or asks for revisions.'),
+  callerSessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const LIST_SESSIONS_SCHEMA = {
@@ -530,6 +559,7 @@ export const SHUTDOWN_BATON_TEAMMATES_SCHEMA = {
 
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
+export type RequestPlanReviewArgs = z.infer<z.ZodObject<typeof REQUEST_PLAN_REVIEW_SCHEMA>>;
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
@@ -547,7 +577,7 @@ export type ShutdownBatonTeammatesArgs = z.infer<
 
 // =============== Result types (R37 P3-L Step 4.5) ===============
 //
-// 16 public tool ok return shape SSOT, plus retired compatibility result types for legacy
+// 17 public tool ok return shape SSOT, plus retired compatibility result types for legacy
 // handlers that are no longer registered. Handler return 用 `satisfies XxxResult` 做静态字段校验
 // 防漂移（typo / 漏字段 / 字段类型错被 TS 拦）。
 //
@@ -612,6 +642,11 @@ export interface SendMessageResult {
   sentAt: number;
   queued: true;
 }
+
+export type RequestPlanReviewResult =
+  | { decision: 'approved' }
+  | { decision: 'revise'; feedback?: string }
+  | { decision: 'timeout' };
 
 /** shutdown_session ok return shape（shutdown.ts handler；lifecycle: 'closed' 字面常量约束）。 */
 export interface ShutdownSessionResult {

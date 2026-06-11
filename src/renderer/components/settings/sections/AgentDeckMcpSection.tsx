@@ -10,8 +10,8 @@ interface Props {
 /**
  * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6,CHANGELOG_160 简化）。
  *
- * 功能：让 claude / codex / 第三方 MCP client 通过 18 个 tool 跨 adapter 编排其他 coding
- * agent session + 管理结构化任务 + 上报 issue。
+ * 功能：让 claude / codex / 第三方 MCP client 通过 17 个 tool 跨 adapter 编排其他 coding
+ * agent session + 请求 plan 检阅 + 管理结构化任务 + 上报 issue。
  *
  * UI 布局（自顶向下）：
  * 1. 总开关 enableAgentDeckMcp + 描述
@@ -35,21 +35,20 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
       <div className="text-[10px] leading-snug text-deck-muted/70">
         开启后,Claude / Codex / 任何支持 MCP 的 AI 客户端都能在会话里调用工具,管理其他会话和团队任务。
         <details className="mt-1">
-          <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">查看完整工具清单（18 个）</summary>
+          <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">查看完整工具清单（17 个）</summary>
           <div className="mt-1 pl-2 text-deck-muted/80">
             <strong className="text-deck-text/85">会话编排</strong>:
             <code className="rounded bg-white/5 px-1">spawn_session</code> /
             <code className="rounded bg-white/5 px-1">send_message</code> /
+            <code className="rounded bg-white/5 px-1">request_plan_review</code> /
             <code className="rounded bg-white/5 px-1">list_sessions</code> /
             <code className="rounded bg-white/5 px-1">get_session</code> /
             <code className="rounded bg-white/5 px-1">shutdown_session</code>
             <br />
-            <strong className="text-deck-text/85">Plan 接力 / Worktree</strong>:
-            <code className="rounded bg-white/5 px-1">archive_plan</code> /
+            <strong className="text-deck-text/85">会话接力 / Worktree</strong>:
             <code className="rounded bg-white/5 px-1">hand_off_session</code> /
             <code className="rounded bg-white/5 px-1">enter_worktree</code> /
-            <code className="rounded bg-white/5 px-1">exit_worktree</code> /
-            <code className="rounded bg-white/5 px-1">shutdown_baton_teammates</code>
+            <code className="rounded bg-white/5 px-1">exit_worktree</code>
             <br />
             <strong className="text-deck-text/85">结构化任务</strong>:
             <code className="rounded bg-white/5 px-1">task_create</code> /

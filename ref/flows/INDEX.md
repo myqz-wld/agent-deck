@@ -4,7 +4,7 @@
 
 | 文件 | 状态 | 关联 plan / commit | 概要 |
 |---|---|---|---|
-| [agent-deck-mcp-tool-call-flow.puml](agent-deck-mcp-tool-call-flow.puml) | active | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | MCP tool 调用 sequence(16 public tools;入口/拦截/业务路由/收口) |
+| [agent-deck-mcp-tool-call-flow.puml](agent-deck-mcp-tool-call-flow.puml) | active | [CHANGELOG_246](../changelogs/CHANGELOG_246.md) / [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | MCP tool 调用 sequence(17 public tools;含 request_plan_review → 待检阅 UI) |
 | [archive-plan-flow.puml](archive-plan-flow.puml) | archived | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | archive_plan public MCP flow retired; project/skill owns plan closeout |
 | [archive-plan-precheck-decision.puml](archive-plan-precheck-decision.puml) | archived | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | archive_plan precheck retired; use project/skill closeout + exit_worktree |
 | [hand-off-session-flow.puml](hand-off-session-flow.puml) | active | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | hand_off_session prompt-only baton sequence(spawn/transfer/close caller) |

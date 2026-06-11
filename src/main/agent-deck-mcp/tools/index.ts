@@ -11,6 +11,7 @@ import {
 import {
   GET_SESSION_SCHEMA,
   LIST_SESSIONS_SCHEMA,
+  REQUEST_PLAN_REVIEW_SCHEMA,
   SEND_MESSAGE_SCHEMA,
   SHUTDOWN_SESSION_SCHEMA,
   SPAWN_SESSION_SCHEMA,
@@ -29,6 +30,7 @@ import {
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
+import { requestPlanReviewHandler } from './handlers/request-plan-review';
 import { listSessionsHandler } from './handlers/list';
 import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
@@ -145,6 +147,21 @@ export async function buildAgentDeckTools(
     {
       // send_message: 写 messages 表 INSERT(队列入站),不破坏(不删任何东西)、不幂等(重复发会发多条
       // 不同 message)、不与外部世界交互(限项目内 team / session)。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+  );
+
+  const requestPlanReview = tool(
+    AGENT_DECK_TOOL_NAMES.requestPlanReview,
+    'Show a markdown plan to the user and wait for their decision. Use this when you need explicit user review before executing a plan, especially from adapters without native Plan mode. Returns `decision:"approved"` to proceed, `decision:"revise"` with optional feedback to update the plan, or `decision:"timeout"` when `timeoutMs` expires. This tool rejects external callers.',
+    REQUEST_PLAN_REVIEW_SCHEMA,
+    async (args, extra) => requestPlanReviewHandler(args, makeCtx(args, extra)),
+    {
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -391,6 +408,7 @@ export async function buildAgentDeckTools(
   return [
     spawnSession,
     sendMessage,
+    requestPlanReview,
     listSessions,
     getSession,
     shutdownSession,
