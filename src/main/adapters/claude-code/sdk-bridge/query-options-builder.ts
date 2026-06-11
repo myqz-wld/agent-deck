@@ -40,7 +40,7 @@ export interface BuildClaudeQueryOptionsArgs {
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.3：SDK model 透传。
    * undefined → 不传 model 字段，SDK 自己读 ANTHROPIC_MODEL env / 默认 model；
-   * 非 undefined → 'opus' / 'sonnet' / 'haiku' alias 或具体 model id（详
+   * 非 undefined → 'fable' / 'opus' / 'sonnet' / 'haiku' alias 或具体 model id（详
    * model-resolve.ts fallback 链）。
    */
   model?: string;
@@ -142,8 +142,8 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
     // plan model-wiring-and-handoff-20260514 Step 2.3：spawn 时 frontmatter `model` 透传给
     // SDK。空（undefined）→ 不展开此字段，SDK 自己读 ANTHROPIC_MODEL env / 默认 model；
-    // 非空 → 'opus' / 'sonnet' / 'haiku' alias 或具体 model id（如
-    // 'claude-opus-4-7-thinking-max[1m]'），SDK CLI 透传给 API 决定模型。
+    // 非空 → 'fable' / 'opus' / 'sonnet' / 'haiku' alias 或具体 model id（如
+    // 'claude-fable-5'），SDK CLI 透传给 API 决定模型。
     // 优先级链由 model-resolve.ts 负责（opts.model > sessionRepo.model > undefined）。
     ...(model ? { model } : {}),
     // spawn_session thinking override: SDK supports 'low' / 'medium' / 'high' / 'xhigh' / 'max'

@@ -8,7 +8,7 @@ import { ASSET_LIMITS, ASSET_NAME_REGEX } from '@shared/types';
  *
  * 字段（按 kind 分流）：
  * - 共用：name (slug，仅新建时可填) / description (必填) / body (markdown 正文)
- * - agent only：model (必填，opus/sonnet/haiku 下拉) / tools (逗号分隔，可空)
+ * - agent only：model (必填，fable/opus/sonnet/haiku 下拉) / tools (逗号分隔，可空)
  *
  * **plan §D5 升级**:接 `adapter` prop（'claude-code' | 'codex-cli'，必传，由 sub-tab 锁定）
  * - 新建模式：adapter = 当前 sub-tab 值（在 Codex sub-tab 内点 + 新建则 adapter='codex-cli'）
@@ -37,7 +37,7 @@ interface Props {
   onSaved: () => void;
 }
 
-const MODEL_OPTIONS = ['opus', 'sonnet', 'haiku'];
+const MODEL_OPTIONS = ['fable', 'opus', 'sonnet', 'haiku'];
 
 export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): JSX.Element {
   const isEdit = asset !== null;

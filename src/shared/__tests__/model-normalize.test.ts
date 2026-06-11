@@ -16,6 +16,13 @@ describe('normalizeModel', () => {
       });
     });
 
+    it('claude-fable-5[1m] → Fable 5', () => {
+      expect(normalizeModel('claude-fable-5[1m]')).toEqual({
+        bucketKey: 'fable-5',
+        displayName: 'Fable 5',
+      });
+    });
+
     it('同基础模型不同变体合并到同一 bucket', () => {
       const variants = [
         'claude-opus-4-8',
@@ -49,7 +56,7 @@ describe('normalizeModel', () => {
   });
 
   describe('alias（无版本号，agent frontmatter）', () => {
-    it.each(['opus', 'sonnet', 'haiku'])('%s alias → 首字母大写 family', (alias) => {
+    it.each(['fable', 'opus', 'sonnet', 'haiku'])('%s alias → 首字母大写 family', (alias) => {
       const r = normalizeModel(alias);
       expect(r.bucketKey).toBe(alias);
       expect(r.displayName).toBe(alias[0].toUpperCase() + alias.slice(1));

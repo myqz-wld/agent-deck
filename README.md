@@ -176,7 +176,7 @@ HMR 只对 renderer 生效；改了 `src/main/**` 或 `src/preload/**` 必须重
 Claude Code / Codex 路径不读写 API Key；Deepseek 路径只读取你在 `.deepseek/settings.json` 填入的 token 并注入对应 SDK 子进程，不写入其它位置。
 
 - **Claude Code**：跑过 `claude login`（订阅或 Console 账户都行）。SDK 自己读 `~/.claude/.credentials.json`；`~/.claude/settings.json` 的 `permissions / hooks / env / mcpServers` 全部继承（等价于在该 cwd 跑 `claude`）
-- **Deepseek（Claude Code）**：首次创建该类型会话时自动创建 `~/.agent_deck/.deepseek/settings.json`；填入 `env.ANTHROPIC_AUTH_TOKEN` 后即可使用。该文件独立保存 DeepSeek 的 `ANTHROPIC_BASE_URL` / token / model 名称，agents / skills / CLAUDE.md / MCP 等仍复用 Claude Code 侧资源
+- **Deepseek（Claude Code）**：首次创建该类型会话时自动创建 `~/.agent_deck/.deepseek/settings.json`；填入 `env.ANTHROPIC_AUTH_TOKEN` 后即可使用。该文件独立保存 DeepSeek 的 `ANTHROPIC_BASE_URL` / token / model 名称，并默认配置 Fable / Opus / Sonnet / Haiku alias 映射；agents / skills / CLAUDE.md / MCP 等仍复用 Claude Code 侧资源
 - **Codex CLI**：在终端跑过 `codex auth`，应用直接复用 `~/.codex` 配置
 
 `~/.claude/settings.json` 的 `env` 字段在启动时按白名单（`ANTHROPIC_*` / `CLAUDE_*` / 标准代理变量）注入到主进程，让 SDK 子进程拿到代理 / 自定义 base URL。其它键（如 `NODE_OPTIONS` / `PATH`）会被拒绝。
