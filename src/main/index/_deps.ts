@@ -3,7 +3,7 @@
 // _deps.ts 同款 pattern)。
 //
 // 收纳:
-// - BootstrapState interface (5 module-level let 单例字段聚合)
+// - BootstrapState interface (module-level let 单例字段聚合)
 // - createInitialBootstrapState() factory
 // - makeDebouncedTeamSender<T> helper (R3.E9 IPC bridge 16ms debouncer)
 // - CallerArchiveFailedToolName type narrowing + TOOL_DISPLAY_NAME 常量
@@ -15,6 +15,7 @@ import type { LifecycleScheduler } from '../session/lifecycle-scheduler';
 import type { TeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
 import type { IssueLifecycleScheduler } from '../store/issue-lifecycle-scheduler';
 import type { MessageLifecycleScheduler } from '../store/message-lifecycle-scheduler';
+import type { TokenUsageLifecycleScheduler } from '../store/token-usage-lifecycle-scheduler';
 import type { EventMap } from '../event-bus';
 
 /**
@@ -36,6 +37,8 @@ export interface BootstrapState {
   issueScheduler: IssueLifecycleScheduler | null;
   /** plan message-retention-and-index-20260602 §D8: agent_deck_messages retention GC scheduler */
   messageScheduler: MessageLifecycleScheduler | null;
+  /** fixed 365d token_usage retention GC scheduler */
+  tokenUsageScheduler: TokenUsageLifecycleScheduler | null;
   agentDeckMcpHttpShutdown: (() => Promise<void>) | null;
 }
 
@@ -47,6 +50,7 @@ export function createInitialBootstrapState(): BootstrapState {
     teamScheduler: null,
     issueScheduler: null,
     messageScheduler: null,
+    tokenUsageScheduler: null,
     agentDeckMcpHttpShutdown: null,
   };
 }
