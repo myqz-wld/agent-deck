@@ -251,3 +251,4 @@
 | [CHANGELOG_244.md](CHANGELOG_244.md) | 项目级 review 修复 4 个边角缺陷：spawn setSpawnLink 失败孤儿会话、codex turn 中断 RPC 失败挂起、迟到 turn/completed 提前关新 turn 队列、event 单行脏 payload 毒化批量读取（含 json_extract SQL 级守卫）。 |
 | [CHANGELOG_245.md](CHANGELOG_245.md) | Claude Fable alias 支持收口：模型归一识别 `claude-fable-5` / `fable`，资产编辑器下拉加入 `fable`，Deepseek profile 默认补 `ANTHROPIC_DEFAULT_FABLE_MODEL`。 |
 | [CHANGELOG_246.md](CHANGELOG_246.md) | 新增 MCP `request_plan_review`：Codex/第三方模型可请求用户检阅 markdown plan，复用现有待处理计划 UI，并优化长计划 markdown 渲染。 |
+| [CHANGELOG_247.md](CHANGELOG_247.md) | foundation 模板对齐：CLAUDE.md 补目录架构 / 记录编号 / review 过期 / 500 行护栏节，`.gitignore` 补 `.refs/`，落地 expiry 脚本。 |

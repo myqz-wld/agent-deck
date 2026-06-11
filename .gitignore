@@ -1,6 +1,8 @@
 node_modules
 build/
 dist/
+.refs/
+# ↑ 未终态 plan/review 工作副本区（foundation 规则）；终态记录归档到 ref/ 入 git。
 .DS_Store
 *.log
 !ref/plans/**/spike-reports/**/*.log
