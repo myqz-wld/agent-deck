@@ -101,6 +101,33 @@ describe('resolveClaudeAgentContent', () => {
     expect(result.agent.definition.prompt).toBe('Project prompt.');
   });
 
+  it('parses frontmatter effort into definition.effort and effortLevel', () => {
+    bundledAgents.set(
+      'reviewer-claude',
+      '---\ndescription: bundled reviewer\nmodel: opus\neffort: xhigh\n---\nBundled prompt.',
+    );
+
+    const result = resolveClaudeAgentContent('reviewer-claude', project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.effortLevel).toBe('xhigh');
+    expect(result.agent.definition.effort).toBe('xhigh');
+  });
+
+  it('rejects invalid effort values instead of silently dropping them', () => {
+    bundledAgents.set(
+      'reviewer-claude',
+      '---\ndescription: bundled reviewer\neffort: ultra\n---\nBundled prompt.',
+    );
+
+    const result = resolveClaudeAgentContent('reviewer-claude', project);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain('invalid effort "ultra"');
+  });
+
   it('rejects invalid agent names before file lookup', () => {
     const result = resolveClaudeAgentContent('../bad', project);
 

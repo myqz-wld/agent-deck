@@ -255,3 +255,4 @@
 | [CHANGELOG_248.md](CHANGELOG_248.md) | 入口资产去重：CLAUDE.md 修正 IPC 过期路径（ipc.ts → src/main/ipc/），README 删三写的打包 agent 规则。 |
 | [CHANGELOG_249.md](CHANGELOG_249.md) | 设置面板 MCP 介绍补齐 request_plan_review，hand_off_session 归入会话编排；Claude Agent SDK 升到 0.3.175。 |
 | [CHANGELOG_250.md](CHANGELOG_250.md) | Claude/Codex native agents 与 Codex 会话级注入：Claude 走 SDK `agent`/`agents`，Codex custom-agent TOML 映射到 app-server thread/config；Codex AGENTS 与内置 skills 不再写用户级目录，资产库支持 Codex agents。 |
+| [CHANGELOG_251.md](CHANGELOG_251.md) | reviewer 双侧 thinking 升至 xhigh：reviewer-codex 加 model_reasoning_effort，Claude agent loader 新增 frontmatter effort 支持并透传 SDK effort。 |

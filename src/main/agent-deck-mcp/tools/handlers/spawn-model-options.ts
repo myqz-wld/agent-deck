@@ -82,6 +82,7 @@ export function resolveSpawnModelOptions(
   args: SpawnSessionArgs,
   modelFromFrontmatter: string | undefined,
   modelReasoningEffortFromAgent?: SpawnCodexReasoningEffort,
+  claudeCodeEffortLevelFromAgent?: SpawnClaudeCodeEffortLevel,
 ): SpawnModelOptionsResult {
   const options: SpawnModelOptions = {};
 
@@ -104,6 +105,8 @@ export function resolveSpawnModelOptions(
     }
   } else if (args.adapter === 'codex-cli' && modelReasoningEffortFromAgent !== undefined) {
     options.modelReasoningEffort = modelReasoningEffortFromAgent;
+  } else if (args.adapter !== 'codex-cli' && claudeCodeEffortLevelFromAgent !== undefined) {
+    options.claudeCodeEffortLevel = claudeCodeEffortLevelFromAgent;
   }
 
   return { ok: true, options };

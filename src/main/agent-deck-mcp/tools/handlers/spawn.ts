@@ -44,6 +44,7 @@ import { shouldWriteSpawnLink } from './spawn-link-guard';
 import { buildLeadContextBlock } from './lead-context-block';
 import {
   resolveSpawnModelOptions,
+  type SpawnClaudeCodeEffortLevel,
   type SpawnCodexReasoningEffort,
 } from './spawn-model-options';
 import log from '@main/utils/logger';
@@ -103,6 +104,7 @@ type ResolvedSpawnAgent =
       codexConfigOverrides?: CodexConfigObject;
       claudeAgentName?: string;
       claudeAgents?: Record<string, AgentDefinition>;
+      claudeCodeEffortLevel?: SpawnClaudeCodeEffortLevel;
     }
   | { ok: false; error: string; hint: string };
 
@@ -159,6 +161,7 @@ function resolveClaudeSpawnAgent(
     claudeAgents: {
       [resolved.agent.name]: resolved.agent.definition,
     },
+    claudeCodeEffortLevel: resolved.agent.effortLevel,
   };
 }
 
@@ -229,6 +232,7 @@ export const spawnSessionHandler = withMcpGuard(
     // 标的 provider model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
     let modelFromAgent: string | undefined;
     let modelReasoningEffortFromAgent: SpawnCodexReasoningEffort | undefined;
+    let claudeCodeEffortLevelFromAgent: SpawnClaudeCodeEffortLevel | undefined;
     let developerInstructionsFromAgent: string | undefined;
     let codexSandboxFromAgent: SpawnSessionArgs['codexSandbox'] | undefined;
     let codexConfigOverridesFromAgent: CodexConfigObject | undefined;
@@ -239,6 +243,7 @@ export const spawnSessionHandler = withMcpGuard(
       if (!agent.ok) return err(agent.error, agent.hint);
       modelFromAgent = agent.model;
       modelReasoningEffortFromAgent = agent.modelReasoningEffort;
+      claudeCodeEffortLevelFromAgent = agent.claudeCodeEffortLevel;
       developerInstructionsFromAgent = agent.developerInstructions;
       codexSandboxFromAgent = agent.codexSandbox;
       codexConfigOverridesFromAgent = agent.codexConfigOverrides;
@@ -250,6 +255,7 @@ export const spawnSessionHandler = withMcpGuard(
       args,
       modelFromAgent,
       modelReasoningEffortFromAgent,
+      claudeCodeEffortLevelFromAgent,
     );
     if (!resolvedModelOptions.ok) {
       return err(resolvedModelOptions.error, resolvedModelOptions.hint);
