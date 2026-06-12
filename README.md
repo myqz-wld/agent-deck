@@ -74,7 +74,7 @@ closed 后再来同 sessionId 事件 → 自动复活回 active。归档跳过 l
 
 ### Diff 渲染
 
-`DiffRegistry` + `DiffRendererPlugin` 接口。内置 text（有 before/after 快照时用 Monaco DiffEditor；Codex 仅提供 unified diff 时直接展示 patch 内容；改动页可切到当前 Git 工作区的文件最终 diff）/ image（侧并排 / after-only / 滑动对比三视图）/ pdf（占位）。新增渲染器在 `src/renderer/components/diff/install.ts` 注册即可。
+`DiffRegistry` + `DiffRendererPlugin` 接口。内置 text（有 before/after 快照时用 Monaco DiffEditor；Codex 仅提供 unified diff 时直接展示 patch 内容；改动页可切到当前 Git 工作区的文件最终 diff，非 Git 目录会退化为会话记录 + 当前文件快照还原）/ image（侧并排 / after-only / 滑动对比三视图）/ pdf（占位）。新增渲染器在 `src/renderer/components/diff/install.ts` 注册即可。
 
 MCP 图片工具按 `mcp__<server>__Image{Read,Write,Edit,MultiEdit}` 命名约定接入；图片二进制不进 IPC，renderer 通过 `loadImageBlob` 按需向主进程要 dataURL（带白名单 + 大小校验）。
 
