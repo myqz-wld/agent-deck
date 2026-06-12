@@ -8,8 +8,8 @@ This file adds the Agent Deck runtime protocol to in-app Codex SDK sessions. Cod
 
 - Built-in Codex SDK safety constraints, sandbox, approval policy, and system rules always have the highest priority. This file does not replace them.
 - Developer messages and per-turn user prompts take priority over this baseline; when they conflict, follow the caller's current instruction.
-- User-added content outside the Agent Deck marker in `~/.codex/AGENTS.md` is at the same priority level as this baseline. When they conflict, follow the more specific and closer caller instruction.
-- This file is synced by the Agent Deck installer into the marker block in `~/.codex/AGENTS.md`; when a Codex thread starts, it enters the system prompt through the AGENTS loading chain.
+- User, project, and local Codex `AGENTS.md` files still load through Codex's native AGENTS chain. This baseline is separate Agent Deck session context; when they conflict, follow the more specific and closer caller instruction unless a higher-priority instruction says otherwise.
+- Agent Deck injects this file into in-app Codex SDK sessions through app-server `developerInstructions`. It is not appended to or synced into user-level `~/.codex/AGENTS.md`.
 
 ## Runtime Capabilities
 

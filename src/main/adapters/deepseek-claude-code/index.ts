@@ -88,6 +88,8 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
       extraAllowWrite: opts.extraAllowWrite,
       model: opts.model,
       claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
+      claudeAgentName: opts.claudeAgentName,
+      claudeAgents: opts.claudeAgents,
       handOff: opts.handOff,
     });
     return handle.sessionId;

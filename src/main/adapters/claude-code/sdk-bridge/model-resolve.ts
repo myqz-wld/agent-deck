@@ -5,7 +5,7 @@
  * 让 facade createSession 用一行 `resolveClaudeModel(opts)` 拿到 effective model。
  *
  * fallback 链（与 sandbox-resolve.ts 不同 — model 没有 settings 全局默认）：
- * 1. opts.model（spawn handler 解 agent body frontmatter `model` 字段后传入；未来 caller 显式
+ * 1. opts.model（spawn handler 解 adapter-native agent config `model` 字段后传入；未来 caller 显式
  *    传入也走此分支）
  * 2. resume 路径下 sessionRepo.model（重启应用 resume 历史会话还原 + dormant 唤醒一致）
  * 3. undefined（让 SDK 自己读 ANTHROPIC_MODEL env / 用默认 model）

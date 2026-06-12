@@ -238,34 +238,26 @@ export interface AppSettings {
    */
   injectAgentDeckClaudeMd: boolean;
   /**
-   * 是否把 agent-deck 自带的应用约定同步到 codex `~/.codex/AGENTS.md` 的 marker 段
-   * （CHANGELOG_<X> D1）。Agent Deck 复用同一份 CLAUDE.md 内容（用户副本 →
-   * 内置回落）写到 codex 一侧的 AGENTS.md，让 codex 会话也享受应用约定。
+   * 是否把 agent-deck 自带的 Codex 应用约定注入到 in-app Codex SDK 会话。
    *
-   * - true（默认）：app ready / settings 变 / CLAUDE.md 编辑器保存后同步写入
-   *   ~/.codex/AGENTS.md 的 `<!-- === Agent Deck START ===  ... === END === -->` 段
-   * - false：移除 Agent Deck 段（保留用户其他内容）
+   * - true（默认）：新建 Codex thread 时把 active CODEX_AGENTS.md 作为 app-server
+   *   `developerInstructions` 传入
+   * - false：不注入，仅保留 Codex 原生 AGENTS.md 加载链和 caller prompt
    *
-   * **D5 决策**：单向 overwrite Agent Deck 段，用户段（marker 之外）严格保留；
-   * 用户在 Agent Deck 段内手改不反向同步，下次同步会被覆盖。
-   *
-   * 与 injectAgentDeckClaudeMd 平行（前者影响 claude 会话 system prompt 注入，后者
-   * 影响 codex 会话的 AGENTS.md 自动加载）。改这个开关只影响**下次新建**的 codex
-   * 会话；已 spawn 的 codex thread 已加载当时的 AGENTS.md。
+   * 切换时会顺手清理历史 `~/.codex/AGENTS.md` Agent Deck marker 段。改这个开关只影响
+   * **下次新建**的 codex 会话；已 spawn 的 codex thread 已锁定当时的 thread options。
    */
   injectAgentDeckCodexAgentsMd: boolean;
   /**
-   * 是否把 agent-deck 自带 plugin 的 skills 同步到 codex `~/.codex/skills/agent-deck/`
-   * （CHANGELOG_<X> D2）。
+   * 是否把 agent-deck 自带 plugin 的 skills 注入到 in-app Codex SDK 会话。
    *
-   * - true（默认）：app ready / settings 变 / 写一遍内置 skills 到 codex skills 目录
-   * - false：移除 ~/.codex/skills/agent-deck/ 整个目录（保留用户在 ~/.codex/skills/
-   *   其他自管目录）
+   * - true（默认）：app ready / settings 变时准备 app userData 下的 substituted skills
+   *   mirror，新建 Codex app-server 后通过 `skills/extraRoots/set` 传入
+   * - false：移除 app-owned mirror，并清理历史 `~/.codex/skills/agent-deck/` 托管目录
    *
    * 与 injectAgentDeckPlugin（claude）平行：前者控制 claude 会话挂 plugin（含 skills +
-   * agents），后者控制 codex 一侧的 skills 镜像（codex 没有 plugin 概念，仅 skills）。
-   * 改这个开关只影响**下次新建**的 codex 会话；已 spawn 的 codex thread 已加载当时的
-   * skills（codex 启动时扫 ~/.codex/skills/）。
+   * agents），后者控制 codex 一侧的 skills extraRoot。改这个开关只影响**下次新建**的
+   * codex 会话；已 spawn 的 codex app-server 已拿到当时的 extraRoots。
    */
   injectAgentDeckCodexSkills: boolean;
   /**

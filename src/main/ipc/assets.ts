@@ -16,9 +16,9 @@
  * **plan assets-codex-user-and-ui-unify-20260521 §D7 升级**：
  * - `AssetMeta.adapter` user 资产也带 ('claude-code' | 'codex-cli')，null 删除
  * - `AssetsGetContent` / `AssetsRevealInFolder` / `AssetsDeleteUser` source==='user' 时也必传 adapter
- *   （user 资产现也按 adapter 派发到不同 root：~/.claude/{agents,skills}/ vs ~/.codex/skills/）
+ *   （user 资产现也按 adapter 派发到不同 root：~/.claude/{agents,skills}/ vs ~/.codex/{agents,skills}/）
  * - `AssetsSaveUser` UserAssetInput 加 adapter 字段（必填）
- * - `validateAdapterKind` 拒 codex+agent 组合（plan §D3 不变量 #4 — codex CLI 无 user agent 概念）
+ * - `validateAdapterKind` 保留为 adapter/kind 兼容性收口点；当前 Claude/Codex agent/skill 组合都支持
  */
 import { shell } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
@@ -120,7 +120,7 @@ function parseSingleLineString(field: string, value: unknown, maxLen: number): s
  * 校验 markdown body：长度上限 + 禁起首 `---` 行（防把 body 当二级 frontmatter 解析）。
  * 允许换行（markdown 正文本就多行）；不限字符集。
  */
-function parseAssetBody(value: unknown): string {
+function parseAssetBody(value: unknown, opts: { allowFrontmatterStart?: boolean } = {}): string {
   if (typeof value !== 'string') {
     throw new IpcInputError('body', `must be string, got ${typeof value}`);
   }
@@ -128,7 +128,7 @@ function parseAssetBody(value: unknown): string {
     throw new IpcInputError('body', `length > ${ASSET_LIMITS.body} (got ${value.length})`);
   }
   // body 起首不能再开 frontmatter 块（防写出双 frontmatter 文件）；与 AssetEditor renderer 校验对齐
-  if (value.split('\n', 1)[0].trim() === '---') {
+  if (!opts.allowFrontmatterStart && value.split('\n', 1)[0].trim() === '---') {
     throw new IpcInputError('body', `must not start with "---" (防 frontmatter 嵌套)`);
   }
   return value;
@@ -141,14 +141,15 @@ function parseUserAssetInput(value: unknown): UserAssetInput {
   const v = value as Record<string, unknown>;
   const kind = parseKind(v.kind);
   const adapter = parseAdapterRequired(v.adapter);
-  // plan §D3 不变量 #4：codex+agent 组合 IPC 层硬拒（不靠前端 disable）
   const valid = validateAdapterKind(adapter, kind);
   if (!valid.ok) {
     throw new IpcInputError('adapter+kind', valid.reason);
   }
   const name = parseAssetName(v.name);
   const description = parseSingleLineString('description', v.description ?? '', ASSET_LIMITS.description);
-  const body = parseAssetBody(v.body ?? '');
+  const body = parseAssetBody(v.body ?? '', {
+    allowFrontmatterStart: adapter === 'codex-cli' && kind === 'agent',
+  });
   const tools = v.tools !== undefined && v.tools !== ''
     ? parseSingleLineString('tools', v.tools, ASSET_LIMITS.tools)
     : undefined;
@@ -173,7 +174,7 @@ export function registerAssetsIpc(): void {
       if (r.ok) return { ok: true, content: r.content };
       return { ok: false, content: '', reason: r.reason };
     }
-    // source === 'user'：plan §D3 codex+agent IPC 层硬拒
+    // source === 'user'：adapter/kind 兼容性仍从 shared helper 收口
     const valid = validateAdapterKind(adapter, kind);
     if (!valid.ok) return { ok: false, content: '', reason: valid.reason };
     const r = getUserAssetContent(kind, name, adapter);
@@ -190,7 +191,7 @@ export function registerAssetsIpc(): void {
     const kind = parseKind(kindArg);
     const name = parseAssetName(nameArg);
     const adapter = parseAdapterRequired(adapterArg);
-    // plan §D3 codex+agent IPC 层硬拒
+    // adapter/kind 兼容性仍从 shared helper 收口
     const valid = validateAdapterKind(adapter, kind);
     if (!valid.ok) return { ok: false, reason: valid.reason };
     return deleteUserAsset(kind, name, adapter);

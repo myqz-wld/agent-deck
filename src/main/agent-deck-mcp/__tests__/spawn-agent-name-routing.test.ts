@@ -1,26 +1,15 @@
 /**
- * plan codex-handoff-team-alignment-20260518 §P3 Step 3.9 测试矩阵 TC3-7 —
- * spawn handler 按 args.adapter 路由 agentName 到正确 plugin root 的 D3 矩阵验证。
+ * spawn handler 按 args.adapter 解析原生 custom agent 配置。
  *
- * 覆盖（plan §D3 4 种异构矩阵 + plan §P3 Step 3.9 TC3-7 严格对齐）：
- * - TC3 (D3 行 1): `{adapter:'claude-code', agentName:'reviewer-claude'}` →
- *   getBundledAssetContent 第 3 参数 = 'claude-code'
- * - TC4 (D3 行 4): `{adapter:'codex-cli', agentName:'reviewer-claude'}` →
- *   getBundledAssetContent 第 3 参数 = 'codex-cli' (**关键 v4 修法**:codex × claude wrapper
- *   走 codex-config root,不是 claude-config; spawn.ts:102 透传 args.adapter)
- * - TC5 (D3 行 3): `{adapter:'codex-cli', agentName:'reviewer-codex'}` →
- *   getBundledAssetContent 第 3 参数 = 'codex-cli'
- * - TC6 (D3 行 2): `{adapter:'claude-code', agentName:'reviewer-codex'}` →
- *   getBundledAssetContent 第 3 参数 = 'claude-code'
- * - Deepseek: `{adapter:'deepseek-claude-code', agentName:'reviewer-claude'}` →
- *   getBundledAssetContent 第 3 参数 = 'claude-code'（Deepseek 只换模型/env,复用 Claude 资产）
- *
- * 测试策略：mock getBundledAssetContent 用 spy 记录 (kind, name, adapter) 三参，验证
- * spawn handler 真实透传 args.adapter 作第 3 参数（plan §D4 路由实现点）。
+ * 覆盖：
+ * - Claude-family adapter: resolve .claude/bundled agent and pass SDK `agent` + `agents`
+ * - Deepseek adapter: use Claude-family agent assets while keeping target adapter id
+ * - Codex adapter: resolve official TOML agent and map it to app-server thread fields
+ * - no `agentName`: generic spawn, no resolver lookup
  *
  * mock 复用 tools.test.ts 模板（最小化 — adapterRegistry / agent-deck-team-repo / message-repo /
- * sessionManager 全部 stub 让 spawn handler 跑到 getBundledAssetContent 调用 + createSession
- * 调用即可，下游 wire prefix / placeholder enqueue 等不在本测试关注点）。
+ * sessionManager 全部 stub 让 spawn handler 跑到 resolver 调用 + createSession 调用即可，下游 wire
+ * prefix / placeholder enqueue 等不在本测试关注点）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecord, AgentDeckMessage } from '@shared/types';
@@ -30,15 +19,27 @@ import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-st
 import { makeAgentDeckTeamRepoMock } from '@main/__tests__/_shared/mocks/agent-deck-team-repo';
 import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 
-const { sessionStore, getBundledAssetContentCalls, createSessionCalls } = vi.hoisted(() => ({
+const {
+  sessionStore,
+  resolveClaudeAgentContentCalls,
+  resolveCodexAgentContentCalls,
+  createSessionCalls,
+} = vi.hoisted(() => ({
   sessionStore: new Map<string, SessionRecord>(),
-  getBundledAssetContentCalls: [] as Array<{ kind: string; name: string; adapter: string }>,
+  resolveClaudeAgentContentCalls: [] as Array<{ name: string; cwd: string; adapter: string }>,
+  resolveCodexAgentContentCalls: [] as Array<{ name: string; cwd: string }>,
   createSessionCalls: [] as Array<{
     adapter: string;
     cwd: string;
     prompt?: string;
     agentId?: string;
     model?: string;
+    modelReasoningEffort?: string;
+    developerInstructions?: string;
+    codexSandbox?: string;
+    codexConfigOverrides?: unknown;
+    claudeAgentName?: string;
+    claudeAgents?: unknown;
   }>,
 }));
 
@@ -92,6 +93,12 @@ vi.mock('@main/adapters/registry', () => ({
             prompt: opts.prompt,
             agentId: opts.agentId,
             model: opts.model,
+            modelReasoningEffort: (opts as any).modelReasoningEffort,
+            developerInstructions: (opts as any).developerInstructions,
+            codexSandbox: (opts as any).codexSandbox,
+            codexConfigOverrides: (opts as any).codexConfigOverrides,
+            claudeAgentName: (opts as any).claudeAgentName,
+            claudeAgents: (opts as any).claudeAgents,
           });
           sessionStore.set(sid, {
             id: sid,
@@ -234,24 +241,50 @@ vi.mock('@main/teams/universal-message-watcher', () => ({
   enqueueAgentDeckMessage: () => ({ ok: false as const, reason: 'not-needed-for-test' }),
 }));
 
-// **核心 mock**：getBundledAssetContent spy 记录 (kind, name, adapter) 三参（spawn.ts:102 透传
-// args.adapter 作第 3 参数）。所有 (name, adapter) 组合返成功 + 仅 frontmatter / body 区分四
-// 矩阵 cell，让下游 spawn handler 不 reject。
-vi.mock('@main/bundled-assets', () => ({
-  getBundledAssetContent: (
-    kind: 'agent' | 'skill',
-    name: string,
-    adapter: 'claude-code' | 'codex-cli',
-  ): { ok: true; content: string } | { ok: false; reason: string } => {
-    getBundledAssetContentCalls.push({ kind, name, adapter });
-    if (kind === 'agent') {
-      // 内容随 (adapter, name) 区分让本测试可断言「真的取自正确 root」（不仅是参数透传）
+vi.mock('@main/claude-config/custom-agents', () => ({
+  resolveClaudeAgentContent: (name: string, cwd: string, adapter: 'claude-code') => {
+    resolveClaudeAgentContentCalls.push({ name, cwd, adapter });
+    if (name === 'missing-agent') return { ok: false, reason: `not found: ${name}` };
+    return {
+      ok: true,
+      agent: {
+        name,
+        source: 'bundled',
+        model: name === 'user-claude-agent' ? 'sonnet' : 'opus',
+        definition: {
+          description: `${adapter}/${name} description`,
+          prompt: `# ${adapter}/${name} body (mocked)`,
+          tools: ['Read'],
+        },
+      },
+    };
+  },
+}));
+
+vi.mock('@main/codex-config/custom-agents', () => ({
+  resolveCodexAgentContent: (name: string, cwd: string) => {
+    resolveCodexAgentContentCalls.push({ name, cwd });
+    if (name === 'user-codex-agent' || name === 'reviewer-codex') {
       return {
         ok: true,
-        content: `---\nname: ${name}\nmodel: opus\n---\n# ${adapter}/${name} body (mocked)`,
+        agent: {
+          name,
+          source: 'user',
+          sourcePath: '/Users/me/.codex/agents/user-codex-agent.toml',
+          description: 'User Codex agent',
+          developerInstructions: 'Use the user Codex custom agent instructions.',
+          model: 'gpt-5.5',
+          modelReasoningEffort: 'high',
+          sandboxMode: 'read-only',
+          config: {
+            skills: {
+              config: [{ name: 'agent-deck:deep-review' }],
+            },
+          },
+        },
       };
     }
-    return { ok: false, reason: `not found: ${kind}/${name}` };
+    return { ok: false, reason: `user codex miss: ${name}` };
   },
 }));
 
@@ -260,7 +293,8 @@ let buildAgentDeckTools: typeof import('../tools').buildAgentDeckTools;
 
 beforeEach(async () => {
   sessionStore.clear();
-  getBundledAssetContentCalls.length = 0;
+  resolveClaudeAgentContentCalls.length = 0;
+  resolveCodexAgentContentCalls.length = 0;
   createSessionCalls.length = 0;
   addMemberCalls.length = 0;
   mockMessages.clear();
@@ -315,8 +349,8 @@ function parseToolResult(r: { isError?: boolean; content: Array<{ text: string }
   };
 }
 
-describe('spawn handler agentName 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)', () => {
-  it('TC3 (D3 行 1): claude lead × claude wrapper teammate — adapter=claude-code, agentName=reviewer-claude → 找 claude-config root', async () => {
+describe('spawn handler agentName native routing', () => {
+  it('Claude adapter: agentName passes SDK agent + agents, without prompt prefix injection', async () => {
     const r = await spawn({
       adapter: 'claude-code',
       agentName: 'reviewer-claude',
@@ -327,41 +361,52 @@ describe('spawn handler agentName 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)'
     const { isError } = parseToolResult(r as any);
     expect(isError).toBeFalsy();
 
-    expect(getBundledAssetContentCalls).toHaveLength(1);
-    expect(getBundledAssetContentCalls[0]).toEqual({
-      kind: 'agent',
+    expect(resolveClaudeAgentContentCalls).toEqual([{
       name: 'reviewer-claude',
+      cwd: '/repo',
       adapter: 'claude-code',
-    });
-    // body 被注入 prompt 前缀（spawn.ts:115）→ 真取自 claude-config root
+    }]);
+    expect(resolveCodexAgentContentCalls).toEqual([]);
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].prompt).toContain('# claude-code/reviewer-claude body');
+    expect(createSessionCalls[0].prompt).toBe('review task');
+    expect(createSessionCalls[0].claudeAgentName).toBe('reviewer-claude');
+    expect(createSessionCalls[0].claudeAgents).toMatchObject({
+      'reviewer-claude': {
+        prompt: '# claude-code/reviewer-claude body (mocked)',
+      },
+    });
+    expect(createSessionCalls[0].model).toBe('opus');
   });
 
-  it('TC4 (D3 行 4, v4 关键修正): codex lead × claude wrapper teammate — adapter=codex-cli, agentName=reviewer-claude → 找 codex-config root (不是 claude-config)', async () => {
+  it('Codex adapter: agentName maps TOML fields to developerInstructions + thread config fields', async () => {
     const r = await spawn({
       adapter: 'codex-cli',
-      agentName: 'reviewer-claude',
+      agentName: 'user-codex-agent',
       cwd: '/repo',
-      prompt: 'review task',
+      prompt: 'codex task',
     });
 
     const { isError } = parseToolResult(r as any);
     expect(isError).toBeFalsy();
 
-    expect(getBundledAssetContentCalls).toHaveLength(1);
-    expect(getBundledAssetContentCalls[0]).toEqual({
-      kind: 'agent',
-      name: 'reviewer-claude',
-      adapter: 'codex-cli', // 关键：codex × claude wrapper 走 codex-config root（v3 H4 反驳后修正）
+    expect(resolveClaudeAgentContentCalls).toEqual([]);
+    expect(resolveCodexAgentContentCalls).toEqual([{ name: 'user-codex-agent', cwd: '/repo' }]);
+    expect(createSessionCalls[0].prompt).toBe('codex task');
+    expect(createSessionCalls[0].developerInstructions).toContain(
+      'Use the user Codex custom agent instructions.',
+    );
+    expect(createSessionCalls[0].developerInstructions).toContain('Description: User Codex agent');
+    expect(createSessionCalls[0].model).toBe('gpt-5.5');
+    expect(createSessionCalls[0].modelReasoningEffort).toBe('high');
+    expect(createSessionCalls[0].codexSandbox).toBe('read-only');
+    expect(createSessionCalls[0].codexConfigOverrides).toEqual({
+      skills: {
+        config: [{ name: 'agent-deck:deep-review' }],
+      },
     });
-    // 反 negative：**不是** claude-code（防回归到 v3 错误信号）
-    expect(getBundledAssetContentCalls[0].adapter).not.toBe('claude-code');
-    expect(createSessionCalls[0].prompt).toContain('# codex-cli/reviewer-claude body');
-    expect(createSessionCalls[0].prompt).not.toContain('# claude-code/reviewer-claude body');
   });
 
-  it('Deepseek (Claude Code): adapter=deepseek-claude-code, agentName=reviewer-claude → 复用 claude-config root', async () => {
+  it('Deepseek adapter: resolves Claude-family agent assets while target adapter remains deepseek', async () => {
     const r = await spawn({
       adapter: 'deepseek-claude-code',
       agentName: 'reviewer-claude',
@@ -372,55 +417,14 @@ describe('spawn handler agentName 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)'
     const { isError } = parseToolResult(r as any);
     expect(isError).toBeFalsy();
 
-    expect(getBundledAssetContentCalls).toHaveLength(1);
-    expect(getBundledAssetContentCalls[0]).toEqual({
-      kind: 'agent',
+    expect(resolveClaudeAgentContentCalls).toEqual([{
       name: 'reviewer-claude',
+      cwd: '/repo',
       adapter: 'claude-code',
-    });
+    }]);
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].adapter).toBe('deepseek-claude-code');
-    expect(createSessionCalls[0].prompt).toContain('# claude-code/reviewer-claude body');
-  });
-
-  it('TC5 (D3 行 3): codex lead × codex teammate — adapter=codex-cli, agentName=reviewer-codex → 找 codex-config root', async () => {
-    const r = await spawn({
-      adapter: 'codex-cli',
-      agentName: 'reviewer-codex',
-      cwd: '/repo',
-      prompt: 'review task',
-    });
-
-    const { isError } = parseToolResult(r as any);
-    expect(isError).toBeFalsy();
-
-    expect(getBundledAssetContentCalls).toHaveLength(1);
-    expect(getBundledAssetContentCalls[0]).toEqual({
-      kind: 'agent',
-      name: 'reviewer-codex',
-      adapter: 'codex-cli',
-    });
-    expect(createSessionCalls[0].prompt).toContain('# codex-cli/reviewer-codex body');
-  });
-
-  it('TC6 (D3 行 2): claude lead × codex wrapper teammate — adapter=claude-code, agentName=reviewer-codex → 找 claude-config root', async () => {
-    const r = await spawn({
-      adapter: 'claude-code',
-      agentName: 'reviewer-codex',
-      cwd: '/repo',
-      prompt: 'review task',
-    });
-
-    const { isError } = parseToolResult(r as any);
-    expect(isError).toBeFalsy();
-
-    expect(getBundledAssetContentCalls).toHaveLength(1);
-    expect(getBundledAssetContentCalls[0]).toEqual({
-      kind: 'agent',
-      name: 'reviewer-codex',
-      adapter: 'claude-code',
-    });
-    expect(createSessionCalls[0].prompt).toContain('# claude-code/reviewer-codex body');
+    expect(createSessionCalls[0].claudeAgentName).toBe('reviewer-claude');
   });
 
   it('explicit model overrides bundled agent frontmatter model', async () => {
@@ -437,5 +441,35 @@ describe('spawn handler agentName 按 adapter 路由 (plan §P3 Step 3.9 TC3-7)'
     expect(createSessionCalls).toHaveLength(1);
     // mock agent frontmatter has `model: opus`; explicit tool param wins.
     expect(createSessionCalls[0].model).toBe('sonnet');
+  });
+
+  it('generic spawn does not resolve any custom agent when agentName is omitted', async () => {
+    const r = await spawn({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'patch task',
+    });
+
+    const { isError } = parseToolResult(r as any);
+    expect(isError).toBeFalsy();
+    expect(resolveClaudeAgentContentCalls).toEqual([]);
+    expect(resolveCodexAgentContentCalls).toEqual([]);
+    expect(createSessionCalls[0].prompt).toBe('patch task');
+    expect(createSessionCalls[0].claudeAgentName).toBeUndefined();
+    expect(createSessionCalls[0].claudeAgents).toBeUndefined();
+  });
+
+  it('unknown agentName rejects instead of falling back to generic prompt', async () => {
+    const r = await spawn({
+      adapter: 'claude-code',
+      agentName: 'missing-agent',
+      cwd: '/repo',
+      prompt: 'patch task',
+    });
+
+    const { isError, parsed } = parseToolResult(r as any);
+    expect(isError).toBe(true);
+    expect(parsed.error).toContain('agent not found');
+    expect(createSessionCalls).toEqual([]);
   });
 });

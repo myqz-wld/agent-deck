@@ -16,8 +16,8 @@ import { CodexAgentsMdEditor } from './settings/CodexAgentsMdEditor';
  * 三 Tab，每 tab 内部按 adapter sub-tab 切换：
  * - Skills：sub-tab(Claude/Codex)，bundled + user 各 sub-tab 内独立显示;Codex sub-tab user
  *   skill 落 ~/.codex/skills/<name>/SKILL.md(spike4 实证 codex CLI 自动加载)
- * - Agents：sub-tab(Claude/Codex)，Codex sub-tab user section 显「不支持」banner（codex CLI
- *   无 user agent 概念，OpenAI 文档 + spike4 实证 §D3）
+ * - Agents：sub-tab(Claude/Codex)，Claude user agents 落 ~/.claude/agents/，Codex custom
+ *   agents 落 ~/.codex/agents/*.toml
  * - 应用约定：sub-tab(Claude/Codex)，子 editor dirty 时切换前 confirm 拦截
  *
  * dirty 拦截契约：
@@ -303,8 +303,7 @@ function TabBtn({
 }
 
 /**
- * Skills/Agents tab 内部 adapter filter 视图（plan §D1 §D6）：bundled / user 都按 adapter
- * filter；Agents tab Codex sub-tab user section 显「不支持」banner（plan §D3 不变量 #4）。
+ * Skills/Agents tab 内部 adapter filter 视图（plan §D1 §D6）：bundled / user 都按 adapter filter。
  */
 function AssetsTab({
   kind,
@@ -326,15 +325,15 @@ function AssetsTab({
   // plan §D6 删 dedupBundledByName,直接按 adapter filter
   const filteredBundled = bundled.filter((a) => a.adapter === adapter);
   const filteredUser = user.filter((a) => a.adapter === adapter);
-  // plan §D3 不变量 #4：Codex sub-tab Agents tab 不支持 user agent
-  const codexAgentBanner = kind === 'agent' && adapter === 'codex-cli';
   // plan §D2 §D5：user 资产路径 hint 文案 sub-tab 切换
   const userPathHint =
     adapter === 'claude-code'
       ? kind === 'agent'
         ? '~/.claude/agents/'
         : '~/.claude/skills/'
-      : '~/.codex/skills/';
+      : kind === 'agent'
+        ? '~/.codex/agents/'
+        : '~/.codex/skills/';
   return (
     <div className="flex flex-col gap-3">
       <section>
@@ -357,22 +356,15 @@ function AssetsTab({
           <div className="text-[10px] uppercase tracking-wider text-deck-muted/70">
             用户自定义（{userPathHint}）
           </div>
-          {!codexAgentBanner && (
-            <button
-              type="button"
-              onClick={onNew}
-              className="rounded bg-status-working/15 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/25"
-            >
-              + 新建{kind === 'agent' ? ' Agent' : ' Skill'}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onNew}
+            className="rounded bg-status-working/15 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/25"
+          >
+            + 新建{kind === 'agent' ? ' Agent' : ' Skill'}
+          </button>
         </div>
-        {codexAgentBanner ? (
-          <div className="rounded border border-deck-border/60 bg-white/[0.03] p-2 text-[10px] leading-relaxed text-deck-muted/80">
-            Codex CLI 不支持自定义 Agent,只支持 Skill。如需扩展 Codex 能力,请切到「Skills → Codex」新建 Skill;
-            或在新建会话时直接写入完整提示词。
-          </div>
-        ) : filteredUser.length === 0 ? (
+        {filteredUser.length === 0 ? (
           <div className="text-[10px] text-deck-muted/60">
             暂无。点右上「新建」可创建第一个{kind === 'agent' ? ' Agent' : ' Skill'},文件会保存到 {userPathHint}
           </div>
@@ -460,7 +452,7 @@ function ClaudeMdTab({
         aria-hidden={adapter !== 'codex-cli'}
       >
         <div className="text-[10px] leading-snug text-deck-muted/70">
-          应用内置的 CODEX_AGENTS.md,会同步到 ~/.codex/AGENTS.md 的 Agent Deck 区段(你写的其他内容保留)。改动只对新建 Codex 会话生效。
+          应用内置的 CODEX_AGENTS.md,会通过 app-server developerInstructions 注入应用内 Codex 会话。改动只对新建 Codex 会话生效。
         </div>
         <CodexAgentsMdEditor key={resetKeys['codex-cli']} onDirtyChange={onCodexDirty} />
       </div>

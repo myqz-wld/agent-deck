@@ -32,6 +32,7 @@ export interface CodexAppServerOptions {
   codexPathOverride?: string | null;
   config?: CodexConfigObject | null;
   env: Record<string, string>;
+  skillExtraRoots?: string[];
 }
 
 interface JsonRpcResponse {
@@ -169,6 +170,15 @@ export class CodexAppServerClient {
           requestAttestation: false,
         },
       });
+      if (this.opts.skillExtraRoots && this.opts.skillExtraRoots.length > 0) {
+        try {
+          await this.requestRaw('skills/extraRoots/set', {
+            extraRoots: this.opts.skillExtraRoots,
+          });
+        } catch (err) {
+          logger.warn('[codex-app-server] skills/extraRoots/set failed', err);
+        }
+      }
     })();
     return this.initializePromise;
   }
@@ -499,15 +509,26 @@ function buildThreadCommonParams(
     sandbox: options.sandboxMode,
     approvalPolicy: options.approvalPolicy ?? 'never',
     ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.developerInstructions !== undefined
+      ? { developerInstructions: options.developerInstructions }
+      : {}),
     config: buildThreadConfig(options, baseConfig),
   };
 }
+
+export const __testables = {
+  buildThreadStartParams,
+  buildThreadResumeParams,
+  buildTurnStartParams,
+  buildThreadConfig,
+};
 
 function buildThreadConfig(
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
 ): JsonObject {
   const config = cloneConfig(baseConfig);
+  mergeJsonObject(config, cloneConfig(options.configOverrides ?? null));
   if (options.skipGitRepoCheck) {
     config.skip_git_repo_check = true;
   }
@@ -538,28 +559,29 @@ function buildTurnStartParams(
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
 ): JsonObject {
+  const effectiveConfig = buildThreadConfig(options, baseConfig);
   return {
     threadId,
     input,
     cwd: options.workingDirectory,
     approvalPolicy: options.approvalPolicy ?? 'never',
-    sandboxPolicy: buildSandboxPolicy(options, baseConfig),
+    sandboxPolicy: buildSandboxPolicy(options, effectiveConfig),
     ...(options.model !== undefined ? { model: options.model } : {}),
   };
 }
 
 function buildSandboxPolicy(
   options: CodexThreadOptions,
-  baseConfig: CodexConfigObject | null,
+  config: JsonObject,
 ): JsonObject {
-  const networkAccess = resolveNetworkAccess(options, baseConfig);
+  const networkAccess = resolveNetworkAccess(options, config);
   if (options.sandboxMode === 'danger-full-access') {
     return { type: 'dangerFullAccess' };
   }
   if (options.sandboxMode === 'read-only') {
     return { type: 'readOnly', networkAccess };
   }
-  const workspaceConfig = readWorkspaceWriteConfig(baseConfig);
+  const workspaceConfig = readWorkspaceWriteConfig(config);
   return {
     type: 'workspaceWrite',
     writableRoots:
@@ -574,13 +596,13 @@ function buildSandboxPolicy(
 
 function resolveNetworkAccess(
   options: CodexThreadOptions,
-  baseConfig: CodexConfigObject | null,
+  config: JsonObject,
 ): boolean {
   if (options.networkAccessEnabled !== undefined) return options.networkAccessEnabled;
-  return readBoolean(readWorkspaceWriteConfig(baseConfig).network_access) ?? false;
+  return readBoolean(readWorkspaceWriteConfig(config).network_access) ?? false;
 }
 
-function readWorkspaceWriteConfig(config: CodexConfigObject | null): JsonObject {
+function readWorkspaceWriteConfig(config: JsonObject | CodexConfigObject | null): JsonObject {
   const value = (config as JsonObject | null)?.sandbox_workspace_write;
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonObject) : {};
 }
@@ -596,6 +618,23 @@ function readBoolean(value: JsonValue | undefined): boolean | null {
 function cloneConfig(config: CodexConfigObject | null): JsonObject {
   if (!config) return {};
   return JSON.parse(JSON.stringify(config)) as JsonObject;
+}
+
+function mergeJsonObject(target: JsonObject, override: JsonObject): JsonObject {
+  for (const [key, value] of Object.entries(override)) {
+    if (value === undefined) continue;
+    const existing = target[key];
+    if (isPlainJsonObject(existing) && isPlainJsonObject(value)) {
+      target[key] = mergeJsonObject({ ...existing }, value);
+      continue;
+    }
+    target[key] = value;
+  }
+  return target;
+}
+
+function isPlainJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function getNotificationThreadId(notification: CodexAppServerNotification): string | null {

@@ -90,7 +90,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .min(1)
     .max(100_000)
     .describe(
-      'First user message sent to the new session (the task / instructions). When agentName is set, that agent body is auto-prepended to this prompt. For long context, write a file under /tmp and tell the spawned session to read it; this is a general prompt convention, not a special handoff feature.',
+      'First user message sent to the new session (the task / instructions). When `agentName` is omitted, the session is generic and receives this prompt plus the normal runtime baseline. When `agentName` is set, Agent Deck starts the target adapter with that agent through adapter-native fields and still sends this prompt as the task. For long context, write a file under /tmp and tell the spawned session to read it; this is a general prompt convention, not a special handoff feature.',
     ),
   teamName: z
     .string()
@@ -101,12 +101,9 @@ export const SPAWN_SESSION_SCHEMA = {
       'Optional team to form or reuse. Omit for a standalone session; standalone sessions can still exchange teamless DMs through send_message but do not appear together in TeamDetail. Set to make the caller a lead and the new session a teammate in that active team.',
     ),
   /**
-   * 可选 plugin agent body 自动注入（CHANGELOG_76 / plan deep-review-flow-fix D1）：
-   * 非空时 in-process / HTTP / stdio handler 都会按 plugin agents registry 找 body file
-   * (`<resources>/claude-config/agent-deck-plugin/agents/<name>.md` 经 bundled-assets 缓存)，
-   * 把 body 内容作为 caller `prompt` 的前缀注入。免去 lead 自己 cat body 拼字符串。
-   * 找不到 / 不是合法 plugin agent name → spawn_session 直接返回 err（避免静默落空 fallback）。
-   * 仅 claude-code adapter 有意义；其他 adapter 也允许传但行为相同（adapter 自己决定怎么用）。
+   * Optional adapter-native agent selection. Claude-family targets use SDK `agent` + `agents`;
+   * Codex targets parse official TOML custom-agent files and map supported config fields to
+   * app-server thread/developerInstructions/config options. Unknown names reject.
    */
   agentName: z
     .string()
@@ -115,7 +112,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .regex(/^[a-zA-Z0-9._-]+$/, 'agentName only allows [a-zA-Z0-9._-]')
     .optional()
     .describe(
-      'Optional plugin agent name (e.g. "reviewer-claude" / "reviewer-codex"). When set, the bundled agent body is auto-prepended to `prompt`, so callers do not need to read and embed the body themselves. Unknown names reject. If the body frontmatter has `model`, the target adapter receives it as the session model unless explicit `model` is set.',
+      'Optional real agent name. Resolution is adapter-scoped: bundled Agent Deck reviewers first, then project agents (.claude/agents/<name>.md or .codex/agents/*.toml under cwd), then user agents (~/.claude/agents/<name>.md or ~/.codex/agents/*.toml). Claude starts with SDK agent/agents; Codex uses TOML developer_instructions plus supported config fields. For a normal/general-purpose spawned session, omit agentName and put complete instructions in prompt; use displayName only for labels. Unknown names reject.',
     ),
   model: z
     .enum(SPAWN_SESSION_MODEL_VALUES)
@@ -140,7 +137,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(80)
     .optional()
     .describe(
-      'Optional human-readable display name for the spawned session (e.g. "reviewer-claude · batch A", "patch-coder"). When omitted, falls back to agentName (if set), otherwise cwd-basename. Becomes session.title (visible in SessionList / TeamDetail) and team_member.displayName (visible in wire format prefix).',
+      'Optional human-readable display name for the spawned session (e.g. "reviewer-claude · batch A", "patch-coder", "prompt-editor"). Use this for naming a generic teammate; do not set `agentName` just to label the session. When omitted, falls back to agentName (if set), otherwise cwd-basename. Becomes session.title (visible in SessionList / TeamDetail) and team_member.displayName (visible in wire format prefix).',
     ),
   permissionMode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])

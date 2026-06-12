@@ -150,6 +150,10 @@ const createSessionCalls: Array<{
   model?: string;
   modelReasoningEffort?: string;
   claudeCodeEffortLevel?: string;
+  developerInstructions?: string;
+  codexConfigOverrides?: unknown;
+  claudeAgentName?: string;
+  claudeAgents?: unknown;
   extraAllowWrite?: readonly string[];
 }> = [];
 
@@ -176,6 +180,10 @@ vi.mock('@main/adapters/registry', () => ({
           model?: string;
           modelReasoningEffort?: string;
           claudeCodeEffortLevel?: string;
+          developerInstructions?: string;
+          codexConfigOverrides?: unknown;
+          claudeAgentName?: string;
+          claudeAgents?: unknown;
           extraAllowWrite?: readonly string[];
         }) => {
           const sid = nextSpawnedSid;
@@ -191,6 +199,10 @@ vi.mock('@main/adapters/registry', () => ({
             model: opts.model,
             modelReasoningEffort: opts.modelReasoningEffort,
             claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
+            developerInstructions: opts.developerInstructions,
+            codexConfigOverrides: opts.codexConfigOverrides,
+            claudeAgentName: opts.claudeAgentName,
+            claudeAgents: opts.claudeAgents,
             extraAllowWrite: opts.extraAllowWrite,
           });
           sessionStore.set(sid, {
@@ -429,31 +441,49 @@ vi.mock('@main/teams/universal-message-watcher', () => ({
   },
 }));
 
-// D1 (CHANGELOG_76 / plan deep-review-flow-fix): spawn_session 加 agentName 时 handler
-// 调 getBundledAssetContent 拼 body 到 prompt 头部。mock 提供 reviewer-claude 假 body，
-// 其他 name 返回失败（模拟「找不到」）。
-//
-// REVIEW_31 Bug 1+2 修法：mock 必须严格按真实签名 `{ok:true,content} | {ok:false,reason}`，
-// 否则 handler call-site 当 string|null 用就会 toString 成 "[object Object]"，单测看不出来
-// 但生产 100% 失败（用户实测 SKILL spawn 出来 reviewer 收到的 prompt 顶部是 [object Object]
-// 紧跟 ---\n\n + 任务体，agent body 完全没注入）。
-//
-// **plan codex-handoff-team-alignment-20260518 §P3 Step 3.4 升级**：mock signature 加第 3
-// 参数 `adapter`（'claude-code' | 'codex-cli'）；现有测试 mock 行为对 adapter 不敏感（仅按
-// kind+name 反查），保留 noop 兼容；新加 D3 矩阵 4 行测试时按需 narrow adapter 写更精确 mock。
-vi.mock('@main/bundled-assets', () => ({
-  getBundledAssetContent: (
-    kind: 'agent' | 'skill',
-    name: string,
-    _adapter: 'claude-code' | 'codex-cli',
-  ): { ok: true; content: string } | { ok: false; reason: string } => {
-    if (kind === 'agent' && name === 'reviewer-claude') {
+vi.mock('@main/claude-config/custom-agents', () => ({
+  resolveClaudeAgentContent: (name: string) => {
+    if (name === 'reviewer-claude') {
       return {
         ok: true,
-        content: '# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。',
+        agent: {
+          name,
+          source: 'bundled',
+          model: 'opus',
+          definition: {
+            description: 'Mock Claude reviewer',
+            prompt: '# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。',
+          },
+        },
       };
     }
-    return { ok: false, reason: `not found: ${kind}/${name}` };
+    return { ok: false, reason: `not found: ${name}` };
+  },
+}));
+
+vi.mock('@main/codex-config/custom-agents', () => ({
+  resolveCodexAgentContent: (name: string) => {
+    if (name === 'reviewer-codex') {
+      return {
+        ok: true,
+        agent: {
+          name,
+          source: 'bundled',
+          sourcePath: '/mock/reviewer-codex.toml',
+          description: 'Mock Codex reviewer',
+          developerInstructions: '# REVIEWER-CODEX BODY (mocked)',
+          model: 'gpt-5.5',
+          modelReasoningEffort: 'high',
+          sandboxMode: 'read-only',
+          config: {
+            skills: {
+              config: [{ name: 'agent-deck:deep-review' }],
+            },
+          },
+        },
+      };
+    }
+    return { ok: false, reason: `not found: ${name}` };
   },
 }));
 
@@ -1110,7 +1140,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(insertedMessages).toEqual([]);  // 无 teamName 不入 placeholder
   });
 
-  it('Phase B7 / CHANGELOG_100: spawn with agentName + teamName → wire prefix [from][msg][sid] on top of injected agent body', async () => {
+  it('Phase B7 / CHANGELOG_100: spawn with agentName + teamName → wire prefix wraps caller prompt while native agent config is passed separately', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
@@ -1125,16 +1155,20 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(parsed.isError).toBeFalsy();
     const spawnId = parsed.data.spawnPromptMessageId;
     expect(spawnId).toMatch(/^[0-9a-f-]{36}$/);
-    // wire prefix 三段 + lead context block + --- + agent body + --- + caller prompt 顺序
+    // wire prefix 三段 + lead context block + --- + caller prompt 顺序
     const seenPrompt = createSessionCalls[0].prompt as string;
     expect(seenPrompt).toMatch(new RegExp(`^\\[from .+ @ .+\\]\\[msg ${spawnId}\\]\\[sid lead\\]\\n`));
     expect(seenPrompt).toContain('## Hand-off context (auto-injected by Agent Deck MCP)');
-    expect(seenPrompt).toContain('# REVIEWER-CLAUDE BODY (mocked)');
     expect(seenPrompt).toContain('task body: review src/foo.ts');
-    // DB body 不含 wire prefix / lead context block（保留 agent body + ---\n\n + caller prompt 形态）
-    expect(insertedMessages[0].body).toBe(
-      `# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。\n\n---\n\ntask body: review src/foo.ts`,
-    );
+    expect(seenPrompt).not.toContain('# REVIEWER-CLAUDE BODY (mocked)');
+    expect(createSessionCalls[0].claudeAgentName).toBe('reviewer-claude');
+    expect(createSessionCalls[0].claudeAgents).toMatchObject({
+      'reviewer-claude': {
+        prompt: '# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。',
+      },
+    });
+    // DB body 不含 wire prefix / lead context block / native agent body，保留 caller prompt。
+    expect(insertedMessages[0].body).toBe('task body: review src/foo.ts');
   });
 
   it('rejects unknown adapter', async () => {
@@ -1157,8 +1191,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     getSpy.mockRestore();
   });
 
-  // D1 (CHANGELOG_76 / plan deep-review-flow-fix): agentName 自动注入 plugin agent body
-  it('agentName auto-prepends plugin agent body to prompt', async () => {
+  it('agentName passes native Claude SDK agent config without prepending prompt body', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
@@ -1171,12 +1204,14 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].prompt).toMatch(/REVIEWER-CLAUDE BODY \(mocked\)/);
-    expect(createSessionCalls[0].prompt).toMatch(/task body: review src\/foo\.ts/);
-    // 顺序验证：body 在前，分隔符 + task body 在后
-    const idx = createSessionCalls[0].prompt!.indexOf('task body: review');
-    const bodyIdx = createSessionCalls[0].prompt!.indexOf('REVIEWER-CLAUDE BODY');
-    expect(bodyIdx).toBeLessThan(idx);
+    expect(createSessionCalls[0].prompt).toBe('task body: review src/foo.ts');
+    expect(createSessionCalls[0].claudeAgentName).toBe('reviewer-claude');
+    expect(createSessionCalls[0].claudeAgents).toMatchObject({
+      'reviewer-claude': {
+        prompt: '# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。',
+      },
+    });
+    expect(createSessionCalls[0].model).toBe('opus');
   });
 
   it('agentName unresolved → returns err (no fallback to bare prompt)', async () => {
@@ -1191,7 +1226,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/agent body not found/);
+    expect(parsed.data.error).toMatch(/agent not found/);
     // 没静默 spawn
     expect(createSessionCalls).toHaveLength(0);
   });
@@ -1269,12 +1304,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].handOff).toBeUndefined();
   });
 
-  // REVIEW_31 Bug 1+2 regression：handler 必须正确解 getBundledAssetContent 的 union
-  // 返回（{ok:true,content} 形态），而不是当 string 用。老 bug 现象：模板字符串
-  // 拿到 object 走 toString → "[object Object]"，agent body 完全没注入到 prompt。
-  // 这条 case 显式断言 spawn 后 prompt **不含** "[object Object]" 且**含** mock content
-  // 真实文本，并锁住 placeholder DB body 同样真实形态。
-  it('regression Bug 1+2: agent body union unpacked correctly (no [object Object])', async () => {
+  it('regression Bug 1+2: native agent definition is passed as object without leaking [object Object] into prompt or DB body', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
@@ -1288,11 +1318,14 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls[0].prompt).not.toContain('[object Object]');
-    expect(createSessionCalls[0].prompt).toContain('# REVIEWER-CLAUDE BODY (mocked)');
-    expect(createSessionCalls[0].prompt).toContain('你是对抗 reviewer。');
-    // DB body 同样不含 [object Object]
+    expect(createSessionCalls[0].prompt).not.toContain('# REVIEWER-CLAUDE BODY (mocked)');
+    expect(createSessionCalls[0].claudeAgents).toMatchObject({
+      'reviewer-claude': {
+        prompt: '# REVIEWER-CLAUDE BODY (mocked)\n你是对抗 reviewer。',
+      },
+    });
     expect(insertedMessages[0].body).not.toContain('[object Object]');
-    expect(insertedMessages[0].body).toContain('# REVIEWER-CLAUDE BODY (mocked)');
+    expect(insertedMessages[0].body).toBe('task body');
   });
 
   // REVIEW_31 Bug 4：teammate display name fallback 链 = displayName > agentName > 不动。

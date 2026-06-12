@@ -16,6 +16,7 @@
  * 字段 jsdoc 单源在本文件 — 改 facade method 必须改本 type 反之亦然。
  */
 import type { HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type {
   CodexBridgeOptions,
   CodexSessionHandle,
@@ -41,12 +42,12 @@ export interface CreateSessionOpts {
   /** 见 types.ts CreateSessionOptions.codexSandbox（per-session 覆盖）。 */
   codexSandbox?: CodexSandboxMode;
   /**
-   * plan model-wiring-and-handoff-20260514 Step 2.5：spawn handler 解 agent body frontmatter
+   * plan model-wiring-and-handoff-20260514 Step 2.5：spawn handler 解 Codex custom-agent TOML
    * `model` 字段后传入。**Codex runtime v0.131.0 ThreadOptions.model 已支持 per-thread override**
    * (prompt-asset-review-optimize-20260527 跟进 reviewer-claude HIGH 修法 — 原注释基于
    * Codex runtime 旧版判断为 "不接受 per-thread model override" 已过期):
    * - createSession 透传 model 给 Codex app-server `startThread/resumeThread` 的 ThreadOptions.model
-   *   字段 → runtime 真正按 frontmatter 标的 model 跑
+   *   字段 → runtime 真正按 agent TOML 标的 model 跑
    * - 同时 setModel 持久化到 sessions 表(UI / resume 一致 + DB 记账)
    *
    * model 字段未传 → Codex runtime fallback 到 user `~/.codex/config.toml` 顶层 `model` 配置。
@@ -56,6 +57,16 @@ export interface CreateSessionOpts {
    * Codex app-server ThreadOptions.modelReasoningEffort passthrough for live spawned sessions.
    */
   modelReasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  /**
+   * Codex app-server thread/start + thread/resume developerInstructions passthrough.
+   *
+   * The bridge combines this caller-provided value with Agent Deck's bundled Codex runtime
+   * baseline before building ThreadOptions. Use it for per-session agent instructions such as
+   * Codex custom agent TOML `developer_instructions`.
+   */
+  developerInstructions?: string;
+  /** Additional Codex config layer parsed from a custom-agent TOML file. */
+  codexConfigOverrides?: CodexConfigObject;
   /**
    * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
    * caller 透传的 SDK sandbox 额外可写根。**codex SDK 不消费 extra writable roots**

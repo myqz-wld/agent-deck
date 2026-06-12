@@ -1,7 +1,7 @@
 /**
  * spawn_session handler —— 7 大 handler 中最重的一个：
  * - 防御链：external caller deny + sessionRepo caller 反查 + spawn-guards 3 条规则 +
- *   adapter capabilities 校验 + agent body resolve
+ *   adapter capabilities 校验 + agent config resolve
  * - 持久化链：setSpawnLink + recordCreatedPermissionMode + setTitle +
  *   teamRepo.ensureByName/addMember(lead+teammate) + messageRepo.insert (placeholder)
  * - permission/sandbox 默认值：caller 显式 > same-adapter lead 继承 > target adapter 默认
@@ -22,9 +22,14 @@ import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-te
 import { adapterRegistry } from '@main/adapters/registry';
 import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 import { eventBus } from '@main/event-bus';
-import { getBundledAssetContent } from '@main/bundled-assets';
-import { parseFrontmatter } from '@main/utils/frontmatter';
+import { resolveClaudeAgentContent } from '@main/claude-config/custom-agents';
+import {
+  resolveCodexAgentContent,
+  type CodexCustomAgentContent,
+} from '@main/codex-config/custom-agents';
 import { omitUndefined } from '@main/utils/optional-fields';
+import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 
 import { applySpawnGuards } from '../../spawn-guards';
 import { inFlightChildren } from '../../rate-limiter';
@@ -37,7 +42,10 @@ import {
 import type { SpawnSessionArgs, SpawnSessionLimits, SpawnSessionResult } from '../schemas';
 import { shouldWriteSpawnLink } from './spawn-link-guard';
 import { buildLeadContextBlock } from './lead-context-block';
-import { resolveSpawnModelOptions } from './spawn-model-options';
+import {
+  resolveSpawnModelOptions,
+  type SpawnCodexReasoningEffort,
+} from './spawn-model-options';
 import log from '@main/utils/logger';
 
 const logger = log.scope('mcp-spawn');
@@ -83,6 +91,102 @@ function finalizeSpawnLimits(
   }
 }
 
+type SpawnAssetAdapter = 'claude-code' | 'codex-cli';
+
+type ResolvedSpawnAgent =
+  | {
+      ok: true;
+      developerInstructions?: string;
+      model?: string;
+      modelReasoningEffort?: SpawnCodexReasoningEffort;
+      codexSandbox?: SpawnSessionArgs['codexSandbox'];
+      codexConfigOverrides?: CodexConfigObject;
+      claudeAgentName?: string;
+      claudeAgents?: Record<string, AgentDefinition>;
+    }
+  | { ok: false; error: string; hint: string };
+
+function assetAdapterForSpawn(
+  adapter: SpawnSessionArgs['adapter'],
+): SpawnAssetAdapter | null {
+  if (adapter === 'deepseek-claude-code') return 'claude-code';
+  if (adapter === 'claude-code' || adapter === 'codex-cli') return adapter;
+  return null;
+}
+
+function resolveSpawnAgent(
+  agentName: string,
+  adapter: SpawnSessionArgs['adapter'],
+  cwd: string,
+): ResolvedSpawnAgent {
+  const assetAdapter = assetAdapterForSpawn(adapter);
+  if (!assetAdapter) {
+    return {
+      ok: false,
+      error: `agentName not supported for adapter "${adapter}"`,
+      hint: 'Drop agentName and pass full prompt directly, or use a supported adapter: claude-code, deepseek-claude-code, or codex-cli.',
+    };
+  }
+
+  const agent =
+    assetAdapter === 'claude-code'
+      ? resolveClaudeSpawnAgent(agentName, cwd, assetAdapter)
+      : resolveCodexSpawnAgent(agentName, cwd);
+  if (agent.ok) return agent;
+
+  return {
+    ok: false,
+    error: `agent not found for agentName="${agentName}"`,
+    hint:
+      `${agent.hint}. ` +
+      'Available sources are bundled Agent Deck agents, project agents in .claude/agents or .codex/agents, and user agents in ~/.claude/agents or ~/.codex/agents. Omit agentName for generic teammates and use displayName for labels.',
+  };
+}
+
+function resolveClaudeSpawnAgent(
+  agentName: string,
+  cwd: string,
+  adapter: 'claude-code',
+): ResolvedSpawnAgent {
+  const resolved = resolveClaudeAgentContent(agentName, cwd, adapter);
+  if (!resolved.ok) {
+    return { ok: false, error: resolved.reason, hint: `Claude agent lookup failed: ${resolved.reason}` };
+  }
+  return {
+    ok: true,
+    model: resolved.agent.model,
+    claudeAgentName: resolved.agent.name,
+    claudeAgents: {
+      [resolved.agent.name]: resolved.agent.definition,
+    },
+  };
+}
+
+function resolveCodexSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAgent {
+  const resolved = resolveCodexAgentContent(agentName, cwd);
+  if (!resolved.ok) {
+    return { ok: false, error: resolved.reason, hint: `Codex custom agent lookup failed: ${resolved.reason}` };
+  }
+  return {
+    ok: true,
+    developerInstructions: buildCodexCustomAgentInstructions(resolved.agent),
+    model: resolved.agent.model,
+    modelReasoningEffort: resolved.agent.modelReasoningEffort,
+    codexSandbox: resolved.agent.sandboxMode,
+    codexConfigOverrides: resolved.agent.config as CodexConfigObject,
+  };
+}
+
+function buildCodexCustomAgentInstructions(agent: CodexCustomAgentContent): string {
+  return [
+    `# Codex custom agent: ${agent.name}`,
+    agent.description ? `Description: ${agent.description}` : undefined,
+    agent.developerInstructions,
+  ]
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .join('\n\n');
+}
+
 export const spawnSessionHandler = withMcpGuard(
   'spawn_session',
   async (
@@ -115,60 +219,38 @@ export const spawnSessionHandler = withMcpGuard(
     // - LOW-1: agentName body resolve 此时已在 guard 前,拼错 agentName 提前 return err 不再消耗
     //   app-wide spawn-rate token。
 
-    // D1 (CHANGELOG_76): agentName 非空 → 按 plugin agents registry resolve body file，
-    // 把 body 作为 prompt 前缀注入。getBundledAssetContent('agent', name, adapter) 已 startup
-    // 时 loadBundledAssets 预热缓存（main/index.ts:202 step 8.5），现读 fs 一次性拿到。
-    // 找不到（拼写错 / 没安装该 plugin）→ 直接 err 防止静默落空 fallback。
-    //
-    // Deepseek profile reuses Claude-side agents/skills/resources. It has no separate bundled
-    // asset root, so agentName resolves through the claude-code plugin root.
-    //
-    // REVIEW_31 Bug 1+2 修法：getBundledAssetContent 真实签名是 discriminated union
-    // `{ok:true,content:string} | {ok:false,reason:string}`，老代码把它当 `string|null`
-    // 用，模板字符串 `${object}` toString 成 "[object Object]"，agent body 完全没注入；
-    // 测试 mock 也错齐成 string|null 同样错型，单测 100% 通过 / 生产 100% 失败。这里
-    // 必须正确解 union，并把 reason 透传给 err 便于 caller 排查。
+    // agentName 非空 → resolve a real agent config. Bundled Agent Deck agents have priority,
+    // then project agents, then user agents. Claude agents use SDK options.agent/options.agents;
+    // Codex TOML agents use app-server developerInstructions plus thread/config fields.
+    // 找不到（拼写错 / 没安装 / 用户目录无此 agent）→ 直接 err 防止静默落空 fallback。
     let promptToUse = args.prompt;
-    // plan model-wiring-and-handoff-20260514 Step 3.1：agent body frontmatter `model` 提取。
+    // plan model-wiring-and-handoff-20260514 Step 3.1：agent config `model` 提取。
     // 提取后通过 createSession({ model }) 透传给 SDK，让 reviewer teammate 真正按 frontmatter
     // 标的 provider model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
-    let modelFromFrontmatter: string | undefined;
+    let modelFromAgent: string | undefined;
+    let modelReasoningEffortFromAgent: SpawnCodexReasoningEffort | undefined;
+    let developerInstructionsFromAgent: string | undefined;
+    let codexSandboxFromAgent: SpawnSessionArgs['codexSandbox'] | undefined;
+    let codexConfigOverridesFromAgent: CodexConfigObject | undefined;
+    let claudeAgentNameFromAgent: string | undefined;
+    let claudeAgentsFromAgent: Record<string, AgentDefinition> | undefined;
     if (args.agentName) {
-      const assetAdapter =
-        args.adapter === 'deepseek-claude-code' ? 'claude-code' : args.adapter;
-      if (assetAdapter !== 'claude-code' && assetAdapter !== 'codex-cli') {
-        return err(
-          `agentName not supported for adapter "${args.adapter}"`,
-          'Plugin agents are scanned from claude-config / codex-config plugin roots only. Adapters outside this list have no agent_deck plugin scope; drop agentName and pass full prompt directly.',
-        );
-      }
-      const bodyResult = getBundledAssetContent('agent', args.agentName, assetAdapter);
-      if (!bodyResult.ok) {
-        return err(
-          `agent body not found for agentName="${args.agentName}": ${bodyResult.reason}`,
-          'Plugin agent registry does not include this name. Check Header → 📚 资产库 → Agents tab for available bundled agent names (e.g. "reviewer-claude" / "reviewer-codex"). Spawn aborted to avoid silently falling back to caller prompt without the agent body.',
-        );
-      }
-      // 拼接：body 在前 + 1 行空行分隔 + caller prompt 在后（task body 部分）。
-      // 与 SDK system prompt 注入路径不同 —— in-process / HTTP / stdio 都没法直接改 SDK
-      // system prompt prefix（adapter API 没暴露 additionalSystemPrompt），所以在
-      // user-message 头部注入是最简兼容方案。reviewer-* agent body 顶部已有 frontmatter，
-      // body 本身就是给 reviewer 看的「角色提示」，作为 user message 头部仍能起到 priming 作用。
-      promptToUse = `${bodyResult.content}\n\n---\n\n${args.prompt}`;
-
-      // plan Step 3.1：parse frontmatter 拿 model（仅 type === 'string' 且非空白才认）。
-      // bodyResult.content 含完整文件含 frontmatter block；parseFrontmatter 没 frontmatter
-      // 时返回 {}，model 字段不存在时 fm.model = undefined → modelFromFrontmatter 仍 undefined。
-      const fm = parseFrontmatter(bodyResult.content);
-      if (typeof fm.model === 'string' && fm.model.trim().length > 0) {
-        modelFromFrontmatter = fm.model.trim();
-        // prompt-asset-review-optimize-20260527 跟进 reviewer-claude HIGH 修法:
-        // 删除原 codex-cli adapter warn — codex-sdk v0.131.0 ThreadOptions.model
-        // 已支持 per-thread override,frontmatter model 在 codex 端 runtime 真生效。
-      }
+      const agent = resolveSpawnAgent(args.agentName, args.adapter, args.cwd);
+      if (!agent.ok) return err(agent.error, agent.hint);
+      modelFromAgent = agent.model;
+      modelReasoningEffortFromAgent = agent.modelReasoningEffort;
+      developerInstructionsFromAgent = agent.developerInstructions;
+      codexSandboxFromAgent = agent.codexSandbox;
+      codexConfigOverridesFromAgent = agent.codexConfigOverrides;
+      claudeAgentNameFromAgent = agent.claudeAgentName;
+      claudeAgentsFromAgent = agent.claudeAgents;
     }
 
-    const resolvedModelOptions = resolveSpawnModelOptions(args, modelFromFrontmatter);
+    const resolvedModelOptions = resolveSpawnModelOptions(
+      args,
+      modelFromAgent,
+      modelReasoningEffortFromAgent,
+    );
     if (!resolvedModelOptions.ok) {
       return err(resolvedModelOptions.error, resolvedModelOptions.hint);
     }
@@ -204,6 +286,7 @@ export const spawnSessionHandler = withMcpGuard(
         : defaultPermissionModeForTargetAdapter(args.adapter));
     const effectiveCodexSandbox =
       args.codexSandbox ??
+      codexSandboxFromAgent ??
       (shouldInheritAdapterSettings ? (leadRecord?.codexSandbox ?? undefined) : undefined);
     const effectiveClaudeCodeSandbox =
       args.claudeCodeSandbox ??
@@ -223,7 +306,7 @@ export const spawnSessionHandler = withMcpGuard(
     // 完全跳过三道防御 + 不进 in-flight 计数(详 applySpawnGuards jsdoc + spawn-link-guard.ts)
     //
     // **REVIEW_85 MED-A (reviewer-claude) 位置不变量**:guard 必须在「上面所有可抛 DB 读
-    // (leadRecord = sessionRepo.get) + agentName body resolve」之后、ensureByName 之前。
+    // (leadRecord = sessionRepo.get) + agentName config resolve」之后、ensureByName 之前。
     //   - 之后:guard inc fanOutSlot 后到下方 createSession try/finally 之间不能有裸抛点,否则
     //     抛错越过 handler → release 永不执行 → in-flight 计数永久泄漏。leadRecord 上移到 guard
     //     前(本来就在前),ensureByName 块自带 try/catch(L下方),二者之间纯计算 → 泄漏窗口归零。
@@ -336,6 +419,10 @@ export const spawnSessionHandler = withMcpGuard(
             model: resolvedModelOptions.options.model,
             modelReasoningEffort: resolvedModelOptions.options.modelReasoningEffort,
             claudeCodeEffortLevel: resolvedModelOptions.options.claudeCodeEffortLevel,
+            developerInstructions: developerInstructionsFromAgent,
+            codexConfigOverrides: codexConfigOverridesFromAgent,
+            claudeAgentName: claudeAgentNameFromAgent,
+            claudeAgents: claudeAgentsFromAgent,
             // plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D7（信号源）：透传
             // args.agentName → options-builder narrowToCodexOpts 按 reviewer-* 路径触发 codex
             // reviewer teammate runtime default spread（approvalPolicy / networkAccessEnabled /

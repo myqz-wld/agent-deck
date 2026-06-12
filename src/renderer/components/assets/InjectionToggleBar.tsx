@@ -8,10 +8,10 @@ import { Toggle } from '../settings/controls';
  * 把原 SettingsDialog 三个资产 section（ClaudeMdSection / PluginAssetsSection /
  * CodexInjectionSection）的 5 个 toggle 整体迁来，按 tab 维度分发：
  *
- * - skills tab：claude 端 plugin 注入 + codex 端 skills 镜像
+ * - skills tab：claude 端 plugin 注入 + codex 端 skills extraRoot 注入
  * - agents tab：claude 端 plugin 注入（与 skills tab 是同一 settings key 的两个入口，
  *   状态自动同步——React 重渲染保证一致性，无需额外同步代码）
- * - claude-md tab：claude 端 system prompt 注入 + codex 端 AGENTS.md 同步
+ * - claude-md tab：claude 端 system prompt 注入 + codex 端 developerInstructions 注入
  *
  * 设计：
  * - 「资产编辑 + 注入开关」单一真源（资产库），与设置面板彻底解耦
@@ -49,7 +49,7 @@ export function InjectionToggleBar({
             onChange={(v) => void update({ injectAgentDeckPlugin: v })}
           />
           <Toggle
-            label="同步到 ~/.codex/skills/agent-deck/(Codex 会话)"
+            label="注入到 Codex 会话(内置 Skills extraRoot)"
             value={settings.injectAgentDeckCodexSkills}
             onChange={(v) => void update({ injectAgentDeckCodexSkills: v })}
           />
@@ -79,7 +79,7 @@ export function InjectionToggleBar({
             onChange={(v) => void update({ injectAgentDeckClaudeMd: v })}
           />
           <Toggle
-            label="同步到 ~/.codex/AGENTS.md(保留你写的其他内容)"
+            label="注入到 Codex 会话(developerInstructions)"
             value={settings.injectAgentDeckCodexAgentsMd}
             onChange={(v) => void update({ injectAgentDeckCodexAgentsMd: v })}
           />

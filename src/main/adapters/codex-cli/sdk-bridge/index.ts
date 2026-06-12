@@ -7,6 +7,7 @@ import {
   mergeCodexConfig,
   AGENT_DECK_MCP_TOKEN_ENV,
 } from '@main/codex-config/agent-deck-mcp-injector';
+import { getCodexSkillExtraRootsForSession } from '@main/codex-config/skills-installer';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 // CHANGELOG_52 Step 4a-4c：拆 class 完成。本目录（sdk-bridge/）含 4 sub-module + index.ts (facade)。
 //
@@ -296,6 +297,7 @@ export class CodexSdkBridge {
       codexPathOverride: userCodexPath || null,
       config: codexConfig,
       env: envOverride,
+      skillExtraRoots: getCodexSkillExtraRootsForSession(),
     });
     this.codexBySession.set(sessionId, codex);
     return codex;

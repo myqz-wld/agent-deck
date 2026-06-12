@@ -8,7 +8,7 @@
  *   - source: 'bundled' | 'user'             —— 来源（影响只读/可写）
  *   - adapter: 'claude-code' | 'codex-cli'   —— 所属 adapter scope（user 资产也带,不再 null）
  *     - claude-code user → ~/.claude/{agents,skills}/
- *     - codex-cli  user → ~/.codex/skills/<name>/SKILL.md（agents 不支持,详 plan §D3）
+ *     - codex-cli  user → ~/.codex/{agents/<name>.toml,skills/<name>/SKILL.md}
  *
  * frontmatter 字段（agents only：tools/model；两类共用：name/description）由
  * main 进程 `src/main/bundled-assets.ts` 与 `src/main/user-assets.ts` 解析。
@@ -56,11 +56,11 @@ export interface AssetMeta {
    *   - user   ：扫自 `~/.claude/{agents,skills}/`
    * - `'codex-cli'`：
    *   - bundled：扫自 `resources/codex-config/agent-deck-plugin/`
-   *   - user   ：扫自 `~/.codex/skills/`（user agents 不支持，scanUserAgents('codex-cli') 直接返 []）
+   *   - user   ：扫自 `~/.codex/{agents,skills}/`
    *
    * 用途：
-   * 1. spawn_session(adapter, agent_name) 路由到对应 plugin root 取 agent body（同名 agent
-   *    跨 adapter 内容不同，如 reviewer-claude wrapper 在 claude 视角 / codex 视角实现完全不同）
+   * 1. spawn_session(adapter, agentName) 路由到对应 adapter scope 取 native agent config（同名 agent
+   *    跨 adapter 内容不同，如 reviewer assets 在 claude 视角 / codex 视角实现不同）
    * 2. `getBundledAssetContent(kind, name, adapter)` / `getBundledAssetPath(kind, name, adapter)`
    *    `getUserAssetContent(kind, name, adapter)` / `getUserAssetPath(kind, name, adapter)`
    *    `saveUserAsset(input)` / `deleteUserAsset(kind, name, adapter)` 都必须的 narrowing key
@@ -75,8 +75,8 @@ export interface AssetMeta {
    * 用户：`<name>`（不变）。
    *
    * UI 直接展示用，让用户清楚该资产来自哪个 adapter root；React key 用此字段时跨 adapter
-   * 同名 agent 仍唯一。**plan §P3 Step 3.3 由 `agent-deck:<name>` 升级**——历史 caller 通过
-   * `agent_name: 'reviewer-claude'` (不带 prefix) 引用 SDK，qualifiedName 仅 UI 展示，无 runtime
+   * 同名 agent 仍唯一。**plan §P3 Step 3.3 由 `agent-deck:<name>` 升级**——caller 通过
+   * `agentName: 'reviewer-claude'` (不带 prefix) 引用 SDK，qualifiedName 仅 UI 展示，无 runtime
    * 影响。
    */
   qualifiedName: string;
@@ -95,15 +95,14 @@ export interface AssetMeta {
  * 用户自定义资产保存入参。main 端拼装 frontmatter（手写 YAML）+ body 写盘：
  *   - claude-code skills → `~/.claude/skills/<name>/SKILL.md`
  *   - claude-code agents → `~/.claude/agents/<name>.md`
+ *   - codex-cli  agents → `~/.codex/agents/<name>.toml`
  *   - codex-cli  skills → `~/.codex/skills/<name>/SKILL.md`
- *   - codex-cli  agents → IPC 层硬拒（plan §D3 / 不变量 #4：codex CLI 不原生支持 user agent）
  * 走原子写（write tmp + rename），与 saveUserAgentDeckClaudeMd 同模式。
  */
 export interface UserAssetInput {
   kind: AssetKind;
   /**
-   * 资产所属 adapter scope（plan §D5：新建 / 编辑 时随当前 sub-tab 锁定）。codex-cli + agent
-   * 组合在 ipc/assets.ts 与 main/user-assets.ts 双层硬拒（不变量 #4）。
+   * 资产所属 adapter scope（plan §D5：新建 / 编辑 时随当前 sub-tab 锁定）。
    */
   adapter: 'claude-code' | 'codex-cli';
   /** slug 见 `ASSET_NAME_REGEX`，长度受 `ASSET_LIMITS.name` 约束。 */
@@ -118,10 +117,8 @@ export interface UserAssetInput {
 }
 
 /**
- * adapter + kind 组合是否合法（plan §D3 / 不变量 #4）。
- *
- * - `codex-cli` + `agent`：codex CLI 不原生支持 user agent（OpenAI 文档 + spike4 实证），永远 reject
- * - 其他组合：合法
+ * adapter + kind 组合是否合法。Codex custom agents are native TOML files under
+ * `~/.codex/agents/`, so every current adapter/kind combination is valid.
  *
  * 跨进程共享 helper（plan §改动文件清单 reviewer-claude LOW-3 修订）：
  * - ipc/assets.ts 入参校验调一次（IPC 层硬拒，防 renderer 走 `window.electronIpc` 兜底通道绕过 UI 直写）
@@ -134,13 +131,8 @@ export function validateAdapterKind(
   adapter: 'claude-code' | 'codex-cli',
   kind: AssetKind,
 ): { ok: true } | { ok: false; reason: string } {
-  if (adapter === 'codex-cli' && kind === 'agent') {
-    return {
-      ok: false,
-      reason:
-        'codex CLI 不原生支持 user agent（plan §D3 / 不变量 #4）；user agent 仅 claude-code adapter 支持',
-    };
-  }
+  void adapter;
+  void kind;
   return { ok: true };
 }
 

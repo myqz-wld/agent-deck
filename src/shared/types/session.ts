@@ -69,7 +69,7 @@ export interface SessionRecord {
   /**
    * Agent / SDK model（plan model-wiring-and-handoff-20260514 Step 1.3）。
    *
-   * 持久化 spawn 时来源（含 agent_name 触发的 frontmatter `model` 字段、未来 caller 显式
+   * 持久化 spawn 时来源（含 agentName 触发的 adapter-native agent config `model` 字段、未来 caller 显式
    * 传入），让 SDK resume / dormant 唤醒后保持模型一致 — 与 permissionMode /
    * claudeCodeSandbox 同款 per-session resilience 模式。
    *

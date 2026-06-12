@@ -26,31 +26,30 @@
  *    substituted copy at startup. Module flag avoids re-install per spawn.
  *
  * 3. `codex-config/agents-md-installer.ts:syncAgentDeckSection`
- *    — **substitute-on-write (filesystem write to `~/.codex/AGENTS.md`)**.
- *    Why: codex CLI reads `~/.codex/AGENTS.md` as a static file; there is no in-process
- *    substitution opportunity for codex SDK runtime. The substituted text must already be
- *    on disk by the time codex spawns. Cache uses raw with placeholder (the file is small,
- *    re-substitute on every sync is cheap and avoids dev/prod cache poisoning).
+ *    — **substitute-on-session-injection (app-server `developerInstructions`)**.
+ *    Why: Agent Deck no longer mutates user-level `~/.codex/AGENTS.md`. The active
+ *    CODEX_AGENTS.md source is substituted when building the per-session app-server payload.
+ *    Cache uses raw with placeholder (the file is small, re-substitute after invalidation is
+ *    cheap and avoids dev/prod cache poisoning).
  *
  * 4. `codex-config/skills-installer.ts:syncSkills`
- *    — **substitute-on-write (filesystem write to `~/.codex/skills/agent-deck/<X>/SKILL.md`)**.
- *    Why: same as 3 — codex CLI scans the skills dir as static files. Note this is NOT a
- *    directory mirror like 2: skills-installer iterates each skill subdir individually
- *    (preserves user-managed `~/.codex/skills/` siblings). So the "abstract `mirrorAndSubstituteDir`
- *    helper" suggested in R3 INFO-1 has only one consumer (caller 2) and was deferred — abstracting
- *    a single-use helper violates §提示词资产维护 约束 2「不写预测未来用例代码」.
+ *    — **substitute-on-mirror (filesystem mirror under app userData)**.
+ *    Why: Codex app-server supports `skills/extraRoots/set`, so bundled skills can live in an
+ *    app-owned substituted mirror instead of `~/.codex/skills/agent-deck`. The mirror preserves
+ *    user-managed `~/.codex/skills/` siblings and is passed to each in-app Codex session as an
+ *    extra skill root.
  *
  * 5. `bundled-assets.ts:getBundledAssetContent`
  *    — **substitute-on-read (no cache)**.
  *    Why: defense-in-depth wrap at the read boundary. Adapter-agnostic — claude side is
  *    already a substituted mirror (caller 2's output), so substitute is a no-op via the
  *    `text.includes` guard. Codex side reads source raw, so substitute catches any future
- *    placeholder added to `resources/codex-config/agent-deck-plugin/agents/*.md` (currently
+ *    placeholder added to `resources/codex-config/agent-deck-plugin/agents/*.toml` (currently
  *    0 placeholders, this is latent gap protection — see R3 reviewer-claude MED-1).
  *
  * **Why the 5 strategies should NOT be unified**: each strategy is the natural fit for that
  * caller's surrounding mechanism (in-memory cache for repeated SDK injection / disk mirror
- * for SDK direct-scan / static-file write for codex / read-time wrap for defense). Unifying
+ * for SDK direct-scan / session payload for codex / read-time wrap for defense). Unifying
  * them would force unnatural caching (e.g. caching disk mirror output in-memory adds nothing
  * because SDK reads disk anyway, but adds an invalidation footgun). Keep substitute logic
  * shared via this module; let each caller's caching layer stay bespoke.

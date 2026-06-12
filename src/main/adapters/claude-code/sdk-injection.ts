@@ -157,8 +157,9 @@ function substituteMdFilesInPlace(dir: string): void {
  * 改这个开关只影响**下次新建**的 SDK 会话；已运行的会话已经在启动时拿到
  * plugin 列表，关掉不会撤销。
  *
- * **claude-code only**：codex SDK 没有 `plugins[]` 字段（走 `~/.codex/AGENTS.md` 静态
- * 注入 + `~/.codex/agents/` 目录），故本 helper signature 不通用化（plan §P3 Step 3.2 决策）。
+ * **claude-code only**：codex SDK 没有 `plugins[]` 字段；Agent Deck 的 Codex baseline 走
+ * app-server `developerInstructions`，skills 走 `skills/extraRoots/set`，故本 helper signature
+ * 不通用化（plan §P3 Step 3.2 决策）。
  */
 export function getAgentDeckPluginsForSession(): Array<{ type: 'local'; path: string }> {
   if (!settingsStore.get('injectAgentDeckPlugin')) return [];

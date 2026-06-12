@@ -12,7 +12,7 @@
  * 直接读 settingsStore / sessionRepo / eventBus。caller 负责 await load 各项后传入。
  */
 
-import type { EffortLevel, Options } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition, EffortLevel, Options } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
 import type { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
@@ -48,6 +48,10 @@ export interface BuildClaudeQueryOptionsArgs {
    * Per-session Claude Code effort override. undefined → SDK/user settings choose the effort.
    */
   effort?: EffortLevel;
+  /** Claude Code SDK main-thread agent name. */
+  agentName?: string;
+  /** Programmatic Claude Code SDK agent definitions keyed by agent name. */
+  agents?: Record<string, AgentDefinition>;
 }
 
 /**
@@ -69,6 +73,8 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     mcpServers: { agentDeckMcpServer },
     model,
     effort,
+    agentName,
+    agents,
   } = args;
 
   return {
@@ -140,7 +146,7 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     // 不经 Electron fs patch → ENOTDIR → query 立刻死。显式传解析后的 unpacked 路径
     // 绕开 SDK 自带 K7。dev 模式下函数返回真实 node_modules 路径，无副作用。
     ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
-    // plan model-wiring-and-handoff-20260514 Step 2.3：spawn 时 frontmatter `model` 透传给
+    // plan model-wiring-and-handoff-20260514 Step 2.3：spawn 时 agent config `model` 透传给
     // SDK。空（undefined）→ 不展开此字段，SDK 自己读 ANTHROPIC_MODEL env / 默认 model；
     // 非空 → 'fable' / 'opus' / 'sonnet' / 'haiku' alias 或具体 model id（如
     // 'claude-fable-5'），SDK CLI 透传给 API 决定模型。
@@ -149,6 +155,8 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     // spawn_session thinking override: SDK supports 'low' / 'medium' / 'high' / 'xhigh' / 'max'
     // through top-level options.effort. Undefined leaves ~/.claude settings and provider defaults intact.
     ...(effort ? { effort } : {}),
+    ...(agentName ? { agent: agentName } : {}),
+    ...(agents && Object.keys(agents).length > 0 ? { agents } : {}),
     // OS 级沙盒（REVIEW_14 阶段 2 + REVIEW_15 实测纠错）：根据 settings.claudeCodeSandbox
     // 档位拼装**顶层 sandbox 字段**（REVIEW_15 实测铁证：managedSettings.sandbox 包装无效，
     // 必须用顶层 `sandbox: SandboxSettings` 字段，详 sandbox-config.ts 头注释决策 #1）。

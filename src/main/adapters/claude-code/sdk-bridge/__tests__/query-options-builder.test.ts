@@ -35,4 +35,37 @@ describe('buildClaudeQueryOptions', () => {
 
     expect(options).not.toHaveProperty('effort');
   });
+
+  it('passes native Claude SDK agent name and programmatic agent definitions', () => {
+    const options = buildClaudeQueryOptions({
+      ...buildBaseArgs(),
+      agentName: 'reviewer-claude',
+      agents: {
+        'reviewer-claude': {
+          description: 'Review code',
+          prompt: 'Review carefully.',
+          tools: ['Read'],
+        },
+      },
+    });
+
+    expect(options.agent).toBe('reviewer-claude');
+    expect(options.agents).toEqual({
+      'reviewer-claude': {
+        description: 'Review code',
+        prompt: 'Review carefully.',
+        tools: ['Read'],
+      },
+    });
+  });
+
+  it('omits empty programmatic agent definitions', () => {
+    const options = buildClaudeQueryOptions({
+      ...buildBaseArgs(),
+      agents: {},
+    });
+
+    expect(options).not.toHaveProperty('agent');
+    expect(options).not.toHaveProperty('agents');
+  });
 });

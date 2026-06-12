@@ -172,10 +172,10 @@ function applyCodexMcpServers(p: Partial<AppSettings>, next: AppSettings): void 
 }
 
 /**
- * CHANGELOG_<X> D1：injectAgentDeckCodexAgentsMd 改了 → 同步 Agent Deck 段到
- * ~/.codex/AGENTS.md（marker 包裹）。开 → 写入；关 → 移除段（保留用户内容）。
+ * CHANGELOG_<X> D1：injectAgentDeckCodexAgentsMd 改了 → 清理历史 Agent Deck marker 段。
+ * 新会话通过 app-server `developerInstructions` 注入 CODEX_AGENTS.md，不再写用户级 AGENTS.md。
  *
- * 与 applyCodexMcpServers 同模式：spawn-time options（codex 不支持热重载 AGENTS.md），
+ * 与 applyCodexMcpServers 同模式：spawn-time options（thread options 不热重载），
  * 改后**下次新建 codex 会话**生效。
  */
 function applyCodexAgentsMd(p: Partial<AppSettings>, _next: AppSettings): void {
@@ -188,9 +188,8 @@ function applyCodexAgentsMd(p: Partial<AppSettings>, _next: AppSettings): void {
 }
 
 /**
- * CHANGELOG_<X> D2：injectAgentDeckCodexSkills 改了 → 同步内置 skills 到
- * ~/.codex/skills/agent-deck/。开 → 镜像；关 → 移除整个 agent-deck/ 目录
- * （保留用户其他 skills）。
+ * CHANGELOG_<X> D2：injectAgentDeckCodexSkills 改了 → 准备 / 移除 app-owned skills extraRoot。
+ * 同时清理历史 `~/.codex/skills/agent-deck/` 托管目录，保留用户其他 skills。
  */
 function applyCodexSkills(p: Partial<AppSettings>, _next: AppSettings): void {
   if (!('injectAgentDeckCodexSkills' in p)) return;
@@ -340,10 +339,9 @@ export function registerSettingsIpc(): void {
     return { ok: true, content: getBuiltinAgentDeckClaudeMd() };
   });
 
-  // CODEX_AGENTS.md(注入到 ~/.codex/AGENTS.md Agent Deck 段的 codex 视角应用约定):
-  // 与 ClaudeMd Get/Save/Reset 对偶。save / reset 内部触发 syncAgentDeckSection 立即同步
-  // ~/.codex/AGENTS.md(否则用户改了用户副本但 codex SDK 仍读旧 cache)。
-  // 已运行的 codex SDK 会话已经把 AGENTS.md 固化进 thread system prompt,不会热改;只有
+  // CODEX_AGENTS.md(通过 app-server developerInstructions 注入的 codex 视角应用约定):
+  // 与 ClaudeMd Get/Save/Reset 对偶。save / reset 只更新 userData 副本并 invalidate cache。
+  // 已运行的 codex SDK 会话已经把 developerInstructions 固化进 thread options,不会热改;只有
   // 「下次新建会话」生效(对偶 ClaudeMd 同模式)。
   on(IpcInvoke.CodexAgentsMdGet, () => getActiveCodexAgentsMd());
   on(IpcInvoke.CodexAgentsMdSave, (_e, content) => {

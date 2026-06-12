@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { AssetKind, AssetMeta } from '@shared/types';
 import { ASSET_LIMITS, ASSET_NAME_REGEX } from '@shared/types';
+import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 
 /**
  * 用户自定义 agent / skill 编辑器（CHANGELOG_57 C3 / plan assets-codex-user-and-ui-unify-20260521
@@ -22,8 +23,7 @@ import { ASSET_LIMITS, ASSET_NAME_REGEX } from '@shared/types';
  * dirty 契约：本组件用本地 dirty state 自管，弹关闭确认；不向父级上报（与
  * ClaudeMdEditor 不同，那个是嵌在设置里的常驻 textarea，本编辑器只在 modal 模式下打开）。
  *
- * **plan §D3 不变量 #4**：codex+agent 组合本组件不会进入（AssetsTab Codex sub-tab Agents 内
- * 不显「+ 新建 Agent」按钮 + bundled 不可编辑;但 IPC 层仍硬拒做 defense in depth）。
+ * Codex agent 编辑使用官方 TOML custom agent 文件，表单中的正文对应 `developer_instructions`。
  */
 
 interface Props {
@@ -37,14 +37,16 @@ interface Props {
   onSaved: () => void;
 }
 
-const MODEL_OPTIONS = ['fable', 'opus', 'sonnet', 'haiku'];
+const CLAUDE_MODEL_OPTIONS = ['fable', 'opus', 'sonnet', 'haiku'];
+const CODEX_MODEL_OPTIONS = ['', 'gpt-5.5', 'gpt-5.4'];
 
 export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): JSX.Element {
   const isEdit = asset !== null;
+  const isCodexAgent = adapter === 'codex-cli' && kind === 'agent';
   const [name, setName] = useState(asset?.name ?? '');
   const [description, setDescription] = useState(asset?.description ?? '');
   const [tools, setTools] = useState(asset?.tools ?? '');
-  const [model, setModel] = useState(asset?.model ?? (kind === 'agent' ? 'opus' : ''));
+  const [model, setModel] = useState(asset?.model ?? (kind === 'agent' && !isCodexAgent ? 'opus' : ''));
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(isEdit); // 编辑模式 mount 时 fetch 加载
   const [error, setError] = useState<string | null>(null);
@@ -70,12 +72,23 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
       .then((r) => {
         if (cancelled) return;
         if (r.ok) {
+          if (asset.adapter === 'codex-cli' && asset.kind === 'agent') {
+            const parsed = parseCodexAgentToml(r.content);
+            setDescription(parsed.description ?? asset.description);
+            setModel(parsed.model ?? '');
+            setTools('');
+            setBody(parsed.developerInstructions ?? '');
+            return;
+          }
           // 拆 frontmatter / body
           const m = r.content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$/);
           setBody(m ? m[2].replace(/^\n+/, '') : r.content);
         } else {
           setError(`读取失败：${r.reason ?? '未知'}`);
         }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(`读取失败：${(err as Error).message ?? String(err)}`);
       })
       .finally(() => {
         if (!cancelled) setBusy(false);
@@ -109,7 +122,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
           : null;
   const modelError = kind === 'agent'
     ? model.trim().length === 0
-      ? '模型不能为空'
+      ? isCodexAgent ? null : '模型不能为空'
       : model.length > ASSET_LIMITS.model
         ? `模型名太长（最多 ${ASSET_LIMITS.model} 字）`
         : /[\r\n]/.test(model)
@@ -118,7 +131,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
             ? '模型名不能包含「---」字符'
             : null
     : null;
-  const toolsError = kind === 'agent' && tools.length > 0
+  const toolsError = kind === 'agent' && !isCodexAgent && tools.length > 0
     ? tools.length > ASSET_LIMITS.tools
       ? `工具列表太长（最多 ${ASSET_LIMITS.tools} 字）`
       : /[\r\n]/.test(tools)
@@ -129,7 +142,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
     : null;
   const bodyError = body.length > ASSET_LIMITS.body
     ? `正文太长（最多 ${ASSET_LIMITS.body} 字，约 256KB）`
-    : body.split('\n', 1)[0].trim() === '---'
+    : !isCodexAgent && body.split('\n', 1)[0].trim() === '---'
       ? '正文首行不能是「---」'
       : null;
   const hasError = !!(nameError || descError || modelError || toolsError || bodyError);
@@ -228,7 +241,9 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
   const pathHint = !isEdit
     ? adapter === 'claude-code'
       ? `保存后即文件名(Agent → ~/.claude/agents/${name || '<名称>'}.md;Skill → ~/.claude/skills/${name || '<名称>'}/SKILL.md)`
-      : `保存后即文件名(Skill → ~/.codex/skills/${name || '<名称>'}/SKILL.md;Codex 不支持自定义 Agent)`
+      : kind === 'agent'
+        ? `保存后即文件名(Agent → ~/.codex/agents/${name || '<名称>'}.toml)`
+        : `保存后即文件名(Skill → ~/.codex/skills/${name || '<名称>'}/SKILL.md)`
     : '';
 
   const title = isEdit
@@ -284,32 +299,34 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
 
           {kind === 'agent' && (
             <>
-              <Field label="模型" error={modelError}>
+              <Field label={isCodexAgent ? '模型（可留空）' : '模型'} error={modelError}>
                 <select
                   value={model}
                   onChange={(e) => handleChange(setModel)(e.target.value)}
                   disabled={busy}
                   className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
                 >
-                  {MODEL_OPTIONS.map((m) => (
-                    <option key={m} value={m}>{m}</option>
+                  {(isCodexAgent ? CODEX_MODEL_OPTIONS : CLAUDE_MODEL_OPTIONS).map((m) => (
+                    <option key={m || 'inherit'} value={m}>{m || 'inherit'}</option>
                   ))}
                 </select>
               </Field>
-              <Field label="工具（逗号分隔，可留空）" error={toolsError}>
-                <input
-                  type="text"
-                  value={tools}
-                  onChange={(e) => handleChange(setTools)(e.target.value)}
-                  disabled={busy}
-                  placeholder="Read, Grep, Glob, Bash"
-                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
-                />
-              </Field>
+              {!isCodexAgent && (
+                <Field label="工具（逗号分隔，可留空）" error={toolsError}>
+                  <input
+                    type="text"
+                    value={tools}
+                    onChange={(e) => handleChange(setTools)(e.target.value)}
+                    disabled={busy}
+                    placeholder="Read, Grep, Glob, Bash"
+                    className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
+                  />
+                </Field>
+              )}
             </>
           )}
 
-          <Field label="正文（Markdown）" error={bodyError}>
+          <Field label={isCodexAgent ? 'developer_instructions' : '正文（Markdown）'} error={bodyError}>
             <textarea
               value={body}
               onChange={(e) => handleChange(setBody)(e.target.value)}
