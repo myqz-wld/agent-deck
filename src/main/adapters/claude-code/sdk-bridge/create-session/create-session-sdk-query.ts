@@ -148,6 +148,8 @@ export async function runCreateSessionSdkQuery(
         mcpServers,
         model: claudeModel,
         effort: opts.claudeCodeEffortLevel,
+        agentName: opts.claudeAgentName,
+        agents: opts.claudeAgents,
       }),
     });
     internal.query = q;

@@ -16,7 +16,7 @@
  * REVIEW_36 HIGH-B / cross-adapter-parity Phase A Step A.5 / handoff-render-and-image-batch
  * Phase 2 Step 2.2 / REVIEW_58 HIGH 等 jsdoc 不删不改）。
  */
-import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type {
   HandOffMetadata,
   UploadedAttachmentRef,
@@ -62,7 +62,7 @@ export interface CreateSessionOpts {
   extraAllowWrite?: readonly string[];
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.2：SDK / agent model 透传。
-   * 来源：spawn handler 解 agent body frontmatter `model` 字段后传入。
+   * 来源：spawn handler 解 adapter-native agent config `model` 字段后传入。
    * fallback 链 opts.model > sessionRepo.model > undefined
    * （详 model-resolve.ts）。透传给 SDK `query({ options.model })` 真正生效，并
    * setModel 持久化让 resume / dormant 唤醒后保持一致。
@@ -73,6 +73,10 @@ export interface CreateSessionOpts {
    * Undefined preserves user settings / provider defaults.
    */
   claudeCodeEffortLevel?: ClaudeCodeEffortLevel;
+  /** Claude Code SDK main-thread agent name passed to query options.agent. */
+  claudeAgentName?: string;
+  /** Programmatic Claude Code SDK agent definitions keyed by agent name. */
+  claudeAgents?: Record<string, AgentDefinition>;
   /**
    * Bridge-internal env overlay for Claude-compatible provider profiles. Not exposed through
    * IPC/MCP raw opts; adapter profiles inject it at bridge.createSession time.

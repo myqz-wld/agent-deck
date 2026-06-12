@@ -302,7 +302,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   setTokenUsageLifecycleScheduler(state.tokenUsageScheduler);
   summarizer.start();
 
-  // 7.0 D1+D2:app ready 后同步 Agent Deck 段到 ~/.codex/AGENTS.md + skills
+  // 7.0 D1+D2:app ready 后清理历史 Codex AGENTS marker，并准备 app-owned skills extraRoot
   // syncAgentDeckSection / syncSkills 走 static import(顶部 import 段已说明原因),
   // 这里同步直接调;失败只 warn 不抛(不阻断 main 启动),与 settings.ts 同步路径同模式。
   try {

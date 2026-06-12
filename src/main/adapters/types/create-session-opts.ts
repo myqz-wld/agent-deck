@@ -7,6 +7,8 @@ import type {
   HandOffMetadata,
   UploadedAttachmentRef,
 } from '@shared/types';
+import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 
 import type { PermissionMode } from './adapter-context';
 
@@ -45,7 +47,7 @@ export interface ClaudeCreateOpts {
   /**
    * SDK / agent model 透传（plan model-wiring-and-handoff-20260514 Step 2.1）。
    *
-   * 来源链：spawn handler 解 agent body frontmatter `model` 字段 → 传给 createSession。
+   * 来源链：spawn handler 解 adapter-native agent config 的 `model` 字段 → 传给 createSession。
    *
    * adapter 行为：透传给 SDK `query({ options.model })` 真正生效；并 setModel 持久化让
    * resume / dormant 唤醒后保持一致。
@@ -61,6 +63,13 @@ export interface ClaudeCreateOpts {
    * `options.effort`. Undefined preserves the provider / user config default.
    */
   claudeCodeEffortLevel?: ClaudeCodeEffortLevel;
+  /**
+   * Claude Code SDK main-thread agent name. When set, `claudeAgents` should define the
+   * requested agent so spawn_session(agentName) uses the SDK's native `agent` path.
+   */
+  claudeAgentName?: string;
+  /** Programmatic Claude Code SDK agent definitions keyed by agent name. */
+  claudeAgents?: Record<string, AgentDefinition>;
   /**
    * Claude Code per-session OS 沙盒档位覆盖（CHANGELOG_74）。三档直接复用
    * settings.claudeCodeSandbox 字面量。undefined = 用 settings.claudeCodeSandbox 全局值
@@ -140,6 +149,13 @@ export interface CodexCreateOpts {
    * complexity. Undefined lets the Codex CLI use its config/default.
    */
   modelReasoningEffort?: CodexModelReasoningEffort;
+  /**
+   * Codex app-server per-session developer instructions. The bridge passes this to
+   * thread/start and thread/resume `developerInstructions`; undefined preserves Codex defaults.
+   */
+  developerInstructions?: string;
+  /** Additional Codex config layer parsed from a custom-agent TOML file. */
+  codexConfigOverrides?: CodexConfigObject;
   /**
    * Codex per-session sandbox 档位覆盖。三档直接复用 codex SDK 原生 SandboxMode 字面量。
    * undefined = 用 settings.codexSandbox 全局值。spawn-time 一次性透传给 codex.startThread；
@@ -239,7 +255,7 @@ export type CreateSessionOptions =
  * 按 agentId 把字段 narrow 到对应 union arm（filter 掉不属于该 adapter 的字段）。
  *
  * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D7（v4 信号源约定）**:
- * `agentName` 透传通道 — caller (spawn handler) 把 `args.agent_name` 透到本字段；
+ * `agentName` 透传通道 — caller (spawn handler) 把 `args.agentName` 透到本字段；
  * `narrowToCodexOpts` 按 `agentName in ['reviewer-claude', 'reviewer-codex']` 触发 codex
  * teammate spawn default spread（不变量 6: enforce 点 = options-builder 层，**禁** bridge
  * hardcode default 污染普通 codex session）。
@@ -256,8 +272,12 @@ export interface CreateSessionOptionsRaw {
   model?: string;
   claudeCodeEffortLevel?: ClaudeCodeEffortLevel;
   modelReasoningEffort?: CodexModelReasoningEffort;
+  developerInstructions?: string;
+  codexConfigOverrides?: CodexConfigObject;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  claudeAgentName?: string;
+  claudeAgents?: Record<string, AgentDefinition>;
   extraAllowWrite?: readonly string[];
   // **REVIEW_105 MED-1 (deep-review Batch 7)**: 移除 resumeCliSid / resumeMode —— 修前 Raw 声明
   // 这两字段 + jsdoc 写「builder narrow 时透传给 claude / codex 都消费」, 但 narrowToClaudeOpts /
@@ -267,7 +287,7 @@ export interface CreateSessionOptionsRaw {
   // 「caller 经 builder 透传的字段并集」, internal 字段本不该在此声明。SSOT 不变量表见 bridge
   // create-session/_deps.ts。field 级守门 _assertNarrowCoversArmFields 防此类漏挑复发(见 options-builder.ts)。
   /**
-   * plan §P3 Step 3.5 信号源（v4 D7）：spawn handler 透传 `args.agent_name` 让
+   * plan §P3 Step 3.5 信号源（v4 D7）：spawn handler 透传 `args.agentName` 让
    * `narrowToCodexOpts` 按 reviewer-* 路径触发 codex teammate spawn default spread。
    * 仅 codex-cli adapter 消费；claude-code adapter narrow 时 filter 掉。
    */

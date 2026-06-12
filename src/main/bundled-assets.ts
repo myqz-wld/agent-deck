@@ -7,7 +7,8 @@
  *   - codex-cli  root: `getCodexAgentDeckPluginPath()`  → `resources/codex-config/agent-deck-plugin/`
  *
  * 各 root 下两个子目录：
- *   - `agents/<name>.md`        —— frontmatter: name/description/tools/model
+ *   - Claude agents: `agents/<name>.md` —— frontmatter: name/description/tools/model
+ *   - Codex agents: `agents/<name>.toml` —— official Codex custom-agent TOML
  *   - `skills/<name>/SKILL.md`  —— frontmatter: name/description
  *
  * 启动时一次性扫描两 root 全部、合并到同一 snapshot、解析 frontmatter（手写正则，避免引
@@ -34,6 +35,7 @@ import { join } from 'node:path';
 import { app } from 'electron';
 import type { AssetMeta, BundledAssetsSnapshot } from '@shared/types';
 import { ASSET_NAME_REGEX } from '@shared/types';
+import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import { getClaudeAgentDeckPluginPath } from './adapters/claude-code/sdk-injection';
 import { getCodexAgentDeckPluginPath } from './adapters/codex-cli/codex-config-paths';
 import { parseFrontmatter } from './utils/frontmatter';
@@ -89,12 +91,10 @@ export function getBundledAssets(): BundledAssetsSnapshot {
  * 完全不同（如 reviewer-claude wrapper），无 fallback —— 不传 adapter 没法定位 fs 路径。
  * caller 通过 `AssetMeta.adapter` 字段或 args.adapter 拿到。
  *
- * **CHANGELOG_169 / REVIEW R3 reviewer-claude MED-1 修法**: codex 侧通过 `getCodexAgentDeckPluginPath()`
- * 直接返 SOURCE 路径（无 mirror / 无 substitute），与 claude 侧 plugin-mirror-install 不对称。caller
- * `spawn.ts:108` 拿到的 content 直接拼到 codex SDK session prompt prefix；如果未来 codex agent body
- * 内含 `{{AGENT_DECK_RESOURCES}}` placeholder（即使现在干净），agent 看到字面占位符 → ENOENT。
- * 在 read 出口集中防御 substitute（adapter agnostic + idempotent — claude 侧已 substituted 文本走
- * `text.includes` guard 直接返原 string，无重复替换）。
+ * Codex 侧通过 `getCodexAgentDeckPluginPath()` 直接返 SOURCE 路径（无 mirror），与 claude 侧
+ * plugin-mirror-install 不对称。spawn_session 解析 bundled Codex TOML 后通过 app-server
+ * developerInstructions/config 注入；如果未来 bundled agent body 内含
+ * `{{AGENT_DECK_RESOURCES}}` placeholder（即使现在干净），这里在 read 出口集中防御 substitute。
  */
 export function getBundledAssetContent(
   kind: 'agent' | 'skill',
@@ -123,7 +123,7 @@ export function getBundledAssetPath(
 ): string | null {
   if (!isSafeName(name)) return null;
   const root = adapter === 'claude-code' ? getClaudeAgentDeckPluginPath() : getCodexAgentDeckPluginPath();
-  const path = kind === 'agent' ? join(root, 'agents', `${name}.md`) : join(root, 'skills', name, 'SKILL.md');
+  const path = kind === 'agent' ? getBundledAgentPath(root, name, adapter) : join(root, 'skills', name, 'SKILL.md');
   return existsSync(path) ? path : null;
 }
 
@@ -132,18 +132,54 @@ function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
   if (!existsSync(dir)) return [];
   const out: AssetMeta[] = [];
   for (const file of readdirSync(dir)) {
-    if (!file.endsWith('.md')) continue;
-    const name = file.slice(0, -3);
-    if (!isSafeName(name)) continue;
     const absPath = join(dir, file);
     try {
+      if (adapter === 'codex-cli' && file.endsWith('.toml')) {
+        const parsed = parseCodexAgentToml(readFileSync(absPath, 'utf8'));
+        const name = parsed.name ?? file.slice(0, -5);
+        if (!isSafeName(name)) continue;
+        out.push(buildAgentMeta(name, absPath, {
+          description: parsed.description ?? '',
+          model: parsed.model ?? '',
+        }, 'bundled', adapter));
+        continue;
+      }
+      if (!file.endsWith('.md')) continue;
+      const name = file.slice(0, -3);
+      if (!isSafeName(name)) continue;
       const fm = parseFrontmatter(readFileSync(absPath, 'utf8'));
       out.push(buildAgentMeta(name, absPath, fm, 'bundled', adapter));
     } catch (err) {
-      logger.warn(`[bundled-assets] skip agent ${adapter}/${name}:`, (err as Error).message);
+      logger.warn(`[bundled-assets] skip agent ${adapter}/${file}:`, (err as Error).message);
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function getBundledAgentPath(root: string, name: string, adapter: BundledAdapter): string {
+  const dir = join(root, 'agents');
+  if (adapter === 'codex-cli') {
+    const directToml = join(dir, `${name}.toml`);
+    if (existsSync(directToml)) return directToml;
+    const byTomlName = findCodexBundledAgentTomlByName(dir, name);
+    if (byTomlName) return byTomlName;
+  }
+  return join(dir, `${name}.md`);
+}
+
+function findCodexBundledAgentTomlByName(dir: string, name: string): string | null {
+  if (!existsSync(dir)) return null;
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith('.toml')) continue;
+    const absPath = join(dir, file);
+    try {
+      const parsed = parseCodexAgentToml(readFileSync(absPath, 'utf8'));
+      if (parsed.name === name) return absPath;
+    } catch {
+      // scanAgents logs parse failures; path lookup stays quiet.
+    }
+  }
+  return null;
 }
 
 function scanSkills(root: string, adapter: BundledAdapter): AssetMeta[] {

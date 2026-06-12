@@ -16,6 +16,7 @@
  * **测试**: 见 codex-cli/sdk-bridge/__tests__/thread-options-builder.test.ts (待补 R4 follow-up)
  */
 import { toCodexModelOverride } from '../sdk-model';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 
 export type CodexReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
@@ -26,7 +27,7 @@ export interface BuildCodexThreadOptionsArgs {
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** caller 显式传 / 'never' 默认 (bridge 不主动 enforce) */
   approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never';
-  /** spawn handler frontmatter `model` 字段 */
+  /** spawn handler custom-agent TOML `model` 字段 */
   model?: string;
   /** options-builder 在 reviewer-* 路径下 spread reviewer runtime default;普通 codex session 缺省 */
   networkAccessEnabled?: boolean;
@@ -34,6 +35,10 @@ export interface BuildCodexThreadOptionsArgs {
   additionalDirectories?: readonly string[];
   /** oneshot caller 可显式覆盖 reasoning effort；live session 缺省走 Codex 配置。 */
   modelReasoningEffort?: CodexReasoningEffort;
+  /** Codex app-server thread/start + thread/resume developerInstructions passthrough. */
+  developerInstructions?: string;
+  /** Additional config layer parsed from custom-agent TOML. */
+  configOverrides?: CodexConfigObject;
 }
 
 export interface CodexThreadOptions {
@@ -43,6 +48,8 @@ export interface CodexThreadOptions {
   skipGitRepoCheck: boolean;
   model?: string;
   modelReasoningEffort?: CodexReasoningEffort;
+  developerInstructions?: string;
+  configOverrides?: CodexConfigObject;
   networkAccessEnabled?: boolean;
   additionalDirectories?: string[];
 }
@@ -58,6 +65,10 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
     ...(args.modelReasoningEffort !== undefined
       ? { modelReasoningEffort: args.modelReasoningEffort }
       : {}),
+    ...(args.developerInstructions !== undefined && args.developerInstructions.trim().length > 0
+      ? { developerInstructions: args.developerInstructions.trim() }
+      : {}),
+    ...(args.configOverrides !== undefined ? { configOverrides: args.configOverrides } : {}),
     ...(args.networkAccessEnabled !== undefined
       ? { networkAccessEnabled: args.networkAccessEnabled }
       : {}),

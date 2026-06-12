@@ -240,9 +240,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                 <div className="text-[10px] leading-snug text-deck-muted/70">
                   Codex 配置(模型 / 沙盒 / 审批 / MCP 等)在
                   <code className="ml-1 rounded bg-white/5 px-1">~/.codex/config.toml</code>
-                  中编辑;应用安装时会把内置 Agent 配置同步进
-                  <code className="ml-1 rounded bg-white/5 px-1">~/.codex/AGENTS.md</code>
-                  的 Agent Deck 区段,保留你写的其他内容。
+                  中编辑;应用内 Codex 会话会通过 thread options 注入 Agent Deck 应用约定和内置 skills。
                   <br />
                   <br />
                   Codex 用的总结 / 接力模型在「通用 → 会话 → 间歇总结」中设置;

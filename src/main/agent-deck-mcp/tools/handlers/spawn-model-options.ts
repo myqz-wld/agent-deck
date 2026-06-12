@@ -81,6 +81,7 @@ function resolveThinking(
 export function resolveSpawnModelOptions(
   args: SpawnSessionArgs,
   modelFromFrontmatter: string | undefined,
+  modelReasoningEffortFromAgent?: SpawnCodexReasoningEffort,
 ): SpawnModelOptionsResult {
   const options: SpawnModelOptions = {};
 
@@ -101,6 +102,8 @@ export function resolveSpawnModelOptions(
     if (resolved.options.claudeCodeEffortLevel !== undefined) {
       options.claudeCodeEffortLevel = resolved.options.claudeCodeEffortLevel;
     }
+  } else if (args.adapter === 'codex-cli' && modelReasoningEffortFromAgent !== undefined) {
+    options.modelReasoningEffort = modelReasoningEffortFromAgent;
   }
 
   return { ok: true, options };

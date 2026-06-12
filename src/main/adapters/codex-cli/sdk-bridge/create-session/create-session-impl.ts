@@ -50,6 +50,7 @@
  */
 import { sessionRepo } from '@main/store/session-repo';
 import { settingsStore } from '@main/store/settings-store';
+import { getAgentDeckCodexDeveloperInstructions } from '@main/codex-config/agents-md-installer';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { packCodexInput } from '../input-pack';
 import { buildCodexThreadOptions } from '../thread-options-builder';
@@ -101,6 +102,10 @@ export async function createSessionImpl(
     const persistedSandbox = resumeRec?.codexSandbox ?? null;
     const sandboxMode =
       opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
+    const developerInstructions = combineDeveloperInstructions(
+      getAgentDeckCodexDeveloperInstructions(),
+      opts.developerInstructions,
+    );
 
     let thread: CodexAppServerThread;
     // effectiveResumeThreadId 3 层兜底:caller 显式 > sessionRepo cliSessionId 中间层 >
@@ -131,6 +136,8 @@ export async function createSessionImpl(
           approvalPolicy: opts.approvalPolicy,
           model: opts.model,
           modelReasoningEffort: opts.modelReasoningEffort,
+          developerInstructions,
+          configOverrides: opts.codexConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,
           additionalDirectories: opts.additionalDirectories,
         }),
@@ -143,6 +150,8 @@ export async function createSessionImpl(
           approvalPolicy: opts.approvalPolicy,
           model: opts.model,
           modelReasoningEffort: opts.modelReasoningEffort,
+          developerInstructions,
+          configOverrides: opts.codexConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,
           additionalDirectories: opts.additionalDirectories,
         }),
@@ -212,4 +221,11 @@ export async function createSessionImpl(
     });
     throw err;
   }
+}
+
+function combineDeveloperInstructions(
+  ...parts: Array<string | undefined>
+): string | undefined {
+  const filtered = parts.map((p) => p?.trim()).filter((p): p is string => !!p);
+  return filtered.length > 0 ? filtered.join('\n\n---\n\n') : undefined;
 }

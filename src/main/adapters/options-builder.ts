@@ -106,6 +106,8 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
   if (raw.claudeCodeEffortLevel !== undefined) {
     out.claudeCodeEffortLevel = raw.claudeCodeEffortLevel;
   }
+  if (raw.claudeAgentName !== undefined) out.claudeAgentName = raw.claudeAgentName;
+  if (raw.claudeAgents !== undefined) out.claudeAgents = raw.claudeAgents;
   if (raw.claudeCodeSandbox !== undefined) out.claudeCodeSandbox = raw.claudeCodeSandbox;
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2:透传 handOff metadata
@@ -143,6 +145,12 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   if (raw.model !== undefined) out.model = raw.model;
   if (raw.modelReasoningEffort !== undefined) {
     out.modelReasoningEffort = raw.modelReasoningEffort;
+  }
+  if (raw.developerInstructions !== undefined) {
+    out.developerInstructions = raw.developerInstructions;
+  }
+  if (raw.codexConfigOverrides !== undefined) {
+    out.codexConfigOverrides = raw.codexConfigOverrides;
   }
   if (raw.codexSandbox !== undefined) out.codexSandbox = raw.codexSandbox;
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
@@ -353,6 +361,8 @@ const _CLAUDE_PASSTHROUGH_KEYS = {
   attachments: 0,
   model: 0,
   claudeCodeEffortLevel: 0,
+  claudeAgentName: 0,
+  claudeAgents: 0,
   claudeCodeSandbox: 0,
   extraAllowWrite: 0,
   handOff: 0,
@@ -371,6 +381,8 @@ const _CODEX_PASSTHROUGH_KEYS = {
   attachments: 0,
   model: 0,
   modelReasoningEffort: 0,
+  developerInstructions: 0,
+  codexConfigOverrides: 0,
   codexSandbox: 0,
   extraAllowWrite: 0,
   handOff: 0,

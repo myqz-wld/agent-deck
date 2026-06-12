@@ -1,13 +1,12 @@
 import { useEffect, useState, type JSX } from 'react';
 
 /**
- * 编辑「同步到 ~/.codex/AGENTS.md Agent Deck 段」的 codex 视角应用约定(CODEX_AGENTS.md)。
+ * 编辑 Codex 视角应用约定(CODEX_AGENTS.md)。
  *
  * 与 ClaudeMdEditor.tsx 字面镜像(claude-config 同款机制)。差异:
  * - 用户副本路径 `<userData>/agent-deck-codex-agents.md`(对偶 `agent-deck-claude.md`)
- * - save / reset 后**主进程主动 syncAgentDeckSection** 把内容立即同步到 ~/.codex/AGENTS.md
- *   marker 段,让 codex CLI 下次新建 thread 加载到新内容(否则改了用户副本但 codex 子进程
- *   仍读旧 cache)
+ * - save / reset 后只更新 app userData 副本；新建 Codex app-server 会话时通过
+ *   developerInstructions 注入
  * - 已运行的 codex SDK 会话不受影响(thread system prompt 已固化进 LLM 上下文);只有「下次
  *   新建会话」生效
  *
@@ -57,7 +56,7 @@ export function CodexAgentsMdEditor({ onDirtyChange }: CodexAgentsMdEditorProps)
       const written = await window.api.saveCodexAgentsMd(draft);
       setLoaded({ content: written.content, isCustom: written.isCustom });
       if (written.content !== draft) setDraft(written.content);
-      setSavedHint('已保存。已同步到 ~/.codex/AGENTS.md;下次新建 codex 会话生效(已运行的会话不受影响)。');
+      setSavedHint('已保存。下次新建 Codex 会话会通过 developerInstructions 注入新内容。');
     } catch (err) {
       setError(`保存失败：${(err as Error).message ?? String(err)}`);
     } finally {
@@ -70,7 +69,7 @@ export function CodexAgentsMdEditor({ onDirtyChange }: CodexAgentsMdEditorProps)
       !(await window.api.confirmDialog({
         title: '恢复默认',
         message: '确定要丢弃自定义副本，回落到应用内置 CODEX_AGENTS.md 吗？',
-        detail: '此操作会删除 userData 下的用户副本文件 + 立即同步 ~/.codex/AGENTS.md 段回到内置内容；新 codex 会话将使用内置内容。',
+        detail: '此操作会删除 userData 下的用户副本文件；新 Codex 会话将使用内置内容。',
         okLabel: '恢复默认',
         cancelLabel: '取消',
         destructive: true,
@@ -85,7 +84,7 @@ export function CodexAgentsMdEditor({ onDirtyChange }: CodexAgentsMdEditorProps)
       const r = await window.api.resetCodexAgentsMd();
       setLoaded({ content: r.content, isCustom: false });
       setDraft(r.content);
-      setSavedHint('已恢复默认 + 同步 ~/.codex/AGENTS.md。下次新建 codex 会话生效。');
+      setSavedHint('已恢复默认。下次新建 Codex 会话生效。');
     } catch (err) {
       setError(`重置失败：${(err as Error).message ?? String(err)}`);
     } finally {
@@ -101,7 +100,7 @@ export function CodexAgentsMdEditor({ onDirtyChange }: CodexAgentsMdEditorProps)
     <div className="flex flex-col gap-1.5 text-[11px]">
       <div className="text-[10px] text-deck-muted/70 leading-snug">
         {loaded?.isCustom ? '当前为用户自定义副本（覆盖内置）' : '当前为应用内置默认'}
-        ，同步到 ~/.codex/AGENTS.md 内 Agent Deck marker 段。改动仅对「下次新建 codex 会话」生效。
+        ，通过 app-server developerInstructions 注入应用内 Codex 会话。改动仅对「下次新建 Codex 会话」生效。
       </div>
       <textarea
         value={draft}
