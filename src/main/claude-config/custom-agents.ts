@@ -8,6 +8,9 @@ import { parseFrontmatter } from '@main/utils/frontmatter';
 const CLAUDE_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
 const USER_CLAUDE_AGENTS_DIR = join(homedir(), '.claude', 'agents');
 const FRONTMATTER_BLOCK_REGEX = /^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n/;
+const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+export type ClaudeCustomAgentEffortLevel = (typeof CLAUDE_EFFORT_LEVELS)[number];
 
 export type ClaudeCustomAgentScope = 'bundled' | 'project' | 'user';
 
@@ -17,6 +20,7 @@ export interface ClaudeCustomAgentContent {
   sourcePath?: string;
   definition: AgentDefinition;
   model?: string;
+  effortLevel?: ClaudeCustomAgentEffortLevel;
 }
 
 export function resolveClaudeAgentContent(
@@ -30,46 +34,18 @@ export function resolveClaudeAgentContent(
 
   const bundled = getBundledAssetContent('agent', agentName, adapter);
   if (bundled.ok) {
-    return {
-      ok: true,
-      agent: {
-        name: agentName,
-        source: 'bundled',
-        definition: buildClaudeAgentDefinition(agentName, bundled.content),
-        model: extractModel(bundled.content),
-      },
-    };
+    return buildClaudeAgent(agentName, 'bundled', bundled.content);
   }
 
   for (const projectDir of getProjectClaudeAgentDirs(cwd)) {
     const path = join(projectDir, `${agentName}.md`);
     if (!safeIsFile(path)) continue;
-    const content = readFileSync(path, 'utf8');
-    return {
-      ok: true,
-      agent: {
-        name: agentName,
-        source: 'project',
-        sourcePath: path,
-        definition: buildClaudeAgentDefinition(agentName, content),
-        model: extractModel(content),
-      },
-    };
+    return buildClaudeAgent(agentName, 'project', readFileSync(path, 'utf8'), path);
   }
 
   const userPath = join(USER_CLAUDE_AGENTS_DIR, `${agentName}.md`);
   if (safeIsFile(userPath)) {
-    const content = readFileSync(userPath, 'utf8');
-    return {
-      ok: true,
-      agent: {
-        name: agentName,
-        source: 'user',
-        sourcePath: userPath,
-        definition: buildClaudeAgentDefinition(agentName, content),
-        model: extractModel(content),
-      },
-    };
+    return buildClaudeAgent(agentName, 'user', readFileSync(userPath, 'utf8'), userPath);
   }
 
   return {
@@ -79,23 +55,50 @@ export function resolveClaudeAgentContent(
   };
 }
 
-function buildClaudeAgentDefinition(agentName: string, content: string): AgentDefinition {
+function buildClaudeAgent(
+  agentName: string,
+  source: ClaudeCustomAgentScope,
+  content: string,
+  sourcePath?: string,
+): { ok: true; agent: ClaudeCustomAgentContent } | { ok: false; reason: string } {
   const fm = parseFrontmatter(content);
+  const rawEffort = fm.effort?.trim();
+  if (rawEffort && !isClaudeEffortLevel(rawEffort)) {
+    return {
+      ok: false,
+      reason:
+        `Claude agent ${sourcePath ?? agentName} has invalid effort "${rawEffort}" ` +
+        `(expected one of: ${CLAUDE_EFFORT_LEVELS.join(', ')})`,
+    };
+  }
+  const effortLevel = rawEffort && isClaudeEffortLevel(rawEffort) ? rawEffort : undefined;
   const body = content.replace(FRONTMATTER_BLOCK_REGEX, '').trim();
   const tools = parseCsvList(fm.tools);
   const skills = parseCsvList(fm.skills);
-  return {
+  const model = fm.model?.trim() || undefined;
+  const definition: AgentDefinition = {
     description: fm.description?.trim() || agentName,
     prompt: body,
     ...(tools.length > 0 ? { tools } : {}),
     ...(skills.length > 0 ? { skills } : {}),
-    ...(fm.model?.trim() ? { model: fm.model.trim() } : {}),
+    ...(model ? { model } : {}),
+    ...(effortLevel ? { effort: effortLevel } : {}),
+  };
+  return {
+    ok: true,
+    agent: {
+      name: agentName,
+      source,
+      ...(sourcePath ? { sourcePath } : {}),
+      definition,
+      ...(model ? { model } : {}),
+      ...(effortLevel ? { effortLevel } : {}),
+    },
   };
 }
 
-function extractModel(content: string): string | undefined {
-  const model = parseFrontmatter(content).model?.trim();
-  return model || undefined;
+function isClaudeEffortLevel(value: string): value is ClaudeCustomAgentEffortLevel {
+  return (CLAUDE_EFFORT_LEVELS as readonly string[]).includes(value);
 }
 
 function parseCsvList(value: string | undefined): string[] {

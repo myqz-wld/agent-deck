@@ -124,7 +124,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(SPAWN_SESSION_THINKING_VALUES)
     .optional()
     .describe(
-      'Optional thinking / reasoning complexity for this spawned session. Valid combinations are adapter-scoped: codex-cli accepts minimal, low, medium, high, xhigh; claude-code and deepseek-claude-code accept low, medium, high, xhigh, max.',
+      'Optional thinking / reasoning complexity for this spawned session. Valid combinations are adapter-scoped: codex-cli accepts minimal, low, medium, high, xhigh; claude-code and deepseek-claude-code accept low, medium, high, xhigh, max. Explicit thinking overrides any agent-defined effort (Claude agent frontmatter `effort` / Codex agent `model_reasoning_effort`).',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。

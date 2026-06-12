@@ -40,6 +40,7 @@ const {
     codexConfigOverrides?: unknown;
     claudeAgentName?: string;
     claudeAgents?: unknown;
+    claudeCodeEffortLevel?: string;
   }>,
 }));
 
@@ -99,6 +100,7 @@ vi.mock('@main/adapters/registry', () => ({
             codexConfigOverrides: (opts as any).codexConfigOverrides,
             claudeAgentName: (opts as any).claudeAgentName,
             claudeAgents: (opts as any).claudeAgents,
+            claudeCodeEffortLevel: (opts as any).claudeCodeEffortLevel,
           });
           sessionStore.set(sid, {
             id: sid,
@@ -251,6 +253,7 @@ vi.mock('@main/claude-config/custom-agents', () => ({
         name,
         source: 'bundled',
         model: name === 'user-claude-agent' ? 'sonnet' : 'opus',
+        effortLevel: name === 'reviewer-claude' ? 'xhigh' : undefined,
         definition: {
           description: `${adapter}/${name} description`,
           prompt: `# ${adapter}/${name} body (mocked)`,
@@ -376,6 +379,7 @@ describe('spawn handler agentName native routing', () => {
       },
     });
     expect(createSessionCalls[0].model).toBe('opus');
+    expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('xhigh');
   });
 
   it('Codex adapter: agentName maps TOML fields to developerInstructions + thread config fields', async () => {
