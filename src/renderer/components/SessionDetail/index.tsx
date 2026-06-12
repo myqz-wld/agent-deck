@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type {
   AgentEvent,
   DiffPayload,
+  FileFinalDiffResult,
   FileChangeRecord,
   SessionRecord,
 } from '@shared/types';
@@ -24,6 +25,7 @@ import { ChangeTimeline } from './ChangeTimeline';
 import { decodeBlob, groupFileChanges, pickLatestChange } from './helpers';
 
 type Tab = 'activity' | 'diff' | 'summary' | 'messages' | 'permissions';
+type DiffMode = 'single' | 'final';
 
 const EMPTY_EVENTS_FOR_TOAST: AgentEvent[] = [];
 
@@ -38,6 +40,9 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const [diffError, setDiffError] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedChangeId, setSelectedChangeId] = useState<number | null>(null);
+  const [diffMode, setDiffMode] = useState<DiffMode>('single');
+  const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
+  const [finalDiffLoading, setFinalDiffLoading] = useState(false);
   /** K3 hand-off preview dialog 开关（plan mcp-bug-and-feature-batch-20260513 Phase 4c）。 */
   const [handOffOpen, setHandOffOpen] = useState(false);
   /** 最近被 SDK 自动取消的权限/提问，用于 toast 提示「不是你做的，是 SDK 取消的」。 */
@@ -121,6 +126,9 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     setDiffError(null);
     setSelectedFilePath(null);
     setSelectedChangeId(null);
+    setDiffMode('single');
+    setFinalDiff(null);
+    setFinalDiffLoading(false);
     // deep-review H3 MED：SessionDetail 无 key prop（App.tsx）→ 切会话不 remount，cancelToasts
     // useState 跨会话存活；切会话时 B 的 recent[0] 非 cancel 不会触发清理 → A 的 toast 串到 B。
     // 这里 reset 时一并清空 toast + 其 timer。
@@ -210,6 +218,37 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     () => changes?.find((c) => c.id === selectedChangeId) ?? null,
     [changes, selectedChangeId],
   );
+  const selectedGroupLastId = selectedGroup?.lastId ?? null;
+
+  useEffect(() => {
+    if (tab !== 'diff' || diffMode !== 'final' || !selectedFilePath) return;
+    let disposed = false;
+    setFinalDiffLoading(true);
+    setFinalDiff(null);
+    void window.api
+      .getFileFinalDiff(session.id, selectedFilePath)
+      .then((r) => {
+        if (disposed) return;
+        setFinalDiff(r);
+      })
+      .catch((err: unknown) => {
+        if (disposed) return;
+        setFinalDiff({
+          ok: false,
+          filePath: selectedFilePath,
+          diff: null,
+          source: 'git',
+          reason: 'git_error',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .finally(() => {
+        if (!disposed) setFinalDiffLoading(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [tab, diffMode, session.id, selectedFilePath, selectedGroupLastId]);
 
   const diffPayload: DiffPayload | null = selectedChange
     ? {
@@ -222,6 +261,17 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         ts: selectedChange.ts,
       }
     : null;
+  const finalDiffPayload: DiffPayload | null =
+    finalDiff?.ok && finalDiff.diff
+      ? {
+          kind: 'text',
+          filePath: finalDiff.filePath,
+          before: null,
+          after: null,
+          metadata: { source: 'git-final', diff: finalDiff.diff },
+          ts: selectedGroup?.lastTs ?? 0,
+        }
+      : null;
 
   const isSdk = session.source === 'sdk';
   const turnBusy = session.activity === 'working';
@@ -338,6 +388,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
                         setSelectedFilePath(g.filePath);
                         // 切到该文件最新一次改动
                         setSelectedChangeId(g.items[g.items.length - 1].id);
+                        setFinalDiff(null);
                       }}
                       className={`relative max-w-[160px] truncate rounded px-2 py-1 text-[10px] font-mono ${
                         selectedFilePath === g.filePath
@@ -356,17 +407,51 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
                   ))}
                 </div>
 
+                {selectedGroup && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    {(['single', 'final'] as DiffMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setDiffMode(mode)}
+                        className={`rounded px-2 py-1 text-[10px] ${
+                          diffMode === mode
+                            ? 'bg-white/15 text-deck-text'
+                            : 'bg-white/[0.03] text-deck-muted hover:bg-white/[0.08]'
+                        }`}
+                      >
+                        {mode === 'single' ? '单次改动' : '最终 diff'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* 选中文件的时间线：每行一次改动；点击切换显示对应 diff */}
-                {selectedGroup && selectedGroup.items.length > 1 && (
+                {diffMode === 'single' && selectedGroup && selectedGroup.items.length > 1 && (
                   <ChangeTimeline
                     items={selectedGroup.items}
                     selectedId={selectedChangeId}
-                    onSelect={setSelectedChangeId}
+                    onSelect={(id) => {
+                      setSelectedChangeId(id);
+                      setDiffMode('single');
+                    }}
                   />
                 )}
 
                 <div className="min-h-0 flex-1">
-                  {diffPayload ? <DiffViewer payload={diffPayload} sessionId={session.id} /> : null}
+                  {diffMode === 'final' ? (
+                    finalDiffLoading ? (
+                      <div className="text-[11px] text-deck-muted">加载最终 diff…</div>
+                    ) : finalDiffPayload ? (
+                      <DiffViewer payload={finalDiffPayload} sessionId={session.id} />
+                    ) : (
+                      <div className="rounded-md border border-deck-border bg-white/[0.02] p-3 text-[11px] text-deck-muted/85">
+                        {finalDiff?.message ?? '暂无可显示的最终 diff'}
+                      </div>
+                    )
+                  ) : diffPayload ? (
+                    <DiffViewer payload={diffPayload} sessionId={session.id} />
+                  ) : null}
                 </div>
               </>
             )}

@@ -9,6 +9,7 @@ import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import type {
   AgentEvent,
+  FileFinalDiffResult,
   FileChangeRecord,
   SessionRecord,
   SummaryRecord,
@@ -46,6 +47,8 @@ export const sessionsApi = {
     ipcRenderer.invoke(IpcInvoke.SessionListEvents, id, limit),
   listFileChanges: (id: string): Promise<FileChangeRecord[]> =>
     ipcRenderer.invoke(IpcInvoke.SessionListFileChanges, id),
+  getFileFinalDiff: (id: string, filePath: string): Promise<FileFinalDiffResult> =>
+    ipcRenderer.invoke(IpcInvoke.SessionGetFileFinalDiff, id, filePath),
   listSummaries: (id: string): Promise<SummaryRecord[]> =>
     ipcRenderer.invoke(IpcInvoke.SessionListSummaries, id),
   latestSummaries: (ids: string[]): Promise<Record<string, SummaryRecord>> =>
