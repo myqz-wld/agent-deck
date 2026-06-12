@@ -26,7 +26,7 @@ export interface FileFinalDiffResult {
   ok: boolean;
   filePath: string;
   diff: string | null;
-  source: 'git';
+  source: 'git' | 'snapshot-fallback' | 'recorded-patch-fallback';
   reason?: FileFinalDiffReason;
   message?: string;
 }

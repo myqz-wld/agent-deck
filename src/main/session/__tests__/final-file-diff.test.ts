@@ -15,11 +15,17 @@ const execFileMock = vi.hoisted(() => {
   return fn;
 });
 const existsSyncMock = vi.hoisted(() => vi.fn());
+const readFileSyncMock = vi.hoisted(() => vi.fn());
+const statSyncMock = vi.hoisted(() => vi.fn());
 const sessionRepoMock = vi.hoisted(() => ({ get: vi.fn() }));
 const fileChangeRepoMock = vi.hoisted(() => ({ listForSession: vi.fn() }));
 
 vi.mock('node:child_process', () => ({ execFile: execFileMock }));
-vi.mock('node:fs', () => ({ existsSync: existsSyncMock }));
+vi.mock('node:fs', () => ({
+  existsSync: existsSyncMock,
+  readFileSync: readFileSyncMock,
+  statSync: statSyncMock,
+}));
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: sessionRepoMock }));
 vi.mock('@main/store/file-change-repo', () => ({ fileChangeRepo: fileChangeRepoMock }));
 
@@ -58,6 +64,8 @@ describe('getSessionFileFinalDiff', () => {
       { filePath: '/repo/new.txt' },
     ]);
     existsSyncMock.mockReturnValue(true);
+    statSyncMock.mockReturnValue({ isFile: () => true, size: 64 });
+    readFileSyncMock.mockReturnValue('hello new\n');
   });
 
   it('rejects paths that are not recorded in file_changes for the session', async () => {
@@ -107,5 +115,53 @@ describe('getSessionFileFinalDiff', () => {
       '/dev/null',
       '/repo/new.txt',
     ]);
+  });
+
+  it('falls back to current file plus reversed text changes when git is unavailable', async () => {
+    fileChangeRepoMock.listForSession.mockReturnValue([
+      {
+        id: 1,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: 'old',
+        afterBlob: 'new',
+        metadata: { source: 'Edit' },
+        toolCallId: 'tool-1',
+        ts: 1,
+      },
+    ]);
+    mockGit([{ code: 128, stderr: 'not a git repository' }]);
+    readFileSyncMock.mockReturnValue('hello new\n');
+
+    const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
+
+    expect(result.ok).toBe(true);
+    expect(result.source).toBe('snapshot-fallback');
+    expect(result.diff).toContain('-hello old');
+    expect(result.diff).toContain('+hello new');
+  });
+
+  it('falls back to recorded patch metadata when snapshot reconstruction is unavailable', async () => {
+    fileChangeRepoMock.listForSession.mockReturnValue([
+      {
+        id: 1,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: null,
+        afterBlob: null,
+        metadata: { source: 'codex', diff: '@@ -1 +1 @@\n-old\n+new' },
+        toolCallId: 'patch-1',
+        ts: 1,
+      },
+    ]);
+    mockGit([{ code: 128, stderr: 'not a git repository' }]);
+
+    const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
+
+    expect(result.ok).toBe(true);
+    expect(result.source).toBe('recorded-patch-fallback');
+    expect(result.diff).toContain('@@ -1 +1 @@');
   });
 });
