@@ -9,6 +9,7 @@ import { fileChangeRepo } from '@main/store/file-change-repo';
 import { summaryRepo } from '@main/store/summary-repo';
 import { settingsStore } from '@main/store/settings-store';
 import { summariseSessionForHandOff } from '@main/session/summarizer';
+import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
 import type { EventMap } from '@main/event-bus';
@@ -33,6 +34,12 @@ export function registerSessionsIpc(): void {
   });
   on(IpcInvoke.SessionListFileChanges, (_e, id) =>
     fileChangeRepo.listForSession(parseStringId('sessionId', id)),
+  );
+  on(IpcInvoke.SessionGetFileFinalDiff, (_e, id, filePath) =>
+    getSessionFileFinalDiff(
+      parseStringId('sessionId', id),
+      parseStringId('filePath', filePath, 4096),
+    ),
   );
   on(IpcInvoke.SessionListSummaries, (_e, id) =>
     summaryRepo.listForSession(parseStringId('sessionId', id)),

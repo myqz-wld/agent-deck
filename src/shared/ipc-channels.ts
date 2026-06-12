@@ -28,6 +28,7 @@ export const IpcInvoke = {
   SessionReactivate: 'session:reactivate',
   SessionListEvents: 'session:list-events',
   SessionListFileChanges: 'session:list-file-changes',
+  SessionGetFileFinalDiff: 'session:get-file-final-diff',
   SessionListSummaries: 'session:list-summaries',
   SessionLatestSummaries: 'session:latest-summaries',
   /**

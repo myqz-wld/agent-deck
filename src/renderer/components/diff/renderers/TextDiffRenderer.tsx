@@ -13,10 +13,9 @@ interface Props {
 
 export function TextDiffRenderer({ payload }: Props): JSX.Element {
   const language = guessLanguageByPath(payload.filePath);
-  // REVIEW_52 C1：codex emit file-changed before:null after:null（codex SDK 不传 diff
-  // 文本，仅记录路径与 changeKind / patchStatus 元数据）。旧版直接 `before ?? '' / after ?? ''`
-  // 渲染空 Monaco editor → 用户看到空白「改动页无效」（reviewer 异构对抗 F5 共识 + 用户铁证）。
-  // 新增 isMetaOnly 分支：两端都 null 时不挂 Monaco，改显元数据卡片。
+  // REVIEW_52 C1：部分来源 emit file-changed before:null after:null（Codex app-server 不提供
+  // before/after 快照，但可能在 metadata.diff 带 unified diff）。两端都 null 时不挂 Monaco
+  // DiffEditor；有 unified diff 则显示 patch 内容，否则显示元数据兜底。
   const isNewFile = payload.before == null && payload.after != null;
   const isMetaOnly = payload.before == null && payload.after == null;
 
@@ -27,10 +26,12 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
       source?: string;
       changeKind?: unknown;
       patchStatus?: unknown;
+      diff?: unknown;
     };
     const isCodex = md.source === 'codex';
     const changeKind = normalizeCodexChangeKind(md.changeKind);
     const patchStatus = typeof md.patchStatus === 'string' ? md.patchStatus : null;
+    const unifiedDiff = normalizeUnifiedDiffMetadata(md.diff);
     return (
       <div className="flex h-full flex-col gap-2">
         <div className="flex items-center gap-2 text-[11px]">
@@ -55,18 +56,27 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
             </span>
           )}
         </div>
-        <div className="rounded-md border border-deck-border bg-white/[0.02] p-3 text-[11px] text-deck-muted/85">
-          {isCodex ? (
-            <>
-              Codex 仅记录改动路径，不提供差异内容。
-              如需查看实际差异，请直接打开文件，或在终端运行 <code className="font-mono">git diff</code>。
-            </>
-          ) : (
-            <>
-              这次改动缺少可显示的差异内容，请直接打开文件查看。
-            </>
-          )}
-        </div>
+        {unifiedDiff ? (
+          <div className="min-h-[260px] flex-1 overflow-auto rounded-md border border-deck-border bg-[#0f1218]">
+            <pre className="m-0 p-3 font-mono text-[11px] leading-5 text-deck-text">
+              {unifiedDiff}
+            </pre>
+          </div>
+        ) : (
+          <div className="rounded-md border border-deck-border bg-white/[0.02] p-3 text-[11px] text-deck-muted/85">
+            {isCodex ? (
+              <>
+                Codex 未提供可显示的差异内容。
+                如需查看当前工作区差异，请直接打开文件，或在终端运行{' '}
+                <code className="font-mono">git diff</code>。
+              </>
+            ) : (
+              <>
+                这次改动缺少可显示的差异内容，请直接打开文件查看。
+              </>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -121,6 +131,11 @@ export function normalizeCodexChangeKind(value: unknown): string | null {
     return typeof type === 'string' && type ? type : null;
   }
   return null;
+}
+
+export function normalizeUnifiedDiffMetadata(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return value.trim() ? value : null;
 }
 
 function guessLanguageByPath(p: string): string {

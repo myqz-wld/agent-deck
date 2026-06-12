@@ -14,6 +14,23 @@ export interface FileChangeRecord {
   ts: number;
 }
 
+export type FileFinalDiffReason =
+  | 'not_in_session'
+  | 'not_git_repo'
+  | 'outside_repo'
+  | 'unchanged'
+  | 'too_large'
+  | 'git_error';
+
+export interface FileFinalDiffResult {
+  ok: boolean;
+  filePath: string;
+  diff: string | null;
+  source: 'git';
+  reason?: FileFinalDiffReason;
+  message?: string;
+}
+
 export interface DiffPayload<T = unknown> {
   kind: string;
   filePath: string;
