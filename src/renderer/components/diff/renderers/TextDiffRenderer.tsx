@@ -14,8 +14,8 @@ interface Props {
 export function TextDiffRenderer({ payload }: Props): JSX.Element {
   const language = guessLanguageByPath(payload.filePath);
   // REVIEW_52 C1：部分来源 emit file-changed before:null after:null（Codex app-server 不提供
-  // before/after 快照，但可能在 metadata.diff 带 unified diff）。两端都 null 时不挂 Monaco
-  // DiffEditor；有 unified diff 则显示 patch 内容，否则显示元数据兜底。
+  // before/after 快照，但可能在 metadata.diff 带 unified diff）。有 unified diff 时先还原成
+  // before/after 片段并复用 Monaco DiffEditor；解析不了时再显示 patch 原文兜底。
   const isNewFile = payload.before == null && payload.after != null;
   const isMetaOnly = payload.before == null && payload.after == null;
 
@@ -32,31 +32,22 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
     const changeKind = normalizeCodexChangeKind(md.changeKind);
     const patchStatus = typeof md.patchStatus === 'string' ? md.patchStatus : null;
     const unifiedDiff = normalizeUnifiedDiffMetadata(md.diff);
+    const reconstructed = unifiedDiff ? reconstructUnifiedDiffSnapshots(unifiedDiff) : null;
     return (
       <div className="flex h-full flex-col gap-2">
-        <div className="flex items-center gap-2 text-[11px]">
-          <span className="text-deck-muted/70">📄</span>
-          <span className="truncate font-mono text-[11px]">{payload.filePath}</span>
-          {isCodex && changeKind && (
-            <span
-              className={`rounded px-1.5 py-0.5 text-[9px] uppercase ${
-                changeKind === 'add'
-                  ? 'bg-status-working/20 text-status-working'
-                  : changeKind === 'delete'
-                    ? 'bg-status-error/20 text-status-error'
-                    : 'bg-white/10 text-deck-muted'
-              }`}
-            >
-              {changeKind}
-            </span>
-          )}
-          {isCodex && patchStatus && patchStatus !== 'completed' && (
-            <span className="rounded bg-status-error/20 px-1.5 py-0.5 text-[9px] uppercase text-status-error">
-              {patchStatus}
-            </span>
-          )}
-        </div>
-        {unifiedDiff ? (
+        <DiffHeader
+          filePath={payload.filePath}
+          isNewFile={false}
+          changeKind={isCodex ? changeKind : null}
+          patchStatus={isCodex ? patchStatus : null}
+        />
+        {reconstructed ? (
+          <MonacoDiffView
+            before={reconstructed.before}
+            after={reconstructed.after}
+            language={language}
+          />
+        ) : unifiedDiff ? (
           <div className="min-h-[260px] flex-1 overflow-auto rounded-md border border-deck-border bg-[#0f1218]">
             <pre className="m-0 p-3 font-mono text-[11px] leading-5 text-deck-text">
               {unifiedDiff}
@@ -85,41 +76,89 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
   const after = payload.after ?? '';
   return (
     <div className="flex h-full flex-col gap-1.5">
-      <div className="flex items-center gap-2 text-[11px]">
-        <span className="text-deck-muted/70">📄</span>
-        <span className="truncate font-mono text-[11px]">{payload.filePath}</span>
-        {isNewFile && (
-          <span className="rounded bg-status-working/20 px-1.5 py-0.5 text-[9px] text-status-working">
-            新增
-          </span>
-        )}
-      </div>
-      <div className="min-h-[260px] flex-1 overflow-hidden rounded-md border border-deck-border">
-        <Suspense
-          fallback={
-            <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
-              加载差异视图…
-            </div>
-          }
+      <DiffHeader filePath={payload.filePath} isNewFile={isNewFile} />
+      <MonacoDiffView before={before} after={after} language={language} />
+    </div>
+  );
+}
+
+function DiffHeader({
+  filePath,
+  isNewFile,
+  changeKind,
+  patchStatus,
+}: {
+  filePath: string;
+  isNewFile: boolean;
+  changeKind?: string | null;
+  patchStatus?: string | null;
+}): JSX.Element {
+  return (
+    <div className="flex items-center gap-2 text-[11px]">
+      <span className="text-deck-muted/70">📄</span>
+      <span className="truncate font-mono text-[11px]">{filePath}</span>
+      {isNewFile && (
+        <span className="rounded bg-status-working/20 px-1.5 py-0.5 text-[9px] text-status-working">
+          新增
+        </span>
+      )}
+      {changeKind && (
+        <span
+          className={`rounded px-1.5 py-0.5 text-[9px] uppercase ${
+            changeKind === 'add'
+              ? 'bg-status-working/20 text-status-working'
+              : changeKind === 'delete'
+                ? 'bg-status-error/20 text-status-error'
+                : 'bg-white/10 text-deck-muted'
+          }`}
         >
-          <DiffEditor
-            height="100%"
-            language={language}
-            theme="vs-dark"
-            original={before}
-            modified={after}
-            options={{
-              readOnly: true,
-              renderSideBySide: true,
-              minimap: { enabled: false },
-              fontSize: 11,
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              renderOverviewRuler: false,
-            }}
-          />
-        </Suspense>
-      </div>
+          {changeKind}
+        </span>
+      )}
+      {patchStatus && patchStatus !== 'completed' && (
+        <span className="rounded bg-status-error/20 px-1.5 py-0.5 text-[9px] uppercase text-status-error">
+          {patchStatus}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function MonacoDiffView({
+  before,
+  after,
+  language,
+}: {
+  before: string;
+  after: string;
+  language: string;
+}): JSX.Element {
+  return (
+    <div className="min-h-[260px] flex-1 overflow-hidden rounded-md border border-deck-border">
+      <Suspense
+        fallback={
+          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
+            加载差异视图…
+          </div>
+        }
+      >
+        <DiffEditor
+          height="100%"
+          language={language}
+          theme="vs-dark"
+          original={before}
+          modified={after}
+          options={{
+            readOnly: true,
+            renderSideBySide: true,
+            minimap: { enabled: false },
+            fontSize: 11,
+            scrollBeyondLastLine: false,
+            automaticLayout: true,
+            renderOverviewRuler: false,
+          }}
+        />
+      </Suspense>
     </div>
   );
 }
@@ -136,6 +175,51 @@ export function normalizeCodexChangeKind(value: unknown): string | null {
 export function normalizeUnifiedDiffMetadata(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   return value.trim() ? value : null;
+}
+
+export function reconstructUnifiedDiffSnapshots(
+  unifiedDiff: string,
+): { before: string; after: string } | null {
+  const before: string[] = [];
+  const after: string[] = [];
+  let inHunk = false;
+  let sawHunkLine = false;
+  const lines = unifiedDiff.replace(/\r\n/g, '\n').split('\n');
+
+  for (const line of lines) {
+    if (line.startsWith('@@ ')) {
+      if (sawHunkLine) {
+        before.push('...');
+        after.push('...');
+      }
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith('\\ No newline at end of file')) continue;
+
+    const marker = line[0];
+    const body = line.slice(1);
+    if (marker === ' ') {
+      before.push(body);
+      after.push(body);
+      sawHunkLine = true;
+    } else if (marker === '-') {
+      before.push(body);
+      sawHunkLine = true;
+    } else if (marker === '+') {
+      after.push(body);
+      sawHunkLine = true;
+    } else if (line.startsWith('diff --git ') || line.startsWith('--- ') || line.startsWith('+++ ')) {
+      inHunk = false;
+    }
+  }
+
+  if (!sawHunkLine) return null;
+  return {
+    before: before.join('\n'),
+    after: after.join('\n'),
+  };
 }
 
 function guessLanguageByPath(p: string): string {
