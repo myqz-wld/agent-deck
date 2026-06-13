@@ -257,3 +257,4 @@
 | [CHANGELOG_250.md](CHANGELOG_250.md) | Claude/Codex native agents 与 Codex 会话级注入：Claude 走 SDK `agent`/`agents`，Codex custom-agent TOML 映射到 app-server thread/config；Codex AGENTS 与内置 skills 不再写用户级目录，资产库支持 Codex agents。 |
 | [CHANGELOG_251.md](CHANGELOG_251.md) | reviewer 双侧 thinking 升至 xhigh：reviewer-codex 加 model_reasoning_effort，Claude agent loader 新增 frontmatter effort 支持并透传 SDK effort。 |
 | [CHANGELOG_252.md](CHANGELOG_252.md) | 改动页展示 metadata.diff，并可查看选中文件当前 Git 最终 diff。 |
+| [CHANGELOG_253.md](CHANGELOG_253.md) | 基础目录架构补 `scripts/` 规则，与 foundation v0.0.5 对齐。 |
