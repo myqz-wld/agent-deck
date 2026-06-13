@@ -15,6 +15,8 @@
  * **实现**：
  * - 模块顶层 `let` 存 `Record<adapter, Defaults>`，组件 unmount 不清。`useRef` 跨实例会丢，
  *   普通 module-level `let` 才稳。
+ * - `getLastAdapter()` / `setLastAdapter(adapter)` 记住上次选择的 adapter，让会被 unmount
+ *   的 issue 解决弹窗重开后也沿用用户选择。
  * - `getLastDefaults(adapter)` 读（仅读本 adapter 的字段：claude 读 claudeCodeSandbox、codex 读 codexSandbox）
  * - `setLastDefaults(adapter, patch)` 写（merge）
  *
@@ -40,9 +42,19 @@ const store: Record<AdapterId, Defaults> = {
   'deepseek-claude-code': { permissionMode: 'bypassPermissions' },
   'codex-cli': {},
 };
+let lastAdapter: AdapterId = 'claude-code';
 
 function isAdapterId(s: string): s is AdapterId {
   return s === 'claude-code' || s === 'deepseek-claude-code' || s === 'codex-cli';
+}
+
+export function getLastAdapter(): AdapterId {
+  return lastAdapter;
+}
+
+export function setLastAdapter(adapter: string): void {
+  if (!isAdapterId(adapter)) return;
+  lastAdapter = adapter;
 }
 
 /**

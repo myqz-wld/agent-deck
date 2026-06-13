@@ -143,19 +143,19 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional()
     .describe(
-      'Optional permission mode for the spawned Claude-family session. Omit it to inherit from a same-adapter caller; cross-adapter spawns use the target adapter default. codex-cli ignores this field.',
+      'Explicit permission-mode override for a spawned Claude-family session. Omit unless the user explicitly requests this permission mode; omitted values let Agent Deck inherit from a same-adapter caller or use the target adapter default. codex-cli ignores this field.',
     ),
   codexSandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
     .optional()
     .describe(
-      'Optional sandbox for a codex-cli spawned session, including bundled reviewer agents. Omit it to inherit from a same-adapter codex caller; cross-adapter spawns use the codex adapter default.',
+      'Explicit sandbox override for a codex-cli spawned session, including bundled reviewer agents. Omit unless the user explicitly requests this sandbox mode; omitted values let Agent Deck inherit from a same-adapter codex caller or use the codex adapter default.',
     ),
   claudeCodeSandbox: z
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
-      'Optional sandbox for claude-code or deepseek-claude-code. Omit it to inherit from a same-adapter caller; cross-adapter spawns use the target adapter default.',
+      'Explicit OS sandbox override for a claude-code or deepseek-claude-code spawned session. Omit unless the user explicitly requests this sandbox mode; omitted values let Agent Deck inherit from a same-adapter caller or use the target adapter default.',
     ),
   /**
    * 可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。

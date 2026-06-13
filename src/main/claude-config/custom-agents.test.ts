@@ -75,10 +75,34 @@ describe('resolveClaudeAgentContent', () => {
     expect(result.agent.definition).toEqual({
       description: 'bundled reviewer',
       prompt: 'Bundled prompt.',
-      tools: ['Read', 'Grep'],
+      tools: [
+        'Read',
+        'Grep',
+        'mcp__agent-deck__send_message',
+        'mcp__agent-deck__list_sessions',
+      ],
       skills: ['agent-deck:simple-review'],
       model: 'opus',
     });
+  });
+
+  it('does not add reviewer messaging tools to ordinary Claude agents', () => {
+    bundledAgents.set(
+      'patcher',
+      [
+        '---',
+        'description: bundled patcher',
+        'tools: Read, Grep',
+        '---',
+        'Patch prompt.',
+      ].join('\n'),
+    );
+
+    const result = resolveClaudeAgentContent('patcher', project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.definition.tools).toEqual(['Read', 'Grep']);
   });
 
   it('loads the closest project-scoped agent before the user agent', () => {

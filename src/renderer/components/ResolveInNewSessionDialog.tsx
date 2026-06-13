@@ -11,7 +11,12 @@
 
 import { cloneElement, useEffect, useId, useState, type JSX } from 'react';
 import type { IssueRecord } from '@shared/types';
-import { getLastDefaults, setLastDefaults } from '@renderer/hooks/useLastSessionDefaults';
+import {
+  getLastAdapter,
+  getLastDefaults,
+  setLastAdapter,
+  setLastDefaults,
+} from '@renderer/hooks/useLastSessionDefaults';
 import {
   PERMISSION_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
@@ -81,7 +86,7 @@ function buildDefaultPrompt(issue: IssueRecord): string {
 
 export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props): JSX.Element {
   const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
-  const [adapter, setAdapter] = useState('claude-code');
+  const [adapter, setAdapter] = useState<string>(() => getLastAdapter());
   const [cwd, setCwd] = useState(issue.cwd ?? '');
   // deep-review H1 INFO：buildDefaultPrompt 只需作 useState 初值（mount 后不再消费），用惰性初始化
   // 替代 useMemo（去掉每次 issue 变重算但不被用的死计算）。
@@ -102,8 +107,15 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         const usable = rows.filter((a) => a.capabilities.canCreateSession);
         setAdapters(usable);
         setAdaptersReady(usable.length > 0);
-        if (usable.length > 0 && !usable.find((a) => a.id === adapter)) {
-          setAdapter(usable[0].id);
+        if (usable.length > 0) {
+          setAdapter((current) => {
+            const next =
+              usable.find((a) => a.id === current)?.id
+              ?? usable.find((a) => a.id === getLastAdapter())?.id
+              ?? usable[0].id;
+            setLastAdapter(next);
+            return next;
+          });
         }
       })
       .catch((e: unknown) => {
@@ -190,7 +202,10 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           <DialogField label="执行器">
             <select
               value={adapter}
-              onChange={(e) => setAdapter(e.target.value)}
+              onChange={(e) => {
+                setAdapter(e.target.value);
+                setLastAdapter(e.target.value);
+              }}
               disabled={busy}
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
             >
