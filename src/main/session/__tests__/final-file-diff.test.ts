@@ -1,71 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const execFileMock = vi.hoisted(() => {
-  const fn = vi.fn();
-  const custom = Symbol.for('nodejs.util.promisify.custom');
-  Object.assign(fn, {
-    [custom]: (cmd: string, args: string[], opts: unknown) =>
-      new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-        fn(cmd, args, opts, (err: Error | null, stdout: string, stderr: string) => {
-          if (err) reject(err);
-          else resolve({ stdout, stderr });
-        });
-      }),
-  });
-  return fn;
-});
-const existsSyncMock = vi.hoisted(() => vi.fn());
-const readFileSyncMock = vi.hoisted(() => vi.fn());
-const statSyncMock = vi.hoisted(() => vi.fn());
 const sessionRepoMock = vi.hoisted(() => ({ get: vi.fn() }));
 const fileChangeRepoMock = vi.hoisted(() => ({ listForSession: vi.fn() }));
 
-vi.mock('node:child_process', () => ({ execFile: execFileMock }));
-vi.mock('node:fs', () => ({
-  existsSync: existsSyncMock,
-  readFileSync: readFileSyncMock,
-  statSync: statSyncMock,
-}));
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: sessionRepoMock }));
 vi.mock('@main/store/file-change-repo', () => ({ fileChangeRepo: fileChangeRepoMock }));
 
 import { getSessionFileFinalDiff } from '../final-file-diff';
-
-type ExecCallback = (err: Error | null, stdout: string, stderr: string) => void;
-
-function mockGit(responses: Array<{ stdout?: string; stderr?: string; code?: number }>): void {
-  execFileMock.mockImplementation(
-    (_cmd: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
-      const next = responses.shift();
-      if (!next) throw new Error('unexpected git call');
-      if (next.code !== undefined) {
-        const err = new Error(next.stderr ?? `exit ${next.code}`) as Error & {
-          stdout?: string;
-          stderr?: string;
-          code?: number;
-        };
-        err.stdout = next.stdout ?? '';
-        err.stderr = next.stderr ?? '';
-        err.code = next.code;
-        cb(err, err.stdout, err.stderr);
-        return;
-      }
-      cb(null, next.stdout ?? '', next.stderr ?? '');
-    },
-  );
-}
 
 describe('getSessionFileFinalDiff', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionRepoMock.get.mockReturnValue({ id: 's1', cwd: '/repo' });
     fileChangeRepoMock.listForSession.mockReturnValue([
-      { filePath: '/repo/src/a.ts' },
-      { filePath: '/repo/new.txt' },
+      { id: 1, filePath: '/repo/src/a.ts', ts: 1, metadata: {} },
     ]);
-    existsSyncMock.mockReturnValue(true);
-    statSyncMock.mockReturnValue({ isFile: () => true, size: 64 });
-    readFileSyncMock.mockReturnValue('hello new\n');
   });
 
   it('rejects paths that are not recorded in file_changes for the session', async () => {
@@ -73,51 +22,48 @@ describe('getSessionFileFinalDiff', () => {
 
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('not_in_session');
-    expect(execFileMock).not.toHaveBeenCalled();
   });
 
-  it('returns git diff HEAD for tracked files', async () => {
-    mockGit([
-      { stdout: '/repo\n' },
-      { stdout: 'src/a.ts\n' },
-      { stdout: 'diff --git a/src/a.ts b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n' },
+  it('returns final diff from the first before snapshot to the last after snapshot', async () => {
+    fileChangeRepoMock.listForSession.mockReturnValue([
+      {
+        id: 2,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: 'mid',
+        afterBlob: 'new',
+        beforeSnapshot: 'mid\n',
+        afterSnapshot: 'new\n',
+        metadata: { source: 'Edit' },
+        toolCallId: 'tool-2',
+        ts: 2,
+      },
+      {
+        id: 1,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: 'old',
+        afterBlob: 'mid',
+        beforeSnapshot: 'old\n',
+        afterSnapshot: 'mid\n',
+        metadata: { source: 'Edit' },
+        toolCallId: 'tool-1',
+        ts: 1,
+      },
     ]);
 
     const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
 
     expect(result.ok).toBe(true);
-    expect(result.diff).toContain('diff --git');
-    expect(execFileMock.mock.calls[2][1]).toEqual([
-      'diff',
-      '--no-ext-diff',
-      'HEAD',
-      '--',
-      'src/a.ts',
-    ]);
+    expect(result.source).toBe('recorded-snapshot');
+    expect(result.diff).toContain('-old');
+    expect(result.diff).toContain('+new');
+    expect(result.diff).not.toContain('mid');
   });
 
-  it('uses no-index diff for untracked new files', async () => {
-    mockGit([
-      { stdout: '/repo\n' },
-      { code: 1, stderr: 'not tracked' },
-      { code: 1, stdout: 'diff --git a/dev/null b/repo/new.txt\n+hello\n' },
-    ]);
-
-    const result = await getSessionFileFinalDiff('s1', '/repo/new.txt');
-
-    expect(result.ok).toBe(true);
-    expect(result.diff).toContain('+hello');
-    expect(execFileMock.mock.calls[2][1]).toEqual([
-      'diff',
-      '--no-ext-diff',
-      '--no-index',
-      '--',
-      '/dev/null',
-      '/repo/new.txt',
-    ]);
-  });
-
-  it('falls back to current file plus reversed text changes when git is unavailable', async () => {
+  it('reports unchanged when recorded snapshots cancel out', async () => {
     fileChangeRepoMock.listForSession.mockReturnValue([
       {
         id: 1,
@@ -126,23 +72,22 @@ describe('getSessionFileFinalDiff', () => {
         kind: 'text',
         beforeBlob: 'old',
         afterBlob: 'new',
+        beforeSnapshot: 'same\n',
+        afterSnapshot: 'same\n',
         metadata: { source: 'Edit' },
         toolCallId: 'tool-1',
         ts: 1,
       },
     ]);
-    mockGit([{ code: 128, stderr: 'not a git repository' }]);
-    readFileSyncMock.mockReturnValue('hello new\n');
 
     const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
 
-    expect(result.ok).toBe(true);
-    expect(result.source).toBe('snapshot-fallback');
-    expect(result.diff).toContain('-hello old');
-    expect(result.diff).toContain('+hello new');
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('unchanged');
+    expect(result.source).toBe('recorded-snapshot');
   });
 
-  it('falls back to recorded patch metadata when snapshot reconstruction is unavailable', async () => {
+  it('falls back to recorded patch metadata for old records without snapshots', async () => {
     fileChangeRepoMock.listForSession.mockReturnValue([
       {
         id: 1,
@@ -156,12 +101,33 @@ describe('getSessionFileFinalDiff', () => {
         ts: 1,
       },
     ]);
-    mockGit([{ code: 128, stderr: 'not a git repository' }]);
 
     const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
 
     expect(result.ok).toBe(true);
     expect(result.source).toBe('recorded-patch-fallback');
     expect(result.diff).toContain('@@ -1 +1 @@');
+  });
+
+  it('does not read git or the current working tree when snapshots are unavailable', async () => {
+    fileChangeRepoMock.listForSession.mockReturnValue([
+      {
+        id: 1,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: 'old',
+        afterBlob: 'new',
+        metadata: { source: 'Edit' },
+        toolCallId: 'tool-1',
+        ts: 1,
+      },
+    ]);
+
+    const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('snapshot_unavailable');
+    expect(result.message).toContain('记录快照');
   });
 });

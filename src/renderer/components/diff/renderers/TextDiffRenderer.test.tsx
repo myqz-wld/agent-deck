@@ -108,7 +108,7 @@ describe('TextDiffRenderer codex metadata', () => {
           before: null,
           after: null,
           metadata: {
-            source: 'git-final',
+            source: 'recorded-patch-fallback',
             diff: 'Binary files a/tmp/a.png and b/tmp/a.png differ',
           },
           ts: 1,

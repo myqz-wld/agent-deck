@@ -1,6 +1,6 @@
 import type { FileChangeRecord } from '@shared/types';
 import { getDb } from './db';
-import { safeStringifyPayload, safeTruncateBlob } from './payload-truncate';
+import { safeStringifyPayload, safeTruncateBlob, safeTruncateFileSnapshot } from './payload-truncate';
 import log from '@main/utils/logger';
 
 const logger = log.scope('store-file-change-repo');
@@ -12,6 +12,8 @@ interface Row {
   kind: string;
   before_blob: string | null;
   after_blob: string | null;
+  before_snapshot?: string | null;
+  after_snapshot?: string | null;
   metadata_json: string;
   tool_call_id: string | null;
   ts: number;
@@ -37,6 +39,8 @@ function rowToRecord(r: Row): FileChangeRecord {
     kind: r.kind,
     beforeBlob: r.before_blob,
     afterBlob: r.after_blob,
+    beforeSnapshot: r.before_snapshot ?? null,
+    afterSnapshot: r.after_snapshot ?? null,
     metadata,
     toolCallId: r.tool_call_id,
     ts: r.ts,
@@ -48,8 +52,8 @@ export const fileChangeRepo = {
     const info = getDb()
       .prepare(
         `INSERT INTO file_changes
-         (session_id, file_path, kind, before_blob, after_blob, metadata_json, tool_call_id, ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (session_id, file_path, kind, before_blob, after_blob, before_snapshot, after_snapshot, metadata_json, tool_call_id, ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         rec.sessionId,
@@ -57,6 +61,8 @@ export const fileChangeRepo = {
         rec.kind,
         safeTruncateBlob(rec.beforeBlob),
         safeTruncateBlob(rec.afterBlob),
+        safeTruncateFileSnapshot(rec.beforeSnapshot),
+        safeTruncateFileSnapshot(rec.afterSnapshot),
         safeStringifyPayload(rec.metadata ?? {}),
         rec.toolCallId,
         rec.ts,

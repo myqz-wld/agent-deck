@@ -237,8 +237,8 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           ok: false,
           filePath: selectedFilePath,
           diff: null,
-          source: 'git',
-          reason: 'git_error',
+          source: 'recorded-snapshot',
+          reason: 'snapshot_unavailable',
           message: err instanceof Error ? err.message : String(err),
         });
       })
@@ -254,8 +254,14 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     ? {
         kind: selectedChange.kind,
         filePath: selectedChange.filePath,
-        before: decodeBlob(selectedChange.kind, selectedChange.beforeBlob),
-        after: decodeBlob(selectedChange.kind, selectedChange.afterBlob),
+        before: decodeBlob(
+          selectedChange.kind,
+          selectedChange.beforeSnapshot ?? selectedChange.beforeBlob,
+        ),
+        after: decodeBlob(
+          selectedChange.kind,
+          selectedChange.afterSnapshot ?? selectedChange.afterBlob,
+        ),
         metadata: selectedChange.metadata,
         toolCallId: selectedChange.toolCallId ?? undefined,
         ts: selectedChange.ts,
@@ -268,7 +274,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           filePath: finalDiff.filePath,
           before: null,
           after: null,
-          metadata: { source: 'git-final', diff: finalDiff.diff },
+          metadata: { source: finalDiff.source, diff: finalDiff.diff },
           ts: selectedGroup?.lastTs ?? 0,
         }
       : null;

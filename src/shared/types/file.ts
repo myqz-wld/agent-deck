@@ -9,6 +9,10 @@ export interface FileChangeRecord {
   kind: string; // 'text' | 'image' | 'pdf' | ...
   beforeBlob: string | null;
   afterBlob: string | null;
+  /** Best-effort full text snapshot captured when the change was recorded. */
+  beforeSnapshot?: string | null;
+  /** Best-effort full text snapshot captured when the change was recorded. */
+  afterSnapshot?: string | null;
   metadata: Record<string, unknown>;
   toolCallId: string | null;
   ts: number;
@@ -16,17 +20,15 @@ export interface FileChangeRecord {
 
 export type FileFinalDiffReason =
   | 'not_in_session'
-  | 'not_git_repo'
-  | 'outside_repo'
   | 'unchanged'
   | 'too_large'
-  | 'git_error';
+  | 'snapshot_unavailable';
 
 export interface FileFinalDiffResult {
   ok: boolean;
   filePath: string;
   diff: string | null;
-  source: 'git' | 'snapshot-fallback' | 'recorded-patch-fallback';
+  source: 'recorded-snapshot' | 'recorded-patch-fallback';
   reason?: FileFinalDiffReason;
   message?: string;
 }

@@ -5,6 +5,7 @@ import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
 import { tokenUsageRepo } from '@main/store/token-usage-repo';
 import { extractCwd, nextActivityState } from './manager-helpers';
+import { buildFileChangeSnapshots } from './file-change-snapshots';
 import type { UpsertOptions } from './manager';
 import log from '@main/utils/logger';
 
@@ -193,6 +194,7 @@ export function persistFileChange(event: AgentEvent): void {
     after?: unknown;
     toolCallId?: string;
     metadata?: Record<string, unknown>;
+    cwd?: string;
   };
   if (!p || typeof p.filePath !== 'string') return;
   // text 通道 before/after 是 string，原样存；image 通道是 ImageSource 对象，需 JSON.stringify。
@@ -202,13 +204,29 @@ export function persistFileChange(event: AgentEvent): void {
     if (typeof v === 'string') return v;
     return JSON.stringify(v);
   };
+  const kind = typeof p.kind === 'string' ? p.kind : 'text';
+  const metadata =
+    p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
+      ? p.metadata
+      : {};
+  const cwd = typeof p.cwd === 'string' ? p.cwd : sessionRepo.get(event.sessionId)?.cwd ?? null;
+  const snapshots = buildFileChangeSnapshots({
+    cwd,
+    filePath: p.filePath,
+    kind,
+    before: p.before,
+    after: p.after,
+    metadata,
+  });
   fileChangeRepo.insert({
     sessionId: event.sessionId,
     filePath: p.filePath,
-    kind: p.kind ?? 'text',
+    kind,
     beforeBlob: serialize(p.before),
     afterBlob: serialize(p.after),
-    metadata: p.metadata ?? {},
+    beforeSnapshot: snapshots.beforeSnapshot,
+    afterSnapshot: snapshots.afterSnapshot,
+    metadata,
     toolCallId: p.toolCallId ?? null,
     ts: event.ts,
   });
