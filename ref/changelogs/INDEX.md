@@ -259,3 +259,4 @@
 | [CHANGELOG_252.md](CHANGELOG_252.md) | 改动页展示 metadata.diff，并可查看选中文件当前 Git 最终 diff。 |
 | [CHANGELOG_253.md](CHANGELOG_253.md) | 基础目录架构补 `scripts/` 规则，与 foundation v0.0.5 对齐。 |
 | [CHANGELOG_254.md](CHANGELOG_254.md) | Codex unified diff 与最终 diff 复用 Monaco 展示样式。 |
+| [CHANGELOG_255.md](CHANGELOG_255.md) | 最终 diff 改用会话记录文件快照，Codex 单次改动优先用快照渲染。 |

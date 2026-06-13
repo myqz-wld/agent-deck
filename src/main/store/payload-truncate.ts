@@ -23,6 +23,7 @@
  */
 
 const MAX_PAYLOAD_BYTES = 256 * 1024;
+const MAX_FILE_SNAPSHOT_BYTES = 1024 * 1024;
 /**
  * 单字段截断阈值。
  *
@@ -140,8 +141,16 @@ export function safeTruncateBlob(blob: string | null | undefined): string | null
   return truncateStringByBytes(blob, MAX_PAYLOAD_BYTES);
 }
 
+export function safeTruncateFileSnapshot(blob: string | null | undefined): string | null {
+  if (blob == null) return null;
+  const bytes = Buffer.byteLength(blob, 'utf8');
+  if (bytes <= MAX_FILE_SNAPSHOT_BYTES) return blob;
+  return truncateStringByBytes(blob, MAX_FILE_SNAPSHOT_BYTES);
+}
+
 /** 暴露阈值给测试 / 诊断 / 可观测性。 */
 export const PAYLOAD_LIMITS = {
   MAX_PAYLOAD_BYTES,
   MAX_FIELD_BYTES,
+  MAX_FILE_SNAPSHOT_BYTES,
 } as const;

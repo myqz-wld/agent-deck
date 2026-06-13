@@ -1,5 +1,6 @@
 import { lazy, Suspense, type JSX } from 'react';
 import type { DiffPayload } from '@shared/types';
+import { reconstructUnifiedDiffSnapshots } from '@shared/unified-diff';
 
 // Monaco 体积大，懒加载
 const DiffEditor = lazy(async () => {
@@ -177,50 +178,7 @@ export function normalizeUnifiedDiffMetadata(value: unknown): string | null {
   return value.trim() ? value : null;
 }
 
-export function reconstructUnifiedDiffSnapshots(
-  unifiedDiff: string,
-): { before: string; after: string } | null {
-  const before: string[] = [];
-  const after: string[] = [];
-  let inHunk = false;
-  let sawHunkLine = false;
-  const lines = unifiedDiff.replace(/\r\n/g, '\n').split('\n');
-
-  for (const line of lines) {
-    if (line.startsWith('@@ ')) {
-      if (sawHunkLine) {
-        before.push('...');
-        after.push('...');
-      }
-      inHunk = true;
-      continue;
-    }
-    if (!inHunk) continue;
-    if (line.startsWith('\\ No newline at end of file')) continue;
-
-    const marker = line[0];
-    const body = line.slice(1);
-    if (marker === ' ') {
-      before.push(body);
-      after.push(body);
-      sawHunkLine = true;
-    } else if (marker === '-') {
-      before.push(body);
-      sawHunkLine = true;
-    } else if (marker === '+') {
-      after.push(body);
-      sawHunkLine = true;
-    } else if (line.startsWith('diff --git ') || line.startsWith('--- ') || line.startsWith('+++ ')) {
-      inHunk = false;
-    }
-  }
-
-  if (!sawHunkLine) return null;
-  return {
-    before: before.join('\n'),
-    after: after.join('\n'),
-  };
-}
+export { reconstructUnifiedDiffSnapshots };
 
 function guessLanguageByPath(p: string): string {
   const ext = p.split('.').pop()?.toLowerCase() ?? '';
