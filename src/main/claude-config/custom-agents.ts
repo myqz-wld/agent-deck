@@ -9,6 +9,10 @@ const CLAUDE_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
 const USER_CLAUDE_AGENTS_DIR = join(homedir(), '.claude', 'agents');
 const FRONTMATTER_BLOCK_REGEX = /^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n/;
 const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+const REVIEWER_CLAUDE_REQUIRED_MCP_TOOLS = [
+  'mcp__agent-deck__send_message',
+  'mcp__agent-deck__list_sessions',
+] as const;
 
 export type ClaudeCustomAgentEffortLevel = (typeof CLAUDE_EFFORT_LEVELS)[number];
 
@@ -73,7 +77,7 @@ function buildClaudeAgent(
   }
   const effortLevel = rawEffort && isClaudeEffortLevel(rawEffort) ? rawEffort : undefined;
   const body = content.replace(FRONTMATTER_BLOCK_REGEX, '').trim();
-  const tools = parseCsvList(fm.tools);
+  const tools = withReviewerClaudeMessagingTools(agentName, parseCsvList(fm.tools));
   const skills = parseCsvList(fm.skills);
   const model = fm.model?.trim() || undefined;
   const definition: AgentDefinition = {
@@ -106,6 +110,15 @@ function parseCsvList(value: string | undefined): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function withReviewerClaudeMessagingTools(agentName: string, tools: string[]): string[] {
+  if (agentName !== 'reviewer-claude' || tools.length === 0) return tools;
+  const out = [...tools];
+  for (const requiredTool of REVIEWER_CLAUDE_REQUIRED_MCP_TOOLS) {
+    if (!out.includes(requiredTool)) out.push(requiredTool);
+  }
+  return out;
 }
 
 function getProjectClaudeAgentDirs(cwd: string): string[] {

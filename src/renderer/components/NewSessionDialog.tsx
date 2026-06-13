@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
-import { getLastDefaults, setLastDefaults } from '@renderer/hooks/useLastSessionDefaults';
+import {
+  getLastAdapter,
+  getLastDefaults,
+  setLastAdapter,
+  setLastDefaults,
+} from '@renderer/hooks/useLastSessionDefaults';
 import {
   PERMISSION_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
@@ -28,7 +33,7 @@ interface Props {
 
 export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Element | null {
   const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
-  const [agentId, setAgentId] = useState('claude-code');
+  const [agentId, setAgentId] = useState<string>(() => getLastAdapter());
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('bypassPermissions');
@@ -49,8 +54,15 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     void window.api.listAdapters().then((rows) => {
       const usable = rows.filter((a) => a.capabilities.canCreateSession);
       setAdapters(usable);
-      if (usable.length > 0 && !usable.find((a) => a.id === agentId)) {
-        setAgentId(usable[0].id);
+      if (usable.length > 0) {
+        setAgentId((current) => {
+          const next =
+            usable.find((a) => a.id === current)?.id
+            ?? usable.find((a) => a.id === getLastAdapter())?.id
+            ?? usable[0].id;
+          setLastAdapter(next);
+          return next;
+        });
       }
     });
   }, [open]);
@@ -143,7 +155,10 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
             <Field label="执行器">
               <select
                 value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
+                onChange={(e) => {
+                  setAgentId(e.target.value);
+                  setLastAdapter(e.target.value);
+                }}
                 className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
               >
                 {adapters.map((a) => (

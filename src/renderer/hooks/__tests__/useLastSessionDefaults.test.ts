@@ -24,4 +24,14 @@ describe('useLastSessionDefaults', () => {
     });
     expect(getLastDefaults('codex-cli')).toEqual({ codexSandbox: 'read-only' });
   });
+
+  it('记住上次选择的 adapter，非法值不会污染记忆', async () => {
+    const { getLastAdapter, setLastAdapter } = await loadDefaultsModule();
+
+    expect(getLastAdapter()).toBe('claude-code');
+    setLastAdapter('codex-cli');
+    expect(getLastAdapter()).toBe('codex-cli');
+    setLastAdapter('not-an-adapter');
+    expect(getLastAdapter()).toBe('codex-cli');
+  });
 });

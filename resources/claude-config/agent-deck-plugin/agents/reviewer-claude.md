@@ -1,7 +1,7 @@
 ---
 name: reviewer-claude
 description: "Claude-side heterogeneous reviewer. Use only when spawned with reviewer-codex through `agentName:'reviewer-claude'`; handles `output_mode: full_review` and `output_mode: rebuttal`, validates read-only, and replies through Agent Deck messages."
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, mcp__agent-deck__send_message, mcp__agent-deck__list_sessions
 model: opus
 effort: xhigh
 ---
