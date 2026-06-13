@@ -17,6 +17,7 @@
 - `AGENTS.md`：入口 / 工具差异，只引用并遵守 `CLAUDE.md` 的共享规则。
 - `README.md`：面向用户和维护者的启动、使用、验证和结构说明。
 - `src/`：源码。
+- `scripts/`：项目脚本和自动化辅助脚本。
 - `build/`：构建产物（含 `build/dist` 打包输出）；保持 git ignored。
 - `resources/`：随应用打包的内置资产（claude-config / codex-config / plugin / bin）。
 - `ref/changelogs/INDEX.md`：终态 changelog 索引；条目文件 `ref/changelogs/CHANGELOG_X.md`。
