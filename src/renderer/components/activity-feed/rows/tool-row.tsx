@@ -5,7 +5,7 @@ import { ImageThumb } from '@renderer/components/ImageThumb';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { toolInputToDiff } from '@renderer/components/pending-rows';
 import { describeToolInput } from '../describe';
-import { formatDisplayText, formatToolResult, parseImageReadResult } from '../format';
+import { formatDisplayText, formatToolInput, formatToolResult, parseImageReadResult } from '../format';
 import { toolIcon } from '../tool-icons';
 
 /**
@@ -49,6 +49,7 @@ export function ToolStartRow({
         <div className="rounded border border-deck-border/40 bg-black/20 p-2">
           <MarkdownText text={plan || '（计划内容为空）'} />
         </div>
+        <ToolInputPanel input={p.toolInput} />
         <div className="mt-1.5 text-[10px] text-deck-muted">
           这是终端启动的只读会话，请回到原终端窗口批准
         </div>
@@ -107,6 +108,7 @@ export function ToolStartRow({
             <MarkdownText text={taskPrompt} />
           </div>
         )}
+        <ToolInputPanel input={p.toolInput} />
       </li>
     );
   }
@@ -129,6 +131,7 @@ export function ToolStartRow({
         )}
         <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
       </div>
+      <ToolInputPanel input={p.toolInput} />
       {diff && diffOpen && (
         <div className="mt-1 h-72 overflow-hidden rounded border border-white/5">
           <DiffViewer payload={diff} sessionId={sessionId} />
@@ -181,11 +184,12 @@ export function ToolEndRow({
   const imageRead = useMemo(() => parseImageReadResult(result), [result]);
   const hasContent = text && text.trim().length > 0;
   const statusText = toolStatusText(p.status);
+  const inputForDisplay = startPayload.toolInput ?? p.toolInput;
   // 借 start 事件的 toolInput 拼 detail —— 让「✨ Skill 完成」补回「· agent-deck:deep-code-review」。
   // imageRead 自己带 [provider · model] 后缀就不再叠 detail，避免一行三段信息太挤。
   const detail = useMemo(
-    () => (imageRead ? null : describeToolInput(tool, startPayload.toolInput ?? p.toolInput)),
-    [tool, startPayload.toolInput, p.toolInput, imageRead],
+    () => (imageRead ? null : describeToolInput(tool, inputForDisplay)),
+    [tool, inputForDisplay, imageRead],
   );
 
   // 失败：红色边框 + 浅红背景，与 status-error 色对齐（与 SessionDetail 错误消息同色）
@@ -243,6 +247,7 @@ export function ToolEndRow({
           </div>
         </div>
       )}
+      <ToolInputPanel input={inputForDisplay} />
       {/* REVIEW_52 B1：移除 disabled={!hasContent}，总是允许 ▸/▾ 展开。
          空结果展开（codex 无 stdout 命令 mkdir/cd / mcp_tool_call 返 [] / null）显示
          status / exitCode 元信息，避免「点不动 + 没解释」UX 卡住感。imageRead 由
@@ -260,6 +265,28 @@ export function ToolEndRow({
         </div>
       ))}
     </li>
+  );
+}
+
+function ToolInputPanel({ input }: { input: unknown }): JSX.Element | null {
+  const [open, setOpen] = useState(false);
+  if (input === undefined) return null;
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="rounded bg-white/8 px-1.5 py-0.5 text-[9px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
+      >
+        {open ? '收起入参' : '查看入参'}
+      </button>
+      {open && (
+        <pre className="mt-1 max-h-64 overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
+          {formatToolInput(input)}
+        </pre>
+      )}
+    </div>
   );
 }
 

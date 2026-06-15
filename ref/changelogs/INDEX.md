@@ -262,3 +262,4 @@
 | [CHANGELOG_255.md](CHANGELOG_255.md) | 最终 diff 改用会话记录文件快照，Codex 单次改动优先用快照渲染。 |
 | [CHANGELOG_256.md](CHANGELOG_256.md) | `spawn_session` MCP 说明标明 `permissionMode` / sandbox 字段是显式 override，用户未明确要求时应省略。 |
 | [CHANGELOG_257.md](CHANGELOG_257.md) | reviewer-claude 补消息 MCP 工具白名单与 runtime 防线；issue 解决弹窗记忆上次 adapter。 |
+| [CHANGELOG_258.md](CHANGELOG_258.md) | SessionDetail 活动流工具行新增「查看入参」折叠区，Codex/Claude 共用工具展示可查看完整 toolInput。 |
