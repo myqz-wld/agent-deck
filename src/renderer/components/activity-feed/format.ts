@@ -83,6 +83,16 @@ export function formatToolResult(result: unknown): string {
   return String(result);
 }
 
+/** 工具入参按 JSON 展示；不可序列化时退回字符串，避免展开区崩溃。 */
+export function formatToolInput(input: unknown): string {
+  try {
+    const text = JSON.stringify(input, null, 2);
+    return text === undefined ? String(input) : text;
+  } catch {
+    return String(input);
+  }
+}
+
 function stringifyUnknown(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
