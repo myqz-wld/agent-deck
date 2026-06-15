@@ -57,7 +57,7 @@ describe('provider usage snapshots', () => {
     ]);
   });
 
-  it('marks Claude unavailable when plan rate limits are absent', () => {
+  it('marks Claude not_subscribed when account has no subscription limits', () => {
     const snapshot = buildClaudeUsageSnapshot(
       {
         session: {
@@ -76,9 +76,33 @@ describe('provider usage snapshots', () => {
       456,
     );
 
-    expect(snapshot.status).toBe('unavailable');
+    expect(snapshot.status).toBe('not_subscribed');
     expect(snapshot.windows).toEqual([]);
     expect(snapshot.updatedAt).toBe(456);
+  });
+
+  it('marks Claude unavailable when subscribed plan returns no rate limits', () => {
+    const snapshot = buildClaudeUsageSnapshot(
+      {
+        session: {
+          total_cost_usd: 0,
+          total_api_duration_ms: 0,
+          total_duration_ms: 0,
+          total_lines_added: 0,
+          total_lines_removed: 0,
+          model_usage: {},
+        },
+        subscription_type: 'pro',
+        rate_limits_available: false,
+        rate_limits: null,
+        behaviors: null,
+      } as SDKControlGetUsageResponse,
+      457,
+    );
+
+    expect(snapshot.status).toBe('unavailable');
+    expect(snapshot.windows).toEqual([]);
+    expect(snapshot.updatedAt).toBe(457);
   });
 
   it('maps Codex primary and secondary windows and normalizes epoch seconds', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type JSX } from 'react';
+import { useEffect, useMemo, type JSX } from 'react';
 import { useTokenUsageStore } from '../stores/token-usage-store';
 import { useTokenRatesPoll } from '../hooks/use-token-rates-poll';
 import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
@@ -19,6 +19,7 @@ import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '
 
 const DAILY_REFETCH_DEBOUNCE_MS = 500;
 const PROVIDER_USAGE_REFETCH_MS = 60_000;
+const PROVIDER_USAGE_RENDERER_STALE_MS = 55_000;
 
 /** 大数字千分位；0 显示 '·' 弱化（避免满屏 0 干扰）。 */
 function fmt(n: number): string {
@@ -30,9 +31,13 @@ export function DataPanel(): JSX.Element {
   const liveBySession = useTokenUsageStore((s) => s.liveBySession);
   const daily = useTokenUsageStore((s) => s.daily);
   const setDaily = useTokenUsageStore((s) => s.setDaily);
-  const [usageSnapshots, setUsageSnapshots] = useState<ProviderUsageSnapshot[]>([]);
-  const [usageLoading, setUsageLoading] = useState(false);
-  const [usageError, setUsageError] = useState<string | null>(null);
+  const usageSnapshots = useTokenUsageStore((s) => s.providerUsageSnapshots);
+  const usageFetchedAt = useTokenUsageStore((s) => s.providerUsageFetchedAt);
+  const usageLoading = useTokenUsageStore((s) => s.providerUsageLoading);
+  const usageError = useTokenUsageStore((s) => s.providerUsageError);
+  const setProviderUsageLoading = useTokenUsageStore((s) => s.setProviderUsageLoading);
+  const setProviderUsageSuccess = useTokenUsageStore((s) => s.setProviderUsageSuccess);
+  const setProviderUsageError = useTokenUsageStore((s) => s.setProviderUsageError);
   useTokenRatesPoll();
 
   // daily：mount 拉一次 + 订阅 onTokenUsageChanged debounce refetch
@@ -59,27 +64,34 @@ export function DataPanel(): JSX.Element {
   useEffect(() => {
     let cancelled = false;
     const fetchUsage = async (showLoading: boolean): Promise<void> => {
-      if (showLoading) setUsageLoading(true);
+      if (showLoading) setProviderUsageLoading(true);
       try {
         const result = await window.api.providerUsageSnapshot();
         if (!cancelled) {
-          setUsageSnapshots(result.snapshots);
-          setUsageError(null);
+          setProviderUsageSuccess(result.snapshots);
         }
       } catch (err) {
-        if (!cancelled) setUsageError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setProviderUsageError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (!cancelled && showLoading) setUsageLoading(false);
+        if (showLoading) setProviderUsageLoading(false);
       }
     };
 
-    void fetchUsage(true);
+    const cacheFresh =
+      usageFetchedAt !== null && Date.now() - usageFetchedAt < PROVIDER_USAGE_RENDERER_STALE_MS;
+    if (!cacheFresh) void fetchUsage(usageSnapshots.length === 0);
     const timer = setInterval(() => void fetchUsage(false), PROVIDER_USAGE_REFETCH_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [
+    setProviderUsageError,
+    setProviderUsageLoading,
+    setProviderUsageSuccess,
+    usageFetchedAt,
+    usageSnapshots.length,
+  ]);
 
   // 实时区：全 bucket token/s，生成中 fresh live 估算优先，降序
   const liveRates = useMemo(() => {
@@ -115,7 +127,9 @@ export function DataPanel(): JSX.Element {
           <span className="font-medium text-deck-text">额度窗口</span>
           <span className="text-[10px] text-deck-muted/70">当前窗口 / 周用量 / 重置时间</span>
           {usageLoading && (
-            <span className="ml-auto text-[10px] text-deck-muted/60">读取中</span>
+            <span className="ml-auto text-[10px] text-deck-muted/60">
+              {usageSnapshots.length > 0 ? '刷新中' : '读取中'}
+            </span>
           )}
           {usageError && (
             <span className="ml-auto truncate text-[10px] text-status-error">{usageError}</span>
@@ -288,6 +302,8 @@ function usageStatusText(status: ProviderUsageSnapshot['status']): string {
   switch (status) {
     case 'ok':
       return '可用';
+    case 'not_subscribed':
+      return '未订阅';
     case 'unsupported':
       return '不支持';
     case 'error':
@@ -302,6 +318,8 @@ function usageStatusClass(status: ProviderUsageSnapshot['status']): string {
   switch (status) {
     case 'ok':
       return 'bg-status-working/15 text-status-working';
+    case 'not_subscribed':
+      return 'bg-amber-400/15 text-amber-200';
     case 'unsupported':
       return 'bg-white/[0.06] text-deck-muted';
     case 'error':

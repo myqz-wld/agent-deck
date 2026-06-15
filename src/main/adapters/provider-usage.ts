@@ -59,6 +59,15 @@ export function unsupportedUsageSnapshot(
   return usageSnapshot({ provider, label, status: 'unsupported', message, updatedAt });
 }
 
+export function notSubscribedUsageSnapshot(
+  provider: ProviderUsageProviderId,
+  label: string,
+  message: string,
+  updatedAt?: number,
+): ProviderUsageSnapshot {
+  return usageSnapshot({ provider, label, status: 'not_subscribed', message, updatedAt });
+}
+
 export function unavailableUsageSnapshot(
   provider: ProviderUsageProviderId,
   label: string,
@@ -87,6 +96,15 @@ export function buildClaudeUsageSnapshot(
   response: SDKControlGetUsageResponse,
   updatedAt = Date.now(),
 ): ProviderUsageSnapshot {
+  if (response.subscription_type === null && !response.rate_limits_available) {
+    return notSubscribedUsageSnapshot(
+      'claude-code',
+      'Claude',
+      '当前 Claude 账号没有可展示的订阅额度窗口',
+      updatedAt,
+    );
+  }
+
   if (!response.rate_limits_available || !response.rate_limits) {
     return unavailableUsageSnapshot(
       'claude-code',

@@ -88,3 +88,4 @@
 | [codex-app-server-unification-20260610.md](codex-app-server-unification-20260610.md) | completed | [239](../changelogs/CHANGELOG_239.md) | Codex tok/s 改权威 app-server usage delta，oneshot 切 app-server 并清理旧 SDK 路径 |
 | [spawn-session-model-thinking-20260611.md](spawn-session-model-thinking-20260611.md) | in_progress | — | spawn_session 增加 adapter-scoped model/thinking 参数校验与透传 |
 | [codex-native-agents-skills-20260612.md](codex-native-agents-skills-20260612.md) | completed | [249](../changelogs/CHANGELOG_249.md) / [250](../changelogs/CHANGELOG_250.md) | Claude/Codex 原生 agent 解析、Codex 会话级 developerInstructions 与 skills extraRoot 注入、设置面板 agent 支持 |
+| [provider-usage-cache-refresh-20260615.md](provider-usage-cache-refresh-20260615.md) | completed | [261](../changelogs/CHANGELOG_261.md) | provider-usage-cache-refresh-20260615 |
