@@ -5,6 +5,8 @@ import type {
   AskUserQuestionRequest,
 } from '@shared/types';
 
+type AskDraft = { selected: string[]; other?: string; note?: string };
+
 /**
  * AskUserQuestion 行（内嵌选项）。接口同 PermissionRow 模式。
  */
@@ -27,9 +29,7 @@ export function AskRow({
   wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
 }): JSX.Element {
-  const [selections, setSelections] = useState<Record<string, { selected: string[]; other?: string }>>(
-    {},
-  );
+  const [selections, setSelections] = useState<Record<string, AskDraft>>({});
   const [busy, setBusy] = useState(false);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const totalQuestions = payload.questions.length;
@@ -43,7 +43,7 @@ export function AskRow({
 
   const toggle = (q: AskUserQuestionItem, label: string): void => {
     setSelections((prev) => {
-      const cur = prev[q.question] ?? { selected: [], other: undefined };
+      const cur = prev[q.question] ?? { selected: [], other: undefined, note: undefined };
       const has = cur.selected.includes(label);
       const nextSel = q.multiSelect
         ? has
@@ -52,14 +52,21 @@ export function AskRow({
         : has
           ? []
           : [label];
-      return { ...prev, [q.question]: { selected: nextSel, other: cur.other } };
+      return { ...prev, [q.question]: { selected: nextSel, other: cur.other, note: cur.note } };
     });
   };
 
   const setOther = (q: AskUserQuestionItem, value: string): void => {
     setSelections((prev) => {
       const cur = prev[q.question] ?? { selected: [], other: undefined };
-      return { ...prev, [q.question]: { selected: cur.selected, other: value } };
+      return { ...prev, [q.question]: { selected: cur.selected, other: value, note: cur.note } };
+    });
+  };
+
+  const setNote = (q: AskUserQuestionItem, value: string): void => {
+    setSelections((prev) => {
+      const cur = prev[q.question] ?? { selected: [], other: undefined, note: undefined };
+      return { ...prev, [q.question]: { selected: cur.selected, other: cur.other, note: value } };
     });
   };
 
@@ -68,8 +75,8 @@ export function AskRow({
     setBusy(true);
     try {
       const answers = payload.questions.map((q) => {
-        const cur = selections[q.question] ?? { selected: [], other: undefined };
-        return { question: q.question, selected: cur.selected, other: cur.other };
+        const cur = selections[q.question] ?? { selected: [], other: undefined, note: undefined };
+        return { question: q.question, selected: cur.selected, other: cur.other, note: cur.note };
       });
       await window.api.respondAskUserQuestion(agentId, sessionId, payload.requestId, { answers });
       onResolved(sessionId, payload.requestId);
@@ -157,6 +164,14 @@ export function AskRow({
                 placeholder="其他（可选）"
                 disabled={!isSdk || !stillPending || busy}
                 className="mt-1 w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
+              />
+              <textarea
+                value={selections[q.question]?.note ?? ''}
+                onChange={(e) => setNote(q, e.target.value)}
+                placeholder="备注（可选）"
+                rows={2}
+                disabled={!isSdk || !stillPending || busy}
+                className="mt-1 w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
               />
             </div>
           );

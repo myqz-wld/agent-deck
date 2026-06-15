@@ -54,7 +54,7 @@ export interface AskUserQuestionRequest {
 
 export interface AskUserQuestionAnswer {
   /** 每个 question 一项，按 questions 顺序对齐；multiSelect 时多个 label，单选时一个 */
-  answers: { question: string; selected: string[]; other?: string }[];
+  answers: { question: string; selected: string[]; other?: string; note?: string }[];
 }
 
 // ───────────────────────────────────────────────────────── Exit-Plan-Mode

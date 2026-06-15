@@ -15,16 +15,18 @@ export function formatAskAnswers(
   answer: AskUserQuestionAnswer,
 ): string {
   const lines: string[] = [];
-  const ansByQ = new Map<string, { selected: string[]; other?: string }>();
+  const ansByQ = new Map<string, { selected: string[]; other?: string; note?: string }>();
   for (const a of answer.answers ?? []) {
-    ansByQ.set(a.question, { selected: a.selected ?? [], other: a.other });
+    ansByQ.set(a.question, { selected: a.selected ?? [], other: a.other, note: a.note });
   }
   for (let i = 0; i < questions.length; i += 1) {
     const q = questions[i];
-    const a = ansByQ.get(q.question) ?? { selected: [], other: undefined };
+    const a = ansByQ.get(q.question) ?? { selected: [], other: undefined, note: undefined };
     const parts: string[] = [];
     if (a.selected.length > 0) parts.push(a.selected.join(', '));
     if (a.other) parts.push(`其他：${a.other}`);
+    const note = a.note?.trim();
+    if (note) parts.push(`备注：${note}`);
     lines.push(`Q${i + 1}: ${q.question}\nA: ${parts.length ? parts.join(' | ') : '(未作答)'}`);
   }
   return lines.join('\n\n');
