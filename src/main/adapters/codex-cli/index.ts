@@ -5,7 +5,7 @@ import { CodexSdkBridge } from './sdk-bridge';
 import { summariseCodexSessionViaOneshot } from './summarizer-runner';
 import { summariseCodexSessionForHandOff } from './handoff-runner';
 import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter';
-import { readCodexUsageSnapshot } from './usage-snapshot';
+import { unavailableUsageSnapshot } from '../provider-usage';
 
 const ADAPTER_ID = 'codex-cli';
 
@@ -170,7 +170,14 @@ class CodexCliAdapter implements AgentAdapter {
   }
 
   async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
-    return readCodexUsageSnapshot();
+    if (!this.bridge) {
+      return unavailableUsageSnapshot(
+        'codex-cli',
+        'Codex',
+        'Codex adapter 尚未初始化',
+      );
+    }
+    return this.bridge.getUsageSnapshot();
   }
 
   /**

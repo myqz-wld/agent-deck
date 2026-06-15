@@ -42,8 +42,8 @@ import type { CreateSessionOpts } from './create-session/_deps';
 import {
   buildClaudeUsageSnapshot,
   errorUsageSnapshot,
+  unavailableUsageSnapshot,
 } from '../../provider-usage';
-import { readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
 import log from '@main/utils/logger';
 
 const logger = log.scope('claude-bridge');
@@ -183,7 +183,13 @@ export class ClaudeSdkBridge {
           typeof s.query?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET ===
             'function',
       );
-    if (!session) return readClaudeUsageSnapshotInBackground();
+    if (!session) {
+      return unavailableUsageSnapshot(
+        'claude-code',
+        'Claude',
+        '需要已有 Claude 会话才能读取额度窗口',
+      );
+    }
 
     try {
       const usage = await session.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();

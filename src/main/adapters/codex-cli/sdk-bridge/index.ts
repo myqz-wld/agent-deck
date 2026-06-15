@@ -29,7 +29,7 @@ import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { packCodexInput, extractAttachmentPaths, toCodexAppServerInput } from './input-pack';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
-import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import type { AgentEvent, ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import {
   SessionRecoverer,
@@ -42,6 +42,12 @@ import {
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
 import { CodexAppServerClient } from '../app-server/client';
+import {
+  buildCodexUsageSnapshot,
+  errorUsageSnapshot,
+  unavailableUsageSnapshot,
+  type CodexAccountRateLimitsResponseLike,
+} from '../../provider-usage';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-bridge');
@@ -232,6 +238,29 @@ export class CodexSdkBridge {
     // R37 P1 Step 1.2 (G)：同步 invalidate oneshot pool，让 summarizer-runner / handoff-runner
     // 下次 call 也用新 path 重建（修前 3 处独立 cache，path 改要等各自 path 比较 miss 才同步）
     invalidateCodexInstance();
+  }
+
+  async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
+    const codex = [...this.codexBySession.values()]
+      .reverse()
+      .find((client) => client.isProcessAlive);
+    if (!codex) {
+      return unavailableUsageSnapshot(
+        'codex-cli',
+        'Codex',
+        '需要已有 Codex 会话才能读取额度窗口',
+      );
+    }
+    try {
+      const response = await codex.request<CodexAccountRateLimitsResponseLike>(
+        'account/rateLimits/read',
+        undefined,
+      );
+      return buildCodexUsageSnapshot(response);
+    } catch (err) {
+      logger.warn('[codex-bridge] usage snapshot failed:', err);
+      return errorUsageSnapshot('codex-cli', 'Codex', err);
+    }
   }
 
   /**
