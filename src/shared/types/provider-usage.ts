@@ -5,6 +5,7 @@ export type ProviderUsageProviderId =
 
 export type ProviderUsageStatus =
   | 'ok'
+  | 'not_subscribed'
   | 'unsupported'
   | 'unavailable'
   | 'error';

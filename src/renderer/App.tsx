@@ -12,6 +12,7 @@ import { IssuesPanel } from './components/IssuesPanel';
 import { DataPanel } from './components/DataPanel';
 import { HeaderTokenRates } from './components/HeaderTokenRates';
 import { useSessionStore } from './stores/session-store';
+import { useTokenUsageStore } from './stores/token-usage-store';
 import { useEventBridge } from './hooks/use-event-bridge';
 import { useIssuesBridge } from './hooks/use-issues-bridge';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
@@ -31,6 +32,9 @@ export function App(): JSX.Element {
   const selectedId = useSessionStore((s) => s.selectedSessionId);
   const select = useSessionStore((s) => s.selectSession);
   const setPendingAll = useSessionStore((s) => s.setPendingRequestsAll);
+  const setDaily = useTokenUsageStore((s) => s.setDaily);
+  const setProviderUsageSuccess = useTokenUsageStore((s) => s.setProviderUsageSuccess);
+  const setProviderUsageError = useTokenUsageStore((s) => s.setProviderUsageError);
 
   const [view, setView] = useState<View>('live');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -96,6 +100,33 @@ export function App(): JSX.Element {
       cancelled = true;
     };
   }, [setPendingAll]);
+
+  // 启动时预取数据 tab 的冷数据：每日 token 明细 + provider 额度窗口。
+  // provider usage 走 main 端 TTL cache / in-flight dedupe，App mount 和 DataPanel mount
+  // 即便撞在一起也只会有一轮真实 provider 查询。
+  useEffect(() => {
+    let cancelled = false;
+    void window.api
+      .tokenUsageDaily()
+      .then((rows) => {
+        if (!cancelled) setDaily(rows);
+      })
+      .catch((err) => {
+        console.warn('[app] tokenUsageDaily preload failed', err);
+      });
+    void window.api
+      .providerUsageSnapshot()
+      .then((result) => {
+        if (!cancelled) setProviderUsageSuccess(result.snapshots);
+      })
+      .catch((err) => {
+        if (!cancelled) setProviderUsageError(err instanceof Error ? err.message : String(err));
+        console.warn('[app] providerUsageSnapshot preload failed', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setDaily, setProviderUsageError, setProviderUsageSuccess]);
 
   // 监听全局快捷键 Cmd+Alt+P：主进程已切换 alwaysOnTop+vibrancy，这里同步 UI 与持久化设置
   useEffect(() => {
