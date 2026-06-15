@@ -16,9 +16,9 @@
  *    实际位置在 user/project/local 三层 CLAUDE.md 全部加载完之后追加。
  *    LLM 上下文末尾位置 instruction following 最强。
  *
- * 4. Skill 注入位置：通过 SDK 的 `plugins: [{ type: 'local', path }]`，
- *    skill 自动以 `agent-deck:<skill-name>` 命名空间注册，与用户
- *    `~/.claude/skills/` 不冲突。
+ * 4. Skill / agent 注入位置：通过 SDK 的 `plugins: [{ type: 'local', path }]`。
+ *    运行时按 settings 裁剪 app-owned plugin mirror 的 `skills/` / `agents/` 子目录，实现
+ *    Claude bundled skills 与 agents 独立开关；用户 / 项目 scope 仍由 Claude Code 原生加载链处理。
  *
  * 5. 加载顺序（CLAUDE.md）：
  *    - 用户副本 `<userData>/agent-deck-claude.md`（设置面板里编辑后写入）→ 优先
@@ -53,9 +53,20 @@ const APPEND_HEADER =
 let cachedClaudeMdAppend: string | null = null;
 
 /**
- * 返回 claude 视角 agent-deck plugin 根的绝对路径，传给 SDK 的 `plugins[].path`。
+ * 返回 claude 视角 agent-deck plugin source 根的绝对路径。
+ *
+ * 资产库 / bundled-asset 读取必须用 source path，不能用 SDK 会话的 filtered mirror；否则用户
+ * 关闭某类注入后，资产页也会误以为内置资源不存在。
+ */
+export function getClaudeAgentDeckPluginSourcePath(): string {
+  return getPluginSourceDir();
+}
+
+/**
+ * 返回 claude 视角 agent-deck plugin mirror 的绝对路径，传给 SDK 的 `plugins[].path`。
  * SDK 会读 `<plugin>/.claude-plugin/plugin.json` + 自动扫 `<plugin>/skills/` 与
- * `<plugin>/agents/` 子目录（skills 与 agents 一同注入，绑定生效）。
+ * `<plugin>/agents/` 子目录。调用方按 settings 传入 includeSkills / includeAgents，mirror 会
+ * 裁掉禁用的子目录。
  *
  * codex 视角同款路径在 `src/main/adapters/codex-cli/codex-config-paths.ts:getCodexAgentDeckPluginPath`，
  * 双 root scan 各自直接 import 在 `src/main/bundled-assets.ts`（P5 Round 1 reviewer-claude MED
@@ -76,7 +87,7 @@ let cachedClaudeMdAppend: string | null = null;
  * 权威 staleness 判据；plugin 文件总量 ~10 KB IO 成本忽略不计）。
  */
 export function getClaudeAgentDeckPluginPath(): string {
-  ensurePluginMirrorInstalled();
+  ensurePluginMirrorInstalled({ includeSkills: true, includeAgents: true });
   return getPluginMirrorDir();
 }
 
@@ -93,23 +104,29 @@ function getPluginMirrorDir(): string {
   return join(app.getPath('userData'), 'agent-deck-plugin');
 }
 
-let pluginMirrorInstalled = false;
+let pluginMirrorSignature: string | null = null;
+
+interface PluginMirrorOptions {
+  includeSkills: boolean;
+  includeAgents: boolean;
+}
 
 /**
- * 启动后第一次调 `getClaudeAgentDeckPluginPath` 时跑：
+ * 安装 / 重装 app-owned plugin mirror 时跑：
  * 1. rm 旧 mirror（避免 stale 文件 / 删除的 skill 残留）
  * 2. cp source → mirror（递归整个 plugin 目录树）
  * 3. walk mirror，对每个 .md 文件做 placeholder substitute（in-place 改写）
  *
  * 失败 warn 不抛错（让 SDK 仍能起来，避免一处 plugin 错误阻塞整个 spawn）。
  */
-function ensurePluginMirrorInstalled(): void {
-  if (pluginMirrorInstalled) return;
+function ensurePluginMirrorInstalled(options: PluginMirrorOptions): void {
   const src = getPluginSourceDir();
   const dst = getPluginMirrorDir();
+  const signature = `${src}|skills:${options.includeSkills ? 'on' : 'off'}|agents:${options.includeAgents ? 'on' : 'off'}`;
+  if (pluginMirrorSignature === signature) return;
   if (!existsSync(src)) {
     logger.warn(`[sdk-injection] plugin source dir missing, skip mirror install: ${src}`);
-    pluginMirrorInstalled = true; // 标记，避免每次 spawn 都 warn
+    pluginMirrorSignature = signature; // 标记，避免每次 spawn 都 warn；toggle 改变后会重试
     return;
   }
   try {
@@ -117,11 +134,17 @@ function ensurePluginMirrorInstalled(): void {
       rmSync(dst, { recursive: true, force: true });
     }
     cpSync(src, dst, { recursive: true });
+    if (!options.includeSkills) {
+      rmSync(join(dst, 'skills'), { recursive: true, force: true });
+    }
+    if (!options.includeAgents) {
+      rmSync(join(dst, 'agents'), { recursive: true, force: true });
+    }
     substituteMdFilesInPlace(dst);
-    pluginMirrorInstalled = true;
+    pluginMirrorSignature = signature;
   } catch (err) {
     logger.warn(`[sdk-injection] plugin mirror install failed: ${dst}`, err);
-    pluginMirrorInstalled = true; // 标记，避免无限重试 — 用户重启应用才会重试
+    pluginMirrorSignature = signature; // 标记，避免无限重试；toggle 改变后会重试
   }
 }
 
@@ -149,10 +172,9 @@ function substituteMdFilesInPlace(dir: string): void {
 /**
  * 返回要传给 SDK `plugins:` 字段的 plugin 列表。
  *
- * 开关：settings.injectAgentDeckPlugin === false 时返回空数组（设置面板里有
- * toggle 让用户彻底禁用 plugin 注入，与 CLAUDE.md 注入开关同模式）。**plugin 整体
- * 注入或整体不注入**——skills（含 deep-code-review）与 agents（含 reviewer-claude /
- * reviewer-codex）共享这一个 toggle，由 SDK 自动按子目录扫描加载。
+ * 开关：settings.injectAgentDeckClaudeSkills / injectAgentDeckClaudeAgents 分别控制 mirror
+ * 是否保留 `skills/` / `agents/` 子目录。两者都关时返回空数组；只关一侧时仍传同一个 local
+ * plugin path，但 mirror 内禁用侧目录已被裁掉。
  *
  * 改这个开关只影响**下次新建**的 SDK 会话；已运行的会话已经在启动时拿到
  * plugin 列表，关掉不会撤销。
@@ -162,8 +184,11 @@ function substituteMdFilesInPlace(dir: string): void {
  * 不通用化（plan §P3 Step 3.2 决策）。
  */
 export function getAgentDeckPluginsForSession(): Array<{ type: 'local'; path: string }> {
-  if (!settingsStore.get('injectAgentDeckPlugin')) return [];
-  return [{ type: 'local', path: getClaudeAgentDeckPluginPath() }];
+  const includeSkills = settingsStore.get('injectAgentDeckClaudeSkills') !== false;
+  const includeAgents = settingsStore.get('injectAgentDeckClaudeAgents') !== false;
+  if (!includeSkills && !includeAgents) return [];
+  ensurePluginMirrorInstalled({ includeSkills, includeAgents });
+  return [{ type: 'local', path: getPluginMirrorDir() }];
 }
 
 /** 内置 CLAUDE.md 在 .app / repo 内的绝对路径（dev/prod 自动分流）。 */

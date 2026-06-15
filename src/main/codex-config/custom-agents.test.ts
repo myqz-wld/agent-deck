@@ -68,6 +68,36 @@ describe('resolveCodexAgentContent', () => {
     expect(result.agent.developerInstructions).toContain('Use bundled instructions.');
   });
 
+  it('skips bundled TOML when the Agent Deck Codex agents toggle is disabled', async () => {
+    writeAgent(join(mockPluginRoot.value, 'agents', 'reviewer-codex.toml'), {
+      name: 'reviewer-codex',
+      description: 'Bundled reviewer',
+      body: 'Use bundled instructions.',
+      model: 'gpt-5.5',
+    });
+    writeAgent(join(project, '.codex', 'agents', 'reviewer-codex.toml'), {
+      name: 'reviewer-codex',
+      description: 'Project reviewer',
+      body: 'Use project instructions.',
+      model: 'gpt-5.4',
+    });
+
+    const { settingsStore } = await import('@main/store/settings-store');
+    settingsStore.set('injectAgentDeckCodexAgents', false);
+    const { resolveCodexAgentContent } = await import('./custom-agents');
+    const result = resolveCodexAgentContent('reviewer-codex', project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent).toMatchObject({
+      name: 'reviewer-codex',
+      source: 'project',
+      description: 'Project reviewer',
+      model: 'gpt-5.4',
+    });
+    expect(result.agent.developerInstructions).toContain('Use project instructions.');
+  });
+
   it('loads the closest project-scoped agent before the user agent', async () => {
     writeAgent(join(mockHome.value, '.codex', 'agents', 'patcher.toml'), {
       name: 'patch-coder',

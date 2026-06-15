@@ -53,6 +53,9 @@ const REMOVED_KEYS: readonly string[] = [
   // 把 fallback 路径改成无条件注入历史（DB 有历史就注 — 删死分支 `if (!autoSummariseOnFallback)`），
   // 字段进 REMOVED_KEYS 清历史持久化孤儿。
   'autoSummariseOnFallback',
+  // 2026-06-15：Claude bundled plugin 的 skills / agents 注入拆成两个独立开关。
+  // ensure() 内先把 legacy 值迁移到 injectAgentDeckClaude{Skills,Agents}，随后清旧字段。
+  'injectAgentDeckPlugin',
 ];
 
 let store: (Store<AppSettings> & StoreApi<AppSettings>) | null = null;
@@ -208,6 +211,24 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
         store.set('enableAgentDeckMcp', false);
         logger.info(
           '[settings] migrated enableTaskManager=false → enableAgentDeckMcp=false (preserve legacy explicit OFF)',
+        );
+      }
+    }
+    // 2026-06-15：原 `injectAgentDeckPlugin` 同时控制 Claude bundled skills + agents。
+    // 新字段分离后，老用户显式关闭旧总开关时必须同时继承到两个新开关；如果用户已经
+    // 持有任一新字段，则以新字段为准，只补缺失的一侧。
+    if ('injectAgentDeckPlugin' in persistedRaw && typeof persistedRaw['injectAgentDeckPlugin'] === 'boolean') {
+      const legacyPluginEnabled = persistedRaw['injectAgentDeckPlugin'];
+      if (!('injectAgentDeckClaudeSkills' in persistedRaw)) {
+        store.set('injectAgentDeckClaudeSkills', legacyPluginEnabled);
+        logger.info(
+          `[settings] migrated injectAgentDeckPlugin=${legacyPluginEnabled} → injectAgentDeckClaudeSkills=${legacyPluginEnabled}`,
+        );
+      }
+      if (!('injectAgentDeckClaudeAgents' in persistedRaw)) {
+        store.set('injectAgentDeckClaudeAgents', legacyPluginEnabled);
+        logger.info(
+          `[settings] migrated injectAgentDeckPlugin=${legacyPluginEnabled} → injectAgentDeckClaudeAgents=${legacyPluginEnabled}`,
         );
       }
     }

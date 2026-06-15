@@ -3,7 +3,7 @@
  * codex-handoff-team-alignment-20260518 §P3 Step 3.3 双 root multi-adapter）。
  *
  * 数据源：双 root scan（plan §P3 Step 3.3 升级）
- *   - claude-code root: `getClaudeAgentDeckPluginPath()` → `resources/claude-config/agent-deck-plugin/`
+ *   - claude-code root: `getClaudeAgentDeckPluginSourcePath()` → `resources/claude-config/agent-deck-plugin/`
  *   - codex-cli  root: `getCodexAgentDeckPluginPath()`  → `resources/codex-config/agent-deck-plugin/`
  *
  * 各 root 下两个子目录：
@@ -36,7 +36,7 @@ import { app } from 'electron';
 import type { AssetMeta, BundledAssetsSnapshot } from '@shared/types';
 import { ASSET_NAME_REGEX } from '@shared/types';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
-import { getClaudeAgentDeckPluginPath } from './adapters/claude-code/sdk-injection';
+import { getClaudeAgentDeckPluginSourcePath } from './adapters/claude-code/sdk-injection';
 import { getCodexAgentDeckPluginPath } from './adapters/codex-cli/codex-config-paths';
 import { parseFrontmatter } from './utils/frontmatter';
 import { substituteResourcesPlaceholder } from './utils/resources-placeholder';
@@ -64,7 +64,7 @@ let cached: BundledAssetsSnapshot | null = null;
  */
 export function loadBundledAssets(): BundledAssetsSnapshot {
   if (cached && app.isPackaged) return cached;
-  const claudeRoot = getClaudeAgentDeckPluginPath();
+  const claudeRoot = getClaudeAgentDeckPluginSourcePath();
   const codexRoot = getCodexAgentDeckPluginPath();
   const snapshot: BundledAssetsSnapshot = {
     agents: [
@@ -122,7 +122,7 @@ export function getBundledAssetPath(
   adapter: BundledAdapter,
 ): string | null {
   if (!isSafeName(name)) return null;
-  const root = adapter === 'claude-code' ? getClaudeAgentDeckPluginPath() : getCodexAgentDeckPluginPath();
+  const root = adapter === 'claude-code' ? getClaudeAgentDeckPluginSourcePath() : getCodexAgentDeckPluginPath();
   const path = kind === 'agent' ? getBundledAgentPath(root, name, adapter) : join(root, 'skills', name, 'SKILL.md');
   return existsSync(path) ? path : null;
 }

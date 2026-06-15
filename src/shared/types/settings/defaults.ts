@@ -53,7 +53,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   injectAgentDeckClaudeMd: true,
   injectAgentDeckCodexAgentsMd: true,
   injectAgentDeckCodexSkills: true,
-  injectAgentDeckPlugin: true,
+  injectAgentDeckCodexAgents: true,
+  injectAgentDeckClaudeSkills: true,
+  injectAgentDeckClaudeAgents: true,
   // R3.E6 (PR-B) 删 agentTeamsEnabled / autoApproveTeammateMode；
   // plan task-mcp-merge-into-agent-deck-mcp-20260521 删 enableTaskManager；
   // plan resume-inject-raw-messages-20260601 删 autoSummariseOnFallback（无条件注入历史 — UI

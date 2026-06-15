@@ -11,6 +11,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getCodexAgentDeckPluginPath } from '@main/adapters/codex-cli/codex-config-paths';
+import { settingsStore } from '@main/store/settings-store';
 import log from '@main/utils/logger';
 import {
   parseCodexAgentToml,
@@ -54,8 +55,11 @@ export function resolveCodexAgentContent(
     return { ok: false, reason: `invalid Codex agent name: ${agentName}` };
   }
 
-  const bundled = findCodexAgentInDirs(agentName, 'bundled', [getBundledCodexAgentsDir()]);
-  if (bundled.ok || bundled.reason.startsWith('multiple')) return bundled;
+  const includeBundled = settingsStore.get('injectAgentDeckCodexAgents') !== false;
+  if (includeBundled) {
+    const bundled = findCodexAgentInDirs(agentName, 'bundled', [getBundledCodexAgentsDir()]);
+    if (bundled.ok || bundled.reason.startsWith('multiple')) return bundled;
+  }
 
   const projectDirs = getProjectCodexAgentDirs(cwd);
   for (const projectDir of projectDirs) {
@@ -69,7 +73,8 @@ export function resolveCodexAgentContent(
   return {
     ok: false,
     reason:
-      `not found: Codex agent "${agentName}". Checked bundled Agent Deck agents, ` +
+      `not found: Codex agent "${agentName}". Checked ` +
+      `${includeBundled ? 'bundled Agent Deck agents, ' : ''}` +
       `${projectDirs.length > 0 ? projectDirs.join(', ') : 'no project .codex/agents directories'}, ` +
       `and ${USER_CODEX_AGENTS_DIR}.`,
   };

@@ -264,3 +264,4 @@
 | [CHANGELOG_257.md](CHANGELOG_257.md) | reviewer-claude 补消息 MCP 工具白名单与 runtime 防线；issue 解决弹窗记忆上次 adapter。 |
 | [CHANGELOG_258.md](CHANGELOG_258.md) | SessionDetail 活动流工具行新增「查看入参」折叠区，Codex/Claude 共用工具展示可查看完整 toolInput。 |
 | [CHANGELOG_259.md](CHANGELOG_259.md) | 数据 tab 新增 Claude/Codex 当前窗口、周用量和重置时间；Deepseek API 通道显示不支持。 |
+| [CHANGELOG_260.md](CHANGELOG_260.md) | 资产库 Agents 补 Codex 开关；Claude bundled Skills/Agents 拆成独立开关并迁移旧 plugin 值。 |

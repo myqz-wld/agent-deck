@@ -6,11 +6,10 @@ import { Toggle } from '../settings/controls';
  * 资产库三 tab 顶部的「资产注入开关」横条（CHANGELOG_69）。
  *
  * 把原 SettingsDialog 三个资产 section（ClaudeMdSection / PluginAssetsSection /
- * CodexInjectionSection）的 5 个 toggle 整体迁来，按 tab 维度分发：
+ * CodexInjectionSection）的资产注入 toggle 整体迁来，按 tab 维度分发：
  *
- * - skills tab：claude 端 plugin 注入 + codex 端 skills extraRoot 注入
- * - agents tab：claude 端 plugin 注入（与 skills tab 是同一 settings key 的两个入口，
- *   状态自动同步——React 重渲染保证一致性，无需额外同步代码）
+ * - skills tab：claude 端 plugin skills 子目录 + codex 端 skills extraRoot 注入
+ * - agents tab：claude 端 plugin agents 子目录 + codex 端 bundled custom agents 解析
  * - claude-md tab：claude 端 system prompt 注入 + codex 端 developerInstructions 注入
  *
  * 设计：
@@ -44,9 +43,9 @@ export function InjectionToggleBar({
       {tab === 'skills' && (
         <div className="flex flex-col gap-1.5">
           <Toggle
-            label="注入到 Claude 会话(含 Skills 和 Agents)"
-            value={settings.injectAgentDeckPlugin}
-            onChange={(v) => void update({ injectAgentDeckPlugin: v })}
+            label="注入到 Claude 会话(内置 Skills)"
+            value={settings.injectAgentDeckClaudeSkills}
+            onChange={(v) => void update({ injectAgentDeckClaudeSkills: v })}
           />
           <Toggle
             label="注入到 Codex 会话(内置 Skills extraRoot)"
@@ -61,12 +60,17 @@ export function InjectionToggleBar({
       {tab === 'agents' && (
         <div className="flex flex-col gap-1.5">
           <Toggle
-            label="注入到 Claude 会话(含 Skills 和 Agents)"
-            value={settings.injectAgentDeckPlugin}
-            onChange={(v) => void update({ injectAgentDeckPlugin: v })}
+            label="注入到 Claude 会话(内置 Agents)"
+            value={settings.injectAgentDeckClaudeAgents}
+            onChange={(v) => void update({ injectAgentDeckClaudeAgents: v })}
+          />
+          <Toggle
+            label="注入到 Codex 会话(内置 Agents)"
+            value={settings.injectAgentDeckCodexAgents}
+            onChange={(v) => void update({ injectAgentDeckCodexAgents: v })}
           />
           <div className="text-[10px] leading-snug text-deck-muted/60">
-            Agents 与 Skills 共用同一个开关(在「Skills」标签切换效果一致)。
+            只控制 Agent Deck 内置 Agents；用户和项目 agents 不受影响。
             ⚠️ 仅对新建会话生效。已运行的会话不受影响。
           </div>
         </div>

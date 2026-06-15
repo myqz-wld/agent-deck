@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { settingsStore } from '@main/store/settings-store';
 import { resolveClaudeAgentContent } from './custom-agents';
 
 const { mockHome, bundledAgents } = vi.hoisted(() => ({
@@ -42,6 +43,7 @@ describe('resolveClaudeAgentContent', () => {
     mkdirSync(join(mockHome.value, '.claude', 'agents'), { recursive: true });
     mkdirSync(join(project, '.claude', 'agents'), { recursive: true });
     bundledAgents.clear();
+    settingsStore.set('injectAgentDeckClaudeAgents', true);
   });
 
   afterEach(() => {
@@ -121,6 +123,26 @@ describe('resolveClaudeAgentContent', () => {
     if (!result.ok) return;
     expect(result.agent.source).toBe('project');
     expect(result.agent.sourcePath).toBe(join(project, '.claude', 'agents', 'patcher.md'));
+    expect(result.agent.model).toBe('sonnet');
+    expect(result.agent.definition.prompt).toBe('Project prompt.');
+  });
+
+  it('skips bundled agents when the Agent Deck Claude agents toggle is disabled', () => {
+    bundledAgents.set(
+      'reviewer-claude',
+      '---\ndescription: bundled reviewer\nmodel: opus\n---\nBundled prompt.',
+    );
+    writeAgent(
+      join(project, '.claude', 'agents', 'reviewer-claude.md'),
+      '---\ndescription: project reviewer\nmodel: sonnet\n---\nProject prompt.',
+    );
+    settingsStore.set('injectAgentDeckClaudeAgents', false);
+
+    const result = resolveClaudeAgentContent('reviewer-claude', project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.source).toBe('project');
     expect(result.agent.model).toBe('sonnet');
     expect(result.agent.definition.prompt).toBe('Project prompt.');
   });
