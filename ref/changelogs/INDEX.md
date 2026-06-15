@@ -267,3 +267,4 @@
 | [CHANGELOG_260.md](CHANGELOG_260.md) | 资产库 Agents 补 Codex 开关；Claude bundled Skills/Agents 拆成独立开关并迁移旧 plugin 值。 |
 | [CHANGELOG_261.md](CHANGELOG_261.md) | 数据 tab 启动预取；额度窗口加缓存/定时刷新，Claude 可后台查，未订阅明确展示。 |
 | [CHANGELOG_262.md](CHANGELOG_262.md) | 数据 tab 仍自动读取额度窗口；Claude/Codex 不再为数据 tab 启动隐藏 provider 子进程。 |
+| [CHANGELOG_263.md](CHANGELOG_263.md) | SessionDetail 工具行改为点 start 展开入参、点 end 展开出参，并移除「查看入参」按钮。 |

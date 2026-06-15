@@ -21,7 +21,7 @@ function ev(kind: AgentEvent['kind'], payload: unknown): AgentEvent {
 }
 
 describe('ToolStartRow tool input disclosure', () => {
-  it('keeps generic tool inputs collapsed until the user clicks', () => {
+  it('keeps generic tool inputs collapsed until the user clicks the start row', () => {
     const { container } = render(
       <ToolStartRow
         event={ev('tool-use-start', {
@@ -38,11 +38,12 @@ describe('ToolStartRow tool input disclosure', () => {
     );
 
     expect(container.textContent).not.toContain('"codexSandbox": "workspace-write"');
-    fireEvent.click(screen.getByRole('button', { name: '查看入参' }));
+    expect(screen.queryByRole('button', { name: '查看入参' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /mcp__agent-deck__spawn_session/ }));
     expect(container.textContent).toContain('"codexSandbox": "workspace-write"');
   });
 
-  it('shows Task/Agent prompt controls and still exposes the full raw input', () => {
+  it('shows Task/Agent prompt controls and exposes raw input from the start row', () => {
     const { container } = render(
       <ToolStartRow
         event={ev('tool-use-start', {
@@ -60,13 +61,14 @@ describe('ToolStartRow tool input disclosure', () => {
 
     expect(screen.getByRole('button', { name: '查看指令' })).toBeTruthy();
     expect(container.textContent).not.toContain('"model_reasoning_effort": "xhigh"');
-    fireEvent.click(screen.getByRole('button', { name: '查看入参' }));
+    expect(screen.queryByRole('button', { name: '查看入参' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Agent/ }));
     expect(container.textContent).toContain('"model_reasoning_effort": "xhigh"');
   });
 });
 
-describe('ToolEndRow tool input disclosure', () => {
-  it('can disclose inputs from the paired start event', () => {
+describe('ToolEndRow tool output disclosure', () => {
+  it('does not show the paired input button and expands tool output from the end row', () => {
     const startEvent = ev('tool-use-start', {
       toolName: 'Skill',
       toolUseId: 'skill-1',
@@ -78,7 +80,7 @@ describe('ToolEndRow tool input disclosure', () => {
         event={ev('tool-use-end', {
           toolName: 'Skill',
           toolUseId: 'skill-1',
-          toolResult: 'done',
+          toolResult: 'tool output done',
           status: 'completed',
         })}
         sessionId="s"
@@ -86,8 +88,11 @@ describe('ToolEndRow tool input disclosure', () => {
       />,
     );
 
-    expect(container.textContent).not.toContain('"prompt-asset-improver"');
-    fireEvent.click(screen.getByRole('button', { name: '查看入参' }));
-    expect(container.textContent).toContain('"skill": "prompt-asset-improver"');
+    expect(screen.queryByRole('button', { name: '查看入参' })).toBeNull();
+    expect(container.textContent).not.toContain('"skill": "prompt-asset-improver"');
+    expect(container.textContent).not.toContain('tool output done');
+    fireEvent.click(screen.getByRole('button', { name: /Skill 完成/ }));
+    expect(container.textContent).toContain('tool output done');
+    expect(container.textContent).not.toContain('"skill": "prompt-asset-improver"');
   });
 });

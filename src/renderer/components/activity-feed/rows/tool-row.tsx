@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from 'react';
+import { useMemo, useState, type JSX, type KeyboardEvent, type MouseEvent } from 'react';
 import type { AgentEvent } from '@shared/types';
 import { DiffViewer } from '@renderer/components/diff/DiffViewer';
 import { ImageThumb } from '@renderer/components/ImageThumb';
@@ -24,11 +24,27 @@ export function ToolStartRow({
   const detail = describeToolInput(tool, p.toolInput);
   const diff = toolInputToDiff(tool, p.toolInput);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
+  const hasInput = p.toolInput !== undefined;
+  const [inputOpen, setInputOpen] = useState(false);
   /** REVIEW_4 M17：DiffViewer (含 Monaco) 改为点击展开。多条 Edit 同窗口时几十个 Monaco 实例
    *  同时 mount 是性能与内存灾难（千 MB 级）。默认显示 file_path 占位，点「展开」才挂。 */
   const [diffOpen, setDiffOpen] = useState(false);
   /** Task 工具：subagent prompt 折叠展开。同 diffOpen 模式，避免长 prompt 撑满列表。 */
   const [taskPromptOpen, setTaskPromptOpen] = useState(false);
+  const toggleInput = (): void => {
+    if (!hasInput) return;
+    setInputOpen((v) => !v);
+  };
+  const handleInputHeaderClick = (clickEvent: MouseEvent<HTMLElement>): void => {
+    if (isNestedInteractiveTarget(clickEvent.target)) return;
+    toggleInput();
+  };
+  const handleInputHeaderKeyDown = (keyEvent: KeyboardEvent<HTMLElement>): void => {
+    if (isNestedInteractiveTarget(keyEvent.target)) return;
+    if (keyEvent.key !== 'Enter' && keyEvent.key !== ' ') return;
+    keyEvent.preventDefault();
+    toggleInput();
+  };
 
   // ExitPlanMode：hook 通道走这条路（外部 CLI 跑 PreToolUse 时只能拿到 tool-use-start，
   // 拿不到 canUseTool 通路 → SDK 通道不会走这里）。直接展开 plan markdown 让用户能看到内容。
@@ -40,7 +56,15 @@ export function ToolStartRow({
         : '';
     return (
       <li className="rounded-md border border-status-working/30 bg-status-working/[0.06] p-2 text-[11px]">
-        <div className="mb-1 flex items-center gap-1.5 text-[10px]">
+        <div
+          role={hasInput ? 'button' : undefined}
+          tabIndex={hasInput ? 0 : undefined}
+          aria-expanded={hasInput ? inputOpen : undefined}
+          onClick={handleInputHeaderClick}
+          onKeyDown={handleInputHeaderKeyDown}
+          className={`mb-1 flex items-center gap-1.5 text-[10px] ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-status-working/60' : ''}`}
+        >
+          {hasInput && <span className="text-deck-muted/70">{inputOpen ? '▾' : '▸'}</span>}
           <span>{toolIcon('ExitPlanMode')}</span>
           <span className="font-mono">ExitPlanMode</span>
           <span className="text-deck-muted/80">收到一个执行计划</span>
@@ -49,7 +73,7 @@ export function ToolStartRow({
         <div className="rounded border border-deck-border/40 bg-black/20 p-2">
           <MarkdownText text={plan || '（计划内容为空）'} />
         </div>
-        <ToolInputPanel input={p.toolInput} />
+        <ToolInputBlock input={p.toolInput} open={inputOpen} />
         <div className="mt-1.5 text-[10px] text-deck-muted">
           这是终端启动的只读会话，请回到原终端窗口批准
         </div>
@@ -70,7 +94,15 @@ export function ToolStartRow({
     const canExpand = taskPrompt.length > 0;
     return (
       <li className="rounded-md border border-status-working/30 bg-status-working/[0.04] p-2 text-[11px]">
-        <div className="flex items-center gap-1.5">
+        <div
+          role={hasInput ? 'button' : undefined}
+          tabIndex={hasInput ? 0 : undefined}
+          aria-expanded={hasInput ? inputOpen : undefined}
+          onClick={handleInputHeaderClick}
+          onKeyDown={handleInputHeaderKeyDown}
+          className={`flex items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-status-working/60' : ''}`}
+        >
+          {hasInput && <span className="text-deck-muted/70">{inputOpen ? '▾' : '▸'}</span>}
           <span>{toolIcon(tool)}</span>
           <span className="font-mono">{tool}</span>
           {subType && (
@@ -108,14 +140,22 @@ export function ToolStartRow({
             <MarkdownText text={taskPrompt} />
           </div>
         )}
-        <ToolInputPanel input={p.toolInput} />
+        <ToolInputBlock input={p.toolInput} open={inputOpen} />
       </li>
     );
   }
 
   return (
     <li className="rounded-md border border-deck-border/60 bg-white/[0.02] p-2 text-[11px]">
-      <div className="flex items-center gap-1.5">
+      <div
+        role={hasInput ? 'button' : undefined}
+        tabIndex={hasInput ? 0 : undefined}
+        aria-expanded={hasInput ? inputOpen : undefined}
+        onClick={handleInputHeaderClick}
+        onKeyDown={handleInputHeaderKeyDown}
+        className={`flex items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-deck-accent/60' : ''}`}
+      >
+        {hasInput && <span className="text-deck-muted/70">{inputOpen ? '▾' : '▸'}</span>}
         <span>{toolIcon(tool)}</span>
         <span className="font-mono">{tool}</span>
         {detail && <span className="truncate text-[10px] text-deck-muted">· {detail}</span>}
@@ -131,7 +171,7 @@ export function ToolStartRow({
         )}
         <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
       </div>
-      <ToolInputPanel input={p.toolInput} />
+      <ToolInputBlock input={p.toolInput} open={inputOpen} />
       {diff && diffOpen && (
         <div className="mt-1 h-72 overflow-hidden rounded border border-white/5">
           <DiffViewer payload={diff} sessionId={sessionId} />
@@ -247,7 +287,6 @@ export function ToolEndRow({
           </div>
         </div>
       )}
-      <ToolInputPanel input={inputForDisplay} />
       {/* REVIEW_52 B1：移除 disabled={!hasContent}，总是允许 ▸/▾ 展开。
          空结果展开（codex 无 stdout 命令 mkdir/cd / mcp_tool_call 返 [] / null）显示
          status / exitCode 元信息，避免「点不动 + 没解释」UX 卡住感。imageRead 由
@@ -268,26 +307,17 @@ export function ToolEndRow({
   );
 }
 
-function ToolInputPanel({ input }: { input: unknown }): JSX.Element | null {
-  const [open, setOpen] = useState(false);
-  if (input === undefined) return null;
+function ToolInputBlock({ input, open }: { input: unknown; open: boolean }): JSX.Element | null {
+  if (input === undefined || !open) return null;
   return (
-    <div className="mt-1.5">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="rounded bg-white/8 px-1.5 py-0.5 text-[9px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
-      >
-        {open ? '收起入参' : '查看入参'}
-      </button>
-      {open && (
-        <pre className="mt-1 max-h-64 overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
-          {formatToolInput(input)}
-        </pre>
-      )}
-    </div>
+    <pre className="mt-1.5 max-h-64 overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
+      {formatToolInput(input)}
+    </pre>
   );
+}
+
+function isNestedInteractiveTarget(target: EventTarget): boolean {
+  return target instanceof Element && target.closest('button,a,input,textarea,select') !== null;
 }
 
 function toolStatusText(status: unknown): string | null {
