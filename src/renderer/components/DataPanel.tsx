@@ -126,6 +126,11 @@ export function DataPanel(): JSX.Element {
         <div className="mb-1 flex items-center gap-2 text-deck-muted">
           <span className="font-medium text-deck-text">额度窗口</span>
           <span className="text-[10px] text-deck-muted/70">当前窗口 / 周用量 / 重置时间</span>
+          {usageFetchedAt !== null && (
+            <span className="text-[10px] tabular-nums text-deck-muted/50">
+              更新 {formatClock(usageFetchedAt)}
+            </span>
+          )}
           {usageLoading && (
             <span className="ml-auto text-[10px] text-deck-muted/60">
               {usageSnapshots.length > 0 ? '刷新中' : '读取中'}
