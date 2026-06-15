@@ -1,9 +1,9 @@
-import { useEffect, useMemo, type JSX } from 'react';
+import { useEffect, useMemo, useState, type JSX } from 'react';
 import { useTokenUsageStore } from '../stores/token-usage-store';
 import { useTokenRatesPoll } from '../hooks/use-token-rates-poll';
 import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
 import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
-import type { TokenDailyRow } from '@shared/types';
+import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '@shared/types';
 
 /**
  * 数据 tab：每模型每天 token 使用统计（plan model-token-stats-and-dashboard-20260602 §Phase 3 R5）。
@@ -18,6 +18,7 @@ import type { TokenDailyRow } from '@shared/types';
  */
 
 const DAILY_REFETCH_DEBOUNCE_MS = 500;
+const PROVIDER_USAGE_REFETCH_MS = 60_000;
 
 /** 大数字千分位；0 显示 '·' 弱化（避免满屏 0 干扰）。 */
 function fmt(n: number): string {
@@ -29,6 +30,9 @@ export function DataPanel(): JSX.Element {
   const liveBySession = useTokenUsageStore((s) => s.liveBySession);
   const daily = useTokenUsageStore((s) => s.daily);
   const setDaily = useTokenUsageStore((s) => s.setDaily);
+  const [usageSnapshots, setUsageSnapshots] = useState<ProviderUsageSnapshot[]>([]);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState<string | null>(null);
   useTokenRatesPoll();
 
   // daily：mount 拉一次 + 订阅 onTokenUsageChanged debounce refetch
@@ -51,6 +55,31 @@ export function DataPanel(): JSX.Element {
       off();
     };
   }, [setDaily]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchUsage = async (showLoading: boolean): Promise<void> => {
+      if (showLoading) setUsageLoading(true);
+      try {
+        const result = await window.api.providerUsageSnapshot();
+        if (!cancelled) {
+          setUsageSnapshots(result.snapshots);
+          setUsageError(null);
+        }
+      } catch (err) {
+        if (!cancelled) setUsageError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled && showLoading) setUsageLoading(false);
+      }
+    };
+
+    void fetchUsage(true);
+    const timer = setInterval(() => void fetchUsage(false), PROVIDER_USAGE_REFETCH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   // 实时区：全 bucket token/s，生成中 fresh live 估算优先，降序
   const liveRates = useMemo(() => {
@@ -80,6 +109,31 @@ export function DataPanel(): JSX.Element {
 
   return (
     <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2 text-[11px]">
+      {/* Provider 订阅窗口用量 */}
+      <section className="mb-3">
+        <div className="mb-1 flex items-center gap-2 text-deck-muted">
+          <span className="font-medium text-deck-text">额度窗口</span>
+          <span className="text-[10px] text-deck-muted/70">当前窗口 / 周用量 / 重置时间</span>
+          {usageLoading && (
+            <span className="ml-auto text-[10px] text-deck-muted/60">读取中</span>
+          )}
+          {usageError && (
+            <span className="ml-auto truncate text-[10px] text-status-error">{usageError}</span>
+          )}
+        </div>
+        {usageSnapshots.length > 0 ? (
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            {usageSnapshots.map((snapshot) => (
+              <ProviderUsageCard key={snapshot.provider} snapshot={snapshot} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-[10px] text-deck-muted/60">
+            {usageLoading ? '正在读取 provider 用量' : '暂无 provider 用量数据'}
+          </div>
+        )}
+      </section>
+
       {/* 顶部实时 token/s 区（全模型，与 header 同源） */}
       <section className="mb-3">
         <div className="mb-1 flex items-center gap-2 text-deck-muted">
@@ -163,6 +217,56 @@ export function DataPanel(): JSX.Element {
   );
 }
 
+function ProviderUsageCard({ snapshot }: { snapshot: ProviderUsageSnapshot }): JSX.Element {
+  const badgeClass = usageStatusClass(snapshot.status);
+  return (
+    <div className="rounded bg-white/[0.04] px-2 py-2">
+      <div className="flex items-center gap-2">
+        <span className="font-medium text-deck-text">{snapshot.label}</span>
+        <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] ${badgeClass}`}>
+          {usageStatusText(snapshot.status)}
+        </span>
+      </div>
+      {snapshot.status === 'ok' ? (
+        <div className="mt-2 space-y-1.5">
+          {snapshot.windows.map((window) => (
+            <ProviderUsageWindowRow key={window.id} window={window} />
+          ))}
+        </div>
+      ) : (
+        <div className="mt-2 min-h-10 text-[10px] leading-4 text-deck-muted/70">
+          {snapshot.message ?? '暂无可展示数据'}
+        </div>
+      )}
+      <div className="mt-1 text-[10px] tabular-nums text-deck-muted/50">
+        更新 {formatClock(snapshot.updatedAt)}
+      </div>
+    </div>
+  );
+}
+
+function ProviderUsageWindowRow({ window }: { window: ProviderUsageWindow }): JSX.Element {
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <span className="text-deck-muted">{window.label}</span>
+        <span className="ml-auto tabular-nums text-deck-text">
+          {formatPercent(window.usedPercent)}
+        </span>
+      </div>
+      <div className="mt-1 h-1 overflow-hidden rounded bg-white/[0.08]">
+        <div
+          className="h-full rounded bg-status-working"
+          style={{ width: usageBarWidth(window.usedPercent) }}
+        />
+      </div>
+      <div className="mt-0.5 text-[10px] tabular-nums text-deck-muted/60">
+        重置 {formatResetTime(window.resetsAt)}
+      </div>
+    </div>
+  );
+}
+
 function sumRows(rows: TokenDailyRow[]): {
   input: number;
   output: number;
@@ -178,4 +282,64 @@ function sumRows(rows: TokenDailyRow[]): {
     }),
     { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
   );
+}
+
+function usageStatusText(status: ProviderUsageSnapshot['status']): string {
+  switch (status) {
+    case 'ok':
+      return '可用';
+    case 'unsupported':
+      return '不支持';
+    case 'error':
+      return '失败';
+    case 'unavailable':
+    default:
+      return '暂无';
+  }
+}
+
+function usageStatusClass(status: ProviderUsageSnapshot['status']): string {
+  switch (status) {
+    case 'ok':
+      return 'bg-status-working/15 text-status-working';
+    case 'unsupported':
+      return 'bg-white/[0.06] text-deck-muted';
+    case 'error':
+      return 'bg-status-error/15 text-status-error';
+    case 'unavailable':
+    default:
+      return 'bg-white/[0.06] text-deck-muted';
+  }
+}
+
+function formatPercent(value: number | null): string {
+  if (value === null) return '未知';
+  return `${value < 10 ? value.toFixed(1) : Math.round(value).toLocaleString()}%`;
+}
+
+function usageBarWidth(value: number | null): string {
+  if (value === null) return '0%';
+  const clamped = Math.max(0, Math.min(100, value));
+  return `${clamped}%`;
+}
+
+function formatResetTime(value: string | null): string {
+  if (!value) return '未知';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '未知';
+  return date.toLocaleString(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatClock(value: number): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '未知';
+  return date.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }

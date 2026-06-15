@@ -15,6 +15,7 @@
  * - assets.ts            Assets* (bundled + user agents/skills 管理，CHANGELOG_57)
  * - logs.ts              Logs* (Settings LogsSection 后端 — Plan runtime-logging §D9 §Step 3.2.5)
  * - issues.ts            Issues* (plan issue-tracker-mcp-20260529 §Step 3.5)
+ * - provider-usage.ts    ProviderUsageSnapshot (数据 tab 订阅窗口用量)
  */
 import { registerWindowAppIpc } from './window-app';
 import { registerSessionsIpc } from './sessions';
@@ -28,6 +29,7 @@ import { registerAssetsIpc } from './assets';
 import { registerLogsIpc } from './logs';
 import { registerIssuesIpc } from './issues';
 import { registerTokenUsageIpc } from './token-usage';
+import { registerProviderUsageIpc } from './provider-usage';
 
 export function bootstrapIpc(): void {
   registerWindowAppIpc();
@@ -42,4 +44,5 @@ export function bootstrapIpc(): void {
   registerLogsIpc();
   registerIssuesIpc();
   registerTokenUsageIpc();
+  registerProviderUsageIpc();
 }

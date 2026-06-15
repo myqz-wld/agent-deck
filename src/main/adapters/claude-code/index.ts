@@ -12,6 +12,7 @@ import type {
   ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
+  ProviderUsageSnapshot,
   UploadedAttachmentRef,
 } from '@shared/types';
 import { buildHookRoutes } from './hook-routes';
@@ -202,6 +203,20 @@ class ClaudeCodeAdapter implements AgentAdapter {
 
   setPermissionTimeoutMs(ms: number): void {
     this.bridge?.setPermissionTimeoutMs(ms);
+  }
+
+  async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
+    if (!this.bridge) {
+      return {
+        provider: 'claude-code',
+        label: 'Claude',
+        status: 'unavailable',
+        windows: [],
+        updatedAt: Date.now(),
+        message: 'Claude adapter 尚未初始化',
+      };
+    }
+    return this.bridge.getUsageSnapshot();
   }
 
   async installIntegration(opts: { scope: 'user' | 'project'; cwd?: string }): Promise<unknown> {

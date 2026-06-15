@@ -7,6 +7,7 @@ import type {
   PermissionResponse,
   UploadedAttachmentRef,
   AgentEvent,
+  ProviderUsageSnapshot,
 } from '@shared/types';
 import { eventRepo } from '@main/store/event-repo';
 import { summariseSessionForHandOff } from '@main/session/summarizer/llm-runners';
@@ -38,6 +39,11 @@ import { runCloseSessionCleanup } from './pending-cancellation';
 import { validateSendMessageOrThrow } from './send-validation';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
+import {
+  buildClaudeUsageSnapshot,
+  errorUsageSnapshot,
+  unavailableUsageSnapshot,
+} from '../../provider-usage';
 import log from '@main/utils/logger';
 
 const logger = log.scope('claude-bridge');
@@ -166,6 +172,32 @@ export class ClaudeSdkBridge {
   /** 调整超时阈值。0 = 关闭。只影响新建的 pending；老的保持原 timer。 */
   setPermissionTimeoutMs(ms: number): void {
     this.permissionTimeoutMs = Math.max(0, ms);
+  }
+
+  async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
+    const session = [...this.sessions.values()]
+      .reverse()
+      .find(
+        (s) =>
+          !s.expectedClose &&
+          typeof s.query?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET ===
+            'function',
+      );
+    if (!session) {
+      return unavailableUsageSnapshot(
+        'claude-code',
+        'Claude',
+        '需要至少一个可通信的 Claude 会话才能读取用量窗口',
+      );
+    }
+
+    try {
+      const usage = await session.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
+      return buildClaudeUsageSnapshot(usage);
+    } catch (err) {
+      logger.warn('[claude-bridge] usage snapshot failed:', err);
+      return errorUsageSnapshot('claude-code', 'Claude', err);
+    }
   }
 
   /**
