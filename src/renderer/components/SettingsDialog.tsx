@@ -22,7 +22,7 @@ interface Props {
  * 设置弹窗外壳：负责 settings/hookStatus 加载、update IPC 调用、section 编排。
  *
  * CHANGELOG_69：信息架构重组 ——
- * - 删 3 个「资产注入」section（ClaudeMd / PluginAssets / CodexInjection），5 个 toggle 整体迁
+ * - 删 3 个「资产注入」section（ClaudeMd / PluginAssets / CodexInjection），资产注入 toggle 整体迁
  *   到 AssetsLibraryDialog 三 tab 顶部，实现「资产编辑 + 注入开关」单一真源
  * - 剩 10 个 section 按 4 主题分组（会话 / 提醒与外观 / 集成与运行环境 / 跨工具协作）加视觉分隔标题
  * - 默认展开项从 HookSection 改到 LifecycleSection（首装引导早已结束）

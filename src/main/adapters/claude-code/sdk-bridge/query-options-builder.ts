@@ -99,11 +99,10 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
       preset: 'claude_code',
       append: systemPromptAppend,
     },
-    // agent-deck 自带 plugin：受 settings.injectAgentDeckPlugin 开关控制
-    // （与 CLAUDE.md 注入开关同模式）。开 → skill 以 `agent-deck:<skill-name>`
-    // 命名空间注册；关 → 返回空数组，会话只能用 user/project/local 范围 skill。
-    // 与用户 ~/.claude/skills/ + project .claude/skills/ 都不冲突
-    // （plugin 强制命名空间前缀）。
+    // agent-deck 自带 plugin：受 settings.injectAgentDeckClaudeSkills /
+    // injectAgentDeckClaudeAgents 两个开关控制。开 → 对应子目录保留在 app-owned
+    // plugin mirror 内；关 → 裁掉对应子目录。用户 / 项目 scope 仍由 Claude Code 原生
+    // settingSources 加载。
     plugins,
     // Agent Deck MCP（单 server，17 public tool — 7 session/interaction + 2 worktree + 5 task + 3 issue）：
     // 开关开 → 挂 in-process MCP server + pre-approve `mcp__agent-deck__*`

@@ -236,6 +236,42 @@ describe('settings-store smart migration — enableTaskManager → enableAgentDe
   });
 });
 
+describe('settings-store migration — injectAgentDeckPlugin split', () => {
+  it('legacy plugin=false migrates both Claude bundled asset toggles to false and deletes the old key', async () => {
+    mockRawStore = { injectAgentDeckPlugin: false };
+    (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
+
+    const settings = await loadSettingsStore();
+    const all = settings.getAll();
+
+    expect(mockSet).toHaveBeenCalledWith('injectAgentDeckClaudeSkills', false);
+    expect(mockSet).toHaveBeenCalledWith('injectAgentDeckClaudeAgents', false);
+    expect(mockDelete).toHaveBeenCalledWith('injectAgentDeckPlugin');
+    expect(all.injectAgentDeckClaudeSkills).toBe(false);
+    expect(all.injectAgentDeckClaudeAgents).toBe(false);
+  });
+
+  it('does not overwrite explicit split toggles when legacy plugin key is still present', async () => {
+    mockRawStore = {
+      injectAgentDeckPlugin: false,
+      injectAgentDeckClaudeSkills: true,
+      injectAgentDeckClaudeAgents: false,
+    };
+    (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();
+
+    const settings = await loadSettingsStore();
+    const all = settings.getAll();
+
+    const skillsSetCalls = mockSet.mock.calls.filter((c) => c[0] === 'injectAgentDeckClaudeSkills');
+    const agentsSetCalls = mockSet.mock.calls.filter((c) => c[0] === 'injectAgentDeckClaudeAgents');
+    expect(skillsSetCalls).toHaveLength(0);
+    expect(agentsSetCalls).toHaveLength(0);
+    expect(mockDelete).toHaveBeenCalledWith('injectAgentDeckPlugin');
+    expect(all.injectAgentDeckClaudeSkills).toBe(true);
+    expect(all.injectAgentDeckClaudeAgents).toBe(false);
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // REVIEW_92（Batch G5）— value-uplift migration 一次性 sentinel + token canonical 格式
 // ────────────────────────────────────────────────────────────────────────────

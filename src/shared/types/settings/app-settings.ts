@@ -255,28 +255,44 @@ export interface AppSettings {
    *   mirror，新建 Codex app-server 后通过 `skills/extraRoots/set` 传入
    * - false：移除 app-owned mirror，并清理历史 `~/.codex/skills/agent-deck/` 托管目录
    *
-   * 与 injectAgentDeckPlugin（claude）平行：前者控制 claude 会话挂 plugin（含 skills +
-   * agents），后者控制 codex 一侧的 skills extraRoot。改这个开关只影响**下次新建**的
+   * 与 injectAgentDeckClaudeSkills 平行：两者都只控制各自 adapter 的 bundled skills，不影响
+   * 用户 / 项目 scope。改这个开关只影响**下次新建**的
    * codex 会话；已 spawn 的 codex app-server 已拿到当时的 extraRoots。
    */
   injectAgentDeckCodexSkills: boolean;
   /**
-   * 是否把 agent-deck 自带的 plugin（`resources/claude-config/agent-deck-plugin/`）
-   * 注入到 SDK 会话。**plugin 整体注入或整体不注入**——一个 toggle 同时控制两类内容：
+   * 是否把 agent-deck 自带 Codex bundled agents 暴露给 `spawn_session(agentName=...)`。
    *
-   * - **skills**：以 `agent-deck:<skill-name>` 命名空间注册（如 `agent-deck:deep-review`，
-   *   多轮异构 review × fix 收口工作流）
-   * - **agents**：以 `agent-deck:<agent-name>` 命名空间注册（如 `agent-deck:reviewer-claude`、
-   *   `agent-deck:reviewer-codex`，异构对抗 reviewer subagent）
+   * - true（默认）：Codex agent resolver 先扫 Agent Deck bundled TOML agents，再扫项目和用户 agents
+   * - false：跳过 bundled root；项目 `.codex/agents` 和用户 `~/.codex/agents` 仍正常可用
    *
-   * SDK plugin 协议自动扫描 `<plugin>/skills/` 与 `<plugin>/agents/` 子目录，应用层只传
-   * plugin path 即可。与用户 `~/.claude/skills/` + `~/.claude/agents/` + project
-   * `.claude/skills/` + `.claude/agents/` 都不冲突（plugin 强制命名空间前缀）。
+   * 改这个开关只影响**下次按 agentName 新建**的 codex teammate；已启动会话不重读 agent
+   * TOML。普通用户 / 项目 Codex custom agents 不受影响。
+   */
+  injectAgentDeckCodexAgents: boolean;
+  /**
+   * 是否把 agent-deck 自带 Claude plugin 的 skills 注入到 Claude-family SDK 会话。
+   *
+   * - true（默认）：本地 plugin mirror 保留 `skills/` 子目录，SDK 以 `agent-deck:<skill-name>`
+   *   命名空间注册内置 review skills
+   * - false：plugin mirror 裁掉 `skills/`；用户 `~/.claude/skills` 和项目 `.claude/skills`
+   *   仍由 Claude Code 原生配置链加载
    *
    * 改这个开关只影响**下次新建**的会话；已运行的 SDK 会话已经在启动时拿到 plugin 列表，
    * 关掉不会撤销。
    */
-  injectAgentDeckPlugin: boolean;
+  injectAgentDeckClaudeSkills: boolean;
+  /**
+   * 是否把 agent-deck 自带 Claude bundled agents 注入 / 暴露给 Claude-family SDK 会话。
+   *
+   * - true（默认）：本地 plugin mirror 保留 `agents/` 子目录，同时 `spawn_session(agentName=...)`
+   *   允许解析 Agent Deck bundled Claude agents
+   * - false：plugin mirror 裁掉 `agents/`，并让 `spawn_session(agentName=...)` 跳过 bundled
+   *   root；项目 `.claude/agents` 和用户 `~/.claude/agents` 仍正常可用
+   *
+   * 改这个开关只影响**下次新建**的会话或按 agentName 新建 teammate；已运行会话不重读。
+   */
+  injectAgentDeckClaudeAgents: boolean;
   // R3.E6 (PR-B) 删除：原 `agentTeamsEnabled` / `autoApproveTeammateMode` 字段下线，
   // 由新 universal team backend 取代（详 docs/agent-deck-team-protocol.md）。
   // plan task-mcp-merge-into-agent-deck-mcp-20260521：原 `enableTaskManager` 字段下线，
@@ -354,7 +370,7 @@ export interface AppSettings {
    * 关 → in-process 不挂 + HTTP 路由 401 + stdio 子命令报「未启用」 +
    * Codex config.toml 自动剥离 `mcp_servers.agent_deck` 段。
    *
-   * 与 injectAgentDeckPlugin 同模式：spawn-time 注入，关掉只影响**下次新建会话**。
+   * 与资产注入开关同模式：spawn-time 注入，关掉只影响**下次新建会话**。
    * HTTP 路由 hot-toggle 立即生效。
    *
    * **plan task-mcp-merge-into-agent-deck-mcp-20260521**：原 enableTaskManager 字段下线后，

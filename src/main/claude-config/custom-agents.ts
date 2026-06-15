@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getBundledAssetContent, type BundledAdapter } from '@main/bundled-assets';
+import { settingsStore } from '@main/store/settings-store';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 
 const CLAUDE_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
@@ -36,9 +37,13 @@ export function resolveClaudeAgentContent(
     return { ok: false, reason: `invalid Claude agent name: ${agentName}` };
   }
 
-  const bundled = getBundledAssetContent('agent', agentName, adapter);
-  if (bundled.ok) {
-    return buildClaudeAgent(agentName, 'bundled', bundled.content);
+  let bundledReason = 'bundled Agent Deck Claude agents disabled by settings.injectAgentDeckClaudeAgents=false';
+  if (settingsStore.get('injectAgentDeckClaudeAgents') !== false) {
+    const bundled = getBundledAssetContent('agent', agentName, adapter);
+    if (bundled.ok) {
+      return buildClaudeAgent(agentName, 'bundled', bundled.content);
+    }
+    bundledReason = bundled.reason;
   }
 
   for (const projectDir of getProjectClaudeAgentDirs(cwd)) {
@@ -55,7 +60,7 @@ export function resolveClaudeAgentContent(
   return {
     ok: false,
     reason:
-      `${bundled.reason}; not found in project .claude/agents directories or ${USER_CLAUDE_AGENTS_DIR}`,
+      `${bundledReason}; not found in project .claude/agents directories or ${USER_CLAUDE_AGENTS_DIR}`,
   };
 }
 

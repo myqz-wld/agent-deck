@@ -242,13 +242,13 @@ agent-deck new \
 
     防递归规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 20） / 单 caller 最大子会话（默认 10） / cwd realpath 整链回溯 cycle 检测；message rate limit（默认 60/min）：team message 按 per-team 桶，teamless DM 按 per-sender 桶（同发送方跨所有 receiver 共享单桶）。reply 不再轮询等待，`send_message` 送达后由 universal-message-watcher 自动注入目标会话和 reply chain。task 工具自动闭包 owner_session_id = caller_session_id；写权限同 team active member 共享；hand_off_session baton 时自动过继 task。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值；协议细节以本 README、内置 CLAUDE.md / CODEX_AGENTS.md 和 MCP tool descriptions 为准。
 
-「Claude Code」tab：Hook 一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）。「Codex CLI」tab：说明性入口 —— Codex 自身配置（模型 / 沙盒 / 审批 / 外部 MCP server）直接编辑 `~/.codex/config.toml`，应用只自动注入 `mcp_servers.agent-deck` 段与 `~/.codex/AGENTS.md` 的 Agent Deck 区段（不破坏用户手写其他段）。
+「Claude Code」tab：Hook 一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）。「Codex CLI」tab：说明性入口 —— Codex 自身配置（模型 / 沙盒 / 审批 / 外部 MCP server）直接编辑 `~/.codex/config.toml`，应用只自动注入 `mcp_servers.agent-deck` 段；Agent Deck 的 Codex 应用约定通过 app-server `developerInstructions` 按应用内会话注入，不写入用户 `~/.codex/AGENTS.md`。
 
 > 资产注入开关在 Header「📚 资产库」三 tab 顶部，设置面板内不重复（避免单一开关多处真源）。
 
 大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；沙盒档位 / Agent Deck MCP transport 开关 / 资产注入开关均为 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / message rate）热生效。
 
-Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（agent-deck plugin）+ 用户自定义（`~/.claude/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md。每个 tab 顶部带「注入开关」横条（Skills tab：Claude plugin + Codex skills 同步；Agents tab：与 Skills 共用 plugin 开关；应用约定 tab：Claude system prompt + Codex AGENTS.md 同步）。内置资源是 Agent Deck 行为 baseline；用户自定义 agents/skills 是增强层，不能替代内置协议或 reviewer 纪律。Deepseek（Claude Code）不单独维护资产视角，创建会话和 `spawn_session(agentName=...)` 都复用 Claude 侧 agents/skills/CLAUDE.md，只从 `.deepseek` 读取模型和鉴权 env。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后 Claude Code SDK 默认加载（`settingSources: ['user', ...]`）下次新建会话即可见。
+Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（Agent Deck bundled）+ 用户自定义（`~/.claude/{agents,skills}/`、`~/.codex/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md / CODEX_AGENTS.md。每个 tab 顶部带「注入开关」横条（Skills tab：Claude 内置 Skills + Codex 内置 Skills；Agents tab：Claude 内置 Agents + Codex 内置 Agents；应用约定 tab：Claude system prompt + Codex developerInstructions）。这些开关只控制 Agent Deck 内置资源，用户 / 项目 agents/skills 不受影响。内置资源是 Agent Deck 行为 baseline；用户自定义 agents/skills 是增强层，不能替代内置协议或 reviewer 纪律。Deepseek（Claude Code）不单独维护资产视角，创建会话和 `spawn_session(agentName=...)` 都复用 Claude 侧 agents/skills/CLAUDE.md，只从 `.deepseek` 读取模型和鉴权 env。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后下次新建会话即可见。
 
 ---
 

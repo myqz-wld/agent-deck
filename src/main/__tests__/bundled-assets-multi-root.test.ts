@@ -105,7 +105,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
-  getClaudeAgentDeckPluginPath: () => CLAUDE_PLUGIN_ROOT,
+  getClaudeAgentDeckPluginSourcePath: () => CLAUDE_PLUGIN_ROOT,
 }));
 
 vi.mock('@main/adapters/codex-cli/codex-config-paths', () => ({
