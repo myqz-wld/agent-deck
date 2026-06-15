@@ -89,3 +89,4 @@
 | [spawn-session-model-thinking-20260611.md](spawn-session-model-thinking-20260611.md) | in_progress | — | spawn_session 增加 adapter-scoped model/thinking 参数校验与透传 |
 | [codex-native-agents-skills-20260612.md](codex-native-agents-skills-20260612.md) | completed | [249](../changelogs/CHANGELOG_249.md) / [250](../changelogs/CHANGELOG_250.md) | Claude/Codex 原生 agent 解析、Codex 会话级 developerInstructions 与 skills extraRoot 注入、设置面板 agent 支持 |
 | [provider-usage-cache-refresh-20260615.md](provider-usage-cache-refresh-20260615.md) | completed | [261](../changelogs/CHANGELOG_261.md) | provider-usage-cache-refresh-20260615 |
+| [ask-user-question-notes-20260615.md](ask-user-question-notes-20260615.md) | completed | [265](../changelogs/CHANGELOG_265.md) | AskUserQuestion 卡片新增每题备注输入，并随选项/其他答案回传给 Claude |
