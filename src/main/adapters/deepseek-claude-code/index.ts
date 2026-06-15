@@ -12,6 +12,7 @@ import type {
   ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
+  ProviderUsageSnapshot,
   UploadedAttachmentRef,
 } from '@shared/types';
 import { ClaudeSdkBridge } from '../claude-code/sdk-bridge';
@@ -25,6 +26,7 @@ import {
   summariseViaLlm,
   summariseSessionForHandOff,
 } from '@main/session/summarizer/llm-runners';
+import { unsupportedUsageSnapshot } from '../provider-usage';
 
 const ADAPTER_ID = 'deepseek-claude-code';
 
@@ -189,6 +191,14 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
 
   setPermissionTimeoutMs(ms: number): void {
     this.bridge?.setPermissionTimeoutMs(ms);
+  }
+
+  async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
+    return unsupportedUsageSnapshot(
+      'deepseek-claude-code',
+      'Deepseek',
+      'Deepseek 走 API 通道，暂不支持读取订阅窗口',
+    );
   }
 
   /**

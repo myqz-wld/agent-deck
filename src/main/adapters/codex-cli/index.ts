@@ -1,10 +1,11 @@
 import type { AgentAdapter, AdapterContext, CodexCreateOpts } from '../types';
-import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import type { AgentEvent, ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { CodexSdkBridge } from './sdk-bridge';
 import { summariseCodexSessionViaOneshot } from './summarizer-runner';
 import { summariseCodexSessionForHandOff } from './handoff-runner';
 import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter';
+import { readCodexUsageSnapshot } from './usage-snapshot';
 
 const ADAPTER_ID = 'codex-cli';
 
@@ -166,6 +167,10 @@ class CodexCliAdapter implements AgentAdapter {
   /** Codex 专属：设置面板「Codex 二进制路径」变更时即改即生效。 */
   setCodexCliPath(path: string | null): void {
     this.bridge?.setCodexCliPath(path);
+  }
+
+  async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
+    return readCodexUsageSnapshot();
   }
 
   /**

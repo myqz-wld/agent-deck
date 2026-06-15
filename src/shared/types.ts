@@ -26,3 +26,4 @@ export * from './types/settings';
 export * from './types/assets';
 export * from './types/attachment';
 export * from './types/token-usage';
+export * from './types/provider-usage';

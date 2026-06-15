@@ -17,6 +17,7 @@ import type {
   ExitPlanModeResponse,
   PermissionRequest,
   PermissionResponse,
+  ProviderUsageSnapshot,
   UploadedAttachmentRef,
 } from '@shared/types';
 
@@ -120,6 +121,9 @@ export interface AgentAdapter {
   setPermissionTimeoutMs?(ms: number): void;
   /** Codex 专属：设置面板「Codex 二进制路径」变更时即改即生效。 */
   setCodexCliPath?(path: string | null): void;
+
+  /** 数据 tab 读取 provider 订阅/限额窗口用量。未实现表示该 adapter 暂无可读来源。 */
+  getUsageSnapshot?(): Promise<ProviderUsageSnapshot>;
 
   installIntegration?(opts: {
     scope: 'user' | 'project';

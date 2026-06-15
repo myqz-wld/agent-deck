@@ -105,6 +105,8 @@ export const IpcInvoke = {
   TokenUsageTopToday: 'token-usage:top-today',
   /** model bucket × 本地日期的 4 指标聚合（数据 tab 表格）。 */
   TokenUsageDaily: 'token-usage:daily',
+  /** Claude / Codex / Deepseek provider 订阅窗口用量快照（数据 tab）。 */
+  ProviderUsageSnapshot: 'provider-usage:snapshot',
 
   // ─────────── R3.E8 — Agent Deck universal team backend (替代老 team:* channel) ───────────
   /** 列出 active team（默认隐藏 archived）。返回 AgentDeckTeam[]（裸，不含 members）。 */

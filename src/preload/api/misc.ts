@@ -16,6 +16,7 @@ import type {
   ImageSource,
   LoadImageBlobResult,
   PermissionScanResult,
+  ProviderUsageSnapshotResult,
   TokenRateRow,
   TokenDailyRow,
   UserAssetInput,
@@ -216,4 +217,7 @@ export const miscApi = {
   /** model bucket × 本地日期的 4 指标聚合（数据 tab 表格）。 */
   tokenUsageDaily: (): Promise<TokenDailyRow[]> =>
     ipcRenderer.invoke(IpcInvoke.TokenUsageDaily),
+  /** Claude / Codex / Deepseek provider 订阅窗口用量快照（数据 tab）。 */
+  providerUsageSnapshot: (): Promise<ProviderUsageSnapshotResult> =>
+    ipcRenderer.invoke(IpcInvoke.ProviderUsageSnapshot),
 };
