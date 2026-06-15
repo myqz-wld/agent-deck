@@ -268,3 +268,4 @@
 | [CHANGELOG_261.md](CHANGELOG_261.md) | 数据 tab 启动预取；额度窗口加缓存/定时刷新，Claude 可后台查，未订阅明确展示。 |
 | [CHANGELOG_262.md](CHANGELOG_262.md) | 数据 tab 仍自动读取额度窗口；Claude/Codex 不再为数据 tab 启动隐藏 provider 子进程。 |
 | [CHANGELOG_263.md](CHANGELOG_263.md) | SessionDetail 工具行改为点 start 展开入参、点 end 展开出参，并移除「查看入参」按钮。 |
+| [CHANGELOG_264.md](CHANGELOG_264.md) | Claude Agent SDK 升到 0.3.177；Codex 0.139.0 与 Anthropic SDK 0.104.1 已是 latest 稳定版。 |
