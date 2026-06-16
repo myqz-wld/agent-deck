@@ -5,17 +5,23 @@ import { getSdkRuntimeOptions } from './sdk-runtime';
 import { resolveClaudeBinary } from './resolve-claude-binary';
 import { buildClaudeUsageSnapshot, errorUsageSnapshot } from '../provider-usage';
 import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
+import { sessionManager } from '@main/session/manager';
+import { getProviderUsageProbeCwd } from '@main/paths';
 import log from '@main/utils/logger';
 
 const logger = log.scope('claude-usage');
 const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
+const HOOK_CLAIM_HOLD_MS = 60_000;
 
 export interface ClaudeUsageProbeDeps {
   loadSdkFn?: typeof loadSdk;
   getRuntimeOptionsFn?: typeof getSdkRuntimeOptions;
   resolveClaudeBinaryFn?: typeof resolveClaudeBinary;
+  getProbeCwdFn?: typeof getProviderUsageProbeCwd;
+  expectSdkSessionFn?: (cwd: string, ttlMs?: number) => () => void;
   cwd?: string;
   timeoutMs?: number;
+  hookClaimHoldMs?: number;
 }
 
 /**
@@ -32,7 +38,13 @@ export async function readClaudeUsageSnapshotInBackground(
   const loadSdkFn = deps.loadSdkFn ?? loadSdk;
   const getRuntimeOptionsFn = deps.getRuntimeOptionsFn ?? getSdkRuntimeOptions;
   const resolveClaudeBinaryFn = deps.resolveClaudeBinaryFn ?? resolveClaudeBinary;
+  const getProbeCwdFn = deps.getProbeCwdFn ?? getProviderUsageProbeCwd;
+  const expectSdkSessionFn =
+    deps.expectSdkSessionFn ??
+    ((cwd: string, ttlMs?: number) => sessionManager.expectSdkSession(cwd, ttlMs));
   const controller = new AbortController();
+  const probeCwd = deps.cwd ?? getProbeCwdFn();
+  const releasePendingHookClaim = expectSdkSessionFn(probeCwd, deps.hookClaimHoldMs ?? HOOK_CLAIM_HOLD_MS);
   let q: Query | null = null;
   let drain: Promise<void> | null = null;
 
@@ -43,12 +55,15 @@ export async function readClaudeUsageSnapshotInBackground(
     q = sdk.query({
       prompt: idleInput(controller.signal),
       options: {
-        cwd: deps.cwd ?? process.cwd(),
+        cwd: probeCwd,
         permissionMode: 'plan',
-        settingSources: ['user', 'project', 'local'],
+        settingSources: [],
         abortController: controller,
         executable: runtime.executable,
-        env: runtime.env,
+        env: {
+          ...runtime.env,
+          AGENT_DECK_ORIGIN: 'sdk',
+        },
         ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
       },
     });
@@ -86,10 +101,16 @@ export async function readClaudeUsageSnapshotInBackground(
   } finally {
     controller.abort();
     q?.close();
+    holdHookClaimThenRelease(releasePendingHookClaim, deps.hookClaimHoldMs ?? HOOK_CLAIM_HOLD_MS);
     // The close() call should make the async iterator settle. Do not await here:
     // a stuck SDK subprocess must not block the provider usage IPC response.
     void drain;
   }
+}
+
+function holdHookClaimThenRelease(release: () => void, ms: number): void {
+  const timer = setTimeout(release, Math.max(0, ms));
+  timer.unref?.();
 }
 
 function idleInput(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
