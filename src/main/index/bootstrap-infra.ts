@@ -70,6 +70,7 @@ import { unionUserShellPath } from '../utils/user-shell-path';
 // function,无副作用,static import 等价。
 import { syncAgentDeckSection } from '../codex-config/agents-md-installer';
 import { syncSkills } from '../codex-config/skills-installer';
+import { syncLoginItemSetting } from '../login-item';
 import type { AgentEvent } from '@shared/types';
 import type { AppSettings } from '@shared/types/settings/app-settings';
 
@@ -321,12 +322,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   universalMessageWatcher.start();
 
   // 7.1 开机自启
-  if (!is.dev && (process.platform === 'darwin' || process.platform === 'win32')) {
-    app.setLoginItemSettings({
-      openAtLogin: settings.startOnLogin,
-      openAsHidden: false,
-    });
-  }
+  syncLoginItemSetting(settings.startOnLogin, { dev: is.dev });
 
   // 8. IPC
   bootstrapIpc();
