@@ -1,4 +1,5 @@
 import { useId, type JSX } from 'react';
+import { DeckSelect } from '@renderer/components/DeckSelect';
 
 /**
  * 3 个 sandbox / permission select 行（permissionMode / codex sandbox / claude OS 沙盒）。
@@ -32,20 +33,16 @@ export function SelectRow<T extends string>({
   return (
     <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-deck-muted">
       <label htmlFor={id}>{label}</label>
-      <select
+      <DeckSelect
         id={id}
         value={value}
-        onChange={(e) => onChange(e.target.value as T)}
+        onChange={onChange}
         disabled={disabled}
         title={current?.title}
-        className="no-drag flex-1 min-w-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value} title={opt.title}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        options={options}
+        className="min-w-0 flex-1"
+        buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
+      />
     </div>
   );
 }

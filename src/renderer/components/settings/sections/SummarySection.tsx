@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { AppSettings } from '@shared/types';
+import { DeckSelect } from '@renderer/components/DeckSelect';
 import { Section, NumberInput } from '../controls';
 import { SummarizerErrorsDiagnostic } from '../SummarizerErrorsDiagnostic';
 
@@ -141,35 +142,29 @@ function ModelRow({
     <div className="flex flex-col gap-1 text-[11px]">
       <div>{label}</div>
       <div className="flex items-center gap-2">
-        <select
+        <DeckSelect
           value={provider}
-          onChange={(e) => onProviderChange(e.target.value as Provider)}
-          className="no-drag shrink-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
-        >
-          {PROVIDER_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          onChange={onProviderChange}
+          options={PROVIDER_OPTIONS}
+          className="shrink-0"
+          buttonClassName="rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
+          menuMinWidth={140}
+        />
         <ModelInput value={model} placeholder={modelPlaceholder} onChange={onModelChange} />
-        <select
+        <DeckSelect
           value={reasoning}
           disabled={reasoningDisabled}
-          onChange={(e) => onReasoningChange(e.target.value as Reasoning)}
+          onChange={onReasoningChange}
           title={
             reasoningDisabled
               ? 'Using the model default thinking level'
               : 'Codex thinking level'
           }
-          className="no-drag w-20 shrink-0 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
-        >
-          {REASONING_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          options={REASONING_OPTIONS}
+          className="w-20 shrink-0"
+          buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
+          menuMinWidth={120}
+        />
       </div>
       <div className="text-[10px] text-deck-muted/60 leading-snug">{hint}</div>
     </div>

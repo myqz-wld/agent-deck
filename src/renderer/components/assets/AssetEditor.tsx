@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import type { AssetKind, AssetMeta } from '@shared/types';
 import { ASSET_LIMITS, ASSET_NAME_REGEX } from '@shared/types';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
+import { DeckSelect } from '@renderer/components/DeckSelect';
 
 /**
  * 用户自定义 agent / skill 编辑器（CHANGELOG_57 C3 / plan assets-codex-user-and-ui-unify-20260521
@@ -300,16 +301,16 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
           {kind === 'agent' && (
             <>
               <Field label={isCodexAgent ? '模型（可留空）' : '模型'} error={modelError}>
-                <select
+                <DeckSelect
                   value={model}
-                  onChange={(e) => handleChange(setModel)(e.target.value)}
+                  onChange={handleChange(setModel)}
                   disabled={busy}
-                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
-                >
-                  {(isCodexAgent ? CODEX_MODEL_OPTIONS : CLAUDE_MODEL_OPTIONS).map((m) => (
-                    <option key={m || 'inherit'} value={m}>{m || 'inherit'}</option>
-                  ))}
-                </select>
+                  options={(isCodexAgent ? CODEX_MODEL_OPTIONS : CLAUDE_MODEL_OPTIONS).map((m) => ({
+                    value: m,
+                    label: m || 'inherit',
+                  }))}
+                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
+                />
               </Field>
               {!isCodexAgent && (
                 <Field label="工具（逗号分隔，可留空）" error={toolsError}>

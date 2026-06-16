@@ -1,5 +1,6 @@
 import { useMemo, useState, type JSX } from 'react';
 import type { AgentDeckTeamMember, AgentDeckTeamMemberRole, SessionRecord } from '@shared/types';
+import { DeckSelect } from '@renderer/components/DeckSelect';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { Section, EmptyState } from './Header';
 import { lifecycleLabel, agentIdLabel } from './helpers';
@@ -24,6 +25,11 @@ interface Props {
   canAddMember: boolean;
   onMemberAdded: () => Promise<void>;
 }
+
+const ROLE_OPTIONS: { value: AgentDeckTeamMemberRole; label: string }[] = [
+  { value: 'teammate', label: '协作者' },
+  { value: 'lead', label: '负责人' },
+];
 
 export function MembersSection({
   teamId,
@@ -165,6 +171,13 @@ function AddMemberForm({
   onSubmit: () => void;
 }): JSX.Element {
   const disabled = busy || !selectedSessionId || joinableSessions.length === 0;
+  const sessionOptions =
+    joinableSessions.length === 0
+      ? [{ value: '', label: '没有可加入的活跃会话', disabled: true }]
+      : joinableSessions.map((session) => ({
+          value: session.id,
+          label: sessionOptionLabel(session),
+        }));
 
   return (
     <form
@@ -175,33 +188,26 @@ function AddMemberForm({
       }}
     >
       <div className="flex flex-wrap items-center gap-1.5">
-        <select
-          aria-label="选择要加入团队的会话"
+        <DeckSelect
+          ariaLabel="选择要加入团队的会话"
           value={selectedSessionId}
-          onChange={(event) => onSessionChange(event.target.value)}
+          onChange={onSessionChange}
           disabled={busy || joinableSessions.length === 0}
-          className="min-w-0 flex-1 rounded border border-deck-border bg-deck-bg px-1.5 py-0.5 text-[10px] text-deck-text outline-none hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {joinableSessions.length === 0 ? (
-            <option value="">没有可加入的活跃会话</option>
-          ) : (
-            joinableSessions.map((session) => (
-              <option key={session.id} value={session.id}>
-                {sessionOptionLabel(session)}
-              </option>
-            ))
-          )}
-        </select>
-        <select
-          aria-label="成员角色"
+          options={sessionOptions}
+          className="min-w-0 flex-1"
+          buttonClassName="w-full rounded border border-deck-border bg-deck-bg px-1.5 py-0.5 text-left text-[10px] text-deck-text outline-none hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+          menuMinWidth={260}
+        />
+        <DeckSelect
+          ariaLabel="成员角色"
           value={role}
-          onChange={(event) => onRoleChange(event.target.value as AgentDeckTeamMemberRole)}
+          onChange={onRoleChange}
           disabled={busy || joinableSessions.length === 0}
-          className="w-[72px] rounded border border-deck-border bg-deck-bg px-1.5 py-0.5 text-[10px] text-deck-text outline-none hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <option value="teammate">协作者</option>
-          <option value="lead">负责人</option>
-        </select>
+          options={ROLE_OPTIONS}
+          className="w-[72px]"
+          buttonClassName="w-full rounded border border-deck-border bg-deck-bg px-1.5 py-0.5 text-left text-[10px] text-deck-text outline-none hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+          menuMinWidth={96}
+        />
         <button
           type="submit"
           disabled={disabled}

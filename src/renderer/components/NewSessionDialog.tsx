@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
+import { DeckSelect } from '@renderer/components/DeckSelect';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import {
   getLastAdapter,
@@ -153,20 +154,15 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         ) : (
           <div className="flex flex-col gap-3">
             <Field label="执行器">
-              <select
+              <DeckSelect
                 value={agentId}
-                onChange={(e) => {
-                  setAgentId(e.target.value);
-                  setLastAdapter(e.target.value);
+                onChange={(next) => {
+                  setAgentId(next);
+                  setLastAdapter(next);
                 }}
-                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-              >
-                {adapters.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.displayName}
-                  </option>
-                ))}
-              </select>
+                options={adapters.map((a) => ({ value: a.id, label: a.displayName }))}
+                buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
+              />
             </Field>
 
             <Field label="工作目录">
@@ -258,61 +254,43 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
             {showPermissionMode && (
               <Field label="权限模式">
-                <select
+                <DeckSelect
                   value={permissionMode}
-                  onChange={(e) => {
-                    const v = e.target.value as PermissionModeChoice;
+                  onChange={(v) => {
                     setPermissionMode(v);
                     setLastDefaults(agentId, { permissionMode: v });
                   }}
-                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-                >
-                  {PERMISSION_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value} title={p.title}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
+                  options={PERMISSION_OPTIONS}
+                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
+                />
               </Field>
             )}
 
             {showCodexSandbox && (
               <Field label="沙盒">
-                <select
+                <DeckSelect
                   value={codexSandbox}
-                  onChange={(e) => {
-                    const v = e.target.value as CodexSandboxChoice;
+                  onChange={(v) => {
                     setCodexSandbox(v);
                     setLastDefaults(agentId, { codexSandbox: v });
                   }}
-                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-                >
-                  {CODEX_SANDBOX_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value} title={p.title}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
+                  options={CODEX_SANDBOX_OPTIONS}
+                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
+                />
               </Field>
             )}
 
             {showClaudeCodeSandbox && (
               <Field label="系统沙盒">
-                <select
+                <DeckSelect
                   value={claudeCodeSandbox}
-                  onChange={(e) => {
-                    const v = e.target.value as ClaudeSandboxChoice;
+                  onChange={(v) => {
                     setClaudeCodeSandbox(v);
                     setLastDefaults(agentId, { claudeCodeSandbox: v });
                   }}
-                  className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-                >
-                  {CLAUDE_SANDBOX_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value} title={p.title}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
+                  options={CLAUDE_SANDBOX_OPTIONS}
+                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
+                />
               </Field>
             )}
 
