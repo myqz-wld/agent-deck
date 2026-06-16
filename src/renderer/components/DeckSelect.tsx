@@ -39,6 +39,15 @@ interface MenuStyle {
 const DEFAULT_BUTTON_CLASS =
   'w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50';
 
+function estimateMenuHeight<T extends string>(options: readonly DeckSelectOption<T>[]): number {
+  if (options.length === 0) return 34;
+  const menuPadding = 8;
+  return (
+    menuPadding +
+    options.reduce((total, option) => total + (option.description ? 46 : 30), 0)
+  );
+}
+
 export function DeckSelect<T extends string>({
   id,
   value,
@@ -68,11 +77,12 @@ export function DeckSelect<T extends string>({
     const gap = 4;
     const viewportPadding = 8;
     const preferredMaxHeight = 260;
+    const estimatedHeight = Math.min(preferredMaxHeight, estimateMenuHeight(options));
     const spaceBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
     const spaceAbove = rect.top - viewportPadding - gap;
     const openUp = spaceBelow < 150 && spaceAbove > spaceBelow;
     const available = Math.max(120, openUp ? spaceAbove : spaceBelow);
-    const maxHeight = Math.min(preferredMaxHeight, available);
+    const maxHeight = Math.min(estimatedHeight, available);
     const width = Math.max(rect.width, menuMinWidth);
     const maxLeft = Math.max(viewportPadding, window.innerWidth - width - viewportPadding);
     const left = Math.min(Math.max(viewportPadding, rect.left), maxLeft);
