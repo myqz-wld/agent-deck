@@ -7,6 +7,7 @@ import {
   type CodexAccountRateLimitsResponseLike,
 } from '../provider-usage';
 import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
+import { getProviderUsageProbeCwd } from '@main/paths';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-usage');
@@ -16,8 +17,10 @@ export interface CodexUsageProbeDeps {
   makeClient?: (opts: {
     codexPathOverride: string | null;
     env: Record<string, string>;
+    cwd: string;
   }) => Pick<CodexAppServerClient, 'request' | 'dispose'>;
   codexPathOverride?: string | null;
+  getProbeCwdFn?: typeof getProviderUsageProbeCwd;
   timeoutMs?: number;
 }
 
@@ -41,15 +44,18 @@ export async function readCodexUsageSnapshotInBackground(
   const codexPath =
     deps.codexPathOverride !== undefined ? deps.codexPathOverride : settingsStore.get('codexCliPath');
   const codexPathOverride = (codexPath && codexPath.trim()) || null;
+  const cwd = (deps.getProbeCwdFn ?? getProviderUsageProbeCwd)();
   const client =
     deps.makeClient?.({
       codexPathOverride,
       env: snapshotProcessEnv(),
+      cwd,
     }) ??
     new CodexAppServerClient({
       codexPathOverride,
       config: null,
       env: snapshotProcessEnv(),
+      cwd,
     });
 
   try {

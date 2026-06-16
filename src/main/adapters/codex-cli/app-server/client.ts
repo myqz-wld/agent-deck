@@ -32,6 +32,7 @@ export interface CodexAppServerOptions {
   codexPathOverride?: string | null;
   config?: CodexConfigObject | null;
   env: Record<string, string>;
+  cwd?: string;
   skillExtraRoots?: string[];
 }
 
@@ -194,6 +195,7 @@ export class CodexAppServerClient {
     }
 
     const child = spawn(command, ['app-server', '--stdio'], {
+      ...(this.opts.cwd ? { cwd: this.opts.cwd } : {}),
       env,
       stdio: 'pipe',
     });

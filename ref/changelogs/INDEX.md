@@ -279,3 +279,4 @@
 | [CHANGELOG_272.md](CHANGELOG_272.md) | 去掉自绘下拉间隔，并修复会话详情向上展开时的贴齐问题。 |
 | [CHANGELOG_273.md](CHANGELOG_273.md) | Claude tok/s 保留生成中估算，并在 turn 结束用权威 output tokens / 累计 decode delta 窗口校准。 |
 | [CHANGELOG_274.md](CHANGELOG_274.md) | 数据 tab 无 live 会话时用静默探针读取 Claude/Codex 额度，不发消息或 turn。 |
+| [CHANGELOG_275.md](CHANGELOG_275.md) | 修复额度探针触发 macOS Downloads 权限弹窗与 cwd=/ 幽灵历史会话。 |

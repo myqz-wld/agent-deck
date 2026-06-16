@@ -74,6 +74,8 @@ class FakeClaudeUsageQuery implements AsyncIterable<unknown> {
 describe('readClaudeUsageSnapshotInBackground', () => {
   it('reads usage after initialization with an idle prompt stream', async () => {
     const query = new FakeClaudeUsageQuery();
+    const releaseHookClaim = vi.fn();
+    const expectSdkSessionFn = vi.fn(() => releaseHookClaim);
     let promptNext: Promise<IteratorResult<SDKUserMessage>> | null = null;
     const queryFn = vi.fn(
       (args: { prompt: AsyncIterable<SDKUserMessage>; options: Record<string, unknown> }) => {
@@ -86,17 +88,23 @@ describe('readClaudeUsageSnapshotInBackground', () => {
       loadSdkFn: async () => ({ query: queryFn }) as never,
       getRuntimeOptionsFn: () => ({ executable: 'node', env: { AGENT_DECK_TEST: '1' } }),
       resolveClaudeBinaryFn: () => '/opt/claude',
-      cwd: '/repo',
+      getProbeCwdFn: () => '/agent-deck/userData/provider-usage-probe-cwd',
+      expectSdkSessionFn,
+      hookClaimHoldMs: 0,
     });
 
+    expect(expectSdkSessionFn).toHaveBeenCalledWith(
+      '/agent-deck/userData/provider-usage-probe-cwd',
+      0,
+    );
     expect(queryFn).toHaveBeenCalledWith({
       prompt: expect.any(Object),
       options: expect.objectContaining({
-        cwd: '/repo',
+        cwd: '/agent-deck/userData/provider-usage-probe-cwd',
         permissionMode: 'plan',
-        settingSources: ['user', 'project', 'local'],
+        settingSources: [],
         executable: 'node',
-        env: { AGENT_DECK_TEST: '1' },
+        env: { AGENT_DECK_TEST: '1', AGENT_DECK_ORIGIN: 'sdk' },
         pathToClaudeCodeExecutable: '/opt/claude',
       }),
     });
@@ -119,6 +127,7 @@ describe('readClaudeUsageSnapshotInBackground', () => {
 
   it('fails closed when Claude requests interactive authentication', async () => {
     const query = new FakeClaudeUsageQuery();
+    const expectSdkSessionFn = vi.fn(() => vi.fn());
     query.initializationResult.mockImplementationOnce(
       () => new Promise(() => undefined) as Promise<unknown>,
     );
@@ -129,6 +138,8 @@ describe('readClaudeUsageSnapshotInBackground', () => {
       getRuntimeOptionsFn: () => ({ executable: 'node', env: {} }),
       resolveClaudeBinaryFn: () => undefined,
       cwd: '/repo',
+      expectSdkSessionFn,
+      hookClaimHoldMs: 0,
     });
 
     query.push({
@@ -139,6 +150,7 @@ describe('readClaudeUsageSnapshotInBackground', () => {
     const snapshot = await snapshotPromise;
 
     expect(query.close).toHaveBeenCalled();
+    expect(expectSdkSessionFn).toHaveBeenCalledWith('/repo', 0);
     expect(
       query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET,
     ).not.toHaveBeenCalled();

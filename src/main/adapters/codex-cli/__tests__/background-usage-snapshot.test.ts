@@ -16,11 +16,13 @@ describe('readCodexUsageSnapshotInBackground', () => {
     const snapshot = await readCodexUsageSnapshotInBackground({
       makeClient,
       codexPathOverride: '/opt/codex',
+      getProbeCwdFn: () => '/agent-deck/userData/provider-usage-probe-cwd',
     });
 
     expect(makeClient).toHaveBeenCalledWith({
       codexPathOverride: '/opt/codex',
       env: expect.any(Object),
+      cwd: '/agent-deck/userData/provider-usage-probe-cwd',
     });
     expect(request).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledWith('account/rateLimits/read', undefined);
