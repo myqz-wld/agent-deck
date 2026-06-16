@@ -71,6 +71,27 @@ describe('Codex app-server thread params', () => {
     );
   });
 
+  it('adds Codex reasoning summary config without overriding explicit user config', () => {
+    const options = {
+      workingDirectory: '/repo',
+      sandboxMode: 'workspace-write' as const,
+      approvalPolicy: 'never' as const,
+      skipGitRepoCheck: true,
+      modelReasoningSummary: 'auto' as const,
+    };
+
+    expect(__testables.buildThreadStartParams(options, null).config).toMatchObject({
+      model_reasoning_summary: 'auto',
+      skip_git_repo_check: true,
+    });
+    expect(
+      __testables.buildThreadStartParams(options, { model_reasoning_summary: 'none' }).config,
+    ).toMatchObject({
+      model_reasoning_summary: 'none',
+      skip_git_repo_check: true,
+    });
+  });
+
   it('uses merged configOverrides when building turn/start sandboxPolicy', () => {
     const params = __testables.buildTurnStartParams(
       'thread-1',

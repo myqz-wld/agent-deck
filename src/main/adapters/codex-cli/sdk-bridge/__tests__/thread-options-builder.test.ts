@@ -7,6 +7,7 @@
  * - skipGitRepoCheck 恒 true
  * - model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled /
  *   additionalDirectories 条件 spread（undefined → 字段不出现）
+ * - modelReasoningSummary 默认 auto，让应用内 Codex 会话请求可展示的思路摘要
  * - additionalDirectories 浅拷贝（防 caller 后续 mutate 入参影响 SDK 内部）
  *
  * 纯函数零 mock：直接 import + 断言 return object。
@@ -35,7 +36,7 @@ describe('buildCodexThreadOptions', () => {
     expect(opts.approvalPolicy).toBe('on-request');
   });
 
-  it('model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled / additionalDirectories 全缺省 → 字段不出现在 return object', () => {
+  it('model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled / additionalDirectories 全缺省 → 仅 summary 默认出现', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
@@ -47,6 +48,7 @@ describe('buildCodexThreadOptions', () => {
     expect('configOverrides' in opts).toBe(false);
     expect('networkAccessEnabled' in opts).toBe(false);
     expect('additionalDirectories' in opts).toBe(false);
+    expect(opts.modelReasoningSummary).toBe('auto');
   });
 
   it('model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled / additionalDirectories 显式传 → 全部出现在 return object', () => {
@@ -55,6 +57,7 @@ describe('buildCodexThreadOptions', () => {
       sandboxMode: 'workspace-write',
       model: 'gpt-5.5-codex',
       modelReasoningEffort: 'xhigh',
+      modelReasoningSummary: 'none',
       developerInstructions: '  Use Agent Deck baseline.  ',
       configOverrides: {
         skills: {
@@ -66,6 +69,7 @@ describe('buildCodexThreadOptions', () => {
     });
     expect(opts.model).toBe('gpt-5.5-codex');
     expect(opts.modelReasoningEffort).toBe('xhigh');
+    expect(opts.modelReasoningSummary).toBe('none');
     expect(opts.developerInstructions).toBe('Use Agent Deck baseline.');
     expect(opts.configOverrides).toEqual({
       skills: {

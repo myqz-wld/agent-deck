@@ -213,7 +213,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
         status: 'unavailable',
         windows: [],
         updatedAt: Date.now(),
-        message: 'Claude adapter 尚未初始化',
+        message: 'Claude 暂时无法读取额度信息',
       };
     }
     return this.bridge.getUsageSnapshot();

@@ -19,6 +19,7 @@ import { toCodexModelOverride } from '../sdk-model';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 
 export type CodexReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type CodexReasoningSummary = 'none' | 'auto';
 
 export interface BuildCodexThreadOptionsArgs {
   /** Codex 子进程 chdir 目标 (resume 路径:effectiveCwd / spawn 路径:cwd) */
@@ -35,6 +36,8 @@ export interface BuildCodexThreadOptionsArgs {
   additionalDirectories?: readonly string[];
   /** oneshot caller 可显式覆盖 reasoning effort；live session 缺省走 Codex 配置。 */
   modelReasoningEffort?: CodexReasoningEffort;
+  /** live session 默认请求 Codex 产出可展示的 reasoning summary；用户 config 可显式覆盖。 */
+  modelReasoningSummary?: CodexReasoningSummary;
   /** Codex app-server thread/start + thread/resume developerInstructions passthrough. */
   developerInstructions?: string;
   /** Additional config layer parsed from custom-agent TOML. */
@@ -48,6 +51,7 @@ export interface CodexThreadOptions {
   skipGitRepoCheck: boolean;
   model?: string;
   modelReasoningEffort?: CodexReasoningEffort;
+  modelReasoningSummary?: CodexReasoningSummary;
   developerInstructions?: string;
   configOverrides?: CodexConfigObject;
   networkAccessEnabled?: boolean;
@@ -65,6 +69,7 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
     ...(args.modelReasoningEffort !== undefined
       ? { modelReasoningEffort: args.modelReasoningEffort }
       : {}),
+    modelReasoningSummary: args.modelReasoningSummary ?? 'auto',
     ...(args.developerInstructions !== undefined && args.developerInstructions.trim().length > 0
       ? { developerInstructions: args.developerInstructions.trim() }
       : {}),

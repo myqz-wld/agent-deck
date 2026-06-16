@@ -14,7 +14,10 @@
 import type { AgentEventKind, HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
-import { translateCodexAppServerNotification } from '@main/adapters/codex-cli/app-server/translate';
+import {
+  createCodexAppServerTranslateState,
+  translateCodexAppServerNotification,
+} from '@main/adapters/codex-cli/app-server/translate';
 import {
   handleCodexAppServerNotificationForLiveRate,
   clearCodexLiveTokenEstimate,
@@ -254,6 +257,7 @@ export class ThreadLoop {
             source: 'sdk',
           });
         };
+        const translateState = createCodexAppServerTranslateState();
         try {
           const { events } = await internal.thread.runStreamed(toCodexAppServerInput(input), {
             signal: controller.signal,
@@ -352,6 +356,7 @@ export class ThreadLoop {
               );
               translateCodexAppServerNotification(ev.notification, emit, {
                 model: sessionRepo.get(internal.applicationSid)?.model ?? null,
+                state: translateState,
               });
             }
           }

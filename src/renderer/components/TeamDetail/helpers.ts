@@ -103,7 +103,7 @@ export function eventKindLabel(kind: string): string {
     case 'message':
       return '消息';
     case 'thinking':
-      return '思考';
+      return 'THINKING';
     case 'waiting-for-user':
       return '等待响应';
     case 'finished':

@@ -301,7 +301,9 @@ function IssueRow({
       >
         <div className="flex items-center gap-1.5">
           <span className={`text-[10px] uppercase ${statusColor}`}>{issue.status}</span>
-          <span className={`rounded px-1 text-[9px] ${severityColor}`}>{issue.severity}</span>
+          <span className={`rounded px-1 text-[9px] ${severityColor}`}>
+            {issue.severity.toUpperCase()}
+          </span>
           <span className="rounded bg-white/[0.06] px-1 text-[9px] text-deck-muted">
             {issue.kind}
           </span>

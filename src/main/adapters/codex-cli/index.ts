@@ -174,7 +174,7 @@ class CodexCliAdapter implements AgentAdapter {
       return unavailableUsageSnapshot(
         'codex-cli',
         'Codex',
-        'Codex adapter 尚未初始化',
+        'Codex 暂时无法读取额度信息',
       );
     }
     return this.bridge.getUsageSnapshot();

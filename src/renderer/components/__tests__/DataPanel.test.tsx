@@ -25,7 +25,7 @@ function claudeSnapshot(): ProviderUsageSnapshot {
     status: 'unavailable',
     windows: [],
     updatedAt: Date.now(),
-    message: '需要已有 Claude 会话才能读取额度窗口',
+    message: '先打开一个 Claude 会话后，再查看额度信息',
   };
 }
 
@@ -52,8 +52,8 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'api');
 });
 
-describe('DataPanel provider usage', () => {
-  it('reads provider quota on mount without adding an extra action button', async () => {
+describe('DataPanel quota usage', () => {
+  it('reads quota information on mount without adding an extra action button', async () => {
     render(<DataPanel />);
 
     await waitFor(() => expect(window.api.tokenUsageDaily).toHaveBeenCalledTimes(1));

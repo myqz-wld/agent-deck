@@ -13,10 +13,18 @@ const GENERIC_SKILL_TOOL_NAMES = new Set(['skill', 'invoke', 'invoke_skill', 'sk
 type AnyRecord = Record<string, unknown>;
 type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
 
+export interface CodexAppServerTranslateState {
+  reasoningSummaryByItemId: Map<string, string[]>;
+}
+
+export function createCodexAppServerTranslateState(): CodexAppServerTranslateState {
+  return { reasoningSummaryByItemId: new Map() };
+}
+
 export function translateCodexAppServerNotification(
   notification: CodexAppServerNotification,
   emit: EmitFn,
-  opts?: { model?: string | null },
+  opts?: { model?: string | null; state?: CodexAppServerTranslateState },
 ): void {
   switch (notification.method) {
     case 'thread/started':
@@ -24,11 +32,15 @@ export function translateCodexAppServerNotification(
     case 'turn/started':
     case 'item/agentMessage/delta':
     case 'item/reasoning/textDelta':
-    case 'item/reasoning/summaryTextDelta':
     case 'item/plan/delta':
     case 'turn/diff/updated':
     case 'turn/plan/updated':
       return;
+
+    case 'item/reasoning/summaryTextDelta': {
+      trackReasoningSummaryDelta(notification.params, opts?.state);
+      return;
+    }
 
     case 'thread/tokenUsage/updated': {
       translateTokenUsage(notification.params, emit, opts);
@@ -53,7 +65,7 @@ export function translateCodexAppServerNotification(
 
     case 'item/completed': {
       const item = getItem(notification.params);
-      if (item) translateItemCompleted(item, emit);
+      if (item) translateItemCompleted(item, emit, opts?.state);
       return;
     }
 
@@ -174,7 +186,11 @@ function translateCommandOutputDelta(params: unknown, emit: EmitFn): void {
   });
 }
 
-function translateItemCompleted(item: AnyRecord, emit: EmitFn): void {
+function translateItemCompleted(
+  item: AnyRecord,
+  emit: EmitFn,
+  state?: CodexAppServerTranslateState,
+): void {
   switch (item.type) {
     case 'agentMessage': {
       emit('message', { text: stringField(item.text), role: 'assistant' });
@@ -183,7 +199,9 @@ function translateItemCompleted(item: AnyRecord, emit: EmitFn): void {
 
     case 'reasoning': {
       const summary = stringArray(item.summary);
-      const text = summary.join('\n');
+      const deltaSummary = consumeReasoningSummaryDelta(item, state);
+      const summaryText = summary.join('\n');
+      const text = summaryText || deltaSummary;
       if (text) emit('thinking', { text });
       return;
     }
@@ -317,6 +335,33 @@ function translateItemCompleted(item: AnyRecord, emit: EmitFn): void {
     default:
       logger.debug(`[codex-app-server-translate] ignored item type: ${String(item.type)}`);
   }
+}
+
+function trackReasoningSummaryDelta(
+  params: unknown,
+  state?: CodexAppServerTranslateState,
+): void {
+  if (!state) return;
+  const record = asRecord(params);
+  const itemId = stringField(record?.itemId) || stringField(asRecord(record?.item)?.id);
+  const delta = stringField(record?.delta);
+  if (!itemId || !delta) return;
+  const chunks = state.reasoningSummaryByItemId.get(itemId) ?? [];
+  chunks.push(delta);
+  state.reasoningSummaryByItemId.set(itemId, chunks);
+}
+
+function consumeReasoningSummaryDelta(
+  item: AnyRecord,
+  state?: CodexAppServerTranslateState,
+): string {
+  if (!state) return '';
+  const itemId = stringField(item.id);
+  if (!itemId) return '';
+  const chunks = state.reasoningSummaryByItemId.get(itemId);
+  if (!chunks) return '';
+  state.reasoningSummaryByItemId.delete(itemId);
+  return chunks.join('');
 }
 
 function getItem(params: unknown): AnyRecord | null {

@@ -170,7 +170,7 @@ export function MessageBubble({
             // sid 8-char short hash 节省横向空间（CHANGELOG_100 B5 加 sid hash）。
             <span
               className="ml-0.5 inline-flex max-w-[16rem] items-center gap-0.5 truncate rounded bg-cyan-500/15 px-1 py-0.5 text-[9px] font-medium text-cyan-300"
-              title={`来自 ${wirePrefix.from}（${wirePrefix.adapter}）`}
+              title={`来自 ${wirePrefix.from}（${getAgentShortName(wirePrefix.adapter)}）`}
             >
               ↩ {wirePrefix.from}
               {wirePrefix.senderSessionId && (

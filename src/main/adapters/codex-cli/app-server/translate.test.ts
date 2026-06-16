@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { CodexAppServerNotification } from './client';
 import { APPEND_AGGREGATED_OUTPUT } from '@shared/agent-event-merge';
-import { translateCodexAppServerNotification } from './translate';
+import {
+  createCodexAppServerTranslateState,
+  translateCodexAppServerNotification,
+} from './translate';
 
 function collect() {
   const events: { kind: string; payload: unknown }[] = [];
@@ -183,6 +186,62 @@ describe('translateCodexAppServerNotification', () => {
         },
       } as CodexAppServerNotification,
       emit,
+    );
+
+    expect(events).toEqual([]);
+  });
+
+  it('emits streamed reasoning summary deltas when completed summary is empty', () => {
+    const { emit, events } = collect();
+    const state = createCodexAppServerTranslateState();
+    translateCodexAppServerNotification(
+      {
+        method: 'item/reasoning/summaryTextDelta',
+        params: { itemId: 'reasoning-3', delta: 'checked ' },
+      } as CodexAppServerNotification,
+      emit,
+      { state },
+    );
+    translateCodexAppServerNotification(
+      {
+        method: 'item/reasoning/summaryTextDelta',
+        params: { itemId: 'reasoning-3', delta: 'the plan' },
+      } as CodexAppServerNotification,
+      emit,
+      { state },
+    );
+    translateCodexAppServerNotification(
+      {
+        method: 'item/completed',
+        params: { item: { id: 'reasoning-3', type: 'reasoning', summary: [] } },
+      } as CodexAppServerNotification,
+      emit,
+      { state },
+    );
+
+    expect(events).toEqual([
+      { kind: 'thinking', payload: { text: 'checked the plan' } },
+    ]);
+  });
+
+  it('keeps raw reasoning text deltas hidden even when no summary is provided', () => {
+    const { emit, events } = collect();
+    const state = createCodexAppServerTranslateState();
+    translateCodexAppServerNotification(
+      {
+        method: 'item/reasoning/textDelta',
+        params: { itemId: 'reasoning-4', delta: 'raw hidden thought' },
+      } as CodexAppServerNotification,
+      emit,
+      { state },
+    );
+    translateCodexAppServerNotification(
+      {
+        method: 'item/completed',
+        params: { item: { id: 'reasoning-4', type: 'reasoning', summary: [] } },
+      } as CodexAppServerNotification,
+      emit,
+      { state },
     );
 
     expect(events).toEqual([]);

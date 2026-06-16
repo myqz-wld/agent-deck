@@ -18,10 +18,10 @@
 - **OS 级沙盒**：Claude Code / Deepseek（Claude Code）SDK 子进程可启 `workspace-write` / `strict` 二档隔离（macOS Seatbelt / Linux bubblewrap），cwd 可写但 `~/.ssh` 等敏感目录禁读 + 网络默认禁；model 想联网时被 `SandboxNetworkAccess` 工具回路自动拦下并提示用 `dangerouslyDisableSandbox: true` 重试，最终仅 1 次弹框给用户审批 —— 与 Codex 子进程已有的 `workspace-write` 隔离对齐。**三件套**（与 Codex 完全对称）：① 全局默认（设置面板，默认 workspace-write）；② 新建会话覆盖（NewSessionDialog 4 档下拉「跟随设置 / off / workspace-write / strict」）；③ 会话内运行时切档（SessionDetail 输入区上方下拉，切到 `off` 弹 confirm，切到 `workspace-write` / `strict` 直接生效，5-10s 冷切重启 SDK 子进程）
 - **Universal Team Backend**：cross-adapter（claude-code / deepseek-claude-code / codex-cli）session 通过 DB envelope + universal-message-watcher 投递 cross-adapter team message。`mcp__agent-deck__spawn_session(team_name)` 把 lead + teammate 都加入指定 team；Team tab 可把现有活跃会话手动加入已有团队；`mcp__agent-deck__send_message` 走 DB queue 投递并自动把 reply 注入 lead conversation。**无需共享 team 也能互发**：caller 与 target 无 shared active team 时 `send_message` 自动降级 teamless DM（消息仍注入目标会话，只是不进 team 聚合面板）。**CLI 内自起的 inbox-only team 在 agent-deck UI 不可见**（应通过 `mcp__agent-deck__spawn_session` 起 team 进 universal backend）
 - **输入框图片附件**：会话主输入框 + 新建会话 dialog 都支持「粘贴 / 拖放 / 上传按钮」三件套发图（PNG / JPEG / GIF / WebP，单图 ≤ 20MB / 单条总附件 ≤ 30MB）。Claude SDK 走 base64 image content block，Codex SDK 接 `local_image` 文件路径，主进程统一把 base64 落盘到 `<userData>/image-uploads/<uuid>.<ext>` 喂下游；历史 detail view 里能看到自己发了什么图，14 天孤儿文件 reaper 自动清理
-- **模型 Token 统计**：顶栏中部实时显示今日使用最频 Top3 模型的「输出 token/s」（最近 60 秒滑动窗口；窗口宽度不足时自动退化隐藏，先减到 Top1 再隐藏）。「数据」tab（与 实时/待处理/历史/团队/问题 同级）看每个模型每天的 token 使用：模型×日期表格（输入 / 输出 / 缓存读 / 缓存写）+ 今日汇总 + 全模型实时 token/s 区，并显示 Claude / Codex provider 的当前窗口、周用量和重置时间；应用启动时只预取本地 token 明细，额度窗口打开数据 tab 后查询 provider 并缓存结果，但只复用已有 Claude live 会话 / 已存活 Codex app-server，无现成会话或进程时显示暂不可读，不再为数据 tab 启动隐藏后台 Query 或 Codex 子进程；Deepseek 因走 API 通道暂显示不支持。token 用量从每条 assistant message（Claude）/ turn 完成（Codex）采集；同基础模型的不同变体（thinking / 1m 等）按友好名合并统计；未显式指定模型时按 Claude / Codex 默认模型占位显示
+- **模型 Token 统计**：顶栏中部实时显示今日使用最频 Top3 模型的「输出 token/s」（最近 60 秒滑动窗口；窗口宽度不足时自动退化隐藏，先减到 Top1 再隐藏）。「数据」tab（与 实时/待处理/历史/团队/问题 同级）看每个模型每天的 token 使用：模型×日期表格（输入 / 输出 / 缓存读 / 缓存写）+ 今日汇总 + 全模型实时 token/s 区，并显示 Claude / Codex 账号的当前额度窗口、周用量和重置时间；应用启动时只预取本地 token 明细，额度信息在打开数据 tab 后读取并缓存。没有已打开的 Claude / Codex 会话时显示暂不可读，不会为了数据页额外启动后台会话；Deepseek 因走 API 通道暂显示不支持。token 用量从每条 assistant message（Claude）/ turn 完成（Codex）采集；同基础模型的不同变体（thinking / 1m 等）按友好名合并统计；未显式指定模型时按 Claude / Codex 默认模型占位显示
 - **命令行入口**：`agent-deck new --cwd ... --prompt ...` 从任意终端拉起新会话
 - **自带应用级约定 + skill / agent 注入**：每条应用内 SDK 会话都自动追加内置 CLAUDE.md / CODEX_AGENTS.md 到 system prompt；内置 prompt / agent / skill 资源随应用 bundle 自闭环生效，用户自定义 agents/skills 只作为增强层；可注入 agent-deck plugin 自带的 `deep-review` skill + native `reviewer-claude`（Claude Code adapter）/ `reviewer-codex`（Codex SDK adapter）双异构对抗 reviewer
-- **多 Adapter**：Claude Code（hook + SDK 双通道，SDK 支持 streaming input 多轮交互）+ Deepseek（Claude Code 协议适配通道，独立 `~/.agent_deck/.deepseek/settings.json` 存 URL / token / model，复用 Claude 侧 agents/skills/CLAUDE.md）+ Codex CLI（app-server SDK 通道，turn-based 协议每轮等上一轮完成；active 普通 turn 期间支持 mid-turn steering，可把用户修正注入当前 turn；常作 reviewer / 子任务 teammate，主导会话场景按个人偏好选）
+- **多 Adapter**：Claude Code（hook + SDK 双通道，SDK 支持 streaming input 多轮交互）+ Deepseek（Claude Code 协议适配通道，独立 `~/.agent_deck/.deepseek/settings.json` 存 URL / token / model，复用 Claude 侧 agents/skills/CLAUDE.md）+ Codex CLI（app-server SDK 通道，turn-based 协议每轮等上一轮完成；active 普通 turn 期间支持 mid-turn steering，可把用户修正注入当前 turn；Codex 返回的 reasoning summary 会显示在活动流，原始推理内容不展示；常作 reviewer / 子任务 teammate，主导会话场景按个人偏好选）
 
 ---
 
@@ -222,7 +222,7 @@ agent-deck new \
 
 - **会话**
   - **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（分钟；默认 30，0=不超时，超时按 deny + interrupt 处理）/ 历史会话保留天数 / **断连恢复注入对话条数**（默认 30；jsonl 丢失走 fresh CLI/thread 续聊时，除 LLM 总结外额外注入 DB 最近 N 条原始对话消息，预算式拼接故实际条数 ≤ 设定值）/ 已解决 issue / 软删 issue 保留天数 / **跨会话消息保留天数**（默认 30，0=关闭；pending/delivering 在途消息永不删）
-  - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时 / 周期性总结 provider+model / Hand-off 简报 provider+model。provider 支持 Claude / Deepseek / Codex；Deepseek 复用 `~/.agent_deck/.deepseek/settings.json` 的 Anthropic-compatible env；reasoning 档位只影响 Codex
+  - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时 / 周期性总结和 Hand-off 简报的模型来源、模型名与 Thinking level。模型来源支持 Claude / Deepseek / Codex；Thinking level 只影响 Codex
 - **提醒与外观**
   - **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3 / wav / aiff / m4a / ogg / flac，带试听 + 重置）
   - **窗口**：置顶时透明（看到下层桌面，默认开；关掉则置顶时仍是 macOS under-window 实玻璃，Windows 等其他平台无 vibrancy 效果）/ 开机自启
@@ -230,7 +230,7 @@ agent-deck new \
 - **集成与运行环境**
   - **Hook Server（本地端口）**：端口（重启 + 重新 install hook 才生效）；Bearer token 首启自动生成 256-bit hex 持久化，不在 UI 露出
   - **外部工具**：Codex / Claude 二进制路径（留空用应用内置 vendored 版本）
-  - **日志**：file transport 级别下拉（`error` / `warn` / `info` / `verbose` / `debug` / `silly`，默认 `info`）。**只控落盘文件级别**，console transport 永远 `silly`（dev terminal 看全部输出不变），即改即生效；另有「打开日志目录 / 查看日志 / 清空今天日志」操作按钮（详见「开发指南 → 日志」）
+  - **日志**：日志详细程度下拉（默认 `INFO`），只影响写入日志文件的内容，即改即生效；另有「打开日志目录 / 查看日志 / 清空今天日志」操作按钮（详见「开发指南 → 日志」）
   - **实验功能**：
     - **Claude Code 沙盒**：三档下拉（关闭 / Workspace Write / Strict，默认 Workspace Write）；仅在 macOS（Seatbelt）/ Linux（bubblewrap）生效，**Windows 当前不支持 OS 级沙盒**（设置面板按平台只显示对应描述）；常用工具（git / pnpm / npm / yarn / bun / pip / cargo / go）默认豁免。本档位是「全局默认」；新建会话对话框可 per-session 覆盖；会话内可运行时切档冷切重启
     - **Codex 沙盒**：三档下拉（Workspace Write / Read Only / Danger Full Access），与 Claude 默认对齐
@@ -242,13 +242,13 @@ agent-deck new \
 
     防递归规则：spawn 链最大深度（默认 3） / 每分钟 spawn 上限（默认 20） / 单 caller 最大子会话（默认 10） / cwd realpath 整链回溯 cycle 检测；message rate limit（默认 60/min）：team message 按 per-team 桶，teamless DM 按 per-sender 桶（同发送方跨所有 receiver 共享单桶）。reply 不再轮询等待，`send_message` 送达后由 universal-message-watcher 自动注入目标会话和 reply chain。task 工具自动闭包 owner_session_id = caller_session_id；写权限同 team active member 共享；hand_off_session baton 时自动过继 task。设置 UI「Agent Deck MCP server」section 完整暴露所有阈值；协议细节以本 README、内置 CLAUDE.md / CODEX_AGENTS.md 和 MCP tool descriptions 为准。
 
-「Claude Code」tab：Hook 一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）。「Codex CLI」tab：说明性入口 —— Codex 自身配置（模型 / 沙盒 / 审批 / 外部 MCP server）直接编辑 `~/.codex/config.toml`，应用只自动注入 `mcp_servers.agent-deck` 段；Agent Deck 的 Codex 应用约定通过 app-server `developerInstructions` 按应用内会话注入，不写入用户 `~/.codex/AGENTS.md`。
+「Claude Code」tab：Hook 一键安装 / 卸载到 `~/.claude/settings.json`（user 作用域）。「Codex CLI」tab：说明性入口 —— Codex 自身配置（模型 / 沙盒 / 审批 / 外部 MCP server）直接编辑 `~/.codex/config.toml`，应用只自动注入 `mcp_servers.agent-deck` 段；Agent Deck 的 Codex 应用约定随新建的应用内 Codex 会话自动加载，不写入用户 `~/.codex/AGENTS.md`。
 
 > 资产注入开关在 Header「📚 资产库」三 tab 顶部，设置面板内不重复（避免单一开关多处真源）。
 
 大部分设置即改即生效。Hook 安装与端口属于「需要重新安装 hook 才生效」类；沙盒档位 / Agent Deck MCP transport 开关 / 资产注入开关均为 spawn-time 注入，仅下次新建会话生效。Agent Deck MCP 防递归阈值（depth / spawn-rate / fan-out / message rate）热生效。
 
-Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（Agent Deck bundled）+ 用户自定义（`~/.claude/{agents,skills}/`、`~/.codex/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md / CODEX_AGENTS.md。每个 tab 顶部带「注入开关」横条（Skills tab：Claude 内置 Skills + Codex 内置 Skills；Agents tab：Claude 内置 Agents + Codex 内置 Agents；应用约定 tab：Claude system prompt + Codex developerInstructions）。这些开关只控制 Agent Deck 内置资源，用户 / 项目 agents/skills 不受影响。内置资源是 Agent Deck 行为 baseline；用户自定义 agents/skills 是增强层，不能替代内置协议或 reviewer 纪律。Deepseek（Claude Code）不单独维护资产视角，创建会话和 `spawn_session(agentName=...)` 都复用 Claude 侧 agents/skills/CLAUDE.md，只从 `.deepseek` 读取模型和鉴权 env。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后下次新建会话即可见。
+Header 工具栏右侧的 **📚 资产库** 按钮独立 Dialog 集中展示「内置（Agent Deck bundled）+ 用户自定义（`~/.claude/{agents,skills}/`、`~/.codex/{agents,skills}/`）」两类 agents/skills + 应用级 CLAUDE.md / CODEX_AGENTS.md。每个 tab 顶部带「注入开关」横条（Skills tab：Claude 内置 Skills + Codex 内置 Skills；Agents tab：Claude 内置 Agents + Codex 内置 Agents；应用约定 tab：Claude 应用约定 + Codex 应用约定）。这些开关只控制 Agent Deck 内置资源，用户 / 项目 agents/skills 不受影响。内置资源是 Agent Deck 行为 baseline；用户自定义 agents/skills 是增强层，不能替代内置协议或 reviewer 纪律。Deepseek（Claude Code）不单独维护资产视角，创建会话和 `spawn_session(agentName=...)` 都复用 Claude 侧 agents/skills/CLAUDE.md，只从 `.deepseek` 读取模型和鉴权 env。agents/skills 支持新建 / 编辑 / 删除用户副本，保存后下次新建会话即可见。
 
 ---
 
@@ -349,7 +349,7 @@ pnpm dist            # 出 dmg + .app
   - macOS：`~/Library/Logs/Agent Deck/main-YYYY-MM-DD.log`（按天拆 + 保留 14 天）
   - Windows：`%USERPROFILE%\AppData\Roaming\Agent Deck\logs\`
   - Linux：`~/.config/Agent Deck/logs/`
-- **设置面板「集成与运行环境 → 日志」** 调 file transport 级别（`error` / `warn` / `info` / `verbose` / `debug` / `silly`，默认 `info`），即改即生效；console transport 永远 `silly` 不变（dev terminal 看全部输出）
+- **设置面板「集成与运行环境 → 日志」** 调整写入日志文件的详细程度（默认 `INFO`），即改即生效；开发终端仍会保留完整输出，方便本地排查
 - 同 section 的操作按钮：打开日志目录 / 查看日志（应用内 Monaco 只读 modal 展示当天 `main-YYYY-MM-DD.log`，> 2MB 仅显尾部 2MB）/ 清空今天日志
 - **业务模块用法**：
   - main：`import log from '@main/utils/logger'; const logger = log.scope('<kebab-name>'); logger.info(...);`

@@ -11,12 +11,12 @@ interface Props {
 type LogLevel = AppSettings['logLevel'];
 
 const LEVEL_OPTIONS: { value: LogLevel; label: string; description: string }[] = [
-  { value: 'error', label: '只记 error', description: '最低噪音，仅 logger.error(...) 落盘' },
-  { value: 'warn', label: 'warn 及以上', description: 'error + warn (常规生产)' },
-  { value: 'info', label: 'info 及以上 (默认)', description: 'error + warn + info (推荐)' },
-  { value: 'verbose', label: 'verbose 及以上', description: '+ verbose (诊断详情)' },
-  { value: 'debug', label: 'debug 及以上', description: '+ debug (深度排查)' },
-  { value: 'silly', label: 'silly 全开', description: '所有级别 (调试 SDK / IPC 细节)' },
+  { value: 'error', label: 'ERROR', description: '只记录错误' },
+  { value: 'warn', label: 'WARN', description: '错误和警告' },
+  { value: 'info', label: 'INFO（默认）', description: '推荐设置' },
+  { value: 'verbose', label: 'VERBOSE', description: '排查问题时使用' },
+  { value: 'debug', label: 'DEBUG', description: '需要更多细节时使用' },
+  { value: 'silly', label: 'SILLY', description: '最详细，通常只在排查复杂问题时使用' },
 ];
 
 /**
@@ -60,7 +60,7 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
   return (
     <Section title="日志" storageKey="logs" defaultOpen={false}>
       <div className="flex flex-col gap-1 text-[11px]">
-        <div>日志级别（仅影响写入文件的日志；终端始终完整输出）</div>
+        <div>日志详细程度（仅影响写入文件的日志）</div>
         <select
           value={settings.logLevel}
           onChange={(e) =>

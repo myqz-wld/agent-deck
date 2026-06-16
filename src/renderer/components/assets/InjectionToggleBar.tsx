@@ -71,24 +71,24 @@ export function InjectionToggleBar({
           />
           <div className="text-[10px] leading-snug text-deck-muted/60">
             只控制 Agent Deck 内置 Agents；用户和项目 agents 不受影响。
-            ⚠️ 仅对新建会话生效。已运行的会话不受影响。
+            仅对新建会话生效，已运行的会话不受影响。
           </div>
         </div>
       )}
       {tab === 'claude-md' && (
         <div className="flex flex-col gap-1.5">
           <Toggle
-            label="注入到 Claude 会话(系统提示末尾)"
+            label="注入到 Claude 会话"
             value={settings.injectAgentDeckClaudeMd}
             onChange={(v) => void update({ injectAgentDeckClaudeMd: v })}
           />
           <Toggle
-            label="注入到 Codex 会话(developerInstructions)"
+            label="注入到 Codex 会话"
             value={settings.injectAgentDeckCodexAgentsMd}
             onChange={(v) => void update({ injectAgentDeckCodexAgentsMd: v })}
           />
           <div className="text-[10px] leading-snug text-deck-muted/60">
-            ⚠️ 仅对新建会话生效。已运行的会话已加载，不会回收。
+            仅对新建会话生效，已运行的会话不受影响。
           </div>
         </div>
       )}

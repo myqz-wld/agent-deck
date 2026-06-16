@@ -100,7 +100,7 @@ export function buildClaudeUsageSnapshot(
     return notSubscribedUsageSnapshot(
       'claude-code',
       'Claude',
-      '当前 Claude 账号没有可展示的订阅额度窗口',
+      '当前 Claude 账号没有可展示的额度信息',
       updatedAt,
     );
   }
@@ -109,7 +109,7 @@ export function buildClaudeUsageSnapshot(
     return unavailableUsageSnapshot(
       'claude-code',
       'Claude',
-      '当前 Claude 登录方式不提供订阅限额窗口',
+      '当前 Claude 登录方式暂不支持读取额度信息',
       updatedAt,
     );
   }
@@ -124,7 +124,7 @@ export function buildClaudeUsageSnapshot(
     return unavailableUsageSnapshot(
       'claude-code',
       'Claude',
-      'Claude 未返回可展示的限额窗口',
+      'Claude 暂未返回可展示的额度信息',
       updatedAt,
     );
   }
@@ -149,7 +149,7 @@ export function buildCodexUsageSnapshot(
     return unavailableUsageSnapshot(
       'codex-cli',
       'Codex',
-      'Codex 未返回账户限额窗口',
+      'Codex 暂未返回账户额度信息',
       updatedAt,
     );
   }
@@ -163,7 +163,7 @@ export function buildCodexUsageSnapshot(
     return unavailableUsageSnapshot(
       'codex-cli',
       'Codex',
-      'Codex 未返回可展示的限额窗口',
+      'Codex 暂未返回可展示的额度信息',
       updatedAt,
     );
   }
@@ -180,8 +180,8 @@ export function buildCodexUsageSnapshot(
 }
 
 export function formatErrorMessage(err: unknown): string {
-  if (err instanceof Error && err.message) return err.message;
-  return String(err);
+  void err;
+  return '额度信息读取失败，请稍后重试';
 }
 
 function buildClaudeWindow(

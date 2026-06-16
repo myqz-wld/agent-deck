@@ -248,7 +248,7 @@ export class CodexSdkBridge {
       return unavailableUsageSnapshot(
         'codex-cli',
         'Codex',
-        '需要已有 Codex 会话才能读取额度窗口',
+        '先打开一个 Codex 会话后，再查看额度信息',
       );
     }
     try {

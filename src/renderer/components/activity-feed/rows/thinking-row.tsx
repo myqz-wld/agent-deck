@@ -4,14 +4,12 @@ import { MarkdownText } from '@renderer/components/MarkdownText';
 import { formatDisplayText } from '../format';
 import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shared';
 
-/** REVIEW_4 M16：thinking 默认折叠阈值。extended thinking 经常是几 KB 的推理过程，
- *  阈值比 message 略低（600）让用户更主动 expand。 */
+/** REVIEW_4 M16：reasoning summary 默认折叠阈值。内容可能很长，阈值比 message 略低。 */
 const COLLAPSE_THRESHOLD_CHARS = 600;
 
 /**
- * Claude / Codex 的内部推理（Anthropic extended thinking、SDK 压平的多 text block prelude、
- * 或 Codex reasoning 摘要）。视觉与 MessageBubble 区分：dashed 边框 + 暗背景 + 斜体淡灰文字 +
- * 头部「{agent} · thinking」标签（区分是哪一族模型在思考，而不是只标 'thinking'）。
+ * 模型提供的 reasoning summary。视觉与 MessageBubble 区分：dashed 边框 + 暗背景 + 斜体淡灰文字 +
+ * 头部「{agent} · REASONING SUMMARY」标签。
  * 默认 plaintext；超过 COLLAPSE_THRESHOLD_CHARS 字符默认折叠（max-height + 「展开」按钮）。
  */
 export function ThinkingBubble({
@@ -40,7 +38,12 @@ export function ThinkingBubble({
         <div className="mb-0.5 flex items-center gap-1 text-[9px] text-deck-muted/60">
           <span>{otherName}</span>
           <span className="text-deck-muted/40">·</span>
-          <span className="font-mono uppercase tracking-wider">思考</span>
+          <span
+            className="font-mono uppercase tracking-wider"
+            title="Reasoning summary from the model"
+          >
+            REASONING SUMMARY
+          </span>
           <span className="text-deck-muted/40">·</span>
           <span className="font-mono tabular-nums text-deck-muted/40">{ts}</span>
           {text.length > 0 && (
@@ -76,7 +79,7 @@ export function ThinkingBubble({
               text
             )
           ) : (
-            <span className="text-deck-muted/60">（暂无思考内容）</span>
+            <span className="text-deck-muted/60">No reasoning summary for this turn</span>
           )}
         </div>
       </div>

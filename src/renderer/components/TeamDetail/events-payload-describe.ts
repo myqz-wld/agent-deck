@@ -33,7 +33,7 @@ export function describeEventPayload(e: AgentEvent): string {
   if (typeof e.payload !== 'object') return '无更多详情';
   // 常见字段优先级:text > summary > 按 kind 取主字段
   const p = e.payload as Record<string, unknown>;
-  if ('text' in p && typeof p.text === 'string') {
+  if ('text' in p && typeof p.text === 'string' && p.text.trim()) {
     return p.text.length > 80 ? `${p.text.slice(0, 80)}…` : p.text;
   }
   if ('summary' in p && typeof p.summary === 'string') {
@@ -57,6 +57,8 @@ export function describeEventPayload(e: AgentEvent): string {
       return typeof p.filePath === 'string' && p.filePath.trim()
         ? truncate80(p.filePath.trim())
         : '文件已变更';
+    case 'thinking':
+      return 'No reasoning summary for this turn';
     case 'team-task-created':
     case 'team-task-completed': {
       const desc = typeof p.description === 'string' ? p.description : '';
