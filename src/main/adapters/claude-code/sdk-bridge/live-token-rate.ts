@@ -51,13 +51,34 @@ export function estimateTokensFromText(text: string): number {
   return cjkChars / 1.7 + nonCjkChars / 4;
 }
 
+function closeCurrentDecodeSegment(state: InternalSession['liveTokenEstimate']): number {
+  if (!state) return 0;
+  const first = state.currentDecodeFirstDeltaTs;
+  const last = state.currentDecodeLastDeltaTs;
+  const elapsed = first !== undefined && last !== undefined && last > first ? last - first : 0;
+  state.decodeElapsedMs += elapsed;
+  state.currentDecodeFirstDeltaTs = undefined;
+  state.currentDecodeLastDeltaTs = undefined;
+  return elapsed;
+}
+
 function armLiveEstimate(internal: InternalSession, sessionId: string, now: number): void {
+  const prev = internal.liveTokenEstimate;
+  if (prev) closeCurrentDecodeSegment(prev);
   internal.liveTokenEstimate = {
     bucketKey: resolveBucketKey(internal, sessionId),
     estTokensSinceFlush: 0,
     lastFlushTs: now,
+    hasFlushAnchor: false,
     emaTps: undefined,
+    decodeElapsedMs: prev?.decodeElapsedMs ?? 0,
   };
+}
+
+function noteContentDelta(state: InternalSession['liveTokenEstimate'], now: number): void {
+  if (!state) return;
+  state.currentDecodeFirstDeltaTs ??= now;
+  state.currentDecodeLastDeltaTs = now;
 }
 
 export function handleStreamEventForLiveRate(
@@ -73,13 +94,22 @@ export function handleStreamEventForLiveRate(
       return;
     }
 
-    const text = extractDeltaText(streamMsg);
-    if (!text) return;
+    if (streamMsg.event?.type !== 'content_block_delta') return;
     if (!internal.liveTokenEstimate) armLiveEstimate(internal, sessionId, now);
 
     const state = internal.liveTokenEstimate;
     if (!state) return;
+    noteContentDelta(state, now);
+
+    const text = extractDeltaText(streamMsg);
+    if (!text) return;
     state.estTokensSinceFlush += estimateTokensFromText(text);
+
+    if (!state.hasFlushAnchor) {
+      state.hasFlushAnchor = true;
+      state.lastFlushTs = now;
+      return;
+    }
 
     const elapsedMs = now - state.lastFlushTs;
     if (elapsedMs < THROTTLE_MS) return;
@@ -103,6 +133,47 @@ export function handleStreamEventForLiveRate(
     });
   } catch {
     // Display-only estimation must never interrupt SDK message translation.
+  }
+}
+
+export function completeLiveTokenEstimate(
+  internal: InternalSession,
+  sessionId: string,
+  outputTokens: number,
+  now = Date.now(),
+): boolean {
+  try {
+    const state = internal.liveTokenEstimate;
+    const bucketKey = state?.bucketKey ?? resolveBucketKey(internal, sessionId);
+    if (state) closeCurrentDecodeSegment(state);
+
+    const elapsedMs = state?.decodeElapsedMs ?? 0;
+    internal.liveTokenEstimate = undefined;
+
+    if (!Number.isFinite(outputTokens) || outputTokens <= 0 || elapsedMs <= 0) {
+      eventBus.emit('token-rate-tick', {
+        sessionId,
+        bucketKey,
+        tps: 0,
+        ts: now,
+        done: true,
+      });
+      return false;
+    }
+
+    const tps = outputTokens / (elapsedMs / 1000);
+    if (!Number.isFinite(tps) || tps <= 0) return false;
+
+    eventBus.emit('token-rate-tick', {
+      sessionId,
+      bucketKey,
+      tps,
+      ts: now,
+    });
+    return true;
+  } catch {
+    // Same display-only isolation as live tick handling.
+    return false;
   }
 }
 

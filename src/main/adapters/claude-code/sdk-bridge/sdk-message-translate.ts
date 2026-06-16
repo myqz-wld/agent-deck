@@ -25,7 +25,11 @@ import {
 import { isImageTool } from '@shared/mcp-tools';
 import { CLAUDE_DEFAULT_BUCKET, normalizeModel } from '@shared/model-normalize';
 import { AGENT_ID } from './constants';
-import { clearLiveTokenEstimate, handleStreamEventForLiveRate } from './live-token-rate';
+import {
+  clearLiveTokenEstimate,
+  completeLiveTokenEstimate,
+  handleStreamEventForLiveRate,
+} from './live-token-rate';
 import type { InternalSession } from './types';
 
 type EmitFn = (e: AgentEvent) => void;
@@ -169,6 +173,17 @@ function emitResultUsageCorrection(
   } finally {
     internal.turnUsageByBucket.clear();
   }
+}
+
+function resultOutputTokens(r: {
+  usage?: { output_tokens?: number };
+  modelUsage?: Record<string, { outputTokens?: number }>;
+}): number {
+  const entries = Object.values(r.modelUsage ?? {});
+  if (entries.length > 0) {
+    return entries.reduce((sum, usage) => sum + (usage.outputTokens ?? 0), 0);
+  }
+  return r.usage?.output_tokens ?? 0;
 }
 
 /**
@@ -378,8 +393,11 @@ export function translateSdkMessage(
     // (替代 success)。本 L159 已 land 的 `if (internal.expectedClose) return;` 覆盖该 result
     // frame 整段静默路径（不需 Phase 2 新增 skip 逻辑，复核确认 expectedClose 已 land 且覆盖
     // result frame 翻译）。
-    clearLiveTokenEstimate(internal, sessionId, ts);
-    if (internal.expectedClose) return;
+    if (internal.expectedClose) {
+      clearLiveTokenEstimate(internal, sessionId, ts);
+      return;
+    }
+    completeLiveTokenEstimate(internal, sessionId, resultOutputTokens(r), ts);
     emitResultUsageCorrection(e, internal, resolveClaudeFallbackModel(internal, sessionId), r);
     if (r.is_error || (r.subtype && r.subtype !== 'success')) {
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
