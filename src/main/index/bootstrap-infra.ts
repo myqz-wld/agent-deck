@@ -57,6 +57,7 @@ import {
 import { summarizer } from '../session/summarizer';
 import { routeEventToNotification } from '../notify/event-router';
 import { bootstrapIpc } from '../ipc';
+import { prefetchProviderUsageSnapshots } from '../ipc/provider-usage';
 import { loadBundledAssets } from '../bundled-assets';
 import { reapStaleUploads } from '../store/image-uploads';
 import { universalMessageWatcher } from '../teams/universal-message-watcher';
@@ -329,6 +330,10 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
 
   // 8. IPC
   bootstrapIpc();
+
+  // 8.1 数据 tab provider quota 预热：fire-and-forget 填充 main 端 TTL cache。
+  // DataPanel 打开时仍走同一个 IPC handler；若预热未完成则复用 in-flight promise。
+  void prefetchProviderUsageSnapshots();
 
   // 8.5 预热 agent-deck plugin 内置 agents/skills frontmatter 缓存
   try {
