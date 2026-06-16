@@ -7,6 +7,9 @@ import type {
 import { adapterRegistry } from '@main/adapters/registry';
 import { errorUsageSnapshot, unavailableUsageSnapshot } from '@main/adapters/provider-usage';
 import { on } from './_helpers';
+import log from '@main/utils/logger';
+
+const logger = log.scope('provider-usage');
 
 const PROVIDER_ORDER: ReadonlyArray<ProviderUsageProviderId> = [
   'claude-code',
@@ -36,6 +39,14 @@ export async function providerUsageSnapshotHandler(): Promise<ProviderUsageSnaps
     inFlightFetch = null;
   });
   return inFlightFetch;
+}
+
+export async function prefetchProviderUsageSnapshots(): Promise<void> {
+  try {
+    await providerUsageSnapshotHandler();
+  } catch (err) {
+    logger.warn('[provider-usage] startup prefetch failed:', err);
+  }
 }
 
 async function fetchProviderUsageSnapshots(): Promise<ProviderUsageSnapshotResult> {

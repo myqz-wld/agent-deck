@@ -12,6 +12,7 @@ vi.mock('@main/adapters/registry', () => ({ adapterRegistry: mocks.adapterRegist
 import {
   PROVIDER_USAGE_CACHE_TTL_MS,
   _resetProviderUsageCacheForTesting,
+  prefetchProviderUsageSnapshots,
   providerUsageSnapshotHandler,
 } from '../provider-usage';
 
@@ -101,6 +102,18 @@ describe('providerUsageSnapshotHandler cache', () => {
     const [a, b] = await Promise.all([first, second]);
 
     expect(a).toEqual(b);
+    expect(calls['claude-code']).toHaveBeenCalledTimes(1);
+    expect(calls['codex-cli']).toHaveBeenCalledTimes(1);
+    expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(1);
+  });
+
+  it('startup prefetch warms the cache used by later IPC reads', async () => {
+    const calls = setupAdapters();
+
+    await prefetchProviderUsageSnapshots();
+    const result = await providerUsageSnapshotHandler();
+
+    expect(result.snapshots).toHaveLength(3);
     expect(calls['claude-code']).toHaveBeenCalledTimes(1);
     expect(calls['codex-cli']).toHaveBeenCalledTimes(1);
     expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(1);

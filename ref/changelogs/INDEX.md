@@ -280,3 +280,4 @@
 | [CHANGELOG_273.md](CHANGELOG_273.md) | Claude tok/s 保留生成中估算，并在 turn 结束用权威 output tokens / 累计 decode delta 窗口校准。 |
 | [CHANGELOG_274.md](CHANGELOG_274.md) | 数据 tab 无 live 会话时用静默探针读取 Claude/Codex 额度，不发消息或 turn。 |
 | [CHANGELOG_275.md](CHANGELOG_275.md) | 修复额度探针触发 macOS Downloads 权限弹窗与 cwd=/ 幽灵历史会话。 |
+| [CHANGELOG_276.md](CHANGELOG_276.md) | 应用启动时预热 provider 额度缓存，数据 tab 复用 main 端 TTL cache。 |
