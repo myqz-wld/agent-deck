@@ -271,3 +271,4 @@
 | [CHANGELOG_264.md](CHANGELOG_264.md) | Claude Agent SDK 升到 0.3.177；Codex 0.139.0 与 Anthropic SDK 0.104.1 已是 latest 稳定版。 |
 | [CHANGELOG_265.md](CHANGELOG_265.md) | AskUserQuestion 卡片新增每题备注输入，并随选项/其他答案一起回传给 Claude。 |
 | [CHANGELOG_266.md](CHANGELOG_266.md) | 设置/资产库/数据 tab 文案用户化；Codex 默认请求并汇总 reasoning summary。 |
+| [CHANGELOG_267.md](CHANGELOG_267.md) | Claude Agent SDK 升到 0.3.178，Anthropic SDK 升到 0.104.2，Codex 升到 0.140.0。 |
