@@ -1,5 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodexSdkBridge } from '../sdk-bridge';
+import { readCodexUsageSnapshotInBackground } from '../usage-snapshot';
+
+vi.mock('../usage-snapshot', () => ({
+  readCodexUsageSnapshotInBackground: vi.fn().mockResolvedValue({
+    provider: 'codex-cli',
+    label: 'Codex',
+    status: 'ok',
+    windows: [],
+    updatedAt: 123,
+  }),
+}));
 
 function makeBridge(): CodexSdkBridge {
   return new CodexSdkBridge({ emit: vi.fn() });
@@ -12,17 +23,21 @@ function setCodexClients(bridge: CodexSdkBridge, clients: unknown[]): void {
 }
 
 describe('CodexSdkBridge getUsageSnapshot', () => {
-  it('does not start a Codex app-server when no client exists', async () => {
+  beforeEach(() => {
+    vi.mocked(readCodexUsageSnapshotInBackground).mockClear();
+  });
+
+  it('uses the background usage probe when no client exists', async () => {
     const snapshot = await makeBridge().getUsageSnapshot();
 
     expect(snapshot).toMatchObject({
       provider: 'codex-cli',
-      status: 'unavailable',
-      message: '先打开一个 Codex 会话后，再查看额度信息',
+      status: 'ok',
     });
+    expect(readCodexUsageSnapshotInBackground).toHaveBeenCalledTimes(1);
   });
 
-  it('skips cached clients whose app-server process is not alive', async () => {
+  it('skips cached clients whose app-server process is not alive and uses the probe', async () => {
     const bridge = makeBridge();
     const request = vi.fn();
     setCodexClients(bridge, [{ isProcessAlive: false, request }]);
@@ -30,7 +45,8 @@ describe('CodexSdkBridge getUsageSnapshot', () => {
     const snapshot = await bridge.getUsageSnapshot();
 
     expect(request).not.toHaveBeenCalled();
-    expect(snapshot.status).toBe('unavailable');
+    expect(snapshot.status).toBe('ok');
+    expect(readCodexUsageSnapshotInBackground).toHaveBeenCalledTimes(1);
   });
 
   it('reads rate limits through an already alive app-server client', async () => {
@@ -52,5 +68,6 @@ describe('CodexSdkBridge getUsageSnapshot', () => {
       status: 'ok',
     });
     expect(snapshot.windows[0]?.usedPercent).toBe(12);
+    expect(readCodexUsageSnapshotInBackground).not.toHaveBeenCalled();
   });
 });

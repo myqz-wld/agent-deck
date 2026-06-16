@@ -45,9 +45,9 @@ import { CodexAppServerClient } from '../app-server/client';
 import {
   buildCodexUsageSnapshot,
   errorUsageSnapshot,
-  unavailableUsageSnapshot,
   type CodexAccountRateLimitsResponseLike,
 } from '../../provider-usage';
+import { readCodexUsageSnapshotInBackground } from '../usage-snapshot';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-bridge');
@@ -244,13 +244,7 @@ export class CodexSdkBridge {
     const codex = [...this.codexBySession.values()]
       .reverse()
       .find((client) => client.isProcessAlive);
-    if (!codex) {
-      return unavailableUsageSnapshot(
-        'codex-cli',
-        'Codex',
-        '先打开一个 Codex 会话后，再查看额度信息',
-      );
-    }
+    if (!codex) return readCodexUsageSnapshotInBackground();
     try {
       const response = await codex.request<CodexAccountRateLimitsResponseLike>(
         'account/rateLimits/read',
