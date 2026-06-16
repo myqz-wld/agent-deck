@@ -276,3 +276,4 @@
 | [CHANGELOG_269.md](CHANGELOG_269.md) | 统一应用内下拉框暗色样式，并修复会话详情横向滚动。 |
 | [CHANGELOG_270.md](CHANGELOG_270.md) | 应用内下拉改为自绘弹出列表，设置数字框隐藏原生加减按钮。 |
 | [CHANGELOG_271.md](CHANGELOG_271.md) | 修复会话页底部下拉列表向上展开时漂到应用中部的问题。 |
+| [CHANGELOG_272.md](CHANGELOG_272.md) | 去掉自绘下拉间隔，并修复会话详情向上展开时的贴齐问题。 |
