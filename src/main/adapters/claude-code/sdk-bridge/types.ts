@@ -72,7 +72,11 @@ export interface LiveTokenEstimateState {
   bucketKey: string;
   estTokensSinceFlush: number;
   lastFlushTs: number;
+  hasFlushAnchor: boolean;
   emaTps?: number;
+  decodeElapsedMs: number;
+  currentDecodeFirstDeltaTs?: number;
+  currentDecodeLastDeltaTs?: number;
 }
 
 export interface InternalSession {

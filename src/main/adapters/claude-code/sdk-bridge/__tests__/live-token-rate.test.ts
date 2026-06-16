@@ -9,6 +9,7 @@ import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import {
   clearLiveTokenEstimate,
+  completeLiveTokenEstimate,
   estimateTokensFromText,
   handleStreamEventForLiveRate,
 } from '../live-token-rate';
@@ -34,7 +35,7 @@ describe('live-token-rate', () => {
     expect(estimateTokensFromText('ab 你好')).toBeCloseTo(2 / 4 + 2 / 1.7, 6);
   });
 
-  it('content_block_delta 节流后 emit token-rate-tick', () => {
+  it('content_block_delta 从首个 delta 开始计时并节流 emit token-rate-tick', () => {
     const internal = makeInternalSession({ cwd: '/tmp', applicationSid: 'sid-1' });
 
     handleStreamEventForLiveRate(internal, 'sid-1', streamEvent({ type: 'message_start' }), 1000);
@@ -50,7 +51,7 @@ describe('live-token-rate', () => {
       internal,
       'sid-1',
       streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
-      1300,
+      1400,
     );
 
     expect(emitMock).toHaveBeenCalledTimes(1);
@@ -59,9 +60,80 @@ describe('live-token-rate', () => {
     expect(payload).toMatchObject({
       sessionId: 'sid-1',
       bucketKey: 'opus-4.8',
-      ts: 1300,
+      ts: 1400,
     });
     expect(payload.tps).toBeCloseTo(4 / 0.3, 6);
+  });
+
+  it('turn 结束用权威 output_tokens / content delta 窗口发校准 tick', () => {
+    const internal = makeInternalSession({ cwd: '/tmp', applicationSid: 'sid-1' });
+
+    handleStreamEventForLiveRate(internal, 'sid-1', streamEvent({ type: 'message_start' }), 1000);
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
+      1200,
+    );
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
+      1700,
+    );
+    emitMock.mockClear();
+
+    const emitted = completeLiveTokenEstimate(internal, 'sid-1', 100, 1800);
+
+    expect(emitted).toBe(true);
+    expect(emitMock).toHaveBeenCalledWith('token-rate-tick', {
+      sessionId: 'sid-1',
+      bucketKey: 'opus-4.8',
+      tps: 100 / 0.5,
+      ts: 1800,
+    });
+    expect(internal.liveTokenEstimate).toBeUndefined();
+  });
+
+  it('多段 assistant 输出累计 decode 窗口但排除工具等待空档', () => {
+    const internal = makeInternalSession({ cwd: '/tmp', applicationSid: 'sid-1' });
+
+    handleStreamEventForLiveRate(internal, 'sid-1', streamEvent({ type: 'message_start' }), 1000);
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcd' } }),
+      1100,
+    );
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcd' } }),
+      1300,
+    );
+    handleStreamEventForLiveRate(internal, 'sid-1', streamEvent({ type: 'message_start' }), 5000);
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'input_json_delta' } }),
+      5200,
+    );
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'input_json_delta' } }),
+      5700,
+    );
+    emitMock.mockClear();
+
+    completeLiveTokenEstimate(internal, 'sid-1', 70, 5800);
+
+    expect(emitMock).toHaveBeenCalledWith('token-rate-tick', {
+      sessionId: 'sid-1',
+      bucketKey: 'opus-4.8',
+      tps: 70 / 0.7,
+      ts: 5800,
+    });
   });
 
   it('clearLiveTokenEstimate 发 done tick 清 renderer live 展示态', () => {
@@ -88,7 +160,13 @@ describe('live-token-rate', () => {
       internal,
       'sid-1',
       streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
-      1300,
+      1100,
+    );
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
+      1400,
     );
 
     expect(emitMock).toHaveBeenCalledWith(
