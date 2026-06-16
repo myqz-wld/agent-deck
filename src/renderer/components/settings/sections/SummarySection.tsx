@@ -65,6 +65,7 @@ function ModelInput({
 
 type Provider = AppSettings['summaryProvider'];
 type Reasoning = 'minimal' | 'low' | 'medium' | 'high';
+type ModelPurpose = 'summary' | 'handoff';
 
 const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
   { value: 'claude', label: 'Claude' },
@@ -78,6 +79,26 @@ const REASONING_OPTIONS: { value: Reasoning; label: string }[] = [
   { value: 'medium', label: 'MEDIUM' },
   { value: 'high', label: 'HIGH' },
 ];
+
+function buildModelPlaceholder(purpose: ModelPurpose, provider: Provider): string {
+  if (provider === 'codex') return '留空使用 Codex 配置默认模型';
+  if (provider === 'deepseek') {
+    return purpose === 'summary' ? '留空使用 Deepseek Haiku' : '留空使用 Deepseek Sonnet';
+  }
+  return purpose === 'summary' ? '留空使用 Claude Haiku' : '留空使用 Claude Sonnet';
+}
+
+function buildModelHint(purpose: ModelPurpose, provider: Provider): string {
+  if (provider === 'codex') return '模型留空时使用 Codex 配置里的默认模型。';
+  if (provider === 'deepseek') {
+    return purpose === 'summary'
+      ? '模型留空时使用 Deepseek Haiku 默认模型。'
+      : '模型留空时使用 Deepseek Sonnet 默认模型。';
+  }
+  return purpose === 'summary'
+    ? '模型留空时使用 Claude Haiku。'
+    : '模型留空时使用 Claude Sonnet。';
+}
 
 /**
  * plan prancy-forging-penguin: provider × model × reasoning 三联控件。
@@ -179,22 +200,22 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
       />
       <ModelRow
         label="周期性总结"
-        hint="模型留空时使用默认的快速总结模型；Thinking level 只影响 Codex。"
+        hint={buildModelHint('summary', settings.summaryProvider)}
         provider={settings.summaryProvider}
         model={settings.summaryModel}
         reasoning={settings.summaryReasoning}
-        modelPlaceholder="留空使用快速默认模型"
+        modelPlaceholder={buildModelPlaceholder('summary', settings.summaryProvider)}
         onProviderChange={(v) => void update({ summaryProvider: v })}
         onModelChange={(v) => void update({ summaryModel: v })}
         onReasoningChange={(v) => void update({ summaryReasoning: v })}
       />
       <ModelRow
         label="Hand-off 简报"
-        hint="生成接力简报（目标 / 已做 / 下一步 / 相关文件）；模型留空时使用默认模型，Thinking level 只影响 Codex。"
+        hint={buildModelHint('handoff', settings.handOffProvider)}
         provider={settings.handOffProvider}
         model={settings.handOffModel}
         reasoning={settings.handOffReasoning}
-        modelPlaceholder="留空使用结构化默认模型"
+        modelPlaceholder={buildModelPlaceholder('handoff', settings.handOffProvider)}
         onProviderChange={(v) => void update({ handOffProvider: v })}
         onModelChange={(v) => void update({ handOffModel: v })}
         onReasoningChange={(v) => void update({ handOffReasoning: v })}
