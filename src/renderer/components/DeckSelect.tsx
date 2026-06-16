@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type JSX,
@@ -34,10 +35,13 @@ interface MenuStyle {
   top: number;
   width: number;
   maxHeight: number;
+  placement: 'up' | 'down';
 }
 
 const DEFAULT_BUTTON_CLASS =
   'w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50';
+const MENU_GAP = 0;
+const VIEWPORT_PADDING = 8;
 
 function estimateMenuHeight<T extends string>(options: readonly DeckSelectOption<T>[]): number {
   if (options.length === 0) return 34;
@@ -74,22 +78,20 @@ export function DeckSelect<T extends string>({
     const button = buttonRef.current;
     if (!button) return;
     const rect = button.getBoundingClientRect();
-    const gap = 4;
-    const viewportPadding = 8;
     const preferredMaxHeight = 260;
     const estimatedHeight = Math.min(preferredMaxHeight, estimateMenuHeight(options));
-    const spaceBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
-    const spaceAbove = rect.top - viewportPadding - gap;
+    const spaceBelow = window.innerHeight - rect.bottom - VIEWPORT_PADDING - MENU_GAP;
+    const spaceAbove = rect.top - VIEWPORT_PADDING - MENU_GAP;
     const openUp = spaceBelow < 150 && spaceAbove > spaceBelow;
     const available = Math.max(120, openUp ? spaceAbove : spaceBelow);
     const maxHeight = Math.min(estimatedHeight, available);
     const width = Math.max(rect.width, menuMinWidth);
-    const maxLeft = Math.max(viewportPadding, window.innerWidth - width - viewportPadding);
-    const left = Math.min(Math.max(viewportPadding, rect.left), maxLeft);
+    const maxLeft = Math.max(VIEWPORT_PADDING, window.innerWidth - width - VIEWPORT_PADDING);
+    const left = Math.min(Math.max(VIEWPORT_PADDING, rect.left), maxLeft);
     const top = openUp
-      ? Math.max(viewportPadding, rect.top - gap - maxHeight)
-      : Math.min(rect.bottom + gap, window.innerHeight - viewportPadding - maxHeight);
-    setMenuStyle({ left, top, width, maxHeight });
+      ? Math.max(VIEWPORT_PADDING, rect.top - MENU_GAP - maxHeight)
+      : Math.min(rect.bottom + MENU_GAP, window.innerHeight - VIEWPORT_PADDING - maxHeight);
+    setMenuStyle({ left, top, width, maxHeight, placement: openUp ? 'up' : 'down' });
   };
 
   const openMenu = (): void => {
@@ -141,6 +143,19 @@ export function DeckSelect<T extends string>({
     // open lifecycle only; geometry reads from refs and latest selected index on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !menuStyle || menuStyle.placement !== 'up') return;
+    const button = buttonRef.current;
+    const menu = menuRef.current;
+    if (!button || !menu) return;
+    const rect = button.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const nextTop = Math.max(VIEWPORT_PADDING, rect.top - MENU_GAP - menuRect.height);
+    if (Math.abs(nextTop - menuStyle.top) > 0.5) {
+      setMenuStyle({ ...menuStyle, top: nextTop });
+    }
+  }, [open, menuStyle]);
 
   return (
     <div className={`relative ${className}`}>
