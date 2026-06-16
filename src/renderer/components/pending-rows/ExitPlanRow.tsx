@@ -95,7 +95,7 @@ export function ExitPlanRow({
 
   return (
     <li
-      className={`rounded-md border p-2 text-[11px] ${
+      className={`min-w-0 rounded-md border p-2 text-[11px] ${
         stillPending
           ? 'border-status-working/40 bg-status-working/10'
           : wasCancelled
@@ -103,7 +103,7 @@ export function ExitPlanRow({
             : 'border-deck-border/60 bg-white/[0.02] opacity-70'
       }`}
     >
-      <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+      <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px]">
         <span
           className={
             stillPending
@@ -131,7 +131,7 @@ export function ExitPlanRow({
         )}
         <span className="font-mono tabular-nums text-deck-muted/60">{ts}</span>
         {stillPending && isSdk && (
-          <div className="ml-auto flex flex-wrap items-center gap-1">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-1">
             {!isMcpPlanReview && (
               <select
                 value={targetMode}
@@ -250,7 +250,7 @@ function PlanMarkdownPanel({ plan }: { plan: string }): JSX.Element {
   );
 
   return (
-    <div className="rounded border border-deck-border/40 bg-black/20 p-2">
+    <div className="min-w-0 rounded border border-deck-border/40 bg-black/20 p-2">
       <div
         className={`min-h-0 ${
           isLong && !expanded ? 'max-h-[42vh] overflow-auto scrollbar-deck pr-1' : ''

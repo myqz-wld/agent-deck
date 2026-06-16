@@ -160,7 +160,7 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
 
   return (
     <ol
-      className="flex flex-col gap-1.5 select-text"
+      className="flex min-w-0 flex-col gap-1.5 select-text"
       role="log"
       aria-live="polite"
       aria-relevant="additions"

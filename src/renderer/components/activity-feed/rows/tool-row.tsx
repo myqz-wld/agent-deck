@@ -55,14 +55,14 @@ export function ToolStartRow({
         ? (p.toolInput as { plan: string }).plan
         : '';
     return (
-      <li className="rounded-md border border-status-working/30 bg-status-working/[0.06] p-2 text-[11px]">
+      <li className="min-w-0 rounded-md border border-status-working/30 bg-status-working/[0.06] p-2 text-[11px]">
         <div
           role={hasInput ? 'button' : undefined}
           tabIndex={hasInput ? 0 : undefined}
           aria-expanded={hasInput ? inputOpen : undefined}
           onClick={handleInputHeaderClick}
           onKeyDown={handleInputHeaderKeyDown}
-          className={`mb-1 flex items-center gap-1.5 text-[10px] ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-status-working/60' : ''}`}
+          className={`mb-1 flex min-w-0 items-center gap-1.5 text-[10px] ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-status-working/60' : ''}`}
         >
           {hasInput && <span className="text-deck-muted/70">{inputOpen ? '▾' : '▸'}</span>}
           <span>{toolIcon('ExitPlanMode')}</span>
@@ -93,21 +93,21 @@ export function ToolStartRow({
     const promptShort = taskPrompt.replace(/\s+/g, ' ').trim().slice(0, 80) + (taskPrompt.length > 80 ? '…' : '');
     const canExpand = taskPrompt.length > 0;
     return (
-      <li className="rounded-md border border-status-working/30 bg-status-working/[0.04] p-2 text-[11px]">
+      <li className="min-w-0 rounded-md border border-status-working/30 bg-status-working/[0.04] p-2 text-[11px]">
         <div
           role={hasInput ? 'button' : undefined}
           tabIndex={hasInput ? 0 : undefined}
           aria-expanded={hasInput ? inputOpen : undefined}
           onClick={handleInputHeaderClick}
           onKeyDown={handleInputHeaderKeyDown}
-          className={`flex items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-status-working/60' : ''}`}
+          className={`flex min-w-0 items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-status-working/60' : ''}`}
         >
           {hasInput && <span className="text-deck-muted/70">{inputOpen ? '▾' : '▸'}</span>}
           <span>{toolIcon(tool)}</span>
           <span className="font-mono">{tool}</span>
           {subType && (
             <span
-              className="rounded bg-status-working/20 px-1 py-0.5 font-mono text-[9px] text-status-working"
+              className="min-w-0 truncate rounded bg-status-working/20 px-1 py-0.5 font-mono text-[9px] text-status-working"
               title={`subagent_type: ${subType}`}
             >
               → {subType}
@@ -146,18 +146,18 @@ export function ToolStartRow({
   }
 
   return (
-    <li className="rounded-md border border-deck-border/60 bg-white/[0.02] p-2 text-[11px]">
+    <li className="min-w-0 rounded-md border border-deck-border/60 bg-white/[0.02] p-2 text-[11px]">
       <div
         role={hasInput ? 'button' : undefined}
         tabIndex={hasInput ? 0 : undefined}
         aria-expanded={hasInput ? inputOpen : undefined}
         onClick={handleInputHeaderClick}
         onKeyDown={handleInputHeaderKeyDown}
-        className={`flex items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-deck-accent/60' : ''}`}
+        className={`flex min-w-0 items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-deck-accent/60' : ''}`}
       >
         {hasInput && <span className="text-deck-muted/70">{inputOpen ? '▾' : '▸'}</span>}
         <span>{toolIcon(tool)}</span>
-        <span className="font-mono">{tool}</span>
+        <span className="min-w-0 truncate font-mono">{tool}</span>
         {detail && <span className="truncate text-[10px] text-deck-muted">· {detail}</span>}
         {diff && (
           <button
@@ -234,8 +234,8 @@ export function ToolEndRow({
 
   // 失败：红色边框 + 浅红背景，与 status-error 色对齐（与 SessionDetail 错误消息同色）
   const containerClass = isFailed
-    ? 'rounded-md border border-status-error/40 bg-status-error/[0.05] p-2 text-[11px]'
-    : 'rounded-md border border-deck-border/40 bg-white/[0.015] p-2 text-[11px]';
+    ? 'min-w-0 rounded-md border border-status-error/40 bg-status-error/[0.05] p-2 text-[11px]'
+    : 'min-w-0 rounded-md border border-deck-border/40 bg-white/[0.015] p-2 text-[11px]';
 
   return (
     <li className={containerClass}>
@@ -243,10 +243,10 @@ export function ToolEndRow({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 text-left"
+        className="flex min-w-0 w-full items-center gap-1.5 text-left"
       >
         <span>{open ? '▾' : '▸'}</span>
-        <span>
+        <span className="min-w-0 truncate">
           {imageRead ? '🖼 ImageRead' : `${toolIcon(tool)} ${tool}`}{' '}
           {isFailed ? (
             <span className="text-status-error/90">失败</span>

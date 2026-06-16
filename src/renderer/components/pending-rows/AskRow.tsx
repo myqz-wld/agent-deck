@@ -87,7 +87,7 @@ export function AskRow({
 
   return (
     <li
-      className={`rounded-md border p-2 text-[11px] ${
+      className={`min-w-0 rounded-md border p-2 text-[11px] ${
         stillPending
           ? 'border-status-working/40 bg-status-working/10'
           : wasCancelled
@@ -95,7 +95,7 @@ export function AskRow({
             : 'border-deck-border/60 bg-white/[0.02] opacity-70'
       }`}
     >
-      <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+      <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px]">
         <span
           className={
             stillPending
@@ -129,12 +129,12 @@ export function AskRow({
           </button>
         )}
       </div>
-      <div className="flex flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-2">
         {payload.questions.map((q, qi) => {
           const sel = selections[q.question]?.selected ?? [];
           return (
-            <div key={qi}>
-              <div className="mb-1 text-[11px] text-deck-text">{q.question}</div>
+            <div key={qi} className="min-w-0">
+              <div className="mb-1 break-words text-[11px] text-deck-text">{q.question}</div>
               <div className="flex flex-wrap gap-1">
                 {q.options.map((opt) => {
                   const isSel = sel.includes(opt.label);
@@ -145,7 +145,7 @@ export function AskRow({
                       disabled={!isSdk || !stillPending || busy}
                       onClick={() => toggle(q, opt.label)}
                       title={opt.description}
-                      className={`rounded border px-2 py-0.5 text-[10px] disabled:opacity-50 ${
+                      className={`max-w-full break-words rounded border px-2 py-0.5 text-[10px] disabled:opacity-50 ${
                         isSel
                           ? 'border-status-working/60 bg-status-working/30 text-status-working'
                           : 'border-deck-border bg-white/[0.04] text-deck-muted hover:bg-white/[0.08]'
