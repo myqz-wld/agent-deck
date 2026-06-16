@@ -8,12 +8,12 @@
  *   也回到 before 状态，再重抛
  * - warn* 只是 console.warn，没运行时副作用，不进 rollback
  */
-import { app } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { getFloatingWindow } from '@main/window';
 import { settingsStore } from '@main/store/settings-store';
 import { adapterRegistry } from '@main/adapters/registry';
+import { syncLoginItemSetting } from '@main/login-item';
 import { getLifecycleScheduler } from '@main/session/lifecycle-scheduler';
 import { getIssueLifecycleScheduler } from '@main/store/issue-lifecycle-scheduler';
 import { getMessageLifecycleScheduler } from '@main/store/message-lifecycle-scheduler';
@@ -96,12 +96,7 @@ function applyLoginItem(p: Partial<AppSettings>, next: AppSettings): void {
   // dev 模式跳过：未签名的 Electron 二进制，macOS 13+ 直接拒绝写入登录项，
   // 错误是原生层 LOG(ERROR) 打到 stderr，try/catch 接不住。
   if (!('startOnLogin' in p) || is.dev) return;
-  if (process.platform === 'darwin' || process.platform === 'win32') {
-    app.setLoginItemSettings({
-      openAtLogin: next.startOnLogin,
-      openAsHidden: false,
-    });
-  }
+  syncLoginItemSetting(next.startOnLogin);
 }
 
 function applyAlwaysOnTop(p: Partial<AppSettings>, next: AppSettings): void {
