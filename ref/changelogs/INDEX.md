@@ -275,3 +275,4 @@
 | [CHANGELOG_268.md](CHANGELOG_268.md) | 周期性总结与 Hand-off 简报按来源提示模型名留空时的默认模型。 |
 | [CHANGELOG_269.md](CHANGELOG_269.md) | 统一应用内下拉框暗色样式，并修复会话详情横向滚动。 |
 | [CHANGELOG_270.md](CHANGELOG_270.md) | 应用内下拉改为自绘弹出列表，设置数字框隐藏原生加减按钮。 |
+| [CHANGELOG_271.md](CHANGELOG_271.md) | 修复会话页底部下拉列表向上展开时漂到应用中部的问题。 |
