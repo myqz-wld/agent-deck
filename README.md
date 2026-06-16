@@ -222,7 +222,7 @@ agent-deck new \
 
 - **会话**
   - **生命周期**：active 窗口（分钟）/ closed 阈值（小时）/ 权限请求超时（分钟；默认 30，0=不超时，超时按 deny + interrupt 处理）/ 历史会话保留天数 / **断连恢复注入对话条数**（默认 30；jsonl 丢失走 fresh CLI/thread 续聊时，除 LLM 总结外额外注入 DB 最近 N 条原始对话消息，预算式拼接故实际条数 ≤ 设定值）/ 已解决 issue / 软删 issue 保留天数 / **跨会话消息保留天数**（默认 30，0=关闭；pending/delivering 在途消息永不删）
-  - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时 / 周期性总结和 Hand-off 简报的模型来源、模型名与 Thinking level。模型来源支持 Claude / Deepseek / Codex；Thinking level 只影响 Codex
+  - **间歇总结**：触发间隔 / 触发事件数 / 同时跑总结上限 / 单次 LLM 超时 / 周期性总结和 Hand-off 简报的模型来源、模型名与 Thinking level。模型来源支持 Claude / Deepseek / Codex；模型名留空时设置页会按当前来源提示默认模型（Claude / Deepseek 周期性总结默认 Haiku、Hand-off 默认 Sonnet，Codex 使用配置里的默认模型）；Thinking level 只影响 Codex
 - **提醒与外观**
   - **提醒**：声音开关、聚焦时静音、系统通知开关、自定义 waiting / finished 提示音（mp3 / wav / aiff / m4a / ogg / flac，带试听 + 重置）
   - **窗口**：置顶时透明（看到下层桌面，默认开；关掉则置顶时仍是 macOS under-window 实玻璃，Windows 等其他平台无 vibrancy 效果）/ 开机自启
