@@ -73,10 +73,10 @@ export function PermissionRow({
       : 'text-status-working/80';
 
   return (
-    <li className={`rounded-md border p-2 text-[11px] ${cardClass}`}>
-      <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+    <li className={`min-w-0 rounded-md border p-2 text-[11px] ${cardClass}`}>
+      <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px]">
         <span className={statusColor}>{statusText}</span>
-        <span className="font-mono">{payload.toolName}</span>
+        <span className="min-w-0 truncate font-mono">{payload.toolName}</span>
         <span className="font-mono tabular-nums text-deck-muted/60">{ts}</span>
         {stillPending && isSdk && (
           <div className="ml-auto flex flex-wrap gap-1">
@@ -114,7 +114,7 @@ export function PermissionRow({
           <DiffViewer payload={diff} sessionId={sessionId} />
         </div>
       ) : (
-        <pre className="max-h-24 overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
+        <pre className="max-h-24 max-w-full overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
           {JSON.stringify(payload.toolInput, null, 2)}
         </pre>
       )}

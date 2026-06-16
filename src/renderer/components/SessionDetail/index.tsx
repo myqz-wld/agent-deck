@@ -284,7 +284,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const canSteerTurn = session.agentId === 'codex-cli';
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-3 py-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -357,7 +357,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         ))}
       </nav>
 
-      <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
+      <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-deck px-3 py-2">
         {tab === 'activity' && (
           <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} />
         )}

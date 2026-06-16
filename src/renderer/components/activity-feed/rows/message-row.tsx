@@ -155,7 +155,7 @@ export function MessageBubble({
 
   return (
     <li className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex max-w-[88%] flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex min-w-0 max-w-[88%] flex-col ${isUser ? 'items-end' : 'items-start'}`}>
         <div
           className={`mb-0.5 flex items-center gap-1 text-[9px] ${
             isUser ? 'text-status-working/80' : 'text-deck-muted/70'
@@ -218,7 +218,7 @@ export function MessageBubble({
           )}
         </div>
         <div
-          className={`break-words rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed ${
+          className={`min-w-0 max-w-full break-words rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed ${
             renderAsMarkdown ? '' : 'whitespace-pre-wrap'
           } ${
             isLong && !expanded ? 'max-h-72 overflow-auto scrollbar-deck' : ''

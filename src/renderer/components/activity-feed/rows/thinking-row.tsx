@@ -34,7 +34,7 @@ export function ThinkingBubble({
 
   return (
     <li className="flex justify-start">
-      <div className="flex max-w-[88%] flex-col items-start">
+      <div className="flex min-w-0 max-w-[88%] flex-col items-start">
         <div className="mb-0.5 flex items-center gap-1 text-[9px] text-deck-muted/60">
           <span>{otherName}</span>
           <span className="text-deck-muted/40">·</span>
@@ -68,7 +68,7 @@ export function ThinkingBubble({
           )}
         </div>
         <div
-          className={`break-words rounded-lg border border-dashed border-deck-border/40 bg-white/[0.02] px-2.5 py-1.5 text-[11px] italic leading-relaxed text-deck-muted ${
+          className={`min-w-0 max-w-full break-words rounded-lg border border-dashed border-deck-border/40 bg-white/[0.02] px-2.5 py-1.5 text-[11px] italic leading-relaxed text-deck-muted ${
             renderAsMarkdown ? '' : 'whitespace-pre-wrap'
           } ${isLong && !expanded ? 'max-h-56 overflow-auto scrollbar-deck' : ''}`}
         >
