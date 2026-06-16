@@ -197,7 +197,7 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
     return unsupportedUsageSnapshot(
       'deepseek-claude-code',
       'Deepseek',
-      'Deepseek 走 API 通道，暂不支持读取订阅窗口',
+      'Deepseek 暂不支持读取额度信息',
     );
   }
 

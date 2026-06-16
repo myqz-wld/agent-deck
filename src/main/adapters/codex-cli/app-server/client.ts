@@ -535,6 +535,12 @@ function buildThreadConfig(
   if (options.modelReasoningEffort !== undefined) {
     config.model_reasoning_effort = options.modelReasoningEffort;
   }
+  if (
+    options.modelReasoningSummary !== undefined &&
+    config.model_reasoning_summary === undefined
+  ) {
+    config.model_reasoning_summary = options.modelReasoningSummary;
+  }
   if (options.networkAccessEnabled !== undefined || options.additionalDirectories !== undefined) {
     const workspace =
       config.sandbox_workspace_write &&

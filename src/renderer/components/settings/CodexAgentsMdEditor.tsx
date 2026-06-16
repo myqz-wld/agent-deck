@@ -56,7 +56,7 @@ export function CodexAgentsMdEditor({ onDirtyChange }: CodexAgentsMdEditorProps)
       const written = await window.api.saveCodexAgentsMd(draft);
       setLoaded({ content: written.content, isCustom: written.isCustom });
       if (written.content !== draft) setDraft(written.content);
-      setSavedHint('已保存。下次新建 Codex 会话会通过 developerInstructions 注入新内容。');
+      setSavedHint('已保存。下次新建 Codex 会话会自动使用新内容。');
     } catch (err) {
       setError(`保存失败：${(err as Error).message ?? String(err)}`);
     } finally {
@@ -100,7 +100,7 @@ export function CodexAgentsMdEditor({ onDirtyChange }: CodexAgentsMdEditorProps)
     <div className="flex flex-col gap-1.5 text-[11px]">
       <div className="text-[10px] text-deck-muted/70 leading-snug">
         {loaded?.isCustom ? '当前为用户自定义副本（覆盖内置）' : '当前为应用内置默认'}
-        ，通过 app-server developerInstructions 注入应用内 Codex 会话。改动仅对「下次新建 Codex 会话」生效。
+        ，会随新建的 Codex 会话自动加载。改动仅对「下次新建 Codex 会话」生效。
       </div>
       <textarea
         value={draft}

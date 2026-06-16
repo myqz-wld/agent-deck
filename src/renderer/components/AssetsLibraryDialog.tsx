@@ -443,7 +443,7 @@ function ClaudeMdTab({
         aria-hidden={adapter !== 'claude-code'}
       >
         <div className="text-[10px] leading-snug text-deck-muted/70">
-          应用内置的 CLAUDE.md,会拼接到每个 Claude 会话的系统提示末尾。改动只对新建会话生效。
+          应用内置的 CLAUDE.md，会随新建的 Claude 会话自动加载。改动只对新建会话生效。
         </div>
         <ClaudeMdEditor key={resetKeys['claude-code']} onDirtyChange={onClaudeDirty} />
       </div>
@@ -452,7 +452,7 @@ function ClaudeMdTab({
         aria-hidden={adapter !== 'codex-cli'}
       >
         <div className="text-[10px] leading-snug text-deck-muted/70">
-          应用内置的 CODEX_AGENTS.md,会通过 app-server developerInstructions 注入应用内 Codex 会话。改动只对新建 Codex 会话生效。
+          应用内置的 CODEX_AGENTS.md，会随新建的 Codex 会话自动加载。改动只对新建 Codex 会话生效。
         </div>
         <CodexAgentsMdEditor key={resetKeys['codex-cli']} onDirtyChange={onCodexDirty} />
       </div>

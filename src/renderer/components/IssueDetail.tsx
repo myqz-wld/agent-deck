@@ -300,9 +300,9 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
               disabled={isDeleted || saving}
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
             >
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
+              <option value="low">LOW</option>
+              <option value="medium">MEDIUM</option>
+              <option value="high">HIGH</option>
             </select>
           </Field>
           <Field label="类型">

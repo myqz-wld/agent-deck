@@ -270,3 +270,4 @@
 | [CHANGELOG_263.md](CHANGELOG_263.md) | SessionDetail 工具行改为点 start 展开入参、点 end 展开出参，并移除「查看入参」按钮。 |
 | [CHANGELOG_264.md](CHANGELOG_264.md) | Claude Agent SDK 升到 0.3.177；Codex 0.139.0 与 Anthropic SDK 0.104.1 已是 latest 稳定版。 |
 | [CHANGELOG_265.md](CHANGELOG_265.md) | AskUserQuestion 卡片新增每题备注输入，并随选项/其他答案一起回传给 Claude。 |
+| [CHANGELOG_266.md](CHANGELOG_266.md) | 设置/资产库/数据 tab 文案用户化；Codex 默认请求并汇总 reasoning summary。 |

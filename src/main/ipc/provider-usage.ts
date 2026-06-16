@@ -61,10 +61,10 @@ async function readAdapterSnapshot(
   const label = PROVIDER_LABELS[provider];
   const adapter = adapterRegistry.get(provider);
   if (!adapter) {
-    return unavailableUsageSnapshot(provider, label, `${label} adapter 尚未注册`);
+    return unavailableUsageSnapshot(provider, label, `${label} 暂时无法读取额度信息`);
   }
   if (!adapter.getUsageSnapshot) {
-    return unavailableUsageSnapshot(provider, label, `${label} 暂无用量读取入口`);
+    return unavailableUsageSnapshot(provider, label, `${label} 暂不支持读取额度信息`);
   }
   try {
     return await adapter.getUsageSnapshot();

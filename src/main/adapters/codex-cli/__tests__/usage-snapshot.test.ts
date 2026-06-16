@@ -18,7 +18,7 @@ describe('CodexSdkBridge getUsageSnapshot', () => {
     expect(snapshot).toMatchObject({
       provider: 'codex-cli',
       status: 'unavailable',
-      message: '需要已有 Codex 会话才能读取额度窗口',
+      message: '先打开一个 Codex 会话后，再查看额度信息',
     });
   });
 

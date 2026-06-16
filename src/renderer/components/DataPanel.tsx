@@ -70,8 +70,8 @@ export function DataPanel(): JSX.Element {
         if (!cancelled) {
           setProviderUsageSuccess(result.snapshots);
         }
-      } catch (err) {
-        if (!cancelled) setProviderUsageError(err instanceof Error ? err.message : String(err));
+      } catch {
+        if (!cancelled) setProviderUsageError('额度信息读取失败，请稍后重试');
       } finally {
         if (showLoading) setProviderUsageLoading(false);
       }
@@ -121,7 +121,7 @@ export function DataPanel(): JSX.Element {
 
   return (
     <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2 text-[11px]">
-      {/* Provider 订阅窗口用量 */}
+      {/* 订阅额度窗口 */}
       <section className="mb-3">
         <div className="mb-1 flex items-center gap-2 text-deck-muted">
           <span className="font-medium text-deck-text">额度窗口</span>
@@ -148,7 +148,7 @@ export function DataPanel(): JSX.Element {
           </div>
         ) : (
           <div className="text-[10px] text-deck-muted/60">
-            {usageLoading ? '正在读取 provider 用量' : '暂无 provider 用量数据'}
+            {usageLoading ? '正在读取额度信息' : '暂无额度信息'}
           </div>
         )}
       </section>
@@ -157,10 +157,12 @@ export function DataPanel(): JSX.Element {
       <section className="mb-3">
         <div className="mb-1 flex items-center gap-2 text-deck-muted">
           <span className="font-medium text-deck-text">实时输出速率</span>
-          <span className="text-[10px] text-deck-muted/70">生成中估算 / {WINDOW_MS / 1000}s 窗口</span>
+          <span className="text-[10px] text-deck-muted/70">
+            生成中实时估算 / 最近 {WINDOW_MS / 1000} 秒
+          </span>
           {totalTps > 0 && (
             <span className="ml-auto tabular-nums text-status-working">
-              合计 {totalTps < 10 ? totalTps.toFixed(1) : Math.round(totalTps)} tok/s
+              合计 {totalTps < 10 ? totalTps.toFixed(1) : Math.round(totalTps)} token/s
             </span>
           )}
         </div>
@@ -175,7 +177,7 @@ export function DataPanel(): JSX.Element {
                 <span className="tabular-nums text-status-working">
                   {r.tps < 10 ? r.tps.toFixed(1) : Math.round(r.tps)}
                 </span>
-                <span className="text-deck-muted/60">tok/s</span>
+                <span className="text-deck-muted/60">token/s</span>
               </span>
             ))}
           </div>
@@ -229,7 +231,7 @@ export function DataPanel(): JSX.Element {
             </tbody>
           </table>
         ) : (
-          <div className="text-[10px] text-deck-muted/60">暂无 token 使用记录</div>
+          <div className="text-[10px] text-deck-muted/60">暂无使用记录</div>
         )}
       </section>
     </div>
@@ -254,7 +256,7 @@ function ProviderUsageCard({ snapshot }: { snapshot: ProviderUsageSnapshot }): J
         </div>
       ) : (
         <div className="mt-2 min-h-10 text-[10px] leading-4 text-deck-muted/70">
-          {snapshot.message ?? '暂无可展示数据'}
+          {snapshot.message ?? '暂无可展示的额度信息'}
         </div>
       )}
       <div className="mt-1 text-[10px] tabular-nums text-deck-muted/50">
@@ -310,12 +312,12 @@ function usageStatusText(status: ProviderUsageSnapshot['status']): string {
     case 'not_subscribed':
       return '未订阅';
     case 'unsupported':
-      return '不支持';
+      return '暂不支持';
     case 'error':
       return '失败';
     case 'unavailable':
     default:
-      return '暂无';
+      return '暂不可读';
   }
 }
 
