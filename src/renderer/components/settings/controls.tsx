@@ -96,6 +96,7 @@ export function NumberInput({
   value,
   min,
   max,
+  hideSteppers = true,
   /** REVIEW_4 M13：默认整数。所有当前 NumberInput 调用都是整数语义（端口/分钟/小时/秒/天/计数）。
    *  Number(draft) 接受小数 1.5 直接进 hookServerPort/summaryEventCount 等是历史 bug。
    *  显式传 integer={false} 才允许浮点。 */
@@ -106,6 +107,7 @@ export function NumberInput({
   value: number;
   min?: number;
   max?: number;
+  hideSteppers?: boolean;
   integer?: boolean;
   onChange: (v: number) => void;
 }): JSX.Element {
@@ -144,7 +146,8 @@ export function NumberInput({
     <label className="flex items-center justify-between gap-2 text-[11px]">
       <span className="flex-1">{label}</span>
       <input
-        type="number"
+        type={hideSteppers ? 'text' : 'number'}
+        inputMode={integer ? 'numeric' : 'decimal'}
         value={draft}
         min={min}
         max={max}

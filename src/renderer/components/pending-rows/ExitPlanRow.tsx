@@ -1,11 +1,20 @@
 import { useMemo, useState, type JSX } from 'react';
 import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
+import { DeckSelect } from '@renderer/components/DeckSelect';
 import log from '@renderer/utils/logger';
 import { MemoizedMarkdownText } from '../MarkdownText';
 
 const logger = log.scope('renderer-exit-plan-row');
 const PLAN_COLLAPSE_THRESHOLD_CHARS = 1_800;
 const PLAN_COLLAPSE_THRESHOLD_LINES = 36;
+type TargetMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+
+const TARGET_MODE_OPTIONS: { value: TargetMode; label: string; title?: string }[] = [
+  { value: 'default', label: '每次询问', title: '每次工具调用前都询问' },
+  { value: 'acceptEdits', label: '自动接受编辑', title: '自动允许文件编辑；其他工具仍需询问' },
+  { value: 'plan', label: '继续计划模式', title: '保持计划模式，不执行任何工具' },
+  { value: 'bypassPermissions', label: '⚠️ 不再询问', title: '不再询问任何工具调用；需要重启会话' },
+];
 
 /**
  * ExitPlanMode / MCP plan review row. Native Claude ExitPlanMode keeps the
@@ -33,9 +42,7 @@ export function ExitPlanRow({
   const [busy, setBusy] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
-  const [targetMode, setTargetMode] = useState<
-    'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
-  >('acceptEdits');
+  const [targetMode, setTargetMode] = useState<TargetMode>('acceptEdits');
 
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const plan = payload.plan || '(计划内容为空)';
@@ -133,18 +140,16 @@ export function ExitPlanRow({
         {stillPending && isSdk && (
           <div className="ml-auto flex min-w-0 flex-wrap items-center gap-1">
             {!isMcpPlanReview && (
-              <select
+              <DeckSelect
                 value={targetMode}
                 disabled={busy}
-                onChange={(e) => setTargetMode(e.target.value as typeof targetMode)}
+                onChange={setTargetMode}
                 title="批准计划后切换到的权限模式(完全免询问需要重启会话)"
-                className="rounded border border-deck-border bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
-              >
-                <option value="default" title="每次工具调用前都询问">每次询问</option>
-                <option value="acceptEdits" title="自动允许文件编辑；其他工具仍需询问">自动接受编辑</option>
-                <option value="plan" title="保持计划模式，不执行任何工具">继续计划模式</option>
-                <option value="bypassPermissions" title="不再询问任何工具调用；需要重启会话">⚠️ 不再询问</option>
-              </select>
+                options={TARGET_MODE_OPTIONS}
+                className="w-[104px]"
+                buttonClassName="w-full rounded border border-deck-border bg-white/[0.06] px-1.5 py-0.5 text-left text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+                menuMinWidth={160}
+              />
             )}
             <button
               type="button"

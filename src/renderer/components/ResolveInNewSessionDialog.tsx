@@ -11,6 +11,7 @@
 
 import { cloneElement, useEffect, useId, useState, type JSX } from 'react';
 import type { IssueRecord } from '@shared/types';
+import { DeckSelect } from '@renderer/components/DeckSelect';
 import {
   getLastAdapter,
   getLastDefaults,
@@ -200,21 +201,16 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             </div>
           )}
           <DialogField label="执行器">
-            <select
+            <DeckSelect
               value={adapter}
-              onChange={(e) => {
-                setAdapter(e.target.value);
-                setLastAdapter(e.target.value);
+              onChange={(next) => {
+                setAdapter(next);
+                setLastAdapter(next);
               }}
               disabled={busy}
-              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
-            >
-              {adapters.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.displayName}
-                </option>
-              ))}
-            </select>
+              options={adapters.map((a) => ({ value: a.id, label: a.displayName }))}
+              buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
+            />
           </DialogField>
           <DialogField label="工作目录（留空则用问题来源目录，仍为空则用主目录）">
             <input
@@ -240,62 +236,44 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           <div className="-mt-2 text-[10px] text-deck-muted">{prompt.length} / 102400</div>
           {showPermissionMode && (
             <DialogField label="权限模式（跟随上次选；切 adapter 会重读）">
-              <select
+              <DeckSelect
                 value={permissionMode}
-                onChange={(e) => {
-                  const v = e.target.value as PermissionModeChoice;
+                onChange={(v) => {
                   setPermissionMode(v);
                   setLastDefaults(adapter, { permissionMode: v });
                 }}
                 disabled={busy}
-                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
-              >
-                {PERMISSION_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value} title={p.title}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+                options={PERMISSION_OPTIONS}
+                buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
+              />
             </DialogField>
           )}
           {showCodexSandbox && (
             <DialogField label="沙盒（跟随上次选）">
-              <select
+              <DeckSelect
                 value={codexSandbox}
-                onChange={(e) => {
-                  const v = e.target.value as CodexSandboxChoice;
+                onChange={(v) => {
                   setCodexSandbox(v);
                   setLastDefaults(adapter, { codexSandbox: v });
                 }}
                 disabled={busy}
-                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
-              >
-                {CODEX_SANDBOX_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value} title={p.title}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+                options={CODEX_SANDBOX_OPTIONS}
+                buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
+              />
             </DialogField>
           )}
           {showClaudeCodeSandbox && (
             <DialogField label="系统沙盒（跟随上次选）">
-              <select
+              <DeckSelect
                 value={claudeCodeSandbox}
-                onChange={(e) => {
-                  const v = e.target.value as ClaudeSandboxChoice;
+                onChange={(v) => {
                   setClaudeCodeSandbox(v);
                   setLastDefaults(adapter, { claudeCodeSandbox: v });
                 }}
                 disabled={busy}
-                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
-              >
-                {CLAUDE_SANDBOX_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value} title={p.title}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+                options={CLAUDE_SANDBOX_OPTIONS}
+                buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
+              />
             </DialogField>
           )}
         </div>

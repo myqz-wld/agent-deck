@@ -17,6 +17,7 @@ import type {
   IssueSeverity,
   IssueStatus,
 } from '@shared/types';
+import { DeckSelect } from '@renderer/components/DeckSelect';
 import { useIssuesStore } from '../stores/issues-store';
 import { ResolveInNewSessionDialog } from './ResolveInNewSessionDialog';
 import {
@@ -34,6 +35,18 @@ interface Props {
   /** 点「解决会话 / 来源会话」跳到 live 视图打开该 session（App → IssuesPanel 透传） */
   onOpenSession?: (sid: string) => void;
 }
+
+const ISSUE_STATUS_OPTIONS: { value: IssueStatus; label: string }[] = [
+  { value: 'open', label: 'open' },
+  { value: 'in-progress', label: 'in-progress' },
+  { value: 'resolved', label: 'resolved' },
+];
+
+const ISSUE_SEVERITY_OPTIONS: { value: IssueSeverity; label: string }[] = [
+  { value: 'low', label: 'LOW' },
+  { value: 'medium', label: 'MEDIUM' },
+  { value: 'high', label: 'HIGH' },
+];
 
 export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Element {
   // store 是权威源：list 重拉 / onIssueChanged event（含起新会话改 status='in-progress'）都先
@@ -282,28 +295,22 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         </Field>
         <div className="grid grid-cols-3 gap-2">
           <Field label="状态">
-            <select
+            <DeckSelect
               value={editing.status}
-              onChange={(e) => updateField('status', e.target.value as IssueStatus)}
+              onChange={(next) => updateField('status', next)}
               disabled={isDeleted || saving}
-              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
-            >
-              <option value="open">open</option>
-              <option value="in-progress">in-progress</option>
-              <option value="resolved">resolved</option>
-            </select>
+              options={ISSUE_STATUS_OPTIONS}
+              buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
+            />
           </Field>
           <Field label="严重度">
-            <select
+            <DeckSelect
               value={editing.severity}
-              onChange={(e) => updateField('severity', e.target.value as IssueSeverity)}
+              onChange={(next) => updateField('severity', next)}
               disabled={isDeleted || saving}
-              className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none disabled:opacity-50"
-            >
-              <option value="low">LOW</option>
-              <option value="medium">MEDIUM</option>
-              <option value="high">HIGH</option>
-            </select>
+              options={ISSUE_SEVERITY_OPTIONS}
+              buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
+            />
           </Field>
           <Field label="类型">
             <input

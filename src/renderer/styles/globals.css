@@ -127,21 +127,6 @@ body,
   box-sizing: border-box;
 }
 
-select option,
-select optgroup {
-  background-color: rgb(24, 25, 31);
-  color: var(--color-deck-text);
-}
-
-select option:checked {
-  background-color: rgb(42, 44, 54);
-  color: var(--color-deck-text);
-}
-
-select option:disabled {
-  color: rgba(180, 180, 190, 0.55);
-}
-
 @keyframes pulse-green {
   0%,
   100% {

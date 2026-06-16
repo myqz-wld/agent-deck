@@ -1,5 +1,6 @@
 import { type JSX, useState } from 'react';
 import type { AppSettings } from '@shared/types';
+import { DeckSelect } from '@renderer/components/DeckSelect';
 import { Section } from '../controls';
 import { LogViewerModal } from './LogViewerModal';
 
@@ -61,19 +62,12 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
     <Section title="日志" storageKey="logs" defaultOpen={false}>
       <div className="flex flex-col gap-1 text-[11px]">
         <div>日志详细程度（仅影响写入文件的日志）</div>
-        <select
+        <DeckSelect
           value={settings.logLevel}
-          onChange={(e) =>
-            void update({ logLevel: e.target.value as LogLevel })
-          }
-          className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[11px] outline-none focus:border-white/20"
-        >
-          {LEVEL_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value} title={opt.description}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          onChange={(next) => void update({ logLevel: next })}
+          options={LEVEL_OPTIONS}
+          buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
