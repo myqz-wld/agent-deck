@@ -110,7 +110,7 @@ export function setFileLevel(level: LogLevel): void {
  *
  * 修法: Logger 实例级 hook(`log.hooks` 数组, 见 electron-log v5 src/core/Logger.js:177
  * `this.hooks.reduce((msg, hook) => msg ? hook(msg, transFn, transName) : msg, ...)`),
- * 窄过滤 + 限定 transportName === 'file' + 双关键词单 arg 同时命中返 false 丢该行。
+ * 窄过滤 + 限定 transportName === 'file' + 同一次 log call 内双关键词同时命中返 false 丢该行。
  *
  * **关键陷阱(reviewer-codex R2 HIGH-1 实证)**:
  * - 早期修法装到 `log.transports.file.hooks` 错(Transport 实际无 hooks 字段,
@@ -121,8 +121,10 @@ export function setFileLevel(level: LogLevel): void {
  *   语义是「`msg ? hook(...) : msg`」,返 truthy message 继续 reduce 链;返
  *   false 短路并最终跳过该 transport(`if (transformedMsg) transFn(...)`)。
  *
- * 锚点 'Error sending from webFrameMain' + 'Render frame was disposed' 单 arg 同时
- * 命中才丢,防误吞其他 framework 错(单关键词已通过 case 锁定透传)。
+ * 锚点 'Error sending from webFrameMain' + 'Render frame was disposed' 同一次 log call
+ * 同时命中才丢,防误吞其他 framework 错(单关键词已通过 case 锁定透传)。Electron
+ * framework 真实形态是 `console.error('Error sending from webFrameMain: ', error)`,
+ * 因此必须覆盖 prefix string + Error object 分布在不同 data 项的情况。
  */
 
 interface FilterLogMessage {
@@ -132,14 +134,25 @@ interface FilterLogMessage {
 export function shouldDropWebFrameMainDisposedNoise(
   message: FilterLogMessage,
 ): boolean {
+  let hasWebFrameMainPrefix = false;
+  let hasDisposedError = false;
   for (const item of message.data) {
-    if (typeof item !== 'string') continue;
+    const text =
+      typeof item === 'string'
+        ? item
+        : item instanceof Error
+          ? `${item.name}: ${item.message}`
+          : '';
+    if (!text) continue;
     if (
-      item.includes('Error sending from webFrameMain') &&
-      item.includes('Render frame was disposed')
+      text.includes('Error sending from webFrameMain')
     ) {
-      return true;
+      hasWebFrameMainPrefix = true;
     }
+    if (text.includes('Render frame was disposed')) {
+      hasDisposedError = true;
+    }
+    if (hasWebFrameMainPrefix && hasDisposedError) return true;
   }
   return false; // 不丢
 }

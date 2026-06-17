@@ -77,6 +77,17 @@ describe('logger hook 端到端 (electron-log/node 真包 + tmp file transport)'
     });
   });
 
+  it('Electron 真实 split args: prefix string + Error object → file transport 不落盘', () => {
+    realLog.error(
+      'Error sending from webFrameMain: ',
+      new Error('Render frame was disposed before WebFrameMain could be accessed'),
+    );
+    return new Promise<void>((resolve) => setTimeout(resolve, 50)).then(() => {
+      const content = fs.existsSync(tmpLogFile) ? fs.readFileSync(tmpLogFile, 'utf8') : '';
+      expect(content).not.toContain('Render frame was disposed');
+    });
+  });
+
   it('普通业务 log → file transport 落盘 (HIGH-2 关键回归: 验证 keep-path 返 message 不丢业务日志)', () => {
     realLog.info('plain business log message');
     return new Promise<void>((resolve) => setTimeout(resolve, 50)).then(() => {
