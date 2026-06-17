@@ -58,6 +58,7 @@ export interface CreateSessionCall {
    * 能断言 recover 路径 createThunk 收到 cancelCheck thunk(MED post-guard 窗口收口)。
    */
   cancelCheck?: () => boolean;
+  resumeOnly?: boolean;
 }
 
 export class TestCodexBridge extends CodexSdkBridge {
@@ -103,6 +104,7 @@ export class TestCodexBridge extends CodexSdkBridge {
     additionalDirectories?: readonly string[];
     attachments?: UploadedAttachmentRef[];
     cancelCheck?: () => boolean;
+    resumeOnly?: boolean;
   }): Promise<{ sessionId: string }> {
     this.createCalls.push({
       cwd: opts.cwd,
@@ -115,6 +117,7 @@ export class TestCodexBridge extends CodexSdkBridge {
       additionalDirectories: opts.additionalDirectories,
       attachments: opts.attachments,
       cancelCheck: opts.cancelCheck,
+      resumeOnly: opts.resumeOnly,
     });
     if (this.createBehavior === 'block') {
       await new Promise<void>((res) => {

@@ -365,6 +365,12 @@ export class CodexAppServerThread {
     return { finalResponse: messages.join('\n') };
   }
 
+  async ensureReady(): Promise<string> {
+    const threadId = await this.ensureThread();
+    this.started = true;
+    return threadId;
+  }
+
   async steer(input: CodexAppServerUserInput[], expectedTurnId: string): Promise<void> {
     const threadId = await this.ensureThread();
     await this.client.request('turn/steer', {

@@ -158,7 +158,7 @@ export async function createSessionImpl(
       );
     }
 
-    const firstInput = packCodexInput(opts.prompt!, opts.attachments);
+    const firstInput = opts.resumeOnly ? null : packCodexInput(opts.prompt!, opts.attachments);
     // **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 + S7**: applicationSid 双阶段化
     // (initialSid = opts.resume ?? randomUUID() 已是合适 applicationSid 初值,validate phase 同款逻辑):
     // - spawn 主路径(无 opts.resume): ctor 时 applicationSid = initialSid (= randomUUID 即 tempKey),
@@ -186,7 +186,7 @@ export async function createSessionImpl(
       threadId: effectiveResumeThreadId ?? opts.resume ?? null,
       cwd,
       thread,
-      pendingMessages: [firstInput],
+      pendingMessages: firstInput ? [firstInput] : [],
       currentTurn: null,
       currentTurnId: null,
       turnLoopRunning: false,

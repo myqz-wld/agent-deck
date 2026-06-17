@@ -160,6 +160,13 @@ export interface CreateSessionOpts {
    */
   skipFirstUserEmit?: boolean;
   /**
+   * Bridge-internal resume-only rebind. Used by sandbox cold switches when the Codex jsonl
+   * thread exists: call app-server thread/resume and register live state without sending a
+   * synthetic user message or starting turn/start. Fallback recovery paths must keep passing a
+   * real prompt because they rebuild context through a fresh thread.
+   */
+  resumeOnly?: boolean;
+  /**
    * **REVIEW_99 R3 cancellation-epoch MED 修法 (codex 对称 claude createSession opts)**:recover
    * 路径传 cancelGuard thunk,createSession 内部在 ensureCodex / resumeThread pre-registration await
    * 之后、sessions.set / runTurnLoop 启动**之前**调一次 — 返 true(用户 await 期间再次 close →
