@@ -2,8 +2,8 @@
  * preload/api/adapters: Adapter 通道相关 IPC facade。
  *
  * 包含会话生命周期（create / interrupt）、消息发送、3 类 pending request 响应
- * （permission / askUserQuestion / exitPlanMode）、permission mode 切换、Codex 与
- * Claude 双沙盒冷切，以及 pending request 列表拉取。
+ * （permission / askUserQuestion / exitPlanMode）、permission mode 切换、Codex sandbox
+ * next-turn apply、Claude 沙盒冷切，以及 pending request 列表拉取。
  */
 
 import { ipcRenderer } from 'electron';
@@ -79,9 +79,8 @@ export const adaptersApi = {
     ipcRenderer.invoke(IpcInvoke.AdapterSetPermissionMode, agentId, sessionId, mode),
 
   /**
-   * Codex 专属冷切（CHANGELOG_<X> A2b）：销毁旧 codex thread + 用新 sandbox 档位
-   * resume 重建。adapter 必须 capabilities.canRestartWithCodexSandbox === true，
-   * handoffPrompt 必须非空（codex SDK runStreamed 协议约束）。
+   * Codex sandbox 切换。IPC 名称沿用 restartWithCodexSandbox 兼容旧调用方；app-server
+   * Codex 实现不再销毁/重建 thread，而是持久化新档位并让下一次 turn/start 使用新 sandbox。
    * 失败时主进程已 emit error message + 回滚 sessionRepo.codexSandbox，本接口仅 throw 让 UI catch。
    */
   restartWithCodexSandbox: (
@@ -99,7 +98,7 @@ export const adaptersApi = {
     ),
 
   /**
-   * Claude Code OS 沙盒冷切（CHANGELOG_74）：与 restartWithCodexSandbox 字面镜像。
+   * Claude Code OS 沙盒冷切（CHANGELOG_74）。
    * SDK 的 sandbox options 是 query() spawn-time 锁定，运行时切档必须冷切（销毁旧 SDK
    * 子进程 + 用新档位 createSession resume 重建）。adapter 必须
    * capabilities.canRestartWithClaudeCodeSandbox === true。失败回滚 sessionRepo.claudeCodeSandbox。

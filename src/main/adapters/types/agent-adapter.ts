@@ -76,14 +76,11 @@ export interface AgentAdapter {
   ): Promise<string>;
 
   /**
-   * Codex 专属冷切（CHANGELOG_<X> A2b）：销毁旧 codex thread 子进程 + 用新 sandbox
-   * 档位 resume 重建。`handoffPrompt` 必须非空（codex SDK runStreamed 协议约束，
-   * resume 路径必须有 prompt 触发首条 turn）。
+   * Codex 专属 sandbox 切换。方法名沿用旧 cold-restart IPC 兼容；app-server Codex
+   * 实现应持久化新档位并让下一次 turn/start 使用它，不能为了切 sandbox 中断当前 turn。
    *
-   * 与 claude restartWithPermissionMode 同模式：
    * - 失败时内部 emit error message + 回滚 sessionRepo.codexSandbox 到旧档
-   * - 返回 sessionId 用于追踪（codex resume 不会隐式 fork，理论上等于入参 sid，
-   *   但接口签名与 claude 对齐保留 string 返回）
+   * - 返回 sessionId 用于追踪（接口签名与旧 restart API 对齐保留 string 返回）
    *
    * capabilities.canRestartWithCodexSandbox: true 时调用方才能调此方法；其他 adapter
    * 字段无意义不实现。
@@ -97,7 +94,7 @@ export interface AgentAdapter {
   /**
    * Claude Code OS 沙盒冷切（CHANGELOG_74）：销毁旧 SDK 子进程 + 用新档位 createSession
    * resume 重建。`handoffPrompt` 必须非空（SDK streaming 协议约束）。
-   * 与 restartWithCodexSandbox 字面镜像。失败回滚 sessionRepo.claudeCodeSandbox。
+   * 失败回滚 sessionRepo.claudeCodeSandbox。
    * capabilities.canRestartWithClaudeCodeSandbox: true 时调用方才能调此方法。
    */
   restartWithClaudeCodeSandbox?(

@@ -442,11 +442,10 @@ export function registerAdaptersIpc(): void {
   });
 
   /**
-   * CHANGELOG_<X> A2b：codex 专属冷切 sandbox 档位。
+   * CHANGELOG_<X> A2b：codex 专属 sandbox 档位切换。
    *
-   * 与 AdapterSetPermissionMode 不同：codex 没有 PermissionMode 概念，sandbox 档位
-   * 是 startThread/resumeThread spawn-time 锁定，无法热切。adapter 内部走
-   * close → resumeThread(new sandbox) → handoffPrompt 触发首条 turn。失败回滚 DB。
+   * app-server Codex 每次 turn/start 都带 sandboxPolicy，adapter 内部只需持久化
+   * sessions.codex_sandbox 并 patch live thread options；当前 turn 不重启，pending 队列保留。
    *
    * 校验：adapter 必须存在 + capabilities.canRestartWithCodexSandbox === true +
    * 实现了 restartWithCodexSandbox 方法（典型 = codex-cli adapter）。sandbox 字段走
@@ -470,8 +469,8 @@ export function registerAdaptersIpc(): void {
         typeof handoffPrompt === 'string' && handoffPrompt.trim()
           ? handoffPrompt
           : SDK_RESTART_RESUME_PROMPT;
-      // adapter.restartWithCodexSandbox 内部已 emit error / 回滚 DB；本 handler 直接透传
-      // 返回值（重启后的 sessionId，与 claude restartWithPermissionMode 接口签名对齐）。
+      // adapter.restartWithCodexSandbox 名称保留兼容旧 preload；内部已 emit error / 回滚 DB。
+      // 返回值仍为 sessionId（与旧 cold-restart 接口签名对齐）。
       return adapter.restartWithCodexSandbox(sid, sbRaw, prompt);
     },
   );

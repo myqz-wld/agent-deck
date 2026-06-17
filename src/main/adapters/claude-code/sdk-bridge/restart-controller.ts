@@ -312,8 +312,8 @@ export class RestartController {
    * 销毁旧 SDK 子进程 + 用新 sandbox 档位 createSession resume 重建。
    *
    * 为什么必须冷切？
-   * - SDK 的 sandbox options 是 query() spawn-time 锁定（与 codex sandbox 同模式），
-   *   运行时无法热切。重启子进程 + 在 createSession 内重新拼 buildSandboxOptions 才生效。
+   * - Claude SDK 的 sandbox options 是 query() spawn-time 锁定，运行时无法热切。
+   *   重启子进程 + 在 createSession 内重新拼 buildSandboxOptions 才生效。
    *
    * Confirm 策略由 ComposerSdk 处理：切到 `'off'` = 关闭沙盒 = 放宽 → 弹 confirm；
    * 切到 `'workspace-write'` / `'strict'` = 同档/更严格 → 不 confirm。本方法不做策略，只做执行。

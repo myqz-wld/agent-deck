@@ -5,7 +5,7 @@
  * 镜像 claude `__tests__/sdk-bridge.consume-fork.test.ts` 但 codex 端架构差异显著：
  * - claude 一切走 `consume` private method（同 1 个流式 SDK query 处理）
  * - codex 拆 `ThreadLoop.runTurnLoop`（持 thread.started case 1/2/3 三态）+
- *   `RestartController.restartWithCodexSandbox`（冷切 sandbox 控制器,持单飞 + DB rollback）
+ *   `RestartController.restartWithCodexSandbox`（兼容旧名称的 next-turn sandbox apply 控制器）
  *
  * 覆盖矩阵（与 plan §2 对应）：
  *   - thread-loop case 1 (新建路径): !threadId → 设 threadId + claimAsSdk + firstIdCb
@@ -13,11 +13,10 @@
  *   - **thread-loop case 3 (恢复路径,id 不同) — symmetry-plan P2 MED-D 的核心目标 fix**:
  *     模拟 SDK 返不同 thread_id → sessions Map key 切 + sessionRepo.renameSdkSession
  *   - thread-loop intentionallyClosed catch: 静默退出不 emit finished
- *   - **restart-controller HIGH-A 单飞**: 2 并发 restartWithCodexSandbox 同 sid → 串行执行
- *   - **restart-controller MED-A emit session-upserted (前置)**: setCodexSandbox 后立即 emit
- *   - **restart-controller MED-A emit session-upserted (回滚)**: createSession reject → catch 内
- *     回滚 sandbox + 二次 emit 让下拉回弹
- *   - restart-controller no-rename common case: codex SDK 实测 resume 永远返同 id, no rename 路径
+ *   - **restart-controller next-turn apply**: setCodexSandbox 后 emit session-upserted + patch live
+ *     app-server thread options，不 close/create，不 abort current turn，不清 pending 队列
+ *   - **restart-controller dormant path**: 没有 live session 时只持久化，下次 recover/create 生效
+ *   - **restart-controller rollback**: DB / live patch 失败时回滚 sandbox + 二次 emit 让下拉回弹
  *
  * **未覆盖** (R2-1 sessions cleanup + R3-1 late earlyErr cleanup)：
  * 这两个修复点位于 createSession resume path 的 earlyErrCb wrapper 内,需要真 createSession
@@ -83,7 +82,6 @@ import { emits, makeBridge } from './sdk-bridge/_setup';
 import type { CodexAppServerStreamEvent } from '@main/adapters/codex-cli/app-server/client';
 import type { CodexInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { InternalSession } from '@main/adapters/codex-cli/sdk-bridge/types';
-import type { AgentEvent } from '@shared/types';
 
 beforeEach(() => {
   emits.length = 0;
@@ -137,18 +135,6 @@ function makeInternalSession(
     currentTurnId: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
-  };
-}
-
-function msg(id: number, role: 'user' | 'assistant', text: string): AgentEvent & { id: number } {
-  return {
-    id,
-    sessionId: 's',
-    agentId: 'codex-cli',
-    kind: 'message',
-    payload: { role, text },
-    ts: id,
-    source: 'sdk',
   };
 }
 
@@ -278,126 +264,87 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
   });
 });
 
-describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIGH-A + MED-A）', () => {
-  it('MED-A: createSession 成功 → emit session-upserted (新 sandbox)', async () => {
+describe('codex RestartController.restartWithCodexSandbox（next-turn apply）', () => {
+  it('live session: persists + emits upsert + patches thread options without abort/create/queue loss', async () => {
     const bridge = makeBridge();
-    // setCodexSandbox 调用顺序: 1) workspace-write (前置)
-    vi.mocked(sessionRepo.get).mockImplementation((id: string) => {
-      if (id !== 'sess-restart') return null;
-      // 模拟两次 get: 第 1 次 (RestartController 取 oldSandbox) 返 read-only
-      // 第 2 次 (前置 set 后 emit) 返 workspace-write
-      return {
-        id,
-        agentId: 'codex-cli',
-        cwd: '/tmp/x',
-        title: 'x',
-        source: 'sdk',
-        lifecycle: 'dormant',
-        activity: 'idle',
-        startedAt: 1,
-        lastEventAt: 2,
-        endedAt: null,
-        archivedAt: null,
-        codexSandbox: 'workspace-write', // setCodexSandbox 后 get 反映新值
-      };
-    });
-    // 第一次 get 返 oldSandbox=read-only,后续 get 返 new sandbox
+    const updateSandboxMode = vi.fn();
+    const thread = {
+      runStreamed: vi.fn(),
+      updateSandboxMode,
+    } as unknown as InternalSession['thread'];
+    const internal = makeInternalSession(thread, 'sess-live');
+    const currentTurn = new AbortController();
+    internal.currentTurn = currentTurn;
+    internal.currentTurnId = 'turn-active';
+    internal.pendingMessages = ['queued-next-turn' as CodexInput];
+    const sessionsMap = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
+    sessionsMap.set('sess-live', internal);
+
     vi.mocked(sessionRepo.get)
       .mockReturnValueOnce({
-        id: 'sess-restart',
+        id: 'sess-live',
         agentId: 'codex-cli',
         cwd: '/tmp/x',
         title: 'x',
         source: 'sdk',
-        lifecycle: 'dormant',
-        activity: 'idle',
+        lifecycle: 'active',
+        activity: 'working',
         startedAt: 1,
         lastEventAt: 2,
         endedAt: null,
         archivedAt: null,
-        codexSandbox: 'read-only', // old
+        codexSandbox: 'read-only',
+        networkAccessEnabled: true,
+        additionalDirectories: ['/tmp/ref'],
       })
       .mockReturnValue({
-        id: 'sess-restart',
+        id: 'sess-live',
         agentId: 'codex-cli',
         cwd: '/tmp/x',
         title: 'x',
         source: 'sdk',
-        lifecycle: 'dormant',
-        activity: 'idle',
-        startedAt: 1,
-        lastEventAt: 2,
-        endedAt: null,
-        archivedAt: null,
-        codexSandbox: 'workspace-write', // new (setCodexSandbox 后)
-      });
-
-    const upsertedEmits: unknown[] = [];
-    const spy = vi.spyOn(eventBus, 'emit').mockImplementation((name: string, payload: unknown) => {
-      if (name === 'session-upserted') upsertedEmits.push(payload);
-      return true;
-    });
-
-    const result = await bridge.restartWithCodexSandbox(
-      'sess-restart',
-      'workspace-write',
-      'continue please',
-    );
-
-    // createSession 成功 → 应 emit 1 次 session-upserted (前置成功路径,无 rollback)
-    expect(upsertedEmits).toHaveLength(1);
-    expect(upsertedEmits[0]).toMatchObject({ id: 'sess-restart', codexSandbox: 'workspace-write' });
-    // setCodexSandbox 调用 1 次 (前置)
-    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(1);
-    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sess-restart', 'workspace-write');
-    // codex SDK resume 不会改 id,handle.sessionId === 'sess-restart' (TestBridge 默认)
-    expect(result).toBe('sess-restart');
-    expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0].resumeOnly).toBe(true);
-    expect(bridge.createCalls[0].prompt).toBeUndefined();
-    // 不 rename（无 fork）
-    expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
-
-    spy.mockRestore();
-  });
-
-  it('MED-A: createSession 抛错 → catch 内回滚 + 第二次 emit session-upserted (旧 sandbox 让下拉回弹)', async () => {
-    const bridge = makeBridge();
-    bridge.createBehavior = 'reject';
-    bridge.rejectWith = new Error('codex spawn failed');
-    vi.mocked(sessionRepo.get)
-      .mockReturnValueOnce({
-        id: 'sess-rollback',
-        agentId: 'codex-cli',
-        cwd: '/tmp/x',
-        title: 'x',
-        source: 'sdk',
-        lifecycle: 'dormant',
-        activity: 'idle',
-        startedAt: 1,
-        lastEventAt: 2,
-        endedAt: null,
-        archivedAt: null,
-        codexSandbox: 'read-only', // old
-      })
-      // 第 2 次 (前置 set 后 emit): 已切到 workspace-write
-      .mockReturnValueOnce({
-        id: 'sess-rollback',
-        agentId: 'codex-cli',
-        cwd: '/tmp/x',
-        title: 'x',
-        source: 'sdk',
-        lifecycle: 'dormant',
-        activity: 'idle',
+        lifecycle: 'active',
+        activity: 'working',
         startedAt: 1,
         lastEventAt: 2,
         endedAt: null,
         archivedAt: null,
         codexSandbox: 'workspace-write',
-      })
-      // 第 3 次 (catch 回滚后 emit): 回到 read-only
-      .mockReturnValue({
-        id: 'sess-rollback',
+        networkAccessEnabled: true,
+        additionalDirectories: ['/tmp/ref'],
+      });
+
+    const upsertedEmits: unknown[] = [];
+    const spy = vi.spyOn(eventBus, 'emit').mockImplementation((name: string, payload: unknown) => {
+      if (name === 'session-upserted') upsertedEmits.push(payload);
+      return true;
+    });
+
+    const result = await bridge.restartWithCodexSandbox('sess-live', 'workspace-write', 'ignored');
+
+    expect(result).toBe('sess-live');
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(1);
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sess-live', 'workspace-write');
+    expect(upsertedEmits).toHaveLength(1);
+    expect(upsertedEmits[0]).toMatchObject({ id: 'sess-live', codexSandbox: 'workspace-write' });
+    expect(updateSandboxMode).toHaveBeenCalledWith('workspace-write', {
+      networkAccessEnabled: true,
+      additionalDirectories: ['/tmp/ref'],
+    });
+    expect(currentTurn.signal.aborted).toBe(false);
+    expect(internal.pendingMessages).toEqual(['queued-next-turn']);
+    expect(bridge.createCalls).toHaveLength(0);
+    expect(sessionManager.releaseSdkClaim).not.toHaveBeenCalled();
+
+    spy.mockRestore();
+  });
+
+  it('dormant session: persists DB only and does not create/resume even if jsonl is missing', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    vi.mocked(sessionRepo.get)
+      .mockReturnValueOnce({
+        id: 'sess-dormant',
         agentId: 'codex-cli',
         cwd: '/tmp/x',
         title: 'x',
@@ -408,46 +355,47 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
         lastEventAt: 2,
         endedAt: null,
         archivedAt: null,
-        codexSandbox: 'read-only', // rolled back
+        codexSandbox: 'read-only',
+      })
+      .mockReturnValue({
+        id: 'sess-dormant',
+        agentId: 'codex-cli',
+        cwd: '/tmp/x',
+        title: 'x',
+        source: 'sdk',
+        lifecycle: 'dormant',
+        activity: 'idle',
+        startedAt: 1,
+        lastEventAt: 2,
+        endedAt: null,
+        archivedAt: null,
+        codexSandbox: 'danger-full-access',
       });
 
-    const upsertedEmits: unknown[] = [];
-    const spy = vi.spyOn(eventBus, 'emit').mockImplementation((name: string, payload: unknown) => {
-      if (name === 'session-upserted') upsertedEmits.push(payload);
-      return true;
-    });
-
     await expect(
-      bridge.restartWithCodexSandbox('sess-rollback', 'workspace-write', 'go'),
-    ).rejects.toThrow(/codex spawn failed/);
+      bridge.restartWithCodexSandbox('sess-dormant', 'danger-full-access', '   '),
+    ).resolves.toBe('sess-dormant');
 
-    // 应 emit 2 次 session-upserted: 1) 前置成功 (workspace-write) 2) catch 回滚 (read-only)
-    expect(upsertedEmits).toHaveLength(2);
-    expect(upsertedEmits[0]).toMatchObject({ codexSandbox: 'workspace-write' });
-    expect(upsertedEmits[1]).toMatchObject({ codexSandbox: 'read-only' }); // 回弹
-
-    // setCodexSandbox 调 2 次: 1) 前置 workspace-write 2) catch 回滚 read-only
-    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(2);
-    expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(1, 'sess-rollback', 'workspace-write');
-    expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(2, 'sess-rollback', 'read-only');
-
-    // emit 一条 error message 让用户看到失败原因
-    const errMsgs = emits.filter(
-      (e) =>
-        e.kind === 'message' &&
-        (e.payload as { error?: boolean }).error === true &&
-        ((e.payload as { text?: string }).text ?? '').includes('切到 sandbox'),
-    );
-    expect(errMsgs).toHaveLength(1);
-
-    spy.mockRestore();
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(1);
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sess-dormant', 'danger-full-access');
+    expect(bridge.createCalls).toHaveLength(0);
   });
 
-  it('HIGH-A 单飞: 2 并发 restartWithCodexSandbox 同 sid → 串行执行(后者等前者完成)', async () => {
+  it('waits for an existing same-session recovery before applying the sandbox change', async () => {
     const bridge = makeBridge();
-    bridge.createBehavior = 'block'; // 让前一个 restart 卡在 createSession
+    let releaseRecovery!: () => void;
+    const recovering = (bridge as unknown as { recovering: Map<string, Promise<unknown>> }).recovering;
+    recovering.set(
+      'sess-wait',
+      new Promise<void>((resolve) => {
+        releaseRecovery = () => {
+          recovering.delete('sess-wait');
+          resolve();
+        };
+      }),
+    );
     vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-concurrent',
+      id: 'sess-wait',
       agentId: 'codex-cli',
       cwd: '/tmp/x',
       title: 'x',
@@ -461,36 +409,17 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
       codexSandbox: 'read-only',
     });
 
-    // 第一波: 不 await,让 inflight 注册
-    const p1 = bridge
-      .restartWithCodexSandbox('sess-concurrent', 'workspace-write', 'first')
-      .catch(() => undefined);
+    const p = bridge.restartWithCodexSandbox('sess-wait', 'workspace-write', 'ignored');
     await Promise.resolve();
     await Promise.resolve();
-    // 第二波同 sid: 应等 p1 inflight
-    const p2 = bridge
-      .restartWithCodexSandbox('sess-concurrent', 'danger-full-access', 'second')
-      .catch(() => undefined);
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(sessionRepo.setCodexSandbox).not.toHaveBeenCalled();
 
-    // 此刻 createSession 只被调过 1 次（第二条等同一 inflight）
-    expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0].codexSandbox).toBe('workspace-write');
-
-    // 解锁第一波,让 p1 完成；第二波然后开始
-    bridge.unblock?.();
-    bridge.createBehavior = 'reject';
-    bridge.rejectWith = new Error('second wave fast-fail');
-    await p1;
-    await p2;
-
-    // 第二波最终也跑了 createSession（被 reject 但确实进了）
-    expect(bridge.createCalls).toHaveLength(2);
+    releaseRecovery();
+    await p;
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sess-wait', 'workspace-write');
   });
 
-  // ─── REVIEW_80 MED: forward setCodexSandbox throw 窗口（双方独立共识）──────────────
-  it('REVIEW_80 MED: forward setCodexSandbox throw（closeSession 后、createSession try 外）→ 走 catch emit error message + rethrow（修前静默死态）', async () => {
+  it('forward setCodexSandbox throw → rollback attempt + error bubble + no createSession', async () => {
     const bridge = makeBridge();
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-dbfail',
@@ -504,23 +433,18 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
       lastEventAt: 2,
       endedAt: null,
       archivedAt: null,
-      codexSandbox: 'read-only', // old
+      codexSandbox: 'read-only',
     });
-    // forward setCodexSandbox（第 1 次调）throw 模拟 SQLITE_BUSY / disk full；
-    // rollback setCodexSandbox（第 2 次调，写 oldSandbox）成功
     vi.mocked(sessionRepo.setCodexSandbox)
       .mockImplementationOnce(() => {
         throw new Error('SQLITE_BUSY: database is locked');
       })
       .mockImplementationOnce(() => undefined);
 
-    // 修前：forward throw 在 try 外 → 跳过 catch → 无 error bubble + rethrow 原始 DB err
-    // 修后：forward 纳入 try → catch emit error message + rethrow（原始 err 透传）
     await expect(
-      bridge.restartWithCodexSandbox('sess-dbfail', 'workspace-write', 'go'),
+      bridge.restartWithCodexSandbox('sess-dbfail', 'workspace-write', 'ignored'),
     ).rejects.toThrow(/SQLITE_BUSY/);
 
-    // 关键断言（修前缺失）：catch 跑了 → emit 一条 error message 收口占位文案
     const errMsgs = emits.filter(
       (e) =>
         e.kind === 'message' &&
@@ -528,79 +452,85 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
         ((e.payload as { text?: string }).text ?? '').includes('切到 sandbox'),
     );
     expect(errMsgs).toHaveLength(1);
-
-    // createSession 未被调（forward DB write 就挂了，不该进 createSession）
     expect(bridge.createCalls).toHaveLength(0);
-    // setCodexSandbox 调 2 次：1) forward throw 2) catch rollback
-    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(2);
     expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(2, 'sess-dbfail', 'read-only');
   });
 
-  // ─── REVIEW_80 MED (a): rollback setCodexSandbox 自身 throw 不掩盖原始 err ──────────
-  it('REVIEW_80 MED(a): createSession throw 后 rollback setCodexSandbox 再 throw → 原始 createSession err 仍透传（不被回滚 err 掩盖）+ error message 仍 emit', async () => {
+  it('live thread patch throw → rolls back DB and emits reverted session-upserted', async () => {
     const bridge = makeBridge();
-    bridge.createBehavior = 'reject';
-    bridge.rejectWith = new Error('codex spawn original failure');
-    vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-dblrollback',
-      agentId: 'codex-cli',
-      cwd: '/tmp/x',
-      title: 'x',
-      source: 'sdk',
-      lifecycle: 'dormant',
-      activity: 'idle',
-      startedAt: 1,
-      lastEventAt: 2,
-      endedAt: null,
-      archivedAt: null,
-      codexSandbox: 'read-only',
-    });
-    // forward set 成功（第 1 次）；rollback set（第 2 次，catch 内）throw 持续性 DB 故障
-    vi.mocked(sessionRepo.setCodexSandbox)
-      .mockImplementationOnce(() => undefined)
-      .mockImplementationOnce(() => {
-        throw new Error('rollback DB still failing');
+    const thread = {
+      runStreamed: vi.fn(),
+      updateSandboxMode: vi.fn(() => {
+        throw new Error('patch failed');
+      }),
+    } as unknown as InternalSession['thread'];
+    const internal = makeInternalSession(thread, 'sess-live-fail');
+    const sessionsMap = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
+    sessionsMap.set('sess-live-fail', internal);
+
+    vi.mocked(sessionRepo.get)
+      .mockReturnValueOnce({
+        id: 'sess-live-fail',
+        agentId: 'codex-cli',
+        cwd: '/tmp/x',
+        title: 'x',
+        source: 'sdk',
+        lifecycle: 'active',
+        activity: 'idle',
+        startedAt: 1,
+        lastEventAt: 2,
+        endedAt: null,
+        archivedAt: null,
+        codexSandbox: 'read-only',
+      })
+      .mockReturnValueOnce({
+        id: 'sess-live-fail',
+        agentId: 'codex-cli',
+        cwd: '/tmp/x',
+        title: 'x',
+        source: 'sdk',
+        lifecycle: 'active',
+        activity: 'idle',
+        startedAt: 1,
+        lastEventAt: 2,
+        endedAt: null,
+        archivedAt: null,
+        codexSandbox: 'workspace-write',
+      })
+      .mockReturnValue({
+        id: 'sess-live-fail',
+        agentId: 'codex-cli',
+        cwd: '/tmp/x',
+        title: 'x',
+        source: 'sdk',
+        lifecycle: 'active',
+        activity: 'idle',
+        startedAt: 1,
+        lastEventAt: 2,
+        endedAt: null,
+        archivedAt: null,
+        codexSandbox: 'read-only',
       });
 
-    // 关键：rethrow 的应是原始 createSession err，不是 rollback err（修前裸调回滚 throw 会掩盖原 err）
-    await expect(
-      bridge.restartWithCodexSandbox('sess-dblrollback', 'workspace-write', 'go'),
-    ).rejects.toThrow(/codex spawn original failure/);
-
-    // rollback 失败被 try/catch 吞（warn），error message 仍 emit
-    const errMsgs = emits.filter(
-      (e) =>
-        e.kind === 'message' &&
-        (e.payload as { error?: boolean }).error === true &&
-        ((e.payload as { text?: string }).text ?? '').includes('切到 sandbox'),
-    );
-    expect(errMsgs).toHaveLength(1);
-  });
-
-  it('handoffPrompt 空 + jsonl 在 → resumeOnly 成功，不需要 synthetic prompt', async () => {
-    const bridge = makeBridge();
-    vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-x',
-      agentId: 'codex-cli',
-      cwd: '/tmp/x',
-      title: 'x',
-      source: 'sdk',
-      lifecycle: 'dormant',
-      activity: 'idle',
-      startedAt: 1,
-      lastEventAt: 2,
-      endedAt: null,
-      archivedAt: null,
-      codexSandbox: 'read-only',
+    const upsertedEmits: unknown[] = [];
+    const spy = vi.spyOn(eventBus, 'emit').mockImplementation((name: string, payload: unknown) => {
+      if (name === 'session-upserted') upsertedEmits.push(payload);
+      return true;
     });
 
     await expect(
-      bridge.restartWithCodexSandbox('sess-x', 'workspace-write', '   '),
-    ).resolves.toBe('sess-x');
+      bridge.restartWithCodexSandbox('sess-live-fail', 'workspace-write', 'ignored'),
+    ).rejects.toThrow(/patch failed/);
 
-    expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0].resumeOnly).toBe(true);
-    expect(bridge.createCalls[0].prompt).toBeUndefined();
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(2);
+    expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(1, 'sess-live-fail', 'workspace-write');
+    expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(2, 'sess-live-fail', 'read-only');
+    expect(upsertedEmits).toHaveLength(2);
+    expect(upsertedEmits[0]).toMatchObject({ codexSandbox: 'workspace-write' });
+    expect(upsertedEmits[1]).toMatchObject({ codexSandbox: 'read-only' });
+    expect(bridge.createCalls).toHaveLength(0);
+
+    spy.mockRestore();
   });
 
   it('record 不存在 → throw not found', async () => {
@@ -609,182 +539,5 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     await expect(
       bridge.restartWithCodexSandbox('sess-ghost', 'workspace-write', 'x'),
     ).rejects.toThrow(/not found in repo/);
-  });
-
-  // ─── REVIEW_101 R1: restart 接入 cancellation-epoch（close-during-restart abort）─────────
-  // reviewer-codex R1 HIGH（降 MED 双方共识）+ reviewer-claude 反驳轮确认：restart 冷切 createSession
-  // await 窗口内用户 close / scheduler 衰减 → epoch 变 → cancelGuard abort 不复活幽灵。修前 restart
-  // 路径 0 覆盖此场景（recovery.test.ts 的 cancellation-epoch ①-⑥ 只测 recover 路径）。
-  it('REVIEW_101: restart createSession await 期间 close（epoch 变）→ abort 静默结束，不回滚 sandbox / 不 emit 切档失败', async () => {
-    const bridge = makeBridge();
-    vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-cancel',
-      agentId: 'codex-cli',
-      cwd: '/tmp/x',
-      title: 'x',
-      source: 'sdk',
-      lifecycle: 'dormant',
-      activity: 'idle',
-      startedAt: 1,
-      lastEventAt: 2,
-      endedAt: null,
-      archivedAt: null,
-      codexSandbox: 'read-only',
-    });
-    // epoch 序列：baseline 捕获返 0；cancelGuard 内查（createSession override 调 cancelCheck）返 1（epoch
-    // 变 = await 窗口内 close）→ cancelCheck 返 true → createSession override throw RecoveryCancelledError。
-    vi.mocked(sessionManager.getCloseEpoch)
-      .mockReturnValueOnce(0) // baseline（close OLD 之后捕获）
-      .mockReturnValue(1); // cancelGuard 后续查 → epoch 变 → abort
-
-    // abort 路径静默 return sessionId（不 reject 给 caller）
-    const result = await bridge.restartWithCodexSandbox('sess-cancel', 'workspace-write', 'go');
-    expect(result).toBe('sess-cancel');
-
-    // 关键断言 1：不 emit「切到 sandbox 失败」红字（用户主动 close 不该看到切档失败错误）
-    const errMsgs = emits.filter(
-      (e) =>
-        e.kind === 'message' &&
-        (e.payload as { error?: boolean }).error === true &&
-        ((e.payload as { text?: string }).text ?? '').includes('切到 sandbox'),
-    );
-    expect(errMsgs).toHaveLength(0);
-    // 关键断言 2：不回滚 sandbox（forward set 1 次写 workspace-write；abort 不触发 catch rollback 第 2 次）
-    // forward set 成功后走 maybeCodexJsonlFallback（jsonl 在 fall-through）→ createSession throw sentinel
-    // → outer catch special-case 静默 return，不回滚 → setCodexSandbox 仅 1 次
-    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(1);
-    expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(1, 'sess-cancel', 'workspace-write');
-  });
-
-  // ─── REVIEW_101 R1: restart 透传 model（reviewer-codex MED）─────────────────────────────
-  // 修前 restart 只传 codexSandbox，丢 rec.model → 带自定义 model 的 session 切档后跑全局默认 model。
-  it('REVIEW_101: restart createSession 透传 rec.model（与 recover 对称，防切档后退回默认模型）', async () => {
-    const bridge = makeBridge();
-    vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-model',
-      agentId: 'codex-cli',
-      cwd: '/tmp/x',
-      title: 'x',
-      source: 'sdk',
-      lifecycle: 'dormant',
-      activity: 'idle',
-      startedAt: 1,
-      lastEventAt: 2,
-      endedAt: null,
-      archivedAt: null,
-      codexSandbox: 'read-only',
-      model: 'gpt-5.5-codex',
-    });
-
-    await bridge.restartWithCodexSandbox('sess-model', 'workspace-write', 'go');
-
-    // jsonl 在（jsonlExistsOverride 默认 true）→ fall-through direct resume createSession
-    expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0].model).toBe('gpt-5.5-codex');
-    // cancelCheck 也透传（cancel-guard）
-    expect(bridge.createCalls[0].cancelCheck).toBeTypeOf('function');
-    expect(bridge.createCalls[0].resumeOnly).toBe(true);
-  });
-
-  it('restart 不把 codex-default 统计占位当真实 SDK model 透传', async () => {
-    const bridge = makeBridge();
-    vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-default-model',
-      agentId: 'codex-cli',
-      cwd: '/tmp/x',
-      title: 'x',
-      source: 'sdk',
-      lifecycle: 'dormant',
-      activity: 'idle',
-      startedAt: 1,
-      lastEventAt: 2,
-      endedAt: null,
-      archivedAt: null,
-      codexSandbox: 'read-only',
-      model: 'codex-default',
-    });
-
-    await bridge.restartWithCodexSandbox('sess-default-model', 'workspace-write', 'go');
-
-    expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0].model).toBeUndefined();
-  });
-
-  it('restart jsonl 在 → createSession resumeOnly，不发送 handoff prompt / 不注入 DB 历史', async () => {
-    const bridge = makeBridge();
-    // 即便 DB 历史/摘要齐备，jsonl 在的 resume 路径也**不**注入（resumeThread 已从 thread jsonl 续上）。
-    bridge.summariseOverride = 'Codex 重启摘要';
-    bridge.listEventsOverride = [
-      { sessionId: 'sess-history', agentId: 'codex-cli', kind: 'message', payload: { text: 'x' }, ts: 1, source: 'sdk' },
-    ];
-    bridge.listMessagesOverride = [
-      msg(2, 'assistant', 'Codex 历史回答'),
-      msg(1, 'user', 'Codex 历史问题'),
-    ];
-    vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-history',
-      agentId: 'codex-cli',
-      cwd: '/tmp/x',
-      title: 'x',
-      source: 'sdk',
-      lifecycle: 'dormant',
-      activity: 'idle',
-      startedAt: 1,
-      lastEventAt: 2,
-      endedAt: null,
-      archivedAt: null,
-      codexSandbox: 'read-only',
-    });
-
-    await bridge.restartWithCodexSandbox('sess-history', 'workspace-write', 'go');
-
-    expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0].resumeOnly).toBe(true);
-    const prompt = bridge.createCalls[0].prompt ?? '';
-    expect(prompt).toBe(''); // resumeOnly 不发送 synthetic prompt
-    expect(prompt).not.toContain('历史会话摘要');
-    expect(prompt).not.toContain('Codex 重启摘要');
-    expect(prompt).not.toContain('Codex 历史问题');
-  });
-
-  // ─── REVIEW_101 R1: restart jsonl 缺失走 fallback（reviewer-claude MED）──────────────────
-  // 修前 restart 无 jsonl 处理：jsonl 缺失走 resumeThread earlyErr → 回滚旧档切档失败。修法接入
-  // maybeCodexJsonlFallback：jsonl 缺失走 fresh-cli-reuse-app 起 fresh thread → 切档成功。
-  it('REVIEW_101: restart jsonl 缺失 → fallback fresh-cli-reuse-app 切档成功（不回滚旧档）', async () => {
-    const bridge = makeBridge();
-    bridge.jsonlExistsOverride = false; // 模拟 jsonl 被清 / 跨设备同步未带
-    vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-nojsonl',
-      agentId: 'codex-cli',
-      cwd: '/tmp/x',
-      title: 'x',
-      source: 'sdk',
-      lifecycle: 'dormant',
-      activity: 'idle',
-      startedAt: 1,
-      lastEventAt: 2,
-      endedAt: null,
-      archivedAt: null,
-      codexSandbox: 'read-only',
-    });
-
-    const result = await bridge.restartWithCodexSandbox('sess-nojsonl', 'workspace-write', 'go');
-    expect(result).toBe('sess-nojsonl'); // applicationSid 不变
-
-    // jsonl 缺失 → helper 走 fresh-cli-reuse-app createSession
-    expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0].resumeMode).toBe('fresh-cli-reuse-app');
-    expect(bridge.createCalls[0].codexSandbox).toBe('workspace-write'); // 新档透传
-    // 切档成功不回滚：setCodexSandbox 仅 forward 1 次（无 catch rollback 第 2 次）
-    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(1);
-    expect(sessionRepo.setCodexSandbox).toHaveBeenNthCalledWith(1, 'sess-nojsonl', 'workspace-write');
-    // 不 emit「切到 sandbox 失败」红字
-    const errMsgs = emits.filter(
-      (e) =>
-        e.kind === 'message' &&
-        (e.payload as { error?: boolean }).error === true &&
-        ((e.payload as { text?: string }).text ?? '').includes('切到 sandbox'),
-    );
-    expect(errMsgs).toHaveLength(0);
   });
 });

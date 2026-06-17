@@ -39,8 +39,8 @@ class CodexCliAdapter implements AgentAdapter {
     canRespondPermission: false,
     canSetPermissionMode: false,
     canRestartWithPermissionMode: false,
-    // CHANGELOG_<X> A2b：codex 专属冷切，restartWithCodexSandbox 走 close + resumeThread
-    // 重建 thread 透传新 sandbox（spike-A2 实测 SDK + CLI 透传新 sandbox 真生效）。
+    // CHANGELOG_<X> A2b：Codex app-server 每个 turn/start 都带 sandboxPolicy；
+    // 兼容旧命名的 restartWithCodexSandbox 实际做 next-turn apply，不冷重启。
     canRestartWithCodexSandbox: true,
     // CHANGELOG_74：codex 不支持 claude-code OS 沙盒冷切（claude 专属 capability）。
     canRestartWithClaudeCodeSandbox: false,
@@ -181,8 +181,8 @@ class CodexCliAdapter implements AgentAdapter {
   }
 
   /**
-   * Codex 专属冷切（CHANGELOG_<X> A2b）：销毁旧 thread + 用新 sandbox 档位 resume 重建。
-   * SDK sandboxMode 是 startThread/resumeThread spawn-time 锁定，必须冷切。
+   * Codex 专属 sandbox 切换。方法名沿用旧 IPC 兼容；bridge 内部持久化新档位并
+   * patch live app-server thread options，让下一次 turn/start 使用新 sandbox。
    * 失败时 bridge 内部已 emit error message + 回滚 sessionRepo.codexSandbox。
    */
   async restartWithCodexSandbox(

@@ -73,9 +73,8 @@ export function ComposerSdk({
   const [pmError, setPmError] = useState<string | null>(null);
 
   // CHANGELOG_<X> A2c：codex 会话独立的 sandbox 切档（与 permissionMode 正交）。
-  // codex SDK 的 sandboxMode 是 startThread/resumeThread spawn-time 锁定，
-  // 切档必须冷切（销毁旧 thread + 用新 sandbox resume 重建），与 claude
-  // bypassPermissions 路径同模式。
+  // app-server Codex 每个 turn/start 都带 sandboxPolicy，切档只需更新下个 turn 的 options；
+  // 当前 turn 不重启、不清 pending 队列。
   const codexSandbox = (session.codexSandbox ?? 'workspace-write') as CodexSandbox;
   const [csBusy, setCsBusy] = useState(false);
   const [csError, setCsError] = useState<string | null>(null);
@@ -209,8 +208,8 @@ export function ComposerSdk({
   };
 
   /**
-   * CHANGELOG_<X> A2c：codex sandbox 冷切。与 claude bypassPermissions 路径同模式
-   * （销毁旧 thread → resume + 新 sandbox + handoffPrompt）。
+   * CHANGELOG_<X> A2c：codex sandbox 切档。app-server Codex 的 sandboxPolicy 按 turn 下发，
+   * 所以切换只影响下一轮 Codex turn，不重启当前会话。
    *
    * 切到 'danger-full-access' 必须 confirm（让 codex 完全免审批触达系统资源）；
    * 'read-only' 是降级到只读，无破坏性，免 confirm。
@@ -220,11 +219,11 @@ export function ComposerSdk({
     if (next === 'danger-full-access') {
       const ok = await window.api.confirmDialog({
         title: '关闭沙盒（完全开放）',
-        message: '需要重启当前会话',
+        message: '将从下一轮 Codex turn 起生效',
         detail:
-          '重启后，Codex 可以读写任意文件、执行任意命令。重启约需 5-10 秒。\n\n' +
+          '关闭后，Codex 可以读写任意文件、执行任意命令。当前正在运行的 turn 不会中断，后续消息会使用新设置。\n\n' +
           '失败时会自动回到当前沙盒设置。继续？',
-        okLabel: '重启并关闭沙盒',
+        okLabel: '关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
       });
@@ -233,8 +232,8 @@ export function ComposerSdk({
     setCsBusy(true);
     setCsError(null);
     try {
-      // IPC 主进程 restartWithCodexSandbox：closeSession → setCodexSandbox →
-      // createSession({resume, codexSandbox, prompt}) → 失败回滚 DB + emit error。
+      // IPC 名称沿用 restartWithCodexSandbox；主进程实际只写 codexSandbox +
+      // patch live app-server thread options。当前 turn 不重启，下一轮 turn/start 生效。
       // session-upserted event 推回 renderer store 让下拉值跟着 sessions Map 变。
       await window.api.restartWithCodexSandbox(
         agentId,

@@ -38,7 +38,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
     canSetPermissionMode: true,
     canRestartWithPermissionMode: true,
     canRestartWithCodexSandbox: false,
-    // CHANGELOG_74：claude OS 沙盒冷切（与 codex restartWithCodexSandbox 字面镜像）
+    // CHANGELOG_74：claude OS 沙盒冷切（query sandbox options 是启动时配置）
     canRestartWithClaudeCodeSandbox: true,
     canCloseSession: true,
     // R3.E4：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage = sendMessage）
@@ -170,7 +170,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   /**
-   * CHANGELOG_74：Claude OS 沙盒冷切（与 codex restartWithCodexSandbox 字面镜像）。
+   * CHANGELOG_74：Claude OS 沙盒冷切。
    * 销毁旧 SDK 子进程 + 用新档位 createSession resume 重建。
    * 失败 bridge 内已 emit error message + 回滚 sessionRepo.claudeCodeSandbox。
    */

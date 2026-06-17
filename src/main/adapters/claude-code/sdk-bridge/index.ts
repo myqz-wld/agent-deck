@@ -533,7 +533,7 @@ export class ClaudeSdkBridge {
     return this.restartController.restartWithPermissionMode(sessionId, mode, handoffPrompt);
   }
 
-  /** 冷切 OS 沙盒 thin delegate（与 codex restartWithCodexSandbox 字面镜像）。详 restart-controller.ts。 */
+  /** 冷切 OS 沙盒 thin delegate。详 restart-controller.ts。 */
   async restartWithClaudeCodeSandbox(
     sessionId: string,
     sandbox: 'off' | 'workspace-write' | 'strict',
