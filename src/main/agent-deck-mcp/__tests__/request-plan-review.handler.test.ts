@@ -5,6 +5,7 @@ import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo'
 const mocks = vi.hoisted(() => ({
   sessions: new Map<string, SessionRecord>(),
   ingest: vi.fn(),
+  permissionTimeoutMs: 30 * 60 * 1000,
 }));
 
 vi.mock('@main/store/session-repo', () => ({
@@ -17,8 +18,20 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
+vi.mock('@main/store/settings-store', () => ({
+  settingsStore: {
+    get: vi.fn((key: string) => {
+      if (key === 'permissionTimeoutMs') return mocks.permissionTimeoutMs;
+      return undefined;
+    }),
+  },
+}));
+
 import { planReviewService } from '@main/plan-review/service';
-import { requestPlanReviewHandler } from '../tools/handlers/request-plan-review';
+import {
+  requestPlanReviewHandler,
+  resolvePlanReviewTimeoutMs,
+} from '../tools/handlers/request-plan-review';
 import type { HandlerContext } from '../tools/helpers';
 import { EXTERNAL_CALLER_SENTINEL } from '../types';
 
@@ -52,6 +65,7 @@ function parseResult(result: { content: Array<{ text: string }> }): unknown {
 beforeEach(() => {
   mocks.sessions.clear();
   mocks.ingest.mockReset();
+  mocks.permissionTimeoutMs = 30 * 60 * 1000;
 });
 
 describe('request_plan_review handler', () => {
@@ -117,6 +131,50 @@ describe('request_plan_review handler', () => {
     });
   });
 
+  it('passes the permission timeout to the plan review service when timeoutMs is omitted', async () => {
+    mocks.sessions.set('codex-1', makeSession('codex-1'));
+    mocks.permissionTimeoutMs = 90_000;
+    const requestSpy = vi
+      .spyOn(planReviewService, 'request')
+      .mockResolvedValue({ decision: 'timeout' });
+
+    try {
+      const result = await requestPlanReviewHandler(
+        { plan: 'Use settings timeout' },
+        makeCtx('codex-1'),
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(parseResult(result)).toEqual({ decision: 'timeout' });
+      expect(requestSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: 90_000 }),
+      );
+    } finally {
+      requestSpy.mockRestore();
+    }
+  });
+
+  it('caps an explicit timeoutMs to the permission timeout when enabled', async () => {
+    mocks.sessions.set('codex-1', makeSession('codex-1'));
+    mocks.permissionTimeoutMs = 60_000;
+    const requestSpy = vi
+      .spyOn(planReviewService, 'request')
+      .mockResolvedValue({ decision: 'timeout' });
+
+    try {
+      await requestPlanReviewHandler(
+        { plan: 'Cap me', timeoutMs: 120_000 },
+        makeCtx('codex-1'),
+      );
+
+      expect(requestSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: 60_000 }),
+      );
+    } finally {
+      requestSpy.mockRestore();
+    }
+  });
+
   it('denies external callers before creating a pending review', async () => {
     const result = await requestPlanReviewHandler(
       { plan: 'External plan' },
@@ -149,5 +207,21 @@ describe('request_plan_review handler', () => {
     expect(result.isError).toBe(true);
     expect(parseResult(result)).toEqual({ error: 'ingest failed' });
     expect(planReviewService.listPending('codex-1')).toEqual([]);
+  });
+});
+
+describe('resolvePlanReviewTimeoutMs', () => {
+  it('uses the permission timeout when the caller omits timeoutMs', () => {
+    expect(resolvePlanReviewTimeoutMs(undefined, 90_000)).toBe(90_000);
+  });
+
+  it('keeps a shorter explicit timeout but caps longer values to the permission timeout', () => {
+    expect(resolvePlanReviewTimeoutMs(30_000, 90_000)).toBe(30_000);
+    expect(resolvePlanReviewTimeoutMs(120_000, 90_000)).toBe(90_000);
+  });
+
+  it('treats permission timeout 0 as no default cap', () => {
+    expect(resolvePlanReviewTimeoutMs(undefined, 0)).toBeUndefined();
+    expect(resolvePlanReviewTimeoutMs(30_000, 0)).toBe(30_000);
   });
 });

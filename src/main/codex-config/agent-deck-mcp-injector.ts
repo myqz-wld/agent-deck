@@ -52,12 +52,19 @@ export interface CodexConfigObject {
 export const AGENT_DECK_MCP_TOKEN_ENV = 'AGENT_DECK_MCP_TOKEN';
 export const AGENT_DECK_MCP_SERVER_NAME = 'agent-deck';
 
+export function permissionTimeoutMsToCodexToolTimeoutSec(permissionTimeoutMs: number): number {
+  if (!Number.isFinite(permissionTimeoutMs)) return 0;
+  const timeoutMs = Math.max(0, permissionTimeoutMs);
+  if (timeoutMs === 0) return 0;
+  return Math.max(1, Math.ceil(timeoutMs / 1000));
+}
+
 /**
  * 计算 codex SDK Codex({ config }) 字段中要注入的 mcp_servers.agent-deck 段。
  * 不满足注入条件 → 返回 null（与现有 codex 入口的「不传 config」语义对齐）。
  */
 export function buildAgentDeckMcpConfigForCodex(
-  settings: Pick<AppSettings, 'enableAgentDeckMcp' | 'mcpHttpEnabled'>,
+  settings: Pick<AppSettings, 'enableAgentDeckMcp' | 'mcpHttpEnabled' | 'permissionTimeoutMs'>,
   hookServer: Pick<HookServer, 'isRunning' | 'listeningPort' | 'mcpBearerToken'> | null,
 ): CodexConfigObject | null {
   if (!settings.enableAgentDeckMcp) return null;
@@ -70,6 +77,7 @@ export function buildAgentDeckMcpConfigForCodex(
       [AGENT_DECK_MCP_SERVER_NAME]: {
         url: `http://127.0.0.1:${hookServer.listeningPort}/mcp`,
         bearer_token_env_var: AGENT_DECK_MCP_TOKEN_ENV,
+        tool_timeout_sec: permissionTimeoutMsToCodexToolTimeoutSec(settings.permissionTimeoutMs),
       },
     },
   };

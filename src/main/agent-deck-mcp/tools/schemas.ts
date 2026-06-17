@@ -253,7 +253,9 @@ export const REQUEST_PLAN_REVIEW_SCHEMA = {
     .min(1_000)
     .max(86_400_000)
     .optional()
-    .describe('Optional timeout in milliseconds. Omit to wait until the user approves or asks for revisions.'),
+    .describe(
+      'Optional timeout in milliseconds. Omit to use the app permission-request timeout; when that setting is 0, omitted timeoutMs waits until the user approves or asks for revisions.',
+    ),
   callerSessionId: z
     .string()
     .min(1)
