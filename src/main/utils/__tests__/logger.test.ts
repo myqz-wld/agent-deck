@@ -132,7 +132,7 @@ describe('main logger.ts (Plan §Step 3.5.1, mock-mediated 折中)', () => {
    * filter 应装到 `log.hooks` (Logger 实例级, electron-log v5 src/core/Logger.js:177
    * `this.hooks.reduce((msg, hook) => msg ? hook(msg, transFn, transName) : msg, ...)`),
    * NOT `log.transports.file.hooks` (Transport 实际无 hooks 字段 — 详 §D2-revised-v2 注释)。
-   * 锚点 'Error sending from webFrameMain' + 'Render frame was disposed' 单 arg 同时
+   * 锚点 'Error sending from webFrameMain' + 'Render frame was disposed' 同一次 log call
    * 命中,限定 transportName='file' 才丢;pass-through 返原 message(R2 实证:reduce 短路
    * 语义依赖返 truthy,返 undefined 会让 transport 跳过)。
    */
@@ -145,7 +145,7 @@ describe('main logger.ts (Plan §Step 3.5.1, mock-mediated 折中)', () => {
       ).toBe(true);
     });
 
-    it('双关键词分布在 data 多项中 → 返 false 透传 (单 arg 同时命中, 不 OR 拼接防误吞)', () => {
+    it('双关键词分布在 string data 多项中 → 返 true 丢 (Electron console.error split args)', () => {
       expect(
         shouldDropWebFrameMainDisposedNoise({
           data: [
@@ -153,7 +153,18 @@ describe('main logger.ts (Plan §Step 3.5.1, mock-mediated 折中)', () => {
             'Error: Render frame was disposed before WebFrameMain could be accessed',
           ],
         }),
-      ).toBe(false);
+      ).toBe(true);
+    });
+
+    it('webFrameMain prefix string + disposed Error object → 返 true 丢 (Electron 真实形态)', () => {
+      expect(
+        shouldDropWebFrameMainDisposedNoise({
+          data: [
+            'Error sending from webFrameMain: ',
+            new Error('Render frame was disposed before WebFrameMain could be accessed'),
+          ],
+        }),
+      ).toBe(true);
     });
 
     it('仅 "Render frame was disposed" 命中 (无 webFrameMain 前缀) → 透传', () => {
@@ -243,6 +254,22 @@ describe('main logger.ts (Plan §Step 3.5.1, mock-mediated 折中)', () => {
       const hook = (log as unknown as { hooks: ((m: { data: unknown[] }, t: unknown, n?: string) => unknown)[] }).hooks[0];
       const result = hook(
         { data: ['Error sending from webFrameMain:  Error: Render frame was disposed'] },
+        () => undefined,
+        'file',
+      );
+      expect(result).toBe(false);
+    });
+
+    it('hook 行为: transportName=file + prefix string / Error split args → 返 false (丢)', () => {
+      installWebFrameMainDisposedFileFilter();
+      const hook = (log as unknown as { hooks: ((m: { data: unknown[] }, t: unknown, n?: string) => unknown)[] }).hooks[0];
+      const result = hook(
+        {
+          data: [
+            'Error sending from webFrameMain: ',
+            new Error('Render frame was disposed before WebFrameMain could be accessed'),
+          ],
+        },
         () => undefined,
         'file',
       );

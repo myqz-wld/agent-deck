@@ -61,7 +61,7 @@ window.addEventListener('error', (ev) => {
     return;
   }
   if (typeof ev.message === 'string' && isMonacoUnmountRaceNoise(ev.message)) {
-    logger.warn('[renderer] monaco unmount race (suppressed):', ev.message);
+    logger.debug('[renderer] monaco unmount race (suppressed):', ev.message);
     return;
   }
   logger.error('[renderer] window.onerror', ev.error ?? ev.message);
@@ -75,7 +75,7 @@ window.addEventListener('unhandledrejection', (ev) => {
   //    关 diff 时 model 提前 dispose 触发 race）
   // 两条都不影响功能，是 monaco 内部清理时序问题，console 留痕即可。不过滤会全屏遮挡用户。
   if (isMonacoUnmountRaceNoise(ev.reason)) {
-    logger.warn(
+    logger.debug(
       '[renderer] monaco unmount race (suppressed):',
       (ev.reason as { message?: string })?.message ?? ev.reason,
     );
