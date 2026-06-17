@@ -20,6 +20,7 @@ import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 interface FakeTeam {
   id: string;
   name: string;
+  createdAt: number;
   archivedAt: number | null;
 }
 
@@ -92,9 +93,10 @@ function makeGhostFixture(count: number): void {
   sessions = new Map();
   archiveCalls.length = 0;
   emittedEvents.length = 0;
+  const oldEnough = Date.now() - 60 * 60_000;
   for (let i = 0; i < count; i++) {
     const teamId = `team-${i}`;
-    teams.push({ id: teamId, name: `Team ${i}`, archivedAt: null });
+    teams.push({ id: teamId, name: `Team ${i}`, createdAt: oldEnough, archivedAt: null });
     teamMembers.set(teamId, []); // 全 ghost：无 active member → 应被 archive
   }
 }
@@ -106,12 +108,13 @@ function makeMixedFixture(): void {
   archiveCalls.length = 0;
   emittedEvents.length = 0;
   // 5 ghost (no members) + 5 alive (active session) + 5 ready-to-archive (closed sessions, grace elapsed)
+  const oldEnough = Date.now() - 60 * 60_000;
   for (let i = 0; i < 5; i++) {
-    teams.push({ id: `ghost-${i}`, name: `Ghost ${i}`, archivedAt: null });
+    teams.push({ id: `ghost-${i}`, name: `Ghost ${i}`, createdAt: oldEnough, archivedAt: null });
     teamMembers.set(`ghost-${i}`, []);
   }
   for (let i = 0; i < 5; i++) {
-    teams.push({ id: `alive-${i}`, name: `Alive ${i}`, archivedAt: null });
+    teams.push({ id: `alive-${i}`, name: `Alive ${i}`, createdAt: oldEnough, archivedAt: null });
     teamMembers.set(`alive-${i}`, [{ sessionId: `sess-alive-${i}` }]);
     sessions.set(`sess-alive-${i}`, {
       id: `sess-alive-${i}`,
@@ -120,7 +123,7 @@ function makeMixedFixture(): void {
     });
   }
   for (let i = 0; i < 5; i++) {
-    teams.push({ id: `closed-${i}`, name: `Closed ${i}`, archivedAt: null });
+    teams.push({ id: `closed-${i}`, name: `Closed ${i}`, createdAt: oldEnough, archivedAt: null });
     teamMembers.set(`closed-${i}`, [{ sessionId: `sess-closed-${i}` }]);
     sessions.set(`sess-closed-${i}`, {
       id: `sess-closed-${i}`,
@@ -184,7 +187,12 @@ describe('TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集�
   });
 
   it('grace period 未到 → closed session 对应 team 不被 archive（first pass 阶段过滤掉）', () => {
-    teams = [{ id: 'fresh-closed', name: 'Fresh Closed', archivedAt: null }];
+    teams = [{
+      id: 'fresh-closed',
+      name: 'Fresh Closed',
+      createdAt: Date.now() - 60 * 60_000,
+      archivedAt: null,
+    }];
     teamMembers.set('fresh-closed', [{ sessionId: 'sess-fresh' }]);
     sessions.set('sess-fresh', {
       id: 'sess-fresh',
@@ -196,6 +204,23 @@ describe('TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集�
     const scheduler = new TeamLifecycleScheduler({ intervalMs: 60_000, graceMs: 30 * 60_000 });
     scheduler.scan();
     expect(archiveCalls.length).toBe(0);
+    expect(teams[0]!.archivedAt).toBe(null);
+  });
+
+  it('fresh empty team stays active during the spawn initialization grace window', () => {
+    teams = [{
+      id: 'fresh-empty',
+      name: 'Fresh Empty',
+      createdAt: Date.now() - 1_000,
+      archivedAt: null,
+    }];
+    teamMembers.set('fresh-empty', []);
+    archiveCalls.length = 0;
+
+    const scheduler = new TeamLifecycleScheduler({ intervalMs: 60_000, graceMs: 30 * 60_000 });
+    scheduler.scan();
+
+    expect(archiveCalls).toEqual([]);
     expect(teams[0]!.archivedAt).toBe(null);
   });
 
