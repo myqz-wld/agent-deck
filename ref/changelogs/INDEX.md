@@ -292,3 +292,4 @@
 | [CHANGELOG_285.md](CHANGELOG_285.md) | Filter incomplete and no-op Codex file changes from SessionDetail. |
 | [CHANGELOG_286.md](CHANGELOG_286.md) | SessionDetail permissions tab now switches by adapter: Claude keeps `.claude/settings*.json`, Codex shows sandbox, fixed approval policy, MCP status, and `~/.codex/config.toml`. |
 | [CHANGELOG_287.md](CHANGELOG_287.md) | AskUserQuestion and Plan rows keep actions in the top-right area only; plan feedback now opens below the top-right buttons. |
+| [CHANGELOG_288.md](CHANGELOG_288.md) | Plan feedback opens as a single-line row without changing the button layout. |

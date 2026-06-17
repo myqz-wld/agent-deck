@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from 'react';
+import { useMemo, useState, type JSX, type KeyboardEvent } from 'react';
 import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import log from '@renderer/utils/logger';
@@ -48,6 +48,7 @@ export function ExitPlanRow({
   const plan = payload.plan || '(计划内容为空)';
   const isMcpPlanReview = payload.reviewSource === 'mcp';
   const actorName = isMcpPlanReview ? '模型' : 'Claude';
+  const keepPlanningLabel = '继续规划';
 
   const targetModeLabel: Record<typeof targetMode, string> = {
     default: '每次询问',
@@ -100,6 +101,12 @@ export function ExitPlanRow({
     void respond({ decision: 'keep-planning', feedback: feedback.trim() || undefined });
   };
 
+  const onFeedbackKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    void respond({ decision: 'keep-planning', feedback: feedback.trim() || undefined });
+  };
+
   return (
     <li
       className={`min-w-0 rounded-md border p-2 text-[11px] ${
@@ -138,64 +145,65 @@ export function ExitPlanRow({
         )}
         <span className="font-mono tabular-nums text-deck-muted/60">{ts}</span>
         {stillPending && isSdk && (
-          <div className="ml-auto flex max-w-full flex-col items-end gap-1">
-            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
-              {!isMcpPlanReview && (
-                <DeckSelect
-                  value={targetMode}
-                  disabled={busy}
-                  onChange={setTargetMode}
-                  title="批准计划后切换到的权限模式(完全免询问需要重启会话)"
-                  options={TARGET_MODE_OPTIONS}
-                  className="w-[104px]"
-                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.06] px-1.5 py-0.5 text-left text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
-                  menuMinWidth={160}
-                />
-              )}
-              <button
-                type="button"
+          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
+            {!isMcpPlanReview && (
+              <DeckSelect
+                value={targetMode}
                 disabled={busy}
-                onClick={() => void onClickApprove()}
-                title={
-                  isMcpPlanReview
-                    ? '批准计划并把结果返回给模型'
-                    : targetMode === 'bypassPermissions'
-                      ? '批准计划并切到完全免询问模式(需重启会话,5-10 秒)'
-                      : `批准计划并切到「${targetModeLabel[targetMode]}」`
-                }
-                className="rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {isMcpPlanReview ? '批准计划' : `批准并切到 ${targetModeLabel[targetMode]}`}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onClickKeepPlanning}
-                title={
-                  showFeedback
-                    ? feedback.trim()
-                      ? `把反馈发给${actorName}，让它修改计划`
-                      : `不写反馈也可以，${actorName}会主动询问需要补充哪方面`
-                    : `让${actorName}继续修改计划（点击后可写反馈）`
-                }
-                className="rounded border border-deck-border bg-white/[0.06] px-2.5 py-0.5 text-[10px] text-deck-text hover:bg-white/[0.12] disabled:opacity-50"
-              >
-                {showFeedback ? '发送反馈' : '继续规划'}
-              </button>
-            </div>
-            {showFeedback && (
-              <textarea
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                placeholder="反馈可选；再次点击“发送反馈”继续规划"
-                rows={2}
-                disabled={busy}
-                className="w-72 max-w-full resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
+                onChange={setTargetMode}
+                title="批准计划后切换到的权限模式(完全免询问需要重启会话)"
+                options={TARGET_MODE_OPTIONS}
+                className="w-[104px]"
+                buttonClassName="w-full rounded border border-deck-border bg-white/[0.06] px-1.5 py-0.5 text-left text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+                menuMinWidth={160}
               />
             )}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onClickApprove()}
+              title={
+                isMcpPlanReview
+                  ? '批准计划并把结果返回给模型'
+                  : targetMode === 'bypassPermissions'
+                    ? '批准计划并切到完全免询问模式(需重启会话,5-10 秒)'
+                    : `批准计划并切到「${targetModeLabel[targetMode]}」`
+              }
+              className="rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isMcpPlanReview ? '批准计划' : `批准并切到 ${targetModeLabel[targetMode]}`}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClickKeepPlanning}
+              title={
+                showFeedback
+                  ? feedback.trim()
+                    ? `把反馈发给${actorName}，让它修改计划`
+                    : `不写反馈也可以，${actorName}会主动询问需要补充哪方面`
+                  : `让${actorName}继续修改计划（点击后可写反馈）`
+              }
+              className="rounded border border-deck-border bg-white/[0.06] px-2.5 py-0.5 text-[10px] text-deck-text hover:bg-white/[0.12] disabled:opacity-50"
+            >
+              {keepPlanningLabel}
+            </button>
           </div>
         )}
       </div>
+
+      {stillPending && isSdk && showFeedback && (
+        <input
+          type="text"
+          autoFocus
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          onKeyDown={onFeedbackKeyDown}
+          placeholder={`反馈可选；按 Enter 或再次点击“${keepPlanningLabel}”继续`}
+          disabled={busy}
+          className="mb-1.5 h-7 w-full rounded border border-deck-border bg-white/[0.04] px-2 text-[10px] text-deck-text outline-none placeholder:text-deck-muted/70 focus:border-white/20 disabled:opacity-50"
+        />
+      )}
 
       <PlanMarkdownPanel plan={plan} />
 
