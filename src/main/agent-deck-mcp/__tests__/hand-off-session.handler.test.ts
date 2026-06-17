@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sessionRepo } from '@main/store/session-repo';
+import { sessionManager } from '@main/session/manager';
+import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { handOffSessionHandler, resolveBatonRoleForSpawn } from '../tools/handlers/hand-off-session';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
 import type { HandOffSessionArgs, SpawnSessionArgs } from '../tools/schemas';
@@ -129,6 +131,58 @@ describe('handOffSessionHandler', () => {
     expect(data.sessionId).toBe('successor-sid');
     expect(data.callerClosed).toBe('ok');
     expect(data.resourceTransfer.worktreeMarker).toEqual({ status: 'skipped', marker: null });
+  });
+
+  it('default caller close keeps post-handoff tail events visible by not marking recentlyDeleted', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow({ cwdReleaseMarker: null }));
+    const markClosed = vi.spyOn(sessionManager, 'markClosed').mockImplementation(() => undefined);
+    const markRecentlyDeleted = vi
+      .spyOn(sessionManager, 'markRecentlyDeleted')
+      .mockImplementation(() => undefined);
+    const release = vi.spyOn(mcpSessionTokenMap, 'release').mockImplementation(() => undefined);
+    const spawnSession = vi.fn(async (args: SpawnSessionArgs): Promise<HandlerResult> => ({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            sessionId: 'successor-sid',
+            adapter: args.adapter,
+            cwd: args.cwd,
+            teamId: null,
+            teamName: null,
+            agentName: null,
+            displayName: null,
+            spawnDepth: 0,
+            spawnLimits: {
+              depth: { current: 0, next: 0, max: 3 },
+              fanOut: { current: 0, activeChildren: 0, inFlight: 0, max: 5 },
+              rate: { current: 0, max: 100, windowMs: 60_000, retryAfterMs: 0 },
+            },
+            sentAt: 123,
+            spawnPromptMessageId: null,
+          }),
+        },
+      ],
+    }));
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue', adapter: 'claude-code' },
+      ctx(),
+      {
+        spawnSession,
+        cwdExists: () => true,
+        transferResources: () => ({
+          tasks: { status: 'ok', count: 0 },
+          teams: { status: 'ok', transferred: [], failed: [] },
+          worktreeMarker: { status: 'skipped', marker: null },
+        }),
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(markClosed).toHaveBeenCalledWith('caller-sid');
+    expect(markRecentlyDeleted).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledWith('caller-sid');
   });
 
   it('closes the successor but not the caller when mandatory resource transfer fails', async () => {

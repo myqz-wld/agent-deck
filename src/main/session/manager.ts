@@ -358,8 +358,8 @@ class SessionManagerClass {
     // 时不需覆写,直接走原路径
 
     // **3b**: 黑名单检查 — 用原始 event.sessionId 维度 (黑名单双写后 cliSid 和 appSid 都能命中)。
-    // 例外：用户显式续聊的 SDK user message 需要打穿并清掉黑名单，否则 hand_off_session 后
-    // 原会话立刻继续聊会把用户消息和后续恢复事件都误吞；其它迟到尾包仍直接丢弃。
+    // 例外：用户显式续聊的 SDK user message 需要打穿并清掉黑名单，否则刚 close 后
+    // 立刻继续聊会把用户消息和后续恢复事件都误吞；其它迟到尾包仍直接丢弃。
     // 注:覆写后 event.sessionId 已是 appSid,但 isRecentlyDeleted 双写黑名单两个 key 都能命中,
     // 用 event.sessionId (覆写后 appSid 或未覆写 cliSid) 都正确
     if (this.isRecentlyDeleted(event.sessionId)) {
@@ -395,7 +395,7 @@ class SessionManagerClass {
   }
 
   /**
-   * 用户显式续聊应能打穿 hand_off_session / close 路径的短 TTL 尾包黑名单。清理时同步覆盖
+   * 用户显式续聊应能打穿 close 路径的短 TTL 尾包黑名单。清理时同步覆盖
    * applicationSid + cliSessionId，避免后续同一轮恢复里的 assistant/tool 事件继续被 60s 黑名单误吞。
    */
   private clearRecentlyDeleted(sessionId: string): void {
