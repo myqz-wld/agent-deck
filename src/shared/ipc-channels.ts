@@ -69,6 +69,8 @@ export const IpcInvoke = {
   DialogConfirm: 'dialog:confirm',
   PermissionScanCwd: 'permission:scan-cwd',
   PermissionOpenFile: 'permission:open-file',
+  PermissionScanCodex: 'permission:scan-codex',
+  PermissionOpenCodexFile: 'permission:open-codex-file',
   ImageLoadBlob: 'image:load-blob',
   UploadedImageLoad: 'image:load-uploaded',
   ClaudeMdGet: 'claude-md:get',

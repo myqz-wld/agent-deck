@@ -363,7 +363,13 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         )}
         {tab === 'summary' && <SummaryView sessionId={session.id} />}
         {tab === 'messages' && <MessagesPanel sessionId={session.id} />}
-        {tab === 'permissions' && <PermissionsView cwd={session.cwd} />}
+        {tab === 'permissions' && (
+          <PermissionsView
+            cwd={session.cwd}
+            agentId={session.agentId}
+            codexSandbox={session.codexSandbox}
+          />
+        )}
         {tab === 'diff' && (
           <div className="flex h-full flex-col gap-2">
             {changes === null ? (

@@ -3,7 +3,10 @@
  */
 import { shell } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
+import type { CodexSandboxMode } from '@shared/types';
 import { scanCwdSettings, getCandidatePaths } from '@main/permissions/scanner';
+import { scanCodexSettings } from '@main/permissions/codex-scanner';
+import { getCodexConfigPath } from '@main/codex-config/toml-writer';
 import { on } from './_helpers';
 
 export function registerPermissionsIpc(): void {
@@ -27,6 +30,23 @@ export function registerPermissionsIpc(): void {
       return { ok: false, reason: 'path not in candidate list' };
     }
     // shell.openPath 文件不存在时返回非空错误字符串；我们把它当作业务失败回传给前端。
+    const errorMsg = await shell.openPath(target);
+    return errorMsg ? { ok: false, reason: errorMsg } : { ok: true };
+  });
+
+  // Codex: 扫描 ~/.codex/config.toml + app-owned Codex runtime knobs，纯只读。
+  on(IpcInvoke.PermissionScanCodex, async (_e, sessionCodexSandbox) => {
+    return scanCodexSettings({
+      sessionCodexSandbox: sessionCodexSandbox as CodexSandboxMode | null,
+    });
+  });
+
+  // Codex: 只允许打开 scanner 声明的 ~/.codex/config.toml，避免 renderer 任意 openPath。
+  on(IpcInvoke.PermissionOpenCodexFile, async (_e, path) => {
+    const target = String(path ?? '');
+    if (target !== getCodexConfigPath()) {
+      return { ok: false, reason: 'path not in codex config path' };
+    }
     const errorMsg = await shell.openPath(target);
     return errorMsg ? { ok: false, reason: errorMsg } : { ok: true };
   });
