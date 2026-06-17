@@ -93,6 +93,7 @@ function transferTeams(
   const postCommitEvents: Array<() => void> = [];
 
   let memberships: ReturnType<typeof agentDeckTeamRepo.findActiveMembershipsBySession>;
+  let candidates: Array<{ teamId: string; role: 'lead' | 'teammate' }>;
   try {
     memberships = agentDeckTeamRepo.findActiveMembershipsBySession(callerSessionId);
   } catch (e) {
@@ -110,8 +111,28 @@ function transferTeams(
     };
   }
 
-  const candidates: Array<{ teamId: string; role: 'lead' | 'teammate' }> = [];
+  try {
+    candidates = agentDeckTeamRepo
+      .findActiveTeamMembershipsBySession(callerSessionId)
+      .map((m) => ({ teamId: m.teamId, role: m.role }));
+  } catch (e) {
+    return {
+      status: 'failed',
+      transferred,
+      skipped,
+      failed: [
+        {
+          teamId: '*',
+          role: 'teammate',
+          reason: `list-active-team-memberships-failed: ${errorMessage(e)}`,
+        },
+      ],
+    };
+  }
+
+  const candidateTeamIds = new Set(candidates.map((m) => m.teamId));
   for (const m of memberships) {
+    if (candidateTeamIds.has(m.teamId)) continue;
     const role = m.role;
     try {
       const team = agentDeckTeamRepo.get(m.teamId);
@@ -123,7 +144,7 @@ function transferTeams(
         skipped.push({ teamId: m.teamId, role, reason: 'team-archived' });
         continue;
       }
-      candidates.push({ teamId: m.teamId, role });
+      failed.push({ teamId: m.teamId, role, reason: 'active-team-query-mismatch' });
     } catch (e) {
       failed.push({ teamId: m.teamId, role, reason: errorMessage(e) });
     }

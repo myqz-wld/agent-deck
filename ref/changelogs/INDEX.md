@@ -287,3 +287,4 @@
 | [CHANGELOG_280.md](CHANGELOG_280.md) | Agent Deck MCP plan review timeout now follows the permission approval timeout. |
 | [CHANGELOG_281.md](CHANGELOG_281.md) | Team scheduler waits before archiving empty new teams. |
 | [CHANGELOG_282.md](CHANGELOG_282.md) | Handoff skips archived teams during resource transfer. |
+| [CHANGELOG_284.md](CHANGELOG_284.md) | Split row-active and operational active-team membership queries for handoff and task paths. |

@@ -26,8 +26,9 @@
  *   - types.ts (~125 行 errors / row types / row→record / input shapes / MAX_LEADS_PER_TEAM)
  *   - team-crud.ts (~190 行 9 funcs：create/ensureByName/get/getByActiveName/getWithMembers/list/archive/unarchive/hardDelete)
  *   - member-crud.ts (~165 行 3 funcs：addMember/leaveTeam/setRole)
- *   - member-query.ts (~155 行 6 funcs：listActiveMembers / listAllMembers /
- *     findActiveMembershipsBySession / findActiveMembershipsBySessionIds /
+ *   - member-query.ts：listActiveMembers / listAllMembers /
+ *     findActiveMembershipsBySession / findActiveTeamMembershipsBySession /
+ *     findActiveMembershipsBySessionIds /
  *     findSharedActiveTeams / countActiveLeads)
  *   外部 caller import 路径不变（'@main/store/agent-deck-team-repo' 自动 resolve 到 index.ts）。
  */
@@ -75,6 +76,7 @@ export interface AgentDeckTeamRepo {
   listAllMembers(teamId: string): AgentDeckTeamMember[];
   findActiveMembershipIn(teamId: string, sessionId: string): AgentDeckTeamMember | null;
   findActiveMembershipsBySession(sessionId: string): AgentDeckTeamMember[];
+  findActiveTeamMembershipsBySession(sessionId: string): AgentDeckTeamMember[];
   findActiveMembershipsBySessionIds(sessionIds: string[]): Map<string, SessionTeamMembership[]>;
   findSharedActiveTeams(sessionAId: string, sessionBId: string): string[];
   countActiveLeads(teamId: string): number;
@@ -138,6 +140,8 @@ export const agentDeckTeamRepo: AgentDeckTeamRepo = {
   findActiveMembershipIn: (teamId, sessionId) => defaultRepo().findActiveMembershipIn(teamId, sessionId),
   findActiveMembershipsBySession: (sessionId) =>
     defaultRepo().findActiveMembershipsBySession(sessionId),
+  findActiveTeamMembershipsBySession: (sessionId) =>
+    defaultRepo().findActiveTeamMembershipsBySession(sessionId),
   findActiveMembershipsBySessionIds: (sessionIds) =>
     defaultRepo().findActiveMembershipsBySessionIds(sessionIds),
   findSharedActiveTeams: (a, b) => defaultRepo().findSharedActiveTeams(a, b),

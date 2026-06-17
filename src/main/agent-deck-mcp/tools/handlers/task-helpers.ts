@@ -5,7 +5,7 @@
  * - `argsToInputWithoutOwner`: camelCase args → camelCase TaskCreateInput 子集（不含 ownerSessionId）
  * - `isCallerAuthorizedToWrite`: 写权限校验（v024 改签名 `(callerSid, task)` 按 task.teamId 判 — D3）
  * - `isCallerAuthorizedToRead`: read 权限校验（v024 新增 MED-1 修法,与 write 对称）
- * - `isCallerInTeam`: caller 是否在指定 team 是 active member（task_create 团 teamId 校验用）
+ * - `isCallerInTeam`: caller 是否在指定 active team 是 active member（task_create 团 teamId 校验用）
  * - `getVisibleTaskScope`: caller 视角 visible task scope（v024 替代 getVisibleOwnerSessionIds）
  *
  * **删除**: `getCallerFirstTeamName`（v023 为 ingest payload.teamName 提供 first team 名,
@@ -58,18 +58,11 @@ export function argsToInputWithoutOwner(args: {
  * - agent_deck_team_members.left_at IS NULL（成员未软退出）
  * - agent_deck_teams.archived_at IS NULL（团队未归档）
  *
- * 复用 agentDeckTeamRepo.findActiveMembershipsBySession（已 SQL JOIN 双条件）。
+ * 复用 agentDeckTeamRepo.findActiveTeamMembershipsBySession，将 archived team 过滤集中在 repo SQL。
  */
 export function isCallerInTeam(callerSid: string, teamId: string): boolean {
-  const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(callerSid);
-  for (const m of memberships) {
-    if (m.teamId !== teamId) continue;
-    // F2 修法 + §不变量 13 双条件:二查 team row 过滤 archived team(member 行 active 但
-    // team 已 archived 的 ghost membership)。team row missing 也跳过(DB 不一致 corner case)。
-    const team = agentDeckTeamRepo.get(teamId);
-    if (team !== null && team.archivedAt === null) return true;
-  }
-  return false;
+  const memberships = agentDeckTeamRepo.findActiveTeamMembershipsBySession(callerSid);
+  return memberships.some((m) => m.teamId === teamId);
 }
 
 /**
@@ -91,13 +84,8 @@ export function getVisibleTaskScope(callerSid: string): {
   teamIds: string[];
   includeOwnPersonal: true;
 } {
-  const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(callerSid);
-  const teamIds: string[] = [];
-  for (const m of memberships) {
-    const team = agentDeckTeamRepo.get(m.teamId);
-    if (team === null || team.archivedAt !== null) continue;
-    teamIds.push(m.teamId);
-  }
+  const memberships = agentDeckTeamRepo.findActiveTeamMembershipsBySession(callerSid);
+  const teamIds = memberships.map((m) => m.teamId);
   return { teamIds, includeOwnPersonal: true };
 }
 

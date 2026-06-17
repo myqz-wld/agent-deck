@@ -488,6 +488,22 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     expect(repo.findActiveMembershipsBySession('sA')).toHaveLength(1);
   });
 
+  it('findActiveTeamMembershipsBySession filters archived teams while row-active query keeps ghost rows', () => {
+    insertSession(db, 'sA');
+    const active = repo.create({ name: 'active-team' });
+    const archived = repo.create({ name: 'archived-team' });
+    repo.addMember({ teamId: active.id, sessionId: 'sA', role: 'lead' });
+    repo.addMember({ teamId: archived.id, sessionId: 'sA', role: 'teammate' });
+    repo.archive(archived.id);
+
+    expect(repo.findActiveMembershipsBySession('sA').map((m) => m.teamId).sort()).toEqual(
+      [active.id, archived.id].sort(),
+    );
+    expect(repo.findActiveTeamMembershipsBySession('sA').map((m) => m.teamId)).toEqual([
+      active.id,
+    ]);
+  });
+
   // REVIEW_35 follow-up A2 R2: 补 findActiveMembershipIn + listActiveMembers JOIN 单测
   it('findActiveMembershipIn — happy path 返 active member', () => {
     insertSession(db, 'sA');
@@ -540,4 +556,3 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
 // ────────────────────────────────────────────────────────────────────────────
 // agent-deck-message-repo
 // ────────────────────────────────────────────────────────────────────────────
-

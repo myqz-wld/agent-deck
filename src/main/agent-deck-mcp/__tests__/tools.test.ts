@@ -347,6 +347,8 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
       }) as unknown as AgentDeckTeamRepo['findActiveMembershipsBySessionIds'],
       findActiveMembershipsBySession: ((sid: string) =>
         mockMembershipsBySession.get(sid) ?? []) as unknown as AgentDeckTeamRepo['findActiveMembershipsBySession'],
+      findActiveTeamMembershipsBySession: ((sid: string) =>
+        mockMembershipsBySession.get(sid) ?? []) as unknown as AgentDeckTeamRepo['findActiveTeamMembershipsBySession'],
       get: (teamId: string) => (mockTeamsById.get(teamId) ?? null) as ReturnType<AgentDeckTeamRepo['get']>,
       // REVIEW_85 MED-1 (reviewer-codex): findActiveMembershipIn 反查 caller 是否真已是 active lead
       findActiveMembershipIn: ((teamId: string, sessionId: string) =>
