@@ -1,40 +1,40 @@
 # resources/
 
-应用运行时资源的源目录。`package.json` 的 `build.extraResources` 会把本目录复制到 `.app/Contents/Resources/`，主进程再按 adapter 读取并注入 SDK 会话。
+Source directory for app runtime resources. `package.json` `build.extraResources` copies this directory to `.app/Contents/Resources/`; the main process then reads resources by adapter and injects them into SDK sessions.
 
-本文只记录资源路径、加载方式和对偶边界，供运行时资源打包和注入时定位使用。
+This document records only resource paths, loading behavior, and paired-boundary rules for locating runtime resources during packaging and injection.
 
-## 打包路径
+## Packaging Paths
 
-| 源目录 | 打包后目录 | 用途 |
+| Source directory | Packaged directory | Purpose |
 |---|---|---|
-| `resources/bin` | `.app/Contents/Resources/bin` | CLI wrapper 与辅助脚本 |
-| `resources/claude-config` | `.app/Contents/Resources/claude-config` | Claude Code / Deepseek（Claude Code）侧应用约定与 plugin 资源 |
-| `resources/codex-config` | `.app/Contents/Resources/codex-config` | Codex 侧应用约定、custom-agent TOML 与 skill 资源 |
-| `resources/sounds` | `.app/Contents/Resources/sounds` | 应用提示音 |
+| `resources/bin` | `.app/Contents/Resources/bin` | CLI wrapper and helper scripts |
+| `resources/claude-config` | `.app/Contents/Resources/claude-config` | Claude Code / Deepseek (Claude Code) app conventions and plugin resources |
+| `resources/codex-config` | `.app/Contents/Resources/codex-config` | Codex app conventions, custom-agent TOML, and skill resources |
+| `resources/sounds` | `.app/Contents/Resources/sounds` | App notification sounds |
 
-路径分流：dev（`pnpm dev`）直接读 `<repo>/resources/*` 源目录；prod 读 `.app/Contents/Resources/*` 副本。`icon.png` / `icon.ico` 是 electron-builder 构建输入（`mac.icon`），不进 extraResources，运行时不加载。
+Path routing: dev (`pnpm dev`) reads the `<repo>/resources/*` source directories directly; prod reads the `.app/Contents/Resources/*` copies. `icon.png` / `icon.ico` are electron-builder inputs (`mac.icon`), are not included in extraResources, and are not loaded at runtime.
 
 ## claude-config/
 
-Claude Code adapter 使用这个资源根。Deepseek（Claude Code）复用同一套 agents / skills / `CLAUDE.md`，并通过 `~/.agent_deck/.deepseek/settings.json` 叠加 provider env。
+The Claude Code adapter uses this resource root. Deepseek (Claude Code) reuses the same agents / skills / `CLAUDE.md` and overlays provider env through `~/.agent_deck/.deepseek/settings.json`.
 
-- `CLAUDE.md`：通过 Claude SDK `systemPrompt.append` 追加到 preset system prompt 末尾，位置在 user / project / local `CLAUDE.md` 之后。设置面板保存的用户副本落 `<userData>/agent-deck-claude.md`，存在时覆盖内置文件。
-- `agent-deck-plugin/`：Claude SDK `plugins` 字段使用的本地 plugin 源。运行时会镜像到 `<userData>/agent-deck-plugin/` 并替换资源占位符；镜像会按 `injectAgentDeckClaudeSkills` / `injectAgentDeckClaudeAgents` 裁剪 `skills/` / `agents/` 子目录，再交给 SDK 扫描。
-- `agent-deck-plugin/agents/reviewer-claude.md`：Claude Code reviewer teammate body。
-- `agent-deck-plugin/skills/*/SKILL.md`：Claude Code 侧 `agent-deck:*` skills。
+- `CLAUDE.md`: Appended to the end of the preset system prompt through Claude SDK `systemPrompt.append`, after user / project / local `CLAUDE.md`. The user copy saved by the settings panel is written to `<userData>/agent-deck-claude.md`; when present, it overrides the bundled file.
+- `agent-deck-plugin/`: Local plugin source used by the Claude SDK `plugins` field. At runtime it is mirrored to `<userData>/agent-deck-plugin/` and resource placeholders are replaced; the mirror is pruned by `injectAgentDeckClaudeSkills` / `injectAgentDeckClaudeAgents` for the `skills/` / `agents/` subdirectories before being handed to the SDK scanner.
+- `agent-deck-plugin/agents/reviewer-claude.md`: Claude Code reviewer teammate body.
+- `agent-deck-plugin/skills/*/SKILL.md`: Claude Code-side `agent-deck:*` skills.
 
 ## codex-config/
 
-Codex adapter 使用这个资源根。Codex app-server 没有 Claude SDK 的 `plugins[]` 字段，所以注入路径和 Claude 侧不同。
+The Codex adapter uses this resource root. Codex app-server has no Claude SDK `plugins[]` field, so its injection path differs from the Claude side.
 
-- `CODEX_AGENTS.md`：替换资源占位符后通过 app-server `developerInstructions` 注入应用内 Codex 会话。设置面板保存的用户副本落 `<userData>/agent-deck-codex-agents.md`，存在时覆盖内置文件；内置文件缺失时显式报错，不回落到 claude-config 侧。
-- `agent-deck-plugin/agents/reviewer-codex.toml`：官方 Codex custom-agent TOML，由 bundled-assets / spawn loader 扫描后供 `spawn_session(agentName)` 路由；`injectAgentDeckCodexAgents=false` 时 spawn loader 跳过 bundled root，但项目 / 用户 Codex agents 仍可用。
-- `agent-deck-plugin/skills/*/SKILL.md`：替换资源占位符后镜像到 app userData 下的 Codex skills extraRoot，再通过 app-server `skills/extraRoots/set` 注入应用内 Codex 会话；不写入用户级 `~/.codex/skills/agent-deck/`。
+- `CODEX_AGENTS.md`: After resource placeholder replacement, injected into in-app Codex sessions through app-server `developerInstructions`. The user copy saved by the settings panel is written to `<userData>/agent-deck-codex-agents.md`; when present, it overrides the bundled file. If the bundled file is missing, loading fails explicitly and does not fall back to the claude-config side.
+- `agent-deck-plugin/agents/reviewer-codex.toml`: Official Codex custom-agent TOML. The bundled-assets / spawn loader scans it for `spawn_session(agentName)` routing. When `injectAgentDeckCodexAgents=false`, the spawn loader skips the bundled root, but project / user Codex agents remain available.
+- `agent-deck-plugin/skills/*/SKILL.md`: After resource placeholder replacement, mirrored into the Codex skills extraRoot under app userData and injected into in-app Codex sessions through app-server `skills/extraRoots/set`; it is not written to the user-level `~/.codex/skills/agent-deck/`.
 
-## 对偶边界
+## Paired Boundaries
 
-- 应用环境约定：`resources/claude-config/CLAUDE.md` 与 `resources/codex-config/CODEX_AGENTS.md` 的协议语义必须对齐；adapter 工具差异按各自运行方式写。
-- Reviewer body：`reviewer-claude.md` 和 `reviewer-codex.toml` 要对齐角色、输入契约、输出格式和失败处理；不要为了镜像同步复制另一端的工具说明。
-- Skills：Claude skills 在 `resources/claude-config/agent-deck-plugin/skills/`，Codex skills 在 `resources/codex-config/agent-deck-plugin/skills/`。同名 skill 的触发条件和目标行为要对齐，执行步骤按 adapter 工具能力分别写。
-- 打包资源必须自闭环：应用约定、reviewer agents 与 skills 在没有用户自定义 agents / skills 时仍要完整可用。
+- App environment conventions: protocol semantics in `resources/claude-config/CLAUDE.md` and `resources/codex-config/CODEX_AGENTS.md` must stay aligned; adapter tool differences should be written according to each adapter's execution model.
+- Reviewer bodies: `reviewer-claude.md` and `reviewer-codex.toml` must align on role, input contract, output format, and failure handling; do not copy the other side's tool instructions merely for mirrored synchronization.
+- Skills: Claude skills live in `resources/claude-config/agent-deck-plugin/skills/`, and Codex skills live in `resources/codex-config/agent-deck-plugin/skills/`. Same-name skills must align on triggers and target behavior, while execution steps should follow each adapter's tool capabilities.
+- Packaged resources must be self-contained: app conventions, reviewer agents, and skills must remain fully usable when no user-customized agents / skills exist.
