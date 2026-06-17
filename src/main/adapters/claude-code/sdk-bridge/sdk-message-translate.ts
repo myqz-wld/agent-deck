@@ -24,6 +24,7 @@ import {
 } from '@main/adapters/claude-code/translate';
 import { isImageTool } from '@shared/mcp-tools';
 import { CLAUDE_DEFAULT_BUCKET, normalizeModel } from '@shared/model-normalize';
+import { buildClaudeCompactMessageText } from '../compact-message';
 import { AGENT_ID } from './constants';
 import {
   clearLiveTokenEstimate,
@@ -184,6 +185,15 @@ function resultOutputTokens(r: {
     return entries.reduce((sum, usage) => sum + (usage.outputTokens ?? 0), 0);
   }
   return r.usage?.output_tokens ?? 0;
+}
+
+function compactFailureText(msg: { compact_result?: unknown; compact_error?: unknown }): string | null {
+  if (msg.compact_result !== 'failed') return null;
+  const detail =
+    typeof msg.compact_error === 'string' && msg.compact_error.trim()
+      ? msg.compact_error.trim()
+      : 'unknown error';
+  return `⚠ 上下文压缩失败：${detail}`;
 }
 
 /**
@@ -404,6 +414,24 @@ export function translateSdkMessage(
       e('message', { text: `⚠ ${detail}`, error: true });
     }
     e('finished', { ok: r.subtype === 'success' && !r.is_error, subtype: r.subtype });
+  } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
+    const metadata = (msg as {
+      compact_metadata?: {
+        trigger?: unknown;
+        pre_tokens?: unknown;
+        post_tokens?: unknown;
+        duration_ms?: unknown;
+      };
+    }).compact_metadata;
+    e('message', {
+      text: buildClaudeCompactMessageText({
+        trigger: metadata?.trigger,
+        preTokens: metadata?.pre_tokens,
+        postTokens: metadata?.post_tokens,
+        durationMs: metadata?.duration_ms,
+      }),
+      role: 'assistant',
+    });
   } else if (
     msg.type === 'system' &&
     (msg.subtype === 'init' || msg.subtype === 'status') &&
@@ -455,6 +483,11 @@ export function translateSdkMessage(
         }
       }
     }
+    const compactFailure = compactFailureText(msg as { compact_result?: unknown; compact_error?: unknown });
+    if (compactFailure) e('message', { text: compactFailure, error: true });
+  } else if (msg.type === 'system' && msg.subtype === 'status') {
+    const compactFailure = compactFailureText(msg as { compact_result?: unknown; compact_error?: unknown });
+    if (compactFailure) e('message', { text: compactFailure, error: true });
   } else if (msg.type === 'stream_event') {
     handleStreamEventForLiveRate(internal, sessionId, msg, ts);
   }

@@ -1,6 +1,7 @@
 import type { RouteOptions } from 'fastify';
 import {
   translateNotification,
+  translatePostCompact,
   translatePostToolUse,
   translatePreToolUse,
   translateSessionEnd,
@@ -62,6 +63,7 @@ export function buildHookRoutes(emit: (e: AgentEvent) => void): RouteOptions[] {
     makeRoute('/hook/sessionstart', (b) => translateSessionStart(b as never), taggedEmit),
     makeRoute('/hook/pretooluse', (b) => translatePreToolUse(b as never), taggedEmit),
     makeRoute('/hook/posttooluse', (b) => translatePostToolUse(b as never), taggedEmit),
+    makeRoute('/hook/postcompact', (b) => translatePostCompact(b as never), taggedEmit),
     makeRoute('/hook/notification', (b) => translateNotification(b as never), taggedEmit),
     makeRoute('/hook/stop', (b) => translateStop(b as never), taggedEmit),
     makeRoute('/hook/sessionend', (b) => translateSessionEnd(b as never), taggedEmit),
