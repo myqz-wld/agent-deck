@@ -28,4 +28,9 @@ export type {
   MergedDirectory,
   MergedPermissions,
   PermissionScanResult,
+  CodexSandboxMode,
+  CodexAgentDeckMcpStatus,
+  CodexEffectivePermissions,
+  CodexConfigLayer,
+  CodexPermissionScanResult,
 } from './settings/permission-scan';

@@ -1,3 +1,5 @@
+import type { AppSettings, CodexMcpServerConfigShared } from './app-settings';
+
 /**
  * Permission Settings Scan — Claude Code settings.json 四层 permissions 扫描结果 schema。
  *
@@ -71,4 +73,38 @@ export interface PermissionScanResult {
   project: SettingsLayer;
   local: SettingsLayer;
   merged: MergedPermissions;
+}
+
+export type CodexSandboxMode = AppSettings['codexSandbox'];
+
+export interface CodexAgentDeckMcpStatus {
+  enabled: boolean;
+  httpEnabled: boolean;
+  injectedForNewSessions: boolean;
+  toolTimeoutSec: number | null;
+  reason: string | null;
+}
+
+export interface CodexEffectivePermissions {
+  sandboxMode: CodexSandboxMode;
+  sandboxSource: 'session' | 'settings';
+  approvalPolicy: 'never';
+  skipGitRepoCheck: true;
+  agentDeckMcp: CodexAgentDeckMcpStatus;
+}
+
+export interface CodexConfigLayer {
+  path: string;
+  exists: boolean;
+  raw: string | null;
+  readError: string | null;
+  topLevelModel: string | null;
+  markerManagedMcpServers: CodexMcpServerConfigShared[];
+}
+
+export interface CodexPermissionScanResult {
+  adapter: 'codex-cli';
+  config: CodexConfigLayer;
+  appManagedMcpServers: CodexMcpServerConfigShared[];
+  effective: CodexEffectivePermissions;
 }
