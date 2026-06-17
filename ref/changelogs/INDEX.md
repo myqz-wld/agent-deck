@@ -283,3 +283,4 @@
 | [CHANGELOG_276.md](CHANGELOG_276.md) | Preheat the provider quota cache when the application starts, and reuse the main-side TTL cache for data tabs. |
 | [CHANGELOG_277.md](CHANGELOG_277.md) | Fix original-session messages disappearing when the user continues chatting immediately after `hand_off_session`; SDK user messages now clear the short tail-event blacklist. |
 | [CHANGELOG_278.md](CHANGELOG_278.md) | `hand_off_session` no longer puts the caller in the short tail-event blacklist, so the original turn's post-handoff output remains visible while the caller stays closed. |
+| [CHANGELOG_279.md](CHANGELOG_279.md) | Standalone `spawn_session` now injects first-reply anchors and refreshes spawn tree state immediately. |

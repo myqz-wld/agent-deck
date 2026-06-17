@@ -58,6 +58,23 @@ describe('buildLeadContextBlock — spawn 路径 wire prefix + lead context bloc
     expect(result.contextBlock).toContain('Lead displayName: (unset)');
   });
 
+  it('teamId=null → contextBlock tells the child to omit teamId for teamless DM', () => {
+    const result = buildLeadContextBlock({
+      leadSessionId: 'lead-teamless-sid',
+      teamId: null,
+      leadDisplayName: 'Lead User',
+      leadAdapter: 'codex-cli',
+      placeholderId: 'teamless-msg-id',
+    });
+
+    expect(result.wirePrefix).toBe('[from Lead User @ codex-cli][msg teamless-msg-id][sid lead-teamless-sid]\n');
+    expect(result.contextBlock).toContain(
+      'Team id: (none; omit `teamId` so send_message uses teamless DM)',
+    );
+    expect(result.contextBlock).toContain("sessionId: 'lead-teamless-sid',");
+    expect(result.contextBlock).not.toContain("teamId: '");
+  });
+
   it('CHANGELOG_100 R2 fix: leadDisplayName 含 wire prefix 特殊字符 `]` / `\\n` / `[` → sanitize', () => {
     const result = buildLeadContextBlock({
       leadSessionId: 'lead-malicious-sid',

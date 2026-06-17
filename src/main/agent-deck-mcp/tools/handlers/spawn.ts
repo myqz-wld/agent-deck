@@ -363,8 +363,11 @@ export const spawnSessionHandler = withMcpGuard(
     // lead context block 显式列出 lead sessionId / teamId / lead displayName + send_message 用法，
     // 让 teammate 不必依赖 wire prefix 解析也能 send_message（双层冗余防 prompt 长度截断 / 协议漂移）。
     //
-    // 注入条件：teamIdEarly 真 + callerExists 真（有 team 且 caller 在 sessions 表）；任一缺
-    // 不注入（external caller / no-team spawn 没 reply chain anchor，注入也无意义）。
+    // 注入条件：callerExists + 普通 spawn（非 handOffMode）。
+    // - team spawn：teamIdEarly 写进 context block + placeholder.teamId
+    // - standalone spawn：teamIdEarly=null，context block 明确让 teammate omit teamId，placeholder
+    //   写 teamId=null 走 teamless DM reply-chain 校验（CHANGELOG_194）。
+    // - handOffMode：仍不注入。hand_off_session 是单向接力，successor 不应 reply 旧 caller。
     // **DB messages.body 列存原始 promptToUse**（不含 prefix / lead context block），与 send_message
     // buildWireBody 同款（wire prefix 在内存里加，不写回 DB）。
     //
@@ -374,10 +377,11 @@ export const spawnSessionHandler = withMcpGuard(
     // createSession 之后做（team_member sessionId FK 必须先存在），所以这里只能用 leadRecord.title。
     // teammate 看到的是 lead "first impression" 名字，与之后 send_message reply 看到的可能不同
     // —— 视觉上一致足以让用户识别"是同一个 lead"，无需强一致。
-    const willInjectWirePrefix = !!teamIdEarly && callerExists;
+    const shouldWriteNormalSpawnLink = callerExists && shouldWriteSpawnLink({ handOffMode: opts?.handOffMode });
+    const willInjectWirePrefix = shouldWriteNormalSpawnLink;
     let placeholderId: string | null = null;
     let promptForSpawn = promptToUse; // 给 SDK 的 wire 形式
-    if (willInjectWirePrefix && teamIdEarly) {
+    if (willInjectWirePrefix) {
       const newPlaceholderId = crypto.randomUUID();
       placeholderId = newPlaceholderId;
       const leadAdapter = leadRecord?.agentId ?? 'unknown-adapter';
@@ -386,9 +390,6 @@ export const spawnSessionHandler = withMcpGuard(
       // (lead-context-block.ts)。helper 仅给 spawn 路径用 — adopt 路径 (Phase 4c) 走独立
       // buildAdoptedTeamsContextBlock helper (adopted-teams-context-block.ts),不复用本
       // helper(详 lead-context-block.ts 顶部 jsdoc)。
-      // 注:`willInjectWirePrefix && teamIdEarly` 等价 willInjectWirePrefix 单条件,加 explicit
-      // teamIdEarly null check 让 TS narrow `string | null` → `string`(willInjectWirePrefix
-      // 用 `!!teamIdEarly` 但 TS 不能跨变量 narrow)。
       const { wirePrefix, contextBlock } = buildLeadContextBlock({
         leadSessionId: caller.callerSessionId,
         teamId: teamIdEarly,
@@ -478,10 +479,12 @@ export const spawnSessionHandler = withMcpGuard(
       // - spawn-guards.ts depth check 用 callerSession.spawnDepth 不用新 session.spawnDepth
       //   → 无影响
       // **[caller-scoped #1/4]** spawn-link 写入(grep anchor 详 L148-160 callerExists 定义)
-      if (callerExists && shouldWriteSpawnLink({ handOffMode: opts?.handOffMode })) {
+      if (shouldWriteNormalSpawnLink) {
         const newDepth = parentDepth + 1;
+        let spawnLinkWritten = false;
         try {
           sessionRepo.setSpawnLink(sid, caller.callerSessionId, newDepth);
+          spawnLinkWritten = true;
         } catch (e) {
           // 此时 createSession 已成功（SDK 子进程已起）。若让本抛错落到外层 catch，会
           // return err 提示「createSession failed; no session created」误导 caller 重试 →
@@ -493,6 +496,17 @@ export const spawnSessionHandler = withMcpGuard(
             `[mcp spawn_session] setSpawnLink(${sid}, ${caller.callerSessionId}, ${newDepth}) failed; spawnedBy left NULL:`,
             e,
           );
+        }
+        if (spawnLinkWritten) {
+          try {
+            const linked = sessionRepo.get(sid);
+            if (linked) eventBus.emit('session-upserted', linked);
+          } catch (e) {
+            logger.warn(
+              `[mcp spawn_session] session-upserted emit after setSpawnLink(${sid}) failed:`,
+              e,
+            );
+          }
         }
       }
     } catch (e) {
@@ -674,7 +688,8 @@ export const spawnSessionHandler = withMcpGuard(
     // 不重复投递）作为 lead/teammate 对话链的锚点。lead 不再主动 poll reply（CHANGELOG_100 删旧 tool）；
     // teammate first turn 完成后调 send_message({replyToMessageId: spawnPromptMessageId, ...})
     // 回复，reply 自动 dispatch 进 lead conversation（J fix 删，CHANGELOG_100）。
-    // 无 team / no-shared-team 时不入队 placeholder（spawn 没有可关联的对话场景）。
+    // Standalone spawns also get a placeholder with teamId=null. send_message replies then resolve
+    // to teamless DM and pair-scope against this placeholder.
     // Phase B7：用上面预生成的 placeholderId（与 promptForSpawn 里的 [msg <id>] 一致），
     // body 仍存原始 promptToUse（不含 wire prefix）。
     //
@@ -685,7 +700,7 @@ export const spawnSessionHandler = withMcpGuard(
     // 当前最小防御：失败时返回 spawnPromptMessageId=null，lead 至少不会等一个不存在的 reply anchor。
     let spawnPromptMessageId: string | null = null;
     // **[caller-scoped #3/4]** placeholder message(grep anchor 详 L148-160 callerExists 定义)
-    if (teamId && callerExists && placeholderId) {
+    if (willInjectWirePrefix && callerExists && placeholderId) {
       try {
         const placeholder = agentDeckMessageRepo.insert({
           id: placeholderId,

@@ -82,7 +82,7 @@ Agent Deck MCP tools orchestrate sessions, messages, worktrees, tasks, and issue
 
 Session tools:
 
-- `spawn_session`: starts a parallel SDK session; passing `teamName` creates a shared team and returns `spawnPromptMessageId`.
+- `spawn_session`: starts a parallel SDK session and returns `spawnPromptMessageId`; passing `teamName` also creates or reuses a shared team.
 - `hand_off_session`: starts a successor session and transfers caller resources.
 - `send_message`: sends a normal message or a reply with `replyToMessageId`.
 - `request_plan_review`: shows a markdown plan in Agent Deck's plan review UI and waits for the user's approval or revision feedback.
@@ -93,7 +93,7 @@ Worktree tools: `enter_worktree` / `exit_worktree`. Task tools: `task_create` / 
 
 ### Message Anchors
 
-The `spawnPromptMessageId` returned by `spawn_session` is the anchor for the teammate's first reply. After the teammate's first turn completes, it replies with `send_message({ replyToMessageId: spawnPromptMessageId, ... })`; the reply is injected into the lead conversation.
+The `spawnPromptMessageId` returned by `spawn_session` is the anchor for the teammate's first reply. After the teammate's first turn completes, it replies with `send_message({ replyToMessageId: spawnPromptMessageId, ... })`; omit `teamId` for standalone spawns so the reply uses teamless DM. The reply is injected into the lead conversation.
 
 For later rounds, use the `messageId` returned by `send_message` as the reply-chain anchor. The receiver's user message begins with `[msg <id>][sid <senderSid>]`; extract both values and pass the message id back as `replyToMessageId`.
 
