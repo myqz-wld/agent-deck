@@ -24,6 +24,16 @@ import { MAX_MESSAGE_LENGTH } from '../constants';
 import type { CreateSessionOpts, ValidateResult } from './_deps';
 
 export function validateCreateSessionOpts(opts: CreateSessionOpts): ValidateResult {
+  if (opts.resumeOnly && !opts.resume) {
+    throw new Error('resumeOnly 仅允许用于已有 Codex thread 的 resume 路径');
+  }
+
+  if (opts.resumeOnly) {
+    const initialSid = opts.resume!;
+    const sessionToken = mcpSessionTokenMap.allocate(initialSid);
+    return { initialSid, sessionToken };
+  }
+
   if (!opts.prompt || !opts.prompt.trim()) {
     throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
   }

@@ -38,7 +38,7 @@ const logger = log.scope('codex-restart');
 
 export interface RestartCreateOpts {
   cwd: string;
-  prompt: string;
+  prompt?: string;
   resume?: string;
   /**
    * **plan reverse-rename-sid-stability-20260520 §C.2 R3 MED-R3-2 修订**:
@@ -57,6 +57,8 @@ export interface RestartCreateOpts {
    * - 'fresh-cli-reuse-app': jsonl-missing fallback 专用 — 仅 helper 内部使用，restart caller 不直接传
    */
   resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
+  /** See CreateSessionOpts.resumeOnly. Used only for jsonl-present sandbox restart. */
+  resumeOnly?: boolean;
   /**
    * **REVIEW_101 R1 reviewer-codex MED（restart 丢 model）修法**:
    * recover 路径已显式传 `model: rec.model ?? undefined`（recover-and-send-impl.ts:406 /
@@ -127,7 +129,7 @@ export class RestartController {
    *
    * 与 claude restartWithClaudeCodeSandbox 同模式：
    * - 单飞：等同 sessionId 的 in-flight recovery / restart 完成（symmetry-plan P2 HIGH-A）
-   * - emit 占位 message → close OLD → 写 DB → emit session-upserted → createSession({resume, codexSandbox, prompt})
+   * - close OLD → 写 DB → emit session-upserted → createSession({resume, codexSandbox, resumeOnly})
    * - 失败回滚 sessionRepo.codexSandbox + emit session-upserted 让下拉回弹 + emit error message
    *
    * codex SDK sandboxMode 是 startThread/resumeThread spawn-time 锁定，无法运行时热切；
@@ -141,13 +143,6 @@ export class RestartController {
     sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
     handoffPrompt: string,
   ): Promise<string> {
-    if (!handoffPrompt.trim()) {
-      throw new Error(
-        'restartWithCodexSandbox 要求 handoffPrompt 非空（codex SDK runStreamed 协议约束，' +
-          'resume 路径必须有 prompt 触发首条 turn）',
-      );
-    }
-
     // symmetry-plan P2 HIGH-A：单飞 — 等同 sessionId 的 in-flight restart 完成
     // （与 claude restart-controller REVIEW_36 R2 MED-B 修法同款）。先等再起,避免并发
     // restart 同时进 close → DB write → createSession 阶段交错。
@@ -173,18 +168,6 @@ export class RestartController {
     const oldSandbox: 'workspace-write' | 'read-only' | 'danger-full-access' | null =
       rec.codexSandbox ?? null;
     const sdkModel = toCodexModelOverride(rec.model);
-
-    // 占位 message：让用户在 close + 重建 期间看到状态（与 claude 冷切同模式）
-    this.ctx.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: {
-        text: `⚠ 正在切换 Codex sandbox 到 ${sandbox}，重启 thread 中…`,
-      },
-      ts: Date.now(),
-      source: 'sdk',
-    });
 
     // symmetry-plan P2 HIGH-A：单飞标记必须在 closeSession + DB write + createSession **之前**
     // set，覆盖整个冷重启的副作用窗口（与 claude REVIEW_36 R2 MED-B 修法同款）。原实现
@@ -312,12 +295,12 @@ export class RestartController {
 
         const handle = await this.ctx.createSession({
           cwd: rec.cwd,
-          prompt: handoffPrompt,
           resume: sessionId,
           // **plan reverse-rename-sid-stability-20260520 §C.2 R3 MED-R3-2 修订**:
           // 显式传 cli sid 让 codex SDK resumeThread 拿正确 thread_id (反向 rename 后两者不同时)。
           resumeCliSid: rec.cliSessionId ?? sessionId,
           codexSandbox: sandbox,
+          resumeOnly: true,
           // **REVIEW_101 R1 MED（restart 丢 model）**: 透传 rec.model 与 recover-and-send-impl.ts:406 对称。
           model: sdkModel,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,

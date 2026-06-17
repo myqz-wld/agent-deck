@@ -352,6 +352,9 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sess-restart', 'workspace-write');
     // codex SDK resume 不会改 id,handle.sessionId === 'sess-restart' (TestBridge 默认)
     expect(result).toBe('sess-restart');
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].resumeOnly).toBe(true);
+    expect(bridge.createCalls[0].prompt).toBeUndefined();
     // 不 rename（无 fork）
     expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
 
@@ -574,13 +577,30 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     expect(errMsgs).toHaveLength(1);
   });
 
-  it('handoffPrompt 空 → 直接抛 (codex SDK runStreamed 协议约束)', async () => {
+  it('handoffPrompt 空 + jsonl 在 → resumeOnly 成功，不需要 synthetic prompt', async () => {
     const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-x',
+      agentId: 'codex-cli',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'read-only',
+    });
+
     await expect(
       bridge.restartWithCodexSandbox('sess-x', 'workspace-write', '   '),
-    ).rejects.toThrow(/handoffPrompt 非空/);
-    // createSession 不被调
-    expect(bridge.createCalls).toHaveLength(0);
+    ).resolves.toBe('sess-x');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].resumeOnly).toBe(true);
+    expect(bridge.createCalls[0].prompt).toBeUndefined();
   });
 
   it('record 不存在 → throw not found', async () => {
@@ -663,6 +683,7 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     expect(bridge.createCalls[0].model).toBe('gpt-5.5-codex');
     // cancelCheck 也透传（cancel-guard）
     expect(bridge.createCalls[0].cancelCheck).toBeTypeOf('function');
+    expect(bridge.createCalls[0].resumeOnly).toBe(true);
   });
 
   it('restart 不把 codex-default 统计占位当真实 SDK model 透传', async () => {
@@ -689,7 +710,7 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     expect(bridge.createCalls[0].model).toBeUndefined();
   });
 
-  it('restart jsonl 在 → createSession prompt 原样透传 handoffPrompt，不注入 DB 历史（CHANGELOG_223 撤回 221）', async () => {
+  it('restart jsonl 在 → createSession resumeOnly，不发送 handoff prompt / 不注入 DB 历史', async () => {
     const bridge = makeBridge();
     // 即便 DB 历史/摘要齐备，jsonl 在的 resume 路径也**不**注入（resumeThread 已从 thread jsonl 续上）。
     bridge.summariseOverride = 'Codex 重启摘要';
@@ -718,8 +739,9 @@ describe('codex RestartController.restartWithCodexSandbox（symmetry-plan P2 HIG
     await bridge.restartWithCodexSandbox('sess-history', 'workspace-write', 'go');
 
     expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].resumeOnly).toBe(true);
     const prompt = bridge.createCalls[0].prompt ?? '';
-    expect(prompt).toBe('go'); // handoffPrompt 原样，无 DB 注入
+    expect(prompt).toBe(''); // resumeOnly 不发送 synthetic prompt
     expect(prompt).not.toContain('历史会话摘要');
     expect(prompt).not.toContain('Codex 重启摘要');
     expect(prompt).not.toContain('Codex 历史问题');

@@ -21,6 +21,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeSdkBridge } from '../index';
 import { makeInternalSession, type InternalSession } from '../types';
+import { sessionRepo } from '@main/store/session-repo';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '@shared/types';
@@ -91,6 +92,8 @@ function setupBridgeWithSession(opts: {
 
 beforeEach(() => {
   emits.length = 0;
+  vi.mocked(sessionRepo.get).mockReset();
+  vi.mocked(sessionRepo.get).mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -162,7 +165,27 @@ describe('Phase 3 Step 3.1 — setPermissionMode SDK throw 回滚 in-memory cach
     expect(internal.permissionMode).toBe('bypassPermissions');
   });
 
-  it('session 不在 sessions Map → throw "session ... not found" (真 bridge 行为)', async () => {
+  it('session 不在 sessions Map 但 DB record 存在 → no-op 成功，等待下次恢复应用 DB mode', async () => {
+    const bridge = new ClaudeSdkBridge({ emit: (e) => emits.push(e) });
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'dormant-sid',
+      agentId: 'claude-code',
+      cwd: '/tmp/test',
+      title: 'dormant',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: 'plan',
+    });
+
+    await expect(bridge.setPermissionMode('dormant-sid', 'plan')).resolves.toBeUndefined();
+  });
+
+  it('session 不在 sessions Map 且 DB record 不存在 → throw "session ... not found"', async () => {
     const bridge = new ClaudeSdkBridge({ emit: (e) => emits.push(e) });
     await expect(bridge.setPermissionMode('ghost-sid', 'plan')).rejects.toThrow(
       /session ghost-sid not found/,

@@ -25,12 +25,15 @@ import { AGENT_ID } from '../constants';
 import { persistSessionFields } from '../session-finalize';
 import { awaitResumedThreadStart } from '../resume-path-await';
 import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
+import log from '@main/utils/logger';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
   CreateSessionResult,
   PreparedContext,
 } from './_deps';
+
+const logger = log.scope('codex-create-session-resume');
 
 export async function runCreateSessionResumePath(
   opts: CreateSessionOpts,
@@ -54,6 +57,27 @@ export async function runCreateSessionResumePath(
   // cancelCheck(spawn / IPC / restart)→ 不 gate(undefined?.() falsy)**。
   if (opts.cancelCheck?.()) {
     throw new RecoveryCancelledError(resumeId);
+  }
+  if (opts.resumeOnly) {
+    const readyId = await ctx.thread.ensureReady();
+    if (opts.cancelCheck?.()) {
+      throw new RecoveryCancelledError(resumeId);
+    }
+    if (!internal.threadId) {
+      internal.threadId = readyId;
+    } else if (internal.threadId !== readyId) {
+      const oldId = internal.threadId;
+      internal.threadId = readyId;
+      try {
+        sessionManager.updateCliSessionId(internal.applicationSid, readyId);
+      } catch (renameErr) {
+        logger.error(
+          `[codex-create-session-resume] resumeOnly updateCliSessionId failed ` +
+            `app=${internal.applicationSid}, old=${oldId}, new=${readyId}`,
+          renameErr,
+        );
+      }
+    }
   }
   // resume 路径：thread_id 已知，直接登记
   deps.sessions.set(resumeId, internal);
@@ -85,7 +109,7 @@ export async function runCreateSessionResumePath(
   });
   // REVIEW_58 HIGH ✅ 收口修法:caller 显式 skipFirstUserEmit=true 时跳过
   // (recoverer.recoverAndSend 入口已 emit,避免双气泡;详 opts.skipFirstUserEmit jsdoc)
-  if (!opts.skipFirstUserEmit) {
+  if (!opts.resumeOnly && !opts.skipFirstUserEmit) {
     const attachments: UploadedAttachmentRef[] | undefined =
       opts.attachments && opts.attachments.length > 0 ? opts.attachments : undefined;
     deps.emit({
@@ -104,6 +128,9 @@ export async function runCreateSessionResumePath(
       ts: Date.now(),
       source: 'sdk',
     });
+  }
+  if (opts.resumeOnly) {
+    return { sessionId: internal.applicationSid };
   }
   // symmetry-plan P2 MED-D：await 首条 thread.started OR earlyError OR 30s timeout 才 return,
   // 让外层 createSession await 真的等待 SDK 实际状态(与 claude waitForRealSessionId 同款语义)。

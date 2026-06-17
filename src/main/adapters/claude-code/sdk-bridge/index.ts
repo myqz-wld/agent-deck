@@ -26,6 +26,7 @@ import type {
   SdkBridgeOptions,
   SdkSessionHandle,
 } from './types';
+import { sessionRepo } from '@main/store/session-repo';
 import { PermissionResponder } from './permission-responder';
 import {
   SessionRecoverer,
@@ -468,7 +469,16 @@ export class ClaudeSdkBridge {
     mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
   ): Promise<void> {
     const s = this.sessions.get(sessionId);
-    if (!s) throw new Error(`session ${sessionId} not found`);
+    if (!s) {
+      if (sessionRepo.get(sessionId)) {
+        logger.info(
+          `[claude-bridge] setPermissionMode(${sessionId}, ${mode}) persisted with no live SDK query; ` +
+            'next recovery/createSession will apply it',
+        );
+        return;
+      }
+      throw new Error(`session ${sessionId} not found`);
+    }
     // CHANGELOG_72 Bug 3：先同步 in-memory cache 再 await SDK，让下一次 canUseTool
     // bypass 短路立刻按新 mode 判断。注：bypass 有 spawn-time flag 锁死限制，
     // SDK 层会静默吞，仍按 fail-secure 处理（应用层比 SDK 严是安全方向）。
