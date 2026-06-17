@@ -1,5 +1,6 @@
 import type { AgentEvent, ImageSource, ImageToolResult } from '@shared/types';
 import { isImageTool } from '@shared/mcp-tools';
+import { buildClaudeCompactMessageText } from './compact-message';
 
 const AGENT_ID = 'claude-code';
 
@@ -12,6 +13,7 @@ const AGENT_ID = 'claude-code';
  * - Notification:    { session_id, transcript_path, cwd, message }
  * - Stop:            { session_id, transcript_path, cwd, stop_hook_active }
  * - SessionEnd:      { session_id, transcript_path, cwd, reason }
+ * - PostCompact:     { session_id, transcript_path, cwd, trigger, compact_summary }
  *
  * 我们把它们翻译为统一的 AgentEvent。
  *
@@ -337,6 +339,25 @@ export function translateSessionEnd(p: BaseHookPayload & { reason?: string }): A
     agentId: AGENT_ID,
     kind: 'session-end',
     payload: { cwd: p.cwd, reason: p.reason },
+    ts: Date.now(),
+  };
+}
+
+export function translatePostCompact(
+  p: BaseHookPayload & { trigger?: string; compact_summary?: string },
+): AgentEvent {
+  return {
+    sessionId: p.session_id,
+    agentId: AGENT_ID,
+    kind: 'message',
+    payload: {
+      cwd: p.cwd,
+      role: 'assistant',
+      text: buildClaudeCompactMessageText({
+        trigger: p.trigger,
+        summary: p.compact_summary,
+      }),
+    },
     ts: Date.now(),
   };
 }

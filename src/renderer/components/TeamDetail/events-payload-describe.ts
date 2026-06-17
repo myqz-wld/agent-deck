@@ -58,7 +58,7 @@ export function describeEventPayload(e: AgentEvent): string {
         ? truncate80(p.filePath.trim())
         : '文件已变更';
     case 'thinking':
-      return 'No reasoning summary for this turn';
+      return e.agentId === 'codex-cli' ? 'No reasoning summary for this turn' : '暂无 THINKING 内容';
     case 'team-task-created':
     case 'team-task-completed': {
       const desc = typeof p.description === 'string' ? p.description : '';

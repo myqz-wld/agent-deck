@@ -4,12 +4,27 @@ import { MarkdownText } from '@renderer/components/MarkdownText';
 import { formatDisplayText } from '../format';
 import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shared';
 
-/** REVIEW_4 M16：reasoning summary 默认折叠阈值。内容可能很长，阈值比 message 略低。 */
+/** REVIEW_4 M16：thinking 内容默认折叠阈值。内容可能很长，阈值比 message 略低。 */
 const COLLAPSE_THRESHOLD_CHARS = 600;
 
+function thinkingCopy(agentId: string): { label: string; title: string; empty: string } {
+  if (agentId === 'codex-cli') {
+    return {
+      label: 'REASONING SUMMARY',
+      title: 'Codex reasoning summary from the model',
+      empty: 'No reasoning summary for this turn',
+    };
+  }
+  return {
+    label: 'THINKING',
+    title: '模型 THINKING 内容',
+    empty: '暂无 THINKING 内容',
+  };
+}
+
 /**
- * 模型提供的 reasoning summary。视觉与 MessageBubble 区分：dashed 边框 + 暗背景 + 斜体淡灰文字 +
- * 头部「{agent} · REASONING SUMMARY」标签。
+ * 模型提供的 thinking 内容。视觉与 MessageBubble 区分：dashed 边框 + 暗背景 + 斜体淡灰文字 +
+ * 头部标签按 adapter 区分：Claude-family 显示 THINKING，Codex 保留 REASONING SUMMARY。
  * 默认 plaintext；超过 COLLAPSE_THRESHOLD_CHARS 字符默认折叠（max-height + 「展开」按钮）。
  */
 export function ThinkingBubble({
@@ -23,6 +38,7 @@ export function ThinkingBubble({
   const text = formatDisplayText(p.text).trim();
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const otherName = getAgentShortName(agentId);
+  const copy = thinkingCopy(agentId);
   const [mode, setMode] = useState<RenderMode>(DEFAULT_RENDER_MODE);
   // REVIEW_4 M16：超长 thinking 默认折叠
   const isLong = text.length > COLLAPSE_THRESHOLD_CHARS;
@@ -38,11 +54,8 @@ export function ThinkingBubble({
         <div className="mb-0.5 flex items-center gap-1 text-[9px] text-deck-muted/60">
           <span>{otherName}</span>
           <span className="text-deck-muted/40">·</span>
-          <span
-            className="font-mono uppercase tracking-wider"
-            title="Reasoning summary from the model"
-          >
-            REASONING SUMMARY
+          <span className="font-mono uppercase tracking-wider" title={copy.title}>
+            {copy.label}
           </span>
           <span className="text-deck-muted/40">·</span>
           <span className="font-mono tabular-nums text-deck-muted/40">{ts}</span>
@@ -79,7 +92,7 @@ export function ThinkingBubble({
               text
             )
           ) : (
-            <span className="text-deck-muted/60">No reasoning summary for this turn</span>
+            <span className="text-deck-muted/60">{copy.empty}</span>
           )}
         </div>
       </div>

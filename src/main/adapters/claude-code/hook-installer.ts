@@ -8,7 +8,7 @@ const logger = log.scope('claude-hook-installer');
 
 /**
  * 在 ~/.claude/settings.json 或 <cwd>/.claude/settings.json 中
- * 注入/卸载本应用使用的 5 条 hook。
+ * 注入/卸载本应用使用的 Claude hook。
  *
  * 每条 hook 命令带特殊标记 `# agent-deck-hook` 用于识别本应用注入的条目。
  */
@@ -19,6 +19,7 @@ const HOOK_EVENTS = [
   'SessionStart',
   'PreToolUse',
   'PostToolUse',
+  'PostCompact',
   'Notification',
   'Stop',
   'SessionEnd',

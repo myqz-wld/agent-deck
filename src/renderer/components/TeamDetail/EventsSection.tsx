@@ -51,7 +51,7 @@ export function EventsSection({ events }: Props): JSX.Element {
                 {senderLabel}
               </span>
               <span className="shrink-0 rounded bg-white/5 px-1 py-0 text-[9px] text-deck-muted">
-                {eventKindLabel(e.kind)}
+                {eventKindLabel(e.kind, e.agentId)}
               </span>
               <span
                 className="ml-1 truncate text-deck-text/85"
@@ -66,4 +66,3 @@ export function EventsSection({ events }: Props): JSX.Element {
     </Section>
   );
 }
-

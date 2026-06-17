@@ -11,10 +11,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentEvent } from '@shared/types';
 import { describeEventPayload, truncate80 } from '../events-payload-describe';
-import { relativeTime } from '../helpers';
+import { eventKindLabel, relativeTime } from '../helpers';
 
-function ev(kind: AgentEvent['kind'], payload: unknown): AgentEvent {
-  return { sessionId: 's', agentId: '', kind, payload, ts: 0 };
+function ev(kind: AgentEvent['kind'], payload: unknown, agentId = ''): AgentEvent {
+  return { sessionId: 's', agentId, kind, payload, ts: 0 };
 }
 
 describe('describeEventPayload — REVIEW_107 LOW primitive payload 守门', () => {
@@ -53,6 +53,14 @@ describe('describeEventPayload — 正常路径', () => {
   });
   it('file-changed 缺 filePath 时显示用户向状态', () => {
     expect(describeEventPayload(ev('file-changed', {}))).toBe('文件已变更');
+  });
+  it('thinking 缺文本时显示 THINKING 兜底文案', () => {
+    expect(describeEventPayload(ev('thinking', {}))).toBe('暂无 THINKING 内容');
+  });
+  it('Codex thinking 缺文本时保留 reasoning summary 兜底文案', () => {
+    expect(describeEventPayload(ev('thinking', {}, 'codex-cli'))).toBe(
+      'No reasoning summary for this turn',
+    );
   });
   it('tool-use-start 显示工具入参摘要，而不是只显示工具名', () => {
     expect(
@@ -132,6 +140,15 @@ describe('describeEventPayload — 正常路径', () => {
         ev('team-task-created', { description: '修 bug', teammateName: 'codex', teamName: 't1' }),
       ),
     ).toBe('修 bug → codex @ t1');
+  });
+});
+
+describe('eventKindLabel — adapter-aware thinking label', () => {
+  it('Claude-family thinking badge uses THINKING', () => {
+    expect(eventKindLabel('thinking', 'claude-code')).toBe('THINKING');
+  });
+  it('Codex thinking badge keeps REASONING SUMMARY', () => {
+    expect(eventKindLabel('thinking', 'codex-cli')).toBe('REASONING SUMMARY');
   });
 });
 

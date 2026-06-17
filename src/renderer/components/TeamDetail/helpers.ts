@@ -88,7 +88,7 @@ export function agentIdLabel(agentId: string | null | undefined): string {
 
 /** AgentEventKind → 中文事件标签（10+ 枚举翻译,activity-feed/describe.ts 与本 helper 同源
  *  但目的不同 — describe.ts 给单行摘要含 emoji+payload,本 helper 仅给 badge 短词）。 */
-export function eventKindLabel(kind: string): string {
+export function eventKindLabel(kind: string, agentId?: string | null): string {
   switch (kind) {
     case 'session-start':
       return '会话开始';
@@ -103,7 +103,7 @@ export function eventKindLabel(kind: string): string {
     case 'message':
       return '消息';
     case 'thinking':
-      return 'THINKING';
+      return agentId === 'codex-cli' ? 'REASONING SUMMARY' : 'THINKING';
     case 'waiting-for-user':
       return '等待响应';
     case 'finished':
