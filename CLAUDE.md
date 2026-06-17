@@ -30,7 +30,7 @@ When creating or maintaining the repository, place files according to this struc
 
 ## Documentation Language
 
-Default active documentation, maintainer instructions, agent instructions, changelogs, plans, reviews, and conventions to English. Exceptions are `UI_COPY_LANGUAGE.md`, user-facing UI/CLI copy governed by that file, locale examples, quoted/source text, and explicit non-English trigger anchors or examples.
+Write active project documentation and maintainer/agent-facing instructions in English by default, including changelogs, plans, reviews, and conventions. Exceptions are `UI_COPY_LANGUAGE.md`, user-facing UI/CLI copy governed by that file, locale examples, quoted/source text, and explicit non-English trigger anchors or examples.
 
 ---
 
