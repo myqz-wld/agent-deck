@@ -135,3 +135,4 @@ Use `REVIEW_X.md`, where `X` is the next integer and historically aligns with `C
 | [REVIEW_121.md](REVIEW_121.md) | Row-active and operational active-team membership semantics were collapsed into one helper name. | 1 MED fixed + 2 LOW fixed | CHANGELOG_284 |
 | [REVIEW_122.md](REVIEW_122.md) | Codex file-change reporting showed incomplete or no-op patch records. | 2 MED fixed + 1 LOW guarded | CHANGELOG_285 |
 | [REVIEW_123.md](REVIEW_123.md) | SessionDetail permissions tab showed Claude settings for Codex sessions. | 2 MED fixed + 1 LOW guarded | CHANGELOG_286 |
+| [REVIEW_124.md](REVIEW_124.md) | Pending AskUserQuestion and Plan rows had duplicate lower-right actions. | 2 LOW fixed | CHANGELOG_287 |

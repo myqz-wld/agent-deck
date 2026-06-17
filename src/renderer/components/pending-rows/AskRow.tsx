@@ -177,21 +177,6 @@ export function AskRow({
           );
         })}
       </div>
-      {stillPending && isSdk && (
-        <div className="mt-2 flex items-center justify-end gap-2">
-          <span className="text-[10px] text-deck-muted">
-            {canSubmit ? '已答完,可提交' : `还有 ${totalQuestions - answeredCount} 题未答`}
-          </span>
-          <button
-            type="button"
-            disabled={busy || answeredCount === 0}
-            onClick={() => void submit()}
-            className="rounded bg-status-working px-3 py-1 text-[11px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            提交回答
-          </button>
-        </div>
-      )}
       {!isSdk && (
         <div className="mt-1 text-[10px] text-deck-muted">这是终端启动的只读会话，请回到原终端窗口回答</div>
       )}
