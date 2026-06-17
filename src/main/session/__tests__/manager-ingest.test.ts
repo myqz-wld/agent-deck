@@ -448,7 +448,7 @@ describe('SessionManager.ingest 时序', () => {
     expect(mockSessions.get('CLOSED_RESUME')?.lifecycle).toBe('active');
   });
 
-  it('hand_off_session 后原会话立即续聊：recentlyDeleted 放行 SDK user message 并清黑名单', () => {
+  it('recentlyDeleted close path：SDK user message 可续聊并清黑名单', () => {
     mockSessions.set('HANDOFF_SOURCE_CONTINUE', {
       id: 'HANDOFF_SOURCE_CONTINUE',
       agentId: 'claude-code',
@@ -498,7 +498,7 @@ describe('SessionManager.ingest 时序', () => {
     expect(mockEvents[1]?.payload).toMatchObject({ text: 'assistant visible too', role: 'assistant' });
   });
 
-  it('hand_off_session 后原会话迟到 assistant 尾包仍被 recentlyDeleted 丢弃', () => {
+  it('recentlyDeleted close path：无用户续聊的迟到 assistant 尾包仍被丢弃', () => {
     mockSessions.set('HANDOFF_SOURCE_TAIL', {
       id: 'HANDOFF_SOURCE_TAIL',
       agentId: 'claude-code',
@@ -528,6 +528,42 @@ describe('SessionManager.ingest 时序', () => {
 
     expect(mockSessions.get('HANDOFF_SOURCE_TAIL')?.lifecycle).toBe('closed');
     expect(mockEvents).toHaveLength(0);
+  });
+
+  it('hand_off_session caller closed 但未 recentlyDeleted：后续 assistant 尾包可展示且不复活', () => {
+    mockSessions.set('HANDOFF_SOURCE_VISIBLE_TAIL', {
+      id: 'HANDOFF_SOURCE_VISIBLE_TAIL',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'handoff source visible tail',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+    sessionManager.markClosed('HANDOFF_SOURCE_VISIBLE_TAIL');
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'HANDOFF_SOURCE_VISIBLE_TAIL',
+        source: 'sdk',
+        kind: 'message',
+        payload: { text: 'handoff tail is visible', role: 'assistant' },
+        ts: 8200,
+      }),
+    );
+
+    expect(mockEvents).toHaveLength(1);
+    expect(mockEvents[0]?.payload).toMatchObject({
+      text: 'handoff tail is visible',
+      role: 'assistant',
+    });
+    expect(mockSessions.get('HANDOFF_SOURCE_VISIBLE_TAIL')?.lifecycle).toBe('closed');
+    expect(mockSessions.get('HANDOFF_SOURCE_VISIBLE_TAIL')?.lastEventAt).toBe(100);
   });
 
   // **REVIEW_83 HIGH 同源子问题回归 test (reviewer-claude)**:closed + archived 双态 session

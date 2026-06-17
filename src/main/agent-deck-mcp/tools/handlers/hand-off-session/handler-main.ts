@@ -196,10 +196,11 @@ export const handOffSessionHandler = withMcpGuard(
           // sessionManager.close() calls adapter.closeSession() → query.interrupt(), which kills
           // the current turn before the MCP tool result is delivered back to Claude. Instead:
           // - markClosed: sets lifecycle=closed + applies side effects (leave teams, clear marker)
-          // - markRecentlyDeleted: prevents the natural stream-end from reviving the session to dormant
+          // - do not markRecentlyDeleted: the caller's post-handoff assistant/session-end tail should
+          //   remain visible in SessionDetail. SessionManager persists closed-session events but
+          //   advanceState keeps lifecycle closed, so the old turn cannot revive the caller.
           // - mcpSessionTokenMap.release: cleans up the token map entry (no-op for Claude sessions)
           sessionManager.markClosed(sid);
-          sessionManager.markRecentlyDeleted(sid);
           mcpSessionTokenMap.release(sid);
           return Promise.resolve();
         });
