@@ -1,7 +1,7 @@
 {
   "name": "agent-deck",
   "version": "0.1.0",
-  "description": "通用 Coding Agent 驾驶舱",
+  "description": "General-purpose coding agent cockpit",
   "main": "build/main/index.js",
   "private": true,
   "scripts": {
