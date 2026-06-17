@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   },
   teamRepo: {
     findActiveMembershipsBySession: vi.fn<(sid: string) => unknown[]>(() => []),
+    findActiveTeamMembershipsBySession: vi.fn<(sid: string) => unknown[]>(() => []),
     findActiveMembershipsBySessionIds: vi.fn<(sids: string[]) => Map<string, unknown[]>>(
       () => new Map(),
     ),
@@ -92,6 +93,9 @@ beforeEach(() => {
   mockTaskRepo.get.mockReset();
   mockTaskRepo.update.mockReset();
   mockTeamRepo.findActiveMembershipsBySession.mockReset().mockReturnValue([]);
+  mockTeamRepo.findActiveTeamMembershipsBySession
+    .mockReset()
+    .mockImplementation((sid: string) => mockTeamRepo.findActiveMembershipsBySession(sid));
   mockTeamRepo.findActiveMembershipsBySessionIds.mockReset().mockReturnValue(new Map());
   mockTeamRepo.findSharedActiveTeams.mockReset().mockReturnValue([]);
   mockEventBus.emit.mockReset();

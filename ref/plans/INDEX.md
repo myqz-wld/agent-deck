@@ -74,6 +74,7 @@ Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_pr
 | [cursor-cli-acp-investigation-20260617.md](cursor-cli-acp-investigation-20260617.md) | completed | — | Cursor CLI ACP integration investigation: recommended starting with `agent acp`, and listed adapter design, risks, and live spike checklist |
 | [spawn-teamless-reply-anchor-20260617.md](spawn-teamless-reply-anchor-20260617.md) | completed | [279](../changelogs/CHANGELOG_279.md) / [119](../reviews/REVIEW_119.md) | Standalone `spawn_session` children now receive first-reply anchors, use teamless DM, and render under the parent immediately |
 | [handoff-archived-team-transfer-20260618.md](handoff-archived-team-transfer-20260618.md) | completed | [282](../changelogs/CHANGELOG_282.md) / [120](../reviews/REVIEW_120.md) | hand_off_session reports archived team memberships as skipped instead of failing resource transfer |
+| [handoff-active-team-membership-api-20260618.md](handoff-active-team-membership-api-20260618.md) | completed | [284](../changelogs/CHANGELOG_284.md) / [121](../reviews/REVIEW_121.md) | Split row-active and operational active-team membership queries; task and handoff paths now filter archived teams at the repo SQL boundary |
 
 ## Legacy Slug-Only Entries
 

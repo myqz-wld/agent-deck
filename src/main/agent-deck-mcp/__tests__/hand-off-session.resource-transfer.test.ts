@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   setCwdReleaseMarker: vi.fn(),
   teamRepo: {
     findActiveMembershipsBySession: vi.fn(),
+    findActiveTeamMembershipsBySession: vi.fn(),
     get: vi.fn(),
     swapLead: vi.fn(),
     addMember: vi.fn(),
@@ -64,6 +65,9 @@ function callerRow(overrides: Partial<SessionRecord> = {}): SessionRecord {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.teamRepo.get.mockReturnValue({ id: 'team', archivedAt: null });
+  mocks.teamRepo.findActiveTeamMembershipsBySession.mockImplementation((sid: string) =>
+    mocks.teamRepo.findActiveMembershipsBySession(sid),
+  );
   mocks.teamRepo.swapLead.mockReturnValue({ swapped: true });
   mocks.teamRepo.addMember.mockReturnValue(undefined);
   mocks.teamRepo.leaveTeam.mockReturnValue(null);
@@ -121,6 +125,7 @@ describe('transferHandOffResources', () => {
     mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-archived', role: 'lead' },
     ]);
+    mocks.teamRepo.findActiveTeamMembershipsBySession.mockReturnValue([]);
     mocks.teamRepo.get.mockReturnValue({ id: 'team-archived', archivedAt: 123 });
     mocks.taskRepo.reassignOwner.mockReturnValue(1);
 
@@ -150,6 +155,9 @@ describe('transferHandOffResources', () => {
   it('transfers active teams while reporting archived memberships as skipped', () => {
     mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-archived', role: 'lead' },
+      { teamId: 'team-active', role: 'lead' },
+    ]);
+    mocks.teamRepo.findActiveTeamMembershipsBySession.mockReturnValue([
       { teamId: 'team-active', role: 'lead' },
     ]);
     mocks.teamRepo.get.mockImplementation((teamId: string) =>

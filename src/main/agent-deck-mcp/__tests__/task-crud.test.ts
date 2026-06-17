@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => ({
   },
   teamRepo: {
     findActiveMembershipsBySession: vi.fn<(sid: string) => Array<{ teamId: string; teamName: string; sessionId: string; role: string }>>(() => []),
+    findActiveTeamMembershipsBySession: vi.fn<(sid: string) => Array<{ teamId: string; teamName: string; sessionId: string; role: string }>>(() => []),
     findActiveMembershipsBySessionIds: vi.fn<(sids: string[]) => Map<string, unknown[]>>(
       () => new Map(),
     ),
@@ -127,6 +128,9 @@ beforeEach(() => {
   mockTaskRepo.update.mockReset();
   mockTaskRepo.delete.mockReset();
   mockTeamRepo.findActiveMembershipsBySession.mockReset().mockReturnValue([]);
+  mockTeamRepo.findActiveTeamMembershipsBySession
+    .mockReset()
+    .mockImplementation((sid: string) => mockTeamRepo.findActiveMembershipsBySession(sid));
   mockTeamRepo.findActiveMembershipsBySessionIds.mockReset().mockReturnValue(new Map());
   mockTeamRepo.findSharedActiveTeams.mockReset().mockReturnValue([]);
   mockTeamRepo.listActiveMembers.mockReset().mockReturnValue([]);
@@ -360,14 +364,15 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     expect(mockTaskRepo.update).not.toHaveBeenCalled();
   });
 
-  it('team archived 路径：team 被归档 → isCallerInTeam 二查 team archivedAt !== null 返 false → reject', async () => {
+  it('team archived 路径：active-team membership query 排除 archived team → reject', async () => {
     mockTaskRepo.get.mockReturnValue(
       makeTaskRecord({ id: 't1', ownerSessionId: 'sess-mate', teamId: 'team-A' }),
     );
-    // member 还在但 team archived
+    // row-active membership 仍在，但 active-team 查询会排除 archived team。
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-A', teamName: 'A', sessionId: 'sess-caller', role: 'lead' },
     ]);
+    mockTeamRepo.findActiveTeamMembershipsBySession.mockReturnValue([]);
     mockTeamRepo.get.mockImplementation((tid: string) => {
       if (tid === 'team-A')
         return { id: tid, name: 'A', archivedAt: Date.now() - 1000 }; // 已归档
@@ -658,12 +663,13 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
     expect(result.isError).toBe(true);
   });
 
-  it('team archived 路径：team 被归档 → isCallerAuthorizedToRead 二查 team archivedAt !== null → reject', async () => {
+  it('team archived 路径：active-team membership query 排除 archived team → reject', async () => {
     const t = makeTaskRecord({ id: 't1', ownerSessionId: 'sess-mate', teamId: 'team-A' });
     mockTaskRepo.get.mockReturnValue(t);
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-A', teamName: 'A', sessionId: 'sess-caller', role: 'lead' },
     ]);
+    mockTeamRepo.findActiveTeamMembershipsBySession.mockReturnValue([]);
     mockTeamRepo.get.mockImplementation((tid: string) => {
       if (tid === 'team-A')
         return { id: tid, name: 'A', archivedAt: Date.now() - 1000 };
@@ -721,10 +727,13 @@ describe('task_list — v024 D5 三态分流', () => {
     expect(callArgs.visibleScope.callerSid).toBe('sess-caller');
   });
 
-  it('F2 修法：archived team 的 ghost membership 不进 visibleScope.teamIds', async () => {
+  it('F2 修法：active-team membership query 排除 archived team 的 ghost membership', async () => {
     mockTeamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-active', teamName: 'A', sessionId: 'sess-caller', role: 'lead' },
       { teamId: 'team-archived', teamName: 'B', sessionId: 'sess-caller', role: 'lead' },
+    ]);
+    mockTeamRepo.findActiveTeamMembershipsBySession.mockReturnValue([
+      { teamId: 'team-active', teamName: 'A', sessionId: 'sess-caller', role: 'lead' },
     ]);
     mockTeamRepo.get.mockImplementation((tid: string) => {
       if (tid === 'team-active') return { id: tid, name: 'A', archivedAt: null };

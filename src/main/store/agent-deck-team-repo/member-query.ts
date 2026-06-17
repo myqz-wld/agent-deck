@@ -1,5 +1,5 @@
 /**
- * Agent Deck team-repo —— 6 个 member 反查 helper（无副作用、纯 SQL SELECT）。
+ * Agent Deck team-repo —— member 反查 helper（无副作用、纯 SQL SELECT）。
  *
  * 拆分历史：从 src/main/store/agent-deck-team-repo.ts 抽出（CHANGELOG_82 / plan
  * deep-review-and-split-20260513 H2 Step 2.2）。
@@ -28,8 +28,17 @@ export interface MemberQueryHelpers {
   listAllMembers(teamId: string): AgentDeckTeamMember[];
   /** PK lookup：某 session 在指定 team 的当前 active membership（buildWireBody 反查 displayName 用，避免全表扫）。 */
   findActiveMembershipIn(teamId: string, sessionId: string): AgentDeckTeamMember | null;
-  /** 反查：某 session 当前 active 在哪些 team */
+  /**
+   * Row-active 反查：某 session 还有哪些 left_at IS NULL membership rows。
+   * 保留 archived team 的 ghost membership，供 session/team revive 与历史协调路径使用。
+   */
   findActiveMembershipsBySession(sessionId: string): AgentDeckTeamMember[];
+  /**
+   * Operational 反查：某 session 当前可操作的 active team membership。
+   * 比 row-active 多过滤 agent_deck_teams.archived_at IS NULL，用于 task/handoff/send 这类
+   * 不应把 archived team 当作可用协作范围的路径。
+   */
+  findActiveTeamMembershipsBySession(sessionId: string): AgentDeckTeamMember[];
   /**
    * 批量反查：一次拿多个 session 的 active membership + team name（plan team-cohesion-fix-20260513
    * Phase A）。返回 Map<sessionId, SessionTeamMembership[]> —— sessionId 不在结果里 → key 不存在
@@ -87,6 +96,18 @@ export function createMemberQueryHelpers(db: Database): MemberQueryHelpers {
         `SELECT * FROM agent_deck_team_members
          WHERE session_id = ? AND left_at IS NULL
          ORDER BY joined_at DESC`,
+      )
+      .all(sessionId) as MemberRow[];
+    return rows.map(memberRowToRecord);
+  }
+
+  function findActiveTeamMembershipsBySession(sessionId: string): AgentDeckTeamMember[] {
+    const rows = db
+      .prepare(
+        `SELECT m.* FROM agent_deck_team_members m
+         INNER JOIN agent_deck_teams t ON m.team_id = t.id
+         WHERE m.session_id = ? AND m.left_at IS NULL AND t.archived_at IS NULL
+         ORDER BY m.joined_at DESC`,
       )
       .all(sessionId) as MemberRow[];
     return rows.map(memberRowToRecord);
@@ -182,6 +203,7 @@ export function createMemberQueryHelpers(db: Database): MemberQueryHelpers {
     listAllMembers,
     findActiveMembershipIn,
     findActiveMembershipsBySession,
+    findActiveTeamMembershipsBySession,
     findActiveMembershipsBySessionIds,
     findSharedActiveTeams,
     countActiveLeads,
