@@ -8,7 +8,7 @@
 ## Repository Baseline
 
 - macOS environment; use pnpm as the package manager.
-- Node.js >= 18 (nvm is recommended for management).
+- Node.js >= 18.
 
 ## Base Directory Structure
 

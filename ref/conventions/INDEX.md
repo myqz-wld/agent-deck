@@ -1,25 +1,21 @@
 # Conventions Index
 
-Project-specific convention records live here under `ref/`, alongside `ref/changelogs/`, `ref/reviews/`, and `ref/plans/`.
-
-Purpose: keep entry instructions stable while repeated feedback, recurring mistakes, and reviewed conventions accumulate as separate records.
-
-Promotion flow: record candidates in `tally.md`; when `count >= 3`, run the configured review/decision process, create `<X>-<topic>.md`, add a row here, and remove the promoted tally candidate.
+> Purpose: durable project-specific conventions promoted from repeated decisions or repeated mistakes. Keep dynamic conventions here under `ref/conventions/`; keep `CLAUDE.md` limited to static project invariants and workflow.
+>
+> Promotion: add candidates to `tally.md`. When `count >= 3`, run the configured review process, create `ref/conventions/<X>-<topic>.md`, update this index, and remove the promoted candidate from `tally.md`.
 
 ## Promoted Conventions
 
-Each `.md` record is one promoted project convention. Before changing related code, list `ref/conventions/` and read relevant records so existing decisions are not silently reversed.
+Read relevant convention files before changing related code.
 
-| File | Topic | Promoted Date | Related Changelog | Related Review |
-|---|---|---|---|---|
+| File | Topic (<= 80 chars) | Promoted At | Related Changelog | Related Review |
+|------|---------------------|-------------|-------------------|----------------|
 | _No promoted conventions yet._ | — | — | — | — |
 
-## Candidate Status
+## Candidate State
 
-See [tally.md](tally.md) for user-feedback and agent-pitfall candidates.
+See [tally.md](tally.md).
 
-## Entry Relationship
+## Relationship To Project Entry
 
-Project `CLAUDE.md` keeps high-frequency invariants and workflow rules. New reusable project conventions are recorded in this directory and registered in this index.
-
-The historical `CLAUDE.md` project-specific conventions section remains the pre-directory accumulation point. New promotions go to this directory; migrate historical items by topic the next time they are touched instead of running a dedicated split-only pass.
+Keep only entry-critical invariants in project `CLAUDE.md`; put accumulated conventions in this directory.

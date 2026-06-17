@@ -1,9 +1,9 @@
-# Project Convention Candidates (Pending Observation)
+# Convention Candidates
 
-> This file is maintained automatically by Claude Code. **Do not manually delete entries**.
-> When an item reaches count >= 3, create a new `<X>-<topic>.md` file (X is an increasing integer), add a row to [INDEX.md](INDEX.md), and remove the item from this file. Do **not** write these into the project's [CLAUDE.md](../CLAUDE.md) "Project-Specific Conventions" section anymore; keep CLAUDE.md static.
+> Agents maintain this file through the repository convention process. Do not delete entries manually.
+> When `count >= 3`, run the configured review process, create `ref/conventions/<X>-<topic>.md`, update [INDEX.md](INDEX.md), and remove the promoted item from this tally. Do not copy promoted conventions back into project [CLAUDE.md](../../CLAUDE.md).
 
-## Usage (Internal Convention for Claude Code)
+## Usage
 
 There are two candidate classes, split into sections in the same file:
 
@@ -20,10 +20,10 @@ There are two candidate classes, split into sections in the same file:
 2. **Read this file** and look for an existing semantically similar entry:
    - Found -> increment `count` by 1 and update `last_at` to today's date.
    - Not found -> add a new entry (`count: 1`) in the corresponding section.
-3. **When count reaches 3** -> treat it as a convention-promotion decision and run the `agent-deck:simple-review` SKILL for a **three-state verdict**:
+3. **When count reaches 3** -> treat it as a convention-promotion decision and run this repository's configured review process for a **three-state verdict**:
    - Start two independent heterogeneous Agents to review the promotion proposal: wording accuracy, boundary clarity, conflicts with existing conventions, and the best target section.
    - Summarize the three-state result and tell the user: "This [feedback/pitfall] has accumulated 3 occurrences. The adversarial review verdict is adopt / reject / keep observing as follows. Promote it?"
-   - After user confirmation, **create `conventions/<X>-<topic>.md`** (X is an increasing integer, independent from changelog/CHANGELOG_X and reviews/REVIEW_X numbering), add a row to [INDEX.md](INDEX.md), and remove the item from this file.
+   - After user confirmation, **create `ref/conventions/<X>-<topic>.md`** from the repository root (X is an increasing integer, independent from changelog/CHANGELOG_X and reviews/REVIEW_X numbering), add a row to [INDEX.md](INDEX.md), and remove the item from this file.
 4. **When count < 3** -> silently update this file without disturbing the user.
 
 > If an item has not been updated for 30 days and count < 3, the next scan may proactively prune it.

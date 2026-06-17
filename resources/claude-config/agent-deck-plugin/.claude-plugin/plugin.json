@@ -1,5 +1,5 @@
 {
   "name": "agent-deck",
   "version": "0.1.0",
-  "description": "Bundled Agent Deck reviewer agents and skills loaded by the app"
+  "description": "Bundled Agent Deck reviewer agents and review/self-check skills"
 }
