@@ -1,189 +1,190 @@
 # CLAUDE.md
 
-> 本文件是 agent-deck 仓库级共享规则 SSOT；共享仓库规则以本文件为准，Codex 对偶入口 `AGENTS.md` 只补入口差异，避免双写漂移。
+> This file is the SSOT for shared repository-level rules in the agent-deck repo. Shared repository rules are governed by this file; the Codex counterpart entry `AGENTS.md` only adds entry-point differences to avoid duplicated and drifting rules.
 >
-> **应用 SDK 会话内**额外加载 `resources/claude-config/CLAUDE.md` 获取 Agent Deck 协议约定。
+> **In app SDK sessions**, `resources/claude-config/CLAUDE.md` is loaded in addition to this file for Agent Deck protocol conventions.
 
-## 仓库基础
+## Repository Basics
 
-- macOS 环境，包管理器用 pnpm
-- Node.js ≥ 18（推荐用 nvm 管理）
+- macOS environment; use pnpm as the package manager.
+- Node.js >= 18 (nvm is recommended for management).
 
-## 基础目录架构
+## Baseline Directory Structure
 
-创建或维护仓库时按这份结构落位；除非项目已有更强契约，不要为同类文件另建平行目录：
+When creating or maintaining the repository, place files according to this structure. Unless the project already has a stronger contract, do not create parallel directories for the same kind of file:
 
-- `CLAUDE.md`：共享项目 SSOT，记录仓库基础、目录架构、改动后必做、plan/review 生命周期、review 过期规则、文件大小护栏、项目特定约定和验证流程。
-- `AGENTS.md`：入口 / 工具差异，只引用并遵守 `CLAUDE.md` 的共享规则。
-- `README.md`：面向用户和维护者的启动、使用、验证和结构说明。
-- `src/`：源码。
-- `scripts/`：项目脚本和自动化辅助脚本。
-- `build/`：构建产物（含 `build/dist` 打包输出）；保持 git ignored。
-- `resources/`：随应用打包的内置资产（claude-config / codex-config / plugin / bin）。
-- `ref/changelogs/INDEX.md`：终态 changelog 索引；条目文件 `ref/changelogs/CHANGELOG_X.md`。
-- `ref/reviews/INDEX.md`：终态 review 索引；条目文件 `ref/reviews/REVIEW_X.md`。
-- `ref/plans/INDEX.md`：终态 plan 索引；终态 plan 文件放 `ref/plans/`。
-- `ref/conventions/INDEX.md`：已升级项目约定索引；约定正文用 `ref/conventions/<X>-<topic>.md`；`ref/conventions/tally.md` 是重复反馈 / 重复踩坑计数入口。
-- `ref/flows/`、`ref/architecture/`：PlantUML 流程 / 架构图 SSOT（`.puml` 入 git，渲染产物不入）。
-- `.refs/`：必须加入 `.gitignore`；只放未终态 plan/review 工作副本，不放终态记录。
-
----
-
-## 改动后必做（最低操作指南）
-
-> 本节保留本仓库的最低闭环执行流程。涉及 `ref/` 项目产物时，直接沿用 `ref/changelogs/`、`ref/reviews/`、`ref/conventions/`、`ref/flows/`、`ref/architecture/` 的现有 INDEX 和相邻文件格式。
-
-1. **改用户可见行为 / 文件结构 / 启动方式**（UI / 设置项 / 快捷键 / 项目结构 / 端口 / 依赖 / 验证步骤）→ 改对应章节 `README.md`；纯 bug 修复 / 内部重构不动 README
-2. 每个有意义的功能 / 行为 / API / 依赖变化 → 写 `ref/changelogs/CHANGELOG_X.md` 并更新 `ref/changelogs/INDEX.md`；debug / 性能 / 安全 / review-driven fix → 写 `ref/reviews/REVIEW_X.md` 并更新 `ref/reviews/INDEX.md`。编号 `X` 取当前最大值的下一个整数，用 `ls` 确认，不要猜；INDEX 摘要 ≤ 80 字或一句简短英文
-3. 未终态 plan 放 `<repo>/.refs/plans/<plan-id>.md`，未终态 review 草稿放 `<repo>/.refs/reviews/<review-id>.md`（或会话输出）。终态收口时必须移动最终记录并清理工作区副本：plan 归档到 `ref/plans/` 并更新 `ref/plans/INDEX.md`，review 归档到 `ref/reviews/REVIEW_X.md` 并更新 `ref/reviews/INDEX.md`
-4. 改功能前先读当前项目已有的约定、changelog、review 记录；优先从对应 `ref/*/INDEX.md` 进入，再读相关条目
-5. 改长生命周期 prompt 资产前，按“内置资产自闭环原则”完成 inventory、备份、去重、对偶资产同步和 review；Agent Deck 必要行为必须保留在内置资产内
+- `CLAUDE.md`: shared project SSOT that records repository basics, directory structure, required post-change steps, plan/review lifecycle, review expiry rules, file-size guardrails, project-specific conventions, and validation workflow.
+- `AGENTS.md`: entry-point / tool differences only; it references and follows the shared rules in `CLAUDE.md`.
+- `UI_COPY_LANGUAGE.md`: language rules for user-visible UI/CLI copy. New or modified user-facing UI/CLI copy must follow it; if the requested copy language or support scope differs from that file, update that file first.
+- `README.md`: setup, usage, validation, and structure documentation for users and maintainers.
+- `src/`: source code.
+- `scripts/`: project scripts and automation helpers.
+- `build/`: build artifacts, including `build/dist` packaging output; keep it git-ignored.
+- `resources/`: bundled app assets (claude-config / codex-config / plugin / bin).
+- `ref/changelogs/INDEX.md`: final changelog index; entry files are `ref/changelogs/CHANGELOG_X.md`.
+- `ref/reviews/INDEX.md`: final review index; entry files are `ref/reviews/REVIEW_X.md`.
+- `ref/plans/INDEX.md`: final plan index; final plan files live in `ref/plans/`.
+- `ref/conventions/INDEX.md`: index of promoted project conventions. Convention bodies use `ref/conventions/<X>-<topic>.md`; `ref/conventions/tally.md` is the entry point for repeated feedback / repeated pitfall counts.
+- `ref/flows/`, `ref/architecture/`: PlantUML flow / architecture diagram SSOTs (`.puml` files are committed; rendered artifacts are not).
+- `.refs/`: must be added to `.gitignore`; stores only non-final plan/review working copies, not final records.
 
 ---
 
-## 项目特定约定（设计要点速查）
+## Required After Changes (Minimum Workflow)
 
-反复出现过的设计决定，改动前注意：
+> This section preserves the repository's minimum closed-loop workflow. For `ref/` project artifacts, directly follow the existing INDEX and neighboring-file formats in `ref/changelogs/`, `ref/reviews/`, `ref/conventions/`, `ref/flows/`, and `ref/architecture/`.
 
-### 鉴权与会话边界
-
-- 应用**不读不写**任何 API Key。所有 SDK 调用走本地 `~/.claude/.credentials.json`（OAuth）
-- 间歇总结的 SDK oneshot 设 `settingSources: []`，避免 hook 回环到自己
-- 应用内会话的 SDK 设 `settingSources: ['user', 'project', 'local']`，等价于在该 cwd 跑 `claude`
-
-### 跨会话协作 / MCP 边界
-
-- 跨 adapter 协作走 Agent Deck Universal Team Backend + Agent Deck MCP tools；不要恢复旧 inbox-based Agent Teams backend。
-- Teammate 调工具走 teammate 自己会话的 permission / sandbox 边界；lead 不代批权限，不把 lead 的 `permissionMode` / allowlist 套到 teammate。
-- Agent Deck MCP server 默认开启；关闭 `enableAgentDeckMcp` 时，新建 SDK 会话不挂 agent-deck MCP tools，Codex 自动注入的 `mcp_servers.agent-deck` 段也会移除。
-- Claude / Codex 应用提示词资产必须成对审计：`resources/claude-config/CLAUDE.md` ↔ `resources/codex-config/CODEX_AGENTS.md`，skills 目录同名文件也要检查对偶。adapter 工具差异允许措辞不同，但协议语义不能单边漂移。
-
-### 内置资产自闭环原则（重要）
-
-Agent Deck 内部资产必须在 Agent Deck bundle 内自闭环（核心设计原则）：`resources/claude-config/`、`resources/codex-config/`、内置 `agent-deck-plugin` agents/skills、注入 SDK 的 MCP tool description 都必须在 Agent Deck baseline 内自洽生效，不依赖任何额外安装内容。
-
-根 `README.md`、`CLAUDE.md`、`AGENTS.md`、`resources/README.md` 也是长期 prompt 资产；修改时按同一原则审计自闭环、触发条件、边界和本地链接。通用 prompt-asset inventory、备份、去重和 review 流程由维护 workflow 承担，不写进 Agent Deck runtime baseline。
-
-外部扩展只可增强本仓库工作流，不能承载 Agent Deck 内置行为。把弱相关内容拆出去时，只能从内置资产中删除，或保留一份自闭环的最小规则；**不得**把必要行为替换成外部资产指针。Agent Deck 自带并随应用打包的 internal agents / skills / resources 可以互相引用作为内部闭环，但引用方仍要保留触发条件、边界和失败动作等执行所需的最小信息。
-
-### 主进程模块通信 / IPC 边界
-
-- 模块单例通过 `setX` / `getX` 暴露（如 `getLifecycleScheduler()`），不要在 `src/main/ipc/` 各 handler 文件直接 import 实例对象（循环依赖 / 时序问题）
-- 跨进程事件统一走 `event-bus.ts` + `safeSend` 兜底 `isDestroyed`，不要直接调 `webContents.send`
-- `src/main/ipc/settings.ts` 的 `SettingsSet` handler 是**即改即生效**中转点：每加一个新设置项，必须在这里加分发逻辑，否则「能改但不生效」
-- `shared/types.ts` 只允许标准库类型，不准 import Electron / Node API
-- preload `window.api` 是强类型 facade；动态 channel 用 `window.electronIpc.invoke()` 兜底
-
-## 反复反馈 / 同类问题 → 升级约定（最低操作指南）
-
-用户给出纠正性 / 偏好性反馈，或 Coding Agent 在 review / 修 bug 时发现同类工程问题，先记入 `ref/conventions/tally.md`：语义相同的已有条目计数 +1，否则新增 `count: 1` 行。`count >= 3` 后走本仓库 review 流程，把证据、候选规则和建议裁决（采用 / 放弃 / 继续观察）交给 user 确认，升级为 `ref/conventions/<X>-<topic>.md` 并更新 `ref/conventions/INDEX.md`。一次性请求和 trivial 观察不升级。
+1. **When changing user-visible behavior, file structure, or startup behavior** (UI / CLI copy / settings / keyboard shortcuts / project structure / ports / dependencies / validation steps), update the relevant section of `README.md`. When adding or changing user-facing UI/CLI copy, follow `UI_COPY_LANGUAGE.md`; if the language requirement differs, update that file first. Pure bug fixes and internal refactors do not require README changes.
+2. For every meaningful feature, behavior, API, or dependency change, write `ref/changelogs/CHANGELOG_X.md` and update `ref/changelogs/INDEX.md`. For debug, performance, security, or review-driven fixes, write `ref/reviews/REVIEW_X.md` and update `ref/reviews/INDEX.md`. Choose `X` as the next integer after the current maximum, confirmed with `ls`; do not guess. INDEX summaries must be <= 80 characters or one short English sentence.
+3. Store non-final plans at `<repo>/.refs/plans/<plan-id>.md`; store non-final review drafts at `<repo>/.refs/reviews/<review-id>.md` or in session output. When finalizing, move the final record and clean up working copies: archive plans into `ref/plans/` and update `ref/plans/INDEX.md`; archive reviews into `ref/reviews/REVIEW_X.md` and update `ref/reviews/INDEX.md`.
+4. Before changing functionality, read the project's existing conventions, changelogs, and review records. Start from the relevant `ref/*/INDEX.md`, then read the related entries.
+5. Before changing long-lived prompt assets, complete inventory, backup, deduplication, counterpart-asset synchronization, and review according to the "Bundled Asset Self-Containment Principle"; required Agent Deck behavior must remain inside bundled assets.
 
 ---
 
-## Review 过期与最小复审范围
+## Project-Specific Conventions (Design Checklist)
 
-准备下一次 review 时按本节确定最小复审范围；`ref/reviews/` 是会过期的覆盖记录，不是永久豁免。
+Repeated design decisions to keep in mind before making changes:
 
-下一次 review 的最小范围：
+### Authentication And Session Boundaries
+
+- The app **does not read or write** any API key. All SDK calls use local `~/.claude/.credentials.json` (OAuth).
+- SDK oneshots used for intermittent summaries set `settingSources: []` to avoid hook loops back into themselves.
+- In-app session SDKs set `settingSources: ['user', 'project', 'local']`, equivalent to running `claude` in that cwd.
+
+### Cross-Session Collaboration / MCP Boundaries
+
+- Cross-adapter collaboration uses Agent Deck Universal Team Backend + Agent Deck MCP tools; do not restore the old inbox-based Agent Teams backend.
+- Teammate tool calls run under the teammate session's own permission / sandbox boundary; the lead does not approve permissions on its behalf and does not apply the lead's `permissionMode` / allowlist to teammates.
+- The Agent Deck MCP server is enabled by default. When `enableAgentDeckMcp` is disabled, newly created SDK sessions do not mount agent-deck MCP tools, and the `mcp_servers.agent-deck` section automatically injected into Codex is removed.
+- Claude / Codex app prompt assets must be audited in pairs: `resources/claude-config/CLAUDE.md` <-> `resources/codex-config/CODEX_AGENTS.md`; same-name files in skills directories must also be checked as counterparts. Adapter tool differences may use different wording, but protocol semantics must not drift on only one side.
+
+### Bundled Asset Self-Containment Principle (Important)
+
+Agent Deck internal assets must be self-contained inside the Agent Deck bundle (core design principle): `resources/claude-config/`, `resources/codex-config/`, bundled `agent-deck-plugin` agents/skills, and MCP tool descriptions injected into SDK sessions must be coherent and effective inside the Agent Deck baseline without depending on any extra installation.
+
+The root `README.md`, `CLAUDE.md`, `AGENTS.md`, and `resources/README.md` are also long-lived prompt assets. When modifying them, audit self-containment, trigger conditions, boundaries, and local links by the same principle. The general prompt-asset inventory, backup, deduplication, and review workflow is owned by the maintenance workflow and must not be written into the Agent Deck runtime baseline.
+
+External extensions may only enhance this repository workflow; they must not carry built-in Agent Deck behavior. When splitting out weakly related content, either delete it from bundled assets or keep a self-contained minimal rule. **Do not** replace required behavior with a pointer to an external asset. Agent Deck's own internal agents / skills / resources that ship with the app may reference one another as an internal closed loop, but the referencing asset must still keep the minimum information needed to execute: trigger conditions, boundaries, failure actions, and similar rules.
+
+### Main-Process Module Communication / IPC Boundaries
+
+- Expose module singletons through `setX` / `getX` (for example `getLifecycleScheduler()`); do not directly import instance objects in each handler file under `src/main/ipc/` because that creates cycle / timing problems.
+- Cross-process events must go through `event-bus.ts` + `safeSend` with an `isDestroyed` fallback; do not call `webContents.send` directly.
+- The `SettingsSet` handler in `src/main/ipc/settings.ts` is the **change-and-apply-immediately** transit point: whenever adding a setting, add its dispatch logic here, or the setting will be editable but ineffective.
+- `shared/types.ts` may only use standard-library types; do not import Electron / Node APIs.
+- preload `window.api` is the strongly typed facade; use `window.electronIpc.invoke()` as the fallback for dynamic channels.
+
+## Repeated Feedback / Similar Issues -> Promote Convention (Minimum Workflow)
+
+When the user gives corrective / preference feedback, or when a Coding Agent finds a similar engineering issue during review or bug fixing, first record it in `ref/conventions/tally.md`: increment the count of an existing semantically identical entry by 1, or add a new `count: 1` row. After `count >= 3`, run this repository's review workflow and present the evidence, candidate rule, and recommended decision (adopt / reject / keep observing) to the user for confirmation. Then promote it to `ref/conventions/<X>-<topic>.md` and update `ref/conventions/INDEX.md`. Do not promote one-off requests or trivial observations.
+
+---
+
+## Review Expiry And Minimum Re-Review Scope
+
+When preparing the next review, use this section to determine the minimum re-review scope. `ref/reviews/` contains expiring coverage records, not permanent exemptions.
+
+Minimum scope for the next review:
 
 ```text
 unreviewed files ∪ expired reviewed files ∪ scope_unknown files
 ```
 
-自最近一次覆盖该文件的 REVIEW 基线以来，满足任一条件即过期：
+A file expires when any of the following is true since the most recent REVIEW baseline that covered it:
 
-- 净改动 ≥ `min(200 行, 当前 LOC 的 30%)`。
-- 不同 commit 数 ≥ 3。
-- 距今 ≥ 90 天且文件至少改过一次。
-- REVIEW frontmatter 标记 `expired: true`。
+- Net change >= `min(200 lines, 30% of current LOC)`.
+- Number of distinct commits >= 3.
+- At least 90 days have passed and the file changed at least once.
+- REVIEW frontmatter marks `expired: true`.
 
-准备 review 时在仓库根目录运行 `bash scripts/file-level-review-expiry.sh`；脚本缺失时按上述条件用 `git log` 手工判定。
-
----
-
-## 文件大小护栏（500 行）
-
-任何源码文件超过 500 LOC，提交前必须先尝试拆分；生成代码、lockfile、快照、migration、fixture 除外。
-
-拆分优先级：
-
-1. 抽出模块级纯函数 / 类型 / 常量。
-2. 目录化为同目录子模块并保持 import 路径。
-3. 仅在 plan/review 之后才用 facade + 共享上下文拆类。
-
-确实不可拆分时，在相关 changelog 的 "do not split" 保护清单中记录文件和具体原因。
+When preparing a review, run `bash scripts/file-level-review-expiry.sh` from the repository root. If the script is missing, determine the same conditions manually with `git log`.
 
 ---
 
-## 验证流程
+## File Size Guardrail (500 Lines)
 
-改完代码：
+Before committing any source file over 500 LOC, attempt to split it first. Generated code, lockfiles, snapshots, migrations, and fixtures are exempt.
+
+Split priority:
+
+1. Extract module-level pure functions / types / constants.
+2. Convert to same-directory submodules while preserving import paths.
+3. Use facade + shared context to split classes only after a plan/review.
+
+If a file genuinely cannot be split, record the file and the concrete reason in the related changelog's "do not split" protection list.
+
+---
+
+## Validation Workflow
+
+After changing code:
 
 ```bash
-pnpm typecheck       # 必跑
-pnpm build           # 大改动跑
+pnpm typecheck       # required
+pnpm build           # run for large changes
 ```
 
-改 main / preload → **重启 dev**：
+After changing main / preload -> **restart dev**:
 
 ```bash
-# kill 干净
+# cleanly kill old processes
 lsof -ti:47821,5173 2>/dev/null | xargs -r kill -9
 pkill -f "electron-vite dev" 2>/dev/null
 pkill -f "Electron.app/Contents/MacOS/Electron" 2>/dev/null
 
-# 重启（在仓库根目录跑）
+# restart from the repository root
 pnpm dev
 ```
 
-改 renderer → 等 HMR 自动推送，无需重启。
+After changing renderer -> wait for HMR to push automatically; no restart is needed.
 
 ---
 
-## 打包与本地安装（macOS）
+## Packaging And Local Install (macOS)
 
-每次想体验「装好的版本」或者验证 wrapper 能不能从 .app 找到 → 完整跑一遍：
+Whenever you want to try the "installed version" or verify that the wrapper can locate the .app, run the full sequence:
 
 ```bash
-# 0. 杀掉所有旧实例（覆盖重装必做；明确要求不 kill 时只执行打包步骤）
+# 0. Kill all old instances (required before overwrite installs; if explicitly asked not to kill, only run packaging)
 pkill -f "Agent Deck.app/Contents/MacOS/Agent Deck" 2>/dev/null
 pkill -f "Agent Deck Helper" 2>/dev/null
 
-# 1. 出 dmg + .app（约 1 分钟）
+# 1. Build dmg + .app (about 1 minute)
 rm -rf build/dist && pnpm dist
 
-# 2. 覆盖安装到 /Applications（已有同名 .app 时必须先 rm，cp -R 不会清残留）
+# 2. Overwrite-install to /Applications (must rm an existing .app first; cp -R does not clear leftovers)
 rm -rf "/Applications/Agent Deck.app"
 cp -R "build/dist/mac-arm64/Agent Deck.app" /Applications/
 
-# 3. ad-hoc 重签名（见下面规则清单）
+# 3. Ad-hoc re-sign (see the rule checklist below)
 codesign --force --deep --sign - "/Applications/Agent Deck.app"
 
-# 4. 清掉 quarantine 属性
+# 4. Clear the quarantine attribute
 xattr -dr com.apple.quarantine "/Applications/Agent Deck.app"
 
-# 5. 软链 wrapper 到 PATH（一次性）
+# 5. Symlink the wrapper into PATH (one-time)
 ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/local/bin/agent-deck
 ```
 
-### 打包配置规则
+### Packaging Configuration Rules
 
-- `mac.icon: "resources/icon.png"` 必须显式配置；`extraResources` 必须把 `resources/bin` copy 到 .app 的 `bin`。
-- ad-hoc 重签、覆盖重装前 pkill 旧进程、SDK / codex native binary unpack 都是必需项；缺任一项先修配置，不要绕到业务代码。
-- 用户明确要求不 kill 时，禁止删除或覆盖正在运行的 `/Applications/Agent Deck.app`。`rm -rf "/Applications/Agent Deck.app"` 会让当前实例丢失 bundle 资源和执行通道；这种场景只打包到 `build/dist`，等用户手动退出后再覆盖，或先拷到临时 bundle 后用 Finder / 系统层替换。
-- 验证 wrapper 前必须 `unset ELECTRON_RUN_AS_NODE`；若二进制表现成 Node 或把 `new` 当脚本解析，这是验证环境污染，不要改 wrapper / 打包配置。
-- 跑 vitest SQLite 真测前后必须保护 better-sqlite3 binding（证据：CHANGELOG_42）。若 Electron 报 `NODE_MODULE_VERSION 115 vs 130`，清 npm prebuild cache 和 binding build 目录后强制 rebuild：
+- `mac.icon: "resources/icon.png"` must be configured explicitly; `extraResources` must copy `resources/bin` into the .app `bin`.
+- Ad-hoc re-signing, killing old processes before overwrite installs, and unpacking SDK / codex native binaries are all required. If any item is missing, fix the configuration first; do not work around it in business logic.
+- When the user explicitly asks not to kill, do not delete or overwrite a running `/Applications/Agent Deck.app`. `rm -rf "/Applications/Agent Deck.app"` causes the current instance to lose bundle resources and execution channels. In that scenario, only package into `build/dist`, then wait for the user to quit manually before overwriting, or copy to a temporary bundle and replace through Finder / system-level tooling.
+- Before validating the wrapper, always `unset ELECTRON_RUN_AS_NODE`; if the binary behaves like Node or parses `new` as a script, the validation environment is polluted. Do not change the wrapper / packaging config for that.
+- Before and after real vitest SQLite tests, protect the better-sqlite3 binding (evidence: CHANGELOG_42). If Electron reports `NODE_MODULE_VERSION 115 vs 130`, clear the npm prebuild cache and binding build directory, then force rebuild:
   ```bash
   rm -f ~/.npm/_prebuilds/*better-sqlite3*
   rm -rf node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build
   zsh -i -l -c "pnpm postinstall"
   ```
-  默认走 task-repo.test.ts 顶部的 binding 自检 skip 守门；真要本地实测，收尾必须跑上面三行。
+  By default, rely on the binding self-check skip guard at the top of task-repo.test.ts. If you truly run the local real test, finish by running the three commands above.
 
-### 验证
+### Validation
 
 ```bash
-unset ELECTRON_RUN_AS_NODE  # 必做：避免 Electron 二进制被切到 Node 伪装模式（详见上面规则清单）
+unset ELECTRON_RUN_AS_NODE  # required: prevents the Electron binary from switching into Node masquerade mode (see the rule checklist above)
 "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" new --cwd "$PWD" --prompt "ping"
-# 应用拉起 / 已运行实例新建一条会话；wrapper 自动补 cwd 与 new 子命令
+# The app opens / an already running instance creates a new session; the wrapper automatically fills cwd and the new subcommand
 ```
