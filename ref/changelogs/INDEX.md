@@ -288,3 +288,4 @@
 | [CHANGELOG_281.md](CHANGELOG_281.md) | Team scheduler waits before archiving empty new teams. |
 | [CHANGELOG_282.md](CHANGELOG_282.md) | Handoff skips archived teams during resource transfer. |
 | [CHANGELOG_284.md](CHANGELOG_284.md) | Split row-active and operational active-team membership queries for handoff and task paths. |
+| [CHANGELOG_285.md](CHANGELOG_285.md) | Filter incomplete and no-op Codex file changes from SessionDetail. |

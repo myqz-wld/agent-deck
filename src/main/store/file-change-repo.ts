@@ -1,4 +1,8 @@
 import type { FileChangeRecord } from '@shared/types';
+import {
+  isEffectiveCodexFileChange,
+  isIncompleteCodexFileChangeStatus,
+} from '@shared/codex-file-change';
 import { getDb } from './db';
 import { safeStringifyPayload, safeTruncateBlob, safeTruncateFileSnapshot } from './payload-truncate';
 import log from '@main/utils/logger';
@@ -47,6 +51,23 @@ function rowToRecord(r: Row): FileChangeRecord {
   };
 }
 
+function shouldExposeFileChange(rec: FileChangeRecord): boolean {
+  if (rec.kind !== 'text') return true;
+  if (rec.metadata.source !== 'codex') return true;
+  if (isIncompleteCodexFileChangeStatus(rec.metadata.patchStatus)) return false;
+  const diff = typeof rec.metadata.diff === 'string' ? rec.metadata.diff : undefined;
+  return isEffectiveCodexFileChange(readCodexChangeKind(rec.metadata.changeKind), diff);
+}
+
+function readCodexChangeKind(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const type = (value as { type?: unknown }).type;
+    return typeof type === 'string' ? type : undefined;
+  }
+  return undefined;
+}
+
 export const fileChangeRepo = {
   insert(rec: Omit<FileChangeRecord, 'id'>): number {
     const info = getDb()
@@ -79,7 +100,7 @@ export const fileChangeRepo = {
         `SELECT * FROM file_changes WHERE session_id = ? ORDER BY ts DESC, id DESC`,
       )
       .all(sessionId) as Row[];
-    return rows.map(rowToRecord);
+    return rows.map(rowToRecord).filter(shouldExposeFileChange);
   },
 
   countForSession(sessionId: string): number {
