@@ -158,7 +158,7 @@ export async function buildAgentDeckTools(
 
   const requestPlanReview = tool(
     AGENT_DECK_TOOL_NAMES.requestPlanReview,
-    'Show a markdown plan to the user and wait for their decision. Use this when you need explicit user review before executing a plan, especially from adapters without native Plan mode. Returns `decision:"approved"` to proceed, `decision:"revise"` with optional feedback to update the plan, or `decision:"timeout"` when `timeoutMs` expires. This tool rejects external callers.',
+    'Show a markdown plan to the user and wait for their decision. Use this when you need explicit user review before executing a plan, especially from adapters without native Plan mode. Returns `decision:"approved"` to proceed, `decision:"revise"` with optional feedback to update the plan, or `decision:"timeout"` when the effective timeout expires. Omitted `timeoutMs` uses the app permission-request timeout setting. This tool rejects external callers.',
     REQUEST_PLAN_REVIEW_SCHEMA,
     async (args, extra) => requestPlanReviewHandler(args, makeCtx(args, extra)),
     {

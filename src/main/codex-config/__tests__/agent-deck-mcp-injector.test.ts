@@ -10,8 +10,14 @@ import {
   mergeCodexConfig,
   AGENT_DECK_MCP_TOKEN_ENV,
   AGENT_DECK_MCP_SERVER_NAME,
+  permissionTimeoutMsToCodexToolTimeoutSec,
 } from '../agent-deck-mcp-injector';
 
+const enabledSettings = {
+  enableAgentDeckMcp: true,
+  mcpHttpEnabled: true,
+  permissionTimeoutMs: 30 * 60 * 1000,
+};
 const fakeRunningHookServer = {
   isRunning: true,
   listeningPort: 47821,
@@ -24,7 +30,7 @@ describe('buildAgentDeckMcpConfigForCodex', () => {
   it('returns null when enableAgentDeckMcp=false', () => {
     expect(
       buildAgentDeckMcpConfigForCodex(
-        { enableAgentDeckMcp: false, mcpHttpEnabled: true },
+        { ...enabledSettings, enableAgentDeckMcp: false },
         fakeRunningHookServer,
       ),
     ).toBeNull();
@@ -33,7 +39,7 @@ describe('buildAgentDeckMcpConfigForCodex', () => {
   it('returns null when mcpHttpEnabled=false', () => {
     expect(
       buildAgentDeckMcpConfigForCodex(
-        { enableAgentDeckMcp: true, mcpHttpEnabled: false },
+        { ...enabledSettings, mcpHttpEnabled: false },
         fakeRunningHookServer,
       ),
     ).toBeNull();
@@ -42,7 +48,7 @@ describe('buildAgentDeckMcpConfigForCodex', () => {
   it('returns null when hookServer not running', () => {
     expect(
       buildAgentDeckMcpConfigForCodex(
-        { enableAgentDeckMcp: true, mcpHttpEnabled: true },
+        enabledSettings,
         fakeStoppedHookServer,
       ),
     ).toBeNull();
@@ -51,7 +57,7 @@ describe('buildAgentDeckMcpConfigForCodex', () => {
   it('returns null when hookServer null', () => {
     expect(
       buildAgentDeckMcpConfigForCodex(
-        { enableAgentDeckMcp: true, mcpHttpEnabled: true },
+        enabledSettings,
         null,
       ),
     ).toBeNull();
@@ -60,7 +66,7 @@ describe('buildAgentDeckMcpConfigForCodex', () => {
   it('returns null when mcpBearerToken empty', () => {
     expect(
       buildAgentDeckMcpConfigForCodex(
-        { enableAgentDeckMcp: true, mcpHttpEnabled: true },
+        enabledSettings,
         fakeNoTokenHookServer,
       ),
     ).toBeNull();
@@ -68,7 +74,7 @@ describe('buildAgentDeckMcpConfigForCodex', () => {
 
   it('returns mcp_servers.agent-deck config when all conditions met', () => {
     const cfg = buildAgentDeckMcpConfigForCodex(
-      { enableAgentDeckMcp: true, mcpHttpEnabled: true },
+      enabledSettings,
       fakeRunningHookServer,
     );
     expect(cfg).not.toBeNull();
@@ -77,9 +83,40 @@ describe('buildAgentDeckMcpConfigForCodex', () => {
         [AGENT_DECK_MCP_SERVER_NAME]: {
           url: 'http://127.0.0.1:47821/mcp',
           bearer_token_env_var: AGENT_DECK_MCP_TOKEN_ENV,
+          tool_timeout_sec: 1800,
         },
       },
     });
+  });
+
+  it('maps disabled permission timeout to no Codex tool timeout', () => {
+    const cfg = buildAgentDeckMcpConfigForCodex(
+      { ...enabledSettings, permissionTimeoutMs: 0 },
+      fakeRunningHookServer,
+    );
+    expect(cfg).toEqual({
+      mcp_servers: {
+        [AGENT_DECK_MCP_SERVER_NAME]: {
+          url: 'http://127.0.0.1:47821/mcp',
+          bearer_token_env_var: AGENT_DECK_MCP_TOKEN_ENV,
+          tool_timeout_sec: 0,
+        },
+      },
+    });
+  });
+});
+
+describe('permissionTimeoutMsToCodexToolTimeoutSec', () => {
+  it('rounds positive millisecond settings up to seconds', () => {
+    expect(permissionTimeoutMsToCodexToolTimeoutSec(1)).toBe(1);
+    expect(permissionTimeoutMsToCodexToolTimeoutSec(1000)).toBe(1);
+    expect(permissionTimeoutMsToCodexToolTimeoutSec(1001)).toBe(2);
+  });
+
+  it('keeps zero and invalid settings as disabled timeout', () => {
+    expect(permissionTimeoutMsToCodexToolTimeoutSec(0)).toBe(0);
+    expect(permissionTimeoutMsToCodexToolTimeoutSec(-1)).toBe(0);
+    expect(permissionTimeoutMsToCodexToolTimeoutSec(Number.NaN)).toBe(0);
   });
 });
 
