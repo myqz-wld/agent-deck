@@ -2,39 +2,37 @@ node_modules
 build/
 dist/
 .refs/
-# ↑ 未终态 plan/review 工作副本区（foundation 规则）；终态记录归档到 ref/ 入 git。
+# Non-final plan/review working copies. Final records are archived under ref/ and tracked.
 .DS_Store
 *.log
 !ref/plans/**/spike-reports/**/*.log
-# ↑ spike artifacts exception:plan-driven spike reports 内的 .log 是 spike 实测命令输出 trace
-# (case-A.log / case-B.log 等),与 spike1-<topic>.md 结论同等重要(实测 evidence 历史可追溯),
-# 必须入 git 归档(详 user CLAUDE.md §Step 0.5 spike 节 + 本仓库 plan archive 流程)。
+# Spike report logs are measured command-output traces. Keep them tracked with the
+# related spike report so historical evidence stays reviewable.
 .vite
 *.tsbuildinfo
 .deep-code-review/
-# ↑ 历史目录（已迁移到 ~/.claude/state/deep-code-review/<cwd-slug>/，user 级隔离）。
-# 防御性留 entry：万一 skill regression / 用户手工建临时目录，不会被误 commit。
+# Legacy directory, now migrated to user-scoped ~/.claude/state/deep-code-review/<cwd-slug>/.
+# Keep this defensive ignore in case a tool regression or manual run recreates it.
 .deep-review-cache/
-# ↑ plan codex-handoff-team-alignment-20260518 P6.5 reviewer-claude HIGH-E 修法:deep-review SKILL
-# §Sandbox 处理 auto-cp cache 目录(每次 SKILL invocation 落 invocation-id 子目录 + manifest)。
-# worktree 内 cache 目录不入 git;ff-merge 回 base_branch 时也不污染。
+# deep-review sandbox cache. Each invocation creates a subdirectory plus manifest.
+# Worktree cache directories must stay out of git and fast-forward merges.
 .prompt-asset-improver/local/
-# ↑ prompt-asset-improver 本机 inventory / backup / custom-points cache,不入 git。
+# Local prompt-asset-improver inventory, backups, and custom points.
 ref/architecture/*.png
 ref/architecture/*.svg
 ref/flows/*.png
 ref/flows/*.svg
-# ↑ plantuml 渲染产物.puml SSOT 入 git;.png/.svg 渲染输出不入 git
-# (reviewer 跑 plantuml --check-syntax / -tpng 时产生,工具副作用)。
+# PlantUML .puml files are the source of truth. Rendered PNG/SVG output stays untracked.
+# Reviewers may generate these files while running syntax checks or rendering previews.
 .claude/worktrees/
 .claude/scheduled_tasks*
 .claude/plans/
 .claude/settings.local*
-# ↑ Claude Code 工具运行时产物：worktree 临时目录 / cron 任务持久化与锁文件 / plan local 工作目录 / per-user permissions allow list。
-# 不应入 git（per-user / per-machine state — settings.local.json 含 user 路径 hardcode + 命令授权白名单仅本机本用户有效）。
-# 注：plan completed 后归档到顶级 `ref/plans/<plan-id>.md` 入 git（详 ~/.claude/CLAUDE.md「§Step 2 Plan 文件 hand off」节）。
+# Claude Code runtime state: worktree temp dirs, cron task state and locks, local
+# plan workspaces, and per-user permission allow lists. Do not commit per-user or
+# per-machine state. Completed plans are archived to ref/plans/<plan-id>.md.
 
-# ↓ Appended by plan personal-projects-cleanup-20260520 (2026-05-20) — D2 小众系统垃圾兜底
+# Appended by plan personal-projects-cleanup-20260520 (2026-05-20): uncommon OS junk fallback.
 Thumbs.db
 .AppleDouble
 ._*
