@@ -92,6 +92,7 @@ describe('transferHandOffResources', () => {
           { teamId: 'team-lead', role: 'lead' },
           { teamId: 'team-mate', role: 'teammate' },
         ],
+        skipped: [],
         failed: [],
       },
       tasks: { status: 'ok', count: 4 },
@@ -113,6 +114,67 @@ describe('transferHandOffResources', () => {
     expect(mocks.setCwdReleaseMarker).toHaveBeenCalledWith(
       'successor-sid',
       '/repo/.agent-deck/worktrees/w1',
+    );
+  });
+
+  it('skips archived teams without failing the handoff resource transfer', () => {
+    mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([
+      { teamId: 'team-archived', role: 'lead' },
+    ]);
+    mocks.teamRepo.get.mockReturnValue({ id: 'team-archived', archivedAt: 123 });
+    mocks.taskRepo.reassignOwner.mockReturnValue(1);
+
+    const result = transferHandOffResources({
+      callerSessionId: 'caller-sid',
+      callerRow: callerRow(),
+      newSessionId: 'successor-sid',
+    });
+
+    expect(result).toEqual({
+      teams: {
+        status: 'ok',
+        transferred: [],
+        skipped: [{ teamId: 'team-archived', role: 'lead', reason: 'team-archived' }],
+        failed: [],
+      },
+      tasks: { status: 'ok', count: 1 },
+      worktreeMarker: { status: 'skipped', marker: null },
+    });
+    expect(mocks.teamRepo.swapLead).not.toHaveBeenCalled();
+    expect(mocks.teamRepo.addMember).not.toHaveBeenCalled();
+    expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid', {
+      policy: 'preserve-team',
+    });
+  });
+
+  it('transfers active teams while reporting archived memberships as skipped', () => {
+    mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([
+      { teamId: 'team-archived', role: 'lead' },
+      { teamId: 'team-active', role: 'lead' },
+    ]);
+    mocks.teamRepo.get.mockImplementation((teamId: string) =>
+      teamId === 'team-archived'
+        ? { id: teamId, archivedAt: 123 }
+        : { id: teamId, archivedAt: null },
+    );
+
+    const result = transferHandOffResources({
+      callerSessionId: 'caller-sid',
+      callerRow: callerRow(),
+      newSessionId: 'successor-sid',
+    });
+
+    expect(result.teams).toEqual({
+      status: 'ok',
+      transferred: [{ teamId: 'team-active', role: 'lead' }],
+      skipped: [{ teamId: 'team-archived', role: 'lead', reason: 'team-archived' }],
+      failed: [],
+    });
+    expect(mocks.teamRepo.swapLead).toHaveBeenCalledTimes(1);
+    expect(mocks.teamRepo.swapLead).toHaveBeenCalledWith(
+      'team-active',
+      'caller-sid',
+      'successor-sid',
     );
   });
 
@@ -183,6 +245,7 @@ describe('transferHandOffResources', () => {
     expect(result.teams).toEqual({
       status: 'failed',
       transferred: [],
+      skipped: [],
       failed: [{ teamId: 'team-b', role: 'lead', reason: 'membership race' }],
     });
     expect(mocks.teamRepo.swapLead).toHaveBeenNthCalledWith(
@@ -236,6 +299,7 @@ describe('transferHandOffResources', () => {
     expect(result.teams).toEqual({
       status: 'failed',
       transferred: [],
+      skipped: [],
       failed: [
         {
           teamId: '*',
