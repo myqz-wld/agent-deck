@@ -448,6 +448,88 @@ describe('SessionManager.ingest 时序', () => {
     expect(mockSessions.get('CLOSED_RESUME')?.lifecycle).toBe('active');
   });
 
+  it('hand_off_session 后原会话立即续聊：recentlyDeleted 放行 SDK user message 并清黑名单', () => {
+    mockSessions.set('HANDOFF_SOURCE_CONTINUE', {
+      id: 'HANDOFF_SOURCE_CONTINUE',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'handoff source',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+      cliSessionId: 'HANDOFF_SOURCE_CLI',
+    });
+    sessionManager.markClosed('HANDOFF_SOURCE_CONTINUE');
+    sessionManager.markRecentlyDeleted('HANDOFF_SOURCE_CONTINUE');
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'HANDOFF_SOURCE_CONTINUE',
+        source: 'sdk',
+        kind: 'message',
+        payload: { text: '继续原会话', role: 'user' },
+        ts: 8000,
+      }),
+    );
+
+    expect(mockSessions.get('HANDOFF_SOURCE_CONTINUE')?.lifecycle).toBe('active');
+    expect(mockEvents).toHaveLength(1);
+    expect(mockEvents[0]?.sessionId).toBe('HANDOFF_SOURCE_CONTINUE');
+    expect(mockEvents[0]?.payload).toMatchObject({ text: '继续原会话', role: 'user' });
+
+    sessionManager.ingest(
+      makeEvent({
+        // 用 cliSessionId 模拟后续 SDK/CLI 维度事件；修法必须同步清 appSid + cliSid 黑名单。
+        sessionId: 'HANDOFF_SOURCE_CLI',
+        source: 'sdk',
+        kind: 'message',
+        payload: { text: 'assistant visible too', role: 'assistant' },
+        ts: 8001,
+      }),
+    );
+
+    expect(mockEvents).toHaveLength(2);
+    expect(mockEvents[1]?.sessionId).toBe('HANDOFF_SOURCE_CONTINUE');
+    expect(mockEvents[1]?.payload).toMatchObject({ text: 'assistant visible too', role: 'assistant' });
+  });
+
+  it('hand_off_session 后原会话迟到 assistant 尾包仍被 recentlyDeleted 丢弃', () => {
+    mockSessions.set('HANDOFF_SOURCE_TAIL', {
+      id: 'HANDOFF_SOURCE_TAIL',
+      agentId: 'claude-code',
+      cwd: '/tmp',
+      title: 'handoff source tail',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: null,
+      permissionMode: null,
+    });
+    sessionManager.markClosed('HANDOFF_SOURCE_TAIL');
+    sessionManager.markRecentlyDeleted('HANDOFF_SOURCE_TAIL');
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'HANDOFF_SOURCE_TAIL',
+        source: 'sdk',
+        kind: 'message',
+        payload: { text: 'late assistant after handoff', role: 'assistant' },
+        ts: 8100,
+      }),
+    );
+
+    expect(mockSessions.get('HANDOFF_SOURCE_TAIL')?.lifecycle).toBe('closed');
+    expect(mockEvents).toHaveLength(0);
+  });
+
   // **REVIEW_83 HIGH 同源子问题回归 test (reviewer-claude)**:closed + archived 双态 session
   // 收到 SDK 事件也不复活 lifecycle(archivedAt === null 守卫)—— 归档与 lifecycle 正交,
   // 事件流不应偷改归档会话 lifecycle(auto-unarchive 是 unarchiveOnUserSend 显式职责)。

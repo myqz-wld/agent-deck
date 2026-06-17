@@ -68,6 +68,12 @@ import log from '@main/utils/logger';
 
 const logger = log.scope('session-manager');
 
+function isExplicitSdkUserMessage(event: AgentEvent): boolean {
+  if (event.source !== 'sdk' || event.kind !== 'message') return false;
+  const payload = event.payload as { role?: unknown } | null | undefined;
+  return payload?.role === 'user';
+}
+
 /**
  * SessionManager 不直接 import adapterRegistry(避免反向依赖 + 单职责),
  * 启动时 index.ts 通过 setSessionCloseFn 注入「按 sessionId 关 SDK 侧 live query」的 hook。
@@ -351,10 +357,15 @@ class SessionManagerClass {
     // 注:appSession === null 或 appSession.id === event.sessionId (历史 row backfill cli_session_id == id 场景)
     // 时不需覆写,直接走原路径
 
-    // **3b**: 黑名单检查 — 用原始 event.sessionId 维度 (黑名单双写后 cliSid 和 appSid 都能命中)
+    // **3b**: 黑名单检查 — 用原始 event.sessionId 维度 (黑名单双写后 cliSid 和 appSid 都能命中)。
+    // 例外：用户显式续聊的 SDK user message 需要打穿并清掉黑名单，否则 hand_off_session 后
+    // 原会话立刻继续聊会把用户消息和后续恢复事件都误吞；其它迟到尾包仍直接丢弃。
     // 注:覆写后 event.sessionId 已是 appSid,但 isRecentlyDeleted 双写黑名单两个 key 都能命中,
     // 用 event.sessionId (覆写后 appSid 或未覆写 cliSid) 都正确
-    if (this.isRecentlyDeleted(event.sessionId)) return;
+    if (this.isRecentlyDeleted(event.sessionId)) {
+      if (!isExplicitSdkUserMessage(event)) return;
+      this.clearRecentlyDeleted(event.sessionId);
+    }
 
     // **3c + 3d**: dedupOrClaim 内部时序兜底 (REVIEW_5 H1 / REVIEW_12 修法保留) → ensureRecord 建会话
     // 与原 ingest 5 段流程保持不变 (dedupOrClaim 必须留在最前 + 早返硬约束)
@@ -381,6 +392,16 @@ class SessionManagerClass {
   /** 黑名单 TTL 检查 thin delegate → manager/_deps.isRecentlyDeletedImpl。 */
   private isRecentlyDeleted(sessionId: string): boolean {
     return isRecentlyDeletedImpl(this.internalState, sessionId);
+  }
+
+  /**
+   * 用户显式续聊应能打穿 hand_off_session / close 路径的短 TTL 尾包黑名单。清理时同步覆盖
+   * applicationSid + cliSessionId，避免后续同一轮恢复里的 assistant/tool 事件继续被 60s 黑名单误吞。
+   */
+  private clearRecentlyDeleted(sessionId: string): void {
+    this.recentlyDeleted.delete(sessionId);
+    const cliSid = sessionRepo.get(sessionId)?.cliSessionId;
+    if (cliSid && cliSid !== sessionId) this.recentlyDeleted.delete(cliSid);
   }
 
   /** thin delegate → manager/lifecycle.markRecentlyDeletedImpl (双写黑名单 R5 MED-R5-1)。 */

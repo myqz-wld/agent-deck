@@ -18,8 +18,8 @@ const logger = log.scope('session-ingest');
  * 与「dedupOrClaim 必须最前 + 早返」硬约束注释；本文件只放 5 段实现 + IngestContext 契约）。
  *
  * **5 段顺序硬约束**（与 manager.ts ingest() 入口注释对齐）：
- *   isRecentlyDeleted 早返 → dedupOrClaim 早返 → ensureRecord → persistEventRow →
- *   persistFileChange → advanceState → emit('agent-event')
+   *   isRecentlyDeleted 条件早返（SDK user message 可清黑名单续聊）→ dedupOrClaim 早返 →
+   *   ensureRecord → persistEventRow → persistFileChange → advanceState → emit('agent-event')
  *
  * dedupOrClaim 必须**第一**：hook 首发竞争场景（CHANGELOG_16 / REVIEW_1）若先落假 CLI
  * 会话再 claim，UI 闪现「内/外两份」。任何 DB / event 写入不得前置。

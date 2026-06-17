@@ -281,3 +281,4 @@
 | [CHANGELOG_274.md](CHANGELOG_274.md) | Data tab When there is no live session, use a silent probe to read the Claude/Codex quota without sending a message or turning. |
 | [CHANGELOG_275.md](CHANGELOG_275.md) | Fixed the quota probe triggering macOS Downloads permission pop-up window and cwd=/ ghost history session. |
 | [CHANGELOG_276.md](CHANGELOG_276.md) | Preheat the provider quota cache when the application starts, and reuse the main-side TTL cache for data tabs. |
+| [CHANGELOG_277.md](CHANGELOG_277.md) | Fix original-session messages disappearing when the user continues chatting immediately after `hand_off_session`; SDK user messages now clear the short tail-event blacklist. |
