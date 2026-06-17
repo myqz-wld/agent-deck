@@ -105,9 +105,10 @@ export class TeamLifecycleScheduler {
       for (const team of batch) {
         const members = agentDeckTeamRepo.listActiveMembers(team.id);
         if (members.length === 0) {
-          // 没 active member 的 team → 已无人在用 → 直接 archive（不需 grace，因为没
-          // 任何 session 关联，reactivate 也不会自动 rejoin team）
-          candidates.push({ teamId: team.id, reason: 'no-active-members' });
+          // 没 active member 的 team 也要过 grace 再 archive。spawn_session 先 ensure team，
+          // 再 create session，最后 add members；这之间存在短暂空 team 初始化窗口。
+          if (now - team.createdAt < this.graceMs) continue;
+          candidates.push({ teamId: team.id, reason: 'no-active-members-grace-elapsed' });
           continue;
         }
         // 检查所有 active member 对应的 session 是否都 closed

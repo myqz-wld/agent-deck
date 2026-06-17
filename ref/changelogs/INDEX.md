@@ -285,3 +285,4 @@
 | [CHANGELOG_278.md](CHANGELOG_278.md) | `hand_off_session` no longer puts the caller in the short tail-event blacklist, so the original turn's post-handoff output remains visible while the caller stays closed. |
 | [CHANGELOG_279.md](CHANGELOG_279.md) | Standalone `spawn_session` now injects first-reply anchors and refreshes spawn tree state immediately. |
 | [CHANGELOG_280.md](CHANGELOG_280.md) | Agent Deck MCP plan review timeout now follows the permission approval timeout. |
+| [CHANGELOG_281.md](CHANGELOG_281.md) | Team scheduler waits before archiving empty new teams. |
