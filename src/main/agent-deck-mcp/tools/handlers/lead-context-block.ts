@@ -8,10 +8,9 @@
  * 抽 helper 后 SSOT 唯一化 + snapshot test 双向防漂移,**仅** spawn 路径用。
  *
  * **adopt 路径不复用本 helper**(Round 6 codex MED-1 + Round 7 codex MED-2 修法):
- * adopt 路径下 caller 已 archive(default baton)+ newSid 成为新 lead → caller 与 newSid
- * 无 shared active team → 新 session 按本 helper 的 wire prefix + "回 lead 用 send_message"
- * 指令必撞 send.ts:52-61 no-shared-team(deep design hole)。adopt 路径走独立
- * `adopted-teams-context-block.ts` helper 装配,**完全不**复用本 helper(Phase 4c)。
+ * adopt 路径下 caller 已 archive(default baton)+ newSid 成为新 lead。adopt 是单向交接,
+ * 不应让 successor 回复旧 caller。adopt 路径走独立 `adopted-teams-context-block.ts`
+ * helper 装配,**完全不**复用本 helper(Phase 4c)。
  *
  * **设计语义对比**:
  * - **spawn = 派出小弟**:lead 留在 conversation,teammate 起来后 reply 回 lead 用 wire
@@ -28,8 +27,12 @@ import { HAND_OFF_SPAWN_HEADER } from '@shared/hand-off-headers';
 export interface BuildLeadContextBlockOpts {
   /** caller(lead)session id,放入 wire prefix `[sid <id>]` + lead context block "Lead sessionId" 字段 */
   leadSessionId: string;
-  /** caller team id(teamIdEarly) — 不进 wire prefix,只写入 lead context block "Team id" 字段。 */
-  teamId: string;
+  /**
+   * caller/new session shared team id(teamIdEarly) when a team was created or reused.
+   * `null` means standalone spawn; send_message should omit teamId and use teamless DM.
+   * Not included in the wire prefix; rendered only in the lead context block.
+   */
+  teamId: string | null;
   /**
    * lead displayName 优先取 leadRecord.title;缺失时 caller 端用
    * `<leadAdapter>:<lead-sid 前 8>` fallback 形态(同 buildWireBody resolveFromDisplayName fallback)。
@@ -48,7 +51,7 @@ export interface BuildLeadContextBlockResult {
   wirePrefix: string;
   /**
    * lead context block 文字模板(`## Hand-off context (auto-injected by Agent Deck MCP)` 标题 +
-   * Lead sessionId / Team id / Lead displayName 字段 + send_message 用法 codeblock +
+   * Lead sessionId / Team id or teamless mode / Lead displayName 字段 + send_message 用法 codeblock +
    * replyToMessageId 和 sender sessionId 提取说明)。**不**含 wire prefix 自己 —
    * wirePrefix 字段独立 prepend。
    */
@@ -80,18 +83,26 @@ export function buildLeadContextBlock(
     opts.leadDisplayName ?? `${opts.leadAdapter}:${opts.leadSessionId.slice(0, 8)}`,
   );
   const leadAdapterSanitized = sanitizeWireFieldName(opts.leadAdapter);
+  const teamLine =
+    opts.teamId === null
+      ? `- Team id: (none; omit \`teamId\` so send_message uses teamless DM)\n`
+      : `- Team id: \`${opts.teamId}\`\n`;
+  const teamArgLine =
+    opts.teamId === null
+      ? ``
+      : `  teamId: '${opts.teamId}',  // current team id\n`;
 
   const contextBlock =
     `${HAND_OFF_SPAWN_HEADER}\n` +
     `- Lead sessionId: \`${opts.leadSessionId}\`\n` +
-    `- Team id: \`${opts.teamId}\`\n` +
+    teamLine +
     `- Lead displayName: ${opts.leadDisplayName ?? '(unset)'}\n` +
     `\n` +
     `Reply to the lead with Agent Deck MCP after you finish this turn:\n` +
     `\`\`\`\n` +
     `mcp__agent-deck__send_message({\n` +
     `  sessionId: '${opts.leadSessionId}',  // lead sessionId\n` +
-    `  teamId: '${opts.teamId}',  // current team id\n` +
+    teamArgLine +
     `  text: '<reply text>',\n` +
     `  replyToMessageId: '<msg-id from wire prefix>'\n` +
     `})\n` +

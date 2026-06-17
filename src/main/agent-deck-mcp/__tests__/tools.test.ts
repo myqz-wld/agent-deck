@@ -24,6 +24,7 @@ import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
 import { makeAgentDeckTeamRepoMock } from '@main/__tests__/_shared/mocks/agent-deck-team-repo';
 import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { eventBus } from '@main/event-bus';
 // REVIEW_85 MED-1/MED-2: 从 mock 模块拿 TeamInvariantError（vi.mock 导出的同一 class），
 // 让 addMemberThrow 抛的 error 能被 handler 的 `instanceof TeamInvariantError` 识别。
 import { TeamInvariantError } from '@main/store/agent-deck-team-repo';
@@ -366,14 +367,14 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
 // plan team-cohesion-fix-20260513 Phase B / CHANGELOG_100：mock agent-deck-message-repo
 // for spawn placeholder enqueue + send_message reply chain validation
 const mockMessages = new Map<string, AgentDeckMessage>();
-const insertedMessages: Array<{ id: string; teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId: string | null }> = [];
+const insertedMessages: Array<{ id: string; teamId: string | null; fromSessionId: string; toSessionId: string; body: string; replyToMessageId: string | null }> = [];
 const markedDelivered: string[] = [];
 let nextInsertId = 1;
 
 vi.mock('@main/store/agent-deck-message-repo', () => ({
   agentDeckMessageRepo: {
     get: (id: string) => mockMessages.get(id) ?? null,
-    insert: (input: { id?: string; teamId: string; fromSessionId: string; toSessionId: string; body: string; replyToMessageId?: string | null }) => {
+    insert: (input: { id?: string; teamId: string | null; fromSessionId: string; toSessionId: string; body: string; replyToMessageId?: string | null }) => {
       // plan team-cohesion-fix-20260513 Phase B7：input.id 非空 → 用之（spawn 路径预生成 id 注入 wire prefix）；
       // 否则 fallback 自增 mock id（其他路径如 enqueueAgentDeckMessage 仍走原行为）。
       const id = input.id ?? `inserted-msg-${nextInsertId++}`;
@@ -1122,22 +1123,43 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(markedDelivered).toEqual([spawnId]);
   });
 
-  it('Phase B7: spawn without teamName skips wire prefix injection (no placeholder)', async () => {
+  it('teamless spawn injects wire prefix + placeholder so the child can reply with send_message', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
+    const emitSpy = vi.spyOn(eventBus, 'emit');
     const r = await tools.get('spawn_session').handler({
       adapter: 'codex-cli',
       cwd: '/repo',
       prompt: 'standalone task',
-      // 不传 teamName → 不创建 placeholder + 不注入 prefix
+      // 不传 teamName → standalone child, but still has a teamless DM reply anchor.
       callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
-    expect(parsed.data.spawnPromptMessageId).toBeNull();
+    const spawnId = parsed.data.spawnPromptMessageId;
+    expect(spawnId).toMatch(/^[0-9a-f-]{36}$/);
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].prompt).toBe('standalone task');  // 原样，无 prefix
-    expect(insertedMessages).toEqual([]);  // 无 teamName 不入 placeholder
+    const seenPrompt = createSessionCalls[0].prompt as string;
+    expect(seenPrompt).toMatch(new RegExp(`^\\[from .+ @ .+\\]\\[msg ${spawnId}\\]\\[sid lead\\]\\n`));
+    expect(seenPrompt).toContain('standalone task');
+    expect(seenPrompt).toContain('Team id: (none; omit `teamId` so send_message uses teamless DM)');
+    expect(seenPrompt).not.toContain("teamId: '");
+    expect(insertedMessages).toEqual([
+      {
+        id: spawnId,
+        teamId: null,
+        fromSessionId: 'lead',
+        toSessionId: 'spawned-1',
+        body: 'standalone task',
+        replyToMessageId: null,
+      },
+    ]);
+    expect(markedDelivered).toEqual([spawnId]);
+    expect(emitSpy).toHaveBeenCalledWith(
+      'session-upserted',
+      expect.objectContaining({ id: 'spawned-1', spawnedBy: 'lead', spawnDepth: 1 }),
+    );
+    emitSpy.mockRestore();
   });
 
   it('Phase B7 / CHANGELOG_100: spawn with agentName + teamName → wire prefix wraps caller prompt while native agent config is passed separately', async () => {
@@ -1191,7 +1213,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     getSpy.mockRestore();
   });
 
-  it('agentName passes native Claude SDK agent config without prepending prompt body', async () => {
+  it('agentName passes native Claude SDK agent config while wrapping only the caller task prompt', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
@@ -1204,7 +1226,10 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].prompt).toBe('task body: review src/foo.ts');
+    const seenPrompt = createSessionCalls[0].prompt as string;
+    expect(seenPrompt).toContain('task body: review src/foo.ts');
+    expect(seenPrompt).toContain('## Hand-off context (auto-injected by Agent Deck MCP)');
+    expect(seenPrompt).not.toContain('# REVIEWER-CLAUDE BODY (mocked)');
     expect(createSessionCalls[0].claudeAgentName).toBe('reviewer-claude');
     expect(createSessionCalls[0].claudeAgents).toMatchObject({
       'reviewer-claude': {
@@ -1212,6 +1237,13 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       },
     });
     expect(createSessionCalls[0].model).toBe('opus');
+    expect(insertedMessages[0]).toMatchObject({
+      teamId: null,
+      fromSessionId: 'lead',
+      toSessionId: 'spawned-1',
+      body: 'task body: review src/foo.ts',
+      replyToMessageId: null,
+    });
   });
 
   it('agentName unresolved → returns err (no fallback to bare prompt)', async () => {
@@ -1231,7 +1263,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls).toHaveLength(0);
   });
 
-  it('agentName omitted → prompt unchanged (backward compatible)', async () => {
+  it('agentName omitted → wraps caller prompt with teamless reply anchor', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo' });
     const r = await tools.get('spawn_session').handler({
@@ -1243,7 +1275,15 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].prompt).toBe('plain prompt without body');
+    const spawnId = parsed.data.spawnPromptMessageId;
+    const seenPrompt = createSessionCalls[0].prompt as string;
+    expect(seenPrompt).toMatch(new RegExp(`^\\[from .+ @ .+\\]\\[msg ${spawnId}\\]\\[sid lead\\]\\n`));
+    expect(seenPrompt).toContain('plain prompt without body');
+    expect(insertedMessages[0]).toMatchObject({
+      id: spawnId,
+      teamId: null,
+      body: 'plain prompt without body',
+    });
   });
 
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 + R1 reviewer-codex INFO 修法:

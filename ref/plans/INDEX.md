@@ -72,6 +72,7 @@ Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_pr
 | [provider-usage-cache-refresh-20260615.md](provider-usage-cache-refresh-20260615.md) | completed | [261](../changelogs/CHANGELOG_261.md) | provider-usage-cache-refresh-20260615 |
 | [ask-user-question-notes-20260615.md](ask-user-question-notes-20260615.md) | completed | [265](../changelogs/CHANGELOG_265.md) | AskUserQuestion cards gained per-question note input, returned to Claude with selected options or Other answers |
 | [cursor-cli-acp-investigation-20260617.md](cursor-cli-acp-investigation-20260617.md) | completed | — | Cursor CLI ACP integration investigation: recommended starting with `agent acp`, and listed adapter design, risks, and live spike checklist |
+| [spawn-teamless-reply-anchor-20260617.md](spawn-teamless-reply-anchor-20260617.md) | completed | [279](../changelogs/CHANGELOG_279.md) / [119](../reviews/REVIEW_119.md) | Standalone `spawn_session` children now receive first-reply anchors, use teamless DM, and render under the parent immediately |
 
 ## Legacy Slug-Only Entries
 
