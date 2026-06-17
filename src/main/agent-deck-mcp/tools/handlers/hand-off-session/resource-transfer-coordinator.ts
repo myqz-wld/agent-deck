@@ -73,6 +73,7 @@ function skippedTeams(reason: string): HandOffResourceTransferResult['teams'] {
   return {
     status: 'failed',
     transferred: [],
+    skipped: [],
     failed: [{ teamId: '*', role: 'teammate', reason }],
   };
 }
@@ -86,6 +87,7 @@ function transferTeams(
   newSessionId: string,
 ): HandOffResourceTransferResult['teams'] {
   const transferred: HandOffResourceTransferResult['teams']['transferred'] = [];
+  const skipped: HandOffResourceTransferResult['teams']['skipped'] = [];
   const failed: HandOffResourceTransferResult['teams']['failed'] = [];
   const rollback: Array<() => void> = [];
   const postCommitEvents: Array<() => void> = [];
@@ -97,6 +99,7 @@ function transferTeams(
     return {
       status: 'failed',
       transferred,
+      skipped,
       failed: [
         {
           teamId: '*',
@@ -117,7 +120,7 @@ function transferTeams(
         continue;
       }
       if (team.archivedAt !== null) {
-        failed.push({ teamId: m.teamId, role, reason: 'team-archived' });
+        skipped.push({ teamId: m.teamId, role, reason: 'team-archived' });
         continue;
       }
       candidates.push({ teamId: m.teamId, role });
@@ -130,6 +133,7 @@ function transferTeams(
     return {
       status: 'failed',
       transferred,
+      skipped,
       failed,
     };
   }
@@ -201,6 +205,7 @@ function transferTeams(
     return {
       status: 'failed',
       transferred: [],
+      skipped,
       failed,
     };
   }
@@ -212,6 +217,7 @@ function transferTeams(
   return {
     status: 'ok',
     transferred,
+    skipped,
     failed,
   };
 }

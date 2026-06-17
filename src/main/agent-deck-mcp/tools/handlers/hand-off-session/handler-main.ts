@@ -184,7 +184,7 @@ export const handOffSessionHandler = withMcpGuard(
       );
     }
     logger.info(
-      `[mcp hand_off_session] resources transferred caller=${callerSessionId} successor=${newSessionId} tasks=${resourceTransfer.tasks.count} teams=${resourceTransfer.teams.transferred.length} worktreeMarker=${resourceTransfer.worktreeMarker.status}`,
+      `[mcp hand_off_session] resources transferred caller=${callerSessionId} successor=${newSessionId} tasks=${resourceTransfer.tasks.count} teams=${resourceTransfer.teams.transferred.length} skippedTeams=${resourceTransfer.teams.skipped.length} worktreeMarker=${resourceTransfer.worktreeMarker.status}`,
     );
 
     let callerClosed: HandOffSessionResult['callerClosed'] = 'ok';

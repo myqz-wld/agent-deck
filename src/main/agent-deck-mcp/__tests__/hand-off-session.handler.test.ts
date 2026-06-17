@@ -93,7 +93,7 @@ describe('handOffSessionHandler', () => {
     const closeSession = vi.fn(async (_sid: string) => undefined);
     const transferResources = vi.fn(() => ({
       tasks: { status: 'ok' as const, count: 2 },
-      teams: { status: 'ok' as const, transferred: [], failed: [] },
+      teams: { status: 'ok' as const, transferred: [], skipped: [], failed: [] },
       worktreeMarker: { status: 'skipped' as const, marker: null },
     }));
 
@@ -173,7 +173,7 @@ describe('handOffSessionHandler', () => {
         cwdExists: () => true,
         transferResources: () => ({
           tasks: { status: 'ok', count: 0 },
-          teams: { status: 'ok', transferred: [], failed: [] },
+          teams: { status: 'ok', transferred: [], skipped: [], failed: [] },
           worktreeMarker: { status: 'skipped', marker: null },
         }),
       },
@@ -229,6 +229,7 @@ describe('handOffSessionHandler', () => {
           teams: {
             status: 'failed',
             transferred: [],
+            skipped: [],
             failed: [{ teamId: 'team-A', role: 'lead', reason: 'swap failed' }],
           },
           worktreeMarker: { status: 'skipped', marker: null },
@@ -293,6 +294,7 @@ describe('handOffSessionHandler', () => {
           teams: {
             status: 'failed',
             transferred: [],
+            skipped: [],
             failed: [
               {
                 teamId: '*',

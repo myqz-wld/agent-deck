@@ -727,6 +727,7 @@ export interface HandOffSessionResult extends SpawnSessionResult {
     teams: {
       status: 'ok' | 'failed';
       transferred: Array<{ teamId: string; role: 'lead' | 'teammate' }>;
+      skipped: Array<{ teamId: string; role: 'lead' | 'teammate'; reason: string }>;
       failed: Array<{ teamId: string; role: 'lead' | 'teammate'; reason: string }>;
     };
     worktreeMarker: { status: 'ok' | 'skipped' | 'failed'; marker: string | null; error?: string };

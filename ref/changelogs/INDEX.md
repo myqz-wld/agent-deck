@@ -286,3 +286,4 @@
 | [CHANGELOG_279.md](CHANGELOG_279.md) | Standalone `spawn_session` now injects first-reply anchors and refreshes spawn tree state immediately. |
 | [CHANGELOG_280.md](CHANGELOG_280.md) | Agent Deck MCP plan review timeout now follows the permission approval timeout. |
 | [CHANGELOG_281.md](CHANGELOG_281.md) | Team scheduler waits before archiving empty new teams. |
+| [CHANGELOG_282.md](CHANGELOG_282.md) | Handoff skips archived teams during resource transfer. |
