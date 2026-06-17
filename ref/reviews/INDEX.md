@@ -133,3 +133,4 @@ Use `REVIEW_X.md`, where `X` is the next integer and historically aligns with `C
 | [REVIEW_119.md](REVIEW_119.md) | Standalone `spawn_session` children lacked first-reply anchors and immediate tree refresh. | 1 MED fixed + 2 LOW fixed | CHANGELOG_279 |
 | [REVIEW_120.md](REVIEW_120.md) | `hand_off_session` treated archived team memberships as fatal transfer failures. | 1 MED fixed + 1 LOW fixed | CHANGELOG_282 |
 | [REVIEW_121.md](REVIEW_121.md) | Row-active and operational active-team membership semantics were collapsed into one helper name. | 1 MED fixed + 2 LOW fixed | CHANGELOG_284 |
+| [REVIEW_122.md](REVIEW_122.md) | Codex file-change reporting showed incomplete or no-op patch records. | 2 MED fixed + 1 LOW guarded | CHANGELOG_285 |

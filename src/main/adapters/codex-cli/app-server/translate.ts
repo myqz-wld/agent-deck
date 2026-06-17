@@ -5,6 +5,10 @@ import {
   extractRetryProgress,
 } from '../stream-error-classifier';
 import type { AgentEventKind } from '@shared/types';
+import {
+  isEffectiveCodexFileChange,
+  isIncompleteCodexFileChangeStatus,
+} from '@shared/codex-file-change';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server-translate');
@@ -224,11 +228,15 @@ function translateItemCompleted(
     }
 
     case 'fileChange': {
+      if (isIncompleteCodexFileChangeStatus(item.status)) return;
       const changes = Array.isArray(item.changes) ? item.changes : [];
       for (const change of changes) {
         const c = asRecord(change);
         const filePath = typeof c?.path === 'string' ? c.path : null;
         if (!filePath) continue;
+        const changeKind = codexFileChangeKind(c?.kind);
+        const diff = typeof c?.diff === 'string' ? c.diff : undefined;
+        if (!isEffectiveCodexFileChange(changeKind, diff)) continue;
         emit('file-changed', {
           filePath,
           kind: 'text',
@@ -236,9 +244,9 @@ function translateItemCompleted(
           after: null,
           metadata: {
             source: 'codex',
-            changeKind: codexFileChangeKind(c?.kind),
+            changeKind,
             patchStatus: item.status,
-            diff: c?.diff,
+            diff,
           },
           toolCallId: item.id,
         });
