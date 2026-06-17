@@ -18,7 +18,7 @@ import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map'
 //
 // R37 P2-E Step 3.4a：抽 input-pack.ts (packCodexInput + extractAttachmentPaths 模块级纯函数)。
 // R37 P2-E Step 3.4b：抽 session-finalize.ts (persistSessionFields 收口 setCodexSandbox + setModel + warn)。
-// R37 P2-E Step 3.4c：抽 restart-controller.ts (RestartController sub-class 持冷切 sandbox method)。
+// R37 P2-E Step 3.4c：抽 restart-controller.ts (RestartController sub-class 持 sandbox switch method)。
 import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES } from './constants';
 import type {
   CodexBridgeOptions,
@@ -105,16 +105,9 @@ export class CodexSdkBridge {
    */
   private codexBySession: Map<string, CodexAppServerClient> = new Map();
   /**
-   * symmetry-plan P2 HIGH-A：与 claude `recovering` Map 同模式 — 单飞 Map 覆盖
-   * `restartWithCodexSandbox` 整段副作用窗口（close + DB write + createSession）。
-   *
-   * 修前并发两次 restartWithCodexSandbox(sid, ...) 可同时进 close → setCodexSandbox（写库
-   * 竞争最后写赢）→ 各 createSession resume 一次（双 SDK 子进程同 sid），DB 字段与第二个
-   * 进程 actual sandbox 不一致。修后单飞排队执行（后者等前者完成再跑），与 claude
-   * `restartWithPermissionMode` / `restartWithClaudeCodeSandbox` 同款保护（REVIEW_36 R2 MED-B）。
-   *
-   * 未来 HIGH-B codex recoverer 也共享本 Map，与 claude 同模式 facade 持权威 ref（双方 mutate
-   * 同一份），同 sessionId 的并发 recoverAndSend / restartWithX 排队执行。
+   * 与 claude `recovering` Map 同模式的单飞表。Codex sandbox 切换已不再冷重启，
+   * 但仍与 recoverer 共享这张表，避免同 session 的 recover/create 与 sandbox DB/live-option
+   * patch 交错。
    */
   private recovering = new Map<string, Promise<unknown>>();
   /**
@@ -125,8 +118,8 @@ export class CodexSdkBridge {
   private threadLoop: ThreadLoop;
   /**
    * R37 P2-E Step 3.4c：RestartController sub-class 持 restartWithCodexSandbox method。
-   * ctx 通过 thunk 反调本 facade 的 closeSession + createSession（避免循环引用），
-   * facade 端只保留 thin wrapper 委托（与 claude RestartController 同模式）。
+   * public 名称保留兼容旧 IPC；当前实现只持久化 + patch live app-server thread options，
+   * 不再 close/create Codex thread。
    */
   private restartController: RestartController;
 
@@ -171,17 +164,12 @@ export class CodexSdkBridge {
     const restartCtx: RestartCtx = {
       recovering: this.recovering,
       emit: opts.emit,
-      // thunk 反调本 facade 的 closeSession / createSession，避免直接持有 facade ref
-      closeSession: (sessionId: string): Promise<void> => this.closeSession(sessionId),
-      createSession: (restartOpts) => this.createSession(restartOpts),
-      // **REVIEW_101 R1 双方共识合并修法（codex restart 接入 maybeCodexJsonlFallback）**:
-      // restart 与 recoverer 共享同一份 jsonl 探测 + 历史注入 thunk instance（对齐 claude RestartCtx）。
-      // 让 restartWithCodexSandbox 冷切 sandbox 时 jsonl 缺失走 fresh-cli-reuse-app fallback 而非
-      // resumeThread earlyErr 回滚切档失败（修前 codex restart 完全无 jsonl 处理，claude restart 已有）。
-      jsonlExistsThunk: (threadId, startedAt) => this.codexResumeJsonlExists(threadId, startedAt),
-      summariseFn: (cwd, events) => this.summariseForHandOff(cwd, events),
-      listEventsFn: (sid) => this.listEventsForSession(sid),
-      listMessagesFn: (sid, limit, beforeId) => this.listRecentMessagesForSession(sid, limit, beforeId),
+      applyLiveSandbox: (sessionId, sandbox, sandboxOpts) => {
+        const internal = this.sessions.get(sessionId);
+        if (!internal) return false;
+        internal.thread.updateSandboxMode(sandbox, sandboxOpts);
+        return true;
+      },
     };
     this.restartController = new RestartController(restartCtx);
 
@@ -477,11 +465,11 @@ export class CodexSdkBridge {
   }
 
   /**
-   * 冷切 codex sandbox 档位（CHANGELOG_<X> A2b）：销毁旧 thread + 用新 sandbox resume 重建。
+   * 兼容旧 IPC 名称的 Codex sandbox 切换入口。
    *
-   * R37 P2-E Step 3.4c：实现下沉到 RestartController sub-class（与 claude restart-controller 同模式）。
-   * 本 facade method 仅 thin wrapper 委托给 restartController.restartWithCodexSandbox(...)。
-   * 行为零变化：emit / close / DB write / createSession resume / rename 防御 / 回滚序列字面一致。
+   * app-server Codex 每次 `turn/start` 都携带 sandboxPolicy，因此这里不再冷重启：
+   * 持久化 sessionRepo.codexSandbox 后 patch live thread options，当前 turn 继续跑，
+   * 下一条 pending/user message 使用新 sandbox。
    */
   async restartWithCodexSandbox(
     sessionId: string,

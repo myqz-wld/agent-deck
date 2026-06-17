@@ -337,9 +337,32 @@ export class CodexAppServerThread {
 
   constructor(
     private readonly client: CodexAppServerClient,
-    private readonly mode: ThreadMode,
+    private mode: ThreadMode,
   ) {
     this.threadId = mode.mode === 'resume' ? mode.threadId : null;
+  }
+
+  updateSandboxMode(
+    sandboxMode: CodexThreadOptions['sandboxMode'],
+    opts: {
+      networkAccessEnabled?: boolean;
+      additionalDirectories?: readonly string[];
+    } = {},
+  ): void {
+    const options: CodexThreadOptions = {
+      ...this.mode.options,
+      sandboxMode,
+      ...(opts.networkAccessEnabled !== undefined
+        ? { networkAccessEnabled: opts.networkAccessEnabled }
+        : {}),
+      ...(opts.additionalDirectories !== undefined
+        ? { additionalDirectories: [...opts.additionalDirectories] }
+        : {}),
+    };
+    this.mode =
+      this.mode.mode === 'resume'
+        ? { mode: 'resume', threadId: this.mode.threadId, options }
+        : { mode: 'start', options };
   }
 
   async runStreamed(

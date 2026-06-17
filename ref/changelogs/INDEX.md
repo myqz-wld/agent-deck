@@ -294,3 +294,5 @@
 | [CHANGELOG_287.md](CHANGELOG_287.md) | AskUserQuestion and Plan rows keep actions in the top-right area only; plan feedback now opens below the top-right buttons. |
 | [CHANGELOG_288.md](CHANGELOG_288.md) | Plan feedback opens as a single-line row without changing the button layout. |
 | [CHANGELOG_289.md](CHANGELOG_289.md) | Codex sandbox restart resumes the app-server thread without a synthetic prompt when jsonl exists, while Claude permission mode changes persist successfully when the DB session exists but no live SDK query is running. |
+| [CHANGELOG_290.md](CHANGELOG_290.md) | Codex sandbox switching now applies to the next turn without restarting or clearing queued messages. |
+| [CHANGELOG_291.md](CHANGELOG_291.md) | Claude compaction events render, and thinking copy is adapter-aware. |

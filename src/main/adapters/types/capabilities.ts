@@ -19,9 +19,8 @@ export interface AdapterCapabilities {
    */
   canRestartWithPermissionMode: boolean;
   /**
-   * 是否支持「冷切」codex sandbox 档位（CHANGELOG_<X> A2b）：销毁旧 codex thread + 用新
-   * sandboxMode resume 重建。codex SDK 的 sandboxMode 是 startThread/resumeThread 一次性
-   * 参数，运行时无法热切，必须冷切。仅 codex-cli adapter 置 true；其他 adapter 置 false。
+   * 是否支持 codex sandbox 档位切换。字段名保留旧 restart 语义；app-server Codex
+   * 应实现为 next-turn apply，不为切 sandbox 中断当前 turn。仅 codex-cli adapter 置 true。
    *
    * 与 canRestartWithPermissionMode 正交：codex 没有 PermissionMode 概念，
    * 这是 codex 专属的 capability。
@@ -30,7 +29,7 @@ export interface AdapterCapabilities {
   /**
    * 是否支持「冷切」claude OS sandbox 档位（CHANGELOG_74）：销毁旧 SDK 子进程 + 用新档位
    * createSession resume 重建。SDK 的 sandbox options 是 query() spawn-time 锁定，无法热切。
-   * 与 canRestartWithCodexSandbox 字面镜像。Claude Code 桥接层 adapter 置 true；其他 adapter 置 false。
+   * Claude Code 桥接层 adapter 置 true；其他 adapter 置 false。
    */
   canRestartWithClaudeCodeSandbox: boolean;
   /**

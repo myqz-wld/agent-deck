@@ -157,9 +157,9 @@ export interface CodexCreateOpts {
   /** Additional Codex config layer parsed from a custom-agent TOML file. */
   codexConfigOverrides?: CodexConfigObject;
   /**
-   * Codex per-session sandbox 档位覆盖。三档直接复用 codex SDK 原生 SandboxMode 字面量。
-   * undefined = 用 settings.codexSandbox 全局值。spawn-time 一次性透传给 codex.startThread；
-   * 已在跑的 thread 不受影响（运行时切档走 restartWithCodexSandbox 冷切）。
+   * Codex per-session sandbox 档位覆盖。三档直接复用 Codex app-server sandbox 字面量。
+   * undefined = 用 settings.codexSandbox 全局值。已在跑的 app-server thread 可通过
+   * restartWithCodexSandbox 兼容入口 patch options，让下一次 turn/start 使用新档。
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
