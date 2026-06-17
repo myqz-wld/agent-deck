@@ -1,21 +1,22 @@
 # CLAUDE.md
 
-> This file is the SSOT for shared repository-level rules in the agent-deck repo. Shared repository rules are governed by this file; the Codex counterpart entry `AGENTS.md` only adds entry-point differences to avoid duplicated and drifting rules.
+> Shared repository workflow for the agent-deck repo. Extra engineering or review skills, when present, are enhancement layers.
+> Keep shared rules here; the Codex counterpart entry `AGENTS.md` records only entry-point or tool differences.
 >
 > **In app SDK sessions**, `resources/claude-config/CLAUDE.md` is loaded in addition to this file for Agent Deck protocol conventions.
 
-## Repository Basics
+## Repository Baseline
 
 - macOS environment; use pnpm as the package manager.
 - Node.js >= 18 (nvm is recommended for management).
 
-## Baseline Directory Structure
+## Base Directory Structure
 
 When creating or maintaining the repository, place files according to this structure. Unless the project already has a stronger contract, do not create parallel directories for the same kind of file:
 
-- `CLAUDE.md`: shared project SSOT that records repository basics, directory structure, required post-change steps, plan/review lifecycle, review expiry rules, file-size guardrails, project-specific conventions, and validation workflow.
-- `AGENTS.md`: entry-point / tool differences only; it references and follows the shared rules in `CLAUDE.md`.
-- `UI_COPY_LANGUAGE.md`: language rules for user-visible UI/CLI copy. New or modified user-facing UI/CLI copy must follow it; if the requested copy language or support scope differs from that file, update that file first.
+- `CLAUDE.md`: shared project workflow SSOT for repository baseline, directory structure, required post-change steps, plan/review lifecycle, review expiry rules, file-size guardrails, project-specific conventions, and validation.
+- `AGENTS.md`: entry-point and tool differences only; it references and follows the shared rules in `CLAUDE.md`.
+- `UI_COPY_LANGUAGE.md`: SSOT for user-facing UI/CLI copy language and locale mode.
 - `README.md`: setup, usage, validation, and structure documentation for users and maintainers.
 - `src/`: source code.
 - `scripts/`: project scripts and automation helpers.
@@ -37,6 +38,8 @@ Write active project documentation and maintainer/agent-facing instructions in E
 ## Required After Changes (Minimum Workflow)
 
 > This section preserves the repository's minimum closed-loop workflow. For `ref/` project artifacts, directly follow the existing INDEX and neighboring-file formats in `ref/changelogs/`, `ref/reviews/`, `ref/conventions/`, `ref/flows/`, and `ref/architecture/`.
+
+Before starting, run `ls ref/conventions ref/changelogs ref/plans ref/reviews 2>/dev/null || true` to see existing records. Missing directories are setup work, not an error.
 
 1. **When changing user-visible behavior, file structure, or startup behavior** (UI / CLI copy / settings / keyboard shortcuts / project structure / ports / dependencies / validation steps), update the relevant section of `README.md`. When adding or changing user-facing UI/CLI copy, follow `UI_COPY_LANGUAGE.md`; if the language requirement differs, update that file first. Pure bug fixes and internal refactors do not require README changes.
 2. For every meaningful feature, behavior, API, or dependency change, write `ref/changelogs/CHANGELOG_X.md` and update `ref/changelogs/INDEX.md`. For debug, performance, security, or review-driven fixes, write `ref/reviews/REVIEW_X.md` and update `ref/reviews/INDEX.md`. Choose `X` as the next integer after the current maximum, confirmed with `ls`; do not guess. INDEX summaries must be <= 80 characters or one short English sentence.
