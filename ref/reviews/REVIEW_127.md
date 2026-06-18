@@ -34,7 +34,7 @@ Fix: the installed Codex hook command now forwards the parent process PID, hook 
 
 - Focused Vitest run passed: 8 files / 44 tests.
 - `pnpm typecheck` passed.
-- `pnpm test` passed: 157 files passed / 18 skipped, 1668 tests passed / 291 skipped.
+- `pnpm test` passed: 175 files / 1961 tests.
 
 ## Related Changelog
 
