@@ -305,3 +305,4 @@
 | [CHANGELOG_298.md](CHANGELOG_298.md) | Codex internal hooks are SDK-origin filtered; no inferred close without SessionEnd. |
 | [CHANGELOG_299.md](CHANGELOG_299.md) | Reuse the Codex quota background app-server across refreshes. |
 | [CHANGELOG_300.md](CHANGELOG_300.md) | Data tab quota percentages render as integers. |
+| [CHANGELOG_301.md](CHANGELOG_301.md) | Data tab quota refresh is less aggressive and adds a hard refresh button. |

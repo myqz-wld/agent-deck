@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type JSX } from 'react';
 import { useTokenUsageStore } from '../stores/token-usage-store';
 import { useTokenRatesPoll } from '../hooks/use-token-rates-poll';
 import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
@@ -18,8 +18,8 @@ import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '
  */
 
 const DAILY_REFETCH_DEBOUNCE_MS = 500;
-const PROVIDER_USAGE_REFETCH_MS = 60_000;
-const PROVIDER_USAGE_RENDERER_STALE_MS = 55_000;
+const PROVIDER_USAGE_REFETCH_MS = 5 * 60_000;
+const PROVIDER_USAGE_RENDERER_STALE_MS = PROVIDER_USAGE_REFETCH_MS - 5_000;
 
 /** 大数字千分位；0 显示 '·' 弱化（避免满屏 0 干扰）。 */
 function fmt(n: number): string {
@@ -38,7 +38,15 @@ export function DataPanel(): JSX.Element {
   const setProviderUsageLoading = useTokenUsageStore((s) => s.setProviderUsageLoading);
   const setProviderUsageSuccess = useTokenUsageStore((s) => s.setProviderUsageSuccess);
   const setProviderUsageError = useTokenUsageStore((s) => s.setProviderUsageError);
+  const mountedRef = useRef(true);
   useTokenRatesPoll();
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // daily：mount 拉一次 + 订阅 onTokenUsageChanged debounce refetch
   useEffect(() => {
@@ -61,37 +69,35 @@ export function DataPanel(): JSX.Element {
     };
   }, [setDaily]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const fetchUsage = async (showLoading: boolean): Promise<void> => {
-      if (showLoading) setProviderUsageLoading(true);
+  const fetchUsage = useCallback(
+    async (opts: { showLoading: boolean; force?: boolean }): Promise<void> => {
+      if (opts.showLoading) setProviderUsageLoading(true);
       try {
-        const result = await window.api.providerUsageSnapshot();
-        if (!cancelled) {
-          setProviderUsageSuccess(result.snapshots);
-        }
+        const result = opts.force
+          ? await window.api.providerUsageSnapshot({ force: true })
+          : await window.api.providerUsageSnapshot();
+        if (mountedRef.current) setProviderUsageSuccess(result.snapshots);
       } catch {
-        if (!cancelled) setProviderUsageError('额度信息读取失败，请稍后重试');
+        if (mountedRef.current) setProviderUsageError('额度信息读取失败，请稍后重试');
       } finally {
-        if (showLoading) setProviderUsageLoading(false);
+        if (opts.showLoading && mountedRef.current) setProviderUsageLoading(false);
       }
-    };
+    },
+    [setProviderUsageError, setProviderUsageLoading, setProviderUsageSuccess],
+  );
 
+  useEffect(() => {
     const cacheFresh =
       usageFetchedAt !== null && Date.now() - usageFetchedAt < PROVIDER_USAGE_RENDERER_STALE_MS;
-    if (!cacheFresh) void fetchUsage(usageSnapshots.length === 0);
-    const timer = setInterval(() => void fetchUsage(false), PROVIDER_USAGE_REFETCH_MS);
+    if (!cacheFresh) void fetchUsage({ showLoading: usageSnapshots.length === 0 });
+    const timer = setInterval(
+      () => void fetchUsage({ showLoading: false }),
+      PROVIDER_USAGE_REFETCH_MS,
+    );
     return () => {
-      cancelled = true;
       clearInterval(timer);
     };
-  }, [
-    setProviderUsageError,
-    setProviderUsageLoading,
-    setProviderUsageSuccess,
-    usageFetchedAt,
-    usageSnapshots.length,
-  ]);
+  }, [fetchUsage, usageFetchedAt, usageSnapshots.length]);
 
   // 实时区：全 bucket token/s，生成中 fresh live 估算优先，降序
   const liveRates = useMemo(() => {
@@ -131,14 +137,24 @@ export function DataPanel(): JSX.Element {
               更新 {formatClock(usageFetchedAt)}
             </span>
           )}
-          {usageLoading && (
-            <span className="ml-auto text-[10px] text-deck-muted/60">
-              {usageSnapshots.length > 0 ? '刷新中' : '读取中'}
-            </span>
-          )}
-          {usageError && (
-            <span className="ml-auto truncate text-[10px] text-status-error">{usageError}</span>
-          )}
+          <div className="ml-auto flex min-w-0 items-center gap-2">
+            {usageLoading && (
+              <span className="shrink-0 text-[10px] text-deck-muted/60">
+                {usageSnapshots.length > 0 ? '刷新中' : '读取中'}
+              </span>
+            )}
+            {usageError && (
+              <span className="truncate text-[10px] text-status-error">{usageError}</span>
+            )}
+            <button
+              type="button"
+              onClick={() => void fetchUsage({ showLoading: true, force: true })}
+              disabled={usageLoading}
+              className="shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-deck-muted transition hover:border-white/20 hover:text-deck-text disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              刷新
+            </button>
+          </div>
         </div>
         {usageSnapshots.length > 0 ? (
           <div className="grid grid-cols-1 gap-2 md:grid-cols-3">

@@ -81,6 +81,18 @@ describe('providerUsageSnapshotHandler cache', () => {
     expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(2);
   });
 
+  it('force refresh bypasses fresh cache', async () => {
+    const calls = setupAdapters();
+
+    await providerUsageSnapshotHandler();
+    vi.setSystemTime(Date.now() + PROVIDER_USAGE_CACHE_TTL_MS - 1);
+    await providerUsageSnapshotHandler({ force: true });
+
+    expect(calls['claude-code']).toHaveBeenCalledTimes(2);
+    expect(calls['codex-cli']).toHaveBeenCalledTimes(2);
+    expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(2);
+  });
+
   it('dedupes concurrent refreshes behind one provider read', async () => {
     let resolveClaude!: (value: ProviderUsageSnapshot) => void;
     const claudePromise = new Promise<ProviderUsageSnapshot>((resolve) => {
