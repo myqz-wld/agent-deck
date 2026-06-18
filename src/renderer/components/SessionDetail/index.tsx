@@ -26,6 +26,7 @@ import { decodeBlob, groupFileChanges, pickLatestChange } from './helpers';
 
 type Tab = 'activity' | 'diff' | 'summary' | 'messages' | 'permissions';
 type DiffMode = 'single' | 'final';
+const GIT_BRANCH_REFRESH_MS = 10_000;
 
 const EMPTY_EVENTS_FOR_TOAST: AgentEvent[] = [];
 
@@ -140,17 +141,25 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
 
   useEffect(() => {
     let disposed = false;
+    let requestSeq = 0;
+    const refreshGitBranch = (): void => {
+      const seq = ++requestSeq;
+      void window.api
+        .getSessionGitBranch(session.id)
+        .then((branch) => {
+          if (!disposed && seq === requestSeq) setGitBranch(branch);
+        })
+        .catch(() => {
+          if (!disposed && seq === requestSeq) setGitBranch(null);
+        });
+    };
+
     setGitBranch(null);
-    void window.api
-      .getSessionGitBranch(session.id)
-      .then((branch) => {
-        if (!disposed) setGitBranch(branch);
-      })
-      .catch(() => {
-        if (!disposed) setGitBranch(null);
-      });
+    refreshGitBranch();
+    const timer = window.setInterval(refreshGitBranch, GIT_BRANCH_REFRESH_MS);
     return () => {
       disposed = true;
+      window.clearInterval(timer);
     };
   }, [session.id]);
 
