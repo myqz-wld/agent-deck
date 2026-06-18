@@ -1,6 +1,6 @@
 # Plans Index
 
-Terminal engineering plans archived under `ref/plans/`. Draft or in-progress plans stay in the current environment's plan workspace; when no stronger convention exists, use `<repo>/.refs/plans/`. `.refs/` must stay ignored and must not contain terminal records.
+Terminal engineering plans archived under `ref/plans/`. Draft or in-progress plans stay in the current environment's plan workspace; when no stronger convention exists, use `<repo>/.ref/plans/`. `.ref/` must stay ignored and must not contain terminal records.
 
 ## Naming
 
