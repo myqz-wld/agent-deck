@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from 'react';
+import { useMemo, useState, type JSX, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { DiffPayload, FileChangeRecord, FileFinalDiffResult } from '@shared/types';
 import { DiffViewer } from '../diff/DiffViewer';
@@ -173,37 +173,22 @@ export function DiffTab({
 
       {expanded &&
         createPortal(
-          <div
-            className="fixed inset-0 z-[60] flex flex-col bg-deck-bg px-4 py-3"
-            role="dialog"
-            aria-modal="true"
-            aria-label="放大改动视图"
+          <ExpandedDiffOverlay
+            filePath={activePayload?.filePath ?? selectedFilePath ?? ''}
+            onClose={() => setExpanded(false)}
+            fileNav={renderFileNav(false)}
           >
-            <div className="mb-2 flex shrink-0 items-center gap-2 border-b border-deck-border pb-2">
-              <div className="min-w-0 flex-1 truncate font-mono text-[12px] text-deck-text">
-                {activePayload?.filePath ?? selectedFilePath ?? '改动'}
-              </div>
-              {renderFileNav(false)}
-              <button
-                type="button"
-                onClick={() => setExpanded(false)}
-                className="rounded bg-white/[0.06] px-2 py-1 text-[11px] text-deck-muted hover:bg-white/[0.12]"
-              >
-                关闭
-              </button>
-            </div>
-            <div className="min-h-0 flex-1">
-              {renderDiffBody({
-                sessionId,
-                diffMode,
-                finalDiffLoading,
-                finalDiff,
-                diffPayload,
-                finalDiffPayload,
-              })}
-            </div>
-          </div>,
-          document.body,
+            {renderDiffBody({
+              sessionId,
+              diffMode,
+              finalDiffLoading,
+              finalDiff,
+              diffPayload,
+              finalDiffPayload,
+              hideHeader: true,
+            })}
+          </ExpandedDiffOverlay>,
+          document.getElementById('floating-frame-root') ?? document.body,
         )}
     </div>
   );
@@ -216,13 +201,20 @@ function renderDiffBody(args: {
   finalDiff: FileFinalDiffResult | null;
   diffPayload: DiffPayload | null;
   finalDiffPayload: DiffPayload | null;
+  hideHeader?: boolean;
 }): JSX.Element | null {
   if (args.diffMode === 'final') {
     if (args.finalDiffLoading) {
       return <div className="text-[11px] text-deck-muted">加载最终 diff…</div>;
     }
     if (args.finalDiffPayload) {
-      return <DiffViewer payload={args.finalDiffPayload} sessionId={args.sessionId} />;
+      return (
+        <DiffViewer
+          payload={args.finalDiffPayload}
+          sessionId={args.sessionId}
+          expanded={args.hideHeader}
+        />
+      );
     }
     return (
       <div className="rounded-md border border-deck-border bg-white/[0.02] p-3 text-[11px] text-deck-muted/85">
@@ -231,6 +223,57 @@ function renderDiffBody(args: {
     );
   }
   return args.diffPayload ? (
-    <DiffViewer payload={args.diffPayload} sessionId={args.sessionId} />
+    <DiffViewer payload={args.diffPayload} sessionId={args.sessionId} expanded={args.hideHeader} />
   ) : null;
+}
+
+function ExpandedDiffOverlay({
+  filePath,
+  onClose,
+  fileNav,
+  children,
+}: {
+  filePath: string;
+  onClose: () => void;
+  fileNav: JSX.Element;
+  children: ReactNode;
+}): JSX.Element {
+  const lastSlash = filePath.lastIndexOf('/');
+  const dirPart = lastSlash >= 0 ? filePath.slice(0, lastSlash + 1) : '';
+  const filePart = lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex flex-col bg-black/40 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="放大改动视图"
+    >
+      <div className="absolute inset-0 flex flex-col bg-[#141418]">
+        <div className="flex shrink-0 items-center gap-2 border-b border-deck-border pl-[78px] pr-4 py-2">
+          <div className="min-w-0 flex-1">
+            {dirPart && (
+              <div className="truncate font-mono text-[10px] leading-tight text-deck-muted">
+                {dirPart}
+              </div>
+            )}
+            <div className="truncate font-mono text-[12px] font-medium leading-tight text-deck-text">
+              {filePart || '改动'}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {fileNav}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded bg-white/[0.06] px-2 py-1 text-[11px] text-deck-muted hover:bg-white/[0.12]"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 px-4 py-3">{children}</div>
+      </div>
+    </div>
+  );
 }
