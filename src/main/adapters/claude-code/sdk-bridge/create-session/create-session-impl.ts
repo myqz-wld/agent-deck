@@ -30,6 +30,7 @@ import { resolveClaudeSandboxMode } from '../sandbox-resolve';
 import { resolveClaudeModel } from '../model-resolve';
 import { finalizeSessionStart } from '../session-finalize';
 import { runCreateSessionSdkQuery } from './create-session-sdk-query';
+import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -148,6 +149,14 @@ export async function createSessionImpl(
     // plan model-wiring-and-handoff-20260514 Step 2.2：model fallback 链抽到 model-resolve.ts。
     // 提到 try 块外让 finalizeSessionStart 持久化用同一变量（与 sandbox 同模式）。
     const claudeModel = resolveClaudeModel(opts);
+    const persistedThinking = opts.resume ? sessionRepo.get(opts.resume)?.thinking : null;
+    const claudeCodeEffortLevel =
+      opts.claudeCodeEffortLevel ??
+      (isClaudeThinkingLevel(persistedThinking) ? persistedThinking : undefined);
+    const effectiveOpts =
+      claudeCodeEffortLevel === opts.claudeCodeEffortLevel
+        ? opts
+        : { ...opts, claudeCodeEffortLevel };
 
     // === phase 3: sdk-query (含 try/catch 失败 cleanup) ===
     const ctx: PreparedSessionContext = {
@@ -159,7 +168,7 @@ export async function createSessionImpl(
       claudeSandboxMode,
       claudeModel,
     };
-    const { realId } = await runCreateSessionSdkQuery(opts, ctx, deps);
+    const { realId } = await runCreateSessionSdkQuery(effectiveOpts, ctx, deps);
 
     // 真实 id 已经入手，cwd 待领取标记可以释放（如果 hook 已经先消费过则是 no-op）
     releasePending();
@@ -197,6 +206,7 @@ export async function createSessionImpl(
         prompt: opts.prompt,
         claudeSandboxMode,
         claudeModel,
+        claudeCodeEffortLevel,
         extraAllowWrite: opts.extraAllowWrite,
         attachments: opts.attachments,
         handOff: opts.handOff,

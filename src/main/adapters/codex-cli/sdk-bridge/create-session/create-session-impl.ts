@@ -60,6 +60,7 @@ import type { CodexAppServerThread } from '../../app-server/client';
 import { validateCreateSessionOpts } from './create-session-validate';
 import { runCreateSessionResumePath } from './create-session-resume';
 import { runCreateSessionNewPath } from './create-session-new';
+import { isCodexThinkingLevel } from '@shared/session-metadata';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -102,6 +103,13 @@ export async function createSessionImpl(
     const persistedSandbox = resumeRec?.codexSandbox ?? null;
     const sandboxMode =
       opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
+    const modelReasoningEffort =
+      opts.modelReasoningEffort ??
+      (isCodexThinkingLevel(resumeRec?.thinking) ? resumeRec.thinking : undefined);
+    const effectiveOpts =
+      modelReasoningEffort === opts.modelReasoningEffort
+        ? opts
+        : { ...opts, modelReasoningEffort };
     const developerInstructions = combineDeveloperInstructions(
       getAgentDeckCodexDeveloperInstructions(),
       opts.developerInstructions,
@@ -135,7 +143,7 @@ export async function createSessionImpl(
           sandboxMode,
           approvalPolicy: opts.approvalPolicy,
           model: opts.model,
-          modelReasoningEffort: opts.modelReasoningEffort,
+          modelReasoningEffort,
           developerInstructions,
           configOverrides: opts.codexConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,
@@ -149,7 +157,7 @@ export async function createSessionImpl(
           sandboxMode,
           approvalPolicy: opts.approvalPolicy,
           model: opts.model,
-          modelReasoningEffort: opts.modelReasoningEffort,
+          modelReasoningEffort,
           developerInstructions,
           configOverrides: opts.codexConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,
@@ -204,9 +212,9 @@ export async function createSessionImpl(
 
     // dispatch resume / new path
     if (opts.resume) {
-      return await runCreateSessionResumePath(opts, ctx, deps);
+      return await runCreateSessionResumePath(effectiveOpts, ctx, deps);
     }
-    return await runCreateSessionNewPath(opts, ctx, validate, deps);
+    return await runCreateSessionNewPath(effectiveOpts, ctx, validate, deps);
   } catch (err) {
     // REVIEW_60 MED-codex-2 + R4 §B 抽法 #3 修法 (与 try 块配对):
     // 4 资源 best-effort cleanup 抽到 create-session-rollback.ts helper (REVIEW_60 R4 reviewer-claude

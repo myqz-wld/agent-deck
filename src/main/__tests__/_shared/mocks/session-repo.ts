@@ -97,6 +97,7 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     setCodexSandbox: vi.fn(),
     setClaudeCodeSandbox: vi.fn(),
     setModel: vi.fn(),
+    setThinking: vi.fn(),
     // R3 reviewer-claude LOW 修法:与 setClaudeCodeSandbox / setModel 同款 vi.fn 桩
     // (大部分测试不消费返回值,显式调用走 mockClear / toHaveBeenCalledWith 即可)。
     setExtraAllowWrite: vi.fn(),

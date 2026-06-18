@@ -32,6 +32,7 @@ vi.mock('@main/store/session-repo', () => ({
     get: vi.fn((sid: string) => repoCache.get(sid) ?? null),
     setPermissionMode: vi.fn(),
     setClaudeCodeSandbox: vi.fn(),
+    setThinking: vi.fn(),
   },
 }));
 

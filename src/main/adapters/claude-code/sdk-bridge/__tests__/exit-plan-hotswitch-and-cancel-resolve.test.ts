@@ -41,6 +41,7 @@ vi.mock('@main/store/session-repo', () => ({
     get: vi.fn(() => ({ id: 'sess-c4', permissionMode: dbState.permissionMode })),
     setClaudeCodeSandbox: vi.fn(),
     setModel: vi.fn(),
+    setThinking: vi.fn(),
     setExtraAllowWrite: vi.fn(),
     setPermissionMode: vi.fn((_sid: string, mode: string) => {
       dbState.permissionMode = mode;

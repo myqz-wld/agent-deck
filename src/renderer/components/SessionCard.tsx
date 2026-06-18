@@ -5,6 +5,7 @@ import { StatusBadge } from './StatusBadge';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { toolIcon } from './activity-feed/tool-icons';
 import { agentIdLabel } from './TeamDetail/helpers';
+import { SessionMetadataChips } from './SessionMetadataChips';
 
 interface Props {
   session: SessionRecord;
@@ -141,6 +142,9 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
           </span>
         )}
         <span className="text-[9px] text-deck-muted/60">{agentIdLabel(session.agentId)}</span>
+      </div>
+      <div className="mt-1">
+        <SessionMetadataChips session={session} compact />
       </div>
       {liveLines.length > 0 && (
         <div className="mt-1 flex flex-col gap-0.5">

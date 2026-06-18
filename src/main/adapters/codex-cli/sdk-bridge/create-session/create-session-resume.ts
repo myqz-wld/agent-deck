@@ -101,6 +101,7 @@ export async function runCreateSessionResumePath(
     sessionId: resumeId,
     sandboxMode,
     model: opts.model,
+    modelReasoningEffort: opts.modelReasoningEffort,
     extraAllowWrite: opts.extraAllowWrite,
     // plan codex-recover-network-dirs-parity-20260602：resume 路径同款透传持久化（recover 走
     // 正常 resume 时让 NEW row 字段不被静默丢弃；runtime 真生效）。

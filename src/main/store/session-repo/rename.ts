@@ -98,8 +98,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 「INSERT 写 NULL」需补 codex 新建路径 parity 回填否则扩大 NULL 窗口 — 都得不偿失。保留现状。
       db.prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         toId,
         fromRow.agent_id,
@@ -116,6 +116,7 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.codex_sandbox,
         fromRow.claude_code_sandbox,
         fromRow.model,
+        fromRow.thinking,
         fromRow.extra_allow_write,
         fromRow.cwd_release_marker,
         fromRow.spawned_by,
@@ -264,6 +265,9 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // NEW 行,否则 NEW 行 createSession 时写的 default(null)「淹没」掉 spawn 时 frontmatter
       // 设的 model — 与 permission_mode / codex_sandbox / claude_code_sandbox 同模式。
       db.prepare(`UPDATE sessions SET model = ? WHERE id = ?`).run(fromRow.model, toId);
+    }
+    if (toExists && fromRow.thinking) {
+      db.prepare(`UPDATE sessions SET thinking = ? WHERE id = ?`).run(fromRow.thinking, toId);
     }
     if (toExists && fromRow.extra_allow_write) {
       // plan cross-adapter-parity-20260515 Phase A Step A.2:extra_allow_write 同 codex_sandbox

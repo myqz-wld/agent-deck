@@ -1,6 +1,6 @@
 /**
  * session-repo —— core CRUD（upsert / get / list*）+ per-session settings setter
- * (permissionMode / title / codexSandbox / claudeCodeSandbox / model / extraAllowWrite /
+ * (permissionMode / title / codexSandbox / claudeCodeSandbox / model / thinking / extraAllowWrite /
  *  networkAccessEnabled / additionalDirectories) + delete。
  *
  * 拆分历史：从 src/main/store/session-repo.ts 抽出（CHANGELOG_83 / plan
@@ -54,8 +54,8 @@ export function upsert(rec: SessionRecord): void {
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories)
+       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories)
+       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories)
        ON CONFLICT(id) DO UPDATE SET
          cwd = excluded.cwd,
          title = excluded.title,
@@ -69,6 +69,7 @@ export function upsert(rec: SessionRecord): void {
          codex_sandbox = excluded.codex_sandbox,
          claude_code_sandbox = excluded.claude_code_sandbox,
          model = excluded.model,
+         thinking = excluded.thinking,
          extra_allow_write = excluded.extra_allow_write,
          cwd_release_marker = excluded.cwd_release_marker,
          spawned_by = excluded.spawned_by,
@@ -94,6 +95,7 @@ export function upsert(rec: SessionRecord): void {
       codex_sandbox: rec.codexSandbox ?? null,
       claude_code_sandbox: rec.claudeCodeSandbox ?? null,
       model: rec.model ?? null,
+      thinking: rec.thinking ?? null,
       extra_allow_write:
         rec.extraAllowWrite && rec.extraAllowWrite.length > 0
           ? JSON.stringify(rec.extraAllowWrite)
@@ -265,6 +267,10 @@ export function setClaudeCodeSandbox(
  */
 export function setModel(id: string, model: string | null): void {
   getDb().prepare(`UPDATE sessions SET model = ? WHERE id = ?`).run(model, id);
+}
+
+export function setThinking(id: string, thinking: string | null): void {
+  getDb().prepare(`UPDATE sessions SET thinking = ? WHERE id = ?`).run(thinking, id);
 }
 
 /**

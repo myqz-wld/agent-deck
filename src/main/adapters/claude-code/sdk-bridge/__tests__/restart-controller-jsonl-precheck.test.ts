@@ -41,6 +41,7 @@ vi.mock('@main/store/session-repo', () => ({
       const rec = repoCache.get(sid);
       if (rec) (rec as { claudeCodeSandbox: unknown }).claudeCodeSandbox = sandbox;
     },
+    setThinking: vi.fn(),
   },
 }));
 

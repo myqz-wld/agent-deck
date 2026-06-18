@@ -1,6 +1,8 @@
 /**
  * Session 列表 / 详情 / 归档 / 删除 / 历史 IPC handler。
  */
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo, SessionRowMissingError } from '@main/store/session-repo';
@@ -19,6 +21,7 @@ import { on, parseStringId, parsePositiveInt, parseStringIdArray, IpcInputError 
 import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-sessions');
+const execFileAsync = promisify(execFile);
 
 export function registerSessionsIpc(): void {
   // Session
@@ -41,6 +44,12 @@ export function registerSessionsIpc(): void {
       parseStringId('filePath', filePath, 4096),
     ),
   );
+  on(IpcInvoke.SessionGetGitBranch, async (_e, id) => {
+    const sid = parseStringId('sessionId', id);
+    const session = sessionRepo.get(sid);
+    if (!session) return null;
+    return getCurrentGitBranch(session.cwd);
+  });
   on(IpcInvoke.SessionListSummaries, (_e, id) =>
     summaryRepo.listForSession(parseStringId('sessionId', id)),
   );
@@ -241,6 +250,33 @@ export function registerSessionsIpc(): void {
       ),
     );
   });
+}
+
+async function getCurrentGitBranch(cwd: string): Promise<string | null> {
+  const gitCwd = cwd.trim();
+  if (!gitCwd) return null;
+
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', gitCwd, 'branch', '--show-current'], {
+      timeout: 3000,
+      maxBuffer: 64 * 1024,
+    });
+    const branch = stdout.trim();
+    if (branch) return branch;
+  } catch {
+    return null;
+  }
+
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', gitCwd, 'rev-parse', '--short', 'HEAD'], {
+      timeout: 3000,
+      maxBuffer: 64 * 1024,
+    });
+    const sha = stdout.trim();
+    return sha ? `HEAD ${sha}` : null;
+  } catch {
+    return null;
+  }
 }
 
 function handOffProviderToAdapterId(
