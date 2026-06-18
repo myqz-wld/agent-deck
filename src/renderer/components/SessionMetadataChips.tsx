@@ -1,6 +1,10 @@
 import type { JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
-import { normalizeModel } from '@shared/model-normalize';
+import {
+  CLAUDE_DEFAULT_BUCKET,
+  CODEX_DEFAULT_BUCKET,
+  normalizeModel,
+} from '@shared/model-normalize';
 import { formatThinkingLevel } from '@shared/session-metadata';
 
 interface Props {
@@ -36,5 +40,12 @@ export function SessionMetadataChips({ session, branch, compact = false }: Props
 function formatModelLabel(model: string | null | undefined): string {
   const raw = model?.trim();
   if (!raw) return '默认';
-  return normalizeModel(raw).displayName;
+  const normalized = normalizeModel(raw);
+  if (
+    normalized.bucketKey === CODEX_DEFAULT_BUCKET ||
+    normalized.bucketKey === CLAUDE_DEFAULT_BUCKET
+  ) {
+    return '默认';
+  }
+  return normalized.displayName;
 }
