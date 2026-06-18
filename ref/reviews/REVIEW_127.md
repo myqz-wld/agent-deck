@@ -1,4 +1,4 @@
-# REVIEW_127 - Latest commit and Codex external process lifecycle
+# REVIEW_127 - Latest commit and Codex external lifecycle guard
 
 ## Trigger Context
 
@@ -24,17 +24,17 @@ Evidence: Codex external hooks are installed globally, but Agent Deck-managed Co
 
 Fix: live SDK bridge, oneshot Codex instance pool, and background usage snapshots now force `AGENT_DECK_ORIGIN=sdk`. Added ingest and adapter tests to lock the boundary.
 
-### MEDIUM-3 fixed: external Codex process exit was not reflected in Agent Deck
+### MEDIUM-3 guarded: external Codex has no reliable session-end signal
 
-Evidence: Agent Deck only received Codex hook events. Current Codex docs define `Stop` as turn-scoped, not session-scoped, and there is no reliable `SessionEnd` hook in the current release. Therefore terminal process exit needed a separate signal.
+Evidence: Agent Deck only receives Codex hook events. Current Codex docs define `Stop` as turn-scoped, not session-scoped, and there is no reliable `SessionEnd` hook in the current release. PID/process-exit inference is also unsafe because a Codex hook runner or turn process can exit after a turn while the external session remains conceptually resumable.
 
-Fix: the installed Codex hook command now forwards the parent process PID, hook routes attach it to the event payload, and a session-side tracker marks only `source='cli'` records closed when that PID exits. Codex `Stop` remains `finished`.
+Fix: do not translate `Stop` to `session-end` and do not auto-close external Codex sessions from inferred process signals. Hook routes keep the parent PID as metadata only. External Codex sessions close through existing lifecycle decay until Codex exposes a reliable session-end hook.
 
 ## Validation
 
-- Focused Vitest run passed: 8 files / 44 tests.
+- Focused Vitest run passed.
 - `pnpm typecheck` passed.
-- `pnpm test` passed: 175 files / 1961 tests.
+- `pnpm test` passed: 174 files / 1956 tests.
 
 ## Related Changelog
 

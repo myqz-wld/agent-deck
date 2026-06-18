@@ -302,4 +302,4 @@
 | [CHANGELOG_295.md](CHANGELOG_295.md) | Enlarged diff view uses a portal overlay above the app navigation. |
 | [CHANGELOG_296.md](CHANGELOG_296.md) | Codex external hooks install/manage terminal sessions; clean Codex config. |
 | [CHANGELOG_297.md](CHANGELOG_297.md) | Issues record branch snapshots; spawn prompt routing test updated. |
-| [CHANGELOG_298.md](CHANGELOG_298.md) | Codex internal hooks are SDK-origin filtered; external PID exit closes sessions. |
+| [CHANGELOG_298.md](CHANGELOG_298.md) | Codex internal hooks are SDK-origin filtered; no inferred close without SessionEnd. |
