@@ -65,6 +65,35 @@ describe('live-token-rate', () => {
     expect(payload.tps).toBeCloseTo(4 / 0.3, 6);
   });
 
+  it('message_start 的实际模型覆盖 session.model alias', () => {
+    sessionGetMock.mockReturnValue({ model: 'opus' } as ReturnType<typeof sessionRepo.get>);
+    const internal = makeInternalSession({ cwd: '/tmp', applicationSid: 'sid-1' });
+
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'message_start', message: { model: 'claude-opus-4-8' } }),
+      1000,
+    );
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
+      1100,
+    );
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
+      1400,
+    );
+
+    expect(emitMock).toHaveBeenCalledWith(
+      'token-rate-tick',
+      expect.objectContaining({ bucketKey: 'opus-4.8' }),
+    );
+  });
+
   it('turn 结束用权威 output_tokens / content delta 窗口发校准 tick', () => {
     const internal = makeInternalSession({ cwd: '/tmp', applicationSid: 'sid-1' });
 
@@ -93,6 +122,33 @@ describe('live-token-rate', () => {
       ts: 1800,
     });
     expect(internal.liveTokenEstimate).toBeUndefined();
+  });
+
+  it('turn 结束用 result.modelUsage 实际模型覆盖 session.model alias', () => {
+    sessionGetMock.mockReturnValue({ model: 'opus' } as ReturnType<typeof sessionRepo.get>);
+    const internal = makeInternalSession({ cwd: '/tmp', applicationSid: 'sid-1' });
+
+    handleStreamEventForLiveRate(internal, 'sid-1', streamEvent({ type: 'message_start' }), 1000);
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
+      1200,
+    );
+    handleStreamEventForLiveRate(
+      internal,
+      'sid-1',
+      streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'abcdefgh' } }),
+      1700,
+    );
+    emitMock.mockClear();
+
+    completeLiveTokenEstimate(internal, 'sid-1', 100, 1800, 'claude-opus-4-8');
+
+    expect(emitMock).toHaveBeenCalledWith(
+      'token-rate-tick',
+      expect.objectContaining({ bucketKey: 'opus-4.8' }),
+    );
   });
 
   it('多段 assistant 输出累计 decode 窗口但排除工具等待空档', () => {
