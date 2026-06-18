@@ -1,4 +1,5 @@
 import { useMemo, useState, type JSX } from 'react';
+import { createPortal } from 'react-dom';
 import type { DiffPayload, FileChangeRecord, FileFinalDiffResult } from '@shared/types';
 import { DiffViewer } from '../diff/DiffViewer';
 import { ChangeTimeline } from './ChangeTimeline';
@@ -170,33 +171,40 @@ export function DiffTab({
         </>
       )}
 
-      {expanded && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-deck-bg px-4 py-3">
-          <div className="mb-2 flex shrink-0 items-center gap-2 border-b border-deck-border pb-2">
-            <div className="min-w-0 flex-1 truncate font-mono text-[12px] text-deck-text">
-              {activePayload?.filePath ?? selectedFilePath ?? '改动'}
+      {expanded &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[60] flex flex-col bg-deck-bg px-4 py-3"
+            role="dialog"
+            aria-modal="true"
+            aria-label="放大改动视图"
+          >
+            <div className="mb-2 flex shrink-0 items-center gap-2 border-b border-deck-border pb-2">
+              <div className="min-w-0 flex-1 truncate font-mono text-[12px] text-deck-text">
+                {activePayload?.filePath ?? selectedFilePath ?? '改动'}
+              </div>
+              {renderFileNav(false)}
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                className="rounded bg-white/[0.06] px-2 py-1 text-[11px] text-deck-muted hover:bg-white/[0.12]"
+              >
+                关闭
+              </button>
             </div>
-            {renderFileNav(false)}
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              className="rounded bg-white/[0.06] px-2 py-1 text-[11px] text-deck-muted hover:bg-white/[0.12]"
-            >
-              关闭
-            </button>
-          </div>
-          <div className="min-h-0 flex-1">
-            {renderDiffBody({
-              sessionId,
-              diffMode,
-              finalDiffLoading,
-              finalDiff,
-              diffPayload,
-              finalDiffPayload,
-            })}
-          </div>
-        </div>
-      )}
+            <div className="min-h-0 flex-1">
+              {renderDiffBody({
+                sessionId,
+                diffMode,
+                finalDiffLoading,
+                finalDiff,
+                diffPayload,
+                finalDiffPayload,
+              })}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
