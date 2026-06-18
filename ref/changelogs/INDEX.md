@@ -299,3 +299,4 @@
 | [CHANGELOG_292.md](CHANGELOG_292.md) | Match Electron split-args webFrameMain noise and lower Monaco race logs to debug. |
 | [CHANGELOG_293.md](CHANGELOG_293.md) | Session model/thinking chips, Git branch display, and diff enlarge/navigation. |
 | [CHANGELOG_294.md](CHANGELOG_294.md) | Session metadata chips show default model as 默认 and refresh Git branch. |
+| [CHANGELOG_295.md](CHANGELOG_295.md) | Enlarged diff view uses a portal overlay above the app navigation. |
