@@ -42,6 +42,14 @@ export type IssueKind =
   | 'app-bug'
   | string;
 
+/** issues.branch_name DB 上限；超限分支按 best-effort 快照降级为 null。 */
+export const ISSUE_BRANCH_NAME_MAX_LENGTH = 255;
+
+export function normalizeIssueBranchName(branchName: string | null | undefined): string | null {
+  if (branchName == null || branchName.length === 0) return null;
+  return branchName.length <= ISSUE_BRANCH_NAME_MAX_LENGTH ? branchName : null;
+}
+
 /**
  * §D2 / §D17：logsRef 严格 schema。
  * - `date` 必填 YYYY-MM-DD ISO 格式（zod 校验）
@@ -92,6 +100,8 @@ export interface IssueRecord {
   sourceSessionId: string | null;
   /** 上报时 caller cwd 快照 */
   cwd: string | null;
+  /** 上报时 cwd 所在 git 分支快照；非 git / detached / 探测失败时为 null */
+  branchName: string | null;
   logsRef: LogsRef | null;
   /** UI「Resolve in new session」起独立 SDK session 后回写；FK SET NULL */
   resolutionSessionId: string | null;

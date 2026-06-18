@@ -20,6 +20,7 @@
  * TEXT ISO8601 对齐）。
  */
 import type { Database } from 'better-sqlite3';
+import { normalizeIssueBranchName } from '@shared/types';
 import type {
   IssueAppendix,
   IssueRecord,
@@ -46,6 +47,7 @@ interface IssueRow {
   severity: string;
   source_session_id: string | null;
   cwd: string | null;
+  branch_name: string | null;
   logs_ref: string | null;
   resolution_session_id: string | null;
   labels: string;
@@ -84,6 +86,7 @@ function rowToRecord(r: IssueRow): IssueRecord {
     severity: r.severity as IssueSeverity,
     sourceSessionId: r.source_session_id,
     cwd: r.cwd,
+    branchName: r.branch_name,
     logsRef: safeJsonParse<LogsRef | null>(r.logs_ref, null, `issue ${r.id} logs_ref`),
     resolutionSessionId: r.resolution_session_id,
     labels: safeJsonParse<string[]>(r.labels, [], `issue ${r.id} labels`),
@@ -117,6 +120,7 @@ export interface IssueCreateInput {
   severity?: IssueSeverity;
   sourceSessionId: string | null;
   cwd?: string | null;
+  branchName?: string | null;
   logsRef?: LogsRef | null;
   labels?: string[];
 }
@@ -299,6 +303,7 @@ export function createIssueRepo(db: Database): IssueRepo {
       severity: input.severity ?? 'medium',
       sourceSessionId: input.sourceSessionId ?? null,
       cwd: input.cwd ?? null,
+      branchName: normalizeIssueBranchName(input.branchName),
       logsRef: input.logsRef ?? null,
       resolutionSessionId: null,
       labels: input.labels ?? [],
@@ -310,11 +315,13 @@ export function createIssueRepo(db: Database): IssueRepo {
     db.prepare(
       `INSERT INTO issues
        (id, title, description, repro, kind, status, severity, source_session_id, cwd,
-        logs_ref, resolution_session_id, labels, created_at, updated_at, resolved_at, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+        branch_name, logs_ref, resolution_session_id, labels, created_at, updated_at,
+        resolved_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
     ).run(
       rec.id, rec.title, rec.description, rec.repro, rec.kind, rec.status, rec.severity,
-      rec.sourceSessionId, rec.cwd, JSON.stringify(rec.logsRef ?? null) === 'null' ? null : JSON.stringify(rec.logsRef),
+      rec.sourceSessionId, rec.cwd, rec.branchName,
+      JSON.stringify(rec.logsRef ?? null) === 'null' ? null : JSON.stringify(rec.logsRef),
       rec.resolutionSessionId, JSON.stringify(rec.labels), rec.createdAt, rec.updatedAt,
     );
     return rec;

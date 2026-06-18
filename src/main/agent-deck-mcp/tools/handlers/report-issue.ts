@@ -18,6 +18,8 @@
 import { sessionRepo } from '@main/store/session-repo';
 import { issueRepo } from '@main/store/issue-repo';
 import { eventBus } from '@main/event-bus';
+import { detectGitBranchName } from '@main/utils/git-branch';
+import { normalizeIssueBranchName } from '@shared/types';
 
 import {
   err,
@@ -43,6 +45,7 @@ export const reportIssueHandler = withMcpGuard(
         severity: args.severity,
         sourceSessionId: callerSid,
         cwd: cwdFallback,
+        branchName: normalizeIssueBranchName(detectGitBranchName(cwdFallback)),
         logsRef: args.logsRef ?? null,
         labels: args.labels,
       });

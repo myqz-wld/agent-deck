@@ -382,8 +382,9 @@ export interface AppSettings {
    * MCP HTTP / stdio transport Bearer token（默认 null → 首次启用时 settings-store
    * 自动生成 32 字节 hex 持久化）。与 hookServerToken **独立**：
    * - hook token 嵌进每个 CLI 子进程 spawn 的 hook 命令，泄漏面广
-   * - mcp token 仅嵌进 codex `~/.codex/config.toml` mcp_servers 段（B'4）+ Settings
-   *   UI 显示给用户复制（外部 MCP client 用），泄漏面窄
+   * - mcp token 通过 Codex app-server thread options 的 `bearer_token_env_var` 引用
+   *   `AGENT_DECK_MCP_TOKEN`，并在 Settings UI 显示给用户复制（外部 MCP client 用），
+   *   不再持久写入 `~/.codex/config.toml`
    *
    * in-process transport 不走 token（同进程闭包，B'3）。用户**不应**在 UI 上修改此值；
    * 仅在被泄漏需要轮换时手动清掉持久化文件让它重生成。

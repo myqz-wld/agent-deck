@@ -79,6 +79,14 @@ describe('nextActivityState', () => {
     expect(nextActivityState('working', 'finished', null)).toBe('finished');
   });
 
+  it('Codex terminal PostToolUse can clear waiting activity', () => {
+    expect(nextActivityState('waiting', 'tool-use-end', { clearsTerminalPermission: true })).toBe('working');
+  });
+
+  it('普通 tool-use-end 不清除既有 waiting activity', () => {
+    expect(nextActivityState('waiting', 'tool-use-end', {})).toBe('waiting');
+  });
+
   it('未识别 kind → 保留 current', () => {
     expect(nextActivityState('idle', 'unknown' as AgentEvent['kind'], null)).toBe('idle');
   });

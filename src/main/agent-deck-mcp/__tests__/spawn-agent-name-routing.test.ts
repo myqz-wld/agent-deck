@@ -352,8 +352,17 @@ function parseToolResult(r: { isError?: boolean; content: Array<{ text: string }
   };
 }
 
+function expectInjectedSpawnPrompt(prompt: unknown, rawPrompt: string): void {
+  expect(typeof prompt).toBe('string');
+  const text = prompt as string;
+  expect(text).toContain('[from lead @ claude-code][msg ');
+  expect(text).toContain('[sid lead-1]');
+  expect(text).toContain('## Hand-off context (auto-injected by Agent Deck MCP)');
+  expect(text.endsWith(`\n\n${rawPrompt}`)).toBe(true);
+}
+
 describe('spawn handler agentName native routing', () => {
-  it('Claude adapter: agentName passes SDK agent + agents, without prompt prefix injection', async () => {
+  it('Claude adapter: agentName passes SDK agent + agents, with hand-off prompt injection', async () => {
     const r = await spawn({
       adapter: 'claude-code',
       agentName: 'reviewer-claude',
@@ -371,7 +380,7 @@ describe('spawn handler agentName native routing', () => {
     }]);
     expect(resolveCodexAgentContentCalls).toEqual([]);
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].prompt).toBe('review task');
+    expectInjectedSpawnPrompt(createSessionCalls[0].prompt, 'review task');
     expect(createSessionCalls[0].claudeAgentName).toBe('reviewer-claude');
     expect(createSessionCalls[0].claudeAgents).toMatchObject({
       'reviewer-claude': {
@@ -395,7 +404,7 @@ describe('spawn handler agentName native routing', () => {
 
     expect(resolveClaudeAgentContentCalls).toEqual([]);
     expect(resolveCodexAgentContentCalls).toEqual([{ name: 'user-codex-agent', cwd: '/repo' }]);
-    expect(createSessionCalls[0].prompt).toBe('codex task');
+    expectInjectedSpawnPrompt(createSessionCalls[0].prompt, 'codex task');
     expect(createSessionCalls[0].developerInstructions).toContain(
       'Use the user Codex custom agent instructions.',
     );
@@ -458,7 +467,7 @@ describe('spawn handler agentName native routing', () => {
     expect(isError).toBeFalsy();
     expect(resolveClaudeAgentContentCalls).toEqual([]);
     expect(resolveCodexAgentContentCalls).toEqual([]);
-    expect(createSessionCalls[0].prompt).toBe('patch task');
+    expectInjectedSpawnPrompt(createSessionCalls[0].prompt, 'patch task');
     expect(createSessionCalls[0].claudeAgentName).toBeUndefined();
     expect(createSessionCalls[0].claudeAgents).toBeUndefined();
   });

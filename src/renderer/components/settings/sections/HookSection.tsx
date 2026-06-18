@@ -3,15 +3,26 @@ import type { HookInstallStatus } from '@shared/types';
 import { Section } from '../controls';
 
 interface Props {
+  title: string;
+  storageKey: string;
+  installLabel: string;
   hookStatus: HookInstallStatus | null;
   busy: boolean;
   installHook: () => Promise<void>;
   uninstallHook: () => Promise<void>;
 }
 
-export function HookSection({ hookStatus, busy, installHook, uninstallHook }: Props): JSX.Element {
+export function HookSection({
+  title,
+  storageKey,
+  installLabel,
+  hookStatus,
+  busy,
+  installHook,
+  uninstallHook,
+}: Props): JSX.Element {
   return (
-    <Section title="Claude Code Hook（系统钩子）" storageKey="hook" defaultOpen={false}>
+    <Section title={title} storageKey={storageKey} defaultOpen={false}>
       {hookStatus ? (
         <div className="text-[11px] leading-relaxed">
           <div className="text-deck-muted">
@@ -37,7 +48,7 @@ export function HookSection({ hookStatus, busy, installHook, uninstallHook }: Pr
                 onClick={() => void installHook()}
                 className="rounded bg-status-working/20 px-2 py-1 text-[11px] text-status-working hover:bg-status-working/30 disabled:opacity-50"
               >
-                安装到 ~/.claude/settings.json
+                {installLabel}
               </button>
             )}
           </div>

@@ -111,7 +111,7 @@ export function SessionList(): JSX.Element {
           <details className="mt-1 inline-block text-left">
             <summary className="cursor-pointer text-deck-muted/70 hover:text-deck-text/85">进阶：从终端启动</summary>
             <div className="mt-1 pl-2 text-deck-muted/70">
-              在「设置」中安装 Claude Hook 后，在终端运行 <code className="rounded bg-white/5 px-1">claude</code> 命令也会显示在这里；Codex 用户可在终端运行 <code className="rounded bg-white/5 px-1">agent-deck new --agent codex-cli</code>。
+              在「设置」中安装 Claude / Codex Hook 后，终端里的 <code className="rounded bg-white/5 px-1">claude</code> / <code className="rounded bg-white/5 px-1">codex</code> 会话也会显示在这里；也可以运行 <code className="rounded bg-white/5 px-1">agent-deck new --agent codex-cli</code> 创建应用内 Codex 会话。
             </div>
           </details>
         </div>

@@ -2,6 +2,8 @@ import type { AgentAdapter, AdapterContext, CodexCreateOpts } from '../types';
 import type { AgentEvent, ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { CodexSdkBridge } from './sdk-bridge';
+import { buildCodexHookRoutes } from './hook-routes';
+import { CodexHookInstaller } from './hook-installer';
 import { summariseCodexSessionViaOneshot } from './summarizer-runner';
 import { summariseCodexSessionForHandOff } from './handoff-runner';
 import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter';
@@ -14,10 +16,10 @@ const ADAPTER_ID = 'codex-cli';
  *
  * 能力边界（与 plan 对齐）：
  * - ✅ createSession / sendMessage / interrupt / resume / 事件流
+ * - ✅ hook installer + hook routes for external terminal Codex sessions
  * - ❌ canUseTool 等价回调（Codex approvalPolicy 是字符串枚举一次性配置）
  * - ❌ AskUserQuestion / ExitPlanMode（codex 没有这些工具/状态机）
  * - ❌ 运行时 setPermissionMode（approvalPolicy 仅在 startThread 时设一次）
- * - ❌ installIntegration / hook（codex 没有 hook 机制）
  *
  * 默认安全策略：approvalPolicy 写死 'never'（Codex 不支持 canUseTool 等价回调，
  * 无法运行时审批）；sandboxMode 默认 'workspace-write' 但**可被 settings.codexSandbox 覆盖**
@@ -35,7 +37,7 @@ class CodexCliAdapter implements AgentAdapter {
     canInterrupt: true,
     canSendMessage: true,
     canSteerTurn: true,
-    canInstallHooks: false,
+    canInstallHooks: true,
     canRespondPermission: false,
     canSetPermissionMode: false,
     canRestartWithPermissionMode: false,
@@ -64,6 +66,7 @@ class CodexCliAdapter implements AgentAdapter {
    * codex 是唯一需要 per-session bridge instance rename 的 adapter,通过 cast 探测特化。
    */
   bridge: CodexSdkBridge | null = null;
+  private installer: CodexHookInstaller | null = null;
 
   async init(ctx: AdapterContext): Promise<void> {
     // CHANGELOG_<X> R2 / B'4：把 ctx.hookServer 传给 bridge，让 ensureCodex 在 spawn
@@ -73,7 +76,10 @@ class CodexCliAdapter implements AgentAdapter {
     // 已直接 settingsStore.get('codexSandbox')，与 claude-code adapter 的 sandbox-resolve
     // 同款直读模式 — symmetry-plan P2 MED-B 删 currentSandboxMode in-memory mirror）
     this.bridge.setCodexCliPath(settingsStore.get('codexCliPath'));
-    // 不注册 hook routes：codex 没有 hook 通道
+    this.installer = new CodexHookInstaller(ctx.hookServer.listeningPort, ctx.hookServer.bearerToken);
+    for (const route of buildCodexHookRoutes(ctx.emit)) {
+      ctx.routeRegistry.registerForAdapter(this.id, route);
+    }
   }
 
   async shutdown(): Promise<void> {
@@ -169,6 +175,21 @@ class CodexCliAdapter implements AgentAdapter {
     this.bridge?.setCodexCliPath(path);
   }
 
+  async installIntegration(opts: { scope: 'user' | 'project'; cwd?: string }): Promise<unknown> {
+    if (!this.installer) throw new Error('codex-cli adapter not initialized');
+    return this.installer.install(opts);
+  }
+
+  async uninstallIntegration(opts: { scope: 'user' | 'project'; cwd?: string }): Promise<unknown> {
+    if (!this.installer) throw new Error('codex-cli adapter not initialized');
+    return this.installer.uninstall(opts);
+  }
+
+  async integrationStatus(opts: { scope: 'user' | 'project'; cwd?: string }): Promise<unknown> {
+    if (!this.installer) throw new Error('codex-cli adapter not initialized');
+    return this.installer.status(opts);
+  }
+
   async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
     if (!this.bridge) {
       return unavailableUsageSnapshot(
@@ -214,8 +235,7 @@ class CodexCliAdapter implements AgentAdapter {
   }
 
   // 不实现：respondPermission / respondAskUserQuestion / respondExitPlanMode /
-  // setPermissionMode / setPermissionTimeoutMs / installIntegration /
-  // uninstallIntegration / integrationStatus —— capabilities 已表明不支持
+  // setPermissionMode / setPermissionTimeoutMs —— capabilities 已表明不支持
 }
 
 /**

@@ -33,6 +33,10 @@ export function describe(e: AgentEvent): string {
       }
       if (type === 'ask-user-question') return '❓ 收到一个问题';
       if (type === 'exit-plan-mode') return '📋 收到一个执行计划';
+      if (type === 'codex-terminal-permission-request') {
+        const tool = textValue(p.toolName) || '工具';
+        return `⚠️ Codex 等待终端授权 ${tool}`;
+      }
       if (type === 'permission-cancelled') return '⚪ 权限请求已取消';
       if (type === 'ask-question-cancelled') return '⚪ 提问已取消';
       if (type === 'exit-plan-cancelled') return '⚪ 计划批准请求已取消';
