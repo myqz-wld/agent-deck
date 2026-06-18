@@ -23,14 +23,20 @@ const PROVIDER_LABELS: Record<ProviderUsageProviderId, string> = {
   'deepseek-claude-code': 'Deepseek',
 };
 
+type ProviderUsageSnapshotOptions = {
+  force?: boolean;
+};
+
 export const PROVIDER_USAGE_CACHE_TTL_MS = 55_000;
 
 let cachedResult: { result: ProviderUsageSnapshotResult; fetchedAt: number } | null = null;
 let inFlightFetch: Promise<ProviderUsageSnapshotResult> | null = null;
 
-export async function providerUsageSnapshotHandler(): Promise<ProviderUsageSnapshotResult> {
+export async function providerUsageSnapshotHandler(
+  opts: ProviderUsageSnapshotOptions = {},
+): Promise<ProviderUsageSnapshotResult> {
   const now = Date.now();
-  if (cachedResult && now - cachedResult.fetchedAt < PROVIDER_USAGE_CACHE_TTL_MS) {
+  if (!opts.force && cachedResult && now - cachedResult.fetchedAt < PROVIDER_USAGE_CACHE_TTL_MS) {
     return cachedResult.result;
   }
   if (inFlightFetch) return inFlightFetch;
@@ -63,7 +69,16 @@ export function _resetProviderUsageCacheForTesting(): void {
 }
 
 export function registerProviderUsageIpc(): void {
-  on(IpcInvoke.ProviderUsageSnapshot, () => providerUsageSnapshotHandler());
+  on(IpcInvoke.ProviderUsageSnapshot, (_e, opts) =>
+    providerUsageSnapshotHandler(normalizeProviderUsageSnapshotOptions(opts)),
+  );
+}
+
+function normalizeProviderUsageSnapshotOptions(value: unknown): ProviderUsageSnapshotOptions {
+  if (value && typeof value === 'object' && 'force' in value) {
+    return { force: (value as { force?: unknown }).force === true };
+  }
+  return {};
 }
 
 async function readAdapterSnapshot(

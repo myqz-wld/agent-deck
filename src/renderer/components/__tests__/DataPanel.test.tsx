@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DataPanel } from '../DataPanel';
 import { useTokenUsageStore } from '../../stores/token-usage-store';
 import type { ProviderUsageSnapshot } from '@shared/types';
@@ -59,15 +59,19 @@ afterEach(() => {
 });
 
 describe('DataPanel quota usage', () => {
-  it('reads quota information on mount without adding an extra action button', async () => {
+  it('reads quota information on mount and supports manual hard refresh', async () => {
     render(<DataPanel />);
 
     await waitFor(() => expect(window.api.tokenUsageDaily).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(providerUsageSnapshot).toHaveBeenCalledTimes(1));
+    expect(providerUsageSnapshot.mock.calls[0]).toEqual([]);
     expect(await screen.findByText('Claude')).toBeTruthy();
     expect(await screen.findByText('0%')).toBeTruthy();
     expect(screen.queryByText('0.4%')).toBeNull();
     expect(screen.queryByRole('button', { name: '读取' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await waitFor(() => expect(providerUsageSnapshot).toHaveBeenCalledTimes(2));
+    expect(providerUsageSnapshot).toHaveBeenLastCalledWith({ force: true });
   });
 });

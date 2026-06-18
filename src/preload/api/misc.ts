@@ -237,6 +237,6 @@ export const miscApi = {
   tokenUsageDaily: (): Promise<TokenDailyRow[]> =>
     ipcRenderer.invoke(IpcInvoke.TokenUsageDaily),
   /** Claude / Codex / Deepseek provider 订阅窗口用量快照（数据 tab）。 */
-  providerUsageSnapshot: (): Promise<ProviderUsageSnapshotResult> =>
-    ipcRenderer.invoke(IpcInvoke.ProviderUsageSnapshot),
+  providerUsageSnapshot: (opts?: { force?: boolean }): Promise<ProviderUsageSnapshotResult> =>
+    ipcRenderer.invoke(IpcInvoke.ProviderUsageSnapshot, opts),
 };
