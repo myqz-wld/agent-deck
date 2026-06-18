@@ -51,7 +51,7 @@ function routeName(event: CodexHookEvent): string {
 }
 
 function buildCommand(port: number, token: string, event: CodexHookEvent): string {
-  return `cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/codex/${routeName(event)} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' -H "X-Agent-Deck-Origin: \${AGENT_DECK_ORIGIN:-cli}" --data-binary @- > /dev/null || true # ${HOOK_TAG}`;
+  return `cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/codex/${routeName(event)} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' -H "X-Agent-Deck-Origin: \${AGENT_DECK_ORIGIN:-cli}" -H "X-Agent-Deck-Parent-Pid: \${PPID:-}" --data-binary @- > /dev/null || true # ${HOOK_TAG}`;
 }
 
 function readHooksJson(path: string): CodexHooksJson {

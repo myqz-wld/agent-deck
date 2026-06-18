@@ -21,7 +21,7 @@ describe('readCodexUsageSnapshotInBackground', () => {
 
     expect(makeClient).toHaveBeenCalledWith({
       codexPathOverride: '/opt/codex',
-      env: expect.any(Object),
+      env: expect.objectContaining({ AGENT_DECK_ORIGIN: 'sdk' }),
       cwd: '/agent-deck/userData/provider-usage-probe-cwd',
     });
     expect(request).toHaveBeenCalledTimes(1);

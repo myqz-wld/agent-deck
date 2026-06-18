@@ -29,6 +29,7 @@ function snapshotProcessEnv(): Record<string, string> {
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined) out[k] = v;
   }
+  out.AGENT_DECK_ORIGIN = 'sdk';
   return out;
 }
 

@@ -64,6 +64,7 @@ import {
   deleteImpl,
 } from './manager/lifecycle';
 import { renameSdkSessionImpl, updateCliSessionIdImpl } from './manager/rename';
+import { ExternalProcessTracker, extractExternalProcessPid } from './external-process-tracker';
 import log from '@main/utils/logger';
 
 const logger = log.scope('session-manager');
@@ -183,6 +184,10 @@ class SessionManagerClass {
    * 详 manager/_deps.ts SessionManagerInternalState.closeEpoch jsdoc。
    */
   private closeEpoch = new Map<string, number>();
+  private externalProcessTracker = new ExternalProcessTracker({
+    getSession: (sessionId) => sessionRepo.get(sessionId),
+    closeSession: (sessionId) => this.markClosed(sessionId),
+  });
 
   /**
    * Pipeline 看到的 facade(Object.freeze 的 5 方法对象)。
@@ -370,6 +375,12 @@ class SessionManagerClass {
     // **3c + 3d**: dedupOrClaim 内部时序兜底 (REVIEW_5 H1 / REVIEW_12 修法保留) → ensureRecord 建会话
     // 与原 ingest 5 段流程保持不变 (dedupOrClaim 必须留在最前 + 早返硬约束)
     if (dedupOrClaim(this.ingestCtx, event).skip) return;
+    if (event.source === 'hook' && event.hookOrigin !== 'sdk') {
+      this.externalProcessTracker.register(
+        event.sessionId,
+        extractExternalProcessPid(event.payload),
+      );
+    }
     // token-usage 早返旁路（plan model-token-stats §Phase 1 A5 / §不变量 2/10）：
     // 不写 events 表 / 不进 activity 状态机 / 不 emit agent-event（避免污染活动流 + 卡片状态机）。
     // 放在 dedupOrClaim 后（黑名单 / sdkOwned 去重仍生效，§不变量 10：被删 session 60s 内尾包

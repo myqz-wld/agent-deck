@@ -41,7 +41,7 @@ export const mockEmits: { name: string; payload: unknown }[] = [];
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function makeEvent(
-  over: Partial<AgentEvent> & { source?: 'sdk' | 'hook' },
+  over: Partial<AgentEvent> & { source?: 'sdk' | 'hook'; hookOrigin?: 'sdk' | 'cli' },
 ): AgentEvent {
   return {
     sessionId: over.sessionId ?? 'sess-default',
@@ -50,6 +50,7 @@ export function makeEvent(
     payload: over.payload ?? { cwd: '/tmp' },
     ts: over.ts ?? Date.now(),
     source: over.source,
+    hookOrigin: over.hookOrigin,
   } as AgentEvent;
 }
 

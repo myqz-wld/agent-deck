@@ -195,6 +195,14 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
     const sessionStarts = emits.filter((e) => e.kind === 'session-start');
     expect(sessionStarts).toHaveLength(1);
     expect(sessionStarts[0].sessionId).toBe('sess-r1');
+    expect(appServerClientMock.CodexAppServerClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: expect.objectContaining({
+          AGENT_DECK_MCP_TOKEN: expect.any(String),
+          AGENT_DECK_ORIGIN: 'sdk',
+        }),
+      }),
+    );
     // sessions Map 已 set(resume 主路径登记)
     expect(getSessionsMap(bridge).has('sess-r1')).toBe(true);
     expect(sessionManager.claimAsSdk).toHaveBeenCalledWith('sess-r1');

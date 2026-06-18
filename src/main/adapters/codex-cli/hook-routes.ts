@@ -14,6 +14,26 @@ interface BaseBody {
   cwd?: string;
 }
 
+function firstHeaderValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
+function parsePidHeader(value: string | string[] | undefined): number | null {
+  const raw = firstHeaderValue(value).trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const pid = Number(raw);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+
+function attachExternalProcessPid(ev: AgentEvent, pid: number | null): AgentEvent {
+  if (pid === null) return ev;
+  const payload =
+    ev.payload && typeof ev.payload === 'object' && !Array.isArray(ev.payload)
+      ? { ...(ev.payload as Record<string, unknown>), externalProcessPid: pid }
+      : { value: ev.payload, externalProcessPid: pid };
+  return { ...ev, payload };
+}
+
 function makeRoute(
   url: string,
   handler: (body: BaseBody) => AgentEvent | AgentEvent[],
@@ -29,14 +49,14 @@ function makeRoute(
           reply.code(400).send({ ok: false, error: 'missing session_id' });
           return;
         }
-        const headerVal = request.headers['x-agent-deck-origin'];
-        const originRaw = Array.isArray(headerVal) ? headerVal[0] : headerVal;
+        const originRaw = firstHeaderValue(request.headers['x-agent-deck-origin']);
         const hookOrigin: 'sdk' | 'cli' = originRaw === 'sdk' ? 'sdk' : 'cli';
+        const externalProcessPid = parsePidHeader(request.headers['x-agent-deck-parent-pid']);
         const out = handler(body);
         if (Array.isArray(out)) {
-          for (const ev of out) emit(ev, hookOrigin);
+          for (const ev of out) emit(attachExternalProcessPid(ev, externalProcessPid), hookOrigin);
         } else {
-          emit(out, hookOrigin);
+          emit(attachExternalProcessPid(out, externalProcessPid), hookOrigin);
         }
         reply.code(200).send({ ok: true });
       } catch (err) {
