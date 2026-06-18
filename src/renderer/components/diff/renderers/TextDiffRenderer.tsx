@@ -1,6 +1,7 @@
 import { lazy, Suspense, type JSX } from 'react';
 import type { DiffPayload } from '@shared/types';
 import { reconstructUnifiedDiffSnapshots } from '@shared/unified-diff';
+import { useDiffExpanded } from '../ExpandedContext';
 
 // Monaco 体积大，懒加载
 const DiffEditor = lazy(async () => {
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function TextDiffRenderer({ payload }: Props): JSX.Element {
+  const expanded = useDiffExpanded();
   const language = guessLanguageByPath(payload.filePath);
   // REVIEW_52 C1：部分来源 emit file-changed before:null after:null（Codex app-server 不提供
   // before/after 快照，但可能在 metadata.diff 带 unified diff）。有 unified diff 时先还原成
@@ -36,12 +38,14 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
     const reconstructed = unifiedDiff ? reconstructUnifiedDiffSnapshots(unifiedDiff) : null;
     return (
       <div className="flex h-full flex-col gap-2">
-        <DiffHeader
-          filePath={payload.filePath}
-          isNewFile={false}
-          changeKind={isCodex ? changeKind : null}
-          patchStatus={isCodex ? patchStatus : null}
-        />
+        {!expanded && (
+          <DiffHeader
+            filePath={payload.filePath}
+            isNewFile={false}
+            changeKind={isCodex ? changeKind : null}
+            patchStatus={isCodex ? patchStatus : null}
+          />
+        )}
         {reconstructed ? (
           <MonacoDiffView
             before={reconstructed.before}
@@ -77,7 +81,7 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
   const after = payload.after ?? '';
   return (
     <div className="flex h-full flex-col gap-1.5">
-      <DiffHeader filePath={payload.filePath} isNewFile={isNewFile} />
+      {!expanded && <DiffHeader filePath={payload.filePath} isNewFile={isNewFile} />}
       <MonacoDiffView before={before} after={after} language={language} />
     </div>
   );
