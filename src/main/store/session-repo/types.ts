@@ -38,6 +38,7 @@ export interface Row {
   claude_code_sandbox: string | null;
   // plan model-wiring-and-handoff-20260514 Step 1.3：SDK / agent model per-session 持久化
   model: string | null;
+  thinking: string | null;
   // plan cross-adapter-parity-20260515 Phase A Step A.2：SDK sandbox 额外可写根 per-session 持久化
   // (REVIEW_40 R1 reviewer-codex MED-F follow-up)。JSON.stringify(string[]) 全绝对路径 / NULL = 不指定。
   extra_allow_write: string | null;
@@ -84,6 +85,7 @@ export function rowToRecord(r: Row): SessionRecord {
     claudeCodeSandbox:
       (r.claude_code_sandbox as 'off' | 'workspace-write' | 'strict' | null) ?? null,
     model: r.model ?? null,
+    thinking: r.thinking ?? null,
     extraAllowWrite: parseStringArrayJson(r.extra_allow_write, {
       sessionId: r.id,
       field: 'extra_allow_write',

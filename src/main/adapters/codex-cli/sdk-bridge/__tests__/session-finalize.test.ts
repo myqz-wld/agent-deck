@@ -8,6 +8,7 @@ vi.mock('@main/store/session-repo', () => ({
   sessionRepo: {
     setCodexSandbox: vi.fn(),
     setModel: vi.fn(),
+    setThinking: vi.fn(),
     setExtraAllowWrite: vi.fn(),
     setNetworkAccessEnabled: vi.fn(),
     setAdditionalDirectories: vi.fn(),
@@ -42,6 +43,7 @@ describe('codex persistSessionFields', () => {
   beforeEach(() => {
     vi.mocked(sessionRepo.setCodexSandbox).mockReset();
     vi.mocked(sessionRepo.setModel).mockReset();
+    vi.mocked(sessionRepo.setThinking).mockReset();
     vi.mocked(sessionRepo.setExtraAllowWrite).mockReset();
     vi.mocked(sessionRepo.setNetworkAccessEnabled).mockReset();
     vi.mocked(sessionRepo.setAdditionalDirectories).mockReset();
@@ -56,9 +58,11 @@ describe('codex persistSessionFields', () => {
     persistSessionFields({
       sessionId: 'sid',
       sandboxMode: 'danger-full-access',
+      modelReasoningEffort: 'xhigh',
     });
 
     expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sid', 'danger-full-access');
+    expect(sessionRepo.setThinking).toHaveBeenCalledWith('sid', 'xhigh');
     expect(eventBus.emit).toHaveBeenCalledWith('session-upserted', updated);
   });
 

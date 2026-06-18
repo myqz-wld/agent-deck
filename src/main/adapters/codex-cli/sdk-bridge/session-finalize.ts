@@ -45,6 +45,8 @@ export interface PersistSessionFieldsArgs {
    * 原 codex 专属 runtime-not-effective warn 提示已删 — 字段对 runtime 真生效不再是 dead config)。
    */
   model?: string;
+  /** Codex app-server ThreadOptions.modelReasoningEffort value to persist for resume/display. */
+  modelReasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   /**
    * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
    * caller 透传的 SDK sandbox 额外可写根。**codex SDK 不消费 extra writable roots**
@@ -91,7 +93,7 @@ export interface PersistSessionFieldsArgs {
  * console.warn：失败时透出错误，与 claude session-finalize 同款诊断模式。
  */
 export function persistSessionFields(args: PersistSessionFieldsArgs): void {
-  const { sessionId, sandboxMode, model, extraAllowWrite, networkAccessEnabled, additionalDirectories } =
+  const { sessionId, sandboxMode, model, modelReasoningEffort, extraAllowWrite, networkAccessEnabled, additionalDirectories } =
     args;
 
   // 1. 持久化 sandbox 档位（CHANGELOG_<X> A2a）
@@ -110,6 +112,17 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
       sessionRepo.setModel(sessionId, model);
     } catch (err) {
       logger.warn(`[codex-bridge] setModel(${sessionId}, ${model}) 失败`, err);
+    }
+  }
+
+  if (modelReasoningEffort !== undefined) {
+    try {
+      sessionRepo.setThinking(sessionId, modelReasoningEffort);
+    } catch (err) {
+      logger.warn(
+        `[codex-bridge] setThinking(${sessionId}, ${modelReasoningEffort}) 失败`,
+        err,
+      );
     }
   }
 

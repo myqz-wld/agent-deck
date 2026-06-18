@@ -87,6 +87,18 @@ export interface SessionRecord {
    */
   model?: string | null;
   /**
+   * Per-session thinking / reasoning effort display value.
+   *
+   * Stored as the adapter-facing level selected at creation time:
+   * - claude-code / deepseek-claude-code: SDK `effort` (`low` / `medium` / `high` / `xhigh` / `max`)
+   * - codex-cli: app-server `model_reasoning_effort`
+   *   (`minimal` / `low` / `medium` / `high` / `xhigh`)
+   *
+   * null/undefined means no explicit per-session override was recorded, so the adapter/user
+   * config default is in effect.
+   */
+  thinking?: string | null;
+  /**
    * SDK sandbox 额外可写根（plan cross-adapter-parity-20260515 Phase A / REVIEW_40 R1
    * reviewer-codex MED-F follow-up）。
    *

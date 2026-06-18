@@ -297,3 +297,4 @@
 | [CHANGELOG_290.md](CHANGELOG_290.md) | Codex sandbox switching now applies to the next turn without restarting or clearing queued messages. |
 | [CHANGELOG_291.md](CHANGELOG_291.md) | Claude compaction events render, and thinking copy is adapter-aware. |
 | [CHANGELOG_292.md](CHANGELOG_292.md) | Match Electron split-args webFrameMain noise and lower Monaco race logs to debug. |
+| [CHANGELOG_293.md](CHANGELOG_293.md) | Session model/thinking chips, Git branch display, and diff enlarge/navigation. |

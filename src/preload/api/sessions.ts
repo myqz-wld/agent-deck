@@ -49,6 +49,8 @@ export const sessionsApi = {
     ipcRenderer.invoke(IpcInvoke.SessionListFileChanges, id),
   getFileFinalDiff: (id: string, filePath: string): Promise<FileFinalDiffResult> =>
     ipcRenderer.invoke(IpcInvoke.SessionGetFileFinalDiff, id, filePath),
+  getSessionGitBranch: (id: string): Promise<string | null> =>
+    ipcRenderer.invoke(IpcInvoke.SessionGetGitBranch, id),
   listSummaries: (id: string): Promise<SummaryRecord[]> =>
     ipcRenderer.invoke(IpcInvoke.SessionListSummaries, id),
   latestSummaries: (ids: string[]): Promise<Record<string, SummaryRecord>> =>

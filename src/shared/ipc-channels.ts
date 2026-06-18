@@ -29,6 +29,7 @@ export const IpcInvoke = {
   SessionListEvents: 'session:list-events',
   SessionListFileChanges: 'session:list-file-changes',
   SessionGetFileFinalDiff: 'session:get-file-final-diff',
+  SessionGetGitBranch: 'session:get-git-branch',
   SessionListSummaries: 'session:list-summaries',
   SessionLatestSummaries: 'session:latest-summaries',
   /**

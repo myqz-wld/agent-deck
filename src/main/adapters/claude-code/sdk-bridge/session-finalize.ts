@@ -16,8 +16,10 @@
  */
 
 import type { AgentEvent, HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
+import type { ClaudeCodeEffortLevel } from '@main/adapters/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
+import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import log from '@main/utils/logger';
 
@@ -57,6 +59,7 @@ export interface FinalizeSessionStartArgs {
    * 非 undefined → setModel 写入，让 dormant 唤醒 / SDK 重启 resume 仍用此 model。
    */
   claudeModel?: string;
+  claudeCodeEffortLevel?: ClaudeCodeEffortLevel;
   /**
    * plan cross-adapter-parity-20260515 Phase A Step A.4 / REVIEW_40 R1 reviewer-codex MED-F:
    * caller 透传的 SDK sandbox 额外可写根。原 createSession 收 opts.extraAllowWrite 后仅
@@ -114,7 +117,7 @@ export interface FinalizeSessionStartArgs {
  * normal resume 走 ensure() revive 既有 row + caller 传 skipFirstUserEmit=true 防双气泡)。
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
-  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, extraAllowWrite, attachments, handOff, skipFirstUserEmit, emit } = args;
+  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, claudeCodeEffortLevel, extraAllowWrite, attachments, handOff, skipFirstUserEmit, emit } = args;
 
   // 1. 主动 emit session-start
   emit({
@@ -167,6 +170,17 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
     }
   }
 
+  if (claudeCodeEffortLevel !== undefined) {
+    try {
+      sessionRepo.setThinking(applicationSid, claudeCodeEffortLevel);
+    } catch (err) {
+      logger.warn(
+        `[claude-bridge] setThinking(${applicationSid}, ${claudeCodeEffortLevel}) 失败`,
+        err,
+      );
+    }
+  }
+
   // 2c. plan cross-adapter-parity-20260515 Phase A Step A.4 / REVIEW_40 R1 MED-F:持久化
   // SDK sandbox 额外可写根(与 sandbox + model 同位置同模式)。
   if (extraAllowWrite !== undefined && extraAllowWrite.length > 0) {
@@ -178,6 +192,13 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
         err,
       );
     }
+  }
+
+  try {
+    const updated = sessionRepo.get(applicationSid);
+    if (updated) eventBus.emit('session-upserted', updated);
+  } catch (err) {
+    logger.warn(`[claude-bridge] emit session-upserted after finalize(${applicationSid}) 失败`, err);
   }
 
   // 3. 补 emit 首条 user message（覆盖新建会话 + 恢复会话两条路径）

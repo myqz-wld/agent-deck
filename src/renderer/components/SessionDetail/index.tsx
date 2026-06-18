@@ -8,10 +8,10 @@ import type {
 } from '@shared/types';
 import { ActivityFeed } from '../activity-feed';
 import { SummaryView } from '../SummaryView';
-import { DiffViewer } from '../diff/DiffViewer';
 import { PermissionsView } from '../PermissionsView';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 import { MessagesPanel } from './MessagesPanel';
+import { SessionMetadataChips } from '../SessionMetadataChips';
 import {
   EMPTY_ASK_QUESTIONS,
   EMPTY_EXIT_PLAN_MODES,
@@ -21,7 +21,7 @@ import {
 import { SourceBadge } from './SourceBadge';
 import { ComposerSdk } from './ComposerSdk';
 import { CliFooter } from './CliFooter';
-import { ChangeTimeline } from './ChangeTimeline';
+import { DiffTab } from './DiffTab';
 import { decodeBlob, groupFileChanges, pickLatestChange } from './helpers';
 
 type Tab = 'activity' | 'diff' | 'summary' | 'messages' | 'permissions';
@@ -43,6 +43,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
+  const [gitBranch, setGitBranch] = useState<string | null>(null);
   /** K3 hand-off preview dialog 开关（plan mcp-bug-and-feature-batch-20260513 Phase 4c）。 */
   const [handOffOpen, setHandOffOpen] = useState(false);
   /** 最近被 SDK 自动取消的权限/提问，用于 toast 提示「不是你做的，是 SDK 取消的」。 */
@@ -135,6 +136,22 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     setCancelToasts([]);
     for (const tm of toastTimersRef.current.values()) clearTimeout(tm);
     toastTimersRef.current.clear();
+  }, [session.id]);
+
+  useEffect(() => {
+    let disposed = false;
+    setGitBranch(null);
+    void window.api
+      .getSessionGitBranch(session.id)
+      .then((branch) => {
+        if (!disposed) setGitBranch(branch);
+      })
+      .catch(() => {
+        if (!disposed) setGitBranch(null);
+      });
+    return () => {
+      disposed = true;
+    };
   }, [session.id]);
 
   /** 加载并订阅 file_changes：
@@ -282,6 +299,11 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const isSdk = session.source === 'sdk';
   const turnBusy = session.activity === 'working';
   const canSteerTurn = session.agentId === 'codex-cli';
+  const selectFileGroup = (group: NonNullable<typeof selectedGroup>): void => {
+    setSelectedFilePath(group.filePath);
+    setSelectedChangeId(group.items[group.items.length - 1].id);
+    setFinalDiff(null);
+  };
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
@@ -292,6 +314,9 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
             <div className="truncate text-[12px] font-medium">{session.title}</div>
           </div>
           <div className="truncate text-[10px] text-deck-muted">{session.cwd}</div>
+          <div className="mt-1">
+            <SessionMetadataChips session={session} branch={gitBranch} compact />
+          </div>
         </div>
         <div className="ml-2 flex shrink-0 items-center gap-1">
           <button
@@ -371,103 +396,26 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           />
         )}
         {tab === 'diff' && (
-          <div className="flex h-full flex-col gap-2">
-            {changes === null ? (
-              // deep-review H3 R2 LOW：仅**首加载失败**（changes 仍 null）才整屏 error（与 MessagesPanel
-              // `error && messages.length===0` 同款守门）。已有数据时 re-sync 失败不抹掉已加载 diff —
-              // 走下方 inline error strip 保留 stale + 提示，自愈（下次 re-sync 成功清 diffError）。
-              diffError ? (
-                <div className="text-[11px] text-status-waiting">加载改动失败：{diffError}</div>
-              ) : (
-                <div className="text-[11px] text-deck-muted">加载中…</div>
-              )
-            ) : changes.length === 0 ? (
-              <div className="text-[11px] text-deck-muted">本会话暂无文件改动</div>
-            ) : (
-              <>
-                {diffError && (
-                  <div className="shrink-0 text-[10px] text-status-waiting/80">
-                    刷新改动失败（显示的是上次结果）：{diffError}
-                  </div>
-                )}
-                {/* 文件分组：每个文件一个按钮，右上角小角标显示改动次数 */}
-                <div className="flex shrink-0 flex-wrap gap-1">
-                  {fileGroups.map((g) => (
-                    <button
-                      key={g.filePath}
-                      type="button"
-                      onClick={() => {
-                        setSelectedFilePath(g.filePath);
-                        // 切到该文件最新一次改动
-                        setSelectedChangeId(g.items[g.items.length - 1].id);
-                        setFinalDiff(null);
-                      }}
-                      className={`relative max-w-[160px] truncate rounded px-2 py-1 text-[10px] font-mono ${
-                        selectedFilePath === g.filePath
-                          ? 'bg-white/15 text-deck-text'
-                          : 'bg-white/[0.03] text-deck-muted hover:bg-white/[0.08]'
-                      }`}
-                      title={`${g.filePath}（${g.items.length} 次改动）`}
-                    >
-                      {g.filePath.split('/').pop()}
-                      {g.items.length > 1 && (
-                        <span className="ml-1 rounded bg-white/15 px-1 text-[9px] text-deck-text/80">
-                          {g.items.length}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                {selectedGroup && (
-                  <div className="flex shrink-0 items-center gap-1">
-                    {(['single', 'final'] as DiffMode[]).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setDiffMode(mode)}
-                        className={`rounded px-2 py-1 text-[10px] ${
-                          diffMode === mode
-                            ? 'bg-white/15 text-deck-text'
-                            : 'bg-white/[0.03] text-deck-muted hover:bg-white/[0.08]'
-                        }`}
-                      >
-                        {mode === 'single' ? '单次改动' : '最终 diff'}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* 选中文件的时间线：每行一次改动；点击切换显示对应 diff */}
-                {diffMode === 'single' && selectedGroup && selectedGroup.items.length > 1 && (
-                  <ChangeTimeline
-                    items={selectedGroup.items}
-                    selectedId={selectedChangeId}
-                    onSelect={(id) => {
-                      setSelectedChangeId(id);
-                      setDiffMode('single');
-                    }}
-                  />
-                )}
-
-                <div className="min-h-0 flex-1">
-                  {diffMode === 'final' ? (
-                    finalDiffLoading ? (
-                      <div className="text-[11px] text-deck-muted">加载最终 diff…</div>
-                    ) : finalDiffPayload ? (
-                      <DiffViewer payload={finalDiffPayload} sessionId={session.id} />
-                    ) : (
-                      <div className="rounded-md border border-deck-border bg-white/[0.02] p-3 text-[11px] text-deck-muted/85">
-                        {finalDiff?.message ?? '暂无可显示的最终 diff'}
-                      </div>
-                    )
-                  ) : diffPayload ? (
-                    <DiffViewer payload={diffPayload} sessionId={session.id} />
-                  ) : null}
-                </div>
-              </>
-            )}
-          </div>
+          <DiffTab
+            sessionId={session.id}
+            changes={changes}
+            diffError={diffError}
+            fileGroups={fileGroups}
+            selectedFilePath={selectedFilePath}
+            selectedGroup={selectedGroup}
+            selectedChangeId={selectedChangeId}
+            diffMode={diffMode}
+            finalDiffLoading={finalDiffLoading}
+            finalDiff={finalDiff}
+            diffPayload={diffPayload}
+            finalDiffPayload={finalDiffPayload}
+            onSelectFile={selectFileGroup}
+            onSelectChange={(id) => {
+              setSelectedChangeId(id);
+              setDiffMode('single');
+            }}
+            onDiffModeChange={setDiffMode}
+          />
         )}
       </div>
 
