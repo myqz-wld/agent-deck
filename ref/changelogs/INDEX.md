@@ -304,3 +304,4 @@
 | [CHANGELOG_297.md](CHANGELOG_297.md) | Issues record branch snapshots; spawn prompt routing test updated. |
 | [CHANGELOG_298.md](CHANGELOG_298.md) | Codex internal hooks are SDK-origin filtered; no inferred close without SessionEnd. |
 | [CHANGELOG_299.md](CHANGELOG_299.md) | Reuse the Codex quota background app-server across refreshes. |
+| [CHANGELOG_300.md](CHANGELOG_300.md) | Data tab quota percentages render as integers. |

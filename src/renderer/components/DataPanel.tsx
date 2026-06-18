@@ -339,7 +339,7 @@ function usageStatusClass(status: ProviderUsageSnapshot['status']): string {
 
 function formatPercent(value: number | null): string {
   if (value === null) return '未知';
-  return `${value < 10 ? value.toFixed(1) : Math.round(value).toLocaleString()}%`;
+  return `${Math.round(value).toLocaleString()}%`;
 }
 
 function usageBarWidth(value: number | null): string {

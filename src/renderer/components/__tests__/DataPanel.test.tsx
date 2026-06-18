@@ -22,10 +22,16 @@ function claudeSnapshot(): ProviderUsageSnapshot {
   return {
     provider: 'claude-code',
     label: 'Claude',
-    status: 'unavailable',
-    windows: [],
+    status: 'ok',
+    windows: [
+      {
+        id: 'current',
+        label: '当前窗口',
+        usedPercent: 0.4,
+        resetsAt: null,
+      },
+    ],
     updatedAt: Date.now(),
-    message: '先打开一个 Claude 会话后，再查看额度信息',
   };
 }
 
@@ -59,6 +65,8 @@ describe('DataPanel quota usage', () => {
     await waitFor(() => expect(window.api.tokenUsageDaily).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(providerUsageSnapshot).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('Claude')).toBeTruthy();
+    expect(await screen.findByText('0%')).toBeTruthy();
+    expect(screen.queryByText('0.4%')).toBeNull();
     expect(screen.queryByRole('button', { name: '读取' })).toBeNull();
     expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
   });
