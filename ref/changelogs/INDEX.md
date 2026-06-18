@@ -303,3 +303,4 @@
 | [CHANGELOG_296.md](CHANGELOG_296.md) | Codex external hooks install/manage terminal sessions; clean Codex config. |
 | [CHANGELOG_297.md](CHANGELOG_297.md) | Issues record branch snapshots; spawn prompt routing test updated. |
 | [CHANGELOG_298.md](CHANGELOG_298.md) | Codex internal hooks are SDK-origin filtered; no inferred close without SessionEnd. |
+| [CHANGELOG_299.md](CHANGELOG_299.md) | Reuse the Codex quota background app-server across refreshes. |

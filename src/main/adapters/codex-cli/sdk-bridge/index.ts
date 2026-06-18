@@ -47,7 +47,10 @@ import {
   errorUsageSnapshot,
   type CodexAccountRateLimitsResponseLike,
 } from '../../provider-usage';
-import { readCodexUsageSnapshotInBackground } from '../usage-snapshot';
+import {
+  invalidateCodexUsageSnapshotClient,
+  readCodexUsageSnapshotInBackground,
+} from '../usage-snapshot';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-bridge');
@@ -226,6 +229,7 @@ export class CodexSdkBridge {
     // R37 P1 Step 1.2 (G)：同步 invalidate oneshot pool，让 summarizer-runner / handoff-runner
     // 下次 call 也用新 path 重建（修前 3 处独立 cache，path 改要等各自 path 比较 miss 才同步）
     invalidateCodexInstance();
+    invalidateCodexUsageSnapshotClient();
   }
 
   async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {

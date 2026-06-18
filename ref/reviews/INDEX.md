@@ -139,3 +139,4 @@ Use `REVIEW_X.md`, where `X` is the next integer and historically aligns with `C
 | [REVIEW_125.md](REVIEW_125.md) | Claude compaction display and adapter-aware thinking copy. | 3 LOW fixed | CHANGELOG_291 |
 | [REVIEW_126.md](REVIEW_126.md) | Runtime log warning/error triage follow-up. | 2 LOW fixed | CHANGELOG_292 |
 | [REVIEW_127.md](REVIEW_127.md) | Latest commit lockfile drift plus Codex internal-hook filtering and lifecycle guard. | 2 MEDIUM fixed / 1 guarded | CHANGELOG_298 |
+| [REVIEW_128.md](REVIEW_128.md) | Codex quota reads without an open Codex session recreated app-server processes and hit unstable `wham/usage` failures. | 1 MEDIUM fixed | CHANGELOG_299 |
