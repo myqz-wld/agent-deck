@@ -365,6 +365,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
             )}
           </div>
           <div>工作目录: {issue.cwd ?? '—'}</div>
+          <div>分支: {issue.branchName ?? '—'}</div>
           <div>
             创建: {new Date(issue.createdAt).toLocaleString('zh-CN', { hour12: false })} · 更新:{' '}
             {new Date(issue.updatedAt).toLocaleString('zh-CN', { hour12: false })}

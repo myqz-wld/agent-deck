@@ -51,9 +51,8 @@ export function parseHookScope(value: unknown): 'user' | 'project' {
   throw new IpcInputError('scope', `must be 'user' or 'project', got ${String(value)}`);
 }
 
-// user scope 装在 ~/.claude/settings.json，与 cwd 无关 → cwd 允许缺省（renderer 设置面板正是这条路径）；
-// project scope 装在 <cwd>/.claude/settings.json → cwd 必填。把 scope-aware 校验集中到一个 helper，
-// 避免三个 hook handler 各自 if-else 漏掉一处。
+// user scope is independent of cwd; project scope writes under the project cwd and requires it.
+// Keep scope-aware validation in one helper so each hook adapter uses the same boundary checks.
 export function parseHookCwd(scope: 'user' | 'project', cwd: unknown): string | undefined {
   if (scope === 'user') return undefined;
   return parseStringId('cwd', cwd, 4096);

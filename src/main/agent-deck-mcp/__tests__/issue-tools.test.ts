@@ -40,13 +40,18 @@ vi.mock('@main/store/session-repo', () => ({
 }));
 vi.mock('@main/store/issue-repo', () => ({ issueRepo: mocks.issueRepo }));
 vi.mock('@main/event-bus', () => ({ eventBus: mocks.eventBus }));
+vi.mock('@main/utils/git-branch', () => ({
+  detectGitBranchName: vi.fn(),
+}));
 
 const mockIssueRepo = mocks.issueRepo;
 const mockEventBus = mocks.eventBus;
 
 import { sessionRepo } from '@main/store/session-repo';
+import { detectGitBranchName } from '@main/utils/git-branch';
 const mockSessions = (sessionRepo as unknown as { __sessions: Map<string, unknown> })
   .__sessions;
+const mockDetectGitBranchName = vi.mocked(detectGitBranchName);
 
 import { reportIssueHandler } from '../tools/handlers/report-issue';
 import { appendIssueContextHandler } from '../tools/handlers/append-issue-context';
@@ -82,6 +87,7 @@ function makeIssue(overrides: Partial<IssueRecord> = {}): IssueRecord {
     severity: 'medium',
     sourceSessionId: 'sess-caller',
     cwd: '/repo',
+    branchName: null,
     logsRef: null,
     resolutionSessionId: null,
     labels: [],
@@ -104,6 +110,7 @@ beforeEach(() => {
   mockIssueRepo.appendContext.mockReset();
   mockIssueRepo.listAppendices.mockReset();
   mockEventBus.emit.mockReset();
+  mockDetectGitBranchName.mockReset().mockReturnValue(null);
   mockSessions.clear();
   // 默认 caller session 在 sessions 表（cwd 兜底测试用到）
   mockSessions.set('sess-caller', {
@@ -136,8 +143,10 @@ describe('report_issue — happy path + cwd 兜底 + 默认值', () => {
         description: 'd1',
         sourceSessionId: 'sess-caller', // closure 注
         cwd: '/repo/explicit', // args.cwd 优先
+        branchName: null,
       }),
     );
+    expect(mockDetectGitBranchName).toHaveBeenCalledWith('/repo/explicit');
     expect(mockEventBus.emit).toHaveBeenCalledWith(
       'issue-changed',
       expect.objectContaining({
@@ -157,8 +166,48 @@ describe('report_issue — happy path + cwd 兜底 + 默认值', () => {
       makeCtx('sess-caller'),
     );
     expect(mockIssueRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: '/repo/from-session' }),
+      expect.objectContaining({ cwd: '/repo/from-session', branchName: null }),
     );
+  });
+
+  it('记录 branchName：从最终 cwd 探测 git 分支并透传给 repo', async () => {
+    mockDetectGitBranchName.mockReturnValue('feature/issue-branch');
+    mockIssueRepo.create.mockReturnValue(makeIssue({
+      cwd: '/repo/from-session',
+      branchName: 'feature/issue-branch',
+    }));
+
+    await reportIssueHandler(
+      { title: 'T', description: 'D' },
+      makeCtx('sess-caller'),
+    );
+
+    expect(mockDetectGitBranchName).toHaveBeenCalledWith('/repo/from-session');
+    expect(mockIssueRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/repo/from-session',
+        branchName: 'feature/issue-branch',
+      }),
+    );
+  });
+
+  it('branchName 超过持久层上限时降级为 null，report_issue 仍创建 issue', async () => {
+    mockDetectGitBranchName.mockReturnValue('feature/' + 'a'.repeat(256));
+    mockIssueRepo.create.mockReturnValue(makeIssue({ cwd: '/repo/from-session', branchName: null }));
+
+    const result = await reportIssueHandler(
+      { title: 'T', description: 'D' },
+      makeCtx('sess-caller'),
+    );
+
+    expect(mockDetectGitBranchName).toHaveBeenCalledWith('/repo/from-session');
+    expect(mockIssueRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/repo/from-session',
+        branchName: null,
+      }),
+    );
+    expect(result.isError).toBeFalsy();
   });
 
   it('cwd 兜底：args.cwd 未传 + caller 不在 sessions 表 → null', async () => {
@@ -169,7 +218,7 @@ describe('report_issue — happy path + cwd 兜底 + 默认值', () => {
       makeCtx('ghost-caller'),
     );
     expect(mockIssueRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: null }),
+      expect.objectContaining({ cwd: null, branchName: null }),
     );
   });
 

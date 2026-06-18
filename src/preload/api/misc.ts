@@ -46,12 +46,21 @@ export const miscApi = {
   toggleCompact: (): Promise<boolean> => ipcRenderer.invoke(IpcInvoke.WindowToggleCompact),
 
   // Hook
-  installHook: (scope: 'user' | 'project', cwd?: string): Promise<unknown> =>
-    ipcRenderer.invoke(IpcInvoke.HookInstall, scope, cwd),
-  uninstallHook: (scope: 'user' | 'project', cwd?: string): Promise<unknown> =>
-    ipcRenderer.invoke(IpcInvoke.HookUninstall, scope, cwd),
-  hookStatus: (scope: 'user' | 'project', cwd?: string): Promise<unknown> =>
-    ipcRenderer.invoke(IpcInvoke.HookStatus, scope, cwd),
+  installHook: (
+    scope: 'user' | 'project',
+    cwd?: string,
+    adapterId?: 'claude-code' | 'codex-cli',
+  ): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.HookInstall, scope, cwd, adapterId),
+  uninstallHook: (
+    scope: 'user' | 'project',
+    cwd?: string,
+    adapterId?: 'claude-code' | 'codex-cli',
+  ): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.HookUninstall, scope, cwd, adapterId),
+  hookStatus: (
+    scope: 'user' | 'project',
+    cwd?: string,
+    adapterId?: 'claude-code' | 'codex-cli',
+  ): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.HookStatus, scope, cwd, adapterId),
 
   // 设置
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke(IpcInvoke.SettingsGet),

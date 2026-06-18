@@ -33,7 +33,8 @@ interface Props {
  */
 export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [hookStatus, setHookStatus] = useState<HookInstallStatus | null>(null);
+  const [claudeHookStatus, setClaudeHookStatus] = useState<HookInstallStatus | null>(null);
+  const [codexHookStatus, setCodexHookStatus] = useState<HookInstallStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** CHANGELOG_160:三 tab 分组(通用 / claude code / codex cli)。tab state per-open 重置
@@ -71,17 +72,31 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
         setSettings((prev) => prev ?? { ...DEFAULT_SETTINGS });
       });
     void window.api
-      .hookStatus('user')
+      .hookStatus('user', undefined, 'claude-code')
       .then((s) => {
         if (seq !== openSeqRef.current) return;
-        setHookStatus(s as HookInstallStatus);
+        setClaudeHookStatus(s as HookInstallStatus);
       })
       .catch((err: unknown) => {
         if (seq !== openSeqRef.current) return;
         setLoadError(
           (prev) =>
             (prev ? prev + '\n' : '') +
-            `hookStatus 失败：${(err as Error).message ?? String(err)}`,
+            `Claude hookStatus 失败：${(err as Error).message ?? String(err)}`,
+        );
+      });
+    void window.api
+      .hookStatus('user', undefined, 'codex-cli')
+      .then((s) => {
+        if (seq !== openSeqRef.current) return;
+        setCodexHookStatus(s as HookInstallStatus);
+      })
+      .catch((err: unknown) => {
+        if (seq !== openSeqRef.current) return;
+        setLoadError(
+          (prev) =>
+            (prev ? prev + '\n' : '') +
+            `Codex hookStatus 失败：${(err as Error).message ?? String(err)}`,
         );
       });
   }, [open]);
@@ -106,24 +121,26 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
     }
   };
 
-  const installHook = async (): Promise<void> => {
+  const installHook = async (adapterId: 'claude-code' | 'codex-cli'): Promise<void> => {
     setBusy(true);
     setActionError(null);
     try {
-      const r = (await window.api.installHook('user')) as HookInstallStatus;
-      setHookStatus(r);
+      const r = (await window.api.installHook('user', undefined, adapterId)) as HookInstallStatus;
+      if (adapterId === 'codex-cli') setCodexHookStatus(r);
+      else setClaudeHookStatus(r);
     } catch (err) {
       setActionError(`安装 hook 失败：${(err as Error).message ?? String(err)}`);
     } finally {
       setBusy(false);
     }
   };
-  const uninstallHook = async (): Promise<void> => {
+  const uninstallHook = async (adapterId: 'claude-code' | 'codex-cli'): Promise<void> => {
     setBusy(true);
     setActionError(null);
     try {
-      const r = (await window.api.uninstallHook('user')) as HookInstallStatus;
-      setHookStatus(r);
+      const r = (await window.api.uninstallHook('user', undefined, adapterId)) as HookInstallStatus;
+      if (adapterId === 'codex-cli') setCodexHookStatus(r);
+      else setClaudeHookStatus(r);
     } catch (err) {
       setActionError(`卸载 hook 失败：${(err as Error).message ?? String(err)}`);
     } finally {
@@ -220,10 +237,13 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
             {activeTab === 'claude' && (
               <SectionGroup title="Claude Code 专属配置">
                 <HookSection
-                  hookStatus={hookStatus}
+                  title="Claude Code Hook（系统钩子）"
+                  storageKey="hook-claude"
+                  installLabel="安装到 ~/.claude/settings.json"
+                  hookStatus={claudeHookStatus}
                   busy={busy}
-                  installHook={installHook}
-                  uninstallHook={uninstallHook}
+                  installHook={() => installHook('claude-code')}
+                  uninstallHook={() => uninstallHook('claude-code')}
                 />
                 <div className="text-[10px] leading-snug text-deck-muted/70">
                   Claude Code 的 MCP 服务在
@@ -237,10 +257,21 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
 
             {activeTab === 'codex' && (
               <SectionGroup title="Codex CLI 专属配置">
+                <HookSection
+                  title="Codex CLI Hook（系统钩子）"
+                  storageKey="hook-codex"
+                  installLabel="安装到 ~/.codex/hooks.json"
+                  hookStatus={codexHookStatus}
+                  busy={busy}
+                  installHook={() => installHook('codex-cli')}
+                  uninstallHook={() => uninstallHook('codex-cli')}
+                />
                 <div className="text-[10px] leading-snug text-deck-muted/70">
                   Codex 配置(模型 / 沙盒 / 审批 / MCP 等)在
                   <code className="ml-1 rounded bg-white/5 px-1">~/.codex/config.toml</code>
-                  中编辑;应用内 Codex 会话会通过 thread options 注入 Agent Deck 应用约定和内置 skills。
+                  中编辑;外部终端 Codex 会话通过
+                  <code className="ml-1 rounded bg-white/5 px-1">~/.codex/hooks.json</code>
+                  上报到 Agent Deck。应用内 Codex 会话会通过 thread options 注入 Agent Deck 应用约定和内置 skills。
                   <br />
                   <br />
                   Codex 用的总结 / 接力模型在「通用 → 会话 → 间歇总结」中设置;

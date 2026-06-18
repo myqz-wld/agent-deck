@@ -52,8 +52,13 @@ export function nextActivityState(
     case 'thinking':
     case 'file-changed':
       return 'working';
-    case 'tool-use-end':
+    case 'tool-use-end': {
+      const clearsTerminalPermission = (
+        payload as { clearsTerminalPermission?: boolean } | null | undefined
+      )?.clearsTerminalPermission === true;
+      if (current === 'waiting' && clearsTerminalPermission) return 'working';
       return current === 'waiting' ? 'waiting' : 'working';
+    }
     case 'waiting-for-user': {
       const type = (payload as { type?: string } | null | undefined)?.type;
       if (typeof type === 'string' && type.endsWith('-cancelled')) {

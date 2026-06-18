@@ -41,6 +41,7 @@ describe.skipIf(!bindingAvailable)('issue-repo / basic CRUD', () => {
     expect(i.labels).toEqual([]);
     expect(i.repro).toBeNull();
     expect(i.logsRef).toBeNull();
+    expect(i.branchName).toBeNull();
     expect(i.resolutionSessionId).toBeNull();
     expect(i.resolvedAt).toBeNull();
     expect(i.deletedAt).toBeNull();
@@ -88,6 +89,28 @@ describe.skipIf(!bindingAvailable)('issue-repo / basic CRUD', () => {
   it('labels JSON 字段往返', () => {
     const i = repo.create({ title: 'T', description: 'D', sourceSessionId: sid, labels: ['urgent', 'p0'] });
     expect(repo.get(i.id)?.labels).toEqual(['urgent', 'p0']);
+  });
+
+  it('branchName 字段往返', () => {
+    const i = repo.create({
+      title: 'T',
+      description: 'D',
+      sourceSessionId: sid,
+      branchName: 'feature/issue-branch',
+    });
+    expect(i.branchName).toBe('feature/issue-branch');
+    expect(repo.get(i.id)?.branchName).toBe('feature/issue-branch');
+  });
+
+  it('branchName 超过 DB 上限时降级为 null，避免 create 失败', () => {
+    const i = repo.create({
+      title: 'T',
+      description: 'D',
+      sourceSessionId: sid,
+      branchName: 'feature/' + 'a'.repeat(256),
+    });
+    expect(i.branchName).toBeNull();
+    expect(repo.get(i.id)?.branchName).toBeNull();
   });
 });
 

@@ -33,6 +33,7 @@ function makeIssue(overrides: Partial<IssueRecord> = {}): IssueRecord {
     severity: 'medium',
     sourceSessionId: 's1',
     cwd: null,
+    branchName: null,
     logsRef: null,
     resolutionSessionId: null,
     labels: [],

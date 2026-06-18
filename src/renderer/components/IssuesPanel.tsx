@@ -316,6 +316,7 @@ function IssueRow({
         <div className="mt-1 truncate text-xs text-deck-text">{issue.title}</div>
         <div className="mt-0.5 text-[10px] text-deck-muted">
           {new Date(issue.createdAt).toLocaleString('zh-CN', { hour12: false })}
+          {issue.branchName ? ` · ${issue.branchName}` : ''}
           {issue.cwd ? ` · ${issue.cwd.split('/').slice(-2).join('/')}` : ''}
         </div>
       </button>

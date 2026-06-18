@@ -300,3 +300,5 @@
 | [CHANGELOG_293.md](CHANGELOG_293.md) | Session model/thinking chips, Git branch display, and diff enlarge/navigation. |
 | [CHANGELOG_294.md](CHANGELOG_294.md) | Session metadata chips show default model as 默认 and refresh Git branch. |
 | [CHANGELOG_295.md](CHANGELOG_295.md) | Enlarged diff view uses a portal overlay above the app navigation. |
+| [CHANGELOG_296.md](CHANGELOG_296.md) | Codex external hooks install/manage terminal sessions; clean Codex config. |
+| [CHANGELOG_297.md](CHANGELOG_297.md) | Issues record branch snapshots; spawn prompt routing test updated. |
