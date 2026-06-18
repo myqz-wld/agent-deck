@@ -187,6 +187,16 @@ function resultOutputTokens(r: {
   return r.usage?.output_tokens ?? 0;
 }
 
+function resultLiveRateModel(r: {
+  modelUsage?: Record<string, { outputTokens?: number }>;
+}): string | null {
+  const entries = Object.entries(r.modelUsage ?? {});
+  const outputEntries = entries.filter(([, usage]) => (usage.outputTokens ?? 0) > 0);
+  if (outputEntries.length === 1) return outputEntries[0][0];
+  if (entries.length === 1) return entries[0][0];
+  return null;
+}
+
 function compactFailureText(msg: { compact_result?: unknown; compact_error?: unknown }): string | null {
   if (msg.compact_result !== 'failed') return null;
   const detail =
@@ -407,7 +417,7 @@ export function translateSdkMessage(
       clearLiveTokenEstimate(internal, sessionId, ts);
       return;
     }
-    completeLiveTokenEstimate(internal, sessionId, resultOutputTokens(r), ts);
+    completeLiveTokenEstimate(internal, sessionId, resultOutputTokens(r), ts, resultLiveRateModel(r));
     emitResultUsageCorrection(e, internal, resolveClaudeFallbackModel(internal, sessionId), r);
     if (r.is_error || (r.subtype && r.subtype !== 'success')) {
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';

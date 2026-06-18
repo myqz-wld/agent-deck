@@ -9,6 +9,9 @@ const EMA_ALPHA = 0.4;
 type StreamEventMessage = {
   event?: {
     type?: string;
+    message?: {
+      model?: string;
+    };
     delta?: {
       type?: string;
       text?: string;
@@ -21,11 +24,20 @@ function asStreamEventMessage(msg: unknown): StreamEventMessage {
   return msg && typeof msg === 'object' ? (msg as StreamEventMessage) : {};
 }
 
-function resolveBucketKey(internal: InternalSession, sessionId: string): string {
+function hasExplicitModel(model: string | null | undefined): model is string {
+  return model != null && model.trim() !== '';
+}
+
+function resolveBucketKey(
+  internal: InternalSession,
+  sessionId: string,
+  modelOverride?: string | null,
+): string {
   try {
+    if (hasExplicitModel(modelOverride)) return normalizeModel(modelOverride).bucketKey;
     const model =
       sessionRepo.get(internal.applicationSid)?.model ?? sessionRepo.get(sessionId)?.model ?? null;
-    if (model == null || model.trim() === '') return CLAUDE_DEFAULT_BUCKET;
+    if (!hasExplicitModel(model)) return CLAUDE_DEFAULT_BUCKET;
     return normalizeModel(model).bucketKey;
   } catch {
     return CLAUDE_DEFAULT_BUCKET;
@@ -40,6 +52,11 @@ function extractDeltaText(msg: unknown): string {
   if (typeof delta.text === 'string') return delta.text;
   if (typeof delta.thinking === 'string') return delta.thinking;
   return '';
+}
+
+function extractMessageStartModel(msg: StreamEventMessage): string | null {
+  const model = msg.event?.message?.model;
+  return hasExplicitModel(model) ? model : null;
 }
 
 export function estimateTokensFromText(text: string): number {
@@ -62,11 +79,16 @@ function closeCurrentDecodeSegment(state: InternalSession['liveTokenEstimate']):
   return elapsed;
 }
 
-function armLiveEstimate(internal: InternalSession, sessionId: string, now: number): void {
+function armLiveEstimate(
+  internal: InternalSession,
+  sessionId: string,
+  now: number,
+  modelOverride?: string | null,
+): void {
   const prev = internal.liveTokenEstimate;
   if (prev) closeCurrentDecodeSegment(prev);
   internal.liveTokenEstimate = {
-    bucketKey: resolveBucketKey(internal, sessionId),
+    bucketKey: resolveBucketKey(internal, sessionId, modelOverride),
     estTokensSinceFlush: 0,
     lastFlushTs: now,
     hasFlushAnchor: false,
@@ -90,7 +112,7 @@ export function handleStreamEventForLiveRate(
   try {
     const streamMsg = asStreamEventMessage(msg);
     if (streamMsg.event?.type === 'message_start') {
-      armLiveEstimate(internal, sessionId, now);
+      armLiveEstimate(internal, sessionId, now, extractMessageStartModel(streamMsg));
       return;
     }
 
@@ -120,7 +142,6 @@ export function handleStreamEventForLiveRate(
 
     const emaTps =
       state.emaTps === undefined ? rawTps : EMA_ALPHA * rawTps + (1 - EMA_ALPHA) * state.emaTps;
-    state.bucketKey = resolveBucketKey(internal, sessionId);
     state.estTokensSinceFlush = 0;
     state.lastFlushTs = now;
     state.emaTps = emaTps;
@@ -141,10 +162,13 @@ export function completeLiveTokenEstimate(
   sessionId: string,
   outputTokens: number,
   now = Date.now(),
+  modelOverride?: string | null,
 ): boolean {
   try {
     const state = internal.liveTokenEstimate;
-    const bucketKey = state?.bucketKey ?? resolveBucketKey(internal, sessionId);
+    const bucketKey = hasExplicitModel(modelOverride)
+      ? resolveBucketKey(internal, sessionId, modelOverride)
+      : state?.bucketKey ?? resolveBucketKey(internal, sessionId);
     if (state) closeCurrentDecodeSegment(state);
 
     const elapsedMs = state?.decodeElapsedMs ?? 0;

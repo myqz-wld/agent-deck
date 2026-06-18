@@ -22,8 +22,10 @@ import { translateSdkMessage } from '../sdk-message-translate';
 import { makeInternalSession } from '../types';
 import type { AgentEvent } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
+import { eventBus } from '@main/event-bus';
 
 const sessionGetMock = vi.mocked(sessionRepo.get);
+const eventBusEmitMock = vi.mocked(eventBus.emit);
 
 function setup() {
   const events: AgentEvent[] = [];
@@ -87,6 +89,7 @@ function tokenEvents(events: AgentEvent[]): AgentEvent[] {
 describe('translateSdkMessage token-usage 采集', () => {
   beforeEach(() => {
     sessionGetMock.mockReset();
+    eventBusEmitMock.mockClear();
   });
 
   it('基本采集：id/model/usage → 一条 token-usage（cache_* 正常）', () => {
@@ -371,5 +374,39 @@ describe('translateSdkMessage token-usage 采集', () => {
     );
 
     expect(tokenEvents(events)).toHaveLength(1);
+  });
+
+  it('result.modelUsage 校准 tick 使用实际模型 bucket 而不是 session alias', () => {
+    const { emit, internal } = setup();
+    internal.liveTokenEstimate = {
+      bucketKey: 'opus',
+      estTokensSinceFlush: 0,
+      lastFlushTs: Date.now() - 1000,
+      hasFlushAnchor: true,
+      decodeElapsedMs: 1000,
+    };
+
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        uuid: 'result-3',
+        modelUsage: {
+          'claude-opus-4-8': {
+            outputTokens: 100,
+          },
+        },
+      }),
+      internal,
+    );
+
+    expect(eventBusEmitMock).toHaveBeenCalledWith(
+      'token-rate-tick',
+      expect.objectContaining({
+        sessionId: 'sid-1',
+        bucketKey: 'opus-4.8',
+        tps: 100,
+      }),
+    );
   });
 });

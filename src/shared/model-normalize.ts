@@ -7,7 +7,7 @@
  *
  * **为什么归一**：同一基础模型有多个变体后缀（`-thinking` / `-thinking-max` / `[1m]` /
  * reasoning 等级），用户语义上是「同一个模型」。token 统计按 bucketKey 聚合（Top3 / 每模型每天），
- * 把变体合并为一个 bucket + 友好显示名（如 `Opus 4.8`）。DB 同时存原始 model id（model_raw 列）
+ * 把变体合并为一个 bucket + 稳定显示名（如 `opus-4.8`）。DB 同时存原始 model id（model_raw 列）
  * 保粒度，bucket 仅用于聚合维度。
  *
  * **shared/ 边界约定**（详 ipc-channels.ts 顶部）：本文件属 **policy**（model 归一规则；
@@ -20,11 +20,11 @@
  */
 export const WINDOW_MS = 60_000;
 
-/** 归一结果：bucketKey（聚合维度，GROUP BY 用）+ displayName（UI 友好显示）。 */
+/** 归一结果：bucketKey（聚合维度，GROUP BY 用）+ displayName（UI 显示）。 */
 export interface NormalizedModel {
   /** 聚合 bucket key（稳定标识，写入 token_usage.model_bucket）。 */
   bucketKey: string;
-  /** UI 友好显示名（renderer 渲染用，不入库——改文案无需迁移）。 */
+  /** UI 显示名（renderer 渲染用，不入库——改文案无需迁移）。 */
   displayName: string;
 }
 
@@ -64,13 +64,15 @@ function stripVariantSuffixes(raw: string): string {
 /**
  * 把核心串解析成 `{family, version}`。
  * - claude：`claude-fable-5` → family=fable / version=5；`claude-opus-4-8` → opus/4.8
+ * - 已归一 bucket：`opus-4.8` → opus/4.8
  * - claude alias（无版本号，来自 agent frontmatter）：`fable`/`opus`/`sonnet`/`haiku` → family/无 version
  * - gpt/codex：`gpt-5.5` → gpt/5.5
  * 返回 null = 未识别（走 fallback 原样）。
  */
 function parseFamilyVersion(core: string): { family: string; version: string | null } | null {
   // claude-<family>-<major>-<minor> 或 claude-<family>-<major>
-  const claudeMatch = /^claude-(fable|opus|sonnet|haiku)(?:-(\d+)(?:-(\d+))?)?/.exec(core);
+  const claudeMatch =
+    /^claude-(fable|opus|sonnet|haiku)(?:-(\d+)(?:[.-](\d+))?)?/.exec(core);
   if (claudeMatch) {
     const family = claudeMatch[1];
     const major = claudeMatch[2];
@@ -83,6 +85,10 @@ function parseFamilyVersion(core: string): { family: string; version: string | n
   if (aliasMatch) {
     return { family: aliasMatch[1], version: null };
   }
+  const bucketMatch = /^(fable|opus|sonnet|haiku)-(\d+(?:\.\d+)?)$/.exec(core);
+  if (bucketMatch) {
+    return { family: bucketMatch[1], version: bucketMatch[2] };
+  }
   // gpt-<major>-<minor> / gpt-<major>.<minor> / gpt-<major>
   const gptMatch = /^gpt-(\d+)(?:[.-](\d+))?/.exec(core);
   if (gptMatch) {
@@ -94,21 +100,13 @@ function parseFamilyVersion(core: string): { family: string; version: string | n
   return null;
 }
 
-const FAMILY_DISPLAY: Record<string, string> = {
-  fable: 'Fable',
-  opus: 'Opus',
-  sonnet: 'Sonnet',
-  haiku: 'Haiku',
-};
-
 /**
  * 归一 model id → {bucketKey, displayName}。
  *
  * - null / 空串 → UNKNOWN_BUCKET（「未知模型」）
  * - CODEX_DEFAULT_BUCKET 占位 → 「Codex (默认模型)」
- * - 识别出 family+version → bucketKey=`<family>-<version>`（如 `opus-4.8`），displayName=`Opus 4.8`
- *  ；gpt family 保持 bucket 风格显示（`gpt-5.5`），与 Codex / 第三方模型 id 对齐。
- * - 识别出 family 无 version（alias）→ bucketKey=family，displayName=`Opus`
+ * - 识别出 family+version → bucketKey/displayName 都用 `<family>-<version>`（如 `opus-4.8`）
+ * - 识别出 family 无 version（alias）→ bucketKey/displayName 都用 family（如 `opus`）
  * - 未识别 → fallback：bucketKey=stripped core（小写归一保聚合稳定），displayName=原始 raw（保粒度可读）
  */
 export function normalizeModel(raw: string | null | undefined): NormalizedModel {
@@ -125,20 +123,14 @@ export function normalizeModel(raw: string | null | undefined): NormalizedModel 
   const core = stripVariantSuffixes(trimmed);
   const parsed = parseFamilyVersion(core);
   if (parsed) {
-    const familyDisplay = FAMILY_DISPLAY[parsed.family] ?? parsed.family;
     if (parsed.version) {
-      if (parsed.family === 'gpt') {
-        return {
-          bucketKey: `${parsed.family}-${parsed.version}`,
-          displayName: `${parsed.family}-${parsed.version}`,
-        };
-      }
+      const bucketKey = `${parsed.family}-${parsed.version}`;
       return {
-        bucketKey: `${parsed.family}-${parsed.version}`,
-        displayName: `${familyDisplay} ${parsed.version}`,
+        bucketKey,
+        displayName: bucketKey,
       };
     }
-    return { bucketKey: parsed.family, displayName: familyDisplay };
+    return { bucketKey: parsed.family, displayName: parsed.family };
   }
   // fallback：未识别的 model（新模型 / 第三方）。bucketKey 用 stripped core 保聚合稳定
   // （同 model 不同变体仍合并），displayName 保原始 raw 让用户能认出。

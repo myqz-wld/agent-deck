@@ -306,3 +306,4 @@
 | [CHANGELOG_299.md](CHANGELOG_299.md) | Reuse the Codex quota background app-server across refreshes. |
 | [CHANGELOG_300.md](CHANGELOG_300.md) | Data tab quota percentages render as integers. |
 | [CHANGELOG_301.md](CHANGELOG_301.md) | Data tab quota refresh is less aggressive and adds a hard refresh button. |
+| [CHANGELOG_302.md](CHANGELOG_302.md) | Align live and precise token-rate model buckets. |

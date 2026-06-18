@@ -9,17 +9,17 @@ import {
 
 describe('normalizeModel', () => {
   describe('claude 各版本 + 变体合并', () => {
-    it('claude-opus-4-8-thinking-max[1m] → Opus 4.8（变体后缀全剥）', () => {
+    it('claude-opus-4-8-thinking-max[1m] → opus-4.8（变体后缀全剥）', () => {
       expect(normalizeModel('claude-opus-4-8-thinking-max[1m]')).toEqual({
         bucketKey: 'opus-4.8',
-        displayName: 'Opus 4.8',
+        displayName: 'opus-4.8',
       });
     });
 
-    it('claude-fable-5[1m] → Fable 5', () => {
+    it('claude-fable-5[1m] → fable-5', () => {
       expect(normalizeModel('claude-fable-5[1m]')).toEqual({
         bucketKey: 'fable-5',
-        displayName: 'Fable 5',
+        displayName: 'fable-5',
       });
     });
 
@@ -36,30 +36,41 @@ describe('normalizeModel', () => {
       expect(buckets[0]).toBe('opus-4.8');
     });
 
-    it('claude-sonnet-4-5 → Sonnet 4.5', () => {
+    it('claude-sonnet-4-5 → sonnet-4.5', () => {
       expect(normalizeModel('claude-sonnet-4-5')).toEqual({
         bucketKey: 'sonnet-4.5',
-        displayName: 'Sonnet 4.5',
+        displayName: 'sonnet-4.5',
       });
     });
 
-    it('claude-haiku-4-5-20251001 → Haiku 4.5（日期后缀剥到 version 后停）', () => {
+    it('claude-haiku-4-5-20251001 → haiku-4.5（日期后缀剥到 version 后停）', () => {
       // major-minor 抓到 4.5 后，-20251001 不被 parse 进 version（regex 只取前两段数字）
       const r = normalizeModel('claude-haiku-4-5-20251001');
       expect(r.bucketKey).toBe('haiku-4.5');
-      expect(r.displayName).toBe('Haiku 4.5');
+      expect(r.displayName).toBe('haiku-4.5');
     });
 
     it('大写 / 混合大小写归一', () => {
       expect(normalizeModel('Claude-Opus-4-8').bucketKey).toBe('opus-4.8');
     });
+
+    it('已归一 bucket key 仍按 bucket 风格显示', () => {
+      expect(normalizeModel('opus-4.8')).toEqual({
+        bucketKey: 'opus-4.8',
+        displayName: 'opus-4.8',
+      });
+      expect(normalizeModel('sonnet-4.5')).toEqual({
+        bucketKey: 'sonnet-4.5',
+        displayName: 'sonnet-4.5',
+      });
+    });
   });
 
   describe('alias（无版本号，agent frontmatter）', () => {
-    it.each(['fable', 'opus', 'sonnet', 'haiku'])('%s alias → 首字母大写 family', (alias) => {
+    it.each(['fable', 'opus', 'sonnet', 'haiku'])('%s alias → bucket 风格 family', (alias) => {
       const r = normalizeModel(alias);
       expect(r.bucketKey).toBe(alias);
-      expect(r.displayName).toBe(alias[0].toUpperCase() + alias.slice(1));
+      expect(r.displayName).toBe(alias);
     });
   });
 
