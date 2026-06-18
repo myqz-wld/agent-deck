@@ -304,6 +304,9 @@ export class CodexSdkBridge {
     if (envOverrideExtra) {
       Object.assign(envOverride, envOverrideExtra);
     }
+    // App-managed Codex app-server processes inherit user Codex hooks. Mark them as SDK-owned
+    // so hook callbacks do not create duplicate external sessions in the live list.
+    envOverride.AGENT_DECK_ORIGIN = 'sdk';
     const codex = new CodexAppServerClient({
       codexPathOverride: userCodexPath || null,
       config: codexConfig,

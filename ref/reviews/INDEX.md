@@ -138,3 +138,4 @@ Use `REVIEW_X.md`, where `X` is the next integer and historically aligns with `C
 | [REVIEW_124.md](REVIEW_124.md) | Pending AskUserQuestion and Plan rows had duplicate lower-right actions. | 2 LOW fixed | CHANGELOG_287 |
 | [REVIEW_125.md](REVIEW_125.md) | Claude compaction display and adapter-aware thinking copy. | 3 LOW fixed | CHANGELOG_291 |
 | [REVIEW_126.md](REVIEW_126.md) | Runtime log warning/error triage follow-up. | 2 LOW fixed | CHANGELOG_292 |
+| [REVIEW_127.md](REVIEW_127.md) | Latest commit lockfile drift plus Codex internal-hook filtering and external PID lifecycle. | 3 MEDIUM fixed | CHANGELOG_298 |

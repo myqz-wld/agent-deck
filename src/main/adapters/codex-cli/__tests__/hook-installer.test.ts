@@ -47,6 +47,9 @@ describe('CodexHookInstaller', () => {
     expect(data.hooks.PreToolUse[0].matcher).toBe('.*');
     expect(data.hooks.Stop[0].matcher).toBeUndefined();
     expect(data.hooks.SessionStart[0].hooks[0].command).toContain('/hook/codex/sessionstart');
+    expect(data.hooks.SessionStart[0].hooks[0].command).toContain(
+      'X-Agent-Deck-Parent-Pid: ${PPID:-}',
+    );
     expect(data.hooks.PreToolUse[0].hooks[0].command).toContain('# agent-deck-hook');
   });
 

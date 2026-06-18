@@ -184,6 +184,49 @@ describe('SessionManager.ingest 时序', () => {
     expect(mockEvents.length).toBe(eventsBefore); // 不增加
   });
 
+  it('4b) SDK-derived orphan hook → 不创建外部 cli 会话', () => {
+    const hookEv = makeEvent({
+      sessionId: 'codex-internal-oneshot',
+      source: 'hook',
+      hookOrigin: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    });
+
+    sessionManager.ingest(hookEv);
+
+    expect(mockSessions.get('codex-internal-oneshot')).toBeUndefined();
+    expect(mockEvents).toHaveLength(0);
+    expect(mockEmits.some((e) => e.name === 'session-upserted')).toBe(false);
+  });
+
+  it('4c) 外部 hook session-end → 会话立即 closed', () => {
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'codex-external',
+        source: 'hook',
+        kind: 'session-start',
+        payload: { cwd: '/tmp' },
+        ts: 100,
+      }),
+    );
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'codex-external',
+        source: 'hook',
+        kind: 'session-end',
+        payload: { cwd: '/tmp', reason: 'completed' },
+        ts: 200,
+      }),
+    );
+
+    const rec = mockSessions.get('codex-external');
+    expect(rec?.source).toBe('cli');
+    expect(rec?.lifecycle).toBe('closed');
+    expect(rec?.endedAt).toBe(200);
+  });
+
   it('5) file-changed 事件 → fileChangeRepo.insert 被调用 + before/after 序列化', () => {
     const ev = makeEvent({
       sessionId: 'sess-3',
