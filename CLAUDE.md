@@ -27,7 +27,7 @@ When creating or maintaining the repository, place files according to this struc
 - `ref/plans/INDEX.md`: final plan index; final plan files live in `ref/plans/`.
 - `ref/conventions/INDEX.md`: index of promoted project conventions. Convention bodies use `ref/conventions/<X>-<topic>.md`; `ref/conventions/tally.md` is the entry point for repeated feedback / repeated pitfall counts.
 - `ref/flows/`, `ref/architecture/`: PlantUML flow / architecture diagram SSOTs (`.puml` files are committed; rendered artifacts are not).
-- `.refs/`: must be added to `.gitignore`; stores only non-final plan/review working copies, not final records.
+- `.ref/`: must be added to `.gitignore`; stores only non-final plan/review working copies, not final records.
 
 ## Documentation Language
 
@@ -43,7 +43,7 @@ Before starting, run `ls ref/conventions ref/changelogs ref/plans ref/reviews 2>
 
 1. **When changing user-visible behavior, file structure, or startup behavior** (UI / CLI copy / settings / keyboard shortcuts / project structure / ports / dependencies / validation steps), update the relevant section of `README.md`. When adding or changing user-facing UI/CLI copy, follow `UI_COPY_LANGUAGE.md`; if the language requirement differs, update that file first. Pure bug fixes and internal refactors do not require README changes.
 2. For every meaningful feature, behavior, API, or dependency change, write `ref/changelogs/CHANGELOG_X.md` and update `ref/changelogs/INDEX.md`. For debug, performance, security, or review-driven fixes, write `ref/reviews/REVIEW_X.md` and update `ref/reviews/INDEX.md`. Choose `X` as the next integer after the current maximum, confirmed with `ls`; do not guess. INDEX summaries must be <= 80 characters or one short English sentence.
-3. Store non-final plans at `<repo>/.refs/plans/<plan-id>.md`; store non-final review drafts at `<repo>/.refs/reviews/<review-id>.md` or in session output. When finalizing, move the final record and clean up working copies: archive plans into `ref/plans/` and update `ref/plans/INDEX.md`; archive reviews into `ref/reviews/REVIEW_X.md` and update `ref/reviews/INDEX.md`.
+3. Store non-final plans at `<repo>/.ref/plans/<plan-id>.md`; store non-final review drafts at `<repo>/.ref/reviews/<review-id>.md` or in session output. When finalizing, move the final record and clean up working copies: archive plans into `ref/plans/` and update `ref/plans/INDEX.md`; archive reviews into `ref/reviews/REVIEW_X.md` and update `ref/reviews/INDEX.md`.
 4. Before changing functionality, read the project's existing conventions, changelogs, and review records. Start from the relevant `ref/*/INDEX.md`, then read the related entries.
 5. Before changing long-lived prompt assets, complete inventory, backup, deduplication, counterpart-asset synchronization, and review according to the "Bundled Asset Self-Containment Principle"; required Agent Deck behavior must remain inside bundled assets.
 
