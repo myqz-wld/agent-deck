@@ -13,4 +13,4 @@
 
 - `pnpm exec vitest run src/main/adapters/codex-cli/__tests__/hook-translate.test.ts src/main/adapters/codex-cli/__tests__/hook-installer.test.ts src/main/adapters/codex-cli/__tests__/hook-routes.test.ts src/main/adapters/codex-cli/__tests__/background-usage-snapshot.test.ts src/main/adapters/codex-cli/__tests__/codex-instance-pool.test.ts src/main/adapters/codex-cli/__tests__/sdk-bridge.early-err-cleanup.test.ts src/main/session/__tests__/external-process-tracker.test.ts src/main/session/__tests__/manager-ingest.test.ts`
 - `pnpm typecheck`
-- `pnpm test` (157 files passed / 18 skipped, 1668 tests passed / 291 skipped)
+- `pnpm test` (175 files passed, 1961 tests passed)
