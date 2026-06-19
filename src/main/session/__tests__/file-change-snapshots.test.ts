@@ -94,4 +94,25 @@ describe('buildFileChangeSnapshots', () => {
       afterSnapshot: '',
     });
   });
+
+  it('records Codex adds with an empty before snapshot when the diff is raw content', () => {
+    const filePath = tempFile('created.md', '# Created\n\ncontent\n');
+
+    const snapshots = buildFileChangeSnapshots({
+      filePath,
+      kind: 'text',
+      before: null,
+      after: null,
+      metadata: {
+        source: 'codex',
+        changeKind: 'add',
+        diff: '# Created\n\ncontent\n',
+      },
+    });
+
+    expect(snapshots).toEqual({
+      beforeSnapshot: '',
+      afterSnapshot: '# Created\n\ncontent\n',
+    });
+  });
 });

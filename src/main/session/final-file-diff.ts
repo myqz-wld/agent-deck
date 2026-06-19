@@ -59,10 +59,10 @@ function snapshotFinalDiff(
   const ordered = [...fileChanges].sort((a, b) => a.ts - b.ts || a.id - b.id);
   const first = ordered[0];
   const last = ordered[ordered.length - 1];
-  const before = first.beforeSnapshot;
-  const after = last.afterSnapshot;
-  if (before == null || after == null) return null;
   const finalFileKind = inferFinalFileKind(first, last);
+  const before = first.beforeSnapshot ?? (isAddChange(first) ? '' : null);
+  const after = last.afterSnapshot ?? (isDeleteChange(last) ? '' : null);
+  if (before == null || after == null) return null;
 
   if (before === after && finalFileKind === null) {
     return {

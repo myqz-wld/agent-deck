@@ -65,6 +65,7 @@ function reverseRecordedTextChange(
     const reversed = reverseUnifiedDiffSnapshot(afterSnapshot, diff);
     if (reversed !== null) return reversed;
   }
+  if (isAddChange(input.metadata)) return '';
 
   const source = typeof input.metadata.source === 'string' ? input.metadata.source : '';
   const before = typeof input.before === 'string' ? input.before : null;
@@ -104,6 +105,21 @@ function isDeleteChange(metadata: Record<string, unknown>): boolean {
   if (kind === 'delete') return true;
   if (kind && typeof kind === 'object' && !Array.isArray(kind)) {
     return (kind as { type?: unknown }).type === 'delete';
+  }
+  return false;
+}
+
+function isAddChange(metadata: Record<string, unknown>): boolean {
+  const kind = metadata.changeKind;
+  if (typeof kind === 'string') {
+    return ['add', 'added', 'new', 'create', 'created'].includes(kind.toLowerCase());
+  }
+  if (kind && typeof kind === 'object' && !Array.isArray(kind)) {
+    const type = (kind as { type?: unknown }).type;
+    return (
+      typeof type === 'string' &&
+      ['add', 'added', 'new', 'create', 'created'].includes(type.toLowerCase())
+    );
   }
   return false;
 }
