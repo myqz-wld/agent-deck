@@ -8,6 +8,7 @@ import { adapterRegistry } from '@main/adapters/registry';
 import { errorUsageSnapshot, unavailableUsageSnapshot } from '@main/adapters/provider-usage';
 import { on } from './_helpers';
 import log from '@main/utils/logger';
+import { PROVIDER_USAGE_CACHE_TTL_MS } from '@shared/constants/provider-usage';
 
 const logger = log.scope('provider-usage');
 
@@ -27,7 +28,7 @@ type ProviderUsageSnapshotOptions = {
   force?: boolean;
 };
 
-export const PROVIDER_USAGE_CACHE_TTL_MS = 5 * 60_000 - 5_000;
+export { PROVIDER_USAGE_CACHE_TTL_MS };
 
 let cachedResult: { result: ProviderUsageSnapshotResult; fetchedAt: number } | null = null;
 let inFlightFetch: Promise<ProviderUsageSnapshotResult> | null = null;

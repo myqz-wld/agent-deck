@@ -314,3 +314,5 @@
 | [CHANGELOG_307.md](CHANGELOG_307.md) | Final diff preserves initial create and final delete as whole-file changes. |
 | [CHANGELOG_308.md](CHANGELOG_308.md) | Final diff matches relative and absolute records for the same file. |
 | [CHANGELOG_309.md](CHANGELOG_309.md) | Final diff repairs historical add records with null before snapshots. |
+| [CHANGELOG_310.md](CHANGELOG_310.md) | Directory picker calls are single-flight, provider quota refresh remains at 5 minutes, and Codex new-session creation returns a temp session before background real-id rename. |
+| [CHANGELOG_311.md](CHANGELOG_311.md) | Recent warning/error log noise is reduced by bundling local Monaco workers and fixing the Codex quota cached-client idle timer race. |

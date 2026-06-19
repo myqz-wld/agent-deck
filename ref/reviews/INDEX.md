@@ -141,3 +141,6 @@ Use `REVIEW_X.md`, where `X` is the next integer and historically aligns with `C
 | [REVIEW_127.md](REVIEW_127.md) | Latest commit lockfile drift plus Codex internal-hook filtering and lifecycle guard. | 2 MEDIUM fixed / 1 guarded | CHANGELOG_298 |
 | [REVIEW_128.md](REVIEW_128.md) | Codex quota reads without an open Codex session recreated app-server processes and hit unstable `wham/usage` failures. | 1 MEDIUM fixed | CHANGELOG_299 |
 | [REVIEW_129.md](REVIEW_129.md) | Real-time token-rate display split Claude alias and actual model buckets. | 1 MEDIUM fixed + 1 LOW fixed | CHANGELOG_302 |
+| [REVIEW_130.md](REVIEW_130.md) | Directory picker stalls, provider quota refresh cadence, and Codex create-session latency. | 3 MEDIUM fixed + 1 LOW fixed | CHANGELOG_310 |
+| [REVIEW_131.md](REVIEW_131.md) | Recent warning/error app log triage: Monaco CDN worker failure and Codex quota cached-client idle timer race. | 2 MEDIUM fixed | CHANGELOG_311 |
+| [REVIEW_132.md](REVIEW_132.md) | Codex-only simple review of directory picker/quota/log/Codex temp-session changes; Claude side skipped per user. | 2 HIGH fixed | CHANGELOG_310 + CHANGELOG_311 |

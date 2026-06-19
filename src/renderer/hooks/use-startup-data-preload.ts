@@ -1,8 +1,12 @@
 import { useEffect } from 'react';
 import { useTokenUsageStore } from '../stores/token-usage-store';
+import {
+  PROVIDER_USAGE_CACHE_TTL_MS,
+  PROVIDER_USAGE_REFETCH_MS,
+} from '@shared/constants/provider-usage';
 
-export const PROVIDER_USAGE_REFETCH_MS = 5 * 60_000;
-export const PROVIDER_USAGE_RENDERER_STALE_MS = PROVIDER_USAGE_REFETCH_MS - 5_000;
+export { PROVIDER_USAGE_REFETCH_MS };
+export const PROVIDER_USAGE_RENDERER_STALE_MS = PROVIDER_USAGE_CACHE_TTL_MS;
 
 /**
  * App-level cold data preload and background quota refresh for the Data tab.

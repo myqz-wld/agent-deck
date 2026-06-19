@@ -61,6 +61,10 @@ afterEach(() => {
 });
 
 describe('useStartupDataPreload', () => {
+  it('keeps provider quota background refresh at five minutes', () => {
+    expect(PROVIDER_USAGE_REFETCH_MS).toBe(5 * 60_000);
+  });
+
   it('preloads provider usage into the renderer store before DataPanel mounts', async () => {
     renderHook(() => useStartupDataPreload());
 

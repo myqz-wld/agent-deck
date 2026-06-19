@@ -5,6 +5,8 @@ import { useDiffExpanded } from '../ExpandedContext';
 
 // Monaco 体积大，懒加载
 const DiffEditor = lazy(async () => {
+  const { configureLocalMonaco } = await import('@renderer/lib/monaco-local');
+  configureLocalMonaco();
   const mod = await import('@monaco-editor/react');
   return { default: mod.DiffEditor };
 });
