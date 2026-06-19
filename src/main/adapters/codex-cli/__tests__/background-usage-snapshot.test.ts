@@ -7,6 +7,7 @@ import {
 describe('readCodexUsageSnapshotInBackground', () => {
   afterEach(() => {
     invalidateCodexUsageSnapshotClient();
+    vi.useRealTimers();
   });
 
   it('reads account rate limits through a transient client only', async () => {
@@ -136,5 +137,68 @@ describe('readCodexUsageSnapshotInBackground', () => {
     expect(firstDispose).toHaveBeenCalledTimes(1);
     expect(second.windows[0]?.usedPercent).toBe(44);
     expect(secondDispose).not.toHaveBeenCalled();
+  });
+
+  it('clears the cached client idle timer while a reused quota read is in flight', async () => {
+    vi.useFakeTimers();
+    type RateLimitsResponse = {
+      rateLimits: {
+        limitId: string;
+        primary: { usedPercent: number; windowDurationMins: number; resetsAt: null };
+        secondary: null;
+      };
+    };
+    let resolveSecond: (value: RateLimitsResponse) => void = () => {
+      throw new Error('test resolver not initialized');
+    };
+    const dispose = vi.fn();
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rateLimits: {
+          limitId: 'codex',
+          primary: { usedPercent: 41, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+        },
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+    const makeClient = vi.fn(() => ({ request, dispose }));
+
+    await readCodexUsageSnapshotInBackground({
+      makeClient,
+      cacheClient: true,
+      idleDisposeMs: 10,
+      timeoutMs: 1_000,
+      getProbeCwdFn: () => '/agent-deck/userData/provider-usage-probe-cwd',
+    });
+
+    const secondPromise = readCodexUsageSnapshotInBackground({
+      makeClient,
+      cacheClient: true,
+      idleDisposeMs: 10,
+      timeoutMs: 1_000,
+      getProbeCwdFn: () => '/agent-deck/userData/provider-usage-probe-cwd',
+    });
+
+    await vi.advanceTimersByTimeAsync(20);
+    expect(dispose).not.toHaveBeenCalled();
+
+    resolveSecond({
+      rateLimits: {
+        limitId: 'codex',
+        primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: null },
+        secondary: null,
+      },
+    });
+    const second = await secondPromise;
+    expect(second.windows[0]?.usedPercent).toBe(42);
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 });

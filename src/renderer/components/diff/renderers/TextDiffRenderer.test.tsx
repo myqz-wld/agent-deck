@@ -25,6 +25,9 @@ vi.mock('@monaco-editor/react', async () => {
       }),
   };
 });
+vi.mock('@renderer/lib/monaco-local', () => ({
+  configureLocalMonaco: vi.fn(),
+}));
 
 afterEach(() => cleanup());
 

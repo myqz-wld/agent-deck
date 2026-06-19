@@ -41,6 +41,9 @@ importers:
       fastify:
         specifier: ^5.0.0
         version: 5.8.5
+      monaco-editor:
+        specifier: 0.55.1
+        version: 0.55.1
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2

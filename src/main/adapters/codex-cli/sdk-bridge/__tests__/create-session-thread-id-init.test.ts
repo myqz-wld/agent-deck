@@ -102,6 +102,7 @@ import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map'
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
+import { THREAD_STARTED_FALLBACK_MS } from '@main/adapters/codex-cli/sdk-bridge/constants';
 import type { AgentEvent } from '@shared/types';
 
 const emits: AgentEvent[] = [];
@@ -126,6 +127,40 @@ class ControlledThread {
       resolve({ events });
     });
   });
+}
+
+class PushThread {
+  private queue: unknown[] = [];
+  private waiters: Array<(value: unknown) => void> = [];
+  rejectOnRun: Error | null = null;
+
+  runStreamed = vi.fn(async (_input: unknown, _opts: unknown) => {
+    if (this.rejectOnRun) throw this.rejectOnRun;
+    return {
+      events: this.iterEvents(),
+    };
+  });
+
+  push(event: unknown): void {
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      waiter(event);
+      return;
+    }
+    this.queue.push(event);
+  }
+
+  private async *iterEvents(): AsyncIterable<unknown> {
+    while (true) {
+      if (this.queue.length > 0) {
+        yield this.queue.shift();
+        continue;
+      }
+      yield await new Promise<unknown>((resolve) => {
+        this.waiters.push(resolve);
+      });
+    }
+  }
 }
 
 let nextThread: ControlledThread | null = null;
@@ -165,6 +200,12 @@ function getInternalThreadId(bridge: CodexSdkBridge, sid: string): string | null
   const sessions = (bridge as unknown as { sessions: Map<string, { threadId: string | null }> })
     .sessions;
   return sessions.get(sid)?.threadId;
+}
+
+async function flushAsyncWork(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
@@ -252,6 +293,180 @@ describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
     expect(getInternalThreadId(bridge, 'app-A')).toBe('cli-NEW');
     // case 3 命中 → 调 updateCliSessionId(applicationSid, newId)（intended 反向 rename）
     expect(sessionManager.updateCliSessionId).toHaveBeenCalledWith('app-A', 'cli-NEW');
+  });
+});
+
+describe('codex createSession new path latency', () => {
+  it('新建会话立即返回 temp session，thread.started 后后台 rename，不重复 emit start/user', async () => {
+    vi.useFakeTimers();
+    const pushThread = new PushThread();
+    appServerClientMock.nextThread = pushThread;
+
+    const bridge = makeBridge();
+    const handle = await bridge.createSession({
+      cwd: '/repo',
+      prompt: 'hi',
+      codexSandbox: 'workspace-write',
+    });
+    const tempSid = handle.sessionId;
+
+    expect(tempSid).not.toBe('real-thread-1');
+    expect(pushThread.runStreamed).not.toHaveBeenCalled();
+    expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
+    expect(sessionManager.claimAsSdk).toHaveBeenCalledWith(tempSid);
+    expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith(tempSid, 'workspace-write');
+
+    const startsBeforeRename = emits.filter((e) => e.kind === 'session-start');
+    const userMessagesBeforeRename = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(startsBeforeRename).toHaveLength(1);
+    expect(startsBeforeRename[0]?.sessionId).toBe(tempSid);
+    expect(userMessagesBeforeRename).toHaveLength(1);
+    expect(userMessagesBeforeRename[0]?.sessionId).toBe(tempSid);
+
+    const sessionsBeforeStart = (bridge as unknown as { sessions: Map<string, unknown> }).sessions;
+    expect(sessionsBeforeStart.has(tempSid)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pushThread.runStreamed).toHaveBeenCalledTimes(1);
+
+    pushThread.push({ type: 'thread.started', thread_id: 'real-thread-1' });
+    await flushAsyncWork();
+
+    expect(sessionManager.renameSdkSession).toHaveBeenCalledWith(tempSid, 'real-thread-1');
+
+    const sessions = (bridge as unknown as { sessions: Map<string, unknown> }).sessions;
+    expect(sessions.has(tempSid)).toBe(false);
+    expect(sessions.has('real-thread-1')).toBe(true);
+
+    expect(emits.filter((e) => e.kind === 'session-start')).toHaveLength(1);
+    expect(
+      emits.filter(
+        (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('新建会话后台 early error 只补 error/finished，不重复 emit start/user', async () => {
+    vi.useFakeTimers();
+    const pushThread = new PushThread();
+    pushThread.rejectOnRun = new Error('spawn boom');
+    appServerClientMock.nextThread = pushThread;
+
+    const bridge = makeBridge();
+    const handle = await bridge.createSession({
+      cwd: '/repo',
+      prompt: 'hi',
+      codexSandbox: 'workspace-write',
+    });
+    const tempSid = handle.sessionId;
+
+    expect(pushThread.runStreamed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushAsyncWork();
+
+    expect(
+      emits.some(
+        (e) =>
+          e.kind === 'message' &&
+          (e.payload as { error?: boolean; text?: string }).error === true &&
+          ((e.payload as { text?: string }).text ?? '').includes('spawn boom'),
+      ),
+    ).toBe(true);
+
+    expect(emits.filter((e) => e.kind === 'session-start')).toHaveLength(1);
+    expect(
+      emits.filter(
+        (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+      ),
+    ).toHaveLength(1);
+    expect(
+      emits.filter(
+        (e) =>
+          e.kind === 'finished' &&
+          (e.payload as { ok?: boolean; subtype?: string }).ok === false &&
+          (e.payload as { subtype?: string }).subtype === 'error',
+      ),
+    ).toHaveLength(1);
+    expect(emits.every((e) => e.sessionId === tempSid)).toBe(true);
+  });
+
+  it('temp 会话在 thread.started 前关闭后，迟到 real id 不 rename / 不复活 session', async () => {
+    vi.useFakeTimers();
+    const pushThread = new PushThread();
+    appServerClientMock.nextThread = pushThread;
+
+    const bridge = makeBridge();
+    const handle = await bridge.createSession({
+      cwd: '/repo',
+      prompt: 'hi',
+      codexSandbox: 'workspace-write',
+    });
+    const tempSid = handle.sessionId;
+
+    await bridge.closeSession(tempSid);
+    await vi.advanceTimersByTimeAsync(0);
+    pushThread.push({ type: 'thread.started', thread_id: 'real-after-close' });
+    await flushAsyncWork();
+
+    const sessions = (bridge as unknown as { sessions: Map<string, unknown> }).sessions;
+    expect(pushThread.runStreamed).not.toHaveBeenCalled();
+    expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
+    expect(sessions.has(tempSid)).toBe(false);
+    expect(sessions.has('real-after-close')).toBe(false);
+    expect(
+      emits.some(
+        (e) =>
+          e.kind === 'message' &&
+          (e.payload as { error?: boolean; text?: string }).error === true &&
+          ((e.payload as { text?: string }).text ?? '').includes('real-after-close'),
+      ),
+    ).toBe(false);
+  });
+
+  it('新建会话 thread.started 超时后仍补 error/finished 并清理 temp token', async () => {
+    vi.useFakeTimers();
+    const pushThread = new PushThread();
+    appServerClientMock.nextThread = pushThread;
+
+    const bridge = makeBridge();
+    const handle = await bridge.createSession({
+      cwd: '/repo',
+      prompt: 'hi',
+      codexSandbox: 'workspace-write',
+    });
+    const tempSid = handle.sessionId;
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pushThread.runStreamed).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(THREAD_STARTED_FALLBACK_MS);
+    await flushAsyncWork();
+
+    expect(
+      emits.some(
+        (e) =>
+          e.kind === 'message' &&
+          (e.payload as { error?: boolean; text?: string }).error === true &&
+          ((e.payload as { text?: string }).text ?? '').includes('30 秒内未发出 thread_id'),
+      ),
+    ).toBe(true);
+    expect(
+      emits.filter(
+        (e) =>
+          e.kind === 'finished' &&
+          (e.payload as { ok?: boolean; subtype?: string }).ok === false &&
+          (e.payload as { subtype?: string }).subtype === 'error',
+      ),
+    ).toHaveLength(1);
+    expect(emits.filter((e) => e.kind === 'session-start')).toHaveLength(1);
+    expect(
+      emits.filter(
+        (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+      ),
+    ).toHaveLength(1);
+    expect(mcpSessionTokenMap.get(tempSid)).toBeNull();
   });
 });
 

@@ -102,10 +102,7 @@ export async function readCodexUsageSnapshotInBackground(
 }
 
 export function invalidateCodexUsageSnapshotClient(): void {
-  if (cachedUsageClientIdleTimer) {
-    clearTimeout(cachedUsageClientIdleTimer);
-    cachedUsageClientIdleTimer = null;
-  }
+  clearCachedUsageClientIdleTimer();
   cachedUsageClient?.dispose();
   cachedUsageClient = null;
   cachedUsageClientKey = null;
@@ -140,13 +137,20 @@ function getCodexUsageClient(opts: {
     cachedUsageClient = makeClient();
     cachedUsageClientKey = key;
   }
+  clearCachedUsageClientIdleTimer();
   return { client: cachedUsageClient, disposeAfterRead: false };
 }
 
 function scheduleCachedUsageClientDisposal(ms: number): void {
-  if (cachedUsageClientIdleTimer) clearTimeout(cachedUsageClientIdleTimer);
+  clearCachedUsageClientIdleTimer();
   cachedUsageClientIdleTimer = setTimeout(invalidateCodexUsageSnapshotClient, Math.max(0, ms));
   cachedUsageClientIdleTimer.unref?.();
+}
+
+function clearCachedUsageClientIdleTimer(): void {
+  if (!cachedUsageClientIdleTimer) return;
+  clearTimeout(cachedUsageClientIdleTimer);
+  cachedUsageClientIdleTimer = null;
 }
 
 function isExpectedCodexUsageUnavailable(err: unknown): boolean {

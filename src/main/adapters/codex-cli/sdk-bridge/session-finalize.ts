@@ -14,7 +14,8 @@
  * - claude 一路（新建）需要全 finalize（emit session-start + setSandbox + setModel + emit user message）
  * - codex 两路 finalize 步骤不同：
  *   - resume 路径：emit session-start + setSandbox + setModel + emit user message + 起 turn loop
- *   - 新建路径：startNewThreadAndAwaitId 内已 emit session-start + emit user message，外部只补 setSandbox + setModel
+ *   - 新建路径：create-session-new 先 emit temp session-start + user message，补 setSandbox + setModel；
+ *     startNewThreadAndAwaitId 后台拿 realId 后只 rename / fallback error
  *
  *   两路共性只有 setSandbox + setModel 两步，emit / runTurnLoop 不在共性里 — 强行
  *   atomic helper 反而让 facade 失去对各路径序列的控制权。
@@ -31,7 +32,7 @@ import log from '@main/utils/logger';
 const logger = log.scope('codex-finalize');
 
 export interface PersistSessionFieldsArgs {
-  /** thread sessionId（resume 路径 = opts.resume；新建路径 = startNewThreadAndAwaitId 拿到的 realId） */
+  /** thread sessionId（resume 路径 = opts.resume；新建路径先写 tempKey，后台 rename 到 realId） */
   sessionId: string;
   /** 解析后的 sandboxMode（已通过 opts.codexSandbox > sessionRepo > settingsStore 三级 fallback） */
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';

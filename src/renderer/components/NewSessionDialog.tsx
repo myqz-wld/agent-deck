@@ -45,9 +45,16 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   // 新 universal team backend 不需要在新建会话对话框里预选 team —— 用户在 TeamHub
   // 单独建 team / 加 member。
   const [busy, setBusy] = useState(false);
+  const [pickingDirectory, setPickingDirectory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickingDirectoryRef = useRef(false);
+  const openRef = useRef(open);
   const imgs = useImageAttachments();
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -92,8 +99,18 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const showClaudeCodeSandbox = agentId === 'claude-code' || agentId === 'deepseek-claude-code';
 
   const browse = async (): Promise<void> => {
-    const r = await window.api.chooseDirectory(cwd || undefined);
-    if (r) setCwd(r);
+    if (busy || pickingDirectoryRef.current) return;
+    pickingDirectoryRef.current = true;
+    setPickingDirectory(true);
+    try {
+      const r = await window.api.chooseDirectory(cwd.trim() ? cwd : undefined);
+      if (r && openRef.current) setCwd(r);
+    } catch (err) {
+      if (openRef.current) setError(`目录选择失败：${(err as Error).message}`);
+    } finally {
+      pickingDirectoryRef.current = false;
+      setPickingDirectory(false);
+    }
   };
 
   const submit = async (): Promise<void> => {
@@ -177,9 +194,10 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                 <button
                   type="button"
                   onClick={() => void browse()}
-                  className="shrink-0 rounded bg-white/10 px-2 text-[10px] hover:bg-white/15"
+                  disabled={busy || pickingDirectory}
+                  className="shrink-0 rounded bg-white/10 px-2 text-[10px] hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  选择…
+                  {pickingDirectory ? '选择中…' : '选择…'}
                 </button>
               </div>
             </Field>

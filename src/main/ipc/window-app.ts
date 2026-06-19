@@ -1,12 +1,14 @@
 /**
  * App / Window / Dialog 通用 IPC handler。
  */
-import { app, dialog, nativeImage, Notification } from 'electron';
+import { app, dialog, nativeImage, Notification, type OpenDialogOptions } from 'electron';
 import { join } from 'node:path';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { getFloatingWindow } from '@main/window';
 import { playSoundOnce } from '@main/notify/sound';
 import { on } from './_helpers';
+
+let chooseDirectoryDialogPromise: Promise<string | null> | null = null;
 
 export function registerWindowAppIpc(): void {
   on(IpcInvoke.AppGetVersion, () => app.getVersion());
@@ -28,18 +30,11 @@ export function registerWindowAppIpc(): void {
 
   // Dialog
   on(IpcInvoke.DialogChooseDirectory, async (_e, defaultPath) => {
-    const win = getFloatingWindow().window;
-    const r = await (win
-      ? dialog.showOpenDialog(win, {
-          properties: ['openDirectory', 'createDirectory'],
-          defaultPath: typeof defaultPath === 'string' ? defaultPath : undefined,
-        })
-      : dialog.showOpenDialog({
-          properties: ['openDirectory', 'createDirectory'],
-          defaultPath: typeof defaultPath === 'string' ? defaultPath : undefined,
-        }));
-    if (r.canceled || r.filePaths.length === 0) return null;
-    return r.filePaths[0];
+    if (chooseDirectoryDialogPromise) return chooseDirectoryDialogPromise;
+    chooseDirectoryDialogPromise = showChooseDirectoryDialog(defaultPath).finally(() => {
+      chooseDirectoryDialogPromise = null;
+    });
+    return chooseDirectoryDialogPromise;
   });
 
   on(IpcInvoke.DialogChooseSoundFile, async (_e, defaultPath) => {
@@ -125,4 +120,17 @@ export function registerWindowAppIpc(): void {
       : await dialog.showMessageBox(showOpts);
     return r.response === 0; // 0 = ok, 1 = cancel
   });
+}
+
+async function showChooseDirectoryDialog(defaultPath: unknown): Promise<string | null> {
+  const win = getFloatingWindow().window;
+  const opts: OpenDialogOptions = {
+    properties: ['openDirectory', 'createDirectory'],
+  };
+  if (typeof defaultPath === 'string' && defaultPath.trim() !== '') {
+    opts.defaultPath = defaultPath;
+  }
+  const r = await (win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts));
+  if (r.canceled || r.filePaths.length === 0) return null;
+  return r.filePaths[0];
 }

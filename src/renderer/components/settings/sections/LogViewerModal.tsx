@@ -7,6 +7,8 @@ const logger = log.scope('log-viewer');
 // Monaco 体积大，懒加载（与 diff/renderers/TextDiffRenderer.tsx 同款 lazy import 模式，
 // 但这里用单文件 Editor 而非 DiffEditor）。
 const Editor = lazy(async () => {
+  const { configureLocalMonaco } = await import('@renderer/lib/monaco-local');
+  configureLocalMonaco();
   const mod = await import('@monaco-editor/react');
   return { default: mod.Editor };
 });

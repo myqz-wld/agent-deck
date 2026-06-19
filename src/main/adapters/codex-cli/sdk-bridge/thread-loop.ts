@@ -75,19 +75,28 @@ export class ThreadLoop {
      * (详 plan §不变量 5 — codex 3 处 emit:fallback / success / sdk-bridge resume)。
      */
     handOff?: HandOffMetadata,
+    options?: { initialSessionEmitted?: boolean },
   ): Promise<string> {
     return new Promise<string>((resolve) => {
       let resolved = false;
+      const initialSessionEmitted = options?.initialSessionEmitted === true;
 
       /**
        * 用 tempKey 顶上 realId 的兜底路径。errorText 是要显示给用户的错误消息：
        * - 30s 超时 → 固定文案（提示查鉴权 / 二进制路径）
        * - early error → SDK 抛出的真实 stderr，准确指向根因
        */
-      const resolveWithFallback = (errorText: string): void => {
+      const resolveWithFallback = (
+        errorText: string,
+        fallbackOptions?: { abortInitiatedByFallback?: boolean },
+      ): void => {
         if (resolved) return;
         resolved = true;
         clearTimeout(fallback);
+        if (internal.intentionallyClosed && fallbackOptions?.abortInitiatedByFallback !== true) {
+          resolve(tempKey);
+          return;
+        }
         // P5 Round 1 reviewer-claude MED-1 修法:fallback 路径(30s timeout / earlyErr)清 codexBySession
         // + mcp-session-token-map entry。sessions Map 仍保留 intentional — sendMessage 走 silent break
         // 防对死会话反复 spawn(详 ThreadLoopCtx.cleanupTempKey 注释)。失败 swallow 不阻塞 fallback emit。
@@ -101,33 +110,35 @@ export class ThreadLoop {
         }
         internal.threadId = tempKey;
         sessionManager.claimAsSdk(tempKey);
-        this.ctx.emit({
-          sessionId: tempKey,
-          agentId: AGENT_ID,
-          kind: 'session-start',
-          payload: { cwd, source: 'sdk' },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        this.ctx.emit({
-          sessionId: tempKey,
-          agentId: AGENT_ID,
-          kind: 'message',
-          payload: {
-            text: promptText,
-            role: 'user',
-            ...(attachments && attachments.length > 0 ? { attachments } : {}),
-            // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 10 步 (codex
-            // fallback first-user-message emit 3 处之一):spread handOff metadata。**不变量 5
-            // 严守**:本 emit 是 user-prompt(`role: 'user'`),与下方 :103-110 error emit
-            // (`payload: {text: errorText, error: true}` 无 `role: 'user'`)不同语义,error
-            // emit 绝对不能 spread handOff(污染 error 语义 + 未来扫 events 误把 error 计入
-            // hand-off baton 链)。
-            ...(handOff ? { handOff } : {}),
-          },
-          ts: Date.now(),
-          source: 'sdk',
-        });
+        if (!initialSessionEmitted) {
+          this.ctx.emit({
+            sessionId: tempKey,
+            agentId: AGENT_ID,
+            kind: 'session-start',
+            payload: { cwd, source: 'sdk' },
+            ts: Date.now(),
+            source: 'sdk',
+          });
+          this.ctx.emit({
+            sessionId: tempKey,
+            agentId: AGENT_ID,
+            kind: 'message',
+            payload: {
+              text: promptText,
+              role: 'user',
+              ...(attachments && attachments.length > 0 ? { attachments } : {}),
+              // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 10 步 (codex
+              // fallback first-user-message emit 3 处之一):spread handOff metadata。**不变量 5
+              // 严守**:本 emit 是 user-prompt(`role: 'user'`),与下方 :103-110 error emit
+              // (`payload: {text: errorText, error: true}` 无 `role: 'user'`)不同语义,error
+              // emit 绝对不能 spread handOff(污染 error 语义 + 未来扫 events 误把 error 计入
+              // hand-off baton 链)。
+              ...(handOff ? { handOff } : {}),
+            },
+            ts: Date.now(),
+            source: 'sdk',
+          });
+        }
         this.ctx.emit({
           sessionId: tempKey,
           agentId: AGENT_ID,
@@ -148,6 +159,12 @@ export class ThreadLoop {
       };
 
       const fallback = setTimeout(() => {
+        if (internal.intentionallyClosed) {
+          if (resolved) return;
+          resolved = true;
+          resolve(tempKey);
+          return;
+        }
         // 30s 内 codex 既没吐 thread.started 也没退出 → 中断它，避免子进程继续挂着。
         // REVIEW_4 M5：必须先设 intentionallyClosed=true 让 runTurnLoop catch 静默退出，
         // 否则 catch 走 aborted 分支再 emit finished:interrupted，与本路径下面
@@ -161,6 +178,7 @@ export class ThreadLoop {
         resolveWithFallback(
           '⚠ Codex SDK 30 秒内未发出 thread_id。可能原因：codex 二进制启动失败 / 鉴权未配置 / 代理超限。' +
             '请在终端运行 `codex auth` 验证鉴权，或检查设置面板的「Codex 二进制路径」。',
+          { abortInitiatedByFallback: true },
         );
       }, THREAD_STARTED_FALLBACK_MS);
 
@@ -171,6 +189,10 @@ export class ThreadLoop {
           if (resolved) return;
           resolved = true;
           clearTimeout(fallback);
+          if (internal.intentionallyClosed) {
+            resolve(tempKey);
+            return;
+          }
           if (realId !== tempKey) {
             // 切 sessions map 的 key
             this.ctx.sessions.delete(tempKey);
@@ -183,30 +205,32 @@ export class ThreadLoop {
           } else {
             sessionManager.claimAsSdk(realId);
           }
-          this.ctx.emit({
-            sessionId: realId,
-            agentId: AGENT_ID,
-            kind: 'session-start',
-            payload: { cwd, source: 'sdk' },
-            ts: Date.now(),
-            source: 'sdk',
-          });
-          this.ctx.emit({
-            sessionId: realId,
-            agentId: AGENT_ID,
-            kind: 'message',
-            payload: {
-              text: promptText,
-              role: 'user',
-              ...(attachments && attachments.length > 0 ? { attachments } : {}),
-              // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 10 步 (codex
-              // success first-user-message emit 3 处之一):spread handOff metadata,与 fallback
-              // 同款不变量 5 守门(本 emit `role: 'user'` 携带,error emit 不携带)。
-              ...(handOff ? { handOff } : {}),
-            },
-            ts: Date.now(),
-            source: 'sdk',
-          });
+          if (!initialSessionEmitted) {
+            this.ctx.emit({
+              sessionId: realId,
+              agentId: AGENT_ID,
+              kind: 'session-start',
+              payload: { cwd, source: 'sdk' },
+              ts: Date.now(),
+              source: 'sdk',
+            });
+            this.ctx.emit({
+              sessionId: realId,
+              agentId: AGENT_ID,
+              kind: 'message',
+              payload: {
+                text: promptText,
+                role: 'user',
+                ...(attachments && attachments.length > 0 ? { attachments } : {}),
+                // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 10 步 (codex
+                // success first-user-message emit 3 处之一):spread handOff metadata,与 fallback
+                // 同款不变量 5 守门(本 emit `role: 'user'` 携带,error emit 不携带)。
+                ...(handOff ? { handOff } : {}),
+              },
+              ts: Date.now(),
+              source: 'sdk',
+            });
+          }
           resolve(realId);
         },
         (earlyErr) => {
@@ -263,6 +287,7 @@ export class ThreadLoop {
             signal: controller.signal,
           });
           for await (const ev of events) {
+            if (internal.intentionallyClosed) break;
             // 拦截 thread.started：拿到真实 thread_id。三种情况处理（symmetry-plan P2 MED-D）：
             // 1. 新建路径（!internal.threadId）：第一次拿到 thread_id，设字段 + 触发 firstIdCb
             // 2. 恢复路径正常 case（internal.threadId === ev.thread_id）：仅触发 firstIdCb
