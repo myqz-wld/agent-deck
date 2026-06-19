@@ -99,6 +99,79 @@ describe('TextDiffRenderer codex metadata', () => {
     expect(screen.queryByText(/Codex 未提供可显示的差异内容/)).toBeNull();
   });
 
+  it('renders whole-file additions with a green full-file background', () => {
+    render(
+      <TextDiffRenderer
+        payload={{
+          kind: 'text',
+          filePath: '/tmp/new.ts',
+          before: null,
+          after: 'first\nsecond\n',
+          ts: 1,
+        }}
+      />,
+    );
+
+    const panel = screen.getByTestId('full-file-diff');
+    expect(panel.getAttribute('data-change-kind')).toBe('added');
+    expect(panel.className).toContain('bg-status-working/10');
+    expect(panel.textContent).toContain('+first');
+    expect(screen.queryByTestId('diff-editor')).toBeNull();
+  });
+
+  it('renders whole-file deletions with a red full-file background', () => {
+    render(
+      <TextDiffRenderer
+        payload={{
+          kind: 'text',
+          filePath: '/tmp/old.ts',
+          before: 'old\ncontent\n',
+          after: null,
+          ts: 1,
+        }}
+      />,
+    );
+
+    const panel = screen.getByTestId('full-file-diff');
+    expect(panel.getAttribute('data-change-kind')).toBe('deleted');
+    expect(panel.className).toContain('bg-status-error/10');
+    expect(panel.textContent).toContain('-old');
+    expect(screen.getByText('删除')).toBeTruthy();
+    expect(screen.queryByTestId('diff-editor')).toBeNull();
+  });
+
+  it('renders git new-file unified diff metadata with a green full-file background', () => {
+    render(
+      <TextDiffRenderer
+        payload={{
+          kind: 'text',
+          filePath: '/tmp/new.ts',
+          before: null,
+          after: null,
+          metadata: {
+            source: 'recorded-patch-fallback',
+            diff: [
+              'diff --git a/tmp/new.ts b/tmp/new.ts',
+              'new file mode 100644',
+              '--- /dev/null',
+              '+++ b/tmp/new.ts',
+              '@@ -0,0 +1,2 @@',
+              '+first',
+              '+second',
+            ].join('\n'),
+          },
+          ts: 1,
+        }}
+      />,
+    );
+
+    const panel = screen.getByTestId('full-file-diff');
+    expect(panel.getAttribute('data-change-kind')).toBe('added');
+    expect(panel.className).toContain('bg-status-working/10');
+    expect(panel.textContent).toContain('+first');
+    expect(screen.queryByTestId('diff-editor')).toBeNull();
+  });
+
   it('keeps raw patch fallback when unified diff metadata cannot be reconstructed', () => {
     const { container } = render(
       <TextDiffRenderer
