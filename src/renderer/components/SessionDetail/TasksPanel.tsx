@@ -6,6 +6,8 @@ interface Props {
   sessionId: string;
 }
 
+type TaskTab = 'unfinished' | 'completed';
+
 const EMPTY: TaskRecord[] = [];
 const STATUS_ORDER: TaskRecord['status'][] = [
   'active',
@@ -19,7 +21,7 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
   const [tasks, setTasks] = useState<TaskRecord[]>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [activeTab, setActiveTab] = useState<TaskTab>('unfinished');
 
   useEffect(() => {
     let disposed = false;
@@ -67,6 +69,7 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
       completed: ordered.filter((task) => task.status === 'completed'),
     };
   }, [tasks]);
+  const activeTasks = activeTab === 'unfinished' ? unfinished : completed;
 
   if (!loaded && tasks.length === 0) {
     return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
@@ -85,45 +88,75 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
           刷新任务失败（显示的是上次结果）：{error}
         </div>
       )}
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] text-deck-muted">
-          未完成 <span className="tabular-nums">{unfinished.length}</span>
-        </div>
-        <label className="flex shrink-0 items-center gap-1 text-[10px] text-deck-muted">
-          <input
-            type="checkbox"
-            checked={showCompleted}
-            onChange={(e) => setShowCompleted(e.target.checked)}
-          />
-          显示已完成 <span className="tabular-nums">{completed.length}</span>
-        </label>
+      <div
+        role="tablist"
+        aria-label="任务状态"
+        className="inline-flex w-fit rounded border border-deck-border/50 bg-white/[0.02] p-0.5"
+      >
+        <TaskTabButton
+          active={activeTab === 'unfinished'}
+          count={unfinished.length}
+          label="未完成"
+          onClick={() => setActiveTab('unfinished')}
+        />
+        <TaskTabButton
+          active={activeTab === 'completed'}
+          count={completed.length}
+          label="已完成"
+          onClick={() => setActiveTab('completed')}
+        />
       </div>
-      <TaskGroup title="未完成" tasks={unfinished} />
-      {showCompleted && <TaskGroup title="已完成" tasks={completed} muted />}
+      <TaskList
+        emptyLabel={activeTab === 'unfinished' ? '暂无未完成任务' : '暂无已完成任务'}
+        tasks={activeTasks}
+        muted={activeTab === 'completed'}
+      />
     </div>
   );
 }
 
-function TaskGroup({
-  title,
-  tasks,
-  muted = false,
+function TaskTabButton({
+  active,
+  count,
+  label,
+  onClick,
 }: {
-  title: string;
+  active: boolean;
+  count: number;
+  label: string;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      className={`rounded px-2 py-1 text-[10px] transition ${
+        active
+          ? 'bg-white/[0.08] text-deck-text'
+          : 'text-deck-muted hover:bg-white/[0.04] hover:text-deck-text'
+      }`}
+      onClick={onClick}
+    >
+      {label} <span className="tabular-nums">{count}</span>
+    </button>
+  );
+}
+
+function TaskList({
+  emptyLabel,
+  tasks,
+  muted,
+}: {
+  emptyLabel: string;
   tasks: TaskRecord[];
-  muted?: boolean;
+  muted: boolean;
 }): JSX.Element {
   return (
     <section className="min-w-0">
-      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium text-deck-muted">
-        <span>{title}</span>
-        <span className="rounded bg-white/[0.06] px-1 py-px text-[9px] tabular-nums">
-          {tasks.length}
-        </span>
-      </div>
       {tasks.length === 0 ? (
         <div className="rounded border border-deck-border/30 bg-white/[0.015] px-2 py-2 text-[11px] text-deck-muted/70">
-          暂无
+          {emptyLabel}
         </div>
       ) : (
         <ol className="flex flex-col gap-1.5">

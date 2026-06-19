@@ -12,7 +12,7 @@
 - Added focused `list_sessions` regression coverage for hiding unrelated sessions, preserving adapter filtering inside the related scope, keeping explicit `spawnedByFilter` broad, and paging explicit rescue searches.
 - SessionDetail now has a read-only Tasks tab after Activity and before Changes.
 - The Tasks tab uses the selected session's MCP-style visible task scope: own personal tasks plus active-team tasks visible to that session.
-- Unfinished tasks show by default; completed tasks are behind an Issues-style "显示已完成" toggle.
+- The Tasks tab uses status tabs for "未完成" and "已完成"; unfinished tasks remain the default view.
 - Added `session:list-tasks` IPC and preload facade wiring, reusing existing `TaskChanged` events for refreshes.
 
 ## Validation
