@@ -63,6 +63,88 @@ describe('getSessionFileFinalDiff', () => {
     expect(result.diff).not.toContain('mid');
   });
 
+  it('preserves initial file creation as a whole-file final addition', async () => {
+    fileChangeRepoMock.listForSession.mockReturnValue([
+      {
+        id: 1,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: null,
+        afterBlob: 'initial\n',
+        beforeSnapshot: '',
+        afterSnapshot: 'initial\n',
+        metadata: { source: 'Write' },
+        toolCallId: 'tool-1',
+        ts: 1,
+      },
+      {
+        id: 2,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: 'initial',
+        afterBlob: 'final',
+        beforeSnapshot: 'initial\n',
+        afterSnapshot: 'final\n',
+        metadata: { source: 'Edit' },
+        toolCallId: 'tool-2',
+        ts: 2,
+      },
+    ]);
+
+    const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
+
+    expect(result.ok).toBe(true);
+    expect(result.diff).toContain('new file mode 100644');
+    expect(result.diff).toContain('--- /dev/null');
+    expect(result.diff).toContain('+++ b//repo/src/a.ts');
+    expect(result.diff).toContain('@@ -0,0 +1,1 @@');
+    expect(result.diff).toContain('+final');
+    expect(result.diff).not.toContain('-initial');
+  });
+
+  it('preserves final file deletion as a whole-file final deletion', async () => {
+    fileChangeRepoMock.listForSession.mockReturnValue([
+      {
+        id: 1,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: 'old',
+        afterBlob: 'mid',
+        beforeSnapshot: 'old\n',
+        afterSnapshot: 'mid\n',
+        metadata: { source: 'Edit' },
+        toolCallId: 'tool-1',
+        ts: 1,
+      },
+      {
+        id: 2,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: null,
+        afterBlob: null,
+        beforeSnapshot: 'mid\n',
+        afterSnapshot: '',
+        metadata: { source: 'codex', changeKind: 'delete' },
+        toolCallId: 'tool-2',
+        ts: 2,
+      },
+    ]);
+
+    const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
+
+    expect(result.ok).toBe(true);
+    expect(result.diff).toContain('deleted file mode 100644');
+    expect(result.diff).toContain('--- a//repo/src/a.ts');
+    expect(result.diff).toContain('+++ /dev/null');
+    expect(result.diff).toContain('@@ -1,1 +0,0 @@');
+    expect(result.diff).toContain('-old');
+    expect(result.diff).not.toContain('-mid');
+  });
+
   it('reports unchanged when recorded snapshots cancel out', async () => {
     fileChangeRepoMock.listForSession.mockReturnValue([
       {
