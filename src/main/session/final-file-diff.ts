@@ -55,8 +55,9 @@ function snapshotFinalDiff(
   const before = first.beforeSnapshot;
   const after = last.afterSnapshot;
   if (before == null || after == null) return null;
+  const finalFileKind = inferFinalFileKind(first, last);
 
-  if (before === after) {
+  if (before === after && finalFileKind === null) {
     return {
       ok: false,
       filePath: targetPath,
@@ -67,7 +68,7 @@ function snapshotFinalDiff(
     };
   }
 
-  const diff = wholeFileUnifiedDiff(targetPath, before, after);
+  const diff = wholeFileUnifiedDiff(targetPath, before, after, finalFileKind);
   if (Buffer.byteLength(diff, 'utf8') > MAX_RECORDED_DIFF_BYTES) {
     return {
       ok: false,
@@ -80,6 +81,38 @@ function snapshotFinalDiff(
   }
 
   return { ok: true, filePath: targetPath, diff, source: 'recorded-snapshot' };
+}
+
+type FinalFileKind = 'added' | 'deleted' | null;
+
+function inferFinalFileKind(first: FileChangeRecord, last: FileChangeRecord): FinalFileKind {
+  const firstIsAdd = isAddChange(first);
+  const lastIsDelete = isDeleteChange(last);
+  if (firstIsAdd && lastIsDelete) return null;
+  if (firstIsAdd) return 'added';
+  if (lastIsDelete) return 'deleted';
+  return null;
+}
+
+function isAddChange(change: FileChangeRecord): boolean {
+  const changeKind = readChangeKind(change.metadata);
+  if (changeKind === 'add' || changeKind === 'create') return true;
+  return change.metadata?.source === 'Write' && change.beforeBlob == null;
+}
+
+function isDeleteChange(change: FileChangeRecord): boolean {
+  const changeKind = readChangeKind(change.metadata);
+  return changeKind === 'delete' || changeKind === 'remove';
+}
+
+function readChangeKind(metadata: Record<string, unknown> | undefined): string | null {
+  const raw = metadata?.changeKind;
+  if (typeof raw === 'string' && raw) return raw;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const type = (raw as { type?: unknown }).type;
+    return typeof type === 'string' && type ? type : null;
+  }
+  return null;
 }
 
 function recordedPatchFallback(
@@ -112,20 +145,32 @@ function recordedPatchFallback(
   };
 }
 
-function wholeFileUnifiedDiff(filePath: string, before: string, after: string): string {
-  const beforeLines = splitDiffLines(before);
-  const afterLines = splitDiffLines(after);
+function wholeFileUnifiedDiff(
+  filePath: string,
+  before: string,
+  after: string,
+  finalFileKind: FinalFileKind,
+): string {
+  const beforeLines = finalFileKind === 'added' ? [] : splitDiffLines(before);
+  const afterLines = finalFileKind === 'deleted' ? [] : splitDiffLines(after);
+  const beforePath = finalFileKind === 'added' ? '/dev/null' : `a/${filePath}`;
+  const afterPath = finalFileKind === 'deleted' ? '/dev/null' : `b/${filePath}`;
+  const beforeStart = beforeLines.length === 0 ? 0 : 1;
+  const afterStart = afterLines.length === 0 ? 0 : 1;
   return [
     `diff --agent-deck-snapshot a/${filePath} b/${filePath}`,
-    `--- a/${filePath}`,
-    `+++ b/${filePath}`,
-    `@@ -1,${beforeLines.length} +1,${afterLines.length} @@`,
+    ...(finalFileKind === 'added' ? ['new file mode 100644'] : []),
+    ...(finalFileKind === 'deleted' ? ['deleted file mode 100644'] : []),
+    `--- ${beforePath}`,
+    `+++ ${afterPath}`,
+    `@@ -${beforeStart},${beforeLines.length} +${afterStart},${afterLines.length} @@`,
     ...beforeLines.map((line) => `-${line}`),
     ...afterLines.map((line) => `+${line}`),
   ].join('\n');
 }
 
 function splitDiffLines(value: string): string[] {
+  if (value === '') return [];
   const lines = value.split('\n');
   if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
   return lines;
