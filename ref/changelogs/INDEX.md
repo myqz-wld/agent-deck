@@ -312,3 +312,4 @@
 | [CHANGELOG_305.md](CHANGELOG_305.md) | Refresh provider quota snapshots outside the Data tab. |
 | [CHANGELOG_306.md](CHANGELOG_306.md) | Whole-file additions and deletions use green/red Changes-page panels. |
 | [CHANGELOG_307.md](CHANGELOG_307.md) | Final diff preserves initial create and final delete as whole-file changes. |
+| [CHANGELOG_308.md](CHANGELOG_308.md) | Final diff matches relative and absolute records for the same file. |
