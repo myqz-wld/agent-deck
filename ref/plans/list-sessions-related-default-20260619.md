@@ -10,7 +10,7 @@ related_changelog: CHANGELOG_303
 
 # Goal
 
-Change MCP `list_sessions` so a real Agent Deck session caller sees only related sessions by default, not unrelated active sessions from the whole app. Also add a SessionDetail Tasks tab after Activity and before Changes that shows the selected session's related unfinished tasks by default, with an Issues-style toggle for completed tasks.
+Change MCP `list_sessions` so a real Agent Deck session caller sees only related sessions by default, not unrelated active sessions from the whole app. Also add a SessionDetail Tasks tab after Activity and before Changes that shows the selected session's related tasks with status tabs; unfinished tasks are the default view.
 
 # Invariants
 
@@ -24,7 +24,7 @@ Change MCP `list_sessions` so a real Agent Deck session caller sees only related
 - `get_session` behavior is out of scope for this focused user report unless tests prove it must change.
 - SessionDetail task display is read-only; task writes stay in the existing MCP task tools.
 - SessionDetail task visibility mirrors MCP `task_list` default visibility: own personal tasks plus active-team tasks visible to that session.
-- The task store physically deletes deleted tasks today, so the SessionDetail toggle applies to completed tasks rather than deleted-task history.
+- The task store physically deletes deleted tasks today, so SessionDetail distinguishes unfinished vs completed tasks rather than showing deleted-task history.
 
 # Checklist
 
@@ -32,7 +32,7 @@ Change MCP `list_sessions` so a real Agent Deck session caller sees only related
 - [x] Record the user feedback in `ref/conventions/tally.md`.
 - [x] Add the related-session default filter in `list_sessions`.
 - [x] Add SessionDetail read-only Tasks tab after Activity and before Changes.
-- [x] Hide completed tasks behind an Issues-style explicit toggle.
+- [x] Split tasks into "未完成" / "已完成" tabs.
 - [x] Update MCP schema/tool descriptions and README behavior docs.
 - [x] Add regression coverage for hidden unrelated sessions and preserved explicit recovery filters.
 - [x] Add `offset` pagination and `hasMore` to `list_sessions`, and cover explicit rescue paging.
@@ -51,7 +51,7 @@ Change MCP `list_sessions` so a real Agent Deck session caller sees only related
 - v034 adds partial composite indexes for live/history list query shapes using adapter, spawnedBy, and adapter+spawnedBy filters with `last_event_at` ordering.
 - Existing reviewer fallback prompts call `list_sessions({ statusFilter: 'active' })` to find a lead; narrowing this default to related sessions improves that fallback instead of making it noisier.
 - SessionDetail tabs previously ordered Activity -> Changes -> Summary -> Cross-session -> Permissions. The new Tasks tab is inserted between Activity and Changes.
-- IssuesPanel uses an explicit "显示已删除" toggle; TasksPanel now mirrors that pattern with "显示已完成" because tasks do not have soft-delete records.
+- TasksPanel uses "未完成" / "已完成" tabs because tasks do not have soft-delete records.
 - `TaskChangedEvent` already exists and is bridged to renderer; TasksPanel subscribes and refreshes without adding new write paths.
 
 # Validation
