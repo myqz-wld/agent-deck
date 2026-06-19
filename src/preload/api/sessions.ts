@@ -13,6 +13,7 @@ import type {
   FileChangeRecord,
   SessionRecord,
   SummaryRecord,
+  TaskRecord,
 } from '@shared/types';
 
 export const sessionsApi = {
@@ -55,6 +56,8 @@ export const sessionsApi = {
     ipcRenderer.invoke(IpcInvoke.SessionListSummaries, id),
   latestSummaries: (ids: string[]): Promise<Record<string, SummaryRecord>> =>
     ipcRenderer.invoke(IpcInvoke.SessionLatestSummaries, ids),
+  listSessionTasks: (id: string): Promise<{ tasks: TaskRecord[] }> =>
+    ipcRenderer.invoke(IpcInvoke.SessionListTasks, id),
 
   /**
    * K3 hand-off Stage 1 (plan mcp-bug-and-feature-batch-20260513 Phase 4c)：拉历史 →

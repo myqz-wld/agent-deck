@@ -125,7 +125,7 @@ export function createDelete(db: Database): TaskDeleteOps {
     });
     tx();
     // 返回所有被删的 id（含 root + cascade 下游）,让 tools.ts task_delete 按 id
-    // 逐个 emit task-changed,未来 Tasks tab 不会因为只 emit root 一次而 N-1 个
+    // 逐个 emit task-changed,TasksPanel 不会因为只 emit root 一次而 N-1 个
     // 下游 task UI stale。
     return Array.from(toDelete);
   }

@@ -9,13 +9,15 @@ import { sessionRepo, SessionRowMissingError } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
 import { summaryRepo } from '@main/store/summary-repo';
+import { taskRepo } from '@main/store/task-repo';
+import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { settingsStore } from '@main/store/settings-store';
 import { summariseSessionForHandOff } from '@main/session/summarizer';
 import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
 import type { EventMap } from '@main/event-bus';
-import type { AppSettings } from '@shared/types';
+import type { AppSettings, TaskRecord } from '@shared/types';
 import { buildHandOffCreateSessionOpts, dedupHandOff, archiveSourceSessionWithEmit } from './sessions-hand-off-helper';
 import { on, parseStringId, parsePositiveInt, parseStringIdArray, IpcInputError } from './_helpers';
 import log from '@main/utils/logger';
@@ -56,6 +58,19 @@ export function registerSessionsIpc(): void {
   on(IpcInvoke.SessionLatestSummaries, (_e, ids) => {
     const arr = parseStringIdArray('ids', ids ?? []);
     return summaryRepo.latestForSessions(arr);
+  });
+  on(IpcInvoke.SessionListTasks, (_e, id): { tasks: TaskRecord[] } => {
+    const sid = parseStringId('sessionId', id);
+    if (!sessionRepo.get(sid)) return { tasks: [] };
+    const teamIds = agentDeckTeamRepo
+      .findActiveTeamMembershipsBySession(sid)
+      .map((m) => m.teamId);
+    return {
+      tasks: taskRepo.list({
+        visibleScope: { teamIds, callerSid: sid },
+        limit: 200,
+      }),
+    };
   });
   on(IpcInvoke.SessionArchive, async (_e, id) => {
     const sid = parseStringId('sessionId', id);

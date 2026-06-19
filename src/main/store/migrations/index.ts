@@ -44,6 +44,7 @@ import v030 from './v030_agent_deck_messages_indexes.sql?raw';
 import v031 from './v031_file_change_snapshots.sql?raw';
 import v032 from './v032_sessions_thinking.sql?raw';
 import v033 from './v033_issues_branch_name.sql?raw';
+import v034 from './v034_sessions_list_filter_indexes.sql?raw';
 
 export interface Migration {
   version: number;
@@ -85,4 +86,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 31, name: 'file_change_snapshots', sql: v031 },
   { version: 32, name: 'sessions_thinking', sql: v032 },
   { version: 33, name: 'issues_branch_name', sql: v033 },
+  { version: 34, name: 'sessions_list_filter_indexes', sql: v034 },
 ];

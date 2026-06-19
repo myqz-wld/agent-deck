@@ -78,6 +78,7 @@ Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_pr
 | [codex-file-change-accuracy-20260618.md](codex-file-change-accuracy-20260618.md) | completed | [285](../changelogs/CHANGELOG_285.md) / [122](../reviews/REVIEW_122.md) | Codex file-change reporting now filters incomplete and no-op patch records before they appear in SessionDetail |
 | [claude-compaction-thinking-copy-20260618.md](claude-compaction-thinking-copy-20260618.md) | completed | [291](../changelogs/CHANGELOG_291.md) / [125](../reviews/REVIEW_125.md) | Claude compaction events render, and thinking copy is adapter-aware |
 | [review-latest-and-summary-session-filter-20260618.md](review-latest-and-summary-session-filter-20260618.md) | completed | [298](../changelogs/CHANGELOG_298.md) / [127](../reviews/REVIEW_127.md) | Latest commit review fixed lockfile drift, SDK-origin filtering for internal Codex child hooks, and guarded external Codex lifecycle without inferred SessionEnd |
+| [list-sessions-related-default-20260619.md](list-sessions-related-default-20260619.md) | completed | [303](../changelogs/CHANGELOG_303.md) | `list_sessions` defaults to caller-related sessions and SessionDetail gained a Tasks tab with completed-toggle |
 
 ## Legacy Slug-Only Entries
 

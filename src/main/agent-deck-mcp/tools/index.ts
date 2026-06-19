@@ -173,7 +173,7 @@ export async function buildAgentDeckTools(
 
   const listSessions = tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
-    'List app-wide session metadata available to allowed read callers. Filter by lifecycle, adapter, parent session, and limit when narrowing a handoff or rescue search. Returns metadata only: ids, adapter, cwd, lifecycle, title, lastEventAt, teams, spawnedBy, and spawnDepth; it does not return events or messages. Use `teams[].teamId` when you need a `teamId` for `send_message`.',
+    'List session metadata available to allowed read callers. For real session callers, the default scope only includes caller-related sessions: self, spawn ancestry/descendants, and shared active-team sessions. Omit adapterFilter to include all adapters. External read-only callers and explicit spawnedByFilter recovery searches remain broad and can be paged with offset; adapterFilter and spawnedByFilter are pushed into the session query before output pagination. Returns metadata only plus hasMore: ids, adapter, cwd, lifecycle, title, lastEventAt, teams, spawnedBy, and spawnDepth; it does not return events or messages. Use `teams[].teamId` when you need a `teamId` for `send_message`.',
     LIST_SESSIONS_SCHEMA,
     async (args, extra) => listSessionsHandler(args, makeCtx(args, extra)),
     { annotations: { readOnlyHint: true } },

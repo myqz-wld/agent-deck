@@ -22,9 +22,10 @@ import { SourceBadge } from './SourceBadge';
 import { ComposerSdk } from './ComposerSdk';
 import { CliFooter } from './CliFooter';
 import { DiffTab } from './DiffTab';
+import { TasksPanel } from './TasksPanel';
 import { decodeBlob, groupFileChanges, pickLatestChange } from './helpers';
 
-type Tab = 'activity' | 'diff' | 'summary' | 'messages' | 'permissions';
+type Tab = 'activity' | 'tasks' | 'diff' | 'summary' | 'messages' | 'permissions';
 type DiffMode = 'single' | 'final';
 const GIT_BRANCH_REFRESH_MS = 10_000;
 
@@ -369,7 +370,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
       {/* 权限请求 banner 同样删掉，统一由活动流接管。 */}
 
       <nav className="flex shrink-0 gap-1 border-b border-deck-border/60 px-2 py-1">
-        {(['activity', 'diff', 'summary', 'messages', 'permissions'] as Tab[]).map((t) => (
+        {(['activity', 'tasks', 'diff', 'summary', 'messages', 'permissions'] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -380,13 +381,15 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           >
             {t === 'activity'
               ? '活动'
-              : t === 'diff'
-                ? '改动'
-                : t === 'summary'
-                  ? '总结'
-                  : t === 'messages'
-                    ? '跨会话'
-                    : '权限'}
+              : t === 'tasks'
+                ? '任务'
+                : t === 'diff'
+                  ? '改动'
+                  : t === 'summary'
+                    ? '总结'
+                    : t === 'messages'
+                      ? '跨会话'
+                      : '权限'}
           </button>
         ))}
       </nav>
@@ -395,6 +398,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         {tab === 'activity' && (
           <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} />
         )}
+        {tab === 'tasks' && <TasksPanel sessionId={session.id} />}
         {tab === 'summary' && <SummaryView sessionId={session.id} />}
         {tab === 'messages' && <MessagesPanel sessionId={session.id} />}
         {tab === 'permissions' && (
