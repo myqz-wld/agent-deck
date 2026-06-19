@@ -115,6 +115,55 @@ describe('getSessionFileFinalDiff', () => {
     expect(result.diff).not.toContain('-initial');
   });
 
+  it('treats historical add records with null before snapshots as final additions', async () => {
+    fileChangeRepoMock.listForSession.mockReturnValue([
+      {
+        id: 1,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: null,
+        afterBlob: null,
+        beforeSnapshot: null,
+        afterSnapshot: 'initial\n',
+        metadata: {
+          source: 'codex',
+          changeKind: 'add',
+          diff: 'initial\n',
+        },
+        toolCallId: 'tool-1',
+        ts: 1,
+      },
+      {
+        id: 2,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: null,
+        afterBlob: null,
+        beforeSnapshot: 'initial\n',
+        afterSnapshot: 'final\n',
+        metadata: {
+          source: 'codex',
+          changeKind: 'update',
+          diff: '@@ -1 +1 @@\n-initial\n+final',
+        },
+        toolCallId: 'tool-2',
+        ts: 2,
+      },
+    ]);
+
+    const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
+
+    expect(result.ok).toBe(true);
+    expect(result.source).toBe('recorded-snapshot');
+    expect(result.diff).toContain('new file mode 100644');
+    expect(result.diff).toContain('--- /dev/null');
+    expect(result.diff).toContain('@@ -0,0 +1,1 @@');
+    expect(result.diff).toContain('+final');
+    expect(result.diff).not.toContain('-initial');
+  });
+
   it('preserves final file deletion as a whole-file final deletion', async () => {
     fileChangeRepoMock.listForSession.mockReturnValue([
       {
