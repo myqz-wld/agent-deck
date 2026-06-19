@@ -37,8 +37,7 @@ export const eventsApi = {
     subscribe<SummaryRecord>(IpcEvent.SummaryAdded, cb),
   /**
    * Task Manager (CHANGELOG_43)：订阅 tasks 写操作（create/update/delete）after-commit
-   * 推送。当前 renderer 没 task UI 消费此事件（Layer A+B only），但基础设施有了，未来
-   * 加 Tasks tab 直接 onTaskChanged 订阅即可（与 onTeamDataChanged 同模式）。
+   * 推送。SessionDetail TasksPanel 用它节流重拉当前会话可见任务。
    */
   onTaskChanged: (cb: (e: TaskChangedEvent) => void): (() => void) =>
     subscribe<TaskChangedEvent>(IpcEvent.TaskChanged, cb),

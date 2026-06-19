@@ -53,8 +53,7 @@ export interface TaskRecord {
 /**
  * Task Manager 写操作事件。tools.ts 的 task_create / task_update / task_delete handler
  * 在 repo 写完后通过 main 进程 eventBus emit；main/index.ts 桥接到 IpcEvent.TaskChanged
- * 推 renderer。当前 renderer 没有 task UI 消费这个事件，未来加 Tasks tab 直接
- * onTaskChanged 订阅。
+ * 推 renderer。SessionDetail TasksPanel 订阅它并重拉当前会话可见任务。
  */
 export interface TaskChangedEvent {
   kind: 'created' | 'updated' | 'deleted';

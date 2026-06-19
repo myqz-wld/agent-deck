@@ -51,11 +51,27 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     delete: (id: string) => {
       sessions.delete(id);
     },
-    listActiveAndDormant: (limit?: number) =>
+    listActiveAndDormant: (
+      limit = 100,
+      offset = 0,
+      lifecycle?: 'active' | 'dormant',
+      spawnedBy?: string,
+      agentId?: string,
+    ) =>
       [...sessions.values()]
         .filter((s) => s.lifecycle !== 'closed' && s.archivedAt === null)
-        .slice(0, limit ?? 100),
-    listHistory: () => [] as SessionRecord[],
+        .filter((s) => (lifecycle ? s.lifecycle === lifecycle : true))
+        .filter((s) => (spawnedBy !== undefined ? s.spawnedBy === spawnedBy : true))
+        .filter((s) => (agentId !== undefined ? s.agentId === agentId : true))
+        .slice(offset, offset + limit),
+    listHistory: (
+      opts: { limit?: number; offset?: number; spawnedBy?: string; agentId?: string } = {},
+    ) =>
+      [...sessions.values()]
+        .filter((s) => s.lifecycle === 'closed' || s.archivedAt !== null)
+        .filter((s) => (opts.spawnedBy !== undefined ? s.spawnedBy === opts.spawnedBy : true))
+        .filter((s) => (opts.agentId !== undefined ? s.agentId === opts.agentId : true))
+        .slice(opts.offset ?? 0, (opts.offset ?? 0) + (opts.limit ?? 100)),
 
     // ─── per-session setter ───
     setActivity: (id: string, activity: SessionRecord['activity'], ts: number) => {

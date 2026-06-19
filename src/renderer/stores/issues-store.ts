@@ -8,8 +8,8 @@
  * - reducer: setIssues / upsertIssue / removeIssue（hardDeleted）
  *
  * **订阅模式**: IssuesPanel useEffect 启动时 `window.api.onIssueChanged` 推 reducer（与
- * onTaskChanged "renderer 没消费此事件 — 加 Tasks tab 直接 onTaskChanged 订阅" 同款 component
- * 自订阅模式;`use-event-bridge.ts` 不动）。
+ * SessionDetail TasksPanel 订阅 onTaskChanged 同款 component 自订阅模式;`use-event-bridge.ts`
+ * 不动）。
  *
  * **list 排序**: createdAt DESC（与 IPC handler issueRepo.list 默认排序对齐）— 渲染时把
  * Map.values() 按 createdAt desc sort。

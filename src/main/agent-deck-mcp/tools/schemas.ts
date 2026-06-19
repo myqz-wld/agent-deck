@@ -274,11 +274,11 @@ export const LIST_SESSIONS_SCHEMA = {
   statusFilter: z
     .enum(['active', 'dormant', 'closed', 'all'])
     .default('active')
-    .describe('Filter sessions by lifecycle. Use "all" when recovering old teammates or checking whether a session was closed.'),
+    .describe('Filter sessions by lifecycle. Defaults to active and, for real session callers, only returns caller-related sessions. Use "all" when recovering old teammates or checking whether a session was closed.'),
   adapterFilter: z
     .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
     .optional()
-    .describe('Optional adapter filter. Use it when you need sessions run by a specific SDK adapter.'),
+    .describe('Optional adapter filter. Omit it to include all adapters. When set, it is applied in the session query before output pagination.'),
   spawnedByFilter: z
     .string()
     .min(1)
@@ -294,6 +294,13 @@ export const LIST_SESSIONS_SCHEMA = {
     .max(200)
     .default(50)
     .describe('Maximum sessions to return. Default 50, max 200.'),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .max(5000)
+    .default(0)
+    .describe('Number of matching sessions to skip before returning results. Default 0.'),
 };
 
 export const GET_SESSION_SCHEMA = {
@@ -626,6 +633,8 @@ type TeammatesShutdownInfo = {
 /** list_sessions ok return shape（list.ts handler）。 */
 export interface ListSessionsResult {
   total: number;
+  /** True when another page may be available with offset + limit. */
+  hasMore: boolean;
   sessions: ProjectedSession[];
 }
 

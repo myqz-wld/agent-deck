@@ -32,6 +32,8 @@ export const IpcInvoke = {
   SessionGetGitBranch: 'session:get-git-branch',
   SessionListSummaries: 'session:list-summaries',
   SessionLatestSummaries: 'session:latest-summaries',
+  /** 拉某 session 视角可见的 SQLite tasks：own personal tasks + active-team tasks。 */
+  SessionListTasks: 'session:list-tasks',
   /**
    * K3 hand-off Stage 1（plan mcp-bug-and-feature-batch-20260513 Phase 4c）：拉历史 →
    * LLM oneshot 生成「目标 / 已做 / 下一步 / 相关文件」结构化接力简报，返回供 renderer

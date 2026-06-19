@@ -122,15 +122,39 @@ export function get(id: string): SessionRecord | null {
   return row ? rowToRecord(row) : null;
 }
 
-export function listActiveAndDormant(limit = 100): SessionRecord[] {
+export function listActiveAndDormant(
+  limit = 100,
+  offset = 0,
+  lifecycle?: 'active' | 'dormant',
+  spawnedBy?: string,
+  agentId?: string,
+): SessionRecord[] {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (lifecycle) {
+    conditions.push(`lifecycle = ?`);
+    params.push(lifecycle);
+  } else {
+    conditions.push(`lifecycle IN ('active', 'dormant')`);
+  }
+  conditions.push(`archived_at IS NULL`);
+  if (spawnedBy !== undefined) {
+    conditions.push(`spawned_by = ?`);
+    params.push(spawnedBy);
+  }
+  if (agentId !== undefined) {
+    conditions.push(`agent_id = ?`);
+    params.push(agentId);
+  }
+  params.push(limit, offset);
   const rows = getDb()
     .prepare(
       `SELECT * FROM sessions
-       WHERE lifecycle IN ('active', 'dormant') AND archived_at IS NULL
+       WHERE ${conditions.join(' AND ')}
        ORDER BY last_event_at DESC
-       LIMIT ?`,
+       LIMIT ? OFFSET ?`,
     )
-    .all(limit) as Row[];
+    .all(...params) as Row[];
   return rows.map(rowToRecord);
 }
 
@@ -148,6 +172,7 @@ export function listHistory(
     toTs?: number;
     keyword?: string;
     archivedOnly?: boolean;
+    spawnedBy?: string;
     limit?: number;
     offset?: number;
   } = {},
@@ -171,6 +196,10 @@ export function listHistory(
   if (opts.agentId) {
     conditions.push(`agent_id = @agent_id`);
     params.agent_id = opts.agentId;
+  }
+  if (opts.spawnedBy !== undefined) {
+    conditions.push(`spawned_by = @spawned_by`);
+    params.spawned_by = opts.spawnedBy;
   }
   if (opts.cwd) {
     // **REVIEW_88 LOW (reviewer-claude)**: cwd LIKE 把用户输入直接包进 pattern，`%` `_` `\` 未 escape

@@ -37,10 +37,23 @@ import { inFlightChildren, spawnRateLimiter } from '../rate-limiter';
 // R37 P2-F Step 3.1：sessionRepo / sdk-loader / settings-store / agent-deck-team-repo
 // 走 _shared/mocks/ factory；vi.hoisted 让 sessionStore 等 const 在 vi.mock factory
 // 调用前已初始化（factory immediate access 闭包外 const 撞 ReferenceError）。
-const { sessionStore, setSpawnLinkCalls, setTitleCalls, sessionGetThrow } = vi.hoisted(() => ({
+const {
+  sessionStore,
+  setSpawnLinkCalls,
+  setTitleCalls,
+  listActiveAndDormantCalls,
+  sessionGetThrow,
+} = vi.hoisted(() => ({
   sessionStore: new Map<string, SessionRecord>(),
   setSpawnLinkCalls: [] as Array<{ id: string; parentId: string | null; depth: number }>,
   setTitleCalls: [] as Array<{ id: string; title: string }>,
+  listActiveAndDormantCalls: [] as Array<{
+    limit: number;
+    offset: number;
+    lifecycle?: 'active' | 'dormant';
+    spawnedBy?: string;
+    agentId?: string;
+  }>,
   // REVIEW_85 MED-A (reviewer-claude): sessionGetThrow.sid 非 null 时 sessionRepo.get(sid) 抛错,
   // 验证 applySpawnGuards 下移后 caller DB 读抛错不泄漏 in-flight 计数。
   sessionGetThrow: { sid: null as string | null },
@@ -68,9 +81,22 @@ vi.mock('@main/store/session-repo', () => ({
         const r = sessionStore.get(id);
         if (r) sessionStore.set(id, { ...r, title });
       },
-      // listActiveAndDormant 默认按 lifecycle≠closed && archivedAt==null 过滤；本 test 之前
-      // 用 `slice(0, 100)` 全表（不过滤），这里保持原行为。
-      listActiveAndDormant: () => [...sessionStore.values()].slice(0, 100),
+      listActiveAndDormant: (
+        limit = 100,
+        offset = 0,
+        lifecycle?: 'active' | 'dormant',
+        spawnedBy?: string,
+        agentId?: string,
+      ) => {
+        listActiveAndDormantCalls.push({ limit, offset, lifecycle, spawnedBy, agentId });
+        return [...sessionStore.values()]
+          .filter((s) => s.lifecycle !== 'closed' && s.archivedAt == null)
+          .filter((s) => (lifecycle ? s.lifecycle === lifecycle : true))
+          .filter((s) => (spawnedBy !== undefined ? s.spawnedBy === spawnedBy : true))
+          .filter((s) => (agentId !== undefined ? s.agentId === agentId : true))
+          .sort((a, b) => (b.lastEventAt ?? 0) - (a.lastEventAt ?? 0))
+          .slice(offset, offset + limit);
+      },
     },
   }),
 }));
@@ -498,6 +524,7 @@ beforeEach(async () => {
   sessionStore.clear();
   setSpawnLinkCalls.length = 0;
   setTitleCalls.length = 0;
+  listActiveAndDormantCalls.length = 0;
   addMemberCalls.length = 0;
   closeCalls.length = 0;
   notifyTeamCalls.length = 0;
@@ -1965,6 +1992,37 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
 });
 
 describe('agent-deck-mcp tools — list_sessions', () => {
+  it('defaults to caller-related sessions only', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('parent');
+    seedSession('caller', { spawnedBy: 'parent', spawnDepth: 1 });
+    seedSession('child', { spawnedBy: 'caller', spawnDepth: 2 });
+    seedSession('grandchild', { spawnedBy: 'child', spawnDepth: 3 });
+    seedSession('team-peer');
+    seedSession('unrelated');
+    seedSession('other-team-peer');
+    mockMembershipsBySession.set('caller', [{ teamId: 'team-x' }]);
+    mockMembershipsBySession.set('team-peer', [{ teamId: 'team-x' }]);
+    mockMembershipsBySession.set('other-team-peer', [{ teamId: 'team-y' }]);
+    mockTeamsById.set('team-x', { name: 'team-x' });
+    mockTeamsById.set('team-y', { name: 'team-y' });
+
+    const r = await tools.get('list_sessions').handler({
+      callerSessionId: 'caller',
+      statusFilter: 'active',
+      limit: 50,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessions.map((s: any) => s.sessionId).sort()).toEqual([
+      'caller',
+      'child',
+      'grandchild',
+      'parent',
+      'team-peer',
+    ]);
+  });
+
   it('projects metadata only (no events / messages)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { spawnDepth: 0 });
@@ -1997,9 +2055,10 @@ describe('agent-deck-mcp tools — list_sessions', () => {
 
   it('respects adapterFilter', async () => {
     const tools = await getTools({ transport: 'http' });
-    seedSession('claude-1', { agentId: 'claude-code' });
-    seedSession('codex-1', { agentId: 'codex-cli' });
     seedSession('caller', { agentId: 'claude-code' });
+    seedSession('claude-child', { agentId: 'claude-code', spawnedBy: 'caller' });
+    seedSession('codex-child', { agentId: 'codex-cli', spawnedBy: 'caller' });
+    seedSession('unrelated-codex', { agentId: 'codex-cli' });
     const r = await tools.get('list_sessions').handler({
       callerSessionId: 'caller',
       statusFilter: 'active',
@@ -2008,7 +2067,7 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.data.sessions).toHaveLength(1);
-    expect(parsed.data.sessions[0].sessionId).toBe('codex-1');
+    expect(parsed.data.sessions[0].sessionId).toBe('codex-child');
   });
 
   it('respects spawnedByFilter (REVIEW_28 E 段)', async () => {
@@ -2030,6 +2089,45 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     expect(parsed.data.sessions.map((s: any) => s.sessionId).sort()).toEqual(['a-c1', 'a-c2']);
   });
 
+  it('keeps explicit spawnedByFilter broad for reset rescue', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('caller');
+    seedSession('old-lead');
+    seedSession('old-child', { spawnedBy: 'old-lead' });
+    seedSession('unrelated');
+    const r = await tools.get('list_sessions').handler({
+      callerSessionId: 'caller',
+      statusFilter: 'active',
+      spawnedByFilter: 'old-lead',
+      limit: 50,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessions).toHaveLength(1);
+    expect(parsed.data.sessions[0].sessionId).toBe('old-child');
+  });
+
+  it('supports offset for explicit spawnedByFilter rescue pages', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('caller');
+    seedSession('old-lead');
+    seedSession('old-child-1', { spawnedBy: 'old-lead' });
+    seedSession('old-child-2', { spawnedBy: 'old-lead' });
+    seedSession('old-child-3', { spawnedBy: 'old-lead' });
+    const r = await tools.get('list_sessions').handler({
+      callerSessionId: 'caller',
+      statusFilter: 'active',
+      spawnedByFilter: 'old-lead',
+      limit: 1,
+      offset: 1,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessions).toHaveLength(1);
+    expect(parsed.data.sessions[0].sessionId).toBe('old-child-2');
+    expect(parsed.data.hasMore).toBe(true);
+  });
+
   it('combines spawnedByFilter + adapterFilter (REVIEW_28 E 段)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
@@ -2047,6 +2145,11 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     expect(parsed.isError).toBeFalsy();
     expect(parsed.data.sessions).toHaveLength(1);
     expect(parsed.data.sessions[0].sessionId).toBe('claude-child');
+    expect(listActiveAndDormantCalls[0]).toMatchObject({
+      lifecycle: 'active',
+      spawnedBy: 'lead',
+      agentId: 'claude-code',
+    });
   });
 });
 

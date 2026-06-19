@@ -12,6 +12,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import type { SessionRecord } from '@shared/types';
 
+import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import {
   ok,
   projectSession,
@@ -20,45 +21,181 @@ import {
 } from '../helpers';
 import type { ListSessionsArgs, ListSessionsResult } from '../schemas';
 
+const DEFAULT_LIMIT = 50;
+const DEFAULT_OFFSET = 0;
+const MAX_PAGE_SCAN_BATCH = 500;
+const MIN_PAGE_SCAN_BATCH = 200;
+const MAX_SPAWN_WALK_DEPTH = 64;
+
+function pageScanBatch(limit: number): number {
+  return Math.min(Math.max(limit * 4, MIN_PAGE_SCAN_BATCH), MAX_PAGE_SCAN_BATCH);
+}
+
+function listBasePage(args: ListSessionsArgs, limit: number, offset: number): SessionRecord[] {
+  const statusFilter = args.statusFilter ?? 'active';
+  if (statusFilter === 'active' || statusFilter === 'dormant') {
+    return sessionRepo.listActiveAndDormant(
+      limit,
+      offset,
+      statusFilter,
+      args.spawnedByFilter,
+      args.adapterFilter,
+    );
+  }
+  if (statusFilter === 'closed') {
+    return sessionRepo.listHistory({
+      limit,
+      offset,
+      spawnedBy: args.spawnedByFilter,
+      agentId: args.adapterFilter,
+    });
+  }
+  const needed = offset + limit;
+  const live = sessionRepo.listActiveAndDormant(
+    needed,
+    0,
+    undefined,
+    args.spawnedByFilter,
+    args.adapterFilter,
+  );
+  const closed = sessionRepo.listHistory({
+    limit: needed,
+    spawnedBy: args.spawnedByFilter,
+    agentId: args.adapterFilter,
+  });
+  return [...live, ...closed]
+    .sort((a, b) => (b.lastEventAt ?? 0) - (a.lastEventAt ?? 0))
+    .slice(offset, needed);
+}
+
+function findSpawnParent(
+  sessionId: string,
+  cache: Map<string, string | null>,
+): string | null {
+  if (cache.has(sessionId)) return cache.get(sessionId) ?? null;
+  const rec = sessionRepo.get(sessionId);
+  const parent = rec?.spawnedBy ?? null;
+  cache.set(sessionId, parent);
+  return parent;
+}
+
+function isSpawnAncestor(
+  ancestorId: string,
+  childId: string,
+  cache: Map<string, string | null>,
+): boolean {
+  const seen = new Set<string>();
+  let current: string | null = findSpawnParent(childId, cache);
+  for (let depth = 0; current && depth < MAX_SPAWN_WALK_DEPTH; depth += 1) {
+    if (current === ancestorId) return true;
+    if (seen.has(current)) return false;
+    seen.add(current);
+    current = findSpawnParent(current, cache);
+  }
+  return false;
+}
+
+function isSpawnRelated(
+  candidateId: string,
+  callerId: string,
+  cache: Map<string, string | null>,
+): boolean {
+  return (
+    candidateId === callerId ||
+    isSpawnAncestor(candidateId, callerId, cache) ||
+    isSpawnAncestor(callerId, candidateId, cache)
+  );
+}
+
+function filterRelatedForCaller(
+  sessions: SessionRecord[],
+  callerSessionId: string,
+): SessionRecord[] {
+  const caller = sessionManager.get(callerSessionId);
+  if (!caller) return [];
+
+  const enriched = sessionManager.enrichWithTeamsBatch(sessions);
+  const callerTeamIds = new Set((caller.teams ?? []).map((t) => t.teamId));
+  const spawnParentCache = new Map<string, string | null>();
+  spawnParentCache.set(caller.id, caller.spawnedBy ?? null);
+  for (const s of sessions) {
+    spawnParentCache.set(s.id, s.spawnedBy ?? null);
+  }
+
+  return enriched.filter((s) => {
+    if (isSpawnRelated(s.id, caller.id, spawnParentCache)) return true;
+    return (s.teams ?? []).some((t) => callerTeamIds.has(t.teamId));
+  });
+}
+
+function applyExplicitFilters(sessions: SessionRecord[], args: ListSessionsArgs): SessionRecord[] {
+  let out = sessions;
+  // Repo 查询已经下推 adapterFilter / spawnedByFilter；这里保留防御性收口，避免 mock 或旧
+  // 调用路径漏传时扩大可见结果。
+  if (args.adapterFilter) {
+    out = out.filter((s) => s.agentId === args.adapterFilter);
+  }
+  if (args.spawnedByFilter) {
+    out = out.filter((s) => s.spawnedBy === args.spawnedByFilter);
+  }
+  return out;
+}
+
+function applyDefaultScope(
+  sessions: SessionRecord[],
+  args: ListSessionsArgs,
+  ctx: HandlerContext,
+): SessionRecord[] {
+  if (!args.spawnedByFilter && ctx.caller.callerSessionId !== EXTERNAL_CALLER_SENTINEL) {
+    return filterRelatedForCaller(sessions, ctx.caller.callerSessionId);
+  }
+  return sessionManager.enrichWithTeamsBatch(sessions);
+}
+
+function collectOutputPage(
+  args: ListSessionsArgs,
+  ctx: HandlerContext,
+): { page: SessionRecord[]; hasMore: boolean } {
+  const limit = args.limit ?? DEFAULT_LIMIT;
+  const outputOffset = args.offset ?? DEFAULT_OFFSET;
+  const outputEnd = outputOffset + limit;
+  const scanUntil = outputEnd + 1;
+  const batch = pageScanBatch(limit);
+  const collected: SessionRecord[] = [];
+
+  for (let baseOffset = 0; collected.length < scanUntil; baseOffset += batch) {
+    const basePage = listBasePage(args, batch, baseOffset);
+    if (basePage.length === 0) break;
+    const explicitlyFiltered = applyExplicitFilters(basePage, args);
+    const scoped = applyDefaultScope(explicitlyFiltered, args, ctx);
+    collected.push(...scoped);
+    if (basePage.length < batch) break;
+  }
+
+  return {
+    page: collected.slice(outputOffset, outputEnd),
+    hasMore: collected.length > outputEnd,
+  };
+}
+
 export const listSessionsHandler = withMcpGuard(
   'list_sessions',
-  async (args: ListSessionsArgs, _ctx: HandlerContext) => {
+  async (args: ListSessionsArgs, ctx: HandlerContext) => {
     // 现有 sessionRepo API：
-    // - status='active' 默认 → listActiveAndDormant().filter(lifecycle==='active')
-    // - status='dormant' → listActiveAndDormant().filter(lifecycle==='dormant')
+    // - status='active' 默认 → listActiveAndDormant(..., lifecycle='active')
+    // - status='dormant' → listActiveAndDormant(..., lifecycle='dormant')
     // - status='closed' → listHistory({ archivedOnly:false }) 含 closed + archived
     // - status='all' → 合并去重
     // 注：此处用现有 API 拼装，避免新增 sessionRepo 通用 list({status,adapter,limit})
     // 接口（ADR §6.5.2 #6 实施清单建议加，但需要重构现有 47 个调用点 — 留 R2 收口或 R3）
-    let sessions: SessionRecord[] = [];
-    if (args.statusFilter === 'active' || args.statusFilter === 'dormant') {
-      sessions = sessionRepo
-        .listActiveAndDormant(args.limit * 2)
-        .filter((s) => s.lifecycle === args.statusFilter);
-    } else if (args.statusFilter === 'closed') {
-      sessions = sessionRepo.listHistory({ limit: args.limit });
-    } else {
-      // 'all'
-      const live = sessionRepo.listActiveAndDormant(args.limit);
-      const closed = sessionRepo.listHistory({ limit: args.limit });
-      sessions = [...live, ...closed];
-    }
-    if (args.adapterFilter) {
-      sessions = sessions.filter((s) => s.agentId === args.adapterFilter);
-    }
-    // spawnedByFilter 在 slice(limit) 前执行（REVIEW_28 reviewer-codex INFO-1 修法），
-    // 避免大 lead 反查少量 children 时被 limit cutoff 误报空列表。
-    if (args.spawnedByFilter) {
-      sessions = sessions.filter((s) => s.spawnedBy === args.spawnedByFilter);
-    }
-    const truncated = sessions.slice(0, args.limit);
+    const { page, hasMore } = collectOutputPage(args, ctx);
     // plan team-cohesion-fix-20260513 Phase A Step A7：projectSession 不再自反查 universal
-    // team backend，依赖 caller 传 enriched SessionRecord。这里在 slice 后 batch enrich
-    // 一次（避免 list 整批 ≤ 100 sessions 各反查一次 N+1）。
-    const enriched = sessionManager.enrichWithTeamsBatch(truncated);
+    // team backend，依赖 caller 传 enriched SessionRecord。collectOutputPage 已按 page batch enrich
+    // 并做默认 caller-related 过滤，避免 list_sessions 默认暴露无关 active sessions。
     return ok({
-      total: enriched.length,
-      sessions: enriched.map(projectSession),
+      total: page.length,
+      hasMore,
+      sessions: page.map(projectSession),
     } satisfies ListSessionsResult);
   },
 );
