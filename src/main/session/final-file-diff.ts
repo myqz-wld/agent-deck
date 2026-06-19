@@ -16,7 +16,9 @@ export async function getSessionFileFinalDiff(
   );
 
   const changes = session ? fileChangeRepo.listForSession(sessionId) : [];
-  const fileChanges = changes.filter((c) => normalize(c.filePath) === targetPath);
+  const fileChanges = changes.filter(
+    (c) => normalizeFilePath(c.filePath, session?.cwd ?? '') === targetPath,
+  );
 
   if (!session || fileChanges.length === 0) {
     return {
@@ -43,6 +45,11 @@ export async function getSessionFileFinalDiff(
     reason: 'snapshot_unavailable',
     message: '该文件没有可用的记录快照，无法还原最终 diff。',
   };
+}
+
+function normalizeFilePath(filePath: string, cwd: string): string {
+  const raw = String(filePath || '');
+  return normalize(isAbsolute(raw) ? raw : resolve(cwd, raw));
 }
 
 function snapshotFinalDiff(
@@ -96,23 +103,35 @@ function inferFinalFileKind(first: FileChangeRecord, last: FileChangeRecord): Fi
 
 function isAddChange(change: FileChangeRecord): boolean {
   const changeKind = readChangeKind(change.metadata);
-  if (changeKind === 'add' || changeKind === 'create') return true;
+  if (['add', 'added', 'new', 'create', 'created'].includes(changeKind ?? '')) return true;
+  if (hasNewFileDiffHeader(change.metadata)) return true;
   return change.metadata?.source === 'Write' && change.beforeBlob == null;
 }
 
 function isDeleteChange(change: FileChangeRecord): boolean {
   const changeKind = readChangeKind(change.metadata);
-  return changeKind === 'delete' || changeKind === 'remove';
+  if (['delete', 'deleted', 'remove', 'removed'].includes(changeKind ?? '')) return true;
+  return hasDeletedFileDiffHeader(change.metadata);
 }
 
 function readChangeKind(metadata: Record<string, unknown> | undefined): string | null {
   const raw = metadata?.changeKind;
-  if (typeof raw === 'string' && raw) return raw;
+  if (typeof raw === 'string' && raw) return raw.toLowerCase();
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const type = (raw as { type?: unknown }).type;
-    return typeof type === 'string' && type ? type : null;
+    return typeof type === 'string' && type ? type.toLowerCase() : null;
   }
   return null;
+}
+
+function hasNewFileDiffHeader(metadata: Record<string, unknown> | undefined): boolean {
+  const diff = typeof metadata?.diff === 'string' ? metadata.diff : '';
+  return /^(new file mode |--- \/dev\/null$)/m.test(diff);
+}
+
+function hasDeletedFileDiffHeader(metadata: Record<string, unknown> | undefined): boolean {
+  const diff = typeof metadata?.diff === 'string' ? metadata.diff : '';
+  return /^(deleted file mode |\+\+\+ \/dev\/null$)/m.test(diff);
 }
 
 function recordedPatchFallback(
