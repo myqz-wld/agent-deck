@@ -20,6 +20,7 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
   // before/after 快照，但可能在 metadata.diff 带 unified diff）。有 unified diff 时先还原成
   // before/after 片段并复用 Monaco DiffEditor；解析不了时再显示 patch 原文兜底。
   const isNewFile = payload.before == null && payload.after != null;
+  const isDeletedFile = payload.before != null && payload.after == null;
   const isMetaOnly = payload.before == null && payload.after == null;
 
   if (isMetaOnly) {
@@ -35,18 +36,28 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
     const changeKind = normalizeCodexChangeKind(md.changeKind);
     const patchStatus = typeof md.patchStatus === 'string' ? md.patchStatus : null;
     const unifiedDiff = normalizeUnifiedDiffMetadata(md.diff);
+    const wholeFileToneFromDiff = unifiedDiff ? inferUnifiedDiffWholeFileTone(unifiedDiff) : null;
     const reconstructed = unifiedDiff ? reconstructUnifiedDiffSnapshots(unifiedDiff) : null;
+    const reconstructedTone = reconstructed
+      ? wholeFileToneFromChange(changeKind) ?? wholeFileToneFromDiff ?? inferWholeFileTone(reconstructed.before, reconstructed.after)
+      : null;
     return (
       <div className="flex h-full flex-col gap-2">
         {!expanded && (
           <DiffHeader
             filePath={payload.filePath}
             isNewFile={false}
+            isDeletedFile={false}
             changeKind={isCodex ? changeKind : null}
             patchStatus={isCodex ? patchStatus : null}
           />
         )}
-        {reconstructed ? (
+        {reconstructed && reconstructedTone ? (
+          <WholeFileDiffView
+            tone={reconstructedTone}
+            content={reconstructedTone === 'added' ? reconstructed.after : reconstructed.before}
+          />
+        ) : reconstructed ? (
           <MonacoDiffView
             before={reconstructed.before}
             after={reconstructed.after}
@@ -79,10 +90,24 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
 
   const before = payload.before ?? '';
   const after = payload.after ?? '';
+  const wholeFileTone = inferWholeFileTone(payload.before, payload.after);
   return (
     <div className="flex h-full flex-col gap-1.5">
-      {!expanded && <DiffHeader filePath={payload.filePath} isNewFile={isNewFile} />}
-      <MonacoDiffView before={before} after={after} language={language} />
+      {!expanded && (
+        <DiffHeader
+          filePath={payload.filePath}
+          isNewFile={isNewFile}
+          isDeletedFile={isDeletedFile}
+        />
+      )}
+      {wholeFileTone ? (
+        <WholeFileDiffView
+          tone={wholeFileTone}
+          content={wholeFileTone === 'added' ? after : before}
+        />
+      ) : (
+        <MonacoDiffView before={before} after={after} language={language} />
+      )}
     </div>
   );
 }
@@ -90,11 +115,13 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
 function DiffHeader({
   filePath,
   isNewFile,
+  isDeletedFile,
   changeKind,
   patchStatus,
 }: {
   filePath: string;
   isNewFile: boolean;
+  isDeletedFile?: boolean;
   changeKind?: string | null;
   patchStatus?: string | null;
 }): JSX.Element {
@@ -105,6 +132,11 @@ function DiffHeader({
       {isNewFile && (
         <span className="rounded bg-status-working/20 px-1.5 py-0.5 text-[9px] text-status-working">
           新增
+        </span>
+      )}
+      {isDeletedFile && (
+        <span className="rounded bg-status-error/20 px-1.5 py-0.5 text-[9px] text-status-error">
+          删除
         </span>
       )}
       {changeKind && (
@@ -127,6 +159,82 @@ function DiffHeader({
       )}
     </div>
   );
+}
+
+type WholeFileTone = 'added' | 'deleted';
+
+function WholeFileDiffView({
+  tone,
+  content,
+}: {
+  tone: WholeFileTone;
+  content: string;
+}): JSX.Element {
+  const lines = splitDisplayLines(content);
+  const isAdded = tone === 'added';
+  const styles = isAdded
+    ? {
+        container: 'border-status-working/35 bg-status-working/10',
+        row: 'bg-status-working/[0.08]',
+        marker: 'text-status-working',
+      }
+    : {
+        container: 'border-status-error/35 bg-status-error/10',
+        row: 'bg-status-error/[0.08]',
+        marker: 'text-status-error',
+      };
+  return (
+    <div
+      className={`min-h-[260px] flex-1 overflow-auto rounded-md border ${styles.container}`}
+      data-testid="full-file-diff"
+      data-change-kind={tone}
+    >
+      <div className="font-mono text-[11px] leading-5 text-deck-text">
+        {lines.map((line, index) => (
+          <div
+            key={index}
+            className={`grid grid-cols-[3rem_1.5rem_minmax(0,1fr)] gap-2 px-3 ${styles.row}`}
+          >
+            <span className="select-none text-right tabular-nums text-deck-muted/50">
+              {content === '' ? '' : index + 1}
+            </span>
+            <span className={`select-none ${styles.marker}`}>{isAdded ? '+' : '-'}</span>
+            <span className="whitespace-pre-wrap break-words">{line || ' '}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function splitDisplayLines(content: string): string[] {
+  if (content === '') return [''];
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+function inferWholeFileTone(
+  before: string | null,
+  after: string | null,
+): WholeFileTone | null {
+  if (before == null && after != null) return 'added';
+  if (before != null && after == null) return 'deleted';
+  if (before === '' && after !== '') return 'added';
+  if (before !== '' && after === '') return 'deleted';
+  return null;
+}
+
+function wholeFileToneFromChange(changeKind: string | null): WholeFileTone | null {
+  if (changeKind === 'add' || changeKind === 'create') return 'added';
+  if (changeKind === 'delete' || changeKind === 'remove') return 'deleted';
+  return null;
+}
+
+function inferUnifiedDiffWholeFileTone(diff: string): WholeFileTone | null {
+  if (/^(new file mode |--- \/dev\/null$)/m.test(diff)) return 'added';
+  if (/^(deleted file mode |\+\+\+ \/dev\/null$)/m.test(diff)) return 'deleted';
+  return null;
 }
 
 function MonacoDiffView({
