@@ -59,6 +59,19 @@ afterEach(() => {
 });
 
 describe('DataPanel quota usage', () => {
+  it('uses startup-preloaded quota snapshots without a first-open provider read', async () => {
+    useTokenUsageStore.setState({
+      providerUsageSnapshots: [claudeSnapshot()],
+      providerUsageFetchedAt: Date.now(),
+    });
+
+    render(<DataPanel />);
+
+    await waitFor(() => expect(window.api.tokenUsageDaily).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Claude')).toBeTruthy();
+    expect(providerUsageSnapshot).not.toHaveBeenCalled();
+  });
+
   it('reads quota information on mount and supports manual hard refresh', async () => {
     render(<DataPanel />);
 

@@ -27,7 +27,7 @@ type ProviderUsageSnapshotOptions = {
   force?: boolean;
 };
 
-export const PROVIDER_USAGE_CACHE_TTL_MS = 55_000;
+export const PROVIDER_USAGE_CACHE_TTL_MS = 5 * 60_000 - 5_000;
 
 let cachedResult: { result: ProviderUsageSnapshotResult; fetchedAt: number } | null = null;
 let inFlightFetch: Promise<ProviderUsageSnapshotResult> | null = null;

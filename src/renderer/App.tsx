@@ -12,9 +12,9 @@ import { IssuesPanel } from './components/IssuesPanel';
 import { DataPanel } from './components/DataPanel';
 import { HeaderTokenRates } from './components/HeaderTokenRates';
 import { useSessionStore } from './stores/session-store';
-import { useTokenUsageStore } from './stores/token-usage-store';
 import { useEventBridge } from './hooks/use-event-bridge';
 import { useIssuesBridge } from './hooks/use-issues-bridge';
+import { useStartupDataPreload } from './hooks/use-startup-data-preload';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
 import { selectLiveSessions, selectPendingBuckets, sumPendingBuckets } from './lib/session-selectors';
 import type { AppSettings, SessionRecord } from '@shared/types';
@@ -28,11 +28,11 @@ export function App(): JSX.Element {
   // 常驻订阅 issue-changed（不放 IssuesPanel 组件内，否则切走 tab unmount 即漏事件 →
   // 切回问题页状态不刷新）。详 use-issues-bridge.ts 头注。
   useIssuesBridge();
+  useStartupDataPreload();
   const sessions = useSessionStore((s) => s.sessions);
   const selectedId = useSessionStore((s) => s.selectedSessionId);
   const select = useSessionStore((s) => s.selectSession);
   const setPendingAll = useSessionStore((s) => s.setPendingRequestsAll);
-  const setDaily = useTokenUsageStore((s) => s.setDaily);
 
   const [view, setView] = useState<View>('live');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -98,23 +98,6 @@ export function App(): JSX.Element {
       cancelled = true;
     };
   }, [setPendingAll]);
-
-  // 启动时预取数据 tab 的冷数据：每日 token 明细。Provider 额度窗口可能触发
-  // provider/SDK 侧交互，只在数据 tab 挂载时读取，不做应用启动预取。
-  useEffect(() => {
-    let cancelled = false;
-    void window.api
-      .tokenUsageDaily()
-      .then((rows) => {
-        if (!cancelled) setDaily(rows);
-      })
-      .catch((err) => {
-        console.warn('[app] tokenUsageDaily preload failed', err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [setDaily]);
 
   // 监听全局快捷键 Cmd+Alt+P：主进程已切换 alwaysOnTop+vibrancy，这里同步 UI 与持久化设置
   useEffect(() => {
