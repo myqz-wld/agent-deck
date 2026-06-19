@@ -21,7 +21,7 @@ import { LIVE_STALE_MS, type LiveRateEntry } from '../lib/live-rate';
  * - rates / topToday 走 **poll + token-usage-changed 快速校准**（token/s 是时间衰减量，无新事件
  *   旧 turn 也会滑出窗口，纯 push 不触发衰减刷新）— useTokenRatesPoll hook 负责。
  * - daily 走 **push**（事件驱动不衰减）— 组件订阅 onTokenUsageChanged debounce refetch。
- * - providerUsageSnapshots 走 App 启动预取 + DataPanel 定时刷新 + main IPC TTL cache，失败时保留旧结果。
+ * - providerUsageSnapshots 走 App 常驻定时刷新 + main IPC TTL cache，失败时保留旧结果。
  *
  * 与 issues-store 同款 zustand 单 store + reducer setter pattern。
  */
