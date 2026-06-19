@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DataPanel } from '../DataPanel';
 import { useTokenUsageStore } from '../../stores/token-usage-store';
 import type { ProviderUsageSnapshot } from '@shared/types';
@@ -55,6 +55,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   Reflect.deleteProperty(window, 'api');
 });
 
@@ -69,6 +70,22 @@ describe('DataPanel quota usage', () => {
 
     await waitFor(() => expect(window.api.tokenUsageDaily).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('Claude')).toBeTruthy();
+    expect(providerUsageSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('does not start a DataPanel-owned automatic provider refresh timer', async () => {
+    vi.useFakeTimers();
+    useTokenUsageStore.setState({
+      providerUsageSnapshots: [claudeSnapshot()],
+      providerUsageFetchedAt: Date.now(),
+    });
+
+    render(<DataPanel />);
+
+    expect(window.api.tokenUsageDaily).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
     expect(providerUsageSnapshot).not.toHaveBeenCalled();
   });
 

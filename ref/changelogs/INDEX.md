@@ -309,3 +309,4 @@
 | [CHANGELOG_302.md](CHANGELOG_302.md) | Align live and precise token-rate model buckets. |
 | [CHANGELOG_303.md](CHANGELOG_303.md) | `list_sessions` defaults to related sessions and SessionDetail shows tasks. |
 | [CHANGELOG_304.md](CHANGELOG_304.md) | Preload provider quota snapshots before opening the Data tab. |
+| [CHANGELOG_305.md](CHANGELOG_305.md) | Refresh provider quota snapshots outside the Data tab. |

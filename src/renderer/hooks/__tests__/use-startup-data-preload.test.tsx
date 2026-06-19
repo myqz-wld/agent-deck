@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { ProviderUsageSnapshot, TokenDailyRow } from '@shared/types';
-import { useStartupDataPreload } from '../use-startup-data-preload';
+import { PROVIDER_USAGE_REFETCH_MS, useStartupDataPreload } from '../use-startup-data-preload';
 import { useTokenUsageStore } from '../../stores/token-usage-store';
 
 function resetTokenUsageStore(): void {
@@ -71,5 +71,18 @@ describe('useStartupDataPreload', () => {
     expect(state.daily).toEqual([dailyRow()]);
     expect(state.providerUsageSnapshots).toEqual([expect.objectContaining({ provider: 'claude-code' })]);
     expect(state.providerUsageFetchedAt).toEqual(expect.any(Number));
+  });
+
+  it('refreshes provider usage in the background while DataPanel is unmounted', async () => {
+    vi.useFakeTimers();
+    renderHook(() => useStartupDataPreload());
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(providerUsageSnapshot).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(PROVIDER_USAGE_REFETCH_MS);
+    expect(providerUsageSnapshot).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type JSX } from 'react';
 import { useTokenUsageStore } from '../stores/token-usage-store';
 import { useTokenRatesPoll } from '../hooks/use-token-rates-poll';
+import { PROVIDER_USAGE_RENDERER_STALE_MS } from '../hooks/use-startup-data-preload';
 import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
 import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
 import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '@shared/types';
@@ -18,8 +19,6 @@ import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '
  */
 
 const DAILY_REFETCH_DEBOUNCE_MS = 500;
-const PROVIDER_USAGE_REFETCH_MS = 5 * 60_000;
-const PROVIDER_USAGE_RENDERER_STALE_MS = PROVIDER_USAGE_REFETCH_MS - 5_000;
 
 /** 大数字千分位；0 显示 '·' 弱化（避免满屏 0 干扰）。 */
 function fmt(n: number): string {
@@ -90,13 +89,6 @@ export function DataPanel(): JSX.Element {
     const cacheFresh =
       usageFetchedAt !== null && Date.now() - usageFetchedAt < PROVIDER_USAGE_RENDERER_STALE_MS;
     if (!cacheFresh) void fetchUsage({ showLoading: usageSnapshots.length === 0 });
-    const timer = setInterval(
-      () => void fetchUsage({ showLoading: false }),
-      PROVIDER_USAGE_REFETCH_MS,
-    );
-    return () => {
-      clearInterval(timer);
-    };
   }, [fetchUsage, usageFetchedAt, usageSnapshots.length]);
 
   // 实时区：全 bucket token/s，生成中 fresh live 估算优先，降序
