@@ -79,6 +79,7 @@ Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_pr
 | [claude-compaction-thinking-copy-20260618.md](claude-compaction-thinking-copy-20260618.md) | completed | [291](../changelogs/CHANGELOG_291.md) / [125](../reviews/REVIEW_125.md) | Claude compaction events render, and thinking copy is adapter-aware |
 | [review-latest-and-summary-session-filter-20260618.md](review-latest-and-summary-session-filter-20260618.md) | completed | [298](../changelogs/CHANGELOG_298.md) / [127](../reviews/REVIEW_127.md) | Latest commit review fixed lockfile drift, SDK-origin filtering for internal Codex child hooks, and guarded external Codex lifecycle without inferred SessionEnd |
 | [list-sessions-related-default-20260619.md](list-sessions-related-default-20260619.md) | completed | [303](../changelogs/CHANGELOG_303.md) | `list_sessions` defaults to caller-related sessions and SessionDetail gained a Tasks tab with completed-toggle |
+| [codex-create-session-latency-20260619.md](codex-create-session-latency-20260619.md) | completed | [310](../changelogs/CHANGELOG_310.md) / [311](../changelogs/CHANGELOG_311.md) / [312](../changelogs/CHANGELOG_312.md) / [REVIEW_130](../reviews/REVIEW_130.md) / [REVIEW_131](../reviews/REVIEW_131.md) / [REVIEW_132](../reviews/REVIEW_132.md) / [REVIEW_133](../reviews/REVIEW_133.md) | Codex new-session creation returns a visible temp session before background real-id rename; follow-up deep review fixed the MCP spawn stable-id contract and moved provider quota refresh to 10 minutes |
 
 ## Legacy Slug-Only Entries
 
