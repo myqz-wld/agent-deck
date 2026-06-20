@@ -56,8 +56,8 @@ afterEach(() => {
 });
 
 describe('providerUsageSnapshotHandler cache', () => {
-  it('keeps the provider usage cache TTL just below the five-minute refresh cadence', () => {
-    expect(PROVIDER_USAGE_CACHE_TTL_MS).toBe(5 * 60_000 - 5_000);
+  it('keeps the provider usage cache TTL just below the ten-minute refresh cadence', () => {
+    expect(PROVIDER_USAGE_CACHE_TTL_MS).toBe(10 * 60_000 - 5_000);
   });
 
   it('returns cached snapshots within TTL', async () => {

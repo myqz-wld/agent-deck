@@ -76,6 +76,47 @@ describe('translateCodexAppServerNotification', () => {
     ]);
   });
 
+  it('skips empty assistant-visible app-server message items', () => {
+    const { emit, events } = collect();
+
+    for (const item of [
+      { id: 'agent-empty', type: 'agentMessage' },
+      { id: 'agent-blank', type: 'agentMessage', text: '' },
+      { id: 'plan-blank', type: 'plan', text: '   ' },
+    ]) {
+      translateCodexAppServerNotification(
+        { method: 'item/completed', params: { item } } as CodexAppServerNotification,
+        emit,
+      );
+    }
+
+    expect(events).toEqual([]);
+  });
+
+  it('keeps non-empty assistant-visible app-server message items', () => {
+    const { emit, events } = collect();
+
+    translateCodexAppServerNotification(
+      {
+        method: 'item/completed',
+        params: { item: { id: 'agent-text', type: 'agentMessage', text: 'done' } },
+      } as CodexAppServerNotification,
+      emit,
+    );
+    translateCodexAppServerNotification(
+      {
+        method: 'item/completed',
+        params: { item: { id: 'plan-text', type: 'plan', text: '1. check\n2. fix' } },
+      } as CodexAppServerNotification,
+      emit,
+    );
+
+    expect(events).toEqual([
+      { kind: 'message', payload: { text: 'done', role: 'assistant' } },
+      { kind: 'message', payload: { text: '1. check\n2. fix', role: 'assistant' } },
+    ]);
+  });
+
   it('normalizes skill dynamic tool calls to the existing Skill renderer contract', () => {
     const { emit, events } = collect();
     const item = {

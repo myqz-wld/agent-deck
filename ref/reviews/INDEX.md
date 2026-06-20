@@ -144,3 +144,4 @@ Use `REVIEW_X.md`, where `X` is the next integer and historically aligns with `C
 | [REVIEW_130.md](REVIEW_130.md) | Directory picker stalls, provider quota refresh cadence, and Codex create-session latency. | 3 MEDIUM fixed + 1 LOW fixed | CHANGELOG_310 |
 | [REVIEW_131.md](REVIEW_131.md) | Recent warning/error app log triage: Monaco CDN worker failure and Codex quota cached-client idle timer race. | 2 MEDIUM fixed | CHANGELOG_311 |
 | [REVIEW_132.md](REVIEW_132.md) | Codex-only simple review of directory picker/quota/log/Codex temp-session changes; Claude side skipped per user. | 2 HIGH fixed | CHANGELOG_310 + CHANGELOG_311 |
+| [REVIEW_133.md](REVIEW_133.md) | Provider quota cadence moved to 10 minutes and Codex MCP spawn now returns a stable id. | 1 HIGH fixed + 1 LOW fixed | CHANGELOG_312 |

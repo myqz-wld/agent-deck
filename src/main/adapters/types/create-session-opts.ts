@@ -232,6 +232,13 @@ export interface CodexCreateOpts {
    * success + sdk-bridge resume)。caller 不该传。
    */
   handOff?: HandOffMetadata;
+  /**
+   * Programmatic callers such as MCP `spawn_session` need a durable handle they can use for
+   * follow-up tools immediately after creation. New Codex sessions normally return a temporary
+   * app id for UI latency and rename it to the real thread id in the background; when this is
+   * true, the bridge waits for the first `thread.started` result and returns the canonical id.
+   */
+  awaitCanonicalId?: boolean;
 }
 
 /**
@@ -299,4 +306,9 @@ export interface CreateSessionOptionsRaw {
    * 之外)不该传。
    */
   handOff?: HandOffMetadata;
+  /**
+   * Internal spawn-session plumbing for Codex programmatic creates. Not exposed as an MCP schema
+   * field; handlers set it when they need a stable session id instead of the UI fast-temp id.
+   */
+  awaitCanonicalId?: boolean;
 }

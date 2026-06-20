@@ -182,6 +182,7 @@ const createSessionCalls: Array<{
   claudeAgentName?: string;
   claudeAgents?: unknown;
   extraAllowWrite?: readonly string[];
+  awaitCanonicalId?: boolean;
 }> = [];
 
 vi.mock('@main/adapters/registry', () => ({
@@ -212,6 +213,7 @@ vi.mock('@main/adapters/registry', () => ({
           claudeAgentName?: string;
           claudeAgents?: unknown;
           extraAllowWrite?: readonly string[];
+          awaitCanonicalId?: boolean;
         }) => {
           const sid = nextSpawnedSid;
           createSessionCalls.push({
@@ -231,6 +233,7 @@ vi.mock('@main/adapters/registry', () => ({
             claudeAgentName: opts.claudeAgentName,
             claudeAgents: opts.claudeAgents,
             extraAllowWrite: opts.extraAllowWrite,
+            awaitCanonicalId: opts.awaitCanonicalId,
           });
           sessionStore.set(sid, {
             id: sid,
@@ -856,6 +859,46 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].codexSandbox).toBe('read-only');
     expect(createSessionCalls[0].permissionMode).toBeUndefined();
     expect(recordPermCalls).toEqual([]);
+  });
+
+  it('codex spawn returns a canonical id that remains usable by follow-up send_message', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', {
+      cwd: '/repo',
+      agentId: 'claude-code',
+    });
+    nextSpawnedSid = 'real-codex-after-thread-started';
+
+    const spawn = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'codex teammate task',
+      callerSessionId: 'lead',
+    }, {});
+    const spawned = parseResult(spawn);
+
+    expect(spawned.isError).toBeFalsy();
+    expect(spawned.data.sessionId).toBe('real-codex-after-thread-started');
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].awaitCanonicalId).toBe(true);
+    expect(sessionStore.has(spawned.data.sessionId)).toBe(true);
+
+    const followUp = await tools.get('send_message').handler({
+      sessionId: spawned.data.sessionId,
+      text: 'second-round prompt',
+      callerSessionId: 'lead',
+    }, {});
+    const sent = parseResult(followUp);
+
+    expect(sent.isError).toBeFalsy();
+    expect(sent.data.queued).toBe(true);
+    expect(enqueuedMessages).toContainEqual({
+      teamId: null,
+      fromSessionId: 'lead',
+      toSessionId: 'real-codex-after-thread-started',
+      body: 'second-round prompt',
+      replyToMessageId: null,
+    });
   });
 
   it('passes adapter-scoped codex model and thinking to createSession', async () => {
