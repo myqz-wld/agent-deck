@@ -7,10 +7,11 @@
  * 1. tempKey = initialSid (顶部 validate phase allocate 出的 randomUUID)
  * 2. sessions.set(tempKey, internal) + claimAsSdk(tempKey) + emit session-start / first user
  * 3. persistSessionFields(tempKey) — temp row 后续 rename 到 realId 时由 sessionRepo.rename 迁移
- * 4. 下一个 macrotask 后后台 threadLoop.startNewThreadAndAwaitId(..., { initialSessionEmitted: true })：
+ * 4. 默认在下一个 macrotask 后后台 threadLoop.startNewThreadAndAwaitId(..., { initialSessionEmitted: true })：
  *    thread.started 拿到 realId 后由 sessionManager.renameSdkSession 统一 rename DB / token /
  *    codexBySession；fallback 只补 error + finished，不重复 emit start/user
- * 5. return { sessionId: tempKey }，让 UI 不等待 app-server initialize + thread/start
+ * 5. return { sessionId: tempKey }，让 UI 不等待 app-server initialize + thread/start。MCP
+ *    spawn_session 可传 awaitCanonicalId，改为等待 thread.started 并返回 realId。
  *
  * **handOff metadata**: opts.handOff 透传给 thread-loop 让 thread-loop fallback / success 2 处
  * first-user-message emit 时 spread 进 events.payload (plan §不变量 5 — codex 3 处 emit:
@@ -119,6 +120,19 @@ export async function runCreateSessionNewPath(
       logger.warn(`[codex-bridge] background startNewThreadAndAwaitId(${tempKey}) failed`, err);
     });
   };
+  if (opts.awaitCanonicalId === true) {
+    const canonicalId = await deps.threadLoop.startNewThreadAndAwaitId(
+      internal,
+      tempKey,
+      cwd,
+      opts.prompt!,
+      opts.attachments,
+      opts.handOff,
+      { initialSessionEmitted: true },
+    );
+    return { sessionId: canonicalId };
+  }
+
   // 让 createSession caller 的同步 post-create 写入（spawn link / team membership / reply anchor）
   // 先登记到 temp sid，避免后台 thread.started 在同一调用链里抢先 rename。
   setTimeout(startBackgroundThread, 0);

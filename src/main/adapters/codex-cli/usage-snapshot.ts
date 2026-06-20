@@ -10,10 +10,11 @@ import {
 import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
 import { getProviderUsageProbeCwd } from '@main/paths';
 import log from '@main/utils/logger';
+import { PROVIDER_USAGE_REFETCH_MS } from '@shared/constants/provider-usage';
 
 const logger = log.scope('codex-usage');
 const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
-const BACKGROUND_USAGE_IDLE_DISPOSE_MS = 5 * 60_000;
+const BACKGROUND_USAGE_IDLE_DISPOSE_MS = PROVIDER_USAGE_REFETCH_MS;
 
 type CodexUsageClient = Pick<CodexAppServerClient, 'request' | 'dispose'>;
 

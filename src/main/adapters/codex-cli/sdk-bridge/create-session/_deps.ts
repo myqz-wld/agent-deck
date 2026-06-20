@@ -146,6 +146,12 @@ export interface CreateSessionOpts {
    */
   handOff?: HandOffMetadata;
   /**
+   * New-session path only. Default false keeps the UI fast path: return the temp session id and
+   * let `thread.started` rename it in the background. MCP `spawn_session` sets true so the public
+   * handle is the canonical post-rename id and remains valid for follow-up tools.
+   */
+  awaitCanonicalId?: boolean;
+  /**
    * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法 — 对称 claude createSession opts):
    * 跳过本 createSession resume path 内 emit 首条 user message。
    *

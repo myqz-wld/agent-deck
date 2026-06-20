@@ -297,6 +297,36 @@ describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
 });
 
 describe('codex createSession new path latency', () => {
+  it('awaitCanonicalId waits for thread.started and returns the post-rename real id', async () => {
+    const pushThread = new PushThread();
+    appServerClientMock.nextThread = pushThread;
+
+    const bridge = makeBridge();
+    const createPromise = bridge.createSession({
+      cwd: '/repo',
+      prompt: 'hi',
+      codexSandbox: 'workspace-write',
+      awaitCanonicalId: true,
+    });
+
+    await flushAsyncWork();
+    expect(pushThread.runStreamed).toHaveBeenCalledTimes(1);
+    expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
+
+    pushThread.push({ type: 'thread.started', thread_id: 'real-thread-1' });
+    await flushAsyncWork();
+    const handle = await createPromise;
+
+    expect(handle.sessionId).toBe('real-thread-1');
+    expect(sessionManager.renameSdkSession).toHaveBeenCalledWith(
+      expect.any(String),
+      'real-thread-1',
+    );
+
+    const sessions = (bridge as unknown as { sessions: Map<string, unknown> }).sessions;
+    expect(sessions.has(handle.sessionId)).toBe(true);
+  });
+
   it('新建会话立即返回 temp session，thread.started 后后台 rename，不重复 emit start/user', async () => {
     vi.useFakeTimers();
     const pushThread = new PushThread();

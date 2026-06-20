@@ -197,7 +197,7 @@ function translateItemCompleted(
 ): void {
   switch (item.type) {
     case 'agentMessage': {
-      emit('message', { text: stringField(item.text), role: 'assistant' });
+      emitAssistantMessageIfPresent(item, emit);
       return;
     }
 
@@ -211,7 +211,7 @@ function translateItemCompleted(
     }
 
     case 'plan': {
-      emit('message', { text: stringField(item.text), role: 'assistant' });
+      emitAssistantMessageIfPresent(item, emit);
       return;
     }
 
@@ -343,6 +343,12 @@ function translateItemCompleted(
     default:
       logger.debug(`[codex-app-server-translate] ignored item type: ${String(item.type)}`);
   }
+}
+
+function emitAssistantMessageIfPresent(item: AnyRecord, emit: EmitFn): void {
+  const text = stringField(item.text);
+  if (!text.trim()) return;
+  emit('message', { text, role: 'assistant' });
 }
 
 function trackReasoningSummaryDelta(

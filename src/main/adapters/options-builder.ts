@@ -159,6 +159,7 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   // 时 spread 进 events.payload(3 处 emit:thread-loop fallback + thread-loop success +
   // sdk-bridge resume,详 plan §不变量 5)。
   if (raw.handOff !== undefined) out.handOff = raw.handOff;
+  if (raw.awaitCanonicalId !== undefined) out.awaitCanonicalId = raw.awaitCanonicalId;
 
   // plan §P3 Step 3.5 + §不变量 6: codex reviewer teammate spawn (REVIEWER_AGENT_NAMES
   // SSOT) runtime default spread enforce 点。caller 路径 / 普通 codex session 走
@@ -386,6 +387,7 @@ const _CODEX_PASSTHROUGH_KEYS = {
   codexSandbox: 0,
   extraAllowWrite: 0,
   handOff: 0,
+  awaitCanonicalId: 0,
 } as const;
 const _assertCodexPassthroughCoversArm: AssertSameKeys<
   typeof _CODEX_PASSTHROUGH_KEYS,
