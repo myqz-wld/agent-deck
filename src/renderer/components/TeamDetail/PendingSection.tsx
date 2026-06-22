@@ -34,6 +34,7 @@ export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
   const pendingPerms = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsks = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExits = useSessionStore((s) => s.pendingExitPlanModesBySession);
+  const pendingDiffs = useSessionStore((s) => s.pendingDiffReviewsBySession);
 
   // 复用 PendingTab 同款 selector（含 archivedAt + lifecycle 过滤 + waiting/lastEventAt 排序），
   // 再按 team active 成员 sessionIds 过滤。memberSidSet 依赖 members → useMemo 锁住重算时机。
@@ -41,7 +42,7 @@ export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
     const memberSidSet = new Set(
       members.filter((m) => m.leftAt === null).map((m) => m.sessionId),
     );
-    return selectPendingBuckets(sessions, pendingPerms, pendingAsks, pendingExits)
+    return selectPendingBuckets(sessions, pendingPerms, pendingAsks, pendingExits, pendingDiffs)
       .filter((b) => memberSidSet.has(b.session.id))
       .map((b) => ({
         sid: b.session.id,
@@ -49,9 +50,10 @@ export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
         perms: b.permissions.length,
         asks: b.askQuestions.length,
         exits: b.exitPlanModes.length,
+        diffs: b.diffReviews.length,
         total: b.total,
       }));
-  }, [members, sessions, pendingPerms, pendingAsks, pendingExits]);
+  }, [members, sessions, pendingPerms, pendingAsks, pendingExits, pendingDiffs]);
 
   const totalPending = rows.reduce((sum, r) => sum + r.total, 0);
 
@@ -85,7 +87,8 @@ export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
               <span className="ml-2 shrink-0 text-[9px] text-deck-muted">
                 {r.perms > 0 && <span className="mr-1.5">🛡 {r.perms}</span>}
                 {r.asks > 0 && <span className="mr-1.5">❓ {r.asks}</span>}
-                {r.exits > 0 && <span>📋 {r.exits}</span>}
+                {r.exits > 0 && <span className="mr-1.5">📋 {r.exits}</span>}
+                {r.diffs > 0 && <span>🧩 {r.diffs}</span>}
               </span>
             </li>
           );

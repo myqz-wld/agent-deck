@@ -68,7 +68,7 @@ beforeEach(() => {
   mocks.permissionTimeoutMs = 30 * 60 * 1000;
 });
 
-describe('request_plan_review handler', () => {
+describe('present_plan handler', () => {
   it('emits an ExitPlanMode-compatible pending review and resolves approved', async () => {
     mocks.sessions.set('codex-1', makeSession('codex-1'));
 
@@ -188,7 +188,7 @@ describe('request_plan_review handler', () => {
 
     expect(result.isError).toBe(true);
     expect(parseResult(result)).toMatchObject({
-      error: expect.stringMatching(/request_plan_review not allowed for external caller/),
+      error: expect.stringMatching(/present_plan not allowed for external caller/),
     });
     expect(mocks.ingest).not.toHaveBeenCalled();
   });

@@ -1,6 +1,6 @@
 /**
- * Agent Deck MCP server zod schema 集中地。公开 registry 暴露 17 个 tool:
- * 7 session/interaction + 2 worktree + 5 task + 3 issue。archive_plan / shutdown_baton_teammates
+ * Agent Deck MCP server zod schema 集中地。公开 registry 暴露 18 个 tool:
+ * 6 session/messaging + 2 user presentation + 2 worktree + 5 task + 3 issue。archive_plan / shutdown_baton_teammates
  * 只保留为退役 guard/type 兼容键,不注册给 SDK agent。
  * 三 transport（in-process / HTTP / stdio）共享同一份 schema。
  *
@@ -239,14 +239,14 @@ export const REQUEST_PLAN_REVIEW_SCHEMA = {
     .min(1)
     .max(100_000)
     .describe(
-      'Markdown plan to show to the user for review. Call this when you need explicit user approval or revision feedback before executing a plan.',
+      'Markdown plan to present to the user. Call this when you need the user to see a plan and either confirm it or send revision feedback before you continue.',
     ),
   title: z
     .string()
     .min(1)
     .max(120)
     .optional()
-    .describe('Optional short title shown above the plan review card.'),
+    .describe('Optional short title shown above the plan presentation card.'),
   timeoutMs: z
     .number()
     .int()
@@ -254,7 +254,84 @@ export const REQUEST_PLAN_REVIEW_SCHEMA = {
     .max(86_400_000)
     .optional()
     .describe(
-      'Optional timeout in milliseconds. Omit to use the app permission-request timeout; when that setting is 0, omitted timeoutMs waits until the user approves or asks for revisions.',
+      'Optional timeout in milliseconds. Omit to use the app permission-request timeout; when that setting is 0, omitted timeoutMs waits until the user confirms or asks for revisions.',
+    ),
+  callerSessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
+};
+
+const DIFF_REVIEW_TEXT = z.string().max(100_000);
+
+export const DIFF_REVIEW_PR_FRAGMENT_SCHEMA = z
+  .object({
+    before: DIFF_REVIEW_TEXT.describe('Original content for the left side of the two-column presentation.'),
+    after: DIFF_REVIEW_TEXT.describe('Proposed content for the right side of the two-column presentation.'),
+    beforeLabel: z.string().min(1).max(80).optional().describe('Optional label for the original side. Defaults should be UI-owned, not agent-owned.'),
+    afterLabel: z.string().min(1).max(80).optional().describe('Optional label for the proposed side. Defaults should be UI-owned, not agent-owned.'),
+    unifiedDiff: DIFF_REVIEW_TEXT.optional().describe('Optional unified diff shown as supporting context or fallback when before/after rendering is insufficient; do not pass it instead of before and after.'),
+  })
+  .strict();
+
+export const DIFF_REVIEW_CONFLICT_FRAGMENT_SCHEMA = z
+  .object({
+    ours: DIFF_REVIEW_TEXT.describe('Current/ours content for the conflict.'),
+    theirs: DIFF_REVIEW_TEXT.describe('Incoming/theirs content for the conflict.'),
+    resolution: DIFF_REVIEW_TEXT.describe('Proposed final resolved content for the user to confirm or revise.'),
+    base: DIFF_REVIEW_TEXT.optional().describe('Optional common ancestor content, shown only when useful for understanding the resolution.'),
+    oursLabel: z.string().min(1).max(80).optional().describe('Optional display label for the current/ours pane. Defaults should be UI-owned, not agent-owned.'),
+    theirsLabel: z.string().min(1).max(80).optional().describe('Optional display label for the incoming/theirs pane. Defaults should be UI-owned, not agent-owned.'),
+    resolutionLabel: z.string().min(1).max(80).optional().describe('Optional display label for the resolution pane. Defaults should be UI-owned, not agent-owned.'),
+    baseLabel: z.string().min(1).max(80).optional().describe('Optional display label for the common-base pane. Defaults should be UI-owned, not agent-owned.'),
+  })
+  .strict();
+
+export const REQUEST_DIFF_REVIEW_SCHEMA = {
+  mode: z
+    .enum(['pr', 'merge-conflict'])
+    .describe('Presentation layout and payload selector. Use "pr" for a two-column before/after presentation and provide `pr`; use "merge-conflict" for an ours/theirs/resolution presentation and provide `conflict`.'),
+  title: z
+    .string()
+    .min(1)
+    .max(120)
+    .optional()
+    .describe('Optional short title shown above the diff presentation card.'),
+  filePath: z
+    .string()
+    .min(1)
+    .max(4096)
+    .optional()
+    .describe('Optional repository-relative or display path for the file being presented. Use it for labels only; the tool does not read the file from disk.'),
+  language: z
+    .string()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe('Optional language id used for syntax highlighting, such as typescript, tsx, markdown, or json.'),
+  instructions: z
+    .string()
+    .min(1)
+    .max(10_000)
+    .optional()
+    .describe('Optional focused presentation instructions or acceptance criteria shown with the diff, such as risk areas, intended behavior, or specific questions for the user.'),
+  rationale: z
+    .string()
+    .min(1)
+    .max(40_000)
+    .describe('Short explanation shown above the diff so the user understands what they are confirming and why the change is being presented.'),
+  pr: DIFF_REVIEW_PR_FRAGMENT_SCHEMA.optional().describe('Two-column PR-style diff payload. Required when mode="pr"; omit when mode="merge-conflict".'),
+  conflict: DIFF_REVIEW_CONFLICT_FRAGMENT_SCHEMA.optional().describe('Merge-conflict presentation payload. Required when mode="merge-conflict"; omit when mode="pr".'),
+  timeoutMs: z
+    .number()
+    .int()
+    .min(1_000)
+    .max(86_400_000)
+    .optional()
+    .describe(
+      'Optional timeout in milliseconds. Omit to use the app permission-request timeout; when that setting is 0, omitted timeoutMs waits until the user confirms or requests changes.',
     ),
   callerSessionId: z
     .string()
@@ -566,6 +643,7 @@ export const SHUTDOWN_BATON_TEAMMATES_SCHEMA = {
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
 export type RequestPlanReviewArgs = z.infer<z.ZodObject<typeof REQUEST_PLAN_REVIEW_SCHEMA>>;
+export type RequestDiffReviewArgs = z.infer<z.ZodObject<typeof REQUEST_DIFF_REVIEW_SCHEMA>>;
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
@@ -583,7 +661,7 @@ export type ShutdownBatonTeammatesArgs = z.infer<
 
 // =============== Result types (R37 P3-L Step 4.5) ===============
 //
-// 17 public tool ok return shape SSOT, plus retired compatibility result types for legacy
+// 18 public tool ok return shape SSOT, plus retired compatibility result types for legacy
 // handlers that are no longer registered. Handler return 用 `satisfies XxxResult` 做静态字段校验
 // 防漂移（typo / 漏字段 / 字段类型错被 TS 拦）。
 //
@@ -652,6 +730,11 @@ export interface SendMessageResult {
 }
 
 export type RequestPlanReviewResult =
+  | { decision: 'approved' }
+  | { decision: 'revise'; feedback?: string }
+  | { decision: 'timeout' };
+
+export type RequestDiffReviewResult =
   | { decision: 'approved' }
   | { decision: 'revise'; feedback?: string }
   | { decision: 'timeout' };

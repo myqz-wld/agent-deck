@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
   AgentEvent,
   AskUserQuestionRequest,
+  DiffReviewRequest,
   ExitPlanModeRequest,
   PermissionRequest,
   SessionRecord,
@@ -11,6 +12,8 @@ import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import {
   isAskQuestionCancelled,
   isAskUserQuestion,
+  isDiffReview,
+  isDiffReviewCancelled,
   isExitPlanCancelled,
   isExitPlanMode,
   isPermissionCancelled,
@@ -30,6 +33,8 @@ interface State {
   pendingAskQuestionsBySession: Map<string, AskUserQuestionRequest[]>;
   /** 等待用户批准/继续规划的 ExitPlanMode，独立于权限请求，UI 上单独渲染（markdown plan + 二选一按钮） */
   pendingExitPlanModesBySession: Map<string, ExitPlanModeRequest[]>;
+  /** 等待用户查看/确认的 MCP diff 片段，独立于权限请求，UI 上单独渲染。 */
+  pendingDiffReviewsBySession: Map<string, DiffReviewRequest[]>;
   setSessions: (records: SessionRecord[]) => void;
   upsertSession: (record: SessionRecord) => void;
   removeSession: (id: string) => void;
@@ -42,12 +47,14 @@ interface State {
   resolvePermission: (sessionId: string, requestId: string) => void;
   resolveAskQuestion: (sessionId: string, requestId: string) => void;
   resolveExitPlanMode: (sessionId: string, requestId: string) => void;
+  resolveDiffReview: (sessionId: string, requestId: string) => void;
   /** 重建 pending 列表（HMR / 重启后从主进程拉一次，覆盖该 session 的 pending）。 */
   setPendingRequests: (
     sessionId: string,
     permissions: PermissionRequest[],
     askQuestions: AskUserQuestionRequest[],
     exitPlanModes: ExitPlanModeRequest[],
+    diffReviews: DiffReviewRequest[],
   ) => void;
   /** 全量灌入 pending（启动时一次性同步多个 session）。 */
   setPendingRequestsAll: (
@@ -57,6 +64,7 @@ interface State {
         permissions: PermissionRequest[];
         askQuestions: AskUserQuestionRequest[];
         exitPlanModes: ExitPlanModeRequest[];
+        diffReviews?: DiffReviewRequest[];
       }
     >,
   ) => void;
@@ -76,6 +84,7 @@ export const RECENT_LIMIT = 200;
 export const EMPTY_REQUESTS: PermissionRequest[] = [];
 export const EMPTY_ASK_QUESTIONS: AskUserQuestionRequest[] = [];
 export const EMPTY_EXIT_PLAN_MODES: ExitPlanModeRequest[] = [];
+export const EMPTY_DIFF_REVIEWS: DiffReviewRequest[] = [];
 
 // 8 个 isXxx type guards 已迁出到 ./event-type-guards.ts（CHANGELOG_52 Step 2，纯 type guard 无副作用）
 
@@ -148,6 +157,7 @@ export const useSessionStore = create<State>((set) => ({
   pendingPermissionsBySession: new Map(),
   pendingAskQuestionsBySession: new Map(),
   pendingExitPlanModesBySession: new Map(),
+  pendingDiffReviewsBySession: new Map(),
 
   setSessions: (records) => {
     // 全量替换会话列表（启动 / HMR / history 视图初始拉）。
@@ -178,6 +188,7 @@ export const useSessionStore = create<State>((set) => ({
         pendingPermissionsBySession: prune(state.pendingPermissionsBySession),
         pendingAskQuestionsBySession: prune(state.pendingAskQuestionsBySession),
         pendingExitPlanModesBySession: prune(state.pendingExitPlanModesBySession),
+        pendingDiffReviewsBySession: prune(state.pendingDiffReviewsBySession),
         selectedSessionId:
           state.selectedSessionId !== null && !validIds.has(state.selectedSessionId)
             ? null
@@ -203,6 +214,8 @@ export const useSessionStore = create<State>((set) => ({
       a.delete(id);
       const x = new Map(state.pendingExitPlanModesBySession);
       x.delete(id);
+      const d = new Map(state.pendingDiffReviewsBySession);
+      d.delete(id);
       // 必须把所有 by-session 缓存的 key 一并清掉，否则长期使用 / 历史清理后
       // recentEvents（30 条/会话）与 summaries 会驻留在 renderer 内存里，
       // 没有 sessions key 反查也永远清不到。
@@ -217,6 +230,7 @@ export const useSessionStore = create<State>((set) => ({
         pendingPermissionsBySession: p,
         pendingAskQuestionsBySession: a,
         pendingExitPlanModesBySession: x,
+        pendingDiffReviewsBySession: d,
         recentEventsBySession: re,
         summariesBySession: su,
         latestSummaryBySession: ls,
@@ -234,6 +248,7 @@ export const useSessionStore = create<State>((set) => ({
       let pendingMap = state.pendingPermissionsBySession;
       let askMap = state.pendingAskQuestionsBySession;
       let exitMap = state.pendingExitPlanModesBySession;
+      let diffMap = state.pendingDiffReviewsBySession;
       if (event.kind === 'waiting-for-user') {
         if (isPermissionRequest(event.payload)) {
           const req = event.payload;
@@ -255,6 +270,13 @@ export const useSessionStore = create<State>((set) => ({
           if (!list.some((r) => r.requestId === req.requestId)) {
             exitMap = new Map(state.pendingExitPlanModesBySession);
             exitMap.set(event.sessionId, [...list, req]);
+          }
+        } else if (isDiffReview(event.payload)) {
+          const req = event.payload;
+          const list = state.pendingDiffReviewsBySession.get(event.sessionId) ?? [];
+          if (!list.some((r) => r.requestId === req.requestId)) {
+            diffMap = new Map(state.pendingDiffReviewsBySession);
+            diffMap.set(event.sessionId, [...list, req]);
           }
         } else if (isPermissionCancelled(event.payload)) {
           const reqId = event.payload.requestId;
@@ -285,6 +307,15 @@ export const useSessionStore = create<State>((set) => ({
             if (next.length === 0) exitMap.delete(event.sessionId);
             else exitMap.set(event.sessionId, next);
           }
+        } else if (isDiffReviewCancelled(event.payload)) {
+          const reqId = event.payload.requestId;
+          const cur = state.pendingDiffReviewsBySession.get(event.sessionId);
+          if (cur?.some((r) => r.requestId === reqId)) {
+            diffMap = new Map(state.pendingDiffReviewsBySession);
+            const next = cur.filter((r) => r.requestId !== reqId);
+            if (next.length === 0) diffMap.delete(event.sessionId);
+            else diffMap.set(event.sessionId, next);
+          }
         }
       }
       return {
@@ -292,6 +323,7 @@ export const useSessionStore = create<State>((set) => ({
         pendingPermissionsBySession: pendingMap,
         pendingAskQuestionsBySession: askMap,
         pendingExitPlanModesBySession: exitMap,
+        pendingDiffReviewsBySession: diffMap,
       };
     }),
 
@@ -412,7 +444,18 @@ export const useSessionStore = create<State>((set) => ({
       return { pendingExitPlanModesBySession: m };
     }),
 
-  setPendingRequests: (sessionId, permissions, askQuestions, exitPlanModes) =>
+  resolveDiffReview: (sessionId, requestId) =>
+    set((state) => {
+      const list = state.pendingDiffReviewsBySession.get(sessionId);
+      if (!list) return {};
+      const next = list.filter((r) => r.requestId !== requestId);
+      const m = new Map(state.pendingDiffReviewsBySession);
+      if (next.length === 0) m.delete(sessionId);
+      else m.set(sessionId, next);
+      return { pendingDiffReviewsBySession: m };
+    }),
+
+  setPendingRequests: (sessionId, permissions, askQuestions, exitPlanModes, diffReviews) =>
     set((state) => {
       const p = new Map(state.pendingPermissionsBySession);
       if (permissions.length === 0) p.delete(sessionId);
@@ -423,10 +466,14 @@ export const useSessionStore = create<State>((set) => ({
       const x = new Map(state.pendingExitPlanModesBySession);
       if (exitPlanModes.length === 0) x.delete(sessionId);
       else x.set(sessionId, exitPlanModes);
+      const d = new Map(state.pendingDiffReviewsBySession);
+      if (diffReviews.length === 0) d.delete(sessionId);
+      else d.set(sessionId, diffReviews);
       return {
         pendingPermissionsBySession: p,
         pendingAskQuestionsBySession: a,
         pendingExitPlanModesBySession: x,
+        pendingDiffReviewsBySession: d,
       };
     }),
 
@@ -459,15 +506,18 @@ export const useSessionStore = create<State>((set) => ({
       const pIn = new Map<string, PermissionRequest[]>();
       const aIn = new Map<string, AskUserQuestionRequest[]>();
       const xIn = new Map<string, ExitPlanModeRequest[]>();
-      for (const [sid, { permissions, askQuestions, exitPlanModes }] of Object.entries(map)) {
+      const dIn = new Map<string, DiffReviewRequest[]>();
+      for (const [sid, { permissions, askQuestions, exitPlanModes, diffReviews }] of Object.entries(map)) {
         if (permissions.length > 0) pIn.set(sid, permissions);
         if (askQuestions.length > 0) aIn.set(sid, askQuestions);
         if (exitPlanModes.length > 0) xIn.set(sid, exitPlanModes);
+        if ((diffReviews?.length ?? 0) > 0) dIn.set(sid, diffReviews!);
       }
       return {
         pendingPermissionsBySession: mergeBucket(state.pendingPermissionsBySession, pIn),
         pendingAskQuestionsBySession: mergeBucket(state.pendingAskQuestionsBySession, aIn),
         pendingExitPlanModesBySession: mergeBucket(state.pendingExitPlanModesBySession, xIn),
+        pendingDiffReviewsBySession: mergeBucket(state.pendingDiffReviewsBySession, dIn),
       };
     }),
 
@@ -573,6 +623,7 @@ export const useSessionStore = create<State>((set) => ({
         pendingPermissionsBySession: movePending(state.pendingPermissionsBySession),
         pendingAskQuestionsBySession: movePending(state.pendingAskQuestionsBySession),
         pendingExitPlanModesBySession: movePending(state.pendingExitPlanModesBySession),
+        pendingDiffReviewsBySession: movePending(state.pendingDiffReviewsBySession),
         selectedSessionId: state.selectedSessionId === fromId ? toId : state.selectedSessionId,
       };
     }),

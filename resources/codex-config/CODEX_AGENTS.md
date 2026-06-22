@@ -44,11 +44,17 @@ When MCP task tools are unavailable, write progress into the plan file, handoff 
 
 `simple-review` / `deep-review` must keep a heterogeneous Claude + Codex reviewer pair. If reviewer-claude fails, the lead first calls `shutdown_session` on the failed session, then respawns with `adapter: 'claude-code'` and `agentName: 'reviewer-claude'`. Do not substitute a second Codex reviewer.
 
-## Plan / Worktree / Handoff
+## User Review / Plan / Worktree / Handoff
 
 For complex, cross-session, high-risk, or isolated work, write a durable plan before entering a worktree or handing off. The plan path must be absolute and supplied by the caller, project convention, or current workflow; this baseline does not assume any built-in plan directory.
 
-Codex has no native Plan mode. When you have a plan that needs explicit user review before execution, call `mcp__agent-deck__request_plan_review({ plan, title? })`. Proceed only after `decision: "approved"`; if it returns `decision: "revise"`, update the plan using the returned feedback and ask again when needed.
+Codex has no native Plan mode, so use Agent Deck MCP user-presentation tools when a plan or diff must be shown to the user before continuing.
+
+Use Agent Deck MCP user-presentation tools when a step needs the user to see a plan or concrete code change and either confirm it or send revision feedback before continuing.
+
+- For execution plans, call `mcp__agent-deck__present_plan({ plan, title? })` before starting work that needs the user's confirmation or revision feedback. Proceed only after `decision: "approved"`; if it returns `decision: "revise"`, update the plan using the feedback and ask again when needed.
+- For concrete code changes, call `mcp__agent-deck__present_diff({ mode, title?, filePath?, language?, rationale, instructions?, pr? / conflict? })` before applying or finalizing changes that need to be shown to the user. Use `mode: "pr"` for two-column before/after presentation and `mode: "merge-conflict"` for ours/theirs/resolution presentation. Proceed only after `decision: "approved"`; if it returns `decision: "revise"`, update the changes using the feedback and ask again when needed.
+- If either presentation tool returns `decision: "timeout"`, stop before proceeding with the presented work and tell the user what timed out.
 
 The plan must let a successor session continue without reading prior chat history:
 
@@ -80,16 +86,17 @@ For long context, first write `/tmp/<name>.md`, then ask the successor in the `s
 
 ## Agent Deck Universal Team Backend
 
-Agent Deck MCP tools orchestrate sessions, messages, worktrees, tasks, and issues. Teammates call tools under their own Codex SDK approval policy, sandbox, and MCP token; the lead does not approve permissions on their behalf.
+Agent Deck MCP tools cover session orchestration, user presentation, worktrees, tasks, and issues. Teammates call tools under their own Codex SDK approval policy, sandbox, and MCP token; the lead does not approve permissions on their behalf.
 
 Session tools:
 
 - `spawn_session`: starts a parallel SDK session and returns `spawnPromptMessageId`; passing `teamName` also creates or reuses a shared team.
 - `hand_off_session`: starts a successor session and transfers caller resources.
 - `send_message`: sends a normal message or a reply with `replyToMessageId`.
-- `request_plan_review`: shows a markdown plan in Agent Deck's plan review UI and waits for the user's approval or revision feedback.
 - `list_sessions` / `get_session`: read-only session queries.
 - `shutdown_session`: marks the session `closed` and stops the live query; it does not delete events, messages, file changes, or summaries.
+
+User presentation tools: `present_plan` shows a markdown plan and waits for confirmation, revision feedback, or timeout; `present_diff` shows two-column PR diffs or merge-conflict resolution diffs and waits for confirmation, revision feedback, or timeout.
 
 Worktree tools: `enter_worktree` / `exit_worktree`. Task tools: `task_create` / `task_list` / `task_get` / `task_update` / `task_delete`. Issue tools: `report_issue` / `append_issue_context` / `update_issue_status`.
 

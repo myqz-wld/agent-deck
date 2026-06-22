@@ -58,6 +58,7 @@ export const IpcInvoke = {
   AdapterRespondPermission: 'adapter:respond-permission',
   AdapterRespondAskUserQuestion: 'adapter:respond-ask-user-question',
   AdapterRespondExitPlanMode: 'adapter:respond-exit-plan-mode',
+  AdapterRespondDiffReview: 'adapter:respond-diff-review',
   AdapterSetPermissionMode: 'adapter:set-permission-mode',
   AdapterRestartWithCodexSandbox: 'adapter:restart-with-codex-sandbox',
   AdapterRestartWithClaudeCodeSandbox: 'adapter:restart-with-claude-code-sandbox',

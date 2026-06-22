@@ -18,6 +18,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { eventBus } from '@main/event-bus';
 import { planReviewService } from '@main/plan-review/service';
+import { diffReviewService } from '@main/diff-review/service';
 import {
   on,
   IpcInputError,
@@ -40,7 +41,9 @@ import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-adapters');
 
-function mergeExitPlanModes<T extends { requestId: string }>(base: T[], extra: T[]): T[] {
+type PendingRequestList = Array<{ requestId: string }>;
+
+function mergePendingRequests<T extends { requestId: string }>(base: T[], extra: T[]): T[] {
   if (extra.length === 0) return base;
   const seen = new Set(base.map((req) => req.requestId));
   return [...base, ...extra.filter((req) => !seen.has(req.requestId))];
@@ -370,6 +373,20 @@ export function registerAdaptersIpc(): void {
     );
     return true;
   });
+  on(IpcInvoke.AdapterRespondDiffReview, async (_e, _agentId, sessionId, requestId, response) => {
+    const sid = parseStringId('sessionId', sessionId);
+    const rid = parseStringId('requestId', requestId);
+    if (
+      diffReviewService.respond(
+        sid,
+        rid,
+        response as Parameters<typeof diffReviewService.respond>[2],
+      )
+    ) {
+      return true;
+    }
+    throw new Error('diff review request not found');
+  });
   on(IpcInvoke.AdapterSetPermissionMode, async (_e, agentId, sessionId, mode) => {
     const validAgentId = parseStringId('agentId', agentId, 64);
     const adapter = adapterRegistry.get(validAgentId);
@@ -423,19 +440,36 @@ export function registerAdaptersIpc(): void {
       : { permissions: [], askQuestions: [], exitPlanModes: [] };
     return {
       ...base,
-      exitPlanModes: mergeExitPlanModes(base.exitPlanModes, planReviewService.listPending(sid)),
+      exitPlanModes: mergePendingRequests(base.exitPlanModes, planReviewService.listPending(sid)),
+      diffReviews: diffReviewService.listPending(sid),
     };
   });
   on(IpcInvoke.AdapterListPendingAll, (_e, agentId) => {
     const validAgentId = parseStringId('agentId', agentId, 64);
     const adapter = adapterRegistry.get(validAgentId);
-    const out = adapter?.listAllPending ? adapter.listAllPending() : {};
+    const out: Record<
+      string,
+      {
+        permissions: PendingRequestList;
+        askQuestions: PendingRequestList;
+        exitPlanModes: PendingRequestList;
+        diffReviews?: PendingRequestList;
+      }
+    > = adapter?.listAllPending ? adapter.listAllPending() : {};
     const mcpPlanReviews = planReviewService.listAllPending(validAgentId);
     for (const [sid, exitPlanModes] of Object.entries(mcpPlanReviews)) {
       const cur = out[sid] ?? { permissions: [], askQuestions: [], exitPlanModes: [] };
       out[sid] = {
         ...cur,
-        exitPlanModes: mergeExitPlanModes(cur.exitPlanModes, exitPlanModes),
+        exitPlanModes: mergePendingRequests(cur.exitPlanModes, exitPlanModes),
+      };
+    }
+    const mcpDiffReviews = diffReviewService.listAllPending(validAgentId);
+    for (const [sid, diffReviews] of Object.entries(mcpDiffReviews)) {
+      const cur = out[sid] ?? { permissions: [], askQuestions: [], exitPlanModes: [] };
+      out[sid] = {
+        ...cur,
+        diffReviews: mergePendingRequests(cur.diffReviews ?? [], diffReviews),
       };
     }
     return out;

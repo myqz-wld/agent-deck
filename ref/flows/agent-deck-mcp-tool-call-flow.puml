@@ -1,6 +1,6 @@
-' source: request-plan-review-mcp-20260611
+' source: diff-present-tool-and-skill-20260622
 ' description: MCP 服务器典型 tool 调用 sequence — 4 段 (入口 / 入口拦截 / 业务路由 / 收口)
-' last_updated: 2026-06-11
+' last_updated: 2026-06-22
 @startuml agent-deck-mcp-tool-call-flow
 
 title MCP 服务器 — 典型 tool 调用 sequence (4 段)
@@ -31,7 +31,7 @@ end
 
 Guard -> Guard: check 外部调用白名单[tool_name]?
 note right of Guard
-  deny list: spawn / send / request_plan_review / shutdown
+  deny list: spawn / send / present_plan / present_diff / shutdown
   / hand_off / worktree / task write+task_get / issue write
   原因: 写 git + 起 SDK + DB 高风险
 end note
@@ -70,8 +70,8 @@ else 走 send_message (universal team backend)
     eventBus enqueue (agent-deck-message-enqueued) → 50ms debounce process
     + 250ms poll fallback (single-flight + reschedule)
   end note
-else 走 request_plan_review (用户检阅 plan)
-  Handler -> Store: planReviewService 写 pending resolver
+else 走 present_plan / present_diff (用户展示 plan / diff)
+  Handler -> Store: presentation service 写 pending resolver
   Store -> Store: sessionManager.ingest waiting-for-user
   Store --> Handler: 用户 approve / revise / timeout 后 resolve
 end

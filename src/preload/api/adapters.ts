@@ -11,6 +11,8 @@ import { IpcInvoke } from '@shared/ipc-channels';
 import type {
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
+  DiffReviewRequest,
+  DiffReviewResponse,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
   PermissionRequest,
@@ -71,6 +73,19 @@ export const adaptersApi = {
       requestId,
       response,
     ),
+  respondDiffReview: (
+    agentId: string,
+    sessionId: string,
+    requestId: string,
+    response: DiffReviewResponse,
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterRespondDiffReview,
+      agentId,
+      sessionId,
+      requestId,
+      response,
+    ),
   setAdapterPermissionMode: (
     agentId: string,
     sessionId: string,
@@ -125,6 +140,7 @@ export const adaptersApi = {
     permissions: PermissionRequest[];
     askQuestions: AskUserQuestionRequest[];
     exitPlanModes: ExitPlanModeRequest[];
+    diffReviews: DiffReviewRequest[];
   }> => ipcRenderer.invoke(IpcInvoke.AdapterListPending, agentId, sessionId),
   listAdapterPendingAll: (
     agentId: string,
@@ -135,6 +151,7 @@ export const adaptersApi = {
         permissions: PermissionRequest[];
         askQuestions: AskUserQuestionRequest[];
         exitPlanModes: ExitPlanModeRequest[];
+        diffReviews?: DiffReviewRequest[];
       }
     >
   > => ipcRenderer.invoke(IpcInvoke.AdapterListPendingAll, agentId),

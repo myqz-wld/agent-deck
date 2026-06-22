@@ -4,7 +4,7 @@ import { useSessionStore } from '@renderer/stores/session-store';
 import { selectPendingBuckets, type PendingBucket } from '@renderer/lib/session-selectors';
 import { deriveTeamRole } from '@renderer/lib/derive-team-role';
 import { StatusBadge } from './StatusBadge';
-import { AskRow, ExitPlanRow, PermissionRow } from './pending-rows';
+import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from './pending-rows';
 
 /**
  * 集中「待处理」面板。把所有有未响应请求的会话按 section 平铺，用户在此一屏完成
@@ -34,13 +34,15 @@ export function PendingTab({ onOpenSession }: Props): JSX.Element {
   const pendingPerms = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsks = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExits = useSessionStore((s) => s.pendingExitPlanModesBySession);
+  const pendingDiffs = useSessionStore((s) => s.pendingDiffReviewsBySession);
   const resolvePermission = useSessionStore((s) => s.resolvePermission);
   const resolveAsk = useSessionStore((s) => s.resolveAskQuestion);
   const resolveExitPlan = useSessionStore((s) => s.resolveExitPlanMode);
+  const resolveDiffReview = useSessionStore((s) => s.resolveDiffReview);
 
   const buckets = useMemo(
-    () => selectPendingBuckets(sessions, pendingPerms, pendingAsks, pendingExits),
-    [sessions, pendingPerms, pendingAsks, pendingExits],
+    () => selectPendingBuckets(sessions, pendingPerms, pendingAsks, pendingExits, pendingDiffs),
+    [sessions, pendingPerms, pendingAsks, pendingExits, pendingDiffs],
   );
 
   if (buckets.length === 0) {
@@ -65,6 +67,7 @@ export function PendingTab({ onOpenSession }: Props): JSX.Element {
             resolvePermission={resolvePermission}
             resolveAsk={resolveAsk}
             resolveExitPlan={resolveExitPlan}
+            resolveDiffReview={resolveDiffReview}
           />
         ))}
       </ol>
@@ -78,14 +81,16 @@ function PendingSection({
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
+  resolveDiffReview,
 }: {
   bucket: PendingBucket;
   onOpenSession: (sid: string) => void;
   resolvePermission: (sid: string, rid: string) => void;
   resolveAsk: (sid: string, rid: string) => void;
   resolveExitPlan: (sid: string, rid: string) => void;
+  resolveDiffReview: (sid: string, rid: string) => void;
 }): JSX.Element {
-  const { session, permissions, askQuestions, exitPlanModes, total } = bucket;
+  const { session, permissions, askQuestions, exitPlanModes, diffReviews, total } = bucket;
   const isSdk = session.source === 'sdk';
   const ts = session.lastEventAt;
 
@@ -120,10 +125,12 @@ function PendingSection({
   const batchTooltip = !isSdk
     ? '这是终端启动的只读会话，请回到原终端窗口操作'
     : batchableCount === 0
-      ? '仅剩需要你逐条处理的计划 / 问题（请展开对应行）'
+      ? diffReviews.length > 0
+        ? '仅剩需要你逐条处理的差异展示'
+        : '仅剩需要你逐条处理的计划 / 问题（请展开对应行）'
       : `批量响应 ${permissions.length} 项权限请求${
-          exitPlanModes.length + askCount > 0
-            ? `；${exitPlanModes.length} 项计划批准 + ${askCount} 个问题需要逐条处理`
+          exitPlanModes.length + askCount + diffReviews.length > 0
+            ? `；${exitPlanModes.length} 项计划确认 + ${askCount} 个问题 + ${diffReviews.length} 项差异展示需要逐条处理`
             : ''
         }`;
 
@@ -298,6 +305,19 @@ function PendingSection({
             stillPending={true}
             wasCancelled={false}
             onResolved={resolveExitPlan}
+          />
+        ))}
+        {diffReviews.map((req) => (
+          <DiffReviewRow
+            key={`d-${req.requestId}`}
+            event={makeFakeEvent(session.id, session.agentId, ts, req)}
+            payload={req}
+            sessionId={session.id}
+            agentId={session.agentId}
+            isSdk={isSdk}
+            stillPending={true}
+            wasCancelled={false}
+            onResolved={resolveDiffReview}
           />
         ))}
       </ol>

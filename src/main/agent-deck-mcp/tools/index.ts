@@ -10,6 +10,7 @@ import {
 } from './helpers';
 import {
   GET_SESSION_SCHEMA,
+  REQUEST_DIFF_REVIEW_SCHEMA,
   LIST_SESSIONS_SCHEMA,
   REQUEST_PLAN_REVIEW_SCHEMA,
   SEND_MESSAGE_SCHEMA,
@@ -31,6 +32,7 @@ import {
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
 import { requestPlanReviewHandler } from './handlers/request-plan-review';
+import { requestDiffReviewHandler } from './handlers/request-diff-review';
 import { listSessionsHandler } from './handlers/list';
 import { getSessionHandler } from './handlers/get';
 import { shutdownSessionHandler } from './handlers/shutdown';
@@ -157,10 +159,25 @@ export async function buildAgentDeckTools(
   );
 
   const requestPlanReview = tool(
-    AGENT_DECK_TOOL_NAMES.requestPlanReview,
-    'Show a markdown plan to the user and wait for their decision. Use this when you need explicit user review before executing a plan, especially from adapters without native Plan mode. Returns `decision:"approved"` to proceed, `decision:"revise"` with optional feedback to update the plan, or `decision:"timeout"` when the effective timeout expires. Omitted `timeoutMs` uses the app permission-request timeout setting. This tool rejects external callers.',
+    AGENT_DECK_TOOL_NAMES.presentPlan,
+    'Present a markdown plan to the user and wait for their response. Use this user-presentation tool when you need the user to see a plan and either confirm it or send revision feedback before you continue, especially from adapters without native Plan mode. Returns `decision:"approved"` to proceed, `decision:"revise"` with optional feedback to update the plan, or `decision:"timeout"` when the effective timeout expires. Omitted `timeoutMs` uses the app permission-request timeout setting. This tool rejects external callers.',
     REQUEST_PLAN_REVIEW_SCHEMA,
     async (args, extra) => requestPlanReviewHandler(args, makeCtx(args, extra)),
+    {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+  );
+
+  const requestDiffReview = tool(
+    AGENT_DECK_TOOL_NAMES.presentDiff,
+    'Present diff content to the user and wait for their response. Use this user-presentation tool when concrete code changes need to be shown with context before you continue, such as PR-style before/after presentation or merge-conflict resolution presentation. `mode:"pr"` renders a two-column before/after view from `pr`; `mode:"merge-conflict"` renders an ours/theirs/resolution view from `conflict`. Returns `decision:"approved"` to proceed, `decision:"revise"` with optional feedback to update the changes, or `decision:"timeout"` when the effective timeout expires. Omitted `timeoutMs` uses the app permission-request timeout setting. This tool rejects external callers.',
+    REQUEST_DIFF_REVIEW_SCHEMA,
+    async (args, extra) => requestDiffReviewHandler(args, makeCtx(args, extra)),
     {
       annotations: {
         readOnlyHint: false,
@@ -409,6 +426,7 @@ export async function buildAgentDeckTools(
     spawnSession,
     sendMessage,
     requestPlanReview,
+    requestDiffReview,
     listSessions,
     getSession,
     shutdownSession,
