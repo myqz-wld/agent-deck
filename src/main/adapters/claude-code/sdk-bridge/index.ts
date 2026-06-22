@@ -48,8 +48,26 @@ import { readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
 import log from '@main/utils/logger';
 
 const logger = log.scope('claude-bridge');
+const CLOSE_STREAM_DRAIN_TIMEOUT_MS = 1_000;
 
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
+
+async function waitForStreamDrained(internal: InternalSession, sessionId: string): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const timeoutToken = Symbol('timeout');
+  const result = await Promise.race([
+    internal.streamDrained.then(() => undefined),
+    new Promise<typeof timeoutToken>((resolve) => {
+      timeout = setTimeout(() => resolve(timeoutToken), CLOSE_STREAM_DRAIN_TIMEOUT_MS);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
+  if (result === timeoutToken) {
+    logger.warn(
+      `[sdk-bridge] closeSession stream drain timed out after ${CLOSE_STREAM_DRAIN_TIMEOUT_MS}ms: ${sessionId}`,
+    );
+  }
+}
 
 /**
  * SDK 通道实现：每个 session 启动一个 query() AsyncGenerator，
@@ -461,6 +479,7 @@ export class ClaudeSdkBridge {
       emit: this.opts.emit,
       markRecentlyDeleted: opts.markRecentlyDeleted,
     });
+    await waitForStreamDrained(internal, sessionId);
   }
 
   /** 运行时切换权限模式。SDK 会从下一次工具调用起按新模式判断。 */

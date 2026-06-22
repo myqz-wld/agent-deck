@@ -43,6 +43,17 @@ import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { emits, makeBridge } from './sdk-bridge/_setup';
 
+function addStreamDrain<T extends Record<string, unknown>>(internal: T): T & {
+  streamDrained: Promise<void>;
+  resolveStreamDrained: () => void;
+} {
+  let resolveStreamDrained!: () => void;
+  const streamDrained = new Promise<void>((resolve) => {
+    resolveStreamDrained = resolve;
+  });
+  return Object.assign(internal, { streamDrained, resolveStreamDrained });
+}
+
 beforeEach(() => {
   emits.length = 0;
   vi.mocked(sessionRepo.get).mockReset();
@@ -69,7 +80,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       // 不再 yield，让 consume 自然走完 finally
     }
 
-    const internal = {
+    const internal = addStreamDrain({
       // **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 字段命名升级**:
       // realSessionId → cliSessionId + 新增 applicationSid 双字段
       applicationSid: APP_ID,
@@ -85,7 +96,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingFileChangeIntents: new Map(),
       seenUsageMessageIds: new Map(),
       turnUsageByBucket: new Map(),
-    };
+    });
 
     let firstId: string | null = null;
     // consume 是 private，用 unknown cast 跳过 access check
@@ -127,7 +138,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       };
     }
 
-    const internal = {
+    const internal = addStreamDrain({
       applicationSid: APP_ID,
       cliSessionId: null as string | null,
       cwd: '/tmp/x',
@@ -141,7 +152,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingFileChangeIntents: new Map(),
       seenUsageMessageIds: new Map(),
       turnUsageByBucket: new Map(),
-    };
+    });
 
     const { sessionManager } = await import('@main/session/manager');
     vi.mocked(sessionManager.updateCliSessionId).mockClear();
@@ -175,7 +186,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       yield { type: 'system', subtype: 'init', session_id: SAME_ID };
     }
 
-    const internal = {
+    const internal = addStreamDrain({
       applicationSid: SAME_ID,
       cliSessionId: null as string | null,
       cwd: '/tmp/x',
@@ -189,7 +200,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingFileChangeIntents: new Map(),
       seenUsageMessageIds: new Map(),
       turnUsageByBucket: new Map(),
-    };
+    });
 
     const { sessionManager } = await import('@main/session/manager');
     vi.mocked(sessionManager.renameSdkSession).mockClear();
@@ -225,7 +236,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       yield { type: 'system', subtype: 'init', session_id: APP_ID };
     }
 
-    const oldInternal = {
+    const oldInternal = addStreamDrain({
       applicationSid: APP_ID,
       cliSessionId: null as string | null,
       cwd: '/tmp/x',
@@ -239,7 +250,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingFileChangeIntents: new Map(),
       seenUsageMessageIds: new Map(),
       turnUsageByBucket: new Map(),
-    };
+    });
     const newInternal = { marker: 'new-live-internal' };
     const sessions = (bridge as unknown as { sessions: Map<string, unknown> }).sessions;
     sessions.set(APP_ID, newInternal);

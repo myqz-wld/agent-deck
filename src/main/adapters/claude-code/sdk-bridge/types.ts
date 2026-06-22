@@ -210,6 +210,16 @@ export interface InternalSession {
    */
   expectedClose?: boolean;
   /**
+   * SDK query consume loop 完整进入 finally 后 resolve。
+   *
+   * ExitPlanMode approve-bypass / restartWithPermissionMode 会先 interrupt 旧 query,再检查
+   * jsonl 是否存在并决定 resume 还是 fresh fallback。Claude SDK 的 interrupt() 返回早于
+   * stream finally / jsonl 落盘完成时,重启预检会误判 jsonl 缺失。closeSession 通过这个
+   * promise 做短暂、有界等待,让 restart 的 jsonl precheck 排在旧流收尾之后。
+   */
+  streamDrained: Promise<void>;
+  resolveStreamDrained: () => void;
+  /**
    * **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.1+2.5 修法**（H1+H2 race 双保险
    * (A) abort consume）：fallback fire / createSession throw 双路径 fire-and-forget interrupt 的
    * idempotency guard。
@@ -270,6 +280,10 @@ export function makeInternalSession(opts: {
   permissionMode?: PermissionMode;
   applicationSid: string;
 }): InternalSession {
+  let resolveStreamDrained!: () => void;
+  const streamDrained = new Promise<void>((resolve) => {
+    resolveStreamDrained = resolve;
+  });
   return {
     applicationSid: opts.applicationSid,
     cliSessionId: null,
@@ -286,6 +300,8 @@ export function makeInternalSession(opts: {
     seenUsageMessageIds: new Map(),
     turnUsageByBucket: new Map(),
     liveTokenEstimate: undefined,
+    streamDrained,
+    resolveStreamDrained,
     // R3 fix-3: permissionModeChain 默认 undefined（无 in-flight setPermissionMode）
   };
 }
