@@ -14,14 +14,17 @@ vi.mock('@monaco-editor/react', async () => {
     DiffEditor: ({
       original,
       modified,
+      language,
     }: {
       original: string;
       modified: string;
+      language?: string;
     }) =>
       React.createElement('div', {
         'data-testid': 'diff-editor',
         'data-original': original,
         'data-modified': modified,
+        'data-language': language,
       }),
   };
 });
@@ -100,6 +103,24 @@ describe('TextDiffRenderer codex metadata', () => {
     expect(screen.getByTestId('diff-editor').getAttribute('data-original')).toBe('old');
     expect(screen.getByTestId('diff-editor').getAttribute('data-modified')).toBe('new');
     expect(screen.queryByText(/Codex 未提供可显示的差异内容/)).toBeNull();
+  });
+
+  it('uses explicit metadata language for extensionless snippets', async () => {
+    render(
+      <TextDiffRenderer
+        payload={{
+          kind: 'text',
+          filePath: 'snippet',
+          before: 'const value = 1;',
+          after: 'const value = 2;',
+          metadata: { language: 'typescript' },
+          ts: 1,
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('diff-editor')).toBeTruthy());
+    expect(screen.getByTestId('diff-editor').getAttribute('data-language')).toBe('typescript');
   });
 
   it('renders whole-file additions with a green full-file background', () => {

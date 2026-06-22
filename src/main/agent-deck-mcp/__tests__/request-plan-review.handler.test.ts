@@ -28,6 +28,7 @@ vi.mock('@main/store/settings-store', () => ({
 }));
 
 import { planReviewService } from '@main/plan-review/service';
+import { eventBus } from '@main/event-bus';
 import {
   requestPlanReviewHandler,
   resolvePlanReviewTimeoutMs,
@@ -128,6 +129,31 @@ describe('present_plan handler', () => {
     expect(parseResult(result)).toEqual({
       decision: 'revise',
       feedback: 'tighten validation',
+    });
+  });
+
+  it('resolves timeout and emits cancellation when the owning session closes', async () => {
+    mocks.sessions.set('codex-1', makeSession('codex-1'));
+
+    const pending = requestPlanReviewHandler(
+      { plan: 'Review before shutdown' },
+      makeCtx('codex-1'),
+    );
+
+    await vi.waitFor(() => expect(mocks.ingest).toHaveBeenCalledTimes(1));
+    const requestId = mocks.ingest.mock.calls[0][0].payload.requestId;
+
+    eventBus.emit('session-upserted', makeSession('codex-1', { lifecycle: 'closed' }));
+
+    const result = await pending;
+    expect(parseResult(result)).toEqual({ decision: 'timeout' });
+    expect(planReviewService.listPending('codex-1')).toEqual([]);
+    expect(mocks.ingest).toHaveBeenCalledTimes(2);
+    expect(mocks.ingest.mock.calls[1][0]).toMatchObject({
+      sessionId: 'codex-1',
+      agentId: 'codex-cli',
+      kind: 'waiting-for-user',
+      payload: { type: 'exit-plan-cancelled', requestId },
     });
   });
 
