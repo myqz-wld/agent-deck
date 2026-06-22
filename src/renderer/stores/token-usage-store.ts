@@ -34,12 +34,14 @@ interface TokenUsageState {
   providerUsageFetchedAt: number | null;
   providerUsageLoading: boolean;
   providerUsageError: string | null;
+  providerUsageRequestId: number;
   setRates: (rows: TokenRateRow[]) => void;
   setTopToday: (rows: TokenRateRow[]) => void;
   setDaily: (rows: TokenDailyRow[]) => void;
-  setProviderUsageLoading: (loading: boolean) => void;
-  setProviderUsageSuccess: (snapshots: ProviderUsageSnapshot[]) => void;
-  setProviderUsageError: (message: string) => void;
+  beginProviderUsageRequest: (showLoading?: boolean) => number;
+  setProviderUsageSuccess: (requestId: number, snapshots: ProviderUsageSnapshot[]) => void;
+  setProviderUsageError: (requestId: number, message: string) => void;
+  finishProviderUsageRequest: (requestId: number) => void;
   applyLiveTick: (event: TokenRateTickEvent) => void;
 }
 
@@ -52,22 +54,47 @@ export const useTokenUsageStore = create<TokenUsageState>((set) => ({
   providerUsageFetchedAt: null,
   providerUsageLoading: false,
   providerUsageError: null,
+  providerUsageRequestId: 0,
   setRates: (rows) => set({ rates: rows }),
   setTopToday: (rows) => set({ topToday: rows }),
   setDaily: (rows) => set({ daily: rows }),
-  setProviderUsageLoading: (loading) => set({ providerUsageLoading: loading }),
-  setProviderUsageSuccess: (snapshots) =>
-    set({
-      providerUsageSnapshots: snapshots,
-      providerUsageFetchedAt: Date.now(),
-      providerUsageLoading: false,
-      providerUsageError: null,
+  beginProviderUsageRequest: (showLoading = false) => {
+    let requestId = 0;
+    set((state) => {
+      if (!showLoading && state.providerUsageLoading) {
+        requestId = state.providerUsageRequestId;
+        return {};
+      }
+      requestId = state.providerUsageRequestId + 1;
+      return {
+        providerUsageRequestId: requestId,
+        providerUsageLoading: showLoading ? true : state.providerUsageLoading,
+      };
+    });
+    return requestId;
+  },
+  setProviderUsageSuccess: (requestId, snapshots) =>
+    set((state) => {
+      if (requestId !== state.providerUsageRequestId) return {};
+      return {
+        providerUsageSnapshots: snapshots,
+        providerUsageFetchedAt: Date.now(),
+        providerUsageLoading: false,
+        providerUsageError: null,
+      };
     }),
-  setProviderUsageError: (message) =>
-    set({
-      providerUsageLoading: false,
-      providerUsageError: message,
+  setProviderUsageError: (requestId, message) =>
+    set((state) => {
+      if (requestId !== state.providerUsageRequestId) return {};
+      return {
+        providerUsageLoading: false,
+        providerUsageError: message,
+      };
     }),
+  finishProviderUsageRequest: (requestId) =>
+    set((state) =>
+      requestId === state.providerUsageRequestId ? { providerUsageLoading: false } : {},
+    ),
   applyLiveTick: (event) =>
     set((state) => {
       const now = Date.now();

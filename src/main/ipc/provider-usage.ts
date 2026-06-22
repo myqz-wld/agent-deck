@@ -28,24 +28,33 @@ type ProviderUsageSnapshotOptions = {
   force?: boolean;
 };
 
+type ProviderUsageInFlightFetch = {
+  seq: number;
+  promise: Promise<ProviderUsageSnapshotResult>;
+};
+
 export { PROVIDER_USAGE_CACHE_TTL_MS };
 
-let cachedResult: { result: ProviderUsageSnapshotResult; fetchedAt: number } | null = null;
-let inFlightFetch: Promise<ProviderUsageSnapshotResult> | null = null;
+let cachedResult: { result: ProviderUsageSnapshotResult; fetchedAt: number; seq: number } | null = null;
+let normalInFlightFetch: ProviderUsageInFlightFetch | null = null;
+let forceInFlightFetch: ProviderUsageInFlightFetch | null = null;
+let nextFetchSeq = 0;
 
 export async function providerUsageSnapshotHandler(
   opts: ProviderUsageSnapshotOptions = {},
 ): Promise<ProviderUsageSnapshotResult> {
   const now = Date.now();
+  if (opts.force) {
+    if (forceInFlightFetch) return forceInFlightFetch.promise;
+    return startProviderUsageFetch('force');
+  }
+  if (forceInFlightFetch) return forceInFlightFetch.promise;
   if (!opts.force && cachedResult && now - cachedResult.fetchedAt < PROVIDER_USAGE_CACHE_TTL_MS) {
     return cachedResult.result;
   }
-  if (inFlightFetch) return inFlightFetch;
+  if (normalInFlightFetch) return normalInFlightFetch.promise;
 
-  inFlightFetch = fetchProviderUsageSnapshots().finally(() => {
-    inFlightFetch = null;
-  });
-  return inFlightFetch;
+  return startProviderUsageFetch('normal');
 }
 
 export async function prefetchProviderUsageSnapshots(): Promise<void> {
@@ -56,17 +65,33 @@ export async function prefetchProviderUsageSnapshots(): Promise<void> {
   }
 }
 
-async function fetchProviderUsageSnapshots(): Promise<ProviderUsageSnapshotResult> {
+function startProviderUsageFetch(kind: 'normal' | 'force'): Promise<ProviderUsageSnapshotResult> {
+  const seq = ++nextFetchSeq;
+  const promise = fetchProviderUsageSnapshots(seq).finally(() => {
+    if (kind === 'normal' && normalInFlightFetch?.seq === seq) normalInFlightFetch = null;
+    if (kind === 'force' && forceInFlightFetch?.seq === seq) forceInFlightFetch = null;
+  });
+  const entry = { seq, promise };
+  if (kind === 'normal') normalInFlightFetch = entry;
+  else forceInFlightFetch = entry;
+  return promise;
+}
+
+async function fetchProviderUsageSnapshots(seq: number): Promise<ProviderUsageSnapshotResult> {
   const snapshots = await Promise.all(PROVIDER_ORDER.map(readAdapterSnapshot));
   const result = { snapshots };
-  cachedResult = { result, fetchedAt: Date.now() };
+  if (!cachedResult || seq >= cachedResult.seq) {
+    cachedResult = { result, fetchedAt: Date.now(), seq };
+  }
   return result;
 }
 
 /** Test seam: reset IPC cache/dedupe state between isolated handler tests. */
 export function _resetProviderUsageCacheForTesting(): void {
   cachedResult = null;
-  inFlightFetch = null;
+  normalInFlightFetch = null;
+  forceInFlightFetch = null;
+  nextFetchSeq = 0;
 }
 
 export function registerProviderUsageIpc(): void {

@@ -19,7 +19,9 @@ export const PROVIDER_USAGE_RENDERER_STALE_MS = PROVIDER_USAGE_CACHE_TTL_MS;
  */
 export function useStartupDataPreload(): void {
   const setDaily = useTokenUsageStore((s) => s.setDaily);
+  const beginProviderUsageRequest = useTokenUsageStore((s) => s.beginProviderUsageRequest);
   const setProviderUsageSuccess = useTokenUsageStore((s) => s.setProviderUsageSuccess);
+  const finishProviderUsageRequest = useTokenUsageStore((s) => s.finishProviderUsageRequest);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,12 +36,14 @@ export function useStartupDataPreload(): void {
       });
 
     const refreshProviderUsage = (): void => {
+      const requestId = beginProviderUsageRequest(false);
       void window.api
         .providerUsageSnapshot()
         .then((result) => {
-          if (!cancelled) setProviderUsageSuccess(result.snapshots);
+          if (!cancelled) setProviderUsageSuccess(requestId, result.snapshots);
         })
         .catch((err) => {
+          if (!cancelled) finishProviderUsageRequest(requestId);
           console.warn('[app] providerUsageSnapshot background refresh failed', err);
         });
     };
@@ -51,5 +55,5 @@ export function useStartupDataPreload(): void {
       cancelled = true;
       clearInterval(providerUsageTimer);
     };
-  }, [setDaily, setProviderUsageSuccess]);
+  }, [beginProviderUsageRequest, finishProviderUsageRequest, setDaily, setProviderUsageSuccess]);
 }

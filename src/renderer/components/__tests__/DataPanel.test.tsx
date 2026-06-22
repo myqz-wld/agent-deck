@@ -15,10 +15,11 @@ function resetTokenUsageStore(): void {
     providerUsageFetchedAt: null,
     providerUsageLoading: false,
     providerUsageError: null,
+    providerUsageRequestId: 0,
   });
 }
 
-function claudeSnapshot(): ProviderUsageSnapshot {
+function claudeSnapshot(usedPercent = 0.4, updatedAt = Date.now()): ProviderUsageSnapshot {
   return {
     provider: 'claude-code',
     label: 'Claude',
@@ -27,11 +28,11 @@ function claudeSnapshot(): ProviderUsageSnapshot {
       {
         id: 'current',
         label: '当前窗口',
-        usedPercent: 0.4,
+        usedPercent,
         resetsAt: null,
       },
     ],
-    updatedAt: Date.now(),
+    updatedAt,
   };
 }
 
@@ -103,5 +104,43 @@ describe('DataPanel quota usage', () => {
     fireEvent.click(screen.getByRole('button', { name: '刷新' }));
     await waitFor(() => expect(providerUsageSnapshot).toHaveBeenCalledTimes(2));
     expect(providerUsageSnapshot).toHaveBeenLastCalledWith({ force: true });
+  });
+
+  it('ignores an older quota response that finishes after a newer refresh', async () => {
+    let resolveInitial!: (value: { snapshots: ProviderUsageSnapshot[] }) => void;
+    let resolveRefresh!: (value: { snapshots: ProviderUsageSnapshot[] }) => void;
+    providerUsageSnapshot
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveInitial = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRefresh = resolve;
+        }),
+      );
+    useTokenUsageStore.setState({
+      providerUsageSnapshots: [claudeSnapshot(5, 500)],
+      providerUsageFetchedAt: null,
+    });
+
+    render(<DataPanel />);
+
+    await waitFor(() => expect(providerUsageSnapshot).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await waitFor(() => expect(providerUsageSnapshot).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      resolveRefresh({ snapshots: [claudeSnapshot(80, 2000)] });
+    });
+    expect(await screen.findByText('80%')).toBeTruthy();
+
+    await act(async () => {
+      resolveInitial({ snapshots: [claudeSnapshot(10, 1000)] });
+    });
+
+    expect(screen.getByText('80%')).toBeTruthy();
+    expect(screen.queryByText('10%')).toBeNull();
   });
 });

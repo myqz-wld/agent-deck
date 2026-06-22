@@ -34,7 +34,7 @@ export function DataPanel(): JSX.Element {
   const usageFetchedAt = useTokenUsageStore((s) => s.providerUsageFetchedAt);
   const usageLoading = useTokenUsageStore((s) => s.providerUsageLoading);
   const usageError = useTokenUsageStore((s) => s.providerUsageError);
-  const setProviderUsageLoading = useTokenUsageStore((s) => s.setProviderUsageLoading);
+  const beginProviderUsageRequest = useTokenUsageStore((s) => s.beginProviderUsageRequest);
   const setProviderUsageSuccess = useTokenUsageStore((s) => s.setProviderUsageSuccess);
   const setProviderUsageError = useTokenUsageStore((s) => s.setProviderUsageError);
   const mountedRef = useRef(true);
@@ -70,19 +70,19 @@ export function DataPanel(): JSX.Element {
 
   const fetchUsage = useCallback(
     async (opts: { showLoading: boolean; force?: boolean }): Promise<void> => {
-      if (opts.showLoading) setProviderUsageLoading(true);
+      const requestId = beginProviderUsageRequest(opts.showLoading);
       try {
         const result = opts.force
           ? await window.api.providerUsageSnapshot({ force: true })
           : await window.api.providerUsageSnapshot();
-        if (mountedRef.current) setProviderUsageSuccess(result.snapshots);
+        if (mountedRef.current) setProviderUsageSuccess(requestId, result.snapshots);
       } catch {
-        if (mountedRef.current) setProviderUsageError('额度信息读取失败，请稍后重试');
-      } finally {
-        if (opts.showLoading && mountedRef.current) setProviderUsageLoading(false);
+        if (mountedRef.current) {
+          setProviderUsageError(requestId, '额度信息读取失败，请稍后重试');
+        }
       }
     },
-    [setProviderUsageError, setProviderUsageLoading, setProviderUsageSuccess],
+    [beginProviderUsageRequest, setProviderUsageError, setProviderUsageSuccess],
   );
 
   useEffect(() => {
