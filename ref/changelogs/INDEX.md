@@ -319,3 +319,4 @@
 | [CHANGELOG_312.md](CHANGELOG_312.md) | Provider quota refresh is 10 minutes, and Codex MCP spawn returns a stable canonical id. |
 | [CHANGELOG_313.md](CHANGELOG_313.md) | MCP user gates are now presentation tools: `present_plan` and new `present_diff`, plus Skill Market `diff-walkthrough`. |
 | [CHANGELOG_314.md](CHANGELOG_314.md) | Claude restart waits for SDK stream drain before jsonl precheck. |
+| [CHANGELOG_315.md](CHANGELOG_315.md) | Provider quota snapshots ignore stale out-of-order refresh results. |

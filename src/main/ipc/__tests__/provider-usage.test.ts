@@ -16,7 +16,10 @@ import {
   providerUsageSnapshotHandler,
 } from '../provider-usage';
 
-function snapshot(provider: ProviderUsageSnapshot['provider']): ProviderUsageSnapshot {
+function snapshot(
+  provider: ProviderUsageSnapshot['provider'],
+  updatedAt = Date.now(),
+): ProviderUsageSnapshot {
   return {
     provider,
     label:
@@ -27,7 +30,7 @@ function snapshot(provider: ProviderUsageSnapshot['provider']): ProviderUsageSna
           : 'Deepseek',
     status: 'ok',
     windows: [],
-    updatedAt: Date.now(),
+    updatedAt,
   };
 }
 
@@ -121,6 +124,77 @@ describe('providerUsageSnapshotHandler cache', () => {
     expect(calls['claude-code']).toHaveBeenCalledTimes(1);
     expect(calls['codex-cli']).toHaveBeenCalledTimes(1);
     expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(1);
+  });
+
+  it('force refresh bypasses an older normal in-flight read and keeps the newer cache', async () => {
+    let resolveOldClaude!: (value: ProviderUsageSnapshot) => void;
+    let resolveFreshClaude!: (value: ProviderUsageSnapshot) => void;
+    const oldClaude = new Promise<ProviderUsageSnapshot>((resolve) => {
+      resolveOldClaude = resolve;
+    });
+    const freshClaude = new Promise<ProviderUsageSnapshot>((resolve) => {
+      resolveFreshClaude = resolve;
+    });
+    const calls = {
+      'claude-code': vi
+        .fn()
+        .mockReturnValueOnce(oldClaude)
+        .mockReturnValueOnce(freshClaude),
+      'codex-cli': vi.fn().mockResolvedValue(snapshot('codex-cli')),
+      'deepseek-claude-code': vi.fn().mockResolvedValue(snapshot('deepseek-claude-code')),
+    };
+    mocks.adapterRegistry.get.mockImplementation((id: ProviderUsageSnapshot['provider']) => ({
+      id,
+      getUsageSnapshot: calls[id],
+    }));
+
+    const oldRead = providerUsageSnapshotHandler();
+    const freshRead = providerUsageSnapshotHandler({ force: true });
+
+    expect(calls['claude-code']).toHaveBeenCalledTimes(2);
+
+    resolveFreshClaude(snapshot('claude-code', 2_000));
+    const freshResult = await freshRead;
+    expect(freshResult.snapshots[0].updatedAt).toBe(2_000);
+
+    resolveOldClaude(snapshot('claude-code', 1_000));
+    const oldResult = await oldRead;
+    expect(oldResult.snapshots[0].updatedAt).toBe(1_000);
+
+    const cached = await providerUsageSnapshotHandler();
+    expect(cached).toBe(freshResult);
+    expect(cached.snapshots[0].updatedAt).toBe(2_000);
+  });
+
+  it('non-force reads join a newer forced in-flight read before using fresh cache', async () => {
+    let resolveFreshClaude!: (value: ProviderUsageSnapshot) => void;
+    const freshClaude = new Promise<ProviderUsageSnapshot>((resolve) => {
+      resolveFreshClaude = resolve;
+    });
+    const calls = {
+      'claude-code': vi
+        .fn()
+        .mockResolvedValueOnce(snapshot('claude-code', 1_000))
+        .mockReturnValueOnce(freshClaude),
+      'codex-cli': vi.fn().mockResolvedValue(snapshot('codex-cli')),
+      'deepseek-claude-code': vi.fn().mockResolvedValue(snapshot('deepseek-claude-code')),
+    };
+    mocks.adapterRegistry.get.mockImplementation((id: ProviderUsageSnapshot['provider']) => ({
+      id,
+      getUsageSnapshot: calls[id],
+    }));
+
+    await providerUsageSnapshotHandler();
+    const forced = providerUsageSnapshotHandler({ force: true });
+    const normalDuringForce = providerUsageSnapshotHandler();
+
+    expect(calls['claude-code']).toHaveBeenCalledTimes(2);
+
+    resolveFreshClaude(snapshot('claude-code', 2_000));
+    const [forcedResult, normalResult] = await Promise.all([forced, normalDuringForce]);
+
+    expect(forcedResult).toBe(normalResult);
+    expect(normalResult.snapshots[0].updatedAt).toBe(2_000);
   });
 
   it('startup prefetch warms the cache used by later IPC reads', async () => {

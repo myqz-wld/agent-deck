@@ -15,6 +15,7 @@ function resetTokenUsageStore(): void {
     providerUsageFetchedAt: null,
     providerUsageLoading: false,
     providerUsageError: null,
+    providerUsageRequestId: 0,
   });
 }
 
