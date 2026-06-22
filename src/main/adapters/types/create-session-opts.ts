@@ -112,6 +112,13 @@ export interface ClaudeCreateOpts {
    * caller(spawn handler / hand_off handler 之外)不该传。
    */
   handOff?: HandOffMetadata;
+  /**
+   * Programmatic callers such as MCP `spawn_session` need a durable handle they can use for
+   * follow-up tools immediately after creation. New Claude sessions normally return a temporary
+   * app id for UI latency and rename it to the real SDK session id in the background; when this is
+   * true, the bridge waits for the first SDK session id and returns the canonical id.
+   */
+  awaitCanonicalId?: boolean;
 }
 
 /**

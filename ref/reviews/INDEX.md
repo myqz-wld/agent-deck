@@ -147,3 +147,4 @@ Use `REVIEW_X.md`, where `X` is the next integer and historically aligns with `C
 | [REVIEW_133.md](REVIEW_133.md) | Provider quota cadence moved to 10 minutes and Codex MCP spawn now returns a stable id. | 1 HIGH fixed + 1 LOW fixed | CHANGELOG_312 |
 | [REVIEW_134.md](REVIEW_134.md) | Claude restart jsonl precheck raced old SDK stream cleanup. | 1 MEDIUM fixed + 1 LOW fixed | CHANGELOG_314 |
 | [REVIEW_135.md](REVIEW_135.md) | Provider quota window could show stale snapshots from out-of-order refreshes. | 2 MEDIUM fixed | CHANGELOG_315 |
+| [REVIEW_136.md](REVIEW_136.md) | Claude UI create waited for SDK first id before returning. | 1 HIGH fixed + 2 MEDIUM fixed | CHANGELOG_316 |

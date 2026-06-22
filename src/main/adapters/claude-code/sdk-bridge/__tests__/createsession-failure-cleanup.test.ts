@@ -166,9 +166,9 @@ describe('REVIEW_75 F1 [HIGH]：createSession 失败路径清掉孤儿 tempKey D
     mockQuery.pushFrame({ type: 'system', subtype: 'hook_started' });
     mockQuery.endStream();
 
-    await expect(bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' })).rejects.toThrow(
-      /SDK stream ended without emitting first session_id frame/,
-    );
+    await expect(
+      bridge.createSession({ cwd: '/tmp/test', prompt: 'hi', awaitCanonicalId: true }),
+    ).rejects.toThrow(/SDK stream ended without emitting first session_id frame/);
 
     // **F1 核心断言**：sessionRepo.delete 被调，且 id 是 UUID 形态（tempKey）
     expect(sessionRepoDeleteSpy).toHaveBeenCalled();
@@ -293,7 +293,11 @@ describe('REVIEW_75 F3 [MED]：consume 自然 stream end 释放 CLI sid claim', 
 
     // spawn 主路径：无 resume，first id 'SPAWN-SID' → applicationSid 切到 SPAWN-SID +
     // cliSessionId = SPAWN-SID（两者同值）。finally guard `cliSid !== sid` false → 不重复释放。
-    const createPromise = bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' });
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test',
+      prompt: 'hi',
+      awaitCanonicalId: true,
+    });
     mockQuery.pushFrame({ type: 'system', subtype: 'init', session_id: 'SPAWN-SID' });
     await new Promise((r) => setImmediate(r));
     mockQuery.endStream();

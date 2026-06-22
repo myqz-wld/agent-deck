@@ -114,6 +114,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
   // 给 claude-code adapter,bridge createSession → finalizeSessionStart emit first user message
   // 时 spread 进 events.payload。
   if (raw.handOff !== undefined) out.handOff = raw.handOff;
+  if (raw.awaitCanonicalId !== undefined) out.awaitCanonicalId = raw.awaitCanonicalId;
   return out;
 }
 
@@ -367,6 +368,7 @@ const _CLAUDE_PASSTHROUGH_KEYS = {
   claudeCodeSandbox: 0,
   extraAllowWrite: 0,
   handOff: 0,
+  awaitCanonicalId: 0,
 } as const;
 const _assertClaudePassthroughCoversArm: AssertSameKeys<
   typeof _CLAUDE_PASSTHROUGH_KEYS,

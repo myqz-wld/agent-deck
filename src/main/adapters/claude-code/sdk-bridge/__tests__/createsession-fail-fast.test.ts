@@ -135,6 +135,8 @@ beforeEach(() => {
   vi.mocked(sessionManager.releaseSdkClaim).mockReset();
   vi.mocked(sessionManager.expectSdkSession).mockReset();
   vi.mocked(sessionManager.expectSdkSession).mockReturnValue(() => undefined);
+  vi.mocked(sessionManager.renameSdkSession).mockReset();
+  vi.mocked(sessionManager.updateCliSessionId).mockReset();
 });
 
 afterEach(() => {
@@ -155,9 +157,9 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     mockQuery.pushFrame({ type: 'system', subtype: 'hook_started' }); // 无 session_id
     mockQuery.endStream();
 
-    await expect(bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' })).rejects.toThrow(
-      /SDK stream ended without emitting first session_id frame/,
-    );
+    await expect(
+      bridge.createSession({ cwd: '/tmp/test', prompt: 'hi', awaitCanonicalId: true }),
+    ).rejects.toThrow(/SDK stream ended without emitting first session_id frame/);
 
     // catch 块 cleanup 全部触发
     // 1. sessions Map 空（finally 已 sessions.delete(sid=tempKey) + sessions.delete(tempKey)；catch 也 sessions.delete(tempKey)）
@@ -197,7 +199,7 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     expect(releasedIds).toContain('OLD-ID');
   });
 
-  it('happy: createSession 正常拿到 first session_id → 不 throw + sessions Map 含 realId', async () => {
+  it('happy canonical: createSession 正常拿到 first session_id → 不 throw + 返回 realId', async () => {
     const bridge = makeBridge();
     const mockQuery = new MockSdkQuery();
     installMockQuery(mockQuery);
@@ -211,7 +213,11 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     // 用 setImmediate 让 waitForRealSessionId 拿到 first id 后 resolve，再 endStream 让 consume 退出
 
     // 启动 createSession (不 await，让 it 异步 race)
-    const createPromise = bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' });
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test',
+      prompt: 'hi',
+      awaitCanonicalId: true,
+    });
 
     // 让微任务跑（让 consume push first id 进 waitForRealSessionId resolve）
     await new Promise((r) => setImmediate(r));
@@ -222,6 +228,46 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     // createSession 应该 resolve 而非 reject（拿到了 realId）
     const handle = await createPromise;
     expect(handle.sessionId).toBe('real-sid-123');
+  });
+
+  it('default new session fast-return：先返回 temp id，后台 first-id 后 rename 且不重复首条事件', async () => {
+    const bridge = makeBridge();
+    const mockQuery = new MockSdkQuery();
+    installMockQuery(mockQuery);
+
+    mockQuery.pushFrame({ type: 'system', subtype: 'init', session_id: 'real-fast-sid' });
+
+    const handle = await bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' });
+    expect(handle.sessionId).not.toBe('real-fast-sid');
+
+    const initialStarts = emits.filter((e) => e.kind === 'session-start');
+    const initialUserMessages = emits.filter(
+      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+    );
+    expect(initialStarts).toHaveLength(1);
+    expect(initialStarts[0].sessionId).toBe(handle.sessionId);
+    expect(initialUserMessages).toHaveLength(1);
+    expect(initialUserMessages[0].sessionId).toBe(handle.sessionId);
+
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setImmediate(r));
+
+    expect(vi.mocked(sessionManager.renameSdkSession)).toHaveBeenCalledWith(
+      handle.sessionId,
+      'real-fast-sid',
+    );
+    expect(vi.mocked(sessionManager.updateCliSessionId)).toHaveBeenCalledWith(
+      'real-fast-sid',
+      'real-fast-sid',
+    );
+    expect(emits.filter((e) => e.kind === 'session-start')).toHaveLength(1);
+    expect(
+      emits.filter(
+        (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
+      ),
+    ).toHaveLength(1);
+
+    mockQuery.endStream();
   });
 
   // **REVIEW_49 R1 follow-up 回归 test (F-MED)**: session-finalize.ts:98 改走
@@ -236,7 +282,11 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
 
     mockQuery.pushFrame({ type: 'system', subtype: 'init', session_id: 'spawn-sid-456' });
 
-    const createPromise = bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' });
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test',
+      prompt: 'hi',
+      awaitCanonicalId: true,
+    });
     await new Promise((r) => setImmediate(r));
     mockQuery.endStream();
 
@@ -264,7 +314,9 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
       mockQuery.pushFrame({ type: 'system', subtype: 'hook_started' });
       mockQuery.endStream();
 
-      await expect(bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' })).rejects.toThrow();
+      await expect(
+        bridge.createSession({ cwd: '/tmp/test', prompt: 'hi', awaitCanonicalId: true }),
+      ).rejects.toThrow();
 
       // Phase 2.5 修法 assert：catch 触发 fire-and-forget interrupt 一次
       expect(mockQuery.interruptCallCount).toBe(1);

@@ -94,6 +94,11 @@ export interface FinalizeSessionStartArgs {
    * updateCliSessionId / setClaudeCodeSandbox / setModel / setExtraAllowWrite 都不动。
    */
   skipFirstUserEmit?: boolean;
+  /**
+   * New-session fast return can emit a temporary session-start before the SDK reports its real id.
+   * After temp→real rename, finalize still persists metadata but must not emit a duplicate start.
+   */
+  skipSessionStartEmit?: boolean;
   emit: (e: AgentEvent) => void;
 }
 
@@ -117,17 +122,19 @@ export interface FinalizeSessionStartArgs {
  * normal resume 走 ensure() revive 既有 row + caller 传 skipFirstUserEmit=true 防双气泡)。
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
-  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, claudeCodeEffortLevel, extraAllowWrite, attachments, handOff, skipFirstUserEmit, emit } = args;
+  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, claudeCodeEffortLevel, extraAllowWrite, attachments, handOff, skipFirstUserEmit, skipSessionStartEmit, emit } = args;
 
   // 1. 主动 emit session-start
-  emit({
-    sessionId: applicationSid,
-    agentId: AGENT_ID,
-    kind: 'session-start',
-    payload: { cwd, source: 'sdk' },
-    ts: Date.now(),
-    source: 'sdk',
-  });
+  if (!skipSessionStartEmit) {
+    emit({
+      sessionId: applicationSid,
+      agentId: AGENT_ID,
+      kind: 'session-start',
+      payload: { cwd, source: 'sdk' },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+  }
 
   // 1b. **plan reverse-rename-sid-stability-20260520 §A.4-pre S9**: 写 cli_session_id 列。
   // spawn 主路径下 cliSessionId === applicationSid (S3 isNewSpawn 后两者同 first realId 值);

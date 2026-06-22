@@ -91,6 +91,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
       // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 7 步(facade wrapper):
       // 显式 spread handOff,否则 facade 白名单 spread 会丢字段 → bridge 拿不到 metadata。
       handOff: opts.handOff,
+      awaitCanonicalId: opts.awaitCanonicalId,
     });
     return handle.sessionId;
   }
