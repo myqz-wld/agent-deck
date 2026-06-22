@@ -316,7 +316,7 @@ export const REQUEST_DIFF_REVIEW_SCHEMA = {
     .min(1)
     .max(10_000)
     .optional()
-    .describe('Optional focused presentation instructions or acceptance criteria shown with the diff, such as risk areas, intended behavior, or specific questions for the user.'),
+    .describe('Optional focused presentation instructions or acceptance criteria shown with the diff, such as risk areas, intended behavior, or specific questions for the user. In a step-by-step walkthrough, use it to scope what the user should confirm for the current fragment.'),
   rationale: z
     .string()
     .min(1)

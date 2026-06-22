@@ -123,6 +123,23 @@ function makeRestartOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallb
   } as JsonlFallbackOpts;
 }
 
+function msg(
+  id: number,
+  role: 'user' | 'assistant',
+  text: string,
+  ts = id,
+): AgentEvent & { id: number } {
+  return {
+    id,
+    sessionId: 's',
+    agentId: 'claude-code',
+    kind: 'message',
+    payload: { role, text },
+    ts,
+    source: 'sdk',
+  };
+}
+
 beforeEach(() => {
   emits.length = 0;
   vi.clearAllMocks();
@@ -524,6 +541,46 @@ describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
     expect(result.healedCliSessionId).toBeUndefined();
     expect(createSessionSpy).toHaveBeenCalledOnce();
     expect(jsonlMtimeMsThunkSpy).toHaveBeenCalledWith('/tmp/h', 'app-sid-A');
+  });
+
+  it('Heal-restart-1: restart 场景 appSid.jsonl 早于 lastEventAt 但不早于最近对话消息 → 自愈', async () => {
+    const { ctx, createSessionSpy } = makeCtx({
+      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-R',
+      jsonlMtimeMsReturn: 5_000,
+      listMessagesFnReturn: [msg(1, 'assistant', 'plan text', 5_100)],
+    });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRestartOpts({
+        sessionId: 'app-sid-R',
+        cliSessionId: 'cli-sid-phantom',
+        cwd: '/tmp/h',
+        minHealJsonlMtimeMs: 20_000,
+      }),
+    );
+    expect(result.fellBack).toBe(false);
+    expect(result.healedCliSessionId).toBe('app-sid-R');
+    expect(createSessionSpy).not.toHaveBeenCalled();
+  });
+
+  it('Heal-restart-2: restart 场景 appSid.jsonl 早于最近对话消息 → 不自愈并退 fresh-cli', async () => {
+    const { ctx, createSessionSpy } = makeCtx({
+      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-R',
+      jsonlMtimeMsReturn: 5_000,
+      listMessagesFnReturn: [msg(1, 'assistant', 'newer message', 10_000)],
+    });
+    const result = await maybeJsonlFallback(
+      ctx,
+      makeRestartOpts({
+        sessionId: 'app-sid-R',
+        cliSessionId: 'cli-sid-real-fork',
+        cwd: '/tmp/h',
+        minHealJsonlMtimeMs: 20_000,
+      }),
+    );
+    expect(result.fellBack).toBe(true);
+    expect(result.healedCliSessionId).toBeUndefined();
+    expect(createSessionSpy).toHaveBeenCalledOnce();
   });
 
   it('Heal-1c: applicationSid.jsonl mtime 探测失败 → 证据不足,不自愈并退 fresh-cli', async () => {

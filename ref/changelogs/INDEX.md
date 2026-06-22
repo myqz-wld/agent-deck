@@ -321,3 +321,5 @@
 | [CHANGELOG_314.md](CHANGELOG_314.md) | Claude restart waits for SDK stream drain before jsonl precheck. |
 | [CHANGELOG_315.md](CHANGELOG_315.md) | Provider quota snapshots ignore stale out-of-order refresh results. |
 | [CHANGELOG_316.md](CHANGELOG_316.md) | Claude UI-created sessions return before SDK first-id rename. |
+| [CHANGELOG_317.md](CHANGELOG_317.md) | Claude restart phantom-jsonl self-heal uses latest conversation-message freshness. |
+| [CHANGELOG_318.md](CHANGELOG_318.md) | Diff walkthrough routing and `present_diff` guidance now cover step-by-step confirmation. |
