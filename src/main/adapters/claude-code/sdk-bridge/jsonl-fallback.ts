@@ -64,6 +64,24 @@ const logger = log.scope('claude-jsonl-fallback');
 
 const HEAL_JSONL_MTIME_SKEW_MS = 2_000;
 
+function latestConversationMessageTs(
+  opts: { sessionId: string; emitContext: 'recover' | 'restart' },
+  listMessagesFn: JsonlFallbackCtx['listMessagesFn'],
+): number | null {
+  try {
+    const messages = listMessagesFn(opts.sessionId, 1);
+    const first = messages[0];
+    return typeof first?.ts === 'number' ? first.ts : null;
+  } catch (err) {
+    logger.warn(
+      `[jsonl-fallback] 最近对话消息时间读取失败: emitContext=${opts.emitContext} ` +
+        `sessionId=${opts.sessionId}; 继续使用 lastEventAt freshness`,
+      err,
+    );
+    return null;
+  }
+}
+
 /**
  * helper-local create opts 类型 (R5 codex MED-1 修法):
  *
@@ -316,12 +334,29 @@ export async function maybeJsonlFallback(
     if (ctx.jsonlExistsThunk(opts.cwd, opts.sessionId)) {
       const appSidJsonlMtimeMs = ctx.jsonlMtimeMsThunk(opts.cwd, opts.sessionId);
       const freshnessCutoff = opts.minHealJsonlMtimeMs - HEAL_JSONL_MTIME_SKEW_MS;
-      if (appSidJsonlMtimeMs == null || appSidJsonlMtimeMs < freshnessCutoff) {
+      const restartMessageTs =
+        appSidJsonlMtimeMs != null && opts.emitContext === 'restart'
+          ? latestConversationMessageTs(opts, ctx.listMessagesFn)
+          : null;
+      const restartMessageFreshnessCutoff =
+        restartMessageTs == null ? null : restartMessageTs - HEAL_JSONL_MTIME_SKEW_MS;
+      const freshEnoughForRestartMessages =
+        restartMessageFreshnessCutoff != null &&
+        appSidJsonlMtimeMs != null &&
+        appSidJsonlMtimeMs >= restartMessageFreshnessCutoff;
+      const appSidJsonlIsStale =
+        appSidJsonlMtimeMs == null ||
+        (appSidJsonlMtimeMs < freshnessCutoff && !freshEnoughForRestartMessages);
+      if (appSidJsonlIsStale) {
         logger.warn(
           `[jsonl-fallback] 幻影 fork 自愈跳过: emitContext=${opts.emitContext} ` +
             `cliSessionId=${opts.cliSessionId} 无 jsonl,applicationSid=${opts.sessionId} jsonl 在盘 ` +
             `但 mtime=${appSidJsonlMtimeMs ?? 'null'} 早于 freshnessCutoff=${freshnessCutoff} ` +
-            `minHealJsonlMtimeMs=${opts.minHealJsonlMtimeMs}; 走 fresh-cli fallback`,
+            `minHealJsonlMtimeMs=${opts.minHealJsonlMtimeMs}` +
+            (restartMessageFreshnessCutoff == null
+              ? ''
+              : ` restartMessageFreshnessCutoff=${restartMessageFreshnessCutoff}`) +
+            `; 走 fresh-cli fallback`,
         );
       } else {
         healedCliSessionId = opts.sessionId;
@@ -330,6 +365,9 @@ export async function maybeJsonlFallback(
           `[jsonl-fallback] 幻影 fork 自愈: emitContext=${opts.emitContext} ` +
             `cliSessionId=${opts.cliSessionId} 无 jsonl,但 applicationSid=${opts.sessionId} jsonl 在盘 → ` +
             `mtime=${appSidJsonlMtimeMs} freshnessCutoff=${freshnessCutoff}; ` +
+            (freshEnoughForRestartMessages
+              ? `restartMessageFreshnessCutoff=${restartMessageFreshnessCutoff}; `
+              : '') +
             `改用 applicationSid resume (caller resumeCliSid 切到 healedCliSessionId),不退 fresh-cli`,
         );
       }
