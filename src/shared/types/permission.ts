@@ -74,7 +74,7 @@ export interface ExitPlanModeRequest {
   toolUseId?: string;
   /**
    * Omitted/adapter = native Claude ExitPlanMode. mcp = Agent Deck MCP
-   * request_plan_review, which reuses the same UI but does not change SDK
+   * present_plan, which reuses the same UI but does not change SDK
    * permission mode when approved.
    */
   reviewSource?: 'adapter' | 'mcp';
@@ -95,6 +95,47 @@ export type ExitPlanModeResponse =
   | { decision: 'approve'; targetMode: 'default' | 'acceptEdits' | 'plan' }
   | { decision: 'approve-bypass' }
   | { decision: 'keep-planning'; feedback?: string };
+
+// ───────────────────────────────────────────────────────── Diff Review
+
+export type DiffReviewMode = 'pr' | 'merge-conflict';
+
+export interface DiffReviewPrFragment {
+  before: string;
+  after: string;
+  beforeLabel?: string;
+  afterLabel?: string;
+  unifiedDiff?: string;
+}
+
+export interface DiffReviewConflictFragment {
+  ours: string;
+  theirs: string;
+  resolution: string;
+  base?: string;
+  oursLabel?: string;
+  theirsLabel?: string;
+  resolutionLabel?: string;
+  baseLabel?: string;
+}
+
+export interface DiffReviewRequest {
+  type: 'diff-review';
+  requestId: string;
+  mode: DiffReviewMode;
+  title?: string;
+  filePath?: string;
+  language?: string;
+  instructions?: string;
+  /** Explanation shown to the user before they approve or request changes. */
+  rationale: string;
+  pr?: DiffReviewPrFragment;
+  conflict?: DiffReviewConflictFragment;
+}
+
+export type DiffReviewResponse =
+  | { decision: 'approve' }
+  | { decision: 'revise'; feedback?: string };
 
 // ───────────────────────────────────────────────────────── Team Permission Request
 

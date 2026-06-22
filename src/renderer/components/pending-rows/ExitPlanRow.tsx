@@ -17,8 +17,8 @@ const TARGET_MODE_OPTIONS: { value: TargetMode; label: string; title?: string }[
 ];
 
 /**
- * ExitPlanMode / MCP plan review row. Native Claude ExitPlanMode keeps the
- * permission-mode selector; MCP plan review is approval/feedback only.
+ * ExitPlanMode / MCP plan presentation row. Native Claude ExitPlanMode keeps the
+ * permission-mode selector; MCP plan presentation is confirmation/feedback only.
  */
 export function ExitPlanRow({
   event,
@@ -129,10 +129,10 @@ export function ExitPlanRow({
         >
           {stillPending
             ? isMcpPlanReview
-              ? '📋 待检阅计划'
+              ? '📋 待展示计划'
               : '📋 收到一个执行计划'
             : wasCancelled
-              ? '🚫 计划检阅已被取消'
+              ? '🚫 计划展示已被取消'
               : '✅ 已处理'}
         </span>
         {payload.title && (
@@ -164,14 +164,14 @@ export function ExitPlanRow({
               onClick={() => void onClickApprove()}
               title={
                 isMcpPlanReview
-                  ? '批准计划并把结果返回给模型'
+                  ? '确认计划并把结果返回给模型'
                   : targetMode === 'bypassPermissions'
                     ? '批准计划并切到完全免询问模式(需重启会话,5-10 秒)'
                     : `批准计划并切到「${targetModeLabel[targetMode]}」`
               }
               className="rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {isMcpPlanReview ? '批准计划' : `批准并切到 ${targetModeLabel[targetMode]}`}
+              {isMcpPlanReview ? '确认计划' : `批准并切到 ${targetModeLabel[targetMode]}`}
             </button>
             <button
               type="button"
@@ -214,7 +214,7 @@ export function ExitPlanRow({
       )}
       {!stillPending && isSdk && wasCancelled && (
         <div className="mt-1.5 text-[10px] text-deck-muted/70">
-          这次计划检阅请求已取消
+          这次计划展示请求已取消
         </div>
       )}
     </li>

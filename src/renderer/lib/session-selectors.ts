@@ -1,5 +1,6 @@
 import type {
   AskUserQuestionRequest,
+  DiffReviewRequest,
   ExitPlanModeRequest,
   PermissionRequest,
   SessionRecord,
@@ -27,19 +28,24 @@ export interface PendingBucket {
   permissions: PermissionRequest[];
   askQuestions: AskUserQuestionRequest[];
   exitPlanModes: ExitPlanModeRequest[];
+  diffReviews: DiffReviewRequest[];
   total: number;
 }
+
+const EMPTY_DIFFS = new Map<string, DiffReviewRequest[]>();
 
 export function selectPendingBuckets(
   sessions: Map<string, SessionRecord>,
   pendingPerms: Map<string, PermissionRequest[]>,
   pendingAsks: Map<string, AskUserQuestionRequest[]>,
   pendingExits: Map<string, ExitPlanModeRequest[]>,
+  pendingDiffs: Map<string, DiffReviewRequest[]> = EMPTY_DIFFS,
 ): PendingBucket[] {
   const ids = new Set<string>();
   for (const k of pendingPerms.keys()) ids.add(k);
   for (const k of pendingAsks.keys()) ids.add(k);
   for (const k of pendingExits.keys()) ids.add(k);
+  for (const k of pendingDiffs.keys()) ids.add(k);
 
   const out: PendingBucket[] = [];
   for (const sid of ids) {
@@ -50,7 +56,8 @@ export function selectPendingBuckets(
     const permissions = pendingPerms.get(sid) ?? [];
     const askQuestions = pendingAsks.get(sid) ?? [];
     const exitPlanModes = pendingExits.get(sid) ?? [];
-    const total = permissions.length + askQuestions.length + exitPlanModes.length;
+    const diffReviews = pendingDiffs.get(sid) ?? [];
+    const total = permissions.length + askQuestions.length + exitPlanModes.length + diffReviews.length;
     if (total === 0) continue;
 
     out.push({
@@ -58,6 +65,7 @@ export function selectPendingBuckets(
       permissions,
       askQuestions,
       exitPlanModes,
+      diffReviews,
       total,
     });
   }

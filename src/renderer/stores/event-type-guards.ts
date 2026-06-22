@@ -1,5 +1,6 @@
 import type {
   AskUserQuestionRequest,
+  DiffReviewRequest,
   ExitPlanModeRequest,
   PermissionRequest,
 } from '@shared/types';
@@ -38,6 +39,15 @@ export function isExitPlanMode(payload: unknown): payload is ExitPlanModeRequest
   );
 }
 
+export function isDiffReview(payload: unknown): payload is DiffReviewRequest {
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    (payload as { type?: string }).type === 'diff-review' &&
+    typeof (payload as { requestId?: unknown }).requestId === 'string'
+  );
+}
+
 export function isPermissionCancelled(payload: unknown): payload is { requestId: string } {
   return (
     typeof payload === 'object' &&
@@ -61,6 +71,15 @@ export function isExitPlanCancelled(payload: unknown): payload is { requestId: s
     typeof payload === 'object' &&
     payload !== null &&
     (payload as { type?: string }).type === 'exit-plan-cancelled' &&
+    typeof (payload as { requestId?: unknown }).requestId === 'string'
+  );
+}
+
+export function isDiffReviewCancelled(payload: unknown): payload is { requestId: string } {
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    (payload as { type?: string }).type === 'diff-review-cancelled' &&
     typeof (payload as { requestId?: unknown }).requestId === 'string'
   );
 }

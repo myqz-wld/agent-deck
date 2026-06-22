@@ -317,4 +317,5 @@
 | [CHANGELOG_310.md](CHANGELOG_310.md) | Directory picker calls are single-flight, provider quota refresh remains at 5 minutes, and Codex new-session creation returns a temp session before background real-id rename. |
 | [CHANGELOG_311.md](CHANGELOG_311.md) | Recent warning/error log noise is reduced by bundling local Monaco workers and fixing the Codex quota cached-client idle timer race. |
 | [CHANGELOG_312.md](CHANGELOG_312.md) | Provider quota refresh is 10 minutes, and Codex MCP spawn returns a stable canonical id. |
+| [CHANGELOG_313.md](CHANGELOG_313.md) | MCP user gates are now presentation tools: `present_plan` and new `present_diff`, plus Skill Market `diff-walkthrough`. |
 | [CHANGELOG_314.md](CHANGELOG_314.md) | Claude restart waits for SDK stream drain before jsonl precheck. |

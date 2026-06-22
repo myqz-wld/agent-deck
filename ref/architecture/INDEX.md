@@ -4,7 +4,7 @@
 
 | File | Status | Related plan / commit | Summary |
 |---|---|---|---|
-| [agent-deck-mcp-architecture.puml](agent-deck-mcp-architecture.puml) | active | [CHANGELOG_246](../changelogs/CHANGELOG_246.md) / [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | MCP top-level overview (17 public tools plus retired guard keys; 5 data tables including issues; plan review UI) |
+| [agent-deck-mcp-architecture.puml](agent-deck-mcp-architecture.puml) | active | [CHANGELOG_246](../changelogs/CHANGELOG_246.md) / [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | MCP top-level overview (18 public tools plus retired guard keys; 5 data tables including issues; plan/diff presentation UI) |
 | [archive-plan-architecture.puml](archive-plan-architecture.puml) | archived | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | archive_plan public MCP architecture retired; project/skill owns closeout |
 | [archive-plan-state-machine.puml](archive-plan-state-machine.puml) | archived | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | archive_plan public state machine retired; exit_worktree handles cleanup |
 | [hand-off-session-architecture.puml](hand-off-session-architecture.puml) | active | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | hand_off_session architecture(prompt-only baton + resource transfer + close) |

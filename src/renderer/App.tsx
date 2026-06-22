@@ -222,20 +222,27 @@ export function App(): JSX.Element {
     };
   }, [sessions]);
 
-  // pending 计数：把所有 session 上挂着的权限/提问/计划批准数加起来。
+  // pending 计数：把所有 session 上挂着的权限/提问/计划确认/差异展示数加起来。
   // 复用 selectPendingBuckets 与 PendingTab 同口径（均过滤 archived + lifecycle ∈ {active,dormant}），
   // 避免 chip 数 ≠ tab 内显示数；CHANGELOG_31 之后归档会话即便仍有 pending 也不该骚扰用户。
-  // 三类 pending（PermissionRequest / AskUserQuestion / ExitPlanMode）一起算 ——
+  // pending（PermissionRequest / AskUserQuestion / ExitPlanMode / diff 展示）一起算 ——
   // ExitPlanMode 也走 canUseTool 拦截，UX 上就是同一类「待处理」，漏算会让 chip 与 tab 对不上。
   const pendingPermsMap = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsksMap = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExitsMap = useSessionStore((s) => s.pendingExitPlanModesBySession);
+  const pendingDiffsMap = useSessionStore((s) => s.pendingDiffReviewsBySession);
   const pending = useMemo(
     () =>
       sumPendingBuckets(
-        selectPendingBuckets(sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap),
+        selectPendingBuckets(
+          sessions,
+          pendingPermsMap,
+          pendingAsksMap,
+          pendingExitsMap,
+          pendingDiffsMap,
+        ),
       ),
-    [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap],
+    [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap, pendingDiffsMap],
   );
 
   const jumpToPending = (): void => {

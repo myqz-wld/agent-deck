@@ -2,17 +2,19 @@ import { memo, useEffect, useMemo, useState, type JSX } from 'react';
 import type {
   AgentEvent,
   AskUserQuestionRequest,
+  DiffReviewRequest,
   ExitPlanModeRequest,
   PermissionRequest,
 } from '@shared/types';
 import {
   EMPTY_ASK_QUESTIONS,
+  EMPTY_DIFF_REVIEWS,
   EMPTY_EXIT_PLAN_MODES,
   EMPTY_REQUESTS,
   RECENT_LIMIT,
   useSessionStore,
 } from '@renderer/stores/session-store';
-import { AskRow, ExitPlanRow, PermissionRow } from '@renderer/components/pending-rows';
+import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from '@renderer/components/pending-rows';
 import log from '@renderer/utils/logger';
 import { EMPTY_EVENTS } from './shared';
 import { eventKey } from './format';
@@ -41,9 +43,13 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
   const pendingExitPlanModes = useSessionStore(
     (s) => s.pendingExitPlanModesBySession.get(sessionId) ?? EMPTY_EXIT_PLAN_MODES,
   );
+  const pendingDiffReviews = useSessionStore(
+    (s) => s.pendingDiffReviewsBySession.get(sessionId) ?? EMPTY_DIFF_REVIEWS,
+  );
   const resolvePermission = useSessionStore((s) => s.resolvePermission);
   const resolveAsk = useSessionStore((s) => s.resolveAskQuestion);
   const resolveExitPlan = useSessionStore((s) => s.resolveExitPlanMode);
+  const resolveDiffReview = useSessionStore((s) => s.resolveDiffReview);
   const setPending = useSessionStore((s) => s.setPendingRequests);
   const [loaded, setLoaded] = useState(false);
   /** REVIEW_4 M18：listEvents IPC 失败时显示可恢复错误态而非死锁在「加载中…」 */
@@ -70,7 +76,7 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
         .listAdapterPending(agentId, sessionId)
         .then((res) => {
           if (aborted) return;
-          setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes);
+          setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes, res.diffReviews);
         })
         .catch((err: unknown) => {
           logger.warn('[activity-feed] listAdapterPending failed:', err);
@@ -97,7 +103,7 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
       void window.api
         .listAdapterPending(agentId, sessionId)
         .then((res) => {
-          setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes);
+          setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes, res.diffReviews);
         })
         .catch((err: unknown) => {
           logger.warn('[activity-feed] onSessionUpserted listAdapterPending failed:', err);
@@ -118,12 +124,17 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     () => new Set(pendingExitPlanModes.map((r) => r.requestId)),
     [pendingExitPlanModes],
   );
+  const pendingDiffIds = useMemo(
+    () => new Set(pendingDiffReviews.map((r) => r.requestId)),
+    [pendingDiffReviews],
+  );
 
   // R3.E7：删 cancelledTeamPermIds（老 inbox 协议下线）
-  const { cancelledPermIds, cancelledAskIds, cancelledExitIds } = useMemo(() => {
+  const { cancelledPermIds, cancelledAskIds, cancelledExitIds, cancelledDiffIds } = useMemo(() => {
     const perms = new Set<string>();
     const asks = new Set<string>();
     const exits = new Set<string>();
+    const diffs = new Set<string>();
     for (const e of recent) {
       if (e.kind !== 'waiting-for-user') continue;
       const p = (e.payload ?? {}) as { type?: string; requestId?: string };
@@ -132,8 +143,9 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
       if (p.type === 'permission-cancelled') perms.add(rid);
       else if (p.type === 'ask-question-cancelled') asks.add(rid);
       else if (p.type === 'exit-plan-cancelled') exits.add(rid);
+      else if (p.type === 'diff-review-cancelled') diffs.add(rid);
     }
-    return { cancelledPermIds: perms, cancelledAskIds: asks, cancelledExitIds: exits };
+    return { cancelledPermIds: perms, cancelledAskIds: asks, cancelledExitIds: exits, cancelledDiffIds: diffs };
   }, [recent]);
 
   const toolStartByUseId = useMemo(() => {
@@ -175,13 +187,16 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
           pendingPermIds={pendingPermIds}
           pendingAskIds={pendingAskIds}
           pendingExitIds={pendingExitIds}
+          pendingDiffIds={pendingDiffIds}
           cancelledPermIds={cancelledPermIds}
           cancelledAskIds={cancelledAskIds}
           cancelledExitIds={cancelledExitIds}
+          cancelledDiffIds={cancelledDiffIds}
           toolStartByUseId={toolStartByUseId}
           resolvePermission={resolvePermission}
           resolveAsk={resolveAsk}
           resolveExitPlan={resolveExitPlan}
+          resolveDiffReview={resolveDiffReview}
         />
       ))}
     </ol>
@@ -196,13 +211,16 @@ interface RowProps {
   pendingPermIds: Set<string>;
   pendingAskIds: Set<string>;
   pendingExitIds: Set<string>;
+  pendingDiffIds: Set<string>;
   cancelledPermIds: Set<string>;
   cancelledAskIds: Set<string>;
   cancelledExitIds: Set<string>;
+  cancelledDiffIds: Set<string>;
   toolStartByUseId: Map<string, AgentEvent>;
   resolvePermission: (sessionId: string, requestId: string) => void;
   resolveAsk: (sessionId: string, requestId: string) => void;
   resolveExitPlan: (sessionId: string, requestId: string) => void;
+  resolveDiffReview: (sessionId: string, requestId: string) => void;
 }
 
 const ActivityRow = memo(function ActivityRow({
@@ -213,13 +231,16 @@ const ActivityRow = memo(function ActivityRow({
   pendingPermIds,
   pendingAskIds,
   pendingExitIds,
+  pendingDiffIds,
   cancelledPermIds,
   cancelledAskIds,
   cancelledExitIds,
+  cancelledDiffIds,
   toolStartByUseId,
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
+  resolveDiffReview,
 }: RowProps): JSX.Element | null {
   if (event.kind === 'message') {
     return <MessageBubble event={event} agentId={agentId} />;
@@ -274,6 +295,21 @@ const ActivityRow = memo(function ActivityRow({
           stillPending={pendingExitIds.has(rid)}
           wasCancelled={cancelledExitIds.has(rid)}
           onResolved={resolveExitPlan}
+        />
+      );
+    }
+    if (type === 'diff-review') {
+      const rid = (p.requestId as string) ?? '';
+      return (
+        <DiffReviewRow
+          event={event}
+          payload={p as unknown as DiffReviewRequest}
+          sessionId={sessionId}
+          agentId={agentId}
+          isSdk={isSdk}
+          stillPending={pendingDiffIds.has(rid)}
+          wasCancelled={cancelledDiffIds.has(rid)}
+          onResolved={resolveDiffReview}
         />
       );
     }

@@ -112,6 +112,8 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
 
     for (const tool of [
       'send_message',
+      'present_plan',
+      'present_diff',
       'shutdown_session',
       'archive_plan',
       'hand_off_session',

@@ -23,7 +23,7 @@ export function resolvePlanReviewTimeoutMs(
 }
 
 export const requestPlanReviewHandler = withMcpGuard(
-  'request_plan_review',
+  'present_plan',
   async (args: RequestPlanReviewArgs, ctx: HandlerContext) => {
     try {
       const callerSid = ctx.caller.callerSessionId;
