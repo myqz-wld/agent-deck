@@ -18,28 +18,19 @@ import { describe, expect, it } from 'vitest';
 import type { AgentEvent } from '@shared/types';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import { makeCanUseTool, type MakeCanUseToolDeps } from '../can-use-tool';
-import type { InternalSession } from '../types';
+import { makeInternalSession, type InternalSession } from '../types';
 import type { PermissionResponder } from '../permission-responder';
 import type { PermissionMode } from '@main/adapters/types';
 
 function makeInternal(permissionMode: PermissionMode): InternalSession {
-  return {
-    applicationSid: 'sess-test',
-    cliSessionId: 'sess-test',
+  const internal = makeInternalSession({
     cwd: '/tmp/test',
-    query: undefined as unknown as Query,
     permissionMode,
-    pendingUserMessages: [],
-    notify: null,
-    pendingPermissions: new Map(),
-    pendingAskUserQuestions: new Map(),
-    pendingExitPlanModes: new Map(),
-    toolUseNames: new Map(),
-    pendingFileChangeIntents: new Map(),
-    seenUsageMessageIds: new Map(),
-    turnUsageByBucket: new Map(),
-    // R3 fix-3: permissionModeChain 默认 undefined（无 in-flight setPermissionMode）
-  };
+    applicationSid: 'sess-test',
+  });
+  internal.cliSessionId = 'sess-test';
+  internal.query = undefined as unknown as Query;
+  return internal;
 }
 
 function makeDeps(internal: InternalSession): {

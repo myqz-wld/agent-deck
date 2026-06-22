@@ -439,74 +439,78 @@ export class StreamProcessor {
         });
       }
     } finally {
-      // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.4 + R4 HIGH-H 修订**:
-      // sid 三档链统一改用 internal.applicationSid (S2 jsdoc 双阶段化保证 spawn 路径切到 realId
-      // 后冻结 / resume 路径全程不变),不再三档链 fallback。fallback 路径下 internal.cliSessionId 已是
-      // fallbackId (Phase 2.1) + internal.applicationSid 已切 (R4 HIGH-R4-1 isNewSpawn 修订),
-      // sessions Map key 是 applicationSid,cleanup 用 applicationSid 删除 (sessions.delete + releaseSdkClaim)。
-      const sid = internal.applicationSid;
-      // 流终止时拒掉所有未决的权限请求，避免上游 await 永久挂起
-      for (const entry of internal.pendingPermissions.values()) {
-        if (entry.timer) clearTimeout(entry.timer);
-        entry.resolver({ behavior: 'deny', message: 'session ended', interrupt: true });
-      }
-      internal.pendingPermissions.clear();
-      // AskUserQuestion 同样清空，回调改用「会话结束」标记答复
-      for (const entry of internal.pendingAskUserQuestions.values()) {
-        if (entry.timer) clearTimeout(entry.timer);
-        entry.resolver({
-          answers: [{ question: '__session_ended__', selected: [], other: '会话已结束' }],
+      try {
+        // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.4 + R4 HIGH-H 修订**:
+        // sid 三档链统一改用 internal.applicationSid (S2 jsdoc 双阶段化保证 spawn 路径切到 realId
+        // 后冻结 / resume 路径全程不变),不再三档链 fallback。fallback 路径下 internal.cliSessionId 已是
+        // fallbackId (Phase 2.1) + internal.applicationSid 已切 (R4 HIGH-R4-1 isNewSpawn 修订),
+        // sessions Map key 是 applicationSid,cleanup 用 applicationSid 删除 (sessions.delete + releaseSdkClaim)。
+        const sid = internal.applicationSid;
+        // 流终止时拒掉所有未决的权限请求，避免上游 await 永久挂起
+        for (const entry of internal.pendingPermissions.values()) {
+          if (entry.timer) clearTimeout(entry.timer);
+          entry.resolver({ behavior: 'deny', message: 'session ended', interrupt: true });
+        }
+        internal.pendingPermissions.clear();
+        // AskUserQuestion 同样清空，回调改用「会话结束」标记答复
+        for (const entry of internal.pendingAskUserQuestions.values()) {
+          if (entry.timer) clearTimeout(entry.timer);
+          entry.resolver({
+            answers: [{ question: '__session_ended__', selected: [], other: '会话已结束' }],
+          });
+        }
+        internal.pendingAskUserQuestions.clear();
+        // ExitPlanMode 同样清空：会话结束 = 默认按「继续规划」回，但 SDK 已经死了所以这只是个 best-effort
+        for (const entry of internal.pendingExitPlanModes.values()) {
+          if (entry.timer) clearTimeout(entry.timer);
+          entry.resolver({ decision: 'keep-planning', feedback: '会话已结束' });
+        }
+        internal.pendingExitPlanModes.clear();
+        // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.5 修法 (A1-MED-1 codex):
+        // 显式 clear pendingFileChangeIntents 防 leak (SDK 流终止前 tool_use 已 push 但 tool_result
+        // 没回的 intent)。internal 整体被 sessions.delete 后会 GC 掉,显式 clear 与 toolUseNames /
+        // pendingPermissions 等同款保险,不依赖 GC 时机。intent 是纯数据没 resolver,不需要 reject。
+        internal.pendingFileChangeIntents.clear();
+        clearLiveTokenEstimate(internal, sid);
+        this.ctx.emit({
+          sessionId: sid,
+          agentId: AGENT_ID,
+          kind: 'session-end',
+          payload: { reason: 'sdk-stream-ended' },
+          ts: Date.now(),
+          source: 'sdk',
         });
-      }
-      internal.pendingAskUserQuestions.clear();
-      // ExitPlanMode 同样清空：会话结束 = 默认按「继续规划」回，但 SDK 已经死了所以这只是个 best-effort
-      for (const entry of internal.pendingExitPlanModes.values()) {
-        if (entry.timer) clearTimeout(entry.timer);
-        entry.resolver({ decision: 'keep-planning', feedback: '会话已结束' });
-      }
-      internal.pendingExitPlanModes.clear();
-      // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.5 修法 (A1-MED-1 codex):
-      // 显式 clear pendingFileChangeIntents 防 leak (SDK 流终止前 tool_use 已 push 但 tool_result
-      // 没回的 intent)。internal 整体被 sessions.delete 后会 GC 掉,显式 clear 与 toolUseNames /
-      // pendingPermissions 等同款保险,不依赖 GC 时机。intent 是纯数据没 resolver,不需要 reject。
-      internal.pendingFileChangeIntents.clear();
-      clearLiveTokenEstimate(internal, sid);
-      this.ctx.emit({
-        sessionId: sid,
-        agentId: AGENT_ID,
-        kind: 'session-end',
-        payload: { reason: 'sdk-stream-ended' },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-      if (this.ctx.sessions.get(sid) === internal) {
-        this.ctx.sessions.delete(sid);
-      }
-      if (this.ctx.sessions.get(tempKey) === internal) {
-        this.ctx.sessions.delete(tempKey);
-      }
-      sessionManager.releaseSdkClaim(sid);
-      // **REVIEW_75 MED (reviewer-codex + lead 代码链实测)**:自然 stream end 也要释放 CLI sid claim。
-      // 根因:create-session-sdk-query.ts:179 拿到 realId 后无条件 claimAsSdk(realId)。resume fork /
-      // fresh-cli-reuse-app 路径下 realId 是 CLI sid 维度,internal.applicationSid 保持应用稳定 sid
-      // (反向 rename 不动 applicationSid)→ realId !== applicationSid。修前 finally 仅
-      // releaseSdkClaim(applicationSid),CLI sid 的 claim 永留 #sdkOwned。
-      // **真实后果(REVIEW_77 reviewer-claude INFO 精确化)**:核心是 #sdkOwned Set 条目泄漏 —
-      // fork/fresh 每会话留一条 CLI sid claim 永不释放,累积到应用重启。至于「迟到 hook event 被
-      // 丢弃」只在 ingest 3a `findByCliSessionId` 不命中(cli_session_id 列没写该 cliSid)时才靠
-      // cliSid claim 顺带挡;3a 命中时 event.sessionId 已被覆写成 applicationSid,dedupOrClaim
-      // 检查的是 hasSdkClaim(applicationSid) 不是 cliSid claim — 故 leak 才是修法主因,非 dedup。
-      // 只有 closeSession→runCloseSessionCleanup(pending-cancellation.ts:107-115)才释放三面 id,
-      // 自然 sdk-stream-ended 路径覆盖不到。修法:mirror runCloseSessionCleanup 的「释放」语义 —
-      // cliSessionId 与 sid/tempKey 都不同时(典型 fork/fresh)额外释放 CLI sid claim。
-      // **刻意只 mirror release 不 mirror 黑名单**(REVIEW_77 reviewer-claude LOW 裁决):自然
-      // sdk-stream-ended → advanceState 设 dormant(允许用户随时 resume 复活),与 closeSession→closed
-      // (禁止复活,故 pending-cancellation.ts:121-127 才加 markRecentlyDeleted 黑名单)语义相反 —
-      // dormant 路径加黑名单会误挡 60s 内合法 resume(manager.ts:320 isRecentlyDeleted 早返不区分
-      // source),故此处与 applicationSid release(L456,黑名单同样不加)一致只释放不拉黑。
-      const cliSid = internal.cliSessionId;
-      if (cliSid && cliSid !== sid && cliSid !== tempKey) {
-        sessionManager.releaseSdkClaim(cliSid);
+        if (this.ctx.sessions.get(sid) === internal) {
+          this.ctx.sessions.delete(sid);
+        }
+        if (this.ctx.sessions.get(tempKey) === internal) {
+          this.ctx.sessions.delete(tempKey);
+        }
+        sessionManager.releaseSdkClaim(sid);
+        // **REVIEW_75 MED (reviewer-codex + lead 代码链实测)**:自然 stream end 也要释放 CLI sid claim。
+        // 根因:create-session-sdk-query.ts:179 拿到 realId 后无条件 claimAsSdk(realId)。resume fork /
+        // fresh-cli-reuse-app 路径下 realId 是 CLI sid 维度,internal.applicationSid 保持应用稳定 sid
+        // (反向 rename 不动 applicationSid)→ realId !== applicationSid。修前 finally 仅
+        // releaseSdkClaim(applicationSid),CLI sid 的 claim 永留 #sdkOwned。
+        // **真实后果(REVIEW_77 reviewer-claude INFO 精确化)**:核心是 #sdkOwned Set 条目泄漏 —
+        // fork/fresh 每会话留一条 CLI sid claim 永不释放,累积到应用重启。至于「迟到 hook event 被
+        // 丢弃」只在 ingest 3a `findByCliSessionId` 不命中(cli_session_id 列没写该 cliSid)时才靠
+        // cliSid claim 顺带挡;3a 命中时 event.sessionId 已被覆写成 applicationSid,dedupOrClaim
+        // 检查的是 hasSdkClaim(applicationSid) 不是 cliSid claim — 故 leak 才是修法主因,非 dedup。
+        // 只有 closeSession→runCloseSessionCleanup(pending-cancellation.ts:107-115)才释放三面 id,
+        // 自然 sdk-stream-ended 路径覆盖不到。修法:mirror runCloseSessionCleanup 的「释放」语义 —
+        // cliSessionId 与 sid/tempKey 都不同时(典型 fork/fresh)额外释放 CLI sid claim。
+        // **刻意只 mirror release 不 mirror 黑名单**(REVIEW_77 reviewer-claude LOW 裁决):自然
+        // sdk-stream-ended → advanceState 设 dormant(允许用户随时 resume 复活),与 closeSession→closed
+        // (禁止复活,故 pending-cancellation.ts:121-127 才加 markRecentlyDeleted 黑名单)语义相反 —
+        // dormant 路径加黑名单会误挡 60s 内合法 resume(manager.ts:320 isRecentlyDeleted 早返不区分
+        // source),故此处与 applicationSid release(L456,黑名单同样不加)一致只释放不拉黑。
+        const cliSid = internal.cliSessionId;
+        if (cliSid && cliSid !== sid && cliSid !== tempKey) {
+          sessionManager.releaseSdkClaim(cliSid);
+        }
+      } finally {
+        internal.resolveStreamDrained();
       }
     }
     return realId;

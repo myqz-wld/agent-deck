@@ -121,6 +121,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -287,5 +288,64 @@ describe('restart close cleanup — optional recentlyDeleted blacklist', () => {
     expect(sessions.has('sess-restart')).toBe(false);
     expect(sessionManager.releaseSdkClaim).toHaveBeenCalledWith('sess-restart');
     expect(sessionManager.markRecentlyDeleted).not.toHaveBeenCalled();
+  });
+});
+
+describe('restart close drain — closeSession waits for old SDK stream finally', () => {
+  function setupBridgeForClose(sessionId: string): {
+    bridge: ClaudeSdkBridge;
+    internal: InternalSession;
+    interruptSpy: ReturnType<typeof vi.fn>;
+  } {
+    const bridge = new ClaudeSdkBridge({ emit: (e) => emits.push(e) });
+    const internal = makeInternalSession({
+      cwd: '/tmp/test',
+      permissionMode: 'default',
+      applicationSid: sessionId,
+    });
+    const interruptSpy = vi.fn(async () => undefined);
+    internal.query = { interrupt: interruptSpy } as unknown as Query;
+    (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions.set(
+      sessionId,
+      internal,
+    );
+    return { bridge, internal, interruptSpy };
+  }
+
+  it('closeSession 在 streamDrained resolve 前不返回，避免 restart 过早 jsonl precheck', async () => {
+    const { bridge, internal, interruptSpy } = setupBridgeForClose('sess-drain-wait');
+    let resolved = false;
+
+    const closePromise = bridge.closeSession('sess-drain-wait').then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+
+    expect(interruptSpy).toHaveBeenCalledOnce();
+    expect(resolved).toBe(false);
+
+    internal.resolveStreamDrained();
+    await closePromise;
+
+    expect(resolved).toBe(true);
+  });
+
+  it('streamDrained 一直不来时 bounded timeout 后继续关闭，不无限卡住', async () => {
+    vi.useFakeTimers();
+    const { bridge, interruptSpy } = setupBridgeForClose('sess-drain-timeout');
+    let resolved = false;
+
+    const closePromise = bridge.closeSession('sess-drain-timeout').then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+
+    expect(interruptSpy).toHaveBeenCalledOnce();
+    expect(resolved).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await closePromise;
+
+    expect(resolved).toBe(true);
   });
 });
