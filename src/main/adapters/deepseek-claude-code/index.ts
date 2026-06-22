@@ -93,6 +93,7 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
       claudeAgentName: opts.claudeAgentName,
       claudeAgents: opts.claudeAgents,
       handOff: opts.handOff,
+      awaitCanonicalId: opts.awaitCanonicalId,
     });
     return handle.sessionId;
   }

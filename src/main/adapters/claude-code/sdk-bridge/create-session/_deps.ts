@@ -144,6 +144,11 @@ export interface CreateSessionOpts {
    */
   skipFirstUserEmit?: boolean;
   /**
+   * Programmatic creates need the final SDK id. UI creates omit this so the bridge can return a
+   * visible temporary app id immediately and rename it after the first SDK frame.
+   */
+  awaitCanonicalId?: boolean;
+  /**
    * **REVIEW_99 R3 cancellation-epoch MED 修法 (post-guard 窗口)**:recover 路径传 cancelGuard
    * thunk,createSession 内部在 pre-registration await(loadSdk / buildMcpServersForSession)之后、
    * sessions.set / query 启动**之前**调一次 — 返 true(用户 await 期间再次 close → close-epoch 变
@@ -200,6 +205,7 @@ export interface PreparedSessionContext {
   readonly canUseTool: ReturnType<typeof import('../can-use-tool').makeCanUseTool>;
   readonly claudeSandboxMode: 'off' | 'workspace-write' | 'strict';
   readonly claudeModel: string | undefined;
+  readonly initialSessionEmitted?: boolean;
 }
 
 /**

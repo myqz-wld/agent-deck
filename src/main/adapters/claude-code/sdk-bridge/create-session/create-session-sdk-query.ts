@@ -113,6 +113,9 @@ export async function runCreateSessionSdkQuery(
     if (opts.cancelCheck?.()) {
       throw new RecoveryCancelledError(opts.resume ?? tempKey);
     }
+    if (ctx.initialSessionEmitted && (internal.expectedClose || deps.sessions.get(internal.applicationSid) !== internal)) {
+      throw new RecoveryCancelledError(internal.applicationSid);
+    }
 
     // **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1
     // bridge 内部 effectiveResumeCliSid 集中兜底**:
@@ -258,10 +261,12 @@ export async function runCreateSessionSdkQuery(
     //   用 fallbackId=resumeId≠tempKey → realId≠tempKey 永不进 A1-HIGH-1 throw;其他 try 内 throw
     //   也绝不能删 opts.resume 行(那是用户历史会话)。故这里**只**删 tempKey,opts.resume 行不动。
     // - tempKey 是 randomUUID,删一条不存在的 tempKey row 是无害 no-op(DELETE WHERE id=? 命中 0 行)。
-    try {
-      sessionRepo.delete(tempKey);
-    } catch (delErr) {
-      logger.warn(`[sdk-bridge] 清理孤儿 tempKey row 失败: ${tempKey}`, delErr);
+    if (!ctx.initialSessionEmitted) {
+      try {
+        sessionRepo.delete(tempKey);
+      } catch (delErr) {
+        logger.warn(`[sdk-bridge] 清理孤儿 tempKey row 失败: ${tempKey}`, delErr);
+      }
     }
     throw err;
   }

@@ -443,7 +443,7 @@ export const spawnSessionHandler = withMcpGuard(
             // handler 装配的 HandOffMetadata 透传给 builder → adapter narrow → bridge
             // createSession → first user message emit spread 进 events.payload。
             handOff: args.handOff,
-            awaitCanonicalId: args.adapter === 'codex-cli' ? true : undefined,
+            awaitCanonicalId: true,
           }),
           // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（caller 显式或 same-adapter
           // 从 lead 继承）—

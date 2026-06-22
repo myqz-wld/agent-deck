@@ -287,6 +287,17 @@ export class StreamProcessor {
 
         // 第一次拿到 session_id：完成 key 切换 + 通知 createSession
         if (!realId && typeof m.session_id === 'string' && m.session_id) {
+          const isNewSpawn = !applicationResumeId && resumeMode !== 'fresh-cli-reuse-app';
+          if (
+            isNewSpawn &&
+            (internal.expectedClose || this.ctx.sessions.get(tempKey) !== internal)
+          ) {
+            logger.warn(
+              `[sdk-bridge] first-id arrived after new session was closed; ` +
+                `incoming=${m.session_id} temp=${tempKey}; skipping mutation`,
+            );
+            continue;
+          }
           // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.2 修法 (H1+H2 race 双保险 (B) consume guard)**:
           // R2 plan-review HIGH-A 修订：用临时 incomingId 局部变量 — guard 命中时**不能**直接
           // 写入 realId 然后 continue。如果 `realId = m.session_id` 后 continue 跳出当前 frame,
@@ -311,7 +322,6 @@ export class StreamProcessor {
             // sessions Map 不被 late id 改写,translate 仍 emit 但不撞 sessions Map race。
             continue;
           }
-          const isNewSpawn = !applicationResumeId && resumeMode !== 'fresh-cli-reuse-app';
           const isNormalResume = !!applicationResumeId && resumeMode !== 'fresh-cli-reuse-app';
           const requestedCliSid = effectiveResumeCliSid;
           const isPhantomResumeId =

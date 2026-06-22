@@ -38,6 +38,38 @@ import type {
   SdkSessionHandle,
 } from './_deps';
 
+function emitVisibleCreateFailure(
+  deps: CreateSessionDeps,
+  internal: InternalSession,
+  err: unknown,
+): void {
+  const sessionId = internal.applicationSid;
+  const record = sessionRepo.get(sessionId);
+  if (!record || record.lifecycle === 'closed') return;
+
+  if (!internal.expectedClose) {
+    deps.emit({
+      sessionId,
+      agentId: 'claude-code',
+      kind: 'message',
+      payload: {
+        text: `⚠ Claude SDK 启动失败：${(err as Error)?.message ?? String(err)}`,
+        error: true,
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+  }
+  deps.emit({
+    sessionId,
+    agentId: 'claude-code',
+    kind: 'finished',
+    payload: { ok: false, subtype: 'error' },
+    ts: Date.now(),
+    source: 'sdk',
+  });
+}
+
 /**
  * createSession 主入口实现 — free fn，无 facade class 内部 state。
  *
@@ -167,7 +199,65 @@ export async function createSessionImpl(
       canUseTool,
       claudeSandboxMode,
       claudeModel,
+      initialSessionEmitted: !opts.resume && opts.awaitCanonicalId !== true,
     };
+    if (ctx.initialSessionEmitted) {
+      deps.sessions.set(internal.applicationSid, internal);
+      sessionManager.claimAsSdk(internal.applicationSid);
+      finalizeSessionStart({
+        applicationSid: internal.applicationSid,
+        cwd: opts.cwd,
+        prompt: opts.prompt,
+        claudeSandboxMode,
+        claudeModel,
+        claudeCodeEffortLevel,
+        extraAllowWrite: opts.extraAllowWrite,
+        attachments: opts.attachments,
+        handOff: opts.handOff,
+        emit: deps.emit,
+      });
+
+      const startInBackground = async (): Promise<void> => {
+        try {
+          const { realId } = await runCreateSessionSdkQuery(effectiveOpts, ctx, deps);
+          releasePending();
+          if (internal.expectedClose || deps.sessions.get(internal.applicationSid) !== internal) {
+            return;
+          }
+          finalizeSessionStart({
+            applicationSid: internal.applicationSid,
+            cliSessionId: realId,
+            cwd: opts.cwd,
+            prompt: opts.prompt,
+            claudeSandboxMode,
+            claudeModel,
+            claudeCodeEffortLevel,
+            extraAllowWrite: opts.extraAllowWrite,
+            attachments: opts.attachments,
+            handOff: opts.handOff,
+            skipSessionStartEmit: true,
+            skipFirstUserEmit: true,
+            emit: deps.emit,
+          });
+        } catch (err) {
+          emitVisibleCreateFailure(deps, internal, err);
+        }
+      };
+
+      setTimeout(() => {
+        if (internal.expectedClose || deps.sessions.get(internal.applicationSid) !== internal) {
+          releasePending();
+          return;
+        }
+        void startInBackground();
+      }, 0);
+
+      return {
+        sessionId: internal.applicationSid,
+        abort: () => void deps.interrupt(internal.applicationSid),
+      };
+    }
+
     const { realId } = await runCreateSessionSdkQuery(effectiveOpts, ctx, deps);
 
     // 真实 id 已经入手，cwd 待领取标记可以释放（如果 hook 已经先消费过则是 no-op）
