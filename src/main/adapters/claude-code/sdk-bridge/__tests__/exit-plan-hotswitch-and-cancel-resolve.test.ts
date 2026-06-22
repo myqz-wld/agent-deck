@@ -63,6 +63,10 @@ vi.mock('@main/event-bus', () => ({
 
 const emits: AgentEvent[] = [];
 
+function nextMacrotask(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 /** query stub：setPermissionMode 可配置 resolve / throw（MED-1 rollback 路径用）。 */
 function makeQueryStub(opts: { setPermissionModeThrows?: boolean }): {
   query: Query;
@@ -319,7 +323,7 @@ describe('restart close drain — closeSession waits for old SDK stream finally'
     const closePromise = bridge.closeSession('sess-drain-wait').then(() => {
       resolved = true;
     });
-    await Promise.resolve();
+    await nextMacrotask();
 
     expect(interruptSpy).toHaveBeenCalledOnce();
     expect(resolved).toBe(false);
@@ -338,12 +342,15 @@ describe('restart close drain — closeSession waits for old SDK stream finally'
     const closePromise = bridge.closeSession('sess-drain-timeout').then(() => {
       resolved = true;
     });
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(interruptSpy).toHaveBeenCalledOnce();
     expect(resolved).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(resolved).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
     await closePromise;
 
     expect(resolved).toBe(true);

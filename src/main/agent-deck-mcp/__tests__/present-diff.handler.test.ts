@@ -28,6 +28,7 @@ vi.mock('@main/store/settings-store', () => ({
 }));
 
 import { diffReviewService } from '@main/diff-review/service';
+import { eventBus } from '@main/event-bus';
 import { requestDiffReviewHandler } from '../tools/handlers/request-diff-review';
 import type { HandlerContext } from '../tools/helpers';
 import { EXTERNAL_CALLER_SENTINEL } from '../types';
@@ -153,6 +154,57 @@ describe('present_diff handler', () => {
       decision: 'revise',
       feedback: 'keep the incoming title only',
     });
+  });
+
+  it('resolves timeout and emits cancellation when the owning session closes', async () => {
+    mocks.sessions.set('codex-1', makeSession('codex-1'));
+
+    const pending = requestDiffReviewHandler(
+      {
+        mode: 'pr',
+        rationale: 'Review before shutdown.',
+        pr: { before: 'a', after: 'b' },
+      },
+      makeCtx('codex-1'),
+    );
+
+    await vi.waitFor(() => expect(mocks.ingest).toHaveBeenCalledTimes(1));
+    const requestId = mocks.ingest.mock.calls[0][0].payload.requestId;
+
+    eventBus.emit('session-upserted', makeSession('codex-1', { lifecycle: 'closed' }));
+
+    const result = await pending;
+    expect(parseResult(result)).toEqual({ decision: 'timeout' });
+    expect(diffReviewService.listPending('codex-1')).toEqual([]);
+    expect(mocks.ingest).toHaveBeenCalledTimes(2);
+    expect(mocks.ingest.mock.calls[1][0]).toMatchObject({
+      sessionId: 'codex-1',
+      agentId: 'codex-cli',
+      kind: 'waiting-for-user',
+      payload: { type: 'diff-review-cancelled', requestId },
+    });
+  });
+
+  it('resolves timeout without writing cancellation when the owning session is removed', async () => {
+    mocks.sessions.set('codex-1', makeSession('codex-1'));
+
+    const pending = requestDiffReviewHandler(
+      {
+        mode: 'pr',
+        rationale: 'Review before deletion.',
+        pr: { before: 'a', after: 'b' },
+      },
+      makeCtx('codex-1'),
+    );
+
+    await vi.waitFor(() => expect(mocks.ingest).toHaveBeenCalledTimes(1));
+
+    eventBus.emit('session-removed', 'codex-1');
+
+    const result = await pending;
+    expect(parseResult(result)).toEqual({ decision: 'timeout' });
+    expect(diffReviewService.listPending('codex-1')).toEqual([]);
+    expect(mocks.ingest).toHaveBeenCalledTimes(1);
   });
 
   it('rejects mode and payload mismatches before creating a pending presentation', async () => {

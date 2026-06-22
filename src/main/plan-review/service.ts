@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
+import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 
@@ -52,7 +53,7 @@ class PlanReviewService {
     if (input.timeoutMs && input.timeoutMs > 0) {
       entry.timer = setTimeout(() => {
         if (!this.pending.delete(requestId)) return;
-        this.emitCancelled(entry);
+        this.emitCancelledIfPossible(entry);
         resolveDecision({ decision: 'timeout' });
       }, input.timeoutMs);
     }
@@ -74,6 +75,23 @@ class PlanReviewService {
     }
 
     return promise;
+  }
+
+  cancelForSession(
+    sessionId: string,
+    options: { emitCancelled?: boolean } = {},
+  ): number {
+    const emitCancelled = options.emitCancelled ?? true;
+    let cancelled = 0;
+    for (const entry of [...this.pending.values()]) {
+      if (entry.sessionId !== sessionId) continue;
+      if (!this.pending.delete(entry.payload.requestId)) continue;
+      if (entry.timer) clearTimeout(entry.timer);
+      if (emitCancelled) this.emitCancelledIfPossible(entry);
+      entry.resolve({ decision: 'timeout' });
+      cancelled += 1;
+    }
+    return cancelled;
   }
 
   respond(sessionId: string, requestId: string, response: ExitPlanModeResponse): boolean {
@@ -119,6 +137,22 @@ class PlanReviewService {
       source: 'sdk',
     });
   }
+
+  private emitCancelledIfPossible(entry: PendingMcpPlanReview): void {
+    try {
+      this.emitCancelled(entry);
+    } catch {
+      // The owning session may have been deleted while the review was pending.
+    }
+  }
 }
 
 export const planReviewService = new PlanReviewService();
+
+eventBus.on('session-upserted', (session) => {
+  if (session.lifecycle === 'closed') planReviewService.cancelForSession(session.id);
+});
+
+eventBus.on('session-removed', (sessionId) => {
+  planReviewService.cancelForSession(sessionId, { emitCancelled: false });
+});

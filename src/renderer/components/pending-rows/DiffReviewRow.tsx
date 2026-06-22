@@ -195,9 +195,9 @@ function buildPrDiffPayload(payload: DiffReviewRequest): DiffPayload<string> | n
 function ConflictReviewGrid({ payload }: { payload: DiffReviewRequest }): JSX.Element {
   const c = payload.conflict!;
   const columns = [
-    { label: c.oursLabel ?? '当前', content: c.ours },
-    { label: c.theirsLabel ?? '传入', content: c.theirs },
-    { label: c.resolutionLabel ?? '建议结果', content: c.resolution },
+    { key: 'ours', label: c.oursLabel ?? '当前', content: c.ours },
+    { key: 'theirs', label: c.theirsLabel ?? '传入', content: c.theirs },
+    { key: 'resolution', label: c.resolutionLabel ?? '建议结果', content: c.resolution },
   ];
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
@@ -206,7 +206,7 @@ function ConflictReviewGrid({ payload }: { payload: DiffReviewRequest }): JSX.El
       )}
       <div className="grid min-w-0 grid-cols-1 gap-1.5 lg:grid-cols-3">
         {columns.map((col) => (
-          <ConflictPane key={col.label} label={col.label} content={col.content} />
+          <ConflictPane key={col.key} label={col.label} content={col.content} />
         ))}
       </div>
     </div>

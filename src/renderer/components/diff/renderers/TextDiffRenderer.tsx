@@ -17,7 +17,7 @@ interface Props {
 
 export function TextDiffRenderer({ payload }: Props): JSX.Element {
   const expanded = useDiffExpanded();
-  const language = guessLanguageByPath(payload.filePath);
+  const language = resolveLanguage(payload);
   // REVIEW_52 C1：部分来源 emit file-changed before:null after:null（Codex app-server 不提供
   // before/after 快照，但可能在 metadata.diff 带 unified diff）。有 unified diff 时先还原成
   // before/after 片段并复用 Monaco DiffEditor；解析不了时再显示 patch 原文兜底。
@@ -293,6 +293,12 @@ export function normalizeUnifiedDiffMetadata(value: unknown): string | null {
 }
 
 export { reconstructUnifiedDiffSnapshots };
+
+function resolveLanguage(payload: DiffPayload<string | null>): string {
+  const language = payload.metadata?.language;
+  if (typeof language === 'string' && language.trim()) return language.trim();
+  return guessLanguageByPath(payload.filePath);
+}
 
 function guessLanguageByPath(p: string): string {
   const ext = p.split('.').pop()?.toLowerCase() ?? '';
