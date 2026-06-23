@@ -8,8 +8,9 @@ REM   agent-deck new --cwd "C:\foo" --prompt "..."
 REM
 REM 行为（与 macOS bash wrapper 对齐）：
 REM   1. 找 Agent Deck.exe：%AGENT_DECK_APP% > %LOCALAPPDATA%\Programs\Agent Deck\Agent Deck.exe > %PROGRAMFILES%\Agent Deck\Agent Deck.exe
-REM   2. 应用未运行 → Electron 首启实例直接处理 argv
-REM   3. 应用已运行 → second-instance 事件转发（main/index.ts）
+REM   2. --version / --check-installed 打印安装包 build-info.json 里的版本和 commit
+REM   3. 应用未运行 → Electron 首启实例直接处理 argv
+REM   4. 应用已运行 → second-instance 事件转发（main/index.ts）
 REM
 REM 行为差异（vs macOS bash wrapper）：
 REM   - cmd.exe 的 %~1 / %* 在 quoting/escaping 上限制比 bash 多，所以：
@@ -32,6 +33,11 @@ if not exist "%APP_EXE%" (
   echo   Set AGENT_DECK_APP to override default install location, or install via NSIS to default. 1>&2
   exit /b 1
 )
+
+if /I "%~1"=="--version" goto version
+if /I "%~1"=="version" goto version
+if /I "%~1"=="--check-installed" goto check_installed
+if /I "%~1"=="check-installed" goto check_installed
 
 REM 2. 简化形式判断 + spawn
 REM    无参数：补 'new --cwd "%CD%"'
@@ -58,3 +64,11 @@ if "%FIRST:~0,2%"=="--" (
 REM 默认透传（未来子命令扩展用）
 start "" "%APP_EXE%" %*
 exit /b 0
+
+:version
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0agent-deck-version.ps1" -AppExe "%APP_EXE%"
+exit /b %ERRORLEVEL%
+
+:check_installed
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0agent-deck-version.ps1" -AppExe "%APP_EXE%" -CheckInstalled
+exit /b %ERRORLEVEL%

@@ -327,3 +327,5 @@
 | [CHANGELOG_320.md](CHANGELOG_320.md) | Diff walkthrough now defaults to interactive presentation gates. |
 | [CHANGELOG_321.md](CHANGELOG_321.md) | `present_diff` cards default collapsed and expand to a taller review area. |
 | [CHANGELOG_322.md](CHANGELOG_322.md) | Codex quota auth failures and SDK orphan-hook drops are quieter. |
+| [CHANGELOG_323.md](CHANGELOG_323.md) | Packaged builds carry commit metadata, and wrappers can check installed freshness by commit. |
+| [CHANGELOG_324.md](CHANGELOG_324.md) | Project docs require packaged build metadata and installed freshness checks. |

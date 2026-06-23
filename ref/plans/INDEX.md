@@ -85,6 +85,7 @@ Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_pr
 | [list-sessions-related-default-20260619.md](list-sessions-related-default-20260619.md) | completed | [303](../changelogs/CHANGELOG_303.md) | `list_sessions` defaults to caller-related sessions and SessionDetail gained a Tasks tab with completed-toggle |
 | [codex-create-session-latency-20260619.md](codex-create-session-latency-20260619.md) | completed | [310](../changelogs/CHANGELOG_310.md) / [311](../changelogs/CHANGELOG_311.md) / [312](../changelogs/CHANGELOG_312.md) / [REVIEW_130](../reviews/REVIEW_130.md) / [REVIEW_131](../reviews/REVIEW_131.md) / [REVIEW_132](../reviews/REVIEW_132.md) / [REVIEW_133](../reviews/REVIEW_133.md) | Codex new-session creation returns a visible temp session before background real-id rename; follow-up deep review fixed the MCP spawn stable-id contract and moved provider quota refresh to 10 minutes |
 | [claude-session-create-lag-20260622.md](claude-session-create-lag-20260622.md) | completed | [316](../changelogs/CHANGELOG_316.md) / [136](../reviews/REVIEW_136.md) | Claude new-session UI now returns a visible temp session before background SDK first-id rename, while MCP spawns still wait for canonical ids |
+| [commit-build-metadata-20260624.md](commit-build-metadata-20260624.md) | completed | [323](../changelogs/CHANGELOG_323.md) | Packaged builds carry commit metadata, and wrappers can check installed freshness by commit |
 
 ## Legacy Slug-Only Entries
 
