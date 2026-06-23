@@ -329,3 +329,4 @@
 | [CHANGELOG_322.md](CHANGELOG_322.md) | Codex quota auth failures and SDK orphan-hook drops are quieter. |
 | [CHANGELOG_323.md](CHANGELOG_323.md) | Packaged builds carry commit metadata, and wrappers can check installed freshness by commit. |
 | [CHANGELOG_324.md](CHANGELOG_324.md) | Project docs require packaged build metadata and installed freshness checks. |
+| [CHANGELOG_325.md](CHANGELOG_325.md) | Upgrade Claude Agent SDK to 0.3.187. |
