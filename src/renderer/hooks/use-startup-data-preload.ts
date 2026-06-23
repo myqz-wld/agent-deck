@@ -4,6 +4,9 @@ import {
   PROVIDER_USAGE_CACHE_TTL_MS,
   PROVIDER_USAGE_REFETCH_MS,
 } from '@shared/constants/provider-usage';
+import log from '@renderer/utils/logger';
+
+const logger = log.scope('renderer-startup-data-preload');
 
 export { PROVIDER_USAGE_REFETCH_MS };
 export const PROVIDER_USAGE_RENDERER_STALE_MS = PROVIDER_USAGE_CACHE_TTL_MS;
@@ -32,7 +35,7 @@ export function useStartupDataPreload(): void {
         if (!cancelled) setDaily(rows);
       })
       .catch((err) => {
-        console.warn('[app] tokenUsageDaily preload failed', err);
+        logger.warn('[app] tokenUsageDaily preload failed', err);
       });
 
     const refreshProviderUsage = (): void => {
@@ -44,7 +47,7 @@ export function useStartupDataPreload(): void {
         })
         .catch((err) => {
           if (!cancelled) finishProviderUsageRequest(requestId);
-          console.warn('[app] providerUsageSnapshot background refresh failed', err);
+          logger.warn('[app] providerUsageSnapshot background refresh failed', err);
         });
     };
 

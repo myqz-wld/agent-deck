@@ -49,6 +49,8 @@ import {
 } from '../../provider-usage';
 import {
   invalidateCodexUsageSnapshotClient,
+  isExpectedCodexUsageUnavailable,
+  codexUsageUnavailableSnapshot,
   readCodexUsageSnapshotInBackground,
 } from '../usage-snapshot';
 import log from '@main/utils/logger';
@@ -244,6 +246,10 @@ export class CodexSdkBridge {
       );
       return buildCodexUsageSnapshot(response);
     } catch (err) {
+      if (isExpectedCodexUsageUnavailable(err)) {
+        logger.debug('[codex-bridge] usage snapshot unavailable:', err);
+        return codexUsageUnavailableSnapshot();
+      }
       logger.warn('[codex-bridge] usage snapshot failed:', err);
       return errorUsageSnapshot('codex-cli', 'Codex', err);
     }

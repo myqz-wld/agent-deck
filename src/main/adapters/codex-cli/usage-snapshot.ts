@@ -15,6 +15,7 @@ import { PROVIDER_USAGE_REFETCH_MS } from '@shared/constants/provider-usage';
 const logger = log.scope('codex-usage');
 const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
 const BACKGROUND_USAGE_IDLE_DISPOSE_MS = PROVIDER_USAGE_REFETCH_MS;
+const CODEX_USAGE_UNAVAILABLE_MESSAGE = 'Codex 额度信息暂不可读，请确认 Codex 已登录且网络可用';
 
 type CodexUsageClient = Pick<CodexAppServerClient, 'request' | 'dispose'>;
 
@@ -85,11 +86,7 @@ export async function readCodexUsageSnapshotInBackground(
   } catch (err) {
     if (isExpectedCodexUsageUnavailable(err)) {
       logger.debug('[codex-usage] usage snapshot unavailable:', err);
-      return unavailableUsageSnapshot(
-        'codex-cli',
-        'Codex',
-        'Codex 额度信息暂不可读，请确认 Codex 已登录且网络可用',
-      );
+      return codexUsageUnavailableSnapshot();
     }
     logger.warn('[codex-usage] usage snapshot failed:', err);
     return errorUsageSnapshot('codex-cli', 'Codex', err);
@@ -154,11 +151,16 @@ function clearCachedUsageClientIdleTimer(): void {
   cachedUsageClientIdleTimer = null;
 }
 
-function isExpectedCodexUsageUnavailable(err: unknown): boolean {
+export function codexUsageUnavailableSnapshot(): ProviderUsageSnapshot {
+  return unavailableUsageSnapshot('codex-cli', 'Codex', CODEX_USAGE_UNAVAILABLE_MESSAGE);
+}
+
+export function isExpectedCodexUsageUnavailable(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return (
     /failed to fetch codex rate limits/i.test(message) ||
     /backend-api\/wham\/usage/i.test(message) ||
+    /\bauthentication required\b/i.test(message) ||
     /\b(auth|login|not authenticated|unauthorized)\b/i.test(message) ||
     /\b(401|403)\b/.test(message)
   );

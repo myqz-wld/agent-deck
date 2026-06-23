@@ -153,7 +153,7 @@ export function dedupOrClaim(ctx: IngestContext, event: AgentEvent): { skip: boo
   // 这条 event 一定是 SDK-derived 进程的孤儿副产品，直接 skip 不创建 source='cli' record。
   // 用户独立终端跑 `claude` 没有 AGENT_DECK_ORIGIN env → header 走默认 'cli' → 不走本分支。
   if (event.source === 'hook' && event.hookOrigin === 'sdk') {
-    logger.info(
+    logger.debug(
       `[session-mgr] drop sdk-derived orphan hook: sessionId=${event.sessionId} kind=${event.kind}`,
     );
     return { skip: true };

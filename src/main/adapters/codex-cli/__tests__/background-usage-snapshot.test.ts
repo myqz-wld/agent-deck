@@ -64,6 +64,26 @@ describe('readCodexUsageSnapshotInBackground', () => {
     });
   });
 
+  it('returns unavailable when ChatGPT authentication is required to read rate limits', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(new Error('chatgpt authentication required to read rate limits (code -32600)'));
+    const dispose = vi.fn();
+
+    const snapshot = await readCodexUsageSnapshotInBackground({
+      makeClient: vi.fn(() => ({ request, dispose })),
+      codexPathOverride: null,
+    });
+
+    expect(request).toHaveBeenCalledWith('account/rateLimits/read', undefined);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(snapshot).toMatchObject({
+      provider: 'codex-cli',
+      status: 'unavailable',
+      message: 'Codex 额度信息暂不可读，请确认 Codex 已登录且网络可用',
+    });
+  });
+
   it('reuses the cached app-server client for background quota reads', async () => {
     const request = vi.fn().mockResolvedValue({
       rateLimits: {
