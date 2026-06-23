@@ -325,3 +325,4 @@
 | [CHANGELOG_318.md](CHANGELOG_318.md) | Diff walkthrough routing and `present_diff` guidance now cover step-by-step confirmation. |
 | [CHANGELOG_319.md](CHANGELOG_319.md) | Upgrade Claude/Codex SDK packages to latest stable versions. |
 | [CHANGELOG_320.md](CHANGELOG_320.md) | Diff walkthrough now defaults to interactive presentation gates. |
+| [CHANGELOG_321.md](CHANGELOG_321.md) | `present_diff` cards default collapsed and expand to a taller review area. |
