@@ -323,3 +323,4 @@
 | [CHANGELOG_316.md](CHANGELOG_316.md) | Claude UI-created sessions return before SDK first-id rename. |
 | [CHANGELOG_317.md](CHANGELOG_317.md) | Claude restart phantom-jsonl self-heal uses latest conversation-message freshness. |
 | [CHANGELOG_318.md](CHANGELOG_318.md) | Diff walkthrough routing and `present_diff` guidance now cover step-by-step confirmation. |
+| [CHANGELOG_319.md](CHANGELOG_319.md) | Upgrade Claude/Codex SDK packages to latest stable versions. |
