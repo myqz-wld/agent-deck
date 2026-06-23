@@ -4,6 +4,8 @@ import { DiffViewer } from '../diff/DiffViewer';
 import log from '@renderer/utils/logger';
 
 const logger = log.scope('renderer-diff-review-row');
+const PRESENTED_DIFF_HEIGHT = 'h-[60vh] min-h-96 max-h-[44rem]';
+const PRESENTED_PANE_MAX_HEIGHT = 'max-h-[44rem]';
 
 export function DiffReviewRow({
   event,
@@ -148,17 +150,7 @@ export function DiffReviewRow({
         {payload.rationale}
       </div>
 
-      {payload.mode === 'pr' && diffPayload ? (
-        <div className="h-80 overflow-hidden rounded border border-white/5">
-          <DiffViewer payload={diffPayload} sessionId={sessionId} />
-        </div>
-      ) : payload.mode === 'merge-conflict' && payload.conflict ? (
-        <ConflictReviewGrid payload={payload} />
-      ) : (
-        <pre className="max-h-64 max-w-full overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
-          {JSON.stringify(payload, null, 2)}
-        </pre>
-      )}
+      <DiffPresentationPanel payload={payload} diffPayload={diffPayload} sessionId={sessionId} />
 
       {!isSdk && (
         <div className="mt-1.5 text-[10px] text-deck-muted">
@@ -171,6 +163,72 @@ export function DiffReviewRow({
         </div>
       )}
     </li>
+  );
+}
+
+function DiffPresentationPanel({
+  payload,
+  diffPayload,
+  sessionId,
+}: {
+  payload: DiffReviewRequest;
+  diffPayload: DiffPayload<string> | null;
+  sessionId: string;
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const size = getPresentationSize(payload);
+  const label = payload.mode === 'merge-conflict' ? '冲突内容' : '差异内容';
+
+  return (
+    <div className="min-w-0 rounded border border-deck-border/40 bg-black/20 p-2">
+      {expanded ? (
+        <DiffPresentationContent
+          payload={payload}
+          diffPayload={diffPayload}
+          sessionId={sessionId}
+        />
+      ) : (
+        <div className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-2 text-[10px] text-deck-muted/85">
+          {label}已收起
+        </div>
+      )}
+      <div className="mt-1.5 flex justify-end">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/[0.08] hover:text-deck-text"
+        >
+          {expanded ? '收起' : `展开${payload.mode === 'merge-conflict' ? '冲突' : '差异'}（${size} 字）`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DiffPresentationContent({
+  payload,
+  diffPayload,
+  sessionId,
+}: {
+  payload: DiffReviewRequest;
+  diffPayload: DiffPayload<string> | null;
+  sessionId: string;
+}): JSX.Element {
+  if (payload.mode === 'pr' && diffPayload) {
+    return (
+      <div className={`${PRESENTED_DIFF_HEIGHT} overflow-hidden rounded border border-white/5`}>
+        <DiffViewer payload={diffPayload} sessionId={sessionId} />
+      </div>
+    );
+  }
+  if (payload.mode === 'merge-conflict' && payload.conflict) {
+    return <ConflictReviewGrid payload={payload} />;
+  }
+  return (
+    <pre className={`${PRESENTED_PANE_MAX_HEIGHT} max-w-full overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted`}>
+      {JSON.stringify(payload, null, 2)}
+    </pre>
   );
 }
 
@@ -192,6 +250,20 @@ function buildPrDiffPayload(payload: DiffReviewRequest): DiffPayload<string> | n
   };
 }
 
+function getPresentationSize(payload: DiffReviewRequest): number {
+  if (payload.mode === 'pr' && payload.pr) {
+    return payload.pr.before.length + payload.pr.after.length + (payload.pr.unifiedDiff?.length ?? 0);
+  }
+  if (payload.mode === 'merge-conflict' && payload.conflict) {
+    const c = payload.conflict;
+    return [c.base, c.ours, c.theirs, c.resolution].reduce(
+      (total, content) => total + (content?.length ?? 0),
+      0,
+    );
+  }
+  return JSON.stringify(payload, null, 2).length;
+}
+
 function ConflictReviewGrid({ payload }: { payload: DiffReviewRequest }): JSX.Element {
   const c = payload.conflict!;
   const columns = [
@@ -202,7 +274,7 @@ function ConflictReviewGrid({ payload }: { payload: DiffReviewRequest }): JSX.El
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       {c.base != null && (
-        <ConflictPane label={c.baseLabel ?? '共同基础'} content={c.base} className="max-h-36" />
+        <ConflictPane label={c.baseLabel ?? '共同基础'} content={c.base} className="max-h-64" />
       )}
       <div className="grid min-w-0 grid-cols-1 gap-1.5 lg:grid-cols-3">
         {columns.map((col) => (
@@ -228,7 +300,7 @@ function ConflictPane({
         {label}
       </div>
       <pre
-        className={`m-0 max-h-80 overflow-auto scrollbar-deck p-2 font-mono text-[10px] leading-5 text-deck-text ${className ?? ''}`}
+        className={`m-0 ${PRESENTED_PANE_MAX_HEIGHT} overflow-auto scrollbar-deck p-2 font-mono text-[10px] leading-5 text-deck-text ${className ?? ''}`}
       >
         {content}
       </pre>
