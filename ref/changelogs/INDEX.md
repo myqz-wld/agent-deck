@@ -326,3 +326,4 @@
 | [CHANGELOG_319.md](CHANGELOG_319.md) | Upgrade Claude/Codex SDK packages to latest stable versions. |
 | [CHANGELOG_320.md](CHANGELOG_320.md) | Diff walkthrough now defaults to interactive presentation gates. |
 | [CHANGELOG_321.md](CHANGELOG_321.md) | `present_diff` cards default collapsed and expand to a taller review area. |
+| [CHANGELOG_322.md](CHANGELOG_322.md) | Codex quota auth failures and SDK orphan-hook drops are quieter. |

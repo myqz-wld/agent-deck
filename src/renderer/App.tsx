@@ -18,8 +18,11 @@ import { useStartupDataPreload } from './hooks/use-startup-data-preload';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
 import { selectLiveSessions, selectPendingBuckets, sumPendingBuckets } from './lib/session-selectors';
 import type { AppSettings, SessionRecord } from '@shared/types';
+import log from '@renderer/utils/logger';
 
 registerBuiltinDiffRenderers();
+
+const logger = log.scope('renderer-app');
 
 type View = 'live' | 'history' | 'pending' | 'teams' | 'issues' | 'data';
 
@@ -90,7 +93,7 @@ export function App(): JSX.Element {
           if (cancelled) return;
           setPendingAll(map);
         } catch (err) {
-          console.warn(`[app] listAdapterPendingAll(${adapter.id}) failed`, err);
+          logger.warn(`[app] listAdapterPendingAll(${adapter.id}) failed`, err);
         }
       }
     });

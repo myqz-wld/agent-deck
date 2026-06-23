@@ -123,7 +123,7 @@ export function setFileLevel(level: LogLevel): void {
  *
  * 锚点 'Error sending from webFrameMain' + 'Render frame was disposed' 同一次 log call
  * 同时命中才丢,防误吞其他 framework 错(单关键词已通过 case 锁定透传)。Electron
- * framework 真实形态是 `console.error('Error sending from webFrameMain: ', error)`,
+ * framework 真实形态是 console error call with prefix string plus Error object,
  * 因此必须覆盖 prefix string + Error object 分布在不同 data 项的情况。
  */
 
