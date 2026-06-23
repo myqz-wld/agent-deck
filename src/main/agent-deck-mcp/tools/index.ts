@@ -175,7 +175,15 @@ export async function buildAgentDeckTools(
 
   const requestDiffReview = tool(
     AGENT_DECK_TOOL_NAMES.presentDiff,
-    'Present diff content to the user and wait for their response. Use this user-presentation tool when concrete code changes need to be shown with context before you continue, such as PR-style before/after presentation or merge-conflict resolution presentation. It serves both as a final approval gate and as the per-fragment confirmation step of a step-by-step diff or conflict walkthrough: present one fragment, wait, and use the user\'s `revise` reply to adjust before presenting the next fragment. `mode:"pr"` renders a two-column before/after view from `pr`; `mode:"merge-conflict"` renders an ours/theirs/resolution view from `conflict`. Returns `decision:"approved"` to proceed, `decision:"revise"` with optional feedback to update the changes, or `decision:"timeout"` when the effective timeout expires. Omitted `timeoutMs` uses the app permission-request timeout setting. This tool rejects external callers.',
+    [
+      'Use present_diff to show diff or merge-conflict content to the user and block until the user returns a structured decision.',
+      'Call it before continuing when concrete code changes need user confirmation, revision feedback, or step-by-step walkthrough review.',
+      'For a diff or conflict walkthrough, invoke present_diff for every fragment: present one fragment, wait for the decision, then advance only after approved, re-present the same fragment after revise feedback, or end the walkthrough if the user stops or the request times out.',
+      'Mode mapping: mode="pr" requires the pr payload and renders a two-column before/after view; mode="merge-conflict" requires the conflict payload and renders ours/theirs/resolution panes.',
+      'For PR fragments, before and after are the primary compared content. unifiedDiff is optional supporting context when the two-column content needs file headers, hunk markers, or broader surrounding lines; do not provide unifiedDiff instead of before and after.',
+      'Callers may explain fields, callers, functions, logic, or purpose with concise annotations inside the presented fragment content when useful; keep annotations clearly marked when they are not part of the patch. Callers may also use rationale and instructions for fragment-level context and acceptance criteria.',
+      'Returns decision:"approved" to proceed, decision:"revise" with optional feedback to update the changes, or decision:"timeout" when the effective timeout expires. Omitted timeoutMs uses the app permission-request timeout setting. This tool rejects external callers.',
+    ].join('\n'),
     REQUEST_DIFF_REVIEW_SCHEMA,
     async (args, extra) => requestDiffReviewHandler(args, makeCtx(args, extra)),
     {

@@ -149,3 +149,4 @@ Use `REVIEW_X.md`, where `X` is the next integer and historically aligns with `C
 | [REVIEW_135.md](REVIEW_135.md) | Provider quota window could show stale snapshots from out-of-order refreshes. | 2 MEDIUM fixed | CHANGELOG_315 |
 | [REVIEW_136.md](REVIEW_136.md) | Claude UI create waited for SDK first id before returning. | 1 HIGH fixed + 2 MEDIUM fixed | CHANGELOG_316 |
 | [REVIEW_137.md](REVIEW_137.md) | Claude restart phantom runtime ids could still fresh-fallback when applicationSid jsonl was valid but older than broad lastEventAt. | 1 MEDIUM fixed | CHANGELOG_317 |
+| [REVIEW_138.md](REVIEW_138.md) | Diff walkthrough presentation contract prompt-asset review. | 2 LOW fixed + 2 INFO accepted | CHANGELOG_320 |

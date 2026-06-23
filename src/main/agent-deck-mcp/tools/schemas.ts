@@ -268,20 +268,28 @@ const DIFF_REVIEW_TEXT = z.string().max(100_000);
 
 export const DIFF_REVIEW_PR_FRAGMENT_SCHEMA = z
   .object({
-    before: DIFF_REVIEW_TEXT.describe('Original content for the left side of the two-column presentation.'),
-    after: DIFF_REVIEW_TEXT.describe('Proposed content for the right side of the two-column presentation.'),
+    before: DIFF_REVIEW_TEXT.describe(
+      'Original content for the left side of the two-column presentation. Use the actual before fragment as the primary comparison content; concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.',
+    ),
+    after: DIFF_REVIEW_TEXT.describe(
+      'Proposed content for the right side of the two-column presentation. Use the actual after fragment as the primary comparison content; concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.',
+    ),
     beforeLabel: z.string().min(1).max(80).optional().describe('Optional label for the original side. Defaults should be UI-owned, not agent-owned.'),
     afterLabel: z.string().min(1).max(80).optional().describe('Optional label for the proposed side. Defaults should be UI-owned, not agent-owned.'),
-    unifiedDiff: DIFF_REVIEW_TEXT.optional().describe('Optional unified diff shown as supporting context or fallback when before/after rendering is insufficient; do not pass it instead of before and after.'),
+    unifiedDiff: DIFF_REVIEW_TEXT.optional().describe(
+      'Optional unified diff shown as supporting context when before/after panes need file headers, hunk markers, or broader surrounding lines. It supplements before and after; do not pass it instead of before and after.',
+    ),
   })
   .strict();
 
 export const DIFF_REVIEW_CONFLICT_FRAGMENT_SCHEMA = z
   .object({
-    ours: DIFF_REVIEW_TEXT.describe('Current/ours content for the conflict.'),
-    theirs: DIFF_REVIEW_TEXT.describe('Incoming/theirs content for the conflict.'),
-    resolution: DIFF_REVIEW_TEXT.describe('Proposed final resolved content for the user to confirm or revise.'),
-    base: DIFF_REVIEW_TEXT.optional().describe('Optional common ancestor content, shown only when useful for understanding the resolution.'),
+    ours: DIFF_REVIEW_TEXT.describe('Current/ours content for the conflict pane. Concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.'),
+    theirs: DIFF_REVIEW_TEXT.describe('Incoming/theirs content for the conflict pane. Concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.'),
+    resolution: DIFF_REVIEW_TEXT.describe('Proposed final resolved content for the user to confirm or revise. Concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.'),
+    base: DIFF_REVIEW_TEXT.optional().describe(
+      'Optional common ancestor content, shown only when useful for understanding the resolution. Concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.',
+    ),
     oursLabel: z.string().min(1).max(80).optional().describe('Optional display label for the current/ours pane. Defaults should be UI-owned, not agent-owned.'),
     theirsLabel: z.string().min(1).max(80).optional().describe('Optional display label for the incoming/theirs pane. Defaults should be UI-owned, not agent-owned.'),
     resolutionLabel: z.string().min(1).max(80).optional().describe('Optional display label for the resolution pane. Defaults should be UI-owned, not agent-owned.'),
@@ -292,7 +300,9 @@ export const DIFF_REVIEW_CONFLICT_FRAGMENT_SCHEMA = z
 export const REQUEST_DIFF_REVIEW_SCHEMA = {
   mode: z
     .enum(['pr', 'merge-conflict'])
-    .describe('Presentation layout and payload selector. Use "pr" for a two-column before/after presentation and provide `pr`; use "merge-conflict" for an ours/theirs/resolution presentation and provide `conflict`.'),
+    .describe(
+      'Presentation layout and payload selector. Use "pr" for a two-column before/after presentation and provide only `pr`; use "merge-conflict" for an ours/theirs/resolution presentation and provide only `conflict`.',
+    ),
   title: z
     .string()
     .min(1)
@@ -316,14 +326,20 @@ export const REQUEST_DIFF_REVIEW_SCHEMA = {
     .min(1)
     .max(10_000)
     .optional()
-    .describe('Optional focused presentation instructions or acceptance criteria shown with the diff, such as risk areas, intended behavior, or specific questions for the user. In a step-by-step walkthrough, use it to scope what the user should confirm for the current fragment.'),
+    .describe(
+      'Optional focused presentation instructions or acceptance criteria shown with the diff, such as risk areas, intended behavior, or specific questions for the user. In a step-by-step walkthrough, use it to scope what the user should confirm for the current fragment and to explain relevant fields, callers, functions, logic, or purpose.',
+    ),
   rationale: z
     .string()
     .min(1)
     .max(40_000)
-    .describe('Short explanation shown above the diff so the user understands what they are confirming and why the change is being presented.'),
-  pr: DIFF_REVIEW_PR_FRAGMENT_SCHEMA.optional().describe('Two-column PR-style diff payload. Required when mode="pr"; omit when mode="merge-conflict".'),
-  conflict: DIFF_REVIEW_CONFLICT_FRAGMENT_SCHEMA.optional().describe('Merge-conflict presentation payload. Required when mode="merge-conflict"; omit when mode="pr".'),
+    .describe(
+      'Short explanation shown above the diff so the user understands what they are confirming and why this fragment is being presented.',
+    ),
+  pr: DIFF_REVIEW_PR_FRAGMENT_SCHEMA.optional().describe('Two-column PR-style diff payload. Required when mode="pr"; omit when mode="merge-conflict". Use this payload for each PR-style walkthrough fragment.'),
+  conflict: DIFF_REVIEW_CONFLICT_FRAGMENT_SCHEMA.optional().describe(
+    'Merge-conflict presentation payload. Required when mode="merge-conflict"; omit when mode="pr". Use this payload for each conflict walkthrough fragment.',
+  ),
   timeoutMs: z
     .number()
     .int()
