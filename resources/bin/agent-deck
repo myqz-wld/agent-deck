@@ -11,6 +11,8 @@
 #     主实例自己的 process.cwd()（一般是 / 或 .app 安装目录）重新解析。
 #   - 如果是 `new` 但没传 --cwd，自动用当前 PWD 作为 --cwd。
 #   - 把归一化后的 argv 编成单个 payload，避开 Electron 对 --flag/value 的重排。
+#   - `--version` / `version` 打印安装包构建 commit，并在当前目录是
+#     agent-deck 源码 checkout 时对比当前 HEAD / origin/main。
 #   - 应用未运行 → 由 macOS 自动拉起首启实例，CLI 参数走首启分支。
 #   - 应用已运行 → second-instance 事件转发参数到主实例处理。
 #
@@ -26,6 +28,108 @@ set -e
 
 APP_PATH="${AGENT_DECK_APP:-/Applications/Agent Deck.app}"
 EXEC_PATH="$APP_PATH/Contents/MacOS/Agent Deck"
+BUILD_INFO_PATH="$APP_PATH/Contents/Resources/build-info.json"
+
+json_string() {
+  local key="$1"
+  local file="$2"
+  sed -nE 's/^[[:space:]]*"'"$key"'"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$file" | head -1
+}
+
+json_bool() {
+  local key="$1"
+  local file="$2"
+  sed -nE 's/^[[:space:]]*"'"$key"'"[[:space:]]*:[[:space:]]*(true|false).*/\1/p' "$file" | head -1
+}
+
+find_source_repo() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -f "$dir/package.json" ]] && grep -q '"name"[[:space:]]*:[[:space:]]*"agent-deck"' "$dir/package.json"; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+print_build_status() {
+  if [[ ! -f "$BUILD_INFO_PATH" ]]; then
+    echo "Agent Deck: 未找到安装包 build-info.json"
+    echo "  查找路径: $BUILD_INFO_PATH"
+    if [[ -x "$EXEC_PATH" ]]; then
+      echo "  提示: 这是旧安装包或未通过当前打包脚本构建，无法按 commit 判断是否最新。"
+      return 2
+    fi
+    echo "  提示: 未找到可执行文件: $EXEC_PATH"
+    return 2
+  fi
+
+  local name version commit short_commit branch dirty built_at
+  name="$(json_string name "$BUILD_INFO_PATH")"
+  version="$(json_string version "$BUILD_INFO_PATH")"
+  commit="$(json_string commit "$BUILD_INFO_PATH")"
+  short_commit="$(json_string shortCommit "$BUILD_INFO_PATH")"
+  branch="$(json_string branch "$BUILD_INFO_PATH")"
+  dirty="$(json_bool dirty "$BUILD_INFO_PATH")"
+  built_at="$(json_string builtAt "$BUILD_INFO_PATH")"
+
+  echo "Agent Deck ${version:-unknown}"
+  echo "  installed commit: ${commit:-unknown} (${short_commit:-unknown})"
+  echo "  installed branch: ${branch:-unknown}"
+  echo "  installed dirty: ${dirty:-unknown}"
+  echo "  built at: ${built_at:-unknown}"
+
+  local repo
+  if repo="$(find_source_repo 2>/dev/null)"; then
+    local head short_head origin_main short_origin source_dirty
+    head="$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)"
+    short_head="$(git -C "$repo" rev-parse --short=12 HEAD 2>/dev/null || true)"
+    origin_main="$(git -C "$repo" rev-parse --verify --quiet origin/main 2>/dev/null || true)"
+    short_origin="$(git -C "$repo" rev-parse --short=12 --verify --quiet origin/main 2>/dev/null || true)"
+    source_dirty="$(git -C "$repo" status --porcelain 2>/dev/null || true)"
+    echo "  source checkout: $repo"
+    echo "  source HEAD: ${head:-unknown} (${short_head:-unknown})"
+    if [[ -n "$source_dirty" ]]; then
+      echo "  source dirty: true"
+    else
+      echo "  source dirty: false"
+    fi
+    if [[ -n "$origin_main" ]]; then
+      echo "  origin/main: $origin_main ($short_origin)"
+    fi
+    if [[ -n "$head" && "$commit" == "$head" ]]; then
+      if [[ -n "$source_dirty" ]]; then
+        echo "  status: installed build matches this checkout commit, but the source checkout has uncommitted changes"
+      else
+        echo "  status: installed build matches this checkout commit"
+      fi
+      return 0
+    fi
+    if [[ -n "$origin_main" && "$commit" == "$origin_main" ]]; then
+      echo "  status: installed build matches origin/main but differs from this checkout"
+      return 1
+    fi
+    echo "  status: installed build differs from this checkout"
+    return 1
+  fi
+
+  echo "  status: no agent-deck source checkout found under current directory"
+  return 0
+}
+
+case "${1:-}" in
+  --version|version)
+    print_build_status || true
+    exit 0
+    ;;
+  --check-installed|check-installed)
+    status=0
+    print_build_status || status=$?
+    exit "$status"
+    ;;
+esac
 
 if [[ ! -x "$EXEC_PATH" ]]; then
   echo "agent-deck: 找不到 Agent Deck.app（默认查 /Applications，AGENT_DECK_APP 可覆盖）" >&2

@@ -212,6 +212,15 @@ agent-deck new \
   [--no-focus]                            # by default, focuses the front window and selects the new session
 ```
 
+Installed package freshness:
+
+```bash
+agent-deck --version                      # print packaged version, commit, branch, dirty flag, and build time
+agent-deck --check-installed              # exit non-zero when the installed app was not built from this checkout commit
+```
+
+Release builds include `build-info.json` in the app bundle (`Contents/Resources/build-info.json` on macOS, `resources\build-info.json` on Windows). When the command is run from inside an `agent-deck` source checkout, the wrapper compares that packaged commit with the local `HEAD` and local `origin/main` ref. A missing `build-info.json` means the app is an older package or was not built through the current packaging scripts.
+
 When the app is not running, the OS starts it automatically (macOS Launch Services / Win shell). When it is already running, `requestSingleInstanceLock` forwards arguments to the main instance. Linux uses the `agent-deck` POSIX wrapper, same as macOS, and depends on bash 4+.
 
 ---
@@ -390,6 +399,7 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
 - `package.json > build.mac.icon = "resources/icon.png"` must be specified explicitly.
 - `package.json > build.win.icon = "resources/icon.ico"` must be specified explicitly; after icon changes, run `pnpm icon:gen` to regenerate `.ico`.
 - `extraResources` must explicitly copy `resources/bin -> bin` so the wrappers (`agent-deck` POSIX + `agent-deck.cmd` Win) enter the .app / NSIS install dir.
+- Packaging scripts must generate `build/build-info.json`, ship it as bundled `build-info.json`, and include package/app name, semantic version when available, full git commit, short commit, branch when available, dirty flag when determinable, and build timestamp. Keep `agent-deck --version` / `agent-deck --check-installed` working against installed metadata without fetching remotes.
 - After installing the package, run `codesign --force --deep --sign -` for ad-hoc re-signing (macOS only).
 - Before overwrite installs, close the old main process: use `pkill` on macOS and `taskkill /F /IM "Agent Deck.exe"` on Windows. Do not delete or overwrite a running bundle because the current instance will lose resources and execution channels. If killing is inconvenient, follow the handling rule in [CLAUDE.md](CLAUDE.md) §Packaging Configuration Rules.
 - `asarUnpack` must include `@openai/codex/**` and all platform subpackages of `@anthropic-ai/claude-agent-sdk` (darwin / linux / win32 x arm64 / x64).
