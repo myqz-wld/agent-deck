@@ -18,177 +18,39 @@
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
-import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { adapterRegistry } from '@main/adapters/registry';
 import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 import { eventBus } from '@main/event-bus';
-import { resolveClaudeAgentContent } from '@main/claude-config/custom-agents';
-import {
-  resolveCodexAgentContent,
-  type CodexCustomAgentContent,
-} from '@main/codex-config/custom-agents';
 import { omitUndefined } from '@main/utils/optional-fields';
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 
 import { applySpawnGuards } from '../../spawn-guards';
-import { inFlightChildren } from '../../rate-limiter';
 import {
   err,
   ok,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import type { SpawnSessionArgs, SpawnSessionLimits, SpawnSessionResult } from '../schemas';
+import type { SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 import { shouldWriteSpawnLink } from './spawn-link-guard';
-import { buildLeadContextBlock } from './lead-context-block';
 import {
   resolveSpawnModelOptions,
   type SpawnClaudeCodeEffortLevel,
   type SpawnCodexReasoningEffort,
 } from './spawn-model-options';
+import { resolveSpawnAgent } from './spawn-agent-resolver';
+import { defaultPermissionModeForTargetAdapter } from './spawn-defaults';
+import { finalizeSpawnLimits } from './spawn-limits';
+import { buildSpawnPromptContext } from './spawn-prompt';
+import {
+  cleanupEmptySpawnTeam,
+  completeSpawnTeamMembership,
+  ensureSpawnTeam,
+} from './spawn-team';
 import log from '@main/utils/logger';
 
 const logger = log.scope('mcp-spawn');
-
-function defaultPermissionModeForTargetAdapter(
-  adapter: SpawnSessionArgs['adapter'],
-): 'bypassPermissions' | undefined {
-  if (adapter === 'claude-code' || adapter === 'deepseek-claude-code') {
-    return 'bypassPermissions';
-  }
-  return undefined;
-}
-
-function finalizeSpawnLimits(
-  base: SpawnSessionLimits,
-  input: { callerSessionId: string; spawnDepth: number },
-): SpawnSessionLimits {
-  try {
-    const activeChildren = sessionRepo.listChildren(input.callerSessionId, 'active').length;
-    const inFlight = inFlightChildren.get(input.callerSessionId);
-    return {
-      ...base,
-      depth: {
-        ...base.depth,
-        next: input.spawnDepth,
-      },
-      fanOut: {
-        ...base.fanOut,
-        current: activeChildren + inFlight,
-        activeChildren,
-        inFlight,
-      },
-    };
-  } catch (e) {
-    logger.warn(`[mcp spawn_session] spawnLimits fan-out refresh failed:`, e);
-    return {
-      ...base,
-      depth: {
-        ...base.depth,
-        next: input.spawnDepth,
-      },
-    };
-  }
-}
-
-type SpawnAssetAdapter = 'claude-code' | 'codex-cli';
-
-type ResolvedSpawnAgent =
-  | {
-      ok: true;
-      developerInstructions?: string;
-      model?: string;
-      modelReasoningEffort?: SpawnCodexReasoningEffort;
-      codexSandbox?: SpawnSessionArgs['codexSandbox'];
-      codexConfigOverrides?: CodexConfigObject;
-      claudeAgentName?: string;
-      claudeAgents?: Record<string, AgentDefinition>;
-      claudeCodeEffortLevel?: SpawnClaudeCodeEffortLevel;
-    }
-  | { ok: false; error: string; hint: string };
-
-function assetAdapterForSpawn(
-  adapter: SpawnSessionArgs['adapter'],
-): SpawnAssetAdapter | null {
-  if (adapter === 'deepseek-claude-code') return 'claude-code';
-  if (adapter === 'claude-code' || adapter === 'codex-cli') return adapter;
-  return null;
-}
-
-function resolveSpawnAgent(
-  agentName: string,
-  adapter: SpawnSessionArgs['adapter'],
-  cwd: string,
-): ResolvedSpawnAgent {
-  const assetAdapter = assetAdapterForSpawn(adapter);
-  if (!assetAdapter) {
-    return {
-      ok: false,
-      error: `agentName not supported for adapter "${adapter}"`,
-      hint: 'Drop agentName and pass full prompt directly, or use a supported adapter: claude-code, deepseek-claude-code, or codex-cli.',
-    };
-  }
-
-  const agent =
-    assetAdapter === 'claude-code'
-      ? resolveClaudeSpawnAgent(agentName, cwd, assetAdapter)
-      : resolveCodexSpawnAgent(agentName, cwd);
-  if (agent.ok) return agent;
-
-  return {
-    ok: false,
-    error: `agent not found for agentName="${agentName}"`,
-    hint:
-      `${agent.hint}. ` +
-      'Available sources are bundled Agent Deck agents, project agents in .claude/agents or .codex/agents, and user agents in ~/.claude/agents or ~/.codex/agents. Omit agentName for generic teammates and use displayName for labels.',
-  };
-}
-
-function resolveClaudeSpawnAgent(
-  agentName: string,
-  cwd: string,
-  adapter: 'claude-code',
-): ResolvedSpawnAgent {
-  const resolved = resolveClaudeAgentContent(agentName, cwd, adapter);
-  if (!resolved.ok) {
-    return { ok: false, error: resolved.reason, hint: `Claude agent lookup failed: ${resolved.reason}` };
-  }
-  return {
-    ok: true,
-    model: resolved.agent.model,
-    claudeAgentName: resolved.agent.name,
-    claudeAgents: {
-      [resolved.agent.name]: resolved.agent.definition,
-    },
-    claudeCodeEffortLevel: resolved.agent.effortLevel,
-  };
-}
-
-function resolveCodexSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAgent {
-  const resolved = resolveCodexAgentContent(agentName, cwd);
-  if (!resolved.ok) {
-    return { ok: false, error: resolved.reason, hint: `Codex custom agent lookup failed: ${resolved.reason}` };
-  }
-  return {
-    ok: true,
-    developerInstructions: buildCodexCustomAgentInstructions(resolved.agent),
-    model: resolved.agent.model,
-    modelReasoningEffort: resolved.agent.modelReasoningEffort,
-    codexSandbox: resolved.agent.sandboxMode,
-    codexConfigOverrides: resolved.agent.config as CodexConfigObject,
-  };
-}
-
-function buildCodexCustomAgentInstructions(agent: CodexCustomAgentContent): string {
-  return [
-    `# Codex custom agent: ${agent.name}`,
-    agent.description ? `Description: ${agent.description}` : undefined,
-    agent.developerInstructions,
-  ]
-    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
-    .join('\n\n');
-}
 
 export const spawnSessionHandler = withMcpGuard(
   'spawn_session',
@@ -333,18 +195,7 @@ export const spawnSessionHandler = withMcpGuard(
     // cleanup 本次新建的空 team，否则 active team 列表会污染（无 lead / 无 teammate 的孤儿 team）。
     // teamCreatedNow 判定：listAllMembers(team.id).length === 0 表示 ensureByName 刚 INSERT
     // (existing active team 必有 ≥ 1 lead member)。catch 时再次 verify 防并发抢先 addMember。
-    let teamIdEarly: string | null = null;
-    let teamCreatedNow = false;
-    if (args.teamName) {
-      try {
-        const team = agentDeckTeamRepo.ensureByName(args.teamName, { source: 'mcp' });
-        teamIdEarly = team.id;
-        teamCreatedNow = agentDeckTeamRepo.listAllMembers(team.id).length === 0;
-      } catch (e) {
-        // ensure 失败时 lead context block + placeholder 都不注入；後續 addMember 也跳過。
-        logger.warn(`[mcp spawn_session] team ensureByName failed for "${args.teamName}":`, e);
-      }
-    }
+    const { teamIdEarly, teamCreatedNow } = ensureSpawnTeam(args.teamName);
 
     // REVIEW_31 Bug 4：teammate display name fallback 链 = args.displayName > args.agentName > 不动。
     // teammateDisplayName 在多处被引用（wire prefix injection / setTitle / addMember / ok return），
@@ -377,28 +228,21 @@ export const spawnSessionHandler = withMcpGuard(
     // createSession 之后做（team_member sessionId FK 必须先存在），所以这里只能用 leadRecord.title。
     // teammate 看到的是 lead "first impression" 名字，与之后 send_message reply 看到的可能不同
     // —— 视觉上一致足以让用户识别"是同一个 lead"，无需强一致。
-    const shouldWriteNormalSpawnLink = callerExists && shouldWriteSpawnLink({ handOffMode: opts?.handOffMode });
-    const willInjectWirePrefix = shouldWriteNormalSpawnLink;
-    let placeholderId: string | null = null;
-    let promptForSpawn = promptToUse; // 给 SDK 的 wire 形式
-    if (willInjectWirePrefix) {
-      const newPlaceholderId = crypto.randomUUID();
-      placeholderId = newPlaceholderId;
-      const leadAdapter = leadRecord?.agentId ?? 'unknown-adapter';
-      // plan hand-off-session-adopt-teammates-20260520 Phase 4 (Round 4 NEW MED-B 修法 —
-      // SSOT 唯一化):wire prefix + lead context block 装配抽到 buildLeadContextBlock helper
-      // (lead-context-block.ts)。helper 仅给 spawn 路径用 — adopt 路径 (Phase 4c) 走独立
-      // buildAdoptedTeamsContextBlock helper (adopted-teams-context-block.ts),不复用本
-      // helper(详 lead-context-block.ts 顶部 jsdoc)。
-      const { wirePrefix, contextBlock } = buildLeadContextBlock({
-        leadSessionId: caller.callerSessionId,
-        teamId: teamIdEarly,
-        leadDisplayName,
-        leadAdapter,
-        placeholderId: newPlaceholderId,
-      });
-      promptForSpawn = `${wirePrefix}${contextBlock}\n---\n\n${promptToUse}`;
-    }
+    const {
+      shouldWriteNormalSpawnLink,
+      willInjectWirePrefix,
+      placeholderId,
+      promptForSpawn,
+    } = buildSpawnPromptContext({
+      args,
+      caller,
+      callerExists,
+      leadRecord,
+      leadDisplayName,
+      promptToUse,
+      teamIdEarly,
+      handOffMode: opts?.handOffMode,
+    });
 
     // 实际 spawn
     // REVIEW_32 follow-up MED-1 (fan-out race) 修法：把 setSpawnLink 提到 try 块内 createSession
@@ -514,19 +358,11 @@ export const spawnSessionHandler = withMcpGuard(
       fanOutSlot.release();
       // CHANGELOG_100 R2 fix (codex MED-2): createSession 失败 → cleanup 本次新建的空 team
       // 防 active team 列表污染。再次 verify 空才删（防并发 caller 已抢先 addMember）。
-      if (teamCreatedNow && teamIdEarly) {
-        try {
-          const remainingMembers = agentDeckTeamRepo.listAllMembers(teamIdEarly);
-          if (remainingMembers.length === 0) {
-            agentDeckTeamRepo.hardDelete(teamIdEarly);
-          }
-        } catch (cleanupErr) {
-          logger.warn(
-            `[mcp spawn_session] team cleanup after createSession failure failed for ${teamIdEarly}:`,
-            cleanupErr,
-          );
-        }
-      }
+      cleanupEmptySpawnTeam({
+        teamCreatedNow,
+        teamIdEarly,
+        failureLabel: 'createSession failure',
+      });
       return err(
         e instanceof Error ? e.message : String(e),
         'createSession failed; no session created. Check adapter logs for details.',
@@ -573,115 +409,18 @@ export const spawnSessionHandler = withMcpGuard(
       }
     }
 
-    // R3.E0 ADR §5.1 amend：teamName 触发 universal team backend 把 caller 加为 lead +
-    // 把新 session 加为 teammate（不再写 sessions.teamName 列）。
-    // CHANGELOG_100 D9: ensureByName 已提到 createSession 之前（teamIdEarly），这里只做 addMember。
-    let teamId: string | null = teamIdEarly;
-    if (args.teamName && teamIdEarly) {
-      try {
-        // caller 自动以 lead role 加入（如已 active 则保留）。caller 不在 sessions 表
-        // （external __external__ 等）时跳过。
-        // **[caller-scoped #2/4]** team addMember(grep anchor 详 L148-160 callerExists 定义)
-        if (callerExists) {
-          try {
-            agentDeckTeamRepo.addMember({
-              teamId: teamIdEarly,
-              sessionId: caller.callerSessionId,
-              role: 'lead',
-              displayName: null,
-            });
-            // plan team-cohesion-fix-20260513 Phase A：lead addMember 后触发 session-upserted
-            // 让桥点 enrich teams[] → renderer 立即看到 lead 的 🛡 chip（不再等下一个 agent event）。
-            sessionManager.notifyTeamMembershipChanged(caller.callerSessionId);
-            // REVIEW_35 MED-A7：emit `agent-deck-team-member-changed` 让 universal-message-watcher
-            // dispatcher 收到 → fan-out member-joined adapter event 给同 team active member。
-            // 修前 spawn / cli / ipc.adapters 三条路径只刷 UI 不通知 adapter chain。
-            eventBus.emit('agent-deck-team-member-changed', {
-              teamId: teamIdEarly,
-              sessionId: caller.callerSessionId,
-              kind: 'joined',
-            });
-          } catch (e) {
-            if (!(e instanceof TeamInvariantError)) throw e;
-            // **REVIEW_85 MED-1 (reviewer-codex)**: TeamInvariantError 不止表示「caller 已是
-            // active member」(member-crud.ts:111),也表示 lead-count >= MAX_LEADS_PER_TEAM
-            // (member-crud.ts:139) 以及 caller 已是 active teammate(非 lead)。旧实现一律吞当
-            // 「已是 lead」幂等成功 → caller 实际没真加进 team 当 lead → 与新 session 无 shared
-            // active team → teammate 首轮 send_message 撞 no-shared-team。
-            // 修法:吞之前反查 caller 是否真的已是该 team 的 active lead;不是(lead-count 超 /
-            // 已是 teammate)则 re-throw 让外层 catch(MED-2 修法)走降级 + 孤儿 team cleanup。
-            const callerMembership = agentDeckTeamRepo.findActiveMembershipIn(
-              teamIdEarly,
-              caller.callerSessionId,
-            );
-            if (callerMembership?.role !== 'lead') throw e;
-          }
-        }
-        agentDeckTeamRepo.addMember({
-          teamId: teamIdEarly,
-          sessionId: sid,
-          // REVIEW_37 R2 HIGH-1 修法（双方一致 ✅ 真 HIGH，异构强冗余验证）：默认 'teammate'，
-          // 但 baton 路径（hand_off_session 传 batonRole='lead'）让新 session 接管 lead 角色。
-          // 修前：hand_off_session(teamName=X) 后 caller archive 触发 archiveTeamsIfOrphaned
-          // → countActiveLeads=0 → team auto-archive → 残留 reviewer + 新 session 失去 active
-          // shared team → send_message 走 no-shared-team reject。修后：新 session 是 lead →
-          // archive caller 后 countActiveLeads=1 不触发 auto-archive → 残留 reviewer 通过新
-          // session 仍可继续协作。
-          //
-          // 普通 spawn_session（caller 是 lead，新 session 通常是 teammate）行为不变 — opts.batonRole
-          // 仅在 hand-off-session baton 路径显式传入；其他 caller（spawn-via-tool / 测试）走默认 'teammate'。
-          role: opts?.batonRole ?? 'teammate',
-          // REVIEW_31 Bug 4：teammate displayName 同步写 team_member 表，
-          // 让 wire format buildWireBody 优先取此名字（不再 fallback 到 `<adapter>:<sid_8>`）。
-          displayName: teammateDisplayName,
-        });
-        // plan team-cohesion-fix-20260513 Phase A Step A7：teammate addMember 后同样触发 session-upserted
-        // 让桥点 enrich teams[]（与 lead 路径对称）。
-        sessionManager.notifyTeamMembershipChanged(sid);
-        // REVIEW_35 MED-A7：同 lead 路径补 emit 让 dispatcher 看到 teammate 加入。
-        eventBus.emit('agent-deck-team-member-changed', {
-          teamId: teamIdEarly,
-          sessionId: sid,
-          kind: 'joined',
-        });
-        // plan team-cohesion-fix-20260513 Phase A Step A8：删 sessionManager.recordCreatedTeamName 调用
-        // —— universal team backend addMember 已是 SSOT，不再写老 sessions.teamName 列；
-        // v012 migration 后此列彻底 drop。
-      } catch (e) {
-        // **REVIEW_85 MED-2 (reviewer-codex)**: 旧实现仅 logger.warn 吞掉 addMember(lead/teammate
-        // 任一)失败,但 teamId 仍保留 → 下方 placeholder 照插 → 末尾 return ok 带 teamId。caller
-        // 收到「team 创建成功」假象,但实际 caller 与新 session 不共享 active team(membership 没写
-        // 成),teammate 按 prompt 调 send_message 首轮撞 no-shared-team / replyToMessageId not found。
-        // 修法:team setup 失败 = 整个 team-spawn 失败 → close 已起的孤儿 session + cleanup 本次
-        // 新建空 team(mirror createSession-catch L325 re-verify-empty 防并发抢先)+ return err
-        // 让 caller 知道失败可干净 retry,不返回半残 ok。
-        logger.warn(`[mcp spawn_session] addMember failed for "${args.teamName}":`, e);
-        try {
-          await sessionManager.close(sid);
-        } catch (closeErr) {
-          logger.warn(
-            `[mcp spawn_session] orphan session close after addMember failure failed for ${sid}:`,
-            closeErr,
-          );
-        }
-        if (teamCreatedNow && teamIdEarly) {
-          try {
-            if (agentDeckTeamRepo.listAllMembers(teamIdEarly).length === 0) {
-              agentDeckTeamRepo.hardDelete(teamIdEarly);
-            }
-          } catch (cleanupErr) {
-            logger.warn(
-              `[mcp spawn_session] team cleanup after addMember failure failed for ${teamIdEarly}:`,
-              cleanupErr,
-            );
-          }
-        }
-        return err(
-          `team setup failed for "${args.teamName}": ${e instanceof Error ? e.message : String(e)}`,
-          'Session was spawned but team membership could not be established (e.g. lead count limit reached, or a DB write error). The orphan session was closed and any empty team created in this call was removed. Fix the team condition and retry spawn_session, or spawn without teamName for a standalone session.',
-        );
-      }
-    }
+    const teamMembership = await completeSpawnTeamMembership({
+      teamName: args.teamName,
+      teamIdEarly,
+      teamCreatedNow,
+      caller,
+      callerExists,
+      sid,
+      teammateDisplayName,
+      batonRole: opts?.batonRole,
+    });
+    if (!teamMembership.ok) return teamMembership.result;
+    const teamId = teamMembership.teamId;
 
     // plan team-cohesion-fix-20260513 Phase B5：spawn 路径与 send_message 贯通的方案 A 实现 ——
     // spawn 仍把 prompt 给 adapter（SDK streaming 协议要求 first user message），同时在
