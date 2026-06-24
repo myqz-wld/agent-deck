@@ -6,41 +6,39 @@ import {
   resolveCodexBinary,
 } from '../sdk-bridge/codex-binary';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
+import { AsyncNotificationQueue } from './async-notification-queue';
+import {
+  formatRpcError,
+  getNotificationThreadId,
+  getNotificationTurnId,
+  isTerminalForTurn,
+  readCompletedAgentMessageText,
+} from './notification-helpers';
+import type {
+  CodexAppServerNotification,
+  CodexAppServerOptions,
+  CodexAppServerRunResult,
+  CodexAppServerStreamEvent,
+  CodexAppServerUserInput,
+  JsonRpcResponse,
+} from './protocol';
+import {
+  buildThreadConfig,
+  buildThreadResumeParams,
+  buildThreadStartParams,
+  buildTurnStartParams,
+} from './thread-params';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server');
 
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue | undefined };
-type JsonObject = { [key: string]: JsonValue | undefined };
-
-export type CodexAppServerUserInput =
-  | { type: 'text'; text: string; text_elements: JsonValue[] }
-  | { type: 'localImage'; path: string; detail?: string };
-
-export type CodexAppServerNotification = { method: string; params?: unknown };
-
-export type CodexAppServerStreamEvent =
-  | { type: 'thread.started'; thread_id: string }
-  | { type: 'server.notification'; notification: CodexAppServerNotification };
-
-export interface CodexAppServerRunResult {
-  finalResponse: string;
-}
-
-export interface CodexAppServerOptions {
-  codexPathOverride?: string | null;
-  config?: CodexConfigObject | null;
-  env: Record<string, string>;
-  cwd?: string;
-  skillExtraRoots?: string[];
-}
-
-interface JsonRpcResponse {
-  id: number | string;
-  result?: unknown;
-  error?: { message?: string; code?: number; data?: unknown } | string;
-}
+export type {
+  CodexAppServerNotification,
+  CodexAppServerOptions,
+  CodexAppServerRunResult,
+  CodexAppServerStreamEvent,
+  CodexAppServerUserInput,
+} from './protocol';
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -48,57 +46,6 @@ interface PendingRequest {
 }
 
 type Unsubscribe = () => void;
-
-class AsyncNotificationQueue<T> implements AsyncIterable<T> {
-  private values: T[] = [];
-  private waiters: Array<{
-    resolve: (result: IteratorResult<T>) => void;
-    reject: (err: Error) => void;
-  }> = [];
-  private closed = false;
-  private error: Error | null = null;
-
-  push(value: T): void {
-    if (this.closed) return;
-    const waiter = this.waiters.shift();
-    if (waiter) {
-      waiter.resolve({ value, done: false });
-      return;
-    }
-    this.values.push(value);
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    for (const waiter of this.waiters.splice(0)) {
-      waiter.resolve({ value: undefined as T, done: true });
-    }
-  }
-
-  throw(err: Error): void {
-    if (this.closed) return;
-    this.closed = true;
-    this.error = err;
-    for (const waiter of this.waiters.splice(0)) {
-      waiter.reject(err);
-    }
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<T> {
-    return {
-      next: (): Promise<IteratorResult<T>> => {
-        const value = this.values.shift();
-        if (value !== undefined) return Promise.resolve({ value, done: false });
-        if (this.error) return Promise.reject(this.error);
-        if (this.closed) return Promise.resolve({ value: undefined as T, done: true });
-        return new Promise<IteratorResult<T>>((resolve, reject) => {
-          this.waiters.push({ resolve, reject });
-        });
-      },
-    };
-  }
-}
 
 export class CodexAppServerClient {
   private child: ChildProcessWithoutNullStreams | null = null;
@@ -513,220 +460,9 @@ export class CodexAppServerThread {
   }
 }
 
-function buildThreadStartParams(
-  options: CodexThreadOptions,
-  baseConfig: CodexConfigObject | null,
-): JsonObject {
-  return buildThreadCommonParams(options, baseConfig);
-}
-
-function buildThreadResumeParams(
-  threadId: string,
-  options: CodexThreadOptions,
-  baseConfig: CodexConfigObject | null,
-): JsonObject {
-  return {
-    threadId,
-    ...buildThreadCommonParams(options, baseConfig),
-  };
-}
-
-function buildThreadCommonParams(
-  options: CodexThreadOptions,
-  baseConfig: CodexConfigObject | null,
-): JsonObject {
-  return {
-    cwd: options.workingDirectory,
-    sandbox: options.sandboxMode,
-    approvalPolicy: options.approvalPolicy ?? 'never',
-    ...(options.model !== undefined ? { model: options.model } : {}),
-    ...(options.developerInstructions !== undefined
-      ? { developerInstructions: options.developerInstructions }
-      : {}),
-    config: buildThreadConfig(options, baseConfig),
-  };
-}
-
 export const __testables = {
   buildThreadStartParams,
   buildThreadResumeParams,
   buildTurnStartParams,
   buildThreadConfig,
 };
-
-function buildThreadConfig(
-  options: CodexThreadOptions,
-  baseConfig: CodexConfigObject | null,
-): JsonObject {
-  const config = cloneConfig(baseConfig);
-  mergeJsonObject(config, cloneConfig(options.configOverrides ?? null));
-  if (options.skipGitRepoCheck) {
-    config.skip_git_repo_check = true;
-  }
-  if (options.modelReasoningEffort !== undefined) {
-    config.model_reasoning_effort = options.modelReasoningEffort;
-  }
-  if (
-    options.modelReasoningSummary !== undefined &&
-    config.model_reasoning_summary === undefined
-  ) {
-    config.model_reasoning_summary = options.modelReasoningSummary;
-  }
-  if (options.networkAccessEnabled !== undefined || options.additionalDirectories !== undefined) {
-    const workspace =
-      config.sandbox_workspace_write &&
-      typeof config.sandbox_workspace_write === 'object' &&
-      !Array.isArray(config.sandbox_workspace_write)
-        ? { ...(config.sandbox_workspace_write as JsonObject) }
-        : {};
-    if (options.networkAccessEnabled !== undefined) {
-      workspace.network_access = options.networkAccessEnabled;
-    }
-    if (options.additionalDirectories !== undefined) {
-      workspace.writable_roots = [...options.additionalDirectories];
-    }
-    config.sandbox_workspace_write = workspace;
-  }
-  return config;
-}
-
-function buildTurnStartParams(
-  threadId: string,
-  input: CodexAppServerUserInput[],
-  options: CodexThreadOptions,
-  baseConfig: CodexConfigObject | null,
-): JsonObject {
-  const effectiveConfig = buildThreadConfig(options, baseConfig);
-  return {
-    threadId,
-    input,
-    cwd: options.workingDirectory,
-    approvalPolicy: options.approvalPolicy ?? 'never',
-    sandboxPolicy: buildSandboxPolicy(options, effectiveConfig),
-    ...(options.model !== undefined ? { model: options.model } : {}),
-  };
-}
-
-function buildSandboxPolicy(
-  options: CodexThreadOptions,
-  config: JsonObject,
-): JsonObject {
-  const networkAccess = resolveNetworkAccess(options, config);
-  if (options.sandboxMode === 'danger-full-access') {
-    return { type: 'dangerFullAccess' };
-  }
-  if (options.sandboxMode === 'read-only') {
-    return { type: 'readOnly', networkAccess };
-  }
-  const workspaceConfig = readWorkspaceWriteConfig(config);
-  return {
-    type: 'workspaceWrite',
-    writableRoots:
-      options.additionalDirectories !== undefined
-        ? [...options.additionalDirectories]
-        : readStringArray(workspaceConfig.writable_roots),
-    networkAccess,
-    excludeTmpdirEnvVar: readBoolean(workspaceConfig.exclude_tmpdir_env_var) ?? false,
-    excludeSlashTmp: readBoolean(workspaceConfig.exclude_slash_tmp) ?? false,
-  };
-}
-
-function resolveNetworkAccess(
-  options: CodexThreadOptions,
-  config: JsonObject,
-): boolean {
-  if (options.networkAccessEnabled !== undefined) return options.networkAccessEnabled;
-  return readBoolean(readWorkspaceWriteConfig(config).network_access) ?? false;
-}
-
-function readWorkspaceWriteConfig(config: JsonObject | CodexConfigObject | null): JsonObject {
-  const value = (config as JsonObject | null)?.sandbox_workspace_write;
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonObject) : {};
-}
-
-function readStringArray(value: JsonValue | undefined): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
-
-function readBoolean(value: JsonValue | undefined): boolean | null {
-  return typeof value === 'boolean' ? value : null;
-}
-
-function cloneConfig(config: CodexConfigObject | null): JsonObject {
-  if (!config) return {};
-  return JSON.parse(JSON.stringify(config)) as JsonObject;
-}
-
-function mergeJsonObject(target: JsonObject, override: JsonObject): JsonObject {
-  for (const [key, value] of Object.entries(override)) {
-    if (value === undefined) continue;
-    const existing = target[key];
-    if (isPlainJsonObject(existing) && isPlainJsonObject(value)) {
-      target[key] = mergeJsonObject({ ...existing }, value);
-      continue;
-    }
-    target[key] = value;
-  }
-  return target;
-}
-
-function isPlainJsonObject(value: JsonValue | undefined): value is JsonObject {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function getNotificationThreadId(notification: CodexAppServerNotification): string | null {
-  const params = notification.params;
-  if (!params || typeof params !== 'object') return null;
-  const threadId = (params as { threadId?: unknown }).threadId;
-  return typeof threadId === 'string' ? threadId : null;
-}
-
-function getNotificationTurnId(notification: CodexAppServerNotification): string | null {
-  const params = notification.params;
-  if (!params || typeof params !== 'object') return null;
-  const directTurnId = (params as { turnId?: unknown }).turnId;
-  if (typeof directTurnId === 'string') return directTurnId;
-  const turn = (params as { turn?: { id?: unknown } }).turn;
-  return typeof turn?.id === 'string' ? turn.id : null;
-}
-
-function isTerminalForTurn(
-  notification: CodexAppServerNotification,
-  activeTurnId: string | null,
-  turnStartSeen: boolean,
-): boolean {
-  if (notification.method === 'turn/completed') {
-    const turn = (notification.params as { turn?: { id?: unknown } } | undefined)?.turn;
-    if (activeTurnId) return turn?.id === activeTurnId;
-    // activeTurnId 未知时按 FIFO 时序判别：本 turn 的 completed 不可能先于自己的 started
-    // 到达（同一 stdout 管道顺序投递）→ 未见 started 的 completed 是上一个 turn 的迟到
-    // 尾包，不是本 turn terminal（详 runTurn 内 turnStartSeen 注释）。见过 started 但
-    // turn id 未解析出时退回旧行为（completed 即 terminal）。
-    return turnStartSeen;
-  }
-  if (notification.method !== 'error') return false;
-  const params = notification.params as { willRetry?: unknown; turnId?: unknown } | undefined;
-  if (params?.willRetry === true) return false;
-  return !activeTurnId || params?.turnId === undefined || params.turnId === activeTurnId;
-}
-
-function readCompletedAgentMessageText(notification: CodexAppServerNotification): string {
-  if (notification.method !== 'item/completed') return '';
-  const params = asObject(notification.params);
-  const item = asObject(params?.item);
-  if (item?.type !== 'agentMessage') return '';
-  return typeof item.text === 'string' ? item.text : '';
-}
-
-function asObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function formatRpcError(error: JsonRpcResponse['error']): string {
-  if (!error) return 'Unknown Codex app-server error';
-  if (typeof error === 'string') return error;
-  const message = error.message ?? 'Unknown Codex app-server error';
-  return error.code == null ? message : `${message} (code ${error.code})`;
-}

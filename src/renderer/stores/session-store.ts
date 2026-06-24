@@ -8,7 +8,6 @@ import type {
   SessionRecord,
   SummaryRecord,
 } from '@shared/types';
-import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import {
   isAskQuestionCancelled,
   isAskUserQuestion,
@@ -19,6 +18,16 @@ import {
   isPermissionCancelled,
   isPermissionRequest,
 } from './event-type-guards';
+import {
+  dedupeRecentEvents,
+  mergeSessionEvents,
+  upsertEvent,
+} from './session-store-events';
+import {
+  mergeRequestBuckets,
+  moveRequestBucket,
+  pruneMapByValidIds,
+} from './session-store-maps';
 
 interface State {
   sessions: Map<string, SessionRecord>;
@@ -88,64 +97,6 @@ export const EMPTY_DIFF_REVIEWS: DiffReviewRequest[] = [];
 
 // 8 个 isXxx type guards 已迁出到 ./event-type-guards.ts（CHANGELOG_52 Step 2，纯 type guard 无副作用）
 
-/**
- * 把新事件插入 recentEvents 数组。**tool-use-start / tool-use-end 同 toolUseId 走
- * in-place 替换**，其它 kind 都按 unshift 倒序追加（与原行为字节级一致）。
- *
- * 替换语义：
- * - tool-use-start（CHANGELOG_<X> A1）：codex item.updated 增量重发同 toolUseId 的
- *   tool-use-start，让 UI 实时显示 aggregated_output 增长。如果不替换：
- *     1. 30 秒长 command 推几十条 tool-use-start 撑爆 RECENT_LIMIT 把上下文挤掉
- *     2. React eventKey 虽然 dedup（相同 key 视作同 row），但 store 内存仍多份冗余
- * - tool-use-end（REVIEW_54）：codex thread restart/resume/重连路径下同 item.id 的
- *   item.completed 会被重发多次（DB 实测 19 组同 toolUseId 重复行）。不替换会让多个
- *   <ActivityRow> 共享同 React key `tool-use-end:<toolUseId>` → reconciliation 错乱
- *   → ToolEndRow 的 button onClick 点了无反应（"点不开"症状）。
- *
- * 替换后：每个 toolUseId 在数组里至多两条（start 一份 + end 一份），位置不变（保时间线），
- * payload 合并到最新：状态/输出跟随新事件，`toolInput.command` 等稳定识别字段在新事件缺失时保留。
- *
- * 替换边界：仅 `kind === 'tool-use-start' | 'tool-use-end'` + payload.toolUseId 是非空
- * string 时生效。claude SDK 的 tool-use-* 也有 toolUseId（hook 通道也透传）→ 同样受益。
- * 其它 kind（message / thinking / file-changed 等）多次 push 是不同事件，按时间排。
- *
- * 不动 hookOrigin / source 字段；ts 也用新事件的 ts（替换为最新一次更新时间）。
- */
-function upsertEvent(arr: AgentEvent[], event: AgentEvent): AgentEvent[] {
-  if (event.kind === 'tool-use-start' || event.kind === 'tool-use-end') {
-    const tid = (event.payload as { toolUseId?: unknown })?.toolUseId;
-    if (typeof tid === 'string' && tid) {
-      const normalizedEvent = withMergedToolPayload(event, null);
-      const idx = arr.findIndex(
-        (e) =>
-          e.kind === event.kind &&
-          (e.payload as { toolUseId?: unknown })?.toolUseId === tid,
-      );
-      if (idx >= 0) {
-        const next = arr.slice();
-        next[idx] = withMergedToolPayload(event, next[idx].payload);
-        return next;
-      }
-      return [normalizedEvent, ...arr].slice(0, RECENT_LIMIT);
-    }
-  }
-  return [event, ...arr].slice(0, RECENT_LIMIT);
-}
-
-function withMergedToolPayload(event: AgentEvent, previousPayload: unknown): AgentEvent {
-  return {
-    ...event,
-    payload: mergeToolUsePayload(previousPayload, event.payload),
-  };
-}
-
-function mergeDuplicateToolEvent(latest: AgentEvent, older: AgentEvent): AgentEvent {
-  return {
-    ...latest,
-    payload: mergeToolUsePayload(older.payload, latest.payload),
-  };
-}
-
 // EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES 已在文件上方导出
 
 export const useSessionStore = create<State>((set) => ({
@@ -167,28 +118,15 @@ export const useSessionStore = create<State>((set) => ({
       const m = new Map<string, SessionRecord>();
       for (const r of records) m.set(r.id, r);
       const validIds = new Set(records.map((r) => r.id));
-      const prune = <V>(src: Map<string, V>): Map<string, V> => {
-        let changed = false;
-        for (const k of src.keys()) {
-          if (!validIds.has(k)) {
-            changed = true;
-            break;
-          }
-        }
-        if (!changed) return src;
-        const next = new Map<string, V>();
-        for (const [k, v] of src) if (validIds.has(k)) next.set(k, v);
-        return next;
-      };
       return {
         sessions: m,
-        recentEventsBySession: prune(state.recentEventsBySession),
-        summariesBySession: prune(state.summariesBySession),
-        latestSummaryBySession: prune(state.latestSummaryBySession),
-        pendingPermissionsBySession: prune(state.pendingPermissionsBySession),
-        pendingAskQuestionsBySession: prune(state.pendingAskQuestionsBySession),
-        pendingExitPlanModesBySession: prune(state.pendingExitPlanModesBySession),
-        pendingDiffReviewsBySession: prune(state.pendingDiffReviewsBySession),
+        recentEventsBySession: pruneMapByValidIds(state.recentEventsBySession, validIds),
+        summariesBySession: pruneMapByValidIds(state.summariesBySession, validIds),
+        latestSummaryBySession: pruneMapByValidIds(state.latestSummaryBySession, validIds),
+        pendingPermissionsBySession: pruneMapByValidIds(state.pendingPermissionsBySession, validIds),
+        pendingAskQuestionsBySession: pruneMapByValidIds(state.pendingAskQuestionsBySession, validIds),
+        pendingExitPlanModesBySession: pruneMapByValidIds(state.pendingExitPlanModesBySession, validIds),
+        pendingDiffReviewsBySession: pruneMapByValidIds(state.pendingDiffReviewsBySession, validIds),
         selectedSessionId:
           state.selectedSessionId !== null && !validIds.has(state.selectedSessionId)
             ? null
@@ -242,7 +180,7 @@ export const useSessionStore = create<State>((set) => ({
     set((state) => {
       const m = new Map(state.recentEventsBySession);
       const arr = m.get(event.sessionId) ?? [];
-      const next = upsertEvent(arr, event);
+      const next = upsertEvent(arr, event, RECENT_LIMIT);
       m.set(event.sessionId, next);
 
       let pendingMap = state.pendingPermissionsBySession;
@@ -385,27 +323,7 @@ export const useSessionStore = create<State>((set) => ({
       // toolUseId 缺失/非 string/空字符串时不 dedup（fallback 不漏渲染，与 upsertEvent
       // 守门一致）。tool-use-start 与 tool-use-end 各自独立 seen set（同 toolUseId 的
       // start + end 是不同 kind 不能互相挤掉，每对仍独立两行）。
-      const seenStart = new Map<string, number>();
-      const seenEnd = new Map<string, number>();
-      const deduped: AgentEvent[] = [];
-      for (const e of events) {
-        if (e.kind === 'tool-use-start' || e.kind === 'tool-use-end') {
-          const tid = (e.payload as { toolUseId?: unknown })?.toolUseId;
-          if (typeof tid === 'string' && tid) {
-            const seen = e.kind === 'tool-use-start' ? seenStart : seenEnd;
-            const idx = seen.get(tid);
-            if (idx != null) {
-              deduped[idx] = mergeDuplicateToolEvent(deduped[idx]!, e);
-              continue;
-            }
-            seen.set(tid, deduped.length);
-            deduped.push(withMergedToolPayload(e, null));
-            continue;
-          }
-        }
-        deduped.push(e);
-      }
-      m.set(sessionId, deduped.slice(0, RECENT_LIMIT));
+      m.set(sessionId, dedupeRecentEvents(events, RECENT_LIMIT));
       return { recentEventsBySession: m };
     }),
 
@@ -485,24 +403,6 @@ export const useSessionStore = create<State>((set) => ({
       // `set(() => new Map(snapshot))` 整表替换会抹掉这些 live pending → chip 0 + 按钮不显示 →
       // 用户授权不了 → SDK 死锁。改为按 sid + requestId union 合并：快照补全主进程已知 pending，
       // live event 加的 pending 保留。
-      const mergeBucket = <R extends { requestId: string }>(
-        existing: Map<string, R[]>,
-        incoming: Map<string, R[]>,
-      ): Map<string, R[]> => {
-        const next = new Map(existing);
-        for (const [sid, snap] of incoming) {
-          const cur = next.get(sid);
-          if (!cur || cur.length === 0) {
-            if (snap.length > 0) next.set(sid, snap);
-            continue;
-          }
-          // union by requestId：cur（含 live event 新增）优先保留，快照补 cur 没有的。
-          const seen = new Set(cur.map((r) => r.requestId));
-          const merged = [...cur, ...snap.filter((r) => !seen.has(r.requestId))];
-          next.set(sid, merged);
-        }
-        return next;
-      };
       const pIn = new Map<string, PermissionRequest[]>();
       const aIn = new Map<string, AskUserQuestionRequest[]>();
       const xIn = new Map<string, ExitPlanModeRequest[]>();
@@ -514,10 +414,10 @@ export const useSessionStore = create<State>((set) => ({
         if ((diffReviews?.length ?? 0) > 0) dIn.set(sid, diffReviews!);
       }
       return {
-        pendingPermissionsBySession: mergeBucket(state.pendingPermissionsBySession, pIn),
-        pendingAskQuestionsBySession: mergeBucket(state.pendingAskQuestionsBySession, aIn),
-        pendingExitPlanModesBySession: mergeBucket(state.pendingExitPlanModesBySession, xIn),
-        pendingDiffReviewsBySession: mergeBucket(state.pendingDiffReviewsBySession, dIn),
+        pendingPermissionsBySession: mergeRequestBuckets(state.pendingPermissionsBySession, pIn),
+        pendingAskQuestionsBySession: mergeRequestBuckets(state.pendingAskQuestionsBySession, aIn),
+        pendingExitPlanModesBySession: mergeRequestBuckets(state.pendingExitPlanModesBySession, xIn),
+        pendingDiffReviewsBySession: mergeRequestBuckets(state.pendingDiffReviewsBySession, dIn),
       };
     }),
 
@@ -529,42 +429,13 @@ export const useSessionStore = create<State>((set) => ({
       // 200 条 recentEvents / summaries / pending 被静默整张丢弃。改为 **merge**：events/summaries
       // 按值拼接（fromId 在前保时间线）后截断 RECENT_LIMIT；pending 按 requestId union。fromId 几乎
       // 总是全新 realId 不触发冲突（claude：toId 预存极罕见），但 merge 让任意 IPC 到达顺序无数据丢失。
-      const concatEvents = (a: AgentEvent[], b: AgentEvent[]): AgentEvent[] => {
-        // a=fromId（旧 id，含历史）b=toId（新 realId，已到达的少量）。recentEvents 数组语义是
-        // newest-first（pushEvent unshift / listEvents ORDER BY ts DESC）→ 必须按 ts DESC 排序再
-        // 截断，否则（deep-review H2 R2 LOW，双方独立 + Node repro）concat「旧在前」+ slice 在
-        // fromId 已满 RECENT_LIMIT 时会把 toId 的最新事件全截掉（最该保的反被裁）。与 moveSummaries
-        // 同款 sort 兜底。dedup tool-use（同 kind+toolUseId 保最新一条）在 sort 后做。
-        const merged = [...a, ...b].sort((e1, e2) => e2.ts - e1.ts);
-        const seenStart = new Map<string, number>();
-        const seenEnd = new Map<string, number>();
-        const out: AgentEvent[] = [];
-        for (const e of merged) {
-          if (e.kind === 'tool-use-start' || e.kind === 'tool-use-end') {
-            const tid = (e.payload as { toolUseId?: unknown })?.toolUseId;
-            if (typeof tid === 'string' && tid) {
-              const seen = e.kind === 'tool-use-start' ? seenStart : seenEnd;
-              const idx = seen.get(tid);
-              if (idx != null) {
-                out[idx] = mergeDuplicateToolEvent(out[idx]!, e);
-                continue;
-              }
-              seen.set(tid, out.length);
-              out.push(withMergedToolPayload(e, null));
-              continue;
-            }
-          }
-          out.push(e);
-        }
-        return out.slice(0, RECENT_LIMIT);
-      };
       const moveEvents = (src: Map<string, AgentEvent[]>): Map<string, AgentEvent[]> => {
         if (!src.has(fromId)) return src;
         const next = new Map(src);
         const v = next.get(fromId)!;
         next.delete(fromId);
         const existing = next.get(toId);
-        next.set(toId, existing ? concatEvents(v, existing) : v);
+        next.set(toId, existing ? mergeSessionEvents(v, existing, RECENT_LIMIT) : v);
         return next;
       };
       const moveSummaries = (src: Map<string, SummaryRecord[]>): Map<string, SummaryRecord[]> => {
@@ -588,22 +459,6 @@ export const useSessionStore = create<State>((set) => ({
         next.set(toId, existing && existing.ts >= v.ts ? existing : v);
         return next;
       };
-      const movePending = <R extends { requestId: string }>(
-        src: Map<string, R[]>,
-      ): Map<string, R[]> => {
-        if (!src.has(fromId)) return src;
-        const next = new Map(src);
-        const v = next.get(fromId)!;
-        next.delete(fromId);
-        const existing = next.get(toId);
-        if (!existing) {
-          next.set(toId, v);
-        } else {
-          const seen = new Set(existing.map((r) => r.requestId));
-          next.set(toId, [...existing, ...v.filter((r) => !seen.has(r.requestId))]);
-        }
-        return next;
-      };
       // sessions 这张表里 record 自身的 id 也要同步改
       const sessions = new Map(state.sessions);
       const fromRec = sessions.get(fromId);
@@ -620,10 +475,10 @@ export const useSessionStore = create<State>((set) => ({
         recentEventsBySession: moveEvents(state.recentEventsBySession),
         summariesBySession: moveSummaries(state.summariesBySession),
         latestSummaryBySession: moveLatest(state.latestSummaryBySession),
-        pendingPermissionsBySession: movePending(state.pendingPermissionsBySession),
-        pendingAskQuestionsBySession: movePending(state.pendingAskQuestionsBySession),
-        pendingExitPlanModesBySession: movePending(state.pendingExitPlanModesBySession),
-        pendingDiffReviewsBySession: movePending(state.pendingDiffReviewsBySession),
+        pendingPermissionsBySession: moveRequestBucket(state.pendingPermissionsBySession, fromId, toId),
+        pendingAskQuestionsBySession: moveRequestBucket(state.pendingAskQuestionsBySession, fromId, toId),
+        pendingExitPlanModesBySession: moveRequestBucket(state.pendingExitPlanModesBySession, fromId, toId),
+        pendingDiffReviewsBySession: moveRequestBucket(state.pendingDiffReviewsBySession, fromId, toId),
         selectedSessionId: state.selectedSessionId === fromId ? toId : state.selectedSessionId,
       };
     }),

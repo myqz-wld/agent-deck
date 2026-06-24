@@ -25,6 +25,8 @@
  * rename (renameSdkSession / updateCliSessionId) free function 需 mutate,通过本 interface 拿 ref。
  */
 
+import type { SessionSource } from '@shared/types';
+
 /**
  * SessionManager 不直接 import adapterRegistry(避免反向依赖 + 单职责),
  * 启动时 index.ts 通过 setSessionCloseFn 注入「按 sessionId 关 SDK 侧 live query」的 hook。
@@ -47,6 +49,18 @@ export type SessionCloseFn = (agentId: string, sessionId: string) => Promise<voi
  * sdkOwned + token map + per-session bridge instance map 三处 key 同步迁移。
  */
 export type SessionRenameHookFn = (agentId: string, fromId: string, toId: string) => void;
+
+/**
+ * 创建 / 更新 SessionRecord 的入参契约。export 是为 manager-ingest-pipeline.ts
+ * 的 IngestContext.ensure 签名共享类型(CHANGELOG_86 Step 4.3.3 facade 契约)。
+ */
+export interface UpsertOptions {
+  agentId: string;
+  cwd?: string;
+  title?: string;
+  source?: SessionSource;
+  reviveClosed?: boolean;
+}
 
 /**
  * SessionManager internal state — sub-module free function 通过本 interface 拿
@@ -138,4 +152,3 @@ export function getCloseEpochImpl(
 ): number {
   return state.closeEpoch.get(sessionId) ?? 0;
 }
-

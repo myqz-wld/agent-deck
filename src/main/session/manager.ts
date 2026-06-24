@@ -26,12 +26,11 @@
 import type {
   AgentEvent,
   SessionRecord,
-  SessionSource,
 } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { isDbClosed } from '@main/store/db';
-import { deriveTitle, normalizeCwd } from './manager-helpers';
+import { deriveTitle } from './manager-helpers';
 import { enrichRecordWithTeams, enrichRecordsWithTeamsBatch } from './manager-enrich';
 import {
   type IngestContext,
@@ -44,12 +43,21 @@ import {
 } from './manager-ingest-pipeline';
 import {
   type SessionManagerInternalState,
-  type SessionCloseFn,
-  type SessionRenameHookFn,
+  type UpsertOptions,
   isRecentlyDeletedImpl,
   getCloseEpochImpl,
   bumpCloseEpochImpl,
 } from './manager/_deps';
+export type { UpsertOptions } from './manager/_deps';
+import { isExplicitSdkUserMessage } from './manager/explicit-user-message';
+import {
+  getSessionCloseFn,
+  getSessionRenameHookFn,
+} from './manager/hooks';
+export {
+  setSessionCloseFn,
+  setSessionRenameHookFn,
+} from './manager/hooks';
 import {
   markRecentlyDeletedImpl,
   markDormantImpl,
@@ -64,60 +72,10 @@ import {
   deleteImpl,
 } from './manager/lifecycle';
 import { renameSdkSessionImpl, updateCliSessionIdImpl } from './manager/rename';
-import log from '@main/utils/logger';
-
-const logger = log.scope('session-manager');
-
-function isExplicitSdkUserMessage(event: AgentEvent): boolean {
-  if (event.source !== 'sdk' || event.kind !== 'message') return false;
-  const payload = event.payload as { role?: unknown } | null | undefined;
-  return payload?.role === 'user';
-}
-
-/**
- * SessionManager 不直接 import adapterRegistry(避免反向依赖 + 单职责),
- * 启动时 index.ts 通过 setSessionCloseFn 注入「按 sessionId 关 SDK 侧 live query」的 hook。
- * delete() 调用前者,让 SDK bridge 同步 abort + 清 internal session 与 pending Maps(CHANGELOG_20 / N2)。
- *
- * SessionCloseFn type 从 `./manager/_deps` SSOT re-export。
- */
-let sessionCloseFn: SessionCloseFn | null = null;
-export function setSessionCloseFn(fn: SessionCloseFn | null): void {
-  sessionCloseFn = fn;
-}
-
-/**
- * plan codex-handoff-team-alignment-20260518 P2 Step 2.8 / 不变量 7:rename 同步必须在
- * `sessionManager.renameSdkSession` 函数体内统一调(与 sdkOwned 转移同款保证),不能让
- * caller(codex bridge thread-loop / sdk-bridge recoverer)各自调(漏调风险)。
- *
- * SessionManager 不直接 import 各 adapter bridge(避免反向依赖 + 单职责),main bootstrap
- * 通过 setSessionRenameHookFn 注入「按 agentId 派发 rename hook」回调,让 SessionManager
- * 在 renameSdkSession 函数体末尾同步调到 bridge.renameCodexInstance / 其他 adapter 的同款
- * method(claude adapter 走 in-process MCP transport,closure override,不需 token map rename,
- * hook 可以 noop)。
- *
- * 同步执行(不走事件订阅):renameSdkSession 调用方依赖 rename 完成后立即看到一致的
- * sdkOwned + token map + per-session bridge instance map 三处 key 同步迁移。
- *
- * SessionRenameHookFn type 从 `./manager/_deps` SSOT re-export。
- */
-let sessionRenameHookFn: SessionRenameHookFn | null = null;
-export function setSessionRenameHookFn(fn: SessionRenameHookFn | null): void {
-  sessionRenameHookFn = fn;
-}
-
-/**
- * 创建 / 更新 SessionRecord 的入参契约。export 是为 manager-ingest-pipeline.ts
- * 的 IngestContext.ensure 签名共享类型(CHANGELOG_86 Step 4.3.3 facade 契约)。
- */
-export interface UpsertOptions {
-  agentId: string;
-  cwd?: string;
-  title?: string;
-  source?: SessionSource;
-  reviveClosed?: boolean;
-}
+import {
+  consumePendingSdkClaim as consumePendingSdkClaimImpl,
+  expectPendingSdkSession,
+} from './manager/sdk-pending-claim';
 
 /**
  * SessionManager 是 AgentEvent 的中央汇集点。所有 adapter 都通过 ingest()
@@ -232,26 +190,11 @@ class SessionManagerClass {
   /** SDK 即将拉起 cwd 上的会话;ttl 内任何 hook 通道首发的新 session 自动归 SDK 所有。
    *  cwd 经过 realpath + normalize,避免符号链接 / 尾斜杠差异导致漏匹配。 */
   expectSdkSession(cwd: string, ttlMs = 60_000): () => void {
-    const key = normalizeCwd(cwd);
-    const expiresAt = Date.now() + ttlMs;
-    this.pendingSdkCwds.set(key, expiresAt);
-    logger.info(`[session-mgr] expect sdk session @ ${key} (ttl ${ttlMs}ms)`);
-    return () => {
-      if (this.pendingSdkCwds.get(key) === expiresAt) {
-        this.pendingSdkCwds.delete(key);
-      }
-    };
+    return expectPendingSdkSession(this.pendingSdkCwds, cwd, ttlMs);
   }
 
   private consumePendingSdkClaim(cwd: string): boolean {
-    const key = normalizeCwd(cwd);
-    const expiresAt = this.pendingSdkCwds.get(key);
-    if (expiresAt && Date.now() <= expiresAt) {
-      this.pendingSdkCwds.delete(key);
-      return true;
-    }
-    if (expiresAt) this.pendingSdkCwds.delete(key);
-    return false;
+    return consumePendingSdkClaimImpl(this.pendingSdkCwds, cwd);
     // 注:`/private/var ↔ /var` 这类 macOS 别名差异已经被 normalizeCwd 内的
     // realpathSync 解决(两端都返回 canonical 路径)。早期版本曾用「池子 size===1
     // 就 fuzzy 兜底」,但这条会把同时段在别的 cwd 跑的外部 CLI hook 误 claim
@@ -421,7 +364,7 @@ class SessionManagerClass {
 
   /** thin delegate → manager/lifecycle.closeImpl (主动 close 含 adapter.closeSession + close-epoch++)。 */
   async close(sessionId: string): Promise<void> {
-    await closeImpl(sessionId, sessionCloseFn, this.internalState);
+    await closeImpl(sessionId, getSessionCloseFn(), this.internalState);
   }
 
   /**
@@ -498,7 +441,7 @@ class SessionManagerClass {
 
   /** thin delegate → manager/lifecycle.deleteImpl (leaveTeams + sessionCloseFn + sessionRepo.delete + 黑名单双写)。 */
   async delete(sessionId: string): Promise<void> {
-    await deleteImpl(this.internalState, sessionId, sessionCloseFn);
+    await deleteImpl(this.internalState, sessionId, getSessionCloseFn());
   }
 
   /**
@@ -512,7 +455,7 @@ class SessionManagerClass {
    */
   renameSdkSession(fromId: string, toId: string): void {
     if (fromId === toId) return;
-    renameSdkSessionImpl(this.internalState, fromId, toId, sessionRenameHookFn, {
+    renameSdkSessionImpl(this.internalState, fromId, toId, getSessionRenameHookFn(), {
       transferSdkClaim: () => {
         if (this.#sdkOwned.has(fromId)) {
           this.#sdkOwned.delete(fromId);

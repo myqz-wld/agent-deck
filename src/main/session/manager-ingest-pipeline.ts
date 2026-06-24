@@ -6,7 +6,7 @@ import { fileChangeRepo } from '@main/store/file-change-repo';
 import { tokenUsageRepo } from '@main/store/token-usage-repo';
 import { extractCwd, nextActivityState } from './manager-helpers';
 import { buildFileChangeSnapshots } from './file-change-snapshots';
-import type { UpsertOptions } from './manager';
+import type { UpsertOptions } from './manager/_deps';
 import log from '@main/utils/logger';
 
 const logger = log.scope('session-ingest');
