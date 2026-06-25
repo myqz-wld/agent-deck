@@ -87,6 +87,7 @@ Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_pr
 | [claude-session-create-lag-20260622.md](claude-session-create-lag-20260622.md) | completed | [316](../changelogs/CHANGELOG_316.md) / [136](../reviews/REVIEW_136.md) | Claude new-session UI now returns a visible temp session before background SDK first-id rename, while MCP spawns still wait for canonical ids |
 | [commit-build-metadata-20260624.md](commit-build-metadata-20260624.md) | completed | [323](../changelogs/CHANGELOG_323.md) | Packaged builds carry commit metadata, and wrappers can check installed freshness by commit |
 | [large-file-split-round-20260624.md](large-file-split-round-20260624.md) | completed | [326](../changelogs/CHANGELOG_326.md) / [REVIEW_140](../reviews/REVIEW_140.md) | Split five large production files into focused helper modules without behavior changes |
+| [spawn-session-custom-model-20260625.md](spawn-session-custom-model-20260625.md) | completed | [327](../changelogs/CHANGELOG_327.md) | `spawn_session.model` accepts custom provider model ids while keeping maintained aliases as guidance |
 
 ## Legacy Slug-Only Entries
 

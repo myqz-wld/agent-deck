@@ -688,9 +688,9 @@ describe('agent-deck-mcp tools — spawn_session', () => {
   // （deep-code-review SKILL：lead 在 repo 起 reviewer teammate 同 cwd 同 adapter）。
   // 防递归靠 §6.1 depth + §6.4 fan-out + §6.3 spawn-rate 三条兜底（spawn-guards.test.ts 覆盖）。
 
-  it('schema exposes model and thinking as optional enum tool parameters', async () => {
-    const { SPAWN_SESSION_SCHEMA } = await import('../tools/schemas');
-    expect(SPAWN_SESSION_SCHEMA.model.unwrap().options).toEqual([
+  it('schema exposes model as an optional string and thinking as an optional enum', async () => {
+    const { SPAWN_SESSION_MODEL_VALUES, SPAWN_SESSION_SCHEMA } = await import('../tools/schemas');
+    expect(SPAWN_SESSION_MODEL_VALUES).toEqual([
       'haiku',
       'sonnet',
       'opus',
@@ -700,6 +700,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'v4-flash',
       'v4-pro',
     ]);
+    expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('claude-opus-4-8').success).toBe(true);
+    expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('').success).toBe(false);
     expect(SPAWN_SESSION_SCHEMA.thinking.unwrap().options).toEqual([
       'minimal',
       'low',
@@ -901,7 +903,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     });
   });
 
-  it('passes adapter-scoped codex model and thinking to createSession', async () => {
+  it('passes codex model and thinking to createSession', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
     const r = await tools.get('spawn_session').handler({
@@ -958,20 +960,20 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('high');
   });
 
-  it('rejects model values that belong to a different adapter before createSession', async () => {
+  it('passes custom provider model names through to the target SDK', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
     const r = await tools.get('spawn_session').handler({
-      adapter: 'codex-cli',
+      adapter: 'claude-code',
       cwd: '/repo',
-      prompt: 'bad model task',
-      model: 'opus',
+      prompt: 'custom model task',
+      model: 'claude-opus-4-8-thinking-max[1m]',
       callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
-    expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/model "opus" is not valid for adapter "codex-cli"/);
-    expect(createSessionCalls).toHaveLength(0);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0].model).toBe('claude-opus-4-8-thinking-max[1m]');
   });
 
   it('rejects thinking values that belong to a different adapter before createSession', async () => {

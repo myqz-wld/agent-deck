@@ -331,3 +331,4 @@
 | [CHANGELOG_324.md](CHANGELOG_324.md) | Project docs require packaged build metadata and installed freshness checks. |
 | [CHANGELOG_325.md](CHANGELOG_325.md) | Upgrade Claude Agent SDK to 0.3.187. |
 | [CHANGELOG_326.md](CHANGELOG_326.md) | Large production source files split into focused helper modules. |
+| [CHANGELOG_327.md](CHANGELOG_327.md) | `spawn_session` model accepts custom provider ids while keeping aliases. |
