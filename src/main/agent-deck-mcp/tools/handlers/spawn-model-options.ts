@@ -17,12 +17,6 @@ export type SpawnModelOptionsResult =
   | { ok: true; options: SpawnModelOptions }
   | { ok: false; error: string; hint: string };
 
-const MODEL_VALUES_BY_ADAPTER = {
-  'claude-code': ['haiku', 'sonnet', 'opus', 'fable'],
-  'codex-cli': ['gpt-5.5', 'gpt-5.4'],
-  'deepseek-claude-code': ['v4-flash', 'v4-pro'],
-} as const satisfies Record<SpawnSessionArgs['adapter'], readonly SpawnSessionModelValue[]>;
-
 const THINKING_VALUES_BY_ADAPTER = {
   'claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
   'codex-cli': ['minimal', 'low', 'medium', 'high', 'xhigh'],
@@ -44,20 +38,14 @@ function isAllowed<T extends string>(values: readonly T[], value: string): value
 
 function resolveExplicitModel(
   adapter: SpawnSessionArgs['adapter'],
-  model: SpawnSessionModelValue,
+  model: string,
 ): SpawnModelOptionsResult {
-  const allowed = MODEL_VALUES_BY_ADAPTER[adapter];
-  if (!isAllowed(allowed, model)) {
-    return {
-      ok: false,
-      error: `model "${model}" is not valid for adapter "${adapter}"`,
-      hint: `Use one of: ${formatValues(allowed)}.`,
-    };
-  }
+  const normalized = model.trim();
   if (adapter === 'deepseek-claude-code') {
-    return { ok: true, options: { model: DEEPSEEK_MODEL_RUNTIME[model] ?? model } };
+    const aliasModel = DEEPSEEK_MODEL_RUNTIME[normalized as SpawnSessionModelValue];
+    return { ok: true, options: { model: aliasModel ?? normalized } };
   }
-  return { ok: true, options: { model } };
+  return { ok: true, options: { model: normalized } };
 }
 
 function resolveThinking(

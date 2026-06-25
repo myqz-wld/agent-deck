@@ -70,10 +70,13 @@ export const SPAWN_SESSION_SCHEMA = {
       'Optional real agent name. Resolution is adapter-scoped: bundled Agent Deck reviewers first, then project agents (.claude/agents/<name>.md or .codex/agents/*.toml under cwd), then user agents (~/.claude/agents/<name>.md or ~/.codex/agents/*.toml). Claude starts with SDK agent/agents; Codex uses TOML developer_instructions plus supported config fields. For a normal/general-purpose spawned session, omit agentName and put complete instructions in prompt; use displayName only for labels. Unknown names reject.',
     ),
   model: z
-    .enum(SPAWN_SESSION_MODEL_VALUES)
+    .string()
+    .trim()
+    .min(1)
+    .max(256)
     .optional()
     .describe(
-      'Optional model override for this spawned session. Valid combinations are adapter-scoped: claude-code accepts haiku, sonnet, opus, fable; codex-cli accepts gpt-5.5, gpt-5.4; deepseek-claude-code accepts v4-flash, v4-pro. Explicit model overrides any bundled agent frontmatter model.',
+      'Optional model override for this spawned session. Maintained aliases are haiku, sonnet, opus, fable, gpt-5.5, gpt-5.4, v4-flash, and v4-pro; custom provider model ids are also accepted and passed to the target SDK/provider for validation. Deepseek aliases map as v4-flash -> deepseek-v4-flash and v4-pro -> deepseek-v4-pro[1m]. Explicit model overrides any bundled agent frontmatter model.',
     ),
   thinking: z
     .enum(SPAWN_SESSION_THINKING_VALUES)
