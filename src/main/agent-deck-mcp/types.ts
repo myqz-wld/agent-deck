@@ -54,7 +54,7 @@ export interface CallerContext {
   transport: AgentDeckMcpTransport;
 }
 
-/** Agent Deck MCP tool names. Public registry exposes 18 tools; archive/teammate cleanup names are retained only as deny-by-default guard keys for old internal handlers. */
+/** Agent Deck MCP tool names. Public registry exposes 19 tools; archive/teammate cleanup names are retained only as deny-by-default guard keys for old internal handlers. */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
   sendMessage: 'send_message',
@@ -62,6 +62,7 @@ export const AGENT_DECK_TOOL_NAMES = {
   presentDiff: 'present_diff',
   listSessions: 'list_sessions',
   getSession: 'get_session',
+  listSessionEvents: 'list_session_events',
   shutdownSession: 'shutdown_session',
   // Retained guard key, not registered by buildAgentDeckTools.
   archivePlan: 'archive_plan',
@@ -99,6 +100,8 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   present_diff: false,
   list_sessions: true,
   get_session: true,
+  // Requires a real caller identity for self/spawn/team visibility checks even though it is read-only.
+  list_session_events: false,
   shutdown_session: false,
   archive_plan: false,
   hand_off_session: false,

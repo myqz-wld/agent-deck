@@ -4,7 +4,7 @@
 
 | File | Status | Related plan / commit | Summary |
 |---|---|---|---|
-| [agent-deck-mcp-tool-call-flow.puml](agent-deck-mcp-tool-call-flow.puml) | active | [CHANGELOG_246](../changelogs/CHANGELOG_246.md) / [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | MCP tool-call sequence (18 public tools, including present_plan / present_diff to the pending user-presentation UI) |
+| [agent-deck-mcp-tool-call-flow.puml](agent-deck-mcp-tool-call-flow.puml) | active | [CHANGELOG_246](../changelogs/CHANGELOG_246.md) / [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | MCP tool-call sequence (19 public tools, including present_plan / present_diff to the pending user-presentation UI) |
 | [archive-plan-flow.puml](archive-plan-flow.puml) | archived | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | archive_plan public MCP flow retired; project/skill owns plan closeout |
 | [archive-plan-precheck-decision.puml](archive-plan-precheck-decision.puml) | archived | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | archive_plan precheck retired; use project/skill closeout + exit_worktree |
 | [hand-off-session-flow.puml](hand-off-session-flow.puml) | active | [mcp-handoff-worktree-redesign-20260609](../plans/mcp-handoff-worktree-redesign-20260609.md) | hand_off_session prompt-only baton sequence(spawn/transfer/close caller) |

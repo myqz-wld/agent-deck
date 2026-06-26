@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { SDK_READ_CALLER_SESSION_ID_DESCRIPTION, SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
+import type { AgentEvent } from '@shared/types';
+import {
+  SDK_CALLER_SESSION_ID_DESCRIPTION,
+  SDK_READ_CALLER_SESSION_ID_DESCRIPTION,
+  SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION,
+} from './shared';
 
 export const SEND_MESSAGE_SCHEMA = {
   sessionId: z
@@ -216,6 +221,38 @@ export const GET_SESSION_SCHEMA = {
     .describe('Session id to inspect. Use list_sessions to discover ids before calling when unsure.'),
 };
 
+export const LIST_SESSION_EVENTS_SCHEMA = {
+  callerSessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      `${SDK_CALLER_SESSION_ID_DESCRIPTION} Unlike broad read-only discovery tools, this tool rejects external callers because trajectory visibility requires a real session identity.`,
+    ),
+  sessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe(
+      'Session id whose normalized Agent Deck event trajectory should be read. The caller may read only itself, spawn ancestors/descendants, or sessions sharing an active team.',
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .default(100)
+    .describe('Maximum events to return. Default 100, max 500.'),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .max(5000)
+    .default(0)
+    .describe('Number of newest events to skip before returning results. Default 0.'),
+};
+
 export const SHUTDOWN_SESSION_SCHEMA = {
   sessionId: z
     .string()
@@ -240,6 +277,7 @@ export type RequestPlanReviewArgs = z.infer<z.ZodObject<typeof REQUEST_PLAN_REVI
 export type RequestDiffReviewArgs = z.infer<z.ZodObject<typeof REQUEST_DIFF_REVIEW_SCHEMA>>;
 export type ListSessionsArgs = z.infer<z.ZodObject<typeof LIST_SESSIONS_SCHEMA>>;
 export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
+export type ListSessionEventsArgs = z.infer<z.ZodObject<typeof LIST_SESSION_EVENTS_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
 
 /** sessions.list_sessions / get_session 共享的 metadata 投影（与 helpers.ts projectSession 对齐 — 字段漂移此处 satisfies 必拦）。 */
@@ -266,6 +304,14 @@ export interface ListSessionsResult {
 
 /** get_session ok return shape（get.ts handler）。 */
 export type GetSessionResult = ProjectedSession;
+
+/** list_session_events ok return shape（list-session-events.ts handler）。 */
+export interface ListSessionEventsResult {
+  sessionId: string;
+  /** True when another page may be available with offset + limit. */
+  hasMore: boolean;
+  events: Array<AgentEvent & { id: number }>;
+}
 
 /** send_message ok return shape（send.ts handler；queued: true 字面常量约束）。 */
 export interface SendMessageResult {

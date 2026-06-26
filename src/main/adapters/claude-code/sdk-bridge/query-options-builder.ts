@@ -104,7 +104,7 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     // plugin mirror 内；关 → 裁掉对应子目录。用户 / 项目 scope 仍由 Claude Code 原生
     // settingSources 加载。
     plugins,
-    // Agent Deck MCP（单 server，18 public tool — 6 session/messaging + 2 user presentation + 2 worktree + 5 task + 3 issue）：
+    // Agent Deck MCP（单 server，19 public tool — 7 session/messaging + 2 user presentation + 2 worktree + 5 task + 3 issue）：
     // 开关开 → 挂 in-process MCP server + pre-approve `mcp__agent-deck__*`
     // 通配（应用工具属于受控工具，不走 canUseTool 弹框）。开关关 → 不展开两字段，与不挂 plugin
     // 同语义零副作用。原独立 tasks server 已合并入 agent-deck namespace，删 enableTaskManager 独立 toggle。

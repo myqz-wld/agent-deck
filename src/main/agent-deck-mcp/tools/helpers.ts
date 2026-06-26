@@ -9,6 +9,7 @@
 
 import type { SessionRecord } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
+import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import {
   EXTERNAL_CALLER_ALLOWED,
   EXTERNAL_CALLER_SENTINEL,
@@ -17,6 +18,7 @@ import {
 import log from '@main/utils/logger';
 
 const logger = log.scope('mcp-helpers');
+const MAX_SPAWN_WALK_DEPTH = 64;
 
 /** Handler 共享上下文 —— 所有 handler 第二参数。 */
 export interface HandlerContext {
@@ -203,6 +205,126 @@ export function validateExternalCaller(caller: CallerContext): HandlerResult | n
     );
   }
   return null;
+}
+
+function findSpawnParent(
+  sessionId: string,
+  cache: Map<string, string | null>,
+): string | null {
+  if (cache.has(sessionId)) return cache.get(sessionId) ?? null;
+  const rec = sessionRepo.get(sessionId);
+  const parent = rec?.spawnedBy ?? null;
+  cache.set(sessionId, parent);
+  return parent;
+}
+
+function isSpawnAncestor(
+  ancestorId: string,
+  childId: string,
+  cache: Map<string, string | null>,
+): boolean {
+  const seen = new Set<string>();
+  let current: string | null = findSpawnParent(childId, cache);
+  for (let depth = 0; current && depth < MAX_SPAWN_WALK_DEPTH; depth += 1) {
+    if (current === ancestorId) return true;
+    if (seen.has(current)) return false;
+    seen.add(current);
+    current = findSpawnParent(current, cache);
+  }
+  return false;
+}
+
+export function isSpawnRelatedSession(
+  candidateId: string,
+  callerId: string,
+  cache: Map<string, string | null> = new Map(),
+): boolean {
+  return (
+    candidateId === callerId ||
+    isSpawnAncestor(candidateId, callerId, cache) ||
+    isSpawnAncestor(callerId, candidateId, cache)
+  );
+}
+
+export function isRelatedSessionVisible(
+  caller: SessionRecord,
+  candidate: SessionRecord,
+  opts?: {
+    spawnParentCache?: Map<string, string | null>;
+    callerTeamIds?: Set<string>;
+  },
+): boolean {
+  const spawnParentCache = opts?.spawnParentCache ?? new Map<string, string | null>();
+  if (isSpawnRelatedSession(candidate.id, caller.id, spawnParentCache)) return true;
+  const callerTeamIds = opts?.callerTeamIds ?? new Set((caller.teams ?? []).map((t) => t.teamId));
+  return (candidate.teams ?? []).some((t) => callerTeamIds.has(t.teamId));
+}
+
+export type RelatedSessionReadAccess =
+  | { allowed: true }
+  | {
+      allowed: false;
+      reason: 'external-caller' | 'caller-not-found' | 'caller-closed' | 'target-not-found' | 'unrelated';
+      message: string;
+      hint?: string;
+    };
+
+export function getRelatedSessionReadAccess(
+  callerSessionId: string,
+  targetSessionId: string,
+): RelatedSessionReadAccess {
+  if (callerSessionId === EXTERNAL_CALLER_SENTINEL) {
+    return {
+      allowed: false,
+      reason: 'external-caller',
+      message: 'list_session_events requires a real Agent Deck session caller',
+      hint: 'External MCP clients have no session identity for self/spawn/team visibility checks. Use an in-app SDK session or inspect history in the Agent Deck UI.',
+    };
+  }
+
+  const caller = sessionRepo.get(callerSessionId);
+  if (!caller) {
+    return {
+      allowed: false,
+      reason: 'caller-not-found',
+      message: `callerSessionId ${callerSessionId} not found`,
+      hint: 'callerSessionId must reference an existing Agent Deck session.',
+    };
+  }
+  if (caller.lifecycle === 'closed') {
+    return {
+      allowed: false,
+      reason: 'caller-closed',
+      message: `callerSessionId ${callerSessionId} is closed`,
+      hint: 'Open a new session before reading another session trajectory.',
+    };
+  }
+
+  const target = sessionRepo.get(targetSessionId);
+  if (!target) {
+    return {
+      allowed: false,
+      reason: 'target-not-found',
+      message: `session ${targetSessionId} not found`,
+      hint: 'Use list_sessions to discover readable session ids.',
+    };
+  }
+
+  const spawnParentCache = new Map<string, string | null>();
+  spawnParentCache.set(caller.id, caller.spawnedBy ?? null);
+  spawnParentCache.set(target.id, target.spawnedBy ?? null);
+  if (isSpawnRelatedSession(target.id, caller.id, spawnParentCache)) return { allowed: true };
+
+  if (agentDeckTeamRepo.findSharedActiveTeams(caller.id, target.id).length > 0) {
+    return { allowed: true };
+  }
+
+  return {
+    allowed: false,
+    reason: 'unrelated',
+    message: `session ${targetSessionId} is not readable from callerSessionId ${callerSessionId}`,
+    hint: 'Trajectory reads are limited to self, spawn ancestors/descendants, or sessions sharing an active team.',
+  };
 }
 
 /**

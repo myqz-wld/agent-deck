@@ -1,6 +1,6 @@
-' source: diff-present-tool-and-skill-20260622
+' source: session-trajectory-mcp-tool-20260626
 ' description: MCP 服务器典型 tool 调用 sequence — 4 段 (入口 / 入口拦截 / 业务路由 / 收口)
-' last_updated: 2026-06-22
+' last_updated: 2026-06-26
 @startuml agent-deck-mcp-tool-call-flow
 
 title MCP 服务器 — 典型 tool 调用 sequence (4 段)
@@ -31,9 +31,10 @@ end
 
 Guard -> Guard: check 外部调用白名单[tool_name]?
 note right of Guard
-  deny list: spawn / send / present_plan / present_diff / shutdown
-  / hand_off / worktree / task write+task_get / issue write
+  deny list: spawn / send / present_plan / present_diff / list_session_events
+  / shutdown / hand_off / worktree / task write+task_get / issue write
   原因: 写 git + 起 SDK + DB 高风险
+  例外: list_session_events 只读但需要真实 caller identity 做 self/spawn/team ACL
 end note
 alt 在 deny list + external caller
   Guard --> Trans: error "EXTERNAL_CALLER_DENY"
@@ -50,7 +51,7 @@ alt 走 impl (hand_off / 进退 worktree)
   Impl -> Store: 调公共助手 + 4 张数据表
   Impl -> IO: 真 fs / git / SDK 调用
   Impl --> Handler: result 或 error
-else 走 repos (list_sessions / get / task_*)
+else 走 repos (list_sessions / get / list_session_events / task_*)
   Handler -> Store: repo.method(args) → SQLite SELECT/UPDATE/DELETE
 else 走 spawn 控制器 (普通 spawn_session)
   Handler -> Store: spawn handler + 三道防御 (depth/fan-out/rate) + 写 spawn-link
