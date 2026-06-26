@@ -176,6 +176,18 @@ export const eventRepo = {
     return rowsToEvents(rows);
   },
 
+  listValidForSession(sessionId: string, limit = 200, offset = 0): (AgentEvent & { id: number })[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM events
+          WHERE session_id = ? AND json_valid(payload_json)
+          ORDER BY ts DESC, id DESC
+          LIMIT ? OFFSET ?`,
+      )
+      .all(sessionId, limit, offset) as Row[];
+    return rowsToEvents(rows);
+  },
+
   countForSession(sessionId: string, sinceTs?: number): number {
     if (sinceTs) {
       const r = getDb()

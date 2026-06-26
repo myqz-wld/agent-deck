@@ -51,7 +51,7 @@ export async function buildMcpServersForSession(
     ? await getAgentDeckMcpServerForSession(() => internal.applicationSid)
     : null;
   if (agentDeckMcpServer) {
-    logger.info('[agent-deck-mcp] in-process MCP attached for session (18 public tools)');
+    logger.info('[agent-deck-mcp] in-process MCP attached for session (19 public tools)');
   }
 
   return { agentDeckMcpServer };

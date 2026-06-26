@@ -88,6 +88,7 @@ Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_pr
 | [commit-build-metadata-20260624.md](commit-build-metadata-20260624.md) | completed | [323](../changelogs/CHANGELOG_323.md) | Packaged builds carry commit metadata, and wrappers can check installed freshness by commit |
 | [large-file-split-round-20260624.md](large-file-split-round-20260624.md) | completed | [326](../changelogs/CHANGELOG_326.md) / [REVIEW_140](../reviews/REVIEW_140.md) | Split five large production files into focused helper modules without behavior changes |
 | [spawn-session-custom-model-20260625.md](spawn-session-custom-model-20260625.md) | completed | [327](../changelogs/CHANGELOG_327.md) | `spawn_session.model` accepts custom provider model ids while keeping maintained aliases as guidance |
+| [session-trajectory-mcp-tool-20260626.md](session-trajectory-mcp-tool-20260626.md) | completed | [328](../changelogs/CHANGELOG_328.md) | `list_session_events` reads related-session normalized activity trajectories |
 
 ## Legacy Slug-Only Entries
 

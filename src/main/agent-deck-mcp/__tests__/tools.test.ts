@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { SessionRecord, AgentDeckMessage, HandOffMetadata } from '@shared/types';
+import type { AgentEvent, SessionRecord, AgentDeckMessage, HandOffMetadata } from '@shared/types';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
@@ -43,6 +43,8 @@ const {
   setTitleCalls,
   listActiveAndDormantCalls,
   sessionGetThrow,
+  eventStore,
+  listForSessionCalls,
 } = vi.hoisted(() => ({
   sessionStore: new Map<string, SessionRecord>(),
   setSpawnLinkCalls: [] as Array<{ id: string; parentId: string | null; depth: number }>,
@@ -57,6 +59,8 @@ const {
   // REVIEW_85 MED-A (reviewer-claude): sessionGetThrow.sid 非 null 时 sessionRepo.get(sid) 抛错,
   // 验证 applySpawnGuards 下移后 caller DB 读抛错不泄漏 in-flight 计数。
   sessionGetThrow: { sid: null as string | null },
+  eventStore: new Map<string, Array<AgentEvent & { id: number }>>(),
+  listForSessionCalls: [] as Array<{ sessionId: string; limit: number; offset: number }>,
 }));
 
 vi.mock('@main/store/session-repo', () => ({
@@ -292,6 +296,14 @@ vi.mock('@main/store/settings-store', () => ({
 vi.mock('@main/store/event-repo', () => ({
   eventRepo: {
     listForSessionRange: () => [],
+    listForSession: (sessionId: string, limit = 200, offset = 0) => {
+      listForSessionCalls.push({ sessionId, limit, offset });
+      return (eventStore.get(sessionId) ?? []).slice(offset, offset + limit);
+    },
+    listValidForSession: (sessionId: string, limit = 200, offset = 0) => {
+      listForSessionCalls.push({ sessionId, limit, offset });
+      return (eventStore.get(sessionId) ?? []).slice(offset, offset + limit);
+    },
   },
 }));
 
@@ -544,6 +556,8 @@ beforeEach(async () => {
   mockActiveMembershipIn.clear();
   recordPermThrow = false;
   sessionGetThrow.sid = null;
+  eventStore.clear();
+  listForSessionCalls.length = 0;
   inFlightChildren.reset();
   spawnRateLimiter.reset();
   mockMessages.clear();
@@ -590,6 +604,21 @@ function seedSession(sid: string, opts: Partial<SessionRecord> = {}) {
     spawnDepth: 0,
     ...opts,
   });
+}
+
+function seedEvent(sessionId: string, id: number, opts: Partial<AgentEvent> = {}) {
+  const events = eventStore.get(sessionId) ?? [];
+  events.push({
+    id,
+    sessionId,
+    agentId: 'claude-code',
+    kind: 'message',
+    payload: { role: 'assistant', text: `event-${id}` },
+    ts: Date.now() - id,
+    source: 'sdk',
+    ...opts,
+  } as AgentEvent & { id: number });
+  eventStore.set(sessionId, events);
 }
 
 function parseResult(result: any): { isError?: boolean; data: any } {
@@ -2273,6 +2302,134 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     expect(parsed.isError).toBeFalsy();
     // 反查空 → projectSession 投影 teamName: null（无老 sessions.teamName 兜底）
     expect(parsed.data.teamName).toBeNull();
+  });
+});
+
+describe('agent-deck-mcp tools — list_session_events', () => {
+  it('allows self reads and returns paged normalized events', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('caller');
+    seedEvent('caller', 1, { payload: { role: 'assistant', text: 'newest' }, ts: 300 });
+    seedEvent('caller', 2, { payload: { role: 'assistant', text: 'middle' }, ts: 200 });
+    seedEvent('caller', 3, { payload: { role: 'assistant', text: 'oldest' }, ts: 100 });
+
+    const r = await tools.get('list_session_events').handler({
+      callerSessionId: 'caller',
+      sessionId: 'caller',
+      limit: 2,
+      offset: 0,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessionId).toBe('caller');
+    expect(parsed.data.hasMore).toBe(true);
+    expect(parsed.data.events.map((e: any) => e.id)).toEqual([1, 2]);
+    expect(listForSessionCalls).toEqual([{ sessionId: 'caller', limit: 3, offset: 0 }]);
+  });
+
+  it('allows spawn ancestor and descendant reads', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('parent');
+    seedSession('child', { spawnedBy: 'parent', spawnDepth: 1 });
+    seedEvent('parent', 1);
+    seedEvent('child', 2);
+
+    const parentReadsChild = await tools.get('list_session_events').handler({
+      callerSessionId: 'parent',
+      sessionId: 'child',
+      limit: 10,
+    }, {});
+    const childReadsParent = await tools.get('list_session_events').handler({
+      callerSessionId: 'child',
+      sessionId: 'parent',
+      limit: 10,
+    }, {});
+
+    expect(parseResult(parentReadsChild).isError).toBeFalsy();
+    expect(parseResult(parentReadsChild).data.events[0].sessionId).toBe('child');
+    expect(parseResult(childReadsParent).isError).toBeFalsy();
+    expect(parseResult(childReadsParent).data.events[0].sessionId).toBe('parent');
+  });
+
+  it('allows shared active team reads', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('caller');
+    seedSession('peer');
+    setSharedTeams('caller', 'peer', ['team-x']);
+    seedEvent('peer', 1);
+
+    const r = await tools.get('list_session_events').handler({
+      callerSessionId: 'caller',
+      sessionId: 'peer',
+      limit: 10,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.events).toHaveLength(1);
+    expect(parsed.data.events[0].sessionId).toBe('peer');
+  });
+
+  it('rejects unrelated sessions without reading events', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('caller');
+    seedSession('unrelated');
+    seedEvent('unrelated', 1);
+
+    const r = await tools.get('list_session_events').handler({
+      callerSessionId: 'caller',
+      sessionId: 'unrelated',
+      limit: 10,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.reason).toBe('unrelated');
+    expect(parsed.data.hint).toMatch(/self, spawn ancestors\/descendants, or sessions sharing an active team/);
+    expect(listForSessionCalls).toEqual([]);
+  });
+
+  it('rejects external callers even though the tool is read-only', async () => {
+    const tools = await getTools({ transport: 'stdio' });
+    const r = await tools.get('list_session_events').handler({
+      callerSessionId: '__external__',
+      sessionId: 'anything',
+      limit: 10,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toMatch(/list_session_events not allowed for external caller/);
+  });
+
+  it('rejects missing targets before reading events', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('caller');
+
+    const r = await tools.get('list_session_events').handler({
+      callerSessionId: 'caller',
+      sessionId: 'ghost',
+      limit: 10,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.reason).toBe('target-not-found');
+    expect(listForSessionCalls).toEqual([]);
+  });
+
+  it('does not treat inactive or archived team history as shared active visibility', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('caller');
+    seedSession('old-peer');
+    mockMembershipsBySession.set('caller', [{ teamId: 'old-team' }]);
+    mockMembershipsBySession.set('old-peer', [{ teamId: 'old-team' }]);
+    mockTeamsById.set('old-team', { name: 'old-team' });
+
+    const r = await tools.get('list_session_events').handler({
+      callerSessionId: 'caller',
+      sessionId: 'old-peer',
+      limit: 10,
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.reason).toBe('unrelated');
   });
 });
 

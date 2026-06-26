@@ -14,6 +14,7 @@ import type { SessionRecord } from '@shared/types';
 
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import {
+  isRelatedSessionVisible,
   ok,
   projectSession,
   withMcpGuard,
@@ -25,7 +26,6 @@ const DEFAULT_LIMIT = 50;
 const DEFAULT_OFFSET = 0;
 const MAX_PAGE_SCAN_BATCH = 500;
 const MIN_PAGE_SCAN_BATCH = 200;
-const MAX_SPAWN_WALK_DEPTH = 64;
 
 function pageScanBatch(limit: number): number {
   return Math.min(Math.max(limit * 4, MIN_PAGE_SCAN_BATCH), MAX_PAGE_SCAN_BATCH);
@@ -68,45 +68,6 @@ function listBasePage(args: ListSessionsArgs, limit: number, offset: number): Se
     .slice(offset, needed);
 }
 
-function findSpawnParent(
-  sessionId: string,
-  cache: Map<string, string | null>,
-): string | null {
-  if (cache.has(sessionId)) return cache.get(sessionId) ?? null;
-  const rec = sessionRepo.get(sessionId);
-  const parent = rec?.spawnedBy ?? null;
-  cache.set(sessionId, parent);
-  return parent;
-}
-
-function isSpawnAncestor(
-  ancestorId: string,
-  childId: string,
-  cache: Map<string, string | null>,
-): boolean {
-  const seen = new Set<string>();
-  let current: string | null = findSpawnParent(childId, cache);
-  for (let depth = 0; current && depth < MAX_SPAWN_WALK_DEPTH; depth += 1) {
-    if (current === ancestorId) return true;
-    if (seen.has(current)) return false;
-    seen.add(current);
-    current = findSpawnParent(current, cache);
-  }
-  return false;
-}
-
-function isSpawnRelated(
-  candidateId: string,
-  callerId: string,
-  cache: Map<string, string | null>,
-): boolean {
-  return (
-    candidateId === callerId ||
-    isSpawnAncestor(candidateId, callerId, cache) ||
-    isSpawnAncestor(callerId, candidateId, cache)
-  );
-}
-
 function filterRelatedForCaller(
   sessions: SessionRecord[],
   callerSessionId: string,
@@ -123,8 +84,7 @@ function filterRelatedForCaller(
   }
 
   return enriched.filter((s) => {
-    if (isSpawnRelated(s.id, caller.id, spawnParentCache)) return true;
-    return (s.teams ?? []).some((t) => callerTeamIds.has(t.teamId));
+    return isRelatedSessionVisible(caller, s, { spawnParentCache, callerTeamIds });
   });
 }
 

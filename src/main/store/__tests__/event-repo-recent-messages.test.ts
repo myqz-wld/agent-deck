@@ -280,6 +280,21 @@ describe.skipIf(!bindingAvailable)('event-repo listRecentMessages / maxEventId (
     expect(texts).toEqual(['正常消息 1', '正常消息 2']);
   });
 
+  it('坏行隔离：listValidForSession 在 SQL 分页前过滤损坏行', () => {
+    insertMessage(testDb, 'sess-A', 'assistant', 'newest', 1003);
+    testDb
+      .prepare(`INSERT INTO events (session_id, kind, payload_json, ts) VALUES (?, 'message', ?, ?)`)
+      .run('sess-A', '{broken json!!', 1002);
+    insertMessage(testDb, 'sess-A', 'assistant', 'middle', 1001);
+    insertMessage(testDb, 'sess-A', 'assistant', 'oldest', 1000);
+
+    const firstPage = mod.eventRepo.listValidForSession('sess-A', 2, 0);
+    const secondPage = mod.eventRepo.listValidForSession('sess-A', 2, 2);
+
+    expect(firstPage.map((r) => (r.payload as { text: string }).text)).toEqual(['newest', 'middle']);
+    expect(secondPage.map((r) => (r.payload as { text: string }).text)).toEqual(['oldest']);
+  });
+
   it('坏行隔离：listRecentMessages 同样跳过损坏行不抛错', () => {
     insertMessage(testDb, 'sess-A', 'user', '正常消息', 1000);
     testDb
