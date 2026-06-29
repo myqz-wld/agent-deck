@@ -337,3 +337,4 @@
 | [CHANGELOG_330.md](CHANGELOG_330.md) | `present_diff` supports line-anchored annotation cards. |
 | [CHANGELOG_331.md](CHANGELOG_331.md) | Deepseek settings now use `~/.agent-deck/.deepseek/settings.json`. |
 | [CHANGELOG_332.md](CHANGELOG_332.md) | Fix diff panel bottom clipping and upgrade Claude/Codex packages. |
+| [CHANGELOG_333.md](CHANGELOG_333.md) | `reviewer-deepseek` now uses `effort: max`. |

@@ -95,7 +95,7 @@ describe('resolveClaudeAgentContent', () => {
         '---',
         'description: bundled Deepseek reviewer',
         'model: deepseek-v4-pro[1m]',
-        'effort: xhigh',
+        'effort: max',
         'tools: Read, Grep',
         '---',
         'Deepseek reviewer prompt.',
@@ -107,7 +107,7 @@ describe('resolveClaudeAgentContent', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.agent.model).toBe('deepseek-v4-pro[1m]');
-    expect(result.agent.effortLevel).toBe('xhigh');
+    expect(result.agent.effortLevel).toBe('max');
     expect(result.agent.definition).toEqual({
       description: 'bundled Deepseek reviewer',
       prompt: 'Deepseek reviewer prompt.',
@@ -118,7 +118,7 @@ describe('resolveClaudeAgentContent', () => {
         'mcp__agent-deck__list_sessions',
       ],
       model: 'deepseek-v4-pro[1m]',
-      effort: 'xhigh',
+      effort: 'max',
     });
   });
 

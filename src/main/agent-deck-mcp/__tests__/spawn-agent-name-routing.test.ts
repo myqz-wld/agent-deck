@@ -259,7 +259,11 @@ vi.mock('@main/claude-config/custom-agents', () => ({
               ? 'sonnet'
               : 'opus',
         effortLevel:
-          name === 'reviewer-claude' || name === 'reviewer-deepseek' ? 'xhigh' : undefined,
+          name === 'reviewer-deepseek'
+            ? 'max'
+            : name === 'reviewer-claude'
+              ? 'xhigh'
+              : undefined,
         definition: {
           description: `${adapter}/${name} description`,
           prompt: `# ${adapter}/${name} body (mocked)`,
@@ -450,7 +454,7 @@ describe('spawn handler agentName native routing', () => {
       },
     });
     expect(createSessionCalls[0].model).toBe('deepseek-v4-pro[1m]');
-    expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('xhigh');
+    expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('max');
   });
 
   it('explicit model overrides bundled agent frontmatter model', async () => {
