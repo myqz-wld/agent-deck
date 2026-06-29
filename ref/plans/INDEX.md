@@ -91,6 +91,7 @@ Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_pr
 | [session-trajectory-mcp-tool-20260626.md](session-trajectory-mcp-tool-20260626.md) | completed | [328](../changelogs/CHANGELOG_328.md) | `list_session_events` reads related-session normalized activity trajectories |
 | [reviewer-model-selection-20260629.md](reviewer-model-selection-20260629.md) | completed | [329](../changelogs/CHANGELOG_329.md) | Added Deepseek reviewer slot selection and explicit two-slot review confirmation |
 | [diff-panel-sdk-upgrade-20260629.md](diff-panel-sdk-upgrade-20260629.md) | completed | [332](../changelogs/CHANGELOG_332.md) / [REVIEW_141](../reviews/REVIEW_141.md) | Diff panels keep bottom scroll clearance, and Claude/Codex runtime packages were upgraded to latest verified stable versions |
+| [send-message-session-not-found-20260629.md](send-message-session-not-found-20260629.md) | completed | [334](../changelogs/CHANGELOG_334.md) / [REVIEW_142](../reviews/REVIEW_142.md) | `send_message` canonicalizes target session aliases before shared-team authorization and enqueue |
 
 ## Legacy Slug-Only Entries
 

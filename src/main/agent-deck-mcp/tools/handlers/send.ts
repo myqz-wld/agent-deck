@@ -31,23 +31,29 @@ import {
   type HandlerContext,
 } from '../helpers';
 import type { SendMessageArgs, SendMessageResult } from '../schemas';
+import type { SessionRecord } from '@shared/types';
+
+function resolveSendTarget(sessionId: string): SessionRecord | null {
+  return sessionRepo.get(sessionId) ?? sessionRepo.findByCliSessionId(sessionId);
+}
 
 export const sendMessageHandler = withMcpGuard(
   'send_message',
   async (args: SendMessageArgs, ctx: HandlerContext) => {
     const { caller } = ctx;
 
-    const target = sessionRepo.get(args.sessionId);
+    const target = resolveSendTarget(args.sessionId);
     if (!target) {
       return err(`session ${args.sessionId} not found`);
     }
+    const targetSessionId = target.id;
     if (target.lifecycle === 'closed') {
       return err(
         `session ${args.sessionId} is closed`,
         'Closed sessions cannot receive new messages. Spawn a new session if you need to continue.',
       );
     }
-    if (caller.callerSessionId === args.sessionId) {
+    if (caller.callerSessionId === targetSessionId) {
       return err(
         'cannot send_message to self',
         'A session cannot post a message to its own user turn via MCP.',
@@ -60,7 +66,7 @@ export const sendMessageHandler = withMcpGuard(
     // 破坏 caller 对 teamId 的显式意图。
     const sharedTeams = agentDeckTeamRepo.findSharedActiveTeams(
       caller.callerSessionId,
-      args.sessionId,
+      targetSessionId,
     );
     let teamId: string | null;
     if (args.teamId) {
@@ -100,7 +106,7 @@ export const sendMessageHandler = withMcpGuard(
       }
       if (target.archivedAt != null) {
         return err(
-          `target session ${args.sessionId.slice(0, 8)} is archived`,
+          `target session ${targetSessionId.slice(0, 8)} is archived`,
           'Archived sessions cannot receive messages. Unarchive it first.',
         );
       }
@@ -132,12 +138,12 @@ export const sendMessageHandler = withMcpGuard(
       if (teamId === null) {
         const pairMatch =
           (original.fromSessionId === caller.callerSessionId &&
-            original.toSessionId === args.sessionId) ||
-          (original.fromSessionId === args.sessionId &&
+            original.toSessionId === targetSessionId) ||
+          (original.fromSessionId === targetSessionId &&
             original.toSessionId === caller.callerSessionId);
         if (!pairMatch) {
           return err(
-            `teamless reply chain mismatch: replyToMessageId ${args.replyToMessageId} is between other sessions, not (${caller.callerSessionId.slice(0, 8)}, ${args.sessionId.slice(0, 8)})`,
+            `teamless reply chain mismatch: replyToMessageId ${args.replyToMessageId} is between other sessions, not (${caller.callerSessionId.slice(0, 8)}, ${targetSessionId.slice(0, 8)})`,
             'Teamless reply chains are scoped to the same session pair. Omit replyToMessageId to start a new topic.',
           );
         }
@@ -149,7 +155,7 @@ export const sendMessageHandler = withMcpGuard(
     const result = enqueueAgentDeckMessage({
       teamId,
       fromSessionId: caller.callerSessionId,
-      toSessionId: args.sessionId,
+      toSessionId: targetSessionId,
       body: args.text,
       replyToMessageId: args.replyToMessageId ?? null,
     });
@@ -162,7 +168,7 @@ export const sendMessageHandler = withMcpGuard(
       );
     }
     return ok({
-      sessionId: args.sessionId,
+      sessionId: targetSessionId,
       teamId,
       messageId: result.message.id,
       replyToMessageId: result.message.replyToMessageId,

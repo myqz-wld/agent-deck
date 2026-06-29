@@ -1724,6 +1724,36 @@ describe('agent-deck-mcp tools — send_message', () => {
     ]);
   });
 
+  it('resolves target cliSessionId aliases before team checks and enqueue', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('worker');
+    seedSession('lead-app-sid', {
+      agentId: 'codex-cli',
+      cliSessionId: 'lead-cli-sid',
+    });
+    setSharedTeams('worker', 'lead-app-sid', ['team-X']);
+
+    const r = await tools.get('send_message').handler({
+      sessionId: 'lead-cli-sid',
+      text: 'benchmark result',
+      callerSessionId: 'worker',
+    }, {});
+
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessionId).toBe('lead-app-sid');
+    expect(parsed.data.teamId).toBe('team-X');
+    expect(enqueuedMessages).toEqual([
+      {
+        teamId: 'team-X',
+        fromSessionId: 'worker',
+        toSessionId: 'lead-app-sid',
+        body: 'benchmark result',
+        replyToMessageId: null,
+      },
+    ]);
+  });
+
   it('rejects target session not found', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
