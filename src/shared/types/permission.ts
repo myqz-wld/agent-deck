@@ -119,6 +119,23 @@ export interface DiffReviewConflictFragment {
   baseLabel?: string;
 }
 
+export type DiffReviewAnnotationPane =
+  | 'before'
+  | 'after'
+  | 'both'
+  | 'base'
+  | 'ours'
+  | 'theirs'
+  | 'resolution';
+
+export interface DiffReviewAnnotation {
+  pane: DiffReviewAnnotationPane;
+  /** 1-based line number; 0 means before the first displayed line. */
+  line?: number;
+  title?: string;
+  body: string;
+}
+
 export interface DiffReviewRequest {
   type: 'diff-review';
   requestId: string;
@@ -129,6 +146,7 @@ export interface DiffReviewRequest {
   instructions?: string;
   /** Explanation shown to the user before they approve or request changes. */
   rationale: string;
+  annotations?: DiffReviewAnnotation[];
   pr?: DiffReviewPrFragment;
   conflict?: DiffReviewConflictFragment;
 }

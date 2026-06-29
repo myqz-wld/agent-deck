@@ -24,6 +24,20 @@ function validateDiffReviewArgs(args: RequestDiffReviewArgs): string | null {
   if (args.mode === 'merge-conflict' && args.pr) {
     return 'present_diff rejects `pr` when mode="merge-conflict"';
   }
+  for (const annotation of args.annotations ?? []) {
+    if (args.mode === 'pr' && !['before', 'after', 'both'].includes(annotation.pane)) {
+      return `present_diff annotation pane "${annotation.pane}" is not valid when mode="pr"`;
+    }
+    if (
+      args.mode === 'merge-conflict' &&
+      !['base', 'ours', 'theirs', 'resolution'].includes(annotation.pane)
+    ) {
+      return `present_diff annotation pane "${annotation.pane}" is not valid when mode="merge-conflict"`;
+    }
+    if (args.mode === 'merge-conflict' && annotation.pane === 'base' && !args.conflict?.base) {
+      return 'present_diff annotation pane "base" requires conflict.base';
+    }
+  }
   return null;
 }
 
@@ -59,6 +73,7 @@ export const requestDiffReviewHandler = withMcpGuard(
         ...(args.filePath ? { filePath: args.filePath } : {}),
         ...(args.language ? { language: args.language } : {}),
         ...(args.instructions ? { instructions: args.instructions } : {}),
+        ...(args.annotations ? { annotations: args.annotations } : {}),
         ...(args.pr ? { pr: args.pr } : {}),
         ...(args.conflict ? { conflict: args.conflict } : {}),
         ...(timeoutMs && timeoutMs > 0 ? { timeoutMs } : {}),
