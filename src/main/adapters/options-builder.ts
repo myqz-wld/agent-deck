@@ -56,18 +56,18 @@ export type AgentId = (typeof AGENT_IDS)[number];
 
 /**
  * **reviewer-* SSOT list**(plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.2 修法,
- * A1-MED-2 (claude) — 修前 `'reviewer-claude' || 'reviewer-codex'` hardcode 散布在多处 runtime
+ * A1-MED-2 (claude) — 修前 reviewer agent hardcode 散布在多处 runtime
  * 分支与文档)。
  *
  * **覆盖 runtime 分支**(本文件):
  * - `narrowToCodexOpts` `isReviewerAgentName(raw.agentName)` 主分支 — codex teammate spawn
- *   reviewer runtime default spread enforce 点(reviewer-claude / reviewer-codex 两值同款 spread
+ *   reviewer runtime default spread enforce 点(所有 reviewer slot 同款 spread
  *   approvalPolicy / networkAccessEnabled / additionalDirectories；codexSandbox 走普通 spawn 继承链)
  *
  * **REVIEW_105 R2 INFO 订正(reviewer-codex 单方)**: 删除旧「reviewer-claude 子分支注入
  * AGENT_DECK_CLAUDE_PATH」描述 —— 该子分支已随 plan reviewer-codex-cross-adapter-20260519
  * Phase 2 删除(reviewer-claude 改 cross-adapter native, 不再走 wrapper Bash 起外部 codex CLI,
- * 不再注入 envOverrideExtra: AGENT_DECK_CLAUDE_PATH)。当前 reviewer 分支两值行为对称无子分支。
+ * 不再注入 envOverrideExtra: AGENT_DECK_CLAUDE_PATH)。当前 reviewer 分支所有 slot 行为对称无子分支。
  *
  * **不 SSOT 化的位置**(by design):
  * - jsdoc / 注释里的字面量字符串(说明文档可读性优先,引用 const 名反而绕)
@@ -76,7 +76,7 @@ export type AgentId = (typeof AGENT_IDS)[number];
  *
  * 加新 reviewer agent 时只需把名字加进本 list, reviewer 主分支 default spread 自动覆盖。
  */
-export const REVIEWER_AGENT_NAMES = ['reviewer-claude', 'reviewer-codex'] as const;
+export const REVIEWER_AGENT_NAMES = ['reviewer-claude', 'reviewer-codex', 'reviewer-deepseek'] as const;
 export type ReviewerAgentName = (typeof REVIEWER_AGENT_NAMES)[number];
 
 /**
@@ -123,7 +123,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
  * permissionMode / claudeCodeSandbox 等 claude 专属字段）。
  *
  * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7**:
- * 按 `raw.agentName in ['reviewer-claude', 'reviewer-codex']` 触发 codex teammate spawn
+ * 按 `raw.agentName in REVIEWER_AGENT_NAMES` 触发 codex teammate spawn
  * default spread —— 3 字段 reviewer runtime default（`approvalPolicy: 'never'` /
  * `networkAccessEnabled: true` /
  * `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']`）。
@@ -166,7 +166,7 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   // SSOT) runtime default spread enforce 点。caller 路径 / 普通 codex session 走
   // raw.agentName 缺省 / 非 reviewer-* 路径,不进本分支不被污染。
   // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.2 修法(A1-MED-2 claude):用
-  // isReviewerAgentName SSOT guard 替代 hardcode `=== 'reviewer-claude' || === 'reviewer-codex'`。
+  // isReviewerAgentName SSOT guard 替代 reviewer agent hardcode。
   if (isReviewerAgentName(raw.agentName)) {
     // codexSandbox 不在 reviewer 分支强制覆盖。spawn handler 已在本函数前完成
     // caller explicit > same-adapter inherit > target default 的 effective 计算；这里保留该值。

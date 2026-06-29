@@ -42,7 +42,7 @@ If `enableAgentDeckMcp: false` makes MCP task tools unavailable, Claude Code nat
 
 ### Review Teammate Failure
 
-`simple-review` / `deep-review` must keep a heterogeneous Claude + Codex reviewer pair. If reviewer-codex fails, the lead first calls `shutdown_session` on the failed session, then respawns with `adapter: 'codex-cli'` and `agentName: 'reviewer-codex'`. Do not substitute a second Claude reviewer.
+`simple-review` / `deep-review` must use exactly two confirmed heterogeneous reviewer slots selected from `reviewer-claude` (`claude-code`), `reviewer-codex` (`codex-cli`), and `reviewer-deepseek` (`deepseek-claude-code`, `deepseek-v4-pro[1m]`). If a selected reviewer fails, the lead first calls `shutdown_session` on the failed session, then respawns the same selected adapter / `agentName` / model slot. Do not swap to an unselected slot or duplicate the surviving reviewer.
 
 ## User Review / Plan / Worktree / Handoff
 
@@ -109,7 +109,7 @@ When the lead waits for a teammate reply, follow the Lead Wait Boundary.
 
 After a lead context reset, use `list_sessions({ spawnedByFilter: '<old-lead-session-id>', statusFilter: 'active' })` to recover old reviewers, then send by session id. If caller and target share no active team and `teamId` is omitted, the message is delivered as a teamless DM: it is still written to messages and injected into the receiver conversation, but it does not appear in the team aggregate panel. Passing a non-shared `teamId` is rejected.
 
-When reviewer team membership must persist across rounds, add the new caller back to the old team or respawn the reviewer pair. For a one-off rescue message, teamless DM is acceptable.
+When reviewer team membership must persist across rounds, add the new caller back to the old team or respawn the selected reviewer pair. For a one-off rescue message, teamless DM is acceptable.
 
 ### Wire Fallback
 

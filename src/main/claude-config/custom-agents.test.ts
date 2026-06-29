@@ -88,6 +88,40 @@ describe('resolveClaudeAgentContent', () => {
     });
   });
 
+  it('adds required messaging tools to bundled reviewer-deepseek agents', () => {
+    bundledAgents.set(
+      'reviewer-deepseek',
+      [
+        '---',
+        'description: bundled Deepseek reviewer',
+        'model: deepseek-v4-pro[1m]',
+        'effort: xhigh',
+        'tools: Read, Grep',
+        '---',
+        'Deepseek reviewer prompt.',
+      ].join('\n'),
+    );
+
+    const result = resolveClaudeAgentContent('reviewer-deepseek', project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.model).toBe('deepseek-v4-pro[1m]');
+    expect(result.agent.effortLevel).toBe('xhigh');
+    expect(result.agent.definition).toEqual({
+      description: 'bundled Deepseek reviewer',
+      prompt: 'Deepseek reviewer prompt.',
+      tools: [
+        'Read',
+        'Grep',
+        'mcp__agent-deck__send_message',
+        'mcp__agent-deck__list_sessions',
+      ],
+      model: 'deepseek-v4-pro[1m]',
+      effort: 'xhigh',
+    });
+  });
+
   it('does not add reviewer messaging tools to ordinary Claude agents', () => {
     bundledAgents.set(
       'patcher',

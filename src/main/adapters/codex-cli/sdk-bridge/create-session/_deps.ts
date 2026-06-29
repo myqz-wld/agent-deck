@@ -98,7 +98,7 @@ export interface CreateSessionOpts {
    * **P5 Round 1 reviewer-codex M1 修法 (clarify 不变量 6 边界)**：
    * bridge 层 fallback `?? 'never'` 是 **in-process 安全基线**(主进程跑 codex SDK 无 UI 应答
    * approval 弹窗,'on-request' 会让子进程挂死等审批)— 与 networkAccessEnabled /
-   * additionalDirectories 两个 reviewer-* runtime default **语义不同**。sandboxMode 不再是
+   * additionalDirectories 这两个 reviewer-* runtime default **语义不同**。sandboxMode 不再是
    * reviewer 专属 default,而是走普通 caller 显式 / same-adapter 继承 / target default 链。
    *
    * **不变量 6 修订理解**：
@@ -115,16 +115,15 @@ export interface CreateSessionOpts {
    * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `networkAccessEnabled` 透传。
    * bridge 不主动 enforce default — undefined 沿用 SDK 默认；options-builder 在 reviewer-*
    * 路径下 spread true 让 reviewer 跨网络访问稳定（reviewer-codex web search /
-   * reviewer-claude wrapper 内 claude SDK fetch 工具）。
+   * Claude-family reviewer SDK fetch 工具）。
    */
   networkAccessEnabled?: boolean;
   /**
    * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `additionalDirectories` 透传，
    * 让 codex sandbox=workspace-write 档位额外允许的可读写根。bridge 不主动 enforce default —
    * undefined 沿用 SDK 默认（无额外路径）；options-builder 在 reviewer-* 路径下 spread
-   * `['~/.claude', '~/.codex', '/tmp']`（options-builder.ts:176-180 SSOT;`/tmp` 供
-   * reviewer-claude wrapper Bash 模板写 `/tmp/<basename>.{in,out,err}.txt` 路由 stdio,
-   * spike4 实证缺 `/tmp` 时 codex sandbox-exec 拒读 wrapper 输出）。
+   * `['~/.claude', '~/.codex', '/tmp']`（options-builder.ts SSOT;`/tmp` 供 reviewer shell
+   * 工具调用 / sandbox-exec 中间文件路由，spike4 实证缺 `/tmp` 时 codex sandbox-exec 拒读）。
    */
   additionalDirectories?: readonly string[];
   /**

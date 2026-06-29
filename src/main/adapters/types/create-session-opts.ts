@@ -191,8 +191,8 @@ export interface CodexCreateOpts {
    * 应用层只暴露 `'never' | 'on-request'`（teammate reviewer 默认 never 不阻断；future caller
    * 想加 on-request 走 PendingTab 兜底）。
    *
-   * **enforce 点** = `options-builder.ts narrowToCodexOpts` 按 `agentName in ['reviewer-claude',
-   * 'reviewer-codex']` 路径触发 default spread；**bridge 不主动 hardcode default** —— 让 caller
+   * **enforce 点** = `options-builder.ts narrowToCodexOpts` 按 `agentName in REVIEWER_AGENT_NAMES`
+   * 路径触发 default spread；**bridge 不主动 hardcode default** —— 让 caller
    * 路径 / 普通 codex session 不被污染（不变量 6）。
    *
    * spawn-time 一次性透传给 codex.startThread；undefined 时 bridge 沿用现有 default 'never'
@@ -270,7 +270,7 @@ export type CreateSessionOptions =
  *
  * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D7（v4 信号源约定）**:
  * `agentName` 透传通道 — caller (spawn handler) 把 `args.agentName` 透到本字段；
- * `narrowToCodexOpts` 按 `agentName in ['reviewer-claude', 'reviewer-codex']` 触发 codex
+ * `narrowToCodexOpts` 按 `agentName in REVIEWER_AGENT_NAMES` 触发 codex
  * teammate spawn default spread（不变量 6: enforce 点 = options-builder 层，**禁** bridge
  * hardcode default 污染普通 codex session）。
  *
