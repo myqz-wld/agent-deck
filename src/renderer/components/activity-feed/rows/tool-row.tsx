@@ -81,7 +81,7 @@ export function ToolStartRow({
     );
   }
 
-  // Task / Agent：spawn subagent。当前会话起 reviewer-claude / reviewer-codex / general-purpose 等都走这条。
+  // Task / Agent：spawn subagent。当前会话起 reviewer slots / general-purpose 等都走这条。
   // 'Agent' 是新版 SDK 的 Task 别名（input shape 完全一致），统一处理。
   // 单行摘要靠 describe.ts 的 Task case；prompt 全文较长（典型 review prompt 含 scope+focus+skip 上百行）
   // → 默认折叠，点「展开 prompt」才显示。subagent 的返回值由后续 ToolEndRow 的 ▸/▾ 展开。

@@ -333,4 +333,5 @@
 | [CHANGELOG_326.md](CHANGELOG_326.md) | Large production source files split into focused helper modules. |
 | [CHANGELOG_327.md](CHANGELOG_327.md) | `spawn_session` model accepts custom provider ids while keeping aliases. |
 | [CHANGELOG_328.md](CHANGELOG_328.md) | `list_session_events` exposes related-session activity trajectories. |
+| [CHANGELOG_329.md](CHANGELOG_329.md) | Add a Deepseek v4-pro reviewer slot and require explicit two-slot reviewer selection for bundled simple/deep review workflows. |
 | [CHANGELOG_330.md](CHANGELOG_330.md) | `present_diff` supports line-anchored annotation cards. |

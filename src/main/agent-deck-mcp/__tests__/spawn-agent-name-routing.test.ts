@@ -252,8 +252,14 @@ vi.mock('@main/claude-config/custom-agents', () => ({
       agent: {
         name,
         source: 'bundled',
-        model: name === 'user-claude-agent' ? 'sonnet' : 'opus',
-        effortLevel: name === 'reviewer-claude' ? 'xhigh' : undefined,
+        model:
+          name === 'reviewer-deepseek'
+            ? 'deepseek-v4-pro[1m]'
+            : name === 'user-claude-agent'
+              ? 'sonnet'
+              : 'opus',
+        effortLevel:
+          name === 'reviewer-claude' || name === 'reviewer-deepseek' ? 'xhigh' : undefined,
         definition: {
           description: `${adapter}/${name} description`,
           prompt: `# ${adapter}/${name} body (mocked)`,
@@ -422,7 +428,7 @@ describe('spawn handler agentName native routing', () => {
   it('Deepseek adapter: resolves Claude-family agent assets while target adapter remains deepseek', async () => {
     const r = await spawn({
       adapter: 'deepseek-claude-code',
-      agentName: 'reviewer-claude',
+      agentName: 'reviewer-deepseek',
       cwd: '/repo',
       prompt: 'review task',
     });
@@ -431,13 +437,20 @@ describe('spawn handler agentName native routing', () => {
     expect(isError).toBeFalsy();
 
     expect(resolveClaudeAgentContentCalls).toEqual([{
-      name: 'reviewer-claude',
+      name: 'reviewer-deepseek',
       cwd: '/repo',
       adapter: 'claude-code',
     }]);
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].adapter).toBe('deepseek-claude-code');
-    expect(createSessionCalls[0].claudeAgentName).toBe('reviewer-claude');
+    expect(createSessionCalls[0].claudeAgentName).toBe('reviewer-deepseek');
+    expect(createSessionCalls[0].claudeAgents).toMatchObject({
+      'reviewer-deepseek': {
+        prompt: '# claude-code/reviewer-deepseek body (mocked)',
+      },
+    });
+    expect(createSessionCalls[0].model).toBe('deepseek-v4-pro[1m]');
+    expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('xhigh');
   });
 
   it('explicit model overrides bundled agent frontmatter model', async () => {

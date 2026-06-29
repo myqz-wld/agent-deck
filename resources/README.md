@@ -22,6 +22,7 @@ The Claude Code adapter uses this resource root. Deepseek (Claude Code) reuses t
 - `CLAUDE.md`: Appended to the end of the preset system prompt through Claude SDK `systemPrompt.append`, after user / project / local `CLAUDE.md`. The user copy saved by the settings panel is written to `<userData>/agent-deck-claude.md`; when present, it overrides the bundled file.
 - `agent-deck-plugin/`: Local plugin source used by the Claude SDK `plugins` field. At runtime it is mirrored to `<userData>/agent-deck-plugin/` and resource placeholders are replaced; the mirror is pruned by `injectAgentDeckClaudeSkills` / `injectAgentDeckClaudeAgents` for the `skills/` / `agents/` subdirectories before being handed to the SDK scanner.
 - `agent-deck-plugin/agents/reviewer-claude.md`: Claude Code reviewer teammate body.
+- `agent-deck-plugin/agents/reviewer-deepseek.md`: Deepseek reviewer teammate body loaded through the Claude Code resource root.
 - `agent-deck-plugin/skills/*/SKILL.md`: Claude Code-side `agent-deck:*` skills.
 
 ## codex-config/
@@ -35,6 +36,6 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
 ## Paired Boundaries
 
 - App environment conventions: protocol semantics in `resources/claude-config/CLAUDE.md` and `resources/codex-config/CODEX_AGENTS.md` must stay aligned; adapter tool differences should be written according to each adapter's execution model.
-- Reviewer bodies: `reviewer-claude.md` and `reviewer-codex.toml` must align on role, input contract, output format, and failure handling; do not copy the other side's tool instructions merely for mirrored synchronization.
+- Reviewer bodies: `reviewer-claude.md`, `reviewer-deepseek.md`, and `reviewer-codex.toml` must align on role, input contract, output format, and failure handling; do not copy another side's tool instructions merely for mirrored synchronization.
 - Skills: Claude skills live in `resources/claude-config/agent-deck-plugin/skills/`, and Codex skills live in `resources/codex-config/agent-deck-plugin/skills/`. Same-name skills must align on triggers and target behavior, while execution steps should follow each adapter's tool capabilities.
 - Packaged resources must be self-contained: app conventions, reviewer agents, and skills must remain fully usable when no user-customized agents / skills exist.

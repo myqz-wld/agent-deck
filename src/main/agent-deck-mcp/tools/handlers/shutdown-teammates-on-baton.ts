@@ -3,7 +3,7 @@
  *
  * 场景：caller 是某 team 的 lead，调 hand_off_session（baton 单向交接）或 archive_plan
  * （plan 完成）后 archive 自己。如果不一起处理 team 里的其他 active member（典型：
- * reviewer-claude / reviewer-codex 两个 teammate），它们就成孤儿——team 里没 lead 了，
+ * selected reviewer teammates），它们就成孤儿——team 里没 lead 了，
  * teammate 还在跑（占内存 + SDK live query），用户得手动一个个 shutdown_session。
  *
  * 本 helper 把「caller 是 lead 的所有 team 内其他 active member」一并 sessionManager.close

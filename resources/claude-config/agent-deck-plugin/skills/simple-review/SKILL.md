@@ -1,11 +1,11 @@
 ---
 name: simple-review
-description: "Run a one-pass heterogeneous reviewer-claude + reviewer-codex check for code, plans, prompt assets, technical decisions, agent validation, overall-change validation, post-edit prompt-asset validation, or Chinese anchors such as 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Blocks completion until CRITICAL/HIGH findings are fixed or disproven."
+description: "Run a one-pass check with exactly two confirmed heterogeneous reviewer slots selected from reviewer-claude, reviewer-codex, and reviewer-deepseek for code, plans, prompt assets, technical decisions, agent validation, overall-change validation, post-edit prompt-asset validation, or Chinese anchors such as 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Blocks completion until CRITICAL/HIGH findings are fixed or disproven."
 ---
 
 # Simple Review
 
-Use this skill when a single code change, plan, prompt asset, agent instruction, technical decision, or completed diff needs a fast heterogeneous adversarial review. It starts reviewer-claude and reviewer-codex once, compares their independent findings, and gives the user a final gate decision.
+Use this skill when a single code change, plan, prompt asset, agent instruction, technical decision, or completed diff needs a fast heterogeneous adversarial review. It requires an explicit two-slot reviewer selection, starts those reviewers once, compares their independent findings, and gives the user a final gate decision.
 
 Use `deep-review` instead when scope spans many modules, needs multiple fix rounds, mixes code and plan review, or requires deep race/security/architecture investigation.
 
@@ -23,6 +23,10 @@ The caller must pass typed scope:
 {
   kind: 'code' | 'plan' | 'prompt',
   paths: string[],
+  reviewers?: [
+    'reviewer-claude' | 'reviewer-codex' | 'reviewer-deepseek',
+    'reviewer-claude' | 'reviewer-codex' | 'reviewer-deepseek'
+  ],
   ack_cache_unignored?: boolean
 }
 ```
@@ -30,6 +34,7 @@ The caller must pass typed scope:
 - `kind` is mandatory; do not infer it from file extensions.
 - Use `kind: 'prompt'` for system prompts, agent bodies, `SKILL.md`, MCP/tool descriptions, and other durable AI-facing instructions.
 - `paths` must be absolute paths.
+- `reviewers` must contain exactly two distinct selected slots before spawn; if it is absent, ask the user to choose two and stop.
 - Paths should be inside the same repo/worktree root as `cwd`; paths outside that root are copied into the sandbox cache before spawning reviewers.
 - Keep a single invocation small enough for one pass. If the scope is broad, split by topic or use `deep-review`.
 
@@ -57,16 +62,19 @@ Cleanup:
 - After review finishes or aborts, remove only this invocation cache directory.
 - If cleanup fails, report the exact failed path. Copy failures follow the Failure Handling table.
 
-## Reviewer Pair
+## Reviewer Slot Selection
 
-Spawn both reviewers in parallel and keep the pair heterogeneous:
+Before spawning, require exactly two confirmed reviewer slots. If no selection is already provided, ask the user to choose exactly two slots and stop this turn; do not silently default.
 
 | Reviewer | Spawn |
 |---|---|
 | reviewer-claude | `spawn_session({ adapter: 'claude-code', agentName: 'reviewer-claude', cwd, teamName, displayName, prompt })` |
 | reviewer-codex | `spawn_session({ adapter: 'codex-cli', agentName: 'reviewer-codex', cwd, teamName, displayName, prompt })` |
+| reviewer-deepseek | `spawn_session({ adapter: 'deepseek-claude-code', agentName: 'reviewer-deepseek', model: 'deepseek-v4-pro[1m]', cwd, teamName, displayName, prompt })` |
 
-Never replace a failed reviewer with a second reviewer from the same adapter family. If one side fails, use the fallback table below.
+Reject duplicate slots, one slot, or three slots. The selected slots must be heterogeneous by adapter / provider slot; the bundled slots above are distinct. Record `reviewer_selection` in reviewer prompts and in the final report. Do not pass `permissionMode`, `claudeCodeSandbox`, or `codexSandbox` unless the user explicitly requested that override.
+
+Never replace a failed selected reviewer with an unselected slot or a duplicate of the surviving reviewer. If one selected slot fails, use the fallback table below.
 
 ## Turn Boundary
 
@@ -76,12 +84,12 @@ After spawning reviewers or sending rebuttal/Round 2 prompts, tell the user what
 
 | Step | Action |
 |---|---|
-| 0 | Normalize `scope`, create sandbox cache for external paths, and build the reviewer prompt from the templates below. |
-| 1 | Spawn reviewer-claude and reviewer-codex without waiting between spawns. Record each `sessionId`, `teamId`, and `spawnPromptMessageId`. |
-| 2 | Tell the user that both reviewers are running and replies will arrive through Agent Deck messages; then end the current turn. |
+| 0 | Normalize `scope`, confirm or record exactly two reviewer slots, create sandbox cache for external paths, and build the reviewer prompt from the templates below. |
+| 1 | Spawn the two selected reviewers without waiting between spawns. Record each `sessionId`, `teamId`, and `spawnPromptMessageId`. |
+| 2 | Tell the user that both selected reviewers are running and replies will arrive through Agent Deck messages; then end the current turn. |
 | 3 | When both reviewer replies arrive, adjudicate every finding with the tri-state rules below. |
-| 4 | For every CRITICAL/HIGH finding, send one rebuttal request to the opposite reviewer using `send_message` and the relevant reply chain anchor; then end the current turn. |
-| 5 | If a real CRITICAL/HIGH is fixed, reuse the same reviewers for one optional Round 2. Send only the fix diff and `skip` summary; then end the current turn. Do not respawn unless a fresh-session or scope mismatch warning requires it. |
+| 4 | For every CRITICAL/HIGH finding, send one rebuttal request to the other selected reviewer using `send_message` and the relevant reply chain anchor; then end the current turn. |
+| 5 | If a real CRITICAL/HIGH is fixed, reuse the same selected reviewers for one optional Round 2. Send only the fix diff and `skip` summary; then end the current turn. Do not respawn unless a fresh-session or scope mismatch warning requires it. |
 | 6 | Finish with reviewer shutdown, cache cleanup, and the final summary report. |
 
 Stop after one fix round unless the result still has CRITICAL/HIGH findings or many new true findings. Escalate that case to `deep-review`.
@@ -91,7 +99,7 @@ Stop after one fix round unless the result still has CRITICAL/HIGH findings or m
 Each finding gets one outcome:
 
 - ✅ **True issue**: both reviewers independently report it, or one reviewer reports it and the lead verifies it with search/read/command/test evidence.
-- ❌ **Rebutted**: the opposite reviewer or lead verification disproves it.
+- ❌ **Rebutted**: the other selected reviewer or lead verification disproves it.
 - ❓ **Partial / unverified**: evidence is incomplete or based on weak text-only reasoning. Downgrade to MEDIUM or lower.
 
 CRITICAL/HIGH findings require a rebuttal record before final decision. If both reviewers report the issue, still ask one side to challenge severity or exploitability.
@@ -133,6 +141,7 @@ Weak assertion words such as "maybe", "might", "probably", "可能 / 也许 / �
 Every reviewer prompt must include:
 
 - `output_mode: full_review` or `output_mode: rebuttal`.
+- `reviewer_selection`: the exact two selected slots and each slot's adapter, `agentName`, and model when the slot sets one.
 - `scope`: absolute paths after sandbox-cache replacement.
 - `focus`: review priorities.
 - `finding_contract`: location, snippet, verification, severity, fix direction, and complex-issue example requirements.
@@ -167,6 +176,7 @@ Rebuttal prompt:
 
 ```text
 output_mode: rebuttal
+reviewer_selection: <same two selected reviewer slots>
 Review only this finding from the other reviewer.
 Give one stance: agree / disagree / uncertain.
 Do not add unrelated findings.
@@ -177,7 +187,7 @@ Do not add unrelated findings.
 
 | Situation | Action |
 |---|---|
-| Either reviewer fails | Shutdown the failed session and respawn the same agent on its own adapter (reviewer-claude with `adapter: 'claude-code'`, reviewer-codex with `adapter: 'codex-cli'`); retry at most twice and keep the surviving reviewer. If it still fails, ask the user to wait, proceed with single-reviewer downgraded findings, or abort. Never respawn on the other adapter; the pair must not become two same-family reviewers. |
+| A selected reviewer fails | Shutdown the failed session and respawn the same selected slot using the table above; retry at most twice and keep the surviving reviewer. If it still fails, ask the user to wait, proceed with single-reviewer downgraded findings, or abort. Never respawn an unselected slot and never duplicate the survivor. |
 | reviewer reports `⚠ FRESH SESSION` | Shutdown and respawn that reviewer, then rerun Round 1 with full scope. Do not continue Round 2. |
 | reviewer reports `⚠ SCOPE PATH MISMATCH` | Fix the scope path or cache manifest, then shutdown, respawn, and resend the prompt. |
 | reviewer does not reply for 30 minutes | Only after the threshold or a user status request, check `get_session(lastEventAt)`. If recent, tell the user it is still running and end the turn; otherwise ask the user to resolve pending UI approvals if relevant or respawn. |
@@ -190,7 +200,7 @@ Before ending the workflow, report:
 
 - Scope, kind, and reviewed paths.
 - Final gate: PASS / BLOCKED / ABORTED / ESCALATED_TO_DEEP_REVIEW.
-- Reviewer coverage: session ids, retries, and whether the heterogeneous pair stayed intact.
+- Reviewer coverage: selected slots, session ids, retries, and whether the two-slot heterogeneous pair stayed intact.
 - Findings by severity and tri-state outcome, including CRITICAL/HIGH support, rebuttal, and lead decision.
 - Complex finding examples for accepted complex issues.
 - Fix and decision log: files changed, tests or commands run, MEDIUM disposition, accepted risk, and follow-ups.

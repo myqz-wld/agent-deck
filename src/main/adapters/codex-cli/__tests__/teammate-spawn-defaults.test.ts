@@ -7,16 +7,17 @@
  * cross-adapter native 改造后,reviewer-claude 不再走 wrapper 路径(claude SDK 子 + Bash
  * 起外部 codex CLI),改 cross-adapter native (claude-code adapter 直起 claude SDK)。
  * 删除 reviewer-claude wrapper 专用 envOverrideExtra: AGENT_DECK_CLAUDE_PATH 注入分支
- * + 对应测试 case (TC9 / TC11)。reviewer-claude / reviewer-codex 两个 reviewer-* 仍
+ * + 对应测试 case (TC9 / TC11)。所有 reviewer-* slot 仍
  * 共享 3 项 reviewer runtime default spread (approvalPolicy / networkAccessEnabled /
  * additionalDirectories)。codexSandbox 走普通 spawn 语义：caller 显式 / same-adapter 继承
  * 透传到本 builder,reviewer 分支不再覆盖。
  *
  * 覆盖:
  * - TC8: agentName='reviewer-codex' → 3 项 reviewer runtime default spread
+ * - TC9b: agentName='reviewer-deepseek' → 3 项 reviewer runtime default spread
  * - TC10: agentName=undefined (普通 codex session 用户起的 lead) → **不** spread reviewer
  *   runtime default (不变量 6: 普通 session 不被污染)
- * - TC10b: agentName='reviewer-typescript' (非 reviewer-* 两值) → 同款不 spread
+ * - TC10b: agentName='reviewer-typescript' (非 REVIEWER_AGENT_NAMES) → 同款不 spread
  * - TC11b: claude-code adapter narrow 不消费 agentName 字段 (filter 掉 —
  *   narrowToClaudeOpts 不 spread codex default)
  *
@@ -51,8 +52,7 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     expect(opts.codexSandbox).toBeUndefined();
     expect(opts.approvalPolicy).toBe('never');
     expect(opts.networkAccessEnabled).toBe(true);
-    // additionalDirectories 含 /tmp(spike4 实证 reviewer 必需,reviewer-claude /
-    // reviewer-codex 两 reviewer-* 同款 spread 保持对偶不分叉)
+    // additionalDirectories 含 /tmp(spike4 实证 reviewer 必需,所有 reviewer-* 同款 spread 保持不分叉)
     expect(opts.additionalDirectories).toEqual([
       path.join(os.homedir(), '.claude'),
       path.join(os.homedir(), '.codex'),
@@ -70,7 +70,7 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     // reviewer-claude 改 cross-adapter native (claude-code adapter 直起 claude SDK)。
     // 但 codex-cli adapter 仍可能 spawn reviewer-claude(理论上 cross-adapter 反向场景
     // 无,因 lead 起 reviewer-claude 总用 adapter:'claude-code') — 留此 case 验证
-    // codex-cli adapter narrow 时 reviewer-claude / reviewer-codex 两值都触发 3 项 runtime default。
+    // codex-cli adapter narrow 时所有 REVIEWER_AGENT_NAMES 都触发 3 项 runtime default。
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'review task',
@@ -91,6 +91,26 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     ]);
 
     // envOverrideExtra 不再被注入 AGENT_DECK_CLAUDE_PATH (wrapper 删除)
+    expect(opts.envOverrideExtra).toBeUndefined();
+  });
+
+  it('TC9b: agentName="reviewer-deepseek" → 3 项 reviewer runtime default spread and preserves caller sandbox', () => {
+    const opts = buildCreateSessionOptions('codex-cli', {
+      cwd: '/repo',
+      prompt: 'review task',
+      agentName: 'reviewer-deepseek',
+      codexSandbox: 'read-only',
+    });
+
+    expect(opts.agentId).toBe('codex-cli');
+    expect(opts.codexSandbox).toBe('read-only');
+    expect(opts.approvalPolicy).toBe('never');
+    expect(opts.networkAccessEnabled).toBe(true);
+    expect(opts.additionalDirectories).toEqual([
+      path.join(os.homedir(), '.claude'),
+      path.join(os.homedir(), '.codex'),
+      '/tmp',
+    ]);
     expect(opts.envOverrideExtra).toBeUndefined();
   });
 
@@ -123,11 +143,11 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     expect(optsWithCallerSandbox.additionalDirectories).toBeUndefined();
   });
 
-  it('TC10b: agentName="some-other-name" 非 reviewer-* → 同款不 spread (信号源仅认 reviewer-claude / reviewer-codex 两值)', () => {
+  it('TC10b: agentName="some-other-name" 非 REVIEWER_AGENT_NAMES → 同款不 spread', () => {
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'custom agent',
-      agentName: 'reviewer-typescript', // 非 reviewer-claude / reviewer-codex
+      agentName: 'reviewer-typescript', // 非 REVIEWER_AGENT_NAMES
     });
 
     expect(opts.agentId).toBe('codex-cli');
