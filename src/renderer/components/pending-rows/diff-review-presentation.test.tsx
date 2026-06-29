@@ -102,4 +102,27 @@ describe('diff review presentation', () => {
     expect(screen.getByText('Resolution choice')).toBeTruthy();
     expect(screen.getByText('This keeps the local state field and incoming validation.')).toBeTruthy();
   });
+
+  it('keeps bottom padding in unannotated conflict panes after expanding', () => {
+    const payload: DiffReviewRequest = {
+      type: 'diff-review',
+      requestId: 'mcp-diff-conflict-padding',
+      mode: 'merge-conflict',
+      rationale: 'Review the proposed resolution.',
+      conflict: {
+        ours: 'local line',
+        theirs: 'incoming line',
+        resolution: 'local line\nincoming line',
+      },
+    };
+
+    const { container } = render(
+      <DiffPresentationPanel payload={payload} diffPayload={null} sessionId="codex-1" />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /展开冲突/ }));
+
+    const paneBody = container.querySelector('pre');
+    expect(paneBody?.className).toContain('pb-5');
+  });
 });

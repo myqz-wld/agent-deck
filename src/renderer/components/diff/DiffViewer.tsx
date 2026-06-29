@@ -35,7 +35,9 @@ export function DiffViewer({ payload, sessionId, expanded }: Props): JSX.Element
   return (
     <SessionIdProvider value={sessionId ?? ''}>
       <ExpandedProvider value={expanded ?? false}>
-        <Comp payload={payload} />
+        <div className="h-full min-h-0 w-full min-w-0">
+          <Comp payload={payload} />
+        </div>
       </ExpandedProvider>
     </SessionIdProvider>
   );

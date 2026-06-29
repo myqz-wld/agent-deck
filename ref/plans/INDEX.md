@@ -90,6 +90,7 @@ Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_pr
 | [spawn-session-custom-model-20260625.md](spawn-session-custom-model-20260625.md) | completed | [327](../changelogs/CHANGELOG_327.md) | `spawn_session.model` accepts custom provider model ids while keeping maintained aliases as guidance |
 | [session-trajectory-mcp-tool-20260626.md](session-trajectory-mcp-tool-20260626.md) | completed | [328](../changelogs/CHANGELOG_328.md) | `list_session_events` reads related-session normalized activity trajectories |
 | [reviewer-model-selection-20260629.md](reviewer-model-selection-20260629.md) | completed | [329](../changelogs/CHANGELOG_329.md) | Added Deepseek reviewer slot selection and explicit two-slot review confirmation |
+| [diff-panel-sdk-upgrade-20260629.md](diff-panel-sdk-upgrade-20260629.md) | completed | [332](../changelogs/CHANGELOG_332.md) / [REVIEW_141](../reviews/REVIEW_141.md) | Diff panels keep bottom scroll clearance, and Claude/Codex runtime packages were upgraded to latest verified stable versions |
 
 ## Legacy Slug-Only Entries
 

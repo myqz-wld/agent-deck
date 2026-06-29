@@ -117,7 +117,7 @@ function DiffPresentationContent({
       return <AnnotatedPrDiff payload={payload} />;
     }
     return (
-      <div className={`${PRESENTED_DIFF_HEIGHT} overflow-hidden rounded border border-white/5`}>
+      <div className={`${PRESENTED_DIFF_HEIGHT} flex min-w-0 overflow-hidden rounded border border-white/5`}>
         <DiffViewer payload={diffPayload} sessionId={sessionId} />
       </div>
     );
@@ -126,7 +126,7 @@ function DiffPresentationContent({
     return <ConflictReviewGrid payload={payload} />;
   }
   return (
-    <pre className={`${PRESENTED_PANE_MAX_HEIGHT} max-w-full overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted`}>
+    <pre className={`${PRESENTED_PANE_MAX_HEIGHT} max-w-full overflow-auto scrollbar-deck rounded bg-black/30 px-1.5 pt-1.5 pb-5 text-[10px] leading-snug text-deck-muted`}>
       {JSON.stringify(payload, null, 2)}
     </pre>
   );
@@ -263,7 +263,7 @@ function ConflictPane({
         {label}
       </div>
       <pre
-        className={`m-0 ${PRESENTED_PANE_MAX_HEIGHT} overflow-auto scrollbar-deck p-2 font-mono text-[10px] leading-5 text-deck-text ${className ?? ''}`}
+        className={`m-0 ${PRESENTED_PANE_MAX_HEIGHT} overflow-auto scrollbar-deck px-2 pt-2 pb-5 font-mono text-[10px] leading-5 text-deck-text ${className ?? ''}`}
       >
         {content}
       </pre>
@@ -295,7 +295,7 @@ function AnnotatedCodePane({
       <div className="border-b border-deck-border/50 px-2 py-1 text-[10px] font-medium text-deck-muted/90">
         {label}
       </div>
-      <div className={`overflow-auto scrollbar-deck ${PRESENTED_PANE_MAX_HEIGHT} ${bodyClassName ?? ''}`}>
+      <div className={`overflow-auto scrollbar-deck pb-5 ${PRESENTED_PANE_MAX_HEIGHT} ${bodyClassName ?? ''}`}>
         <div className="font-mono text-[10px] leading-5 text-deck-text">
           <AnnotationCards pane={pane} line={0} annotations={grouped.get(0) ?? []} />
           {lines.map((line, index) => {
