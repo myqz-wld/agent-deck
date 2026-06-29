@@ -44,7 +44,7 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
       ? wholeFileToneFromChange(changeKind) ?? wholeFileToneFromDiff ?? inferWholeFileTone(reconstructed.before, reconstructed.after)
       : null;
     return (
-      <div className="flex h-full flex-col gap-2">
+      <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
         {!expanded && (
           <DiffHeader
             filePath={payload.filePath}
@@ -66,8 +66,8 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
             language={language}
           />
         ) : unifiedDiff ? (
-          <div className="min-h-[260px] flex-1 overflow-auto rounded-md border border-deck-border bg-[#0f1218]">
-            <pre className="m-0 p-3 font-mono text-[11px] leading-5 text-deck-text">
+          <div className="min-h-[260px] min-w-0 flex-1 overflow-auto rounded-md border border-deck-border bg-[#0f1218]">
+            <pre className="m-0 px-3 pt-3 pb-6 font-mono text-[11px] leading-5 text-deck-text">
               {unifiedDiff}
             </pre>
           </div>
@@ -94,7 +94,7 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
   const after = payload.after ?? '';
   const wholeFileTone = inferWholeFileTone(payload.before, payload.after);
   return (
-    <div className="flex h-full flex-col gap-1.5">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-1.5">
       {!expanded && (
         <DiffHeader
           filePath={payload.filePath}
@@ -187,11 +187,11 @@ function WholeFileDiffView({
       };
   return (
     <div
-      className={`min-h-[260px] flex-1 overflow-auto rounded-md border ${styles.container}`}
+      className={`min-h-[260px] min-w-0 flex-1 overflow-auto rounded-md border ${styles.container}`}
       data-testid="full-file-diff"
       data-change-kind={tone}
     >
-      <div className="font-mono text-[11px] leading-5 text-deck-text">
+      <div className="pb-5 font-mono text-[11px] leading-5 text-deck-text">
         {lines.map((line, index) => (
           <div
             key={index}
@@ -249,7 +249,7 @@ function MonacoDiffView({
   language: string;
 }): JSX.Element {
   return (
-    <div className="min-h-[260px] flex-1 overflow-hidden rounded-md border border-deck-border">
+    <div className="min-h-[260px] min-w-0 flex-1 overflow-hidden rounded-md border border-deck-border">
       <Suspense
         fallback={
           <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
@@ -269,6 +269,7 @@ function MonacoDiffView({
             minimap: { enabled: false },
             fontSize: 11,
             scrollBeyondLastLine: false,
+            padding: { bottom: 16 },
             automaticLayout: true,
             renderOverviewRuler: false,
           }}

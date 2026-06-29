@@ -15,16 +15,19 @@ vi.mock('@monaco-editor/react', async () => {
       original,
       modified,
       language,
+      options,
     }: {
       original: string;
       modified: string;
       language?: string;
+      options?: { padding?: { bottom?: number } };
     }) =>
       React.createElement('div', {
         'data-testid': 'diff-editor',
         'data-original': original,
         'data-modified': modified,
         'data-language': language,
+        'data-padding-bottom': String(options?.padding?.bottom ?? ''),
       }),
   };
 });
@@ -102,6 +105,7 @@ describe('TextDiffRenderer codex metadata', () => {
     await waitFor(() => expect(screen.getByTestId('diff-editor')).toBeTruthy());
     expect(screen.getByTestId('diff-editor').getAttribute('data-original')).toBe('old');
     expect(screen.getByTestId('diff-editor').getAttribute('data-modified')).toBe('new');
+    expect(screen.getByTestId('diff-editor').getAttribute('data-padding-bottom')).toBe('16');
     expect(screen.queryByText(/Codex 未提供可显示的差异内容/)).toBeNull();
   });
 
@@ -139,6 +143,7 @@ describe('TextDiffRenderer codex metadata', () => {
     const panel = screen.getByTestId('full-file-diff');
     expect(panel.getAttribute('data-change-kind')).toBe('added');
     expect(panel.className).toContain('bg-status-working/10');
+    expect(panel.firstElementChild?.className).toContain('pb-5');
     expect(panel.textContent).toContain('+first');
     expect(screen.queryByTestId('diff-editor')).toBeNull();
   });
@@ -159,6 +164,7 @@ describe('TextDiffRenderer codex metadata', () => {
     const panel = screen.getByTestId('full-file-diff');
     expect(panel.getAttribute('data-change-kind')).toBe('deleted');
     expect(panel.className).toContain('bg-status-error/10');
+    expect(panel.firstElementChild?.className).toContain('pb-5');
     expect(panel.textContent).toContain('-old');
     expect(screen.getByText('删除')).toBeTruthy();
     expect(screen.queryByTestId('diff-editor')).toBeNull();
@@ -214,6 +220,7 @@ describe('TextDiffRenderer codex metadata', () => {
     );
 
     expect(container.textContent).toContain('Binary files a/tmp/a.png and b/tmp/a.png differ');
+    expect(container.querySelector('pre')?.className).toContain('pb-6');
   });
 
   it('renders codex fallback when changeKind is an object and diff is absent', () => {
