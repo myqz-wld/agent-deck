@@ -335,3 +335,4 @@
 | [CHANGELOG_328.md](CHANGELOG_328.md) | `list_session_events` exposes related-session activity trajectories. |
 | [CHANGELOG_329.md](CHANGELOG_329.md) | Add a Deepseek v4-pro reviewer slot and require explicit two-slot reviewer selection for bundled simple/deep review workflows. |
 | [CHANGELOG_330.md](CHANGELOG_330.md) | `present_diff` supports line-anchored annotation cards. |
+| [CHANGELOG_331.md](CHANGELOG_331.md) | Deepseek settings now use `~/.agent-deck/.deepseek/settings.json`. |
