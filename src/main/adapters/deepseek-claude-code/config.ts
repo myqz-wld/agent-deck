@@ -9,7 +9,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-const DEEPSEEK_DIR = join(homedir(), '.agent_deck', '.deepseek');
+const DEEPSEEK_DIR = join(homedir(), '.agent-deck', '.deepseek');
 const DEEPSEEK_SETTINGS = join(DEEPSEEK_DIR, 'settings.json');
 
 const DEFAULT_ENV: Record<string, string> = {

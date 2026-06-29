@@ -17,7 +17,7 @@ Path routing: dev (`pnpm dev`) reads the `<repo>/resources/*` source directories
 
 ## claude-config/
 
-The Claude Code adapter uses this resource root. Deepseek (Claude Code) reuses the same agents / skills / `CLAUDE.md` and overlays provider env through `~/.agent_deck/.deepseek/settings.json`.
+The Claude Code adapter uses this resource root. Deepseek (Claude Code) reuses the same agents / skills / `CLAUDE.md` and overlays provider env through `~/.agent-deck/.deepseek/settings.json`.
 
 - `CLAUDE.md`: Appended to the end of the preset system prompt through Claude SDK `systemPrompt.append`, after user / project / local `CLAUDE.md`. The user copy saved by the settings panel is written to `<userData>/agent-deck-claude.md`; when present, it overrides the bundled file.
 - `agent-deck-plugin/`: Local plugin source used by the Claude SDK `plugins` field. At runtime it is mirrored to `<userData>/agent-deck-plugin/` and resource placeholders are replaced; the mirror is pruned by `injectAgentDeckClaudeSkills` / `injectAgentDeckClaudeAgents` for the `skills/` / `agents/` subdirectories before being handed to the SDK scanner.
