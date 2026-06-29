@@ -76,7 +76,16 @@ describe('present_diff handler', () => {
         title: 'User fields',
         filePath: 'src/user.ts',
         language: 'typescript',
+        instructions: 'Confirm the renamed field is still nullable-safe.',
         rationale: 'Shows the user field rename before applying it.',
+        annotations: [
+          {
+            pane: 'after',
+            line: 1,
+            title: 'Rename reason',
+            body: 'The new path matches the API payload shape.',
+          },
+        ],
         pr: {
           before: 'const name = user.name;',
           after: 'const displayName = user.profile.displayName;',
@@ -101,7 +110,16 @@ describe('present_diff handler', () => {
       title: 'User fields',
       filePath: 'src/user.ts',
       language: 'typescript',
+      instructions: 'Confirm the renamed field is still nullable-safe.',
       rationale: 'Shows the user field rename before applying it.',
+      annotations: [
+        {
+          pane: 'after',
+          line: 1,
+          title: 'Rename reason',
+          body: 'The new path matches the API payload shape.',
+        },
+      ],
       pr: {
         before: 'const name = user.name;',
         after: 'const displayName = user.profile.displayName;',
@@ -223,6 +241,46 @@ describe('present_diff handler', () => {
     expect(result.isError).toBe(true);
     expect(parseResult(result)).toEqual({
       error: 'present_diff rejects `conflict` when mode="pr"',
+    });
+    expect(mocks.ingest).not.toHaveBeenCalled();
+  });
+
+  it('rejects annotation panes that do not match the selected mode', async () => {
+    mocks.sessions.set('codex-1', makeSession('codex-1'));
+
+    const result = await requestDiffReviewHandler(
+      {
+        mode: 'pr',
+        rationale: 'Invalid annotation pane.',
+        annotations: [{ pane: 'resolution', line: 1, body: 'This belongs to conflict mode.' }],
+        pr: { before: 'a', after: 'b' },
+      },
+      makeCtx('codex-1'),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(parseResult(result)).toEqual({
+      error: 'present_diff annotation pane "resolution" is not valid when mode="pr"',
+    });
+    expect(mocks.ingest).not.toHaveBeenCalled();
+  });
+
+  it('rejects base annotations when no base pane is presented', async () => {
+    mocks.sessions.set('codex-1', makeSession('codex-1'));
+
+    const result = await requestDiffReviewHandler(
+      {
+        mode: 'merge-conflict',
+        rationale: 'Invalid base annotation.',
+        annotations: [{ pane: 'base', line: 1, body: 'No base pane exists.' }],
+        conflict: { ours: 'a', theirs: 'b', resolution: 'c' },
+      },
+      makeCtx('codex-1'),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(parseResult(result)).toEqual({
+      error: 'present_diff annotation pane "base" requires conflict.base',
     });
     expect(mocks.ingest).not.toHaveBeenCalled();
   });

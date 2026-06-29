@@ -76,14 +76,43 @@ export const REQUEST_PLAN_REVIEW_SCHEMA = {
 };
 
 const DIFF_REVIEW_TEXT = z.string().max(100_000);
+const DIFF_REVIEW_ANNOTATION_TEXT = z.string().min(1).max(4_000);
+
+export const DIFF_REVIEW_ANNOTATION_SCHEMA = z
+  .object({
+    pane: z
+      .enum(['before', 'after', 'both', 'base', 'ours', 'theirs', 'resolution'])
+      .describe(
+        'Pane that should display this annotation. Use before/after/both with mode="pr"; use base/ours/theirs/resolution with mode="merge-conflict".',
+      ),
+    line: z
+      .number()
+      .int()
+      .min(0)
+      .max(1_000_000)
+      .optional()
+      .describe(
+        'Optional 1-based line number in the selected pane. The annotation is shown after that displayed line; use 0 or omit it to show the card before the first line.',
+      ),
+    title: z
+      .string()
+      .min(1)
+      .max(120)
+      .optional()
+      .describe('Optional short heading for this annotation. Omit it when the body is self-explanatory.'),
+    body: DIFF_REVIEW_ANNOTATION_TEXT.describe(
+      'Concise pane-specific explanation, such as field meaning, caller impact, logic, risk, or purpose. Do not include source content that belongs in the source pane.',
+    ),
+  })
+  .strict();
 
 export const DIFF_REVIEW_PR_FRAGMENT_SCHEMA = z
   .object({
     before: DIFF_REVIEW_TEXT.describe(
-      'Original content for the left side of the two-column presentation. Use the actual before fragment as the primary comparison content; concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.',
+      'Exact original content for the left side of the two-column presentation. Use the actual before fragment as the primary comparison content; do not include explanatory prose or annotations in this source pane.',
     ),
     after: DIFF_REVIEW_TEXT.describe(
-      'Proposed content for the right side of the two-column presentation. Use the actual after fragment as the primary comparison content; concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.',
+      'Exact proposed content for the right side of the two-column presentation. Use the actual after fragment as the primary comparison content; do not include explanatory prose or annotations in this source pane.',
     ),
     beforeLabel: z.string().min(1).max(80).optional().describe('Optional label for the original side. Defaults should be UI-owned, not agent-owned.'),
     afterLabel: z.string().min(1).max(80).optional().describe('Optional label for the proposed side. Defaults should be UI-owned, not agent-owned.'),
@@ -95,11 +124,11 @@ export const DIFF_REVIEW_PR_FRAGMENT_SCHEMA = z
 
 export const DIFF_REVIEW_CONFLICT_FRAGMENT_SCHEMA = z
   .object({
-    ours: DIFF_REVIEW_TEXT.describe('Current/ours content for the conflict pane. Concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.'),
-    theirs: DIFF_REVIEW_TEXT.describe('Incoming/theirs content for the conflict pane. Concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.'),
-    resolution: DIFF_REVIEW_TEXT.describe('Proposed final resolved content for the user to confirm or revise. Concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.'),
+    ours: DIFF_REVIEW_TEXT.describe('Exact current/ours content for the conflict pane. Do not include explanatory prose or annotations in this source pane.'),
+    theirs: DIFF_REVIEW_TEXT.describe('Exact incoming/theirs content for the conflict pane. Do not include explanatory prose or annotations in this source pane.'),
+    resolution: DIFF_REVIEW_TEXT.describe('Exact proposed final resolved content for the user to confirm or revise. Do not include explanatory prose or annotations in this source pane.'),
     base: DIFF_REVIEW_TEXT.optional().describe(
-      'Optional common ancestor content, shown only when useful for understanding the resolution. Concise explanatory annotations may be included when helpful for a walkthrough and should be clearly marked when they are not part of the patch.',
+      'Optional exact common ancestor content, shown only when useful for understanding the resolution. Do not include explanatory prose or annotations in this source pane.',
     ),
     oursLabel: z.string().min(1).max(80).optional().describe('Optional display label for the current/ours pane. Defaults should be UI-owned, not agent-owned.'),
     theirsLabel: z.string().min(1).max(80).optional().describe('Optional display label for the incoming/theirs pane. Defaults should be UI-owned, not agent-owned.'),
@@ -138,14 +167,21 @@ export const REQUEST_DIFF_REVIEW_SCHEMA = {
     .max(10_000)
     .optional()
     .describe(
-      'Optional focused presentation instructions or acceptance criteria shown with the diff, such as risk areas, intended behavior, or specific questions for the user. In a step-by-step walkthrough, use it to scope what the user should confirm for the current fragment and to explain relevant fields, callers, functions, logic, or purpose.',
+      'Optional confirmation instructions or acceptance criteria shown with the diff, such as risk areas, intended behavior, or specific questions for the user. In a step-by-step walkthrough, use it to state what the user should confirm for the current fragment; put pane-specific explanations in annotations.',
     ),
   rationale: z
     .string()
     .min(1)
     .max(40_000)
     .describe(
-      'Short explanation shown above the diff so the user understands what they are confirming and why this fragment is being presented.',
+      'Required explanation of why this fragment is being presented and what change the user is being asked to review. Keep confirmation criteria in instructions and pane-specific explanations in annotations.',
+    ),
+  annotations: z
+    .array(DIFF_REVIEW_ANNOTATION_SCHEMA)
+    .max(40)
+    .optional()
+    .describe(
+      'Optional pane-specific explanation cards shown with the selected diff or conflict pane. Use before/after/both panes with mode="pr" and base/ours/theirs/resolution panes with mode="merge-conflict"; omit when no pane-specific notes are needed. Do not place these explanations in source panes.',
     ),
   pr: DIFF_REVIEW_PR_FRAGMENT_SCHEMA.optional().describe('Two-column PR-style diff payload. Required when mode="pr"; omit when mode="merge-conflict". Use this payload for each PR-style walkthrough fragment.'),
   conflict: DIFF_REVIEW_CONFLICT_FRAGMENT_SCHEMA.optional().describe(

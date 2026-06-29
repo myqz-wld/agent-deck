@@ -1,11 +1,13 @@
 import { useMemo, useState, type JSX, type KeyboardEvent } from 'react';
-import type { AgentEvent, DiffPayload, DiffReviewRequest, DiffReviewResponse } from '@shared/types';
-import { DiffViewer } from '../diff/DiffViewer';
+import type { AgentEvent, DiffReviewRequest, DiffReviewResponse } from '@shared/types';
+import {
+  DiffIntroCards,
+  DiffPresentationPanel,
+  buildPrDiffPayload,
+} from './diff-review-presentation';
 import log from '@renderer/utils/logger';
 
 const logger = log.scope('renderer-diff-review-row');
-const PRESENTED_DIFF_HEIGHT = 'h-[60vh] min-h-96 max-h-[44rem]';
-const PRESENTED_PANE_MAX_HEIGHT = 'max-h-[44rem]';
 
 export function DiffReviewRow({
   event,
@@ -141,14 +143,7 @@ export function DiffReviewRow({
         />
       )}
 
-      {payload.instructions && (
-        <div className="mb-1.5 rounded border border-deck-border/40 bg-white/[0.025] px-2 py-1 text-[10px] leading-relaxed text-deck-muted/90">
-          {payload.instructions}
-        </div>
-      )}
-      <div className="mb-1.5 rounded border border-deck-border/40 bg-black/20 px-2 py-1.5 text-[10px] leading-relaxed text-deck-text">
-        {payload.rationale}
-      </div>
+      <DiffIntroCards rationale={payload.rationale} instructions={payload.instructions} />
 
       <DiffPresentationPanel payload={payload} diffPayload={diffPayload} sessionId={sessionId} />
 
@@ -163,147 +158,5 @@ export function DiffReviewRow({
         </div>
       )}
     </li>
-  );
-}
-
-function DiffPresentationPanel({
-  payload,
-  diffPayload,
-  sessionId,
-}: {
-  payload: DiffReviewRequest;
-  diffPayload: DiffPayload<string> | null;
-  sessionId: string;
-}): JSX.Element {
-  const [expanded, setExpanded] = useState(false);
-  const size = getPresentationSize(payload);
-  const label = payload.mode === 'merge-conflict' ? '冲突内容' : '差异内容';
-
-  return (
-    <div className="min-w-0 rounded border border-deck-border/40 bg-black/20 p-2">
-      {expanded ? (
-        <DiffPresentationContent
-          payload={payload}
-          diffPayload={diffPayload}
-          sessionId={sessionId}
-        />
-      ) : (
-        <div className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-2 text-[10px] text-deck-muted/85">
-          {label}已收起
-        </div>
-      )}
-      <div className="mt-1.5 flex justify-end">
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          className="rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/[0.08] hover:text-deck-text"
-        >
-          {expanded ? '收起' : `展开${payload.mode === 'merge-conflict' ? '冲突' : '差异'}（${size} 字）`}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function DiffPresentationContent({
-  payload,
-  diffPayload,
-  sessionId,
-}: {
-  payload: DiffReviewRequest;
-  diffPayload: DiffPayload<string> | null;
-  sessionId: string;
-}): JSX.Element {
-  if (payload.mode === 'pr' && diffPayload) {
-    return (
-      <div className={`${PRESENTED_DIFF_HEIGHT} overflow-hidden rounded border border-white/5`}>
-        <DiffViewer payload={diffPayload} sessionId={sessionId} />
-      </div>
-    );
-  }
-  if (payload.mode === 'merge-conflict' && payload.conflict) {
-    return <ConflictReviewGrid payload={payload} />;
-  }
-  return (
-    <pre className={`${PRESENTED_PANE_MAX_HEIGHT} max-w-full overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted`}>
-      {JSON.stringify(payload, null, 2)}
-    </pre>
-  );
-}
-
-function buildPrDiffPayload(payload: DiffReviewRequest): DiffPayload<string> | null {
-  if (payload.mode !== 'pr' || !payload.pr) return null;
-  return {
-    kind: 'text',
-    filePath: payload.filePath ?? payload.title ?? 'diff-presentation',
-    before: payload.pr.before,
-    after: payload.pr.after,
-    metadata: {
-      source: 'mcp-diff-presentation',
-      beforeLabel: payload.pr.beforeLabel,
-      afterLabel: payload.pr.afterLabel,
-      diff: payload.pr.unifiedDiff,
-      language: payload.language,
-    },
-    ts: Date.now(),
-  };
-}
-
-function getPresentationSize(payload: DiffReviewRequest): number {
-  if (payload.mode === 'pr' && payload.pr) {
-    return payload.pr.before.length + payload.pr.after.length + (payload.pr.unifiedDiff?.length ?? 0);
-  }
-  if (payload.mode === 'merge-conflict' && payload.conflict) {
-    const c = payload.conflict;
-    return [c.base, c.ours, c.theirs, c.resolution].reduce(
-      (total, content) => total + (content?.length ?? 0),
-      0,
-    );
-  }
-  return JSON.stringify(payload, null, 2).length;
-}
-
-function ConflictReviewGrid({ payload }: { payload: DiffReviewRequest }): JSX.Element {
-  const c = payload.conflict!;
-  const columns = [
-    { key: 'ours', label: c.oursLabel ?? '当前', content: c.ours },
-    { key: 'theirs', label: c.theirsLabel ?? '传入', content: c.theirs },
-    { key: 'resolution', label: c.resolutionLabel ?? '建议结果', content: c.resolution },
-  ];
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      {c.base != null && (
-        <ConflictPane label={c.baseLabel ?? '共同基础'} content={c.base} className="max-h-64" />
-      )}
-      <div className="grid min-w-0 grid-cols-1 gap-1.5 lg:grid-cols-3">
-        {columns.map((col) => (
-          <ConflictPane key={col.key} label={col.label} content={col.content} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ConflictPane({
-  label,
-  content,
-  className,
-}: {
-  label: string;
-  content: string;
-  className?: string;
-}): JSX.Element {
-  return (
-    <div className="min-w-0 overflow-hidden rounded border border-deck-border/50 bg-[#0f1218]">
-      <div className="border-b border-deck-border/50 px-2 py-1 text-[10px] font-medium text-deck-muted/90">
-        {label}
-      </div>
-      <pre
-        className={`m-0 ${PRESENTED_PANE_MAX_HEIGHT} overflow-auto scrollbar-deck p-2 font-mono text-[10px] leading-5 text-deck-text ${className ?? ''}`}
-      >
-        {content}
-      </pre>
-    </div>
   );
 }

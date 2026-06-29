@@ -37,6 +37,7 @@ class DiffReviewService {
       ...(input.filePath ? { filePath: input.filePath } : {}),
       ...(input.language ? { language: input.language } : {}),
       ...(input.instructions ? { instructions: input.instructions } : {}),
+      ...(input.annotations ? { annotations: input.annotations } : {}),
       ...(input.pr ? { pr: input.pr } : {}),
       ...(input.conflict ? { conflict: input.conflict } : {}),
     };
