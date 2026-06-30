@@ -74,6 +74,44 @@ describe('diff review presentation', () => {
     expect(screen.getAllByText('The caller remains the same on both sides.')).toHaveLength(2);
   });
 
+  it('keeps red and green diff cues when PR annotation cards are present', () => {
+    const payload: DiffReviewRequest = {
+      type: 'diff-review',
+      requestId: 'mcp-diff-tones',
+      mode: 'pr',
+      rationale: 'Explain the inserted branch.',
+      annotations: [
+        {
+          pane: 'after',
+          line: 2,
+          body: 'The added branch is intentionally highlighted and annotated.',
+        },
+      ],
+      pr: {
+        before: 'const state = loadState();\nreturn state;',
+        after: 'const state = loadState();\nconst ready = state.ready;\nreturn ready ? state : null;',
+      },
+    };
+
+    const { container } = render(
+      <DiffPresentationPanel
+        payload={payload}
+        diffPayload={buildPrDiffPayload(payload)}
+        sessionId="codex-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /展开差异/ }));
+
+    const deletedRows = container.querySelectorAll('[data-diff-tone="deleted"]');
+    const addedRows = container.querySelectorAll('[data-diff-tone="added"]');
+    expect(deletedRows.length).toBeGreaterThan(0);
+    expect(addedRows.length).toBeGreaterThan(0);
+    expect(deletedRows[0]?.className).toContain('bg-status-error');
+    expect(addedRows[0]?.className).toContain('bg-status-working');
+    expect(screen.getByText('The added branch is intentionally highlighted and annotated.')).toBeTruthy();
+  });
+
   it('renders merge-conflict annotations in the resolution pane', () => {
     const payload: DiffReviewRequest = {
       type: 'diff-review',
