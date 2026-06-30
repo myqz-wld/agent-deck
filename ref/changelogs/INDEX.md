@@ -339,3 +339,4 @@
 | [CHANGELOG_332.md](CHANGELOG_332.md) | Fix diff panel bottom clipping and upgrade Claude/Codex packages. |
 | [CHANGELOG_333.md](CHANGELOG_333.md) | `reviewer-deepseek` now uses `effort: max`. |
 | [CHANGELOG_334.md](CHANGELOG_334.md) | `send_message` resolves target session aliases before enqueue. |
+| [CHANGELOG_335.md](CHANGELOG_335.md) | Annotated `present_diff` PR cards keep red/green diff cues. |
