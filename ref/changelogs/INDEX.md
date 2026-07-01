@@ -341,3 +341,4 @@
 | [CHANGELOG_334.md](CHANGELOG_334.md) | `send_message` resolves target session aliases before enqueue. |
 | [CHANGELOG_335.md](CHANGELOG_335.md) | Annotated `present_diff` PR cards keep red/green diff cues. |
 | [CHANGELOG_336.md](CHANGELOG_336.md) | Refresh Claude and Codex runtime packages. |
+| [CHANGELOG_337.md](CHANGELOG_337.md) | Restore red error theme token for diff deletion rows. |

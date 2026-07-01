@@ -10,6 +10,7 @@
   --color-status-idle: rgb(140, 140, 150);
   --color-status-working: rgb(80, 200, 120);
   --color-status-waiting: rgb(255, 80, 80);
+  --color-status-error: rgb(255, 80, 80);
   --color-status-finished: rgb(240, 200, 60);
   --color-status-dormant: rgb(110, 110, 120);
   --color-status-closed: rgb(80, 80, 90);
