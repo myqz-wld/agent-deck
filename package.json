@@ -23,13 +23,13 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.195",
-    "@anthropic-ai/sdk": "^0.106.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.197",
+    "@anthropic-ai/sdk": "^0.109.0",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@monaco-editor/react": "^4.7.0",
-    "@openai/codex": "^0.142.3",
+    "@openai/codex": "^0.142.4",
     "better-sqlite3": "^11.7.0",
     "electron-log": "^5.4.4",
     "electron-store": "8.2.0",

@@ -340,3 +340,4 @@
 | [CHANGELOG_333.md](CHANGELOG_333.md) | `reviewer-deepseek` now uses `effort: max`. |
 | [CHANGELOG_334.md](CHANGELOG_334.md) | `send_message` resolves target session aliases before enqueue. |
 | [CHANGELOG_335.md](CHANGELOG_335.md) | Annotated `present_diff` PR cards keep red/green diff cues. |
+| [CHANGELOG_336.md](CHANGELOG_336.md) | Refresh Claude and Codex runtime packages. |
