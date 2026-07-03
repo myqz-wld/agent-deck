@@ -45,6 +45,34 @@ export function getDeepseekSettingsPath(): string {
 }
 
 export function loadDeepseekClaudeEnv(): Readonly<Record<string, string>> {
+  const env = buildDeepseekEnvFromSettings();
+  const token = (env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '').trim();
+  if (!token || token === '<your DeepSeek API Key>') {
+    throw new Error(
+      `Deepseek (Claude Code) requires an API key. Edit ${DEEPSEEK_SETTINGS} and set env.ANTHROPIC_AUTH_TOKEN.`,
+    );
+  }
+  env.ANTHROPIC_AUTH_TOKEN = token;
+  delete env.ANTHROPIC_API_KEY;
+  return env;
+}
+
+export function getDeepseekModelForClaudeAlias(
+  alias: 'fable' | 'opus' | 'sonnet' | 'haiku',
+): string | undefined {
+  const env = buildDeepseekEnvFromSettings();
+  const key = `ANTHROPIC_DEFAULT_${alias.toUpperCase()}_MODEL`;
+  const model = env[key]?.trim() || env.ANTHROPIC_MODEL?.trim();
+  return model || undefined;
+}
+
+export function getDeepseekDefaultModel(): string | undefined {
+  const env = loadDeepseekClaudeEnv();
+  const model = env.ANTHROPIC_MODEL?.trim();
+  return model || undefined;
+}
+
+function buildDeepseekEnvFromSettings(): Record<string, string> {
   ensureDefaultSettingsFile();
   const parsed = readSettingsFile();
   const env = { ...DEFAULT_ENV, ...stringRecord(parsed.env) };
@@ -58,22 +86,7 @@ export function loadDeepseekClaudeEnv(): Readonly<Record<string, string>> {
   setIfString(env, 'ANTHROPIC_DEFAULT_HAIKU_MODEL', parsed.haikuModel);
   setIfString(env, 'CLAUDE_CODE_SUBAGENT_MODEL', parsed.subagentModel);
   setIfString(env, 'CLAUDE_CODE_EFFORT_LEVEL', parsed.effortLevel);
-
-  const token = (env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '').trim();
-  if (!token || token === '<your DeepSeek API Key>') {
-    throw new Error(
-      `Deepseek (Claude Code) requires an API key. Edit ${DEEPSEEK_SETTINGS} and set env.ANTHROPIC_AUTH_TOKEN.`,
-    );
-  }
-  env.ANTHROPIC_AUTH_TOKEN = token;
-  delete env.ANTHROPIC_API_KEY;
   return env;
-}
-
-export function getDeepseekDefaultModel(): string | undefined {
-  const env = loadDeepseekClaudeEnv();
-  const model = env.ANTHROPIC_MODEL?.trim();
-  return model || undefined;
 }
 
 function ensureDefaultSettingsFile(): void {

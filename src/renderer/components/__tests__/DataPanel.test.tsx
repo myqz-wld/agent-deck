@@ -84,11 +84,20 @@ describe('DataPanel quota usage', () => {
     expect(screen.getByText('Token 口径')).toBeTruthy();
     expect(screen.getByText(/Claude Code：/)).toBeTruthy();
     expect(screen.getByText(/Codex：/)).toBeTruthy();
-    expect(screen.getByText(/输入 \+ 缓存读 \+ 缓存写/)).toBeTruthy();
-    expect(screen.getByText(/output_tokens_details\.thinking_tokens/)).toBeTruthy();
-    expect(screen.getByText(/cachedInputTokens 是输入中的缓存命中拆分/)).toBeTruthy();
-    expect(screen.getByText(/outputTokens \+ reasoningOutputTokens/)).toBeTruthy();
-    expect(screen.getByText(/reasoningOutputTokens/)).toBeTruthy();
+    expect(screen.getByText(/这些列有的互相包含/)).toBeTruthy();
+    expect(screen.getByText(/总输入 = 输入 \+ 缓存读 \+ 缓存写/)).toBeTruthy();
+    expect(screen.getByText(/如果有推理值，它已经包含在输出里/)).toBeTruthy();
+    expect(screen.getByText(/输入已经包含缓存读/)).toBeTruthy();
+    expect(screen.getByText(/推理也已经包含在输出里/)).toBeTruthy();
+    const todaySummary = screen.getByText(/今日汇总/);
+    const accounting = screen.getByText('Token 口径');
+    const dailyDetails = screen.getByText('每模型每天明细');
+    expect(
+      todaySummary.compareDocumentPosition(accounting) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      accounting.compareDocumentPosition(dailyDetails) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(await screen.findByText('2026-06-19')).toBeTruthy();
     expect(screen.getAllByText('推理').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('12')).toBeTruthy();
