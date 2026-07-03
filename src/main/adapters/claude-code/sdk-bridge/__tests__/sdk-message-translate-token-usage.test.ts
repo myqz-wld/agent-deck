@@ -3,9 +3,9 @@
  * （plan model-token-stats-and-dashboard-20260602 §Phase 1 A2 / 测试矩阵「claude 翻译」行）。
  *
  * 聚焦 assistant 分支的 token-usage 采集 + max-merge 快路径去重（§不变量 5 / G2）：
- * - 同 id 4 指标全相同多帧 → 只 emit 一次（Map 快路径剪枝）
+ * - 同 id 5 指标全相同多帧 → 只 emit 一次（Map 快路径剪枝）
  * - 同 id output 更大 → 重新 emit（F1 max-merge）
- * - 同 id output 相同但 cacheRead/input 更大 → 也重新 emit（G2 4 指标任一更大放行）
+ * - 同 id output 相同但 cacheRead/input/reasoning 更大 → 也重新 emit（G2 任一指标更大放行）
  * - 不同 id → 各计一次
  * - cache_* 为 null → 填 0
  * - assistant 无 usage → 不 emit token-usage
@@ -40,7 +40,7 @@ function setup() {
 function assistantMsg(opts: {
   id?: string;
   model?: string;
-  usage?: Record<string, number | null>;
+  usage?: Record<string, unknown>;
   content?: unknown[];
 }) {
   return {
@@ -65,7 +65,7 @@ function resultMsg(opts: {
       cacheCreationInputTokens?: number;
     }
   >;
-  usage?: Record<string, number>;
+  usage?: Record<string, unknown>;
 }) {
   return {
     type: 'result',
@@ -121,6 +121,31 @@ describe('translateSdkMessage token-usage 采集', () => {
     });
   });
 
+  it('assistant usage 带 output_tokens_details.thinking_tokens 时采集 reasoningTokens', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      assistantMsg({
+        id: 'm1',
+        model: 'claude-opus-4-8',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 80,
+          output_tokens_details: { thinking_tokens: 25 },
+        },
+      }),
+      internal,
+    );
+
+    expect(tokenEvents(events)[0].payload).toMatchObject({
+      messageId: 'm1',
+      model: 'claude-opus-4-8',
+      outputTokens: 80,
+      reasoningTokens: 25,
+    });
+  });
+
   it('assistant usage 缺 model 时归到 claude-default', () => {
     const { events, emit, internal } = setup();
     translateSdkMessage(
@@ -167,7 +192,7 @@ describe('translateSdkMessage token-usage 采集', () => {
     });
   });
 
-  it('同 id 4 指标全相同多帧 → 只 emit 一次（Map 快路径剪枝）', () => {
+  it('同 id 5 指标全相同多帧 → 只 emit 一次（Map 快路径剪枝）', () => {
     const { events, emit, internal } = setup();
     const u = { input_tokens: 100, output_tokens: 50 };
     translateSdkMessage(emit, 'sid-1', assistantMsg({ id: 'm1', model: 'opus', usage: u }), internal);
@@ -194,7 +219,7 @@ describe('translateSdkMessage token-usage 采集', () => {
     expect((tu[1].payload as { outputTokens: number }).outputTokens).toBe(90);
   });
 
-  it('同 id output 相同但 cacheRead 更大 → 也重新 emit（G2 4 指标任一更大）', () => {
+  it('同 id output 相同但 cacheRead 更大 → 也重新 emit（G2 任一指标更大）', () => {
     const { events, emit, internal } = setup();
     translateSdkMessage(
       emit,
@@ -219,6 +244,42 @@ describe('translateSdkMessage token-usage 采集', () => {
     const tu = tokenEvents(events);
     expect(tu).toHaveLength(2);
     expect((tu[1].payload as { cacheReadTokens: number }).cacheReadTokens).toBe(200);
+  });
+
+  it('同 id 只有 reasoning 更大 → 也重新 emit（thinking 拆分可延迟补齐）', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      assistantMsg({
+        id: 'm1',
+        model: 'opus',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 80,
+          output_tokens_details: { thinking_tokens: 10 },
+        },
+      }),
+      internal,
+    );
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      assistantMsg({
+        id: 'm1',
+        model: 'opus',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 80,
+          output_tokens_details: { thinking_tokens: 25 },
+        },
+      }),
+      internal,
+    );
+
+    const tu = tokenEvents(events);
+    expect(tu).toHaveLength(2);
+    expect((tu[1].payload as { reasoningTokens: number }).reasoningTokens).toBe(25);
   });
 
   it('不同 id → 各计一次', () => {
@@ -374,6 +435,35 @@ describe('translateSdkMessage token-usage 采集', () => {
     );
 
     expect(tokenEvents(events)).toHaveLength(1);
+  });
+
+  it('result aggregate usage 带 output_tokens_details.thinking_tokens 时补 reasoningTokens', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        uuid: 'result-thinking',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 70,
+          output_tokens_details: { thinking_tokens: 18 },
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      }),
+      internal,
+    );
+
+    expect(tokenEvents(events)[0].payload).toEqual({
+      messageId: 'result:result-thinking:aggregate',
+      model: 'claude-default',
+      inputTokens: 100,
+      outputTokens: 70,
+      reasoningTokens: 18,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    });
   });
 
   it('result.modelUsage 校准 tick 使用实际模型 bucket 而不是 session alias', () => {

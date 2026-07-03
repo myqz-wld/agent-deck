@@ -119,21 +119,6 @@ export function DataPanel(): JSX.Element {
 
   return (
     <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2 text-[11px]">
-      {/* Token 统计口径 */}
-      <section className="mb-3 border-b border-white/[0.06] pb-2">
-        <div className="mb-1 font-medium text-deck-text">Token 口径</div>
-        <div className="grid gap-1.5 text-[10px] leading-4 text-deck-muted md:grid-cols-2">
-          <p>
-            <span className="text-deck-text/85">Claude Code：</span>
-            按 assistant message / result usage 统计。输入是上下文和本轮 prompt，输出是模型生成内容，缓存读/写来自 Claude prompt cache；当前没有可单独拆出的推理 Token，推理列显示为空。
-          </p>
-          <p>
-            <span className="text-deck-text/85">Codex：</span>
-            按 app-server 的 tokenUsage delta 统计。输出列沿用总输出口径，推理列是其中 reasoningOutputTokens 的单独拆分；缓存读来自 cachedInputTokens，缓存写固定为空。
-          </p>
-        </div>
-      </section>
-
       {/* 订阅额度窗口 */}
       <section className="mb-3">
         <div className="mb-1 flex items-center gap-2 text-deck-muted">
@@ -261,6 +246,19 @@ export function DataPanel(): JSX.Element {
         ) : (
           <div className="text-[10px] text-deck-muted/60">暂无使用记录</div>
         )}
+        <div className="mt-2 border-t border-white/[0.06] pt-2">
+          <div className="mb-1 font-medium text-deck-text">Token 口径</div>
+          <div className="grid gap-1.5 text-[10px] leading-4 text-deck-muted md:grid-cols-2">
+            <p>
+              <span className="text-deck-text/85">Claude Code：</span>
+              输入、缓存读、缓存写是输入侧分项，输入列不含 prompt cache；看总输入量请用输入 + 缓存读 + 缓存写。输出列来自 output_tokens；推理列只在 SDK 返回 output_tokens_details.thinking_tokens 时展示，且已包含在输出中。
+            </p>
+            <p>
+              <span className="text-deck-text/85">Codex：</span>
+              输入列来自 inputTokens，缓存读 cachedInputTokens 是输入中的缓存命中拆分，不要再与输入相加。输出列按 outputTokens + reasoningOutputTokens 汇总；推理列是其中的 reasoningOutputTokens，不要再与输出相加。
+            </p>
+          </div>
+        </div>
       </section>
     </div>
   );

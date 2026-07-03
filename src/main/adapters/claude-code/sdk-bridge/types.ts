@@ -174,11 +174,11 @@ export interface InternalSession {
   /**
    * token-usage 去重快路径（plan model-token-stats-and-dashboard-20260602 §Phase 1 A3 / §不变量 5）。
    *
-   * BetaMessage.id → 已见 4 指标 tuple。assistant message 的 usage 是 per-step 增量（官方
+   * BetaMessage.id → 已见 5 指标 tuple。assistant message 的 usage 是 per-step 增量（官方
    * cost-tracking 文档），同一 turn 多个 tool_use 拆成多条 assistant message **共享同一 id**，
    * 正常情况携带 **identical** usage（去重避免重复累加）。但官方文档 "Resolve output token
    * discrepancies" 指出 **rare case** 同 id 不同 usage 应取最高值。故快路径不能 first-seen skip，
-   * 必须存完整 4 指标：新帧**任一指标 > 已见对应值**才放行 emit（让 DB ON CONFLICT max-merge 收口），
+   * 必须存完整 5 指标：新帧**任一指标 > 已见对应值**才放行 emit（让 DB ON CONFLICT max-merge 收口），
    * 全部 ≤ 已见则 skip 省 IPC/DB 往返。仅比 output 会漏「同 id 但 input/cache 更大」的帧。
    *
    * 有界：bound = 本 session assistant message 唯一 id 数；随 internal session GC 释放。
@@ -186,7 +186,7 @@ export interface InternalSession {
    */
   seenUsageMessageIds: Map<
     string,
-    { input: number; output: number; cacheRead: number; cacheCreation: number }
+    { input: number; output: number; reasoning: number; cacheRead: number; cacheCreation: number }
   >;
   /**
    * 当前 turn 已从 assistant message 采集到的 usage，按归一 model bucket 累加 delta。
@@ -197,7 +197,7 @@ export interface InternalSession {
    */
   turnUsageByBucket: Map<
     string,
-    { input: number; output: number; cacheRead: number; cacheCreation: number }
+    { input: number; output: number; reasoning: number; cacheRead: number; cacheCreation: number }
   >;
   /** 生成中 tok/s 估算展示态。display-only；turn result / session 结束时清理。 */
   liveTokenEstimate?: LiveTokenEstimateState;

@@ -34,12 +34,30 @@ import {
 import type { InternalSession } from './types';
 
 type EmitFn = (e: AgentEvent) => void;
-type UsageCounts = { input: number; output: number; cacheRead: number; cacheCreation: number };
+type UsageCounts = {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheCreation: number;
+};
 
-const ZERO_USAGE: UsageCounts = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+const ZERO_USAGE: UsageCounts = {
+  input: 0,
+  output: 0,
+  reasoning: 0,
+  cacheRead: 0,
+  cacheCreation: 0,
+};
 
 function hasUsage(c: UsageCounts): boolean {
-  return c.input > 0 || c.output > 0 || c.cacheRead > 0 || c.cacheCreation > 0;
+  return (
+    c.input > 0 ||
+    c.output > 0 ||
+    c.reasoning > 0 ||
+    c.cacheRead > 0 ||
+    c.cacheCreation > 0
+  );
 }
 
 function hasExplicitModel(model: string | null | undefined): model is string {
@@ -60,6 +78,7 @@ function maxUsage(a: UsageCounts | undefined, b: UsageCounts): UsageCounts {
   return {
     input: Math.max(a?.input ?? 0, b.input),
     output: Math.max(a?.output ?? 0, b.output),
+    reasoning: Math.max(a?.reasoning ?? 0, b.reasoning),
     cacheRead: Math.max(a?.cacheRead ?? 0, b.cacheRead),
     cacheCreation: Math.max(a?.cacheCreation ?? 0, b.cacheCreation),
   };
@@ -69,6 +88,7 @@ function positiveDelta(next: UsageCounts, prev: UsageCounts | undefined): UsageC
   return {
     input: Math.max(0, next.input - (prev?.input ?? 0)),
     output: Math.max(0, next.output - (prev?.output ?? 0)),
+    reasoning: Math.max(0, next.reasoning - (prev?.reasoning ?? 0)),
     cacheRead: Math.max(0, next.cacheRead - (prev?.cacheRead ?? 0)),
     cacheCreation: Math.max(0, next.cacheCreation - (prev?.cacheCreation ?? 0)),
   };
@@ -81,6 +101,7 @@ function addTurnUsage(internal: InternalSession, model: string | null, delta: Us
   internal.turnUsageByBucket.set(bucket, {
     input: prev.input + delta.input,
     output: prev.output + delta.output,
+    reasoning: prev.reasoning + delta.reasoning,
     cacheRead: prev.cacheRead + delta.cacheRead,
     cacheCreation: prev.cacheCreation + delta.cacheCreation,
   });
@@ -91,10 +112,17 @@ function sumTurnUsage(internal: InternalSession): UsageCounts {
   for (const usage of internal.turnUsageByBucket.values()) {
     total.input += usage.input;
     total.output += usage.output;
+    total.reasoning += usage.reasoning;
     total.cacheRead += usage.cacheRead;
     total.cacheCreation += usage.cacheCreation;
   }
   return total;
+}
+
+function reasoningTokensFromOutputDetails(
+  details: { thinking_tokens?: number | null } | null | undefined,
+): number {
+  return details?.thinking_tokens ?? 0;
 }
 
 function emitResultUsageCorrection(
@@ -106,6 +134,7 @@ function emitResultUsageCorrection(
     usage?: {
       input_tokens?: number;
       output_tokens?: number;
+      output_tokens_details?: { thinking_tokens?: number | null } | null;
       cache_read_input_tokens?: number;
       cache_creation_input_tokens?: number;
     };
@@ -127,6 +156,7 @@ function emitResultUsageCorrection(
         const finalUsage = {
           input: usage.inputTokens ?? 0,
           output: usage.outputTokens ?? 0,
+          reasoning: 0,
           cacheRead: usage.cacheReadInputTokens ?? 0,
           cacheCreation: usage.cacheCreationInputTokens ?? 0,
         };
@@ -138,6 +168,7 @@ function emitResultUsageCorrection(
             model,
             inputTokens: delta.input,
             outputTokens: delta.output,
+            ...(delta.reasoning > 0 ? { reasoningTokens: delta.reasoning } : {}),
             cacheReadTokens: delta.cacheRead,
             cacheCreationTokens: delta.cacheCreation,
           });
@@ -154,6 +185,7 @@ function emitResultUsageCorrection(
       const finalUsage = {
         input: u.input_tokens ?? 0,
         output: u.output_tokens ?? 0,
+        reasoning: reasoningTokensFromOutputDetails(u.output_tokens_details),
         cacheRead: u.cache_read_input_tokens ?? 0,
         cacheCreation: u.cache_creation_input_tokens ?? 0,
       };
@@ -164,6 +196,7 @@ function emitResultUsageCorrection(
           model: fallbackModel,
           inputTokens: delta.input,
           outputTokens: delta.output,
+          ...(delta.reasoning > 0 ? { reasoningTokens: delta.reasoning } : {}),
           cacheReadTokens: delta.cacheRead,
           cacheCreationTokens: delta.cacheCreation,
         });
@@ -234,6 +267,7 @@ export function translateSdkMessage(
         output_tokens?: number;
         cache_creation_input_tokens?: number | null;
         cache_read_input_tokens?: number | null;
+        output_tokens_details?: { thinking_tokens?: number | null } | null;
       };
       content?: {
         type: string;
@@ -297,7 +331,7 @@ export function translateSdkMessage(
     // token-usage 采集（plan §Phase 1 A2 / §不变量 3/5）。整体 try/catch：采集失败绝不打断
     // 上面已 emit 的 message/thinking/tool-use 主事件流（不变量 3）。
     // 去重快路径（不变量 5 / G2）：同 turn 多 tool_use 拆成多条 assistant message 共享同一 id +
-    // 正常携带 identical usage；存完整 4 指标，新帧任一指标 > 已见才放行 emit（rare discrepancy
+    // 正常携带 identical usage；存完整 5 指标，新帧任一指标 > 已见才放行 emit（rare discrepancy
     // 取最大值，DB ON CONFLICT max-merge 收口），全 ≤ 已见则 skip 省 IPC/DB。
     try {
       const u = m.usage;
@@ -305,6 +339,7 @@ export function translateSdkMessage(
         const usage = {
           input: u.input_tokens ?? 0,
           output: u.output_tokens ?? 0,
+          reasoning: reasoningTokensFromOutputDetails(u.output_tokens_details),
           cacheRead: u.cache_read_input_tokens ?? 0,
           cacheCreation: u.cache_creation_input_tokens ?? 0,
         };
@@ -314,6 +349,7 @@ export function translateSdkMessage(
           !prev ||
           usage.input > prev.input ||
           usage.output > prev.output ||
+          usage.reasoning > prev.reasoning ||
           usage.cacheRead > prev.cacheRead ||
           usage.cacheCreation > prev.cacheCreation;
         if (grew) {
@@ -328,6 +364,7 @@ export function translateSdkMessage(
             model,
             inputTokens: usage.input,
             outputTokens: usage.output,
+            ...(usage.reasoning > 0 ? { reasoningTokens: usage.reasoning } : {}),
             cacheReadTokens: usage.cacheRead,
             cacheCreationTokens: usage.cacheCreation,
           });
@@ -383,6 +420,7 @@ export function translateSdkMessage(
       usage?: {
         input_tokens?: number;
         output_tokens?: number;
+        output_tokens_details?: { thinking_tokens?: number | null } | null;
         cache_read_input_tokens?: number;
         cache_creation_input_tokens?: number;
       };
