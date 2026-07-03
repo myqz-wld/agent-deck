@@ -19,6 +19,7 @@ import { ClaudeSdkBridge } from '../claude-code/sdk-bridge';
 import { settingsStore } from '@main/store/settings-store';
 import {
   getDeepseekDefaultModel,
+  getDeepseekModelForClaudeAlias,
   getDeepseekSettingsPath,
   loadDeepseekClaudeEnv,
 } from './config';
@@ -30,7 +31,21 @@ import { unsupportedUsageSnapshot } from '../provider-usage';
 
 const ADAPTER_ID = 'deepseek-claude-code';
 
-function rewriteDeepseekEvent(event: AgentEvent): AgentEvent {
+const CLAUDE_ALIAS_MODEL_RE = /^(?:claude-)?(fable|opus|sonnet|haiku)(?:-|$)/i;
+
+function rewriteDeepseekModel(model: unknown): unknown {
+  if (typeof model !== 'string') return model;
+  const match = CLAUDE_ALIAS_MODEL_RE.exec(model);
+  if (!match) return model;
+  try {
+    const alias = match[1].toLowerCase() as 'fable' | 'opus' | 'sonnet' | 'haiku';
+    return getDeepseekModelForClaudeAlias(alias) ?? model;
+  } catch {
+    return model;
+  }
+}
+
+export function rewriteDeepseekEvent(event: AgentEvent): AgentEvent {
   const payload =
     event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
       ? { ...event.payload }
@@ -40,6 +55,9 @@ function rewriteDeepseekEvent(event: AgentEvent): AgentEvent {
       '`~/.claude/.credentials.json`',
       `Deepseek config ${getDeepseekSettingsPath()}`,
     );
+  }
+  if (payload && typeof payload === 'object' && 'model' in payload) {
+    payload.model = rewriteDeepseekModel(payload.model);
   }
   return { ...event, agentId: ADAPTER_ID, payload };
 }

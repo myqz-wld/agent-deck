@@ -20,6 +20,9 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('@main/adapters/deepseek-claude-code/config', () => ({
   getDeepseekDefaultModel: vi.fn(() => 'deepseek-v4-pro[1m]'),
+  getDeepseekModelForClaudeAlias: vi.fn((alias: string) =>
+    alias === 'haiku' ? 'deepseek-v4-flash' : 'deepseek-v4-pro[1m]',
+  ),
   getDeepseekSettingsPath: vi.fn(() => '/tmp/deepseek-settings.json'),
   loadDeepseekClaudeEnv: mocks.loadDeepseekClaudeEnv,
 }));
@@ -29,7 +32,10 @@ vi.mock('@main/session/summarizer/llm-runners', () => ({
   summariseSessionForHandOff: mocks.summariseSessionForHandOff,
 }));
 
-import { deepseekClaudeCodeAdapter } from '@main/adapters/deepseek-claude-code';
+import {
+  deepseekClaudeCodeAdapter,
+  rewriteDeepseekEvent,
+} from '@main/adapters/deepseek-claude-code';
 
 const events = [
   {
@@ -66,5 +72,71 @@ describe('deepseekClaudeCodeAdapter.summariseEvents', () => {
       envOverride: mocks.env,
     });
     expect(mocks.summariseViaLlm).not.toHaveBeenCalled();
+  });
+});
+
+describe('rewriteDeepseekEvent', () => {
+  it('rewrites Claude-family token usage model aliases to configured Deepseek models', () => {
+    const event = {
+      sessionId: 's1',
+      agentId: 'claude-code',
+      kind: 'token-usage',
+      ts: 1,
+      payload: {
+        messageId: 'm1',
+        model: 'claude-haiku-4-5',
+        inputTokens: 10,
+        outputTokens: 20,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+      },
+    } satisfies AgentEvent;
+
+    expect(rewriteDeepseekEvent(event)).toMatchObject({
+      agentId: 'deepseek-claude-code',
+      payload: { model: 'deepseek-v4-flash' },
+    });
+  });
+
+  it('rewrites normalized Claude-family aliases to configured Deepseek models', () => {
+    const event = {
+      sessionId: 's1',
+      agentId: 'claude-code',
+      kind: 'token-usage',
+      ts: 1,
+      payload: {
+        messageId: 'm1',
+        model: 'haiku-4.5',
+        inputTokens: 10,
+        outputTokens: 20,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+      },
+    } satisfies AgentEvent;
+
+    expect(rewriteDeepseekEvent(event).payload).toMatchObject({
+      model: 'deepseek-v4-flash',
+    });
+  });
+
+  it('keeps native Deepseek model ids unchanged', () => {
+    const event = {
+      sessionId: 's1',
+      agentId: 'claude-code',
+      kind: 'token-usage',
+      ts: 1,
+      payload: {
+        messageId: 'm1',
+        model: 'deepseek-v4-pro[1m]',
+        inputTokens: 10,
+        outputTokens: 20,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+      },
+    } satisfies AgentEvent;
+
+    expect(rewriteDeepseekEvent(event).payload).toMatchObject({
+      model: 'deepseek-v4-pro[1m]',
+    });
   });
 });

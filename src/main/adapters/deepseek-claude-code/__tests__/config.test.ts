@@ -55,4 +55,24 @@ describe('Deepseek Claude Code config', () => {
     };
     expect(data.env.ANTHROPIC_AUTH_TOKEN).toBe('');
   });
+
+  it('resolves Claude alias models without requiring a configured token', async () => {
+    const { getDeepseekModelForClaudeAlias } = await import('../config');
+
+    expect(getDeepseekModelForClaudeAlias('haiku')).toBe('deepseek-v4-flash');
+    expect(getDeepseekModelForClaudeAlias('opus')).toBe('deepseek-v4-pro[1m]');
+  });
+
+  it('uses user-configured Claude alias model overrides', async () => {
+    const { getDeepseekSettingsPath, getDeepseekModelForClaudeAlias } = await import('../config');
+    const settingsPath = getDeepseekSettingsPath();
+    mkdirSync(join(settingsPath, '..'), { recursive: true });
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({ haikuModel: 'custom-haiku-model', env: { ANTHROPIC_AUTH_TOKEN: '' } }),
+      'utf8',
+    );
+
+    expect(getDeepseekModelForClaudeAlias('haiku')).toBe('custom-haiku-model');
+  });
 });

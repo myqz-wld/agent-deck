@@ -204,6 +204,22 @@ export function DataPanel(): JSX.Element {
           <span>缓存读 <span className="text-deck-text">{fmt(todayTotals.cacheRead)}</span></span>
           <span>缓存写 <span className="text-deck-text">{fmt(todayTotals.cacheCreation)}</span></span>
         </div>
+        <div className="mt-2 border-t border-white/[0.06] pt-2">
+          <div className="mb-1 font-medium text-deck-text">Token 口径</div>
+          <div className="grid gap-1.5 text-[10px] leading-4 text-deck-muted md:grid-cols-2">
+            <p className="md:col-span-2">
+              这些列有的互相包含，按下面关系读，避免重复相加。
+            </p>
+            <p>
+              <span className="text-deck-text/85">Claude Code：</span>
+              总输入 = 输入 + 缓存读 + 缓存写；如果有推理值，它已经包含在输出里。
+            </p>
+            <p>
+              <span className="text-deck-text/85">Codex：</span>
+              输入已经包含缓存读，缓存读只是拆分项，不要再加一次；推理也已经包含在输出里。
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* 主体表格：模型 × 日期 × 5 指标 */}
@@ -246,19 +262,6 @@ export function DataPanel(): JSX.Element {
         ) : (
           <div className="text-[10px] text-deck-muted/60">暂无使用记录</div>
         )}
-        <div className="mt-2 border-t border-white/[0.06] pt-2">
-          <div className="mb-1 font-medium text-deck-text">Token 口径</div>
-          <div className="grid gap-1.5 text-[10px] leading-4 text-deck-muted md:grid-cols-2">
-            <p>
-              <span className="text-deck-text/85">Claude Code：</span>
-              输入、缓存读、缓存写是输入侧分项，输入列不含 prompt cache；看总输入量请用输入 + 缓存读 + 缓存写。输出列来自 output_tokens；推理列只在 SDK 返回 output_tokens_details.thinking_tokens 时展示，且已包含在输出中。
-            </p>
-            <p>
-              <span className="text-deck-text/85">Codex：</span>
-              输入列来自 inputTokens，缓存读 cachedInputTokens 是输入中的缓存命中拆分，不要再与输入相加。输出列按 outputTokens + reasoningOutputTokens 汇总；推理列是其中的 reasoningOutputTokens，不要再与输出相加。
-            </p>
-          </div>
-        </div>
       </section>
     </div>
   );
