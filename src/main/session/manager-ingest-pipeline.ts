@@ -257,6 +257,7 @@ export function persistTokenUsage(event: AgentEvent): void {
       model: p.model ?? null,
       inputTokens: p.inputTokens ?? 0,
       outputTokens: p.outputTokens ?? 0,
+      reasoningTokens: p.reasoningTokens ?? 0,
       cacheReadTokens: p.cacheReadTokens ?? 0,
       cacheCreationTokens: p.cacheCreationTokens ?? 0,
       ts: event.ts,

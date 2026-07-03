@@ -127,6 +127,7 @@ function translateTokenUsage(
     model: opts?.model ?? null,
     inputTokens: numberField(last.inputTokens),
     outputTokens: numberField(last.outputTokens) + numberField(last.reasoningOutputTokens),
+    reasoningTokens: numberField(last.reasoningOutputTokens),
     cacheReadTokens: numberField(last.cachedInputTokens),
     cacheCreationTokens: 0,
   });

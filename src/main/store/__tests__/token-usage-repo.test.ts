@@ -31,6 +31,7 @@ function claudeUsage(over: Partial<Parameters<TokenUsageRepo['insert']>[0]> = {}
     model: 'claude-opus-4-8',
     inputTokens: 100,
     outputTokens: 50,
+    reasoningTokens: 0,
     cacheReadTokens: 10,
     cacheCreationTokens: 5,
     ts: 1_000_000,
@@ -73,14 +74,15 @@ describe.skipIf(!bindingAvailable)('token-usage-repo / insert + max-merge', () =
     expect(row.output_tokens).toBe(90);
   });
 
-  it('max-merge：4 指标各自独立取 max', () => {
-    repo.insert(claudeUsage({ inputTokens: 100, outputTokens: 50, cacheReadTokens: 200, cacheCreationTokens: 5 }));
-    repo.insert(claudeUsage({ inputTokens: 80, outputTokens: 90, cacheReadTokens: 10, cacheCreationTokens: 20 }));
+  it('max-merge：5 指标各自独立取 max', () => {
+    repo.insert(claudeUsage({ inputTokens: 100, outputTokens: 50, reasoningTokens: 7, cacheReadTokens: 200, cacheCreationTokens: 5 }));
+    repo.insert(claudeUsage({ inputTokens: 80, outputTokens: 90, reasoningTokens: 12, cacheReadTokens: 10, cacheCreationTokens: 20 }));
     const row = db.prepare(
-      'SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM token_usage',
+      'SELECT input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens FROM token_usage',
     ).get() as Record<string, number>;
     expect(row.input_tokens).toBe(100); // max(100,80)
     expect(row.output_tokens).toBe(90); // max(50,90)
+    expect(row.reasoning_tokens).toBe(12); // max(7,12)
     expect(row.cache_read_tokens).toBe(200); // max(200,10)
     expect(row.cache_creation_tokens).toBe(20); // max(5,20)
   });
@@ -127,16 +129,17 @@ describe.skipIf(!bindingAvailable)('token-usage-repo / 查询', () => {
     expect(repo.ratesSince(9_999_999)).toEqual([]);
   });
 
-  it('dailyByModel：bucket × 本地日期 4 指标聚合', () => {
+  it('dailyByModel：bucket × 本地日期 5 指标聚合', () => {
     // 用本地午夜 + 12h 确保落在同一本地日（避开 tz 边界）
     const localNoon = new Date(2026, 5, 1, 12, 0, 0).getTime();
-    repo.insert(claudeUsage({ messageId: 'x', model: 'gpt-5.5', inputTokens: 10, outputTokens: 5, ts: localNoon }));
-    repo.insert(claudeUsage({ messageId: 'y', model: 'gpt-5.5', inputTokens: 7, outputTokens: 3, ts: localNoon + 1000 }));
+    repo.insert(claudeUsage({ messageId: 'x', model: 'gpt-5.5', inputTokens: 10, outputTokens: 5, reasoningTokens: 2, ts: localNoon }));
+    repo.insert(claudeUsage({ messageId: 'y', model: 'gpt-5.5', inputTokens: 7, outputTokens: 3, reasoningTokens: 4, ts: localNoon + 1000 }));
     const rows = repo.dailyByModel();
     const gpt = rows.find((r) => r.bucketKey === 'gpt-5.5');
     expect(gpt?.day).toBe('2026-06-01');
     expect(gpt?.inputTokens).toBe(17); // 10 + 7
     expect(gpt?.outputTokens).toBe(8); // 5 + 3
+    expect(gpt?.reasoningTokens).toBe(6); // 2 + 4
   });
 });
 

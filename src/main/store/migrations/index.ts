@@ -45,6 +45,7 @@ import v031 from './v031_file_change_snapshots.sql?raw';
 import v032 from './v032_sessions_thinking.sql?raw';
 import v033 from './v033_issues_branch_name.sql?raw';
 import v034 from './v034_sessions_list_filter_indexes.sql?raw';
+import v035 from './v035_token_usage_reasoning.sql?raw';
 
 export interface Migration {
   version: number;
@@ -87,4 +88,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 32, name: 'sessions_thinking', sql: v032 },
   { version: 33, name: 'issues_branch_name', sql: v033 },
   { version: 34, name: 'sessions_list_filter_indexes', sql: v034 },
+  { version: 35, name: 'token_usage_reasoning', sql: v035 },
 ];

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DataPanel } from '../DataPanel';
 import { useTokenUsageStore } from '../../stores/token-usage-store';
-import type { ProviderUsageSnapshot } from '@shared/types';
+import type { ProviderUsageSnapshot, TokenDailyRow } from '@shared/types';
 
 function resetTokenUsageStore(): void {
   useTokenUsageStore.setState({
@@ -36,6 +36,19 @@ function claudeSnapshot(usedPercent = 0.4, updatedAt = Date.now()): ProviderUsag
   };
 }
 
+function tokenDailyRow(over: Partial<TokenDailyRow> = {}): TokenDailyRow {
+  return {
+    day: '2026-06-19',
+    bucketKey: 'gpt-5.5',
+    inputTokens: 10,
+    outputTokens: 30,
+    reasoningTokens: 12,
+    cacheReadTokens: 5,
+    cacheCreationTokens: 0,
+    ...over,
+  };
+}
+
 let providerUsageSnapshot: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -61,6 +74,22 @@ afterEach(() => {
 });
 
 describe('DataPanel quota usage', () => {
+  it('explains token accounting and renders the reasoning token column', async () => {
+    (window.api.tokenUsageDaily as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      tokenDailyRow(),
+    ]);
+
+    render(<DataPanel />);
+
+    expect(screen.getByText('Token 口径')).toBeTruthy();
+    expect(screen.getByText(/Claude Code：/)).toBeTruthy();
+    expect(screen.getByText(/Codex：/)).toBeTruthy();
+    expect(screen.getByText(/reasoningOutputTokens/)).toBeTruthy();
+    expect(await screen.findByText('2026-06-19')).toBeTruthy();
+    expect(screen.getAllByText('推理').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('12')).toBeTruthy();
+  });
+
   it('uses startup-preloaded quota snapshots without a first-open provider read', async () => {
     useTokenUsageStore.setState({
       providerUsageSnapshots: [claudeSnapshot()],

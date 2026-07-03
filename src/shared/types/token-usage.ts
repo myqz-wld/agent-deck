@@ -16,13 +16,14 @@
  *   codex 无 → null
  * - model：原始 model id（claude BetaMessage.model / result.modelUsage key / codex 取 sessions.model）；
  *   归一在写库时算
- * - 4 指标：cache_* 缺省填 0（codex 无 cache_creation；claude cache_* 可能为 null）
+ * - 指标：cache_* / reasoning 缺省填 0（codex 无 cache_creation；claude 不单独返回 reasoning）
  */
 export interface TokenUsagePayload {
   messageId: string | null;
   model: string | null;
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens?: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
 }
@@ -41,13 +42,14 @@ export interface TokenRateRow {
 /**
  * 按 model bucket × 本地日期聚合的每日明细行（dailyByModel 查询返回，数据 tab 表格用）。
  * - day：本地日期 'YYYY-MM-DD'（SQL date(ts/1000,'unixepoch','localtime')）
- * - 4 指标：该 bucket 当天的 input/output/cacheRead/cacheCreation token 总和
+ * - 指标：该 bucket 当天的 input/output/reasoning/cacheRead/cacheCreation token 总和
  */
 export interface TokenDailyRow {
   bucketKey: string;
   day: string;
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
 }

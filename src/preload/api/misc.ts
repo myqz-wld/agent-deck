@@ -233,7 +233,7 @@ export const miscApi = {
   /** 今日各 model bucket output 总量降序（header Top3 + 数据页今日汇总）。 */
   tokenUsageTopToday: (): Promise<TokenRateRow[]> =>
     ipcRenderer.invoke(IpcInvoke.TokenUsageTopToday),
-  /** model bucket × 本地日期的 4 指标聚合（数据 tab 表格）。 */
+  /** model bucket × 本地日期的 5 指标聚合（数据 tab 表格）。 */
   tokenUsageDaily: (): Promise<TokenDailyRow[]> =>
     ipcRenderer.invoke(IpcInvoke.TokenUsageDaily),
   /** Claude / Codex / Deepseek provider 订阅窗口用量快照（数据 tab）。 */
