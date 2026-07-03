@@ -13,7 +13,7 @@ import { LIVE_STALE_MS, type LiveRateEntry } from '../lib/live-rate';
  * 持有三类只读视图数据，供 header（Top3 token/s）+ 数据 tab（实时区 + 表格）共享：
  * - **rates**：最近 60s 窗口各 bucket output 总量（token/s = out ÷ 60，渲染时算）
  * - **topToday**：今日各 bucket output 总量降序（header tooltip + 数据页今日汇总）
- * - **daily**：bucket × 本地日期 4 指标（数据 tab 表格）
+ * - **daily**：bucket × 本地日期 5 指标（数据 tab 表格）
  * - **liveBySession**：生成中 tok/s display-only 估算（不落库，turn 末清掉）
  * - **providerUsageSnapshots**：额度窗口快照（renderer 缓存，切走数据 tab 不清空）
  *

@@ -9,7 +9,7 @@
  *   codex message_id=NULL 每 turn 独立行）。bucket 在写时经 normalizeModel(model_raw) 算（SSOT）。
  * - **today(startMs)**：今日各 bucket 的 output 总量（Top3 排名 + 数据页今日汇总）。
  * - **ratesSince(sinceMs)**：滑动窗口各 bucket output 总量（token/s = out ÷ 窗口秒数，renderer 算）。
- * - **dailyByModel(fromMs?,toMs?)**：bucket × 本地日期的 4 指标聚合（数据 tab 表格）。
+ * - **dailyByModel(fromMs?,toMs?)**：bucket × 本地日期的 5 指标聚合（数据 tab 表格）。
  *
  * **边界参数（startMs/sinceMs/fromMs/toMs）由 caller（IPC handler 层）用本地 tz 算**（plan F6）——
  * repo 只收 epoch ms，仅 dailyByModel 的 day 分组用 SQL date(...,'localtime')。
@@ -32,7 +32,7 @@ export interface TokenUsageRepo {
   today(startMs: number): TokenRateRow[];
   /** 窗口内各 bucket output 总量（sinceMs = now - WINDOW_MS）。 */
   ratesSince(sinceMs: number): TokenRateRow[];
-  /** bucket × 本地日期的 4 指标聚合（fromMs/toMs 可选，默认全量）。 */
+  /** bucket × 本地日期的 5 指标聚合（fromMs/toMs 可选，默认全量）。 */
   dailyByModel(fromMs?: number, toMs?: number): TokenDailyRow[];
   /** GC：删 ts < thresholdMs 的行（返回删除行数）。 */
   deleteOlderThan(thresholdMs: number): number;
@@ -48,12 +48,13 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
     db.prepare(
       `INSERT INTO token_usage
          (session_id, agent_id, message_id, model_raw, model_bucket,
-          input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, ts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(message_id) WHERE message_id IS NOT NULL
          DO UPDATE SET
            input_tokens          = max(input_tokens, excluded.input_tokens),
            output_tokens         = max(output_tokens, excluded.output_tokens),
+           reasoning_tokens      = max(reasoning_tokens, excluded.reasoning_tokens),
            cache_read_tokens     = max(cache_read_tokens, excluded.cache_read_tokens),
            cache_creation_tokens = max(cache_creation_tokens, excluded.cache_creation_tokens)`,
     ).run(
@@ -64,6 +65,7 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
       bucket,
       input.inputTokens,
       input.outputTokens,
+      input.reasoningTokens ?? 0,
       input.cacheReadTokens,
       input.cacheCreationTokens,
       input.ts,
@@ -111,6 +113,7 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
                 date(ts/1000, 'unixepoch', 'localtime') AS day,
                 SUM(input_tokens) AS inputTokens,
                 SUM(output_tokens) AS outputTokens,
+                SUM(reasoning_tokens) AS reasoningTokens,
                 SUM(cache_read_tokens) AS cacheReadTokens,
                 SUM(cache_creation_tokens) AS cacheCreationTokens
          FROM token_usage ${where}
@@ -122,6 +125,7 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
       day: string;
       inputTokens: number;
       outputTokens: number;
+      reasoningTokens: number;
       cacheReadTokens: number;
       cacheCreationTokens: number;
     }[];
@@ -130,6 +134,7 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
       day: r.day,
       inputTokens: r.inputTokens ?? 0,
       outputTokens: r.outputTokens ?? 0,
+      reasoningTokens: r.reasoningTokens ?? 0,
       cacheReadTokens: r.cacheReadTokens ?? 0,
       cacheCreationTokens: r.cacheCreationTokens ?? 0,
     }));

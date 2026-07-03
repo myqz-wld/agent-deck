@@ -25,6 +25,7 @@ function dailyRow(): TokenDailyRow {
     bucketKey: 'opus-4.8',
     inputTokens: 10,
     outputTokens: 20,
+    reasoningTokens: 0,
     cacheReadTokens: 30,
     cacheCreationTokens: 40,
   };

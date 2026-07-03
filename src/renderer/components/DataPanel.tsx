@@ -12,7 +12,7 @@ import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '
  * 需求2 + 追加：
  * - **顶部实时区**：全部 model bucket 的当前 token/s（生成中 fresh live 估算优先，其次 60s 窗口）。
  * - **今日汇总行**：今日各指标合计。
- * - **主体表格**：行 = model bucket（友好名）× 日期，列 = input/output/cacheRead/cacheCreation（无费用）。
+ * - **主体表格**：行 = model bucket（友好名）× 日期，列 = input/output/reasoning/cacheRead/cacheCreation（无费用）。
  *
  * **刷新**：rates/live 走 useTokenRatesPoll；daily 走 onTokenUsageChanged debounce refetch + mount 拉一次
  * （组件自订阅模式，与 IssuesPanel 同款，use-event-bridge 不动）。
@@ -119,6 +119,21 @@ export function DataPanel(): JSX.Element {
 
   return (
     <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2 text-[11px]">
+      {/* Token 统计口径 */}
+      <section className="mb-3 border-b border-white/[0.06] pb-2">
+        <div className="mb-1 font-medium text-deck-text">Token 口径</div>
+        <div className="grid gap-1.5 text-[10px] leading-4 text-deck-muted md:grid-cols-2">
+          <p>
+            <span className="text-deck-text/85">Claude Code：</span>
+            按 assistant message / result usage 统计。输入是上下文和本轮 prompt，输出是模型生成内容，缓存读/写来自 Claude prompt cache；当前没有可单独拆出的推理 Token，推理列显示为空。
+          </p>
+          <p>
+            <span className="text-deck-text/85">Codex：</span>
+            按 app-server 的 tokenUsage delta 统计。输出列沿用总输出口径，推理列是其中 reasoningOutputTokens 的单独拆分；缓存读来自 cachedInputTokens，缓存写固定为空。
+          </p>
+        </div>
+      </section>
+
       {/* 订阅额度窗口 */}
       <section className="mb-3">
         <div className="mb-1 flex items-center gap-2 text-deck-muted">
@@ -200,44 +215,49 @@ export function DataPanel(): JSX.Element {
         <div className="flex flex-wrap gap-x-4 gap-y-0.5 tabular-nums text-deck-muted">
           <span>输入 <span className="text-deck-text">{fmt(todayTotals.input)}</span></span>
           <span>输出 <span className="text-deck-text">{fmt(todayTotals.output)}</span></span>
+          <span>推理 <span className="text-deck-text">{fmt(todayTotals.reasoning)}</span></span>
           <span>缓存读 <span className="text-deck-text">{fmt(todayTotals.cacheRead)}</span></span>
           <span>缓存写 <span className="text-deck-text">{fmt(todayTotals.cacheCreation)}</span></span>
         </div>
       </section>
 
-      {/* 主体表格：模型 × 日期 × 4 指标 */}
+      {/* 主体表格：模型 × 日期 × 5 指标 */}
       <section>
         <div className="mb-1 font-medium text-deck-text">每模型每天明细</div>
         {daily.length > 0 ? (
-          <table className="w-full border-collapse text-[10px]">
-            <thead>
-              <tr className="border-b border-white/10 text-left text-deck-muted">
-                <th className="py-1 pr-2 font-medium">日期</th>
-                <th className="py-1 pr-2 font-medium">模型</th>
-                <th className="py-1 pr-2 text-right font-medium">输入</th>
-                <th className="py-1 pr-2 text-right font-medium">输出</th>
-                <th className="py-1 pr-2 text-right font-medium">缓存读</th>
-                <th className="py-1 text-right font-medium">缓存写</th>
-              </tr>
-            </thead>
-            <tbody>
-              {daily.map((row) => (
-                <tr
-                  key={`${row.day}::${row.bucketKey}`}
-                  className="border-b border-white/[0.04] text-deck-text/90"
-                >
-                  <td className="py-1 pr-2 tabular-nums text-deck-muted">{row.day}</td>
-                  <td className="py-1 pr-2">{normalizeModel(row.bucketKey).displayName}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{fmt(row.inputTokens)}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums text-status-working">
-                    {fmt(row.outputTokens)}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{fmt(row.cacheReadTokens)}</td>
-                  <td className="py-1 text-right tabular-nums">{fmt(row.cacheCreationTokens)}</td>
+          <div className="overflow-x-auto scrollbar-deck">
+            <table className="min-w-[640px] w-full border-collapse text-[10px]">
+              <thead>
+                <tr className="border-b border-white/10 text-left text-deck-muted">
+                  <th className="py-1 pr-2 font-medium">日期</th>
+                  <th className="py-1 pr-2 font-medium">模型</th>
+                  <th className="py-1 pr-2 text-right font-medium">输入</th>
+                  <th className="py-1 pr-2 text-right font-medium">输出</th>
+                  <th className="py-1 pr-2 text-right font-medium">推理</th>
+                  <th className="py-1 pr-2 text-right font-medium">缓存读</th>
+                  <th className="py-1 text-right font-medium">缓存写</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {daily.map((row) => (
+                  <tr
+                    key={`${row.day}::${row.bucketKey}`}
+                    className="border-b border-white/[0.04] text-deck-text/90"
+                  >
+                    <td className="py-1 pr-2 tabular-nums text-deck-muted">{row.day}</td>
+                    <td className="py-1 pr-2">{normalizeModel(row.bucketKey).displayName}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{fmt(row.inputTokens)}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums text-status-working">
+                      {fmt(row.outputTokens)}
+                    </td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{fmt(row.reasoningTokens)}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{fmt(row.cacheReadTokens)}</td>
+                    <td className="py-1 text-right tabular-nums">{fmt(row.cacheCreationTokens)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div className="text-[10px] text-deck-muted/60">暂无使用记录</div>
         )}
@@ -299,6 +319,7 @@ function ProviderUsageWindowRow({ window }: { window: ProviderUsageWindow }): JS
 function sumRows(rows: TokenDailyRow[]): {
   input: number;
   output: number;
+  reasoning: number;
   cacheRead: number;
   cacheCreation: number;
 } {
@@ -306,10 +327,11 @@ function sumRows(rows: TokenDailyRow[]): {
     (acc, r) => ({
       input: acc.input + r.inputTokens,
       output: acc.output + r.outputTokens,
+      reasoning: acc.reasoning + r.reasoningTokens,
       cacheRead: acc.cacheRead + r.cacheReadTokens,
       cacheCreation: acc.cacheCreation + r.cacheCreationTokens,
     }),
-    { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+    { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheCreation: 0 },
   );
 }
 

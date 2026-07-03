@@ -4,7 +4,7 @@
  * 3 个 channel 给 UI header Top3 + 数据 tab 用（agent 不消费，与采集/mcp 路径正交）：
  * - TokenUsageRates：最近 WINDOW_MS 窗口各 bucket output 总量（renderer 算 token/s）
  * - TokenUsageTopToday：今日各 bucket output 总量降序（Top3 + 数据页今日汇总）
- * - TokenUsageDaily：bucket × 本地日期 4 指标聚合（表格）
+ * - TokenUsageDaily：bucket × 本地日期 5 指标聚合（表格）
  *
  * **边界参数在本层（IPC handler）用本地 tz 算**（plan §不变量 F6）：startMs = 本地午夜 epoch ms，
  * sinceMs = now - WINDOW_MS。main 与 renderer 同机同 tz，与 repo dailyByModel 的 SQL
@@ -34,7 +34,7 @@ export function tokenUsageTopTodayHandler(): TokenRateRow[] {
   return tokenUsageRepo.today(startOfTodayLocalMs());
 }
 
-/** bucket × 本地日期 4 指标聚合（数据 tab 表格）。无参 = 全量历史。 */
+/** bucket × 本地日期 5 指标聚合（数据 tab 表格）。无参 = 全量历史。 */
 export function tokenUsageDailyHandler(): TokenDailyRow[] {
   return tokenUsageRepo.dailyByModel();
 }

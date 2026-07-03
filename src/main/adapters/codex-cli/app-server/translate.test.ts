@@ -44,6 +44,7 @@ describe('translateCodexAppServerNotification', () => {
           model: 'gpt-5.5-codex',
           inputTokens: 11,
           outputTokens: 22,
+          reasoningTokens: 5,
           cacheReadTokens: 7,
           cacheCreationTokens: 0,
         },

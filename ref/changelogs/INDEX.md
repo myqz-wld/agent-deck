@@ -342,3 +342,4 @@
 | [CHANGELOG_335.md](CHANGELOG_335.md) | Annotated `present_diff` PR cards keep red/green diff cues. |
 | [CHANGELOG_336.md](CHANGELOG_336.md) | Refresh Claude and Codex runtime packages. |
 | [CHANGELOG_337.md](CHANGELOG_337.md) | Restore red error theme token for diff deletion rows. |
+| [CHANGELOG_338.md](CHANGELOG_338.md) | Data tab shows Codex reasoning token totals and accounting notes. |
