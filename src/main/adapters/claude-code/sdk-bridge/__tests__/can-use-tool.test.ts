@@ -101,11 +101,11 @@ describe('makeCanUseTool — bypassPermissions 短路（CHANGELOG_72 Bug 3）', 
 
     const result = await canUseTool('SandboxNetworkAccess', { host: 'example.com' }, makeCtx());
 
-    expect(result.behavior).toBe('deny');
-    if (result.behavior === 'deny') {
-      expect(result.message).toMatch(/沙盒|dangerouslyDisableSandbox/);
-      expect(result.interrupt).toBe(false);
+    if (result?.behavior !== 'deny') {
+      throw new Error(`expected SandboxNetworkAccess to be denied, got ${JSON.stringify(result)}`);
     }
+    expect(result.message).toMatch(/沙盒|dangerouslyDisableSandbox/);
+    expect(result.interrupt).toBe(false);
     // 沙盒拦截只 console.log（不 emit waiting-for-user，与原行为一致）
     expect(emitted.filter((e) => e.kind === 'waiting-for-user')).toEqual([]);
   });

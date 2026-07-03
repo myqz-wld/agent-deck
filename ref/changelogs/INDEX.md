@@ -343,3 +343,4 @@
 | [CHANGELOG_336.md](CHANGELOG_336.md) | Refresh Claude and Codex runtime packages. |
 | [CHANGELOG_337.md](CHANGELOG_337.md) | Restore red error theme token for diff deletion rows. |
 | [CHANGELOG_338.md](CHANGELOG_338.md) | Data tab shows Codex reasoning token totals and accounting notes. |
+| [CHANGELOG_339.md](CHANGELOG_339.md) | Refresh Claude and Codex runtime dependencies. |
