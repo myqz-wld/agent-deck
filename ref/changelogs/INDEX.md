@@ -347,3 +347,4 @@
 | [CHANGELOG_340.md](CHANGELOG_340.md) | Clarify token inclusion rules and capture Claude thinking details. |
 | [CHANGELOG_341.md](CHANGELOG_341.md) | Data tab token accounting now sits under today's summary. |
 | [CHANGELOG_342.md](CHANGELOG_342.md) | Deepseek token stats map Claude aliases to Deepseek models. |
+| [CHANGELOG_343.md](CHANGELOG_343.md) | Refresh Claude Agent SDK runtime dependency. |
