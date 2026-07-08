@@ -349,3 +349,4 @@
 | [CHANGELOG_342.md](CHANGELOG_342.md) | Deepseek token stats map Claude aliases to Deepseek models. |
 | [CHANGELOG_343.md](CHANGELOG_343.md) | Refresh Claude Agent SDK runtime dependency. |
 | [CHANGELOG_344.md](CHANGELOG_344.md) | Restore immediate Claude streaming input scheduling. |
+| [CHANGELOG_345.md](CHANGELOG_345.md) | Refresh Claude and Codex runtime dependencies. |
