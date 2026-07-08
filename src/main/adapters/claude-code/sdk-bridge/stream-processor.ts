@@ -59,6 +59,7 @@ export class StreamProcessor {
         type: 'user',
         message: { role: 'user', content: text },
         parent_tool_use_id: null,
+        priority: 'now',
         session_id: sessionId,
       };
       return () => Promise.resolve(msg);
@@ -96,6 +97,7 @@ export class StreamProcessor {
         type: 'user',
         message: { role: 'user', content: blocks },
         parent_tool_use_id: null,
+        priority: 'now',
         session_id: sessionId,
       };
     };
