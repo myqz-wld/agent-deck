@@ -47,6 +47,21 @@ adapter 设计边界、风险清单和验证计划。
 所以本报告包含静态调研和设计推断，但没有 live ACP transcript。下一步实现前必须先
 安装 `agent` 并保存 raw JSON-RPC transcript。
 
+2026-07-09 复核更新：
+
+- Cursor ACP / CLI 公开文档仍未提供 Codex app-server `developerInstructions` 等价的
+  session option。也未看到 `systemPrompt` / `instructions` / `rules` 之类可由 ACP
+  client 在 `session/new` 或 `session/prompt` 外带入的稳定注入字段。
+- Cursor CLI 当前文档化的规则入口是 filesystem-based：项目 `.cursor/rules`、项目根
+  `AGENTS.md`、项目根 `CLAUDE.md`。这可用于 Cursor 原生规则生态，但不等价于
+  Agent Deck 对 Codex in-app session 的 out-of-band developer instruction 注入。
+- ACP schema 的 `_meta` 字段和 `promptCapabilities.embeddedContext` 不能当作 bundled
+  conventions 注入面：前者协议明确只保留给 metadata，不应假设语义；后者是 prompt
+  content capability，不是高优先级指令层。
+- 因此 Cursor 可以接入 Agent Deck，但 Cursor MVP 不能承诺与 Codex 在
+  `developerInstructions` 自动注入层完全对齐。需要采用 prompt-prefix 或托管规则文件
+  等 Cursor-specific 策略。
+
 ## Confirmed Sources
 
 官方资料：
@@ -65,6 +80,15 @@ adapter 设计边界、风险清单和验证计划。
 - ACP content: https://agentclientprotocol.com/protocol/v1/content
 - ACP session modes: https://agentclientprotocol.com/protocol/v1/session-modes
 - ACP transports: https://agentclientprotocol.com/protocol/v1/transports
+
+2026-07-09 复核重点：
+
+- Cursor CLI using 文档确认 CLI 会自动读取 `.cursor/rules`，并读取项目根 `AGENTS.md`
+  / `CLAUDE.md` 作为规则。
+- Cursor CLI parameters 文档列出 `--mode`、`--sandbox`、`--workspace`、`--plugin-dir`
+  和隐藏 `agent acp` 等入口，但没有列出 developer/system instruction 注入参数。
+- Cursor ACP 文档示例的 `session/new` 关注 `cwd` / `mcpServers`，`session/prompt`
+  承载用户 prompt content；未文档化 per-session instruction override。
 
 本仓库对照资料：
 
@@ -219,6 +243,11 @@ MVP 建议声明最小 client capabilities：
 - `agentCapabilities.sessionCapabilities.additionalDirectories`
 - `authMethods`
 
+注意：`promptCapabilities.embeddedContext` 只说明 agent 是否支持 prompt content 中的
+embedded context block。它不是 Cursor CLI 的规则系统，也不是 Codex
+`developerInstructions` 的等价物；除非 Cursor / ACP 后续明确文档化其 instruction
+语义，否则不能用它承载 Agent Deck bundled conventions。
+
 ### Session Lifecycle
 
 `session/new` 必须包含 absolute `cwd` 和 `mcpServers`。ACP spec 要求 `cwd` 为绝对路径。
@@ -372,6 +401,48 @@ MVP 建议：
 - inline `mcpServers` 可能涉及 secret/env/auth 和 approval 行为，需要 live transcript 验证。
 - Agent Deck 的 universal team backend 不依赖把 Agent Deck MCP 强行注入每个 Cursor session；
   teammate 消息可由应用层 `receiveTeammateMessage` 注入普通 prompt。
+
+### Agent Deck Bundled Conventions Injection
+
+Codex 现有路径：
+
+- `resources/codex-config/CODEX_AGENTS.md` 经 app-server `developerInstructions` 注入
+  每个 in-app Codex SDK session。
+- 这条路径独立于项目 `AGENTS.md`，也不会写入用户 `~/.codex/AGENTS.md`。
+
+Cursor 当前公开路径：
+
+- Cursor CLI / editor 原生读取项目 `.cursor/rules`。
+- Cursor CLI 还读取项目根 `AGENTS.md` 和 `CLAUDE.md` 并作为 rules 应用。
+- Cursor ACP / CLI 公开文档未提供稳定的 per-session developer/system instruction
+  option；`agent acp` 的标准流程没有 Codex app-server 同类注入点。
+
+Agent Deck 设计结论：
+
+- 不要在产品或 adapter capability 中宣称 Cursor 与 Codex 在 bundled conventions
+  自动注入层完全对齐。
+- 不要依赖 ACP `_meta` 或未文档化字段偷传 conventions。即使某个 Cursor CLI 版本静默
+  接受未知字段，也不能作为稳定协议面。
+- 不要用 MCP tool descriptions 替代 agent-level conventions；工具描述只影响工具选择，
+  不能表达 Agent Deck runtime protocol、wait boundary、handoff 等全局行为。
+
+可选实现策略：
+
+| 策略 | 优点 | 风险 / 限制 | 推荐度 |
+|---|---|---|---|
+| 首个 `session/prompt` 前缀注入 bundled conventions | 不改用户文件，MVP 最快 | 权限层级只是 prompt 内容；占上下文；需要避免重复注入 | MVP 可用 |
+| 托管临时 `.cursor/rules` / `AGENTS.md` / `CLAUDE.md` | 贴合 Cursor 原生 rules 生态 | 会写 filesystem；不能污染用户 repo；应限制在 managed worktree / temp workspace | 第二阶段 spike |
+| `--plugin-dir` | 可能贴近 Cursor 插件生态 | 当前未证明它提供 instruction injection；需单独实测 | 待验证 |
+| Cursor SDK | programmatic surface 可能更强 | API key、hooks/sandbox、安全模型和打包成本都不同 | 不作为第一版 |
+
+MVP 建议：
+
+- 若 Cursor teammate 需要理解 Agent Deck runtime protocol，在每个新 Cursor session 的首个
+  prompt 前拼接一次短版 Agent Deck conventions，并在 adapter state 中记录已注入。
+- 长版 bundled conventions 暂不直接塞入每个 turn；优先做瘦身的 Cursor-specific
+  conventions，避免上下文和优先级误导。
+- 若后续选择规则文件策略，必须使用 Agent Deck 托管目录或 worktree，且写入/清理行为需要
+  在 UI 和 plan 中明确，不能静默改用户项目根规则文件。
 
 ### Attachments And Content Blocks
 
@@ -755,6 +826,7 @@ agent login
 | process restart + `session/load` | replay semantics / duplicate event guard |
 | `.cursor/mcp.json` simple stdio server | Cursor ACP MCP loading和 approval |
 | inline `mcpServers` | 是否实际可用；若不可用，保持禁用 |
+| instruction injection probe | 验证未知 `developerInstructions` / `systemPrompt` / `_meta` 是否 reject 或 ignore；只作风险记录，不作为设计依赖 |
 | image prompt | `promptCapabilities.image` 和 content block shape |
 | `cursor/ask_question` | blocking extension response shape |
 | `cursor/create_plan` | blocking plan approval response shape |
@@ -783,6 +855,8 @@ transcript 保存建议：
 10. `.cursor/mcp.json` 与 inline `mcpServers` 在 ACP 下的真实优先级和 approval 体验。
 11. tool edit 是否稳定发 `diff` content，能否可靠生成 Agent Deck file-changed。
 12. `usage_update` 的 token counts 是否是 context used/size，还是可作为 provider usage。
+13. Cursor 是否后续新增 documented per-session instruction surface；如果只有未知字段 /
+    `_meta` / prompt content 可用，则仍按“无稳定 developerInstructions 等价面”处理。
 
 ## Implementation Phasing
 
@@ -791,6 +865,8 @@ transcript 保存建议：
 - 安装 Cursor CLI
 - 保存 handshake / prompt / permission / cancel / resume raw transcript
 - 根据 transcript 修正文档中的推断
+- 明确 Cursor conventions 策略：prompt-prefix MVP、managed rules spike，或等待官方
+  instruction API；不得把未文档化字段升格为产品依赖
 
 ### Phase 1: Transport + Basic Session
 
@@ -843,6 +919,8 @@ transcript 保存建议：
 - `session/load` replay can duplicate messages unless adapter tracks replay phase.
 - `session/request_permission` can block the agent indefinitely if UI responder is lost; timeout/cancel
   handling is required from day one.
+- Cursor 缺少 Codex-style documented `developerInstructions` 注入面；bundled conventions
+  只能通过 prompt-prefix 或 filesystem rules 等降级策略接入，生态对齐不能写成完全等价。
 
 ## Final Recommendation
 
@@ -854,8 +932,11 @@ protocol spike. The MVP should be conservative:
 - one ACP child process per Agent Deck session
 - text prompts only
 - no inline MCP injection
+- no Codex-style developerInstructions parity claim
 - no runtime mode/sandbox switch
 - full pending support for permission, ask question, and plan approval
 
 After transcript-backed tests exist, Cursor ACP can become a first-class Agent Deck adapter with
 behavior closer to Claude adapter on UI approvals and closer to Codex adapter on subprocess transport.
+Bundled conventions should remain a Cursor-specific design item until Cursor exposes a documented
+per-session instruction API or Agent Deck deliberately adopts a managed rules-file strategy.
