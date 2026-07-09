@@ -10,8 +10,8 @@
  *   - thread.run(prompt) → finalResponse
  *   - 可选 race（handoff 60s hardcoded；summarize 走 settings.summaryTimeoutMs）
  *
- * 仅 modelReasoningEffort（'low' summarize / 'medium' handoff）+ timeoutMs + errorMessage 3
- * 处差异。抽公共 helper 收口。
+ * 仅 modelReasoningEffort（由两组 settings 独立选择）+ timeoutMs + errorMessage 3 处差异。
+ * 抽公共 helper 收口。
  *
  * **不变量**（与原 2 runner 一致）：
  * - sandboxMode='read-only'：禁 codex 真跑工具改文件
@@ -39,6 +39,7 @@ import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import { toCodexModelOverride } from '@main/adapters/codex-cli/sdk-model';
 import { toCodexAppServerInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
+import type { CodexThinkingLevel } from '@shared/session-metadata';
 import { raceWithTimeout } from './race-with-timeout';
 
 /**
@@ -52,14 +53,12 @@ export async function runCodexOneshot(opts: {
   /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt / buildHandoffPrompt 组装。 */
   prompt: string;
   /**
-   * Reasoning effort：summarize 默认 'low'（30 字 tag-line 不需深思 + 出字快），handoff 默认
-   * 'medium'（4 节结构化输出对理解力要求高，'low' 输出常常错位漏节，'high' 太慢 ~30s+）。
+   * Reasoning effort：caller 的 summarize 默认 'low'（30 字 tag-line 不需深思 + 出字快），
+   * handoff 默认 'medium'（4 节结构化输出对理解力要求更高）。
    *
-   * plan prancy-forging-penguin: 扩到 4 档(minimal/low/medium/high)与 settings UI dropdown 对齐
-   * (settings.summaryReasoning / handOffReasoning user 可选)。Codex runtime 支持 5 档含 'xhigh',
-   * 未来如需暴露最高档再扩;当前 UI 4 档够用。
+   * 与 settings UI 共用 CodexThinkingLevel：minimal / low / medium / high / xhigh / max / ultra。
    */
-  modelReasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
+  modelReasoningEffort: CodexThinkingLevel;
   /**
    * prompt-asset-review-optimize-20260527 跟进:可选 model override 透传给 Codex
    * ThreadOptions.model。caller 走 settings/env

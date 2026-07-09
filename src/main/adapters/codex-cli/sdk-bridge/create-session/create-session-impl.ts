@@ -60,7 +60,8 @@ import type { CodexAppServerThread } from '../../app-server/client';
 import { validateCreateSessionOpts } from './create-session-validate';
 import { runCreateSessionResumePath } from './create-session-resume';
 import { runCreateSessionNewPath } from './create-session-new';
-import { isCodexThinkingLevel } from '@shared/session-metadata';
+import { readTopLevelModelReasoningEffortFromCodexConfig } from '@main/codex-config/toml-writer';
+import { resolveCodexReasoningEffort } from './reasoning-effort-resolve';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -103,13 +104,27 @@ export async function createSessionImpl(
     const persistedSandbox = resumeRec?.codexSandbox ?? null;
     const sandboxMode =
       opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
-    const modelReasoningEffort =
-      opts.modelReasoningEffort ??
-      (isCodexThinkingLevel(resumeRec?.thinking) ? resumeRec.thinking : undefined);
+    const hasReasoningConfigLayer =
+      opts.codexConfigOverrides !== undefined &&
+      (Object.prototype.hasOwnProperty.call(opts.codexConfigOverrides, 'profile') ||
+        Object.prototype.hasOwnProperty.call(
+          opts.codexConfigOverrides,
+          'model_reasoning_effort',
+        ));
+    const {
+      sessionValue: sessionModelReasoningEffort,
+      threadValue: threadModelReasoningEffort,
+    } = resolveCodexReasoningEffort({
+      explicit: opts.modelReasoningEffort,
+      isResume: opts.resume !== undefined,
+      persisted: resumeRec?.thinking,
+      hasLayerOverride: hasReasoningConfigLayer,
+      readConfigured: readTopLevelModelReasoningEffortFromCodexConfig,
+    });
     const effectiveOpts =
-      modelReasoningEffort === opts.modelReasoningEffort
+      sessionModelReasoningEffort === opts.modelReasoningEffort
         ? opts
-        : { ...opts, modelReasoningEffort };
+        : { ...opts, modelReasoningEffort: sessionModelReasoningEffort };
     const developerInstructions = combineDeveloperInstructions(
       getAgentDeckCodexDeveloperInstructions(),
       opts.developerInstructions,
@@ -143,7 +158,7 @@ export async function createSessionImpl(
           sandboxMode,
           approvalPolicy: opts.approvalPolicy,
           model: opts.model,
-          modelReasoningEffort,
+          modelReasoningEffort: threadModelReasoningEffort,
           developerInstructions,
           configOverrides: opts.codexConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,
@@ -157,7 +172,7 @@ export async function createSessionImpl(
           sandboxMode,
           approvalPolicy: opts.approvalPolicy,
           model: opts.model,
-          modelReasoningEffort,
+          modelReasoningEffort: threadModelReasoningEffort,
           developerInstructions,
           configOverrides: opts.codexConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,

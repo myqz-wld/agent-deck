@@ -24,7 +24,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // plan prancy-forging-penguin: provider × model × reasoning 三联字段(summary / handoff 两组)
   // - summaryModel/handOffModel: 默认空 = 沿用各 provider env / alias / config.toml 链
   // - summaryProvider/handOffProvider: 默认 'claude'(走 Claude Code SDK + OAuth 凭证)
-  // - summaryReasoning/handOffReasoning: 默认 low/medium 与原 hardcoded 行为对齐(仅 codex provider 生效)
+  // - summaryReasoning/handOffReasoning: 默认 low/medium 与原 hardcoded 行为对齐；Codex 与
+  //   Claude-family provider 都透传各自 SDK 的 reasoning / effort 字段
   summaryProvider: 'claude',
   summaryModel: '',
   summaryReasoning: 'low',

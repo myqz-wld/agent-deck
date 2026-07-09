@@ -13,8 +13,7 @@
  *
  * 与 `summarizer-runner.ts:summariseCodexSessionViaOneshot` 差异：
  * - prompt 改 4 节结构化模板（buildHandoffPrompt 而非 buildSummarizePrompt）
- * - `modelReasoningEffort: 'medium'`（hand-off 比 summarize 'low' 提一档保结构精度；high 太
- *   慢、low 结构化输出精度不够，medium 折中）
+ * - `modelReasoningEffort` 读 settings.handOffReasoning（默认 medium；可选 minimal..ultra）
  * - 60s timeout hardcoded（与 claude hand-off 平齐，参考 llm-runners.ts:summariseSessionForHandOff）
  *   — 不读 settings.summaryTimeoutMs，因为 hand-off 与周期 summarize timeout 语义不同
  * - cleanStructuredResult 保留 \n 换行（4 节简报需分段渲染）；**不传 maxLen 不 slice**
@@ -60,8 +59,7 @@ export async function summariseCodexSessionForHandOff(
     prompt: buildHandoffPrompt({ cwd, activity, agentName: 'Agent' }),
     // plan prancy-forging-penguin:reasoning 改读 settings.handOffReasoning(原 hardcoded
     // 'medium' 已下线)。default 'medium' 与原行为对齐 — hand-off 4 节结构化输出对 codex 理解力
-    // 要求比 30 字 summarize 高;high 太慢(spike 实测 30s+),low 输出结构常常错位(漏节 / 节标题
-    // 写错),medium 是 spike-A3 实测下的最佳折中。
+    // 要求比 30 字 summarize 高；medium 是默认折中，用户也可选完整 Codex effort 档位。
     modelReasoningEffort: settingsStore.get('handOffReasoning') ?? 'medium',
     // plan prancy-forging-penguin:codex handoff model 改读统一字段 settings.handOffModel
     // (不再是 codexHandOffModel — 已下线 + REMOVED_KEYS 清孤儿)。优先级链:

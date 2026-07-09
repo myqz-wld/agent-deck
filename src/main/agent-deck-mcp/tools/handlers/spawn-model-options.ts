@@ -3,9 +3,15 @@ import type {
   SpawnSessionModelValue,
   SpawnSessionThinkingValue,
 } from '../schemas';
+import {
+  CLAUDE_THINKING_LEVELS,
+  CODEX_THINKING_LEVELS,
+  type ClaudeThinkingLevel,
+  type CodexThinkingLevel,
+} from '@shared/session-metadata';
 
-export type SpawnCodexReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-export type SpawnClaudeCodeEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type SpawnCodexReasoningEffort = CodexThinkingLevel;
+export type SpawnClaudeCodeEffortLevel = ClaudeThinkingLevel;
 
 export interface SpawnModelOptions {
   model?: string;
@@ -18,9 +24,9 @@ export type SpawnModelOptionsResult =
   | { ok: false; error: string; hint: string };
 
 const THINKING_VALUES_BY_ADAPTER = {
-  'claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
-  'codex-cli': ['minimal', 'low', 'medium', 'high', 'xhigh'],
-  'deepseek-claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'claude-code': CLAUDE_THINKING_LEVELS,
+  'codex-cli': CODEX_THINKING_LEVELS,
+  'deepseek-claude-code': CLAUDE_THINKING_LEVELS,
 } as const satisfies Record<SpawnSessionArgs['adapter'], readonly SpawnSessionThinkingValue[]>;
 
 const DEEPSEEK_MODEL_RUNTIME = {

@@ -17,8 +17,9 @@
  */
 import { toCodexModelOverride } from '../sdk-model';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import type { CodexThinkingLevel } from '@shared/session-metadata';
 
-export type CodexReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type CodexReasoningEffort = CodexThinkingLevel;
 export type CodexReasoningSummary = 'none' | 'auto';
 
 export interface BuildCodexThreadOptionsArgs {
@@ -34,7 +35,7 @@ export interface BuildCodexThreadOptionsArgs {
   networkAccessEnabled?: boolean;
   /** 同上,caller 缺省 → 不写字段 → SDK 走默认值 */
   additionalDirectories?: readonly string[];
-  /** oneshot caller 可显式覆盖 reasoning effort；live session 缺省走 Codex 配置。 */
+  /** Resolved per-session reasoning effort; the provider validates model-specific support. */
   modelReasoningEffort?: CodexReasoningEffort;
   /** live session 默认请求 Codex 产出可展示的 reasoning summary；用户 config 可显式覆盖。 */
   modelReasoningSummary?: CodexReasoningSummary;

@@ -351,3 +351,5 @@
 | [CHANGELOG_344.md](CHANGELOG_344.md) | Restore immediate Claude streaming input scheduling. |
 | [CHANGELOG_345.md](CHANGELOG_345.md) | Refresh Claude and Codex runtime dependencies. |
 | [CHANGELOG_346.md](CHANGELOG_346.md) | Refresh Claude/Codex deps and verify Codex GPT-5.6 Sol. |
+| [CHANGELOG_347.md](CHANGELOG_347.md) | Preserve semantic model slugs and sync Codex/Claude session effort. |
+| [CHANGELOG_348.md](CHANGELOG_348.md) | Add provider-scoped thinking to summaries and Hand-off briefs. |

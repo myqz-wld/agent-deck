@@ -57,6 +57,35 @@ describe.skipIf(!bindingAvailable)('token-usage-repo / insert + max-merge', () =
     expect(row.model_bucket).toBe('opus-4.8'); // 归一聚合维度
   });
 
+  it('GPT semantic suffix 保留，尾部 variant 只影响 bucket 不改 model_raw', () => {
+    repo.insert(
+      claudeUsage({
+        messageId: 'gpt-sol',
+        agentId: 'codex-cli',
+        model: 'gpt-5.6-sol',
+      }),
+    );
+    repo.insert(
+      claudeUsage({
+        messageId: 'gpt-sol-variant',
+        agentId: 'codex-cli',
+        model: 'gpt-5.6-sol-thinking-max[1m]',
+      }),
+    );
+
+    expect(
+      db
+        .prepare(
+          `SELECT model_raw AS modelRaw, model_bucket AS modelBucket
+           FROM token_usage ORDER BY id`,
+        )
+        .all(),
+    ).toEqual([
+      { modelRaw: 'gpt-5.6-sol', modelBucket: 'gpt-5.6-sol' },
+      { modelRaw: 'gpt-5.6-sol-thinking-max[1m]', modelBucket: 'gpt-5.6-sol' },
+    ]);
+  });
+
   it('max-merge：同 message_id 第二条 output 更大 → DB 更新为更大值', () => {
     repo.insert(claudeUsage({ outputTokens: 50 }));
     repo.insert(claudeUsage({ outputTokens: 90 }));

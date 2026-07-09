@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { AppSettings } from '@shared/types';
-import { DeckSelect } from '@renderer/components/DeckSelect';
+import {
+  CLAUDE_THINKING_LEVELS,
+  CODEX_THINKING_LEVELS,
+  isClaudeThinkingLevel,
+  type SessionThinkingLevel,
+} from '@shared/session-metadata';
+import { DeckSelect, type DeckSelectOption } from '@renderer/components/DeckSelect';
 import { Section, NumberInput } from '../controls';
 import { SummarizerErrorsDiagnostic } from '../SummarizerErrorsDiagnostic';
 
@@ -65,7 +71,7 @@ function ModelInput({
 }
 
 type Provider = AppSettings['summaryProvider'];
-type Reasoning = 'minimal' | 'low' | 'medium' | 'high';
+type Reasoning = SessionThinkingLevel;
 type ModelPurpose = 'summary' | 'handoff';
 
 const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
@@ -74,12 +80,29 @@ const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
   { value: 'codex', label: 'Codex' },
 ];
 
-const REASONING_OPTIONS: { value: Reasoning; label: string }[] = [
-  { value: 'minimal', label: 'MINIMAL' },
-  { value: 'low', label: 'LOW' },
-  { value: 'medium', label: 'MEDIUM' },
-  { value: 'high', label: 'HIGH' },
-];
+function buildReasoningOptions(
+  levels: readonly Reasoning[],
+): readonly DeckSelectOption<Reasoning>[] {
+  return levels.map((value) => ({ value, label: value.toUpperCase() }));
+}
+
+const CLAUDE_REASONING_OPTIONS = buildReasoningOptions(CLAUDE_THINKING_LEVELS);
+const CODEX_REASONING_OPTIONS = buildReasoningOptions(CODEX_THINKING_LEVELS);
+
+function reasoningOptionsForProvider(
+  provider: Provider,
+): readonly DeckSelectOption<Reasoning>[] {
+  return provider === 'codex' ? CODEX_REASONING_OPTIONS : CLAUDE_REASONING_OPTIONS;
+}
+
+function coerceReasoningForProvider(provider: Provider, reasoning: Reasoning): Reasoning {
+  if (provider === 'codex' || isClaudeThinkingLevel(reasoning)) return reasoning;
+  return reasoning === 'ultra' ? 'max' : 'low';
+}
+
+function providerLabel(provider: Provider): string {
+  return PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ?? provider;
+}
 
 function buildModelPlaceholder(purpose: ModelPurpose, provider: Provider): string {
   if (provider === 'codex') return '留空使用 Codex 配置默认模型';
@@ -113,8 +136,8 @@ function buildModelHint(purpose: ModelPurpose, provider: Provider): string {
  *
  * - Provider select: claude / deepseek / codex,决定走哪个 LLM provider
  * - Model input: free-form model id,空 = 沿用 provider 各自 env / alias / config.toml 兜底
- * - Reasoning select: minimal/low/medium/high,**仅 provider='codex' 启用**
- *   (Claude-family providers 无独立 reasoning 字段,thinking 走 model id 后缀)
+ * - Reasoning select: 按 provider 展示对应 SDK 支持的思考程度。Codex 支持
+ *   minimal..ultra；Claude-family providers 支持 low..max。
  */
 function ModelRow({
   label,
@@ -137,7 +160,6 @@ function ModelRow({
   onModelChange: (v: string) => void;
   onReasoningChange: (v: Reasoning) => void;
 }): JSX.Element {
-  const reasoningDisabled = provider !== 'codex';
   return (
     <div className="flex flex-col gap-1 text-[11px]">
       <div>{label}</div>
@@ -153,16 +175,11 @@ function ModelRow({
         <ModelInput value={model} placeholder={modelPlaceholder} onChange={onModelChange} />
         <DeckSelect
           value={reasoning}
-          disabled={reasoningDisabled}
           onChange={onReasoningChange}
-          title={
-            reasoningDisabled
-              ? 'Using the model default thinking level'
-              : 'Codex thinking level'
-          }
-          options={REASONING_OPTIONS}
+          title={`${providerLabel(provider)} 思考程度`}
+          options={reasoningOptionsForProvider(provider)}
           className="w-20 shrink-0"
-          buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20 disabled:opacity-40"
+          buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
           menuMinWidth={120}
         />
       </div>
@@ -200,7 +217,12 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
         model={settings.summaryModel}
         reasoning={settings.summaryReasoning}
         modelPlaceholder={buildModelPlaceholder('summary', settings.summaryProvider)}
-        onProviderChange={(v) => void update({ summaryProvider: v })}
+        onProviderChange={(v) =>
+          void update({
+            summaryProvider: v,
+            summaryReasoning: coerceReasoningForProvider(v, settings.summaryReasoning),
+          })
+        }
         onModelChange={(v) => void update({ summaryModel: v })}
         onReasoningChange={(v) => void update({ summaryReasoning: v })}
       />
@@ -211,7 +233,12 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
         model={settings.handOffModel}
         reasoning={settings.handOffReasoning}
         modelPlaceholder={buildModelPlaceholder('handoff', settings.handOffProvider)}
-        onProviderChange={(v) => void update({ handOffProvider: v })}
+        onProviderChange={(v) =>
+          void update({
+            handOffProvider: v,
+            handOffReasoning: coerceReasoningForProvider(v, settings.handOffReasoning),
+          })
+        }
         onModelChange={(v) => void update({ handOffModel: v })}
         onReasoningChange={(v) => void update({ handOffReasoning: v })}
       />

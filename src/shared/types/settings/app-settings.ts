@@ -8,6 +8,8 @@
  * - **HookInstallStatus**：hook 安装状态（与 settings UI hook section 紧贴）
  */
 
+import type { SessionThinkingLevel } from '../../session-metadata';
+
 /**
  * Codex MCP server 配置（CHANGELOG_<X> A4b 起跨进程共享）。
  *
@@ -65,8 +67,8 @@ export interface AppSettings {
    * **与被总结 session 自身的 adapter 无关**(claude session 也可能由 codex SDK 总结,反之亦然
    * — 由 user 在 settings 决定)。
    *
-   * - `'claude'`(默认): 走 Claude Code SDK + settings.summaryModel 字段
-   * - `'deepseek'`: 走 Deepseek Claude Code adapter + settings.summaryModel 字段
+   * - `'claude'`(默认): 走 Claude Code SDK + settings.summaryModel / summaryReasoning 字段
+   * - `'deepseek'`: 走 Deepseek Claude Code adapter + settings.summaryModel / summaryReasoning 字段
    * - `'codex'`: 走 Codex SDK + settings.summaryModel 字段 + settings.summaryReasoning 档位
    *
    * 切档即时生效:summarizer 每次 scanAll() 重读本字段,无 cache。已在跑的 in-flight LLM
@@ -95,15 +97,20 @@ export interface AppSettings {
   /**
    * 周期性 summarize 的 reasoning effort 档位(plan prancy-forging-penguin)。
    *
-   * **仅 summaryProvider='codex' 时生效**:codex SDK 原生支持 ThreadOptions.modelReasoningEffort
-   * 4 档枚举。claude SDK 端无独立 reasoning 字段,thinking 走 model id 后缀(如
-   * `claude-opus-4-7-thinking-max[1m]`),本字段被 claude provider 忽略。
+   * provider 对应档位：
+   * - Codex：`minimal | low | medium | high | xhigh | max | ultra`
+   * - Claude / Deepseek（Claude Code SDK effort）：`low | medium | high | xhigh | max`
+   *   （具体模型支持子集由 Claude Code 校准）
+   *
+   * UI 切换 provider 时会把 Claude-family 不支持的 `minimal` / `ultra` 分别收口为
+   * `low` / `max`；main 端做同样的兼容收口并过滤其他非法值，避免脏配置透传给 SDK。
    *
    * - default `'low'`: 与原 hardcoded summarize='low' 行为对齐,省 token + 出字快
-   * - `'medium'/'high'`: 用户需精度时升档(注意成本与延迟)
+   * - `'medium'/'high'/'xhigh'/'max'`: 用户需精度时升档(注意成本与延迟)
    * - `'minimal'`: codex 最轻档,极短输出
+   * - `'ultra'`: codex 最高档；Claude Code 不支持该 effort 名称
    */
-  summaryReasoning: 'minimal' | 'low' | 'medium' | 'high';
+  summaryReasoning: SessionThinkingLevel;
   /**
    * Hand-off 接力简报走哪个 LLM provider(plan prancy-forging-penguin)。语义同 summaryProvider
    * 但作用于 IPC `SessionHandOffSummarize` handler(手动 UI 按钮触发的 4 节结构化简报):
@@ -131,14 +138,16 @@ export interface AppSettings {
   /**
    * Hand-off 接力简报的 reasoning effort 档位(plan prancy-forging-penguin)。
    *
-   * **仅 handOffProvider='codex' 时生效**(Claude-family providers 忽略,thinking 走 model id 后缀)。
+   * provider 对应档位同 summaryReasoning：Codex 支持完整 7 档，Claude / Deepseek
+   * 支持 `low | medium | high | xhigh | max`。
    *
    * - default `'medium'`: 与原 hardcoded handoff='medium' 行为对齐 — hand-off 4 节结构化输出
    *   对模型理解力要求高,medium 是 spike 实测下的最佳折中(high 太慢、low 输出结构常常错位)
    * - `'low'`/`'minimal'`: user 想省 token / 出字快时降档
-   * - `'high'`: 极端结构精度需求(注意 spike 实测 30s+)
+   * - `'high'/'xhigh'/'max'`: 更高结构精度需求（注意成本与延迟）
+   * - `'ultra'`: 仅 Codex 支持
    */
-  handOffReasoning: 'minimal' | 'low' | 'medium' | 'high';
+  handOffReasoning: SessionThinkingLevel;
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。 */
   permissionTimeoutMs: number;
   alwaysOnTop: boolean;

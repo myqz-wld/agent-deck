@@ -40,6 +40,7 @@ import {
 import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
 import { buildMcpServersForSession } from '../mcp-server-init';
 import { buildClaudeQueryOptions } from '../query-options-builder';
+import { buildClaudeRuntimeMetadataHooks } from '../runtime-metadata-sync';
 import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type {
   CreateSessionDeps,
@@ -153,6 +154,7 @@ export async function runCreateSessionSdkQuery(
         effort: opts.claudeCodeEffortLevel,
         agentName: opts.claudeAgentName,
         agents: opts.claudeAgents,
+        hooks: buildClaudeRuntimeMetadataHooks(internal),
       }),
     });
     internal.query = q;

@@ -68,6 +68,41 @@ describe('resolveCodexAgentContent', () => {
     expect(result.agent.developerInstructions).toContain('Use bundled instructions.');
   });
 
+  it.each(['max', 'ultra'] as const)(
+    'accepts current Codex model_reasoning_effort %s from custom-agent TOML',
+    async (effort) => {
+      writeAgent(join(project, '.codex', 'agents', `effort-${effort}.toml`), {
+        name: `effort-${effort}`,
+        description: `${effort} effort agent`,
+        body: 'Use the requested effort.',
+        effort,
+      });
+
+      const { resolveCodexAgentContent } = await import('./custom-agents');
+      const result = resolveCodexAgentContent(`effort-${effort}`, project);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.agent.modelReasoningEffort).toBe(effort);
+    },
+  );
+
+  it('rejects an unknown future Codex effort instead of guessing support', async () => {
+    writeAgent(join(mockHome.value, '.codex', 'agents', 'future-effort.toml'), {
+      name: 'future-effort',
+      description: 'Future effort agent',
+      body: 'Use a future effort.',
+      effort: 'extreme',
+    });
+
+    const { getUserCodexAgentContent } = await import('./custom-agents');
+    const result = getUserCodexAgentContent('future-effort');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain('invalid model_reasoning_effort "extreme"');
+  });
+
   it('skips bundled TOML when the Agent Deck Codex agents toggle is disabled', async () => {
     writeAgent(join(mockPluginRoot.value, 'agents', 'reviewer-codex.toml'), {
       name: 'reviewer-codex',

@@ -69,33 +69,35 @@ export interface SessionRecord {
   /**
    * Agent / SDK model（plan model-wiring-and-handoff-20260514 Step 1.3）。
    *
-   * 持久化 spawn 时来源（含 agentName 触发的 adapter-native agent config `model` 字段、未来 caller 显式
-   * 传入），让 SDK resume / dormant 唤醒后保持模型一致 — 与 permissionMode /
-   * claudeCodeSandbox 同款 per-session resilience 模式。
+   * 初始值来自 spawn/session 配置，并在 provider 给出更权威的 runtime identity 时校准，让
+   * SDK resume / dormant 唤醒后保持模型一致 — 与 permissionMode / claudeCodeSandbox
+   * 同款 per-session resilience 模式。
    *
    * - claude-code adapter：值会通过 buildClaudeQueryOptions → SDK `query({ options.model })`
    *   真正传给 cli.js；接受 'fable' / 'opus' / 'sonnet' / 'haiku' alias 或具体 model id 如
-   *   'claude-fable-5'
+   *   'claude-fable-5'，随后以 SDK system/init 报告的主模型更新（Deepseek profile 会先映射
+   *   Claude-compatible alias）
    * - codex-cli adapter（codex-sdk v0.131.0+）：值通过 sdk-bridge spread 到 ThreadOptions.model
    *   真正传给 codex CLI runtime + setModel 持久化让 resume / dormant 唤醒一致；user 端
    *   codex CLI 实际可用 model id 由 `~/.codex/config.toml` 配置决定（user 须自行 preflight
    *   model id 在自身 codex CLI 可用,非法 model 会触发 codex SDK ThreadErrorEvent fatal 路径)
    *
-   * null/undefined：不指定，SDK 自己读 ANTHROPIC_MODEL env / 自己默认值（与 settings 全局
-   * model 设置无关 — settings.summaryModel/handOffModel 只在 oneshot summary/hand-off 路径用，
-   * spawn/resume 路径不查 settings）。
+   * null/undefined：尚未指定或观测到具体模型；provider 自行选择默认值。
    */
   model?: string | null;
   /**
    * Per-session thinking / reasoning effort display value.
    *
-   * Stored as the adapter-facing level selected at creation time:
-   * - claude-code / deepseek-claude-code: SDK `effort` (`low` / `medium` / `high` / `xhigh` / `max`)
+   * Stored as the adapter-facing level selected at creation time, then calibrated when the
+   * provider reports a more authoritative runtime value:
+   * - claude-code / deepseek-claude-code: requested SDK `effort`
+   *   (`low` / `medium` / `high` / `xhigh` / `max`), replaced by the latest actual effort
+   *   observed from a completed SDK turn (including provider-side silent downgrade)
    * - codex-cli: app-server `model_reasoning_effort`
-   *   (`minimal` / `low` / `medium` / `high` / `xhigh`)
+   *   (`minimal` / `low` / `medium` / `high` / `xhigh` / `max` / `ultra`)
    *
-   * null/undefined means no explicit per-session override was recorded, so the adapter/user
-   * config default is in effect.
+   * null/undefined means no per-session value has been recorded or observed, so the provider
+   * default remains in effect.
    */
   thinking?: string | null;
   /**

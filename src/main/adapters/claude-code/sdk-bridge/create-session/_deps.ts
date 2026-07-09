@@ -63,11 +63,13 @@ export interface CreateSessionOpts {
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.2：SDK / agent model 透传。
    * 来源：spawn handler 解 adapter-native agent config `model` 字段后传入。
-   * fallback 链 opts.model > sessionRepo.model > undefined
+   * fallback 链 opts.model > resumed sessionRepo.model > provider profile default > undefined
    * （详 model-resolve.ts）。透传给 SDK `query({ options.model })` 真正生效，并
    * setModel 持久化让 resume / dormant 唤醒后保持一致。
    */
   model?: string;
+  /** Bridge profile fallback, applied only after an explicit model and a resumed session model. */
+  profileDefaultModel?: string;
   /**
    * Per-session Claude Code thinking / effort override. Passed to SDK `query({ options.effort })`.
    * Undefined preserves user settings / provider defaults.

@@ -256,7 +256,9 @@ export class Summarizer {
     // 1) 优先：跑一次 LLM oneshot,**dispatch 由 settings.summaryProvider 决定**
     //    (plan prancy-forging-penguin 改造):
     //    - settings.summaryProvider='claude' (默认) → claude SDK oneshot(haiku 默认,~/.claude OAuth)
+    //      + settings.summaryReasoning 对应的 Claude Code effort
     //    - settings.summaryProvider='deepseek' → Deepseek Claude Code adapter oneshot(Deepseek config)
+    //      + 同一组 Claude-family effort
     //    - settings.summaryProvider='codex' → codex SDK oneshot(read-only sandbox + reasoning 档位
     //      由 settings.summaryReasoning 决定,默认 'low')
     //

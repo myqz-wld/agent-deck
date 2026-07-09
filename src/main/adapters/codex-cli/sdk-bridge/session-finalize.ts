@@ -27,6 +27,7 @@
  */
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
+import type { CodexThinkingLevel } from '@shared/session-metadata';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-finalize');
@@ -47,7 +48,7 @@ export interface PersistSessionFieldsArgs {
    */
   model?: string;
   /** Codex app-server ThreadOptions.modelReasoningEffort value to persist for resume/display. */
-  modelReasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  modelReasoningEffort?: CodexThinkingLevel;
   /**
    * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
    * caller 透传的 SDK sandbox 额外可写根。**codex SDK 不消费 extra writable roots**

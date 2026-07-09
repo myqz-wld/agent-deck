@@ -56,7 +56,7 @@ describe('buildCodexThreadOptions', () => {
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
       model: 'gpt-5.5-codex',
-      modelReasoningEffort: 'xhigh',
+      modelReasoningEffort: 'ultra',
       modelReasoningSummary: 'none',
       developerInstructions: '  Use Agent Deck baseline.  ',
       configOverrides: {
@@ -68,7 +68,7 @@ describe('buildCodexThreadOptions', () => {
       additionalDirectories: ['/a', '/b'],
     });
     expect(opts.model).toBe('gpt-5.5-codex');
-    expect(opts.modelReasoningEffort).toBe('xhigh');
+    expect(opts.modelReasoningEffort).toBe('ultra');
     expect(opts.modelReasoningSummary).toBe('none');
     expect(opts.developerInstructions).toBe('Use Agent Deck baseline.');
     expect(opts.configOverrides).toEqual({

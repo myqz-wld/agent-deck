@@ -35,6 +35,10 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { CodexMcpServerConfigShared } from '@shared/types';
+import {
+  isCodexThinkingLevel,
+  type CodexThinkingLevel,
+} from '@shared/session-metadata';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-toml-writer');
@@ -187,6 +191,38 @@ export function readMcpServersFromCodexConfig(
 export function readTopLevelModelFromCodexConfig(
   configPath: string = getCodexConfigPath(),
 ): string | null {
+  return readTopLevelQuotedStringFromCodexConfig('model', configPath);
+}
+
+/**
+ * Read the top-level Codex `model_reasoning_effort` when it is one of the levels Agent Deck can
+ * safely pass to app-server. Unknown future values stay provider-owned and are not persisted as a
+ * session override.
+ */
+export function readTopLevelModelReasoningEffortFromCodexConfig(
+  configPath: string = getCodexConfigPath(),
+): CodexThinkingLevel | null {
+  // An active profile may override the top-level effort. Without a full layered TOML resolver,
+  // reporting the base value as effective would be worse than keeping the session display unset.
+  if (readTopLevelQuotedStringFromCodexConfig('profile', configPath)) return null;
+  const value = readTopLevelQuotedStringFromCodexConfig(
+    'model_reasoning_effort',
+    configPath,
+  );
+  return isCodexThinkingLevel(value) ? value : null;
+}
+
+/**
+ * Minimal section-aware reader for a quoted top-level string in Codex config.toml.
+ *
+ * It intentionally stops at the first table header so a profile/provider-local key cannot be
+ * mistaken for a global default. Reads are side-effect free; unsupported bare or multiline TOML
+ * values return null and remain Codex-owned.
+ */
+function readTopLevelQuotedStringFromCodexConfig(
+  key: string,
+  configPath: string,
+): string | null {
   if (!existsSync(configPath)) return null;
   let content = '';
   try {
@@ -194,19 +230,23 @@ export function readTopLevelModelFromCodexConfig(
   } catch {
     return null;
   }
+  const escapedKey = escapeRegex(key);
+  const assignmentRe = new RegExp(
+    `^${escapedKey}[ \\t]*=[ \\t]*("(?:[^"\\\\]|\\\\.)*"|'[^']*')`,
+  );
+  const keyRe = new RegExp(`^${escapedKey}[ \\t]*=`);
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (line === '' || line.startsWith('#')) continue;
     // 遇 section header → 顶层扫描结束（顶层 key 不可能在 table header 之后）
     if (line.startsWith('[')) break;
-    // 顶层 model = "..." / '...'，精确锚 model 后紧跟 = 或空格（排除 model_provider）
-    const m = /^model[ \t]*=[ \t]*("(?:[^"\\]|\\.)*"|'[^']*')/.exec(line);
+    const m = assignmentRe.exec(line);
     if (m) {
       const tok = m[1];
       return tok[0] === '"' ? parseTomlString(tok) : tok.slice(1, -1);
     }
-    // model= 在但值非引号形态（裸值 / multi-line）→ 这就是顶层 model 行，无法解析则停
-    if (/^model[ \t]*=/.test(line)) return null;
+    // key= 在但值非引号形态（裸值 / multi-line）→ 这是目标顶层行，无法解析则停
+    if (keyRe.test(line)) return null;
   }
   return null;
 }

@@ -43,6 +43,7 @@ import v032 from '../../migrations/v032_sessions_thinking.sql?raw';
 import v033 from '../../migrations/v033_issues_branch_name.sql?raw';
 import v034 from '../../migrations/v034_sessions_list_filter_indexes.sql?raw';
 import v035 from '../../migrations/v035_token_usage_reasoning.sql?raw';
+import v036 from '../../migrations/v036_token_usage_model_buckets.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让本 _setup 的 7 个下游 consumer（team-repo / message-repo / task-repo / issue-repo /
@@ -54,7 +55,44 @@ export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const sql of [v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012, v013, v014, v015, v016, v017, v018, v019, v020, v021, v022, v023, v024, v025, v026, v027, v028, v029, v030, v031, v032, v033, v034, v035]) {
+  for (const sql of [
+    v001,
+    v002,
+    v003,
+    v004,
+    v005,
+    v006,
+    v007,
+    v008,
+    v009,
+    v010,
+    v011,
+    v012,
+    v013,
+    v014,
+    v015,
+    v016,
+    v017,
+    v018,
+    v019,
+    v020,
+    v021,
+    v022,
+    v023,
+    v024,
+    v025,
+    v026,
+    v027,
+    v028,
+    v029,
+    v030,
+    v031,
+    v032,
+    v033,
+    v034,
+    v035,
+    v036,
+  ]) {
     db.exec(sql);
   }
   return db;

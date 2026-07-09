@@ -19,7 +19,7 @@
  * - sandboxMode='read-only' 禁 codex 真跑工具改文件
  * - approvalPolicy='never' 不等审批（read-only 下也无可审批）
  * - skipGitRepoCheck=true 跳 git repo 校验
- * - modelReasoningEffort='low'：oneshot 不需深思，省 token + 出字快
+ * - modelReasoningEffort 读 settings.summaryReasoning（默认 low；可选 minimal..ultra）
  *
  * spike-A3 实测：5 codex 并发 oneshot 复用 codex app-server 单例，总耗 10s + 单进程
  * ~44 MB RSS。与 claude SDK 同档资源消耗，summarizer 全局 maxConcurrent 不需分桶。
@@ -55,7 +55,7 @@ export async function summariseCodexSessionViaOneshot(
     // 保留 [Claude 说] marker 不变（marker 是 formatEventsForPrompt 固定 label，不本地化）。
     prompt: buildSummarizePrompt({ cwd, activity, agentName: 'Agent' }),
     // plan prancy-forging-penguin:reasoning 改读 settings.summaryReasoning(原 hardcoded 'low'
-    // 已下线)。default 'low' 与原行为对齐 — oneshot 简单任务不需深思,省 token + 出字快。
+    // 已下线)。default 'low' 与原行为对齐，用户也可选完整 Codex effort 档位。
     modelReasoningEffort: settingsStore.get('summaryReasoning') ?? 'low',
     // plan prancy-forging-penguin:codex summary model 改读统一字段 settings.summaryModel
     // (不再是 codexSummaryModel — 已下线 + REMOVED_KEYS 清孤儿)。优先级链:

@@ -5,7 +5,7 @@
  * sdk-bridge.ts 仍 import 这些类型；class state 不动。
  */
 import type { PermissionResult, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { PermissionMode } from '@main/adapters/types';
+import type { ClaudeCodeEffortLevel, PermissionMode } from '@main/adapters/types';
 import type {
   AgentEvent,
   AskUserQuestionAnswer,
@@ -79,6 +79,13 @@ export interface LiveTokenEstimateState {
   currentDecodeLastDeltaTs?: number;
 }
 
+export interface ClaudeProviderModelAliases {
+  fable?: string;
+  opus?: string;
+  sonnet?: string;
+  haiku?: string;
+}
+
 export interface InternalSession {
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 / 不变量 1+2 双轨字段**:
@@ -123,6 +130,12 @@ export interface InternalSession {
    * 与 SessionRecord.cliSessionId 字段对称。
    */
   cliSessionId: string | null;
+  /** SDK system/init reported primary model, after provider alias mapping when configured. */
+  runtimeModel?: string;
+  /** Last effective effort observed from a main-thread Stop/StopFailure hook. */
+  runtimeEffort?: ClaudeCodeEffortLevel;
+  /** Provider-only Claude alias mapping extracted from the child env (never contains credentials). */
+  providerModelAliases?: ClaudeProviderModelAliases;
   cwd: string;
   query: Query;
   /**
@@ -279,6 +292,7 @@ export function makeInternalSession(opts: {
   cwd: string;
   permissionMode?: PermissionMode;
   applicationSid: string;
+  providerModelAliases?: ClaudeProviderModelAliases;
 }): InternalSession {
   let resolveStreamDrained!: () => void;
   const streamDrained = new Promise<void>((resolve) => {
@@ -287,6 +301,9 @@ export function makeInternalSession(opts: {
   return {
     applicationSid: opts.applicationSid,
     cliSessionId: null,
+    runtimeModel: undefined,
+    runtimeEffort: undefined,
+    providerModelAliases: opts.providerModelAliases,
     cwd: opts.cwd,
     query: undefined as unknown as Query,
     permissionMode: opts.permissionMode ?? 'default',

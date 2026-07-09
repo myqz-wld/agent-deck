@@ -16,6 +16,7 @@
  * 字段 jsdoc 单源在本文件 — 改 facade method 必须改本 type 反之亦然。
  */
 import type { HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
+import type { CodexThinkingLevel } from '@shared/session-metadata';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type {
   CodexBridgeOptions,
@@ -55,8 +56,9 @@ export interface CreateSessionOpts {
   model?: string;
   /**
    * Codex app-server ThreadOptions.modelReasoningEffort passthrough for live spawned sessions.
+   * Supports `minimal` / `low` / `medium` / `high` / `xhigh` / `max` / `ultra`.
    */
-  modelReasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  modelReasoningEffort?: CodexThinkingLevel;
   /**
    * Codex app-server thread/start + thread/resume developerInstructions passthrough.
    *
