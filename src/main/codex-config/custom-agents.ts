@@ -17,15 +17,18 @@ import {
   parseCodexAgentToml,
   type CodexAgentTomlObject,
 } from '@shared/codex-agent-toml';
+import {
+  isCodexThinkingLevel,
+  type CodexThinkingLevel,
+} from '@shared/session-metadata';
 
 const logger = log.scope('codex-custom-agents');
 
 const USER_CODEX_AGENTS_DIR = join(homedir(), '.codex', 'agents');
 const CODEX_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
-const CODEX_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
 const CODEX_SANDBOX_MODES = ['workspace-write', 'read-only', 'danger-full-access'] as const;
 
-export type CodexCustomAgentReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
+export type CodexCustomAgentReasoningEffort = CodexThinkingLevel;
 export type CodexCustomAgentSandboxMode = (typeof CODEX_SANDBOX_MODES)[number];
 export type CodexCustomAgentScope = 'bundled' | 'project' | 'user';
 
@@ -131,7 +134,7 @@ function buildContent(
   const modelReasoningEffort = agent.modelReasoningEffort;
   if (
     modelReasoningEffort &&
-    !CODEX_REASONING_EFFORTS.includes(modelReasoningEffort as CodexCustomAgentReasoningEffort)
+    !isCodexThinkingLevel(modelReasoningEffort)
   ) {
     return {
       ok: false,
@@ -156,8 +159,8 @@ function buildContent(
       description: agent.description,
       developerInstructions: agent.developerInstructions,
       model: agent.model,
-      modelReasoningEffort: modelReasoningEffort
-        ? (modelReasoningEffort as CodexCustomAgentReasoningEffort)
+      modelReasoningEffort: isCodexThinkingLevel(modelReasoningEffort)
+        ? modelReasoningEffort
         : undefined,
       sandboxMode: sandboxMode ? (sandboxMode as CodexCustomAgentSandboxMode) : undefined,
       config: agent.config,

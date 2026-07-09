@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SESSION_THINKING_LEVELS } from '@shared/session-metadata';
 import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
 
 export const SPAWN_SESSION_MODEL_VALUES = [
@@ -13,14 +14,7 @@ export const SPAWN_SESSION_MODEL_VALUES = [
 ] as const;
 export type SpawnSessionModelValue = (typeof SPAWN_SESSION_MODEL_VALUES)[number];
 
-export const SPAWN_SESSION_THINKING_VALUES = [
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-] as const;
+export const SPAWN_SESSION_THINKING_VALUES = SESSION_THINKING_LEVELS;
 export type SpawnSessionThinkingValue = (typeof SPAWN_SESSION_THINKING_VALUES)[number];
 
 export const SPAWN_SESSION_SCHEMA = {
@@ -82,7 +76,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(SPAWN_SESSION_THINKING_VALUES)
     .optional()
     .describe(
-      'Optional thinking / reasoning complexity for this spawned session. Valid combinations are adapter-scoped: codex-cli accepts minimal, low, medium, high, xhigh; claude-code and deepseek-claude-code accept low, medium, high, xhigh, max. Explicit thinking overrides any agent-defined effort (Claude agent frontmatter `effort` / Codex agent `model_reasoning_effort`).',
+      'Optional thinking / reasoning complexity for this spawned session only; it does not change provider or Agent Deck global defaults. Valid values are adapter-scoped: codex-cli accepts minimal, low, medium, high, xhigh, max, and ultra; claude-code and deepseek-claude-code accept low, medium, high, xhigh, and max. Agent Deck passes supported adapter values through and the target provider validates whether the selected model supports them. Explicit thinking overrides any agent-defined effort (Claude agent frontmatter `effort` / Codex agent `model_reasoning_effort`).',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。

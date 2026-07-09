@@ -43,11 +43,46 @@ describe('normalizeModel', () => {
       });
     });
 
-    it('claude-haiku-4-5-20251001 → haiku-4.5（日期后缀剥到 version 后停）', () => {
-      // major-minor 抓到 4.5 后，-20251001 不被 parse 进 version（regex 只取前两段数字）
+    it('claude-haiku-4-5-20251001 → haiku-4.5（日期快照不进入 version）', () => {
       const r = normalizeModel('claude-haiku-4-5-20251001');
       expect(r.bucketKey).toBe('haiku-4.5');
       expect(r.displayName).toBe('haiku-4.5');
+    });
+
+    it('claude-sonnet-4-20250514 → sonnet-4（无 minor 的日期快照）', () => {
+      expect(normalizeModel('claude-sonnet-4-20250514')).toEqual({
+        bucketKey: 'sonnet-4',
+        displayName: 'sonnet-4',
+      });
+    });
+
+    it('claude-opus-4.8-20251001 → opus-4.8（点分隔 version + 日期快照）', () => {
+      expect(normalizeModel('claude-opus-4.8-20251001')).toEqual({
+        bucketKey: 'opus-4.8',
+        displayName: 'opus-4.8',
+      });
+    });
+
+    it('Claude semantic suffix 保留完整 model identity', () => {
+      const variants = [
+        'claude-opus-preview',
+        'claude-opus-4-8-preview',
+        'claude-opus-4-8-bedrock-v2',
+        'claude-opus-4-8-20251001-preview',
+      ];
+      expect(variants.map((model) => normalizeModel(model).bucketKey)).toEqual(variants);
+    });
+
+    it('Claude 中间 variant 字样不剥，只有尾部 variant 迭代合并', () => {
+      expect(normalizeModel('claude-opus-4-8-thinking-preview').bucketKey).toBe(
+        'claude-opus-4-8-thinking-preview',
+      );
+      expect(normalizeModel('claude-opus-4-8-context[1m]-preview').bucketKey).toBe(
+        'claude-opus-4-8-context[1m]-preview',
+      );
+      expect(normalizeModel('claude-opus-4-8-preview-thinking-max[1m]').bucketKey).toBe(
+        'claude-opus-4-8-preview',
+      );
     });
 
     it('大写 / 混合大小写归一', () => {
@@ -81,6 +116,38 @@ describe('normalizeModel', () => {
 
     it('gpt-5-5（连字符分隔）→ gpt-5.5（与点分隔同 bucket/display）', () => {
       expect(normalizeModel('gpt-5-5')).toEqual({ bucketKey: 'gpt-5.5', displayName: 'gpt-5.5' });
+    });
+
+    it.each([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.4-mini',
+      'gpt-5.3-codex-spark',
+      'gpt-5.6-provider-preview',
+    ])('%s 保留完整 semantic/provider suffix', (model) => {
+      expect(normalizeModel(model)).toEqual({ bucketKey: model, displayName: model });
+    });
+
+    it('GPT 尾部 variant 迭代合并，但中间同名字样保留', () => {
+      expect(normalizeModel('gpt-5.6-sol-thinking-max[1m]').bucketKey).toBe('gpt-5.6-sol');
+      expect(normalizeModel('gpt-5.6-sol-ultra').bucketKey).toBe('gpt-5.6-sol');
+      expect(normalizeModel('gpt-5.6-thinking-preview').bucketKey).toBe(
+        'gpt-5.6-thinking-preview',
+      );
+      expect(normalizeModel('gpt-5.6-context[1m]-preview').bucketKey).toBe(
+        'gpt-5.6-context[1m]-preview',
+      );
+      expect(normalizeModel('gpt-5.6-high-throughput').bucketKey).toBe(
+        'gpt-5.6-high-throughput',
+      );
+    });
+
+    it('GPT semantic suffix bucket 小写归一但 displayName 保留原始可读值', () => {
+      expect(normalizeModel('  GPT-5.6-SOL  ')).toEqual({
+        bucketKey: 'gpt-5.6-sol',
+        displayName: 'GPT-5.6-SOL',
+      });
     });
   });
 
@@ -124,6 +191,14 @@ describe('normalizeModel', () => {
       const a = normalizeModel('Mystery-Model-thinking').bucketKey;
       const b = normalizeModel('mystery-model').bucketKey;
       expect(a).toBe(b);
+    });
+
+    it('未知 Claude family / legacy id 不被已知 family 规则截断', () => {
+      expect(normalizeModel('claude-mythos-5').bucketKey).toBe('claude-mythos-5');
+      expect(normalizeModel('claude-mythos-preview').bucketKey).toBe('claude-mythos-preview');
+      expect(normalizeModel('claude-3-5-sonnet-20241022').bucketKey).toBe(
+        'claude-3-5-sonnet-20241022',
+      );
     });
   });
 });

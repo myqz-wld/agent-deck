@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import {
   readMcpServersFromCodexConfig,
   readTopLevelModelFromCodexConfig,
+  readTopLevelModelReasoningEffortFromCodexConfig,
   stringifyMcpServersSection,
   writeMcpServersToCodexConfig,
   type CodexMcpServerConfig,
@@ -223,5 +224,56 @@ describe('readTopLevelModelFromCodexConfig (section-aware)', () => {
 
   it('空文件 → null', () => {
     expect(readTopLevelModelFromCodexConfig(writeConfig(''))).toBeNull();
+  });
+});
+
+describe('readTopLevelModelReasoningEffortFromCodexConfig', () => {
+  function writeConfig(content: string): string {
+    const path = makeTmp();
+    writeFileSync(path, content, 'utf8');
+    return path;
+  }
+
+  it.each(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)(
+    'reads supported top-level effort %s',
+    (effort) => {
+      const path = writeConfig(
+        `model = "gpt-5.6-sol"\nmodel_reasoning_effort = "${effort}"\n[profiles.fast]\nmodel_reasoning_effort = "low"\n`,
+      );
+      const before = readFileSync(path, 'utf8');
+      expect(readTopLevelModelReasoningEffortFromCodexConfig(path)).toBe(effort);
+      expect(readFileSync(path, 'utf8')).toBe(before);
+    },
+  );
+
+  it('supports a literal string and ignores inline comments', () => {
+    const path = writeConfig("model_reasoning_effort = 'max' # current default\n");
+    expect(readTopLevelModelReasoningEffortFromCodexConfig(path)).toBe('max');
+  });
+
+  it('does not read a profile-local effort', () => {
+    const path = writeConfig('[profiles.fast]\nmodel_reasoning_effort = "ultra"\n');
+    expect(readTopLevelModelReasoningEffortFromCodexConfig(path)).toBeNull();
+  });
+
+  it('stays unset when an active profile could override the top-level effort', () => {
+    const path = writeConfig(
+      'profile = "fast"\nmodel_reasoning_effort = "high"\n' +
+        '[profiles.fast]\nmodel_reasoning_effort = "ultra"\n',
+    );
+    expect(readTopLevelModelReasoningEffortFromCodexConfig(path)).toBeNull();
+  });
+
+  it('leaves unknown future or unquoted values provider-owned', () => {
+    expect(
+      readTopLevelModelReasoningEffortFromCodexConfig(
+        writeConfig('model_reasoning_effort = "future"\n'),
+      ),
+    ).toBeNull();
+    expect(
+      readTopLevelModelReasoningEffortFromCodexConfig(
+        writeConfig('model_reasoning_effort = ultra\n'),
+      ),
+    ).toBeNull();
   });
 });

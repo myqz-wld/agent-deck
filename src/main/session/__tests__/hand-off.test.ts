@@ -25,6 +25,7 @@ vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
 }));
 
 import { summariseSessionForHandOff } from '@main/session/summarizer';
+import { summariseViaLlm } from '@main/session/summarizer/llm-runners';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 
 const loadSdkMock = vi.mocked(loadSdk);
@@ -34,6 +35,7 @@ interface QueryCall {
   options: {
     cwd?: string;
     model?: string;
+    effort?: string;
     systemPrompt?: string;
     permissionMode?: string;
     settingSources?: unknown[];
@@ -216,6 +218,75 @@ describe('summariseSessionForHandOff', () => {
       else process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = oldDefault;
       if (oldModel === undefined) delete process.env.ANTHROPIC_MODEL;
       else process.env.ANTHROPIC_MODEL = oldModel;
+    }
+  });
+
+  it('passes a valid hand-off reasoning effort to the Claude SDK', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const previous = settingsStore.get('handOffReasoning');
+    settingsStore.set('handOffReasoning', 'high');
+    try {
+      const sdk = makeMockSdk({ mode: 'ok' });
+      loadSdkMock.mockResolvedValue(sdk as unknown as Awaited<ReturnType<typeof loadSdk>>);
+
+      await summariseSessionForHandOff('/tmp/cwd', sampleEvents());
+
+      expect(sdk.__calls[0].options.effort).toBe('high');
+    } finally {
+      settingsStore.set('handOffReasoning', previous);
+    }
+  });
+
+  it('coerces a retained Codex-only hand-off reasoning value for Claude', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const previous = settingsStore.get('handOffReasoning');
+    settingsStore.set('handOffReasoning', 'minimal');
+    try {
+      const sdk = makeMockSdk({ mode: 'ok' });
+      loadSdkMock.mockResolvedValue(sdk as unknown as Awaited<ReturnType<typeof loadSdk>>);
+
+      await summariseSessionForHandOff('/tmp/cwd', sampleEvents());
+
+      expect(sdk.__calls[0].options.effort).toBe('low');
+    } finally {
+      settingsStore.set('handOffReasoning', previous);
+    }
+  });
+});
+
+describe('summariseViaLlm reasoning effort', () => {
+  it('passes a valid summary reasoning effort for the shared Deepseek Claude-family path', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const previous = settingsStore.get('summaryReasoning');
+    settingsStore.set('summaryReasoning', 'high');
+    try {
+      const sdk = makeMockSdk({ mode: 'ok', text: '正在处理测试任务' });
+      loadSdkMock.mockResolvedValue(sdk as unknown as Awaited<ReturnType<typeof loadSdk>>);
+
+      await summariseViaLlm('/tmp/cwd', sampleEvents(), {
+        agentName: 'Deepseek',
+        envOverride: { ANTHROPIC_MODEL: 'deepseek-v4-pro' },
+      });
+
+      expect(sdk.__calls[0].options.effort).toBe('high');
+    } finally {
+      settingsStore.set('summaryReasoning', previous);
+    }
+  });
+
+  it('coerces a retained Codex-only summary reasoning value for Claude', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const previous = settingsStore.get('summaryReasoning');
+    settingsStore.set('summaryReasoning', 'ultra');
+    try {
+      const sdk = makeMockSdk({ mode: 'ok', text: '正在处理测试任务' });
+      loadSdkMock.mockResolvedValue(sdk as unknown as Awaited<ReturnType<typeof loadSdk>>);
+
+      await summariseViaLlm('/tmp/cwd', sampleEvents());
+
+      expect(sdk.__calls[0].options.effort).toBe('max');
+    } finally {
+      settingsStore.set('summaryReasoning', previous);
     }
   });
 });

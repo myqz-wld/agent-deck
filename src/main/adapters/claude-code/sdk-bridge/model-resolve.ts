@@ -8,7 +8,8 @@
  * 1. opts.model（spawn handler 解 adapter-native agent config `model` 字段后传入；未来 caller 显式
  *    传入也走此分支）
  * 2. resume 路径下 sessionRepo.model（重启应用 resume 历史会话还原 + dormant 唤醒一致）
- * 3. undefined（让 SDK 自己读 ANTHROPIC_MODEL env / 用默认 model）
+ * 3. profile default（Deepseek 等复用 bridge 的 provider 默认值）
+ * 4. undefined（让 SDK 自己读 ANTHROPIC_MODEL env / 用默认 model）
  *
  * 设计取舍：
  * - **不**查 settings.summaryModel / settings.handOffModel — 那两字段只在 oneshot summary /
@@ -23,9 +24,10 @@ import { sessionRepo } from '@main/store/session-repo';
 export function resolveClaudeModel(opts: {
   resume?: string;
   model?: string;
+  profileDefaultModel?: string;
 }): string | undefined {
   const persisted: string | null = opts.resume
     ? (sessionRepo.get(opts.resume)?.model ?? null)
     : null;
-  return opts.model ?? persisted ?? undefined;
+  return opts.model ?? persisted ?? opts.profileDefaultModel ?? undefined;
 }

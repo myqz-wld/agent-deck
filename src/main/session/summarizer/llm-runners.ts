@@ -12,12 +12,15 @@
  * 本文件保留：
  *   - events → activity 文本（formatEventsForPrompt 复用）+ 空短路
  *   - 模型优先级链（settings > env > alias，summarize 用 haiku / handoff 用 sonnet）
+ *   - Claude-family effort 解析（settings 值校验 + Codex-only 遗留值兼容收口）
  *   - timeout 来源（summarize 走 settings.summaryTimeoutMs / handoff 60s hardcoded）
  *   - errorMessage 字面（`__summarizer_timeout__` / `__handoff_summary_timeout__`）
- *
- * 行为零变化：测试（hand-off.test.ts 7 it）应继续全过。
  */
 import type { AgentEvent } from '@shared/types';
+import {
+  isClaudeThinkingLevel,
+  type ClaudeThinkingLevel,
+} from '@shared/session-metadata';
 import { settingsStore } from '@main/store/settings-store';
 import {
   buildSummarizePrompt,
@@ -41,6 +44,17 @@ function providerEnv(
   key: string,
 ): string | undefined {
   return opts?.envOverride?.[key] ?? process.env[key];
+}
+
+function claudeReasoningSetting(
+  key: 'summaryReasoning' | 'handOffReasoning',
+): ClaudeThinkingLevel | undefined {
+  const value = settingsStore.get(key);
+  // Older settings could retain a Codex-only value after switching providers. Match the
+  // renderer's provider-switch coercion so the effective SDK value stays visible and stable.
+  if (value === 'minimal') return 'low';
+  if (value === 'ultra') return 'max';
+  return isClaudeThinkingLevel(value) ? value : undefined;
 }
 
 /**
@@ -76,6 +90,7 @@ export async function summariseViaLlm(
       providerEnv(opts, 'ANTHROPIC_DEFAULT_HAIKU_MODEL') ||
       providerEnv(opts, 'ANTHROPIC_MODEL') ||
       'haiku',
+    effort: claudeReasoningSetting('summaryReasoning'),
     systemPrompt: buildSummarizeSystemPrompt(agentName),
     envOverride: opts?.envOverride,
     timeoutMs: settingsStore.get('summaryTimeoutMs'),
@@ -130,6 +145,7 @@ export async function summariseSessionForHandOff(
       providerEnv(opts, 'ANTHROPIC_DEFAULT_SONNET_MODEL') ||
       providerEnv(opts, 'ANTHROPIC_MODEL') ||
       'sonnet',
+    effort: claudeReasoningSetting('handOffReasoning'),
     systemPrompt: buildHandoffSystemPrompt(agentName),
     envOverride: opts?.envOverride,
     // K3 单独的超时（不复用 summaryTimeoutMs—— hand-off 用 sonnet 慢，需要更长 budget）。

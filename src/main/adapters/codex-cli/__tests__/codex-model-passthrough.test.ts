@@ -71,6 +71,23 @@ afterEach(() => {
 });
 
 describe('runCodexOneshot model spread to ThreadOptions', () => {
+  it.each(['xhigh', 'max', 'ultra'] as const)(
+    'passes the expanded %s reasoning effort to ThreadOptions',
+    async (modelReasoningEffort) => {
+      const { runCodexOneshot } = await import('@main/session/oneshot-llm');
+      await runCodexOneshot({
+        cwd: '/tmp',
+        prompt: 'test',
+        modelReasoningEffort,
+        timeoutMs: 5000,
+        timeoutErrorMessage: 'timeout',
+      });
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0].modelReasoningEffort).toBe(modelReasoningEffort);
+    },
+  );
+
   it('opts.model 非空 → ThreadOptions.model 真生效', async () => {
     const { runCodexOneshot } = await import('@main/session/oneshot-llm');
     const result = await runCodexOneshot({

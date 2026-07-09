@@ -32,6 +32,7 @@ import {
   handleStreamEventForLiveRate,
 } from './live-token-rate';
 import type { InternalSession } from './types';
+import { syncClaudeRuntimeModel } from './runtime-metadata-sync';
 
 type EmitFn = (e: AgentEvent) => void;
 type UsageCounts = {
@@ -255,6 +256,12 @@ export function translateSdkMessage(
   const e = (kind: AgentEvent['kind'], payload: unknown): void => {
     emit({ sessionId, agentId: AGENT_ID, kind, payload, ts, source: 'sdk' });
   };
+
+  // SDK system/init is the authoritative primary-model report for the main session. Keep this
+  // separate from assistant.message.model: assistant frames may describe fallback/subagent routing.
+  if (msg.type === 'system' && msg.subtype === 'init') {
+    syncClaudeRuntimeModel(internal, msg.model);
+  }
 
   if (msg.type === 'assistant') {
     // m = msg.message = BetaMessage（id / model / usage / content 都在这层，不在 msg 顶层）。

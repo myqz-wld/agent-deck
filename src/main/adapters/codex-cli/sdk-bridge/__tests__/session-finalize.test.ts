@@ -58,11 +58,11 @@ describe('codex persistSessionFields', () => {
     persistSessionFields({
       sessionId: 'sid',
       sandboxMode: 'danger-full-access',
-      modelReasoningEffort: 'xhigh',
+      modelReasoningEffort: 'max',
     });
 
     expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sid', 'danger-full-access');
-    expect(sessionRepo.setThinking).toHaveBeenCalledWith('sid', 'xhigh');
+    expect(sessionRepo.setThinking).toHaveBeenCalledWith('sid', 'max');
     expect(eventBus.emit).toHaveBeenCalledWith('session-upserted', updated);
   });
 

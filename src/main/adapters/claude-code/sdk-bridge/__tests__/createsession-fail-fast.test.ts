@@ -94,6 +94,7 @@ import { sessionManager } from '@main/session/manager';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
+import { sessionRepo } from '@main/store/session-repo';
 import type { AgentEvent } from '@shared/types';
 
 const emits: AgentEvent[] = [];
@@ -137,6 +138,8 @@ beforeEach(() => {
   vi.mocked(sessionManager.expectSdkSession).mockReturnValue(() => undefined);
   vi.mocked(sessionManager.renameSdkSession).mockReset();
   vi.mocked(sessionManager.updateCliSessionId).mockReset();
+  vi.mocked(sessionRepo.setModel).mockClear();
+  vi.mocked(sessionRepo.setThinking).mockClear();
 });
 
 afterEach(() => {
@@ -205,7 +208,12 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     installMockQuery(mockQuery);
 
     // 推 first id frame 让 consume 走 first-id 路径
-    mockQuery.pushFrame({ type: 'system', subtype: 'init', session_id: 'real-sid-123' });
+    mockQuery.pushFrame({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'real-sid-123',
+      model: 'claude-opus-4-8',
+    });
     // 不 endStream，让 createSession 拿到 realId 后 return (waitForRealSessionId resolve)
     // 但实际 createSession 走完 waitForRealSessionId 后会继续往下跑 finalizeSessionStart 等
     // 真路径，需要等 consume 真终止 sessions Map 才被清。本 case 仅断言 throw 路径不撞，
@@ -228,6 +236,7 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     // createSession 应该 resolve 而非 reject（拿到了 realId）
     const handle = await createPromise;
     expect(handle.sessionId).toBe('real-sid-123');
+    expect(sessionRepo.setModel).toHaveBeenCalledWith('real-sid-123', 'claude-opus-4-8');
   });
 
   it('default new session fast-return：先返回 temp id，后台 first-id 后 rename 且不重复首条事件', async () => {
@@ -235,7 +244,12 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     const mockQuery = new MockSdkQuery();
     installMockQuery(mockQuery);
 
-    mockQuery.pushFrame({ type: 'system', subtype: 'init', session_id: 'real-fast-sid' });
+    mockQuery.pushFrame({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'real-fast-sid',
+      model: 'claude-sonnet-5',
+    });
 
     const handle = await bridge.createSession({ cwd: '/tmp/test', prompt: 'hi' });
     expect(handle.sessionId).not.toBe('real-fast-sid');
@@ -260,6 +274,7 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
       'real-fast-sid',
       'real-fast-sid',
     );
+    expect(sessionRepo.setModel).toHaveBeenCalledWith('real-fast-sid', 'claude-sonnet-5');
     expect(emits.filter((e) => e.kind === 'session-start')).toHaveLength(1);
     expect(
       emits.filter(
@@ -268,6 +283,63 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     ).toHaveLength(1);
 
     mockQuery.endStream();
+  });
+
+  it('injects read-only Stop hooks and finalizes an effort observed before the DB row exists', async () => {
+    const bridge = makeBridge();
+    const mockQuery = new MockSdkQuery();
+    let hookResult: Promise<unknown> | undefined;
+    const queryFactory = vi.fn((args: unknown) => {
+      const options = (args as {
+        options: {
+          hooks: {
+            Stop: Array<{
+              hooks: Array<(
+                input: unknown,
+                toolUseId: undefined,
+                options: { signal: AbortSignal },
+              ) => Promise<unknown>>;
+            }>;
+            StopFailure: unknown[];
+          };
+        };
+      }).options;
+      expect(options.hooks.StopFailure).toHaveLength(1);
+      hookResult = options.hooks.Stop[0].hooks[0](
+        { hook_event_name: 'Stop', effort: { level: 'xhigh' } },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+      return mockQuery;
+    });
+    vi.mocked(loadSdk).mockResolvedValue({
+      query: queryFactory,
+      tool: vi.fn((name, description, inputSchema, handler) => ({
+        name,
+        description,
+        inputSchema,
+        handler,
+      })),
+    } as never);
+    mockQuery.pushFrame({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'sid-hook-early',
+      model: 'claude-opus-4-8',
+    });
+
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test',
+      prompt: 'hi',
+      awaitCanonicalId: true,
+    });
+    await new Promise((r) => setImmediate(r));
+    mockQuery.endStream();
+
+    const handle = await createPromise;
+    await expect(hookResult).resolves.toEqual({});
+    expect(handle.sessionId).toBe('sid-hook-early');
+    expect(sessionRepo.setThinking).toHaveBeenCalledWith('sid-hook-early', 'xhigh');
   });
 
   // **REVIEW_49 R1 follow-up 回归 test (F-MED)**: session-finalize.ts:98 改走

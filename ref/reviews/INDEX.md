@@ -154,3 +154,4 @@ Use `REVIEW_X.md`, where `X` is the next integer and historically aligns with `C
 | [REVIEW_140.md](REVIEW_140.md) | Behavior-preserving large-file split across schemas, spawn, store, Codex app-server, and session manager. | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW + 3 INFO accepted | CHANGELOG_326 |
 | [REVIEW_141.md](REVIEW_141.md) | Diff panel bottom clipping plus Claude/Codex dependency bump. | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW fixed | CHANGELOG_332 |
 | [REVIEW_142.md](REVIEW_142.md) | `send_message` rejected valid target session aliases before authorization. | 1 HIGH fixed | CHANGELOG_334 |
+| [REVIEW_143.md](REVIEW_143.md) | Model slug collisions and Codex/Claude runtime metadata calibration. | 3 MEDIUM + 2 LOW fixed / 2 residual LOW documented | CHANGELOG_347 |

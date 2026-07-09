@@ -232,7 +232,7 @@ export class ClaudeSdkBridge {
     const effectiveOpts: CreateSessionOpts = {
       ...opts,
       ...(envOverrideExtra ? { envOverrideExtra } : {}),
-      ...(opts.model === undefined && defaultModel ? { model: defaultModel } : {}),
+      ...(defaultModel ? { profileDefaultModel: defaultModel } : {}),
     };
     return createSessionImpl(effectiveOpts, {
       sessions: this.sessions,

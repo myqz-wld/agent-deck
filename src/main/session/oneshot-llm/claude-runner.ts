@@ -8,14 +8,15 @@
  *   - consumeLoop async iter（拼 assistant text + 收到 result 立刻 break 让 cli.js 退出）
  *   - race 模板（q.interrupt onTimeout + setTimeout reject + try/finally clearTimeout）
  *
- * 仅模型 / prompt / systemPrompt / timeout / errorMessage 5 处差异。抽公共 helper 后两路
- * caller 只需传这 5 个字段。
+ * 仅模型 / effort / prompt / systemPrompt / timeout / errorMessage 6 处差异。抽公共 helper 后
+ * 两路 caller 只需传这些字段。
  *
  * **不变量**（与原 2 runner 一致 — 不改行为）：
  * - permissionMode: 'plan'：禁实调用工具，只让模型输出文字
  * - settingSources: []：不读 ~/.claude/settings.json，避免 hook 回环到自己
  * - cwd: resolveSpawnCwd(opts) —— trim 后非空才用 caller cwd，否则降级 process.cwd()
  *   （R37 P3-C Step 4.1 抽 helper 收口前是宽松版 `opts.cwd || process.cwd()`，对正常调用零变化）
+ * - effort 有配置时透传 Claude Code SDK；undefined 时沿用 provider 默认
  * - 收到 type='result' 立刻 break，让 cli.js 子进程尽快退出（不等下个 message）
  * - executable + env + pathToClaudeCodeExecutable 走 sdk-runtime helper（解 Electron .app 启
  *   动 PATH 失 + asar 不 unpack 双重坑，详 sdk-runtime.ts）
@@ -30,6 +31,7 @@ import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
+import type { ClaudeThinkingLevel } from '@shared/session-metadata';
 import { raceWithTimeout } from './race-with-timeout';
 
 /**
@@ -44,6 +46,8 @@ export async function runClaudeOneshot(opts: {
   prompt: string;
   /** 模型 id（caller 已组装 settings > env > alias 优先级链，传最终字符串）。 */
   model: string;
+  /** Claude Code reasoning effort；undefined 时沿用 SDK/provider 默认。 */
+  effort?: ClaudeThinkingLevel;
   /** systemPrompt（caller 从 build-prompt.ts CLAUDE_*_SYSTEM_PROMPT 常量取）。 */
   systemPrompt: string;
   /** Provider-specific env overlay; Deepseek uses this to set base URL/token/model without mutating process.env. */
@@ -65,6 +69,7 @@ export async function runClaudeOneshot(opts: {
     options: {
       cwd: resolveSpawnCwd(opts),
       model: opts.model,
+      ...(opts.effort ? { effort: opts.effort } : {}),
       permissionMode: 'plan',
       systemPrompt: opts.systemPrompt,
       settingSources: [],

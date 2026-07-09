@@ -9,11 +9,12 @@ import type {
 } from '@shared/types';
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import type { ClaudeThinkingLevel, CodexThinkingLevel } from '@shared/session-metadata';
 
 import type { PermissionMode } from './adapter-context';
 
-export type ClaudeCodeEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-export type CodexModelReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type ClaudeCodeEffortLevel = ClaudeThinkingLevel;
+export type CodexModelReasoningEffort = CodexThinkingLevel;
 
 /**
  * 所有 2 adapter 共享的最小字段集（cwd / prompt）。各 adapter 专属 interface 内联其余
@@ -153,7 +154,9 @@ export interface CodexCreateOpts {
   model?: string;
   /**
    * Codex app-server ThreadOptions.modelReasoningEffort passthrough for per-session thinking
-   * complexity. Undefined lets the Codex CLI use its config/default.
+   * complexity (`minimal` through `ultra`). Undefined lets a new session resolve the valid
+   * top-level Codex config value; resume keeps its persisted value instead of inheriting a changed
+   * global default.
    */
   modelReasoningEffort?: CodexModelReasoningEffort;
   /**

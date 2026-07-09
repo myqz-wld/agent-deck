@@ -738,6 +738,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'high',
       'xhigh',
       'max',
+      'ultra',
     ]);
   });
 
@@ -940,14 +941,14 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'codex model task',
       model: 'gpt-5.5',
-      thinking: 'xhigh',
+      thinking: 'ultra',
       callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].model).toBe('gpt-5.5');
-    expect(createSessionCalls[0].modelReasoningEffort).toBe('xhigh');
+    expect(createSessionCalls[0].modelReasoningEffort).toBe('ultra');
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBeUndefined();
   });
 
@@ -1016,14 +1017,19 @@ describe('agent-deck-mcp tools — spawn_session', () => {
         message: /thinking "minimal" is not valid for adapter "claude-code"/,
       },
       {
-        adapter: 'codex-cli',
-        thinking: 'max',
-        message: /thinking "max" is not valid for adapter "codex-cli"/,
+        adapter: 'claude-code',
+        thinking: 'ultra',
+        message: /thinking "ultra" is not valid for adapter "claude-code"/,
       },
       {
         adapter: 'deepseek-claude-code',
         thinking: 'minimal',
         message: /thinking "minimal" is not valid for adapter "deepseek-claude-code"/,
+      },
+      {
+        adapter: 'deepseek-claude-code',
+        thinking: 'ultra',
+        message: /thinking "ultra" is not valid for adapter "deepseek-claude-code"/,
       },
     ] as const;
 

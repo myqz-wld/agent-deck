@@ -43,22 +43,42 @@ export const CLAUDE_DEFAULT_BUCKET = 'claude-default';
 export const UNKNOWN_BUCKET = 'unknown';
 
 /**
- * 把变体后缀剥掉，得到归一用的核心 model 串。
- * 处理：lowercase → 去 `[1m]` / `-1m` 长上下文标记 → 去 `-thinking-max` / `-thinking` /
- * `-max` 推理后缀 → 去尾部 reasoning 等级（`-high` / `-xhigh` / `-low` / `-medium` / `-minimal`）→
- * 去首尾多余 `-`。
+ * 把明确的尾部变体标记迭代剥掉，得到归一用的核心 model 串。
+ *
+ * 这些 token 只在 model id **尾部**被视为变体；出现在中间时可能属于未来或第三方
+ * provider 的真实 slug，不能删除。例如 `gpt-5.6-thinking-preview` 必须保留完整身份，而
+ * `gpt-5.6-sol-thinking-max[1m]` 应归到 `gpt-5.6-sol`。
  */
+const VARIANT_SUFFIXES = [
+  '[1m]',
+  '-1m',
+  '-thinking',
+  '-minimal',
+  '-medium',
+  '-xhigh',
+  '-ultra',
+  '-high',
+  '-low',
+  '-max',
+] as const;
+
 function stripVariantSuffixes(raw: string): string {
-  let s = raw.toLowerCase().trim();
-  // [1m] / -1m 长上下文窗口标记（claude-opus-4-8-thinking-max[1m]）
-  s = s.replace(/\[1m\]/g, '').replace(/-1m\b/g, '');
-  // 推理后缀（顺序：长的先去，避免 -thinking-max 只去掉 -max 残留 -thinking）
-  s = s.replace(/-thinking-max/g, '').replace(/-thinking/g, '').replace(/-max\b/g, '');
-  // reasoning 等级后缀
-  s = s.replace(/-(x?high|low|medium|minimal)\b/g, '');
-  // 收尾多余分隔符
-  s = s.replace(/[-_\s]+$/g, '').replace(/^[-_\s]+/g, '');
-  return s;
+  let s = raw
+    .toLowerCase()
+    .trim()
+    .replace(/[-_\s]+$/g, '')
+    .replace(/^[-_\s]+/g, '');
+  let stripped = true;
+  while (stripped) {
+    stripped = false;
+    for (const suffix of VARIANT_SUFFIXES) {
+      if (!s.endsWith(suffix)) continue;
+      s = s.slice(0, -suffix.length).replace(/[-_\s]+$/g, '');
+      stripped = true;
+      break;
+    }
+  }
+  return s.replace(/^[-_\s]+/g, '');
 }
 
 /**
@@ -70,13 +90,16 @@ function stripVariantSuffixes(raw: string): string {
  * 返回 null = 未识别（走 fallback 原样）。
  */
 function parseFamilyVersion(core: string): { family: string; version: string | null } | null {
-  // claude-<family>-<major>-<minor> 或 claude-<family>-<major>
+  // Claude family/version 必须完整匹配。精确 8 位日期是 snapshot，不进入 bucket version；
+  // 其他 suffix（preview / provider slug / custom id）返回 null，交给 fallback 保留完整身份。
   const claudeMatch =
-    /^claude-(fable|opus|sonnet|haiku)(?:-(\d+)(?:[.-](\d+))?)?/.exec(core);
+    /^claude-(fable|opus|sonnet|haiku)(?:-(\d+)(?:-(\d{8})|[.-](\d+)(?:-(\d{8}))?)?)?$/.exec(
+      core,
+    );
   if (claudeMatch) {
     const family = claudeMatch[1];
     const major = claudeMatch[2];
-    const minor = claudeMatch[3];
+    const minor = claudeMatch[4];
     const version = major ? (minor ? `${major}.${minor}` : major) : null;
     return { family, version };
   }
@@ -90,7 +113,7 @@ function parseFamilyVersion(core: string): { family: string; version: string | n
     return { family: bucketMatch[1], version: bucketMatch[2] };
   }
   // gpt-<major>-<minor> / gpt-<major>.<minor> / gpt-<major>
-  const gptMatch = /^gpt-(\d+)(?:[.-](\d+))?/.exec(core);
+  const gptMatch = /^gpt-(\d+)(?:[.-](\d+))?$/.exec(core);
   if (gptMatch) {
     const major = gptMatch[1];
     const minor = gptMatch[2];

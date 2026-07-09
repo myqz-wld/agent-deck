@@ -31,6 +31,7 @@ import { resolveClaudeModel } from '../model-resolve';
 import { finalizeSessionStart } from '../session-finalize';
 import { runCreateSessionSdkQuery } from './create-session-sdk-query';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
+import { extractProviderModelAliases } from '../runtime-metadata-sync';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -138,6 +139,7 @@ export async function createSessionImpl(
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
       applicationSid: opts.resume ?? tempKey,
+      providerModelAliases: extractProviderModelAliases(opts.envOverrideExtra),
     });
     internalForCleanup = internal;
 
@@ -209,8 +211,8 @@ export async function createSessionImpl(
         cwd: opts.cwd,
         prompt: opts.prompt,
         claudeSandboxMode,
-        claudeModel,
-        claudeCodeEffortLevel,
+        claudeModel: internal.runtimeModel ?? claudeModel,
+        claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
         extraAllowWrite: opts.extraAllowWrite,
         attachments: opts.attachments,
         handOff: opts.handOff,
@@ -230,8 +232,8 @@ export async function createSessionImpl(
             cwd: opts.cwd,
             prompt: opts.prompt,
             claudeSandboxMode,
-            claudeModel,
-            claudeCodeEffortLevel,
+            claudeModel: internal.runtimeModel ?? claudeModel,
+            claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
             extraAllowWrite: opts.extraAllowWrite,
             attachments: opts.attachments,
             handOff: opts.handOff,
@@ -295,8 +297,8 @@ export async function createSessionImpl(
         cwd: opts.cwd,
         prompt: opts.prompt,
         claudeSandboxMode,
-        claudeModel,
-        claudeCodeEffortLevel,
+        claudeModel: internal.runtimeModel ?? claudeModel,
+        claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
         extraAllowWrite: opts.extraAllowWrite,
         attachments: opts.attachments,
         handOff: opts.handOff,

@@ -1,5 +1,5 @@
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildClaudeQueryOptions } from '../query-options-builder';
 
 function buildBaseArgs(): Parameters<typeof buildClaudeQueryOptions>[0] {
@@ -34,6 +34,19 @@ describe('buildClaudeQueryOptions', () => {
     const options = buildClaudeQueryOptions(buildBaseArgs());
 
     expect(options).not.toHaveProperty('effort');
+  });
+
+  it('passes session-local runtime metadata hooks to the SDK unchanged', () => {
+    const hooks = {
+      Stop: [{ hooks: [vi.fn(async () => ({}))] }],
+    } as NonNullable<Parameters<typeof buildClaudeQueryOptions>[0]['hooks']>;
+
+    const options = buildClaudeQueryOptions({
+      ...buildBaseArgs(),
+      hooks,
+    });
+
+    expect(options.hooks).toBe(hooks);
   });
 
   it('passes native Claude SDK agent name and programmatic agent definitions', () => {

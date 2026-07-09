@@ -52,6 +52,8 @@ export interface BuildClaudeQueryOptionsArgs {
   agentName?: string;
   /** Programmatic Claude Code SDK agent definitions keyed by agent name. */
   agents?: Record<string, AgentDefinition>;
+  /** Session-local metadata observers. Callbacks are read-only and must not alter agent behavior. */
+  hooks?: Options['hooks'];
 }
 
 /**
@@ -75,6 +77,7 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     effort,
     agentName,
     agents,
+    hooks,
   } = args;
 
   return {
@@ -156,6 +159,7 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     ...(effort ? { effort } : {}),
     ...(agentName ? { agent: agentName } : {}),
     ...(agents && Object.keys(agents).length > 0 ? { agents } : {}),
+    ...(hooks ? { hooks } : {}),
     // OS 级沙盒（REVIEW_14 阶段 2 + REVIEW_15 实测纠错）：根据 settings.claudeCodeSandbox
     // 档位拼装**顶层 sandbox 字段**（REVIEW_15 实测铁证：managedSettings.sandbox 包装无效，
     // 必须用顶层 `sandbox: SandboxSettings` 字段，详 sandbox-config.ts 头注释决策 #1）。
