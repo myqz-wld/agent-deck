@@ -337,7 +337,15 @@ scripts/
 ├── test-electron.mjs      runs vitest with Electron's built-in node (ABI 130) so better-sqlite3 unit tests really run instead of skipping (pnpm test)
 ├── verify-fts5.sh         real sqlite3 CLI SQL integration check (FTS5 schema + triggers + MATCH predicates)
 ├── logger-check.sh        grep CI guard: 0 remaining console.X under src/main + src/renderer, plus logger.ts module-independence self-check (pnpm logger:check; requires ripgrep)
-└── file-level-review-expiry.sh  mechanical review-expiry check (see CLAUDE.md §Review Expiry And Minimum Re-Review Scope)
+├── file-level-review-expiry.sh  mechanical review-expiry check (see CLAUDE.md §Review Expiry And Minimum Re-Review Scope)
+└── ref-archive-reminder-pre-commit.sh  installs the advisory .ref archive reminder hook
+
+ref/
+├── changelogs/            feature and behavior records in four date buckets
+├── reviews/               debug, performance, security, and review-driven records in the same buckets
+└── plans/                 final plans and durable support material in the same buckets
+
+.ref/                      ignored workspace for non-final LLM-facing material
 ```
 
 ---
@@ -409,10 +417,11 @@ curl -sS -X POST http://127.0.0.1:47821/hook/sessionstart \
 
 ## Further Reading
 
-Repository history is organized on two tracks:
+Repository history and final engineering context use three routed indexes:
 
 - [ref/changelogs/INDEX.md](ref/changelogs/INDEX.md) - **feature changes** index (new features / behavior changes / API / dependency upgrades)
 - [ref/reviews/INDEX.md](ref/reviews/INDEX.md) - **debug / performance / security review** index (fixes or hardening without introducing new features)
+- [ref/plans/INDEX.md](ref/plans/INDEX.md) - final implementation plans and durable supporting context
 - [CLAUDE.md](CLAUDE.md) - hard requirements, project design notes, and validation workflow for Claude Code working in this repository
 
 Design tradeoffs, such as why lifecycle and archived are orthogonal, usually live in changelogs. Past bugs and hardening plans live in reviews. Before changing a module, follow the reading order in [CLAUDE.md](CLAUDE.md) "Required After Changes".

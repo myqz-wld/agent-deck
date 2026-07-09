@@ -7,37 +7,83 @@ set -euo pipefail
 
 # ----------------------------------------------------------------------
 # 1) List every REVIEW file, its review-scope (one relative path per line),
-#    and the coverage baseline commit.
+#    and the coverage baseline commit from frontmatter `baseline_commit`.
+#    Records without a usable baseline cannot exempt files.
 #    This script does not deduplicate to the latest review. If a file has
 #    multiple reviews, it emits one row per REVIEW.
 #    During expiry decisions, treat the latest REVIEW as the REVIEW file
 #    with the largest X number.
 # ----------------------------------------------------------------------
-echo '## 1. Full file -> REVIEW x base commit mapping (same file in multiple reviews = multiple rows; use the largest X as latest)'
-for f in ref/reviews/REVIEW_*.md; do
-  [ -f "$f" ] || continue
-  BASE=$(git log --diff-filter=A --format=%H -n 1 -- "$f")
+baseline_for_review() {
+  local review_file baseline
+
+  review_file="$1"
+  baseline="$(
+    awk '
+      NR == 1 && $0 == "---" { in_frontmatter = 1; next }
+      in_frontmatter && $0 == "---" { exit }
+      in_frontmatter && $0 ~ /^baseline_commit:[[:space:]]*/ {
+        sub(/^baseline_commit:[[:space:]]*/, "", $0)
+        sub(/[[:space:]]+#.*$/, "", $0)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+        if ($0 != "" && $0 !~ /^</) print $0
+        exit
+      }
+    ' "$review_file"
+  )"
+
+  if [ -n "$baseline" ]; then
+    printf '%s\n' "$baseline"
+  fi
+}
+
+echo '## 1. Full file -> REVIEW x baseline commit mapping (same file in multiple reviews = multiple rows; use the largest X as latest)'
+printf '%s\t%s\t%s\n' 'file' 'review' 'baseline_commit'
+while IFS= read -r f; do
+  BASE="$(baseline_for_review "$f")"
+  if [ -z "$BASE" ]; then
+    BASE="<missing-baseline>"
+  fi
   awk '/^```review-scope$/{s=1; next} /^```$/{s=0} s' "$f" \
-    | while read p; do
-        [ -n "$p" ] && echo -e "${p}\t${f}\t${BASE}"
+    | while IFS= read -r p; do
+        [ -n "$p" ] && printf '%s\t%s\t%s\n' "$p" "$f" "$BASE"
       done
-done
+done < <(find ref/reviews -type f -path '*/REVIEW_*.md' -print 2>/dev/null | sort)
+
+echo
+echo 'Records with <missing-baseline> cannot exempt files; classify their paths as scope_unknown.'
 
 echo
 echo '## 2. Single-file expiry check example (churn / commits / age)'
-echo '## Usage: set file=... to the target file and BASE=... to the base commit from the mapping above'
+echo '## Usage: set file=... to the target file and BASE=... to the baseline commit from the mapping above'
 cat <<'EOF'
 file=src/main/foo.ts
 BASE=<coverage baseline commit from the mapping above>
 
 # Net churn (add+del)
-git diff -w --numstat "$BASE" -- "$file" \
-  | awk 'NF==3 {add+=$1; del+=$2} END {print "churn="add+del}'
+churn="$(
+  git diff -w --numstat "$BASE" -- "$file" \
+    | awk 'NF==3 {add+=$1; del+=$2} END {print add+del}'
+)"
+echo "churn=$churn"
+
+# Current file LOC and churn threshold
+current_loc="$(wc -l < "$file" | tr -d '[:space:]')"
+threshold="$(
+  awk -v loc="$current_loc" 'BEGIN {
+    raw = loc * 0.30
+    t = int(raw)
+    if (t < raw) t += 1
+    if (t > 200) t = 200
+    print t
+  }'
+)"
+echo "current_loc=$current_loc threshold=$threshold"
 
 # Distinct commit count
 git log -w --format=%H "$BASE..HEAD" -- "$file" | sort -u | wc -l
 
-# Coverage baseline author date
+# Coverage baseline commit date
 git log -1 --format=%cs "$BASE"
 EOF
 
@@ -53,10 +99,10 @@ cat <<'EOF'
 ## 4. Required minimum scope for this review
 
 unreviewed files + expired reviewed files + scope_unknown files
-Old reviews without parseable scope cannot exempt files.
+Reviews without parseable scope cannot exempt files.
 
 ## 5. Threshold changes (200 / 3 / 90)
 
-Changing thresholds is a convention change; use the repository's configured review flow.
+Changing thresholds is a project policy change; use the repository's configured review flow.
 The expiry check itself is mechanical and does not need adversarial review.
 EOF

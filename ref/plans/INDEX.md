@@ -1,120 +1,54 @@
 # Plans Index
 
-Terminal engineering plans archived under `ref/plans/`. Draft or in-progress plans stay in the current environment's plan workspace; when no stronger convention exists, use `<repo>/.ref/plans/`. `.ref/` must stay ignored and must not contain terminal records.
+## Scope
+
+Routing index for final plan documents. Only final plan documents enter `ref/plans/`. Keep non-final plans in the current environment's plan workspace; if no stronger contract exists, use `<repo>/.ref/plans/`. Add `.ref/` to `.gitignore`. Archive durable support materials meant for future agents somewhere under `ref/` and link them back to the plan; keep unarchived support materials in `.ref/`.
+
+This root index defines routing and bucket policy only. Per-record plan rows live only in the bucket `INDEX.md` files.
 
 ## Naming
 
-Use `<topic>-<YYYYMMDD>.md`, matching the plan id. Keep each path segment to `[A-Za-z0-9._-]` and at most 64 characters. Before creating a plan, run `ls ref/plans/` and check for an active plan on the same topic.
+Final plans use `ref/plans/<bucket>/PLAN_X_<topic>.md`. Before creating one, scan `ref/plans/*/PLAN_*.md`, set `X` to the maximum existing plan number plus 1, and do not guess. `<topic>` is short stable kebab-case and must not be vague like `update`, `fix`, or `misc`.
 
-## Record Format
+## File Structure
 
-Include frontmatter for `plan_id`, `created_at`, `worktree_path`, `status: in_progress|completed|abandoned`, and `base_commit`. When a plan reaches terminal state, archive the final document and plan-specific support material here, update this index, and remove workspace drafts.
+- Goal
+- Context / constraints
+- Task breakdown
+- Validation
+- Completed date as `Completed At: <YYYY-MM-DD>` or frontmatter `completed_at`
+- Final status / handoff
 
-## Index
+## Legacy Migration
 
-| Plan | Status | Related Changelog/Review | Summary |
-|---|---|---|---|
-| [deep-review-flow-fix-20260512.md](deep-review-flow-fix-20260512.md) | completed | [75](../changelogs/CHANGELOG_75.md) / [76](../changelogs/CHANGELOG_76.md) / [77](../changelogs/CHANGELOG_77.md) | deep-code-review flow smoothing (Phase A reviewer-codex `$TMPDIR` + SKILL Step 0.6/1/2.5 + dual Bash fallback; T1 transparent `Cmd+Alt+T` shortcut; B-D1+D3 spawn_session `agent_name` + lead teamName reverse lookup; C SessionList tree collapse + lead/teammate badges) |
-| [team-cohesion-fix-20260513.md](team-cohesion-fix-20260513.md) | completed | [78](../changelogs/CHANGELOG_78.md) | Complete six-phase team cohesion fix: A v014 dropped `sessions.team_name` in favor of the universal team backend; B added send/reply/wait_reply tools with `messages.reply_to_message_id` conversation chains; B5+B7 added spawn placeholders and `[msg <id>]` wire format so teammates can `reply_message`; C rewrote TeamDetail as a six-section Team Workspace panel; D added PendingTab teammate chips and role badges; F added D6 close auto-leaveTeam, D7 TeamLifecycleScheduler 5min/30min grace, IPC ShutdownAllTeammates, and a Header button |
-| [deep-review-and-split-20260513.md](deep-review-and-split-20260513.md) | completed | [80](../changelogs/CHANGELOG_80.md) / [81](../changelogs/CHANGELOG_81.md) / [82](../changelogs/CHANGELOG_82.md) / [83](../changelogs/CHANGELOG_83.md) / [84](../changelogs/CHANGELOG_84.md) / [85](../changelogs/CHANGELOG_85.md) / [86](../changelogs/CHANGELOG_86.md) | H1 fixed lead archive -> team auto-archive (`archive_reason` persistence + unarchive only revives `last-lead-archived`, migration v016), closed REVIEW_32 across a 50-commit heterogeneous adversarial review with 9 fixes (HIGH 1-6 + MED 7 + user-added HIGH 9), and Phase 2-4 split six large files to <=500 lines (H2 Tier 1 tools/team-repo/session-repo directory split, H3 Tier 2 pty-bridge split + sdk-bridge 816 -> 495, H4 Tier 3 manager.ts reorganized into 5 siblings + ingest pipeline IngestContext facade, sub-plan SKILL R1 22-finding heterogeneous adversarial review) |
-| [mcp-bug-and-feature-batch-20260513.md](mcp-bug-and-feature-batch-20260513.md) | completed | [87](../changelogs/CHANGELOG_87.md) / [88](../changelogs/CHANGELOG_88.md) / [89](../changelogs/CHANGELOG_89.md) / [90](../changelogs/CHANGELOG_90.md) / [91](../changelogs/CHANGELOG_91.md) / [92](../changelogs/CHANGELOG_92.md) / [93](../changelogs/CHANGELOG_93.md) / [94](../changelogs/CHANGELOG_94.md) | Fixed J bug where `watcher.deliver` skipped reply injection to prevent duplicate lead detail rendering; added B check_reply MCP tool; Phase 2 C/E/G/H handled four main-process cleanup items; Phase 3 made SessionManager `#sdkOwned` truly private; Phase 1.5 fixed N bug for auto-unarchiving archived sessions during continuation; Phase 4a/4b added K1+K2 plan-driven MCP tools (`archive_plan` + `start_next_session`); Phase 4c added K3 UI hand-off button + LLM history summary; Phase 5 added A cross-session UI rendering distinction (wire prefix chip + Cross-session messages tab), L multi-line SessionCard, multi-tool enhancements, and M transparency/always-on-top decoupling |
-| [mcp-handoff-fix-and-skill-timer-20260514.md](mcp-handoff-fix-and-skill-timer-20260514.md) | completed | [98](../changelogs/CHANGELOG_98.md) | Five core MCP tool documents went through R1 deep review with 25 findings, R2 with 9 feedback items, and R3 closeout, plus B14 dormant pitfall capture (4 atomic commits: A `438a613` 7 src items, B `0cc4f79` 13 doc items, B14 `58a5db9` dormant pitfall, E+F `4d48ef0` R2 feedback with 1 HIGH + 4 MED + 3 LOW + 8 case tests, and final `4723fe5` changelog). R3 reviewers agreed the fix was targeted, introduced no new bugs, and was mergeable. Newly found K2 baton `spawn_depth` misclassification (E1 three revisions) and dormant pitfall (B14). tally P34 + U7 candidates +1 |
-| [p4-baseadapter-d2-implement-20260515.md](p4-baseadapter-d2-implement-20260515.md) | completed | [121](../changelogs/CHANGELOG_121.md) | Implemented RFC §1 Option D2 (`CreateSessionOptions` split into 4 union arms + `buildCreateSessionOptions` builder + typed registry binding + 5 SSOT guard chains); closed 3 heterogeneous adversarial review/fix rounds (R1 fix 8a15a6f / R2 fix ad221de / both R3 accepted); migrated 6 callers, including the `sessions-hand-off-helper` sixth site missing from RFC §1.5 |
-| [cross-adapter-sandbox-inherit-20260515.md](cross-adapter-sandbox-inherit-20260515.md) | in_progress | — | RFC §2 Option D rewrite + E implementation stub (`inherit_sandbox` `'restrictions-only'` string enum with safety-only mapping + warnings field; ~+175 lines; serialized after Chapter 1 plan closeout) |
-| [archive-plan-content-overwritten-fix-20260515.md](archive-plan-content-overwritten-fix-20260515.md) | completed | [122](../changelogs/CHANGELOG_122.md) | Fixed archive_plan step 9-10 rollback bug where archive-file writes used the step 6 stub `planContent.body` and overwrote the caller closeout commit body received through ff-merge (hit during p4-d2 plan dogfooding, manually fixed in commit 30467f6, then systemically resolved). Fix A split the reads, added step 8c `freshFm.status` re-check, switched INDEX summary to `freshFm`, and completed the cleanup-hint decision tree. Closed 4 heterogeneous adversarial review/fix rounds (R1 2 HIGH independently found + rebuttal round / R2 1 MED + 2 INFO / R3 1 MED + 1 LOW + 2 INFO / R4 1 LOW polish + both acknowledged), detailed in [REVIEW_44.md](../reviews/REVIEW_44.md). Dogfooding note: this session's MCP server was running old buggy code; manual fix commit 445eace used the same recipe as 30467f6 |
-| [archive-plan-tool-ux-followup-20260515.md](archive-plan-tool-ux-followup-20260515.md) | completed | [123](../changelogs/CHANGELOG_123.md) | Closed all four REVIEW_44 follow-ups for the parent archive-plan-content-overwritten-fix-20260515 plan: (a) added plans/ intermediate fallback to the fallback chain; (b) added `changelog_id` schema (string+CSV with spaces allowed), INDEX smart update, 4-state `plansIndexAction` enum, and warnings field; (c) added 4-column canonical INDEX header, `escapeTableCell`, and `formatChangelogCell` helper; (d) replaced old GENERIC with 7 phase-specific `phaseHint` values plus cleanup decision tree. Three heterogeneous adversarial review/fix rounds (R1 0 HIGH + 5 real MED + 1 polish + 1 rebuttal; R2 both acknowledged 0 HIGH/MED + 2 consensus LOW polish items merged), plus HIGH-1 `plan_file_path` stem guard against silent unlink, HIGH-2 silent override warning, old 2-column -> 4-column `upgradeIndexHeader` migration, and `POST_FF_MERGE_RETRY_INVARIANT_PREFIX`. Landed 11 main fixes + 6 R1 fixes + 2 R2 polish items = 19 total items / 8 files / +410/-61 LOC / 92 guarding cases / vitest 652 pass |
-| [mcp-server-hot-reload-investigation-20260515.md](mcp-server-hot-reload-investigation-20260515.md) | in_progress | — | REVIEW_44 follow-up (e) root-cause investigation and solution-design stub for the in-process MCP server not hot reloading, triggered by archive-plan-content-overwritten-fix-20260515 Phase 4.3 dogfooding with manual fix commit 445eace. Phase 1 investigation covers MCP server startup mode, tool-handler registration chain, and current dev-mode HMR; options A/B/C/D await user decision after investigation. No worktree created because Phase 1 is read-only investigation |
-| [codex-handoff-team-alignment-20260518.md](codex-handoff-team-alignment-20260518.md) | completed | [125](../changelogs/CHANGELOG_125.md) / [126](../changelogs/CHANGELOG_126.md) | codex-handoff-team-alignment-20260518 |
-| [deep-review-batch-a1-b-fixes-20260519.md](deep-review-batch-a1-b-fixes-20260519.md) | completed | [128](../changelogs/CHANGELOG_128.md) | Central closeout for 6 HIGH + 11 MED accumulated across six deep-code-review SKILL batches (A1 claude-code SDK bridge + B agent-deck-mcp tool handlers), using complex plan workflow v2 (two RFC rounds + spike + plan-review adversarial pair + Phase 1/2/3 fixes + R3 verify with 4 freshly spawned reviewers). Three commits passed typecheck, 826 tests, and build. R3 found 5 HIGH + 9 MED that were all previously unidentified deeper bugs and test-coverage debt, not regressions introduced by this fix, and moved them to a follow-up plan; includes user feedback that hand_off baton should shut down dormant teammates and teams should not be inherited. See [REVIEW_47](../reviews/REVIEW_47.md) |
-| [deep-review-batch-a1-b-followup-r3-20260519.md](deep-review-batch-a1-b-followup-r3-20260519.md) | completed | [129](../changelogs/CHANGELOG_129.md) | deep-review-batch-a1-b-followup-r3-20260519 |
-| [reviewer-codex-cross-adapter-20260519.md](reviewer-codex-cross-adapter-20260519.md) | completed | [130](../changelogs/CHANGELOG_130.md) | reviewer-codex-cross-adapter-20260519 |
-| [remove-aider-generic-pty-adapters-20260520.md](remove-aider-generic-pty-adapters-20260520.md) | completed | [131](../changelogs/CHANGELOG_131.md) | remove-aider-generic-pty-adapters-20260520 |
-| [add-claude-cli-path-override-and-bump-sdks-20260520.md](add-claude-cli-path-override-and-bump-sdks-20260520.md) | completed | [133](../changelogs/CHANGELOG_133.md) | add-claude-cli-path-override-and-bump-sdks-20260520 |
-| [hand-off-session-adopt-teammates-20260520.md](hand-off-session-adopt-teammates-20260520.md) | completed | [135](../changelogs/CHANGELOG_135.md) | hand-off-session-adopt-teammates-20260520 |
-| [reverse-rename-sid-stability-20260520.md](reverse-rename-sid-stability-20260520.md) | completed | [136](../changelogs/CHANGELOG_136.md) | reverse-rename-sid-stability-20260520 |
-| [codex-stream-error-classify-20260521.md](codex-stream-error-classify-20260521.md) | completed | [140](../changelogs/CHANGELOG_140.md) | Codex CLI 5 built-in retry intermediate-state recognition: `translate.ts` three-state classification (allowlist + two heuristic layers + fatal-first ordering) |
-| [assets-codex-user-and-ui-unify-20260521.md](assets-codex-user-and-ui-unify-20260521.md) | completed | [141](../changelogs/CHANGELOG_141.md) | assets-codex-user-and-ui-unify-20260521 |
-| [restart-controller-jsonl-precheck-20260521.md](restart-controller-jsonl-precheck-20260521.md) | completed | [143](../changelogs/CHANGELOG_143.md) | restart-controller-jsonl-precheck-20260521 |
-| [task-mcp-owner-session-id-rewrite-20260521.md](task-mcp-owner-session-id-rewrite-20260521.md) | completed | [144](../changelogs/CHANGELOG_144.md) | task-mcp-owner-session-id-rewrite-20260521 |
-| [handoff-render-and-image-batch-20260521.md](handoff-render-and-image-batch-20260521.md) | completed | [145](../changelogs/CHANGELOG_145.md) | handoff-render-and-image-batch-20260521 |
-| [task-mcp-merge-into-agent-deck-mcp-20260521.md](task-mcp-merge-into-agent-deck-mcp-20260521.md) | completed | [146](../changelogs/CHANGELOG_146.md) | task-mcp-merge-into-agent-deck-mcp-20260521 |
-| [task-team-id-restore-20260525.md](task-team-id-restore-20260525.md) | completed | [149](../changelogs/CHANGELOG_149.md) | task-team-id-restore-20260525 |
-| [deep-code-review-main-3m-20260525.md](deep-code-review-main-3m-20260525.md) | completed | — | deep-code-review-main-3m-20260525 |
-| [review-56-followups-20260526.md](review-56-followups-20260526.md) | completed | — | review-56-followups-20260526 |
-| [handoff-no-spawn-guards-20260526.md](handoff-no-spawn-guards-20260526.md) | completed | [151](../changelogs/CHANGELOG_151.md) | handoff-no-spawn-guards-20260526 |
-| [session-list-handoff-role-badge-20260526.md](session-list-handoff-role-badge-20260526.md) | completed | [152](../changelogs/CHANGELOG_152.md) | session-list-handoff-role-badge-20260526 |
-| [ref-layout-full-migration-20260526.md](ref-layout-full-migration-20260526.md) | completed | [153](../changelogs/CHANGELOG_153.md) | ref-layout-full-migration-20260526 |
-| [build-dir-migration-20260526.md](build-dir-migration-20260526.md) | completed | [154](../changelogs/CHANGELOG_154.md) | build-dir-migration-20260526: fully migrated build artifacts to unified `build/` root output (`electron-vite` outDir for 3 entries + `electron-builder` output -> build/dist) |
-| [prompt-asset-review-optimize-20260527.md](prompt-asset-review-optimize-20260527.md) | completed | [155](../changelogs/CHANGELOG_155.md) | prompt-asset-review-optimize-20260527: organized prompt-asset SSOT boundaries (app CLAUDE.md self-contained without depending on user instructions / user instructions not bound to agent-deck / explicit priority chain / project-root CLAUDE.md compressed by 22%) |
-| [deep-project-review-comprehensive-20260528.md](deep-project-review-comprehensive-20260528.md) | completed | [174](../changelogs/CHANGELOG_174.md) / [175](../changelogs/CHANGELOG_175.md) | deep-project-review-comprehensive-20260528 |
-| [sdk-spawn-shell-path-20260529.md](sdk-spawn-shell-path-20260529.md) | completed | [176](../changelogs/CHANGELOG_176.md) | sdk-spawn-shell-path-20260529 |
-| [mcp-tool-camelcase-migration-20260529.md](mcp-tool-camelcase-migration-20260529.md) | completed | [177](../changelogs/CHANGELOG_177.md) | mcp-tool-camelcase-migration-20260529 |
-| [runtime-logging-electron-log-20260529.md](runtime-logging-electron-log-20260529.md) | completed | [178](../changelogs/CHANGELOG_178.md) | runtime-logging-electron-log-20260529 |
-| [issue-tracker-mcp-20260529.md](issue-tracker-mcp-20260529.md) | completed | [180](../changelogs/CHANGELOG_180.md) | issue-tracker-mcp-20260529 |
-| [deep-review-and-asset-polish-20260530.md](deep-review-and-asset-polish-20260530.md) | completed | [181](../changelogs/CHANGELOG_181.md) / [182](../changelogs/CHANGELOG_182.md) / [183](../changelogs/CHANGELOG_183.md) / [184](../changelogs/CHANGELOG_184.md) / [185](../changelogs/CHANGELOG_185.md) | deep-review-and-asset-polish-20260530 |
-| [deep-review-project-20260531.md](deep-review-project-20260531.md) | completed | [190](../changelogs/CHANGELOG_190.md) | deep-review-project-20260531 |
-| [followup-cleanup-20260601.md](followup-cleanup-20260601.md) | completed | [REVIEW_96](../reviews/REVIEW_96.md) | Cleaned up 11 follow-ups left from deep-review-project (MCP handlers / archive-plan / worktree / scheduler / message-repo / image-uploads + test network) |
-| [sqlite-tests-no-skip-20260601.md](sqlite-tests-no-skip-20260601.md) | completed | — | sqlite-tests-no-skip-20260601 |
-| [teamless-dm-20260601.md](teamless-dm-20260601.md) | completed | [194](../changelogs/CHANGELOG_194.md) | teamless-dm-20260601 |
-| [resume-inject-raw-messages-20260601.md](resume-inject-raw-messages-20260601.md) | completed | [195](../changelogs/CHANGELOG_195.md) | resume-inject-raw-messages-20260601 |
-| [model-token-stats-and-dashboard-20260602.md](model-token-stats-and-dashboard-20260602.md) | completed | [197](../changelogs/CHANGELOG_197.md) | Added a vertical token-usage slice, without changing existing event semantics, covering capture -> persistence -> query -> display for three user needs |
-| [deep-review-project-rolling-20260602.md](deep-review-project-rolling-20260602.md) | completed | [REVIEW_99..REVIEW_109](../reviews/INDEX.md) | Completed rolling review Batch 1-11 (11 main-logic batches + 4 simple-review closeout batches = 15 batches and about 100 real fixes), then switched to maintenance mode driven by B1 passive file-level expiry |
-| [codex-recover-network-dirs-parity-20260602.md](codex-recover-network-dirs-parity-20260602.md) | completed | [198](../changelogs/CHANGELOG_198.md) | codex-recover-network-dirs-parity-20260602 |
-| [pending-tab-resume-and-new-session-default-20260602.md](pending-tab-resume-and-new-session-default-20260602.md) | completed | [200](../changelogs/CHANGELOG_200.md) | BUG 1: ActivityFeed listens for `onSessionUpserted` and forces a `listAdapterPending` reload, fixing the resume root cause. BUG 2: `useLastSessionDefaults` module-level `let store` persists across mounts but not across restarts |
-| [message-retention-and-index-20260602.md](message-retention-and-index-20260602.md) | completed | [201](../changelogs/CHANGELOG_201.md) | Fixed two independent `agent_deck_messages` table issues in one v029 migration closeout |
-| [log-noise-and-disposed-20260603.md](log-noise-and-disposed-20260603.md) | completed | [205](../changelogs/CHANGELOG_205.md) | Landed two independent fixes across two files in one commit |
-| [tok-rate-realtime-streaming-20260603.md](tok-rate-realtime-streaming-20260603.md) | completed | [206](../changelogs/CHANGELOG_206.md) | Header real-time tok/s streaming estimate (moves during generation and calibrates at turn end), token_usage 6h GC wiring (365d default / 0 disables), DataPanel live override, and UI NumberInput exposure. spike1+spike3 proved Anthropic SSE `content_block_delta` only carries text and `message_delta` compresses to one turn-end event, so text estimation is used; ephemeral estimates use eventBus `token-rate-tick` and are never persisted (invariant 1). D8 render set = fresh-live union poll, with live-first ranking tuple comparator fixing HIGH-1 live-only bucket not rendering. D9 immediate turn-end calibration uses 500ms debounce + requestSeq latest-guard so old responses cannot overwrite new ones. Phase 1-5 + 6-7 across 2 commits; `sdk-message-translate` 529 -> 408 by extracting token-usage-accounting; lib/live-rate SSOT helper shared by Header and DataPanel. Plan design closed with adversarial R1+R2; user explicitly skipped implementation-time adversarial review for this batch |
-| [deepseek-summary-handoff-sdk-prompt-20260608.md](deepseek-summary-handoff-sdk-prompt-20260608.md) | completed | [230](../changelogs/CHANGELOG_230.md) | Deepseek summary / hand-off provider, Codex/Claude SDK upgrade, and prompt-asset tightening |
-| [codex-mid-turn-steering-20260610.md](codex-mid-turn-steering-20260610.md) | completed | [236](../changelogs/CHANGELOG_236.md) | Codex app-server mid-turn steering(adapter bridge + IPC/preload/UI + prompt/PlantUML) |
-| [codex-app-server-unification-20260610.md](codex-app-server-unification-20260610.md) | completed | [239](../changelogs/CHANGELOG_239.md) | Codex tok/s switched to authoritative app-server usage delta, oneshot moved to app-server, and old SDK path was cleaned up |
-| [spawn-session-model-thinking-20260611.md](spawn-session-model-thinking-20260611.md) | in_progress | — | Added adapter-scoped model/thinking parameter validation and passthrough to `spawn_session` |
-| [codex-native-agents-skills-20260612.md](codex-native-agents-skills-20260612.md) | completed | [249](../changelogs/CHANGELOG_249.md) / [250](../changelogs/CHANGELOG_250.md) | Claude/Codex native agent parsing, Codex session-level `developerInstructions` and skills `extraRoot` injection, and settings-panel agent support |
-| [provider-usage-cache-refresh-20260615.md](provider-usage-cache-refresh-20260615.md) | completed | [261](../changelogs/CHANGELOG_261.md) | provider-usage-cache-refresh-20260615 |
-| [ask-user-question-notes-20260615.md](ask-user-question-notes-20260615.md) | completed | [265](../changelogs/CHANGELOG_265.md) | AskUserQuestion cards gained per-question note input, returned to Claude with selected options or Other answers |
-| [cursor-cli-acp-investigation-20260617.md](cursor-cli-acp-investigation-20260617.md) | completed | — | Cursor CLI ACP integration investigation: recommended starting with `agent acp`, and listed adapter design, risks, and live spike checklist |
-| [spawn-teamless-reply-anchor-20260617.md](spawn-teamless-reply-anchor-20260617.md) | completed | [279](../changelogs/CHANGELOG_279.md) / [119](../reviews/REVIEW_119.md) | Standalone `spawn_session` children now receive first-reply anchors, use teamless DM, and render under the parent immediately |
-| [handoff-archived-team-transfer-20260618.md](handoff-archived-team-transfer-20260618.md) | completed | [282](../changelogs/CHANGELOG_282.md) / [120](../reviews/REVIEW_120.md) | hand_off_session reports archived team memberships as skipped instead of failing resource transfer |
-| [handoff-active-team-membership-api-20260618.md](handoff-active-team-membership-api-20260618.md) | completed | [284](../changelogs/CHANGELOG_284.md) / [121](../reviews/REVIEW_121.md) | Split row-active and operational active-team membership queries; task and handoff paths now filter archived teams at the repo SQL boundary |
-| [codex-file-change-accuracy-20260618.md](codex-file-change-accuracy-20260618.md) | completed | [285](../changelogs/CHANGELOG_285.md) / [122](../reviews/REVIEW_122.md) | Codex file-change reporting now filters incomplete and no-op patch records before they appear in SessionDetail |
-| [claude-compaction-thinking-copy-20260618.md](claude-compaction-thinking-copy-20260618.md) | completed | [291](../changelogs/CHANGELOG_291.md) / [125](../reviews/REVIEW_125.md) | Claude compaction events render, and thinking copy is adapter-aware |
-| [review-latest-and-summary-session-filter-20260618.md](review-latest-and-summary-session-filter-20260618.md) | completed | [298](../changelogs/CHANGELOG_298.md) / [127](../reviews/REVIEW_127.md) | Latest commit review fixed lockfile drift, SDK-origin filtering for internal Codex child hooks, and guarded external Codex lifecycle without inferred SessionEnd |
-| [diff-present-tool-and-walkthrough-skill-20260622.md](diff-present-tool-and-walkthrough-skill-20260622.md) | completed | [313](../changelogs/CHANGELOG_313.md) | Added MCP `present_plan` / `present_diff` user-presentation tools and Skill Market `diff-walkthrough` packages |
-| [claude-restart-jsonl-drain-20260622.md](claude-restart-jsonl-drain-20260622.md) | completed | [314](../changelogs/CHANGELOG_314.md) / [134](../reviews/REVIEW_134.md) | Claude restart waits for the old SDK stream drain before jsonl precheck to avoid false fresh-cli fallback |
-| [claude-exit-plan-jsonl-precheck-20260623.md](claude-exit-plan-jsonl-precheck-20260623.md) | completed | [317](../changelogs/CHANGELOG_317.md) / [137](../reviews/REVIEW_137.md) | Claude restart phantom-jsonl self-heal now uses latest conversation-message freshness after stream drain |
-| [diff-walkthrough-presentation-contract-20260623.md](diff-walkthrough-presentation-contract-20260623.md) | completed | [320](../changelogs/CHANGELOG_320.md) / [138](../reviews/REVIEW_138.md) | Diff walkthrough skill now defaults to interactive presentation gates while Agent Deck MCP describes per-fragment presentation usage |
-| [list-sessions-related-default-20260619.md](list-sessions-related-default-20260619.md) | completed | [303](../changelogs/CHANGELOG_303.md) | `list_sessions` defaults to caller-related sessions and SessionDetail gained a Tasks tab with completed-toggle |
-| [codex-create-session-latency-20260619.md](codex-create-session-latency-20260619.md) | completed | [310](../changelogs/CHANGELOG_310.md) / [311](../changelogs/CHANGELOG_311.md) / [312](../changelogs/CHANGELOG_312.md) / [REVIEW_130](../reviews/REVIEW_130.md) / [REVIEW_131](../reviews/REVIEW_131.md) / [REVIEW_132](../reviews/REVIEW_132.md) / [REVIEW_133](../reviews/REVIEW_133.md) | Codex new-session creation returns a visible temp session before background real-id rename; follow-up deep review fixed the MCP spawn stable-id contract and moved provider quota refresh to 10 minutes |
-| [claude-session-create-lag-20260622.md](claude-session-create-lag-20260622.md) | completed | [316](../changelogs/CHANGELOG_316.md) / [136](../reviews/REVIEW_136.md) | Claude new-session UI now returns a visible temp session before background SDK first-id rename, while MCP spawns still wait for canonical ids |
-| [commit-build-metadata-20260624.md](commit-build-metadata-20260624.md) | completed | [323](../changelogs/CHANGELOG_323.md) | Packaged builds carry commit metadata, and wrappers can check installed freshness by commit |
-| [large-file-split-round-20260624.md](large-file-split-round-20260624.md) | completed | [326](../changelogs/CHANGELOG_326.md) / [REVIEW_140](../reviews/REVIEW_140.md) | Split five large production files into focused helper modules without behavior changes |
-| [spawn-session-custom-model-20260625.md](spawn-session-custom-model-20260625.md) | completed | [327](../changelogs/CHANGELOG_327.md) | `spawn_session.model` accepts custom provider model ids while keeping maintained aliases as guidance |
-| [session-trajectory-mcp-tool-20260626.md](session-trajectory-mcp-tool-20260626.md) | completed | [328](../changelogs/CHANGELOG_328.md) | `list_session_events` reads related-session normalized activity trajectories |
-| [reviewer-model-selection-20260629.md](reviewer-model-selection-20260629.md) | completed | [329](../changelogs/CHANGELOG_329.md) | Added Deepseek reviewer slot selection and explicit two-slot review confirmation |
-| [diff-panel-sdk-upgrade-20260629.md](diff-panel-sdk-upgrade-20260629.md) | completed | [332](../changelogs/CHANGELOG_332.md) / [REVIEW_141](../reviews/REVIEW_141.md) | Diff panels keep bottom scroll clearance, and Claude/Codex runtime packages were upgraded to latest verified stable versions |
-| [send-message-session-not-found-20260629.md](send-message-session-not-found-20260629.md) | completed | [334](../changelogs/CHANGELOG_334.md) / [REVIEW_142](../reviews/REVIEW_142.md) | `send_message` canonicalizes target session aliases before shared-team authorization and enqueue |
+Plans archived before this structure use topic-and-date basenames instead of `PLAN_X_<topic>.md`; keep those names stable. Current numbered plan records therefore begin at `PLAN_1`. Existing nonterminal plans are retained in `history` as legacy snapshots, not as active workspace plans. Legacy support directories remain beside their related records.
 
-## Legacy Slug-Only Entries
+## Buckets
 
-These inherited entries only recorded the plan slug. Keep them in a separate table until their archived records are backfilled with status and related-record metadata.
+Buckets are mutually exclusive. Store each plan in exactly one bucket based on `Completed At` or `completed_at`.
 
-| Plan | Legacy Summary |
-|---|---|
-| [cwd-resilience-fix-20260514.md](cwd-resilience-fix-20260514.md) | cwd-resilience-fix-20260514 |
-| [mcp-tool-simplify-20260514.md](mcp-tool-simplify-20260514.md) | mcp-tool-simplify-20260514 |
-| [review-33-high-fix-20260513.md](review-33-high-fix-20260513.md) | review-33-high-fix-20260513 |
-| [deep-review-and-refactor-20260514.md](deep-review-and-refactor-20260514.md) | deep-review-and-refactor-20260514 |
-| [review-35-followup-p1-p2-20260514.md](review-35-followup-p1-p2-20260514.md) | review-35-followup-p1-p2-20260514 |
-| [summarizer-split-20260514.md](summarizer-split-20260514.md) | summarizer-split-20260514 |
-| [universal-message-watcher-split-20260514.md](universal-message-watcher-split-20260514.md) | universal-message-watcher-split-20260514 |
-| [llm-handoff-summary-fallback-20260514.md](llm-handoff-summary-fallback-20260514.md) | llm-handoff-summary-fallback-20260514 |
-| [model-wiring-and-handoff-20260514.md](model-wiring-and-handoff-20260514.md) | model-wiring-and-handoff-20260514 |
-| [deep-review-and-refactor-r37-20260515.md](deep-review-and-refactor-r37-20260515.md) | deep-review-and-refactor-r37-20260515 |
-| [worktree-stale-base-bug-20260515.md](worktree-stale-base-bug-20260515.md) | worktree-stale-base-bug-20260515 |
-| [hand-off-mcp-teammate-bug-20260515.md](hand-off-mcp-teammate-bug-20260515.md) | hand-off-mcp-teammate-bug-20260515 |
-| [codex-claude-adapter-symmetry-20260515.md](codex-claude-adapter-symmetry-20260515.md) | codex-claude-adapter-symmetry-20260515 |
-| [hand-off-mcp-archive-opt-20260515.md](hand-off-mcp-archive-opt-20260515.md) | hand-off-mcp-archive-opt-20260515 |
-| [codex-sdk-bridge-tests-20260515.md](codex-sdk-bridge-tests-20260515.md) | codex-sdk-bridge-tests-20260515 |
-| [cross-adapter-parity-20260515.md](cross-adapter-parity-20260515.md) | cross-adapter-parity-20260515 |
-| [archive-failure-ux-upthrow-20260515.md](archive-failure-ux-upthrow-20260515.md) | archive-failure-ux-upthrow-20260515 |
-| [archive-toctou-fix-20260515.md](archive-toctou-fix-20260515.md) | archive-toctou-fix-20260515 |
-| [adapter-architecture-design-20260515.md](adapter-architecture-design-20260515.md) | adapter-architecture-design-20260515 |
+| Bucket | Date Range | Directory |
+|---|---|---|
+| Recent 3 days | `Completed At` or `completed_at` is within the last 3 days, inclusive | `ref/plans/recent-3-days/` |
+| Recent week | `Completed At` or `completed_at` is older than 3 days and within the last 7 days, inclusive | `ref/plans/recent-week/` |
+| Recent month | `Completed At` or `completed_at` is older than 7 days and within the last 30 days, inclusive | `ref/plans/recent-month/` |
+| History | `Completed At` or `completed_at` is older than 30 days, or missing a parseable date | `ref/plans/history/` |
+
+## Rebucket Rules
+
+On every new or edited final plan:
+
+1. Scan all `ref/plans/*/PLAN_*.md` files and preserved legacy plan records.
+2. Recompute each file's bucket from `Completed At` or `completed_at`.
+3. Move files that no longer belong in their current bucket.
+4. Update this routing index only if bucket policy changes.
+5. Update every affected bucket `INDEX.md` while preserving its table format.
+
+For full recent-week context, read `recent-3-days/` plus `recent-week/`. For full recent-month context, read `recent-3-days/`, `recent-week/`, and `recent-month/`. For full history, read all four buckets.
+
+## Bucket Indexes
+
+- `ref/plans/recent-3-days/INDEX.md`
+- `ref/plans/recent-week/INDEX.md`
+- `ref/plans/recent-month/INDEX.md`
+- `ref/plans/history/INDEX.md`
