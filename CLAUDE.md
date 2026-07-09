@@ -12,45 +12,48 @@
 
 ## Base Directory Structure
 
-When creating or maintaining the repository, place files according to this structure. Unless the project already has a stronger contract, do not create parallel directories for the same kind of file:
+Create or maintain files in this structure. Do not create parallel directories for the same file type unless the project already has a stronger project rule.
 
-- `CLAUDE.md`: shared project workflow SSOT for repository baseline, directory structure, required post-change steps, plan/review lifecycle, review expiry rules, file-size guardrails, project-specific conventions, and validation.
-- `AGENTS.md`: entry-point and tool differences only; it references and follows the shared rules in `CLAUDE.md`.
+- `CLAUDE.md`: shared workflow for repository baseline, directory structure, after-change requirements, plan/review lifecycle, review expiry, file-size guardrail, project-specific triggers, archived reference materials, validation, and packaging.
+- `AGENTS.md`: Codex entry and tool differences; it references and follows the shared rules in `CLAUDE.md`.
 - `UI_COPY_LANGUAGE.md`: SSOT for user-facing UI/CLI copy language and locale mode.
-- `README.md`: setup, usage, validation, and structure documentation for users and maintainers.
-- `src/`: source code.
-- `scripts/`: project scripts and automation helpers.
-- `build/`: build artifacts, including `build/dist` packaging output; keep it git-ignored.
-- `resources/`: bundled app assets (claude-config / codex-config / plugin / bin).
-- `ref/changelogs/INDEX.md`: final changelog index; entry files are `ref/changelogs/CHANGELOG_X.md`.
-- `ref/reviews/INDEX.md`: final review index; entry files are `ref/reviews/REVIEW_X.md`.
-- `ref/plans/INDEX.md`: final plan index; final plan files live in `ref/plans/`.
-- `ref/conventions/INDEX.md`: index of promoted project conventions. Convention bodies use `ref/conventions/<X>-<topic>.md`; `ref/conventions/tally.md` is the entry point for repeated feedback / repeated pitfall counts.
-- `ref/flows/`, `ref/architecture/`: PlantUML flow / architecture diagram SSOTs (`.puml` files are committed; rendered artifacts are not).
-- `.ref/`: must be added to `.gitignore`; stores only non-final plan/review working copies, not final records.
+- `README.md`: user and maintainer instructions for setup, usage, validation, and structure.
+- `src/`: first-party source code.
+- `scripts/`: project scripts and automation helpers, including copied foundation helpers.
+- `build/`: the selected generated output root, including `build/dist` packaging output; keep it git-ignored.
+- `resources/`: bundled app assets for Claude, Codex, plugins, wrappers, icons, and sounds.
+- `ref/changelogs/INDEX.md`: final changelog routing index; final changelogs use `ref/changelogs/<bucket>/CHANGELOG_X_<topic>.md`.
+- `ref/reviews/INDEX.md`: final review routing index; final reviews use `ref/reviews/<bucket>/REVIEW_X_<topic>.md`.
+- `ref/plans/INDEX.md`: final plan routing index; final plans use `ref/plans/<bucket>/PLAN_X_<topic>.md`.
+- `ref/*/{recent-3-days,recent-week,recent-month,history}/INDEX.md`: mutually exclusive time-bucket indexes for final records.
+- `.ref/`: add to `.gitignore`; store non-final plans, reviews, raw outputs, spike drafts, scratch notes, and other unarchived LLM-facing material here, never final records.
 
-## Documentation Language
+## Required After Changes
 
-Write active project documentation and maintainer/agent-facing instructions in English by default, including changelogs, plans, reviews, and conventions. Exceptions are `UI_COPY_LANGUAGE.md`, user-facing UI/CLI copy governed by that file, locale examples, quoted/source text, and explicit non-English trigger anchors or examples.
+Before starting, run `find ref/changelogs ref/plans ref/reviews -maxdepth 2 -type f -name '*.md' 2>/dev/null || true` to see existing records. Missing directories are setup work, not an error. Before creating or moving a final typed `ref/` record, read the relevant root `ref/<type>/INDEX.md` and affected bucket `INDEX.md`. Scan every same-type bucket, choose `X` as the maximum existing same-type number plus 1, and do not guess. Use a short stable kebab-case `<topic>` that is not vague like `update`, `fix`, or `misc`.
+
+1. When user-visible behavior, file structure, startup steps, ports, dependencies, or validation steps change, update the matching `README.md` section. Pure bug fixes and internal refactors do not require README changes.
+2. For each meaningful feature, behavior, API, or dependency change, write `ref/changelogs/<bucket>/CHANGELOG_X_<topic>.md`, rebucket all changelogs by `changed_at`, and update the root and affected bucket indexes. For debug, performance, security, or review-driven fixes, do the same under `ref/reviews/` using `REVIEW_X_<topic>.md` and `reviewed_at`. Keep index summaries to 80 characters or one short sentence.
+3. Keep non-final plans in the current environment's plan workspace; if no stronger contract exists, use `<repo>/.ref/plans/<plan-id>.md`. Keep non-final review drafts and raw reviewer output in the current review workspace or `<repo>/.ref/reviews/`. At final handoff, archive plans into the correct `ref/plans/<bucket>/PLAN_X_<topic>.md`, rebucket by completed date, update the root and affected bucket indexes, and clean up workspace copies.
+4. Store durable extra LLM-facing materials, including spike reports, investigation notes, and reusable evidence, somewhere under `ref/` and link them from the relevant final record. Keep temporary scratch, raw logs, and non-final drafts in `.ref/` or the current environment workspace.
+5. Keep the advisory `.ref` archive pre-commit hook installed with `bash scripts/ref-archive-reminder-pre-commit.sh --install` after setup or whenever `.git/hooks/pre-commit` is reset. The installer replaces only its managed block and preserves unrelated hook logic. The hook exits 0, but agents must classify each `.ref/` file as durable context to archive, intentionally non-final workspace material to retain, or scratch to remove.
+6. Before changing long-lived prompt assets, inventory and back up the confirmed editable files, check paired Claude/Codex assets for semantic drift, and validate local links. Bundled Agent Deck behavior must remain self-contained in `resources/`.
+
+Project-specific triggers:
+
+- After changing main or preload code, restart development after validation. Renderer-only changes use HMR.
+- After changing a database schema, add the next migration and advance `user_version` through the normal migration chain.
+- After adding an IPC channel, synchronize shared types, main registration, preload facade, and renderer caller.
+
+## UI/CLI Copy Language
+
+Write active project documentation and maintainer/agent-facing instructions in English by default, including changelogs, plans, reviews, and archived reference materials. Exceptions are `UI_COPY_LANGUAGE.md`, user-facing UI/CLI copy governed by that file, locale examples, quoted/source text, and explicit non-English trigger anchors or examples.
+
+Before adding or changing user-facing UI or CLI copy, read `UI_COPY_LANGUAGE.md` and follow its active mode. If the requested copy language or supported locales differ from that file, update `UI_COPY_LANGUAGE.md` first, then make the UI/CLI copy changes.
 
 ---
 
-## Required After Changes (Minimum Workflow)
-
-> This section preserves the repository's minimum closed-loop workflow. For `ref/` project artifacts, directly follow the existing INDEX and neighboring-file formats in `ref/changelogs/`, `ref/reviews/`, `ref/conventions/`, `ref/flows/`, and `ref/architecture/`.
-
-Before starting, run `ls ref/conventions ref/changelogs ref/plans ref/reviews 2>/dev/null || true` to see existing records. Missing directories are setup work, not an error.
-
-1. **When changing user-visible behavior, file structure, or startup behavior** (UI / CLI copy / settings / keyboard shortcuts / project structure / ports / dependencies / validation steps), update the relevant section of `README.md`. When adding or changing user-facing UI/CLI copy, follow `UI_COPY_LANGUAGE.md`; if the language requirement differs, update that file first. Pure bug fixes and internal refactors do not require README changes.
-2. For every meaningful feature, behavior, API, or dependency change, write `ref/changelogs/CHANGELOG_X.md` and update `ref/changelogs/INDEX.md`. For debug, performance, security, or review-driven fixes, write `ref/reviews/REVIEW_X.md` and update `ref/reviews/INDEX.md`. Choose `X` as the next integer after the current maximum, confirmed with `ls`; do not guess. INDEX summaries must be <= 80 characters or one short English sentence.
-3. Store non-final plans at `<repo>/.ref/plans/<plan-id>.md`; store non-final review drafts at `<repo>/.ref/reviews/<review-id>.md` or in session output. When finalizing, move the final record and clean up working copies: archive plans into `ref/plans/` and update `ref/plans/INDEX.md`; archive reviews into `ref/reviews/REVIEW_X.md` and update `ref/reviews/INDEX.md`.
-4. Keep the advisory plan archive pre-commit hook installed with `bash scripts/plan-archive-reminder-pre-commit.sh --install` after setup or whenever `.git/hooks/pre-commit` is reset. The hook reminds about non-final `.ref/plans/` files and must not block commits.
-5. Before changing functionality, read the project's existing conventions, changelogs, and review records. Start from the relevant `ref/*/INDEX.md`, then read the related entries.
-6. Before changing long-lived prompt assets, complete inventory, backup, deduplication, counterpart-asset synchronization, and review according to the "Bundled Asset Self-Containment Principle"; required Agent Deck behavior must remain inside bundled assets.
-
----
-
-## Project-Specific Conventions (Design Checklist)
+## Project-Specific Conventions
 
 Repeated design decisions to keep in mind before making changes:
 
@@ -83,44 +86,40 @@ External extensions may only enhance this repository workflow; they must not car
 - `shared/types.ts` may only use standard-library types; do not import Electron / Node APIs.
 - preload `window.api` is the strongly typed facade; use `window.electronIpc.invoke()` as the fallback for dynamic channels.
 
-## Repeated Feedback / Similar Issues -> Promote Convention (Minimum Workflow)
-
-When the user gives corrective / preference feedback, or when a Coding Agent finds a similar engineering issue during review or bug fixing, first record it in `ref/conventions/tally.md`: increment the count of an existing semantically identical entry by 1, or add a new `count: 1` row. After `count >= 3`, run this repository's review workflow and present the evidence, candidate rule, and recommended decision (adopt / reject / keep observing) to the user for confirmation. Then promote it to `ref/conventions/<X>-<topic>.md` and update `ref/conventions/INDEX.md`. Do not promote one-off requests or trivial observations.
-
----
-
 ## Review Expiry And Minimum Re-Review Scope
 
-When preparing the next review, use this section to determine the minimum re-review scope. `ref/reviews/` contains expiring coverage records, not permanent exemptions.
+Use this section to determine the minimum scope for the next review. `ref/reviews/` records expiring coverage; it is not a permanent exemption list.
 
-Minimum scope for the next review:
+The next review's minimum scope is:
 
 ```text
-unreviewed files ∪ expired reviewed files ∪ scope_unknown files
+unreviewed files union expired reviewed files union scope_unknown files
 ```
 
-A file expires when any of the following is true since the most recent REVIEW baseline that covered it:
+`scope_unknown files` are files whose previous review coverage cannot be trusted because the review lacks a parseable `review-scope`, lacks a usable `baseline_commit`, or cannot be mapped to the current path.
 
-- Net change >= `min(200 lines, 30% of current LOC)`.
-- Number of distinct commits >= 3.
+Since the latest REVIEW `baseline_commit` that covered a file, that file expires when any condition is true:
+
+- Net change is at least `min(200 lines, 30% of current LOC)`.
+- At least 3 distinct commits touched the file.
 - At least 90 days have passed and the file changed at least once.
-- REVIEW frontmatter marks `expired: true`.
+- REVIEW frontmatter sets `expired: true`.
 
-When preparing a review, run `bash scripts/file-level-review-expiry.sh` from the repository root. If the script is missing, determine the same conditions manually with `git log`.
+Before review, run `bash scripts/file-level-review-expiry.sh` from the repository root. If the script is missing, use `git log` to apply the conditions above manually.
 
 ---
 
 ## File Size Guardrail (500 Lines)
 
-Before committing any source file over 500 LOC, attempt to split it first. Generated code, lockfiles, snapshots, migrations, and fixtures are exempt.
+Before submitting, attempt to split any source file over 500 LOC. Generated code, lockfiles, snapshots, migrations, and fixtures are exempt.
 
-Split priority:
+Split in this order:
 
-1. Extract module-level pure functions / types / constants.
-2. Convert to same-directory submodules while preserving import paths.
-3. Use facade + shared context to split classes only after a plan/review.
+1. Extract module-level pure functions, types, and constants.
+2. Move same-directory submodules behind stable import paths.
+3. Split classes through a facade and shared context only after a plan or review.
 
-If a file genuinely cannot be split, record the file and the concrete reason in the related changelog's "do not split" protection list.
+When a file truly cannot be split, record the path, concrete reason, and revisit trigger in the relevant final record: use the changelog's "Do Not Split Protection" for feature, behavior, API, or dependency changes, or the review's "Residual Risk" for debug, performance, security, or review-driven work.
 
 ---
 
@@ -130,7 +129,8 @@ After changing code:
 
 ```bash
 pnpm typecheck       # required
-pnpm build           # run for large changes
+pnpm test            # required for behavior or structural changes
+pnpm build           # required for large changes
 ```
 
 After changing main / preload -> **restart dev**:

@@ -18,19 +18,13 @@ dist/
 # Worktree cache directories must stay out of git and fast-forward merges.
 .prompt-asset-improver/local/
 # Local prompt-asset-improver inventory, backups, and custom points.
-ref/architecture/*.png
-ref/architecture/*.svg
-ref/flows/*.png
-ref/flows/*.svg
-# PlantUML .puml files are the source of truth. Rendered PNG/SVG output stays untracked.
-# Reviewers may generate these files while running syntax checks or rendering previews.
 .claude/worktrees/
 .claude/scheduled_tasks*
 .claude/plans/
 .claude/settings.local*
 # Claude Code runtime state: worktree temp dirs, cron task state and locks, local
 # plan workspaces, and per-user permission allow lists. Do not commit per-user or
-# per-machine state. Completed plans are archived to ref/plans/<plan-id>.md.
+# per-machine state. Completed plans are archived to the dated buckets under ref/plans/.
 
 # Appended by plan personal-projects-cleanup-20260520 (2026-05-20): uncommon OS junk fallback.
 Thumbs.db
