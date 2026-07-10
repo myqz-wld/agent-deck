@@ -87,9 +87,7 @@ function buildReasoningOptions(
 }
 
 const CLAUDE_REASONING_OPTIONS = buildReasoningOptions(CLAUDE_THINKING_LEVELS);
-const CODEX_REASONING_OPTIONS = buildReasoningOptions(
-  CODEX_THINKING_LEVELS.filter((level) => level !== 'max'),
-);
+const CODEX_REASONING_OPTIONS = buildReasoningOptions(CODEX_THINKING_LEVELS);
 
 function reasoningOptionsForProvider(
   provider: Provider,
@@ -98,8 +96,7 @@ function reasoningOptionsForProvider(
 }
 
 function coerceReasoningForProvider(provider: Provider, reasoning: Reasoning): Reasoning {
-  if (provider === 'codex') return reasoning === 'max' ? 'xhigh' : reasoning;
-  if (isClaudeThinkingLevel(reasoning)) return reasoning;
+  if (provider === 'codex' || isClaudeThinkingLevel(reasoning)) return reasoning;
   return reasoning === 'ultra' ? 'max' : 'low';
 }
 
@@ -139,8 +136,8 @@ function buildModelHint(purpose: ModelPurpose, provider: Provider): string {
  *
  * - Provider select: claude / deepseek / codex,决定走哪个 LLM provider
  * - Model input: free-form model id,空 = 沿用 provider 各自 env / alias / config.toml 兜底
- * - Reasoning select: 按 provider 展示设置面板允许的思考程度。Codex 不展示 model-specific
- *   `max`，保留 minimal / low / medium / high / xhigh / ultra；Claude-family 保留 low..max。
+ * - Reasoning select: 按 provider 展示对应 SDK 支持的思考程度。Codex 支持
+ *   minimal / low / medium / high / xhigh / max / ultra；Claude-family 支持 low..max。
  */
 function ModelRow({
   label,

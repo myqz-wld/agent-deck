@@ -59,8 +59,8 @@ async function loadSettingsStore() {
   return mod.settingsStore;
 }
 
-describe('settings-store migration — Codex settings MAX removal', () => {
-  it('normalizes retained Codex MAX values to XHIGH', async () => {
+describe('settings-store — Codex MAX preservation', () => {
+  it('preserves retained Codex MAX values', async () => {
     mockRawStore = {
       summaryProvider: 'codex',
       summaryReasoning: 'max',
@@ -70,10 +70,10 @@ describe('settings-store migration — Codex settings MAX removal', () => {
 
     const all = (await loadSettingsStore()).getAll();
 
-    expect(mockSet).toHaveBeenCalledWith('summaryReasoning', 'xhigh');
-    expect(mockSet).toHaveBeenCalledWith('handOffReasoning', 'xhigh');
-    expect(all.summaryReasoning).toBe('xhigh');
-    expect(all.handOffReasoning).toBe('xhigh');
+    expect(mockSet.mock.calls.filter((call) => call[0] === 'summaryReasoning')).toHaveLength(0);
+    expect(mockSet.mock.calls.filter((call) => call[0] === 'handOffReasoning')).toHaveLength(0);
+    expect(all.summaryReasoning).toBe('max');
+    expect(all.handOffReasoning).toBe('max');
   });
 
   it('preserves Claude-family MAX values', async () => {

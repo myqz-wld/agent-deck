@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-10 | `CHANGELOG_356_codex-max-thinking.md` | Restore Codex MAX across settings and existing thinking inputs |
 | 2026-07-10 | `CHANGELOG_355_filter-desktop-ephemeral-codex-hooks.md` | Hide Desktop ambient Codex hooks from external sessions |
 | 2026-07-10 | `CHANGELOG_354_thinking-options-and-claude-usage.md` | Refine thinking options and collect Claude reasoning usage |
 | 2026-07-09 | `CHANGELOG_353_spawn-session-native-fork.md` | Add provider-native parallel session forks |
