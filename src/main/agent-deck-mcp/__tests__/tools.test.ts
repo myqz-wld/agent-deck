@@ -735,7 +735,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
   // （deep-code-review SKILL：lead 在 repo 起 reviewer teammate 同 cwd 同 adapter）。
   // 防递归靠 §6.1 depth + §6.4 fan-out + §6.3 spawn-rate 三条兜底（spawn-guards.test.ts 覆盖）。
 
-  it('schema exposes model as an optional string and thinking as an optional enum', async () => {
+  it('schema exposes context mode, model, and thinking without changing omitted defaults', async () => {
     const { SPAWN_SESSION_MODEL_VALUES, SPAWN_SESSION_SCHEMA } = await import('../tools/schemas');
     expect(SPAWN_SESSION_MODEL_VALUES).toEqual([
       'haiku',
@@ -778,6 +778,13 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
       'Claude and Deepseek accept low, medium, high, xhigh, and max',
     );
+    expect(SPAWN_SESSION_SCHEMA.contextMode.safeParse(undefined).success).toBe(true);
+    expect(SPAWN_SESSION_SCHEMA.contextMode.safeParse('fresh').success).toBe(true);
+    expect(SPAWN_SESSION_SCHEMA.contextMode.safeParse('fork').success).toBe(true);
+    expect(SPAWN_SESSION_SCHEMA.contextMode.safeParse('3').success).toBe(false);
+    expect(SPAWN_SESSION_SCHEMA.contextMode.description).toContain('authenticated caller');
+    expect(SPAWN_SESSION_SCHEMA.contextMode.description).toContain('same real directory');
+    expect(SPAWN_SESSION_SCHEMA.contextMode.description).toContain('never silently downgrades');
   });
 
   it('tool description points callers to the field schemas and self-correcting hint', async () => {
@@ -787,6 +794,9 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(description).toContain('target-session-only overrides');
     expect(description).toContain('field schemas list maintained suggestions');
     expect(description).toContain('follow hint exactly');
+    expect(description).toContain('contextMode defaults to fresh');
+    expect(description).toContain('safe active-turn boundary');
+    expect(description).toContain('hand-offs always start fresh');
   });
 
   it('allows same cwd same adapter (deep-code-review SKILL 合法路径)', async () => {

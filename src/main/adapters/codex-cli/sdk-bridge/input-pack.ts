@@ -16,7 +16,15 @@ export type CodexUserInput =
   | { type: 'local_image'; path: string }
   | { type: 'text'; text: string };
 
-export type CodexInput = string | CodexUserInput[];
+export type CodexInput =
+  | string
+  | CodexUserInput[]
+  | {
+      type: 'app-server-input';
+      items: CodexAppServerUserInput[];
+      /** Only child-owned uploads may be unlinked when an unconsumed queue is closed. */
+      ownedAttachmentPaths: string[];
+    };
 
 /**
  * 把 (text, attachments) 包成 Codex runtime 接受的 input 形态。
@@ -47,6 +55,9 @@ export function packCodexInput(text: string, attachments?: UploadedAttachmentRef
  */
 export function extractAttachmentPaths(input: CodexInput): string[] {
   if (typeof input === 'string') return [];
+  if (!Array.isArray(input)) {
+    return [...input.ownedAttachmentPaths];
+  }
   const paths: string[] = [];
   for (const item of input) {
     if (item.type === 'local_image' && typeof item.path === 'string') {
@@ -60,6 +71,13 @@ export function toCodexAppServerInput(input: CodexInput): CodexAppServerUserInpu
   if (typeof input === 'string') {
     return [{ type: 'text', text: input, text_elements: [] }];
   }
+  if (!Array.isArray(input)) {
+    return input.items.map((item) =>
+      item.type === 'text'
+        ? { ...item, text_elements: [...item.text_elements] }
+        : { ...item },
+    );
+  }
 
   const out: CodexAppServerUserInput[] = [];
   for (const item of input) {
@@ -70,4 +88,11 @@ export function toCodexAppServerInput(input: CodexInput): CodexAppServerUserInpu
     }
   }
   return out;
+}
+
+export function packCodexAppServerInput(
+  items: CodexAppServerUserInput[],
+  ownedAttachmentPaths: readonly string[] = [],
+): CodexInput {
+  return { type: 'app-server-input', items, ownedAttachmentPaths: [...ownedAttachmentPaths] };
 }

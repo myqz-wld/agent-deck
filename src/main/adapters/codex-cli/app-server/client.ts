@@ -6,28 +6,23 @@ import {
   resolveCodexBinary,
 } from '../sdk-bridge/codex-binary';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
-import { AsyncNotificationQueue } from './async-notification-queue';
-import {
-  formatRpcError,
-  getNotificationThreadId,
-  getNotificationTurnId,
-  isTerminalForTurn,
-  readCompletedAgentMessageText,
-} from './notification-helpers';
+import { formatRpcError } from './notification-helpers';
 import type {
   CodexAppServerNotification,
   CodexAppServerOptions,
-  CodexAppServerRunResult,
-  CodexAppServerStreamEvent,
-  CodexAppServerUserInput,
+  CodexAppServerThreadCreateResult,
+  CodexAppServerThreadReadResult,
+  JsonValue,
   JsonRpcResponse,
 } from './protocol';
 import {
+  buildThreadForkParams,
   buildThreadConfig,
   buildThreadResumeParams,
   buildThreadStartParams,
   buildTurnStartParams,
 } from './thread-params';
+import { CodexAppServerThread } from './thread';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server');
@@ -39,6 +34,7 @@ export type {
   CodexAppServerStreamEvent,
   CodexAppServerUserInput,
 } from './protocol';
+export { CodexAppServerThread } from './thread';
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -76,13 +72,53 @@ export class CodexAppServerClient {
     return this.child !== null;
   }
 
+  /** True after dispose(); used by fork rollback to reopen a target-owned cleanup client. */
+  get isDisposed(): boolean { return this.closed; }
+
+  /**
+   * Create an unmapped client with the same target-owned config and environment. Fork rollback
+   * uses this only when the registered child client was already disposed by the normal close path.
+   */
+  createSiblingClient(): CodexAppServerClient {
+    return new CodexAppServerClient({
+      ...this.opts,
+      env: { ...this.opts.env },
+      ...(this.opts.skillExtraRoots
+        ? { skillExtraRoots: [...this.opts.skillExtraRoots] }
+        : {}),
+    });
+  }
+
   startThread(options: CodexThreadOptions): CodexAppServerThread {
     return new CodexAppServerThread(this, { mode: 'start', options });
   }
-
   resumeThread(threadId: string, options: CodexThreadOptions): CodexAppServerThread {
     return new CodexAppServerThread(this, { mode: 'resume', threadId, options });
   }
+  adoptThread(threadId: string, options: CodexThreadOptions): CodexAppServerThread {
+    return new CodexAppServerThread(
+      this,
+      { mode: 'resume', threadId, options },
+      this.isProcessAlive ? this.generation : undefined,
+    );
+  }
+  readThread(threadId: string): Promise<CodexAppServerThreadReadResult> {
+    return this.request('thread/read', { threadId, includeTurns: true });
+  }
+  startThreadEager(options: CodexThreadOptions): Promise<CodexAppServerThreadCreateResult> {
+    return this.request('thread/start', buildThreadStartParams(options, this.baseConfig));
+  }
+  forkThread(sourceThreadId: string, lastTurnId: string, options: CodexThreadOptions): Promise<CodexAppServerThreadCreateResult> {
+    return this.request(
+      'thread/fork',
+      buildThreadForkParams(sourceThreadId, lastTurnId, options, this.baseConfig),
+    );
+  }
+
+  injectThreadItems(threadId: string, items: JsonValue[]): Promise<void> {
+    return this.request('thread/inject_items', { threadId, items });
+  }
+  deleteThread(threadId: string): Promise<void> { return this.request('thread/delete', { threadId }); }
 
   async request<T = unknown>(method: string, params: unknown): Promise<T> {
     await this.ensureInitialized();
@@ -271,198 +307,10 @@ export class CodexAppServerClient {
   }
 }
 
-type ThreadMode =
-  | { mode: 'start'; options: CodexThreadOptions }
-  | { mode: 'resume'; threadId: string; options: CodexThreadOptions };
-
-export class CodexAppServerThread {
-  private threadId: string | null;
-  private started = false;
-  private readyPromise: Promise<string> | null = null;
-  private readyGeneration = -1;
-  private activeTurnId: string | null = null;
-
-  constructor(
-    private readonly client: CodexAppServerClient,
-    private mode: ThreadMode,
-  ) {
-    this.threadId = mode.mode === 'resume' ? mode.threadId : null;
-  }
-
-  updateSandboxMode(
-    sandboxMode: CodexThreadOptions['sandboxMode'],
-    opts: {
-      networkAccessEnabled?: boolean;
-      additionalDirectories?: readonly string[];
-    } = {},
-  ): void {
-    const options: CodexThreadOptions = {
-      ...this.mode.options,
-      sandboxMode,
-      ...(opts.networkAccessEnabled !== undefined
-        ? { networkAccessEnabled: opts.networkAccessEnabled }
-        : {}),
-      ...(opts.additionalDirectories !== undefined
-        ? { additionalDirectories: [...opts.additionalDirectories] }
-        : {}),
-    };
-    this.mode =
-      this.mode.mode === 'resume'
-        ? { mode: 'resume', threadId: this.mode.threadId, options }
-        : { mode: 'start', options };
-  }
-
-  async runStreamed(
-    input: CodexAppServerUserInput[],
-    opts?: { signal?: AbortSignal },
-  ): Promise<{ events: AsyncIterable<CodexAppServerStreamEvent> }> {
-    return {
-      events: this.runTurn(input, opts?.signal),
-    };
-  }
-
-  async run(
-    input: CodexAppServerUserInput[],
-    opts?: { signal?: AbortSignal },
-  ): Promise<CodexAppServerRunResult> {
-    const { events } = await this.runStreamed(input, opts);
-    const messages: string[] = [];
-    for await (const ev of events) {
-      if (ev.type !== 'server.notification') continue;
-      const text = readCompletedAgentMessageText(ev.notification);
-      if (text) messages.push(text);
-    }
-    return { finalResponse: messages.join('\n') };
-  }
-
-  async ensureReady(): Promise<string> {
-    const threadId = await this.ensureThread();
-    this.started = true;
-    return threadId;
-  }
-
-  async steer(input: CodexAppServerUserInput[], expectedTurnId: string): Promise<void> {
-    const threadId = await this.ensureThread();
-    await this.client.request('turn/steer', {
-      threadId,
-      expectedTurnId,
-      input,
-    });
-  }
-
-  async interrupt(turnId = this.activeTurnId): Promise<void> {
-    const threadId = this.threadId;
-    if (!threadId || !turnId) return;
-    // 进程已死：handleExit 已向所有 subscriber 派发 synthetic error（terminal）终结队列，
-    // 这里静默返回即可；不能走 request —— ensureProcess 会为这条 interrupt 重新 spawn 进程。
-    if (!this.client.isProcessAlive) return;
-    await this.client.request('turn/interrupt', { threadId, turnId });
-  }
-
-  private async *runTurn(
-    input: CodexAppServerUserInput[],
-    signal: AbortSignal | undefined,
-  ): AsyncIterable<CodexAppServerStreamEvent> {
-    let unsub: Unsubscribe | null = null;
-    let abortListener: (() => void) | null = null;
-    const queue = new AsyncNotificationQueue<CodexAppServerNotification>();
-    try {
-      const threadId = await this.ensureThread();
-      if (!this.started) {
-        this.started = true;
-        yield { type: 'thread.started', thread_id: threadId };
-      }
-
-      // 本 turn 是否已见 `turn/started` 通知。stdout 是单管道 FIFO：上一个 turn 的迟到
-      // `turn/completed` 一定先于本 turn 的 `turn/started` 到达 → activeTurnId 还未知时
-      // （turn/start 响应与 turn/started 通知都没到），未见 started 就来的 completed 是
-      // 上一个 turn 的尾包，不能当 terminal 关队列（否则本 turn 事件全部静默丢失，turn
-      // 在服务端继续跑但 UI 看不到任何输出）。
-      let turnStartSeen = false;
-      unsub = this.client.subscribe((notification) => {
-        const notificationThreadId = getNotificationThreadId(notification);
-        if (notificationThreadId && notificationThreadId !== threadId) return;
-        if (notification.method === 'turn/started') {
-          const turnId = getNotificationTurnId(notification);
-          if (turnId) this.activeTurnId = turnId;
-          turnStartSeen = true;
-        }
-        queue.push(notification);
-        if (isTerminalForTurn(notification, this.activeTurnId, turnStartSeen)) {
-          this.activeTurnId = null;
-          queue.close();
-        }
-      });
-
-      if (signal?.aborted) throw new Error('Codex turn interrupted');
-      const abortPromise = new Promise<never>((_, reject) => {
-        if (!signal) return;
-        abortListener = () => {
-          void this.interrupt().catch((err) => {
-            logger.warn('[codex-app-server] turn interrupt request failed', err);
-            // turn/start 已 resolve 后 abortPromise 的 reject 不再被任何人 await（race 已
-            // settle），中断完全依赖 interrupt RPC 成功 → 服务端发 terminal 通知关队列。
-            // RPC 失败时服务端不会再发 terminal → for-await 永久挂起。主动 throw 队列让
-            // generator 抛出，thread-loop catch 按 signal.aborted 走 finished:interrupted。
-            // 队列已 close（terminal 已到 / 进程退出 synthetic error）时 throw 是 no-op。
-            queue.throw(new Error('Codex turn interrupted'));
-          });
-          reject(new Error('Codex turn interrupted'));
-        };
-        signal.addEventListener('abort', abortListener, { once: true });
-      });
-
-      const response = await Promise.race([
-        this.client.request<{ turn: { id: string } }>(
-          'turn/start',
-          buildTurnStartParams(threadId, input, this.mode.options, this.client.baseConfig),
-        ),
-        abortPromise,
-      ]);
-      this.activeTurnId = response.turn.id;
-
-      for await (const notification of queue) {
-        yield { type: 'server.notification', notification };
-      }
-    } finally {
-      if (signal && abortListener) {
-        signal.removeEventListener('abort', abortListener);
-      }
-      unsub?.();
-      this.activeTurnId = null;
-      queue.close();
-    }
-  }
-
-  private async ensureThread(): Promise<string> {
-    if (this.readyPromise && this.readyGeneration === this.client.generation) {
-      return this.readyPromise;
-    }
-    this.readyGeneration = this.client.generation;
-    this.readyPromise = (async () => {
-      if (this.threadId) {
-        const result = await this.client.request<{ thread: { id: string } }>(
-          'thread/resume',
-          buildThreadResumeParams(this.threadId, this.mode.options, this.client.baseConfig),
-        );
-        this.threadId = result.thread.id;
-        return this.threadId;
-      }
-
-      const result = await this.client.request<{ thread: { id: string } }>(
-        'thread/start',
-        buildThreadStartParams(this.mode.options, this.client.baseConfig),
-      );
-      this.threadId = result.thread.id;
-      return this.threadId;
-    })();
-    return this.readyPromise;
-  }
-}
-
 export const __testables = {
   buildThreadStartParams,
   buildThreadResumeParams,
+  buildThreadForkParams,
   buildTurnStartParams,
   buildThreadConfig,
 };

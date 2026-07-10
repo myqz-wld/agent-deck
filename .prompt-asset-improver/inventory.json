@@ -1,0 +1,65 @@
+{
+  "root": "/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/feat__spawn-session-native-fork-20260709",
+  "scanned_at": "2026-07-10T05:49:38Z",
+  "expires_at": "2026-07-17T05:49:38Z",
+  "scan_reason": "Approved spawn_session native-fork implementation",
+  "git_head": "c509d95b14c93d484100df269a6c829927dec373",
+  "assets": [
+    {
+      "path": "src/main/agent-deck-mcp/tools/schemas/spawn.ts",
+      "type": "mcp-tool-schema",
+      "scope": "confirmed",
+      "reason": "Add the approved contextMode input and fork-only result contract.",
+      "exists": true,
+      "hash": "7eb9a0bfea2816d215bc317093a0a379c8adb88185cc72ab217acc923c8a5f17"
+    },
+    {
+      "path": "src/main/agent-deck-mcp/tools/index.ts",
+      "type": "mcp-tool-description",
+      "scope": "confirmed",
+      "reason": "Explain fresh versus native-fork behavior and correction hints.",
+      "exists": true,
+      "hash": "138bacd3540ce26bc2acc9b5e1bf1383031f16e9a56564d1b6e7cb7ce1f4c0a7"
+    },
+    {
+      "path": "resources/claude-config/CLAUDE.md",
+      "type": "runtime-prompt",
+      "scope": "confirmed",
+      "reason": "Add Claude-side native-fork usage guidance aligned with Codex.",
+      "exists": true,
+      "hash": "0856e3e2a653b098b97297ed58be780debe0f896b6dc9ac4986fff6c4df9d839"
+    },
+    {
+      "path": "resources/codex-config/CODEX_AGENTS.md",
+      "type": "runtime-prompt",
+      "scope": "confirmed",
+      "reason": "Add Codex-side native-fork usage guidance aligned with Claude.",
+      "exists": true,
+      "hash": "17989415cc24385202c48cc4edb1ef472129d57daedbc30fcbcb834bfca3b34e"
+    },
+    {
+      "path": "README.md",
+      "type": "documentation",
+      "scope": "confirmed",
+      "reason": "Document the user-visible spawn_session native-fork contract.",
+      "exists": true,
+      "hash": "6857da3242673dd546526452531694c5b36481be28a09af23316d491a3f41f29"
+    },
+    {
+      "path": "ref/changelogs/recent-3-days/CHANGELOG_353_spawn-session-native-fork.md",
+      "type": "documentation",
+      "scope": "confirmed",
+      "reason": "Record the approved feature and validation evidence.",
+      "exists": true,
+      "hash": "29639540a65e7debfadafed82134f6cd1b09919d12e0daf560c9e0ce27fcbab2"
+    },
+    {
+      "path": "src/main/adapters/codex-cli/sdk-bridge/fork-session/instruction-reset.ts",
+      "type": "prompt-template",
+      "scope": "confirmed",
+      "reason": "Inject the approved inherited-instruction supersession, complete effective target instructions, and child delegation boundary.",
+      "exists": true,
+      "hash": "f66214be2e4502cd4b241e16689f06a4249eb4af150205cefba9aeeabf7a4739"
+    }
+  ]
+}

@@ -24,7 +24,7 @@ export const SPAWN_SESSION_SCHEMA = {
   adapter: z
     .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
     .describe(
-      'Choose the SDK adapter that runs the new session: "claude-code", "deepseek-claude-code", or "codex-cli". The target adapter can differ from the caller adapter.',
+      'Choose the SDK adapter that runs the new session: "claude-code", "deepseek-claude-code", or "codex-cli". Fresh sessions may use a different adapter; contextMode "fork" requires the exact caller adapter.',
     ),
   cwd: z
     .string()
@@ -35,7 +35,7 @@ export const SPAWN_SESSION_SCHEMA = {
       'Must be absolute path',
     )
     .describe(
-      'Working directory for the new session. Must be an absolute path (e.g. /Users/.../repo or a worktree dir); relative paths are rejected.',
+      'Working directory for the new session. Must be an absolute path (e.g. /Users/.../repo or a worktree dir); relative paths are rejected. contextMode "fork" also requires this path and the caller cwd to resolve to the same real directory.',
     ),
   prompt: z
     .string()
@@ -43,6 +43,12 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(100_000)
     .describe(
       'First user message sent to the new session (the task / instructions). When `agentName` is omitted, the session is generic and receives this prompt plus the normal runtime baseline. When `agentName` is set, Agent Deck starts the target adapter with that agent through adapter-native fields and still sends this prompt as the task. For long context, write a file under /tmp and tell the spawned session to read it; this is a general prompt convention, not a special handoff feature.',
+    ),
+  contextMode: z
+    .enum(['fresh', 'fork'])
+    .optional()
+    .describe(
+      'Optional provider-context policy. Omit or set "fresh" for the existing context-free spawn. Set "fork" to natively fork only the authenticated caller: target adapter must exactly match the caller and target cwd must resolve to the same real directory. The child receives prior provider history plus the current user request, while the caller assistant\'s unfinished reasoning, output, tool use, and spawn_session call are excluded. A first-turn Codex fork creates an independent zero-prefix target thread and replays the current native UserInput values before the delegated prompt. No source session id or turn count is accepted. If native fork eligibility fails, correct the returned hint or use "fresh"; Agent Deck never silently downgrades a requested fork. A successful fork adds contextMode and forkedFromSessionId to the result.',
     ),
   teamName: z
     .string()
@@ -191,4 +197,8 @@ export interface SpawnSessionResult {
   spawnLimits: SpawnSessionLimits;
   sentAt: number;
   spawnPromptMessageId: string | null;
+  /** Present only when the caller explicitly requested a successful native provider fork. */
+  contextMode?: 'fork';
+  /** Authenticated Agent Deck caller id; provider-native ids are never returned here. */
+  forkedFromSessionId?: string;
 }

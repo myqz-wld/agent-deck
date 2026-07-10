@@ -15,3 +15,4 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-09 | `REVIEW_144_spawn-session-native-fork-risk.md` | Native fork boundary and rollback review | 0 CRITICAL / 4 HIGH fixed / 5 MEDIUM fixed or dispositioned / 2 LOW fixed |
