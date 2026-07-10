@@ -42,7 +42,8 @@ export const taskCreateHandler = withMcpGuard(
       // 但提早返友好错误信息更利于 caller 诊断 tempKey timing 问题）。
       if (!sessionRepo.get(callerSid)) {
         return err(
-          `caller session "${callerSid}" not in sessions table (tempKey window or session not yet committed) — retry after session is fully claimed`,
+          `caller session "${callerSid}" is not available in the session store`,
+          'Retry once after session initialization completes. If it still fails, stop and inspect Agent Deck main-process logs.',
         );
       }
       // v024 plan §D2:caller 显式传 teamId 时 handler 校验 caller 在该 team active member。
@@ -57,8 +58,8 @@ export const taskCreateHandler = withMcpGuard(
       if (normalizedTeamId !== null) {
         if (!isCallerInTeam(callerSid, normalizedTeamId)) {
           return err(
-            `caller "${callerSid}" is not an active member of teamId "${normalizedTeamId}" — task_create rejected (v024 plan §D3)`,
-            'team-bound task 要求 caller 在该 team 是 active member（agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL 双条件）。Use task_create without teamId for personal task, or join the team first via the application UI.',
+            `caller "${callerSid}" is not an active member of teamId "${normalizedTeamId}"`,
+            'Omit teamId to create a personal task, use an active team ID, or join the team in the Agent Deck UI.',
           );
         }
       }
@@ -107,7 +108,10 @@ export const taskCreateHandler = withMcpGuard(
       }
       return ok(created satisfies TaskCreateResult);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'If the error identifies invalid input, correct it. For a transient storage error, retry once; if it repeats, stop and inspect Agent Deck main-process logs.',
+      );
     }
   },
 );

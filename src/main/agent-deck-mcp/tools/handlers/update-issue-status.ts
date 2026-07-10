@@ -36,7 +36,10 @@ export const updateIssueStatusHandler = withMcpGuard(
       const callerSid = ctx.caller.callerSessionId;
       const issue = issueRepo.get(args.issueId);
       if (!issue) {
-        return err(`issue ${args.issueId} not found`);
+        return err(
+          `issue ${args.issueId} not found`,
+          'Verify issueId against the id returned by report_issue. If the issue was removed, call report_issue to create a new issue.',
+        );
       }
       // 授权校验：源会话 OR 解决会话。第三方一律 reject。
       const isSource = issue.sourceSessionId === callerSid;
@@ -50,14 +53,14 @@ export const updateIssueStatusHandler = withMcpGuard(
         // 引导「刚起的解决会话几秒后重试」把 silent reject 变成可理解的一时错（重试即命中）。
         return err(
           `update_issue_status rejected: caller=${callerSid} is neither source (${issue.sourceSessionId ?? '<null>'}) nor resolution (${issue.resolutionSessionId ?? '<null>'}) session of issue ${args.issueId}`,
-          '只有该 issue 的源会话（report 它的会话）或解决会话（UI「起新会话解决」起的会话）能自助改 status。其他会话请让用户走 UI 处置。如果你正是刚被「起新会话解决」拉起的解决会话却看到本错误，说明 resolutionSessionId 尚在写回（有数秒微延迟）——请在处理完问题、即将标记状态时再调一次本 tool（通常那时已写回），仍失败再让用户走 UI。',
+          'Only the source session or resolution session can update this issue. If this is a newly launched resolution session, retry once after initialization completes; otherwise ask the user to update the issue in the Agent Deck UI.',
         );
       }
       // 软删 reject（与 append_issue_context 对称）：用户已隐藏的 issue 不接受 agent 改 status。
       if (issue.deletedAt !== null) {
         return err(
-          `update_issue_status rejected: issue ${args.issueId} 已软删`,
-          'issue 已被用户删除（隐藏），无法改 status。请让用户在 UI 端先恢复该 issue。',
+          `update_issue_status rejected: issue ${args.issueId} is deleted`,
+          'Ask the user to restore this issue in the Agent Deck UI, then retry update_issue_status.',
         );
       }
       // 可选 note 留痕：非空 → 复用 appendContext 写一条补充记录（怎么修的 / 为何 reopen）。
@@ -79,7 +82,10 @@ export const updateIssueStatusHandler = withMcpGuard(
       // 改 status（走 issueRepo.update 的 D15 resolved_at 状态机：进 resolved 写 now / 离开保留）。
       const updated = issueRepo.update(args.issueId, { status: args.status });
       if (!updated) {
-        return err(`issue ${args.issueId} disappeared during update (race with hardDelete)`);
+        return err(
+          `issue ${args.issueId} disappeared before its status was updated`,
+          'Do not retry this issueId. Call report_issue to create a new issue if follow-up is still required.',
+        );
       }
       updated.appendices = issueRepo.listAppendices(args.issueId);
       eventBus.emit('issue-changed', {
@@ -91,7 +97,10 @@ export const updateIssueStatusHandler = withMcpGuard(
       });
       return ok(updated satisfies UpdateIssueStatusResult);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'Do not retry automatically because the note or status may already have been written. Check the issue in the Agent Deck UI, then retry only if the requested change is absent.',
+      );
     }
   },
 );

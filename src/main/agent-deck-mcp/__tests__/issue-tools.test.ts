@@ -233,6 +233,23 @@ describe('report_issue — happy path + cwd 兜底 + 默认值', () => {
     expect(call.kind).toBeUndefined();
     expect(call.severity).toBeUndefined();
   });
+
+  it('preserves a caught storage error and warns against a duplicate retry', async () => {
+    mockIssueRepo.create.mockImplementation(() => {
+      throw new Error('SQLITE_BUSY: issues table is locked');
+    });
+
+    const result = await reportIssueHandler(
+      { title: 'T', description: 'D' },
+      makeCtx('sess-caller'),
+    );
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(result.isError).toBe(true);
+    expect(parsed.error).toBe('SQLITE_BUSY: issues table is locked');
+    expect(parsed.hint).toMatch(/Do not retry automatically/);
+    expect(parsed.hint).toMatch(/Issues UI or logs/);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -301,7 +318,9 @@ describe('append_issue_context — owner-only / non-existent / resolved reject (
     expect(parsed.error).toMatch(/append rejected/);
     expect(parsed.error).toMatch(/issue\.sourceSessionId=sess-orig/);
     expect(parsed.error).toMatch(/caller=sess-attacker/);
-    expect(parsed.hint).toMatch(/report_issue 重新上报新 issue/);
+    expect(parsed.hint).toBe(
+      'Only the source session can append context. Call report_issue from this session to create a new issue with the additional context; ask the user to merge it in the Agent Deck UI if needed.',
+    );
     expect(mockIssueRepo.appendContext).not.toHaveBeenCalled();
     expect(mockEventBus.emit).not.toHaveBeenCalled();
   });
@@ -316,7 +335,7 @@ describe('append_issue_context — owner-only / non-existent / resolved reject (
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.error).toMatch(/sess-old-pre-handoff/);
     expect(parsed.error).toMatch(/sess-new-after-handoff/);
-    expect(parsed.hint).toMatch(/report_issue 重新上报新 issue/);
+    expect(parsed.hint).toMatch(/Call report_issue from this session/);
   });
 
   it('§6 non-existent issueId reject + 不调 appendContext', async () => {
@@ -326,7 +345,10 @@ describe('append_issue_context — owner-only / non-existent / resolved reject (
       makeCtx('sess-caller'),
     );
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/issue issue-ghost not found/);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error).toMatch(/issue issue-ghost not found/);
+    expect(parsed.hint).toMatch(/Verify issueId against the id returned by report_issue/);
+    expect(parsed.hint).toMatch(/call report_issue to create a new issue/);
     expect(mockIssueRepo.appendContext).not.toHaveBeenCalled();
   });
 
@@ -341,7 +363,25 @@ describe('append_issue_context — owner-only / non-existent / resolved reject (
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.error).toMatch(/append rejected: issue issue-1 status='resolved'/);
-    expect(parsed.hint).toMatch(/create 新 issue/);
+    expect(parsed.hint).toMatch(/Call update_issue_status/);
+    expect(parsed.hint).toMatch(/status "open" or "in-progress"/);
+    expect(mockIssueRepo.appendContext).not.toHaveBeenCalled();
+  });
+
+  it('deleted issue reject gives restore and replacement actions', async () => {
+    mockIssueRepo.get.mockReturnValue(
+      makeIssue({ sourceSessionId: 'sess-caller', status: 'resolved', deletedAt: Date.now() }),
+    );
+    const result = await appendIssueContextHandler(
+      { issueId: 'issue-1', additionalContext: 'ctx' },
+      makeCtx('sess-caller'),
+    );
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(result.isError).toBe(true);
+    expect(parsed.error).toBe('append rejected: issue issue-1 is deleted');
+    expect(parsed.hint).toMatch(/restore this issue in the Agent Deck UI/);
+    expect(parsed.hint).toMatch(/call report_issue to create a new issue/);
     expect(mockIssueRepo.appendContext).not.toHaveBeenCalled();
   });
 });
@@ -412,8 +452,27 @@ describe('append_issue_context — happy path + logsRef 透传 + emit', () => {
       makeCtx('sess-caller'),
     );
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/disappeared during append/);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error).toMatch(/disappeared before context was appended/);
+    expect(parsed.hint).toMatch(/Do not retry this issueId/);
+    expect(parsed.hint).toMatch(/Call report_issue/);
     expect(mockEventBus.emit).not.toHaveBeenCalled();
+  });
+
+  it('preserves a caught error and warns against duplicate context', async () => {
+    mockIssueRepo.get.mockImplementation(() => {
+      throw new Error('SQLITE_IOERR: issue lookup failed');
+    });
+    const result = await appendIssueContextHandler(
+      { issueId: 'issue-1', additionalContext: 'ctx' },
+      makeCtx('sess-caller'),
+    );
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(result.isError).toBe(true);
+    expect(parsed.error).toBe('SQLITE_IOERR: issue lookup failed');
+    expect(parsed.hint).toMatch(/Do not retry automatically/);
+    expect(parsed.hint).toMatch(/retry only if the context is absent/);
   });
 });
 
@@ -665,7 +724,9 @@ describe('update_issue_status — 源/解决会话自助改 status', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.error).toMatch(/neither source/);
     expect(parsed.error).toMatch(/caller=sess-third-party/);
-    expect(parsed.hint).toMatch(/源会话.*或.*解决会话/);
+    expect(parsed.hint).toMatch(/Only the source session or resolution session/);
+    expect(parsed.hint).toMatch(/retry once after initialization completes/);
+    expect(parsed.hint).toMatch(/Agent Deck UI/);
     expect(mockIssueRepo.update).not.toHaveBeenCalled();
     expect(mockEventBus.emit).not.toHaveBeenCalled();
   });
@@ -700,7 +761,10 @@ describe('update_issue_status — 源/解决会话自助改 status', () => {
       makeCtx('sess-caller'),
     );
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/issue issue-ghost not found/);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error).toMatch(/issue issue-ghost not found/);
+    expect(parsed.hint).toMatch(/Verify issueId against the id returned by report_issue/);
+    expect(parsed.hint).toMatch(/call report_issue to create a new issue/);
     expect(mockIssueRepo.update).not.toHaveBeenCalled();
   });
 
@@ -713,7 +777,10 @@ describe('update_issue_status — 源/解决会话自助改 status', () => {
       makeCtx('sess-caller'),
     );
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/已软删/);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error).toBe('update_issue_status rejected: issue issue-1 is deleted');
+    expect(parsed.hint).toMatch(/restore this issue in the Agent Deck UI/);
+    expect(parsed.hint).toMatch(/retry update_issue_status/);
     expect(mockIssueRepo.update).not.toHaveBeenCalled();
   });
 
@@ -794,8 +861,27 @@ describe('update_issue_status — 源/解决会话自助改 status', () => {
     // 本用例仍会误过）—— 验证「确实走到 update 那步、是 update 返 null 触发 err」而非提前短路。
     expect(mockIssueRepo.update).toHaveBeenCalledWith('issue-1', { status: 'resolved' });
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/disappeared during update/);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error).toMatch(/disappeared before its status was updated/);
+    expect(parsed.hint).toMatch(/Do not retry this issueId/);
+    expect(parsed.hint).toMatch(/Call report_issue/);
     expect(mockEventBus.emit).not.toHaveBeenCalled(); // update 失败 → 不 emit
+  });
+
+  it('preserves a caught error and warns against duplicating a note or status update', async () => {
+    mockIssueRepo.get.mockImplementation(() => {
+      throw new Error('SQLITE_CORRUPT: issue read failed');
+    });
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved' },
+      makeCtx('sess-caller'),
+    );
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(result.isError).toBe(true);
+    expect(parsed.error).toBe('SQLITE_CORRUPT: issue read failed');
+    expect(parsed.hint).toMatch(/Do not retry automatically/);
+    expect(parsed.hint).toMatch(/note or status may already have been written/);
   });
 });
 

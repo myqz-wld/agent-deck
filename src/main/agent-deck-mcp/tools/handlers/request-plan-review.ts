@@ -31,10 +31,14 @@ export const requestPlanReviewHandler = withMcpGuard(
       if (!session) {
         return err(
           `caller session "${callerSid}" not in sessions table — cannot display plan review`,
+          'Retry once after session initialization completes. If it persists, stop; present_plan requires a live Agent Deck session.',
         );
       }
       if (session.lifecycle === 'closed') {
-        return err(`caller session "${callerSid}" is closed`);
+        return err(
+          `caller session "${callerSid}" is closed`,
+          'Do not retry. Ask the user to start a new Agent Deck session and present the plan there.',
+        );
       }
       const timeoutMs = resolvePlanReviewTimeoutMs(
         args.timeoutMs,
@@ -51,7 +55,10 @@ export const requestPlanReviewHandler = withMcpGuard(
 
       return ok(decision satisfies RequestPlanReviewResult);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'Retry present_plan once. If it fails again, stop and inspect Agent Deck main-process logs.',
+      );
     }
   },
 );

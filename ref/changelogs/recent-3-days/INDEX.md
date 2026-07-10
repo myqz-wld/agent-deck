@@ -15,4 +15,6 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-09 | `CHANGELOG_351_mcp-prompt-contracts.md` | Make MCP contracts explicit and self-correcting |
+| 2026-07-09 | `CHANGELOG_350_codex-collaboration-observability.md` | Complete Codex collaboration activity |
 | 2026-07-09 | `CHANGELOG_349_project-engineering-foundation.md` | Align repository engineering foundation |

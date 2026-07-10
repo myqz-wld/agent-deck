@@ -7,6 +7,10 @@ export const SPAWN_SESSION_MODEL_VALUES = [
   'sonnet',
   'opus',
   'fable',
+  'fable-5',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
   'gpt-5.5',
   'gpt-5.4',
   'v4-flash',
@@ -70,13 +74,13 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(256)
     .optional()
     .describe(
-      'Optional model override for this spawned session. Maintained aliases are haiku, sonnet, opus, fable, gpt-5.5, gpt-5.4, v4-flash, and v4-pro; custom provider model ids are also accepted and passed to the target SDK/provider for validation. Deepseek aliases map as v4-flash -> deepseek-v4-flash and v4-pro -> deepseek-v4-pro[1m]. Explicit model overrides any bundled agent frontmatter model.',
+      'Optional model override for the spawned session only. Suggested values by adapter: Claude — haiku, sonnet, opus, fable, fable-5; Codex — gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4; Deepseek — v4-flash, v4-pro. Suggestions are not an allowlist: any non-empty provider model id is passed to the target SDK/provider for validation. Deepseek aliases map to deepseek-v4-flash and deepseek-v4-pro[1m]. Precedence: explicit model > resolved agent model > provider default. This override does not change existing sessions or global defaults.',
     ),
   thinking: z
     .enum(SPAWN_SESSION_THINKING_VALUES)
     .optional()
     .describe(
-      'Optional thinking / reasoning complexity for this spawned session only; it does not change provider or Agent Deck global defaults. Valid values are adapter-scoped: codex-cli accepts minimal, low, medium, high, xhigh, max, and ultra; claude-code and deepseek-claude-code accept low, medium, high, xhigh, and max. Agent Deck passes supported adapter values through and the target provider validates whether the selected model supports them. Explicit thinking overrides any agent-defined effort (Claude agent frontmatter `effort` / Codex agent `model_reasoning_effort`).',
+      'Optional thinking/reasoning override for the spawned session only. Codex accepts minimal, low, medium, high, xhigh, max, and ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. Precedence: explicit thinking > resolved agent effort > provider default. Adapter-invalid values are rejected before session creation; retry with an exact value from the returned hint or omit thinking. The provider remains authoritative for model-specific support. This override does not change existing sessions or global defaults.',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。

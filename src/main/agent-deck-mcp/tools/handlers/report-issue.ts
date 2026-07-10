@@ -58,7 +58,10 @@ export const reportIssueHandler = withMcpGuard(
       });
       return ok(created satisfies ReportIssueResult);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'Do not retry automatically because the issue may already have been created. Check the Agent Deck Issues UI or logs for this title, then retry only if no issue exists.',
+      );
     }
   },
 );

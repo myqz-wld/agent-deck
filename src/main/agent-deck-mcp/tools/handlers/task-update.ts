@@ -41,13 +41,18 @@ export const taskUpdateHandler = withMcpGuard(
       const callerSid = ctx.caller.callerSessionId;
       const { taskId, ...rest } = args;
       const existing = taskRepo.get(taskId);
-      if (!existing) return err(`task ${taskId} not found`);
+      if (!existing) {
+        return err(
+          `task ${taskId} not found`,
+          'Call task_list with the appropriate teamIdFilter, or omit the filter for caller-visible scope, then retry with a returned task ID.',
+        );
+      }
       // v024 plan §D3 + Step C4:写权限校验 — 改签名传整个 task（按 task.teamId 判）。
       //（HIGH-2 修法,§不变量 12）
       if (!isCallerAuthorizedToWrite(callerSid, existing)) {
         return err(
           `permission denied: caller "${callerSid}" cannot write task ${taskId} (teamId=${existing.teamId ?? 'personal'}, owner=${existing.ownerSessionId})`,
-          'team-bound task 要求 caller 在该 team 是 active member（agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL 双条件）;personal task 仅 owner 可写。Use task_create / task_get to verify your scope.',
+          "Call task_list to inspect this caller's visible tasks. Use an active team member session for team tasks or the owner session for personal tasks.",
         );
       }
       // v024 plan §D1 + Step C4:patch.teamId 显式传 string 时校验 caller 在新 team active member
@@ -57,8 +62,8 @@ export const taskUpdateHandler = withMcpGuard(
       if (args.teamId !== undefined && args.teamId !== null) {
         if (!isCallerInTeam(callerSid, args.teamId)) {
           return err(
-            `caller "${callerSid}" is not an active member of teamId "${args.teamId}" — task_update rejected (v024 plan §D3)`,
-            'team-bound task 要求 caller 在该 team 是 active member。Use task_update with teamId=null to convert task to personal, or join the team first.',
+            `caller "${callerSid}" is not an active member of teamId "${args.teamId}"`,
+            'Use an active team ID, leave teamId unset to keep the current scope, set teamId=null only as the task owner, or join the team in the Agent Deck UI.',
           );
         }
       }
@@ -76,7 +81,7 @@ export const taskUpdateHandler = withMcpGuard(
       if (args.teamId === null && existing.teamId !== null && callerSid !== existing.ownerSessionId) {
         return err(
           `permission denied: caller "${callerSid}" cannot convert team task ${taskId} to personal (only owner "${existing.ownerSessionId}" may convert a team-bound task to personal)`,
-          'team-bound task 转 personal（teamId=null）要求 caller 是该 task 的 owner——否则会把团队共享 task 私吞成原 owner 的 personal task，团队全员失去可见性。Only the task owner can convert it to personal.',
+          'Only ownerSessionId may set teamId=null. Leave teamId unchanged or ask the owner to perform the conversion.',
         );
       }
       // argsToInputWithoutOwner 已不放 ownerSessionId,patch 不会有 ownerSessionId 键。
@@ -91,7 +96,12 @@ export const taskUpdateHandler = withMcpGuard(
         return ok(existing satisfies TaskUpdateResult);
       }
       const updated = taskRepo.update(taskId, patch);
-      if (!updated) return err(`task ${taskId} not found`);
+      if (!updated) {
+        return err(
+          `task ${taskId} disappeared during update`,
+          'Call task_list with the appropriate teamIdFilter, or omit the filter for caller-visible scope, then retry with a returned task ID.',
+        );
+      }
       eventBus.emit('task-changed', {
         kind: 'updated',
         taskId: updated.id,
@@ -131,7 +141,10 @@ export const taskUpdateHandler = withMcpGuard(
       }
       return ok(updated satisfies TaskUpdateResult);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'If the error identifies invalid input, correct it. For a transient storage error, retry once; if it repeats, stop and inspect Agent Deck main-process logs.',
+      );
     }
   },
 );

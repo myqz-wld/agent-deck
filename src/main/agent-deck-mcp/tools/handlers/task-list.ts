@@ -65,8 +65,8 @@ export const taskListHandler = withMcpGuard(
         // 具体 teamId:校验 caller 在该 team active member（D5 + §不变量 13 双条件）
         if (!isCallerInTeam(callerSid, args.teamIdFilter)) {
           return err(
-            `caller "${callerSid}" is not an active member of teamId "${args.teamIdFilter}" — task_list rejected (v024 plan §D5)`,
-            'teamIdFilter 要求 caller 在该 team 是 active member（agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL 双条件）。Use task_list without teamIdFilter for caller visible scope, or join the team first via the application UI.',
+            `caller "${callerSid}" is not an active member of teamId "${args.teamIdFilter}"`,
+            'Omit teamIdFilter for caller-visible scope, use "null-personal" for personal tasks, or join the requested team in the Agent Deck UI.',
           );
         }
         tasks = taskRepo.list({
@@ -85,7 +85,10 @@ export const taskListHandler = withMcpGuard(
         tasks,
       } satisfies TaskListResult);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'If the error identifies invalid input, correct it. For a transient storage error, retry once; if it repeats, stop and inspect Agent Deck main-process logs.',
+      );
     }
   },
 );

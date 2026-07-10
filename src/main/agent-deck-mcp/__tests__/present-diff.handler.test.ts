@@ -241,6 +241,7 @@ describe('present_diff handler', () => {
     expect(result.isError).toBe(true);
     expect(parseResult(result)).toEqual({
       error: 'present_diff rejects `conflict` when mode="pr"',
+      hint: 'Remove conflict; use only pr when mode="pr".',
     });
     expect(mocks.ingest).not.toHaveBeenCalled();
   });
@@ -261,6 +262,7 @@ describe('present_diff handler', () => {
     expect(result.isError).toBe(true);
     expect(parseResult(result)).toEqual({
       error: 'present_diff annotation pane "resolution" is not valid when mode="pr"',
+      hint: 'Use annotation.pane "before", "after", or "both".',
     });
     expect(mocks.ingest).not.toHaveBeenCalled();
   });
@@ -281,8 +283,98 @@ describe('present_diff handler', () => {
     expect(result.isError).toBe(true);
     expect(parseResult(result)).toEqual({
       error: 'present_diff annotation pane "base" requires conflict.base',
+      hint: 'Add conflict.base, remove the base annotation, or change its pane.',
     });
     expect(mocks.ingest).not.toHaveBeenCalled();
+  });
+
+  it('returns exact correction shapes for the remaining mode and annotation mismatches', async () => {
+    mocks.sessions.set('codex-1', makeSession('codex-1'));
+    const cases: Array<{
+      args: Parameters<typeof requestDiffReviewHandler>[0];
+      error: string;
+      hint: string;
+    }> = [
+      {
+        args: { mode: 'pr', rationale: 'Missing PR payload.' },
+        error: 'present_diff requires `pr` when mode="pr"',
+        hint: 'Set pr={before,after}; omit conflict.',
+      },
+      {
+        args: { mode: 'merge-conflict', rationale: 'Missing conflict payload.' },
+        error: 'present_diff requires `conflict` when mode="merge-conflict"',
+        hint: 'Set conflict={ours,theirs,resolution[,base]}; omit pr.',
+      },
+      {
+        args: {
+          mode: 'merge-conflict',
+          rationale: 'Mixed payload.',
+          pr: { before: 'a', after: 'b' },
+          conflict: { ours: 'a', theirs: 'b', resolution: 'c' },
+        },
+        error: 'present_diff rejects `pr` when mode="merge-conflict"',
+        hint: 'Remove pr; use only conflict when mode="merge-conflict".',
+      },
+      {
+        args: {
+          mode: 'merge-conflict',
+          rationale: 'Invalid annotation.',
+          annotations: [{ pane: 'after', line: 1, body: 'Wrong pane.' }],
+          conflict: { ours: 'a', theirs: 'b', resolution: 'c' },
+        },
+        error: 'present_diff annotation pane "after" is not valid when mode="merge-conflict"',
+        hint: 'Use annotation.pane "base", "ours", "theirs", or "resolution".',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = await requestDiffReviewHandler(testCase.args, makeCtx('codex-1'));
+      expect(parseResult(result)).toEqual({
+        error: testCase.error,
+        hint: testCase.hint,
+      });
+    }
+    expect(mocks.ingest).not.toHaveBeenCalled();
+  });
+
+  it('returns exact recovery actions when the caller session is unavailable or closed', async () => {
+    const missing = await requestDiffReviewHandler(
+      { mode: 'pr', rationale: 'Missing caller.', pr: { before: 'a', after: 'b' } },
+      makeCtx('missing-caller'),
+    );
+    expect(parseResult(missing)).toEqual({
+      error: 'caller session "missing-caller" not in sessions table — cannot display diff review',
+      hint: 'Retry once after session initialization completes. If it persists, stop; present_diff requires a live Agent Deck session.',
+    });
+
+    mocks.sessions.set('closed-caller', makeSession('closed-caller', { lifecycle: 'closed' }));
+    const closed = await requestDiffReviewHandler(
+      { mode: 'pr', rationale: 'Closed caller.', pr: { before: 'a', after: 'b' } },
+      makeCtx('closed-caller'),
+    );
+    expect(parseResult(closed)).toEqual({
+      error: 'caller session "closed-caller" is closed',
+      hint: 'Do not retry. Ask the user to start a new Agent Deck session and present the diff there.',
+    });
+    expect(mocks.ingest).not.toHaveBeenCalled();
+  });
+
+  it('preserves service errors and returns a bounded retry action', async () => {
+    mocks.sessions.set('codex-1', makeSession('codex-1'));
+    mocks.ingest.mockImplementationOnce(() => {
+      throw new Error('diff ingest failed');
+    });
+
+    const result = await requestDiffReviewHandler(
+      { mode: 'pr', rationale: 'Service failure.', pr: { before: 'a', after: 'b' } },
+      makeCtx('codex-1'),
+    );
+
+    expect(parseResult(result)).toEqual({
+      error: 'diff ingest failed',
+      hint: 'Retry present_diff once. If it fails again, stop and inspect Agent Deck main-process logs.',
+    });
+    expect(diffReviewService.listPending('codex-1')).toEqual([]);
   });
 
   it('passes the permission timeout to the presentation service when timeoutMs is omitted', async () => {
